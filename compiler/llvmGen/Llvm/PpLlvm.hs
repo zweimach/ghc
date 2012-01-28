@@ -166,7 +166,7 @@ ppLlvmStatement :: LlvmStatement -> Doc
 ppLlvmStatement stmt
   = case stmt of
         Assignment  dst expr      -> ppAssignment dst (ppLlvmExpression expr)
-        Fence       st ord	  -> ind $ ppFence st ord
+        Fence       st ord	  -> ppFence st ord
         Branch      target        -> ppBranch target
         BranchIf    cond ifT ifF  -> ppBranchIf cond ifT ifF
         Comment     comments      -> ppLlvmComments comments
