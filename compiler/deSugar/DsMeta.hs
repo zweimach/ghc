@@ -339,11 +339,15 @@ repInstD (L loc (TyFamInstD { tfid_inst = fi_decl }))
 repInstD (L loc (DataFamInstD { dfid_inst = fi_decl }))
   = do { dec <- repDataFamInstD fi_decl
        ; return (loc, dec) }
+repInstD (L loc (ClsInstD { cid_inst = cls_decl }))
+  = do { dec <- repClsInstD cls_decl
+       ; return (loc, dec) }
 
-repInstD (L loc (ClsInstD { cid_poly_ty = ty, cid_binds = binds
-                          , cid_sigs = prags, cid_tyfam_insts = ats
-                          , cid_datafam_insts = adts }))
-  = do { dec <- addTyVarBinds tvs $ \_ ->
+repClsInstD :: ClsInstDecl Name -> DsM (Core TH.DecQ)
+repClsInstD (ClsInstDecl { cid_poly_ty = ty, cid_binds = binds
+                         , cid_sigs = prags, cid_tyfam_insts = ats
+                         , cid_datafam_insts = adts })
+  = addTyVarBinds tvs $ \_ ->
 	    -- We must bring the type variables into scope, so their
 	    -- occurrences don't fail, even though the binders don't
             -- appear in the resulting data structure
@@ -363,7 +367,6 @@ repInstD (L loc (ClsInstD { cid_poly_ty = ty, cid_binds = binds
                ; adts1 <- mapM (repDataFamInstD . unLoc) adts
                ; decls <- coreList decQTyConName (ats1 ++ adts1 ++ binds1 ++ prags1)
                ; repInst cxt1 inst_ty1 decls }
-       ; return (loc, dec) }
  where
    Just (tvs, cxt, cls, tys) = splitLHsInstDeclTy_maybe ty
 

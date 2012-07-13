@@ -24,6 +24,7 @@ module HsDecls (
   TyFamInstDecl(..), LTyFamInstDecl, instDeclDataFamInsts,
   DataFamInstDecl(..), LDataFamInstDecl, pprDataFamInstFlavour,
   TyFamInstEqn(..), LTyFamInstEqn,
+  LClsInstDecl, ClsInstDecl(..),
 
   -- ** Standalone deriving declarations
   DerivDecl(..), LDerivDecl,
@@ -838,6 +839,16 @@ data DataFamInstDecl name
 type LInstDecl name = Located (InstDecl name)
 data InstDecl name  -- Both class and family instances
   = ClsInstD    
+      { cid_inst  :: ClsInstDecl name }
+  | DataFamInstD              -- data family instance
+      { dfid_inst :: DataFamInstDecl name }
+  | TyFamInstD              -- type family instance
+      { tfid_inst :: TyFamInstDecl name }
+  deriving (Data, Typeable)
+
+type LClsInstDecl name = Located (ClsInstDecl name)
+data ClsInstDecl name
+  = ClsInstDecl
       { cid_poly_ty :: LHsType name    -- Context => Class Instance-type
                                        -- Using a polytype means that the renamer conveniently
                                        -- figures out the quantified type variables for us.
@@ -846,12 +857,8 @@ data InstDecl name  -- Both class and family instances
       , cid_tyfam_insts :: [LTyFamInstDecl name]  -- type family instances
       , cid_datafam_insts :: [LDataFamInstDecl name] -- data family instances
       }
-
-  | DataFamInstD              -- data family instance
-      { dfid_inst :: DataFamInstDecl name }
-  | TyFamInstD              -- type family instance
-      { tfid_inst :: TyFamInstDecl name }
   deriving (Data, Typeable)
+
 \end{code}
 
 Note [Family instance declaration binders]
@@ -909,10 +916,10 @@ pprDataFamInstFlavour :: DataFamInstDecl name -> SDoc
 pprDataFamInstFlavour (DataFamInstDecl { dfid_defn = (HsDataDefn { dd_ND = nd }) })
   = ppr nd
 
-instance (OutputableBndr name) => Outputable (InstDecl name) where
-    ppr (ClsInstD { cid_poly_ty = inst_ty, cid_binds = binds
-                  , cid_sigs = sigs, cid_tyfam_insts = ats
-                  , cid_datafam_insts = adts })
+instance (OutputableBndr name) => Outputable (ClsInstDecl name) where
+    ppr (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = binds
+                     , cid_sigs = sigs, cid_tyfam_insts = ats
+                     , cid_datafam_insts = adts })
       | null sigs && null ats && isEmptyBag binds  -- No "where" part
       = top_matter
 
@@ -924,7 +931,9 @@ instance (OutputableBndr name) => Outputable (InstDecl name) where
       where
         top_matter = ptext (sLit "instance") <+> ppr inst_ty
 
-    ppr (TyFamInstD { tfid_inst = decl }) = ppr decl
+instance (OutputableBndr name) => Outputable (InstDecl name) where
+    ppr (ClsInstD     { cid_inst  = decl }) = ppr decl
+    ppr (TyFamInstD   { tfid_inst = decl }) = ppr decl
     ppr (DataFamInstD { dfid_inst = decl }) = ppr decl
 
 -- Extract the declarations of associated data types from an instance
@@ -933,7 +942,8 @@ instDeclDataFamInsts :: [LInstDecl name] -> [DataFamInstDecl name]
 instDeclDataFamInsts inst_decls 
   = concatMap do_one inst_decls
   where
-    do_one (L _ (ClsInstD { cid_datafam_insts = fam_insts })) = map unLoc fam_insts
+    do_one (L _ (ClsInstD { cid_inst = ClsInstDecl { cid_datafam_insts = fam_insts } }))
+      = map unLoc fam_insts
     do_one (L _ (DataFamInstD { dfid_inst = fam_inst }))      = [fam_inst]
     do_one (L _ (TyFamInstD {}))                              = []
 \end{code}

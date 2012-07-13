@@ -650,7 +650,7 @@ hsTyClDeclBinders (DataDecl { tcdLName = name, tcdDataDefn = defn })
 
 -------------------
 hsInstDeclBinders :: Eq name => InstDecl name -> [Located name]
-hsInstDeclBinders (ClsInstD { cid_datafam_insts = dfis })
+hsInstDeclBinders (ClsInstD { cid_inst = ClsInstDecl { cid_datafam_insts = dfis } })
   = concatMap (hsDataFamInstBinders . unLoc) dfis
 hsInstDeclBinders (DataFamInstD { dfid_inst = fi }) = hsDataFamInstBinders fi
 hsInstDeclBinders (TyFamInstD {}) = []

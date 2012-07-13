@@ -481,11 +481,15 @@ tcLocalInstDecl (L loc (DataFamInstD { dfid_inst = decl }))
        ; fam_inst <- tcDataFamInstDecl loc fam_tc decl
        ; return ([], [fam_inst]) }
 
-tcLocalInstDecl (L loc (ClsInstD { cid_poly_ty = poly_ty, cid_binds = binds
-                                 , cid_sigs = uprags, cid_tyfam_insts = ats
-                                 , cid_datafam_insts = adts }))
-  = setSrcSpan loc                      $
-    addErrCtxt (instDeclCtxt1 poly_ty)  $
+tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
+  = setSrcSpan loc $
+    tcClsInstDecl decl
+
+tcClsInstDecl :: ClsInstDecl Name -> TcM ([InstInfo Name], [FamInst])
+tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
+                           , cid_sigs = uprags, cid_tyfam_insts = ats
+                           , cid_datafam_insts = adts })
+  = addErrCtxt (instDeclCtxt1 poly_ty)  $
 
     do  { is_boot <- tcIsHsBoot
         ; checkTc (not is_boot || (isEmptyLHsBinds binds && null uprags))

@@ -435,15 +435,20 @@ rnSrcInstDecl (DataFamInstD { dfid_inst = dfi })
   = do { (dfi', fvs) <- rnDataFamInstDecl Nothing dfi
        ; return (DataFamInstD { dfid_inst = dfi' }, fvs) }
 
-rnSrcInstDecl (ClsInstD { cid_poly_ty = inst_ty, cid_binds = mbinds
-                        , cid_sigs = uprags, cid_tyfam_insts = ats
-                        , cid_datafam_insts = adts })
+rnSrcInstDecl (ClsInstD { cid_inst = cid })
+  = do { (cid', fvs) <- rnClsInstDecl cid
+       ; return (ClsInstD { cid_inst = cid' }, fvs) }
+
+rnClsInstDecl :: ClsInstDecl RdrName -> RnM (ClsInstDecl Name, FreeVars)
+rnClsInstDecl (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = mbinds
+                           , cid_sigs = uprags, cid_tyfam_insts = ats
+                           , cid_datafam_insts = adts })
 	-- Used for both source and interface file decls
   = do { (inst_ty', inst_fvs) <- rnLHsInstType (text "In an instance declaration") inst_ty
        ; case splitLHsInstDeclTy_maybe inst_ty' of {
-           Nothing -> return (ClsInstD { cid_poly_ty = inst_ty', cid_binds = emptyLHsBinds
-                                       , cid_sigs = [], cid_tyfam_insts = []
-                                       , cid_datafam_insts = [] }
+           Nothing -> return (ClsInstDecl { cid_poly_ty = inst_ty', cid_binds = emptyLHsBinds
+                                          , cid_sigs = [], cid_tyfam_insts = []
+                                          , cid_datafam_insts = [] }
                              , inst_fvs) ;
            Just (inst_tyvars, _, L _ cls,_) ->
 
@@ -483,9 +488,9 @@ rnSrcInstDecl (ClsInstD { cid_poly_ty = inst_ty, cid_binds = mbinds
              all_fvs = meth_fvs `plusFV` more_fvs
                           `plusFV` spec_inst_fvs
 		      	  `plusFV` inst_fvs
-       ; return (ClsInstD { cid_poly_ty = inst_ty', cid_binds = mbinds'
-                          , cid_sigs = uprags', cid_tyfam_insts = ats'
-                          , cid_datafam_insts = adts' },
+       ; return (ClsInstDecl { cid_poly_ty = inst_ty', cid_binds = mbinds'
+                             , cid_sigs = uprags', cid_tyfam_insts = ats'
+                             , cid_datafam_insts = adts' },
 	         all_fvs) } } }
              -- We return the renamed associated data type declarations so
              -- that they can be entered into the list of type declarations

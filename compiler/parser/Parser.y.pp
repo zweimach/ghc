@@ -650,10 +650,11 @@ ty_decl :: { LTyClDecl RdrName }
 
 inst_decl :: { LInstDecl RdrName }
         : 'instance' inst_type where_inst
-                 { let (binds, sigs, _, ats, adts, _) = cvBindsAndSigs (unLoc $3)
-                   in L (comb3 $1 $2 $3) (ClsInstD { cid_poly_ty = $2, cid_binds = binds
-                                                   , cid_sigs = sigs, cid_tyfam_insts = ats
-                                                   , cid_datafam_insts = adts }) }
+                 { let (binds, sigs, _, ats, adts, _) = cvBindsAndSigs (unLoc $3) in
+                   let cid = ClsInstDecl { cid_poly_ty = $2, cid_binds = binds
+                                         , cid_sigs = sigs, cid_tyfam_insts = ats
+                                         , cid_datafam_insts = adts }
+                   in L (comb3 $1 $2 $3) (ClsInstD { cid_inst = cid }) }
 
            -- type instance declarations
         | 'type' 'instance' ty_fam_inst_eqn

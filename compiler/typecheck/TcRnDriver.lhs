@@ -979,7 +979,7 @@ tcTyClsInstDecls boot_details tycl_decls inst_decls deriv_decls
     get_cons :: LInstDecl Name -> [Name]
     get_cons (L _ (TyFamInstD {}))                     = []
     get_cons (L _ (DataFamInstD { dfid_inst = fid }))  = get_fi_cons fid
-    get_cons (L _ (ClsInstD { cid_datafam_insts = fids }))
+    get_cons (L _ (ClsInstD { cid_inst = ClsInstDecl { cid_datafam_insts = fids } }))
       = concatMap (get_fi_cons . unLoc) fids
 
     get_fi_cons :: DataFamInstDecl Name -> [Name]

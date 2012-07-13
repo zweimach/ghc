@@ -135,8 +135,10 @@ ppSourceStats short (L _ (HsModule _ exports imports ldecls _ _))
 
     inst_info (TyFamInstD {}) = (0,0,0,1,0)
     inst_info (DataFamInstD {}) = (0,0,0,0,1)
-    inst_info (ClsInstD { cid_binds = inst_meths, cid_sigs = inst_sigs,
-                          cid_tyfam_insts = ats, cid_datafam_insts = adts })
+    inst_info (ClsInstD { cid_inst = ClsInstDecl {cid_binds = inst_meths
+                                                 , cid_sigs = inst_sigs
+                                                 , cid_tyfam_insts = ats
+                                                 , cid_datafam_insts = adts } })
         = case count_sigs (map unLoc inst_sigs) of
             (_,_,ss,is,_) ->
                   (addpr (foldr add2 (0,0) 

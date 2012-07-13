@@ -211,7 +211,7 @@ cvtDec (InstanceD ctxt ty decs)
 	; ctxt' <- cvtContext ctxt
 	; L loc ty' <- cvtType ty
 	; let inst_ty' = L loc $ mkImplicitHsForAllTy ctxt' $ L loc ty'
-	; returnL $ InstD (ClsInstD inst_ty' binds' sigs' ats' adts') }
+	; returnL $ InstD (ClsInstD (ClsInstDecl inst_ty' binds' sigs' ats' adts')) }
 
 cvtDec (ForeignD ford)
   = do { ford' <- cvtForD ford

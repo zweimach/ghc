@@ -509,7 +509,7 @@ deriveInstDecl :: LInstDecl Name -> TcM [EarlyDerivSpec]
 deriveInstDecl (L _ (TyFamInstD {})) = return []
 deriveInstDecl (L _ (DataFamInstD { dfid_inst = fam_inst }))
   = deriveFamInst fam_inst
-deriveInstDecl (L _ (ClsInstD { cid_datafam_insts = fam_insts }))
+deriveInstDecl (L _ (ClsInstD { cid_inst = ClsInstDecl { cid_datafam_insts = fam_insts } }))
   = concatMapM (deriveFamInst . unLoc) fam_insts
 
 ------------------------------------------------------------------
