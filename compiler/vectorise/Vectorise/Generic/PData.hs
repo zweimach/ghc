@@ -23,6 +23,7 @@ import Name
 import Util
 import MonadUtils
 import Control.Monad
+import SrcLoc ( noSrcSpan )
 
 
 -- buildPDataTyCon ------------------------------------------------------------
@@ -42,7 +43,7 @@ buildDataFamInst :: Name -> TyCon -> TyCon -> AlgTyConRhs -> VM FamInst
 buildDataFamInst name' fam_tc vect_tc rhs
  = do { axiom_name <- mkDerivedName mkInstTyCoOcc name'
 
-      ; let fam_inst = mkDataFamInst axiom_name tyvars fam_tc pat_tys rep_tc
+      ; let fam_inst = mkDataFamInst noSrcSpan axiom_name tyvars fam_tc pat_tys rep_tc
             ax       = famInstAxiom fam_inst
             pat_tys  = [mkTyConApp vect_tc (mkTyVarTys tyvars)]
             rep_tc   = buildAlgTyCon name'

@@ -165,34 +165,37 @@ cvtDec (TySynD tc tvs rhs)
 	; rhs' <- cvtType rhs
 	; returnL $ TyClD (TyDecl { tcdLName = tc' 
                                   , tcdTyVars = tvs', tcdFVs = placeHolderNames 
-                                  , tcdTyDefn = TySynonym rhs' }) }
+                                  , tcdRhs = rhs' }) }
 
 cvtDec (DataD ctxt tc tvs constrs derivs)
   = do	{ (ctxt', tc', tvs') <- cvt_tycl_hdr ctxt tc tvs
 	; cons' <- mapM cvtConstr constrs
 	; derivs' <- cvtDerivs derivs
-       ; let defn = TyData { td_ND = DataType, td_cType = Nothing
-                           , td_ctxt = ctxt'
-                           , td_kindSig = Nothing
-                           , td_cons = cons', td_derivs = derivs' }
-	; returnL $ TyClD (TyDecl { tcdLName = tc', tcdTyVars = tvs'
-                                  , tcdTyDefn = defn, tcdFVs = placeHolderNames }) }
+       ; let defn = HsDataDefn { dd_ND = DataType, dd_cType = Nothing
+                               , dd_ctxt = ctxt'
+                               , dd_kindSig = Nothing
+                               , dd_cons = cons', dd_derivs = derivs' }
+	; returnL $ TyClD (DataDecl { tcdLName = tc', tcdTyVars = tvs'
+                                    , tcdDataDefn = defn, tcdFVs = placeHolderNames }) }
 
 cvtDec (NewtypeD ctxt tc tvs constr derivs)
   = do	{ (ctxt', tc', tvs') <- cvt_tycl_hdr ctxt tc tvs
 	; con' <- cvtConstr constr
 	; derivs' <- cvtDerivs derivs
-        ; let defn = TyData { td_ND = NewType, td_cType = Nothing
-                            , td_ctxt = ctxt'
-                            , td_kindSig = Nothing
-                            , td_cons = [con'], td_derivs = derivs' }
-	; returnL $ TyClD (TyDecl { tcdLName = tc', tcdTyVars = tvs'
-                                  , tcdTyDefn = defn, tcdFVs = placeHolderNames }) }
+        ; let defn = HsDataDefn { dd_ND = NewType, dd_cType = Nothing
+                                , dd_ctxt = ctxt'
+                                , dd_kindSig = Nothing
+                                , dd_cons = [con'], dd_derivs = derivs' }
+	; returnL $ TyClD (DataDecl { tcdLName = tc', tcdTyVars = tvs'
+                                    , tcdDataDefn = defn, tcdFVs = placeHolderNames }) }
 
 cvtDec (ClassD ctxt cl tvs fds decs)
   = do	{ (cxt', tc', tvs') <- cvt_tycl_hdr ctxt cl tvs
 	; fds'  <- mapM cvt_fundep fds
-        ; (binds', sigs', fams', ats') <- cvt_ci_decs (ptext (sLit "a class declaration")) decs
+        ; (binds', sigs', fams', ats', adts') <- cvt_ci_decs (ptext (sLit "a class declaration")) decs
+        ; unless (null adts')
+            (failWith $ (ptext (sLit "Default data instance declarations are not allowed:"))
+                   $$ (Outputable.ppr adts'))
 	; returnL $ TyClD $
           ClassDecl { tcdCtxt = cxt', tcdLName = tc', tcdTyVars = tvs'
 	    	    , tcdFDs = fds', tcdSigs = sigs', tcdMeths = binds'
@@ -203,12 +206,12 @@ cvtDec (ClassD ctxt cl tvs fds decs)
 
 cvtDec (InstanceD ctxt ty decs)
   = do 	{ let doc = ptext (sLit "an instance declaration")
-        ; (binds', sigs', fams', ats') <- cvt_ci_decs doc decs
+        ; (binds', sigs', fams', ats', adts') <- cvt_ci_decs doc decs
 	; unless (null fams') (failWith (mkBadDecMsg doc fams'))
 	; ctxt' <- cvtContext ctxt
 	; L loc ty' <- cvtType ty
 	; let inst_ty' = L loc $ mkImplicitHsForAllTy ctxt' $ L loc ty'
-	; returnL $ InstD (ClsInstD inst_ty' binds' sigs' ats') }
+	; returnL $ InstD (ClsInstD inst_ty' binds' sigs' ats' adts') }
 
 cvtDec (ForeignD ford)
   = do { ford' <- cvtForD ford
@@ -226,50 +229,55 @@ cvtDec (DataInstD ctxt tc tys constrs derivs)
   = do { (ctxt', tc', typats') <- cvt_tyinst_hdr ctxt tc tys
        ; cons' <- mapM cvtConstr constrs
        ; derivs' <- cvtDerivs derivs
-       ; let defn = TyData { td_ND = DataType, td_cType = Nothing
-                           , td_ctxt = ctxt'
-                           , td_kindSig = Nothing
-                           , td_cons = cons', td_derivs = derivs' }
+       ; let defn = HsDataDefn { dd_ND = DataType, dd_cType = Nothing
+                               , dd_ctxt = ctxt'
+                               , dd_kindSig = Nothing
+                               , dd_cons = cons', dd_derivs = derivs' }
 
-       ; returnL $ InstD $ FamInstD
-           { lid_inst = FamInstDecl { fid_tycon = tc', fid_pats = typats'
-                                    , fid_defn = defn, fid_fvs = placeHolderNames } }}
+       ; returnL $ InstD $ DataFamInstD
+           { dfid_inst = DataFamInstDecl { dfid_tycon = tc', dfid_pats = typats'
+                                         , dfid_defn = defn, dfid_fvs = placeHolderNames } }}
 
 cvtDec (NewtypeInstD ctxt tc tys constr derivs)
   = do { (ctxt', tc', typats') <- cvt_tyinst_hdr ctxt tc tys
        ; con' <- cvtConstr constr
        ; derivs' <- cvtDerivs derivs
-       ; let defn = TyData { td_ND = NewType, td_cType = Nothing
-                           , td_ctxt = ctxt'
-                           , td_kindSig = Nothing
-                           , td_cons = [con'], td_derivs = derivs' } 
-       ; returnL $ InstD $ FamInstD 
-           { lid_inst = FamInstDecl { fid_tycon = tc', fid_pats = typats'
-                                    , fid_defn = defn, fid_fvs = placeHolderNames } } }
+       ; let defn = HsDataDefn { dd_ND = NewType, dd_cType = Nothing
+                               , dd_ctxt = ctxt'
+                               , dd_kindSig = Nothing
+                               , dd_cons = [con'], dd_derivs = derivs' } 
+       ; returnL $ InstD $ DataFamInstD 
+           { dfid_inst = DataFamInstDecl { dfid_tycon = tc', dfid_pats = typats'
+                                         , dfid_defn = defn, dfid_fvs = placeHolderNames } }}
 
 cvtDec (TySynInstD tc tys rhs)
   = do	{ (_, tc', tys') <- cvt_tyinst_hdr [] tc tys
 	; rhs' <- cvtType rhs
-	; returnL $ InstD $ FamInstD 
-            { lid_inst = FamInstDecl { fid_tycon = tc', fid_pats = tys'
-                                     , fid_defn = TySynonym rhs', fid_fvs = placeHolderNames } } }
+        ; eqn <- returnL $ TyFamInstEqn { tfie_tycon = tc'
+                                        , tfie_pats = tys'
+                                        , tfie_rhs = rhs' }
+	; returnL $ InstD $ TyFamInstD 
+            { tfid_inst = TyFamInstDecl { tfid_eqns = [eqn]
+                                        , tfid_fvs = placeHolderNames } }}
 
 ----------------
 cvt_ci_decs :: MsgDoc -> [TH.Dec]
             -> CvtM (LHsBinds RdrName, 
                      [LSig RdrName], 
                      [LTyClDecl RdrName],    -- Family decls
-                     [LFamInstDecl RdrName])
+                     [LTyFamInstDecl RdrName],
+                     [LDataFamInstDecl RdrName])
 -- Convert the declarations inside a class or instance decl
 -- ie signatures, bindings, and associated types
 cvt_ci_decs doc decs
   = do  { decs' <- mapM cvtDec decs
-        ; let (ats', bind_sig_decs') = partitionWith is_fam_inst decs'
-	; let (sigs', prob_binds')   = partitionWith is_sig bind_sig_decs'
+        ; let (ats', bind_sig_decs') = partitionWith is_tyfam_inst decs'
+        ; let (adts', no_ats')       = partitionWith is_datafam_inst bind_sig_decs'
+	; let (sigs', prob_binds')   = partitionWith is_sig no_ats'
 	; let (binds', prob_fams')   = partitionWith is_bind prob_binds'
         ; let (fams', bads)          = partitionWith is_fam_decl prob_fams'
 	; unless (null bads) (failWith (mkBadDecMsg doc bads))
-        ; return (listToBag binds', sigs', fams', ats') }
+        ; return (listToBag binds', sigs', fams', ats', adts') }
 
 ----------------
 cvt_tycl_hdr :: TH.Cxt -> TH.Name -> [TH.TyVarBndr]
@@ -301,9 +309,13 @@ is_fam_decl :: LHsDecl RdrName -> Either (LTyClDecl RdrName) (LHsDecl RdrName)
 is_fam_decl (L loc (TyClD d@(TyFamily {}))) = Left (L loc d)
 is_fam_decl decl = Right decl
 
-is_fam_inst :: LHsDecl RdrName -> Either (LFamInstDecl RdrName) (LHsDecl RdrName)
-is_fam_inst (L loc (Hs.InstD (FamInstD { lid_inst = d }))) = Left (L loc d)
-is_fam_inst decl                                           = Right decl
+is_tyfam_inst :: LHsDecl RdrName -> Either (LTyFamInstDecl RdrName) (LHsDecl RdrName)
+is_tyfam_inst (L loc (Hs.InstD (TyFamInstD { tfid_inst = d }))) = Left (L loc d)
+is_tyfam_inst decl                                              = Right decl
+
+is_datafam_inst :: LHsDecl RdrName -> Either (LDataFamInstDecl RdrName) (LHsDecl RdrName)
+is_datafam_inst (L loc (Hs.InstD (DataFamInstD { dfid_inst = d }))) = Left (L loc d)
+is_datafam_inst decl                                                = Right decl
 
 is_sig :: LHsDecl RdrName -> Either (LSig RdrName) (LHsDecl RdrName)
 is_sig (L loc (Hs.SigD sig)) = Left (L loc sig)

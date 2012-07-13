@@ -69,10 +69,10 @@ For the generic representation we need to generate:
 \end{itemize}
 
 \begin{code}
-gen_Generic_binds :: GenericKind -> TyCon -> MetaTyCons -> Module
+gen_Generic_binds :: SrcSpan -> GenericKind -> TyCon -> MetaTyCons -> Module
                  -> TcM (LHsBinds RdrName, FamInst)
-gen_Generic_binds gk tc metaTyCons mod = do
-  repTyInsts <- tc_mkRepFamInsts gk tc metaTyCons mod
+gen_Generic_binds loc gk tc metaTyCons mod = do
+  repTyInsts <- tc_mkRepFamInsts loc gk tc metaTyCons mod
   return (mkBindsRep gk tc, repTyInsts)
 
 genGenericMetaTyCons :: TyCon -> Module -> TcM (MetaTyCons, BagDerivStuff)
@@ -407,12 +407,13 @@ mkBindsRep gk tycon =
 --       type Rep_D a b = ...representation type for D ...
 --------------------------------------------------------------------------------
 
-tc_mkRepFamInsts ::  GenericKind     -- Gen0 or Gen1
+tc_mkRepFamInsts :: SrcSpan
+               -> GenericKind     -- Gen0 or Gen1
                -> TyCon           -- The type to generate representation for
                -> MetaTyCons      -- Metadata datatypes to refer to
                -> Module          -- Used as the location of the new RepTy
                -> TcM FamInst     -- Generated representation0 coercion
-tc_mkRepFamInsts gk tycon metaDts mod = 
+tc_mkRepFamInsts loc gk tycon metaDts mod = 
        -- Consider the example input tycon `D`, where data D a b = D_ a
        -- Also consider `R:DInt`, where { data family D x y :: * -> *
        --                               ; data instance D Int a b = D_ a }
@@ -450,7 +451,7 @@ tc_mkRepFamInsts gk tycon metaDts mod =
                    in newGlobalBinder mod (mkGen (nameOccName (tyConName tycon)))
                         (nameSrcSpan (tyConName tycon))
 
-     ; return $ mkSynFamInst rep_name tyvars rep appT repTy
+     ; return $ mkSynFamInst loc rep_name tyvars rep appT repTy
      }
 
 --------------------------------------------------------------------------------

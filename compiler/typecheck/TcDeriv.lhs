@@ -23,7 +23,7 @@ import DynFlags
 import TcRnMonad
 import FamInst
 import TcEnv
-import TcTyClsDecls( tcFamTyPats, tcAddFamInstCtxt )
+import TcTyClsDecls( tcFamTyPats, tcAddDataFamInstCtxt )
 import TcClassDcl( tcAddDeclCtxt )	-- Small helper
 import TcGenDeriv			-- Deriv stuff
 import TcGenGenerics
@@ -494,8 +494,8 @@ makeDerivSpecs is_boot tycl_decls inst_decls deriv_decls
 
 ------------------------------------------------------------------
 deriveTyDecl :: LTyClDecl Name -> TcM [EarlyDerivSpec]
-deriveTyDecl (L _ decl@(TyDecl { tcdLName = L _ tc_name
-                               , tcdTyDefn = TyData { td_derivs = Just preds } }))
+deriveTyDecl (L _ decl@(DataDecl { tcdLName = L _ tc_name
+                                 , tcdDataDefn = HsDataDefn { dd_derivs = Just preds } }))
   = tcAddDeclCtxt decl $
     do { tc <- tcLookupTyCon tc_name
        ; let tvs = tyConTyVars tc
@@ -506,16 +506,17 @@ deriveTyDecl _ = return []
 
 ------------------------------------------------------------------
 deriveInstDecl :: LInstDecl Name -> TcM [EarlyDerivSpec]
-deriveInstDecl (L _ (FamInstD { lid_inst = fam_inst }))
+deriveInstDecl (L _ (TyFamInstD {})) = return []
+deriveInstDecl (L _ (DataFamInstD { dfid_inst = fam_inst }))
   = deriveFamInst fam_inst
-deriveInstDecl (L _ (ClsInstD { cid_fam_insts = fam_insts }))
+deriveInstDecl (L _ (ClsInstD { cid_datafam_insts = fam_insts }))
   = concatMapM (deriveFamInst . unLoc) fam_insts
 
 ------------------------------------------------------------------
-deriveFamInst :: FamInstDecl Name -> TcM [EarlyDerivSpec]
-deriveFamInst decl@(FamInstDecl { fid_tycon = L _ tc_name, fid_pats = pats
-                                , fid_defn = TyData { td_derivs = Just preds } })
-  = tcAddFamInstCtxt decl $
+deriveFamInst :: DataFamInstDecl Name -> TcM [EarlyDerivSpec]
+deriveFamInst decl@(DataFamInstDecl { dfid_tycon = L _ tc_name, dfid_pats = pats
+                                    , dfid_defn = HsDataDefn { dd_derivs = Just preds } })
+  = tcAddDataFamInstCtxt decl $
     do { fam_tc <- tcLookupTyCon tc_name
        ; tcFamTyPats fam_tc pats (\_ -> return ()) $ \ tvs' pats' _ ->
          mapM (deriveTyData tvs' fam_tc pats') preds }
@@ -1560,7 +1561,7 @@ genDerivStuff loc fix_env clas name tycon comaux_maybe
   = let gk =  if ck == genClassKey then Gen0 else Gen1 -- TODO NSF: correctly identify when we're building Both instead of One
         Just metaTyCons = comaux_maybe -- well-guarded by commonAuxiliaries and genInst
     in do
-      (binds, faminst) <- gen_Generic_binds gk tycon metaTyCons (nameModule name)
+      (binds, faminst) <- gen_Generic_binds loc gk tycon metaTyCons (nameModule name)
       return (binds, DerivFamInst faminst `consBag` emptyBag)
 
   | otherwise	                   -- Non-monadic generators

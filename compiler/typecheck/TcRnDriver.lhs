@@ -977,13 +977,14 @@ tcTyClsInstDecls boot_details tycl_decls inst_decls deriv_decls
   where
     -- get_cons extracts the *constructor* bindings of the declaration
     get_cons :: LInstDecl Name -> [Name]
-    get_cons (L _ (FamInstD { lid_inst = fid }))       = get_fi_cons fid
-    get_cons (L _ (ClsInstD { cid_fam_insts = fids })) = concatMap (get_fi_cons . unLoc) fids
+    get_cons (L _ (TyFamInstD {}))                     = []
+    get_cons (L _ (DataFamInstD { dfid_inst = fid }))  = get_fi_cons fid
+    get_cons (L _ (ClsInstD { cid_datafam_insts = fids }))
+      = concatMap (get_fi_cons . unLoc) fids
 
-    get_fi_cons :: FamInstDecl Name -> [Name]
-    get_fi_cons (FamInstDecl { fid_defn = TyData { td_cons = cons } }) 
+    get_fi_cons :: DataFamInstDecl Name -> [Name]
+    get_fi_cons (DataFamInstDecl { dfid_defn = HsDataDefn { dd_cons = cons } }) 
       = map (unLoc . con_name . unLoc) cons
-    get_fi_cons (FamInstDecl {}) = []
 \end{code}
 
 Note [AFamDataCon: not promoting data family constructors]
