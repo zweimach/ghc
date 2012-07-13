@@ -468,52 +468,6 @@ data TyClDecl name
     }
   deriving (Data, Typeable)
 
-
-data HsDataDefn name   -- The payload of a data type defn
-                       -- Used *both* for vanilla data declarations,
-                       --       *and* for data family instances
-  = -- | Declares a data type or newtype, giving its construcors
-    -- @
-    --  data/newtype T a = <constrs>
-    --  data/newtype instance T [a] = <constrs>
-    -- @
-    HsDataDefn { dd_ND     :: NewOrData,
-                 dd_ctxt   :: LHsContext name,           -- ^ Context
-                 dd_cType  :: Maybe CType,
-                 dd_kindSig:: Maybe (LHsKind name),
-                     -- ^ Optional kind signature.
-                     --
-                     -- @(Just k)@ for a GADT-style @data@, 
-                     -- or @data instance@ decl, with explicit kind sig
-                     --
-                     -- Always @Nothing@ for H98-syntax decls
-
-                 dd_cons   :: [LConDecl name],
-                     -- ^ Data constructors
-                     --
-                     -- For @data T a = T1 | T2 a@
-                     --   the 'LConDecl's all have 'ResTyH98'.
-                     -- For @data T a where { T1 :: T a }@
-                     --   the 'LConDecls' all have 'ResTyGADT'.
-
-                 dd_derivs :: Maybe [LHsType name]
-                     -- ^ Derivings; @Nothing@ => not specified,
-                     --              @Just []@ => derive exactly what is asked
-                     --
-                     -- These "types" must be of form
-                     -- @
-                     --      forall ab. C ty1 ty2
-                     -- @
-                     -- Typically the foralls and ty args are empty, but they
-                     -- are non-empty for the newtype-deriving case
-    }
-    deriving( Data, Typeable )
-
-data NewOrData
-  = NewType                     -- ^ @newtype Blah ...@
-  | DataType                    -- ^ @data Blah ...@
-  deriving( Eq, Data, Typeable )                -- Needed because Demand derives Eq
-
 data FamilyFlavour
   = TypeFamily
   | DataFamily
@@ -644,40 +598,6 @@ pp_fam_inst_lhs thing (HsWB { hswb_cts = typats }) context -- explicit type patt
    = hsep [ pprHsContext context, pprPrefixOcc (unLoc thing)
           , hsep (map (pprParendHsType.unLoc) typats)]
 
-pp_condecls :: OutputableBndr name => [LConDecl name] -> SDoc
-pp_condecls cs@(L _ ConDecl{ con_res = ResTyGADT _ } : _) -- In GADT syntax
-  = hang (ptext (sLit "where")) 2 (vcat (map ppr cs))
-pp_condecls cs                    -- In H98 syntax
-  = equals <+> sep (punctuate (ptext (sLit " |")) (map ppr cs))
-
-pp_data_defn :: OutputableBndr name
-                  => (HsContext name -> SDoc)   -- Printing the header
-                  -> HsDataDefn name
-                  -> SDoc 
-pp_data_defn pp_hdr (HsDataDefn { dd_ND = new_or_data, dd_ctxt = L _ context
-                              , dd_kindSig = mb_sig 
-                              , dd_cons = condecls, dd_derivs = derivings })
-  | null condecls
-  = ppr new_or_data <+> pp_hdr context <+> pp_sig
-
-  | otherwise
-  = hang (ppr new_or_data <+> pp_hdr context <+> pp_sig)
-       2 (pp_condecls condecls $$ pp_derivings)
-  where
-    pp_sig = case mb_sig of
-               Nothing   -> empty
-               Just kind -> dcolon <+> ppr kind
-    pp_derivings = case derivings of
-                     Nothing -> empty
-                     Just ds -> hsep [ptext (sLit "deriving"), parens (interpp'SP ds)]
-
-instance OutputableBndr name => Outputable (HsDataDefn name) where
-   ppr d = pp_data_defn (\_ -> ptext (sLit "Naked HsDataDefn")) d
-
-instance Outputable NewOrData where
-  ppr NewType  = ptext (sLit "newtype")
-  ppr DataType = ptext (sLit "data")
-
 pprTyClDeclFlavour :: TyClDecl a -> SDoc
 pprTyClDeclFlavour (ClassDecl {})                = ptext (sLit "class")
 pprTyClDeclFlavour (TyFamily {})                 = ptext (sLit "family")
@@ -687,7 +607,6 @@ pprTyClDeclFlavour (DataDecl { tcdDataDefn = (HsDataDefn { dd_ND = nd }) })
 pprTyClDeclFlavour (ForeignType {})              = ptext (sLit "foreign type")
 \end{code}
 
-
 %************************************************************************
 %*                                                                      *
 \subsection[ConDecl]{A data-constructor declaration}
@@ -695,6 +614,52 @@ pprTyClDeclFlavour (ForeignType {})              = ptext (sLit "foreign type")
 %************************************************************************
 
 \begin{code}
+
+data HsDataDefn name   -- The payload of a data type defn
+                       -- Used *both* for vanilla data declarations,
+                       --       *and* for data family instances
+  = -- | Declares a data type or newtype, giving its construcors
+    -- @
+    --  data/newtype T a = <constrs>
+    --  data/newtype instance T [a] = <constrs>
+    -- @
+    HsDataDefn { dd_ND     :: NewOrData,
+                 dd_ctxt   :: LHsContext name,           -- ^ Context
+                 dd_cType  :: Maybe CType,
+                 dd_kindSig:: Maybe (LHsKind name),
+                     -- ^ Optional kind signature.
+                     --
+                     -- @(Just k)@ for a GADT-style @data@, 
+                     -- or @data instance@ decl, with explicit kind sig
+                     --
+                     -- Always @Nothing@ for H98-syntax decls
+
+                 dd_cons   :: [LConDecl name],
+                     -- ^ Data constructors
+                     --
+                     -- For @data T a = T1 | T2 a@
+                     --   the 'LConDecl's all have 'ResTyH98'.
+                     -- For @data T a where { T1 :: T a }@
+                     --   the 'LConDecls' all have 'ResTyGADT'.
+
+                 dd_derivs :: Maybe [LHsType name]
+                     -- ^ Derivings; @Nothing@ => not specified,
+                     --              @Just []@ => derive exactly what is asked
+                     --
+                     -- These "types" must be of form
+                     -- @
+                     --      forall ab. C ty1 ty2
+                     -- @
+                     -- Typically the foralls and ty args are empty, but they
+                     -- are non-empty for the newtype-deriving case
+    }
+    deriving( Data, Typeable )
+
+data NewOrData
+  = NewType                     -- ^ @newtype Blah ...@
+  | DataType                    -- ^ @data Blah ...@
+  deriving( Eq, Data, Typeable )                -- Needed because Demand derives Eq
+
 type LConDecl name = Located (ConDecl name)
 
 -- data T b = forall a. Eq a => MkT a b
@@ -769,6 +734,40 @@ instance Outputable ty => Outputable (ResType ty) where
 
 
 \begin{code}
+pp_data_defn :: OutputableBndr name
+                  => (HsContext name -> SDoc)   -- Printing the header
+                  -> HsDataDefn name
+                  -> SDoc 
+pp_data_defn pp_hdr (HsDataDefn { dd_ND = new_or_data, dd_ctxt = L _ context
+                              , dd_kindSig = mb_sig 
+                              , dd_cons = condecls, dd_derivs = derivings })
+  | null condecls
+  = ppr new_or_data <+> pp_hdr context <+> pp_sig
+
+  | otherwise
+  = hang (ppr new_or_data <+> pp_hdr context <+> pp_sig)
+       2 (pp_condecls condecls $$ pp_derivings)
+  where
+    pp_sig = case mb_sig of
+               Nothing   -> empty
+               Just kind -> dcolon <+> ppr kind
+    pp_derivings = case derivings of
+                     Nothing -> empty
+                     Just ds -> hsep [ptext (sLit "deriving"), parens (interpp'SP ds)]
+
+instance OutputableBndr name => Outputable (HsDataDefn name) where
+   ppr d = pp_data_defn (\_ -> ptext (sLit "Naked HsDataDefn")) d
+
+instance Outputable NewOrData where
+  ppr NewType  = ptext (sLit "newtype")
+  ppr DataType = ptext (sLit "data")
+
+pp_condecls :: OutputableBndr name => [LConDecl name] -> SDoc
+pp_condecls cs@(L _ ConDecl{ con_res = ResTyGADT _ } : _) -- In GADT syntax
+  = hang (ptext (sLit "where")) 2 (vcat (map ppr cs))
+pp_condecls cs                    -- In H98 syntax
+  = equals <+> sep (punctuate (ptext (sLit " |")) (map ppr cs))
+
 instance (OutputableBndr name) => Outputable (ConDecl name) where
     ppr = pprConDecl
 
