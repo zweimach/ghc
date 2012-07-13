@@ -174,7 +174,7 @@ mkTySynonym :: SrcSpan
 mkTySynonym loc lhs rhs
   = do { (tc, tparams) <- checkTyClHdr lhs
        ; tyvars <- checkTyVars lhs tparams
-       ; return (L loc (TyDecl { tcdLName = tc, tcdTyVars = tyvars,
+       ; return (L loc (SynDecl { tcdLName = tc, tcdTyVars = tyvars,
                                  tcdRhs = rhs, tcdFVs = placeHolderNames })) }
 
 mkTyFamInstEqn :: SrcSpan

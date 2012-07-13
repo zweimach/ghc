@@ -637,7 +637,7 @@ hsLTyClDeclBinders (L _ d) = hsTyClDeclBinders d
 hsTyClDeclBinders :: Eq name => TyClDecl name -> [Located name]
 hsTyClDeclBinders (TyFamily    {tcdLName = name}) = [name]
 hsTyClDeclBinders (ForeignType {tcdLName = name}) = [name]
-hsTyClDeclBinders (TyDecl      {tcdLName = name}) = [name]
+hsTyClDeclBinders (SynDecl      {tcdLName = name}) = [name]
 
 hsTyClDeclBinders (ClassDecl { tcdLName = cls_name, tcdSigs = sigs
                              , tcdATs = ats })

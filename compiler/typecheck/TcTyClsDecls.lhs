@@ -349,7 +349,7 @@ getInitialKind _ (ClassDecl { tcdLName = L _ name, tcdTyVars = ktvs, tcdATs = at
        ; let main_pr = (name, AThing (mkArrowKinds arg_kinds constraintKind))
        ; return (main_pr : inner_prs) }
 
-getInitialKind _top_lvl decl@(TyDecl {}) = pprPanic "getInitialKind" (ppr decl)
+getInitialKind _top_lvl decl@(SynDecl {}) = pprPanic "getInitialKind" (ppr decl)
 
 getInitialKind top_lvl (DataDecl { tcdLName = L _ name, tcdTyVars = ktvs, tcdDataDefn = defn })
   | HsDataDefn { dd_kindSig = Just ksig, dd_cons = cons } <- defn
@@ -389,7 +389,7 @@ kcSynDecl1 (CyclicSCC decls)       = do { recSynErr decls; failM }
 				     -- of out-of-scope tycons
 
 kcSynDecl :: TyClDecl Name -> TcM (Name, TcKind)
-kcSynDecl decl@(TyDecl { tcdTyVars = hs_tvs, tcdLName = L _ name
+kcSynDecl decl@(SynDecl { tcdTyVars = hs_tvs, tcdLName = L _ name
                        , tcdRhs = rhs })
   -- Returns a possibly-unzonked kind
   = tcAddDeclCtxt decl $
@@ -420,7 +420,7 @@ kcTyClDecl (DataDecl { tcdLName = L _ name, tcdTyVars = hs_tvs, tcdDataDefn = de
     do	{ _ <- tcHsContext ctxt
         ; mapM_ (wrapLocM kcConDecl) cons }
 
-kcTyClDecl decl@(TyDecl {}) = pprPanic "kcTyClDecl" (ppr decl)
+kcTyClDecl decl@(SynDecl {}) = pprPanic "kcTyClDecl" (ppr decl)
 
 kcTyClDecl (ClassDecl { tcdLName = L _ name, tcdTyVars = hs_tvs
                        , tcdCtxt = ctxt, tcdSigs = sigs, tcdATs = ats})
@@ -546,7 +546,7 @@ tcTyClDecl1 parent _calc_isrec
 
   -- "type" synonym declaration
 tcTyClDecl1 _parent _calc_isrec
-            (TyDecl { tcdLName = L _ tc_name, tcdTyVars = tvs, tcdRhs = rhs })
+            (SynDecl { tcdLName = L _ tc_name, tcdTyVars = tvs, tcdRhs = rhs })
   = ASSERT( isNoParent _parent )
     tcTyClTyVars tc_name tvs $ \ tvs' kind -> 
     tcTySynRhs tc_name tvs' kind rhs

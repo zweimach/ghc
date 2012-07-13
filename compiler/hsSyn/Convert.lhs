@@ -163,7 +163,7 @@ cvtDec (PragmaD prag)
 cvtDec (TySynD tc tvs rhs)
   = do	{ (_, tc', tvs') <- cvt_tycl_hdr [] tc tvs
 	; rhs' <- cvtType rhs
-	; returnL $ TyClD (TyDecl { tcdLName = tc' 
+	; returnL $ TyClD (SynDecl { tcdLName = tc' 
                                   , tcdTyVars = tvs', tcdFVs = placeHolderNames 
                                   , tcdRhs = rhs' }) }
 

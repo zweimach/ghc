@@ -221,7 +221,7 @@ repTyClD (L loc (TyFamily { tcdFlavour = flavour,
        ; return $ Just (loc, dec)
        }
 
-repTyClD (L loc (TyDecl { tcdLName = tc, tcdTyVars = tvs, tcdRhs = rhs }))
+repTyClD (L loc (SynDecl { tcdLName = tc, tcdTyVars = tvs, tcdRhs = rhs }))
   = do { tc1 <- lookupLOcc tc 		-- See note [Binders and occurrences]  
        ; dec <- addTyClTyVarBinds tvs $ \bndrs -> 
 	        repTyDecl tc1 bndrs Nothing rhs

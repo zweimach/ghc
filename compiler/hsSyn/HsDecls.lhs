@@ -8,7 +8,7 @@
 
 -- | Abstract syntax of global declarations.
 --
--- Definitions for: @TyDecl@ and @ConDecl@, @ClassDecl@,
+-- Definitions for: @SynDecl@ and @ConDecl@, @ClassDecl@,
 -- @InstDecl@, @DefaultDecl@ and @ForeignDecl@.
 module HsDecls (
   -- * Toplevel declarations
@@ -278,7 +278,7 @@ instance OutputableBndr name => Outputable (SpliceDecl name) where
 
 %************************************************************************
 %*                                                                      *
-\subsection[TyDecl]{@data@, @newtype@ or @type@ (synonym) type declaration}
+\subsection[SynDecl]{@data@, @newtype@ or @type@ (synonym) type declaration}
 %*                                                                      *
 %************************************************************************
 
@@ -437,7 +437,7 @@ data TyClDecl name
 
 
   | -- | @type@ declaration
-    TyDecl { tcdLName  :: Located name            -- ^ Type constructor
+    SynDecl { tcdLName  :: Located name            -- ^ Type constructor
            , tcdTyVars :: LHsTyVarBndrs name      -- ^ Type variables; for an associated type
                                                   --   these include outer binders
            , tcdRhs    :: LHsType name            -- ^ RHS of type declaration
@@ -488,7 +488,7 @@ isDataDecl _other        = False
 
 -- | type or type instance declaration
 isSynDecl :: TyClDecl name -> Bool
-isSynDecl (TyDecl {})   = True
+isSynDecl (SynDecl {})   = True
 isSynDecl _other        = False
 
 -- | type class
@@ -557,7 +557,7 @@ instance OutputableBndr name
                       Nothing   -> empty
                       Just kind -> dcolon <+> ppr kind
 
-    ppr (TyDecl { tcdLName = ltycon, tcdTyVars = tyvars, tcdRhs = rhs })
+    ppr (SynDecl { tcdLName = ltycon, tcdTyVars = tyvars, tcdRhs = rhs })
       = hang (ptext (sLit "type") <+>
               pp_vanilla_decl_head ltycon tyvars [] <+> equals)
           4 (ppr rhs) 
@@ -602,7 +602,7 @@ pp_fam_inst_lhs thing (HsWB { hswb_cts = typats }) context -- explicit type patt
 pprTyClDeclFlavour :: TyClDecl a -> SDoc
 pprTyClDeclFlavour (ClassDecl {})                = ptext (sLit "class")
 pprTyClDeclFlavour (TyFamily {})                 = ptext (sLit "family")
-pprTyClDeclFlavour (TyDecl {})                   = ptext (sLit "type")
+pprTyClDeclFlavour (SynDecl {})                   = ptext (sLit "type")
 pprTyClDeclFlavour (DataDecl { tcdDataDefn = (HsDataDefn { dd_ND = nd }) })
   = ppr nd
 pprTyClDeclFlavour (ForeignType {})              = ptext (sLit "foreign type")

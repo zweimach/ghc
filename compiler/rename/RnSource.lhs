@@ -927,7 +927,7 @@ rnTyClDecl mb_cls (TyFamily { tcdLName = tycon, tcdTyVars = tyvars
      fmly_doc = TyFamilyCtx tycon
      kvs = extractRdrKindSigVars kind
 
-rnTyClDecl mb_cls (TyDecl { tcdLName = tycon, tcdTyVars = tyvars, tcdRhs = rhs })
+rnTyClDecl mb_cls (SynDecl { tcdLName = tycon, tcdTyVars = tyvars, tcdRhs = rhs })
   = do { tycon' <- lookupLocatedTopBndrRn tycon
        ; let kvs = fst (extractHsTyRdrTyVars rhs)
              doc = TySynCtx tycon
@@ -936,7 +936,7 @@ rnTyClDecl mb_cls (TyDecl { tcdLName = tycon, tcdTyVars = tyvars, tcdRhs = rhs }
                                     \ tyvars' ->
                                     do { (rhs', fvs) <- rnTySyn doc rhs
                                        ; return ((tyvars', rhs'), fvs) }
-       ; return (TyDecl { tcdLName = tycon', tcdTyVars = tyvars'
+       ; return (SynDecl { tcdLName = tycon', tcdTyVars = tyvars'
                         , tcdRhs = rhs', tcdFVs = fvs }, fvs) }
 
 -- "data", "newtype" declarations
