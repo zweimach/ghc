@@ -12,7 +12,7 @@ module RdrHsSyn (
         mkTyData, mkFamInstData, 
         mkTySynonym, mkTyFamInstEqn,
         mkTyFamInst, 
-        mkTyFamily, 
+        mkFamDecl, 
         splitCon, mkInlinePragma,
         mkRecConstrOrUpdate, -- HsExp -> [HsFieldUpdate] -> P HsExp
         mkTyLit,
@@ -194,15 +194,15 @@ mkTyFamInst loc eqn
   = return (L loc (TyFamInstDecl { tfid_eqns = [eqn]
                                  , tfid_fvs  = placeHolderNames }))
 
-mkTyFamily :: SrcSpan
-           -> FamilyFlavour
-           -> LHsType RdrName   -- LHS
-           -> Maybe (LHsKind RdrName) -- Optional kind signature
-           -> P (LTyClDecl RdrName)
-mkTyFamily loc flavour lhs ksig
+mkFamDecl :: SrcSpan
+          -> FamilyFlavour
+          -> LHsType RdrName   -- LHS
+          -> Maybe (LHsKind RdrName) -- Optional kind signature
+          -> P (LFamilyDecl RdrName)
+mkFamDecl loc flavour lhs ksig
   = do { (tc, tparams) <- checkTyClHdr lhs
        ; tyvars <- checkTyVars lhs tparams
-       ; return (L loc (TyFamily flavour tc tyvars ksig)) }
+       ; return (L loc (FamilyDecl flavour tc tyvars ksig)) }
 
 mkTopSpliceDecl :: LHsExpr RdrName -> HsDecl RdrName
 -- If the user wrote
@@ -260,7 +260,7 @@ cvBindGroup binding
             ValBindsIn mbs sigs
 
 cvBindsAndSigs :: OrdList (LHsDecl RdrName)
-  -> (Bag ( LHsBind RdrName), [LSig RdrName], [LTyClDecl RdrName]
+  -> (Bag ( LHsBind RdrName), [LSig RdrName], [LFamilyDecl RdrName]
           , [LTyFamInstDecl RdrName], [LDataFamInstDecl RdrName], [LDocDecl])
 -- Input decls contain just value bindings and signatures
 -- and in case of class or instance declarations also
@@ -273,7 +273,7 @@ cvBindsAndSigs  fb = go (fromOL fb)
     go (L l (ValD b) : ds) = (b' `consBag` bs, ss, ts, tfis, dfis, docs)
                            where (b', ds')    = getMonoBind (L l b) ds
                                  (bs, ss, ts, tfis, dfis, docs) = go ds'
-    go (L l (TyClD t@(TyFamily {})) : ds) = (bs, ss, L l t : ts, tfis, dfis, docs)
+    go (L l (TyClD (FamDecl t)) : ds) = (bs, ss, L l t : ts, tfis, dfis, docs)
                            where (bs, ss, ts, tfis, dfis, docs) = go ds
     go (L l (InstD (TyFamInstD { tfid_inst = tfi })) : ds) = (bs, ss, ts, L l tfi : tfis, dfis, docs)
                            where (bs, ss, ts, tfis, dfis, docs) = go ds

@@ -64,7 +64,6 @@ import Outputable
 import Bag
 import FastString
 import ForeignCall
-import MonadUtils
 import Util
 
 import Data.Maybe
@@ -201,30 +200,14 @@ in repTyClD and repC.
 
 -- represent associated family instances
 --
-repTyClDs :: [LTyClDecl Name] -> DsM [Core TH.DecQ]
-repTyClDs ds = liftM de_loc (mapMaybeM repTyClD ds)
-
-
 repTyClD :: LTyClDecl Name -> DsM (Maybe (SrcSpan, Core TH.DecQ))
 
-repTyClD (L loc (TyFamily { tcdFlavour = flavour,
-		            tcdLName   = tc, tcdTyVars = tvs, 
-		            tcdKindSig = opt_kind }))
-  = do { tc1 <- lookupLOcc tc 		-- See note [Binders and occurrences] 
-       ; dec <- addTyClTyVarBinds tvs $ \bndrs ->
-           do { flav   <- repFamilyFlavour flavour
-	      ; case opt_kind of 
-                  Nothing -> repFamilyNoKind flav tc1 bndrs
-                  Just ki -> do { ki1 <- repLKind ki 
-                                ; repFamilyKind flav tc1 bndrs ki1 }
-              }
-       ; return $ Just (loc, dec)
-       }
+repTyClD (L loc (FamDecl { tcdFam = fam })) = liftM Just $ repFamilyDecl (L loc fam)
 
 repTyClD (L loc (SynDecl { tcdLName = tc, tcdTyVars = tvs, tcdRhs = rhs }))
   = do { tc1 <- lookupLOcc tc 		-- See note [Binders and occurrences]  
        ; dec <- addTyClTyVarBinds tvs $ \bndrs -> 
-	        repTyDecl tc1 bndrs Nothing rhs
+	        repSynDecl tc1 bndrs Nothing rhs
        ; return (Just (loc, dec)) }
 
 repTyClD (L loc (DataDecl { tcdLName = tc, tcdTyVars = tvs, tcdDataDefn = defn }))
@@ -244,7 +227,7 @@ repTyClD (L loc (ClassDecl { tcdCtxt = cxt, tcdLName = cls,
  	      ; sigs1  <- rep_sigs sigs
  	      ; binds1 <- rep_binds meth_binds
 	      ; fds1   <- repLFunDeps fds
-              ; ats1   <- repTyClDs ats
+              ; ats1   <- repFamilyDecls ats
  	      ; decls1 <- coreList decQTyConName (ats1 ++ sigs1 ++ binds1)
  	      ; repClass cxt1 cls1 bndrs fds1 decls1 
               }
@@ -273,13 +256,32 @@ repDataDefn tc bndrs opt_tys tv_names
                           ; cons2 <- coreList conQTyConName cons1
                           ; repData cxt1 tc bndrs opt_tys cons2 derivs1 } }
 
-repTyDecl :: Core TH.Name -> Core [TH.TyVarBndr]
+repSynDecl :: Core TH.Name -> Core [TH.TyVarBndr]
           -> Maybe (Core [TH.TypeQ])
           -> LHsType Name
           -> DsM (Core TH.DecQ)
-repTyDecl tc bndrs opt_tys ty
+repSynDecl tc bndrs opt_tys ty
   = do { ty1 <- repLTy ty
        ; repTySyn tc bndrs opt_tys ty1 }
+
+repFamilyDecl :: LFamilyDecl Name -> DsM (SrcSpan, Core TH.DecQ)
+repFamilyDecl (L loc (FamilyDecl { fdFlavour = flavour,
+                                   fdLName   = tc,
+                                   fdTyVars  = tvs, 
+		                   fdKindSig = opt_kind }))
+  = do { tc1 <- lookupLOcc tc 		-- See note [Binders and occurrences] 
+       ; dec <- addTyClTyVarBinds tvs $ \bndrs ->
+           do { flav <- repFamilyFlavour flavour
+	      ; case opt_kind of 
+                  Nothing -> repFamilyNoKind flav tc1 bndrs
+                  Just ki -> do { ki1 <- repLKind ki 
+                                ; repFamilyKind flav tc1 bndrs ki1 }
+              }
+       ; return (loc, dec)
+       }
+
+repFamilyDecls :: [LFamilyDecl Name] -> DsM [Core TH.DecQ]
+repFamilyDecls fds = liftM de_loc (mapM repFamilyDecl fds)
 
 -------------------------
 mk_extra_tvs :: Located Name -> LHsTyVarBndrs Name 
@@ -384,7 +386,7 @@ repTyFamEqn (TyFamInstEqn { tfie_tycon = tc_name
        ; addTyClTyVarBinds hs_tvs $ \ bndrs ->
          do { tys1 <- repLTys tys
             ; tys2 <- coreList typeQTyConName tys1
-            ; repTyDecl tc bndrs (Just tys2) rhs } }
+            ; repSynDecl tc bndrs (Just tys2) rhs } }
 
 repDataFamInstD :: DataFamInstDecl Name -> DsM (Core TH.DecQ)
 repDataFamInstD (DataFamInstDecl { dfid_tycon = tc_name

@@ -626,7 +626,8 @@ ty_decl :: { LTyClDecl RdrName }
         | 'type' 'family' type opt_kind_sig 
                 -- Note the use of type for the head; this allows
                 -- infix type constructors to be declared
-                {% mkTyFamily (comb3 $1 $3 $4) TypeFamily $3 (unLoc $4) }
+                {% do { L loc decl <- mkFamDecl (comb3 $1 $3 $4) TypeFamily $3 (unLoc $4)
+                      ; return (L loc (FamDecl decl)) } }
 
           -- ordinary data type or newtype declaration
         | data_or_newtype capi_ctype tycl_hdr constrs deriving
@@ -646,7 +647,8 @@ ty_decl :: { LTyClDecl RdrName }
 
           -- data/newtype family
         | 'data' 'family' type opt_kind_sig
-                {% mkTyFamily (comb3 $1 $2 $4) DataFamily $3 (unLoc $4) }
+                {% do { L loc decl <- mkFamDecl (comb3 $1 $2 $4) DataFamily $3 (unLoc $4)
+                      ; return (L loc (FamDecl decl)) } }
 
 inst_decl :: { LInstDecl RdrName }
         : 'instance' inst_type where_inst
@@ -697,12 +699,12 @@ at_decl_cls :: { LHsDecl RdrName }
         : 'type' type opt_kind_sig
                 -- Note the use of type for the head; this allows
                 -- infix type constructors to be declared.
-                {% do { L loc decl <- mkTyFamily (comb3 $1 $2 $3) TypeFamily $2 (unLoc $3)
-                      ; return (L loc (TyClD decl)) } }
+                {% do { L loc decl <- mkFamDecl (comb3 $1 $2 $3) TypeFamily $2 (unLoc $3)
+                      ; return (L loc (TyClD (FamDecl decl))) } }
 
         | 'data' type opt_kind_sig
-                {% do { L loc decl <- mkTyFamily (comb3 $1 $2 $3) DataFamily $2 (unLoc $3)
-                      ; return (L loc (TyClD decl)) } }
+                {% do { L loc decl <- mkFamDecl (comb3 $1 $2 $3) DataFamily $2 (unLoc $3)
+                      ; return (L loc (TyClD (FamDecl decl))) } }
 
            -- default type instance
         | 'type' ty_fam_inst_eqn

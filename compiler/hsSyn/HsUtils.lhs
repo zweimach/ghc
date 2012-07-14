@@ -635,14 +635,14 @@ hsLTyClDeclBinders (L _ d) = hsTyClDeclBinders d
 
 -------------------
 hsTyClDeclBinders :: Eq name => TyClDecl name -> [Located name]
-hsTyClDeclBinders (TyFamily    {tcdLName = name}) = [name]
+hsTyClDeclBinders (FamDecl { tcdFam = FamilyDecl { fdLName = name} }) = [name]
 hsTyClDeclBinders (ForeignType {tcdLName = name}) = [name]
-hsTyClDeclBinders (SynDecl      {tcdLName = name}) = [name]
+hsTyClDeclBinders (SynDecl     {tcdLName = name}) = [name]
 
 hsTyClDeclBinders (ClassDecl { tcdLName = cls_name, tcdSigs = sigs
                              , tcdATs = ats })
   = cls_name : 
-    concatMap hsLTyClDeclBinders ats ++ 
+    map (fdLName . unLoc) ats ++ 
     [n | L _ (TypeSig ns _) <- sigs, n <- ns]
 
 hsTyClDeclBinders (DataDecl { tcdLName = name, tcdDataDefn = defn }) 

@@ -220,7 +220,7 @@ cvtDec (ForeignD ford)
 cvtDec (FamilyD flav tc tvs kind)
   = do { (_, tc', tvs') <- cvt_tycl_hdr [] tc tvs
        ; kind' <- cvtMaybeKind kind
-       ; returnL $ TyClD (TyFamily (cvtFamFlavour flav) tc' tvs' kind') }
+       ; returnL $ TyClD (FamDecl (FamilyDecl (cvtFamFlavour flav) tc' tvs' kind')) }
   where
     cvtFamFlavour TypeFam = TypeFamily
     cvtFamFlavour DataFam = DataFamily
@@ -264,7 +264,7 @@ cvtDec (TySynInstD tc tys rhs)
 cvt_ci_decs :: MsgDoc -> [TH.Dec]
             -> CvtM (LHsBinds RdrName, 
                      [LSig RdrName], 
-                     [LTyClDecl RdrName],    -- Family decls
+                     [LFamilyDecl RdrName],
                      [LTyFamInstDecl RdrName],
                      [LDataFamInstDecl RdrName])
 -- Convert the declarations inside a class or instance decl
@@ -305,8 +305,8 @@ cvt_tyinst_hdr cxt tc tys
 --		Partitioning declarations
 -------------------------------------------------------------------
 
-is_fam_decl :: LHsDecl RdrName -> Either (LTyClDecl RdrName) (LHsDecl RdrName)
-is_fam_decl (L loc (TyClD d@(TyFamily {}))) = Left (L loc d)
+is_fam_decl :: LHsDecl RdrName -> Either (LFamilyDecl RdrName) (LHsDecl RdrName)
+is_fam_decl (L loc (TyClD (FamDecl { tcdFam = d }))) = Left (L loc d)
 is_fam_decl decl = Right decl
 
 is_tyfam_inst :: LHsDecl RdrName -> Either (LTyFamInstDecl RdrName) (LHsDecl RdrName)

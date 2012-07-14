@@ -18,6 +18,8 @@ module HsDecls (
   isClassDecl, isDataDecl, isSynDecl, isFamilyDecl, tcdName,
   tyFamInstDeclName, tyFamInstDeclLName,
   countTyClDecls, pprTyClDeclFlavour,
+  tyClDeclLName,
+  FamilyDecl(..), LFamilyDecl,
 
   -- ** Instance declarations
   InstDecl(..), LInstDecl, NewOrData(..), FamilyFlavour(..),
@@ -429,12 +431,7 @@ data TyClDecl name
     }
 
   | -- | @type/data family T :: *->*@
-    TyFamily {  tcdFlavour :: FamilyFlavour,             -- type or data
-                tcdLName   :: Located name,              -- type constructor
-                tcdTyVars  :: LHsTyVarBndrs name,        -- type variables
-                tcdKindSig :: Maybe (LHsKind name)       -- result kind
-    }
-
+    FamDecl { tcdFam :: FamilyDecl name }
 
   | -- | @type@ declaration
     SynDecl { tcdLName  :: Located name            -- ^ Type constructor
@@ -461,13 +458,20 @@ data TyClDecl name
                 tcdFDs     :: [Located (FunDep name)],  -- ^ Functional deps
                 tcdSigs    :: [LSig name],              -- ^ Methods' signatures
                 tcdMeths   :: LHsBinds name,            -- ^ Default methods
-                tcdATs     :: [LTyClDecl name],         -- ^ Associated types; ie
-                                                        --   only 'TyFamily'
+                tcdATs     :: [LFamilyDecl name],       -- ^ Associated types; ie
                 tcdATDefs  :: [LTyFamInstDecl name],    -- ^ Associated type defaults
                 tcdDocs    :: [LDocDecl],               -- ^ Haddock docs
                 tcdFVs     :: NameSet
     }
   deriving (Data, Typeable)
+
+type LFamilyDecl name = Located (FamilyDecl name)
+data FamilyDecl name = FamilyDecl
+  { fdFlavour :: FamilyFlavour              -- type or data
+  , fdLName   :: Located name               -- type constructor
+  , fdTyVars  :: LHsTyVarBndrs name         -- type variables
+  , fdKindSig :: Maybe (LHsKind name) }     -- result kind
+  deriving( Data, Typeable )
 
 data FamilyFlavour
   = TypeFamily
@@ -498,7 +502,7 @@ isClassDecl _              = False
 
 -- | type family declaration
 isFamilyDecl :: TyClDecl name -> Bool
-isFamilyDecl (TyFamily {}) = True
+isFamilyDecl (FamDecl {})  = True
 isFamilyDecl _other        = False
 \end{code}
 
@@ -517,8 +521,12 @@ tyFamInstDeclLName (TyFamInstDecl { tfid_eqns =
   = ln
 tyFamInstDeclLName decl = pprPanic "tyFamInstDeclLName" (ppr decl)
 
+tyClDeclLName :: TyClDecl name -> Located name
+tyClDeclLName (FamDecl { tcdFam = FamilyDecl { fdLName = ln } }) = ln
+tyClDeclLName decl = tcdLName decl
+
 tcdName :: TyClDecl name -> name
-tcdName decl = unLoc (tcdLName decl)
+tcdName = unLoc . tyClDeclLName
 \end{code}
 
 \begin{code}
@@ -545,18 +553,7 @@ instance OutputableBndr name
     ppr (ForeignType {tcdLName = ltycon})
         = hsep [ptext (sLit "foreign import type dotnet"), ppr ltycon]
 
-    ppr (TyFamily {tcdFlavour = flavour, tcdLName = ltycon, 
-                   tcdTyVars = tyvars, tcdKindSig = mb_kind})
-      = pp_flavour <+> pp_vanilla_decl_head ltycon tyvars [] <+> pp_kind
-        where
-          pp_flavour = case flavour of
-                         TypeFamily -> ptext (sLit "type family")
-                         DataFamily -> ptext (sLit "data family")
-
-          pp_kind = case mb_kind of
-                      Nothing   -> empty
-                      Just kind -> dcolon <+> ppr kind
-
+    ppr (FamDecl { tcdFam = decl }) = ppr decl
     ppr (SynDecl { tcdLName = ltycon, tcdTyVars = tyvars, tcdRhs = rhs })
       = hang (ptext (sLit "type") <+>
               pp_vanilla_decl_head ltycon tyvars [] <+> equals)
@@ -582,6 +579,19 @@ instance OutputableBndr name
                      <+> pp_vanilla_decl_head lclas tyvars (unLoc context)
                      <+> pprFundeps (map unLoc fds)
 
+instance (OutputableBndr name) => Outputable (FamilyDecl name) where
+  ppr (FamilyDecl { fdFlavour = flavour, fdLName = ltycon, 
+                    fdTyVars = tyvars, fdKindSig = mb_kind})
+      = ppr flavour <+> pp_vanilla_decl_head ltycon tyvars [] <+> pp_kind
+        where
+          pp_kind = case mb_kind of
+                      Nothing   -> empty
+                      Just kind -> dcolon <+> ppr kind
+
+instance Outputable FamilyFlavour where
+  ppr TypeFamily = ptext (sLit "type family")
+  ppr DataFamily = ptext (sLit "data family")
+
 pp_vanilla_decl_head :: OutputableBndr name
    => Located name
    -> LHsTyVarBndrs name
@@ -600,12 +610,12 @@ pp_fam_inst_lhs thing (HsWB { hswb_cts = typats }) context -- explicit type patt
           , hsep (map (pprParendHsType.unLoc) typats)]
 
 pprTyClDeclFlavour :: TyClDecl a -> SDoc
-pprTyClDeclFlavour (ClassDecl {})                = ptext (sLit "class")
-pprTyClDeclFlavour (TyFamily {})                 = ptext (sLit "family")
-pprTyClDeclFlavour (SynDecl {})                   = ptext (sLit "type")
+pprTyClDeclFlavour (ClassDecl {})  = ptext (sLit "class")
+pprTyClDeclFlavour (FamDecl {})    = ptext (sLit "family")
+pprTyClDeclFlavour (SynDecl {})    = ptext (sLit "type")
 pprTyClDeclFlavour (DataDecl { tcdDataDefn = (HsDataDefn { dd_ND = nd }) })
   = ppr nd
-pprTyClDeclFlavour (ForeignType {})              = ptext (sLit "foreign type")
+pprTyClDeclFlavour (ForeignType {}) = ptext (sLit "foreign type")
 \end{code}
 
 %************************************************************************
