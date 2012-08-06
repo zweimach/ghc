@@ -279,6 +279,8 @@ data DynFlag
    | Opt_LlvmTBAA                       -- Use LLVM TBAA infastructure for improving AA (hidden flag)
    | Opt_RegLiveness                    -- Use the STG Reg liveness information (hidden flag)
    | Opt_IrrefutableTuples
+   | Opt_CmmSink
+   | Opt_CmmElimCommonBlocks
 
    -- Interface files
    | Opt_IgnoreInterfacePragmas
@@ -670,6 +672,9 @@ data Settings = Settings {
   sRawSettings           :: [(String, String)],
   sExtraGccViaCFlags     :: [String],
   sSystemPackageConfig   :: FilePath,
+  sLdSupportsCompactUnwind :: Bool,
+  sLdSupportsBuildId       :: Bool,
+  sLdIsGnuLd               :: Bool,
   -- commands for particular phases
   sPgm_L                 :: String,
   sPgm_P                 :: (String,[Option]),
@@ -2039,6 +2044,8 @@ fFlags = [
   ( "llvm-tbaa",                        Opt_LlvmTBAA, nop), -- hidden flag
   ( "regs-liveness",                    Opt_RegLiveness, nop), -- hidden flag
   ( "irrefutable-tuples",               Opt_IrrefutableTuples, nop ),
+  ( "cmm-sink",                         Opt_CmmSink, nop ),
+  ( "cmm-elim-common-blocks",           Opt_CmmElimCommonBlocks, nop ),
   ( "gen-manifest",                     Opt_GenManifest, nop ),
   ( "embed-manifest",                   Opt_EmbedManifest, nop ),
   ( "ext-core",                         Opt_EmitExternalCore, nop ),
@@ -2311,6 +2318,8 @@ optLevelFlags
     , ([2],     Opt_RegsGraph)
     , ([0,1,2], Opt_LlvmTBAA)
     , ([0,1,2], Opt_RegLiveness)
+    , ([1,2],   Opt_CmmSink)
+    , ([1,2],   Opt_CmmElimCommonBlocks)
 
 --     , ([2],     Opt_StaticArgumentTransformation)
 -- Max writes: I think it's probably best not to enable SAT with -O2 for the
@@ -2900,8 +2909,6 @@ compilerInfo dflags
        ("Leading underscore",          cLeadingUnderscore),
        ("Debug on",                    show debugIsOn),
        ("LibDir",                      topDir dflags),
-       ("Global Package DB",           systemPackageConfig dflags),
-       ("Gcc Linker flags",            show cGccLinkerOpts),
-       ("Ld Linker flags",             show cLdLinkerOpts)
+       ("Global Package DB",           systemPackageConfig dflags)
       ]
 
