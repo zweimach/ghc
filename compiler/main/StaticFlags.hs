@@ -40,9 +40,6 @@ module StaticFlags (
 	opt_SuppressTypeSignatures,
         opt_SuppressVarKinds,
 
-	-- profiling opts
-	opt_SccProfilingOn,
-
         -- Hpc opts
 	opt_Hpc,
 
@@ -70,7 +67,6 @@ module StaticFlags (
 	opt_Fuel,
 
 	-- Related to linking
-	opt_PIC,
 	opt_Static,
 
 	-- misc opts
@@ -251,10 +247,6 @@ opt_Fuel                        = lookup_def_int "-dopt-fuel" maxBound
 opt_NoDebugOutput   :: Bool
 opt_NoDebugOutput               = lookUp  (fsLit "-dno-debug-output")
 
--- profiling opts
-opt_SccProfilingOn :: Bool
-opt_SccProfilingOn		= lookUp  (fsLit "-fscc-profiling")
-
 -- Hpc opts
 opt_Hpc :: Bool
 opt_Hpc				= lookUp (fsLit "-fhpc")
@@ -317,14 +309,6 @@ opt_UF_DearOp            = ( 40 :: Int)
 
 
 -- Related to linking
-opt_PIC :: Bool
-#if darwin_TARGET_OS && x86_64_TARGET_ARCH
-opt_PIC                         = True
-#elif darwin_TARGET_OS
-opt_PIC                         = lookUp (fsLit "-fPIC") || not opt_Static
-#else
-opt_PIC                         = lookUp (fsLit "-fPIC")
-#endif
 opt_Static :: Bool
 opt_Static			= lookUp  (fsLit "-static")
 opt_Unregisterised :: Bool

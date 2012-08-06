@@ -30,6 +30,7 @@
 --
 -- A useful example pass over Cmm is in nativeGen/MachCodeGen.hs
 
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# LANGUAGE GADTs, TypeFamilies, FlexibleContexts #-}
 module PprCmm
   ( module PprCmmDecl
@@ -99,7 +100,7 @@ pprStackInfo (StackInfo {arg_space=arg_space, updfr_space=updfr_space}) =
   ptext (sLit "updfr_space: ") <> ppr updfr_space
 
 pprTopInfo :: CmmTopInfo -> SDoc
-pprTopInfo (TopInfo {info_tbl=info_tbl, stack_info=stack_info}) =
+pprTopInfo (TopInfo {info_tbls=info_tbl, stack_info=stack_info}) =
   vcat [ptext (sLit "info_tbl: ") <> ppr info_tbl,
         ptext (sLit "stack_info: ") <> ppr stack_info]
 
@@ -230,12 +231,17 @@ pprNode node = pp_node <+> pp_debug
       CmmCall tgt k regs out res updfr_off ->
           hcat [ ptext (sLit "call"), space
                , pprFun tgt, parens (interpp'SP regs), space
-               , ptext (sLit "returns to") <+> ppr k <+> parens (ppr out)
-                                                     <+> parens (ppr res)
-               , ptext (sLit " with update frame") <+> ppr updfr_off
+               , returns <+>
+                 ptext (sLit "args: ") <> ppr out <> comma <+>
+                 ptext (sLit "res: ") <> ppr res <> comma <+>
+                 ptext (sLit "upd: ") <> ppr updfr_off
                , semi ]
           where pprFun f@(CmmLit _) = ppr f
                 pprFun f = parens (ppr f)
+
+                returns
+                  | Just r <- k = ptext (sLit "returns to") <+> ppr r <> comma
+                  | otherwise   = empty
 
       CmmForeignCall {tgt=t, res=rs, args=as, succ=s, updfr=u, intrbl=i} ->
           hcat $ if i then [ptext (sLit "interruptible"), space] else [] ++
@@ -244,7 +250,7 @@ pprNode node = pp_node <+> pp_debug
                , ptext (sLit "returns to") <+> ppr s
                     <+> ptext (sLit "args:") <+> parens (ppr as)
                     <+> ptext (sLit "ress:") <+> parens (ppr rs)
-               , ptext (sLit " with update frame") <+> ppr u
+               , ptext (sLit "upd:") <+> ppr u
                , semi ]
 
     pp_debug :: SDoc

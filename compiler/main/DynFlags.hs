@@ -11,6 +11,9 @@
 --
 -------------------------------------------------------------------------------
 
+{-# OPTIONS_GHC -fno-warn-missing-fields #-}
+-- So that tracingSettings works properly
+
 module DynFlags (
         -- * Dynamic flags and associated configuration types
         DynFlag(..),
@@ -94,7 +97,7 @@ module DynFlags (
         supportedLanguagesAndExtensions,
 
         -- ** DynFlag C compiler options
-        picCCOpts,
+        picCCOpts, picPOpts,
 
         -- * Configuration of the stg-to-stg passes
         StgToDo(..),
@@ -276,6 +279,8 @@ data DynFlag
    | Opt_LlvmTBAA                       -- Use LLVM TBAA infastructure for improving AA (hidden flag)
    | Opt_RegLiveness                    -- Use the STG Reg liveness information (hidden flag)
    | Opt_IrrefutableTuples
+   | Opt_CmmSink
+   | Opt_CmmElimCommonBlocks
 
    -- Interface files
    | Opt_IgnoreInterfacePragmas
@@ -317,6 +322,8 @@ data DynFlag
    | Opt_DeferTypeErrors
    | Opt_Parallel
    | Opt_GranMacros
+   | Opt_PIC
+   | Opt_SccProfilingOn
 
    -- output style opts
    | Opt_PprCaseAsLet
@@ -379,6 +386,7 @@ data WarningFlag =
    | Opt_WarnSafe
    | Opt_WarnPointlessPragmas
    | Opt_WarnUnsupportedCallingConventions
+   | Opt_WarnInlineRuleShadowing
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -485,6 +493,8 @@ data ExtensionFlag
    | Opt_NondecreasingIndentation
    | Opt_RelaxedLayout
    | Opt_TraditionalRecordSyntax
+   | Opt_LambdaCase
+   | Opt_MultiWayIf
    deriving (Eq, Enum, Show)
 
 -- | Contains not only a collection of 'DynFlag's but also a plethora of
@@ -662,6 +672,9 @@ data Settings = Settings {
   sRawSettings           :: [(String, String)],
   sExtraGccViaCFlags     :: [String],
   sSystemPackageConfig   :: FilePath,
+  sLdSupportsCompactUnwind :: Bool,
+  sLdSupportsBuildId       :: Bool,
+  sLdIsGnuLd               :: Bool,
   -- commands for particular phases
   sPgm_L                 :: String,
   sPgm_P                 :: (String,[Option]),
@@ -972,7 +985,7 @@ defaultDynFlags mySettings =
         dirsToClean    = panic "defaultDynFlags: No dirsToClean",
         generatedDumps = panic "defaultDynFlags: No generatedDumps",
         haddockOptions = Nothing,
-        flags = IntSet.fromList (map fromEnum defaultFlags),
+        flags = IntSet.fromList (map fromEnum (defaultFlags (sTargetPlatform mySettings))),
         warningFlags = IntSet.fromList (map fromEnum standardWarnings),
         ghciScripts = [],
         language = Nothing,
@@ -995,6 +1008,7 @@ defaultDynFlags mySettings =
         interactivePrint = Nothing
       }
 
+--------------------------------------------------------------------------
 -- Do not use tracingDynFlags!
 -- tracingDynFlags is a hack, necessary because we need to be able to
 -- show SDocs when tracing, but we don't always have DynFlags available.
@@ -1003,7 +1017,16 @@ defaultDynFlags mySettings =
 -- undefined.
 tracingDynFlags :: DynFlags
 tracingDynFlags = defaultDynFlags tracingSettings
-    where tracingSettings = panic "Settings not defined in tracingDynFlags"
+
+tracingSettings :: Settings
+tracingSettings = trace "panic: Settings not defined in tracingDynFlags" $
+                  Settings { sTargetPlatform = tracingPlatform }
+                  -- Missing flags give a nice error
+
+tracingPlatform :: Platform
+tracingPlatform = Platform { platformWordSize = 4, platformOS = OSUnknown }
+                  -- Missing flags give a nice error
+--------------------------------------------------------------------------
 
 type FatalMessager = String -> IO ()
 type LogAction = DynFlags -> Severity -> SrcSpan -> PprStyle -> MsgDoc -> IO ()
@@ -1015,7 +1038,7 @@ defaultLogAction :: LogAction
 defaultLogAction dflags severity srcSpan style msg
     = case severity of
       SevOutput -> printSDoc msg style
-      SevDump   -> hPrintDump dflags stdout msg
+      SevDump   -> printSDoc (msg $$ blankLine) style
       SevInfo   -> printErrs msg style
       SevFatal  -> printErrs msg style
       _         -> do hPutChar stderr '\n'
@@ -1840,6 +1863,8 @@ dynamic_flags = [
         ------ Safe Haskell flags -------------------------------------------
   , Flag "fpackage-trust"   (NoArg setPackageTrust)
   , Flag "fno-safe-infer"   (NoArg (setSafeHaskell Sf_None))
+  , Flag "fPIC"             (NoArg setFPIC)
+  , Flag "fno-PIC"          (NoArg unSetFPIC)
  ]
  ++ map (mkFlag turnOn  ""     setDynFlag  ) negatableFlags
  ++ map (mkFlag turnOff "no-"  unSetDynFlag) negatableFlags
@@ -1963,7 +1988,8 @@ fWarningFlags = [
   ( "warn-unsafe",                      Opt_WarnUnsafe, setWarnUnsafe ),
   ( "warn-safe",                        Opt_WarnSafe, setWarnSafe ),
   ( "warn-pointless-pragmas",           Opt_WarnPointlessPragmas, nop ),
-  ( "warn-unsupported-calling-conventions", Opt_WarnUnsupportedCallingConventions, nop ) ]
+  ( "warn-unsupported-calling-conventions", Opt_WarnUnsupportedCallingConventions, nop ),
+  ( "warn-inline-rule-shadowing",       Opt_WarnInlineRuleShadowing, nop ) ]
 
 -- | These @-\<blah\>@ flags can all be reversed with @-no-\<blah\>@
 negatableFlags :: [FlagSpec DynFlag]
@@ -2018,6 +2044,8 @@ fFlags = [
   ( "llvm-tbaa",                        Opt_LlvmTBAA, nop), -- hidden flag
   ( "regs-liveness",                    Opt_RegLiveness, nop), -- hidden flag
   ( "irrefutable-tuples",               Opt_IrrefutableTuples, nop ),
+  ( "cmm-sink",                         Opt_CmmSink, nop ),
+  ( "cmm-elim-common-blocks",           Opt_CmmElimCommonBlocks, nop ),
   ( "gen-manifest",                     Opt_GenManifest, nop ),
   ( "embed-manifest",                   Opt_EmbedManifest, nop ),
   ( "ext-core",                         Opt_EmitExternalCore, nop ),
@@ -2027,6 +2055,7 @@ fFlags = [
   ( "helpful-errors",                   Opt_HelpfulErrors, nop ),
   ( "defer-type-errors",                Opt_DeferTypeErrors, nop ),
   ( "parallel",                         Opt_Parallel, nop ),
+  ( "scc-profiling",                    Opt_SccProfilingOn, nop ),
   ( "gransim",                          Opt_GranMacros, nop ),
   ( "building-cabal-package",           Opt_BuildingCabalPackage, nop ),
   ( "implicit-import-qualified",        Opt_ImplicitImportQualified, nop ),
@@ -2162,6 +2191,8 @@ xFlags = [
   ( "NondecreasingIndentation",         Opt_NondecreasingIndentation, nop ),
   ( "RelaxedLayout",                    Opt_RelaxedLayout, nop ),
   ( "TraditionalRecordSyntax",          Opt_TraditionalRecordSyntax, nop ),
+  ( "LambdaCase",                       Opt_LambdaCase, nop ),
+  ( "MultiWayIf",                       Opt_MultiWayIf, nop ),
   ( "MonoLocalBinds",                   Opt_MonoLocalBinds, nop ),
   ( "RelaxedPolyRec",                   Opt_RelaxedPolyRec,
     \ turn_on -> if not turn_on
@@ -2195,8 +2226,8 @@ xFlags = [
   ( "PackageImports",                   Opt_PackageImports, nop )
   ]
 
-defaultFlags :: [DynFlag]
-defaultFlags
+defaultFlags :: Platform -> [DynFlag]
+defaultFlags platform
   = [ Opt_AutoLinkPackages,
 
       Opt_SharedImplib,
@@ -2216,6 +2247,14 @@ defaultFlags
 
     ++ [f | (ns,f) <- optLevelFlags, 0 `elem` ns]
              -- The default -O0 options
+
+    ++ (case platformOS platform of
+        OSDarwin ->
+            case platformArch platform of
+            ArchX86_64         -> [Opt_PIC]
+            _ | not opt_Static -> [Opt_PIC]
+            _                  -> []
+        _ -> [])
 
 impliedFlags :: [(ExtensionFlag, TurnOnFlag, ExtensionFlag)]
 impliedFlags
@@ -2279,6 +2318,8 @@ optLevelFlags
     , ([2],     Opt_RegsGraph)
     , ([0,1,2], Opt_LlvmTBAA)
     , ([0,1,2], Opt_RegLiveness)
+    , ([1,2],   Opt_CmmSink)
+    , ([1,2],   Opt_CmmElimCommonBlocks)
 
 --     , ([2],     Opt_StaticArgumentTransformation)
 -- Max writes: I think it's probably best not to enable SAT with -O2 for the
@@ -2314,7 +2355,8 @@ standardWarnings
         Opt_WarnWrongDoBind,
         Opt_WarnAlternativeLayoutRuleTransitional,
         Opt_WarnPointlessPragmas,
-        Opt_WarnUnsupportedCallingConventions
+        Opt_WarnUnsupportedCallingConventions,
+        Opt_WarnInlineRuleShadowing
       ]
 
 minusWOpts :: [WarningFlag]
@@ -2612,7 +2654,7 @@ setObjTarget l = updM set
                 return dflags
          HscLlvm
           | not ((arch == ArchX86_64) && (os == OSLinux || os == OSDarwin)) &&
-            (not opt_Static || opt_PIC)
+            (not opt_Static || dopt Opt_PIC dflags)
             ->
              do addWarn ("Ignoring " ++ flag ++ " as it is incompatible with -fPIC and -dynamic on this platform")
                 return dflags
@@ -2622,6 +2664,37 @@ setObjTarget l = updM set
            arch = platformArch platform
            os   = platformOS   platform
            flag = showHscTargetFlag l
+
+setFPIC :: DynP ()
+setFPIC = updM set
+  where
+   set dflags
+    | cGhcWithNativeCodeGen == "YES" || cGhcUnregisterised == "YES"
+       = let platform = targetPlatform dflags
+         in case hscTarget dflags of
+            HscLlvm
+             | (platformArch platform == ArchX86_64) &&
+               (platformOS platform `elem` [OSLinux, OSDarwin]) ->
+                do addWarn "Ignoring -fPIC as it is incompatible with LLVM on this platform"
+                   return dflags
+            _ -> return $ dopt_set dflags Opt_PIC
+    | otherwise
+       = ghcError $ CmdLineError "-fPIC is not supported on this platform"
+
+unSetFPIC :: DynP ()
+unSetFPIC = updM set
+  where
+   set dflags
+       = let platform = targetPlatform dflags
+         in case platformOS platform of
+            OSDarwin
+             | platformArch platform == ArchX86_64 ->
+                do addWarn "Ignoring -fno-PIC on this platform"
+                   return dflags
+            _ | not opt_Static ->
+                do addWarn "Ignoring -fno-PIC as -fstatic is off"
+                   return dflags
+            _ -> return $ dopt_unset dflags Opt_PIC
 
 setOptLevel :: Int -> DynFlags -> DynP DynFlags
 setOptLevel n dflags
@@ -2782,19 +2855,24 @@ picCCOpts dflags
           --     Don't generate "common" symbols - these are unwanted
           --     in dynamic libraries.
 
-       | opt_PIC   -> ["-fno-common", "-U __PIC__", "-D__PIC__"]
-       | otherwise -> ["-mdynamic-no-pic"]
+       | dopt Opt_PIC dflags -> ["-fno-common", "-U __PIC__", "-D__PIC__"]
+       | otherwise           -> ["-mdynamic-no-pic"]
       OSMinGW32 -- no -fPIC for Windows
-       | opt_PIC   -> ["-U __PIC__", "-D__PIC__"]
-       | otherwise -> []
+       | dopt Opt_PIC dflags -> ["-U __PIC__", "-D__PIC__"]
+       | otherwise           -> []
       _
       -- we need -fPIC for C files when we are compiling with -dynamic,
       -- otherwise things like stub.c files don't get compiled
       -- correctly.  They need to reference data in the Haskell
       -- objects, but can't without -fPIC.  See
       -- http://hackage.haskell.org/trac/ghc/wiki/Commentary/PositionIndependentCode
-       | opt_PIC || not opt_Static -> ["-fPIC", "-U __PIC__", "-D__PIC__"]
-       | otherwise                 -> []
+       | dopt Opt_PIC dflags || not opt_Static -> ["-fPIC", "-U __PIC__", "-D__PIC__"]
+       | otherwise                             -> []
+
+picPOpts :: DynFlags -> [String]
+picPOpts dflags
+ | dopt Opt_PIC dflags = ["-U __PIC__", "-D__PIC__"]
+ | otherwise           = []
 
 -- -----------------------------------------------------------------------------
 -- Splitting
@@ -2831,8 +2909,6 @@ compilerInfo dflags
        ("Leading underscore",          cLeadingUnderscore),
        ("Debug on",                    show debugIsOn),
        ("LibDir",                      topDir dflags),
-       ("Global Package DB",           systemPackageConfig dflags),
-       ("Gcc Linker flags",            show cGccLinkerOpts),
-       ("Ld Linker flags",             show cLdLinkerOpts)
+       ("Global Package DB",           systemPackageConfig dflags)
       ]
 

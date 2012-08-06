@@ -12,14 +12,14 @@ import CmmUtils
 import qualified OldCmm as Old
 import OldPprCmm ()
 
-import Hoopl hiding ((<*>), mkLabel, mkBranch)
+import Hoopl
 import Data.Maybe
 import Maybes
 import Outputable
 
 cmmOfZgraph :: CmmGroup -> Old.CmmGroup
 cmmOfZgraph tops = map mapTop tops
-  where mapTop (CmmProc h l g) = CmmProc (info_tbl h) l (ofZgraph g)
+  where mapTop (CmmProc h l g) = CmmProc (info_tbls h) l (ofZgraph g)
         mapTop (CmmData s ds) = CmmData s ds
 
 data ValueDirection = Arguments | Results

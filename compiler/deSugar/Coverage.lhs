@@ -23,7 +23,6 @@ import VarSet
 import Data.List
 import FastString
 import HscTypes
-import Platform
 import StaticFlags
 import TyCon
 import Unique
@@ -254,6 +253,8 @@ addTickLHsBind (L pos bind@(AbsBinds { abs_binds   = binds,
 
 
 addTickLHsBind (L pos (funBind@(FunBind { fun_id = (L _ id)  }))) = do
+  env <- getEnv
+  let dflags = tte_dflags env
   let name = getOccString id
   decl_path <- getPathEntry
   density <- getDensity
@@ -263,7 +264,7 @@ addTickLHsBind (L pos (funBind@(FunBind { fun_id = (L _ id)  }))) = do
                  || id `elemVarSet` inline_ids
 
   -- See Note [inline sccs]
-  if inline && opt_SccProfilingOn then return (L pos funBind) else do
+  if inline && dopt Opt_SccProfilingOn dflags then return (L pos funBind) else do
 
   (fvs, (MatchGroup matches' ty)) <-
         getFreeVars $
@@ -423,6 +424,7 @@ isGoodBreakExpr (HsApp {})     = True
 isGoodBreakExpr (OpApp {})     = True
 isGoodBreakExpr (NegApp {})    = True
 isGoodBreakExpr (HsIf {})      = True
+isGoodBreakExpr (HsMultiIf {}) = True
 isGoodBreakExpr (HsCase {})    = True
 isGoodBreakExpr (RecordCon {}) = True
 isGoodBreakExpr (RecordUpd {}) = True
@@ -458,6 +460,8 @@ addTickHsExpr e@(HsOverLit _) = return e
 addTickHsExpr e@(HsLit _) = return e
 addTickHsExpr (HsLam matchgroup) =
         liftM HsLam (addTickMatchGroup True matchgroup)
+addTickHsExpr (HsLamCase ty mgs) =
+        liftM (HsLamCase ty) (addTickMatchGroup True mgs)
 addTickHsExpr (HsApp e1 e2) =
         liftM2 HsApp (addTickLHsExprNever e1) (addTickLHsExpr e2)
 addTickHsExpr (OpApp e1 e2 fix e3) =
@@ -494,6 +498,10 @@ addTickHsExpr (HsIf cnd e1 e2 e3) =
                 (addBinTickLHsExpr (BinBox CondBinBox) e1)
                 (addTickLHsExprOptAlt True e2)
                 (addTickLHsExprOptAlt True e3)
+addTickHsExpr (HsMultiIf ty alts)
+  = do { let isOneOfMany = case alts of [_] -> False; _ -> True
+       ; alts' <- mapM (liftL $ addTickGRHS isOneOfMany False) alts
+       ; return $ HsMultiIf ty alts' }
 addTickHsExpr (HsLet binds e) =
         bindLocals (collectLocalBinders binds) $
         liftM2 HsLet
@@ -1047,12 +1055,14 @@ mkTickish boxLabel countEntries topOnly pos fvs decl_path =
 
         cc = mkUserCC (mkFastString cc_name) (this_mod env) pos (mkCostCentreUnique c)
 
-        count = countEntries && dopt Opt_ProfCountEntries (tte_dflags env)
+        dflags = tte_dflags env
+
+        count = countEntries && dopt Opt_ProfCountEntries dflags
 
         tickish
-          | opt_Hpc            = HpcTick (this_mod env) c
-          | opt_SccProfilingOn = ProfNote cc count True{-scopes-}
-          | otherwise          = Breakpoint c ids
+          | opt_Hpc                        = HpcTick (this_mod env) c
+          | dopt Opt_SccProfilingOn dflags = ProfNote cc count True{-scopes-}
+          | otherwise                      = Breakpoint c ids
     in
     ( tickish
     , fvs
@@ -1147,9 +1157,9 @@ static void hpc_init_Main(void)
  hs_hpc_module("Main",8,1150288664,_hpc_tickboxes_Main_hpc);}
 
 \begin{code}
-hpcInitCode :: Platform -> Module -> HpcInfo -> SDoc
-hpcInitCode _ _ (NoHpcInfo {}) = empty
-hpcInitCode platform this_mod (HpcInfo tickCount hashNo)
+hpcInitCode :: Module -> HpcInfo -> SDoc
+hpcInitCode _ (NoHpcInfo {}) = empty
+hpcInitCode this_mod (HpcInfo tickCount hashNo)
  = vcat
     [ text "static void hpc_init_" <> ppr this_mod
          <> text "(void) __attribute__((constructor));"
@@ -1167,7 +1177,7 @@ hpcInitCode platform this_mod (HpcInfo tickCount hashNo)
        ])
     ]
   where
-    tickboxes = pprCLabel platform (mkHpcTicksLabel $ this_mod)
+    tickboxes = ppr (mkHpcTicksLabel $ this_mod)
 
     module_name  = hcat (map (text.charToC) $
                          bytesFS (moduleNameFS (Module.moduleName this_mod)))
