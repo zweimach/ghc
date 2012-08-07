@@ -471,14 +471,14 @@ tcLocalInstDecl (L loc (TyFamInstD { tfid_inst = decl }))
   = setSrcSpan loc      $
     tcAddTyFamInstCtxt decl  $
     do { fam_tc <- tcFamInstDeclCombined TopLevel (tyFamInstDeclLName decl)
-       ; fam_inst <- tcTyFamInstDecl loc fam_tc decl
-       ; return ([], [fam_inst]) }
+       ; fam_insts <- tcTyFamInstDecl fam_tc decl
+       ; return ([], fam_insts) }
 
 tcLocalInstDecl (L loc (DataFamInstD { dfid_inst = decl }))
   = setSrcSpan loc      $
     tcAddDataFamInstCtxt decl  $
     do { fam_tc <- tcFamInstDeclCombined TopLevel (dfid_tycon decl)
-       ; fam_inst <- tcDataFamInstDecl loc fam_tc decl
+       ; fam_inst <- tcDataFamInstDecl fam_tc decl
        ; return ([], [fam_inst]) }
 
 tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
@@ -501,8 +501,9 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                            
         -- Next, process any associated types.
         ; traceTc "tcLocalInstDecl" (ppr poly_ty)
-        ; tyfam_insts0 <- tcExtendTyVarEnv tyvars $
+        ; tyfam_instss0 <- tcExtendTyVarEnv tyvars $
                           mapAndRecoverM tcAssocTyDecl ats
+        ; let tyfam_insts0 = concat tyfam_instss0
         ; datafam_insts <- tcExtendTyVarEnv tyvars $
                            mapAndRecoverM tcAssocDataDecl adts
 
@@ -531,14 +532,14 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                  --            instance C [x]
                  -- Then we want to generate the decl:   type F [x] b = ()
                 | otherwise 
-                = forM defs $ \(ATD _tvs pat_tys rhs loc) ->
+                = forM defs $ \(ATD _tvs pat_tys rhs _loc) ->
                   do { let pat_tys' = substTys mini_subst pat_tys
                            rhs'     = substTy  mini_subst rhs
                            tv_set'  = tyVarsOfTypes pat_tys'
                            tvs'     = varSetElems tv_set'
                      ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
                      ; ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
-                       return (mkSynFamInst loc rep_tc_name tvs' fam_tc pat_tys' rhs') }
+                       return (mkSynFamInst rep_tc_name tvs' fam_tc pat_tys' rhs') }
 
         ; tyfam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
         
@@ -586,23 +587,30 @@ tcFamInstDeclCombined top_lvl fam_tc_lname
 
        ; return fam_tc }
 
-tcTyFamInstDecl :: SrcSpan -> TyCon -> TyFamInstDecl Name -> TcM FamInst
+tcTyFamInstDecl :: TyCon -> TyFamInstDecl Name -> TcM [FamInst]
   -- "type instance"
-tcTyFamInstDecl loc fam_tc decl
-  = do { -- (1) do the work of verifying the synonym
-       ; (t_tvs, t_typats, t_rhs) <- tcSynFamInstDecl fam_tc decl
+tcTyFamInstDecl fam_tc decl
+  = do { -- (1) do the work of verifying the synonym group
+       ; quads <- tcSynFamInstDecl fam_tc decl
 
-         -- (2) check the well-formedness of the instance
-       ; checkValidFamInst t_typats t_rhs
+         -- ... and then do processing seperately per instance equation
+       ; mapM check_valid_mk_fam_inst quads }
 
-         -- (3) construct representation tycon
-       ; rep_tc_name <- newFamInstAxiomName (tyFamInstDeclLName decl) t_typats
+    where check_valid_mk_fam_inst :: ([TyVar], [Type], Type, SrcSpan) -> TcM FamInst
+          check_valid_mk_fam_inst (t_tvs, t_typats, t_rhs, loc)
+            = setSrcSpan loc $
+              do { -- (2) check the well-formedness of the instance
+                   checkValidFamInst t_typats t_rhs
 
-       ; return (mkSynFamInst loc rep_tc_name t_tvs fam_tc t_typats t_rhs) }
+                   -- (3) construct representation tycon
+                 ; rep_tc_name <- newFamInstAxiomName loc (tyFamInstDeclName decl) t_typats
 
-tcDataFamInstDecl :: SrcSpan -> TyCon -> DataFamInstDecl Name -> TcM FamInst
+                 ; return $ mkSynFamInst rep_tc_name t_tvs fam_tc t_typats t_rhs }
+
+
+tcDataFamInstDecl :: TyCon -> DataFamInstDecl Name -> TcM FamInst
   -- "newtype instance" and "data instance"
-tcDataFamInstDecl loc fam_tc 
+tcDataFamInstDecl fam_tc 
     (DataFamInstDecl { dfid_pats = pats
                      , dfid_tycon = fam_tc_name
                      , dfid_defn = defn@HsDataDefn { dd_ND = new_or_data, dd_cType = cType
@@ -639,7 +647,7 @@ tcDataFamInstDecl loc fam_tc
                      DataType -> return (mkDataTyConRhs data_cons)
                      NewType  -> ASSERT( not (null data_cons) )
                                  mkNewTyConRhs rep_tc_name rec_rep_tc (head data_cons)
-              ; let fam_inst = mkDataFamInst loc axiom_name tvs' fam_tc pats' rep_tc
+              ; let fam_inst = mkDataFamInst axiom_name tvs' fam_tc pats' rep_tc
                     parent   = FamInstTyCon (famInstAxiom fam_inst) fam_tc pats'
                     rep_tc   = buildAlgTyCon rep_tc_name tvs' cType stupid_theta tc_rhs 
                                              Recursive h98_syntax parent
@@ -665,7 +673,7 @@ tcAssocFamInst :: Class              -- ^ Class of associated type
                -> FamInst            -- ^ RHS
                -> TcM ()
 tcAssocFamInst clas mini_env fam_inst
-  = setSrcSpan (fi_loc fam_inst) $
+  = setSrcSpan (getSrcSpan fam_inst) $
     tcAddFamInstCtxt (pprFamFlavor (fi_flavor fam_inst)) (fi_fam fam_inst) $
     do { let (fam_tc, at_tys) = famInstLHS fam_inst
 
@@ -687,12 +695,12 @@ tcAssocFamInst clas mini_env fam_inst
                     -- See Note [Associated type instances]
 
 tcAssocTyDecl :: LTyFamInstDecl Name
-              -> TcM FamInst
+              -> TcM [FamInst]
 tcAssocTyDecl (L loc decl)
   = setSrcSpan loc $
     tcAddTyFamInstCtxt decl $
     do { fam_tc <- tcFamInstDeclCombined NotTopLevel (tyFamInstDeclLName decl)
-       ; tcTyFamInstDecl loc fam_tc decl }
+       ; tcTyFamInstDecl fam_tc decl }
 
 tcAssocDataDecl :: LDataFamInstDecl Name -- ^ RHS
                 -> TcM FamInst
@@ -700,7 +708,7 @@ tcAssocDataDecl (L loc decl)
   = setSrcSpan loc $
     tcAddDataFamInstCtxt decl $
     do { fam_tc <- tcFamInstDeclCombined NotTopLevel (dfid_tycon decl)
-       ; tcDataFamInstDecl loc fam_tc decl }
+       ; tcDataFamInstDecl fam_tc decl }
 \end{code}
 
 

@@ -76,7 +76,6 @@ data FamInst  -- See Note [FamInsts and CoAxioms]
   = FamInst { fi_axiom  :: CoAxiom      -- The new coercion axiom introduced
                                         -- by this family instance
             , fi_flavor :: FamFlavor
-            , fi_loc    :: SrcSpan
 
             -- Everything below here is a redundant, 
             -- cached version of the two things above
@@ -176,22 +175,20 @@ pprFamFlavor (DataFamilyInst tycon)
 -- It has the form @Co tvs :: F ts ~ R@, where @Co@ is 
 -- the coercion constructor built here, @F@ the family tycon and @R@ the
 -- right-hand side of the type family instance.
-mkSynFamInst :: SrcSpan    -- ^ Source location for the family instance
-             -> Name       -- ^ Unique name for the coercion tycon
+mkSynFamInst :: Name       -- ^ Unique name for the coercion tycon
              -> [TyVar]    -- ^ Type parameters of the coercion (@tvs@)
              -> TyCon      -- ^ Family tycon (@F@)
              -> [Type]     -- ^ Type instance (@ts@)
              -> Type       -- ^ Representation tycon (@R@)
              -> FamInst
-mkSynFamInst loc name tvs fam_tc inst_tys rep_ty
+mkSynFamInst name tvs fam_tc inst_tys rep_ty
   = FamInst { fi_fam    = tyConName fam_tc,
               fi_fam_tc = fam_tc,
               fi_tcs    = roughMatchTcs inst_tys,
               fi_tvs    = mkVarSet tvs,
               fi_tys    = inst_tys,
               fi_flavor = SynFamilyInst,
-              fi_axiom  = axiom,
-              fi_loc    = loc }
+              fi_axiom  = axiom }
   where
     axiom = CoAxiom { co_ax_unique   = nameUnique name
                     , co_ax_name     = name
@@ -204,22 +201,20 @@ mkSynFamInst loc name tvs fam_tc inst_tys rep_ty
 -- and its family instance.  It has the form @Co tvs :: F ts ~ R tvs@,
 -- where @Co@ is the coercion constructor built here, @F@ the family tycon
 -- and @R@ the (derived) representation tycon.
-mkDataFamInst :: SrcSpan      -- ^ source location for the family instance
-              -> Name         -- ^ Unique name for the coercion tycon
+mkDataFamInst :: Name         -- ^ Unique name for the coercion tycon
               -> [TyVar]      -- ^ Type parameters of the coercion (@tvs@)
               -> TyCon        -- ^ Family tycon (@F@)
               -> [Type]       -- ^ Type instance (@ts@)
               -> TyCon        -- ^ Representation tycon (@R@)
               -> FamInst
-mkDataFamInst loc name tvs fam_tc inst_tys rep_tc
+mkDataFamInst name tvs fam_tc inst_tys rep_tc
   = FamInst { fi_fam    = tyConName fam_tc,
               fi_fam_tc = fam_tc,
               fi_tcs    = roughMatchTcs inst_tys,
               fi_tvs    = mkVarSet tvs,
               fi_tys    = inst_tys,
               fi_flavor = DataFamilyInst rep_tc,
-              fi_axiom  = axiom,
-              fi_loc    = loc }
+              fi_axiom  = axiom }
   where
     axiom = CoAxiom { co_ax_unique   = nameUnique name
                     , co_ax_name     = name
@@ -243,8 +238,7 @@ mkImportedFamInst fam mb_tcs axiom
       fi_tvs    = mkVarSet . coAxiomTyVars $ axiom,
       fi_tys    = tys,
       fi_axiom  = axiom,
-      fi_flavor = flavor,
-      fi_loc    = noSrcSpan }
+      fi_flavor = flavor }
   where 
      (fam_tc, tys) = coAxiomSplitLHS axiom
 

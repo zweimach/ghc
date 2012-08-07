@@ -36,7 +36,7 @@ buildPReprTyCon orig_tc vect_tc repr
  = do name      <- mkLocalisedName mkPReprTyConOcc (tyConName orig_tc)
       rhs_ty    <- sumReprType repr
       prepr_tc  <- builtin preprTyCon
-      return $ mkSynFamInst noSrcSpan name tyvars prepr_tc instTys rhs_ty
+      return $ mkSynFamInst name tyvars prepr_tc instTys rhs_ty
   where
     tyvars = tyConTyVars vect_tc
     instTys = [mkTyConApp vect_tc . mkTyVarTys $ tyConTyVars vect_tc]

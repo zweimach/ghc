@@ -711,12 +711,14 @@ Make a name for the representation tycon of a family instance.  It's an
 newGlobalBinder.
 
 \begin{code}
-newFamInstTyConName, newFamInstAxiomName :: Located Name -> [Type] -> TcM Name
-newFamInstTyConName = mk_fam_inst_name id
+newFamInstTyConName :: Located Name -> [Type] -> TcM Name
+newFamInstTyConName (L loc name) = mk_fam_inst_name id loc name
+
+newFamInstAxiomName :: SrcSpan -> Name -> [Type] -> TcM Name
 newFamInstAxiomName = mk_fam_inst_name mkInstTyCoOcc
 
-mk_fam_inst_name :: (OccName -> OccName) -> Located Name -> [Type] -> TcM Name
-mk_fam_inst_name adaptOcc (L loc tc_name) tys
+mk_fam_inst_name :: (OccName -> OccName) -> SrcSpan -> Name -> [Type] -> TcM Name
+mk_fam_inst_name adaptOcc loc tc_name tys
   = do  { mod   <- getModule
         ; let info_string = occNameString (getOccName tc_name) ++ 
                             concatMap (occNameString.getDFunTyKey) tys

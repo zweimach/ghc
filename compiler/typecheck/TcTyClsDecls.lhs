@@ -758,47 +758,55 @@ tcClassATs class_name parent ats at_defs
     tc_at at = do { [ATyCon fam_tc] <- addLocM (tcFamDecl1 parent) at
                   ; let at_defs = lookupNameEnv at_defs_map (unLoc $ fdLName $ unLoc at)
                                         `orElse` []
-                  ; atd <- mapM (tcDefaultAssocDecl fam_tc) at_defs
+                  ; atd <- concatMapM (tcDefaultAssocDecl fam_tc) at_defs
                   ; return (fam_tc, atd) }
 
 -------------------------
 tcDefaultAssocDecl :: TyCon                -- ^ Family TyCon
                    -> LTyFamInstDecl Name  -- ^ RHS
-                   -> TcM ATDefault        -- ^ Type checked RHS and free TyVars
+                   -> TcM [ATDefault]      -- ^ Type checked RHS and free TyVars
 tcDefaultAssocDecl fam_tc (L loc decl)
   = setSrcSpan loc $
     tcAddTyFamInstCtxt decl $
     do { traceTc "tcDefaultAssocDecl" (ppr decl)
-       ; (at_tvs, at_tys, at_rhs) <- tcSynFamInstDecl fam_tc decl
-       ; return (ATD at_tvs at_tys at_rhs loc) }
+       ; quads <- tcSynFamInstDecl fam_tc decl
+       ; return $ map (uncurry4 ATD) quads }
 -- We check for well-formedness and validity later, in checkValidClass
+    where uncurry4 :: (a -> b -> c -> d -> e) -> (a, b, c, d) -> e
+          uncurry4 f (a, b, c, d) = f a b c d
 
 -------------------------
-tcSynFamInstDecl :: TyCon -> TyFamInstDecl Name -> TcM ([TyVar], [Type], Type)
+tcSynFamInstDecl :: TyCon -> TyFamInstDecl Name -> TcM [([TyVar], [Type], Type, SrcSpan)]
 -- Placed here because type family instances appear as 
 -- default decls in class declarations 
 tcSynFamInstDecl fam_tc (TyFamInstDecl { tfid_eqns = eqns })
   -- we know the first equation matches the fam_tc because of the lookup logic
   -- now, just check that all other names match the first
-  = do { let names = map (unLoc . tfie_tycon . unLoc) eqns
+  = do { let names = map (tfie_tycon . unLoc) eqns
              first = head names
-       ; mapM_ (failWithTc . (wrongNamesInInstGroup first))
-               (filter (/= first) names)
+       ; tcSynFamInstNames first names
        ; checkTc (isSynTyCon fam_tc) (wrongKindOfFamily fam_tc)
-       ; quads <- mapM (tcTyFamInstEqn fam_tc) eqns
-       ; case quads of
-           [(tvs, pats, rhs, _)] -> return (tvs, pats, rhs)
-           _ -> failWithTc (instGroupUnimplemented fam_tc) }
+       ; mapM (tcTyFamInstEqn fam_tc) eqns }
 
--- TODO use setSrcSpan
+-- Checks to make sure that all the names in an instance group are the same
+tcSynFamInstNames :: Located Name -> [Located Name] -> TcM ()
+tcSynFamInstNames (L _ first) names
+  = do { let badNames = filter ((/= first) . unLoc) names
+       ; mapM_ (failLocated (wrongNamesInInstGroup first)) badNames }
+    where failLocated :: (Name -> SDoc) -> Located Name -> TcM ()
+          failLocated msg_fun (L loc name)
+            = setSrcSpan loc $
+              failWithTc (msg_fun name)
+
 tcTyFamInstEqn :: TyCon -> LTyFamInstEqn Name -> TcM ([TyVar], [Type], Type, SrcSpan)
 tcTyFamInstEqn fam_tc 
     (L loc (TyFamInstEqn { tfie_pats = pats, tfie_rhs = hs_ty }))
-  = do { tcFamTyPats fam_tc pats (discardResult . (tcCheckLHsType hs_ty)) $
+  = setSrcSpan loc $
+    do { tcFamTyPats fam_tc pats (discardResult . (tcCheckLHsType hs_ty)) $
        \tvs' pats' res_kind -> 
     do { rhs_ty <- tcCheckLHsType hs_ty res_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
-       ; traceTc "tcSynFamInstDecl" (ppr fam_tc <+> (ppr tvs' $$ ppr pats' $$ ppr rhs_ty))
+       ; traceTc "tcSynFamInstEqn" (ppr fam_tc <+> (ppr tvs' $$ ppr pats' $$ ppr rhs_ty))
        ; return (tvs', pats', rhs_ty, loc) } }
 
 kcDataDefn :: HsDataDefn Name -> TcKind -> TcM ()
@@ -1824,16 +1832,20 @@ tcAddFamInstCtxt flavour tycon thing_inside
   = addErrCtxt ctxt thing_inside
   where
      ctxt = hsep [ptext (sLit "In the") <+> flavour 
-                  <+> ptext (sLit "instance declaration for"),
+                  <+> ptext (sLit "declaration for"),
                   quotes (ppr tycon)]
 
 tcAddTyFamInstCtxt :: TyFamInstDecl Name -> TcM a -> TcM a
 tcAddTyFamInstCtxt decl
-  = tcAddFamInstCtxt (ptext (sLit "type")) (tyFamInstDeclName decl)
+  | [_] <- tfid_eqns decl
+  = tcAddFamInstCtxt (ptext (sLit "type instance")) (tyFamInstDeclName decl)
+  | otherwise
+  = tcAddFamInstCtxt (ptext (sLit "type instance group")) (tyFamInstDeclName decl)
 
 tcAddDataFamInstCtxt :: DataFamInstDecl Name -> TcM a -> TcM a
 tcAddDataFamInstCtxt decl
-  = tcAddFamInstCtxt (pprDataFamInstFlavour decl) (unLoc (dfid_tycon decl)) 
+  = tcAddFamInstCtxt ((pprDataFamInstFlavour decl) <+> (ptext (sLit "instance")))
+                     (unLoc (dfid_tycon decl)) 
 
 resultTypeMisMatch :: Name -> DataCon -> DataCon -> SDoc
 resultTypeMisMatch field_name con1 con2
@@ -1978,7 +1990,8 @@ wrongKindOfFamily family
 
 wrongNamesInInstGroup :: Name -> Name -> SDoc
 wrongNamesInInstGroup first cur
-  = ptext (sLit "Mismatched family names in instance group. First name was") <+>
+  = ptext (sLit "Mismatched family names in instance group.") $$
+    ptext (sLit "First name was") <+>
     (ppr first) <> (ptext (sLit "; this one is")) <+> (ppr cur)
 
 instGroupUnimplemented :: TyCon -> SDoc

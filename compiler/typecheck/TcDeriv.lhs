@@ -1561,7 +1561,7 @@ genDerivStuff loc fix_env clas name tycon comaux_maybe
   = let gk =  if ck == genClassKey then Gen0 else Gen1 -- TODO NSF: correctly identify when we're building Both instead of One
         Just metaTyCons = comaux_maybe -- well-guarded by commonAuxiliaries and genInst
     in do
-      (binds, faminst) <- gen_Generic_binds loc gk tycon metaTyCons (nameModule name)
+      (binds, faminst) <- gen_Generic_binds gk tycon metaTyCons (nameModule name)
       return (binds, DerivFamInst faminst `consBag` emptyBag)
 
   | otherwise	                   -- Non-monadic generators
