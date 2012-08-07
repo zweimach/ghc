@@ -407,6 +407,7 @@ lookupFamInstEnvConflicts
 --
 -- Precondition: the tycon is saturated (or over-saturated)
 
+-- TODO (RAE): update to check only inter-group
 lookupFamInstEnvConflicts envs fam_inst skol_tvs
   = lookup_fam_inst_env my_unify False envs fam tys1
   where
