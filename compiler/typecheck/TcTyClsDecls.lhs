@@ -313,6 +313,7 @@ kcTyClGroup decls
       = pprPanic "generaliseTCD" (ppr decl)
 
       | otherwise
+      -- Note: tcdTyVars is safe here because we've eliminated FamDecl and ForeignType
       = do { res <- generalise kind_env (tcdName decl) (tcdTyVars decl)
            ; return [res] }
 

@@ -18,7 +18,7 @@ module HsDecls (
   isClassDecl, isDataDecl, isSynDecl, isFamilyDecl, tcdName,
   tyFamInstDeclName, tyFamInstDeclLName,
   countTyClDecls, pprTyClDeclFlavour,
-  tyClDeclLName,
+  tyClDeclLName, tyClDeclTyVars,
   FamilyDecl(..), LFamilyDecl,
 
   -- ** Instance declarations
@@ -527,6 +527,11 @@ tyClDeclLName decl = tcdLName decl
 
 tcdName :: TyClDecl name -> name
 tcdName = unLoc . tyClDeclLName
+
+tyClDeclTyVars :: OutputableBndr name => TyClDecl name -> LHsTyVarBndrs name
+tyClDeclTyVars decl@(ForeignType {}) = pprPanic "tyClDeclTyVars" (ppr decl)
+tyClDeclTyVars (FamDecl { tcdFam = FamilyDecl { fdTyVars = tvs } }) = tvs
+tyClDeclTyVars d = tcdTyVars d
 \end{code}
 
 \begin{code}
@@ -819,7 +824,9 @@ pprConDecl (ConDecl {con_name = con, con_details = InfixCon {}, con_res = ResTyG
 \begin{code}
 -- see note [Family instance equation groups]
 type LTyFamInstEqn name = Located (TyFamInstEqn name)
-data TyFamInstEqn name        -- ^ one equation in a family instance declaration
+
+-- | one equation in a family instance declaration
+data TyFamInstEqn name   
   = TyFamInstEqn
        { tfie_tycon :: Located name
        , tfie_pats  :: HsWithBndrs [LHsType name]
