@@ -664,6 +664,9 @@ inst_decl :: { LInstDecl RdrName }
                 {% do { L loc tfi <- mkTyFamInst (comb2 $1 $3) $3
                       ; return (L loc (TyFamInstD { tfid_inst = tfi })) } }
 
+        | 'type' 'instance' 'where' ty_fam_inst_eqn_list
+                { LL (TyFamInstD { tfid_inst = mkTyFamInstGroup (unLoc $4) }) }
+
           -- data/newtype instance declaration
         | data_or_newtype 'instance' tycl_hdr constrs deriving
                 {% do { L loc d <- mkFamInstData (comb4 $1 $3 $4 $5) (unLoc $1) Nothing $3
@@ -679,6 +682,15 @@ inst_decl :: { LInstDecl RdrName }
                       ; return (L loc (DataFamInstD { dfid_inst = d })) } }
         
 -- Type instance groups
+
+ty_fam_inst_eqn_list :: { Located [LTyFamInstEqn RdrName] }
+        :     '{' ty_fam_inst_eqns '}'     { LL (unLoc $2) }
+        | vocurly ty_fam_inst_eqns close   { $2 }
+
+ty_fam_inst_eqns :: { Located [LTyFamInstEqn RdrName] }
+        : ty_fam_inst_eqn ';' ty_fam_inst_eqns   { LL ($1 : unLoc $3) }
+        | ty_fam_inst_eqns ';'                   { LL (unLoc $1) }
+        | ty_fam_inst_eqn                        { LL [$1] }
 
 ty_fam_inst_eqn :: { LTyFamInstEqn RdrName }
         : type '=' ctype

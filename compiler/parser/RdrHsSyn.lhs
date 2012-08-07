@@ -10,7 +10,7 @@ module RdrHsSyn (
         mkHsDo, mkHsSplice, mkTopSpliceDecl,
         mkClassDecl, 
         mkTyData, mkFamInstData, 
-        mkTySynonym, mkTyFamInstEqn,
+        mkTySynonym, mkTyFamInstEqn, mkTyFamInstGroup,
         mkTyFamInst, 
         mkFamDecl, 
         splitCon, mkInlinePragma,
@@ -193,6 +193,11 @@ mkTyFamInst :: SrcSpan
 mkTyFamInst loc eqn
   = return (L loc (TyFamInstDecl { tfid_eqns = [eqn]
                                  , tfid_fvs  = placeHolderNames }))
+
+mkTyFamInstGroup :: [LTyFamInstEqn RdrName]
+                 -> TyFamInstDecl RdrName
+mkTyFamInstGroup eqns = TyFamInstDecl { tfid_eqns = eqns
+                                      , tfid_fvs  = placeHolderNames }
 
 mkFamDecl :: SrcSpan
           -> FamilyFlavour
