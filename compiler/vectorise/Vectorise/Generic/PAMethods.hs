@@ -28,7 +28,6 @@ import FastString
 import MonadUtils
 import Control.Monad
 import Outputable
-import SrcLoc ( noSrcSpan )
 
 
 buildPReprTyCon :: TyCon -> TyCon -> SumRepr -> VM FamInst

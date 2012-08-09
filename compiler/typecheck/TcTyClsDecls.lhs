@@ -1994,8 +1994,4 @@ wrongNamesInInstGroup first cur
     ptext (sLit "First name was") <+>
     (ppr first) <> (ptext (sLit "; this one is")) <+> (ppr cur)
 
-instGroupUnimplemented :: TyCon -> SDoc
-instGroupUnimplemented tycon
-  = ptext (sLit "Instance groups (such as the one for") <+>
-    (ppr tycon) <> ptext (sLit ") are not implemented yet.") 
 \end{code}
