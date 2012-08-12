@@ -27,10 +27,10 @@ import Control.Monad
 
 -- buildPDataTyCon ------------------------------------------------------------
 -- | Build the PData instance tycon for a given type constructor.
-buildPDataTyCon :: TyCon -> TyCon -> SumRepr -> VM FamInst
+buildPDataTyCon :: TyCon -> TyCon -> SumRepr -> VM FamInstGroup
 buildPDataTyCon orig_tc vect_tc repr 
- = fixV $ \fam_inst ->
-   do let repr_tc = dataFamInstRepTyCon fam_inst
+ = fixV $ \fam_inst_grp ->
+   do let repr_tc = dataFamInstGroupRepTyCon fam_inst_grp
       name' <- mkLocalisedName mkPDataTyConOcc orig_name
       rhs   <- buildPDataTyConRhs orig_name vect_tc repr_tc repr
       pdata <- builtin pdataTyCon
@@ -38,7 +38,7 @@ buildPDataTyCon orig_tc vect_tc repr
  where
     orig_name = tyConName orig_tc
 
-buildDataFamInst :: Name -> TyCon -> TyCon -> AlgTyConRhs -> VM FamInst
+buildDataFamInst :: Name -> TyCon -> TyCon -> AlgTyConRhs -> VM FamInstGroup
 buildDataFamInst name' fam_tc vect_tc rhs
  = do { axiom_name <- mkDerivedName mkInstTyCoOcc name'
 
@@ -53,7 +53,7 @@ buildDataFamInst name' fam_tc vect_tc rhs
                            rec_flag    -- FIXME: is this ok?
                            False       -- not GADT syntax
                            (FamInstTyCon ax fam_tc pat_tys)
-      ; return fam_inst }
+      ; return $ mkDataFamInstGroup fam_tc fam_inst }
  where
     tyvars    = tyConTyVars vect_tc
     rec_flag  = boolToRecFlag (isRecursiveTyCon vect_tc)
@@ -85,10 +85,10 @@ buildPDataDataCon orig_name vect_tc repr_tc repr
 
 -- buildPDatasTyCon -----------------------------------------------------------
 -- | Build the PDatas instance tycon for a given type constructor.
-buildPDatasTyCon :: TyCon -> TyCon -> SumRepr -> VM FamInst
+buildPDatasTyCon :: TyCon -> TyCon -> SumRepr -> VM FamInstGroup
 buildPDatasTyCon orig_tc vect_tc repr 
- = fixV $ \fam_inst ->
-   do let repr_tc = dataFamInstRepTyCon fam_inst
+ = fixV $ \fam_inst_grp ->
+   do let repr_tc = dataFamInstGroupRepTyCon fam_inst_grp
       name'       <- mkLocalisedName mkPDatasTyConOcc orig_name
       rhs         <- buildPDatasTyConRhs orig_name vect_tc repr_tc repr
       pdatas     <- builtin pdatasTyCon

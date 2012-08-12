@@ -52,7 +52,7 @@ import Name
 import DynFlags
 import HscTypes
 import PrelInfo
-import FamInstEnv( FamInst )
+import FamInstEnv( FamInstGroup )
 import MkCore	( eRROR_ID )
 import PrelNames hiding (error_RDR)
 import PrimOp
@@ -93,8 +93,8 @@ data DerivStuff     -- Please add this auxiliary stuff
   = DerivAuxBind AuxBindSpec
 
   -- Generics
-  | DerivTyCon TyCon      -- New data types
-  | DerivFamInst FamInst  -- New type family instances
+  | DerivTyCon TyCon                -- New data types
+  | DerivFamInstGroup FamInstGroup  -- New type family instances
 
   -- New top-level auxiliary bindings 
   | DerivHsBind (LHsBind RdrName, LSig RdrName) -- Also used for SYB
@@ -1806,7 +1806,7 @@ type SeparateBagsDerivStuff = -- AuxBinds and SYB bindings
                               ( Bag (LHsBind RdrName, LSig RdrName)
                                 -- Extra bindings (used by Generic only)
                               , Bag TyCon   -- Extra top-level datatypes
-                              , Bag FamInst -- Extra family instances
+                              , Bag FamInstGroup -- Extra family instances
                               , Bag (InstInfo RdrName)) -- Extra instances
 
 genAuxBinds :: SrcSpan -> BagDerivStuff -> SeparateBagsDerivStuff
@@ -1823,10 +1823,10 @@ genAuxBinds loc b = genAuxBinds' b2 where
                             , emptyBag, emptyBag, emptyBag)
   f :: DerivStuff -> SeparateBagsDerivStuff -> SeparateBagsDerivStuff
   f (DerivAuxBind _) = panic "genAuxBinds'" -- We have removed these before
-  f (DerivHsBind  b) = add1 b
-  f (DerivTyCon   t) = add2 t
-  f (DerivFamInst t) = add3 t
-  f (DerivInst    i) = add4 i
+  f (DerivHsBind       b) = add1 b
+  f (DerivTyCon        t) = add2 t
+  f (DerivFamInstGroup t) = add3 t
+  f (DerivInst         i) = add4 i
 
   add1 x (a,b,c,d) = (x `consBag` a,b,c,d)
   add2 x (a,b,c,d) = (a,x `consBag` b,c,d)

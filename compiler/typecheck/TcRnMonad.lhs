@@ -128,7 +128,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                 tcg_anns           = [],
                 tcg_tcs            = [],
                 tcg_insts          = [],
-                tcg_fam_insts      = [],
+                tcg_fam_inst_grps  = [],
                 tcg_rules          = [],
                 tcg_fords          = [],
                 tcg_vects          = [],

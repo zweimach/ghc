@@ -481,7 +481,7 @@ instance Binary ModIface where
                  mi_anns      = anns,
                  mi_decls     = decls,
                  mi_insts     = insts,
-                 mi_fam_insts = fam_insts,
+                 mi_fam_inst_grps = fam_inst_grps,
                  mi_rules     = rules,
                  mi_orphan_hash = orphan_hash,
                  mi_vect_info = vect_info,
@@ -505,7 +505,7 @@ instance Binary ModIface where
         lazyPut bh anns
         put_ bh decls
         put_ bh insts
-        put_ bh fam_insts
+        put_ bh fam_inst_grps
         lazyPut bh rules
         put_ bh orphan_hash
         put_ bh vect_info
@@ -531,7 +531,7 @@ instance Binary ModIface where
         anns        <- {-# SCC "bin_anns" #-} lazyGet bh
         decls       <- {-# SCC "bin_tycldecls" #-} get bh
         insts       <- {-# SCC "bin_insts" #-} get bh
-        fam_insts   <- {-# SCC "bin_fam_insts" #-} get bh
+        fam_inst_grps <- {-# SCC "bin_fam_inst_grps" #-} get bh
         rules       <- {-# SCC "bin_rules" #-} lazyGet bh
         orphan_hash <- get bh
         vect_info   <- get bh
@@ -557,7 +557,7 @@ instance Binary ModIface where
                  mi_decls       = decls,
                  mi_globals     = Nothing,
                  mi_insts       = insts,
-                 mi_fam_insts   = fam_insts,
+                 mi_fam_inst_grps = fam_inst_grps,
                  mi_rules       = rules,
                  mi_orphan_hash = orphan_hash,
                  mi_vect_info   = vect_info,
@@ -1407,18 +1407,25 @@ instance Binary IfaceClsInst where
         orph <- get bh
         return (IfaceClsInst cls tys dfun flag orph)
 
-instance Binary IfaceFamInst where
-    put_ bh (IfaceFamInst fam tys name orph) = do
+instance Binary IfaceFamInstGroup where
+    put_ bh (IfaceFamInstGroup fam insts) = do
         put_ bh fam
+        put_ bh insts
+    get bh = do
+        fam   <- get bh
+        insts <- get bh
+        return (IfaceFamInstGroup fam insts)
+
+instance Binary IfaceFamInst where
+    put_ bh (IfaceFamInst tys name orph) = do
         put_ bh tys
         put_ bh name
         put_ bh orph
     get bh = do
-        fam      <- get bh
         tys      <- get bh
         name     <- get bh
         orph     <- get bh
-        return (IfaceFamInst fam tys name orph)
+        return (IfaceFamInst tys name orph)
 
 instance Binary OverlapFlag where
     put_ bh (NoOverlap  b) = putByte bh 0 >> put_ bh b

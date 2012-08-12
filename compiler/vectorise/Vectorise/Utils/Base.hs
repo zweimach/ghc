@@ -205,7 +205,8 @@ unwrapNewTypeBodyOfPDatasWrap e ty
 pdataReprTyCon :: Type -> VM (TyCon, [Type])
 pdataReprTyCon ty 
   = do 
-    { (famInst, tys) <- builtin pdataTyCon >>= (`lookupFamInst` [ty])
+    { FamInstMatch { fim_instance = famInst
+                   , fim_tys      = tys } <- builtin pdataTyCon >>= (`lookupFamInst` [ty])
     ; return (dataFamInstRepTyCon famInst, tys)
     }
 
@@ -230,8 +231,9 @@ pdataReprTyConExact tycon
 pdatasReprTyConExact :: TyCon -> VM TyCon
 pdatasReprTyConExact tycon
   = do {   -- look up the representation tycon; if there is a match at all, it will be be exact
-       ;   -- (i.e.,' _tys' will be distinct type variables)
-       ; (ptycon, _tys) <- pdatasReprTyCon (tycon `mkTyConApp` mkTyVarTys (tyConTyVars tycon))
+       ;   -- (i.e.,'fim_tys' will be distinct type variables)
+       ; FamInstMatch { fim_instance = ptycon }
+           <- pdatasReprTyCon (tycon `mkTyConApp` mkTyVarTys (tyConTyVars tycon))
        ; return $ dataFamInstRepTyCon ptycon
        }
   where
@@ -253,5 +255,5 @@ pdataUnwrapScrut (ve, le)
 
 -- |Get the representation tycon of the 'PRepr' type family for a given type.
 --
-preprSynTyCon :: Type -> VM (FamInst, [Type])
+preprSynTyCon :: Type -> VM FamInstMatch
 preprSynTyCon ty = builtin preprTyCon >>= (`lookupFamInst` [ty])

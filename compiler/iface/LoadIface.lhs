@@ -25,7 +25,7 @@ module LoadIface (
 #include "HsVersions.h"
 
 import {-# SOURCE #-}   TcIface( tcIfaceDecl, tcIfaceRules, tcIfaceInst, 
-                                 tcIfaceFamInst, tcIfaceVectInfo, tcIfaceAnnotations )
+                                 tcIfaceFamInstGroup, tcIfaceVectInfo, tcIfaceAnnotations )
 
 import DynFlags
 import IfaceSyn
@@ -247,20 +247,20 @@ loadInterface doc_str mod from
         --     If we do loadExport first the wrong info gets into the cache (unless we
         --      explicitly tag each export which seems a bit of a bore)
 
-        ; ignore_prags      <- doptM Opt_IgnoreInterfacePragmas
-        ; new_eps_decls     <- loadDecls ignore_prags (mi_decls iface)
-        ; new_eps_insts     <- mapM tcIfaceInst (mi_insts iface)
-        ; new_eps_fam_insts <- mapM tcIfaceFamInst (mi_fam_insts iface)
-        ; new_eps_rules     <- tcIfaceRules ignore_prags (mi_rules iface)
-        ; new_eps_anns      <- tcIfaceAnnotations (mi_anns iface)
-        ; new_eps_vect_info <- tcIfaceVectInfo mod (mkNameEnv new_eps_decls) (mi_vect_info iface)
+        ; ignore_prags          <- doptM Opt_IgnoreInterfacePragmas
+        ; new_eps_decls         <- loadDecls ignore_prags (mi_decls iface)
+        ; new_eps_insts         <- mapM tcIfaceInst (mi_insts iface)
+        ; new_eps_fam_inst_grps <- mapM tcIfaceFamInstGroup (mi_fam_inst_grps iface)
+        ; new_eps_rules         <- tcIfaceRules ignore_prags (mi_rules iface)
+        ; new_eps_anns          <- tcIfaceAnnotations (mi_anns iface)
+        ; new_eps_vect_info     <- tcIfaceVectInfo mod (mkNameEnv new_eps_decls) (mi_vect_info iface)
 
         ; let { final_iface = iface {   
-                                mi_decls     = panic "No mi_decls in PIT",
-                                mi_insts     = panic "No mi_insts in PIT",
-                                mi_fam_insts = panic "No mi_fam_insts in PIT",
-                                mi_rules     = panic "No mi_rules in PIT",
-                                mi_anns      = panic "No mi_anns in PIT"
+                                mi_decls         = panic "No mi_decls in PIT",
+                                mi_insts         = panic "No mi_insts in PIT",
+                                mi_fam_inst_grps = panic "No mi_fam_inst_grps in PIT",
+                                mi_rules         = panic "No mi_rules in PIT",
+                                mi_anns          = panic "No mi_anns in PIT"
                               }
                }
 
@@ -274,7 +274,7 @@ loadInterface doc_str mod from
               eps_inst_env     = extendInstEnvList (eps_inst_env eps)  
                                                    new_eps_insts,
               eps_fam_inst_env = extendFamInstEnvList (eps_fam_inst_env eps)
-                                                      new_eps_fam_insts,
+                                                      new_eps_fam_inst_grps,
               eps_vect_info    = plusVectInfo (eps_vect_info eps) 
                                               new_eps_vect_info,
               eps_ann_env      = extendAnnEnvList (eps_ann_env eps)
@@ -283,7 +283,7 @@ loadInterface doc_str mod from
                                = let
                                    fam_inst_env = 
                                      extendFamInstEnvList emptyFamInstEnv
-                                                          new_eps_fam_insts
+                                                          new_eps_fam_inst_grps
                                  in
                                  extendModuleEnv (eps_mod_fam_inst_env eps)
                                                  mod
@@ -675,7 +675,7 @@ pprModIface iface
         , pprFixities (mi_fixities iface)
         , vcat (map pprIfaceDecl (mi_decls iface))
         , vcat (map ppr (mi_insts iface))
-        , vcat (map ppr (mi_fam_insts iface))
+        , vcat (map ppr (mi_fam_inst_grps iface))
         , vcat (map ppr (mi_rules iface))
         , pprVectInfo (mi_vect_info iface)
         , ppr (mi_warns iface)

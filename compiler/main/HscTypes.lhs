@@ -447,14 +447,14 @@ lookupIfaceByModule dflags hpt pit mod
 -- | Find all the instance declarations (of classes and families) that are in
 -- modules imported by this one, directly or indirectly, and are in the Home
 -- Package Table.  This ensures that we don't see instances from modules @--make@
--- compiled before this one, but which are not below this one.
-hptInstances :: HscEnv -> (ModuleName -> Bool) -> ([ClsInst], [FamInst])
+-- compiled before this one, but which are not below this one
+hptInstances :: HscEnv -> (ModuleName -> Bool) -> ([ClsInst], [FamInstGroup])
 hptInstances hsc_env want_this_module
-  = let (insts, famInsts) = unzip $ flip hptAllThings hsc_env $ \mod_info -> do
+  = let (insts, famInstGroups) = unzip $ flip hptAllThings hsc_env $ \mod_info -> do
                 guard (want_this_module (moduleName (mi_module (hm_iface mod_info))))
                 let details = hm_details mod_info
-                return (md_insts details, md_fam_insts details)
-    in (concat insts, concat famInsts)
+                return (md_insts details, md_fam_inst_grps details)
+    in (concat insts, concat famInstGroups)
 
 -- | Get the combined VectInfo of all modules in the home package table. In
 -- contrast to instances and rules, we don't care whether the modules are
@@ -674,10 +674,10 @@ data ModIface
                 -- 'HomeModInfo', but that leads to more plumbing.
 
                 -- Instance declarations and rules
-        mi_insts       :: [IfaceClsInst],     -- ^ Sorted class instance
-        mi_fam_insts   :: [IfaceFamInst],  -- ^ Sorted family instances
-        mi_rules       :: [IfaceRule],     -- ^ Sorted rules
-        mi_orphan_hash :: !Fingerprint,    -- ^ Hash for orphan rules, class and family
+        mi_insts         :: [IfaceClsInst],       -- ^ Sorted class instance
+        mi_fam_inst_grps :: [IfaceFamInstGroup],  -- ^ Sorted family instances
+        mi_rules         :: [IfaceRule],          -- ^ Sorted rules
+        mi_orphan_hash   :: !Fingerprint,  -- ^ Hash for orphan rules, class and family
                                            -- instances, and vectorise pragmas combined
 
         mi_vect_info :: !IfaceVectInfo,    -- ^ Vectorisation information
@@ -731,7 +731,7 @@ emptyModIface mod
                mi_warns       = NoWarnings,
                mi_anns        = [],
                mi_insts       = [],
-               mi_fam_insts   = [],
+               mi_fam_inst_grps = [],
                mi_rules       = [],
                mi_decls       = [],
                mi_globals     = Nothing,
@@ -753,7 +753,7 @@ data ModDetails
         md_exports   :: [AvailInfo],
         md_types     :: !TypeEnv,       -- ^ Local type environment for this particular module
         md_insts     :: ![ClsInst],    -- ^ 'DFunId's for the instances in this module
-        md_fam_insts :: ![FamInst],
+        md_fam_inst_grps :: ![FamInstGroup],
         md_rules     :: ![CoreRule],    -- ^ Domain may include 'Id's from other modules
         md_anns      :: ![Annotation],  -- ^ Annotations present in this module: currently
                                         -- they only annotate things also declared in this module
@@ -767,7 +767,7 @@ emptyModDetails
                  md_exports   = [],
                  md_insts     = [],
                  md_rules     = [],
-                 md_fam_insts = [],
+                 md_fam_inst_grps = [],
                  md_anns      = [],
                  md_vect_info = noVectInfo }
 
@@ -799,7 +799,7 @@ data ModGuts
         mg_tcs       :: ![TyCon],        -- ^ TyCons declared in this module
                                          -- (includes TyCons for classes)
         mg_insts     :: ![ClsInst],     -- ^ Class instances declared in this module
-        mg_fam_insts :: ![FamInst],      -- ^ Family instances declared in this module
+        mg_fam_inst_grps :: ![FamInstGroup], -- ^ Family instances declared in this module
         mg_rules     :: ![CoreRule],     -- ^ Before the core pipeline starts, contains
                                          -- See Note [Overall plumbing for rules] in Rules.lhs
         mg_binds     :: !CoreProgram,    -- ^ Bindings for this module
@@ -928,7 +928,7 @@ data InteractiveContext
              -- ^ Variables defined automatically by the system (e.g.
              -- record field selectors).  See Notes [ic_sys_vars]
 
-         ic_instances  :: ([ClsInst], [FamInst]),
+         ic_instances  :: ([ClsInst], [FamInstGroup]),
              -- ^ All instances and family instances created during
              -- this session.  These are grabbed en masse after each
              -- update to be sure that proper overlapping is retained.
@@ -1353,15 +1353,15 @@ mkTypeEnvWithImplicits things =
     `plusNameEnv`
   mkTypeEnv (concatMap implicitTyThings things)
 
-typeEnvFromEntities :: [Id] -> [TyCon] -> [FamInst] -> TypeEnv
-typeEnvFromEntities ids tcs famInsts =
+typeEnvFromEntities :: [Id] -> [TyCon] -> [FamInstGroup] -> TypeEnv
+typeEnvFromEntities ids tcs famInstGroups =
   mkTypeEnv (   map AnId ids
              ++ map ATyCon all_tcs
              ++ concatMap implicitTyConThings all_tcs
-             ++ map (ACoAxiom . famInstAxiom) famInsts
+             ++ (map ACoAxiom $ concatMap famInstGroupAxioms famInstGroups)
             )
  where
-  all_tcs = tcs ++ famInstsRepTyCons famInsts
+  all_tcs = tcs ++ famInstGroupsRepTyCons famInstGroups
 
 lookupTypeEnv = lookupNameEnv
 

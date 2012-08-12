@@ -335,7 +335,7 @@ tcDeriving tycl_decls inst_decls deriv_decls
 
         ; let (inst_infos, deriv_stuff) = unzip (insts1 ++ insts2)
         ; loc <- getSrcSpanM
-        ; let (binds, newTyCons, famInsts, extraInstances) = 
+        ; let (binds, newTyCons, famInstGroups, extraInstances) = 
                 genAuxBinds loc (unionManyBags (auxDerivStuff : deriv_stuff))
 
         ; (inst_info, rn_binds, rn_dus) <-
@@ -344,21 +344,21 @@ tcDeriving tycl_decls inst_decls deriv_decls
         ; dflags <- getDynFlags
         ; unless (isEmptyBag inst_info) $
             liftIO (dumpIfSet_dyn dflags Opt_D_dump_deriv "Derived instances"
-                   (ddump_deriving inst_info rn_binds newTyCons famInsts))
+                   (ddump_deriving inst_info rn_binds newTyCons famInstGroups))
 
         ; let all_tycons = map ATyCon (bagToList newTyCons)
         ; gbl_env <- tcExtendGlobalEnv all_tycons $
                      tcExtendGlobalEnvImplicit (concatMap implicitTyThings all_tycons) $
-                     tcExtendLocalFamInstEnv (bagToList famInsts) $
+                     tcExtendLocalFamInstEnv (bagToList famInstGroups) $
                      tcExtendLocalInstEnv (map iSpec (bagToList inst_info)) getGblEnv
 
         ; return (addTcgDUs gbl_env rn_dus, inst_info, rn_binds) }
   where
     ddump_deriving :: Bag (InstInfo Name) -> HsValBinds Name 
-                   -> Bag TyCon    -- ^ Empty data constructors
-                   -> Bag FamInst  -- ^ Rep type family instances
+                   -> Bag TyCon        -- ^ Empty data constructors
+                   -> Bag FamInstGroup -- ^ Rep type family instances
                    -> SDoc
-    ddump_deriving inst_infos extra_binds repMetaTys repFamInsts
+    ddump_deriving inst_infos extra_binds repMetaTys repFamInstGroups
       =    hang (ptext (sLit "Derived instances:"))
               2 (vcat (map (\i -> pprInstInfoDetails i $$ text "") (bagToList inst_infos))
                  $$ ppr extra_binds)
@@ -366,7 +366,7 @@ tcDeriving tycl_decls inst_decls deriv_decls
               hangP "Generated datatypes for meta-information:"
                (vcat (map ppr (bagToList repMetaTys)))
            $$ hangP "Representation types:"
-                (vcat (map pprRepTy (bagToList repFamInsts))))
+                (vcat (map pprRepTy (bagToList repFamInstGroups))))
 
     hangP s x = text "" $$ hang (ptext (sLit s)) 2 x
 
@@ -390,9 +390,8 @@ commonAuxiliaries = foldM snoc ([], emptyBag) where
 
 
 -- Prints the representable type family instance
-pprRepTy :: FamInst -> SDoc
-pprRepTy fi
-  = pprFamInstHdr fi <+> ptext (sLit "=") <+> ppr (coAxiomRHS (famInstAxiom fi))
+pprRepTy :: FamInstGroup -> SDoc
+pprRepTy = ppr
 
 renameDeriv :: Bool
 	    -> [InstInfo RdrName]
@@ -1561,8 +1560,8 @@ genDerivStuff loc fix_env clas name tycon comaux_maybe
   = let gk =  if ck == genClassKey then Gen0 else Gen1 -- TODO NSF: correctly identify when we're building Both instead of One
         Just metaTyCons = comaux_maybe -- well-guarded by commonAuxiliaries and genInst
     in do
-      (binds, faminst) <- gen_Generic_binds gk tycon metaTyCons (nameModule name)
-      return (binds, DerivFamInst faminst `consBag` emptyBag)
+      (binds, faminst_grp) <- gen_Generic_binds gk tycon metaTyCons (nameModule name)
+      return (binds, DerivFamInstGroup faminst_grp `consBag` emptyBag)
 
   | otherwise	                   -- Non-monadic generators
   = do dflags <- getDynFlags

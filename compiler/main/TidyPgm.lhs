@@ -131,7 +131,7 @@ mkBootModDetailsTc hsc_env
                   tcg_type_env  = type_env, -- just for the Ids
                   tcg_tcs       = tcs,
                   tcg_insts     = insts,
-                  tcg_fam_insts = fam_insts
+                  tcg_fam_inst_grps = fam_inst_grps
                 }
   = do  { let dflags = hsc_dflags hsc_env
         ; showPass dflags CoreTidy
@@ -139,12 +139,12 @@ mkBootModDetailsTc hsc_env
         ; let { insts'     = tidyInstances globaliseAndTidyId insts
               ; dfun_ids   = map instanceDFunId insts'
               ; type_env1  = mkBootTypeEnv (availsToNameSet exports)
-                                (typeEnvIds type_env) tcs fam_insts
+                                (typeEnvIds type_env) tcs fam_inst_grps
               ; type_env'  = extendTypeEnvWithIds type_env1 dfun_ids
               }
         ; return (ModDetails { md_types     = type_env'
                              , md_insts     = insts'
-                             , md_fam_insts = fam_insts
+                             , md_fam_inst_grps = fam_inst_grps
                              , md_rules     = []
                              , md_anns      = []
                              , md_exports   = exports
@@ -153,10 +153,10 @@ mkBootModDetailsTc hsc_env
         }
   where
 
-mkBootTypeEnv :: NameSet -> [Id] -> [TyCon] -> [FamInst] -> TypeEnv
-mkBootTypeEnv exports ids tcs fam_insts
+mkBootTypeEnv :: NameSet -> [Id] -> [TyCon] -> [FamInstGroup] -> TypeEnv
+mkBootTypeEnv exports ids tcs fam_inst_grps
   = tidyTypeEnv True False exports $
-       typeEnvFromEntities final_ids tcs fam_insts
+       typeEnvFromEntities final_ids tcs fam_inst_grps
   where
         -- Find the LocalIds in the type env that are exported
         -- Make them into GlobalIds, and tidy their types
@@ -295,7 +295,7 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
                               , mg_exports   = exports
                               , mg_tcs       = tcs
                               , mg_insts     = insts
-                              , mg_fam_insts = fam_insts
+                              , mg_fam_inst_grps = fam_inst_grps
                               , mg_binds     = binds
                               , mg_rules     = imp_rules
                               , mg_vect_info = vect_info
@@ -316,7 +316,7 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
               }
         ; showPass dflags CoreTidy
 
-        ; let { type_env = typeEnvFromEntities [] tcs fam_insts
+        ; let { type_env = typeEnvFromEntities [] tcs fam_inst_grps
 
               ; implicit_binds
                   = concatMap getClassImplicitBinds (typeEnvClasses type_env) ++
@@ -400,7 +400,7 @@ tidyProgram hsc_env  (ModGuts { mg_module    = mod
                                 md_rules     = tidy_rules,
                                 md_insts     = tidy_insts,
                                 md_vect_info = tidy_vect_info,
-                                md_fam_insts = fam_insts,
+                                md_fam_inst_grps = fam_inst_grps,
                                 md_exports   = exports,
                                 md_anns      = anns      -- are already tidy
                               })

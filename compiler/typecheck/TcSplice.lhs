@@ -1015,8 +1015,11 @@ reifyInstances th_nm th_tys
               | otherwise
               -> do { tys <- tc_types tc th_tys
                     ; inst_envs <- tcGetFamInstEnvs
-                    ; let matches = lookupFamInstEnv inst_envs tc tys
-                    ; mapM (reifyFamilyInstance . fst) matches }
+                    ; let { matchResult = lookupFamInstEnv inst_envs tc tys
+                          ; matches
+                              | Right ms <- matchResult = ms
+                              | otherwise               = [] }
+                    ; mapM (reifyFamilyInstance . fim_group) matches }
             _ -> bale_out (ppr_th th_nm <+> ptext (sLit "is not a class or type constructor"))
         }
   where
@@ -1306,25 +1309,28 @@ reifyClassInstance i
      n_silent = dfunNSilent (instanceDFunId i)
 
 ------------------------------
-reifyFamilyInstance :: FamInst -> TcM TH.Dec
-reifyFamilyInstance fi
-  = case fi_flavor fi of
+reifyFamilyInstance :: FamInstGroup -> TcM TH.Dec
+reifyFamilyInstance fig
+  = case famInstGroupFlavor fig of
       SynFamilyInst ->
-        do { th_tys <- reifyTypes (fi_tys fi)
-           ; rhs_ty <- reifyType (coAxiomRHS rep_ax)
-           ; return (TH.TySynInstD fam th_tys rhs_ty) }
+        case famInstGroupInsts fig of
+          [fi] -> do { th_tys <- reifyTypes (fi_tys fi)
+                     ; rhs_ty <- reifyType (coAxiomRHS (famInstAxiom fi))
+                     ; return (TH.TySynInstD fam th_tys rhs_ty) }
+          _    -> noTH (sLit "a family instance group") (ppr fig)
 
-      DataFamilyInst rep_tc ->
-        do { let tvs = tyConTyVars rep_tc
-                 fam = reifyName (fi_fam fi)
+      DataFamilyInst new_or_data | [fi] <- famInstGroupInsts fig ->
+        do { let rep_tc = dataFamInstRepTyCon fi
+                 tvs = tyConTyVars rep_tc
            ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons rep_tc)
            ; th_tys <- reifyTypes (fi_tys fi)
-           ; return (if isNewTyCon rep_tc
-                     then TH.NewtypeInstD [] fam th_tys (head cons) []
-                     else TH.DataInstD    [] fam th_tys cons        []) }
+           ; return (case new_or_data of
+                       FamInstNewType  -> TH.NewtypeInstD [] fam th_tys (head cons) []
+                       FamInstDataType -> TH.DataInstD    [] fam th_tys cons        []) }
+
+      _ -> pprPanic "reifyFamilyInstance" (ppr fig) -- multiple data instances
   where
-    rep_ax = fi_axiom fi
-    fam = reifyName (fi_fam fi)
+    fam = reifyName (famInstGroupName fig)
 
 ------------------------------
 reifyType :: TypeRep.Type -> TcM TH.Type

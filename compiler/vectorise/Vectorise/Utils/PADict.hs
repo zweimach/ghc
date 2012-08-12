@@ -117,7 +117,7 @@ paMethod method _ ty
 prDictOfPReprInst :: Type -> VM CoreExpr
 prDictOfPReprInst ty
   = do
-    { (prepr_fam, prepr_args) <- preprSynTyCon ty
+    { FamInstMatch { fim_instance = prepr_fam, fim_tys = prepr_args } <- preprSynTyCon ty
     ; prDictOfPReprInstTyCon ty (famInstAxiom prepr_fam) prepr_args
     }
 
