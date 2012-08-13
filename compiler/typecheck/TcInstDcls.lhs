@@ -675,17 +675,14 @@ tcAssocFamInst :: Class              -- ^ Class of associated type
                -> VarEnv Type        -- ^ Instantiation of class TyVars
                -> FamInstGroup       -- ^ RHS
                -> TcM ()
-tcAssocFamInst clas mini_env fam_inst_grp
-  = setSrcSpan (getSrcSpan fam_inst_grp) $
-    tcAddFamInstCtxt (pprFamInstGroupFlavor fam_inst_grp)
-                     (famInstGroupName fam_inst_grp) $
-    do { let { fam_tc = famInstGroupTyCon fam_inst_grp
-             ; at_tys
-                 | [fam_inst] <- famInstGroupInsts fam_inst_grp
-                 = famInstTys fam_inst
-                 | otherwise -- associated instances cannot be instance groups
-                 = pprPanic "tcAssocFamInst" (ppr fam_inst_grp) }
-
+tcAssocFamInst clas mini_env (FamInstGroup { fig_fis    = [fam_inst]
+                                           , fig_flavor = flav
+                                           , fig_fam_tc = fam_tc
+                                           , fig_fam    = fam })
+  = setSrcSpan (getSrcSpan fam_inst) $
+    tcAddFamInstCtxt (pprFamFlavor flav <+> (ptext (sLit "instance"))) fam $
+    do { let at_tys = famInstTys fam_inst
+                
        -- Check that the associated type comes from this class
        ; checkTc (Just clas == tyConAssoc_maybe fam_tc)
                  (badATErr (className clas) (tyConName fam_tc))
@@ -702,6 +699,9 @@ tcAssocFamInst clas mini_env fam_inst_grp
       | otherwise
       = return ()   -- Allow non-type-variable instantiation
                     -- See Note [Associated type instances]
+
+-- for when there is either 0 or 2+ FamInsts in the instance group
+tcAssocFamInst _ _ fig = pprPanic "tcAssocFamInst" (ppr fig)
 
 tcAssocTyDecl :: LTyFamInstDecl Name
               -> TcM FamInstGroup

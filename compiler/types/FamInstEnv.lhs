@@ -190,8 +190,12 @@ dataFamInstRepTyCon fi
 instance NamedThing FamInst where
   getName = coAxiomName . fi_axiom
 
-instance NamedThing FamInstGroup where
-  getName = famInstGroupName
+-- We do NOT want an instance of NamedThing for FamInstGroup. Having one
+-- would make it easy to apply getSrcSpan to a FamInstGroup. The only
+-- reasonable behavior of getName would be to return the family name, which
+-- has the SrcSpan of the family declaration, not the instance declaration.
+-- If a chunk of code wants a SrcSpan from a FamInstGroup, it will have
+-- to work for it or refactor some of the code in this file.
 
 instance Outputable FamInst where
   ppr = pprFamInst
@@ -262,11 +266,12 @@ mkSynFamInstGroup fam_tc fis
 mkDataFamInstGroup :: TyCon     -- ^ Family tycon (@F@)
                    -> FamInst   -- ^ The one family instance in this group
                    -> FamInstGroup
-mkDataFamInstGroup fam_tc fi
+mkDataFamInstGroup fam_tc fi@(FamInst { fi_rep_tc = Just rep_tc })
   = FamInstGroup { fig_fis    = [fi]
-                 , fig_flavor = DataFamilyInst (mk_new_or_data fam_tc)
+                 , fig_flavor = DataFamilyInst (mk_new_or_data rep_tc)
                  , fig_fam_tc = fam_tc
                  , fig_fam    = tyConName fam_tc }
+mkDataFamInstGroup _ fi = pprPanic "mkDataFamInstGroup" (ppr fi)
 
 -- | Create a coercion identifying a @type@ family instance.
 -- It has the form @Co tvs :: F ts ~ R@, where @Co@ is 
@@ -361,8 +366,7 @@ mk_new_or_data tc
   | isDataTyCon tc     = FamInstDataType
   | isNewTyCon tc      = FamInstNewType
   | isAbstractTyCon tc = FamInstDataType
-  | otherwise          = pprPanic "mkDataFamInstGroup" (ppr tc)
-
+  | otherwise          = pprPanic "mk_new_or_data" (ppr tc)
 
 mkImportedFamInst :: [Maybe Name]       -- Rough match info
                   -> CoAxiom            -- Axiom introduced
