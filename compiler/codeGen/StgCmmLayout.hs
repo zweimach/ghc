@@ -54,7 +54,6 @@ import Name
 import TyCon		( PrimRep(..) )
 import BasicTypes	( RepArity )
 import DynFlags
-import StaticFlags
 import Module
 
 import Constants
@@ -79,12 +78,13 @@ import FastString
 --
 emitReturn :: [CmmExpr] -> FCode ReturnKind
 emitReturn results
-  = do { sequel    <- getSequel;
+  = do { dflags    <- getDynFlags
+       ; sequel    <- getSequel
        ; updfr_off <- getUpdFrameOff
        ; case sequel of
            Return _ ->
              do { adjustHpBackwards
-                ; emit (mkReturnSimple results updfr_off) }
+                ; emit (mkReturnSimple dflags results updfr_off) }
            AssignTo regs adjust ->
              do { if adjust then adjustHpBackwards else return ()
                 ; emitMultiAssign  regs results }
@@ -110,18 +110,19 @@ emitCallWithExtraStack
    :: (Convention, Convention) -> CmmExpr -> [CmmExpr]
    -> (ByteOff, [(CmmExpr,ByteOff)]) -> FCode ReturnKind
 emitCallWithExtraStack (callConv, retConv) fun args extra_stack
-  = do	{ adjustHpBackwards
+  = do	{ dflags <- getDynFlags
+        ; adjustHpBackwards
 	; sequel <- getSequel
 	; updfr_off <- getUpdFrameOff
         ; case sequel of
             Return _ -> do
-              emit $ mkForeignJumpExtra callConv fun args updfr_off extra_stack
+              emit $ mkForeignJumpExtra dflags callConv fun args updfr_off extra_stack
               return AssignedDirectly
             AssignTo res_regs _ -> do
               k <- newLabelC
               let area = Young k
-                  (off, copyin) = copyInOflow retConv area res_regs
-                  copyout = mkCallReturnsTo fun callConv args k off updfr_off
+                  (off, copyin) = copyInOflow dflags retConv area res_regs
+                  copyout = mkCallReturnsTo dflags fun callConv args k off updfr_off
                                    extra_stack
               emit (copyout <*> mkLabel k <*> copyin)
               return (ReturnedTo k off)
@@ -538,7 +539,7 @@ emitClosureProcAndInfoTable top_lvl bndr lf_info info_tbl args body
         ; let args' = if node_points then (node : arg_regs) else arg_regs
               conv  = if nodeMustPointToIt dflags lf_info then NativeNodeCall
                                                           else NativeDirectCall
-              (offset, _) = mkCallEntry conv args'
+              (offset, _) = mkCallEntry dflags conv args'
         ; emitClosureAndInfoTable info_tbl conv args' $ body (offset, node, arg_regs)
         }
 
@@ -595,11 +596,12 @@ closureInfoPtr :: CmmExpr -> CmmExpr
 -- Takes a closure pointer and returns the info table pointer
 closureInfoPtr e = CmmLoad e bWord
 
-entryCode :: CmmExpr -> CmmExpr
+entryCode :: DynFlags -> CmmExpr -> CmmExpr
 -- Takes an info pointer (the first word of a closure)
 -- and returns its entry code
-entryCode e | tablesNextToCode = e
-	    | otherwise	       = CmmLoad e bWord
+entryCode dflags e
+ | tablesNextToCode dflags = e
+ | otherwise               = CmmLoad e bWord
 
 getConstrTag :: DynFlags -> CmmExpr -> CmmExpr
 -- Takes a closure pointer, and return the *zero-indexed*
@@ -624,8 +626,8 @@ infoTable :: DynFlags -> CmmExpr -> CmmExpr
 -- and returns a pointer to the first word of the standard-form
 -- info table, excluding the entry-code word (if present)
 infoTable dflags info_ptr
-  | tablesNextToCode = cmmOffsetB info_ptr (- stdInfoTableSizeB dflags)
-  | otherwise	     = cmmOffsetW info_ptr 1	-- Past the entry code pointer
+  | tablesNextToCode dflags = cmmOffsetB info_ptr (- stdInfoTableSizeB dflags)
+  | otherwise               = cmmOffsetW info_ptr 1 -- Past the entry code pointer
 
 infoTableConstrTag :: DynFlags -> CmmExpr -> CmmExpr
 -- Takes an info table pointer (from infoTable) and returns the constr tag
@@ -657,7 +659,7 @@ funInfoTable :: DynFlags -> CmmExpr -> CmmExpr
 -- and returns a pointer to the first word of the StgFunInfoExtra struct
 -- in the info table.
 funInfoTable dflags info_ptr
-  | tablesNextToCode
+  | tablesNextToCode dflags
   = cmmOffsetB info_ptr (- stdInfoTableSizeB dflags - sIZEOF_StgFunInfoExtraRev)
   | otherwise
   = cmmOffsetW info_ptr (1 + stdInfoTableSizeW dflags)

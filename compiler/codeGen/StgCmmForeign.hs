@@ -207,17 +207,19 @@ emitForeignCall
         -> FCode ReturnKind
 emitForeignCall safety results target args _ret
   | not (playSafe safety) = do
-    let (caller_save, caller_load) = callerSaveVolatileRegs
+    dflags <- getDynFlags
+    let (caller_save, caller_load) = callerSaveVolatileRegs dflags
     emit caller_save
     emit $ mkUnsafeCall target results args
     emit caller_load
     return AssignedDirectly
 
   | otherwise = do
+    dflags <- getDynFlags
     updfr_off <- getUpdFrameOff
     temp_target <- load_target_into_temp target
     k <- newLabelC
-    let (off, copyout) = copyInOflow NativeReturn (Young k) results
+    let (off, copyout) = copyInOflow dflags NativeReturn (Young k) results
        -- see Note [safe foreign call convention]
     emit $
            (    mkStore (CmmStackSlot (Young k) (widthInBytes wordWidth))

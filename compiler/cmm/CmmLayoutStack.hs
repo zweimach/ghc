@@ -26,8 +26,6 @@ import Util
 import DynFlags
 import FastString
 import Outputable
-import Data.Map (Map)
-import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Control.Monad.Fix
 import Data.Array as Array
@@ -485,12 +483,11 @@ spOffsetForCall current_sp cont_stack args
 fixupStack :: StackMap -> StackMap -> [CmmNode O O]
 fixupStack old_stack new_stack = concatMap move new_locs
  where
-     old_map :: Map LocalReg ByteOff
-     old_map  = Map.fromList (stackSlotRegs old_stack)
+     old_map  = sm_regs old_stack
      new_locs = stackSlotRegs new_stack
 
      move (r,n)
-       | Just m <- Map.lookup r old_map, n == m = []
+       | Just (_,m) <- lookupUFM old_map r, n == m = []
        | otherwise = [CmmStore (CmmStackSlot Old n)
                                (CmmReg (CmmLocal r))]
 
@@ -915,7 +912,7 @@ lowerSafeForeignCall dflags block
     -- RTS-only objects and are not subject to garbage collection
     id <- newTemp bWord
     new_base <- newTemp (cmmRegType (CmmGlobal BaseReg))
-    let (caller_save, caller_load) = callerSaveVolatileRegs
+    let (caller_save, caller_load) = callerSaveVolatileRegs dflags
     load_tso <- newTemp gcWord
     load_stack <- newTemp gcWord
     let suspend = saveThreadState dflags <*>
@@ -929,7 +926,7 @@ lowerSafeForeignCall dflags block
                   caller_load <*>
                   loadThreadState dflags load_tso load_stack
 
-        (ret_args, regs, copyout) = copyOutOflow NativeReturn Jump (Young succ)
+        (ret_args, regs, copyout) = copyOutOflow dflags NativeReturn Jump (Young succ)
                                            (map (CmmReg . CmmLocal) res)
                                            updfr (0, [])
 
