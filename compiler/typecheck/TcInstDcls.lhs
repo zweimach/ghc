@@ -512,11 +512,13 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
         -- Check for missing associated types and build them
         -- from their defaults (if available)
         ; let defined_ats = mkNameSet $ map (tyFamInstDeclName . unLoc) ats
+              defined_adts = mkNameSet $ map (unLoc . dfid_tycon . unLoc) adts
 
               mk_deflt_at_instances :: ClassATItem -> TcM [FamInst]
               mk_deflt_at_instances (fam_tc, defs)
                  -- User supplied instances ==> everything is OK
-                | tyConName fam_tc `elemNameSet` defined_ats 
+                | tyConName fam_tc `elemNameSet` defined_ats
+                   || tyConName fam_tc `elemNameSet` defined_adts
                 = return []
 
                  -- No defaults ==> generate a warning
