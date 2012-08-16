@@ -170,19 +170,17 @@ then we have a coercion (ie, type instance of family instance coercion)
 which implies that :R42T was declared as 'data instance T [a]'.
 
 \begin{code}
-tcLookupFamInst :: TyCon -> [Type] -> TcM LookupFamInstResult
+tcLookupFamInst :: TyCon -> [Type] -> TcM (Maybe FamInstMatch)
 tcLookupFamInst tycon tys
   | not (isFamilyTyCon tycon)
-  = return FamInstFailure
+  = return Nothing
   | otherwise
   = do { instEnv <- tcGetFamInstEnvs
        ; let mb_match = lookupFamInstEnv instEnv tycon tys 
        ; traceTc "lookupFamInst" ((ppr tycon <+> ppr tys) $$ pprTvBndrs (varSetElems (tyVarsOfTypes tys)) $$ ppr mb_match $$ ppr instEnv)
        ; case mb_match of
-	   Left incoh -> return $ FamInstIncoherent incoh
-           Right [] -> return $ FamInstFailure
-	   Right (match:_) 
-              -> return $ FamInstSuccess match
+           [] -> return Nothing
+	   (match:_) -> return $ Just match
        }
 
 tcLookupDataFamInst :: TyCon -> [Type] -> TcM (TyCon, [Type])
@@ -195,30 +193,15 @@ tcLookupDataFamInst tycon tys
   = ASSERT( isAlgTyCon tycon )
     do { famInstResult <- tcLookupFamInst tycon tys
        ; case famInstResult of
-           FamInstIncoherent incoh       -> famInstIncoherent incoh tycon tys
-           FamInstFailure                -> famInstNotFound tycon tys
-           FamInstSuccess (FamInstMatch { fim_instance = famInst
-                                        , fim_tys      = tys }) ->
-                                          let tycon' = dataFamInstRepTyCon famInst
-                                          in return (tycon', tys) }
+           Nothing                -> famInstNotFound tycon tys
+           Just (FamInstMatch { fim_instance = famInst , fim_tys = tys })
+             -> let tycon' = dataFamInstRepTyCon famInst
+                in return (tycon', tys) }
 
 famInstNotFound :: TyCon -> [Type] -> TcM a
 famInstNotFound tycon tys 
   = failWithTc (ptext (sLit "No family instance for")
 			<+> quotes (pprTypeApp tycon tys))
-
-famInstIncoherent :: FamIncoherence -> TyCon -> [Type] -> TcM a
-famInstIncoherent (FamIncoherence { faminc_match = match
-                                  , faminc_unify = unify }) tycon tys
-  = failWithTc $ hang (sep [ptext (sLit "Matching"),
-                            ppr_type,
-                            ptext (sLit "against family instances"),
-                            ptext (sLit "leads to an incoherent instance group:")])
-                    2 (vcat [sep [ppr_type, ptext (sLit "matches with"), ppr match],
-                             sep [ptext (sLit "but it could potentially unify with"),
-                                  ppr unify]])
-  where
-    ppr_type = pprTypeApp tycon tys
 
 \end{code}
 
@@ -313,7 +296,6 @@ checkForConflicts inst_envs fam_inst_group
   = do { (_, bools) <- mapAccumLM go [] (famInstGroupInsts fam_inst_group)
        ; return (and bools) }
   where
-    is_data_fam = famInstGroupIsData fam_inst_group
     fam_tc      = famInstGroupTyCon fam_inst_group
 
     go :: [FamInst] -> FamInst -> TcM ([FamInst], Bool)
@@ -327,7 +309,7 @@ checkForConflicts inst_envs fam_inst_group
                   -- fresh *meta* type variables.  
 
          ; (_, skol_tvs) <- tcInstSkolTyVars (coAxiomTyVars (famInstAxiom fam_inst))
-         ; let conflicts = lookupFamInstEnvConflicts inst_envs is_data_fam fam_tc
+         ; let conflicts = lookupFamInstEnvConflicts inst_envs fam_tc
                                                      prev_insts fam_inst skol_tvs
                no_conflicts = null conflicts
          ; traceTc "checkForConflicts" (ppr conflicts
@@ -335,7 +317,7 @@ checkForConflicts inst_envs fam_inst_group
                                      $$ ppr fam_inst
                                      $$ ppr inst_envs)
          ; unless no_conflicts $
-             conflictInstErr fam_inst (map fim_instance conflicts)
+             conflictInstErr fam_inst conflicts
          ; return (fam_inst : prev_insts, no_conflicts) }
 
 conflictInstErr :: FamInst -> [FamInst] -> TcRn ()

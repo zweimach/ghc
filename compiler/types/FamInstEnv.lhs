@@ -11,6 +11,7 @@ FamInstEnv: Type checked family instance declarations
 -- detab the module (please do the detabbing in a separate patch). See
 --     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
 -- for details
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module FamInstEnv (
 	FamInstGroup(..), FamInst(..), FamFlavor(..), FamInstNewOrData(..),
@@ -30,7 +31,7 @@ module FamInstEnv (
 	extendFamInstEnv, deleteFromFamInstEnv, extendFamInstEnvList, 
 	identicalFamInstGroup, identicalFamInst, famInstEnvElts, familyInstances,
 
-        FamInstMatch(..), LookupFamInstResult(..), FamIncoherence(..),
+        FamInstMatch(..),
         lookupFamInstEnv, lookupFamInstEnvConflicts, lookupFamInstEnvConflicts',
 	
 	-- Normalisation
@@ -164,6 +165,10 @@ famInstAxiom = fi_axiom
 
 famInstTys :: FamInst -> [Type]
 famInstTys = fi_tys
+
+isDataFamInst :: FamInst -> Bool
+isDataFamInst (FamInst { fi_rep_tc = Just _ }) = True
+isDataFamInst _                                = False
 
 -- Return the representation TyCons introduced by data family instances, if any
 famInstGroupsRepTyCons :: [FamInstGroup] -> [TyCon]
@@ -523,355 +528,6 @@ we return the matching instance '(FamInst{.., fi_tycon = :R42T}, Int)'.
 Note that the match process returns a FamInst, not a FamInstGroup. The
 disambiguation among FamInsts within a group is done here.
 
-\begin{code}
-data FamInstMatch 
-  = FamInstMatch { fim_instance :: FamInst -- the matching FamInst
-                 , fim_tys      :: [Type]  -- the substituted types
-                                           -- See Note [Over-saturated matches]
-                 , fim_group    :: FamInstGroup -- the group to which the match belongs
-                   -- INVARIANT: fim_instance `elem` (famInstGroupInsts fim_group)
-                 }
-
--- It is possible that the lookup results in finding an incoherent instance
--- group. (See note [Instance checking within groups].) This type packages
--- up the information about the incoherence to allow for an informative error
--- message.
-data FamIncoherence
-  = FamIncoherence { faminc_match :: FamInst   -- the instance that matched
-                   , faminc_unify :: FamInst } -- the (preceding) instance that unified
-
--- There are three posibilities from a family instance lookup:
--- 1) Success
--- 2) Failure
--- 3) Encountering an incoherent instance group
-data LookupFamInstResult = FamInstSuccess FamInstMatch       -- we found a match
-                         | FamInstFailure                    -- no match, keep searching
-                         | FamInstIncoherent FamIncoherence  -- match impossible
-                              -- see note [Early failure optimisation for instance groups]
-
--- this is only ever used in debugging output, never in user-intended errors
-pprFamIncoherence :: FamIncoherence -> SDoc
-pprFamIncoherence (FamIncoherence { faminc_match = match, faminc_unify = unify })
-  = hang (ptext (sLit "incoherence detected:"))
-       2 (ppr match $$ ppr unify)
-
--- similarly used only in debugging
-pprFamInstMatch :: FamInstMatch -> SDoc
-pprFamInstMatch (FamInstMatch { fim_instance = inst
-                              , fim_tys      = tys
-                              , fim_group    = group })
-  = hang (ptext (sLit "FamInstMatch {"))
-       2 (vcat [ptext (sLit "fim_instance") <+> equals <+> ppr inst,
-                ptext (sLit "fim_tys     ") <+> equals <+> ppr tys,
-                ptext (sLit "fim_group   ") <+> equals <+> ppr group <+> ptext (sLit "}")])
-
-instance Outputable FamIncoherence where
-  ppr = pprFamIncoherence
-
-instance Outputable FamInstMatch where
-  ppr = pprFamInstMatch
-
-lookupFamInstEnv
-    :: FamInstEnvs
-    -> TyCon -> [Type]		            -- What we are looking for
-    -> Either FamIncoherence [FamInstMatch] -- Successful matches
--- Precondition: the tycon is saturated (or over-saturated)
-
-lookupFamInstEnv
-   = lookup_fam_inst_env match OneSidedMatch
-   where
-     match _ tpl_tvs tpl_tys tys = (tcMatchTys tpl_tvs tpl_tys tys, True)
-
-lookupFamInstEnvConflicts
-    :: FamInstEnvs
-    -> Bool             -- is this a data family?
-    -> TyCon            -- family tycon
-    -> [FamInst]        -- the instances that came before the current one
-                        -- in the group
-    -> FamInst		-- Putative new instance
-    -> [TyVar]		-- Unique tyvars, matching arity of FamInst
-    -> [FamInstMatch] 	-- Conflicting matches
--- E.g. when we are about to add
---    f : type instance F [a] = a->a
--- we do (lookupFamInstConflicts f [b])
--- to find conflicting matches
--- The skolem tyvars are needed because we don't have a 
--- unique supply to hand
---
--- Precondition: the tycon is saturated (or over-saturated)
-
-lookupFamInstEnvConflicts envs data_fam fam prev_insts fam_inst skol_tvs
-  = case lookup_fam_inst_env my_unify (UnificationForConflict prev_insts)
-                             envs fam tys1 of
-      Left incoh -> pprPanic "lookupFamInstEnvConflicts" (ppr incoh)
-      Right matches -> matches
-  where
-    inst_axiom = famInstAxiom fam_inst
-    tys        = famInstTys fam_inst
-    skol_tys   = mkTyVarTys skol_tvs
-    tys1       = substTys (zipTopTvSubst (coAxiomTyVars inst_axiom) skol_tys) tys
-        -- In example above,   fam tys' = F [b]   
-
-    my_unify old_fam_inst tpl_tvs tpl_tys match_tys
-       = ASSERT2( tyVarsOfTypes tys1 `disjointVarSet` tpl_tvs,
-		  (ppr fam_inst <+> ppr tys1) $$
-		  (ppr tpl_tvs <+> ppr tpl_tys) )
-		-- Unification will break badly if the variables overlap
-		-- They shouldn't because we allocate separate uniques for them
-         case tcUnifyTys instanceBindFun tpl_tys match_tys of
-	      Just subst -> if conflicting old_fam_inst subst
-                             then (Just subst, True)
-                             else (Nothing, False)
-	      _other	 -> (Nothing, True)
-
-      -- Note [Family instance overlap conflicts]
-    conflicting old_fam_inst subst 
-      | data_fam  = True
-      | otherwise = not (old_rhs `eqType` new_rhs)
-      where
-        old_axiom = famInstAxiom old_fam_inst
-        old_tvs   = coAxiomTyVars old_axiom
-        old_rhs   = mkAxInstRHS old_axiom  (substTyVars subst old_tvs)
-        new_rhs   = mkAxInstRHS inst_axiom (substTyVars subst skol_tvs)
-
--- This variant is called when we want to check if the conflict is only in the
--- home environment (see FamInst.addLocalFamInst)
-lookupFamInstEnvConflicts' :: FamInstEnv -> Bool -> TyCon
-                           -> [FamInst] -> FamInst -> [TyVar] -> [FamInstMatch]
-lookupFamInstEnvConflicts' env
-  = lookupFamInstEnvConflicts (emptyFamInstEnv, env)
-\end{code}
-
-Note [Family instance overlap conflicts]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- In the case of data family instances, any overlap is fundamentally a
-  conflict (as these instances imply injective type mappings).
-
-- In the case of type family instances, overlap is admitted as long as
-  the right-hand sides of the overlapping rules coincide under the
-  overlap substitution.  eg
-       type instance F a Int = a
-       type instance F Int b = b
-  These two overlap on (F Int Int) but then both RHSs are Int, 
-  so all is well. We require that they are syntactically equal;
-  anything else would be difficult to test for at this stage.
-
-
-While @lookupFamInstEnv@ uses a one-way match, the next function
-@lookupFamInstEnvConflicts@ uses two-way matching (ie, unification).  This is
-needed to check for overlapping instances.
-
-For class instances, these two variants of lookup are combined into one
-function (cf, @InstEnv@).  We don't do that for family instances as the
-results of matching and unification are used in two different contexts.
-Moreover, matching is the wildly more frequently used operation in the case of
-indexed synonyms and we don't want to slow that down by needless unification.
-
-Both matching lookups and conflict lookups boil down to same worker function,
-lookup_fam_inst_env', which uses a function argument to differentiate between
-matching and unifying. When unifying, the my_unify function (defined in the
-'where' clause of lookupFamInstEnvConflicts) would like to indicate "no match"
-when there is a match but the RHSs are confluent, as confluent RHSs do not
-indicate a conflict. However, when checking in an instance group, a "no match"
-says to keep looking later in the instance group. That behavior is wrong.
-For example,
-
-type family F a b
-type instance where
-  F a a = Char
-  F a b = Double
-type instance F Int Int = Char
-
-This code contains no conflicts. But, if my_unify simply returns that
-'F a a = Char' and 'F Int Int = Char' are not a match (because they do
-not conflict), then lookup_fam_inst_env' continues to search through
-the instance group, finding 'F a b = Double'. This LHS unifies with
-'F Int Int' but the RHS does not, and an erroneous conflict is reported.
-
-To get around this, the matching functions passed into lookup_fam_inst_env'
-return a pair of a Maybe TvSubst (the substitution, if there is a match) and
-a Boolean flag. The flag says whether the search within an instance group
-should continue in the case where a match was not found. (When a match was found,
-we know always to stop the search.) Thus, if the return value is (Just _, b)
-the value of b is ignored.
-
-Conversely, consider conflict checking in the reverse order, with the
-singleton instance 'F Int Int' first. We accept 'F a a' as without conflicts
-wthout a problem. However, 'F a b' gives trouble: it unifies with 'F Int Int'.
-The solution here is that we have to ignore any outside instance that
-unifies with any of the instances previous to the one in question but in
-the same instance group. So, in this case, we wish to ignore the 'F Int Int'
-instance in the context when checking 'F a b' because 'F a a' unifies with
-'F Int Int'. This check is accomplished using the LookupType datatype below.
-
-\begin{code}
-------------------------------------------------------------
--- Might be a one-way match or a unifier
-type MatchFun =  FamInst		-- The FamInst template
-     	      -> TyVarSet -> [Type]	--   fi_tvs, fi_tys of that FamInst
-	      -> [Type]			-- Target to match against
-	      -> ( Maybe TvSubst   -- unifying substitution
-                 , Bool )          -- if no subst found, keep searching within this group?
-                                   -- see Note [Family instance overlap conflicts]
-
--- informs why we are doing a lookup. See Note [Family instance overlap conflicts]
-data LookupType = OneSidedMatch -- trying to match a type (for example, in simplification)
-                | UnificationForConflict [FamInst]
-                    -- looking for conflicts. The [FamInst] are the instances in the
-                    -- group before the one being checked. This is necessary because
-                    -- if a potentially conficting instance matches wth any of these,
-                    -- it is irrelevant if it matches with the instance in question.
-
-lookup_fam_inst_env' 	      -- The worker, local to this module
-    :: MatchFun
-    -> LookupType
-    -> FamInstEnv
-    -> TyCon -> [Type]		-- What we are looking for
-    -> Either FamIncoherence [FamInstMatch] 
-lookup_fam_inst_env' match_fun lookup_type ie fam tys
-  | not (isFamilyTyCon fam) 
-  = Right []
-  | otherwise
-  = ASSERT2( n_tys >= arity, ppr fam <+> ppr tys )	-- Family type applications must be saturated
-    lookup ie
-  where
-    one_sided | OneSidedMatch <- lookup_type = True
-              | otherwise                    = False
-
-    -- See Note [Over-saturated matches]
-    arity = tyConArity fam
-    n_tys = length tys
-    extra_tys = drop arity tys
-    (match_tys, add_extra_tys) 
-       | arity < n_tys = (take arity tys, \res_tys -> res_tys ++ extra_tys)
-       | otherwise     = (tys,            \res_tys -> res_tys)
-       	 -- The second case is the common one, hence functional representation
-
-    --------------
-    rough_tcs = roughMatchTcs match_tys
-    all_tvs   = all isNothing rough_tcs && one_sided
-
-    --------------
-    lookup env = case lookupUFM env fam of
-		   Nothing -> Right []	-- No instances for this class
-		   Just (FamIE groups has_tv_insts)
-		       -- Short cut for common case:
-		       --   The thing we are looking up is of form (C a
-		       --   b c), and the FamIE has no instances of
-		       --   that form, so don't bother to search 
-		     | all_tvs && not has_tv_insts -> Right []
-		     | otherwise                   -> findGroup groups
-
-    --------------
-    findGroup :: [FamInstGroup] -> Either FamIncoherence [FamInstMatch]
-    findGroup [] = Right []
-    findGroup (group@(FamInstGroup { fig_fis = fam_insts }) : rest)
-      = case find group fam_insts of
-          FamInstSuccess match ->
-            case findGroup rest of
-              Left incoherence -> pprPanic "lookup_fam_inst_env'"
-                                           (ppr match $$ ppr incoherence)
-              Right more_matches -> Right $ match : more_matches
-          FamInstFailure -> findGroup rest
-          FamInstIncoherent incoh -> Left incoh
-
-    find group = find_and_check group []
-
-    -- See note [Instance checking within groups]
-    find_and_check :: FamInstGroup -- the group in which we are checking
-                   -> [FamInst]    -- the FamInsts that have already been checked
-                   -> [FamInst]    -- still looking through these
-                   -> LookupFamInstResult
-    find_and_check _ _ [] = FamInstFailure
-    find_and_check group seen
-                   (item@(FamInst { fi_tcs = mb_tcs, fi_tvs = tpl_tvs, 
-                                    fi_tys = tpl_tys, fi_axiom = axiom }) : rest)
-	-- Fast check for no match, uses the "rough match" fields
-      | instanceCantMatch rough_tcs mb_tcs
-      = find_and_check group seen rest -- just discard this one. It won't unify later.
-
-        -- Proper check
-      | otherwise
-      = case match_fun item tpl_tvs tpl_tys match_tys of
-          -- success
-          (Just subst, _) ->
-            let substed_tys = substTyVars subst (coAxiomTyVars axiom) in
-            case checkUnify seen tpl_tys of
-              Nothing -> FamInstSuccess (FamInstMatch
-                           { fim_instance = item
-                           , fim_tys      = add_extra_tys $ substed_tys
-                           , fim_group    = group  })
-              Just fam_inst
-                | one_sided
-                -> FamInstIncoherent (FamIncoherence { faminc_match = item
-                                                     , faminc_unify = fam_inst })
-                | otherwise
-                -> FamInstFailure -- we don't want to abort the search when
-                                  -- looking for conflicts
-          -- fail and continue
-          (Nothing, True) -> find_and_check group (item : seen) rest
-          
-          -- fail and stop
-          (Nothing, False) -> FamInstFailure
-
-    checkUnify :: [FamInst]     -- previous FamInsts in the group we're searching through
-               -> [Type]        -- the matching substitution applied to the tyvars
-                                -- the matching instance
-               -> Maybe FamInst -- the FamInst that unifies, or Nothing
-    checkUnify seen substed_tys
-      | UnificationForConflict other_insts <- lookup_type
-      = do_check other_insts substed_tys
-      | otherwise
-      = do_check seen match_tys
-
-    -- TODO (RAE): Allow confluent overlaps.
-    do_check [] _ = Nothing
-    do_check (fam_inst@(FamInst { fi_tys = tpl_tys }) : rest) tys
-      | Just _ <- tcUnifyTys instanceBindFun tpl_tys tys
-      = Just fam_inst
-      | otherwise
-      = do_check rest tys
-
--- Precondition: the tycon is saturated (or over-saturated)
-
-lookup_fam_inst_env 	      -- The worker, local to this module
-    :: MatchFun
-    -> LookupType
-    -> FamInstEnvs
-    -> TyCon -> [Type]		-- What we are looking for
-    -> Either FamIncoherence [FamInstMatch] -- failure message or Successful matches
-
--- Precondition: the tycon is saturated (or over-saturated)
-
-lookup_fam_inst_env match_fun one_sided (pkg_ie, home_ie) fam tys = 
-    lookup_fam_inst_env' match_fun one_sided home_ie fam tys `append`
-    lookup_fam_inst_env' match_fun one_sided pkg_ie  fam tys
-  where append x@(Left _) (Right []) = x
-        append (Right []) x@(Left _) = x
-        append (Right l1) (Right l2) = Right (l1 ++ l2)
-        append x y                   = pprPanic "lookup_fam_inst_env" (ppr x $$ ppr y)
-                    -- there should never be a successful match in one environment
-                    -- and an incoherence in the other
-
-\end{code}
-
-Note [Over-saturated matches]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-It's ok to look up an over-saturated type constructor.  E.g.
-     type family F a :: * -> *
-     type instance F (a,b) = Either (a->b)
-
-The type instance gives rise to a newtype TyCon (at a higher kind
-which you can't do in Haskell!):
-     newtype FPair a b = FP (Either (a->b))
-
-Then looking up (F (Int,Bool) Char) will return a FamInstMatch 
-     (FPair, [Int,Bool,Char])
-
-The "extra" type argument [Char] just stays on the end.
-
-
-
 Note [Instance checking within groups]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -909,6 +565,395 @@ search, because any other instance that matches will necessarily
 overlap with the instance group we're currently searching. Because
 overlap among instance groups is disallowed, we know that that
 no such other instance exists.
+
+Note [Confluence checking within groups]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider the following definition:
+
+type family And (a :: Bool) (b :: Bool) :: Bool
+
+type instance where
+  And False a     = False
+  And True  b     = b
+  And c     False = False
+  And d     True  = d
+
+We wish to simplify (And e True). The search (using a one-way match
+from type patterns to target) quickly eliminates the first three
+possibilities. The fourth matches, with subst [d |-> e]. We then
+go back and check the first three. We check each one to see if it
+can possibly unify with the target (And e True). The first one does,
+with subst [a |-> True, e |-> False]. To show that this is consistent
+with the fourth equation, we must apply both substitutions to the
+RHS of the fourth equation. Similarly, unifying with the second
+equation gives us a subst [b |-> True, e |-> True], also requiring
+the application of both substitutions to show consistency. The
+third equation does not unify, so we're done and can simplify
+(And e True) to e, as desired.
+
+Why don't we just unify the two equations in the group? Because, in
+general, we don't want to. Consider this:
+
+type family F a b
+type instance where
+  F a a = Int
+  F a b = b
+
+We should be able to simplify (F x Int) but not (F y Bool). We need
+the information from matching the target to differentiate these cases.
+
+\begin{code}
+data FamInstMatch 
+  = FamInstMatch { fim_instance :: FamInst -- the matching FamInst
+                 , fim_tys      :: [Type]  -- the substituted types
+                                           -- See Note [Over-saturated matches]
+                 , fim_group    :: FamInstGroup -- the group to which the match belongs
+                   -- INVARIANT: fim_instance `elem` (famInstGroupInsts fim_group)
+                 }
+
+-- similarly used only in debugging
+pprFamInstMatch :: FamInstMatch -> SDoc
+pprFamInstMatch (FamInstMatch { fim_instance = inst
+                              , fim_tys      = tys
+                              , fim_group    = group })
+  = hang (ptext (sLit "FamInstMatch {"))
+       2 (vcat [ptext (sLit "fim_instance") <+> equals <+> ppr inst,
+                ptext (sLit "fim_tys     ") <+> equals <+> ppr tys,
+                ptext (sLit "fim_group   ") <+> equals <+> ppr group <+> ptext (sLit "}")])
+
+instance Outputable FamInstMatch where
+  ppr = pprFamInstMatch
+
+lookupFamInstEnv
+    :: FamInstEnvs
+    -> TyCon -> [Type] -- What we are looking for
+    -> [FamInstMatch]  -- Successful matches
+-- Precondition: the tycon is saturated (or over-saturated)
+
+lookupFamInstEnv
+  = lookup_fam_inst_env match True
+  where
+    match group seen inst@(FamInst { fi_tvs = tpl_tvs,
+                                     fi_tys = tpl_tys, fi_axiom = axiom })
+          match_tys add_extra_tys
+      = ASSERT( tyVarsOfTypes match_tys `disjointVarSet` tpl_tvs )
+		-- Unification will break badly if the variables overlap
+		-- They shouldn't because we allocate separate uniques for them
+        case tcMatchTys tpl_tvs tpl_tys match_tys of
+          -- success
+          Just subst
+            | checkUnify seen match_tys subst inst
+            -> (Nothing, StopSearching) -- we found an incoherence, so stop searching
+            -- see Note [Early failure optimisation for instance groups]
+
+            | otherwise
+            -> (Just $ FamInstMatch
+                           { fim_instance = inst
+                           , fim_tys      = add_extra_tys $
+                                            substTyVars subst (coAxiomTyVars axiom)
+                           , fim_group    = group }, KeepSearching)
+
+          -- failure; instance not relevant
+          Nothing -> (Nothing, KeepSearching) 
+    
+    -- see Note [Instance checking within groups]
+    checkUnify :: [FamInst] -- the previous FamInsts in the group that matched
+               -> [Type]    -- the types in the tyfam application we are matching
+               -> TvSubst   -- the subst that witnesses the match between those types and...
+               -> FamInst   -- ...this FamInst
+               -> Bool      -- is there a conflicting unification?
+    checkUnify [] _ _ _ = False
+    checkUnify ((FamInst { fi_tys = tpl_tys
+                         , fi_axiom = inner_axiom }) : rest)
+               match_tys outer_subst
+               outer_fi@(FamInst { fi_axiom = outer_axiom })
+      | Just inner_subst <- tcUnifyTys instanceBindFun tpl_tys match_tys
+      -- see Note [Confluence checking within groups]
+      = let outer_tvs = coAxiomTyVars outer_axiom
+            inner_tvs = coAxiomTyVars inner_axiom
+            outer_rhs = mkAxInstRHS outer_axiom (substTys inner_subst $
+                                                 substTyVars outer_subst outer_tvs)
+            inner_rhs = mkAxInstRHS inner_axiom (substTyVars inner_subst inner_tvs)
+        in not (outer_rhs `eqType` inner_rhs)
+      | otherwise
+      = checkUnify rest match_tys outer_subst outer_fi
+
+
+lookupFamInstEnvConflicts
+    :: FamInstEnvs
+    -> TyCon            -- family tycon
+    -> [FamInst]        -- the instances that came before the current one
+                        -- in the group
+    -> FamInst		-- Putative new instance
+    -> [TyVar]		-- Unique tyvars, matching arity of FamInst
+    -> [FamInst] 	-- Conflicting FamInsts
+-- E.g. when we are about to add
+--    f : type instance F [a] = a->a
+-- we do (lookupFamInstConflicts f [b])
+-- to find conflicting matches
+-- The skolem tyvars are needed because we don't have a 
+-- unique supply to hand
+--
+-- Precondition: the tycon is saturated (or over-saturated)
+
+lookupFamInstEnvConflicts envs fam prev_insts fam_inst skol_tvs
+  = lookup_fam_inst_env my_unify False envs fam tys1
+  where
+    inst_axiom = famInstAxiom fam_inst
+    tys        = famInstTys fam_inst
+    skol_tys   = mkTyVarTys skol_tvs
+    tys1       = substTys (zipTopTvSubst (coAxiomTyVars inst_axiom) skol_tys) tys
+        -- In example above,   fam tys' = F [b]   
+
+    -- my_unify returns Maybe (Maybe FamInst)
+    -- Nothing --> keep searching within group
+    -- Just Nothing --> stop searching within group; no conflict
+    -- Just (Just inst) --> found a conflict with inst
+    my_unify _ seen old_fam_inst@(FamInst { fi_tvs = tpl_tvs, fi_tys = tpl_tys })
+             match_tys _
+       -- (Case 2) in [Family instance overlap conflicts]
+       | tpl_tys `isDominatedBy` prev_insts
+       = (Nothing, KeepSearching)
+       | otherwise
+       = ASSERT2( tyVarsOfTypes tys1 `disjointVarSet` tpl_tvs,
+		  (ppr fam_inst <+> ppr tys1) $$
+		  (ppr tpl_tvs <+> ppr tpl_tys) )
+		-- Unification will break badly if the variables overlap
+		-- They shouldn't because we allocate separate uniques for them
+         case tcUnifyTys instanceBindFun tpl_tys match_tys of
+	      Just subst
+                | rhs_conflict old_fam_inst skol_tvs inst_axiom subst
+                -> (Just old_fam_inst, KeepSearching)
+                -- (Case 1) in [Family instance overlap conflicts]
+                | match_tys `isDominatedBy` (old_fam_inst : seen)
+                -> (Nothing, StopSearchingThisGroup)
+                | otherwise -- confluent overlap
+                -> (Nothing, KeepSearching)
+	      -- irrelevant instance
+              Nothing -> (Nothing, KeepSearching)
+
+-- checks whether two RHSs are distinct, under a unifying substitution
+-- Note [Family instance overlap conflicts]
+rhs_conflict :: FamInst -> [TyVar] -> CoAxiom -> TvSubst -> Bool
+rhs_conflict fi1@(FamInst { fi_axiom = axiom1 })
+             tvs2 axiom2 subst 
+  | isDataFamInst fi1
+  = True
+  | otherwise
+  = not (rhs1 `eqType` rhs2)
+    where
+      tvs1 = coAxiomTyVars axiom1
+      rhs1 = mkAxInstRHS axiom1 (substTyVars subst tvs1)
+      rhs2 = mkAxInstRHS axiom2 (substTyVars subst tvs2)
+
+-- This variant is called when we want to check if the conflict is only in the
+-- home environment (see FamInst.addLocalFamInst)
+lookupFamInstEnvConflicts' :: FamInstEnv -> TyCon
+                           -> [FamInst] -> FamInst -> [TyVar] -> [FamInst]
+lookupFamInstEnvConflicts' env
+  = lookupFamInstEnvConflicts (emptyFamInstEnv, env)
+\end{code}
+
+Note [lookup_fam_inst_env' implementation]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+To reduce code duplication, both lookups during simplification and conflict
+checking are routed through lookup_fam_inst_env', which looks for a
+matching/unifying instance compared to some target. In the simplification
+case, the search is for a match for a target application; in the conflict-
+checking case, the search is for a unifier for a putative new family instance.
+
+The two uses are differentiated by different MatchFuns, which look at a
+given instance to see if it is relevant and whether the search should continue.
+The the instance is relevant (i.e. matches, or unifies in a conflicting manner),
+Just <something> is returned; if the instance is not relevant, Nothing is returned.
+The MatchFun also indicates what the search algorithm should do next: it could
+KeepSearching, StopSearching altogether, or just StopSearchingThisGroup but
+continue to search others.
+
+When to StopSearching? See Note [Early failure optimisation for instance groups]
+When to StopSearchingThisGroup? See Note [Family instance overlap conflicts] (case 1)
+
+For class instances, these two variants of lookup are combined into one
+function (cf, @InstEnv@).  We don't do that for family instances as the
+results of matching and unification are used in two different contexts.
+Moreover, matching is the wildly more frequently used operation in the case of
+indexed synonyms and we don't want to slow that down by needless unification.
+
+Note [Family instance overlap conflicts]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- In the case of data family instances, any overlap is fundamentally a
+  conflict (as these instances imply injective type mappings).
+
+- In the case of type family instances, overlap is admitted as long as
+  the right-hand sides of the overlapping rules coincide under the
+  overlap substitution.  eg
+       type instance F a Int = a
+       type instance F Int b = b
+  These two overlap on (F Int Int) but then both RHSs are Int, 
+  so all is well. We require that they are syntactically equal;
+  anything else would be difficult to test for at this stage.
+
+How is this implemented? Consider this:
+
+type family F a b
+type instance where
+  F a a = Char
+  F a b = Double
+type instance F Int Int = Char
+
+This code contains no conflicts. But, a naive implementation would eventually
+try to unify (F a b) and (F Int Int), succeed, and discover that the RHSs do
+not coincide. We wish to avoid this problem. There are two cases to consider:
+
+(Case 1): The instances are checked in the order written above.
+We are trying to see if the (F Int Int) instance has any conflicts. So, we
+search through all pre-existing instance groups to see if there are unifiers.
+As we search through the one group written above, we want to stop after
+checking the first equation. Why? Because any application of F that matches
+(F Int Int) also necessarily matches (F a a). Thus, any later equations in
+the group are irrelevant for checking the consistency of (F Int Int). In
+general, as the search proceeds through a group, it collects a list of
+equations that have already been checked. When this list dominates the
+instance we are checking for consistency, we can StopSearchingThisGroup.
+The equation that, when added to the list, causes the list to dominate
+the new instance must also unify, so we check for this condition in the
+context of a successful unification.
+
+(Case 2): The instances are checked in the reverse order as written above.
+Here, the interesting case is when we are checking (F a b) for consistency.
+We need to avoid checking against the (F Int Int) case. The condition is,
+in effect, the same as in (Case 1). We avoid checking (F Int Int) when
+all the instances previous to (F a b) in (F a b)'s group dominate (F Int Int).
+The check is coded rather differently because the context is different, but
+the net effect is the same. Note that we don't wish to StopSearchingThisGroup,
+because perhaps the analogue of (F Int Int) is in an instance group such that
+a later equation is relevant. We simply wish to say that there is no conflict
+on this equation.
+
+\begin{code}
+------------------------------------------------------------
+data ContSearch = KeepSearching
+                | StopSearching
+                | StopSearchingThisGroup -- (but keep searching others)
+
+-- Might be a one-way match or a unifier
+type MatchFun a =  FamInstGroup        -- the group in which we are checking
+                -> [FamInst]           -- the previous FamInsts in the group
+                -> FamInst             -- the individual FamInst to check
+                -> [Type]              -- the types to match against
+                -> ([Type] -> [Type])  -- see add_extra_tys, below
+                -> (Maybe a, ContSearch)
+
+-- informs why we are doing a lookup. See Note [Family instance overlap conflicts]
+type OneSidedMatch = Bool -- whether or not we can optimise for matching
+
+lookup_fam_inst_env' 	      -- The worker, local to this module
+    :: forall a. MatchFun a
+    -> OneSidedMatch
+    -> FamInstEnv
+    -> TyCon -> [Type]		-- What we are looking for
+    -> [a] 
+lookup_fam_inst_env' match_fun one_sided ie fam tys
+  | not (isFamilyTyCon fam) 
+  = []
+  | otherwise
+  = ASSERT2( n_tys >= arity, ppr fam <+> ppr tys )	-- Family type applications must be saturated
+    lookup ie
+  where
+    -- See Note [Over-saturated matches]
+    arity = tyConArity fam
+    n_tys = length tys
+    extra_tys = drop arity tys
+    (match_tys, add_extra_tys) 
+       | arity < n_tys = (take arity tys, \res_tys -> res_tys ++ extra_tys)
+       | otherwise     = (tys,            \res_tys -> res_tys)
+       	 -- The second case is the common one, hence functional representation
+
+    --------------
+    rough_tcs = roughMatchTcs match_tys
+    all_tvs   = all isNothing rough_tcs && one_sided
+
+    --------------
+    lookup env = case lookupUFM env fam of
+		   Nothing -> []	-- No instances for this family
+		   Just (FamIE groups has_tv_insts)
+		       -- Short cut for common case:
+		       --   The thing we are looking up is of form (C a
+		       --   b c), and the FamIE has no instances of
+		       --   that form, so don't bother to search 
+		     | all_tvs && not has_tv_insts -> []
+		     | otherwise                   -> findGroup groups
+
+    --------------
+    findGroup :: [FamInstGroup] -> [a]
+    findGroup [] = []
+    findGroup (group@(FamInstGroup { fig_fis = fam_insts }) : rest)
+      = case findInst group [] fam_insts of
+          (Just match, False) -> [match]
+          (Just match, True)  -> match : findGroup rest
+          (Nothing,    False) -> []
+          (Nothing,    True)  -> findGroup rest
+
+    findInst :: FamInstGroup -- the group in which we are checking
+             -> [FamInst]    -- the FamInsts that have already been checked
+             -> [FamInst]    -- still looking through these
+             -> (Maybe a, Bool) -- Bool indicates whether to continue
+    findInst _ _ [] = (Nothing, True)
+    findInst group seen (head_inst@(FamInst { fi_tcs = mb_tcs }) : rest)
+      | instanceCantMatch rough_tcs mb_tcs
+      = findInst group seen rest -- head_inst looks fundamentally different; ignore
+      | otherwise
+      = case match_fun group seen head_inst match_tys add_extra_tys of
+          (Just result, StopSearching)      -> (Just result, False)
+          (Just result, _)                  -> (Just result, True)
+          (Nothing, StopSearchingThisGroup) -> (Nothing, True)
+          (Nothing, StopSearching)          -> (Nothing, False)
+          (Nothing, KeepSearching)          -> findInst group (head_inst : seen) rest
+
+-- checks if one LHS is dominated by a list of other LHSs
+-- in other words, if an application would match the first LHS, it is guaranteed
+-- to match at least one of the others. The RHSs are ignored.
+-- TODO: Write a complete algorithm
+isDominatedBy :: [Type] -> [FamInst] -> Bool
+isDominatedBy tys1 fi2s
+  = -- The current algorithm has false negatives but no false positives
+    -- That state of affairs makes the checking algorithm sound though incomplete
+    or $ map match fi2s
+    where
+      match (FamInst { fi_tvs = tvs2, fi_tys = tys2 })
+        = isJust $ tcMatchTys tvs2 tys2 tys1
+
+-- Precondition: the tycon is saturated (or over-saturated)
+
+lookup_fam_inst_env 	      -- The worker, local to this module
+    :: MatchFun a
+    -> OneSidedMatch
+    -> FamInstEnvs
+    -> TyCon -> [Type]        -- What we are looking for
+    -> [a]                    -- Successful matches
+
+-- Precondition: the tycon is saturated (or over-saturated)
+lookup_fam_inst_env match_fun one_sided (pkg_ie, home_ie) fam tys = 
+    lookup_fam_inst_env' match_fun one_sided home_ie fam tys ++
+    lookup_fam_inst_env' match_fun one_sided pkg_ie  fam tys
+
+\end{code}
+
+Note [Over-saturated matches]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+It's ok to look up an over-saturated type constructor.  E.g.
+     type family F a :: * -> *
+     type instance F (a,b) = Either (a->b)
+
+The type instance gives rise to a newtype TyCon (at a higher kind
+which you can't do in Haskell!):
+     newtype FPair a b = FP (Either (a->b))
+
+Then looking up (F (Int,Bool) Char) will return a FamInstMatch 
+     (FPair, [Int,Bool,Char])
+
+The "extra" type argument [Char] just stays on the end.
+
 
 %************************************************************************
 %*									*
@@ -972,8 +1017,8 @@ normaliseTcApp :: FamInstEnvs -> TyCon -> [Type] -> (Coercion, Type)
 normaliseTcApp env tc tys
   | isFamilyTyCon tc
   , tyConArity tc <= length tys	   -- Unsaturated data families are possible
-  , Right [FamInstMatch { fim_instance = fam_inst
-                        , fim_tys      = inst_tys }] <- lookupFamInstEnv env tc ntys 
+  , [FamInstMatch { fim_instance = fam_inst
+                  , fim_tys      = inst_tys }] <- lookupFamInstEnv env tc ntys 
   = let    -- A matching family instance exists
         ax              = famInstAxiom fam_inst
         co              = mkAxInstCo  ax inst_tys
