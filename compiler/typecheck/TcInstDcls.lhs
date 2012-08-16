@@ -596,6 +596,9 @@ tcTyFamInstDecl fam_tc decl
          -- ... and then do processing seperately per instance equation
        ; fam_insts <- mapM check_valid_mk_fam_inst quads
 
+         -- (4) check to see if earlier equations dominate a later one
+       ; foldlM_ check_inaccessible_fam_inst [] fam_insts
+
          -- now, build the FamInstGroup
        ; return $ mkSynFamInstGroup fam_tc fam_insts }
 
@@ -605,11 +608,17 @@ tcTyFamInstDecl fam_tc decl
               do { -- (2) check the well-formedness of the instance
                    checkValidFamInst t_typats t_rhs
 
-                   -- (3) construct representation tycon
+                   -- (3) construct coercion tycon
                  ; rep_tc_name <- newFamInstAxiomName loc (tyFamInstDeclName decl) t_typats
 
                  ; return $ mkSynFamInst rep_tc_name t_tvs fam_tc t_typats t_rhs }
 
+          check_inaccessible_fam_inst :: [FamInst] -> FamInst -> TcM [FamInst]
+          check_inaccessible_fam_inst prev_insts cur_inst@(FamInst { fi_tys = tys })
+            = setSrcSpan (getSrcSpan cur_inst) $
+              do { when (tys `isDominatedBy` prev_insts) $
+                        addErrTc $ inaccessibleFamInst cur_inst
+                 ; return $ cur_inst : prev_insts }
 
 tcDataFamInstDecl :: TyCon -> DataFamInstDecl Name -> TcM FamInstGroup
   -- "newtype instance" and "data instance"
@@ -1489,4 +1498,9 @@ badFamInstDecl tc_name
   = vcat [ ptext (sLit "Illegal family instance for") <+>
            quotes (ppr tc_name)
          , nest 2 (parens $ ptext (sLit "Use -XTypeFamilies to allow indexed type families")) ]
+
+inaccessibleFamInst :: FamInst -> SDoc
+inaccessibleFamInst fi
+  = ptext (sLit "Inaccessible family instance equation:") $$ (ppr fi)
+
 \end{code}

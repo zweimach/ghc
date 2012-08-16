@@ -31,6 +31,8 @@ module FamInstEnv (
 	extendFamInstEnv, deleteFromFamInstEnv, extendFamInstEnvList, 
 	identicalFamInstGroup, identicalFamInst, famInstEnvElts, familyInstances,
 
+        isDominatedBy,
+
         FamInstMatch(..),
         lookupFamInstEnv, lookupFamInstEnvConflicts, lookupFamInstEnvConflicts',
 	
