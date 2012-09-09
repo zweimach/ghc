@@ -358,10 +358,10 @@ Prelude> 5+5
 </screen>
 </para>
 
-<sect2><title>I/O actions at the prompt</title>
+<sect2 id="actions-at-prompt"><title>I/O actions at the prompt</title>
 
 <para>GHCi does more than simple expression evaluation at the prompt.
-If you type something of type <literal>IO a</literal> for some
+If you enter an expression of type <literal>IO a</literal> for some
     <literal>a</literal>, then GHCi <emphasis>executes</emphasis> it
     as an IO-computation.
 <screen>
@@ -369,6 +369,12 @@ Prelude> "hello"
 "hello"
 Prelude> putStrLn "hello"
 hello
+</screen>
+This works even if the type of the expression is more general,
+provided it can be <emphasis>instantiated</emphasis> to <literal>IO a</literal>.  For example
+<screen>
+Prelude> return True
+True
 </screen>
 Furthermore, GHCi will print the result of the I/O action if (and only
 if):
@@ -1089,7 +1095,11 @@ def = toEnum 0
     <literal>Integer</literal> then ghci gives an error when running a
     printf.
    </para>
+   <para>See also <xref linkend="actions-at-prompt"/> for how the monad of a computational
+   expression defaults to <literal>IO</literal> if possible.
+   </para>
     </sect2>
+
    <sect2 id="ghci-interactive-print">
      <title>Using a custom interactive printing function</title>
      <para>[<emphasis role="bold">New in version 7.6.1</emphasis>]
@@ -3047,6 +3057,7 @@ Prelude> :set -fno-warn-incomplete-patterns -XNoMultiParamTypeClasses
 Prelude> :seti
 base language is: Haskell2010
 with the following modifiers:
+  -XNoMonomorphismRestriction
   -XNoDatatypeContexts
   -XNondecreasingIndentation
   -XExtendedDefaultRules
@@ -3055,7 +3066,6 @@ other dynamic, non-language, flag settings:
   -fimplicit-import-qualified
 warning settings:
 </screen>
-
       <para>
         Note that the option <option>-XExtendedDefaultRules</option>
         is on, because we apply special defaulting rules to
@@ -3064,18 +3074,21 @@ warning settings:
       </para>
 
       <para>
-        It is often useful to change the language options for
-        expressions typed at the prompt only, without having that
-        option apply to loaded modules too.  A good example is
+        Furthermore, the Monomorphism Restriction is disabled by default in
+        GHCi (see <xref linkend="monomorphism" />).
+      </para>
+
+      <para>
+        It is often useful to change the language options for expressions typed
+        at the prompt only, without having that option apply to loaded modules
+        too.  For example
 <screen>
-:seti -XNoMonomorphismRestriction
+:seti -XMonoLocalBinds
 </screen>
-        It would be undesirable if
-        <option>-XNoMonomorphismRestriction</option> were to apply to
-        loaded modules too: that might cause a compilation error, but
-        more commonly it will cause extra recompilation, because GHC
-        will think that it needs to recompile the module because the
-        flags have changed.
+        It would be undesirable if <option>-XMonoLocalBinds</option> were to
+        apply to loaded modules too: that might cause a compilation error, but
+        more commonly it will cause extra recompilation, because GHC will think
+        that it needs to recompile the module because the flags have changed.
       </para>
 
       <para>

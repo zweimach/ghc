@@ -39,7 +39,6 @@ import Module
 import UniqFM           ( eltsUFM )
 import ErrUtils
 import DynFlags
-import StaticFlags      ( v_Ld_inputs, opt_Static, WayName(..) )
 import Config
 import Panic
 import Util
@@ -357,7 +356,7 @@ linkingNeeded dflags linkables pkg_deps = do
     Left _  -> return True
     Right t -> do
         -- first check object files and extra_ld_inputs
-        extra_ld_inputs <- readIORef v_Ld_inputs
+        let extra_ld_inputs = ldInputs dflags
         e_extra_times <- mapM (tryIO . getModificationUTCTime) extra_ld_inputs
         let (errs,extra_times) = splitEithers e_extra_times
         let obj_times =  map linkableTime linkables ++ extra_times
@@ -1118,11 +1117,16 @@ runPhase cc_phase input_fn dflags
                            then ["-mcpu=v9"]
                            else [])
 
+                       -- GCC 4.6+ doesn't like -Wimplicit when compiling C++.
+                       ++ (if (cc_phase /= Ccpp && cc_phase /= Cobjcpp)
+                             then ["-Wimplicit"]
+                             else [])
+
                        ++ (if hcc
                              then gcc_extra_viac_flags ++ more_hcc_opts
                              else [])
                        ++ verbFlags
-                       ++ [ "-S", "-Wimplicit", cc_opt ]
+                       ++ [ "-S", cc_opt ]
                        ++ [ "-D__GLASGOW_HASKELL__="++cProjectVersionInt ]
                        ++ framework_paths
                        ++ cc_opts
@@ -1347,9 +1351,9 @@ runPhase LlvmLlc input_fn dflags
 
     let lc_opts = getOpts dflags opt_lc
         opt_lvl = max 0 (min 2 $ optLevel dflags)
-        rmodel | dopt Opt_PIC dflags = "pic"
-               | not opt_Static = "dynamic-no-pic"
-               | otherwise      = "static"
+        rmodel | dopt Opt_PIC dflags          = "pic"
+               | not (dopt Opt_Static dflags) = "dynamic-no-pic"
+               | otherwise                    = "static"
         tbaa | ver < 29                 = "" -- no tbaa in 2.8 and earlier
              | dopt Opt_LlvmTBAA dflags = "--enable-tbaa=true"
              | otherwise                = "--enable-tbaa=false"
@@ -1443,9 +1447,9 @@ maybeMergeStub
 
 runPhase_MoveBinary :: DynFlags -> FilePath -> IO Bool
 runPhase_MoveBinary dflags input_fn
-    | WayPar `elem` (wayNames dflags) && not opt_Static =
+    | WayPar `elem` ways dflags && not (dopt Opt_Static dflags) =
         panic ("Don't know how to combine PVM wrapper and dynamic wrapper")
-    | WayPar `elem` (wayNames dflags) = do
+    | WayPar `elem` ways dflags = do
         let sysMan = pgm_sysman dflags
         pvm_root <- getEnv "PVM_ROOT"
         pvm_arch <- getEnv "PVM_ARCH"
@@ -1484,12 +1488,7 @@ mkExtraObj dflags extn xs
 --
 mkExtraObjToLinkIntoBinary :: DynFlags -> IO FilePath
 mkExtraObjToLinkIntoBinary dflags = do
-   let have_rts_opts_flags =
-         isJust (rtsOpts dflags) || case rtsOptsEnabled dflags of
-                                        RtsOptsSafeOnly -> False
-                                        _ -> True
-
-   when (dopt Opt_NoHsMain dflags && have_rts_opts_flags) $ do
+   when (dopt Opt_NoHsMain dflags && haveRtsOptsFlags dflags) $ do
       log_action dflags dflags SevInfo noSrcSpan defaultUserStyle
           (text "Warning: -rtsopts and -with-rtsopts have no effect with -no-hs-main." $$
            text "    Call hs_init_ghc() from your main() function to set these options.")
@@ -1557,7 +1556,7 @@ getLinkInfo dflags dep_packages = do
    pkg_frameworks <- case platformOS (targetPlatform dflags) of
                      OSDarwin -> getPackageFrameworks dflags dep_packages
                      _        -> return []
-   extra_ld_inputs <- readIORef v_Ld_inputs
+   let extra_ld_inputs = ldInputs dflags
    let
       link_info = (package_link_opts,
                    pkg_frameworks,
@@ -1668,7 +1667,7 @@ linkBinary dflags o_files dep_packages = do
         get_pkg_lib_path_opts l
          | osElfTarget (platformOS platform) &&
            dynLibLoader dflags == SystemDependent &&
-           not opt_Static
+           not (dopt Opt_Static dflags)
             = ["-L" ++ l, "-Wl,-rpath", "-Wl," ++ l]
          | otherwise = ["-L" ++ l]
 
@@ -1715,18 +1714,16 @@ linkBinary dflags o_files dep_packages = do
             return []
 
         -- probably _stub.o files
-    extra_ld_inputs <- readIORef v_Ld_inputs
+    let extra_ld_inputs = ldInputs dflags
 
         -- opts from -optl-<blah> (including -l<blah> options)
     let extra_ld_opts = getOpts dflags opt_l
-
-    let ways = wayNames dflags
 
     -- Here are some libs that need to be linked at the *end* of
     -- the command line, because they contain symbols that are referred to
     -- by the RTS.  We can't therefore use the ordinary way opts for these.
     let
-        debug_opts | WayDebug `elem` ways = [
+        debug_opts | WayDebug `elem` ways dflags = [
 #if defined(HAVE_LIBBFD)
                         "-lbfd", "-liberty"
 #endif
@@ -1734,7 +1731,7 @@ linkBinary dflags o_files dep_packages = do
                    | otherwise            = []
 
     let
-        thread_opts | WayThreaded `elem` ways = [
+        thread_opts | WayThreaded `elem` ways dflags = [
 #if !defined(mingw32_TARGET_OS) && !defined(freebsd_TARGET_OS) && !defined(openbsd_TARGET_OS) && !defined(netbsd_TARGET_OS) && !defined(haiku_TARGET_OS)
                         "-lpthread"
 #endif
@@ -1876,7 +1873,13 @@ maybeCreateManifest dflags exe_filename
 
 
 linkDynLib :: DynFlags -> [String] -> [PackageId] -> IO ()
-linkDynLib dflags o_files dep_packages = do
+linkDynLib dflags o_files dep_packages
+ = do
+    when (haveRtsOptsFlags dflags) $ do
+      log_action dflags dflags SevInfo noSrcSpan defaultUserStyle
+          (text "Warning: -rtsopts and -with-rtsopts have no effect with -shared." $$
+           text "    Call hs_init_ghc() from your main() function to set these options.")
+
     let verbFlags = getVerbFlags dflags
     let o_file = outputFile dflags
 
@@ -1887,7 +1890,7 @@ linkDynLib dflags o_files dep_packages = do
         get_pkg_lib_path_opts l
          | osElfTarget (platformOS (targetPlatform dflags)) &&
            dynLibLoader dflags == SystemDependent &&
-           not opt_Static
+           not (dopt Opt_Static dflags)
             = ["-L" ++ l, "-Wl,-rpath", "-Wl," ++ l]
          | otherwise = ["-L" ++ l]
 
@@ -1909,7 +1912,7 @@ linkDynLib dflags o_files dep_packages = do
     let pkg_link_opts = collectLinkOpts dflags pkgs_no_rts
 
         -- probably _stub.o files
-    extra_ld_inputs <- readIORef v_Ld_inputs
+    let extra_ld_inputs = ldInputs dflags
 
     let extra_ld_opts = getOpts dflags opt_l
 
@@ -2141,3 +2144,8 @@ touchObjectFile dflags path = do
   createDirectoryIfMissing True $ takeDirectory path
   SysTools.touch dflags "Touching object file" path
 
+haveRtsOptsFlags :: DynFlags -> Bool
+haveRtsOptsFlags dflags =
+         isJust (rtsOpts dflags) || case rtsOptsEnabled dflags of
+                                        RtsOptsSafeOnly -> False
+                                        _ -> True

@@ -49,7 +49,7 @@ Library
     Exposed: False
 
     Build-Depends: base       >= 4   && < 5,
-                   directory  >= 1   && < 1.2,
+                   directory  >= 1   && < 1.3,
                    process    >= 1   && < 1.2,
                    bytestring >= 0.9 && < 0.11,
                    time                 < 1.5,
@@ -200,7 +200,14 @@ Library
         PprCmmDecl
         PprCmmExpr
         Bitmap
-        CallerSaves
+        CodeGen.Platform
+        CodeGen.Platform.ARM
+        CodeGen.Platform.NoRegs
+        CodeGen.Platform.PPC
+        CodeGen.Platform.PPC_Darwin
+        CodeGen.Platform.SPARC
+        CodeGen.Platform.X86
+        CodeGen.Platform.X86_64
         CgBindery
         CgCallConv
         CgCase
@@ -502,7 +509,6 @@ Library
             PPC.CodeGen
             SPARC.Base
             SPARC.Regs
-            SPARC.RegPlate
             SPARC.Imm
             SPARC.AddrMode
             SPARC.Cond

@@ -238,7 +238,7 @@ end up with non-inlined dictionaries that look like
     $df = $cop |> blah
 which adds an extra indirection to every use, which seems stupid.  See
 Trac #4138 for an example (although the regression reported there
-wasn't due to the indirction).
+wasn't due to the indirection).
 
 There is an awkward wrinkle though: we want to be very
 careful when we have
@@ -433,7 +433,7 @@ addFamInstGroups :: [FamInstGroup] -> TcM a -> TcM a
 --        (b) the type envt with stuff from data type decls
 addFamInstGroups fam_inst_grps thing_inside
   = tcExtendLocalFamInstEnv fam_inst_grps $ 
-    tcExtendGlobalEnvImplicit things  $ 
+    tcExtendGlobalEnv things  $ 
     do { traceTc "addFamInsts" (pprFamInstGroups fam_inst_grps)
        ; tcg_env <- tcAddImplicits things
        ; setGblEnv tcg_env thing_inside }

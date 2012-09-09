@@ -462,8 +462,8 @@ do_checks _ hp _ _ _
             "structures in the code."])
 
 do_checks stk hp reg_save_code rts_lbl live
-  = do_checks' (CmmLit (mkIntCLit (stk*wORD_SIZE)))
-               (CmmLit (mkIntCLit (hp*wORD_SIZE)))
+  = do_checks' (mkIntExpr (stk*wORD_SIZE))
+               (mkIntExpr (hp*wORD_SIZE))
          (stk /= 0) (hp /= 0) reg_save_code rts_lbl live
 
 -- The offsets are now in *bytes*
@@ -526,8 +526,10 @@ do_checks' stk_expr hp_expr stk_nonzero hp_nonzero reg_save_code rts_lbl live
 \begin{code}
 hpChkGen :: CmmExpr -> CmmExpr -> CmmExpr -> Code
 hpChkGen bytes liveness reentry
-  = do_checks' (CmmLit (mkIntCLit 0)) bytes False True assigns
-          stg_gc_gen (Just activeStgRegs)
+  = do dflags <- getDynFlags
+       let platform = targetPlatform dflags
+       do_checks' zeroExpr bytes False True assigns
+                  stg_gc_gen (Just (activeStgRegs platform))
   where
     assigns = mkStmts [ mk_vanilla_assignment 9 liveness,
                         mk_vanilla_assignment 10 reentry ]
@@ -536,14 +538,16 @@ hpChkGen bytes liveness reentry
 -- we want to assign to Sp[0] on failure (used in AutoApply.cmm:BUILD_PAP).
 hpChkNodePointsAssignSp0 :: CmmExpr -> CmmExpr -> Code
 hpChkNodePointsAssignSp0 bytes sp0
-  = do_checks' (CmmLit (mkIntCLit 0)) bytes False True assign
+  = do_checks' zeroExpr bytes False True assign
           stg_gc_enter1 (Just [node])
   where assign = oneStmt (CmmStore (CmmReg spReg) sp0)
 
 stkChkGen :: CmmExpr -> CmmExpr -> CmmExpr -> Code
 stkChkGen bytes liveness reentry
-  = do_checks' bytes (CmmLit (mkIntCLit 0)) True False assigns
-          stg_gc_gen (Just activeStgRegs)
+  = do dflags <- getDynFlags
+       let platform = targetPlatform dflags
+       do_checks' bytes zeroExpr True False assigns
+                  stg_gc_gen (Just (activeStgRegs platform))
   where
     assigns = mkStmts [ mk_vanilla_assignment 9 liveness,
                         mk_vanilla_assignment 10 reentry ]
@@ -554,7 +558,7 @@ mk_vanilla_assignment n e
 
 stkChkNodePoints :: CmmExpr -> Code
 stkChkNodePoints bytes
-  = do_checks' bytes (CmmLit (mkIntCLit 0)) True False noStmts
+  = do_checks' bytes zeroExpr True False noStmts
           stg_gc_enter1 (Just [node])
 
 stg_gc_gen :: CmmExpr
