@@ -1524,8 +1524,8 @@ hscDeclsWithLocation hsc_env0 str source linenumber =
     -- We grab the whole environment because of the overlapping that may have
     -- been done. See the notes at the definition of InteractiveContext
     -- (ic_instances) for more details.
-    let finst_grps = tcg_fam_inst_grps tc_gblenv
-        insts      = tcg_insts         tc_gblenv
+    let finsts = tcg_fam_insts tc_gblenv
+        insts  = tcg_insts     tc_gblenv
 
     let defaults = tcg_default tc_gblenv
 
@@ -1580,7 +1580,7 @@ hscDeclsWithLocation hsc_env0 str source linenumber =
 
     let ictxt1 = extendInteractiveContext icontext tythings
         ictxt  = ictxt1 { ic_sys_vars  = sys_vars ++ ic_sys_vars ictxt1,
-                          ic_instances = (insts, finst_grps),
+                          ic_instances = (insts, finsts),
                           ic_default   = defaults }
 
     return (tythings, ictxt)
@@ -1688,7 +1688,7 @@ mkModGuts mod safe binds =
         mg_fix_env      = emptyFixityEnv,
         mg_tcs          = [],
         mg_insts        = [],
-        mg_fam_inst_grps= [],
+        mg_fam_insts    = [],
         mg_rules        = [],
         mg_vect_decls   = [],
         mg_binds        = binds,

@@ -379,11 +379,11 @@ tcInstDecls1 tycl_decls inst_decls deriv_decls
 
             -- Do class and family instance declarations
        ; stuff <- mapAndRecoverM tcLocalInstDecl inst_decls
-       ; let (local_infos_s, fam_inst_grps_s) = unzip stuff
-             local_infos   = concat local_infos_s
-             fam_inst_grps = concat fam_inst_grps_s
-       ; addClsInsts      local_infos   $
-         addFamInstGroups fam_inst_grps $ 
+       ; let (local_infos_s, fam_insts_s) = unzip stuff
+             local_infos = concat local_infos_s
+             fam_insts   = concat fam_insts_s
+       ; addClsInsts local_infos $
+         addFamInsts fam_insts   $ 
 
     do {    -- Compute instances from "deriving" clauses;
             -- This stuff computes a context for the derived instance
@@ -428,18 +428,18 @@ addClsInsts :: [InstInfo Name] -> TcM a -> TcM a
 addClsInsts infos thing_inside
   = tcExtendLocalInstEnv (map iSpec infos) thing_inside
 
-addFamInstGroups :: [FamInstGroup] -> TcM a -> TcM a
+addFamInsts :: [FamInst] -> TcM a -> TcM a
 -- Extend (a) the family instance envt
 --        (b) the type envt with stuff from data type decls
-addFamInstGroups fam_inst_grps thing_inside
-  = tcExtendLocalFamInstEnv fam_inst_grps $ 
-    tcExtendGlobalEnv things  $ 
-    do { traceTc "addFamInsts" (pprFamInstGroups fam_inst_grps)
+addFamInsts fam_insts thing_inside
+  = tcExtendLocalFamInstEnv fam_insts $ 
+    tcExtendGlobalEnvImplicit things  $ 
+    do { traceTc "addFamInsts" (pprFamInsts fam_insts)
        ; tcg_env <- tcAddImplicits things
        ; setGblEnv tcg_env thing_inside }
   where
-    axioms = concatMap famInstGroupAxioms fam_inst_grps
-    tycons = famInstGroupsRepTyCons fam_inst_grps
+    axioms = map famInstAxiom fam_insts
+    tycons = famInstsRepTyCons fam_insts
     things = map ATyCon tycons ++ map ACoAxiom axioms 
 \end{code}
 
@@ -462,7 +462,7 @@ the brutal solution will do.
 
 \begin{code}
 tcLocalInstDecl :: LInstDecl Name
-                -> TcM ([InstInfo Name], [FamInstGroup])
+                -> TcM ([InstInfo Name], [FamInst])
         -- A source-file instance declaration
         -- Type-check all the stuff before the "where"
         --
@@ -471,21 +471,21 @@ tcLocalInstDecl (L loc (TyFamInstD { tfid_inst = decl }))
   = setSrcSpan loc      $
     tcAddTyFamInstCtxt decl  $
     do { fam_tc <- tcFamInstDeclCombined TopLevel (tyFamInstDeclLName decl)
-       ; fam_inst_grp <- tcTyFamInstDecl fam_tc decl
-       ; return ([], [fam_inst_grp]) }
+       ; fam_insts <- tcTyFamInstDecl fam_tc decl
+       ; return ([], fam_insts) }
 
 tcLocalInstDecl (L loc (DataFamInstD { dfid_inst = decl }))
   = setSrcSpan loc      $
     tcAddDataFamInstCtxt decl  $
     do { fam_tc <- tcFamInstDeclCombined TopLevel (dfid_tycon decl)
-       ; fam_inst_grp <- tcDataFamInstDecl fam_tc decl
-       ; return ([], [fam_inst_grp]) }
+       ; fam_inst <- tcDataFamInstDecl fam_tc decl
+       ; return ([], [fam_inst]) }
 
 tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
   = setSrcSpan loc $
     tcClsInstDecl decl
 
-tcClsInstDecl :: ClsInstDecl Name -> TcM ([InstInfo Name], [FamInstGroup])
+tcClsInstDecl :: ClsInstDecl Name -> TcM ([InstInfo Name], [FamInst])
 tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                            , cid_sigs = uprags, cid_tyfam_insts = ats
                            , cid_datafam_insts = adts })
@@ -501,8 +501,9 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                            
         -- Next, process any associated types.
         ; traceTc "tcLocalInstDecl" (ppr poly_ty)
-        ; tyfam_insts0 <- tcExtendTyVarEnv tyvars $
+        ; tyfam_instss0 <- tcExtendTyVarEnv tyvars $
                           mapAndRecoverM tcAssocTyDecl ats
+        ; let tyfam_insts0 = concat tyfam_instss0
         ; datafam_insts <- tcExtendTyVarEnv tyvars $
                            mapAndRecoverM tcAssocDataDecl adts
 
@@ -514,7 +515,7 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
         ; let defined_ats = mkNameSet $ map (tyFamInstDeclName . unLoc) ats
               defined_adts = mkNameSet $ map (unLoc . dfid_tycon . unLoc) adts
 
-              mk_deflt_at_instances :: ClassATItem -> TcM [FamInstGroup]
+              mk_deflt_at_instances :: ClassATItem -> TcM [FamInst]
               mk_deflt_at_instances (fam_tc, defs)
                  -- User supplied instances ==> everything is OK
                 | tyConName fam_tc `elemNameSet` defined_ats
@@ -538,8 +539,7 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                            tvs'     = varSetElems tv_set'
                      ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
                      ; ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
-                       return (mkSingletonSynFamInstGroup
-                                rep_tc_name tvs' fam_tc pat_tys' rhs') }
+                       return (mkSynFamInst rep_tc_name tvs' fam_tc pat_tys' rhs') }
 
         ; tyfam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
         
@@ -587,13 +587,14 @@ tcFamInstDeclCombined top_lvl fam_tc_lname
 
        ; return fam_tc }
 
-tcTyFamInstDecl :: TyCon -> TyFamInstDecl Name -> TcM FamInstGroup
+tcTyFamInstDecl :: TyCon -> TyFamInstDecl Name -> TcM [FamInst]
   -- "type instance"
 tcTyFamInstDecl fam_tc decl
   = do { -- (1) do the work of verifying the synonym group
        ; quads <- tcSynFamInstDecl fam_tc decl
 
          -- ... and then do processing seperately per instance equation
+<<<<<<< HEAD
        ; fam_insts <- mapM check_valid_mk_fam_inst quads
 
          -- (4) check to see if earlier equations dominate a later one
@@ -601,6 +602,9 @@ tcTyFamInstDecl fam_tc decl
 
          -- now, build the FamInstGroup
        ; return $ mkSynFamInstGroup fam_tc fam_insts }
+=======
+       ; mapM check_valid_mk_fam_inst quads }
+>>>>>>> parent of f428eea... Added overlapping type family instances.
 
     where check_valid_mk_fam_inst :: ([TyVar], [Type], Type, SrcSpan) -> TcM FamInst
           check_valid_mk_fam_inst (t_tvs, t_typats, t_rhs, loc)
@@ -620,7 +624,7 @@ tcTyFamInstDecl fam_tc decl
                         addErrTc $ inaccessibleFamInst cur_inst
                  ; return $ cur_inst : prev_insts }
 
-tcDataFamInstDecl :: TyCon -> DataFamInstDecl Name -> TcM FamInstGroup
+tcDataFamInstDecl :: TyCon -> DataFamInstDecl Name -> TcM FamInst
   -- "newtype instance" and "data instance"
 tcDataFamInstDecl fam_tc 
     (DataFamInstDecl { dfid_pats = pats
@@ -672,7 +676,7 @@ tcDataFamInstDecl fam_tc
 
          -- Remember to check validity; no recursion to worry about here
        ; checkValidTyCon rep_tc
-       ; return $ mkDataFamInstGroup fam_tc fam_inst } }
+       ; return fam_inst } }
     where
        h98_syntax = case cons of      -- All constructors have same shape
                         L _ (ConDecl { con_res = ResTyGADT _ }) : _ -> False
@@ -682,18 +686,12 @@ tcDataFamInstDecl fam_tc
 ----------------
 tcAssocFamInst :: Class              -- ^ Class of associated type
                -> VarEnv Type        -- ^ Instantiation of class TyVars
-               -> FamInstGroup       -- ^ RHS
+               -> FamInst            -- ^ RHS
                -> TcM ()
-tcAssocFamInst clas mini_env fam_inst_grp
-  = setSrcSpan (getSrcSpan fam_inst_grp) $
-    tcAddFamInstCtxt (pprFamInstGroupFlavor fam_inst_grp)
-                     (famInstGroupName fam_inst_grp) $
-    do { let { fam_tc = famInstGroupTyCon fam_inst_grp
-             ; at_tys
-                 | [fam_inst] <- famInstGroupInsts fam_inst_grp
-                 = famInstTys fam_inst
-                 | otherwise -- associated instances cannot be instance groups
-                 = pprPanic "tcAssocFamInst" (ppr fam_inst_grp) }
+tcAssocFamInst clas mini_env fam_inst
+  = setSrcSpan (getSrcSpan fam_inst) $
+    tcAddFamInstCtxt (pprFamFlavor (fi_flavor fam_inst)) (fi_fam fam_inst) $
+    do { let (fam_tc, at_tys) = famInstLHS fam_inst
 
        -- Check that the associated type comes from this class
        ; checkTc (Just clas == tyConAssoc_maybe fam_tc)
@@ -713,7 +711,7 @@ tcAssocFamInst clas mini_env fam_inst_grp
                     -- See Note [Associated type instances]
 
 tcAssocTyDecl :: LTyFamInstDecl Name
-              -> TcM FamInstGroup
+              -> TcM [FamInst]
 tcAssocTyDecl (L loc decl)
   = setSrcSpan loc $
     tcAddTyFamInstCtxt decl $
@@ -721,7 +719,7 @@ tcAssocTyDecl (L loc decl)
        ; tcTyFamInstDecl fam_tc decl }
 
 tcAssocDataDecl :: LDataFamInstDecl Name -- ^ RHS
-                -> TcM FamInstGroup
+                -> TcM FamInst
 tcAssocDataDecl (L loc decl)
   = setSrcSpan loc $
     tcAddDataFamInstCtxt decl $

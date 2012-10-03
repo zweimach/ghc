@@ -56,13 +56,13 @@ lookupInst cls tys
 --
 -- which implies that :R42T was declared as 'data instance T [a]'.
 --
-lookupFamInst :: TyCon -> [Type] -> VM FamInstMatch
+lookupFamInst :: TyCon -> [Type] -> VM (FamInst, [Type])
 lookupFamInst tycon tys
   = ASSERT( isFamilyTyCon tycon )
     do { instEnv <- readGEnv global_fam_inst_env
        ; case lookupFamInstEnv instEnv tycon tys of
-           Right [match] -> return match
-           _other                      -> 
+           [(fam_inst, rep_tys)] -> return ( fam_inst, rep_tys)
+           _other                -> 
              do dflags <- getDynFlags
                 cantVectorise dflags "VectMonad.lookupFamInst: not found: "
                            (ppr $ mkTyConApp tycon tys)

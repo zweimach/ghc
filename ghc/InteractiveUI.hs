@@ -2178,7 +2178,7 @@ showBindings = do
     docs     <- mapM makeDoc (reverse bindings)
                   -- reverse so the new ones come last
     let idocs  = map GHC.pprInstanceHdr insts
-        fidocs = map GHC.pprFamInstGroup finsts
+        fidocs = map GHC.pprFamInstHdr finsts
     mapM_ printForUserPartWay (docs ++ idocs ++ fidocs)
   where
     makeDoc (AnId i) = pprTypeAndContents i

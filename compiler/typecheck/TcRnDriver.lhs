@@ -366,13 +366,13 @@ tcRnExtCore hsc_env (HsExtCore this_mod decls src_binds)
                                 mg_exports   = my_exports,
                                 mg_tcs       = tcg_tcs tcg_env,
                                 mg_insts     = tcg_insts tcg_env,
-                                mg_fam_inst_grps = tcg_fam_inst_grps tcg_env,
-                                mg_inst_env      = tcg_inst_env tcg_env,
-                                mg_fam_inst_env  = tcg_fam_inst_env tcg_env,
-                                mg_rules         = [],
-                                mg_vect_decls    = [],
-                                mg_anns          = [],
-                                mg_binds         = core_binds,
+                                mg_fam_insts = tcg_fam_insts tcg_env,
+                                mg_inst_env  = tcg_inst_env tcg_env,
+                                mg_fam_inst_env = tcg_fam_inst_env tcg_env,
+                                mg_rules        = [],
+                                mg_vect_decls   = [],
+                                mg_anns         = [],
+                                mg_binds        = core_binds,
 
                                 -- Stubs
                                 mg_rdr_env      = emptyGlobalRdrEnv,
@@ -603,7 +603,7 @@ checkHiBootIface
         tcg_env@(TcGblEnv { tcg_src = hs_src, tcg_binds = binds,
                             tcg_insts = local_insts,
                             tcg_type_env = local_type_env, tcg_exports = local_exports })
-        (ModDetails { md_insts = boot_insts, md_fam_inst_grps = boot_fam_inst_grps,
+        (ModDetails { md_insts = boot_insts, md_fam_insts = boot_fam_insts,
                       md_types = boot_type_env, md_exports = boot_exports })
   | isHsBoot hs_src     -- Current module is already a hs-boot file!
   = return tcg_env
@@ -616,7 +616,7 @@ checkHiBootIface
         ; mapM_ check_export boot_exports
 
                 -- Check for no family instances
-        ; unless (null boot_fam_inst_grps) $
+        ; unless (null boot_fam_insts) $
             panic ("TcRnDriver.checkHiBootIface: Cannot handle family " ++
                    "instances in boot files yet...")
             -- FIXME: Why?  The actual comparison is not hard, but what would
@@ -1134,7 +1134,7 @@ setInteractiveContext hsc_env icxt thing_inside
   = let -- Initialise the tcg_inst_env with instances from all home modules.
         -- This mimics the more selective call to hptInstances in tcRnImports
         (home_insts, home_fam_insts) = hptInstances hsc_env (\_ -> True)
-        (ic_insts, ic_finst_grps) = ic_instances icxt
+        (ic_insts, ic_finsts) = ic_instances icxt
 
         -- Note [GHCi temporary Ids]
         -- Ideally we would just make a type_env from ic_tythings
@@ -1188,10 +1188,10 @@ setInteractiveContext hsc_env icxt thing_inside
         , tcg_inst_env     = extendInstEnvList
                               (extendInstEnvList (tcg_inst_env env) ic_insts)
                               home_insts
-        , tcg_fam_inst_grps= ic_finst_grps
+        , tcg_fam_insts    = ic_finsts
         , tcg_fam_inst_env = extendFamInstEnvList
                               (extendFamInstEnvList (tcg_fam_inst_env env)
-                                                    ic_finst_grps)
+                                                    ic_finsts)
                               home_fam_insts
         , tcg_field_env    = RecFields (mkNameEnv con_fields)
                                        (mkNameSet (concatMap snd con_fields))
@@ -1815,14 +1815,14 @@ tcCoreDump mod_guts
 pprTcGblEnv :: TcGblEnv -> SDoc
 pprTcGblEnv (TcGblEnv { tcg_type_env  = type_env,
                         tcg_insts     = insts,
-                        tcg_fam_inst_grps = fam_inst_grps,
+                        tcg_fam_insts = fam_insts,
                         tcg_rules     = rules,
                         tcg_vects     = vects,
                         tcg_imports   = imports })
   = vcat [ ppr_types insts type_env
-         , ppr_tycons fam_inst_grps type_env
+         , ppr_tycons fam_insts type_env
          , ppr_insts insts
-         , ppr_fam_inst_grps fam_inst_grps
+         , ppr_fam_insts fam_insts
          , vcat (map ppr rules)
          , vcat (map ppr vects)
          , ptext (sLit "Dependent modules:") <+>
@@ -1857,14 +1857,14 @@ ppr_types insts type_env
         -- that the type checker has invented.  Top-level user-defined things
         -- have External names.
 
-ppr_tycons :: [FamInstGroup] -> TypeEnv -> SDoc
-ppr_tycons fam_inst_grps type_env
+ppr_tycons :: [FamInst] -> TypeEnv -> SDoc
+ppr_tycons fam_insts type_env
   = vcat [ text "TYPE CONSTRUCTORS"
          ,   nest 2 (ppr_tydecls tycons)
          , text "COERCION AXIOMS"
          ,   nest 2 (vcat (map pprCoAxiom (typeEnvCoAxioms type_env))) ]
   where
-    fi_tycons = famInstGroupsRepTyCons fam_inst_grps
+    fi_tycons = famInstsRepTyCons fam_insts
     tycons = [tycon | tycon <- typeEnvTyCons type_env, want_tycon tycon]
     want_tycon tycon | opt_PprStyle_Debug = True
                      | otherwise          = not (isImplicitTyCon tycon) &&
@@ -1875,10 +1875,10 @@ ppr_insts :: [ClsInst] -> SDoc
 ppr_insts []     = empty
 ppr_insts ispecs = text "INSTANCES" $$ nest 2 (pprInstances ispecs)
 
-ppr_fam_inst_grps :: [FamInstGroup] -> SDoc
-ppr_fam_inst_grps []        = empty
-ppr_fam_inst_grps fam_insts =
-  text "FAMILY INSTANCES" $$ nest 2 (pprFamInstGroups fam_insts)
+ppr_fam_insts :: [FamInst] -> SDoc
+ppr_fam_insts []        = empty
+ppr_fam_insts fam_insts =
+  text "FAMILY INSTANCES" $$ nest 2 (pprFamInsts fam_insts)
 
 ppr_sigs :: [Var] -> SDoc
 ppr_sigs ids

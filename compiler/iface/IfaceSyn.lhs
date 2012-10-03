@@ -20,14 +20,14 @@ module IfaceSyn (
         IfaceBinding(..), IfaceConAlt(..),
         IfaceIdInfo(..), IfaceIdDetails(..), IfaceUnfolding(..),
         IfaceInfoItem(..), IfaceRule(..), IfaceAnnotation(..), IfaceAnnTarget,
-        IfaceClsInst(..), IfaceFamInstGroup(..), IfaceFamInst(..), IfaceTickish(..),
+        IfaceClsInst(..), IfaceFamInst(..), IfaceTickish(..),
 
         -- Misc
         ifaceDeclImplicitBndrs, visibleIfConDecls,
         ifaceDeclFingerprints,
 
         -- Free Names
-        freeNamesIfDecl, freeNamesIfRule, freeNamesIfFamInstGroup,
+        freeNamesIfDecl, freeNamesIfRule, freeNamesIfFamInst,
 
         -- Pretty printing
         pprIfaceExpr, pprIfaceDeclHead
@@ -166,13 +166,9 @@ data IfaceClsInst
         -- If this instance decl is *used*, we'll record a usage on the dfun;
         -- and if the head does not change it won't be used if it wasn't before
 
-data IfaceFamInstGroup
-  = IfaceFamInstGroup { ifFamInstGroupFam   :: IfExtName      -- Family name
-                      , ifFamInstGroupInsts :: [IfaceFamInst] -- instances
-                      }
-
 data IfaceFamInst
-  = IfaceFamInst { ifFamInstTys   :: [Maybe IfaceTyCon]  -- Rough match types
+  = IfaceFamInst { ifFamInstFam   :: IfExtName           -- Family name
+                 , ifFamInstTys   :: [Maybe IfaceTyCon]  -- Rough match types
                  , ifFamInstAxiom :: IfExtName           -- The axiom
                  , ifFamInstOrph  :: Maybe OccName       -- Just like IfaceClsInst
                  }
@@ -610,19 +606,11 @@ instance Outputable IfaceClsInst where
                 <+> ppr cls <+> brackets (pprWithCommas ppr_rough mb_tcs))
          2 (equals <+> ppr dfun_id)
 
-instance Outputable IfaceFamInstGroup where
-  ppr (IfaceFamInstGroup { ifFamInstGroupFam   = fam
-                         , ifFamInstGroupInsts = insts })
-    | [inst] <- insts
-    = ptext (sLit "family instance") <+> ppr fam <+> ppr inst
-    | otherwise
-    = hang (ptext (sLit "family instance group:"))
-         2 (vcat (map ppr insts))
-
 instance Outputable IfaceFamInst where
-  ppr (IfaceFamInst {ifFamInstTys = mb_tcs,
+  ppr (IfaceFamInst {ifFamInstFam = fam, ifFamInstTys = mb_tcs,
                      ifFamInstAxiom = tycon_ax})
-    = hang (brackets (pprWithCommas ppr_rough mb_tcs))
+    = hang (ptext (sLit "family instance") <+>
+            ppr fam <+> brackets (pprWithCommas ppr_rough mb_tcs))
          2 (equals <+> ppr tycon_ax)
 
 ppr_rough :: Maybe IfaceTyCon -> SDoc
@@ -944,16 +932,12 @@ freeNamesIfRule (IfaceRule { ifRuleBndrs = bs, ifRuleHead = f
     fnList freeNamesIfBndr bs &&&
     fnList freeNamesIfExpr es &&&
     freeNamesIfExpr rhs
-
-freeNamesIfFamInstGroup :: IfaceFamInstGroup -> NameSet
-freeNamesIfFamInstGroup (IfaceFamInstGroup { ifFamInstGroupFam = famName
-                                           , ifFamInstGroupInsts = insts })
-  = unitNameSet famName &&&
-    fnList freeNamesIfFamInst insts
     
 freeNamesIfFamInst :: IfaceFamInst -> NameSet
-freeNamesIfFamInst (IfaceFamInst { ifFamInstAxiom = axName })
-  = unitNameSet axName
+freeNamesIfFamInst (IfaceFamInst { ifFamInstFam = famName
+                                 , ifFamInstAxiom = axName })
+  = unitNameSet famName &&&
+    unitNameSet axName
 
 -- helpers
 (&&&) :: NameSet -> NameSet -> NameSet

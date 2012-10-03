@@ -238,7 +238,7 @@ mkIface_ hsc_env maybe_old_fingerprint
          this_mod is_boot used_names used_th deps rdr_env fix_env src_warns
          hpc_info dir_imp_mods pkg_trust_req dependent_files safe_mode
          ModDetails{  md_insts     = insts, 
-                      md_fam_inst_grps = fam_inst_grps,
+                      md_fam_insts = fam_insts,
                       md_rules     = rules,
                       md_anns      = anns,
                       md_vect_info = vect_info,
@@ -266,7 +266,7 @@ mkIface_ hsc_env maybe_old_fingerprint
                 ; warns       = src_warns
                 ; iface_rules = map (coreRuleToIfaceRule this_mod) rules
                 ; iface_insts = map instanceToIfaceInst insts
-                ; iface_fam_inst_grps = map famInstGroupToIfaceFamInstGroup fam_inst_grps
+                ; iface_fam_insts = map famInstToIfaceFamInst fam_insts
                 ; iface_vect_info = flattenVectInfo vect_info
                 ; trust_info  = setSafeMode safe_mode
 
@@ -280,7 +280,7 @@ mkIface_ hsc_env maybe_old_fingerprint
                         -- Sort these lexicographically, so that
                         -- the result is stable across compilations
                         mi_insts       = sortBy cmp_inst     iface_insts,
-                        mi_fam_inst_grps = sortBy cmp_fam_inst_grp iface_fam_inst_grps,
+                        mi_fam_insts   = sortBy cmp_fam_inst iface_fam_insts,
                         mi_rules       = sortBy cmp_rule     iface_rules,
 
                         mi_vect_info   = iface_vect_info,
@@ -349,11 +349,11 @@ mkIface_ hsc_env maybe_old_fingerprint
 
         ; return (errs_and_warns, Just (final_iface, no_change_at_all)) }}
   where
-     cmp_rule         = comparing ifRuleName
+     cmp_rule     = comparing ifRuleName
      -- Compare these lexicographically by OccName, *not* by unique,
      -- because the latter is not stable across compilations:
-     cmp_inst         = comparing (nameOccName . ifDFun)
-     cmp_fam_inst_grp = comparing (nameOccName . ifFamInstGroupFam)
+     cmp_inst     = comparing (nameOccName . ifDFun)
+     cmp_fam_inst = comparing (nameOccName . ifFamInstTcName)
 
      dflags = hsc_dflags hsc_env
 
@@ -370,6 +370,8 @@ mkIface_ hsc_env maybe_old_fingerprint
 
      deliberatelyOmitted :: String -> a
      deliberatelyOmitted x = panic ("Deliberately omitted: " ++ x)
+
+     ifFamInstTcName = ifFamInstFam
 
      flattenVectInfo (VectInfo { vectInfoVar          = vVar
                                , vectInfoTyCon        = vTyCon
@@ -616,7 +618,7 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
                                       && null orph_insts
                                       && null orph_fis
                                       && isNoIfaceVectInfo (mi_vect_info iface0)),
-                mi_finsts      = not . null $ mi_fam_inst_grps iface0,
+                mi_finsts      = not . null $ mi_fam_insts iface0,
                 mi_decls       = sorted_decls,
                 mi_hash_fn     = lookupOccEnv local_env }
    --
@@ -626,10 +628,9 @@ addFingerprints hsc_env mb_old_fingerprint iface0 new_decls
     this_mod = mi_module iface0
     dflags = hsc_dflags hsc_env
     this_pkg = thisPackage dflags
-    (non_orph_insts, orph_insts) = mkOrphMap ifInstOrph (mi_insts iface0)
-    (non_orph_rules, orph_rules) = mkOrphMap ifRuleOrph (mi_rules iface0)
-    (non_orph_fis,   orph_fis)   =
-      mkOrphMap ifFamInstOrph (concatMap ifFamInstGroupInsts $ mi_fam_inst_grps iface0)
+    (non_orph_insts, orph_insts) = mkOrphMap ifInstOrph    (mi_insts iface0)
+    (non_orph_rules, orph_rules) = mkOrphMap ifRuleOrph    (mi_rules iface0)
+    (non_orph_fis,   orph_fis)   = mkOrphMap ifFamInstOrph (mi_fam_insts iface0)
     fix_fn = mi_fix_fn iface0
 
 
@@ -1634,18 +1635,12 @@ instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag,
                         (n : _) -> Just (nameOccName n)
 
 --------------------------
-famInstGroupToIfaceFamInstGroup :: FamInstGroup -> IfaceFamInstGroup
-famInstGroupToIfaceFamInstGroup (FamInstGroup { fig_fis = insts
-                                              , fig_fam = fam })
-  = IfaceFamInstGroup { ifFamInstGroupFam   = fam
-                      , ifFamInstGroupInsts = insts' }
-  where
-    insts' = map famInstToIfaceFamInst insts
-
 famInstToIfaceFamInst :: FamInst -> IfaceFamInst
 famInstToIfaceFamInst (FamInst { fi_axiom  = axiom,
+                                 fi_fam    = fam,
                                  fi_tcs    = mb_tcs })
   = IfaceFamInst { ifFamInstAxiom = coAxiomName axiom
+                 , ifFamInstFam   = fam
                  , ifFamInstTys   = map do_rough mb_tcs
                  , ifFamInstOrph  = orph }
   where

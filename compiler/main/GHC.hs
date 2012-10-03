@@ -181,8 +181,8 @@ module GHC (
         ClsInst, 
         instanceDFunId, 
         pprInstance, pprInstanceHdr,
-        pprFamInstGroup,
-       
+        pprFamInst, pprFamInstHdr,
+
         -- ** Types and Kinds
         Type, splitForAllTys, funResultTy, 
         pprParendType, pprTypeApp, 
@@ -942,7 +942,7 @@ compileCore simplify fn = do
           cm_module  = mg_module mg,
           cm_types   = typeEnvFromEntities (bindersOfBinds (mg_binds mg))
                                            (mg_tcs mg)
-                                           (mg_fam_inst_grps mg),
+                                           (mg_fam_insts mg),
           cm_binds   = mg_binds mg,
           cm_safe    = safe_mode
          }
@@ -977,7 +977,7 @@ getBindings = withSession $ \hsc_env ->
     return $ icInScopeTTs $ hsc_IC hsc_env
 
 -- | Return the instances for the current interactive session.
-getInsts :: GhcMonad m => m ([ClsInst], [FamInstGroup])
+getInsts :: GhcMonad m => m ([ClsInst], [FamInst])
 getInsts = withSession $ \hsc_env ->
     return $ ic_instances (hsc_IC hsc_env)
 

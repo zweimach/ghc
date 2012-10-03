@@ -8,7 +8,7 @@ Type checking of type signatures in interface files
 \begin{code}
 module TcIface ( 
         tcImportDecl, importDecl, checkWiredInTyCon, tcHiBootIface, typecheckIface, 
-        tcIfaceDecl, tcIfaceInst, tcIfaceFamInstGroup, tcIfaceRules,
+        tcIfaceDecl, tcIfaceInst, tcIfaceFamInst, tcIfaceRules,
         tcIfaceVectInfo, tcIfaceAnnotations, tcIfaceGlobal, tcExtCoreBindings
  ) where
 
@@ -268,7 +268,7 @@ typecheckIface iface
 
                 -- Now do those rules, instances and annotations
         ; insts     <- mapM tcIfaceInst (mi_insts iface)
-        ; fam_inst_grps <- mapM tcIfaceFamInstGroup (mi_fam_inst_grps iface)
+        ; fam_insts <- mapM tcIfaceFamInst (mi_fam_insts iface)
         ; rules     <- tcIfaceRules ignore_prags (mi_rules iface)
         ; anns      <- tcIfaceAnnotations (mi_anns iface)
 
@@ -283,7 +283,7 @@ typecheckIface iface
                          text "Type envt:" <+> ppr type_env])
         ; return $ ModDetails { md_types     = type_env
                               , md_insts     = insts
-                              , md_fam_inst_grps = fam_inst_grps
+                              , md_fam_insts = fam_insts
                               , md_rules     = rules
                               , md_anns      = anns
                               , md_vect_info = vect_info
@@ -640,19 +640,13 @@ tcIfaceInst (IfaceClsInst { ifDFun = dfun_occ, ifOFlag = oflag
        ; let mb_tcs' = map (fmap ifaceTyConName) mb_tcs
        ; return (mkImportedInstance cls mb_tcs' dfun oflag) }
 
-tcIfaceFamInstGroup :: IfaceFamInstGroup -> IfL FamInstGroup
-tcIfaceFamInstGroup (IfaceFamInstGroup { ifFamInstGroupFam = fam
-                                       , ifFamInstGroupInsts = insts })
-    = do { insts' <- mapM tcIfaceFamInst insts
-         ; return (mkImportedFamInstGroup fam insts') }
-
 tcIfaceFamInst :: IfaceFamInst -> IfL FamInst
-tcIfaceFamInst (IfaceFamInst { ifFamInstTys = mb_tcs
+tcIfaceFamInst (IfaceFamInst { ifFamInstFam = fam, ifFamInstTys = mb_tcs
                              , ifFamInstAxiom = axiom_name } )
     = do { axiom' <- forkM (ptext (sLit "Axiom") <+> ppr axiom_name) $
                      tcIfaceCoAxiom axiom_name
          ; let mb_tcs' = map (fmap ifaceTyConName) mb_tcs
-         ; return (mkImportedFamInst mb_tcs' axiom') }
+         ; return (mkImportedFamInst fam mb_tcs' axiom') }
 \end{code}
 
 
