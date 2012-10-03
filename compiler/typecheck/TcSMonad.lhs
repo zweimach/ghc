@@ -1625,7 +1625,7 @@ matchClass clas tys
 	}
         }
 
-matchFam :: TyCon -> [Type] -> TcS (Maybe FamInstMatch)
+matchFam :: TyCon -> [Type] -> TcS LookupFamInstResult
 matchFam tycon args = wrapTcS $ tcLookupFamInst tycon args
 \end{code}
 

@@ -1185,6 +1185,7 @@ tcTagToEnum loc fun_name arg res_ty
 		, ptext (sLit "e.g. (tagToEnum# x) :: Bool") ]
     doc2 = ptext (sLit "Result type must be an enumeration type")
     doc3 = ptext (sLit "No family instance for this type")
+    doc4 = ptext (sLit "Type leads to instance group incoherence")
 
     get_rep_ty :: TcType -> TyCon -> [TcType]
                -> TcM (TcCoercion, TyCon, [TcType])
@@ -1196,9 +1197,10 @@ tcTagToEnum loc fun_name arg res_ty
       | otherwise 
       = do { fam_result <- tcLookupFamInst tc tc_args
            ; case fam_result of 
-	       Nothing -> failWithTc (tagToEnumError ty doc3)
-               Just (FamInstMatch { fim_instance = rep_fam
-                                  , fim_tys = rep_args }) 
+               FamInstIncoherent _ -> failWithTc (tagToEnumError ty doc4)
+	       FamInstFailure      -> failWithTc (tagToEnumError ty doc3)
+               FamInstSuccess (FamInstMatch { fim_instance = rep_fam
+                                            , fim_tys      = rep_args }) 
                    -> return ( mkTcSymCo (mkTcAxInstCo co_tc rep_args)
                              , rep_tc, rep_args )
                  where

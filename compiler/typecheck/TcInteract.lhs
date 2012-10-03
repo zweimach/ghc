@@ -1508,9 +1508,10 @@ doTopReactFunEq fl tc args xi d
     -- No cached solved, so look up in top-level instances
     do { match_res <- matchFam tc args   -- See Note [MATCHING-SYNONYMS]
        ; case match_res of {
-           Nothing      -> return NoTopInt ;
-           Just (FamInstMatch { fim_instance = famInst
-                              , fim_tys      = rep_tys }) -> 
+           FamInstIncoherent _ -> return NoTopInt ;
+           FamInstFailure      -> return NoTopInt ;
+           FamInstSuccess (FamInstMatch { fim_instance = famInst
+                                        , fim_tys      = rep_tys }) -> 
 
     -- Found a top-level instance
     do {    -- Add it to the solved goals

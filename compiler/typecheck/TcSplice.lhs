@@ -1015,8 +1015,11 @@ reifyInstances th_nm th_tys
               | otherwise
               -> do { tys <- tc_types tc th_tys
                     ; inst_envs <- tcGetFamInstEnvs
-                    ; let matchResult = lookupFamInstEnv inst_envs tc tys
-                    ; mapM (reifyFamilyInstance . fim_group) matchResult }
+                    ; let { matchResult = lookupFamInstEnv inst_envs tc tys
+                          ; matches
+                              | Right ms <- matchResult = ms
+                              | otherwise               = [] }
+                    ; mapM (reifyFamilyInstance . fim_group) matches }
             _ -> bale_out (ppr_th th_nm <+> ptext (sLit "is not a class or type constructor"))
         }
   where

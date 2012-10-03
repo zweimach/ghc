@@ -61,7 +61,7 @@ lookupFamInst tycon tys
   = ASSERT( isFamilyTyCon tycon )
     do { instEnv <- readGEnv global_fam_inst_env
        ; case lookupFamInstEnv instEnv tycon tys of
-           [match] -> return match
+           Right [match] -> return match
            _other                      -> 
              do dflags <- getDynFlags
                 cantVectorise dflags "VectMonad.lookupFamInst: not found: "
