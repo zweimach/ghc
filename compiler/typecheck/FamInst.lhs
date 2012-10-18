@@ -18,7 +18,6 @@ import HscTypes
 import FamInstEnv
 import LoadIface
 import TypeRep
-import TcMType
 import TcRnMonad
 import TyCon
 import DynFlags
@@ -170,7 +169,7 @@ then we have a coercion (ie, type instance of family instance coercion)
 which implies that :R42T was declared as 'data instance T [a]'.
 
 \begin{code}
-tcLookupFamInst :: TyCon -> [Type] -> TcM (Maybe (FamInst, [Type]))
+tcLookupFamInst :: TyCon -> [Type] -> TcM (Maybe FamInstMatch)
 tcLookupFamInst tycon tys
   | not (isFamilyTyCon tycon)
   = return Nothing
@@ -180,8 +179,8 @@ tcLookupFamInst tycon tys
        ; traceTc "lookupFamInst" ((ppr tycon <+> ppr tys) $$ pprTvBndrs (varSetElems (tyVarsOfTypes tys)) $$ ppr mb_match $$ ppr instEnv)
        ; case mb_match of
 	   [] -> return Nothing
-	   ((fam_inst, rep_tys):_) 
-              -> return $ Just (fam_inst, rep_tys)
+	   (match:_) 
+              -> return $ Just match
        }
 
 tcLookupDataFamInst :: TyCon -> [Type] -> TcM (TyCon, [Type])
@@ -195,8 +194,12 @@ tcLookupDataFamInst tycon tys
     do { maybeFamInst <- tcLookupFamInst tycon tys
        ; case maybeFamInst of
            Nothing             -> famInstNotFound tycon tys
-           Just (famInst, tys) -> let tycon' = dataFamInstRepTyCon famInst
-                                  in return (tycon', tys) }
+           Just (FamInstMatch { fim_instance = famInst
+                              , fim_index    = index
+                              , fim_tys      = tys })
+             -> ASSERT( index == 0 )
+                let tycon' = dataFamInstRepTyCon famInst
+                in return (tycon', tys) }
 
 famInstNotFound :: TyCon -> [Type] -> TcM a
 famInstNotFound tycon tys 
@@ -289,32 +292,28 @@ environments (one for the EPS and one for the HPT).
 
 \begin{code}
 checkForConflicts :: FamInstEnvs -> FamInst -> TcM Bool
-checkForConflicts inst_envs fam_inst
-  = do { 	-- To instantiate the family instance type, extend the instance
-		-- envt with completely fresh template variables
-		-- This is important because the template variables must
-		-- not overlap with anything in the things being looked up
-		-- (since we do unification).  
-		-- We use tcInstSkolType because we don't want to allocate
-		-- fresh *meta* type variables.  
-
-       ; (_, skol_tvs) <- tcInstSkolTyVars (coAxiomTyVars (famInstAxiom fam_inst))
-       ; let conflicts = lookupFamInstEnvConflicts inst_envs fam_inst skol_tvs
-             no_conflicts = null conflicts
+checkForConflicts inst_envs fam_inst@(FamInst { fi_branches = branches
+                                              , fi_group = group })
+  = do { let conflicts = map (lookupFamInstEnvConflicts inst_envs group) branches
+             no_conflicts = all null conflicts
        ; traceTc "checkForConflicts" (ppr conflicts $$ ppr fam_inst $$ ppr inst_envs)
        ; unless no_conflicts $
-	   conflictInstErr fam_inst (fst (head conflicts))
+	   zipWithM_ conflictInstErr branches conflicts
        ; return no_conflicts }
 
-conflictInstErr :: FamInst -> FamInst -> TcRn ()
-conflictInstErr famInst conflictingFamInst
+conflictInstErr :: FamInstBranch -> [FamInstMatch] -> TcRn ()
+conflictInstErr branch conflictingMatch
+  | (FamInstMatch { fim_instance = confInst
+                  , fim_index = confIndex }) : _ <- conflictingMatch
   = addFamInstsErr (ptext (sLit "Conflicting family instance declarations:"))
-                   [famInst, conflictingFamInst]
+                   [branch, famInstNthBranch confInst confIndex]
+  | otherwise
+  = pprPanic "conflictInstErr" (ppr branch)
 
-addFamInstsErr :: SDoc -> [FamInst] -> TcRn ()
+addFamInstsErr :: SDoc -> [FamInstBranch] -> TcRn ()
 addFamInstsErr herald insts
-  = setSrcSpan (getSrcSpan (head sorted)) $
-    addErr (hang herald 2 (pprFamInsts sorted))
+  = setSrcSpan (getSrcSpan $ head sorted) $
+    addErr (hang herald 2 (pprFamInstBranches sorted))
  where
    sorted = sortWith getSrcLoc insts
    -- The sortWith just arranges that instances are dislayed in order

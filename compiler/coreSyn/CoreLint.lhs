@@ -850,18 +850,19 @@ lintCoercion (InstCo co arg_ty)
             -> failWithL (ptext (sLit "Kind mis-match in inst coercion"))
 	  _ -> failWithL (ptext (sLit "Bad argument of inst")) }
 
-lintCoercion co@(AxiomInstCo (CoAxiom { co_ax_tvs = ktvs
-                                      , co_ax_lhs = lhs
-                                      , co_ax_rhs = rhs })
-                             cos)
+-- TODO (RAE): fix this
+lintCoercion co@(AxiomInstCo con ind cos)
   = do {  -- See Note [Kind instantiation in coercions]
-         unless (equalLength ktvs cos) (bad_ax (ptext (sLit "lengths")))
+         let CoAxBranch { cab_tvs = ktvs
+                        , cab_lhs = lhs
+                        , cab_rhs = rhs } = coAxiomNthBranch con ind
+       ; unless (equalLength ktvs cos) (bad_ax (ptext (sLit "lengths")))
        ; in_scope <- getInScope
        ; let empty_subst = mkTvSubst in_scope emptyTvSubstEnv
        ; (subst_l, subst_r) <- foldlM check_ki 
                                       (empty_subst, empty_subst) 
                                       (ktvs `zip` cos)
-       ; let lhs' = Type.substTy subst_l lhs
+       ; let lhs' = Type.substTy subst_l (mkTyConApp (coAxiomTyCon con) lhs)
              rhs' = Type.substTy subst_r rhs
        ; return (typeKind lhs', lhs', rhs') }
   where

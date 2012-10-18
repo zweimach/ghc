@@ -366,7 +366,7 @@ tcDeriving tycl_decls inst_decls deriv_decls
               hangP "Generated datatypes for meta-information:"
                (vcat (map ppr (bagToList repMetaTys)))
            $$ hangP "Representation types:"
-                (vcat (map pprRepTy (bagToList repFamInsts))))
+                (vcat (map ppr (bagToList repFamInsts))))
 
     hangP s x = text "" $$ hang (ptext (sLit s)) 2 x
 
@@ -386,13 +386,6 @@ commonAuxiliaries = foldM snoc ([], emptyBag) where
            | any ((rep_tycon ==) . fst) cas = return acc
            | otherwise = do (ca, new_stuff) <- m
                             return $ ((rep_tycon, ca) : cas, stuff `unionBags` new_stuff)
-
-
-
--- Prints the representable type family instance
-pprRepTy :: FamInst -> SDoc
-pprRepTy fi
-  = pprFamInstHdr fi <+> ptext (sLit "=") <+> ppr (coAxiomRHS (famInstAxiom fi))
 
 renameDeriv :: Bool
 	    -> [InstInfo RdrName]
@@ -1535,10 +1528,10 @@ genInst standalone_deriv oflag comauxs
 
     inst_spec = mkInstance oflag theta spec
     co1 = case tyConFamilyCoercion_maybe rep_tycon of
-              Just co_con -> mkTcAxInstCo co_con rep_tc_args
+              Just co_con -> mkTcSingletonAxInstCo co_con rep_tc_args
               Nothing     -> id_co
               -- Not a family => rep_tycon = main tycon
-    co2 = mkTcAxInstCo (newTyConCo rep_tycon) rep_tc_args
+    co2 = mkTcSingletonAxInstCo (newTyConCo rep_tycon) rep_tc_args
     co  = mkTcForAllCos tvs (co1 `mkTcTransCo` co2)
     id_co = mkTcReflCo (mkTyConApp rep_tycon rep_tc_args)
 

@@ -82,6 +82,7 @@ import Outputable
 import FastString
 import ListSetOps
 import Util
+import Data.List ( intercalate )
 \end{code}
 
 
@@ -712,18 +713,20 @@ newGlobalBinder.
 
 \begin{code}
 newFamInstTyConName :: Located Name -> [Type] -> TcM Name
-newFamInstTyConName (L loc name) = mk_fam_inst_name id loc name
+newFamInstTyConName (L loc name) tys = mk_fam_inst_name id loc name [tys]
 
-newFamInstAxiomName :: SrcSpan -> Name -> [Type] -> TcM Name
+newFamInstAxiomName :: SrcSpan -> Name -> [[Type]] -> TcM Name
 newFamInstAxiomName = mk_fam_inst_name mkInstTyCoOcc
 
-mk_fam_inst_name :: (OccName -> OccName) -> SrcSpan -> Name -> [Type] -> TcM Name
-mk_fam_inst_name adaptOcc loc tc_name tys
+mk_fam_inst_name :: (OccName -> OccName) -> SrcSpan -> Name -> [[Type]] -> TcM Name
+mk_fam_inst_name adaptOcc loc tc_name tyss
   = do  { mod   <- getModule
         ; let info_string = occNameString (getOccName tc_name) ++ 
-                            concatMap (occNameString.getDFunTyKey) tys
+                            intercalate "|" ty_strings
         ; occ   <- chooseUniqueOccTc (mkInstTyTcOcc info_string)
         ; newGlobalBinder mod (adaptOcc occ) loc }
+  where
+    ty_strings = map (concatMap (occNameString . getDFunTyKey)) tyss
 \end{code}
 
 Stable names used for foreign exports and annotations.

@@ -124,7 +124,7 @@ normaliseFfiType' env ty0 = go [] ty0
                                       _ ->
                                           return False
                   if newtypeOK
-                      then do let nt_co = mkAxInstCo (newTyConCo tc) tys
+                      then do let nt_co = mkSingletonAxInstCo (newTyConCo tc) tys
                               add_co nt_co rec_nts' nt_rhs
                       else children_only
 

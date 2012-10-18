@@ -45,6 +45,8 @@ module Type (
 
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
+
+        coAxNthLHS,
 	
 	-- (Newtypes)
 	newTyConInstRhs, carefullySplitNewType_maybe,
@@ -1033,6 +1035,12 @@ mkFamilyTyConApp tc tys
   = mkTyConApp fam_tc (substTys fam_subst fam_tys)
   | otherwise
   = mkTyConApp tc tys
+
+-- | Get the type on the LHS of a coercion induced by a type/data
+-- family instance.
+coAxNthLHS :: CoAxiom -> Int -> Type
+coAxNthLHS ax ind =
+  mkTyConApp (coAxiomTyCon ax) (coAxBranchLHS (coAxiomNthBranch ax ind))
 
 -- | Pretty prints a 'TyCon', using the family instance in case of a
 -- representation tycon.  For example:

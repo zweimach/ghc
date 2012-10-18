@@ -1114,7 +1114,7 @@ exposed (say P2), so we use M.T for that, and P1:M.T for the other one.
 This is handled by the qual_mod component of PrintUnqualified, inside
 the (ppr mod) of case (3), in Name.pprModulePrefix
 
-    \begin{code}
+\begin{code}
 -- | Creates some functions that work out the best ways to format
 -- names for the user according to a set of heuristics
 mkPrintUnqualified :: DynFlags -> GlobalRdrEnv -> PrintUnqualified
@@ -1410,19 +1410,41 @@ lookupType :: DynFlags
 lookupType dflags hpt pte name
   -- in one-shot, we don't use the HPT
   | not (isOneShot (ghcMode dflags)) && modulePackageId mod == this_pkg
-  = do hm <- lookupUFM hpt (moduleName mod) -- Maybe monad
-       lookupNameEnv (md_types (hm_details hm)) name
+  = -- pprTrace "lookupType1" (ppr this_pkg) $ -- RAE
+    do hm <- lookupUFM hpt (moduleName mod) -- Maybe monad
+       x <- -- pprTrace "lookupType3" empty $ -- RAE
+         lookupNameEnv (md_types (hm_details hm)) name
+       -- pprTrace "lookupType4" (ppr x) $ -- RAE
+       return x
   | otherwise
-  = lookupNameEnv pte name
+  = -- slowPprTrace pte $ -- RAE
+    -- pprTrace "lookupType2" empty $ -- RAE
+    lookupNameEnv pte name
   where 
     mod = ASSERT2( isExternalName name, ppr name ) nameModule name
     this_pkg = thisPackage dflags
+
+-- RAE
+slowPprTrace :: UniqFM TyThing -> a -> a
+slowPprTrace fm x
+  = pprTrace "about to slowPprTrace" empty $
+    seq fm $ pprTrace "now we have the map in hand" empty $
+    pprTrace "slowPprTrace size" (ppr (sizeUFM fm)) $
+    pprTrace "slowPprTrace keys" (ppr keys) $
+--    pprTrace "slowPprTrace key/values" (ppr (map add_val keys)) $
+--    pprTrace "slowPprTrace values" (ppr $ eltsUFM fm) $
+    x
+    where keys = keysUFM fm
+          add_val k = (k, lookupWithDefaultUFM_Directly fm undefined k)
 
 -- | As 'lookupType', but with a marginally easier-to-use interface
 -- if you have a 'HscEnv'
 lookupTypeHscEnv :: HscEnv -> Name -> IO (Maybe TyThing)
 lookupTypeHscEnv hsc_env name = do
-    eps <- readIORef (hsc_EPS hsc_env)
+    eps <- -- pprTrace "lookupTypeHscEnv0" empty $ -- RAE
+      -- seq hsc_env $ pprTrace "lookupTypeHscEnv.5" empty $ -- RAE
+      readIORef (hsc_EPS hsc_env)
+    -- pprTrace "lookupTypeHscEnv1" (ppr name) $ -- RAE
     return $! lookupType dflags hpt (eps_PTE eps) name
   where
     dflags = hsc_dflags hsc_env

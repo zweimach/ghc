@@ -1038,7 +1038,7 @@ instance Binary IfaceTyCon where
    get bh = liftM IfaceTc (get bh)
 
 instance Binary IfaceCoCon where
-   put_ bh (IfaceCoAx n)       = do { putByte bh 0; put_ bh n }
+   put_ bh (IfaceCoAx n ind)   = do { putByte bh 0; put_ bh n; put_ bh ind }
    put_ bh IfaceReflCo         = putByte bh 1
    put_ bh IfaceUnsafeCo       = putByte bh 2
    put_ bh IfaceSymCo          = putByte bh 3
@@ -1049,7 +1049,7 @@ instance Binary IfaceCoCon where
    get bh = do
         h <- getByte bh
         case h of
-          0 -> do { n <- get bh; return (IfaceCoAx n) }
+          0 -> do { n <- get bh; ind <- get bh; return (IfaceCoAx n ind) }
           1 -> return IfaceReflCo 
           2 -> return IfaceUnsafeCo
           3 -> return IfaceSymCo
@@ -1343,12 +1343,11 @@ instance Binary IfaceDecl where
         put_ bh a6
         put_ bh a7
         
-    put_ bh (IfaceAxiom a1 a2 a3 a4) = do
+    put_ bh (IfaceAxiom a1 a2 a3) = do
         putByte bh 5
         put_ bh (occNameFS a1)
         put_ bh a2
         put_ bh a3
-        put_ bh a4
 
     get bh = do
         h <- getByte bh
@@ -1388,9 +1387,19 @@ instance Binary IfaceDecl where
             _ -> do a1 <- get bh
                     a2 <- get bh
                     a3 <- get bh
-                    a4 <- get bh
                     occ <- return $! mkOccNameFS tcName a1
-                    return (IfaceAxiom occ a2 a3 a4)
+                    return (IfaceAxiom occ a2 a3)
+
+instance Binary IfaceAxBranch where
+    put_ bh (IfaceAxBranch a1 a2 a3) = do
+        put_ bh a1
+        put_ bh a2
+        put_ bh a3
+    get bh = do
+        a1 <- get bh
+        a2 <- get bh
+        a3 <- get bh
+        return (IfaceAxBranch a1 a2 a3)
 
 instance Binary IfaceClsInst where
     put_ bh (IfaceClsInst cls tys dfun flag orph) = do

@@ -181,7 +181,7 @@ module GHC (
         ClsInst, 
         instanceDFunId, 
         pprInstance, pprInstanceHdr,
-        pprFamInst, pprFamInstHdr,
+        pprFamInst,
 
         -- ** Types and Kinds
         Type, splitForAllTys, funResultTy, 

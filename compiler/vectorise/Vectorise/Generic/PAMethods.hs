@@ -35,7 +35,7 @@ buildPReprTyCon orig_tc vect_tc repr
  = do name      <- mkLocalisedName mkPReprTyConOcc (tyConName orig_tc)
       rhs_ty    <- sumReprType repr
       prepr_tc  <- builtin preprTyCon
-      return $ mkSynFamInst name tyvars prepr_tc instTys rhs_ty
+      return $ mkSingleSynFamInst name tyvars prepr_tc instTys rhs_ty
   where
     tyvars = tyConTyVars vect_tc
     instTys = [mkTyConApp vect_tc . mkTyVarTys $ tyConTyVars vect_tc]
@@ -95,7 +95,7 @@ buildToPRepr vect_tc repr_ax _ _ repr
   where
     ty_args        = mkTyVarTys (tyConTyVars vect_tc)
 
-    wrap_repr_inst = wrapTypeFamInstBody repr_ax ty_args
+    wrap_repr_inst = wrapTypeSingleFamInstBody repr_ax ty_args
 
     -- CoreExp to convert the given argument to the generic representation.
     -- We start by doing a case branch on the possible data constructors.
@@ -158,7 +158,7 @@ buildFromPRepr vect_tc repr_ax _ _ repr
       arg_ty <- mkPReprType res_ty
       arg <- newLocalVar (fsLit "x") arg_ty
 
-      result <- from_sum (unwrapTypeFamInstScrut repr_ax ty_args (Var arg))
+      result <- from_sum (unwrapTypeSingleFamInstScrut repr_ax ty_args (Var arg))
                          repr
       return $ Lam arg result
   where
@@ -214,7 +214,7 @@ buildToArrPRepr vect_tc repr_co pdata_tc _ r
       pdata_co <- mkBuiltinCo pdataTyCon
       let co           = mkAppCo pdata_co
                        . mkSymCo
-                       $ mkAxInstCo repr_co ty_args
+                       $ mkSingletonAxInstCo repr_co ty_args
 
           scrut   = unwrapFamInstScrut pdata_tc ty_args (Var arg)
 
@@ -278,7 +278,7 @@ buildFromArrPRepr vect_tc repr_co pdata_tc _ r
 
       pdata_co <- mkBuiltinCo pdataTyCon
       let co           = mkAppCo pdata_co
-                       $ mkAxInstCo repr_co var_tys
+                       $ mkSingletonAxInstCo repr_co var_tys
 
       let scrut        = mkCast (Var arg) co
 
@@ -364,7 +364,7 @@ buildToArrPReprs vect_tc repr_co _ pdatas_tc r
     pdatas_co <- mkBuiltinCo pdatasTyCon
     let co           = mkAppCo pdatas_co
                      . mkSymCo
-                     $ mkAxInstCo repr_co ty_args
+                     $ mkSingletonAxInstCo repr_co ty_args
 
     let scrut        = unwrapFamInstScrut pdatas_tc ty_args (Var varg)
     (vars, result)  <- to_sum r
@@ -454,7 +454,7 @@ buildFromArrPReprs vect_tc repr_co _ pdatas_tc r
     -- Build the coercion between PRepr and the instance type
     pdatas_co <- mkBuiltinCo pdatasTyCon
     let co           = mkAppCo pdatas_co
-                     $ mkAxInstCo repr_co var_tys
+                     $ mkSingletonAxInstCo repr_co var_tys
 
     let scrut        = mkCast (Var varg) co
 

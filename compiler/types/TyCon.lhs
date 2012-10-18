@@ -15,9 +15,12 @@ module TyCon(
         SynTyConRhs(..),
 
         -- ** Coercion axiom constructors
-        CoAxiom(..),
-        coAxiomName, coAxiomArity, coAxiomTyVars,
-        coAxiomLHS, coAxiomRHS, isImplicitCoAxiom,
+        CoAxiom(..), CoAxBranch(..), coAxiomPatternArity,
+        coAxiomName, coAxiomArity, coAxiomBranches,
+        coAxiomTyCon, isImplicitCoAxiom,
+        coAxiomNthBranch,
+        coAxiomSingleBranch, coAxBranchTyVars, coAxBranchLHS,
+        coAxBranchRHS,
 
         -- ** Constructing TyCons
         mkAlgTyCon,
@@ -694,32 +697,79 @@ so the coercion tycon CoT must have
 %*                                                                      *
 %************************************************************************
 
+Note [Coercion axiom branches]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In order to allow type family instance groups, an axiom needs to contain an
+ordered list of alternatives, called branches. The kind of the coercion is
+chosen based on which branch contains patterns that match the type variables
+the axiom is instantiated with. The first such match is chosen.
+
+For type-checking, it is also necessary to check that no previous pattern
+can unify with the supplied arguments. After all, it is possible that some
+of the type arguments are lambda-bound type variables whose instantiation may
+cause an earlier match among the branches. We wish to prohibit this behavior,
+so the type checker rules out the choice of a branch where a previous branch
+can unify. See also [Instance checking within groups] in FamInstEnv.hs.
+
 \begin{code}
 -- | A 'CoAxiom' is a \"coercion constructor\", i.e. a named equality axiom.
 data CoAxiom
   = CoAxiom                   -- Type equality axiom.
-    { co_ax_unique   :: Unique      -- unique identifier
-    , co_ax_name     :: Name        -- name for pretty-printing
-    , co_ax_tvs      :: [TyVar]     -- bound type variables
-    , co_ax_lhs      :: Type        -- left-hand side of the equality
-    , co_ax_rhs      :: Type        -- right-hand side of the equality
-    , co_ax_implicit :: Bool        -- True <=> the axiom is "implicit"
-                                    -- See Note [Implicit axioms]
+    { co_ax_unique   :: Unique       -- unique identifier
+    , co_ax_name     :: Name         -- name for pretty-printing
+    , co_ax_arity    :: Arity        -- number of patterns in each alternative
+    , co_ax_tc       :: TyCon        -- the head of the LHS patterns
+    , co_ax_branches :: [CoAxBranch] -- the branches that form this axiom
+    , co_ax_implicit :: Bool         -- True <=> the axiom is "implicit"
+                                     -- See Note [Implicit axioms]
+         -- INVARIANT: co_ax_implicit == True implies length co_ax_branches == 1.
     }
   deriving Typeable
 
-coAxiomArity :: CoAxiom -> Arity
-coAxiomArity ax = length (co_ax_tvs ax)
+data CoAxBranch
+  = CoAxBranch
+    { cab_tvs      :: [TyVar]      -- bound type variables
+    , cab_lhs      :: [Type]       -- type patterns to match against
+    , cab_rhs      :: Type         -- right-hand side of the equality
+    }
+  deriving Typeable
+
+coAxiomPatternArity :: CoAxiom -> Arity
+coAxiomPatternArity = co_ax_arity
+
+coAxiomNthBranch :: CoAxiom -> Int -> CoAxBranch
+coAxiomNthBranch ax index
+  = ASSERT( 0 <= index && index < (length $ co_ax_branches ax) )
+    (co_ax_branches ax) !! index
+
+coAxiomArity :: CoAxiom -> Int -> Arity
+coAxiomArity ax index
+  = length $ cab_tvs $ coAxiomNthBranch ax index
 
 coAxiomName :: CoAxiom -> Name
 coAxiomName = co_ax_name
 
-coAxiomTyVars :: CoAxiom -> [TyVar]
-coAxiomTyVars = co_ax_tvs
+coAxiomBranches :: CoAxiom -> [CoAxBranch]
+coAxiomBranches = co_ax_branches
 
-coAxiomLHS, coAxiomRHS :: CoAxiom -> Type
-coAxiomLHS = co_ax_lhs
-coAxiomRHS = co_ax_rhs
+coAxiomSingleBranch :: CoAxiom -> CoAxBranch
+coAxiomSingleBranch ax@(CoAxiom { co_ax_branches = branches })
+  | [br] <- branches
+  = br
+  | otherwise
+  = pprPanic "coAxiomSingleBranch" (ppr ax)
+
+coAxiomTyCon :: CoAxiom -> TyCon
+coAxiomTyCon = co_ax_tc
+
+coAxBranchTyVars :: CoAxBranch -> [TyVar]
+coAxBranchTyVars = cab_tvs
+
+coAxBranchLHS :: CoAxBranch -> [Type]
+coAxBranchLHS = cab_lhs
+
+coAxBranchRHS :: CoAxBranch -> Type
+coAxBranchRHS = cab_rhs
 
 isImplicitCoAxiom :: CoAxiom -> Bool
 isImplicitCoAxiom = co_ax_implicit

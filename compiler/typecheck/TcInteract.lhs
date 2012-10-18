@@ -1509,7 +1509,9 @@ doTopReactFunEq fl tc args xi d
     do { match_res <- matchFam tc args   -- See Note [MATCHING-SYNONYMS]
        ; case match_res of {
            Nothing -> return NoTopInt ;
-           Just (famInst, rep_tys) -> 
+           Just (FamInstMatch { fim_instance = famInst
+                              , fim_index    = index
+                              , fim_tys      = rep_tys }) -> 
 
     -- Found a top-level instance
     do {    -- Add it to the solved goals
@@ -1518,8 +1520,8 @@ doTopReactFunEq fl tc args xi d
             ; addToSolved fl }
 
        ; let coe_ax = famInstAxiom famInst 
-       ; succeed_with (mkTcAxInstCo coe_ax rep_tys)
-                      (mkAxInstRHS coe_ax rep_tys) } } } } }
+       ; succeed_with (mkTcAxInstCo coe_ax index rep_tys)
+                      (mkAxInstRHS coe_ax index rep_tys) } } } } }
   where
     succeed_with :: TcCoercion -> TcType -> TcS TopInteractResult
     succeed_with coe rhs_ty 

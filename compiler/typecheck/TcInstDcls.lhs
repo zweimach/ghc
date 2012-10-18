@@ -471,8 +471,8 @@ tcLocalInstDecl (L loc (TyFamInstD { tfid_inst = decl }))
   = setSrcSpan loc      $
     tcAddTyFamInstCtxt decl  $
     do { fam_tc <- tcFamInstDeclCombined TopLevel (tyFamInstDeclLName decl)
-       ; fam_insts <- tcTyFamInstDecl fam_tc decl
-       ; return ([], fam_insts) }
+       ; fam_inst <- tcTyFamInstDecl fam_tc (L loc decl)
+       ; return ([], [fam_inst]) }
 
 tcLocalInstDecl (L loc (DataFamInstD { dfid_inst = decl }))
   = setSrcSpan loc      $
@@ -501,9 +501,8 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                            
         -- Next, process any associated types.
         ; traceTc "tcLocalInstDecl" (ppr poly_ty)
-        ; tyfam_instss0 <- tcExtendTyVarEnv tyvars $
+        ; tyfam_insts0 <- tcExtendTyVarEnv tyvars $
                           mapAndRecoverM tcAssocTyDecl ats
-        ; let tyfam_insts0 = concat tyfam_instss0
         ; datafam_insts <- tcExtendTyVarEnv tyvars $
                            mapAndRecoverM tcAssocDataDecl adts
 
@@ -539,7 +538,7 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                            tvs'     = varSetElems tv_set'
                      ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
                      ; ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
-                       return (mkSynFamInst rep_tc_name tvs' fam_tc pat_tys' rhs') }
+                       return (mkSingleSynFamInst rep_tc_name tvs' fam_tc pat_tys' rhs') }
 
         ; tyfam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
         
@@ -587,42 +586,46 @@ tcFamInstDeclCombined top_lvl fam_tc_lname
 
        ; return fam_tc }
 
-tcTyFamInstDecl :: TyCon -> TyFamInstDecl Name -> TcM [FamInst]
+tcTyFamInstDecl :: TyCon -> LTyFamInstDecl Name -> TcM FamInst
   -- "type instance"
-tcTyFamInstDecl fam_tc decl
+tcTyFamInstDecl fam_tc (L loc decl)
   = do { -- (1) do the work of verifying the synonym group
        ; quads <- tcSynFamInstDecl fam_tc decl
 
-         -- ... and then do processing seperately per instance equation
-<<<<<<< HEAD
-       ; fam_insts <- mapM check_valid_mk_fam_inst quads
+         -- (2) create the branches
+       ; fam_inst_branches <- mapM check_valid_mk_branch quads
+
+         -- (3) construct coercion tycon
+       ; rep_tc_name <- newFamInstAxiomName loc
+                                            (tyFamInstDeclName decl)
+                                            (get_typats quads)
 
          -- (4) check to see if earlier equations dominate a later one
-       ; foldlM_ check_inaccessible_fam_inst [] fam_insts
+       ; foldlM_ check_inaccessible_branches [] (map fst fam_inst_branches)
 
          -- now, build the FamInstGroup
-       ; return $ mkSynFamInstGroup fam_tc fam_insts }
-=======
-       ; mapM check_valid_mk_fam_inst quads }
->>>>>>> parent of f428eea... Added overlapping type family instances.
+       ; return $ mkSynFamInst rep_tc_name fam_tc fam_inst_branches }
 
-    where check_valid_mk_fam_inst :: ([TyVar], [Type], Type, SrcSpan) -> TcM FamInst
-          check_valid_mk_fam_inst (t_tvs, t_typats, t_rhs, loc)
+    where check_valid_mk_branch :: ([TyVar], [Type], Type, SrcSpan)
+                                -> TcM (FamInstBranch, CoAxBranch)
+          check_valid_mk_branch (t_tvs, t_typats, t_rhs, loc)
             = setSrcSpan loc $
-              do { -- (2) check the well-formedness of the instance
+              do { -- check the well-formedness of the instance
                    checkValidFamInst t_typats t_rhs
 
-                   -- (3) construct coercion tycon
-                 ; rep_tc_name <- newFamInstAxiomName loc (tyFamInstDeclName decl) t_typats
+                 ; return $ mkSynFamInstBranch fam_tc t_tvs t_typats t_rhs }
 
-                 ; return $ mkSynFamInst rep_tc_name t_tvs fam_tc t_typats t_rhs }
+          check_inaccessible_branches :: [FamInstBranch]     -- previous
+                                      -> FamInstBranch       -- current
+                                      -> TcM [FamInstBranch] -- current : previous
+          check_inaccessible_branches prev_branches
+                                      cur_branch@(FamInstBranch { fib_lhs = tys })
+            = setSrcSpan (getSrcSpan cur_branch) $
+              do { when (tys `isDominatedBy` prev_branches) $
+                        addErrTc $ inaccessibleFamInstBranch cur_branch
+                 ; return $ cur_branch : prev_branches }
 
-          check_inaccessible_fam_inst :: [FamInst] -> FamInst -> TcM [FamInst]
-          check_inaccessible_fam_inst prev_insts cur_inst@(FamInst { fi_tys = tys })
-            = setSrcSpan (getSrcSpan cur_inst) $
-              do { when (tys `isDominatedBy` prev_insts) $
-                        addErrTc $ inaccessibleFamInst cur_inst
-                 ; return $ cur_inst : prev_insts }
+          get_typats = map (\(_, tys, _, _) -> tys)
 
 tcDataFamInstDecl :: TyCon -> DataFamInstDecl Name -> TcM FamInst
   -- "newtype instance" and "data instance"
@@ -691,7 +694,9 @@ tcAssocFamInst :: Class              -- ^ Class of associated type
 tcAssocFamInst clas mini_env fam_inst
   = setSrcSpan (getSrcSpan fam_inst) $
     tcAddFamInstCtxt (pprFamFlavor (fi_flavor fam_inst)) (fi_fam fam_inst) $
-    do { let (fam_tc, at_tys) = famInstLHS fam_inst
+    do { let branch = famInstSingleBranch fam_inst
+             fam_tc = famInstTyCon fam_inst
+             at_tys = famInstBranchLHS branch
 
        -- Check that the associated type comes from this class
        ; checkTc (Just clas == tyConAssoc_maybe fam_tc)
@@ -711,12 +716,12 @@ tcAssocFamInst clas mini_env fam_inst
                     -- See Note [Associated type instances]
 
 tcAssocTyDecl :: LTyFamInstDecl Name
-              -> TcM [FamInst]
-tcAssocTyDecl (L loc decl)
+              -> TcM FamInst
+tcAssocTyDecl ldecl@(L loc decl)
   = setSrcSpan loc $
     tcAddTyFamInstCtxt decl $
     do { fam_tc <- tcFamInstDeclCombined NotTopLevel (tyFamInstDeclLName decl)
-       ; tcTyFamInstDecl fam_tc decl }
+       ; tcTyFamInstDecl fam_tc ldecl }
 
 tcAssocDataDecl :: LDataFamInstDecl Name -- ^ RHS
                 -> TcM FamInst
@@ -1497,8 +1502,8 @@ badFamInstDecl tc_name
            quotes (ppr tc_name)
          , nest 2 (parens $ ptext (sLit "Use -XTypeFamilies to allow indexed type families")) ]
 
-inaccessibleFamInst :: FamInst -> SDoc
-inaccessibleFamInst fi
+inaccessibleFamInstBranch :: FamInstBranch -> SDoc
+inaccessibleFamInstBranch fi
   = ptext (sLit "Inaccessible family instance equation:") $$ (ppr fi)
 
 \end{code}

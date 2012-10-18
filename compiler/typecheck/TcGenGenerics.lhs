@@ -27,7 +27,7 @@ import TcType
 import TcGenDeriv
 import DataCon
 import TyCon
-import FamInstEnv       ( FamInst, mkSynFamInst )
+import FamInstEnv       ( FamInst, mkSingleSynFamInst )
 import Module           ( Module, moduleName, moduleNameString )
 import IfaceEnv         ( newGlobalBinder )
 import Name      hiding ( varName )
@@ -450,7 +450,7 @@ tc_mkRepFamInsts gk tycon metaDts mod =
                    in newGlobalBinder mod (mkGen (nameOccName (tyConName tycon)))
                         (nameSrcSpan (tyConName tycon))
 
-     ; return $ mkSynFamInst rep_name tyvars rep appT repTy
+     ; return $ mkSingleSynFamInst rep_name tyvars rep appT repTy
      }
 
 --------------------------------------------------------------------------------

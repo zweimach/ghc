@@ -71,6 +71,7 @@ module TcType (
   -- Misc type manipulators
   deNoteType,
   orphNamesOfType, orphNamesOfDFunHead, orphNamesOfCo,
+  orphNamesOfCoCon,
   getDFunTyKey,
   evVarPred_maybe, evVarPred,
 
@@ -589,8 +590,8 @@ tidyCo env@(_, subst) co
     go (CoVarCo cv)          = case lookupVarEnv subst cv of
                                  Nothing  -> CoVarCo cv
                                  Just cv' -> CoVarCo cv'
-    go (AxiomInstCo con cos) = let args = tidyCos env cos
-                               in  args `seqList` AxiomInstCo con args
+    go (AxiomInstCo con ind cos) = let args = tidyCos env cos
+                               in  args `seqList` AxiomInstCo con ind args
     go (UnsafeCo ty1 ty2)    = (UnsafeCo $! tidyType env ty1) $! tidyType env ty2
     go (SymCo co)            = SymCo $! go co
     go (TransCo co1 co2)     = (TransCo $! go co1) $! go co2
@@ -1245,8 +1246,11 @@ orphNamesOfType (FunTy arg res)	    = orphNamesOfType arg `unionNameSets` orphNa
 orphNamesOfType (AppTy fun arg)	    = orphNamesOfType fun `unionNameSets` orphNamesOfType arg
 orphNamesOfType (ForAllTy _ ty)	    = orphNamesOfType ty
 
+orphNamesOfThings :: (a -> NameSet) -> [a] -> NameSet
+orphNamesOfThings f = foldr (unionNameSets . f) emptyNameSet
+
 orphNamesOfTypes :: [Type] -> NameSet
-orphNamesOfTypes tys = foldr (unionNameSets . orphNamesOfType) emptyNameSet tys
+orphNamesOfTypes = orphNamesOfThings orphNamesOfType
 
 orphNamesOfDFunHead :: Type -> NameSet
 -- Find the free type constructors and classes 
@@ -1265,7 +1269,7 @@ orphNamesOfCo (TyConAppCo tc cos)   = unitNameSet (getName tc) `unionNameSets` o
 orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
 orphNamesOfCo (ForAllCo _ co)       = orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
-orphNamesOfCo (AxiomInstCo con cos) = orphNamesOfCoCon con `unionNameSets` orphNamesOfCos cos
+orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSets` orphNamesOfCos cos
 orphNamesOfCo (UnsafeCo ty1 ty2)    = orphNamesOfType ty1 `unionNameSets` orphNamesOfType ty2
 orphNamesOfCo (SymCo co)            = orphNamesOfCo co
 orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
@@ -1273,11 +1277,18 @@ orphNamesOfCo (NthCo _ co)          = orphNamesOfCo co
 orphNamesOfCo (InstCo co ty)        = orphNamesOfCo co `unionNameSets` orphNamesOfType ty
 
 orphNamesOfCos :: [Coercion] -> NameSet
-orphNamesOfCos = foldr (unionNameSets . orphNamesOfCo) emptyNameSet
+orphNamesOfCos = orphNamesOfThings orphNamesOfCo
 
 orphNamesOfCoCon :: CoAxiom -> NameSet
-orphNamesOfCoCon (CoAxiom { co_ax_lhs = ty1, co_ax_rhs = ty2 })
-  = orphNamesOfType ty1 `unionNameSets` orphNamesOfType ty2
+orphNamesOfCoCon (CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
+  = orphNamesOfTyCon tc `unionNameSets` orphNamesOfCoAxBranches branches
+
+orphNamesOfCoAxBranches :: [CoAxBranch] -> NameSet
+orphNamesOfCoAxBranches = orphNamesOfThings orphNamesOfCoAxBranch
+
+orphNamesOfCoAxBranch :: CoAxBranch -> NameSet
+orphNamesOfCoAxBranch (CoAxBranch { cab_lhs = lhs, cab_rhs = rhs })
+  = orphNamesOfTypes lhs `unionNameSets` orphNamesOfType rhs
 \end{code}
 
 
