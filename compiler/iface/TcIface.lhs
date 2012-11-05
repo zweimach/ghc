@@ -453,9 +453,7 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
     tc_parent _ Nothing = return parent
     tc_parent tyvars (Just ax_name)
       = ASSERT( isNoParent parent )
-        do { -- traceIf (text "tcIfaceDecl5" <+> ppr ax_name) -- RAE
-           ; ax <- tcIfaceCoAxiom ax_name
-           -- ; traceIf (text "tcIfaceDecl6") -- RAE
+        do { ax <- tcIfaceCoAxiom ax_name
            ; let fam_tc = coAxiomTyCon ax
                  -- data families don't have branches:
                  branch = coAxiomSingleBranch ax
@@ -544,8 +542,8 @@ tc_iface_decl _ _ (IfaceForeign {ifName = rdr_name, ifExtName = ext_name})
         ; return (ATyCon (mkForeignTyCon name ext_name 
                                          liftedTypeKind 0)) }
 
-tc_iface_decl _ _ (IfaceAxiom {ifName = tc_occ, ifTyCon = tc, ifAxBranches = branches})
-  = do { tc_name     <- lookupIfaceTop tc_occ
+tc_iface_decl _ _ (IfaceAxiom {ifName = ax_occ, ifTyCon = tc, ifAxBranches = branches})
+  = do { tc_name     <- lookupIfaceTop ax_occ
        ; tc_tycon    <- tcIfaceTyCon tc
        ; tc_branches <- mapM tc_branch branches
        ; let axiom = CoAxiom { co_ax_unique   = nameUnique tc_name
@@ -1339,29 +1337,21 @@ tcIfaceGlobal name
             Just (mod, get_type_env) 
                 | nameIsLocalOrFrom mod name
                 -> do           -- It's defined in the module being compiled
-                { -- traceIf $ (text "tcIfaceGlobal1") <+> (ppr mod) -- RAE
-                ; type_env <- setLclEnv () get_type_env         -- yuk
-                -- ; traceIf $ (text "tcIfaceGlobal2") <+> (ppr name) -- RAE
+                { type_env <- setLclEnv () get_type_env         -- yuk
                 ; case lookupNameEnv type_env name of
-                        Just thing -> -- (traceIf $ (text "tcIfaceGlobal3")) >> -- RAE
-                                      return thing
+                        Just thing -> return thing
                         Nothing   -> pprPanic "tcIfaceGlobal (local): not found:"  
                                                 (ppr name $$ ppr type_env) }
 
           ; _ -> do
 
-        { -- traceIf (text "tcIfaceGlobal4") -- RAE
-        ; hsc_env <- getTopEnv
-        ; -- traceIf (text "tcIfaceGlobal5") -- RAE
+        { hsc_env <- getTopEnv
         ; mb_thing <- liftIO (lookupTypeHscEnv hsc_env name)
-        ; -- traceIf $ (text "tcIfaceGlobal6") <+> (ppr mb_thing) -- RAE
         ; case mb_thing of {
             Just thing -> return thing ;
             Nothing    -> do
 
-        { -- traceIf (text "tcIfaceGlobal7") -- RAE
-        ; mb_thing <- importDecl name   -- It's imported; go get it
-        ; -- traceIf $ (text "tcIfaceGlobal8") -- <+> (ppr mb_thing) -- RAE
+        { mb_thing <- importDecl name   -- It's imported; go get it
         ; case mb_thing of
             Failed err      -> failIfM err
             Succeeded thing -> return thing
@@ -1404,9 +1394,7 @@ tcIfaceKindCon (IfaceTc name)
            _ -> pprPanic "tcIfaceKindCon" (ppr name $$ ppr thing) }
 
 tcIfaceCoAxiom :: Name -> IfL CoAxiom
-tcIfaceCoAxiom name = do { -- traceIf (text "tcIfaceCoAxiom" <+> ppr name) -- RAE
-                         ; thing <- tcIfaceGlobal name
-                         ; -- traceIf (text "tcIfaceCoAxiom after global") -- RAE
+tcIfaceCoAxiom name = do { thing <- tcIfaceGlobal name
                          ; return (tyThingCoAxiom thing) }
 
 tcIfaceDataCon :: Name -> IfL DataCon

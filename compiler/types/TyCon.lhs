@@ -18,7 +18,7 @@ module TyCon(
         CoAxiom(..), CoAxBranch(..), coAxiomPatternArity,
         coAxiomName, coAxiomArity, coAxiomBranches,
         coAxiomTyCon, isImplicitCoAxiom,
-        coAxiomNthBranch,
+        coAxiomNthBranch, coAxiomSingleBranch_maybe,
         coAxiomSingleBranch, coAxBranchTyVars, coAxBranchLHS,
         coAxBranchRHS,
 
@@ -751,6 +751,13 @@ coAxiomName = co_ax_name
 
 coAxiomBranches :: CoAxiom -> [CoAxBranch]
 coAxiomBranches = co_ax_branches
+
+coAxiomSingleBranch_maybe :: CoAxiom -> Maybe CoAxBranch
+coAxiomSingleBranch_maybe (CoAxiom { co_ax_branches = branches })
+  | [br] <- branches
+  = Just br
+  | otherwise
+  = Nothing
 
 coAxiomSingleBranch :: CoAxiom -> CoAxBranch
 coAxiomSingleBranch ax@(CoAxiom { co_ax_branches = branches })

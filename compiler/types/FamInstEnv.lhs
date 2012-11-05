@@ -356,7 +356,7 @@ mkImportedFamInst :: Name               -- Name of the family
                   -> [[Maybe Name]]     -- Rough match info, per branch
                   -> CoAxiom            -- Axiom introduced
                   -> FamInst            -- Resulting family instance
-mkImportedFamInst fam roughs axiom@(CoAxiom { co_ax_branches = axBranches })
+mkImportedFamInst fam roughs axiom
   = ASSERT( fam == tyConName fam_tc )
     FamInst {
       fi_fam      = fam,
@@ -365,6 +365,7 @@ mkImportedFamInst fam roughs axiom@(CoAxiom { co_ax_branches = axBranches })
       fi_group    = (length branches /= 1), -- TODO (RAE): Fix this
       fi_branches = branches }
   where
+     CoAxiom { co_ax_branches = axBranches } = axiom -- Lazy match (See note [Lazy axiom match]) TODO (RAE): write note
      fam_tc = coAxiomTyCon axiom
 
      branches = zipWith mk_fam_inst_branch axBranches roughs
