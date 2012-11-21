@@ -2,9 +2,12 @@
 module Instruction (
         RegUsage(..),
         noUsage,
+        GenBasicBlock(..), blockId,
+        ListGraph(..),
         NatCmm,
         NatCmmDecl,
         NatBasicBlock,
+        topInfoTable,
         Instruction(..)
 )
 
@@ -13,7 +16,8 @@ where
 import Reg
 
 import BlockId
-import OldCmm
+import DynFlags
+import Cmm hiding (topInfoTable)
 import Platform
 
 -- | Holds a list of source and destination registers used by a
@@ -32,7 +36,6 @@ data RegUsage
 -- | No regs read or written to.
 noUsage :: RegUsage
 noUsage  = RU [] []
-
 
 -- Our flavours of the Cmm types
 -- Type synonyms for Cmm populated with native code
@@ -53,6 +56,13 @@ type NatBasicBlock instr
         = GenBasicBlock instr
 
 
+-- | Returns the info table associated with the CmmDecl's entry point,
+-- if any.
+topInfoTable :: GenCmmDecl a (BlockEnv i) (ListGraph b) -> Maybe i
+topInfoTable (CmmProc infos _ _ (ListGraph (b:_)))
+  = mapLookup (blockId b) infos
+topInfoTable _
+  = Nothing
 
 
 -- | Common things that we can do with instructions, on all architectures.
@@ -105,7 +115,7 @@ class   Instruction instr where
 
         -- | An instruction to spill a register into a spill slot.
         mkSpillInstr
-                :: Platform
+                :: DynFlags
                 -> Reg          -- ^ the reg to spill
                 -> Int          -- ^ the current stack delta
                 -> Int          -- ^ spill slot to use
@@ -114,7 +124,7 @@ class   Instruction instr where
 
         -- | An instruction to reload a register from a spill slot.
         mkLoadInstr
-                :: Platform
+                :: DynFlags
                 -> Reg          -- ^ the reg to reload.
                 -> Int          -- ^ the current stack delta
                 -> Int          -- ^ the spill slot to use
@@ -162,3 +172,16 @@ class   Instruction instr where
                 -> [instr]
 
 
+        -- Subtract an amount from the C stack pointer
+        mkStackAllocInstr
+                :: Platform  -- TODO: remove (needed by x86/x86_64
+                             -- because they share an Instr type)
+                -> Int
+                -> instr
+
+        -- Add an amount to the C stack pointer
+        mkStackDeallocInstr
+                :: Platform  -- TODO: remove (needed by x86/x86_64
+                             -- because they share an Instr type)
+                -> Int
+                -> instr

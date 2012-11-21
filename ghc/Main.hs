@@ -110,7 +110,6 @@ main = do
                    ShowSupportedExtensions -> showSupportedExtensions
                    ShowVersion             -> showVersion
                    ShowNumVersion          -> putStrLn cProjectVersion
-                   Print str               -> putStrLn str
         Right postStartupMode ->
             -- start our GHC session
             GHC.runGhc mbMinusB $ do
@@ -162,7 +161,7 @@ main' postLoadMode dflags0 args flagWarnings = do
       dflags1a | DoInteractive <- postLoadMode = imp_qual_enabled
                | DoEval _      <- postLoadMode = imp_qual_enabled
                | otherwise                 = dflags1
-        where imp_qual_enabled = dflags1 `dopt_set` Opt_ImplicitImportQualified
+        where imp_qual_enabled = dflags1 `gopt_set` Opt_ImplicitImportQualified
 
         -- The rest of the arguments are "dynamic"
         -- Leftover ones are presumably files
@@ -292,7 +291,7 @@ checkOptions mode dflags srcs objs = do
         hPutStrLn stderr ("Warning: -debug, -threaded and -ticky are ignored by GHCi")
 
         -- -prof and --interactive are not a good combination
-   when (notNull (filter (not . wayRTSOnly) (ways dflags))
+   when ((filter (not . wayRTSOnly) (ways dflags) /= defaultWays (settings dflags))
          && isInterpretiveMode mode) $
       do ghcError (UsageError
                    "--interactive can't be used with -prof or -unreg.")
@@ -361,7 +360,6 @@ data PreStartupMode
   = ShowVersion             -- ghc -V/--version
   | ShowNumVersion          -- ghc --numeric-version
   | ShowSupportedExtensions -- ghc --supported-extensions
-  | Print String            -- ghc --print-foo
 
 showVersionMode, showNumVersionMode, showSupportedExtensionsMode :: Mode
 showVersionMode             = mkPreStartupMode ShowVersion
@@ -710,7 +708,7 @@ showUsage ghci dflags = do
 
 dumpFinalStats :: DynFlags -> IO ()
 dumpFinalStats dflags =
-  when (dopt Opt_D_faststring_stats dflags) $ dumpFastStringStats dflags
+  when (gopt Opt_D_faststring_stats dflags) $ dumpFastStringStats dflags
 
 dumpFastStringStats :: DynFlags -> IO ()
 dumpFastStringStats dflags = do

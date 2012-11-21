@@ -4,17 +4,18 @@
 module CmmContFlowOpt
     ( cmmCfgOpts
     , cmmCfgOptsProc
+    , removeUnreachableBlocksProc
     , removeUnreachableBlocks
     , replaceLabels
     )
 where
 
+import Hoopl
 import BlockId
 import Cmm
 import CmmUtils
 import Maybes
 
-import Hoopl
 import Control.Monad
 import Prelude hiding (succ, unzip, zip)
 
@@ -28,7 +29,7 @@ cmmCfgOpts :: Bool -> CmmGraph -> CmmGraph
 cmmCfgOpts split g = fst (blockConcat split g)
 
 cmmCfgOptsProc :: Bool -> CmmDecl -> CmmDecl
-cmmCfgOptsProc split (CmmProc info lbl g) = CmmProc info' lbl g'
+cmmCfgOptsProc split (CmmProc info lbl live g) = CmmProc info' lbl live g'
     where (g', env) = blockConcat split g
           info' = info{ info_tbls = new_info_tbls }
           new_info_tbls = mapFromList (map upd_info (mapToList (info_tbls info)))
@@ -97,15 +98,17 @@ cmmCfgOptsProc _ top = top
 
 blockConcat :: Bool -> CmmGraph -> (CmmGraph, BlockEnv BlockId)
 blockConcat splitting_procs g@CmmGraph { g_entry = entry_id }
-  = (replaceLabels shortcut_map $ ofBlockMap new_entry new_blocks, shortcut_map)
+  = (replaceLabels shortcut_map $ ofBlockMap new_entry new_blocks, shortcut_map')
   where
-     -- we might be able to shortcut the entry BlockId itself
-     new_entry
+     -- we might be able to shortcut the entry BlockId itself.
+     -- remember to update the shortcut_map', since we also have to
+     -- update the info_tbls mapping now.
+     (new_entry, shortcut_map')
        | Just entry_blk <- mapLookup entry_id new_blocks
        , Just dest      <- canShortcut entry_blk
-       = dest
+       = (dest, mapInsert entry_id dest shortcut_map)
        | otherwise
-       = entry_id
+       = (entry_id, shortcut_map)
 
      blocks = postorderDfs g
      blockmap = foldr addBlock emptyBody blocks
@@ -134,9 +137,10 @@ blockConcat splitting_procs g@CmmGraph { g_entry = entry_id }
         = (blocks, mapInsert b' dest shortcut_map)
            -- replaceLabels will substitute dest for b' everywhere, later
 
-        -- non-calls: see if we can shortcut any of the successors.
+        -- non-calls: see if we can shortcut any of the successors,
+        -- and check whether we should invert the conditional
         | Nothing <- callContinuation_maybe last
-        = ( mapInsert bid (blockJoinTail head shortcut_last) blocks
+        = ( mapInsert bid (blockJoinTail head swapcond_last) blocks
           , shortcut_map )
 
         | otherwise
@@ -144,17 +148,38 @@ blockConcat splitting_procs g@CmmGraph { g_entry = entry_id }
         where
           (head, last) = blockSplitTail block
           bid = entryLabel block
+
           shortcut_last = mapSuccessors shortcut last
-          shortcut l =
-             case mapLookup l blocks of
-               Just b | Just dest <- canShortcut b  -> dest
-               _otherwise -> l
+            where
+              shortcut l =
+                 case mapLookup l blocks of
+                   Just b | Just dest <- canShortcut b  -> dest
+                   _otherwise -> l
+
+          -- for a conditional, we invert the conditional if that
+          -- would make it more likely that the branch-not-taken case
+          -- becomes a fallthrough.  This helps the native codegen a
+          -- little bit, and probably has no effect on LLVM.  It's
+          -- convenient to do it here, where we have the information
+          -- about predecessors.
+          --
+          swapcond_last
+            | CmmCondBranch cond t f <- shortcut_last
+            , numPreds f > 1
+            , numPreds t == 1
+            , Just cond' <- maybeInvertCmmExpr cond
+            = CmmCondBranch cond' f t
+
+            | otherwise
+            = shortcut_last
+
 
      shouldConcatWith b block
        | okToDuplicate block = True  -- short enough to duplicate
-       | num_preds b == 1    = True  -- only one predecessor: go for it
+       | numPreds b == 1     = True  -- only one predecessor: go for it
        | otherwise           = False
-       where num_preds bid = mapLookup bid backEdges `orElse` 0
+
+     numPreds bid = mapLookup bid backEdges `orElse` 0
 
      canShortcut :: CmmBlock -> Maybe BlockId
      canShortcut block
@@ -262,6 +287,10 @@ predMap blocks = foldr add_preds mapEmpty blocks -- find the back edges
 -----------------------------------------------------------------------------
 --
 -- Removing unreachable blocks
+
+removeUnreachableBlocksProc :: CmmDecl -> CmmDecl
+removeUnreachableBlocksProc (CmmProc info lbl live g)
+   = CmmProc info lbl live (removeUnreachableBlocks g)
 
 removeUnreachableBlocks :: CmmGraph -> CmmGraph
 removeUnreachableBlocks g

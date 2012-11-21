@@ -25,6 +25,8 @@ module TcEnv(
         tcExtendTyVarEnv, tcExtendTyVarEnv2, 
         tcExtendGhciEnv, tcExtendLetEnv,
         tcExtendIdEnv, tcExtendIdEnv1, tcExtendIdEnv2, 
+        tcExtendIdBndrs,
+
         tcLookup, tcLookupLocated, tcLookupLocalIds, 
         tcLookupId, tcLookupTyVar, 
         tcLookupLcl_maybe, 
@@ -48,7 +50,8 @@ module TcEnv(
 
         -- New Ids
         newLocalName, newDFunName, newFamInstTyConName, newFamInstAxiomName,
-        mkStableIdFromString, mkStableIdFromName
+        mkStableIdFromString, mkStableIdFromName,
+        mkWrapperName
   ) where
 
 #include "HsVersions.h"
@@ -78,11 +81,15 @@ import HscTypes
 import DynFlags
 import SrcLoc
 import BasicTypes
+import Module
 import Outputable
+import Encoding
 import FastString
 import ListSetOps
 import Util
 import Data.List ( intercalate )
+import Data.IORef
+import Data.List
 \end{code}
 
 
@@ -376,26 +383,35 @@ tcExtendLetEnv closed ids thing_inside
         ; tc_extend_local_env [ (idName id, ATcId { tct_id = id 
                                                   , tct_closed = closed
                                                   , tct_level = thLevel stage })
-                                 | id <- ids]
-          thing_inside }
+                              | id <- ids] $
+          tcExtendIdBndrs [TcIdBndr id closed | id <- ids] thing_inside }
 
 tcExtendIdEnv :: [TcId] -> TcM a -> TcM a
 tcExtendIdEnv ids thing_inside 
-  = tcExtendIdEnv2 [(idName id, id) | id <- ids] thing_inside
+  = tcExtendIdEnv2 [(idName id, id) | id <- ids] $
+    tcExtendIdBndrs [TcIdBndr id NotTopLevel | id <- ids] 
+    thing_inside
 
 tcExtendIdEnv1 :: Name -> TcId -> TcM a -> TcM a
 tcExtendIdEnv1 name id thing_inside 
-  = tcExtendIdEnv2 [(name,id)] thing_inside
+  = tcExtendIdEnv2 [(name,id)] $
+    tcExtendIdBndrs [TcIdBndr id NotTopLevel]
+    thing_inside
 
 tcExtendIdEnv2 :: [(Name,TcId)] -> TcM a -> TcM a
+-- Do *not* extend the tcl_bndrs stack
+-- The tct_closed flag really doesn't matter
 -- Invariant: the TcIds are fully zonked (see tcExtendIdEnv above)
 tcExtendIdEnv2 names_w_ids thing_inside
   = do  { stage <- getStage
         ; tc_extend_local_env [ (name, ATcId { tct_id = id 
                                              , tct_closed = NotTopLevel
                                              , tct_level = thLevel stage })
-                                 | (name,id) <- names_w_ids]
+                              | (name,id) <- names_w_ids] $
           thing_inside }
+
+tcExtendIdBndrs :: [TcIdBinder] -> TcM a -> TcM a
+tcExtendIdBndrs bndrs = updLclEnv (\env -> env { tcl_bndrs = bndrs ++ tcl_bndrs env })
 
 tcExtendGhciEnv :: [TcId] -> TcM a -> TcM a
 -- Used to bind Ids for GHCi identifiers bound earlier in the user interaction
@@ -671,6 +687,9 @@ data InstBindings a
                         -- See Note [Newtype deriving and unused constructors]
                         -- in TcDeriv
 
+instance OutputableBndr a => Outputable (InstInfo a) where
+    ppr = pprInstInfoDetails
+
 pprInstInfoDetails :: OutputableBndr a => InstInfo a -> SDoc
 pprInstInfoDetails info 
    = hang (pprInstanceHdr (iSpec info) <+> ptext (sLit "where"))
@@ -741,13 +760,41 @@ mkStableIdFromString :: String -> Type -> SrcSpan -> (OccName -> OccName) -> TcM
 mkStableIdFromString str sig_ty loc occ_wrapper = do
     uniq <- newUnique
     mod <- getModule
-    let occ = mkVarOcc (str ++ '_' : show uniq) :: OccName
+    name <- mkWrapperName "stable" str
+    let occ = mkVarOccFS name :: OccName
         gnm = mkExternalName uniq mod (occ_wrapper occ) loc :: Name
         id  = mkExportedLocalId gnm sig_ty :: Id
     return id
 
 mkStableIdFromName :: Name -> Type -> SrcSpan -> (OccName -> OccName) -> TcM TcId
 mkStableIdFromName nm = mkStableIdFromString (getOccString nm)
+\end{code}
+
+\begin{code}
+mkWrapperName :: (MonadIO m, HasDynFlags m, HasModule m)
+              => String -> String -> m FastString
+mkWrapperName what nameBase
+    = do dflags <- getDynFlags
+         thisMod <- getModule
+         let -- Note [Generating fresh names for ccall wrapper]
+             wrapperRef = nextWrapperNum dflags
+             pkg = packageIdString  (modulePackageId thisMod)
+             mod = moduleNameString (moduleName      thisMod)
+         wrapperNum <- liftIO $ readIORef wrapperRef
+         liftIO $ writeIORef wrapperRef (wrapperNum + 1)
+         let components = [what, show wrapperNum, pkg, mod, nameBase]
+         return $ mkFastString $ zEncodeString $ intercalate ":" components
+
+{-
+Note [Generating fresh names for FFI wrappers]
+
+We used to use a unique, rather than nextWrapperNum, to distinguish
+between FFI wrapper functions. However, the wrapper names that we
+generate are external names. This means that if a call to them ends up
+in an unfolding, then we can't alpha-rename them, and thus if the
+unique randomly changes from one compile to another then we get a
+spurious ABI change (#4012).
+-}
 \end{code}
 
 %************************************************************************

@@ -101,6 +101,8 @@ RTS_ENTRY(stg_DEAD_WEAK);
 RTS_ENTRY(stg_STABLE_NAME);
 RTS_ENTRY(stg_MVAR_CLEAN);
 RTS_ENTRY(stg_MVAR_DIRTY);
+RTS_ENTRY(stg_TVAR_CLEAN);
+RTS_ENTRY(stg_TVAR_DIRTY);
 RTS_ENTRY(stg_TSO);
 RTS_ENTRY(stg_STACK);
 RTS_ENTRY(stg_ARR_WORDS);
@@ -130,7 +132,6 @@ RTS_ENTRY(stg_atomically);
 RTS_ENTRY(stg_TVAR_WATCH_QUEUE);
 RTS_ENTRY(stg_INVARIANT_CHECK_QUEUE);
 RTS_ENTRY(stg_ATOMIC_INVARIANT);
-RTS_ENTRY(stg_TVAR);
 RTS_ENTRY(stg_TREC_CHUNK);
 RTS_ENTRY(stg_TREC_HEADER);
 RTS_ENTRY(stg_END_STM_WATCH_QUEUE);
@@ -168,23 +169,6 @@ RTS_RET(stg_noforceIO);
 /* standard entry points */
 
 /* standard selector thunks */
-
-RTS_RET(stg_sel_ret_0_upd);
-RTS_RET(stg_sel_ret_1_upd);
-RTS_RET(stg_sel_ret_2_upd);
-RTS_RET(stg_sel_ret_3_upd);
-RTS_RET(stg_sel_ret_4_upd);
-RTS_RET(stg_sel_ret_5_upd);
-RTS_RET(stg_sel_ret_6_upd);
-RTS_RET(stg_sel_ret_7_upd);
-RTS_RET(stg_sel_ret_8_upd);
-RTS_RET(stg_sel_ret_9_upd);
-RTS_RET(stg_sel_ret_10_upd);
-RTS_RET(stg_sel_ret_11_upd);
-RTS_RET(stg_sel_ret_12_upd);
-RTS_RET(stg_sel_ret_13_upd);
-RTS_RET(stg_sel_ret_14_upd);
-RTS_RET(stg_sel_ret_15_upd);
 
 RTS_ENTRY(stg_sel_0_upd);
 RTS_ENTRY(stg_sel_1_upd);
@@ -230,7 +214,7 @@ RTS_THUNK(stg_ap_5_upd);
 RTS_THUNK(stg_ap_6_upd);
 RTS_THUNK(stg_ap_7_upd);
 
-/* standard application routines (see also rts/gen_apply.py, 
+/* standard application routines (see also utils/genapply, 
  * and compiler/codeGen/CgStackery.lhs).
  */
 RTS_RET(stg_ap_v);
@@ -267,45 +251,40 @@ RTS_FUN_DECL(stg_PAP_apply);
 
 /* standard GC & stack check entry points, all defined in HeapStackCheck.hc */
 
-RTS_RET(stg_enter);
-RTS_RET(stg_enter_checkbh);
-
-RTS_RET(stg_gc_void);
-
-RTS_FUN_DECL(__stg_gc_enter_1);
 RTS_FUN_DECL(stg_gc_noregs);
 
-RTS_RET(stg_gc_unpt_r1);
+RTS_RET(stg_enter_checkbh);
+
+RTS_RET(stg_ret_v);
+RTS_RET(stg_ret_p);
+RTS_RET(stg_ret_n);
+RTS_RET(stg_ret_f);
+RTS_RET(stg_ret_d);
+RTS_RET(stg_ret_l);
+
+RTS_FUN_DECL(stg_gc_prim);
+RTS_FUN_DECL(stg_gc_prim_p);
+RTS_FUN_DECL(stg_gc_prim_pp);
+RTS_FUN_DECL(stg_gc_prim_n);
+
+RTS_RET(stg_enter);
+RTS_FUN_DECL(__stg_gc_enter_1);
+
 RTS_FUN_DECL(stg_gc_unpt_r1);
-
-RTS_RET(stg_gc_unbx_r1);
 RTS_FUN_DECL(stg_gc_unbx_r1);
-
-RTS_RET(stg_gc_f1);
 RTS_FUN_DECL(stg_gc_f1);
-
-RTS_RET(stg_gc_d1);
 RTS_FUN_DECL(stg_gc_d1);
-
-RTS_RET(stg_gc_l1);
 RTS_FUN_DECL(stg_gc_l1);
+RTS_FUN_DECL(stg_gc_pp);
+RTS_FUN_DECL(stg_gc_ppp);
+RTS_FUN_DECL(stg_gc_pppp);
 
 RTS_RET(stg_gc_fun);
 RTS_FUN_DECL(__stg_gc_fun);
 
-RTS_RET(stg_gc_gen);
-RTS_FUN_DECL(stg_gc_gen);
-
-RTS_RET(stg_ut_1_0_unreg);
-
-RTS_FUN_DECL(stg_gc_gen_hp);
-RTS_FUN_DECL(stg_gc_ut);
-RTS_FUN_DECL(stg_gen_yield);
 RTS_FUN_DECL(stg_yield_noregs);
 RTS_FUN_DECL(stg_yield_to_interpreter);
-RTS_FUN_DECL(stg_gen_block);
 RTS_FUN_DECL(stg_block_noregs);
-RTS_FUN_DECL(stg_block_1);
 RTS_FUN_DECL(stg_block_blackhole);
 RTS_FUN_DECL(stg_block_blackhole_finally);
 RTS_FUN_DECL(stg_block_takemvar);
@@ -415,6 +394,7 @@ RTS_FUN_DECL(stg_deRefStablePtrzh);
 RTS_FUN_DECL(stg_forkzh);
 RTS_FUN_DECL(stg_forkOnzh);
 RTS_FUN_DECL(stg_yieldzh);
+RTS_FUN_DECL(stg_killMyself);
 RTS_FUN_DECL(stg_killThreadzh);
 RTS_FUN_DECL(stg_getMaskingStatezh);
 RTS_FUN_DECL(stg_maskAsyncExceptionszh);
@@ -454,6 +434,7 @@ RTS_FUN_DECL(stg_noDuplicatezh);
 
 RTS_FUN_DECL(stg_traceCcszh);
 RTS_FUN_DECL(stg_traceEventzh);
+RTS_FUN_DECL(stg_traceMarkerzh);
 
 /* Other misc stuff */
 // See wiki:Commentary/Compiler/Backends/PprC#Prototypes
@@ -492,10 +473,10 @@ extern StgWord RTS_VAR(stable_ptr_table);
 // Profiling.c
 extern unsigned int RTS_VAR(era);
 extern unsigned int RTS_VAR(entering_PAP);
-extern StgWord      RTS_VAR(CC_LIST);               /* registered CC list */
+extern StgWord      RTS_VAR(CC_LIST);          /* registered CC list */
 extern StgWord      RTS_VAR(CCS_LIST);         /* registered CCS list */
 extern StgWord      CCS_SYSTEM[];
-extern unsigned int RTS_VAR(CC_ID);	/* global ids */
+extern unsigned int RTS_VAR(CC_ID);            /* global ids */
 extern unsigned int RTS_VAR(CCS_ID);
 
 #endif

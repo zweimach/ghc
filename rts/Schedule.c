@@ -98,13 +98,6 @@ volatile StgWord sched_state = SCHED_RUNNING;
 StgTSO dummy_tso;
 
 /*
- * Set to TRUE when entering a shutdown state (via shutdownHaskellAndExit()) --
- * in an MT setting, needed to signal that a worker thread shouldn't hang around
- * in the scheduler when it is out of work.
- */
-rtsBool shutting_down_scheduler = rtsFalse;
-
-/*
  * This mutex protects most of the global scheduler data in
  * the THREADED_RTS runtime.
  */
@@ -179,28 +172,6 @@ static void deleteThread_(Capability *cap, StgTSO *tso);
       * thread blocks
       * thread ends
       * stack overflow
-
-   GRAN version:
-     In a GranSim setup this loop iterates over the global event queue.
-     This revolves around the global event queue, which determines what 
-     to do next. Therefore, it's more complicated than either the 
-     concurrent or the parallel (GUM) setup.
-  This version has been entirely removed (JB 2008/08).
-
-   GUM version:
-     GUM iterates over incoming messages.
-     It starts with nothing to do (thus CurrentTSO == END_TSO_QUEUE),
-     and sends out a fish whenever it has nothing to do; in-between
-     doing the actual reductions (shared code below) it processes the
-     incoming messages and deals with delayed operations 
-     (see PendingFetches).
-     This is not the ugliest code you could imagine, but it's bloody close.
-
-  (JB 2008/08) This version was formerly indicated by a PP-Flag PAR,
-  now by PP-flag PARALLEL_HASKELL. The Eden RTS (in GHC-6.x) uses it,
-  as well as future GUM versions. This file has been refurbished to
-  only contain valid code, which is however incomplete, refers to
-  invalid includes etc.
 
    ------------------------------------------------------------------------ */
 
@@ -452,23 +423,29 @@ run_thread:
     dirty_TSO(cap,t);
     dirty_STACK(cap,t->stackobj);
 
-#if defined(THREADED_RTS)
-    if (recent_activity == ACTIVITY_DONE_GC) {
+    switch (recent_activity)
+    {
+    case ACTIVITY_DONE_GC: {
         // ACTIVITY_DONE_GC means we turned off the timer signal to
         // conserve power (see #1623).  Re-enable it here.
         nat prev;
         prev = xchg((P_)&recent_activity, ACTIVITY_YES);
         if (prev == ACTIVITY_DONE_GC) {
+#ifndef PROFILING
             startTimer();
+#endif
         }
-    } else if (recent_activity != ACTIVITY_INACTIVE) {
+        break;
+    }
+    case ACTIVITY_INACTIVE:
         // If we reached ACTIVITY_INACTIVE, then don't reset it until
         // we've done the GC.  The thread running here might just be
         // the IO manager thread that handle_tick() woke up via
         // wakeUpRts().
+        break;
+    default:
         recent_activity = ACTIVITY_YES;
     }
-#endif
 
     traceEventRunThread(cap, t);
 
@@ -1079,7 +1056,7 @@ schedulePostRunThread (Capability *cap, StgTSO *t)
     // and a is never equal to b given a consistent view of memory.
     //
     if (t -> trec != NO_TREC && t -> why_blocked == NotBlocked) {
-        if (!stmValidateNestOfTransactions (t -> trec)) {
+        if (!stmValidateNestOfTransactions(cap, t -> trec)) {
             debugTrace(DEBUG_sched | DEBUG_stm,
                        "trec %p found wasting its time", t);
             
@@ -1671,7 +1648,9 @@ delete_threads_and_gc:
             // fact that we've done a GC and turn off the timer signal;
             // it will get re-enabled if we run any threads after the GC.
             recent_activity = ACTIVITY_DONE_GC;
+#ifndef PROFILING
             stopTimer();
+#endif
             break;
         }
         // fall through...
@@ -2769,7 +2748,7 @@ findRetryFrameHelper (Capability *cap, StgTSO *tso)
       
     case CATCH_RETRY_FRAME:
 	debugTrace(DEBUG_stm,
-		   "found CATCH_RETRY_FRAME at %p during retrry", p);
+                   "found CATCH_RETRY_FRAME at %p during retry", p);
         tso->stackobj->sp = p;
 	return CATCH_RETRY_FRAME;
       

@@ -220,13 +220,15 @@ runStmtWithLocation source linenumber expr step =
         let ic = hsc_IC hsc_env
             bindings = (ic_tythings ic, ic_rn_gbl_env ic)
 
+            size = ghciHistSize idflags'
+
         case step of
           RunAndLogSteps ->
               traceRunStatus expr bindings tyThings
-                             breakMVar statusMVar status emptyHistory
+                             breakMVar statusMVar status (emptyHistory size)
           _other ->
               handleRunStatus expr bindings tyThings
-                               breakMVar statusMVar status emptyHistory
+                               breakMVar statusMVar status (emptyHistory size)
 
 runDecls :: GhcMonad m => String -> m [Name]
 runDecls = runDeclsWithLocation "<interactive>" 1
@@ -268,8 +270,8 @@ withVirtualCWD m = do
 parseImportDecl :: GhcMonad m => String -> m (ImportDecl RdrName)
 parseImportDecl expr = withSession $ \hsc_env -> liftIO $ hscImport hsc_env expr
 
-emptyHistory :: BoundedList History
-emptyHistory = nilBL 50 -- keep a log of length 50
+emptyHistory :: Int -> BoundedList History
+emptyHistory size = nilBL size
 
 handleRunStatus :: GhcMonad m =>
                    String-> ([TyThing],GlobalRdrEnv) -> [Id]
@@ -347,7 +349,8 @@ isBreakEnabled :: HscEnv -> BreakInfo -> IO Bool
 isBreakEnabled hsc_env inf =
    case lookupUFM (hsc_HPT hsc_env) (moduleName (breakInfo_module inf)) of
        Just hmi -> do
-         w <- getBreak (modBreaks_flags (getModBreaks hmi))
+         w <- getBreak (hsc_dflags hsc_env)
+                       (modBreaks_flags (getModBreaks hmi))
                        (breakInfo_number inf)
          case w of Just n -> return (n /= 0); _other -> return False
        _ ->
@@ -379,7 +382,7 @@ sandboxIO :: DynFlags -> MVar Status -> IO [HValue] -> IO Status
 sandboxIO dflags statusMVar thing =
    mask $ \restore -> -- fork starts blocked
      let runIt = liftM Complete $ try (restore $ rethrow dflags thing)
-     in if dopt Opt_GhciSandbox dflags
+     in if gopt Opt_GhciSandbox dflags
         then do tid <- forkIO $ do res <- runIt
                                    putMVar statusMVar res -- empty: can't block
                 withInterruptsSentTo tid $ takeMVar statusMVar
@@ -402,8 +405,8 @@ rethrow :: DynFlags -> IO a -> IO a
 rethrow dflags io = Exception.catch io $ \se -> do
                    -- If -fbreak-on-error, we break unconditionally,
                    --  but with care of not breaking twice
-                if dopt Opt_BreakOnError dflags &&
-                   not (dopt Opt_BreakOnException dflags)
+                if gopt Opt_BreakOnError dflags &&
+                   not (gopt Opt_BreakOnException dflags)
                     then poke exceptionFlag 1
                     else case fromException se of
                          -- If it is a "UserInterrupt" exception, we allow
@@ -432,7 +435,7 @@ withBreakAction step dflags breakMVar statusMVar act
    setBreakAction = do
      stablePtr <- newStablePtr onBreak
      poke breakPointIOAction stablePtr
-     when (dopt Opt_BreakOnException dflags) $ poke exceptionFlag 1
+     when (gopt Opt_BreakOnException dflags) $ poke exceptionFlag 1
      when step $ setStepFlag
      return stablePtr
         -- Breaking on exceptions is not enabled by default, since it

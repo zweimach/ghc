@@ -190,7 +190,7 @@ Instead we use a cunning trick.
    iff its argument satisfies exprIsConApp_maybe.  This is done in
    MkId mkDictSelId
 
- * We make 'df' CONLIKE, so that shared uses stil match; eg
+ * We make 'df' CONLIKE, so that shared uses still match; eg
       let d = df d1 d2
       in ...(op2 d)...(op1 d)...
 
@@ -247,7 +247,7 @@ careful when we have
       op = ...
 then we'll get an INLINE pragma on $cop_list but it's important that
 $cop_list only inlines when it's applied to *two* arguments (the
-dictionary and the list argument).  So we nust not eta-expand $df
+dictionary and the list argument).  So we must not eta-expand $df
 above.  We ensure that this doesn't happen by putting an INLINE
 pragma on the dfun itself; after all, it ends up being just a cast.
 
@@ -310,7 +310,7 @@ instance.
 
 Why is this justified?  Because we generate a (C [a]) constraint in
 a context in which 'a' cannot be instantiated to anything that matches
-other overlapping instances, or else we would not be excecuting this
+other overlapping instances, or else we would not be executing this
 version of op1 in the first place.
 
 It might even be a bit disguised:
@@ -324,7 +324,7 @@ It might even be a bit disguised:
 Precisely this is used in package 'regex-base', module Context.hs.
 See the overlapping instances for RegexContext, and the fact that they
 call 'nullFail' just like the example above.  The DoCon package also
-does the same thing; it shows up in module Fraction.hs
+does the same thing; it shows up in module Fraction.hs.
 
 Conclusion: when typechecking the methods in a C [a] instance, we want to
 treat the 'a' as an *existential* type variable, in the sense described
@@ -580,7 +580,6 @@ tcFamInstDeclCombined top_lvl fam_tc_lname
        -- Look up the family TyCon and check for validity including
        -- check that toplevel type instances are not for associated types.
        ; fam_tc <- tcLookupLocatedTyCon fam_tc_lname
-       ; checkTc (isFamilyTyCon fam_tc) (notFamily fam_tc)
        ; when (isTopLevel top_lvl && isTyConAssoc fam_tc)
               (addErr $ assocInClassErr fam_tc_lname)
 
@@ -589,7 +588,13 @@ tcFamInstDeclCombined top_lvl fam_tc_lname
 tcTyFamInstDecl :: TyCon -> LTyFamInstDecl Name -> TcM FamInst
   -- "type instance"
 tcTyFamInstDecl fam_tc (L loc decl@(TyFamInstDecl { tfid_group = group }))
-  = do { -- (1) do the work of verifying the synonym group
+  = do { -- (0) Check it's an open type family
+         checkTc (isFamilyTyCon fam_tc) (notFamily fam_tc)
+       ; checkTc (isSynTyCon fam_tc) (wrongKindOfFamily fam_tc)
+       ; checkTc (isOpenSynFamilyTyCon fam_tc)
+                 (notOpenFamily fam_tc)
+
+         -- (1) do the work of verifying the synonym group
        ; quads <- tcSynFamInstDecl fam_tc decl
 
          -- (2) create the branches
@@ -899,10 +904,9 @@ tcSuperClasses dfun_id inst_tyvars dfun_ev_vars sc_theta
 mkMethIds :: HsSigFun -> Class -> [TcTyVar] -> [EvVar] 
           -> [TcType] -> Id -> TcM (TcId, TcSigInfo)
 mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
-  = do  { uniq <- newUnique
-        ; loc <- getSrcSpanM
-        ; let meth_name = mkDerivedInternalName mkClassOpAuxOcc uniq sel_name
-        ; local_meth_name <- newLocalName sel_name
+  = do  { let sel_occ = nameOccName sel_name
+        ; meth_name <- newName (mkClassOpAuxOcc sel_occ)
+        ; local_meth_name <- newName sel_occ
                   -- Base the local_meth_name on the selector name, becuase
                   -- type errors from tcInstanceMethodBody come from here
 
@@ -912,7 +916,8 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
                      ; instTcTySig hs_ty sig_ty local_meth_name }
 
             Nothing     -- No type signature
-               -> instTcTySigFromId loc (mkLocalId local_meth_name local_meth_ty)
+               -> do { loc <- getSrcSpanM
+                     ; instTcTySigFromId loc (mkLocalId local_meth_name local_meth_ty) }
               -- Absent a type sig, there are no new scoped type variables here
               -- Only the ones from the instance decl itself, which are already
               -- in scope.  Example:
@@ -1001,7 +1006,7 @@ immediate superclasses of the dictionary we are trying to
 construct. In our example:
        dfun :: forall a. C [a] -> D [a] -> D [a]
        dfun = \(dc::C [a]) (dd::D [a]) -> DOrd dc ...
-Notice teh extra (dc :: C [a]) argument compared to the previous version.
+Notice the extra (dc :: C [a]) argument compared to the previous version.
 
 This gives us:
 
@@ -1021,9 +1026,13 @@ dictionary constructor). No superclass is hidden inside a dfun
 application.
 
 The extra arguments required to satisfy the DFun Superclass Invariant
-always come first, and are called the "silent" arguments.  DFun types
-are built (only) by MkId.mkDictFunId, so that is where we decide
-what silent arguments are to be added.
+always come first, and are called the "silent" arguments.  You can
+find out how many silent arguments there are using Id.dfunNSilent;
+and then you can just drop that number of arguments to see the ones
+that were in the original instance declaration.
+
+DFun types are built (only) by MkId.mkDictFunId, so that is where we
+decide what silent arguments are to be added.
 
 In our example, if we had  [Wanted] dw :: D [a] we would get via the instance:
     dw := dfun d1 d2
@@ -1126,16 +1135,18 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
     tc_item :: HsSigFun -> (Id, DefMeth) -> TcM (Id, LHsBind Id)
     tc_item sig_fn (sel_id, dm_info)
       = case findMethodBind (idName sel_id) binds of
-            Just user_bind -> tc_body sig_fn sel_id standalone_deriv user_bind
-            Nothing        -> traceTc "tc_def" (ppr sel_id) >> 
-                              tc_default sig_fn sel_id dm_info
+            Just (user_bind, bndr_loc) 
+                     -> tc_body sig_fn sel_id standalone_deriv user_bind bndr_loc
+            Nothing  -> do { traceTc "tc_def" (ppr sel_id)
+                           ; tc_default sig_fn sel_id dm_info }
 
     ----------------------
-    tc_body :: HsSigFun -> Id -> Bool -> LHsBind Name -> TcM (TcId, LHsBind Id)
-    tc_body sig_fn sel_id generated_code rn_bind
+    tc_body :: HsSigFun -> Id -> Bool -> LHsBind Name
+            -> SrcSpan -> TcM (TcId, LHsBind Id)
+    tc_body sig_fn sel_id generated_code rn_bind bndr_loc
       = add_meth_ctxt sel_id generated_code rn_bind $
         do { traceTc "tc_item" (ppr sel_id <+> ppr (idType sel_id))
-           ; (meth_id, local_meth_sig) <- setSrcSpan (getLoc rn_bind) $
+           ; (meth_id, local_meth_sig) <- setSrcSpan bndr_loc $
                                           mkMethIds sig_fn clas tyvars dfun_ev_vars
                                                     inst_tys sel_id
            ; let prags = prag_fn (idName sel_id)
@@ -1153,22 +1164,23 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
 
     tc_default sig_fn sel_id (GenDefMeth dm_name)
       = do { meth_bind <- mkGenericDefMethBind clas inst_tys sel_id dm_name
-           ; tc_body sig_fn sel_id False {- Not generated code? -} meth_bind }
+           ; tc_body sig_fn sel_id False {- Not generated code? -} 
+                     meth_bind inst_loc }
 
     tc_default sig_fn sel_id NoDefMeth     -- No default method at all
       = do { traceTc "tc_def: warn" (ppr sel_id)
            ; warnMissingMethodOrAT "method" (idName sel_id)
            ; (meth_id, _) <- mkMethIds sig_fn clas tyvars dfun_ev_vars
-                                         inst_tys sel_id
+                                       inst_tys sel_id
            ; dflags <- getDynFlags
            ; return (meth_id, mkVarBind meth_id $
                               mkLHsWrap lam_wrapper (error_rhs dflags)) }
       where
-        error_rhs dflags = L loc $ HsApp error_fun (error_msg dflags)
-        error_fun    = L loc $ wrapId (WpTyApp meth_tau) nO_METHOD_BINDING_ERROR_ID
-        error_msg dflags = L loc (HsLit (HsStringPrim (unsafeMkFastBytesString (error_string dflags))))
+        error_rhs dflags = L inst_loc $ HsApp error_fun (error_msg dflags)
+        error_fun    = L inst_loc $ wrapId (WpTyApp meth_tau) nO_METHOD_BINDING_ERROR_ID
+        error_msg dflags = L inst_loc (HsLit (HsStringPrim (unsafeMkFastBytesString (error_string dflags))))
         meth_tau     = funResultTy (applyTys (idType sel_id) inst_tys)
-        error_string dflags = showSDoc dflags (hcat [ppr loc, text "|", ppr sel_id ])
+        error_string dflags = showSDoc dflags (hcat [ppr inst_loc, text "|", ppr sel_id ])
         lam_wrapper  = mkWpTyLams tyvars <.> mkWpLams dfun_ev_vars
 
     tc_default sig_fn sel_id (DefMeth dm_name) -- A polymorphic default method
@@ -1185,14 +1197,14 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                                 (EvDFunApp dfun_id (mkTyVarTys tyvars) (map EvId dfun_ev_vars))
 
            ; (meth_id, local_meth_sig) <- mkMethIds sig_fn clas tyvars dfun_ev_vars
-                                                   inst_tys sel_id
+                                                    inst_tys sel_id
            ; dm_id <- tcLookupId dm_name
            ; let dm_inline_prag = idInlinePragma dm_id
                  rhs = HsWrap (mkWpEvVarApps [self_dict] <.> mkWpTyApps inst_tys) $
                        HsVar dm_id
 
                  local_meth_id = sig_id local_meth_sig
-                 meth_bind = mkVarBind local_meth_id (L loc rhs)
+                 meth_bind = mkVarBind local_meth_id (L inst_loc rhs)
                  meth_id1 = meth_id `setInlinePragma` dm_inline_prag
                         -- Copy the inline pragma (if any) from the default
                         -- method to this version. Note [INLINE and default methods]
@@ -1210,7 +1222,7 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
              -- currently they are rejected with
              --           "INLINE pragma lacks an accompanying binding"
 
-           ; return (meth_id1, L loc bind) }
+           ; return (meth_id1, L inst_loc bind) }
 
     ----------------------
     mk_meth_spec_prags :: Id -> [LTcSpecPrag] -> TcSpecPrags
@@ -1230,10 +1242,10 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                  -- and the specialisation would do nothing. (Indeed it'll provoke
                  -- a warning from the desugarer
            | otherwise 
-           = [ L loc (SpecPrag meth_id wrap inl)
-             | L loc (SpecPrag _ wrap inl) <- spec_inst_prags]
+           = [ L inst_loc (SpecPrag meth_id wrap inl)
+             | L inst_loc (SpecPrag _ wrap inl) <- spec_inst_prags]
 
-    loc = getSrcSpan dfun_id
+    inst_loc = getSrcSpan dfun_id
 
         -- For instance decls that come from standalone deriving clauses
         -- we want to print out the full source code if there's an error
@@ -1507,4 +1519,7 @@ inaccessibleFamInstBranch tc fi
   = ptext (sLit "Inaccessible family instance equation:") $$
       (pprFamInstBranch tc fi)
 
+notOpenFamily :: TyCon -> SDoc
+notOpenFamily tc
+  = ptext (sLit "Illegal instance for closed family") <+> quotes (ppr tc)
 \end{code}

@@ -12,7 +12,7 @@ module TyCon(
 
         AlgTyConRhs(..), visibleDataCons,
         TyConParent(..), isNoParent,
-        SynTyConRhs(..),
+        SynTyConRhs(..), 
 
         -- ** Coercion axiom constructors
         CoAxiom(..), CoAxBranch(..), coAxiomPatternArity,
@@ -41,10 +41,11 @@ module TyCon(
         isFunTyCon,
         isPrimTyCon,
         isTupleTyCon, isUnboxedTupleTyCon, isBoxedTupleTyCon,
-        isSynTyCon, isClosedSynTyCon,
+        isSynTyCon, isOpenSynFamilyTyCon,
         isDecomposableTyCon,
         isForeignTyCon, 
         isPromotedDataCon, isPromotedTyCon,
+        isPromotedDataCon_maybe, isPromotedTyCon_maybe,
 
         isInjectiveTyCon,
         isDataTyCon, isProductTyCon, isEnumerationTyCon,
@@ -69,12 +70,11 @@ module TyCon(
         tyConParent,
         tyConTuple_maybe, tyConClass_maybe,
         tyConFamInst_maybe, tyConFamInstSig_maybe, tyConFamilyCoercion_maybe,
-        synTyConDefn, synTyConRhs, synTyConType,
+        synTyConDefn_maybe, synTyConRhs_maybe, 
         tyConExtName,           -- External name for foreign types
         algTyConRhs,
         newTyConRhs, newTyConEtadRhs, unwrapNewTyCon_maybe,
         tupleTyConBoxity, tupleTyConSort, tupleTyConArity,
-        promotedDataCon, promotedTyCon,
 
         -- ** Manipulating TyCons
         tcExpandTyCon_maybe, coreExpandTyCon_maybe,
@@ -96,6 +96,7 @@ import {-# SOURCE #-} DataCon ( DataCon, isVanillaDataCon )
 import Var
 import Class
 import BasicTypes
+import DynFlags
 import ForeignCall
 import Name
 import PrelNames
@@ -361,8 +362,8 @@ data TyCon
 
         tyConTyVars  :: [TyVar],        -- Bound tyvars
 
-        synTcRhs     :: SynTyConRhs,    -- ^ Contains information about the
-                                        -- expansion of the synonym
+        synTcRhs     :: SynTyConRhs Type,  -- ^ Contains information about the
+                                           -- expansion of the synonym
 
         synTcParent  :: TyConParent     -- ^ Gives the family declaration 'TyCon'
                                         -- of 'TyCon's representing family instances
@@ -568,16 +569,27 @@ isNoParent _             = False
 --------------------
 
 -- | Information pertaining to the expansion of a type synonym (@type@)
-data SynTyConRhs
+data SynTyConRhs ty
   = -- | An ordinary type synonyn.
     SynonymTyCon
-       Type           -- This 'Type' is the rhs, and may mention from 'tyConTyVars'.
+       ty             -- This 'Type' is the rhs, and may mention from 'tyConTyVars'.
                       -- It acts as a template for the expansion when the 'TyCon'
                       -- is applied to some types.
 
    -- | A type synonym family  e.g. @type family F x y :: * -> *@
-   | SynFamilyTyCon
+   | SynFamilyTyCon {
+        synf_open :: Bool,         -- See Note [Closed type families]
+        synf_injective :: Bool 
+     }
 \end{code}
+
+Note [Closed type families]
+~~~~~~~~~~~~~~~~~~~~~~~~~
+* In an open type family you can add new instances later.  This is the 
+  usual case.  
+
+* In a closed type family you can only put instnaces where the family
+  is defined.  GHC doesn't support syntax for this yet.
 
 Note [Promoted data constructors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -598,7 +610,7 @@ via the PromotedTyCon alternative in TyCon.
   kind signature on the forall'd variable; so the tc_kind field of
   PromotedTyCon is not identical to the dataConUserType of the
   DataCon.  But it's the same modulo changing the variable kinds,
-  done by Kind.promoteType.
+  done by DataCon.promoteType.
 
 * Small note: We promote the *user* type of the DataCon.  Eg
      data T = MkT {-# UNPACK #-} !(Bool, Bool)
@@ -800,19 +812,61 @@ See also Note [Implicit TyThings] in HscTypes
 %*                                                                      *
 %************************************************************************
 
-A PrimRep is somewhat similar to a CgRep (see codeGen/SMRep) and a
-MachRep (see cmm/CmmExpr), although each of these types has a distinct
-and clearly defined purpose:
+Note [rep swamp]
 
-  - A PrimRep is a CgRep + information about signedness + information
-    about primitive pointers (AddrRep).  Signedness and primitive
-    pointers are required when passing a primitive type to a foreign
-    function, but aren't needed for call/return conventions of Haskell
-    functions.
+GHC has a rich selection of types that represent "primitive types" of
+one kind or another.  Each of them makes a different set of
+distinctions, and mostly the differences are for good reasons,
+although it's probably true that we could merge some of these.
 
-  - A MachRep is a basic machine type (non-void, doesn't contain
-    information on pointerhood or signedness, but contains some
-    reps that don't have corresponding Haskell types).
+Roughly in order of "includes more information":
+
+ - A Width (cmm/CmmType) is simply a binary value with the specified
+   number of bits.  It may represent a signed or unsigned integer, a
+   floating-point value, or an address.
+
+    data Width = W8 | W16 | W32 | W64 | W80 | W128
+
+ - Size, which is used in the native code generator, is Width +
+   floating point information.
+
+   data Size = II8 | II16 | II32 | II64 | FF32 | FF64 | FF80
+
+   it is necessary because e.g. the instruction to move a 64-bit float
+   on x86 (movsd) is different from the instruction to move a 64-bit
+   integer (movq), so the mov instruction is parameterised by Size.
+
+ - CmmType wraps Width with more information: GC ptr, float, or
+   other value.
+
+    data CmmType = CmmType CmmCat Width
+    
+    data CmmCat     -- "Category" (not exported)
+       = GcPtrCat   -- GC pointer
+       | BitsCat    -- Non-pointer
+       | FloatCat   -- Float
+
+   It is important to have GcPtr information in Cmm, since we generate
+   info tables containing pointerhood for the GC from this.  As for
+   why we have float (and not signed/unsigned) here, see Note [Signed
+   vs unsigned].
+
+ - ArgRep makes only the distinctions necessary for the call and
+   return conventions of the STG machine.  It is essentially CmmType
+   + void.
+
+ - PrimRep makes a few more distinctions than ArgRep: it divides
+   non-GC-pointers into signed/unsigned and addresses, information
+   that is necessary for passing these values to foreign functions.
+
+There's another tension here: whether the type encodes its size in
+bytes, or whether its size depends on the machine word size.  Width
+and CmmType have the size built-in, whereas ArgRep and PrimRep do not.
+
+This means to turn an ArgRep/PrimRep into a CmmType requires DynFlags.
+
+On the other hand, CmmType includes some "nonsense" values, such as
+CmmType GcPtrCat W32 on a 64-bit machine.
 
 \begin{code}
 -- | A 'PrimRep' is an abstraction of a type.  It contains information that
@@ -834,16 +888,16 @@ instance Outputable PrimRep where
   ppr r = text (show r)
 
 -- | Find the size of a 'PrimRep', in words
-primRepSizeW :: PrimRep -> Int
-primRepSizeW IntRep   = 1
-primRepSizeW WordRep  = 1
-primRepSizeW Int64Rep = wORD64_SIZE `quot` wORD_SIZE
-primRepSizeW Word64Rep= wORD64_SIZE `quot` wORD_SIZE
-primRepSizeW FloatRep = 1    -- NB. might not take a full word
-primRepSizeW DoubleRep= dOUBLE_SIZE `quot` wORD_SIZE
-primRepSizeW AddrRep  = 1
-primRepSizeW PtrRep   = 1
-primRepSizeW VoidRep  = 0
+primRepSizeW :: DynFlags -> PrimRep -> Int
+primRepSizeW _      IntRep   = 1
+primRepSizeW _      WordRep  = 1
+primRepSizeW dflags Int64Rep = wORD64_SIZE `quot` wORD_SIZE dflags
+primRepSizeW dflags Word64Rep= wORD64_SIZE `quot` wORD_SIZE dflags
+primRepSizeW _      FloatRep = 1    -- NB. might not take a full word
+primRepSizeW dflags DoubleRep= dOUBLE_SIZE dflags `quot` wORD_SIZE dflags
+primRepSizeW _      AddrRep  = 1
+primRepSizeW _      PtrRep   = 1
+primRepSizeW _      VoidRep  = 0
 \end{code}
 
 %************************************************************************
@@ -974,7 +1028,7 @@ mkPrimTyCon' name kind arity rep is_unlifted
     }
 
 -- | Create a type synonym 'TyCon'
-mkSynTyCon :: Name -> Kind -> [TyVar] -> SynTyConRhs -> TyConParent -> TyCon
+mkSynTyCon :: Name -> Kind -> [TyVar] -> SynTyConRhs Type -> TyConParent -> TyCon
 mkSynTyCon name kind tyvars rhs parent
   = SynTyCon {
         tyConName = name,
@@ -1162,14 +1216,14 @@ isSynFamilyTyCon :: TyCon -> Bool
 isSynFamilyTyCon (SynTyCon {synTcRhs = SynFamilyTyCon {}}) = True
 isSynFamilyTyCon _ = False
 
+isOpenSynFamilyTyCon :: TyCon -> Bool
+isOpenSynFamilyTyCon (SynTyCon {synTcRhs = SynFamilyTyCon { synf_open = is_open } }) = is_open
+isOpenSynFamilyTyCon _ = False
+
 -- | Is this a synonym 'TyCon' that can have may have further instances appear?
 isDataFamilyTyCon :: TyCon -> Bool
 isDataFamilyTyCon (AlgTyCon {algTcRhs = DataFamilyTyCon {}}) = True
 isDataFamilyTyCon _ = False
-
--- | Is this a synonym 'TyCon' that can have no further instances appear?
-isClosedSynTyCon :: TyCon -> Bool
-isClosedSynTyCon tycon = isSynTyCon tycon && not (isFamilyTyCon tycon)
 
 -- | Injective 'TyCon's can be decomposed, so that
 --     T ty1 ~ T ty2  =>  ty1 ~ ty2
@@ -1240,25 +1294,25 @@ isForeignTyCon :: TyCon -> Bool
 isForeignTyCon (PrimTyCon {tyConExtName = Just _}) = True
 isForeignTyCon _                                   = False
 
--- | Is this a PromotedDataCon?
-isPromotedDataCon :: TyCon -> Bool
-isPromotedDataCon (PromotedDataCon {}) = True
-isPromotedDataCon _                    = False
-
 -- | Is this a PromotedTyCon?
 isPromotedTyCon :: TyCon -> Bool
 isPromotedTyCon (PromotedTyCon {}) = True
 isPromotedTyCon _                  = False
 
--- | Retrieves the promoted DataCon if this is a PromotedDataTyCon;
--- Panics otherwise
-promotedDataCon :: TyCon -> DataCon
-promotedDataCon = dataCon
+-- | Retrieves the promoted TyCon if this is a PromotedTyCon;
+isPromotedTyCon_maybe :: TyCon -> Maybe TyCon
+isPromotedTyCon_maybe (PromotedTyCon { ty_con = tc }) = Just tc
+isPromotedTyCon_maybe _ = Nothing
 
--- | Retrieves the promoted TypeCon if this is a PromotedTypeTyCon;
--- Panics otherwise
-promotedTyCon :: TyCon -> TyCon
-promotedTyCon = ty_con
+-- | Is this a PromotedDataCon?
+isPromotedDataCon :: TyCon -> Bool
+isPromotedDataCon (PromotedDataCon {}) = True
+isPromotedDataCon _                    = False
+
+-- | Retrieves the promoted DataCon if this is a PromotedDataCon;
+isPromotedDataCon_maybe :: TyCon -> Maybe DataCon
+isPromotedDataCon_maybe (PromotedDataCon { dataCon = dc }) = Just dc
+isPromotedDataCon_maybe _ = Nothing
 
 -- | Identifies implicit tycons that, in particular, do not go into interface
 -- files (because they are implicitly reconstructed when the interface is
@@ -1407,26 +1461,17 @@ tyConStupidTheta tycon = pprPanic "tyConStupidTheta" (ppr tycon)
 \end{code}
 
 \begin{code}
--- | Extract the 'TyVar's bound by a type synonym and the corresponding (unsubstituted) right hand side.
--- If the given 'TyCon' is not a type synonym, panics
-synTyConDefn :: TyCon -> ([TyVar], Type)
-synTyConDefn (SynTyCon {tyConTyVars = tyvars, synTcRhs = SynonymTyCon ty})
-  = (tyvars, ty)
-synTyConDefn tycon = pprPanic "getSynTyConDefn" (ppr tycon)
+-- | Extract the 'TyVar's bound by a vanilla type synonym (not familiy)
+-- and the corresponding (unsubstituted) right hand side.
+synTyConDefn_maybe :: TyCon -> Maybe ([TyVar], Type)
+synTyConDefn_maybe (SynTyCon {tyConTyVars = tyvars, synTcRhs = SynonymTyCon ty})
+  = Just (tyvars, ty)
+synTyConDefn_maybe _ = Nothing
 
--- | Extract the information pertaining to the right hand side of a type synonym (@type@) declaration. Panics
--- if the given 'TyCon' is not a type synonym
-synTyConRhs :: TyCon -> SynTyConRhs
-synTyConRhs (SynTyCon {synTcRhs = rhs}) = rhs
-synTyConRhs tc                          = pprPanic "synTyConRhs" (ppr tc)
-
--- | Find the expansion of the type synonym represented by the given 'TyCon'. The free variables of this
--- type will typically include those 'TyVar's bound by the 'TyCon'. Panics if the 'TyCon' is not that of
--- a type synonym
-synTyConType :: TyCon -> Type
-synTyConType tc = case synTcRhs tc of
-                    SynonymTyCon t -> t
-                    _              -> pprPanic "synTyConType" (ppr tc)
+-- | Extract the information pertaining to the right hand side of a type synonym (@type@) declaration.
+synTyConRhs_maybe :: TyCon -> Maybe (SynTyConRhs Type)
+synTyConRhs_maybe (SynTyCon {synTcRhs = rhs}) = Just rhs
+synTyConRhs_maybe _                           = Nothing
 \end{code}
 
 \begin{code}

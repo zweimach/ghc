@@ -75,6 +75,7 @@ module HscMain
     ) where
 
 #ifdef GHCI
+import Id
 import ByteCodeGen      ( byteCodeGen, coreExprToBCOs )
 import Linker
 import CoreTidy         ( tidyExpr )
@@ -90,7 +91,6 @@ import Panic
 import GHC.Exts
 #endif
 
-import Id
 import Module
 import Packages
 import RdrName
@@ -119,14 +119,11 @@ import ProfInit
 import TyCon
 import Name
 import SimplStg         ( stg2stg )
-import CodeGen          ( codeGen )
-import qualified OldCmm as Old
-import qualified Cmm as New
+import Cmm
 import CmmParse         ( parseCmmFile )
 import CmmBuildInfoTables
 import CmmPipeline
 import CmmInfo
-import CmmCvt
 import CodeOutput
 import NameEnv          ( emptyNameEnv )
 import NameSet          ( emptyNameSet )
@@ -136,7 +133,6 @@ import Fingerprint      ( Fingerprint )
 
 import DynFlags
 import ErrUtils
-import UniqSupply       ( mkSplitUniqSupply )
 
 import Outputable
 import HscStats         ( ppSourceStats )
@@ -144,7 +140,7 @@ import HscTypes
 import MkExternalCore   ( emitExternalCore )
 import FastString
 import UniqFM           ( emptyUFM )
-import UniqSupply       ( initUs_ )
+import UniqSupply
 import Bag
 import Exception
 import qualified Stream
@@ -1285,16 +1281,10 @@ hscGenHardCode cgguts mod_summary = do
 
         ------------------  Code generation ------------------
 
-        cmms <- if dopt Opt_TryNewCodeGen dflags
-                    then {-# SCC "NewCodeGen" #-}
+        cmms <- {-# SCC "NewCodeGen" #-}
                          tryNewCodeGen hsc_env this_mod data_tycons
                              cost_centre_info
                              stg_binds hpc_info
-                    else {-# SCC "CodeGen" #-}
-                         return (codeGen dflags this_mod data_tycons
-                               cost_centre_info
-                               stg_binds hpc_info)
-
 
         ------------------  Code output -----------------------
         rawcmms0 <- {-# SCC "cmmToRawCmm" #-}
@@ -1357,7 +1347,11 @@ hscCompileCmmFile hsc_env filename = runHsc hsc_env $ do
     let dflags = hsc_dflags hsc_env
     cmm <- ioMsgMaybe $ parseCmmFile dflags filename
     liftIO $ do
-        rawCmms <- cmmToRawCmm dflags (Stream.yield cmm)
+        us <- mkSplitUniqSupply 'S'
+        let initTopSRT = initUs_ us emptySRT
+        dumpIfSet_dyn dflags Opt_D_dump_cmmz "Parsed Cmm" (ppr cmm)
+        (_, cmmgroup) <- cmmPipeline hsc_env initTopSRT cmm
+        rawCmms <- cmmToRawCmm dflags (Stream.yield cmmgroup)
         _ <- codeOutput dflags no_mod no_loc NoStubs [] rawCmms
         return ()
   where
@@ -1370,9 +1364,9 @@ hscCompileCmmFile hsc_env filename = runHsc hsc_env $ do
 
 tryNewCodeGen   :: HscEnv -> Module -> [TyCon]
                 -> CollectedCCs
-                -> [(StgBinding,[(Id,[Id])])]
+                -> [StgBinding]
                 -> HpcInfo
-                -> IO (Stream IO Old.CmmGroup ())
+                -> IO (Stream IO CmmGroup ())
          -- Note we produce a 'Stream' of CmmGroups, so that the
          -- backend can be run incrementally.  Otherwise it generates all
          -- the C-- up front, which has a significant space cost.
@@ -1380,7 +1374,7 @@ tryNewCodeGen hsc_env this_mod data_tycons
               cost_centre_info stg_binds hpc_info = do
     let dflags = hsc_dflags hsc_env
 
-    let cmm_stream :: Stream IO New.CmmGroup ()
+    let cmm_stream :: Stream IO CmmGroup ()
         cmm_stream = {-# SCC "StgCmm" #-}
             StgCmm.codeGen dflags this_mod data_tycons
                            cost_centre_info stg_binds hpc_info
@@ -1399,17 +1393,33 @@ tryNewCodeGen hsc_env this_mod data_tycons
     -- We are building a single SRT for the entire module, so
     -- we must thread it through all the procedures as we cps-convert them.
     us <- mkSplitUniqSupply 'S'
-    let srt_mod | dopt Opt_SplitObjs dflags = Just this_mod
-                | otherwise                 = Nothing
-        initTopSRT = initUs_ us (emptySRT srt_mod)
 
-    let run_pipeline topSRT cmmgroup = do
-           (topSRT, cmmgroup) <- cmmPipeline hsc_env topSRT cmmgroup
-           return (topSRT,cmmOfZgraph cmmgroup)
+    -- When splitting, we generate one SRT per split chunk, otherwise
+    -- we generate one SRT for the whole module.
+    let
+     pipeline_stream
+      | gopt Opt_SplitObjs dflags
+        = {-# SCC "cmmPipeline" #-}
+          let run_pipeline us cmmgroup = do
+                let (topSRT', us') = initUs us emptySRT
+                (topSRT, cmmgroup) <- cmmPipeline hsc_env topSRT' cmmgroup
+                let srt | isEmptySRT topSRT = []
+                        | otherwise         = srtToData topSRT
+                return (us', srt ++ cmmgroup)
 
-    let pipeline_stream = {-# SCC "cmmPipeline" #-} do
-          topSRT <- Stream.mapAccumL run_pipeline initTopSRT ppr_stream1
-          Stream.yield (cmmOfZgraph (srtToData topSRT))
+          in do _ <- Stream.mapAccumL run_pipeline us ppr_stream1
+                return ()
+
+      | otherwise
+        = {-# SCC "cmmPipeline" #-}
+          let initTopSRT = initUs_ us emptySRT in
+  
+          let run_pipeline topSRT cmmgroup = do
+                (topSRT, cmmgroup) <- cmmPipeline hsc_env topSRT cmmgroup
+                return (topSRT,cmmgroup)
+  
+          in do topSRT <- Stream.mapAccumL run_pipeline initTopSRT ppr_stream1
+                Stream.yield (srtToData topSRT)
 
     let
         dump2 a = do dumpIfSet_dyn dflags Opt_D_dump_cmmz "Output Cmm" $ ppr a
@@ -1422,7 +1432,7 @@ tryNewCodeGen hsc_env this_mod data_tycons
 
 
 myCoreToStg :: DynFlags -> Module -> CoreProgram
-            -> IO ( [(StgBinding,[(Id,[Id])])] -- output program
+            -> IO ( [StgBinding] -- output program
                   , CollectedCCs) -- cost centre info (declared and used)
 myCoreToStg dflags this_mod prepd_binds = do
     stg_binds
@@ -1603,7 +1613,7 @@ hscTcExpr hsc_env0 expr = runInteractiveHsc hsc_env0 $ do
     hsc_env <- getHscEnv
     maybe_stmt <- hscParseStmt expr
     case maybe_stmt of
-        Just (L _ (ExprStmt expr _ _ _)) ->
+        Just (L _ (BodyStmt expr _ _ _)) ->
             ioMsgMaybe $ tcRnExpr hsc_env (hsc_IC hsc_env) expr
         _ ->
             throwErrors $ unitBag $ mkPlainErrMsg (hsc_dflags hsc_env) noSrcSpan
@@ -1620,11 +1630,11 @@ hscKcType hsc_env0 normalise str = runInteractiveHsc hsc_env0 $ do
     ty <- hscParseType str
     ioMsgMaybe $ tcRnType hsc_env (hsc_IC hsc_env) normalise ty
 
-hscParseStmt :: String -> Hsc (Maybe (LStmt RdrName))
+hscParseStmt :: String -> Hsc (Maybe (GhciLStmt RdrName))
 hscParseStmt = hscParseThing parseStmt
 
 hscParseStmtWithLocation :: String -> Int -> String
-                         -> Hsc (Maybe (LStmt RdrName))
+                         -> Hsc (Maybe (GhciLStmt RdrName))
 hscParseStmtWithLocation source linenumber stmt =
     hscParseThingWithLocation source linenumber parseStmt stmt
 
@@ -1721,7 +1731,7 @@ hscCompileCoreExpr hsc_env srcspan ds_expr
 
     | otherwise = do
         let dflags = hsc_dflags hsc_env
-        let lint_on = dopt Opt_DoCoreLinting dflags
+        let lint_on = gopt Opt_DoCoreLinting dflags
 
         {- Simplify it -}
         simpl_expr <- simplifyExpr dflags ds_expr

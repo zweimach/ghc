@@ -121,9 +121,25 @@ wrapSrcSpanCps fn (L loc a)
 lookupConCps :: Located RdrName -> CpsRn (Located Name)
 lookupConCps con_rdr 
   = CpsRn (\k -> do { con_name <- lookupLocatedOccRn con_rdr
-                    ; (r, fvs) <- k con_name
-                    ; return (r, fvs `plusFV` unitFV (unLoc con_name)) })
+                    ; k con_name })
+    -- We do not add the constructor name to the free vars
+    -- See Note [Patterns are not uses]
 \end{code}
+
+Note [Patterns are not uses]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider
+  module Foo( f, g ) where
+  data T = T1 | T2
+
+  f T1 = True
+  f T2 = False
+
+  g _ = T1
+
+Arguaby we should report T2 as unused, even though it appears in a
+pattern, because it never occurs in a constructed position.  See
+Trac #7336.
 
 %*********************************************************
 %*							*
@@ -158,8 +174,8 @@ matchNameMaker ctxt = LamMk report_unused
     -- Do not report unused names in interactive contexts
     -- i.e. when you type 'x <- e' at the GHCi prompt
     report_unused = case ctxt of
-                      StmtCtxt GhciStmt -> False
-                      _                 -> True
+                      StmtCtxt GhciStmtCtxt -> False
+                      _                     -> True
 
 rnHsSigCps :: HsWithBndrs (LHsType RdrName) -> CpsRn (HsWithBndrs (LHsType Name))
 rnHsSigCps sig 
@@ -483,7 +499,7 @@ rnHsRecFields1 ctxt mk_arg (HsRecFields { rec_flds = flds, rec_dotdot = dotdot }
     rn_fld pun_ok parent (HsRecField { hsRecFieldId = fld
                        	      	     , hsRecFieldArg = arg
                        	      	     , hsRecPun = pun })
-      = do { fld'@(L loc fld_nm) <- wrapLocM (lookupSubBndrOcc parent doc) fld
+      = do { fld'@(L loc fld_nm) <- wrapLocM (lookupSubBndrOcc True parent doc) fld
            ; arg' <- if pun 
                      then do { checkErr pun_ok (badPun fld)
                              ; return (L loc (mk_arg (mkRdrUnqual (nameOccName fld_nm)))) }

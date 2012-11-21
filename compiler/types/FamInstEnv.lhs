@@ -5,13 +5,6 @@
 FamInstEnv: Type checked family instance declarations
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
-
 module FamInstEnv (
 	FamInst(..), FamFlavor(..), FamInstBranch(..),
         famInstAxiom, famInstBranchRoughMatch,
@@ -23,9 +16,7 @@ module FamInstEnv (
 	mkSynFamInst, mkSynFamInstBranch, mkSingleSynFamInst,
         mkDataFamInst, mkImportedFamInst,
 
-	FamInstEnvs, FamInstEnv, emptyFamInstEnv, emptyFamInstEnvs, 
-	extendFamInstEnv, deleteFromFamInstEnv, extendFamInstEnvList, 
-	identicalFamInst, famInstEnvElts, familyInstances,
+        lookupFamInstEnv, lookupFamInstEnvConflicts, lookupFamInstEnvConflicts',
 
         FamInstMatch(..),
 	lookupFamInstEnv, lookupFamInstEnvConflicts, lookupFamInstEnvConflicts',
@@ -57,9 +48,9 @@ import SrcLoc
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
 \subsection{Type checked family instance heads}
-%*									*
+%*                                                                      *
 %************************************************************************
 
 Note [FamInsts and CoAxioms]
@@ -70,7 +61,7 @@ Note [FamInsts and CoAxioms]
 * A CoAxiom is a System-FC thing: it can relate any two types
 
 * A FamInst is a Haskell source-language thing, corresponding
-  to a type/data family instance declaration.  
+  to a type/data family instance declaration.
     - The FamInst contains a CoAxiom, which is the evidence
       for the instance
 
@@ -119,7 +110,7 @@ data FamInst  -- See Note [FamInsts and CoAxioms]
             , fi_group    :: Bool            -- True <=> declared with "type instance where"
                 -- INVARIANT: not fi_group implies co_ax_arity (fi_axiom) == 1.
 
-            -- Everything below here is a redundant, 
+            -- Everything below here is a redundant,
             -- cached version of the two things above
             , fi_branches :: [FamInstBranch] -- Haskell-source-language view of 
                                              -- a CoAxBranch
@@ -186,13 +177,13 @@ famInstsRepTyCons fis = [tc | FamInst { fi_flavor = DataFamilyInst tc } <- fis]
 
 -- Extracts the TyCon for this *data* (or newtype) instance
 famInstRepTyCon_maybe :: FamInst -> Maybe TyCon
-famInstRepTyCon_maybe fi 
+famInstRepTyCon_maybe fi
   = case fi_flavor fi of
        DataFamilyInst tycon -> Just tycon
        SynFamilyInst        -> Nothing
 
 dataFamInstRepTyCon :: FamInst -> TyCon
-dataFamInstRepTyCon fi 
+dataFamInstRepTyCon fi
   = case fi_flavor fi of
        DataFamilyInst tycon -> tycon
        SynFamilyInst        -> pprPanic "dataFamInstRepTyCon" (ppr fi)
@@ -281,7 +272,7 @@ mkSynFamInstBranch loc tvs lhs_tys rhs_ty
     mb_tcs = roughMatchTcs lhs_tys
 
 -- | Create a coercion identifying a @type@ family instance.
--- It has the form @Co tvs :: F ts ~ R@, where @Co@ is 
+-- It has the form @Co tvs :: F ts ~ R@, where @Co@ is
 -- the coercion constructor built here, @F@ the family tycon and @R@ the
 -- right-hand side of the type family instance.
 mkSynFamInst :: Name            -- ^ Unique name for the coercion tycon
@@ -441,9 +432,9 @@ mkImportedFamInst fam group roughs axiom
 
 
 %************************************************************************
-%*									*
-		FamInstEnv
-%*									*
+%*                                                                      *
+                FamInstEnv
+%*                                                                      *
 %************************************************************************
 
 Note [FamInstEnv]
@@ -462,28 +453,28 @@ Neverthless it is still useful to have data families in the FamInstEnv:
  - For finding the representation type...see FamInstEnv.topNormaliseType
    and its call site in Simplify
 
- - In standalone deriving instance Eq (T [Int]) we need to find the 
+ - In standalone deriving instance Eq (T [Int]) we need to find the
    representation type for T [Int]
 
 \begin{code}
-type FamInstEnv = UniqFM FamilyInstEnv	-- Maps a family to its instances
+type FamInstEnv = UniqFM FamilyInstEnv  -- Maps a family to its instances
      -- See Note [FamInstEnv]
 
 type FamInstEnvs = (FamInstEnv, FamInstEnv)
      -- External package inst-env, Home-package inst-env
 
 data FamilyInstEnv
-  = FamIE [FamInst]	-- The instances for a particular family, in any order
-  	  Bool 		-- True <=> there is an instance of form T a b c
-			-- 	If *not* then the common case of looking up
-			--	(T a b c) can fail immediately
+  = FamIE [FamInst]     -- The instances for a particular family, in any order
+          Bool          -- True <=> there is an instance of form T a b c
+                        --      If *not* then the common case of looking up
+                        --      (T a b c) can fail immediately
 
 instance Outputable FamilyInstEnv where
   ppr (FamIE fs b) = ptext (sLit "FamIE") <+> ppr b <+> vcat (map ppr fs)
 
 -- INVARIANTS:
 --  * The fs_tvs are distinct in each FamInst
---	of a range value of the map (so we can safely unify them)
+--      of a range value of the map (so we can safely unify them)
 
 emptyFamInstEnvs :: (FamInstEnv, FamInstEnv)
 emptyFamInstEnvs = (emptyFamInstEnv, emptyFamInstEnv)
@@ -499,8 +490,8 @@ familyInstances (pkg_fie, home_fie) fam
   = get home_fie ++ get pkg_fie
   where
     get env = case lookupUFM env fam of
-		Just (FamIE insts _) -> insts
-		Nothing	             -> []
+                Just (FamIE insts _) -> insts
+                Nothing              -> []
 
 extendFamInstEnvList :: FamInstEnv -> [FamInst] -> FamInstEnv
 extendFamInstEnvList inst_env fis = foldl extendFamInstEnv inst_env fis
@@ -544,9 +535,9 @@ identicalFamInst (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
 \end{code}
 
 %************************************************************************
-%*									*
-		Looking up a family instance
-%*									*
+%*                                                                      *
+                Looking up a family instance
+%*                                                                      *
 %************************************************************************
 
 @lookupFamInstEnv@ looks up in a @FamInstEnv@, using a one-way match.
@@ -790,7 +781,7 @@ Note [Family instance overlap conflicts]
   For example:
        type instance F a Int = a
        type instance F Int b = b
-  These two overlap on (F Int Int) but then both RHSs are Int, 
+  These two overlap on (F Int Int) but then both RHSs are Int,
   so all is well. We require that they are syntactically equal;
   anything else would be difficult to test for at this stage.
 
@@ -809,14 +800,14 @@ type MatchFun =  [FamInstBranch]     -- the previous branches in the instance
 type OneSidedMatch = Bool     -- Are optimisations that are only valid for
                               -- one sided matches allowed?
 
-lookup_fam_inst_env' 	      -- The worker, local to this module
+lookup_fam_inst_env'          -- The worker, local to this module
     :: MatchFun
     -> OneSidedMatch
     -> FamInstEnv
     -> TyCon -> [Type]		-- What we are looking for
     -> [FamInstMatch] 	 
 lookup_fam_inst_env' match_fun one_sided ie fam tys
-  | not (isFamilyTyCon fam) 
+  | not (isFamilyTyCon fam)
   = []
   | otherwise
 	-- Family type applications must be saturated
@@ -827,10 +818,10 @@ lookup_fam_inst_env' match_fun one_sided ie fam tys
     arity = tyConArity fam
     n_tys = length tys
     extra_tys = drop arity tys
-    (match_tys, add_extra_tys) 
+    (match_tys, add_extra_tys)
        | arity < n_tys = (take arity tys, \res_tys -> res_tys ++ extra_tys)
        | otherwise     = (tys,            \res_tys -> res_tys)
-       	 -- The second case is the common one, hence functional representation
+         -- The second case is the common one, hence functional representation
 
     --------------
     rough_tcs = roughMatchTcs match_tys
@@ -838,14 +829,14 @@ lookup_fam_inst_env' match_fun one_sided ie fam tys
 
     --------------
     lookup env = case lookupUFM env fam of
-		   Nothing -> []	-- No instances for this class
-		   Just (FamIE insts has_tv_insts)
-		       -- Short cut for common case:
-		       --   The thing we are looking up is of form (C a
-		       --   b c), and the FamIE has no instances of
-		       --   that form, so don't bother to search 
-		     | all_tvs && not has_tv_insts -> []
-		     | otherwise                   -> find insts
+                   Nothing -> []        -- No instances for this class
+                   Just (FamIE insts has_tv_insts)
+                       -- Short cut for common case:
+                       --   The thing we are looking up is of form (C a
+                       --   b c), and the FamIE has no instances of
+                       --   that form, so don't bother to search
+                     | all_tvs && not has_tv_insts -> []
+                     | otherwise                   -> find insts
 
     --------------
     find :: [FamInst] -> [FamInstMatch]
@@ -879,7 +870,7 @@ lookup_fam_inst_env' match_fun one_sided ie fam tys
                   tys = add_extra_tys $
                         substTyVars subst (coAxBranchTyVars axBranch)
 
-lookup_fam_inst_env 	      -- The worker, local to this module
+lookup_fam_inst_env           -- The worker, local to this module
     :: MatchFun
     -> OneSidedMatch
     -> FamInstEnvs
@@ -903,7 +894,7 @@ The type instance gives rise to a newtype TyCon (at a higher kind
 which you can't do in Haskell!):
      newtype FPair a b = FP (Either (a->b))
 
-Then looking up (F (Int,Bool) Char) will return a FamInstMatch 
+Then looking up (F (Int,Bool) Char) will return a FamInstMatch
      (FPair, [Int,Bool,Char])
 
 The "extra" type argument [Char] just stays on the end.
@@ -929,19 +920,19 @@ isDominatedBy lhs branches
 
 
 %************************************************************************
-%*									*
-		Looking up a family instance
-%*									*
+%*                                                                      *
+                Looking up a family instance
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
 topNormaliseType :: FamInstEnvs
-		 -> Type
-	   	 -> Maybe (Coercion, Type)
+                 -> Type
+                 -> Maybe (Coercion, Type)
 
--- Get rid of *outermost* (or toplevel) 
---	* type functions 
---	* newtypes
+-- Get rid of *outermost* (or toplevel)
+--      * type functions
+--      * newtypes
 -- using appropriate coercions.
 -- By "outer" we mean that toplevelNormaliseType guarantees to return
 -- a type that does not have a reducible redex (F ty1 .. tyn) as its
@@ -954,8 +945,8 @@ topNormaliseType env ty
   = go [] ty
   where
     go :: [TyCon] -> Type -> Maybe (Coercion, Type)
-    go rec_nts ty | Just ty' <- coreView ty 	-- Expand synonyms
-	= go rec_nts ty'	
+    go rec_nts ty | Just ty' <- coreView ty     -- Expand synonyms
+        = go rec_nts ty'
 
     go rec_nts (TyConApp tc tys)
         | isNewTyCon tc		-- Expand newtypes
@@ -964,12 +955,12 @@ topNormaliseType env ty
           else let nt_co = mkSingletonAxInstCo (newTyConCo tc) tys
                in add_co nt_co rec_nts' nt_rhs
 
-	| isFamilyTyCon tc		-- Expand open tycons
-	, (co, ty) <- normaliseTcApp env tc tys
-		-- Note that normaliseType fully normalises 'tys', 
-		-- It has do to so to be sure that nested calls like
-		--    F (G Int)
-		-- are correctly top-normalised
+        | isFamilyTyCon tc              -- Expand open tycons
+        , (co, ty) <- normaliseTcApp env tc tys
+                -- Note that normaliseType fully normalises 'tys',
+                -- It has do to so to be sure that nested calls like
+                --    F (G Int)
+                -- are correctly top-normalised
         , not (isReflCo co)
         = add_co co rec_nts ty
         where
@@ -979,11 +970,11 @@ topNormaliseType env ty
 
     go _ _ = Nothing
 
-    add_co co rec_nts ty 
-	= case go rec_nts ty of
-		Nothing 	-> Just (co, ty)
-		Just (co', ty') -> Just (mkTransCo co co', ty')
-	 
+    add_co co rec_nts ty
+        = case go rec_nts ty of
+                Nothing         -> Just (co, ty)
+                Just (co', ty') -> Just (mkTransCo co co', ty')
+
 
 ---------------
 normaliseTcApp :: FamInstEnvs -> TyCon -> [Type] -> (Coercion, Type)
@@ -1004,25 +995,25 @@ normaliseTcApp env tc tys
     (fix_coi, nty)
 
   | otherwise   -- No unique matching family instance exists;
-		-- we do not do anything
+                -- we do not do anything
   = (tycon_coi, TyConApp tc ntys)
 
   where
-	-- Normalise the arg types so that they'll match 
-	-- when we lookup in in the instance envt
+        -- Normalise the arg types so that they'll match
+        -- when we lookup in in the instance envt
     (cois, ntys) = mapAndUnzip (normaliseType env) tys
     tycon_coi    = mkTyConAppCo tc cois
 
 ---------------
-normaliseType :: FamInstEnvs 		-- environment with family instances
-	      -> Type  			-- old type
-	      -> (Coercion, Type)	-- (coercion,new type), where
-					-- co :: old-type ~ new_type
+normaliseType :: FamInstEnvs            -- environment with family instances
+              -> Type                   -- old type
+              -> (Coercion, Type)       -- (coercion,new type), where
+                                        -- co :: old-type ~ new_type
 -- Normalise the input type, by eliminating *all* type-function redexes
 -- Returns with Refl if nothing happens
 
-normaliseType env ty 
-  | Just ty' <- coreView ty = normaliseType env ty' 
+normaliseType env ty
+  | Just ty' <- coreView ty = normaliseType env ty'
 normaliseType env (TyConApp tc tys)
   = normaliseTcApp env tc tys
 normaliseType _env ty@(LitTy {}) = (Refl ty, ty)

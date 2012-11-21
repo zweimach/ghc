@@ -64,7 +64,7 @@ ghc_stage3_MORE_HC_OPTS += -threaded
 endif
 
 ifeq "$(GhcProfiled)" "YES"
-ghc_stage2_MORE_HC_OPTS += -prof
+ghc_stage2_PROGRAM_WAY = p
 endif
 
 ghc_stage1_PROG = ghc-stage1$(exeext)
@@ -77,8 +77,11 @@ ghc_stage3_SHELL_WRAPPER = YES
 ghc_stage1_SHELL_WRAPPER_NAME = ghc/ghc.wrapper
 ghc_stage2_SHELL_WRAPPER_NAME = ghc/ghc.wrapper
 ghc_stage3_SHELL_WRAPPER_NAME = ghc/ghc.wrapper
+ghc_stage1_INSTALL_INPLACE = YES
+ghc_stage2_INSTALL_INPLACE = YES
+ghc_stage3_INSTALL_INPLACE = YES
 
-ghc_stage$(INSTALL_GHC_STAGE)_INSTALL_SHELL_WRAPPER = YES
+ghc_stage$(INSTALL_GHC_STAGE)_INSTALL = YES
 ghc_stage$(INSTALL_GHC_STAGE)_INSTALL_SHELL_WRAPPER_NAME = ghc-$(ProjectVersion)
 
 # We override the program name to be ghc, rather than ghc-stage2.
@@ -127,12 +130,19 @@ all_ghc_stage3 : $(GHC_STAGE3)
 $(INPLACE_LIB)/settings : settings
 	"$(CP)" $< $@
 
+$(INPLACE_LIB)/platformConstants: $(includes_GHCCONSTANTS_HASKELL_VALUE)
+	"$(CP)" $< $@
+
 # The GHC programs need to depend on all the helper programs they might call,
 # and the settings files they use
 
-$(GHC_STAGE1) : | $(UNLIT) $(INPLACE_LIB)/settings
-$(GHC_STAGE2) : | $(UNLIT) $(INPLACE_LIB)/settings
-$(GHC_STAGE3) : | $(UNLIT) $(INPLACE_LIB)/settings
+GHC_DEPENDENCIES += $(UNLIT)
+GHC_DEPENDENCIES += $(INPLACE_LIB)/settings
+GHC_DEPENDENCIES += $(INPLACE_LIB)/platformConstants
+
+$(GHC_STAGE1) : | $(GHC_DEPENDENCIES)
+$(GHC_STAGE2) : | $(GHC_DEPENDENCIES)
+$(GHC_STAGE3) : | $(GHC_DEPENDENCIES)
 
 ifeq "$(GhcUnregisterised)" "NO"
 $(GHC_STAGE1) : | $(SPLIT)

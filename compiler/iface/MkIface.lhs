@@ -1130,7 +1130,7 @@ check_old_iface hsc_env mod_summary src_modified maybe_iface
                      return $ Just iface
 
         src_changed
-            | dopt Opt_ForceRecomp (hsc_dflags hsc_env) = True
+            | gopt Opt_ForceRecomp (hsc_dflags hsc_env) = True
             | SourceModified <- src_modified = True
             | otherwise = False
     in do
@@ -1465,11 +1465,11 @@ tyConToIfaceDecl env tycon
   | Just clas <- tyConClass_maybe tycon
   = classToIfaceDecl env clas
 
-  | isSynTyCon tycon
+  | Just syn_rhs <- synTyConRhs_maybe tycon
   = IfaceSyn {  ifName    = getOccName tycon,
                 ifTyVars  = toIfaceTvBndrs tyvars,
-                ifSynRhs  = syn_rhs,
-                ifSynKind = syn_ki }
+                ifSynRhs  = to_ifsyn_rhs syn_rhs,
+                ifSynKind = tidyToIfaceType env1 (synTyConResKind tycon) }
 
   | isAlgTyCon tycon
   = IfaceData { ifName    = getOccName tycon,
@@ -1487,20 +1487,14 @@ tyConToIfaceDecl env tycon
 
   | otherwise = pprPanic "toIfaceDecl" (ppr tycon)
   where
-    (env1, tyvars) = tidyTyVarBndrs env (tyConTyVars tycon)
+    (env1, tyvars) = tidyTyClTyVarBndrs env (tyConTyVars tycon)
 
-    (syn_rhs, syn_ki) 
-       = case synTyConRhs tycon of
-            SynFamilyTyCon  ->
-               ( Nothing
-               , tidyToIfaceType env1 (synTyConResKind tycon) )
-            SynonymTyCon ty ->
-               ( Just (tidyToIfaceType env1 ty)
-               , tidyToIfaceType env1 (typeKind ty) )
+    to_ifsyn_rhs (SynFamilyTyCon a b) = SynFamilyTyCon a b
+    to_ifsyn_rhs (SynonymTyCon ty)    = SynonymTyCon (tidyToIfaceType env1 ty)
 
     ifaceConDecls (NewTyCon { data_con = con })     = IfNewTyCon  (ifaceConDecl con)
     ifaceConDecls (DataTyCon { data_cons = cons })  = IfDataTyCon (map ifaceConDecl cons)
-    ifaceConDecls DataFamilyTyCon {}                = IfDataFamTyCon
+    ifaceConDecls (DataFamilyTyCon {})              = IfDataFamTyCon
     ifaceConDecls (AbstractTyCon distinct)          = IfAbstractTyCon distinct
         -- The last case happens when a TyCon has been trimmed during tidying
         -- Furthermore, tyThingToIfaceDecl is also used

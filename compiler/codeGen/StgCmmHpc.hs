@@ -19,14 +19,16 @@ import StgCmmUtils
 import HscTypes
 import DynFlags
 
-mkTickBox :: Module -> Int -> CmmAGraph
-mkTickBox mod n 
+import Control.Monad
+
+mkTickBox :: DynFlags -> Module -> Int -> CmmAGraph
+mkTickBox dflags mod n
   = mkStore tick_box (CmmMachOp (MO_Add W64)
                                 [ CmmLoad tick_box b64
                                 , CmmLit (CmmInt 1 W64)
                                 ])
   where
-    tick_box = cmmIndex W64
+    tick_box = cmmIndex dflags W64
                         (CmmLit $ CmmLabel $ mkHpcTicksLabel $ mod)
                         n
 
@@ -36,7 +38,7 @@ initHpc _ (NoHpcInfo {})
   = return ()
 initHpc this_mod (HpcInfo tickCount _hashNo)
   = do dflags <- getDynFlags
-       whenC (dopt Opt_Hpc dflags) $
+       when (gopt Opt_Hpc dflags) $
            do emitDataLits (mkHpcTicksLabel this_mod)
                            [ (CmmInt 0 W64)
                            | _ <- take tickCount [0 :: Int ..]

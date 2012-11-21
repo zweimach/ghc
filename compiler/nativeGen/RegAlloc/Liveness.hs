@@ -5,8 +5,6 @@
 -- (c) The University of Glasgow 2004
 --
 -----------------------------------------------------------------------------
-{-# OPTIONS -Wall -fno-warn-name-shadowing #-}
-
 module RegAlloc.Liveness (
         RegSet,
         RegMap, emptyRegMap,
@@ -35,10 +33,11 @@ import Reg
 import Instruction
 
 import BlockId
-import OldCmm hiding (RegSet)
-import OldPprCmm()
+import Cmm hiding (RegSet)
+import PprCmm()
 
 import Digraph
+import DynFlags
 import Outputable
 import Platform
 import Unique
@@ -137,6 +136,11 @@ instance Instruction instr => Instruction (InstrSR instr) where
 
         mkJumpInstr target      = map Instr (mkJumpInstr target)
 
+        mkStackAllocInstr platform amount =
+             Instr (mkStackAllocInstr platform amount)
+
+        mkStackDeallocInstr platform amount =
+             Instr (mkStackDeallocInstr platform amount)
 
 
 -- | An instruction with liveness information.
@@ -242,9 +246,9 @@ mapBlockTopM
 mapBlockTopM _ cmm@(CmmData{})
         = return cmm
 
-mapBlockTopM f (CmmProc header label sccs)
+mapBlockTopM f (CmmProc header label live sccs)
  = do   sccs'   <- mapM (mapSCCM f) sccs
-        return  $ CmmProc header label sccs'
+        return  $ CmmProc header label live sccs'
 
 mapSCCM :: Monad m => (a -> m b) -> SCC a -> m (SCC b)
 mapSCCM f (AcyclicSCC x)
@@ -274,9 +278,9 @@ mapGenBlockTopM
 mapGenBlockTopM _ cmm@(CmmData{})
         = return cmm
 
-mapGenBlockTopM f (CmmProc header label (ListGraph blocks))
+mapGenBlockTopM f (CmmProc header label live (ListGraph blocks))
  = do   blocks' <- mapM f blocks
-        return  $ CmmProc header label (ListGraph blocks')
+        return  $ CmmProc header label live (ListGraph blocks')
 
 
 -- | Slurp out the list of register conflicts and reg-reg moves from this top level thing.
@@ -292,7 +296,7 @@ slurpConflicts live
         = slurpCmm (emptyBag, emptyBag) live
 
  where  slurpCmm   rs  CmmData{}                = rs
-        slurpCmm   rs (CmmProc info _ sccs)
+        slurpCmm   rs (CmmProc info _ _ sccs)
                 = foldl' (slurpSCC info) rs sccs
 
         slurpSCC  info rs (AcyclicSCC b)
@@ -371,7 +375,7 @@ slurpReloadCoalesce live
                  -> GenCmmDecl t t1 [SCC (LiveBasicBlock instr)]
                  -> Bag (Reg, Reg)
         slurpCmm cs CmmData{}   = cs
-        slurpCmm cs (CmmProc _ _ sccs)
+        slurpCmm cs (CmmProc _ _ _ sccs)
                 = slurpComp cs (flattenSCCs sccs)
 
         slurpComp :: Bag (Reg, Reg)
@@ -461,17 +465,17 @@ slurpReloadCoalesce live
 -- | Strip away liveness information, yielding NatCmmDecl
 stripLive
         :: (Outputable statics, Outputable instr, Instruction instr)
-        => Platform
+        => DynFlags
         -> LiveCmmDecl statics instr
         -> NatCmmDecl statics instr
 
-stripLive platform live
+stripLive dflags live
         = stripCmm live
 
  where  stripCmm :: (Outputable statics, Outputable instr, Instruction instr)
                  => LiveCmmDecl statics instr -> NatCmmDecl statics instr
         stripCmm (CmmData sec ds)       = CmmData sec ds
-        stripCmm (CmmProc (LiveInfo info (Just first_id) _ _) label sccs)
+        stripCmm (CmmProc (LiveInfo info (Just first_id) _ _) label live sccs)
          = let  final_blocks    = flattenSCCs sccs
 
                 -- make sure the block that was first in the input list
@@ -480,12 +484,12 @@ stripLive platform live
                 ((first':_), rest')
                                 = partition ((== first_id) . blockId) final_blocks
 
-           in   CmmProc info label
-                          (ListGraph $ map (stripLiveBlock platform) $ first' : rest')
+           in   CmmProc info label live
+                          (ListGraph $ map (stripLiveBlock dflags) $ first' : rest')
 
         -- procs used for stg_split_markers don't contain any blocks, and have no first_id.
-        stripCmm (CmmProc (LiveInfo info Nothing _ _) label [])
-         =      CmmProc info label (ListGraph [])
+        stripCmm (CmmProc (LiveInfo info Nothing _ _) label live [])
+         =      CmmProc info label live (ListGraph [])
 
         -- If the proc has blocks but we don't know what the first one was, then we're dead.
         stripCmm proc
@@ -496,11 +500,11 @@ stripLive platform live
 
 stripLiveBlock
         :: Instruction instr
-        => Platform
+        => DynFlags
         -> LiveBasicBlock instr
         -> NatBasicBlock instr
 
-stripLiveBlock platform (BasicBlock i lis)
+stripLiveBlock dflags (BasicBlock i lis)
  =      BasicBlock i instrs'
 
  where  (instrs', _)
@@ -511,11 +515,11 @@ stripLiveBlock platform (BasicBlock i lis)
 
         spillNat acc (LiveInstr (SPILL reg slot) _ : instrs)
          = do   delta   <- get
-                spillNat (mkSpillInstr platform reg delta slot : acc) instrs
+                spillNat (mkSpillInstr dflags reg delta slot : acc) instrs
 
         spillNat acc (LiveInstr (RELOAD slot reg) _ : instrs)
          = do   delta   <- get
-                spillNat (mkLoadInstr platform reg delta slot : acc) instrs
+                spillNat (mkLoadInstr dflags reg delta slot : acc) instrs
 
         spillNat acc (LiveInstr (Instr instr) _ : instrs)
          | Just i <- takeDeltaInstr instr
@@ -555,14 +559,14 @@ patchEraseLive patchF cmm
  where
         patchCmm cmm@CmmData{}  = cmm
 
-        patchCmm (CmmProc info label sccs)
+        patchCmm (CmmProc info label live sccs)
          | LiveInfo static id (Just blockMap) mLiveSlots <- info
          = let
                 patchRegSet set = mkUniqSet $ map patchF $ uniqSetToList set
                 blockMap'       = mapMap patchRegSet blockMap
 
                 info'           = LiveInfo static id (Just blockMap') mLiveSlots
-           in   CmmProc info' label $ map patchSCC sccs
+           in   CmmProc info' label live $ map patchSCC sccs
 
          | otherwise
          = panic "RegAlloc.Liveness.patchEraseLive: no blockMap"
@@ -631,17 +635,17 @@ natCmmTopToLive
 natCmmTopToLive (CmmData i d)
         = CmmData i d
 
-natCmmTopToLive (CmmProc info lbl (ListGraph []))
-        = CmmProc (LiveInfo info Nothing Nothing Map.empty) lbl []
+natCmmTopToLive (CmmProc info lbl live (ListGraph []))
+        = CmmProc (LiveInfo info Nothing Nothing Map.empty) lbl live []
 
-natCmmTopToLive (CmmProc info lbl (ListGraph blocks@(first : _)))
+natCmmTopToLive (CmmProc info lbl live (ListGraph blocks@(first : _)))
  = let  first_id        = blockId first
         sccs            = sccBlocks blocks
         sccsLive        = map (fmap (\(BasicBlock l instrs) ->
                                         BasicBlock l (map (\i -> LiveInstr (Instr i) Nothing) instrs)))
                         $ sccs
 
-   in   CmmProc (LiveInfo info (Just first_id) Nothing Map.empty) lbl sccsLive
+   in   CmmProc (LiveInfo info (Just first_id) Nothing Map.empty) lbl live sccsLive
 
 
 sccBlocks
@@ -670,26 +674,27 @@ regLiveness
 regLiveness _ (CmmData i d)
         = return $ CmmData i d
 
-regLiveness _ (CmmProc info lbl [])
+regLiveness _ (CmmProc info lbl live [])
         | LiveInfo static mFirst _ _    <- info
         = return $ CmmProc
                         (LiveInfo static mFirst (Just mapEmpty) Map.empty)
-                        lbl []
+                        lbl live []
 
-regLiveness platform (CmmProc info lbl sccs)
+regLiveness platform (CmmProc info lbl live sccs)
         | LiveInfo static mFirst _ liveSlotsOnEntry     <- info
         = let   (ann_sccs, block_live)  = computeLiveness platform sccs
 
           in    return $ CmmProc (LiveInfo static mFirst (Just block_live) liveSlotsOnEntry)
-                           lbl ann_sccs
+                           lbl live ann_sccs
 
 
 -- -----------------------------------------------------------------------------
 -- | Check ordering of Blocks
---   The computeLiveness function requires SCCs to be in reverse dependent order.
---   If they're not the liveness information will be wrong, and we'll get a bad allocation.
---   Better to check for this precondition explicitly or some other poor sucker will
---   waste a day staring at bad assembly code..
+--   The computeLiveness function requires SCCs to be in reverse
+--   dependent order.  If they're not the liveness information will be
+--   wrong, and we'll get a bad allocation.  Better to check for this
+--   precondition explicitly or some other poor sucker will waste a
+--   day staring at bad assembly code..
 --
 checkIsReverseDependent
         :: Instruction instr
@@ -730,7 +735,7 @@ reverseBlocksInTops :: LiveCmmDecl statics instr -> LiveCmmDecl statics instr
 reverseBlocksInTops top
  = case top of
         CmmData{}                       -> top
-        CmmProc info lbl sccs   -> CmmProc info lbl (reverse sccs)
+        CmmProc info lbl live sccs      -> CmmProc info lbl live (reverse sccs)
 
 
 -- | Computing liveness

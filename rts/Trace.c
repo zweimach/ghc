@@ -203,37 +203,37 @@ static void traceSchedEvent_stderr (Capability *cap, EventTypeNum tag,
     tracePreface();
     switch (tag) {
     case EVENT_CREATE_THREAD:   // (cap, thread)
-        debugBelch("cap %d: created thread %" FMT_SizeT "\n", 
+        debugBelch("cap %d: created thread %" FMT_Word "\n", 
                    cap->no, (W_)tso->id);
         break;
     case EVENT_RUN_THREAD:      //  (cap, thread)
-        debugBelch("cap %d: running thread %" FMT_SizeT " (%s)\n", 
+        debugBelch("cap %d: running thread %" FMT_Word " (%s)\n", 
                    cap->no, (W_)tso->id, what_next_strs[tso->what_next]);
         break;
     case EVENT_THREAD_RUNNABLE: // (cap, thread)
-        debugBelch("cap %d: thread %" FMT_SizeT " appended to run queue\n", 
+        debugBelch("cap %d: thread %" FMT_Word " appended to run queue\n", 
                    cap->no, (W_)tso->id);
         break;
     case EVENT_MIGRATE_THREAD:  // (cap, thread, new_cap)
-        debugBelch("cap %d: thread %" FMT_SizeT " migrating to cap %d\n", 
+        debugBelch("cap %d: thread %" FMT_Word " migrating to cap %d\n", 
                    cap->no, (W_)tso->id, (int)info1);
         break;
     case EVENT_THREAD_WAKEUP:   // (cap, thread, info1_cap)
-        debugBelch("cap %d: waking up thread %" FMT_SizeT " on cap %d\n", 
+        debugBelch("cap %d: waking up thread %" FMT_Word " on cap %d\n", 
                    cap->no, (W_)tso->id, (int)info1);
         break;
         
     case EVENT_STOP_THREAD:     // (cap, thread, status)
         if (info1 == 6 + BlockedOnBlackHole) {
-            debugBelch("cap %d: thread %" FMT_SizeT " stopped (blocked on black hole owned by thread %lu)\n",
+            debugBelch("cap %d: thread %" FMT_Word " stopped (blocked on black hole owned by thread %lu)\n",
                        cap->no, (W_)tso->id, (long)info2);
         } else {
-            debugBelch("cap %d: thread %" FMT_SizeT " stopped (%s)\n",
+            debugBelch("cap %d: thread %" FMT_Word " stopped (%s)\n",
                        cap->no, (W_)tso->id, thread_stop_reasons[info1]);
         }
         break;
     default:
-        debugBelch("cap %d: thread %" FMT_SizeT ": event %d\n\n", 
+        debugBelch("cap %d: thread %" FMT_Word ": event %d\n\n", 
                    cap->no, (W_)tso->id, tag);
         break;
     }
@@ -423,17 +423,17 @@ void traceCapsetEvent (EventTypeNum tag,
         tracePreface();
         switch (tag) {
         case EVENT_CAPSET_CREATE:   // (capset, capset_type)
-            debugBelch("created capset %" FMT_SizeT " of type %d\n", (W_)capset, (int)info);
+            debugBelch("created capset %" FMT_Word " of type %d\n", (W_)capset, (int)info);
             break;
         case EVENT_CAPSET_DELETE:   // (capset)
-            debugBelch("deleted capset %" FMT_SizeT "\n", (W_)capset);
+            debugBelch("deleted capset %" FMT_Word "\n", (W_)capset);
             break;
         case EVENT_CAPSET_ASSIGN_CAP:  // (capset, capno)
-            debugBelch("assigned cap %" FMT_SizeT " to capset %" FMT_SizeT "\n",
+            debugBelch("assigned cap %" FMT_Word " to capset %" FMT_Word "\n",
                        (W_)info, (W_)capset);
             break;
         case EVENT_CAPSET_REMOVE_CAP:  // (capset, capno)
-            debugBelch("removed cap %" FMT_SizeT " from capset %" FMT_SizeT "\n",
+            debugBelch("removed cap %" FMT_Word " from capset %" FMT_Word "\n",
                        (W_)info, (W_)capset);
             break;
         }
@@ -708,6 +708,28 @@ void traceUserMsg(Capability *cap, char *msg)
     traceFormatUserMsg(cap, "%s", msg);
 }
 
+void traceUserMarker(Capability *cap, char *markername)
+{
+    /* Note: traceUserMarker is special since it has no wrapper (it's called
+       from cmm code), so we check eventlog_enabled and TRACE_user here.
+     */
+#ifdef DEBUG
+    if (RtsFlags.TraceFlags.tracing == TRACE_STDERR && TRACE_user) {
+        ACQUIRE_LOCK(&trace_utx);
+        tracePreface();
+        debugBelch("cap %d: User marker: %s\n", cap->no, markername);
+        RELEASE_LOCK(&trace_utx);
+    } else
+#endif
+    {
+        if (eventlog_enabled && TRACE_user) {
+            postUserMarker(cap, markername);
+        }
+    }
+    dtraceUserMarker(cap->no, markername);
+}
+
+
 void traceThreadLabel_(Capability *cap,
                        StgTSO     *tso,
                        char       *label)
@@ -716,7 +738,7 @@ void traceThreadLabel_(Capability *cap,
     if (RtsFlags.TraceFlags.tracing == TRACE_STDERR) {
         ACQUIRE_LOCK(&trace_utx);
         tracePreface();
-        debugBelch("cap %d: thread %" FMT_SizeT " has label %s\n",
+        debugBelch("cap %d: thread %" FMT_Word " has label %s\n",
                    cap->no, (W_)tso->id, label);
         RELEASE_LOCK(&trace_utx);
     } else
@@ -774,6 +796,11 @@ void traceEnd (void)
 void dtraceUserMsgWrapper(Capability *cap, char *msg)
 {
     dtraceUserMsg(cap->no, msg);
+}
+
+void dtraceUserMarkerWrapper(Capability *cap, char *msg)
+{
+    dtraceUserMarker(cap->no, msg);
 }
 
 #endif /* !defined(DEBUG) && !defined(TRACING) && defined(DTRACE) */

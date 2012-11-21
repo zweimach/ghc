@@ -632,7 +632,7 @@ type Typ
 data TypView = Unit
              | Arrow Typ Typ
 
-view :: Type -> TypeView
+view :: Typ -> TypView
 
 -- additional operations for constructing Typ's ...
 </programlisting>
@@ -2071,9 +2071,7 @@ The following syntax is stolen:
 	Stolen (in types) by: <option>-XExplicitForAll</option>, and hence by
             <option>-XScopedTypeVariables</option>,
 	    <option>-XLiberalTypeSynonyms</option>,
-	    <option>-XRank2Types</option>,
 	    <option>-XRankNTypes</option>,
-	    <option>-XPolymorphicComponents</option>,
 	    <option>-XExistentialQuantification</option>
 	  </para></listitem>
       </varlistentry>
@@ -3726,7 +3724,7 @@ We reuse the keyword <literal>default</literal> to signal that a signature
 applies to the default method only; when defining instances of the
 <literal>Enum</literal> class, the original type <literal>[a]</literal> of
 <literal>enum</literal> still applies. When giving an empty instance, however,
-the default implementation <literal>map to0 genum</literal> is filled-in,
+the default implementation <literal>map to genum</literal> is filled-in,
 and type-checked with the type
 <literal>(Generic a, GEnum (Rep a)) => [a]</literal>.
 </para>
@@ -4067,6 +4065,45 @@ The part before the "<literal>=&gt;</literal>" is the
 "<literal>=&gt;</literal>" is the <emphasis>head</emphasis> of the instance declaration.
 </para>
 
+<sect3 id="instance-resolution">
+<title>Instance resolution</title>
+
+<para>
+When GHC tries to resolve, say, the constraint <literal>C Int Bool</literal>,
+it tries to match every instance declaration against the
+constraint,
+by instantiating the head of the instance declaration.  Consider
+these declarations:
+<programlisting>
+  instance context1 => C Int a     where ...  -- (A)
+  instance context2 => C a   Bool  where ...  -- (B)
+</programlisting>
+GHC's default behaviour is that <emphasis>exactly one instance must match the
+constraint it is trying to resolve</emphasis>.
+For example, the constraint <literal>C Int Bool</literal> matches instances (A) and (B),
+and hence would be rejected; while <literal>C Int Char</literal> matches only (A)
+and hence (A) is chosen.</para>
+
+<para>
+Notice that
+<itemizedlist>
+<listitem><para>
+When matching, GHC takes
+no account of the context of the instance declaration
+(<literal>context1</literal> etc).
+</para></listitem>
+<listitem><para>
+It is fine for there to be a <emphasis>potential</emphasis> of overlap (by
+including both declarations (A) and (B), say); an error is only reported if a
+particular constraint matches more than one.
+</para></listitem>
+</itemizedlist>
+See also <xref linkend="instance-overlap"/> for flags that loosen the 
+instance resolution rules.
+</para>
+
+</sect3>
+
 <sect3 id="flexible-instance-head">
 <title>Relaxed rules for the instance head</title>
 
@@ -4075,7 +4112,11 @@ In Haskell 98 the head of an instance declaration
 must be of the form <literal>C (T a1 ... an)</literal>, where
 <literal>C</literal> is the class, <literal>T</literal> is a data type constructor,
 and the <literal>a1 ... an</literal> are distinct type variables.
-GHC relaxes these rules in two ways.
+In the case of multi-parameter type classes, this rule applies to each parameter of
+the instance head.  (Arguably it should be OK if just one has this form and the others
+are type variables, but that's the rules at the moment.)</para>
+
+<para>GHC relaxes this rule in two ways.
 <itemizedlist>
 <listitem><para>
 With the <option>-XTypeSynonymInstances</option> flag, instance heads may use type
@@ -4285,8 +4326,10 @@ with <option>-fcontext-stack=</option><emphasis>N</emphasis>.
 
 <sect3 id="instance-overlap">
 <title>Overlapping instances</title>
+
 <para>
-In general, <emphasis>GHC requires that that it be unambiguous which instance
+In general, as discussed in <xref linkend="instance-resolution"/>, 
+<emphasis>GHC requires that it be unambiguous which instance
 declaration
 should be used to resolve a type-class constraint</emphasis>. This behaviour
 can be modified by two flags: <option>-XOverlappingInstances</option>
@@ -4298,32 +4341,17 @@ and <option>-XIncoherentInstances</option>
 flags are dynamic flags, and can be set on a per-module basis, using
 an <literal>OPTIONS_GHC</literal> pragma if desired (<xref linkend="source-file-options"/>).</para>
 <para>
-When GHC tries to resolve, say, the constraint <literal>C Int Bool</literal>,
-it tries to match every instance declaration against the
-constraint,
-by instantiating the head of the instance declaration.  For example, consider
-these declarations:
+The <option>-XOverlappingInstances</option> flag instructs GHC to loosen
+the instance resolution described in <xref linkend="instance-resolution"/>, by
+allowing more than one instance to match, <emphasis>provided there is a most specific one</emphasis>.  
+For example, consider
 <programlisting>
   instance context1 => C Int a     where ...  -- (A)
   instance context2 => C a   Bool  where ...  -- (B)
   instance context3 => C Int [a]   where ...  -- (C)
   instance context4 => C Int [Int] where ...  -- (D)
 </programlisting>
-The instances (A) and (B) match the constraint <literal>C Int Bool</literal>,
-but (C) and (D) do not.  When matching, GHC takes
-no account of the context of the instance declaration
-(<literal>context1</literal> etc).
-GHC's default behaviour is that <emphasis>exactly one instance must match the
-constraint it is trying to resolve</emphasis>.
-It is fine for there to be a <emphasis>potential</emphasis> of overlap (by
-including both declarations (A) and (B), say); an error is only reported if a
-particular constraint matches more than one.
-</para>
-
-<para>
-The <option>-XOverlappingInstances</option> flag instructs GHC to allow
-more than one instance to match, provided there is a most specific one.  For
-example, the constraint <literal>C Int [Int]</literal> matches instances (A),
+The constraint <literal>C Int [Int]</literal> matches instances (A),
 (C) and (D), but the last is more specific, and hence is chosen.  If there is no
 most-specific match, the program is rejected.
 </para>
@@ -4338,10 +4366,11 @@ Suppose that from the RHS of <literal>f</literal> we get the constraint
 GHC does not commit to instance (C), because in a particular
 call of <literal>f</literal>, <literal>b</literal> might be instantiate
 to <literal>Int</literal>, in which case instance (D) would be more specific still.
-So GHC rejects the program.
-(If you add the flag <option>-XIncoherentInstances</option>,
+So GHC rejects the program.</para>
+<para>
+If, however, you add the flag <option>-XIncoherentInstances</option>,
 GHC will instead pick (C), without complaining about
-the problem of subsequent instantiations.)
+the problem of subsequent instantiations.
 </para>
 <para>
 Notice that we gave a type signature to <literal>f</literal>, so GHC had to
@@ -4893,6 +4922,7 @@ type instance G (a, Int)  = [a]
 type instance G (Char, a) = [a]  -- ILLEGAL overlap, as [Char] /= [Int]
 </programlisting>
       </para>
+    <para> However see <xref linkend="ghci-decls"/> for the overlap rules in GHCi.</para>
     </sect3>
 
     <sect3 id="type-family-decidability">
@@ -6384,20 +6414,12 @@ The function <literal>f3</literal> has a rank-3 type;
 it has rank-2 types on the left of a function arrow.
 </para>
 <para>
-GHC has three flags to control higher-rank types.  (All three imply <option>-XExplicitForAll</option>, <xref linkend="explicit-foralls"/>.)
-<itemizedlist>
-<listitem><para>
- <option>-XPolymorphicComponents</option>: data constructors (only) can have polymorphic argument types.
-</para></listitem>
-<listitem><para>
- <option>-XRank2Types</option>: any function (including data constructors) can have a rank-2 type.
-</para></listitem>
-<listitem><para>
- <option>-XRankNTypes</option>: any function (including data constructors) can have an arbitrary-rank type.
-That is,  you can nest <literal>forall</literal>s
+The language option <option>-XRankNTypes</option> (which implies <option>-XExplicitForAll</option>, <xref linkend="explicit-foralls"/>)
+enables higher-rank types.
+That is, you can nest <literal>forall</literal>s
 arbitrarily deep in function arrows.
-In particular, a forall-type (also called a "type scheme"),
-including an operational type class context, is legal:
+For example, a forall-type (also called a "type scheme"),
+including a type-class context, is legal:
 <itemizedlist>
 <listitem> <para> On the left or right (see <literal>f4</literal>, for example)
 of a function arrow </para> </listitem>
@@ -6407,13 +6429,18 @@ field type signatures.</para> </listitem>
 <listitem> <para> As the type of an implicit parameter </para> </listitem>
 <listitem> <para> In a pattern type signature (see <xref linkend="scoped-type-variables"/>) </para> </listitem>
 </itemizedlist>
-</para></listitem>
-</itemizedlist>
-Either <option>-XRank2Types</option> or <option>-XRankNTypes</option> is also required for any 
+The <option>-XRankNTypes</option> option is also required for any 
 type with a <literal>forall</literal> or
 context to the right of an arrow (e.g. <literal>f :: Int -> forall a. a->a</literal>, or
 <literal>g :: Int -> Ord a => a -> a</literal>).  Such types are technically rank 1, but
 are clearly not Haskell-98, and an extra flag did not seem worth the bother.
+</para>
+
+<para>
+The obselete language options <option>-XPolymorphicComponents</option> and <option>-XRank2Types</option>
+are synonyms for <option>-XRankNTypes</option>.  They used to specify finer distinctions that
+GHC no longer makes.  (They should really elicit a deprecation warning, but they don't, purely 
+to avoid the need to library authors to change their old flags specifciations.)
 </para>
 
 <sect3 id="univ">
@@ -7042,6 +7069,86 @@ If you supply a type signature, then the flag has no effect.
 </para>
 </sect2>
 
+<sect2 id="type-holes">
+<title>Type Holes</title>
+
+<para>Type hole support is enabled with the option
+<option>-XTypeHoles</option>.</para>
+
+<para>
+The goal of the type holes extension is not to change the type system, but to help with writing Haskell
+code. Type holes can be used to obtain extra information from the type checker, which might otherwise be hard
+to get.
+Normally, the type checker is used to decide if a module is well typed or not. Using GHCi,
+users can inspect the (inferred) type signatures of all top-level bindings. However, determining the
+type of a single term is still hard. Yet while writing code, it could be helpful to know the type of
+the term you're about to write.
+</para>
+
+<para>
+This extension allows special placeholders, written as <literal>_</literal>, to be used as an expression.
+During compilation these holes will generate an error message describing what type is expected there.
+The error includes helpful information about the origin of type variables and a list of local bindings
+that might help fill the hole with actual code.
+</para>
+
+<para>
+For example, compiling the following module with GHC:
+<programlisting>
+f :: a -> a
+f x = _
+</programlisting>
+Will fail with the following error:
+<programlisting>
+hole.hs:2:7:
+    Found hole `_' with type a
+    Where: `a' is a rigid type variable bound by
+               the type signature for f :: a -> a at hole.hs:1:6
+    Relevant bindings include
+      f :: a -> a (bound at hole.hs:2:1)
+      x :: a (bound at hole.hs:2:3)
+    In the expression: _
+    In an equation for `f': f x = _
+</programlisting>
+</para>
+
+<para>
+Multiple type holes can be used to find common type variables between expressions. For example:
+<programlisting>
+sum :: [Int] -> Int
+sum x = foldr _ _ _
+</programlisting>
+Shows:
+<programlisting>
+holes.hs:2:15:
+    Found hole `_' with type a0 -> Int -> Int
+    Where: `a0' is an ambiguous type variable
+    In the first argument of `foldr', namely `_'
+    In the expression: foldr _ _ _
+    In an equation for `sum': sum x = foldr _ _ _
+
+holes.hs:2:17:
+    Found hole `_' with type Int
+    In the second argument of `foldr', namely `_'
+    In the expression: foldr _ _ _
+    In an equation for `sum': sum x = foldr _ _ _
+
+holes.hs:2:19:
+    Found hole `_' with type [a0]
+    Where: `a0' is an ambiguous type variable
+    In the third argument of `foldr', namely `_'
+    In the expression: foldr _ _ _
+    In an equation for `sum': sum x = foldr _ _ _
+</programlisting>
+</para>
+
+<para>
+Holes work together well with <link linkend="defer-type-errors">deferring type errors to runtime</link>:
+with <literal>-fdefer-type-errors</literal>, the error from a hole is also deferred, effctively making the hole
+typecheck just like <literal>undefined</literal>, but with the added benefit that it will show its warning message
+if it gets evaluated. This way, other parts of the code can still be executed and tested.
+</para>
+</sect2>
 </sect1>
 <!-- ==================== End of type system extensions =================  -->
 
@@ -8552,8 +8659,9 @@ Assertion failures can be caught, see the documentation for the
 	</listitem>
       </itemizedlist>
       Warnings and deprecations are not reported for
-      (a) uses within the defining module, and
-      (b) uses in an export list.
+      (a) uses within the defining module,
+      (b) defining a method in a class instance, and
+      (c) uses in an export list.
       The latter reduces spurious complaints within a library
       in which one module gathers together and re-exports
       the exports of several others.
@@ -9515,7 +9623,7 @@ Sometimes, however, this approach is over-cautious, and we <emphasis>do</emphasi
 rule to fire, even though doing so would duplicate redex.  There is no way that GHC can work out
 when this is a good idea, so we provide the CONLIKE pragma to declare it, thus:
 <programlisting>
-{-# INLINE[1] CONLIKE f #-}
+{-# INLINE CONLIKE [1] f #-}
 f x = <replaceable>blah</replaceable>
 </programlisting>
 CONLIKE is a modifier to an INLINE or NOINLINE pragma.  It specifies that an application
@@ -9910,23 +10018,16 @@ r) ->
 
 <sect1 id="special-ids">
 <title>Special built-in functions</title>
-<para>GHC has a few built-in functions with special behaviour.  These
-are now described in the module <ulink
-url="&libraryGhcPrimLocation;/GHC-Prim.html"><literal>GHC.Prim</literal></ulink>
-in the library documentation.
+<para>GHC has a few built-in functions with special behaviour.
 In particular:
 <itemizedlist>
 <listitem><para>
-<ulink url="&libraryGhcPrimLocation;/GHC-Prim.html#v%3Ainline"><literal>inline</literal></ulink>
+<ulink url="&libraryGhcPrimLocation;/GHC-Exts.html#v%3Ainline"><literal>inline</literal></ulink>
 allows control over inlining on a per-call-site basis.
 </para></listitem>
 <listitem><para>
-<ulink url="&libraryGhcPrimLocation;/GHC-Prim.html#v%3Alazy"><literal>lazy</literal></ulink>
+<ulink url="&libraryGhcPrimLocation;/GHC-Exts.html#v%3Alazy"><literal>lazy</literal></ulink>
 restrains the strictness analyser.
-</para></listitem>
-<listitem><para>
-<ulink url="&libraryGhcPrimLocation;/GHC-Prim.html#v%3AunsafeCoerce%23"><literal>unsafeCoerce#</literal></ulink>
-allows you to fool the type checker.
 </para></listitem>
 </itemizedlist>
 </para>

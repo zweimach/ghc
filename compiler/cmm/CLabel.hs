@@ -13,7 +13,7 @@ module CLabel (
 
         mkClosureLabel,
         mkSRTLabel,
-        mkModSRTLabel,
+        mkTopSRTLabel,
         mkInfoTableLabel,
         mkEntryLabel,
         mkSlowEntryLabel,
@@ -72,7 +72,7 @@ module CLabel (
         mkCmmRetLabel,
         mkCmmCodeLabel,
         mkCmmDataLabel,
-        mkCmmGcPtrLabel,
+        mkCmmClosureLabel,
 
         mkRtsApFastLabel,
 
@@ -119,8 +119,6 @@ import FastString
 import DynFlags
 import Platform
 import UniqSet
-
-import Data.Maybe (isJust)
 
 -- -----------------------------------------------------------------------------
 -- The CLabel type
@@ -218,7 +216,7 @@ data CLabel
   | HpcTicksLabel Module
 
   -- | Static reference table
-  | SRTLabel (Maybe Module) !Unique
+  | SRTLabel !Unique
 
   -- | Label of an StgLargeSRT
   | LargeSRTLabel
@@ -333,7 +331,7 @@ data CmmLabelInfo
   | CmmRet                      -- ^ misc rts return points,    suffix _ret
   | CmmData                     -- ^ misc rts data bits, eg CHARLIKE_closure
   | CmmCode                     -- ^ misc rts code
-  | CmmGcPtr                    -- ^ GcPtrs eg CHARLIKE_closure
+  | CmmClosure                  -- ^ closures eg CHARLIKE_closure
   | CmmPrimCall                 -- ^ a prim call to some hand written Cmm code
   deriving (Eq, Ord)
 
@@ -355,8 +353,8 @@ data DynamicLinkerLabelInfo
 mkSlowEntryLabel :: Name -> CafInfo -> CLabel
 mkSlowEntryLabel        name c         = IdLabel name  c Slow
 
-mkModSRTLabel     :: Maybe Module -> Unique -> CLabel
-mkModSRTLabel mb_mod u = SRTLabel mb_mod u
+mkTopSRTLabel     :: Unique -> CLabel
+mkTopSRTLabel u = SRTLabel u
 
 mkSRTLabel        :: Name -> CafInfo -> CLabel
 mkRednCountsLabel :: Name -> CafInfo -> CLabel
@@ -420,7 +418,7 @@ mkCAFBlackHoleEntryLabel        = CmmLabel rtsPackageId (fsLit "stg_CAF_BLACKHOL
 
 -----
 mkCmmInfoLabel,   mkCmmEntryLabel, mkCmmRetInfoLabel, mkCmmRetLabel,
-  mkCmmCodeLabel, mkCmmDataLabel,  mkCmmGcPtrLabel
+  mkCmmCodeLabel, mkCmmDataLabel,  mkCmmClosureLabel
         :: PackageId -> FastString -> CLabel
 
 mkCmmInfoLabel      pkg str     = CmmLabel pkg str CmmInfo
@@ -429,7 +427,7 @@ mkCmmRetInfoLabel   pkg str     = CmmLabel pkg str CmmRetInfo
 mkCmmRetLabel       pkg str     = CmmLabel pkg str CmmRet
 mkCmmCodeLabel      pkg str     = CmmLabel pkg str CmmCode
 mkCmmDataLabel      pkg str     = CmmLabel pkg str CmmData
-mkCmmGcPtrLabel     pkg str     = CmmLabel pkg str CmmGcPtr
+mkCmmClosureLabel   pkg str     = CmmLabel pkg str CmmClosure
 
 
 -- Constructing RtsLabels
@@ -545,6 +543,7 @@ mkPlainModuleInitLabel mod      = PlainModuleInitLabel mod
 
 toClosureLbl :: CLabel -> CLabel
 toClosureLbl (IdLabel n c _) = IdLabel n c Closure
+toClosureLbl (CmmLabel m str _) = CmmLabel m str CmmClosure
 toClosureLbl l = pprPanic "toClosureLbl" (ppr l)
 
 toSlowEntryLbl :: CLabel -> CLabel
@@ -590,9 +589,9 @@ hasCAF _                            = False
 
 needsCDecl :: CLabel -> Bool
   -- False <=> it's pre-declared; don't bother
-  -- don't bother declaring SRT & Bitmap labels, we always make sure
+  -- don't bother declaring Bitmap labels, we always make sure
   -- they are defined before use.
-needsCDecl (SRTLabel _ _)               = False
+needsCDecl (SRTLabel _)                 = True
 needsCDecl (LargeSRTLabel _)            = False
 needsCDecl (LargeBitmapLabel _)         = False
 needsCDecl (IdLabel _ _ _)              = True
@@ -740,7 +739,7 @@ externallyVisibleCLabel (CCS_Label _)           = True
 externallyVisibleCLabel (DynamicLinkerLabel _ _)  = False
 externallyVisibleCLabel (HpcTicksLabel _)       = True
 externallyVisibleCLabel (LargeBitmapLabel _)    = False
-externallyVisibleCLabel (SRTLabel mb_mod _)     = isJust mb_mod
+externallyVisibleCLabel (SRTLabel _)            = False
 externallyVisibleCLabel (LargeSRTLabel _)       = False
 externallyVisibleCLabel (PicBaseLabel {}) = panic "externallyVisibleCLabel PicBaseLabel"
 externallyVisibleCLabel (DeadStripPreventer {}) = panic "externallyVisibleCLabel DeadStripPreventer"
@@ -776,7 +775,7 @@ isGcPtrLabel lbl = case labelType lbl of
 --    whether it be code, data, or static GC object.
 labelType :: CLabel -> CLabelType
 labelType (CmmLabel _ _ CmmData)                = DataLabel
-labelType (CmmLabel _ _ CmmGcPtr)               = GcPtrLabel
+labelType (CmmLabel _ _ CmmClosure)             = GcPtrLabel
 labelType (CmmLabel _ _ CmmCode)                = CodeLabel
 labelType (CmmLabel _ _ CmmInfo)                = DataLabel
 labelType (CmmLabel _ _ CmmEntry)               = CodeLabel
@@ -788,7 +787,7 @@ labelType (RtsLabel (RtsApFast _))              = CodeLabel
 labelType (CaseLabel _ CaseReturnInfo)          = DataLabel
 labelType (CaseLabel _ _)                       = CodeLabel
 labelType (PlainModuleInitLabel _)              = CodeLabel
-labelType (SRTLabel _ _)                        = CodeLabel
+labelType (SRTLabel _)                          = DataLabel
 labelType (LargeSRTLabel _)                     = DataLabel
 labelType (LargeBitmapLabel _)                  = DataLabel
 labelType (ForeignLabel _ _ _ IsFunction)       = CodeLabel
@@ -820,7 +819,7 @@ labelDynamic :: DynFlags -> PackageId -> CLabel -> Bool
 labelDynamic dflags this_pkg lbl =
   case lbl of
    -- is the RTS in a DLL or not?
-   RtsLabel _           -> not (dopt Opt_Static dflags) && (this_pkg /= rtsPackageId)
+   RtsLabel _           -> not (gopt Opt_Static dflags) && (this_pkg /= rtsPackageId)
 
    IdLabel n _ _        -> isDllName dflags this_pkg n
 
@@ -828,7 +827,7 @@ labelDynamic dflags this_pkg lbl =
    -- its own shared library.
    CmmLabel pkg _ _
     | os == OSMinGW32 ->
-       not (dopt Opt_Static dflags) && (this_pkg /= pkg)
+       not (gopt Opt_Static dflags) && (this_pkg /= pkg)
     | otherwise ->
        True
 
@@ -846,14 +845,14 @@ labelDynamic dflags this_pkg lbl =
             -- When compiling in the "dyn" way, each package is to be
             -- linked into its own DLL.
             ForeignLabelInPackage pkgId ->
-                (not (dopt Opt_Static dflags)) && (this_pkg /= pkgId)
+                (not (gopt Opt_Static dflags)) && (this_pkg /= pkgId)
 
        else -- On Mac OS X and on ELF platforms, false positives are OK,
             -- so we claim that all foreign imports come from dynamic
             -- libraries
             True
 
-   PlainModuleInitLabel m -> not (dopt Opt_Static dflags) && this_pkg /= (modulePackageId m)
+   PlainModuleInitLabel m -> not (gopt Opt_Static dflags) && this_pkg /= (modulePackageId m)
 
    -- Note that DynamicLinkerLabels do NOT require dynamic linking themselves.
    _                 -> False
@@ -991,10 +990,8 @@ pprCLbl (CaseLabel u (CaseAlt tag))
 pprCLbl (CaseLabel u CaseDefault)
   = hcat [pprUnique u, ptext (sLit "_dflt")]
 
-pprCLbl (SRTLabel mb_mod u)
-  = pp_mod <> pprUnique u <> pp_cSEP <> ptext (sLit "srt")
-  where pp_mod | Just mod <- mb_mod = ppr mod <> pp_cSEP
-               | otherwise          = empty
+pprCLbl (SRTLabel u)
+  = pprUnique u <> pp_cSEP <> ptext (sLit "srt")
 
 pprCLbl (LargeSRTLabel u)  = pprUnique u <> pp_cSEP <> ptext (sLit "srtd")
 pprCLbl (LargeBitmapLabel u)  = text "b" <> pprUnique u <> pp_cSEP <> ptext (sLit "btm")
@@ -1005,7 +1002,6 @@ pprCLbl (LargeBitmapLabel u)  = text "b" <> pprUnique u <> pp_cSEP <> ptext (sLi
 
 pprCLbl (CmmLabel _ str CmmCode)        = ftext str
 pprCLbl (CmmLabel _ str CmmData)        = ftext str
-pprCLbl (CmmLabel _ str CmmGcPtr)       = ftext str
 pprCLbl (CmmLabel _ str CmmPrimCall)    = ftext str
 
 pprCLbl (RtsLabel (RtsApFast str))   = ftext str <> ptext (sLit "_fast")
@@ -1049,6 +1045,9 @@ pprCLbl (CmmLabel _ fs CmmRetInfo)
 
 pprCLbl (CmmLabel _ fs CmmRet)
   = ftext fs <> ptext (sLit "_ret")
+
+pprCLbl (CmmLabel _ fs CmmClosure)
+  = ftext fs <> ptext (sLit "_closure")
 
 pprCLbl (RtsLabel (RtsPrimOp primop))
   = ptext (sLit "stg_") <> ppr primop

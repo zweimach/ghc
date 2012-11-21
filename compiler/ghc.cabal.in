@@ -173,7 +173,6 @@ Library
         CmmCallConv
         CmmCommonBlockElim
         CmmContFlowOpt
-        CmmCvt
         CmmExpr
         CmmInfo
         CmmLex
@@ -190,10 +189,6 @@ Library
         CmmUtils
         CmmLayoutStack
         MkGraph
-        OldCmm
-        OldCmmLint
-        OldCmmUtils
-        OldPprCmm
         PprBase
         PprC
         PprCmm
@@ -208,25 +203,6 @@ Library
         CodeGen.Platform.SPARC
         CodeGen.Platform.X86
         CodeGen.Platform.X86_64
-        CgBindery
-        CgCallConv
-        CgCase
-        CgClosure
-        CgCon
-        CgExpr
-        CgExtCode
-        CgForeignCall
-        CgHeapery
-        CgHpc
-        CgInfoTbls
-        CgLetNoEscape
-        CgMonad
-        CgParallel
-        CgPrimOp
-        CgProf
-        CgStackery
-        CgTailCall
-        CgTicky
         CgUtils
         StgCmm
         StgCmmBind
@@ -244,8 +220,7 @@ Library
         StgCmmProf
         StgCmmTicky
         StgCmmUtils
-        ClosureInfo
-        CodeGen
+        StgCmmExtCode
         SMRep
         CoreArity
         CoreFVs
@@ -364,7 +339,6 @@ Library
         SimplMonad
         SimplUtils
         Simplify
-        SRT
         SimplStg
         StgStats
         UnariseStg
@@ -484,6 +458,9 @@ Library
         Hoopl.Dataflow
         Hoopl
 
+--        CgInfoTbls used in ghci/DebuggerUtils
+--        CgHeapery  mkVirtHeapOffsets used in ghci
+
     Exposed-Modules:
             AsmCodeGen
             TargetReg
@@ -542,6 +519,7 @@ Library
             RegAlloc.Linear.StackMap
             RegAlloc.Linear.Base
             RegAlloc.Linear.X86.FreeRegs
+            RegAlloc.Linear.X86_64.FreeRegs
             RegAlloc.Linear.PPC.FreeRegs
             RegAlloc.Linear.SPARC.FreeRegs
 

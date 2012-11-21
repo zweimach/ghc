@@ -14,8 +14,9 @@ import LlvmCodeGen.Ppr
 import LlvmMangler
 
 import CgUtils ( fixStgRegisters )
-import OldCmm
-import OldPprCmm
+import Cmm
+import Hoopl
+import PprCmm
 
 import BufWrite
 import DynFlags
@@ -41,11 +42,12 @@ llvmCodeGen dflags h us cmms
         (cdata,env) = {-# SCC "llvm_split" #-}
                       foldr split ([], initLlvmEnv dflags) cmm
         split (CmmData s d' ) (d,e) = ((s,d'):d,e)
-        split p@(CmmProc _ l _) (d,e) =
-            let lbl = strCLabel_llvm env $ case topInfoTable p of
-                        Nothing                   -> l
-                        Just (Statics info_lbl _) -> info_lbl
-                env' = funInsert lbl (llvmFunTy dflags) e
+        split (CmmProc h l live g) (d,e) =
+            let lbl = strCLabel_llvm env $
+                        case mapLookup (g_entry g) h of
+                          Nothing                   -> l
+                          Just (Statics info_lbl _) -> info_lbl
+                env' = funInsert lbl (llvmFunTy dflags live) e
             in (d,env')
     in do
         showPass dflags "LlVM CodeGen"
@@ -129,9 +131,6 @@ cmmProcLlvmGens dflags h _ _ [] _ ivars
 cmmProcLlvmGens dflags h us env ((CmmData _ _) : cmms) count ivars
  = cmmProcLlvmGens dflags h us env cmms count ivars
 
-cmmProcLlvmGens dflags h us env ((CmmProc _ _ (ListGraph [])) : cmms) count ivars
- = cmmProcLlvmGens dflags h us env cmms count ivars
-
 cmmProcLlvmGens dflags h us env (cmm : cmms) count ivars = do
     (us', env', llvm) <- cmmLlvmGen dflags us (clearVars env) cmm
     let (docs, ivar) = mapAndUnzip (pprLlvmCmmDecl env' count) llvm
@@ -146,7 +145,7 @@ cmmLlvmGen :: DynFlags -> UniqSupply -> LlvmEnv -> RawCmmDecl
 cmmLlvmGen dflags us env cmm = do
     -- rewrite assignments to global regs
     let fixed_cmm = {-# SCC "llvm_fix_regs" #-}
-                    fixStgRegisters (targetPlatform dflags) cmm
+                    fixStgRegisters dflags cmm
 
     dumpIfSet_dyn dflags Opt_D_dump_opt_cmm "Optimised Cmm"
         (pprCmmGroup [fixed_cmm])

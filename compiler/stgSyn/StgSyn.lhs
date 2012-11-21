@@ -38,7 +38,7 @@ module StgSyn (
         isDllConApp,
         stgArgType,
 
-        pprStgBinding, pprStgBindings, pprStgBindingsWithSRTs,
+        pprStgBinding, pprStgBindings,
         pprStgLVs
     ) where
 
@@ -651,16 +651,6 @@ pprStgBinding  bind  = pprGenStgBinding bind
 pprStgBindings :: [StgBinding] -> SDoc
 pprStgBindings binds = vcat (map pprGenStgBinding binds)
 
-pprGenStgBindingWithSRT :: (OutputableBndr bndr, Outputable bdee, Ord bdee)
-                        => (GenStgBinding bndr bdee,[(Id,[Id])]) -> SDoc
-pprGenStgBindingWithSRT (bind,srts)
-  = vcat $ pprGenStgBinding bind : map pprSRT srts
-  where pprSRT (id,srt) =
-           ptext (sLit "SRT") <> parens (ppr id) <> ptext (sLit ": ") <> ppr srt
-
-pprStgBindingsWithSRTs :: [(StgBinding,[(Id,[Id])])] -> SDoc
-pprStgBindingsWithSRTs binds = vcat (map pprGenStgBindingWithSRT binds)
-
 instance (Outputable bdee) => Outputable (GenStgArg bdee) where
     ppr = pprStgArg
 
@@ -810,7 +800,7 @@ pprStgRhs (StgRhsClosure cc bi [free_var] upd_flag srt [{-no args-}] (StgApp fun
 -- general case
 pprStgRhs (StgRhsClosure cc bi free_vars upd_flag srt args body)
   = sdocWithDynFlags $ \dflags ->
-    hang (hsep [if dopt Opt_SccProfilingOn dflags then ppr cc else empty,
+    hang (hsep [if gopt Opt_SccProfilingOn dflags then ppr cc else empty,
                 pp_binder_info bi,
                 ifPprDebug (brackets (interppSP free_vars)),
                 char '\\' <> ppr upd_flag, pprMaybeSRT srt, brackets (interppSP args)])

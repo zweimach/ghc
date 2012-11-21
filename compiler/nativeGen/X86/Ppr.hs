@@ -34,7 +34,8 @@ import PprBase
 
 import BlockId
 import BasicTypes       (Alignment)
-import OldCmm
+import DynFlags
+import Cmm              hiding (topInfoTable)
 import CLabel
 import Unique           ( pprUnique, Uniquable(..) )
 import Platform
@@ -52,7 +53,7 @@ pprNatCmmDecl :: NatCmmDecl (Alignment, CmmStatics) Instr -> SDoc
 pprNatCmmDecl (CmmData section dats) =
   pprSectionHeader section $$ pprDatas dats
 
-pprNatCmmDecl proc@(CmmProc top_info lbl (ListGraph blocks)) =
+pprNatCmmDecl proc@(CmmProc top_info lbl _ (ListGraph blocks)) =
   case topInfoTable proc of
     Nothing ->
        case blocks of
@@ -419,12 +420,13 @@ pprSectionHeader seg
 
 
 pprDataItem :: CmmLit -> SDoc
-pprDataItem lit = sdocWithPlatform $ \platform -> pprDataItem' platform lit
+pprDataItem lit = sdocWithDynFlags $ \dflags -> pprDataItem' dflags lit
 
-pprDataItem' :: Platform -> CmmLit -> SDoc
-pprDataItem' platform lit
-  = vcat (ppr_item (cmmTypeSize $ cmmLitType lit) lit)
+pprDataItem' :: DynFlags -> CmmLit -> SDoc
+pprDataItem' dflags lit
+  = vcat (ppr_item (cmmTypeSize $ cmmLitType dflags lit) lit)
     where
+        platform = targetPlatform dflags
         imm = litToImm lit
 
         -- These seem to be common:

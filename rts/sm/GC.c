@@ -109,6 +109,12 @@ static W_ g0_pcnt_kept = 30; // percentage of g0 live at last minor GC
 nat mutlist_MUTVARS,
     mutlist_MUTARRS,
     mutlist_MVARS,
+    mutlist_TVAR,
+    mutlist_TVAR_WATCH_QUEUE,
+    mutlist_TREC_CHUNK,
+    mutlist_TREC_HEADER,
+    mutlist_ATOMIC_INVARIANT,
+    mutlist_INVARIANT_CHECK_QUEUE,
     mutlist_OTHERS;
 #endif
 
@@ -218,6 +224,13 @@ GarbageCollect (nat collect_gen,
 #ifdef DEBUG
   mutlist_MUTVARS = 0;
   mutlist_MUTARRS = 0;
+  mutlist_MVARS = 0;
+  mutlist_TVAR = 0;
+  mutlist_TVAR_WATCH_QUEUE = 0;
+  mutlist_TREC_CHUNK = 0;
+  mutlist_TREC_HEADER = 0;
+  mutlist_ATOMIC_INVARIANT = 0;
+  mutlist_INVARIANT_CHECK_QUEUE = 0;
   mutlist_OTHERS = 0;
 #endif
 
@@ -290,7 +303,7 @@ GarbageCollect (nat collect_gen,
 
   // gather blocks allocated using allocatePinned() from each capability
   // and put them on the g0->large_object list.
-  collect_pinned_object_blocks();
+  allocated += collect_pinned_object_blocks();
 
   // Initialise all the generations/steps that we're collecting.
   for (g = 0; g <= N; g++) {
@@ -404,6 +417,10 @@ GarbageCollect (nat collect_gen,
       break;
   }
 
+  if (!DEBUG_IS_ON && n_gc_threads != 1) {
+      gct->allocated = clearNursery(cap);
+  }
+
   shutdown_gc_threads(gct->thread_index);
 
   // Now see which stable names are still alive.
@@ -495,9 +512,14 @@ GarbageCollect (nat collect_gen,
 	copied +=  mut_list_size;
 
 	debugTrace(DEBUG_gc,
-		   "mut_list_size: %lu (%d vars, %d arrays, %d MVARs, %d others)",
+		   "mut_list_size: %lu (%d vars, %d arrays, %d MVARs, %d TVARs, %d TVAR_WATCH_QUEUEs, %d TREC_CHUNKs, %d TREC_HEADERs, %d ATOMIC_INVARIANTs, %d INVARIANT_CHECK_QUEUEs, %d others)",
 		   (unsigned long)(mut_list_size * sizeof(W_)),
-		   mutlist_MUTVARS, mutlist_MUTARRS, mutlist_MVARS, mutlist_OTHERS);
+                   mutlist_MUTVARS, mutlist_MUTARRS, mutlist_MVARS,
+                   mutlist_TVAR, mutlist_TVAR_WATCH_QUEUE,
+                   mutlist_TREC_CHUNK, mutlist_TREC_HEADER,
+                   mutlist_ATOMIC_INVARIANT,
+                   mutlist_INVARIANT_CHECK_QUEUE,
+                   mutlist_OTHERS);
     }
 
     bdescr *next, *prev;
@@ -574,6 +596,7 @@ GarbageCollect (nat collect_gen,
         freeChain(gen->large_objects);
         gen->large_objects  = gen->scavenged_large_objects;
         gen->n_large_blocks = gen->n_scavenged_large_blocks;
+        gen->n_large_words  = countOccupied(gen->large_objects);
         gen->n_new_large_words = 0;
     }
     else // for generations > N
@@ -585,13 +608,15 @@ GarbageCollect (nat collect_gen,
 	for (bd = gen->scavenged_large_objects; bd; bd = next) {
             next = bd->link;
             dbl_link_onto(bd, &gen->large_objects);
-	}
+            gen->n_large_words += bd->free - bd->start;
+        }
         
 	// add the new blocks we promoted during this GC 
 	gen->n_large_blocks += gen->n_scavenged_large_blocks;
     }
 
     ASSERT(countBlocks(gen->large_objects) == gen->n_large_blocks);
+    ASSERT(countOccupied(gen->large_objects) == gen->n_large_words);
 
     gen->scavenged_large_objects = NULL;
     gen->n_scavenged_large_blocks = 0;
@@ -631,14 +656,20 @@ GarbageCollect (nat collect_gen,
   }
 
   // Reset the nursery: make the blocks empty
-  if (n_gc_threads == 1) {
+  if (DEBUG_IS_ON || n_gc_threads == 1) {
       for (n = 0; n < n_capabilities; n++) {
           allocated += clearNursery(&capabilities[n]);
       }
   } else {
-      gct->allocated = clearNursery(cap);
+      // When doing parallel GC, clearNursery() is called by the
+      // worker threads, and the value returned is stored in
+      // gct->allocated.
       for (n = 0; n < n_capabilities; n++) {
-          allocated += gc_threads[n]->allocated;
+          if (gc_threads[n]->idle) {
+              allocated += clearNursery(&capabilities[n]);
+          } else {
+              allocated += gc_threads[n]->allocated;
+          }
       }
   }
 
@@ -1061,7 +1092,9 @@ gcWorkerThread (Capability *cap)
 
     scavenge_until_all_done();
     
-    gct->allocated = clearNursery(cap);
+    if (!DEBUG_IS_ON) {
+        gct->allocated = clearNursery(cap);
+    }
 
 #ifdef THREADED_RTS
     // Now that the whole heap is marked, we discard any sparks that
