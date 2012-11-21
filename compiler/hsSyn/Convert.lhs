@@ -257,6 +257,7 @@ cvtDec (TySynInstD tc tys rhs)
                                         , tfie_rhs = rhs' }
 	; returnL $ InstD $ TyFamInstD 
             { tfid_inst = TyFamInstDecl { tfid_eqns = [eqn]
+                                        , tfid_group = False
                                         , tfid_fvs = placeHolderNames } }}
 
 ----------------

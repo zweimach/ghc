@@ -1417,17 +1417,19 @@ instance Binary IfaceClsInst where
         return (IfaceClsInst cls tys dfun flag orph)
 
 instance Binary IfaceFamInst where
-    put_ bh (IfaceFamInst fam tys name orph) = do
+    put_ bh (IfaceFamInst fam group tys name orph) = do
         put_ bh fam
+        put_ bh group
         put_ bh tys
         put_ bh name
         put_ bh orph
     get bh = do
         fam      <- get bh
+        group    <- get bh
         tys      <- get bh
         name     <- get bh
         orph     <- get bh
-        return (IfaceFamInst fam tys name orph)
+        return (IfaceFamInst fam group tys name orph)
 
 instance Binary OverlapFlag where
     put_ bh (NoOverlap  b) = putByte bh 0 >> put_ bh b

@@ -550,9 +550,11 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
 rnTyFamInstDecl :: Maybe (Name, [Name])
                 -> TyFamInstDecl RdrName
                 -> RnM (TyFamInstDecl Name, FreeVars)
-rnTyFamInstDecl mb_cls (TyFamInstDecl { tfid_eqns = eqns })
+rnTyFamInstDecl mb_cls (TyFamInstDecl { tfid_eqns = eqns, tfid_group = group })
   = do { (eqns', fvs) <- rnList (rnTyFamInstEqn mb_cls) eqns
-       ; return (TyFamInstDecl { tfid_eqns = eqns', tfid_fvs = fvs }, fvs) }
+       ; return (TyFamInstDecl { tfid_eqns = eqns'
+                               , tfid_group = group
+                               , tfid_fvs = fvs }, fvs) }
 
 rnTyFamInstEqn :: Maybe (Name, [Name])
                -> TyFamInstEqn RdrName

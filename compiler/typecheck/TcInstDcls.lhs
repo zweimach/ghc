@@ -588,7 +588,7 @@ tcFamInstDeclCombined top_lvl fam_tc_lname
 
 tcTyFamInstDecl :: TyCon -> LTyFamInstDecl Name -> TcM FamInst
   -- "type instance"
-tcTyFamInstDecl fam_tc (L loc decl)
+tcTyFamInstDecl fam_tc (L loc decl@(TyFamInstDecl { tfid_group = group }))
   = do { -- (1) do the work of verifying the synonym group
        ; quads <- tcSynFamInstDecl fam_tc decl
 
@@ -604,7 +604,7 @@ tcTyFamInstDecl fam_tc (L loc decl)
        ; foldlM_ check_inaccessible_branches [] (map fst fam_inst_branches)
 
          -- now, build the FamInstGroup
-       ; return $ mkSynFamInst rep_tc_name fam_tc fam_inst_branches }
+       ; return $ mkSynFamInst rep_tc_name fam_tc group fam_inst_branches }
 
     where check_valid_mk_branch :: ([TyVar], [Type], Type, SrcSpan)
                                 -> TcM (FamInstBranch, CoAxBranch)
@@ -613,16 +613,16 @@ tcTyFamInstDecl fam_tc (L loc decl)
               do { -- check the well-formedness of the instance
                    checkValidFamInst t_typats t_rhs
 
-                 ; return $ mkSynFamInstBranch fam_tc t_tvs t_typats t_rhs }
+                 ; return $ mkSynFamInstBranch loc t_tvs t_typats t_rhs }
 
           check_inaccessible_branches :: [FamInstBranch]     -- previous
                                       -> FamInstBranch       -- current
                                       -> TcM [FamInstBranch] -- current : previous
           check_inaccessible_branches prev_branches
                                       cur_branch@(FamInstBranch { fib_lhs = tys })
-            = setSrcSpan (getSrcSpan cur_branch) $
+            = setSrcSpan (famInstBranchSpan cur_branch) $
               do { when (tys `isDominatedBy` prev_branches) $
-                        addErrTc $ inaccessibleFamInstBranch cur_branch
+                        addErrTc $ inaccessibleFamInstBranch fam_tc cur_branch
                  ; return $ cur_branch : prev_branches }
 
           get_typats = map (\(_, tys, _, _) -> tys)
@@ -1502,8 +1502,9 @@ badFamInstDecl tc_name
            quotes (ppr tc_name)
          , nest 2 (parens $ ptext (sLit "Use -XTypeFamilies to allow indexed type families")) ]
 
-inaccessibleFamInstBranch :: FamInstBranch -> SDoc
-inaccessibleFamInstBranch fi
-  = ptext (sLit "Inaccessible family instance equation:") $$ (ppr fi)
+inaccessibleFamInstBranch :: TyCon -> FamInstBranch -> SDoc
+inaccessibleFamInstBranch tc fi
+  = ptext (sLit "Inaccessible family instance equation:") $$
+      (pprFamInstBranch tc fi)
 
 \end{code}

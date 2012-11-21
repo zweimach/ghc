@@ -839,8 +839,11 @@ data TyFamInstEqn name
 type LTyFamInstDecl name = Located (TyFamInstDecl name)
 data TyFamInstDecl name 
   = TyFamInstDecl
-       { tfid_eqns  :: [LTyFamInstEqn name] -- ^ list (possibly 1) of (possibly-overlapping) eqns 
-       , tfid_fvs   :: NameSet }          -- the group is type-checked as one, so one NameSet will do
+       { tfid_eqns     :: [LTyFamInstEqn name] -- ^ list of (possibly-overlapping) eqns 
+       , tfid_group :: Bool                  -- was this declared with the "where" syntax?
+       , tfid_fvs      :: NameSet }          -- the group is type-checked as one,
+                                             -- so one NameSet will do
+               -- INVARIANT: tfid_group == False --> length tfid_eqns == 1
   deriving( Typeable, Data )
 
 type LDataFamInstDecl name = Located (DataFamInstDecl name)
@@ -908,12 +911,9 @@ It is not possible for this list to have 0 elements --
 
 \begin{code}
 instance (OutputableBndr name) => Outputable (TyFamInstDecl name) where
-  ppr (TyFamInstDecl { tfid_eqns = [] }) -- can't have an empty list of eqns
-    = pprPanic "pprTyFamInstDecl" empty
-  ppr (TyFamInstDecl { tfid_eqns = [lEqn] })
+  ppr (TyFamInstDecl { tfid_group = False, tfid_eqns = [lEqn] })
     = let eqn = unLoc lEqn in
         ptext (sLit "type instance") <+> (ppr eqn)
-
   ppr (TyFamInstDecl { tfid_eqns = eqns })
     = hang (ptext (sLit "type instance where"))
         2 (vcat (map ppr eqns))

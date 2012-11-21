@@ -191,13 +191,15 @@ mkTyFamInst :: SrcSpan
             -> LTyFamInstEqn RdrName
             -> P (LTyFamInstDecl RdrName)
 mkTyFamInst loc eqn
-  = return (L loc (TyFamInstDecl { tfid_eqns = [eqn]
-                                 , tfid_fvs  = placeHolderNames }))
+  = return (L loc (TyFamInstDecl { tfid_eqns  = [eqn]
+                                 , tfid_group = False
+                                 , tfid_fvs   = placeHolderNames }))
 
 mkTyFamInstGroup :: [LTyFamInstEqn RdrName]
                  -> TyFamInstDecl RdrName
-mkTyFamInstGroup eqns = TyFamInstDecl { tfid_eqns = eqns
-                                      , tfid_fvs  = placeHolderNames }
+mkTyFamInstGroup eqns = TyFamInstDecl { tfid_eqns  = eqns
+                                      , tfid_group = True
+                                      , tfid_fvs   = placeHolderNames }
 
 mkFamDecl :: SrcSpan
           -> FamilyFlavour

@@ -1643,10 +1643,12 @@ instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag,
 --------------------------
 famInstToIfaceFamInst :: FamInst -> IfaceFamInst
 famInstToIfaceFamInst (FamInst { fi_axiom    = axiom,
+                                 fi_group    = group,
                                  fi_fam      = fam,
                                  fi_branches = branches })
   = IfaceFamInst { ifFamInstAxiom = coAxiomName axiom
                  , ifFamInstFam   = fam
+                 , ifFamInstGroup = group
                  , ifFamInstTys   = map (map do_rough) roughs
                  , ifFamInstOrph  = orph }
   where
