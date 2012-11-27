@@ -87,7 +87,6 @@ import Encoding
 import FastString
 import ListSetOps
 import Util
-import Data.List ( intercalate )
 import Data.IORef
 import Data.List
 \end{code}

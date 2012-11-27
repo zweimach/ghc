@@ -50,6 +50,8 @@ import PrelNames
 import Outputable
 import FastString
 import Util
+import Unify
+import InstEnv ( instanceBindFun )
 import Control.Monad
 import MonadUtils
 import Data.Maybe
@@ -385,6 +387,30 @@ kind coercions and produce the following substitution which is to be
 applied in the type variables:
   k_ag   ~~>   * -> *
 
+Note [Conflict checking with AxiomInstCo]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider the following type family and axiom:
+
+type family Equal (a :: k) (b :: k) :: Bool
+type instance where
+  Equal a a = True
+  Equal a b = False
+--
+Equal :: forall k::BOX. k -> k -> Bool
+axEqual :: { forall k::BOX. forall a::k. Equal k a a ~ True
+           ; forall k::BOX. forall a::k. forall b::k. Equal k a b ~ False }
+
+We wish to disallow (axEqual[1] <*> <Int> <Int). (Recall that the index is 0-based,
+so this is the second branch of the axiom.) The problem is that, on the surface, it
+seems that (axEqual[1] <*> <Int> <Int>) :: (Equal * Int Int ~ False) and that all is
+OK. But, all is not OK: we want to use the first branch of the axiom in this case,
+not the second. The problem is that the parameters of the first branch can unify with
+the supplied coercions, thus meaning that the first branch should be taken. See also
+Note [Instance checking within groups] in types/FamInstEnv.lhs.
+
+However, if the right-hand side of the previous branch coincides with the right-hand
+side of the selected branch, we wish to accept the AxiomInstCo. See also Note
+[Confluence checking within groups], also in types/FamInstEnv.lhs.
 
 %************************************************************************
 %*									*
@@ -863,10 +889,11 @@ lintCoercion (InstCo co arg_ty)
             -> failWithL (ptext (sLit "Kind mis-match in inst coercion"))
 	  _ -> failWithL (ptext (sLit "Bad argument of inst")) }
 
--- TODO (RAE): fix this
 lintCoercion co@(AxiomInstCo con ind cos)
-  = do {  -- See Note [Kind instantiation in coercions]
-         let CoAxBranch { cab_tvs = ktvs
+  = do { unless (0 <= ind && ind < length (coAxiomBranches con))
+                (bad_ax (ptext (sLit "index out of range")))
+         -- See Note [Kind instantiation in coercions]
+       ; let CoAxBranch { cab_tvs = ktvs
                         , cab_lhs = lhs
                         , cab_rhs = rhs } = coAxiomNthBranch con ind
        ; unless (equalLength ktvs cos) (bad_ax (ptext (sLit "lengths")))
@@ -875,12 +902,32 @@ lintCoercion co@(AxiomInstCo con ind cos)
        ; (subst_l, subst_r) <- foldlM check_ki 
                                       (empty_subst, empty_subst) 
                                       (ktvs `zip` cos)
+       ; case check_no_conflict lhs rhs (ind - 1) subst_l subst_r of
+           Just bad_index -> bad_ax $ ptext (sLit "inconsistent with") <+> (ppr bad_index)
+           Nothing -> return ()
        ; let lhs' = Type.substTy subst_l (mkTyConApp (coAxiomTyCon con) lhs)
              rhs' = Type.substTy subst_r rhs
        ; return (typeKind lhs', lhs', rhs') }
   where
     bad_ax what = addErrL (hang (ptext (sLit "Bad axiom application") <+> parens what)
                         2 (ppr co))
+
+      -- See Note [Conflict checking with AxiomInstCo]
+    check_no_conflict :: [Type] -> Type -> Int -> TvSubst -> TvSubst -> Maybe Int
+    check_no_conflict _ _ (-1) _ _ = Nothing
+    check_no_conflict lhs rhs j subst_l subst_r
+      = let rest_no_conflict = check_no_conflict lhs rhs (j-1) subst_l subst_r in
+        case tcApartTys instanceBindFun (Type.substTys subst_l lhs) lhsj of
+          NotApart subst ->
+            if not ((Type.substTy subst rhsj) `eqType`
+                    (Type.substTy subst (Type.substTy subst_r rhs)))
+            then Just j
+            else rest_no_conflict
+          MaybeApart -> Just j -- there is a type family application
+          SurelyApart -> rest_no_conflict
+      where
+        (CoAxBranch { cab_lhs = lhsj
+                    , cab_rhs = rhsj }) = coAxiomNthBranch con j
 
     check_ki (subst_l, subst_r) (ktv, co)
       = do { (k, t1, t2) <- lintCoercion co

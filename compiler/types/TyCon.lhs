@@ -15,7 +15,7 @@ module TyCon(
         SynTyConRhs(..), 
 
         -- ** Coercion axiom constructors
-        CoAxiom(..), CoAxBranch(..), coAxiomPatternArity,
+        CoAxiom(..), CoAxBranch(..), 
         coAxiomName, coAxiomArity, coAxiomBranches,
         coAxiomTyCon, isImplicitCoAxiom,
         coAxiomNthBranch, coAxiomSingleBranch_maybe,
@@ -729,7 +729,6 @@ data CoAxiom
   = CoAxiom                   -- Type equality axiom.
     { co_ax_unique   :: Unique       -- unique identifier
     , co_ax_name     :: Name         -- name for pretty-printing
-    , co_ax_arity    :: Arity        -- number of patterns in each alternative
     , co_ax_tc       :: TyCon        -- the head of the LHS patterns
     , co_ax_branches :: [CoAxBranch] -- the branches that form this axiom
     , co_ax_implicit :: Bool         -- True <=> the axiom is "implicit"
@@ -745,9 +744,6 @@ data CoAxBranch
     , cab_rhs      :: Type         -- right-hand side of the equality
     }
   deriving Typeable
-
-coAxiomPatternArity :: CoAxiom -> Arity
-coAxiomPatternArity = co_ax_arity
 
 coAxiomNthBranch :: CoAxiom -> Int -> CoAxBranch
 coAxiomNthBranch ax index

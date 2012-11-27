@@ -699,7 +699,6 @@ mkNewTypeCo name tycon tvs rhs_ty
   = CoAxiom { co_ax_unique   = nameUnique name
             , co_ax_name     = name
             , co_ax_implicit = True  -- See Note [Implicit axioms] in TyCon
-            , co_ax_arity    = length tvs
             , co_ax_tc       = tycon
             , co_ax_branches = [branch] }
   where branch = CoAxBranch { cab_tvs = tvs

@@ -16,7 +16,10 @@ module FamInstEnv (
 	mkSynFamInst, mkSynFamInstBranch, mkSingleSynFamInst,
         mkDataFamInst, mkImportedFamInst,
 
-        lookupFamInstEnv, lookupFamInstEnvConflicts, lookupFamInstEnvConflicts',
+        FamInstEnv, FamInstEnvs,
+        emptyFamInstEnvs, emptyFamInstEnv, famInstEnvElts, familyInstances,
+        extendFamInstEnvList, extendFamInstEnv, deleteFromFamInstEnv,
+        identicalFamInst,
 
         FamInstMatch(..),
 	lookupFamInstEnv, lookupFamInstEnvConflicts, lookupFamInstEnvConflicts',
@@ -108,7 +111,6 @@ data FamInst  -- See Note [FamInsts and CoAxioms]
                                              -- by this family instance
             , fi_flavor   :: FamFlavor
             , fi_group    :: Bool            -- True <=> declared with "type instance where"
-                -- INVARIANT: not fi_group implies co_ax_arity (fi_axiom) == 1.
 
             -- Everything below here is a redundant,
             -- cached version of the two things above
@@ -290,8 +292,6 @@ mkSynFamInst name fam_tc group branches
   where
     axiom = CoAxiom { co_ax_unique   = nameUnique name
                     , co_ax_name     = name
-                    , co_ax_arity    =
-                        length (famInstBranchLHS $ fst $ head branches)
                     , co_ax_tc       = fam_tc
                     , co_ax_implicit = False
                     , co_ax_branches = snd $ unzip branches }
@@ -320,7 +320,6 @@ mkSingleSynFamInst name tvs fam_tc inst_tys rep_ty
                            , fib_tcs    = roughMatchTcs inst_tys }
     axiom = CoAxiom { co_ax_unique   = nameUnique name
                     , co_ax_name     = name
-                    , co_ax_arity    = length inst_tys
                     , co_ax_tc       = fam_tc
                     , co_ax_implicit = False
                     , co_ax_branches = [axBranch] }
@@ -356,7 +355,6 @@ mkDataFamInst name tvs fam_tc inst_tys rep_tc
 
     axiom = CoAxiom { co_ax_unique   = nameUnique name
                     , co_ax_name     = name
-                    , co_ax_arity    = length inst_tys
                     , co_ax_tc       = fam_tc
                     , co_ax_branches = [axBranch]
                     , co_ax_implicit = False }
@@ -664,7 +662,7 @@ lookupFamInstEnv
         case tcMatchTys tpl_tvs tpl_tys match_tys of
           -- success
           Just subst
-            | checkUnify seen match_tys subst branch
+            | checkConflict seen match_tys subst branch
             -> (Nothing, StopSearching) -- we found an incoherence, so stop searching
             -- see Note [Early failure optimisation for instance groups]
 
@@ -675,24 +673,25 @@ lookupFamInstEnv
           Nothing -> (Nothing, KeepSearching) 
     
     -- see Note [Instance checking within groups]
-    checkUnify :: [FamInstBranch] -- the previous branches in the instance that matched
-               -> [Type]          -- the types in the tyfam application we are matching
-               -> TvSubst         -- the subst witnessing the match between those types and...
-               -> FamInstBranch   -- ...this FamInstBranch
-               -> Bool            -- is there a conflicting unification?
-    checkUnify [] _ _ _ = False
-    checkUnify ((FamInstBranch { fib_lhs = tpl_tys
-                               , fib_rhs = inner_rhs }) : rest)
+    checkConflict :: [FamInstBranch] -- the previous branches in the instance that matched
+                  -> [Type]          -- the types in the tyfam application we are matching
+                  -> TvSubst         -- the subst witnessing the match between those types and...
+                  -> FamInstBranch   -- ...this FamInstBranch
+                  -> Bool            -- is there a conflict?
+    checkConflict [] _ _ _ = False
+    checkConflict ((FamInstBranch { fib_lhs = tpl_tys
+                                  , fib_rhs = inner_rhs }) : rest)
                match_tys outer_subst
                outer_branch@(FamInstBranch { fib_rhs = outer_rhs })
-      = let rest_unify = checkUnify rest match_tys outer_subst outer_branch in
-        case tcUnifyTys instanceBindFun tpl_tys match_tys of
-          Just inner_subst -> -- see Note [Confluence checking within groups]
+      = let rest_apart = checkConflict rest match_tys outer_subst outer_branch in
+        case tcApartTys instanceBindFun tpl_tys match_tys of
+          NotApart inner_subst -> -- see Note [Confluence checking within groups]
             let outer_rhs' = substTy inner_subst $
                              substTy outer_subst outer_rhs
                 inner_rhs' = substTy inner_subst inner_rhs in
-            not (outer_rhs' `eqType` inner_rhs') || rest_unify
-          Nothing -> rest_unify
+            not (outer_rhs' `eqType` inner_rhs') || rest_apart
+          MaybeApart -> True -- there is a type family application involved; it might unify later
+          SurelyApart -> rest_apart
 
 lookupFamInstEnvConflicts
     :: FamInstEnvs
@@ -757,7 +756,7 @@ checking case, the search is for a unifier for a putative new instance branch.
 
 The two uses are differentiated by different MatchFuns, which look at a given
 branch to see if it is relevant and whether the search should continue. The
-the branch is relevant (i.e. matches or unifies), Just <something> is
+the branch is relevant (i.e. matches or unifies), Just subst is
 returned; if the instance is not relevant, Nothing is returned. The MatchFun
 also indicates what the search algorithm should do next: it could
 KeepSearching or StopSearching.

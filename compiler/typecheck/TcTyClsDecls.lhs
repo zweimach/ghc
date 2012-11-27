@@ -472,7 +472,7 @@ kcTyClDecl decl@(SynDecl {}) = pprPanic "kcTyClDecl" (ppr decl)
 
 kcTyClDecl (ClassDecl { tcdLName = L _ name, tcdTyVars = hs_tvs
                        , tcdCtxt = ctxt, tcdSigs = sigs })
-  = kcTyClTyVars name hs_tvs
+  = kcTyClTyVars name hs_tvs $
     do	{ _ <- tcHsContext ctxt
 	; mapM_ (wrapLocM kc_sig)     sigs }
   where

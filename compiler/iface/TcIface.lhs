@@ -548,8 +548,6 @@ tc_iface_decl _ _ (IfaceAxiom {ifName = ax_occ, ifTyCon = tc, ifAxBranches = bra
        ; tc_branches <- mapM tc_branch branches
        ; let axiom = CoAxiom { co_ax_unique   = nameUnique tc_name
                              , co_ax_name     = tc_name
-                             , co_ax_arity    = ASSERT( length branches >= 1 )
-                                                length (ifaxbLHS (head branches))
                              , co_ax_tc       = tc_tycon
                              , co_ax_branches = tc_branches
                              , co_ax_implicit = False }
