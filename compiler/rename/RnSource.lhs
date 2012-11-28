@@ -434,7 +434,7 @@ rnClsInstDecl :: ClsInstDecl RdrName -> RnM (ClsInstDecl Name, FreeVars)
 rnClsInstDecl (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = mbinds
                            , cid_sigs = uprags, cid_tyfam_insts = ats
                            , cid_datafam_insts = adts })
-	-- Used for both source and interface file decls
+        -- Used for both source and interface file decls
   = do { (inst_ty', inst_fvs) <- rnLHsInstType (text "In an instance declaration") inst_ty
        ; case splitLHsInstDeclTy_maybe inst_ty' of {
            Nothing -> return (ClsInstDecl { cid_poly_ty = inst_ty', cid_binds = emptyLHsBinds
@@ -478,11 +478,11 @@ rnClsInstDecl (ClsInstDecl { cid_poly_ty = inst_ty, cid_binds = mbinds
        ; let uprags' = spec_inst_prags' ++ other_sigs'
              all_fvs = meth_fvs `plusFV` more_fvs
                           `plusFV` spec_inst_fvs
-		      	  `plusFV` inst_fvs
+                          `plusFV` inst_fvs
        ; return (ClsInstDecl { cid_poly_ty = inst_ty', cid_binds = mbinds'
                              , cid_sigs = uprags', cid_tyfam_insts = ats'
                              , cid_datafam_insts = adts' },
-	         all_fvs) } } }
+                 all_fvs) } } }
              -- We return the renamed associated data type declarations so
              -- that they can be entered into the list of type declarations
              -- for the binding group, but we also keep a copy in the instance.
@@ -518,8 +518,8 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
        ; ((pats', payload'), fvs) 
               <- bindLocalNamesFV kv_names $ 
                  bindLocalNamesFV tv_names $ 
-    	 	 do { (pats', pat_fvs) <- rnLHsTypes doc pats
-    		    ; (payload', rhs_fvs) <- rnPayload doc payload
+                 do { (pats', pat_fvs) <- rnLHsTypes doc pats
+                    ; (payload', rhs_fvs) <- rnPayload doc payload
 
                          -- See Note [Renaming associated types]
                     ; let bad_tvs = case mb_cls of
@@ -536,7 +536,7 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
                  HsWB { hswb_cts = pats', hswb_kvs = kv_names, hswb_tvs = tv_names },
                  payload',
                  all_fvs) }
-       	     -- type instance => use, hence addOneFV
+             -- type instance => use, hence addOneFV
 
 rnTyFamInstDecl :: Maybe (Name, [Name])
                 -> TyFamInstDecl RdrName
@@ -935,26 +935,26 @@ rnTyClDecl (DataDecl { tcdLName = tycon, tcdTyVars = tyvars, tcdDataDefn = defn 
                           , tcdDataDefn = defn', tcdFVs = fvs }, fvs) }
 
 rnTyClDecl (ClassDecl {tcdCtxt = context, tcdLName = lcls, 
-		              tcdTyVars = tyvars, tcdFDs = fds, tcdSigs = sigs, 
-		              tcdMeths = mbinds, tcdATs = ats, tcdATDefs = at_defs,
+                              tcdTyVars = tyvars, tcdFDs = fds, tcdSigs = sigs, 
+                              tcdMeths = mbinds, tcdATs = ats, tcdATDefs = at_defs,
                               tcdDocs = docs})
   = do  { lcls' <- lookupLocatedTopBndrRn lcls
         ; let cls' = unLoc lcls'
               kvs = []  -- No scoped kind vars except those in
                         -- kind signatures on the tyvars
 
-	-- Tyvars scope over superclass context and method signatures
-	; ((tyvars', context', fds', ats', at_defs', sigs'), stuff_fvs)
-	    <- bindHsTyVars cls_doc Nothing kvs tyvars $ \ tyvars' -> do
-         	 -- Checks for distinct tyvars
-	     { (context', cxt_fvs) <- rnContext cls_doc context
-	     ; fds'  <- rnFds (docOfHsDocContext cls_doc) fds
-			 -- The fundeps have no free variables
+        -- Tyvars scope over superclass context and method signatures
+        ; ((tyvars', context', fds', ats', at_defs', sigs'), stuff_fvs)
+            <- bindHsTyVars cls_doc Nothing kvs tyvars $ \ tyvars' -> do
+                  -- Checks for distinct tyvars
+             { (context', cxt_fvs) <- rnContext cls_doc context
+             ; fds'  <- rnFds (docOfHsDocContext cls_doc) fds
+                         -- The fundeps have no free variables
              ; (ats',     fv_ats)     <- rnATDecls cls' tyvars' ats
              ; (at_defs', fv_at_defs) <- rnATInstDecls rnTyFamInstDecl cls' tyvars' at_defs
-	     ; (sigs', sig_fvs) <- renameSigs (ClsDeclCtxt cls') sigs
-	     ; let fvs = cxt_fvs     `plusFV`
-	                 sig_fvs     `plusFV`
+             ; (sigs', sig_fvs) <- renameSigs (ClsDeclCtxt cls') sigs
+             ; let fvs = cxt_fvs     `plusFV`
+                         sig_fvs     `plusFV`
                          fv_ats      `plusFV`
                          fv_at_defs
              ; return ((tyvars', context', fds', ats', at_defs', sigs'), fvs) }
@@ -1005,8 +1005,8 @@ rnTySyn doc rhs = rnLHsType doc rhs
 rnDataDefn :: HsDocContext -> HsDataDefn RdrName -> RnM (HsDataDefn Name, FreeVars)
 rnDataDefn doc (HsDataDefn { dd_ND = new_or_data, dd_cType = cType
                            , dd_ctxt = context, dd_cons = condecls 
-	                   , dd_kindSig = sig, dd_derivs = derivs })
-  = do	{ checkTc (h98_style || null (unLoc context)) 
+                           , dd_kindSig = sig, dd_derivs = derivs })
+  = do  { checkTc (h98_style || null (unLoc context)) 
                   (badGadtStupidTheta doc)
 
         ; (sig', sig_fvs)  <- rnLHsMaybeKind doc sig
@@ -1026,9 +1026,9 @@ rnDataDefn doc (HsDataDefn { dd_ND = new_or_data, dd_cType = cType
 
         ; let all_fvs = fvs1 `plusFV` fvs3 `plusFV`
                         con_fvs `plusFV` sig_fvs
-	; return ( HsDataDefn { dd_ND = new_or_data, dd_cType = cType
+        ; return ( HsDataDefn { dd_ND = new_or_data, dd_cType = cType
                               , dd_ctxt = context', dd_kindSig = sig'
-			      , dd_cons = condecls', dd_derivs = derivs' }
+                              , dd_cons = condecls', dd_derivs = derivs' }
                  , all_fvs )
         }
   where
@@ -1038,12 +1038,12 @@ rnDataDefn doc (HsDataDefn { dd_ND = new_or_data, dd_cType = cType
 
     rn_derivs Nothing   = return (Nothing, emptyFVs)
     rn_derivs (Just ds) = do { (ds', fvs) <- rnLHsTypes doc ds
-			     ; return (Just ds', fvs) }
+                             ; return (Just ds', fvs) }
 
 badGadtStupidTheta :: HsDocContext -> SDoc
 badGadtStupidTheta _
   = vcat [ptext (sLit "No context is allowed on a GADT-style data declaration"),
-	  ptext (sLit "(You can put a context on each contructor, though.)")]
+          ptext (sLit "(You can put a context on each contructor, though.)")]
 
 rnFamDecl :: Maybe (Name, [Name])
                     -- Just (cls,tvs) => this FamilyDecl is nested 
@@ -1293,7 +1293,7 @@ extendRecordFieldEnv tycl_decls inst_decls
 
     all_data_cons :: [ConDecl RdrName]
     all_data_cons = [con | HsDataDefn { dd_cons = cons } <- all_ty_defs
-    		         , L _ con <- cons ]
+                         , L _ con <- cons ]
     all_ty_defs = [ defn | L _ (DataDecl { tcdDataDefn = defn }) <- concat tycl_decls ]
                ++ map dfid_defn (instDeclDataFamInsts inst_decls)  -- Do not forget associated types!
 

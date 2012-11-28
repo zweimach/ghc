@@ -6,14 +6,14 @@ FamInstEnv: Type checked family instance declarations
 
 \begin{code}
 module FamInstEnv (
-	FamInst(..), FamFlavor(..), FamInstBranch(..),
+        FamInst(..), FamFlavor(..), FamInstBranch(..),
         famInstAxiom, famInstBranchRoughMatch,
         famInstsRepTyCons, famInstNthBranch, famInstSingleBranch,
         famInstBranchLHS, famInstBranches, famInstBranchSpan,
         famInstTyCon, famInstRepTyCon_maybe, dataFamInstRepTyCon, 
-	pprFamInst, pprFamInsts, pprFamInstBranch, pprFamInstBranches,
+        pprFamInst, pprFamInsts, pprFamInstBranch, pprFamInstBranches,
         pprFamFlavor, pprFamInstBranchHdr,
-	mkSynFamInst, mkSynFamInstBranch, mkSingleSynFamInst,
+        mkSynFamInst, mkSynFamInstBranch, mkSingleSynFamInst,
         mkDataFamInst, mkImportedFamInst,
 
         FamInstEnv, FamInstEnvs,
@@ -22,12 +22,12 @@ module FamInstEnv (
         identicalFamInst,
 
         FamInstMatch(..),
-	lookupFamInstEnv, lookupFamInstEnvConflicts, lookupFamInstEnvConflicts',
-	
+        lookupFamInstEnv, lookupFamInstEnvConflicts, lookupFamInstEnvConflicts',
+        
         isDominatedBy,
 
-	-- Normalisation
-	topNormaliseType, normaliseType, normaliseTcApp
+        -- Normalisation
+        topNormaliseType, normaliseType, normaliseTcApp
     ) where
 
 #include "HsVersions.h"
@@ -116,8 +116,8 @@ data FamInst  -- See Note [FamInsts and CoAxioms]
             -- cached version of the two things above
             , fi_branches :: [FamInstBranch] -- Haskell-source-language view of 
                                              -- a CoAxBranch
-            , fi_fam      :: Name	     -- Family name
-		-- INVARIANT: fi_fam = name of fi_axiom.co_ax_tc
+            , fi_fam      :: Name            -- Family name
+                -- INVARIANT: fi_fam = name of fi_axiom.co_ax_tc
             }
 
 data FamInstBranch
@@ -499,7 +499,7 @@ extendFamInstEnv inst_env ins_item@(FamInst {fi_fam = cls_nm})
   = addToUFM_C add inst_env cls_nm (FamIE [ins_item] ins_tyvar)
   where
     add (FamIE items tyvar) _ = FamIE (ins_item:items)
-				      (ins_tyvar || tyvar)
+                                      (ins_tyvar || tyvar)
     ins_tyvar = famInstMatchesAny ins_item
 
 deleteFromFamInstEnv :: FamInstEnv -> FamInst -> FamInstEnv
@@ -646,7 +646,7 @@ instance Outputable FamInstMatch where
 
 lookupFamInstEnv
     :: FamInstEnvs
-    -> TyCon -> [Type]		-- What we are looking for
+    -> TyCon -> [Type]          -- What we are looking for
     -> [FamInstMatch]           -- Successful matches
 -- Precondition: the tycon is saturated (or over-saturated)
 
@@ -657,8 +657,8 @@ lookupFamInstEnv
                                        fib_lhs = tpl_tys })
           _ match_tys 
       = ASSERT( tyVarsOfTypes match_tys `disjointVarSet` tpl_tvs )
-		-- Unification will break badly if the variables overlap
-		-- They shouldn't because we allocate separate uniques for them
+                -- Unification will break badly if the variables overlap
+                -- They shouldn't because we allocate separate uniques for them
         case tcMatchTys tpl_tvs tpl_tys match_tys of
           -- success
           Just subst
@@ -697,8 +697,8 @@ lookupFamInstEnvConflicts
     :: FamInstEnvs
     -> Bool             -- True <=> we are checking part of a group with other branches
     -> TyCon            -- The TyCon of the family
-    -> FamInstBranch	-- the putative new instance branch
-    -> [FamInstMatch] 	-- Conflicting branches
+    -> FamInstBranch    -- the putative new instance branch
+    -> [FamInstMatch]   -- Conflicting branches
 -- E.g. when we are about to add
 --    f : type instance F [a] = a->a
 -- we do (lookupFamInstConflicts f [b])
@@ -713,12 +713,12 @@ lookupFamInstEnvConflicts envs grp tc
     my_unify _ (FamInstBranch { fib_tvs = tpl_tvs, fib_lhs = tpl_tys
                               , fib_rhs = tpl_rhs }) old_grp match_tys
        = ASSERT2( tyVarsOfTypes tys `disjointVarSet` tpl_tvs,
-		  (pprFamInstBranch tc branch <+> ppr tys) $$
-		  (ppr tpl_tvs <+> ppr tpl_tys) )
-		-- Unification will break badly if the variables overlap
-		-- They shouldn't because we allocate separate uniques for them
+                  (pprFamInstBranch tc branch <+> ppr tys) $$
+                  (ppr tpl_tvs <+> ppr tpl_tys) )
+                -- Unification will break badly if the variables overlap
+                -- They shouldn't because we allocate separate uniques for them
          case tcUnifyTys instanceBindFun tpl_tys match_tys of
-	      Just subst
+              Just subst
                 |  isDataFamilyTyCon tc
                 || grp
                 || old_grp
@@ -726,7 +726,7 @@ lookupFamInstEnvConflicts envs grp tc
                 -> (Just subst, KeepSearching)
                 | otherwise -- confluent overlap
                 -> (Nothing, KeepSearching)
-	      -- irrelevant instance
+              -- irrelevant instance
               Nothing -> (Nothing, KeepSearching)
 
     -- checks whether two RHSs are distinct, under a unifying substitution
@@ -803,13 +803,13 @@ lookup_fam_inst_env'          -- The worker, local to this module
     :: MatchFun
     -> OneSidedMatch
     -> FamInstEnv
-    -> TyCon -> [Type]		-- What we are looking for
-    -> [FamInstMatch] 	 
+    -> TyCon -> [Type]        -- What we are looking for
+    -> [FamInstMatch]
 lookup_fam_inst_env' match_fun one_sided ie fam tys
   | not (isFamilyTyCon fam)
   = []
   | otherwise
-	-- Family type applications must be saturated
+        -- Family type applications must be saturated
   = ASSERT2( n_tys >= arity, ppr fam <+> ppr tys )
     lookup ie
   where
@@ -873,7 +873,7 @@ lookup_fam_inst_env           -- The worker, local to this module
     :: MatchFun
     -> OneSidedMatch
     -> FamInstEnvs
-    -> TyCon -> [Type]		-- What we are looking for
+    -> TyCon -> [Type]          -- What we are looking for
     -> [FamInstMatch]           -- What was found
 
 -- Precondition: the tycon is saturated (or over-saturated)
@@ -948,9 +948,9 @@ topNormaliseType env ty
         = go rec_nts ty'
 
     go rec_nts (TyConApp tc tys)
-        | isNewTyCon tc		-- Expand newtypes
-	= if tc `elem` rec_nts 	-- See Note [Expanding newtypes] in Type.lhs
-	  then Nothing
+        | isNewTyCon tc         -- Expand newtypes
+        = if tc `elem` rec_nts  -- See Note [Expanding newtypes] in Type.lhs
+          then Nothing
           else let nt_co = mkSingletonAxInstCo (newTyConCo tc) tys
                in add_co nt_co rec_nts' nt_rhs
 
@@ -979,7 +979,7 @@ topNormaliseType env ty
 normaliseTcApp :: FamInstEnvs -> TyCon -> [Type] -> (Coercion, Type)
 normaliseTcApp env tc tys
   | isFamilyTyCon tc
-  , tyConArity tc <= length tys	   -- Unsaturated data families are possible
+  , tyConArity tc <= length tys    -- Unsaturated data families are possible
   , [FamInstMatch { fim_instance = fam_inst
                   , fim_index    = fam_ind
                   , fim_tys      = inst_tys }] <- lookupFamInstEnv env tc ntys 
@@ -987,9 +987,9 @@ normaliseTcApp env tc tys
         ax              = famInstAxiom fam_inst
         co              = mkAxInstCo  ax fam_ind inst_tys
         rhs             = mkAxInstRHS ax fam_ind inst_tys
-	first_coi       = mkTransCo tycon_coi co
-	(rest_coi,nty)  = normaliseType env rhs
-	fix_coi         = mkTransCo first_coi rest_coi
+        first_coi       = mkTransCo tycon_coi co
+        (rest_coi,nty)  = normaliseType env rhs
+        fix_coi         = mkTransCo first_coi rest_coi
     in 
     (fix_coi, nty)
 
