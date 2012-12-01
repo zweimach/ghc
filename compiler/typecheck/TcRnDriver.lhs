@@ -1866,7 +1866,7 @@ ppr_types insts type_env
         -- that the type checker has invented.  Top-level user-defined things
         -- have External names.
 
-ppr_tycons :: [FamInst] -> TypeEnv -> SDoc
+ppr_tycons :: [FamInst br] -> TypeEnv -> SDoc
 ppr_tycons fam_insts type_env
   = vcat [ text "TYPE CONSTRUCTORS"
          ,   nest 2 (ppr_tydecls tycons)
@@ -1884,7 +1884,7 @@ ppr_insts :: [ClsInst] -> SDoc
 ppr_insts []     = empty
 ppr_insts ispecs = text "INSTANCES" $$ nest 2 (pprInstances ispecs)
 
-ppr_fam_insts :: [FamInst] -> SDoc
+ppr_fam_insts :: [FamInst br] -> SDoc
 ppr_fam_insts []        = empty
 ppr_fam_insts fam_insts =
   text "FAMILY INSTANCES" $$ nest 2 (pprFamInsts fam_insts)

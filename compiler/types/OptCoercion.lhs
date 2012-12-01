@@ -343,7 +343,7 @@ wrapSym sym co | sym       = SymCo co
                | otherwise = co
 
 -----------
-isAxiom_maybe :: Coercion -> Maybe (Bool, CoAxiom, Int, [Coercion])
+isAxiom_maybe :: Coercion -> Maybe (Bool, CoAxiom Branched, Int, [Coercion])
 isAxiom_maybe (SymCo co) 
   | Just (sym, con, ind, cos) <- isAxiom_maybe co
   = Just (not sym, con, ind, cos)
@@ -352,7 +352,7 @@ isAxiom_maybe (AxiomInstCo con ind cos)
 isAxiom_maybe _ = Nothing
 
 matchAxiom :: Bool -- True = match LHS, False = match RHS
-           -> CoAxiom -> Int -> Coercion -> Maybe [Coercion]
+           -> CoAxiom br -> Int -> Coercion -> Maybe [Coercion]
 -- If we succeed in matching, then *all the quantified type variables are bound*
 -- E.g.   if tvs = [a,b], lhs/rhs = [b], we'll fail
 matchAxiom sym ax@(CoAxiom { co_ax_tc = tc }) ind co

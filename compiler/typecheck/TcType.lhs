@@ -1495,12 +1495,12 @@ orphNamesOfCo (InstCo co ty)        = orphNamesOfCo co `unionNameSets` orphNames
 orphNamesOfCos :: [Coercion] -> NameSet
 orphNamesOfCos = orphNamesOfThings orphNamesOfCo
 
-orphNamesOfCoCon :: CoAxiom -> NameSet
+orphNamesOfCoCon :: CoAxiom br -> NameSet
 orphNamesOfCoCon (CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
   = orphNamesOfTyCon tc `unionNameSets` orphNamesOfCoAxBranches branches
 
-orphNamesOfCoAxBranches :: [CoAxBranch] -> NameSet
-orphNamesOfCoAxBranches = orphNamesOfThings orphNamesOfCoAxBranch
+orphNamesOfCoAxBranches :: BranchList CoAxBranch br -> NameSet
+orphNamesOfCoAxBranches = brListFoldr (unionNameSets . orphNamesOfCoAxBranch) emptyNameSet
 
 orphNamesOfCoAxBranch :: CoAxBranch -> NameSet
 orphNamesOfCoAxBranch (CoAxBranch { cab_lhs = lhs, cab_rhs = rhs })

@@ -30,7 +30,7 @@ import Control.Monad
 import Outputable
 
 
-buildPReprTyCon :: TyCon -> TyCon -> SumRepr -> VM FamInst
+buildPReprTyCon :: TyCon -> TyCon -> SumRepr -> VM (FamInst Unbranched)
 buildPReprTyCon orig_tc vect_tc repr
  = do name      <- mkLocalisedName mkPReprTyConOcc (tyConName orig_tc)
       rhs_ty    <- sumReprType repr
@@ -59,7 +59,8 @@ buildPReprTyCon orig_tc vect_tc repr
 --
 type PAInstanceBuilder
         =  TyCon        -- ^ Vectorised TyCon 
-        -> CoAxiom      -- ^ Coercion to the representation TyCon
+        -> CoAxiom Unbranched
+                        -- ^ Coercion to the representation TyCon
         -> TyCon        -- ^ 'PData'  TyCon
         -> TyCon        -- ^ 'PDatas' TyCon
         -> SumRepr      -- ^ Description of generic representation.

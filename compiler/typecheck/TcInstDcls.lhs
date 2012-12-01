@@ -428,7 +428,7 @@ addClsInsts :: [InstInfo Name] -> TcM a -> TcM a
 addClsInsts infos thing_inside
   = tcExtendLocalInstEnv (map iSpec infos) thing_inside
 
-addFamInsts :: [FamInst] -> TcM a -> TcM a
+addFamInsts :: [FamInst Branched] -> TcM a -> TcM a
 -- Extend (a) the family instance envt
 --        (b) the type envt with stuff from data type decls
 addFamInsts fam_insts thing_inside
@@ -462,7 +462,7 @@ the brutal solution will do.
 
 \begin{code}
 tcLocalInstDecl :: LInstDecl Name
-                -> TcM ([InstInfo Name], [FamInst])
+                -> TcM ([InstInfo Name], [FamInst Branched])
         -- A source-file instance declaration
         -- Type-check all the stuff before the "where"
         --
@@ -479,13 +479,14 @@ tcLocalInstDecl (L loc (DataFamInstD { dfid_inst = decl }))
     tcAddDataFamInstCtxt decl  $
     do { fam_tc <- tcFamInstDeclCombined TopLevel (dfid_tycon decl)
        ; fam_inst <- tcDataFamInstDecl fam_tc decl
-       ; return ([], [fam_inst]) }
+       ; return ([], [toBranchedFamInst fam_inst]) }
 
 tcLocalInstDecl (L loc (ClsInstD { cid_inst = decl }))
   = setSrcSpan loc $
-    tcClsInstDecl decl
+    do { (insts, fam_insts) <- tcClsInstDecl decl
+       ; return (insts, map toBranchedFamInst fam_insts) }
 
-tcClsInstDecl :: ClsInstDecl Name -> TcM ([InstInfo Name], [FamInst])
+tcClsInstDecl :: ClsInstDecl Name -> TcM ([InstInfo Name], [FamInst Unbranched])
 tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                            , cid_sigs = uprags, cid_tyfam_insts = ats
                            , cid_datafam_insts = adts })
@@ -514,7 +515,7 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
         ; let defined_ats = mkNameSet $ map (tyFamInstDeclName . unLoc) ats
               defined_adts = mkNameSet $ map (unLoc . dfid_tycon . unLoc) adts
 
-              mk_deflt_at_instances :: ClassATItem -> TcM [FamInst]
+              mk_deflt_at_instances :: ClassATItem -> TcM [FamInst Unbranched]
               mk_deflt_at_instances (fam_tc, defs)
                  -- User supplied instances ==> everything is OK
                 | tyConName fam_tc `elemNameSet` defined_ats
@@ -585,7 +586,7 @@ tcFamInstDeclCombined top_lvl fam_tc_lname
 
        ; return fam_tc }
 
-tcTyFamInstDecl :: TyCon -> LTyFamInstDecl Name -> TcM FamInst
+tcTyFamInstDecl :: TyCon -> LTyFamInstDecl Name -> TcM (FamInst Branched)
   -- "type instance"
 tcTyFamInstDecl fam_tc (L loc decl@(TyFamInstDecl { tfid_group = group }))
   = do { -- (0) Check it's an open type family
@@ -632,7 +633,7 @@ tcTyFamInstDecl fam_tc (L loc decl@(TyFamInstDecl { tfid_group = group }))
 
           get_typats = map (\(_, tys, _, _) -> tys)
 
-tcDataFamInstDecl :: TyCon -> DataFamInstDecl Name -> TcM FamInst
+tcDataFamInstDecl :: TyCon -> DataFamInstDecl Name -> TcM (FamInst Unbranched)
   -- "newtype instance" and "data instance"
 tcDataFamInstDecl fam_tc 
     (DataFamInstDecl { dfid_pats = pats
@@ -694,7 +695,7 @@ tcDataFamInstDecl fam_tc
 ----------------
 tcAssocFamInst :: Class              -- ^ Class of associated type
                -> VarEnv Type        -- ^ Instantiation of class TyVars
-               -> FamInst            -- ^ RHS
+               -> FamInst Unbranched -- ^ RHS
                -> TcM ()
 tcAssocFamInst clas mini_env fam_inst
   = setSrcSpan (getSrcSpan fam_inst) $
@@ -721,15 +722,16 @@ tcAssocFamInst clas mini_env fam_inst
                     -- See Note [Associated type instances]
 
 tcAssocTyDecl :: LTyFamInstDecl Name
-              -> TcM FamInst
+              -> TcM (FamInst Unbranched)
 tcAssocTyDecl ldecl@(L loc decl)
   = setSrcSpan loc $
     tcAddTyFamInstCtxt decl $
     do { fam_tc <- tcFamInstDeclCombined NotTopLevel (tyFamInstDeclLName decl)
-       ; tcTyFamInstDecl fam_tc ldecl }
+       ; fam_inst <- tcTyFamInstDecl fam_tc ldecl
+       ; return $ toUnbranchedFamInst fam_inst }
 
 tcAssocDataDecl :: LDataFamInstDecl Name -- ^ RHS
-                -> TcM FamInst
+                -> TcM (FamInst Unbranched)
 tcAssocDataDecl (L loc decl)
   = setSrcSpan loc $
     tcAddDataFamInstCtxt decl $

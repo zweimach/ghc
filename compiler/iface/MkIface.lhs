@@ -1438,13 +1438,13 @@ idToIfaceDecl id
 
 
 --------------------------
-coAxiomToIfaceDecl :: CoAxiom -> IfaceDecl
+coAxiomToIfaceDecl :: CoAxiom br -> IfaceDecl
 -- We *do* tidy Axioms, because they are not (and cannot 
 -- conveniently be) built in tidy form
 coAxiomToIfaceDecl ax@(CoAxiom { co_ax_tc = tycon, co_ax_branches = branches })
  = IfaceAxiom { ifName       = name
               , ifTyCon      = toIfaceTyCon tycon
-              , ifAxBranches = map coAxBranchToIfaceBranch branches }
+              , ifAxBranches = brListMap coAxBranchToIfaceBranch branches }
  where
    name = getOccName ax
 
@@ -1638,7 +1638,7 @@ instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag,
                         (n : _) -> Just (nameOccName n)
 
 --------------------------
-famInstToIfaceFamInst :: FamInst -> IfaceFamInst
+famInstToIfaceFamInst :: FamInst br -> IfaceFamInst
 famInstToIfaceFamInst (FamInst { fi_axiom    = axiom,
                                  fi_group    = group,
                                  fi_fam      = fam,
@@ -1649,7 +1649,7 @@ famInstToIfaceFamInst (FamInst { fi_axiom    = axiom,
                  , ifFamInstTys   = map (map do_rough) roughs
                  , ifFamInstOrph  = orph }
   where
-    roughs = map famInstBranchRoughMatch branches
+    roughs = brListMap famInstBranchRoughMatch branches
 
     do_rough Nothing  = Nothing
     do_rough (Just n) = Just (toIfaceTyCon_name n)

@@ -118,7 +118,7 @@ prDictOfPReprInst :: Type -> VM CoreExpr
 prDictOfPReprInst ty
   = do
     { (FamInstMatch { fim_instance = prepr_fam, fim_tys = prepr_args }) <- preprSynTyCon ty
-    ; prDictOfPReprInstTyCon ty (famInstAxiom prepr_fam) prepr_args
+    ; prDictOfPReprInstTyCon ty (famInstAxiom (toUnbranchedFamInst prepr_fam)) prepr_args
     }
 
 -- |Given a type @ty@, its PRepr synonym tycon and its type arguments,
@@ -136,7 +136,7 @@ prDictOfPReprInst ty
 --
 -- Note that @ty@ is only used for error messages
 --
-prDictOfPReprInstTyCon :: Type -> CoAxiom -> [Type] -> VM CoreExpr
+prDictOfPReprInstTyCon :: Type -> CoAxiom Unbranched -> [Type] -> VM CoreExpr
 prDictOfPReprInstTyCon _ty prepr_ax prepr_args
   = do
       let rhs = mkSingletonAxInstRHS prepr_ax prepr_args

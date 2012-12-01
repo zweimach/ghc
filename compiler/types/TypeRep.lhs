@@ -346,7 +346,7 @@ data TyThing
   = AnId     Id
   | ADataCon DataCon
   | ATyCon   TyCon       -- TyCons and classes; see Note [ATyCon for classes]
-  | ACoAxiom CoAxiom
+  | ACoAxiom (CoAxiom Branched)
   deriving (Eq, Ord)
 
 instance Outputable TyThing where 

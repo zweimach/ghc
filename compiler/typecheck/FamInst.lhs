@@ -243,7 +243,7 @@ with standalone deriving declrations.
 
 \begin{code}
 -- Add new locally-defined family instances
-tcExtendLocalFamInstEnv :: [FamInst] -> TcM a -> TcM a
+tcExtendLocalFamInstEnv :: [FamInst br] -> TcM a -> TcM a
 tcExtendLocalFamInstEnv fam_insts thing_inside
  = do { env <- getGblEnv
       ; (inst_env', fam_insts') <- foldlM addLocalFamInst  
@@ -258,7 +258,7 @@ tcExtendLocalFamInstEnv fam_insts thing_inside
 -- and then add it to the home inst env
 -- This must be lazy in the fam_inst arguments, see Note [Lazy axiom match]
 -- in FamInstEnv.lhs
-addLocalFamInst :: (FamInstEnv,[FamInst]) -> FamInst -> TcM (FamInstEnv, [FamInst])
+addLocalFamInst :: (FamInstEnv,[FamInst Branched]) -> FamInst br -> TcM (FamInstEnv, [FamInst Branched])
 addLocalFamInst (home_fie, my_fis) fam_inst
         -- home_fie includes home package and this module
         -- my_fies is just the ones from this module
@@ -271,11 +271,11 @@ addLocalFamInst (home_fie, my_fis) fam_inst
 
            -- See also addLocalInst in Inst.lhs
        ; (axBranches', fiBranches')
-           <- zipWithAndUnzipM mk_skolem_tyvars (coAxiomBranches axiom)
-                                                fiBranches
-       ; let axiom' = axiom { co_ax_branches = axBranches' }
+           <- zipWithAndUnzipM mk_skolem_tyvars (fromBranchList $ coAxiomBranches axiom)
+                                                (fromBranchList fiBranches)
+       ; let axiom' = axiom { co_ax_branches = toBranchList axBranches' }
              fam_inst' = fam_inst { fi_axiom = axiom'
-                                  , fi_branches = fiBranches' }
+                                  , fi_branches = toBranchList fiBranches' }
 
        ; isGHCi <- getIsGHCi
  
@@ -349,18 +349,18 @@ Check whether a single family instance conflicts with those in two instance
 environments (one for the EPS and one for the HPT).
 
 \begin{code}
-checkForConflicts :: FamInstEnvs -> FamInst -> TcM Bool
+checkForConflicts :: FamInstEnvs -> FamInst Branched -> TcM Bool
 checkForConflicts inst_envs fam_inst@(FamInst { fi_branches = branches
                                               , fi_group = group })
-  = do { let conflicts = map (lookupFamInstEnvConflicts inst_envs group fam_tc) branches
+  = do { let conflicts = brListMap (lookupFamInstEnvConflicts inst_envs group fam_tc) branches
              no_conflicts = all null conflicts
        ; traceTc "checkForConflicts" (ppr conflicts $$ ppr fam_inst $$ ppr inst_envs)
        ; unless no_conflicts $
-	   zipWithM_ (conflictInstErr fam_inst) branches conflicts
+	   zipWithM_ (conflictInstErr fam_inst) (fromBranchList branches) conflicts
        ; return no_conflicts }
     where fam_tc = famInstTyCon fam_inst
 
-conflictInstErr :: FamInst -> FamInstBranch -> [FamInstMatch] -> TcRn ()
+conflictInstErr :: FamInst Branched -> FamInstBranch -> [FamInstMatch] -> TcRn ()
 conflictInstErr fam_inst branch conflictingMatch
   | (FamInstMatch { fim_instance = confInst
                   , fim_index = confIndex }) : _ <- conflictingMatch
@@ -370,7 +370,7 @@ conflictInstErr fam_inst branch conflictingMatch
   | otherwise
   = pprPanic "conflictInstErr" (pprFamInstBranch (famInstTyCon fam_inst) branch)
 
-addFamInstsErr :: SDoc -> [(FamInst, FamInstBranch)] -> TcRn ()
+addFamInstsErr :: SDoc -> [(FamInst Branched, FamInstBranch)] -> TcRn ()
 addFamInstsErr herald insts
   = setSrcSpan srcSpan $
     addErr (hang herald 2 $ vcat (zipWith pprFamInstBranchHdr

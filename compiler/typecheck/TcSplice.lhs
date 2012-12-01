@@ -1198,7 +1198,7 @@ reifyThing thing = pprPanic "reifyThing" (pprTcTyThingCategory thing)
 
 ------------------------------
 -- TODO (RAE): Fix this to work with branched axioms
-reifyAxiom :: CoAxiom -> TcM TH.Info
+reifyAxiom :: CoAxiom br -> TcM TH.Info
 reifyAxiom ax@(CoAxiom { co_ax_tc = tc })
   | Just (CoAxBranch { cab_lhs = args, cab_rhs = rhs }) <- coAxiomSingleBranch_maybe ax
   = do { args' <- mapM reifyType args
@@ -1311,13 +1311,13 @@ reifyClassInstance i
 
 ------------------------------
 -- TODO (RAE): Make work with branched FamInsts
-reifyFamilyInstance :: FamInst -> TcM TH.Dec
+reifyFamilyInstance :: FamInst br -> TcM TH.Dec
 reifyFamilyInstance fi@(FamInst { fi_flavor = flavor
                                 , fi_branches = branches
                                 , fi_fam = fam })
   = case flavor of
       SynFamilyInst
-        | [FamInstBranch { fib_lhs = lhs, fib_rhs = rhs }] <- branches
+        | FirstBranch (FamInstBranch { fib_lhs = lhs, fib_rhs = rhs }) <- branches
         -> do { th_tys <- reifyTypes lhs
                ; rhs_ty <- reifyType rhs
                ; return (TH.TySynInstD (reifyName fam) th_tys rhs_ty) }
@@ -1325,7 +1325,7 @@ reifyFamilyInstance fi@(FamInst { fi_flavor = flavor
       DataFamilyInst rep_tc ->
         do { let tvs = tyConTyVars rep_tc
                  fam' = reifyName fam
-                 lhs = famInstBranchLHS $ famInstSingleBranch fi
+                 lhs = famInstBranchLHS $ famInstSingleBranch (toUnbranchedFamInst fi)
            ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons rep_tc)
            ; th_tys <- reifyTypes lhs
            ; return (if isNewTyCon rep_tc

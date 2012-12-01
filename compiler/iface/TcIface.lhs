@@ -455,8 +455,9 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
       = ASSERT( isNoParent parent )
         do { ax <- tcIfaceCoAxiom ax_name
            ; let fam_tc = coAxiomTyCon ax
+                 ax_unbr = toUnbranchedAxiom ax
                  -- data families don't have branches:
-                 branch = coAxiomSingleBranch ax
+                 branch = coAxiomSingleBranch ax_unbr
                  ax_tvs = coAxBranchTyVars branch
                  ax_lhs = coAxBranchLHS branch
                  subst = zipTopTvSubst ax_tvs (mkTyVarTys tyvars)
@@ -464,7 +465,7 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
                             -- with those from the CoAxiom.  They aren't
                             -- necessarily the same, since the two may be
                             -- gotten from separate interface-file declarations
-           ; return (FamInstTyCon ax fam_tc (substTys subst ax_lhs)) }
+           ; return (FamInstTyCon ax_unbr fam_tc (substTys subst ax_lhs)) }
 
 tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyVars = tv_bndrs, 
                                   ifSynRhs = mb_rhs_ty,
@@ -549,7 +550,7 @@ tc_iface_decl _ _ (IfaceAxiom {ifName = ax_occ, ifTyCon = tc, ifAxBranches = bra
        ; let axiom = CoAxiom { co_ax_unique   = nameUnique tc_name
                              , co_ax_name     = tc_name
                              , co_ax_tc       = tc_tycon
-                             , co_ax_branches = tc_branches
+                             , co_ax_branches = toBranchList tc_branches
                              , co_ax_implicit = False }
        ; return (ACoAxiom axiom) }
   where tc_branch :: IfaceAxBranch -> IfL CoAxBranch
@@ -647,7 +648,7 @@ tcIfaceInst (IfaceClsInst { ifDFun = dfun_occ, ifOFlag = oflag
        ; let mb_tcs' = map (fmap ifaceTyConName) mb_tcs
        ; return (mkImportedInstance cls mb_tcs' dfun oflag) }
 
-tcIfaceFamInst :: IfaceFamInst -> IfL FamInst
+tcIfaceFamInst :: IfaceFamInst -> IfL (FamInst Branched)
 tcIfaceFamInst (IfaceFamInst { ifFamInstFam = fam, ifFamInstTys = mb_tcss
                              , ifFamInstGroup = group, ifFamInstAxiom = axiom_name } )
     = do { axiom' <- forkM (ptext (sLit "Axiom") <+> ppr axiom_name) $
@@ -1390,7 +1391,7 @@ tcIfaceKindCon (IfaceTc name)
 
            _ -> pprPanic "tcIfaceKindCon" (ppr name $$ ppr thing) }
 
-tcIfaceCoAxiom :: Name -> IfL CoAxiom
+tcIfaceCoAxiom :: Name -> IfL (CoAxiom Branched)
 tcIfaceCoAxiom name = do { thing <- tcIfaceGlobal name
                          ; return (tyThingCoAxiom thing) }
 

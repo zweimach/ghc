@@ -139,7 +139,7 @@ data Coercion
 
   -- These are special
   | CoVarCo CoVar
-  | AxiomInstCo CoAxiom Int [Coercion]
+  | AxiomInstCo (CoAxiom Branched) Int [Coercion]
      -- The coercion arguments always *precisely* saturate arity of CoAxiom.
      -- See [Coercion axioms applied to coercions]
      -- See also [CoAxiom index]
@@ -456,10 +456,10 @@ ppr_forall_co p ty
 \end{code}
 
 \begin{code}
-pprCoAxiom :: CoAxiom -> SDoc
+pprCoAxiom :: CoAxiom br -> SDoc
 pprCoAxiom ax@(CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
   = hang (ptext (sLit "axiom") <+> ppr ax)
-       2 (vcat (map (pprCoAxBranch tc) branches))
+       2 (vcat (map (pprCoAxBranch tc) $ fromBranchList branches))
 
 pprCoAxBranch :: TyCon -> CoAxBranch -> SDoc
 pprCoAxBranch tc (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs })
@@ -556,26 +556,26 @@ mkCoVarCo cv
 mkReflCo :: Type -> Coercion
 mkReflCo = Refl
 
-mkAxInstCo :: CoAxiom -> Int -> [Type] -> Coercion
+mkAxInstCo :: CoAxiom br -> Int -> [Type] -> Coercion
 -- mkAxInstCo can legitimately be called over-staturated; 
 -- i.e. with more type arguments than the coercion requires
 mkAxInstCo ax index tys
-  | arity == n_tys = AxiomInstCo ax index rtys
+  | arity == n_tys = AxiomInstCo ax_br index rtys
   | otherwise      = ASSERT( arity < n_tys )
-                     foldl AppCo (AxiomInstCo ax index (take arity rtys))
+                     foldl AppCo (AxiomInstCo ax_br index (take arity rtys))
                                  (drop arity rtys)
   where
     n_tys = length tys
     arity = coAxiomArity ax index
     rtys  = map Refl tys
+    ax_br = toBranchedAxiom ax
 
 -- to be used only with singleton axioms (axioms with only one branch)
-mkSingletonAxInstCo :: CoAxiom -> [Type] -> Coercion
+mkSingletonAxInstCo :: CoAxiom Unbranched -> [Type] -> Coercion
 mkSingletonAxInstCo ax tys
-  = ASSERT( length (coAxiomBranches ax) == 1 )
-    mkAxInstCo ax 0 tys
+  = mkAxInstCo ax 0 tys
 
-mkAxInstRHS :: CoAxiom -> Int -> [Type] -> Type
+mkAxInstRHS :: CoAxiom br -> Int -> [Type] -> Type
 -- Instantiate the axiom with specified types,
 -- returning the instantiated RHS
 -- A companion to mkAxInstCo: 
@@ -589,9 +589,8 @@ mkAxInstRHS ax index tys
     (tys1, tys2) = splitAtList tvs tys
     rhs'         = substTyWith tvs tys1 (coAxBranchRHS branch)
 
-mkSingletonAxInstRHS :: CoAxiom -> [Type] -> Type
-mkSingletonAxInstRHS ax = ASSERT( length (coAxiomBranches ax) == 1 )
-                          mkAxInstRHS ax 0
+mkSingletonAxInstRHS :: CoAxiom Unbranched -> [Type] -> Type
+mkSingletonAxInstRHS ax = mkAxInstRHS ax 0
 
 -- | Apply a 'Coercion' to another 'Coercion'.
 mkAppCo :: Coercion -> Coercion -> Coercion
@@ -694,13 +693,13 @@ mkUnsafeCo ty1 ty2 = UnsafeCo ty1 ty2
 --   'CoAxiom', the 'TyVar's the arguments expected by the @newtype@ and
 --   the type the appropriate right hand side of the @newtype@, with
 --   the free variables a subset of those 'TyVar's.
-mkNewTypeCo :: Name -> TyCon -> [TyVar] -> Type -> CoAxiom
+mkNewTypeCo :: Name -> TyCon -> [TyVar] -> Type -> CoAxiom Unbranched
 mkNewTypeCo name tycon tvs rhs_ty
   = CoAxiom { co_ax_unique   = nameUnique name
             , co_ax_name     = name
             , co_ax_implicit = True  -- See Note [Implicit axioms] in TyCon
             , co_ax_tc       = tycon
-            , co_ax_branches = [branch] }
+            , co_ax_branches = FirstBranch branch }
   where branch = CoAxBranch { cab_tvs = tvs
                             , cab_lhs = mkTyVarTys tvs
                             , cab_rhs = rhs_ty }

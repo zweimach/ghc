@@ -717,14 +717,13 @@ wrapFamInstBody tycon args body
 
 -- Same as `wrapFamInstBody`, but for type family instances, which are
 -- represented by a `CoAxiom`, and not a `TyCon`
-wrapTypeFamInstBody :: CoAxiom -> Int -> [Type] -> CoreExpr -> CoreExpr
+wrapTypeFamInstBody :: CoAxiom br -> Int -> [Type] -> CoreExpr -> CoreExpr
 wrapTypeFamInstBody axiom ind args body
   = mkCast body (mkSymCo (mkAxInstCo axiom ind args))
 
-wrapTypeSingleFamInstBody :: CoAxiom -> [Type] -> CoreExpr -> CoreExpr
+wrapTypeSingleFamInstBody :: CoAxiom Unbranched -> [Type] -> CoreExpr -> CoreExpr
 wrapTypeSingleFamInstBody axiom
-  = ASSERT( length (coAxiomBranches axiom) == 1 )
-    wrapTypeFamInstBody axiom 0
+  = wrapTypeFamInstBody axiom 0
 
 unwrapFamInstScrut :: TyCon -> [Type] -> CoreExpr -> CoreExpr
 unwrapFamInstScrut tycon args scrut
@@ -733,14 +732,13 @@ unwrapFamInstScrut tycon args scrut
   | otherwise
   = scrut
 
-unwrapTypeFamInstScrut :: CoAxiom -> Int -> [Type] -> CoreExpr -> CoreExpr
+unwrapTypeFamInstScrut :: CoAxiom br -> Int -> [Type] -> CoreExpr -> CoreExpr
 unwrapTypeFamInstScrut axiom ind args scrut
   = mkCast scrut (mkAxInstCo axiom ind args)
 
-unwrapTypeSingleFamInstScrut :: CoAxiom -> [Type] -> CoreExpr -> CoreExpr
+unwrapTypeSingleFamInstScrut :: CoAxiom Unbranched -> [Type] -> CoreExpr -> CoreExpr
 unwrapTypeSingleFamInstScrut axiom
-  = ASSERT( length (coAxiomBranches axiom) == 1 )
-    unwrapTypeFamInstScrut axiom 0
+  = unwrapTypeFamInstScrut axiom 0
 \end{code}
 
 

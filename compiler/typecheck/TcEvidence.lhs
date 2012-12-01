@@ -98,8 +98,8 @@ data TcCoercion
   | TcForAllCo TyVar TcCoercion 
   | TcInstCo TcCoercion TcType
   | TcCoVarCo EqVar
-  | TcAxiomInstCo CoAxiom Int [TcType] -- Int specifies branch number
-                                       -- See [CoAxiom Index] in Coercion.lhs
+  | TcAxiomInstCo (CoAxiom Branched) Int [TcType] -- Int specifies branch number
+                                                  -- See [CoAxiom Index] in Coercion.lhs
   | TcSymCo TcCoercion
   | TcTransCo TcCoercion TcCoercion
   | TcNthCo Int TcCoercion
@@ -140,20 +140,20 @@ mkTcTyConAppCo tc cos   -- No need to expand type synonyms
 
   | otherwise = TcTyConAppCo tc cos
 
-mkTcAxInstCo :: CoAxiom -> Int -> [TcType] -> TcCoercion
+mkTcAxInstCo :: CoAxiom br -> Int -> [TcType] -> TcCoercion
 mkTcAxInstCo ax ind tys
-  | arity == n_tys = TcAxiomInstCo ax ind tys
+  | arity == n_tys = TcAxiomInstCo ax_br ind tys
   | otherwise      = ASSERT( arity < n_tys )
-                     foldl TcAppCo (TcAxiomInstCo ax ind (take arity tys))
+                     foldl TcAppCo (TcAxiomInstCo ax_br ind (take arity tys))
                                    (map TcRefl (drop arity tys))
   where
     n_tys = length tys
     arity = coAxiomArity ax ind
+    ax_br = toBranchedAxiom ax
 
-mkTcSingletonAxInstCo :: CoAxiom -> [TcType] -> TcCoercion
+mkTcSingletonAxInstCo :: CoAxiom Unbranched -> [TcType] -> TcCoercion
 mkTcSingletonAxInstCo ax tys
-  = ASSERT( length (coAxiomBranches ax) == 1 )
-    mkTcAxInstCo ax 0 tys
+  = mkTcAxInstCo ax 0 tys
 
 mkTcAppCo :: TcCoercion -> TcCoercion -> TcCoercion
 -- No need to deal with TyConApp on the left; see Note [TcCoercions]

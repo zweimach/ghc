@@ -384,7 +384,7 @@ coToIfaceType (InstCo co ty)        = IfaceCoConApp IfaceInstCo
                                                     [ coToIfaceType co
                                                     , toIfaceType ty ]
 
-coAxiomToIfaceType :: CoAxiom -> Int -> IfaceCoCon
+coAxiomToIfaceType :: CoAxiom br -> Int -> IfaceCoCon
 coAxiomToIfaceType con ind = IfaceCoAx (coAxiomName con) ind
 \end{code}
 

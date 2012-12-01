@@ -6,15 +6,18 @@ FamInstEnv: Type checked family instance declarations
 
 \begin{code}
 module FamInstEnv (
+        Branched, Unbranched,
+
         FamInst(..), FamFlavor(..), FamInstBranch(..),
         famInstAxiom, famInstBranchRoughMatch,
         famInstsRepTyCons, famInstNthBranch, famInstSingleBranch,
         famInstBranchLHS, famInstBranches, famInstBranchSpan,
+        toBranchedFamInst, toUnbranchedFamInst,
         famInstTyCon, famInstRepTyCon_maybe, dataFamInstRepTyCon, 
         pprFamInst, pprFamInsts, pprFamInstBranch, pprFamInstBranches,
         pprFamFlavor, pprFamInstBranchHdr,
         mkSynFamInst, mkSynFamInstBranch, mkSingleSynFamInst,
-        mkDataFamInst, mkImportedFamInst,
+        mkDataFamInst, mkImportedFamInst, 
 
         FamInstEnv, FamInstEnvs,
         emptyFamInstEnvs, emptyFamInstEnv, famInstEnvElts, familyInstances,
@@ -75,25 +78,6 @@ Note [FamInsts and CoAxioms]
   one alternative in a family instance group. It is needed solely
   to keep Haskell-like things separate from FC-like things.
 
-Note [Single FamInsts]
-~~~~~~~~~~~~~~~~~~~~~~
-Although FamInsts support multiple branches, there are many places
-throughout GHC where we know that a FamInst (or its CoAxiom) really
-should have only one branch. For examples: associated type/data families,
-any data families, instances created by derivation/vectorisation.
-So, there are a number of functions that operate with the assumption
-that there is only one branch. All of these functions have "Single"
-in their name. If you are increasing the set of things that might
-have multiple branches, you should search for "Single" throughout
-GHC and make sure you're not violating any assumptions made elsewhere.
-
-This is a little ugly. However, the two alternatives are uglier: either
-have a separate type for singleton FamInsts/CoAxioms and repeat a whole
-lot of code, or track a branch choice in a whole lot of places where it
-is unnecessary. Perhaps a third alternative is to use a phantom Boolean
-type index on FamInst indicating its singlehood. That may be an idea
-for the future.
-
 Note [FamInst locations]
 ~~~~~~~~~~~~~~~~~~~~~~~~
 The source location of a FamInst is stored in two places in the datatype
@@ -106,15 +90,16 @@ SrcSpan to correctly store the location of the equation giving rise to
 the FamInstBranch.
 
 \begin{code}
-data FamInst  -- See Note [FamInsts and CoAxioms]
-  = FamInst { fi_axiom    :: CoAxiom         -- The new coercion axiom introduced
+data FamInst br -- See Note [FamInsts and CoAxioms], Note [Singleton axioms] in TyCon.lhs
+  = FamInst { fi_axiom    :: CoAxiom br      -- The new coercion axiom introduced
                                              -- by this family instance
             , fi_flavor   :: FamFlavor
             , fi_group    :: Bool            -- True <=> declared with "type instance where"
 
             -- Everything below here is a redundant,
             -- cached version of the two things above
-            , fi_branches :: [FamInstBranch] -- Haskell-source-language view of 
+            , fi_branches :: BranchList FamInstBranch br
+                                             -- Haskell-source-language view of 
                                              -- a CoAxBranch
             , fi_fam      :: Name            -- Family name
                 -- INVARIANT: fi_fam = name of fi_axiom.co_ax_tc
@@ -140,22 +125,29 @@ data FamFlavor
 
 \begin{code}
 -- Obtain the axiom of a family instance
-famInstAxiom :: FamInst -> CoAxiom
+famInstAxiom :: FamInst br -> CoAxiom br
 famInstAxiom = fi_axiom
 
-famInstTyCon :: FamInst -> TyCon
+famInstTyCon :: FamInst br -> TyCon
 famInstTyCon = co_ax_tc . fi_axiom
 
-famInstNthBranch :: FamInst -> Int -> FamInstBranch
+famInstNthBranch :: FamInst br -> Int -> FamInstBranch
 famInstNthBranch (FamInst { fi_branches = branches }) index
-  = ASSERT( 0 <= index && index < (length branches) )
-    branches !! index
+  = ASSERT( 0 <= index && index < (length $ fromBranchList branches) )
+    brListNth branches index
 
-famInstSingleBranch :: FamInst -> FamInstBranch
-famInstSingleBranch (FamInst { fi_branches = [branch] }) = branch
-famInstSingleBranch fi = pprPanic "famInstSingleBranch" (ppr fi)
+famInstSingleBranch :: FamInst Unbranched -> FamInstBranch
+famInstSingleBranch (FamInst { fi_branches = FirstBranch branch }) = branch
 
-famInstBranches :: FamInst -> [FamInstBranch]
+toBranchedFamInst :: FamInst br -> FamInst Branched
+toBranchedFamInst (FamInst ax flav grp branches fam)
+  = FamInst (toBranchedAxiom ax) flav grp (toBranchedList branches) fam
+
+toUnbranchedFamInst :: FamInst br -> FamInst Unbranched
+toUnbranchedFamInst (FamInst ax flav grp branches fam)
+  = FamInst (toUnbranchedAxiom ax) flav grp (toUnbranchedList branches) fam
+
+famInstBranches :: FamInst br -> BranchList FamInstBranch br
 famInstBranches = fi_branches
 
 famInstBranchLHS :: FamInstBranch -> [Type]
@@ -169,22 +161,24 @@ famInstBranchSpan = fib_loc
 
 -- returns True means the famInst will match all applications
 -- returning False gives no information
-famInstMatchesAny :: FamInst -> Bool
+famInstMatchesAny :: FamInst br -> Bool
 famInstMatchesAny (FamInst { fi_branches = branches })
-  = any (all isNothing . fib_tcs) branches
+  = brListAny (all isNothing . fib_tcs) branches
+  where brListAny :: (a -> Bool) -> BranchList a br -> Bool
+        brListAny f ls = brListFoldr (\branch rest -> rest || f branch) False ls
 
 -- Return the representation TyCons introduced by data family instances, if any
-famInstsRepTyCons :: [FamInst] -> [TyCon]
+famInstsRepTyCons :: [FamInst br] -> [TyCon]
 famInstsRepTyCons fis = [tc | FamInst { fi_flavor = DataFamilyInst tc } <- fis]
 
 -- Extracts the TyCon for this *data* (or newtype) instance
-famInstRepTyCon_maybe :: FamInst -> Maybe TyCon
+famInstRepTyCon_maybe :: FamInst br -> Maybe TyCon
 famInstRepTyCon_maybe fi
   = case fi_flavor fi of
        DataFamilyInst tycon -> Just tycon
        SynFamilyInst        -> Nothing
 
-dataFamInstRepTyCon :: FamInst -> TyCon
+dataFamInstRepTyCon :: FamInst br -> TyCon
 dataFamInstRepTyCon fi
   = case fi_flavor fi of
        DataFamilyInst tycon -> tycon
@@ -192,20 +186,20 @@ dataFamInstRepTyCon fi
 \end{code}
 
 \begin{code}
-instance NamedThing FamInst where
+instance NamedThing (FamInst br) where
    getName = coAxiomName . fi_axiom
 
-instance Outputable FamInst where
+instance Outputable (FamInst br) where
    ppr = pprFamInst
 
 -- Prints the FamInst as a family instance declaration
-pprFamInst :: FamInst -> SDoc
+pprFamInst :: FamInst br -> SDoc
 pprFamInst (FamInst { fi_branches = brs, fi_flavor = SynFamilyInst
                     , fi_group = True, fi_axiom = axiom })
   = hang (ptext (sLit "type instance where"))
-       2 (vcat (map (pprFamInstBranchHdr axiom) brs)) 
+       2 (vcat (brListMap (pprFamInstBranchHdr axiom) brs)) 
 
-pprFamInst fi@(FamInst { fi_flavor = flavor, fi_branches = [br]
+pprFamInst fi@(FamInst { fi_flavor = flavor, fi_branches = FirstBranch br
                        , fi_group = False, fi_axiom = ax })
   = pprFamFlavor flavor <+> pp_instance <+>
       (pprFamInstBranchHdr ax br)
@@ -228,7 +222,7 @@ pprFamFlavor flavor
         | isAbstractTyCon tycon -> ptext (sLit "data")
         | otherwise             -> ptext (sLit "WEIRD") <+> ppr tycon
 
-pprFamInstBranchHdr :: CoAxiom -> FamInstBranch -> SDoc
+pprFamInstBranchHdr :: CoAxiom br -> FamInstBranch -> SDoc
 pprFamInstBranchHdr ax (FamInstBranch { fib_lhs = tys, fib_loc = loc })
   = hang (pprTypeApp fam_tc tys)
        2 (ptext (sLit "-- Defined") <+> ppr_loc)
@@ -247,7 +241,7 @@ pprFamInstBranch fam_tc (FamInstBranch { fib_lhs = lhs
                                        , fib_rhs = rhs })
   = pprTypeApp fam_tc lhs <+> equals <+> (ppr rhs)
 
-pprFamInsts :: [FamInst] -> SDoc
+pprFamInsts :: [FamInst br] -> SDoc
 pprFamInsts finsts = vcat (map pprFamInst finsts)
 
 pprFamInstBranches :: TyCon -> [FamInstBranch] -> SDoc
@@ -281,12 +275,12 @@ mkSynFamInst :: Name            -- ^ Unique name for the coercion tycon
              -> TyCon           -- ^ Family tycon (@F@)
              -> Bool            -- ^ Was this declared as a branched group?
              -> [(FamInstBranch, CoAxBranch)] -- ^ the branches of this FamInst
-             -> FamInst
+             -> FamInst Branched
 mkSynFamInst name fam_tc group branches
   = ASSERT( length branches >= 1 )
     FamInst { fi_fam      = tyConName fam_tc
             , fi_flavor   = SynFamilyInst
-            , fi_branches = fst $ unzip branches
+            , fi_branches = toBranchList $ fst $ unzip branches
             , fi_group    = group
             , fi_axiom    = axiom }
   where
@@ -294,7 +288,7 @@ mkSynFamInst name fam_tc group branches
                     , co_ax_name     = name
                     , co_ax_tc       = fam_tc
                     , co_ax_implicit = False
-                    , co_ax_branches = snd $ unzip branches }
+                    , co_ax_branches = toBranchList (snd $ unzip branches) }
 
 -- | Create a coercion identifying a @type@ family instance, but with only
 -- one equation (branch).
@@ -303,12 +297,12 @@ mkSingleSynFamInst :: Name        -- ^ Unique name for the coercion tycon
                    -> TyCon       -- ^ Family tycon (@F@)
                    -> [Type]      -- ^ Type instance (@ts@)
                    -> Type        -- ^ right-hand side
-                   -> FamInst
--- See note [Single FamInsts]
+                   -> FamInst Unbranched
+-- See note [Singleton axioms] in TyCon.lhs
 mkSingleSynFamInst name tvs fam_tc inst_tys rep_ty
   = FamInst { fi_fam      = tyConName fam_tc
             , fi_flavor   = SynFamilyInst
-            , fi_branches = [branch]
+            , fi_branches = FirstBranch branch
             , fi_group    = False
             , fi_axiom    = axiom }
   where
@@ -322,7 +316,7 @@ mkSingleSynFamInst name tvs fam_tc inst_tys rep_ty
                     , co_ax_name     = name
                     , co_ax_tc       = fam_tc
                     , co_ax_implicit = False
-                    , co_ax_branches = [axBranch] }
+                    , co_ax_branches = FirstBranch axBranch }
     axBranch = CoAxBranch { cab_tvs = tvs
                           , cab_lhs = inst_tys
                           , cab_rhs = rep_ty }
@@ -336,12 +330,12 @@ mkDataFamInst :: Name         -- ^ Unique name for the coercion tycon
               -> TyCon        -- ^ Family tycon (@F@)
               -> [Type]       -- ^ Type instance (@ts@)
               -> TyCon        -- ^ Representation tycon (@R@)
-              -> FamInst
+              -> FamInst Unbranched
 mkDataFamInst name tvs fam_tc inst_tys rep_tc
   = FamInst { fi_fam      = tyConName fam_tc
             , fi_flavor   = DataFamilyInst rep_tc
             , fi_group    = False
-            , fi_branches = [branch]
+            , fi_branches = FirstBranch branch
             , fi_axiom    = axiom }
   where
     rhs = mkTyConApp rep_tc (mkTyVarTys tvs)
@@ -356,7 +350,7 @@ mkDataFamInst name tvs fam_tc inst_tys rep_tc
     axiom = CoAxiom { co_ax_unique   = nameUnique name
                     , co_ax_name     = name
                     , co_ax_tc       = fam_tc
-                    , co_ax_branches = [axBranch]
+                    , co_ax_branches = FirstBranch axBranch
                     , co_ax_implicit = False }
 
     axBranch = CoAxBranch { cab_tvs = tvs
@@ -388,8 +382,8 @@ also.
 mkImportedFamInst :: Name               -- Name of the family
                   -> Bool               -- is this a group?
                   -> [[Maybe Name]]     -- Rough match info, per branch
-                  -> CoAxiom            -- Axiom introduced
-                  -> FamInst            -- Resulting family instance
+                  -> CoAxiom Branched   -- Axiom introduced
+                  -> FamInst Branched   -- Resulting family instance
 mkImportedFamInst fam group roughs axiom
   = FamInst {
       fi_fam      = fam,
@@ -403,7 +397,7 @@ mkImportedFamInst fam group roughs axiom
        = ASSERT( fam == tyConName (coAxiomTyCon axiom) )
          axiom
 
-     branches = zipWith mk_fam_inst_branch axBranches roughs
+     branches = toBranchList (zipWith mk_fam_inst_branch (fromBranchList axBranches) roughs)
 
      mk_fam_inst_branch (CoAxBranch { cab_tvs = tvs
                                     , cab_lhs = lhs
@@ -417,10 +411,10 @@ mkImportedFamInst fam group roughs axiom
          -- Derive the flavor for an imported FamInst rather disgustingly
          -- Maybe we should store it in the IfaceFamInst?
      flavor
-       | [CoAxBranch { cab_rhs = rhs }] <- axBranches
+       | FirstBranch (CoAxBranch { cab_rhs = rhs }) <- axBranches
        , Just (tc, _) <- splitTyConApp_maybe rhs
        , Just ax' <- tyConFamilyCoercion_maybe tc
-       , ax' == axiom
+       , (toBranchedAxiom ax') == axiom
        = DataFamilyInst tc
 
        | otherwise
@@ -462,10 +456,10 @@ type FamInstEnvs = (FamInstEnv, FamInstEnv)
      -- External package inst-env, Home-package inst-env
 
 data FamilyInstEnv
-  = FamIE [FamInst]     -- The instances for a particular family, in any order
-          Bool          -- True <=> there is an instance of form T a b c
-                        --      If *not* then the common case of looking up
-                        --      (T a b c) can fail immediately
+  = FamIE [FamInst Branched] -- The instances for a particular family, in any order
+          Bool               -- True <=> there is an instance of form T a b c
+                             --      If *not* then the common case of looking up
+                             --      (T a b c) can fail immediately
 
 instance Outputable FamilyInstEnv where
   ppr (FamIE fs b) = ptext (sLit "FamIE") <+> ppr b <+> vcat (map ppr fs)
@@ -480,10 +474,10 @@ emptyFamInstEnvs = (emptyFamInstEnv, emptyFamInstEnv)
 emptyFamInstEnv :: FamInstEnv
 emptyFamInstEnv = emptyUFM
 
-famInstEnvElts :: FamInstEnv -> [FamInst]
+famInstEnvElts :: FamInstEnv -> [FamInst Branched]
 famInstEnvElts fi = [elt | FamIE elts _ <- eltsUFM fi, elt <- elts]
 
-familyInstances :: (FamInstEnv, FamInstEnv) -> TyCon -> [FamInst]
+familyInstances :: (FamInstEnv, FamInstEnv) -> TyCon -> [FamInst Branched]
 familyInstances (pkg_fie, home_fie) fam
   = get home_fie ++ get pkg_fie
   where
@@ -491,18 +485,19 @@ familyInstances (pkg_fie, home_fie) fam
                 Just (FamIE insts _) -> insts
                 Nothing              -> []
 
-extendFamInstEnvList :: FamInstEnv -> [FamInst] -> FamInstEnv
+extendFamInstEnvList :: FamInstEnv -> [FamInst br] -> FamInstEnv
 extendFamInstEnvList inst_env fis = foldl extendFamInstEnv inst_env fis
 
-extendFamInstEnv :: FamInstEnv -> FamInst -> FamInstEnv
+extendFamInstEnv :: FamInstEnv -> FamInst br -> FamInstEnv
 extendFamInstEnv inst_env ins_item@(FamInst {fi_fam = cls_nm})
-  = addToUFM_C add inst_env cls_nm (FamIE [ins_item] ins_tyvar)
+  = addToUFM_C add inst_env cls_nm (FamIE [ins_item_br] ins_tyvar)
   where
-    add (FamIE items tyvar) _ = FamIE (ins_item:items)
+    ins_item_br = toBranchedFamInst ins_item
+    add (FamIE items tyvar) _ = FamIE (ins_item_br:items)
                                       (ins_tyvar || tyvar)
     ins_tyvar = famInstMatchesAny ins_item
 
-deleteFromFamInstEnv :: FamInstEnv -> FamInst -> FamInstEnv
+deleteFromFamInstEnv :: FamInstEnv -> FamInst br -> FamInstEnv
 deleteFromFamInstEnv inst_env fam_inst@(FamInst {fi_fam = fam_nm})
  = adjustUFM adjust inst_env fam_nm
  where
@@ -510,13 +505,13 @@ deleteFromFamInstEnv inst_env fam_inst@(FamInst {fi_fam = fam_nm})
    adjust (FamIE items tyvars)
      = FamIE (filterOut (identicalFamInst fam_inst) items) tyvars
 
-identicalFamInst :: FamInst -> FamInst -> Bool
+identicalFamInst :: FamInst br1 -> FamInst br2 -> Bool
 -- Same LHS, *and* the instance is defined in the same module
 -- Used for overriding in GHCi
 identicalFamInst (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
   =  nameModule (coAxiomName ax1) == nameModule (coAxiomName ax2)
-     && length brs1 == length brs2
-     && and (zipWith identical_ax_branch brs1 brs2)
+     && brListLength brs1 == brListLength brs2
+     && and (brListZipWith identical_ax_branch brs1 brs2)
   where brs1 = coAxiomBranches ax1
         brs2 = coAxiomBranches ax2
         identical_ax_branch br1 br2
@@ -632,7 +627,7 @@ the information from matching the target to differentiate these cases.
 -- when matching a type family application, we get a FamInst,
 -- a 0-based index of the branch that matched, and the list of types
 -- the axiom should be applied to
-data FamInstMatch = FamInstMatch { fim_instance :: FamInst
+data FamInstMatch = FamInstMatch { fim_instance :: FamInst Branched
                                  , fim_index    :: Int
                                  , fim_tys      :: [Type]
                                  }
@@ -838,19 +833,19 @@ lookup_fam_inst_env' match_fun one_sided ie fam tys
                      | otherwise                   -> find insts
 
     --------------
-    find :: [FamInst] -> [FamInstMatch]
+    find :: [FamInst Branched] -> [FamInstMatch]
     find [] = []
     find (inst@(FamInst { fi_branches = branches }) : rest)
-      = case findBranch [] branches inst 0 of
+      = case findBranch [] (fromBranchList branches) inst 0 of
           (Just match, StopSearching) -> [match]
           (Just match, KeepSearching) -> match : find rest
           (Nothing,    StopSearching) -> []
           (Nothing,    KeepSearching) -> find rest
 
-    findBranch :: [FamInstBranch] -- the branches that have already been checked
-               -> [FamInstBranch] -- still looking through these
-               -> FamInst         -- the instance we're looking through
-               -> Int             -- the index of the next branch
+    findBranch :: [FamInstBranch]  -- the branches that have already been checked
+               -> [FamInstBranch]  -- still looking through these
+               -> FamInst Branched -- the instance we're looking through
+               -> Int              -- the index of the next branch
                -> (Maybe FamInstMatch, ContSearch)
     findBranch _ [] _ _ = (Nothing, KeepSearching)
     findBranch seen (branch@(FamInstBranch { fib_tcs = mb_tcs }) : rest)

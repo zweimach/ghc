@@ -111,7 +111,7 @@ collect_tdefs _ _ tdefs = tdefs
 qtc :: DynFlags -> TyCon -> C.Qual C.Tcon
 qtc dflags = make_con_qid dflags . tyConName
 
-qcc :: DynFlags -> CoAxiom -> C.Qual C.Tcon
+qcc :: DynFlags -> CoAxiom br -> C.Qual C.Tcon
 qcc dflags = make_con_qid dflags . co_ax_name
 
 make_cdef :: DynFlags -> DataCon -> C.Cdef
