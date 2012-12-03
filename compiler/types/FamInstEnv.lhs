@@ -589,39 +589,38 @@ no such other instance exists.
 
 Note [Confluence checking within groups]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider the following definition:
+GHC allows type family instances to have overlapping patterns as long as the
+right-hand sides are coincident in the region of overlap. Can we extend this
+notion of confluent overlap to branched instances? Not in any obvious way.
 
-type family And (a :: Bool) (b :: Bool) :: Bool
+Consider this:
 
 type instance where
-  And False a     = False
-  And True  b     = b
-  And c     False = False
-  And d     True  = d
+  F Int = Int
+  F a = a
 
-We wish to simplify (And e True). The search (using a one-way match
-from type patterns to target) quickly eliminates the first three
-possibilities. The fourth one matches, with subst [d |-> e]. We then
-go back and check the first three. We check each one to see if it
-can possibly unify with the target (And e True). The first one does,
-with subst [a |-> True, e |-> False]. To show that this is consistent
-with the fourth equation, we must apply both substitutions to the
-RHS of the fourth equation. Similarly, unifying with the second
-equation gives us a subst [b |-> True, e |-> True], also requiring
-the application of both substitutions to show consistency. The
-third equation does not unify, so we're done and can simplify
-(And e True) to e, as desired.
+Without confluence checking (in other words, as implemented), we cannot now
+simplify an application of (F b) -- b might unify with Int later on, so this
+application is stuck. However, it would seem easy to just check that, in the
+region of overlap, (i.e. b |-> Int), the right-hand sides coincide, so we're
+OK. The problem happens when we are simplifying an application (F (G a)),
+where (G a) is stuck. What, now, is the region of overlap? We can't soundly
+simplify (F (G a)) without knowing that the right-hand sides are confluent
+in the region of overlap, but we also can't in any obvious way identify the
+region of overlap. We don't want to do analysis on the instances of G, because
+that is not sound in a world with open type families. (If G were known to be
+closed, there might be a way forward here.) To find the region of overlap,
+it is conceivable that we might convert (G a) to some fresh type variable and
+then unify, but we must be careful to convert every (G a) to the same fresh
+type variable. And then, what if there is an (H a) lying around? It all seems
+rather subtle, error-prone, confusing, and probably won't help anyone. So,
+we're not doing it.
 
-Why don't we just unify the two equations in the group? Because, in
-general, we don't want to. Consider this:
-
-type family F a b
-type instance where
-  F a a = Int
-  F a b = b
-
-We should be able to simplify (F x Int) but not (F y Bool). We need
-the information from matching the target to differentiate these cases.
+So, why is this not a problem with non-branched confluent overlap? Because
+we don't need to verify that an application is apart from anything. The
+non-branched confluent overlap check happens when we add the instance to the
+environment -- we're unifying among patterns, which cannot contain type family
+appplications. So, we're safe there and can continue supporting that feature.
 
 \begin{code}
 -- when matching a type family application, we get a FamInst,
@@ -648,8 +647,8 @@ lookupFamInstEnv
 lookupFamInstEnv
   = lookup_fam_inst_env match True
   where
-    match seen branch@(FamInstBranch { fib_tvs = tpl_tvs,
-                                       fib_lhs = tpl_tys })
+    match seen (FamInstBranch { fib_tvs = tpl_tvs
+                              , fib_lhs = tpl_tys })
           _ match_tys 
       = ASSERT( tyVarsOfTypes match_tys `disjointVarSet` tpl_tvs )
                 -- Unification will break badly if the variables overlap
@@ -657,7 +656,7 @@ lookupFamInstEnv
         case tcMatchTys tpl_tvs tpl_tys match_tys of
           -- success
           Just subst
-            | checkConflict seen match_tys subst branch
+            | checkConflict seen match_tys
             -> (Nothing, StopSearching) -- we found an incoherence, so stop searching
             -- see Note [Early failure optimisation for instance groups]
 
@@ -670,23 +669,14 @@ lookupFamInstEnv
     -- see Note [Instance checking within groups]
     checkConflict :: [FamInstBranch] -- the previous branches in the instance that matched
                   -> [Type]          -- the types in the tyfam application we are matching
-                  -> TvSubst         -- the subst witnessing the match between those types and...
-                  -> FamInstBranch   -- ...this FamInstBranch
                   -> Bool            -- is there a conflict?
-    checkConflict [] _ _ _ = False
-    checkConflict ((FamInstBranch { fib_lhs = tpl_tys
-                                  , fib_rhs = inner_rhs }) : rest)
-               match_tys outer_subst
-               outer_branch@(FamInstBranch { fib_rhs = outer_rhs })
-      = let rest_apart = checkConflict rest match_tys outer_subst outer_branch in
-        case tcApartTys instanceBindFun tpl_tys match_tys of
-          NotApart inner_subst -> -- see Note [Confluence checking within groups]
-            let outer_rhs' = substTy inner_subst $
-                             substTy outer_subst outer_rhs
-                inner_rhs' = substTy inner_subst inner_rhs in
-            not (outer_rhs' `eqType` inner_rhs') || rest_apart
-          MaybeApart -> True -- there is a type family application involved; it might unify later
-          SurelyApart -> rest_apart
+    checkConflict [] _ = False
+    checkConflict ((FamInstBranch { fib_lhs = tpl_tys }) : rest) match_tys
+          -- see Note [Confluence checking within groups]
+      | SurelyApart <- tcApartTys instanceBindFun tpl_tys match_tys
+      = checkConflict rest match_tys
+      | otherwise
+      = True
 
 lookupFamInstEnvConflicts
     :: FamInstEnvs
