@@ -293,6 +293,9 @@ This is important. In an instance declaration we expect
 --
 -- This data type also encodes a number of primitive, built in type constructors such as those
 -- for function and tuple types.
+
+-- If you edit this type, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data TyCon
   = -- | The function type constructor, @(->)@
     FunTyCon {
@@ -816,6 +819,9 @@ instance Outputable a => Outputable (BranchList a br) where
   ppr = ppr . fromBranchList
 
 -- | A 'CoAxiom' is a \"coercion constructor\", i.e. a named equality axiom.
+
+-- If you edit this type, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data CoAxiom br
   = CoAxiom                   -- Type equality axiom.
     { co_ax_unique   :: Unique        -- unique identifier
