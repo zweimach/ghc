@@ -249,16 +249,21 @@ cvtDec (NewtypeInstD ctxt tc tys constr derivs)
            { dfid_inst = DataFamInstDecl { dfid_tycon = tc', dfid_pats = typats'
                                          , dfid_defn = defn, dfid_fvs = placeHolderNames } }}
 
-cvtDec (TySynInstD tc tys rhs)
-  = do	{ (_, tc', tys') <- cvt_tyinst_hdr [] tc tys
-	; rhs' <- cvtType rhs
-        ; eqn <- returnL $ TyFamInstEqn { tfie_tycon = tc'
-                                        , tfie_pats = tys'
-                                        , tfie_rhs = rhs' }
-	; returnL $ InstD $ TyFamInstD 
-            { tfid_inst = TyFamInstDecl { tfid_eqns = [eqn]
-                                        , tfid_group = False
-                                        , tfid_fvs = placeHolderNames } }}
+cvtDec (TySynInstD tc eqns)
+  = do	{ tc' <- tconNameL tc
+        ; eqns' <- mapM (cvtTySynEqn tc') eqns
+        ; returnL $ InstD $ TyFamInstD
+            { tfid_inst = TyFamInstDecl { tfid_eqns = eqns'
+                                        , tfid_group = (length eqns' /= 1)
+                                        , tfid_fvs = placeHolderNames } } }
+----------------
+cvtTySynEqn :: Located RdrName -> TySynEqn -> CvtM (LTyFamInstEqn RdrName)
+cvtTySynEqn tc (TySynEqn lhs rhs)
+  = do  { lhs' <- mapM cvtType lhs
+        ; rhs' <- cvtType rhs
+        ; returnL $ TyFamInstEqn { tfie_tycon = tc
+                                 , tfie_pats = mkHsWithBndrs lhs'
+                                 , tfie_rhs = rhs' } }
 
 ----------------
 cvt_ci_decs :: MsgDoc -> [TH.Dec]

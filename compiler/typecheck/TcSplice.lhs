@@ -1197,15 +1197,16 @@ reifyThing (ATyVar tv tv1)
 reifyThing thing = pprPanic "reifyThing" (pprTcTyThingCategory thing)
 
 ------------------------------
--- TODO (RAE): Fix this to work with branched axioms
 reifyAxiom :: CoAxiom br -> TcM TH.Info
-reifyAxiom ax@(CoAxiom { co_ax_tc = tc })
-  | Just (CoAxBranch { cab_lhs = args, cab_rhs = rhs }) <- coAxiomSingleBranch_maybe ax
+reifyAxiom (CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
+  = do { eqns <- sequence $ brListMap reifyAxBranch branches
+       ; return (TH.TyConI (TH.TySynInstD (reifyName tc) eqns)) }
+
+reifyAxBranch :: CoAxBranch -> TcM TH.TySynEqn
+reifyAxBranch (CoAxBranch { cab_lhs = args, cab_rhs = rhs })
   = do { args' <- mapM reifyType args
        ; rhs'  <- reifyType rhs
-       ; return (TH.TyConI (TH.TySynInstD (reifyName tc) args' rhs') )}
-  | otherwise
-  = failWith $ (ptext (sLit "Can't reify non-singleton axiom")) <+> ppr ax
+       ; return (TH.TySynEqn args' rhs') }
 
 reifyTyCon :: TyCon -> TcM TH.Info
 reifyTyCon tc
@@ -1310,17 +1311,14 @@ reifyClassInstance i
      n_silent = dfunNSilent (instanceDFunId i)
 
 ------------------------------
--- TODO (RAE): Make work with branched FamInsts
 reifyFamilyInstance :: FamInst br -> TcM TH.Dec
 reifyFamilyInstance fi@(FamInst { fi_flavor = flavor
                                 , fi_branches = branches
                                 , fi_fam = fam })
   = case flavor of
-      SynFamilyInst
-        | FirstBranch (FamInstBranch { fib_lhs = lhs, fib_rhs = rhs }) <- branches
-        -> do { th_tys <- reifyTypes lhs
-               ; rhs_ty <- reifyType rhs
-               ; return (TH.TySynInstD (reifyName fam) th_tys rhs_ty) }
+      SynFamilyInst ->
+        do { th_eqns <- sequence $ brListMap reifyFamInstBranch branches
+           ; return (TH.TySynInstD (reifyName fam) th_eqns) }
 
       DataFamilyInst rep_tc ->
         do { let tvs = tyConTyVars rep_tc
@@ -1332,7 +1330,11 @@ reifyFamilyInstance fi@(FamInst { fi_flavor = flavor
                      then TH.NewtypeInstD [] fam' th_tys (head cons) []
                      else TH.DataInstD    [] fam' th_tys cons        []) }
 
-      _ -> failWith $ (ptext (sLit "Can't reify non-singleton family instance")) <+> ppr fi
+reifyFamInstBranch :: FamInstBranch -> TcM TH.TySynEqn
+reifyFamInstBranch (FamInstBranch { fib_lhs = lhs, fib_rhs = rhs })
+  = do { th_lhs <- reifyTypes lhs
+       ; th_rhs <- reifyType rhs
+       ; return (TH.TySynEqn th_lhs th_rhs) }
 
 ------------------------------
 reifyType :: TypeRep.Type -> TcM TH.Type
