@@ -60,7 +60,7 @@ module Type (
         isIPPred, isIPPred_maybe, isIPTyCon, isIPClass,
         
         -- Deconstructing predicate types
-        PredTree(..), predTreePredType, classifyPredType,
+        PredTree(..), classifyPredType,
         getClassPredTys, getClassPredTys_maybe,
         getEqPredTys, getEqPredTys_maybe,
 
@@ -154,7 +154,7 @@ import VarSet
 import Class
 import TyCon
 import TysPrim
-import {-# SOURCE #-} TysWiredIn ( eqTyCon, mkBoxedTupleTy )
+import {-# SOURCE #-} TysWiredIn ( eqTyCon )
 import PrelNames ( eqTyConKey, ipClassNameKey, 
                    constraintKindTyConKey, liftedTypeKindTyConKey )
 import CoAxiom
@@ -956,12 +956,6 @@ data PredTree = ClassPred Class [Type]
               | EqPred Type Type
               | TuplePred [PredType]
               | IrredPred PredType
-
-predTreePredType :: PredTree -> PredType
-predTreePredType (ClassPred clas tys) = mkClassPred clas tys
-predTreePredType (EqPred ty1 ty2)     = mkEqPred ty1 ty2
-predTreePredType (TuplePred tys)      = mkBoxedTupleTy tys
-predTreePredType (IrredPred ty)       = ty
 
 classifyPredType :: PredType -> PredTree
 classifyPredType ev_ty = case splitTyConApp_maybe ev_ty of
