@@ -27,6 +27,7 @@ import TcType
 import TcGenDeriv
 import DataCon
 import TyCon
+import CoAxiom
 import FamInstEnv       ( FamInst, mkSingleSynFamInst )
 import Module           ( Module, moduleName, moduleNameString )
 import IfaceEnv         ( newGlobalBinder )

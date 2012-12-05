@@ -82,6 +82,7 @@ import TypeRep
 import qualified Type
 import Type hiding( substTy, substTyVarBndr, extendTvSubst )
 import TyCon
+import CoAxiom
 import Var
 import VarEnv
 import VarSet

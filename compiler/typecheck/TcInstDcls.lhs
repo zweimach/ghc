@@ -44,6 +44,7 @@ import CoreSyn    ( DFunArg(..) )
 import Type
 import TcEvidence
 import TyCon
+import CoAxiom
 import DataCon
 import Class
 import Var

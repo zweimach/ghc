@@ -39,6 +39,7 @@ import TcType
 import Type( tyConAppArgN, tyConAppTyCon_maybe, getEqPredTys, coAxNthLHS )
 import TysPrim( funTyCon )
 import TyCon
+import CoAxiom
 import PrelNames
 import VarEnv
 import VarSet

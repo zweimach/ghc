@@ -56,6 +56,7 @@ import TcRnMonad
 import Class
 import Inst
 import TyCon
+import CoAxiom
 import DataCon
 import TcEvidence( TcEvBinds(..) )
 import Id

@@ -39,6 +39,7 @@ import Coercion
 import TypeRep hiding( maybeParen )
 import Unique( hasKey )
 import TyCon
+import CoAxiom
 import Id
 import Var
 import TysWiredIn

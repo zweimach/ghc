@@ -43,6 +43,7 @@ import Kind
 import Type
 import TypeRep
 import TyCon
+import CoAxiom
 import BasicTypes
 import StaticFlags
 import ListSetOps
@@ -948,32 +949,26 @@ lintCoercion co@(AxiomInstCo con ind cos)
        ; (subst_l, subst_r) <- foldlM check_ki 
                                       (empty_subst, empty_subst) 
                                       (ktvs `zip` cos)
-       ; case check_no_conflict lhs rhs (ind - 1) subst_l subst_r of
+       ; let lhs' = Type.substTys subst_l lhs
+             rhs' = Type.substTy subst_r rhs
+       ; case check_no_conflict lhs' (ind - 1) of
            Just bad_index -> bad_ax $ ptext (sLit "inconsistent with") <+> (ppr bad_index)
            Nothing -> return ()
-       ; let lhs' = Type.substTy subst_l (mkTyConApp (coAxiomTyCon con) lhs)
-             rhs' = Type.substTy subst_r rhs
-       ; return (typeKind lhs', lhs', rhs') }
+       ; return (typeKind rhs', mkTyConApp (coAxiomTyCon con) lhs', rhs') }
   where
     bad_ax what = addErrL (hang (ptext (sLit "Bad axiom application") <+> parens what)
                         2 (ppr co))
 
       -- See Note [Conflict checking with AxiomInstCo]
-    check_no_conflict :: [Type] -> Type -> Int -> TvSubst -> TvSubst -> Maybe Int
-    check_no_conflict _ _ (-1) _ _ = Nothing
-    check_no_conflict lhs rhs j subst_l subst_r
-      = let rest_no_conflict = check_no_conflict lhs rhs (j-1) subst_l subst_r in
-        case tcApartTys instanceBindFun (Type.substTys subst_l lhs) lhsj of
-          NotApart subst ->
-            if not ((Type.substTy subst rhsj) `eqType`
-                    (Type.substTy subst (Type.substTy subst_r rhs)))
-            then Just j
-            else rest_no_conflict
-          MaybeApart -> Just j -- there is a type family application
-          SurelyApart -> rest_no_conflict
+    check_no_conflict :: [Type] -> Int -> Maybe Int
+    check_no_conflict _ (-1) = Nothing
+    check_no_conflict lhs' j
+      | SurelyApart <- tcApartTys instanceBindFun lhs' lhsj
+      = check_no_conflict lhs' (j-1)
+      | otherwise
+      = Just j
       where
-        (CoAxBranch { cab_lhs = lhsj
-                    , cab_rhs = rhsj }) = coAxiomNthBranch con j
+        (CoAxBranch { cab_lhs = lhsj }) = coAxiomNthBranch con j
 
     check_ki (subst_l, subst_r) (ktv, co)
       = do { (k, t1, t2) <- lintCoercion co

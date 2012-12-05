@@ -18,6 +18,7 @@ import Coercion
 import Type hiding( substTyVarBndr, substTy, extendTvSubst )
 import TcType       ( exactTyVarsOfType )
 import TyCon
+import CoAxiom
 import Var
 import VarSet
 import VarEnv

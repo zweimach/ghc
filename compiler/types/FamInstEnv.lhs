@@ -41,6 +41,7 @@ import Type
 import Coercion hiding ( substTy )
 import TypeRep
 import TyCon
+import CoAxiom
 import VarSet
 import VarEnv
 import Name

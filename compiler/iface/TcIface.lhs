@@ -38,6 +38,7 @@ import MkId
 import IdInfo
 import Class
 import TyCon
+import CoAxiom
 import DataCon
 import PrelNames
 import TysWiredIn

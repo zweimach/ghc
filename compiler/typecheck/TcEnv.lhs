@@ -72,6 +72,7 @@ import RdrName
 import InstEnv
 import DataCon
 import TyCon
+import CoAxiom
 import TypeRep
 import Class
 import Name

@@ -6,7 +6,6 @@
 The @TyCon@ datatype
 
 \begin{code}
-{-# LANGUAGE GADTs #-}
 
 module TyCon(
         -- * Main TyCon data types
@@ -15,20 +14,6 @@ module TyCon(
         AlgTyConRhs(..), visibleDataCons,
         TyConParent(..), isNoParent,
         SynTyConRhs(..), 
-
-        -- ** Branch lists
-        Branched, Unbranched, BranchList(..), 
-        toBranchList, fromBranchList, toBranchedList, toUnbranchedList,
-        brListNth, brListMap, brListFoldr, brListLength, brListZipWith,
-
-        -- ** Coercion axiom constructors
-        CoAxiom(..), CoAxBranch(..), 
-        toBranchedAxiom, toUnbranchedAxiom,
-        coAxiomName, coAxiomArity, coAxiomBranches,
-        coAxiomTyCon, isImplicitCoAxiom,
-        coAxiomNthBranch, coAxiomSingleBranch_maybe,
-        coAxiomSingleBranch, coAxBranchTyVars, coAxBranchLHS,
-        coAxBranchRHS,
 
         -- ** Constructing TyCons
         mkAlgTyCon,
@@ -107,6 +92,7 @@ import BasicTypes
 import DynFlags
 import ForeignCall
 import Name
+import CoAxiom
 import PrelNames
 import Maybes
 import Outputable
@@ -713,196 +699,6 @@ say
 so the coercion tycon CoT must have
         kind:    T ~ []
  and    arity:   0
-
-
-%************************************************************************
-%*                                                                      *
-                    Coercion axioms
-%*                                                                      *
-%************************************************************************
-
-Note [Coercion axiom branches]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-In order to allow type family instance groups, an axiom needs to contain an
-ordered list of alternatives, called branches. The kind of the coercion is
-chosen based on which branch contains patterns that match the type variables
-the axiom is instantiated with. The first such match is chosen.
-
-For type-checking, it is also necessary to check that no previous pattern
-can unify with the supplied arguments. After all, it is possible that some
-of the type arguments are lambda-bound type variables whose instantiation may
-cause an earlier match among the branches. We wish to prohibit this behavior,
-so the type checker rules out the choice of a branch where a previous branch
-can unify. See also [Instance checking within groups] in FamInstEnv.hs.
-
-Note [Singleton axioms]
-~~~~~~~~~~~~~~~~~~~~~~~
-Although a CoAxiom has the capacity to store many branches, in many cases,
-we want only one. Furthermore, these so-called singleton axioms are used
-in a variety of places throughout GHC, and it would difficult to generalize
-all of that code to deal with branched axioms, especially when the code can
-be sure of the fact that an axiom is indeed a singleton. At the same time,
-it seems dangerous to assume singlehood in various places through GHC.
-
-The solution to this is to label a CoAxiom (and FamInst) with a phantom
-type variable declaring whether it is known to be a singleton or not. The
-list of branches is stored using a special form of list, declared below,
-that ensures that the type variable is accurate.
-
-As of this writing (Dec 2012), it would not be appropriate to use a promoted
-type as the phantom type, so we use empty datatypes. We wish to have GHC
-remain compilable with GHC 7.2.1. If you are revising this code and GHC no
-longer needs to remain compatible with GHC 7.2.x, then please update this
-code to use promoted types.
-
-\begin{code}
-
--- the phantom type labels
-data Unbranched deriving Typeable
-data Branched deriving Typeable
-
-data BranchList a br where
-  FirstBranch :: a -> BranchList a br
-  NextBranch :: a -> BranchList a br -> BranchList a Branched
-
--- convert to/from lists
-toBranchList :: [a] -> BranchList a Branched
-toBranchList [] = pprPanic "toBranchList" empty
-toBranchList [b] = FirstBranch b
-toBranchList (h:t) = NextBranch h (toBranchList t)
-
-fromBranchList :: BranchList a br -> [a]
-fromBranchList (FirstBranch b) = [b]
-fromBranchList (NextBranch h t) = h : (fromBranchList t)
-
--- convert from any BranchList to a Branched BranchList
-toBranchedList :: BranchList a br -> BranchList a Branched
-toBranchedList (FirstBranch b) = FirstBranch b
-toBranchedList (NextBranch h t) = NextBranch h t
-
--- convert from any BranchList to an Unbranched BranchList
-toUnbranchedList :: BranchList a br -> BranchList a Unbranched
-toUnbranchedList (FirstBranch b) = FirstBranch b
-toUnbranchedList _ = pprPanic "toUnbranchedList" empty
-
--- length
-brListLength :: BranchList a br -> Int
-brListLength (FirstBranch _) = 1
-brListLength (NextBranch _ t) = 1 + brListLength t
-
--- lookup
-brListNth :: BranchList a br -> Int -> a
-brListNth (FirstBranch b) 0 = b
-brListNth (NextBranch h _) 0 = h
-brListNth (NextBranch _ t) n = brListNth t (n-1)
-brListNth _ _ = pprPanic "brListNth" empty
-
--- map, fold
-brListMap :: (a -> b) -> BranchList a br -> [b]
-brListMap f (FirstBranch b) = [f b]
-brListMap f (NextBranch h t) = f h : (brListMap f t)
-
-brListFoldr :: (a -> b -> b) -> b -> BranchList a br -> b
-brListFoldr f x (FirstBranch b) = f b x
-brListFoldr f x (NextBranch h t) = f h (brListFoldr f x t)
-
--- zipWith
-brListZipWith :: (a -> b -> c) -> BranchList a br1 -> BranchList b br2 -> [c]
-brListZipWith f (FirstBranch a) (FirstBranch b) = [f a b]
-brListZipWith f (FirstBranch a) (NextBranch b _) = [f a b]
-brListZipWith f (NextBranch a _) (FirstBranch b) = [f a b]
-brListZipWith f (NextBranch a ta) (NextBranch b tb) = f a b : brListZipWith f ta tb
-
--- pretty-printing
-
-instance Outputable a => Outputable (BranchList a br) where
-  ppr = ppr . fromBranchList
-
--- | A 'CoAxiom' is a \"coercion constructor\", i.e. a named equality axiom.
-
--- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-data CoAxiom br
-  = CoAxiom                   -- Type equality axiom.
-    { co_ax_unique   :: Unique        -- unique identifier
-    , co_ax_name     :: Name          -- name for pretty-printing
-    , co_ax_tc       :: TyCon         -- the head of the LHS patterns
-    , co_ax_branches :: BranchList CoAxBranch br
-                                      -- the branches that form this axiom
-    , co_ax_implicit :: Bool          -- True <=> the axiom is "implicit"
-                                      -- See Note [Implicit axioms]
-         -- INVARIANT: co_ax_implicit == True implies length co_ax_branches == 1.
-    }
-  deriving Typeable
-
-data CoAxBranch
-  = CoAxBranch
-    { cab_tvs      :: [TyVar]      -- bound type variables
-    , cab_lhs      :: [Type]       -- type patterns to match against
-    , cab_rhs      :: Type         -- right-hand side of the equality
-    }
-  deriving Typeable
-
-toBranchedAxiom :: CoAxiom br -> CoAxiom Branched
-toBranchedAxiom (CoAxiom unique name tc branches implicit)
-  = CoAxiom unique name tc (toBranchedList branches) implicit
-
-toUnbranchedAxiom :: CoAxiom br -> CoAxiom Unbranched
-toUnbranchedAxiom (CoAxiom unique name tc branches implicit)
-  = CoAxiom unique name tc (toUnbranchedList branches) implicit
-
-coAxiomNthBranch :: CoAxiom br -> Int -> CoAxBranch
-coAxiomNthBranch ax index
-  = ASSERT( 0 <= index && index < (length $ fromBranchList (co_ax_branches ax)) )
-    (fromBranchList $ co_ax_branches ax) !! index
-
-coAxiomArity :: CoAxiom br -> Int -> Arity
-coAxiomArity ax index
-  = length $ cab_tvs $ coAxiomNthBranch ax index
-
-coAxiomName :: CoAxiom br -> Name
-coAxiomName = co_ax_name
-
-coAxiomBranches :: CoAxiom br -> BranchList CoAxBranch br
-coAxiomBranches = co_ax_branches
-
-coAxiomSingleBranch_maybe :: CoAxiom br -> Maybe CoAxBranch
-coAxiomSingleBranch_maybe (CoAxiom { co_ax_branches = branches })
-  | FirstBranch br <- branches
-  = Just br
-  | otherwise
-  = Nothing
-
-coAxiomSingleBranch :: CoAxiom Unbranched -> CoAxBranch
-coAxiomSingleBranch (CoAxiom { co_ax_branches = FirstBranch br }) = br
-
-coAxiomTyCon :: CoAxiom br -> TyCon
-coAxiomTyCon = co_ax_tc
-
-coAxBranchTyVars :: CoAxBranch -> [TyVar]
-coAxBranchTyVars = cab_tvs
-
-coAxBranchLHS :: CoAxBranch -> [Type]
-coAxBranchLHS = cab_lhs
-
-coAxBranchRHS :: CoAxBranch -> Type
-coAxBranchRHS = cab_rhs
-
-isImplicitCoAxiom :: CoAxiom br -> Bool
-isImplicitCoAxiom = co_ax_implicit
-\end{code}
-
-Note [Implicit axioms]
-~~~~~~~~~~~~~~~~~~~~~~
-See also Note [Implicit TyThings] in HscTypes
-* A CoAxiom arising from data/type family instances is not "implicit".
-  That is, it has its own IfaceAxiom declaration in an interface file
-
-* The CoAxiom arising from a newtype declaration *is* "implicit".
-  That is, it does not have its own IfaceAxiom declaration in an
-  interface file; instead the CoAxiom is generated by type-checking
-  the newtype declaration
-
 
 %************************************************************************
 %*                                                                      *
@@ -1685,30 +1481,4 @@ instance Data.Data TyCon where
     gunfold _ _  = error "gunfold"
     dataTypeOf _ = mkNoRepType "TyCon"
 
--------------------
-instance Eq (CoAxiom br) where
-    a == b = case (a `compare` b) of { EQ -> True;   _ -> False }
-    a /= b = case (a `compare` b) of { EQ -> False;  _ -> True  }
-
-instance Ord (CoAxiom br) where
-    a <= b = case (a `compare` b) of { LT -> True;  EQ -> True;  GT -> False }
-    a <  b = case (a `compare` b) of { LT -> True;  EQ -> False; GT -> False }
-    a >= b = case (a `compare` b) of { LT -> False; EQ -> True;  GT -> True  }
-    a >  b = case (a `compare` b) of { LT -> False; EQ -> False; GT -> True  }
-    compare a b = getUnique a `compare` getUnique b
-
-instance Uniquable (CoAxiom br) where
-    getUnique = co_ax_unique
-
-instance Outputable (CoAxiom br) where
-    ppr = ppr . getName
-
-instance NamedThing (CoAxiom br) where
-    getName = co_ax_name
-
-instance Typeable br => Data.Data (CoAxiom br) where
-    -- don't traverse?
-    toConstr _   = abstractConstr "CoAxiom"
-    gunfold _ _  = error "gunfold"
-    dataTypeOf _ = mkNoRepType "CoAxiom"
 \end{code}

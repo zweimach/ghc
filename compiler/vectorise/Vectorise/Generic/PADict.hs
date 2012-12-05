@@ -15,6 +15,7 @@ import CoreUtils
 import CoreUnfold
 import Module
 import TyCon
+import CoAxiom
 import Type
 import Id
 import Var

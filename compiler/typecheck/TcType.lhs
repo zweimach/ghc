@@ -174,6 +174,7 @@ import VarSet
 import Coercion
 import Type
 import TyCon
+import CoAxiom
 
 -- others:
 import DynFlags

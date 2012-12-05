@@ -138,6 +138,7 @@ import Type
 import Annotations
 import Class
 import TyCon
+import CoAxiom
 import DataCon
 import PrelNames        ( gHC_PRIM, ioTyConName, printName )
 import Packages hiding  ( Version(..) )

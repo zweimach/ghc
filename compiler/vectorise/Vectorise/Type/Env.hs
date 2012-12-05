@@ -26,6 +26,7 @@ import CoreUtils
 import CoreUnfold
 import DataCon
 import TyCon
+import CoAxiom
 import Type
 import FamInstEnv
 import Id

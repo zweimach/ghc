@@ -20,6 +20,7 @@ import LoadIface
 import TypeRep
 import TcRnMonad
 import TyCon
+import CoAxiom
 import DynFlags
 import Module
 import Outputable

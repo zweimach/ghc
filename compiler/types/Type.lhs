@@ -157,6 +157,7 @@ import TysPrim
 import {-# SOURCE #-} TysWiredIn ( eqTyCon, mkBoxedTupleTy )
 import PrelNames ( eqTyConKey, ipClassNameKey, 
                    constraintKindTyConKey, liftedTypeKindTyConKey )
+import CoAxiom
 
 -- others
 import Unique		( Unique, hasKey )

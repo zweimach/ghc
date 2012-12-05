@@ -54,6 +54,7 @@ import CoreUtils	( exprType, mkCast )
 import CoreUnfold
 import Literal
 import TyCon
+import CoAxiom
 import Class
 import VarSet
 import Name

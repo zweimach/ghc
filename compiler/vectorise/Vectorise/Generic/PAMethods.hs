@@ -18,6 +18,7 @@ import CoreUtils
 import FamInstEnv
 import MkCore            ( mkWildCase )
 import TyCon
+import CoAxiom
 import Type
 import OccName
 import Coercion

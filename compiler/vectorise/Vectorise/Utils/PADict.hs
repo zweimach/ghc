@@ -17,6 +17,7 @@ import Coercion
 import Type
 import TypeRep
 import TyCon
+import CoAxiom
 import Var
 import Outputable
 import DynFlags
