@@ -463,7 +463,7 @@ ppr_forall_co p ty
 \begin{code}
 pprCoAxiom :: CoAxiom br -> SDoc
 pprCoAxiom ax@(CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
-  = hang (ptext (sLit "axiom") <+> ppr ax)
+  = hang (ptext (sLit "axiom") <+> ppr ax <+> dcolon)
        2 (vcat (map (pprCoAxBranch tc) $ fromBranchList branches))
 
 pprCoAxBranch :: TyCon -> CoAxBranch -> SDoc
