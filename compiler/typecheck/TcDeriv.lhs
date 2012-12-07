@@ -43,6 +43,7 @@ import RdrName
 import Name
 import NameSet
 import TyCon
+import CoAxiom
 import TcType
 import Var
 import VarSet
@@ -348,8 +349,8 @@ tcDeriving tycl_decls inst_decls deriv_decls
         ; return (addTcgDUs gbl_env rn_dus, inst_info, rn_binds) }
   where
     ddump_deriving :: Bag (InstInfo Name) -> HsValBinds Name
-                   -> Bag TyCon         -- ^ Empty data constructors
-                   -> Bag (FamInst br)  -- ^ Rep type family instances
+                   -> Bag TyCon                 -- ^ Empty data constructors
+                   -> Bag (FamInst Unbranched)  -- ^ Rep type family instances
                    -> SDoc
     ddump_deriving inst_infos extra_binds repMetaTys repFamInsts
       =    hang (ptext (sLit "Derived instances:"))
@@ -359,10 +360,16 @@ tcDeriving tycl_decls inst_decls deriv_decls
               hangP "Generated datatypes for meta-information:"
                (vcat (map ppr (bagToList repMetaTys)))
            $$ hangP "Representation types:"
-                (vcat (map ppr (bagToList repFamInsts))))
+                (vcat (map pprRepTy (bagToList repFamInsts))))
 
     hangP s x = text "" $$ hang (ptext (sLit s)) 2 x
 
+-- Prints the representable type family instance
+pprRepTy :: FamInst Unbranched -> SDoc
+pprRepTy fi@(FamInst { fi_branches = FirstBranch (FamInstBranch { fib_lhs = lhs
+                                                                , fib_rhs = rhs }) })
+  = ptext (sLit "type") <+> ppr (mkTyConApp (famInstTyCon fi) lhs) <+>
+      equals <+> ppr rhs 
 
 
 -- As of 24 April 2012, this only shares MetaTyCons between derivations of

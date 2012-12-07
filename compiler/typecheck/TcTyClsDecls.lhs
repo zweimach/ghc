@@ -163,7 +163,7 @@ tcTyClGroup boot_details tyclds
 
 tcAddImplicits :: [TyThing] -> TcM TcGblEnv
 tcAddImplicits tyclss
- = tcExtendGlobalEnvImplicit implicit_things $ 
+ = tcExtendGlobalEnvImplicit implicit_things $
    tcRecSelBinds rec_sel_binds
  where
    implicit_things = concatMap implicitTyThings tyclss

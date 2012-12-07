@@ -434,7 +434,7 @@ addFamInsts :: [FamInst Branched] -> TcM a -> TcM a
 --        (b) the type envt with stuff from data type decls
 addFamInsts fam_insts thing_inside
   = tcExtendLocalFamInstEnv fam_insts $ 
-    tcExtendGlobalEnvImplicit things  $ 
+    tcExtendGlobalEnv things  $ 
     do { traceTc "addFamInsts" (pprFamInsts fam_insts)
        ; tcg_env <- tcAddImplicits things
        ; setGblEnv tcg_env thing_inside }

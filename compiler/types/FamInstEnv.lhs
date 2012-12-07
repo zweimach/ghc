@@ -511,6 +511,7 @@ identicalFamInst :: FamInst br1 -> FamInst br2 -> Bool
 -- Used for overriding in GHCi
 identicalFamInst (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
   =  nameModule (coAxiomName ax1) == nameModule (coAxiomName ax2)
+     && coAxiomTyCon ax1 == coAxiomTyCon ax2
      && brListLength brs1 == brListLength brs2
      && and (brListZipWith identical_ax_branch brs1 brs2)
   where brs1 = coAxiomBranches ax1
