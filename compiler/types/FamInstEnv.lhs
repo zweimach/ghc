@@ -91,7 +91,7 @@ SrcSpan to correctly store the location of the equation giving rise to
 the FamInstBranch.
 
 \begin{code}
-data FamInst br -- See Note [FamInsts and CoAxioms], Note [Singleton axioms] in TyCon.lhs
+data FamInst br -- See Note [FamInsts and CoAxioms], Note [Singleton axioms] in CoAxiom.lhs
   = FamInst { fi_axiom    :: CoAxiom br      -- The new coercion axiom introduced
                                              -- by this family instance
             , fi_flavor   :: FamFlavor
@@ -299,7 +299,7 @@ mkSingleSynFamInst :: Name        -- ^ Unique name for the coercion tycon
                    -> [Type]      -- ^ Type instance (@ts@)
                    -> Type        -- ^ right-hand side
                    -> FamInst Unbranched
--- See note [Singleton axioms] in TyCon.lhs
+-- See note [Singleton axioms] in CoAxiom.lhs
 mkSingleSynFamInst name tvs fam_tc inst_tys rep_ty
   = FamInst { fi_fam      = tyConName fam_tc
             , fi_flavor   = SynFamilyInst
