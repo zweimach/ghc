@@ -23,7 +23,9 @@ module Unify (
 
         -- Side-effect free unification
         tcUnifyTys, BindFlag(..),
-        niFixTvSubst, niSubstTvSet
+        niFixTvSubst, niSubstTvSet,
+
+        ApartResult(..), tcApartTys
 
    ) where
 
@@ -550,6 +552,58 @@ bindTv subst tv ty	-- ty is not a type variable
 	    Skolem -> failWith (misMatch (TyVarTy tv) ty)
 	    BindMe -> return $ extendVarEnv subst tv ty
 	}
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+                Apartness checking
+%*                                                                      *
+%************************************************************************
+
+Note [Apartness checking]
+~~~~~~~~~~~~~~~~~~~~~~~~~
+There are some cases when we wish to check if two types are known to
+be "apart" -- that is, they can never unify, no matter what happens to
+type variables in the future. Clearly, if two types unify, they are not
+apart. If they have different *ground* head types, they clearly are apart.
+The ambiguous case is when one of the types is a type function. Since
+type functions are open (as of this writing, Nov 2012), there is always
+the possibility that an instance of the type function will be added that
+will allow it to unify. So, we report a "maybe" answer in this case,
+without providing a unifying substitution.
+
+\begin{code}
+
+-- See Note [Apartness checking]
+data ApartResult = NotApart TvSubst   -- the subst that unifies the types
+                 | MaybeApart
+                 | SurelyApart
+
+tcApartTys :: (TyVar -> BindFlag)
+           -> [Type] -> [Type]
+           -> ApartResult
+tcApartTys bind_fn tys1 tys2
+  | Just subst <- tcUnifyTys bind_fn tys1 tys2
+  = NotApart subst
+  | Just _ <- tcUnifyTys bind_fn tys1_without_tyfams tys2_without_tyfams
+  = MaybeApart
+  | otherwise
+  = SurelyApart
+  where
+    zipped = zip tys1 tys2
+    no_tyfams = filter neither_is_tyfam zipped
+    (tys1_without_tyfams, tys2_without_tyfams) = unzip no_tyfams
+
+    neither_is_tyfam :: (Type, Type) -> Bool
+    neither_is_tyfam (t1, t2) = is_not_tyfam t1 && is_not_tyfam t2
+
+    is_not_tyfam :: Type -> Bool
+    is_not_tyfam t
+      | Just (tc, _) <- splitTyConApp_maybe t
+      = not (isSynFamilyTyCon tc)
+      | otherwise
+      = True
+
 \end{code}
 
 %************************************************************************
