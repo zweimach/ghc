@@ -526,7 +526,7 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
     mk_alt upd_fld_env con
       = do { let (univ_tvs, ex_tvs, eq_spec, 
                   theta, arg_tys, _) = dataConFullSig con
-                 subst = mkTopTvSubst (univ_tvs `zip` in_inst_tys)
+                 subst = mkTopTCvSubst (univ_tvs `zip` in_inst_tys)
 
                 -- I'm not bothering to clone the ex_tvs
            ; eqs_vars   <- mapM newPredVarDs (substTheta subst (eqSpecPreds eq_spec))
@@ -538,8 +538,8 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
                      = nlHsVar (lookupNameEnv upd_fld_env field_name `orElse` pat_arg_id)
                  inst_con = noLoc $ HsWrap wrap (HsVar (dataConWrapId con))
                         -- Reconstruct with the WrapId so that unpacking happens
-                 wrap = mkWpEvVarApps theta_vars          <.>
-                        mkWpTyApps    (mkTyVarTys ex_tvs) <.>
+                 wrap = mkWpEvVarApps theta_vars            <.>
+                        mkWpTyApps    (mkTyCoVarTys ex_tvs) <.>
                         mkWpTyApps [ty | (tv, ty) <- univ_tvs `zip` out_inst_tys
                                        , not (tv `elemVarEnv` wrap_subst) ]
                  rhs = foldl (\a b -> nlHsApp a b) inst_con val_args

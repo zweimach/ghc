@@ -582,7 +582,8 @@ data RuleEnv = RV { rv_tmpls :: VarSet          -- Template variables
                   }
 
 data RuleSubst = RS { rs_tv_subst :: TvSubstEnv   -- Range is the
-                    , rs_id_subst :: IdSubstEnv   --   template variables
+                    , rs_cv_subst :: CvSubstEnv   --   template variables
+                    , rs_id_subst :: IdSubstEnv   
                     , rs_binds    :: BindWrapper  -- Floated bindings
                     , rs_bndrs    :: VarSet       -- Variables bound by floated lets
                     }
@@ -592,7 +593,8 @@ type BindWrapper = CoreExpr -> CoreExpr
   -- we represent the floated bindings as a core-to-core function
 
 emptyRuleSubst :: RuleSubst
-emptyRuleSubst = RS { rs_tv_subst = emptyVarEnv, rs_id_subst = emptyVarEnv
+emptyRuleSubst = RS { rs_tv_subst = emptyVarEnv, rs_cv_subst = emptyVarEnv
+                    , rs_id_subst = emptyVarEnv
                     , rs_binds = \e -> e, rs_bndrs = emptyVarSet }
 
 --      At one stage I tried to match even if there are more
@@ -854,10 +856,12 @@ match_ty :: RuleEnv
 -- We only want to replace (f T) with f', not (f Int).
 
 match_ty renv subst ty1 ty2
-  = do  { tv_subst' <- Unify.ruleMatchTyX menv tv_subst ty1 ty2
-        ; return (subst { rs_tv_subst = tv_subst' }) }
+  = do  { (tv_subst', cv_subst')
+            <- Unify.ruleMatchTyX menv (tv_subst, cv_subst) ty1 ty2
+        ; return (subst { rs_tv_subst = tv_subst', rs_cv_subst = cv_subst' }) }
   where
     tv_subst = rs_tv_subst subst
+    cv_subst = rs_cv_subst subst
     menv = ME { me_tmpls = rv_tmpls renv, me_env = rv_lcl renv }
 \end{code}
 

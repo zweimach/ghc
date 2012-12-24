@@ -1747,7 +1747,7 @@ hscCompileCoreExpr hsc_env srcspan ds_expr
         when lint_on $
             let ictxt  = hsc_IC hsc_env
                 te     = mkTypeEnvWithImplicits (ic_tythings ictxt ++ map AnId (ic_sys_vars ictxt))
-                tyvars = varSetElems $ tyThingsTyVars $ typeEnvElts $ te
+                tyvars = varSetElems $ tyThingsTyCoVars $ typeEnvElts $ te
                 vars   = typeEnvIds te
             in case lintUnfolding noSrcLoc (tyvars ++ vars) prepd_expr of
                    Just err -> pprPanic "hscCompileCoreExpr" err

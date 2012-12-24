@@ -205,7 +205,7 @@ alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar :: TyVar
 (alphaTyVar:betaTyVar:gammaTyVar:deltaTyVar:_) = alphaTyVars
 
 alphaTys :: [Type]
-alphaTys = mkTyVarTys alphaTyVars
+alphaTys = mkOnlyTyVarTys alphaTyVars
 alphaTy, betaTy, gammaTy, deltaTy :: Type
 (alphaTy:betaTy:gammaTy:deltaTy:_) = alphaTys
 
@@ -217,11 +217,12 @@ openAlphaTyVar, openBetaTyVar :: TyVar
 openAlphaTyVars@(openAlphaTyVar:openBetaTyVar:_) = tyVarList openTypeKind
 
 openAlphaTy, openBetaTy :: Type
-openAlphaTy = mkTyVarTy openAlphaTyVar
-openBetaTy  = mkTyVarTy openBetaTyVar
+openAlphaTy = mkOnlyTyVarTy openAlphaTyVar
+openBetaTy  = mkOnlyTyVarTy openBetaTyVar
 
 kKiVar :: KindVar
 kKiVar = (tyVarList superKind) !! 10
+  -- the 10 selects the 11th letter in the alphabet: 'k'
 
 \end{code}
 
@@ -438,17 +439,16 @@ doublePrimTyCon	= pcPrimTyCon0 doublePrimTyConName DoubleRep
 %*									*
 %************************************************************************
 
-Note [The ~# TyCon)
+Note [The ~# TyCon]
 ~~~~~~~~~~~~~~~~~~~~
 There is a perfectly ordinary type constructor ~# that represents the type
 of coercions (which, remember, are values).  For example
-   Refl Int :: ~# * Int Int
+   Refl Int :: ~# * * Int Int
 
 It is a kind-polymorphic type constructor like Any:
-   Refl Maybe :: ~# (* -> *) Maybe Maybe
+   Refl Maybe :: ~# (* -> *) (* -> *) Maybe Maybe
 
-(~) only appears saturated. So we check that in CoreLint (and, in an
-assertion, in Kind.typeKind).
+(~) only appears saturated. So we check that in CoreLint.
 
 Note [The State# TyCon]
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -470,10 +470,13 @@ statePrimTyCon	 = pcPrimTyCon statePrimTyConName 1 VoidRep
 
 eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 		      -- See Note [The ~# TyCon]
-eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind 3 VoidRep
-  where kind = ForAllTy kv $ mkArrowKinds [k, k] unliftedTypeKind
-        kv = kKiVar
-        k = mkTyVarTy kv
+eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind 4 VoidRep
+  where kind = ForAllTy kv1 $ ForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
+        kVars = tyVarList superKind
+        kv1 = kVars !! 0
+        kv2 = kVars !! 1
+        k1 = mkOnlyTyVarTy kv1
+        k2 = mkOnlyTyVarTy kv2
 \end{code}
 
 RealWorld is deeply magical.  It is *primitive*, but it is not
@@ -720,7 +723,7 @@ anyTy = mkTyConTy anyTyCon
 
 anyTyCon :: TyCon
 anyTyCon = mkLiftedPrimTyCon anyTyConName kind 1 PtrRep
-  where kind = ForAllTy kKiVar (mkTyVarTy kKiVar)
+  where kind = ForAllTy kKiVar (mkOnlyTyVarTy kKiVar)
 
 {-   Can't do this yet without messing up kind proxies
 anyTyCon :: TyCon
@@ -728,7 +731,7 @@ anyTyCon = mkSynTyCon anyTyConName kind [kKiVar]
                       syn_rhs
                       NoParentTyCon
   where 
-    kind = ForAllTy kKiVar (mkTyVarTy kKiVar)
+    kind = ForAllTy kKiVar (mkOnlyTyVarTy kKiVar)
     syn_rhs = SynFamilyTyCon { synf_open = False, synf_injective = True }
                   -- NB Closed, injective
 -}

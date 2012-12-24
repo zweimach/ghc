@@ -731,7 +731,7 @@ checkBootTyCon tc1 tc2
           = classExtraBigSig c1
         (clas_tvs2, clas_fds2, sc_theta2, _, ats2, op_stuff2)
           = classExtraBigSig c2
-  , Just env <- eqTyVarBndrs emptyRnEnv2 clas_tvs1 clas_tvs2
+  , Just env <- eqTyCoVarBndrs emptyRnEnv2 clas_tvs1 clas_tvs2
   = let
        eqSig (id1, def_meth1) (id2, def_meth2)
          = idName id1 == idName id2 &&
@@ -749,14 +749,14 @@ checkBootTyCon tc1 tc2
 
        -- Ignore the location of the defaults
        eqATDef (ATD tvs1 ty_pats1 ty1 _loc1) (ATD tvs2 ty_pats2 ty2 _loc2)
-         | Just env <- eqTyVarBndrs emptyRnEnv2 tvs1 tvs2
+         | Just env <- eqTyCoVarBndrs emptyRnEnv2 tvs1 tvs2
          = eqListBy (eqTypeX env) ty_pats1 ty_pats2 &&
            eqTypeX env ty1 ty2
          | otherwise = False
 
        eqFD (as1,bs1) (as2,bs2) =
-         eqListBy (eqTypeX env) (mkTyVarTys as1) (mkTyVarTys as2) &&
-         eqListBy (eqTypeX env) (mkTyVarTys bs1) (mkTyVarTys bs2)
+         eqListBy (eqTypeX env) (mkTyCoVarTys as1) (mkTyCoVarTys as2) &&
+         eqListBy (eqTypeX env) (mkTyCoVarTys bs1) (mkTyCoVarTys bs2)
     in
              -- Checks kind of class
        eqListBy eqFD clas_fds1 clas_fds2 &&
@@ -768,7 +768,7 @@ checkBootTyCon tc1 tc2
 
   | Just syn_rhs1 <- synTyConRhs_maybe tc1
   , Just syn_rhs2 <- synTyConRhs_maybe tc2
-  , Just env <- eqTyVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
+  , Just env <- eqTyCoVarBndrs emptyRnEnv2 (tyConTyCoVars tc1) (tyConTyCoVars tc2)
   = ASSERT(tc1 == tc2)
     let eqSynRhs (SynFamilyTyCon o1 i1) (SynFamilyTyCon o2 i2)
             = o1==o2 && i1==i2
@@ -779,7 +779,7 @@ checkBootTyCon tc1 tc2
     eqSynRhs syn_rhs1 syn_rhs2
 
   | isAlgTyCon tc1 && isAlgTyCon tc2
-  , Just env <- eqTyVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
+  , Just env <- eqTyCoVarBndrs emptyRnEnv2 (tyConTyCoVars tc1) (tyConTyCoVars tc2)
   = ASSERT(tc1 == tc2)
     eqListBy (eqPredX env) (tyConStupidTheta tc1) (tyConStupidTheta tc2) &&
     eqAlgRhs (algTyConRhs tc1) (algTyConRhs tc2)

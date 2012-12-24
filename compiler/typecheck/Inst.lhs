@@ -27,8 +27,8 @@ module Inst (
        -- Simple functions over evidence variables
        hasEqualities, 
        
-       tyVarsOfWC, tyVarsOfBag, 
-       tyVarsOfCt, tyVarsOfCts, 
+       tyVarsOfWC, 
+       tyCoVarsOfCt, tyCoVarsOfCts, 
 
        tidyEvVar, tidyCt, tidySkolemInfo
     ) where
@@ -102,7 +102,7 @@ newMethodFromName origin name inst_ty
 
        ; let (tvs, theta, _caller_knows_this) = tcSplitSigmaTy (idType id)
              (the_tv:rest) = tvs
-             subst = zipOpenTvSubst [the_tv] [inst_ty]
+             subst = zipOpenTCvSubst [the_tv] [inst_ty]
 
        ; wrap <- ASSERT( null rest && isSingleton theta )
                  instCall origin [inst_ty] (substTheta subst theta)
@@ -530,34 +530,34 @@ hasEqualities givens = any (has_eq . evVarPred) givens
        -- it's really the innocuous (Show a).  Too bad!  Add a type signature
 
 ---------------- Getting free tyvars -------------------------
-tyVarsOfCt :: Ct -> TcTyVarSet
+tyCoVarsOfCt :: Ct -> TcTyVarSet
 -- NB: the 
-tyVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })    = extendVarSet (tyVarsOfType xi) tv
-tyVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_rhs = xi }) = tyVarsOfTypes (xi:tys)
-tyVarsOfCt (CDictCan { cc_tyargs = tys }) 	        = tyVarsOfTypes tys
-tyVarsOfCt (CIrredEvCan { cc_ev = ev })                 = tyVarsOfType (ctEvPred ev)
-tyVarsOfCt (CHoleCan { cc_ev = ev })                    = tyVarsOfType (ctEvPred ev)
-tyVarsOfCt (CNonCanonical { cc_ev = ev })               = tyVarsOfType (ctEvPred ev)
+tyCoVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })    = extendVarSet (tyCoVarsOfType xi) tv
+tyCoVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_rhs = xi }) = tyCoVarsOfTypes (xi:tys)
+tyCoVarsOfCt (CDictCan { cc_tyargs = tys }) 	          = tyCoVarsOfTypes tys
+tyCoVarsOfCt (CIrredEvCan { cc_ev = ev })                 = tyCoVarsOfType (ctEvPred ev)
+tyCoVarsOfCt (CHoleCan { cc_ev = ev })                    = tyCoVarsOfType (ctEvPred ev)
+tyCoVarsOfCt (CNonCanonical { cc_ev = ev })               = tyCoVarsOfType (ctEvPred ev)
 
-tyVarsOfCts :: Cts -> TcTyVarSet
-tyVarsOfCts = foldrBag (unionVarSet . tyVarsOfCt) emptyVarSet
+tyCoVarsOfCts :: Cts -> TcTyVarSet
+tyCoVarsOfCts = foldrBag (unionVarSet . tyCoVarsOfCt) emptyVarSet
 
-tyVarsOfWC :: WantedConstraints -> TyVarSet
+tyCoVarsOfWC :: WantedConstraints -> TyVarSet
 -- Only called on *zonked* things, hence no need to worry about flatten-skolems
-tyVarsOfWC (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
-  = tyVarsOfCts flat `unionVarSet`
-    tyVarsOfBag tyVarsOfImplic implic `unionVarSet`
-    tyVarsOfCts insol
+tyCoVarsOfWC (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
+  = tyCoVarsOfCts flat `unionVarSet`
+    tyCoVarsOfBag tyCoVarsOfImplic implic `unionVarSet`
+    tyCoVarsOfCts insol
 
-tyVarsOfImplic :: Implication -> TyVarSet
+tyCoVarsOfImplic :: Implication -> TyVarSet
 -- Only called on *zonked* things, hence no need to worry about flatten-skolems
-tyVarsOfImplic (Implic { ic_skols = skols, ic_fsks = fsks
+tyCoVarsOfImplic (Implic { ic_skols = skols, ic_fsks = fsks
                              , ic_given = givens, ic_wanted = wanted })
-  = (tyVarsOfWC wanted `unionVarSet` tyVarsOfTypes (map evVarPred givens))
+  = (tyVarsOfWC wanted `unionVarSet` tyVarsOnlyOfTypes (map evVarPred givens))
     `delVarSetList` skols `delVarSetList` fsks
 
-tyVarsOfBag :: (a -> TyVarSet) -> Bag a -> TyVarSet
-tyVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet
+tyCoVarsOfBag :: (a -> TyVarSet) -> Bag a -> TyVarSet
+tyCoVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet
 
 ---------------- Tidying -------------------------
 
@@ -601,7 +601,7 @@ tidySkolemInfo env (InferSkol ids)
 tidySkolemInfo env (UnifyForAllSkol skol_tvs ty) 
   = (env1, UnifyForAllSkol skol_tvs' ty')
   where
-    env1 = tidyFreeTyVars env (tyVarsOfType ty `delVarSetList` skol_tvs)
+    env1 = tidyFreeTyCoVars env (tyCoVarsOfType ty `delVarSetList` skol_tvs)
     (env2, skol_tvs') = tidyTyVarBndrs env1 skol_tvs
     ty'               = tidyType env2 ty
 

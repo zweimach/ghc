@@ -339,7 +339,7 @@ mkDataFamInst name tvs fam_tc inst_tys rep_tc
             , fi_branches = FirstBranch branch
             , fi_axiom    = axiom }
   where
-    rhs = mkTyConApp rep_tc (mkTyVarTys tvs)
+    rhs = mkTyConApp rep_tc (mkTyCoVarTys tvs)
 
     branch = FamInstBranch { fib_loc    = getSrcSpan name
                                -- See Note [FamInst locations]
@@ -652,7 +652,7 @@ lookupFamInstEnv
     match seen (FamInstBranch { fib_tvs = tpl_tvs
                               , fib_lhs = tpl_tys })
           _ match_tys 
-      = ASSERT( tyVarsOfTypes match_tys `disjointVarSet` tpl_tvs )
+      = ASSERT( tyCoVarsOfTypes match_tys `disjointVarSet` tpl_tvs )
                 -- Unification will break badly if the variables overlap
                 -- They shouldn't because we allocate separate uniques for them
         case tcMatchTys tpl_tvs tpl_tys match_tys of
@@ -699,7 +699,7 @@ lookupFamInstEnvConflicts envs grp tc
   where
     my_unify _ (FamInstBranch { fib_tvs = tpl_tvs, fib_lhs = tpl_tys
                               , fib_rhs = tpl_rhs }) old_grp match_tys
-       = ASSERT2( tyVarsOfTypes tys `disjointVarSet` tpl_tvs,
+       = ASSERT2( tyCoVarsOfTypes tys `disjointVarSet` tpl_tvs,
                   (pprFamInstBranch tc branch <+> ppr tys) $$
                   (ppr tpl_tvs <+> ppr tpl_tys) )
                 -- Unification will break badly if the variables overlap
@@ -718,7 +718,7 @@ lookupFamInstEnvConflicts envs grp tc
 
     -- checks whether two RHSs are distinct, under a unifying substitution
     -- Note [Family instance overlap conflicts]
-    rhs_conflict :: Type -> Type -> TvSubst -> Bool
+    rhs_conflict :: Type -> Type -> TCvSubst -> Bool
     rhs_conflict rhs1 rhs2 subst 
       = not (rhs1' `eqType` rhs2')
         where
@@ -781,7 +781,7 @@ type MatchFun =  [FamInstBranch]     -- the previous branches in the instance
               -> FamInstBranch       -- the individual branch to check
               -> Bool                -- is this branch a part of a group?
               -> [Type]              -- the types to match against
-              -> (Maybe TvSubst, ContSearch)
+              -> (Maybe TCvSubst, ContSearch)
 
 type OneSidedMatch = Bool     -- Are optimisations that are only valid for
                               -- one sided matches allowed?
@@ -854,7 +854,7 @@ lookup_fam_inst_env' match_fun one_sided ie fam tys
                                        , fim_tys      = tys }
                   axBranch = coAxiomNthBranch axiom ind
                   tys = add_extra_tys $
-                        substTyVars subst (coAxBranchTyVars axBranch)
+                        substTyCoVars subst (coAxBranchTyCoVars axBranch)
 
 lookup_fam_inst_env           -- The worker, local to this module
     :: MatchFun

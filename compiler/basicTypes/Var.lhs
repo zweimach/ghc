@@ -117,6 +117,8 @@ type IpId   = EvId      -- A term-level implicit parameter
 type EqVar  = EvId      -- Boxed equality evidence
 
 type CoVar = Id		-- See Note [Evidence: EvIds and CoVars]
+
+type TyCoVar = Id       -- Type, kind, *or* coercion variable
 \end{code}
 
 Note [Evidence: EvIds and CoVars]

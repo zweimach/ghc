@@ -365,8 +365,8 @@ vectDataConWorkers orig_tc vect_tc arr_tc
         ; mapM_ (uncurry hoistBinding) bs
         }
   where
-    tyvars   = tyConTyVars vect_tc
-    var_tys  = mkTyVarTys tyvars
+    tyvars   = tyConTyCoVars vect_tc
+    var_tys  = mkTyCoVarTys tyvars
     ty_args  = map Type var_tys
     res_ty   = mkTyConApp vect_tc var_tys
 

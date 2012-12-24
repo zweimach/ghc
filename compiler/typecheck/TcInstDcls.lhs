@@ -499,7 +499,7 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
 
         ; (tyvars, theta, clas, inst_tys) <- tcHsInstHead InstDeclCtxt poly_ty
         ; let mini_env   = mkVarEnv (classTyVars clas `zip` inst_tys)
-              mini_subst = mkTvSubst (mkInScopeSet (mkVarSet tyvars)) mini_env
+              mini_subst = mkTCvSubst (mkInScopeSet (mkVarSet tyvars)) mini_env
                            
         -- Next, process any associated types.
         ; traceTc "tcLocalInstDecl" (ppr poly_ty)
@@ -536,10 +536,10 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                 = forM defs $ \(ATD _tvs pat_tys rhs _loc) ->
                   do { let pat_tys' = substTys mini_subst pat_tys
                            rhs'     = substTy  mini_subst rhs
-                           tv_set'  = tyVarsOfTypes pat_tys'
+                           tv_set'  = tyCoVarsOfTypes pat_tys'
                            tvs'     = varSetElems tv_set'
                      ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
-                     ; ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
+                     ; ASSERT( tyCoVarsOfType rhs' `subVarSet` tv_set' ) 
                        return (mkSingleSynFamInst rep_tc_name tvs' fam_tc pat_tys' rhs') }
 
         ; tyfam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
@@ -710,7 +710,7 @@ tcAssocFamInst clas mini_env fam_inst
                  (badATErr (className clas) (tyConName fam_tc))
 
        -- See Note [Checking consistent instantiation] in TcTyClsDecls
-       ; zipWithM_ check_arg (tyConTyVars fam_tc) at_tys }
+       ; zipWithM_ check_arg (tyConTyCoVars fam_tc) at_tys }
   where
     check_arg fam_tc_tv at_ty
       | Just inst_ty <- lookupVarEnv mini_env fam_tc_tv
@@ -800,7 +800,7 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
                      -- and Note [Binding when looking up instances]
        ; let (clas, inst_tys) = tcSplitDFunHead inst_head
              (class_tyvars, sc_theta, _, op_items) = classBigSig clas
-             sc_theta' = substTheta (zipOpenTvSubst class_tyvars inst_tys) sc_theta
+             sc_theta' = substTheta (zipOpenTCvSubst class_tyvars inst_tys) sc_theta
 
        ; dfun_ev_vars <- newEvVars dfun_theta
 
@@ -845,7 +845,7 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
              mk_app :: HsExpr Id -> HsExpr Id -> HsExpr Id
              mk_app fun arg = HsApp (L loc fun) (L loc arg)
 
-             inst_tv_tys = mkTyVarTys inst_tyvars
+             inst_tv_tys = mkTyCoVarTys inst_tyvars
              arg_wrapper = mkWpEvVarApps dfun_ev_vars <.> mkWpTyApps inst_tv_tys
 
                 -- Do not inline the dfun; instead give it a magic DFunFunfolding
@@ -1197,7 +1197,7 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
 
            ; self_dict <- newDict clas inst_tys
            ; let self_ev_bind = EvBind self_dict
-                                (EvDFunApp dfun_id (mkTyVarTys tyvars) (map EvId dfun_ev_vars))
+                                (EvDFunApp dfun_id (mkTyCoVarTys tyvars) (map EvId dfun_ev_vars))
 
            ; (meth_id, local_meth_sig) <- mkMethIds sig_fn clas tyvars dfun_ev_vars
                                                     inst_tys sel_id
@@ -1298,7 +1298,7 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
      rep_pred = mkClassPred clas (init_inst_tys ++ [rep_ty])
 
      -- co : [p] ~ T p
-     co = mkTcSymCo (mkTcInstCos coi (mkTyVarTys tyvars))
+     co = mkTcSymCo (mkTcInstCos coi (mkTyCoVarTys tyvars))
      sig_fn = emptyHsSigs
 
      ----------------

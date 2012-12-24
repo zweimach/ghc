@@ -14,7 +14,7 @@ module SimplEnv (
 
         -- Environments
         SimplEnv(..), StaticEnv, pprSimplEnv,   -- Temp not abstract
-        mkSimplEnv, extendIdSubst, SimplEnv.extendTvSubst, SimplEnv.extendCvSubst,
+        mkSimplEnv, extendIdSubst, SimplEnv.extendTCvSubst, 
         zapSubstEnv, setSubstEnv,
         getInScope, setInScope, setInScopeSet, modifyInScope, addNewInScopeIds,
         getSimplRules,
@@ -23,8 +23,8 @@ module SimplEnv (
 
         simplNonRecBndr, simplRecBndrs, simplLamBndr, simplLamBndrs,
         simplBinder, simplBinders, addBndrRules,
-        substExpr, substTy, substTyVar, getTvSubst,
-        getCvSubst, substCo, substCoVar,
+        substExpr, substTy, substTyCoVar, getTCvSubst,
+        substCo, substCoVar,
         mkCoreSubst,
 
         -- Floats
@@ -49,7 +49,7 @@ import MkCore
 import TysWiredIn
 import qualified CoreSubst
 import qualified Type
-import Type hiding              ( substTy, substTyVarBndr, substTyVar )
+import Type hiding              ( substTy, substTyVarBndr, substTyCoVar )
 import qualified Coercion
 import Coercion hiding          ( substCo, substTy, substCoVar, substCoVarBndr, substTyVarBndr )
 import BasicTypes
@@ -129,6 +129,7 @@ pprSimplEnv :: SimplEnv -> SDoc
 -- Used for debugging; selective
 pprSimplEnv env
   = vcat [ptext (sLit "TvSubst:") <+> ppr (seTvSubst env),
+          ptext (sLit "CvSubst:") <+> ppr (seCvSubst env),
           ptext (sLit "IdSubst:") <+> ppr (seIdSubst env),
           ptext (sLit "InScope:") <+> vcat (map ppr_one in_scope_vars)
     ]
@@ -274,9 +275,12 @@ extendIdSubst env@(SimplEnv {seIdSubst = subst}) var res
   = ASSERT2( isId var && not (isCoVar var), ppr var )
     env {seIdSubst = extendVarEnv subst var res}
 
-extendTvSubst :: SimplEnv -> TyVar -> Type -> SimplEnv
-extendTvSubst env@(SimplEnv {seTvSubst = subst}) var res
-  = env {seTvSubst = extendVarEnv subst var res}
+extendTCvSubst :: SimplEnv -> TyVar -> Type -> SimplEnv
+extendTCvSubst env@(SimplEnv {seTvSubst = tsubst, seCvSubst = csubst}) var res
+  | isTyVar var
+  = env {seTvSubst = extendVarEnv tsubst var res}
+  | CoercionTy co <- res
+  = env {seCvSubst = extendVarEnv csubst var co}
 
 extendCvSubst :: SimplEnv -> CoVar -> Coercion -> SimplEnv
 extendCvSubst env@(SimplEnv {seCvSubst = subst}) var res
@@ -731,37 +735,33 @@ addBndrRules env in_id out_id
 %************************************************************************
 
 \begin{code}
-getTvSubst :: SimplEnv -> TvSubst
-getTvSubst (SimplEnv { seInScope = in_scope, seTvSubst = tv_env })
-  = mkTvSubst in_scope tv_env
-
-getCvSubst :: SimplEnv -> CvSubst
-getCvSubst (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv_env })
-  = CvSubst in_scope tv_env cv_env
+getTCvSubst :: SimplEnv -> TCvSubst
+getTCvSubst (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv_env })
+  = mkTCvSubst in_scope tv_env cv_env
 
 substTy :: SimplEnv -> Type -> Type
-substTy env ty = Type.substTy (getTvSubst env) ty
+substTy env ty = Type.substTy (getTCvSubst env) ty
 
-substTyVar :: SimplEnv -> TyVar -> Type
-substTyVar env tv = Type.substTyVar (getTvSubst env) tv
+substTyCoVar :: SimplEnv -> TyVar -> Type
+substTyCoVar env tv = Type.substTyCoVar (getTCvSubst env) tv
 
 substTyVarBndr :: SimplEnv -> TyVar -> (SimplEnv, TyVar)
 substTyVarBndr env tv
-  = case Type.substTyVarBndr (getTvSubst env) tv of
-        (TvSubst in_scope' tv_env', tv')
-           -> (env { seInScope = in_scope', seTvSubst = tv_env' }, tv')
+  = case Type.substTyVarBndr (getTCvSubst env) tv of
+        (TCvSubst in_scope' tv_env' cv_env', tv')
+           -> (env { seInScope = in_scope', seTvSubst = tv_env', seCvSubst = cv_env' }, tv')
 
 substCoVar :: SimplEnv -> CoVar -> Coercion
-substCoVar env tv = Coercion.substCoVar (getCvSubst env) tv
+substCoVar env tv = Coercion.substCoVar (getTCvSubst env) tv
 
 substCoVarBndr :: SimplEnv -> CoVar -> (SimplEnv, CoVar)
 substCoVarBndr env cv
-  = case Coercion.substCoVarBndr (getCvSubst env) cv of
-        (CvSubst in_scope' tv_env' cv_env', cv')
+  = case Coercion.substCoVarBndr (getTCvSubst env) cv of
+        (TCvSubst in_scope' tv_env' cv_env', cv')
            -> (env { seInScope = in_scope', seTvSubst = tv_env', seCvSubst = cv_env' }, cv')
 
 substCo :: SimplEnv -> Coercion -> Coercion
-substCo env co = Coercion.substCo (getCvSubst env) co
+substCo env co = Coercion.substCo (getTCvSubst env) co
 
 -- When substituting in rules etc we can get CoreSubst to do the work
 -- But CoreSubst uses a simpler form of IdSubstEnv, so we must impedence-match
@@ -781,10 +781,12 @@ mkCoreSubst doc (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst 
 
 ------------------
 substIdType :: SimplEnv -> Id -> Id
-substIdType (SimplEnv { seInScope = in_scope,  seTvSubst = tv_env }) id
-  | isEmptyVarEnv tv_env || isEmptyVarSet (tyVarsOfType old_ty) = id
-  | otherwise = Id.setIdType id (Type.substTy (TvSubst in_scope tv_env) old_ty)
-                -- The tyVarsOfType is cheaper than it looks
+substIdType (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv_env }) id
+  |  (isEmptyVarEnv tv_env && isEmptyVarEnv cv_env)
+  || isEmptyVarSet (tyCoVarsOfType old_ty)
+  = id
+  | otherwise = Id.setIdType id (substTy (TCvSubst in_scope tv_env cv_env) old_ty)
+                -- The tyCoVarsOfType is cheaper than it looks
                 -- because we cache the free tyvars of the type
                 -- in a Note in the id's type itself
   where

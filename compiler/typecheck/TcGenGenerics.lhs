@@ -141,7 +141,7 @@ metaTyConsToDerivStuff tc metaDts =
         d_metaTycon = metaD metaDts
         d_inst = mkLocalInstance d_dfun $ NoOverlap safeOverlap
         d_binds = VanillaInst dBinds [] False
-        d_dfun  = mkDictFunId d_dfun_name (tyConTyVars tc) [] dClas 
+        d_dfun  = mkDictFunId d_dfun_name (tyConTyCoVars tc) [] dClas 
                     [ mkTyConTy d_metaTycon ]
         d_mkInst = DerivInst (InstInfo { iSpec = d_inst, iBinds = d_binds })
         
@@ -150,7 +150,7 @@ metaTyConsToDerivStuff tc metaDts =
         c_insts = [ mkLocalInstance (c_dfun c ds) $ NoOverlap safeOverlap
                   | (c, ds) <- myZip1 c_metaTycons c_dfun_names ]
         c_binds = [ VanillaInst c [] False | c <- cBinds ]
-        c_dfun c dfun_name = mkDictFunId dfun_name (tyConTyVars tc) [] cClas 
+        c_dfun c dfun_name = mkDictFunId dfun_name (tyConTyCoVars tc) [] cClas 
                                [ mkTyConTy c ]
         c_mkInst = [ DerivInst (InstInfo { iSpec = is, iBinds = bs })
                    | (is,bs) <- myZip1 c_insts c_binds ]
@@ -161,7 +161,7 @@ metaTyConsToDerivStuff tc metaDts =
                                                   NoOverlap safeOverlap))
                     (myZip2 s_metaTycons s_dfun_names)
         s_binds = [ [ VanillaInst s [] False | s <- ss ] | ss <- sBinds ]
-        s_dfun s dfun_name = mkDictFunId dfun_name (tyConTyVars tc) [] sClas
+        s_dfun s dfun_name = mkDictFunId dfun_name (tyConTyCoVars tc) [] sClas
                                [ mkTyConTy s ]
         s_mkInst = map (map (\(is,bs) -> DerivInst (InstInfo { iSpec  = is
                                                              , iBinds = bs})))
@@ -225,7 +225,7 @@ canDoGenerics tc tc_args
     (tc_name, tc_tys) = case tyConParent tc of
         FamInstTyCon _ ptc tys -> (ppr ptc, hsep (map ppr
                                             (tys ++ drop (length tys) tc_args)))
-        _                      -> (ppr tc, hsep (map ppr (tyConTyVars tc)))
+        _                      -> (ppr tc, hsep (map ppr (tyConTyCoVars tc)))
 
         -- If any of the constructor has an unboxed type as argument,
         -- then we can't build the embedding-projection pair, because
@@ -280,10 +280,10 @@ canDoGenerics1_w rep_tc
   | otherwise
   = (mergeErrors . concat) `fmap` mapM check_con data_cons
   where
-    tc_tvs            = tyConTyVars rep_tc
+    tc_tvs            = tyConTyCoVars rep_tc
     Just (_, last_tv) = snocView tc_tvs
     bad_stupid_theta  = filter is_bad (tyConStupidTheta rep_tc)
-    is_bad pred       = last_tv `elemVarSet` tyVarsOfType pred
+    is_bad pred       = last_tv `elemVarSet` tyCoVarsOfType pred
 
     data_cons = tyConDataCons rep_tc
     check_con con = case check_vanilla con of
@@ -400,7 +400,7 @@ mkBindsRep gk tycon =
                   Gen0 -> Gen0_
                   Gen1 -> ASSERT (length tyvars >= 1)
                           Gen1_ (last tyvars)
-                    where tyvars = tyConTyVars tycon
+                    where tyvars = tyConTyCoVars tycon
         
 --------------------------------------------------------------------------------
 -- The type synonym instance and synonym
@@ -427,9 +427,9 @@ tc_mkRepFamInsts gk tycon metaDts mod =
              Gen0 -> (all_tyvars, Gen0_)
              Gen1 -> ASSERT (not $ null all_tyvars)
                      (init all_tyvars, Gen1_ $ last all_tyvars)
-             where all_tyvars = tyConTyVars tycon
+             where all_tyvars = tyConTyCoVars tycon
 
-           tyvar_args = mkTyVarTys tyvars
+           tyvar_args = mkTyCoVarTys tyvars
 
            appT = case tyConFamInst_maybe tycon of
                      -- `appT` = D Int a b (data families case)
@@ -507,19 +507,19 @@ argTyFold argVar (ArgTyAlg {ata_rec0 = mkRec0,
   go t = isParam `mplus` isApp where
 
     isParam = do -- handles parameters
-      t' <- getTyVar_maybe t
+      t' <- getTyCoVar_maybe t
       Just $ if t' == argVar then mkPar1 -- moreover, it is "the" parameter
              else mkRec0 t -- NB mkRec0 instead of the conventional mkPar0
 
     isApp = do -- handles applications
       (phi, beta) <- tcSplitAppTy_maybe t
 
-      let interesting = argVar `elemVarSet` exactTyVarsOfType beta
+      let interesting = argVar `elemVarSet` exactTyCoVarsOfType beta
 
       -- Does it have no interesting structure to represent?
       if not interesting then Nothing
         else -- Is the argument the parameter? Special case for mkRec1.
-          if Just argVar == getTyVar_maybe beta then Just $ mkRec1 phi
+          if Just argVar == getTyCoVar_maybe beta then Just $ mkRec1 phi
             else mkComp phi `fmap` go beta -- It must be a composition.
 
 
@@ -553,7 +553,7 @@ tc_mkRepTy gk_ tycon metaDts =
         mkRec1 a   = mkTyConApp rec1  [a]
         mkPar1     = mkTyConTy  par1
         mkD    a   = mkTyConApp d1    [metaDTyCon, sumP (tyConDataCons a)]
-        mkC  i d a = mkTyConApp c1    [d, prod i (dataConInstOrigArgTys a $ mkTyVarTys $ tyConTyVars tycon)
+        mkC  i d a = mkTyConApp c1    [d, prod i (dataConInstOrigArgTys a $ mkTyCoVarTys $ tyConTyCoVars tycon)
                                                  (null (dataConFieldLabels a))]
         -- This field has no label
         mkS True  _ a = mkTyConApp s1 [mkTyConTy nS1, a]

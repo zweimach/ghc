@@ -60,7 +60,7 @@ vectTyConDecl tycon name'
                    buildClass
                      False                      -- include unfoldings on dictionary selectors
                      name'                      -- new name: "V:Class"
-                     (tyConTyVars tycon)        -- keep original type vars
+                     (tyConTyCoVars tycon)      -- keep original type vars
                      theta'                     -- superclasses
                      (snd . classTvsFds $ cls)  -- keep the original functional dependencies
                      []                         -- no associated types (for the moment)
@@ -98,7 +98,7 @@ vectTyConDecl tycon name'
            -- build the vectorised type constructor
        ; return $ buildAlgTyCon 
                     name'                   -- new name
-                    (tyConTyVars tycon)     -- keep original type vars
+                    (tyConTyCoVars tycon)   -- keep original type vars
                     Nothing
                     []                      -- no stupid theta
                     rhs'                    -- new constructor defs
@@ -168,7 +168,7 @@ vectDataCon dc
   = do { name'   <- mkLocalisedName mkVectDataConOcc name
        ; tycon'  <- vectTyCon tycon
        ; arg_tys <- mapM vectType rep_arg_tys
-       ; let ret_ty = mkFamilyTyConApp tycon' (mkTyVarTys univ_tvs)
+       ; let ret_ty = mkFamilyTyConApp tycon' (mkTyCoVarTys univ_tvs)
        ; liftDs $ buildDataCon
                     name'
                     (dataConIsInfix dc)            -- infix if the original is

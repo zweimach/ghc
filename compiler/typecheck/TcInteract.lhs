@@ -107,7 +107,7 @@ solveInteractGiven loc fsks givens
                                                        , ctev_pred = pred  }
                         | tv <- fsks
                         , let FlatSkol fam_ty = tcTyVarDetails tv
-                              tv_ty = mkTyVarTy tv
+                              tv_ty = mkTyCoVarTy tv
                               pred  = mkTcEqPred fam_ty tv_ty
                         ]
 
@@ -182,7 +182,7 @@ runSolverPipeline pipeline workItem
            ContinueWith ct -> do { traceFireTcS ct (ptext (sLit "Kept as inert:") <+> ppr ct)
                                  ; traceTcS "End solver pipeline (not discharged) }" $
                                        vcat [ ptext (sLit "final_item = ") <+> ppr ct
-                                            , pprTvBndrs (varSetElems $ tyVarsOfCt ct)
+                                            , pprTvBndrs (varSetElems $ tyCoVarsOfCt ct)
                                             , ptext (sLit "inerts     = ") <+> ppr final_is]
                                  ; insertInertItemTcS ct }
        }
@@ -325,8 +325,8 @@ kickOutRewritable new_flav new_tv
            -- Kick out even insolubles; see Note [Kick out insolubles]
 
     kick_out_ct inert_ct = new_flav `canRewrite` (ctFlavour inert_ct) &&
-                          (new_tv `elemVarSet` tyVarsOfCt inert_ct) 
-                    -- NB: tyVarsOfCt will return the type 
+                          (new_tv `elemVarSet` tyCoVarsOfCt inert_ct) 
+                    -- NB: tyCoVarsOfCt will return the type 
                     --     variables /and the kind variables/ that are 
                     --     directly visible in the type. Hence we will
                     --     have exposed all the rewriting we care about
@@ -339,11 +339,11 @@ kickOutRewritable new_flav new_tv
       =  (new_flav `canRewrite` inert_flav)  -- See Note [Delicate equality kick-out]
       && (new_tv `elemVarSet` kind_vars ||              -- (1)
           (not (inert_flav `canRewrite` new_flav) &&    -- (2)
-           new_tv `elemVarSet` (extendVarSet (tyVarsOfType rhs) tv)))
+           new_tv `elemVarSet` (extendVarSet (tyCoVarsOfType rhs) tv)))
       where
         inert_flav = ctEvFlavour ev
-        kind_vars = tyVarsOfType (tyVarKind tv) `unionVarSet`
-                    tyVarsOfType (typeKind rhs)
+        kind_vars = tyCoVarsOfType (tyVarKind tv) `unionVarSet`
+                    tyCoVarsOfType (typeKind rhs)
 
     kick_out_eq other_ct = pprPanic "kick_out_eq" (ppr other_ct)
 \end{code}
@@ -410,7 +410,7 @@ trySpontaneousSolve workItem@(CTyEqCan { cc_ev = gw
        ; case (tch1, tch2) of
            (True,  True)  -> trySpontaneousEqTwoWay d gw tv1 tv2
            (True,  False) -> trySpontaneousEqOneWay d gw tv1 xi
-           (False, True)  -> trySpontaneousEqOneWay d gw tv2 (mkTyVarTy tv1)
+           (False, True)  -> trySpontaneousEqOneWay d gw tv2 (mkTyCoVarTy tv1)
 	   _ -> return SPCantSolve }
   | otherwise
   = do { tch1 <- isTouchableMetaTyVarTcS tv1
@@ -445,9 +445,9 @@ trySpontaneousEqTwoWay :: CtLoc -> CtEvidence
 
 trySpontaneousEqTwoWay d gw tv1 tv2
   | k1 `tcIsSubKind` k2 && nicer_to_update_tv2
-  = solveWithIdentity d gw tv2 (mkTyVarTy tv1)
+  = solveWithIdentity d gw tv2 (mkTyCoVarTy tv1)
   | k2 `tcIsSubKind` k1
-  = solveWithIdentity d gw tv1 (mkTyVarTy tv2)
+  = solveWithIdentity d gw tv1 (mkTyCoVarTy tv2)
   | otherwise
   = return SPCantSolve
   where
@@ -542,7 +542,7 @@ solveWithIdentity :: CtLoc -> CtEvidence -> TcTyVar -> Xi -> TcS SPSolveResult
 --     say that in (a ~ xi), the type variable a does not appear in xi.
 --     See TcRnTypes.Ct invariants.
 solveWithIdentity _d wd tv xi 
-  = do { let tv_ty = mkTyVarTy tv
+  = do { let tv_ty = mkTyCoVarTy tv
        ; traceTcS "Sneaky unification:" $ 
                        vcat [text "Unifies:" <+> ppr tv <+> ptext (sLit ":=") <+> ppr xi,
                              text "Coercion:" <+> pprEq tv_ty xi,
@@ -1780,7 +1780,7 @@ matchClassInst inerts clas tys loc
        | isGiven fl
        = ASSERT( clas_g == clas )
          case tcUnifyTys (\tv -> if isTouchableMetaTyVar untch tv && 
-                                    tv `elemVarSet` tyVarsOfTypes tys
+                                    tv `elemVarSet` tyCoVarsOfTypes tys
                                  then BindMe else Skolem) tys sys of
        -- We can't learn anything more about any variable at this point, so the only
        -- cause of overlap can be by an instantiation of a touchable unification

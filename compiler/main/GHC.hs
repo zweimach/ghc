@@ -156,7 +156,7 @@ module GHC (
 
         -- ** Type constructors
         TyCon, 
-        tyConTyVars, tyConDataCons, tyConArity,
+        tyConTyCoVars, tyConDataCons, tyConArity,
         isClassTyCon, isSynTyCon, isNewTyCon, isPrimTyCon, isFunTyCon,
         isFamilyTyCon, tyConClass_maybe,
         synTyConRhs_maybe, synTyConDefn_maybe, synTyConResKind,

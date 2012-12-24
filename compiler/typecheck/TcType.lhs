@@ -88,13 +88,13 @@ module TcType (
   tcTyFamInsts,
 
   -- * Finding "exact" (non-dead) type variables
-  exactTyVarsOfType, exactTyVarsOfTypes,
+  exactTyCoVarsOfType, exactTyCoVarsOfTypes,
 
   -- * Tidying type related things up for printing
   tidyType,      tidyTypes,
   tidyOpenType,  tidyOpenTypes,
   tidyOpenKind,
-  tidyTyVarBndr, tidyTyVarBndrs, tidyFreeTyVars,
+  tidyTyVarBndr, tidyTyVarBndrs, tidyFreeTyCoVars,
   tidyOpenTyVar, tidyOpenTyVars,
   tidyTyVarOcc,
   tidyTopType,
@@ -131,7 +131,7 @@ module TcType (
   mkForAllTy, mkForAllTys, 
   mkFunTy, mkFunTys, zipFunTys, 
   mkTyConApp, mkAppTy, mkAppTys, applyTy, applyTys,
-  mkTyVarTy, mkTyVarTys, mkTyConTy,
+  mkTyCoVarTy, mkTyCoVarTys, mkTyConTy,
 
   isClassPred, isEqPred, isIPPred,
   mkClassPred,
@@ -140,20 +140,21 @@ module TcType (
   mkEqPred, 
 
   -- Type substitutions
-  TvSubst(..), 	-- Representation visible to a few friends
-  TvSubstEnv, emptyTvSubst, 
-  mkOpenTvSubst, zipOpenTvSubst, zipTopTvSubst, 
-  mkTopTvSubst, notElemTvSubst, unionTvSubst,
-  getTvSubstEnv, setTvSubstEnv, getTvInScope, extendTvInScope, 
-  Type.lookupTyVar, Type.extendTvSubst, Type.substTyVarBndr,
-  extendTvSubstList, isInScope, mkTvSubst, zipTyEnv,
-  Type.substTy, substTys, substTyWith, substTheta, substTyVar, substTyVars, 
+  TCvSubst(..), 	-- Representation visible to a few friends
+  TvSubstEnv, emptyTCvSubst, 
+  mkOpenTCvSubst, zipOpenTCvSubst, zipTopTCvSubst, 
+  mkTopTCvSubst, notElemTCvSubst, unionTCvSubst,
+  getTvSubstEnv, setTvSubstEnv, getTCvInScope, extendTCvInScope, 
+  Type.lookupTyVar, Type.extendTCvSubst, Type.substTyVarBndr,
+  extendTCvSubstList, isInScope, mkTCvSubst, zipTyCoEnv,
+  Type.substTy, substTys, substTyWith, substTheta, substTyCoVar, substTyCoVars, 
 
   isUnLiftedType,	-- Source types are always lifted
   isUnboxedTupleType,	-- Ditto
   isPrimitiveType, 
 
-  tyVarsOfType, tyVarsOfTypes,
+  tyVarsOnlyOfType, tyVarsOnlyOfTypes,
+  tyCoVarsOfType, tyCoVarsOfTypes,
   tcTyVarsOfType, tcTyVarsOfTypes,
 
   pprKind, pprParendKind, pprSigmaType,
@@ -533,11 +534,11 @@ Tidying is here becuase it has a special case for FlatSkol
 -- an interface file.
 -- 
 -- It doesn't change the uniques at all, just the print names.
-tidyTyVarBndrs :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
-tidyTyVarBndrs env tvs = mapAccumL tidyTyVarBndr env tvs
+tidyTyCoVarBndrs :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
+tidyTyCoVarBndrs env tvs = mapAccumL tidyTyVarBndr env tvs
 
-tidyTyVarBndr :: TidyEnv -> TyVar -> (TidyEnv, TyVar)
-tidyTyVarBndr tidy_env@(occ_env, subst) tyvar
+tidyTyCoVarBndr :: TidyEnv -> TyVar -> (TidyEnv, TyVar)
+tidyTyCoVarBndr tidy_env@(occ_env, subst) tyvar
   = case tidyOccName occ_env occ1 of
       (tidy', occ') -> ((tidy', subst'), tyvar')
 	where
@@ -551,30 +552,32 @@ tidyTyVarBndr tidy_env@(occ_env, subst) tyvar
     -- System Names are for unification variables;
     -- when we tidy them we give them a trailing "0" (or 1 etc)
     -- so that they don't take precedence for the un-modified name
-    occ1 | isSystemName name = mkTyVarOcc (occNameString occ ++ "0")
+    occ1 | isSystemName name = if isTyVar tyvar
+                               then mkTyVarOcc (occNameString occ ++ "0")
+                               else mkVarOcc   (occNameString occ ++ "0")
          | otherwise         = occ
 
 
 ---------------
-tidyFreeTyVars :: TidyEnv -> TyVarSet -> TidyEnv
+tidyFreeTyCoVars :: TidyEnv -> TyVarSet -> TidyEnv
 -- ^ Add the free 'TyVar's to the env in tidy form,
 -- so that we can tidy the type they are free in
-tidyFreeTyVars (full_occ_env, var_env) tyvars 
+tidyFreeTyCoVars (full_occ_env, var_env) tyvars 
   = fst (tidyOpenTyVars (full_occ_env, var_env) (varSetElems tyvars))
 
         ---------------
-tidyOpenTyVars :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
-tidyOpenTyVars env tyvars = mapAccumL tidyOpenTyVar env tyvars
+tidyOpenTyCoVars :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
+tidyOpenTyCoVars env tyvars = mapAccumL tidyOpenTyVar env tyvars
 
 ---------------
-tidyOpenTyVar :: TidyEnv -> TyVar -> (TidyEnv, TyVar)
+tidyOpenTyCoVar :: TidyEnv -> TyVar -> (TidyEnv, TyVar)
 -- ^ Treat a new 'TyVar' as a binder, and give it a fresh tidy name
 -- using the environment if one has not already been allocated. See
 -- also 'tidyTyVarBndr'
-tidyOpenTyVar env@(_, subst) tyvar
+tidyOpenTyCoVar env@(_, subst) tyvar
   = case lookupVarEnv subst tyvar of
-	Just tyvar' -> (env, tyvar')		-- Already substituted
-	Nothing	    -> tidyTyVarBndr env tyvar	-- Treat it as a binder
+	Just tyvar' -> (env, tyvar')		 -- Already substituted
+	Nothing	    -> tidyTyCoVarBndr env tyvar -- Treat it as a binder
 
 ---------------
 tidyTyVarOcc :: TidyEnv -> TyVar -> TyVar
@@ -606,7 +609,7 @@ tidyOpenType :: TidyEnv -> Type -> (TidyEnv, Type)
 tidyOpenType env ty
   = (env', tidyType (trimmed_occ_env, var_env) ty)
   where
-    (env'@(_, var_env), tvs') = tidyOpenTyVars env (varSetElems (tyVarsOfType ty))
+    (env'@(_, var_env), tvs') = tidyOpenTyCoVars env (varSetElems (tyCoVarsOfType ty))
     trimmed_occ_env = initTidyOccEnv (map getOccName tvs')
       -- The idea here was that we restrict the new TidyEnv to the 
       -- _free_ vars of the type, so that we don't gratuitously rename
@@ -706,7 +709,7 @@ We have to generalise at the arg to f, and we don't
 want to capture the constraint (Monad (C u a)) because
 it appears to mention a.  Pretty silly, but it was useful to him.
 
-exactTyVarsOfType is used by the type checker to figure out exactly
+exactTyCoVarsOfType is used by the type checker to figure out exactly
 which type variables are mentioned in a type.  It's also used in the
 smart-app checking code --- see TcExpr.tcIdApp
 
@@ -715,27 +718,58 @@ On the other hand, consider a *top-level* definition
 If we don't abstract over 'a' it'll get fixed to GHC.Prim.Any, and then
 if we have an application like (f "x") we get a confusing error message 
 involving Any.  So the conclusion is this: when generalising
-  - at top level use tyVarsOfType
-  - in nested bindings use exactTyVarsOfType
+  - at top level use tyCoVarsOfType
+  - in nested bindings use exactTyCoVarsOfType
 See Trac #1813 for example.
 
 \begin{code}
-exactTyVarsOfType :: Type -> TyVarSet
+exactTyCoVarsOfType :: Type -> TyCoVarSet
 -- Find the free type variables (of any kind)
 -- but *expand* type synonyms.  See Note [Silly type synonym] above.
-exactTyVarsOfType ty
+exactTyCoVarsOfType ty
   = go ty
   where
     go ty | Just ty' <- tcView ty = go ty'  -- This is the key line
     go (TyVarTy tv)         = unitVarSet tv
-    go (TyConApp _ tys)     = exactTyVarsOfTypes tys
+    go (TyConApp _ tys)     = exactTyCoVarsOfTypes tys
     go (LitTy {})           = emptyVarSet
     go (FunTy arg res)      = go arg `unionVarSet` go res
     go (AppTy fun arg)      = go fun `unionVarSet` go arg
-    go (ForAllTy tyvar ty)  = delVarSet (go ty) tyvar
+    go (ForAllTy tyvar ty)  = delVarSet (go ty) tyvar `unionVarSet` go (tyVarKind tyvar)
+    go (CastTy ty co)       = go ty `unionVarSet` exactTyCoVarsOfCo co
+    go (CoercionTy co)      = exactTyCoVarsOfCo co
 
-exactTyVarsOfTypes :: [Type] -> TyVarSet
-exactTyVarsOfTypes tys = foldr (unionVarSet . exactTyVarsOfType) emptyVarSet tys
+    goCo (Refl ty)          = go ty
+    goCo (TyConAppCo _ args)= goCoArgs args
+    goCo (AppCo co arg)     = goCo co `unionVarSet` goCoArg arg
+    goCo (ForAllTyCo tv1 tv2 cv co)
+      = let (cvty1, cvty2) = coVarKind cv in
+        goCo co `delVarSetList` [tv1, tv2, co]
+                `unionVarSet` exactTyCoVarsOfTypes [ tyVarKind tv1
+                                                   , tyVarKind tv2
+                                                   , cvty1, cvty2 ]
+    goCo (ForAllCoCo cv1 cv2 co)
+      = let (cv1ty1, cv1ty2) = coVarKind cv1
+            (cv2ty1, cv2ty2) = coVarKind cv2 in
+        goCo co `delVarSetList` [cv1, cv2]
+                `unionVarSet` exactTyCoVarsOfTypes [cv1ty1, cv1ty2, cv2ty1, cv2ty2]
+    goCo (CoVarCo v)         = unitVarSet v
+    goCo (AxiomInstCo _ _ args) = goCoArgs args
+    goCo (UnsafeCo ty1 ty2)  = go ty1 `unionVarSet` go ty2
+    goCo (SymCo co)          = goCo co
+    goCo (TransCo co1 co2)   = goCo co1 `unionVarSet` goCo co2
+    goCo (NthCo _ co)        = goCo co
+    goCo (LRCo _ co)         = goCo co
+    goCo (CoherenceCo c1 c2) = goCo c1 `unionVarSet` goCo c2
+    goCo (KindCo co)         = goCo co
+
+    goCoArg (TyCoArg co)     = goCo co
+    goCoArg (CoCoArg co1 co2)= goCo co1 `unionVarSet` goCo co2
+
+    goCoArgs args            = foldr (unionVarSet . goCoArg) emptyVarSet args
+
+exactTyCoVarsOfTypes :: [Type] -> TyVarSet
+exactTyCoVarsOfTypes tys = foldr (unionVarSet . exactTyCoVarsOfType) emptyVarSet tys
 \end{code}
 
 %************************************************************************
@@ -1156,17 +1190,46 @@ pickyEqType :: TcType -> TcType -> Bool
 pickyEqType ty1 ty2
   = go init_env ty1 ty2
   where
-    init_env = mkRnEnv2 (mkInScopeSet (tyVarsOfType ty1 `unionVarSet` tyVarsOfType ty2))
+    init_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2))
     go env (TyVarTy tv1)       (TyVarTy tv2)     = rnOccL env tv1 == rnOccR env tv2
     go env (ForAllTy tv1 t1)   (ForAllTy tv2 t2) = go (rnBndr2 env tv1 tv2) t1 t2
     go env (AppTy s1 t1)       (AppTy s2 t2)     = go env s1 s2 && go env t1 t2
     go env (FunTy s1 t1)       (FunTy s2 t2)     = go env s1 s2 && go env t1 t2
     go env (TyConApp tc1 ts1) (TyConApp tc2 ts2) = (tc1 == tc2) && gos env ts1 ts2
+    go env (LitTy lit1)        (LitTy lit2)      = lit1 == lit2
+    go env (CastTy ty1 co1)    (CastTy ty2 co2)  = go env ty1 ty2 && go_co env co1 co2
+    go env (CoercionTy co1)    (CoercionTy co2)  = go_co env co1 co2
     go _ _ _ = False
 
     gos _   []       []       = True
     gos env (t1:ts1) (t2:ts2) = go env t1 t2 && gos env ts1 ts2
     gos _ _ _ = False
+
+    go_co env (Refl ty1)       (Refl ty2)       = go env ty1 ty2
+    go_co env (TyConAppCo tc1 args1) (TyConAppCo tc2 args2) = (tc1 == tc2) && go_args args1 args2
+    go_co env (AppCo co1 arg1) (AppCo co2 arg2) = go env co1 co2 && go_arg env arg1 arg2
+    go_co env (ForAllTyCo tv11 tv12 cv1 co1) (ForAllTyCo tv21 tv22 cv2 co2)
+      = go_co (rnBndr2 (rnBndr2 (rnBndr2 env tv11 tv21) tv12 tv22) cv1 cv2) co1 co2
+    go_co env (ForAllCoCo cv11 cv12 co1) (ForAllCoCo cv21 cv22 co2)
+      = go_co (rnBndr2 (rnBnder2 env cv11 cv21) cv12 cv22) co1 co2
+    go_co env (CoVarCo cv1)    (CoVarCo cv2)    = rnOccL env cv1 == rnOccR env cv2
+    go_co env (AxiomInstCo ax1 ind1 args1) (AxiomInstCo ax2 ind2 args2)
+      = (ax1 == ax2) && (ind1 == ind2) && go_args env args1 args2
+    go_co env (UnsafeCo s1 t1) (UnsafeCo s2 t2) = go env s1 s2 && go env t1 t2
+    go_co env (SymCo co1)      (SymCo co2)      = go_co env co1 co2
+    go_co env (TransCo c1 d1)  (TransCo c2 d2)  = go_co env c1 c2 && go_co env d1 d2
+    go_co env (NthCo n1 co1)   (NthCo n2 co2)   = (n1 == n2) && go_co env co1 co2
+    go_co env (LRCo lr1 co1)   (LRCo lr2 co2)   = (lr1 == lr2) && go_co env co1 co2
+    go_co env (InstCo c1 a1)   (InstCo c2 a2)   = go_co env c1 c2 && go_arg env a1 a2
+    go_co env (CoherenceCo c1 d1) (CoherenceCo c2 d2) = go_co env c1 c2 && go_co env d1 d2
+    go_co env (KindCo co1)     (KindCo co2)    = go_co env co1 co2
+
+    go_arg env (TyCoArg co1)   (TyCoArg co2)   = go_co env co1 co2
+    go_arg env (CoCoArg c1 d1) (CoCoArg c2 d2) = go_co env c1 c2 && go_co env d1 d2
+    
+    go_args _   []             []              = True
+    go_args env (a1:args1)     (a2:args2)      = go_arg env a1 a2 && go_args env args1 args2
+    go_args _   _              _               = False
 \end{code}
 
 Note [Occurs check expansion]
@@ -1347,7 +1410,7 @@ transSuperClasses cls tys    -- Superclasses of (cls tys),
 
 immSuperClasses :: Class -> [Type] -> [PredType]
 immSuperClasses cls tys
-  = substTheta (zipTopTvSubst tyvars tys) sc_theta
+  = substTheta (zipTopTCvSubst tyvars tys) sc_theta
   where 
     (tyvars,sc_theta,_,_) = classBigSig cls
 \end{code}

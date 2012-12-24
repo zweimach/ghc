@@ -140,9 +140,9 @@ tc_cmd env (HsCmdIf (Just fun) pred b1 b2) res_ty -- Rebindable syntax for if
         -- because we're going to apply it to the environment, not
         -- the return value.
         ; (_, [r_tv]) <- tcInstSkolTyVars [alphaTyVar]
-	; let r_ty = mkTyVarTy r_tv
+	; let r_ty = mkOnlyTyVarTy r_tv
         ; let if_ty = mkFunTys [pred_ty, r_ty, r_ty] r_ty
-        ; checkTc (not (r_tv `elemVarSet` tyVarsOfType pred_ty))
+        ; checkTc (not (r_tv `elemVarSet` tyCoVarsOfType pred_ty))
                   (ptext (sLit "Predicate type of `ifThenElse' depends on result type"))
 	; fun'  <- tcSyntaxOp IfOrigin fun if_ty
   	; pred' <- tcMonoExpr pred pred_ty
@@ -249,7 +249,7 @@ tc_cmd env cmd@(HsCmdArrForm expr fixity cmd_args) (cmd_stk, res_ty)
   = addErrCtxt (cmdCtxt cmd)	$
     do	{ cmds_w_tys <- zipWithM new_cmd_ty cmd_args [1..]
         ; (_, [w_tv])     <- tcInstSkolTyVars [alphaTyVar]
-	; let w_ty = mkTyVarTy w_tv 	-- Just a convenient starting point
+	; let w_ty = mkOnlyTyVarTy w_tv 	-- Just a convenient starting point
 
 		--  a ((w,t1) .. tn) t
 	; let e_res_ty = mkCmdArrTy env (foldl mkPairTy w_ty cmd_stk) res_ty
@@ -308,8 +308,8 @@ tc_cmd env cmd@(HsCmdArrForm expr fixity cmd_args) (cmd_stk, res_ty)
 		-- Check that it has the right shape:
 		-- 	((w,s1) .. sn)
 		-- where the si do not mention w
-           ; _bogus <- unifyType corner_ty (mkTyVarTy w_tv)
-	   ; checkTc (not (w_tv `elemVarSet` tyVarsOfTypes arg_tys))
+           ; _bogus <- unifyType corner_ty (mkTyCoVarTy w_tv)
+	   ; checkTc (not (w_tv `elemVarSet` tyCoVarsOfTypes arg_tys))
 		     (badFormFun i tup_ty')
      -- JPM: WARNING: this test is utterly bogus; see #5609
      -- We are not using the coercion returned by the unify;

@@ -34,7 +34,7 @@ module Kind (
 
         -- ** Predicates on Kinds
         isLiftedTypeKind, isUnliftedTypeKind, isOpenTypeKind,
-        isConstraintKind, isConstraintOrLiftedKind, returnsConstraintKind,
+        isConstraintKind, returnsConstraintKind,
         isKind, isKindVar,
         isSuperKind, isSuperKindTyCon,
         isLiftedTypeKindCon, isConstraintKindCon,
@@ -44,7 +44,7 @@ module Kind (
         isSubOpenTypeKind, 
         isSubKind, isSubKindCon, 
         tcIsSubKind, tcIsSubKindCon,
-        defaultKind,
+        defaultKind, isStarKind,
 
         -- ** Functions on variables
         kiVarsOfKind, kiVarsOfKinds
@@ -94,6 +94,15 @@ Bottom line: although '*' and 'Constraint' are distinct TyCons, with
 distinct uniques, they are treated as equal at all times except 
 during type inference.  Hence cmpTc treats them as equal.
 
+Note [SuperKind]
+~~~~~~~~~~~~~~~~
+Ostensibly, SuperKind is the kind of kinds. But, because we have *:*
+in Core, we don't want to distinguish superKind from liftedTypeKind
+after typechecking. So, we consider superKind to be a subkind of
+liftedTypeKind (and constraintKind) when checking Core, but we consider
+it to be distinct beforehand. Thus, tc... thinks superKind is separate,
+but non-tc functions do not.
+
 \begin{code}
 -- | Essentially 'funResultTy' on kinds handling pi-types too
 kindFunResult :: Kind -> KindOrType -> Kind
@@ -127,11 +136,11 @@ splitKindFunTysN n k = pprPanic "splitKindFunTysN" (ppr n <+> ppr k)
 -- Actually this function works fine on data types too, 
 -- but they'd always return '*', so we never need to ask
 synTyConResKind :: TyCon -> Kind
-synTyConResKind tycon = kindAppResult (tyConKind tycon) (map mkTyVarTy (tyConTyVars tycon))
+synTyConResKind tycon = kindAppResult (tyConKind tycon) (mkTyCoVarTys (tyConTyCoVars tycon))
 
 -- | See "Type#kind_subtyping" for details of the distinction between these 'Kind's
 isOpenTypeKind, isUnliftedTypeKind,
-  isConstraintKind, isAnyKind, isConstraintOrLiftedKind :: Kind -> Bool
+  isConstraintKind, isAnyKind :: Kind -> Bool
 
 isOpenTypeKindCon, isUnliftedTypeKindCon,
   isSubOpenTypeKindCon, isConstraintKindCon,
@@ -157,10 +166,6 @@ isUnliftedTypeKind _               = False
 isConstraintKind (TyConApp tc _) = isConstraintKindCon tc
 isConstraintKind _               = False
 
-isConstraintOrLiftedKind (TyConApp tc _)
-  = isConstraintKindCon tc || isLiftedTypeKindCon tc
-isConstraintOrLiftedKind _ = False
-
 returnsConstraintKind :: Kind -> Bool
 returnsConstraintKind (ForAllTy _ k)  = returnsConstraintKind k
 returnsConstraintKind (FunTy _ k)     = returnsConstraintKind k
@@ -174,9 +179,8 @@ returnsConstraintKind _               = False
 
 okArrowArgKindCon, okArrowResultKindCon :: TyCon -> Bool
 okArrowArgKindCon kc
-  | isLiftedTypeKindCon   kc = True
   | isUnliftedTypeKindCon kc = True
-  | isConstraintKindCon   kc = True
+  | isStarKindCon kc         = True
   | otherwise                = False
 
 okArrowResultKindCon = okArrowArgKindCon
@@ -190,9 +194,10 @@ okArrowResultKind _                = False
 
 -----------------------------------------
 --              Subkinding
--- The tc variants are used during type-checking, where we don't want the
--- Constraint kind to be a subkind of anything
--- After type-checking (in core), Constraint is a subkind of openTypeKind
+-- The tc variants are used during type-checking, where ConstraintKind
+-- and SuperKind are distinct from all other kinds
+-- After type-checking (in core), Constraint, SuperKind, and liftedTypeKind are
+-- indistinguishable
 
 isSubOpenTypeKind :: Kind -> Bool
 -- ^ True of any sub-kind of OpenTypeKind
@@ -200,13 +205,26 @@ isSubOpenTypeKind (TyConApp kc []) = isSubOpenTypeKindCon kc
 isSubOpenTypeKind _                = False
 
 isSubOpenTypeKindCon kc
-  =  isOpenTypeKindCon   kc
+  =  isOpenTypeKindCon     kc
   || isUnliftedTypeKindCon kc
-  || isLiftedTypeKindCon   kc  
+  || isStarKindCon         kc
+
+
+-- | Is this kind equivalent to *?
+isStarKind :: Kind -> Bool
+isStarKind (TyConApp kc []) = isStarKindCon kc
+isStarKind _                = False
+
+-- | Is this kind constructor equivalent to *?
+isStarKindCon :: TyCon -> Bool
+isStarKindCon kc
+  =  isLiftedTypeKindCon kc  
+  || isSuperKindCon      kc
   || isConstraintKindCon kc   -- Needed for error (Num a) "blah"
                               -- and so that (Ord a -> Eq a) is well-kinded
                               -- and so that (# Eq a, Ord b #) is well-kinded
                               -- See Note [Kind Constraint and kind *]
+
 
 -- | Is this a kind (i.e. a type-of-types)?
 isKind :: Kind -> Bool
@@ -220,7 +238,8 @@ isSubKind :: Kind -> Kind -> Bool
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 isSubKind k1@(TyConApp kc1 k1s) k2@(TyConApp kc2 k2s)
-  | isPromotedTyCon kc1 || isPromotedTyCon kc2
+  |  not (null k1s)
+  || not (null k2s)
     -- handles promoted kinds (List *, Nat, etc.)
   = eqKind k1 k2
 
@@ -237,11 +256,9 @@ isSubKindCon :: TyCon -> TyCon -> Bool
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 isSubKindCon kc1 kc2
   | kc1 == kc2              = True
-  | isOpenTypeKindCon kc2   = isSubOpenTypeKindCon kc1 
-  | isConstraintKindCon kc1 = isLiftedTypeKindCon kc2
-  | isLiftedTypeKindCon kc1 = isConstraintKindCon kc2
-  | otherwise               = False
-    -- See Note [Kind Constraint and kind *]
+  | isOpenTypeKindCon kc2   = isSubOpenTypeKindCon kc1
+  | otherwise               = isStarKindCon kc1 && isStarKindCon kc2
+    -- See Note [Kind Constraint and kind *] and Note [SuperKind]
 
 -------------------------
 -- Hack alert: we need a tiny variant for the typechecker
@@ -259,11 +276,15 @@ isSubKindCon kc1 kc2
 tcIsSubKind :: Kind -> Kind -> Bool
 tcIsSubKind k1 k2
   | isConstraintKind k1 = isConstraintKind k2
+  | isSuperKind k1      = isSuperKind k2
+  | isSuperKind k2      = False -- if it were True, handled on previous line
   | otherwise           = isSubKind k1 k2
 
 tcIsSubKindCon :: TyCon -> TyCon -> Bool
 tcIsSubKindCon kc1 kc2
   | isConstraintKindCon kc1 = isConstraintKindCon kc2
+  | isSuperKindCon kc1      = isSuperKindCon kc2
+  | isSuperKindCon kc2      = False
   | otherwise               = isSubKindCon kc1 kc2
 
 -------------------------
@@ -291,8 +312,8 @@ defaultKind k = k
 
 -- Returns the free kind variables in a kind
 kiVarsOfKind :: Kind -> VarSet
-kiVarsOfKind = tyVarsOfType
+kiVarsOfKind = tyCoVarsOfType
 
 kiVarsOfKinds :: [Kind] -> VarSet
-kiVarsOfKinds = tyVarsOfTypes
+kiVarsOfKinds = tyCoVarsOfTypes
 \end{code}

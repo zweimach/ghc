@@ -868,11 +868,11 @@ mkEtaWW :: Arity -> CoreExpr -> InScopeSet -> Type
 mkEtaWW orig_n orig_expr in_scope orig_ty
   = go orig_n empty_subst orig_ty []
   where
-    empty_subst = TvSubst in_scope emptyTvSubstEnv
+    empty_subst = TCvSubst in_scope emptyTvSubstEnv emptyCvSubstEnv
 
     go n subst ty eis	    -- See Note [exprArity invariant]
        | n == 0
-       = (getTvInScope subst, reverse eis)
+       = (getTCvInScope subst, reverse eis)
 
        | Just (tv,ty') <- splitForAllTy_maybe ty
        , let (subst', tv') = Type.substTyVarBndr subst tv
@@ -896,7 +896,7 @@ mkEtaWW orig_n orig_expr in_scope orig_ty
        | otherwise	 -- We have an expression of arity > 0, 
        	 		 -- but its type isn't a function. 		   
        = WARN( True, (ppr orig_n <+> ppr orig_ty) $$ ppr orig_expr )
-         (getTvInScope subst, reverse eis)
+         (getTCvInScope subst, reverse eis)
     	-- This *can* legitmately happen:
     	-- e.g.  coerce Int (\x. x) Essentially the programmer is
 	-- playing fast and loose with types (Happy does this a lot).
@@ -915,7 +915,7 @@ subst_bind = substBindSC
 
 
 --------------
-freshEtaId :: Int -> TvSubst -> Type -> (TvSubst, Id)
+freshEtaId :: Int -> TCvSubst -> Type -> (TCvSubst, Id)
 -- Make a fresh Id, with specified type (after applying substitution)
 -- It should be "fresh" in the sense that it's not in the in-scope set
 -- of the TvSubstEnv; and it should itself then be added to the in-scope
@@ -929,6 +929,6 @@ freshEtaId n subst ty
         ty'     = Type.substTy subst ty
 	eta_id' = uniqAway (getTvInScope subst) $
 		  mkSysLocal (fsLit "eta") (mkBuiltinUnique n) ty'
-	subst'  = extendTvInScope subst eta_id'		  
+	subst'  = extendTCvInScope subst eta_id'		  
 \end{code}
 

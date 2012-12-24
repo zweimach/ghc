@@ -816,7 +816,7 @@ dsTcCoercion co thing_inside
     wrap_in_case result_ty (eqv, cov) body 
       = Case (Var eqv) eqv result_ty [(DataAlt eqBoxDataCon, [cov], body)]
 
-ds_tc_coercion :: CvSubst -> TcCoercion -> Coercion
+ds_tc_coercion :: TCvSubst -> TcCoercion -> Coercion
 -- If the incoming TcCoercion if of type (a ~ b), 
 --                 the result is of type (a ~# b)
 -- The VarEnv maps EqVars of type (a ~ b) to Coercions of type (a ~# b)
@@ -824,14 +824,14 @@ ds_tc_coercion :: CvSubst -> TcCoercion -> Coercion
 ds_tc_coercion subst tc_co
   = go tc_co
   where
-    go (TcRefl ty)            = Refl (Coercion.substTy subst ty)
+    go (TcRefl ty)            = Refl (substTy subst ty)
     go (TcTyConAppCo tc cos)  = mkTyConAppCo tc (map go cos)
     go (TcAppCo co1 co2)      = mkAppCo (go co1) (go co2)
     go (TcForAllCo tv co)     = mkForAllCo tv' (ds_tc_coercion subst' co)
                               where
-                                (subst', tv') = Coercion.substTyVarBndr subst tv
+                                (subst', tv') = substTyVarBndr subst tv
     go (TcAxiomInstCo ax ind tys)
-                              = mkAxInstCo ax ind (map (Coercion.substTy subst) tys)
+                              = mkAxInstCo ax ind (map (substTy subst) tys)
     go (TcSymCo co)           = mkSymCo (go co)
     go (TcTransCo co1 co2)    = mkTransCo (go co1) (go co2)
     go (TcNthCo n co)         = mkNthCo n (go co)
@@ -841,23 +841,23 @@ ds_tc_coercion subst tc_co
     go (TcCastCo co1 co2)     = mkCoCast (go co1) (go co2)
     go (TcCoVarCo v)          = ds_ev_id subst v
 
-    ds_co_binds :: TcEvBinds -> CvSubst
+    ds_co_binds :: TcEvBinds -> TCvSubst
     ds_co_binds (EvBinds bs)      = foldl ds_scc subst (sccEvBinds bs)
     ds_co_binds eb@(TcEvBinds {}) = pprPanic "ds_co_binds" (ppr eb)
 
-    ds_scc :: CvSubst -> SCC EvBind -> CvSubst
+    ds_scc :: TCvSubst -> SCC EvBind -> TCvSubst
     ds_scc subst (AcyclicSCC (EvBind v ev_term))
       = extendCvSubstAndInScope subst v (ds_co_term subst ev_term)
     ds_scc _ (CyclicSCC other) = pprPanic "ds_scc:cyclic" (ppr other $$ ppr tc_co)
 
-    ds_co_term :: CvSubst -> EvTerm -> Coercion
+    ds_co_term :: TCvSubst -> EvTerm -> Coercion
     ds_co_term subst (EvCoercion tc_co) = ds_tc_coercion subst tc_co
     ds_co_term subst (EvId v)           = ds_ev_id subst v
     ds_co_term subst (EvCast tm co)     = mkCoCast (ds_co_term subst tm) (ds_tc_coercion subst co)
     ds_co_term _ other = pprPanic "ds_co_term" (ppr other $$ ppr tc_co)
 
-    ds_ev_id :: CvSubst -> EqVar -> Coercion
+    ds_ev_id :: TCvSubst -> EqVar -> Coercion
     ds_ev_id subst v
-     | Just co <- Coercion.lookupCoVar subst v = co
+     | Just co <- lookupCoVar subst v = co
      | otherwise  = pprPanic "ds_tc_coercion" (ppr v $$ ppr tc_co)
 \end{code}

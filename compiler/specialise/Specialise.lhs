@@ -837,7 +837,7 @@ specCase subst scrut' case_bndr [(con, args, rhs)]
     is_flt_sc_arg var =  isId var
                       && not (isDeadBinder var)
                       && isDictTy var_ty
-                      && not (tyVarsOfType var_ty `intersectsVarSet` arg_set)
+                      && not (tyCoVarsOfType var_ty `intersectsVarSet` arg_set)
        where
          var_ty = idType var
 
@@ -1075,7 +1075,7 @@ specCalls subst rules_for_me calls_for_me fn rhs
     mk_ty_args [] poly_tvs
       = ASSERT( null poly_tvs ) []
     mk_ty_args (Nothing : call_ts) (poly_tv : poly_tvs)
-      = Type (mkTyVarTy poly_tv) : mk_ty_args call_ts poly_tvs
+      = Type (mkTyCoVarTy poly_tv) : mk_ty_args call_ts poly_tvs
     mk_ty_args (Just ty : call_ts) poly_tvs
       = Type ty : mk_ty_args call_ts poly_tvs
     mk_ty_args (Nothing : _) [] = panic "mk_ty_args"
@@ -1108,7 +1108,7 @@ specCalls subst rules_for_me calls_for_me fn rhs
                 -- ty_args     = [t1,b,t3]
                 spec_tv_binds = [(tv,ty) | (tv, Just ty) <- rhs_tyvars `zip` call_ts]
                 spec_ty_args  = map snd spec_tv_binds
-                subst1        = CoreSubst.extendTvSubstList subst spec_tv_binds
+                subst1        = CoreSubst.extendTCvSubstList subst spec_tv_binds
                 (rhs_subst, poly_tyvars)
                               = CoreSubst.substBndrs subst1
                                    [tv | (tv, Nothing) <- rhs_tyvars `zip` call_ts]
@@ -1563,7 +1563,7 @@ singleCall id tys dicts
                      Map.singleton (CallKey tys) (dicts, call_fvs) }
   where
     call_fvs = exprsFreeVars dicts `unionVarSet` tys_fvs
-    tys_fvs  = tyVarsOfTypes (catMaybes tys)
+    tys_fvs  = tyCoVarsOfTypes (catMaybes tys)
         -- The type args (tys) are guaranteed to be part of the dictionary
         -- types, because they are just the constrained types,
         -- and the dictionary is therefore sure to be bound
@@ -1593,7 +1593,7 @@ mkCallUDs f args
     _trace_doc = vcat [ppr f, ppr args, ppr n_tyvars, ppr n_dicts
                       , ppr (map interestingDict dicts)]
     (tyvars, theta, _) = tcSplitSigmaTy (idType f)
-    constrained_tyvars = tyVarsOfTypes theta
+    constrained_tyvars = tyCoVarsOfTypes theta
     n_tyvars           = length tyvars
     n_dicts            = length theta
 

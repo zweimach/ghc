@@ -132,7 +132,7 @@ mkWwBodies :: DynFlags
 
 mkWwBodies dflags fun_ty demands res_info one_shots
   = do	{ let arg_info = demands `zip` (one_shots ++ repeat False)
-	; (wrap_args, wrap_fn_args, work_fn_args, res_ty) <- mkWWargs emptyTvSubst fun_ty arg_info
+	; (wrap_args, wrap_fn_args, work_fn_args, res_ty) <- mkWWargs emptyTCvSubst fun_ty arg_info
 	; (work_args, wrap_fn_str,  work_fn_str) <- mkWWstr dflags wrap_args
 
         -- Do CPR w/w.  See Note [Always do CPR w/w]
@@ -231,7 +231,7 @@ the \x to get what we want.
 -- It chomps bites off foralls, arrows, newtypes
 -- and keeps repeating that until it's satisfied the supplied arity
 
-mkWWargs :: TvSubst		-- Freshening substitution to apply to the type
+mkWWargs :: TCvSubst            -- Freshening substitution to apply to the type
 				--   See Note [Freshen type variables]
 	 -> Type		-- The type of the function
 	 -> [(Demand,Bool)]	-- Demands and one-shot info for value arguments
@@ -274,7 +274,7 @@ mkWWargs subst fun_ty arg_info
 	     <- mkWWargs subst' fun_ty' arg_info
 	; return (tv' : wrap_args,
         	  Lam tv' . wrap_fn_args,
-        	  work_fn_args . (`App` Type (mkTyVarTy tv')),
+        	  work_fn_args . (`App` Type (mkTyCoVarTy tv')),
         	  res_ty) }
 
   | ((dmd,one_shot):arg_info') <- arg_info
@@ -313,7 +313,7 @@ which is obviously wrong.  Type variables can can in principle shadow,
 within a type (e.g. forall a. a -> forall a. a->a).  But type
 variables *are* mentioned in <blah>, so we must substitute.
 
-That's why we carry the TvSubst through mkWWargs
+That's why we carry the TCvSubst through mkWWargs
 	
 %************************************************************************
 %*									*

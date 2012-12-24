@@ -1316,8 +1316,8 @@ zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar tv_env _) tv
   where
     lookup_in_env    -- Look up in the env just as we do for Ids
       = case lookupVarEnv tv_env tv of
-          Nothing  -> return (mkTyVarTy tv)
-          Just tv' -> return (mkTyVarTy tv')
+          Nothing  -> return (mkTyCoVarTy tv)
+          Just tv' -> return (mkTyCoVarTy tv')
 
 zonkTcTypeToType :: ZonkEnv -> TcType -> TcM Type
 zonkTcTypeToType env ty
@@ -1360,7 +1360,7 @@ zonkTvCollecting unbound_tv_set tv
        { tv' <- zonkQuantifiedTyVar tv
        ; tv_set <- readMutVar unbound_tv_set
        ; writeMutVar unbound_tv_set (extendVarSet tv_set tv')
-       ; return (mkTyVarTy tv') } }
+       ; return (mkTyCoVarTy tv') } }
 
 zonkTypeZapping :: UnboundTyVarZonker
 -- This variant is used for everything except the LHS of rules

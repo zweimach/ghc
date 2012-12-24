@@ -178,9 +178,6 @@ tcLookupFamInst tycon tys
   | otherwise
   = do { instEnv <- tcGetFamInstEnvs
        ; let mb_match = lookupFamInstEnv instEnv tycon tys 
---       ; traceTc "lookupFamInst" ((ppr tycon <+> ppr tys) $$ 
---                                  pprTvBndrs (varSetElems (tyVarsOfTypes tys)) $$ 
---                                  ppr mb_match $$ ppr instEnv)
        ; case mb_match of
 	   [] -> return Nothing
 	   (match:_) 
@@ -322,7 +319,7 @@ addLocalFamInst (home_fie, my_fis) fam_inst
            ; return (axb', fib') }
 
     -- substitute the tyvars for a new set of tyvars
-    coAxBranchSubst :: CoAxBranch -> [TyVar] -> TvSubst -> CoAxBranch
+    coAxBranchSubst :: CoAxBranch -> [TyCoVar] -> TCvSubst -> CoAxBranch
     coAxBranchSubst (CoAxBranch { cab_lhs = lhs
                                 , cab_rhs = rhs }) new_tvs subst
       = CoAxBranch { cab_tvs = new_tvs
@@ -330,7 +327,7 @@ addLocalFamInst (home_fie, my_fis) fam_inst
                    , cab_rhs = substTy subst rhs }
 
     -- substitute the current set of tyvars for another
-    famInstBranchSubst :: FamInstBranch -> [TyVar] -> TvSubst -> FamInstBranch
+    famInstBranchSubst :: FamInstBranch -> [TyCoVar] -> TCvSubst -> FamInstBranch
     famInstBranchSubst fib@(FamInstBranch { fib_lhs = lhs
                                           , fib_rhs = rhs }) new_tvs subst
       = fib { fib_tvs = mkVarSet new_tvs

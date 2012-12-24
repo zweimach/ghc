@@ -661,9 +661,9 @@ unifySigmaTy origin ty1 ty2
        ; defer_or_continue (not (equalLength tvs1 tvs2)) $ do {
          (subst1, skol_tvs) <- tcInstSkolTyVars tvs1
                   -- Get location from monad, not from tvs1
-       ; let tys      = mkTyVarTys skol_tvs
-             phi1     = Type.substTy subst1                   body1
-             phi2     = Type.substTy (zipTopTvSubst tvs2 tys) body2
+       ; let tys      = mkTyCoVarTys skol_tvs
+             phi1     = Type.substTy subst1                    body1
+             phi2     = Type.substTy (zipTopTCvSubst tvs2 tys) body2
 	     skol_info = UnifyForAllSkol skol_tvs phi1
 
        ; (ev_binds, co) <- checkConstraints skol_info skol_tvs [] $
@@ -770,7 +770,7 @@ uUnfilledVar :: CtOrigin
 
 uUnfilledVar origin swapped tv1 details1 (TyVarTy tv2)
   | tv1 == tv2  -- Same type variable => no-op
-  = return (mkTcReflCo (mkTyVarTy tv1))
+  = return (mkTcReflCo (mkTyCoVarTy tv1))
 
   | otherwise  -- Distinct type variables
   = do  { lookup2 <- lookupTcTyVar tv2
@@ -794,7 +794,7 @@ uUnfilledVar origin swapped tv1 details1 non_var_ty2  -- ty2 is not a type varia
 
       _other -> do { traceTc "Skolem defer" (ppr tv1); defer }	-- Skolems of all sorts
   where
-    defer = unSwap swapped (uType_defer origin) (mkTyVarTy tv1) non_var_ty2
+    defer = unSwap swapped (uType_defer origin) (mkTyCoVarTy tv1) non_var_ty2
                -- Occurs check or an untouchable: just defer
 	       -- NB: occurs check isn't necessarily fatal: 
 	       --     eg tv1 occured in type family parameter
@@ -813,7 +813,7 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
                                   <+> text "with"            <+> ppr k2)
        ; mb_sub_kind <- unifyKindX k1 k2
        ; case mb_sub_kind of {
-           Nothing -> unSwap swapped (uType_defer origin) (mkTyVarTy tv1) ty2 ;
+           Nothing -> unSwap swapped (uType_defer origin) (mkTyCoVarTy tv1) ty2 ;
            Just sub_kind -> 
 
          case (sub_kind, details1, details2) of
@@ -837,8 +837,8 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
   where
     k1  = tyVarKind tv1
     k2  = tyVarKind tv2
-    ty1 = mkTyVarTy tv1
-    ty2 = mkTyVarTy tv2
+    ty1 = mkTyCoVarTy tv1
+    ty2 = mkTyCoVarTy tv2
 
     nicer_to_update_tv1 _     SigTv = True
     nicer_to_update_tv1 SigTv _     = False

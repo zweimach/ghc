@@ -428,8 +428,8 @@ tcExtendGhciEnv ids thing_inside
                         | id <- ids]
     thing_inside
   where
-    is_top id | isEmptyVarSet (tyVarsOfType (idType id)) = TopLevel
-              | otherwise                                = NotTopLevel
+    is_top id | isEmptyVarSet (tyCoVarsOfType (idType id)) = TopLevel
+              | otherwise                                  = NotTopLevel
 
 
 tc_extend_local_env :: [(Name, TcTyThing)] -> TcM a -> TcM a
@@ -439,7 +439,7 @@ tc_extend_local_env :: [(Name, TcTyThing)] -> TcM a -> TcM a
 --          (see Kind.defaultKind, done in zonkQuantifiedTyVar)
 --      (b) There are no via-Indirect occurrences of the bound variables
 --          in the types, because instantiation does not look through such things
---      (c) The call to tyVarsOfTypes is ok without looking through refs
+--      (c) The call to tyCoVarsOfTypes is ok without looking through refs
 
 tc_extend_local_env extra_env thing_inside
   = do  { traceTc "env2" (ppr extra_env)
@@ -463,9 +463,9 @@ tc_extend_local_env extra_env thing_inside
                          emptyVarSet
           NotTopLevel -> id_tvs
       where
-        id_tvs = tyVarsOfType (idType id)
+        id_tvs = tyCoVarsOfType (idType id)
     get_tvs (_, ATyVar _ tv)                 -- See Note [Global TyVars]
-      = tyVarsOfType (tyVarKind tv) `extendVarSet` tv 
+      = tyCoVarsOfType (tyVarKind tv) `extendVarSet` tv 
       
     get_tvs other = pprPanic "get_tvs" (ppr other)
         

@@ -461,7 +461,7 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
                  branch = coAxiomSingleBranch ax_unbr
                  ax_tvs = coAxBranchTyVars branch
                  ax_lhs = coAxBranchLHS branch
-                 subst = zipTopTvSubst ax_tvs (mkTyVarTys tyvars)
+                 subst = zipTopTCvSubst ax_tvs (mkTyCoVarTys tyvars)
                             -- The subst matches the tyvar of the TyCon
                             -- with those from the CoAxiom.  They aren't
                             -- necessarily the same, since the two may be
@@ -597,7 +597,7 @@ tcIfaceDataCons tycon_name tycon _ if_cons
 
         -- Remember, tycon is the representation tycon
         ; let orig_res_ty = mkFamilyTyConApp tycon 
-                                (substTyVars (mkTopTvSubst eq_spec) univ_tyvars)
+                                (substTyCoVars (mkTopTCvSubst eq_spec) univ_tyvars)
 
         ; buildDataCon name is_infix
                        stricts lbl_names
@@ -1450,6 +1450,7 @@ bindIfaceTyVar (occ,kind) thing_inside
 bindIfaceTyVars :: [IfaceTvBndr] -> ([TyVar] -> IfL a) -> IfL a
 bindIfaceTyVars bndrs thing_inside
   = do { names <- newIfaceNames (map mkTyVarOccFS occs)
+       ; foldr extend_env_with_tyvar thing_inside (zip names kinds)
         ; let (kis_kind, tys_kind) = span isSuperIfaceKind kinds
               (kis_name, tys_name) = splitAt (length kis_kind) names
           -- We need to bring the kind variables in scope since type
@@ -1460,6 +1461,13 @@ bindIfaceTyVars bndrs thing_inside
         ; extendIfaceTyVarEnv tvs (thing_inside (kvs ++ tvs)) } }
   where
     (occs,kinds) = unzip bndrs
+
+    extend_env_with_tyvar :: (Name, TyVar) -> IfL a -> IfL a
+    extend_env_with_tyvar (name, var) thing
+      = do { tv <- mk_iface_tyvar name var
+           ; extendIfaceTyVarEnv [tv] thing }
+
+    fold :: (a -> m b -> m b)
 
 isSuperIfaceKind :: IfaceKind -> Bool
 isSuperIfaceKind (IfaceTyConApp (IfaceTc n) []) = n == superKindTyConName

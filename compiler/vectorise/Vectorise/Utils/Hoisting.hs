@@ -87,7 +87,7 @@ hoistPolyVExpr tvs vars inline p
                    mapVect (mkLams $ tvs ++ args ++ vars) <$> p
        ; fn   <- hoistVExpr expr inline'
        ; let varArgs = varsToCoreExprs vars
-       ; mapVect (\e -> e `mkApps` varArgs) <$> polyVApply (vVar fn) (mkTyVarTys tvs)
+       ; mapVect (\e -> e `mkApps` varArgs) <$> polyVApply (vVar fn) (mkTyCoVarTys tvs)
        }
 
 takeHoisted :: VM [(Var, CoreExpr)]

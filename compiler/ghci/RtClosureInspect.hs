@@ -21,7 +21,7 @@ module RtClosureInspect(
      Term(..),
      isTerm, isSuspension, isPrim, isFun, isFunLike, isNewtypeWrap,
      isFullyEvaluated, isFullyEvaluatedTerm,
-     termType, mapTermType, termTyVars,
+     termType, mapTermType, termTyCoVars,
      foldTerm, TermFold(..), foldTermM, TermFoldM(..), idTermFold,
      pprTerm, cPprTerm, cPprTermBase, CustomTermPrinter,
 
@@ -311,14 +311,14 @@ mapTermTypeM f = foldTermM TermFoldM {
           fNewtypeWrapM= \ty dc t -> f ty >>= \ty' -> return $ NewtypeWrap ty' dc t,
           fRefWrapM    = \ty t -> f ty >>= \ty' -> return $ RefWrap ty' t}
 
-termTyVars :: Term -> TyVarSet
-termTyVars = foldTerm TermFold {
+termTyCoVars :: Term -> TyCoVarSet
+termTyCoVars = foldTerm TermFold {
             fTerm       = \ty _ _ tt   -> 
-                          tyVarsOfType ty `plusVarEnv` concatVarEnv tt,
-            fSuspension = \_ ty _ _ -> tyVarsOfType ty,
+                          tyCoVarsOfType ty `plusVarEnv` concatVarEnv tt,
+            fSuspension = \_ ty _ _ -> tyCoVarsOfType ty,
             fPrim       = \ _ _ -> emptyVarEnv,
-            fNewtypeWrap= \ty _ t -> tyVarsOfType ty `plusVarEnv` t,
-            fRefWrap    = \ty t -> tyVarsOfType ty `plusVarEnv` t}
+            fNewtypeWrap= \ty _ t -> tyCoVarsOfType ty `plusVarEnv` t,
+            fRefWrap    = \ty t -> tyCoVarsOfType ty `plusVarEnv` t}
     where concatVarEnv = foldr plusVarEnv emptyVarEnv
 
 ----------------------------------
@@ -593,7 +593,7 @@ liftTcM = id
 newVar :: Kind -> TR TcType
 newVar = liftTcM . newFlexiTyVarTy
 
-instTyVars :: [TyVar] -> TR ([TcTyVar], [TcType], TvSubst)
+instTyVars :: [TyVar] -> TR ([TcTyVar], [TcType], TCvSubst)
 -- Instantiate fresh mutable type variables from some TyVars
 -- This function preserves the print-name, which helps error messages
 instTyVars = liftTcM . tcInstTyVars
@@ -623,7 +623,7 @@ applyRevSubst pairs = liftTcM (mapM_ do_pair pairs)
     do_pair (tc_tv, rtti_tv)
       = do { tc_ty <- zonkTcTyVar tc_tv
            ; case tcGetTyVar_maybe tc_ty of
-               Just tv | isMetaTyVar tv -> writeMetaTyVar tv (mkTyVarTy rtti_tv)
+               Just tv | isMetaTyVar tv -> writeMetaTyVar tv (mkTyCoVarTy rtti_tv)
                _                        -> return () }
 
 -- Adds a constraint of the form t1 == t2
@@ -929,7 +929,7 @@ findPtrTyss i tys = foldM step (i, []) tys
 -- improveType <base_type> <rtti_type>
 -- The types can contain skolem type variables, which need to be treated as normal vars.
 -- In particular, we want them to unify with things.
-improveRTTIType :: HscEnv -> RttiType -> RttiType -> Maybe TvSubst
+improveRTTIType :: HscEnv -> RttiType -> RttiType -> Maybe TCvSubst
 improveRTTIType _ base_ty new_ty
   = U.tcUnifyTys (const U.BindMe) [base_ty] [new_ty]
 
@@ -955,7 +955,7 @@ getDataConArgTys dc con_app_ty
       		-- because it may be the case that tc is a recursive
       		-- newtype and tcSplitTyConApp has not removed it. In
       		-- that case, we happily give up and don't match
-       ; let subst = zipTopTvSubst (univ_tvs ++ ex_tvs) (ty_args ++ ex_tys)
+       ; let subst = zipTopTCvSubst (univ_tvs ++ ex_tvs) (ty_args ++ ex_tys)
        ; traceTR (text "getDataConArgTys 2" <+> (ppr rep_con_app_ty $$ ppr ty_args $$ ppr subst))
        ; return (substTys subst (dataConRepArgTys dc)) }
   where
@@ -1183,7 +1183,7 @@ congruenceNewtypes lhs rhs = go lhs rhs >>= \rhs' -> return (lhs,rhs')
             | otherwise = do
                traceTR (text "(Upgrade) upgraded " <> ppr ty <>
                         text " in presence of newtype evidence " <> ppr new_tycon)
-               (_, vars, _) <- instTyVars (tyConTyVars new_tycon)
+               (_, vars, _) <- instTyVars (tyConTyCoVars new_tycon)
                let ty' = mkTyConApp new_tycon vars
                    UnaryRep rep_ty = repType ty'
                _ <- liftTcM (unifyType ty rep_ty)
@@ -1215,7 +1215,7 @@ zonkRttiType = zonkTcTypeToType (mkEmptyZonkEnv zonk_unbound_meta)
 	     -- otherwise-unconstrained unification variables are
 	     -- turned into RuntimeUnks as they leave the
 	     -- typechecker's monad
-           ; return (mkTyVarTy tv') }
+           ; return (mkTyCoVarTy tv') }
 
 --------------------------------------------------------------------------------
 -- Restore Class predicates out of a representation type
@@ -1227,7 +1227,7 @@ dictsView ty = ty
 isMonomorphic :: RttiType -> Bool
 isMonomorphic ty = noExistentials && noUniversals
  where (tvs, _, ty')  = tcSplitSigmaTy ty
-       noExistentials = isEmptyVarSet (tyVarsOfType ty')
+       noExistentials = isEmptyVarSet (tyCoVarsOfType ty')
        noUniversals   = null tvs
 
 -- Use only for RTTI types
@@ -1236,7 +1236,7 @@ isMonomorphicOnNonPhantomArgs ty
   | UnaryRep rep_ty <- repType ty
   , Just (tc, all_args) <- tcSplitTyConApp_maybe rep_ty
   , phantom_vars  <- tyConPhantomTyVars tc
-  , concrete_args <- [ arg | (tyv,arg) <- tyConTyVars tc `zip` all_args
+  , concrete_args <- [ arg | (tyv,arg) <- tyConTyCoVars tc `zip` all_args
                            , tyv `notElem` phantom_vars]
   = all isMonomorphicOnNonPhantomArgs concrete_args
   | Just (ty1, ty2) <- splitFunTy_maybe ty
@@ -1247,15 +1247,15 @@ tyConPhantomTyVars :: TyCon -> [TyVar]
 tyConPhantomTyVars tc
   | isAlgTyCon tc
   , Just dcs <- tyConDataCons_maybe tc
-  , dc_vars  <- concatMap dataConUnivTyVars dcs
-  = tyConTyVars tc \\ dc_vars
+  , dc_vars  <- concatMap dataConUnivTyCoVars dcs
+  = tyConTyCoVars tc \\ dc_vars
 tyConPhantomTyVars _ = []
 
-type QuantifiedType = ([TyVar], Type)   -- Make the free type variables explicit
+type QuantifiedType = ([TyCoVar], Type)   -- Make the free type and co variables explicit
 
 quantifyType :: Type -> QuantifiedType
 -- Generalize the type: find all free tyvars and wrap in the appropiate ForAll.
-quantifyType ty = (varSetElems (tyVarsOfType ty), ty)
+quantifyType ty = (varSetElems (tyCoVarsOfType ty), ty)
 
 unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM condM acc = condM >>= \c -> unless c acc

@@ -782,7 +782,7 @@ repTy (HsTyVar n)
   | isTvOcc occ   = do tv1 <- lookupOcc n
 		       repTvar tv1
   | isDataOcc occ = do tc1 <- lookupOcc n
-                       repPromotedTyCon tc1
+                       repPromotedDataCon tc1
   | otherwise	  = do tc1 <- lookupOcc n
 		       repNamedTyCon tc1
   where
@@ -1785,8 +1785,8 @@ repArrowTyCon = rep2 arrowTName []
 repListTyCon :: DsM (Core TH.TypeQ)
 repListTyCon = rep2 listTName []
 
-repPromotedTyCon :: Core TH.Name -> DsM (Core TH.TypeQ)
-repPromotedTyCon (MkC s) = rep2 promotedTName [s]
+repPromotedDataCon :: Core TH.Name -> DsM (Core TH.TypeQ)
+repPromotedDataCon (MkC s) = rep2 promotedTName [s]
 
 repPromotedTupleTyCon :: Int -> DsM (Core TH.TypeQ)
 repPromotedTupleTyCon i = do dflags <- getDynFlags

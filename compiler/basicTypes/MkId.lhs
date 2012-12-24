@@ -303,7 +303,7 @@ mkDataConIds wrap_name wkr_name data_con
         -- but now we don't.  Instead the type checker just injects these
         -- extra constraints where necessary.
     wrap_tvs    = (univ_tvs `minusList` map fst eq_spec) ++ ex_tvs
-    res_ty_args = substTyVars (mkTopTvSubst eq_spec) univ_tvs
+    res_ty_args = substTyCoVars (mkTopTCvSubst eq_spec) univ_tvs
     ev_tys      = other_theta
     wrap_ty     = mkForAllTys wrap_tvs $ 
                   mkFunTys ev_tys $
@@ -489,7 +489,7 @@ mkDictSelId dflags no_unf name clas
     tycon      	   = classTyCon clas
     new_tycon  	   = isNewTyCon tycon
     [data_con] 	   = tyConDataCons tycon
-    tyvars     	   = dataConUnivTyVars data_con
+    tyvars     	   = dataConUnivTyCoVars data_con
     arg_tys    	   = dataConRepArgTys data_con	-- Includes the dictionary superclasses
 
     -- 'index' is a 0-index into the *value* arguments of the dictionary
@@ -497,12 +497,12 @@ mkDictSelId dflags no_unf name clas
     sel_index_prs  = map idName (classAllSelIds clas) `zip` [0..]
 
     the_arg_id     = arg_ids !! val_index
-    pred       	   = mkClassPred clas (mkTyVarTys tyvars)
+    pred       	   = mkClassPred clas (mkTyCoVarTys tyvars)
     dict_id    	   = mkTemplateLocal 1 pred
     arg_ids    	   = mkTemplateLocalsNum 2 arg_tys
 
     rhs = mkLams tyvars  (Lam dict_id   rhs_body)
-    rhs_body | new_tycon = unwrapNewTypeBody tycon (map mkTyVarTy tyvars) (Var dict_id)
+    rhs_body | new_tycon = unwrapNewTypeBody tycon (mkTyCoVarTys tyvars) (Var dict_id)
              | otherwise = Case (Var dict_id) dict_id (idType the_arg_id)
                                 [(DataAlt data_con, arg_ids, varToCoreExpr the_arg_id)]
 				-- varToCoreExpr needed for equality superclass selectors
@@ -782,7 +782,7 @@ mkPrimOpId prim_op
 
 mkFCallId :: DynFlags -> Unique -> ForeignCall -> Type -> Id
 mkFCallId dflags uniq fcall ty
-  = ASSERT( isEmptyVarSet (tyVarsOfType ty) )
+  = ASSERT( isEmptyVarSet (tyCoVarsOfType ty) )
     -- A CCallOpId should have no free type variables; 
     -- when doing substitutions won't substitute over it
     mkGlobalId (FCallId fcall) name ty info
@@ -852,7 +852,7 @@ mkDictFunId dfun_name tvs theta clas tys
     is_nt = isNewTyCon (classTyCon clas)
     (n_silent, dfun_ty) = mkDictFunTy tvs theta clas tys
 
-mkDictFunTy :: [TyVar] -> ThetaType -> Class -> [Type] -> (Int, Type)
+mkDictFunTy :: [TyCoVar] -> ThetaType -> Class -> [Type] -> (Int, Type)
 mkDictFunTy tvs theta clas tys
   = (length silent_theta, dfun_ty)
   where
@@ -862,7 +862,7 @@ mkDictFunTy tvs theta clas tys
       = []
       | otherwise
       = filterOut discard $
-        substTheta (zipTopTvSubst (classTyVars clas) tys)
+        substTheta (zipTopTCvSubst (classTyCoVars clas) tys)
                    (classSCTheta clas)
                    -- See Note [Silent Superclass Arguments]
     discard pred = any (`eqPred` pred) theta

@@ -123,7 +123,7 @@ mkFCall dflags uniq the_fcall val_args res_ty
   where
     arg_tys = map exprType val_args
     body_ty = (mkFunTys arg_tys res_ty)
-    tyvars  = varSetElems (tyVarsOfType body_ty)
+    tyvars  = varSetElems (tyCoVarsOfType body_ty)
     ty 	    = mkForAllTys tyvars body_ty
     the_fcall_id = mkFCallId dflags uniq the_fcall ty
 \end{code}

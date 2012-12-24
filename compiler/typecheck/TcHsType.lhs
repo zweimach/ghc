@@ -292,7 +292,7 @@ tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM Type
 -- The result is not necessarily zonked, and has not been checked for validity
 tcCheckHsTypeAndGen hs_ty kind
   = do { ty  <- tc_hs_type hs_ty (EK kind expectedKindMsg)
-       ; kvs <- kindGeneralize (tyVarsOfType ty) []
+       ; kvs <- kindGeneralize (tyCoVarsOfType ty) []
        ; return (mkForAllTys kvs ty) }
 \end{code}
 
@@ -609,7 +609,7 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
               -> failWithTc (ptext (sLit "Kind variable") <+> quotes (ppr tv)
                              <+> ptext (sLit "used as a type"))
               | otherwise
-              -> return (mkTyVarTy tv, tyVarKind tv)
+              -> return (mkTyCoVarTy tv, tyVarKind tv)
 
            AThing kind -> do { tc <- get_loopy_tc name
                              ; inst_tycon (mkNakedTyConApp tc) kind }
@@ -918,7 +918,7 @@ tcHsTyVarBndr (L _ hs_tv)
 kindGeneralize :: TyVarSet -> [Name] -> TcM [KindVar]
 kindGeneralize tkvs _names_to_avoid
   = do { gbl_tvs <- tcGetGlobalTyVars -- Already zonked
-       ; tkvs    <- zonkTyVarsAndFV tkvs
+       ; tkvs    <- zonkTyCoVarsAndFV tkvs
        ; let kvs_to_quantify = filter isKindVar (varSetElems (tkvs `minusVarSet` gbl_tvs))
                 -- ToDo: remove the (filter isKindVar)
                 -- Any type variables in tkvs will be in scope,
@@ -1210,7 +1210,7 @@ tcPatSig ctxt sig res_ty
 		-- 	f (x :: T a) = ...
 		-- Here 'a' doesn't get a binding.  Sigh
 	; let bad_tvs = [ tv | (_, tv) <- sig_tvs
-                             , not (tv `elemVarSet` exactTyVarsOfType sig_ty) ]
+                             , not (tv `elemVarSet` exactTyCoVarsOfType sig_ty) ]
 	; checkTc (null bad_tvs) (badPatSigTvs sig_ty bad_tvs)
 
 	-- Now do a subsumption check of the pattern signature against res_ty
@@ -1497,7 +1497,7 @@ tc_kind_var_app name arg_kis
              -> failWithTc (ptext (sLit "Kind variable") <+> quotes (ppr name)
                             <+> ptext (sLit "cannot appear in a function position"))
              | otherwise 
-             -> return (mkAppTys (mkTyVarTy kind_var) arg_kis)
+             -> return (mkAppTys (mkOnlyTyVarTy kind_var) arg_kis)
 
   	   -- It is in scope, but not what we expected
   	   AThing _ 

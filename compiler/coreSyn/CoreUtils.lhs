@@ -108,8 +108,8 @@ coreAltType (_,bs,rhs)
   | otherwise         = ty    -- Note [Existential variables and silly type synonyms]
   where
     ty           = exprType rhs
-    free_tvs     = tyVarsOfType ty
-    bad_binder b = isTyVar b && b `elemVarSet` free_tvs
+    free_tvs     = tyCoVarsOfType ty
+    bad_binder b = b `elemVarSet` free_tvs
 
 coreAltsType :: [CoreAlt] -> Type
 -- ^ Returns the type of the first alternative, which should be the same as for all alternatives
@@ -140,6 +140,8 @@ Various possibilities suggest themselves:
 
  - Expand synonyms on the fly, when the problem arises. That is what
    we are doing here.  It's not too expensive, I think.
+
+Note that there might be existentially quantified coercion variables, too.
 
 \begin{code}
 applyTypeToArg :: Type -> CoreExpr -> Type
@@ -1252,14 +1254,14 @@ dataConInstPat fss uniqs con inst_tys
     (ex_fss,   id_fss)   = splitAt n_ex fss
 
       -- Make the instantiating substitution for universals
-    univ_subst = zipOpenTvSubst univ_tvs inst_tys
+    univ_subst = zipOpenTCvSubst univ_tvs inst_tys
 
       -- Make existential type variables, applyingn and extending the substitution
     (full_subst, ex_bndrs) = mapAccumL mk_ex_var univ_subst 
                                        (zip3 ex_tvs ex_fss ex_uniqs)
 
-    mk_ex_var :: TvSubst -> (TyVar, FastString, Unique) -> (TvSubst, TyVar)
-    mk_ex_var subst (tv, fs, uniq) = (Type.extendTvSubst subst tv (mkTyVarTy new_tv)
+    mk_ex_var :: TCvSubst -> (TyVar, FastString, Unique) -> (TCvSubst, TyVar)
+    mk_ex_var subst (tv, fs, uniq) = (Type.extendTCvSubst subst tv (mkTyCoVarTy new_tv)
                                      , new_tv)
       where
         new_tv   = mkTyVar new_name kind
@@ -1697,7 +1699,7 @@ tryEtaReduce bndrs body
     ---------------
     -- Note [Eta reduction conditions]
     ok_fun (App fun (Type ty))
-        | not (any (`elemVarSet` tyVarsOfType ty) bndrs)
+        | not (any (`elemVarSet` tyCoVarsOfType ty) bndrs)
         =  ok_fun fun
     ok_fun (Var fun_id)
         =  not (fun_id `elem` bndrs)
@@ -1724,7 +1726,10 @@ tryEtaReduce bndrs body
     -- See Note [Eta reduction with casted arguments]
     ok_arg bndr (Type ty) co
        | Just tv <- getTyVar_maybe ty
-       , bndr == tv  = Just (mkForAllCo tv co)
+       , bndr == tv  = Just (mkForAllTyCo tv co)
+    ok_arg bndr (Coercion co1) co2
+       | Just cv <- getCoVar_maybe co1
+       , bndr == cv  = Just (mkForAllCoCo tv co)
     ok_arg bndr (Var v) co
        | bndr == v   = Just (mkFunCo (mkReflCo (idType bndr)) co)
     ok_arg bndr (Cast (Var v) co_arg) co

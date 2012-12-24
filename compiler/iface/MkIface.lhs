@@ -1488,7 +1488,7 @@ tyConToIfaceDecl env tycon
 
   | otherwise = pprPanic "toIfaceDecl" (ppr tycon)
   where
-    (env1, tyvars) = tidyTyClTyVarBndrs env (tyConTyVars tycon)
+    (env1, tyvars) = tidyTyClTyCoVarBndrs env (tyConTyCoVars tycon)
 
     to_ifsyn_rhs (SynFamilyTyCon a b) = SynFamilyTyCon a b
     to_ifsyn_rhs (SynonymTyCon ty)    = SynonymTyCon (tidyToIfaceType env1 ty)
@@ -1550,7 +1550,7 @@ classToIfaceDecl env clas
                      (map (tidyToIfaceType env2) pat_tys) 
                      (tidyToIfaceType env2 ty)
           where
-            (env2, tvs') = tidyTyClTyVarBndrs env1 tvs
+            (env2, tvs') = tidyTyClTyCoVarBndrs env1 tvs
 
     toIfaceClassOp (sel_id, def_meth)
         = ASSERT(sel_tyvars == clas_tyvars)
@@ -1579,16 +1579,16 @@ tidyToIfaceType env ty = toIfaceType (tidyType env ty)
 tidyToIfaceContext :: TidyEnv -> ThetaType -> IfaceContext
 tidyToIfaceContext env theta = map (tidyToIfaceType env) theta
 
-tidyTyClTyVarBndrs :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
-tidyTyClTyVarBndrs env tvs = mapAccumL tidyTyClTyVarBndr env tvs
+tidyTyClTyCoVarBndrs :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
+tidyTyClTyCoVarBndrs env tvs = mapAccumL tidyTyClTyCoVarBndr env tvs
 
-tidyTyClTyVarBndr :: TidyEnv -> TyVar -> (TidyEnv, TyVar)
+tidyTyClTyCoVarBndr :: TidyEnv -> TyVar -> (TidyEnv, TyVar)
 -- If the type variable "binder" is in scope, don't re-bind it
 -- In a class decl, for example, the ATD binders mention 
 -- (amd must mention) the class tyvars
-tidyTyClTyVarBndr env@(_, subst) tv
+tidyTyClTyCoVarBndr env@(_, subst) tv
  | Just tv' <- lookupVarEnv subst tv = (env, tv')
- | otherwise                         = tidyTyVarBndr env tv
+ | otherwise                         = tidyTyCoVarBndr env tv
 
 tidyTyVar :: TidyEnv -> TyVar -> TyVar
 tidyTyVar (_, subst) tv = lookupVarEnv subst tv `orElse` tv

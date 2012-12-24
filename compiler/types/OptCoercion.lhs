@@ -15,7 +15,7 @@ module OptCoercion ( optCoercion ) where
 #include "HsVersions.h"
 
 import Coercion
-import Type hiding( substTyVarBndr, substTy, extendTvSubst )
+import Type hiding( substTyVarBndr, substTy, extendTCvSubst )
 import TcType       ( exactTyVarsOfType )
 import TyCon
 import CoAxiom
@@ -54,7 +54,7 @@ subsequent substitutions will go wrong.  That's why we can't use
 mkCoPredTy in the ForAll case, where this note appears.  
 
 \begin{code}
-optCoercion :: CvSubst -> Coercion -> NormalCo
+optCoercion :: TCvSubst -> Coercion -> NormalCo
 -- ^ optCoercion applies a substitution to a coercion, 
 --   *and* optimises it to reduce its size
 optCoercion env co 
@@ -166,7 +166,7 @@ opt_co' env sym (InstCo co ty)
     -- See if the first arg is already a forall
     -- ...then we can just extend the current substitution
   | Just (tv, co_body) <- splitForAllCo_maybe co
-  = opt_co (extendTvSubst env tv ty') sym co_body
+  = opt_co (extendTCvSubst env tv ty') sym co_body
 
      -- See if it is a forall after optimization
      -- If so, do an inefficient one-variable substitution
@@ -384,7 +384,7 @@ etaForAllCo_maybe co
   , Just (tv1, _) <- splitForAllTy_maybe ty1
   , Just (tv2, _) <- splitForAllTy_maybe ty2
   , tyVarKind tv1 `eqKind` tyVarKind tv2
-  = Just (tv1, mkInstCo co (mkTyVarTy tv1))
+  = Just (tv1, mkInstCo co (mkTyCoVarTy tv1))
 
   | otherwise
   = Nothing

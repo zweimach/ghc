@@ -126,7 +126,7 @@ report_unsolved mb_binds_var defer wanted
                  
             -- If we are deferring we are going to need /all/ evidence around,
             -- including the evidence produced by unflattening (zonkWC)
-       ; let tidy_env = tidyFreeTyVars env0 free_tvs
+       ; let tidy_env = tidyFreeTyCoVars env0 free_tvs
              free_tvs = tyVarsOfWC wanted
              err_ctxt = CEC { cec_encl  = []
                             , cec_tidy  = tidy_env
@@ -473,7 +473,7 @@ mkIrredErr ctxt cts
 ----------------
 mkHoleError :: ReportErrCtxt -> Ct -> TcM ErrMsg
 mkHoleError ctxt ct@(CHoleCan {})
-  = do { let tyvars = varSetElems (tyVarsOfCt ct)
+  = do { let tyvars = varSetElems (tyCoVarsOfCt ct)
              tyvars_msg = map loc_msg tyvars
              msg = (text "Found hole" <+> quotes (text "_") 
                     <+> text "with type") <+> pprType (ctEvPred (cc_ev ct))
@@ -624,7 +624,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   -- generalised it).  So presumably it is an *untouchable* 
   -- meta tyvar or a SigTv, else it'd have been unified
   | not (k2 `tcIsSubKind` k1)   	 -- Kind error
-  = mkErrorMsg ctxt ct $ (kindErrorMsg (mkTyVarTy tv1) ty2 $$ extra)
+  = mkErrorMsg ctxt ct $ (kindErrorMsg (mkTyCoVarTy tv1) ty2 $$ extra)
 
   | OC_Occurs <- occ_check_expand
   = do { let occCheckMsg = hang (text "Occurs check: cannot construct the infinite type:")
@@ -653,7 +653,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   -- Check for skolem escape
   | (implic:_) <- cec_encl ctxt   -- Get the innermost context
   , Implic { ic_env = env, ic_skols = skols, ic_info = skol_info } <- implic
-  , let esc_skols = filter (`elemVarSet` (tyVarsOfType ty2)) skols
+  , let esc_skols = filter (`elemVarSet` (tyCoVarsOfType ty2)) skols
   , not (null esc_skols)
   = do { let msg = misMatchMsg oriented ty1 ty2
              esc_doc = sep [ ptext (sLit "because type variable") <> plural esc_skols
@@ -684,7 +684,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
        ; mkErrorMsg ctxt ct (vcat [msg, untch_extra, tv_extra, extra]) }
 
   | otherwise
-  = reportEqErr ctxt extra ct oriented (mkTyVarTy tv1) ty2
+  = reportEqErr ctxt extra ct oriented (mkTyCoVarTy tv1) ty2
         -- This *can* happen (Trac #6123, and test T2627b)
         -- Consider an ambiguous top-level constraint (a ~ F a)
         -- Not an occurs check, becuase F is a type function.
@@ -692,7 +692,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
     occ_check_expand = occurCheckExpand dflags tv1 ty2
     k1 	= tyVarKind tv1
     k2 	= typeKind ty2
-    ty1 = mkTyVarTy tv1
+    ty1 = mkTyCoVarTy tv1
 
 mkEqInfoMsg :: ReportErrCtxt -> Ct -> TcType -> TcType -> TcM (ReportErrCtxt, SDoc)
 -- Report (a) ambiguity if either side is a type function application
@@ -876,7 +876,7 @@ mkDictErr ctxt cts
     is_no_inst (ct, (matches, unifiers, _))
       =  no_givens 
       && null matches 
-      && (null unifiers || all (not . isAmbiguousTyVar) (varSetElems (tyVarsOfCt ct)))
+      && (null unifiers || all (not . isAmbiguousTyVar) (varSetElems (tyCoVarsOfCt ct)))
            
     lookup_cls_inst inst_envs ct
       = do { tys_flat <- mapM quickFlattenTy tys
@@ -984,7 +984,7 @@ mk_dict_err ctxt (ct, (matches, unifiers, safe_haskell))
 		     empty
     		else 	-- One match
 		parens (vcat [ptext (sLit "The choice depends on the instantiation of") <+>
-	    		         quotes (pprWithCommas ppr (varSetElems (tyVarsOfTypes tys))),
+	    		         quotes (pprWithCommas ppr (varSetElems (tyCoVarsOfTypes tys))),
 			      if null (matching_givens) then
                                    vcat [ ptext (sLit "To pick the first instance above, use -XIncoherentInstances"),
 			                  ptext (sLit "when compiling the other instance declarations")]
@@ -1005,7 +1005,7 @@ mk_dict_err ctxt (ct, (matches, unifiers, safe_haskell))
                       ev_var_matches ty = case getClassPredTys_maybe ty of
                          Just (clas', tys')
                            | clas' == clas
-                           , Just _ <- tcMatchTys (tyVarsOfTypes tys) tys tys'
+                           , Just _ <- tcMatchTys (tyCoVarsOfTypes tys) tys tys'
                            -> True 
                            | otherwise
                            -> any ev_var_matches (immSuperClasses clas' tys')
@@ -1064,7 +1064,7 @@ quickFlattenTy (TyConApp tc tys)
                 -- Ignore the arguments of the type family funtys
          ; v <- newMetaTyVar TauTv (typeKind (TyConApp tc funtys))
          ; flat_resttys <- mapM quickFlattenTy resttys
-         ; return (foldl AppTy (mkTyVarTy v) flat_resttys) }
+         ; return (foldl AppTy (mkTyCoVarTy v) flat_resttys) }
 \end{code}
 
 Note [Flattening in error message generation]
@@ -1103,13 +1103,13 @@ mkAmbigMsg ctxt cts
                 [ (id, idType id) | TcIdBndr id top_lvl <- ct1_bndrs
                                   , isTopLevel top_lvl ]
        ; let ambig_ids = [id | (id, zonked_ty) <- prs
-                             , tyVarsOfType zonked_ty `intersectsVarSet` ambig_tv_set]
+                             , tyCoVarsOfType zonked_ty `intersectsVarSet` ambig_tv_set]
        ; return (ctxt, True, mk_msg dflags ambig_ids) }
   where
     ct1:_ = cts
     ct1_bndrs = tcl_bndrs (ctLocEnv (cc_loc ct1))
  
-    ambig_tv_set = foldr (unionVarSet . filterVarSet isAmbiguousTyVar . tyVarsOfCt) 
+    ambig_tv_set = foldr (unionVarSet . filterVarSet isAmbiguousTyVar . tyCoVarsOfCt) 
                          emptyVarSet cts
     ambig_tvs = varSetElems ambig_tv_set
     
@@ -1185,7 +1185,7 @@ relevantBindings ctxt ct
                  ; return (ctxt { cec_tidy = tidy_env' }, doc) } } 
   where
     lcl_env = ctLocEnv (cc_loc ct)
-    ct_tvs = tyVarsOfCt ct
+    ct_tvs = tyCoVarsOfCt ct
 
     go :: TidyEnv -> (Int, TcTyVarSet)
        -> [TcIdBinder] -> TcM (TidyEnv, [SDoc])
@@ -1198,7 +1198,7 @@ relevantBindings ctxt ct
          go tidy_env (n_left,tvs_seen) tc_bndrs
        | otherwise
        = do { (tidy_env', tidy_ty) <- zonkTidyTcType tidy_env (idType id)
-            ; let id_tvs = tyVarsOfType tidy_ty
+            ; let id_tvs = tyCoVarsOfType tidy_ty
                   doc = sep [ ppr id <+> dcolon <+> ppr tidy_ty
 		            , nest 2 (parens (ptext (sLit "bound at")
 			    	 <+> ppr (getSrcLoc id)))]
@@ -1215,8 +1215,8 @@ warnDefaulting :: Cts -> Type -> TcM ()
 warnDefaulting wanteds default_ty
   = do { warn_default <- woptM Opt_WarnTypeDefaults
        ; env0 <- tcInitTidyEnv
-       ; let tidy_env = tidyFreeTyVars env0 $
-                        tyVarsOfCts wanteds
+       ; let tidy_env = tidyFreeTyCoVars env0 $
+                        tyCoVarsOfCts wanteds
              tidy_wanteds = mapBag (tidyCt tidy_env) wanteds
              (loc, ppr_wanteds) = pprWithArising (bagToList tidy_wanteds)
              warn_msg  = hang (ptext (sLit "Defaulting the following constraint(s) to type")
@@ -1244,7 +1244,7 @@ solverDepthErrorTcS ct
   = setCtLoc loc $
     do { pred <- zonkTcType (ctPred ct)
        ; env0 <- tcInitTidyEnv
-       ; let tidy_env  = tidyFreeTyVars env0 (tyVarsOfType pred)
+       ; let tidy_env  = tidyFreeTyCoVars env0 (tyCoVarsOfType pred)
              tidy_pred = tidyType tidy_env pred
        ; failWithTcM (tidy_env, hang msg 2 (ppr tidy_pred)) }
   where

@@ -117,7 +117,7 @@ When we encounter a binder (like x::a) we must apply the substitution
 to the type of the binding variable.  lintBinders does this.
 
 For Ids, the type-substituted Id is added to the in_scope set (which 
-itself is part of the TvSubst we are carrying down), and when we
+itself is part of the TCvSubst we are carrying down), and when we
 find an occurence of an Id, we fetch it from the in-scope set.
 
 
@@ -294,7 +294,7 @@ lintCoreExpr (Lit lit)
 lintCoreExpr (Cast expr co)
   = do { expr_ty <- lintCoreExpr expr
        ; co' <- applySubstCo co
-       ; (_, from_ty, to_ty) <- lintCoercion co'
+       ; (from_ty, to_ty) <- lintStarCoercion co'
        ; checkTys from_ty expr_ty (mkCastErr expr co' from_ty expr_ty)
        ; return to_ty }
 
@@ -373,7 +373,7 @@ lintCoreExpr e@(Case scrut var alt_ty alts) =
 
 	-- Don't use lintIdBndr on var, because unboxed tuple is legitimate
 
-     ; subst <- getTvSubst 
+     ; subst <- getCvSubst 
      ; checkTys var_ty scrut_ty (mkScrutMsg var var_ty scrut_ty subst)
 
      ; lintAndScopeId var $ \_ ->
@@ -453,6 +453,11 @@ lintCoreArg fun_ty (Type arg_ty)
   = do { arg_ty' <- applySubstTy arg_ty
        ; lintTyApp fun_ty arg_ty' }
 
+lintCoreArg fun_ty (Coercion arg_co)
+  | isForAllTy fun_ty
+  = do { arg_co' <- applySubstCo arg_co
+       ; lintCoApp fun_ty arg_co' }
+
 lintCoreArg fun_ty arg
   = do { arg_ty <- lintCoreExpr arg
        ; lintValApp arg fun_ty arg_ty }
@@ -485,6 +490,17 @@ lintTyApp fun_ty arg_ty
   | otherwise
   = failWithL (mkTyAppMsg fun_ty arg_ty)
    
+-----------------
+lintCoApp :: OutType -> OutCoercion -> LintM OutType
+lintCoApp fun_ty arg_co
+  | Just (covar,body_ty) <- splitForAllTy_maybe fun_ty
+  , isVar covar
+  = do { (_, _, t1, t2) <- lintCoercion arg_co
+       ; let (t1', t2') = coVarTypes covar
+       ; checkTys t1' t1 (mkCoAppMsg t1' t1 Left)
+       ; checkTys t2' t2 (mkCoAppMsg t2' t2 Right)
+       ; return (substTyWith [covar] [arg_co] body_ty)
+
 -----------------
 lintValApp :: CoreExpr -> OutType -> OutType -> LintM OutType
 lintValApp arg fun_ty arg_ty
@@ -639,10 +655,10 @@ lintBinder var linterF
 
 lintTyBndr :: InTyVar -> (OutTyVar -> LintM a) -> LintM a
 lintTyBndr tv thing_inside
-  = do { subst <- getTvSubst
-       ; let (subst', tv') = Type.substTyVarBndr subst tv
+  = do { subst <- getCvSubst
+       ; let (subst', tv') = substTyVarBndr subst tv
        ; lintTyBndrKind tv'
-       ; updateTvSubst subst' (thing_inside tv') }
+       ; updateCvSubst subst' (thing_inside tv') }
 
 lintIdBndr :: Id -> (Id -> LintM a) -> LintM a
 -- Do substitution on the type of a binder and add the var with this 
@@ -742,6 +758,11 @@ lintKind k = do { sk <- lintType k
                 ; unless (isSuperKind sk) 
                          (addErrL (hang (ptext (sLit "Ill-kinded kind:") <+> ppr k)
                                       2 (ptext (sLit "has kind:") <+> ppr sk))) }
+
+-- confirms that a type is really *
+checkStar :: OutKind -> LintM ()
+checkStar k
+  = checkL (isStarKind k) (ptext (sLit "Non-* kind when * expected:") <+> ppr k)
 \end{code}
 
 
@@ -826,6 +847,14 @@ lintInCo co
         ; _   <- lintCoercion co'
         ; return co' }
 
+-- lints a coercion, confirming that its lh kind and its rh kind are both *
+lintStarCoercion :: OutCoercion -> LintM (LintedType, LintedType)
+lintStarCoercion g
+  = do { (k1, k2, t1, t2) <- lintCoercion g
+       ; checkStar k1
+       ; checkStar k2
+       ; return (t1, t2) }
+
 lintCoercion :: OutCoercion -> LintM (LintedKind, LintedType, LintedType)
 -- Check the kind of a coercion term, returning the kind
 -- Post-condition: the returned OutTypes are lint-free
@@ -868,7 +897,7 @@ lintCoercion (CoVarCo cv)
   | otherwise
   = do { checkTyCoVarInScope cv
        ; cv' <- lookupIdInScope cv 
-       ; let (s,t) = coVarKind cv'
+       ; let (s,t) = coVarTypes cv'
              k     = typeKind s
        ; when (isSuperKind k) $
          checkL (s `eqKind` t) (hang (ptext (sLit "Non-refl kind equality"))
@@ -944,13 +973,13 @@ lintCoercion co@(AxiomInstCo con ind cos)
                         , cab_lhs = lhs
                         , cab_rhs = rhs } = coAxiomNthBranch con ind
        ; unless (equalLength ktvs cos) (bad_ax (ptext (sLit "lengths")))
-       ; in_scope <- getInScope
-       ; let empty_subst = mkTvSubst in_scope emptyTvSubstEnv
+       ; subst <- getCvSubst
+       ; let empty_subst = zapCvSubstEnv subst
        ; (subst_l, subst_r) <- foldlM check_ki 
                                       (empty_subst, empty_subst) 
                                       (ktvs `zip` cos)
-       ; let lhs' = Type.substTys subst_l lhs
-             rhs' = Type.substTy subst_r rhs
+       ; let lhs' = substTys subst_l lhs
+             rhs' = substTy subst_r rhs
        ; case check_no_conflict lhs' (ind - 1) of
            Just bad_index -> bad_ax $ ptext (sLit "inconsistent with") <+> (ppr bad_index)
            Nothing -> return ()
@@ -972,13 +1001,65 @@ lintCoercion co@(AxiomInstCo con ind cos)
 
     check_ki (subst_l, subst_r) (ktv, co)
       = do { (k, t1, t2) <- lintCoercion co
-           ; let ktv_kind = Type.substTy subst_l (tyVarKind ktv)
+           ; let ktv_kind = substTy subst_l (tyVarKind ktv)
                   -- Using subst_l is ok, because subst_l and subst_r
                   -- must agree on kind equalities
            ; unless (k `isSubKind` ktv_kind) 
                     (bad_ax (ptext (sLit "check_ki2") <+> vcat [ ppr co, ppr k, ppr ktv, ppr ktv_kind ] ))
-           ; return (Type.extendTvSubst subst_l ktv t1, 
-                     Type.extendTvSubst subst_r ktv t2) } 
+           ; return (extendTCvSubst subst_l ktv t1, 
+                     extendTCvSubst subst_r ktv t2) } 
+\end{code}
+
+Note [FreeIn...]
+~~~~~~~~~~~~~~~~~~~~~
+The proof of consistency of the type system depends on a freeness condition
+in the premises of ForAllCoCo. This condition states that the coercion
+variables quantified over do not appear in the erased form of coercion
+in the quantification. See http://www.cis.upenn.edu/~sweirich/papers/nokinds-extended.pdf
+
+\begin{code}
+
+freeInCoercion :: CoVar -> Coercion -> Bool
+freeInCoercion v (Refl t)                  = freeInType v t
+freeInCoercion v (TyConAppCo tc args)      = all (freeInCoercionArg v) args
+freeInCoercion v (AppCo g w)               = (freeInCoercion v g) && (freeInCoercionArg v w)
+freeInCoercion v (ForAllTyCo a1 a2 c g)    = (freeInTyVar v a1) && (freeInTyVar v a2) &&
+                                             (freeInCoVar v c $ freeInCoercion v g)
+freeInCoercion v (ForAllCoCo c1 c2 g)      = freeInCoVar v c1 $
+                                             freeInCoVar v c2 $
+                                             freeInCoercion v g
+freeInCoercion v (CoVarCo c)               = freeInCoVar v c True
+freeInCoercion v (AxiomInstCo ax ind args) = all (freeInCoercionArg v) args
+freeInCoercion v (UnsafeCo t1 t2)          = (freeInType v t1) && (freeInType v t2)
+freeInCoercion v (SymCo g)                 = freeInCoercion v g
+freeInCoercion v (TransCo g1 g2)           = (freeInCoercion v g1) && (freeInCoercion v g2)
+freeInCoercion v (NthCo i g)               = freeInCoercion v g
+freeInCoercion v (LRCo lr g)               = freeInCoercion v g
+freeInCoercion v (InstCo g w)              = (freeInCoercion v g) && (freeInCoercionArg v w)
+freeInCoercion v (CoherenceCo g _)         = freeInCoercion v g
+freeInCoercion v (KindCo g)                = freeInCoercion v g
+
+freeInType :: CoVar -> Type -> Bool
+freeInType v (TyVarTy tv)       = freeInTyVar v tv
+freeInType v (AppTy t1 t2)      = (freeInType v t1) && (freeInType v t2)
+freeInType v (TyConApp tc args) = all (freeInType v) args
+freeInType v (FunTy t1 t2)      = (freeInType v t1) && (freeInType v t2)
+freeInType v (ForAllTy tv ty)   = (freeInTyVar v tv) && (freeInType v ty)
+freeInType _ (LitTy {})         = True
+freeInType v (CastTy t _)       = freeInType v t
+freeInType _ (CoercionTy _)     = True
+
+freeInTyVar :: CoVar -> TyVar -> Bool
+freeInTyVar v tv = freeInType v (tyVarKind tv)
+
+-- Third parameter is a continuation
+freeInCoVar :: CoVar -> CoVar -> Bool -> Bool
+freeInCoVar v c cont = freeInType v (varType c) && (v == c || cont)
+
+freeInCoercionArg :: CoVar -> CoercionArg -> Bool
+freeInCoercionArg v (TyCoArg g)   = freeInCoercion v g
+freeInCoercionArg _ (CoCoArg _ _) = True
+
 \end{code}
 
 %************************************************************************
@@ -994,7 +1075,7 @@ lintCoercion co@(AxiomInstCo con ind cos)
 newtype LintM a = 
    LintM { unLintM :: 
             [LintLocInfo] ->         -- Locations
-            TvSubst ->               -- Current type substitution; we also use this
+            TCvSubst ->              -- Current type substitution; we also use this
 				     -- to keep track of all the variables in scope,
 				     -- both Ids and TyVars
 	    WarnsAndErrs ->           -- Error and warning messages so far
@@ -1043,7 +1124,7 @@ data LintLocInfo
 \begin{code}
 initL :: LintM a -> WarnsAndErrs    -- Errors and warnings
 initL m
-  = case unLintM m [] emptyTvSubst (emptyBag, emptyBag) of
+  = case unLintM m [] emptyTCvSubst (emptyBag, emptyBag) of
       (_, errs) -> errs
 \end{code}
 
@@ -1064,7 +1145,7 @@ addWarnL :: MsgDoc -> LintM ()
 addWarnL msg = LintM $ \ loc subst (warns,errs) -> 
               (Just (), (addMsg subst warns msg loc, errs))
 
-addMsg :: TvSubst ->  Bag MsgDoc -> MsgDoc -> [LintLocInfo] -> Bag MsgDoc
+addMsg :: TCvSubst ->  Bag MsgDoc -> MsgDoc -> [LintLocInfo] -> Bag MsgDoc
 addMsg subst msgs msg locs
   = ASSERT( notNull locs )
     msgs `snocBag` mk_msg msg
@@ -1089,31 +1170,31 @@ inCasePat = LintM $ \ loc _ errs -> (Just (is_case_pat loc), errs)
 
 addInScopeVars :: [Var] -> LintM a -> LintM a
 addInScopeVars vars m
-  = LintM (\ loc subst errs -> unLintM m loc (extendTvInScopeList subst vars) errs)
+  = LintM (\ loc subst errs -> unLintM m loc (extendTCvInScopeList subst vars) errs)
 
 addInScopeVar :: Var -> LintM a -> LintM a
 addInScopeVar var m
-  = LintM (\ loc subst errs -> unLintM m loc (extendTvInScope subst var) errs)
+  = LintM (\ loc subst errs -> unLintM m loc (extendTCvInScope subst var) errs)
 
-updateTvSubst :: TvSubst -> LintM a -> LintM a
-updateTvSubst subst' m = 
+updateTCvSubst :: TCvSubst -> LintM a -> LintM a
+updateCvSubst subst' m = 
   LintM (\ loc _ errs -> unLintM m loc subst' errs)
 
-getTvSubst :: LintM TvSubst
-getTvSubst = LintM (\ _ subst errs -> (Just subst, errs))
+getTCvSubst :: LintM TCvSubst
+getTCvSubst = LintM (\ _ subst errs -> (Just subst, errs))
 
 getInScope :: LintM InScopeSet
-getInScope = LintM (\ _ subst errs -> (Just (getTvInScope subst), errs))
+getInScope = LintM (\ _ subst errs -> (Just (getTCvInScope subst), errs))
 
 applySubstTy :: InType -> LintM OutType
-applySubstTy ty = do { subst <- getTvSubst; return (Type.substTy subst ty) }
+applySubstTy ty = do { subst <- getTCvSubst; return (substTy subst ty) }
 
 applySubstCo :: InCoercion -> LintM OutCoercion
-applySubstCo co = do { subst <- getTvSubst; return (substCo (tvCvSubst subst) co) }
+applySubstCo co = do { subst <- getTCvSubst; return (substCo subst co) }
 
 extendSubstL :: TyVar -> Type -> LintM a -> LintM a
 extendSubstL tv ty m
-  = LintM (\ loc subst errs -> unLintM m loc (Type.extendTvSubst subst tv ty) errs)
+  = LintM (\ loc subst errs -> unLintM m loc (extendTCvSubst subst tv ty) errs)
 \end{code}
 
 \begin{code}
@@ -1122,8 +1203,8 @@ lookupIdInScope id
   | not (mustHaveLocalBinding id)
   = return id	-- An imported Id
   | otherwise	
-  = do	{ subst <- getTvSubst
-	; case lookupInScope (getTvInScope subst) id of
+  = do	{ subst <- getTCvSubst
+	; case lookupInScope (getTCvInScope subst) id of
 		Just v  -> return v
 		Nothing -> do { addErrL out_of_scope
 			      ; return id } }
@@ -1146,7 +1227,7 @@ checkTyCoVarInScope v = checkInScope (ptext (sLit "is out of scope")) v
 
 checkInScope :: SDoc -> Var -> LintM ()
 checkInScope loc_msg var =
- do { subst <- getTvSubst
+ do { subst <- getTCvSubst
     ; checkL (not (mustHaveLocalBinding var) || (var `isInScope` subst))
              (hsep [pprBndr LetBind var, loc_msg]) }
 
@@ -1218,12 +1299,12 @@ mkCaseAltMsg e ty1 ty2
   = hang (text "Type of case alternatives not the same as the annotation on case:")
 	 4 (vcat [ppr ty1, ppr ty2, ppr e])
 
-mkScrutMsg :: Id -> Type -> Type -> TvSubst -> MsgDoc
+mkScrutMsg :: Id -> Type -> Type -> TCvSubst -> MsgDoc
 mkScrutMsg var var_ty scrut_ty subst
   = vcat [text "Result binder in case doesn't match scrutinee:" <+> ppr var,
 	  text "Result binder type:" <+> ppr var_ty,--(idType var),
 	  text "Scrutinee type:" <+> ppr scrut_ty,
-     hsep [ptext (sLit "Current TV subst"), ppr subst]]
+     hsep [ptext (sLit "Current TCv subst"), ppr subst]]
 
 mkNonDefltMsg, mkNonIncreasingAltsMsg :: CoreExpr -> MsgDoc
 mkNonDefltMsg e
@@ -1300,6 +1381,17 @@ mkTyAppMsg ty arg_ty
 		 4 (ppr ty <+> dcolon <+> ppr (typeKind ty)),
 	      hang (ptext (sLit "Arg type:"))   
 	         4 (ppr arg_ty <+> dcolon <+> ppr (typeKind arg_ty))]
+
+mkCoAppMsg :: Type -> Type -> LorR -> MsgDoc
+mkCoAppMsg t1 t2 lr
+  = vcat [text "Illegal coercion application:",
+              hang (ptext (sLit "Exp") <+> typename <> colon)
+                 4 (ppr t1 <+> dcolon <+> ppr (typeKind t1)),
+              hang (ptext (sLit "Arg") <+> typename <> colon)
+                 4 (ppr t2 <+> dcolon <+> ppr (typeKind t2))]
+  where
+    typename | Left <- lr = ptext (sLit "left-hand type")
+             | otherwise  = ptext (sLit "right-hand type")
 
 mkRhsMsg :: Id -> Type -> MsgDoc
 mkRhsMsg binder ty

@@ -64,11 +64,12 @@ variables:
 \gram{
 \ottz
 }
-foo
 
 \gram{
 \ottn
 }
+
+We sometimes omit the type/kind annotation to a variable when it is obvious from context.
 
 \subsection{Expressions}
 
@@ -124,11 +125,20 @@ $[[t1 -> t2]]$. This is a different point in the grammar, not just pretty-printi
 The constructor for a saturated $[[(->)]]$ is \texttt{FunTy}.
 \item A type-level literal is represented in GHC with a different datatype than
 a term-level literal, but we are ignoring this distinction here.
+\item A coercion used as a type should appear only in the right-hand side of
+  an application.
 \end{itemize}
+
+Note that the use of the $[[T </ ti // i />]]$ form and the $[[t1 -> t2]]$ form
+are purely representational. The metatheory would remain the same if these forms
+were removed in favor of $[[t1 t2]]$. Nevertheless, we keep all three forms in
+this documentation to accurately reflect the implementation.
+
+We use the notation $[[t1 k1~#k2 t2]]$ to stand for $[[(~#) k1 k2 t1 t2]]$.
 
 \subsection{Coercions}
 
-\gram{\ottg}
+\gram{\ottg\ottinterrule\ottw}
 
 Invariants on coercions:
 \begin{itemize}
@@ -138,6 +148,9 @@ reflexive, use $[[T </ gi // i />]]$, never $[[<T> g1 g2]] \ldots$.
 \item The $[[T]]$ in $[[T </gi//i/>]]$ is never a type synonym, though it could
 be a type function.
 \end{itemize}
+
+Similarly to with types, the form $[[T </ wi // i />]]$ is needed only to stay
+faithful to the implementation.
 
 Is it a left projection or a right projection?
 
@@ -149,6 +162,9 @@ Axioms:
 \ottC\ottinterrule
 \ottaxBranch
 }
+
+The left-hand sides $[[ </ tj // j /> ]]$ of different branches of one axiom must
+all have the same length.
 
 \subsection{Type constructors}
 
@@ -223,18 +239,12 @@ as for strictness and exportability. See the source code for further information
 
 \begin{itemize}
 \item Some explication of \ottdrulename{Tm\_LetRec} is helpful: The idea behind the
-second premise ($[[</ G, G'i |-ty s'i : ki // i />]]$) is that we wish
+second premise ($[[</ G, G'i |-ty si : ki // i />]]$) is that we wish
 to check each substituted type $[[s'i]]$ in a context containing all the types
 that come before it in the list of bindings. The $[[G'i]]$ are contexts
 containing the names and kinds of all type variables (and term variables,
 for that matter) up to the $i$th binding. This logic is extracted from
 \coderef{coreSyn/CoreLint.lhs}{lintAndScopeIds}.
-
-\item There is one more case for $[[G |-tm e : t]]$, for type expressions.
-This is included in the GHC code but is elided
-here because the case is never used in practice. Type expressions
-can only appear in arguments to functions, and these are handled
-in \ottdrulename{Tm\_AppType}.
 
 \item The GHC source code checks all arguments in an application expression
 all at once using \coderef{coreSyn/CoreSyn.lhs}{collectArgs}

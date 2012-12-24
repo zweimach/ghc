@@ -26,7 +26,8 @@ module Type (
         Var, TyVar, isTyVar, 
 
         -- ** Constructing and deconstructing types
-        mkTyVarTy, mkTyVarTys, getTyVar, getTyVar_maybe,
+        mkOnlyTyVarTy, mkOnlyTyVarTys, getTyVar, getTyVar_maybe, getCoTyVar_maybe,
+        mkTyCoVarTy, mkTyCoVarTys,
 
 	mkAppTy, mkAppTys, mkNakedAppTys, splitAppTy, splitAppTys, 
 	splitAppTy_maybe, repSplitAppTy_maybe,
@@ -91,13 +92,13 @@ module Type (
         constraintKindTyCon, anyKindTyCon,
 
 	-- * Type free variables
-	tyVarsOfType, tyVarsOfTypes,
+	tyCoVarsOfType, tyCoVarsOfTypes,
 	expandTypeSynonyms, 
 	typeSize, varSetElemsKvsFirst, 
 
 	-- * Type comparison
         eqType, eqTypeX, eqTypes, cmpType, cmpTypes, 
-	eqPred, eqPredX, cmpPred, eqKind, eqTyVarBndrs,
+	eqPred, eqPredX, cmpPred, eqKind, eqTyCoVarBndrs,
 
 	-- * Forcing evaluation of types
         seqType, seqTypes,
@@ -112,23 +113,24 @@ module Type (
 
 	-- * Main type substitution data types
 	TvSubstEnv,	-- Representation widely visible
-	TvSubst(..), 	-- Representation visible to a few friends
+	TCvSubst(..), 	-- Representation visible to a few friends
 	
 	-- ** Manipulating type substitutions
-	emptyTvSubstEnv, emptyTvSubst,
+	emptyTvSubstEnv, emptyTCvSubst,
 	
-	mkTvSubst, mkOpenTvSubst, zipOpenTvSubst, zipTopTvSubst, mkTopTvSubst, notElemTvSubst,
+	mkTCvSubst, mkOpenTCvSubst, zipOpenTCvSubst, zipTopTCvSubst,
+        mkTopTCvSubst, notElemTCvSubst,
         getTvSubstEnv, setTvSubstEnv,
         zapTvSubstEnv, getTvInScope,
         extendTvInScope, extendTvInScopeList,
- 	extendTvSubst, extendTvSubstList,
-        isInScope, composeTvSubst, zipTyEnv,
-        isEmptyTvSubst, unionTvSubst,
+ 	extendTCvSubst, extendTCvSubstList,
+        isInScope, composeTvSubstEnv, zipTyEnv,
+        isEmptyTCvSubst, unionTCvSubst,
 
 	-- ** Performing substitution on types and kinds
 	substTy, substTys, substTyWith, substTysWith, substTheta, 
-        substTyVar, substTyVars, substTyVarBndr,
-        cloneTyVarBndr, deShadowTy, lookupTyVar,
+        substTyCoVar, substTyCoVars, substTyVarBndr,
+        cloneTyVarBndr, lookupTyVar,
         substKiWith, substKisWith,
 
 	-- * Pretty-printing
@@ -252,7 +254,7 @@ coreView :: Type -> Maybe Type
 -- By being non-recursive and inlined, this case analysis gets efficiently
 -- joined onto the case analysis that the caller is already doing
 coreView (TyConApp tc tys) | Just (tenv, rhs, tys') <- coreExpandTyCon_maybe tc tys 
-              = Just (mkAppTys (substTy (mkTopTvSubst tenv) rhs) tys')
+              = Just (mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys')
                -- Its important to use mkAppTys, rather than (foldl AppTy),
                -- because the function part might well return a 
                -- partially-applied type constructor; indeed, usually will!
@@ -263,7 +265,7 @@ coreView _                 = Nothing
 tcView :: Type -> Maybe Type
 -- ^ Similar to 'coreView', but for the type checker, which just looks through synonyms
 tcView (TyConApp tc tys) | Just (tenv, rhs, tys') <- tcExpandTyCon_maybe tc tys 
-			 = Just (mkAppTys (substTy (mkTopTvSubst tenv) rhs) tys')
+			 = Just (mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys')
 tcView _                 = Nothing
   -- You might think that tcView belows in TcType rather than Type, but unfortunately
   -- it is needed by Unify, which is turn imported by Coercion (for MatchEnv and matchList).
@@ -279,7 +281,7 @@ expandTypeSynonyms ty
   where
     go (TyConApp tc tys)
       | Just (tenv, rhs, tys') <- tcExpandTyCon_maybe tc tys 
-      = go (mkAppTys (substTy (mkTopTvSubst tenv) rhs) tys')
+      = go (mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys')
       | otherwise
       = TyConApp tc (map go tys)
     go (LitTy l)       = LitTy l
@@ -287,6 +289,8 @@ expandTypeSynonyms ty
     go (AppTy t1 t2)   = mkAppTy (go t1) (go t2)
     go (FunTy t1 t2)   = FunTy (go t1) (go t2)
     go (ForAllTy tv t) = ForAllTy tv (go t)
+    go (CastTy ty co)  = CastTy (go ty) (expandTypeSynonymsCo co)
+    go (CoercionTy co) = CoercionTy (expandTypeSynonymsCo co)
 \end{code}
 
 
@@ -311,11 +315,21 @@ getTyVar msg ty = case getTyVar_maybe ty of
 isTyVarTy :: Type -> Bool
 isTyVarTy ty = isJust (getTyVar_maybe ty)
 
+isTyCoVarTy :: Type -> Bool
+isTyCoVarTy ty = isJust (getTyCoVar_maybe ty)
+
 -- | Attempts to obtain the type variable underlying a 'Type'
 getTyVar_maybe :: Type -> Maybe TyVar
 getTyVar_maybe ty | Just ty' <- coreView ty = getTyVar_maybe ty'
 getTyVar_maybe (TyVarTy tv) 	 	    = Just tv  
 getTyVar_maybe _                            = Nothing
+
+-- | Attempts to obtain the type or coercion variable underlying a 'Type'
+getTyCoVar_maybe :: Type -> Maybe TyCoVar
+getTyCoVar_maybe ty | Just ty' <- coreView ty = getTyCoVar_maybe ty'
+getTyCoVar_maybe (TyVarTy tv)                 = Just tv
+getTyCoVar_maybe (CoercionTy (CoVarCo cv))    = Just cv
+getTyCoVar_maybe _                            = Nothing
 
 \end{code}
 
@@ -642,6 +656,7 @@ flattenRepType (UnaryRep ty)     = [ty]
 --	2. Synonyms
 --	3. Predicates
 --	4. All newtypes, including recursive ones, but not newtype families
+--      5. Casts
 --
 -- It's useful in the back end of the compiler.
 repType :: Type -> RepType
@@ -664,6 +679,12 @@ repType ty
       = if null tys
          then UnaryRep realWorldStatePrimTy -- See Note [Nullary unboxed tuple]
          else UbxTupleRep (concatMap (flattenRepType . go rec_nts) tys)
+
+    go (CastTy ty _)
+      = go rec_nts ty
+
+    go ty@(CoercionTy _)
+      = pprPanic "repType" (ppr ty)
 
     go _ ty = UnaryRep ty
 
@@ -739,6 +760,7 @@ mkPiTypes :: [Var] -> Type -> Type
 -- ^ 'mkPiType' for multiple type or value arguments
 
 mkPiType v ty
+   | isCoVar v = mkForAllTy v ty
    | isId v    = mkFunTy (varType v) ty
    | otherwise = mkForAllTy v ty
 
@@ -1037,7 +1059,7 @@ mkFamilyTyConApp :: TyCon -> [Type] -> Type
 -- > mkFamilyTyConApp :RTL Int  =  T (Maybe Int)
 mkFamilyTyConApp tc tys
   | Just (fam_tc, fam_tys) <- tyConFamInst_maybe tc
-  , let fam_subst = zipTopTvSubst (tyConTyVars tc) tys
+  , let fam_subst = zipTopTCvSubst (tyConTyCoVars tc) tys
   = mkTyConApp fam_tc (substTys fam_subst fam_tys)
   | otherwise
   = mkTyConApp tc tys
@@ -1194,16 +1216,16 @@ eqPred = eqType
 eqPredX :: RnEnv2 -> PredType -> PredType -> Bool
 eqPredX env p1 p2 = isEqual $ cmpTypeX env p1 p2
 
-eqTyVarBndrs :: RnEnv2 -> [TyVar] -> [TyVar] -> Maybe RnEnv2
+eqTyCoVarBndrs :: RnEnv2 -> [TyCoVar] -> [TyCoVar] -> Maybe RnEnv2
 -- Check that the tyvar lists are the same length
 -- and have matching kinds; if so, extend the RnEnv2
 -- Returns Nothing if they don't match
-eqTyVarBndrs env [] [] 
+eqTyCoVarBndrs env [] [] 
  = Just env
-eqTyVarBndrs env (tv1:tvs1) (tv2:tvs2)
+eqTyCoVarBndrs env (tv1:tvs1) (tv2:tvs2)
  | eqTypeX env (tyVarKind tv1) (tyVarKind tv2)
  = eqTyVarBndrs (rnBndr2 env tv1 tv2) tvs1 tvs2
-eqTyVarBndrs _ _ _= Nothing
+eqTyCoVarBndrs _ _ _= Nothing
 \end{code}
 
 Now here comes the real worker
@@ -1212,7 +1234,7 @@ Now here comes the real worker
 cmpType :: Type -> Type -> Ordering
 cmpType t1 t2 = cmpTypeX rn_env t1 t2
   where
-    rn_env = mkRnEnv2 (mkInScopeSet (tyVarsOfType t1 `unionVarSet` tyVarsOfType t2))
+    rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2))
 
 cmpTypes :: [Type] -> [Type] -> Ordering
 cmpTypes ts1 ts2 = cmpTypesX rn_env ts1 ts2
@@ -1273,14 +1295,14 @@ cmpTypesX _   _         []        = GT
 
 -------------
 cmpTc :: TyCon -> TyCon -> Ordering
--- Here we treat * and Constraint as equal
--- See Note [Kind Constraint and kind *] in Kinds.lhs
+-- Here we treat BOX, *, and Constraint as equal
+-- See Note [Kind Constraint and kind *] and Note [SuperKind] in Kinds.lhs
 cmpTc tc1 tc2 = nu1 `compare` nu2
   where
     u1  = tyConUnique tc1
-    nu1 = if u1==constraintKindTyConKey then liftedTypeKindTyConKey else u1
+    nu1 = if isStarKindCon tc1 then liftedTypeKindTyConKey else u1
     u2  = tyConUnique tc2
-    nu2 = if u2==constraintKindTyConKey then liftedTypeKindTyConKey else u2
+    nu2 = if isStarKindCon tc2 then liftedTypeKindTyConKey else u2
 \end{code}
 
 Note [cmpTypeX]
@@ -1305,278 +1327,6 @@ kinds are compatible.
 -- cmpTypeX env (ForAllTy tv1 t1)   (ForAllTy tv2 t2)
 --   = cmpTypeX env (tyVarKind tv1) (tyVarKind tv2) `thenCmp`
 --     cmpTypeX (rnBndr2 env tv1 tv2) t1 t2
-
-%************************************************************************
-%*									*
-		Type substitutions
-%*									*
-%************************************************************************
-
-\begin{code}
-emptyTvSubstEnv :: TvSubstEnv
-emptyTvSubstEnv = emptyVarEnv
-
-composeTvSubst :: InScopeSet -> TvSubstEnv -> TvSubstEnv -> TvSubstEnv
--- ^ @(compose env1 env2)(x)@ is @env1(env2(x))@; i.e. apply @env2@ then @env1@.
--- It assumes that both are idempotent.
--- Typically, @env1@ is the refinement to a base substitution @env2@
-composeTvSubst in_scope env1 env2
-  = env1 `plusVarEnv` mapVarEnv (substTy subst1) env2
-	-- First apply env1 to the range of env2
-	-- Then combine the two, making sure that env1 loses if
-	-- both bind the same variable; that's why env1 is the
-	--  *left* argument to plusVarEnv, because the right arg wins
-  where
-    subst1 = TvSubst in_scope env1
-
-emptyTvSubst :: TvSubst
-emptyTvSubst = TvSubst emptyInScopeSet emptyTvSubstEnv
-
-isEmptyTvSubst :: TvSubst -> Bool
-	 -- See Note [Extending the TvSubstEnv]
-isEmptyTvSubst (TvSubst _ tenv) = isEmptyVarEnv tenv
-
-mkTvSubst :: InScopeSet -> TvSubstEnv -> TvSubst
-mkTvSubst = TvSubst
-
-getTvSubstEnv :: TvSubst -> TvSubstEnv
-getTvSubstEnv (TvSubst _ env) = env
-
-getTvInScope :: TvSubst -> InScopeSet
-getTvInScope (TvSubst in_scope _) = in_scope
-
-isInScope :: Var -> TvSubst -> Bool
-isInScope v (TvSubst in_scope _) = v `elemInScopeSet` in_scope
-
-notElemTvSubst :: CoVar -> TvSubst -> Bool
-notElemTvSubst v (TvSubst _ tenv) = not (v `elemVarEnv` tenv)
-
-setTvSubstEnv :: TvSubst -> TvSubstEnv -> TvSubst
-setTvSubstEnv (TvSubst in_scope _) tenv = TvSubst in_scope tenv
-
-zapTvSubstEnv :: TvSubst -> TvSubst
-zapTvSubstEnv (TvSubst in_scope _) = TvSubst in_scope emptyVarEnv
-
-extendTvInScope :: TvSubst -> Var -> TvSubst
-extendTvInScope (TvSubst in_scope tenv) var = TvSubst (extendInScopeSet in_scope var) tenv
-
-extendTvInScopeList :: TvSubst -> [Var] -> TvSubst
-extendTvInScopeList (TvSubst in_scope tenv) vars = TvSubst (extendInScopeSetList in_scope vars) tenv
-
-extendTvSubst :: TvSubst -> TyVar -> Type -> TvSubst
-extendTvSubst (TvSubst in_scope tenv) tv ty = TvSubst in_scope (extendVarEnv tenv tv ty)
-
-extendTvSubstList :: TvSubst -> [TyVar] -> [Type] -> TvSubst
-extendTvSubstList (TvSubst in_scope tenv) tvs tys 
-  = TvSubst in_scope (extendVarEnvList tenv (tvs `zip` tys))
-
-unionTvSubst :: TvSubst -> TvSubst -> TvSubst
--- Works when the ranges are disjoint
-unionTvSubst (TvSubst in_scope1 tenv1) (TvSubst in_scope2 tenv2)
-  = ASSERT( not (tenv1 `intersectsVarEnv` tenv2) )
-    TvSubst (in_scope1 `unionInScope` in_scope2)
-            (tenv1     `plusVarEnv`   tenv2)
-
--- mkOpenTvSubst and zipOpenTvSubst generate the in-scope set from
--- the types given; but it's just a thunk so with a bit of luck
--- it'll never be evaluated
-
--- Note [Generating the in-scope set for a substitution]
--- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
--- If we want to substitute [a -> ty1, b -> ty2] I used to 
--- think it was enough to generate an in-scope set that includes
--- fv(ty1,ty2).  But that's not enough; we really should also take the
--- free vars of the type we are substituting into!  Example:
---	(forall b. (a,b,x)) [a -> List b]
--- Then if we use the in-scope set {b}, there is a danger we will rename
--- the forall'd variable to 'x' by mistake, getting this:
---	(forall x. (List b, x, x)
--- Urk!  This means looking at all the calls to mkOpenTvSubst....
-
-
--- | Generates the in-scope set for the 'TvSubst' from the types in the incoming
--- environment, hence "open"
-mkOpenTvSubst :: TvSubstEnv -> TvSubst
-mkOpenTvSubst tenv = TvSubst (mkInScopeSet (tyVarsOfTypes (varEnvElts tenv))) tenv
-
--- | Generates the in-scope set for the 'TvSubst' from the types in the incoming
--- environment, hence "open"
-zipOpenTvSubst :: [TyVar] -> [Type] -> TvSubst
-zipOpenTvSubst tyvars tys 
-  | debugIsOn && (length tyvars /= length tys)
-  = pprTrace "zipOpenTvSubst" (ppr tyvars $$ ppr tys) emptyTvSubst
-  | otherwise
-  = TvSubst (mkInScopeSet (tyVarsOfTypes tys)) (zipTyEnv tyvars tys)
-
--- | Called when doing top-level substitutions. Here we expect that the 
--- free vars of the range of the substitution will be empty.
-mkTopTvSubst :: [(TyVar, Type)] -> TvSubst
-mkTopTvSubst prs = TvSubst emptyInScopeSet (mkVarEnv prs)
-
-zipTopTvSubst :: [TyVar] -> [Type] -> TvSubst
-zipTopTvSubst tyvars tys 
-  | debugIsOn && (length tyvars /= length tys)
-  = pprTrace "zipTopTvSubst" (ppr tyvars $$ ppr tys) emptyTvSubst
-  | otherwise
-  = TvSubst emptyInScopeSet (zipTyEnv tyvars tys)
-
-zipTyEnv :: [TyVar] -> [Type] -> TvSubstEnv
-zipTyEnv tyvars tys
-  | debugIsOn && (length tyvars /= length tys)
-  = pprTrace "zipTyEnv" (ppr tyvars $$ ppr tys) emptyVarEnv
-  | otherwise
-  = zip_ty_env tyvars tys emptyVarEnv
-
--- Later substitutions in the list over-ride earlier ones, 
--- but there should be no loops
-zip_ty_env :: [TyVar] -> [Type] -> TvSubstEnv -> TvSubstEnv
-zip_ty_env []       []       env = env
-zip_ty_env (tv:tvs) (ty:tys) env = zip_ty_env tvs tys (extendVarEnv env tv ty)
-	-- There used to be a special case for when 
-	--	ty == TyVarTy tv
-	-- (a not-uncommon case) in which case the substitution was dropped.
-	-- But the type-tidier changes the print-name of a type variable without
-	-- changing the unique, and that led to a bug.   Why?  Pre-tidying, we had 
-	-- a type {Foo t}, where Foo is a one-method class.  So Foo is really a newtype.
-	-- And it happened that t was the type variable of the class.  Post-tiding, 
-	-- it got turned into {Foo t2}.  The ext-core printer expanded this using
-	-- sourceTypeRep, but that said "Oh, t == t2" because they have the same unique,
-	-- and so generated a rep type mentioning t not t2.  
-	--
-	-- Simplest fix is to nuke the "optimisation"
-zip_ty_env tvs      tys      env   = pprTrace "Var/Type length mismatch: " (ppr tvs $$ ppr tys) env
--- zip_ty_env _ _ env = env
-
-instance Outputable TvSubst where
-  ppr (TvSubst ins tenv)
-    = brackets $ sep[ ptext (sLit "TvSubst"),
-		      nest 2 (ptext (sLit "In scope:") <+> ppr ins), 
-		      nest 2 (ptext (sLit "Type env:") <+> ppr tenv) ]
-\end{code}
-
-%************************************************************************
-%*									*
-		Performing type or kind substitutions
-%*									*
-%************************************************************************
-
-\begin{code}
--- | Type substitution making use of an 'TvSubst' that
--- is assumed to be open, see 'zipOpenTvSubst'
-substTyWith :: [TyVar] -> [Type] -> Type -> Type
-substTyWith tvs tys = ASSERT( length tvs == length tys )
-		      substTy (zipOpenTvSubst tvs tys)
-
-substKiWith :: [KindVar] -> [Kind] -> Kind -> Kind
-substKiWith = substTyWith
-
--- | Type substitution making use of an 'TvSubst' that
--- is assumed to be open, see 'zipOpenTvSubst'
-substTysWith :: [TyVar] -> [Type] -> [Type] -> [Type]
-substTysWith tvs tys = ASSERT( length tvs == length tys )
-		       substTys (zipOpenTvSubst tvs tys)
-
-substKisWith :: [KindVar] -> [Kind] -> [Kind] -> [Kind]
-substKisWith = substTysWith
-
--- | Substitute within a 'Type'
-substTy :: TvSubst -> Type  -> Type
-substTy subst ty | isEmptyTvSubst subst = ty
-		 | otherwise	        = subst_ty subst ty
-
--- | Substitute within several 'Type's
-substTys :: TvSubst -> [Type] -> [Type]
-substTys subst tys | isEmptyTvSubst subst = tys
-	           | otherwise	          = map (subst_ty subst) tys
-
--- | Substitute within a 'ThetaType'
-substTheta :: TvSubst -> ThetaType -> ThetaType
-substTheta subst theta
-  | isEmptyTvSubst subst = theta
-  | otherwise	         = map (substTy subst) theta
-
--- | Remove any nested binders mentioning the 'TyVar's in the 'TyVarSet'
-deShadowTy :: TyVarSet -> Type -> Type
-deShadowTy tvs ty 
-  = subst_ty (mkTvSubst in_scope emptyTvSubstEnv) ty
-  where
-    in_scope = mkInScopeSet tvs
-
-subst_ty :: TvSubst -> Type -> Type
--- subst_ty is the main workhorse for type substitution
---
--- Note that the in_scope set is poked only if we hit a forall
--- so it may often never be fully computed 
-subst_ty subst ty
-   = go ty
-  where
-    go (LitTy n)         = n `seq` LitTy n
-    go (TyVarTy tv)      = substTyVar subst tv
-    go (TyConApp tc tys) = let args = map go tys
-                           in  args `seqList` TyConApp tc args
-
-    go (FunTy arg res)   = (FunTy $! (go arg)) $! (go res)
-    go (AppTy fun arg)   = mkAppTy (go fun) $! (go arg)
-                -- The mkAppTy smart constructor is important
-                -- we might be replacing (a Int), represented with App
-                -- by [Int], represented with TyConApp
-    go (ForAllTy tv ty)  = case substTyVarBndr subst tv of
-                              (subst', tv') ->
-                                 ForAllTy tv' $! (subst_ty subst' ty)
-
-substTyVar :: TvSubst -> TyVar  -> Type
-substTyVar (TvSubst _ tenv) tv
-  | Just ty  <- lookupVarEnv tenv tv      = ty  -- See Note [Apply Once]
-  | otherwise = ASSERT( isTyVar tv ) TyVarTy tv
-  -- We do not require that the tyvar is in scope
-  -- Reason: we do quite a bit of (substTyWith [tv] [ty] tau)
-  -- and it's a nuisance to bring all the free vars of tau into
-  -- scope --- and then force that thunk at every tyvar
-  -- Instead we have an ASSERT in substTyVarBndr to check for capture
-
-substTyVars :: TvSubst -> [TyVar] -> [Type]
-substTyVars subst tvs = map (substTyVar subst) tvs
-
-lookupTyVar :: TvSubst -> TyVar  -> Maybe Type
-	-- See Note [Extending the TvSubst]
-lookupTyVar (TvSubst _ tenv) tv = lookupVarEnv tenv tv
-
-substTyVarBndr :: TvSubst -> TyVar -> (TvSubst, TyVar)
-substTyVarBndr subst@(TvSubst in_scope tenv) old_var
-  = ASSERT2( _no_capture, ppr old_var $$ ppr subst ) 
-    (TvSubst (in_scope `extendInScopeSet` new_var) new_env, new_var)
-  where
-    new_env | no_change = delVarEnv tenv old_var
-	    | otherwise = extendVarEnv tenv old_var (TyVarTy new_var)
-
-    _no_capture = not (new_var `elemVarSet` tyVarsOfTypes (varEnvElts tenv))
-    -- Assertion check that we are not capturing something in the substitution
-
-    old_ki = tyVarKind old_var
-    no_kind_change = isEmptyVarSet (tyVarsOfType old_ki) -- verify that kind is closed
-    no_change = no_kind_change && (new_var == old_var)
-	-- no_change means that the new_var is identical in
-	-- all respects to the old_var (same unique, same kind)
-	-- See Note [Extending the TvSubst]
-	--
-	-- In that case we don't need to extend the substitution
-	-- to map old to new.  But instead we must zap any 
-	-- current substitution for the variable. For example:
-	--	(\x.e) with id_subst = [x |-> e']
-	-- Here we must simply zap the substitution for x
-
-    new_var | no_kind_change = uniqAway in_scope old_var
-            | otherwise = uniqAway in_scope $ updateTyVarKind (substTy subst) old_var
-	-- The uniqAway part makes sure the new variable is not already in scope
-
-cloneTyVarBndr :: TvSubst -> TyVar -> Unique -> (TvSubst, TyVar)
-cloneTyVarBndr (TvSubst in_scope tv_env) tv uniq
-  = (TvSubst (extendInScopeSet in_scope tv')
-             (extendVarEnv tv_env tv (mkTyVarTy tv')), tv')
-  where
-    tv' = setVarUnique tv uniq	-- Simply set the unique; the kind
-    	  	       	  	-- has no type variables to worry about
-\end{code}
 
 ----------------------------------------------------
 -- Kind Stuff
@@ -1604,9 +1354,6 @@ type SimpleKind = Kind
 \begin{code}
 typeKind :: Type -> Kind
 typeKind (TyConApp tc tys)
-  | isPromotedTyCon tc
-  = ASSERT( tyConArity tc == length tys ) superKind
-  | otherwise
   = kindAppResult (tyConKind tc) tys
 
 typeKind (AppTy fun arg)      = kindAppResult (typeKind fun) [arg]

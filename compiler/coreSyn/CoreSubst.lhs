@@ -22,13 +22,12 @@ module CoreSubst (
 	deShadowBinds, substSpec, substRulesForImportedIds,
 	substTy, substCo, substExpr, substExprSC, substBind, substBindSC,
         substUnfolding, substUnfoldingSC,
-	substUnfoldingSource, lookupIdSubst, lookupTvSubst, lookupCvSubst, substIdOcc,
+	substUnfoldingSource, lookupIdSubst, lookupTCvSubst, substIdOcc,
         substTickish,
 
         -- ** Operations on substitutions
 	emptySubst, mkEmptySubst, mkSubst, mkOpenSubst, substInScope, isEmptySubst, 
- 	extendIdSubst, extendIdSubstList, extendTvSubst, extendTvSubstList,
-        extendCvSubst, extendCvSubstList,
+ 	extendIdSubst, extendIdSubstList, extendTCvSubst, extendTCvSubstList,
 	extendSubst, extendSubstList, extendSubstWithVar, zapSubstEnv,
         addInScopeSet, extendInScope, extendInScopeList, extendInScopeIds,
         isInScope, setInScope,
@@ -55,9 +54,9 @@ import qualified Type
 import qualified Coercion
 
 	-- We are defining local versions
-import Type     hiding ( substTy, extendTvSubst, extendTvSubstList
+import Type     hiding ( substTy, extendTCvSubst, extendTCvSubstList
                        , isInScope, substTyVarBndr, cloneTyVarBndr )
-import Coercion hiding ( substTy, substCo, extendTvSubst, substTyVarBndr, substCoVarBndr )
+import Coercion hiding ( substCo, substCoVarBndr )
 
 import TcType      ( tcSplitDFunTy )
 import TyCon       ( tyConArity )
@@ -95,7 +94,8 @@ import Data.List
 %************************************************************************
 
 \begin{code}
--- | A substitution environment, containing both 'Id' and 'TyVar' substitutions.
+-- | A substitution environment, containing 'Id', 'TyVar', and 'CoVar'
+-- substitutions.
 --
 -- Some invariants apply to how you use the substitution:
 --
@@ -134,7 +134,7 @@ Note [Extending the Subst]
 For a core Subst, which binds Ids as well, we make a different choice for Ids
 than we do for TyVars.  
 
-For TyVars, see Note [Extending the TvSubst] with Type.TvSubstEnv
+For TyVars, see Note [Extending the TCvSubst] with Type.TvSubstEnv
 
 For Ids, we have a different invariant
 	The IdSubstEnv is extended *only* when the Unique on an Id changes
@@ -142,7 +142,7 @@ For Ids, we have a different invariant
 
 In consequence:
 
-* If the TvSubstEnv and IdSubstEnv are both empty, substExpr would be a
+* If all subst envs are empty, substExpr would be a
   no-op, so substExprSC ("short cut") does nothing.
 
   However, substExpr still goes ahead and substitutes.  Reason: we may
@@ -220,14 +220,29 @@ extendIdSubst (Subst in_scope ids tvs cvs) v r = Subst in_scope (extendVarEnv id
 extendIdSubstList :: Subst -> [(Id, CoreExpr)] -> Subst
 extendIdSubstList (Subst in_scope ids tvs cvs) prs = Subst in_scope (extendVarEnvList ids prs) tvs cvs
 
+-- | Add a substitution for a 'TyVar' to the 'Subst': the 'TyVar' *must*
+-- be a real TyVar, and not a CoVar
+extend_tv_subst :: Subst -> TyVar -> Type -> Subst
+extend_tv_subst (Subst in_scope ids tvs cvs) tv ty
+  = ASSERT( isTyVar tv )
+    Subst in_scope ids (extendVarEnv tvs tv ty) cvs
+
 -- | Add a substitution for a 'TyVar' to the 'Subst': you must ensure that the in-scope set is
 -- such that the "CoreSubst#in_scope_invariant" is true after extending the substitution like this
-extendTvSubst :: Subst -> TyVar -> Type -> Subst
-extendTvSubst (Subst in_scope ids tvs cvs) v r = Subst in_scope ids (extendVarEnv tvs v r) cvs
+extendTCvSubst :: Subst -> TyVar -> Type -> Subst
+extendTCvSubst subst v r =
+  | isTyVar v
+  = extend_tv_subst subst v r
+  | CoercionTy co <- r
+  = extendCvSubst subst v co
+  | otherwise
+  = pprPanic "CoreSubst.extendTCvSubst" (ppr v <+> ptext (sLit "|->") <+> ppr r)
 
--- | Adds multiple 'TyVar' substitutions to the 'Subst': see also 'extendTvSubst'
-extendTvSubstList :: Subst -> [(TyVar,Type)] -> Subst
-extendTvSubstList (Subst in_scope ids tvs cvs) prs = Subst in_scope ids (extendVarEnvList tvs prs) cvs
+-- | Adds multiple 'TyVar' substitutions to the 'Subst': see also 'extendTCvSubst'
+extendTCvSubstList :: Subst -> [(TyVar,Type)] -> Subst
+extendTCvSubstList subst vrs
+  = foldl' extend subst vrs
+  where extend subst (v, r) = extendTCvSubst subst v r
 
 -- | Add a substitution from a 'CoVar' to a 'Coercion' to the 'Subst': you must ensure that the in-scope set is
 -- such that the "CoreSubst#in_scope_invariant" is true after extending the substitution like this
@@ -241,17 +256,17 @@ extendCvSubstList (Subst in_scope ids tvs cvs) prs = Subst in_scope ids tvs (ext
 
 -- | Add a substitution appropriate to the thing being substituted
 --   (whether an expression, type, or coercion). See also
---   'extendIdSubst', 'extendTvSubst', and 'extendCvSubst'.
+--   'extendIdSubst', 'extendTCvSubst'
 extendSubst :: Subst -> Var -> CoreArg -> Subst
 extendSubst subst var arg
   = case arg of
-      Type ty     -> ASSERT( isTyVar var ) extendTvSubst subst var ty
+      Type ty     -> ASSERT( isTyVar var ) extend_tv_subst subst var ty
       Coercion co -> ASSERT( isCoVar var ) extendCvSubst subst var co
       _           -> ASSERT( isId    var ) extendIdSubst subst var arg
 
 extendSubstWithVar :: Subst -> Var -> Var -> Subst
 extendSubstWithVar subst v1 v2
-  | isTyVar v1 = ASSERT( isTyVar v2 ) extendTvSubst subst v1 (mkTyVarTy v2)
+  | isTyVar v1 = ASSERT( isTyVar v2 ) extend_tv_subst subst v1 (mkOnlyTyVarTy v2)
   | isCoVar v1 = ASSERT( isCoVar v2 ) extendCvSubst subst v1 (mkCoVarCo v2)
   | otherwise  = ASSERT( isId    v2 ) extendIdSubst subst v1 (Var v2)
 
@@ -274,8 +289,12 @@ lookupIdSubst doc (Subst in_scope ids _ _) v
 		Var v
 
 -- | Find the substitution for a 'TyVar' in the 'Subst'
-lookupTvSubst :: Subst -> TyVar -> Type
-lookupTvSubst (Subst _ _ tvs _) v = ASSERT( isTyVar v) lookupVarEnv tvs v `orElse` Type.mkTyVarTy v
+lookupTCvSubst :: Subst -> TyVar -> Type
+lookupTCvSubst (Subst _ _ tvs cvs) v
+  | isTyVar v
+  = lookupVarEnv tvs v `orElse` Type.mkOnlyTyVarTy v
+  | otherwise
+  = lookupVarEnv cvs v `orElse` CoercionTy (mkCoVarCo v)
 
 -- | Find the coercion substitution for a 'CoVar' in the 'Subst'
 lookupCvSubst :: Subst -> CoVar -> Coercion
@@ -498,8 +517,8 @@ substIdBndr _doc rec_subst subst@(Subst in_scope env tvs cvs) old_id
 	| otherwise	 = setIdType id1 (substTy subst old_ty)
 
     old_ty = idType old_id
-    no_type_change = isEmptyVarEnv tvs || 
-                     isEmptyVarSet (Type.tyVarsOfType old_ty)
+    no_type_change = (isEmptyVarEnv tvs && isEmptyVarEnv cvs) || 
+                     isEmptyVarSet (tyCoVarsOfType old_ty)
 
 	-- new_id has the right IdInfo
 	-- The lazy-set is because we're in a loop here, with 
@@ -578,40 +597,37 @@ clone_id rec_subst subst@(Subst in_scope idvs tvs cvs) (old_id, uniq)
 
 For types and coercions we just call the corresponding functions in
 Type and Coercion, but we have to repackage the substitution, from a
-Subst to a TvSubst.
+Subst to a TCvSubst.
 
 \begin{code}
 substTyVarBndr :: Subst -> TyVar -> (Subst, TyVar)
 substTyVarBndr (Subst in_scope id_env tv_env cv_env) tv
-  = case Type.substTyVarBndr (TvSubst in_scope tv_env) tv of
-	(TvSubst in_scope' tv_env', tv') 
-	   -> (Subst in_scope' id_env tv_env' cv_env, tv')
+  = case Type.substTyVarBndr (TCvSubst in_scope tv_env cv_env) tv of
+	(TCvSubst in_scope' tv_env' cv_env', tv') 
+	   -> (Subst in_scope' id_env tv_env' cv_env', tv')
 
 cloneTyVarBndr :: Subst -> TyVar -> Unique -> (Subst, TyVar)
 cloneTyVarBndr (Subst in_scope id_env tv_env cv_env) tv uniq
-  = case Type.cloneTyVarBndr (TvSubst in_scope tv_env) tv uniq of
-	(TvSubst in_scope' tv_env', tv') 
-	   -> (Subst in_scope' id_env tv_env' cv_env, tv')
+  = case Type.cloneTyVarBndr (TCvSubst in_scope tv_env cv_env) tv uniq of
+	(TCvSubst in_scope' tv_env' cv_env', tv') 
+	   -> (Subst in_scope' id_env tv_env' cv_env', tv')
 
 substCoVarBndr :: Subst -> TyVar -> (Subst, TyVar)
 substCoVarBndr (Subst in_scope id_env tv_env cv_env) cv
-  = case Coercion.substCoVarBndr (CvSubst in_scope tv_env cv_env) cv of
-	(CvSubst in_scope' tv_env' cv_env', cv') 
+  = case Coercion.substCoVarBndr (TCvSubst in_scope tv_env cv_env) cv of
+	(TCvSubst in_scope' tv_env' cv_env', cv') 
 	   -> (Subst in_scope' id_env tv_env' cv_env', cv')
 
 -- | See 'Type.substTy'
 substTy :: Subst -> Type -> Type 
-substTy subst ty = Type.substTy (getTvSubst subst) ty
+substTy subst ty = Type.substTy (getTCvSubst subst) ty
 
-getTvSubst :: Subst -> TvSubst
-getTvSubst (Subst in_scope _ tenv _) = TvSubst in_scope tenv
-
-getCvSubst :: Subst -> CvSubst
-getCvSubst (Subst in_scope _ tenv cenv) = CvSubst in_scope tenv cenv
+getTCvSubst :: Subst -> TCvSubst
+getTCvSubst (Subst in_scope _ tenv cenv) = TCvSubst in_scope tenv cenv
 
 -- | See 'Coercion.substCo'
 substCo :: Subst -> Coercion -> Coercion
-substCo subst co = Coercion.substCo (getCvSubst subst) co
+substCo subst co = Coercion.substCo (getTCvSubst subst) co
 \end{code}
 
 
@@ -624,9 +640,9 @@ substCo subst co = Coercion.substCo (getCvSubst subst) co
 \begin{code}
 substIdType :: Subst -> Id -> Id
 substIdType subst@(Subst _ _ tv_env cv_env) id
-  | (isEmptyVarEnv tv_env && isEmptyVarEnv cv_env) || isEmptyVarSet (Type.tyVarsOfType old_ty) = id
+  | (isEmptyVarEnv tv_env && isEmptyVarEnv cv_env) || isEmptyVarSet (tyCoVarsOfType old_ty) = id
   | otherwise	= setIdType id (substTy subst old_ty)
-		-- The tyVarsOfType is cheaper than it looks
+		-- The tyCoVarsOfType is cheaper than it looks
 		-- because we cache the free tyvars of the type
 		-- in a Note in the id's type itself
   where
@@ -763,7 +779,7 @@ substVarSet subst fvs
   where
     subst_fv subst fv 
         | isId fv   = exprFreeVars (lookupIdSubst (text "substVarSet") subst fv)
-        | otherwise = Type.tyVarsOfType (lookupTvSubst subst fv)
+        | otherwise = tyCoVarsOfType (lookupTvSubst subst fv)
 
 ------------------
 substTickish :: Subst -> Tickish Id -> Tickish Id
@@ -928,7 +944,7 @@ simple_opt_expr' subst expr
     go (Var v)          = lookupIdSubst (text "simpleOptExpr") subst v
     go (App e1 e2)      = simple_app subst e1 [go e2]
     go (Type ty)        = Type     (substTy subst ty)
-    go (Coercion co)    = Coercion (optCoercion (getCvSubst subst) co)
+    go (Coercion co)    = Coercion (optCoercion (getTCvSubst subst) co)
     go (Lit lit)        = Lit lit
     go (Tick tickish e) = Tick (substTickish subst tickish) (go e)
     go (Cast e co)      | isReflCo co' = go e
@@ -1034,7 +1050,7 @@ maybe_substitute :: Subst -> InVar -> OutExpr -> Maybe Subst
 maybe_substitute subst b r
   | Type ty <- r 	-- let a::* = TYPE ty in <body>
   = ASSERT( isTyVar b )
-    Just (extendTvSubst subst b ty)
+    Just (extendTCvSubst subst b ty)
 
   | Coercion co <- r
   = ASSERT( isCoVar b )
@@ -1193,7 +1209,7 @@ exprIsConApp_maybe id_unf expr
         | DFunUnfolding dfun_nargs con ops <- unfolding
         , length args == dfun_nargs    -- See Note [DFun arity check]
         , let (dfun_tvs, _n_theta, _cls, dfun_res_tys) = tcSplitDFunTy (idType fun)
-              subst    = zipOpenTvSubst dfun_tvs (stripTypeArgs (takeList dfun_tvs args))
+              subst    = zipOpenTCvSubst dfun_tvs (stripTypeArgs (takeList dfun_tvs args))
               mk_arg (DFunPolyArg e) = mkApps e args
               mk_arg (DFunLamArg i)  = args !! i
         = dealWithCoercion co (con, substTys subst dfun_res_tys, map mk_arg ops)

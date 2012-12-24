@@ -657,7 +657,7 @@ tcConPat penv (L con_span con_name) pat_ty arg_pats thing_inside
 
 	; checkExistentials ex_tvs penv 
         ; (tenv, ex_tvs') <- tcInstSuperSkolTyVarsX
-                               (zipTopTvSubst univ_tvs ctxt_res_tys) ex_tvs
+                               (zipTopTCvSubst univ_tvs ctxt_res_tys) ex_tvs
                      -- Get location from monad, not from ex_tvs
 
         ; let pat_ty' = mkTyConApp tycon ctxt_res_tys
@@ -744,11 +744,11 @@ matchExpectedConTy data_tc pat_ty
   | Just (fam_tc, fam_args, co_tc) <- tyConFamInstSig_maybe data_tc
     	 -- Comments refer to Note [Matching constructor patterns]
      	 -- co_tc :: forall a. T [a] ~ T7 a
-  = do { (_, tys, subst) <- tcInstTyVars (tyConTyVars data_tc)
+  = do { (_, tys, subst) <- tcInstTyVars (tyConTyCoVars data_tc)
        	     -- tys = [ty1,ty2]
 
        ; traceTc "matchExpectedConTy" (vcat [ppr data_tc, 
-                                             ppr (tyConTyVars data_tc),
+                                             ppr (tyConTyCoVars data_tc),
                                              ppr fam_tc, ppr fam_args])
        ; co1 <- unifyType (mkTyConApp fam_tc (substTys subst fam_args)) pat_ty
        	     -- co1 : T (ty1,ty2) ~ pat_ty
@@ -870,7 +870,7 @@ addDataConStupidTheta data_con inst_tys
 	-- The origin should always report "occurrence of C"
 	-- even when C occurs in a pattern
     stupid_theta = dataConStupidTheta data_con
-    tenv = mkTopTvSubst (dataConUnivTyVars data_con `zip` inst_tys)
+    tenv = mkTopTCvSubst (dataConUnivTyVars data_con `zip` inst_tys)
     	 -- NB: inst_tys can be longer than the univ tyvars
 	 --     because the constructor might have existentials
     inst_theta = substTheta tenv stupid_theta

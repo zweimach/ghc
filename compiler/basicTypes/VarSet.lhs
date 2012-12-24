@@ -13,7 +13,7 @@
 
 module VarSet (
         -- * Var, Id and TyVar set types
-	VarSet, IdSet, TyVarSet, CoVarSet,
+	VarSet, IdSet, TyVarSet, CoVarSet, TyCoVarSet,
 	
 	-- ** Manipulating these sets
 	emptyVarSet, unitVarSet, mkVarSet,
@@ -45,6 +45,7 @@ type VarSet       = UniqSet Var
 type IdSet 	  = UniqSet Id
 type TyVarSet	  = UniqSet TyVar
 type CoVarSet     = UniqSet CoVar
+type TyCoVarSet   = UniqSet TyCoVar
 
 emptyVarSet	:: VarSet
 intersectVarSet	:: VarSet -> VarSet -> VarSet

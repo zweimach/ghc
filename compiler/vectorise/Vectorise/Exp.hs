@@ -622,7 +622,7 @@ vectScalarDFun var
        ; thetaVars  <- mapM (newLocalVar (fsLit "d")) theta
        ; thetaExprs <- zipWithM unVectDict theta vThetaVars
        ; let thetaDictBinds = zipWith NonRec thetaVars thetaExprs
-             dict           = Var var `mkTyApps` (mkTyVarTys tvs) `mkVarApps` thetaVars
+             dict           = Var var `mkTyApps` (mkTyCoVarTys tvs) `mkVarApps` thetaVars
              scsOps         = map (\selId -> varToCoreExpr selId `mkTyApps` tys `mkApps` [dict])
                                   selIds
        ; vScsOps <- mapM (\e -> vectorised <$> vectScalarFun e) scsOps

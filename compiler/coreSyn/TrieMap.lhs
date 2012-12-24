@@ -32,7 +32,7 @@ import UniqFM
 import Unique( Unique )
 import FastString(FastString)
 
-import Unify ( niFixTvSubst )
+import Unify ( niFixTCvSubst )
 
 import qualified Data.Map    as Map
 import qualified Data.IntMap as IntMap
@@ -649,7 +649,7 @@ lkT_mod env s ty m
     intersects = eltsUFM $
                  intersectUFM_C (,) s (vm_fvar $ tm_var m)
     candidates = [ (u,ct) | (u,ct) <- intersects
-                          , Type.substTy (niFixTvSubst s) u `eqType` ty ]
+                          , Type.substTy (niFixTCvSubst s) u `eqType` ty ]
                   
     go env _s (TyVarTy v)      = tm_var    >.> lkVar env v
     go env s (AppTy t1 t2)     = tm_app    >.> lkT_mod env s t1 >=> lkT_mod env s t2

@@ -528,7 +528,7 @@ lookupInstEnv' ie cls tys
       = find ms us rest
 
       | otherwise
-      = ASSERT2( tyVarsOfTypes tys `disjointVarSet` tpl_tvs,
+      = ASSERT2( tyCoVarsOfTypes tys `disjointVarSet` tpl_tvs,
                  (ppr cls <+> ppr tys <+> ppr all_tvs) $$
                  (ppr dfun <+> ppr tpl_tvs <+> ppr tpl_tys)
                 )
@@ -539,9 +539,9 @@ lookupInstEnv' ie cls tys
             Nothing  -> find ms us        rest
 
     ----------------
-    lookup_tv :: TvSubst -> TyVar -> DFunInstType
+    lookup_tv :: TCvSubst -> TyVar -> DFunInstType
         -- See Note [DFunInstType: instantiating types]
-    lookup_tv subst tv = case lookupTyVar subst tv of
+    lookup_tv subst tv = case lookupVar subst tv of
                                 Just ty -> Just ty
                                 Nothing -> Nothing
 

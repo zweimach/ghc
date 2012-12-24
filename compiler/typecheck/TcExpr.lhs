@@ -652,7 +652,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
 	      con1 = ASSERT( not (null relevant_cons) ) head relevant_cons
 	      (con1_tvs, _, _, _, con1_arg_tys, _) = dataConFullSig con1
 	      con1_flds = dataConFieldLabels con1
-	      con1_res_ty = mkFamilyTyConApp tycon (mkTyVarTys con1_tvs)
+	      con1_res_ty = mkFamilyTyConApp tycon (mkTyCoVarTys con1_tvs)
    	      
 	-- Step 2
 	-- Check that at least one constructor has all the named fields
@@ -669,7 +669,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
 	      bad_upd_flds = filter bad_fld upd_flds1_w_tys
 	      con1_tv_set = mkVarSet con1_tvs
 	      bad_fld (fld, ty) = fld `elem` upd_fld_names &&
-				      not (tyVarsOfType ty `subVarSet` con1_tv_set)
+				      not (tyCoVarsOfType ty `subVarSet` con1_tv_set)
 	; checkTc (null bad_upd_flds) (badFieldTypes bad_upd_flds)
 
 	-- STEP 4  Note [Type of a record update]
@@ -682,19 +682,19 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
 	; let fixed_tvs = getFixedTyVars con1_tvs relevant_cons
 	      is_fixed_tv tv = tv `elemVarSet` fixed_tvs
 
-              mk_inst_ty :: TvSubst -> (TKVar, TcType) -> TcM (TvSubst, TcType)
+              mk_inst_ty :: TCvSubst -> (TKVar, TcType) -> TcM (TCvSubst, TcType)
               -- Deals with instantiation of kind variables
               --   c.f. TcMType.tcInstTyVarsX
 	      mk_inst_ty subst (tv, result_inst_ty)
 	        | is_fixed_tv tv   -- Same as result type
-                = return (extendTvSubst subst tv result_inst_ty, result_inst_ty)
+                = return (extendTCvSubst subst tv result_inst_ty, result_inst_ty)
 	        | otherwise        -- Fresh type, of correct kind
                 = do { new_ty <- newFlexiTyVarTy (TcType.substTy subst (tyVarKind tv))
-                     ; return (extendTvSubst subst tv new_ty, new_ty) }
+                     ; return (extendTCvSubst subst tv new_ty, new_ty) }
 
 	; (_, result_inst_tys, result_subst) <- tcInstTyVars con1_tvs
 
-        ; (scrut_subst, scrut_inst_tys) <- mapAccumLM mk_inst_ty emptyTvSubst 
+        ; (scrut_subst, scrut_inst_tys) <- mapAccumLM mk_inst_ty emptyTCvSubst 
                                                       (con1_tvs `zip` result_inst_tys) 
 
 	; let rec_res_ty    = TcType.substTy result_subst con1_res_ty
@@ -730,9 +730,9 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
       = mkVarSet [tv1 | con <- cons
     		      , let (tvs, theta, arg_tys, _) = dataConSig con
 		      	    flds = dataConFieldLabels con
-    			    fixed_tvs = exactTyVarsOfTypes fixed_tys
+    			    fixed_tvs = exactTyCoVarsOfTypes fixed_tys
 			    	    -- fixed_tys: See Note [Type of a record update]
-			    	        `unionVarSet` tyVarsOfTypes theta 
+			    	        `unionVarSet` tyCoVarsOfTypes theta 
 				    -- Universally-quantified tyvars that
 				    -- appear in any of the *implicit*
 				    -- arguments to the constructor are fixed

@@ -205,7 +205,7 @@ calcClassCycles cls
          then (reverse (classTyCon cls:path):) 
               . flip (foldr (expandType seen path)) tys
          else expandTheta (addOneToUniqSet seen cls) (tc:path) 
-                          (substTys (mkTopTvSubst env) (classSCTheta cls))
+                          (substTys (mkTopTCvSubst env) (classSCTheta cls))
               . flip (foldr (expandType seen path)) rest_tys
 
       -- For synonyms, try to expand them: some arguments might be
@@ -214,7 +214,7 @@ calcClassCycles cls
       | Just (tvs, rhs) <- synTyConDefn_maybe tc
       , let (env, remainder) = papp tvs tys
             rest_tys = either (const []) id remainder
-      = expandType seen (tc:path) (substTy (mkTopTvSubst env) rhs) 
+      = expandType seen (tc:path) (substTy (mkTopTCvSubst env) rhs) 
         . flip (foldr (expandType seen path)) rest_tys
 
       -- For non-class, non-synonyms, just check the arguments

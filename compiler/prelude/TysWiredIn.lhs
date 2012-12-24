@@ -274,7 +274,7 @@ pcDataConWithFixity' declared_infix dc_name wrk_key tyvars arg_tys tycon
 		[] 	-- No existential type variables
 		[]	-- No equality spec
 		[]	-- No theta
-		arg_tys (mkTyConApp tycon (mkTyVarTys tyvars)) 
+		arg_tys (mkTyConApp tycon (mkTyCoVarTys tyvars)) 
 		tycon
 		[]	-- No stupid theta
 		(mkDataConIds bogus_wrap_name wrk_name data_con)
@@ -357,7 +357,7 @@ mk_tuple sort arity = (tycon, tuple_con)
 	  ConstraintTuple -> tyVarList constraintKind
 
 	tuple_con = pcDataCon dc_name tyvars tyvar_tys tycon
-	tyvar_tys = mkTyVarTys tyvars
+	tyvar_tys = mkOnlyTyVarTys tyvars
 	dc_name   = mkWiredInName modu (mkTupleOcc dataName sort arity) dc_uniq
 				  (ADataCon tuple_con) BuiltInSyntax
  	tc_uniq   = mkTupleTyConUnique   sort arity
@@ -409,14 +409,14 @@ eqTyCon = mkAlgTyCon eqTyConName
             False
   where
     kv = kKiVar
-    k = mkTyVarTy kv
+    k = mkOnlyTyVarTy kv
     a:b:_ = tyVarList k
 
 eqBoxDataCon :: DataCon
-eqBoxDataCon = pcDataCon eqBoxDataConName args [TyConApp eqPrimTyCon (map mkTyVarTy args)] eqTyCon
+eqBoxDataCon = pcDataCon eqBoxDataConName args [TyConApp eqPrimTyCon (mkOnlyTyVarTys args)] eqTyCon
   where
     kv = kKiVar
-    k = mkTyVarTy kv
+    k = mkOnlyTyVarTy kv
     a:b:_ = tyVarList k
     args = [kv, a, b]
 \end{code}
@@ -741,7 +741,7 @@ mkPArrFakeCon arity  = data_con
   where
         data_con  = pcDataCon name [tyvar] tyvarTys parrTyCon
         tyvar     = head alphaTyVars
-        tyvarTys  = replicate arity $ mkTyVarTy tyvar
+        tyvarTys  = replicate arity $ mkOnlyTyVarTy tyvar
         nameStr   = mkFastString ("MkPArr" ++ show arity)
         name      = mkWiredInName gHC_PARR' (mkDataOccFS nameStr) unique
                                   (ADataCon data_con) UserSyntax

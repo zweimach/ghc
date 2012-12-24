@@ -37,8 +37,7 @@ module TyCon(
         isSynTyCon, isOpenSynFamilyTyCon,
         isDecomposableTyCon,
         isForeignTyCon, 
-        isPromotedDataCon, isPromotedTyCon,
-        isPromotedDataCon_maybe, isPromotedTyCon_maybe,
+        isPromotedDataCon, isPromotedDataCon_maybe, 
 
         isInjectiveTyCon,
         isDataTyCon, isProductTyCon, isEnumerationTyCon,
@@ -55,7 +54,7 @@ module TyCon(
         tyConName,
         tyConKind,
         tyConUnique,
-        tyConTyVars,
+        tyConTyCoVars,
         tyConCType, tyConCType_maybe,
         tyConDataCons, tyConDataCons_maybe, tyConSingleDataCon_maybe,
         tyConFamilySize,
@@ -243,7 +242,7 @@ that they have a TyConParent of AssocFamilyTyCon, which identifies the
 parent class.
 
 However there is an important sharing relationship between
-  * the tyConTyVars of the parent Class
+  * the tyConTyCoVars of the parent Class
   * the tyConTyvars of the associated TyCon
 
    class C a b where
@@ -303,7 +302,7 @@ data TyCon
         tc_kind     :: Kind,
         tyConArity  :: Arity,
 
-        tyConTyVars :: [TyVar],   -- ^ The kind and type variables used in the type constructor.
+        tyConTyCoVars :: [TyVar],   -- ^ The kind and type variables used in the type constructor.
                                   -- Invariant: length tyvars = arity
                                   -- Precisely, this list scopes over:
                                   --
@@ -348,7 +347,7 @@ data TyCon
         tc_kind        :: Kind,
         tyConArity     :: Arity,
         tyConTupleSort :: TupleSort,
-        tyConTyVars    :: [TyVar],
+        tyConTyCoVars    :: [TyVar],
         dataCon        :: DataCon -- ^ Corresponding tuple data constructor
     }
 
@@ -359,7 +358,7 @@ data TyCon
         tc_kind    :: Kind,
         tyConArity   :: Arity,
 
-        tyConTyVars  :: [TyVar],        -- Bound tyvars
+        tyConTyCoVars  :: [TyVar],        -- Bound tyvars
 
         synTcRhs     :: SynTyConRhs Type,  -- ^ Contains information about the
                                            -- expansion of the synonym
@@ -400,16 +399,6 @@ data TyCon
         tc_kind     :: Kind,   -- ^ Translated type of the data constructor
         dataCon     :: DataCon -- ^ Corresponding data constructor
     }
-
-  -- | Represents promoted type constructor.
-  | PromotedTyCon {
-        tyConUnique :: Unique, -- ^ Same Unique as the type constructor
-        tyConName   :: Name,   -- ^ Same Name as the type constructor
-        tyConArity  :: Arity,  -- ^ n if ty_con :: * -> ... -> *  n times
-        tc_kind     :: Kind,   -- ^ Always TysPrim.superKind
-        ty_con      :: TyCon   -- ^ Corresponding type constructor
-    }
-
   deriving Typeable
 
 -- | Names of the fields in an algebraic record type
@@ -465,7 +454,7 @@ data AlgTyConRhs
                                 -- (remember that @newtype@s do not exist at runtime
                                 -- so need a different representation type).
                                 --
-                                -- The free 'TyVar's of this type are the 'tyConTyVars'
+                                -- The free 'TyVar's of this type are the 'tyConTyCoVars'
                                 -- from the corresponding 'TyCon'
 
         nt_etad_rhs :: ([TyVar], Type),
@@ -524,7 +513,7 @@ data TyConParent
   --
   --  1) The type family in question
   --
-  --  2) Instance types; free variables are the 'tyConTyVars'
+  --  2) Instance types; free variables are the 'tyConTyCoVars'
   --  of the current 'TyCon' (not the family one). INVARIANT:
   --  the number of types matches the arity of the family 'TyCon'
   --
@@ -535,13 +524,13 @@ data TyConParent
                               -- always of kind   T ty1 ty2 ~ R:T a b c
                               -- where T is the family TyCon,
                               -- and R:T is the representation TyCon (ie this one)
-                              -- and a,b,c are the tyConTyVars of this TyCon
+                              -- and a,b,c are the tyConTyCoVars of this TyCon
 
           -- Cached fields of the CoAxiom, but adjusted to
-          -- use the tyConTyVars of this TyCon
+          -- use the tyConTyCoVars of this TyCon
         TyCon   -- The family TyCon
-        [Type]  -- Argument types (mentions the tyConTyVars of this TyCon)
-                -- Match in length the tyConTyVars of the family TyCon
+        [Type]  -- Argument types (mentions the tyConTyCoVars of this TyCon)
+                -- Match in length the tyConTyCoVars of the family TyCon
 
         -- E.g.  data intance T [a] = ...
         -- gives a representation tycon:
@@ -572,7 +561,7 @@ isNoParent _             = False
 data SynTyConRhs ty
   = -- | An ordinary type synonyn.
     SynonymTyCon
-       ty             -- This 'Type' is the rhs, and may mention from 'tyConTyVars'.
+       ty             -- This 'Type' is the rhs, and may mention from 'tyConTyCoVars'.
                       -- It acts as a template for the expansion when the 'TyCon'
                       -- is applied to some types.
 
@@ -594,7 +583,7 @@ Note [Closed type families]
 Note [Promoted data constructors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 A data constructor can be promoted to become a type constructor,
-via the PromotedTyCon alternative in TyCon.
+via the PromotedDataCon alternative in TyCon.
 
 * Only data constructors with  
      (a) no kind polymorphism
@@ -610,9 +599,9 @@ via the PromotedTyCon alternative in TyCon.
     kind of (promoted) tycon  Just :: forall (a:box). a -> Maybe a
   The kind is not identical to the type, because of the */box
   kind signature on the forall'd variable; so the tc_kind field of
-  PromotedTyCon is not identical to the dataConUserType of the
+  the promoted tycon is not identical to the dataConUserType of the
   DataCon.  But it's the same modulo changing the variable kinds,
-  done by DataCon.promoteType.
+  done by DataCon.promoteType. See also Note [Promoted type constructors].
 
 * Small note: We promote the *user* type of the DataCon.  Eg
      data T = MkT {-# UNPACK #-} !(Bool, Bool)
@@ -620,6 +609,18 @@ via the PromotedTyCon alternative in TyCon.
      MkT :: (Bool,Bool) -> T
   *not*
      MkT :: Bool -> Bool -> T
+
+Note [Promoted type constructors]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+What is the kind of a promoted data constructor? A promoted type
+constructor, of course. The problem is that, with no difference
+between types and kinds in Core, we don't really want a separate
+representation of a promoted TyCon from its regular old TyCon.
+After all, in Core, these are the same thing. Yet, we do need a
+convenient way of talking about the kind of a promoted data
+constructor. The solution is to copy the original, unpromoted
+TyCon but just promote its kind. The mkPromotedTyCon function
+below does exactly that.
 
 Note [Enumeration types]
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -829,7 +830,7 @@ mkFunTyCon name kind
 -- module)
 mkAlgTyCon :: Name
            -> Kind              -- ^ Kind of the resulting 'TyCon'
-           -> [TyVar]           -- ^ 'TyVar's scoped over: see 'tyConTyVars'.
+           -> [TyVar]           -- ^ 'TyVar's scoped over: see 'tyConTyCoVars'.
                                 --   Arity is inferred from the length of this list
            -> Maybe CType       -- ^ The C type this type corresponds to
                                 --   when using the CAPI FFI
@@ -845,7 +846,7 @@ mkAlgTyCon name kind tyvars cType stupid rhs parent is_rec gadt_syn
         tyConUnique      = nameUnique name,
         tc_kind          = kind,
         tyConArity       = length tyvars,
-        tyConTyVars      = tyvars,
+        tyConTyCoVars    = tyvars,
         tyConCType       = cType,
         algTcStupidTheta = stupid,
         algTcRhs         = rhs,
@@ -862,7 +863,7 @@ mkClassTyCon name kind tyvars rhs clas is_rec =
 mkTupleTyCon :: Name
              -> Kind    -- ^ Kind of the resulting 'TyCon'
              -> Arity   -- ^ Arity of the tuple
-             -> [TyVar] -- ^ 'TyVar's scoped over: see 'tyConTyVars'
+             -> [TyVar] -- ^ 'TyVar's scoped over: see 'tyConTyCoVars'
              -> DataCon
              -> TupleSort  -- ^ Whether the tuple is boxed or unboxed
              -> TyCon
@@ -873,7 +874,7 @@ mkTupleTyCon name kind arity tyvars con sort
         tc_kind = kind,
         tyConArity = arity,
         tyConTupleSort = sort,
-        tyConTyVars = tyvars,
+        tyConTyCoVars = tyvars,
         dataCon = con
     }
 
@@ -933,7 +934,7 @@ mkSynTyCon name kind tyvars rhs parent
         tyConUnique = nameUnique name,
         tc_kind = kind,
         tyConArity = length tyvars,
-        tyConTyVars = tyvars,
+        tyConTyCoVars = tyvars,
         synTcRhs = rhs,
         synTcParent = parent
     }
@@ -953,17 +954,9 @@ mkPromotedDataCon con name unique kind arity
   }
 
 -- | Create a promoted type constructor 'TyCon'
--- Somewhat dodgily, we give it the same Name
--- as the type constructor itself
+-- See Note [Promoted type constructors]
 mkPromotedTyCon :: TyCon -> Kind -> TyCon
-mkPromotedTyCon tc kind
-  = PromotedTyCon {
-        tyConName   = getName tc,
-        tyConUnique = getUnique tc,
-        tyConArity  = tyConArity tc,
-        tc_kind     = kind,
-        ty_con      = tc
-  }
+mkPromotedTyCon tc kind = tc { tc_kind = kind }
 \end{code}
 
 \begin{code}
@@ -1064,7 +1057,7 @@ isNewTyCon _                                   = False
 -- into, and (possibly) a coercion from the representation type to the @newtype@.
 -- Returns @Nothing@ if this is not possible.
 unwrapNewTyCon_maybe :: TyCon -> Maybe ([TyVar], Type, CoAxiom Unbranched)
-unwrapNewTyCon_maybe (AlgTyCon { tyConTyVars = tvs,
+unwrapNewTyCon_maybe (AlgTyCon { tyConTyCoVars = tvs,
                                  algTcRhs = NewTyCon { nt_co = co,
                                                        nt_rhs = rhs }})
                            = Just (tvs, rhs, co)
@@ -1225,16 +1218,6 @@ isForeignTyCon :: TyCon -> Bool
 isForeignTyCon (PrimTyCon {tyConExtName = Just _}) = True
 isForeignTyCon _                                   = False
 
--- | Is this a PromotedTyCon?
-isPromotedTyCon :: TyCon -> Bool
-isPromotedTyCon (PromotedTyCon {}) = True
-isPromotedTyCon _                  = False
-
--- | Retrieves the promoted TyCon if this is a PromotedTyCon;
-isPromotedTyCon_maybe :: TyCon -> Maybe TyCon
-isPromotedTyCon_maybe (PromotedTyCon { ty_con = tc }) = Just tc
-isPromotedTyCon_maybe _ = Nothing
-
 -- | Is this a PromotedDataCon?
 isPromotedDataCon :: TyCon -> Bool
 isPromotedDataCon (PromotedDataCon {}) = True
@@ -1287,9 +1270,9 @@ tcExpandTyCon_maybe, coreExpandTyCon_maybe
 
 -- ^ Used to create the view the /typechecker/ has on 'TyCon's.
 -- We expand (closed) synonyms only, cf. 'coreExpandTyCon_maybe'
-tcExpandTyCon_maybe (SynTyCon {tyConTyVars = tvs,
+tcExpandTyCon_maybe (SynTyCon {tyConTyCoVars = tcvs,
                                synTcRhs = SynonymTyCon rhs }) tys
-   = expand tvs rhs tys
+   = expand tcvs rhs tys
 tcExpandTyCon_maybe _ _ = Nothing
 
 ---------------
@@ -1301,9 +1284,9 @@ coreExpandTyCon_maybe tycon tys = tcExpandTyCon_maybe tycon tys
 
 
 ----------------
-expand  :: [TyVar] -> Type                 -- Template
-        -> [a]                             -- Args
-        -> Maybe ([(TyVar,a)], Type, [a])  -- Expansion
+expand  :: [TyCoVar] -> Type                   -- Template
+        -> [a]                                 -- Args
+        -> Maybe ([(TyCoVar,a)], Type, [a])    -- Expansion
 expand tvs rhs tys
   = case n_tvs `compare` length tys of
         LT -> Just (tvs `zip` tys, rhs, drop n_tvs tys)
@@ -1355,7 +1338,7 @@ algTyConRhs other = pprPanic "algTyConRhs" (ppr other)
 -- | Extract the bound type variables and type expansion of a type synonym 'TyCon'. Panics if the
 -- 'TyCon' is not a synonym
 newTyConRhs :: TyCon -> ([TyVar], Type)
-newTyConRhs (AlgTyCon {tyConTyVars = tvs, algTcRhs = NewTyCon { nt_rhs = rhs }}) = (tvs, rhs)
+newTyConRhs (AlgTyCon {tyConTyCoVars = tvs, algTcRhs = NewTyCon { nt_rhs = rhs }}) = (tvs, rhs)
 newTyConRhs tycon = pprPanic "newTyConRhs" (ppr tycon)
 
 -- | Extract the bound type variables and type expansion of an eta-contracted type synonym 'TyCon'.
@@ -1395,7 +1378,7 @@ tyConStupidTheta tycon = pprPanic "tyConStupidTheta" (ppr tycon)
 -- | Extract the 'TyVar's bound by a vanilla type synonym (not familiy)
 -- and the corresponding (unsubstituted) right hand side.
 synTyConDefn_maybe :: TyCon -> Maybe ([TyVar], Type)
-synTyConDefn_maybe (SynTyCon {tyConTyVars = tyvars, synTcRhs = SynonymTyCon ty})
+synTyConDefn_maybe (SynTyCon {tyConTyCoVars = tyvars, synTcRhs = SynonymTyCon ty})
   = Just (tyvars, ty)
 synTyConDefn_maybe _ = Nothing
 
@@ -1504,10 +1487,9 @@ instance Outputable TyCon where
 
 pprPromotionQuote :: TyCon -> SDoc
 pprPromotionQuote (PromotedDataCon {}) = char '\''   -- Quote promoted DataCons in types
-pprPromotionQuote (PromotedTyCon {})   = ifPprDebug (char '\'') 
 pprPromotionQuote _                    = empty       -- However, we don't quote TyCons in kinds
                                                      -- e.g.   type family T a :: Bool -> *
-                                                     -- cf Trac #5952.  Except with -dppr-debug
+                                                     -- cf Trac #5952.
 
 instance NamedThing TyCon where
     getName = tyConName

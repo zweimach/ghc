@@ -1213,7 +1213,7 @@ mkCoBind cv co      = NonRec cv (Coercion co)
 
 -- | Convert a binder into either a 'Var' or 'Type' 'Expr' appropriately
 varToCoreExpr :: CoreBndr -> Expr b
-varToCoreExpr v | isTyVar v = Type (mkTyVarTy v)
+varToCoreExpr v | isTyVar v = Type (mkOnlyTyVarTy v)
                 | isCoVar v = Coercion (mkCoVarCo v)
                 | otherwise = ASSERT( isId v ) Var v
 

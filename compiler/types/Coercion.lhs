@@ -20,7 +20,7 @@ module Coercion (
         LeftOrRight(..), pickLR,
 
         -- ** Functions over coercions
-        coVarKind,
+        coVarTypes, coVarKind,
         coercionType, coercionKind, coercionKinds, isReflCo,
         isReflCo_maybe,
         mkCoercionType,
@@ -51,13 +51,11 @@ module Coercion (
 	
         -- ** Substitution
         CvSubstEnv, emptyCvSubstEnv, 
- 	CvSubst(..), emptyCvSubst, Coercion.lookupTyVar, lookupCoVar,
-	isEmptyCvSubst, zapCvSubstEnv, getCvInScope,
+ 	lookupCoVar,
+	zapCvSubstEnv, getCvInScope,
         substCo, substCos, substCoVar, substCoVars,
         substCoWithTy, substCoWithTys, 
-	cvTvSubst, tvCvSubst, mkCvSubst, zipOpenCvSubst,
-        substTy, extendTvSubst, extendCvSubstAndInScope,
-	substTyVarBndr, substCoVarBndr,
+	substCoVarBndr,
 
 	-- ** Lifting
 	liftCoMatch, liftCoSubstTyVar, liftCoSubstWith, 
@@ -80,7 +78,7 @@ module Coercion (
 import Unify	( MatchEnv(..), matchList )
 import TypeRep
 import qualified Type
-import Type hiding( substTy, substTyVarBndr, extendTvSubst )
+import Type hiding( substTy, substTyVarBndr, extendTCvSubst )
 import TyCon
 import CoAxiom
 import Var
@@ -105,207 +103,6 @@ import qualified Data.Data as Data hiding ( TyCon )
 
 %************************************************************************
 %*									*
-            Coercions
-%*									*
-%************************************************************************
-
-\begin{code}
--- | A 'Coercion' is concrete evidence of the equality/convertibility
--- of two types.
-
--- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-data Coercion 
-  -- These ones mirror the shape of types
-  = Refl Type  -- See Note [Refl invariant]
-          -- Invariant: applications of (Refl T) to a bunch of identity coercions
-          --            always show up as Refl.
-          -- For example  (Refl T) (Refl a) (Refl b) shows up as (Refl (T a b)).
-
-          -- Applications of (Refl T) to some coercions, at least one of
-          -- which is NOT the identity, show up as TyConAppCo.
-          -- (They may not be fully saturated however.)
-          -- ConAppCo coercions (like all coercions other than Refl)
-          -- are NEVER the identity.
-
-  -- These ones simply lift the correspondingly-named 
-  -- Type constructors into Coercions
-  | TyConAppCo TyCon [Coercion]    -- lift TyConApp 
-    	       -- The TyCon is never a synonym; 
-	       -- we expand synonyms eagerly
-	       -- But it can be a type function
-
-  | AppCo Coercion Coercion        -- lift AppTy
-
-  -- See Note [Forall coercions]
-  | ForAllCo TyVar Coercion       -- forall a. g
-
-  -- These are special
-  | CoVarCo CoVar
-  | AxiomInstCo (CoAxiom Branched) Int [Coercion]
-     -- The coercion arguments always *precisely* saturate arity of CoAxiom.
-     -- See [Coercion axioms applied to coercions]
-     -- See also [CoAxiom index]
-  | UnsafeCo Type Type
-  | SymCo Coercion
-  | TransCo Coercion Coercion
-
-  -- These are destructors
-  | NthCo  Int         Coercion     -- Zero-indexed; decomposes (T t0 ... tn)
-  | LRCo   LeftOrRight Coercion     -- Decomposes (t_left t_right)
-  | InstCo Coercion Type
-  deriving (Data.Data, Data.Typeable)
-
--- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-data LeftOrRight = CLeft | CRight 
-                 deriving( Eq, Data.Data, Data.Typeable )
-
-pickLR :: LeftOrRight -> (a,a) -> a
-pickLR CLeft  (l,_) = l
-pickLR CRight (_,r) = r
-\end{code}
-
-
-Note [Refl invariant]
-~~~~~~~~~~~~~~~~~~~~~
-Coercions have the following invariant 
-     Refl is always lifted as far as possible.  
-
-You might think that a consequencs is:
-     Every identity coercions has Refl at the root
-
-But that's not quite true because of coercion variables.  Consider
-     g         where g :: Int~Int
-     Left h    where h :: Maybe Int ~ Maybe Int
-etc.  So the consequence is only true of coercions that
-have no coercion variables.
-
-Note [Coercion axioms applied to coercions]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The reason coercion axioms can be applied to coercions and not just
-types is to allow for better optimization.  There are some cases where
-we need to be able to "push transitivity inside" an axiom in order to
-expose further opportunities for optimization.  
-
-For example, suppose we have
-
-  C a : t[a] ~ F a
-  g   : b ~ c
-
-and we want to optimize
-
-  sym (C b) ; t[g] ; C c
-
-which has the kind
-
-  F b ~ F c
-
-(stopping through t[b] and t[c] along the way).
-
-We'd like to optimize this to just F g -- but how?  The key is
-that we need to allow axioms to be instantiated by *coercions*,
-not just by types.  Then we can (in certain cases) push
-transitivity inside the axiom instantiations, and then react
-opposite-polarity instantiations of the same axiom.  In this
-case, e.g., we match t[g] against the LHS of (C c)'s kind, to
-obtain the substitution  a |-> g  (note this operation is sort
-of the dual of lifting!) and hence end up with
-
-  C g : t[b] ~ F c
-
-which indeed has the same kind as  t[g] ; C c.
-
-Now we have
-
-  sym (C b) ; C g
-
-which can be optimized to F g.
-
-Note [CoAxiom index]
-~~~~~~~~~~~~~~~~~~~~
-A CoAxiom has 1 or more branches. Each branch has contains a list
-of the free type variables in that branch, the LHS type patterns,
-and the RHS type for that branch. When we apply an axiom to a list
-of coercions, we must choose which branch of the axiom we wish to
-use, as the different branches may have different numbers of free
-type variables. (The number of type patterns is always the same
-among branches, but that doesn't quite concern us here.)
-
-The Int in the AxiomInstCo constructor is the 0-indexed number
-of the chosen branch.
-
-Note [Forall coercions]
-~~~~~~~~~~~~~~~~~~~~~~~
-Constructing coercions between forall-types can be a bit tricky.
-Currently, the situation is as follows:
-
-  ForAllCo TyVar Coercion
-
-represents a coercion between polymorphic types, with the rule
-
-           v : k       g : t1 ~ t2
-  ----------------------------------------------
-  ForAllCo v g : (all v:k . t1) ~ (all v:k . t2)
-
-Note that it's only necessary to coerce between polymorphic types
-where the type variables have identical kinds, because equality on
-kinds is trivial.
-
-Note [Predicate coercions]
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-Suppose we have
-   g :: a~b
-How can we coerce between types
-   ([c]~a) => [a] -> c
-and
-   ([c]~b) => [b] -> c
-where the equality predicate *itself* differs?
-
-Answer: we simply treat (~) as an ordinary type constructor, so these
-types really look like
-
-   ((~) [c] a) -> [a] -> c
-   ((~) [c] b) -> [b] -> c
-
-So the coercion between the two is obviously
-
-   ((~) [c] g) -> [g] -> c
-
-Another way to see this to say that we simply collapse predicates to
-their representation type (see Type.coreView and Type.predTypeRep).
-
-This collapse is done by mkPredCo; there is no PredCo constructor
-in Coercion.  This is important because we need Nth to work on 
-predicates too:
-    Nth 1 ((~) [c] g) = g
-See Simplify.simplCoercionF, which generates such selections.
-
-Note [Kind coercions]
-~~~~~~~~~~~~~~~~~~~~~
-Suppose T :: * -> *, and g :: A ~ B
-Then the coercion
-   TyConAppCo T [g]      T g : T A ~ T B
-
-Now suppose S :: forall k. k -> *, and g :: A ~ B
-Then the coercion
-   TyConAppCo S [Refl *, g]   T <*> g : T * A ~ T * B
-
-Notice that the arguments to TyConAppCo are coercions, but the first
-represents a *kind* coercion. Now, we don't allow any non-trivial kind
-coercions, so it's an invariant that any such kind coercions are Refl.
-Lint checks this. 
-
-However it's inconvenient to insist that these kind coercions are always
-*structurally* (Refl k), because the key function exprIsConApp_maybe
-pushes coercions into constructor arguments, so 
-       C k ty e |> g
-may turn into
-       C (Nth 0 g) ....
-Now (Nth 0 g) will optimise to Refl, but perhaps not instantly.
-
-%************************************************************************
-%*									*
 \subsection{Coercion variables}
 %*									*
 %************************************************************************
@@ -326,48 +123,12 @@ isCoVar v = isCoVarType (varType v)
 isCoVarType :: Type -> Bool
 isCoVarType ty 	    -- Tests for t1 ~# t2, the unboxed equality
   = case splitTyConApp_maybe ty of
-      Just (tc,tys) -> tc `hasKey` eqPrimTyConKey && tys `lengthAtLeast` 2
+      Just (tc,tys) -> tc `hasKey` eqPrimTyConKey && tys `lengthAtLeast` 4
       Nothing       -> False
 \end{code}
 
 
 \begin{code}
-tyCoVarsOfCo :: Coercion -> VarSet
--- Extracts type and coercion variables from a coercion
-tyCoVarsOfCo (Refl ty)           = tyVarsOfType ty
-tyCoVarsOfCo (TyConAppCo _ cos)  = tyCoVarsOfCos cos
-tyCoVarsOfCo (AppCo co1 co2)     = tyCoVarsOfCo co1 `unionVarSet` tyCoVarsOfCo co2
-tyCoVarsOfCo (ForAllCo tv co)    = tyCoVarsOfCo co `delVarSet` tv
-tyCoVarsOfCo (CoVarCo v)         = unitVarSet v
-tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCos cos
-tyCoVarsOfCo (UnsafeCo ty1 ty2)  = tyVarsOfType ty1 `unionVarSet` tyVarsOfType ty2
-tyCoVarsOfCo (SymCo co)          = tyCoVarsOfCo co
-tyCoVarsOfCo (TransCo co1 co2)   = tyCoVarsOfCo co1 `unionVarSet` tyCoVarsOfCo co2
-tyCoVarsOfCo (NthCo _ co)        = tyCoVarsOfCo co
-tyCoVarsOfCo (LRCo _ co)         = tyCoVarsOfCo co
-tyCoVarsOfCo (InstCo co ty)      = tyCoVarsOfCo co `unionVarSet` tyVarsOfType ty
-
-tyCoVarsOfCos :: [Coercion] -> VarSet
-tyCoVarsOfCos cos = foldr (unionVarSet . tyCoVarsOfCo) emptyVarSet cos
-
-coVarsOfCo :: Coercion -> VarSet
--- Extract *coerction* variables only.  Tiresome to repeat the code, but easy.
-coVarsOfCo (Refl _)            = emptyVarSet
-coVarsOfCo (TyConAppCo _ cos)  = coVarsOfCos cos
-coVarsOfCo (AppCo co1 co2)     = coVarsOfCo co1 `unionVarSet` coVarsOfCo co2
-coVarsOfCo (ForAllCo _ co)     = coVarsOfCo co
-coVarsOfCo (CoVarCo v)         = unitVarSet v
-coVarsOfCo (AxiomInstCo _ _ cos) = coVarsOfCos cos
-coVarsOfCo (UnsafeCo _ _)      = emptyVarSet
-coVarsOfCo (SymCo co)          = coVarsOfCo co
-coVarsOfCo (TransCo co1 co2)   = coVarsOfCo co1 `unionVarSet` coVarsOfCo co2
-coVarsOfCo (NthCo _ co)        = coVarsOfCo co
-coVarsOfCo (LRCo _ co)         = coVarsOfCo co
-coVarsOfCo (InstCo co _)       = coVarsOfCo co
-
-coVarsOfCos :: [Coercion] -> VarSet
-coVarsOfCos cos = foldr (unionVarSet . coVarsOfCo) emptyVarSet cos
-
 coercionSize :: Coercion -> Int
 coercionSize (Refl ty)           = typeSize ty
 coercionSize (TyConAppCo _ cos)  = 1 + sum (map coercionSize cos)
@@ -522,12 +283,17 @@ splitForAllCo_maybe _                = Nothing
 -------------------------------------------------------
 -- and some coercion kind stuff
 
-coVarKind :: CoVar -> (Type,Type) 
-coVarKind cv
- | Just (tc, [_kind,ty1,ty2]) <- splitTyConApp_maybe (varType cv)
+coVarTypes :: CoVar -> (Type,Type) 
+coVarTypes cv
+ | Just (tc, [_k1,_k2,ty1,ty2]) <- splitTyConApp_maybe (varType cv)
  = ASSERT (tc `hasKey` eqPrimTyConKey)
    (ty1,ty2)
- | otherwise = panic "coVarKind, non coercion variable"
+ | otherwise = panic "coVarTypes, non coercion variable"
+
+coVarKind :: CoVar -> Type
+coVarKind cv
+  = ASSERT( isCoVar cv )
+    varType cv
 
 -- | Makes a coercion type from two types: the types whose equality 
 -- is proven by the relevant 'Coercion'
@@ -556,7 +322,7 @@ mkCoVarCo cv
   | ty1 `eqType` ty2 = Refl ty1
   | otherwise        = CoVarCo cv
   where
-    (ty1, ty2) = ASSERT( isCoVar cv ) coVarKind cv
+    (ty1, ty2) = coVarTypes cv
 
 mkReflCo :: Type -> Coercion
 mkReflCo = Refl
@@ -706,7 +472,7 @@ mkNewTypeCo name tycon tvs rhs_ty
             , co_ax_tc       = tycon
             , co_ax_branches = FirstBranch branch }
   where branch = CoAxBranch { cab_tvs = tvs
-                            , cab_lhs = mkTyVarTys tvs
+                            , cab_lhs = mkTyCoVarTys tvs
                             , cab_rhs = rhs_ty }
 
 mkPiCos :: [Var] -> Coercion -> Coercion
@@ -819,87 +585,6 @@ coreEqCoercion2 _ _ _ = False
 %************************************************************************
 
 \begin{code}
--- | A substitution of 'Coercion's for 'CoVar's (OR 'TyVar's, when
---   doing a \"lifting\" substitution)
-type CvSubstEnv = VarEnv Coercion
-
-emptyCvSubstEnv :: CvSubstEnv
-emptyCvSubstEnv = emptyVarEnv
-
-data CvSubst 		
-  = CvSubst InScopeSet 	-- The in-scope type variables
-	    TvSubstEnv	-- Substitution of types
-            CvSubstEnv  -- Substitution of coercions
-
-instance Outputable CvSubst where
-  ppr (CvSubst ins tenv cenv)
-    = brackets $ sep[ ptext (sLit "CvSubst"),
-		      nest 2 (ptext (sLit "In scope:") <+> ppr ins), 
-		      nest 2 (ptext (sLit "Type env:") <+> ppr tenv),
-		      nest 2 (ptext (sLit "Coercion env:") <+> ppr cenv) ]
-
-emptyCvSubst :: CvSubst
-emptyCvSubst = CvSubst emptyInScopeSet emptyVarEnv emptyVarEnv
-
-isEmptyCvSubst :: CvSubst -> Bool
-isEmptyCvSubst (CvSubst _ tenv cenv) = isEmptyVarEnv tenv && isEmptyVarEnv cenv
-
-getCvInScope :: CvSubst -> InScopeSet
-getCvInScope (CvSubst in_scope _ _) = in_scope
-
-zapCvSubstEnv :: CvSubst -> CvSubst
-zapCvSubstEnv (CvSubst in_scope _ _) = CvSubst in_scope emptyVarEnv emptyVarEnv
-
-cvTvSubst :: CvSubst -> TvSubst
-cvTvSubst (CvSubst in_scope tvs _) = TvSubst in_scope tvs
-
-tvCvSubst :: TvSubst -> CvSubst
-tvCvSubst (TvSubst in_scope tenv) = CvSubst in_scope tenv emptyCvSubstEnv
-
-extendTvSubst :: CvSubst -> TyVar -> Type -> CvSubst
-extendTvSubst (CvSubst in_scope tenv cenv) tv ty
-  = CvSubst in_scope (extendVarEnv tenv tv ty) cenv
-
-extendCvSubstAndInScope :: CvSubst -> CoVar -> Coercion -> CvSubst
--- Also extends the in-scope set
-extendCvSubstAndInScope (CvSubst in_scope tenv cenv) cv co
-  = CvSubst (in_scope `extendInScopeSetSet` tyCoVarsOfCo co)
-            tenv
-            (extendVarEnv cenv cv co)
-
-substCoVarBndr :: CvSubst -> CoVar -> (CvSubst, CoVar)
-substCoVarBndr subst@(CvSubst in_scope tenv cenv) old_var
-  = ASSERT( isCoVar old_var )
-    (CvSubst (in_scope `extendInScopeSet` new_var) tenv new_cenv, new_var)
-  where
-    -- When we substitute (co :: t1 ~ t2) we may get the identity (co :: t ~ t)
-    -- In that case, mkCoVarCo will return a ReflCoercion, and
-    -- we want to substitute that (not new_var) for old_var
-    new_co    = mkCoVarCo new_var
-    no_change = new_var == old_var && not (isReflCo new_co)
-
-    new_cenv | no_change = delVarEnv cenv old_var
-             | otherwise = extendVarEnv cenv old_var new_co
-
-    new_var = uniqAway in_scope subst_old_var
-    subst_old_var = mkCoVar (varName old_var) (substTy subst (varType old_var))
-		  -- It's important to do the substitution for coercions,
-		  -- because they can have free type variables
-
-substTyVarBndr :: CvSubst -> TyVar -> (CvSubst, TyVar)
-substTyVarBndr (CvSubst in_scope tenv cenv) old_var
-  = case Type.substTyVarBndr (TvSubst in_scope tenv) old_var of
-      (TvSubst in_scope' tenv', new_var) -> (CvSubst in_scope' tenv' cenv, new_var)
-
-mkCvSubst :: InScopeSet -> [(Var,Coercion)] -> CvSubst
-mkCvSubst in_scope prs = CvSubst in_scope Type.emptyTvSubstEnv (mkVarEnv prs)
-
-zipOpenCvSubst :: [Var] -> [Coercion] -> CvSubst
-zipOpenCvSubst vs cos
-  | debugIsOn && (length vs /= length cos)
-  = pprTrace "zipOpenCvSubst" (ppr vs $$ ppr cos) emptyCvSubst
-  | otherwise 
-  = CvSubst (mkInScopeSet (tyCoVarsOfCos cos)) emptyTvSubstEnv (zipVarEnv vs cos)
 
 substCoWithTy :: InScopeSet -> TyVar -> Type -> Coercion -> Coercion
 substCoWithTy in_scope tv ty = substCoWithTys in_scope [tv] [ty]
@@ -910,60 +595,8 @@ substCoWithTys in_scope tvs tys co
   = pprTrace "substCoWithTys" (ppr tvs $$ ppr tys) co
   | otherwise 
   = ASSERT( length tvs == length tys )
-    substCo (CvSubst in_scope (zipVarEnv tvs tys) emptyVarEnv) co
+    substCo (TCvSubst in_scope (zipVarEnv tvs tys) emptyVarEnv) co
 
--- | Substitute within a 'Coercion'
-substCo :: CvSubst -> Coercion -> Coercion
-substCo subst co | isEmptyCvSubst subst = co
-                 | otherwise            = subst_co subst co
-
--- | Substitute within several 'Coercion's
-substCos :: CvSubst -> [Coercion] -> [Coercion]
-substCos subst cos | isEmptyCvSubst subst = cos
-                   | otherwise            = map (substCo subst) cos
-
-substTy :: CvSubst -> Type -> Type
-substTy subst = Type.substTy (cvTvSubst subst)
-
-subst_co :: CvSubst -> Coercion -> Coercion
-subst_co subst co
-  = go co
-  where
-    go_ty :: Type -> Type
-    go_ty = Coercion.substTy subst
-
-    go :: Coercion -> Coercion
-    go (Refl ty)             = Refl $! go_ty ty
-    go (TyConAppCo tc cos)   = let args = map go cos
-                               in  args `seqList` TyConAppCo tc args
-    go (AppCo co1 co2)       = mkAppCo (go co1) $! go co2
-    go (ForAllCo tv co)      = case substTyVarBndr subst tv of
-                                 (subst', tv') ->
-                                   ForAllCo tv' $! subst_co subst' co
-    go (CoVarCo cv)          = substCoVar subst cv
-    go (AxiomInstCo con ind cos) = AxiomInstCo con ind $! map go cos
-    go (UnsafeCo ty1 ty2)    = (UnsafeCo $! go_ty ty1) $! go_ty ty2
-    go (SymCo co)            = mkSymCo (go co)
-    go (TransCo co1 co2)     = mkTransCo (go co1) (go co2)
-    go (NthCo d co)          = mkNthCo d (go co)
-    go (LRCo lr co)          = mkLRCo lr (go co)
-    go (InstCo co ty)        = mkInstCo (go co) $! go_ty ty
-
-substCoVar :: CvSubst -> CoVar -> Coercion
-substCoVar (CvSubst in_scope _ cenv) cv
-  | Just co  <- lookupVarEnv cenv cv      = co
-  | Just cv1 <- lookupInScope in_scope cv = ASSERT( isCoVar cv1 ) CoVarCo cv1
-  | otherwise = WARN( True, ptext (sLit "substCoVar not in scope") <+> ppr cv $$ ppr in_scope)
-                ASSERT( isCoVar cv ) CoVarCo cv
-
-substCoVars :: CvSubst -> [CoVar] -> [Coercion]
-substCoVars subst cvs = map (substCoVar subst) cvs
-
-lookupTyVar :: CvSubst -> TyVar  -> Maybe Type
-lookupTyVar (CvSubst _ tenv _) tv = lookupVarEnv tenv tv
-
-lookupCoVar :: CvSubst -> Var  -> Maybe Coercion
-lookupCoVar (CvSubst _ _ cenv) v = lookupVarEnv cenv v
 \end{code}
 
 %************************************************************************
@@ -1154,7 +787,7 @@ coercionKind co = go co
     go (TyConAppCo tc cos)  = mkTyConApp tc <$> (sequenceA $ map go cos)
     go (AppCo co1 co2)      = mkAppTy <$> go co1 <*> go co2
     go (ForAllCo tv co)     = mkForAllTy tv <$> go co
-    go (CoVarCo cv)         = toPair $ coVarKind cv
+    go (CoVarCo cv)         = toPair $ coVarTypes cv
     go (AxiomInstCo ax ind cos)
       = let branch         = coAxiomNthBranch ax ind
             tvs            = coAxBranchTyVars branch

@@ -86,29 +86,29 @@ data MatchEnv
 tcMatchTy :: TyVarSet		-- Template tyvars
 	  -> Type		-- Template
 	  -> Type		-- Target
-	  -> Maybe TvSubst	-- One-shot; in principle the template
+	  -> Maybe CvSubst	-- One-shot; in principle the template
 				-- variables could be free in the target
 
 tcMatchTy tmpls ty1 ty2
-  = case match menv emptyTvSubstEnv ty1 ty2 of
-	Just subst_env -> Just (TvSubst in_scope subst_env)
-	Nothing	       -> Nothing
+  = case match menv emptyTvSubstEnv emptyCvSubstEnv ty1 ty2 of
+	Just (tv_env, cv_env) -> Just (CvSubst in_scope tv_env cv_env)
+	Nothing	              -> Nothing
   where
     menv     = ME { me_tmpls = tmpls, me_env = mkRnEnv2 in_scope }
-    in_scope = mkInScopeSet (tmpls `unionVarSet` tyVarsOfType ty2)
+    in_scope = mkInScopeSet (tmpls `unionVarSet` tyCoVarsOfType ty2)
 	-- We're assuming that all the interesting 
 	-- tyvars in tys1 are in tmpls
 
 tcMatchTys :: TyVarSet		-- Template tyvars
 	   -> [Type]		-- Template
 	   -> [Type]		-- Target
-	   -> Maybe TvSubst	-- One-shot; in principle the template
+	   -> Maybe CvSubst	-- One-shot; in principle the template
 				-- variables could be free in the target
 
 tcMatchTys tmpls tys1 tys2
-  = case match_tys menv emptyTvSubstEnv tys1 tys2 of
-	Just subst_env -> Just (TvSubst in_scope subst_env)
-	Nothing	       -> Nothing
+  = case match_tys menv emptyTvSubstEnv emptyCvSubstEnv tys1 tys2 of
+	Just (tv_env, cv_env) -> Just (CvSubst in_scope tv_env cv_env)
+	Nothing	              -> Nothing
   where
     menv     = ME { me_tmpls = tmpls, me_env = mkRnEnv2 in_scope }
     in_scope = mkInScopeSet (tmpls `unionVarSet` tyVarsOfTypes tys2)
@@ -117,35 +117,37 @@ tcMatchTys tmpls tys1 tys2
 
 -- This is similar, but extends a substitution
 tcMatchTyX :: TyVarSet 		-- Template tyvars
-	   -> TvSubst		-- Substitution to extend
+	   -> CvSubst		-- Substitution to extend
 	   -> Type		-- Template
 	   -> Type		-- Target
-	   -> Maybe TvSubst
-tcMatchTyX tmpls (TvSubst in_scope subst_env) ty1 ty2
-  = case match menv subst_env ty1 ty2 of
-	Just subst_env -> Just (TvSubst in_scope subst_env)
-	Nothing	       -> Nothing
+	   -> Maybe CvSubst
+tcMatchTyX tmpls (CvSubst in_scope tv_env cv_env) ty1 ty2
+  = case match menv tv_env cv_env ty1 ty2 of
+	Just (tv_env, cv_env) -> Just (TvSubst in_scope tv_env cv_env)
+	Nothing	              -> Nothing
   where
     menv = ME {me_tmpls = tmpls, me_env = mkRnEnv2 in_scope}
 
 tcMatchPreds
 	:: [TyVar]			-- Bind these
 	-> [PredType] -> [PredType]
-   	-> Maybe TvSubstEnv
+   	-> Maybe CvSubstEnv
 tcMatchPreds tmpls ps1 ps2
-  = matchList (match menv) emptyTvSubstEnv ps1 ps2
+  = matchList (match menv) emptyTvSubstEnv emptyCvSubstEnv ps1 ps2
   where
     menv = ME { me_tmpls = mkVarSet tmpls, me_env = mkRnEnv2 in_scope_tyvars }
-    in_scope_tyvars = mkInScopeSet (tyVarsOfTypes ps1 `unionVarSet` tyVarsOfTypes ps2)
+    in_scope_tyvars = mkInScopeSet (tyCoVarsOfTypes ps1 `unionVarSet` tyCoVarsOfTypes ps2)
 
 -- This one is called from the expression matcher, which already has a MatchEnv in hand
 ruleMatchTyX :: MatchEnv 
-	 -> TvSubstEnv		-- Substitution to extend
+	 -> TvSubstEnv		-- type substitution to extend
+         -> CvSubstEnv          -- coercion substitution to extend
 	 -> Type		-- Template
 	 -> Type		-- Target
-	 -> Maybe TvSubstEnv
+	 -> Maybe (TvSubstEnv, CvSubstEnv)
 
-ruleMatchTyX menv subst ty1 ty2 = match menv subst ty1 ty2	-- Rename for export
+ruleMatchTyX menv tsubst csubst ty1 ty2 = match menv tsubst csubst ty1 ty2
+-- Rename for export
 \end{code}
 
 Now the internals of matching
@@ -156,29 +158,32 @@ match :: MatchEnv	-- For the most part this is pushed downwards
 			--   Domain is subset of template tyvars
 			--   Free vars of range is subset of 
 			--	in-scope set of the RnEnv2
+      -> CvSubstEnv
       -> Type -> Type	-- Template and target respectively
       -> Maybe TvSubstEnv
 
-match menv subst ty1 ty2 | Just ty1' <- coreView ty1 = match menv subst ty1' ty2
-			 | Just ty2' <- coreView ty2 = match menv subst ty1 ty2'
+match menv tsubst csubst ty1 ty2
+  | Just ty1' <- coreView ty1 = match menv tsubst csubst ty1' ty2
+  | Just ty2' <- coreView ty2 = match menv tsubst csubst ty1 ty2'
 
-match menv subst (TyVarTy tv1) ty2
-  | Just ty1' <- lookupVarEnv subst tv1'	-- tv1' is already bound
+match menv tsubst csubst (TyVarTy tv1) ty2
+  | Just ty1' <- lookupVarEnv tsubst tv1'	-- tv1' is already bound
   = if eqTypeX (nukeRnEnvL rn_env) ty1' ty2
 	-- ty1 has no locally-bound variables, hence nukeRnEnvL
-    then Just subst
+    then Just (tsubst, csubst)
     else Nothing	-- ty2 doesn't match
 
   | tv1' `elemVarSet` me_tmpls menv
-  = if any (inRnEnvR rn_env) (varSetElems (tyVarsOfType ty2))
+  = if any (inRnEnvR rn_env) (varSetElems (tyCoVarsOfType ty2))
     then Nothing	-- Occurs check
-    else do { subst1 <- match_kind menv subst (tyVarKind tv1) (typeKind ty2)
+    else do { (tsubst1, csubst1)
+                <- match_kind menv tsubst csubst (tyVarKind tv1) (typeKind ty2)
 			-- Note [Matching kinds]
-	    ; return (extendVarEnv subst1 tv1' ty2) }
+	    ; return (extendVarEnv tsubst1 tv1' ty2, csubst1) }
 
    | otherwise	-- tv1 is not a template tyvar
    = case ty2 of
-	TyVarTy tv2 | tv1' == rnOccR rn_env tv2 -> Just subst
+	TyVarTy tv2 | tv1' == rnOccR rn_env tv2 -> Just (tsubst, csubst)
 	_                                       -> Nothing
   where
     rn_env = me_env menv
@@ -190,20 +195,22 @@ match menv subst (ForAllTy tv1 ty1) (ForAllTy tv2 ty2)
   where		-- Use the magic of rnBndr2 to go under the binders
     menv' = menv { me_env = rnBndr2 (me_env menv) tv1 tv2 }
 
-match menv subst (TyConApp tc1 tys1) (TyConApp tc2 tys2) 
-  | tc1 == tc2 = match_tys menv subst tys1 tys2
-match menv subst (FunTy ty1a ty1b) (FunTy ty2a ty2b) 
-  = do { subst' <- match menv subst ty1a ty2a
-       ; match menv subst' ty1b ty2b }
-match menv subst (AppTy ty1a ty1b) ty2
+match menv tsubst csubst (TyConApp tc1 tys1) (TyConApp tc2 tys2) 
+  | tc1 == tc2 = match_tys menv tsubst csubst tys1 tys2
+match menv tsubst csubst (FunTy ty1a ty1b) (FunTy ty2a ty2b) 
+  = do { (tsubst', csubst') <- match menv tsubst csubst ty1a ty2a
+       ; match menv tsubst' csubst' ty1b ty2b }
+match menv tsubst csubst (AppTy ty1a ty1b) ty2
   | Just (ty2a, ty2b) <- repSplitAppTy_maybe ty2
 	-- 'repSplit' used because the tcView stuff is done above
-  = do { subst' <- match menv subst ty1a ty2a
-       ; match menv subst' ty1b ty2b }
+  = do { (tsubst', csubst') <- match menv tsubst csubst ty1a ty2a
+       ; match menv tsubst' csubst' ty1b ty2b }
 
-match _ subst (LitTy x) (LitTy y) | x == y  = return subst
+match _ tsubst csubst (LitTy x) (LitTy y) | x == y  = return (tsubst, csubst)
 
-match _ _ _ _
+match menv tsubst csubst (CastTy 
+
+match _ _ _ _ _
   = Nothing
 
 --------------

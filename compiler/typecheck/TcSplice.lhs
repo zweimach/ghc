@@ -1222,30 +1222,30 @@ reifyTyCon tc
 
   | isFamilyTyCon tc
   = do { let flavour = reifyFamFlavour tc
-             tvs     = tyConTyVars tc
+             tvs     = tyConTyCoVars tc
              kind    = tyConKind tc
        ; kind' <- if isLiftedTypeKind kind then return Nothing
                   else fmap Just (reifyKind kind)
 
        ; fam_envs <- tcGetFamInstEnvs
        ; instances <- mapM reifyFamilyInstance (familyInstances fam_envs tc)
-       ; tvs' <- reifyTyVars tvs
+       ; tvs' <- reifyTyCoVars tvs
        ; return (TH.FamilyI
                     (TH.FamilyD flavour (reifyName tc) tvs' kind')
                     instances) }
 
   | Just (tvs, rhs) <- synTyConDefn_maybe tc  -- Vanilla type synonym
   = do { rhs' <- reifyType rhs
-       ; tvs' <- reifyTyVars tvs
+       ; tvs' <- reifyTyCoVars tvs
        ; return (TH.TyConI
                    (TH.TySynD (reifyName tc) tvs' rhs'))
        }
 
   | otherwise
   = do  { cxt <- reifyCxt (tyConStupidTheta tc)
-        ; let tvs = tyConTyVars tc
-        ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons tc)
-        ; r_tvs <- reifyTyVars tvs
+        ; let tvs = tyConTyCoVars tc
+        ; cons <- mapM (reifyDataCon (mkTyCoVarTys tvs)) (tyConDataCons tc)
+        ; r_tvs <- reifyTyCoVars tvs
         ; let name = reifyName tc
               deriv = []        -- Don't know about deriving
               decl | isNewTyCon tc = TH.NewtypeD cxt name r_tvs (head cons) deriv
@@ -1256,7 +1256,7 @@ reifyDataCon :: [Type] -> DataCon -> TcM TH.Con
 -- For GADTs etc, see Note [Reifying data constructors]
 reifyDataCon tys dc
   = do { let (tvs, theta, arg_tys, _) = dataConSig dc
-             subst             = mkTopTvSubst (tvs `zip` tys)   -- Dicard ex_tvs
+             subst             = mkTopTCvSubst (tvs `zip` tys)   -- Dicard ex_tvs
              (subst', ex_tvs') = mapAccumL substTyVarBndr subst (dropList tys tvs)
              theta'   = substTheta subst' theta
              arg_tys' = substTys subst' arg_tys
@@ -1281,7 +1281,7 @@ reifyDataCon tys dc
              return main_con
          else do
          { cxt <- reifyCxt theta'
-         ; ex_tvs'' <- reifyTyVars ex_tvs'
+         ; ex_tvs'' <- reifyTyCoVars ex_tvs'
          ; return (TH.ForallC ex_tvs'' cxt main_con) } }
 
 ------------------------------
@@ -1291,7 +1291,7 @@ reifyClass cls
         ; inst_envs <- tcGetInstEnvs
         ; insts <- mapM reifyClassInstance (InstEnv.classInstances inst_envs cls)
         ; ops <- mapM reify_op op_stuff
-        ; tvs' <- reifyTyVars tvs
+        ; tvs' <- reifyTyCoVars tvs
         ; let dec = TH.ClassD cxt (reifyName cls) tvs' fds' ops
         ; return (TH.ClassI dec insts ) }
   where
@@ -1322,10 +1322,10 @@ reifyFamilyInstance fi@(FamInst { fi_flavor = flavor
            ; return (TH.TySynInstD (reifyName fam) th_eqns) }
 
       DataFamilyInst rep_tc ->
-        do { let tvs = tyConTyVars rep_tc
+        do { let tvs = tyConTyCoVars rep_tc
                  fam' = reifyName fam
                  lhs = famInstBranchLHS $ famInstSingleBranch (toUnbranchedFamInst fi)
-           ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons rep_tc)
+           ; cons <- mapM (reifyDataCon (mkTyCoVarTys tvs)) (tyConDataCons rep_tc)
            ; th_tys <- reifyTypes lhs
            ; return (if isNewTyCon rep_tc
                      then TH.NewtypeInstD [] fam' th_tys (head cons) []
@@ -1353,7 +1353,7 @@ reify_for_all :: TypeRep.Type -> TcM TH.Type
 reify_for_all ty
   = do { cxt' <- reifyCxt cxt;
        ; tau' <- reifyType tau
-       ; tvs' <- reifyTyVars tvs
+       ; tvs' <- reifyTyCoVars tvs
        ; return (TH.ForallT tvs' cxt' tau') }
   where
     (tvs, cxt, tau) = tcSplitSigmaTy ty
@@ -1387,8 +1387,7 @@ reify_kc_app :: TyCon -> [TypeRep.Kind] -> TcM TH.Kind
 reify_kc_app kc kis
   = fmap (foldl TH.AppT r_kc) (mapM reifyKind kis)
   where
-    r_kc | Just tc <- isPromotedTyCon_maybe kc
-         , isTupleTyCon tc          = TH.TupleT (tyConArity kc)
+    r_kc | isTupleTyCon kc          = TH.TupleT (tyConArity kc)
          | kc `hasKey` listTyConKey = TH.ListT
          | otherwise                = TH.ConT (reifyName kc)
 
@@ -1404,10 +1403,11 @@ reifyFamFlavour tc | isSynFamilyTyCon tc = TH.TypeFam
                    | otherwise
                    = panic "TcSplice.reifyFamFlavour: not a type family"
 
-reifyTyVars :: [TyVar] -> TcM [TH.TyVarBndr]
-reifyTyVars = mapM reifyTyVar . filter isTypeVar
+reifyTyCoVars :: [TyVar] -> TcM [TH.TyVarBndr]
+reifyTyCoVars = mapM reifyTyVar
   where
-    reifyTyVar tv | isLiftedTypeKind kind = return (TH.PlainTV  name)
+    reifyTyVar tv | not (isTyVar tv)      = noTH (sLit "coercion variables") (ppr tv)
+                  | isLiftedTypeKind kind = return (TH.PlainTV  name)
                   | otherwise             = do kind' <- reifyKind kind
                                                return (TH.KindedTV name kind')
       where

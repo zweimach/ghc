@@ -348,7 +348,7 @@ newSCWorkFromFlavored d flavor cls xis
        ; ctevs <- xCtFlavor flavor sc_theta xev
        ; emitWorkNC d ctevs }
 
-  | isEmptyVarSet (tyVarsOfTypes xis)
+  | isEmptyVarSet (tyCoVarsOfTypes xis)
   = return () -- Wanteds with no variables yield no deriveds.
               -- See Note [Improvement from Ground Wanteds]
 
@@ -646,7 +646,7 @@ flattenFinalTyVar loc f ctxt tv
   = -- Done, but make sure the kind is zonked
     do { let knd = tyVarKind tv
        ; (new_knd,_kind_co) <- flatten loc f ctxt knd
-       ; let ty = mkTyVarTy (setVarType tv new_knd)
+       ; let ty = mkTyCoVarTy (setVarType tv new_knd)
        ; return (ty, mkTcReflCo ty) }
 \end{code}
 
@@ -826,7 +826,7 @@ emitKindConstraint ct   -- By now ct is canonical
       CTyEqCan { cc_loc = loc
                , cc_ev = ev, cc_tyvar = tv
                , cc_rhs = ty }
-          -> emit_kind_constraint loc ev (mkTyVarTy tv) ty
+          -> emit_kind_constraint loc ev (mkTyCoVarTy tv) ty
 
       CFunEqCan { cc_loc = loc
                 , cc_ev = ev
@@ -1129,7 +1129,7 @@ canEqLeafFunEq loc ev fn tys1 ty2  -- ev :: F tys1 ~ ty2
 canEqLeafTyVarEq :: CtLoc -> CtEvidence
                    -> TcTyVar -> TcType -> TcS StopOrContinue
 canEqLeafTyVarEq loc ev tv s2              -- ev :: tv ~ s2
-  = do { traceTcS "canEqLeafTyVarEq" $ pprEq (mkTyVarTy tv) s2
+  = do { traceTcS "canEqLeafTyVarEq" $ pprEq (mkTyCoVarTy tv) s2
        ; let flav = ctEvFlavour ev
        ; (xi1,co1) <- flattenTyVar loc FMFullFlatten flav tv -- co1 :: xi1 ~ tv
        ; (xi2,co2) <- flatten      loc FMFullFlatten flav s2 -- co2 :: xi2 ~ s2 

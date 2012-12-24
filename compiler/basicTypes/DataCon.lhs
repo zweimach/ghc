@@ -558,7 +558,7 @@ mkDataCon name declared_infix
     tag = assoc "mkDataCon" (tyConDataCons rep_tycon `zip` [fIRST_TAG..]) con
     ty  = mkForAllTys univ_tvs $ mkForAllTys ex_tvs $ 
 	  mkFunTys rep_arg_tys $
-	  mkTyConApp rep_tycon (mkTyVarTys univ_tvs)
+	  mkTyConApp rep_tycon (mkTyCoVarTys univ_tvs)
 
     mb_promoted   -- See Note [Promoted data constructors] in TyCon
       | all (isLiftedTypeKind . tyVarKind) (univ_tvs ++ ex_tvs)
@@ -572,7 +572,7 @@ mkDataCon name declared_infix
     arity     = dataConSourceArity con
 
 eqSpecPreds :: [(TyVar,Type)] -> ThetaType
-eqSpecPreds spec = [ mkEqPred (mkTyVarTy tv) ty | (tv,ty) <- spec ]
+eqSpecPreds spec = [ mkEqPred (mkTyCoVarTy tv) ty | (tv,ty) <- spec ]
 
 mk_pred_strict_mark :: PredType -> HsBang
 mk_pred_strict_mark pred 
@@ -884,7 +884,7 @@ dataConCannotMatch tys con
   where
     dc_tvs  = dataConUnivTyVars con
     theta   = dataConTheta con
-    subst   = zipTopTvSubst dc_tvs tys
+    subst   = zipTopTCvSubst dc_tvs tys
 
     -- TODO: could gather equalities from superclasses too
     predEqs pred = case classifyPredType pred of
@@ -993,7 +993,7 @@ computeRep stricts tys
 These two 'promoted..' functions are here because
  * They belong together
  * 'promoteTyCon'  is used by promoteType
- * 'prmoteDataCon' depends on DataCon stuff
+ * 'promoteDataCon' depends on DataCon stuff
 
 \begin{code}
 promoteDataCon :: DataCon -> TyCon
@@ -1063,7 +1063,7 @@ promoteKind :: Kind -> SuperKind
 -- Promote the kind of a type constructor
 -- from (* -> * -> *) to (BOX -> BOX -> BOX) 
 promoteKind (TyConApp tc []) 
-  | tc `hasKey` liftedTypeKindTyConKey = superKind
+  | isLiftedTypeKindTyCon tc = superKind
 promoteKind (FunTy arg res) = FunTy (promoteKind arg) (promoteKind res)
 promoteKind k = pprPanic "promoteKind" (ppr k)
 \end{code}

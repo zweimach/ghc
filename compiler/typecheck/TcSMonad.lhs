@@ -22,7 +22,7 @@ module TcSMonad (
     
     updTcSImplics, 
 
-    Ct(..), Xi, tyVarsOfCt, tyVarsOfCts, 
+    Ct(..), Xi, tyCoVarsOfCt, tyCoVarsOfCts, 
     emitInsoluble,
 
     isWanted, isDerived, 
@@ -1369,7 +1369,7 @@ newFlattenSkolem Given fam_ty
        ; traceTcS "New Flatten Skolem Born" $
          ppr tv <+> text "[:= " <+> ppr fam_ty <+> text "]"
 
-       ; let rhs_ty = mkTyVarTy tv
+       ; let rhs_ty = mkTyCoVarTy tv
              ctev = CtGiven { ctev_pred = mkTcEqPred fam_ty rhs_ty
                             , ctev_evtm = EvCoercion (mkTcReflCo fam_ty) }
        ; updInertTcS $ \ is@(IS { inert_fsks = fsks }) -> 
@@ -1399,20 +1399,20 @@ extendFlatCache
 
 instDFunType :: DFunId -> [DFunInstType] -> TcS ([TcType], TcType)
 instDFunType dfun_id mb_inst_tys 
-  = wrapTcS $ go dfun_tvs mb_inst_tys (mkTopTvSubst [])
+  = wrapTcS $ go dfun_tvs mb_inst_tys (mkTopTCvSubst [])
   where
     (dfun_tvs, dfun_phi) = tcSplitForAllTys (idType dfun_id)
 
-    go :: [TyVar] -> [DFunInstType] -> TvSubst -> TcM ([TcType], TcType)
+    go :: [TyVar] -> [DFunInstType] -> TCvSubst -> TcM ([TcType], TcType)
     go [] [] subst = return ([], substTy subst dfun_phi)
     go (tv:tvs) (Just ty : mb_tys) subst
-      = do { (tys, phi) <- go tvs mb_tys (extendTvSubst subst tv ty)
+      = do { (tys, phi) <- go tvs mb_tys (extendTCvSubst subst tv ty)
            ; return (ty : tys, phi) }
     go (tv:tvs) (Nothing : mb_tys) subst
       = do { ty <- instFlexiTcSHelper (tyVarName tv) (substTy subst (tyVarKind tv))
                          -- Don't forget to instantiate the kind!
                          -- cf TcMType.tcInstTyVarX
-           ; (tys, phi) <- go tvs mb_tys (extendTvSubst subst tv ty)
+           ; (tys, phi) <- go tvs mb_tys (extendTCvSubst subst tv ty)
            ; return (ty : tys, phi) }
     go _ _ _ = pprPanic "instDFunTypes" (ppr dfun_id $$ ppr mb_inst_tys)
 
@@ -1422,20 +1422,20 @@ newFlexiTcSTy knd = wrapTcS (TcM.newFlexiTyVarTy knd)
 cloneMetaTyVar :: TcTyVar -> TcS TcTyVar
 cloneMetaTyVar tv = wrapTcS (TcM.cloneMetaTyVar tv)
 
-instFlexiTcS :: [TKVar] -> TcS (TvSubst, [TcType])
-instFlexiTcS tvs = wrapTcS (mapAccumLM inst_one emptyTvSubst tvs)
+instFlexiTcS :: [TKVar] -> TcS (TCvSubst, [TcType])
+instFlexiTcS tvs = wrapTcS (mapAccumLM inst_one emptyTCvSubst tvs)
   where
      inst_one subst tv 
          = do { ty' <- instFlexiTcSHelper (tyVarName tv) 
                                           (substTy subst (tyVarKind tv))
-              ; return (extendTvSubst subst tv ty', ty') }
+              ; return (extendTCvSubst subst tv ty', ty') }
 
 instFlexiTcSHelper :: Name -> Kind -> TcM TcType
 instFlexiTcSHelper tvname kind
   = do { uniq <- TcM.newUnique 
        ; details <- TcM.newMetaDetails TauTv
        ; let name = setNameUnique tvname uniq 
-       ; return (mkTyVarTy (mkTcTyVar name kind details)) }
+       ; return (mkTyCoVarTy (mkTcTyVar name kind details)) }
 
 instFlexiTcSHelperTcS :: Name -> Kind -> TcS TcType
 instFlexiTcSHelperTcS n k = wrapTcS (instFlexiTcSHelper n k)
@@ -1694,9 +1694,9 @@ deferTcSForAllEq :: (CtLoc,EvVar)  -- Original wanted equality flavor
 -- consider having a single place where we create fresh implications. 
 deferTcSForAllEq (loc,orig_ev) (tvs1,body1) (tvs2,body2)
  = do { (subst1, skol_tvs) <- wrapTcS $ TcM.tcInstSkolTyVars tvs1
-      ; let tys  = mkTyVarTys skol_tvs
+      ; let tys  = mkTyCoVarTys skol_tvs
             phi1 = Type.substTy subst1 body1
-            phi2 = Type.substTy (zipTopTvSubst tvs2 tys) body2
+            phi2 = Type.substTy (zipTopTCvSubst tvs2 tys) body2
             skol_info = UnifyForAllSkol skol_tvs phi1
         ; mev <- newWantedEvVar (mkTcEqPred phi1 phi2)
         ; coe_inside <- case mev of

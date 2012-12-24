@@ -10,7 +10,7 @@ module Simplify ( simplTopBinds, simplExpr ) where
 
 import DynFlags
 import SimplMonad
-import Type hiding      ( substTy, extendTvSubst, substTyVar )
+import Type hiding      ( substTy, extendTCvSubst, substTyCoVar )
 import SimplEnv
 import SimplUtils
 import FamInstEnv       ( FamInstEnv )
@@ -20,7 +20,7 @@ import MkId             ( seqId, realWorldPrimId )
 import MkCore           ( mkImpossibleExpr, castBottomExpr )
 import IdInfo
 import Name             ( mkSystemVarName, isExternalName )
-import Coercion hiding  ( substCo, substTy, substCoVar, extendTvSubst )
+import Coercion hiding  ( substCo, substCoVar )
 import OptCoercion      ( optCoercion )
 import FamInstEnv       ( topNormaliseType )
 import DataCon          ( DataCon, dataConWorkId, dataConRepStrictness )
@@ -1330,7 +1330,7 @@ simplNonRecE :: SimplEnv
 simplNonRecE env bndr (Type ty_arg, rhs_se) (bndrs, body) cont
   = ASSERT( isTyVar bndr )
     do  { ty_arg' <- simplType (rhs_se `setInScope` env) ty_arg
-        ; simplLam (extendTvSubst env bndr ty_arg') bndrs body cont }
+        ; simplLam (extendTCvSubst env bndr ty_arg') bndrs body cont }
 
 simplNonRecE env bndr (rhs, rhs_se) (bndrs, body) cont
   = do dflags <- getDynFlags
@@ -1363,7 +1363,7 @@ simplNonRecE env bndr (rhs, rhs_se) (bndrs, body) cont
 simplVar :: SimplEnv -> InVar -> SimplM OutExpr
 -- Look up an InVar in the environment
 simplVar env var
-  | isTyVar var = return (Type (substTyVar env var))
+  | isTyVar var = return (Type (substTyCoVar env var))
   | isCoVar var = return (Coercion (substCoVar env var))
   | otherwise
   = case substId env var of
@@ -2152,7 +2152,11 @@ knownCon env scrut dc dc_ty_args dc_args bndr bs rhs cont
 
     bind_args env' (b:bs') (Type ty : args)
       = ASSERT( isTyVar b )
-        bind_args (extendTvSubst env' b ty) bs' args
+        bind_args (extendTCvSubst env' b ty) bs' args
+
+    bind_args env' (b:bs') (Coercion co : args)
+      = ASSERT( isCoVar b )
+        bind_args (extendCvSubst env' b co) bs' args
 
     bind_args env' (b:bs') (arg : args)
       = ASSERT( isId b )

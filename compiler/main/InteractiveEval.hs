@@ -581,7 +581,7 @@ bindLocalsAtBreakpoint hsc_env apStack Nothing = do
        e_fs      = fsLit "e"
        e_name    = mkInternalName (getUnique e_fs) (mkTyVarOccFS e_fs) span
        e_tyvar   = mkRuntimeUnkTyVar e_name liftedTypeKind
-       exn_id    = AnId $ Id.mkVanillaGlobal exn_name (mkTyVarTy e_tyvar)
+       exn_id    = AnId $ Id.mkVanillaGlobal exn_name (mkOnlyTyVarTy e_tyvar)
 
        ictxt0 = hsc_IC hsc_env
        ictxt1 = extendInteractiveContext ictxt0 [exn_id]
@@ -615,8 +615,8 @@ bindLocalsAtBreakpoint hsc_env apStack (Just info) = do
 
        (ids, offsets) = unzip pointers
 
-       free_tvs = foldr (unionVarSet . tyVarsOfType . idType)
-                        (tyVarsOfType result_ty) ids
+       free_tvs = foldr (unionVarSet . tyCoVarsOfType . idType)
+                        (tyCoVarsOfType result_ty) ids
 
    -- It might be that getIdValFromApStack fails, because the AP_STACK
    -- has been accidentally evaluated, or something else has gone wrong.
@@ -664,7 +664,7 @@ bindLocalsAtBreakpoint hsc_env apStack (Just info) = do
         -- state is single-threaded and otherwise we'd spam old bindings
         -- whenever we stop at a breakpoint.  The InteractveContext is properly
         -- saved/restored, but not the linker state.  See #1743, test break026.
-   mkNewId :: TvSubst -> OccName -> Id -> Unique -> Id
+   mkNewId :: TCvSubst -> OccName -> Id -> Unique -> Id
    mkNewId tv_subst occ id uniq
      = Id.mkVanillaGlobalWithInfo name ty (idInfo id)
      where
@@ -672,13 +672,13 @@ bindLocalsAtBreakpoint hsc_env apStack (Just info) = do
          name   = mkInternalName uniq occ loc
          ty     = substTy tv_subst (idType id)
 
-   newTyVars :: UniqSupply -> TcTyVarSet -> TvSubst
+   newTyVars :: UniqSupply -> TcTyVarSet -> TCvSubst
      -- Similarly, clone the type variables mentioned in the types
      -- we have here, *and* make them all RuntimeUnk tyars
    newTyVars us tvs
-     = mkTopTvSubst [ (tv, mkTyVarTy (mkRuntimeUnkTyVar name (tyVarKind tv)))
-                    | (tv, uniq) <- varSetElems tvs `zip` uniqsFromSupply us
-                    , let name = setNameUnique (tyVarName tv) uniq ]
+     = mkTopTCvSubst [ (tv, mkTyCoVarTy (mkRuntimeUnkTyVar name (tyVarKind tv)))
+                     | (tv, uniq) <- varSetElems tvs `zip` uniqsFromSupply us
+                     , let name = setNameUnique (tyVarName tv) uniq ]
 
 rttiEnvironment :: HscEnv -> IO HscEnv
 rttiEnvironment hsc_env@HscEnv{hsc_IC=ic} = do
@@ -690,7 +690,7 @@ rttiEnvironment hsc_env@HscEnv{hsc_IC=ic} = do
    hsc_env' <- foldM improveTypes hsc_env (map idName incompletelyTypedIds)
    return hsc_env'
     where
-     noSkolems = isEmptyVarSet . tyVarsOfType . idType
+     noSkolems = isEmptyVarSet . tyCoVarsOfType . idType
      improveTypes hsc_env@HscEnv{hsc_IC=ic} name = do
       let tmp_ids = [id | AnId id <- ic_tythings ic]
           Just id = find (\i -> idName i == name) tmp_ids

@@ -104,8 +104,8 @@ mkNewTyConRhs tycon_name tycon con
                              -- Coreview looks through newtypes with a Nothing
                              -- for nt_co, or uses explicit coercions otherwise
   where
-    tvs    = tyConTyVars tycon
-    inst_con_ty = applyTys (dataConUserType con) (mkTyVarTys tvs)
+    tvs    = tyConTyCoVars tycon
+    inst_con_ty = applyTys (dataConUserType con) (mkTyCoVarTys tvs)
     rhs_ty = ASSERT( isFunTy inst_con_ty ) funArgTy inst_con_ty
 	-- Instantiate the data con with the 
 	-- type variables from the tycon
@@ -125,9 +125,9 @@ mkNewTyConRhs tycon_name tycon con
 	       -> Type			-- Rhs type
 	       -> ([TyVar], Type)	-- Eta-reduced version (tyvars in normal order)
     eta_reduce (a:as) ty | Just (fun, arg) <- splitAppTy_maybe ty,
-			   Just tv <- getTyVar_maybe arg,
+			   Just tv <- getCoTyVar_maybe arg,
 			   tv == a,
-			   not (a `elemVarSet` tyVarsOfType fun)
+			   not (a `elemVarSet` tyCoVarsOfType fun)
 			 = eta_reduce as fun
     eta_reduce tvs ty = (reverse tvs, ty)
 				
@@ -176,14 +176,14 @@ mkDataConStupidTheta tycon arg_tys univ_tvs
   | null stupid_theta = []	-- The common case
   | otherwise 	      = filter in_arg_tys stupid_theta
   where
-    tc_subst	 = zipTopTvSubst (tyConTyVars tycon) (mkTyVarTys univ_tvs)
+    tc_subst	 = zipTopTCvSubst (tyConTyCoVars tycon) (mkTyCoVarTys univ_tvs)
     stupid_theta = substTheta tc_subst (tyConStupidTheta tycon)
 	-- Start by instantiating the master copy of the 
 	-- stupid theta, taken from the TyCon
 
-    arg_tyvars      = tyVarsOfTypes arg_tys
+    arg_tyvars      = tyCoVarsOfTypes arg_tys
     in_arg_tys pred = not $ isEmptyVarSet $ 
-		      tyVarsOfType pred `intersectVarSet` arg_tyvars
+		      tyCoVarsOfType pred `intersectVarSet` arg_tyvars
 \end{code}
 
 
@@ -256,7 +256,7 @@ buildClass no_unf tycon_name tvs sc_theta fds at_items sig_stuff tc_isrec
                                    [{- No GADT equalities -}] 
                                    [{- No theta -}]
                                    arg_tys
-				   (mkTyConApp rec_tycon (mkTyVarTys tvs))
+				   (mkTyConApp rec_tycon (mkTyCoVarTys tvs))
 				   rec_tycon
 
 	; rhs <- if use_newtype

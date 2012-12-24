@@ -134,7 +134,7 @@ oclose preds fixed_tvs
     tv_fds  :: [(TyVarSet,TyVarSet)]
 	-- In our example, tv_fds will be [ ({x,y}, {z}), ({x,p},{q}) ]
 	-- Meaning "knowing x,y fixes z, knowing x,p fixes q"
-    tv_fds  = [ (tyVarsOfTypes xs, tyVarsOfTypes ys)
+    tv_fds  = [ (tyCoVarsOfTypes xs, tyCoVarsOfTypes ys)
 	      | (cls, tys) <- concatMap classesOfPredTy preds,  -- Ignore implicit params
 		let (cls_tvs, cls_fds) = classTvsFds cls,
 		fd <- cls_fds,
@@ -422,7 +422,7 @@ checkClsFD fd clas_tvs
 
                     (dfun_tvs, _, _, _) = tcSplitDFunTy (idType dfun)
 		    meta_tvs = [ setVarType tv (substTy subst (varType tv))
-                               | tv <- dfun_tvs, tv `notElemTvSubst` subst ]
+                               | tv <- dfun_tvs, tv `notElemTCvSubst` subst ]
 		        -- meta_tvs are the quantified type variables
 		        -- that have not been substituted out
 		        --	
@@ -470,7 +470,7 @@ checkInstCoverage clas inst_taus
   = all fundep_ok fds
   where
     (tyvars, fds) = classTvsFds clas
-    fundep_ok fd  = tyVarsOfTypes rs `subVarSet` tyVarsOfTypes ls
+    fundep_ok fd  = tyCoVarsOfTypes rs `subVarSet` tyCoVarsOfTypes ls
 		 where
 		   (ls,rs) = instFD fd tyvars inst_taus
 \end{code}

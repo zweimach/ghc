@@ -489,8 +489,8 @@ tcPolyCheck top_lvl rec_tc prag_fn
                         { abs_tvs = tvs
                         , abs_ev_vars = ev_vars, abs_ev_binds = ev_binds
                         , abs_exports = [export], abs_binds = binds' }
-             closed | isEmptyVarSet (tyVarsOfType (idType poly_id)) = TopLevel
-                    | otherwise                                     = NotTopLevel
+             closed | isEmptyVarSet (tyCoVarsOfType (idType poly_id)) = TopLevel
+                    | otherwise                                       = NotTopLevel
        ; return (unitBag abs_bind, [poly_id], closed) }
 
 ------------------
@@ -555,7 +555,7 @@ mkExport prag_fn qtvs theta (poly_name, mb_sig, mono_id)
               -- In the inference case (no signature) this stuff figures out
               -- the right type variables and theta to quantify over
               -- See Note [Impedence matching]
-              my_tv_set = growThetaTyVars theta (tyVarsOfType mono_ty)
+              my_tv_set = growThetaTyVars theta (tyCoVarsOfType mono_ty)
               my_tvs = filter (`elemVarSet` my_tv_set) qtvs   -- Maintain original order
               my_theta = filter (quantifyPred my_tv_set) theta
               inferred_poly_ty = mkSigmaTy my_tvs my_theta mono_ty
@@ -878,10 +878,10 @@ recoveryCode binder_names sig_fn
         | isJust (sig_fn name) = tcLookupId name        -- Had signature; look it up
         | otherwise            = return (mkLocalId name forall_a_a)    -- No signature
 
-    is_closed poly_id = isEmptyVarSet (tyVarsOfType (idType poly_id))
+    is_closed poly_id = isEmptyVarSet (tyCoVarsOfType (idType poly_id))
 
 forall_a_a :: TcType
-forall_a_a = mkForAllTy openAlphaTyVar (mkTyVarTy openAlphaTyVar)
+forall_a_a = mkForAllTy openAlphaTyVar (mkOnlyTyVarTy openAlphaTyVar)
 \end{code}
 
 Note [SPECIALISE pragmas]

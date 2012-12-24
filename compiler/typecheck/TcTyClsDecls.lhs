@@ -293,7 +293,7 @@ kcTyClGroup decls
       = do { let kc_kind = case lookupNameEnv kind_env name of
                                Just (AThing k) -> k
                                _ -> pprPanic "kcTyClGroup" (ppr name $$ ppr kind_env)
-           ; kvs <- kindGeneralize (tyVarsOfType kc_kind) (hsLTyVarNames tvs)
+           ; kvs <- kindGeneralize (tyCoVarsOfType kc_kind) (hsLTyVarNames tvs)
            ; kc_kind' <- zonkTcKind kc_kind    -- Make sure kc_kind' has the final,
                                                -- skolemised kind variables
            ; traceTc "Generalise kind" (vcat [ ppr name, ppr kc_kind, ppr kvs, ppr kc_kind' ])
@@ -372,7 +372,7 @@ getInitialKind top_lvl (DataDecl { tcdLName = L _ name, tcdTyVars = ktvs, tcdDat
     kcHsTyVarBndrs True ktvs $ \ arg_kinds -> 
     do { res_k <- tcLHsKind ksig
        ; let body_kind = mkArrowKinds arg_kinds res_k
-             kvs       = varSetElems (tyVarsOfType body_kind)
+             kvs       = varSetElems (tyCoVarsOfType body_kind)
              main_pr   = (name, AThing (mkForAllTys kvs body_kind))
              inner_prs = [(unLoc (con_name con), APromotionErr RecDataConPE) | L _ con <- cons ]
              -- See Note [Recusion and promoting data constructors]
@@ -407,7 +407,7 @@ getFamDeclInitialKind top_lvl (FamilyDecl { fdLName = L _ name
                     Just k  -> tcLHsKind k
                     Nothing -> return liftedTypeKind
        ; let body_kind = mkArrowKinds arg_kinds res_k
-             kvs       = varSetElems (tyVarsOfType body_kind)
+             kvs       = varSetElems (tyCoVarsOfType body_kind)
        ; return [ (name, AThing (mkForAllTys kvs body_kind)) ] }
 
   | otherwise
@@ -628,7 +628,7 @@ tcTyClDecl1 _parent calc_isrec
                      , let gen_dm_tau = expectJust "tcTyClDecl1" $
                                         lookupNameEnv gen_dm_env (idName sel_id)
 		     , let gen_dm_ty = mkSigmaTy tvs' 
-                                                 [mkClassPred clas (mkTyVarTys tvs')] 
+                                                 [mkClassPred clas (mkTyCoVarTys tvs')] 
                                                  gen_dm_tau
                      ]
         class_ats = map ATyCon (classATs clas)
@@ -720,7 +720,7 @@ tcDataDefn calc_isrec tc_name tvs kind
        ; dataDeclChecks tc_name new_or_data stupid_theta cons
 
        ; tycon <- fixM $ \ tycon -> do
-             { let res_ty = mkTyConApp tycon (mkTyVarTys final_tvs)
+             { let res_ty = mkTyConApp tycon (mkTyCoVarTys final_tvs)
              ; data_cons <- tcConDecls new_or_data ex_ok tycon (final_tvs, res_ty) cons
              ; tc_rhs <-
                  if null cons && is_boot 	      -- In a hs-boot file, empty cons means
@@ -913,7 +913,7 @@ tcFamTyPats fam_tc (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tva
        ; let all_args = fam_arg_kinds ++ typats
 
             -- Find free variables (after zonking)
-       ; tkvs <- zonkTyVarsAndFV (tyVarsOfTypes all_args)
+       ; tkvs <- zonkTyCoVarsAndFV (tyCoVarsOfTypes all_args)
 
             -- Turn them into skolems, so that we don't subsequently 
             -- replace a meta kind var with AnyK
@@ -944,7 +944,7 @@ tcTyVarBndrsKindGen, as usual
   -- The 'k' comes from the tcTyVarBndrsKindGen (a::k)
 
 Second, the ones that come from the kind argument of the type family
-which we pick up using the (tyVarsOfTypes typats) in the result of 
+which we pick up using the (tyCoVarsOfTypes typats) in the result of 
 the thing_inside of tcHsTyvarBndrsGen.
   -- Any :: forall k. k
   data instance Dist Any = DA
@@ -1076,7 +1076,7 @@ tcConDecl new_or_data existential_ok rep_tycon res_tmpl 	-- Data types
 
              -- Generalise the kind variables (returning quantifed TcKindVars)
              -- and quanify the type variables (substiting their kinds)
-       ; kvs <- kindGeneralize (tyVarsOfType pretend_con_ty) (map getName tvs)
+       ; kvs <- kindGeneralize (tyCoVarsOfType pretend_con_ty) (map getName tvs)
        ; tvs <- zonkQuantifiedTyVars tvs
 
              -- Zonk to Types
@@ -1184,7 +1184,7 @@ rejigConRes (tmpl_tvs, res_tmpl) dc_tvs (ResTyGADT res_ty)
 		-- Each univ_tv is either a dc_tv or a tmpl_tv
     (univ_tvs, eq_spec) = foldr choose ([], []) tmpl_tvs
     choose tmpl (univs, eqs)
-      | Just ty <- lookupTyVar subst tmpl 
+      | Just ty <- lookupVar subst tmpl 
       = case tcGetTyVar_maybe ty of
           Just tv | not (tv `elem` univs)
       	    -> (tv:univs,   eqs)
@@ -1527,8 +1527,8 @@ checkValidDataCon tc con
   = setSrcSpan (srcLocSpan (getSrcLoc con))	$
     addErrCtxt (dataConCtxt con)		$ 
     do	{ traceTc "Validity of data con" (ppr con)
-        ; let tc_tvs = tyConTyVars tc
-	      res_ty_tmpl = mkFamilyTyConApp tc (mkTyVarTys tc_tvs)
+        ; let tc_tvs = tyConTyCoVars tc
+	      res_ty_tmpl = mkFamilyTyConApp tc (mkTyCoVarTys tc_tvs)
 	      actual_res_ty = dataConOrigResTy con
         ; traceTc "checkValidDataCon" (ppr con $$ ppr tc $$ ppr tc_tvs $$ ppr res_ty_tmpl)
 	; checkTc (isJust (tcMatchTy (mkVarSet tc_tvs)
@@ -1619,7 +1619,7 @@ checkValidClass cls
 		--      newBoard :: MonadState b m => m ()
 		-- Here, MonadState has a fundep m->b, so newBoard is fine
 	; let grown_tyvars = growThetaTyVars theta (mkVarSet tyvars)
-	; checkTc (tyVarsOfType tau `intersectsVarSet` grown_tyvars)
+	; checkTc (tyCoVarsOfType tau `intersectsVarSet` grown_tyvars)
 	          (noClassTyVarErr cls sel_id)
 
         ; case dm of
@@ -1660,7 +1660,7 @@ checkValidClass cls
     -- type instance arg is the sam
     check_loc_at_def fam_tc (ATD _tvs pats _rhs loc)
       -- Set the location for each of the default declarations
-      = setSrcSpan loc $ zipWithM_ check_arg (tyConTyVars fam_tc) pats
+      = setSrcSpan loc $ zipWithM_ check_arg (tyConTyCoVars fam_tc) pats
 
     -- We only want to check this on the *class* TyVars,
     -- not the *family* TyVars (there may be more of these)
@@ -1670,8 +1670,8 @@ checkValidClass cls
     check_arg fam_tc_tv at_ty
       = checkTc (   isKindVar fam_tc_tv
                  || not (fam_tc_tv `elem` tyvars)
-                 || mkTyVarTy fam_tc_tv `eqType` at_ty) 
-          (wrongATArgErr at_ty (mkTyVarTy fam_tc_tv))
+                 || mkTyCoVarTy fam_tc_tv `eqType` at_ty) 
+          (wrongATArgErr at_ty (mkTyCoVarTy fam_tc_tv))
 
 checkFamFlag :: Name -> TcM ()
 -- Check that we don't use families without -XTypeFamilies
@@ -1749,8 +1749,8 @@ mkRecSelBind (tycon, sel_name)
     -- Selector type; Note [Polymorphic selectors]
     field_ty   = dataConFieldType con1 sel_name
     data_ty    = dataConOrigResTy con1
-    data_tvs   = tyVarsOfType data_ty
-    is_naughty = not (tyVarsOfType field_ty `subVarSet` data_tvs)  
+    data_tvs   = tyCoVarsOfType data_ty
+    is_naughty = not (tyCoVarsOfType field_ty `subVarSet` data_tvs)  
     (field_tvs, field_theta, field_tau) = tcSplitSigmaTy field_ty
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
            | otherwise  = mkForAllTys (varSetElemsKvsFirst $

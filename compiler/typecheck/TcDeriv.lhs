@@ -491,8 +491,8 @@ deriveTyDecl (L _ decl@(DataDecl { tcdLName = L _ tc_name
                                  , tcdDataDefn = HsDataDefn { dd_derivs = Just preds } }))
   = tcAddDeclCtxt decl $
     do { tc <- tcLookupTyCon tc_name
-       ; let tvs = tyConTyVars tc
-             tys = mkTyVarTys tvs
+       ; let tvs = tyConTyCoVars tc
+             tys = mkTyCoVarTys tvs
        ; mapM (deriveTyData tvs tc tys) preds }
 
 deriveTyDecl _ = return []
@@ -573,19 +573,19 @@ deriveTyData tvs tc tc_args (L loc deriv_pred)
               args_to_drop   = drop n_args_to_keep tc_args
               inst_ty        = mkTyConApp tc (take n_args_to_keep tc_args)
               inst_ty_kind   = typeKind inst_ty
-              dropped_tvs    = mkVarSet (mapCatMaybes getTyVar_maybe args_to_drop)
+              dropped_tvs    = mkVarSet (mapCatMaybes getTyCoVar_maybe args_to_drop)
               univ_tvs       = (mkVarSet tvs `extendVarSetList` deriv_tvs)
                                              `minusVarSet` dropped_tvs
 
         ; traceTc "derivTyData" (pprTvBndrs tvs $$ ppr tc $$ ppr tc_args $$
-                     pprTvBndrs (varSetElems $ tyVarsOfTypes tc_args) $$ ppr inst_ty)
+                     pprTvBndrs (varSetElems $ tyCoVarsOfTypes tc_args) $$ ppr inst_ty)
 
         -- Check that the result really is well-kinded
         ; checkTc (n_args_to_keep >= 0 && (inst_ty_kind `eqKind` kind))
                   (derivingKindErr tc cls cls_tys kind)
 
-        ; checkTc (sizeVarSet dropped_tvs == n_args_to_drop &&           -- (a)
-                   tyVarsOfTypes (inst_ty:cls_tys) `subVarSet` univ_tvs) -- (b)
+        ; checkTc (sizeVarSet dropped_tvs == n_args_to_drop &&             -- (a)
+                   tyCoVarsOfTypes (inst_ty:cls_tys) `subVarSet` univ_tvs) -- (b)
                   (derivingEtaErr cls cls_tys inst_ty)
                 -- Check that
                 --  (a) The data type can be eta-reduced; eg reject:
@@ -816,20 +816,20 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
         | is_functor_like = concatMap (deepSubtypesContaining last_tv) tys
         | otherwise       = tys
 
-    rep_tc_tvs = tyConTyVars rep_tc
+    rep_tc_tvs = tyConTyCoVars rep_tc
     last_tv = last rep_tc_tvs
     all_rep_tc_args | cls `hasKey` gen1ClassKey || is_functor_like
-                      = rep_tc_args ++ [mkTyVarTy last_tv]
+                      = rep_tc_args ++ [mkTyCoVarTy last_tv]
                     | otherwise       = rep_tc_args
 
         -- Constraints arising from superclasses
         -- See Note [Superclasses of derived instance]
-    sc_constraints = substTheta (zipOpenTvSubst (classTyVars cls) inst_tys)
+    sc_constraints = substTheta (zipOpenTCvSubst (classTyCoVars cls) inst_tys)
                                 (classSCTheta cls)
 
         -- Stupid constraints
     stupid_constraints = substTheta subst (tyConStupidTheta rep_tc)
-    subst = zipTopTvSubst rep_tc_tvs all_rep_tc_args
+    subst = zipTopTCvSubst rep_tc_tvs all_rep_tc_args
 
         -- Extra Data constraints
         -- The Data class (only) requires that for
@@ -1032,7 +1032,7 @@ cond_typeableOK :: Condition
 --            (b) 7 or fewer args
 cond_typeableOK (_, tc, _)
   | tyConArity tc > 7 = Just too_many
-  | not (all (isSubOpenTypeKind . tyVarKind) (tyConTyVars tc))
+  | not (all (isSubOpenTypeKind . tyVarKind) (tyConTyCoVars tc))
                       = Just bad_kind
   | otherwise         = Nothing
   where
@@ -1063,10 +1063,10 @@ cond_functorOK allowFunctions (_, rep_tc, _)
   | otherwise
   = msum (map check_con data_cons)      -- msum picks the first 'Just', if any
   where
-    tc_tvs            = tyConTyVars rep_tc
+    tc_tvs            = tyConTyCoVars rep_tc
     Just (_, last_tv) = snocView tc_tvs
     bad_stupid_theta  = filter is_bad (tyConStupidTheta rep_tc)
-    is_bad pred       = last_tv `elemVarSet` tyVarsOfType pred
+    is_bad pred       = last_tv `elemVarSet` tyCoVarsOfType pred
 
     data_cons = tyConDataCons rep_tc
     check_con con = msum (check_vanilla con : foldDataConArgs (ft_check con) con)
@@ -1258,11 +1258,11 @@ mkNewTypeEqn orig dflags tvs
     -- Next we figure out what superclass dictionaries to use
     -- See Note [Newtype deriving superclasses] above
 
-        cls_tyvars = classTyVars cls
-        dfun_tvs = tyVarsOfTypes inst_tys
+        cls_tyvars = classTyCoVars cls
+        dfun_tvs = tyCoVarsOfTypes inst_tys
         inst_ty = mkTyConApp tycon tc_args
         inst_tys = cls_tys ++ [inst_ty]
-        sc_theta = substTheta (zipOpenTvSubst cls_tyvars inst_tys)
+        sc_theta = substTheta (zipOpenTCvSubst cls_tyvars inst_tys)
                               (classSCTheta cls)
 
                 -- If there are no tyvars, there's no need

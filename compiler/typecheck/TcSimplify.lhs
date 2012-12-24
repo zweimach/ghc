@@ -199,7 +199,7 @@ simplifyDeriv orig pred tvs theta
 		-- We use *non-overlappable* (vanilla) skolems
 		-- See Note [Overlap and deriving]
 
-       ; let subst_skol = zipTopTvSubst tvs_skols $ map mkTyVarTy tvs
+       ; let subst_skol = zipTopTCvSubst tvs_skols $ map mkTyCoVarTy tvs
              skol_set   = mkVarSet tvs_skols
 	     doc = ptext (sLit "deriving") <+> parens (ppr pred)
 
@@ -340,7 +340,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
   | isEmptyWC wanteds
   = do { gbl_tvs     <- tcGetGlobalTyVars            -- Already zonked
        ; zonked_taus <- zonkTcTypes (map snd name_taus)
-       ; let tvs_to_quantify = varSetElems (tyVarsOfTypes zonked_taus `minusVarSet` gbl_tvs)
+       ; let tvs_to_quantify = varSetElems (tyCoVarsOfTypes zonked_taus `minusVarSet` gbl_tvs)
        	     		       -- tvs_to_quantify can contain both kind and type vars
        	                       -- See Note [Which variables to quantify]
        ; qtvs <- zonkQuantifiedTyVars tvs_to_quantify
@@ -391,7 +391,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
               then return []   -- See Note [Quantification with errors]
               else do { gbl_tvs <- tcGetGlobalTyVars
                       ; let quant_cand = approximateWC wanted_transformed
-                            meta_tvs   = filter isMetaTyVar (varSetElems (tyVarsOfCts quant_cand)) 
+                            meta_tvs   = filter isMetaTyVar (varSetElems (tyCoVarsOfCts quant_cand)) 
                       ; ((flats, _insols), _extra_binds) <- runTcS $ 
                         do { mapM_ (promoteAndDefaultTyVar untch gbl_tvs) meta_tvs
                            ; _implics <- solveInteract quant_cand
@@ -406,7 +406,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
        -- NB: quant_pred_candidates is already the fixpoint of any 
        --     unifications that may have happened
        ; gbl_tvs        <- tcGetGlobalTyVars
-       ; zonked_tau_tvs <- zonkTyVarsAndFV (tyVarsOfTypes (map snd name_taus))
+       ; zonked_tau_tvs <- zonkTyCoVarsAndFV (tyCoVarsOfTypes (map snd name_taus))
        ; let init_tvs  = zonked_tau_tvs `minusVarSet` gbl_tvs
              poly_qtvs = growThetaTyVars quant_pred_candidates init_tvs 
                          `minusVarSet` gbl_tvs
@@ -414,7 +414,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
              
 	     -- Monomorphism restriction
              mr_qtvs  	     = init_tvs `minusVarSet` constrained_tvs
-             constrained_tvs = tyVarsOfTypes quant_pred_candidates
+             constrained_tvs = tyCoVarsOfTypes quant_pred_candidates
 	     mr_bites        = apply_mr && not (null pbound)
 
              (qtvs, bound) | mr_bites  = (mr_qtvs,   [])
@@ -848,7 +848,7 @@ floatEqualities skols can_given wanteds@(WC { wc_flat = flats })
   | otherwise 
   = do { let (float_eqs, remaining_flats) = partitionBag is_floatable flats
        ; untch <- TcSMonad.getUntouchables
-       ; mapM_ (promoteTyVar untch) (varSetElems (tyVarsOfCts float_eqs))
+       ; mapM_ (promoteTyVar untch) (varSetElems (tyCoVarsOfCts float_eqs))
        ; ty_binds <- getTcSTyBindsMap
        ; traceTcS "floatEqualities" (vcat [ text "Floated eqs =" <+> ppr float_eqs
                                           , text "Ty binds =" <+> ppr ty_binds])
@@ -858,7 +858,7 @@ floatEqualities skols can_given wanteds@(WC { wc_flat = flats })
 
     is_floatable :: Ct -> Bool
     is_floatable ct
-       = isEqPred pred && skol_set `disjointVarSet` tyVarsOfType pred
+       = isEqPred pred && skol_set `disjointVarSet` tyCoVarsOfType pred
        where
          pred = ctPred ct
 
@@ -879,7 +879,7 @@ promoteTyVar untch tv
   | isFloatedTouchableMetaTyVar untch tv
   = do { cloned_tv <- TcSMonad.cloneMetaTyVar tv
        ; let rhs_tv = setMetaTyVarUntouchables cloned_tv untch
-       ; setWantedTyBind tv (mkTyVarTy rhs_tv) }
+       ; setWantedTyBind tv (mkTyCoVarTy rhs_tv) }
   | otherwise
   = return ()
 
@@ -899,7 +899,7 @@ defaultTyVar the_tv
   = do { tv' <- TcSMonad.cloneMetaTyVar the_tv
        ; let new_tv = setTyVarKind tv' default_k
        ; traceTcS "defaultTyVar" (ppr the_tv <+> ppr new_tv)
-       ; setWantedTyBind the_tv (mkTyVarTy new_tv)
+       ; setWantedTyBind the_tv (mkTyCoVarTy new_tv)
        ; return new_tv }
              -- Why not directly derived_pred = mkTcEqPred k default_k?
              -- See Note [DefaultTyVar]
@@ -931,7 +931,7 @@ approximateWC wc
             
     float_flat :: TcTyVarSet -> Ct -> Cts
     float_flat skols ct
-      | tyVarsOfCt ct `disjointVarSet` skols 
+      | tyCoVarsOfCt ct `disjointVarSet` skols 
       = singleCt ct
       | otherwise = emptyCts
         
@@ -1178,7 +1178,7 @@ findDefaultableGroups (default_tys, (ovl_strings, extended_defaults)) wanteds
     find_unary cc = Right cc  -- Non unary or non dictionary 
 
     bad_tvs :: TcTyVarSet  -- TyVars mentioned by non-unaries 
-    bad_tvs = foldr (unionVarSet . tyVarsOfCt) emptyVarSet non_unaries 
+    bad_tvs = foldr (unionVarSet . tyCoVarsOfCt) emptyVarSet non_unaries 
 
     cmp_tv (_,_,tv1) (_,_,tv2) = tv1 `compare` tv2
 

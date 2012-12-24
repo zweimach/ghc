@@ -126,7 +126,7 @@ matchOneCon vars ty (eqn1 : eqns)	-- All eqns for a single constructor
 	
     arg_tys  = dataConInstOrigArgTys con1 inst_tys
     inst_tys = tcTyConAppArgs pat_ty1 ++ 
-	       mkTyVarTys (takeList (dataConExTyVars con1) tvs1)
+	       mkTyCoVarTys (takeList (dataConExTyCoVars con1) tvs1)
 	-- Newtypes opaque, hence tcTyConAppArgs
 	-- dataConInstOrigArgTys takes the univ and existential tyvars
 	-- and returns the types of the *value* args, which is what we want

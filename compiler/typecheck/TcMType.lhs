@@ -62,7 +62,7 @@ module TcMType (
   -- Zonking
   zonkTcPredType, 
   skolemiseSigTv, skolemiseUnboundMetaTyVar,
-  zonkTcTyVar, zonkTcTyVars, zonkTyVarsAndFV, 
+  zonkTcTyVar, zonkTcTyVars, zonkTyCoVarsAndFV, 
   zonkQuantifiedTyVar, zonkQuantifiedTyVars,
   zonkTcType, zonkTcTypes, zonkTcThetaType,
 
@@ -125,7 +125,7 @@ newMetaKindVar :: TcM TcKind
 newMetaKindVar = do { uniq <- newUnique
 		    ; details <- newMetaDetails TauTv
                     ; let kv = mkTcTyVar (mkKindName uniq) superKind details
-		    ; return (mkTyVarTy kv) }
+		    ; return (mkOnlyTyVarTy kv) }
 
 newMetaKindVars :: Int -> TcM [TcKind]
 newMetaKindVars n = mapM (\ _ -> newMetaKindVar) (nOfThem n ())
@@ -185,7 +185,7 @@ predTypeOccName ty = case classifyPredType ty of
 %************************************************************************
 
 \begin{code}
-tcInstType :: ([TyVar] -> TcM (TvSubst, [TcTyVar]))     -- How to instantiate the type variables
+tcInstType :: ([TyVar] -> TcM (TCvSubst, [TcTyVar]))     -- How to instantiate the type variables
 	   -> TcType 					-- Type to instantiate
 	   -> TcM ([TcTyVar], TcThetaType, TcType)	-- Result
 		-- (type vars (excl coercion vars), preds (incl equalities), rho)
@@ -207,21 +207,21 @@ tcSkolDFunType :: Type -> TcM ([TcTyVar], TcThetaType, TcType)
 -- be in the type environment: it is lexically scoped.
 tcSkolDFunType ty = tcInstType (\tvs -> return (tcSuperSkolTyVars tvs)) ty
 
-tcSuperSkolTyVars :: [TyVar] -> (TvSubst, [TcTyVar])
+tcSuperSkolTyVars :: [TyVar] -> (TCvSubst, [TcTyVar])
 -- Make skolem constants, but do *not* give them new names, as above
 -- Moreover, make them "super skolems"; see comments with superSkolemTv
 -- see Note [Kind substitution when instantiating]
 -- Precondition: tyvars should be ordered (kind vars first)
-tcSuperSkolTyVars = mapAccumL tcSuperSkolTyVar (mkTopTvSubst [])
+tcSuperSkolTyVars = mapAccumL tcSuperSkolTyVar (mkTopTCvSubst [])
 
-tcSuperSkolTyVar :: TvSubst -> TyVar -> (TvSubst, TcTyVar)
+tcSuperSkolTyVar :: TCvSubst -> TyVar -> (TCvSubst, TcTyVar)
 tcSuperSkolTyVar subst tv
-  = (extendTvSubst subst tv (mkTyVarTy new_tv), new_tv)
+  = (extendTCvSubst subst tv (mkOnlyTyVarTy new_tv), new_tv)
   where
     kind   = substTy subst (tyVarKind tv)
     new_tv = mkTcTyVar (tyVarName tv) kind superSkolemTv
 
-tcInstSkolTyVar :: Bool -> TvSubst -> TyVar -> TcM (TvSubst, TcTyVar)
+tcInstSkolTyVar :: Bool -> TCvSubst -> TyVar -> TcM (TCvSubst, TcTyVar)
 -- Instantiate the tyvar, using 
 --      * the occ-name and kind of the supplied tyvar, 
 --      * the unique from the monad,
@@ -232,25 +232,25 @@ tcInstSkolTyVar overlappable subst tyvar
         ; loc  <- getSrcSpanM
         ; let new_name = mkInternalName uniq occ loc
               new_tv   = mkTcTyVar new_name kind (SkolemTv overlappable)
-        ; return (extendTvSubst subst tyvar (mkTyVarTy new_tv), new_tv) }
+        ; return (extendTCvSubst subst tyvar (mkTyCoVarTy new_tv), new_tv) }
   where
     old_name = tyVarName tyvar
     occ      = nameOccName old_name
     kind     = substTy subst (tyVarKind tyvar)
 
 -- Wrappers
-tcInstSkolTyVars :: [TyVar] -> TcM (TvSubst, [TcTyVar])
-tcInstSkolTyVars = tcInstSkolTyVarsX (mkTopTvSubst [])
+tcInstSkolTyVars :: [TyVar] -> TcM (TCvSubst, [TcTyVar])
+tcInstSkolTyVars = tcInstSkolTyVarsX (mkTopTCvSubst [])
 
 tcInstSuperSkolTyVars :: [TyVar] -> TcM [TcTyVar]
-tcInstSuperSkolTyVars = fmap snd . tcInstSkolTyVars' True  (mkTopTvSubst [])
+tcInstSuperSkolTyVars = fmap snd . tcInstSkolTyVars' True  (mkTopTCvSubst [])
 
 tcInstSkolTyVarsX, tcInstSuperSkolTyVarsX
-  :: TvSubst -> [TyVar] -> TcM (TvSubst, [TcTyVar])
+  :: TCvSubst -> [TyVar] -> TcM (TCvSubst, [TcTyVar])
 tcInstSkolTyVarsX      subst = tcInstSkolTyVars' False subst
 tcInstSuperSkolTyVarsX subst = tcInstSkolTyVars' True  subst
 
-tcInstSkolTyVars' :: Bool -> TvSubst -> [TyVar] -> TcM (TvSubst, [TcTyVar])
+tcInstSkolTyVars' :: Bool -> TCvSubst -> [TyVar] -> TcM (TCvSubst, [TcTyVar])
 -- Precondition: tyvars should be ordered (kind vars first)
 -- see Note [Kind substitution when instantiating]
 tcInstSkolTyVars' isSuperSkol = mapAccumLM (tcInstSkolTyVar isSuperSkol)
@@ -260,19 +260,19 @@ tcInstSkolType :: TcType -> TcM ([TcTyVar], TcThetaType, TcType)
 -- Binding location comes from the monad
 tcInstSkolType ty = tcInstType tcInstSkolTyVars ty
 
-tcInstSigTyVars :: [TyVar] -> TcM (TvSubst, [TcTyVar])
+tcInstSigTyVars :: [TyVar] -> TcM (TCvSubst, [TcTyVar])
 -- Make meta SigTv type variables for patten-bound scoped type varaibles
 -- We use SigTvs for them, so that they can't unify with arbitrary types
 -- Precondition: tyvars should be ordered (kind vars first)
 -- see Note [Kind substitution when instantiating]
-tcInstSigTyVars = mapAccumLM tcInstSigTyVar (mkTopTvSubst [])
+tcInstSigTyVars = mapAccumLM tcInstSigTyVar (mkTopTCvSubst [])
 	-- The tyvars are freshly made, by tcInstSigTyVar
-        -- So mkTopTvSubst [] is ok
+        -- So mkTopTCvSubst [] is ok
 
-tcInstSigTyVar :: TvSubst -> TyVar -> TcM (TvSubst, TcTyVar)
+tcInstSigTyVar :: TCvSubst -> TyVar -> TcM (TCvSubst, TcTyVar)
 tcInstSigTyVar subst tv
   = do { new_tv <- newSigTyVar (tyVarName tv) (substTy subst (tyVarKind tv))
-       ; return (extendTvSubst subst tv (mkTyVarTy new_tv), new_tv) }
+       ; return (extendTCvSubst subst tv (mkTyCoVarTy new_tv), new_tv) }
 
 newSigTyVar :: Name -> Kind -> TcM TcTyVar
 newSigTyVar name kind
@@ -444,23 +444,23 @@ newPolyFlexiTyVarTy :: TcM TcType
 newPolyFlexiTyVarTy = do { tv <- newMetaTyVar PolyTv liftedTypeKind
                          ; return (TyVarTy tv) }
 
-tcInstTyVars :: [TKVar] -> TcM ([TcTyVar], [TcType], TvSubst)
+tcInstTyVars :: [TKVar] -> TcM ([TcTyVar], [TcType], TCvSubst)
 -- Instantiate with META type variables
 -- Note that this works for a sequence of kind and type
 -- variables.  Eg    [ (k:BOX), (a:k->k) ]
 --             Gives [ (k7:BOX), (a8:k7->k7) ]
-tcInstTyVars tyvars = tcInstTyVarsX emptyTvSubst tyvars
-    -- emptyTvSubst has an empty in-scope set, but that's fine here
+tcInstTyVars tyvars = tcInstTyVarsX emptyTCvSubst tyvars
+    -- emptyTCvSubst has an empty in-scope set, but that's fine here
     -- Since the tyvars are freshly made, they cannot possibly be
     -- captured by any existing for-alls.
 
-tcInstTyVarsX :: TvSubst -> [TKVar] -> TcM ([TcTyVar], [TcType], TvSubst)
+tcInstTyVarsX :: TCvSubst -> [TKVar] -> TcM ([TcTyVar], [TcType], TCvSubst)
 -- The "X" part is because of extending the substitution
 tcInstTyVarsX subst tyvars =
   do { (subst', tyvars') <- mapAccumLM tcInstTyVarX subst tyvars
-     ; return (tyvars', mkTyVarTys tyvars', subst') }
+     ; return (tyvars', mkTyCoVarTys tyvars', subst') }
 
-tcInstTyVarX :: TvSubst -> TKVar -> TcM (TvSubst, TcTyVar)
+tcInstTyVarX :: TCvSubst -> TKVar -> TcM (TCvSubst, TcTyVar)
 -- Make a new unification variable tyvar whose Name and Kind come from
 -- an existing TyVar. We substitute kind variables in the kind.
 tcInstTyVarX subst tyvar
@@ -469,7 +469,7 @@ tcInstTyVarX subst tyvar
         ; let name   = mkSystemName uniq (getOccName tyvar)
               kind   = substTy subst (tyVarKind tyvar)
               new_tv = mkTcTyVar name kind details 
-        ; return (extendTvSubst subst tyvar (mkTyVarTy new_tv), new_tv) }
+        ; return (extendTCvSubst subst tyvar (mkTyCoVarTy new_tv), new_tv) }
 \end{code}
 
 
@@ -488,7 +488,7 @@ tcGetGlobalTyVars :: TcM TcTyVarSet
 tcGetGlobalTyVars
   = do { (TcLclEnv {tcl_tyvars = gtv_var}) <- getLclEnv
        ; gbl_tvs  <- readMutVar gtv_var
-       ; gbl_tvs' <- zonkTyVarsAndFV gbl_tvs
+       ; gbl_tvs' <- zonkTyCoVarsAndFV gbl_tvs
        ; writeMutVar gtv_var gbl_tvs'
        ; return gbl_tvs' }
   where
@@ -497,17 +497,17 @@ tcGetGlobalTyVars
 -----------------  Type variables
 
 \begin{code}
-zonkTyVar :: TyVar -> TcM TcType
+zonkTyCoVar :: TyVar -> TcM TcType
 -- Works on TyVars and TcTyVars
-zonkTyVar tv | isTcTyVar tv = zonkTcTyVar tv
-             | otherwise    = return (mkTyVarTy tv)
+zonkTyCoVar tv | isTcTyVar tv = zonkTcTyVar tv
+               | otherwise    = return (mkTyCoVarTy tv)
    -- Hackily, when typechecking type and class decls
    -- we have TyVars in scopeadded (only) in 
    -- TcHsType.tcTyClTyVars, but it seems
    -- painful to make them into TcTyVars there
 
-zonkTyVarsAndFV :: TyVarSet -> TcM TyVarSet
-zonkTyVarsAndFV tyvars = tyVarsOfTypes <$> mapM zonkTyVar (varSetElems tyvars)
+zonkTyCoVarsAndFV :: TyVarSet -> TcM TyVarSet
+zonkTyCoVarsAndFV tyvars = tyCoVarsOfTypes <$> mapM zonkTyCoVar (varSetElems tyvars)
 
 zonkTcTyVars :: [TcTyVar] -> TcM [TcType]
 zonkTcTyVars tyvars = mapM zonkTcTyVar tyvars
@@ -607,7 +607,7 @@ skolemiseUnboundMetaTyVar tv details
               final_name = mkInternalName uniq (getOccName tv) span
               final_tv   = mkTcTyVar final_name final_kind details
 
-        ; writeMetaTyVar tv (mkTyVarTy final_tv)
+        ; writeMetaTyVar tv (mkTyCoVarTy final_tv)
         ; return final_tv }
 
 skolemiseSigTv :: TcTyVar -> TcM TcTyVar
@@ -616,7 +616,7 @@ skolemiseSigTv :: TcTyVar -> TcM TcTyVar
 -- which do not unify with each other
 skolemiseSigTv tv  
   = ASSERT2( isSigTyVar tv, ppr tv )
-    do { writeMetaTyVarRef tv (metaTvRef tv) (mkTyVarTy skol_tv)
+    do { writeMetaTyVarRef tv (metaTvRef tv) (mkTyCoVarTy skol_tv)
        ; return skol_tv }
   where
     skol_tv = setTcTyVarDetails tv (SkolemTv False)
@@ -682,7 +682,7 @@ zonkFlats binds_var untch cts
       , ASSERT2( not (isFloatedTouchableMetaTyVar untch tv), ppr tv )
         isTouchableMetaTyVar untch tv
       , typeKind ty_lhs `tcIsSubKind` tyVarKind tv
-      , not (tv `elemVarSet` tyVarsOfType ty_lhs)
+      , not (tv `elemVarSet` tyCoVarsOfType ty_lhs)
 --       , Just ty_lhs' <- occurCheck tv ty_lhs
       = ASSERT2( isWantedCt orig_ct, ppr orig_ct )
         ASSERT2( case tcSplitTyConApp_maybe ty_lhs of { Just (tc,_) -> isSynFamilyTyCon tc; _ -> False }, ppr orig_ct )
@@ -795,7 +795,7 @@ Consider this:
   where a is fresh.
 
 * Now abstract over the 'a', but float out the Num (C d a) constraint
-  because it does not 'really' mention a.  (see exactTyVarsOfType)
+  because it does not 'really' mention a.  (see exactTyCoVarsOfType)
   The arg to foo becomes
 	\/\a -> \t -> t+t
 
@@ -1100,7 +1100,7 @@ check_type rank ty
 		-- with a decent error message
 	; check_valid_theta SigmaCtxt theta
 	; check_type rank tau	-- Allow foralls to right of arrow
-	; checkAmbiguity tvs theta (tyVarsOfType tau) }
+	; checkAmbiguity tvs theta (tyCoVarsOfType tau) }
   where
     (tvs, theta, tau) = tcSplitSigmaTy ty
    
@@ -1506,14 +1506,14 @@ checkAmbiguity forall_tyvars theta tau_tyvars
 	-- See Note [Implicit parameters and ambiguity] in TcSimplify
     is_candidate pred 
       | Just (_, tys) <- getClassPredTys_maybe pred
-      , all isTyVarTy tys = True
-      | otherwise         = False
+      , all isTyCoVarTy tys = True
+      | otherwise           = False
 
     forall_tv_set = mkVarSet forall_tyvars
     (candidates, others) = partition is_candidate theta
-    unambig_vars = growThetaTyVars theta (tau_tyvars `unionVarSet` tyVarsOfTypes others)
+    unambig_vars = growThetaTyVars theta (tau_tyvars `unionVarSet` tyCoVarsOfTypes others)
 
-    is_ambig pred = (tyVarsOfType pred `minusVarSet` unambig_vars)
+    is_ambig pred = (tyCoVarsOfType pred `minusVarSet` unambig_vars)
                     `intersectsVarSet` forall_tv_set
 
 ambigErr :: PredType -> TcM ()
@@ -1562,7 +1562,7 @@ quantifyPred :: TyVarSet      -- Quantifying over these
 	     -> PredType -> Bool	    -- True <=> quantify over this wanted
 quantifyPred qtvs pred
   | isIPPred pred = True  -- Note [Inheriting implicit parameters]
-  | otherwise	  = tyVarsOfType pred `intersectsVarSet` qtvs
+  | otherwise	  = tyCoVarsOfType pred `intersectsVarSet` qtvs
 
 growThetaTyVars :: TcThetaType -> TyVarSet -> TyVarSet
 -- See Note [Growing the tau-tvs using constraints]
@@ -1581,7 +1581,7 @@ growPredTyVars pred tvs
    | pred_tvs `intersectsVarSet` tvs = pred_tvs
    | otherwise                       = emptyVarSet
   where
-    pred_tvs = tyVarsOfType pred
+    pred_tvs = tyCoVarsOfType pred
 \end{code}
     
 

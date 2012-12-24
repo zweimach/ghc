@@ -1569,7 +1569,7 @@ deepSubtypesContaining tv
             , ft_ty_app = (:)
             , ft_bad_app = panic "in other argument"
             , ft_co_var = panic "contravariant"
-            , ft_forall = \v xs -> filterOut ((v `elemVarSet`) . tyVarsOfType) xs })
+            , ft_forall = \v xs -> filterOut ((v `elemVarSet`) . tyCoVarsOfType) xs })
 
 
 foldDataConArgs :: FFoldType a -> DataCon -> [a]
@@ -1761,7 +1761,7 @@ genAuxBindSpec loc (DerivCon2Tag tycon)
     rdr_name = con2tag_RDR tycon
 
     sig_ty = HsCoreTy $
-             mkSigmaTy (tyConTyVars tycon) (tyConStupidTheta tycon) $
+             mkSigmaTy (tyConTyCoVars tycon) (tyConStupidTheta tycon) $
              mkParentType tycon `mkFunTy` intPrimTy
 
     lots_of_constructors = tyConFamilySize tycon > 8
@@ -1783,7 +1783,7 @@ genAuxBindSpec loc (DerivTag2Con tycon)
            nlHsApp (nlHsVar tagToEnum_RDR) a_Expr)],
      L loc (TypeSig [L loc rdr_name] (L loc sig_ty)))
   where
-    sig_ty = HsCoreTy $ mkForAllTys (tyConTyVars tycon) $
+    sig_ty = HsCoreTy $ mkForAllTys (tyConTyCoVars tycon) $
              intTy `mkFunTy` mkParentType tycon
 
     rdr_name = tag2con_RDR tycon
@@ -1840,7 +1840,7 @@ mkParentType :: TyCon -> Type
 -- a use of its family constructor
 mkParentType tc
   = case tyConFamInst_maybe tc of
-       Nothing  -> mkTyConApp tc (mkTyVarTys (tyConTyVars tc))
+       Nothing  -> mkTyConApp tc (mkTyCoVarTys (tyConTyCoVars tc))
        Just (fam_tc,tys) -> mkTyConApp fam_tc tys
 \end{code}
 

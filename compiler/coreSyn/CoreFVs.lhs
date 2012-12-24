@@ -168,13 +168,10 @@ addBndr bndr fv fv_cand in_scope
 
 addBndrs :: [CoreBndr] -> FV -> FV
 addBndrs bndrs fv = foldr addBndr fv bndrs
-\end{code}
 
-
-\begin{code}
 expr_fvs :: CoreExpr -> FV
 
-expr_fvs (Type ty)       = someVars (tyVarsOfType ty)
+expr_fvs (Type ty)       = someVars (tyCoVarsOfType ty)
 expr_fvs (Coercion co)   = someVars (tyCoVarsOfCo co)
 expr_fvs (Var var)       = oneVar var
 expr_fvs (Lit _)         = noVars
@@ -184,7 +181,7 @@ expr_fvs (Lam bndr body) = addBndr bndr (expr_fvs body)
 expr_fvs (Cast expr co)  = expr_fvs expr `union` someVars (tyCoVarsOfCo co)
 
 expr_fvs (Case scrut bndr ty alts)
-  = expr_fvs scrut `union` someVars (tyVarsOfType ty) `union` addBndr bndr
+  = expr_fvs scrut `union` someVars (tyCoVarsOfType ty) `union` addBndr bndr
       (foldr (union . alt_fvs) noVars alts)
   where
     alt_fvs (_, bndrs, rhs) = addBndrs bndrs (expr_fvs rhs)
@@ -407,7 +404,7 @@ delBinderFV b s = (s `delVarSet` b) `unionFVs` varTypeTyVars b
 
 varTypeTyVars :: Var -> TyVarSet
 -- Find the type/kind variables free in the type of the id/tyvar
-varTypeTyVars var = tyVarsOfType (varType var)
+varTypeTyVars var = tyCoVarsOfType (varType var)
 
 idFreeVars :: Id -> VarSet
 -- Type variables, rule variables, and inline variables
@@ -480,7 +477,7 @@ freeVars (App fun arg)
     arg2 = freeVars arg
 
 freeVars (Case scrut bndr ty alts)
-  = ((bndr `delBinderFV` alts_fvs) `unionFVs` freeVarsOf scrut2 `unionFVs` tyVarsOfType ty,
+  = ((bndr `delBinderFV` alts_fvs) `unionFVs` freeVarsOf scrut2 `unionFVs` tyCoVarsOfType ty,
      AnnCase scrut2 bndr ty alts2)
   where
     scrut2 = freeVars scrut
@@ -532,7 +529,7 @@ freeVars (Tick tickish expr)
     tickishFVs (Breakpoint _ ids) = mkVarSet ids
     tickishFVs _                  = emptyVarSet
 
-freeVars (Type ty) = (tyVarsOfType ty, AnnType ty)
+freeVars (Type ty) = (tyCoVarsOfType ty, AnnType ty)
 
 freeVars (Coercion co) = (tyCoVarsOfCo co, AnnCoercion co)
 \end{code}
