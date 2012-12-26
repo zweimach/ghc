@@ -27,8 +27,8 @@ module Coercion (
 
 	-- ** Constructing coercions
         mkReflCo, mkCoVarCo, 
-        mkAxInstCo, mkSingletonAxInstCo, mkAxInstRHS,
-        mkSingletonAxInstRHS,
+        mkAxInstCo, mkUnbranchedAxInstCo, mkAxInstRHS,
+        mkUnbranchedAxInstRHS,
         mkPiCo, mkPiCos, mkCoCast,
         mkSymCo, mkTransCo, mkNthCo, mkLRCo,
 	mkInstCo, mkAppCo, mkTyConAppCo, mkFunCo,
@@ -341,9 +341,9 @@ mkAxInstCo ax index tys
     rtys  = map Refl tys
     ax_br = toBranchedAxiom ax
 
--- to be used only with singleton axioms (axioms with only one branch)
-mkSingletonAxInstCo :: CoAxiom Unbranched -> [Type] -> Coercion
-mkSingletonAxInstCo ax tys
+-- to be used only with unbranched axioms
+mkUnbranchedAxInstCo :: CoAxiom Unbranched -> [Type] -> Coercion
+mkUnbranchedAxInstCo ax tys
   = mkAxInstCo ax 0 tys
 
 mkAxInstRHS :: CoAxiom br -> Int -> [Type] -> Type
@@ -360,8 +360,8 @@ mkAxInstRHS ax index tys
     (tys1, tys2) = splitAtList tvs tys
     rhs'         = substTyWith tvs tys1 (coAxBranchRHS branch)
 
-mkSingletonAxInstRHS :: CoAxiom Unbranched -> [Type] -> Type
-mkSingletonAxInstRHS ax = mkAxInstRHS ax 0
+mkUnbranchedAxInstRHS :: CoAxiom Unbranched -> [Type] -> Type
+mkUnbranchedAxInstRHS ax = mkAxInstRHS ax 0
 
 -- | Apply a 'Coercion' to another 'Coercion'.
 mkAppCo :: Coercion -> Coercion -> Coercion
@@ -509,7 +509,7 @@ instNewTyCon_maybe :: TyCon -> [Type] -> Maybe (Type, Coercion)
 instNewTyCon_maybe tc tys
   | Just (tvs, ty, co_tc) <- unwrapNewTyCon_maybe tc
   = ASSERT( tys `lengthIs` tyConArity tc )
-    Just (substTyWith tvs tys ty, mkSingletonAxInstCo co_tc tys)
+    Just (substTyWith tvs tys ty, mkUnbranchedAxInstCo co_tc tys)
   | otherwise
   = Nothing
 
@@ -790,7 +790,7 @@ coercionKind co = go co
     go (CoVarCo cv)         = toPair $ coVarTypes cv
     go (AxiomInstCo ax ind cos)
       = let branch         = coAxiomNthBranch ax ind
-            tvs            = coAxBranchTyVars branch
+            tvs            = coAxBranchTyCoVars branch
             Pair tys1 tys2 = sequenceA $ map go cos 
         in  Pair (substTyWith tvs tys1 (coAxNthLHS ax ind))
                  (substTyWith tvs tys2 (coAxBranchRHS branch))

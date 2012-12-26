@@ -271,7 +271,6 @@ formula :: 'formula_' ::=
   | ( formula )                        ::   :: parens
   | n elt G                            ::   :: context_inclusion
   | vars1 = vars2                      ::   :: vars_rewrite
-
   | </ Gi $ // i /> = inits ( </ nj // j /> ) :: :: context_folding
   | </ substi $ // i /> = inits ( </ [ nj |-> tj ] // j /> ) :: :: subst_folding
   | ind1 = ind2                        ::   :: eq_ind
@@ -317,3 +316,4 @@ Coercion_TyConAppCo <= Type_CoercionTy
 Coercion_CoVarCo <= Type_CoercionTy
 
 Type_unliftedEq left Var_IdOrTyVar
+

@@ -156,7 +156,7 @@ import VarSet
 import Class
 import TyCon
 import TysPrim
-import {-# SOURCE #-} TysWiredIn ( eqTyCon )
+import {-# SOURCE #-} TysWiredIn ( eqTyCon, typeNatKind, typeStringKind )
 import PrelNames ( eqTyConKey, ipClassNameKey, 
                    constraintKindTyConKey, liftedTypeKindTyConKey )
 import CoAxiom
@@ -1059,7 +1059,9 @@ mkFamilyTyConApp :: TyCon -> [Type] -> Type
 -- > mkFamilyTyConApp :RTL Int  =  T (Maybe Int)
 mkFamilyTyConApp tc tys
   | Just (fam_tc, fam_tys) <- tyConFamInst_maybe tc
-  , let fam_subst = zipTopTCvSubst (tyConTyCoVars tc) tys
+  , let tvs = tyConTyCoVars tc
+        fam_subst = ASSERT2( length tvs == length tys, ppr tc <+> ppr tys )
+                    zipTopTCvSubst tvs tys
   = mkTyConApp fam_tc (substTys fam_subst fam_tys)
   | otherwise
   = mkTyConApp tc tys
@@ -1371,13 +1373,11 @@ typeKind _ty@(FunTy _arg res)
     where
       k = typeKind res
 
-
 typeLiteralKind :: TyLit -> Kind
 typeLiteralKind l =
   case l of
     NumTyLit _ -> typeNatKind
     StrTyLit _ -> typeStringKind
-
 \end{code}
 
 Kind inference
