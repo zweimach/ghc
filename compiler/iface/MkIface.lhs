@@ -1455,7 +1455,7 @@ coAxBranchToIfaceBranch (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rh
                   , ifaxbLHS    = map (tidyToIfaceType env) lhs
                   , ifaxbRHS    = tidyToIfaceType env rhs }
   where
-    (env, tv_bndrs) = tidyTyVarBndrs emptyTidyEnv tvs
+    (env, tv_bndrs) = tidyTyCoVarBndrs emptyTidyEnv tvs
 
 -----------------
 tyConToIfaceDecl :: TidyEnv -> TyCon -> IfaceDecl
@@ -1544,7 +1544,7 @@ classToIfaceDecl env clas
       = classExtraBigSig clas
     tycon = classTyCon clas
 
-    (env1, clas_tyvars') = tidyTyVarBndrs env clas_tyvars
+    (env1, clas_tyvars') = tidyTyCoVarBndrs env clas_tyvars
     
     toIfaceAT :: ClassATItem -> IfaceAT
     toIfaceAT (tc, defs)

@@ -75,9 +75,9 @@ simplifyTop wanteds
     simpl_top :: WantedConstraints -> TcS WantedConstraints
     simpl_top wanteds
       = do { wc_first_go <- nestTcS (solve_wanteds_and_drop wanteds)
-           ; free_tvs <- TcS.zonkTyVarsAndFV (tyVarsOfWC wc_first_go) 
+           ; free_tvs <- TcS.zonkTyCoVarsAndFV (tyVarsOfWC wc_first_go) 
            ; let meta_tvs = filterVarSet isMetaTyVar free_tvs
-                   -- zonkTyVarsAndFV: the wc_first_go is not yet zonked
+                   -- zonkTyCoVarsAndFV: the wc_first_go is not yet zonked
                    -- filter isMetaTyVar: we might have runtime-skolems in GHCi, 
                    -- and we definitely don't want to try to assign to those!
 

@@ -94,7 +94,7 @@ module TcType (
   tidyType,      tidyTypes,
   tidyOpenType,  tidyOpenTypes,
   tidyOpenKind,
-  tidyTyVarBndr, tidyTyVarBndrs, tidyFreeTyCoVars,
+  tidyTyCoVarBndr, tidyTyCoVarBndrs, tidyFreeTyCoVars,
   tidyOpenTyVar, tidyOpenTyVars,
   tidyTyVarOcc,
   tidyTopType,

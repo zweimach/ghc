@@ -567,7 +567,7 @@ deriveTyData tvs tc tc_args (L loc deriv_pred)
 
         -- Given data T a b c = ... deriving( C d ),
         -- we want to drop type variables from T so that (C d (T a)) is well-kinded
-        ; let cls_tyvars     = classTyVars cls
+        ; let cls_tyvars     = classTyCoVars cls
               kind           = tyVarKind (last cls_tyvars)
               (arg_kinds, _) = splitKindFunTys kind
               n_args_to_drop = length arg_kinds

@@ -904,7 +904,7 @@ tcFamTyPats fam_tc (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tva
             -- them into skolems, so that we don't subsequently 
             -- replace a meta kind var with AnyK
             -- Very like kindGeneralize
-       ; tkvs <- zonkTyVarsAndFV (tyVarsOfTypes all_args)
+       ; tkvs <- zonkTyCoVarsAndFV (tyCoVarsOfTypes all_args)
        ; qtkvs <- zonkQuantifiedTyVars (varSetElems tkvs)
 
             -- Zonk the patterns etc into the Type world
@@ -1648,7 +1648,7 @@ mkRecSelBind (tycon, sel_name)
         --                 A :: { fld :: Int } -> T Int Bool
         --                 B :: { fld :: Int } -> T Int Char
     dealt_with con = con `elem` cons_w_field || dataConCannotMatch inst_tys con
-    inst_tys = substTyVars (mkTopTCvSubst (dataConEqSpec con1)) (dataConUnivTyCoVars con1)
+    inst_tys = substTyCoVars (mkTopTCvSubst (dataConEqSpec con1)) (dataConUnivTyCoVars con1)
 
     unit_rhs = mkLHsTupleExpr []
     msg_lit = HsStringPrim $ unsafeMkByteString $
@@ -1820,7 +1820,7 @@ noClassTyVarErr :: Class -> Var -> SDoc
 noClassTyVarErr clas op
   = sep [ptext (sLit "The class method") <+> quotes (ppr op),
 	 ptext (sLit "mentions none of the type variables of the class") <+> 
-		ppr clas <+> hsep (map ppr (classTyVars clas))]
+		ppr clas <+> hsep (map ppr (classTyCoVars clas))]
 
 recSynErr :: [LTyClDecl Name] -> TcRn ()
 recSynErr syn_decls

@@ -15,7 +15,7 @@ module IfaceType (
 
         -- Conversion from Type -> IfaceType
         toIfaceType, toIfaceKind, toIfaceContext,
-        toIfaceBndr, toIfaceIdBndr, toIfaceTvBndrs,
+        toIfaceBndr, toIfaceIdBndr, toIfaceTCvBndrs,
         toIfaceTyCon, toIfaceTyCon_name,
 
         -- Conversion from Coercion -> IfaceType
@@ -309,7 +309,7 @@ toIfaceTCvBndrs tyvars = map toIfaceTCvBndr tyvars
 toIfaceBndr :: Var -> IfaceBndr
 toIfaceBndr var
   | isId var  = IfaceIdBndr (toIfaceIdBndr var)
-  | otherwise = IfaceTvBndr (toIfaceTvBndr var)
+  | otherwise = IfaceTvBndr (toIfaceTCvBndr var)
 
 toIfaceKind :: Type -> IfaceType
 toIfaceKind = toIfaceType
@@ -322,7 +322,7 @@ toIfaceType (AppTy t1 t2)     = IfaceAppTy (toIfaceType t1) (toIfaceType t2)
 toIfaceType (FunTy t1 t2)     = IfaceFunTy (toIfaceType t1) (toIfaceType t2)
 toIfaceType (TyConApp tc tys) = IfaceTyConApp (toIfaceTyCon tc) (toIfaceTypes tys)
 toIfaceType (LitTy n)         = IfaceLitTy (toIfaceTyLit n)
-toIfaceType (ForAllTy tv t)   = IfaceForAllTy (toIfaceTvBndr tv) (toIfaceType t)
+toIfaceType (ForAllTy tv t)   = IfaceForAllTy (toIfaceTCvBndr tv) (toIfaceType t)
 
 toIfaceTyVar :: TyVar -> FastString
 toIfaceTyVar = occNameFS . getOccName
@@ -359,7 +359,7 @@ coToIfaceType (TyConAppCo tc cos)
                                                     (map coToIfaceType cos)
 coToIfaceType (AppCo co1 co2)       = IfaceAppTy    (coToIfaceType co1)
                                                     (coToIfaceType co2)
-coToIfaceType (ForAllCo v co)       = IfaceForAllTy (toIfaceTvBndr v)
+coToIfaceType (ForAllCo v co)       = IfaceForAllTy (toIfaceTCvBndr v)
                                                     (coToIfaceType co)
 coToIfaceType (CoVarCo cv)          = IfaceTyVar  (toIfaceCoVar cv)
 coToIfaceType (AxiomInstCo con ind cos)

@@ -56,7 +56,7 @@ module TcMType (
   checkValidInstHead, checkValidInstance, validDerivPred,
   checkInstTermination, checkValidTyFamInst, checkTyFamFreeness, 
   arityErr, 
-  growThetaTyVars, quantifyPred,
+  growThetaTyCoVars, quantifyPred,
 
   --------------------------------
   -- Zonking
@@ -1499,7 +1499,7 @@ so we can take their type variables into account as part of the
 
 
 \begin{code}
-checkAmbiguity :: [TyVar] -> ThetaType -> TyVarSet -> TcM ()
+checkAmbiguity :: [TyCoVar] -> ThetaType -> TyCoVarSet -> TcM ()
 -- Note [The ambiguity check for type signatures]
 checkAmbiguity forall_tyvars theta tau_tyvars
   = do { flexible_instances <- xoptM Opt_FlexibleInstances
@@ -1514,7 +1514,7 @@ checkAmbiguity forall_tyvars theta tau_tyvars
 
     forall_tv_set = mkVarSet forall_tyvars
     (candidates, others) = partition is_candidate theta
-    unambig_vars = growThetaTyVars theta (tau_tyvars `unionVarSet` tyCoVarsOfTypes others)
+    unambig_vars = growThetaTyCoVars theta (tau_tyvars `unionVarSet` tyCoVarsOfTypes others)
 
     is_ambig pred = (tyCoVarsOfType pred `minusVarSet` unambig_vars)
                     `intersectsVarSet` forall_tv_set
@@ -1561,13 +1561,13 @@ BOTTOM LINE: when *inferring types* you *must* quantify
 over implicit parameters. See the predicate isFreeWhenInferring.
 
 \begin{code}
-quantifyPred :: TyVarSet      -- Quantifying over these
+quantifyPred :: TyCoVarSet      -- Quantifying over these
 	     -> PredType -> Bool	    -- True <=> quantify over this wanted
 quantifyPred qtvs pred
   | isIPPred pred = True  -- Note [Inheriting implicit parameters]
   | otherwise	  = tyCoVarsOfType pred `intersectsVarSet` qtvs
 
-growThetaTyVars :: TcThetaType -> TyVarSet -> TyVarSet
+growThetaTyCoVars :: TcThetaType -> TyCoVarSet -> TyCoVarSet
 -- See Note [Growing the tau-tvs using constraints]
 growThetaTyVars theta tvs
   | null theta = tvs
@@ -1577,8 +1577,8 @@ growThetaTyVars theta tvs
     grow_one pred tvs = growPredTyVars pred tvs `unionVarSet` tvs
 
 growPredTyVars :: TcPredType
-               -> TyVarSet	-- The set to extend
-	       -> TyVarSet	-- TyVars of the predicate if it intersects the set, 
+               -> TyCoVarSet	-- The set to extend
+	       -> TyCoVarSet	-- TyVars of the predicate if it intersects the set, 
 growPredTyVars pred tvs 
    | isIPPred pred                   = pred_tvs   -- Always quantify over implicit parameers
    | pred_tvs `intersectsVarSet` tvs = pred_tvs
@@ -1885,7 +1885,7 @@ checkValidFamPats :: TyCon -> [TyVar] -> [Type] -> TcM ()
 --         type instance F (T a) = a
 checkValidFamPats fam_tc tvs ty_pats
   = do { mapM_ checkTyFamFreeness ty_pats
-       ; let unbound_tvs = filterOut (`elemVarSet` exactTyVarsOfTypes ty_pats) tvs
+       ; let unbound_tvs = filterOut (`elemVarSet` exactTyCoVarsOfTypes ty_pats) tvs
        ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
 
 -- Ensure that no type family instances occur in a type.

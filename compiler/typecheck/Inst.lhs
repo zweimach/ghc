@@ -598,7 +598,7 @@ tidySkolemInfo env (UnifyForAllSkol skol_tvs ty)
   = (env1, UnifyForAllSkol skol_tvs' ty')
   where
     env1 = tidyFreeTyCoVars env (tyCoVarsOfType ty `delVarSetList` skol_tvs)
-    (env2, skol_tvs') = tidyTyVarBndrs env1 skol_tvs
+    (env2, skol_tvs') = tidyTyCoVarBndrs env1 skol_tvs
     ty'               = tidyType env2 ty
 
 tidySkolemInfo env info = (env, info)

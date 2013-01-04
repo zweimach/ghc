@@ -21,7 +21,7 @@ module Class (
 
 	FunDep,	pprFundeps, pprFunDep,
 
-	mkClass, classTyVars, classArity, 
+	mkClass, classTyCoVars, classArity, 
 	classKey, className, classATs, classATItems, classTyCon, classMethods,
 	classOpItems, classBigSig, classExtraBigSig, classTvsFds, classSCTheta,
         classAllSelIds, classSCSelId
@@ -64,10 +64,10 @@ data Class
 	className :: Name,              -- Just the cached name of the TyCon
 	classKey  :: Unique,		-- Cached unique of TyCon
 	
-	classTyVars  :: [TyVar],	-- The class kind and type variables;
+	classTyCoVars  :: [TyCoVar],	-- The class kind and type variables;
 		     			-- identical to those of the TyCon
 
-	classFunDeps :: [FunDep TyVar],	-- The functional dependencies
+	classFunDeps :: [FunDep TyCoVar],  -- The functional dependencies
 
 	-- Superclasses: eg: (F a ~ b, F b ~ G a, Eq a, Show b)
         -- We need value-level selectors for both the dictionary 
@@ -126,8 +126,8 @@ defMethSpecOfDefMeth meth
 The @mkClass@ function fills in the indirect superclasses.
 
 \begin{code}
-mkClass :: [TyVar]
-	-> [([TyVar], [TyVar])]
+mkClass :: [TyCoVar]
+	-> [([TyCoVar], [TyCoVar])]
 	-> [PredType] -> [Id]
 	-> [ClassATItem]
 	-> [ClassOpItem]
@@ -138,7 +138,7 @@ mkClass tyvars fds super_classes superdict_sels at_stuff
 	op_stuff tycon
   = Class {	classKey     = tyConUnique tycon, 
 		className    = tyConName tycon,
-		classTyVars  = tyvars,
+		classTyCoVars = tyvars,
 		classFunDeps = fds,
 		classSCTheta = super_classes,
 		classSCSels  = superdict_sels,
@@ -176,7 +176,7 @@ The rest of these functions are just simple selectors.
 
 \begin{code}
 classArity :: Class -> Arity
-classArity clas = length (classTyVars clas)
+classArity clas = length (classTyCoVars clas)
 	-- Could memoise this
 
 classAllSelIds :: Class -> [Id]
@@ -206,17 +206,17 @@ classATs (Class { classATStuff = at_stuff })
 classATItems :: Class -> [ClassATItem]
 classATItems = classATStuff
 
-classTvsFds :: Class -> ([TyVar], [FunDep TyVar])
+classTvsFds :: Class -> ([TyCoVar], [FunDep TyCoVar])
 classTvsFds c
-  = (classTyVars c, classFunDeps c)
+  = (classTyCoVars c, classFunDeps c)
 
-classBigSig :: Class -> ([TyVar], [PredType], [Id], [ClassOpItem])
-classBigSig (Class {classTyVars = tyvars, classSCTheta = sc_theta, 
+classBigSig :: Class -> ([TyCoVar], [PredType], [Id], [ClassOpItem])
+classBigSig (Class {classTyCoVars = tyvars, classSCTheta = sc_theta, 
 	 	    classSCSels = sc_sels, classOpStuff = op_stuff})
   = (tyvars, sc_theta, sc_sels, op_stuff)
 
-classExtraBigSig :: Class -> ([TyVar], [FunDep TyVar], [PredType], [Id], [ClassATItem], [ClassOpItem])
-classExtraBigSig (Class {classTyVars = tyvars, classFunDeps = fundeps,
+classExtraBigSig :: Class -> ([TyCoVar], [FunDep TyCoVar], [PredType], [Id], [ClassATItem], [ClassOpItem])
+classExtraBigSig (Class {classTyCoVars = tyvars, classFunDeps = fundeps,
 			 classSCTheta = sc_theta, classSCSels = sc_sels,
 			 classATStuff = ats, classOpStuff = op_stuff})
   = (tyvars, fundeps, sc_theta, sc_sels, ats, op_stuff)

@@ -462,7 +462,7 @@ dataConCPR con
 type Unboxer = Var -> UniqSM ([Var], CoreExpr -> CoreExpr)
   -- Unbox: bind rep vars by decomposing src var
 
-data Boxer = UnitBox | Boxer (TvSubst -> UniqSM ([Var], CoreExpr))
+data Boxer = UnitBox | Boxer (TCvSubst -> UniqSM ([Var], CoreExpr))
   -- Box:   build src arg using these rep vars
 
 newtype DataConBoxer = DCB ([Type] -> [Var] -> UniqSM ([Var], [CoreBind]))

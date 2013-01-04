@@ -555,7 +555,7 @@ mkExport prag_fn qtvs theta (poly_name, mb_sig, mono_id)
               -- In the inference case (no signature) this stuff figures out
               -- the right type variables and theta to quantify over
               -- See Note [Impedence matching]
-              my_tv_set = growThetaTyVars theta (tyCoVarsOfType mono_ty)
+              my_tv_set = growThetaTyCoVars theta (tyCoVarsOfType mono_ty)
               my_tvs = filter (`elemVarSet` my_tv_set) qtvs   -- Maintain original order
               my_theta = filter (quantifyPred my_tv_set) theta
               inferred_poly_ty = mkSigmaTy my_tvs my_theta mono_ty

@@ -498,7 +498,7 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                   badBootDeclErr
 
         ; (tyvars, theta, clas, inst_tys) <- tcHsInstHead InstDeclCtxt poly_ty
-        ; let mini_env   = mkVarEnv (classTyVars clas `zip` inst_tys)
+        ; let mini_env   = mkVarEnv (classTyCoVars clas `zip` inst_tys)
               mini_subst = mkTCvSubst (mkInScopeSet (mkVarSet tyvars)) mini_env
                            
         -- Next, process any associated types.

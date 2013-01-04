@@ -202,7 +202,7 @@ buildClass :: Bool		-- True <=> do not include unfoldings
 				--	    on dict selectors
 				-- Used when importing a class without -O
 	   -> Name -> [TyVar] -> ThetaType
-	   -> [FunDep TyVar]		   -- Functional dependencies
+	   -> [FunDep TyCoVar]		   -- Functional dependencies
 	   -> [ClassATItem]		   -- Associated types
 	   -> [TcMethInfo]                 -- Method info
 	   -> RecFlag			   -- Info for type constructor
