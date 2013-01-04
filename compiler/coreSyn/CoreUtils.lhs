@@ -1734,10 +1734,10 @@ tryEtaReduce bndrs body
     -- See Note [Eta reduction with casted arguments]
     ok_arg bndr (Type ty) co
        | Just tv <- getTyVar_maybe ty
-       , bndr == tv  = Just (mkForAllTyCo tv co)
+       , bndr == tv  = Just (mkForAllCo_TyHomo tv co)
     ok_arg bndr (Coercion co1) co2
        | Just cv <- getCoVar_maybe co1
-       , bndr == cv  = Just (mkForAllCoCo tv co)
+       , bndr == cv  = Just (mkForAllCo_CoHomo cv co)
     ok_arg bndr (Var v) co
        | bndr == v   = Just (mkFunCo (mkReflCo (idType bndr)) co)
     ok_arg bndr (Cast (Var v) co_arg) co

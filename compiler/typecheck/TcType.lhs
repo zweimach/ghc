@@ -742,17 +742,9 @@ exactTyCoVarsOfType ty
     goCo (Refl ty)          = go ty
     goCo (TyConAppCo _ args)= goCoArgs args
     goCo (AppCo co arg)     = goCo co `unionVarSet` goCoArg arg
-    goCo (ForAllTyCo tv1 tv2 cv co)
-      = let (cvty1, cvty2) = coVarKind cv in
-        goCo co `delVarSetList` [tv1, tv2, co]
-                `unionVarSet` exactTyCoVarsOfTypes [ tyVarKind tv1
-                                                   , tyVarKind tv2
-                                                   , cvty1, cvty2 ]
-    goCo (ForAllCoCo cv1 cv2 co)
-      = let (cv1ty1, cv1ty2) = coVarKind cv1
-            (cv2ty1, cv2ty2) = coVarKind cv2 in
-        goCo co `delVarSetList` [cv1, cv2]
-                `unionVarSet` exactTyCoVarsOfTypes [cv1ty1, cv1ty2, cv2ty1, cv2ty2]
+    goCo (ForAllCo bndr co)
+      = let (vars, kinds) = coBndrVarsKinds bndr in
+        goCo co `delVarSetList` vars `unionVarSet` exactTyCoVarsOfTypes kinds
     goCo (CoVarCo v)         = unitVarSet v
     goCo (AxiomInstCo _ _ args) = goCoArgs args
     goCo (UnsafeCo ty1 ty2)  = go ty1 `unionVarSet` go ty2
@@ -1205,10 +1197,9 @@ pickyEqType ty1 ty2
     go_co env (Refl ty1)       (Refl ty2)       = go env ty1 ty2
     go_co env (TyConAppCo tc1 args1) (TyConAppCo tc2 args2) = (tc1 == tc2) && go_args args1 args2
     go_co env (AppCo co1 arg1) (AppCo co2 arg2) = go env co1 co2 && go_arg env arg1 arg2
-    go_co env (ForAllTyCo tv11 tv12 cv1 co1) (ForAllTyCo tv21 tv22 cv2 co2)
-      = go_co (rnBndr2 (rnBndr2 (rnBndr2 env tv11 tv21) tv12 tv22) cv1 cv2) co1 co2
-    go_co env (ForAllCoCo cv11 cv12 co1) (ForAllCoCo cv21 cv22 co2)
-      = go_co (rnBndr2 (rnBnder2 env cv11 cv21) cv12 cv22) co1 co2
+    go_co env (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
+      = cobndr1 `eqCoBndrSort` cobndr2 &&
+        go_co (rnBndrs2 env (coBndrVars cobndr1) (coBndrVars cobndr2)) co1 co2
     go_co env (CoVarCo cv1)    (CoVarCo cv2)    = rnOccL env cv1 == rnOccR env cv2
     go_co env (AxiomInstCo ax1 ind1 args1) (AxiomInstCo ax2 ind2 args2)
       = (ax1 == ax2) && (ind1 == ind2) && go_args env args1 args2

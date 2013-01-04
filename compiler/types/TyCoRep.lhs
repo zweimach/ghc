@@ -1,4 +1,4 @@
- | %
+%
 % (c) The University of Glasgow 2006
 % (c) The GRASP/AQUA Project, Glasgow University, 1998
 %
@@ -27,8 +27,8 @@ Note [The Type-related module hierarchy]
 {-# OPTIONS_HADDOCK hide #-}
 {-# LANGUAGE DeriveDataTypeable, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
 module TyCoRep (
-	TyThing(..),
-	Type(..),
+        TyThing(..),
+        Type(..),
         TyLit(..),
         KindOrType, Kind, SuperKind,
         PredType, ThetaType,      -- Synonyms
@@ -358,8 +358,7 @@ data Coercion
   | AppCo Coercion CoercionArg        -- lift AppTy
 
   -- See Note [Forall coercions]
-  | ForAllTyCo TyVar TyVar CoVar Coercion       -- forall (a1, a2, c). g
-  | ForAllCoCo CoVar CoVar Coercion             -- forall (c1, c2). g
+  | ForAllCo ForAllCoBndr Coercion
 
   -- These are special
   | CoVarCo CoVar
@@ -385,6 +384,37 @@ data Coercion
   -- Extract a kind coercion from a (heterogeneous) type coercion
   | KindCo Coercion
   deriving (Data.Data, Data.Typeable)
+
+-- | A 'ForAllCoBndr' is a binding form for a quantified coercion. It is 
+-- necessary when lifting quantified types into coercions.  See Note
+-- [Forall coercions]
+
+-- If you edit this type, you may need to update the GHC formalism
+-- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+data ForAllCoBndr
+  = TyHomo TyVar
+  | TyHetero TyVar TyVar CoVar
+  | CoHomo CoVar
+  | CoHetero CoVar CoVar
+
+-- returns the variable bound in a ForAllCoBndr
+coBndrVars :: ForAllCoBndr -> [TyCoVar]
+coBndrVars (TyHomo tv) = [tv]
+coBndrVars (TyHetero tv1 tv2 cv) = [tv1, tv2, cv]
+coBndrVars (CoHomo cv) = [cv]
+coBndrVars (CoHetero cv1 cv2) = [cv1, cv2]
+
+-- returns the variables with their types
+coBndrVarsKinds :: ForAllCoBndr -> ([TyCoVar], [Type])
+coBndrVarsKinds bndr = (vars, map varType vars)
+  where vars = coBndrVars bndr
+
+-- are two ForAllCoBndrs the same sort of binder?
+eqCoBndrSort :: ForAllCoBndr -> ForAllCoBndr -> Bool
+eqCoBndrSort (TyHomo {})   (TyHomo {})   = True
+eqCoBndrSort (TyHetero {}) (TyHetero {}) = True
+eqCoBndrSort (CoHomo {})   (CoHomo {})   = True
+eqCoBndrSort (CoHetero {}) (CoHetero {}) = True
 
 -- | A CoercionArg is an argument to a coercion. It may be a coercion (lifted from
 -- a type) or a pair of coercions (lifted from a coercion). See
@@ -506,8 +536,10 @@ Note [Forall coercions]
 Constructing coercions between forall-types can be a bit tricky.
 Currently, the situation is as follows:
 
-  1) ForAllTyCo TyVar TyVar CoVar Coercion
-  2) ForAllCoCo CoVar CoVar Coercion
+  1) ForAllCo (TyHetero TyVar TyVar CoVar) Coercion
+  2) ForAllCo (CoHetero CoVar CoVar)       Coercion
+  3) ForAllCo (TyHomo TyVar)               Coercion
+  4) ForAllCo (CoHomo CoVar)               Coercion
 
 We'll take these one at a time.
 
@@ -520,8 +552,8 @@ a1 and a2.
 The typing rule is thus:
 
      a1 : k1    a2 : k2    c : a1 ~ a2    g : t1 ~ t2
-  ------------------------------------------------------
-  ForAllTyCo a1 a2 c g : (all a1:k1.t1) ~ (all v2:k2.t2)
+  ---------------------------------------------------------------
+  ForAllCo (TyHetero a1 a2 c) g : (all a1:k1.t1) ~ (all v2:k2.t2)
 
 2) This form represents a coercion between two forall-types-over-coercions,
 say (forall c1:phi1.t1) and (forall c2:phi2.t2). Because phi1 might not
@@ -533,7 +565,25 @@ The typing rule is thus:
 
          c1 : phi1     c2 : phi2     g : t1 ~ t2
   --------------------------------------------------------
-  ForAllCoCo c1 c2 g : (all c1:phi1.t1) ~ (all c2:phi2.t2)
+  ForAllCo (CoHetero c1 c2) g : (all c1:phi1.t1) ~ (all c2:phi2.t2)
+
+3) This form is a simplification when the two kinds of the types in a
+TyHetero are actually the same. The coercion variable would not normally
+appear in the coercion. The typing rule is:
+
+      a : k     g : t1 ~ t2
+  ---------------------------------------------------
+  ForAllCo (TyHomo a) g : (all a:k.t1) ~ (all a:k.t2)
+
+4) Similarly, the CoHomo form is for homogeneous coercion quantification.
+The typing rule is:
+
+      c : phi        g : t1 ~ t2
+  -------------------------------------------------------
+  ForAllCo (CoHomo c) g : (all c:phi.t1) ~ (all c:phi.t2)
+
+Note that is is an *invariant* that the kinds of the variables in a "Hetero"
+construction are different.
 
 Note [Coherence]
 ~~~~~~~~~~~~~~~~
@@ -606,17 +656,9 @@ tyVarsOnlyOfCo :: Coercion -> TyCoVarSet
 tyVarsOnlyOfCo (Refl ty)           = tyVarsOnlyOfType ty
 tyVarsOnlyOfCo (TyConAppCo _ args) = tyVarsOnlyOfCoArgs args
 tyVarsOnlyOfCo (AppCo co arg)      = tyVarsOnlyOfCo co `unionVarSet` tyVarsOnlyOfCoArg arg
-tyVarsOnlyOfCo (ForAllTyCo tv1 tv2 cv co)
-  = let phi = coVarKind cv
-        ki1 = tyVarKind tv1
-        ki2 = tyVarKind tv2 in
-    tyVarsOnlyOfCo co `delVarSetList` [tv1, tv2, cv]
-                  `unionVarSet` tyVarsOnlyOfTypes [ki1, ki2, phi]
-tyVarsOnlyOfCo (ForAllCoCo cv1 cv2 co)
-  = let phi1 = coVarKind cv1
-        phi2 = coVarKind cv2 in
-    tyVarsOnlyOfCo co `delVarSetList` [cv1, cv2]
-                  `unionVarSet` tyVarsOnlyOfTypes [phi1, phi2]
+tyVarsOnlyOfCo (ForAllCo cobndr co)
+  = let (vars, kinds) = coBndrVarsKinds cobndr in
+    tyVarsOnlyOfCo co `delVarSetList` vars `unionVarSet` tyVarsOnlyOfTypes kinds
 tyVarsOnlyOfCo (CoVarCo v)         = emptyVarSet
 tyVarsOnlyOfCo (AxiomInstCo _ _ cos) = tyVarsOnlyOfCoArgs cos
 tyVarsOnlyOfCo (UnsafeCo ty1 ty2)  = tyVarsOnlyOfType ty1 `unionVarSet` tyVarsOnlyOfType ty2
@@ -662,17 +704,9 @@ tyCoVarsOfCo :: Coercion -> TyCoVarSet
 tyCoVarsOfCo (Refl ty)           = tyCoVarsOfType ty
 tyCoVarsOfCo (TyConAppCo _ args) = tyCoVarsOfCoArgs args
 tyCoVarsOfCo (AppCo co arg)      = tyCoVarsOfCo co `unionVarSet` tyCoVarsOfCoArg arg
-tyCoVarsOfCo (ForAllTyCo tv1 tv2 cv co)
-  = let phi = coVarKind cv
-        ki1 = tyVarKind tv1
-        ki2 = tyVarKind tv2 in
-    tyCoVarsOfCo co `delVarSetList` [tv1, tv2, cv]
-                    `unionVarSet` tyCoVarsOfTypes [ki1, ki2, phi]
-tyCoVarsOfCo (ForAllCoCo cv1 cv2 co)
-  = let phi1 = coVarKind cv1
-        phi2 = coVarKind cv2 in
-    tyCoVarsOfCo co `delVarSetList` [cv1, cv2]
-                    `unionVarSet` tyCoVarsOfTypes [phi1, phi2]
+tyCoVarsOfCo (ForAllCo cobndr co)
+  = let (vars, kinds) = coBndrVarsKinds cobndr in
+    tyCoVarsOfCo co `delVarSetList` vars `unionVarSet` tyCoVarsOfTypes kinds
 tyCoVarsOfCo (CoVarCo v)         = unitVarSet v
 tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCoArgs cos
 tyCoVarsOfCo (UnsafeCo ty1 ty2)
@@ -714,17 +748,9 @@ coVarsOfCo :: Coercion -> CoVarSet
 coVarsOfCo (Refl ty)           = coVarsOfType ty
 coVarsOfCo (TyConAppCo _ args) = coVarsOfCoArgs args
 coVarsOfCo (AppCo co arg)      = coVarsOfCo co `unionVarSet` coVarsOfCoArg arg
-coVarsOfCo (ForAllTyCo tv1 tv2 cv co)
-  = let phi = coVarKind cv
-        ki1 = tyVarKind tv1
-        ki2 = tyVarKind tv2 in
-    coVarsOfCo co `delVarSetList` [tv1, tv2, cv]
-                  `unionVarSet` coVarsOfTypes [ki1, ki2, phi]
-tyCoVarsOfCo (ForAllCoCo cv1 cv2 co)
-  = let phi1 = coVarKind cv1
-        phi2 = coVarKind cv2 in
-    coVarsOfCo co `delVarSetList` [cv1, cv2]
-                  `unionVarSet` coVarsOfTypes [phi1, phi2]
+coVarsOfCo (ForAllCo cobndr co)
+  = let (vars, kinds) = coBndrVarsKinds in
+    coVarsOfCo co `delVarSetList` vars `unionVarSet` coVarsOfTypes kinds
 coVarsOfCo (CoVarCo v)         = unitVarSet v
 coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCoArgs cos
 coVarsOfCo (UnsafeCo ty1 ty2)  = coVarsOfTypes [ty1, ty2]
@@ -1208,15 +1234,21 @@ subst_co subst co
     go (TyConAppCo tc args)  = let args' = map go_arg args
                                in  args' `seqList` TyConAppCo tc args'
     go (AppCo co arg)        = mkAppCo (go co) $! go_arg arg
-    go (ForAllTyCo tv1 tv2 cv co)
+    go (ForAllCo (TyHomo tv) co)
+      = case substTyVarBndr subst  tv  of { (subst1, tv') ->
+        mkForAllCo_TyHomo tv' $! subst_co subst1 co }
+    go (ForAllCo (TyHetero tv1 tv2 cv) co)
       = case substTyVarBndr subst  tv1 of { (subst1, tv1') ->
         case substTyVarBndr subst1 tv2 of { (subst2, tv2') ->
         case substCoVarBndr subst2 cv  of { (subst3, cv') ->
-        ForAllTyCo tv1' tv2' cv' $! subst_co subst3 co }}}
-    go (ForAllCoCo cv1 cv2 co)
+        mkForAllCo_Ty tv1' tv2' cv' $! subst_co subst3 co }}}
+    go (ForAllCo (CoHomo cv) co)
+      = case substCoVarBndr subst  cv  of { (subst1, cv') ->
+        mkForAllCo_CoHomo cv' $! subst_co subst1 co }
+    go (ForAllCo (CoHetero cv1 cv2) co)
       = case substCoVarBndr subst  cv1 of { (subst1, cv1') ->
         case substCoVarBndr subst1 cv2 of { (subst2, cv2') ->
-        ForAllCoCo cv1' cv2' $! subst_co subst2 co
+        mkForAllCo_Co cv1' cv2' $! subst_co subst2 co
     go (CoVarCo cv)          = substCoVar subst cv
     go (AxiomInstCo con ind cos) = AxiomInstCo con ind $! map go_arg cos
     go (UnsafeCo ty1 ty2)    = (UnsafeCo $! go_ty ty1) $! go_ty ty2

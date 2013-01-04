@@ -104,8 +104,7 @@ g {{ tex \gamma }}, h {{ tex \eta }} :: 'Coercion_' ::= {{ com Coercions, \coder
     {{ tex \langle [[t]] \rangle }}
   | T </ wi // i />         ::   :: TyConAppCo    {{ com \ctor{TyConAppCo}: Type constructor application }}
   | g w                     ::   :: AppCo         {{ com \ctor{AppCo}: Application }}
-  | forall ( n1 , n2 , z ) . g :: :: ForAllTyCo   {{ com \ctor{ForAllTyCo}: Type polymorphism }}
-  | forall ( n1 , n2 ) . g  ::   :: ForAllCoCo    {{ com \ctor{ForAllCoCo}: Coercion polymorphism }}
+  | forall cobndr . g       ::   :: ForAllCo      {{ com \ctor{ForAllCo}: Polymorphism }}
   | n                       ::   :: CoVarCo       {{ com \ctor{CoVarCo}: Variable }}
   | C ind </ wi // i />     ::   :: AxiomInstCo   {{ com \ctor{AxiomInstCo}: Axiom application }}
   | t1 ==>! t2              ::   :: UnsafeCo      {{ com \ctor{UnsafeCo}: Unsafe coercion }}
@@ -118,6 +117,12 @@ g {{ tex \gamma }}, h {{ tex \eta }} :: 'Coercion_' ::= {{ com Coercions, \coder
   | g |> h                  ::   :: CoherenceCo   {{ com \ctor{CoherenceCo}: Coherence }}
   | kind g                  ::   :: KindCo        {{ com \ctor{KindCo}: Kind extraction }}
   | ( g )                   :: M :: Parens        {{ com Parentheses }}
+
+cobndr :: 'ForAllCoBndr_' ::= {{ com Binder to quantified coercion, \coderef{types/TyCoRep.lhs}{ForAllCoBndr} }}
+  | n               ::   :: TyHomo      {{ com \ctor{TyHomo}: Homogeneous type quantification }}
+  | ( n1 , n2 , z ) ::   :: TyHetero    {{ com \ctor{TyHetero}: Heterogeneous type quantification }}
+  | n               ::   :: CoHomo      {{ com \ctor{CoHomo}: Homogeneous coercion quantification }}
+  | ( n1 , n2 )     ::   :: CoHetero    {{ com \ctor{CoHetero}: Heterogeneous coercion quantification }}
 
 w {{ tex \omega }} :: 'CoercionArg_' ::= {{ com Argument to a coercion application, \coderef{types/TyCoRep.lhs}{CoercionArg} }}
   | g                ::   :: TyCoArg         {{ com \ctor{TyCoArg}: Coercion between types }}
@@ -317,3 +322,5 @@ Coercion_CoVarCo <= Type_CoercionTy
 
 Type_unliftedEq left Var_IdOrTyVar
 
+Name_Type <= ForAllCoBndr_CoHomo
+Name_Term <= ForAllCoBndr_TyHomo

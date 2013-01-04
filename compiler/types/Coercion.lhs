@@ -33,8 +33,8 @@ module Coercion (
         mkPiCo, mkPiCos, mkCoCast,
         mkSymCo, mkTransCo, mkNthCo, mkLRCo,
 	mkInstCo, mkAppCo, mkTyConAppCo, mkFunCo,
-        mkForAllCo, mkUnsafeCo,
-        mkNewTypeCo, 
+        mkForAllCo_Ty, mkForAllCo_TyHomo, mkForAllCo_Co, mkForAllCo_CoHomo,
+        mkUnsafeCo, mkNewTypeCo, 
 
         -- ** Decomposition
         splitNewTypeRepCo_maybe, instNewTyCon_maybe, decomposeCo,
@@ -395,11 +395,45 @@ mkTyConAppCo tc cos
 mkFunCo :: Coercion -> Coercion -> Coercion
 mkFunCo co1 co2 = mkTyConAppCo funTyCon [co1, co2]
 
--- | Make a 'Coercion' which binds a variable within an inner 'Coercion'
-mkForAllCo :: Var -> Coercion -> Coercion
--- note that a TyVar should be used here, not a CoVar (nor a TcTyVar)
-mkForAllCo tv (Refl ty) = ASSERT( isTyVar tv ) Refl (mkForAllTy tv ty)
-mkForAllCo tv  co       = ASSERT ( isTyVar tv ) ForAllCo tv co
+-- | Make a Coercion quantified over a type variable; the variable has
+-- the same type in both types of the coercion
+mkForAllCo_TyHomo :: TyVar -> Coercion -> Coercion
+mkForAllCo_TyHomo tv (Refl ty) = ASSERT( isTyVar tv ) Refl (mkForAllTy tv ty)
+mkForAllCo_TyHomo tv co        = ASSERT( isTyVar tv ) ForAllCo (TyHomo tv) co
+
+-- | Make a Coercion quantified over two type variables and a coercion
+-- variable; the types may have different kinds, and the coercion variable
+-- is a coercion between those kinds
+mkForAllCo_Ty :: TyVar -> TyVar -> CoVar -> Coercion -> Coercion
+mkForAllCo_Ty tv _ _ (Refl ty) = ASSERT( isTyVar tv ) Refl (mkForAllTy tv ty)
+mkForAllCo_Ty tv1 tv2 cv co
+  | tyVarKind tv1 `eqType` tyVarKind tv2
+  = let co' = substCoWith [tv2,               cv]
+                          [mkOnlyTyVarTy tv1, mkReflCo (tyVarKind tv1)] co in
+    ASSERT( isTyVar tv1 )
+    ForAllCo (TyHomo tv1) co'
+  | otherwise
+  = ASSERT( isTyVar tv1 && isTyVar tv2 && isCoVar cv )
+    ForAllCo (TyHetero tv1 tv2 cv) co
+
+-- | Make a Coercion quantified over a coercion variable; the variable has
+-- the same type in both types of the coercion
+mkForAllCo_CoHomo :: CoVar -> Coercion -> Coercion
+mkForAllCo_CoHomo cv (Refl ty) = ASSERT( isCoVar cv ) Refl (mkForAllTy cv ty)
+mkForAllCo_CoHomo cv co        = ASSERT( isCoVar cv ) ForAllCo (CoHomo cv) co
+
+-- | Make a Coercion quantified over two coercion variables, possibly of
+-- different kinds
+mkForAllCo_Co :: CoVar -> CoVar -> Coercion -> Coercion
+mkForAllCo_Co cv _ (Refl ty) = ASSERT( isCoVar cv ) Refl (mkForAllTy cv ty)
+mkForAllCo_Co cv1 cv2 co
+  | coVarKind cv1 `eqType` coVarKind cv2
+  = let co' = substCoWith [cv2] [mkCoVarCo cv1] co in
+    ASSERT( isCoVar cv1 )
+    ForAllCo (CoHomo cv1) co'
+  | otherwise
+  = ASSERT( isCoVar cv1 && isCoVar cv2 )
+    ForAllCo (CoHetero cv1 cv2) co
 
 -------------------------------
 
@@ -480,7 +514,8 @@ mkPiCos :: [Var] -> Coercion -> Coercion
 mkPiCos vs co = foldr mkPiCo co vs
 
 mkPiCo  :: Var -> Coercion -> Coercion
-mkPiCo v co | isTyVar v = mkForAllCo v co
+mkPiCo v co | isTyVar v = mkForAllCo_TyHomo v co
+            | isCoVar v = mkForAllCo_CoHomo v co
             | otherwise = mkFunCo (mkReflCo (varType v)) co
 
 mkCoCast :: Coercion -> Coercion -> Coercion
@@ -728,10 +763,10 @@ ty_co_subst lc@(LC in_scope env) ty
     go (ForAllTy v ty)
       | isTyVar v
       , let (subst', tv1, tv2, cv) = liftCoSubstTyVarBndr subst v
-      = mkForAllTyCo tv1 tv2 cv $! (ty_co_subst subst' ty)
+      = mkForAllCo_Ty tv1 tv2 cv $! (ty_co_subst subst' ty)
       | otherwise
       , let (subst', cv1, cv2) = liftCoSubstCoVarBndr subst v
-      = mkForAllCoCo cv1 cv2 $! (ty_co_subst subst' ty)
+      = mkForAllCo_Co cv1 cv2 $! (ty_co_subst subst' ty)
     go ty@(LitTy {})     = mkReflCo ty
     go (CastTy ty co)    = cast_2_ways (go ty) (substLeftCo lc co)
                                                (substRightCo lc co)

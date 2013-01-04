@@ -185,18 +185,31 @@ G |-app (t2 : k'2) : k2 ~> k4
 --------------------- :: AppCo
 G |-co g w : (s1 t1) k3~#k4 (s2 t2)
 
+G, alpha_k |-co g : t1 *~#* t2
+G |-ty forall alpha_k.t1 : *
+G |-ty forall alpha_k.t2 : *
+--------------------------------------------------------------------------- :: ForAllCoTyHomo
+G |-co forall alpha_k. g : (forall alpha_k. t1) *~#* (forall alpha_k. t2)
+
 G, alpha1_k1, alpha2_k2, c_(alpha1$ k1~#k2 alpha2$) |-co g : t1 *~#* t2
 G |-ty forall alpha1_k1.t1 : *
 G |-ty forall alpha2_k2.t2 : *
------------------------------------------------------------------------------------------------ :: ForAllTyCo
+----------------------------------------------------------------------------------------------- :: ForAllCoTyHetero
 G |-co forall (alpha1_k1, alpha2_k2, c). g : (forall alpha1_k1. t1) *~#* (forall alpha2_k2. t2)
+
+c # |g|
+G, c_phi |-co g : t1 *~#* t2
+G |-ty forall c_phi.t1 : *
+G |-ty forall c_phi.t2 : *
+----------------------------------------------------------------- :: ForAllCoCoHomo
+G |-co forall c_phi. g : (forall c_phi.t1) *~#* (forall c_phi.t2)
 
 c1 # |g|
 c2 # |g|
 G, c1_phi1, c2_phi2 |-co g : t1 *~#* t2
 G |-ty forall c1_phi1.t1 : *
 G |-ty forall c2_phi2.t2 : *
----------------------------------------------------------------------------------- :: ForAllCoCo
+---------------------------------------------------------------------------------- :: ForAllCoCoHetero
 G |-co forall (c1_phi1, c2_phi2). g : (forall c1_phi1.t1) *~#* (forall c2_phi2.t2)
 
 z_phi elt G

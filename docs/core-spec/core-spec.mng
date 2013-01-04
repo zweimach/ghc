@@ -275,6 +275,11 @@ a dead id and for one-tuples. These checks are omitted here.
 
 \ottdefnlintCoercion{}
 
+The $[[#]]$ checks in the rules \ottdrulename{Co\_ForAllCoCo...} are freshness
+checks. The variable to the left of $[[#]]$ may not appear in the \emph{erased}
+version of the coercion on the right. See the \emph{Down with kinds}
+paper for details.
+
 In \ottdrulename{Co\_AxiomInstCo}, the use of $[[inits]]$ creates substitutions from
 the first $i$ mappings in $[[ </ [ni |-> si] // i /> ]]$. This has the effect of 
 folding the substitution over the kinds for kind-checking.

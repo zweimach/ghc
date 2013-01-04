@@ -1013,7 +1013,7 @@ lintCoercion co@(AxiomInstCo con ind cos)
 Note [FreeIn...]
 ~~~~~~~~~~~~~~~~~~~~~
 The proof of consistency of the type system depends on a freeness condition
-in the premises of ForAllCoCo. This condition states that the coercion
+in the premises of ForAllCo (CoHetero ...). This condition states that the coercion
 variables quantified over do not appear in the erased form of coercion
 in the quantification. See http://www.cis.upenn.edu/~sweirich/papers/nokinds-extended.pdf
 
@@ -1022,12 +1022,16 @@ in the quantification. See http://www.cis.upenn.edu/~sweirich/papers/nokinds-ext
 freeInCoercion :: CoVar -> Coercion -> Bool
 freeInCoercion v (Refl t)                  = freeInType v t
 freeInCoercion v (TyConAppCo tc args)      = all (freeInCoercionArg v) args
-freeInCoercion v (AppCo g w)               = (freeInCoercion v g) && (freeInCoercionArg v w)
-freeInCoercion v (ForAllTyCo a1 a2 c g)    = (freeInTyVar v a1) && (freeInTyVar v a2) &&
-                                             (freeInCoVar v c $ freeInCoercion v g)
-freeInCoercion v (ForAllCoCo c1 c2 g)      = freeInCoVar v c1 $
-                                             freeInCoVar v c2 $
-                                             freeInCoercion v g
+freeInCoercion v (AppCo g w)               = (freeInCoercion v g) &&
+                                             (freeInCoercionArg v w)
+freeInCoercion v (ForAllCo (TyHomo a) g)   = (freeInTyVar v a) &&
+                                             (freeInCoercion v g)
+freeInCoercion v (ForAllCo (TyHetero a1 a2 c) g)
+  = (freeInTyVar v a1) && (freeInTyVar v a2) &&
+    (freeInCoVar v c $ freeInCoercion v g)
+freeInCoercion v (ForAllCo (CoHomo c) g)   = freeInCoVar v c $ freeInCoercion g
+freeInCoercion v (ForAllCo (CoHetero c1 c2) g)
+  = freeInCoVar v c1 $ freeInCoVar v c2 $ freeInCoercion v g
 freeInCoercion v (CoVarCo c)               = freeInCoVar v c True
 freeInCoercion v (AxiomInstCo ax ind args) = all (freeInCoercionArg v) args
 freeInCoercion v (UnsafeCo t1 t2)          = (freeInType v t1) && (freeInType v t2)
