@@ -18,7 +18,7 @@ module CoreFVs (
         exprSomeFreeVars, exprsSomeFreeVars,
 
         -- * Free variables of Rules, Vars and Ids
-        varTypeTyVars, 
+        varTypeTyCoVars, 
         idUnfoldingVars, idFreeVars, idRuleAndUnfoldingVars,
         idRuleVars, idRuleRhsVars, stableUnfoldingVars,
         ruleRhsFreeVars, rulesFreeVars,
@@ -161,7 +161,7 @@ keep_it fv_cand in_scope var
 
 addBndr :: CoreBndr -> FV -> FV
 addBndr bndr fv fv_cand in_scope
-  = someVars (varTypeTyVars bndr) fv_cand in_scope
+  = someVars (varTypeTyCoVars bndr) fv_cand in_scope
         -- Include type varibles in the binder's type
         --      (not just Ids; coercion variables too!)
     `unionVarSet`  fv fv_cand (in_scope `extendVarSet` bndr)
@@ -399,17 +399,17 @@ delBinderFV :: Var -> VarSet -> VarSet
 --                        where
 --                          bottom = bottom -- Never evaluated
 
-delBinderFV b s = (s `delVarSet` b) `unionFVs` varTypeTyVars b
+delBinderFV b s = (s `delVarSet` b) `unionFVs` varTypeTyCoVars b
         -- Include coercion variables too!
 
-varTypeTyVars :: Var -> TyVarSet
+varTypeTyCoVars :: Var -> TyCoVarSet
 -- Find the type/kind variables free in the type of the id/tyvar
-varTypeTyVars var = tyCoVarsOfType (varType var)
+varTypeTyCoVars var = tyCoVarsOfType (varType var)
 
 idFreeVars :: Id -> VarSet
 -- Type variables, rule variables, and inline variables
 idFreeVars id = ASSERT( isId id)
-                varTypeTyVars id `unionVarSet`
+                varTypeTyCoVars id `unionVarSet`
                 idRuleAndUnfoldingVars id
 
 bndrRuleAndUnfoldingVars ::Var -> VarSet

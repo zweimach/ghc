@@ -1044,7 +1044,7 @@ absVarsOf id_env v
     close :: Var -> VarSet  -- Result include the input variable itself
     close v = foldVarSet (unionVarSet . close)
                          (unitVarSet v)
-                         (varTypeTyVars v)
+                         (varTypeTyCoVars v)
 \end{code}
 
 \begin{code}

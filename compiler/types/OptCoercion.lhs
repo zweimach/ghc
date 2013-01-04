@@ -16,7 +16,7 @@ module OptCoercion ( optCoercion ) where
 
 import Coercion
 import Type hiding( substTyVarBndr, substTy, extendTCvSubst )
-import TcType       ( exactTyVarsOfType )
+import TcType       ( exactTyCoVarsOfType )
 import TyCon
 import CoAxiom
 import Var
@@ -314,7 +314,7 @@ opt_trans_rule is co1 co2
         qtvs = coAxBranchTyCoVars branch
         lhs  = coAxNthLHS con1 ind1
         rhs  = coAxBranchRHS branch
-        pivot_tvs = exactTyVarsOfType (if sym2 then rhs else lhs)
+        pivot_tvs = exactTyCoVarsOfType (if sym2 then rhs else lhs)
   , all (`elemVarSet` pivot_tvs) qtvs
   = fireTransRule "TrPushAxSym" co1 co2 $
     if sym2

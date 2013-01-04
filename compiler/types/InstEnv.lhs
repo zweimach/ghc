@@ -55,7 +55,7 @@ data ClsInst
              , is_tcs  :: [Maybe Name]  -- Top of type args
 
                 -- Used for "proper matching"; see Note [Proper-match fields]
-             , is_tvs  :: TyVarSet      -- Template tyvars for full match
+             , is_tvs  :: TyCoVarSet    -- Template tyvars for full match
              , is_tys  :: [Type]        -- Full arg types
                 -- INVARIANT: is_dfun Id has type 
                 --      forall is_tvs. (...) => is_cls is_tys
