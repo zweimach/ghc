@@ -30,7 +30,6 @@ import Util
 import Maybes
 import TcMType
 import Type
-import VarSet (mkVarSet)
 import Control.Monad
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -330,7 +329,7 @@ addLocalFamInst (home_fie, my_fis) fam_inst
     famInstBranchSubst :: FamInstBranch -> [TyCoVar] -> TCvSubst -> FamInstBranch
     famInstBranchSubst fib@(FamInstBranch { fib_lhs = lhs
                                           , fib_rhs = rhs }) new_tvs subst
-      = fib { fib_tvs = mkVarSet new_tvs
+      = fib { fib_tvs = new_tvs
             , fib_lhs = substTys subst lhs
             , fib_rhs = substTy subst rhs }
 

@@ -1512,7 +1512,7 @@ tyConToIfaceDecl env tycon
                     ifConArgTys  = map (tidyToIfaceType env2) arg_tys,
                     ifConFields  = map getOccName 
                                        (dataConFieldLabels data_con),
-                    ifConStricts = dataConRepBangs data_con }
+                    ifConStricts = map (toIfaceBang env2) (dataConRepBangs data_con) }
         where
           (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _) = dataConFullSig data_con
 
@@ -1523,6 +1523,12 @@ tyConToIfaceDecl env tycon
           to_eq_spec spec = [ (getOccName (tidyTyVar env2 tv), tidyToIfaceType env2 ty) 
                             | (tv,ty) <- spec]
 
+toIfaceBang :: TidyEnv -> HsBang -> IfaceBang
+toIfaceBang _    HsNoBang            = IfNoBang
+toIfaceBang _   (HsUnpack Nothing)   = IfUnpack
+toIfaceBang env (HsUnpack (Just co)) = IfUnpackCo (coToIfaceType (tidyCo env co))
+toIfaceBang _   HsStrict             = IfStrict
+toIfaceBang _   (HsBang {})          = panic "toIfaceBang"
 
 classToIfaceDecl :: TidyEnv -> Class -> IfaceDecl
 classToIfaceDecl env clas
@@ -1598,8 +1604,9 @@ getFS x = occNameFS (getOccName x)
 
 --------------------------
 instanceToIfaceInst :: ClsInst -> IfaceClsInst
-instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag,
-                                is_cls = cls_name, is_tcs = mb_tcs })
+instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag
+                             , is_cls_nm = cls_name, is_cls = cls
+                             , is_tys = tys, is_tcs = mb_tcs })
   = ASSERT( cls_name == className cls )
     IfaceClsInst { ifDFun    = dfun_name,
                 ifOFlag   = oflag,
@@ -1615,8 +1622,6 @@ instanceToIfaceInst (ClsInst { is_dfun = dfun_id, is_flag = oflag,
     is_local name = nameIsLocalOrFrom mod name
 
         -- Compute orphanhood.  See Note [Orphans] in IfaceSyn
-    (_, _, cls, tys) = tcSplitDFunTy (idType dfun_id)
-                -- Slightly awkward: we need the Class to get the fundeps
     (tvs, fds) = classTvsFds cls
     arg_names = [filterNameSet is_local (orphNamesOfType ty) | ty <- tys]
 

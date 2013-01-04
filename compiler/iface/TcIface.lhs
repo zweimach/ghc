@@ -578,7 +578,7 @@ tcIfaceDataCons tycon_name tycon _ if_cons
                          ifConUnivTvs = univ_tvs, ifConExTvs = ex_tvs,
                          ifConOcc = occ, ifConCtxt = ctxt, ifConEqSpec = spec,
                          ifConArgTys = args, ifConFields = field_lbls,
-                         ifConStricts = stricts})
+                         ifConStricts = if_stricts})
      = bindIfaceTyVars univ_tvs $ \ univ_tyvars -> do
        bindIfaceTyVars ex_tvs    $ \ ex_tyvars -> do
         { name  <- lookupIfaceTop occ
@@ -595,17 +595,26 @@ tcIfaceDataCons tycon_name tycon _ if_cons
                 ; return (eq_spec, theta, arg_tys) }
         ; lbl_names <- mapM lookupIfaceTop field_lbls
 
+        ; stricts <- mapM tc_strict if_stricts
+
         -- Remember, tycon is the representation tycon
         ; let orig_res_ty = mkFamilyTyConApp tycon 
                                 (substTyCoVars (mkTopTCvSubst eq_spec) univ_tyvars)
 
-        ; buildDataCon name is_infix
+        ; buildDataCon (pprPanic "tcIfaceDataCons: FamInstEnvs" (ppr name))
+                       name is_infix
                        stricts lbl_names
                        univ_tyvars ex_tyvars 
                        eq_spec theta 
                        arg_tys orig_res_ty tycon
         }
     mk_doc con_name = ptext (sLit "Constructor") <+> ppr con_name
+
+    tc_strict IfNoBang = return HsNoBang
+    tc_strict IfStrict = return HsStrict
+    tc_strict IfUnpack = return (HsUnpack Nothing)
+    tc_strict (IfUnpackCo if_co) = do { co <- tcIfaceCo if_co
+                                      ; return (HsUnpack (Just co)) }
 
 tcIfaceEqSpec :: [(OccName, IfaceType)] -> IfL [(TyVar, Type)]
 tcIfaceEqSpec spec
@@ -644,8 +653,8 @@ look at it.
 tcIfaceInst :: IfaceClsInst -> IfL ClsInst
 tcIfaceInst (IfaceClsInst { ifDFun = dfun_occ, ifOFlag = oflag
                           , ifInstCls = cls, ifInstTys = mb_tcs })
-  = do { dfun    <- forkM (ptext (sLit "Dict fun") <+> ppr dfun_occ) $
-                     tcIfaceExtId dfun_occ
+  = do { dfun <- forkM (ptext (sLit "Dict fun") <+> ppr dfun_occ) $
+                 tcIfaceExtId dfun_occ
        ; let mb_tcs' = map (fmap ifaceTyConName) mb_tcs
        ; return (mkImportedInstance cls mb_tcs' dfun oflag) }
 

@@ -421,7 +421,7 @@ tcInstDecls1 tycl_decls inst_decls deriv_decls
                 , deriv_binds)
     }}
   where
-    typInstCheck ty = is_cls (iSpec ty) `elem` typeableClassNames
+    typInstCheck ty = is_cls_nm (iSpec ty) `elem` typeableClassNames
     typInstErr = ptext $ sLit $ "Can't create hand written instances of Typeable in Safe"
                               ++ " Haskell! Can only derive them"
 
@@ -550,8 +550,11 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                 -- Dfun location is that of instance *header*
 
         ; overlap_flag <- getOverlapFlag
+        ; (subst, tyvars') <- tcInstSkolTyVars tyvars
         ; let dfun  	= mkDictFunId dfun_name tyvars theta clas inst_tys
-              ispec 	= mkLocalInstance dfun overlap_flag
+              ispec 	= mkLocalInstance dfun overlap_flag tyvars' clas (substTys subst inst_tys)
+                            -- Be sure to freshen those type variables, 
+                            -- so they are sure not to appear in any lookup
               inst_info = InstInfo { iSpec  = ispec, iBinds = VanillaInst binds uprags False }
 
         ; return ( [inst_info], tyfam_insts0 ++ concat tyfam_insts1 ++ datafam_insts) }
@@ -613,26 +616,27 @@ tcTyFamInstDecl fam_tc (L loc decl@(TyFamInstDecl { tfid_group = group }))
          -- now, build the FamInstGroup
        ; return $ mkSynFamInst rep_tc_name fam_tc group fam_inst_branches }
 
-    where check_valid_mk_branch :: ([TyVar], [Type], Type, SrcSpan)
-                                -> TcM (FamInstBranch, CoAxBranch)
-          check_valid_mk_branch (t_tvs, t_typats, t_rhs, loc)
-            = setSrcSpan loc $
-              do { -- check the well-formedness of the instance
-                   checkValidFamInst t_typats t_rhs
+    where 
+      check_valid_mk_branch :: ([TyVar], [Type], Type, SrcSpan)
+                            -> TcM (FamInstBranch, CoAxBranch)
+      check_valid_mk_branch (t_tvs, t_typats, t_rhs, loc)
+        = setSrcSpan loc $
+          do { -- check the well-formedness of the instance
+               checkValidTyFamInst fam_tc t_tvs t_typats t_rhs
 
-                 ; return $ mkSynFamInstBranch loc t_tvs t_typats t_rhs }
+             ; return $ mkSynFamInstBranch loc t_tvs t_typats t_rhs }
 
-          check_inaccessible_branches :: [FamInstBranch]     -- previous
-                                      -> FamInstBranch       -- current
-                                      -> TcM [FamInstBranch] -- current : previous
-          check_inaccessible_branches prev_branches
-                                      cur_branch@(FamInstBranch { fib_lhs = tys })
-            = setSrcSpan (famInstBranchSpan cur_branch) $
-              do { when (tys `isDominatedBy` prev_branches) $
-                        addErrTc $ inaccessibleFamInstBranch fam_tc cur_branch
-                 ; return $ cur_branch : prev_branches }
+      check_inaccessible_branches :: [FamInstBranch]     -- previous
+                                  -> FamInstBranch       -- current
+                                  -> TcM [FamInstBranch] -- current : previous
+      check_inaccessible_branches prev_branches
+                                  cur_branch@(FamInstBranch { fib_lhs = tys })
+        = setSrcSpan (famInstBranchSpan cur_branch) $
+          do { when (tys `isDominatedBy` prev_branches) $
+                    addErrTc $ inaccessibleFamInstBranch fam_tc cur_branch
+             ; return $ cur_branch : prev_branches }
 
-          get_typats = map (\(_, tys, _, _) -> tys)
+      get_typats = map (\(_, tys, _, _) -> tys)
 
 tcDataFamInstDecl :: TyCon -> DataFamInstDecl Name -> TcM (FamInst Unbranched)
   -- "newtype instance" and "data instance"
@@ -652,7 +656,7 @@ tcDataFamInstDecl fam_tc
          -- Check that left-hand side contains no type family applications
          -- (vanilla synonyms are fine, though, and we checked for
          -- foralls earlier)
-       { mapM_ checkTyFamFreeness pats'
+       { checkValidFamPats fam_tc tvs' pats'
          
          -- Result kind must be '*' (otherwise, we have too few patterns)
        ; checkTc (isLiftedTypeKind res_kind) $ tooFewParmsErr (tyConArity fam_tc)
@@ -936,16 +940,24 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
          do { sig_ty <- tcHsSigType (FunSigCtxt sel_name) hs_ty
             ; inst_sigs <- xoptM Opt_InstanceSigs
             ; if inst_sigs then 
-                checkTc (sig_ty `eqType` local_meth_ty)
-                        (badInstSigErr sel_name local_meth_ty)
+                unless (sig_ty `eqType` local_meth_ty)
+                       (badInstSigErr sel_name local_meth_ty)
               else
                 addErrTc (misplacedInstSig sel_name hs_ty)
             ; return sig_ty }
 
-badInstSigErr :: Name -> Type -> SDoc
+badInstSigErr :: Name -> Type -> TcM ()
 badInstSigErr meth ty
-  = hang (ptext (sLit "Method signature does not match class; it should be"))
-       2 (pprPrefixName meth <+> dcolon <+> ppr ty)
+  = do { env0 <- tcInitTidyEnv
+       ; let tidy_ty = tidyType env0 ty
+                 -- Tidy the type using the ambient TidyEnv, 
+                 -- to avoid apparent name capture (Trac #7475)
+                 --    class C a where { op :: a -> b }
+                 --    instance C (a->b) where
+                 --       op :: forall x. x
+                 --       op = ...blah...
+       ; addErrTc (hang (ptext (sLit "Method signature does not match class; it should be"))
+                      2 (pprPrefixName meth <+> dcolon <+> ppr tidy_ty)) }
 
 misplacedInstSig :: Name -> LHsType Name -> SDoc
 misplacedInstSig name hs_ty

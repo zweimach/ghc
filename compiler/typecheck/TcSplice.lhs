@@ -1308,8 +1308,9 @@ reifyClassInstance i
        ; let head_ty = foldl TH.AppT (TH.ConT (reifyName cls)) thtypes
        ; return $ (TH.InstanceD cxt head_ty []) }
   where
-     (_tvs, theta, cls, types) = instanceHead i
-     n_silent = dfunNSilent (instanceDFunId i)
+     (_tvs, theta, cls, types) = tcSplitDFunTy (idType dfun)
+     dfun     = instanceDFunId i
+     n_silent = dfunNSilent dfun
 
 ------------------------------
 reifyFamilyInstance :: FamInst br -> TcM TH.Dec
@@ -1485,10 +1486,12 @@ reifyFixity name
       conv_dir BasicTypes.InfixL = TH.InfixL
       conv_dir BasicTypes.InfixN = TH.InfixN
 
-reifyStrict :: BasicTypes.HsBang -> TH.Strict
-reifyStrict bang | bang == HsUnpack = TH.Unpacked
-                 | isBanged bang    = TH.IsStrict
-                 | otherwise        = TH.NotStrict
+reifyStrict :: DataCon.HsBang -> TH.Strict
+reifyStrict HsNoBang        = TH.NotStrict
+reifyStrict (HsBang False)  = TH.Unpacked
+reifyStrict (HsBang True)   = TH.Unpacked
+reifyStrict HsStrict        = TH.IsStrict
+reifyStrict (HsUnpack {})   = TH.Unpacked
 
 ------------------------------
 noTH :: LitString -> SDoc -> TcM a
