@@ -220,7 +220,7 @@ tcCoercionKind co = go co
     go (TcCoVarCo cv)         = eqVarKind cv
     go (TcAxiomInstCo ax ind tys)
       = let branch = coAxiomNthBranch ax ind
-            tvs    = coAxBranchTyVars branch
+            tvs    = coAxBranchTyCoVars branch
         in Pair (substTyWith tvs tys (coAxNthLHS ax ind)) 
                 (substTyWith tvs tys (coAxBranchRHS branch))
     go (TcSymCo co)           = swap (go co)

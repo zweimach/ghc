@@ -1577,7 +1577,7 @@ foldDataConArgs :: FFoldType a -> DataCon -> [a]
 foldDataConArgs ft con
   = map (functorLikeTraverse tv ft) (dataConOrigArgTys con)
   where
-    tv = last (dataConUnivTyVars con)
+    tv = last (dataConUnivTyCoVars con)
                     -- Argument to derive for, 'a in the above description
                     -- The validity checks have ensured that con is
                     -- a vanilla data constructor

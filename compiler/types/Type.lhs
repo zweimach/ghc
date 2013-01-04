@@ -918,10 +918,10 @@ mkEqPred ty1 ty2
 
 mkPrimEqPred :: Type -> Type -> Type
 mkPrimEqPred ty1  ty2
-  = WARN( not (k `eqKind` typeKind ty2), ppr ty1 $$ ppr ty2 )
-    TyConApp eqPrimTyCon [k, ty1, ty2]
+  = TyConApp eqPrimTyCon [k1, k2, ty1, ty2]
   where 
-    k = typeKind ty1
+    k1 = typeKind ty1
+    k2 = typeKind ty2
 \end{code}
 
 --------------------- Dictionary types ---------------------------------

@@ -390,7 +390,7 @@ trimConArgs :: AltCon -> [CoreArg] -> [CoreArg]
 
 trimConArgs DEFAULT      args = ASSERT( null args ) []
 trimConArgs (LitAlt _)   args = ASSERT( null args ) []
-trimConArgs (DataAlt dc) args = dropList (dataConUnivTyVars dc) args
+trimConArgs (DataAlt dc) args = dropList (dataConUnivTyCoVars dc) args
 \end{code}
 
 \begin{code}
@@ -1243,8 +1243,8 @@ dataConInstPat fss uniqs con inst_tys
   = ASSERT( univ_tvs `equalLength` inst_tys )
     (ex_bndrs, arg_ids)
   where 
-    univ_tvs = dataConUnivTyVars con
-    ex_tvs   = dataConExTyVars con
+    univ_tvs = dataConUnivTyCoVars con
+    ex_tvs   = dataConExTyCoVars con
     arg_tys  = dataConRepArgTys con
 
     n_ex = length ex_tvs
@@ -1264,8 +1264,13 @@ dataConInstPat fss uniqs con inst_tys
     mk_ex_var subst (tv, fs, uniq) = (Type.extendTCvSubst subst tv (mkTyCoVarTy new_tv)
                                      , new_tv)
       where
-        new_tv   = mkTyVar new_name kind
-        new_name = mkSysTvName uniq fs
+        new_tv
+          | isTyVar tv
+          = mkTyVar (mkSysTvName uniq fs) kind
+          | otherwise
+          = ASSERT( isCoVar tv )
+            mkCoVar (mkSystemVarName uniq fs) kind
+          
         kind     = Type.substTy subst (tyVarKind tv)
 
       -- Make value vars, instantiating types

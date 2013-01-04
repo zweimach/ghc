@@ -459,7 +459,7 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
                  ax_unbr = toUnbranchedAxiom ax
                  -- data families don't have branches:
                  branch = coAxiomSingleBranch ax_unbr
-                 ax_tvs = coAxBranchTyVars branch
+                 ax_tvs = coAxBranchTyCoVars branch
                  ax_lhs = coAxBranchLHS branch
                  subst = zipTopTCvSubst ax_tvs (mkTyCoVarTys tyvars)
                             -- The subst matches the tyvar of the TyCon

@@ -22,7 +22,7 @@ module CoAxiom (
        coAxiomName, coAxiomArity, coAxiomBranches,
        coAxiomTyCon, isImplicitCoAxiom,
        coAxiomNthBranch, coAxiomSingleBranch_maybe,
-       coAxiomSingleBranch, coAxBranchTyVars, coAxBranchLHS,
+       coAxiomSingleBranch, coAxBranchTyCoVars, coAxBranchLHS,
        coAxBranchRHS
        ) where 
 
@@ -197,7 +197,7 @@ data CoAxiom br
 
 data CoAxBranch
   = CoAxBranch
-    { cab_tvs      :: [TyVar]      -- bound type variables
+    { cab_tvs      :: [TyCoVar]    -- bound type variables
     , cab_lhs      :: [Type]       -- type patterns to match against
     , cab_rhs      :: Type         -- right-hand side of the equality
     }
@@ -239,8 +239,8 @@ coAxiomSingleBranch (CoAxiom { co_ax_branches = FirstBranch br }) = br
 coAxiomTyCon :: CoAxiom br -> TyCon
 coAxiomTyCon = co_ax_tc
 
-coAxBranchTyVars :: CoAxBranch -> [TyVar]
-coAxBranchTyVars = cab_tvs
+coAxBranchTyCoVars :: CoAxBranch -> [TyCoVar]
+coAxBranchTyCoVars = cab_tvs
 
 coAxBranchLHS :: CoAxBranch -> [Type]
 coAxBranchLHS = cab_lhs

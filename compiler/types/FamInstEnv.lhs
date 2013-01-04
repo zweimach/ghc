@@ -535,8 +535,8 @@ identicalFamInst (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
             && length lhs1 == length lhs2
             && and (zipWith (eqTypeX rn_env) lhs1 lhs2)
           where
-            tvs1 = coAxBranchTyVars br1
-            tvs2 = coAxBranchTyVars br2
+            tvs1 = coAxBranchTyCoVars br1
+            tvs2 = coAxBranchTyCoVars br2
             lhs1 = coAxBranchLHS br1
             lhs2 = coAxBranchLHS br2
             rn_env = rnBndrs2 (mkRnEnv2 emptyInScopeSet) tvs1 tvs2

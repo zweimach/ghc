@@ -1451,7 +1451,7 @@ coAxiomToIfaceDecl ax@(CoAxiom { co_ax_tc = tycon, co_ax_branches = branches })
 
 coAxBranchToIfaceBranch :: CoAxBranch -> IfaceAxBranch
 coAxBranchToIfaceBranch (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs })
-  = IfaceAxBranch { ifaxbTyVars = toIfaceTvBndrs tv_bndrs
+  = IfaceAxBranch { ifaxbTyVars = toIfaceTCvBndrs tv_bndrs
                   , ifaxbLHS    = map (tidyToIfaceType env) lhs
                   , ifaxbRHS    = tidyToIfaceType env rhs }
   where
@@ -1467,14 +1467,14 @@ tyConToIfaceDecl env tycon
 
   | Just syn_rhs <- synTyConRhs_maybe tycon
   = IfaceSyn {  ifName    = getOccName tycon,
-                ifTyVars  = toIfaceTvBndrs tyvars,
+                ifTyVars  = toIfaceTCvBndrs tyvars,
                 ifSynRhs  = to_ifsyn_rhs syn_rhs,
                 ifSynKind = tidyToIfaceType env1 (synTyConResKind tycon) }
 
   | isAlgTyCon tycon
   = IfaceData { ifName    = getOccName tycon,
                 ifCType   = tyConCType tycon,
-                ifTyVars  = toIfaceTvBndrs tyvars,
+                ifTyVars  = toIfaceTCvBndrs tyvars,
                 ifCtxt    = tidyToIfaceContext env1 (tyConStupidTheta tycon),
                 ifCons    = ifaceConDecls (algTyConRhs tycon),
                 ifRec     = boolToRecFlag (isRecursiveTyCon tycon),
@@ -1505,8 +1505,8 @@ tyConToIfaceDecl env tycon
         = IfCon   { ifConOcc     = getOccName (dataConName data_con),
                     ifConInfix   = dataConIsInfix data_con,
                     ifConWrapper = isJust (dataConWrapId_maybe data_con),
-                    ifConUnivTvs = toIfaceTvBndrs univ_tvs',
-                    ifConExTvs   = toIfaceTvBndrs ex_tvs',
+                    ifConUnivTvs = toIfaceTCvBndrs univ_tvs',
+                    ifConExTvs   = toIfaceTCvBndrs ex_tvs',
                     ifConEqSpec  = to_eq_spec eq_spec,
                     ifConCtxt    = tidyToIfaceContext env2 theta,
                     ifConArgTys  = map (tidyToIfaceType env2) arg_tys,
@@ -1518,8 +1518,8 @@ tyConToIfaceDecl env tycon
 
           -- Start with 'emptyTidyEnv' not 'env1', because the type of the
           -- data constructor is fully standalone
-          (env1, univ_tvs') = tidyTyVarBndrs emptyTidyEnv univ_tvs
-          (env2, ex_tvs')   = tidyTyVarBndrs env1 ex_tvs
+          (env1, univ_tvs') = tidyTyCoVarBndrs emptyTidyEnv univ_tvs
+          (env2, ex_tvs')   = tidyTyCoVarBndrs env1 ex_tvs
           to_eq_spec spec = [ (getOccName (tidyTyVar env2 tv), tidyToIfaceType env2 ty) 
                             | (tv,ty) <- spec]
 
@@ -1528,7 +1528,7 @@ classToIfaceDecl :: TidyEnv -> Class -> IfaceDecl
 classToIfaceDecl env clas
   = IfaceClass { ifCtxt   = tidyToIfaceContext env1 sc_theta,
                  ifName   = getOccName (classTyCon clas),
-                 ifTyVars = toIfaceTvBndrs clas_tyvars',
+                 ifTyVars = toIfaceTCvBndrs clas_tyvars',
                  ifFDs    = map toIfaceFD clas_fds,
                  ifATs    = map toIfaceAT clas_ats,
                  ifSigs   = map toIfaceClassOp op_stuff,
@@ -1545,7 +1545,7 @@ classToIfaceDecl env clas
       = IfaceAT (tyConToIfaceDecl env1 tc) (map to_if_at_def defs)
       where
         to_if_at_def (ATD tvs pat_tys ty _loc)
-          = IfaceATD (toIfaceTvBndrs tvs') 
+          = IfaceATD (toIfaceTCvBndrs tvs') 
                      (map (tidyToIfaceType env2) pat_tys) 
                      (tidyToIfaceType env2 ty)
           where

@@ -1397,7 +1397,10 @@ checkValidDataCon dflags existential_ok tc con
  	          (badExistential con)
 
         ; checkTc (not (any (isKindVar . fst) (dataConEqSpec con)))
-                  (badGadtKindCon con)
+                  (badGadtCon (ptext (sLit "kind")) con)
+
+        ; checkTc (not (any (isCoVar . fst) (dataConEqSpec con)))
+                  (badGadtCon (ptext (sLit "coercion")) con)
 
         ; traceTc "Done validity of data con" (ppr con <+> ppr (dataConRepType con))
     }
@@ -1650,7 +1653,7 @@ mkRecSelBind (tycon, sel_name)
         --                 A :: { fld :: Int } -> T Int Bool
         --                 B :: { fld :: Int } -> T Int Char
     dealt_with con = con `elem` cons_w_field || dataConCannotMatch inst_tys con
-    inst_tys = substTyVars (mkTopTvSubst (dataConEqSpec con1)) (dataConUnivTyVars con1)
+    inst_tys = substTyVars (mkTopTCvSubst (dataConEqSpec con1)) (dataConUnivTyCoVars con1)
 
     unit_rhs = mkLHsTupleExpr []
     msg_lit = HsStringPrim $ unsafeMkByteString $
@@ -1844,10 +1847,11 @@ badDataConTyCon data_con res_ty_tmpl actual_res_ty
 		ptext (sLit "returns type") <+> quotes (ppr actual_res_ty))
        2 (ptext (sLit "instead of an instance of its parent type") <+> quotes (ppr res_ty_tmpl))
 
-badGadtKindCon :: DataCon -> SDoc
-badGadtKindCon data_con
+badGadtCon :: SDoc -> DataCon -> SDoc
+badGadtCon what data_con
   = hang (ptext (sLit "Data constructor") <+> quotes (ppr data_con) 
-          <+> ptext (sLit "cannot be GADT-like in its *kind* arguments"))
+          <+> ptext (sLit "cannot be GADT-like in its *") <> what
+          <>  ptext (sLit "* arguments"))
        2 (ppr data_con <+> dcolon <+> ppr (dataConUserType data_con))
 
 badATErr :: Name -> Name -> SDoc

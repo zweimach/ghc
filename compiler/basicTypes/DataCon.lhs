@@ -24,7 +24,7 @@ module DataCon (
 	dataConRepType, dataConSig, dataConFullSig,
 	dataConName, dataConIdentity, dataConTag, dataConTyCon, 
         dataConOrigTyCon, dataConUserType,
-	dataConUnivTyVars, dataConExTyVars, dataConAllTyVars, 
+	dataConUnivTyCoVars, dataConExTyCoVars, dataConAllTyCoVars, 
 	dataConEqSpec, eqSpecPreds, dataConTheta,
 	dataConStupidTheta,  
 	dataConInstArgTys, dataConOrigArgTys, dataConOrigResTy,
@@ -268,8 +268,8 @@ data DataCon
 	-- The next six fields express the type of the constructor, in pieces
 	-- e.g.
 	--
-	--	dcUnivTyVars  = [a]
-	--	dcExTyVars    = [x,y]
+	--	dcUnivTyCoVars  = [a]
+	--	dcExTyCoVars    = [x,y]
 	--	dcEqSpec      = [a~(x,y)]
 	--	dcOtherTheta  = [x~y, Ord x]	
 	--	dcOrigArgTys  = [x,y]
@@ -279,18 +279,18 @@ data DataCon
 				--	    Its type is of form
 				--	        forall a1..an . t1 -> ... tm -> T a1..an
 				-- 	    No existentials, no coercions, nothing.
-				-- That is: dcExTyVars = dcEqSpec = dcOtherTheta = []
+				-- That is: dcExTyCoVars = dcEqSpec = dcOtherTheta = []
 		-- NB 1: newtypes always have a vanilla data con
 		-- NB 2: a vanilla constructor can still be declared in GADT-style 
 		--	 syntax, provided its type looks like the above.
 		--       The declaration format is held in the TyCon (algTcGadtSyntax)
 
-	dcUnivTyVars :: [TyVar],	-- Universally-quantified type vars [a,b,c]
+	dcUnivTyCoVars :: [TyVar],	-- Universally-quantified type vars [a,b,c]
 					-- INVARIANT: length matches arity of the dcRepTyCon
 					---           result type of (rep) data con is exactly (T a b c)
 
-	dcExTyVars   :: [TyVar],	-- Existentially-quantified type vars 
-		-- In general, the dcUnivTyVars are NOT NECESSARILY THE SAME AS THE TYVARS
+	dcExTyCoVars   :: [TyVar],	-- Existentially-quantified type vars 
+		-- In general, the dcUnivTyCoVars are NOT NECESSARILY THE SAME AS THE TYVARS
 		-- FOR THE PARENT TyCon. With GADTs the data con might not even have 
 		-- the same number of type variables.
 		-- [This is a change (Oct05): previously, vanilla datacons guaranteed to
@@ -324,7 +324,7 @@ data DataCon
 		-- to eliminate any constraints that don't mention
 		-- tyvars free in the arg types for this constructor
 		--
-		-- INVARIANT: the free tyvars of dcStupidTheta are a subset of dcUnivTyVars
+		-- INVARIANT: the free tyvars of dcStupidTheta are a subset of dcUnivTyCoVars
 		-- Reason: dcStupidTeta is gotten by thinning the stupid theta from the tycon
 		-- 
 		-- "Stupid", because the dictionaries aren't used for anything.  
@@ -565,7 +565,7 @@ mkDataCon name declared_infix
     is_vanilla = null ex_tvs && null eq_spec && null theta
     con = MkData {dcName = name, dcUnique = nameUnique name, 
 		  dcVanilla = is_vanilla, dcInfix = declared_infix,
-	  	  dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs, 
+	  	  dcUnivTyCoVars = univ_tvs, dcExTyCoVars = ex_tvs, 
 		  dcEqSpec = eq_spec, 
 		  dcOtherTheta = theta,
 		  dcStupidTheta = stupid_theta, 
@@ -646,16 +646,16 @@ dataConIsInfix :: DataCon -> Bool
 dataConIsInfix = dcInfix
 
 -- | The universally-quantified type variables of the constructor
-dataConUnivTyVars :: DataCon -> [TyVar]
-dataConUnivTyVars = dcUnivTyVars
+dataConUnivTyCoVars :: DataCon -> [TyVar]
+dataConUnivTyCoVars = dcUnivTyCoVars
 
 -- | The existentially-quantified type variables of the constructor
-dataConExTyVars :: DataCon -> [TyVar]
-dataConExTyVars = dcExTyVars
+dataConExTyCoVars :: DataCon -> [TyVar]
+dataConExTyCoVars = dcExTyCoVars
 
 -- | Both the universal and existentiatial type variables of the constructor
-dataConAllTyVars :: DataCon -> [TyVar]
-dataConAllTyVars (MkData { dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs })
+dataConAllTyCoVars :: DataCon -> [TyVar]
+dataConAllTyCoVars (MkData { dcUnivTyCoVars = univ_tvs, dcExTyCoVars = ex_tvs })
   = univ_tvs ++ ex_tvs
 
 -- | Equalities derived from the result type of the data constructor, as written
@@ -758,7 +758,7 @@ dataConBoxer _ = Nothing
 
 -- | The \"signature\" of the 'DataCon' returns, in order:
 --
--- 1) The result of 'dataConAllTyVars',
+-- 1) The result of 'dataConAllTyCoVars',
 --
 -- 2) All the 'ThetaType's relating to the 'DataCon' (coercion, dictionary, implicit
 --    parameter - whatever)
@@ -767,16 +767,16 @@ dataConBoxer _ = Nothing
 --
 -- 4) The /original/ result type of the 'DataCon'
 dataConSig :: DataCon -> ([TyVar], ThetaType, [Type], Type)
-dataConSig (MkData {dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs, 
+dataConSig (MkData {dcUnivTyCoVars = univ_tvs, dcExTyCoVars = ex_tvs, 
 		    dcEqSpec = eq_spec, dcOtherTheta  = theta, 
 		    dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
   = (univ_tvs ++ ex_tvs, eqSpecPreds eq_spec ++ theta, arg_tys, res_ty)
 
 -- | The \"full signature\" of the 'DataCon' returns, in order:
 --
--- 1) The result of 'dataConUnivTyVars'
+-- 1) The result of 'dataConUnivTyCoVars'
 --
--- 2) The result of 'dataConExTyVars'
+-- 2) The result of 'dataConExTyCoVars'
 --
 -- 3) The result of 'dataConEqSpec'
 --
@@ -788,7 +788,7 @@ dataConSig (MkData {dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs,
 -- 6) The original result type of the 'DataCon'
 dataConFullSig :: DataCon 
 	       -> ([TyVar], [TyVar], [(TyVar,Type)], ThetaType, [Type], Type)
-dataConFullSig (MkData {dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs, 
+dataConFullSig (MkData {dcUnivTyCoVars = univ_tvs, dcExTyCoVars = ex_tvs, 
 			dcEqSpec = eq_spec, dcOtherTheta = theta,
 			dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
   = (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, res_ty)
@@ -814,8 +814,8 @@ dataConUserType :: DataCon -> Type
 --
 -- NB: If the constructor is part of a data instance, the result type
 -- mentions the family tycon, not the internal one.
-dataConUserType  (MkData { dcUnivTyVars = univ_tvs, 
-			   dcExTyVars = ex_tvs, dcEqSpec = eq_spec,
+dataConUserType  (MkData { dcUnivTyCoVars = univ_tvs, 
+			   dcExTyCoVars = ex_tvs, dcEqSpec = eq_spec,
 			   dcOtherTheta = theta, dcOrigArgTys = arg_tys,
 			   dcOrigResTy = res_ty })
   = mkForAllTys ((univ_tvs `minusList` map fst eq_spec) ++ ex_tvs) $
@@ -832,8 +832,8 @@ dataConInstArgTys :: DataCon	-- ^ A datacon with no existentials or equality con
 				-- class dictionary, with superclasses)
 	      	  -> [Type] 	-- ^ Instantiated at these types
 	      	  -> [Type]
-dataConInstArgTys dc@(MkData {dcUnivTyVars = univ_tvs, dcEqSpec = eq_spec,
-			      dcExTyVars = ex_tvs}) inst_tys
+dataConInstArgTys dc@(MkData {dcUnivTyCoVars = univ_tvs, dcEqSpec = eq_spec,
+			      dcExTyCoVars = ex_tvs}) inst_tys
  = ASSERT2 ( length univ_tvs == length inst_tys 
            , ptext (sLit "dataConInstArgTys") <+> ppr dc $$ ppr univ_tvs $$ ppr inst_tys)
    ASSERT2 ( null ex_tvs && null eq_spec, ppr dc )        
@@ -849,8 +849,8 @@ dataConInstOrigArgTys
 -- For vanilla datacons, it's all quite straightforward
 -- But for the call in MatchCon, we really do want just the value args
 dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
-			          dcUnivTyVars = univ_tvs, 
-			          dcExTyVars = ex_tvs}) inst_tys
+			          dcUnivTyCoVars = univ_tvs, 
+			          dcExTyCoVars = ex_tvs}) inst_tys
   = ASSERT2( length tyvars == length inst_tys
           , ptext (sLit "dataConInstOrigArgTys") <+> ppr dc $$ ppr tyvars $$ ppr inst_tys )
     map (substTyWith tyvars inst_tys) arg_tys
@@ -921,7 +921,7 @@ dataConCannotMatch tys con
   = typesCantMatch [(Type.substTy subst ty1, Type.substTy subst ty2)
                    | (ty1, ty2) <- concatMap predEqs theta ]
   where
-    dc_tvs  = dataConUnivTyVars con
+    dc_tvs  = dataConUnivTyCoVars con
     theta   = dataConTheta con
     subst   = ASSERT2( length dc_tvs == length tys, ppr con $$ ppr dc_tvs $$ ppr tys ) 
               zipTopTCvSubst dc_tvs tys

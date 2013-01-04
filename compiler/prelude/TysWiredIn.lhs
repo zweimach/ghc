@@ -440,12 +440,13 @@ eqTyCon = mkAlgTyCon eqTyConName
     a:b:_ = tyVarList k
 
 eqBoxDataCon :: DataCon
-eqBoxDataCon = pcDataCon eqBoxDataConName args [TyConApp eqPrimTyCon (mkOnlyTyVarTys args)] eqTyCon
+eqBoxDataCon = pcDataCon eqBoxDataConName args [arg_ty] eqTyCon
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
     a:b:_ = tyVarList k
     args = [kv, a, b]
+    arg_ty = TyConApp eqPrimTyCon ([k, k] ++ mkOnlyTyVarTys [a, b])
 \end{code}
 
 \begin{code}

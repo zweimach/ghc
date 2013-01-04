@@ -870,7 +870,7 @@ addDataConStupidTheta data_con inst_tys
 	-- The origin should always report "occurrence of C"
 	-- even when C occurs in a pattern
     stupid_theta = dataConStupidTheta data_con
-    tenv = mkTopTCvSubst (dataConUnivTyVars data_con `zip` inst_tys)
+    tenv = mkTopTCvSubst (dataConUnivTyCoVars data_con `zip` inst_tys)
     	 -- NB: inst_tys can be longer than the univ tyvars
 	 --     because the constructor might have existentials
     inst_theta = substTheta tenv stupid_theta

@@ -371,7 +371,7 @@ forgetArgVar Gen1_DC{} = Gen1
 -- match that datacon's name for it.
 gk2gkDC :: GenericKind_ -> DataCon -> GenericKind_DC
 gk2gkDC Gen0_   _ = Gen0_DC
-gk2gkDC Gen1_{} d = Gen1_DC $ last $ dataConUnivTyVars d
+gk2gkDC Gen1_{} d = Gen1_DC $ last $ dataConUnivTyCoVars d
 
 
 

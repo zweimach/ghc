@@ -296,12 +296,15 @@ ppr_preds preds  = parens (sep (punctuate comma (map ppr preds)))
 
 \begin{code}
 ----------------
-toIfaceTvBndr :: TyVar -> (IfLclName, IfaceType)
-toIfaceTvBndr tyvar   = (occNameFS (getOccName tyvar), toIfaceKind (tyVarKind tyvar))
+toIfaceTCvBndr :: TyVar -> (IfLclName, IfaceType)
+toIfaceTCvBndr tyvar
+  | isId var  = toIfaceIdBndr var  
+  | otherwise = (occNameFS (getOccName tyvar), toIfaceKind (tyVarKind tyvar))
+
 toIfaceIdBndr :: Id -> (IfLclName, IfaceType)
 toIfaceIdBndr id      = (occNameFS (getOccName id),    toIfaceType (idType id))
-toIfaceTvBndrs :: [TyVar] -> [(IfLclName, IfaceType)]
-toIfaceTvBndrs tyvars = map toIfaceTvBndr tyvars
+toIfaceTCvBndrs :: [TyVar] -> [(IfLclName, IfaceType)]
+toIfaceTCvBndrs tyvars = map toIfaceTCvBndr tyvars
 
 toIfaceBndr :: Var -> IfaceBndr
 toIfaceBndr var

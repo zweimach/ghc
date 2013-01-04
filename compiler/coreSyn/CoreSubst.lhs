@@ -1202,14 +1202,14 @@ exprIsConApp_maybe id_unf expr
     go (Left in_scope) (Var fun) cont@(CC args co)
         | Just con <- isDataConWorkId_maybe fun
         , count isValArg args == idArity fun
-        , let (univ_ty_args, rest_args) = splitAtList (dataConUnivTyVars con) args
-        = dealWithCoercion co (con, stripTypeArgs univ_ty_args, rest_args)
+        , let (univ_ty_args, rest_args) = splitAtList (dataConUnivTyCoVars con) args
+        = dealWithCoercion co (con, stripTyCoArgs univ_ty_args, rest_args)
 
         -- Look through dictionary functions; see Note [Unfolding DFuns]
         | DFunUnfolding dfun_nargs con ops <- unfolding
         , length args == dfun_nargs    -- See Note [DFun arity check]
         , let (dfun_tvs, _n_theta, _cls, dfun_res_tys) = tcSplitDFunTy (idType fun)
-              subst    = zipOpenTCvSubst dfun_tvs (stripTypeArgs (takeList dfun_tvs args))
+              subst    = zipOpenTCvSubst dfun_tvs (stripTyCoArgs (takeList dfun_tvs args))
               mk_arg (DFunPolyArg e) = mkApps e args
               mk_arg (DFunLamArg i)  = args !! i
         = dealWithCoercion co (con, substTys subst dfun_res_tys, map mk_arg ops)
@@ -1256,7 +1256,7 @@ dealWithCoercion co stuff@(dc, _dc_univ_args, dc_args)
         -- will probably not be called in such circumstances,
         -- but there't nothing wrong with it 
 
-  =     -- Here we do the KPush reduction rule as described in the FC paper
+  =     -- Here we do the KPush reduction rule as described in "Down with kinds"
         -- The transformation applies iff we have
         --      (C e1 ... en) `cast` co
         -- where co :: (T t1 .. tn) ~ to_ty
@@ -1264,38 +1264,38 @@ dealWithCoercion co stuff@(dc, _dc_univ_args, dc_args)
         -- but the right-hand one might not be.  (Though it usually will.)
     let
         tc_arity       = tyConArity to_tc
-        dc_univ_tyvars = dataConUnivTyVars dc
-        dc_ex_tyvars   = dataConExTyVars dc
+        dc_univ_tyvars = dataConUnivTyCoVars dc
+        dc_ex_tyvars   = dataConExTyCoVars dc
         arg_tys        = dataConRepArgTys dc
 
         (ex_args, val_args) = splitAtList dc_ex_tyvars dc_args
 
-        -- Make the "theta" from Fig 3 of the paper
-        gammas = decomposeCo tc_arity co
-        theta_subst = liftCoSubstWith 
-                         (dc_univ_tyvars ++ dc_ex_tyvars)
-                         (gammas         ++ map mkReflCo (stripTypeArgs ex_args))
+        -- Make the "Psi" from the paper
+        omegas = decomposeCo tc_arity co
+        psi_subst = liftCoSubstWithEx dc_univ_tyvars omegas dc_ex_tyvars ex_args
 
           -- Cast the value arguments (which include dictionaries)
         new_val_args = zipWith cast_arg arg_tys val_args
-        cast_arg arg_ty arg = mkCast arg (theta_subst arg_ty)
+        cast_arg arg_ty arg = mkCast arg (psi_subst arg_ty)
 
         dump_doc = vcat [ppr dc,      ppr dc_univ_tyvars, ppr dc_ex_tyvars,
                          ppr arg_tys, ppr dc_args,        ppr _dc_univ_args,
                          ppr ex_args, ppr val_args]
     in
     ASSERT2( eqType _from_ty (mkTyConApp to_tc _dc_univ_args), dump_doc )
-    ASSERT2( all isTypeArg ex_args, dump_doc )
+    ASSERT2( all isTyCoArg ex_args, dump_doc )
     ASSERT2( equalLength val_args arg_tys, dump_doc )
     Just (dc, to_tc_arg_tys, ex_args ++ new_val_args)
 
   | otherwise
   = Nothing
 
-stripTypeArgs :: [CoreExpr] -> [Type]
-stripTypeArgs args = ASSERT2( all isTypeArg args, ppr args )
-                     [ty | Type ty <- args]
-  -- We really do want isTypeArg here, not isTyCoArg!
+stripTyCoArgs :: [CoreExpr] -> [Type]
+stripTyCoArgs args
+  = map strip args
+  where strip (Type ty)     = ty
+        strip (Coercion co) = CoercionTy co
+        strip arg           = pprPanic "stripTyCoArgs" (ppr arg)
 \end{code}
 
 Note [Unfolding DFuns]

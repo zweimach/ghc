@@ -311,7 +311,7 @@ opt_trans_rule is co1 co2
   , ind1 == ind2
   , sym1 == not sym2
   , let branch = coAxiomNthBranch con1 ind1
-        qtvs = coAxBranchTyVars branch
+        qtvs = coAxBranchTyCoVars branch
         lhs  = coAxNthLHS con1 ind1
         rhs  = coAxBranchRHS branch
         pivot_tvs = exactTyVarsOfType (if sym2 then rhs else lhs)

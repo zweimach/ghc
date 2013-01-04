@@ -3,6 +3,7 @@
 %
 
 \begin{code}
+{-# LANGUAGE RankNTypes #-}
 {-# OPTIONS -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
@@ -58,7 +59,7 @@ module Coercion (
 	substCoVarBndr,
 
 	-- ** Lifting
-	liftCoMatch, liftCoSubstTyVar, liftCoSubstWith, 
+	liftCoMatch, liftCoSubstTyVar, liftCoSubstWith, liftCoSubstWithEx,
         
         -- ** Comparison
         coreEqCoercion, coreEqCoercion2,
@@ -356,7 +357,7 @@ mkAxInstRHS ax index tys
     mkAppTys rhs' tys2
   where
     branch       = coAxiomNthBranch ax index
-    tvs          = coAxBranchTyVars branch
+    tvs          = coAxBranchTyCoVars branch
     (tys1, tys2) = splitAtList tvs tys
     rhs'         = substTyWith tvs tys1 (coAxBranchRHS branch)
 
@@ -496,6 +497,30 @@ mkCoCast c g
 \end{code}
 
 %************************************************************************
+%*                                                                      *
+   CoercionArgs
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+isTyCoArg :: CoercionArg -> Bool
+isTyCoArg (TyCoArg _) = True
+isTyCoArg _           = False
+
+isCoCoArg :: CoercionArg -> Bool
+isCoCoArg (CoCoArg _) = True
+isCoCoArg _           = False
+
+stripTyCoArg :: CoercionArg -> Coercion
+stripTyCoArg (TyCoArg co) = co
+stripTyCoArg arg          = pprPanic "stripTyCoArg" (ppr arg)
+
+stripCoCoArg :: CoercionArg -> (Coercion, Coercion)
+stripCoCoArg (CoCoArg co1 co2) = (co1, co2)
+stripCoCoArg arg               = pprPanic "stripCoCoArg" (ppr arg)
+\end{code}
+
+%************************************************************************
 %*									*
             Newtypes
 %*									*
@@ -606,57 +631,194 @@ substCoWithTys in_scope tvs tys co
 %*                                                                      *
 %************************************************************************
 
+Note [Lifting Contexts]
+~~~~~~~~~~~~~~~~~~~~~~~
+Say we have an expression like this, where K is a constructor of the type
+T:
+
+case (K a b |> co) of ...
+
+The scrutinee is not an application of a constructor -- it is a cast. Thus,
+we want to be able to push the coercion inside the arguments to K (a and b,
+in this case) so that the top-level structure of the scrutinee is a
+constructor application. In the presence of kind coercions, this is a bit
+of a hairy operation. So, we refer you to the paper introducing kind coercions,
+available at www.cis.upenn.edu/~sweirich/papers/nokinds-extended.pdf
+
+Note [cast_2_ways]
+~~~~~~~~~~~~~~~~~~
+Normally, the lifting operation lifts a type into a coercion. But, what do
+we do when the type contains a coercion, say through a cast? We have to
+"lift" the coercion. The cast_2_ways function does this. Say
+
+  g :: t1 ~ t2
+
+Then,
+
+  (cast_2_ways g eta1 eta2) :: (t1 |> eta1) ~ (t2 |> eta2)
+
+
 \begin{code}
-data LiftCoSubst = LCS InScopeSet LiftCoEnv
+data LiftingContext = LC InScopeSet LiftCoEnv
 
-type LiftCoEnv = VarEnv Coercion
-     -- Maps *type variables* to *coercions*
-     -- That's the whole point of this function!
+type LiftCoEnv = VarEnv CoercionArg
+     -- Maps *type variables* to *coercions* (TyCoArg) and coercion variables
+     -- to pairs of coercions (CoCoArg). That's the whole point of this function!
 
-liftCoSubstWith :: [TyVar] -> [Coercion] -> Type -> Coercion
+-- See Note [Lifting Contexts]
+liftCoSubstWithEx :: [TyCoVar]  -- universally quantified tycovars
+                  -> [CoercionArg] -- coercions to substitute for those
+                  -> [TyCoVar]  -- existentially quantified tycovars
+                  -> [CoreExpr] -- types and coercions to be bound to ex vars
+                  -> (Type -> Coercion) -- lifting function
+liftCoSubstWithEx univs omegas exs rhos
+  = let theta = mkLiftingContext (zipEqual "liftCoSubstWithExU" univs omegas)
+        psi   = extendLiftingContext theta (zipEqual "liftCoSubstWithExX" exs rhos)
+    in ty_co_subst psi
+
+liftCoSubstWith :: [TyVar] -> [CoercionArg] -> Type -> Coercion
 liftCoSubstWith tvs cos ty
   = liftCoSubst (zipEqual "liftCoSubstWith" tvs cos) ty
 
-liftCoSubst :: [(TyVar,Coercion)] -> Type -> Coercion
+liftCoSubst :: [(TyVar,CoercionArg)] -> Type -> Coercion
 liftCoSubst prs ty
  | null prs  = Refl ty
- | otherwise = ty_co_subst (LCS (mkInScopeSet (tyCoVarsOfCos (map snd prs)))
-                                (mkVarEnv prs)) ty
+ | otherwise = ty_co_subst (mkLiftingContext prs) ty
+
+mkLiftingContext :: [(TyCoVar,CoercionArg)] -> LiftingContext
+mkLiftingContext prs = LC (mkInScopeSet (tyCoVarsOfCoArgs (map snd prs)))
+                          (mkVarEnv prs)
+
+-- See Note [Lifting Contexts]
+extendLiftingContext :: LiftingContext -> [(TyCoVar,CoreExpr)] -> LiftingContext
+extendLiftingContext lc [] = lc
+extendLiftingContext lc@(LC in_scope env) ((v,e):rest)
+  | isTyVar v
+  , Type ty <- e
+  = let lc' = LC (in_scope `extendInScopeSet` tyCoVarsOfType ty)
+                 (env `extendVarEnv` v (TyCoArg $ mkSymCo $ mkCoherenceCo
+                                         (mkReflCo ty)
+                                         (ty_co_subst lc (tyVarKind v))))
+    in extendLiftingContext lc' rest
+  | Coercion co <- e
+  = let (s1, s2) = coVarTypes v
+        lc' = LC (in_scope `extendInScopeSet` tyCoVarsOfCo co)
+                 (env `extendVarEnv` v (CoCoArg co $
+                                         (mkSymCo (ty_co_subst lc s1)) `mkTransCo`
+                                         co `mkTransCo`
+                                         (ty_co_subst lc s2)))
+    in extendLiftingContext lc' rest
+  | otherwise
+  = pprPanic "extendLiftingContext" (ppr v <+> ptext (sLit "|->") <+> ppr e)
 
 -- | The \"lifting\" operation which substitutes coercions for type
 --   variables in a type to produce a coercion.
 --
 --   For the inverse operation, see 'liftCoMatch' 
-ty_co_subst :: LiftCoSubst -> Type -> Coercion
-ty_co_subst subst ty
+ty_co_subst :: LiftingContext -> Type -> Coercion
+ty_co_subst lc@(LC in_scope env) ty
   = go ty
   where
-    go (TyVarTy tv)      = liftCoSubstTyVar subst tv `orElse` Refl (TyVarTy tv)
-       			     -- A type variable from a non-cloned forall
-			     -- won't be in the substitution
-    go (AppTy ty1 ty2)   = mkAppCo (go ty1) (go ty2)
-    go (TyConApp tc tys) = mkTyConAppCo tc (map go tys)
-                           -- IA0_NOTE: Do we need to do anything
-                           -- about kind instantiations? I don't think
-                           -- so.  see Note [Kind coercions]
-    go (FunTy ty1 ty2)   = mkFunCo (go ty1) (go ty2)
-    go (ForAllTy v ty)   = mkForAllCo v' $! (ty_co_subst subst' ty)
-                         where
-                           (subst', v') = liftCoSubstTyVarBndr subst v
+    go :: Type -> Coercion
+    go ty | tyCoVarsOfType ty `isNotInDomainOf` env = mkReflCo ty
+    go (TyVarTy tv)      = liftCoSubstTyVar subst tv
+    go (AppTy ty1 ty2)   = mkAppCo (go ty1) (go_arg ty2)
+    go (TyConApp tc tys) = mkTyConAppCo tc (map go_arg tys)
+    go (FunTy ty1 ty2)   = mkFunCo (go_arg ty1) (go_arg ty2)
+    go (ForAllTy v ty)
+      | isTyVar v
+      , let (subst', tv1, tv2, cv) = liftCoSubstTyVarBndr subst v
+      = mkForAllTyCo tv1 tv2 cv $! (ty_co_subst subst' ty)
+      | otherwise
+      , let (subst', cv1, cv2) = liftCoSubstCoVarBndr subst v
+      = mkForAllCoCo cv1 cv2 $! (ty_co_subst subst' ty)
     go ty@(LitTy {})     = mkReflCo ty
+    go (CastTy ty co)    = cast_2_ways (go ty) (substLeftCo lc co)
+                                               (substRightCo lc co)
+    go (Coercion co)     = pprPanic "ty_co_subst" (ppr co)
 
-liftCoSubstTyVar :: LiftCoSubst -> TyVar -> Maybe Coercion
-liftCoSubstTyVar (LCS _ cenv) tv = lookupVarEnv cenv tv 
+    go_arg :: Type -> CoercionArg
+    go_arg (Coercion co) = CoCoArg (substLeftCo lc co) (substRightCo lc co)
+    go_arg ty            = TyCoArg (go ty)
 
-liftCoSubstTyVarBndr :: LiftCoSubst -> TyVar -> (LiftCoSubst, TyVar)
-liftCoSubstTyVarBndr (LCS in_scope cenv) old_var
-  = (LCS (in_scope `extendInScopeSet` new_var) new_cenv, new_var)		
+    isNotInDomainOf :: VarSet -> VarEnv a -> Bool
+    isNotInDomainOf set env
+      = noneSet (\v -> elemVarEnv v env) set
+
+    noneSet :: (Var -> Bool) -> VarSet -> Bool
+    noneSet f = foldVarSet (\v rest -> rest && (not $ f v)) True
+
+    -- See Note [cast_2_ways]
+    cast_2_ways :: Coercion -> Coercion -> Coercion -> Coercion
+    cast_2_ways g eta1 eta2 = (mkSymCo ((mkSymCo g) `mkCoherenceCo` eta2))
+                              `mkCoherenceCo` eta1
+
+liftCoSubstTyVar :: LiftingContext -> TyVar -> Coercion
+liftCoSubstTyVar (LC _ cenv) tv = lookupVarEnv_NF cenv tv 
+
+liftCoSubstTyVarBndr :: LiftingContext -> TyVar
+                     -> (LiftingContext, TyVar, TyVar, CoVar)
+liftCoSubstTyVarBndr lc@(LC in_scope cenv) old_var
+  = (LC (in_scope `extendInScopeSetList` [a1, a2, c]) new_cenv, a1, a2, c)
   where
-    new_cenv | no_change = delVarEnv cenv old_var
-	     | otherwise = extendVarEnv cenv old_var (Refl (TyVarTy new_var))
+    eta = ty_co_subst lc (tyVarKind old_var)
+    (k1, k2) = coercionKind eta
+    new_var = uniqAway in_scope (setVarType old_var k1)
+    (a1, a2, new_cenv)
+      | new_var == old_var
+      , k1 `eqType` k2
+      = (old_var, old_var, delVarEnv cenv old_var)
+      -- See Note [ForAllTyHeteroCo scoping]
+      -- TODO (RAE): Write note
 
-    no_change = new_var == old_var
-    new_var = uniqAway in_scope old_var
+      | otherwise
+      = (new_var, setVarType new_var k2, extendVarEnv cenv old_var
+                                                      (TyCoArg $ mkCoVarCo c))
+    cv_uniq = mkCoVarUnique 31 -- arbitrary number
+    cv_name = mkSystemVarName cv_uniq (mkFastString "c")
+    c  = uniqAway in_scope $
+         mkCoVar cv_name (mkCoercionType (TyVarTy a1) (TyVarTy a2))
+    -- note that c depends on a1 and a2 and new_cenv depends on c, but
+    -- a1 & a2 do not depend on c, so we don't have infinite recursion
+
+liftCoSubstCoVarBndr :: LiftingContext -> CoVar
+                     -> (LiftingContext, CoVar, CoVar)
+liftCoSubstCoVarBndr lc@(LC in_scope cenv) old_var
+  = (LC (in_scope `extendInScopeSetList` [cv1, cv2]) new_cenv, cv1, cv2)
+  where
+    eta = ty_co_subst lc (coVarKind old_var)
+    (phi1, phi2) = coercionKind eta
+    new_var = uniqAway in_scope (setVarType old_var phi1)
+    (cv1, cv2, new_cenv)
+      | new_var == old_var
+      , phi1 `eqType` phi2
+      = (old_var, old_var, delVarEnv cenv old_var)
+      -- See Note [ForAllTyHeteroCo scoping]
+
+      | otherwise
+      = (new_var, setVarType new_var phi2, extendVarEnv cenv old_var
+                                                        (CoCoArg (mkCoVarCo cv1)
+                                                                 (mkCoVarCo cv2)))
+
+-- If [a |-> g] is in the substitution and g :: t1 ~ t2, substitute a for t1
+-- If [a |-> (g1, g2)] is in the substitution, substitute a for g1
+substLeftCo :: LiftingContext -> Coercion -> Coercion
+substLeftCo lc co
+  = substCo (lcSubst fst lc) co
+
+-- Ditto, but for t2 and g2
+substRightCo :: LiftingContext -> Coercion -> Coercion
+substRightCo lc co
+  = substCo (lcSubst snd lc) co
+
+lcSubst :: LiftingContext -> (forall a. (a,a) -> a) -> TCvSubst
+lcSubst (LC in_scope lc_env)
+  = mkTCvSubst in_scope tenv cenv
+  where
+    (tenv0, cenv0) = partitionVarEnv isTyCoArg lc_env
+    tenv           = mapVarEnv (fst . coercionKind . stripTyCoArg) tenv0
+    cenv           = mapVarEnv (fst . stripCoCoArg) cenv0
+
 \end{code}
 
 \begin{code}
@@ -836,8 +998,3 @@ applyCo (FunTy _ ty) _ = ty
 applyCo _            _ = panic "applyCo"
 \end{code}
 
-Note [Kind coercions]
-~~~~~~~~~~~~~~~~~~~~~
-Kind coercions are only of the form: Refl kind. They are only used to
-instantiate kind polymorphic type constructors in TyConAppCo. Remember
-that kind instantiation only happens with TyConApp, not AppTy.

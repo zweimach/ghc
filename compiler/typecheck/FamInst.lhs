@@ -313,7 +313,7 @@ addLocalFamInst (home_fie, my_fis) fam_inst
     mk_skolem_tyvars :: CoAxBranch -> FamInstBranch
                      -> TcM (CoAxBranch, FamInstBranch)
     mk_skolem_tyvars axb fib
-      = do { (subst, skol_tvs) <- tcInstSkolTyVars (coAxBranchTyVars axb)
+      = do { (subst, skol_tvs) <- tcInstSkolTyVars (coAxBranchTyCoVars axb)
            ; let axb' = coAxBranchSubst axb skol_tvs subst
                  fib' = famInstBranchSubst fib skol_tvs subst
            ; return (axb', fib') }

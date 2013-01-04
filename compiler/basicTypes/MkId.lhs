@@ -420,7 +420,7 @@ mkDataConWorkId wkr_name data_con
 
         ----------- Workers for newtypes --------------
     (nt_tvs, _, nt_arg_tys, _) = dataConSig data_con
-    res_ty_args  = mkTyVarTys nt_tvs
+    res_ty_args  = mkTyCoVarTys nt_tvs
     nt_wrap_ty   = dataConUserType data_con
     nt_work_info = noCafIdInfo          -- The NoCaf-ness is set by noCafIdInfo
                   `setArityInfo` 1      -- Arity 1
@@ -512,7 +512,7 @@ mkDataConRep dflags wrap_name data_con
 
   where
     (univ_tvs, ex_tvs, eq_spec, theta, orig_arg_tys, _) = dataConFullSig data_con
-    res_ty_args  = substTyVars (mkTopTvSubst eq_spec) univ_tvs
+    res_ty_args  = substTyCoVars (mkTopTCvSubst eq_spec) univ_tvs
     tycon        = dataConTyCon data_con       -- The representation TyCon (not family)
     wrap_ty      = dataConUserType data_con
     ev_tys       = eqSpecPreds eq_spec ++ theta
@@ -544,9 +544,9 @@ mkDataConRep dflags wrap_name data_con
     mk_boxer :: [Boxer] -> DataConBoxer
     mk_boxer boxers = DCB (\ ty_args src_vars -> 
                       do { let ex_vars = takeList ex_tvs src_vars
-                               subst1 = mkTopTvSubst (univ_tvs `zip` ty_args)
-                               subst2 = extendTvSubstList subst1 ex_tvs 
-                                                          (mkTyVarTys ex_vars)
+                               subst1 = mkTopTCvSubst (univ_tvs `zip` ty_args)
+                               subst2 = extendTCvSubstList subst1 ex_tvs 
+                                                          (mkTyCoVarTys ex_vars)
                          ; (rep_ids, binds) <- go subst2 boxers (dropList ex_tvs src_vars)
                          ; return (ex_vars ++ rep_ids, binds) } )
 
@@ -1166,7 +1166,7 @@ voidArgId       -- :: State# RealWorld
 coercionTokenId :: Id 	      -- :: () ~ ()
 coercionTokenId -- Used to replace Coercion terms when we go to STG
   = pcMiscPrelId coercionTokenName 
-                 (mkTyConApp eqPrimTyCon [liftedTypeKind, unitTy, unitTy])
+                 (mkTyConApp eqPrimTyCon [liftedTypeKind, liftedTypeKind, unitTy, unitTy])
                  noCafIdInfo
 \end{code}
 

@@ -959,8 +959,8 @@ getDataConArgTys dc con_app_ty
        ; traceTR (text "getDataConArgTys 2" <+> (ppr rep_con_app_ty $$ ppr ty_args $$ ppr subst))
        ; return (substTys subst (dataConRepArgTys dc)) }
   where
-    univ_tvs = dataConUnivTyVars dc
-    ex_tvs   = dataConExTyVars dc
+    univ_tvs = dataConUnivTyCoVars dc
+    ex_tvs   = dataConExTyCoVars dc
 
 {- Note [Constructor arg types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

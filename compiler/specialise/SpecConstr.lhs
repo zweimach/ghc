@@ -1642,7 +1642,7 @@ argToPat env in_scope val_env arg arg_occ
   | Just (ConVal (DataAlt dc) args) <- isValue val_env arg
   , not (ignoreDataCon env dc)        -- See Note [NoSpecConstr]
   , Just arg_occs <- mb_scrut dc
-  = do  { let (ty_args, rest_args) = splitAtList (dataConUnivTyVars dc) args
+  = do  { let (ty_args, rest_args) = splitAtList (dataConUnivTyCoVars dc) args
         ; (_, args') <- argsToPats env in_scope val_env rest_args arg_occs
         ; return (True,
                   mkConApp dc (ty_args ++ args')) }
