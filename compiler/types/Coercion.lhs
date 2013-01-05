@@ -395,6 +395,10 @@ mkTyConAppCo tc cos
 mkFunCo :: Coercion -> Coercion -> Coercion
 mkFunCo co1 co2 = mkTyConAppCo funTyCon [co1, co2]
 
+-- | Make a Coercion from a ForAllCoBndr and Coercion
+mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
+mkForAllCo = ForAllCo
+
 -- | Make a Coercion quantified over a type variable; the variable has
 -- the same type in both types of the coercion
 mkForAllCo_TyHomo :: TyVar -> Coercion -> Coercion

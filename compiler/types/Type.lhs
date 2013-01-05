@@ -289,8 +289,30 @@ expandTypeSynonyms ty
     go (AppTy t1 t2)   = mkAppTy (go t1) (go t2)
     go (FunTy t1 t2)   = FunTy (go t1) (go t2)
     go (ForAllTy tv t) = ForAllTy tv (go t)
-    go (CastTy ty co)  = CastTy (go ty) (expandTypeSynonymsCo co)
-    go (CoercionTy co) = CoercionTy (expandTypeSynonymsCo co)
+    go (CastTy ty co)  = mkCastTy (go ty) (go_co co)
+    go (CoercionTy co) = mkCoercionTy (go_co co)
+
+    go_co (Refl ty)                 = mkReflCo (go ty)
+    go_co (TyConAppCo tc args)
+      | Just (cenv, rhs, args') <- tcExpandTyCon_maybe tc args
+      = go (mkAppCos (liftCoSubst cenv rhs) args')
+      | otherwise
+      = mkTyConAppCo tc (map go_arg args)
+    go_co (AppCo co arg)            = mkAppCo (go_co co) (go_arg arg)
+    go_co (ForAllCo cobndr co)      = mkForAllCo cobndr (go_co co)
+    go_co (CoVarCo cv)              = mkCoVarCo cv
+    go_co (AxiomInstCo ax ind args) = mkAxiomInstCo ax ind (map go_arg args)
+    go_co (UnsafeCo ty1 ty2)        = mkUnsafeCo (go ty1) (go ty2)
+    go_co (SymCo co)                = mkSymCo (go_co co)
+    go_co (TransCo co1 co2)         = mkTransCo (go_co co1) (go_co co2)
+    go_co (NthCo n co)              = mkNthCo n (go_co co)
+    go_co (LRCo lr co)              = mkLRCo lr (go_co co)
+    go_co (InstCo co arg)           = mkInstCo (go_co co) (go_arg arg)
+    go_co (CoherenceCo co1 co2)     = mkCoherenceCo (go_co co1) (go_co co2)
+    go_co (KindCo co)               = mkKindCo (go_co co)
+
+    go_arg (TyCoArg co)      = TyCoArg (go_co co)
+    go_arg (CoCoArg co1 co2) = CoCoArg (go_co co1) (go_co co2)
 \end{code}
 
 
@@ -711,12 +733,13 @@ typePrimRep :: UnaryType -> PrimRep
 typePrimRep ty
   = case repType ty of
       UbxTupleRep _ -> pprPanic "typePrimRep: UbxTupleRep" (ppr ty)
-      UnaryRep rep -> case rep of
-        TyConApp tc _ -> tyConPrimRep tc
-        FunTy _ _     -> PtrRep
-        AppTy _ _     -> PtrRep      -- See Note [AppTy rep] 
-        TyVarTy _     -> PtrRep
-        _             -> pprPanic "typePrimRep: UnaryRep" (ppr ty)
+      UnaryRep rep -> go rep
+    where go (TyConApp tc _) = tyConPrimRep tc
+          go (FunTy _ _)     = PtrRep
+          go (AppTy _ _)     = PtrRep      -- See Note [AppTy rep] 
+          go (TyVarTy _)     = PtrRep
+          go (CastTy ty _)   = go ty  
+          go _               = pprPanic "typePrimRep: UnaryRep" (ppr ty)
 
 typeRepArity :: Arity -> Type -> RepArity
 typeRepArity 0 _ = 0
@@ -751,6 +774,7 @@ mkPiKinds :: [TyVar] -> Kind -> Kind
 mkPiKinds [] res = res
 mkPiKinds (tv:tvs) res 
   | isKindVar tv = ForAllTy tv          (mkPiKinds tvs res)
+  | isCoVar   tv = ForAllTy tv          (mkPiKinds tvs res)
   | otherwise    = FunTy (tyVarKind tv) (mkPiKinds tvs res)
 
 mkPiType  :: Var -> Type -> Type
@@ -772,7 +796,7 @@ isForAllTy _              = False
 
 -- | Attempts to take a forall type apart, returning the bound type variable
 -- and the remainder of the type
-splitForAllTy_maybe :: Type -> Maybe (TyVar, Type)
+splitForAllTy_maybe :: Type -> Maybe (TyCoVar, Type)
 splitForAllTy_maybe ty = splitFAT_m ty
   where
     splitFAT_m ty | Just ty' <- coreView ty = splitFAT_m ty'
@@ -782,7 +806,7 @@ splitForAllTy_maybe ty = splitFAT_m ty
 -- | Attempts to take a forall type apart, returning all the immediate such bound
 -- type variables and the remainder of the type. Always suceeds, even if that means
 -- returning an empty list of 'TyVar's
-splitForAllTys :: Type -> ([TyVar], Type)
+splitForAllTys :: Type -> ([TyCoVar], Type)
 splitForAllTys ty = split ty ty []
    where
      split orig_ty ty tvs | Just ty' <- coreView ty = split orig_ty ty' tvs
@@ -917,7 +941,7 @@ mkEqPred ty1 ty2
     k = typeKind ty1
 
 mkPrimEqPred :: Type -> Type -> Type
-mkPrimEqPred ty1  ty2
+mkPrimEqPred ty1 ty2
   = TyConApp eqPrimTyCon [k1, k2, ty1, ty2]
   where 
     k1 = typeKind ty1
@@ -1030,6 +1054,8 @@ typeSize (AppTy t1 t2)   = typeSize t1 + typeSize t2
 typeSize (FunTy t1 t2)   = typeSize t1 + typeSize t2
 typeSize (ForAllTy _ t)  = 1 + typeSize t
 typeSize (TyConApp _ ts) = 1 + sum (map typeSize ts)
+typeSize (CastTy ty co)  = typeSize ty + coercionSize co
+typeSize (CoercionTy co) = 1 + coercionSize co
 
 varSetElemsKvsFirst :: VarSet -> [TyVar]
 -- {k1,a,k2,b} --> [k1,k2,a,b]
@@ -1183,6 +1209,8 @@ seqType (AppTy t1 t2) 	  = seqType t1 `seq` seqType t2
 seqType (FunTy t1 t2) 	  = seqType t1 `seq` seqType t2
 seqType (TyConApp tc tys) = tc `seq` seqTypes tys
 seqType (ForAllTy tv ty)  = seqType (tyVarKind tv) `seq` seqType ty
+seqType (CastTy ty co)    = seqType ty `seq` seqCoercion co
+seqType (CoercionTy co)   = seqCoercion co
 
 seqTypes :: [Type] -> ()
 seqTypes []       = ()
@@ -1264,23 +1292,40 @@ cmpTypeX env (AppTy s1 t1)       (AppTy s2 t2)       = cmpTypeX env s1 s2 `thenC
 cmpTypeX env (FunTy s1 t1)       (FunTy s2 t2)       = cmpTypeX env s1 s2 `thenCmp` cmpTypeX env t1 t2
 cmpTypeX env (TyConApp tc1 tys1) (TyConApp tc2 tys2) = (tc1 `cmpTc` tc2) `thenCmp` cmpTypesX env tys1 tys2
 cmpTypeX _   (LitTy l1)          (LitTy l2)          = compare l1 l2
+cmpTypeX env (CastTy t1 c1)      (CastTy t2 c2)      = cmpTypeX env t1 t2 `thenCmp` cmpCoercionX env c1 c2
+cmpTypeX env (CoercionTy c1)     (CoercionTy c2)     = cmpCoercionX env c1 c2
 
-    -- Deal with the rest: TyVarTy < AppTy < FunTy < LitTy < TyConApp < ForAllTy < PredTy
+    -- Deal with the rest: TyVarTy < CoercionTy < CastTy < AppTy < FunTy < LitTy < TyConApp < ForAllTy
+cmpTypeX _ (CoercionTy _) (TyVarTy _)    = GT
+
+cmpTypeX _ (CastTy _ _)   (TyVarTy _)    = GT
+cmpTypeX _ (CastTy _ _)   (CoercionTy _) = GT
+
 cmpTypeX _ (AppTy _ _)    (TyVarTy _)    = GT
+cmpTypeX _ (AppTy _ _)    (CoercionTy _) = GT
+cmpTypeX _ (AppTy _ _)    (CastTy _ _)   = GT
 
 cmpTypeX _ (FunTy _ _)    (TyVarTy _)    = GT
+cmpTypeX _ (FunTy _ _)    (CoercionTy _) = GT
+cmpTypeX _ (FunTy _ _)    (CastTy _ _)   = GT
 cmpTypeX _ (FunTy _ _)    (AppTy _ _)    = GT
 
 cmpTypeX _ (LitTy _)      (TyVarTy _)    = GT
+cmpTypeX _ (LitTy _)      (CoercionTy _) = GT
+cmpTypeX _ (LitTy _)      (CastTy _ _)   = GT
 cmpTypeX _ (LitTy _)      (AppTy _ _)    = GT
 cmpTypeX _ (LitTy _)      (FunTy _ _)    = GT
 
 cmpTypeX _ (TyConApp _ _) (TyVarTy _)    = GT
+cmpTypeX _ (TyConApp _ _) (CoercionTy _) = GT
+cmpTypeX _ (TyConApp _ _) (CastTy _ _)   = GT
 cmpTypeX _ (TyConApp _ _) (AppTy _ _)    = GT
 cmpTypeX _ (TyConApp _ _) (FunTy _ _)    = GT
 cmpTypeX _ (TyConApp _ _) (LitTy _)      = GT
 
 cmpTypeX _ (ForAllTy _ _) (TyVarTy _)    = GT
+cmpTypeX _ (ForAllTy _ _) (CoercionTy _) = GT
+cmpTypeX _ (ForAllTy _ _) (CastTy _ _)   = GT
 cmpTypeX _ (ForAllTy _ _) (AppTy _ _)    = GT
 cmpTypeX _ (ForAllTy _ _) (FunTy _ _)    = GT
 cmpTypeX _ (ForAllTy _ _) (LitTy _)      = GT
@@ -1372,6 +1417,8 @@ typeKind _ty@(FunTy _arg res)
     | otherwise             = ASSERT2( isSubOpenTypeKind k, ppr _ty $$ ppr k ) liftedTypeKind
     where
       k = typeKind res
+typeKind (CastTy _ty co)    = pSnd $ coercionKind co
+typeKind (Coercion co)      = uncurry mkPrimEqPred (unPair $ coercionKind co)
 
 typeLiteralKind :: TyLit -> Kind
 typeLiteralKind l =
