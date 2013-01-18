@@ -53,6 +53,47 @@ because now the co_B1 (which is really free) has been captured, and
 subsequent substitutions will go wrong.  That's why we can't use
 mkCoPredTy in the ForAll case, where this note appears.  
 
+Note [Hetero case for opt_trans_rule]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Hold onto your hat, because this is messy.
+
+Say we have the following four coercions to hand:
+
+  h1 :: k1 ~ k2
+  h2 :: k2 ~ k3
+  a1:k1, a2:k2, c1:a1~a2 |- g1 :: s1 ~ s2
+  b2:k2, b3:k3, c2:b2~b3 |- g2 :: s2 ~ s3
+
+(The notation suggests, for example, that g1 may mention a1, a2 or c1.)
+
+If we put these coercions in appropriate quantifiers, we get these facts:
+
+  forall_h1 (a1:k1, a2:k2, c1:a1~a2). g1 :: forall a1:k1.s1 ~ forall a2:k2.s2
+  forall_h2 (b2:k2, b3:k3, c2:b2~b3). g2 :: forall b2:k2.s2 ~ forall b3:k3.s3
+
+Then, the following transitivity coercion is well-formed, noting that
+types are equal up to alpha-equivalence:
+
+  forall (a1:k1, a2:k2, c1:a1~a2). g1 ; forall (b2:k2, b3:k3, c2:b2~b3). g2
+    :: forall a1:k1.s1 ~ forall b3:k3.s3
+
+How can we push the transitivity inside the forall? Well, the quantifier
+would have to look like
+
+  forall_(h1;h2) (a1:k1, b3:k3, c3:a1~b3). ...
+
+So, we will need to find a way to substitute the a2, c1, b2, and c2 variables.
+As usual, the types tell us the answer:
+
+  a2 has to be something with kind k2:
+    [a2 |-> b3 |> sym h2]
+  c1 has to be a coercion from a1 to the new a2:
+    [c1 |-> c3 `mkCoherenceRightCo` sym h2]
+  b2 has to be something with kind k2:
+    [b2 |-> a1 |> h1]
+  c2 has to be a coercion from the new b2 to b3:
+    [c2 |-> c3 `mkCoherenceLeftCo` h1]
+
 \begin{code}
 optCoercion :: TCvSubst -> Coercion -> NormalCo
 -- ^ optCoercion applies a substitution to a coercion, 
@@ -162,21 +203,39 @@ opt_co' env sym (LRCo lr co)
   where
     co' = opt_co env sym co
 
-opt_co' env sym (InstCo co ty)
+opt_co' env sym (InstCo co1 arg)
     -- See if the first arg is already a forall
     -- ...then we can just extend the current substitution
-  | Just (tv, co_body) <- splitForAllCo_maybe co
-  = opt_co (extendTCvSubst env tv ty') sym co_body
 
-     -- See if it is a forall after optimization
-     -- If so, do an inefficient one-variable substitution
-  | Just (tv, co'_body) <- splitForAllCo_maybe co'
-  = substCoWithTy (getCvInScope env) tv ty' co'_body   
+    -- forall over type...
+  | TyCoArg co2 <- arg
+  , Just (tv1, tv2, co_body) <- splitForAllCo_Ty_maybe co1
+  , (ty1, ty2) <- coercionKind co2
+  = opt_co (extendTCvSubstList env [tv1, tv2] [ty1, ty2]) sym co_body
 
-  | otherwise = InstCo co' ty'
+    -- forall over coercion...
+  | CoCoArg co2 co3 <- arg
+  , Just (cv1, cv2, co_body) <- splitForAllCo_Co_maybe co1
+  = opt_co (extendTCvSubstList env [cv1, cv2] [co2, co3]) sym co_body
+
+    -- See if it is a forall after optimization
+    -- If so, do an inefficient one-variable substitution
+  
+    -- forall over type...
+  | TyCoArg co2 <- arg
+  , Just (tv1, tv2, co'_body) <- splitForAllCo_Ty_maybe co'
+  , (ty1, ty2) <- coercionKind co2
+  = substCo (extendTCvSubstList env [tv1, tv2] [ty1, ty2]) co'_body
+
+    -- forall over coercion...
+  | CoCoArg co2 co3 <- arg
+  , Just (cv1, cv2, co'_body) <- splitForAllCo_Co_maybe co1
+  = substCo (extendTCvSubstList env [cv1, cv2] [co2, co3]) co'_body
+
+  | otherwise = InstCo co1' arg'
   where
-    co' = opt_co env sym co
-    ty' = substTy env ty
+    co1' = opt_co env sym co1
+    arg' = substCoArg env arg
 
 -------------
 opt_transList :: InScopeSet -> [NormalCo] -> [NormalCo] -> [NormalCo]
@@ -271,19 +330,49 @@ opt_trans_rule is co1 co2@(AppCo co2a co2b)
 
 -- Push transitivity inside forall
 opt_trans_rule is co1 co2
-  | Just (tv1,r1) <- splitForAllCo_maybe co1
-  , Just (tv2,r2) <- etaForAllCo_maybe co2
-  , let r2' = substCoWithTy is' tv2 (mkTyVarTy tv1) r2
-        is' = is `extendInScopeSet` tv1
-  = fireTransRule "EtaAllL" co1 co2 $
-    mkForAllCo tv1 (opt_trans2 is' r1 r2')
+  | Just (cobndr1,r1) <- splitForAllCo_maybe co1
+  , Just (cobndr2,r2) <- etaForAllCo_maybe is co2
+  = push_trans cobndr1 r1 cobndr2 r2
 
-  | Just (tv2,r2) <- splitForAllCo_maybe co2
-  , Just (tv1,r1) <- etaForAllCo_maybe co1
-  , let r1' = substCoWithTy is' tv1 (mkTyVarTy tv2) r1
-        is' = is `extendInScopeSet` tv2
-  = fireTransRule "EtaAllR" co1 co2 $
-    mkForAllCo tv1 (opt_trans2 is' r1' r2)
+  | Just (cobndr2,r2) <- splitForAllCo_maybe co2
+  , Just (cobndr1,r1) <- etaForAllCo_maybe co1
+  = push_trans cobndr1 r1 cobndr2 r2
+
+  where
+  push_trans cobndr1 r1 cobndr2 r2 =
+    case (cobndr1, cobndr2) of
+      (TyHomo tv1, TyHomo tv2) -> -- their kinds must be equal
+        let r2' = substCoWithIS is' tv2 (mkOnlyTyVarTy tv1) r2
+            is' = is `extendInScopeSet` tv1 in
+        fireTransRule "EtaAllTyHomoHomo" co1 co2 $
+        mkForAllCo_TyHomo tv2 (opt_trans2 is' r1 r2')
+
+      -- See Note [Hetero case for opt_trans_rule]
+      -- kinds of tvl2 and tvr1 must be equal
+      (TyHetero col tvl1 tvl2 cvl, TyHetero cor tvr1 tvr2 cvr) ->
+        let cv       = mkFreshCoVar is (mkOnlyTyVarTy tvl1) (mkOnlyTyVarTy tvr2)
+            new_tvl2 = mkCastTy (mkOnlyTyVarTy tvr2) (mkSymCo cor)
+            new_cvl  = mkCoherenceRightCo (mkCoVarCo cv) (mkSymCo cor)
+            new_tvr1 = mkCastTy (mkOnlyTyVarTy tvl1) col
+            new_cvr  = mkCoherenceLeftCo  (mkCoVarCo cv) col
+            r1' = substCoWithIS is' [tvl2, cvl] [new_tvl2, new_cvl] r1
+            r2' = substCoWithIS is' [tvr1, cvr] [new_tvr1, new_cvr] r2
+            is' = is `extendInScopeSetList` [tvl1, tvl2, cvl, tvr1, tvr2, cvr, cv] in
+        fireTransRule "EtaAllTyHeteroHetero" co1 co2 $
+        mkForAllCo (mkTyHeteroCoBndr (mkTransCo col cor) tvl1 tvr2 cv)
+                   (opt_trans2 is' r1' r2')
+
+      (TyHomo tvl, TyHetero cor tvr1 tvr2 cvr) ->
+        let r1' = substCoWithIS is' tvl (mkOnlyTyVarTy tvr1) r1
+            is' = is `extendInScopeSetList` [tvr1, tvr2, cvr] in
+        fireTransRule "EtaAllTyHomoHetero" co1 co2 $
+        mkForAllCo cobndr2 (opt_trans2 is' r1' r2)
+
+      (TyHetero col tvl1 tvl2 cvl, TyHomo tvr) ->
+        let r2' = substCoWithIS is' tvr (mkOnlyTyVarTy tvl2) r2
+            is' = is `extendInScopeSetList` [tvl1, tvl2, cvl] in
+        fireTransRule "EtaAllTyHeteroHomo" co1 co2 $
+        mkForAllCo cobndr1 (opt_trans2 is' r1 r2')
 
 -- Push transitivity inside axioms
 opt_trans_rule is co1 co2
@@ -374,17 +463,28 @@ compatible_co co1 co2
     Pair x2 _ = coercionKind co2
 
 -------------
-etaForAllCo_maybe :: Coercion -> Maybe (TyVar, Coercion)
+etaForAllCo_maybe :: InScopeSet -> Coercion -> Maybe (ForAllCoBndr, Coercion)
 -- Try to make the coercion be of form (forall tv. co)
-etaForAllCo_maybe co
-  | Just (tv, r) <- splitForAllCo_maybe co
-  = Just (tv, r)
+etaForAllCo_maybe is co
+  | Just (cobndr, r) <- splitForAllCo_maybe co
+  = Just (cobndr, r)
 
   | Pair ty1 ty2  <- coercionKind co
   , Just (tv1, _) <- splitForAllTy_maybe ty1
   , Just (tv2, _) <- splitForAllTy_maybe ty2
-  , tyVarKind tv1 `eqKind` tyVarKind tv2
-  = Just (tv1, mkInstCo co (mkTyCoVarTy tv1))
+  , isTyVar tv1 == isTyVar tv2 -- we want them to be the same sort
+  = if varType tv1 `eqType` varType tv2
+
+    -- homogeneous:
+    then Just (mkHomoCoBndr tv1, mkInstCo co $ mkCoArgForVar tv1)
+
+    -- heterogeneous:
+    else if isTyVar tv1
+         then let covar = mkFreshCoVar is (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2) in
+              Just ( TyHetero (mkNthCo 0 co) tv1 tv2 covar
+                   , mkInstCo co (TyCoArg (mkCoVarCo covar)))
+         else Just ( CoHetero (mkNthCo 0 co) tv1 tv2
+                   , mkInstCo co (CoCoArg (mkCoVarCo tv1) (mkCoVarCo tv2)))
 
   | otherwise
   = Nothing

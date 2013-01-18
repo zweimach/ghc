@@ -1026,12 +1026,14 @@ freeInCoercion v (AppCo g w)               = (freeInCoercion v g) &&
                                              (freeInCoercionArg v w)
 freeInCoercion v (ForAllCo (TyHomo a) g)   = (freeInTyVar v a) &&
                                              (freeInCoercion v g)
-freeInCoercion v (ForAllCo (TyHetero a1 a2 c) g)
-  = (freeInTyVar v a1) && (freeInTyVar v a2) &&
+freeInCoercion v (ForAllCo (TyHetero h a1 a2 c) g)
+  = (freeInCoercion v h) &&
+    (freeInTyVar v a1) && (freeInTyVar v a2) &&
     (freeInCoVar v c $ freeInCoercion v g)
 freeInCoercion v (ForAllCo (CoHomo c) g)   = freeInCoVar v c $ freeInCoercion g
-freeInCoercion v (ForAllCo (CoHetero c1 c2) g)
-  = freeInCoVar v c1 $ freeInCoVar v c2 $ freeInCoercion v g
+freeInCoercion v (ForAllCo (CoHetero h c1 c2) g)
+  = (freeInCoercion v h) &&
+    freeInCoVar v c1 $ freeInCoVar v c2 $ freeInCoercion v g
 freeInCoercion v (CoVarCo c)               = freeInCoVar v c True
 freeInCoercion v (AxiomInstCo ax ind args) = all (freeInCoercionArg v) args
 freeInCoercion v (UnsafeCo t1 t2)          = (freeInType v t1) && (freeInType v t2)

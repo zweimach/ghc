@@ -138,7 +138,8 @@ data Type
         Coercion    -- ^ ... by this coercion among kinds
 
   | CoercionTy      -- ^ Injection of a Coercion into a type
-                    -- This should only ever be used in the RHS of an AppTy
+                    -- This should only ever be used in the RHS of an AppTy,
+                    -- in the list of a TyConApp, or in a FunTy
         Coercion
 
   deriving (Data.Data, Data.Typeable)
@@ -342,6 +343,8 @@ data Coercion
           --            always show up as Refl.
           -- For example  (Refl T) (Refl a) (Refl b) shows up as (Refl (T a b)).
 
+          -- Invariant: The type in a Refl will never be headed by CoercionTy
+
           -- Applications of (Refl T) to some coercions, at least one of
           -- which is NOT the identity, show up as TyConAppCo.
           -- (They may not be fully saturated however.)
@@ -393,16 +396,16 @@ data Coercion
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data ForAllCoBndr
   = TyHomo TyVar
-  | TyHetero TyVar TyVar CoVar
+  | TyHetero Coercion TyVar TyVar CoVar
   | CoHomo CoVar
-  | CoHetero CoVar CoVar
+  | CoHetero Coercion CoVar CoVar
 
 -- returns the variable bound in a ForAllCoBndr
 coBndrVars :: ForAllCoBndr -> [TyCoVar]
-coBndrVars (TyHomo tv) = [tv]
-coBndrVars (TyHetero tv1 tv2 cv) = [tv1, tv2, cv]
-coBndrVars (CoHomo cv) = [cv]
-coBndrVars (CoHetero cv1 cv2) = [cv1, cv2]
+coBndrVars (TyHomo tv)             = [tv]
+coBndrVars (TyHetero _ tv1 tv2 cv) = [tv1, tv2, cv]
+coBndrVars (CoHomo cv)             = [cv]
+coBndrVars (CoHetero _ cv1 cv2)    = [cv1, cv2]
 
 -- returns the variables with their types
 coBndrVarsKinds :: ForAllCoBndr -> ([TyCoVar], [Type])
@@ -440,6 +443,8 @@ pickLR CRight (_,r) = r
 
 Note [Refl invariant]
 ~~~~~~~~~~~~~~~~~~~~~
+Invariant 1:
+
 Coercions have the following invariant 
      Refl is always lifted as far as possible.  
 
@@ -451,6 +456,11 @@ But that's not quite true because of coercion variables.  Consider
      Left h    where h :: Maybe Int ~ Maybe Int
 etc.  So the consequence is only true of coercions that
 have no coercion variables.
+
+Invariant 2:
+
+All coercions other than Refl are guaranteed to coerce between two
+*distinct* types.
 
 Note [Coercion axioms applied to coercions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -536,10 +546,10 @@ Note [Forall coercions]
 Constructing coercions between forall-types can be a bit tricky.
 Currently, the situation is as follows:
 
-  1) ForAllCo (TyHetero TyVar TyVar CoVar) Coercion
-  2) ForAllCo (CoHetero CoVar CoVar)       Coercion
-  3) ForAllCo (TyHomo TyVar)               Coercion
-  4) ForAllCo (CoHomo CoVar)               Coercion
+  1) ForAllCo (TyHetero Coercion TyVar TyVar CoVar) Coercion
+  2) ForAllCo (CoHetero Coercion CoVar CoVar)       Coercion
+  3) ForAllCo (TyHomo TyVar)                        Coercion
+  4) ForAllCo (CoHomo CoVar)                        Coercion
 
 We'll take these one at a time.
 
@@ -547,25 +557,25 @@ We'll take these one at a time.
 say (forall v1:k1.t1) and (forall v2:k2.t2). The difficulty comes about
 because k1 might not be the same as k2. So, we will need three variables:
 one of kind k1, one of kind k2, and one representing the coercion between
-a1 and a2.
+a1 and a2, which will be bound to the coercion stored in the TyHetero.
 
 The typing rule is thus:
 
-     a1 : k1    a2 : k2    c : a1 ~ a2    g : t1 ~ t2
-  ---------------------------------------------------------------
-  ForAllCo (TyHetero a1 a2 c) g : (all a1:k1.t1) ~ (all v2:k2.t2)
+     h : k1 ~ k2  a1 : k1    a2 : k2    c : a1 ~ a2    g : t1 ~ t2
+  -------------------------------------------------------------------
+  ForAllCo (TyHetero h a1 a2 c) g : (all a1:k1.t1) ~ (all v2:k2.t2)
 
 2) This form represents a coercion between two forall-types-over-coercions,
 say (forall c1:phi1.t1) and (forall c2:phi2.t2). Because phi1 might not
 equal phi2, we need two variables, one of kind phi1 and one of kind phi2.
 Because of proof irrelevance (or the absence of coercions among coercions),
-we don't need a witness showing phi1 and phi2 are coercible.
+we won't need to refer to the witness showing phi1 and phi2 are coercible.
 
 The typing rule is thus:
 
-         c1 : phi1     c2 : phi2     g : t1 ~ t2
-  --------------------------------------------------------
-  ForAllCo (CoHetero c1 c2) g : (all c1:phi1.t1) ~ (all c2:phi2.t2)
+      h : phi1 ~ phi2   c1 : phi1     c2 : phi2     g : t1 ~ t2
+  -----------------------------------------------------------------
+  ForAllCo (CoHetero h c1 c2) g : (all c1:phi1.t1) ~ (all c2:phi2.t2)
 
 3) This form is a simplification when the two kinds of the types in a
 TyHetero are actually the same. The coercion variable would not normally
@@ -921,7 +931,9 @@ that it would be possible to use the CoercionTy constructor to combine
 these environments, but that seems like a false economy.
 
 Note that the TvSubstEnv should *never* map a CoVar (built with the Id
-constructor) and the CvSubstEnv should *never* map a TyVar.
+constructor) and the CvSubstEnv should *never* map a TyVar. Furthermore,
+the range of the TvSubstEnv should *never* include a type headed with
+CoercionTy.
 
 \begin{code}
 
@@ -998,7 +1010,8 @@ extendSubstEnvs :: (TvSubstEnv, CvSubstEnv) -> Var -> Type
                 -> (TvSubstEnv, CvSubstEnv)
 extendSubstEnvs (tenv, cenv) v ty
   | isTyVar v
-  = (extendVarEnv tenv v ty, cenv)
+  = ASSERT( not $ isCoercionTy ty )
+    (extendVarEnv tenv v ty, cenv)
   | CoercionTy co <- ty
   = (tenv, extendVarEnv cenv v co)
   | otherwise
@@ -1011,8 +1024,7 @@ extendTCvSubst (TCvSubst in_scope tenv cenv) tv ty
 
 extendTCvSubstList :: TCvSubst -> [Var] -> [Type] -> TCvSubst
 extendTCvSubstList subst tvs tys 
-  = foldl' extend subst (tvs `zip` tys)
-  where extend subst (tv, ty) = extendTCvSubst subst tv ty
+  = foldl2 extendTCvSubst subst tvs tys
 
 unionTCvSubst :: TCvSubst -> TCvSubst -> TCvSubst
 -- Works when the ranges are disjoint
@@ -1230,28 +1242,28 @@ subst_co subst co
     go_ty = subst_ty subst
 
     go :: Coercion -> Coercion
-    go (Refl ty)             = Refl $! go_ty ty
+    go (Refl ty)             = mkReflCo $! go_ty ty
     go (TyConAppCo tc args)  = let args' = map go_arg args
-                               in  args' `seqList` TyConAppCo tc args'
+                               in  args' `seqList` mkTyConAppCo tc args'
     go (AppCo co arg)        = mkAppCo (go co) $! go_arg arg
     go (ForAllCo (TyHomo tv) co)
       = case substTyVarBndr subst  tv  of { (subst1, tv') ->
         mkForAllCo_TyHomo tv' $! subst_co subst1 co }
-    go (ForAllCo (TyHetero tv1 tv2 cv) co)
+    go (ForAllCo (TyHetero h tv1 tv2 cv) co)
       = case substTyVarBndr subst  tv1 of { (subst1, tv1') ->
         case substTyVarBndr subst1 tv2 of { (subst2, tv2') ->
         case substCoVarBndr subst2 cv  of { (subst3, cv') ->
-        mkForAllCo_Ty tv1' tv2' cv' $! subst_co subst3 co }}}
+        (mkForAllCo_Ty $! subst_co subst h) tv1' tv2' cv' $! subst_co subst3 co }}}
     go (ForAllCo (CoHomo cv) co)
       = case substCoVarBndr subst  cv  of { (subst1, cv') ->
         mkForAllCo_CoHomo cv' $! subst_co subst1 co }
-    go (ForAllCo (CoHetero cv1 cv2) co)
+    go (ForAllCo (CoHetero h cv1 cv2) co)
       = case substCoVarBndr subst  cv1 of { (subst1, cv1') ->
         case substCoVarBndr subst1 cv2 of { (subst2, cv2') ->
-        mkForAllCo_Co cv1' cv2' $! subst_co subst2 co
+        (mkForAllCo_Co $! subst_co subst h) cv1' cv2' $! subst_co subst2 co
     go (CoVarCo cv)          = substCoVar subst cv
-    go (AxiomInstCo con ind cos) = AxiomInstCo con ind $! map go_arg cos
-    go (UnsafeCo ty1 ty2)    = (UnsafeCo $! go_ty ty1) $! go_ty ty2
+    go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go_arg cos
+    go (UnsafeCo ty1 ty2)    = (mkUnsafeCo $! go_ty ty1) $! go_ty ty2
     go (SymCo co)            = mkSymCo (go co)
     go (TransCo co1 co2)     = mkTransCo (go co1) (go co2)
     go (NthCo d co)          = mkNthCo d (go co)

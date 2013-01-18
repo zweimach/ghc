@@ -1581,10 +1581,14 @@ fast_hash_type env ty
 
 fast_hash_co :: HashEnv -> Coercion -> Word32
 fast_hash_co env co
-  | Just cv <- getCoVar_maybe co              = hashVar env cv
-  | Just (tc,cos) <- splitTyConAppCo_maybe co = let hash_tc = fromIntegral (hashName (tyConName tc))
-                                                in foldr (\c n -> fast_hash_co env c + n) hash_tc cos
-  | otherwise                                 = 1
+  | Just cv <- getCoVar_maybe co               = hashVar env cv
+  | Just (tc,args) <- splitTyConAppCo_maybe co = let hash_tc = fromIntegral (hashName (tyConName tc))
+                                                 in foldr (\c n -> fast_hash_co_arg env c + n) hash_tc args
+  | otherwise                                  = 1
+
+fast_hash_co_arg :: HashEnv -> CoercionArg -> Word32
+fast_hash_co_arg env (TyCoArg co)    = fast_hash_co env co
+fast_hash_co_arg env (CoCoArg c1 c2) = fast_hash_co env c1 + fast_hash_co env c2
 
 extend_env :: HashEnv -> Var -> (Int, VarEnv Int)
 extend_env (n,env) b = (n+1, extendVarEnv env b n)

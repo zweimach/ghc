@@ -26,8 +26,8 @@ module Type (
         Var, TyVar, isTyVar, 
 
         -- ** Constructing and deconstructing types
-        mkOnlyTyVarTy, mkOnlyTyVarTys, getTyVar, getTyVar_maybe, getCoTyVar_maybe,
-        mkTyCoVarTy, mkTyCoVarTys,
+        mkOnlyTyVarTy, mkOnlyTyVarTys, getTyVar, getTyVar_maybe, repGetTyVar_maybe,
+        getTyCoVar_maybe, mkTyCoVarTy, mkTyCoVarTys,
 
 	mkAppTy, mkAppTys, mkNakedAppTys, splitAppTy, splitAppTys, 
 	splitAppTy_maybe, repSplitAppTy_maybe,
@@ -343,8 +343,13 @@ isTyCoVarTy ty = isJust (getTyCoVar_maybe ty)
 -- | Attempts to obtain the type variable underlying a 'Type'
 getTyVar_maybe :: Type -> Maybe TyVar
 getTyVar_maybe ty | Just ty' <- coreView ty = getTyVar_maybe ty'
-getTyVar_maybe (TyVarTy tv) 	 	    = Just tv  
-getTyVar_maybe _                            = Nothing
+                  | otherwise               = repGetTyVar_maybe ty
+
+-- | Attempts to obtain the type variable underlying a 'Type', without
+-- any expansion
+repGetTyVar_maybe :: Type -> Maybe TyVar
+repGetTyVar_maybe (TyVarTy tv) = Just tv
+repGetTyVar_maybe _            = Nothing
 
 -- | Attempts to obtain the type or coercion variable underlying a 'Type'
 getTyCoVar_maybe :: Type -> Maybe TyCoVar
@@ -603,6 +608,36 @@ newTyConInstRhs tycon tys
     (tys1, tys2) = splitAtList tvs tys
 \end{code}
 
+---------------------------------------------------------------------
+                           CastTy
+                           ~~~~~~
+A casted type has its *kind* casted into something new.
+
+\begin{code}
+mkCastTy :: Type -> Coercion -> Type
+mkCastTy ty co
+  | Refl _ <- co
+  = ty
+  | CastTy innerty innerco <- ty
+  = CastTy innerty (mkTransCo innerco co)
+  | otherwise
+  = CastTy ty co
+\end{code}
+
+--------------------------------------------------------------------
+                            CoercionTy
+                            ~~~~~~~~~~
+CoercionTy allows us to inject coercions into types. A CoercionTy
+should appear only in the right-hand side of an application.
+
+\begin{code}
+mkCoercionTy :: Coercion -> Type
+mkCoercionTy = CoercionTy
+
+isCoercionTy :: Type -> Bool
+isCoercionTy (CoercionTy _) = True
+isCoercionTy _              = False
+\end{code}
 
 ---------------------------------------------------------------------
 				SynTy
@@ -940,6 +975,8 @@ mkEqPred ty1 ty2
   where 
     k = typeKind ty1
 
+-- | Creates a primitive type equality predicate.
+-- Invariant: the types are not Coercions
 mkPrimEqPred :: Type -> Type -> Type
 mkPrimEqPred ty1 ty2
   = TyConApp eqPrimTyCon [k1, k2, ty1, ty2]
@@ -1054,7 +1091,7 @@ typeSize (AppTy t1 t2)   = typeSize t1 + typeSize t2
 typeSize (FunTy t1 t2)   = typeSize t1 + typeSize t2
 typeSize (ForAllTy _ t)  = 1 + typeSize t
 typeSize (TyConApp _ ts) = 1 + sum (map typeSize ts)
-typeSize (CastTy ty co)  = typeSize ty + coercionSize co
+typeSize (CastTy ty co)  = 1 + typeSize ty + coercionSize co
 typeSize (CoercionTy co) = 1 + coercionSize co
 
 varSetElemsKvsFirst :: VarSet -> [TyVar]
@@ -1296,42 +1333,16 @@ cmpTypeX env (CastTy t1 c1)      (CastTy t2 c2)      = cmpTypeX env t1 t2 `thenC
 cmpTypeX env (CoercionTy c1)     (CoercionTy c2)     = cmpCoercionX env c1 c2
 
     -- Deal with the rest: TyVarTy < CoercionTy < CastTy < AppTy < FunTy < LitTy < TyConApp < ForAllTy
-cmpTypeX _ (CoercionTy _) (TyVarTy _)    = GT
-
-cmpTypeX _ (CastTy _ _)   (TyVarTy _)    = GT
-cmpTypeX _ (CastTy _ _)   (CoercionTy _) = GT
-
-cmpTypeX _ (AppTy _ _)    (TyVarTy _)    = GT
-cmpTypeX _ (AppTy _ _)    (CoercionTy _) = GT
-cmpTypeX _ (AppTy _ _)    (CastTy _ _)   = GT
-
-cmpTypeX _ (FunTy _ _)    (TyVarTy _)    = GT
-cmpTypeX _ (FunTy _ _)    (CoercionTy _) = GT
-cmpTypeX _ (FunTy _ _)    (CastTy _ _)   = GT
-cmpTypeX _ (FunTy _ _)    (AppTy _ _)    = GT
-
-cmpTypeX _ (LitTy _)      (TyVarTy _)    = GT
-cmpTypeX _ (LitTy _)      (CoercionTy _) = GT
-cmpTypeX _ (LitTy _)      (CastTy _ _)   = GT
-cmpTypeX _ (LitTy _)      (AppTy _ _)    = GT
-cmpTypeX _ (LitTy _)      (FunTy _ _)    = GT
-
-cmpTypeX _ (TyConApp _ _) (TyVarTy _)    = GT
-cmpTypeX _ (TyConApp _ _) (CoercionTy _) = GT
-cmpTypeX _ (TyConApp _ _) (CastTy _ _)   = GT
-cmpTypeX _ (TyConApp _ _) (AppTy _ _)    = GT
-cmpTypeX _ (TyConApp _ _) (FunTy _ _)    = GT
-cmpTypeX _ (TyConApp _ _) (LitTy _)      = GT
-
-cmpTypeX _ (ForAllTy _ _) (TyVarTy _)    = GT
-cmpTypeX _ (ForAllTy _ _) (CoercionTy _) = GT
-cmpTypeX _ (ForAllTy _ _) (CastTy _ _)   = GT
-cmpTypeX _ (ForAllTy _ _) (AppTy _ _)    = GT
-cmpTypeX _ (ForAllTy _ _) (FunTy _ _)    = GT
-cmpTypeX _ (ForAllTy _ _) (LitTy _)      = GT
-cmpTypeX _ (ForAllTy _ _) (TyConApp _ _) = GT
-
-cmpTypeX _ _              _              = LT
+cmpTypeX _ ty1 ty2
+  = (get_rank ty1) `compare` (get_rank ty2)
+  where get_rank (TyVarTy {})    = 0
+        get_rank (CoercionTy {}) = 1
+        get_rank (CastTy {})     = 2
+        get_rank (AppTy {})      = 3
+        get_rank (FunTy {})      = 4
+        get_rank (LitTy {})      = 5
+        get_rank (TyConApp {})   = 6
+        get_rank (ForAllTy {})   = 7
 
 -------------
 cmpTypesX :: RnEnv2 -> [Type] -> [Type] -> Ordering
@@ -1418,7 +1429,7 @@ typeKind _ty@(FunTy _arg res)
     where
       k = typeKind res
 typeKind (CastTy _ty co)    = pSnd $ coercionKind co
-typeKind (Coercion co)      = uncurry mkPrimEqPred (unPair $ coercionKind co)
+typeKind (Coercion co)      = uncurry mkCoercionType (unPair $ coercionKind co)
 
 typeLiteralKind :: TyLit -> Kind
 typeLiteralKind l =

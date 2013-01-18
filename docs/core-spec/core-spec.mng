@@ -116,6 +116,7 @@ A program is just a list of bindings:
 
 There are some invariants on types:
 \begin{itemize}
+\item The name used in a type must be a type-level name (\ctor{TyVar}).
 \item The type $[[t1]]$ in the form $[[t1 t2]]$ must not be a type constructor
 $[[T]]$. It should be another application or a type variable.
 \item The form $[[T </ ti // i /> ]]$ (\texttt{TyConApp}) 
@@ -127,6 +128,9 @@ The constructor for a saturated $[[(->)]]$ is \texttt{FunTy}.
 a term-level literal, but we are ignoring this distinction here.
 \item A coercion used as a type should appear only in the right-hand side of
   an application.
+\item A kind cast should operate over only type variables, quantifications, and type
+literals. In application scenarios, the cast is pushed left. If casting a casted
+type, the coercions are combined using transitivity.
 \end{itemize}
 
 Note that the use of the $[[T </ ti // i />]]$ form and the $[[t1 -> t2]]$ form
@@ -138,7 +142,7 @@ We use the notation $[[t1 k1~#k2 t2]]$ to stand for $[[(~#) k1 k2 t1 t2]]$.
 
 \subsection{Coercions}
 
-\gram{\ottg\ottinterrule\ottw}
+\gram{\ottg\ottinterrule\ottw\ottinterrule\ottcobndr}
 
 Invariants on coercions:
 \begin{itemize}
@@ -147,12 +151,12 @@ Invariants on coercions:
 reflexive, use $[[T </ gi // i />]]$, never $[[<T> g1 g2]] \ldots$.
 \item The $[[T]]$ in $[[T </gi//i/>]]$ is never a type synonym, though it could
 be a type function.
+\item Every non-reflexive coercion coerces between two distinct types.
+\item The name in a coercion must be a term-level name (\ctor{Id}).
 \end{itemize}
 
 Similarly to with types, the form $[[T </ wi // i />]]$ is needed only to stay
 faithful to the implementation.
-
-Is it a left projection or a right projection?
 
 \gram{\ottLorR}
 
@@ -283,6 +287,10 @@ paper for details.
 In \ottdrulename{Co\_AxiomInstCo}, the use of $[[inits]]$ creates substitutions from
 the first $i$ mappings in $[[ </ [ni |-> si] // i /> ]]$. This has the effect of 
 folding the substitution over the kinds for kind-checking.
+
+\subsection{Coercion argument typing}
+
+\ottdefnlintCoArg{}
 
 \subsection{Name consistency}
 

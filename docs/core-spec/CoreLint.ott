@@ -188,29 +188,33 @@ G |-co g w : (s1 t1) k3~#k4 (s2 t2)
 G, alpha_k |-co g : t1 *~#* t2
 G |-ty forall alpha_k.t1 : *
 G |-ty forall alpha_k.t2 : *
---------------------------------------------------------------------------- :: ForAllCoTyHomo
+--------------------------------------------------------------------------- :: ForAllCo_TyHomo
 G |-co forall alpha_k. g : (forall alpha_k. t1) *~#* (forall alpha_k. t2)
 
+G |-co h : k1 *~#* k2
+k1 /= k2
 G, alpha1_k1, alpha2_k2, c_(alpha1$ k1~#k2 alpha2$) |-co g : t1 *~#* t2
 G |-ty forall alpha1_k1.t1 : *
 G |-ty forall alpha2_k2.t2 : *
------------------------------------------------------------------------------------------------ :: ForAllCoTyHetero
-G |-co forall (alpha1_k1, alpha2_k2, c). g : (forall alpha1_k1. t1) *~#* (forall alpha2_k2. t2)
+----------------------------------------------------------------------------------------------- :: ForAllCo_TyHetero
+G |-co forall h (alpha1_k1, alpha2_k2, c$). g : (forall alpha1_k1. t1) *~#* (forall alpha2_k2. t2)
 
 c # |g|
 G, c_phi |-co g : t1 *~#* t2
 G |-ty forall c_phi.t1 : *
 G |-ty forall c_phi.t2 : *
------------------------------------------------------------------ :: ForAllCoCoHomo
+----------------------------------------------------------------- :: ForAllCo_CoHomo
 G |-co forall c_phi. g : (forall c_phi.t1) *~#* (forall c_phi.t2)
 
 c1 # |g|
 c2 # |g|
+G |-co h : phi1 *~#* phi2
+phi1 /= phi2
 G, c1_phi1, c2_phi2 |-co g : t1 *~#* t2
 G |-ty forall c1_phi1.t1 : *
 G |-ty forall c2_phi2.t2 : *
----------------------------------------------------------------------------------- :: ForAllCoCoHetero
-G |-co forall (c1_phi1, c2_phi2). g : (forall c1_phi1.t1) *~#* (forall c2_phi2.t2)
+---------------------------------------------------------------------------------- :: ForAllCo_CoHetero
+G |-co forall h (c1_phi1, c2_phi2). g : (forall c1_phi1.t1) *~#* (forall c2_phi2.t2)
 
 z_phi elt G
 phi = t1 k1~#k2 t2

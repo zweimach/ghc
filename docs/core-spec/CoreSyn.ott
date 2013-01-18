@@ -119,10 +119,12 @@ g {{ tex \gamma }}, h {{ tex \eta }} :: 'Coercion_' ::= {{ com Coercions, \coder
   | ( g )                   :: M :: Parens        {{ com Parentheses }}
 
 cobndr :: 'ForAllCoBndr_' ::= {{ com Binder to quantified coercion, \coderef{types/TyCoRep.lhs}{ForAllCoBndr} }}
-  | n               ::   :: TyHomo      {{ com \ctor{TyHomo}: Homogeneous type quantification }}
-  | ( n1 , n2 , z ) ::   :: TyHetero    {{ com \ctor{TyHetero}: Heterogeneous type quantification }}
-  | n               ::   :: CoHomo      {{ com \ctor{CoHomo}: Homogeneous coercion quantification }}
-  | ( n1 , n2 )     ::   :: CoHetero    {{ com \ctor{CoHetero}: Heterogeneous coercion quantification }}
+  | n                   ::   :: TyHomo      {{ com \ctor{TyHomo}: Homogeneous type quantification }}
+  | g ( n1 , n2 , n3 )  ::   :: TyHetero    {{ com \ctor{TyHetero}: Heterogeneous type quantification }}
+    {{ tex {}_{[[g]]} ([[n1]], [[n2]], [[n3]]) }}
+  | n                   ::   :: CoHomo      {{ com \ctor{CoHomo}: Homogeneous coercion quantification }}
+  | g ( n1 , n2 )       ::   :: CoHetero    {{ com \ctor{CoHetero}: Heterogeneous coercion quantification }}
+    {{ tex {}_{[[g]]} ([[n1]], [[n2]]) }}
 
 w {{ tex \omega }} :: 'CoercionArg_' ::= {{ com Argument to a coercion application, \coderef{types/TyCoRep.lhs}{CoercionArg} }}
   | g                ::   :: TyCoArg         {{ com \ctor{TyCoArg}: Coercion between types }}
@@ -251,6 +253,7 @@ terminals :: 'terminals_' ::=
   | kind         ::   :: kind             {{ tex \textsf{kind} }}
   | #            ::   :: free             {{ tex \mathop{ \# } }}
   | BOX          ::   :: BOX              {{ tex \square }}
+  | *            ::   :: star             {{ tex \star }}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  Formulae  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

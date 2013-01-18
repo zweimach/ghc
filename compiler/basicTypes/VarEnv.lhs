@@ -18,7 +18,8 @@ module VarEnv (
 	-- ** Manipulating these environments
 	emptyVarEnv, unitVarEnv, mkVarEnv,
 	elemVarEnv, varEnvElts, varEnvKeys,
-	extendVarEnv, extendVarEnv_C, extendVarEnv_Acc, extendVarEnvList,
+	extendVarEnv, extendVarEnv_C, extendVarEnv_Acc, extendVarEnv_Directly,
+        extendVarEnvList,
 	plusVarEnv, plusVarEnv_C, alterVarEnv,
 	delVarEnvList, delVarEnv,
         minusVarEnv, intersectsVarEnv,
@@ -43,9 +44,9 @@ module VarEnv (
 	RnEnv2, 
 	
 	-- ** Operations on RnEnv2s
-	mkRnEnv2, rnBndr2, rnBndrs2,
+	mkRnEnv2, rnBndr2, rnBndrs2, rnBndr2_var,
 	rnOccL, rnOccR, inRnEnvL, inRnEnvR, rnOccL_maybe, rnOccR_maybe,
-        rnBndrL, rnBndrR, nukeRnEnvL, nukeRnEnvR,
+        rnBndrL, rnBndrR, nukeRnEnvL, nukeRnEnvR, rnSwap,
         delBndrL, delBndrR, delBndrsL, delBndrsR,
         addRnInScopeSet,
         rnEtaL, rnEtaR,
@@ -235,10 +236,15 @@ rnBndr2 :: RnEnv2 -> Var -> Var -> RnEnv2
 -- 		         and binder @bR@ in the Right term.
 -- It finds a new binder, @new_b@,
 -- and returns an environment mapping @bL -> new_b@ and @bR -> new_b@
-rnBndr2 (RV2 { envL = envL, envR = envR, in_scope = in_scope }) bL bR
-  = RV2 { envL 	   = extendVarEnv envL bL new_b	  -- See Note
-	, envR 	   = extendVarEnv envR bR new_b	  -- [Rebinding]
-	, in_scope = extendInScopeSet in_scope new_b }
+rnBndr2 env bL bR = fst $ rnBndr2_var env bL bR
+
+rnBndr2_var :: RnEnv2 -> Var -> Var -> (RnEnv2, Var)
+-- ^ Similar to 'rnBndr2' but returns the new variable as well as the
+-- new environment
+rnBndr2_var (RV2 { envL = envL, envR = envR, in_scope = in_scope }) bL bR
+  = (RV2 { envL 	   = extendVarEnv envL bL new_b	  -- See Note
+	 , envR 	   = extendVarEnv envR bR new_b	  -- [Rebinding]
+	 , in_scope = extendInScopeSet in_scope new_b }, new_b)
   where
 	-- Find a new binder not in scope in either term
     new_b | not (bL `elemInScopeSet` in_scope) = bL
@@ -327,6 +333,11 @@ nukeRnEnvL, nukeRnEnvR :: RnEnv2 -> RnEnv2
 -- ^ Wipe the left or right side renaming
 nukeRnEnvL env = env { envL = emptyVarEnv }
 nukeRnEnvR env = env { envR = emptyVarEnv }
+
+rnSwap :: RnEnv2 -> RnEnv2
+-- ^ swap the meaning of left and right
+rnSwap (RV2 { envL = envL, envR = envR, in_scope = in_scope })
+  = RV2 { envL = envR, envR = envL, in_scope = in_scope }
 \end{code}
 
 Note [Eta expansion]
@@ -380,6 +391,7 @@ alterVarEnv	  :: (Maybe a -> Maybe a) -> VarEnv a -> Var -> VarEnv a
 extendVarEnv	  :: VarEnv a -> Var -> a -> VarEnv a
 extendVarEnv_C	  :: (a->a->a) -> VarEnv a -> Var -> a -> VarEnv a
 extendVarEnv_Acc  :: (a->b->b) -> (a->b) -> VarEnv b -> Var -> a -> VarEnv b
+extendVarEnv_Directly :: VarEnv a -> Unique -> a -> VarEnv a
 plusVarEnv	  :: VarEnv a -> VarEnv a -> VarEnv a
 extendVarEnvList  :: VarEnv a -> [(Var, a)] -> VarEnv a
 		  
@@ -413,6 +425,7 @@ alterVarEnv      = alterUFM
 extendVarEnv	 = addToUFM
 extendVarEnv_C	 = addToUFM_C
 extendVarEnv_Acc = addToUFM_Acc
+extendVarEnv_Directly = addToUFM_Directly
 extendVarEnvList = addListToUFM
 plusVarEnv_C	 = plusUFM_C
 delVarEnvList	 = delListFromUFM
