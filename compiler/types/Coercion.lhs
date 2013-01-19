@@ -971,82 +971,6 @@ cmpCoercionX _ co1 co2
         get_rank (CoherenceCo {}) = 12
         get_rank (KindCo {})      = 13
 
-\end{code}
-TODO (RAE): remove this:
-
-cmpCoercionX _ (TyConAppCo {})  (Refl {})        = GT
-
-cmpCoercionX _ (AppCo {})       (Refl {})        = GT
-cmpCoercionX _ (AppCo {})       (TyConAppCo {})  = GT
-
-cmpCoercionX _ (ForAllCo {})    (Refl {})        = GT
-cmpCoercionX _ (ForAllCo {})    (TyConAppCo {})  = GT
-cmpCoercionX _ (ForAllCo {})    (AppCo {})       = GT
-
-cmpCoercionX _ (CoVarCo {})     (Refl {})        = GT
-cmpCoercionX _ (CoVarCo {})     (TyConAppCo {})  = GT
-cmpCoercionX _ (CoVarCo {})     (AppCo {})       = GT
-cmpCoercionX _ (CoVarCo {})     (ForAllCo {})    = GT
-
-cmpCoercionX _ (AxiomInstCo {}) (Refl {})        = GT
-cmpCoercionX _ (AxiomInstCo {}) (TyConAppCo {})  = GT
-cmpCoercionX _ (AxiomInstCo {}) (AppCo {})       = GT
-cmpCoercionX _ (AxiomInstCo {}) (ForAllCo {})    = GT
-cmpCoercionX _ (AxiomInstCo {}) (CoVarCo {})     = GT
-
-cmpCoercionX _ (UnsafeCo {})    (Refl {})        = GT
-cmpCoercionX _ (UnsafeCo {})    (TyConAppCo {})  = GT
-cmpCoercionX _ (UnsafeCo {})    (AppCo {})       = GT
-cmpCoercionX _ (UnsafeCo {})    (ForAllCo {})    = GT
-cmpCoercionX _ (UnsafeCo {})    (CoVarCo {})     = GT
-cmpCoercionX _ (UnsafeCo {})    (AxiomInstCo {}) = GT
-
-cmpCoercionX _ (SymCo {})       (Refl {})        = GT
-cmpCoercionX _ (SymCo {})       (TyConAppCo {})  = GT
-cmpCoercionX _ (SymCo {})       (AppCo {})       = GT
-cmpCoercionX _ (SymCo {})       (ForAllCo {})    = GT
-cmpCoercionX _ (SymCo {})       (CoVarCo {})     = GT
-cmpCoercionX _ (SymCo {})       (AxiomInstCo {}) = GT
-cmpCoercionX _ (SymCo {})       (UnsafeCo {})    = GT
-
-cmpCoercionX _ (TransCo {})     (Refl {})        = GT
-cmpCoercionX _ (TransCo {})     (TyConAppCo {})  = GT
-cmpCoercionX _ (TransCo {})     (AppCo {})       = GT
-cmpCoercionX _ (TransCo {})     (ForAllCo {})    = GT
-cmpCoercionX _ (TransCo {})     (CoVarCo {})     = GT
-cmpCoercionX _ (TransCo {})     (AxiomInstCo {}) = GT
-cmpCoercionX _ (TransCo {})     (UnsafeCo {})    = GT
-cmpCoercionX _ (TransCo {})     (SymCo {})       = GT
-
-cmpCoercionX _ (NthCo {})       (Refl {})        = GT
-cmpCoercionX _ (NthCo {})       (TyConAppCo {})  = GT
-cmpCoercionX _ (NthCo {})       (AppCo {})       = GT
-cmpCoercionX _ (NthCo {})       (ForAllCo {})    = GT
-cmpCoercionX _ (NthCo {})       (CoVarCo {})     = GT
-cmpCoercionX _ (NthCo {})       (AxiomInstCo {}) = GT
-cmpCoercionX _ (NthCo {})       (UnsafeCo {})    = GT
-cmpCoercionX _ (NthCo {})       (SymCo {})       = GT
-cmpCoercionX _ (NthCo {})       (TransCo {})     = GT
-
-cmpCoercionX _ (LRCo {})        (Refl {})        = GT
-cmpCoercionX _ (LRCo {})        (TyConAppCo {})  = GT
-cmpCoercionX _ (LRCo {})        (AppCo {})       = GT
-cmpCoercionX _ (LRCo {})        (ForAllCo {})    = GT
-cmpCoercionX _ (LRCo {})        (CoVarCo {})     = GT
-cmpCoercionX _ (LRCo {})        (AxiomInstCo {}) = GT
-cmpCoercionX _ (LRCo {})        (UnsafeCo {})    = GT
-cmpCoercionX _ (LRCo {})        (SymCo {})       = GT
-cmpCoercionX _ (LRCo {})        (TransCo {})     = GT
-cmpCoercionX _ (LRCo {})        (NthCo {})       = GT
-
-cmpCoercionX _ (InstCo {})      (Refl {})        = GT
-cmpCoercionX _ (InstCo {})      (TyConAppCo {})  = GT
-cmpCoercionX _ (InstCo {})      (AppCo {})       = GT
-
-
-cmpCoercionX _ (CoherenceCo {}) (AxiomInstCo {}) = GT
-\begin{code}
-
 cmpCoercionArgX :: RnEnv2 -> CoercionArg -> CoercionArg -> Ordering
 cmpCoercionArgX env (TyCoArg co1)       (TyCoArg co2)
   = cmpCoercionX env co1 co2
@@ -1233,15 +1157,17 @@ liftCoSubstTyCoVarBndr lc@(LC in_scope cenv) old_var
 
       | isTyVar old_var
       = let a1 = new_var
-            a2 = setVarType new_var k2 -- See Note [ForAllCo scoping]
-                                       -- TODO (RAE): write note
+            in_scope1 = in_scope `extendInScopeSet` a1
+            a2 = uniqAway in_scope1 $ setVarType new_var k2
+            in_scope2 = in_scope1 `extendInScopeSet` a2
             c  = mkFreshCoVar in_scope (mkOnlyTyVarTy a1) (mkOnlyTyVarTy a2) in
         ( extendVarEnv cenv old_var (TyCoArg $ mkCoVarCo c)
         , TyHetero eta a1 a2 c )
 
       | otherwise
       = let cv1 = new_var
-            cv2 = setVarType new_var k2 in
+            in_scope1 = in_scope `extendInScopeSet` cv1
+            cv2 = uniqAway in_scope1 $ setVarType new_var k2 in
         ( extendVarEnv cenv old_var (CoCoArg (mkCoVarCo cv1) (mkCoVarCo cv2))
         , CoHetero eta cv1 cv2 )
 
