@@ -33,17 +33,16 @@ module TcMType (
 
   --------------------------------
   -- Creating new evidence variables
-  newEvVar, newEvVars,
-  newEq, newDict,
-
+  newEvVar, newEvVars, newEq, newDict,
   newWantedEvVar, newWantedEvVars,
   newTcEvBinds, addTcEvBind,
+  newFlatWanteds,
 
   --------------------------------
   -- Instantiation
   tcInstTyVars, tcInstSigTyVars, newSigTyVar,
   tcInstType, 
-  tcInstSkolTyVars, tcInstSuperSkolTyVars,
+  tcInstSkolTyVars, tcInstSkolTyVarsLoc, tcInstSuperSkolTyVars,
   tcInstSkolTyVarsX, tcInstSuperSkolTyVarsX,
   tcInstSkolTyVar, tcInstSkolType,
   tcSkolDFunType, tcSuperSkolTyVars,
@@ -79,31 +78,25 @@ import TypeRep
 import TcType
 import TcEvidence
 import Type
-import Kind
 import Class
 import TyCon
 import Var
 
 -- others:
-import HsSyn		-- HsType
 import TcRnMonad        -- TcType, amongst others
 import Id
-import FunDeps
 import Name
 import VarSet
-import ErrUtils
 import PrelNames
 import DynFlags
 import Util
-import Maybes
-import ListSetOps
-import SrcLoc
 import Outputable
 import FastString
+import SrcLoc
 import Bag
 
 import Control.Monad
-import Data.List        ( (\\), partition, mapAccumL )
+import Data.List        ( partition, mapAccumL )
 \end{code}
 
 
@@ -177,6 +170,24 @@ predTypeOccName ty = case classifyPredType ty of
     IrredPred _     -> mkVarOccFS (fsLit "irred")
 \end{code}
 
+*********************************************************************************
+*                                                                               * 
+*                   Wanted constraints
+*                                                                               *
+*********************************************************************************
+
+\begin{code}
+newFlatWanteds :: CtOrigin -> ThetaType -> TcM [Ct]
+newFlatWanteds orig theta
+  = do { loc <- getCtLoc orig
+       ; mapM (inst_to_wanted loc) theta }
+  where 
+    inst_to_wanted loc pty 
+          = do { v <- newWantedEvVar pty 
+               ; return $ mkNonCanonical loc $
+                 CtWanted { ctev_evar = v
+                          , ctev_pred = pty } }
+\end{code}
 
 %************************************************************************
 %*									*
@@ -221,15 +232,15 @@ tcSuperSkolTyVar subst tv
     kind   = substTy subst (tyVarKind tv)
     new_tv = mkTcTyVar (tyVarName tv) kind superSkolemTv
 
-tcInstSkolTyVar :: Bool -> TCvSubst -> TyVar -> TcM (TCvSubst, TcTyVar)
+tcInstSkolTyVar :: SrcSpan -> Bool -> TCvSubst -> TyVar
+                -> TcRnIf gbl lcl (TvSubst, TcTyVar)
 -- Instantiate the tyvar, using 
 --      * the occ-name and kind of the supplied tyvar, 
 --      * the unique from the monad,
 --      * the location either from the tyvar (skol_info = SigSkol)
 --                     or from the monad (otherwise)
-tcInstSkolTyVar overlappable subst tyvar
+tcInstSkolTyVar loc overlappable subst tyvar
   = do  { uniq <- newUnique
-        ; loc  <- getSrcSpanM
         ; let new_name = mkInternalName uniq occ loc
               new_tv   = mkTcTyVar new_name kind (SkolemTv overlappable)
         ; return (extendTCvSubst subst tyvar (mkTyCoVarTy new_tv), new_tv) }
@@ -239,6 +250,10 @@ tcInstSkolTyVar overlappable subst tyvar
     kind     = substTy subst (tyVarKind tyvar)
 
 -- Wrappers
+-- we need to be able to do this from outside the TcM monad:
+tcInstSkolTyVarsLoc :: SrcSpan -> [TyVar] -> TcRnIf gbl lcl (TvSubst, [TcTyVar])
+tcInstSkolTyVarsLoc loc = mapAccumLM (tcInstSkolTyVar loc False) (mkTopTvSubst [])
+
 tcInstSkolTyVars :: [TyVar] -> TcM (TCvSubst, [TcTyVar])
 tcInstSkolTyVars = tcInstSkolTyVarsX (mkTopTCvSubst [])
 
@@ -253,7 +268,9 @@ tcInstSuperSkolTyVarsX subst = tcInstSkolTyVars' True  subst
 tcInstSkolTyVars' :: Bool -> TCvSubst -> [TyVar] -> TcM (TCvSubst, [TcTyVar])
 -- Precondition: tyvars should be ordered (kind vars first)
 -- see Note [Kind substitution when instantiating]
-tcInstSkolTyVars' isSuperSkol = mapAccumLM (tcInstSkolTyVar isSuperSkol)
+tcInstSkolTyVars' isSuperSkol subst tvs
+  = do { loc <- getSrcSpanM
+       ; mapAccumLM (tcInstSkolTyVar loc isSuperSkol) subst tvs }
 
 tcInstSkolType :: TcType -> TcM ([TcTyVar], TcThetaType, TcType)
 -- Instantiate a type with fresh skolem constants
@@ -1588,11 +1605,6 @@ growPredTyVars pred tvs
 \end{code}
     
 
-\begin{code}
-checkThetaCtxt :: UserTypeCtxt -> ThetaType -> SDoc
-checkThetaCtxt ctxt theta
-  = vcat [ptext (sLit "In the context:") <+> pprTheta theta,
-	  ptext (sLit "While checking") <+> pprUserTypeCtxt ctxt ]
 
 eqPredTyErr, predTyVarErr, predTupleErr, predIrredErr, predIrredBadCtxtErr :: PredType -> SDoc
 eqPredTyErr  pred = ptext (sLit "Illegal equational constraint") <+> pprType pred

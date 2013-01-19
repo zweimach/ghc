@@ -118,6 +118,10 @@ module DynFlags (
         tAG_MASK,
         mAX_PTR_TAG,
         tARGET_MIN_INT, tARGET_MAX_INT, tARGET_MAX_WORD,
+
+        -- * SSE
+        isSse2Enabled,
+        isSse4_2Enabled,
   ) where
 
 #include "HsVersions.h"
@@ -318,8 +322,6 @@ data GeneralFlag
    | Opt_EmitExternalCore
    | Opt_SharedImplib
    | Opt_BuildingCabalPackage
-   | Opt_SSE2
-   | Opt_SSE4_2
    | Opt_IgnoreDotGhci
    | Opt_GhciSandbox
    | Opt_GhciHistory
@@ -421,6 +423,7 @@ data WarningFlag =
    | Opt_WarnSafe
    | Opt_WarnPointlessPragmas
    | Opt_WarnUnsupportedCallingConventions
+   | Opt_WarnUnsupportedLlvmVersion
    | Opt_WarnInlineRuleShadowing
    deriving (Eq, Show, Enum)
 
@@ -468,6 +471,7 @@ data ExtensionFlag
    | Opt_ImplicitParams
    | Opt_ImplicitPrelude
    | Opt_ScopedTypeVariables
+   | Opt_AllowAmbiguousTypes
    | Opt_UnboxedTuples
    | Opt_BangPatterns
    | Opt_TypeFamilies
@@ -589,6 +593,7 @@ data DynFlags = DynFlags {
   dynHiSuf              :: String,
 
   outputFile            :: Maybe String,
+  dynOutputFile         :: Maybe String,
   outputHi              :: Maybe String,
   dynLibLoader          :: DynLibLoader,
 
@@ -704,7 +709,10 @@ data DynFlags = DynFlags {
 
   llvmVersion           :: IORef Int,
 
-  nextWrapperNum        :: IORef Int
+  nextWrapperNum        :: IORef Int,
+
+  -- | Machine dependant flags (-m<blah> stuff)
+  sseVersion            :: Maybe (Int, Int)  -- (major, minor)
  }
 
 class HasDynFlags m where
@@ -1143,6 +1151,7 @@ doDynamicToo :: DynFlags -> DynFlags
 doDynamicToo dflags0 = let dflags1 = unSetGeneralFlag' Opt_Static dflags0
                            dflags2 = addWay' WayDyn dflags1
                            dflags3 = dflags2 {
+                                         outputFile = dynOutputFile dflags2,
                                          hiSuf = dynHiSuf dflags2,
                                          objectSuf = dynObjectSuf dflags2
                                      }
@@ -1221,6 +1230,7 @@ defaultDynFlags mySettings =
         pluginModNameOpts       = [],
 
         outputFile              = Nothing,
+        dynOutputFile           = Nothing,
         outputHi                = Nothing,
         dynLibLoader            = SystemDependent,
         dumpPrefix              = Nothing,
@@ -1296,7 +1306,8 @@ defaultDynFlags mySettings =
         profAuto = NoProfAuto,
         llvmVersion = panic "defaultDynFlags: No llvmVersion",
         interactivePrint = Nothing,
-        nextWrapperNum = panic "defaultDynFlags: No nextWrapperNum"
+        nextWrapperNum = panic "defaultDynFlags: No nextWrapperNum",
+        sseVersion = Nothing
       }
 
 defaultWays :: Settings -> [Way]
@@ -1593,7 +1604,7 @@ setObjectDir, setHiDir, setStubDir, setDumpDir, setOutputDir,
          addCmdlineFramework, addHaddockOpts, addGhciScript, 
          setInteractivePrint
    :: String -> DynFlags -> DynFlags
-setOutputFile, setOutputHi, setDumpPrefixForce
+setOutputFile, setDynOutputFile, setOutputHi, setDumpPrefixForce
    :: Maybe String -> DynFlags -> DynFlags
 
 setObjectDir  f d = d{ objectDir  = Just f}
@@ -1613,6 +1624,7 @@ setDynHiSuf     f d = d{ dynHiSuf     = f}
 setHcSuf        f d = d{ hcSuf        = f}
 
 setOutputFile f d = d{ outputFile = f}
+setDynOutputFile f d = d{ dynOutputFile = f}
 setOutputHi   f d = d{ outputHi   = f}
 
 addPluginModuleName :: String -> DynFlags -> DynFlags
@@ -1795,11 +1807,31 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
       throwGhcException (CmdLineError ("combination not supported: "  ++
                               intercalate "/" (map wayDesc theWays)))
 
-  let (dflags4, consistency_warnings) = makeDynFlagsConsistent dflags3
+  -- TODO: This is an ugly hack. Do something better.
+  -- -fPIC affects the CMM code we generate, so if
+  -- we are in -dynamic-too mode we need -fPIC to be on during the
+  -- shared part of the compilation.
+  let doingDynamicToo = gopt Opt_BuildDynamicToo dflags3
+      platform = targetPlatform dflags3
+      dflags4 = if doingDynamicToo
+                then foldr setGeneralFlag' dflags3
+                           (wayGeneralFlags platform WayDyn)
+                else dflags3
 
-  liftIO $ setUnsafeGlobalDynFlags dflags4
+  {-
+  TODO: This test doesn't quite work: We don't want to give an error
+  when e.g. compiling a C file, only when compiling Haskell files.
+  when doingDynamicToo $
+      unless (isJust (outputFile dflags4) == isJust (dynOutputFile dflags4)) $
+          throwGhcException $ CmdLineError
+              "With -dynamic-too, must give -dyno iff giving -o"
+  -}
 
-  return (dflags4, leftover, consistency_warnings ++ sh_warns ++ warns)
+  let (dflags5, consistency_warnings) = makeDynFlagsConsistent dflags4
+
+  liftIO $ setUnsafeGlobalDynFlags dflags5
+
+  return (dflags5, leftover, consistency_warnings ++ sh_warns ++ warns)
 
 updateWays :: DynFlags -> DynFlags
 updateWays dflags
@@ -1991,6 +2023,7 @@ dynamic_flags = [
         ------- Output Redirection ------------------------------------------
   , Flag "odir"              (hasArg setObjectDir)
   , Flag "o"                 (sepArg (setOutputFile . Just))
+  , Flag "dyno"              (sepArg (setDynOutputFile . Just))
   , Flag "ohi"               (hasArg (setOutputHi . Just ))
   , Flag "osuf"              (hasArg setObjectSuf)
   , Flag "dynosuf"           (hasArg setDynObjectSuf)
@@ -2150,8 +2183,7 @@ dynamic_flags = [
   , Flag "monly-2-regs" (NoArg (addWarn "The -monly-2-regs flag does nothing; it will be removed in a future GHC release"))
   , Flag "monly-3-regs" (NoArg (addWarn "The -monly-3-regs flag does nothing; it will be removed in a future GHC release"))
   , Flag "monly-4-regs" (NoArg (addWarn "The -monly-4-regs flag does nothing; it will be removed in a future GHC release"))
-  , Flag "msse2"        (NoArg (setGeneralFlag Opt_SSE2))
-  , Flag "msse4.2"      (NoArg (setGeneralFlag Opt_SSE4_2))
+  , Flag "msse"         (versionSuffix (\maj min d -> d{ sseVersion = Just (maj, min) }))
 
      ------ Warning opts -------------------------------------------------
   , Flag "W"      (NoArg (mapM_ setWarningFlag minusWOpts))
@@ -2363,7 +2395,8 @@ fWarningFlags = [
   ( "warn-safe",                        Opt_WarnSafe, setWarnSafe ),
   ( "warn-pointless-pragmas",           Opt_WarnPointlessPragmas, nop ),
   ( "warn-unsupported-calling-conventions", Opt_WarnUnsupportedCallingConventions, nop ),
-  ( "warn-inline-rule-shadowing",       Opt_WarnInlineRuleShadowing, nop ) ]
+  ( "warn-inline-rule-shadowing",       Opt_WarnInlineRuleShadowing, nop ),
+  ( "warn-unsupported-llvm-version",    Opt_WarnUnsupportedLlvmVersion, nop ) ]
 
 -- | These @-\<blah\>@ flags can all be reversed with @-no-\<blah\>@
 negatableFlags :: [FlagSpec GeneralFlag]
@@ -2586,6 +2619,7 @@ xFlags = [
   ( "ExtendedDefaultRules",             Opt_ExtendedDefaultRules, nop ),
   ( "ImplicitParams",                   Opt_ImplicitParams, nop ),
   ( "ScopedTypeVariables",              Opt_ScopedTypeVariables, nop ),
+  ( "AllowAmbiguousTypes",              Opt_AllowAmbiguousTypes, nop),
 
   ( "PatternSignatures",                Opt_ScopedTypeVariables,
     deprecatedForExtension "ScopedTypeVariables" ),
@@ -2747,6 +2781,7 @@ standardWarnings
         Opt_WarnAlternativeLayoutRuleTransitional,
         Opt_WarnPointlessPragmas,
         Opt_WarnUnsupportedCallingConventions,
+        Opt_WarnUnsupportedLlvmVersion,
         Opt_WarnInlineRuleShadowing,
         Opt_WarnDuplicateConstraints
       ]
@@ -2904,6 +2939,9 @@ floatSuffix fn = FloatSuffix (\n -> upd (fn n))
 optIntSuffixM :: (Maybe Int -> DynFlags -> DynP DynFlags)
               -> OptKind (CmdLineP DynFlags)
 optIntSuffixM fn = OptIntSuffix (\mi -> updM (fn mi))
+
+versionSuffix :: (Int -> Int -> DynFlags -> DynFlags) -> OptKind (CmdLineP DynFlags)
+versionSuffix fn = VersionSuffix (\maj min -> upd (fn maj min))
 
 setDumpFlag :: DumpFlag -> OptKind (CmdLineP DynFlags)
 setDumpFlag dump_flag = NoArg (setDumpFlag' dump_flag)
@@ -3369,3 +3407,23 @@ makeDynFlagsConsistent dflags
           arch = platformArch platform
           os   = platformOS   platform
 
+-- -----------------------------------------------------------------------------
+-- SSE
+
+-- TODO: Instead of using a separate predicate (i.e. isSse2Enabled) to
+-- check if SSE is enabled, we might have x86-64 imply the -msse2
+-- flag.
+
+isSse2Enabled :: DynFlags -> Bool
+isSse2Enabled dflags = case platformArch (targetPlatform dflags) of
+    ArchX86_64 -> -- SSE2 is fixed on for x86_64.  It would be
+                  -- possible to make it optional, but we'd need to
+                  -- fix at least the foreign call code where the
+                  -- calling convention specifies the use of xmm regs,
+                  -- and possibly other places.
+                  True
+    ArchX86    -> sseVersion dflags >= Just (2,0)
+    _          -> False
+
+isSse4_2Enabled :: DynFlags -> Bool
+isSse4_2Enabled dflags = sseVersion dflags >= Just (4,2)
