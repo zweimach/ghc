@@ -252,7 +252,7 @@ matchExpectedTyConApp tc orig_ty
                ; return (co, kappa_tys ++ tau_tys) }
 
     (kvs, body)           = splitForAllTys (tyConKind tc)
-    (arg_kinds, res_kind) = splitKindFunTys body
+    (arg_kinds, res_kind) = splitFunTys body
 
 ----------------------
 matchExpectedAppTy :: TcRhoType                         -- orig_ty

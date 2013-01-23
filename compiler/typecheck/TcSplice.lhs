@@ -1368,7 +1368,7 @@ reifyTypes = mapM reifyType
 
 reifyKind :: Kind -> TcM TH.Kind
 reifyKind  ki
-  = do { let (kis, ki') = splitKindFunTys ki
+  = do { let (kis, ki') = splitFunTys ki
        ; ki'_rep <- reifyNonArrowKind ki'
        ; kis_rep <- mapM reifyKind kis
        ; return (foldr (TH.AppT . TH.AppT TH.ArrowT) ki'_rep kis_rep) }

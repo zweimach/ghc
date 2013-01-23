@@ -1104,7 +1104,7 @@ If that is not the case, then we consider two conditions.
 check1 :: QuantifiedType -> Bool
 check1 (tvs, _) = not $ any isHigherKind (map tyVarKind tvs)
  where
-   isHigherKind = not . null . fst . splitKindFunTys
+   isHigherKind = not . null . fst . splitFunTys
 
 check2 :: QuantifiedType -> QuantifiedType -> Bool
 check2 (_, rtti_ty) (_, old_ty)

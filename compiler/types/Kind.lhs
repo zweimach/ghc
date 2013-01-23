@@ -29,7 +29,6 @@ module Kind (
 
         -- ** Deconstructing Kinds
         kindAppResult, synTyConResKind,
-        splitKindFunTys, splitKindFunTysN, splitKindFunTy_maybe,
 
         -- ** Predicates on Kinds
         isLiftedTypeKind, isUnliftedTypeKind, isOpenTypeKind,
@@ -44,9 +43,6 @@ module Kind (
         isSubKind, isSubKindCon, 
         tcIsSubKind, tcIsSubKindCon,
         defaultKind, isStarKind,
-
-        -- ** Functions on variables
-        kiVarsOfKind, kiVarsOfKinds
 
        ) where
 
@@ -103,32 +99,9 @@ it to be distinct beforehand. Thus, tc... thinks superKind is separate,
 but non-tc functions do not.
 
 \begin{code}
--- | Essentially 'funResultTy' on kinds handling pi-types too
-kindFunResult :: Kind -> KindOrType -> Kind
-kindFunResult (FunTy _ res) _ = res
-kindFunResult (ForAllTy kv res) arg = substKiWith [kv] [arg] res
-kindFunResult k _ = pprPanic "kindFunResult" (ppr k)
-
 kindAppResult :: Kind -> [Type] -> Kind
 kindAppResult k []     = k
-kindAppResult k (a:as) = kindAppResult (kindFunResult k a) as
-
--- | Essentially 'splitFunTys' on kinds
-splitKindFunTys :: Kind -> ([Kind],Kind)
-splitKindFunTys (FunTy a r) = case splitKindFunTys r of
-                              (as, k) -> (a:as, k)
-splitKindFunTys k = ([], k)
-
-splitKindFunTy_maybe :: Kind -> Maybe (Kind,Kind)
-splitKindFunTy_maybe (FunTy a r) = Just (a,r)
-splitKindFunTy_maybe _           = Nothing
-
--- | Essentially 'splitFunTysN' on kinds
-splitKindFunTysN :: Int -> Kind -> ([Kind],Kind)
-splitKindFunTysN 0 k           = ([], k)
-splitKindFunTysN n (FunTy a r) = case splitKindFunTysN (n-1) r of
-                                   (as, k) -> (a:as, k)
-splitKindFunTysN n k = pprPanic "splitKindFunTysN" (ppr n <+> ppr k)
+kindAppResult k (a:as) = kindAppResult (piResultTy k a) as
 
 -- | Find the result 'Kind' of a type synonym, 
 -- after applying it to its 'arity' number of type variables
@@ -309,10 +282,4 @@ defaultKind (TyConApp kc _args)
   | isOpenTypeKindCon kc = ASSERT( null _args ) liftedTypeKind
 defaultKind k = k
 
--- Returns the free kind variables in a kind
-kiVarsOfKind :: Kind -> VarSet
-kiVarsOfKind = tyCoVarsOfType
-
-kiVarsOfKinds :: [Kind] -> VarSet
-kiVarsOfKinds = tyCoVarsOfTypes
 \end{code}

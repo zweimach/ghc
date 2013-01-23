@@ -890,7 +890,7 @@ tcFamTyPats fam_tc (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tva
        ; fam_arg_kinds <- mapM (const newMetaKindVar) fam_kvs
        ; loc <- getSrcSpanM
        ; let (arg_kinds, res_kind) 
-                 = splitKindFunTysN fam_arity $
+                 = splitFunTysN fam_arity $
                    substKiWith fam_kvs fam_arg_kinds fam_body
              hs_tvs = HsQTvs { hsq_kvs = kvars
                              , hsq_tvs = userHsTyVarBndrs loc tvars }

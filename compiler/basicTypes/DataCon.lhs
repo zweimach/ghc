@@ -1102,7 +1102,7 @@ isPromotableTyCon tc
   , all isLiftedTypeKind (res:args) = Just $ length args
   | otherwise                       = Nothing
   where
-    (args, res) = splitKindFunTys (tyConKind tc)
+    (args, res) = splitFunTys (tyConKind tc)
 
 -- | Promotes a type to a kind. 
 -- Assumes the argument satisfies 'isPromotableType'

@@ -1003,7 +1003,7 @@ kcTyClTyVars :: Name -> LHsTyVarBndrs Name -> TcM a -> TcM a
 kcTyClTyVars name (HsQTvs { hsq_kvs = kvs, hsq_tvs = hs_tvs }) thing_inside
   = kcScopedKindVars kvs $
     do 	{ tc_kind <- kcLookupKind name
-	; let (arg_ks, _res_k) = splitKindFunTysN (length hs_tvs) tc_kind
+	; let (arg_ks, _res_k) = splitFunTysN (length hs_tvs) tc_kind
                      -- There should be enough arrows, because
                      -- getInitialKinds used the tcdTyVars
         ; name_ks <- zipWithM kc_tv hs_tvs arg_ks
@@ -1047,7 +1047,7 @@ tcTyClTyVars tycon (HsQTvs { hsq_kvs = hs_kvs, hsq_tvs = hs_tvs }) thing_inside
                      -- TcTyClDecls, where the local env is extended with
                      -- the generalized_env (mapping Names to AThings).
              ; (kvs, body)  = splitForAllTys kind
-             ; (kinds, res) = splitKindFunTysN (length hs_tvs) body }
+             ; (kinds, res) = splitFunTysN (length hs_tvs) body }
        ; tvs <- zipWithM tc_hs_tv hs_tvs kinds
        ; tcExtendTyVarEnv tvs (thing_inside (kvs ++ tvs) res) }
   where
@@ -1071,7 +1071,7 @@ tcDataKindSig kind
 	; return [ mk_tv span uniq str kind 
 		 | ((kind, str), uniq) <- arg_kinds `zip` dnames `zip` uniqs ] }
   where
-    (arg_kinds, res_kind) = splitKindFunTys kind
+    (arg_kinds, res_kind) = splitFunTys kind
     mk_tv loc uniq str kind = mkTyVar name kind
 	where
 	   name = mkInternalName uniq occ loc
@@ -1359,8 +1359,8 @@ checkExpectedKind ty act_kind (EK exp_kind ek_ctxt)
       ; traceTc "checkExpectedKind" (ppr ty $$ ppr act_kind $$ ppr exp_kind)
       ; env0 <- tcInitTidyEnv
       ; dflags <- getDynFlags
-      ; let (exp_as, _) = splitKindFunTys exp_kind
-            (act_as, _) = splitKindFunTys act_kind
+      ; let (exp_as, _) = splitFunTys exp_kind
+            (act_as, _) = splitFunTys act_kind
             n_exp_as  = length exp_as
             n_act_as  = length act_as
             n_diff_as = n_act_as - n_exp_as

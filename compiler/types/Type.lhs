@@ -523,9 +523,14 @@ zipFunTys orig_xs orig_ty = split [] orig_xs orig_ty orig_ty
     
 funResultTy :: Type -> Type
 -- ^ Extract the function result type and panic if that is not possible
-funResultTy ty | Just ty' <- coreView ty = funResultTy ty'
-funResultTy (FunTy _arg res)  = res
-funResultTy ty                = pprPanic "funResultTy" (ppr ty)
+funResultTy ty = piResultTy ty (pprPanic "funResultTy" (ppr ty))
+
+-- | Essentially 'funResultTy' on kinds handling pi-types too
+piResultTy :: Type -> Type -> Type
+piResultTy ty arg | Just ty' <- coreView ty = piResultTy ty' arg
+piResultTy (FunTy _arg res) _    = res
+piResultTy (ForAllTy tv res) arg = substTyWith [tv] [arg] res
+piResultTy ty _                  = pprPanic "piResultTy" (ppr ty)
 
 funArgTy :: Type -> Type
 -- ^ Extract the function argument type and panic if that is not possible

@@ -123,7 +123,7 @@ module TcType (
   unliftedTypeKind, liftedTypeKind,
   openTypeKind, constraintKind, mkArrowKind, mkArrowKinds, 
   isLiftedTypeKind, isUnliftedTypeKind, isSubOpenTypeKind, 
-  tcIsSubKind, splitKindFunTys, defaultKind,
+  tcIsSubKind, defaultKind,
 
   --------------------------------
   -- Rexported from Type
