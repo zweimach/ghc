@@ -240,6 +240,8 @@ length </ sj // j /> = length </ tj // j />
 i < length </ sj // j />
 G |-ty si : k2
 G |-ty ti : k2'
+not (si is_a_coercion)
+not (ti is_a_coercion)
 ---------------------- :: NthCoTyCon
 G |-co nth i g : si k2~#k2' ti
 
@@ -256,6 +258,8 @@ G |-co Left g : s1 k1~#k1' t1
 G |-co g : (s1 s2) k~#k' (t1 t2)
 G |-ty s2 : k2
 G |-ty t2 : k2'
+not (s2 is_a_coercion)
+not (t2 is_a_coercion)
 ----------------------- :: LRCoRight
 G |-co Right g : s2 k2~#k2' t2
 

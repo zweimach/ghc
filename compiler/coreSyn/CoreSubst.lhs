@@ -951,7 +951,7 @@ simple_opt_expr' subst expr
     go (Cast e co)      | isReflCo co' = go e
        	                | otherwise    = Cast (go e) co' 
                         where
-                          co' = optCoercion (getCvSubst subst) co
+                          co' = optCoercion (getTCvSubst subst) co
 
     go (Let bind body) = case simple_opt_bind subst bind of
                            (subst', Nothing)   -> simple_opt_expr subst' body

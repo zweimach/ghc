@@ -613,15 +613,10 @@ newTyConInstRhs tycon tys
                            ~~~~~~
 A casted type has its *kind* casted into something new.
 
+Why not ignore Refl coercions? See Note [Optimising Refl] in OptCoercion.
 \begin{code}
 mkCastTy :: Type -> Coercion -> Type
-mkCastTy ty co
-  | Refl _ <- co
-  = ty
-  | CastTy innerty innerco <- ty
-  = CastTy innerty (mkTransCo innerco co)
-  | otherwise
-  = CastTy ty co
+mkCastTy = CastTy
 \end{code}
 
 --------------------------------------------------------------------
@@ -637,6 +632,10 @@ mkCoercionTy = CoercionTy
 isCoercionTy :: Type -> Bool
 isCoercionTy (CoercionTy _) = True
 isCoercionTy _              = False
+
+stripCoercionTy :: Type -> Coercion
+stripCoercionTy (CoercionTy co) = co
+stripCoercionTy ty              = pprPanic "stripCoercionTy" (ppr ty)
 \end{code}
 
 ---------------------------------------------------------------------

@@ -963,6 +963,9 @@ composeTCvSubstEnv in_scope (tenv1, cenv1) (tenv2, cenv2)
 emptyTCvSubst :: TCvSubst
 emptyTCvSubst = TCvSubst emptyInScopeSet emptyTvSubstEnv emptyCvSubstEnv
 
+mkEmptyTCvSubst :: InScopeSet -> TCvSubst
+mkEmptyTCvSubst is = TCvSubst is emptyTvSubstEnv emptyCvSubstEnv
+
 isEmptyTCvSubst :: TCvSubst -> Bool
 	 -- See Note [Extending the TvSubstEnv]
 isEmptyTCvSubst (TCvSubst _ tenv cenv) = isEmptyVarEnv tenv && isEmptyVarEnv cenv
@@ -1133,6 +1136,58 @@ instance Outputable TCvSubst where
 %*									*
 %************************************************************************
 
+Note [Sym and ForAllCo]
+~~~~~~~~~~~~~~~~~~~~~~~
+In OptCoercion, we try to push "sym" out to the leaves of a coercion. But,
+how do we push sym into a ForAllCo? It's a little ugly. Let's consider the
+heterogeneous cases first, as it's easier to understand the homogeneous
+cases as a specialization.
+
+Here is the typing rule for TyHetero:
+
+h : k1 ~# k2
+tv1 : k1              tv2 : k2
+cv : tv1 ~# tv2
+tv1, tv2, cv |- g : ty1 ~# ty2
+ForAllTy tv1 ty1 : *
+ForAllTy tv2 ty2 : *
+-----------------------------------------------------------------------------
+ForAllCo (TyHetero h tv1 tv2 cv) g : (ForAllTy tv1 ty1) ~# (ForAllTy tv2 ty2)
+
+Here is what we want:
+
+ForAllCo (TyHetero h' tv1' tv2' cv') g' : (ForAllTy tv2 ty2) ~# (ForAllTy tv1 ty1)
+
+Because the kinds of the type variables to the right of the colon are the kinds
+coerced by h', we know (h' : k2 ~# k1). Thus, (h' = sym h).
+
+Then, because the kinds of the type variables in the TyHetero are related by
+the coercion in the TyHetero (i.e. h'), we need to swap these type variables:
+(tv2' = tv1) and (tv1' = tv2).
+
+Then, because the coercion variable in the TyHetero must coerce the two type
+variables, *in order*, that appear in the TyHetero, we must have
+(cv' : tv1' ~# tv2') = (cv' : tv2 ~# tv1).
+
+But, g is well-typed only in a context where (cv : tv1 ~# tv2). So, to use
+cv' in g, we must perform the substitution [cv |-> sym cv'].
+
+Lastly, to get ty1 and ty2 to work out, we must apply sym to g.
+
+Putting it all together, we get this:
+
+sym (ForAllCo (TyHetero h tv1 tv2 cv) g)
+==>
+ForAllCo (TyHetero (sym h) tv2 tv1 (cv' : tv2 ~# tv1)) (sym (g[cv |-> sym cv']))
+
+This is done in opt_co (in OptCoercion), supported by substForAllCoBndrCallback
+and substCoVarBndrCallback.
+
+
+The rule for CoHetero is similar, but there is no coercion variable analogous
+to cv, so it's much simpler. Similarly, the TyHomo and CoHomo cases are
+straightforward once you understand the rule above. 
+
 \begin{code}
 -- | Type substitution making use of an 'TCvSubst' that
 -- is assumed to be open, see 'zipOpenTCvSubst'
@@ -1246,21 +1301,9 @@ subst_co subst co
     go (TyConAppCo tc args)  = let args' = map go_arg args
                                in  args' `seqList` mkTyConAppCo tc args'
     go (AppCo co arg)        = mkAppCo (go co) $! go_arg arg
-    go (ForAllCo (TyHomo tv) co)
-      = case substTyVarBndr subst  tv  of { (subst1, tv') ->
-        mkForAllCo_TyHomo tv' $! subst_co subst1 co }
-    go (ForAllCo (TyHetero h tv1 tv2 cv) co)
-      = case substTyVarBndr subst  tv1 of { (subst1, tv1') ->
-        case substTyVarBndr subst1 tv2 of { (subst2, tv2') ->
-        case substCoVarBndr subst2 cv  of { (subst3, cv') ->
-        (mkForAllCo_Ty $! subst_co subst h) tv1' tv2' cv' $! subst_co subst3 co }}}
-    go (ForAllCo (CoHomo cv) co)
-      = case substCoVarBndr subst  cv  of { (subst1, cv') ->
-        mkForAllCo_CoHomo cv' $! subst_co subst1 co }
-    go (ForAllCo (CoHetero h cv1 cv2) co)
-      = case substCoVarBndr subst  cv1 of { (subst1, cv1') ->
-        case substCoVarBndr subst1 cv2 of { (subst2, cv2') ->
-        (mkForAllCo_Co $! subst_co subst h) cv1' cv2' $! subst_co subst2 co
+    go (ForAllCoBndr cobndr co)
+      = case substForAllCoBndr subst cobndr of (subst', cobndr') ->
+          (mkForAllCo $! cobndr') $! subst_co subst' co
     go (CoVarCo cv)          = substCoVar subst cv
     go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go_arg cos
     go (UnsafeCo ty1 ty2)    = (mkUnsafeCo $! go_ty ty1) $! go_ty ty2
@@ -1276,6 +1319,44 @@ subst_co subst co
     go_arg (TyCoArg co)      = TyCoArg $! go co
     go_arg (CoCoArg co1 co2) = (CoCoArg $! go co1) $! go co2
 
+substForAllCoBndr :: TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
+substForAllCoBndr = substForAllCoBndrCallback False substTy (const substCo)
+
+-- See Note [Sym and ForAllCo]
+substForAllCoBndrCallback :: Bool -- apply "sym" to the binder?
+                          -> (TCvSubst -> Type -> Type)
+                          -> (Bool -> TCvSubst -> Coercion -> Coercion)
+                          -> TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
+substForAllCoBndrCallback _ sty _ subst (TyHomo tv)
+  = case substTyVarBndrCallback sty subst tv of
+      (subst', tv') -> (subst', TyHomo tv')
+substForAllCoBndrCallback sym sty sco subst (TyHetero h tv1 tv2 cv)
+  = case substTyVarBndrCallback     sty subst  tv1 of { (subst1, tv1') ->
+    case substTyVarBndrCallback     sty subst1 tv2 of { (subst2, tv2') ->
+    case substCoVarBndrCallback sym sty subst2 cv  of { (subst3, cv') ->
+    let h' = sco sym subst h in -- just subst, not any of the others
+    if isReflCo h'
+    then let subst4 = extendTCvSubstList subst3
+                        [tv2,                cv]
+                        [mkOnlyTyVarTy tv1', mkReflCo (tyVarKind tv1')] in
+         (subst4, TyHomo tv1')
+    else if sym
+         then (subst3, (TyHetero $! h') tv2' tv1' cv')
+         else (subst3, (TyHetero $! h') tv1' tv2' cv') }}}
+substForAllCoBndrCallback _ sty _ subst (CoHomo cv)
+  = case substCoVarBndrCallback False sty subst cv of
+      (subst', cv') -> (subst', CoHomo cv')
+substForAllCoBndrCallback sym sty sco subst (CoHetero h cv1 cv2)
+  = case substCoVarBndr False sty subst  cv1 of { (subst1, cv1') ->
+    case substCoVarBndr False sty subst1 cv2 of { (subst2, cv2') ->
+    let h' = sco sym subst h in
+    if isReflCo h'
+    then let subst3 = extendTCvSubst subst2 cv2 (mkCoVarCo cv1') in
+         (subst3, CoHomo cv1')
+    else if sym
+         then (subst2, (CoHetero $! h') cv2' cv1')
+         else (subst2, (CoHetero $! h') cv1' cv2') }}
+
 substCoVar :: TCvSubst -> CoVar -> Coercion
 substCoVar (TCvSubst in_scope _ cenv) cv
   | Just co  <- lookupVarEnv cenv cv      = co
@@ -1290,7 +1371,11 @@ lookupCoVar :: TCvSubst -> Var  -> Maybe Coercion
 lookupCoVar (TCvSubst _ _ cenv) v = lookupVarEnv cenv v
 
 substTyVarBndr :: TCvSubst -> TyVar -> (TCvSubst, TyVar)
-substTyVarBndr subst@(TCvSubst in_scope tenv cenv) old_var
+substTyVarBndr = substTyVarBndrCallback substTy
+
+substTyVarBndrCallback :: (TCvSubst -> Type -> Type)
+                       -> TCvSubst -> TyVar -> (TCvSubst, TyVar)
+substTyVarBndrCallback subst_fn subst@(TCvSubst in_scope tenv cenv) old_var
   = ASSERT2( _no_capture, ppr old_var $$ ppr subst ) 
     ASSERT( isTyVar old_var )
     (TCvSubst (in_scope `extendInScopeSet` new_var) new_env cenv, new_var)
@@ -1315,11 +1400,16 @@ substTyVarBndr subst@(TCvSubst in_scope tenv cenv) old_var
 	-- Here we must simply zap the substitution for x
 
     new_var | no_kind_change = uniqAway in_scope old_var
-            | otherwise = uniqAway in_scope $ updateTyVarKind (substTy subst) old_var
+            | otherwise = uniqAway in_scope $ updateTyVarKind (subst_fun subst) old_var
 	-- The uniqAway part makes sure the new variable is not already in scope
 
 substCoVarBndr :: TCvSubst -> CoVar -> (TCvSubst, CoVar)
-substCoVarBndr subst@(TCvSubst in_scope tenv cenv) old_var
+substCoBarBndr = substCoVarBndrCallback False substTy
+
+substCoVarBndrCallback :: Bool -- apply "sym" to the covar?
+                       -> (TCvSubst -> Type -> Type)
+                       -> TCvSubst -> CoVar -> (TCvSubst, CoVar)
+substCoVarBndrCallback sym subst_fun subst@(TCvSubst in_scope tenv cenv) old_var
   = ASSERT( isCoVar old_var )
     (TCvSubst (in_scope `extendInScopeSet` new_var) tenv new_cenv, new_var)
   where
@@ -1333,7 +1423,12 @@ substCoVarBndr subst@(TCvSubst in_scope tenv cenv) old_var
              | otherwise = extendVarEnv cenv old_var new_co
 
     new_var = uniqAway in_scope subst_old_var
-    subst_old_var = mkCoVar (varName old_var) (substTy subst (varType old_var))
+    subst_old_var = mkCoVar (varName old_var) new_var_type
+ 
+    (t1, t2) = coVarTypes old_var
+    t1' = subst_fun subst t1
+    t2' = subst_fun subst t2
+    new_var_type = uncurry mkCoercionType (if sym then (t2', t1') else (t1', t2'))
 		  -- It's important to do the substitution for coercions,
 		  -- because they can have free type variables
 
