@@ -917,9 +917,10 @@ mkTcEqPred :: TcType -> TcType -> Type
 -- But this is horribly delicate: what about type variables
 -- that turn out to be bound to Int#?
 mkTcEqPred ty1 ty2
-  = mkTyConApp eqTyCon [k, ty1, ty2]
+  = mkTyConApp eqTyCon [k1, k2, ty1, ty2]
   where
-    k = defaultKind (typeKind ty1)
+    k1 = defaultKind (typeKind ty1)
+    k2 = defaultKind (typeKind ty2)
 \end{code}
 
 @isTauTy@ tests for nested for-alls.  It should not be called on a boxy type.

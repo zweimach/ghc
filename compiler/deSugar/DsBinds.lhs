@@ -798,7 +798,7 @@ dsTcCoercion co thing_inside
              eqvs_covs = zipWith mk_co_var (varSetElems (coVarsOfTcCo co))
                                            (uniqsFromSupply us)
 
-             subst = mkCvSubst emptyInScopeSet [(eqv, mkCoVarCo cov) | (eqv, cov) <- eqvs_covs]
+             subst = mkTCvSubst emptyInScopeSet [(eqv, mkCoVarCo cov) | (eqv, cov) <- eqvs_covs]
              result_expr = thing_inside (ds_tc_coercion subst co)
              result_ty   = exprType result_expr
 

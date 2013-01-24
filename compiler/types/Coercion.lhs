@@ -1027,7 +1027,7 @@ promoteCoercion g@(NthCo n co)
   , n < length args
   = case args !! n of
       TyCoArg co1 -> promoteCoercion co1
-      CoCoArg co1 co2 -> undefined -- TODO (RAE): Fix this
+      CoCoArg co1 co2 -> pprPanic "promoteCoercion" (ppr g)
   | Just (cobndr, co1) <- splitForAllCo_maybe co
   , n == 0
   = ASSERT( False ) mkReflCo liftedTypeKind
@@ -1039,7 +1039,7 @@ promoteCoercion g@(LRCo lr co)
       CLeft  -> promoteCoercion lco
       CRight -> case rarg of
         TyCoArg co1 -> promoteCoercion co1
-        CoCoArg co1 co2 -> undefined -- TODO (RAE): Fix this
+        CoCoArg co1 co2 -> pprPanic "promoteCoercion" (ppr g)
   | otherwise
   = mkKindCo g
 promoteCoercion (InstCo _ _)      = ASSERT( False ) mkReflCo liftedTypeKind
