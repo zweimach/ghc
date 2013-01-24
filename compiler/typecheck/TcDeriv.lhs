@@ -604,7 +604,7 @@ deriveTyData tvs tc tc_args (L loc deriv_pred)
         ; checkTc (not (isFamilyTyCon tc) || n_args_to_drop == 0)
                   (typeFamilyPapErr tc cls cls_tys inst_ty)
 
-        ; mkEqnHelp DerivOrigin (varSetElemsKvsFirst univ_tvs) cls cls_tys inst_ty Nothing }
+        ; mkEqnHelp DerivOrigin (varSetElemsWellScoped univ_tvs) cls cls_tys inst_ty Nothing }
 \end{code}
 
 Note [Deriving, type families, and partial applications]
@@ -1180,7 +1180,7 @@ mkNewTypeEqn orig dflags tvs
         ; dfun_name <- new_dfun_name cls tycon
         ; loc <- getSrcSpanM
         ; let spec = DS { ds_loc = loc, ds_orig = orig
-                        , ds_name = dfun_name, ds_tvs = varSetElemsKvsFirst dfun_tvs
+                        , ds_name = dfun_name, ds_tvs = varSetElemsWellScoped dfun_tvs
                         , ds_cls = cls, ds_tys = inst_tys
                         , ds_tc = rep_tycon, ds_tc_args = rep_tc_args
                         , ds_theta =  mtheta `orElse` all_preds

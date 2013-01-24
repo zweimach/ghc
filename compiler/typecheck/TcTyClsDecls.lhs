@@ -1614,7 +1614,7 @@ mkRecSelBind (tycon, sel_name)
     is_naughty = not (tyCoVarsOfType field_ty `subVarSet` data_tvs)  
     (field_tvs, field_theta, field_tau) = tcSplitSigmaTy field_ty
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
-           | otherwise  = mkForAllTys (varSetElemsKvsFirst $
+           | otherwise  = mkForAllTys (varSetElemsWellScoped $
                                        data_tvs `extendVarSetList` field_tvs) $
     	     	          mkPhiTy (dataConStupidTheta con1) $	-- Urgh!
     	     	          mkPhiTy field_theta               $	-- Urgh!

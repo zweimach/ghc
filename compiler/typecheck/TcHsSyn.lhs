@@ -1113,7 +1113,7 @@ zonkRule env (HsRule name act (vars{-::[RuleBndr TcId]-}) lhs fv_lhs rhs fv_rhs)
 
        ; let final_bndrs :: [RuleBndr Var]
              final_bndrs = map (RuleBndr . noLoc)
-                               (varSetElemsKvsFirst unbound_tkvs)
+                               (varSetElemsWellScoped unbound_tkvs)
                            ++ new_bndrs
 
        ; return $ 

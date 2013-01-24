@@ -94,7 +94,7 @@ module Type (
 	-- * Type free variables
 	tyCoVarsOfType, tyCoVarsOfTypes,
 	expandTypeSynonyms, 
-	typeSize, varSetElemsKvsFirst, 
+	typeSize, varSetElemsWellScoped, 
 
 	-- * Type comparison
         eqType, eqTypeX, eqTypes, cmpType, cmpTypes, 
@@ -1102,12 +1102,30 @@ typeSize (TyConApp _ ts) = 1 + sum (map typeSize ts)
 typeSize (CastTy ty co)  = 1 + typeSize ty + coercionSize co
 typeSize (CoercionTy co) = 1 + coercionSize co
 
-varSetElemsKvsFirst :: VarSet -> [TyVar]
--- {k1,a,k2,b} --> [k1,k2,a,b]
-varSetElemsKvsFirst set 
-  = kvs ++ tvs
+-- no promises that this is the most efficient, but it will do the job
+type DepEnv = VarEnv VarSet
+varSetElemsWellScoped :: VarSet -> [TyCoVar]
+varSetElemsWellScoped set 
+  = let deps = mk_deps set in
+    sortBy (dep_cmp deps) (varSetElems set)
   where
-    (kvs, tvs) = partition isKindVar (varSetElems set)
+    -- each var maps to the set of vars it depends on
+    mk_deps :: VarSet -> DepEnv
+    mk_deps = foldVarSet add_dep emptyVarEnv
+
+    add_dep :: Var -> DepEnv -> DepEnv
+    add_dep v env = extendVarEnv env v (dep_set v emptyVarSet)
+
+    dep_set :: Var -> VarSet -> VarSet
+    dep_set v set = let free_vars = tyCoVarsInType (varType v) in
+                    foldVarSet dep_set free_vars free_vars `unionVarSet` set
+
+    dep_cmp :: DepEnv -> Var -> Var -> Ordering
+    dep_cmp env v1 v2
+      | v1 `depends_on` v2 = GT
+      | v2 `depends_on` v1 = LT
+      | otherwise          = EQ
+      where a `depends_on` b = b `elemVarSet` (lookupVarEnv_NF env a)
 \end{code}
 
 
