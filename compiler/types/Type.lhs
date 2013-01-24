@@ -987,6 +987,10 @@ mkPrimEqPred ty1 ty2
   where 
     k1 = typeKind ty1
     k2 = typeKind ty2
+
+-- | Creates a primite type equality predicate with explicit kinds
+mkHeteroPrimEqPred :: Kind -> Kind -> Type -> Type -> Type
+mkHeteroPrimEqPred k1 k2 ty1 ty2 = TyConApp eqPrimTyCon [k1, k2, ty1, ty2]
 \end{code}
 
 --------------------- Dictionary types ---------------------------------

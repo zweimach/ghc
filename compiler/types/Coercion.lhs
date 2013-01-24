@@ -540,11 +540,16 @@ splitForAllCo_Co_maybe _                                  = Nothing
 -------------------------------------------------------
 -- and some coercion kind stuff
 
-coVarTypes :: CoVar -> (Type,Type) 
+coVarTypes :: CoVar -> (Type,Type)
 coVarTypes cv
- | Just (tc, [_k1,_k2,ty1,ty2]) <- splitTyConApp_maybe (varType cv)
+  | (_, _, ty1, ty2) <- coVarTypesKinds cv
+  = (ty1, ty2)
+
+coVarTypesKinds :: CoVar -> (Kind,Kind,Type,Type)
+coVarTypesKinds cv
+ | Just (tc, [k1,k2,ty1,ty2]) <- splitTyConApp_maybe (varType cv)
  = ASSERT (tc `hasKey` eqPrimTyConKey)
-   (ty1,ty2)
+   (k1,k2,ty1,ty2)
  | otherwise = panic "coVarTypes, non coercion variable"
 
 coVarKind :: CoVar -> Type
@@ -556,6 +561,9 @@ coVarKind cv
 -- is proven by the relevant 'Coercion'
 mkCoercionType :: Type -> Type -> Type
 mkCoercionType = mkPrimEqPred
+
+mkHeteroCoercionType :: Kind -> Kind -> Type -> Type -> Type
+mkHeteroCoercionType = mkHeteroPrimEqPred
 
 isReflCo :: Coercion -> Bool
 isReflCo (Refl {}) = True

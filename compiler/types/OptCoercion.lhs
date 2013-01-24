@@ -570,10 +570,10 @@ checkAxInstCo :: Coercion -> Maybe Int
 -- defined here to avoid dependencies in Coercion
 checkAxInstCo (AxiomInstCo ax ind cos)
   = let branch = coAxiomNthBranch ax ind
-        tvs = coAxBranchTyVars branch
+        tvs = coAxBranchTyCoVars branch
         tys = map (pFst . coercionKind) cos 
-        subst = zipOpenTvSubst tvs tys
-        lhs' = Type.substTys subst (coAxBranchLHS branch) in
+        subst = zipOpenTCvSubst tvs tys
+        lhs' = substTys subst (coAxBranchLHS branch) in
     check_no_conflict lhs' (ind-1)
   where
     check_no_conflict :: [Type] -> Int -> Maybe Int

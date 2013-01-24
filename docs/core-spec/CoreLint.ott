@@ -192,7 +192,6 @@ G |-ty forall alpha_k.t2 : *
 G |-co forall alpha_k. g : (forall alpha_k. t1) *~#* (forall alpha_k. t2)
 
 G |-co h : k1 *~#* k2
-k1 /= k2
 G, alpha1_k1, alpha2_k2, c_(alpha1$ k1~#k2 alpha2$) |-co g : t1 *~#* t2
 G |-ty forall alpha1_k1.t1 : *
 G |-ty forall alpha2_k2.t2 : *
