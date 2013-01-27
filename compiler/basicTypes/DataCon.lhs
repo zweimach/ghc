@@ -592,9 +592,9 @@ mkDataCon :: Name
 	  -> [HsBang]           -- ^ Strictness annotations written in the source file
 	  -> [FieldLabel]       -- ^ Field labels for the constructor, if it is a record, 
 				--   otherwise empty
-	  -> [TyVar]            -- ^ Universally quantified type variables
-	  -> [TyVar]            -- ^ Existentially quantified type variables
-	  -> [(TyVar,Type)]     -- ^ GADT equalities
+	  -> [TyCoVar]          -- ^ Universally quantified type variables
+	  -> [TyCoVar]          -- ^ Existentially quantified type variables
+	  -> [(TyCoVar,Type)]   -- ^ GADT equalities
 	  -> ThetaType          -- ^ Theta-type occuring before the arguments proper
 	  -> [Type]             -- ^ Original argument types
 	  -> Type		-- ^ Original result type
@@ -1124,7 +1124,7 @@ promoteKind :: Kind -> SuperKind
 -- Promote the kind of a type constructor
 -- from (* -> * -> *) to (BOX -> BOX -> BOX) 
 promoteKind (TyConApp tc []) 
-  | isLiftedTypeKindTyCon tc = superKind
+  | isStarKindCon tc = superKind
 promoteKind (FunTy arg res) = FunTy (promoteKind arg) (promoteKind res)
 promoteKind k = pprPanic "promoteKind" (ppr k)
 \end{code}

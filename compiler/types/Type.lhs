@@ -41,7 +41,7 @@ module Type (
 	splitTyConApp_maybe, splitTyConApp, tyConAppArgN,
 
         mkForAllTy, mkForAllTys, splitForAllTy_maybe, splitForAllTys, 
-        mkPiKinds, mkPiType, mkPiTypes,
+        mkPiType, mkPiTypes,
 	applyTy, applyTys, applyTysD, isForAllTy, dropForAlls,
 
         mkNumLitTy, isNumLitTy,
@@ -807,15 +807,6 @@ mkForAllTy tyvar ty
 mkForAllTys :: [TyVar] -> Type -> Type
 mkForAllTys tyvars ty = foldr ForAllTy ty tyvars
 
-mkPiKinds :: [TyVar] -> Kind -> Kind
--- mkPiKinds [k1, k2, (a:k1 -> *)] k2
--- returns forall k1 k2. (k1 -> *) -> k2
-mkPiKinds [] res = res
-mkPiKinds (tv:tvs) res 
-  | isKindVar tv = ForAllTy tv          (mkPiKinds tvs res)
-  | isCoVar   tv = ForAllTy tv          (mkPiKinds tvs res)
-  | otherwise    = FunTy (tyVarKind tv) (mkPiKinds tvs res)
-
 mkPiType  :: Var -> Type -> Type
 -- ^ Makes a @(->)@ type or a forall type, depending
 -- on whether it is given a type variable or a term variable.
@@ -823,15 +814,32 @@ mkPiTypes :: [Var] -> Type -> Type
 -- ^ 'mkPiType' for multiple type or value arguments
 
 mkPiType v ty
-   | isCoVar v = mkForAllTy v ty
-   | isId v    = mkFunTy (varType v) ty
-   | otherwise = mkForAllTy v ty
+   |  isTyVar v
+   || isCoVar v = mkForAllTy v ty
+   | otherwise  = mkFunTy (varType v) ty
 
 mkPiTypes vs ty = foldr mkPiType ty vs
+
+-- | Take a pi type (that is, either a ForAllTy or a FunTy) apart, returning
+-- the list of argument types and the result type. This always succeeds, even
+-- if it returns only an empty list. Note that the second type returned may
+-- have free variables that were bound by a forall.
+splitPiTypes :: Type -> ([Type], Type)
+splitPiTypes ty | Just ty' <- coreView ty = splitPiTypes ty'
+splitPiTypes (FunTy arg res)              = let (args, res') <- splitPiTypes res in
+                                            (arg:args, res')
+splitPiTypes (ForAllTy tv ty)             = let (args, res') <- splitPiTypes res in
+                                            (tyVarKind tv : res')
 
 isForAllTy :: Type -> Bool
 isForAllTy (ForAllTy _ _) = True
 isForAllTy _              = False
+
+-- | Take a forall type apart, or panics if that is not possible.
+splitForAllTy :: Type -> (TyCoVar, Type)
+splitForAllTy ty
+  | Just (tv, ty') <- splitForAllTy_maybe ty = (tv, ty')
+  | otherwise                                = pprPanic "splitForAllTy" (ppr ty)
 
 -- | Attempts to take a forall type apart, returning the bound type variable
 -- and the remainder of the type
@@ -991,6 +999,18 @@ mkPrimEqPred ty1 ty2
 -- | Creates a primite type equality predicate with explicit kinds
 mkHeteroPrimEqPred :: Kind -> Kind -> Type -> Type -> Type
 mkHeteroPrimEqPred k1 k2 ty1 ty2 = TyConApp eqPrimTyCon [k1, k2, ty1, ty2]
+
+-- | Is the type inhabited by a coercion?
+isCoercionType :: Type -> Bool
+isCoercionType ty = isJust $ splitCoercionType_maybe ty
+
+-- | Try to split up a coercion type into the types that it coerces
+splitCoercionType_maybe :: Type -> Maybe (Type, Type)
+splitCoercionType_maybe ty
+  = do { Just (tc, [_, _, ty1, ty2]) <- splitTyConApp_maybe ty
+       ; guard $ tc `hasKey` eqPrimTyConKey
+       ; return (ty1, ty2) }
+
 \end{code}
 
 --------------------- Dictionary types ---------------------------------

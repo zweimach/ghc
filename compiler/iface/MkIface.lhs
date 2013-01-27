@@ -1451,9 +1451,9 @@ coAxiomToIfaceDecl ax@(CoAxiom { co_ax_tc = tycon, co_ax_branches = branches })
 
 coAxBranchToIfaceBranch :: CoAxBranch -> IfaceAxBranch
 coAxBranchToIfaceBranch (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs })
-  = IfaceAxBranch { ifaxbTyVars = toIfaceTCvBndrs tv_bndrs
-                  , ifaxbLHS    = map (tidyToIfaceType env) lhs
-                  , ifaxbRHS    = tidyToIfaceType env rhs }
+  = IfaceAxBranch { ifaxbTyCoVars = toIfaceTCvBndrs tv_bndrs
+                  , ifaxbLHS      = map (tidyToIfaceType env) lhs
+                  , ifaxbRHS      = tidyToIfaceType env rhs }
   where
     (env, tv_bndrs) = tidyTyCoVarBndrs emptyTidyEnv tvs
 
@@ -1466,20 +1466,20 @@ tyConToIfaceDecl env tycon
   = classToIfaceDecl env clas
 
   | Just syn_rhs <- synTyConRhs_maybe tycon
-  = IfaceSyn {  ifName    = getOccName tycon,
-                ifTyVars  = toIfaceTCvBndrs tyvars,
-                ifSynRhs  = to_ifsyn_rhs syn_rhs,
-                ifSynKind = tidyToIfaceType env1 (synTyConResKind tycon) }
+  = IfaceSyn {  ifName     = getOccName tycon,
+                ifTyCoVars = toIfaceTCvBndrs tyvars,
+                ifSynRhs   = to_ifsyn_rhs syn_rhs,
+                ifSynKind  = tidyToIfaceType env1 (synTyConResKind tycon) }
 
   | isAlgTyCon tycon
-  = IfaceData { ifName    = getOccName tycon,
-                ifCType   = tyConCType tycon,
-                ifTyVars  = toIfaceTCvBndrs tyvars,
-                ifCtxt    = tidyToIfaceContext env1 (tyConStupidTheta tycon),
-                ifCons    = ifaceConDecls (algTyConRhs tycon),
-                ifRec     = boolToRecFlag (isRecursiveTyCon tycon),
+  = IfaceData { ifName     = getOccName tycon,
+                ifCType    = tyConCType tycon,
+                ifTyCoVars = toIfaceTCvBndrs tyvars,
+                ifCtxt     = tidyToIfaceContext env1 (tyConStupidTheta tycon),
+                ifCons     = ifaceConDecls (algTyConRhs tycon),
+                ifRec      = boolToRecFlag (isRecursiveTyCon tycon),
                 ifGadtSyntax = isGadtSyntaxTyCon tycon,
-                ifAxiom   = fmap coAxiomName (tyConFamilyCoercion_maybe tycon) }
+                ifAxiom    = fmap coAxiomName (tyConFamilyCoercion_maybe tycon) }
 
   | isForeignTyCon tycon
   = IfaceForeign { ifName    = getOccName tycon,
@@ -1532,13 +1532,13 @@ toIfaceBang _   (HsUserBang {})      = panic "toIfaceBang"
 
 classToIfaceDecl :: TidyEnv -> Class -> IfaceDecl
 classToIfaceDecl env clas
-  = IfaceClass { ifCtxt   = tidyToIfaceContext env1 sc_theta,
-                 ifName   = getOccName (classTyCon clas),
-                 ifTyVars = toIfaceTCvBndrs clas_tyvars',
-                 ifFDs    = map toIfaceFD clas_fds,
-                 ifATs    = map toIfaceAT clas_ats,
-                 ifSigs   = map toIfaceClassOp op_stuff,
-                 ifRec    = boolToRecFlag (isRecursiveTyCon tycon) }
+  = IfaceClass { ifCtxt     = tidyToIfaceContext env1 sc_theta,
+                 ifName     = getOccName (classTyCon clas),
+                 ifTyCoVars = toIfaceTCvBndrs clas_tyvars',
+                 ifFDs      = map toIfaceFD clas_fds,
+                 ifATs      = map toIfaceAT clas_ats,
+                 ifSigs     = map toIfaceClassOp op_stuff,
+                 ifRec      = boolToRecFlag (isRecursiveTyCon tycon) }
   where
     (clas_tyvars, clas_fds, sc_theta, _, clas_ats, op_stuff) 
       = classExtraBigSig clas

@@ -1845,7 +1845,7 @@ undecidableMsg = ptext (sLit "Use -XUndecidableInstances to permit this")
 -- Check that a "type instance" is well-formed (which includes decidability
 -- unless -XUndecidableInstances is given).
 --
-checkValidTyFamInst :: TyCon -> [TyVar] -> [Type] -> Type -> TcM ()
+checkValidTyFamInst :: TyCon -> [TyCoVar] -> [Type] -> Type -> TcM ()
 checkValidTyFamInst fam_tc tvs typats rhs
   = do { checkValidFamPats fam_tc tvs typats
 
@@ -1887,7 +1887,7 @@ checkFamInstRhs lhsTys famInsts
              -- excessive occurrences of *type* variables.
              -- e.g. type instance Demote {T k} a = T (Demote {k} (Any {k}))
 
-checkValidFamPats :: TyCon -> [TyVar] -> [Type] -> TcM ()
+checkValidFamPats :: TyCon -> [TyCoVar] -> [Type] -> TcM ()
 -- Patterns in a 'type instance' or 'data instance' decl should
 -- a) contain no type family applications
 --    (vanilla synonyms are fine, though)

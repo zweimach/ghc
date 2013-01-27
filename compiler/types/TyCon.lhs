@@ -829,7 +829,7 @@ mkFunTyCon name kind
 -- module)
 mkAlgTyCon :: Name
            -> Kind              -- ^ Kind of the resulting 'TyCon'
-           -> [TyVar]           -- ^ 'TyVar's scoped over: see 'tyConTyCoVars'.
+           -> [TyCoVar]         -- ^ 'TyVar's scoped over: see 'tyConTyCoVars'.
                                 --   Arity is inferred from the length of this list
            -> Maybe CType       -- ^ The C type this type corresponds to
                                 --   when using the CAPI FFI
@@ -855,7 +855,7 @@ mkAlgTyCon name kind tyvars cType stupid rhs parent is_rec gadt_syn
     }
 
 -- | Simpler specialization of 'mkAlgTyCon' for classes
-mkClassTyCon :: Name -> Kind -> [TyVar] -> AlgTyConRhs -> Class -> RecFlag -> TyCon
+mkClassTyCon :: Name -> Kind -> [TyCoVar] -> AlgTyConRhs -> Class -> RecFlag -> TyCon
 mkClassTyCon name kind tyvars rhs clas is_rec =
   mkAlgTyCon name kind tyvars Nothing [] rhs (ClassTyCon clas) is_rec False
 
@@ -926,7 +926,7 @@ mkPrimTyCon' name kind arity rep is_unlifted
     }
 
 -- | Create a type synonym 'TyCon'
-mkSynTyCon :: Name -> Kind -> [TyVar] -> SynTyConRhs Type -> TyConParent -> TyCon
+mkSynTyCon :: Name -> Kind -> [TyCoVar] -> SynTyConRhs Type -> TyConParent -> TyCon
 mkSynTyCon name kind tyvars rhs parent
   = SynTyCon {
         tyConName = name,

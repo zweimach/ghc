@@ -78,7 +78,7 @@ data IfaceDecl
 
   | IfaceData { ifName       :: OccName,        -- Type constructor
                 ifCType      :: Maybe CType,    -- C type for CAPI FFI
-                ifTyVars     :: [IfaceTvBndr],  -- Type variables
+                ifTyCoVars   :: [IfaceBndr],    -- Type and coercion variables
                 ifCtxt       :: IfaceContext,   -- The "stupid theta"
                 ifCons       :: IfaceConDecls,  -- Includes new/data/data family info
                 ifRec        :: RecFlag,        -- Recursive or not?
@@ -88,18 +88,18 @@ data IfaceDecl
                                                 -- or data/newtype family instance
     }
 
-  | IfaceSyn  { ifName    :: OccName,           -- Type constructor
-                ifTyVars  :: [IfaceTvBndr],     -- Type variables
-                ifSynKind :: IfaceKind,         -- Kind of the *rhs* (not of the tycon)
-                ifSynRhs  :: SynTyConRhs IfaceType }
+  | IfaceSyn  { ifName     :: OccName,           -- Type constructor
+                ifTyCoVars :: [IfaceBndr],       -- Type and coercion variables
+                ifSynKind  :: IfaceKind,         -- Kind of the *rhs* (not of the tycon)
+                ifSynRhs   :: SynTyConRhs IfaceType }
 
-  | IfaceClass { ifCtxt    :: IfaceContext,     -- Context...
-                 ifName    :: OccName,          -- Name of the class TyCon
-                 ifTyVars  :: [IfaceTvBndr],    -- Type variables
-                 ifFDs     :: [FunDep FastString], -- Functional dependencies
-                 ifATs     :: [IfaceAT],      -- Associated type families
-                 ifSigs    :: [IfaceClassOp],   -- Method signatures
-                 ifRec     :: RecFlag           -- Is newtype/datatype associated
+  | IfaceClass { ifCtxt     :: IfaceContext,     -- Context...
+                 ifName     :: OccName,          -- Name of the class TyCon
+                 ifTyCoVars :: [IfaceBndr],      -- Type and coercion variables
+                 ifFDs      :: [FunDep FastString], -- Functional dependencies
+                 ifATs      :: [IfaceAT],      -- Associated type families
+                 ifSigs     :: [IfaceClassOp],   -- Method signatures
+                 ifRec      :: RecFlag           -- Is newtype/datatype associated
                                                 --   with the class recursive?
     }
 
@@ -121,16 +121,16 @@ data IfaceAT = IfaceAT IfaceDecl [IfaceATDefault]
         -- Nothing => no default associated type instance
         -- Just ds => default associated type instance from these templates
 
-data IfaceATDefault = IfaceATD [IfaceTvBndr] [IfaceType] IfaceType
+data IfaceATDefault = IfaceATD [IfaceBndr] [IfaceType] IfaceType
         -- Each associated type default template is a triple of:
         --   1. TyVars of the RHS and family arguments (including the class TVs)
         --   3. The instantiated family arguments
         --   2. The RHS of the synonym
 
 -- this is just like CoAxBranch
-data IfaceAxBranch = IfaceAxBranch { ifaxbTyVars :: [IfaceTvBndr]
-                                   , ifaxbLHS    :: [IfaceType]
-                                   , ifaxbRHS    :: IfaceType }
+data IfaceAxBranch = IfaceAxBranch { ifaxbTyCoVars :: [IfaceBndr]
+                                   , ifaxbLHS      :: [IfaceType]
+                                   , ifaxbRHS      :: IfaceType }
 
 data IfaceConDecls
   = IfAbstractTyCon Bool        -- c.f TyCon.AbstractTyCon
@@ -149,8 +149,8 @@ data IfaceConDecl
         ifConOcc     :: OccName,                -- Constructor name
         ifConWrapper :: Bool,                   -- True <=> has a wrapper
         ifConInfix   :: Bool,                   -- True <=> declared infix
-        ifConUnivTvs :: [IfaceTvBndr],          -- Universal tyvars
-        ifConExTvs   :: [IfaceTvBndr],          -- Existential tyvars
+        ifConUnivTvs :: [IfaceBndr],            -- Universal tyvars
+        ifConExTvs   :: [IfaceBndr],            -- Existential tyvars
         ifConEqSpec  :: [(OccName,IfaceType)],  -- Equality contraints
         ifConCtxt    :: IfaceContext,           -- Non-stupid context
         ifConArgTys  :: [IfaceType],            -- Arg types
@@ -498,19 +498,19 @@ pprIfaceDecl (IfaceForeign {ifName = tycon})
   = hsep [ptext (sLit "foreign import type dotnet"), ppr tycon]
 
 pprIfaceDecl (IfaceSyn {ifName = tycon,
-                        ifTyVars = tyvars,
+                        ifTyCoVars = tyvars,
                         ifSynRhs = SynonymTyCon mono_ty})
   = hang (ptext (sLit "type") <+> pprIfaceDeclHead [] tycon tyvars)
        4 (vcat [equals <+> ppr mono_ty])
 
-pprIfaceDecl (IfaceSyn {ifName = tycon, ifTyVars = tyvars,
+pprIfaceDecl (IfaceSyn {ifName = tycon, ifTyCoVars = tyvars,
                         ifSynRhs = SynFamilyTyCon {}, ifSynKind = kind })
   = hang (ptext (sLit "type family") <+> pprIfaceDeclHead [] tycon tyvars)
        4 (dcolon <+> ppr kind)
 
 pprIfaceDecl (IfaceData {ifName = tycon, ifCType = cType,
                          ifCtxt = context,
-                         ifTyVars = tyvars, ifCons = condecls,
+                         ifTyCoVars = tyvars, ifCons = condecls,
                          ifRec = isrec, ifAxiom = mbAxiom})
   = hang (pp_nd <+> pprIfaceDeclHead context tycon tyvars)
        4 (vcat [pprCType cType, pprRec isrec, pp_condecls tycon condecls,
@@ -522,7 +522,7 @@ pprIfaceDecl (IfaceData {ifName = tycon, ifCType = cType,
                 IfDataTyCon _       -> ptext (sLit "data")
                 IfNewTyCon _        -> ptext (sLit "newtype")
 
-pprIfaceDecl (IfaceClass {ifCtxt = context, ifName = clas, ifTyVars = tyvars,
+pprIfaceDecl (IfaceClass {ifCtxt = context, ifName = clas, ifTyCoVars = tyvars,
                           ifFDs = fds, ifATs = ats, ifSigs = sigs,
                           ifRec = isrec})
   = hang (ptext (sLit "class") <+> pprIfaceDeclHead context clas tyvars <+> pprFundeps fds)
@@ -535,8 +535,8 @@ pprIfaceDecl (IfaceAxiom {ifName = name, ifTyCon = tycon, ifAxBranches = branche
        2 (vcat $ map (pprIfaceAxBranch tycon) branches)
 
 pprIfaceAxBranch :: IfaceTyCon -> IfaceAxBranch -> SDoc
-pprIfaceAxBranch tc (IfaceAxBranch { ifaxbTyVars = tyvars, ifaxbLHS = lhs, ifaxbRHS = rhs })
-  = pprIfaceTvBndrs tyvars <> dot <+> ppr (IfaceTyConApp tc lhs) <+> text "~#" <+> ppr rhs
+pprIfaceAxBranch tc (IfaceAxBranch { ifaxbTyCoVars = tyvars, ifaxbLHS = lhs, ifaxbRHS = rhs })
+  = pprIfaceBndrs tyvars <> dot <+> ppr (IfaceTyConApp tc lhs) <+> text "~#" <+> ppr rhs
 
 pprCType :: Maybe CType -> SDoc
 pprCType Nothing = ptext (sLit "No C type associated")
@@ -558,10 +558,10 @@ instance Outputable IfaceAT where
 instance Outputable IfaceATDefault where
    ppr (IfaceATD tvs pat_tys ty) = ppr tvs <+> hsep (map ppr pat_tys) <+> char '=' <+> ppr ty
 
-pprIfaceDeclHead :: IfaceContext -> OccName -> [IfaceTvBndr] -> SDoc
+pprIfaceDeclHead :: IfaceContext -> OccName -> [IfaceBndr] -> SDoc
 pprIfaceDeclHead context thing tyvars
   = hsep [pprIfaceContext context, parenSymOcc thing (ppr thing),
-          pprIfaceTvBndrs tyvars]
+          pprIfaceBndrs tyvars]
 
 pp_condecls :: OccName -> IfaceConDecls -> SDoc
 pp_condecls _  (IfAbstractTyCon {}) = empty
@@ -594,7 +594,8 @@ pprIfaceConDecl tc
     ppr_bang (IfUnpackCo co) = ptext (sLit "!!") <> pprParendIfaceType co
 
     main_payload = ppr name <+> dcolon <+>
-                   pprIfaceForAllPart (univ_tvs ++ ex_tvs) (eq_ctxt ++ ctxt) pp_tau
+                   pprIfaceForAllPart (map to_forall_bndr (univ_tvs ++ ex_tvs))
+                                      (eq_ctxt ++ ctxt) pp_tau
 
     eq_ctxt = [(mkIfaceEqPred (IfaceTyVar (occNameFS tv)) ty)
               | (tv,ty) <- eq_spec]
@@ -605,7 +606,13 @@ pprIfaceConDecl tc
                 (t:ts) -> fsep (t : map (arrow <+>) ts)
                 []     -> panic "pp_con_taus"
 
-    pp_res_ty = ppr tc <+> fsep [ppr tv | (tv,_) <- univ_tvs]
+    pp_res_ty = ppr tc <+> fsep (map get_occ univ_tvs)
+
+    to_forall_bndr (IfaceIdBndr cv) = IfaceCv cv
+    to_forall_bndr (IfaceTvBndr tv) = IfaceTv tv
+
+    get_occ (IfaceIdBndr (occ, _)) = occ
+    get_occ (IfaceTvBndr (occ, _)) = occ
 
 instance Outputable IfaceRule where
   ppr (IfaceRule { ifRuleName = name, ifActivation = act, ifRuleBndrs = bndrs,
@@ -790,17 +797,17 @@ freeNamesIfDecl (IfaceId _s t d i) =
 freeNamesIfDecl IfaceForeign{} =
   emptyNameSet
 freeNamesIfDecl d@IfaceData{} =
-  freeNamesIfTvBndrs (ifTyVars d) &&&
+  freeNamesIfBndrs (ifTyCoVars d) &&&
   maybe emptyNameSet unitNameSet (ifAxiom d) &&&
   freeNamesIfContext (ifCtxt d) &&&
   freeNamesIfConDecls (ifCons d)
 freeNamesIfDecl d@IfaceSyn{} =
-  freeNamesIfTvBndrs (ifTyVars d) &&&
+  freeNamesIfBndrs (ifTyCoVars d) &&&
   freeNamesIfSynRhs (ifSynRhs d) &&&
   freeNamesIfKind (ifSynKind d) -- IA0_NOTE: because of promotion, we
                                 -- return names in the kind signature
 freeNamesIfDecl d@IfaceClass{} =
-  freeNamesIfTvBndrs (ifTyVars d) &&&
+  freeNamesIfBndrs (ifTyCoVars d) &&&
   freeNamesIfContext (ifCtxt d) &&&
   fnList freeNamesIfAT     (ifATs d) &&&
   fnList freeNamesIfClsSig (ifSigs d)
@@ -809,10 +816,10 @@ freeNamesIfDecl d@IfaceAxiom{} =
   fnList freeNamesIfAxBranch (ifAxBranches d)
 
 freeNamesIfAxBranch :: IfaceAxBranch -> NameSet
-freeNamesIfAxBranch (IfaceAxBranch { ifaxbTyVars = tyvars
-                                   , ifaxbLHS    = lhs
-                                   , ifaxbRHS    = rhs }) =
-  freeNamesIfTvBndrs tyvars &&&
+freeNamesIfAxBranch (IfaceAxBranch { ifaxbTyCoVars = tyvars
+                                   , ifaxbLHS      = lhs
+                                   , ifaxbRHS      = rhs }) =
+  freeNamesIfBndrs tyvars &&&
   fnList freeNamesIfType lhs &&&
   freeNamesIfType rhs
 
@@ -834,7 +841,7 @@ freeNamesIfAT (IfaceAT decl defs)
     fnList fn_at_def defs
   where
     fn_at_def (IfaceATD tvs pat_tys ty)
-      = freeNamesIfTvBndrs tvs &&&
+      = freeNamesIfBndrs tvs &&&
         fnList freeNamesIfType pat_tys &&&
         freeNamesIfType ty
 
@@ -848,8 +855,8 @@ freeNamesIfConDecls _               = emptyNameSet
 
 freeNamesIfConDecl :: IfaceConDecl -> NameSet
 freeNamesIfConDecl c =
-  freeNamesIfTvBndrs (ifConUnivTvs c) &&&
-  freeNamesIfTvBndrs (ifConExTvs c) &&&
+  freeNamesIfBndrs (ifConUnivTvs c) &&&
+  freeNamesIfBndrs (ifConExTvs c) &&&
   freeNamesIfContext (ifConCtxt c) &&&
   fnList freeNamesIfType (ifConArgTys c) &&&
   fnList freeNamesIfType (map snd (ifConEqSpec c)) -- equality constraints
@@ -868,6 +875,8 @@ freeNamesIfType (IfaceForAllTy tv t)  =
 freeNamesIfType (IfaceFunTy s t)      = freeNamesIfType s &&& freeNamesIfType t
 freeNamesIfType (IfaceCoConApp tc ts) = 
    freeNamesIfCo tc &&& fnList freeNamesIfType ts
+freeNamesIfType (IfaceCastTy ty co)   =
+   freeNamesIfType ty &&& freeNamesIfType co
 
 freeNamesIfTvBndrs :: [IfaceTvBndr] -> NameSet
 freeNamesIfTvBndrs = fnList freeNamesIfTvBndr

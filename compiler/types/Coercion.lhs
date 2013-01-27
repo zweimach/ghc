@@ -1851,8 +1851,8 @@ coercionKind :: Coercion -> Pair Type
 coercionKind co = go co
   where 
     go (Refl ty)            = Pair ty ty
-    go (TyConAppCo tc cos)  = mkTyConApp tc <$> (sequenceA $ map go_arg cos)
-    go (AppCo co1 co2)      = mkAppTy <$> go co1 <*> go_arg co2
+    go (TyConAppCo tc cos)  = mkTyConApp tc <$> (sequenceA $ map coercionArgKind cos)
+    go (AppCo co1 co2)      = mkAppTy <$> go co1 <*> coercionArgKind co2
     go (ForAllCo (TyHomo tv) co)            = mkForAllTy tv <$> go co
     go (ForAllCo (TyHetero _ tv1 tv2 _) co) = mkForAllTy <$> Pair tv1 tv2 <*> go co
     go (ForAllCo (CoHomo tv) co)            = mkForAllTy tv <$> go co
@@ -1861,7 +1861,7 @@ coercionKind co = go co
     go (AxiomInstCo ax ind cos)
       = let branch         = coAxiomNthBranch ax ind
             tvs            = coAxBranchTyCoVars branch
-            tys_pair       = sequenceA $ map go_arg cos 
+            tys_pair       = sequenceA $ map coercionArgKind cos 
         in substTyWith tvs <$> tys_pair <*> Pair (coAxNthLHS ax ind)
                                                  (coAxBranchRHS branch)
         <*> sequenceA (map go cos2)
@@ -1878,9 +1878,9 @@ coercionKind co = go co
     go_app (InstCo co arg) args = go_app co (arg:args)
     go_app co              args = applyTys <$> go co <*> (sequenceA $ map co_arg args)
 
-    go_arg :: CoercionArg -> Pair Type
-    go_arg (TyCoArg co)      = go co
-    go_arg (CoCoArg co1 co2) = Pair (CoercionTy co1) (CoercionTy co2)
+coercionArgKind :: CoercionArg -> Pair Type
+coercionArgKind (TyCoArg co)      = go co
+coercionArgKind (CoCoArg co1 co2) = Pair (CoercionTy co1) (CoercionTy co2)
 
 -- | Apply 'coercionKind' to multiple 'Coercion's
 coercionKinds :: [Coercion] -> Pair [Type]

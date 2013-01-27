@@ -901,6 +901,8 @@ instance Binary IfaceType where
       = do { putByte bh 4; put_ bh cc; put_ bh tys }
     put_ bh (IfaceTyConApp tc tys)
       = do { putByte bh 5; put_ bh tc; put_ bh tys }
+    put_ bh (IfaceCastTy a b)
+      = do { putByte bh 6; put_ bh a; put_ bh b }
 
     put_ bh (IfaceLitTy n)
       = do { putByte bh 30; put_ bh n }
@@ -924,6 +926,8 @@ instance Binary IfaceType where
                       ; return (IfaceCoConApp cc tys) }
               5 -> do { tc <- get bh; tys <- get bh
                       ; return (IfaceTyConApp tc tys) }
+              6 -> do { a <- get bh; b <- get bh
+                      ; return (IfaceCastTy a b) }
 
               30 -> do n <- get bh
                        return (IfaceLitTy n)
@@ -965,6 +969,8 @@ instance Binary IfaceCoCon where
    put_ bh IfaceInstCo         = putByte bh 5
    put_ bh (IfaceNthCo d)      = do { putByte bh 6; put_ bh d }
    put_ bh (IfaceLRCo lr)      = do { putByte bh 7; put_ bh lr }
+   put_ bh IfaceKindCo         = putByte bh 8
+   put_ bh IfaceCoCoArg        = putByte bh 9
 
    get bh = do
         h <- getByte bh
@@ -977,6 +983,8 @@ instance Binary IfaceCoCon where
           5 -> return IfaceInstCo
           6 -> do { d <- get bh; return (IfaceNthCo d) }
           7 -> do { lr <- get bh; return (IfaceLRCo lr) }
+          8 -> return IfaceKindCo
+          9 -> return IfaceCoCoArg
           _ -> panic ("get IfaceCoCon " ++ show h)
 
 -------------------------------------------------------------------------

@@ -63,19 +63,30 @@ data IfaceBndr          -- Local (non-top-level) binders
 type IfaceIdBndr  = (IfLclName, IfaceType)
 type IfaceTvBndr  = (IfLclName, IfaceKind)
 
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+                IfaceType
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+
 -------------------------------
 type IfaceKind     = IfaceType
 type IfaceCoercion = IfaceType
 
 data IfaceType     -- A kind of universal type, used for types, kinds, and coercions
-  = IfaceTyVar    IfLclName               -- Type/coercion variable only, not tycon
-  | IfaceAppTy    IfaceType IfaceType
-  | IfaceFunTy    IfaceType IfaceType
-  | IfaceForAllTy IfaceTvBndr IfaceType
-  | IfaceTyConApp IfaceTyCon [IfaceType]  -- Not necessarily saturated
+  = IfaceTyVar      IfLclName               -- Type/coercion variable only, not tycon
+  | IfaceAppTy      IfaceType IfaceType
+  | IfaceFunTy      IfaceType IfaceType
+  | IfaceForAllTy   IfaceForAllBndr IfaceType
+  | IfaceTyConApp   IfaceTyCon [IfaceType]  -- Not necessarily saturated
                                           -- Includes newtypes, synonyms, tuples
-  | IfaceCoConApp IfaceCoCon [IfaceType]  -- Always saturated
-  | IfaceLitTy IfaceTyLit
+  | IfaceCoConApp   IfaceCoCon [IfaceType]  -- Always saturated
+  | IfaceLitTy      IfaceTyLit
+  | IfaceCastTy     IfaceType IfaceCoercion -- becomes CoherenceCo
 
 type IfacePredType = IfaceType
 type IfaceContext = [IfacePredType]
@@ -84,16 +95,23 @@ data IfaceTyLit
   = IfaceNumTyLit Integer
   | IfaceStrTyLit FastString
 
+data IfaceForAllBndr
+  = IfaceTv IfaceTvBndr -- for ForAllTy tv and ForAllCo (TyHomo ..)
+  | IfaceHeteroTv IfaceCoercion IfaceTvBndr IfaceTvBndr IfaceIdBndr -- TyHetero
+  | IfaceCv IfaceIdBndr -- for ForAllTy cv and ForAllCo (CoHomo ..)
+  | IfaceHeteroCv IfaceCoercion IfaceIdBndr IfaceIdBndr -- CoHetero
+
 -- Encodes type constructors, kind constructors
 -- coercion constructors, the lot
-newtype IfaceTyCon = IfaceTc { ifaceTyConName :: IfExtName }
+data IfaceTyCon = IfaceTc { ifaceTyConName :: IfExtName }
 
   -- Coercion constructors
 data IfaceCoCon
-  = IfaceCoAx IfExtName Int -- Int is 0-indexed branch number
+  = IfaceCoAx IfExtName BranchIndex -- BranchIndex (=Int) is 0-indexed branch number
   | IfaceReflCo    | IfaceUnsafeCo  | IfaceSymCo
   | IfaceTransCo   | IfaceInstCo
   | IfaceNthCo Int | IfaceLRCo LeftOrRight
+  | IfaceKindCo    | IfaceCoCoArg
 \end{code}
 
 %************************************************************************
@@ -104,16 +122,16 @@ data IfaceCoCon
 
 
 \begin{code}
-splitIfaceSigmaTy :: IfaceType -> ([IfaceTvBndr], [IfacePredType], IfaceType)
+splitIfaceSigmaTy :: IfaceType -> ([IfaceForAllBndr], [IfacePredType], IfaceType)
 -- Mainly for printing purposes
 splitIfaceSigmaTy ty
-  = (tvs, theta, tau)
+  = (bndrs, theta, tau)
   where
-    (tvs,   rho)   = split_foralls ty
+    (bndrs, rho)   = split_foralls ty
     (theta, tau)   = split_rho rho
 
-    split_foralls (IfaceForAllTy tv ty)
-        = case split_foralls ty of { (tvs, rho) -> (tv:tvs, rho) }
+    split_foralls (IfaceForAllTy bndr ty)
+        = case split_foralls ty of { (bndrs, rho) -> (bndr:bndrs, rho) }
     split_foralls rho = ([], rho)
 
     split_rho (IfaceFunTy ty1 ty2)
@@ -224,13 +242,30 @@ ppr_ty ctxt_prec ty@(IfaceForAllTy _ _)
  where
     (tvs, theta, tau) = splitIfaceSigmaTy ty
 
+ppr_ty ctxt_prec (IfaceCastTy ty co)
+  = maybeParen ctxt_prec fUN_PREC $
+    sep [ppr_ty fUN_PREC ty, ptext (sLit "`cast`"), ppr_ty fUN_PREC co]
+
  -------------------
-pprIfaceForAllPart :: [IfaceTvBndr] -> IfaceContext -> SDoc -> SDoc
+pprIfaceForAllPart :: [IfaceBndr] -> IfaceContext -> SDoc -> SDoc
 pprIfaceForAllPart tvs ctxt doc
   = sep [ppr_tvs, pprIfaceContext ctxt, doc]
   where
     ppr_tvs | null tvs  = empty
-            | otherwise = ptext (sLit "forall") <+> pprIfaceTvBndrs tvs <> dot
+            | otherwise = ptext (sLit "forall") <+> pprIfaceForAllBndrs tvs <> dot
+
+pprIfaceForAllBndrs :: [IfaceForAllBndr] -> SDoc
+pprIfaceForAllBndrs bndrs = hsep $ map pprIfaceForAllBndr bndrs
+
+pprIfaceForAllBndr :: IfaceForAllBndr -> SDoc
+pprIfaceForAllBndr (IfaceTv tv) = pprIfaceTvBndr tv
+pprIfaceForAllBndr (IfaceHeteroTv co tv1 tv2 cv)
+  = brackets (pprIfaceType co) <> parens (punctuate comma [pprIfaceTvBndr tv1,
+                                                           pprIfaceTvBndr tv2,
+                                                           pprIfaceIdBndr cv])
+pprIfaceForAllBndr (IfaceCv cv) = pprIfaceIdBndr cv
+pprIfaceForAllBndr (IfaceHeteroCv co cv1 cv2)
+  = brackets (pprIfaceType co) <> parens (pprWithCommas pprIfaceIdBndr [cv1, cv2])
 
 -------------------
 ppr_tc_app :: Int -> IfaceTyCon -> [IfaceType] -> SDoc
@@ -262,7 +297,8 @@ ppr_tylit (IfaceStrTyLit n) = text (show n)
 
 -------------------
 instance Outputable IfaceTyCon where
-  ppr = ppr . ifaceTyConName
+  ppr (IfaceTc name)
+    = ppr $ ifaceTyConName name
 
 instance Outputable IfaceCoCon where
   ppr (IfaceCoAx n i)  = ppr n <> brackets (ppr i)
@@ -273,6 +309,8 @@ instance Outputable IfaceCoCon where
   ppr IfaceInstCo      = ptext (sLit "Inst")
   ppr (IfaceNthCo d)   = ptext (sLit "Nth:") <> int d
   ppr (IfaceLRCo lr)   = ppr lr
+  ppr IfaceKindCo      = ptext (sLit "Kind")
+  ppr IfaceCoCoArg     = ptext (sLit "CoCoArg")
 
 instance Outputable IfaceTyLit where
   ppr = ppr_tylit
@@ -296,20 +334,19 @@ ppr_preds preds  = parens (sep (punctuate comma (map ppr preds)))
 
 \begin{code}
 ----------------
-toIfaceTCvBndr :: TyVar -> (IfLclName, IfaceType)
-toIfaceTCvBndr tyvar
-  | isId var  = toIfaceIdBndr var  
-  | otherwise = (occNameFS (getOccName tyvar), toIfaceKind (tyVarKind tyvar))
+toIfaceTvBndr :: TyVar -> (IfLclName, IfaceKind)
+toIfaceTvBndr tyvar   = (occNameFS (getOccName tyvar), toIfaceKind (tyVarKind tyvar))
 
 toIfaceIdBndr :: Id -> (IfLclName, IfaceType)
 toIfaceIdBndr id      = (occNameFS (getOccName id),    toIfaceType (idType id))
-toIfaceTCvBndrs :: [TyVar] -> [(IfLclName, IfaceType)]
-toIfaceTCvBndrs tyvars = map toIfaceTCvBndr tyvars
+
+toIfaceTCvBndrs :: [TyVar] -> [IfaceBndr]
+toIfaceTCvBndrs tyvars = map toIfaceBndr tyvars
 
 toIfaceBndr :: Var -> IfaceBndr
 toIfaceBndr var
   | isId var  = IfaceIdBndr (toIfaceIdBndr var)
-  | otherwise = IfaceTvBndr (toIfaceTCvBndr var)
+  | otherwise = IfaceTvBndr (toIfaceTvBndr var)
 
 toIfaceKind :: Type -> IfaceType
 toIfaceKind = toIfaceType
@@ -322,7 +359,8 @@ toIfaceType (AppTy t1 t2)     = IfaceAppTy (toIfaceType t1) (toIfaceType t2)
 toIfaceType (FunTy t1 t2)     = IfaceFunTy (toIfaceType t1) (toIfaceType t2)
 toIfaceType (TyConApp tc tys) = IfaceTyConApp (toIfaceTyCon tc) (toIfaceTypes tys)
 toIfaceType (LitTy n)         = IfaceLitTy (toIfaceTyLit n)
-toIfaceType (ForAllTy tv t)   = IfaceForAllTy (toIfaceTCvBndr tv) (toIfaceType t)
+toIfaceType (ForAllTy tv t)   = IfaceForAllTy (varToIfaceForAllBndr tv) (toIfaceType t)
+toIfaceType (CastTy ty co)    = IfaceCastTy (toIfaceType ty) (coToIfaceType co)
 
 toIfaceTyVar :: TyVar -> FastString
 toIfaceTyVar = occNameFS . getOccName
@@ -330,9 +368,14 @@ toIfaceTyVar = occNameFS . getOccName
 toIfaceCoVar :: CoVar -> FastString
 toIfaceCoVar = occNameFS . getOccName
 
+varToIfaceForAllBndr :: TyCoVar -> IfaceForAllBndr
+vorToIfaceForAllBndr v
+  | isTyVar v = IfaceTv (toIfaceTvBndr v)
+  | otherwise = IfaceCv (toIfaceIdBndr v)
+
 ----------------
 toIfaceTyCon :: TyCon -> IfaceTyCon
-toIfaceTyCon = toIfaceTyCon_name . tyConName
+toIfaceTyCon tc = toIfaceTyCon_name . tyConName
 
 toIfaceTyCon_name :: Name -> IfaceTyCon
 toIfaceTyCon_name = IfaceTc
@@ -354,17 +397,18 @@ coToIfaceType :: Coercion -> IfaceType
 coToIfaceType (Refl ty)             = IfaceCoConApp IfaceReflCo [toIfaceType ty]
 coToIfaceType (TyConAppCo tc cos)
   | tc `hasKey` funTyConKey
-  , [arg,res] <- cos                = IfaceFunTy (coToIfaceType arg) (coToIfaceType res)
+  , [TyCoArg arg, TyCoArg res] <- cos
+                                    = IfaceFunTy (coToIfaceType arg) (coToIfaceType res)
   | otherwise                       = IfaceTyConApp (toIfaceTyCon tc)
-                                                    (map coToIfaceType cos)
+                                                    (map coArgToIfaceType cos)
 coToIfaceType (AppCo co1 co2)       = IfaceAppTy    (coToIfaceType co1)
-                                                    (coToIfaceType co2)
-coToIfaceType (ForAllCo v co)       = IfaceForAllTy (toIfaceTCvBndr v)
+                                                    (coArgToIfaceType co2)
+coToIfaceType (ForAllCo cobndr co)  = IfaceForAllTy (toIfaceForAllBndr cobndr)
                                                     (coToIfaceType co)
 coToIfaceType (CoVarCo cv)          = IfaceTyVar  (toIfaceCoVar cv)
 coToIfaceType (AxiomInstCo con ind cos)
                                     = IfaceCoConApp (coAxiomToIfaceType con ind)
-                                                    (map coToIfaceType cos)
+                                                    (map coArgToIfaceType cos)
 coToIfaceType (UnsafeCo ty1 ty2)    = IfaceCoConApp IfaceUnsafeCo
                                                     [ toIfaceType ty1
                                                     , toIfaceType ty2 ]
@@ -377,11 +421,33 @@ coToIfaceType (NthCo d co)          = IfaceCoConApp (IfaceNthCo d)
                                                     [ coToIfaceType co ]
 coToIfaceType (LRCo lr co)          = IfaceCoConApp (IfaceLRCo lr)
                                                     [ coToIfaceType co ]
-coToIfaceType (InstCo co ty)        = IfaceCoConApp IfaceInstCo
+coToIfaceType (InstCo co arg)       = IfaceCoConApp IfaceInstCo
                                                     [ coToIfaceType co
-                                                    , toIfaceType ty ]
+                                                    , coArgToIfaceType arg ]
+coToIfaceType (CoherenceCo co1 co2) = IfaceCastTy (coToIfaceType co1)
+                                                  (coToIfaceType co2)
+coToIfaceType (KindCo co)           = IfaceCoConApp IfaceKindCo [coToIfaceType co]
+
+coArgToIfaceType :: CoercionArg -> IfaceType
+coArgToIfaceType (TyCoArg co) = coToIfaceType co
+coArgToIfaceType (CoCoArg co1 co2) = IfaceCoConApp IfaceCoCoArg
+                                                   [ coToIfaceType co1
+                                                   , coToIfaceType co2 ]
 
 coAxiomToIfaceType :: CoAxiom br -> Int -> IfaceCoCon
 coAxiomToIfaceType con ind = IfaceCoAx (coAxiomName con) ind
+
+toIfaceForAllBndr :: ForAllCoBndr -> IfaceForAllBndr
+toIfaceForAllBndr (TyHomo tv) = IfaceTv $ toIfaceTvBndr tv
+toIfaceForAllBndr (TyHetero co tv1 tv2 cv)
+  = IfaceHeteroTv (coToIfaceType co)
+                  (toIfaceTvBndr tv1)
+                  (toIfaceTvBndr tv2)
+                  (toIfaceIdBndr cv)
+toIfaceForAllBndr (CoHomo cv) = IfaceCv $ toIfaceCvBndr cv
+toIfaceForAllBndr (CoHetero co cv1 cv2)
+  = IfaceHeteroCv (coToIfaceType co)
+                  (toIfaceIdBndr cv1)
+                  (toIfaceIdBndr cv2)
 \end{code}
 

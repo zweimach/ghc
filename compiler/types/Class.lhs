@@ -104,7 +104,7 @@ type ClassATItem = (TyCon,           -- See Note [Associated type tyvar names]
 -- Each associated type default template is a quad of:
 data ATDefault = ATD { -- TyVars of the RHS and family arguments 
                        -- (including, but perhaps more than, the class TVs)
-                       atDefaultTys     :: [TyVar],
+                       atDefaultTys     :: [TyCoVar],
                        -- The instantiated family arguments
                        atDefaultPats    :: [Type],
                        -- The RHS of the synonym

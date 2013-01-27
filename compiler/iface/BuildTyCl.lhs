@@ -47,18 +47,18 @@ import Outputable
 
 \begin{code}
 ------------------------------------------------------
-buildSynTyCon :: Name -> [TyVar] 
+buildSynTyCon :: Name -> [TyCoVar] 
               -> SynTyConRhs Type
               -> Kind                   -- ^ Kind of the RHS
               -> TyConParent
               -> TcRnIf m n TyCon
 buildSynTyCon tc_name tvs rhs rhs_kind parent 
   = return (mkSynTyCon tc_name kind tvs rhs parent)
-  where kind = mkPiKinds tvs rhs_kind
+  where kind = mkPiTypes tvs rhs_kind
 
 ------------------------------------------------------
 buildAlgTyCon :: Name 
-              -> [TyVar]               -- ^ Kind variables and type variables
+              -> [TyCoVar]             -- ^ Kind variables and type variables
 	      -> Maybe CType
 	      -> ThetaType	       -- ^ Stupid theta
 	      -> AlgTyConRhs
@@ -70,7 +70,7 @@ buildAlgTyCon :: Name
 buildAlgTyCon tc_name ktvs cType stupid_theta rhs is_rec gadt_syn parent
   = mkAlgTyCon tc_name kind ktvs cType stupid_theta rhs parent is_rec gadt_syn
   where 
-    kind = mkPiKinds ktvs liftedTypeKind
+    kind = mkPiTypes ktvs liftedTypeKind
 
 ------------------------------------------------------
 distinctAbstractTyConRhs, totallyAbstractTyConRhs :: AlgTyConRhs
@@ -138,8 +138,8 @@ buildDataCon :: FamInstEnvs
             -> Name -> Bool
 	    -> [HsBang] 
 	    -> [Name]			-- Field labels
-	    -> [TyVar] -> [TyVar]	-- Univ and ext 
-            -> [(TyVar,Type)]           -- Equality spec
+	    -> [TyCoVar] -> [TyCoVar]	-- Univ and ext 
+            -> [(TyCoVar,Type)]         -- Equality spec
 	    -> ThetaType		-- Does not include the "stupid theta"
 					-- or the GADT equalities
 	    -> [Type] -> Type		-- Argument and result types
@@ -176,7 +176,7 @@ buildDataCon fam_envs src_name declared_infix arg_stricts field_lbls
 -- the type variables mentioned in the arg_tys
 -- ToDo: Or functionally dependent on?  
 --	 This whole stupid theta thing is, well, stupid.
-mkDataConStupidTheta :: TyCon -> [Type] -> [TyVar] -> [PredType]
+mkDataConStupidTheta :: TyCon -> [Type] -> [TyCoVar] -> [PredType]
 mkDataConStupidTheta tycon arg_tys univ_tvs
   | null stupid_theta = []	-- The common case
   | otherwise 	      = filter in_arg_tys stupid_theta
@@ -201,7 +201,7 @@ type TcMethInfo = (Name, DefMethSpec, Type)
 buildClass :: Bool		-- True <=> do not include unfoldings 
 				--	    on dict selectors
 				-- Used when importing a class without -O
-	   -> Name -> [TyVar] -> ThetaType
+	   -> Name -> [TyCoVar] -> ThetaType
 	   -> [FunDep TyCoVar]		   -- Functional dependencies
 	   -> [ClassATItem]		   -- Associated types
 	   -> [TcMethInfo]                 -- Method info
@@ -269,7 +269,7 @@ buildClass no_unf tycon_name tvs sc_theta fds at_items sig_stuff tc_isrec
 		 then mkNewTyConRhs tycon_name rec_tycon dict_con
 		 else return (mkDataTyConRhs [dict_con])
 
-	; let {	clas_kind = mkPiKinds tvs constraintKind
+	; let {	clas_kind = mkPiTypes tvs constraintKind
 
  	      ; tycon = mkClassTyCon tycon_name clas_kind tvs
  	                             rhs rec_clas tc_isrec
