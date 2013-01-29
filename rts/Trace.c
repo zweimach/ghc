@@ -196,7 +196,8 @@ static char *thread_stop_reasons[] = {
 static void traceSchedEvent_stderr (Capability *cap, EventTypeNum tag, 
                                     StgTSO *tso, 
                                     StgWord info1 STG_UNUSED,
-                                    StgWord info2 STG_UNUSED)
+                                    StgWord info2 STG_UNUSED,
+                                    StgWord info3 STG_UNUSED)
 {
     ACQUIRE_LOCK(&trace_utx);
 
@@ -225,8 +226,8 @@ static void traceSchedEvent_stderr (Capability *cap, EventTypeNum tag,
         
     case EVENT_STOP_THREAD:     // (cap, thread, status)
         if (info1 == 6 + BlockedOnBlackHole) {
-            debugBelch("cap %d: thread %" FMT_Word " stopped (blocked on black hole owned by thread %lu)\n",
-                       cap->no, (W_)tso->id, (long)info2);
+            debugBelch("cap %d: thread %" FMT_Word " stopped (blocked on black hole (CCS %lu) owned by thread %lu)\n",
+                       cap->no, (W_)tso->id, (long)info3, (long)info2);
         } else {
             debugBelch("cap %d: thread %" FMT_Word " stopped (%s)\n",
                        cap->no, (W_)tso->id, thread_stop_reasons[info1]);
@@ -243,15 +244,15 @@ static void traceSchedEvent_stderr (Capability *cap, EventTypeNum tag,
 #endif
 
 void traceSchedEvent_ (Capability *cap, EventTypeNum tag, 
-                       StgTSO *tso, StgWord info1, StgWord info2)
+                       StgTSO *tso, StgWord info1, StgWord info2, StgWord info3)
 {
 #ifdef DEBUG
     if (RtsFlags.TraceFlags.tracing == TRACE_STDERR) {
-        traceSchedEvent_stderr(cap, tag, tso, info1, info2);
+        traceSchedEvent_stderr(cap, tag, tso, info1, info2, info3);
     } else
 #endif
     {
-        postSchedEvent(cap,tag,tso ? tso->id : 0, info1, info2);
+        postSchedEvent(cap,tag,tso ? tso->id : 0, info1, info2, info3);
     }
 }
 

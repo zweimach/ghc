@@ -544,7 +544,8 @@ postSchedEvent (Capability *cap,
                 EventTypeNum tag, 
                 StgThreadID thread, 
                 StgWord info1,
-                StgWord info2)
+                StgWord info2,
+                StgWord info3)
 {
     EventsBuf *eb;
 
@@ -585,6 +586,7 @@ postSchedEvent (Capability *cap,
         postThreadID(eb,thread);
         postWord16(eb,info1 /* status */);
         postThreadID(eb,info2 /* blocked on thread */);
+        postWord16(eb,info3 /* Cost Centre Stack ID */);
         break;
     }
 

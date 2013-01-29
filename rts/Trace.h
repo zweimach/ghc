@@ -92,16 +92,21 @@ void traceEnd (void);
  */
 #define traceSchedEvent(cap, tag, tso, other)   \
     if (RTS_UNLIKELY(TRACE_sched)) {            \
-        traceSchedEvent_(cap, tag, tso, other, 0); \
+        traceSchedEvent_(cap, tag, tso, other, 0, 0);       \
     }
 
-#define traceSchedEvent2(cap, tag, tso, info1, info2) \
+#define traceSchedEvent2(cap, tag, tso, info1, info2)  \
     if (RTS_UNLIKELY(TRACE_sched)) {            \
         traceSchedEvent_(cap, tag, tso, info1, info2); \
     }
 
+#define traceSchedEvent3(cap, tag, tso, info1, info2, info3)  \
+    if (RTS_UNLIKELY(TRACE_sched)) {            \
+        traceSchedEvent_(cap, tag, tso, info1, info2, info3);   \
+    }
+
 void traceSchedEvent_ (Capability *cap, EventTypeNum tag, 
-                       StgTSO *tso, StgWord info1, StgWord info2);
+                       StgTSO *tso, StgWord info1, StgWord info2, StgWord info3);
 
 /* 
  * Record a GC event
@@ -517,11 +522,12 @@ INLINE_HEADER void traceEventRunThread(Capability *cap STG_UNUSED,
 INLINE_HEADER void traceEventStopThread(Capability          *cap    STG_UNUSED, 
                                         StgTSO              *tso    STG_UNUSED, 
                                         StgThreadReturnCode  status STG_UNUSED,
-                                        StgWord32           info    STG_UNUSED)
+                                        StgWord32           info1   STG_UNUSED,
+                                        StgWord32           info2   STG_UNUSED)
 {
-    traceSchedEvent2(cap, EVENT_STOP_THREAD, tso, status, info);
+    traceSchedEvent3(cap, EVENT_STOP_THREAD, tso, status, info1, info2)
     dtraceStopThread((EventCapNo)cap->no, (EventThreadID)tso->id,
-                     (EventThreadStatus)status, (EventThreadID)info);
+                     (EventThreadStatus)status, (EventThreadID)info1);
 }
 
 // needs to be EXTERN_INLINE as it is used in another EXTERN_INLINE function

@@ -33,7 +33,7 @@ void moreCapEventBufs (nat from, nat to);
  * that has an associated thread).
  */
 void postSchedEvent(Capability *cap, EventTypeNum tag,
-                    StgThreadID id, StgWord info1, StgWord info2);
+                    StgThreadID id, StgWord info1, StgWord info2, StgWord info3);
 
 /*
  * Post a nullary event.
