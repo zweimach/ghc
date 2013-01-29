@@ -273,11 +273,10 @@ tcInstSigTyCoVars = mapAccumLM tcInstSigTyCoVar (mkTopTCvSubst [])
 
 tcInstSigTyCoVar :: TCvSubst -> TyCoVar -> TcM (TCvSubst, TcTyCoVar)
 tcInstSigTyCoVar subst tv
-  | isTyVar tv
-  = do { new_tv <- newSigTyVar (tyVarName tv) (substTy subst (tyVarKind tv))
+  = do { new_tv <- if isTyVar tv
+                   then newSigTyVar (tyVarName tv) (substTy subst (tyVarKind tv))
+                   else newEvVar (substTy subst (varType tv))
        ; return (extendTCvSubst subst tv (mkTyCoVarTy new_tv), new_tv) }
-  | otherwise
-  = (subst, tv)
 
 newSigTyVar :: Name -> Kind -> TcM TcTyVar
 newSigTyVar name kind
