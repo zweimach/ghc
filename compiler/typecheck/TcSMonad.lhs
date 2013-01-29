@@ -1408,7 +1408,7 @@ instDFunType dfun_id mb_inst_tys
   where
     (dfun_tvs, dfun_phi) = tcSplitForAllTys (idType dfun_id)
 
-    go :: [TyVar] -> [DFunInstType] -> TCvSubst -> TcM ([TcType], TcType)
+    go :: [TyCoVar] -> [DFunInstType] -> TCvSubst -> TcM ([TcType], TcType)
     go [] [] subst = return ([], substTy subst dfun_phi)
     go (tv:tvs) (Just ty : mb_tys) subst
       = do { (tys, phi) <- go tvs mb_tys (extendTCvSubst subst tv ty)
@@ -1416,7 +1416,7 @@ instDFunType dfun_id mb_inst_tys
     go (tv:tvs) (Nothing : mb_tys) subst
       = do { ty <- instFlexiTcSHelper (tyVarName tv) (substTy subst (tyVarKind tv))
                          -- Don't forget to instantiate the kind!
-                         -- cf TcMType.tcInstTyVarX
+                         -- cf TcMType.tcInstTyCoVarX
            ; (tys, phi) <- go tvs mb_tys (extendTCvSubst subst tv ty)
            ; return (ty : tys, phi) }
     go _ _ _ = pprPanic "instDFunTypes" (ppr dfun_id $$ ppr mb_inst_tys)
@@ -1692,13 +1692,13 @@ matchFam tycon args = wrapTcS $ tcLookupFamInst tycon args
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 deferTcSForAllEq :: (CtLoc,EvVar)  -- Original wanted equality flavor
-                 -> ([TyVar],TcType)   -- ForAll tvs1 body1
-                 -> ([TyVar],TcType)   -- ForAll tvs2 body2
+                 -> ([TyCoVar],TcType)   -- ForAll tvs1 body1
+                 -> ([TyCoVar],TcType)   -- ForAll tvs2 body2
                  -> TcS ()
 -- Some of this functionality is repeated from TcUnify, 
 -- consider having a single place where we create fresh implications. 
 deferTcSForAllEq (loc,orig_ev) (tvs1,body1) (tvs2,body2)
- = do { (subst1, skol_tvs) <- wrapTcS $ TcM.tcInstSkolTyVars tvs1
+ = do { (subst1, skol_tvs) <- wrapTcS $ TcM.tcInstSkolTyCoVars tvs1
       ; let tys  = mkTyCoVarTys skol_tvs
             phi1 = Type.substTy subst1 body1
             phi2 = Type.substTy (zipTopTCvSubst tvs2 tys) body2

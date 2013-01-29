@@ -167,7 +167,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
        ; let tvs_to_quantify = varSetElems (zonked_forall_tvs `minusVarSet` gbl_tvs)
        ; qkvs <- kindGeneralize (tyCoVarsOfTypes (map tyVarKind tvs_to_quantify))
                                 (map getName tvs_to_quantify)
-       ; qtvs <- zonkQuantifiedTyVars tvs_to_quantify
+       ; qtvs <- zonkQuantifiedTyCoVars tvs_to_quantify
        ; let qtkvs = qkvs ++ qtvs
        ; traceTc "tcRule" (vcat [ doubleQuotes (ftext name)
                                 , ppr forall_tvs

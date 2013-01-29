@@ -59,7 +59,7 @@ checkAmbiguity :: UserTypeCtxt -> Type -> TcM ()
 checkAmbiguity ctxt ty
   = do { allow_ambiguous <- xoptM Opt_AllowAmbiguousTypes
        ; unless allow_ambiguous $ 
-    do {(subst, _tvs) <- tcInstSkolTyVars (varSetElems (tyVarsOfType ty))
+    do {(subst, _tvs) <- tcInstSkolTyCoVars (varSetElems (tyCoVarsOfType ty))
        ; let ty' = substTy subst ty  
               -- The type might have free TyVars,
               -- so we skolemise them as TcTyVars
@@ -785,7 +785,7 @@ when finding the fixpoint, and that means the inferContext loop does
 not converge.  See Trac #5287.
 
 \begin{code}
-validDerivPred :: TyVarSet -> PredType -> Bool
+validDerivPred :: TyCoVarSet -> PredType -> Bool
 validDerivPred tv_set pred
   = case classifyPredType pred of
        ClassPred _ tys -> hasNoDups fvs 
@@ -806,7 +806,7 @@ validDerivPred tv_set pred
 
 \begin{code}
 checkValidInstance :: UserTypeCtxt -> LHsType Name -> Type
-                   -> TcM ([TyVar], ThetaType, Class, [Type])
+                   -> TcM ([TyCoVar], ThetaType, Class, [Type])
 checkValidInstance ctxt hs_type ty
   = do { let (tvs, theta, tau) = tcSplitSigmaTy ty
        ; case getClassPredTys_maybe tau of {
@@ -916,7 +916,7 @@ undecidableMsg = ptext (sLit "Use -XUndecidableInstances to permit this")
 -- Check that a "type instance" is well-formed (which includes decidability
 -- unless -XUndecidableInstances is given).
 --
-checkValidTyFamInst :: TyCon -> [TyVar] -> [Type] -> Type -> TcM ()
+checkValidTyFamInst :: TyCon -> [TyCoVar] -> [Type] -> Type -> TcM ()
 checkValidTyFamInst fam_tc tvs typats rhs
   = do { checkValidFamPats fam_tc tvs typats
 
@@ -958,7 +958,7 @@ checkFamInstRhs lhsTys famInsts
              -- excessive occurrences of *type* variables.
              -- e.g. type instance Demote {T k} a = T (Demote {k} (Any {k}))
 
-checkValidFamPats :: TyCon -> [TyVar] -> [Type] -> TcM ()
+checkValidFamPats :: TyCon -> [TyCoVar] -> [Type] -> TcM ()
 -- Patterns in a 'type instance' or 'data instance' decl should
 -- a) contain no type family applications
 --    (vanilla synonyms are fine, though)
@@ -968,7 +968,7 @@ checkValidFamPats :: TyCon -> [TyVar] -> [Type] -> TcM ()
 --         type instance F (T a) = a
 checkValidFamPats fam_tc tvs ty_pats
   = do { mapM_ checkTyFamFreeness ty_pats
-       ; let unbound_tvs = filterOut (`elemVarSet` exactTyVarsOfTypes ty_pats) tvs
+       ; let unbound_tvs = filterOut (`elemVarSet` exactTyCoVarsOfTypes ty_pats) tvs
        ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
 
 -- Ensure that no type family instances occur in a type.
@@ -997,7 +997,7 @@ famInstUndecErr ty msg
          nest 2 (ptext (sLit "in the type family application:") <+> 
                  pprType ty)]
 
-famPatErr :: TyCon -> [TyVar] -> [Type] -> SDoc
+famPatErr :: TyCon -> [TyCoVar] -> [Type] -> SDoc
 famPatErr fam_tc tvs pats
   = hang (ptext (sLit "Family instance purports to bind type variable") <> plural tvs
           <+> pprQuotedList tvs)

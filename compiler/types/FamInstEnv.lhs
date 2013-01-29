@@ -331,7 +331,7 @@ mkSingleSynFamInst name tvs fam_tc inst_tys rep_ty
 -- where @Co@ is the coercion constructor built here, @F@ the family tycon
 -- and @R@ the (derived) representation tycon.
 mkDataFamInst :: Name         -- ^ Unique name for the coercion tycon
-              -> [TyVar]      -- ^ *Fresh* parameters of the coercion (@tvs@)
+              -> [TyCoVar]    -- ^ *Fresh* parameters of the coercion (@tvs@)
               -> TyCon        -- ^ Family tycon (@F@)
               -> [Type]       -- ^ Type instance (@ts@)
               -> TyCon        -- ^ Representation tycon (@R@)

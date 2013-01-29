@@ -593,12 +593,12 @@ liftTcM = id
 newVar :: Kind -> TR TcType
 newVar = liftTcM . newFlexiTyVarTy
 
-instTyVars :: [TyVar] -> TR ([TcTyVar], [TcType], TCvSubst)
+instTyCoVars :: [TyCoVar] -> TR ([TcTyCoVar], [TcType], TCvSubst)
 -- Instantiate fresh mutable type variables from some TyVars
 -- This function preserves the print-name, which helps error messages
-instTyVars = liftTcM . tcInstTyVars
+instTyCoVars = liftTcM . tcInstTyCoVars
 
-type RttiInstantiation = [(TcTyVar, TyVar)]
+type RttiInstantiation = [(TcTyCoVar, TyVar)]
    -- Associates the typechecker-world meta type variables 
    -- (which are mutable and may be refined), to their 
    -- debugger-world RuntimeUnk counterparts.
@@ -610,7 +610,7 @@ type RttiInstantiation = [(TcTyVar, TyVar)]
 --   mapping from new (instantiated) -to- old (skolem) type variables
 instScheme :: QuantifiedType -> TR (TcType, RttiInstantiation)
 instScheme (tvs, ty) 
-  = liftTcM $ do { (tvs', _, subst) <- tcInstTyVars tvs
+  = liftTcM $ do { (tvs', _, subst) <- tcInstTyCoVars tvs
                  ; let rtti_inst = [(tv',tv) | (tv',tv) <- tvs' `zip` tvs]
                  ; return (substTy subst ty, rtti_inst) }
 
@@ -621,7 +621,7 @@ applyRevSubst :: RttiInstantiation -> TR ()
 applyRevSubst pairs = liftTcM (mapM_ do_pair pairs)
   where
     do_pair (tc_tv, rtti_tv)
-      = do { tc_ty <- zonkTcTyVar tc_tv
+      = do { tc_ty <- zonkTcTyCoVar tc_tv
            ; case tcGetTyVar_maybe tc_ty of
                Just tv | isMetaTyVar tv -> writeMetaTyVar tv (mkTyCoVarTy rtti_tv)
                _                        -> return () }
@@ -939,14 +939,14 @@ getDataConArgTys :: DataCon -> Type -> TR [Type]
 -- not be fully known.  Moreover, the arg types might involve existentials;
 -- if so, make up fresh RTTI type variables for them
 getDataConArgTys dc con_app_ty
-  = do { (_, ex_tys, ex_subst) <- instTyVars ex_tvs
+  = do { (_, ex_tys, ex_subst) <- instTyCoVars ex_tvs
        ; let UnaryRep rep_con_app_ty = repType con_app_ty
        ; traceTR (text "getDataConArgTys 1" <+> (ppr con_app_ty $$ ppr rep_con_app_ty))
        ; ty_args <- case tcSplitTyConApp_maybe rep_con_app_ty of
                        Just (tc, ty_args) | dataConTyCon dc == tc
 		       	   -> ASSERT( univ_tvs `equalLength` ty_args) 
                               return ty_args
- 		       _   -> do { (_, ty_args, univ_subst) <- instTyVars univ_tvs
+ 		       _   -> do { (_, ty_args, univ_subst) <- instTyCoVars univ_tvs
 		       	         ; let res_ty = substTy ex_subst (substTy univ_subst (dataConOrigResTy dc))
                                    -- See Note [Constructor arg types]
                                  ; addConstraint rep_con_app_ty res_ty
@@ -1104,7 +1104,7 @@ If that is not the case, then we consider two conditions.
 check1 :: QuantifiedType -> Bool
 check1 (tvs, _) = not $ any isHigherKind (map tyVarKind tvs)
  where
-   isHigherKind = not . null . fst . splitFunTys
+   isHigherKind = not . null . fst . splitPiTypes
 
 check2 :: QuantifiedType -> QuantifiedType -> Bool
 check2 (_, rtti_ty) (_, old_ty)
@@ -1183,7 +1183,7 @@ congruenceNewtypes lhs rhs = go lhs rhs >>= \rhs' -> return (lhs,rhs')
             | otherwise = do
                traceTR (text "(Upgrade) upgraded " <> ppr ty <>
                         text " in presence of newtype evidence " <> ppr new_tycon)
-               (_, vars, _) <- instTyVars (tyConTyCoVars new_tycon)
+               (_, vars, _) <- instTyCoVars (tyConTyCoVars new_tycon)
                let ty' = mkTyConApp new_tycon vars
                    UnaryRep rep_ty = repType ty'
                _ <- liftTcM (unifyType ty rep_ty)

@@ -436,7 +436,7 @@ tc_extend_local_env :: [(Name, TcTyThing)] -> TcM a -> TcM a
 -- This is the guy who does the work
 -- Invariant: the TcIds are fully zonked. Reasons:
 --      (a) The kinds of the forall'd type variables are defaulted
---          (see Kind.defaultKind, done in zonkQuantifiedTyVar)
+--          (see Kind.defaultKind, done in zonkQuantifiedTyCoVar)
 --      (b) There are no via-Indirect occurrences of the bound variables
 --          in the types, because instantiation does not look through such things
 --      (c) The call to tyCoVarsOfTypes is ok without looking through refs

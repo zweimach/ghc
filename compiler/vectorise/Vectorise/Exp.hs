@@ -611,7 +611,7 @@ vectScalarDFun :: Var        -- ^ Original dfun
                -> VM CoreExpr
 vectScalarDFun var
   = do {   -- bring the type variables into scope
-       ; mapM_ defLocalTyVar tvs
+       ; mapM_ defLocalTyCoVar tvs
 
            -- vectorise dictionary argument types and generate variables for them
        ; vTheta     <- mapM vectType theta
@@ -682,7 +682,7 @@ vectLam inline loop_breaker expr@(fvs, AnnLam _ _)  vi
  = do { let (bndrs, body) = collectAnnValBinders expr
 
           -- grab the in-scope type variables
-      ; tyvars <- localTyVars
+      ; tyvars <- localTyCoVars
 
           -- collect and vectorise all /local/ free variables
       ; vfvs <- readLEnv $ \env ->

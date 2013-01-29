@@ -17,8 +17,7 @@
 --
 module Coercion (
         -- * Main data type
-        Coercion(..), Var, CoVar,
-        LeftOrRight(..), pickLR,
+        Coercion, Var, CoVar,
 
         -- ** Functions over coercions
         coVarTypes, coVarKind,
@@ -469,7 +468,7 @@ pprCoAxiom ax@(CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
 
 pprCoAxBranch :: TyCon -> CoAxBranch -> SDoc
 pprCoAxBranch tc (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs })
-  = ptext (sLit "forall") <+> pprTvBndrs tvs <> dot <+> 
+  = ptext (sLit "forall") <+> pprTCvBndrs tvs <> dot <+> 
       pprEqPred (Pair (mkTyConApp tc lhs) rhs)
 
 \end{code}
@@ -1406,7 +1405,6 @@ ty_co_subst lc@(LC in_scope env) ty
     go_arg :: Type -> CoercionArg
     go_arg (Coercion co) = CoCoArg (substLeftCo lc co) (substRightCo lc co)
     go_arg ty            = TyCoArg (go ty)
-liftCoSubstTyVar (LCS _ cenv) tv = lookupVarEnv cenv tv 
 
     isNotInDomainOf :: VarSet -> VarEnv a -> Bool
     isNotInDomainOf set env

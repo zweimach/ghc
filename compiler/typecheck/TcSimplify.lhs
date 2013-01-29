@@ -76,7 +76,7 @@ simplifyTop wanteds
     simpl_top :: WantedConstraints -> TcS WantedConstraints
     simpl_top wanteds
       = do { wc_first_go <- nestTcS (solve_wanteds_and_drop wanteds)
-           ; free_tvs <- TcS.zonkTyCoVarsAndFV (tyVarsOfWC wc_first_go) 
+           ; free_tvs <- TcS.zonkTyCoVarsAndFV (tyCoVarsOfWC wc_first_go) 
            ; let meta_tvs = filterVarSet isMetaTyVar free_tvs
                    -- zonkTyCoVarsAndFV: the wc_first_go is not yet zonked
                    -- filter isMetaTyVar: we might have runtime-skolems in GHCi, 
@@ -178,135 +178,6 @@ simplifyDefault theta
 \end{code}
 
 
-***********************************************************************************
-*                                                                                 * 
-*                            Deriving                                             *
-*                                                                                 *
-***********************************************************************************
-
-\begin{code}
-simplifyDeriv :: CtOrigin
-              -> PredType
-	      -> [TyVar]	
-	      -> ThetaType		-- Wanted
-	      -> TcM ThetaType	-- Needed
--- Given  instance (wanted) => C inst_ty 
--- Simplify 'wanted' as much as possibles
--- Fail if not possible
-simplifyDeriv orig pred tvs theta 
-  = do { (skol_subst, tvs_skols) <- tcInstSkolTyVars tvs -- Skolemize
-      	 	-- The constraint solving machinery 
-		-- expects *TcTyVars* not TyVars.  
-		-- We use *non-overlappable* (vanilla) skolems
-		-- See Note [Overlap and deriving]
-
-       ; let subst_skol = zipTopTCvSubst tvs_skols $ map mkTyCoVarTy tvs
-             skol_set   = mkVarSet tvs_skols
-	     doc = ptext (sLit "deriving") <+> parens (ppr pred)
-
-       ; wanted <- newFlatWanteds orig (substTheta skol_subst theta)
-
-       ; traceTc "simplifyDeriv" $ 
-         vcat [ pprTvBndrs tvs $$ ppr theta $$ ppr wanted, doc ]
-       ; (residual_wanted, _ev_binds1)
-             <- solveWantedsTcM (mkFlatWC wanted)
-                -- Post: residual_wanted are already zonked
-
-       ; let (good, bad) = partitionBagWith get_good (wc_flat residual_wanted)
-                         -- See Note [Exotic derived instance contexts]
-             get_good :: Ct -> Either PredType Ct
-             get_good ct | validDerivPred skol_set p 
-                         , isWantedCt ct  = Left p 
-                         -- NB: residual_wanted may contain unsolved
-                         -- Derived and we stick them into the bad set
-                         -- so that reportUnsolved may decide what to do with them
-                         | otherwise = Right ct
-                         where p = ctPred ct
-
-       -- We never want to defer these errors because they are errors in the
-       -- compiler! Hence the `False` below
-       ; reportAllUnsolved (residual_wanted { wc_flat = bad })
-
-       ; let min_theta = mkMinimalBySCs (bagToList good)
-       ; return (substTheta subst_skol min_theta) }
-\end{code}
-
-Note [Overlap and deriving]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider some overlapping instances:
-  data Show a => Show [a] where ..
-  data Show [Char] where ...
-
-Now a data type with deriving:
-  data T a = MkT [a] deriving( Show )
-
-We want to get the derived instance
-  instance Show [a] => Show (T a) where...
-and NOT
-  instance Show a => Show (T a) where...
-so that the (Show (T Char)) instance does the Right Thing
-
-It's very like the situation when we're inferring the type
-of a function
-   f x = show [x]
-and we want to infer
-   f :: Show [a] => a -> String
-
-BOTTOM LINE: use vanilla, non-overlappable skolems when inferring
-             the context for the derived instance. 
-	     Hence tcInstSkolTyVars not tcInstSuperSkolTyVars
-
-Note [Exotic derived instance contexts]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-In a 'derived' instance declaration, we *infer* the context.  It's a
-bit unclear what rules we should apply for this; the Haskell report is
-silent.  Obviously, constraints like (Eq a) are fine, but what about
-	data T f a = MkT (f a) deriving( Eq )
-where we'd get an Eq (f a) constraint.  That's probably fine too.
-
-One could go further: consider
-	data T a b c = MkT (Foo a b c) deriving( Eq )
-	instance (C Int a, Eq b, Eq c) => Eq (Foo a b c)
-
-Notice that this instance (just) satisfies the Paterson termination 
-conditions.  Then we *could* derive an instance decl like this:
-
-	instance (C Int a, Eq b, Eq c) => Eq (T a b c) 
-even though there is no instance for (C Int a), because there just
-*might* be an instance for, say, (C Int Bool) at a site where we
-need the equality instance for T's.  
-
-However, this seems pretty exotic, and it's quite tricky to allow
-this, and yet give sensible error messages in the (much more common)
-case where we really want that instance decl for C.
-
-So for now we simply require that the derived instance context
-should have only type-variable constraints.
-
-Here is another example:
-	data Fix f = In (f (Fix f)) deriving( Eq )
-Here, if we are prepared to allow -XUndecidableInstances we
-could derive the instance
-	instance Eq (f (Fix f)) => Eq (Fix f)
-but this is so delicate that I don't think it should happen inside
-'deriving'. If you want this, write it yourself!
-
-NB: if you want to lift this condition, make sure you still meet the
-termination conditions!  If not, the deriving mechanism generates
-larger and larger constraints.  Example:
-  data Succ a = S a
-  data Seq a = Cons a (Seq (Succ a)) | Nil deriving Show
-
-Note the lack of a Show instance for Succ.  First we'll generate
-  instance (Show (Succ a), Show a) => Show (Seq a)
-and then
-  instance (Show (Succ (Succ a)), Show (Succ a), Show a) => Show (Seq a)
-and so on.  Instead we want to complain of no instance for (Show (Succ a)).
-
-The bottom line
-~~~~~~~~~~~~~~~
-Allow constraints which consist only of type variables, with no repeats.
-
 *********************************************************************************
 *                                                                                 * 
 *                            Inference
@@ -331,7 +202,7 @@ simplifyInfer :: Bool
               -> [(Name, TcTauType)]   -- Variables to be generalised,
                                        -- and their tau-types
               -> WantedConstraints
-              -> TcM ([TcTyVar],    -- Quantify over these type variables
+              -> TcM ([TcTyCoVar],  -- Quantify over these type variables
                       [EvVar],      -- ... and these constraints
 		      Bool,	    -- The monomorphism restriction did something
 		      		    --   so the results type is not as general as
@@ -344,7 +215,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
        ; let tvs_to_quantify = varSetElems (tyCoVarsOfTypes zonked_taus `minusVarSet` gbl_tvs)
        	     		       -- tvs_to_quantify can contain both kind and type vars
        	                       -- See Note [Which variables to quantify]
-       ; qtvs <- zonkQuantifiedTyVars tvs_to_quantify
+       ; qtvs <- zonkQuantifiedTyCoVars tvs_to_quantify
        ; return (qtvs, [], False, emptyTcEvBinds) }
 
   | otherwise
@@ -448,7 +319,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
                         -- they are also bound in ic_skols and we want them to be
                         -- tidied uniformly
 
-       ; qtvs_to_return <- zonkQuantifiedTyVars (varSetElems qtvs)
+       ; qtvs_to_return <- zonkQuantifiedTyCoVars (varSetElems qtvs)
 
             -- Step 7) Emit an implication
        ; minimal_bound_ev_vars <- mapM TcM.newEvVar minimal_flat_preds
@@ -867,7 +738,7 @@ solveImplication inerts
 
 
 \begin{code}
-floatEqualities :: [TcTyVar] -> [EvVar] -> WantedConstraints 
+floatEqualities :: [TcTyCoVar] -> [EvVar] -> WantedConstraints 
                 -> TcS (Cts, WantedConstraints)
 -- Post: The returned FlavoredEvVar's are only Wanted or Derived
 -- and come from the input wanted ev vars or deriveds 
@@ -899,11 +770,11 @@ growSkols :: WantedConstraints -> VarSet -> VarSet
 -- I don't *think* we need look inside the implications, because any 
 -- relevant unification variables in there are untouchable.
 growSkols (WC { wc_flat = flats }) skols
-  = growThetaTyVars theta skols
+  = growThetaTyCoVars theta skols
   where
     theta = foldrBag ((:) . ctPred) [] flats
 
-promoteTyVar :: Untouchables -> TcTyVar  -> TcS ()
+promoteTyVar :: Untouchables -> TcTyCoVar -> TcS ()
 -- When we float a constraint out of an implication we must restore
 -- invariant (MetaTvInv) in Note [Untouchable type variables] in TcType
 promoteTyVar untch tv 
@@ -946,12 +817,12 @@ approximateWC :: WantedConstraints -> Cts
 approximateWC wc 
   = float_wc emptyVarSet wc
   where 
-    float_wc :: TcTyVarSet -> WantedConstraints -> Cts
+    float_wc :: TcTyCoVarSet -> WantedConstraints -> Cts
     float_wc skols (WC { wc_flat = flats, wc_impl = implics }) 
       = do_bag (float_flat skols)   flats  `unionBags` 
         do_bag (float_implic skols) implics
                                  
-    float_implic :: TcTyVarSet -> Implication -> Cts
+    float_implic :: TcTyCoVarSet -> Implication -> Cts
     float_implic skols imp
       | hasEqualities (ic_given imp)  -- Don't float out of equalities
       = emptyCts                      -- cf floatEqualities
@@ -960,7 +831,7 @@ approximateWC wc
       where
         skols' = skols `extendVarSetList` ic_skols imp `extendVarSetList` ic_fsks imp
             
-    float_flat :: TcTyVarSet -> Ct -> Cts
+    float_flat :: TcTyCoVarSet -> Ct -> Cts
     float_flat skols ct
       | tyCoVarsOfCt ct `disjointVarSet` skols 
       = singleCt ct
@@ -1037,7 +908,7 @@ approximateWC to produce a list of candidate constraints.  Then we MUST
 To see (b), suppose the constraint is (C ((a :: OpenKind) -> Int)), and we
 have an instance (C ((x:*) -> Int)).  The instance doesn't match -- but it
 should!  If we don't solve the constraint, we'll stupidly quantify over 
-(C (a->Int)) and, worse, in doing so zonkQuantifiedTyVar will quantify over
+(C (a->Int)) and, worse, in doing so zonkQuantifiedTyCoVar will quantify over
 (b:*) instead of (a:OpenKind), which can lead to disaster; see Trac #7332.
 
 Note [Float Equalities out of Implications]
@@ -1208,7 +1079,7 @@ findDefaultableGroups (default_tys, (ovl_strings, extended_defaults)) wanteds
         = Left (cc, cls, tv)
     find_unary cc = Right cc  -- Non unary or non dictionary 
 
-    bad_tvs :: TcTyVarSet  -- TyVars mentioned by non-unaries 
+    bad_tvs :: TcTyCoVarSet  -- TyVars mentioned by non-unaries 
     bad_tvs = foldr (unionVarSet . tyCoVarsOfCt) emptyVarSet non_unaries 
 
     cmp_tv (_,_,tv1) (_,_,tv2) = tv1 `compare` tv2

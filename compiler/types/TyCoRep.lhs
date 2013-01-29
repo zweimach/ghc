@@ -39,7 +39,7 @@ module TyCoRep (
         isLiftedTypeKind, isSuperKind, isTypeVar, isKindVar,
         
         -- Pretty-printing
-	pprType, pprParendType, pprTypeApp, pprTvBndr, pprTvBndrs,
+	pprType, pprParendType, pprTypeApp, pprTCvBndr, pprTvBndrs,
 	pprTyThing, pprTyThingCategory, pprSigmaType,
 	pprEqPred, pprTheta, pprForAll, pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprTyLit,
@@ -1605,15 +1605,15 @@ ppr_sigma_type show_foralls ty
 pprSigmaType :: Type -> SDoc
 pprSigmaType ty = ppr_sigma_type opt_PprStyle_Debug ty
 
-pprForAll :: [TyVar] -> SDoc
+pprForAll :: [TyCoVar] -> SDoc
 pprForAll []  = empty
-pprForAll tvs = ptext (sLit "forall") <+> pprTvBndrs tvs <> dot
+pprForAll tvs = ptext (sLit "forall") <+> pprTCvBndrs tvs <> dot
 
-pprTvBndrs :: [TyVar] -> SDoc
-pprTvBndrs tvs = sep (map pprTvBndr tvs)
+pprTCvBndrs :: [TyCoVar] -> SDoc
+pprTCvBndrs tvs = sep (map pprTCvBndr tvs)
 
-pprTvBndr :: TyVar -> SDoc
-pprTvBndr tv 
+pprTCvBndr :: TyCoVar -> SDoc
+pprTCvBndr tv 
   | isLiftedTypeKind kind = ppr_tvar tv
   | otherwise	          = parens (ppr_tvar tv <+> dcolon <+> pprKind kind)
 	     where

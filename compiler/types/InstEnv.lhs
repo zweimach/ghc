@@ -183,12 +183,12 @@ instanceHead (ClsInst { is_tvs = tvs, is_tys = tys, is_dfun = dfun })
    where
      (_, _, cls, _) = tcSplitDFunTy (idType dfun)
 
-instanceSig :: ClsInst -> ([TyVar], [Type], Class, [Type])
+instanceSig :: ClsInst -> ([TyCoVar], [Type], Class, [Type])
 -- Decomposes the DFunId
 instanceSig ispec = tcSplitDFunTy (idType (is_dfun ispec))
 
 mkLocalInstance :: DFunId -> OverlapFlag
-                -> [TyVar] -> Class -> [Type]
+                -> [TyCoVar] -> Class -> [Type]
                 -> ClsInst
 -- Used for local instances, where we can safely pull on the DFunId
 mkLocalInstance dfun oflag tvs cls tys
@@ -641,7 +641,7 @@ insert_overlapping new_item (item:items)
 %************************************************************************
 
 \begin{code}
-instanceBindFun :: TyVar -> BindFlag
+instanceBindFun :: TyCoVar -> BindFlag
 instanceBindFun tv | isTcTyVar tv && isOverlappableTyVar tv = Skolem
                    | otherwise                              = BindMe
    -- Note [Binding when looking up instances]

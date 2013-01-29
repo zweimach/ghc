@@ -190,7 +190,7 @@ tcHsSigTypeNC ctxt (L loc hs_ty)
         ; return ty }
 
 -----------------
-tcHsInstHead :: UserTypeCtxt -> LHsType Name -> TcM ([TyVar], ThetaType, Class, [Type])
+tcHsInstHead :: UserTypeCtxt -> LHsType Name -> TcM ([TyCoVar], ThetaType, Class, [Type])
 -- Like tcHsSigTypeNC, but for an instance head.
 tcHsInstHead ctxt lhs_ty@(L loc hs_ty)
   = setSrcSpan loc $    -- The "In the type..." context comes from the caller
@@ -940,9 +940,9 @@ kindGeneralize tkvs _names_to_avoid
              -- will mean something
 
              -- If we tidied the kind variables, which should all be mutable,
-             -- this 'zonkQuantifiedTyVars' update the original TyVar to point to
+             -- this 'zonkQuantifiedTyCoVars' update the original TyVar to point to
              -- the tided and skolemised one
-         zonkQuantifiedTyVars kvs_to_quantify }
+         zonkQuantifiedTyCoVars kvs_to_quantify }
 \end{code}
 
 Note [Kind generalisation]

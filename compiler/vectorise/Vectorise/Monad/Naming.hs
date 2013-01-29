@@ -120,3 +120,9 @@ newTyVar :: FastString -> Kind -> VM Var
 newTyVar fs k
  = do u <- liftDs newUnique
       return $ mkTyVar (mkSysTvName u fs) k
+
+-- |Mkae a fresh coercion variable with the given kind.
+newCoVar :: FastString -> Kind -> VM Var
+newCoVar fs k
+  = do u <- liftDs newUnique
+       return $ mkCoVar (mkSystemVarName u fs) k

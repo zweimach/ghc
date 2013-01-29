@@ -828,9 +828,10 @@ ds_tc_coercion subst tc_co
     go (TcRefl ty)            = Refl (substTy subst ty)
     go (TcTyConAppCo tc cos)  = mkTyConAppCo tc (map go cos)
     go (TcAppCo co1 co2)      = mkAppCo (go co1) (go co2)
-    go (TcForAllCo tv co)     = mkForAllCo tv' (ds_tc_coercion subst' co)
+    go (TcForAllCo tv co)     = mkForAllCo cobndr (ds_tc_coercion subst' co)
                               where
-                                (subst', tv') = substTyVarBndr subst tv
+                                cobndr = mkHomoCoBndr tv
+                                (subst', cobndr') = substForAllCoBndr subst cobndr
     go (TcAxiomInstCo ax ind tys)
                               = mkAxInstCo ax ind (map (substTy subst) tys)
     go (TcSymCo co)           = mkSymCo (go co)

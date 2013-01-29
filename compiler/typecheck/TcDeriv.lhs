@@ -83,7 +83,7 @@ Overall plan
 data DerivSpec  = DS { ds_loc     :: SrcSpan
                      , ds_orig    :: CtOrigin
                      , ds_name    :: Name
-                     , ds_tvs     :: [TyVar]
+                     , ds_tvs     :: [TyCoVar]
                      , ds_theta   :: ThetaType
                      , ds_cls     :: Class
                      , ds_tys     :: [Type]
@@ -554,7 +554,7 @@ deriveStandalone (L loc (DerivDecl deriv_ty))
                    (Just theta) }
 
 ------------------------------------------------------------------
-deriveTyData :: [TyVar] -> TyCon -> [Type]
+deriveTyData :: [TyCoVar] -> TyCon -> [Type]
              -> LHsType Name           -- The deriving predicate
              -> TcM EarlyDerivSpec
 -- The deriving clause of a data or newtype declaration
@@ -581,8 +581,8 @@ deriveTyData tvs tc tc_args (L loc deriv_pred)
               univ_tvs       = (mkVarSet tvs `extendVarSetList` deriv_tvs)
                                              `minusVarSet` dropped_tvs
 
-        ; traceTc "derivTyData" (pprTvBndrs tvs $$ ppr tc $$ ppr tc_args $$
-                     pprTvBndrs (varSetElems $ tyCoVarsOfTypes tc_args) $$ ppr inst_ty)
+        ; traceTc "derivTyData" (pprTCvBndrs tvs $$ ppr tc $$ ppr tc_args $$
+                     pprTCvBndrs (varSetElems $ tyCoVarsOfTypes tc_args) $$ ppr inst_ty)
 
         -- Check that the result really is well-kinded
         ; checkTc (n_args_to_keep >= 0 && (inst_ty_kind `eqKind` kind))
@@ -636,7 +636,7 @@ After all, we can write it out
       ... etc ...
 
 \begin{code}
-mkEqnHelp :: CtOrigin -> [TyVar] -> Class -> [Type] -> Type
+mkEqnHelp :: CtOrigin -> [TyCoVar] -> Class -> [Type] -> Type
           -> DerivContext       -- Just    => context supplied (standalone deriving)
                                 -- Nothing => context inferred (deriving on data decl)
           -> TcRn EarlyDerivSpec
@@ -701,7 +701,7 @@ mkEqnHelp orig tvs cls cls_tys tc_app mtheta
 \begin{code}
 mkDataTypeEqn :: CtOrigin
               -> DynFlags
-              -> [Var]                  -- Universally quantified type variables in the instance
+              -> [TyCoVar]              -- Universally quantified type variables in the instance
               -> Class                  -- Class for which we need to derive an instance
               -> [Type]                 -- Other parameters to the class except the last
               -> TyCon                  -- Type constructor for which the instance is requested
@@ -723,7 +723,7 @@ mkDataTypeEqn orig dflags tvs cls cls_tys
     go_for_it    = mk_data_eqn orig tvs cls tycon tc_args rep_tc rep_tc_args mtheta
     bale_out msg = failWithTc (derivingThingErr False cls cls_tys (mkTyConApp tycon tc_args) msg)
 
-mk_data_eqn :: CtOrigin -> [TyVar] -> Class
+mk_data_eqn :: CtOrigin -> [TyCoVar] -> Class
             -> TyCon -> [TcType] -> TyCon -> [TcType] -> DerivContext
             -> TcM EarlyDerivSpec
 mk_data_eqn orig tvs cls tycon tc_args rep_tc rep_tc_args mtheta
@@ -743,7 +743,7 @@ mk_data_eqn orig tvs cls tycon tc_args rep_tc rep_tc_args mtheta
     inst_tys = [mkTyConApp tycon tc_args]
 
 ----------------------
-mk_typeable_eqn :: CtOrigin -> [TyVar] -> Class
+mk_typeable_eqn :: CtOrigin -> [TyCoVar] -> Class
                 -> TyCon -> [TcType] -> DerivContext
                 -> TcM EarlyDerivSpec
 mk_typeable_eqn orig tvs cls tycon tc_args mtheta
@@ -1168,7 +1168,7 @@ a context for the Data instances:
 %************************************************************************
 
 \begin{code}
-mkNewTypeEqn :: CtOrigin -> DynFlags -> [Var] -> Class
+mkNewTypeEqn :: CtOrigin -> DynFlags -> [TyCoVar] -> Class
              -> [Type] -> TyCon -> [Type] -> TyCon -> [Type]
              -> DerivContext
              -> TcRn EarlyDerivSpec
@@ -1420,7 +1420,7 @@ mkInstance :: OverlapFlag -> ThetaType -> DerivSpec -> TcM ClsInst
 mkInstance overlap_flag theta
            (DS { ds_name = dfun_name
                , ds_tvs = tvs, ds_cls = clas, ds_tys = tys })
-  = do { (subst, tvs') <- tcInstSkolTyVars tvs
+  = do { (subst, tvs') <- tcInstSkolTyCoVars tvs
        ; return (mkLocalInstance dfun overlap_flag tvs' clas (substTys subst tys)) }
   where
     dfun = mkDictFunId dfun_name tvs theta clas tys
@@ -1446,27 +1446,27 @@ extendLocalInstEnv dfuns thing_inside
 \begin{code}
 simplifyDeriv :: CtOrigin
               -> PredType
-              -> [TyVar]        
+              -> [TyCoVar]        
               -> ThetaType              -- Wanted
               -> TcM ThetaType  -- Needed
 -- Given  instance (wanted) => C inst_ty 
 -- Simplify 'wanted' as much as possibles
 -- Fail if not possible
 simplifyDeriv orig pred tvs theta 
-  = do { (skol_subst, tvs_skols) <- tcInstSkolTyVars tvs -- Skolemize
+  = do { (skol_subst, tvs_skols) <- tcInstSkolTyCoVars tvs -- Skolemize
                 -- The constraint solving machinery 
                 -- expects *TcTyVars* not TyVars.  
                 -- We use *non-overlappable* (vanilla) skolems
                 -- See Note [Overlap and deriving]
 
-       ; let subst_skol = zipTopTvSubst tvs_skols $ map mkTyVarTy tvs
+       ; let subst_skol = zipTopTCvSubst tvs_skols $ map mkTyCoVarTy tvs
              skol_set   = mkVarSet tvs_skols
              doc = ptext (sLit "deriving") <+> parens (ppr pred)
 
        ; wanted <- newFlatWanteds orig (substTheta skol_subst theta)
 
        ; traceTc "simplifyDeriv" $ 
-         vcat [ pprTvBndrs tvs $$ ppr theta $$ ppr wanted, doc ]
+         vcat [ pprTCvBndrs tvs $$ ppr theta $$ ppr wanted, doc ]
        ; (residual_wanted, _ev_binds1)
              <- solveWantedsTcM (mkFlatWC wanted)
                 -- Post: residual_wanted are already zonked
@@ -1513,7 +1513,7 @@ and we want to infer
 
 BOTTOM LINE: use vanilla, non-overlappable skolems when inferring
              the context for the derived instance. 
-             Hence tcInstSkolTyVars not tcInstSuperSkolTyVars
+             Hence tcInstSkolTyCoVars not tcInstSuperSkolTyCoVars
 
 Note [Exotic derived instance contexts]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -796,7 +796,7 @@ tcDefaultAssocDecl fam_tc (L loc decl)
           uncurry4 f (a, b, c, d) = f a b c d
 
 -------------------------
-tcSynFamInstDecl :: TyCon -> TyFamInstDecl Name -> TcM [([TyVar], [Type], Type, SrcSpan)]
+tcSynFamInstDecl :: TyCon -> TyFamInstDecl Name -> TcM [([TyCoVar], [Type], Type, SrcSpan)]
 -- Placed here because type family instances appear as 
 -- default decls in class declarations 
 tcSynFamInstDecl fam_tc (TyFamInstDecl { tfid_eqns = eqns })
@@ -819,7 +819,7 @@ tcSynFamInstNames (L _ first) names
       = setSrcSpan loc $
         failWithTc (msg_fun name)
 
-tcTyFamInstEqn :: TyCon -> LTyFamInstEqn Name -> TcM ([TyVar], [Type], Type, SrcSpan)
+tcTyFamInstEqn :: TyCon -> LTyFamInstEqn Name -> TcM ([TyCoVar], [Type], Type, SrcSpan)
 tcTyFamInstEqn fam_tc 
     (L loc (TyFamInstEqn { tfie_pats = pats, tfie_rhs = hs_ty }))
   = setSrcSpan loc $
@@ -861,7 +861,7 @@ tcFamTyPats :: TyCon
             -> HsWithBndrs [LHsType Name] -- Patterns
             -> (TcKind -> TcM ())       -- Kind checker for RHS
                                         -- result is ignored
-            -> ([TKVar] -> [TcType] -> Kind -> TcM a)
+            -> ([TyCoVar] -> [TcType] -> Kind -> TcM a)
             -> TcM a
 -- Check the type patterns of a type or data family instance
 --     type instance F <pat1> <pat2> = <type>
@@ -907,14 +907,14 @@ tcFamTyPats fam_tc (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tva
             -- replace a meta kind var with AnyK
             -- Very like kindGeneralize
        ; tkvs <- zonkTyCoVarsAndFV (tyCoVarsOfTypes all_args)
-       ; qtkvs <- zonkQuantifiedTyVars (varSetElems tkvs)
+       ; qtkvs <- zonkQuantifiedTyCoVars (varSetElems tkvs)
 
             -- Zonk the patterns etc into the Type world
-       ; (ze, qtkvs') <- zonkTyBndrsX emptyZonkEnv qtkvs
+       ; (ze, qtkvs') <- zonkTyCoBndrsX emptyZonkEnv qtkvs
        ; all_args'    <- zonkTcTypeToTypes ze all_args
        ; res_kind'    <- zonkTcTypeToType  ze res_kind
 
-       ; traceTc "tcFamTyPats" (pprTvBndrs qtkvs' $$ ppr all_args' $$ ppr res_kind')
+       ; traceTc "tcFamTyPats" (pprTCvBndrs qtkvs' $$ ppr all_args' $$ ppr res_kind')
        ; tcExtendTyVarEnv qtkvs' $
          thing_inside qtkvs' all_args' res_kind' }
 \end{code}
@@ -1038,14 +1038,14 @@ consUseH98Syntax _                                             = True
 		 -- All constructors have same shape
 
 -----------------------------------
-tcConDecls :: NewOrData -> TyCon -> ([TyVar], Type)
+tcConDecls :: NewOrData -> TyCon -> ([TyCoVar], Type)
 	   -> [LConDecl Name] -> TcM [DataCon]
 tcConDecls new_or_data rep_tycon res_tmpl cons
   = mapM (addLocM (tcConDecl new_or_data rep_tycon res_tmpl)) cons
 
 tcConDecl :: NewOrData
 	  -> TyCon 		-- Representation tycon
-	  -> ([TyVar], Type)	-- Return type template (with its template tyvars)
+	  -> ([TyCoVar], Type)	-- Return type template (with its template tyvars)
 	  -> ConDecl Name 
 	  -> TcM DataCon
 
@@ -1074,10 +1074,10 @@ tcConDecl new_or_data rep_tycon res_tmpl 	-- Data types
              -- Generalise the kind variables (returning quantifed TcKindVars)
              -- and quantify the type variables (substituting their kinds)
        ; kvs <- kindGeneralize (tyCoVarsOfType pretend_con_ty) (map getName tvs)
-       ; tvs <- zonkQuantifiedTyVars tvs
+       ; tvs <- zonkQuantifiedTyCoVars tvs
 
              -- Zonk to Types
-       ; (ze, qtkvs) <- zonkTyBndrsX emptyZonkEnv (kvs ++ tvs)
+       ; (ze, qtkvs) <- zonkTyCoBndrsX emptyZonkEnv (kvs ++ tvs)
        ; arg_tys <- zonkTcTypeToTypes ze arg_tys
        ; ctxt    <- zonkTcTypeToTypes ze ctxt
        ; res_ty  <- case res_ty of
@@ -1134,14 +1134,14 @@ tcConRes (ResTyGADT res_ty) = do { res_ty' <- tcHsLiftedType res_ty
 --	TI :: forall b1 c1. (b1 ~ c1) => b1 -> :R7T b1 c1
 -- In this case orig_res_ty = T (e,e)
 
-rejigConRes :: ([TyVar], Type)	-- Template for result type; e.g.
-				-- data instance T [a] b c = ...  
-				--      gives template ([a,b,c], T [a] b c)
-	     -> [TyVar] 	-- where MkT :: forall x y z. ...
+rejigConRes :: ([TyCoVar], Type) -- Template for result type; e.g.
+				 -- data instance T [a] b c = ...  
+				 --      gives template ([a,b,c], T [a] b c)
+	     -> [TyCoVar] 	 -- where MkT :: forall x y z. ...
 	     -> ResType Type
-	     -> ([TyVar],	 	-- Universal
-		 [TyVar],		-- Existential (distinct OccNames from univs)
-		 [(TyVar,Type)],	-- Equality predicates
+	     -> ([TyCoVar],	 	-- Universal
+		 [TyCoVar],		-- Existential (distinct OccNames from univs)
+		 [(TyCoVar,Type)],	-- Equality predicates
 		 Type)		-- Typechecked return type
 	-- We don't check that the TyCon given in the ResTy is
 	-- the same as the parent tycon, because we are in the middle

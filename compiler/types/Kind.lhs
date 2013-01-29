@@ -275,7 +275,7 @@ defaultKind :: Kind -> Kind
 --	f :: forall (a::ArgKind). a -> Bool
 -- because that would allow a call like (f 3#) as well as (f True),
 -- and the calling conventions differ.
--- This defaulting is done in TcMType.zonkTcTyVarBndr.
+-- This defaulting is done in TcMType.zonkTcTyCoVarBndr.
 --
 -- The test is really whether the kind is strictly above '*'
 defaultKind (TyConApp kc _args)

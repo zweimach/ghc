@@ -127,7 +127,7 @@ report_unsolved mb_binds_var defer wanted
             -- If we are deferring we are going to need /all/ evidence around,
             -- including the evidence produced by unflattening (zonkWC)
        ; let tidy_env = tidyFreeTyCoVars env0 free_tvs
-             free_tvs = tyVarsOfWC wanted
+             free_tvs = tyCoVarsOfWC wanted
              err_ctxt = CEC { cec_encl  = []
                             , cec_tidy  = tidy_env
                             , cec_defer    = defer
@@ -136,7 +136,7 @@ report_unsolved mb_binds_var defer wanted
                             , cec_binds    = mb_binds_var }
 
        ; traceTc "reportUnsolved (after unflattening):" $ 
-         vcat [ pprTvBndrs (varSetElems free_tvs)
+         vcat [ pprTCvBndrs (varSetElems free_tvs)
               , ppr wanted ]
 
        ; reportWanteds err_ctxt wanted }
@@ -176,7 +176,7 @@ reportImplic ctxt implic@(Implic { ic_skols = tvs, ic_given = given
   | otherwise
   = reportWanteds ctxt' wanted
   where
-    (env1, tvs') = mapAccumL tidyTyVarBndr (cec_tidy ctxt) tvs
+    (env1, tvs') = mapAccumL tidyTyCoVarBndr (cec_tidy ctxt) tvs
     (env2, info') = tidySkolemInfo env1 info
     implic' = implic { ic_skols = tvs'
                      , ic_given = map (tidyEvVar env2) given
@@ -482,10 +482,13 @@ mkHoleError ctxt ct@(CHoleCan {})
        ; mkErrorMsg ctxt ct (msg $$ binds_doc) }
   where
     loc_msg tv 
+       | isTyVar tv
        = case tcTyVarDetails tv of
           SkolemTv {} -> quotes (ppr tv) <+> skol_msg
           MetaTv {}   -> quotes (ppr tv) <+> text "is an ambiguous type variable"
           det -> pprTcTyVarDetails det
+       | otherwise
+       = quotes (ppr tv) <+> text "is a coercion variable"
        where 
           skol_msg = pprSkol (getSkolemInfo (cec_encl ctxt) tv) (getSrcLoc tv)
 

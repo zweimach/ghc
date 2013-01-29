@@ -165,7 +165,7 @@ tcClassDecl2 (L loc (ClassDecl {tcdLName = class_name, tcdSigs = sigs,
 	      (tyvars, _, _, op_items) = classBigSig clas
               prag_fn     = mkPragFun sigs default_binds
 	      sig_fn	  = mkHsSigFun sigs
-              clas_tyvars = snd (tcSuperSkolTyVars tyvars)
+              clas_tyvars = snd (tcSuperSkolTyCoVars tyvars)
 	      pred  	  = mkClassPred clas (mkTyCoVarTys clas_tyvars)
 	; this_dict <- newEvVar pred
 
@@ -181,7 +181,7 @@ tcClassDecl2 (L loc (ClassDecl {tcdLName = class_name, tcdSigs = sigs,
 
 tcClassDecl2 d = pprPanic "tcClassDecl2" (ppr d)
     
-tcDefMeth :: Class -> [TyVar] -> EvVar -> LHsBinds Name
+tcDefMeth :: Class -> [TyCoVar] -> EvVar -> LHsBinds Name
           -> HsSigFun -> PragFun -> ClassOpItem
           -> TcM (LHsBinds TcId)
 -- Generate code for polymorphic default methods only (hence DefMeth)
@@ -234,7 +234,7 @@ tcDefMeth clas tyvars this_dict binds_in hs_sig_fn prag_fn (sel_id, dm_info)
            ; return (unitBag tc_bind) }
 
 ---------------
-tcInstanceMethodBody :: SkolemInfo -> [TcTyVar] -> [EvVar]
+tcInstanceMethodBody :: SkolemInfo -> [TcTyCoVar] -> [EvVar]
                      -> Id -> TcSigInfo
           	     -> TcSpecPrags -> LHsBind Name 
           	     -> TcM (LHsBind Id)

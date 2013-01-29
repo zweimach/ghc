@@ -44,7 +44,7 @@ buildDataFamInst :: Name -> TyCon -> TyCon -> AlgTyConRhs -> VM (FamInst Unbranc
 buildDataFamInst name' fam_tc vect_tc rhs
  = do { axiom_name <- mkDerivedName mkInstTyCoOcc name'
 
-      ; (_, tyvars') <- liftDs $ tcInstSkolTyVarsLoc (getSrcSpan name') tyvars
+      ; (_, tyvars') <- liftDs $ tcInstSkolTyCoVarsLoc (getSrcSpan name') tyvars
       ; let fam_inst = mkDataFamInst axiom_name tyvars' fam_tc pat_tys rep_tc
             ax       = famInstAxiom fam_inst
             pat_tys  = [mkTyConApp vect_tc (mkTyCoVarTys tyvars')]

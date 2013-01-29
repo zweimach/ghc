@@ -532,7 +532,7 @@ tcPolyInfer top_lvl rec_tc prag_fn tc_sig_fn mono closed bind_list
 
 --------------
 mkExport :: PragFun 
-         -> [TyVar] -> TcThetaType      -- Both already zonked
+         -> [TyCoVar] -> TcThetaType      -- Both already zonked
          -> MonoBindInfo
          -> TcM (ABExport Id)
 -- mkExport generates exports with 
@@ -1208,7 +1208,7 @@ instTcTySigFromId loc id
     -- the template; but we do *not* want the SrcSpan on the Name of 
     -- those type variables to refer to the class decl, rather to
     -- the instance decl 
-    inst_sig_tyvars tvs = tcInstSigTyVars (map set_loc tvs)
+    inst_sig_tyvars tvs = tcInstSigTyCoVars (map set_loc tvs)
     set_loc tv = setTyVarName tv (mkInternalName (nameUnique n) (nameOccName n) loc)
       where
         n = tyVarName tv
@@ -1216,7 +1216,7 @@ instTcTySigFromId loc id
 instTcTySig :: LHsType Name -> TcType    -- HsType and corresponding TcType
             -> Name -> TcM TcSigInfo
 instTcTySig hs_ty@(L loc _) sigma_ty name
-  = do { (inst_tvs, theta, tau) <- tcInstType tcInstSigTyVars sigma_ty
+  = do { (inst_tvs, theta, tau) <- tcInstType tcInstSigTyCoVars sigma_ty
        ; return (TcSigInfo { sig_id = poly_id, sig_loc = loc
                            , sig_tvs = zipEqual "instTcTySig" scoped_tvs inst_tvs
                            , sig_theta = theta, sig_tau = tau }) }
@@ -1229,7 +1229,7 @@ instTcTySig hs_ty@(L loc _) sigma_ty name
     scoped_tvs :: [Maybe Name]
     scoped_tvs = mk_scoped scoped_names sig_tvs
 
-    mk_scoped :: [Name] -> [TyVar] -> [Maybe Name]
+    mk_scoped :: [Name] -> [TyCoVar] -> [Maybe Name]
     mk_scoped []     tvs      = [Nothing | _ <- tvs]
     mk_scoped (n:ns) (tv:tvs) 
            | n == tyVarName tv = Just n  : mk_scoped ns     tvs

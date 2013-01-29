@@ -1127,7 +1127,7 @@ data Implication
       ic_untch :: Untouchables, -- Untouchables: unification variables
                                 -- free in the environment
 
-      ic_skols  :: [TcTyVar],    -- Introduced skolems
+      ic_skols  :: [TcTyCoVar],  -- Introduced skolems
       ic_info  :: SkolemInfo,    -- See Note [Skolems in an implication]
                                  -- See Note [Shadowing in a constraint]
 
@@ -1452,7 +1452,7 @@ data SkolemInfo
   | BracketSkol         -- Template Haskell bracket
 
   | UnifyForAllSkol     -- We are unifying two for-all types
-       [TcTyVar]        -- The instantiated skolem variables
+       [TcTyCoVar]      -- The instantiated skolem variables
        TcType           -- The instantiated type *inside* the forall
 
   | UnkSkol             -- Unhelpful info (until I improve it)

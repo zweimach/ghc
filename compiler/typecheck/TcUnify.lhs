@@ -381,7 +381,7 @@ wrapFunResCoercion arg_tys co_fn_res
 
 \begin{code}
 tcGen :: UserTypeCtxt -> TcType
-      -> ([TcTyVar] -> TcRhoType -> TcM result)
+      -> ([TcTyCoVar] -> TcRhoType -> TcM result)
       -> TcM (HsWrapper, result)
         -- The expression has type: spec_ty -> expected_ty
 
@@ -421,7 +421,7 @@ tcGen ctxt expected_ty thing_inside
 	  -- often empty, in which case mkWpLet is a no-op
 
 checkConstraints :: SkolemInfo
-		 -> [TcTyVar]		-- Skolems
+		 -> [TcTyCoVar]		-- Skolems
 		 -> [EvVar]             -- Given
 		 -> TcM result
 		 -> TcM (TcEvBinds, result)
@@ -435,12 +435,12 @@ checkConstraints skol_info skol_tvs given thing_inside
   | otherwise
   = newImplication skol_info skol_tvs given thing_inside
 
-newImplication :: SkolemInfo -> [TcTyVar]
+newImplication :: SkolemInfo -> [TcTyCoVar]
 	       -> [EvVar] -> TcM result
                -> TcM (TcEvBinds, result)
 newImplication skol_info skol_tvs given thing_inside
-  = ASSERT2( all isTcTyVar skol_tvs, ppr skol_tvs )
-    ASSERT2( all isSkolemTyVar skol_tvs, ppr skol_tvs )
+  = ASSERT2( all isTcTyCoVar skol_tvs, ppr skol_tvs )
+    ASSERT2( all isSkolemTyCoVar skol_tvs, ppr skol_tvs )
     do { let no_equalities = not (hasEqualities given)
        ; ((result, untch), wanted) <- captureConstraints  $ 
                                       captureUntouchables $
@@ -658,7 +658,7 @@ unifySigmaTy origin ty1 ty2
              (tvs2, body2) = tcSplitForAllTys ty2
 
        ; defer_or_continue (not (equalLength tvs1 tvs2)) $ do {
-         (subst1, skol_tvs) <- tcInstSkolTyVars tvs1
+         (subst1, skol_tvs) <- tcInstSkolTyCoVars tvs1
                   -- Get location from monad, not from tvs1
        ; let tys      = mkTyCoVarTys skol_tvs
              phi1     = Type.substTy subst1                    body1

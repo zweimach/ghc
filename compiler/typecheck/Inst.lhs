@@ -27,7 +27,7 @@ module Inst (
        -- Simple functions over evidence variables
        hasEqualities, 
        
-       tyVarsOfWC, 
+       tyCoVarsOfWC, 
        tyCoVarsOfCt, tyCoVarsOfCts, 
 
        tidyEvVar, tidyCt, tidySkolemInfo
@@ -145,12 +145,12 @@ ToDo: this eta-abstraction plays fast and loose with termination,
 \begin{code}
 deeplySkolemise
   :: TcSigmaType
-  -> TcM (HsWrapper, [TyVar], [EvVar], TcRhoType)
+  -> TcM (HsWrapper, [TyCoVar], [EvVar], TcRhoType)
 
 deeplySkolemise ty
   | Just (arg_tys, tvs, theta, ty') <- tcDeepSplitSigmaTy_maybe ty
   = do { ids1 <- newSysLocalIds (fsLit "dk") arg_tys
-       ; (subst, tvs1) <- tcInstSkolTyVars tvs
+       ; (subst, tvs1) <- tcInstSkolTyCoVars tvs
        ; ev_vars1 <- newEvVars (substTheta subst theta)
        ; (wrap, tvs2, ev_vars2, rho) <- deeplySkolemise (substTy subst ty')
        ; return ( mkWpLams ids1
@@ -174,7 +174,7 @@ deeplyInstantiate :: CtOrigin -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 
 deeplyInstantiate orig ty
   | Just (arg_tys, tvs, theta, rho) <- tcDeepSplitSigmaTy_maybe ty
-  = do { (_, tys, subst) <- tcInstTyVars tvs
+  = do { (_, tys, subst) <- tcInstTyCoVars tvs
        ; ids1  <- newSysLocalIds (fsLit "di") (substTys subst arg_tys)
        ; wrap1 <- instCall orig tys (substTheta subst theta)
        ; (wrap2, rho2) <- deeplyInstantiate orig (substTy subst rho)
@@ -416,21 +416,6 @@ addLocalInst :: InstEnv -> ClsInst -> TcM InstEnv
 -- If overwrite_inst, then we can overwrite a direct match
 addLocalInst home_ie ispec
    = do {
-         -- Instantiate the dfun type so that we extend the instance
-         -- envt with completely fresh template variables
-         -- This is important because the template variables must
-         -- not overlap with anything in the things being looked up
-         -- (since we do unification).  
-             --
-             -- We use tcInstSkolType because we don't want to allocate fresh
-             --  *meta* type variables.
-             --
-             -- We use UnkSkol --- and *not* InstSkol or PatSkol --- because
-             -- these variables must be bindable by tcUnifyTys.  See
-             -- the call to tcUnifyTys in InstEnv, and the special
-             -- treatment that instanceBindFun gives to isOverlappableTyVar
-             -- This is absurdly delicate.
-
              -- Load imported instances, so that we report
              -- duplicates correctly
            eps <- getEps
@@ -545,11 +530,11 @@ tyCoVarsOfWC (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
     tyCoVarsOfBag tyCoVarsOfImplic implic `unionVarSet`
     tyCoVarsOfCts insol
 
-tyCoVarsOfImplic :: Implication -> TyVarSet
+tyCoVarsOfImplic :: Implication -> TyCoVarSet
 -- Only called on *zonked* things, hence no need to worry about flatten-skolems
 tyCoVarsOfImplic (Implic { ic_skols = skols, ic_fsks = fsks
                              , ic_given = givens, ic_wanted = wanted })
-  = (tyVarsOfWC wanted `unionVarSet` tyVarsOnlyOfTypes (map evVarPred givens))
+  = (tyCoVarsOfWC wanted `unionVarSet` tyCoVarsOfTypes (map evVarPred givens))
     `delVarSetList` skols `delVarSetList` fsks
 
 tyCoVarsOfBag :: (a -> TyVarSet) -> Bag a -> TyVarSet

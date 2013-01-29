@@ -544,7 +544,7 @@ After all, upd should be equivalent to:
 
 So we need to give a completely fresh type to the result record,
 and then constrain it by the fields that are *not* updated ("p" above).
-We call these the "fixed" type variables, and compute them in getFixedTyVars.
+We call these the "fixed" type variables, and compute them in getFixedTyCoVars.
 
 Note that because MkT3 doesn't contain all the fields being updated,
 its RHS is simply an error, so it doesn't impose any type constraints.
@@ -679,12 +679,12 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
 	-- These are variables that appear in *any* arg of *any* of the
 	-- relevant constructors *except* in the updated fields
 	-- 
-	; let fixed_tvs = getFixedTyVars con1_tvs relevant_cons
+	; let fixed_tvs = getFixedTyCoVars con1_tvs relevant_cons
 	      is_fixed_tv tv = tv `elemVarSet` fixed_tvs
 
-              mk_inst_ty :: TCvSubst -> (TKVar, TcType) -> TcM (TCvSubst, TcType)
+              mk_inst_ty :: TCvSubst -> (TyCoVar, TcType) -> TcM (TCvSubst, TcType)
               -- Deals with instantiation of kind variables
-              --   c.f. TcMType.tcInstTyVarsX
+              --   c.f. TcMType.tcInstTyCoVarsX
 	      mk_inst_ty subst (tv, result_inst_ty)
 	        | is_fixed_tv tv   -- Same as result type
                 = return (extendTCvSubst subst tv result_inst_ty, result_inst_ty)
@@ -692,7 +692,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
                 = do { new_ty <- newFlexiTyVarTy (TcType.substTy subst (tyVarKind tv))
                      ; return (extendTCvSubst subst tv new_ty, new_ty) }
 
-	; (_, result_inst_tys, result_subst) <- tcInstTyVars con1_tvs
+	; (_, result_inst_tys, result_subst) <- tcInstTyCoVars con1_tvs
 
         ; (scrut_subst, scrut_inst_tys) <- mapAccumLM mk_inst_ty emptyTCvSubst 
                                                       (con1_tvs `zip` result_inst_tys) 
@@ -714,13 +714,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
 
 	-- Step 7: make a cast for the scrutinee, in the case that it's from a type family
 	; let scrut_co | Just co_con <- tyConFamilyCoercion_maybe tycon 
-<<<<<<< HEAD
-		       = WpCast (mkTcSingletonAxInstCo co_con scrut_inst_tys)
-||||||| merged common ancestors
-		       = WpCast (mkTcAxInstCo co_con scrut_inst_tys)
-=======
 		       = WpCast (mkTcUnbranchedAxInstCo co_con scrut_inst_tys)
->>>>>>> master
 		       | otherwise
 		       = idHsWrapper
 	-- Phew!
@@ -730,9 +724,9 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
   where
     upd_fld_names = hsRecFields rbinds
 
-    getFixedTyVars :: [TyVar] -> [DataCon] -> TyVarSet
+    getFixedTyCoVars :: [TyCoVar] -> [DataCon] -> TyCoVarSet
     -- These tyvars must not change across the updates
-    getFixedTyVars tvs1 cons
+    getFixedTyCoVars tvs1 cons
       = mkVarSet [tv1 | con <- cons
     		      , let (tvs, theta, arg_tys, _) = dataConSig con
 		      	    flds = dataConFieldLabels con
@@ -1072,7 +1066,7 @@ instantiateOuter orig id
   = return (HsVar id, tau)
 
   | otherwise
-  = do { (_, tys, subst) <- tcInstTyVars tvs
+  = do { (_, tys, subst) <- tcInstTyCoVars tvs
        ; doStupidChecks id tys
        ; let theta' = substTheta subst theta
        ; traceTc "Instantiating" (ppr id <+> text "with" <+> (ppr tys $$ ppr theta'))

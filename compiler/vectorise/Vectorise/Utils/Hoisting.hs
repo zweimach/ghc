@@ -80,7 +80,7 @@ hoistVExpr (ve, le) inl
 -- variables that are passed as conventional type and value arguments.  The latter is implicitly
 -- extended by the set of 'PA' dictionaries required for the type variables.
 --
-hoistPolyVExpr :: [TyVar] -> [Var] -> Inline -> VM VExpr -> VM VExpr
+hoistPolyVExpr :: [TyCoVar] -> [Var] -> Inline -> VM VExpr -> VM VExpr
 hoistPolyVExpr tvs vars inline p
   = do { inline' <- addInlineArity inline . (+ length vars) <$> polyArity tvs
        ; expr <- closedV . polyAbstract tvs $ \args ->

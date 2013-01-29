@@ -94,7 +94,7 @@ data TcCoercion
   = TcRefl TcType
   | TcTyConAppCo TyCon [TcCoercion]
   | TcAppCo TcCoercion TcCoercion
-  | TcForAllCo TyVar TcCoercion 
+  | TcForAllCo TyCoVar TcCoercion 
   | TcInstCo TcCoercion TcType
   | TcCoVarCo EqVar
   | TcAxiomInstCo (CoAxiom Branched) Int [TcType] -- Int specifies branch number
@@ -180,14 +180,14 @@ mkTcLRCo lr co          = TcLRCo lr co
 mkTcAppCos :: TcCoercion -> [TcCoercion] -> TcCoercion
 mkTcAppCos co1 tys = foldl mkTcAppCo co1 tys
 
-mkTcForAllCo :: Var -> TcCoercion -> TcCoercion
--- note that a TyVar should be used here, not a CoVar (nor a TcTyVar)
-mkTcForAllCo tv (TcRefl ty) = ASSERT( isTyVar tv ) TcRefl (mkForAllTy tv ty)
-mkTcForAllCo tv  co         = ASSERT( isTyVar tv ) TcForAllCo tv co
+mkTcForAllCo :: TyCoVar -> TcCoercion -> TcCoercion
+-- note that a TyVar or CoVar should be used here, not a TcTyVar
+mkTcForAllCo tv (TcRefl ty) = TcRefl (mkForAllTy tv ty)
+mkTcForAllCo tv  co         = TcForAllCo tv co
 
-mkTcForAllCos :: [Var] -> TcCoercion -> TcCoercion
-mkTcForAllCos tvs (TcRefl ty) = ASSERT( all isTyVar tvs ) TcRefl (mkForAllTys tvs ty)
-mkTcForAllCos tvs co          = ASSERT( all isTyVar tvs ) foldr TcForAllCo co tvs
+mkTcForAllCos :: [TyCoVar] -> TcCoercion -> TcCoercion
+mkTcForAllCos tvs (TcRefl ty) = TcRefl (mkForAllTys tvs ty)
+mkTcForAllCos tvs co          = foldr TcForAllCo co tvs
 
 mkTcInstCos :: TcCoercion -> [TcType] -> TcCoercion
 mkTcInstCos (TcRefl ty) tys = TcRefl (applyTys ty tys)
@@ -266,9 +266,9 @@ coVarsOfTcCo tc_co
     get_bndrs :: Bag EvBind -> VarSet
     get_bndrs = foldrBag (\ (EvBind b _) bs -> extendVarSet bs b) emptyVarSet 
 
-liftTcCoSubstWith :: [TyVar] -> [TcCoercion] -> TcType -> TcCoercion
--- This version can ignore capture; the free varialbes of the 
--- TcCoerion are all fresh.  Result is mush simpler code
+liftTcCoSubstWith :: [TyCoVar] -> [TcCoercion] -> TcType -> TcCoercion
+-- This version can ignore capture; the free variables of the 
+-- TcCoercion are all fresh.  Result is much simpler code
 liftTcCoSubstWith tvs cos ty
   = ASSERT( equalLength tvs cos )
     go ty
@@ -283,6 +283,8 @@ liftTcCoSubstWith tvs cos ty
     go ty@(LitTy {})     = mkTcReflCo ty
     go (ForAllTy tv ty)  = mkTcForAllCo tv (go ty)
     go (FunTy t1 t2)     = mkTcFunCo (go t1) (go t2)
+    go ty@(CastTy {})    = pprPanic "liftCoSubstWith CastTy" (ppr ty)
+    go ty@(CoercionTy {})= pprPanic "liftCoSubstWith Coercion" (ppr ty)
 \end{code}
 
 Pretty printing

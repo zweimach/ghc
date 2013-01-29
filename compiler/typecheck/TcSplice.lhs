@@ -1191,7 +1191,7 @@ reifyThing (ATcId {tct_id = id})
         ; return (TH.VarI (reifyName id) ty2 Nothing fix) }
 
 reifyThing (ATyVar tv tv1)
-  = do { ty1 <- zonkTcTyVar tv1
+  = do { ty1 <- zonkTcTyCoVar tv1
        ; ty2 <- reifyType ty1
        ; return (TH.TyVarI (reifyName tv) ty2) }
 

@@ -548,7 +548,7 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                 -- Dfun location is that of instance *header*
 
         ; overlap_flag <- getOverlapFlag
-        ; (subst, tyvars') <- tcInstSkolTyVars tyvars
+        ; (subst, tyvars') <- tcInstSkolTyCoVars tyvars
         ; let dfun  	= mkDictFunId dfun_name tyvars theta clas inst_tys
               ispec 	= mkLocalInstance dfun overlap_flag tyvars' clas (substTys subst inst_tys)
                             -- Be sure to freshen those type variables, 
@@ -639,7 +639,7 @@ tcTyFamInstDecl mb_clsinfo fam_tc (L loc decl@(TyFamInstDecl { tfid_group = grou
        ; return $ mkSynFamInst rep_tc_name fam_tc group co_ax_branches }
 
     where 
-      check_valid_mk_branch :: ([TyVar], [Type], Type, SrcSpan)
+      check_valid_mk_branch :: ([TyCoVar], [Type], Type, SrcSpan)
                             -> TcM CoAxBranch
       check_valid_mk_branch (t_tvs, t_typats, t_rhs, loc)
         = setSrcSpan loc $
@@ -710,7 +710,7 @@ tcDataFamInstDecl mb_clsinfo fam_tc
                      NewType  -> ASSERT( not (null data_cons) )
                                  mkNewTyConRhs rep_tc_name rec_rep_tc (head data_cons)
               -- freshen tyvars
-              ; (subst, tvs'') <- tcInstSkolTyVars tvs'
+              ; (subst, tvs'') <- tcInstSkolTyCoVars tvs'
               ; let pats''   = substTys subst pats'
                     fam_inst = mkDataFamInst axiom_name tvs'' fam_tc pats'' rep_tc
                     parent   = FamInstTyCon (famInstAxiom fam_inst) fam_tc pats''

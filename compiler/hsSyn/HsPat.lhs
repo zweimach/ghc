@@ -94,7 +94,7 @@ data Pat id
 
   | ConPatOut {
         pat_con   :: Located DataCon,
-        pat_tvs   :: [TyVar],           -- Existentially bound type variables (tyvars only)
+        pat_tvs   :: [TyCoVar],         -- Existentially bound type variables (tyvars only)
         pat_dicts :: [EvVar],           -- Ditto *coercion variables* and *dictionaries*
                                         -- One reason for putting coercion variable here, I think,
                                         --      is to ensure their kinds are zonked

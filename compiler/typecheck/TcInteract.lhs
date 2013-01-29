@@ -182,7 +182,7 @@ runSolverPipeline pipeline workItem
            ContinueWith ct -> do { traceFireTcS ct (ptext (sLit "Kept as inert:") <+> ppr ct)
                                  ; traceTcS "End solver pipeline (not discharged) }" $
                                        vcat [ ptext (sLit "final_item = ") <+> ppr ct
-                                            , pprTvBndrs (varSetElems $ tyCoVarsOfCt ct)
+                                            , pprTCvBndrs (varSetElems $ tyCoVarsOfCt ct)
                                             , ptext (sLit "inerts     = ") <+> ppr final_is]
                                  ; insertInertItemTcS ct }
        }

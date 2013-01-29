@@ -966,7 +966,7 @@ that they aren't discarded by the occurrence analyser.
 
 \begin{code}
 mkDictFunId :: Name      -- Name to use for the dict fun;
-            -> [TyVar]
+            -> [TyCoVar]
             -> ThetaType
             -> Class 
             -> [Type]

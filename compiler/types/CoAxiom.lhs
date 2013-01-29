@@ -277,7 +277,7 @@ isImplicitCoAxiom = co_ax_implicit
 
 -- The tyvars must be *fresh*. This CoAxBranch will be put into a
 -- FamInst. See Note [Template tyvars are fresh] in InstEnv
-mkCoAxBranch :: SrcSpan -> [TyVar] -> [Type] -> Type -> CoAxBranch
+mkCoAxBranch :: SrcSpan -> [TyCoVar] -> [Type] -> Type -> CoAxBranch
 mkCoAxBranch = CoAxBranch
 \end{code}
 

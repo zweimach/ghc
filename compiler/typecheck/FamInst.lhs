@@ -183,7 +183,7 @@ tcLookupFamInst tycon tys
   = do { instEnv <- tcGetFamInstEnvs
        ; let mb_match = lookupFamInstEnv instEnv tycon tys 
 --       ; traceTc "lookupFamInst" ((ppr tycon <+> ppr tys) $$ 
---                                  pprTvBndrs (varSetElems (tyVarsOfTypes tys)) $$ 
+--                                  pprTCvBndrs (varSetElems (tyVarsOfTypes tys)) $$ 
 --                                  ppr mb_match $$ ppr instEnv)
        ; case mb_match of
 	   [] -> return Nothing
@@ -308,7 +308,7 @@ addLocalFamInst (home_fie, my_fis) fam_inst
     mk_skolem_tyvars :: CoAxBranch -> FamInstBranch
                      -> TcM (CoAxBranch, FamInstBranch)
     mk_skolem_tyvars axb fib
-      = do { (subst, skol_tvs) <- tcInstSkolTyVars (coAxBranchTyCoVars axb)
+      = do { (subst, skol_tvs) <- tcInstSkolTyCoVars (coAxBranchTyCoVars axb)
            ; let axb' = coAxBranchSubst axb skol_tvs subst
                  fib' = famInstBranchSubst fib skol_tvs subst
            ; return (axb', fib') }
@@ -399,20 +399,20 @@ tcGetFamInstEnvs
 -- creates the fresh variables and applies the necessary substitution
 -- It is defined here to avoid a dependency from FamInstEnv on the monad
 -- code.
-freshenFamInstEqn :: [TyVar] -- original, possibly stale, tyvars
-                  -> [Type]  -- LHS patterns
-                  -> Type    -- RHS
-                  -> TcM ([TyVar], [Type], Type)
+freshenFamInstEqn :: [TyCoVar] -- original, possibly stale, tyvars
+                  -> [Type]    -- LHS patterns
+                  -> Type      -- RHS
+                  -> TcM ([TyCoVar], [Type], Type)
 freshenFamInstEqn tvs lhs rhs
   = do { loc <- getSrcSpanM
        ; freshenFamInstEqnLoc loc tvs lhs rhs }
 
 -- freshenFamInstEqn needs to be called outside the TcM monad:
 freshenFamInstEqnLoc :: SrcSpan
-                     -> [TyVar] -> [Type] -> Type
-                     -> TcRnIf gbl lcl ([TyVar], [Type], Type)
+                     -> [TyCoVar] -> [Type] -> Type
+                     -> TcRnIf gbl lcl ([TyCoVar], [Type], Type)
 freshenFamInstEqnLoc loc tvs lhs rhs
-  = do { (subst, tvs') <- tcInstSkolTyVarsLoc loc tvs
+  = do { (subst, tvs') <- tcInstSkolTyCoVarsLoc loc tvs
        ; let lhs' = substTys subst lhs
              rhs' = substTy  subst rhs
        ; return (tvs', lhs', rhs') }
@@ -429,7 +429,7 @@ mkFreshenedSynInst name tvs fam_tc inst_tys rep_ty
        ; mkFreshenedSynInstLoc loc name tvs fam_tc inst_tys rep_ty }
 
 mkFreshenedSynInstLoc :: SrcSpan
-                      -> Name -> [TyVar] -> TyCon -> [Type] -> Type
+                      -> Name -> [TyCoVar] -> TyCon -> [Type] -> Type
                       -> TcRnIf gbl lcl (FamInst Unbranched)
 mkFreshenedSynInstLoc loc name tvs fam_tc inst_tys rep_ty
   = do { (tvs', inst_tys', rep_ty') <- freshenFamInstEqnLoc loc tvs inst_tys rep_ty

@@ -155,7 +155,6 @@ module TcType (
 
   tyVarsOnlyOfType, tyVarsOnlyOfTypes,
   tyCoVarsOfType, tyCoVarsOfTypes,
-  tcTyVarsOfType, tcTyVarsOfTypes,
 
   pprKind, pprParendKind, pprSigmaType,
   pprType, pprParendType, pprTypeApp, pprTyThingCategory,
@@ -534,10 +533,10 @@ Tidying is here becuase it has a special case for FlatSkol
 -- an interface file.
 -- 
 -- It doesn't change the uniques at all, just the print names.
-tidyTyCoVarBndrs :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
-tidyTyCoVarBndrs env tvs = mapAccumL tidyTyVarBndr env tvs
+tidyTyCoVarBndrs :: TidyEnv -> [TyCoVar] -> (TidyEnv, [TyCoVar])
+tidyTyCoVarBndrs env tvs = mapAccumL tidyTyCoVarBndr env tvs
 
-tidyTyCoVarBndr :: TidyEnv -> TyVar -> (TidyEnv, TyVar)
+tidyTyCoVarBndr :: TidyEnv -> TyCoVar -> (TidyEnv, TyCoVar)
 tidyTyCoVarBndr tidy_env@(occ_env, subst) tyvar
   = case tidyOccName occ_env occ1 of
       (tidy', occ') -> ((tidy', subst'), tyvar')
@@ -566,14 +565,14 @@ tidyFreeTyCoVars (full_occ_env, var_env) tyvars
   = fst (tidyOpenTyVars (full_occ_env, var_env) (varSetElems tyvars))
 
         ---------------
-tidyOpenTyCoVars :: TidyEnv -> [TyVar] -> (TidyEnv, [TyVar])
+tidyOpenTyCoVars :: TidyEnv -> [TyCoVar] -> (TidyEnv, [TyCoVar])
 tidyOpenTyCoVars env tyvars = mapAccumL tidyOpenTyVar env tyvars
 
 ---------------
-tidyOpenTyCoVar :: TidyEnv -> TyVar -> (TidyEnv, TyVar)
+tidyOpenTyCoVar :: TidyEnv -> TyCoVar -> (TidyEnv, TyCoVar)
 -- ^ Treat a new 'TyVar' as a binder, and give it a fresh tidy name
 -- using the environment if one has not already been allocated. See
--- also 'tidyTyVarBndr'
+-- also 'tidyTyCoVarBndr'
 tidyOpenTyCoVar env@(_, subst) tyvar
   = case lookupVarEnv subst tyvar of
 	Just tyvar' -> (env, tyvar')		 -- Already substituted
@@ -600,7 +599,7 @@ tidyType env (AppTy fun arg)	  = (AppTy $! (tidyType env fun)) $! (tidyType env 
 tidyType env (FunTy fun arg)	  = (FunTy $! (tidyType env fun)) $! (tidyType env arg)
 tidyType env (ForAllTy tv ty)	  = ForAllTy tvp $! (tidyType envp ty)
 			          where
-			            (envp, tvp) = tidyTyVarBndr env tv
+			            (envp, tvp) = tidyTyCoVarBndr env tv
 
 ---------------
 -- | Grabs the free type variables, tidies them
@@ -773,6 +772,7 @@ exactTyCoVarsOfTypes tys = foldr (unionVarSet . exactTyCoVarsOfType) emptyVarSet
 \begin{code}
 isTouchableMetaTyVar :: Untouchables -> TcTyVar -> Bool
 isTouchableMetaTyVar ctxt_untch tv
+  | isTyVar tv
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of 
       MetaTv { mtv_untch = tv_untch } 
@@ -780,30 +780,35 @@ isTouchableMetaTyVar ctxt_untch tv
                     ppr tv $$ ppr tv_untch $$ ppr ctxt_untch )
            isTouchable ctxt_untch tv_untch
       _ -> False
+  | otherwise = False
 
 isFloatedTouchableMetaTyVar :: Untouchables -> TcTyVar -> Bool
 isFloatedTouchableMetaTyVar ctxt_untch tv
+  | isTyVar tv
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of 
       MetaTv { mtv_untch = tv_untch } -> isFloatedTouchable ctxt_untch tv_untch
       _ -> False
+  | otherwise = False
 
-isImmutableTyVar :: TyVar -> Bool
+isImmutableTyVar :: TyCoVar -> Bool
 isImmutableTyVar tv
   | isTcTyVar tv = isSkolemTyVar tv
   | otherwise    = True
 
-isTyConableTyVar, isSkolemTyVar, isOverlappableTyVar,
+isTyConableTyVar, isSkolemTyVar, isSkolemTyCoVar, isOverlappableTyVar,
   isMetaTyVar, isAmbiguousTyVar :: TcTyVar -> Bool 
 
 isTyConableTyVar tv	
 	-- True of a meta-type variable that can be filled in 
 	-- with a type constructor application; in particular,
 	-- not a SigTv
-  = ASSERT( isTcTyVar tv) 
+  | isTyVar tv
+  = ASSERT( isTcTyVar tv ) 
     case tcTyVarDetails tv of
 	MetaTv { mtv_info = SigTv } -> False
 	_                           -> True
+  | otherwise = True
 	
 isSkolemTyVar tv 
   = ASSERT2( isTcTyVar tv, ppr tv )
@@ -813,17 +818,24 @@ isSkolemTyVar tv
         RuntimeUnk {} -> True
         MetaTv {}     -> False
 
+isSkolemTyCoVar tv
+  = isCoVar tv || isSkolemTyVar tv
+
 isOverlappableTyVar tv
+  | isTyVar tv
   = ASSERT( isTcTyVar tv )
     case tcTyVarDetails tv of
         SkolemTv overlappable -> overlappable
         _                     -> False
+  | otherwise = False
 
-isMetaTyVar tv 
+isMetaTyVar tv
+  | isTyVar tv
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of
 	MetaTv {} -> True
 	_         -> False
+  | otherwise = False
 
 -- isAmbiguousTyVar is used only when reporting type errors
 -- It picks out variables that are unbound, namely meta
@@ -831,11 +843,13 @@ isMetaTyVar tv
 -- RtClosureInspect.zonkRTTIType.  These are "ambiguous" in
 -- the sense that they stand for an as-yet-unknown type
 isAmbiguousTyVar tv 
+  | isTyVar tv
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of
 	MetaTv {}     -> True
 	RuntimeUnk {} -> True
 	_             -> False
+  | otherwise = False
 
 isMetaTyVarTy :: TcType -> Bool
 isMetaTyVarTy (TyVarTy tv) = isMetaTyVar tv
@@ -898,7 +912,7 @@ isRuntimeUnkSkol x
 %************************************************************************
 
 \begin{code}
-mkSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
+mkSigmaTy :: [TyCoVar] -> [PredType] -> Type -> Type
 mkSigmaTy tyvars theta tau = mkForAllTys tyvars (mkPhiTy theta tau)
 
 mkPhiTy :: [PredType] -> Type -> Type
@@ -971,7 +985,7 @@ However, they are non-monadic and do not follow through mutable type
 variables.  It's up to you to make sure this doesn't matter.
 
 \begin{code}
-tcSplitForAllTys :: Type -> ([TyVar], Type)
+tcSplitForAllTys :: Type -> ([TyCoVar], Type)
 tcSplitForAllTys ty = split ty ty []
    where
      split orig_ty ty tvs | Just ty' <- tcView ty = split orig_ty ty' tvs
@@ -1001,14 +1015,14 @@ tcSplitPhiTy ty
 	  Just (pred, ty) -> split ty (pred:ts)
 	  Nothing         -> (reverse ts, ty)
 
-tcSplitSigmaTy :: Type -> ([TyVar], ThetaType, Type)
+tcSplitSigmaTy :: Type -> ([TyCoVar], ThetaType, Type)
 tcSplitSigmaTy ty = case tcSplitForAllTys ty of
 			(tvs, rho) -> case tcSplitPhiTy rho of
 					(theta, tau) -> (tvs, theta, tau)
 
 -----------------------
 tcDeepSplitSigmaTy_maybe
-  :: TcSigmaType -> Maybe ([TcType], [TyVar], ThetaType, TcSigmaType)
+  :: TcSigmaType -> Maybe ([TcType], [TyCoVar], ThetaType, TcSigmaType)
 -- Looks for a *non-trivial* quantified type, under zero or more function arrows
 -- By "non-trivial" we mean either tyvars or constraints are non-empty
 
@@ -1123,7 +1137,7 @@ tcIsTyVarTy :: Type -> Bool
 tcIsTyVarTy ty = maybeToBool (tcGetTyVar_maybe ty)
 
 -----------------------
-tcSplitDFunTy :: Type -> ([TyVar], [Type], Class, [Type])
+tcSplitDFunTy :: Type -> ([TyCoVar], [Type], Class, [Type])
 -- Split the type of a dictionary function
 -- We don't use tcSplitSigmaTy,  because a DFun may (with NDP)
 -- have non-Pred arguments, such as
@@ -1479,21 +1493,6 @@ deNoteType :: Type -> Type
 -- Remove all *outermost* type synonyms and other notes
 deNoteType ty | Just ty' <- tcView ty = deNoteType ty'
 deNoteType ty = ty
-
-tcTyVarsOfType :: Type -> TcTyVarSet
--- Just the *TcTyVars* free in the type
--- (Types.tyVarsOfTypes finds all free TyVars)
-tcTyVarsOfType (TyVarTy tv)	    = if isTcTyVar tv then unitVarSet tv
-						      else emptyVarSet
-tcTyVarsOfType (TyConApp _ tys)     = tcTyVarsOfTypes tys
-tcTyVarsOfType (LitTy {})           = emptyVarSet
-tcTyVarsOfType (FunTy arg res)	    = tcTyVarsOfType arg `unionVarSet` tcTyVarsOfType res
-tcTyVarsOfType (AppTy fun arg)	    = tcTyVarsOfType fun `unionVarSet` tcTyVarsOfType arg
-tcTyVarsOfType (ForAllTy tyvar ty)  = tcTyVarsOfType ty `delVarSet` tyvar
-	-- We do sometimes quantify over skolem TcTyVars
-
-tcTyVarsOfTypes :: [Type] -> TyVarSet
-tcTyVarsOfTypes tys = foldr (unionVarSet.tcTyVarsOfType) emptyVarSet tys
 \end{code}
 
 Find the free tycons and classes of a type.  This is used in the front

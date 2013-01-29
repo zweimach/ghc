@@ -1159,7 +1159,7 @@ setInteractiveContext hsc_env icxt thing_inside
         -- bound interactively might have some free type variables
         -- (RuntimeUnk things), and if we don't register these free
         -- TyVars as global TyVars then the typechecker will try to
-        -- quantify over them and fall over in zonkQuantifiedTyVar.
+        -- quantify over them and fall over in zonkQuantifiedTyCoVar.
         --
         -- So we must add any free TyVars to the typechecker's global
         -- TyVar set.  This is what happens when the local environment
