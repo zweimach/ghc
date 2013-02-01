@@ -645,12 +645,12 @@ tidyCo env@(_, subst) co
   = go co
   where
     go (Refl ty)             = Refl (tidyType env ty)
-    go (TyConAppCo tc cos)   = let args = map go cos
+    go (TyConAppCo tc cos)   = let args = map go_arg cos
                                in args `seqList` TyConAppCo tc args
-    go (AppCo co1 co2)       = (AppCo $! go co1) $! go co2
-    go (ForAllCo tv co)      = ForAllCo tvp $! (tidyCo envp co)
+    go (AppCo co1 co2)       = (AppCo $! go co1) $! go_arg co2
+    go (ForAllCo cobndr co)  = ForAllCo cobndrp $! (tidyCo envp co)
                                where
-                                 (envp, tvp) = tidyTyVarBndr env tv
+                                 (envp, tvp) = go_cobndr cobndr
     go (CoVarCo cv)          = case lookupVarEnv subst cv of
                                  Nothing  -> CoVarCo cv
                                  Just cv' -> CoVarCo cv'
@@ -661,7 +661,25 @@ tidyCo env@(_, subst) co
     go (TransCo co1 co2)     = (TransCo $! go co1) $! go co2
     go (NthCo d co)          = NthCo d $! go co
     go (LRCo lr co)          = LRCo lr $! go co
-    go (InstCo co ty)        = (InstCo $! go co) $! tidyType env ty
+    go (InstCo co ty)        = (InstCo $! go co) $! go_arg ty
+    go (CoherenceCo co1 co2) = (CoherenceCo $! go co1) $! go co2
+    go (KindCo co)           = KindCo $! go co
+
+    go_arg (TyCoArg co)      = TyCoArg $! go co
+    go_arg (CoCoArg co1 co2) = (CoCoArg $! go co1) $! go co2
+
+    go_bndr cobndr
+      | Just v <- getHomoVar_maybe cobndr
+      = let (envp, vp) = tidyTyCoVarBndr v in
+        (envp, mkHomoCoBndr v)
+      | TyHetero h tv1 tv2 cv <- cobndr
+      = let h' = go h
+            (envp, [tv1', tv2', cv']) = tidyTyCoVarBndrs env [tv1, tv2, cv] in
+        (envp, mkTyHeteroCoBndr h' tv1' tv2' cv')
+      | CoHetero h cv1 cv2 <- cobndr
+      = let h' = go h
+            (envp, [cv1', cv2']) = tidyTyCoVarBndrs env [cv1, cv2] in
+        (envp, mkCoHeteroCoBndr h' cv1' cv2')
 
 tidyCos :: TidyEnv -> [Coercion] -> [Coercion]
 tidyCos env = map (tidyCo env)
@@ -1654,9 +1672,13 @@ orphNamesOfDFunHead dfun_ty
         
 orphNamesOfCo :: Coercion -> NameSet
 orphNamesOfCo (Refl ty)             = orphNamesOfType ty
-orphNamesOfCo (TyConAppCo tc cos)   = unitNameSet (getName tc) `unionNameSets` orphNamesOfCos cos
-orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
-orphNamesOfCo (ForAllCo _ co)       = orphNamesOfCo co
+orphNamesOfCo (TyConAppCo tc cos)   = unitNameSet (getName tc) `unionNameSets` orphNamesOfCoArgs cos
+orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSets` orphNamesOfCoArg co2
+orphNamesOfCo (ForAllCo cobndr co)  = orphNamesOfCo co
+  | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
+  = orphNamesOfCo h `unionNameSets` orphNamesOfCo co
+  | otherwise
+  = orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
 orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSets` orphNamesOfCos cos
 orphNamesOfCo (UnsafeCo ty1 ty2)    = orphNamesOfType ty1 `unionNameSets` orphNamesOfType ty2
@@ -1664,10 +1686,16 @@ orphNamesOfCo (SymCo co)            = orphNamesOfCo co
 orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
 orphNamesOfCo (NthCo _ co)          = orphNamesOfCo co
 orphNamesOfCo (LRCo  _ co)          = orphNamesOfCo co
-orphNamesOfCo (InstCo co ty)        = orphNamesOfCo co `unionNameSets` orphNamesOfType ty
+orphNamesOfCo (InstCo co arg)       = orphNamesOfCo co `unionNameSets` orphNamesOfCoArg arg
+orphNamesOfCo (CoherenceCo co1 co2) = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
+orphNamesOfCo (KindCo co)           = orphNamesOfCo co
 
-orphNamesOfCos :: [Coercion] -> NameSet
-orphNamesOfCos = orphNamesOfThings orphNamesOfCo
+orphNamesOfCoArg :: CoercionArg -> NameSet
+orphNamesOfCoArg (TyCoArg co)      = orphNamesOfCo co
+orphNamesOfCoArg (CoCoArg co1 co2) = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
+
+orphNamesOfCoArgs :: [CoercionArg] -> NameSet
+orphNamesOfCoArgs = orphNamesOfThings orphNamesOfCoArg
 
 orphNamesOfCoCon :: CoAxiom br -> NameSet
 orphNamesOfCoCon (CoAxiom { co_ax_tc = tc, co_ax_branches = branches })

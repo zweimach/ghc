@@ -76,6 +76,7 @@ data Ty
   | NthCoercion Int Ty
   | AxiomCoercion (Qual Tcon) Int [Ty]
   | LRCoercion LeftOrRight Ty
+  | CoCoArgCoercion Ty Ty
 
 data LeftOrRight = CLeft | CRight
 

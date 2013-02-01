@@ -749,6 +749,13 @@ mkTyHeteroCoBndr h tv1 tv2 cv
     TyHetero h tv1 tv2 cv
     where Pair _hty1 _hty2 = coercionKind h
 
+mkCoHeteroCoBndr :: Coercion -> CoVar -> CoVar -> ForAllCoBndr
+mkCoHeteroCoBndr h cv1 cv2
+  = ASSERT( _hty1 `eqType` (coVarKind cv1) )
+    ASSERT( _hty2 `eqType` (coVarKind cv2) )
+    CoHetero h cv1 cv2
+    where Pair _hty1 _hty2 = coercionKind h
+
 -------------------------------
 
 -- like mkKindCo, but aggressively & recursively optimizes to avoid using
