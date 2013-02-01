@@ -105,197 +105,6 @@ import qualified Data.Data as Data hiding ( TyCon )
 
 %************************************************************************
 %*									*
-            Coercions
-%*									*
-%************************************************************************
-
-\begin{code}
--- | A 'Coercion' is concrete evidence of the equality/convertibility
--- of two types.
-
--- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-data Coercion 
-  -- These ones mirror the shape of types
-  = Refl Type  -- See Note [Refl invariant]
-          -- Invariant: applications of (Refl T) to a bunch of identity coercions
-          --            always show up as Refl.
-          -- For example  (Refl T) (Refl a) (Refl b) shows up as (Refl (T a b)).
-
-          -- Applications of (Refl T) to some coercions, at least one of
-          -- which is NOT the identity, show up as TyConAppCo.
-          -- (They may not be fully saturated however.)
-          -- ConAppCo coercions (like all coercions other than Refl)
-          -- are NEVER the identity.
-
-  -- These ones simply lift the correspondingly-named 
-  -- Type constructors into Coercions
-  | TyConAppCo TyCon [Coercion]    -- lift TyConApp 
-    	       -- The TyCon is never a synonym; 
-	       -- we expand synonyms eagerly
-	       -- But it can be a type function
-
-  | AppCo Coercion Coercion        -- lift AppTy
-
-  -- See Note [Forall coercions]
-  | ForAllCo TyVar Coercion       -- forall a. g
-
-  -- These are special
-  | CoVarCo CoVar
-  | AxiomInstCo (CoAxiom Branched) Int [Coercion]
-     -- The coercion arguments always *precisely* saturate arity of CoAxiom.
-     -- See [Coercion axioms applied to coercions]
-     -- See also [CoAxiom index]
-  | UnsafeCo Type Type
-  | SymCo Coercion
-  | TransCo Coercion Coercion
-
-  -- These are destructors
-  | NthCo  Int         Coercion     -- Zero-indexed; decomposes (T t0 ... tn)
-  | LRCo   LeftOrRight Coercion     -- Decomposes (t_left t_right)
-  | InstCo Coercion Type
-  deriving (Data.Data, Data.Typeable)
-
--- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-data LeftOrRight = CLeft | CRight 
-                 deriving( Eq, Data.Data, Data.Typeable )
-
-pickLR :: LeftOrRight -> (a,a) -> a
-pickLR CLeft  (l,_) = l
-pickLR CRight (_,r) = r
-\end{code}
-
-
-Note [Refl invariant]
-~~~~~~~~~~~~~~~~~~~~~
-Coercions have the following invariant 
-     Refl is always lifted as far as possible.  
-
-You might think that a consequencs is:
-     Every identity coercions has Refl at the root
-
-But that's not quite true because of coercion variables.  Consider
-     g         where g :: Int~Int
-     Left h    where h :: Maybe Int ~ Maybe Int
-etc.  So the consequence is only true of coercions that
-have no coercion variables.
-
-Note [Coercion axioms applied to coercions]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The reason coercion axioms can be applied to coercions and not just
-types is to allow for better optimization.  There are some cases where
-we need to be able to "push transitivity inside" an axiom in order to
-expose further opportunities for optimization.  
-
-For example, suppose we have
-
-  C a : t[a] ~ F a
-  g   : b ~ c
-
-and we want to optimize
-
-  sym (C b) ; t[g] ; C c
-
-which has the kind
-
-  F b ~ F c
-
-(stopping through t[b] and t[c] along the way).
-
-We'd like to optimize this to just F g -- but how?  The key is
-that we need to allow axioms to be instantiated by *coercions*,
-not just by types.  Then we can (in certain cases) push
-transitivity inside the axiom instantiations, and then react
-opposite-polarity instantiations of the same axiom.  In this
-case, e.g., we match t[g] against the LHS of (C c)'s kind, to
-obtain the substitution  a |-> g  (note this operation is sort
-of the dual of lifting!) and hence end up with
-
-  C g : t[b] ~ F c
-
-which indeed has the same kind as  t[g] ; C c.
-
-Now we have
-
-  sym (C b) ; C g
-
-which can be optimized to F g.
-
-Note [CoAxiom index]
-~~~~~~~~~~~~~~~~~~~~
-A CoAxiom has 1 or more branches. Each branch has contains a list
-of the free type variables in that branch, the LHS type patterns,
-and the RHS type for that branch. When we apply an axiom to a list
-of coercions, we must choose which branch of the axiom we wish to
-use, as the different branches may have different numbers of free
-type variables. (The number of type patterns is always the same
-among branches, but that doesn't quite concern us here.)
-
-The Int in the AxiomInstCo constructor is the 0-indexed number
-of the chosen branch.
-
-Note [Forall coercions]
-~~~~~~~~~~~~~~~~~~~~~~~
-Constructing coercions between forall-types can be a bit tricky.
-Currently, the situation is as follows:
-
-  ForAllCo TyVar Coercion
-
-represents a coercion between polymorphic types, with the rule
-
-           v : k       g : t1 ~ t2
-  ----------------------------------------------
-  ForAllCo v g : (all v:k . t1) ~ (all v:k . t2)
-
-Note that it's only necessary to coerce between polymorphic types
-where the type variables have identical kinds, because equality on
-kinds is trivial.
-
-Note [Predicate coercions]
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-Suppose we have
-   g :: a~b
-How can we coerce between types
-   ([c]~a) => [a] -> c
-and
-   ([c]~b) => [b] -> c
-where the equality predicate *itself* differs?
-
-Answer: we simply treat (~) as an ordinary type constructor, so these
-types really look like
-
-   ((~) [c] a) -> [a] -> c
-   ((~) [c] b) -> [b] -> c
-
-So the coercion between the two is obviously
-
-   ((~) [c] g) -> [g] -> c
-
-Another way to see this to say that we simply collapse predicates to
-their representation type (see Type.coreView and Type.predTypeRep).
-
-This collapse is done by mkPredCo; there is no PredCo constructor
-in Coercion.  This is important because we need Nth to work on 
-predicates too:
-    Nth 1 ((~) [c] g) = g
-See Simplify.simplCoercionF, which generates such selections.
-
-Note [Kind coercions]
-~~~~~~~~~~~~~~~~~~~~~
-Suppose T :: * -> *, and g :: A ~ B
-Then the coercion
-   TyConAppCo T [g]      T g : T A ~ T B
-
-Now suppose S :: forall k. k -> *, and g :: A ~ B
-Then the coercion
-   TyConAppCo S [Refl *, g]   T <*> g : T * A ~ T * B
-
-Notice that the arguments to TyConAppCo are coercions, but the first
-represents a *kind* coercion.
-
-%************************************************************************
-%*									*
 \subsection{Coercion variables}
 %*									*
 %************************************************************************
@@ -318,45 +127,6 @@ isCoVarType ty 	    -- Tests for t1 ~# t2, the unboxed equality
   = case splitTyConApp_maybe ty of
       Just (tc,tys) -> tc `hasKey` eqPrimTyConKey && tys `lengthAtLeast` 4
       Nothing       -> False
-\end{code}
-
-
-\begin{code}
-tyCoVarsOfCo :: Coercion -> VarSet
--- Extracts type and coercion variables from a coercion
-tyCoVarsOfCo (Refl ty)           = tyVarsOfType ty
-tyCoVarsOfCo (TyConAppCo _ cos)  = tyCoVarsOfCos cos
-tyCoVarsOfCo (AppCo co1 co2)     = tyCoVarsOfCo co1 `unionVarSet` tyCoVarsOfCo co2
-tyCoVarsOfCo (ForAllCo tv co)    = tyCoVarsOfCo co `delVarSet` tv
-tyCoVarsOfCo (CoVarCo v)         = unitVarSet v
-tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCos cos
-tyCoVarsOfCo (UnsafeCo ty1 ty2)  = tyVarsOfType ty1 `unionVarSet` tyVarsOfType ty2
-tyCoVarsOfCo (SymCo co)          = tyCoVarsOfCo co
-tyCoVarsOfCo (TransCo co1 co2)   = tyCoVarsOfCo co1 `unionVarSet` tyCoVarsOfCo co2
-tyCoVarsOfCo (NthCo _ co)        = tyCoVarsOfCo co
-tyCoVarsOfCo (LRCo _ co)         = tyCoVarsOfCo co
-tyCoVarsOfCo (InstCo co ty)      = tyCoVarsOfCo co `unionVarSet` tyVarsOfType ty
-
-tyCoVarsOfCos :: [Coercion] -> VarSet
-tyCoVarsOfCos cos = foldr (unionVarSet . tyCoVarsOfCo) emptyVarSet cos
-
-coVarsOfCo :: Coercion -> VarSet
--- Extract *coerction* variables only.  Tiresome to repeat the code, but easy.
-coVarsOfCo (Refl _)            = emptyVarSet
-coVarsOfCo (TyConAppCo _ cos)  = coVarsOfCos cos
-coVarsOfCo (AppCo co1 co2)     = coVarsOfCo co1 `unionVarSet` coVarsOfCo co2
-coVarsOfCo (ForAllCo _ co)     = coVarsOfCo co
-coVarsOfCo (CoVarCo v)         = unitVarSet v
-coVarsOfCo (AxiomInstCo _ _ cos) = coVarsOfCos cos
-coVarsOfCo (UnsafeCo _ _)      = emptyVarSet
-coVarsOfCo (SymCo co)          = coVarsOfCo co
-coVarsOfCo (TransCo co1 co2)   = coVarsOfCo co1 `unionVarSet` coVarsOfCo co2
-coVarsOfCo (NthCo _ co)        = coVarsOfCo co
-coVarsOfCo (LRCo _ co)         = coVarsOfCo co
-coVarsOfCo (InstCo co _)       = coVarsOfCo co
-
-coVarsOfCos :: [Coercion] -> VarSet
-coVarsOfCos cos = foldr (unionVarSet . coVarsOfCo) emptyVarSet cos
 
 coercionSize :: Coercion -> Int
 coercionSize (Refl ty)           = typeSize ty
@@ -775,28 +545,19 @@ mkUnbranchedAxInstCo :: CoAxiom Unbranched -> [Type] -> Coercion
 mkUnbranchedAxInstCo ax tys
   = mkAxInstCo ax 0 tys
 
-mkAxInstLHS, mkAxInstRHS :: CoAxiom br -> BranchIndex -> [Type] -> Type
+mkAxInstRHS :: CoAxiom br -> BranchIndex -> [Type] -> Type
 -- Instantiate the axiom with specified types,
 -- returning the instantiated RHS
 -- A companion to mkAxInstCo: 
 --    mkAxInstRhs ax index tys = snd (coercionKind (mkAxInstCo ax index tys))
-mkAxInstLHS ax index tys
-  | CoAxBranch { cab_tvs = tvs, cab_lhs = lhs } <- coAxiomNthBranch ax index
-  , (tys1, tys2) <- splitAtList tvs tys
-  = ASSERT( tvs `equalLength` tys1 ) 
-    mkTyConApp (coAxiomTyCon ax) (substTysWith tvs tys1 lhs ++ tys2)
-  where
-
 mkAxInstRHS ax index tys
-  | CoAxBranch { cab_tvs = tvs, cab_rhs = rhs } <- coAxiomNthBranch ax index
-  , (tys1, tys2) <- splitAtList tvs tys
   = ASSERT( tvs `equalLength` tys1 ) 
     mkAppTys rhs' tys2
   where
     branch       = coAxiomNthBranch ax index
     tvs          = coAxBranchTyCoVars branch
     (tys1, tys2) = splitAtList tvs tys
-    mkAppTys (substTyWith tvs tys1 rhs) tys2
+    rhs'         = substTyWith tvs tys1 (coAxBranchRHS branch)
 
 mkUnbranchedAxInstRHS :: CoAxiom Unbranched -> [Type] -> Type
 mkUnbranchedAxInstRHS ax = mkAxInstRHS ax 0
@@ -925,7 +686,6 @@ mkCoherenceRightCo c1 c2 = mkSymCo (mkCoherenceCo (mkSymCo c1) c2)
 -- | An explictly directed synonym of mkCoherenceCo
 mkCoherenceLeftCo :: Coercion -> Coercion -> Coercion
 mkCoherenceLeftCo = mkCoherenceCo
-  = mkFunCo (mkUnsafeCo a1 a2) (mkUnsafeCo r1 r2)
 
 infixl `mkCoherenceCo` 5
 infixl `mkCoherenceRightCo` 5
@@ -1254,21 +1014,12 @@ cmpCoercionX _ co1 co2
         get_rank (KindCo {})      = 13
 
 cmpCoercionArgX :: RnEnv2 -> CoercionArg -> CoercionArg -> Ordering
-    go (Refl ty)             = Refl $! go_ty ty
-    go (TyConAppCo tc cos)   = let args = map go cos
 cmpCoercionArgX env (TyCoArg co1)       (TyCoArg co2)
   = cmpCoercionX env co1 co2
-    go (ForAllCo tv co)      = case substTyVarBndr subst tv of
 cmpCoercionArgX env (CoCoArg col1 cor1) (CoCoArg col2 cor2)
-                                   ForAllCo tv' $! subst_co subst' co
-    go (CoVarCo cv)          = substCoVar subst cv
-    go (AxiomInstCo con ind cos) = AxiomInstCo con ind $! map go cos
   = cmpCoercionX env col1 col2 `thenCmp` cmpCoercionX env cor1 cor2
-    go (SymCo co)            = mkSymCo (go co)
 cmpCoercionArgX _ (TyCoArg {}) (CoCoArg {}) = LT
-    go (NthCo d co)          = mkNthCo d (go co)
 cmpCoercionArgX _ (CoCoArg {}) (TyCoArg {}) = GT
-    go (InstCo co ty)        = mkInstCo (go co) $! go_ty ty
 
 cmpCoercionArgsX :: RnEnv2 -> [CoercionArg] -> [CoercionArg] -> Ordering
 cmpCoercionArgsX _ [] [] = EQ
@@ -1398,7 +1149,6 @@ ty_co_subst lc@(LC in_scope env) ty
     go (TyConApp tc tys) = mkTyConAppCo tc (map go_arg tys)
     go (FunTy ty1 ty2)   = mkFunCo (go_arg ty1) (go_arg ty2)
     go (ForAllTy v ty)   = let (lc', cobndr) = liftCoSubstVarBndr lc v in
-                         where
                            mkForAllCo cobndr $! ty_co_subst lc' ty
     go ty@(LitTy {})     = mkReflCo ty
     go (CastTy ty co)    = castCoercionKind (go ty) (substLeftCo lc co)
@@ -1675,12 +1425,9 @@ ty_co_match menv subst (TyVarTy tv1) co
   = if any (inRnEnvR rn_env) (varSetElems (tyCoVarsOfCo co))
     then Nothing      -- occurs check failed
     else do { subst1 <- ty_co_match menv subst (tyVarKind tv1') (promoteCoercion co)
-        -- BAY: I don't think we need to do any kind matching here yet
             ; return (extendVarEnv subst tv1' (TyCoArg co)) }
 
   | otherwise
-                 -- can match is a reflexivity coercion for itself.
-		 -- But that case is dealt with already
   = Nothing
 
   where
@@ -1877,7 +1624,6 @@ coercionKind co = go co
             tys_pair       = sequenceA $ map coercionArgKind cos 
         in substTyWith tvs <$> tys_pair <*> Pair (coAxNthLHS ax ind)
                                                  (coAxBranchRHS branch)
-        <*> sequenceA (map go cos2)
     go (UnsafeCo ty1 ty2)   = Pair ty1 ty2
     go (SymCo co)           = swap $ go co
     go (TransCo co1 co2)    = Pair (pFst $ go co1) (pSnd $ go co2)
