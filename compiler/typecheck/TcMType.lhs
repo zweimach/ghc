@@ -900,6 +900,13 @@ zonkTcType ty
 		-- type variable to a type constructor, so we need
 		-- to pull the TyConApp to the top.
 
+    go (CastTy ty co)    = do ty' <- go ty
+                              co' <- go_co co
+                              return (mkCastTy ty' co')
+
+    go (CoercionTy co)   = do co' <- go_co co
+                              return (mkCoercionTy co')
+
 	-- The two interesting cases!
     go (TyVarTy tyvar) | isTcTyVar tyvar = zonkTcTyCoVar tyvar
 		       | otherwise	 = TyVarTy <$> updateTyVarKindM go tyvar
@@ -907,7 +914,48 @@ zonkTcType ty
 
     go (ForAllTy tv ty) = do { tv' <- zonkTcTyCoVarBndr tv
                              ; ty' <- go ty
-                             ; return (ForAllTy tv' ty') }
+                             ; return (mkForAllTy tv' ty') }
+
+    go_co (Refl ty)                 = mkReflCo <$> go ty
+    go_co (TyConAppCo tc args)      = mkTyConAppCo tc <$> mapM go_arg args
+    go_co (AppCo co arg)            = mkAppCo <$> go_co co <*> go_arg arg
+    go_co (CoVarCo cv)              = mkCoVarCo <$> zonkTyCoVarKind cv
+    go_co (AxiomInstCo ax ind args) = mkAxiomInstCo ax ind <$> mapM go_arg args
+    go_co (UnsafeCo ty1 ty2)        = mkUnsafeCo <$> go ty1 <*> go ty2
+    go_co (SymCo co)                = mkSymCo <$> go_co co
+    go_co (TransCo co1 co2)         = mkTransCo <$> go_co co1 <*> go_co co2
+    go_co (NthCo n co)              = mkNthCo n <$> go_co co
+    go_co (LRCo lr co)              = mkLRCo lr <$> go_co co
+    go_co (InstCo co arg)           = mkInstCo <$> go_co co <*> go_arg arg
+    go_co (CoherenceCo co1 co2)     = mkCoherenceCo <$> go_co co1 <*> go_co co2
+    go_co (KindCo co)               = mkKindCo <$> go_co co
+
+    go_co (ForAllCo cobndr co)
+      | Just v <- getHomoVar_maybe cobndr
+      = do { v' <- zonkTcTyCoVarBndr tv
+           ; co' <- go_co co
+           ; return (mkForAllCo (mkHomoCoBndr v') co') }
+
+      | TyHetero h tv1 tv2 cv <- cobndr
+      = do { h' <- go_co h
+           ; tv1' <- zonkTcTyCoVarBndr tv1
+           ; tv2' <- zonkTcTyCoVarBndr tv2
+           ; cv' <- zonkTcTyCoVarBndr cv'
+           ; co' <- go_co co
+           ; return (mkForAllCo (mkTyHeteroCoBndr h' tv1' tv2' cv') co') }
+
+      | CoHetero h cv1 cv2 <- cobndr
+      = do { h' <- go_co h
+           ; cv1' <- zonkTcTyCoVarBndr cv1
+           ; cv2' <- zonkTcTyCoVarBndr cv2
+           ; co' <- go_co co
+           ; return (mkForAllCo (CoHetero h' cv1' cv2') co') }
+
+      | otherwise
+      = pprPanic "zonkTcType" (ppr cobndr)
+
+    go_arg (TyCoArg co)      = TyCoArg <$> go_co co
+    go_arg (CoCoArg co1 co2) = CoCoArg <$> go_co co1 <*> go_co co2
 
 zonkTcTyCoVarBndr :: TcTyCoVar -> TcM TcTyCoVar
 -- A tyvar binder is never a unification variable (MetaTv),

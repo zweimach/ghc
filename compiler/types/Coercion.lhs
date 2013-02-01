@@ -1345,14 +1345,17 @@ liftCoSubstWithEx univs omegas exs rhos
         psi   = extendLiftingContext theta (zipEqual "liftCoSubstWithExX" exs rhos)
     in ty_co_subst psi
 
-liftCoSubstWith :: [TyVar] -> [CoercionArg] -> Type -> Coercion
+liftCoSubstWith :: [TyCoVar] -> [CoercionArg] -> Type -> Coercion
 liftCoSubstWith tvs cos ty
   = liftCoSubst (zipEqual "liftCoSubstWith" tvs cos) ty
 
-liftCoSubst :: [(TyVar,CoercionArg)] -> Type -> Coercion
+liftCoSubst :: [(TyCoVar,CoercionArg)] -> Type -> Coercion
 liftCoSubst prs ty
  | null prs  = Refl ty
  | otherwise = ty_co_subst (mkLiftingContext prs) ty
+
+emptyLiftingContext :: InScopeSet -> LiftingContext
+emptyLiftingContext in_scope = LC in_scope emptyVarEnv
 
 mkLiftingContext :: [(TyCoVar,CoercionArg)] -> LiftingContext
 mkLiftingContext prs = LC (mkInScopeSet (tyCoVarsOfCoArgs (map snd prs)))
@@ -1394,7 +1397,7 @@ ty_co_subst lc@(LC in_scope env) ty
     go (AppTy ty1 ty2)   = mkAppCo (go ty1) (go_arg ty2)
     go (TyConApp tc tys) = mkTyConAppCo tc (map go_arg tys)
     go (FunTy ty1 ty2)   = mkFunCo (go_arg ty1) (go_arg ty2)
-    go (ForAllTy v ty)   = let (lc', cobndr) = liftCoSubstTyCoVarBndr lc v in
+    go (ForAllTy v ty)   = let (lc', cobndr) = liftCoSubstVarBndr lc v in
                          where
                            mkForAllCo cobndr $! ty_co_subst lc' ty
     go ty@(LitTy {})     = mkReflCo ty
@@ -1403,8 +1406,8 @@ ty_co_subst lc@(LC in_scope env) ty
     go (Coercion co)     = pprPanic "ty_co_subst" (ppr co)
 
     go_arg :: Type -> CoercionArg
-    go_arg (Coercion co) = CoCoArg (substLeftCo lc co) (substRightCo lc co)
-    go_arg ty            = TyCoArg (go ty)
+    go_arg (CoercionTy co) = CoCoArg (substLeftCo lc co) (substRightCo lc co)
+    go_arg ty              = TyCoArg (go ty)
 
     isNotInDomainOf :: VarSet -> VarEnv a -> Bool
     isNotInDomainOf set env
@@ -1412,11 +1415,6 @@ ty_co_subst lc@(LC in_scope env) ty
 
     noneSet :: (Var -> Bool) -> VarSet -> Bool
     noneSet f = foldVarSet (\v rest -> rest && (not $ f v)) True
-
-    -- See Note [cast_2_ways]
-    cast_2_ways :: Coercion -> Coercion -> Coercion -> Coercion
-    cast_2_ways g eta1 eta2 = (mkSymCo ((mkSymCo g) `mkCoherenceCo` eta2))
-                              `mkCoherenceCo` eta1
 
 liftCoSubstTyVar :: LiftingContext -> TyVar -> Coercion
 liftCoSubstTyVar (LC _ cenv) tv
@@ -1430,12 +1428,19 @@ liftCoSubstTyCoVar :: LiftingContext -> TyCoVar -> Maybe CoercionArg
 liftCoSubstTyCoVar (LC _ env) v
   = lookupVarEnv env v
 
-liftCoSubstTyCoVarBndr :: LiftingContext -> TyCoVar
+liftCoSubstVarBndr :: LiftingContext -> TyCoVar
                      -> (LiftingContext, ForAllCoBndr)
-liftCoSubstTyCoVarBndr lc@(LC in_scope cenv) old_var
+liftCoSubstVarBndr = liftCoSubstVarBndrCallback ty_co_subst False
+
+liftCoSubstVarBndrCallback :: (LiftingContext -> Type -> Coercion)
+                           -> Bool -- True <=> homogenize TyHetero substs
+                                   -- see Note [Normalising types] in FamInstEnv
+                           -> LiftingContext -> TyCoVar
+                           -> (LiftingContext, ForAllCoBndr)
+liftCoSubstVarBndrCallback fun homo lc@(LC in_scope cenv) old_var
   = (LC (in_scope `extendInScopeSetList` coBndrVars cobndr) new_cenv, cobndr)
   where
-    eta = ty_co_subst lc (tyVarKind old_var)
+    eta = fun lc (tyVarKind old_var)
     Pair k1 k2 = coercionKind eta
     new_var = uniqAway in_scope (setVarType old_var k1)
 
@@ -1449,22 +1454,32 @@ liftCoSubstTyCoVarBndr lc@(LC in_scope cenv) old_var
       = (delVarEnv cenv old_var, mkHomoCoBndr old_var)
 
       | k1 `eqType` k2
-      = ( extendVarEnv cenv old_var (mkCoArgForVar new_var), mkHomoCoBndr new_var)
+      = (extendVarEnv cenv old_var (mkCoArgForVar new_var), mkHomoCoBndr new_var)
 
       | isTyVar old_var
       = let a1 = new_var
             in_scope1 = in_scope `extendInScopeSet` a1
             a2 = uniqAway in_scope1 $ setVarType new_var k2
             in_scope2 = in_scope1 `extendInScopeSet` a2
-            c  = mkFreshCoVar in_scope (mkOnlyTyVarTy a1) (mkOnlyTyVarTy a2) in
-        ( extendVarEnv cenv old_var (TyCoArg $ mkCoVarCo c)
+            c  = mkFreshCoVar in_scope (mkOnlyTyVarTy a1) (mkOnlyTyVarTy a2) 
+            lifted = if homo
+                     then mkCoVarCo c `mkCoherenceRightCo` mkSymCo eta
+                     else mkCoVarCo c
+        in
+        ( extendVarEnv cenv old_var (TyCoArg lifted)
         , TyHetero eta a1 a2 c )
 
       | otherwise
       = let cv1 = new_var
             in_scope1 = in_scope `extendInScopeSet` cv1
-            cv2 = uniqAway in_scope1 $ setVarType new_var k2 in
-        ( extendVarEnv cenv old_var (CoCoArg (mkCoVarCo cv1) (mkCoVarCo cv2))
+            cv2 = uniqAway in_scope1 $ setVarType new_var k2
+            lifted_r = if homo
+                       then mkNthCo 2 eta
+                            `mkTransCo` (mkCoVarCo cv2)
+                            `mkTransCo` mkNthCo 3 (mkSymCo eta)
+                       else mkCoVarCo cv2
+        in
+        ( extendVarEnv cenv old_var (CoCoArg (mkCoVarCo cv1) lifted_r)
         , CoHetero eta cv1 cv2 )
 
 -- If [a |-> g] is in the substitution and g :: t1 ~ t2, substitute a for t1

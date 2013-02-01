@@ -125,7 +125,12 @@ normaliseFfiType' env ty0 = go [] ty0
 
     go rec_nts (ForAllTy tyvar ty1)
       = do (coi,nty1,gres1) <- go rec_nts ty1
-           return (mkForAllCo tyvar coi, ForAllTy tyvar nty1, gres1)
+           return (mkForAllCo_TyHomo tyvar coi, mkForAllTy tyvar nty1, gres1)
+
+    go rec_nts ty@(CastTy {})
+      = pprPanic "normaliseFfiType'" (ppr ty)
+    go rec_nts ty@(CoercionTy {})
+      = pprPanic "normaliseFfiType'" (ppr ty)
 
     go _ ty@(TyVarTy {}) = return (Refl ty, ty, emptyBag)
     go _ ty@(LitTy {})   = return (Refl ty, ty, emptyBag)

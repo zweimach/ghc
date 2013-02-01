@@ -82,7 +82,6 @@ import Var		( TyVar, KindVar, mkTyVar )
 import Name		( Name, BuiltInSyntax(..), mkInternalName, mkWiredInName )
 import OccName          ( mkTyVarOccFS, mkTcOccFS )
 import TyCon
-import TypeRep
 import SrcLoc
 import Unique		( mkAlphaTyVarUnique )
 import PrelNames
@@ -464,7 +463,7 @@ statePrimTyCon	 = pcPrimTyCon statePrimTyConName 1 VoidRep
 eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 		      -- See Note [The ~# TyCon]
 eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind 4 VoidRep
-  where kind = ForAllTy kv1 $ ForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
+  where kind = mkForAllTy kv1 $ mkForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
         kVars = tyVarList superKind
         kv1 = kVars !! 0
         kv2 = kVars !! 1
@@ -716,7 +715,7 @@ anyTy = mkTyConTy anyTyCon
 
 anyTyCon :: TyCon
 anyTyCon = mkLiftedPrimTyCon anyTyConName kind 1 PtrRep
-  where kind = ForAllTy kKiVar (mkOnlyTyVarTy kKiVar)
+  where kind = mkForAllTy kKiVar (mkOnlyTyVarTy kKiVar)
 
 {-   Can't do this yet without messing up kind proxies
 anyTyCon :: TyCon
@@ -724,7 +723,7 @@ anyTyCon = mkSynTyCon anyTyConName kind [kKiVar]
                       syn_rhs
                       NoParentTyCon
   where 
-    kind = ForAllTy kKiVar (mkOnlyTyVarTy kKiVar)
+    kind = mkForAllTy kKiVar (mkOnlyTyVarTy kKiVar)
     syn_rhs = SynFamilyTyCon { synf_open = False, synf_injective = True }
                   -- NB Closed, injective
 -}

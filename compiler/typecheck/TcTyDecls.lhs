@@ -226,6 +226,8 @@ calcClassCycles cls
     expandType seen path (AppTy t1 t2)    = expandType seen path t1 . expandType seen path t2
     expandType seen path (FunTy t1 t2)    = expandType seen path t1 . expandType seen path t2
     expandType seen path (ForAllTy _tv t) = expandType seen path t
+    expandType seen path (CastTy ty _co)  = expandType seen path ty
+    expandType seen path (CoercionTy {})  = id
 
     papp :: [TyVar] -> [Type] -> ([(TyVar, Type)], Either [TyVar] [Type])
     papp []       tys      = ([], Right tys)
@@ -459,11 +461,39 @@ tcTyConsOfType ty
      go ty | Just ty' <- tcView ty = go ty'
      go (TyVarTy {})               = emptyNameEnv
      go (LitTy {})                 = emptyNameEnv
-     go (TyConApp tc tys)          = go_tc tc tys
+     go (TyConApp tc tys)          = go_tc tc `plusNameEnv` go_s tys
      go (AppTy a b)                = go a `plusNameEnv` go b
      go (FunTy a b)                = go a `plusNameEnv` go b
      go (ForAllTy _ ty)            = go ty
+     go (CastTy ty co)             = go ty `plusNameEnv` go_co co
+     go (CoercionTy co)            = go_co co
 
-     go_tc tc tys = extendNameEnv (go_s tys) (tyConName tc) tc
+     go_co (Refl ty)               = go ty
+     go_co (TyConAppCo tc args)    = go_tc tc `plusNameEnv` go_args args
+     go_co (AppCo co arg)          = go_co co `plusNameEnv` go_arg arg
+     go_co (ForAllCo cobndr co)
+       | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
+       = go_co h `plusNameEnv` go_co co
+       | otherwise
+       = go_co co
+     go_co (CoVarCo {})            = emptyNameEnv
+     go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_args args
+     go_co (UnsafeCo ty1 ty2)      = go ty1 `plusNameEnv` go ty2
+     go_co (SymCo co)              = go_co co
+     go_co (TransCo co1 co2)       = go_co co1 `plusNameEnv` go_co co2
+     go_co (NthCo _ co)            = go_co co
+     go_co (LRCo _ co)             = go_co co
+     go_co (InstCo co arg)         = go_co co `plusNameEnv` go_arg arg
+     go_co (CoherenceCo co1 co2)   = go_co co1 `plusNameEnv` go_co co2
+     go_co (KindCo co)             = go_co co
+
+     go_arg (TyCoArg co)           = go_co co
+     go_arg (CoCoArg co1 co2)      = go_co co1 `plusNameEnv` go_co co2
+
      go_s tys = foldr (plusNameEnv . go) emptyNameEnv tys
+     go_args args = foldr (plusNameEnv . go_arg) emptyNameEnv args
+
+     go_tc tc = unitNameEnv (tyConName tc) tc
+     go_ax ax = go_tc $ coAxiomTyCon ax
+     
 \end{code}

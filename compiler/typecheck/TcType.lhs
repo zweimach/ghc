@@ -600,6 +600,8 @@ tidyType env (FunTy fun arg)	  = (FunTy $! (tidyType env fun)) $! (tidyType env 
 tidyType env (ForAllTy tv ty)	  = ForAllTy tvp $! (tidyType envp ty)
 			          where
 			            (envp, tvp) = tidyTyCoVarBndr env tv
+tidyType env (CastTy ty co)       = (CastTy $! (tidyType env ty)) $! (tidyCo env co)
+tidyType env (CoercionTy co)      = CoercionTy $! (tidyCo env co)
 
 ---------------
 -- | Grabs the free type variables, tidies them
@@ -685,6 +687,39 @@ tcTyFamInsts (LitTy {})         = []
 tcTyFamInsts (FunTy ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
 tcTyFamInsts (AppTy ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
 tcTyFamInsts (ForAllTy _ ty)    = tcTyFamInsts ty
+tcTyFamInsts (CastTy ty co)     = tcTyFamInsts ty ++ tcTyFamInstsCo co
+tcTyFamInsts (CoercionTy co)    = tcTyFamInstsCo co
+
+tcTyFamInstsCo :: Coercion -> [(TyCon, [Type])]
+tcTyFamInstsCo = go
+  where
+    go (Refl ty)             = tcTyFamInsts ty
+    go co@(TyConAppCo tc args)
+      | isSynFamilyTyCon tc  = let Pair tyl tyr = coercionKind co
+                                   (_tc1, tysl) = splitTyConApp tyl
+                                   (_tc2, tysr) = splitTyConApp tyr in
+                               ASSERT( tc == _tc1 && tc == _tc2 )
+                               [(tc, tysl), (tc, tysr)]
+      | otherwise            = concatMap go_arg cos
+    go (AppCo co arg)        = go co ++ go_arg arg
+    go (ForAllCo cobndr co)
+      | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
+                             = go h ++ go co
+      | otherwise            = go co
+    go (CoVarCo _)           = []
+    go (AxiomInstCo _ _ cos) = concatMap go_arg cos
+    go (UnsafeCo ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
+    go (SymCo co)            = go co
+    go (TransCo co1 co2)     = go co1 ++ go co2
+    go (NthCo _ co)          = go co
+    go (LRCo _ co)           = go co
+    go (InstCo co arg)       = go co ++ go_arg arg
+    go (CoherenceCo co1 co2) = go co1 ++ go co2
+    go (KindCo co)           = go co
+
+    go_arg (TyCoArg co)      = go co
+    go_arg (CoCoArg co1 co2) = go co1 ++ go co2
+
 \end{code}
 
 %************************************************************************
@@ -959,12 +994,14 @@ isTauTyCon tc
 getDFunTyKey :: Type -> OccName -- Get some string from a type, to be used to
 				-- construct a dictionary function name
 getDFunTyKey ty | Just ty' <- tcView ty = getDFunTyKey ty'
-getDFunTyKey (TyVarTy tv)    = getOccName tv
-getDFunTyKey (TyConApp tc _) = getOccName tc
-getDFunTyKey (LitTy x)       = getDFunTyLitKey x
-getDFunTyKey (AppTy fun _)   = getDFunTyKey fun
-getDFunTyKey (FunTy _ _)     = getOccName funTyCon
-getDFunTyKey (ForAllTy _ t)  = getDFunTyKey t
+getDFunTyKey (TyVarTy tv)     = getOccName tv
+getDFunTyKey (TyConApp tc _)  = getOccName tc
+getDFunTyKey (LitTy x)        = getDFunTyLitKey x
+getDFunTyKey (AppTy fun _)    = getDFunTyKey fun
+getDFunTyKey (FunTy _ _)      = getOccName funTyCon
+getDFunTyKey (ForAllTy _ t)   = getDFunTyKey t
+getDFunTyKey (CastTy ty _)    = getDFunTyKey ty
+getDFunTyKey t@(CoercionTy _) = pprPanic "getDFunTyKey" (ppr t)
 
 getDFunTyLitKey :: TyLit -> OccName
 getDFunTyLitKey (NumTyLit n) = mkOccName Name.varName (show n)
@@ -1320,6 +1357,32 @@ occurCheckExpand dflags tv ty
     fast_check (ForAllTy tv' ty) = impredicative 
                                 && fast_check (tyVarKind tv')
                                 && (tv == tv' || fast_check ty)
+    fast_check (CastTy ty co)    = fast_check ty && fast_check_co co
+    fast_check (CoercionTy co)   = fast_check_co co
+
+    fast_check_co (Refl ty)              = fast_check ty
+    fast_check_co (TyConAppCo _ args)    = all fast_check_co_arg args
+    fast_check_co (AppCo co arg)         = fast_check_co co && fast_check_co_arg arg
+    fast_check_co (ForAllCo cobndr co)
+      | Just v <- getHomoVar_maybe cobndr
+      = impredicative && fast_check (varType v) && (tv == v || fast_check_co co)
+      | Just (h, v1, v2) <- splitHeteroCoBndr_maybe cobndr
+      = impredicative && fast_check_co h && fast_check (varType v1)
+                      && fast_check (varType v2) && (tv == v1 || tv == v2 || fast_check_co co)
+      | otherwise
+      = pprPanic "fast_check_co" (ppr cobndr)
+    fast_check_co (CoVarCo _)            = True
+    fast_check_co (AxiomInstCo _ _ args) = all fast_check_co_arg args
+    fast_check_co (UnsafeCo ty1 ty2)     = fast_check ty1 && fast_check ty2
+    fast_check_co (SymCo co)             = fast_check_co co
+    fast_check_co (TransCo co1 co2)      = fast_check_co co1 && fast_check_co co2
+    fast_check_co (NthCo _ co)           = fast_check_co co
+    fast_check_co (InstCo co arg)        = fast_check_co co && fast_check_co_arg arg
+    fast_check_co (CoherenceCo co1 co2)  = fast_check_co co1 && fast_check_co co2
+    fast_check_co (KindCo co)            = fast_check_co co
+
+    fast_check_co_arg (TyCoArg co)       = fast_check_co co
+    fast_check_co_arg (CoCoArg co1 co2)  = fast_check_co co1 && fast_check_co co2
 
     go t@(TyVarTy tv') | tv == tv' = OC_Occurs
                        | otherwise = return t
@@ -1352,6 +1415,61 @@ occurCheckExpand dflags tv ty
           bad | Just ty' <- tcView ty -> go ty'
               | otherwise             -> bad
                       -- Failing that, try to expand a synonym
+
+    go (CastTy ty co) =  do { ty' <- go ty
+                            ; co' <- go_co co
+                            ; return (mkCastTy ty' co') }
+    go (CoercionTy co) = do { co' <- go_co co
+                            ; return (mkCoercionTy co') }
+
+    go_co (Refl ty)                 = do { ty' <- go ty
+                                         ; return (mkReflCo ty') }
+      -- Note: Coercions do not contain type synonyms
+    go_co (TyConAppCo tc args)      = do { args' <- mapM go_arg args
+                                         ; return (mkTyConAppCo tc args') }
+    go_co (AppCo co arg)            = do { co' <- go_co co
+                                         ; arg' <- go_arg arg
+                                         ; return (mkAppCo co' arg') }
+    go_co (ForAllCo cobndr co)
+      | not impredicative           = OC_Forall
+      | not (all fast_check (map varType (coBndrVars cobndr)))
+                                    = OC_Occurs
+      | tv `elem` coBndrVars cobndr = return co
+      | otherwise = do { cobndr' <- case splitHeteroCoBndr_maybe cobndr of
+                                      (h, _, _) -> do { h' <- go_co h
+                                                      ; return (setCoBndrEta cobndr h) }
+                                      _         -> return cobndr
+                       ; co' <- go_co co
+                       ; return (mkForAllCo cobndr' co') }
+    go_co co@(CoVarCo {})           = return co
+    go_co (AxiomInstCo ax ind args) = do { args' <- mapM go_arg args
+                                         ; return (mkAxiomInstCo ax ind args') }
+    go_co (UnsafeCo ty1 ty2)        = do { ty1' <- go ty1
+                                         ; ty2' <- go ty2
+                                         ; return (mkUnsafeCo ty1' ty2') }
+    go_co (SymCo co)                = do { co' <- go_co co
+                                         ; return (mkSymCo co') }
+    go_co (TransCo co1 co2)         = do { co1' <- go_co co1
+                                         ; co2' <- go_co co2
+                                         ; return (mkTransCo co1' co2') }
+    go_co (NthCo n co)              = do { co' <- go_co co
+                                         ; return (mkNthCo n co') }
+    go_co (LRCo lr co)              = do { co' <- go_co co
+                                         ; return (mkLRCo lr co') }
+    go_co (InstCo co arg)           = do { co' <- go_co co
+                                         ; arg' <- go_arg arg
+                                         ; return (mkInstCo co' arg') }
+    go_co (CoherenceCo co1 co2)     = do { co1' <- go_co co1
+                                         ; co2' <- go_co co2
+                                         ; return (mkCoherenceCo co1' co2') }
+    go_co (KindCo co)               = do { co' <- go_co co
+                                         ; return (mkKindCo co') }
+
+    go_arg (TyCoArg co)             = do { co' <- go_co co
+                                         ; return (TyCoArg co') }
+    go_arg (CoCoArg co1 co2)        = do { co1' <- go_co co1
+                                         ; co2' <- go_co co2
+                                         ; return (CoCoArg co1' co2') }
 \end{code}
 
 %************************************************************************
@@ -1514,6 +1632,8 @@ orphNamesOfType (LitTy {})          = emptyNameSet
 orphNamesOfType (FunTy arg res)	    = orphNamesOfType arg `unionNameSets` orphNamesOfType res
 orphNamesOfType (AppTy fun arg)	    = orphNamesOfType fun `unionNameSets` orphNamesOfType arg
 orphNamesOfType (ForAllTy _ ty)	    = orphNamesOfType ty
+orphNamesOfType (CastTy ty co)      = orphNamesOfType ty `unionNameSets` orphNamesOfCo co
+orphNamesOfType (CoercionTy co)     = orphNamesOfCo co
 
 orphNamesOfThings :: (a -> NameSet) -> [a] -> NameSet
 orphNamesOfThings f = foldr (unionNameSets . f) emptyNameSet

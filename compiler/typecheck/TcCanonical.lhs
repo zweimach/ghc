@@ -575,6 +575,11 @@ flatten loc _f ctxt ty@(ForAllTy {})
                          -- Substitute only under a forall
                          -- See Note [Flattening under a forall]
        ; return (mkForAllTys tvs rho', foldr mkTcForAllCo co tvs) }
+
+flatten _ _ _ ty@(CastTy {})
+  = pprPanic "flatten" (ppr ty)
+flatten _ _ _ ty@(CoercionTy {})
+  = pprPanic "flatten" (ppr ty)
 \end{code}
 
 Note [Flattening under a forall]

@@ -294,10 +294,11 @@ zonkTyCoBndrX :: ZonkEnv -> TyCoVar -> TcM (ZonkEnv, TyCoVar)
 -- then we add it to the envt, so all occurrences are replaced
 zonkTyCoBndrX env tv
   = do { ki <- zonkTcTypeToType env (tyVarKind tv)
-       ; let tv' = if isTyVar tv
-                   then mkTyVar (tyVarName tv) ki
-                   else setVarType tv ki
-       ; return (extendTyZonkEnv1 env tv', tv') }
+       ; if isTyVar tv
+         then let tv' = mkTyVar (tyVarName tv) ki in
+              return (extendTyZonkEnv1 env tv', tv')
+         else let tv' = setVarType tv ki in
+              return (extendIdZonkEnv1 env tv', tv') }
 \end{code}
 
 
@@ -1342,16 +1343,72 @@ zonkTcTypeToType env ty
 		-- type variable to a type constructor, so we need
 		-- to pull the TyConApp to the top.
 
+    go (CastTy ty co) = do ty' <- go ty
+                           co' <- zonkCoToCo env co
+                           return (mkCastTy ty' co')
+
+    go (CoercionTy co) = do co' <- zonkCoToCo env co
+                            return (mkCoercionTy co')
+
 	-- The two interesting cases!
     go (TyVarTy tv) = zonkTyVarOcc env tv
 
     go (ForAllTy tv ty) = ASSERT( isImmutableTyVar tv ) do
                           do { (env', tv') <- zonkTyCoBndrX env tv
                              ; ty' <- zonkTcTypeToType env' ty
-                             ; return (ForAllTy tv' ty') }
+                             ; return (mkForAllTy tv' ty') }
 
 zonkTcTypeToTypes :: ZonkEnv -> [TcType] -> TcM [Type]
 zonkTcTypeToTypes env tys = mapM (zonkTcTypeToType env) tys
+
+zonkCoToCo :: ZonkEnv -> Coercion -> TcM Coercion
+zonkCoToCo env co
+  = go co
+  where
+    go (Refl ty)                 = mkReflCo <$> zonkTcTypeToType ty
+    go (TyConAppCo tc args)      = mkTyConAppCo tc
+                                     <$> mapM (zonkCoArgToCoArg env) args
+    go (AppCo co arg)            = mkAppCo <$> go co
+                                           <*> zonkCoArgToCoArg env arg
+    go (AxiomInstCo ax ind args) = mkAxiomInstCo ax ind
+                                     <$> mapM (zonkCoArgToCoArg env) args
+    go (UnsafeCo ty1 ty2)        = mkUnsafeCo <$> zonkTcTypeToType env ty1
+                                              <*> zonkTcTypeToType env ty2
+    go (SymCo co)                = mkSymCo <$> go co
+    go (TransCo co1 co2)         = mkTransCo <$> go co1 <*> go co2
+    go (NthCo n co)              = mkNthCo n <$> go co
+    go (LRCo lr co)              = mkLRCo lr <$> go co
+    go (InstCo co arg)           = mkInstCo <$> go co <*> zonkCoArgToCoArg env arg
+    go (CoherenceCo co1 co2)     = mkCoherenceCo <$> go co1 <*> go co2
+    go (KindCo co)               = mkKindCo <$> go co
+
+    -- The two interesting cases!
+    go (CoVarCo cv)              = return (zonkIdOcc env cv)
+    go (ForAllCo cobndr co)
+      | Just v <- getHomoVar_maybe cobndr
+      = do { (env', v') <- zonkTyCoBndrX env v
+           ; co' <- zonkCoToCo env' co
+           ; return (mkForAllCo (mkHomoCoBndr v') co') }
+      
+      | TyHetero h tv1 tv2 cv <- cobndr
+      = do { h' <- go h
+           ; (env', [tv1', tv2', cv']) <- zonkTyCoBndrsX env [tv1, tv2, cv]
+           ; co' <- zonkCoToCo env' co
+           ; return (mkForAllCo (mkTyHeteroCoBndr h' tv1' tv2' cv') co') }
+
+      | CoHetero h cv1 cv2 <- cobndr
+      = do { h' <- go h
+           ; (env', [cv1', cv2']) <- zonkTyCoBndrsX env [cv1, cv2]
+           ; co' <- zonkCoToCo env' co
+           ; return (mkForAllCo (CoHetero h' cv1' cv2') co') }
+
+      | otherwise
+      = pprPanic "zonkCoToCo" (ppr cobndr)
+
+zonkCoArgToCoArg :: ZonkEnv -> CoercionArg -> TcM CoercionArg
+zonkCoArgToCoArg env (TyCoArg co)      = TyCoArg <$> zonkCoToCo env co
+zonkCoArgToCoArg env (CoCoArg co1 co2) = CoCoArg <$> zonkCoToCo env co1
+                                                 <*> zonkCoToCo env co2
 
 zonkTvCollecting :: TcRef TyVarSet -> UnboundTyVarZonker
 -- This variant collects unbound type variables in a mutable variable

@@ -1017,7 +1017,7 @@ smallerAppMsg = ptext (sLit "Application is no smaller than the instance head")
 
 \begin{code}
 -- Free variables of a type, retaining repetitions, and expanding synonyms
-fvType :: Type -> [TyVar]
+fvType :: Type -> [TyCoVar]
 fvType ty | Just exp_ty <- tcView ty = fvType exp_ty
 fvType (TyVarTy tv)        = [tv]
 fvType (TyConApp _ tys)    = fvTypes tys
@@ -1025,9 +1025,34 @@ fvType (LitTy {})          = []
 fvType (FunTy arg res)     = fvType arg ++ fvType res
 fvType (AppTy fun arg)     = fvType fun ++ fvType arg
 fvType (ForAllTy tyvar ty) = filter (/= tyvar) (fvType ty)
+fvType (CastTy ty co)      = fvType ty ++ fvCo co
+fvType (CoercionTy co)     = fvCo co
 
 fvTypes :: [Type] -> [TyVar]
 fvTypes tys                = concat (map fvType tys)
+
+fvCo :: Coercion -> [TyCoVar]
+fvCo (Refl ty)              = fvType ty
+fvCo (TyConAppCo _ args)    = concatMap fcCoArg args
+fvCo (AppCo co arg)         = fvCo co ++ fvCoArg arg
+fvCo (ForAllCo cobndr co)   = (fvCo co \\ coBndrVars cobndr)
+                              ++ case splitHeteroCoBndr_maybe cobndr of
+                                   Just (h, _, _) -> fvCo h
+                                   Nothing        -> []
+fvCo (CoVarCo v)            = [v]
+fvCo (AxiomInstCo _ _ args) = concatMap fvCoArg args 
+fvCo (UnsafeCo ty1 ty2)     = fvType ty1 ++ fvType ty2
+fvCo (SymCo co)             = fvCo co
+fvCo (TransCo co1 co2)      = fvCo co1 ++ fvCo co2
+fvCo (NthCo _ co)           = fvCo co
+fvCo (LRCo _ co)            = fvCo co
+fvCo (InstCo co arg)        = fvCo co ++ fvCoArg arg
+fvCo (CoherenceCo co1 co2)  = fvCo co1 ++ fvCo co2
+fvCo (KindCo co)            = fvCo co
+
+fvCoArg :: CoercionArg -> [TyCoVar]
+fvCoArg (TyCoArg co)      = fvCo co
+fvCoArg (CoCoArg co1 co2) = fvCo co1 ++ fvCo co2
 
 sizeType :: Type -> Int
 -- Size of a type: the number of variables and constructors
@@ -1038,11 +1063,14 @@ sizeType (LitTy {})        = 1
 sizeType (FunTy arg res)   = sizeType arg + sizeType res + 1
 sizeType (AppTy fun arg)   = sizeType fun + sizeType arg
 sizeType (ForAllTy _ ty)   = sizeType ty
+sizeType (CastTy ty _)     = sizeType ty
+sizeType t@(CoercionTy {}) = pprPanic "sizeType" (ppr t)
 
 sizeTypes :: [Type] -> Int
 -- IA0_NOTE: Avoid kinds.
+-- Also, avoid coercions.
 sizeTypes xs = sum (map sizeType tys)
-  where tys = filter (not . isKind) xs
+  where tys = filter (\t -> not (isKind t) && not (isCoercionType t)) xs
 
 -- Size of a predicate
 --

@@ -80,6 +80,10 @@ vectType ty@(ForAllTy _ _)
           -- add the PA dictionaries after the foralls
       ; return $ abstractType tyvars dictsPA vtyBody
       }
+vectType ty@(CastTy {})
+  = pprSorry "Vectorise.Type.Type.vectType: CastTy" (ppr ty)
+vectType ty@(CoercionTy {})
+  = pprSorry "Vectorise.Type.Type.vectType: CoercionTy" (ppr ty)
 
 -- |Add quantified vars and dictionary parameters to the front of a type.
 --

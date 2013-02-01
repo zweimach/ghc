@@ -391,7 +391,6 @@ data IfLclEnv
                 -- plus which bit is currently being examined
 
         if_tv_env  :: UniqFM TyVar,     -- Nested tyvar bindings
-                                        -- (and coercions)
         if_id_env  :: UniqFM Id         -- Nested id binding
     }
 \end{code}

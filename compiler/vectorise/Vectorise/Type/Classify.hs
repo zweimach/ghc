@@ -104,15 +104,46 @@ tyConsOfType :: Type -> UniqSet TyCon
 tyConsOfType ty
   | Just ty' <- coreView ty    = tyConsOfType ty'
 tyConsOfType (TyVarTy _)       = emptyUniqSet
-tyConsOfType (TyConApp tc tys) = extend (tyConsOfTypes tys)
-  where
-    extend |  isUnLiftedTyCon tc
-           || isTupleTyCon   tc = id
-
-           | otherwise          = (`addOneToUniqSet` tc)
-
+tyConsOfType (TyConApp tc tys) = extendTyConSet tc (tyConsOfTypes tys)
 tyConsOfType (AppTy a b)       = tyConsOfType a `unionUniqSets` tyConsOfType b
 tyConsOfType (FunTy a b)       = (tyConsOfType a `unionUniqSets` tyConsOfType b)
                                  `addOneToUniqSet` funTyCon
 tyConsOfType (LitTy _)         = emptyUniqSet
 tyConsOfType (ForAllTy _ ty)   = tyConsOfType ty
+tyConsOfType (CastTy ty co)    = tyConsOfType ty `unionUniqSets` tyConsOfCo co
+tyConsOfType (CoercionTy co)   = tyConsOfCo co
+
+tyConsOfCo :: Coercion -> UniqSet TyCon
+tyConsOfCo = go
+  where
+    go (Refl ty)               = tyConsOfType ty
+    go (TyConAppCo tc args)    = extendTyConSet tc (go_args args)
+    go (AppCo co arg)          = go co `unionUniqSets` go_arg arg
+    go (ForAllCo cobndr co)
+      | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
+      = go h `unionUniqSets` go co
+      | otherwise
+      = go co
+    go (CoVarCo _)             = emptyUniqSet
+    go (AxiomInstCo ax _ args) = go_ax ax `unionUniqSets` go_args args
+    go (UnsafeCo ty1 ty2)      = tyConsOfType ty1 `unionUniqSets` tyConOfType ty2
+    go (SymCo co)              = go co
+    go (TransCo co1 co2)       = go co1 `unionUniqSets` go co2
+    go (NthCo _ co)            = go co
+    go (LRCo _ co)             = go co
+    go (InstCo co arg)         = go co `unionUniqSets` go_arg arg
+    go (CoherenceCo co1 co2)   = go co1 `unionUniqSets` go co2
+    go (KindCo co)             = go co
+
+    go_arg (TyCoArg co)        = go co
+    go_arg (CoCoArg co1 co2)   = go co1 `unionUniqSets` go co2
+
+    go_args = unionManyUniqSets . map go_arg
+
+    go_ax ax = unitUniqSet $ coAxiomTyCon ax
+
+extendTyConSet :: TyCon -> (UniqSet TyCon -> UniqSet TyCon)
+extendTyConSet tc
+  |  isUnLiftedTyCon tc
+  || isTupleTyCon       = id
+  | otherwise           = (`addOneToUniqSet` tc)

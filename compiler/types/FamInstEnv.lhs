@@ -891,6 +891,143 @@ isDominatedBy lhs branches
 %*                                                                      *
 %************************************************************************
 
+Note [Normalising types]
+~~~~~~~~~~~~~~~~~~~~~~~~
+The topNormaliseType function removes all occurrences of type families
+and newtypes from the top-level structure of a type. normaliseTcApp does
+the type family lookup and is fairly straightforward. normaliseType is
+a little more involved.
+
+The complication comes from the fact that a type family might be used in the
+kind of a variable bound in a forall. We wish to remove this type family
+application, but that means coming up with a fresh variable (with the new
+kind). Thus, we need a substitution to be built up as we recur through the
+type. However, an ordinary TCvSubst just won't do: when we hit a type variable
+whose kind has changed during normalisation, we need both the new type
+variable *and* the coercion. We could conjure up a new VarEnv with just this
+property, but a usable substitution environment already exists:
+LiftingContexts from the liftCoSubst family of functions, defined in Coercion.
+A LiftingContext maps a type variable to a coercion and a coercion variable to
+a pair of coercions. Let's ignore coercion variables for now. Because the
+coercion a type variable maps to contains the destination type (via
+coercionKind), we don't need to store that destination type separately. Thus,
+a LiftingContext has what we need: a map from type variables to (Coercion,
+Type) pairs.
+
+We also benefit because we can piggyback on the liftCoSubstVarBndr function to
+deal with binders. However, I had to modify that function to work with this
+application in two ways. Thus, we now how liftCoSubstVarBndrCallback that
+takes two customisations implementing the following differences with lifting:
+
+* liftCoSubstVarBndr has to process the kind of the binder. We don't wish
+to lift the kind, but instead normalise it. So, we pass in a callback function
+that processes the kind of the binder.
+
+* liftCoSubstVarBndr is happy to deal with heterogeneous coercions. But, we
+here require *homogeneous* coercions. Why? A normalisation is essentially a
+substitutive operation -- we need to be able to substitute a resultant type in
+the place where the original type appears. Thus, all coercions returned in
+normaliseType must be *homogeneous*, so the substitution type-checks. When
+liftCoSubstVarBndr discovers that the kind of the (type variable) binder
+(we'll call the type variable alpha) has changed (let's call the one with the
+new kind beta and the coercion between the kinds eta), it uses a TyHetero
+ForAllCoBndr, necessary to build a coercion between two ForAllTys whose (type)
+binders have different kinds. The last component of a TyHetero is a coercion
+variable (call it zeta) that witnesses the (heterogeneous) equality between
+the two type variables in question (i.e., zeta :: alpha ~# beta). In a lifting
+operation, alpha will be mapped to this coercion variable. In normalisation,
+this won't do, because zeta is a *heterogeneous* coercion. So, we homogenize
+zeta by casting the kind of its right-hand type to match that of its left-hand
+type. That is, we make the mapping
+  [alpha |-> zeta `mkCoherenceRightCo` (sym eta)]
+. Thus, alpha maps to a coercion with type (alpha ~# beta |> sym eta), which
+is *homogeneous*. Hurrah.
+
+After that brilliant explanation of all this, I'm sure you've forgotten the
+dangling reference to coercion variables. What do we do with those? Nothing at
+all. The point of normalising types is to remove type family applications, but
+there's no sense in removing these from coercions. We would just get back a
+new coercion witnessing the equality between the same types as the original
+coercion. Because coercions are irrelevant anyway, there is no point in doing
+this. So, whenever we encounter a coercion, we just say that it won't change.
+That's what the (CoCoArg co co) is doing in go_arg within normaliseType.
+
+There is still the possibility that the kind of a coercion variable mentions
+a type family and will change in normaliseTyCoVarBndr. So, we must perform
+the same sort of homogenisation that we did for type variables. Let's use
+the same names as before:
+  alpha is our original coercion variable, alpha :: s1 ~# t1
+  beta is our new coercion variable, beta :: s2 ~# t2
+  eta is the coercion between the kinds, eta :: (s1 ~# t1) ~# (s2 ~# t2)
+  zeta does not exist -- there is no coercion among coercions.
+We must form some coercion, not involving alpha, with type (s1 ~# t1). It
+should look something like this:
+  g1 ; beta ; g2 :: s1 ~# t1
+From this guess, we can see:
+  g1 :: s1 ~# s2
+  g2 :: t2 ~# t1
+It looks like we can extract those from eta. Let's rewrite eta's type:
+  eta :: ((~#) _ _ s1 t1) ~# ((~#) _ _ s2 t2)
+where those underscores are kinds that we don't care about. Now, it is
+easy to see that (nth:2 eta) :: s1 ~# s2 and (nth:3 eta) :: t1 ~# t2.
+So, we can derive:
+  g1 = nth:2 eta
+  g2 = nth:3 (sym eta)
+And, so we use the following mapping:
+  [alpha |-> (alpha, nth:2 eta ; beta ; nth:3 (sym eta))]
+Hurrah again.
+
+TODO (RAE): Remove note
+Note [normaliseTcAppCo]
+~~~~~~~~~~~~~~~~~~~~~~~
+Yet another hairy side of heterogeneous equality. Let's say we have the
+following facts in scope:
+
+data Nat = Zero | Succ Nat
+a :: Nat
+b :: Nat
+g :: a ~ b
+F :: Nat -> Nat -- F is a type family
+T :: forall (c :: F a ~ F b). *
+axF :: { forall (x :: Nat). F x ~ Succ x }
+
+Now, we wish to normalise
+
+  T (<F> g)
+
+What do we do? Well, we know this fact:
+  
+  <F> g :: F a ~ F b
+
+What we need to do is to find some coercion of type (F a ~ F b) -- except
+that coercion can't mention F! Finding things (types, coercions) that don't
+mention type families is the whole point of this section of code. So, what
+do we do?
+
+First off, the consistency of System FC gives us a convenient fact: if there
+is any witness for (F a ~ F b), then any axiom that applies to (F a) must also
+apply to (F b) (and even at the same index). So, no matter what family
+instances are in scope, we know the axiom used to simplify both F a and F b
+will be the same. In our case, that axiom will be axF. (The fact that axF
+is universally applicable is not central to our story.) We're almost there:
+
+  axF 0 a :: F a ~ Succ a
+  axF 0 b :: F b ~ Succ b
+
+  axF 0 a ; ??? ; sym (axF 0 b) :: F a ~ F b
+
+But what's ??? ? It must have type (Succ a ~ Succ b). Ah! We can use (<Succ>
+g)! Now, how do we generalize this? The RHS of the applicable axiom will have
+free type and coercion variables. We use a lifting substitution replacing
+these free variables with the CoercionArgs in the original type family
+application. In our example, that means we take the RHS of axF (that is, Succ
+x) and replace x with g. The function liftCoSubstWith (in Coercion) does this
+feat quite nicely.
+
+One last wrinkle: the parameters to an axiom have no set relationship to the
+order of parameters to the type family. How do we know which coercions to map
+each variable to? That's a good question.
+
 \begin{code}
 topNormaliseType :: FamInstEnvs
                  -> Type
@@ -922,7 +1059,7 @@ topNormaliseType env ty
                in add_co nt_co rec_nts' nt_rhs
 
         | isFamilyTyCon tc              -- Expand open tycons
-        , (co, ty) <- normaliseTcApp env tc tys
+        , (co, ty) <- normaliseTcApp env (emptyLiftingContext is) tc tys
                 -- Note that normaliseType fully normalises 'tys',
                 -- It has do to so to be sure that nested calls like
                 --    F (G Int)
@@ -930,6 +1067,7 @@ topNormaliseType env ty
         , not (isReflCo co)
         = add_co co rec_nts ty
         where
+          is     = mkInScopeSet (tyCoVarsOfTypes tys)
           nt_co  = mkUnbranchedAxInstCo (newTyConCo tc) tys
           nt_rhs = newTyConInstRhs      tc              tys
           rec_nts' | isRecursiveTyCon tc = tc:rec_nts
@@ -944,8 +1082,9 @@ topNormaliseType env ty
 
 
 ---------------
-normaliseTcApp :: FamInstEnvs -> TyCon -> [Type] -> (Coercion, Type)
-normaliseTcApp env tc tys
+normaliseTcApp :: FamInstEnvs -> LiftingContext
+               -> TyCon -> [Type] -> (Coercion, Type)
+normaliseTcApp env lc tc tys
   | isFamilyTyCon tc
   , tyConArity tc <= length tys    -- Unsaturated data families are possible
   , [FamInstMatch { fim_instance = fam_inst
@@ -968,33 +1107,97 @@ normaliseTcApp env tc tys
   where
         -- Normalise the arg types so that they'll match
         -- when we lookup in in the instance envt
-    (cois, ntys) = mapAndUnzip (normaliseType env) tys
+    (cois, ntys) = mapAndUnzip (normaliseType env lc) tys
     tycon_coi    = mkTyConAppCo tc cois
 
 ---------------
 normaliseType :: FamInstEnvs            -- environment with family instances
+              -> LiftingContext         -- necessary because of kind coercions
               -> Type                   -- old type
               -> (Coercion, Type)       -- (coercion,new type), where
                                         -- co :: old-type ~ new_type
 -- Normalise the input type, by eliminating *all* type-function redexes
 -- Returns with Refl if nothing happens
+-- The returned coercion *must* be *homogeneous*
+-- See Note [Normalising types]
 
-normaliseType env ty
-  | Just ty' <- coreView ty = normaliseType env ty'
-normaliseType env (TyConApp tc tys)
-  = normaliseTcApp env tc tys
-normaliseType _env ty@(LitTy {}) = (Refl ty, ty)
-normaliseType env (AppTy ty1 ty2)
-  = let (coi1,nty1) = normaliseType env ty1
-        (coi2,nty2) = normaliseType env ty2
-    in  (mkAppCo coi1 coi2, mkAppTy nty1 nty2)
-normaliseType env (FunTy ty1 ty2)
-  = let (coi1,nty1) = normaliseType env ty1
-        (coi2,nty2) = normaliseType env ty2
-    in  (mkFunCo coi1 coi2, mkFunTy nty1 nty2)
-normaliseType env (ForAllTy tyvar ty1)
-  = let (coi,nty1) = normaliseType env ty1
-    in  (mkForAllCo tyvar coi, ForAllTy tyvar nty1)
-normaliseType _   ty@(TyVarTy _)
-  = (Refl ty,ty)
+normaliseType env lc ty
+  = let co = go ty
+        Pair _tyl tyr = coercionKind co in
+    ASSERT( _tyl `eqType` ty )
+    ASSERT( typeKind tyr `eqType` typeKind ty )
+    (co, tyr)
+  where
+    go ty | Just ty' <- coreView ty = go ty'
+    go (TyConApp tc tys) = normaliseTcApp env lc tc tys
+    go ty@(LitTy {})     = mkReflCo ty
+    go (AppTy ty1 ty2)   = mkAppCo (go ty1) (go_arg ty2)
+    go (FunTy ty1 ty2)   = mkFunCo (go ty1) (go ty2)
+    go (ForAllTy tyvar ty)
+      = let (lc', cobndr) = normaliseTyCoVarBndr env lc tyvar in
+        mkForAllCo cobndr (fst $ normaliseType env lc' ty)
+    go (TyVarTy tv)      = normaliseTyVar lc tv
+    go (CastTy ty co)    = castCoercionKind (go ty) co (substRightCo lc co)
+    go (CoercionTy co)   = pprPanic "normaliseType" (ppr co)
+
+    go_arg (CoercionTy co) = CoCoArg co (substRightCo lc co)
+    go_arg ty              = TyCoArg (go ty)
+
+normaliseTyVar :: LiftingContext -> TyVar -> Coercion
+normaliseTyVar lc tv
+  = ASSERT( isTyVar tv )
+    case liftCoSubstTyCoVar lc tv of
+      Just (TyCoArg co) -> co
+      Nothing           -> mkReflCo (mkOnlyTyVarTy tv)
+      bad_news          -> pprPanic "normaliseTyVar" (ppr bad_news)
+
+normaliseTyCoVarBndr :: FamInstEnvs -> LiftingContext -> TyCoVar
+                     -> (LiftingContext, ForAllCoBndr)
+normaliseTyCoVarBndr env
+  = liftCoSubstVarBndrCallback (\lc ty -> fst $ normaliseType env lc ty) True
+  -- the True there means that we want homogeneous coercions
+  -- See Note [Homogenizing TyHetero substs] in Coercion
+
+{-
+-- TODO (RAE): remove dead code
+normaliseCo :: FamInstEnvs -> LiftingContext -> Coercion -> Coercion
+normaliseCo env lc co
+  = go co
+  where
+    go (Refl ty)                 = mkReflCo (snd $ normaliseType env lc ty)
+    go (TyConAppCo tc args)      = normaliseTcAppCo lc tc args
+    go (AppCo co arg)            = mkAppCo (go co) (go_arg arg)
+    go (ForAllCo cobndr co)      = ??
+    go (CoVarCo cv)              = normaliseCoVar lc cv
+    go (AxiomInstCo ax ind args) = mkAxiomInstCo ax ind (map go_arg args)
+    go (UnsafeCo ty1 ty2)        = mkUnsafeCo (snd $ normaliseType env lc ty1)
+                                              (snd $ noramliseType env lc ty2)
+    go (SymCo co)                = mkSymCo (go co)
+    go (TransCo co1 co2)         = mkTransCo (go co1) (go co2)
+    go (NthCo n co)              = mkNthCo n (go co)
+    go (LRCo lr co)              = mkLRCo lr (go co)
+    go (InstCo co arg)           = mkInstCo (go co) (go_arg arg)
+    go (CoherenceCo co1 co2)     = mkCoherenceCo (go co1) (go co2)
+    go (KindCo co)               = mkKindCo (go co)
+
+    go_arg (TyCoArg co)          = TyCoArg (go co)
+    go_arg (CoCoArg co1 co2)     = CoCoArg (go co1) (go co2)
+
+normaliseCoVar :: LiftingContext -> CoVar -> Coercion
+normaliseCoVar lc cv
+  = ASSERT( isCoVar cv )
+    case liftCoSubstTyCoVar lc cv of
+      Just (CoCoArg _co1 co2) -> ASSERT( _co1 `eqCoercion` mkCoVarCo cv )
+                                 co2
+      Nothing                 -> mkCoVarCo cv
+      bad_news                -> pprPanic "normaliseCoVar" (ppr bad_news)
+
+-- See Note [normaliseTcAppCo]
+normaliseTcAppCo :: LiftingContext -> TyCon -> [CoercionArg] -> Coercion
+
+normaliseCo :: FamInstEnvs -> TCvLc -> Coercion -> Coercion
+normaliseCoArg :: FamInstEnvs -> TCvSubst -> CoercionArg -> CoercionArg
+
+normaliseTyCoVarBndr :: FamInstEnvs -> TCvSubst -> TyCoVar -> ...
+-}
 \end{code}

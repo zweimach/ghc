@@ -412,6 +412,12 @@ coBndrVarsKinds :: ForAllCoBndr -> ([TyCoVar], [Type])
 coBndrVarsKinds bndr = (vars, map varType vars)
   where vars = coBndrVars bndr
 
+-- changes the "eta" coercion in a hetero CoBndr
+setCoBndrEta :: ForAllCoBndr -> Coercion -> ForAllCoBndr
+setCoBndrEta (TyHetero _ tv1 tv2 cv) h = mkTyHeteroCoBndr h tv1 tv2 cv
+setCoBndrEta (CoHetero _ cv1 cv2)    h = mkCoHeteroCoBndr h cv1 cv2
+setCoBndrEta cobndr                  _ = pprPanic "setCoBndrEta" (ppr cobndr)
+
 -- are two ForAllCoBndrs the same sort of binder?
 eqCoBndrSort :: ForAllCoBndr -> ForAllCoBndr -> Bool
 eqCoBndrSort (TyHomo {})   (TyHomo {})   = True
@@ -1301,7 +1307,7 @@ subst_co subst co
     go (TyConAppCo tc args)  = let args' = map go_arg args
                                in  args' `seqList` mkTyConAppCo tc args'
     go (AppCo co arg)        = mkAppCo (go co) $! go_arg arg
-    go (ForAllCoBndr cobndr co)
+    go (ForAllCo cobndr co)
       = case substForAllCoBndr subst cobndr of (subst', cobndr') ->
           (mkForAllCo $! cobndr') $! subst_co subst' co
     go (CoVarCo cv)          = substCoVar subst cv
