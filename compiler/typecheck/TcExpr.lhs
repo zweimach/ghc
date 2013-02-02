@@ -1059,7 +1059,6 @@ instantiateOuter :: CtOrigin -> TcId -> TcM (HsExpr TcId, TcSigmaType)
 --   a) Deal with method sharing
 --   b) Deal with stupid checks
 -- Only look at the *outer level* of quantification
--- See Note [Multiple instantiation]
 
 instantiateOuter orig id
   | null tvs && null theta
@@ -1074,42 +1073,7 @@ instantiateOuter orig id
        ; return (mkHsWrap wrap (HsVar id), TcType.substTy subst tau) }
   where
     (tvs, theta, tau) = tcSplitSigmaTy (idType id)
-\end{code}
 
-Note [Multiple instantiation]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We are careful never to make a MethodInst that has, as its meth_id, another MethodInst.
-For example, consider
-	f :: forall a. Eq a => forall b. Ord b => a -> b
-At a call to f, at say [Int, Bool], it's tempting to translate the call to 
-
-	f_m1
-  where
-	f_m1 :: forall b. Ord b => Int -> b
-	f_m1 = f Int dEqInt
-
-	f_m2 :: Int -> Bool
-	f_m2 = f_m1 Bool dOrdBool
-
-But notice that f_m2 has f_m1 as its meth_id.  Now the danger is that if we do
-a tcSimplCheck with a Given f_mx :: f Int dEqInt, we may make a binding
-	f_m1 = f_mx
-But it's entirely possible that f_m2 will continue to float out, because it
-mentions no type variables.  Result, f_m1 isn't in scope.
-
-Here's a concrete example that does this (test tc200):
-
-    class C a where
-      f :: Eq b => b -> a -> Int
-      baz :: Eq a => Int -> a -> Int
-
-    instance C Int where
-      baz = f
-
-Current solution: only do the "method sharing" thing for the first type/dict
-application, not for the iterated ones.  A horribly subtle point.
-
-\begin{code}
 doStupidChecks :: TcId
 	       -> [TcType]
 	       -> TcM ()

@@ -100,12 +100,11 @@ newMethodFromName origin name inst_ty
 	      -- meant to find whatever thing is in scope, and that may
 	      -- be an ordinary function. 
 
-       ; let (tvs, theta, _caller_knows_this) = tcSplitSigmaTy (idType id)
-             (the_tv:rest) = tvs
-             subst = zipOpenTCvSubst [the_tv] [inst_ty]
+       ; let ty = applyTy (idType id) inst_ty
+             (theta, _caller_knows_this) = tcSplitPhiTy ty
+       ; wrap <- ASSERT( not (isForAllTy ty) && isSingleton theta )
+                 instCall origin [inst_ty] theta
 
-       ; wrap <- ASSERT( null rest && isSingleton theta )
-                 instCall origin [inst_ty] (substTheta subst theta)
        ; return (mkHsWrap wrap (HsVar id)) }
 \end{code}
 
@@ -195,6 +194,8 @@ deeplyInstantiate orig ty
 %************************************************************************
 
 \begin{code}
+instCall :: CtOrigin -> Type -> WhenToStop -> TcM (HsWrapper, TcType)
+
 ----------------
 instCall :: CtOrigin -> [TcType] -> TcThetaType -> TcM HsWrapper
 -- Instantiate the constraints of a call

@@ -351,6 +351,8 @@ tcExtendTyVarEnv tvs thing_inside
 
 tcExtendTyVarEnv2 :: [(Name,TcTyVar)] -> TcM r -> TcM r
 tcExtendTyVarEnv2 binds thing_inside 
+  -- this should be used only for explicitly mentioned scoped variables.
+  -- thus, no coercion variables
   = tc_extend_local_env [(name, ATyVar name tv) | (name, tv) <- binds] $
     do { env <- getLclEnv
        ; let env' = env { tcl_tidy = add_tidy_tvs (tcl_tidy env) }
@@ -363,7 +365,8 @@ tcExtendTyVarEnv2 binds thing_inside
     -- OccName that the programmer originally used for them
     add :: TidyEnv -> (Name, TcTyVar) -> TidyEnv
     add (env,subst) (name, tyvar)
-        = case tidyOccName env (nameOccName name) of
+        = ASSERT( isTyVar tyvar )
+          case tidyOccName env (nameOccName name) of
             (env', occ') ->  (env', extendVarEnv subst tyvar tyvar')
                 where
                   tyvar' = setTyVarName tyvar name'
