@@ -188,6 +188,15 @@ opt_co env sym (NthCo n co)
   , isDecomposableTyCon tc   -- Not synonym families
   = ASSERT( n < length cos )
     stripTyCoArg $ cos !! n
+  
+  | ForAllCo cobndr _ <- co'
+  , Just v <- getHomoVar_maybe cobndr
+  = Refl (varType v)
+  
+  | ForAllCo cobndr _ <- co'
+  , Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
+  = h
+
   | otherwise
   = NthCo n co'
   where

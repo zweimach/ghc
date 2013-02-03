@@ -639,8 +639,6 @@ mkNthCoArg n co
   where
     Pair ty1 ty2 = coercionKind co
 
-mkNthCoArg :: Int -> Coercion -> CoercionArg
-
 ok_tc_app :: Type -> Int -> Bool
 ok_tc_app ty n
   | Just (_, tys) <- splitTyConApp_maybe ty
@@ -1634,7 +1632,18 @@ coercionKind co = go co
     go (UnsafeCo ty1 ty2)   = Pair ty1 ty2
     go (SymCo co)           = swap $ go co
     go (TransCo co1 co2)    = Pair (pFst $ go co1) (pSnd $ go co2)
-    go (NthCo d co)         = tyConAppArgN d <$> go co
+    go g@(NthCo d co)
+      | Just args1 <- tyConAppArgs_maybe ty1
+      , Just args2 <- tyConAppArgs_maybe ty2
+      = (!! d) <$> Pair args1 args2
+     
+      | n == 0
+      , Just tv1 _ <- splitForAllTy_maybe ty1
+      , Just tv2 _ <- splitForAllTy_maybe ty2
+      = tyVarKind <$> Pair tv1 tv2
+
+      | otherwise
+      = pprPanic "coercionKind" (ppr g)
     go (LRCo lr co)         = (pickLR lr . splitAppTy) <$> go co
     go (InstCo aco arg)     = go_app aco [arg]
 
