@@ -199,7 +199,7 @@ tcHsInstHead ctxt lhs_ty@(L loc hs_ty)
        ; checkValidInstance ctxt lhs_ty ty }
 
 -----------------
-tcHsDeriv :: HsType Name -> TcM ([TyVar], Class, [Type])
+tcHsDeriv :: HsType Name -> TcM ([TyCoVar], Class, [Type])
 -- Like tcHsSigTypeNC, but for the ...deriving( ty ) clause
 tcHsDeriv hs_ty 
   = do { kind <- newMetaKindVar

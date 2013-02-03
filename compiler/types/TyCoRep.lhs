@@ -1263,7 +1263,7 @@ subst_ty subst ty
     go (TyConApp tc tys) = let args = map go tys
                            in  args `seqList` TyConApp tc args
     go (FunTy arg res)   = (FunTy $! (go arg)) $! (go res)
-    go (ForAllTy tv ty)  = case substTyVarBndr subst tv of
+    go (ForAllTy tv ty)  = case substTyCoVarBndr subst tv of
                               (subst', tv') ->
                                  ForAllTy tv' $! (subst_ty subst' ty)
     go (LitTy n)         = LitTy $! n
@@ -1393,6 +1393,11 @@ substCoVars subst cvs = map (substCoVar subst) cvs
 
 lookupCoVar :: TCvSubst -> Var  -> Maybe Coercion
 lookupCoVar (TCvSubst _ _ cenv) v = lookupVarEnv cenv v
+
+substTyCoVarBndr :: TCvSubst -> TyCoVar -> (TCvSubst, TyCoVar)
+substTyCoVarBndr subst v
+  | isTyVar v = substTyVarBndr subst v
+  | otherwise = substCoVarBndr subst v
 
 substTyVarBndr :: TCvSubst -> TyVar -> (TCvSubst, TyVar)
 substTyVarBndr = substTyVarBndrCallback substTy

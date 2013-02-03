@@ -87,5 +87,5 @@ vectType ty@(CoercionTy {})
 
 -- |Add quantified vars and dictionary parameters to the front of a type.
 --
-abstractType :: [TyVar] -> [Type] -> Type -> Type
+abstractType :: [TyCoVar] -> [Type] -> Type -> Type
 abstractType tyvars dicts = mkForAllTys tyvars . mkFunTys dicts

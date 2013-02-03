@@ -1257,7 +1257,7 @@ reifyDataCon :: [Type] -> DataCon -> TcM TH.Con
 reifyDataCon tys dc
   = do { let (tvs, theta, arg_tys, _) = dataConSig dc
              subst             = mkTopTCvSubst (tvs `zip` tys)   -- Dicard ex_tvs
-             (subst', ex_tvs') = mapAccumL substTyVarBndr subst (dropList tys tvs)
+             (subst', ex_tvs') = mapAccumL substTyCoVarBndr subst (dropList tys tvs)
              theta'   = substTheta subst' theta
              arg_tys' = substTys subst' arg_tys
              stricts  = map reifyStrict (dataConStrictMarks dc)

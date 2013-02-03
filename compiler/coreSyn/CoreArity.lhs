@@ -877,7 +877,7 @@ mkEtaWW orig_n orig_expr in_scope orig_ty
        = (getTCvInScope subst, reverse eis)
 
        | Just (tv,ty') <- splitForAllTy_maybe ty
-       , let (subst', tv') = Type.substTyVarBndr subst tv
+       , let (subst', tv') = Type.substTyCoVarBndr subst tv
            -- Avoid free vars of the original expression
        = go n subst' ty' (EtaVar tv' : eis)
 

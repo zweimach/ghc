@@ -306,7 +306,7 @@ lintCoreExpr (Let (NonRec tv (Type ty)) body)
   | isTyVar tv
   =	-- See Note [Linting type lets]
     do	{ ty' <- applySubstTy ty
-        ; lintTyBndr tv              $ \ tv' -> 
+        ; lintTyCoBndr tv              $ \ tv' -> 
     do  { addLoc (RhsOf tv) $ checkTyKind tv' ty'
 		-- Now extend the substitution so we 
 		-- take advantage of it in the body
@@ -617,23 +617,16 @@ lintBinders (var:vars) linterF = lintBinder var $ \var' ->
 -- See Note [GHC Formalism]
 lintBinder :: Var -> (Var -> LintM a) -> LintM a
 lintBinder var linterF
-  | isTyVar var = lintTyBndr var linterF
-  | isCoVar var = lintCoBndr var linterF
-  | otherwise   = lintIdBndr var linterF
+  |  isTyVar var
+  || isCoVar var = lintTyCoBndr var linterF
+  | otherwise    = lintIdBndr var linterF
 
-lintTyBndr :: InTyVar -> (OutTyVar -> LintM a) -> LintM a
-lintTyBndr tv thing_inside
+lintTyCoBndr :: InTyCoVar -> (OutTyCoVar -> LintM a) -> LintM a
+lintTyCoBndr tv thing_inside
   = do { subst <- getTCvSubst
-       ; let (subst', tv') = substTyVarBndr subst tv
+       ; let (subst', tv') = substTyCoVarBndr subst tv
        ; lintTyCoBndrKind tv'
        ; updateTCvSubst subst' (thing_inside tv') }
-
-lintCoBndr :: InCoVar -> (OutCoVar -> LintM a) -> LintM a
-lintCoBndr cv thing_inside
-  = do { subst <- getTCvSubst
-       ; let (subst', cv') = substCoVarBndr subst cv
-       ; lintTyCoBndrKind cv'
-       ; updateTCvSubst subst' (thing_inside cv') }
 
 lintIdBndr :: Id -> (Id -> LintM a) -> LintM a
 -- Do substitution on the type of a binder and add the var with this 

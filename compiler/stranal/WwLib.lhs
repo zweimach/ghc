@@ -292,8 +292,8 @@ mkWWargs subst fun_ty arg_info
   = return ([], id, id, substTy subst fun_ty)
 
   | Just (tv, fun_ty') <- splitForAllTy_maybe fun_ty
-  = do 	{ let (subst', tv') = substTyVarBndr subst tv
-		-- This substTyVarBndr clones the type variable when necy
+  = do 	{ let (subst', tv') = substTyCoVarBndr subst tv
+		-- This substTyCoVarBndr clones the type variable when necy
 		-- See Note [Freshen type variables]
   	; (wrap_args, wrap_fn_args, work_fn_args, res_ty)
 	     <- mkWWargs subst' fun_ty' arg_info
