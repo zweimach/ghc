@@ -22,7 +22,7 @@ import HscTypes
 import TyCon
 import CoAxiom
 -- import Class
-import TypeRep
+import TyCoRep
 import Type
 import Kind
 import PprExternalCore () -- Instances

@@ -73,7 +73,7 @@ import InstEnv
 import DataCon
 import TyCon
 import CoAxiom
-import TypeRep
+import TyCoRep
 import Class
 import Name
 import NameEnv

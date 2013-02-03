@@ -31,7 +31,7 @@ module Class (
 #include "HsVersions.h"
 
 import {-# SOURCE #-} TyCon	( TyCon, tyConName, tyConUnique )
-import {-# SOURCE #-} TypeRep	( Type, PredType )
+import {-# SOURCE #-} TyCoRep	( Type, PredType )
 
 import Var
 import Name
@@ -59,7 +59,7 @@ data Class
   = Class {
 	classTyCon :: TyCon,	-- The data type constructor for
 				-- dictionaries of this class
-                                -- See Note [ATyCon for classes] in TypeRep
+                                -- See Note [ATyCon for classes] in TyCoRep
 
 	className :: Name,              -- Just the cached name of the TyCon
 	classKey  :: Unique,		-- Cached unique of TyCon

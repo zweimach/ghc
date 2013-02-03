@@ -56,7 +56,7 @@ import TcType
 import TysPrim
 import TysWiredIn
 import Type
-import TypeRep
+import TyCoRep
 import VarSet
 import Module
 import State

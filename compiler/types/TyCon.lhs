@@ -83,7 +83,7 @@ module TyCon(
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} TypeRep ( Kind, Type, PredType )
+import {-# SOURCE #-} TyCoRep ( Kind, Type, PredType )
 import {-# SOURCE #-} DataCon ( DataCon, isVanillaDataCon )
 
 import Var
@@ -499,7 +499,7 @@ data TyConParent
     NoParentTyCon
 
   -- | Type constructors representing a class dictionary.
-  -- See Note [ATyCon for classes] in TypeRep
+  -- See Note [ATyCon for classes] in TyCoRep
   | ClassTyCon
         Class           -- INVARIANT: the classTyCon of this Class is the current tycon
 
@@ -812,7 +812,7 @@ So we compromise, and move their Kind calculation to the call site.
 
 \begin{code}
 -- | Given the name of the function type constructor and it's kind, create the
--- corresponding 'TyCon'. It is reccomended to use 'TypeRep.funTyCon' if you want
+-- corresponding 'TyCon'. It is reccomended to use 'TyCoRep.funTyCon' if you want
 -- this functionality
 mkFunTyCon :: Name -> Kind -> TyCon
 mkFunTyCon name kind

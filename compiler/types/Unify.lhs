@@ -37,7 +37,7 @@ import VarSet
 import Kind
 import Type
 import TyCon
-import TypeRep
+import TyCoRep
 import Util
 \end{code}
 

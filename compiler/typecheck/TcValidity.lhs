@@ -18,7 +18,7 @@ module TcValidity (
 -- friends:
 import TcUnify    ( tcSubType )
 import TcSimplify ( simplifyTop )
-import TypeRep
+import TyCoRep
 import TcType
 import TcMType
 import Type

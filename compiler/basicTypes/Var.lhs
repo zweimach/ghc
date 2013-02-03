@@ -25,8 +25,8 @@
 -- * 'Id.Id': see "Id#name_types"
 --
 -- * 'Var.Var' is a synonym for the 'Id.Id' type but it may additionally 
---   potentially contain type variables, which have a 'TypeRep.Kind' 
---   rather than a 'TypeRep.Type' and only contain some extra 
+--   potentially contain type variables, which have a 'TyCoRep.Kind' 
+--   rather than a 'TyCoRep.Type' and only contain some extra 
 --   details during typechecking.
 -- 
 --   These 'Var.Var' names may either be global or local, see "Var#globalvslocal"
@@ -55,7 +55,7 @@ module Var (
 	setIdExported, setIdNotExported,
 
         -- ** Predicates
-        isId, isTKVar, isTyVar, isTcTyVar, isTcTyCoVar
+        isId, isTKVar, isTyVar, isTcTyVar, isTcTyCoVar,
         isLocalVar, isLocalId,
 	isGlobalId, isExportedId,
 	mustHaveLocalBinding,
@@ -75,7 +75,7 @@ module Var (
 #include "HsVersions.h"
 #include "Typeable.h"
 
-import {-# SOURCE #-}	TypeRep( Type, Kind, SuperKind )
+import {-# SOURCE #-}	TyCoRep( Type, Kind, SuperKind )
 import {-# SOURCE #-}	TcType( TcTyVarDetails, pprTcTyVarDetails )
 import {-# SOURCE #-}	IdInfo( IdDetails, IdInfo, coVarDetails, vanillaIdInfo, pprIdDetails )
 

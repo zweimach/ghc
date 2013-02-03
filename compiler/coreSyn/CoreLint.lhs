@@ -41,7 +41,7 @@ import Coercion
 import SrcLoc
 import Kind
 import Type
-import TypeRep
+import TyCoRep
 import TyCon
 import CoAxiom
 import BasicTypes
@@ -699,7 +699,6 @@ lintType ty@(FunTy t1 t2)
 lintType ty@(TyConApp tc tys)
   | not (isUnLiftedTyCon tc) || tys `lengthIs` tyConArity tc
        -- Check that primitive types are saturated
-       -- See Note [The kind invariant] in TypeRep
   = do { ks <- mapM lintType tys
        ; lint_ty_app ty (tyConKind tc) (tys `zip` ks) }
   | otherwise

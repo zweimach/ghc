@@ -38,7 +38,7 @@ import HsSyn
 import Id
 import TcRnMonad
 import PrelNames
-import TypeRep     -- We can see the representation of types
+import TyCoRep     -- We can see the representation of types
 import TcType
 import TcMType ( defaultKindVarToStar, zonkQuantifiedTyCoVar, writeMetaTyVar )
 import TcEvidence

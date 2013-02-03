@@ -20,7 +20,7 @@ import TcRnTypes
 import TcRnMonad
 import TcMType
 import TcType
-import TypeRep
+import TyCoRep
 import Type
 import Kind ( isKind )
 import Unify            ( tcMatchTys )

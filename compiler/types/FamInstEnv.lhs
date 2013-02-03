@@ -41,7 +41,7 @@ import InstEnv
 import Unify
 import Type
 import Coercion hiding ( substTy )
-import TypeRep
+import TyCoRep
 import TyCon
 import CoAxiom
 import VarSet

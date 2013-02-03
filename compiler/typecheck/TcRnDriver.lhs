@@ -25,7 +25,7 @@ module TcRnDriver (
 import {-# SOURCE #-} TcSplice ( tcSpliceDecls )
 #endif
 
-import TypeRep
+import TyCoRep
 import DynFlags
 import StaticFlags
 import HsSyn

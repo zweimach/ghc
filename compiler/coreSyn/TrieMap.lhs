@@ -26,7 +26,7 @@ import Coercion
 import Literal
 import Name
 import Type
-import TypeRep
+import TyCoRep
 import Var
 import UniqFM
 import Unique( Unique )

@@ -32,7 +32,7 @@ module TcEvidence (
 import Var
 import Coercion( LeftOrRight(..), pickLR )
 import PprCore ()   -- Instance OutputableBndr TyVar
-import TypeRep  -- Knows type representation
+import TyCoRep  -- Knows type representation
 import TcType
 import Type( tyConAppArgN, tyConAppTyCon_maybe, getEqPredTys, coAxNthLHS )
 import TysPrim( funTyCon )

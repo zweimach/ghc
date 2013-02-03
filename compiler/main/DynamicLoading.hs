@@ -29,7 +29,7 @@ import PrelNames        ( iNTERACTIVE )
 import DynFlags
 
 import HscTypes         ( HscEnv(..), FindResult(..), ModIface(..), lookupTypeHscEnv )
-import TypeRep          ( TyThing(..), pprTyThingCategory )
+import TyCoRep          ( TyThing(..), pprTyThingCategory )
 import Type             ( Type, eqType )
 import TyCon            ( TyCon )
 import Name             ( Name, nameModule_maybe )

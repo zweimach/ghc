@@ -72,7 +72,7 @@ module Name (
 
 #include "Typeable.h"
 
-import {-# SOURCE #-} TypeRep( TyThing )
+import {-# SOURCE #-} TyCoRep( TyThing )
 
 import OccName
 import Module

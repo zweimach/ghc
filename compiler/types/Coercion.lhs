@@ -78,7 +78,7 @@ module Coercion (
 #include "HsVersions.h"
 
 import Unify	( MatchEnv(..), matchList )
-import TypeRep
+import TyCoRep
 import qualified Type
 import Type hiding( substTy, substTyVarBndr, extendTCvSubst )
 import TyCon
@@ -445,7 +445,7 @@ mkAppCo (TyConAppCo tc cos) co      = TyConAppCo tc (cos ++ [co])
 mkAppCo co1 co2                     = AppCo co1 co2
 -- Note, mkAppCo is careful to maintain invariants regarding
 -- where Refl constructors appear; see the comments in the definition
--- of Coercion and the Note [Refl invariant] in types/TypeRep.lhs.
+-- of Coercion and the Note [Refl invariant] in types/TyCoRep.lhs.
 
 -- | Applies multiple 'Coercion's to another 'CoercionArg', from left to right.
 -- See also 'mkAppCo'

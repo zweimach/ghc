@@ -10,7 +10,7 @@ import Vectorise.Type.Type
 import CoreSyn
 import TyCon
 import Type
-import TypeRep
+import TyCoRep
 import FastString
 import Outputable
 

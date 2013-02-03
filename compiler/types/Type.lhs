@@ -142,11 +142,11 @@ module Type (
 
 #include "HsVersions.h"
 
--- We import the representation and primitive functions from TypeRep.
+-- We import the representation and primitive functions from TyCoRep.
 -- Many things are reexported, but not the representation!
 
 import Kind
-import TypeRep
+import TyCoRep
 
 -- friends:
 import Var
@@ -796,7 +796,7 @@ Note [AppTy rep]
 Types of the form 'f a' must be of kind *, not #, so we are guaranteed
 that they are represented by pointers.  The reason is that f must have
 kind (kk -> kk) and kk cannot be unlifted; see Note [The kind invariant] 
-in TypeRep.
+in TyCoRep.
 
 ---------------------------------------------------------------------
 				ForAllTy

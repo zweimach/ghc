@@ -84,7 +84,7 @@ import HsLit
 import TcEvidence
 import RdrName
 import Var
-import TypeRep
+import TyCoRep
 import DataCon
 import Name
 import NameSet

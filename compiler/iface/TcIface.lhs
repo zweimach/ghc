@@ -22,7 +22,7 @@ import TcRnMonad
 import TcType
 import Type
 import Coercion
-import TypeRep
+import TyCoRep
 import HscTypes
 import Annotations
 import InstEnv

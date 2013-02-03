@@ -92,7 +92,7 @@ import Type             ( mkTyConApp )
 import DataCon
 import Var
 import TyCon
-import TypeRep
+import TyCoRep
 import RdrName
 import Name
 import BasicTypes       ( TupleSort(..), tupleSortBoxity,

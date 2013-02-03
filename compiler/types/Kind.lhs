@@ -50,7 +50,7 @@ module Kind (
 
 import {-# SOURCE #-} Type      ( typeKind, substKiWith, eqKind )
 
-import TypeRep
+import TyCoRep
 import TysPrim
 import TyCon
 import VarSet

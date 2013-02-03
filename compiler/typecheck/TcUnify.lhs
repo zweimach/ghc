@@ -42,7 +42,7 @@ module TcUnify (
 #include "HsVersions.h"
 
 import HsSyn
-import TypeRep
+import TyCoRep
 import TcMType
 import TcRnMonad
 import TcType

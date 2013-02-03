@@ -11,7 +11,7 @@ module DsForeign ( dsForeigns ) where
 #include "HsVersions.h"
 import TcRnMonad        -- temp
 
-import TypeRep
+import TyCoRep
 
 import CoreSyn
 

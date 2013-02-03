@@ -56,7 +56,7 @@ import TcIface
 import TcType
 import Type
 import Kind
-import TypeRep( mkNakedTyConApp )
+import TyCoRep( mkNakedTyConApp )
 import Var
 import VarSet
 import TyCon

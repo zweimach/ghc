@@ -39,7 +39,7 @@ import TcEnv
 import TcMType
 import TcHsType
 import TcIface
-import TypeRep
+import TyCoRep
 import FamInst
 import FamInstEnv
 import InstEnv
@@ -1339,7 +1339,7 @@ reifyFamInstBranch (FamInstBranch { fib_lhs = lhs, fib_rhs = rhs })
        ; return (TH.TySynEqn th_lhs th_rhs) }
 
 ------------------------------
-reifyType :: TypeRep.Type -> TcM TH.Type
+reifyType :: TyCoRep.Type -> TcM TH.Type
 -- Monadic only because of failure
 reifyType ty@(ForAllTy _ _)        = reify_for_all ty
 reifyType (LitTy t)         = do { r <- reifyTyLit t; return (TH.LitT r) }
@@ -1352,7 +1352,7 @@ reifyType ty@(FunTy t1 t2)
 reifyType ty@(CastTy {})    = noTH (sLit "kind casts") (ppr ty)
 reifyType ty@(CoercionTy {})= noTH (sLit "coercions in types") (ppr ty)
 
-reify_for_all :: TypeRep.Type -> TcM TH.Type
+reify_for_all :: TyCoRep.Type -> TcM TH.Type
 reify_for_all ty
   = do { cxt' <- reifyCxt cxt;
        ; tau' <- reifyType tau
@@ -1361,7 +1361,7 @@ reify_for_all ty
   where
     (tvs, cxt, tau) = tcSplitSigmaTy ty
 
-reifyTyLit :: TypeRep.TyLit -> TcM TH.TyLit
+reifyTyLit :: TyCoRep.TyLit -> TcM TH.TyLit
 reifyTyLit (NumTyLit n) = return (TH.NumTyLit n)
 reifyTyLit (StrTyLit s) = return (TH.StrTyLit (unpackFS s))
 
@@ -1386,7 +1386,7 @@ reifyKind  ki
                                                   }
     reifyNonArrowKind k                      = noTH (sLit "this kind") (ppr k)
 
-reify_kc_app :: TyCon -> [TypeRep.Kind] -> TcM TH.Kind
+reify_kc_app :: TyCon -> [TyCoRep.Kind] -> TcM TH.Kind
 reify_kc_app kc kis
   = fmap (foldl TH.AppT r_kc) (mapM reifyKind kis)
   where
@@ -1417,7 +1417,7 @@ reifyTyCoVars = mapM reifyTyVar
         kind = tyVarKind tv
         name = reifyName tv
 
-reify_tc_app :: TyCon -> [TypeRep.Type] -> TcM TH.Type
+reify_tc_app :: TyCon -> [TyCoRep.Type] -> TcM TH.Type
 reify_tc_app tc tys
   = do { tys' <- reifyTypes (removeKinds (tyConKind tc) tys)
        ; return (foldl TH.AppT r_tc tys') }
@@ -1430,7 +1430,7 @@ reify_tc_app tc tys
          | tc `hasKey` nilDataConKey  = TH.PromotedNilT
          | tc `hasKey` consDataConKey = TH.PromotedConsT
          | otherwise                  = TH.ConT (reifyName tc)
-    removeKinds :: Kind -> [TypeRep.Type] -> [TypeRep.Type]
+    removeKinds :: Kind -> [TyCoRep.Type] -> [TyCoRep.Type]
     removeKinds (FunTy k1 k2) (h:t)
       | isSuperKind k1          = removeKinds k2 t
       | otherwise               = h : removeKinds k2 t
@@ -1439,7 +1439,7 @@ reify_tc_app tc tys
       | otherwise               = h : removeKinds k t
     removeKinds _ tys           = tys
 
-reifyPred :: TypeRep.PredType -> TcM TH.Pred
+reifyPred :: TyCoRep.PredType -> TcM TH.Pred
 reifyPred ty
   -- We could reify the implicit paramter as a class but it seems
   -- nicer to support them properly...

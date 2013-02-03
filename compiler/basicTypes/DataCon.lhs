@@ -53,7 +53,7 @@ module DataCon (
 
 import {-# SOURCE #-} MkId( DataConBoxer )
 import Type
-import TypeRep( Type(..) )  -- Used in promoteType
+import TyCoRep( Type(..) )  -- Used in promoteType
 import PrelNames( liftedTypeKindTyConKey )
 import Coercion
 import Kind

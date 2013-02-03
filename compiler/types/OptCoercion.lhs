@@ -725,3 +725,5 @@ optCoVarBndr = substTyVarBndrCallback False optType
 optForAllCoBndr :: TCvSubst -> Bool -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
 optForAllCoBndr env sym
   = substForAllCoBndrCallback sym optType (flip opt_co) env
+
+\end{code}

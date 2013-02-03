@@ -20,7 +20,7 @@ module FamInst (
 import HscTypes
 import FamInstEnv
 import LoadIface
-import TypeRep
+import TyCoRep
 import TcRnMonad
 import TyCon
 import CoAxiom

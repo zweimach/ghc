@@ -35,7 +35,7 @@ import DataCon     ( dataConTag, dataConTyCon, dataConWorkId, fIRST_TAG )
 import CoreUtils   ( cheapEqExpr, exprIsHNF )
 import CoreUnfold  ( exprIsConApp_maybe )
 import Type
-import TypeRep
+import TyCoRep
 import OccName     ( occNameFS )
 import PrelNames
 import Maybes      ( orElse )

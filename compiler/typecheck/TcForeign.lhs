@@ -31,7 +31,7 @@ import FamInst
 import FamInstEnv
 import Coercion      
 import Type
-import TypeRep
+import TyCoRep
 import ForeignCall
 import ErrUtils
 import Id

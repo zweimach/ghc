@@ -26,7 +26,7 @@ module CoAxiom (
        coAxBranchRHS, coAxBranchSpan
        ) where 
 
-import {-# SOURCE #-} TypeRep ( Type )
+import {-# SOURCE #-} TyCoRep ( Type )
 import {-# SOURCE #-} TyCon ( TyCon )
 import Outputable
 import Name

@@ -166,7 +166,7 @@ module TcType (
 
 -- friends:
 import Kind
-import TypeRep
+import TyCoRep
 import Class
 import Var
 import ForeignCall

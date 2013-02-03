@@ -82,7 +82,7 @@ import IdInfo
 import DataCon
 import Name
 import Type
-import TypeRep
+import TyCoRep
 import TcType
 import TyCon
 import BasicTypes

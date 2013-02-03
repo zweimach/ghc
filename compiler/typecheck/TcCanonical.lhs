@@ -20,7 +20,7 @@ import Kind
 import TcEvidence
 import Class
 import TyCon
-import TypeRep
+import TyCoRep
 import Var
 import VarEnv
 import Outputable

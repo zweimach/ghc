@@ -15,7 +15,7 @@ import CoreUtils
 import FamInstEnv
 import Coercion
 import Type
-import TypeRep
+import TyCoRep
 import TyCon
 import CoAxiom
 import Var

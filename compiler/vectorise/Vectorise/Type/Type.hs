@@ -12,7 +12,7 @@ import Vectorise.Monad
 import Vectorise.Builtins
 import TcType
 import Type
-import TypeRep
+import TyCoRep
 import TyCon
 import Outputable
 import Control.Monad

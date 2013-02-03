@@ -63,7 +63,7 @@ module TcMType (
 #include "HsVersions.h"
 
 -- friends:
-import TypeRep
+import TyCoRep
 import TcType
 import TcEvidence
 import Type

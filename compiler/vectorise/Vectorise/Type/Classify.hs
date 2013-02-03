@@ -21,7 +21,7 @@ import UniqSet
 import UniqFM
 import DataCon
 import TyCon
-import TypeRep
+import TyCoRep
 import Type
 import PrelNames
 import Digraph

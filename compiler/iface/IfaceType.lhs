@@ -29,7 +29,7 @@ module IfaceType (
     ) where
 
 import Coercion
-import TypeRep hiding( maybeParen )
+import TyCoRep hiding( maybeParen )
 import Unique( hasKey )
 import TyCon
 import CoAxiom

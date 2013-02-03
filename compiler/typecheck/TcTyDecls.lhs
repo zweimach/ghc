@@ -23,7 +23,7 @@ module TcTyDecls(
 
 #include "HsVersions.h"
 
-import TypeRep
+import TyCoRep
 import HsSyn
 import Class
 import Type
