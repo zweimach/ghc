@@ -726,7 +726,7 @@ matchExpectedPatTy inner_match pat_ty
 	 -- that is the other way round to matchExpectedPatTy
 
   | otherwise
-  = do { (_, tys, subst) <- tcInstTyCoVars tvs
+  = do { (_, tys, subst) <- tcInstTyCoVars PatOrigin tvs
        ; wrap1 <- instCall PatOrigin tys (substTheta subst theta)
        ; (wrap2, arg_tys) <- matchExpectedPatTy inner_match (TcType.substTy subst tau)
        ; return (wrap2 <.> wrap1 , arg_tys) }
@@ -746,7 +746,7 @@ matchExpectedConTy data_tc pat_ty
   | Just (fam_tc, fam_args, co_tc) <- tyConFamInstSig_maybe data_tc
     	 -- Comments refer to Note [Matching constructor patterns]
      	 -- co_tc :: forall a. T [a] ~ T7 a
-  = do { (_, tys, subst) <- tcInstTyCoVars (tyConTyCoVars data_tc)
+  = do { (_, tys, subst) <- tcInstTyCoVars PatOrigin (tyConTyCoVars data_tc)
        	     -- tys = [ty1,ty2]
 
        ; traceTc "matchExpectedConTy" (vcat [ppr data_tc, 
@@ -872,7 +872,7 @@ addDataConStupidTheta data_con inst_tys
 	-- The origin should always report "occurrence of C"
 	-- even when C occurs in a pattern
     stupid_theta = dataConStupidTheta data_con
-    tenv = mkTopTCvSubst (dataConUnivTyCoVars data_con `zip` inst_tys)
+    tenv = mkTopTCvSubst (dataConUnivTyVars data_con `zip` inst_tys)
     	 -- NB: inst_tys can be longer than the univ tyvars
 	 --     because the constructor might have existentials
     inst_theta = substTheta tenv stupid_theta

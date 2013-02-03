@@ -390,7 +390,7 @@ trimConArgs :: AltCon -> [CoreArg] -> [CoreArg]
 
 trimConArgs DEFAULT      args = ASSERT( null args ) []
 trimConArgs (LitAlt _)   args = ASSERT( null args ) []
-trimConArgs (DataAlt dc) args = dropList (dataConUnivTyCoVars dc) args
+trimConArgs (DataAlt dc) args = dropList (dataConUnivTyVars dc) args
 \end{code}
 
 \begin{code}
@@ -1246,7 +1246,7 @@ dataConInstPat fss uniqs con inst_tys
   = ASSERT( univ_tvs `equalLength` inst_tys )
     (ex_bndrs, arg_ids)
   where 
-    univ_tvs = dataConUnivTyCoVars con
+    univ_tvs = dataConUnivTyVars con
     ex_tvs   = dataConExTyCoVars con
     arg_tys  = dataConRepArgTys con
 

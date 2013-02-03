@@ -432,6 +432,19 @@ writeMetaTyVarRef tyvar ref ty
 %*									*
 %************************************************************************
 
+Note [Coercion variables in tcInstTyCoVarX]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+What do we do when we need to instantiate a coercion variable that a type
+is quantified over? We create a new EvVar and emit a constraint so that
+the EvVar is given the appropratie evidence after constraint solving. The
+wrinkle here is that a type can be quantified over only *unboxed* coercions,
+and the constraint solver works only with *boxed* coercions. So, what to do?
+Our emitted wanted constraint uses a boxed coercion, but we must be careful
+to unbox the coercion before passing it to any coercion-quantified type. This
+is done by using an EvUnbox EvTerm in an HsWrapper. The mkWpTyApps function
+used in instCall (frequently called soon after tcInstTyCoVars) does this
+correctly. See also [Wrapping coercions embedded in types] in TcEvidence.
+
 \begin{code}
 newFlexiTyVar :: Kind -> TcM TcTyVar
 newFlexiTyVar kind = newMetaTyVar TauTv kind
@@ -448,26 +461,27 @@ newPolyFlexiTyVarTy :: TcM TcType
 newPolyFlexiTyVarTy = do { tv <- newMetaTyVar PolyTv liftedTypeKind
                          ; return (TyVarTy tv) }
 
-tcInstTyCoVars :: [TyCoVar] -> TcM ([TcTyCoVar], [TcType], TCvSubst)
+tcInstTyCoVars :: CtOrigin -> [TyCoVar] -> TcM ([TcTyCoVar], [TcType], TCvSubst)
 -- Instantiate with META type variables
--- Note that this works for a sequence of kind and type
+-- Note that this works for a sequence of kind, type, and coercion variables
 -- variables.  Eg    [ (k:BOX), (a:k->k) ]
 --             Gives [ (k7:BOX), (a8:k7->k7) ]
-tcInstTyCoVars tyvars = tcInstTyCoVarsX emptyTCvSubst tyvars
+tcInstTyCoVars = tcInstTyCoVarsX emptyTCvSubst
     -- emptyTCvSubst has an empty in-scope set, but that's fine here
     -- Since the tyvars are freshly made, they cannot possibly be
     -- captured by any existing for-alls.
 
-tcInstTyCoVarsX :: TCvSubst -> [TyCoVar] -> TcM ([TcTyCoVar], [TcType], TCvSubst)
+tcInstTyCoVarsX :: TCvSubst -> CtOrigin -> [TyCoVar]
+                -> TcM ([TcTyCoVar], [TcType], TCvSubst)
 -- The "X" part is because of extending the substitution
-tcInstTyCoVarsX subst tyvars =
-  do { (subst', tyvars') <- mapAccumLM tcInstTyCoVarX subst tyvars
+tcInstTyCoVarsX subst origin tyvars =
+  do { (subst', tyvars') <- mapAccumLM (tcInstTyCoVarX origin) subst tyvars
      ; return (tyvars', mkTyCoVarTys tyvars', subst') }
 
-tcInstTyCoVarX :: TCvSubst -> TyCoVar -> TcM (TCvSubst, TcTyCoVar)
+tcInstTyCoVarX :: CtOrigin -> TCvSubst -> TyCoVar -> TcM (TCvSubst, TcTyCoVar)
 -- Make a new unification variable tyvar whose Name and Kind come from
 -- an existing TyVar. We substitute kind variables in the kind.
-tcInstTyCoVarX subst tyvar
+tcInstTyCoVarX origin subst tyvar
   | isTyVar tyvar
   = do  { uniq <- newUnique
         ; details <- newMetaDetails TauTv
@@ -476,7 +490,17 @@ tcInstTyCoVarX subst tyvar
               new_tv = mkTcTyVar name kind details 
         ; return (extendTCvSubst subst tyvar (mkOnlyTyVarTy new_tv), new_tv) }
   | otherwise
-  = newEvVar (substTy subst (varType tyvar))
+  = do { new_cv <- newEvVar (substTy subst (varType tyvar))
+         -- can't call unifyType, because we need to return a CoVar,
+         -- and unification might result in a TcCoercion that's not a CoVar
+         -- See Note [Coercion variables in tcInstTyCoVarX]
+       ; let (ty1, ty2) = coVarTypes new_cv
+             ctev = CtWanted { ctev_evar = new_cv
+                             , ctev_pred = mkTcEqPred ty1 ty2 }
+       ; loc <- getCtLoc origin
+       ; emitFlat $ mkNonCanonical loc ctev
+       ; return (extendTCvSubst subst tyvar (mkTyCoVarTy new_cv), new_cv) }
+
 \end{code}
 
 

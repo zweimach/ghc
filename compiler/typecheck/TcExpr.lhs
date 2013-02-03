@@ -682,7 +682,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
 	; let fixed_tvs = getFixedTyCoVars con1_tvs relevant_cons
 	      is_fixed_tv tv = tv `elemVarSet` fixed_tvs
 
-              mk_inst_ty :: TCvSubst -> (TyCoVar, TcType) -> TcM (TCvSubst, TcType)
+              mk_inst_ty :: TCvSubst -> (TyVar, TcType) -> TcM (TCvSubst, TcType)
               -- Deals with instantiation of kind variables
               --   c.f. TcMType.tcInstTyCoVarsX
 	      mk_inst_ty subst (tv, result_inst_ty)
@@ -1065,7 +1065,7 @@ instantiateOuter orig id
   = return (HsVar id, tau)
 
   | otherwise
-  = do { (_, tys, subst) <- tcInstTyCoVars tvs
+  = do { (_, tys, subst) <- tcInstTyCoVars orig tvs
        ; doStupidChecks id tys
        ; let theta' = substTheta subst theta
        ; traceTc "Instantiating" (ppr id <+> text "with" <+> (ppr tys $$ ppr theta'))

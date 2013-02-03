@@ -1414,7 +1414,8 @@ instDFunType dfun_id mb_inst_tys
       = do { (tys, phi) <- go tvs mb_tys (extendTCvSubst subst tv ty)
            ; return (ty : tys, phi) }
     go (tv:tvs) (Nothing : mb_tys) subst
-      = do { ty <- instFlexiTcSHelper (tyVarName tv) (substTy subst (tyVarKind tv))
+      = ASSERT( isTyVar tv ) -- this won't work with coercion variables
+        do { ty <- instFlexiTcSHelper (tyVarName tv) (substTy subst (tyVarKind tv))
                          -- Don't forget to instantiate the kind!
                          -- cf TcMType.tcInstTyCoVarX
            ; (tys, phi) <- go tvs mb_tys (extendTCvSubst subst tv ty)

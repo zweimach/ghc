@@ -173,7 +173,7 @@ deeplyInstantiate :: CtOrigin -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 
 deeplyInstantiate orig ty
   | Just (arg_tys, tvs, theta, rho) <- tcDeepSplitSigmaTy_maybe ty
-  = do { (_, tys, subst) <- tcInstTyCoVars tvs
+  = do { (_, tys, subst) <- tcInstTyCoVars orig tvs
        ; ids1  <- newSysLocalIds (fsLit "di") (substTys subst arg_tys)
        ; wrap1 <- instCall orig tys (substTheta subst theta)
        ; (wrap2, rho2) <- deeplyInstantiate orig (substTy subst rho)
@@ -194,8 +194,6 @@ deeplyInstantiate orig ty
 %************************************************************************
 
 \begin{code}
-instCall :: CtOrigin -> Type -> WhenToStop -> TcM (HsWrapper, TcType)
-
 ----------------
 instCall :: CtOrigin -> [TcType] -> TcThetaType -> TcM HsWrapper
 -- Instantiate the constraints of a call

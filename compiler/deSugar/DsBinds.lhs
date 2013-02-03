@@ -784,6 +784,18 @@ dsEvTerm (EvLit l) =
     EvNum n -> mkIntegerExpr n
     EvStr s -> mkStringExprFS s
 
+dsEvTerm (EvUnbox evtm)
+  = do { tm <- dsEvTerm evtm  -- tm should be a boxed coercion
+       ; u <- newUnique
+       ; let boxed_type = exprType tm
+             (_boxed_eq, [k1, k2, t1, t2]) = splitTyConApp co_type
+             unboxed_type = mkHeteroCoercionType k1 k2 t1 t2
+             name = mkSystemVarName u (mkFastString "cv")
+             cv = mkCoVar name unboxed_type
+             wildcard = mkLocalId wildCardName boxed_type
+       ; return $ Case tm wildcard unboxed_type
+                    [(DataAlt eqBoxDataCon, [cv], Var cv)]
+
 ---------------------------------------
 dsTcCoercion :: TcCoercion -> (Coercion -> CoreExpr) -> DsM CoreExpr
 -- This is the crucial function that moves 

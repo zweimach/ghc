@@ -596,7 +596,8 @@ newVar = liftTcM . newFlexiTyVarTy
 instTyCoVars :: [TyCoVar] -> TR ([TcTyCoVar], [TcType], TCvSubst)
 -- Instantiate fresh mutable type variables from some TyVars
 -- This function preserves the print-name, which helps error messages
-instTyCoVars = liftTcM . tcInstTyCoVars
+instTyCoVars = let origin = panic "No origin for instTyCoVars in GHCi" in
+               liftTcM . (tcInstTyCoVars origin)
 
 type RttiInstantiation = [(TcTyCoVar, TyVar)]
    -- Associates the typechecker-world meta type variables 
@@ -610,7 +611,7 @@ type RttiInstantiation = [(TcTyCoVar, TyVar)]
 --   mapping from new (instantiated) -to- old (skolem) type variables
 instScheme :: QuantifiedType -> TR (TcType, RttiInstantiation)
 instScheme (tvs, ty) 
-  = liftTcM $ do { (tvs', _, subst) <- tcInstTyCoVars tvs
+  = liftTcM $ do { (tvs', _, subst) <- instTyCoVars tvs
                  ; let rtti_inst = [(tv',tv) | (tv',tv) <- tvs' `zip` tvs]
                  ; return (substTy subst ty, rtti_inst) }
 
@@ -959,7 +960,7 @@ getDataConArgTys dc con_app_ty
        ; traceTR (text "getDataConArgTys 2" <+> (ppr rep_con_app_ty $$ ppr ty_args $$ ppr subst))
        ; return (substTys subst (dataConRepArgTys dc)) }
   where
-    univ_tvs = dataConUnivTyCoVars dc
+    univ_tvs = dataConUnivTyVars dc
     ex_tvs   = dataConExTyCoVars dc
 
 {- Note [Constructor arg types]
@@ -1247,7 +1248,7 @@ tyConPhantomTyVars :: TyCon -> [TyVar]
 tyConPhantomTyVars tc
   | isAlgTyCon tc
   , Just dcs <- tyConDataCons_maybe tc
-  , dc_vars  <- concatMap dataConUnivTyCoVars dcs
+  , dc_vars  <- concatMap dataConUnivTyVars dcs
   = tyConTyCoVars tc \\ dc_vars
 tyConPhantomTyVars _ = []
 

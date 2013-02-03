@@ -1225,9 +1225,7 @@ substTys subst tys | isEmptyTCvSubst subst = tys
 
 -- | Substitute within a 'ThetaType'
 substTheta :: TCvSubst -> ThetaType -> ThetaType
-substTheta subst theta
-  | isEmptyTCvSubst subst = theta
-  | otherwise             = map (substTy subst) theta
+substTheta = substTys
 
 subst_ty :: TCvSubst -> Type -> Type
 -- subst_ty is the main workhorse for type substitution

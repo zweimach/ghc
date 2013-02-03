@@ -352,6 +352,20 @@ ppr_forall_co p ty
 %*                                                                      *
 %************************************************************************
 
+Note [Wrapping coercions embedded in types]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When instantiating quantified type variables in tcInstTyCoVars (and friends),
+there is the possibility of hitting a quantified coercion variable, now that
+ForAllTy can quantify over coercions along with types. tcInstTyCoVars makes
+a new meta type variable for type variables. What to do for coercions? We make
+an evidence variable (an Id) and emit a wanted constraint to solve for an
+appropriate coercion to supply for the evidence. But, the type that is being
+instantiated expects an *unboxed* coercion -- it is impossible to quantify
+over a boxed coercion within a type. So, when creating the HsWrapper to supply
+instantiated type/coercion variables, we must use the EvUnbox constructor for
+EvTerm, which will desugar to an unboxing operation using case analysis. See
+also [Coercion variables in tcInstTyCoVarX] in TcMType.
+
 \begin{code}
 data HsWrapper
   = WpHole                      -- The identity coercion
@@ -385,7 +399,22 @@ WpHole <.> c = c
 c <.> WpHole = c
 c1 <.> c2    = c1 `WpCompose` c2
 
+-- See Note [Wrapping coercions embedded in types]
 mkWpTyApps :: [Type] -> HsWrapper
+mkWpTyApps tys = mk_co_app_fn mk_ty_app tys
+  where
+    mk_ty_app :: Type -> HsWrapper
+    mk_ty_app ty
+      | Just co <- isCoercionTy_maybe ty
+      , Just cv <- getCoVar_maybe co
+      = WpEvApp $ EvUnbox $ EvId cv
+
+      | isCoercionTy ty
+      = pprPanic "mkWpTyApps" (ppr ty)
+
+      | otherwise
+      = WpTyApp ty
+
 mkWpTyApps tys = mk_co_app_fn WpTyApp tys
 
 mkWpEvApps :: [EvTerm] -> HsWrapper
@@ -497,6 +526,9 @@ data EvTerm
 
   | EvLit EvLit                  -- Dictionary for class "SingI" for type lits.
                                  -- Note [SingI and EvLit]
+
+  | EvUnbox EvTerm               -- Used when we need to desugar to an *unboxed*
+                                 -- coercion
 
   deriving( Data.Data, Data.Typeable)
 
@@ -618,6 +650,7 @@ evVarsOfTerm (EvCast tm co)       = evVarsOfTerm tm `unionVarSet` coVarsOfTcCo c
 evVarsOfTerm (EvTupleMk evs)      = evVarsOfTerms evs
 evVarsOfTerm (EvDelayedError _ _) = emptyVarSet
 evVarsOfTerm (EvLit _)            = emptyVarSet
+evVarsOfTerm (EvUnbox v)          = evVarsOfTerm v
 
 evVarsOfTerms :: [EvTerm] -> VarSet
 evVarsOfTerms = foldr (unionVarSet . evVarsOfTerm) emptyVarSet 
@@ -682,6 +715,7 @@ instance Outputable EvTerm where
   ppr (EvLit l)          = ppr l
   ppr (EvDelayedError ty msg) =     ptext (sLit "error") 
                                 <+> sep [ char '@' <> ppr ty, ppr msg ]
+  ppr (EvUnbox v)        = ptext (sLit "unbox") <+> ppr v
 
 instance Outputable EvLit where
   ppr (EvNum n) = integer n

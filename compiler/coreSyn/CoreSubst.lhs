@@ -1203,7 +1203,7 @@ exprIsConApp_maybe id_unf expr
     go (Left in_scope) (Var fun) cont@(CC args co)
         | Just con <- isDataConWorkId_maybe fun
         , count isValArg args == idArity fun
-        , let (univ_ty_args, rest_args) = splitAtList (dataConUnivTyCoVars con) args
+        , let (univ_ty_args, rest_args) = splitAtList (dataConUnivTyVars con) args
         = dealWithCoercion co (con, stripTyCoArgs univ_ty_args, rest_args)
 
         -- Look through dictionary functions; see Note [Unfolding DFuns]
@@ -1265,7 +1265,7 @@ dealWithCoercion co stuff@(dc, _dc_univ_args, dc_args)
         -- but the right-hand one might not be.  (Though it usually will.)
     let
         tc_arity       = tyConArity to_tc
-        dc_univ_tyvars = dataConUnivTyCoVars dc
+        dc_univ_tyvars = dataConUnivTyVars dc
         dc_ex_tyvars   = dataConExTyCoVars dc
         arg_tys        = dataConRepArgTys dc
 

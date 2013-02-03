@@ -638,6 +638,10 @@ isCoercionTy :: Type -> Bool
 isCoercionTy (CoercionTy _) = True
 isCoercionTy _              = False
 
+isCoercionTy_maybe :: Type -> Maybe Coercion
+isCoercionTy_maybe (CoercionTy co) = Just co
+isCoercionTy_maybe _               = Nothing
+
 stripCoercionTy :: Type -> Coercion
 stripCoercionTy (CoercionTy co) = co
 stripCoercionTy ty              = pprPanic "stripCoercionTy" (ppr ty)

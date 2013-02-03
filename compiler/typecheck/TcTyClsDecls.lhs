@@ -1653,7 +1653,7 @@ mkRecSelBind (tycon, sel_name)
         --                 A :: { fld :: Int } -> T Int Bool
         --                 B :: { fld :: Int } -> T Int Char
     dealt_with con = con `elem` cons_w_field || dataConCannotMatch inst_tys con
-    inst_tys = substTyCoVars (mkTopTCvSubst (dataConEqSpec con1)) (dataConUnivTyCoVars con1)
+    inst_tys = substTyCoVars (mkTopTCvSubst (dataConEqSpec con1)) (dataConUnivTyVars con1)
 
     unit_rhs = mkLHsTupleExpr []
     msg_lit = HsStringPrim $ unsafeMkByteString $

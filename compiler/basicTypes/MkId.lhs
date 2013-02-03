@@ -327,7 +327,7 @@ mkDictSelId dflags no_unf name clas
     tycon      	   = classTyCon clas
     new_tycon  	   = isNewTyCon tycon
     [data_con] 	   = tyConDataCons tycon
-    tyvars     	   = dataConUnivTyCoVars data_con
+    tyvars     	   = dataConUnivTyVars data_con
     arg_tys    	   = dataConRepArgTys data_con	-- Includes the dictionary superclasses
 
     -- 'index' is a 0-index into the *value* arguments of the dictionary
