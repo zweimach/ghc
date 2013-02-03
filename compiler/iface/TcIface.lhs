@@ -1543,14 +1543,14 @@ bindIfaceBndrCo bndr thing_inside
        ; bindIfaceTyVar tv1 $ \tv1' ->
          bindIfaceTyVar tv2 $ \tv2' ->
          bindIfaceId cv $ \cv' ->
-         thing_inside (TyHetero co' tv1' tv2' cv') }
+         thing_inside (mkTyHeteroCoBndr co' tv1' tv2' cv') }
   | IfaceCv cv <- bndr
   = bindIfaceId (\cv' -> thing_inside (CoHomo cv'))
   | IfaceHeteroCv co cv1 cv2 <- bndr
   = do { co' <- tcIfaceKindCo co
        ; bindIfaceId cv1 $ \cv1' ->
          bindIfaceId cv2 $ \cv2' ->
-         thing_inside (CoHetero co' cv1' cv2') }
+         thing_inside (mkCoHeteroCoBndr co' cv1' cv2') }
 
 bindIfaceTyVar :: IfaceTvBndr -> (TyVar -> IfL a) -> IfL a
 bindIfaceTyVar (occ,kind) thing_inside

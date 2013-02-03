@@ -1402,7 +1402,7 @@ zonkCoToCo env co
       = do { h' <- go h
            ; (env', [cv1', cv2']) <- zonkTyCoBndrsX env [cv1, cv2]
            ; co' <- zonkCoToCo env' co
-           ; return (mkForAllCo (CoHetero h' cv1' cv2') co') }
+           ; return (mkForAllCo (mkCoHeteroCoBndr h' cv1' cv2') co') }
 
       | otherwise
       = pprPanic "zonkCoToCo" (ppr cobndr)

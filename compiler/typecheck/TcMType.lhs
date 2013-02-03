@@ -973,7 +973,7 @@ zonkTcType ty
            ; cv1' <- zonkTcTyCoVarBndr cv1
            ; cv2' <- zonkTcTyCoVarBndr cv2
            ; co' <- go_co co
-           ; return (mkForAllCo (CoHetero h' cv1' cv2') co') }
+           ; return (mkForAllCo (mkCoHeteroCoBndr h' cv1' cv2') co') }
 
       | otherwise
       = pprPanic "zonkTcType" (ppr cobndr)

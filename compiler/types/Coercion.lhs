@@ -1224,7 +1224,7 @@ liftCoSubstVarBndrCallback fun homo lc@(LC in_scope cenv) old_var
                      else mkCoVarCo c
         in
         ( extendVarEnv cenv old_var (TyCoArg lifted)
-        , TyHetero eta a1 a2 c )
+        , mkTyHeteroCoBndr eta a1 a2 c )
 
       | otherwise
       = let cv1 = new_var
@@ -1237,7 +1237,7 @@ liftCoSubstVarBndrCallback fun homo lc@(LC in_scope cenv) old_var
                        else mkCoVarCo cv2
         in
         ( extendVarEnv cenv old_var (CoCoArg (mkCoVarCo cv1) lifted_r)
-        , CoHetero eta cv1 cv2 )
+        , mkCoHeteroCoBndr eta cv1 cv2 )
 
 -- If [a |-> g] is in the substitution and g :: t1 ~ t2, substitute a for t1
 -- If [a |-> (g1, g2)] is in the substitution, substitute a for g1

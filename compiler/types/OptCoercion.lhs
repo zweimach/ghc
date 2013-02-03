@@ -441,7 +441,7 @@ opt_trans_rule is co1 co2
             r2'      = optCoercion subst_r2 r2
             is'      = is `extendInScopeSetList` [cvl1, cvl2, cvr1, cvr2] in
         fireTransRule "EtaAllCoHeteroHetero" co1 co2 $
-        mkForAllCo (CoHetero (opt_trans2 is col cor) cvl1 cvr2)
+        mkForAllCo (mkCoHeteroCoBndr (opt_trans2 is col cor) cvl1 cvr2)
                    (opt_trans is' r1' r2')
 
       (CoHomo cvl, CoHetero cor cvr1 cvr2) ->
@@ -654,9 +654,9 @@ etaForAllCo_maybe is co
     -- heterogeneous:
     else if isTyVar tv1
          then let covar = mkFreshCoVar is (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2) in
-              Just ( TyHetero (mkNthCo 0 co) tv1 tv2 covar
+              Just ( mkTyHeteroCoBndr (mkNthCo 0 co) tv1 tv2 covar
                    , mkInstCo co (TyCoArg (mkCoVarCo covar)))
-         else Just ( CoHetero (mkNthCo 0 co) tv1 tv2
+         else Just ( mkCoHeteroCoBndr (mkNthCo 0 co) tv1 tv2
                    , mkInstCo co (CoCoArg (mkCoVarCo tv1) (mkCoVarCo tv2)))
 
   | otherwise
