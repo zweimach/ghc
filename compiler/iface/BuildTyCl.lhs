@@ -138,8 +138,8 @@ buildDataCon :: FamInstEnvs
             -> Name -> Bool
 	    -> [HsBang] 
 	    -> [Name]			-- Field labels
-	    -> [TyCoVar] -> [TyCoVar]	-- Univ and ext 
-            -> [(TyCoVar,Type)]         -- Equality spec
+	    -> [TyVar] -> [TyCoVar]	-- Univ and ext 
+            -> [(TyVar,Type)]           -- Equality spec
 	    -> ThetaType		-- Does not include the "stupid theta"
 					-- or the GADT equalities
 	    -> [Type] -> Type		-- Argument and result types

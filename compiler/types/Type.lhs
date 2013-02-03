@@ -1479,7 +1479,7 @@ typeKind _ty@(FunTy _arg res)
     where
       k = typeKind res
 typeKind (CastTy _ty co)    = pSnd $ coercionKind co
-typeKind (Coercion co)      = uncurry mkCoercionType (unPair $ coercionKind co)
+typeKind (CoercionTy co)    = coercionType co
 
 typeLiteralKind :: TyLit -> Kind
 typeLiteralKind l =

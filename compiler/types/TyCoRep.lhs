@@ -212,15 +212,35 @@ kinds or types.
 
 This kind instantiation only happens in TyConApp currently.
 
-
 Note [Equality-constrained types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The type   forall ab. (a ~ [b]) => blah
 is encoded like this:
 
    ForAllTy (a:*) $ ForAllTy (b:*) $
-   FunTy (TyConApp (~) [a, [b]]) $
+   FunTy (TyConApp (~) [*, *, a, [b]]) $
    blah
+
+Note that there are two equality types, boxed (~) and unboxed (~#).
+'Coercion's have a type built with (~#). 'TcCoercion's have a type built with
+(~). Only 'Coercion's can be quantified over in a ForAllTy, never
+'TcCoercion's. But, it is OK (and, in fact, quite common, in GADTs), to have
+a type headed by (~#) in a FunTy, when the coercion of that type is never
+mentioned in a later part of the type.
+
+So, to summarize:
+
+      ForAllTy  |  FunTy
+----------------+-------
+(~)  |   no     |   yes
+(~#) |  yes     |   yes
+
+But wait, what type does (\ (x :: a ~# b). ...) have? A ForAllTy, because
+that is the more general option. However, we still allow the possibility
+of a FunTy formed with (~#) because the type of Eq#, the one constructor
+of (~) has type (a ~# b) -> (a ~ b). That one constructor's type should
+be the only type in the system with (~#) to the left of a (->). If such
+a type appears elsewhere, it would be uninhabited.
 
 -------------------------------------
  		Note [PredTy]
