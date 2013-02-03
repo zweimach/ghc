@@ -119,6 +119,8 @@ module DynFlags (
         mAX_PTR_TAG,
         tARGET_MIN_INT, tARGET_MAX_INT, tARGET_MAX_WORD,
 
+        unsafeGlobalDynFlags, setUnsafeGlobalDynFlags,
+
         -- * SSE
         isSse2Enabled,
         isSse4_2Enabled,
@@ -136,7 +138,6 @@ import Config
 import CmdLineParser
 import Constants
 import Panic
-import StaticFlags
 import Util
 import Maybes           ( orElse )
 import MonadUtils
@@ -149,9 +150,7 @@ import Foreign.C        ( CInt(..) )
 #endif
 import {-# SOURCE #-} ErrUtils ( Severity(..), MsgDoc, mkLocMessage )
 
-#ifdef GHCI
 import System.IO.Unsafe ( unsafePerformIO )
-#endif
 import Data.IORef
 import Control.Monad
 
@@ -1796,16 +1795,17 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
 
   let ((leftover, errs, warns), dflags1)
           = runCmdLine (processArgs activeFlags args') dflags0
-  when (not (null errs)) $ throwGhcException $ errorsToGhcException errs
+  when (not (null errs)) $ liftIO $
+      throwGhcExceptionIO $ errorsToGhcException errs
 
   -- check for disabled flags in safe haskell
   let (dflags2, sh_warns) = safeFlagCheck cmdline dflags1
       dflags3 = updateWays dflags2
       theWays = ways dflags3
 
-  unless (allowed_combination theWays) $
-      throwGhcException (CmdLineError ("combination not supported: "  ++
-                              intercalate "/" (map wayDesc theWays)))
+  unless (allowed_combination theWays) $ liftIO $
+      throwGhcExceptionIO (CmdLineError ("combination not supported: " ++
+                               intercalate "/" (map wayDesc theWays)))
 
   -- TODO: This is an ugly hack. Do something better.
   -- -fPIC affects the CMM code we generate, so if
@@ -1823,7 +1823,7 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
   when e.g. compiling a C file, only when compiling Haskell files.
   when doingDynamicToo $
       unless (isJust (outputFile dflags4) == isJust (dynOutputFile dflags4)) $
-          throwGhcException $ CmdLineError
+          liftIO $ throwGhcExceptionIO $ CmdLineError
               "With -dynamic-too, must give -dyno iff giving -o"
   -}
 
@@ -3376,7 +3376,7 @@ makeDynFlagsConsistent dflags
       else let dflags' = dflags { hscTarget = HscLlvm }
                warn = "Compiler not unregisterised, so using LLVM rather than compiling via C"
            in loop dflags' warn
- | hscTarget dflags /= HscC &&
+ | hscTarget dflags /= HscC && hscTarget dflags /= HscLlvm &&
    platformUnregisterised (targetPlatform dflags)
     = loop (dflags { hscTarget = HscC })
            "Compiler unregisterised, so compiling via C"
@@ -3406,6 +3406,23 @@ makeDynFlagsConsistent dflags
           platform = targetPlatform dflags
           arch = platformArch platform
           os   = platformOS   platform
+
+--------------------------------------------------------------------------
+-- Do not use unsafeGlobalDynFlags!
+--
+-- unsafeGlobalDynFlags is a hack, necessary because we need to be able
+-- to show SDocs when tracing, but we don't always have DynFlags
+-- available.
+--
+-- Do not use it if you can help it. You may get the wrong value!
+
+GLOBAL_VAR(v_unsafeGlobalDynFlags, panic "v_unsafeGlobalDynFlags: not initialised", DynFlags)
+
+unsafeGlobalDynFlags :: DynFlags
+unsafeGlobalDynFlags = unsafePerformIO $ readIORef v_unsafeGlobalDynFlags
+
+setUnsafeGlobalDynFlags :: DynFlags -> IO ()
+setUnsafeGlobalDynFlags = writeIORef v_unsafeGlobalDynFlags
 
 -- -----------------------------------------------------------------------------
 -- SSE

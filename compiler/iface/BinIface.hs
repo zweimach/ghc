@@ -96,7 +96,7 @@ readBinIface_ dflags checkHiWay traceBinIFaceReading hi_path ncu = do
         errorOnMismatch what wanted got =
             -- This will be caught by readIface which will emit an error
             -- msg containing the iface module name.
-            when (wanted /= got) $ throwGhcException $ ProgramError
+            when (wanted /= got) $ throwGhcExceptionIO $ ProgramError
                          (what ++ " (wanted " ++ show wanted
                                ++ ", got "    ++ show got ++ ")")
     bh <- Binary.readBinMem hi_path
@@ -1244,7 +1244,7 @@ instance Binary IfaceDecl where
     put_ _ (IfaceForeign _ _) = 
         error "Binary.put_(IfaceDecl): IfaceForeign"
 
-    put_ bh (IfaceData a1 a2 a3 a4 a5 a6 a7 a8) = do
+    put_ bh (IfaceData a1 a2 a3 a4 a5 a6 a7 a8 a9) = do
         putByte bh 2
         put_ bh (occNameFS a1)
         put_ bh a2
@@ -1254,6 +1254,7 @@ instance Binary IfaceDecl where
         put_ bh a6
         put_ bh a7
         put_ bh a8
+        put_ bh a9
 
     put_ bh (IfaceSyn a1 a2 a3 a4) = do
         putByte bh 3
@@ -1296,8 +1297,9 @@ instance Binary IfaceDecl where
                     a6 <- get bh
                     a7 <- get bh
                     a8 <- get bh
+                    a9 <- get bh
                     occ <- return $! mkOccNameFS tcName a1
-                    return (IfaceData occ a2 a3 a4 a5 a6 a7 a8)
+                    return (IfaceData occ a2 a3 a4 a5 a6 a7 a8 a9)
             3 -> do a1 <- get bh
                     a2 <- get bh
                     a3 <- get bh
@@ -1431,13 +1433,6 @@ instance Binary IfaceAT where
         dec  <- get bh
         defs <- get bh
         return (IfaceAT dec defs)
-
-instance Binary IfaceATDefault where
-    put_ bh (IfaceATD tvs pat_tys ty) = do
-        put_ bh tvs
-        put_ bh pat_tys
-        put_ bh ty
-    get bh = liftM3 IfaceATD (get bh) (get bh) (get bh)
 
 instance Binary IfaceClassOp where
     put_ bh (IfaceClassOp n def ty) = do 

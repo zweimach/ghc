@@ -509,8 +509,8 @@ tc_hs_type hs_ty@(HsTyLit (HsNumTy n)) exp_kind
        ; return (mkNumLitTy n) }
 
 tc_hs_type hs_ty@(HsTyLit (HsStrTy s)) exp_kind 
-  = do { checkExpectedKind hs_ty typeStringKind exp_kind
-       ; checkWiredInTyCon typeStringKindCon
+  = do { checkExpectedKind hs_ty typeSymbolKind exp_kind
+       ; checkWiredInTyCon typeSymbolKindCon
        ; return (mkStrLitTy s) }
 
 ---------------------------
@@ -624,8 +624,9 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
              -> do { data_kinds <- xoptM Opt_DataKinds
                    ; unless data_kinds $ promotionErr name NoDataKinds
                    ; inst_tycon (mkTyConApp tc) (tyConKind tc) }
-             | otherwise -> failWithTc (quotes (ppr dc) <+> ptext (sLit "of type")
-                            <+> quotes (ppr (dataConUserType dc)) <+> ptext (sLit "is not promotable"))
+             | otherwise -> failWithTc (ptext (sLit "Data constructor") <+> quotes (ppr dc)
+                                        <+> ptext (sLit "comes from an un-promotable type") 
+                                        <+> quotes (ppr (dataConTyCon dc)))
 
            APromotionErr err -> promotionErr name err
 
@@ -883,7 +884,7 @@ tcScopedKindVars kv_ns thing_inside
   = tcExtendTyVarEnv (map mkKindSigVar kv_ns) thing_inside
 
 tcHsTyVarBndrs :: LHsTyVarBndrs Name 
-	       -> ([TyVar] -> TcM r)
+	       -> ([TcTyVar] -> TcM r)
 	       -> TcM r
 -- Bind the type variables to skolems, each with a meta-kind variable kind
 tcHsTyVarBndrs (HsQTvs { hsq_kvs = kvs, hsq_tvs = hs_tvs }) thing_inside
@@ -892,7 +893,7 @@ tcHsTyVarBndrs (HsQTvs { hsq_kvs = kvs, hsq_tvs = hs_tvs }) thing_inside
        ; traceTc "tcHsTyVarBndrs" (ppr hs_tvs $$ ppr tvs)
        ; tcExtendTyVarEnv tvs (thing_inside tvs) }
 
-tcHsTyVarBndr :: LHsTyVarBndr Name -> TcM TyVar
+tcHsTyVarBndr :: LHsTyVarBndr Name -> TcM TcTyVar
 -- Return a type variable 
 -- initialised with a kind variable.
 -- Typically the Kind inside the KindedTyVar will be a tyvar with a mutable kind 
@@ -904,7 +905,7 @@ tcHsTyVarBndr :: LHsTyVarBndr Name -> TcM TyVar
 --   instance C (a,b) where
 --     type F (a,b) c = ...
 -- Here a,b will be in scope when processing the associated type instance for F.
--- See Note [Associated type tyvar names] in TyCon
+-- See Note [Associated type tyvar names] in Class
 tcHsTyVarBndr (L _ hs_tv)
   = do { let name = hsTyVarName hs_tv
        ; mb_tv <- tcLookupLcl_maybe name
@@ -912,7 +913,7 @@ tcHsTyVarBndr (L _ hs_tv)
            Just (ATyVar _ tv) -> return tv ;
            _ -> do
        { kind <- case hs_tv of
-                   UserTyVar {} -> newMetaKindVar
+                   UserTyVar {}       -> newMetaKindVar
                    KindedTyVar _ kind -> tcLHsKind kind
        ; return (mkTcTyVar name kind (SkolemTv False)) } } }
 
@@ -958,7 +959,7 @@ and *not* at the inner forall:
   f2 :: (forall k. forall (a:k). T k a -> Int) -> Int  -- NO!
 Reason: same as for HM inference on value level declarations,
 we want to infer the most general type.  The f2 type signature
-would be *less applicable* than f1, becuase it requires a more
+would be *less applicable* than f1, because it requires a more
 polymorphic argument.
 
 Note [Kinds of quantified type variables]
@@ -1483,9 +1484,9 @@ tc_kind_var_app name arg_kis
   	   AGlobal (ATyCon tc)
   	     -> do { data_kinds <- xoptM Opt_DataKinds
   	           ; unless data_kinds $ addErr (dataKindsErr name)
-  	     	   ; case isPromotableTyCon tc of
-  	     	       Just n | n == length arg_kis ->
-  	     	         return (mkTyConApp (promoteTyCon tc) arg_kis)
+  	     	   ; case promotableTyCon_maybe tc of
+  	     	       Just prom_tc | arg_kis `lengthIs` tyConArity prom_tc
+  	     	               -> return (mkTyConApp prom_tc arg_kis)
   	     	       Just _  -> tycon_err tc "is not fully applied"
   	     	       Nothing -> tycon_err tc "is not promotable" }
 

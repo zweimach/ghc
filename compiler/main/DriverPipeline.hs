@@ -430,7 +430,7 @@ compileFile :: HscEnv -> Phase -> (FilePath, Maybe Phase) -> IO FilePath
 compileFile hsc_env stop_phase (src, mb_phase) = do
    exists <- doesFileExist src
    when (not exists) $
-        throwGhcException (CmdLineError ("does not exist: " ++ src))
+        throwGhcExceptionIO (CmdLineError ("does not exist: " ++ src))
 
    let
         dflags = hsc_dflags hsc_env
@@ -542,7 +542,7 @@ runPipeline stop_phase hsc_env0 (input_fn, mb_phase)
 
          let happensBefore' = happensBefore dflags
          when (not (start_phase `happensBefore'` stop_phase)) $
-               throwGhcException (UsageError
+               throwGhcExceptionIO (UsageError
                            ("cannot compile this file to desired target: "
                               ++ input_fn))
 
@@ -1232,18 +1232,18 @@ runPhase As input_fn dflags
         let whichAsProg | hscTarget dflags == HscLlvm &&
                           platformOS (targetPlatform dflags) == OSDarwin
                         = do
+                            -- be careful what options we call clang with
+                            -- see #5903 and #7617 for bugs caused by this.
                             llvmVer <- liftIO $ figureLlvmVersion dflags
                             return $ case llvmVer of
-                                Just n | n >= 30 ->
-                                    (SysTools.runClang, getOpts dflags opt_c)
+                                Just n | n >= 30 -> SysTools.runClang
+                                _                -> SysTools.runAs
 
-                                _ -> (SysTools.runAs, getOpts dflags opt_a)
+                        | otherwise = return SysTools.runAs
 
-                        | otherwise
-                        = return (SysTools.runAs, getOpts dflags opt_a)
-
-        (as_prog, as_opts) <- whichAsProg
-        let cmdline_include_paths = includePaths dflags
+        as_prog <- whichAsProg
+        let as_opts = getOpts dflags opt_a
+            cmdline_include_paths = includePaths dflags
 
         next_phase <- maybeMergeStub
         output_fn <- phaseOutputFilename next_phase
@@ -1454,14 +1454,17 @@ runPhase LlvmLlc input_fn dflags
                                       else if (elem VFPv3D16 ext)
                                            then ["-mattr=+v7,+vfp3,+d16"]
                                            else []
+                   ArchARM ARMv6 ext _ -> if (elem VFPv2 ext)
+                                          then ["-mattr=+v6,+vfp2"]
+                                          else ["-mattr=+v6"]
                    _                 -> []
         -- On Ubuntu/Debian with ARM hard float ABI, LLVM's llc still
         -- compiles into soft-float ABI. We need to explicitly set abi
         -- to hard
         abiOpts = case platformArch (targetPlatform dflags) of
-                    ArchARM ARMv7 _ HARD -> ["-float-abi=hard"]
-                    ArchARM ARMv7 _ _    -> []
-                    _                    -> []
+                    ArchARM _ _ HARD -> ["-float-abi=hard"]
+                    ArchARM _ _ _    -> []
+                    _                -> []
 
         sseOpts | isSse4_2Enabled dflags = ["-mattr=+sse42"]
                 | isSse2Enabled dflags   = ["-mattr=+sse2"]
@@ -1752,7 +1755,16 @@ linkBinary dflags o_files dep_packages = do
                   rpath = if gopt Opt_RPath dflags
                           then ["-Wl,-rpath",      "-Wl," ++ libpath]
                           else []
-              in ["-L" ++ l, "-Wl,-rpath-link", "-Wl," ++ l] ++ rpath
+                  -- Solaris 11's linker does not support -rpath-link option. It silently
+                  -- ignores it and then complains about next option which is -l<some
+                  -- dir> as being a directory and not expected object file, E.g
+                  -- ld: elf error: file
+                  -- /tmp/ghc-src/libraries/base/dist-install/build:
+                  -- elf_begin: I/O error: region read: Is a directory
+                  rpathlink = if (platformOS platform) == OSSolaris2
+                              then []
+                              else ["-Wl,-rpath-link", "-Wl," ++ l]
+              in ["-L" ++ l] ++ rpathlink ++ rpath
          | otherwise = ["-L" ++ l]
 
     let lib_paths = libraryPaths dflags
@@ -1819,7 +1831,7 @@ linkBinary dflags o_files dep_packages = do
             let os = platformOS (targetPlatform dflags)
             in if os == OSOsf3 then ["-lpthread", "-lexc"]
                else if os `elem` [OSMinGW32, OSFreeBSD, OSOpenBSD,
-                                  OSNetBSD, OSHaiku]
+                                  OSNetBSD, OSHaiku, OSQNXNTO]
                then []
                else ["-lpthread"]
          | otherwise               = []
@@ -1883,8 +1895,8 @@ linkBinary dflags o_files dep_packages = do
 
     -- parallel only: move binary to another dir -- HWL
     success <- runPhase_MoveBinary dflags output_fn
-    if success then return ()
-               else throwGhcException (InstallationError ("cannot move binary"))
+    unless success $
+        throwGhcExceptionIO (InstallationError ("cannot move binary"))
 
 
 exeFileName :: DynFlags -> FilePath
@@ -2001,10 +2013,13 @@ doCpp dflags raw include_cc_opts input_fn output_fn = do
           [ "-D__SSE2__=1" | sse2 || sse4_2 ] ++
           [ "-D__SSE4_2__=1" | sse4_2 ]
 
+    backend_defs <- getBackendDefs dflags
+
     cpp_prog       (   map SysTools.Option verbFlags
                     ++ map SysTools.Option include_paths
                     ++ map SysTools.Option hsSourceCppOpts
                     ++ map SysTools.Option target_defs
+                    ++ map SysTools.Option backend_defs
                     ++ map SysTools.Option hscpp_opts
                     ++ map SysTools.Option cc_opts
                     ++ map SysTools.Option sse_defs
@@ -2022,6 +2037,14 @@ doCpp dflags raw include_cc_opts input_fn output_fn = do
                        , SysTools.Option     "-o"
                        , SysTools.FileOption "" output_fn
                        ])
+
+getBackendDefs :: DynFlags -> IO [String]
+getBackendDefs dflags | hscTarget dflags == HscLlvm = do
+    llvmVer <- figureLlvmVersion dflags
+    return [ "-D__GLASGOW_HASKELL_LLVM__="++show llvmVer ]
+
+getBackendDefs _ =
+    return []
 
 hsSourceCppOpts :: [String]
 -- Default CPP defines in Haskell source

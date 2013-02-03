@@ -714,6 +714,30 @@ etaTyConAppCo_maybe tc co
 
   | otherwise
   = Nothing
+\end{code}
+
+Note [Eta for AppCo]
+~~~~~~~~~~~~~~~~~~~~
+Suppose we have 
+   g :: s1 t1 ~ s2 t2
+
+Then we can't necessarily make
+   left  g :: s1 ~ s2
+   right g :: t1 ~ t2
+because it's possible that
+   s1 :: * -> *         t1 :: *
+   s2 :: (*->*) -> *    t2 :: * -> *
+and in that case (left g) does not have the same
+kind on either side.
+
+It's enough to check that 
+  kind t1 = kind t2
+because if g is well-kinded then
+  kind (s1 t2) = kind (s2 t2)
+and these two imply
+  kind s1 = kind s2
+
+\begin{code}
 
 -- substitution functions that call back to optimization functions
 optTyVarBndr :: TCvSubst -> TyVar -> (TCvSubst, TyVar)

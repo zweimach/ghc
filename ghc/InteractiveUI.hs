@@ -833,7 +833,7 @@ runStmt stmt step
 
 -- | Clean up the GHCi environment after a statement has run
 afterRunStmt :: (SrcSpan -> Bool) -> GHC.RunResult -> GHCi Bool
-afterRunStmt _ (GHC.RunException e) = throw e
+afterRunStmt _ (GHC.RunException e) = liftIO $ Exception.throwIO e
 afterRunStmt step_here run_result = do
   resumes <- GHC.getResumeContext
   case run_result of
@@ -1420,7 +1420,9 @@ kindOfType norm str
   = handleSourceError GHC.printException
   $ do
        (ty, kind) <- GHC.typeKind norm str
-       printForUser $ vcat [ text str <+> dcolon <+> ppr kind
+       dflags <- getDynFlags
+       let pefas = gopt Opt_PrintExplicitForalls dflags
+       printForUser $ vcat [ text str <+> dcolon <+> pprTypeForUser pefas kind
                            , ppWhen norm $ equals <+> ppr ty ]
 
 
