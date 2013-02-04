@@ -1128,10 +1128,14 @@ mkVarApps :: Expr b -> [Var] -> Expr b
 mkConApp      :: DataCon -> [Arg b] -> Expr b
 
 mkApps    f args = foldl App		  	   f args
-mkTyApps  f args = foldl (\ e a -> App e (Type a)) f args
 mkCoApps  f args = foldl (\ e a -> App e (Coercion a)) f args
 mkVarApps f vars = foldl (\ e a -> App e (varToCoreExpr a)) f vars
 mkConApp con args = mkApps (Var (dataConWorkId con)) args
+
+mkTyApps  f args = foldl (\ e a -> App e (typeOrCoercion a)) f args
+  where
+    typeOrCoercion (CoercionTy co) = Coercion co
+    typeOrCoercion ty              = Type ty
 
 mkConApp2 :: DataCon -> [Type] -> [Var] -> Expr b
 mkConApp2 con tys arg_ids = Var (dataConWorkId con) 

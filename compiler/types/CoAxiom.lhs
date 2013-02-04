@@ -19,7 +19,7 @@ module CoAxiom (
        CoAxiom(..), CoAxBranch(..), 
 
        toBranchedAxiom, toUnbranchedAxiom,
-       coAxiomName, coAxiomArity, coAxiomBranches,
+       coAxiomName, coAxiomUnique, coAxiomArity, coAxiomBranches,
        coAxiomTyCon, isImplicitCoAxiom,
        coAxiomNthBranch, coAxiomSingleBranch_maybe,
        coAxiomSingleBranch, coAxBranchTyCoVars, coAxBranchLHS,
@@ -244,6 +244,9 @@ coAxiomArity ax index
 
 coAxiomName :: CoAxiom br -> Name
 coAxiomName = co_ax_name
+
+coAxiomUnique :: CoAxiom br -> Unique
+coAxiomUnique = co_ax_unique
 
 coAxiomBranches :: CoAxiom br -> BranchList CoAxBranch br
 coAxiomBranches = co_ax_branches

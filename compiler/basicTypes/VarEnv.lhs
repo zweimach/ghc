@@ -21,7 +21,7 @@ module VarEnv (
 	extendVarEnv, extendVarEnv_C, extendVarEnv_Acc, extendVarEnv_Directly,
         extendVarEnvList,
 	plusVarEnv, plusVarEnv_C, alterVarEnv,
-	delVarEnvList, delVarEnv,
+	delVarEnvList, delVarEnv, delVarEnv_Directly,
         minusVarEnv, intersectsVarEnv,
 	lookupVarEnv, lookupVarEnv_NF, lookupWithDefaultVarEnv,
 	mapVarEnv, zipVarEnv,
@@ -397,6 +397,7 @@ extendVarEnvList  :: VarEnv a -> [(Var, a)] -> VarEnv a
 		  
 lookupVarEnv_Directly :: VarEnv a -> Unique -> Maybe a
 filterVarEnv_Directly :: (Unique -> a -> Bool) -> VarEnv a -> VarEnv a
+delVarEnv_Directly    :: VarEnv a -> Unique -> VarEnv a
 partitionVarEnv   :: (a -> Bool) -> VarEnv a -> (VarEnv a, VarEnv a)
 restrictVarEnv    :: VarEnv a -> VarSet -> VarEnv a
 delVarEnvList     :: VarEnv a -> [Var] -> VarEnv a
@@ -445,6 +446,7 @@ isEmptyVarEnv	 = isNullUFM
 foldVarEnv	 = foldUFM
 lookupVarEnv_Directly = lookupUFM_Directly
 filterVarEnv_Directly = filterUFM_Directly
+delVarEnv_Directly    = delFromUFM_Directly
 partitionVarEnv       = partitionUFM
 
 restrictVarEnv env vs = filterVarEnv_Directly keep env

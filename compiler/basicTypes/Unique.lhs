@@ -45,7 +45,7 @@ module Unique (
         mkTupleTyConUnique, mkTupleDataConUnique,
         mkPreludeMiscIdUnique, mkPreludeDataConUnique,
         mkPreludeTyConUnique, mkPreludeClassUnique,
-        mkPArrDataConUnique,
+        mkPArrDataConUnique, mkCoVarUnique,
 
     mkVarOccUnique, mkDataOccUnique, mkTvOccUnique, mkTcOccUnique,
         mkRegSingleUnique, mkRegPairUnique, mkRegClassUnique, mkRegSubUnique,

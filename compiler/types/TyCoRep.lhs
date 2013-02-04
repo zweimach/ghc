@@ -43,7 +43,7 @@ module TyCoRep (
         isCoercionType,
 
         -- Functions over coercions
-        setCoBndrEta, eqCoBndrSort, pickLR,
+        setCoBndrEta, eqCoBndrSort, pickLR, coBndrVars,
         
         -- Pretty-printing
 	pprType, pprParendType, pprTypeApp, pprTCvBndr, pprTCvBndrs,
@@ -56,9 +56,9 @@ module TyCoRep (
         -- Free variables
         tyCoVarsOfType, tyCoVarsOfTypes, tyVarsOnlyOfType, tyVarsOnlyOfTypes,
         tyVarsOnlyOfCo, tyVarsOnlyOfCos, coVarsOfType, coVarsOfTypes,
-        coVarsOfCo, coVarsOfCos,
+        coVarsOfCo, coVarsOfCos, tyCoVarsOfCoArg, tyCoVarsOfCoArgs,
+        tyCoVarsOfCo, tyCoVarsOfCos,
         
-
         -- Substitutions
         TCvSubst(..), TvSubstEnv, CvSubstEnv,
         emptyTvSubstEnv, emptyCvSubstEnv, composeTCvSubstEnv, emptyTCvSubst,
@@ -75,6 +75,7 @@ module TyCoRep (
         lookupTyVar, lookupVar, substTyVarBndr,
         substCo, substCos, substCoVar, substCoVars, lookupCoVar,
         substTyCoVarBndr, substCoVarBndr, cloneTyVarBndr,
+        substCoWithIS, substCoWith,
 
         -- * Tidying type related things up for printing
         tidyType,      tidyTypes,
@@ -1367,6 +1368,19 @@ substCo subst co | isEmptyTCvSubst subst = co
 substCos :: TCvSubst -> [Coercion] -> [Coercion]
 substCos subst cos | isEmptyTCvSubst subst = cos
                    | otherwise             = map (substCo subst) cos
+
+-- | Substitute within a Coercion, with respect to given TyCoVar/Type pairs
+substCoWith :: [TyCoVar] -> [Type] -> Coercion -> Coercion
+substCoWith tvs tys = ASSERT( length tvs == length tys )
+                      substCo (zipOpenTCvSubst tvs tys)
+
+-- | Substitute within a Coercion, with respect to a given InScopeSet and
+-- TyCoVar/Type pairs.
+substCoWithIS :: InScopeSet -> [TyCoVar] -> [Type] -> Coercion -> Coercion
+substCoWithIS in_scope tvs tys
+  = let (tsubst, csubst) = zipTyCoEnv tvs tys
+        in_scope' = in_scope `unionInScope` (mkInScopeSet (tyCoVarsOfTypes tys)) in
+    subst_co (TCvSubst in_scope' tsubst csubst)
 
 subst_co :: TCvSubst -> Coercion -> Coercion
 subst_co subst co

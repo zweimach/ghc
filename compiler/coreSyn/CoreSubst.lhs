@@ -1273,7 +1273,11 @@ dealWithCoercion co stuff@(dc, _dc_univ_args, dc_args)
 
         -- Make the "Psi" from the paper
         omegas = decomposeCo tc_arity co
-        psi_subst = liftCoSubstWithEx dc_univ_tyvars omegas dc_ex_tyvars ex_args
+        psi_subst = liftCoSubstWithEx dc_univ_tyvars omegas dc_ex_tyvars (map repack ex_args)
+
+        repack (Type ty)     = ty
+        repack (Coercion co) = CoercionTy co
+        repack _bad          = pprPanic "dealWithCoercion" (ppr _bad)
 
           -- Cast the value arguments (which include dictionaries)
         new_val_args = zipWith cast_arg arg_tys val_args

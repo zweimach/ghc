@@ -31,7 +31,7 @@ module Class (
 #include "HsVersions.h"
 
 import {-# SOURCE #-} TyCon	( TyCon, tyConName, tyConUnique )
-import {-# SOURCE #-} TyCoRep	( Type, PredType )
+import {-# SOURCE #-} TyCoRep	( PredType )
 import CoAxiom
 import Var
 import Name

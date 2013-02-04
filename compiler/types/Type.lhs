@@ -101,7 +101,7 @@ module Type (
 	typeSize, varSetElemsWellScoped, 
 
 	-- * Type comparison
-        eqType, eqTypeX, eqTypes, cmpType, cmpTypes, 
+        eqType, eqTypeX, eqTypes, cmpType, cmpTypes, cmpTypeX, cmpTc,
 	eqPred, eqPredX, cmpPred, eqKind, eqTyCoVarBndrs,
 
 	-- * Forcing evaluation of types
