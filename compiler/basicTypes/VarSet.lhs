@@ -29,7 +29,7 @@ module VarSet (
 
 #include "HsVersions.h"
 
-import Var      ( Var, TyVar, CoVar, Id )
+import Var      ( Var, TyVar, CoVar, TyCoVar, Id )
 import Unique
 import UniqSet
 \end{code}

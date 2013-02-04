@@ -48,7 +48,7 @@ module Coercion (
         splitForAllCo_maybe,
 
 	-- ** Coercion variables
-	mkCoVar, isCoVar, isCoVarType, coVarName, setCoVarName, setCoVarUnique,
+	mkCoVar, isCoVar, coVarName, setCoVarName, setCoVarUnique,
 
         -- ** Free variables
         tyCoVarsOfCo, tyCoVarsOfCos, coVarsOfCo, coercionSize,
@@ -186,15 +186,6 @@ setCoVarUnique = setVarUnique
 setCoVarName :: CoVar -> Name -> CoVar
 setCoVarName   = setVarName
 
-isCoVar :: Var -> Bool
-isCoVar v = isCoVarType (varType v)
-
-isCoVarType :: Type -> Bool
-isCoVarType ty 	    -- Tests for t1 ~# t2, the unboxed equality
-  = case splitTyConApp_maybe ty of
-      Just (tc,tys) -> tc `hasKey` eqPrimTyConKey && tys `lengthAtLeast` 4
-      Nothing       -> False
-
 coercionSize :: Coercion -> Int
 coercionSize (Refl ty)           = typeSize ty
 coercionSize (TyConAppCo _ args) = 1 + sum (map coercionArgSize args)
@@ -229,8 +220,7 @@ puts parens around the type, except for the atomic cases.
 very high.
 
 \begin{code}
-instance Outputable Coercion where
-  ppr = pprCo
+-- Outputable instances are in TyCoRep
 
 pprCo, pprParendCo :: Coercion -> SDoc
 pprCo       co = ppr_co TopPrec   co
@@ -290,11 +280,10 @@ ppr_fun_co p co = pprArrowChain p (split co)
 ppr_forall_co :: Prec -> Coercion -> SDoc
 ppr_forall_co p (ForAllCo cobndr co)
   = maybeParen p FunPrec $
-    sep [ppr_forall_cobndr cobndr, ppr_co TopPrec co]
+    sep [pprCoBndr cobndr, ppr_co TopPrec co]
 
-ppr_forall_cobndr :: ForAllCoBndr -> SDoc
-ppr_forall_cobndr cobndr = pprForAll (coBndrVars cobndr)
-    split1 tvs ty               = (reverse tvs, ty)
+pprCoBndr :: ForAllCoBndr -> SDoc
+pprCoBndr cobndr = pprForAll (coBndrVars cobndr)
 \end{code}
 
 \begin{code}
@@ -598,7 +587,7 @@ mkFreshCoVar in_scope ty1 ty2
         cv_name = mkSystemVarName cv_uniq (mkFastString "c") in
     uniqAway in_scope $ mkCoVar cv_name (mkCoercionType ty1 ty2)
 
-mkAxInstCo :: CoAxiom br -> Int -> [Type] -> Coercion
+mkAxInstCo :: CoAxiom br -> BranchIndex -> [Type] -> Coercion
 -- mkAxInstCo can legitimately be called over-staturated; 
 -- i.e. with more type arguments than the coercion requires
 mkAxInstCo ax index tys
@@ -613,7 +602,7 @@ mkAxInstCo ax index tys
     ax_br = toBranchedAxiom ax
 
 -- worker function; just checks to see if it should produce Refl
-mkAxiomInstCo :: CoAxiom br -> Int -> [CoercionArg] -> Coercion
+mkAxiomInstCo :: CoAxiom br -> BranchIndex -> [CoercionArg] -> Coercion
 mkAxiomInstCo ax index args
   = ASSERT( coAxiomArity ax index == length args )
     let co           = AxiomInstCo ax_br index rtys

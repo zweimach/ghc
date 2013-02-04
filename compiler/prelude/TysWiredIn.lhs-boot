@@ -2,7 +2,7 @@
 module TysWiredIn where
 
 import {-# SOURCE #-} TyCon      (TyCon)
-import {-# SOURCE #-} TypeRep    (Type)
+import {-# SOURCE #-} TyCoRep    (Type)
 
 
 eqTyCon :: TyCon

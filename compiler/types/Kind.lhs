@@ -34,12 +34,12 @@ module Kind (
         isLiftedTypeKind, isUnliftedTypeKind, isOpenTypeKind,
         isConstraintKind, returnsConstraintKind,
         isKind, isKindVar,
-        isSuperKind, isSuperKindTyCon,
+        isSuperKind, isSuperKindCon,
         isLiftedTypeKindCon, isConstraintKindCon,
         isAnyKind, isAnyKindCon,
         okArrowArgKind, okArrowResultKind,
 
-        isSubOpenTypeKind, 
+        isSubOpenTypeKind, isStarKindCon,
         isSubKind, isSubKindCon, 
         tcIsSubKind, tcIsSubKindCon,
         defaultKind, isStarKind,
@@ -48,12 +48,11 @@ module Kind (
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} Type      ( typeKind, substKiWith, eqKind )
+import {-# SOURCE #-} Type      ( typeKind, eqKind, piResultTy )
 
 import TyCoRep
 import TysPrim
 import TyCon
-import VarSet
 import PrelNames
 import Outputable
 import Util
@@ -116,7 +115,7 @@ isOpenTypeKind, isUnliftedTypeKind,
 
 isOpenTypeKindCon, isUnliftedTypeKindCon,
   isSubOpenTypeKindCon, isConstraintKindCon,
-  isLiftedTypeKindCon, isAnyKindCon, isSuperKindTyCon :: TyCon -> Bool
+  isLiftedTypeKindCon, isAnyKindCon, isSuperKindCon :: TyCon -> Bool
 
 
 isLiftedTypeKindCon   tc = tyConUnique tc == liftedTypeKindTyConKey
@@ -124,7 +123,7 @@ isAnyKindCon          tc = tyConUnique tc == anyKindTyConKey
 isOpenTypeKindCon     tc = tyConUnique tc == openTypeKindTyConKey
 isUnliftedTypeKindCon tc = tyConUnique tc == unliftedTypeKindTyConKey
 isConstraintKindCon   tc = tyConUnique tc == constraintKindTyConKey
-isSuperKindTyCon      tc = tyConUnique tc == superKindTyConKey
+isSuperKindCon        tc = tyConUnique tc == superKindTyConKey
 
 isAnyKind (TyConApp tc _) = isAnyKindCon tc
 isAnyKind _               = False

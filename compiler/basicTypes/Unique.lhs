@@ -309,7 +309,7 @@ mkPArrDataConUnique    :: Int -> Unique
 mkCoVarUnique          :: Int -> Unique
 
 mkAlphaTyVarUnique i            = mkUnique '1' i
-mkCoVarUnique i                 = mkunique 'g' i
+mkCoVarUnique i                 = mkUnique 'g' i
 
 mkPreludeClassUnique i          = mkUnique '2' i
 

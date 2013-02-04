@@ -92,6 +92,7 @@ import SrcLoc
 import Unique		( mkAlphaTyVarUnique )
 import PrelNames
 import FastString
+import TyCoRep
 
 import Data.Char
 \end{code}
@@ -478,7 +479,7 @@ statePrimTyCon	 = pcPrimTyCon statePrimTyConName 1 VoidRep
 eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 		      -- See Note [The ~# TyCon]
 eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind 4 VoidRep
-  where kind = mkForAllTy kv1 $ mkForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
+  where kind = ForAllTy kv1 $ ForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
         kVars = tyVarList superKind
         kv1 = kVars !! 0
         kv2 = kVars !! 1
@@ -730,7 +731,7 @@ anyTy = mkTyConTy anyTyCon
 
 anyTyCon :: TyCon
 anyTyCon = mkLiftedPrimTyCon anyTyConName kind 1 PtrRep
-  where kind = mkForAllTy kKiVar (mkOnlyTyVarTy kKiVar)
+  where kind = ForAllTy kKiVar (mkOnlyTyVarTy kKiVar)
 
 {-   Can't do this yet without messing up kind proxies
 anyTyCon :: TyCon

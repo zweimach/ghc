@@ -40,7 +40,7 @@
 module Var (
         -- * The main data type and synonyms
         Var, CoVar, Id, DictId, DFunId, EvVar, EqVar, EvId, IpId,
-        TyVar, TypeVar, KindVar, TKVar,
+        TyVar, TypeVar, KindVar, TKVar, TyCoVar,
 
 	-- ** Taking 'Var's apart
 	varName, varUnique, varType, 
@@ -56,7 +56,7 @@ module Var (
 
         -- ** Predicates
         isId, isTKVar, isTyVar, isTcTyVar, isTcTyCoVar,
-        isLocalVar, isLocalId,
+        isLocalVar, isLocalId, isCoVar,
 	isGlobalId, isExportedId,
 	mustHaveLocalBinding,
 
@@ -75,7 +75,7 @@ module Var (
 #include "HsVersions.h"
 #include "Typeable.h"
 
-import {-# SOURCE #-}	TyCoRep( Type, Kind, SuperKind )
+import {-# SOURCE #-}	TyCoRep( Type, Kind, SuperKind, isCoercionType )
 import {-# SOURCE #-}	TcType( TcTyVarDetails, pprTcTyVarDetails )
 import {-# SOURCE #-}	IdInfo( IdDetails, IdInfo, coVarDetails, vanillaIdInfo, pprIdDetails )
 
@@ -430,6 +430,9 @@ isTcTyCoVar v = isTcTyVar v || isCoVar v
 isId :: Var -> Bool
 isId (Id {}) = True
 isId _       = False
+
+isCoVar :: Var -> Bool
+isCoVar v = isCoercionType (varType v)
 
 isLocalId :: Var -> Bool
 isLocalId (Id { idScope = LocalId _ }) = True

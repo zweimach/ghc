@@ -187,7 +187,7 @@ mkCast :: CoreExpr -> Coercion -> CoreExpr
 mkCast e co | isReflCo co = e
 
 mkCast (Coercion e_co) co 
-  | isCoVarType (pSnd (coercionKind co))
+  | isCoercionType (pSnd (coercionKind co))
        -- The guard here checks that g has a (~#) on both sides,
        -- otherwise decomposeCo fails.  Can in principle happen
        -- with unsafeCoerce

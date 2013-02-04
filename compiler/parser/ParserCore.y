@@ -15,7 +15,7 @@ import RdrHsSyn
 import HsSyn
 import RdrName
 import OccName
-import TypeRep ( TyThing(..) )
+import TyCoRep ( TyThing(..) )
 import Type ( Kind,
               liftedTypeKindTyCon, openTypeKindTyCon, unliftedTypeKindTyCon,
               mkTyConApp

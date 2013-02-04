@@ -33,13 +33,20 @@ module TyCoRep (
         KindOrType, Kind, SuperKind,
         PredType, ThetaType,      -- Synonyms
 
+        -- Coercions
+        Coercion(..), CoercionArg(..), LeftOrRight(..), ForAllCoBndr(..),
+
         -- Functions over types
         mkNakedTyConApp, mkTyConTy, mkOnlyTyVarTy, mkOnlyTyVarTys,
         mkTyCoVarTy, mkTyCoVarTys,
         isLiftedTypeKind, isSuperKind, isTypeVar, isKindVar,
+        isCoercionType,
+
+        -- Functions over coercions
+        setCoBndrEta, eqCoBndrSort, pickLR,
         
         -- Pretty-printing
-	pprType, pprParendType, pprTypeApp, pprTCvBndr, pprTvBndrs,
+	pprType, pprParendType, pprTypeApp, pprTCvBndr, pprTCvBndrs,
 	pprTyThing, pprTyThingCategory, pprSigmaType,
 	pprEqPred, pprTheta, pprForAll, pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprTyLit,
@@ -47,17 +54,34 @@ module TyCoRep (
         pprPrefixApp, pprArrowChain, ppr_type,
 
         -- Free variables
-        tyCoVarsOfType, tyCoVarsOfTypes,
+        tyCoVarsOfType, tyCoVarsOfTypes, tyVarsOnlyOfType, tyVarsOnlyOfTypes,
+        tyVarsOnlyOfCo, tyVarsOnlyOfCos, coVarsOfType, coVarsOfTypes,
+        coVarsOfCo, coVarsOfCos,
+        
 
         -- Substitutions
-        TCvSubst(..), TvSubstEnv, CvSubstEnv
+        TCvSubst(..), TvSubstEnv, CvSubstEnv,
+        emptyTvSubstEnv, emptyCvSubstEnv, composeTCvSubstEnv, emptyTCvSubst,
+        mkEmptyTCvSubst, isEmptyTCvSubst, mkTCvSubst, getTvSubstEnv,
+        getCvSubstEnv, getTCvInScope, isInScope, notElemTCvSubst,
+        setTvSubstEnv, setCvSubstEnv, zapTCvSubst,
+        extendTCvInScope, extendTCvInScopeList,
+        extendTCvSubst, extendTCvSubstList,
+        unionTCvSubst, zipTyCoEnv,
+        mkOpenTCvSubst, zipOpenTCvSubst, mkTopTCvSubst, zipTopTCvSubst,
+
+        substTyWith, substKiWith, substTysWith, substKisWith, substTy,
+        substTys, substTheta, substTyCoVar, substTyCoVars,
+        lookupTyVar, lookupVar, substTyVarBndr,
+        substCo, substCos, substCoVar, substCoVars, lookupCoVar,
+        substTyCoVarBndr, substCoVarBndr, cloneTyVarBndr,
 
         -- * Tidying type related things up for printing
         tidyType,      tidyTypes,
         tidyOpenType,  tidyOpenTypes,
         tidyOpenKind,
         tidyTyCoVarBndr, tidyTyCoVarBndrs, tidyFreeTyCoVars,
-        tidyOpenTyVar, tidyOpenTyVars,
+        tidyOpenTyCoVar, tidyOpenTyCoVars,
         tidyTyVarOcc,
         tidyTopType,
         tidyKind,
@@ -67,13 +91,14 @@ module TyCoRep (
 #include "HsVersions.h"
 
 import {-# SOURCE #-} DataCon( DataCon, dataConTyCon, dataConName )
-import {-# SOURCE #-} Type( noParenPred, isPredTy ) -- Transitively pulls in a LOT of stuff, better to break the loop
+import {-# SOURCE #-} Type( noParenPred, isPredTy, isCoercionTy, mkAppTy ) -- Transitively pulls in a LOT of stuff, better to break the loop
+import {-# SOURCE #-} Coercion
 
 -- friends:
 import Var
 import VarEnv
 import VarSet
-import Name
+import Name hiding ( varName )
 import BasicTypes
 import TyCon
 import Class
@@ -89,6 +114,7 @@ import Util
 
 -- libraries
 import qualified Data.Data        as Data hiding ( TyCon )
+import Data.List
 \end{code}
 
 
@@ -310,7 +336,7 @@ mkOnlyTyVarTy  :: TyVar   -> Type
 mkOnlyTyVarTy v = ASSERT( isTyVar v ) TyVarTy v
 
 mkOnlyTyVarTys :: [TyVar] -> [Type]
-mkOnlyTyVarTys = map mkTyVarTy -- a common use of mkOnlyTyVarTy
+mkOnlyTyVarTys = map mkOnlyTyVarTy -- a common use of mkOnlyTyVarTy
 
 mkTyCoVarTy :: TyCoVar -> Type
 mkTyCoVarTy v
@@ -330,6 +356,13 @@ mkNakedTyConApp :: TyCon -> [Type] -> Type
 -- Type.mkTyConApp is the usual one
 mkNakedTyConApp tc tys
   = TyConApp (ASSERT( not (isFunTyCon tc && length tys == 2) ) tc) tys
+
+isCoercionType :: Type -> Bool
+isCoercionType (TyConApp tc tys)
+  | tc `hasKey` eqPrimTyConKey
+  , length tys == 4
+  = True
+isCoercionType _ = False
 
 -- | Create the plain type constructor type which has been applied to no type arguments at all.
 mkTyConTy :: TyCon -> Type
@@ -353,6 +386,8 @@ isTypeVar v = isTKVar v && not (isSuperKind (varType v))
 
 isKindVar :: Var -> Bool 
 isKindVar v = isTKVar v && isSuperKind (varType v)
+
+
 \end{code}
 
 %************************************************************************
@@ -433,6 +468,7 @@ data ForAllCoBndr
   | TyHetero Coercion TyVar TyVar CoVar
   | CoHomo CoVar
   | CoHetero Coercion CoVar CoVar
+  deriving (Data.Data, Data.Typeable)
 
 -- returns the variable bound in a ForAllCoBndr
 coBndrVars :: ForAllCoBndr -> [TyCoVar]
@@ -458,6 +494,7 @@ eqCoBndrSort (TyHomo {})   (TyHomo {})   = True
 eqCoBndrSort (TyHetero {}) (TyHetero {}) = True
 eqCoBndrSort (CoHomo {})   (CoHomo {})   = True
 eqCoBndrSort (CoHetero {}) (CoHetero {}) = True
+eqCoBndrSort _             _             = False
 
 -- | A CoercionArg is an argument to a coercion. It may be a coercion (lifted from
 -- a type) or a pair of coercions (lifted from a coercion). See
@@ -709,7 +746,7 @@ tyVarsOnlyOfCo (AppCo co arg)      = tyVarsOnlyOfCo co `unionVarSet` tyVarsOnlyO
 tyVarsOnlyOfCo (ForAllCo cobndr co)
   = let (vars, kinds) = coBndrVarsKinds cobndr in
     tyVarsOnlyOfCo co `delVarSetList` vars `unionVarSet` tyVarsOnlyOfTypes kinds
-tyVarsOnlyOfCo (CoVarCo v)         = emptyVarSet
+tyVarsOnlyOfCo (CoVarCo _)         = emptyVarSet
 tyVarsOnlyOfCo (AxiomInstCo _ _ cos) = tyVarsOnlyOfCoArgs cos
 tyVarsOnlyOfCo (UnsafeCo ty1 ty2)  = tyVarsOnlyOfType ty1 `unionVarSet` tyVarsOnlyOfType ty2
 tyVarsOnlyOfCo (SymCo co)          = tyVarsOnlyOfCo co
@@ -799,10 +836,10 @@ coVarsOfCo (Refl ty)           = coVarsOfType ty
 coVarsOfCo (TyConAppCo _ args) = coVarsOfCoArgs args
 coVarsOfCo (AppCo co arg)      = coVarsOfCo co `unionVarSet` coVarsOfCoArg arg
 coVarsOfCo (ForAllCo cobndr co)
-  = let (vars, kinds) = coBndrVarsKinds in
+  = let (vars, kinds) = coBndrVarsKinds cobndr in
     coVarsOfCo co `delVarSetList` vars `unionVarSet` coVarsOfTypes kinds
 coVarsOfCo (CoVarCo v)         = unitVarSet v
-coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCoArgs cos
+coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCoArgs args
 coVarsOfCo (UnsafeCo ty1 ty2)  = coVarsOfTypes [ty1, ty2]
 coVarsOfCo (SymCo co)          = coVarsOfCo co
 coVarsOfCo (TransCo co1 co2)   = coVarsOfCo co1 `unionVarSet` coVarsOfCo co2
@@ -913,7 +950,7 @@ type TvSubstEnv = TyVarEnv Type
 	-- apply-once or whatever
 
 -- | A substitution of 'Coercion's for 'CoVar's
-type CvSubstEnv = CoVarEnv Type
+type CvSubstEnv = CoVarEnv Coercion
 
 \end{code}
 
@@ -983,10 +1020,10 @@ emptyTvSubstEnv = emptyVarEnv
 emptyCvSubstEnv :: CvSubstEnv
 emptyCvSubstEnv = emptyVarEnv
 
-composeTvSubstEnv :: InScopeSet
-                  -> (TvSubstEnv, CvSubstEnv)
-                  -> (TvSubstEnv, CvSubstEnv)
-                  -> (TvSubstEnv, CvSubstEnv)
+composeTCvSubstEnv :: InScopeSet
+                   -> (TvSubstEnv, CvSubstEnv)
+                   -> (TvSubstEnv, CvSubstEnv)
+                   -> (TvSubstEnv, CvSubstEnv)
 -- ^ @(compose env1 env2)(x)@ is @env1(env2(x))@; i.e. apply @env2@ then @env1@.
 -- It assumes that both are idempotent.
 -- Typically, @env1@ is the refinement to a base substitution @env2@
@@ -1023,7 +1060,7 @@ getTCvInScope :: TCvSubst -> InScopeSet
 getTCvInScope (TCvSubst in_scope _ _) = in_scope
 
 isInScope :: Var -> TCvSubst -> Bool
-isInScope v (TCvSubst in_scope _) = v `elemInScopeSet` in_scope
+isInScope v (TCvSubst in_scope _ _) = v `elemInScopeSet` in_scope
 
 notElemTCvSubst :: Var -> TCvSubst -> Bool
 notElemTCvSubst v (TCvSubst _ tenv cenv)
@@ -1109,7 +1146,7 @@ mkOpenTCvSubst tenv cenv
 
 -- | Generates the in-scope set for the 'TCvSubst' from the types in the incoming
 -- environment, hence "open"
-zipOpenTCvSubst :: [Var] -> [Type] -> TvSubst
+zipOpenTCvSubst :: [Var] -> [Type] -> TCvSubst
 zipOpenTCvSubst tyvars tys 
   | debugIsOn && (length tyvars /= length tys)
   = pprTrace "zipOpenTCvSubst" (ppr tyvars $$ ppr tys) emptyTCvSubst
@@ -1121,7 +1158,7 @@ zipOpenTCvSubst tyvars tys
 -- free vars of the range of the substitution will be empty.
 mkTopTCvSubst :: [(TyVar, Type)] -> TCvSubst
 mkTopTCvSubst prs = TCvSubst emptyInScopeSet tenv cenv
-  where (tenv, cenv) = foldl' extend (emptyTvSubstEnv, emptyCvSubstEnv) prs
+  where (tenv, cenv) = foldl extend (emptyTvSubstEnv, emptyCvSubstEnv) prs
         extend envs (v, ty) = extendSubstEnvs envs v ty
 
 zipTopTCvSubst :: [TyVar] -> [Type] -> TCvSubst
@@ -1135,7 +1172,8 @@ zipTopTCvSubst tyvars tys
 zipTyCoEnv :: [TyVar] -> [Type] -> (TvSubstEnv, CvSubstEnv)
 zipTyCoEnv tyvars tys
   | debugIsOn && (length tyvars /= length tys)
-  = pprTrace "zipTyEnv" (ppr tyvars $$ ppr tys) emptyVarEnv
+  = pprTrace "zipTyCoEnv" (ppr tyvars $$ ppr tys)
+    (emptyVarEnv, emptyVarEnv)
   | otherwise
   = zip_ty_co_env tyvars tys (emptyVarEnv, emptyVarEnv)
 
@@ -1284,9 +1322,12 @@ subst_ty subst ty
     go (CastTy ty co)    = (CastTy $! (go ty)) $! (subst_co subst co)
     go (CoercionTy co)   = CoercionTy $! (subst_co subst co)
 
+substTyCoVars :: TCvSubst -> [TyCoVar] -> [Type]
+substTyCoVars subst = map $ substTyCoVar subst
+
 -- See Note [Apply Once]
-substTyCoVars :: TCvSubst -> TyCoVar -> Type
-substTyCoVars (TCvSubst _ tenv cenv) tv
+substTyCoVar :: TCvSubst -> TyCoVar -> Type
+substTyCoVar (TCvSubst _ tenv cenv) tv
   | isTyVar tv
   = case lookupVarEnv tenv tv of
       Just ty -> ty
@@ -1340,8 +1381,8 @@ subst_co subst co
                                in  args' `seqList` mkTyConAppCo tc args'
     go (AppCo co arg)        = mkAppCo (go co) $! go_arg arg
     go (ForAllCo cobndr co)
-      = case substForAllCoBndr subst cobndr of (subst', cobndr') ->
-          (mkForAllCo $! cobndr') $! subst_co subst' co
+      = case substForAllCoBndr subst cobndr of { (subst', cobndr') ->
+          (mkForAllCo $! cobndr') $! subst_co subst' co }
     go (CoVarCo cv)          = substCoVar subst cv
     go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go_arg cos
     go (UnsafeCo ty1 ty2)    = (mkUnsafeCo $! go_ty ty1) $! go_ty ty2
@@ -1376,7 +1417,8 @@ substForAllCoBndrCallback sym sty sco subst (TyHetero h tv1 tv2 cv)
     if isReflCo h'
     then let subst4 = extendTCvSubstList subst3
                         [tv2,                cv]
-                        [mkOnlyTyVarTy tv1', mkReflCo (tyVarKind tv1')] in
+                        [mkOnlyTyVarTy tv1', CoercionTy $
+                                             mkReflCo (tyVarKind tv1')] in
          (subst4, TyHomo tv1')
     else if sym
          then (subst3, (TyHetero $! h') tv2' tv1' cv')
@@ -1385,11 +1427,11 @@ substForAllCoBndrCallback _ sty _ subst (CoHomo cv)
   = case substCoVarBndrCallback False sty subst cv of
       (subst', cv') -> (subst', CoHomo cv')
 substForAllCoBndrCallback sym sty sco subst (CoHetero h cv1 cv2)
-  = case substCoVarBndr False sty subst  cv1 of { (subst1, cv1') ->
-    case substCoVarBndr False sty subst1 cv2 of { (subst2, cv2') ->
+  = case substCoVarBndrCallback False sty subst  cv1 of { (subst1, cv1') ->
+    case substCoVarBndrCallback False sty subst1 cv2 of { (subst2, cv2') ->
     let h' = sco sym subst h in
     if isReflCo h'
-    then let subst3 = extendTCvSubst subst2 cv2 (mkCoVarCo cv1') in
+    then let subst3 = extendTCvSubst subst2 cv2 (mkTyCoVarTy cv1') in
          (subst3, CoHomo cv1')
     else if sym
          then (subst2, (CoHetero $! h') cv2' cv1')
@@ -1443,11 +1485,11 @@ substTyVarBndrCallback subst_fn subst@(TCvSubst in_scope tenv cenv) old_var
 	-- Here we must simply zap the substitution for x
 
     new_var | no_kind_change = uniqAway in_scope old_var
-            | otherwise = uniqAway in_scope $ updateTyVarKind (subst_fun subst) old_var
+            | otherwise = uniqAway in_scope $ updateTyVarKind (subst_fn subst) old_var
 	-- The uniqAway part makes sure the new variable is not already in scope
 
 substCoVarBndr :: TCvSubst -> CoVar -> (TCvSubst, CoVar)
-substCoBarBndr = substCoVarBndrCallback False substTy
+substCoVarBndr = substCoVarBndrCallback False substTy
 
 substCoVarBndrCallback :: Bool -- apply "sym" to the covar?
                        -> (TCvSubst -> Type -> Type)
@@ -1612,6 +1654,11 @@ ppr_type p fun_ty@(FunTy ty1 ty2)
       | not (isPredTy ty1) = ppr_type FunPrec ty1 : ppr_fun_tail ty2
     ppr_fun_tail other_ty = [ppr_type TopPrec other_ty]
 
+ppr_type _ (CastTy ty co)
+  = parens (ppr_type TopPrec ty <+> ptext (sLit "|>") <+> ppr co)
+
+ppr_type _ (CoercionTy co)
+  = parens (ppr co) -- TODO (RAE): do we need these parens?
 
 ppr_forall_type :: Prec -> Type -> SDoc
 ppr_forall_type p ty
@@ -1661,6 +1708,13 @@ pprTCvBndr tv
   | otherwise	          = parens (ppr_tvar tv <+> dcolon <+> pprKind kind)
 	     where
 	       kind = tyVarKind tv
+
+-----------------
+instance Outputable Coercion where -- defined here to avoid orphans
+  ppr = pprCo
+instance Outputable ForAllCoBndr where
+  ppr = pprCoBndr
+
 \end{code}
 
 Note [Infix type variables]
@@ -1880,11 +1934,11 @@ tidyCo env@(_, subst) co
     go (AppCo co1 co2)       = (AppCo $! go co1) $! go_arg co2
     go (ForAllCo cobndr co)  = ForAllCo cobndrp $! (tidyCo envp co)
                                where
-                                 (envp, cobndrp) = go_cobndr tv
+                                 (envp, cobndrp) = go_bndr cobndr
     go (CoVarCo cv)          = case lookupVarEnv subst cv of
                                  Nothing  -> CoVarCo cv
                                  Just cv' -> CoVarCo cv'
-    go (AxiomInstCo con ind cos) = let args = tidyCos env cos
+    go (AxiomInstCo con ind cos) = let args = map go_arg cos
                                in  args `seqList` AxiomInstCo con ind args
     go (UnsafeCo ty1 ty2)    = (UnsafeCo $! tidyType env ty1) $! tidyType env ty2
     go (SymCo co)            = SymCo $! go co
@@ -1900,8 +1954,8 @@ tidyCo env@(_, subst) co
 
     go_bndr cobndr
       | Just v <- getHomoVar_maybe cobndr
-      = let (envp, vp) = tidyTyCoVarBndr v in
-        (envp, mkHomoCoBndr v)
+      = let (envp, vp) = tidyTyCoVarBndr env v in
+        (envp, mkHomoCoBndr vp)
       | TyHetero h tv1 tv2 cv <- cobndr
       = let h' = go h
             (envp, [tv1', tv2', cv']) = tidyTyCoVarBndrs env [tv1, tv2, cv] in
@@ -1911,5 +1965,10 @@ tidyCo env@(_, subst) co
             (envp, [cv1', cv2']) = tidyTyCoVarBndrs env [cv1, cv2] in
         (envp, mkCoHeteroCoBndr h' cv1' cv2')
 
+      | otherwise
+      = pprPanic "tidyCo#go_bndr" (ppr cobndr)
+
 tidyCos :: TidyEnv -> [Coercion] -> [Coercion]
 tidyCos env = map (tidyCo env)
+
+\end{code}

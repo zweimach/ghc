@@ -339,7 +339,7 @@ match_co menv tsubst csubst (CoVarCo cv1) co2
     then Nothing -- occurs check
     else do { (tsubst1, csubst1) <- match_ty menv tsubst csubst (coVarKind cv1')
                                                                 (coercionType co2)
-            ; return (tsubst1, extendVarEnv csubst1 cv1' co2)
+            ; return (tsubst1, extendVarEnv csubst1 cv1' co2) }
 
   | otherwise -- cv1 is not a template covar
   = case co2 of
@@ -450,7 +450,7 @@ match_co menv tsubst csubst (SymCo co1) co2
 
 match_co menv tsubst csubst (TransCo col1 cor1) (TransCo col2 cor2)
   = do { (tsubst', csubst') <- match_co menv tsubst csubst col1 col2
-       ; match_co menv tsubst' csubst' cor1 cor2 } ]
+       ; match_co menv tsubst' csubst' cor1 cor2 }
 
 match_co menv tsubst csubst (NthCo n1 co1) (NthCo n2 co2)
   | n1 == n2
@@ -466,7 +466,7 @@ match_co menv tsubst csubst (InstCo co1 arg1) (InstCo co2 arg2)
 
 match_co menv tsubst csubst (CoherenceCo lco1 rco1) (CoherenceCo lco2 rco2)
   = do { (tsubst', csubst') <- match_co menv tsubst csubst lco1 lco2
-       ; match_co menv tsubst' csubst' rco1 rco2 } ]
+       ; match_co menv tsubst' csubst' rco1 rco2 }
 
 match_co menv tsubst csubst (KindCo co1) (KindCo co2)
   = match_co menv tsubst csubst co1 co2
@@ -512,7 +512,7 @@ instance Monad MatchMM where
   return x = MM $ \menv tsubst csubst -> Just ((tsubst, csubst), x)
   fail _   = MM $ \_ _ _ -> Nothing
 
-  (a >>= f) = MM $ \menv tsubst csubst -> case unMM a menv tsubst csubst of
+  a >>= f = MM $ \menv tsubst csubst -> case unMM a menv tsubst csubst of
     Just ((tsubst', csubst'), a') -> unMM (f a') menv tsubst' csubst'
     Nothing                       -> Nothing
 
@@ -928,7 +928,7 @@ unify_co' g1@(ForAllCo cobndr1 co1) g2@(ForAllCo cobndr2 co2)
   -- mixed Homo/Hetero case. Ugh. Only handle where 1 is hetero and 2 is homo;
   -- otherwise, flip 1 and 2
   | Just _ <- getHomoVar_maybe cobndr1
-  | Just _ <- splitHeteroCoBndr_maybe cobndr2
+  , Just _ <- splitHeteroCoBndr_maybe cobndr2
   = umSwapRn $ unify_co' g2 g1
 
   | Just (eta1, lv1, rv1) <- splitHeteroCoBndr_maybe cobndr1
@@ -1037,8 +1037,8 @@ unifyList orig_xs orig_ys
     go _ _ = surelyApart
 
 ---------------------------------
-uVar :: TyOrCo tyco =>
-     -> TyCoVar           -- Variable to be unified
+uVar :: TyOrCo tyco
+     => TyCoVar           -- Variable to be unified
      -> tyco              -- with this tyco
      -> UM ()
 
@@ -1072,10 +1072,10 @@ uUnrefined tv1 ty2 ty2'
        { subst <- getSubstEnv
           -- Check to see whether tv2 is refined     
        ; case lookupVarEnv subst tv2 of
-           Just ty' -> uUnrefined tv1 ty' ty'
-           Nothing  -> do
+         {  Just ty' -> uUnrefined tv1 ty' ty'
+         ;  Nothing  -> do
        {   -- So both are unrefined
-       ; when mustUnifyKind ty2 $ unify_ty (tyVarKind tv1) (tyVarKind tv2)
+         when mustUnifyKind ty2 $ unify_ty (tyVarKind tv1) (tyVarKind tv2)
 
            -- And then bind one or the other, 
            -- depending on which is bindable
@@ -1090,7 +1090,7 @@ uUnrefined tv1 ty2 ty2'
            (BindMe, _)      -> do { checkRnEnvR ty2 -- make sure ty2 is not a local
                                   ; extendEnv tv1 ty2 }
            (_, BindMe)      -> do { checkRnEnvL ty1 -- ditto for ty1
-                                  ; extendEnv tv2 ty1 }}}}
+                                  ; extendEnv tv2 ty1 }}}}}
 
 uUnrefined tv1 ty2 ty2'	-- ty2 is not a type variable
   = do { occurs <- elemNiSubstSet tv1 (tyCoVarsOf ty2')
@@ -1098,7 +1098,7 @@ uUnrefined tv1 ty2 ty2'	-- ty2 is not a type variable
          then surelyApart               -- Occurs check
          else do
        { unify k1 k2
-       ; bindTv tv1 ty2 }	-- Bind tyvar to the synonym if poss
+       ; bindTv tv1 ty2 }}	-- Bind tyvar to the synonym if poss
   where
     k1 = tyVarKind tv1
     k2 = getKind ty2'

@@ -1,0 +1,10 @@
+\begin{code}
+
+{-# LANGUAGE KindSignatures #-}
+
+module CoAxiom where
+
+data CoAxiom :: * -> *
+type BranchIndex = Int
+
+\end{code}

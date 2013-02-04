@@ -40,14 +40,17 @@ module Type (
 	tyConAppTyCon_maybe, tyConAppArgs_maybe, tyConAppTyCon, tyConAppArgs, 
 	splitTyConApp_maybe, splitTyConApp, tyConAppArgN,
 
-        mkForAllTy, mkForAllTys, splitForAllTy_maybe, splitForAllTys, 
-        mkPiType, mkPiTypes,
+        mkForAllTy, mkForAllTys, splitForAllTy_maybe, splitForAllTys,
+        splitForAllTy,
+        mkPiType, mkPiTypes, piResultTy, splitPiTypes,
 	applyTy, applyTys, applyTysD, isForAllTy, dropForAlls,
 
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
 
         coAxNthLHS,
+
+        stripCoercionTy, splitCoercionType_maybe,
 	
 	-- (Newtypes)
 	newTyConInstRhs, 
@@ -55,7 +58,7 @@ module Type (
 	-- Pred types
         mkFamilyTyConApp,
 	isDictLikeTy,
-        mkEqPred, mkPrimEqPred,
+        mkEqPred, mkPrimEqPred, mkHeteroPrimEqPred,
         mkClassPred,
         noParenPred, isClassPred, isEqPred, 
         isIPPred, isIPPred_maybe, isIPTyCon, isIPClass,
@@ -69,8 +72,9 @@ module Type (
         funTyCon,
 
         -- ** Predicates on types
-        isTypeVar, isKindVar,
-        isTyVarTy, isFunTy, isDictTy, isPredTy, isKindTy,
+        isTypeVar, isKindVar, isTyCoVarTy,
+        isTyVarTy, isFunTy, isDictTy, isPredTy, isKindTy, isCoercionTy,
+        isCoercionTy_maybe,
 
 	-- (Lifting and boxity)
 	isUnLiftedType, isUnboxedTupleType, isAlgType, isClosedAlgType,
@@ -121,10 +125,10 @@ module Type (
 	mkTCvSubst, mkOpenTCvSubst, zipOpenTCvSubst, zipTopTCvSubst,
         mkTopTCvSubst, notElemTCvSubst,
         getTvSubstEnv, setTvSubstEnv,
-        zapTvSubstEnv, getTvInScope,
-        extendTvInScope, extendTvInScopeList,
+        zapTCvSubst, getTCvInScope,
+        extendTCvInScope, extendTCvInScopeList,
  	extendTCvSubst, extendTCvSubstList,
-        isInScope, composeTvSubstEnv, zipTyEnv,
+        isInScope, composeTCvSubstEnv, zipTyCoEnv,
         isEmptyTCvSubst, unionTCvSubst,
 
 	-- ** Performing substitution on types and kinds
@@ -135,7 +139,7 @@ module Type (
 
 	-- * Pretty-printing
 	pprType, pprParendType, pprTypeApp, pprTyThingCategory, pprTyThing, 
-        pprTCvBndr, pprTvBndrs, pprForAll, pprSigmaType,
+        pprTCvBndr, pprTCvBndrs, pprForAll, pprSigmaType,
 	pprEqPred, pprTheta, pprThetaArrowTy, pprClassPred, 
         pprKind, pprParendKind, pprSourceTyCon,
 
@@ -143,8 +147,8 @@ module Type (
         tidyType,      tidyTypes,
         tidyOpenType,  tidyOpenTypes,
         tidyOpenKind,
-        tidyTyVarBndr, tidyTyVarBndrs, tidyFreeTyVars,
-        tidyOpenTyVar, tidyOpenTyVars,
+        tidyTyCoVarBndr, tidyTyCoVarBndrs, tidyFreeTyCoVars,
+        tidyOpenTyCoVar, tidyOpenTyCoVars,
         tidyTyVarOcc,
         tidyTopType,
         tidyKind, 
@@ -167,20 +171,22 @@ import Class
 import TyCon
 import TysPrim
 import {-# SOURCE #-} TysWiredIn ( eqTyCon, typeNatKind, typeSymbolKind )
-import PrelNames ( eqTyConKey, ipClassNameKey, 
-                   constraintKindTyConKey, liftedTypeKindTyConKey )
+import PrelNames ( eqTyConKey, eqPrimTyConKey, ipClassNameKey, 
+                   liftedTypeKindTyConKey )
 import CoAxiom
+import {-# SOURCE #-} Coercion
 
 -- others
-import Unique		( Unique, hasKey )
+import Unique		( hasKey )
 import BasicTypes	( Arity, RepArity )
 import NameSet
 import StaticFlags
 import Util
 import Outputable
 import FastString
+import Pair
 
-import Data.List        ( partition )
+import Data.List        ( sortBy )
 import Maybes		( orElse )
 import Data.Maybe	( isJust )
 import Control.Monad    ( guard )
@@ -305,7 +311,7 @@ expandTypeSynonyms ty
     go_co (Refl ty)                 = mkReflCo (go ty)
     go_co (TyConAppCo tc args)
       | Just (cenv, rhs, args') <- tcExpandTyCon_maybe tc args
-      = go (mkAppCos (liftCoSubst cenv rhs) args')
+      = go_co (mkAppCos (liftCoSubst cenv rhs) args')
       | otherwise
       = mkTyConAppCo tc (map go_arg args)
     go_co (AppCo co arg)            = mkAppCo (go_co co) (go_arg arg)
@@ -760,10 +766,10 @@ repType ty
          then UnaryRep realWorldStatePrimTy -- See Note [Nullary unboxed tuple]
          else UbxTupleRep (concatMap (flattenRepType . go rec_nts) tys)
 
-    go (CastTy ty _)
+    go rec_nts (CastTy ty _)
       = go rec_nts ty
 
-    go ty@(CoercionTy _)
+    go _ ty@(CoercionTy _)
       = pprPanic "repType" (ppr ty)
 
     go _ ty = UnaryRep ty
@@ -830,10 +836,11 @@ mkPiTypes vs ty = foldr mkPiType ty vs
 -- have free variables that were bound by a forall.
 splitPiTypes :: Type -> ([Type], Type)
 splitPiTypes ty | Just ty' <- coreView ty = splitPiTypes ty'
-splitPiTypes (FunTy arg res)              = let (args, res') <- splitPiTypes res in
+splitPiTypes (FunTy arg res)              = let (args, res') = splitPiTypes res in
                                             (arg:args, res')
-splitPiTypes (ForAllTy tv ty)             = let (args, res') <- splitPiTypes res in
-                                            (tyVarKind tv : res')
+splitPiTypes (ForAllTy tv ty)             = let (args, res') = splitPiTypes ty in
+                                            (tyVarKind tv : args, res')
+splitPiTypes ty                           = ([], ty)
 
 isForAllTy :: Type -> Bool
 isForAllTy (ForAllTy _ _) = True
@@ -1004,14 +1011,10 @@ mkPrimEqPred ty1 ty2
 mkHeteroPrimEqPred :: Kind -> Kind -> Type -> Type -> Type
 mkHeteroPrimEqPred k1 k2 ty1 ty2 = TyConApp eqPrimTyCon [k1, k2, ty1, ty2]
 
--- | Is the type inhabited by a coercion?
-isCoercionType :: Type -> Bool
-isCoercionType ty = isJust $ splitCoercionType_maybe ty
-
 -- | Try to split up a coercion type into the types that it coerces
 splitCoercionType_maybe :: Type -> Maybe (Type, Type)
 splitCoercionType_maybe ty
-  = do { Just (tc, [_, _, ty1, ty2]) <- splitTyConApp_maybe ty
+  = do { (tc, [_, _, ty1, ty2]) <- splitTyConApp_maybe ty
        ; guard $ tc `hasKey` eqPrimTyConKey
        ; return (ty1, ty2) }
 
@@ -1141,7 +1144,7 @@ varSetElemsWellScoped set
     add_dep v env = extendVarEnv env v (dep_set v emptyVarSet)
 
     dep_set :: Var -> VarSet -> VarSet
-    dep_set v set = let free_vars = tyCoVarsInType (varType v) in
+    dep_set v set = let free_vars = tyCoVarsOfType (varType v) in
                     foldVarSet dep_set free_vars free_vars `unionVarSet` set
 
     dep_cmp :: DepEnv -> Var -> Var -> Ordering
@@ -1296,8 +1299,8 @@ seqType (AppTy t1 t2) 	  = seqType t1 `seq` seqType t2
 seqType (FunTy t1 t2) 	  = seqType t1 `seq` seqType t2
 seqType (TyConApp tc tys) = tc `seq` seqTypes tys
 seqType (ForAllTy tv ty)  = seqType (tyVarKind tv) `seq` seqType ty
-seqType (CastTy ty co)    = seqType ty `seq` seqCoercion co
-seqType (CoercionTy co)   = seqCoercion co
+seqType (CastTy ty co)    = seqType ty `seq` seqCo co
+seqType (CoercionTy co)   = seqCo co
 
 seqTypes :: [Type] -> ()
 seqTypes []       = ()
@@ -1341,7 +1344,7 @@ eqTyCoVarBndrs env [] []
  = Just env
 eqTyCoVarBndrs env (tv1:tvs1) (tv2:tvs2)
  | eqTypeX env (tyVarKind tv1) (tyVarKind tv2)
- = eqTyVarBndrs (rnBndr2 env tv1 tv2) tvs1 tvs2
+ = eqTyCoVarBndrs (rnBndr2 env tv1 tv2) tvs1 tvs2
 eqTyCoVarBndrs _ _ _= Nothing
 \end{code}
 
@@ -1356,12 +1359,12 @@ cmpType t1 t2 = cmpTypeX rn_env t1 t2
 cmpTypes :: [Type] -> [Type] -> Ordering
 cmpTypes ts1 ts2 = cmpTypesX rn_env ts1 ts2
   where
-    rn_env = mkRnEnv2 (mkInScopeSet (tyVarsOfTypes ts1 `unionVarSet` tyVarsOfTypes ts2))
+    rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes ts1 `unionVarSet` tyCoVarsOfTypes ts2))
 
 cmpPred :: PredType -> PredType -> Ordering
 cmpPred p1 p2 = cmpTypeX rn_env p1 p2
   where
-    rn_env = mkRnEnv2 (mkInScopeSet (tyVarsOfType p1 `unionVarSet` tyVarsOfType p2))
+    rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType p1 `unionVarSet` tyCoVarsOfType p2))
 
 cmpTypeX :: RnEnv2 -> Type -> Type -> Ordering	-- Main workhorse
 cmpTypeX env t1 t2 | Just t1' <- coreView t1 = cmpTypeX env t1' t2
@@ -1385,7 +1388,8 @@ cmpTypeX env (CoercionTy c1)     (CoercionTy c2)     = cmpCoercionX env c1 c2
     -- Deal with the rest: TyVarTy < CoercionTy < CastTy < AppTy < FunTy < LitTy < TyConApp < ForAllTy
 cmpTypeX _ ty1 ty2
   = (get_rank ty1) `compare` (get_rank ty2)
-  where get_rank (TyVarTy {})    = 0
+  where get_rank :: Type -> Int
+        get_rank (TyVarTy {})    = 0
         get_rank (CoercionTy {}) = 1
         get_rank (CastTy {})     = 2
         get_rank (AppTy {})      = 3
