@@ -12,6 +12,7 @@ module IfaceType (
         IfaceType(..), IfacePredType, IfaceKind, IfaceTyCon(..), IfaceCoCon(..),
         IfaceTyLit(..),
         IfaceContext, IfaceBndr(..), IfaceTvBndr, IfaceIdBndr, IfaceCoercion,
+        IfaceForAllBndr(..),
 
         -- Conversion from Type -> IfaceType
         toIfaceType, toIfaceKind, toIfaceContext,
@@ -247,7 +248,7 @@ ppr_ty ctxt_prec (IfaceCastTy ty co)
     sep [ppr_ty fUN_PREC ty, ptext (sLit "`cast`"), ppr_ty fUN_PREC co]
 
  -------------------
-pprIfaceForAllPart :: [IfaceBndr] -> IfaceContext -> SDoc -> SDoc
+pprIfaceForAllPart :: [IfaceForAllBndr] -> IfaceContext -> SDoc -> SDoc
 pprIfaceForAllPart tvs ctxt doc
   = sep [ppr_tvs, pprIfaceContext ctxt, doc]
   where
@@ -260,9 +261,9 @@ pprIfaceForAllBndrs bndrs = hsep $ map pprIfaceForAllBndr bndrs
 pprIfaceForAllBndr :: IfaceForAllBndr -> SDoc
 pprIfaceForAllBndr (IfaceTv tv) = pprIfaceTvBndr tv
 pprIfaceForAllBndr (IfaceHeteroTv co tv1 tv2 cv)
-  = brackets (pprIfaceType co) <> parens (punctuate comma [pprIfaceTvBndr tv1,
-                                                           pprIfaceTvBndr tv2,
-                                                           pprIfaceIdBndr cv])
+  = brackets (pprIfaceType co) <> parens (sep (punctuate comma [pprIfaceTvBndr tv1,
+                                                                pprIfaceTvBndr tv2,
+                                                                pprIfaceIdBndr cv]))
 pprIfaceForAllBndr (IfaceCv cv) = pprIfaceIdBndr cv
 pprIfaceForAllBndr (IfaceHeteroCv co cv1 cv2)
   = brackets (pprIfaceType co) <> parens (pprWithCommas pprIfaceIdBndr [cv1, cv2])
@@ -298,7 +299,7 @@ ppr_tylit (IfaceStrTyLit n) = text (show n)
 -------------------
 instance Outputable IfaceTyCon where
   ppr (IfaceTc name)
-    = ppr $ ifaceTyConName name
+    = ppr name
 
 instance Outputable IfaceCoCon where
   ppr (IfaceCoAx n i)  = ppr n <> brackets (ppr i)
@@ -361,6 +362,7 @@ toIfaceType (TyConApp tc tys) = IfaceTyConApp (toIfaceTyCon tc) (toIfaceTypes ty
 toIfaceType (LitTy n)         = IfaceLitTy (toIfaceTyLit n)
 toIfaceType (ForAllTy tv t)   = IfaceForAllTy (varToIfaceForAllBndr tv) (toIfaceType t)
 toIfaceType (CastTy ty co)    = IfaceCastTy (toIfaceType ty) (coToIfaceType co)
+toIfaceType (CoercionTy co)   = coToIfaceType co
 
 toIfaceTyVar :: TyVar -> FastString
 toIfaceTyVar = occNameFS . getOccName
@@ -369,13 +371,13 @@ toIfaceCoVar :: CoVar -> FastString
 toIfaceCoVar = occNameFS . getOccName
 
 varToIfaceForAllBndr :: TyCoVar -> IfaceForAllBndr
-vorToIfaceForAllBndr v
+varToIfaceForAllBndr v
   | isTyVar v = IfaceTv (toIfaceTvBndr v)
   | otherwise = IfaceCv (toIfaceIdBndr v)
 
 ----------------
 toIfaceTyCon :: TyCon -> IfaceTyCon
-toIfaceTyCon tc = toIfaceTyCon_name . tyConName
+toIfaceTyCon = toIfaceTyCon_name . tyConName
 
 toIfaceTyCon_name :: Name -> IfaceTyCon
 toIfaceTyCon_name = IfaceTc
@@ -444,7 +446,7 @@ toIfaceForAllBndr (TyHetero co tv1 tv2 cv)
                   (toIfaceTvBndr tv1)
                   (toIfaceTvBndr tv2)
                   (toIfaceIdBndr cv)
-toIfaceForAllBndr (CoHomo cv) = IfaceCv $ toIfaceCvBndr cv
+toIfaceForAllBndr (CoHomo cv) = IfaceCv $ toIfaceIdBndr cv
 toIfaceForAllBndr (CoHetero co cv1 cv2)
   = IfaceHeteroCv (coToIfaceType co)
                   (toIfaceIdBndr cv1)

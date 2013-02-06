@@ -1134,8 +1134,9 @@ mkConApp con args = mkApps (Var (dataConWorkId con)) args
 
 mkTyApps  f args = foldl (\ e a -> App e (typeOrCoercion a)) f args
   where
-    typeOrCoercion (CoercionTy co) = Coercion co
-    typeOrCoercion ty              = Type ty
+    typeOrCoercion ty
+      | Just co <- isCoercionTy_maybe ty = Coercion co
+      | otherwise                        = Type ty
 
 mkConApp2 :: DataCon -> [Type] -> [Var] -> Expr b
 mkConApp2 con tys arg_ids = Var (dataConWorkId con) 

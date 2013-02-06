@@ -43,7 +43,7 @@ module TyCoRep (
         isCoercionType,
 
         -- Functions over coercions
-        setCoBndrEta, eqCoBndrSort, pickLR, coBndrVars,
+        setCoBndrEta, eqCoBndrSort, pickLR, coBndrVars, coBndrVarsKinds,
         
         -- Pretty-printing
 	pprType, pprParendType, pprTypeApp, pprTCvBndr, pprTCvBndrs,
@@ -75,7 +75,9 @@ module TyCoRep (
         lookupTyVar, lookupVar, substTyVarBndr,
         substCo, substCos, substCoVar, substCoVars, lookupCoVar,
         substTyCoVarBndr, substCoVarBndr, cloneTyVarBndr,
-        substCoWithIS, substCoWith,
+        substCoWithIS, substCoWith, substTyVar, substTyVars,
+        substTyVarBndrCallback, substForAllCoBndrCallback,
+        substCoVarBndrCallback,
 
         -- * Tidying type related things up for printing
         tidyType,      tidyTypes,
@@ -1323,6 +1325,15 @@ subst_ty subst ty
     go (CastTy ty co)    = (CastTy $! (go ty)) $! (subst_co subst co)
     go (CoercionTy co)   = CoercionTy $! (subst_co subst co)
 
+substTyVar :: TCvSubst -> TyVar -> Type
+substTyVar (TCvSubst _ tenv _) tv
+  = case lookupVarEnv tenv tv of
+      Just ty -> ty
+      Nothing -> TyVarTy tv
+
+substTyVars :: TCvSubst -> [TyVar] -> [Type]
+substTyVars subst = map $ substTyVar subst
+
 substTyCoVars :: TCvSubst -> [TyCoVar] -> [Type]
 substTyCoVars subst = map $ substTyCoVar subst
 
@@ -1728,6 +1739,11 @@ instance Outputable Coercion where -- defined here to avoid orphans
   ppr = pprCo
 instance Outputable ForAllCoBndr where
   ppr = pprCoBndr
+instance Outputable CoercionArg where
+  ppr = pprCoArg
+instance Outputable LeftOrRight where
+  ppr CLeft    = ptext (sLit "Left")
+  ppr CRight   = ptext (sLit "Right")
 
 \end{code}
 

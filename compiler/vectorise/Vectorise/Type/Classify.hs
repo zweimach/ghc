@@ -25,7 +25,8 @@ import TyCoRep
 import Type
 import PrelNames
 import Digraph
-
+import Coercion
+import CoAxiom
 
 -- |From a list of type constructors, extract those that can be vectorised, returning them in two
 -- sets, where the first result list /must be/ vectorised and the second result list /need not be/
@@ -126,7 +127,7 @@ tyConsOfCo = go
       = go co
     go (CoVarCo _)             = emptyUniqSet
     go (AxiomInstCo ax _ args) = go_ax ax `unionUniqSets` go_args args
-    go (UnsafeCo ty1 ty2)      = tyConsOfType ty1 `unionUniqSets` tyConOfType ty2
+    go (UnsafeCo ty1 ty2)      = tyConsOfType ty1 `unionUniqSets` tyConsOfType ty2
     go (SymCo co)              = go co
     go (TransCo co1 co2)       = go co1 `unionUniqSets` go co2
     go (NthCo _ co)            = go co
@@ -145,5 +146,5 @@ tyConsOfCo = go
 extendTyConSet :: TyCon -> (UniqSet TyCon -> UniqSet TyCon)
 extendTyConSet tc
   |  isUnLiftedTyCon tc
-  || isTupleTyCon       = id
+  || isTupleTyCon tc    = id
   | otherwise           = (`addOneToUniqSet` tc)

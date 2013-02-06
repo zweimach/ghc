@@ -38,7 +38,7 @@ module FamInstEnv (
 import InstEnv
 import Unify
 import Type
-import Coercion hiding ( substTy )
+import Coercion
 import TyCoRep
 import TyCon
 import CoAxiom
@@ -51,6 +51,7 @@ import Outputable
 import Maybes
 import Util
 import FastString
+import Pair
 \end{code}
 
 
@@ -715,10 +716,9 @@ find match_fun match_tys (inst@(FamInst { fi_branches = branches, fi_group = is_
           (Nothing, KeepSearching) -> findBranch (branch : seen) rest (ind+1)
           (Nothing, StopSearching) -> (Nothing, StopSearching)
           (Just subst, cont)       -> (Just match, cont)
-              where 
             where match = FamInstMatch { fim_instance = inst
                                        , fim_index    = ind
-                                       , fim_tys      = substTyCoVars subst tys }
+                                       , fim_tys      = substTyCoVars subst tvs }
 
 lookup_fam_inst_env           -- The worker, local to this module
     :: MatchFun
@@ -897,7 +897,8 @@ topNormaliseType env ty
                 -- are correctly top-normalised
         , not (isReflCo co)
         = add_co co rec_nts ty
-          is     = mkInScopeSet (tyCoVarsOfTypes tys)
+        where
+          is = mkInScopeSet (tyCoVarsOfTypes tys)
 
     go _ _ = Nothing
 
@@ -921,7 +922,7 @@ normaliseTcApp env lc tc tys
         co              = mkAxInstCo  ax fam_ind inst_tys
         rhs             = mkAxInstRHS ax fam_ind inst_tys
         first_coi       = mkTransCo tycon_coi co
-        (rest_coi,nty)  = normaliseType env rhs
+        (rest_coi,nty)  = normaliseType env lc rhs
         fix_coi         = mkTransCo first_coi rest_coi
     in 
     (fix_coi, nty)
@@ -933,7 +934,7 @@ normaliseTcApp env lc tc tys
   where
         -- Normalise the arg types so that they'll match
         -- when we lookup in in the instance envt
-    (cois, ntys) = mapAndUnzip (normaliseType env lc) tys
+    (cois, ntys) = mapAndUnzip (normaliseTyArg env lc) tys
     tycon_coi    = mkTyConAppCo tc cois
 
 ---------------
@@ -956,9 +957,9 @@ normaliseType env lc ty
     (co, tyr)
   where
     go ty | Just ty' <- coreView ty = go ty'
-    go (TyConApp tc tys) = normaliseTcApp env lc tc tys
+    go (TyConApp tc tys) = fst $ normaliseTcApp env lc tc tys
     go ty@(LitTy {})     = mkReflCo ty
-    go (AppTy ty1 ty2)   = mkAppCo (go ty1) (go_arg ty2)
+    go (AppTy ty1 ty2)   = mkAppCo (go ty1) (fst $ normaliseTyArg env lc ty2)
     go (FunTy ty1 ty2)   = mkFunCo (go ty1) (go ty2)
     go (ForAllTy tyvar ty)
       = let (lc', cobndr) = normaliseTyCoVarBndr env lc tyvar in
@@ -967,8 +968,13 @@ normaliseType env lc ty
     go (CastTy ty co)    = castCoercionKind (go ty) co (substRightCo lc co)
     go (CoercionTy co)   = pprPanic "normaliseType" (ppr co)
 
-    go_arg (CoercionTy co) = CoCoArg co (substRightCo lc co)
-    go_arg ty              = TyCoArg (go ty)
+normaliseTyArg :: FamInstEnvs -> LiftingContext -> Type -> (CoercionArg, Type)
+normaliseTyArg _ lc (CoercionTy co)
+  = let right_co = substRightCo lc co in
+    (CoCoArg co right_co, CoercionTy right_co)
+normaliseTyArg env lc ty              
+  = let (co, ty') = normaliseType env lc ty in
+    (TyCoArg co, ty')
 
 normaliseTyVar :: LiftingContext -> TyVar -> Coercion
 normaliseTyVar lc tv

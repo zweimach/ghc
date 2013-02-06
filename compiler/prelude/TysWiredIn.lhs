@@ -88,7 +88,7 @@ import TysPrim
 -- others:
 import Constants	( mAX_TUPLE_SIZE )
 import Module		( Module )
-import Type             ( mkTyConApp )
+import Type             ( mkTyConApp, mkForAllTys )
 import DataCon
 import Var
 import TyCon

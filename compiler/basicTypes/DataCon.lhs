@@ -51,7 +51,6 @@ module DataCon (
 import {-# SOURCE #-} MkId( DataConBoxer )
 import Type
 import TyCoRep( Type(..) )  -- Used in promoteType
-import PrelNames( liftedTypeKindTyConKey )
 import ForeignCall( CType )
 import Coercion
 import Kind
@@ -1005,7 +1004,7 @@ buildAlgTyCon tc_name ktvs cType stupid_theta rhs
               is_rec is_promotable gadt_syn parent
   = tc
   where 
-    kind = mkPiKinds ktvs liftedTypeKind
+    kind = mkPiTypes ktvs liftedTypeKind
 
     -- tc and mb_promoted_tc are mutually recursive
     tc = mkAlgTyCon tc_name kind ktvs cType stupid_theta 

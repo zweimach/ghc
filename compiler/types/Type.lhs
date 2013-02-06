@@ -23,7 +23,7 @@ module Type (
 	
         -- $representation_types
         TyThing(..), Type, KindOrType, PredType, ThetaType,
-        Var, TyVar, isTyVar, 
+        Var, TyVar, isTyVar, TyCoVar,
 
         -- ** Constructing and deconstructing types
         mkOnlyTyVarTy, mkOnlyTyVarTys, getTyVar, getTyVar_maybe, repGetTyVar_maybe,
@@ -47,6 +47,8 @@ module Type (
 
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
+
+        mkCastTy, mkCoercionTy,
 
         coAxNthLHS,
 
@@ -134,7 +136,7 @@ module Type (
 	-- ** Performing substitution on types and kinds
 	substTy, substTys, substTyWith, substTysWith, substTheta, 
         substTyCoVar, substTyCoVars, substTyVarBndr,
-        cloneTyVarBndr, lookupTyVar,
+        cloneTyVarBndr, lookupTyVar, lookupVar,
         substKiWith, substKisWith,
 
 	-- * Pretty-printing

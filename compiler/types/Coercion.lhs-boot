@@ -15,7 +15,7 @@ mkTyConAppCo :: TyCon -> [CoercionArg] -> Coercion
 mkAppCo :: Coercion -> CoercionArg -> Coercion
 mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
 mkCoVarCo :: CoVar -> Coercion
-mkAxiomInstCo :: CoAxiom br -> BranchIndex -> [CoercionArg] -> Coercion
+mkAxiomInstCo :: CoAxiom Branched -> BranchIndex -> [CoercionArg] -> Coercion
 mkUnsafeCo :: Type -> Type -> Coercion
 mkSymCo :: Coercion -> Coercion
 mkTransCo :: Coercion -> Coercion -> Coercion
@@ -46,5 +46,6 @@ coercionType :: Coercion -> Type
 
 pprCo :: Coercion -> SDoc
 pprCoBndr :: ForAllCoBndr -> SDoc
+pprCoArg :: CoercionArg -> SDoc
 
 \end{code}

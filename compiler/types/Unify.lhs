@@ -3,6 +3,7 @@
 %
 
 \begin{code}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
@@ -15,17 +16,20 @@ module Unify (
 	--	the "tc" prefix indicates that matching always
 	--	respects newtypes (rather than looking through them)
 	tcMatchTy, tcMatchTys, tcMatchTyX, 
-	ruleMatchTyX, tcMatchPreds, 
+	ruleMatchTyX, tcMatchPreds,
 
-	MatchEnv(..), matchList, 
+        tcMatchCo, tcMatchCos, tcMatchCoX, ruleMatchCoX,
 
 	typesCantMatch,
 
         -- Side-effect free unification
         tcUnifyTys, BindFlag(..),
-        niFixTvSubst, niSubstTvSet,
+        niFixTCvSubst, niSubstTvSet,
 
-        ApartResult(..), tcApartTys
+        ApartResult(..), tcApartTys,
+
+        -- Matching a type against a lifted type (coercion)
+        liftCoMatch
 
    ) where
 
@@ -35,12 +39,16 @@ import Var
 import VarEnv
 import VarSet
 import Kind
-import Type
+import Type hiding ( getTvSubstEnv )
 import Coercion
 import TyCon
-import TyCoRep
+import TyCoRep hiding ( getTvSubstEnv, getCvSubstEnv )
 import Util
 import Pair
+import Outputable
+import FastString
+import Unique
+import Control.Monad
 \end{code}
 
 
@@ -78,7 +86,7 @@ Matching is much tricker than you might think.
 class Unifiable t where
   match :: MatchEnv -> TvSubstEnv -> CvSubstEnv
         -> t -> t -> Maybe (TvSubstEnv, CvSubstEnv)
-  unify :: TvSubstEnv -> CvSubstEnv -> t -> t -> UM (TvSubstEnv, CvSubstEnv)
+  unify :: t -> t -> UM ()
   tyCoVarsOf   :: t -> TyCoVarSet
   tyCoVarsOf_s :: [t] -> TyCoVarSet
 
@@ -209,7 +217,7 @@ match_ty :: MatchEnv	-- For the most part this is pushed downwards
 			--	in-scope set of the RnEnv2
       -> CvSubstEnv
       -> Type -> Type	-- Template and target respectively
-      -> Maybe TvSubstEnv
+      -> Maybe (TvSubstEnv, CvSubstEnv)
 
 match_ty menv tsubst csubst ty1 ty2
   | Just ty1' <- coreView ty1 = match_ty menv tsubst csubst ty1' ty2
@@ -258,7 +266,7 @@ match_ty _ tsubst csubst (LitTy x) (LitTy y) | x == y  = return (tsubst, csubst)
 
 match_ty menv tsubst csubst (CastTy ty1 co1) (CastTy ty2 co2)
   = do { (tsubst', csubst') <- match_ty menv tsubst csubst ty1 ty2
-       ; match_co menv tsubst csubst co1 co2 }
+       ; match_co menv tsubst' csubst' co1 co2 }
 
 match_ty menv tsubst csubst (CoercionTy co1) (CoercionTy co2)
   = match_co menv tsubst csubst co1 co2
@@ -267,14 +275,14 @@ match_ty _ _ _ _ _
   = Nothing
 
 --------------
-match_kind :: MatchEnv -> TvSubstEnv -> Kind -> Kind -> Maybe TvSubstEnv
+match_kind :: MatchEnv -> TvSubstEnv -> CvSubstEnv -> Kind -> Kind -> Maybe (TvSubstEnv, CvSubstEnv)
 -- Match the kind of the template tyvar with the kind of Type
-match_kind menv subst k1 k2
+match_kind menv tsubst csubst k1 k2
   | k2 `isSubKind` k1
-  = return subst
+  = return (tsubst, csubst)
 
   | otherwise
-  = match menv subst k1 k2
+  = match menv tsubst csubst k1 k2
 
 \end{code}
 
@@ -356,7 +364,7 @@ match_co menv tsubst csubst (TyConAppCo tc1 args1) (TyConAppCo tc2 args2)
   | tc1 == tc2 = match_list menv tsubst csubst args1 args2
 
 match_co menv tsubst csubst (AppCo co1 arg1) co2
-  | Just (co2, arg2) <- splitAppCo_maybe
+  | Just (co2, arg2) <- splitAppCo_maybe co2
   = do { (tsubst', csubst') <- match_co menv tsubst csubst co1 co2
        ; match_co_arg menv tsubst' csubst' arg1 arg2 }
 
@@ -378,7 +386,7 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
              in_scope = rnInScopeSet rn_env
              homogenized = substCoWithIS in_scope
                                          [tvr1,               cv1]
-                                         [mkOnlyTyVarTy tvl1, mkReflCo (mkOnlyTyVarTy tvl1)]
+                                         [mkOnlyTyVarTy tvl1, mkCoercionTy $ mkReflCo (mkOnlyTyVarTy tvl1)]
                                          co1
              menv' = menv { me_env = rnBndr2 rn_env tvl1 tv2 }
        ; match_co menv' tsubst2 csubst2 homogenized co2 }
@@ -402,13 +410,13 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
        ; match_co menv' tsubst' csubst' co1 co2 }
 
   | CoHetero eta1 cvl1 cvr1 <- cobndr1
-  , CoHomo cv2
+  , CoHomo cv2 <- cobndr2
   = do { (tsubst1, csubst1) <- match_co menv tsubst csubst
                                         eta1 (mkReflCo (coVarKind cv2))
        ; (tsubst2, csubst2) <- match_ty menv tsubst1 csubst1 (coVarKind cvl1)
                                                              (coVarKind cvr1)
        ; let rn_env = me_env menv
-             in_scape = rnInScopeSet rn_env
+             in_scope = rnInScopeSet rn_env
              homogenized = substCoWithIS in_scope
                                          [cvr1] [mkCoercionTy $ mkCoVarCo cvl1] co1
              menv' = menv { me_env = rnBndr2 rn_env cvl1 cv2 }
@@ -484,19 +492,17 @@ match_co_arg menv tsubst csubst (TyCoArg co1) (TyCoArg co2)
 match_co_arg menv tsubst csubst (CoCoArg lco1 rco1) (CoCoArg lco2 rco2)
   = do { (tsubst', csubst') <- match_co menv tsubst csubst lco1 lco2
        ; match_co menv tsubst' csubst' rco1 rco2 }
+match_co_arg _ _ _ _ _ = Nothing
 
 -------------
 
-match_list :: Unifiable t => MatchEnv ->
-              TvSubstEnv -> CvSubstEnv -> [t] -> [t] -> Maybe (TvSubstEnv, CvSubstEnv)
-match_list fn menv tenv cenv = matchList (\(tenv, cenv) -> fn menv tenv cenv) (tenv, cenv)
+match_list :: Unifiable t => MatchEnv -> TvSubstEnv -> CvSubstEnv -> [t] -> [t]
+           -> Maybe (TvSubstEnv, CvSubstEnv)
+match_list _    tenv cenv []     []     = Just (tenv, cenv)
+match_list menv tenv cenv (a:as) (b:bs) = do { (tenv', cenv') <- match menv tenv cenv a b
+                                             ; match_list menv tenv' cenv' as bs }
+match_list _    _    _    _      _      = Nothing
 
-matchList :: (env -> a -> b -> Maybe env)
-	   -> env -> [a] -> [b] -> Maybe env
-matchList _  subst []     []     = Just subst
-matchList fn subst (a:as) (b:bs) = do { subst' <- fn subst a b
-				      ; matchList fn subst' as bs }
-matchList _  _     _      _      = Nothing
 \end{code}
 
 %************************************************************************
@@ -510,26 +516,26 @@ matchList _  _     _      _      = Nothing
 newtype MatchM a = MM { unMM :: MatchEnv -> TvSubstEnv -> CvSubstEnv
                              -> Maybe ((TvSubstEnv, CvSubstEnv), a) }
 
-instance Monad MatchMM where
-  return x = MM $ \menv tsubst csubst -> Just ((tsubst, csubst), x)
+instance Monad MatchM where
+  return x = MM $ \_ tsubst csubst -> Just ((tsubst, csubst), x)
   fail _   = MM $ \_ _ _ -> Nothing
 
   a >>= f = MM $ \menv tsubst csubst -> case unMM a menv tsubst csubst of
     Just ((tsubst', csubst'), a') -> unMM (f a') menv tsubst' csubst'
     Nothing                       -> Nothing
 
-runMatchM :: MatchM a -> MatchEnv -> TvSubstEnv -> CvSubstEnv
+_runMatchM :: MatchM a -> MatchEnv -> TvSubstEnv -> CvSubstEnv
           -> Maybe (TvSubstEnv, CvSubstEnv)
-runMatchMM mm menv tsubst csubst
+_runMatchM mm menv tsubst csubst
   -- in the Maybe monad
   = do { ((tsubst', csubst'), _) <- unMM mm menv tsubst csubst
        ; return (tsubst', csubst') }
 
-getRnEnv :: MatchM RnEnv2
-getRnEnv = MM $ \menv tsubst csubst -> Just ((tsubst, csubst), me_env menv)
+_getRnEnv :: MatchM RnEnv2
+_getRnEnv = MM $ \menv tsubst csubst -> Just ((tsubst, csubst), me_env menv)
 
-withRnEnv :: RnEnv2 -> MatchM a -> MatchM a
-withRnEnv rn_env mm = MM $ \menv tsubst csubst
+_withRnEnv :: RnEnv2 -> MatchM a -> MatchM a
+_withRnEnv rn_env mm = MM $ \menv tsubst csubst
                            -> unMM mm (menv { me_env = rn_env }) tsubst csubst
 
 \end{code}
@@ -746,11 +752,17 @@ tcApartTys :: (TyCoVar -> BindFlag)
            -> [Type] -> [Type]
            -> ApartResult
 tcApartTys bind_fn tys1 tys2
-  = initUM bind_fn $
-    do { (tsubst, csubst) <- unifyList emptyTvSubstEnv emptyCvSubstEnv tys1 tys2
+  = initUM bind_fn vars $
+    do { unifyList tys1 tys2
 
-	-- Find the fixed point of the resulting non-idempotent substitution
-        ; return (niFixTCvSubst tsubst csubst) }
+       ; tsubst <- getTvSubstEnv
+       ; csubst <- getCvSubstEnv
+  
+       -- Find the fixed point of the resulting non-idempotent substitution
+       ; return (niFixTCvSubst tsubst csubst) }
+  where
+    vars = tyCoVarsOfTypes tys1 `unionVarSet` tyCoVarsOfTypes tys2
+
 \end{code}
 
 
@@ -767,10 +779,10 @@ During unification we use a TvSubstEnv/CvSubstEnv pair that is
   (b) loop-free; ie repeatedly applying it yields a fixed point
 
 \begin{code}
-niFixTvSubst :: TvSubstEnv -> CvSubstEnv -> TCvSubst
+niFixTCvSubst :: TvSubstEnv -> CvSubstEnv -> TCvSubst
 -- Find the idempotent fixed point of the non-idempotent substitution
 -- ToDo: use laziness instead of iteration?
-niFixTvSubst tenv cenv = f tenv cenv
+niFixTCvSubst tenv cenv = f tenv cenv
   where
     f tenv cenv
         | not_fixpoint = f (mapVarEnv (substTy subst) tenv)
@@ -870,7 +882,7 @@ unify_ty ty1 (AppTy ty2a ty2b)
 
 unify_ty (LitTy x) (LitTy y) | x == y = return ()
 
-unify_ty (ForAllTy tv1 ty1) (ForAllty tv2 ty2)
+unify_ty (ForAllTy tv1 ty1) (ForAllTy tv2 ty2)
   = do { unify_ty (tyVarKind tv1) (tyVarKind tv2)
        ; umRnBndr2 tv1 tv2 $ unify_ty ty1 ty2 }
 
@@ -948,7 +960,7 @@ unify_co' g1@(ForAllCo cobndr1 co1) g2@(ForAllCo cobndr2 co2)
                         { TyHetero _ ltv1 rtv1 cv1
                             -> let lty = mkOnlyTyVarTy ltv1 in
                                substCoWithIS in_scope [rtv1, cv1]
-                                                      [lty,  mkReflCo lty] co1
+                                                      [lty,  mkCoercionTy $ mkReflCo lty] co1
                         ; CoHetero _ lcv1 rcv1
                             -> let lco = mkCoVarCo lcv1 in
                                substCoWithIS in_scope [rcv1] [mkCoercionTy lco] co1
@@ -958,7 +970,7 @@ unify_co' g1@(ForAllCo cobndr1 co1) g2@(ForAllCo cobndr2 co2)
 unify_co' (AxiomInstCo ax1 ind1 args1) (AxiomInstCo ax2 ind2 args2)
   | ax1 == ax2
   , ind1 == ind2
-  = unify_list args1 args2
+  = unifyList args1 args2
 
 unify_co' (UnsafeCo tyl1 tyr1) (UnsafeCo tyl2 tyr2)
   = do { unify_ty tyl1 tyl2
@@ -1028,6 +1040,7 @@ unify_co_arg (TyCoArg co1) (TyCoArg co2) = unify_co co1 co2
 unify_co_arg (CoCoArg lco1 rco1) (CoCoArg lco2 rco2)
   = do { unify_co lco1 lco2
        ; unify_co rco1 rco2 }
+unify_co_arg _ _ = surelyApart
 
 unifyList :: Unifiable tyco => [tyco] -> [tyco] -> UM ()
 unifyList orig_xs orig_ys
@@ -1051,7 +1064,7 @@ uVar tv1 ty
           Just ty' -> unify ty' ty        -- Yes, call back into unify
           Nothing  -> uUnrefined tv1 ty ty } -- No, continue
 
-uUnrefined :: TyOrCo tyco
+uUnrefined :: forall tyco. TyOrCo tyco
            => TyCoVar             -- variable to be unified
            -> tyco                -- with this tyco
            -> tyco                -- (version w/ expanded synonyms)
@@ -1071,13 +1084,13 @@ uUnrefined tv1 ty2 ty2'
   = do { tv1' <- umRnOccL tv1
        ; tv2' <- umRnOccR tv2
        ; when (tv1' /= tv2') $ do -- when they are equal, success: do nothing
-       { subst <- getSubstEnv
+       { subst <- (getSubstEnv :: UM (VarEnv tyco))
           -- Check to see whether tv2 is refined     
        ; case lookupVarEnv subst tv2 of
          {  Just ty' -> uUnrefined tv1 ty' ty'
          ;  Nothing  -> do
        {   -- So both are unrefined
-         when mustUnifyKind ty2 $ unify_ty (tyVarKind tv1) (tyVarKind tv2)
+         when (mustUnifyKind ty2) $ unify_ty (tyVarKind tv1) (tyVarKind tv2)
 
            -- And then bind one or the other, 
            -- depending on which is bindable
@@ -1086,7 +1099,7 @@ uUnrefined tv1 ty2 ty2'
            --     (I very much hope) is not relevant here.
        ; b1 <- tvBindFlag tv1
        ; b2 <- tvBindFlag tv2
-       ; let ty1 = mkVar tv1
+       ; let ty1 = (mkVar tv1 :: tyco)
        ; case (b1, b2) of
            (Skolem, Skolem) -> maybeApart  -- See Note [Apartness with skolems]
            (BindMe, _)      -> do { checkRnEnvR ty2 -- make sure ty2 is not a local
@@ -1203,14 +1216,14 @@ initUM :: (TyVar -> BindFlag)
        -> UM TCvSubst -> ApartResult
 initUM badtvs vars um
   = case unUM um badtvs rn_env emptyVarSet emptyTvSubstEnv emptyCvSubstEnv of
-      Right subst        -> NotApart subst
+      Right (_, subst)   -> NotApart subst
       Left UFMaybeApart  -> MaybeApart
       Left UFSurelyApart -> SurelyApart
   where
     rn_env = mkRnEnv2 (mkInScopeSet vars)
     
 tvBindFlag :: TyVar -> UM BindFlag
-tvBindFlag tv = UM $ \tv_fn rn_env locals tsubst csubst ->
+tvBindFlag tv = UM $ \tv_fn _ locals tsubst csubst ->
   Right ((tsubst, csubst), if tv `elemVarSet` locals then Skolem else tv_fn tv)
 
 getTvSubstEnv :: UM TvSubstEnv
@@ -1229,13 +1242,16 @@ extendCvEnv cv co = UM $ \_ _ _ tsubst csubst ->
   let csubst' = extendVarEnv csubst cv co in
   Right ((tsubst, csubst'), ())
 
+getInScope :: UM InScopeSet
+getInScope = UM $ \_ rn_env _ tsubst csubst -> Right ((tsubst, csubst), rnInScopeSet rn_env)
+
 umRnBndr2 :: TyCoVar -> TyCoVar -> UM a -> UM a
 umRnBndr2 v1 v2 thing = UM $ \tv_fn rn_env locals tsubst csubst ->
   let (rn_env', v3) = rnBndr2_var rn_env v1 v2
       locals'       = extendVarSetList locals [v1, v2, v3]
   in unUM thing tv_fn rn_env' locals' tsubst csubst
 
-checkRnEnv :: TyOrCo tyco => (RnEnv2 -> tyco -> Bool) -> tyco -> UM ()
+checkRnEnv :: TyOrCo tyco => (RnEnv2 -> Var -> Bool) -> tyco -> UM ()
 checkRnEnv inRnEnv tyco = UM $ \_ rn_env _ tsubst csubst ->
   let varset = tyCoVarsOf tyco in
   if any (inRnEnv rn_env) (varSetElems varset)
@@ -1346,6 +1362,52 @@ cancel out all the coercions. It's a little fiddly, but because there can
 be many equivalent coercions, I don't see an easier way.
 
 \begin{code}
+zipLiftCoEnv :: RnEnv2 -> LiftCoEnv -> TCvSubst -> TCvSubst -> Maybe LiftCoEnv
+zipLiftCoEnv rn_env lc_env (TCvSubst _ l_tenv l_cenv) (TCvSubst _ r_tenv r_cenv)
+  = do { lc_env1 <- go_ty lc_env  r_tenv (varEnvKeys l_tenv)
+       ;            go_co lc_env1 r_cenv (varEnvKeys l_cenv) }
+  where
+    go_ty :: LiftCoEnv -> TvSubstEnv -> [Unique] -> Maybe LiftCoEnv
+    go_ty env r_tenv []
+      | isEmptyVarEnv r_tenv
+      = Just env
+      
+      | otherwise -- leftover bindings in renv, but not in lenv
+      = Nothing -- See Note [zipLiftCoEnv incomplete]
+
+    go_ty env r_tenv (u:us)
+      | Just _ <- lookupVarEnv_Directly env u
+      = go_ty env (delVarEnv_Directly r_tenv u) us
+
+      | Just tyl <- lookupVarEnv_Directly l_tenv u
+      , Just tyr <- lookupVarEnv_Directly r_tenv u
+      , eqTypeX rn_env tyl tyr
+      = go_ty (extendVarEnv_Directly env u (TyCoArg (mkReflCo tyr)))
+              (delVarEnv_Directly r_tenv u) us
+
+      | otherwise
+      = Nothing -- See Note [zipLiftCoEnv incomplete]
+
+    go_co :: LiftCoEnv -> CvSubstEnv -> [Unique] -> Maybe LiftCoEnv
+    go_co env r_cenv []
+      | isEmptyVarEnv r_cenv
+      = Just env
+
+      | otherwise
+      = Nothing -- See Note [zipLifCoEnv incomplete]
+
+    go_co env r_cenv (u:us)
+      | Just _ <- lookupVarEnv_Directly env u
+      = go_co env (delVarEnv_Directly r_cenv u) us
+
+      | Just col <- lookupVarEnv_Directly l_cenv u
+      , Just cor <- lookupVarEnv_Directly r_cenv u
+      = go_co (extendVarEnv_Directly env u (CoCoArg col cor))
+              (delVarEnv_Directly r_cenv u) us
+
+      | otherwise
+      = Nothing -- See Note [zipLiftCoEnv incomplete]
+
 -- | 'liftCoMatch' is sort of inverse to 'liftCoSubst'.  In particular, if
 --   @liftCoMatch vars ty co == Just s@, then @tyCoSubst s ty == co@.
 --   That is, it matches a type against a coercion of the same
@@ -1376,6 +1438,14 @@ ty_co_match menv subst ty co
   , eqTypeX (me_env menv) ty ty'
   = Just subst
 
+  where
+    isNotInDomainOf :: VarSet -> VarEnv a -> Bool
+    isNotInDomainOf set env
+      = noneSet (\v -> elemVarEnv v env) set
+
+    noneSet :: (Var -> Bool) -> VarSet -> Bool
+    noneSet f = foldVarSet (\v rest -> rest && (not $ f v)) True
+
   -- Match a type variable against a non-refl coercion
 ty_co_match menv subst (TyVarTy tv1) co
   | Just (TyCoArg co1') <- lookupVarEnv subst tv1' -- tv1' is already bound to co1
@@ -1387,7 +1457,7 @@ ty_co_match menv subst (TyVarTy tv1) co
   = if any (inRnEnvR rn_env) (varSetElems (tyCoVarsOfCo co))
     then Nothing      -- occurs check failed
     else do { subst1 <- ty_co_match menv subst (tyVarKind tv1') (promoteCoercion co)
-            ; return (extendVarEnv subst tv1' (TyCoArg co)) }
+            ; return (extendVarEnv subst1 tv1' (TyCoArg co)) }
 
   | otherwise
   = Nothing
@@ -1405,7 +1475,7 @@ ty_co_match menv subst (TyConApp tc1 tys) (TyConAppCo tc2 cos)
   | tc1 == tc2 = ty_co_match_args menv subst tys cos
 
 ty_co_match menv subst (FunTy ty1 ty2) (TyConAppCo tc cos)
-  | tc == funTyCon = ty_co_matches menv subst [ty1,ty2] cos
+  | tc == funTyCon = ty_co_match_args menv subst [ty1, ty2] cos
 
 ty_co_match menv subst (ForAllTy tv ty) (ForAllCo cobndr co)
   | TyHomo tv2 <- cobndr
@@ -1479,7 +1549,10 @@ ty_co_match menv subst ty co
 
 ty_co_match_args :: MatchEnv -> LiftCoEnv -> [Type] -> [CoercionArg]
                  -> Maybe LiftCoEnv
-ty_co_match_args menv = matchList (ty_co_match_arg menv)
+ty_co_match_args _    subst []       []         = Just subst
+ty_co_match_args menv subst (ty:tys) (arg:args) = do { subst' <- ty_co_match_arg menv subst ty arg
+                                                    ; ty_co_match_args menv subst' tys args }
+ty_co_match_args _    _     _        _          = Nothing
 
 ty_co_match_arg :: MatchEnv -> LiftCoEnv -> Type -> CoercionArg -> Maybe LiftCoEnv
 ty_co_match_arg menv subst ty arg
@@ -1502,6 +1575,7 @@ ty_co_match_lr menv subst co1 col cor
   where
     ME { me_tmpls = tmpl_vars
        , me_env   = rn_env } = menv
+    in_scope = rnInScopeSet rn_env
   
 pushRefl :: Coercion -> Maybe Coercion
 pushRefl (Refl (AppTy ty1 ty2))   = Just (AppCo (Refl ty1) (liftSimply ty2))

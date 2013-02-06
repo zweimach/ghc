@@ -123,7 +123,7 @@ data IfaceAT = IfaceAT IfaceDecl [IfaceAxBranch]
         -- Just ds => default associated type instance from these templates
 
 instance Outputable IfaceAxBranch where
-   ppr (IfaceAxBranch { ifaxbTyVars = tvs, ifaxbLHS = pat_tys, ifaxbRHS = ty }) 
+   ppr (IfaceAxBranch { ifaxbTyCoVars = tvs, ifaxbLHS = pat_tys, ifaxbRHS = ty }) 
       = ppr tvs <+> hsep (map ppr pat_tys) <+> char '=' <+> ppr ty
 
 -- this is just like CoAxBranch
@@ -538,8 +538,8 @@ pprIfaceDecl (IfaceAxiom {ifName = name, ifTyCon = tycon, ifAxBranches = branche
   = hang (ptext (sLit "axiom") <+> ppr name <> colon)
        2 (vcat $ map ppr_branch branches)
   where
-     ppr_branch (IfaceAxBranch { ifaxbTyVars = tyvars, ifaxbLHS = lhs, ifaxbRHS = rhs })
-        = pprIfaceTvBndrs tyvars <> dot <+> ppr (IfaceTyConApp tycon lhs) <+> text "~#" <+> ppr rhs
+     ppr_branch (IfaceAxBranch { ifaxbTyCoVars = tyvars, ifaxbLHS = lhs, ifaxbRHS = rhs })
+        = pprIfaceBndrs tyvars <> dot <+> ppr (IfaceTyConApp tycon lhs) <+> text "~#" <+> ppr rhs
 
 pprCType :: Maybe CType -> SDoc
 pprCType Nothing = ptext (sLit "No C type associated")
@@ -606,7 +606,7 @@ pprIfaceConDecl tc
                 (t:ts) -> fsep (t : map (arrow <+>) ts)
                 []     -> panic "pp_con_taus"
 
-    pp_res_ty = ppr tc <+> fsep (map get_occ univ_tvs)
+    pp_res_ty = ppr tc <+> fsep (map (ppr . get_occ) univ_tvs)
 
     to_forall_bndr (IfaceIdBndr cv) = IfaceCv cv
     to_forall_bndr (IfaceTvBndr tv) = IfaceTv tv
@@ -866,7 +866,7 @@ freeNamesIfType (IfaceTyConApp tc ts) =
    freeNamesIfTc tc &&& fnList freeNamesIfType ts
 freeNamesIfType (IfaceLitTy _)        = emptyNameSet
 freeNamesIfType (IfaceForAllTy tv t)  =
-   freeNamesIfTvBndr tv &&& freeNamesIfType t
+   freeNamesIfForAllBndr tv &&& freeNamesIfType t
 freeNamesIfType (IfaceFunTy s t)      = freeNamesIfType s &&& freeNamesIfType t
 freeNamesIfType (IfaceCoConApp tc ts) = 
    freeNamesIfCo tc &&& fnList freeNamesIfType ts
@@ -876,9 +876,20 @@ freeNamesIfType (IfaceCastTy ty co)   =
 freeNamesIfTvBndrs :: [IfaceTvBndr] -> NameSet
 freeNamesIfTvBndrs = fnList freeNamesIfTvBndr
 
+freeNamesIfForAllBndr :: IfaceForAllBndr -> NameSet
+freeNamesIfForAllBndr (IfaceTv tv) = freeNamesIfTvBndr tv
+freeNamesIfForAllBndr (IfaceHeteroTv h tv1 tv2 cv)
+  = freeNamesIfType h &&& freeNamesIfTvBndrs [tv1, tv2] &&& freeNamesIfIdBndr cv
+freeNamesIfForAllBndr (IfaceCv cv) = freeNamesIfIdBndr cv
+freeNamesIfForAllBndr (IfaceHeteroCv h cv1 cv2)
+  = freeNamesIfType h &&& freeNamesIfIdBndrs [cv1, cv2]
+
 freeNamesIfBndr :: IfaceBndr -> NameSet
 freeNamesIfBndr (IfaceIdBndr b) = freeNamesIfIdBndr b
 freeNamesIfBndr (IfaceTvBndr b) = freeNamesIfTvBndr b
+
+freeNamesIfBndrs :: [IfaceBndr] -> NameSet
+freeNamesIfBndrs = fnList freeNamesIfBndr
 
 freeNamesIfLetBndr :: IfaceLetBndr -> NameSet
 -- Remember IfaceLetBndr is used only for *nested* bindings
@@ -893,6 +904,9 @@ freeNamesIfTvBndr (_fs,k) = freeNamesIfKind k
 
 freeNamesIfIdBndr :: IfaceIdBndr -> NameSet
 freeNamesIfIdBndr = freeNamesIfTvBndr
+
+freeNamesIfIdBndrs :: [IfaceIdBndr] -> NameSet
+freeNamesIfIdBndrs = fnList freeNamesIfIdBndr
 
 freeNamesIfIdInfo :: IfaceIdInfo -> NameSet
 freeNamesIfIdInfo NoInfo      = emptyNameSet
