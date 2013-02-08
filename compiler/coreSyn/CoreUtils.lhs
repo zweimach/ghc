@@ -1299,13 +1299,13 @@ cheapEqExpr :: Expr b -> Expr b -> Bool
 cheapEqExpr (Var v1)   (Var v2)   = v1==v2
 cheapEqExpr (Lit lit1) (Lit lit2) = lit1 == lit2
 cheapEqExpr (Type t1) (Type t2) = t1 `eqType` t2
-cheapEqExpr (Coercion c1) (Coercion c2) = c1 `coreEqCoercion` c2
+cheapEqExpr (Coercion c1) (Coercion c2) = c1 `eqCoercion` c2
 
 cheapEqExpr (App f1 a1) (App f2 a2)
   = f1 `cheapEqExpr` f2 && a1 `cheapEqExpr` a2
 
 cheapEqExpr (Cast e1 t1) (Cast e2 t2)
-  = e1 `cheapEqExpr` e2 && t1 `coreEqCoercion` t2
+  = e1 `cheapEqExpr` e2 && t1 `eqCoercion` t2
 
 cheapEqExpr _ _ = False
 \end{code}
@@ -1360,8 +1360,8 @@ eqExprX id_unfolding_fun env e1 e2
 
     go _   (Lit lit1)    (Lit lit2)      = lit1 == lit2
     go env (Type t1)    (Type t2)        = eqTypeX env t1 t2
-    go env (Coercion co1) (Coercion co2) = coreEqCoercion2 env co1 co2
-    go env (Cast e1 co1) (Cast e2 co2) = coreEqCoercion2 env co1 co2 && go env e1 e2
+    go env (Coercion co1) (Coercion co2) = eqCoercionX env co1 co2
+    go env (Cast e1 co1) (Cast e2 co2) = eqCoercionX env co1 co2 && go env e1 e2
     go env (App f1 a1)   (App f2 a2)   = go env f1 f2 && go env a1 a2
     go env (Tick n1 e1)  (Tick n2 e2)  = go_tickish n1 n2 && go env e1 e2
 
@@ -1587,8 +1587,11 @@ fast_hash_co env co
   | otherwise                                  = 1
 
 fast_hash_co_arg :: HashEnv -> CoercionArg -> Word32
-fast_hash_co_arg env (TyCoArg co)    = fast_hash_co env co
-fast_hash_co_arg env (CoCoArg c1 c2) = fast_hash_co env c1 + fast_hash_co env c2
+fast_hash_co_arg env arg
+  | Just (c1, c2) <- splitCoCoArg_maybe arg
+  = fast_hash_co env c1 + fast_hash_co env c2
+  | otherwise
+  = fast_hash_co env (stripTyCoArg arg)
 
 extend_env :: HashEnv -> Var -> (Int, VarEnv Int)
 extend_env (n,env) b = (n+1, extendVarEnv env b n)
@@ -1747,7 +1750,7 @@ tryEtaReduce bndrs body
        , bndr == tv  = Just (mkForAllCo_TyHomo tv co)
     ok_arg bndr (Coercion co1) co2
        | Just cv <- getCoVar_maybe co1
-       , bndr == cv  = Just (mkForAllCo_CoHomo cv co)
+       , bndr == cv  = Just (mkForAllCo_CoHomo cv co2)
     ok_arg bndr (Var v) co
        | bndr == v   = Just (mkFunCo (mkReflCo (idType bndr)) co)
     ok_arg bndr (Cast (Var v) co_arg) co

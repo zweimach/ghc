@@ -20,11 +20,11 @@ module Coercion (
         mkCoAxBranch, mkBranchedCoAxiom, mkSingleCoAxiom,
 
         -- * Main data type
-        Coercion, CoercionArg, ForAllCoBndr, Var, CoVar, TyCoVar,
-        mkFreshCoVar,
+        Coercion, CoercionArg, ForAllCoBndr, LeftOrRight(..),
+        Var, CoVar, TyCoVar, mkFreshCoVar,
 
         -- ** Functions over coercions
-        coVarTypes, coVarKind,
+        coVarTypes, coVarKind, coVarTypesKinds,
         coercionType, coercionKind, coercionKinds,
         mkCoercionType, coercionArgKind,
 
@@ -56,9 +56,11 @@ module Coercion (
         splitForAllCo_maybe,
         splitForAllCo_Ty_maybe, splitForAllCo_Co_maybe,
 
+        pickLR,
+
         getHomoVar_maybe, splitHeteroCoBndr_maybe,
 
-        stripTyCoArg,
+        stripTyCoArg, splitCoCoArg_maybe,
 
         isReflCo, isReflCo_maybe, isReflLike, isReflLike_maybe,
 
@@ -70,6 +72,7 @@ module Coercion (
         tyCoVarsOfCoArg, tyCoVarsOfCoArgs,
 	
         -- ** Substitution
+        CvSubstEnv,
  	lookupCoVar,
 	substCo, substCos, substCoVar, substCoVars,
         substCoVarBndr, substCoWithIS,
@@ -978,6 +981,10 @@ stripTyCoArg arg          = pprPanic "stripTyCoArg" (ppr arg)
 stripCoCoArg :: CoercionArg -> Pair Coercion
 stripCoCoArg (CoCoArg co1 co2) = Pair co1 co2
 stripCoCoArg arg               = pprPanic "stripCoCoArg" (ppr arg)
+
+splitCoCoArg_maybe :: CoercionArg -> Maybe (Coercion, Coercion)
+splitCoCoArg_maybe (TyCoArg _)     = Nothing
+splitCoCoArg_maybe (CoCoArg c1 c2) = Just (c1, c2)
 
 -- | Makes a suitable CoercionArg representing the passed-in variable
 -- during a lifting-like substitution

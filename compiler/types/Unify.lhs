@@ -15,6 +15,8 @@ module Unify (
 	-- Matching of types: 
 	--	the "tc" prefix indicates that matching always
 	--	respects newtypes (rather than looking through them)
+        MatchEnv(..),
+
 	tcMatchTy, tcMatchTys, tcMatchTyX, 
 	ruleMatchTyX, tcMatchPreds,
 

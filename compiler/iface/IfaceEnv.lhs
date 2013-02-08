@@ -14,7 +14,7 @@ module IfaceEnv (
 	lookupOrig, lookupOrigNameCache, extendNameCache,
 	newIfaceName, newIfaceNames,
 	extendIfaceIdEnv, extendIfaceTyVarEnv, 
-	tcIfaceLclId, tcIfaceTyVar, lookupIfaceTyVar,
+	tcIfaceLclId, tcIfaceTyVar, lookupIfaceVar,
 
 	ifaceExportNames,
 
@@ -38,6 +38,7 @@ import PrelNames
 import Module
 import UniqFM
 import FastString
+import IfaceType
 import UniqSupply
 import SrcLoc
 import Util

@@ -727,12 +727,12 @@ match_co :: RuleEnv
          -> Coercion
          -> Coercion
          -> Maybe RuleSubst
-match_co renv subst (CoVarCo cv) co
-  = match_var renv subst cv (Coercion co)
-match_co renv subst (Refl ty1) co
-  = case co of
-       Refl ty2 -> match_ty renv subst ty1 ty2
-       _        -> Nothing
+match_co renv subst co1 co2
+  | Just cv <- getCoVar_maybe co1
+  = match_var renv subst cv (Coercion co2)
+  | Just ty1 <- isReflCo_maybe co1
+  = do { ty2 <- isReflCo_maybe co2
+       ; match_ty renv subst ty1 ty2 }
 match_co _ _ co1 _
   = pprTrace "match_co: needs more cases" (ppr co1) Nothing
     -- Currently just deals with CoVarCo and Refl
@@ -857,7 +857,7 @@ match_ty :: RuleEnv
 
 match_ty renv subst ty1 ty2
   = do  { (tv_subst', cv_subst')
-            <- Unify.ruleMatchTyX menv (tv_subst, cv_subst) ty1 ty2
+            <- Unify.ruleMatchTyX menv tv_subst cv_subst ty1 ty2
         ; return (subst { rs_tv_subst = tv_subst', rs_cv_subst = cv_subst' }) }
   where
     tv_subst = rs_tv_subst subst

@@ -30,12 +30,11 @@ module TcEvidence (
 #include "HsVersions.h"
 
 import Var
-import Coercion( LeftOrRight(..), pickLR )
+import Coercion( getCoVar_maybe )
 import PprCore ()   -- Instance OutputableBndr TyVar
 import TyCoRep  -- Knows type representation
 import TcType
-import Type( tyConAppArgN, tyConAppTyCon_maybe, getEqPredTys, coAxNthLHS )
-import TysPrim( funTyCon )
+import Type
 import TyCon
 import CoAxiom
 import PrelNames
@@ -414,8 +413,6 @@ mkWpTyApps tys = mk_co_app_fn mk_ty_app tys
 
       | otherwise
       = WpTyApp ty
-
-mkWpTyApps tys = mk_co_app_fn WpTyApp tys
 
 mkWpEvApps :: [EvTerm] -> HsWrapper
 mkWpEvApps args = mk_co_app_fn WpEvApp args

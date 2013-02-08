@@ -76,7 +76,7 @@ module Type (
         -- ** Predicates on types
         isTypeVar, isKindVar, isTyCoVarTy,
         isTyVarTy, isFunTy, isDictTy, isPredTy, isKindTy, isCoercionTy,
-        isCoercionTy_maybe,
+        isCoercionTy_maybe, isCoercionType,
 
 	-- (Lifting and boxity)
 	isUnLiftedType, isUnboxedTupleType, isAlgType, isClosedAlgType,
@@ -122,7 +122,7 @@ module Type (
 	TCvSubst(..), 	-- Representation visible to a few friends
 	
 	-- ** Manipulating type substitutions
-	emptyTvSubstEnv, emptyTCvSubst,
+	emptyTvSubstEnv, emptyTCvSubst, mkEmptyTCvSubst,
 	
 	mkTCvSubst, mkOpenTCvSubst, zipOpenTCvSubst, zipTopTCvSubst,
         mkTopTCvSubst, notElemTCvSubst,
@@ -135,7 +135,7 @@ module Type (
 
 	-- ** Performing substitution on types and kinds
 	substTy, substTys, substTyWith, substTysWith, substTheta, 
-        substTyCoVar, substTyCoVars, substTyVarBndr,
+        substTyCoVar, substTyCoVars, substTyVarBndr, substTyCoVarBndr,
         cloneTyVarBndr, lookupTyVar, lookupVar,
         substKiWith, substKisWith,
 
