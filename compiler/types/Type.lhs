@@ -76,7 +76,7 @@ module Type (
         -- ** Predicates on types
         isTypeVar, isKindVar, isTyCoVarTy,
         isTyVarTy, isFunTy, isDictTy, isPredTy, isKindTy, isCoercionTy,
-        isCoercionTy_maybe,
+        isCoercionTy_maybe, isCoercionType,
 
 	-- (Lifting and boxity)
 	isUnLiftedType, isUnboxedTupleType, isAlgType, isClosedAlgType,
