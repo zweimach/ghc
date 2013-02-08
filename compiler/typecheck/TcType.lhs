@@ -26,7 +26,7 @@ module TcType (
   --------------------------------
   -- Types 
   TcType, TcSigmaType, TcRhoType, TcTauType, TcPredType, TcThetaType, 
-  TcTyVar, TcTyVarSet, TcKind, TcCoVar, TcTyCoVar,
+  TcTyVar, TcTyVarSet, TcTyCoVarSet, TcKind, TcCoVar, TcTyCoVar,
 
   -- Untouchables
   Untouchables(..), noUntouchables, pushUntouchables, isTouchable,
@@ -58,7 +58,7 @@ module TcType (
   tcSplitTyConApp, tcSplitTyConApp_maybe, tcTyConAppTyCon, tcTyConAppArgs,
   tcSplitAppTy_maybe, tcSplitAppTy, tcSplitAppTys, repSplitAppTy_maybe,
   tcInstHeadTyNotSynonym, tcInstHeadTyAppAllTyVars,
-  tcGetTyVar_maybe, tcGetTyVar,
+  tcGetTyVar_maybe, tcGetTyCoVar_maybe, tcGetTyVar,
   tcSplitSigmaTy, tcDeepSplitSigmaTy_maybe,  
 
   ---------------------------------
@@ -239,6 +239,7 @@ type TcRhoType      = TcType
 type TcTauType      = TcType
 type TcKind         = Kind
 type TcTyVarSet     = TyVarSet
+type TcTyCoVarSet   = TyCoVarSet
 \end{code}
 
 
@@ -1015,6 +1016,12 @@ tcGetTyVar_maybe :: Type -> Maybe TyVar
 tcGetTyVar_maybe ty | Just ty' <- tcView ty = tcGetTyVar_maybe ty'
 tcGetTyVar_maybe (TyVarTy tv)   = Just tv
 tcGetTyVar_maybe _              = Nothing
+
+tcGetTyCoVar_maybe :: Type -> Maybe TyCoVar
+tcGetTyCoVar_maybe ty | Just ty' <- tcView ty = tcGetTyCoVar_maybe ty'
+tcGetTyCoVar_maybe (TyVarTy tv)               = Just tv
+tcGetTyCoVar_maybe (CoercionTy (CoVarCo cv))  = Just cv
+tcGetTyCoVar_maybe _                          = Nothing
 
 tcGetTyVar :: String -> Type -> TyVar
 tcGetTyVar msg ty = expectJust msg (tcGetTyVar_maybe ty)

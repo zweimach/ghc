@@ -39,11 +39,9 @@ import MkId
 import IdInfo
 import Class
 import TyCon
-import CoAxiom
 import DataCon
 import PrelNames
 import TysWiredIn
-import TysPrim          ( superKindTyConName )
 import BasicTypes       ( Arity, strongLoopBreaker )
 import Literal
 import qualified Var
@@ -922,8 +920,7 @@ tcIfaceTyArgs kind (tk:tks)
             ; return (ty' : tks') }
 
   | Just (tv, kind') <- splitForAllTy_maybe kind
-  = let kf = determineLevel (Var.tyVarKind tv) in
-    if isTyVar tv
+  = if isTyVar tv
     then do { k'   <- tcIfaceKind tk
             ; tks' <- tcIfaceTyArgs (substTyWith [tv] [k'] kind') tks
             ; return (k':tks') }
@@ -1018,7 +1015,7 @@ tcIfaceTyKiCo kf = go
     go (IfaceCastTy co1 co2)  = mkCoherenceCo <$> go co1 <*> tcIfaceKindCo co2
 
 tcIfaceTyKiCoArg :: KindFlag -> IfaceType -> IfL CoercionArg
-tcIfaceTyKiCoArg kf (IfaceCoConApp IfaceCoCoArg [co1, co2])
+tcIfaceTyKiCoArg _ (IfaceCoConApp IfaceCoCoArg [co1, co2])
   = CoCoArg <$> tcIfaceKindCo co1 <*> tcIfaceKindCo co2
 tcIfaceTyKiCoArg kf co = TyCoArg <$> tcIfaceTyKiCo kf co
 
@@ -1047,7 +1044,7 @@ tcIfaceCoArgs (Pair kind1 kind2) (co:cos)
 
 tcIfaceCoApp :: KindFlag -> IfaceCoCon -> [IfaceType] -> IfL Coercion
 tcIfaceCoApp kf IfaceReflCo      [t]     = Refl        <$> tcIfaceTyKi kf t
-tcIfaceCoApp kf (IfaceCoAx n i)  ts
+tcIfaceCoApp _  (IfaceCoAx n i)  ts
   = do { ax <- tcIfaceCoAxiom n
        ; let tvs = coAxBranchTyCoVars $ coAxiomNthBranch ax i
              kind = mkForAllTys tvs bottom
@@ -1061,16 +1058,11 @@ tcIfaceCoApp kf IfaceTransCo     [t1,t2] = TransCo     <$> tcIfaceTyKiCo kf t1 <
 tcIfaceCoApp kf IfaceInstCo      [t1,t2] = InstCo      <$> tcIfaceTyKiCo kf t1 <*> tcIfaceTyKiCoArg kf t2
 tcIfaceCoApp kf (IfaceNthCo d)   [t]     = NthCo d     <$> tcIfaceTyKiCo kf t
 tcIfaceCoApp kf (IfaceLRCo lr)   [t]     = LRCo lr     <$> tcIfaceTyKiCo kf t
-tcIfaceCoApp kf IfaceKindCo      [t]     = KindCo      <$> tcIfaceCo t
+tcIfaceCoApp _  IfaceKindCo      [t]     = KindCo      <$> tcIfaceCo t
 tcIfaceCoApp _ cc ts = pprPanic "toIfaceCoApp" (ppr cc <+> ppr ts)
 
 tcIfaceCoVar :: FastString -> IfL CoVar
 tcIfaceCoVar = tcIfaceLclId
-
-tcIfaceCoArg :: IfaceType -> IfL CoercionArg
-tcIfaceCoArg (IfaceCoConApp IfaceCoCoArg [co1, co2])
-  = CoCoArg <$> tcIfaceCo co1 <*> tcIfaceCo co2
-tcIfaceCoArg co = TyCoArg <$> tcIfaceCo co
 \end{code}
 
 
@@ -1464,12 +1456,11 @@ tcIfaceGlobal name
 tcIfaceTyCon :: KindFlag -> IfaceTyCon -> IfL TyCon
 tcIfaceTyCon kf (IfaceTc name) 
   = do { thing <- tcIfaceGlobal name
-       ; case thing of    -- A "type constructor" can be a promoted data constructor
+       ; case (thing, kf) of    -- A "type constructor" can be a promoted data constructor
                           --           c.f. Trac #5881
-           ATyCon tc
-             | KindLevel <- kf -> return (promoteTyCon tc)
-             | TypeLevel <- kf -> return tc
-           ADataCon dc         -> return (promoteDataCon dc)
+           (ATyCon tc, KindLevel) -> return (promoteTyCon tc)
+           (ATyCon tc, TypeLevel) -> return tc
+           (ADataCon dc, _)       -> return (promoteDataCon dc)
            _ -> pprPanic "tcIfaceTyCon" (ppr name $$ ppr thing) }
 
 tcIfaceCoAxiom :: Name -> IfL (CoAxiom Branched)
@@ -1531,18 +1522,17 @@ bindIfaceBndrTy (IfaceCv cv) = bindIfaceId cv
 bindIfaceBndrTy bndr         = pprPanic "bindIfaceBndrTy" (ppr bndr)
 
 bindIfaceBndrCo :: IfaceForAllBndr -> (ForAllCoBndr -> IfL a) -> IfL a
-bindIfaceBndrCo bndr thing_inside
-  | IfaceTv tv <- bndr
+bindIfaceBndrCo (IfaceTv tv) thing_inside
   = bindIfaceTyVar tv (\tv' -> thing_inside (TyHomo tv'))
-  | IfaceHeteroTv co tv1 tv2 cv <- bndr
+bindIfaceBndrCo (IfaceHeteroTv co tv1 tv2 cv) thing_inside
   = do { co' <- tcIfaceKindCo co
        ; bindIfaceTyVar tv1 $ \tv1' ->
          bindIfaceTyVar tv2 $ \tv2' ->
          bindIfaceId cv $ \cv' ->
          thing_inside (mkTyHeteroCoBndr co' tv1' tv2' cv') }
-  | IfaceCv cv <- bndr
+bindIfaceBndrCo (IfaceCv cv) thing_inside
   = bindIfaceId cv (\cv' -> thing_inside (CoHomo cv'))
-  | IfaceHeteroCv co cv1 cv2 <- bndr
+bindIfaceBndrCo (IfaceHeteroCv co cv1 cv2) thing_inside
   = do { co' <- tcIfaceKindCo co
        ; bindIfaceId cv1 $ \cv1' ->
          bindIfaceId cv2 $ \cv2' ->
@@ -1553,30 +1543,6 @@ bindIfaceTyVar (occ,kind) thing_inside
   = do  { name <- newIfaceName (mkTyVarOccFS occ)
         ; tyvar <- mk_iface_tyvar name kind
         ; extendIfaceTyVarEnv [tyvar] (thing_inside tyvar) }
-
-bindIfaceTyVars :: [IfaceTvBndr] -> ([TyVar] -> IfL a) -> IfL a
-bindIfaceTyVars bndrs thing_inside
-  = do { names <- newIfaceNames (map mkTyVarOccFS occs)
-       ; foldr extend_env_with_tyvar thing_inside (zip names kinds)
-        ; let (kis_kind, tys_kind) = span isSuperIfaceKind kinds
-              (kis_name, tys_name) = splitAt (length kis_kind) names
-          -- We need to bring the kind variables in scope since type
-          -- variables may mention them.
-        ; kvs <- zipWithM mk_iface_tyvar kis_name kis_kind
-        ; extendIfaceTyVarEnv kvs $ do
-        { tvs <- zipWithM mk_iface_tyvar tys_name tys_kind
-        ; extendIfaceTyVarEnv tvs (thing_inside (kvs ++ tvs)) } }
-  where
-    (occs,kinds) = unzip bndrs
-
-    extend_env_with_tyvar :: (Name, TyVar) -> IfL a -> IfL a
-    extend_env_with_tyvar (name, var) thing
-      = do { tv <- mk_iface_tyvar name var
-           ; extendIfaceTyVarEnv [tv] thing }
-
-isSuperIfaceKind :: IfaceKind -> Bool
-isSuperIfaceKind (IfaceTyConApp (IfaceTc n) []) = n == superKindTyConName
-isSuperIfaceKind _ = False
 
 mk_iface_tyvar :: Name -> IfaceKind -> IfL TyVar
 mk_iface_tyvar name ifKind

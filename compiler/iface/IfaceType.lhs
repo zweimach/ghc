@@ -248,6 +248,9 @@ ppr_ty ctxt_prec (IfaceCastTy ty co)
     sep [ppr_ty fUN_PREC ty, ptext (sLit "`cast`"), ppr_ty fUN_PREC co]
 
  -------------------
+instance Outputable IfaceForAllBndr where
+  ppr = pprIfaceForAllBndr
+
 pprIfaceForAllPart :: [IfaceForAllBndr] -> IfaceContext -> SDoc -> SDoc
 pprIfaceForAllPart tvs ctxt doc
   = sep [ppr_tvs, pprIfaceContext ctxt, doc]

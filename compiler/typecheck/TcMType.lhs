@@ -50,7 +50,7 @@ module TcMType (
   -- Zonking
   zonkTcPredType, 
   skolemiseSigTv, skolemiseUnboundMetaTyVar,
-  zonkTcTyCoVar, zonkTcTyVars, zonkTyCoVarsAndFV, 
+  zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, 
   zonkQuantifiedTyCoVar, zonkQuantifiedTyCoVars,
   zonkTcType, zonkTcTypes, zonkTcThetaType,
 
@@ -67,6 +67,7 @@ import TyCoRep
 import TcType
 import TcEvidence
 import Type
+import Coercion
 import Class
 import TyCon
 import Var
@@ -76,6 +77,7 @@ import TcRnMonad        -- TcType, amongst others
 import Id
 import Name
 import VarSet
+import VarEnv
 import PrelNames
 import DynFlags
 import Util
@@ -136,7 +138,7 @@ newWantedEvVars theta = mapM newWantedEvVar theta
 
 --------------
 
-newEvVar :: TcPredType -> TcM EvVar
+newEvVar :: TcPredType -> TcRnIf gbl lcl EvVar
 -- Creates new *rigid* variables for predicates
 newEvVar ty = do { name <- newSysName (predTypeOccName ty) 
                  ; return (mkLocalId name ty) }
@@ -223,7 +225,7 @@ tcSuperSkolTyCoVar subst tv
            | otherwise  = uniqAway (getTCvInScope subst) (setVarType tv kind)
 
 tcInstSkolTyCoVar :: SrcSpan -> Bool -> TCvSubst -> TyCoVar
-                  -> TcRnIf gbl lcl (TvSubst, TcTyCoVar)
+                  -> TcRnIf gbl lcl (TCvSubst, TcTyCoVar)
 -- Instantiate the tyvar, using 
 --      * the occ-name and kind of the supplied tyvar, 
 --      * the unique from the monad,
@@ -236,7 +238,8 @@ tcInstSkolTyCoVar loc overlappable subst tyvar
               new_tv   = mkTcTyVar new_name kind (SkolemTv overlappable)
         ; return (extendTCvSubst subst tyvar (mkOnlyTyVarTy new_tv), new_tv) }
   | otherwise -- coercion variable
-  = newEvVar kind
+  = do  { ev_var <- newEvVar kind
+        ; return (extendTCvSubst subst tyvar (mkTyCoVarTy ev_var), ev_var) }
   where
     old_name = tyVarName tyvar
     occ      = nameOccName old_name
@@ -244,8 +247,8 @@ tcInstSkolTyCoVar loc overlappable subst tyvar
 
 -- Wrappers
 -- we need to be able to do this from outside the TcM monad:
-tcInstSkolTyCoVarsLoc :: SrcSpan -> [TyCoVar] -> TcRnIf gbl lcl (TvSubst, [TcTyCoVar])
-tcInstSkolTyVarsLoc loc = mapAccumLM (tcInstSkolTyCoVar loc False) (mkTopTCvSubst [])
+tcInstSkolTyCoVarsLoc :: SrcSpan -> [TyCoVar] -> TcRnIf gbl lcl (TCvSubst, [TcTyCoVar])
+tcInstSkolTyCoVarsLoc loc = mapAccumLM (tcInstSkolTyCoVar loc False) (mkTopTCvSubst [])
 
 tcInstSkolTyCoVars :: [TyCoVar] -> TcM (TCvSubst, [TcTyCoVar])
 tcInstSkolTyCoVars = tcInstSkolTyCoVarsX (mkTopTCvSubst [])
@@ -965,7 +968,7 @@ zonkTcType ty
 
     go_co (ForAllCo cobndr co)
       | Just v <- getHomoVar_maybe cobndr
-      = do { v' <- zonkTcTyCoVarBndr tv
+      = do { v' <- zonkTcTyCoVarBndr v
            ; co' <- go_co co
            ; return (mkForAllCo (mkHomoCoBndr v') co') }
 
@@ -973,7 +976,7 @@ zonkTcType ty
       = do { h' <- go_co h
            ; tv1' <- zonkTcTyCoVarBndr tv1
            ; tv2' <- zonkTcTyCoVarBndr tv2
-           ; cv' <- zonkTcTyCoVarBndr cv'
+           ; cv' <- zonkTcTyCoVarBndr cv
            ; co' <- go_co co
            ; return (mkForAllCo (mkTyHeteroCoBndr h' tv1' tv2' cv') co') }
 
@@ -1019,69 +1022,7 @@ zonkTcTyCoVar tv
   where
     zonk_kind_and_return = do { z_tv <- zonkTyCoVarKind tv
                               ; return (mkTyCoVarTy z_tv) }
-\end{code}
 
-
-
-%************************************************************************
-%*									*
-			Zonking kinds
-%*									*
-%************************************************************************
-
-\begin{code}
 zonkTcKind :: TcKind -> TcM TcKind
 zonkTcKind k = zonkTcType k
-\end{code}
-			
-Note [Inheriting implicit parameters]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider this:
-
-	f x = (x::Int) + ?y
-
-where f is *not* a top-level binding.
-From the RHS of f we'll get the constraint (?y::Int).
-There are two types we might infer for f:
-
-	f :: Int -> Int
-
-(so we get ?y from the context of f's definition), or
-
-	f :: (?y::Int) => Int -> Int
-
-At first you might think the first was better, becuase then
-?y behaves like a free variable of the definition, rather than
-having to be passed at each call site.  But of course, the WHOLE
-IDEA is that ?y should be passed at each call site (that's what
-dynamic binding means) so we'd better infer the second.
-
-BOTTOM LINE: when *inferring types* you *must* quantify 
-over implicit parameters. See the predicate isFreeWhenInferring.
-
-\begin{code}
-quantifyPred :: TyCoVarSet      -- Quantifying over these
-	     -> PredType -> Bool	    -- True <=> quantify over this wanted
-quantifyPred qtvs pred
-  | isIPPred pred = True  -- Note [Inheriting implicit parameters]
-  | otherwise	  = tyCoVarsOfType pred `intersectsVarSet` qtvs
-
-growThetaTyCoVars :: TcThetaType -> TyCoVarSet -> TyCoVarSet
--- See Note [Growing the tau-tvs using constraints]
-growThetaTyVars theta tvs
-  | null theta = tvs
-  | otherwise  = fixVarSet mk_next tvs
-  where
-    mk_next tvs = foldr grow_one tvs theta
-    grow_one pred tvs = growPredTyVars pred tvs `unionVarSet` tvs
-
-growPredTyVars :: TcPredType
-               -> TyCoVarSet	-- The set to extend
-	       -> TyCoVarSet	-- TyVars of the predicate if it intersects the set, 
-growPredTyVars pred tvs 
-   | isIPPred pred                   = pred_tvs   -- Always quantify over implicit parameers
-   | pred_tvs `intersectsVarSet` tvs = pred_tvs
-   | otherwise                       = emptyVarSet
-  where
-    pred_tvs = tyCoVarsOfType pred
 \end{code}

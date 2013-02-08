@@ -1052,7 +1052,7 @@ quickFlattenTy ty@(ForAllTy {})   = return ty
   -- Don't flatten because of the danger or removing a bound variable
 quickFlattenTy ty@(LitTy {})      = return ty
 quickFlattenTy ty@(CoercionTy {}) = return ty
-quickFlattenTy ty@(CastTy ty co)  = do { fy <- quickFlattenTy ty
+quickFlattenTy (CastTy ty co)  = do { fy <- quickFlattenTy ty
                                        ; return (CastTy fy co) }
 quickFlattenTy (AppTy ty1 ty2) = do { fy1 <- quickFlattenTy ty1
                                     ; fy2 <- quickFlattenTy ty2
@@ -1100,14 +1100,6 @@ mkAmbigMsg :: Ct -> (Bool, SDoc)
 mkAmbigMsg ct
   | isEmptyVarSet ambig_tv_set = (False, empty)
   | otherwise                  = (True,  msg)
-  = do { dflags <- getDynFlags
-       
-       ; prs <- mapSndM zonkTcType $ 
-                [ (id, idType id) | TcIdBndr id top_lvl <- ct1_bndrs
-                                  , isTopLevel top_lvl ]
-       ; let ambig_ids = [id | (id, zonked_ty) <- prs
-                             , tyCoVarsOfType zonked_ty `intersectsVarSet` ambig_tv_set]
-       ; return (ctxt, True, mk_msg dflags ambig_ids) }
   where
     ambig_tv_set = filterVarSet isAmbiguousTyVar (tyCoVarsOfCt ct)
     ambig_tvs = varSetElems ambig_tv_set

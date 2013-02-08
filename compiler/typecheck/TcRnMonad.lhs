@@ -392,7 +392,7 @@ newName occ
        ; loc  <- getSrcSpanM
        ; return (mkInternalName uniq occ loc) }
 
-newSysName :: OccName -> TcM Name
+newSysName :: OccName -> TcRnIf gbl lcl Name
 newSysName occ
   = do { uniq <- newUnique
        ; return (mkSystemName uniq occ) }

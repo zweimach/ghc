@@ -152,7 +152,7 @@ mergeSATInfo (NotStatic:statics) (_:apps) = NotStatic : mergeSATInfo statics app
 mergeSATInfo (_:statics) (NotStatic:apps) = NotStatic : mergeSATInfo statics apps
 mergeSATInfo ((Static (VarApp v)):statics)  ((Static (VarApp v')):apps)  = (if v == v' then Static (VarApp v) else NotStatic) : mergeSATInfo statics apps
 mergeSATInfo ((Static (TypeApp t)):statics) ((Static (TypeApp t')):apps) = (if t `eqType` t' then Static (TypeApp t) else NotStatic) : mergeSATInfo statics apps
-mergeSATInfo ((Static (CoApp c)):statics) ((Static (CoApp c')):apps)     = (if c `coreEqCoercion` c' then Static (CoApp c) else NotStatic) : mergeSATInfo statics apps
+mergeSATInfo ((Static (CoApp c)):statics) ((Static (CoApp c')):apps)     = (if c `eqCoercion` c' then Static (CoApp c) else NotStatic) : mergeSATInfo statics apps
 mergeSATInfo l  r  = pprPanic "mergeSATInfo" $ ptext (sLit "Left:") <> pprSATInfo l <> ptext (sLit ", ")
                                             <> ptext (sLit "Right:") <> pprSATInfo r
 

@@ -28,7 +28,7 @@ import Literal          ( litIsLifted )
 import HscTypes         ( ModGuts(..) )
 import WwLib            ( mkWorkerArgs )
 import DataCon
-import Coercion         hiding( substTy, substCo )
+import Coercion         hiding( substCo )
 import Rules
 import Type             hiding ( substTy )
 import Id

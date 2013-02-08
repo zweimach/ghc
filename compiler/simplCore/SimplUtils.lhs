@@ -47,7 +47,7 @@ import Var
 import Demand
 import SimplMonad
 import Type     hiding( substTy )
-import Coercion hiding( substCo, substTy )
+import Coercion hiding( substCo )
 import DataCon          ( dataConWorkId )
 import VarSet
 import BasicTypes

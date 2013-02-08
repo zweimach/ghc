@@ -323,7 +323,7 @@ make_co :: DynFlags -> Coercion -> C.Ty
 make_co dflags (Refl ty)             = make_ty dflags ty
 make_co dflags (TyConAppCo tc cos)   = make_conAppCo dflags (qtc dflags tc) cos
 make_co dflags (AppCo c1 c2)         = C.Tapp (make_co dflags c1) (make_co_arg dflags c2)
-make_co dflags (ForAllCo tv co)
+make_co dflags (ForAllCo cobndr co)
  | Just v <- getHomoVar_maybe cobndr = C.Tforall (make_tbind v) (make_co dflags co)
  | otherwise                         = panic "MkExternalCore can't do hetero cobndrs yet"
 make_co _      (CoVarCo cv)          = C.Tvar (make_var_id (coVarName cv))
@@ -334,8 +334,8 @@ make_co dflags (TransCo c1 c2)       = C.TransCoercion (make_co dflags c1) (make
 make_co dflags (NthCo d co)          = C.NthCoercion d (make_co dflags co)
 make_co dflags (LRCo lr co)          = C.LRCoercion (make_lr lr) (make_co dflags co)
 make_co dflags (InstCo co ty)        = C.InstCoercion (make_co dflags co) (make_co_arg dflags ty)
-make_co dflags (CoherenceCo co1 co2) = panic "MkExternalCore can't do coherence coercions yet"
-make_co dflags (KindCo co)           = panic "MkExternalCore can't do kind coercions yet"
+make_co _      (CoherenceCo {})      = panic "MkExternalCore can't do coherence coercions yet"
+make_co _      (KindCo {})           = panic "MkExternalCore can't do kind coercions yet"
 
 make_lr :: LeftOrRight -> C.LeftOrRight
 make_lr CLeft  = C.CLeft
@@ -344,10 +344,10 @@ make_lr CRight = C.CRight
 make_co_arg :: DynFlags -> CoercionArg -> C.Ty
 make_co_arg dflags (TyCoArg co) = make_co dflags co
 make_co_arg dflags (CoCoArg co1 co2)
-  = CoCoArgCoercion (make_co dflags co1) (make_co dflags co2)
+  = C.CoCoArgCoercion (make_co dflags co1) (make_co dflags co2)
 
 -- Used for both tycon app coercions and axiom instantiations.
-make_conAppCo :: DynFlags -> C.Qual C.Tcon -> [Coercion] -> C.Ty
+make_conAppCo :: DynFlags -> C.Qual C.Tcon -> [CoercionArg] -> C.Ty
 make_conAppCo dflags con cos =
   foldl C.Tapp (C.Tcon con) 
 	    (map (make_co_arg dflags) cos)

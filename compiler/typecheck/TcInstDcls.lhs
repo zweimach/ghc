@@ -540,6 +540,7 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                            tvs'     = varSetElems tv_set'
                      ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
                      ; let axiom = mkSingleCoAxiom rep_tc_name tvs' fam_tc pat_tys' rhs'
+                     ; ASSERT( tyCoVarsOfType rhs' `subVarSet` tv_set' )
                        newFamInst SynFamilyInst False {- group -} axiom }
 
         ; tyfam_insts1 <- mapM mk_deflt_at_instances (classATItems clas)
@@ -701,7 +702,7 @@ tcDataFamInstDecl mb_clsinfo fam_tc
                                  mkNewTyConRhs rep_tc_name rec_rep_tc (head data_cons)
               -- freshen tyvars
               ; let axiom    = mkSingleCoAxiom axiom_name tvs' fam_tc pats' 
-                                               (mkTyConApp rep_tc (mkTyVarTys tvs'))
+                                               (mkTyConApp rep_tc (mkTyCoVarTys tvs'))
                     parent   = FamInstTyCon axiom fam_tc pats'
                     rep_tc   = buildAlgTyCon rep_tc_name tvs' cType stupid_theta tc_rhs 
                                              Recursive 
@@ -797,7 +798,7 @@ checkConsistentFamInst
                                          -- and instantiation of class TyVars
                -> SDoc               -- ^ "flavor" of the instance
                -> TyCon              -- ^ Family tycon
-               -> [TyVar]            -- ^ Type variables of the family instance
+               -> [TyCoVar]          -- ^ Type variables of the family instance
                -> [Type]             -- ^ Type patterns from instance
                -> TcM ()
 -- See Note [Checking consistent instantiation]
@@ -812,12 +813,12 @@ checkConsistentFamInst (Just (clas, mini_env)) flav fam_tc at_tvs at_tys
          -- See Note [Checking consistent instantiation] in TcTyClsDecls
          -- Check right to left, so that we spot type variable
          -- inconsistencies before (more confusing) kind variables
-       ; discardResult $ foldrM check_arg emptyTvSubst $
-                         tyConTyVars fam_tc `zip` at_tys }
+       ; discardResult $ foldrM check_arg emptyTCvSubst $
+                         tyConTyCoVars fam_tc `zip` at_tys }
   where
     at_tv_set = mkVarSet at_tvs
 
-    check_arg :: (TyVar, Type) -> TvSubst -> TcM TvSubst
+    check_arg :: (TyVar, Type) -> TCvSubst -> TcM TCvSubst
     check_arg (fam_tc_tv, at_ty) subst
       | Just inst_ty <- lookupVarEnv mini_env fam_tc_tv
       = case tcMatchTyX at_tv_set subst at_ty inst_ty of
@@ -829,15 +830,15 @@ checkConsistentFamInst (Just (clas, mini_env)) flav fam_tc at_tvs at_tys
       = return subst   -- Allow non-type-variable instantiation
                        -- See Note [Associated type instances]
 
-    all_distinct :: TvSubst -> Bool
+    all_distinct :: TCvSubst -> Bool
     -- True if all the variables mapped the substitution 
     -- map to *distinct* type *variables*
     all_distinct subst = go [] at_tvs
        where
          go _   []       = True
-         go acc (tv:tvs) = case lookupTyVar subst tv of
+         go acc (tv:tvs) = case lookupVar subst tv of
                              Nothing -> go acc tvs
-                             Just ty | Just tv' <- tcGetTyVar_maybe ty
+                             Just ty | Just tv' <- tcGetTyCoVar_maybe ty
                                      , tv' `notElem` acc
                                      -> go (tv' : acc) tvs
                              _other -> False

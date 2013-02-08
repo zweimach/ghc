@@ -76,6 +76,7 @@ module TyCoRep (
         substCo, substCos, substCoVar, substCoVars, lookupCoVar,
         substTyCoVarBndr, substCoVarBndr, cloneTyVarBndr,
         substCoWithIS, substCoWith, substTyVar, substTyVars,
+        substForAllCoBndr,
         substTyVarBndrCallback, substForAllCoBndrCallback,
         substCoVarBndrCallback,
 

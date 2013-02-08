@@ -27,7 +27,8 @@ import TyCoRep
 import HsSyn
 import Class
 import Type
-import Kind
+import Coercion
+import CoAxiom
 import HscTypes
 import TyCon
 import DataCon
@@ -229,7 +230,7 @@ calcClassCycles cls
     expandType seen path (FunTy t1 t2)    = expandType seen path t1 . expandType seen path t2
     expandType seen path (ForAllTy _tv t) = expandType seen path t
     expandType seen path (CastTy ty _co)  = expandType seen path ty
-    expandType seen path (CoercionTy {})  = id
+    expandType _    _    (CoercionTy {})  = id
 
     papp :: [TyVar] -> [Type] -> ([(TyVar, Type)], Either [TyVar] [Type])
     papp []       tys      = ([], Right tys)
@@ -493,7 +494,7 @@ isPromotableTyCon rec_tycons tc
   where
     ok_kind kind = all isLiftedTypeKind args && isLiftedTypeKind res
             where  -- Checks for * -> ... -> * -> *
-              (args, res) = splitKindFunTys kind
+              (args, res) = splitFunTys kind
 
     -- See Note [Promoted data constructors] in TyCon
     ok_con con = all (isLiftedTypeKind . tyVarKind) ex_tvs
@@ -523,6 +524,8 @@ isPromotableType rec_tcs ty
     go (ForAllTy _ ty) = go ty
     go (TyVarTy {})    = True
     go (LitTy {})      = False
+    go (CastTy {})     = False
+    go (CoercionTy {}) = False
 \end{code}
 
 

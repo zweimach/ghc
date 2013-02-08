@@ -51,7 +51,7 @@ import qualified CoreSubst
 import qualified Type
 import Type hiding              ( substTy, substTyVarBndr, substTyCoVar )
 import qualified Coercion
-import Coercion hiding          ( substCo, substTy, substCoVar, substCoVarBndr, substTyVarBndr )
+import Coercion hiding          ( substCo, substCoVar, substCoVarBndr )
 import BasicTypes
 import MonadUtils
 import Outputable
@@ -279,12 +279,10 @@ extendTCvSubst :: SimplEnv -> TyVar -> Type -> SimplEnv
 extendTCvSubst env@(SimplEnv {seTvSubst = tsubst, seCvSubst = csubst}) var res
   | isTyVar var
   = env {seTvSubst = extendVarEnv tsubst var res}
-  | CoercionTy co <- res
+  | Just co <- isCoercionTy_maybe res
   = env {seCvSubst = extendVarEnv csubst var co}
-
-extendCvSubst :: SimplEnv -> CoVar -> Coercion -> SimplEnv
-extendCvSubst env@(SimplEnv {seCvSubst = subst}) var res
-  = env {seCvSubst = extendVarEnv subst var res}
+  | otherwise
+  = pprPanic "SimplEnv.extendTCvSubst" (ppr res)
 
 ---------------------
 getInScope :: SimplEnv -> InScopeSet
@@ -795,7 +793,7 @@ substIdType (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv
   |  (isEmptyVarEnv tv_env && isEmptyVarEnv cv_env)
   || isEmptyVarSet (tyCoVarsOfType old_ty)
   = id
-  | otherwise = Id.setIdType id (substTy (TCvSubst in_scope tv_env cv_env) old_ty)
+  | otherwise = Id.setIdType id (Type.substTy (TCvSubst in_scope tv_env cv_env) old_ty)
                 -- The tyCoVarsOfType is cheaper than it looks
                 -- because we cache the free tyvars of the type
                 -- in a Note in the id's type itself

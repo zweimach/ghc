@@ -22,6 +22,7 @@ import TyCoRep
 import TcType
 import TcMType
 import Type
+import Coercion
 import Kind
 import Class
 import TyCon
@@ -1033,7 +1034,7 @@ fvTypes tys                = concat (map fvType tys)
 
 fvCo :: Coercion -> [TyCoVar]
 fvCo (Refl ty)              = fvType ty
-fvCo (TyConAppCo _ args)    = concatMap fcCoArg args
+fvCo (TyConAppCo _ args)    = concatMap fvCoArg args
 fvCo (AppCo co arg)         = fvCo co ++ fvCoArg arg
 fvCo (ForAllCo cobndr co)   = (fvCo co \\ coBndrVars cobndr)
                               ++ case splitHeteroCoBndr_maybe cobndr of

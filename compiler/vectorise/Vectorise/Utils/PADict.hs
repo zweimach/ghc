@@ -38,10 +38,10 @@ paDictArgType tv = go (mkTyCoVarTy tv) (tyVarKind tv)
           tv   <- if isCoercionType k1
                   then newCoVar (fsLit "c") k1
                   else newTyVar (fsLit "a") k1
-          mty1 <- go (mkTyVarTy tv) k1
+          mty1 <- go (mkTyCoVarTy tv) k1
           case mty1 of
             Just ty1 -> do
-                          mty2 <- go (mkAppTy ty (mkTyVarTy tv)) k2
+                          mty2 <- go (mkAppTy ty (mkTyCoVarTy tv)) k2
                           return $ fmap (mkForAllTy tv . FunTy ty1) mty2
             Nothing  -> go ty k2
 
@@ -146,6 +146,7 @@ prDictOfPReprInstTyCon _ty prepr_ax prepr_args
       dict <- prDictOfReprType' rhs
       pr_co <- mkBuiltinCo prTyCon
       let co = mkAppCo pr_co
+             $ TyCoArg
              $ mkSymCo
              $ mkUnbranchedAxInstCo prepr_ax prepr_args
       return $ mkCast dict co

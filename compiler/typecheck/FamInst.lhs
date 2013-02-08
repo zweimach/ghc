@@ -33,7 +33,6 @@ import FastString
 import Util
 import Maybes
 import TcMType
-import TcType
 import Name
 import Control.Monad
 import Data.Map (Map)
@@ -76,7 +75,7 @@ newFamInst flavor is_group axiom@(CoAxiom { co_ax_tc       = fam_tc
                           , cab_lhs = lhs
                           , cab_loc = loc
                           , cab_rhs = rhs })
-       = do { (subst, tvs2) <- tcInstSkolTyVarsLoc loc tvs1
+       = do { (subst, tvs2) <- tcInstSkolTyCoVarsLoc loc tvs1
             ; return (FamInstBranch { fib_tvs   = tvs2
                                     , fib_lhs   = substTys subst lhs
                                     , fib_rhs   = substTy  subst rhs
@@ -332,44 +331,6 @@ addLocalFamInst (home_fie, my_fis) fam_inst
             return (home_fie'', fam_inst' : my_fis')
          else 
             return (home_fie,   my_fis) }
-
-  where
-    axiom = famInstAxiom fam_inst
-    fiBranches = famInstBranches fam_inst
-
-    zipWithAndUnzipM :: Monad m
-                     => (a -> b -> m (c, d))
-                     -> [a]
-                     -> [b]
-                     -> m ([c], [d])
-    zipWithAndUnzipM f as bs
-      = do { cds <- zipWithM f as bs
-           ; return $ unzip cds }
-
-    mk_skolem_tyvars :: CoAxBranch -> FamInstBranch
-                     -> TcM (CoAxBranch, FamInstBranch)
-    mk_skolem_tyvars axb fib
-      = do { (subst, skol_tvs) <- tcInstSkolTyCoVars (coAxBranchTyCoVars axb)
-           ; let axb' = coAxBranchSubst axb skol_tvs subst
-                 fib' = famInstBranchSubst fib skol_tvs subst
-           ; return (axb', fib') }
-
-    -- substitute the tyvars for a new set of tyvars
-    coAxBranchSubst :: CoAxBranch -> [TyCoVar] -> TCvSubst -> CoAxBranch
-    coAxBranchSubst (CoAxBranch { cab_lhs = lhs
-                                , cab_rhs = rhs }) new_tvs subst
-      = CoAxBranch { cab_tvs = new_tvs
-                   , cab_lhs = substTys subst lhs
-                   , cab_rhs = substTy subst rhs }
-
-    -- substitute the current set of tyvars for another
-    famInstBranchSubst :: FamInstBranch -> [TyCoVar] -> TCvSubst -> FamInstBranch
-    famInstBranchSubst fib@(FamInstBranch { fib_lhs = lhs
-                                          , fib_rhs = rhs }) new_tvs subst
-      = fib { fib_tvs = new_tvs
-            , fib_lhs = substTys subst lhs
-            , fib_rhs = substTy subst rhs }
-
 
 \end{code}
 

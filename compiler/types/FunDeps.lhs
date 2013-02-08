@@ -20,7 +20,7 @@ module FunDeps (
  	Equation(..), pprEquation,
 	improveFromInstEnv, improveFromAnother,
 	checkInstCoverage, checkInstLiberalCoverage, checkFunDeps,
-	growThetaTyVars, pprFundeps
+	growThetaTyCoVars, pprFundeps
     ) where
 
 #include "HsVersions.h"
@@ -99,8 +99,6 @@ oclose preds fixed_tvs
         | otherwise                = fixed_tvs
 
     tv_fds  :: [(TyVarSet,TyVarSet)]
-    tv_fds  = [ (tyVarsOfTypes xs, tyVarsOfTypes ys)
-	-- Meaning "knowing x,y fixes z, knowing x,p fixes q"
     tv_fds  = [ (tyCoVarsOfTypes xs, tyCoVarsOfTypes ys)
               | (xs, ys) <- concatMap determined preds
               ]
@@ -127,24 +125,24 @@ E.g. tvs = {a}, preds = {H [a] b, K (b,Int) c, Eq e}
 Then growThetaTyVars preds tvs = {a,b,c}
 
 \begin{code}
-growThetaTyVars :: ThetaType -> TyVarSet -> TyVarSet
+growThetaTyCoVars :: ThetaType -> TyCoVarSet -> TyCoVarSet
 -- See Note [Growing the tau-tvs using constraints]
-growThetaTyVars theta tvs
+growThetaTyCoVars theta tvs
   | null theta = tvs
   | otherwise  = fixVarSet mk_next tvs
   where
     mk_next tvs = foldr grow_one tvs theta
-    grow_one pred tvs = growPredTyVars pred tvs `unionVarSet` tvs
+    grow_one pred tvs = growPredTyCoVars pred tvs `unionVarSet` tvs
 
-growPredTyVars :: PredType
-               -> TyVarSet	-- The set to extend
-	       -> TyVarSet	-- TyVars of the predicate if it intersects the set, 
-growPredTyVars pred tvs 
+growPredTyCoVars :: PredType
+                 -> TyCoVarSet	-- The set to extend
+	         -> TyCoVarSet	-- TyVars of the predicate if it intersects the set, 
+growPredTyCoVars pred tvs 
    | isIPPred pred                   = pred_tvs   -- Always quantify over implicit parameers
    | pred_tvs `intersectsVarSet` tvs = pred_tvs
    | otherwise                       = emptyVarSet
   where
-    pred_tvs = tyVarsOfType pred
+    pred_tvs = tyCoVarsOfType pred
 \end{code}
 
     
@@ -486,7 +484,7 @@ checkInstLiberalCoverage clas theta inst_taus
   = all fundep_ok fds
   where
     (tyvars, fds) = classTvsFds clas
-    fundep_ok fd = tyVarsOfTypes rs `subVarSet` oclose theta (tyVarsOfTypes ls)
+    fundep_ok fd = tyCoVarsOfTypes rs `subVarSet` oclose theta (tyCoVarsOfTypes ls)
                     where (ls,rs) = instFD fd tyvars inst_taus
 \end{code}
 

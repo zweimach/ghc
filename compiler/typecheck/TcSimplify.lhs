@@ -24,7 +24,7 @@ import TcType
 import TcSMonad as TcS
 import TcInteract 
 import Inst
-import FunDeps  ( growThetaTyVars )
+import FunDeps  ( growThetaTyCoVars )
 import Type     ( classifyPredType, PredTree(..), getClassPredTys_maybe )
 import Class    ( Class )
 import Var
@@ -280,7 +280,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
        ; gbl_tvs        <- tcGetGlobalTyVars
        ; zonked_tau_tvs <- TcM.zonkTyCoVarsAndFV (tyCoVarsOfTypes (map snd name_taus))
        ; let init_tvs  = zonked_tau_tvs `minusVarSet` gbl_tvs
-             poly_qtvs = growThetaTyVars quant_pred_candidates init_tvs 
+             poly_qtvs = growThetaTyCoVars quant_pred_candidates init_tvs 
                          `minusVarSet` gbl_tvs
              pbound    = filter (quantifyPred poly_qtvs) quant_pred_candidates
              
@@ -345,11 +345,11 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
        ; return ( qtvs_to_return, minimal_bound_ev_vars
                 , mr_bites,  TcEvBinds ev_binds_var) } }
 
-quantifyPred :: TyVarSet           -- Quantifying over these
+quantifyPred :: TyCoVarSet         -- Quantifying over these
 	     -> PredType -> Bool   -- True <=> quantify over this wanted
 quantifyPred qtvs pred
   | isIPPred pred = True  -- Note [Inheriting implicit parameters]
-  | otherwise	  = tyVarsOfType pred `intersectsVarSet` qtvs
+  | otherwise	  = tyCoVarsOfType pred `intersectsVarSet` qtvs
 \end{code}
 
 Note [Inheriting implicit parameters]

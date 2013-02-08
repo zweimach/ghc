@@ -35,7 +35,7 @@ import TcEnv
 import TcValidity
 import TcHsSyn
 import TcBinds( tcRecSelBinds )
-import FunDeps( growThetaTyVars )
+import FunDeps( growThetaTyCoVars )
 import TcTyDecls
 import TcClassDcl
 import TcHsType
@@ -1436,7 +1436,7 @@ checkValidClass cls
 		--   class Error e => Game b mv e | b -> mv e where
 		--      newBoard :: MonadState b m => m ()
 		-- Here, MonadState has a fundep m->b, so newBoard is fine
-	; let grown_tyvars = growThetaTyVars theta (mkVarSet tyvars)
+	; let grown_tyvars = growThetaTyCoVars theta (mkVarSet tyvars)
 	; checkTc (tyCoVarsOfType tau `intersectsVarSet` grown_tyvars)
 	          (noClassTyVarErr cls sel_id)
 

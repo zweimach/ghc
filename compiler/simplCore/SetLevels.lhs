@@ -66,7 +66,6 @@ import CoreMonad	( FloatOutSwitches(..) )
 import CoreUtils	( exprType, exprOkForSpeculation )
 import CoreArity	( exprBotStrictness_maybe )
 import CoreFVs		-- all of it
-import Coercion         ( isCoVar )
 import CoreSubst	( Subst, emptySubst, extendInScope, substBndr, substRecBndrs,
 			  extendIdSubst, extendSubstWithVar, cloneBndr, 
                           cloneRecIdBndrs, substTy, substCo )

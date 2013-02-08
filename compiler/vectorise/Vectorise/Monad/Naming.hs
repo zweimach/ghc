@@ -10,6 +10,7 @@ module Vectorise.Monad.Naming
   , newLocalVars
   , newDummyVar
   , newTyVar
+  , newCoVar
   )
 where
 

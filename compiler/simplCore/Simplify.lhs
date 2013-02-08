@@ -380,7 +380,7 @@ simplNonRecX env bndr new_rhs
   = return env          --               Here c is dead, and we avoid creating
                         --               the binding c = (a,b)
   | Coercion co <- new_rhs
-  = return (extendCvSubst env bndr co)
+  = return (extendTCvSubst env bndr (mkCoercionTy co))
   | otherwise           --               the binding b = (a,b)
   = do  { (env', bndr') <- simplBinder env bndr
         ; completeNonRecX NotTopLevel env' (isStrictId bndr) bndr bndr' new_rhs }
@@ -638,7 +638,7 @@ completeBind :: SimplEnv
 completeBind env top_lvl old_bndr new_bndr new_rhs
  | isCoVar old_bndr
  = case new_rhs of
-     Coercion co -> return (extendCvSubst env old_bndr co)
+     Coercion co -> return (extendTCvSubst env old_bndr (mkCoercionTy co))
      _           -> return (addNonRec env new_bndr new_rhs)
 
  | otherwise
@@ -988,7 +988,7 @@ simplCoercionF env co cont
 
 simplCoercion :: SimplEnv -> InCoercion -> SimplM OutCoercion
 simplCoercion env co
-  = let opt_co = optCoercion (getCvSubst env) co
+  = let opt_co = optCoercion (getTCvSubst env) co
     in seqCo opt_co `seq` return opt_co
 
 -----------------------------------
@@ -1218,7 +1218,7 @@ simplCast env body co0 cont0
          = ASSERT( isTyVar tyvar )
            ApplyTo Simplified (Type arg_ty') (zapSubstEnv arg_se) (addCoerce new_cast cont)
          where
-           new_cast = mkInstCo co arg_ty'
+           new_cast = mkInstCo co (liftSimply arg_ty')
            arg_ty' | isSimplified dup = arg_ty
                    | otherwise        = substTy (arg_se `setInScope` env) arg_ty
 
@@ -1244,7 +1244,7 @@ simplCast env body co0 cont0
            -- we split coercion t1->t2 ~ s1->s2 into t1 ~ s1 and
            -- t2 ~ s2 with left and right on the curried form:
            --    (->) t1 t2 ~ (->) s1 s2
-           [co1, co2] = decomposeCo 2 co
+           [co1, co2] = map stripTyCoArg $ decomposeCo 2 co
            new_arg    = mkCast arg' (mkSymCo co1)
            arg'       = substExpr (text "move-cast") arg_se' arg
            arg_se'    = arg_se `setInScope` env
@@ -2199,7 +2199,7 @@ knownCon env scrut dc dc_ty_args dc_args bndr bs rhs cont
 
     bind_args env' (b:bs') (Coercion co : args)
       = ASSERT( isCoVar b )
-        bind_args (extendCvSubst env' b co) bs' args
+        bind_args (extendTCvSubst env' b (mkCoercionTy co)) bs' args
 
     bind_args env' (b:bs') (arg : args)
       = ASSERT( isId b )

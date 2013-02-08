@@ -45,6 +45,7 @@ import TcEvidence
 import TysPrim
 import TysWiredIn
 import Type
+import Coercion
 import DataCon
 import Name
 import NameSet
@@ -1367,7 +1368,7 @@ zonkCoToCo :: ZonkEnv -> Coercion -> TcM Coercion
 zonkCoToCo env co
   = go co
   where
-    go (Refl ty)                 = mkReflCo <$> zonkTcTypeToType ty
+    go (Refl ty)                 = mkReflCo <$> zonkTcTypeToType env ty
     go (TyConAppCo tc args)      = mkTyConAppCo tc
                                      <$> mapM (zonkCoArgToCoArg env) args
     go (AppCo co arg)            = mkAppCo <$> go co
@@ -1385,7 +1386,7 @@ zonkCoToCo env co
     go (KindCo co)               = mkKindCo <$> go co
 
     -- The two interesting cases!
-    go (CoVarCo cv)              = return (zonkIdOcc env cv)
+    go (CoVarCo cv)              = return (mkCoVarCo $ zonkIdOcc env cv)
     go (ForAllCo cobndr co)
       | Just v <- getHomoVar_maybe cobndr
       = do { (env', v') <- zonkTyCoBndrX env v

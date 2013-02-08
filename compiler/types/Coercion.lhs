@@ -44,7 +44,7 @@ module Coercion (
         mkTyHeteroCoBndr, mkCoHeteroCoBndr, mkHomoCoBndr,
         mkHeteroCoercionType,
 
-        mkCoArgForVar,
+        mkTyCoArg, mkCoCoArg, mkCoArgForVar,
 
         -- ** Decomposition
         splitNewTypeRepCo_maybe, instNewTyCon_maybe, 
@@ -75,7 +75,8 @@ module Coercion (
         CvSubstEnv,
  	lookupCoVar,
 	substCo, substCos, substCoVar, substCoVars,
-        substCoVarBndr, substCoWithIS,
+        substCoVarBndr, substCoWithIS, substForAllCoBndr,
+        extendTCvSubstAndInScope,
 
 	-- ** Lifting
 	liftCoSubst, liftCoSubstTyVar, liftCoSubstWith, liftCoSubstWithEx,
@@ -970,6 +971,12 @@ mkCoCast c g
 %************************************************************************
 
 \begin{code}
+mkTyCoArg :: Coercion -> CoercionArg
+mkTyCoArg = TyCoArg
+
+mkCoCoArg :: Coercion -> Coercion -> CoercionArg
+mkCoCoArg = CoCoArg
+
 isTyCoArg :: CoercionArg -> Bool
 isTyCoArg (TyCoArg _) = True
 isTyCoArg _           = False
@@ -1528,3 +1535,13 @@ applyCo (FunTy _ ty) _ = ty
 applyCo _            _ = panic "applyCo"
 \end{code}
 
+Utility function, needed in DsBinds:
+
+\begin{code}
+extendTCvSubstAndInScope :: TCvSubst -> CoVar -> Coercion -> TCvSubst
+-- Also extends the in-scope set
+extendTCvSubstAndInScope (TCvSubst in_scope tenv cenv) cv co
+  = TCvSubst (in_scope `extendInScopeSetSet` tyCoVarsOfCo co)
+             tenv
+             (extendVarEnv cenv cv co)
+\end{code}

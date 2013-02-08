@@ -1456,7 +1456,7 @@ coAxBranchToIfaceBranch env0 (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs
                   , ifaxbLHS    = map (tidyToIfaceType env1) lhs
                   , ifaxbRHS    = tidyToIfaceType env1 rhs }
   where
-    (env1, tv_bndrs) = tidyCoTyVarBndrs env0 tvs
+    (env1, tv_bndrs) = tidyTyCoVarBndrs env0 tvs
 
 -----------------
 tyConToIfaceDecl :: TidyEnv -> TyCon -> IfaceDecl

@@ -26,8 +26,8 @@ import TcEvidence
 import TcHsType
 import TcPat
 import TcMType
-import Type( tidyOpenType )
-import FunDeps( growThetaTyVars )
+import Type( tidyOpenType, mkOnlyTyVarTy )
+import FunDeps( growThetaTyCoVars )
 import TyCon
 import TcType
 import TysPrim

@@ -1141,7 +1141,7 @@ canEqLeafTyVarEq loc ev tv s2              -- ev :: tv ~ s2
        ; let flav = ctEvFlavour ev
        ; (xi1,co1) <- flattenTyVar loc FMFullFlatten flav tv -- co1 :: xi1 ~ tv
        ; (xi2,co2) <- flatten      loc FMFullFlatten flav s2 -- co2 :: xi2 ~ s2 
-       ; let co = mkHdEqPred s2 co1 co2
+       ; let co = mkHdEqPred xi2 s2 co1 co2
              -- co :: (xi1 ~ xi2) ~ (tv ~ s2)
        
        ; traceTcS "canEqLeafTyVarEq2" $ empty 
@@ -1180,7 +1180,7 @@ canEqLeafTyVarEq loc ev tv s2              -- ev :: tv ~ s2
 
     } } }
 
-mkHdEqPred :: Type -> TcCoercion -> TcCoercion -> TcCoercion
+mkHdEqPred :: Type -> Type -> TcCoercion -> TcCoercion -> TcCoercion
 -- Make a higher-dimensional equality
 --    co1 :: s1~t1,  co2 :: s2~t2
 -- Then (mkHdEqPred s2 t2 co1 co2) :: (s1~s2) ~ (t1~t2)

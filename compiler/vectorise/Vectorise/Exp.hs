@@ -30,8 +30,8 @@ import CoreFVs
 import Class
 import DataCon
 import TyCon
-import TcType
-import Type
+import TcType hiding ( lookupVar )
+import Type hiding ( lookupVar )
 import PrelNames
 import Var
 import VarEnv

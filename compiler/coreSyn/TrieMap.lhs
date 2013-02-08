@@ -32,8 +32,6 @@ import UniqFM
 import Unique( Unique )
 import FastString(FastString)
 
-import Unify ( niFixTCvSubst )
-
 import qualified Data.Map    as Map
 import qualified Data.IntMap as IntMap
 import VarEnv
@@ -463,9 +461,9 @@ data CoercionMap a
   | KM { km_refl :: TypeMap a
        , km_tc_app :: NameEnv (ListMap CoercionArgMap a)
        , km_app    :: CoercionMap (CoercionArgMap a)
-       , km_fa_tho :: CoercionMap (TypeMap a)
+       , km_fa_tho :: CoercionMap (BndrMap a)
        , km_fa_the :: CoercionMap (CoercionMap (BndrMap (BndrMap (BndrMap a))))
-       , km_fa_cho :: CoercionMap (VarMap a)
+       , km_fa_cho :: CoercionMap (BndrMap a)
        , km_fa_che :: CoercionMap (CoercionMap (BndrMap (BndrMap a)))
        , km_var    :: VarMap a
        , km_axiom  :: NameEnv (IntMap.IntMap (ListMap CoercionArgMap a))
@@ -545,8 +543,8 @@ mapC f (KM { km_refl = krefl, km_tc_app = ktc
 mapCA :: (a->b) -> CoercionArgMap a -> CoercionArgMap b
 mapCA _ EmptyKAM = EmptyKAM
 mapCA f (KAM { kam_tyco = kty, kam_coco = kco })
-   = KAM { km_tyco = mapTM f kty
-         , km_coco = mapTM (mapTM f) kco }
+   = KAM { kam_tyco = mapTM f kty
+         , kam_coco = mapTM (mapTM f) kco }
 
 lkC :: CmEnv -> Coercion -> CoercionMap a -> Maybe a
 lkC env co m 
@@ -560,17 +558,20 @@ lkC env co m
     go (TransCo c1 c2)         = km_trans  >.> lkC env c1 >=> lkC env c2
     go (UnsafeCo t1 t2)        = km_unsafe >.> lkT env t1 >=> lkT env t2
     go (InstCo c t)            = km_inst   >.> lkC env c  >=> lkCA env t
-    go (ForAllCo b co)
-      | TyHomo tv <- b         = km_fa_tho
+    go (ForAllCo (TyHomo tv) co)
+                               = km_fa_tho
                                >.> lkC (extendCME env tv) co
                                >=> lkBndr env tv
-      | TyHetero h a b c       = km_fa_the
+    go (ForAllCo (TyHetero h a b c) co)
+                               = km_fa_the
                                >.> lkC (extendCME (extendCME (extendCME env a) b) c) co 
                                >=> lkC env h >=> lkBndr env a >=> lkBndr env b
                                >=> lkBndr (extendCME (extendCME env b) a) c
-      | CoHomo cv <- b         = km_fa_cho >.> lkC (extendCME env cv) co
+    go (ForAllCo (CoHomo cv) co)
+                               = km_fa_cho >.> lkC (extendCME env cv) co
                                >=> lkBndr env cv
-      | CoHetero h cv1 cv2     = km_fa_che
+    go (ForAllCo (CoHetero h cv1 cv2) co)
+                               = km_fa_che
                                >.> lkC (extendCME (extendCME env cv1) cv2) co
                                >=> lkC env h >=> lkBndr env cv1 >=> lkBndr env cv2
     go (CoVarCo v)             = km_var    >.> lkVar env v
@@ -587,7 +588,7 @@ lkCA env arg m
   | otherwise = go arg m
   where
     go (TyCoArg co)      = kam_tyco >.> lkC env co
-    go (CoCoArg co1 co2) = kam_coco >.> lkC env co1 >.> lkC env co2
+    go (CoCoArg co1 co2) = kam_coco >.> lkC env co1 >=> lkC env co2
 
 xtC :: CmEnv -> Coercion -> XT a -> CoercionMap a -> CoercionMap a
 xtC env co f EmptyKM = xtC env co f wrapEmptyKM
@@ -598,14 +599,17 @@ xtC env (AppCo c1 c2)           f m = m { km_app    = km_app m    |> xtC env c1 
 xtC env (TransCo c1 c2)         f m = m { km_trans  = km_trans m  |> xtC env c1 |>> xtC env c2 f }
 xtC env (UnsafeCo t1 t2)        f m = m { km_unsafe = km_unsafe m |> xtT env t1 |>> xtT env t2 f }
 xtC env (InstCo c t)            f m = m { km_inst   = km_inst m   |> xtC env c  |>> xtCA env t  f }
-xtC env (ForAllCo bn co)        f m
-  | TyHomo tv <- bn                 = m { km_fa_tho = km_fa_tho m |> xtC (extendCME env tv) co |>> xtBndr env tv f }
-  | TyHetero h a b c <- bn          = m { km_fa_the = km_fa_the m |> xtC (extendCME (extendCME (extendCME env a) b) c) co
-                                        |>> xtC env h |>> xtBndr env a |>> xtBndr env b
-                                        |>> xtBndr (extendCME (extendCME env a) b) c f }
-  | CoHomo cv <- bn                 = m { km_fa_cho = km_fa_cho m |> xtC (extendCME env cv) co |>> xtBndr env cv f }
-  | CoHetero h cv1 cv2 <- bn        = m { km_fa_che = km_fa_che m |> xtC (extendCME (extendCME env cv1) cv2) co
-                                        |>> xtBndr env cv1 |>> xtBndr env cv2 f }
+xtC env (ForAllCo (TyHomo tv) co) f m
+  = m { km_fa_tho = km_fa_tho m |> xtC (extendCME env tv) co |>> xtBndr env tv f }
+xtC env (ForAllCo (TyHetero h a b c) co) f m
+  = m { km_fa_the = km_fa_the m |> xtC (extendCME (extendCME (extendCME env a) b) c) co                             |>> xtC env h |>> xtBndr env a |>> xtBndr env b
+                                |>> xtBndr (extendCME (extendCME env a) b) c f }
+xtC env (ForAllCo (CoHomo cv) co) f m
+ = m { km_fa_cho = km_fa_cho m |> xtC (extendCME env cv) co |>> xtBndr env cv f }
+xtC env (ForAllCo (CoHetero h cv1 cv2) co) f m
+ = m { km_fa_che = km_fa_che m |> xtC (extendCME (extendCME env cv1) cv2) co
+                               |>> xtC env h
+                               |>> xtBndr env cv1 |>> xtBndr env cv2 f }
 xtC env (CoVarCo v)             f m = m { km_var    = km_var m |> xtVar env  v f }
 xtC env (SymCo c)               f m = m { km_sym    = km_sym m |> xtC env    c f }
 xtC env (NthCo n c)             f m = m { km_nth    = km_nth m |> xtInt n |>> xtC env c f } 

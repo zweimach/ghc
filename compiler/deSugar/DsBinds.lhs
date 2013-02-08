@@ -50,6 +50,7 @@ import TcType
 import Type
 import Coercion hiding (substCo)
 import TysWiredIn ( eqBoxDataCon, tupleCon )
+import PrelNames  ( wildCardName )
 import Id
 import Class
 import DataCon	( dataConWorkId )
@@ -788,13 +789,13 @@ dsEvTerm (EvUnbox evtm)
   = do { tm <- dsEvTerm evtm  -- tm should be a boxed coercion
        ; u <- newUnique
        ; let boxed_type = exprType tm
-             (_boxed_eq, [k1, k2, t1, t2]) = splitTyConApp co_type
+             (_boxed_eq, [k1, k2, t1, t2]) = splitTyConApp boxed_type
              unboxed_type = mkHeteroCoercionType k1 k2 t1 t2
              name = mkSystemVarName u (mkFastString "cv")
              cv = mkCoVar name unboxed_type
              wildcard = mkLocalId wildCardName boxed_type
        ; return $ Case tm wildcard unboxed_type
-                    [(DataAlt eqBoxDataCon, [cv], Var cv)]
+                    [(DataAlt eqBoxDataCon, [cv], Var cv)] }
 
 ---------------------------------------
 dsTcCoercion :: TcCoercion -> (Coercion -> CoreExpr) -> DsM CoreExpr
@@ -810,7 +811,7 @@ dsTcCoercion co thing_inside
              eqvs_covs = zipWith mk_co_var (varSetElems (coVarsOfTcCo co))
                                            (uniqsFromSupply us)
 
-             subst = mkTCvSubst emptyInScopeSet [(eqv, mkCoVarCo cov) | (eqv, cov) <- eqvs_covs]
+             subst = mkTopTCvSubst [(eqv, mkTyCoVarTy cov) | (eqv, cov) <- eqvs_covs]
              result_expr = thing_inside (ds_tc_coercion subst co)
              result_ty   = exprType result_expr
 
@@ -837,23 +838,25 @@ ds_tc_coercion :: TCvSubst -> TcCoercion -> Coercion
 ds_tc_coercion subst tc_co
   = go tc_co
   where
-    go (TcRefl ty)            = Refl (substTy subst ty)
-    go (TcTyConAppCo tc cos)  = mkTyConAppCo tc (map go cos)
-    go (TcAppCo co1 co2)      = mkAppCo (go co1) (go co2)
-    go (TcForAllCo tv co)     = mkForAllCo cobndr (ds_tc_coercion subst' co)
+    go (TcRefl ty)            = mkReflCo (Type.substTy subst ty)
+    go (TcTyConAppCo tc cos)  = mkTyConAppCo tc (map go_arg cos)
+    go (TcAppCo co1 co2)      = mkAppCo (go co1) (go_arg co2)
+    go (TcForAllCo tv co)     = mkForAllCo cobndr' (ds_tc_coercion subst' co)
                               where
                                 cobndr = mkHomoCoBndr tv
                                 (subst', cobndr') = substForAllCoBndr subst cobndr
     go (TcAxiomInstCo ax ind tys)
-                              = mkAxInstCo ax ind (map (substTy subst) tys)
+                              = mkAxInstCo ax ind (map (Type.substTy subst) tys)
     go (TcSymCo co)           = mkSymCo (go co)
     go (TcTransCo co1 co2)    = mkTransCo (go co1) (go co2)
     go (TcNthCo n co)         = mkNthCo n (go co)
     go (TcLRCo lr co)         = mkLRCo lr (go co)
-    go (TcInstCo co ty)       = mkInstCo (go co) ty
+    go (TcInstCo co ty)       = mkInstCo (go co) (liftSimply ty)
     go (TcLetCo bs co)        = ds_tc_coercion (ds_co_binds bs) co
     go (TcCastCo co1 co2)     = mkCoCast (go co1) (go co2)
     go (TcCoVarCo v)          = ds_ev_id subst v
+
+    go_arg tc_co              = mkTyCoArg $ go tc_co
 
     ds_co_binds :: TcEvBinds -> TCvSubst
     ds_co_binds (EvBinds bs)      = foldl ds_scc subst (sccEvBinds bs)
@@ -861,7 +864,7 @@ ds_tc_coercion subst tc_co
 
     ds_scc :: TCvSubst -> SCC EvBind -> TCvSubst
     ds_scc subst (AcyclicSCC (EvBind v ev_term))
-      = extendCvSubstAndInScope subst v (ds_co_term subst ev_term)
+      = extendTCvSubstAndInScope subst v (ds_co_term subst ev_term)
     ds_scc _ (CyclicSCC other) = pprPanic "ds_scc:cyclic" (ppr other $$ ppr tc_co)
 
     ds_co_term :: TCvSubst -> EvTerm -> Coercion
