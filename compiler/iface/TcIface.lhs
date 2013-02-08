@@ -22,6 +22,7 @@ import TcRnMonad
 import TcType
 import Type
 import Coercion
+import CoAxiom
 import TyCoRep
 import HscTypes
 import Annotations
@@ -62,6 +63,7 @@ import Maybes
 import SrcLoc
 import DynFlags
 import Util
+import Pair
 import FastString
 
 import Control.Monad
@@ -486,12 +488,12 @@ tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyCoVars = tv_bndrs,
 
 tc_iface_decl _parent ignore_prags
             (IfaceClass {ifCtxt = rdr_ctxt, ifName = tc_occ,
-                         ifTyCoyVars = tv_bndrs, ifFDs = rdr_fds, 
+                         ifTyCoVars = tv_bndrs, ifFDs = rdr_fds, 
                          ifATs = rdr_ats, ifSigs = rdr_sigs, 
                          ifRec = tc_isrec })
 -- ToDo: in hs-boot files we should really treat abstract classes specially,
 --       as we do abstract tycons
-  = bindIfaceTyVars tv_bndrs $ \ tyvars -> do
+  = bindIfaceBndrs tv_bndrs $ \ tyvars -> do
     { tc_name <- lookupIfaceTop tc_occ
     ; traceIf (text "tc-iface-class1" <+> ppr tc_occ)
     ; ctxt <- mapM tc_sc rdr_ctxt
@@ -899,12 +901,12 @@ tcIfaceTyKi kf = go
     go (IfaceFunTy t1 t2)     = FunTy <$> go t1 <*> go t2
     go (IfaceTyConApp tc tks)
       = do { tc' <- tcIfaceTyCon kf tc
-           ; tks' <- tcIfaceTcArgs kf (tyConKind tc') tks 
+           ; tks' <- tcIfaceTyArgs (tyConKind tc') tks 
            ; return (mkTyConApp tc' tks') }
     go (IfaceForAllTy bndr t)
       = bindIfaceBndrTy bndr $ \ tv' -> ForAllTy tv' <$> go t
     go t@(IfaceCoConApp {})  = pprPanic "tcIfaceType" (ppr t)
-    go (IfaceCastTy ty co)   = CastTy <$> go ty <$> tcIfaceKindCo kf co
+    go (IfaceCastTy ty co)   = CastTy <$> go ty <*> tcIfaceKindCo co
 
 tcIfaceTyArgs :: Kind -> [IfaceType] -> IfL [Type]
 tcIfaceTyArgs _ [] = return []
@@ -915,19 +917,19 @@ tcIfaceTyArgs kind (tk:tks)
     then do { co' <- tcIfaceTyKiCo kf tk
             ; tks' <- tcIfaceTyArgs res tks
             ; return (CoercionTy co' : tks') }
-    else do { ty' <- tcIfaceTyKiCo kf tk
+    else do { ty' <- tcIfaceTyKi kf tk
             ; tks' <- tcIfaceTyArgs res tks
             ; return (ty' : tks') }
 
   | Just (tv, kind') <- splitForAllTy_maybe kind
-  = let kf = determineLevel (tyVarKind tv) in
+  = let kf = determineLevel (Var.tyVarKind tv) in
     if isTyVar tv
     then do { k'   <- tcIfaceKind tk
-            ; tks' <- tcIfaceTyArgs (substTyWith tv k' kind') tks
+            ; tks' <- tcIfaceTyArgs (substTyWith [tv] [k'] kind') tks
             ; return (k':tks') }
     else do { co'  <- tcIfaceKindCo tk
             ; let ty = CoercionTy co'
-            ; tks' <- tcIfaceTyArgs (substTyWith tv ty kind') tks
+            ; tks' <- tcIfaceTyArgs (substTyWith [tv] [ty] kind') tks
             ; return (ty:tks') }
 
   | otherwise
@@ -1002,9 +1004,8 @@ tcIfaceTyKiCo kf = go
     go (IfaceTyVar n)         = mkCoVarCo <$> tcIfaceCoVar n
     go (IfaceAppTy t1 t2)
       = do { co1' <- go t1
-           ; [co2'] <- tcIfaceCoArgs (coercionKind co1') t2
+           ; [co2'] <- tcIfaceCoArgs (coercionKind co1') [t2]
            ; return $ mkAppCo co1' co2' }
-      = mkAppCo <$> go t1 <*> go_arg t2
     go (IfaceFunTy t1 t2)     = mkFunCo <$> go t1 <*> go t2
     go (IfaceTyConApp tc ts)
       = do { tc' <- tcIfaceTyCon kf tc
@@ -1026,18 +1027,18 @@ tcIfaceCoArgs _ [] = return []
 tcIfaceCoArgs (Pair kind1 kind2) (co:cos)
   | Just (arg1, res1) <- splitFunTy_maybe kind1
   = do { let kf = determineLevel arg1
-       ; co' <- tcIfaceTyKiCoArg kf
+       ; co' <- tcIfaceTyKiCoArg kf co
        ; let (_, res2) = splitFunTy kind2
        ; cos' <- tcIfaceCoArgs (Pair res1 res2) cos
        ; return (co':cos') }
 
   | Just (tv1, kind1') <- splitForAllTy_maybe kind1
-  = do { let kf = determineLevel (tyVarKind tv1)
+  = do { let kf = determineLevel (Var.tyVarKind tv1)
        ; co' <- tcIfaceTyKiCoArg kf co
        ; let Pair argty1 argty2 = coercionArgKind co'
-             kind1'' = substCoWith tv1 argty1 kind1'
+             kind1'' = substTyWith [tv1] [argty1] kind1'
              kind2'' = let (tv2, kind2') = splitForAllTy kind2 in 
-                       substCoWith tv2 argty2 kind2'
+                       substTyWith [tv2] [argty2] kind2'
        ; cos' <- tcIfaceCoArgs (Pair kind1'' kind2'') cos
        ; return (co':cos') }
  
@@ -1045,22 +1046,22 @@ tcIfaceCoArgs (Pair kind1 kind2) (co:cos)
   = pprPanic "tcIfaceCoArgs" (ppr kind1)
 
 tcIfaceCoApp :: KindFlag -> IfaceCoCon -> [IfaceType] -> IfL Coercion
-tcIfaceCoApp IfaceReflCo      kf [t]     = Refl        <$> tcIfaceTyKi kf t
-tcIfaceCoApp (IfaceCoAx n i)  kf ts
+tcIfaceCoApp kf IfaceReflCo      [t]     = Refl        <$> tcIfaceTyKi kf t
+tcIfaceCoApp kf (IfaceCoAx n i)  ts
   = do { ax <- tcIfaceCoAxiom n
-       ; let tvs = coAxBranchTyCoVars $ coAxiomBranch ax i
+       ; let tvs = coAxBranchTyCoVars $ coAxiomNthBranch ax i
              kind = mkForAllTys tvs bottom
        ; cos <- tcIfaceCoArgs (pure kind) ts
        ; return $ AxiomInstCo ax i cos }
   where
     bottom = pprPanic "tcIfaceCoApp#IfaceCoAx" (ppr n <> brackets (ppr i))
-tcIfaceCoApp IfaceUnsafeCo    kf [t1,t2] = UnsafeCo    <$> tcIfaceTyKiCo kf t1 <*> tcIfaceTyKiCo kf t2
-tcIfaceCoApp IfaceSymCo       kf [t]     = SymCo       <$> tcIfaceTyKiCo kf t
-tcIfaceCoApp IfaceTransCo     kf [t1,t2] = TransCo     <$> tcIfaceTyKiCo kf t1 <*> tcIfaceTyKiCo kf t2
-tcIfaceCoApp IfaceInstCo      kf [t1,t2] = InstCo      <$> tcIfaceTyKiCo kf t1 <*> tcIfaceTyKiCoArg kf t2
-tcIfaceCoApp (IfaceNthCo d)   kf [t]     = NthCo d     <$> tcIfaceTyKiCo kf t
-tcIfaceCoApp (IfaceLRCo lr)   kf [t]     = LRCo lr     <$> tcIfaceTyKiCo kf t
-tcIfaceCoApp IfaceKindCo      kf [t]     = KindCo      <$> tcIfaceCo t
+tcIfaceCoApp kf IfaceUnsafeCo    [t1,t2] = UnsafeCo    <$> tcIfaceTyKi kf t1 <*> tcIfaceTyKi kf t2
+tcIfaceCoApp kf IfaceSymCo       [t]     = SymCo       <$> tcIfaceTyKiCo kf t
+tcIfaceCoApp kf IfaceTransCo     [t1,t2] = TransCo     <$> tcIfaceTyKiCo kf t1 <*> tcIfaceTyKiCo kf t2
+tcIfaceCoApp kf IfaceInstCo      [t1,t2] = InstCo      <$> tcIfaceTyKiCo kf t1 <*> tcIfaceTyKiCoArg kf t2
+tcIfaceCoApp kf (IfaceNthCo d)   [t]     = NthCo d     <$> tcIfaceTyKiCo kf t
+tcIfaceCoApp kf (IfaceLRCo lr)   [t]     = LRCo lr     <$> tcIfaceTyKiCo kf t
+tcIfaceCoApp kf IfaceKindCo      [t]     = KindCo      <$> tcIfaceCo t
 tcIfaceCoApp _ cc ts = pprPanic "toIfaceCoApp" (ppr cc <+> ppr ts)
 
 tcIfaceCoVar :: FastString -> IfL CoVar
@@ -1471,8 +1472,6 @@ tcIfaceTyCon kf (IfaceTc name)
            ADataCon dc         -> return (promoteDataCon dc)
            _ -> pprPanic "tcIfaceTyCon" (ppr name $$ ppr thing) }
 
-             | Just prom_tc <- promotableTyCon_maybe tc
-             -> return prom_tc
 tcIfaceCoAxiom :: Name -> IfL (CoAxiom Branched)
 tcIfaceCoAxiom name = do { thing <- tcIfaceGlobal name
                          ; return (tyThingCoAxiom thing) }
@@ -1534,7 +1533,7 @@ bindIfaceBndrTy bndr         = pprPanic "bindIfaceBndrTy" (ppr bndr)
 bindIfaceBndrCo :: IfaceForAllBndr -> (ForAllCoBndr -> IfL a) -> IfL a
 bindIfaceBndrCo bndr thing_inside
   | IfaceTv tv <- bndr
-  = bindIfaceTyVar (\tv' -> thing_inside (TyHomo tv'))
+  = bindIfaceTyVar tv (\tv' -> thing_inside (TyHomo tv'))
   | IfaceHeteroTv co tv1 tv2 cv <- bndr
   = do { co' <- tcIfaceKindCo co
        ; bindIfaceTyVar tv1 $ \tv1' ->
@@ -1542,7 +1541,7 @@ bindIfaceBndrCo bndr thing_inside
          bindIfaceId cv $ \cv' ->
          thing_inside (mkTyHeteroCoBndr co' tv1' tv2' cv') }
   | IfaceCv cv <- bndr
-  = bindIfaceId (\cv' -> thing_inside (CoHomo cv'))
+  = bindIfaceId cv (\cv' -> thing_inside (CoHomo cv'))
   | IfaceHeteroCv co cv1 cv2 <- bndr
   = do { co' <- tcIfaceKindCo co
        ; bindIfaceId cv1 $ \cv1' ->
@@ -1574,8 +1573,6 @@ bindIfaceTyVars bndrs thing_inside
     extend_env_with_tyvar (name, var) thing
       = do { tv <- mk_iface_tyvar name var
            ; extendIfaceTyVarEnv [tv] thing }
-
-    fold :: (a -> m b -> m b)
 
 isSuperIfaceKind :: IfaceKind -> Bool
 isSuperIfaceKind (IfaceTyConApp (IfaceTc n) []) = n == superKindTyConName

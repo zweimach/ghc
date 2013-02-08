@@ -870,7 +870,7 @@ mkEtaWW :: Arity -> CoreExpr -> InScopeSet -> Type
 mkEtaWW orig_n orig_expr in_scope orig_ty
   = go orig_n empty_subst orig_ty []
   where
-    empty_subst = TCvSubst in_scope emptyTvSubstEnv emptyCvSubstEnv
+    empty_subst = mkEmptyTCvSubst in_scope
 
     go n subst ty eis	    -- See Note [exprArity invariant]
        | n == 0
@@ -929,7 +929,7 @@ freshEtaId n subst ty
       = (subst', eta_id')
       where
         ty'     = Type.substTy subst ty
-	eta_id' = uniqAway (getTvInScope subst) $
+	eta_id' = uniqAway (getTCvInScope subst) $
 		  mkSysLocal (fsLit "eta") (mkBuiltinUnique n) ty'
 	subst'  = extendTCvInScope subst eta_id'		  
 \end{code}

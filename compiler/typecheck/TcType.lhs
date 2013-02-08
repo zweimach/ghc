@@ -26,7 +26,7 @@ module TcType (
   --------------------------------
   -- Types 
   TcType, TcSigmaType, TcRhoType, TcTauType, TcPredType, TcThetaType, 
-  TcTyVar, TcTyVarSet, TcKind, TcCoVar,
+  TcTyVar, TcTyVarSet, TcKind, TcCoVar, TcTyCoVar,
 
   -- Untouchables
   Untouchables(..), noUntouchables, pushUntouchables, isTouchable,
@@ -223,8 +223,9 @@ tau ::= tyvar
 
 \begin{code}
 type TcTyVar = TyVar  	-- Used only during type inference
-type TcCoVar = CoVar  	-- Used only during type inference; mutable
+type TcCoVar = CoVar  	-- Used only during type inference
 type TcType = Type 	-- A TcType can have mutable type variables
+type TcTyCoVar = Var    -- Either a TcTyVar or a CoVar
 	-- Invariant on ForAllTy in TcTypes:
 	-- 	forall a. T
 	-- a cannot occur inside a MutTyVar in T; that is,
@@ -818,7 +819,7 @@ mkTcEqPred ty1 ty2
     k2 = defaultKind (typeKind ty2)
 \end{code}
 
-@isTauTy@ tests for nested for-alls.  It should not be called on a boxy type.
+@isTauTy@ tests to see if a type is "simple".  It should not be called on a boxy type.
 
 \begin{code}
 isTauTy :: Type -> Bool
@@ -829,8 +830,8 @@ isTauTy (TyConApp tc tys) = all isTauTy tys && isTauTyCon tc
 isTauTy (AppTy a b)	  = isTauTy a && isTauTy b
 isTauTy (FunTy a b)	  = isTauTy a && isTauTy b
 isTauTy (ForAllTy {})     = False
-isTauTy (CastTy ty _)     = isTauTy ty -- TODO (RAE): Is this right??
-isTauTy (CoercionTy _)    = True -- TODO (RAE): Is this right??
+isTauTy (CastTy _ _)      = False
+isTauTy (CoercionTy _)    = False
 
 isTauTyCon :: TyCon -> Bool
 -- Returns False for type synonyms whose expansion is a polytype

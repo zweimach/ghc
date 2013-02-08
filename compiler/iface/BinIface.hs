@@ -947,6 +947,43 @@ instance Binary IfaceTyLit where
                  ; return (IfaceStrTyLit n) }
          _ -> panic ("get IfaceTyLit " ++ show tag)
 
+instance Binary IfaceForAllBndr where
+   put_ bh (IfaceTv tv) = do
+     putByte bh 1
+     put_ bh tv
+   put_ bh (IfaceHeteroTv co tv1 tv2 cv) = do
+     putByte bh 2
+     put_ bh co
+     put_ bh tv1
+     put_ bh tv2
+     put_ bh cv
+   put_ bh (IfaceCv cv) = do
+     putByte bh 3
+     put_ bh cv
+   put_ bh (IfaceHeteroCv co cv1 cv2) = do
+     putByte bh 4
+     put_ bh co
+     put_ bh cv1
+     put_ bh cv2
+
+   get bh = do
+     tag <- getByte bh
+     case tag of
+       1 -> do tv <- get bh
+               return (IfaceTv tv)
+       2 -> do co <- get bh
+               tv1 <- get bh
+               tv2 <- get bh
+               cv <- get bh
+               return (IfaceHeteroTv co tv1 tv2 cv)
+       3 -> do cv <- get bh
+               return (IfaceCv cv)
+       4 -> do co <- get bh
+               cv1 <- get bh
+               cv2 <- get bh
+               return (IfaceHeteroCv co cv1 cv2)
+       _ -> panic ("get IfaceForAllBndr " ++ show tag)
+
 instance Binary IfaceTyCon where
    put_ bh (IfaceTc ext) = put_ bh ext
    get bh = liftM IfaceTc (get bh)

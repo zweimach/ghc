@@ -29,7 +29,7 @@ import MkId		( realWorldPrimId, voidArgId )
 import TysPrim		( realWorldStatePrimTy )
 import TysWiredIn	( tupleCon )
 import Type
-import Coercion hiding  ( substTy, substTyVarBndr )
+import Coercion
 import BasicTypes	( TupleSort(..) )
 import Literal		( absentLiteralOf )
 import TyCon

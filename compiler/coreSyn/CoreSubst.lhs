@@ -231,10 +231,10 @@ extend_tv_subst (Subst in_scope ids tvs cvs) tv ty
 -- | Add a substitution for a 'TyVar' to the 'Subst': you must ensure that the in-scope set is
 -- such that the "CoreSubst#in_scope_invariant" is true after extending the substitution like this
 extendTCvSubst :: Subst -> TyVar -> Type -> Subst
-extendTCvSubst subst v r =
+extendTCvSubst subst v r
   | isTyVar v
   = extend_tv_subst subst v r
-  | CoercionTy co <- r
+  | Just co <- isCoercionTy_maybe r
   = extendCvSubst subst v co
   | otherwise
   = pprPanic "CoreSubst.extendTCvSubst" (ppr v <+> ptext (sLit "|->") <+> ppr r)
@@ -249,11 +249,6 @@ extendTCvSubstList subst vrs
 -- such that the "CoreSubst#in_scope_invariant" is true after extending the substitution like this
 extendCvSubst :: Subst -> CoVar -> Coercion -> Subst
 extendCvSubst (Subst in_scope ids tvs cvs) v r = Subst in_scope ids tvs (extendVarEnv cvs v r)
-
--- | Adds multiple 'CoVar' -> 'Coercion' substitutions to the
--- 'Subst': see also 'extendCvSubst'
-extendCvSubstList :: Subst -> [(CoVar,Coercion)] -> Subst
-extendCvSubstList (Subst in_scope ids tvs cvs) prs = Subst in_scope ids tvs (extendVarEnvList cvs prs)
 
 -- | Add a substitution appropriate to the thing being substituted
 --   (whether an expression, type, or coercion). See also
@@ -295,11 +290,7 @@ lookupTCvSubst (Subst _ _ tvs cvs) v
   | isTyVar v
   = lookupVarEnv tvs v `orElse` Type.mkOnlyTyVarTy v
   | otherwise
-  = lookupVarEnv cvs v `orElse` CoercionTy (mkCoVarCo v)
-
--- | Find the coercion substitution for a 'CoVar' in the 'Subst'
-lookupCvSubst :: Subst -> CoVar -> Coercion
-lookupCvSubst (Subst _ _ _ cvs) v = ASSERT( isCoVar v ) lookupVarEnv cvs v `orElse` mkCoVarCo v
+  = mkCoercionTy $ lookupVarEnv cvs v `orElse` mkCoVarCo v
 
 delBndr :: Subst -> Var -> Subst
 delBndr (Subst in_scope ids tvs cvs) v
@@ -780,7 +771,7 @@ substVarSet subst fvs
   where
     subst_fv subst fv 
         | isId fv   = exprFreeVars (lookupIdSubst (text "substVarSet") subst fv)
-        | otherwise = tyCoVarsOfType (lookupTvSubst subst fv)
+        | otherwise = tyCoVarsOfType (lookupTCvSubst subst fv)
 
 ------------------
 substTickish :: Subst -> Tickish Id -> Tickish Id
@@ -1276,7 +1267,7 @@ dealWithCoercion co stuff@(dc, _dc_univ_args, dc_args)
         psi_subst = liftCoSubstWithEx dc_univ_tyvars omegas dc_ex_tyvars (map repack ex_args)
 
         repack (Type ty)     = ty
-        repack (Coercion co) = CoercionTy co
+        repack (Coercion co) = mkCoercionTy co
         repack _bad          = pprPanic "dealWithCoercion" (ppr _bad)
 
           -- Cast the value arguments (which include dictionaries)
@@ -1299,7 +1290,7 @@ stripTyCoArgs :: [CoreExpr] -> [Type]
 stripTyCoArgs args
   = map strip args
   where strip (Type ty)     = ty
-        strip (Coercion co) = CoercionTy co
+        strip (Coercion co) = mkCoercionTy co
         strip arg           = pprPanic "stripTyCoArgs" (ppr arg)
 \end{code}
 

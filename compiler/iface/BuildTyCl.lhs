@@ -110,7 +110,7 @@ mkNewTyConRhs tycon_name tycon con
 	       -> Type			-- Rhs type
 	       -> ([TyVar], Type)	-- Eta-reduced version (tyvars in normal order)
     eta_reduce (a:as) ty | Just (fun, arg) <- splitAppTy_maybe ty,
-			   Just tv <- getCoTyVar_maybe arg,
+			   Just tv <- getTyCoVar_maybe arg,
 			   tv == a,
 			   not (a `elemVarSet` tyCoVarsOfType fun)
 			 = eta_reduce as fun
