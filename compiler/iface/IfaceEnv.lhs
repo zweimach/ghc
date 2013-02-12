@@ -15,6 +15,7 @@ module IfaceEnv (
 	newIfaceName, newIfaceNames,
 	extendIfaceIdEnv, extendIfaceTyVarEnv, 
 	tcIfaceLclId, tcIfaceTyVar, lookupIfaceVar,
+        lookupIfaceTyVar,
 
 	ifaceExportNames,
 
@@ -271,6 +272,11 @@ tcIfaceTyVar occ
             Just ty_var -> return ty_var
             Nothing     -> failIfM (text "Iface type variable out of scope: " <+> ppr occ)
         }
+
+lookupIfaceTyVar :: IfaceTvBndr -> IfL (Maybe TyVar)
+lookupIfaceTyVar (occ, _)
+  = do  { lcl <- getLclEnv
+        ; return (lookupUFM (if_tv_env lcl) occ) }
 
 lookupIfaceVar :: IfaceBndr -> IfL (Maybe TyCoVar)
 lookupIfaceVar (IfaceIdBndr (occ, _))

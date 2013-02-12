@@ -21,7 +21,7 @@ module Class (
 
 	FunDep,	pprFundeps, pprFunDep,
 
-	mkClass, classTyCoVars, classArity, 
+	mkClass, classTyVars, classArity, 
 	classKey, className, classATs, classATItems, classTyCon, classMethods,
 	classOpItems, classBigSig, classExtraBigSig, classTvsFds, classSCTheta,
         classAllSelIds, classSCSelId
@@ -63,7 +63,7 @@ data Class
 	className :: Name,              -- Just the cached name of the TyCon
 	classKey  :: Unique,		-- Cached unique of TyCon
 	
-	classTyCoVars  :: [TyCoVar],	-- The class kind and type variables;
+	classTyVars  :: [TyVar],	-- The class kind and type variables;
 		     			-- identical to those of the TyCon
 
 	classFunDeps :: [FunDep TyCoVar],  -- The functional dependencies
@@ -126,7 +126,7 @@ mkClass tyvars fds super_classes superdict_sels at_stuff
 	op_stuff tycon
   = Class {	classKey     = tyConUnique tycon, 
 		className    = tyConName tycon,
-		classTyCoVars = tyvars,
+		classTyVars  = tyvars,
 		classFunDeps = fds,
 		classSCTheta = super_classes,
 		classSCSels  = superdict_sels,
@@ -164,7 +164,7 @@ The rest of these functions are just simple selectors.
 
 \begin{code}
 classArity :: Class -> Arity
-classArity clas = length (classTyCoVars clas)
+classArity clas = length (classTyVars clas)
 	-- Could memoise this
 
 classAllSelIds :: Class -> [Id]
@@ -194,17 +194,17 @@ classATs (Class { classATStuff = at_stuff })
 classATItems :: Class -> [ClassATItem]
 classATItems = classATStuff
 
-classTvsFds :: Class -> ([TyCoVar], [FunDep TyCoVar])
+classTvsFds :: Class -> ([TyVar], [FunDep TyVar])
 classTvsFds c
-  = (classTyCoVars c, classFunDeps c)
+  = (classTyVars c, classFunDeps c)
 
 classBigSig :: Class -> ([TyCoVar], [PredType], [Id], [ClassOpItem])
-classBigSig (Class {classTyCoVars = tyvars, classSCTheta = sc_theta, 
+classBigSig (Class {classTyVars = tyvars, classSCTheta = sc_theta, 
 	 	    classSCSels = sc_sels, classOpStuff = op_stuff})
   = (tyvars, sc_theta, sc_sels, op_stuff)
 
 classExtraBigSig :: Class -> ([TyCoVar], [FunDep TyCoVar], [PredType], [Id], [ClassATItem], [ClassOpItem])
-classExtraBigSig (Class {classTyCoVars = tyvars, classFunDeps = fundeps,
+classExtraBigSig (Class {classTyVars = tyvars, classFunDeps = fundeps,
 			 classSCTheta = sc_theta, classSCSels = sc_sels,
 			 classATStuff = ats, classOpStuff = op_stuff})
   = (tyvars, fundeps, sc_theta, sc_sels, ats, op_stuff)

@@ -78,7 +78,7 @@ data IfaceDecl
 
   | IfaceData { ifName       :: OccName,        -- Type constructor
                 ifCType      :: Maybe CType,    -- C type for CAPI FFI
-                ifTyCoVars   :: [IfaceBndr],    -- Type and coercion variables
+                ifTyVars     :: [IfaceTvBndr],  -- Type variables
                 ifCtxt       :: IfaceContext,   -- The "stupid theta"
                 ifCons       :: IfaceConDecls,  -- Includes new/data/data family info
                 ifRec        :: RecFlag,        -- Recursive or not?
@@ -90,13 +90,13 @@ data IfaceDecl
     }
 
   | IfaceSyn  { ifName     :: OccName,           -- Type constructor
-                ifTyCoVars :: [IfaceBndr],       -- Type and coercion variables
+                ifTyVars   :: [IfaceTvBndr],     -- Type variables
                 ifSynKind  :: IfaceKind,         -- Kind of the *rhs* (not of the tycon)
                 ifSynRhs   :: SynTyConRhs IfaceType }
 
   | IfaceClass { ifCtxt     :: IfaceContext,     -- Context...
                  ifName     :: OccName,          -- Name of the class TyCon
-                 ifTyCoVars :: [IfaceBndr],      -- Type and coercion variables
+                 ifTyVars   :: [IfaceTvBndr],    -- Type and variables
                  ifFDs      :: [FunDep FastString], -- Functional dependencies
                  ifATs      :: [IfaceAT],      -- Associated type families
                  ifSigs     :: [IfaceClassOp],   -- Method signatures
@@ -497,19 +497,19 @@ pprIfaceDecl (IfaceForeign {ifName = tycon})
   = hsep [ptext (sLit "foreign import type dotnet"), ppr tycon]
 
 pprIfaceDecl (IfaceSyn {ifName = tycon,
-                        ifTyCoVars = tyvars,
+                        ifTyVars = tyvars,
                         ifSynRhs = SynonymTyCon mono_ty})
   = hang (ptext (sLit "type") <+> pprIfaceDeclHead [] tycon tyvars)
        4 (vcat [equals <+> ppr mono_ty])
 
-pprIfaceDecl (IfaceSyn {ifName = tycon, ifTyCoVars = tyvars,
+pprIfaceDecl (IfaceSyn {ifName = tycon, ifTyVars = tyvars,
                         ifSynRhs = SynFamilyTyCon {}, ifSynKind = kind })
   = hang (ptext (sLit "type family") <+> pprIfaceDeclHead [] tycon tyvars)
        4 (dcolon <+> ppr kind)
 
 pprIfaceDecl (IfaceData {ifName = tycon, ifCType = cType,
                          ifCtxt = context,
-                         ifTyCoVars = tyvars, ifCons = condecls,
+                         ifTyVars = tyvars, ifCons = condecls,
                          ifRec = isrec, ifPromotable = is_prom,
                          ifAxiom = mbAxiom})
   = hang (pp_nd <+> pprIfaceDeclHead context tycon tyvars)
@@ -526,7 +526,7 @@ pprIfaceDecl (IfaceData {ifName = tycon, ifCType = cType,
                 IfDataTyCon _       -> ptext (sLit "data")
                 IfNewTyCon _        -> ptext (sLit "newtype")
 
-pprIfaceDecl (IfaceClass {ifCtxt = context, ifName = clas, ifTyCoVars = tyvars,
+pprIfaceDecl (IfaceClass {ifCtxt = context, ifName = clas, ifTyVars = tyvars,
                           ifFDs = fds, ifATs = ats, ifSigs = sigs,
                           ifRec = isrec})
   = hang (ptext (sLit "class") <+> pprIfaceDeclHead context clas tyvars <+> pprFundeps fds)
@@ -558,10 +558,10 @@ instance Outputable IfaceClassOp where
 instance Outputable IfaceAT where
    ppr (IfaceAT d defs) = hang (ppr d) 2 (vcat (map ppr defs))
 
-pprIfaceDeclHead :: IfaceContext -> OccName -> [IfaceBndr] -> SDoc
+pprIfaceDeclHead :: IfaceContext -> OccName -> [IfaceTvBndr] -> SDoc
 pprIfaceDeclHead context thing tyvars
   = hsep [pprIfaceContext context, parenSymOcc thing (ppr thing),
-          pprIfaceBndrs tyvars]
+          pprIfaceTvBndrs tyvars]
 
 pp_condecls :: OccName -> IfaceConDecls -> SDoc
 pp_condecls _  (IfAbstractTyCon {}) = empty
@@ -797,17 +797,17 @@ freeNamesIfDecl (IfaceId _s t d i) =
 freeNamesIfDecl IfaceForeign{} =
   emptyNameSet
 freeNamesIfDecl d@IfaceData{} =
-  freeNamesIfBndrs (ifTyCoVars d) &&&
+  freeNamesIfTvBndrs (ifTyVars d) &&&
   maybe emptyNameSet unitNameSet (ifAxiom d) &&&
   freeNamesIfContext (ifCtxt d) &&&
   freeNamesIfConDecls (ifCons d)
 freeNamesIfDecl d@IfaceSyn{} =
-  freeNamesIfBndrs (ifTyCoVars d) &&&
+  freeNamesIfTvBndrs (ifTyVars d) &&&
   freeNamesIfSynRhs (ifSynRhs d) &&&
   freeNamesIfKind (ifSynKind d) -- IA0_NOTE: because of promotion, we
                                 -- return names in the kind signature
 freeNamesIfDecl d@IfaceClass{} =
-  freeNamesIfBndrs (ifTyCoVars d) &&&
+  freeNamesIfTvBndrs (ifTyVars d) &&&
   freeNamesIfContext (ifCtxt d) &&&
   fnList freeNamesIfAT     (ifATs d) &&&
   fnList freeNamesIfClsSig (ifSigs d)

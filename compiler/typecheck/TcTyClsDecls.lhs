@@ -1783,7 +1783,7 @@ noClassTyVarErr :: Class -> Var -> SDoc
 noClassTyVarErr clas op
   = sep [ptext (sLit "The class method") <+> quotes (ppr op),
 	 ptext (sLit "mentions none of the type variables of the class") <+> 
-		ppr clas <+> hsep (map ppr (classTyCoVars clas))]
+		ppr clas <+> hsep (map ppr (classTyVars clas))]
 
 recSynErr :: [LTyClDecl Name] -> TcRn ()
 recSynErr syn_decls

@@ -1468,14 +1468,14 @@ tyConToIfaceDecl env tycon
 
   | Just syn_rhs <- synTyConRhs_maybe tycon
   = IfaceSyn {  ifName     = getOccName tycon,
-                ifTyCoVars = toIfaceTCvBndrs tyvars,
+                ifTyVars   = toIfaceTvBndrs tyvars,
                 ifSynRhs   = to_ifsyn_rhs syn_rhs,
                 ifSynKind  = tidyToIfaceType env1 (synTyConResKind tycon) }
 
   | isAlgTyCon tycon
   = IfaceData { ifName     = getOccName tycon,
                 ifCType    = tyConCType tycon,
-                ifTyCoVars = toIfaceTCvBndrs tyvars,
+                ifTyVars   = toIfaceTvBndrs tyvars,
                 ifCtxt     = tidyToIfaceContext env1 (tyConStupidTheta tycon),
                 ifCons     = ifaceConDecls (algTyConRhs tycon),
                 ifRec      = boolToRecFlag (isRecursiveTyCon tycon),
@@ -1536,7 +1536,7 @@ classToIfaceDecl :: TidyEnv -> Class -> IfaceDecl
 classToIfaceDecl env clas
   = IfaceClass { ifCtxt     = tidyToIfaceContext env1 sc_theta,
                  ifName     = getOccName (classTyCon clas),
-                 ifTyCoVars = toIfaceTCvBndrs clas_tyvars',
+                 ifTyVars   = toIfaceTvBndrs clas_tyvars',
                  ifFDs      = map toIfaceFD clas_fds,
                  ifATs      = map toIfaceAT clas_ats,
                  ifSigs     = map toIfaceClassOp op_stuff,

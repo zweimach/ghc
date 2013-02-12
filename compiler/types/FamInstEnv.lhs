@@ -889,7 +889,7 @@ topNormaliseType env ty
 
     go rec_nts (TyConApp tc tys) 
         | isFamilyTyCon tc              -- Expand open tycons
-        , (co, ty) <- normaliseTcApp env (emptyLiftingContext is) tc tys
+        , (co, ty) <- normalise_tc_app env (emptyLiftingContext is) tc tys
                 -- Note that normaliseType fully normalises 'tys',
                 -- wrt type functions but *not* newtypes
                 -- It has do to so to be sure that nested calls like
@@ -909,9 +909,16 @@ topNormaliseType env ty
 
 
 ---------------
-normaliseTcApp :: FamInstEnvs -> LiftingContext
-               -> TyCon -> [Type] -> (Coercion, Type)
-normaliseTcApp env lc tc tys
+normaliseTcApp :: FamInstEnvs -> TyCon -> [Type] -> (Coercion, Type)
+normaliseTcApp env tc tys
+  = normalise_tc_app env lc tc tys
+  where
+    in_scope = mkInScopeSet (tyCoVarsOfTypes tys)
+    lc = emptyLiftingContext in_scope
+
+normalise_tc_app :: FamInstEnvs -> LiftingContext
+                 -> TyCon -> [Type] -> (Coercion, Type)
+normalise_tc_app env lc tc tys
   | isFamilyTyCon tc
   , tyConArity tc <= length tys    -- Unsaturated data families are possible
   , [FamInstMatch { fim_instance = fam_inst
@@ -922,7 +929,7 @@ normaliseTcApp env lc tc tys
         co              = mkAxInstCo  ax fam_ind inst_tys
         rhs             = mkAxInstRHS ax fam_ind inst_tys
         first_coi       = mkTransCo tycon_coi co
-        (rest_coi,nty)  = normaliseType env lc rhs
+        (rest_coi,nty)  = normalise_type env lc rhs
         fix_coi         = mkTransCo first_coi rest_coi
     in 
     (fix_coi, nty)
@@ -938,10 +945,17 @@ normaliseTcApp env lc tc tys
     tycon_coi    = mkTyConAppCo tc cois
 
 ---------------
-normaliseType :: FamInstEnvs            -- environment with family instances
-              -> LiftingContext         -- necessary because of kind coercions
-              -> Type                   -- old type
-              -> (Coercion, Type)       -- (coercion,new type), where
+normaliseType :: FamInstEnvs -> Type -> (Coercion, Type)
+normaliseType env ty
+  = normalise_type env lc ty
+  where
+    in_scope = mkInScopeSet (tyCoVarsOfType ty)
+    lc = emptyLiftingContext in_scope
+
+normalise_type :: FamInstEnvs            -- environment with family instances
+               -> LiftingContext         -- necessary because of kind coercions
+               -> Type                   -- old type
+               -> (Coercion, Type)       -- (coercion,new type), where
                                         -- co :: old-type ~ new_type
 -- Normalise the input type, by eliminating *all* type-function redexes
 -- Returns with Refl if nothing happens
@@ -949,7 +963,7 @@ normaliseType :: FamInstEnvs            -- environment with family instances
 -- The returned coercion *must* be *homogeneous*
 -- See Note [Normalising types]
 
-normaliseType env lc ty
+normalise_type env lc ty
   = let co = go ty
         Pair _tyl tyr = coercionKind co in
     ASSERT( _tyl `eqType` ty )
@@ -957,23 +971,23 @@ normaliseType env lc ty
     (co, tyr)
   where
     go ty | Just ty' <- coreView ty = go ty'
-    go (TyConApp tc tys) = fst $ normaliseTcApp env lc tc tys
+    go (TyConApp tc tys) = fst $ normalise_tc_app env lc tc tys
     go ty@(LitTy {})     = mkReflCo ty
     go (AppTy ty1 ty2)   = mkAppCo (go ty1) (fst $ normaliseTyArg env lc ty2)
     go (FunTy ty1 ty2)   = mkFunCo (go ty1) (go ty2)
     go (ForAllTy tyvar ty)
       = let (lc', cobndr) = normaliseTyCoVarBndr env lc tyvar in
-        mkForAllCo cobndr (fst $ normaliseType env lc' ty)
+        mkForAllCo cobndr (fst $ normalise_type env lc' ty)
     go (TyVarTy tv)      = normaliseTyVar lc tv
     go (CastTy ty co)    = castCoercionKind (go ty) co (substRightCo lc co)
-    go (CoercionTy co)   = pprPanic "normaliseType" (ppr co)
+    go (CoercionTy co)   = pprPanic "normalise_type" (ppr co)
 
 normaliseTyArg :: FamInstEnvs -> LiftingContext -> Type -> (CoercionArg, Type)
 normaliseTyArg _ lc (CoercionTy co)
   = let right_co = substRightCo lc co in
     (CoCoArg co right_co, CoercionTy right_co)
 normaliseTyArg env lc ty              
-  = let (co, ty') = normaliseType env lc ty in
+  = let (co, ty') = normalise_type env lc ty in
     (TyCoArg co, ty')
 
 normaliseTyVar :: LiftingContext -> TyVar -> Coercion
@@ -987,7 +1001,7 @@ normaliseTyVar lc tv
 normaliseTyCoVarBndr :: FamInstEnvs -> LiftingContext -> TyCoVar
                      -> (LiftingContext, ForAllCoBndr)
 normaliseTyCoVarBndr env
-  = liftCoSubstVarBndrCallback (\lc ty -> fst $ normaliseType env lc ty) True
+  = liftCoSubstVarBndrCallback (\lc ty -> fst $ normalise_type env lc ty) True
   -- the True there means that we want homogeneous coercions
   -- See Note [Homogenizing TyHetero substs] in Coercion
 

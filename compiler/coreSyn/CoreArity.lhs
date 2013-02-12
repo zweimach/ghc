@@ -104,8 +104,10 @@ typeArity :: Type -> [OneShot]
 -- We look through foralls, and newtypes
 -- See Note [exprArity invariant]
 typeArity ty 
-  | Just (_, ty')  <- splitForAllTy_maybe ty 
-  = typeArity ty'
+  | Just (tv, ty')  <- splitForAllTy_maybe ty 
+  = if isTyVar tv
+    then typeArity ty'
+    else False : typeArity ty'
 
   | Just (arg,res) <- splitFunTy_maybe ty    
   = isStateHackType arg : typeArity res
@@ -782,11 +784,15 @@ etaExpand n orig_expr
   where
       -- Strip off existing lambdas and casts
       -- Note [Eta expansion and SCCs]
-    go 0 expr = expr
-    go n (Lam v body) | isTyVar v = Lam v (go n     body)
-       	              | otherwise = Lam v (go (n-1) body)
-    go n (Cast expr co) = Cast (go n expr) co
-    go n expr           = -- pprTrace "ee" (vcat [ppr orig_expr, ppr expr, ppr etas]) $
+    go 0 expr = pprTrace "ee0" (ppr expr) -- RAE
+                expr
+    go n (Lam v body) | isTyVar v = pprTrace "ee1" (vcat [ppr n, ppr v, ppr body]) $ -- RAE
+                                    Lam v (go n     body)
+       	              | otherwise = pprTrace "ee2" (vcat [ppr n, ppr v, ppr body]) $ -- RAE
+                                    Lam v (go (n-1) body)
+    go n (Cast expr co) = pprTrace "ee3" (vcat [ppr n, ppr expr, ppr co]) $ -- RAE
+                          Cast (go n expr) co
+    go n expr           = pprTrace "ee4" (vcat [ppr orig_expr, ppr expr, ppr etas]) $ -- RAE
        	 		  etaInfoAbs etas (etaInfoApp subst' expr etas)
     	  		where
 			    in_scope = mkInScopeSet (exprFreeVars expr)
@@ -824,15 +830,18 @@ etaInfoApp :: Subst -> CoreExpr -> [EtaInfo] -> CoreExpr
 -- 	       ((substExpr s e) `appliedto` eis)
 
 etaInfoApp subst (Lam v1 e) (EtaVar v2 : eis) 
-  = etaInfoApp (CoreSubst.extendSubstWithVar subst v1 v2) e eis
+  = pprTrace "eia1" (vcat [ppr subst, ppr v1, ppr e, ppr v2, ppr eis]) $ -- RAE
+    etaInfoApp (CoreSubst.extendSubstWithVar subst v1 v2) e eis
 
 etaInfoApp subst (Cast e co1) eis
-  = etaInfoApp subst e (pushCoercion co' eis)
+  = pprTrace "eia2" (vcat [ppr subst, ppr e, ppr co1, ppr eis]) $ -- RAE
+    etaInfoApp subst e (pushCoercion co' eis)
   where
     co' = CoreSubst.substCo subst co1
 
 etaInfoApp subst (Case e b ty alts) eis 
-  = Case (subst_expr subst e) b1 (mk_alts_ty (CoreSubst.substTy subst ty) eis) alts'
+  = pprTrace "eia3" (vcat [ppr subst, ppr e, ppr alts, ppr eis]) $ -- RAE
+    Case (subst_expr subst e) b1 (mk_alts_ty (CoreSubst.substTy subst ty) eis) alts'
   where
     (subst1, b1) = substBndr subst b
     alts' = map subst_alt alts
@@ -845,19 +854,25 @@ etaInfoApp subst (Case e b ty alts) eis
     mk_alts_ty _  (EtaCo co : eis) = mk_alts_ty (pSnd (coercionKind co)) eis
     
 etaInfoApp subst (Let b e) eis 
-  = Let b' (etaInfoApp subst' e eis)
+  = pprTrace "eia4" (vcat [ppr subst, ppr b, ppr e, ppr eis]) $ -- RAE
+    Let b' (etaInfoApp subst' e eis)
   where
     (subst', b') = subst_bind subst b
 
 etaInfoApp subst (Tick t e) eis
-  = Tick (substTickish subst t) (etaInfoApp subst e eis)
+  = pprTrace "eia5" (vcat [ppr subst, ppr t, ppr e, ppr eis]) $ -- RAE
+    Tick (substTickish subst t) (etaInfoApp subst e eis)
 
 etaInfoApp subst e eis
-  = go (subst_expr subst e) eis
+  = pprTrace "eia6" (vcat [ppr subst, ppr e, ppr eis]) $ -- RAE
+    go (subst_expr subst e) eis
   where
-    go e []                  = e
-    go e (EtaVar v    : eis) = go (App e (varToCoreExpr v)) eis
-    go e (EtaCo co    : eis) = go (Cast e co) eis
+    go e []                  = pprTrace "eia_go1" (ppr e) $ -- RAE
+                               e
+    go e (EtaVar v    : eis) = pprTrace "eia_go2" (vcat [ppr e, ppr v, ppr eis]) $ -- RAE
+                               go (App e (varToCoreExpr v)) eis
+    go e (EtaCo co    : eis) = pprTrace "eia_go3" (vcat [ppr e, ppr co, ppr eis]) $ -- RAE
+                               go (Cast e co) eis
 
 --------------
 mkEtaWW :: Arity -> CoreExpr -> InScopeSet -> Type

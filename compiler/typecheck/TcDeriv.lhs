@@ -569,7 +569,7 @@ deriveTyData tvs tc tc_args (L loc deriv_pred)
 
         -- Given data T a b c = ... deriving( C d ),
         -- we want to drop type variables from T so that (C d (T a)) is well-kinded
-        ; let cls_tyvars     = classTyCoVars cls
+        ; let cls_tyvars     = classTyVars cls
               kind           = tyVarKind (last cls_tyvars)
               (arg_kinds, _) = splitFunTys kind
               n_args_to_drop = length arg_kinds
@@ -828,7 +828,7 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
 
         -- Constraints arising from superclasses
         -- See Note [Superclasses of derived instance]
-    sc_constraints = substTheta (zipOpenTCvSubst (classTyCoVars cls) inst_tys)
+    sc_constraints = substTheta (zipOpenTCvSubst (classTyVars cls) inst_tys)
                                 (classSCTheta cls)
 
         -- Stupid constraints
@@ -1262,7 +1262,7 @@ mkNewTypeEqn orig dflags tvs
     -- Next we figure out what superclass dictionaries to use
     -- See Note [Newtype deriving superclasses] above
 
-        cls_tyvars = classTyCoVars cls
+        cls_tyvars = classTyVars cls
         dfun_tvs = tyCoVarsOfTypes inst_tys
         inst_ty = mkTyConApp tycon tc_args
         inst_tys = cls_tys ++ [inst_ty]

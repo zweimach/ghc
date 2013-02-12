@@ -638,7 +638,7 @@ mkDataCon name declared_infix
     tag = assoc "mkDataCon" (tyConDataCons rep_tycon `zip` [fIRST_TAG..]) con
     rep_arg_tys = dataConRepArgTys con
     rep_ty = mkForAllTys univ_tvs $ mkForAllTys ex_tvs $ 
-	     mkFunTys rep_arg_tys $
+	     mkPiTypesNoTv rep_arg_tys $
 	     mkTyConApp rep_tycon (mkTyCoVarTys univ_tvs)
 
     mb_promoted   -- See Note [Promoted data constructors] in TyCon
@@ -1004,7 +1004,7 @@ buildAlgTyCon tc_name ktvs cType stupid_theta rhs
               is_rec is_promotable gadt_syn parent
   = tc
   where 
-    kind = mkPiTypes ktvs liftedTypeKind
+    kind = mkPiKinds ktvs liftedTypeKind
 
     -- tc and mb_promoted_tc are mutually recursive
     tc = mkAlgTyCon tc_name kind ktvs cType stupid_theta 

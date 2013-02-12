@@ -72,7 +72,7 @@ module Coercion (
         tyCoVarsOfCoArg, tyCoVarsOfCoArgs,
 	
         -- ** Substitution
-        CvSubstEnv,
+        CvSubstEnv, emptyCvSubstEnv,
  	lookupCoVar,
 	substCo, substCos, substCoVar, substCoVars,
         substCoVarBndr, substCoWithIS, substForAllCoBndr,

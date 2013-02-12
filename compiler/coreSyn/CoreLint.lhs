@@ -733,7 +733,7 @@ lintKind :: OutKind -> LintM ()
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism]
 lintKind k = do { sk <- lintType k 
-                ; unless (isStarKind sk) 
+                ; unless ((isStarKind sk) || (isUnliftedTypeKind sk))
                          (addErrL (hang (ptext (sLit "Ill-kinded kind:") <+> ppr k)
                                       2 (ptext (sLit "has kind:") <+> ppr sk))) }
 

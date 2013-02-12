@@ -42,8 +42,8 @@ module Type (
 
         mkForAllTy, mkForAllTys, splitForAllTy_maybe, splitForAllTys,
         splitForAllTy,
-        mkPiType, mkPiTypes, piResultTy, splitPiTypes,
-	applyTy, applyTys, applyTysD, isForAllTy, dropForAlls,
+        mkPiKinds, mkPiType, mkPiTypes, mkPiTypesNoTv, piResultTy,
+        splitPiTypes, applyTy, applyTys, applyTysD, isForAllTy, dropForAlls,
 
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
@@ -173,13 +173,11 @@ import Class
 import TyCon
 import TysPrim
 import {-# SOURCE #-} TysWiredIn ( eqTyCon, typeNatKind, typeSymbolKind )
-import PrelNames ( eqTyConKey, eqPrimTyConKey, ipClassNameKey, 
-                   liftedTypeKindTyConKey )
+import PrelNames
 import CoAxiom
 import {-# SOURCE #-} Coercion
 
 -- others
-import Unique		( hasKey )
 import BasicTypes	( Arity, RepArity )
 import NameSet
 import StaticFlags
@@ -806,6 +804,14 @@ that they are represented by pointers.  The reason is that f must have
 kind (kk -> kk) and kk cannot be unlifted; see Note [The kind invariant] 
 in TyCoRep.
 
+Note [mkPiKinds vs mkPiTypes]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If kinds and types are the same, why have separate mkPiKinds and mkPiTypes?
+Because kinds and types are most certainly *not* the same, in source Haskell.
+And, because 'Type's are shared between the levels, we need to maintain that
+distinction down here. mkPiKinds is used to create the kind for user-visible
+TyCons.
+
 ---------------------------------------------------------------------
 				ForAllTy
 				~~~~~~~~
@@ -819,6 +825,15 @@ mkForAllTy tyvar ty
 mkForAllTys :: [TyVar] -> Type -> Type
 mkForAllTys tyvars ty = foldr ForAllTy ty tyvars
 
+-- See Note [mkPiKinds vs mkPiTypes]
+mkPiKinds :: [TyVar] -> Kind -> Kind
+-- mkPiKinds [k1, k2, (a:k1 -> *)] k2
+-- returns forall k1 k2. (k1 -> *) -> k2
+mkPiKinds [] res = res
+mkPiKinds (tv:tvs) res 
+  | isKindVar tv = ForAllTy tv          (mkPiKinds tvs res)
+  | otherwise    = FunTy (tyVarKind tv) (mkPiKinds tvs res)
+
 mkPiType  :: Var -> Type -> Type
 -- ^ Makes a @(->)@ type or a forall type, depending
 -- on whether it is given a type variable or a term variable.
@@ -831,6 +846,17 @@ mkPiType v ty
    | otherwise  = mkFunTy (varType v) ty
 
 mkPiTypes vs ty = foldr mkPiType ty vs
+
+-- | Given a list of kinds, makes either FunTys or ForAllTys (quantified
+-- over a wild card) as appropriate. (A ForAllTy is used only when the type
+-- is a coercion type.)
+mkPiTypesNoTv :: [Type] -> Type -> Type
+mkPiTypesNoTv [] ty = ty
+mkPiTypesNoTv (k:ks) ty
+  = let result = mkPiTypesNoTv ks ty in
+    if isCoercionType k
+    then mkForAllTy (mkCoVar wildCardName k) result
+    else mkFunTy k result
 
 -- | Take a pi type (that is, either a ForAllTy or a FunTy) apart, returning
 -- the list of argument types and the result type. This always succeeds, even

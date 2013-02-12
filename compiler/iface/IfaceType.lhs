@@ -17,7 +17,7 @@ module IfaceType (
         -- Conversion from Type -> IfaceType
         toIfaceType, toIfaceKind, toIfaceContext,
         toIfaceBndr, toIfaceIdBndr, toIfaceTCvBndrs,
-        toIfaceTyCon, toIfaceTyCon_name,
+        toIfaceTyCon, toIfaceTyCon_name, toIfaceTvBndrs,
 
         -- Conversion from Coercion -> IfaceType
         coToIfaceType,
@@ -344,7 +344,10 @@ toIfaceTvBndr tyvar   = (occNameFS (getOccName tyvar), toIfaceKind (tyVarKind ty
 toIfaceIdBndr :: Id -> (IfLclName, IfaceType)
 toIfaceIdBndr id      = (occNameFS (getOccName id),    toIfaceType (idType id))
 
-toIfaceTCvBndrs :: [TyVar] -> [IfaceBndr]
+toIfaceTvBndrs :: [TyVar] -> [IfaceTvBndr]
+toIfaceTvBndrs = map toIfaceTvBndr
+
+toIfaceTCvBndrs :: [TyCoVar] -> [IfaceBndr]
 toIfaceTCvBndrs tyvars = map toIfaceBndr tyvars
 
 toIfaceBndr :: Var -> IfaceBndr

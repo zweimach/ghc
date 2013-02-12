@@ -696,7 +696,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
                 = do { new_ty <- newFlexiTyVarTy (TcType.substTy subst (tyVarKind tv))
                      ; return (extendTCvSubst subst tv new_ty, new_ty) }
 
-	; (_, result_inst_tys, result_subst) <- tcInstTyCoVars con1_tvs
+	; (_, result_inst_tys, result_subst) <- tcInstTyCoVars RecordUpdOrigin con1_tvs
 
         ; (scrut_subst, scrut_inst_tys) <- mapAccumLM mk_inst_ty emptyTCvSubst 
                                                       (con1_tvs `zip` result_inst_tys) 

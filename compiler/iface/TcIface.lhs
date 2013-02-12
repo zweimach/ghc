@@ -434,7 +434,7 @@ tc_iface_decl _ ignore_prags (IfaceId {ifName = occ_name, ifType = iface_type,
 
 tc_iface_decl parent _ (IfaceData {ifName = occ_name, 
                           ifCType = cType, 
-                          ifTyCoVars = tv_bndrs, 
+                          ifTyVars = tv_bndrs, 
                           ifCtxt = ctxt, ifGadtSyntax = gadt_syn,
                           ifCons = rdr_cons, 
                           ifRec = is_rec, ifPromotable = is_prom, 
@@ -468,7 +468,7 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
                             -- gotten from separate interface-file declarations
            ; return (FamInstTyCon ax_unbr fam_tc (substTys subst ax_lhs)) }
 
-tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyCoVars = tv_bndrs, 
+tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyVars = tv_bndrs, 
                                   ifSynRhs = mb_rhs_ty,
                                   ifSynKind = kind })
    = bindIfaceTyVars_AT tv_bndrs $ \ tyvars -> do
@@ -486,12 +486,12 @@ tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyCoVars = tv_bndrs,
 
 tc_iface_decl _parent ignore_prags
             (IfaceClass {ifCtxt = rdr_ctxt, ifName = tc_occ,
-                         ifTyCoVars = tv_bndrs, ifFDs = rdr_fds, 
+                         ifTyVars = tv_bndrs, ifFDs = rdr_fds, 
                          ifATs = rdr_ats, ifSigs = rdr_sigs, 
                          ifRec = tc_isrec })
 -- ToDo: in hs-boot files we should really treat abstract classes specially,
 --       as we do abstract tycons
-  = bindIfaceBndrs tv_bndrs $ \ tyvars -> do
+  = bindIfaceTvBndrs tv_bndrs $ \ tyvars -> do
     { tc_name <- lookupIfaceTop tc_occ
     ; traceIf (text "tc-iface-class1" <+> ppr tc_occ)
     ; ctxt <- mapM tc_sc rdr_ctxt
@@ -1458,7 +1458,9 @@ tcIfaceTyCon kf (IfaceTc name)
   = do { thing <- tcIfaceGlobal name
        ; case (thing, kf) of    -- A "type constructor" can be a promoted data constructor
                           --           c.f. Trac #5881
-           (ATyCon tc, KindLevel) -> return (promoteTyCon tc)
+           (ATyCon tc, KindLevel)
+             | isSuperKind (tyConKind tc) -> return tc
+             | otherwise                  -> return (promoteTyCon tc)
            (ATyCon tc, TypeLevel) -> return tc
            (ADataCon dc, _)       -> return (promoteDataCon dc)
            _ -> pprPanic "tcIfaceTyCon" (ppr name $$ ppr thing) }
@@ -1544,12 +1546,19 @@ bindIfaceTyVar (occ,kind) thing_inside
         ; tyvar <- mk_iface_tyvar name kind
         ; extendIfaceTyVarEnv [tyvar] (thing_inside tyvar) }
 
+bindIfaceTvBndrs :: [IfaceTvBndr] -> ([TyVar] -> IfL a) -> IfL a
+bindIfaceTvBndrs []       thing_inside = thing_inside []
+bindIfaceTvBndrs (tv:tvs) thing_inside
+  = bindIfaceTyVar tv $ \tv' ->
+    bindIfaceTvBndrs tvs $ \tvs' ->
+    thing_inside (tv':tvs')
+
 mk_iface_tyvar :: Name -> IfaceKind -> IfL TyVar
 mk_iface_tyvar name ifKind
    = do { kind <- tcIfaceKind ifKind
         ; return (Var.mkTyVar name kind) }
 
-bindIfaceTyVars_AT :: [IfaceBndr] -> ([TyCoVar] -> IfL a) -> IfL a
+bindIfaceTyVars_AT :: [IfaceTvBndr] -> ([TyVar] -> IfL a) -> IfL a
 -- Used for type variable in nested associated data/type declarations
 -- where some of the type variables are already in scope
 --    class C a where { data T a b }
@@ -1557,11 +1566,11 @@ bindIfaceTyVars_AT :: [IfaceBndr] -> ([TyCoVar] -> IfL a) -> IfL a
 bindIfaceTyVars_AT [] thing_inside
   = thing_inside []
 bindIfaceTyVars_AT (b : bs) thing_inside
-  = do { mb_tv <- lookupIfaceVar b
+  = do { mb_tv <- lookupIfaceTyVar b
        ; let bind_b :: (TyCoVar -> IfL a) -> IfL a
              bind_b = case mb_tv of
                         Just b' -> \k -> k b'
-                        Nothing -> bindIfaceBndr b
+                        Nothing -> bindIfaceTyVar b
        ; bind_b $ \b' ->
          bindIfaceTyVars_AT bs $ \bs' ->
          thing_inside (b':bs') }

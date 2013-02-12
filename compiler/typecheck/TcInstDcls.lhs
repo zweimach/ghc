@@ -31,7 +31,7 @@ import TcRnMonad
 import TcValidity
 import TcMType
 import TcType
-import Coercion( mkSingleCoAxiom, mkBranchedCoAxiom, pprCoAxBranch )
+import Coercion( mkSingleCoAxiom, mkBranchedCoAxiom, pprCoAxBranch, emptyCvSubstEnv )
 import BuildTyCl
 import Inst
 import InstEnv
@@ -501,8 +501,9 @@ tcClsInstDecl (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                   badBootDeclErr
 
         ; (tyvars, theta, clas, inst_tys) <- tcHsInstHead InstDeclCtxt poly_ty
-        ; let mini_env   = mkVarEnv (classTyCoVars clas `zip` inst_tys)
-              mini_subst = mkTCvSubst (mkInScopeSet (mkVarSet tyvars)) mini_env
+        ; let mini_env   = mkVarEnv (classTyVars clas `zip` inst_tys)
+              mini_subst = mkTCvSubst (mkInScopeSet (mkVarSet tyvars))
+                                      mini_env emptyCvSubstEnv
                            
         -- Next, process any associated types.
         ; traceTc "tcLocalInstDecl" (ppr poly_ty)

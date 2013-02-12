@@ -45,6 +45,7 @@ import DynFlags
 import Outputable
 import Platform
 import SrcLoc
+import Util
 import Bag
 import FastString
 
@@ -104,7 +105,7 @@ normaliseFfiType' env ty0 = go [] ty0
         where
           tc_key = getUnique tc
           children_only 
-            = do xs <- mapM (go rec_nts) tys
+            = do xs <- mapM (go_arg rec_nts) tys
                  let (cos, tys', gres) = unzip3 xs
                  return (mkTyConAppCo tc cos, mkTyConApp tc tys', unionManyBags gres)
           nt_co  = mkUnbranchedAxInstCo (newTyConCo tc) tys
@@ -115,7 +116,7 @@ normaliseFfiType' env ty0 = go [] ty0
 
     go rec_nts (AppTy ty1 ty2)
       = do (coi1, nty1, gres1) <- go rec_nts ty1
-           (coi2, nty2, gres2) <- go rec_nts ty2
+           (coi2, nty2, gres2) <- go_arg rec_nts ty2
            return (mkAppCo coi1 coi2, mkAppTy nty1 nty2, gres1 `unionBags` gres2)
 
     go rec_nts (FunTy ty1 ty2)
@@ -127,13 +128,22 @@ normaliseFfiType' env ty0 = go [] ty0
       = do (coi,nty1,gres1) <- go rec_nts ty1
            return (mkForAllCo_TyHomo tyvar coi, mkForAllTy tyvar nty1, gres1)
 
-    go rec_nts ty@(CastTy {})
-      = pprPanic "normaliseFfiType'" (ppr ty)
-    go rec_nts ty@(CoercionTy {})
+    go rec_nts (CastTy ty1 co)
+      = do (coi,nty1,gres1) <- go rec_nts ty1
+           ASSERT( typeKind nty1 `eqType` typeKind ty1 )
+             return (castCoercionKind coi co co, mkCastTy nty1 co, gres1)
+
+    go _ ty@(CoercionTy {})
       = pprPanic "normaliseFfiType'" (ppr ty)
 
     go _ ty@(TyVarTy {}) = return (Refl ty, ty, emptyBag)
     go _ ty@(LitTy {})   = return (Refl ty, ty, emptyBag)
+
+
+    go_arg :: [TyCon] -> Type -> TcM (CoercionArg, Type, Bag GlobalRdrElt)
+    go_arg _       (CoercionTy co) = return (CoCoArg co co, CoercionTy co, emptyBag)
+    go_arg rec_nts ty              = do { (co, ty', gres) <- go rec_nts ty
+                                        ; return (TyCoArg co, ty', gres) }
 
 
 checkNewtypeFFI :: GlobalRdrEnv -> [TyCon] -> TyCon -> Maybe GlobalRdrElt

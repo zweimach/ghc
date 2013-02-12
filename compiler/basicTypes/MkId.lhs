@@ -993,7 +993,7 @@ mkDictFunTy tvs theta clas tys
       = []
       | otherwise
       = filterOut discard $
-        substTheta (zipTopTCvSubst (classTyCoVars clas) tys)
+        substTheta (zipTopTCvSubst (classTyVars clas) tys)
                    (classSCTheta clas)
                    -- See Note [Silent Superclass Arguments]
     discard pred = any (`eqPred` pred) theta

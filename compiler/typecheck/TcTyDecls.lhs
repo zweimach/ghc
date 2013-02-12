@@ -202,7 +202,7 @@ calcClassCycles cls
       -- Expand unsaturated classes to their superclass theta if they are yet unseen.
       -- If they have already been seen then we have detected an error!
       | Just cls <- tyConClass_maybe tc
-      , let (env, remainder) = papp (classTyCoVars cls) tys
+      , let (env, remainder) = papp (classTyVars cls) tys
             rest_tys = either (const []) id remainder
       = if cls `elementOfUniqSet` seen
          then (reverse (classTyCon cls:path):) 
