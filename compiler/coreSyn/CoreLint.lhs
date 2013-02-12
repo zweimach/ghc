@@ -216,8 +216,8 @@ lintSingleBinding top_lvl_flag rec_flag (binder,rhs)
         -- Check whether binder's specialisations contain any out-of-scope variables
        ; mapM_ (checkBndrIdInScope binder) bndr_vars 
 
-       ; when (isStrongLoopBreaker (idOccInfo binder) && isInlinePragma (idInlinePragma binder))
-              (addWarnL (ptext (sLit "INLINE binder is (non-rule) loop breaker:") <+> ppr binder))
+-- RAE       ; when (isStrongLoopBreaker (idOccInfo binder) && isInlinePragma (idInlinePragma binder))
+-- RAE              (addWarnL (ptext (sLit "INLINE binder is (non-rule) loop breaker:") <+> ppr binder))
 	      -- Only non-rule loop breakers inhibit inlining
 
       -- Check whether arity and demand type are consistent (only if demand analysis
@@ -290,7 +290,9 @@ lintCoreExpr (Lit lit)
 lintCoreExpr (Cast expr co)
   = do { expr_ty <- lintCoreExpr expr
        ; co' <- applySubstCo co
-       ; (from_ty, to_ty) <- lintStarCoercion co'
+       ; (_, k2, from_ty, to_ty) <- lintCoercion co'
+       ; checkL (isStarKind k2 || isUnliftedTypeKind k2)
+                (ptext (sLit "Target of cast not # or *:") <+> ppr co)
        ; checkTys from_ty expr_ty (mkCastErr expr co' from_ty expr_ty)
        ; return to_ty }
 
@@ -796,7 +798,9 @@ lint_app doc kfn kas
       = go_app kfn' ka
 
     go_app (FunTy kfa kfb) (_,ka)
-      = do { unless (ka `isSubKind` kfa) (addErrL fail_msg)
+      = do { unless (ka `isSubKind` kfa 
+                    || (isStarKind kfa && isUnliftedTypeKind ka) -- TODO (RAE): Remove this horrible hack
+                    ) (addErrL fail_msg)
            ; return kfb }
 
     go_app (ForAllTy kv kfn) (ta,ka)

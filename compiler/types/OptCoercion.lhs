@@ -236,7 +236,7 @@ opt_co env sym (InstCo co1 arg)
     -- ...then we can just extend the current substitution
 
     -- forall over type...
-  | TyCoArg co2 <- arg
+  | TyCoArg co2 <- arg'
   , Just (tv1, tv2, cv, co_body) <- splitForAllCo_Ty_maybe co1
   , Pair ty1 ty2 <- coercionKind co2
   = opt_co (extendTCvSubstList env 
@@ -246,7 +246,7 @@ opt_co env sym (InstCo co1 arg)
            sym co_body
 
     -- forall over coercion...
-  | CoCoArg co2 co3 <- arg
+  | CoCoArg co2 co3 <- arg'
   , Just (cv1, cv2, co_body) <- splitForAllCo_Co_maybe co1
   = opt_co (extendTCvSubstList env [cv1, cv2] (map mkCoercionTy [co2, co3]))
            sym co_body

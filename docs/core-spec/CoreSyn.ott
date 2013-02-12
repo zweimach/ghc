@@ -160,7 +160,7 @@ H :: 'PrimTyCon_' ::= {{ com Primitive type constructors, \coderef{prelude/TysPr
   | *            ::   :: liftedTypeKindTyCon    {{ com Kind of lifted types }}
   | #            ::   :: unliftedTypeKindTyCon  {{ com Kind of unlifted types }}
   | BOX          ::   :: superKindTyCon         {{ com Kind of kinds }}
-  | OpenKind     ::   :: openTypeKindTyCon      {{ com Either $*$ or $\#$ }}
+  | OpenKind     ::   :: openTypeKindTyCon      {{ com Either $[[*]]$ or $[[#]]$ }}
   | Constraint   ::   :: constraintTyCon        {{ com Constraint }}
 
 %% CONTEXTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

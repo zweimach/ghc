@@ -181,6 +181,12 @@ We include some representative primitive type constructors. There are many more 
 
 \gram{\ottH}
 
+Note that although GHC contains distinct type constructors $[[*]]$, $[[BOX]]$,
+and $[[Constraint]]$, this formalism treats only $[[*]]$. These three type
+constructors are considered wholly equivalent. In particular the function
+\texttt{eqType} returns \texttt{True} when comparing any two members of this
+group. We need all three because they have different roles in source Haskell.
+
 \section{Contexts}
 
 The functions in \ghcfile{coreSyn/CoreLint.lhs} use the \texttt{LintM} monad.

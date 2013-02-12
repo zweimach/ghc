@@ -727,6 +727,10 @@ type UnaryType = Type
 data RepType = UbxTupleRep [UnaryType] -- INVARIANT: never an empty list (see Note [Nullary unboxed tuple])
              | UnaryRep UnaryType
 
+instance Outputable RepType where
+  ppr (UbxTupleRep tys) = ptext (sLit "UbxTupleRep") <+> ppr tys
+  ppr (UnaryRep ty)     = ptext (sLit "UnaryRep")    <+> ppr ty
+
 flattenRepType :: RepType -> [UnaryType]
 flattenRepType (UbxTupleRep tys) = tys
 flattenRepType (UnaryRep ty)     = [ty]
@@ -749,8 +753,12 @@ repType ty
       | Just ty' <- coreView ty
       = go rec_nts ty'
 
-    go rec_nts (ForAllTy _ ty)		-- Drop foralls
-	= go rec_nts ty
+    go rec_nts ty@(ForAllTy tv ty2)		-- Drop type foralls
+      | isTyVar tv
+      = go rec_nts ty2
+      | otherwise
+      = -- abstractions over coercions exist in the representation
+        UnaryRep ty
 
     go rec_nts (TyConApp tc tys)	-- Expand newtypes
       | isNewTyCon tc
@@ -784,6 +792,7 @@ typePrimRep ty
       UbxTupleRep _ -> pprPanic "typePrimRep: UbxTupleRep" (ppr ty)
       UnaryRep rep -> go rep
     where go (TyConApp tc _) = tyConPrimRep tc
+          go (ForAllTy _v _) = ASSERT( isCoVar _v ) PtrRep
           go (FunTy _ _)     = PtrRep
           go (AppTy _ _)     = PtrRep      -- See Note [AppTy rep] 
           go (TyVarTy _)     = PtrRep
@@ -793,8 +802,9 @@ typePrimRep ty
 typeRepArity :: Arity -> Type -> RepArity
 typeRepArity 0 _ = 0
 typeRepArity n ty = case repType ty of
-  UnaryRep (FunTy ty1 ty2) -> length (flattenRepType (repType ty1)) + typeRepArity (n - 1) ty2
-  _                        -> pprPanic "typeRepArity: arity greater than type can handle" (ppr (n, ty))
+  UnaryRep (ForAllTy cv ty) -> length (flattenRepType (repType (varType cv))) + typeRepArity (n - 1) ty
+  UnaryRep (FunTy ty1 ty2)  -> length (flattenRepType (repType ty1)) + typeRepArity (n - 1) ty2
+  _                         -> pprPanic "typeRepArity: arity greater than type can handle" (ppr (n, ty, repType ty))
 \end{code}
 
 Note [AppTy rep]

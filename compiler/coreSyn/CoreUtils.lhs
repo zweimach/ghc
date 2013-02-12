@@ -147,6 +147,7 @@ Note that there might be existentially quantified coercion variables, too.
 applyTypeToArg :: Type -> CoreExpr -> Type
 -- ^ Determines the type resulting from applying an expression to a function with the given type
 applyTypeToArg fun_ty (Type arg_ty) = applyTy fun_ty arg_ty
+applyTypeToArg fun_ty (Coercion co) = applyTy fun_ty (mkCoercionTy co)
 applyTypeToArg fun_ty _             = funResultTy fun_ty
 
 applyTypeToArgs :: CoreExpr -> Type -> [CoreExpr] -> Type
@@ -154,12 +155,16 @@ applyTypeToArgs :: CoreExpr -> Type -> [CoreExpr] -> Type
 -- The first argument is just for debugging, and gives some context
 applyTypeToArgs _ op_ty [] = op_ty
 
-applyTypeToArgs e op_ty (Type ty : args)
+applyTypeToArgs e op_ty (arg : args)
+  | Type ty <- arg
   =     -- Accumulate type arguments so we can instantiate all at once
     go [ty] args
+  | Coercion co <- arg
+  = go [mkCoercionTy co] args
   where
-    go rev_tys (Type ty : args) = go (ty:rev_tys) args
-    go rev_tys rest_args         = applyTypeToArgs e op_ty' rest_args
+    go rev_tys (Type ty : args)     = go (ty:rev_tys) args
+    go rev_tys (Coercion co : args) = go (mkCoercionTy co : rev_tys) args
+    go rev_tys rest_args            = applyTypeToArgs e op_ty' rest_args
                                  where
                                    op_ty' = applyTysD msg op_ty (reverse rev_tys)
                                    msg = ptext (sLit "applyTypeToArgs") <+>

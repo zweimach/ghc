@@ -1046,12 +1046,13 @@ tcIfaceCoApp :: KindFlag -> IfaceCoCon -> [IfaceType] -> IfL Coercion
 tcIfaceCoApp kf IfaceReflCo      [t]     = Refl        <$> tcIfaceTyKi kf t
 tcIfaceCoApp _  (IfaceCoAx n i)  ts
   = do { ax <- tcIfaceCoAxiom n
-       ; let tvs = coAxBranchTyCoVars $ coAxiomNthBranch ax i
-             kind = mkForAllTys tvs bottom
+       ; let branch = coAxiomNthBranch ax i
+             tvs = coAxBranchTyCoVars branch
+             lhs = mkTyConApp (coAxiomTyCon ax) (coAxBranchLHS branch)
+             rhs = coAxBranchRHS branch
+             kind = mkForAllTys tvs (mkCoercionType lhs rhs)
        ; cos <- tcIfaceCoArgs (pure kind) ts
        ; return $ AxiomInstCo ax i cos }
-  where
-    bottom = pprPanic "tcIfaceCoApp#IfaceCoAx" (ppr n <> brackets (ppr i))
 tcIfaceCoApp kf IfaceUnsafeCo    [t1,t2] = UnsafeCo    <$> tcIfaceTyKi kf t1 <*> tcIfaceTyKi kf t2
 tcIfaceCoApp kf IfaceSymCo       [t]     = SymCo       <$> tcIfaceTyKiCo kf t
 tcIfaceCoApp kf IfaceTransCo     [t1,t2] = TransCo     <$> tcIfaceTyKiCo kf t1 <*> tcIfaceTyKiCo kf t2

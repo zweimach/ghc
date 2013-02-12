@@ -54,7 +54,8 @@ t = literalType lit
 G |-tm lit : t
 
 G |-tm e : s
-G |-co g : s *~#* t
+G |-co g : s k1~#k2 t
+k2 elt { *, # }
 ------------------- :: Cast
 G |-tm e |> g : t
 
@@ -438,8 +439,8 @@ defn G |- arrow k1 -> k2 : k ::  :: lintArrow :: 'Arrow_'
   {{ tex [[G]] \labeledjudge{\rightarrow} [[k1]] [[->]] [[k2]] : [[k]] }}
 by
 
-k1 elt { *, #, Constraint }
-k2 elt { *, #, Constraint }
+k1 elt { *, # }
+k2 elt { *, # }
 ------------------------- :: Kind
 G |-arrow k1 -> k2 : *
 
@@ -473,30 +474,6 @@ k <: k
 
 ------------------- :: LiftedTypeKindOpen
 * <: OpenKind
-
------------------- :: SuperKindOpen
-BOX <: OpenKind
-
----------------------- :: ConstraintOpen
-Constraint <: OpenKind
-
-------------------- :: ConstraintLifted
-Constraint <: *
-
------------------- :: ConstraintSuperKind
-Constraint <: BOX
-
------------------- :: LiftedConstraint
-* <: Constraint
-
----------------- :: LiftedSuperKind
-* <: BOX
-
--------------- :: SuperKindConstraint
-BOX <: Constraint
-
--------------- :: SuperKindLifted
-BOX <: *
 
 defn no_conflict ( C , </ sj // j /> , ind ) ::  :: check_no_conflict :: 'NoConflict_'
   {{ com Branched axiom conflict checking, \coderef{coreSyn/CoreLint.lhs}{lintCoercion\#check\_no\_conflict} }}

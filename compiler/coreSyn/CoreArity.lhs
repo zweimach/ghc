@@ -784,15 +784,15 @@ etaExpand n orig_expr
   where
       -- Strip off existing lambdas and casts
       -- Note [Eta expansion and SCCs]
-    go 0 expr = pprTrace "ee0" (ppr expr) -- RAE
+    go 0 expr = -- pprTrace "ee0" (ppr expr) -- RAE
                 expr
-    go n (Lam v body) | isTyVar v = pprTrace "ee1" (vcat [ppr n, ppr v, ppr body]) $ -- RAE
+    go n (Lam v body) | isTyVar v = -- pprTrace "ee1" (vcat [ppr n, ppr v, ppr body]) $ -- RAE
                                     Lam v (go n     body)
-       	              | otherwise = pprTrace "ee2" (vcat [ppr n, ppr v, ppr body]) $ -- RAE
+       	              | otherwise = -- pprTrace "ee2" (vcat [ppr n, ppr v, ppr body]) $ -- RAE
                                     Lam v (go (n-1) body)
-    go n (Cast expr co) = pprTrace "ee3" (vcat [ppr n, ppr expr, ppr co]) $ -- RAE
+    go n (Cast expr co) = -- pprTrace "ee3" (vcat [ppr n, ppr expr, ppr co]) $ -- RAE
                           Cast (go n expr) co
-    go n expr           = pprTrace "ee4" (vcat [ppr orig_expr, ppr expr, ppr etas]) $ -- RAE
+    go n expr           = -- pprTrace "ee4" (vcat [ppr orig_expr, ppr expr, ppr etas, ppr (etaInfoApp subst' expr etas), ppr (etaInfoAbs etas (etaInfoApp subst' expr etas))]) $ -- RAE
        	 		  etaInfoAbs etas (etaInfoApp subst' expr etas)
     	  		where
 			    in_scope = mkInScopeSet (exprFreeVars expr)
@@ -830,17 +830,17 @@ etaInfoApp :: Subst -> CoreExpr -> [EtaInfo] -> CoreExpr
 -- 	       ((substExpr s e) `appliedto` eis)
 
 etaInfoApp subst (Lam v1 e) (EtaVar v2 : eis) 
-  = pprTrace "eia1" (vcat [ppr subst, ppr v1, ppr e, ppr v2, ppr eis]) $ -- RAE
+  = -- pprTrace "eia1" (vcat [ppr subst, ppr v1, ppr e, ppr v2, ppr eis]) $ -- RAE
     etaInfoApp (CoreSubst.extendSubstWithVar subst v1 v2) e eis
 
 etaInfoApp subst (Cast e co1) eis
-  = pprTrace "eia2" (vcat [ppr subst, ppr e, ppr co1, ppr eis]) $ -- RAE
+  = -- pprTrace "eia2" (vcat [ppr subst, ppr e, ppr co1, ppr eis]) $ -- RAE
     etaInfoApp subst e (pushCoercion co' eis)
   where
     co' = CoreSubst.substCo subst co1
 
 etaInfoApp subst (Case e b ty alts) eis 
-  = pprTrace "eia3" (vcat [ppr subst, ppr e, ppr alts, ppr eis]) $ -- RAE
+  = -- pprTrace "eia3" (vcat [ppr subst, ppr e, ppr alts, ppr eis]) $ -- RAE
     Case (subst_expr subst e) b1 (mk_alts_ty (CoreSubst.substTy subst ty) eis) alts'
   where
     (subst1, b1) = substBndr subst b
@@ -854,24 +854,24 @@ etaInfoApp subst (Case e b ty alts) eis
     mk_alts_ty _  (EtaCo co : eis) = mk_alts_ty (pSnd (coercionKind co)) eis
     
 etaInfoApp subst (Let b e) eis 
-  = pprTrace "eia4" (vcat [ppr subst, ppr b, ppr e, ppr eis]) $ -- RAE
+  = -- pprTrace "eia4" (vcat [ppr subst, ppr b, ppr e, ppr eis]) $ -- RAE
     Let b' (etaInfoApp subst' e eis)
   where
     (subst', b') = subst_bind subst b
 
 etaInfoApp subst (Tick t e) eis
-  = pprTrace "eia5" (vcat [ppr subst, ppr t, ppr e, ppr eis]) $ -- RAE
+  = -- pprTrace "eia5" (vcat [ppr subst, ppr t, ppr e, ppr eis]) $ -- RAE
     Tick (substTickish subst t) (etaInfoApp subst e eis)
 
 etaInfoApp subst e eis
-  = pprTrace "eia6" (vcat [ppr subst, ppr e, ppr eis]) $ -- RAE
+  = -- pprTrace "eia6" (vcat [ppr subst, ppr e, ppr eis]) $ -- RAE
     go (subst_expr subst e) eis
   where
-    go e []                  = pprTrace "eia_go1" (ppr e) $ -- RAE
+    go e []                  = -- pprTrace "eia_go1" (ppr e) $ -- RAE
                                e
-    go e (EtaVar v    : eis) = pprTrace "eia_go2" (vcat [ppr e, ppr v, ppr eis]) $ -- RAE
+    go e (EtaVar v    : eis) = -- pprTrace "eia_go2" (vcat [ppr e, ppr v, ppr eis]) $ -- RAE
                                go (App e (varToCoreExpr v)) eis
-    go e (EtaCo co    : eis) = pprTrace "eia_go3" (vcat [ppr e, ppr co, ppr eis]) $ -- RAE
+    go e (EtaCo co    : eis) = -- pprTrace "eia_go3" (vcat [ppr e, ppr co, ppr eis]) $ -- RAE
                                go (Cast e co) eis
 
 --------------
@@ -941,7 +941,8 @@ freshEtaId :: Int -> TCvSubst -> Type -> (TCvSubst, Id)
 -- The Int is just a reasonable starting point for generating a unique;
 -- it does not necessarily have to be unique itself.
 freshEtaId n subst ty
-      = (subst', eta_id')
+      = -- pprTrace "freshEtaId" (vcat [ppr subst, ppr ty, ppr subst', ppr eta_id']) $ -- RAE
+        (subst', eta_id')
       where
         ty'     = Type.substTy subst ty
 	eta_id' = uniqAway (getTCvInScope subst) $
