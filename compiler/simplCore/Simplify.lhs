@@ -989,8 +989,7 @@ simplCoercionF env co cont
 simplCoercion :: SimplEnv -> InCoercion -> SimplM OutCoercion
 simplCoercion env co
   = let opt_co = optCoercion (getTCvSubst env) co
-    in -- pprTrace "simplCoercion" (vcat [ppr co, ppr opt_co, ppr (getTCvSubst env)]) $ -- RAE
-       seqCo opt_co `seq` return opt_co
+    in seqCo opt_co `seq` return opt_co
 
 -----------------------------------
 -- | Push a TickIt context outwards past applications and cases, as
@@ -1165,8 +1164,7 @@ rebuild :: SimplEnv -> OutExpr -> SimplCont -> SimplM (SimplEnv, OutExpr)
 rebuild env expr cont
   = case cont of
       Stop {}                       -> return (env, expr)
-      CoerceIt co cont              -> -- pprTrace "CoerceIt" (vcat [ppr expr, ppr (exprType expr), ppr co, ppr (seTvSubst env), ppr cont]) $ -- RAE
-                                       rebuild env (mkCast expr co) cont
+      CoerceIt co cont              -> rebuild env (mkCast expr co) cont
                                     -- NB: mkCast implements the (Coercion co |> g) optimisation
       Select _ bndr alts se cont    -> rebuildCase (se `setFloats` env) expr bndr alts cont
       StrictArg info _ cont         -> rebuildCall env (info `addArgTo` expr) cont
@@ -1247,8 +1245,7 @@ simplCast env body co0 cont0
            -- t2 ~ s2 with left and right on the curried form:
            --    (->) t1 t2 ~ (->) s1 s2
            [co1, co2] = map stripTyCoArg $ decomposeCo 2 co
-           new_arg    = -- pprTrace "add_coerce" (vcat [ppr arg', ppr (exprType arg'), ppr co1]) $ -- RAE
-                        mkCast arg' (mkSymCo co1)
+           new_arg    = mkCast arg' (mkSymCo co1)
            arg'       = substExpr (text "move-cast") arg_se' arg
            arg_se'    = arg_se `setInScope` env
 
