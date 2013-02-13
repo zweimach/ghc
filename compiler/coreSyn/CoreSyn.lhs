@@ -1285,8 +1285,8 @@ collectBinders expr
 collectTyAndValBinders expr
   = go_forall [] [] expr
   where go_forall tvs ids (Lam b e)
-          | isTyVar b       = go (b:tvs) ids e
-          | isCoVar b       = go tvs (b:ids) e
+          | isTyVar b       = go_forall (b:tvs) ids e
+          | isCoVar b       = go_forall tvs (b:ids) e
         go_forall tvs ids e = go_fun tvs ids e
         
         go_fun tvs ids (Lam b e)
