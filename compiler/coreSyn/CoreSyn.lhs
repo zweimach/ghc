@@ -38,7 +38,7 @@ module CoreSyn (
 	
 	-- ** Simple 'Expr' access functions and predicates
 	bindersOf, bindersOfBinds, rhssOfBind, rhssOfAlts, 
-	collectBinders, collectTyBinders, collectValBinders, collectTyAndValBinders,
+	collectBinders, collectTyAndValBinders,
         collectArgs, flattenBinds,
 
         isValArg, isTypeArg, isTyCoArg, valArgCount, valBndrCount,
@@ -1269,13 +1269,7 @@ flattenBinds []			  = []
 -- | We often want to strip off leading lambdas before getting down to
 -- business. This function is your friend.
 collectBinders	             :: Expr b -> ([b],         Expr b)
--- | Collect as many type bindings as possible from the front of a nested lambda
-collectTyBinders       	     :: CoreExpr -> ([TyVar],     CoreExpr)
--- | Collect as many value bindings as possible from the front of a nested lambda
-collectValBinders      	     :: CoreExpr -> ([Id],        CoreExpr)
--- | Collect type binders from the front of the lambda first, 
--- then follow up by collecting as many value bindings as possible
--- from the resulting stripped expression
+-- | Collect type and value binders from nested lambdas.
 collectTyAndValBinders 	     :: CoreExpr -> ([TyVar], [Id], CoreExpr)
 
 collectBinders expr
@@ -1285,22 +1279,11 @@ collectBinders expr
     go bs e	     = (reverse bs, e)
 
 collectTyAndValBinders expr
-  = (tvs, ids, body)
-  where
-    (tvs, body1) = collectTyBinders expr
-    (ids, body)  = collectValBinders body1
-
-collectTyBinders expr
-  = go [] expr
-  where
-    go tvs (Lam b e) | isTyVar b = go (b:tvs) e
-    go tvs e			 = (reverse tvs, e)
-
-collectValBinders expr
-  = go [] expr
-  where
-    go ids (Lam b e) | isId b = go (b:ids) e
-    go ids body		      = (reverse ids, body)
+  = go [] [] expr
+  where go tvs ids (Lam b e)
+          | isTyVar b = go (b:tvs) ids e
+          | otherwise = go tvs (b:ids) e
+        go tvs ids e = (reverse tvs, reverse ids, e)
 \end{code}
 
 \begin{code}

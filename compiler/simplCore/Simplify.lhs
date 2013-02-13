@@ -325,9 +325,9 @@ simplLazyBind :: SimplEnv
 simplLazyBind env top_lvl is_rec bndr bndr1 rhs rhs_se
   = -- pprTrace "simplLazyBind" ((ppr bndr <+> ppr bndr1) $$ ppr rhs $$ ppr (seIdSubst rhs_se)) $
     do  { let   rhs_env     = rhs_se `setInScope` env
-                (tvs, body) = case collectTyBinders rhs of
-                                (tvs, body) | not_lam body -> (tvs,body)
-                                            | otherwise    -> ([], rhs)
+                (tvs, body) = case collectTyAndValBinders rhs of
+                                (tvs, [], body) -> (tvs, body)
+                                _               -> ([], rhs)
                 not_lam (Lam _ _) = False
                 not_lam _         = True
                         -- Do not do the "abstract tyyvar" thing if there's

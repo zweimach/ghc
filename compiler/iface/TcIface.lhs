@@ -1001,7 +1001,7 @@ tcIfaceTyKiCo kf = go
     go (IfaceTyVar n)         = mkCoVarCo <$> tcIfaceCoVar n
     go (IfaceAppTy t1 t2)
       = do { co1' <- go t1
-           ; [co2'] <- tcIfaceCoArgs (coercionKind co1') [t2]
+           ; [co2'] <- tcIfaceCoArgs (typeKind <$> coercionKind co1') [t2]
            ; return $ mkAppCo co1' co2' }
     go (IfaceFunTy t1 t2)     = mkFunCo <$> go t1 <*> go t2
     go (IfaceTyConApp tc ts)
@@ -1021,7 +1021,7 @@ tcIfaceTyKiCoArg kf co = TyCoArg <$> tcIfaceTyKiCo kf co
 
 tcIfaceCoArgs :: Pair Kind -> [IfaceType] -> IfL [CoercionArg]
 tcIfaceCoArgs _ [] = return []
-tcIfaceCoArgs (Pair kind1 kind2) (co:cos)
+tcIfaceCoArgs kinds@(Pair kind1 kind2) (co:cos)
   | Just (arg1, res1) <- splitFunTy_maybe kind1
   = do { let kf = determineLevel arg1
        ; co' <- tcIfaceTyKiCoArg kf co
@@ -1040,7 +1040,7 @@ tcIfaceCoArgs (Pair kind1 kind2) (co:cos)
        ; return (co':cos') }
  
   | otherwise
-  = pprPanic "tcIfaceCoArgs" (ppr kind1)
+  = pprPanic "tcIfaceCoArgs" (ppr kinds $$ ppr (co:cos))
 
 tcIfaceCoApp :: KindFlag -> IfaceCoCon -> [IfaceType] -> IfL Coercion
 tcIfaceCoApp kf IfaceReflCo      [t]     = Refl        <$> tcIfaceTyKi kf t

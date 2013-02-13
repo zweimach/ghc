@@ -878,9 +878,13 @@ mkEtaWW orig_n orig_expr in_scope orig_ty
        = (getTCvInScope subst, reverse eis)
 
        | Just (tv,ty') <- splitForAllTy_maybe ty
-       , let (subst', tv') = Type.substTyCoVarBndr subst tv
            -- Avoid free vars of the original expression
-       = go n subst' ty' (EtaVar tv' : eis)
+       = let (subst1, tv1) = Type.substTyCoVarBndr subst tv
+             ((subst2, tv2), new_n)
+               = if isTyVar tv
+                 then ((subst1, tv1), n)
+                 else (freshEtaId n subst1 (varType tv1), n-1)
+         in go new_n subst2 ty' (EtaVar tv2 : eis)
 
        | Just (arg_ty, res_ty) <- splitFunTy_maybe ty
        , let (subst', eta_id') = freshEtaId n subst arg_ty 
