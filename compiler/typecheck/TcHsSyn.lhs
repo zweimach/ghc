@@ -1145,7 +1145,7 @@ zonkVects env = mappM (wrapLocM (zonkVect env))
 zonkVect :: ZonkEnv -> VectDecl TcId -> TcM (VectDecl Id)
 zonkVect env (HsVect v e)
   = do { v' <- wrapLocM (zonkIdBndr env) v
-       ; e' <- fmapMaybeM (zonkLExpr env) e
+       ; e' <- zonkLExpr env e
        ; return $ HsVect v' e'
        }
 zonkVect env (HsNoVect v)

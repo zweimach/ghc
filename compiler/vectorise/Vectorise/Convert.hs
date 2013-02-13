@@ -11,8 +11,11 @@ import CoreSyn
 import TyCon
 import Type
 import TyCoRep
+import NameSet
 import FastString
 import Outputable
+
+import Control.Applicative
 
 
 -- |Convert a vectorised expression such that it computes the non-vectorised equivalent of its
@@ -86,16 +89,17 @@ identityConv (ForAllTy {})   = noV $ text "identityConv: quantified type changes
 identityConv (CastTy {})     = noV $ text "identityConv: not sure about casted types under vectorisation"
 identityConv (CoercionTy {}) = noV $ text "identityConv: not sure about coercions under vectorisation"
 
--- |Check that this type constructor is neutral under type vectorisation — i.e., it is not altered
--- by vectorisation as they contain no parallel arrays.
+-- |Check that this type constructor is not changed by vectorisation — i.e., it does not embed any
+-- parallel arrays.
 --
 identityConvTyCon :: TyCon -> VM ()
 identityConvTyCon tc
-  | isBoxedTupleTyCon tc = return ()
-  | isUnLiftedTyCon tc   = return ()
-  | otherwise 
-  = do tc' <- maybeV notVectErr (lookupTyCon tc)
-       if tc == tc' then return () else noV idErr
+  = do 
+    { isParallel <- (tyConName tc `elemNameSet`) <$> globalParallelTyCons
+    ; parray     <- builtin parrayTyCon
+    ; if isParallel && not (tc == parray)
+      then noV idErr
+      else return ()
+    }
   where
-    notVectErr = text "identityConvTyCon: no vectorised version for type constructor" <+> ppr tc
-    idErr      = text "identityConvTyCon: type constructor contains parallel arrays"   <+> ppr tc
+    idErr = text "identityConvTyCon: type constructor contains parallel arrays" <+> ppr tc
