@@ -29,9 +29,9 @@ import CoreFVs
 import Class
 import DataCon
 import TyCon
-import TcType hiding ( lookupVar )
-import Type hiding ( lookupVar )
-import TypeRep
+import TcType  hiding ( lookupVar )
+import Type    hiding ( lookupVar )
+import TyCoRep hiding ( lookupVar )
 import Var
 import VarEnv
 import VarSet

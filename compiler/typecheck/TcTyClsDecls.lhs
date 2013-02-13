@@ -1465,7 +1465,7 @@ checkValidClass cls
       = tcAddDefaultAssocDeclCtxt (tyConName fam_tc) $ 
         mapM_ (checkValidTyFamInst mb_clsinfo fam_tc) defs
 
-    mb_clsinfo = Just (cls, mkVarEnv [ (tv, mkTyVarTy tv) | tv <- tyvars ])
+    mb_clsinfo = Just (cls, mkVarEnv [ (tv, mkOnlyTyVarTy tv) | tv <- tyvars ])
 
 checkFamFlag :: Name -> TcM ()
 -- Check that we don't use families without -XTypeFamilies

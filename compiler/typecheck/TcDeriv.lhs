@@ -584,7 +584,7 @@ deriveTyData tvs tc tc_args (L loc deriv_pred)
                 -- Typeable is special
         ; if className cls == typeableClassName
           then mkEqnHelp DerivOrigin
-                  (varSetElemsKvsFirst (mkVarSet tvs `extendVarSetList` deriv_tvs))
+                  (varSetElemsWellScoped (mkVarSet tvs `extendVarSetList` deriv_tvs))
                   cls cls_tys (mkTyConApp tc tc_args) Nothing
           else do {
 

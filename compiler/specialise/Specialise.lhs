@@ -9,7 +9,7 @@ module Specialise ( specProgram ) where
 #include "HsVersions.h"
 
 import Id
-import TcType hiding( substTy, extendTvSubstList )
+import TcType hiding( substTy, extendTCvSubstList )
 import Type( TyVar, isDictTy, mkPiTypes )
 import Coercion( Coercion )
 import CoreMonad
@@ -1862,9 +1862,9 @@ mapAndCombineSM f (x:xs) = do (y, uds1) <- f x
                               (ys, uds2) <- mapAndCombineSM f xs
                               return (y:ys, uds1 `plusUDs` uds2)
 
-extendTvSubstList :: SpecEnv -> [(TyVar,Type)] -> SpecEnv
-extendTvSubstList env tv_binds 
-  = env { se_subst = CoreSubst.extendTvSubstList (se_subst env) tv_binds }
+extendTCvSubstList :: SpecEnv -> [(TyVar,Type)] -> SpecEnv
+extendTCvSubstList env tv_binds 
+  = env { se_subst = CoreSubst.extendTCvSubstList (se_subst env) tv_binds }
 
 substTy :: SpecEnv -> Type -> Type
 substTy env ty = CoreSubst.substTy (se_subst env) ty
