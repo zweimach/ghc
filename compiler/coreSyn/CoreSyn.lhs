@@ -1269,7 +1269,11 @@ flattenBinds []			  = []
 -- | We often want to strip off leading lambdas before getting down to
 -- business. This function is your friend.
 collectBinders	             :: Expr b -> ([b],         Expr b)
--- | Collect type and value binders from nested lambdas.
+-- | Collect type and value binders from nested lambdas, stopping
+-- right before any "forall"s within a non-forall. For example,
+-- forall (a :: *) (b :: Foo ~ Bar) (c :: *). Baz -> forall (d :: *). Blob
+-- will pull out the binders for a, b, c, and Baz, but not for d or anything
+-- within Blob. This is to coordinate with tcSplitSigmaTy.
 collectTyAndValBinders 	     :: CoreExpr -> ([TyVar], [Id], CoreExpr)
 
 collectBinders expr
@@ -1279,11 +1283,15 @@ collectBinders expr
     go bs e	     = (reverse bs, e)
 
 collectTyAndValBinders expr
-  = go [] [] expr
-  where go tvs ids (Lam b e)
-          | isTyVar b = go (b:tvs) ids e
-          | otherwise = go tvs (b:ids) e
-        go tvs ids e = (reverse tvs, reverse ids, e)
+  = go_forall [] [] expr
+  where go_forall tvs ids (Lam b e)
+          | isTyVar b       = go (b:tvs) ids e
+          | isCoVar b       = go tvs (b:ids) e
+        go_forall tvs ids e = go_fun tvs ids e
+        
+        go_fun tvs ids (Lam b e)
+          | isId b          = go_fun tvs (b:ids) e
+        go_fun tvs ids e    = (reverse tvs, reverse ids, e)
 \end{code}
 
 \begin{code}

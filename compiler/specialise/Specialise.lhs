@@ -1052,7 +1052,8 @@ specCalls env rules_for_me calls_for_me fn rhs
     -- pprTrace "specDefn: none" (ppr fn <+> ppr calls_for_me) $
     return ([], [], emptyUDs)
   where
-    _trace_doc = sep [ ppr rhs_tyvars, ppr n_tyvars
+    _trace_doc = sep [ ppr fn_type, ppr rhs
+                     , ppr rhs_tyvars, ppr n_tyvars
                      , ppr rhs_ids, ppr n_dicts
                      , ppr (idInlineActivation fn) ]
 
@@ -1629,11 +1630,9 @@ mkCallUDs env f args
 
     -- ignores Coercion arguments
     type_zip :: [TyVar] -> [CoreExpr] -> [(TyVar, Type)]
-    type_zip []       _                   = []
     type_zip tvs      (Coercion _ : args) = type_zip tvs args
     type_zip (tv:tvs) (Type ty : args)    = (tv, ty) : type_zip tvs args
-    type_zip tvs      args                
-      = pprPanic "mkCallUDs" (ppr tvs $$ ppr args)
+    type_zip _        _                   = []
 
     mk_spec_ty tyvar ty
         | tyvar `elemVarSet` constrained_tyvars = Just ty
