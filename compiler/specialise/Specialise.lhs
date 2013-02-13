@@ -1105,8 +1105,8 @@ specCalls env rules_for_me calls_for_me fn rhs
       | (dict:dicts') <- dicts
       = dict : stitch_tys_dicts vs tys dicts'
 
-      | otherwise
-      = pprPanic "stitch_tys_dicts" (vcat [ppr (v:vs), ppr tys, ppr dicts])
+    stitch_tys_dicts vs tys dicts
+      = pprPanic "stitch_tys_dicts" (vcat [ppr vs, ppr tys, ppr dicts])
 
     ----------------------------------------------------------
         -- Specialise to one particular call pattern

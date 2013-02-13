@@ -1531,8 +1531,9 @@ cf Type.applyTys (which in fact we call here)
 applyCo :: Type -> Coercion -> Type
 -- Gives the type of (e co) where e :: (a~b) => ty
 applyCo ty co | Just ty' <- coreView ty = applyCo ty' co
-applyCo (FunTy _ ty) _ = ty
-applyCo _            _ = panic "applyCo"
+applyCo (ForAllTy cv ty) co = substTyWith [cv] [CoercionTy co] ty
+applyCo (FunTy _ ty)     _  = ty
+applyCo _                _  = panic "applyCo"
 \end{code}
 
 Utility function, needed in DsBinds:
