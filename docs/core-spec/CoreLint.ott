@@ -186,35 +186,35 @@ G |-app (t2 : k'2) : k2 ~> k4
 --------------------- :: AppCo
 G |-co g w : (s1 t1) k3~#k4 (s2 t2)
 
-G, alpha_k |-co g : t1 *~#* t2
-G |-ty forall alpha_k.t1 : *
-G |-ty forall alpha_k.t2 : *
+G, alpha_k |-co g : t1 k1~#k2 t2
+G |-ty forall alpha_k.t1 : k1
+G |-ty forall alpha_k.t2 : k2
 --------------------------------------------------------------------------- :: ForAllCo_TyHomo
-G |-co forall alpha_k. g : (forall alpha_k. t1) *~#* (forall alpha_k. t2)
+G |-co forall alpha_k. g : (forall alpha_k. t1) k1~#k2 (forall alpha_k. t2)
 
 G |-co h : k1 *~#* k2
-G, alpha1_k1, alpha2_k2, c_(alpha1$ k1~#k2 alpha2$) |-co g : t1 *~#* t2
-G |-ty forall alpha1_k1.t1 : *
-G |-ty forall alpha2_k2.t2 : *
+G, alpha1_k1, alpha2_k2, c_(alpha1$ k1~#k2 alpha2$) |-co g : t1 k3~#k4 t2
+G |-ty forall alpha1_k1.t1 : k3
+G |-ty forall alpha2_k2.t2 : k4
 ----------------------------------------------------------------------------------------------- :: ForAllCo_TyHetero
-G |-co forall h (alpha1_k1, alpha2_k2, c$). g : (forall alpha1_k1. t1) *~#* (forall alpha2_k2. t2)
+G |-co forall h (alpha1_k1, alpha2_k2, c$). g : (forall alpha1_k1. t1) k3~#k4 (forall alpha2_k2. t2)
 
 c # |g|
-G, c_phi |-co g : t1 *~#* t2
-G |-ty forall c_phi.t1 : *
-G |-ty forall c_phi.t2 : *
+G, c_phi |-co g : t1 k1~#k2 t2
+G |-ty forall c_phi.t1 : k1
+G |-ty forall c_phi.t2 : k2
 ----------------------------------------------------------------- :: ForAllCo_CoHomo
-G |-co forall c_phi. g : (forall c_phi.t1) *~#* (forall c_phi.t2)
+G |-co forall c_phi. g : (forall c_phi.t1) k1~#k2 (forall c_phi.t2)
 
 c1 # |g|
 c2 # |g|
 G |-co h : phi1 *~#* phi2
 phi1 /= phi2
-G, c1_phi1, c2_phi2 |-co g : t1 *~#* t2
-G |-ty forall c1_phi1.t1 : *
-G |-ty forall c2_phi2.t2 : *
+G, c1_phi1, c2_phi2 |-co g : t1 k1~#k2 t2
+G |-ty forall c1_phi1.t1 : k1
+G |-ty forall c2_phi2.t2 : k2
 ---------------------------------------------------------------------------------- :: ForAllCo_CoHetero
-G |-co forall h (c1_phi1, c2_phi2). g : (forall c1_phi1.t1) *~#* (forall c2_phi2.t2)
+G |-co forall h (c1_phi1, c2_phi2). g : (forall c1_phi1.t1) k1~#k2 (forall c2_phi2.t2)
 
 z_phi elt G
 phi = t1 k1~#k2 t2
@@ -245,7 +245,7 @@ not (ti is_a_coercion)
 ---------------------- :: NthCoTyCon
 G |-co nth i g : si k2~#k2' ti
 
-G |-co g : (forall z1_k1.t1) *~#* (forall z2_k2.t2)
+G |-co g : (forall z1_k1.t1) k3~#k4 (forall z2_k2.t2)
 --------------------------- :: NthCoForAll
 G |-co nth 0 g : k1 *~#* k2
 
@@ -263,12 +263,12 @@ not (t2 is_a_coercion)
 ----------------------- :: LRCoRight
 G |-co Right g : s2 k2~#k2' t2
 
-G |-co g : (forall z1_k1.t1) *~#* (forall z2_k2.t2)
+G |-co g : (forall z1_k1.t1) k3~#k4 (forall z2_k2.t2)
 G |-arg w : (s1 : k1', s2 : k2')
 k1' <: k1
 k2' <: k2
 --------------------- :: InstCo
-G |-co g w : (t1[z1_k1 |-> s1]) *~#* (t2[z2_k2 |-> s2])
+G |-co g w : (t1[z1_k1 |-> s1]) k3~#k4 (t2[z2_k2 |-> s2])
 
 C = T </ axBranchkk // kk />
 0 <= ind < length </ axBranchkk // kk />
@@ -349,9 +349,9 @@ G |-app </ (ti : ki) // i /> : tyConKind T ~> k
 G |-ty T </ ti // i /> : k
 
 G |-ki k1 ok
-G, z_k1 |-ty t : *
+G, z_k1 |-ty t : k2
 ------------------------ :: ForAllTy
-G |-ty forall z_k1. t : *
+G |-ty forall z_k1. t : k2
 
 G |-tylit lit : k
 -------------- :: LitTy
