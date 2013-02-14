@@ -328,8 +328,6 @@ simplLazyBind env top_lvl is_rec bndr bndr1 rhs rhs_se
                 (tvs, body) = case collectTyAndValBinders rhs of
                                 (tvs, [], body) -> (tvs, body)
                                 _               -> ([], rhs)
-                not_lam (Lam _ _) = False
-                not_lam _         = True
                         -- Do not do the "abstract tyyvar" thing if there's
                         -- a lambda inside, because it defeats eta-reduction
                         --    f = /\a. \x. g a x

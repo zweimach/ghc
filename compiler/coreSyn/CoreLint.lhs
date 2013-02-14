@@ -1021,9 +1021,9 @@ lintCoercion co@(AxiomInstCo con ind cos)
            ; let ktv_kind_l = substTy subst_l (tyVarKind ktv)
                  ktv_kind_r = substTy subst_r (tyVarKind ktv)
            ; unless (k' `isSubKind` ktv_kind_l) 
-                    (bad_ax (ptext (sLit "check_ki2") <+> vcat [ ppr co, ppr k', ppr ktv, ppr ktv_kind_l ] ))
+                    (bad_ax (ptext (sLit "check_ki1") <+> vcat [ ppr co, ppr k', ppr ktv, ppr ktv_kind_l ] ))
            ; unless (k'' `isSubKind` ktv_kind_r)
-                    (bad_ax (ptext (sLit "check_ki2") <+> vcat [ ppr co, ppr k', ppr ktv, ppr ktv_kind_r ] ))
+                    (bad_ax (ptext (sLit "check_ki2") <+> vcat [ ppr co, ppr k'', ppr ktv, ppr ktv_kind_r ] ))
            ; return (extendTCvSubst subst_l ktv s', 
                      extendTCvSubst subst_r ktv t') }
 

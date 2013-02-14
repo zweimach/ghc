@@ -1131,7 +1131,7 @@ tryEtaExpand env bndr rhs
        ; WARN( new_arity < old_arity || new_arity < _dmd_arity,
                (ptext (sLit "Arity decrease:") <+> (ppr bndr <+> ppr old_arity
                 <+> ppr new_arity <+> ppr _dmd_arity) $$ ppr new_rhs) )
-                        -- Note [Arity decrease]
+                        -- Note [Arity decrease] in Simplify
          return (new_arity, new_rhs) }
   where
     try_expand dflags

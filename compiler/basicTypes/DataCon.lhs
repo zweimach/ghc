@@ -361,8 +361,10 @@ data DataCon
         dcRep      :: DataConRep,
 
         -- Cached
-        dcRepArity    :: Arity,  -- == length dataConRepArgTys
-        dcSourceArity :: Arity,  -- == length dcOrigArgTys
+          -- dcRepArity == length dataConRepArgTys + count isId dcExTyCoVars
+        dcRepArity    :: Arity,
+          -- dcSourceArity == length dcOrigArgTys + count isId dcExTyCoVars
+        dcSourceArity :: Arity,
 
 	-- Result type of constructor is T t1..tn
 	dcRepTyCon  :: TyCon,		-- Result tycon, T
@@ -627,8 +629,8 @@ mkDataCon name declared_infix
 		  dcFields = fields, dcTag = tag, dcRepType = rep_ty,
 		  dcWorkId = work_id,
                   dcRep = rep, 
-                  dcSourceArity = length orig_arg_tys,
-                  dcRepArity = length rep_arg_tys,
+                  dcSourceArity = length orig_arg_tys + count isId ex_tvs,
+                  dcRepArity = length rep_arg_tys + count isId ex_tvs,
                   dcPromoted = mb_promoted }
 
 	-- The 'arg_stricts' passed to mkDataCon are simply those for the

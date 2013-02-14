@@ -529,7 +529,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
     orig_bangs   = map mk_pred_strict_mark ev_tys ++ dataConStrictMarks data_con
 
     wrap_arg_tys = theta ++ orig_arg_tys
-    wrap_arity   = length wrap_arg_tys
+    wrap_arity   = count isId ex_tvs + length wrap_arg_tys
     	     -- The wrap_args are the arguments *other than* the eq_spec
     	     -- Because we are going to apply the eq_spec args manually in the
     	     -- wrapper
@@ -928,9 +928,9 @@ mkFCallId dflags uniq fcall ty
            `setArityInfo`         arity
            `setStrictnessInfo`    strict_sig
 
-    (_, tau)        = tcSplitForAllTys ty
+    (tvs, tau)      = tcSplitForAllTys ty
     (arg_tys, _)    = tcSplitFunTys tau
-    arity           = length arg_tys
+    arity           = count isId tvs + length arg_tys
     strict_sig      = mkStrictSig (mkTopDmdType (replicate arity evalDmd) topRes)
 \end{code}
 

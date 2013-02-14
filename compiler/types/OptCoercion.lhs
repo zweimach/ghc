@@ -174,12 +174,13 @@ opt_co env sym (CoVarCo cv)
                 ASSERT( isCoVar cv )
                 wrapSym sym (CoVarCo cv)
 
-opt_co env sym (AxiomInstCo con ind cos)
+opt_co env sym co@(AxiomInstCo con ind cos)
     -- Do *not* push sym inside top-level axioms
     -- e.g. if g is a top-level axiom
     --   g a : f a ~ a
     -- then (sym (g ty)) /= g (sym ty) !!
   = wrapSym sym $ mkAxiomInstCo con ind (map (opt_co_arg env False) cos)
+
       -- Note that the_co does *not* have sym pushed into it
 
 opt_co env sym (UnsafeCo ty1 ty2)
@@ -258,14 +259,14 @@ opt_co env sym (InstCo co1 arg)
   | TyCoArg co2' <- arg'
   , Just (tv1', tv2', cv', co'_body) <- splitForAllCo_Ty_maybe co1'
   , Pair ty1' ty2' <- coercionKind co2'
-  = substCo (extendTCvSubstList env [tv1', tv2', cv']
-                                    [ty1', ty2', mkCoercionTy co2']) co'_body
+  = substCoWithIS (getTCvInScope env) [tv1', tv2', cv']
+                                      [ty1', ty2', mkCoercionTy co2'] co'_body
 
  -- forall over coercion...
   | CoCoArg co2' co3' <- arg'
   , Just (cv1', cv2', co'_body) <- splitForAllCo_Co_maybe co1'
-  = substCo (extendTCvSubstList env [cv1',            cv2']
-                                    [CoercionTy co2', CoercionTy co3']) co'_body
+  = substCoWithIS (getTCvInScope env) [cv1',            cv2']
+                                      [CoercionTy co2', CoercionTy co3'] co'_body
 
   | otherwise = InstCo co1' arg'
   where
