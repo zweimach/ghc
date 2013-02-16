@@ -33,6 +33,7 @@ mkHomoCoBndr :: TyCoVar -> ForAllCoBndr
 mkTyHeteroCoBndr :: Coercion -> TyVar -> TyVar -> CoVar -> ForAllCoBndr
 mkCoHeteroCoBndr :: Coercion -> CoVar -> CoVar -> ForAllCoBndr
 getHomoVar_maybe :: ForAllCoBndr -> Maybe TyCoVar
+splitHeteroCoBndr_maybe :: ForAllCoBndr -> Maybe (Coercion, TyCoVar, TyCoVar)
 
 mkCoercionType :: Type -> Type -> Type
 

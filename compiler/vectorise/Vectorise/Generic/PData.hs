@@ -62,7 +62,7 @@ buildDataFamInst name' fam_tc vect_tc rhs
                            (FamInstTyCon ax fam_tc pat_tys)
       ; liftDs $ newFamInst (DataFamilyInst rep_tc) False ax }
  where
-    tyvars    = tyConTyCoVars vect_tc
+    tyvars    = tyConTyVars vect_tc
     rec_flag  = boolToRecFlag (isRecursiveTyCon vect_tc)
 
 buildPDataTyConRhs :: Name -> TyCon -> TyCon -> SumRepr -> VM AlgTyConRhs
@@ -73,7 +73,7 @@ buildPDataTyConRhs orig_name vect_tc repr_tc repr
 
 buildPDataDataCon :: Name -> TyCon -> TyCon -> SumRepr -> VM DataCon
 buildPDataDataCon orig_name vect_tc repr_tc repr
- = do let tvs   = tyConTyCoVars vect_tc
+ = do let tvs   = tyConTyVars vect_tc
       dc_name   <- mkLocalisedName mkPDataDataConOcc orig_name
       comp_tys  <- mkSumTys repr_sel_ty mkPDataType repr
       fam_envs  <- readGEnv global_fam_inst_env
@@ -86,7 +86,7 @@ buildPDataDataCon orig_name vect_tc repr_tc repr
                             []                     -- no eq spec
                             []                     -- no context
                             comp_tys
-                            (mkFamilyTyConApp repr_tc (mkTyCoVarTys tvs))
+                            (mkFamilyTyConApp repr_tc (mkOnlyTyVarTys tvs))
                             repr_tc
 
 
@@ -111,7 +111,7 @@ buildPDatasTyConRhs orig_name vect_tc repr_tc repr
 
 buildPDatasDataCon :: Name -> TyCon -> TyCon -> SumRepr -> VM DataCon
 buildPDatasDataCon orig_name vect_tc repr_tc repr
- = do let tvs   = tyConTyCoVars vect_tc
+ = do let tvs   = tyConTyVars vect_tc
       dc_name        <- mkLocalisedName mkPDatasDataConOcc orig_name
 
       comp_tys  <- mkSumTys repr_sels_ty mkPDatasType repr
@@ -125,7 +125,7 @@ buildPDatasDataCon orig_name vect_tc repr_tc repr
                             []                     -- no eq spec
                             []                     -- no context
                             comp_tys
-                            (mkFamilyTyConApp repr_tc (mkTyCoVarTys tvs))
+                            (mkFamilyTyConApp repr_tc (mkOnlyTyVarTys tvs))
                             repr_tc
 
 
@@ -156,6 +156,6 @@ mkSumTys repr_selX_ty mkTc repr
 {-
 mk_fam_inst :: TyCon -> TyCon -> (TyCon, [Type])
 mk_fam_inst fam_tc arg_tc
-  = (fam_tc, [mkTyConApp arg_tc . mkTyCoVarTys $ tyConTyCoVars arg_tc])
+  = (fam_tc, [mkTyConApp arg_tc . mkOnlyTyVarTys $ tyConTyVars arg_tc])
 -}
 

@@ -746,11 +746,11 @@ matchExpectedConTy data_tc pat_ty
   | Just (fam_tc, fam_args, co_tc) <- tyConFamInstSig_maybe data_tc
     	 -- Comments refer to Note [Matching constructor patterns]
      	 -- co_tc :: forall a. T [a] ~ T7 a
-  = do { (_, tys, subst) <- tcInstTyCoVars PatOrigin (tyConTyCoVars data_tc)
+  = do { (_, tys, subst) <- tcInstTyCoVars PatOrigin (tyConTyVars data_tc)
        	     -- tys = [ty1,ty2]
 
        ; traceTc "matchExpectedConTy" (vcat [ppr data_tc, 
-                                             ppr (tyConTyCoVars data_tc),
+                                             ppr (tyConTyVars data_tc),
                                              ppr fam_tc, ppr fam_args])
        ; co1 <- unifyType (mkTyConApp fam_tc (substTys subst fam_args)) pat_ty
        	     -- co1 : T (ty1,ty2) ~ pat_ty

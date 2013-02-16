@@ -767,7 +767,7 @@ checkBootTyCon tc1 tc2
 
   | Just syn_rhs1 <- synTyConRhs_maybe tc1
   , Just syn_rhs2 <- synTyConRhs_maybe tc2
-  , Just env <- eqTyCoVarBndrs emptyRnEnv2 (tyConTyCoVars tc1) (tyConTyCoVars tc2)
+  , Just env <- eqTyCoVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
   = ASSERT(tc1 == tc2)
     let eqSynRhs (SynFamilyTyCon o1 i1) (SynFamilyTyCon o2 i2)
             = o1==o2 && i1==i2
@@ -778,7 +778,7 @@ checkBootTyCon tc1 tc2
     eqSynRhs syn_rhs1 syn_rhs2
 
   | isAlgTyCon tc1 && isAlgTyCon tc2
-  , Just env <- eqTyCoVarBndrs emptyRnEnv2 (tyConTyCoVars tc1) (tyConTyCoVars tc2)
+  , Just env <- eqTyCoVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
   = ASSERT(tc1 == tc2)
     eqListBy (eqPredX env) (tyConStupidTheta tc1) (tyConStupidTheta tc2) &&
     eqAlgRhs (algTyConRhs tc1) (algTyConRhs tc2)

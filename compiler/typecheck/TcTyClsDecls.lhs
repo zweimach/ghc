@@ -1331,8 +1331,8 @@ checkValidDataCon dflags existential_ok tc con
   = setSrcSpan (srcLocSpan (getSrcLoc con))	$
     addErrCtxt (dataConCtxt con)		$ 
     do	{ traceTc "Validity of data con" (ppr con)
-        ; let tc_tvs = tyConTyCoVars tc
-	      res_ty_tmpl = mkFamilyTyConApp tc (mkTyCoVarTys tc_tvs)
+        ; let tc_tvs = tyConTyVars tc
+	      res_ty_tmpl = mkFamilyTyConApp tc (mkOnlyTyVarTys tc_tvs)
 	      actual_res_ty = dataConOrigResTy con
         ; traceTc "checkValidDataCon" (ppr con $$ ppr tc $$ ppr tc_tvs $$ ppr res_ty_tmpl)
 	; checkTc (isJust (tcMatchTy (mkVarSet tc_tvs)

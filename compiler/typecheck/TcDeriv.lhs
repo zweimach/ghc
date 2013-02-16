@@ -509,7 +509,7 @@ deriveTyDecl (L _ decl@(DataDecl { tcdLName = L _ tc_name
                                  , tcdDataDefn = HsDataDefn { dd_derivs = Just preds } }))
   = tcAddDeclCtxt decl $
     do { tc <- tcLookupTyCon tc_name
-       ; let tvs = tyConTyCoVars tc
+       ; let tvs = tyConTyVars tc
              tys = mkTyCoVarTys tvs
        ; mapM (deriveTyData tvs tc tys) preds }
 
@@ -868,7 +868,7 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
         | is_functor_like = concatMap (deepSubtypesContaining last_tv) tys
         | otherwise       = tys
 
-    rep_tc_tvs = tyConTyCoVars rep_tc
+    rep_tc_tvs = tyConTyVars rep_tc
     last_tv = last rep_tc_tvs
     all_rep_tc_args | cls `hasKey` gen1ClassKey || is_functor_like
                       = rep_tc_args ++ [mkTyCoVarTy last_tv]
@@ -1085,7 +1085,7 @@ cond_oldTypeableOK :: Condition
 --            (b) 7 or fewer args
 cond_oldTypeableOK (_, tc, _)
   | tyConArity tc > 7 = Just too_many
-  | not (all (isSubOpenTypeKind . tyVarKind) (tyConTyCoVars tc))
+  | not (all (isSubOpenTypeKind . tyVarKind) (tyConTyVars tc))
                       = Just bad_kind
   | otherwise         = Nothing
   where
@@ -1116,7 +1116,7 @@ cond_functorOK allowFunctions (_, rep_tc, _)
   | otherwise
   = msum (map check_con data_cons)      -- msum picks the first 'Just', if any
   where
-    tc_tvs            = tyConTyCoVars rep_tc
+    tc_tvs            = tyConTyVars rep_tc
     Just (_, last_tv) = snocView tc_tvs
     bad_stupid_theta  = filter is_bad (tyConStupidTheta rep_tc)
     is_bad pred       = last_tv `elemVarSet` tyCoVarsOfType pred

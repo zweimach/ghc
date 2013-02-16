@@ -117,7 +117,7 @@ pprTyConHdr pefas tyCon
   where
     vars | GHC.isPrimTyCon tyCon ||
 	   GHC.isFunTyCon tyCon = take (GHC.tyConArity tyCon) GHC.alphaTyVars
-	 | otherwise = GHC.tyConTyCoVars tyCon
+	 | otherwise = GHC.tyConTyVars tyCon
 
     keyword | GHC.isSynTyCon tyCon = sLit "type"
             | GHC.isNewTyCon tyCon = sLit "newtype"

@@ -107,7 +107,7 @@ kindAppResult k (a:as) = kindAppResult (piResultTy k a) as
 -- Actually this function works fine on data types too, 
 -- but they'd always return '*', so we never need to ask
 synTyConResKind :: TyCon -> Kind
-synTyConResKind tycon = kindAppResult (tyConKind tycon) (mkTyCoVarTys (tyConTyCoVars tycon))
+synTyConResKind tycon = kindAppResult (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
 
 -- | See "Type#kind_subtyping" for details of the distinction between these 'Kind's
 isOpenTypeKind, isUnliftedTypeKind,

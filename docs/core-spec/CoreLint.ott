@@ -321,6 +321,10 @@ G |-ty k : *
 -------------- :: Star
 G |-ki k ok
 
+G |-ty k : #
+-------------- :: Hash
+G |-ki k ok
+
 defn G |- ty t : k ::  :: lintType :: 'Ty_'  
   {{ com Kinding, \coderef{coreSyn/CoreLint.lhs}{lintType} }}
   {{ tex [[G]] \labeledjudge{ty} [[t]] : [[k]] }}

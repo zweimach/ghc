@@ -40,8 +40,8 @@ buildPReprTyCon orig_tc vect_tc repr
       let axiom = mkSingleCoAxiom name tyvars prepr_tc instTys rhs_ty
       liftDs $ newFamInst SynFamilyInst False axiom
   where
-    tyvars = tyConTyCoVars vect_tc
-    instTys = [mkTyConApp vect_tc . mkTyCoVarTys $ tyConTyCoVars vect_tc]
+    tyvars = tyConTyVars vect_tc
+    instTys = [mkTyConApp vect_tc . mkOnlyTyVarTys $ tyConTyVars vect_tc]
 
 -- buildPAScAndMethods --------------------------------------------------------
 
@@ -97,7 +97,7 @@ buildToPRepr vect_tc repr_ax _ _ repr
 
       return $ Lam arg result
   where
-    ty_args        = mkTyCoVarTys (tyConTyCoVars vect_tc)
+    ty_args        = mkOnlyTyVarTys (tyConTyVars vect_tc)
 
     wrap_repr_inst = wrapTypeUnbranchedFamInstBody repr_ax ty_args
 
@@ -166,7 +166,7 @@ buildFromPRepr vect_tc repr_ax _ _ repr
                          repr
       return $ Lam arg result
   where
-    ty_args = mkTyCoVarTys (tyConTyCoVars vect_tc)
+    ty_args = mkOnlyTyVarTys (tyConTyVars vect_tc)
     res_ty  = mkTyConApp vect_tc ty_args
 
     from_sum _ EmptySum
@@ -229,7 +229,7 @@ buildToArrPRepr vect_tc repr_co pdata_tc _ r
              $ mkWildCase scrut (mkTyConApp pdata_tc ty_args) res_ty
                [(DataAlt pdata_dc, vars, mkCast result co)]
   where
-    ty_args    = mkTyCoVarTys $ tyConTyCoVars vect_tc
+    ty_args    = mkOnlyTyVarTys $ tyConTyVars vect_tc
     el_ty      = mkTyConApp vect_tc ty_args
     [pdata_dc] = tyConDataCons pdata_tc
 
@@ -297,7 +297,7 @@ buildFromArrPRepr vect_tc repr_co pdata_tc _ r
 
       return $ Lam arg expr
  where
-    var_tys     = mkTyCoVarTys $ tyConTyCoVars vect_tc
+    var_tys     = mkOnlyTyVarTys $ tyConTyVars vect_tc
     el_ty       = mkTyConApp vect_tc var_tys
     [pdata_con] = tyConDataCons pdata_tc
 
@@ -382,7 +382,7 @@ buildToArrPReprs vect_tc repr_co _ pdatas_tc r
  where
     -- The element type of the argument.
     --  eg: 'Tree a b'.
-    ty_args = mkTyCoVarTys $ tyConTyCoVars vect_tc
+    ty_args = mkOnlyTyVarTys $ tyConTyVars vect_tc
     el_ty   = mkTyConApp vect_tc ty_args
         
     -- PDatas data constructor
@@ -477,10 +477,10 @@ buildFromArrPReprs vect_tc repr_co _ pdatas_tc r
  where
     -- The element type of the argument.
     --  eg: 'Tree a b'.
-    ty_args      = mkTyCoVarTys $ tyConTyCoVars vect_tc
+    ty_args      = mkOnlyTyVarTys $ tyConTyVars vect_tc
     el_ty        = mkTyConApp vect_tc ty_args
 
-    var_tys      = mkTyCoVarTys $ tyConTyCoVars vect_tc
+    var_tys      = mkOnlyTyVarTys $ tyConTyVars vect_tc
     [pdatas_con] = tyConDataCons pdatas_tc
 
     from_sum res_ty res expr ss

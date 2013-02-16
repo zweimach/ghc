@@ -106,7 +106,7 @@ collect_tdefs dflags tcon tdefs
          | otherwise = 
                 C.Data (qtc dflags tcon) (map make_tbind tyvars) 
                    (map (make_cdef dflags) (tyConDataCons tcon)) 
-    tyvars = tyConTyCoVars tcon
+    tyvars = tyConTyVars tcon
 
 collect_tdefs _ _ tdefs = tdefs
 

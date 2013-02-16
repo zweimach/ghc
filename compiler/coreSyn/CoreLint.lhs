@@ -709,7 +709,7 @@ lintType ty@(TyConApp tc tys)
   | otherwise
   = failWithL (hang (ptext (sLit "Malformed type:")) 2 (ppr ty))
 
-lintType t@(ForAllTy tv ty)
+lintType (ForAllTy tv ty)
   = do { lintTyCoBndrKind tv
        ; k <- addInScopeVar tv (lintType ty) 
        ; return k }

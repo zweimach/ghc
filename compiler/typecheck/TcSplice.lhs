@@ -1222,7 +1222,7 @@ reifyTyCon tc
 
   | isFamilyTyCon tc
   = do { let flavour = reifyFamFlavour tc
-             tvs     = tyConTyCoVars tc
+             tvs     = tyConTyVars tc
              kind    = tyConKind tc
        ; kind' <- if isLiftedTypeKind kind then return Nothing
                   else fmap Just (reifyKind kind)
@@ -1243,8 +1243,8 @@ reifyTyCon tc
 
   | otherwise
   = do  { cxt <- reifyCxt (tyConStupidTheta tc)
-        ; let tvs = tyConTyCoVars tc
-        ; cons <- mapM (reifyDataCon (mkTyCoVarTys tvs)) (tyConDataCons tc)
+        ; let tvs = tyConTyVars tc
+        ; cons <- mapM (reifyDataCon (mkOnlyTyVarTys tvs)) (tyConDataCons tc)
         ; r_tvs <- reifyTyCoVars tvs
         ; let name = reifyName tc
               deriv = []        -- Don't know about deriving
@@ -1323,10 +1323,10 @@ reifyFamilyInstance fi@(FamInst { fi_flavor = flavor
            ; return (TH.TySynInstD (reifyName fam) th_eqns) }
 
       DataFamilyInst rep_tc ->
-        do { let tvs = tyConTyCoVars rep_tc
+        do { let tvs = tyConTyVars rep_tc
                  fam' = reifyName fam
                  lhs = famInstBranchLHS $ famInstSingleBranch (toUnbranchedFamInst fi)
-           ; cons <- mapM (reifyDataCon (mkTyCoVarTys tvs)) (tyConDataCons rep_tc)
+           ; cons <- mapM (reifyDataCon (mkOnlyTyVarTys tvs)) (tyConDataCons rep_tc)
            ; th_tys <- reifyTypes lhs
            ; return (if isNewTyCon rep_tc
                      then TH.NewtypeInstD [] fam' th_tys (head cons) []

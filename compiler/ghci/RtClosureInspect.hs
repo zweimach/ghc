@@ -1184,7 +1184,7 @@ congruenceNewtypes lhs rhs = go lhs rhs >>= \rhs' -> return (lhs,rhs')
             | otherwise = do
                traceTR (text "(Upgrade) upgraded " <> ppr ty <>
                         text " in presence of newtype evidence " <> ppr new_tycon)
-               (_, vars, _) <- instTyCoVars (tyConTyCoVars new_tycon)
+               (_, vars, _) <- instTyCoVars (tyConTyVars new_tycon)
                let ty' = mkTyConApp new_tycon vars
                    UnaryRep rep_ty = repType ty'
                _ <- liftTcM (unifyType ty rep_ty)
@@ -1237,7 +1237,7 @@ isMonomorphicOnNonPhantomArgs ty
   | UnaryRep rep_ty <- repType ty
   , Just (tc, all_args) <- tcSplitTyConApp_maybe rep_ty
   , phantom_vars  <- tyConPhantomTyVars tc
-  , concrete_args <- [ arg | (tyv,arg) <- tyConTyCoVars tc `zip` all_args
+  , concrete_args <- [ arg | (tyv,arg) <- tyConTyVars tc `zip` all_args
                            , tyv `notElem` phantom_vars]
   = all isMonomorphicOnNonPhantomArgs concrete_args
   | Just (ty1, ty2) <- splitFunTy_maybe ty
@@ -1249,7 +1249,7 @@ tyConPhantomTyVars tc
   | isAlgTyCon tc
   , Just dcs <- tyConDataCons_maybe tc
   , dc_vars  <- concatMap dataConUnivTyVars dcs
-  = tyConTyCoVars tc \\ dc_vars
+  = tyConTyVars tc \\ dc_vars
 tyConPhantomTyVars _ = []
 
 type QuantifiedType = ([TyCoVar], Type)   -- Make the free type and co variables explicit

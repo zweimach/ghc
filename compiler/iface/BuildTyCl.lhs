@@ -89,8 +89,8 @@ mkNewTyConRhs tycon_name tycon con
                              -- Coreview looks through newtypes with a Nothing
                              -- for nt_co, or uses explicit coercions otherwise
   where
-    tvs    = tyConTyCoVars tycon
-    inst_con_ty = applyTys (dataConUserType con) (mkTyCoVarTys tvs)
+    tvs    = tyConTyVars tycon
+    inst_con_ty = applyTys (dataConUserType con) (mkOnlyTyVarTys tvs)
     rhs_ty = ASSERT( isFunTy inst_con_ty ) funArgTy inst_con_ty
 	-- Instantiate the data con with the 
 	-- type variables from the tycon
@@ -165,7 +165,7 @@ mkDataConStupidTheta tycon arg_tys univ_tvs
   | null stupid_theta = []	-- The common case
   | otherwise 	      = filter in_arg_tys stupid_theta
   where
-    tc_subst	 = zipTopTCvSubst (tyConTyCoVars tycon) (mkTyCoVarTys univ_tvs)
+    tc_subst	 = zipTopTCvSubst (tyConTyVars tycon) (mkOnlyTyVarTys univ_tvs)
     stupid_theta = substTheta tc_subst (tyConStupidTheta tycon)
 	-- Start by instantiating the master copy of the 
 	-- stupid theta, taken from the TyCon
@@ -185,8 +185,8 @@ type TcMethInfo = (Name, DefMethSpec, Type)
 buildClass :: Bool		-- True <=> do not include unfoldings 
 				--	    on dict selectors
 				-- Used when importing a class without -O
-	   -> Name -> [TyCoVar] -> ThetaType
-	   -> [FunDep TyCoVar]		   -- Functional dependencies
+	   -> Name -> [TyVar] -> ThetaType
+	   -> [FunDep TyVar]		   -- Functional dependencies
 	   -> [ClassATItem]		   -- Associated types
 	   -> [TcMethInfo]                 -- Method info
 	   -> RecFlag			   -- Info for type constructor

@@ -61,7 +61,7 @@ vectTyConDecl tycon name'
                    buildClass
                      False                      -- include unfoldings on dictionary selectors
                      name'                      -- new name: "V:Class"
-                     (tyConTyCoVars tycon)      -- keep original type vars
+                     (tyConTyVars tycon)        -- keep original type vars
                      theta'                     -- superclasses
                      (snd . classTvsFds $ cls)  -- keep the original functional dependencies
                      []                         -- no associated types (for the moment)
@@ -99,7 +99,7 @@ vectTyConDecl tycon name'
            -- build the vectorised type constructor
        ; return $ buildAlgTyCon 
                     name'                   -- new name
-                    (tyConTyCoVars tycon)   -- keep original type vars
+                    (tyConTyVars tycon)     -- keep original type vars
                     Nothing
                     []                      -- no stupid theta
                     rhs'                    -- new constructor defs

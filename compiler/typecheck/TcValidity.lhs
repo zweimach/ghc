@@ -1002,11 +1002,11 @@ checkConsistentFamInst (Just (clas, mini_env)) fam_tc at_tvs at_tys
          -- Check right to left, so that we spot type variable
          -- inconsistencies before (more confusing) kind variables
        ; discardResult $ foldrM check_arg emptyTCvSubst $
-                         tyConTyCoVars fam_tc `zip` at_tys }
+                         tyConTyVars fam_tc `zip` at_tys }
   where
     at_tv_set = mkVarSet at_tvs
 
-    check_arg :: (TyCoVar, Type) -> TCvSubst -> TcM TCvSubst
+    check_arg :: (TyVar, Type) -> TCvSubst -> TcM TCvSubst
     check_arg (fam_tc_tv, at_ty) subst
       | Just inst_ty <- lookupVarEnv mini_env fam_tc_tv
       = case tcMatchTyX at_tv_set subst at_ty inst_ty of

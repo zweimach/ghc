@@ -154,6 +154,9 @@ module Type (
         tidyTyVarOcc,
         tidyTopType,
         tidyKind, 
+
+        -- * Miscellaneous
+        tcTyConsOfType
     ) where
 
 #include "HsVersions.h"
@@ -185,8 +188,9 @@ import Util
 import Outputable
 import FastString
 import Pair
+import NameEnv
 
-import Data.List        ( sortBy )
+import Data.List        ( partition )
 import Maybes		( orElse )
 import Data.Maybe	( isJust )
 import Control.Monad    ( guard )
@@ -1171,26 +1175,30 @@ typeSize (CoercionTy co) = 1 + coercionSize co
 type DepEnv = VarEnv VarSet
 varSetElemsWellScoped :: VarSet -> [TyCoVar]
 varSetElemsWellScoped set 
-  = let deps = mk_deps set in
-    sortBy (dep_cmp deps) (varSetElems set)
+  = build_list [] (varSetElems set)
   where
-    -- each var maps to the set of vars it depends on
-    mk_deps :: VarSet -> DepEnv
-    mk_deps = foldVarSet add_dep emptyVarEnv
+    deps = foldVarSet add_dep emptyVarEnv set
 
     add_dep :: Var -> DepEnv -> DepEnv
     add_dep v env = extendVarEnv env v (dep_set v emptyVarSet)
 
     dep_set :: Var -> VarSet -> VarSet
-    dep_set v set = let free_vars = tyCoVarsOfType (varType v) in
-                    foldVarSet dep_set free_vars free_vars `unionVarSet` set
+    dep_set v s = let free_vars = tyCoVarsOfType (varType v) `intersectVarSet` set in
+                    foldVarSet dep_set free_vars free_vars `unionVarSet` s
 
-    dep_cmp :: DepEnv -> Var -> Var -> Ordering
-    dep_cmp env v1 v2
-      | v1 `depends_on` v2 = GT
-      | v2 `depends_on` v1 = LT
-      | otherwise          = EQ
-      where a `depends_on` b = b `elemVarSet` (lookupVarEnv_NF env a)
+    get_deps :: Var -> VarSet
+    get_deps v = lookupVarEnv_NF deps v
+
+    build_list :: [TyCoVar] -- vars in scope
+               -> [TyCoVar] -- vars not yet sorted
+               -> [TyCoVar]
+    build_list scoped [] = scoped
+    build_list scoped unsorted
+      = let (scoped', unsorted') = partition (well_scoped scoped) unsorted in
+        build_list (scoped ++ scoped') unsorted'
+
+    well_scoped scoped var = get_deps var `subVarSet` (mkVarSet scoped)
+
 \end{code}
 
 
@@ -1213,7 +1221,7 @@ mkFamilyTyConApp :: TyCon -> [Type] -> Type
 -- > mkFamilyTyConApp :RTL Int  =  T (Maybe Int)
 mkFamilyTyConApp tc tys
   | Just (fam_tc, fam_tys) <- tyConFamInst_maybe tc
-  , let tvs = tyConTyCoVars tc
+  , let tvs = tyConTyVars tc
         fam_subst = ASSERT2( length tvs == length tys, ppr tc <+> ppr tys )
                     zipTopTCvSubst tvs tys
   = mkTyConApp fam_tc (substTys fam_subst fam_tys)
@@ -1553,3 +1561,60 @@ When unifying two internal type variables, we collect their kind constraints by
 finding the GLB of the two.  Since the partial order is a tree, they only
 have a glb if one is a sub-kind of the other.  In that case, we bind the
 less-informative one to the more informative one.  Neat, eh?
+
+
+%************************************************************************
+%*                                                                      *
+        Miscellaneous functions
+%*                                                                      *
+%************************************************************************
+
+
+\begin{code}
+tcTyConsOfType :: Type -> [TyCon]
+-- tcTyConsOfType looks through all synonyms, but not through any newtypes.
+-- When it finds a Class, it returns the class TyCon.  The reaons it's here
+-- (not in Type.lhs) is because it is newtype-aware.
+tcTyConsOfType ty
+  = nameEnvElts (go ty)
+  where
+     go :: Type -> NameEnv TyCon  -- The NameEnv does duplicate elim
+     go ty | Just ty' <- tcView ty = go ty'
+     go (TyVarTy {})               = emptyNameEnv
+     go (LitTy {})                 = emptyNameEnv
+     go (TyConApp tc tys)          = go_tc tc `plusNameEnv` go_s tys
+     go (AppTy a b)                = go a `plusNameEnv` go b
+     go (FunTy a b)                = go a `plusNameEnv` go b
+     go (ForAllTy tv ty)           = go ty `plusNameEnv` go (tyVarKind tv)
+     go (CastTy ty co)             = go ty `plusNameEnv` go_co co
+     go (CoercionTy co)            = go_co co
+
+     go_co (Refl ty)               = go ty
+     go_co (TyConAppCo tc args)    = go_tc tc `plusNameEnv` go_args args
+     go_co (AppCo co arg)          = go_co co `plusNameEnv` go_arg arg
+     go_co (ForAllCo cobndr co)
+       | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
+       = go_co h `plusNameEnv` var_names `plusNameEnv` go_co co
+       | otherwise
+       = var_names `plusNameEnv` go_co co
+       where var_names = go_s (snd (coBndrVarsKinds cobndr))
+     go_co (CoVarCo {})            = emptyNameEnv
+     go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_args args
+     go_co (UnsafeCo ty1 ty2)      = go ty1 `plusNameEnv` go ty2
+     go_co (SymCo co)              = go_co co
+     go_co (TransCo co1 co2)       = go_co co1 `plusNameEnv` go_co co2
+     go_co (NthCo _ co)            = go_co co
+     go_co (LRCo _ co)             = go_co co
+     go_co (InstCo co arg)         = go_co co `plusNameEnv` go_arg arg
+     go_co (CoherenceCo co1 co2)   = go_co co1 `plusNameEnv` go_co co2
+     go_co (KindCo co)             = go_co co
+
+     go_arg (TyCoArg co)           = go_co co
+     go_arg (CoCoArg co1 co2)      = go_co co1 `plusNameEnv` go_co co2
+
+     go_s tys = foldr (plusNameEnv . go) emptyNameEnv tys
+     go_args args = foldr (plusNameEnv . go_arg) emptyNameEnv args
+
+     go_tc tc = unitNameEnv (tyConName tc) tc
+     go_ax ax = go_tc $ coAxiomTyCon ax
+\end{code}

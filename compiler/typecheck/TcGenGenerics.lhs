@@ -229,7 +229,7 @@ canDoGenerics tc tc_args
     (tc_name, tc_tys) = case tyConParent tc of
         FamInstTyCon _ ptc tys -> (ppr ptc, hsep (map ppr
                                             (tys ++ drop (length tys) tc_args)))
-        _                      -> (ppr tc, hsep (map ppr (tyConTyCoVars tc)))
+        _                      -> (ppr tc, hsep (map ppr (tyConTyVars tc)))
 
         -- If any of the constructor has an unboxed type as argument,
         -- then we can't build the embedding-projection pair, because
@@ -284,7 +284,7 @@ canDoGenerics1_w rep_tc
   | otherwise
   = (mergeErrors . concat) `fmap` mapM check_con data_cons
   where
-    tc_tvs            = tyConTyCoVars rep_tc
+    tc_tvs            = tyConTyVars rep_tc
     Just (_, last_tv) = snocView tc_tvs
     bad_stupid_theta  = filter is_bad (tyConStupidTheta rep_tc)
     is_bad pred       = last_tv `elemVarSet` tyCoVarsOfType pred
@@ -402,7 +402,7 @@ mkBindsRep gk tycon =
                   Gen0 -> Gen0_
                   Gen1 -> ASSERT (length tyvars >= 1)
                           Gen1_ (last tyvars)
-                    where tyvars = tyConTyCoVars tycon
+                    where tyvars = tyConTyVars tycon
         
 --------------------------------------------------------------------------------
 -- The type synonym instance and synonym
@@ -429,7 +429,7 @@ tc_mkRepFamInsts gk tycon metaDts mod =
              Gen0 -> (all_tyvars, Gen0_)
              Gen1 -> ASSERT (not $ null all_tyvars)
                      (init all_tyvars, Gen1_ $ last all_tyvars)
-             where all_tyvars = tyConTyCoVars tycon
+             where all_tyvars = tyConTyVars tycon
 
            tyvar_args = mkTyCoVarTys tyvars
 
@@ -556,7 +556,7 @@ tc_mkRepTy gk_ tycon metaDts =
         mkRec1 a   = mkTyConApp rec1  [a]
         mkPar1     = mkTyConTy  par1
         mkD    a   = mkTyConApp d1    [metaDTyCon, sumP (tyConDataCons a)]
-        mkC  i d a = mkTyConApp c1    [d, prod i (dataConInstOrigArgTys a $ mkTyCoVarTys $ tyConTyCoVars tycon)
+        mkC  i d a = mkTyConApp c1    [d, prod i (dataConInstOrigArgTys a $ mkOnlyTyVarTys $ tyConTyVars tycon)
                                                  (null (dataConFieldLabels a))]
         -- This field has no label
         mkS True  _ a = mkTyConApp s1 [mkTyConTy nS1, a]

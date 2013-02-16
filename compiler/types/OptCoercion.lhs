@@ -174,7 +174,7 @@ opt_co env sym (CoVarCo cv)
                 ASSERT( isCoVar cv )
                 wrapSym sym (CoVarCo cv)
 
-opt_co env sym co@(AxiomInstCo con ind cos)
+opt_co env sym (AxiomInstCo con ind cos)
     -- Do *not* push sym inside top-level axioms
     -- e.g. if g is a top-level axiom
     --   g a : f a ~ a
