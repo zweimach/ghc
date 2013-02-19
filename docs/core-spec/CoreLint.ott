@@ -370,8 +370,8 @@ G |-co g : phi
 -------------- :: CoercionTy
 G |-ty g : phi
 
-defn G |- subst n |-> t ok ::  :: checkTyKind :: 'Subst_'
-  {{ com Substitution consistency, \coderef{coreSyn/CoreLint.lhs}{checkTyKind} }}
+defn G |- subst n |-> t ok ::  :: lintTyKind :: 'Subst_'
+  {{ com Substitution consistency, \coderef{coreSyn/CoreLint.lhs}{lintTyKind} }}
   {{ tex [[G]] \labeledjudge{subst} [[n]] [[|->]] [[t]] [[ok]] }}
 by
 
