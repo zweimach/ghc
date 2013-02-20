@@ -308,7 +308,7 @@ There are two very similar checks for names, one declared as a local function:
 
 \subsection{Substitution consistency}
 
-\ottdefncheckTyKind{}
+\ottdefnlintTyKind{}
 
 \subsection{Case alternative consistency}
 
