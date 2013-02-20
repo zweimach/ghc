@@ -299,7 +299,7 @@ mkWWargs subst fun_ty arg_info
 	     <- mkWWargs subst' fun_ty' arg_info
 	; return (tv' : wrap_args,
         	  Lam tv' . wrap_fn_args,
-        	  work_fn_args . (`App` Type (mkTyCoVarTy tv')),
+        	  work_fn_args . (`mkTyApps` [mkTyCoVarTy tv']),
         	  res_ty) }
 
   | ((dmd,one_shot):arg_info') <- arg_info

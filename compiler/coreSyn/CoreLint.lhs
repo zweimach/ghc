@@ -579,8 +579,8 @@ checkCaseAlts e ty alts =
 \end{code}
 
 \begin{code}
-checkAltExpr :: CoreExpr -> OutType -> LintM ()
-checkAltExpr expr ann_ty
+lintAltExpr :: CoreExpr -> OutType -> LintM ()
+lintAltExpr expr ann_ty
   = do { actual_ty <- lintCoreExpr expr 
        ; ensureEqTys actual_ty ann_ty (mkCaseAltMsg expr actual_ty ann_ty) }
 
@@ -591,16 +591,16 @@ lintCoreAlt :: OutType 		-- Type of scrutinee
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism]
 lintCoreAlt _ alt_ty (DEFAULT, args, rhs) =
-  do { checkL (null args) (mkDefaultArgsMsg args)
-     ; checkAltExpr rhs alt_ty }
+  do { lintL (null args) (mkDefaultArgsMsg args)
+     ; lintAltExpr rhs alt_ty }
 
 lintCoreAlt scrut_ty alt_ty (LitAlt lit, args, rhs)
   | litIsLifted lit
   = failWithL integerScrutinisedMsg
   | otherwise
-  = do { checkL (null args) (mkDefaultArgsMsg args)
+  = do { lintL (null args) (mkDefaultArgsMsg args)
        ; ensureEqTys lit_ty scrut_ty (mkBadPatMsg lit_ty scrut_ty)
-       ; checkAltExpr rhs alt_ty }
+       ; lintAltExpr rhs alt_ty }
   where
     lit_ty = literalType lit
 
@@ -618,7 +618,7 @@ lintCoreAlt scrut_ty alt_ty alt@(DataAlt con, args, rhs)
 	-- And now bring the new binders into scope
     ; lintBinders args $ \ args' -> do
     { addLoc (CasePat alt) (lintAltBinders scrut_ty con_payload_ty args')
-    ; checkAltExpr rhs alt_ty } }
+    ; lintAltExpr rhs alt_ty } }
 
   | otherwise	-- Scrut-ty is wrong shape
   = addErrL (mkBadAltMsg scrut_ty alt)
@@ -710,11 +710,15 @@ lintType :: OutType -> LintM LintedKind
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism]
 lintType (TyVarTy tv)
-  = do { lintTyCoVarInScope tv
+  = do { checkL (isTyVar tv) (mkBadTyVarMsg tv)
+       ; lintTyCoVarInScope tv
        ; return (tyVarKind tv) }
          -- We checked its kind when we added it to the envt
 
 lintType ty@(AppTy t1 t2) 
+  | TyConApp {} <- t1
+  = failWithL $ ptext (sLit "TyConApp to the left of AppTy:") <+> ppr ty
+  | otherwise
   = do { k1 <- lintType t1
        ; k2 <- lintType t2
        ; lint_ty_app ty k1 [(t2,k2)] }
@@ -862,8 +866,10 @@ lintCoercion :: OutCoercion -> LintM (LintedKind, LintedKind, LintedType, Linted
 
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism]
-lintCoercion (Refl ty)
-  = do { k <- lintType ty
+lintCoercion co@(Refl ty)
+  = do { checkL (not $ isCoercionTy ty)
+                (ptext (sLit "Refl (CoercionTy ...):") <+> ppr co)
+       ; k <- lintType ty
        ; return (k, k, ty, ty) }
 
 lintCoercion co@(TyConAppCo tc cos)
@@ -882,6 +888,11 @@ lintCoercion co@(TyConAppCo tc cos)
        ; return (k', k, mkTyConApp tc ss, mkTyConApp tc ts) }
 
 lintCoercion co@(AppCo co1 co2)
+  | TyConAppCo {} <- co1
+  = failWithL (ptext (sLit "TyConAppCo to the left of AppCo:") <+> ppr co)
+  | Refl (TyConApp {}) <- co1
+  = failWithL (ptext (sLit "Refl (TyConApp ...) to the left of AppCo:") <+> ppr co)
+  | otherwise
   = do { (k1,k2,s1,s2) <- lintCoercion co1
        ; (k'1, k'2, t1, t2) <- lintCoercionArg co2
        ; k3 <- lint_co_app co k1 [(t1,k'1)]
@@ -1569,6 +1580,11 @@ mkBadForAllKindMsg lr co co_kind ty_kind
       ptext (sLit "side of the coercion") <+> ppr co)  $$
     (ptext (sLit "Coercion kind:") <+> ppr co_kind) $$
     (ptext (sLit "Forall type kind:") <+> ppr ty_kind)
+
+mkBadTyVarMsg :: TyCoVar -> SDoc
+mkBadTyVarMsg tv
+  = ptext (sLit "Non-tyvar used in TyVarTy:")
+      <+> ppr tv <+> dcolon <+> ppr (varType tv)
 
 pprLeftOrRight :: LeftOrRight -> MsgDoc
 pprLeftOrRight CLeft  = ptext (sLit "left")
