@@ -128,9 +128,6 @@ The constructor for a saturated $[[(->)]]$ is \texttt{FunTy}.
 a term-level literal, but we are ignoring this distinction here.
 \item A coercion used as a type should appear only in the right-hand side of
   an application.
-\item A kind cast should operate over only type variables, quantifications, and type
-literals. In application scenarios, the cast is pushed left. If casting a casted
-type, the coercions are combined using transitivity.
 \end{itemize}
 
 Note that the use of the $[[T </ ti // i />]]$ form and the $[[t1 -> t2]]$ form
