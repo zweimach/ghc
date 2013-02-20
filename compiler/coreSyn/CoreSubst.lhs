@@ -1263,24 +1263,30 @@ dealWithCoercion co stuff@(dc, _dc_univ_args, dc_args)
 
         -- Make the "Psi" from the paper
         omegas = decomposeCo tc_arity co
-        psi_subst = liftCoSubstWithEx dc_univ_tyvars omegas dc_ex_tyvars (map repack ex_args)
+        (psi_subst, to_ex_arg_tys)
+          = liftCoSubstWithEx dc_univ_tyvars omegas dc_ex_tyvars (map arg_to_ty ex_args)
 
-        repack (Type ty)     = ty
-        repack (Coercion co) = mkCoercionTy co
-        repack _bad          = pprPanic "dealWithCoercion" (ppr _bad)
+        arg_to_ty (Type ty)     = ty
+        arg_to_ty (Coercion co) = mkCoercionTy co
+        arg_to_ty _bad          = pprPanic "dealWithCoercion" (ppr _bad)
+
+        ty_to_arg ty
+          | Just co <- isCoercionTy_maybe ty = Coercion co
+          | otherwise                        = Type ty
 
           -- Cast the value arguments (which include dictionaries)
         new_val_args = zipWith cast_arg arg_tys val_args
         cast_arg arg_ty arg = mkCast arg (psi_subst arg_ty)
+
+        to_ex_args = map ty_to_arg to_ex_arg_tys
 
         dump_doc = vcat [ppr dc,      ppr dc_univ_tyvars, ppr dc_ex_tyvars,
                          ppr arg_tys, ppr dc_args,        ppr _dc_univ_args,
                          ppr ex_args, ppr val_args, ppr co, ppr _from_ty, ppr to_ty, ppr to_tc ]
     in
     ASSERT2( eqType _from_ty (mkTyConApp to_tc _dc_univ_args), dump_doc )
-    ASSERT2( all isTyCoArg ex_args, dump_doc )
     ASSERT2( equalLength val_args arg_tys, dump_doc )
-    Just (dc, to_tc_arg_tys, ex_args ++ new_val_args)
+    Just (dc, to_tc_arg_tys, to_ex_args ++ new_val_args)
 
   | otherwise
   = Nothing

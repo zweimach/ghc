@@ -1218,11 +1218,11 @@ liftCoSubstWithEx :: [TyCoVar]  -- universally quantified tycovars
                   -> [CoercionArg] -- coercions to substitute for those
                   -> [TyCoVar]  -- existentially quantified tycovars
                   -> [Type] -- types and coercions to be bound to ex vars
-                  -> (Type -> Coercion) -- lifting function
+                  -> (Type -> Coercion, [Type]) -- (lifting function, converted ex args)
 liftCoSubstWithEx univs omegas exs rhos
   = let theta = mkLiftingContext (zipEqual "liftCoSubstWithExU" univs omegas)
         psi   = extendLiftingContext theta (zipEqual "liftCoSubstWithExX" exs rhos)
-    in ty_co_subst psi
+    in (ty_co_subst psi, substTys (lcSubstRight psi) (mkTyCoVarTys exs))
 
 liftCoSubstWith :: [TyCoVar] -> [CoercionArg] -> Type -> Coercion
 liftCoSubstWith tvs cos ty
