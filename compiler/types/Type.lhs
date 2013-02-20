@@ -1264,7 +1264,9 @@ isUnLiftedType :: Type -> Bool
 	-- construct them
 
 isUnLiftedType ty | Just ty' <- coreView ty = isUnLiftedType ty'
-isUnLiftedType (ForAllTy _ ty)      = isUnLiftedType ty
+isUnLiftedType (ForAllTy tv ty)  
+  | isTyVar tv                      = isUnLiftedType ty
+  | otherwise {- co var -}          = False
 isUnLiftedType (TyConApp tc _)      = isUnLiftedTyCon tc
 isUnLiftedType _                    = False
 
