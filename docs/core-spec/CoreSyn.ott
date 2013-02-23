@@ -33,7 +33,7 @@ z :: 'Name_' ::= {{ com Term or type name }}
   | alpha           ::   :: Type    {{ com Type-level name }}
   | x               ::   :: Term    {{ com Term-level name }}
 
-n, m :: 'Var_' ::= {{ com Variable names, \coderef{basicTypes/Var.lhs}{Var} }}
+n, m, aname {{ tex \alpha }}, xname {{ tex x }} :: 'Var_' ::= {{ com Variable names, \coderef{basicTypes/Var.lhs}{Var} }}
   | z _ t           ::   :: IdOrTyVar   {{ com Name, labeled with type/kind }}
     {{ tex {[[z]]}^{[[t]]} }}
   | z $             :: M :: NoSupScript {{ com Name without an explicit type/kind }}
@@ -119,12 +119,16 @@ g {{ tex \gamma }}, h {{ tex \eta }} :: 'Coercion_' ::= {{ com Coercions, \coder
   | ( g )                   :: M :: Parens        {{ com Parentheses }}
 
 cobndr :: 'ForAllCoBndr_' ::= {{ com Binder to quantified coercion, \coderef{types/TyCoRep.lhs}{ForAllCoBndr} }}
-  | n                   ::   :: TyHomo      {{ com \ctor{TyHomo}: Homogeneous type quantification }}
-  | g ( n1 , n2 , n3 )  ::   :: TyHetero    {{ com \ctor{TyHetero}: Heterogeneous type quantification }}
-    {{ tex {}_{[[g]]} ([[n1]], [[n2]], [[n3]]) }}
-  | n                   ::   :: CoHomo      {{ com \ctor{CoHomo}: Homogeneous coercion quantification }}
-  | g ( n1 , n2 )       ::   :: CoHetero    {{ com \ctor{CoHetero}: Heterogeneous coercion quantification }}
-    {{ tex {}_{[[g]]} ([[n1]], [[n2]]) }}
+  | aname                          ::   :: TyHomo
+    {{ com \ctor{TyHomo}: Homogeneous type quantification }}
+  | g ( aname1 , aname2 , xname )  ::   :: TyHetero
+    {{ com \ctor{TyHetero}: Heterogeneous type quantification }}
+    {{ tex {}_{[[g]]} ([[aname1]], [[aname2]], [[xname]]) }}
+  | xname                          ::   :: CoHomo
+    {{ com \ctor{CoHomo}: Homogeneous coercion quantification }}
+  | g ( xname1 , xname2 )          ::   :: CoHetero
+    {{ com \ctor{CoHetero}: Heterogeneous coercion quantification }}
+    {{ tex {}_{[[g]]} ([[xname1]], [[xname2]]) }}
 
 w {{ tex \omega }} :: 'CoercionArg_' ::= {{ com Argument to a coercion application, \coderef{types/TyCoRep.lhs}{CoercionArg} }}
   | g                ::   :: TyCoArg         {{ com \ctor{TyCoArg}: Coercion between types }}
@@ -160,7 +164,7 @@ H :: 'PrimTyCon_' ::= {{ com Primitive type constructors, \coderef{prelude/TysPr
   | *            ::   :: liftedTypeKindTyCon    {{ com Kind of lifted types }}
   | #            ::   :: unliftedTypeKindTyCon  {{ com Kind of unlifted types }}
   | BOX          ::   :: superKindTyCon         {{ com Kind of kinds }}
-  | OpenKind     ::   :: openTypeKindTyCon      {{ com Either $[[*]]$ or $[[#]]$ }}
+  | OpenKind     ::   :: openTypeKindTyCon      {{ com Either $\star$ or \# }}
   | Constraint   ::   :: constraintTyCon        {{ com Constraint }}
 
 %% CONTEXTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -183,6 +187,7 @@ kinded_types {{ tex \overline{(\sigma_i : \kappa_i)}^i }} :: 'Kinded_Types_' ::=
 subst :: 'Subst_' ::= {{ com List of type substitutions }}
   | [ n |-> t ]        ::   :: Mapping
   | </ substi // i />  ::   :: List
+  | empty              :: M :: Empty
 
 ind :: 'Ind_' ::= {{ com Indices, numbers }}
   | i                           ::   :: index
@@ -195,6 +200,16 @@ ind :: 'Ind_' ::= {{ com Indices, numbers }}
 
 types :: 'Types_' ::= {{ com List of types }}
   | </ ti // i />      ::   :: List
+
+args {{ tex \overline{\omega_i}^i }}:: 'Args_' ::= {{ com List of coercion arguments }}
+  | </ wi // i />      ::   :: List
+  | empty              :: M :: Empty
+  | args , w           :: M :: Snoc
+
+names {{ tex \overline{n_i}^i }} :: 'Names_' ::= {{ com List of names }}
+  | </ ni // , // i />      ::   :: List
+  | empty                   :: M :: Empty
+  | names , n               :: M :: Snoc
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  Terminals  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

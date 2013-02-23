@@ -88,6 +88,9 @@ is ok-for-speculation. See \verb|#let_app_invariant#| in \ghcfile{coreSyn/CoreSy
 \item The $[[_]]$ case for a $[[case]]$ must come first.
 \item The list of case alternatives must be exhaustive.
 \item Types and coercions can only appear on the right-hand-side of an application.
+\item The $[[t]]$ form of an expression must not then turn out to be a coercion.
+In other words, the payload inside of a \texttt{Type} constructor must not turn out
+to be built with \texttt{CoercionTy}. 
 \end{itemize}
 
 Bindings for $[[let]]$ statements:
@@ -150,7 +153,18 @@ reflexive, use $[[T </ gi // i />]]$, never $[[<T> g1 g2]] \ldots$.
 be a type function.
 \item Every non-reflexive coercion coerces between two distinct types.
 \item The name in a coercion must be a term-level name (\ctor{Id}).
+\item The contents of $[[<t>]]$ must not be a coercion. In other words,
+the payload in a \texttt{Refl} must not be built with \texttt{CoercionTy}.
+\item The coercion used in a \texttt{TyHetero} or in a \texttt{CoHetero} must not
+be reflexive. (If you want a reflexive coercion there, use \texttt{TyHomo} or
+\texttt{CoHomo}, respectively.)
 \end{itemize}
+
+The forms for $[[cobndr]]$ mention the use of type-level names $[[aname]]$ and
+term-level names $[[xname]]$. These uses in the definition above are an aid to the
+reader. In GHC, these arguments to the \texttt{ForAllCoBndr} constructors are just
+\texttt{Var}s, which this document represents as $[[n]]$. See the typing rules for
+these forms to see how the variables are used.
 
 Similarly to with types, the form $[[T </ wi // i />]]$ is needed only to stay
 faithful to the implementation.
@@ -287,10 +301,6 @@ checks. The variable to the left of $[[#]]$ may not appear in the \emph{erased}
 version of the coercion on the right. See the \emph{Down with kinds}
 paper for details.
 
-In \ottdrulename{Co\_AxiomInstCo}, the use of $[[inits]]$ creates substitutions from
-the first $i$ mappings in $[[ </ [ni |-> si] // i /> ]]$. This has the effect of 
-folding the substitution over the kinds for kind-checking.
-
 \subsection{Coercion argument typing}
 
 \ottdefnlintCoArg{}
@@ -326,6 +336,10 @@ There are two very similar checks for names, one declared as a local function:
 \subsection{Type application kinding}
 
 \ottdefnlintXXapp{}
+
+\subsection{Axiom argument kinding}
+
+\ottdefncheckXXki{}
 
 \subsection{Sub-kinding}
 

@@ -273,15 +273,10 @@ G |-co g w : (t1[z1_k1 |-> s1]) k3~#k4 (t2[z2_k2 |-> s2])
 C = T </ axBranchkk // kk />
 0 <= ind < length </ axBranchkk // kk />
 forall </ ni // i />. (</ s1j // j /> ~> t1) = (</ axBranchkk // kk />)[ind]
-</ G |-arg wi : (s'i : k'i, t'i : k''i) // i />
-</ substi $ // i /> = inits(</ [ ni |-> s'i ] // i />)
-</ subst'i $ // i /> = inits(</ [ ni |-> t'i ] // i />)
-</ ni = zi_ki // i />
-</ k'i <: substi(ki) // i />
-</ k''i <: subst'i(ki) // i />
-</ s2j = s1j </ [ni |-> s'i] // i/> // j />
+G |-axk [ </ ni // i /> |-> </ wi // i /> ] ~> (subst1, subst2)
+</ s2j = subst1(s1j) // j />
 no_conflict(C, </ s2j // j />, ind-1)
-t2 = t1 </ [ni |-> t'i] // i />
+t2 = subst2(t1)
 s2 = T </ s2j // j />
 G |-ty s2 : k
 G |-ty t2 : k'
@@ -296,6 +291,22 @@ G |-co g |> h : t1 |> h k1'~#k2 t2
 G |-co g : t1 k1~#k2 t2
 -------------------------- :: KindCo
 G |-co kind g : k1 *~#* k2
+
+defn G |- axk [ names |-> args ] ~> ( subst1 , subst2 ) ::  :: check_ki :: 'AxiomKind_'
+  {{ com Axiom argument kinding, \coderef{coreSyn/CoreLint.lhs}{check\_ki} }}
+  {{ tex [[G]] \labeledjudge{axk} [ [[names]] [[|->]] [[args]] ] [[~>]] ([[subst1]], [[subst2]]) }}
+by
+
+--------------------------------------- :: Empty
+G |-axk [empty |-> empty] ~> (empty, empty)
+
+G |-axk [names |-> args] ~> (subst1, subst2)
+G |-arg w : (t1 : k1, t2 : k2)
+n = z_k
+k1 <: subst1(k)
+k2 <: subst2(k)
+----------------------------- :: Arg
+G |-axk [ names, n |-> args, w ] ~> (subst1 [n |-> t1], subst2 [n |-> t2])
 
 defn G |- arg w : ( t1 : k1 , t2 : k2 ) ::  :: lintCoArg :: 'Arg_'
   {{ com Coercion argument kinding, \coderef{coreSyn/CoreLint.lhs}{lintCoArg} }}

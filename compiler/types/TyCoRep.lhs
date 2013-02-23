@@ -168,7 +168,7 @@ data Type
 	Type		-- ^ Special case of 'TyConApp': @TyConApp FunTyCon [t1, t2]@
 			-- See Note [Equality-constrained types]
 
-  | ForAllTy
+  | ForAllTy            -- See Note [Type abstractions over coercions]
 	TyCoVar         -- ^ type, kind, or coercion variable
 	Type	        -- ^ A polymorphic type
 
@@ -253,6 +253,21 @@ kinds or types.
 
 This kind instantiation only happens in TyConApp currently.
 
+Note [Type abstraction over coercions]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Types can be abstracted over coercions, and thus in many places where we used
+to consider only tyvars, we must now also consider the possibility of covars.
+But where, really, can these covars appear? In precisely these locations:
+  - the kind of a promoted GADT data constructor
+  - the existential variables of a data constructor (TODO (RAE): Really??)
+  - the type of the constructor Eq# (in type (~))
+  - the quantified vars for an axiom branch
+  - the type of an id
+
+That's it. In particular, coercion variables MAY NOT appear in the quantified
+tyvars of a TyCon (other than a promoted data constructor), of a class, of a
+type synonym (regular or family).
+
 Note [Equality-constrained types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The type   forall ab. (a ~ [b]) => blah
@@ -265,23 +280,16 @@ is encoded like this:
 Note that there are two equality types, boxed (~) and unboxed (~#).
 'Coercion's have a type built with (~#). 'TcCoercion's have a type built with
 (~). Only 'Coercion's can be quantified over in a ForAllTy, never
-'TcCoercion's. But, it is OK (and, in fact, quite common, in GADTs), to have
-a type headed by (~#) in a FunTy, when the coercion of that type is never
-mentioned in a later part of the type.
+'TcCoercion's. To simplify equality among types, we then forbid having
+a type constructed with (~#) on the left of a FunTy. Instead, use a ForAllTy
+with a wildcard variable.
 
 So, to summarize:
 
       ForAllTy  |  FunTy
 ----------------+-------
 (~)  |   no     |   yes
-(~#) |  yes     |   yes
-
-But wait, what type does (\ (x :: a ~# b). ...) have? A ForAllTy, because
-that is the more general option. However, we still allow the possibility
-of a FunTy formed with (~#) because the type of Eq#, the one constructor
-of (~) has type (a ~# b) -> (a ~ b). That one constructor's type should
-be the only type in the system with (~#) to the left of a (->). If such
-a type appears elsewhere, it would be uninhabited.
+(~#) |  yes     |   no
 
 -------------------------------------
  		Note [PredTy]
