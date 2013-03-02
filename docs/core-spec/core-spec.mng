@@ -252,12 +252,6 @@ as for strictness and exportability. See the source code for further information
 
 \ottdefnlintCoreExpr{}
 
-%\arraylabel{\coderef{coreSyn/CoreLint.lhs}{checkCaseAlts}} \\
-%\multicolumn{2}{l}{[[checkCaseAlts]] \text{ checks ordering and exhaustivity constr%aints}} \\
-
-%\end{array}
-%\]
-
 \begin{itemize}
 \item Some explication of \ottdrulename{Tm\_LetRec} is helpful: The idea behind the
 second premise ($[[</ G, G'i |-ty si : ki // i />]]$) is that we wish
