@@ -15,7 +15,7 @@ define haddock  # args: $1 = dir,  $2 = distdir
 $(call trace, haddock($1,$2))
 $(call profStart, haddock($1,$2))
 
-ifneq "$$($1_$2_DO_HADDOCK)" "NO"
+ifeq "$$($1_$2_DO_HADDOCK)" "YES"
 
 ifeq "$$($$($1_PACKAGE)-$$($1_$2_VERSION)_HADDOCK_FILE)" ""
 $$($1_PACKAGE)-$$($1_$2_VERSION)_HADDOCK_FILE = $1/$2/doc/html/$$($1_PACKAGE)/$$($1_PACKAGE).haddock
@@ -42,7 +42,7 @@ endif
 ifneq "$$(BINDIST)" "YES"
 $$($$($1_PACKAGE)-$$($1_$2_VERSION)_HADDOCK_FILE) : $$(INPLACE_BIN)/haddock$$(exeext) $$(GHC_CABAL_INPLACE) $$($1_$2_HS_SRCS) $$($$($1_PACKAGE)-$$($1_$2_VERSION)_HADDOCK_DEPS) | $$$$(dir $$$$@)/.
 ifeq "$$(HSCOLOUR_SRCS)" "YES"
-	CROSS_COMPILE="$(CrossCompilePrefix)" "$$(GHC_CABAL_INPLACE)" hscolour $2 $1
+	"$$(GHC_CABAL_INPLACE)" hscolour $2 $1
 endif
 	"$$(TOP)/$$(INPLACE_BIN)/haddock" \
 	  --odir="$1/$2/doc/html/$$($1_PACKAGE)" \

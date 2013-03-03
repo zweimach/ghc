@@ -9,7 +9,10 @@ Type checking of type signatures in interface files
 module TcIface ( 
         tcImportDecl, importDecl, checkWiredInTyCon, tcHiBootIface, typecheckIface, 
         tcIfaceDecl, tcIfaceInst, tcIfaceFamInst, tcIfaceRules,
-        tcIfaceVectInfo, tcIfaceAnnotations, tcIfaceGlobal, tcExtCoreBindings
+        tcIfaceVectInfo, tcIfaceAnnotations, 
+        tcIfaceExpr,    -- Desired by HERMIT (Trac #7683)
+        tcIfaceGlobal, 
+        tcExtCoreBindings
  ) where
 
 #include "HsVersions.h"
@@ -1129,7 +1132,7 @@ tcIfaceExpr (IfaceCase scrut case_bndr alts)  = do
         scrut_ty   = exprType scrut'
         case_bndr' = mkLocalId case_bndr_name scrut_ty
         tc_app     = splitTyConApp scrut_ty
-                -- NB: Won't always succeed (polymoprhic case)
+                -- NB: Won't always succeed (polymorphic case)
                 --     but won't be demanded in those cases
                 -- NB: not tcSplitTyConApp; we are looking at Core here
                 --     look through non-rec newtypes to find the tycon that
