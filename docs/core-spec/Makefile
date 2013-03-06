@@ -14,4 +14,4 @@ $(OTT_TEX): $(OTT_FILES)
 
 .PHONY: clean
 clean:
-	rm -f $(TARGET).pdf $(TARGET).tex $(OTT_TEX) *.aux *.fdb_latexmk *.log
+	rm -f $(TARGET).pdf $(TARGET).tex $(OTT_TEX) *.aux *.fdb_latexmk *.log *.fls
