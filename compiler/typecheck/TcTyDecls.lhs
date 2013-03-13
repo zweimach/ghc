@@ -27,14 +27,11 @@ import TyCoRep
 import HsSyn
 import Class
 import Type
-import Coercion
-import CoAxiom
 import HscTypes
 import TyCon
 import DataCon
 import Var
 import Name
-import NameEnv
 import NameSet
 import Avail
 import Digraph

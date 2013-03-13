@@ -121,6 +121,7 @@ pty (AxiomCoercion tc i cos) =
 pty ty@(Tapp {}) = pappty ty []
 pty ty@(Tvar {}) = paty ty
 pty ty@(Tcon {}) = paty ty
+ptt (CoCoArgCoercion t1 t2) = parens (pty t1 <> comma <+> pty t2)
 
 pappty :: Ty -> [Ty] -> Doc
 pappty (Tapp t1 t2) ts = pappty t1 (t2:ts)
