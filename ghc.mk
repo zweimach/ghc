@@ -549,8 +549,8 @@ endef
 
 PRIMOPS_TXT_STAGE1 = compiler/stage1/build/primops.txt
 
-libraries/ghc-prim/dist-install/build/GHC/PrimopWrappers.hs : $(GENPRIMOP_INPLACE) $(PRIMOPS_TXT_STAGE1) | $$(dir $$@)/.
-	"$(GENPRIMOP_INPLACE)" --make-haskell-wrappers < $(PRIMOPS_TXT_STAGE1) >$@
+libraries/ghc-prim/dist-install/build/GHC/PrimopWrappers.hs : $$(genprimopcode_INPLACE) $(PRIMOPS_TXT_STAGE1) | $$(dir $$@)/.
+	"$(genprimopcode_INPLACE)" --make-haskell-wrappers < $(PRIMOPS_TXT_STAGE1) >$@
 
 # Required so that Haddock documents the primops.
 libraries/ghc-prim_dist-install_EXTRA_HADDOCK_SRCS = libraries/ghc-prim/dist-install/build/autogen/GHC/Prim.hs
@@ -582,9 +582,6 @@ endif
 
 # -----------------------------------------------------------------------------
 # Include build instructions from all subdirs
-
-# These need to be in dependency order, as some of the rules refer to
-# variables defined by their dependencies
 
 ifneq "$(BINDIST)" "YES"
 BUILD_DIRS += utils/mkdirhier
@@ -621,7 +618,15 @@ BUILD_DIRS += utils/genapply
 endif
 
 ifneq "$(CLEANING)" "YES"
+# These are deliberately in reverse order, so as to ensure that
+# there is no need to have them in dependency order. That's important
+# because it's tricky to ensure that they are in dependency order when
+# cross-compiling, as some packages may only be in PACKAGES_STAGE0
+# or PACKAGES_STAGE1.
+BUILD_DIRS += $(patsubst %, libraries/%, $(PACKAGES_STAGE2))
 BUILD_DIRS += $(patsubst %, libraries/%, $(PACKAGES_STAGE1))
+BUILD_DIRS += $(patsubst %, libraries/%, $(filter-out $(PACKAGES_STAGE1),$(PACKAGES_STAGE0)))
+BUILD_DIRS += $(wildcard libraries/dph)
 endif
 
 
@@ -650,15 +655,10 @@ BUILD_DIRS += utils/deriveConstants
 BUILD_DIRS += utils/testremove
 BUILD_DIRS += $(MAYBE_GHCTAGS)
 BUILD_DIRS += utils/ghc-pwd
-BUILD_DIRS += $(GHC_CABAL_DIR)
+BUILD_DIRS += utils/ghc-cabal
 BUILD_DIRS += $(MAYBE_HPC)
 BUILD_DIRS += $(MAYBE_RUNGHC)
 BUILD_DIRS += ghc
-
-ifneq "$(CLEANING)" "YES"
-BUILD_DIRS += $(patsubst %, libraries/%, $(PACKAGES_STAGE2))
-BUILD_DIRS += libraries/dph
-endif
 
 ifneq "$(BINDIST)" "YES"
 ifneq "$(CrossCompiling)-$(phase)" "YES-final"
@@ -767,9 +767,9 @@ $(ghc-prim-$(libraries/ghc-prim_dist-install_VERSION)_HADDOCK_FILE): \
 endif # BINDIST
 
 libraries/ghc-prim/dist-install/build/autogen/GHC/Prim.hs: \
-                            $(PRIMOPS_TXT_STAGE1) $(GENPRIMOP_INPLACE) \
+                            $(PRIMOPS_TXT_STAGE1) $$(genprimopcode_INPLACE) \
                           | $$(dir $$@)/.
-	"$(GENPRIMOP_INPLACE)" --make-haskell-source < $< > $@
+	"$(genprimopcode_INPLACE)" --make-haskell-source < $< > $@
 
 .PHONY: tags
 tags: tags_compiler
@@ -889,7 +889,7 @@ install_packages: rts/package.conf.install
 	    $(call installLibsTo, $(wildcard libraries/$p/dist-install/build/*.so libraries/$p/dist-install/build/*.dll libraries/$p/dist-install/build/*.dylib), "$(DESTDIR)$(topdir)/$p-$(libraries/$p_dist-install_VERSION)"))
 	$(foreach p, $(INSTALL_PACKAGES),                             \
 	    $(call make-command,                                      \
-	           "$(GHC_CABAL_INPLACE)" copy                        \
+	           "$(ghc-cabal_INPLACE)" copy                        \
 	                                  "$(STRIP_CMD)"              \
 	                                  $p $(INSTALL_DISTDIR_$p)    \
 	                                  '$(DESTDIR)'                \
@@ -899,7 +899,7 @@ install_packages: rts/package.conf.install
 	"$(INSTALLED_GHC_PKG_REAL)" --force --global-package-db "$(INSTALLED_PACKAGE_CONF)" update rts/package.conf.install
 	$(foreach p, $(INSTALL_PACKAGES),                             \
 	    $(call make-command,                                      \
-	           "$(GHC_CABAL_INPLACE)" register                    \
+	           "$(ghc-cabal_INPLACE)" register                    \
 	                                  "$(INSTALLED_GHC_REAL)"     \
 	                                  "$(INSTALLED_GHC_PKG_REAL)" \
 	                                  "$(DESTDIR)$(topdir)"       \
@@ -984,7 +984,7 @@ unix-binary-dist-prep:
 	echo "BUILD_DOCBOOK_PS   = $(BUILD_DOCBOOK_PS)"   >> $(BIN_DIST_MK)
 	echo "BUILD_DOCBOOK_PDF  = $(BUILD_DOCBOOK_PDF)"  >> $(BIN_DIST_MK)
 	echo "BUILD_MAN          = $(BUILD_MAN)"          >> $(BIN_DIST_MK)
-	echo "GHC_CABAL_INPLACE  = utils/ghc-cabal/dist-install/build/tmp/ghc-cabal-bindist" >> $(BIN_DIST_MK)
+	echo "override ghc-cabal_INPLACE = utils/ghc-cabal/dist-install/build/tmp/ghc-cabal-bindist" >> $(BIN_DIST_MK)
 	echo "UseSystemLibFFI    = $(UseSystemLibFFI)"    >> $(BIN_DIST_MK)
 	cd $(BIN_DIST_PREP_DIR) && autoreconf
 	$(call removeFiles,$(BIN_DIST_PREP_TAR))

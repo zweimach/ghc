@@ -25,7 +25,7 @@ module DynFlags (
         FatalMessager, LogAction, FlushOut(..), FlushErr(..),
         ProfAuto(..),
         glasgowExtsFlags,
-        dopt,
+        dopt, dopt_set, dopt_unset,
         gopt, gopt_set, gopt_unset,
         wopt, wopt_set, wopt_unset,
         xopt, xopt_set, xopt_unset,
@@ -164,6 +164,7 @@ import Data.Int
 import Data.List
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Word
@@ -1477,6 +1478,10 @@ dopt f dflags = (fromEnum f `IntSet.member` dumpFlags dflags)
 dopt_set :: DynFlags -> DumpFlag -> DynFlags
 dopt_set dfs f = dfs{ dumpFlags = IntSet.insert (fromEnum f) (dumpFlags dfs) }
 
+-- | Unset a 'DumpFlag'
+dopt_unset :: DynFlags -> DumpFlag -> DynFlags
+dopt_unset dfs f = dfs{ dumpFlags = IntSet.delete (fromEnum f) (dumpFlags dfs) }
+
 -- | Test whether a 'GeneralFlag' is set
 gopt :: GeneralFlag -> DynFlags -> Bool
 gopt f dflags  = fromEnum f `IntSet.member` generalFlags dflags
@@ -1827,31 +1832,16 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
       throwGhcExceptionIO (CmdLineError ("combination not supported: " ++
                                intercalate "/" (map wayDesc theWays)))
 
-  -- TODO: This is an ugly hack. Do something better.
-  -- -fPIC affects the CMM code we generate, so if
-  -- we are in -dynamic-too mode we need -fPIC to be on during the
-  -- shared part of the compilation.
-  let doingDynamicToo = gopt Opt_BuildDynamicToo dflags3
-      platform = targetPlatform dflags3
-      dflags4 = if doingDynamicToo
-                then foldr setGeneralFlag' dflags3
-                           (wayGeneralFlags platform WayDyn)
-                else dflags3
-
-  {-
-  TODO: This test doesn't quite work: We don't want to give an error
-  when e.g. compiling a C file, only when compiling Haskell files.
-  when doingDynamicToo $
-      unless (isJust (outputFile dflags4) == isJust (dynOutputFile dflags4)) $
+  whenGeneratingDynamicToo dflags3 $
+      unless (isJust (outputFile dflags3) == isJust (dynOutputFile dflags3)) $
           liftIO $ throwGhcExceptionIO $ CmdLineError
               "With -dynamic-too, must give -dyno iff giving -o"
-  -}
 
-  let (dflags5, consistency_warnings) = makeDynFlagsConsistent dflags4
+  let (dflags4, consistency_warnings) = makeDynFlagsConsistent dflags3
 
-  liftIO $ setUnsafeGlobalDynFlags dflags5
+  liftIO $ setUnsafeGlobalDynFlags dflags4
 
-  return (dflags5, leftover, consistency_warnings ++ sh_warns ++ warns)
+  return (dflags4, leftover, consistency_warnings ++ sh_warns ++ warns)
 
 updateWays :: DynFlags -> DynFlags
 updateWays dflags
@@ -2723,6 +2713,9 @@ impliedFlags
 
     , (Opt_TypeFamilies,     turnOn, Opt_KindSignatures)  -- Type families use kind signatures
     , (Opt_PolyKinds,        turnOn, Opt_KindSignatures)  -- Ditto polymorphic kinds
+
+    -- AutoDeriveTypeable is not very useful without DeriveDataTypeable
+    , (Opt_AutoDeriveTypeable, turnOn, Opt_DeriveDataTypeable)
 
     -- We turn this on so that we can export associated type
     -- type synonyms in subordinates (e.g. MyClass(type AssocType))

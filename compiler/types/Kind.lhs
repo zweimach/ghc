@@ -230,18 +230,22 @@ isSubKindCon kc1 kc2
   | isOpenTypeKindCon kc2   = isSubOpenTypeKindCon kc1
   | otherwise               = isStarKindCon kc1 && isStarKindCon kc2
     -- See Note [Kind Constraint and kind *] and Note [SuperKind]
+  | otherwise               = False
 
 -------------------------
 -- Hack alert: we need a tiny variant for the typechecker
 -- Reason:     f :: Int -> (a~b)
 --             g :: forall (c::Constraint). Int -> c
+--             h :: Int => Int
 -- We want to reject these, even though Constraint is
 -- a sub-kind of OpenTypeKind.  It must be a sub-kind of OpenTypeKind
 -- *after* the typechecker
 --   a) So that (Ord a -> Eq a) is a legal type
 --   b) So that the simplifer can generate (error (Eq a) "urk")
+-- Moreover, after the type checker, Constraint and *
+-- are identical; see Note [Kind Constraint and kind *]
 --
--- Easiest way to reject is simply to make Constraint not
+-- Easiest way to reject is simply to make Constraint a compliete
 -- below OpenTypeKind when type checking
 
 tcIsSubKind :: Kind -> Kind -> Bool

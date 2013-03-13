@@ -117,6 +117,9 @@ if test "$WithGhc" != ""; then
 
   BOOTSTRAPPING_GHC_INFO_FIELD([OS_STAGE0],[target os])
   BOOTSTRAPPING_GHC_INFO_FIELD([CC_STAGE0],[C compiler command])
+  dnl ToDo, once "ld command" is reliably available.
+  dnl Then, we can remove the LD_STAGE0 hack in mk/build-package-date.mk
+  dnl BOOTSTRAPPING_GHC_INFO_FIELD([LD_STAGE0],[ld command])
   if test "x$OS_STAGE0" != "xOSDarwin"; then
     BOOTSTRAPPING_GHC_INFO_FIELD([AR_STAGE0],[ar command])
     BOOTSTRAPPING_GHC_INFO_FIELD([AR_OPTS_STAGE0],[ar flags])
@@ -850,18 +853,6 @@ AC_TRY_LINK_FUNC(printf\$LDBLStub,
 dnl ** check for eventfd which is needed by the I/O manager
 AC_CHECK_HEADERS([sys/eventfd.h])
 AC_CHECK_FUNCS([eventfd])
-
-# test for GTK+
-AC_PATH_PROGS([GTK_CONFIG], [pkg-config])
-if test -n "$GTK_CONFIG"; then
-  if $GTK_CONFIG gtk+-2.0 --atleast-version=2.0; then
-    GTK_CONFIG="$GTK_CONFIG gtk+-2.0"
-  else
-    AC_MSG_WARN([GTK+ not usable, need at least version 2.0])
-    GTK_CONFIG=
-  fi
-fi
-AC_SUBST([GTK_CONFIG])
 
 # checking for PAPI
 AC_CHECK_LIB(papi, PAPI_library_init, HavePapiLib=YES, HavePapiLib=NO)
