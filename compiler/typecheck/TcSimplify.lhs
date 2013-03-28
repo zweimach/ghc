@@ -244,7 +244,6 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
        ; ev_binds_var <- newTcEvBinds
        ; wanted_transformed <- solveWantedsTcMWithEvBinds ev_binds_var wanteds $
                                solve_wanteds_and_drop
-       ; traceTc "RAE 1" empty
                                -- Post: wanted_transformed are zonked
 
               -- Step 4) Candidates for quantification are an approximation of wanted_transformed

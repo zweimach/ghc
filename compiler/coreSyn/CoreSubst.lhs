@@ -903,7 +903,7 @@ simpleOptPgm :: DynFlags -> Module
 simpleOptPgm dflags this_mod binds rules vects
   = do { dumpIfSet_dyn dflags Opt_D_dump_occur_anal "Occurrence analysis"
                        (pprCoreBindings occ_anald_binds $$ pprRules rules );
-
+         
        ; return (reverse binds', substRulesForImportedIds subst' rules, substVects subst' vects) }
   where
     occ_anald_binds  = occurAnalysePgm this_mod (\_ -> False) {- No rules active -}

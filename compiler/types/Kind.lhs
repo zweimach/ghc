@@ -258,6 +258,7 @@ tcIsSubKind k1 k2
 tcIsSubKindCon :: TyCon -> TyCon -> Bool
 tcIsSubKindCon kc1 kc2
   | isConstraintKindCon kc1 = isConstraintKindCon kc2
+  | isConstraintKindCon kc2 = False
   | isSuperKindCon kc1      = isSuperKindCon kc2
   | isSuperKindCon kc2      = False
   | otherwise               = isSubKindCon kc1 kc2

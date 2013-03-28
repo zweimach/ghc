@@ -1590,7 +1590,7 @@ tcTyConsOfType ty
      go (LitTy {})                 = emptyNameEnv
      go (TyConApp tc tys)          = go_tc tc `plusNameEnv` go_s tys
      go (AppTy a b)                = go a `plusNameEnv` go b
-     go (FunTy a b)                = go a `plusNameEnv` go b
+     go (FunTy a b)                = go a `plusNameEnv` go b `plusNameEnv` go_tc funTyCon
      go (ForAllTy tv ty)           = go ty `plusNameEnv` go (tyVarKind tv)
      go (CastTy ty co)             = go ty `plusNameEnv` go_co co
      go (CoercionTy co)            = go_co co

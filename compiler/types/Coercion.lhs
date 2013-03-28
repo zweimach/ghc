@@ -720,7 +720,8 @@ mkNthCoArg n co
 
   | Just (_tc1, tys1) <- splitTyConApp_maybe ty1
   , Just (_tc2, tys2) <- splitTyConApp_maybe ty2
-  , ASSERT( n < length tys1 && n < length tys2 )
+  , ASSERT2( n < length tys1 && n < length tys2 
+           , (vcat [ppr n, ppr co]) )
     (tys1 !! n) `eqType` (tys2 !! n)
   = liftSimply (tys1 !! n)
 
@@ -949,7 +950,9 @@ mkPiCo v co | isTyVar v = mkForAllCo_TyHomo v co
             | isCoVar v = mkForAllCo_CoHomo v co
             | otherwise = mkFunCo (mkReflCo (varType v)) co
 
--- mkCoCast (c :: s1 ~# t1) (g :: (s1 ~# s2) ~# (t1 ~# t2)) :: t2 ~# t2
+-- The second coercion is sometimes lifted (~) and sometimes unlifted (~#).
+-- So, we have to make sure to supply the right parameter to decomposeCo.
+-- mkCoCast (c :: s1 ~# t1) (g :: (s1 ~# s2) ~# (t1 ~# t2)) :: s2 ~# t2
 mkCoCast :: Coercion -> Coercion -> Coercion
 -- (mkCoCast (c :: s1 ~# t1) (g :: (s1 ~# t1) ~# (s2 ~# t2)
 mkCoCast c g
@@ -958,9 +961,11 @@ mkCoCast c g
        -- g  :: (s1 ~# s2) ~# (t1 ~#  t2)
        -- g1 :: s1 ~# t1
        -- g2 :: s2 ~# t2
-    [_reflk1, _reflk2, TyCoArg g1, TyCoArg g2] = decomposeCo 4 g
-            -- Remember, (~#) :: forall k1 k2. k1 -> k2 -> *
-            -- so it takes *four* arguments, not two
+    Just (_, args) = splitTyConAppCo_maybe g
+    n_args = length args
+    co_list = decomposeCo n_args g
+    TyCoArg g1 = co_list !! (n_args - 2)
+    TyCoArg g2 = co_list !! (n_args - 1)
 \end{code}
 
 %************************************************************************
@@ -1478,7 +1483,8 @@ coercionKind co = go co
     go g@(NthCo d co)
       | Just args1 <- tyConAppArgs_maybe ty1
       , Just args2 <- tyConAppArgs_maybe ty2
-      = (!! d) <$> Pair args1 args2
+      = ASSERT( d < length args1 && d < length args2 )
+        (!! d) <$> Pair args1 args2
      
       | d == 0
       , Just (tv1, _) <- splitForAllTy_maybe ty1

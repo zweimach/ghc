@@ -1420,13 +1420,13 @@ subst_co subst co
     go (CoVarCo cv)          = substCoVar subst cv
     go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go_arg cos
     go (UnsafeCo ty1 ty2)    = (mkUnsafeCo $! go_ty ty1) $! go_ty ty2
-    go (SymCo co)            = mkSymCo (go co)
-    go (TransCo co1 co2)     = mkTransCo (go co1) (go co2)
-    go (NthCo d co)          = mkNthCo d (go co)
-    go (LRCo lr co)          = mkLRCo lr (go co)
-    go (InstCo co arg)       = mkInstCo (go co) $! go_arg arg
-    go (CoherenceCo co1 co2) = mkCoherenceCo (go co1) (go co2)
-    go (KindCo co)           = mkKindCo (go co)
+    go (SymCo co)            = mkSymCo $! (go co)
+    go (TransCo co1 co2)     = (mkTransCo $! (go co1)) $! (go co2)
+    go (NthCo d co)          = mkNthCo d $! (go co)
+    go (LRCo lr co)          = mkLRCo lr $! (go co)
+    go (InstCo co arg)       = (mkInstCo $! (go co)) $! go_arg arg
+    go (CoherenceCo co1 co2) = (mkCoherenceCo $! (go co1)) $! (go co2)
+    go (KindCo co)           = mkKindCo $! (go co)
 
     go_arg :: CoercionArg -> CoercionArg
     go_arg (TyCoArg co)      = TyCoArg $! go co
