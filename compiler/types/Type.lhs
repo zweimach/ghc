@@ -1199,7 +1199,8 @@ varSetElemsWellScoped set
     build_list scoped [] = scoped
     build_list scoped unsorted
       = let (scoped', unsorted') = partition (well_scoped scoped) unsorted in
-        build_list (scoped ++ scoped') unsorted'
+        ASSERT( not $ null scoped' )
+        build_list (scoped ++ sort scoped') unsorted'
 
     well_scoped scoped var = get_deps var `subVarSet` (mkVarSet scoped)
 
