@@ -190,7 +190,7 @@ import FastString
 import Pair
 import NameEnv
 
-import Data.List        ( partition )
+import Data.List        ( partition, sort )
 import Maybes		( orElse )
 import Data.Maybe	( isJust )
 import Control.Monad    ( guard )
@@ -1198,9 +1198,9 @@ varSetElemsWellScoped set
                -> [TyCoVar]
     build_list scoped [] = scoped
     build_list scoped unsorted
-      = let (scoped', unsorted') = partition (well_scoped scoped) unsorted in
-        ASSERT( not $ null scoped' )
-        build_list (scoped ++ sort scoped') unsorted'
+      = let (new_scoped, unsorted') = partition (well_scoped scoped) unsorted in
+        ASSERT( not $ null new_scoped )
+        build_list (scoped ++ sort new_scoped) unsorted'
 
     well_scoped scoped var = get_deps var `subVarSet` (mkVarSet scoped)
 
