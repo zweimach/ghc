@@ -154,21 +154,21 @@ cvtDec (PragmaD prag)
   = cvtPragmaD prag
 
 cvtDec (TySynD tc tvs rhs)
-  = do	{ (_, tc', tvs') <- cvt_tycl_hdr [] tc tvs
-	; rhs' <- cvtType rhs
-	; returnL $ TyClD (SynDecl { tcdLName = tc' 
+  = do  { (_, tc', tvs') <- cvt_tycl_hdr [] tc tvs
+        ; rhs' <- cvtType rhs
+        ; returnL $ TyClD (SynDecl { tcdLName = tc' 
                                   , tcdTyVars = tvs', tcdFVs = placeHolderNames 
                                   , tcdRhs = rhs' }) }
 
 cvtDec (DataD ctxt tc tvs constrs derivs)
-  = do	{ (ctxt', tc', tvs') <- cvt_tycl_hdr ctxt tc tvs
-	; cons' <- mapM cvtConstr constrs
-	; derivs' <- cvtDerivs derivs
+  = do  { (ctxt', tc', tvs') <- cvt_tycl_hdr ctxt tc tvs
+        ; cons' <- mapM cvtConstr constrs
+        ; derivs' <- cvtDerivs derivs
         ; let defn = HsDataDefn { dd_ND = DataType, dd_cType = Nothing
                                 , dd_ctxt = ctxt'
                                 , dd_kindSig = Nothing
                                 , dd_cons = cons', dd_derivs = derivs' }
-	; returnL $ TyClD (DataDecl { tcdLName = tc', tcdTyVars = tvs'
+        ; returnL $ TyClD (DataDecl { tcdLName = tc', tcdTyVars = tvs'
                                     , tcdDataDefn = defn, tcdFVs = placeHolderNames }) }
 
 cvtDec (NewtypeD ctxt tc tvs constr derivs)

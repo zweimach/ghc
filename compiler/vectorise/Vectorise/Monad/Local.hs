@@ -79,7 +79,7 @@ inBind id p
 -- |Lookup a PA tyvars from the local environment.
 lookupTyCoVarPA :: Var -> VM (Maybe CoreExpr)
 lookupTyCoVarPA tv 
-	= readLEnv $ \env -> lookupVarEnv (local_tycovar_pa env) tv
+   = readLEnv $ \env -> lookupVarEnv (local_tycovar_pa env) tv
 
 -- |Add a tyvar to the local environment.
 defLocalTyCoVar :: TyCoVar -> VM ()

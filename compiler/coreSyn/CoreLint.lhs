@@ -305,7 +305,7 @@ lintCoreExpr (Var var)
 lintCoreExpr (Lit lit)
   = return (literalType lit)
 
-lintCoreExpr e@(Cast expr co)
+lintCoreExpr (Cast expr co)
   = do { expr_ty <- lintCoreExpr expr
 -- RAE       ; checkL (not (isReflCo co))
 -- RAE                (ptext (sLit "Cast by Refl in expression:") <+> ppr e)

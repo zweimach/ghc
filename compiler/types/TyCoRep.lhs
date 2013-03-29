@@ -164,24 +164,24 @@ data Type
 	                --    can appear as the right hand side of a type synonym.
 
   | FunTy
-	Type		
+	Type
 	Type		-- ^ Special case of 'TyConApp': @TyConApp FunTyCon [t1, t2]@
 			-- See Note [Equality-constrained types]
 
   | ForAllTy            -- See Note [Type abstractions over coercions]
-	TyCoVar         -- ^ type, kind, or coercion variable
-	Type	        -- ^ A polymorphic type
+	TyCoVar
+	Type            -- ^ A polymorphic type
 
-  | LitTy TyLit     -- ^ Type literals are simillar to type constructors.
+  | LitTy TyLit     -- ^ Type literals are similar to type constructors.
 
   | CastTy
-        Type        -- ^ Type whose kind is to be casted ...
-        Coercion    -- ^ ... by this coercion among kinds
+        Type        
+        Coercion    -- ^ A kind cast
 
-  | CoercionTy      -- ^ Injection of a Coercion into a type
+  | CoercionTy      
+        Coercion    -- ^ Injection of a Coercion into a type
                     -- This should only ever be used in the RHS of an AppTy,
                     -- in the list of a TyConApp, or in a FunTy
-        Coercion
 
   deriving (Data.Data, Data.Typeable)
 
