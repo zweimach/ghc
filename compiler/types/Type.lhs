@@ -1172,8 +1172,8 @@ typeSize (AppTy t1 t2)   = typeSize t1 + typeSize t2
 typeSize (FunTy t1 t2)   = typeSize t1 + typeSize t2
 typeSize (ForAllTy _ t)  = 1 + typeSize t
 typeSize (TyConApp _ ts) = 1 + sum (map typeSize ts)
-typeSize (CastTy ty co)  = 1 + typeSize ty + coercionSize co
-typeSize (CoercionTy co) = 1 + coercionSize co
+typeSize (CastTy ty co)  = typeSize ty + coercionSize co
+typeSize (CoercionTy co) = coercionSize co
 
 -- no promises that this is the most efficient, but it will do the job
 type DepEnv = VarEnv VarSet
