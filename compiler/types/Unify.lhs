@@ -661,7 +661,7 @@ Note [Unification and apartness]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The workhorse function behind unification actually is testing for apartness,
 not unification. Here, two types are apart if it is never possible to unify
-them or any types they are safely coercible to.(* see below) There are three
+them or any types they are safely coercible to. There are three
 possibilities here:
 
  - two types might be NotApart, which means a substitution can be found between
@@ -837,6 +837,43 @@ pushing the SymCo back onto co1. What we need is to make sure we swap the SymCo
 only once, prevent infinite recursion. This is done in unify_co_sym with the
 SymFlag parameter.
 
+Note [Unifying casted types]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We must be careful when unifying casted types. Say (t :: *). On the one hand,
+we must consider (t) and (t |> <*>) to be distinct types inhabited by distinct
+sets of terms. These types are *not* equal. See Note [Optimising Refl] in
+OptCoercion. But, it is wrong to say these types are "apart", by the definition
+of apartness: two types are apart only when they are not coercible, even after
+arbitrary substitutions. After all, the coercion (sym (<t> |> <*>)) witnesses
+the equality of these two types.
+
+So, what do we do? If we're unifying (t1 |> g1) and (t2 |> g2):
+
+1. We first go ahead and try straightforward unification. If that works (i.e., there is a
+unifying substitution), hooray. Stop.
+
+2. Now, we try just to unify t1 and t2. If that succeeds, then we've shown that
+(t1 |> g1) and (t2 |> g2) are not apart, because we can build a coercion between
+a type that appears after applying a substitution to these types. However, we
+can't just return NotApart, because NotApart requires a unifying substitution,
+which doesn't exist. So, we conclude MaybeApart, which is a safe fallback.
+
+This logic is remarkably easy to implement. We simply do this:
+  do { unify_ty t1 t2
+     ; unify_co g1 g2 }
+If they both succeed: perfect. If unify_ty fails, the whole thing fails for the same
+reason: perfect. If unify_ty succeeds by unify_co fails, the whole thing fails with
+MaybeApart, by the definition of unify_co: perfect. So, easy implementation, somewhat
+involved reasoning behind it. For example, reversing the order of the statements would
+*not* be correct!
+
+Now, what do we do when unifying (t1 |> g1) and t2, where t2 is not headed by a
+cast operation? Clearly, these types do not unify, but they might or might not be
+apart. So, we try to unify t1 and t2. If this fails, we fail for the same reason.
+If this succeeds, we fail with MaybeApart. Once again, the types aren't apart, but
+we can't say NotApart when the types don't unify.
+
 \begin{code}
 unify_ty :: Type -> Type   -- Types to be unified
          -> UM ()
@@ -853,6 +890,15 @@ unify_ty ty1 (TyVarTy tv2)  = umSwapRn $ uVar tv2 ty1
 unify_ty ty1 ty2
   | Just ty1' <- tcView ty1 = unify_ty ty1' ty2
   | Just ty2' <- tcView ty2 = unify_ty ty1 ty2'
+
+-- See Note [Unifying casted types]
+unify_ty (CastTy ty1 co1) (CastTy ty2 co2)
+  = do { unify_ty ty1 ty2
+       ; unify_co co1 co2 }
+unify_ty (CastTy ty1 _co1) ty2
+  = dontUnify $ unify_ty ty1 ty2
+unify_ty ty1 (CastTy ty2 _co2)
+  = dontUnify $ unify_ty ty1 ty2
 
 unify_ty (TyConApp tyc1 tys1) (TyConApp tyc2 tys2)
   | tyc1 == tyc2                                   
@@ -887,6 +933,9 @@ unify_ty (LitTy x) (LitTy y) | x == y = return ()
 unify_ty (ForAllTy tv1 ty1) (ForAllTy tv2 ty2)
   = do { unify_ty (tyVarKind tv1) (tyVarKind tv2)
        ; umRnBndr2 tv1 tv2 $ unify_ty ty1 ty2 }
+
+unify_ty (CoercionTy co1) (CoercionTy co2)
+  = unify_co co1 co2
 
 unify_ty _ _ = surelyApart
 
@@ -1284,6 +1333,12 @@ dontBeSoSure thing = UM $ \ty_fn rn_env locals tsubst csubst ->
   case unUM thing ty_fn rn_env locals tsubst csubst of
     Left UFSurelyApart -> Left UFMaybeApart
     other              -> other
+
+dontUnify :: UM a -> UM a
+dontUnify thing = UM $ \ty_fn rn_env locals tsubst csubst ->
+  case unUM thing ty_fn rn_env locals tsubst csubst of
+    Left failure -> Left failure
+    Right _      -> Left UFMaybeApart
 
 maybeApart :: UM a
 maybeApart = UM (\_ _ _ _ _ -> Left UFMaybeApart)
