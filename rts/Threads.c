@@ -499,7 +499,8 @@ threadStackOverflow (Capability *cap, StgTSO *tso)
 
     IF_DEBUG(sanity,checkTSO(tso));
 
-    if (tso->tot_stack_size >= RtsFlags.GcFlags.maxStkSize
+    if (RtsFlags.GcFlags.maxStkSize > 0
+        && tso->tot_stack_size >= RtsFlags.GcFlags.maxStkSize
         && !(tso->flags & TSO_BLOCKEX)) {
         // NB. never raise a StackOverflow exception if the thread is
         // inside Control.Exceptino.block.  It is impractical to protect
