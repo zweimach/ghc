@@ -94,7 +94,7 @@ void initRtsFlagsDefaults(void)
     RtsFlags.GcFlags.statsFile		= NULL;
     RtsFlags.GcFlags.giveStats		= NO_GC_STATS;
 
-    RtsFlags.GcFlags.maxStkSize		= (8 * 1024 * 1024) / sizeof(W_);
+    RtsFlags.GcFlags.maxStkSize		= 0;    /* off by default */
     RtsFlags.GcFlags.initialStkSize	= 1024 / sizeof(W_);
     RtsFlags.GcFlags.stkChunkSize       = (32 * 1024) / sizeof(W_);
     RtsFlags.GcFlags.stkChunkBufferSize = (1 * 1024) / sizeof(W_);
