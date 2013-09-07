@@ -575,7 +575,12 @@ threadStackOverflow (Capability *cap, StgTSO *tso)
                   "allocating new stack chunk of size %d bytes",
                   chunk_size * sizeof(W_));
 
-    new_stack = (StgStack*) allocate(cap, chunk_size);
+    new_stack = (StgStack*) allocateFail(cap, chunk_size);
+    if (new_stack == NULL) {
+        // We have run out of memory
+        // Send this thread the StackOverflow exception
+        throwToSingleThreaded(cap, tso, (StgClosure *)stackOverflow_closure);
+    }
     SET_HDR(new_stack, &stg_STACK_info, old_stack->header.prof.ccs);
     TICK_ALLOC_STACK(chunk_size);
 
