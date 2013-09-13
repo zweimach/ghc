@@ -378,6 +378,22 @@ W_ getPageSize (void)
     }
 }
 
+W_ getPhysicalMemorySize (void)
+{
+    static W_ physMemSize = 0;
+    if (physMemSize) {
+	return physMemSize;
+    } else {
+        MEMORYSTATUSEX status;
+        status.dwLength = sizeof(status);
+        if (!GlobalMemoryStatusEx(&status)) {
+	    barf("getPhysicsMemorySize: cannot get physical memory size");
+            return 0;
+	}
+        return status.ullTotalPhys;
+    }
+}
+
 void setExecutable (void *p, W_ len, rtsBool exec)
 {
     DWORD dwOldProtect = 0;

@@ -262,6 +262,21 @@ W_ getPageSize (void)
     }
 }
 
+W_ getPhysicalMemorySize (void)
+{
+    static W_ physMemSize = 0;
+    if (physMemSize) {
+	return physMemSize;
+    } else {
+	long ret;
+	ret = sysconf(_SC_PHYS_PAGES);
+	if (ret == -1) {
+	    barf("getPhysicsMemorySize: cannot get physical memory size");
+	}
+	return ret;
+    }
+}
+
 void setExecutable (void *p, W_ len, rtsBool exec)
 {
     StgWord pageSize = getPageSize();
