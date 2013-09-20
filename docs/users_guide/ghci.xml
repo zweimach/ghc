@@ -3024,13 +3024,41 @@ bar
 
       <varlistentry>
 	<term>
-          <literal>:step [<replaceable>expr</replaceable>]</literal>
+          <literal>:step</literal> <optional><replaceable>expr</replaceable></optional>
           <indexterm><primary><literal>:step</literal></primary></indexterm>
         </term>
 	<listitem>
-	  <para>Single-step from the last breakpoint.  With an expression
-            argument, begins evaluation of the expression with a
-            single-step.</para>
+	  <para>Enable all breakpoints and begin evaluating an
+          expression in single-stepping mode. In this
+          mode evaluation will be stopped after every reduction,
+          allowing local variables to be inspected.
+
+          If <replaceable>expr</replaceable> is not given, evaluation will
+          resume at the last breakpoint.
+
+          See <xref linkend="single-stepping" />.</para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term>
+          <literal>:steplocal</literal>
+          <indexterm><primary><literal>:steplocal</literal></primary></indexterm>
+        </term>
+	<listitem>
+	  <para>Enable only breakpoints in the current top-level
+          binding and resume evaluation at the last breakpoint.</para>
+	</listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term>
+          <literal>:stepmodule</literal>
+          <indexterm><primary><literal>:stepmodule</literal></primary></indexterm>
+        </term>
+	<listitem>
+	  <para>Enable only breakpoints in the current module and
+          resume evaluation at the last breakpoint.</para>
 	</listitem>
       </varlistentry>
 
