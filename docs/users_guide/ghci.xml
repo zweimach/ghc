@@ -2540,6 +2540,34 @@ T Int :: * -> *
 
       <varlistentry>
 	<term>
+          <literal>:list</literal> <replaceable>identifier</replaceable>
+          <indexterm><primary><literal>:list</literal></primary></indexterm>
+        </term>
+        <listitem>
+          <para>Lists the source code around the definition of
+          <replaceable>identifier</replaceable> or the current
+          breakpoint is not given. This requires the identifier be
+          defined in an interpreted module.  If your output device
+          supports it, then GHCi will highlight the active
+          subexpression in bold.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term>
+          <literal>:list</literal> <optional><replaceable>module</replaceable></optional> <replaceable>line</replaceable>
+          <indexterm><primary><literal>:list</literal></primary></indexterm>
+        </term>
+        <listitem>
+          <para>Lists the source code around the given line number of
+          <replaceable>module</replaceable>. This requires that the module be
+          interpreted. If your output device supports it, then GHCi will
+          highlight the active subexpression in bold.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+	<term>
           <literal>:load</literal> <optional><literal>*</literal></optional><replaceable>module</replaceable> ...
           <indexterm><primary><literal>:load</literal></primary></indexterm>
         </term>
