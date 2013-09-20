@@ -3064,7 +3064,7 @@ bar
 
       <varlistentry>
 	<term>
-          <literal>:trace [<replaceable>expr</replaceable>]</literal>
+          <literal>:trace <optional><replaceable>expr</replaceable></optional></literal>
           <indexterm><primary><literal>:trace</literal></primary></indexterm>
         </term>
 	<listitem>
