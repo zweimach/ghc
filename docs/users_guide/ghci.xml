@@ -2509,6 +2509,18 @@ Prelude> :. cmds.ghci
 
       <varlistentry>
 	<term>
+          <literal>:issafe</literal><optional><replaceable>module</replaceable></optional>
+          <indexterm><primary><literal>:issafe</literal></primary></indexterm>
+        </term>
+        <listitem>
+          <para>Displays Safe Haskell information about the given
+          module (or the current module if omitted). This includes the trust
+          type of the module and its containing package.</para>
+        </listitem>
+      </varlistentry>
+      
+      <varlistentry>
+	<term>
           <literal>:kind</literal><optional><literal>!</literal></optional> 
                         <replaceable>type</replaceable>
           <indexterm><primary><literal>:kind</literal></primary></indexterm>
