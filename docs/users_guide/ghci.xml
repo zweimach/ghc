@@ -1528,8 +1528,8 @@ _result :: IO ()
         <replaceable>expr</replaceable></literal> begins the evaluation of
         <replaceable>expr</replaceable> in single-stepping mode.  If
         <replaceable>expr</replaceable> is omitted, then it single-steps from
-        the current breakpoint. <literal>:stepover</literal>
-        works similarly.</para>
+        the current breakpoint. <literal>:steplocal</literal> and
+        <literal>:stepmodule</literal> work similarly.</para>
 
       <para>The <literal>:list</literal> command is particularly useful when
         single-stepping, to see where you currently are:</para>
