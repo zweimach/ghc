@@ -24,10 +24,10 @@ module TysPrim(
         kKiVar,
 
         -- Kind constructors...
-        superKindTyCon, superKind, anyKindTyCon, liftedTypeKindTyCon,
+        anyKindTyCon, liftedTypeKindTyCon,
         openTypeKindTyCon, unliftedTypeKindTyCon, constraintKindTyCon,
 
-        superKindTyConName, anyKindTyConName, liftedTypeKindTyConName,
+        anyKindTyConName, liftedTypeKindTyConName,
         openTypeKindTyConName, unliftedTypeKindTyConName,
         constraintKindTyConName,
 
@@ -139,7 +139,6 @@ primTyCons
     , unliftedTypeKindTyCon
     , openTypeKindTyCon
     , constraintKindTyCon
-    , superKindTyCon
     , anyKindTyCon
 
     , floatX4PrimTyCon
@@ -235,7 +234,7 @@ openAlphaTy = mkOnlyTyVarTy openAlphaTyVar
 openBetaTy  = mkOnlyTyVarTy openBetaTyVar
 
 kKiVar :: KindVar
-kKiVar = (tyVarList superKind) !! 10
+kKiVar = (tyVarList liftedTypeKind) !! 10
   -- the 10 selects the 11th letter in the alphabet: 'k'
 
 \end{code}
@@ -285,50 +284,28 @@ funTyCon = mkFunTyCon funTyConName $
 %*									*
 %************************************************************************
 
-Note [SuperKind (BOX)]
-~~~~~~~~~~~~~~~~~~~~~~
-Kinds are classified by "super-kinds".  There is only one super-kind, namely BOX.
-
-Perhaps surprisingly we give BOX the kind BOX, thus   BOX :: BOX
-Reason: we want to have kind equalities, thus (without the kind applications)
-            keq :: * ~ * = Eq# <refl *>
-Remember that
-   (~)  :: forall (k:BOX). k -> k -> Constraint
-   (~#) :: forall (k:BOX). k -> k -> #
-   Eq#  :: forall (k:BOX). forall (a:k) (b:k). (~#) k a b -> (~) k a b
-
-So the full defn of keq is
-   keq :: (~) BOX * * = Eq# BOX * * <refl *>
-
-So you can see it's convenient to have BOX:BOX
-
-
 \begin{code}
 -- | See "Type#kind_subtyping" for details of the distinction between the 'Kind' 'TyCon's
-superKindTyCon, anyKindTyCon, liftedTypeKindTyCon,
+anyKindTyCon, liftedTypeKindTyCon,
       openTypeKindTyCon, unliftedTypeKindTyCon,
       constraintKindTyCon
    :: TyCon
-superKindTyConName, anyKindTyConName, liftedTypeKindTyConName,
+anyKindTyConName, liftedTypeKindTyConName,
       openTypeKindTyConName, unliftedTypeKindTyConName,
       constraintKindTyConName
    :: Name
 
-superKindTyCon        = mkKindTyCon superKindTyConName        superKind
-   -- See Note [SuperKind (BOX)]
-
-anyKindTyCon          = mkKindTyCon anyKindTyConName          superKind
-liftedTypeKindTyCon   = mkKindTyCon liftedTypeKindTyConName   superKind
-openTypeKindTyCon     = mkKindTyCon openTypeKindTyConName     superKind
-unliftedTypeKindTyCon = mkKindTyCon unliftedTypeKindTyConName superKind
-constraintKindTyCon   = mkKindTyCon constraintKindTyConName   superKind
+anyKindTyCon          = mkKindTyCon anyKindTyConName          liftedTypeKind
+liftedTypeKindTyCon   = mkKindTyCon liftedTypeKindTyConName   liftedTypeKind
+openTypeKindTyCon     = mkKindTyCon openTypeKindTyConName     liftedTypeKind
+unliftedTypeKindTyCon = mkKindTyCon unliftedTypeKindTyConName liftedTypeKind
+constraintKindTyCon   = mkKindTyCon constraintKindTyConName   liftedTypeKind
 
 --------------------------
 -- ... and now their names
 
 -- If you edit these, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-superKindTyConName      = mkPrimTyConName (fsLit "BOX") superKindTyConKey superKindTyCon
 anyKindTyConName          = mkPrimTyConName (fsLit "AnyK") anyKindTyConKey anyKindTyCon
 liftedTypeKindTyConName   = mkPrimTyConName (fsLit "*") liftedTypeKindTyConKey liftedTypeKindTyCon
 openTypeKindTyConName     = mkPrimTyConName (fsLit "OpenKind") openTypeKindTyConKey openTypeKindTyCon
@@ -350,9 +327,8 @@ kindTyConType :: TyCon -> Type
 kindTyConType kind = TyConApp kind []
 
 -- | See "Type#kind_subtyping" for details of the distinction between these 'Kind's
-anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind, superKind :: Kind
+anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind :: Kind
 
-superKind        = kindTyConType superKindTyCon 
 anyKind          = kindTyConType anyKindTyCon  -- See Note [Any kinds]
 liftedTypeKind   = kindTyConType liftedTypeKindTyCon
 unliftedTypeKind = kindTyConType unliftedTypeKindTyCon

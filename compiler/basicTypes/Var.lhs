@@ -167,7 +167,8 @@ data Var
 	realUnique :: FastInt,	     -- Key for fast comparison
 				     -- Identical to the Unique in the name,
 				     -- cached here for speed
-	varType    :: Kind           -- ^ The type or kind of the 'Var' in question
+	varType    :: Kind,          -- ^ The type or kind of the 'Var' in question
+        isImplicit :: ImplicitFlag   -- See Note [Implicit flags]
  }
 
   | TcTyVar { 				-- Used only during type inference
@@ -176,7 +177,9 @@ data Var
 	varName        :: !Name,
 	realUnique     :: FastInt,
 	varType        :: Kind,
-	tc_tv_details  :: TcTyVarDetails }
+	tc_tv_details  :: TcTyVarDetails,
+        isImplicit :: ImplicitFlag   -- See Note [Implicit flags]
+  }
 
   | Id {
 	varName    :: !Name,
@@ -327,14 +330,6 @@ tcTyVarDetails var = pprPanic "tcTyVarDetails" (ppr var)
 
 setTcTyVarDetails :: TyVar -> TcTyVarDetails -> TyVar
 setTcTyVarDetails tv details = tv { tc_tv_details = details }
-
-mkKindVar :: Name -> SuperKind -> KindVar
--- mkKindVar take a SuperKind as argument because we don't have access
--- to superKind here.
-mkKindVar name kind = TyVar
-  { varName    = name
-  , realUnique = getKeyFastInt (nameUnique name)
-  , varType    = kind }
 
 \end{code}
 

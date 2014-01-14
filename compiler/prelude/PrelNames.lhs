@@ -1374,9 +1374,7 @@ objectTyConKey                          = mkPreludeTyConUnique 83
 eitherTyConKey :: Unique
 eitherTyConKey                          = mkPreludeTyConUnique 84
 
--- Super Kinds constructors
-superKindTyConKey :: Unique
-superKindTyConKey                     = mkPreludeTyConUnique 85
+-- 85 used to be superKind, now removed
 
 -- Kind constructors
 liftedTypeKindTyConKey, anyKindTyConKey, openTypeKindTyConKey,

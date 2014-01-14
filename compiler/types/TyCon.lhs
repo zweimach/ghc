@@ -38,7 +38,6 @@ module TyCon(
         isDecomposableTyCon,
         isForeignTyCon, 
         isPromotedDataCon, isPromotedDataCon_maybe, 
-        promotableTyCon_maybe, promoteTyCon,
 
         isInjectiveTyCon,
         isDataTyCon, isProductTyCon, isDataProductTyCon_maybe,
@@ -338,8 +337,6 @@ data TyCon
                                         -- for derived 'TyCon's representing class
                                         -- or family instances, respectively.
                                         -- See also 'synTcParent'
-        
-        tcPromoted :: Maybe TyCon    -- ^ Promoted TyCon, if any
     }
 
   -- | Represents the infinite family of tuple type constructors,
@@ -352,7 +349,6 @@ data TyCon
         tyConTupleSort :: TupleSort,
         tyConTyVars    :: [TyVar],
         dataCon        :: DataCon, -- ^ Corresponding tuple data constructor
-        tcPromoted     :: Maybe TyCon    -- Nothing for unboxed tuples
     }
 
   -- | Represents type synonyms
@@ -873,7 +869,6 @@ mkAlgTyCon :: Name
            -> TyConParent
            -> RecFlag           -- ^ Is the 'TyCon' recursive?
            -> Bool              -- ^ Was the 'TyCon' declared with GADT syntax?
-           -> Maybe TyCon       -- ^ Promoted version
            -> TyCon
 mkAlgTyCon name kind tyvars cType stupid rhs parent is_rec gadt_syn prom_tc
   = AlgTyCon {
@@ -888,7 +883,6 @@ mkAlgTyCon name kind tyvars cType stupid rhs parent is_rec gadt_syn prom_tc
         algTcParent      = ASSERT2( okParent name parent, ppr name $$ ppr parent ) parent,
         algTcRec         = is_rec,
         algTcGadtSyntax  = gadt_syn,
-        tcPromoted       = prom_tc
     }
 
 -- | Simpler specialization of 'mkAlgTyCon' for classes
@@ -904,7 +898,6 @@ mkTupleTyCon :: Name
              -> [TyVar] -- ^ 'TyVar's scoped over: see 'tyConTyVars'
              -> DataCon
              -> TupleSort    -- ^ Whether the tuple is boxed or unboxed
-             -> Maybe TyCon  -- ^ Promoted version
              -> TyCon
 mkTupleTyCon name kind arity tyvars con sort prom_tc
   = TupleTyCon {
@@ -915,7 +908,6 @@ mkTupleTyCon name kind arity tyvars con sort prom_tc
         tyConTupleSort = sort,
         tyConTyVars = tyvars,
         dataCon = con,
-        tcPromoted = prom_tc
     }
 
 -- ^ Foreign-imported (.NET) type constructors are represented
@@ -1225,16 +1217,6 @@ tupleTyConArity tc = tyConArity tc
 isRecursiveTyCon :: TyCon -> Bool
 isRecursiveTyCon (AlgTyCon {algTcRec = Recursive}) = True
 isRecursiveTyCon _                                 = False
-
-promotableTyCon_maybe :: TyCon -> Maybe TyCon
-promotableTyCon_maybe (AlgTyCon { tcPromoted = prom })   = prom
-promotableTyCon_maybe (TupleTyCon { tcPromoted = prom }) = prom
-promotableTyCon_maybe _                                  = Nothing
-
-promoteTyCon :: TyCon -> TyCon
-promoteTyCon tc = case promotableTyCon_maybe tc of
-                    Just prom_tc -> prom_tc
-                    Nothing      -> pprPanic "promoteTyCon" (ppr tc)
 
 -- | Is this the 'TyCon' of a foreign-imported type constructor?
 isForeignTyCon :: TyCon -> Bool
