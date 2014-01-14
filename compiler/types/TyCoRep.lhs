@@ -388,11 +388,6 @@ isLiftedTypeKind :: Kind -> Bool
 isLiftedTypeKind (TyConApp tc []) = tc `hasKey` liftedTypeKindTyConKey
 isLiftedTypeKind _                = False
 
--- | Is this a super-kind (i.e. a type-of-kinds)?
-isSuperKind :: Type -> Bool
-isSuperKind (TyConApp skc []) = skc `hasKey` superKindTyConKey
-isSuperKind _                 = False
-
 isTypeVar :: Var -> Bool
 isTypeVar v = isTKVar v && not (isSuperKind (varType v))
 

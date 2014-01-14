@@ -198,10 +198,10 @@ alphaTyVars is a list of type variables for use in templates:
 	["a", "b", ..., "z", "t1", "t2", ... ]
 
 \begin{code}
-tyVarList :: Kind -> [TyVar]
-tyVarList kind = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u) 
-				(mkTyVarOccFS (mkFastString name))
-			 	noSrcSpan) kind
+tyVarList :: Kind -> ImplicitFlag -> [TyVar]
+tyVarList kind imp = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u) 
+		       		               (mkTyVarOccFS (mkFastString name))
+			 	               noSrcSpan) kind imp
 	         | u <- [2..],
 		   let name | c <= 'z'  = [c]
 		            | otherwise = 't':show u
@@ -209,10 +209,10 @@ tyVarList kind = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u)
 	         ]
 
 alphaTyVars :: [TyVar]
-alphaTyVars = tyVarList liftedTypeKind
+alphaTyVars = tyVarList liftedTypeKind Explicit
 
 betaTyVars :: [TyVar]
-betaTyVars = tail alphaTyVars
+betaTyVars = tail alphaTyVars Explicit
 
 alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar :: TyVar
 (alphaTyVar:betaTyVar:gammaTyVar:deltaTyVar:_) = alphaTyVars
@@ -227,14 +227,14 @@ alphaTy, betaTy, gammaTy, deltaTy :: Type
 	-- result type for "error", so that we can have (error Int# "Help")
 openAlphaTyVars :: [TyVar]
 openAlphaTyVar, openBetaTyVar :: TyVar
-openAlphaTyVars@(openAlphaTyVar:openBetaTyVar:_) = tyVarList openTypeKind
+openAlphaTyVars@(openAlphaTyVar:openBetaTyVar:_) = tyVarList openTypeKind Explicit
 
 openAlphaTy, openBetaTy :: Type
 openAlphaTy = mkOnlyTyVarTy openAlphaTyVar
 openBetaTy  = mkOnlyTyVarTy openBetaTyVar
 
 kKiVar :: KindVar
-kKiVar = (tyVarList liftedTypeKind) !! 10
+kKiVar = (tyVarList liftedTypeKind Implicit) !! 10
   -- the 10 selects the 11th letter in the alphabet: 'k'
 
 \end{code}
@@ -456,7 +456,7 @@ eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 		      -- See Note [The ~# TyCon]
 eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind 4 VoidRep
   where kind = ForAllTy kv1 $ ForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
-        kVars = tyVarList superKind
+        kVars = tyVarList liftedTypeKind Implicit
         kv1 = kVars !! 0
         kv2 = kVars !! 1
         k1 = mkOnlyTyVarTy kv1

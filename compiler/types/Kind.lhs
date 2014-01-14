@@ -22,10 +22,7 @@ module Kind (
         anyKindTyCon, liftedTypeKindTyCon, openTypeKindTyCon,
         unliftedTypeKindTyCon, constraintKindTyCon,
 
-        -- Super Kinds
-	superKind, superKindTyCon, 
-        
-	pprKind, pprParendKind,
+        pprKind, pprParendKind,
 
         -- ** Deconstructing Kinds
         kindAppResult, synTyConResKind,

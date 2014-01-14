@@ -503,8 +503,7 @@ isPromotableTyCon rec_tycons tc
 
 
 isPromotableType :: NameSet -> Type -> Bool
--- Must line up with DataCon.promoteType
--- But the function lives here because we must treat the
+-- The function lives here because we must treat the
 -- *recursive* tycons as promotable
 isPromotableType rec_tcs ty
   = case splitForAllTys ty of

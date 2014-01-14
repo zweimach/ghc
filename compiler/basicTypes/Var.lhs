@@ -40,7 +40,7 @@
 module Var (
         -- * The main data type and synonyms
         Var, CoVar, Id, DictId, DFunId, EvVar, EqVar, EvId, IpId,
-        TyVar, TypeVar, KindVar, TKVar, TyCoVar,
+        TyVar, TypeVar, KindVar, TKVar, TyCoVar, ImplicitFlag(..),
 
 	-- ** Taking 'Var's apart
 	varName, varUnique, varType, 
@@ -59,9 +59,10 @@ module Var (
         isLocalVar, isLocalId, isCoVar,
 	isGlobalId, isExportedId,
 	mustHaveLocalBinding,
+        isImplicitTyVar,
 
 	-- ** Constructing 'TyVar's
-	mkTyVar, mkTcTyVar, mkKindVar,
+	mkTyVar, mkTcTyVar,
 
 	-- ** Taking 'TyVar's apart
         tyVarName, tyVarKind, tcTyVarDetails, setTcTyVarDetails,
@@ -197,7 +198,22 @@ data IdScope	-- See Note [GlobalId/LocalId]
 data ExportFlag 
   = NotExported	-- ^ Not exported: may be discarded as dead code.
   | Exported	-- ^ Exported: kept alive
+
+-- See Note [Implicit flags]
+data ImplicitFlag
+  = Implicit  -- ^ The parameter is not supplied
+  | Explicit  -- ^ The parameter must be supplied
 \end{code}
+
+Note [Implicit flags]
+~~~~~~~~~~~~~~~~~~~~~
+Though all type parameters are implicit in terms, some are implicit even in
+types. This is most often used with dependent types, where an explicit type's
+kind depends on an earlier implicit type. For example:
+
+  data SList :: [k] -> * where ...
+
+The parameter `k` to SList is implicit.
 
 Note [GlobalId/LocalId]
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -225,8 +241,9 @@ instance Outputable Var where
 --                else empty
 
 ppr_debug :: Var -> SDoc
-ppr_debug (TyVar {})                           = ptext (sLit "tv")
-ppr_debug (TcTyVar {tc_tv_details = d})        = pprTcTyVarDetails d
+ppr_debug (TyVar {isImplicit = imp})           = ptext (sLit "tv") <> parens (ppr imp)
+ppr_debug (TcTyVar {tc_tv_details = d, isImplicit = imp})
+                                               = pprTcTyVarDetails d <> parens (ppr imp)
 ppr_debug (Id { idScope = s, id_details = d }) = ppr_id_scope s <> pprIdDetails d
 
 ppr_id_scope :: IdScope -> SDoc
@@ -255,6 +272,10 @@ instance Data Var where
   toConstr _   = abstractConstr "Var"
   gunfold _ _  = error "gunfold"
   dataTypeOf _ = mkNoRepType "Var"
+
+instance Outputable ImplicitFlag where
+  ppr Implicit = text "i"
+  ppr Explicit = text "e"
 \end{code}
 
 
@@ -309,19 +330,21 @@ updateTyVarKindM update tv
 \end{code}
 
 \begin{code}
-mkTyVar :: Name -> Kind -> TyVar
-mkTyVar name kind = TyVar { varName    = name
-			  , realUnique = getKeyFastInt (nameUnique name)
-			  , varType  = kind
-			}
+mkTyVar :: Name -> Kind -> ImplicitFlag -> TyVar
+mkTyVar name kind imp = TyVar { varName    = name
+		 	      , realUnique = getKeyFastInt (nameUnique name)
+			      , varType  = kind
+                              , isImplicit = imp
+			      }
 
-mkTcTyVar :: Name -> Kind -> TcTyVarDetails -> TyVar
-mkTcTyVar name kind details
+mkTcTyVar :: Name -> Kind -> TcTyVarDetails -> ImplicitFlag -> TyVar
+mkTcTyVar name kind details imp
   = -- NB: 'kind' may be a coercion kind; cf, 'TcMType.newMetaCoVar'
     TcTyVar {	varName    = name,
 		realUnique = getKeyFastInt (nameUnique name),
 		varType  = kind,
-		tc_tv_details = details
+		tc_tv_details = details,
+                isImplicit = imp
 	}
 
 tcTyVarDetails :: TyVar -> TcTyVarDetails

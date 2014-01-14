@@ -385,7 +385,7 @@ mk_tuple sort arity = (tycon, tuple_con)
 	tyvars = take arity $ case sort of
 	  BoxedTuple      -> alphaTyVars
 	  UnboxedTuple    -> openAlphaTyVars
-	  ConstraintTuple -> tyVarList constraintKind
+	  ConstraintTuple -> tyVarList constraintKind Explicit
 
 	tuple_con = pcDataCon dc_name tyvars tyvar_tys tycon
 	tyvar_tys = mkOnlyTyVarTys tyvars
@@ -442,14 +442,14 @@ eqTyCon = mkAlgTyCon eqTyConName
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
-    a:b:_ = tyVarList k
+    a:b:_ = tyVarList k Explicit
 
 eqBoxDataCon :: DataCon
 eqBoxDataCon = pcDataCon eqBoxDataConName args [arg_ty] eqTyCon
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
-    a:b:_ = tyVarList k
+    a:b:_ = tyVarList k Explicit
     args = [kv, a, b]
     arg_ty = TyConApp eqPrimTyCon ([k, k] ++ mkOnlyTyVarTys [a, b])
 \end{code}
