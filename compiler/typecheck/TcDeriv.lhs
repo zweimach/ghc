@@ -60,6 +60,7 @@ import Outputable
 import FastString
 import Bag
 import Pair
+import BasicTypes (Origin(..))
 
 import Control.Monad
 import Data.List
@@ -436,7 +437,7 @@ commonAuxiliaries = foldM snoc ([], emptyBag) where
 
 renameDeriv :: Bool
             -> [InstInfo RdrName]
-            -> Bag (LHsBind RdrName, LSig RdrName)
+            -> Bag ((Origin, LHsBind RdrName), LSig RdrName)
             -> TcM (Bag (InstInfo Name), HsValBinds Name, DefUses)
 renameDeriv is_boot inst_infos bagBinds
   | is_boot     -- If we are compiling a hs-boot file, don't generate any derived bindings
@@ -1620,7 +1621,7 @@ Note [Recursive newtypes]
 Newtype deriving works fine, even if the newtype is recursive.
 e.g.    newtype S1 = S1 [T1 ()]
         newtype T1 a = T1 (StateT S1 IO a ) deriving( Monad )
-Remember, too, that type families are curretly (conservatively) given
+Remember, too, that type families are currently (conservatively) given
 a recursive flag, so this also allows newtype deriving to work
 for type famillies.
 

@@ -581,6 +581,7 @@ data ExtensionFlag
    | Opt_MultiWayIf
    | Opt_NegativeLiterals
    | Opt_EmptyCase
+   | Opt_PatternSynonyms
    deriving (Eq, Enum, Show)
 
 -- | Contains not only a collection of 'GeneralFlag's but also a plethora of
@@ -1485,13 +1486,16 @@ defaultLogAction dflags severity srcSpan style msg
           putStrSDoc = defaultLogActionHPutStrDoc dflags stdout
 
 defaultLogActionHPrintDoc :: DynFlags -> Handle -> SDoc -> PprStyle -> IO ()
-defaultLogActionHPrintDoc = defaultLogActionHPutStrDoc
+defaultLogActionHPrintDoc dflags h d sty
+ = defaultLogActionHPutStrDoc dflags h (d $$ text "") sty
+      -- Adds a newline
 
 defaultLogActionHPutStrDoc :: DynFlags -> Handle -> SDoc -> PprStyle -> IO ()
 defaultLogActionHPutStrDoc dflags h d sty
-    = Pretty.printDoc Pretty.PageMode (pprCols dflags) h doc
-    where
-      doc = runSDoc d (initSDocContext dflags sty)
+  = Pretty.printDoc_ Pretty.PageMode (pprCols dflags) h doc
+  where   -- Don't add a newline at the end, so that successive
+          -- calls to this log-action can output all on the same line
+    doc = runSDoc d (initSDocContext dflags sty)
 
 newtype FlushOut = FlushOut (IO ())
 
@@ -2858,7 +2862,8 @@ xFlags = [
   ( "IncoherentInstances",              Opt_IncoherentInstances, nop ),
   ( "PackageImports",                   Opt_PackageImports, nop ),
   ( "NegativeLiterals",                 Opt_NegativeLiterals, nop ),
-  ( "EmptyCase",                        Opt_EmptyCase, nop )
+  ( "EmptyCase",                        Opt_EmptyCase, nop ),
+  ( "PatternSynonyms",                  Opt_PatternSynonyms, nop )
   ]
 
 defaultFlags :: Settings -> [GeneralFlag]
@@ -3644,7 +3649,7 @@ makeDynFlagsConsistent dflags
             warn = "No native code generator, so using LLVM"
         in loop dflags' warn
  | hscTarget dflags == HscLlvm &&
-   not ((arch == ArchX86_64) && (os == OSLinux || os == OSDarwin)) &&
+   not ((arch == ArchX86_64) && (os == OSLinux || os == OSDarwin || os == OSFreeBSD)) &&
    not ((isARM arch) && (os == OSLinux)) &&
    (not (gopt Opt_Static dflags) || gopt Opt_PIC dflags)
     = if cGhcWithNativeCodeGen == "YES"
