@@ -169,6 +169,7 @@ import Foreign.C        ( CInt(..) )
 import System.IO.Unsafe ( unsafeDupablePerformIO )
 #endif
 import {-# SOURCE #-} ErrUtils ( Severity(..), MsgDoc, mkLocMessage )
+import {-# SOURCE #-} SysTools
 
 import System.IO.Unsafe ( unsafePerformIO )
 import Data.IORef
@@ -792,6 +793,9 @@ data DynFlags = DynFlags {
   avx512er              :: Bool, -- Enable AVX-512 Exponential and Reciprocal Instructions.
   avx512f               :: Bool, -- Enable AVX-512 instructions.
   avx512pf              :: Bool, -- Enable AVX-512 PreFetch Instructions.
+  
+  -- | ARM linker brokenness (see checkBrokenTablesNextToCode at end of this file)
+  tablesNextToCodeBroken :: Bool,
 
   -- | Run-time linker information (what options we need, etc.)
   rtldInfo              :: IORef (Maybe LinkerInfo),
@@ -1024,7 +1028,8 @@ defaultObjectTarget platform
 
 tablesNextToCode :: DynFlags -> Bool
 tablesNextToCode dflags
-    = mkTablesNextToCode (platformUnregisterised (targetPlatform dflags))
+    = not (tablesNextToCodeBroken dflags)
+    && mkTablesNextToCode (platformUnregisterised (targetPlatform dflags))
 
 -- Determines whether we will be compiling
 -- info tables that reside just before the entry code, or with an
@@ -1445,6 +1450,7 @@ defaultDynFlags mySettings =
         avx512er = False,
         avx512f = False,
         avx512pf = False,
+        tablesNextToCodeBroken = False,
         rtldInfo = panic "defaultDynFlags: no rtldInfo",
         rtccInfo = panic "defaultDynFlags: no rtccInfo"
       }
@@ -1998,8 +2004,10 @@ parseDynamicFlagsFull activeFlags cmdline dflags0 args = do
     _      -> return ()
 
   liftIO $ setUnsafeGlobalDynFlags dflags6
+  
+  dflags7 <- checkBrokenTablesNextToCode dflags6
 
-  return (dflags6, leftover, consistency_warnings ++ sh_warns ++ warns)
+  return (dflags7, leftover, consistency_warnings ++ sh_warns ++ warns)
 
 updateWays :: DynFlags -> DynFlags
 updateWays dflags
@@ -3751,6 +3759,26 @@ data CompilerInfo
    | Clang
    | UnknownCC
    deriving Eq
+
+-- | The binutils linker on ARM emits unnecessary R_ARM_COPY relocations which
+-- breaks tables-next-to-code in dynamically linked modules. This
+-- check should be more selective but there is currently no released
+-- version where this bug is fixed.
+-- See https://sourceware.org/bugzilla/show_bug.cgi?id=16177 and
+-- https://ghc.haskell.org/trac/ghc/ticket/4210#comment:29
+checkBrokenTablesNextToCode :: MonadIO m => DynFlags -> m DynFlags
+checkBrokenTablesNextToCode dflags
+  | not (isARM arch)             = return dflags
+  | WayDyn `notElem` ways dflags = return dflags
+  | otherwise                    = do
+    linkerInfo <- liftIO $ getLinkerInfo dflags
+    case linkerInfo of
+      GnuLD _  -> do liftIO $ putStrLn "Disable tables-next-to-code due to broken linker (https://sourceware.org/bugzilla/show_bug.cgi?id=16177)"
+                     return dflags { tablesNextToCodeBroken = True }
+      _        -> return dflags
+  where platform = targetPlatform dflags
+        arch = platformArch platform
+
 
 -- -----------------------------------------------------------------------------
 -- RTS hooks

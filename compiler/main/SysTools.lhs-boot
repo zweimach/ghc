@@ -1,0 +1,7 @@
+\begin{code}
+module SysTools where
+
+import {-# SOURCE #-} DynFlags
+
+getLinkerInfo :: DynFlags -> IO LinkerInfo
+\end{code}
