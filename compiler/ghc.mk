@@ -596,6 +596,7 @@ compiler_stage2_dll0_MODULES = \
 	StgSyn \
 	Stream \
 	StringBuffer \
+	SysTools \
 	TcEvidence \
 	TcIface \
 	TcRnMonad \
