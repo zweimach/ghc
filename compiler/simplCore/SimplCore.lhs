@@ -4,13 +4,6 @@
 \section[SimplCore]{Driver for simplifying @Core@ programs}
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
-
 module SimplCore ( core2core, simplifyExpr ) where
 
 #include "HsVersions.h"
@@ -60,7 +53,7 @@ import Type             ( mkTyConTy )
 import RdrName          ( mkRdrQual )
 import OccName          ( mkVarOcc )
 import PrelNames        ( pluginTyConName )
-import DynamicLoading   ( forceLoadTyCon, lookupRdrNameInModule, getValueSafely )
+import DynamicLoading   ( forceLoadTyCon, lookupRdrNameInModuleForPlugins, getValueSafely )
 import Module           ( ModuleName )
 import Panic
 #endif
@@ -128,6 +121,7 @@ getCoreToDo dflags
     cse           = gopt Opt_CSE                          dflags
     spec_constr   = gopt Opt_SpecConstr                   dflags
     liberate_case = gopt Opt_LiberateCase                 dflags
+    late_dmd_anal = gopt Opt_LateDmdAnal                  dflags
     static_args   = gopt Opt_StaticArgumentTransformation dflags
     rules_on      = gopt Opt_EnableRewriteRules           dflags
     eta_expand_on = gopt Opt_DoLambdaEtaExpansion         dflags
@@ -203,7 +197,7 @@ getCoreToDo dflags
        [ vectorisation
        , CoreDoSimplify max_iter
              (base_mode { sm_phase = Phase 0
-                        , sm_names = ["Non-opt simplification"] }) 
+                        , sm_names = ["Non-opt simplification"] })
        ]
 
      else {- opt_level >= 1 -} [
@@ -301,7 +295,15 @@ getCoreToDo dflags
         maybe_rule_check (Phase 0),
 
         -- Final clean-up simplification:
-        simpl_phase 0 ["final"] max_iter
+        simpl_phase 0 ["final"] max_iter,
+
+        runWhen late_dmd_anal $ CoreDoPasses [
+            CoreDoStrictness,
+            CoreDoWorkerWrapper,
+            simpl_phase 0 ["post-late-ww"] max_iter
+          ],
+
+        maybe_rule_check (Phase 0)
      ]
 \end{code}
 
@@ -333,7 +335,7 @@ loadPlugin :: HscEnv -> ModuleName -> IO Plugin
 loadPlugin hsc_env mod_name
   = do { let plugin_rdr_name = mkRdrQual mod_name (mkVarOcc "plugin")
              dflags = hsc_dflags hsc_env
-       ; mb_name <- lookupRdrNameInModule hsc_env mod_name plugin_rdr_name
+       ; mb_name <- lookupRdrNameInModuleForPlugins hsc_env mod_name plugin_rdr_name
        ; case mb_name of {
             Nothing ->
                 throwGhcExceptionIO (CmdLineError $ showSDoc dflags $ hsep
@@ -368,10 +370,11 @@ runCorePasses passes guts
     do_pass guts CoreDoNothing = return guts
     do_pass guts (CoreDoPasses ps) = runCorePasses ps guts
     do_pass guts pass
-       = do { dflags <- getDynFlags
+       = do { hsc_env <- getHscEnv
+            ; let dflags = hsc_dflags hsc_env
             ; liftIO $ showPass dflags pass
             ; guts' <- doCorePass dflags pass guts
-            ; liftIO $ endPass dflags pass (mg_binds guts') (mg_rules guts')
+            ; liftIO $ endPass hsc_env pass (mg_binds guts') (mg_rules guts')
             ; return guts' }
 
 doCorePass :: DynFlags -> CoreToDo -> ModGuts -> CoreM ModGuts
@@ -498,16 +501,16 @@ simplifyExpr dflags expr
 
         ; us <-  mkSplitUniqSupply 's'
 
-	; let sz = exprSize expr
+        ; let sz = exprSize expr
 
         ; (expr', counts) <- initSmpl dflags emptyRuleBase emptyFamInstEnvs us sz $
-				 simplExprGently (simplEnvForGHCi dflags) expr
+                                 simplExprGently (simplEnvForGHCi dflags) expr
 
         ; Err.dumpIfSet dflags (dopt Opt_D_dump_simpl_stats dflags)
                   "Simplifier statistics" (pprSimplCount counts)
 
-	; Err.dumpIfSet_dyn dflags Opt_D_dump_simpl "Simplified expression"
-			(pprCoreExpr expr')
+        ; Err.dumpIfSet_dyn dflags Opt_D_dump_simpl "Simplified expression"
+                        (pprCoreExpr expr')
 
         ; return expr'
         }
@@ -618,16 +621,16 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
                    -- that the binders representing variable vectorisation declarations are kept alive.
                    -- (In contrast to automatically vectorised variables, their unvectorised versions
                    -- don't depend on them.)
-                 vectVars = mkVarSet $ 
-                              catMaybes [ fmap snd $ lookupVarEnv (vectInfoVar (mg_vect_info guts)) bndr 
+                 vectVars = mkVarSet $
+                              catMaybes [ fmap snd $ lookupVarEnv (vectInfoVar (mg_vect_info guts)) bndr
                                         | Vect bndr _ <- mg_vect_decls guts]
                               ++
-                              catMaybes [ fmap snd $ lookupVarEnv (vectInfoVar (mg_vect_info guts)) bndr 
+                              catMaybes [ fmap snd $ lookupVarEnv (vectInfoVar (mg_vect_info guts)) bndr
                                         | bndr <- bindersOfBinds binds]
                                         -- FIXME: This second comprehensions is only needed as long as we
                                         --        have vectorised bindings where we get "Could NOT call
                                         --        vectorised from original version".
-              ;  (maybeVects, maybeVectVars) 
+              ;  (maybeVects, maybeVectVars)
                    = case sm_phase mode of
                        InitialPhase -> (mg_vect_decls guts, vectVars)
                        _            -> ([], vectVars)
@@ -674,7 +677,8 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
            let { binds2 = {-# SCC "ZapInd" #-} shortOutIndirections binds1 } ;
 
                 -- Dump the result of this iteration
-           end_iteration dflags pass iteration_no counts1 binds2 rules1 ;
+           dump_end_iteration dflags iteration_no counts1 binds2 rules1 ;
+           lintPassResult hsc_env pass binds2 ;
 
                 -- Loop
            do_iteration us2 (iteration_no + 1) (counts1:counts_so_far) binds2 rules1
@@ -691,11 +695,10 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
 simplifyPgmIO _ _ _ _ _ = panic "simplifyPgmIO"
 
 -------------------
-end_iteration :: DynFlags -> CoreToDo -> Int
+dump_end_iteration :: DynFlags -> Int
              -> SimplCount -> CoreProgram -> [CoreRule] -> IO ()
-end_iteration dflags pass iteration_no counts binds rules
-  = do { dumpPassResult dflags mb_flag hdr pp_counts binds rules
-       ; lintPassResult dflags pass binds }
+dump_end_iteration dflags iteration_no counts binds rules
+  = dumpPassResult dflags mb_flag hdr pp_counts binds rules
   where
     mb_flag | dopt Opt_D_dump_simpl_iterations dflags = Just Opt_D_dump_simpl_phases
             | otherwise                               = Nothing

@@ -571,9 +571,10 @@ addTickHsExpr (HsCoreAnn nm e) =
         liftM2 HsCoreAnn
                 (return nm)
                 (addTickLHsExpr e)
-addTickHsExpr e@(HsBracket     {}) = return e
-addTickHsExpr e@(HsBracketOut  {}) = return e
-addTickHsExpr e@(HsSpliceE  {}) = return e
+addTickHsExpr e@(HsBracket     {})   = return e
+addTickHsExpr e@(HsTcBracketOut  {}) = return e
+addTickHsExpr e@(HsRnBracketOut  {}) = return e
+addTickHsExpr e@(HsSpliceE  {})      = return e
 addTickHsExpr (HsProc pat cmdtop) =
         liftM2 HsProc
                 (addTickLPat pat)
@@ -963,6 +964,13 @@ noFVs = emptyOccEnv
 data TM a = TM { unTM :: TickTransEnv -> TickTransState -> (a,FreeVars,TickTransState) }
         -- a combination of a state monad (TickTransState) and a writer
         -- monad (FreeVars).
+
+instance Functor TM where
+    fmap = liftM
+
+instance Applicative TM where
+    pure = return
+    (<*>) = ap
 
 instance Monad TM where
   return a = TM $ \ _env st -> (a,noFVs,st)

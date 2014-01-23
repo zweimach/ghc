@@ -99,6 +99,8 @@
 #define D_   float64
 #define L_   bits64
 #define V16_ bits128
+#define V32_ bits256
+#define V64_ bits512
 
 #define SIZEOF_StgDouble 8
 #define SIZEOF_StgWord64 8
@@ -373,6 +375,7 @@
    CCCS_ALLOC(bytes);
 
 #define HEAP_CHECK(bytes,failure)                       \
+    TICK_BUMP(HEAP_CHK_ctr);				\
     Hp = Hp + (bytes);                                  \
     if (Hp > HpLim) { HpAlloc = (bytes); failure; }     \
     TICK_ALLOC_HEAP_NOCTR(bytes);
@@ -394,16 +397,18 @@
 /* CCS_ALLOC wants the size in words, because ccs->mem_alloc is in words */
 #define CCCS_ALLOC(__alloc) CCS_ALLOC(BYTES_TO_WDS(__alloc), CCCS)
 
-#define HP_CHK_GEN_TICKY(alloc)                 \
-   HP_CHK_GEN(alloc);                           \
-   TICK_ALLOC_HEAP_NOCTR(alloc);
+#define HP_CHK_GEN_TICKY(bytes)                 \
+   HP_CHK_GEN(bytes);                           \
+   TICK_ALLOC_HEAP_NOCTR(bytes);
 
 #define HP_CHK_P(bytes, fun, arg)               \
    HEAP_CHECK(bytes, GC_PRIM_P(fun,arg))
 
-#define ALLOC_P_TICKY(alloc, fun, arg)          \
-   HP_CHK_P(alloc);                             \
-   TICK_ALLOC_HEAP_NOCTR(alloc);
+// TODO I'm not seeing where ALLOC_P_TICKY is used; can it be removed?
+//         -NSF March 2013
+#define ALLOC_P_TICKY(bytes, fun, arg)		\
+   HP_CHK_P(bytes);				\
+   TICK_ALLOC_HEAP_NOCTR(bytes);
 
 #define CHECK_GC()                                                      \
   (bdescr_link(CurrentNursery) == NULL ||                               \
@@ -434,20 +439,32 @@
    if (0) { goto __L__; }
 
 #define GC_PRIM(fun)                            \
-        R9 = fun;                               \
-        jump stg_gc_prim();
+        jump stg_gc_prim(fun);
 
+// Version of GC_PRIM for use in low-level Cmm.  We can call
+// stg_gc_prim, because it takes one argument and therefore has a
+// platform-independent calling convention (Note [Syntax of .cmm
+// files] in CmmParse.y).
+#define GC_PRIM_LL(fun)                         \
+        R1 = fun;                               \
+        jump stg_gc_prim [R1];
+
+// We pass the fun as the second argument, because the arg is
+// usually already in the first argument position (R1), so this
+// avoids moving it to a different register / stack slot.
 #define GC_PRIM_N(fun,arg)                      \
-        R9 = fun;                               \
-        jump stg_gc_prim_n(arg);
+        jump stg_gc_prim_n(arg,fun);
 
 #define GC_PRIM_P(fun,arg)                      \
-        R9 = fun;                               \
-        jump stg_gc_prim_p(arg);
+        jump stg_gc_prim_p(arg,fun);
+
+#define GC_PRIM_P_LL(fun,arg)                   \
+        R1 = arg;                               \
+        R2 = fun;                               \
+        jump stg_gc_prim_p_ll [R1,R2];
 
 #define GC_PRIM_PP(fun,arg1,arg2)               \
-        R9 = fun;                               \
-        jump stg_gc_prim_pp(arg1,arg2);
+        jump stg_gc_prim_pp(arg1,arg2,fun);
 
 #define MAYBE_GC_(fun)                          \
     if (CHECK_GC()) {                           \
@@ -473,22 +490,26 @@
         GC_PRIM_PP(fun,arg1,arg2)               \
    }
 
-#define STK_CHK(n, fun)                         \
+#define STK_CHK_LL(n, fun)                      \
+    TICK_BUMP(STK_CHK_ctr); 			\
     if (Sp - (n) < SpLim) {                     \
-        GC_PRIM(fun)                            \
+        GC_PRIM_LL(fun)                         \
     }
 
-#define STK_CHK_P(n, fun, arg)                  \
+#define STK_CHK_P_LL(n, fun, arg)               \
+    TICK_BUMP(STK_CHK_ctr);                     \
     if (Sp - (n) < SpLim) {                     \
-        GC_PRIM_P(fun,arg)                      \
+        GC_PRIM_P_LL(fun,arg)                   \
     }
 
 #define STK_CHK_PP(n, fun, arg1, arg2)          \
+    TICK_BUMP(STK_CHK_ctr);                     \
     if (Sp - (n) < SpLim) {                     \
         GC_PRIM_PP(fun,arg1,arg2)               \
     }
 
 #define STK_CHK_ENTER(n, closure)               \
+    TICK_BUMP(STK_CHK_ctr);                     \
     if (Sp - (n) < SpLim) {                     \
         jump __stg_gc_enter_1(closure);         \
     }
@@ -610,6 +631,7 @@
 #define TICK_ENT_AP()  			TICK_BUMP(ENT_AP_ctr)
 #define TICK_ENT_AP_STACK()  		TICK_BUMP(ENT_AP_STACK_ctr)
 #define TICK_ENT_BH()  			TICK_BUMP(ENT_BH_ctr)
+#define TICK_ENT_LNE() 			TICK_BUMP(ENT_LNE_ctr)
 #define TICK_UNKNOWN_CALL()  		TICK_BUMP(UNKNOWN_CALL_ctr)
 #define TICK_UPDF_PUSHED()  		TICK_BUMP(UPDF_PUSHED_ctr)
 #define TICK_CATCHF_PUSHED()  		TICK_BUMP(CATCHF_PUSHED_ctr)
@@ -626,14 +648,18 @@
 #define TICK_SLOW_CALL_PAP_CORRECT()	TICK_BUMP(SLOW_CALL_PAP_CORRECT_ctr)
 #define TICK_SLOW_CALL_PAP_TOO_MANY()	TICK_BUMP(SLOW_CALL_PAP_TOO_MANY_ctr)
 
-#define TICK_SLOW_CALL_v()  		TICK_BUMP(SLOW_CALL_v_ctr)
-#define TICK_SLOW_CALL_p()  		TICK_BUMP(SLOW_CALL_p_ctr)
-#define TICK_SLOW_CALL_pv()  		TICK_BUMP(SLOW_CALL_pv_ctr)
-#define TICK_SLOW_CALL_pp()  		TICK_BUMP(SLOW_CALL_pp_ctr)
-#define TICK_SLOW_CALL_ppp()  		TICK_BUMP(SLOW_CALL_ppp_ctr)
-#define TICK_SLOW_CALL_pppp()  		TICK_BUMP(SLOW_CALL_pppp_ctr)
-#define TICK_SLOW_CALL_ppppp()  	TICK_BUMP(SLOW_CALL_ppppp_ctr)
-#define TICK_SLOW_CALL_pppppp()  	TICK_BUMP(SLOW_CALL_pppppp_ctr)
+#define TICK_SLOW_CALL_fast_v16()    	TICK_BUMP(SLOW_CALL_fast_v16_ctr)
+#define TICK_SLOW_CALL_fast_v()  	TICK_BUMP(SLOW_CALL_fast_v_ctr)
+#define TICK_SLOW_CALL_fast_p()  	TICK_BUMP(SLOW_CALL_fast_p_ctr)
+#define TICK_SLOW_CALL_fast_pv()  	TICK_BUMP(SLOW_CALL_fast_pv_ctr)
+#define TICK_SLOW_CALL_fast_pp()  	TICK_BUMP(SLOW_CALL_fast_pp_ctr)
+#define TICK_SLOW_CALL_fast_ppv()  	TICK_BUMP(SLOW_CALL_fast_ppv_ctr)
+#define TICK_SLOW_CALL_fast_ppp()  	TICK_BUMP(SLOW_CALL_fast_ppp_ctr)
+#define TICK_SLOW_CALL_fast_pppv()  	TICK_BUMP(SLOW_CALL_fast_pppv_ctr)
+#define TICK_SLOW_CALL_fast_pppp()  	TICK_BUMP(SLOW_CALL_fast_pppp_ctr)
+#define TICK_SLOW_CALL_fast_ppppp()  	TICK_BUMP(SLOW_CALL_fast_ppppp_ctr)
+#define TICK_SLOW_CALL_fast_pppppp()  	TICK_BUMP(SLOW_CALL_fast_pppppp_ctr)
+#define TICK_VERY_SLOW_CALL()  		TICK_BUMP(VERY_SLOW_CALL_ctr)
 
 /* NOTE: TICK_HISTO_BY and TICK_HISTO 
    currently have no effect.
@@ -672,9 +698,9 @@
   TICK_BUMP(UPD_CON_IN_NEW_ctr);		\
   TICK_HISTO(UPD_CON_IN_NEW,n)
 
-#define TICK_ALLOC_HEAP_NOCTR(n)		\
-    TICK_BUMP(ALLOC_HEAP_ctr);			\
-    TICK_BUMP_BY(ALLOC_HEAP_tot,n)
+#define TICK_ALLOC_HEAP_NOCTR(bytes)		\
+    TICK_BUMP(ALLOC_RTS_ctr);			\
+    TICK_BUMP_BY(ALLOC_RTS_tot,bytes)
 
 /* -----------------------------------------------------------------------------
    Saving and restoring STG registers

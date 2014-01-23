@@ -28,9 +28,8 @@ import CLabel
 import StgCmmLayout
 import StgCmmUtils
 import StgCmmMonad
-import StgCmmProf
+import StgCmmProf (profDynAlloc, dynProfHdr, staticProfHdr)
 import StgCmmTicky
-import StgCmmGran
 import StgCmmClosure
 import StgCmmEnv
 
@@ -42,6 +41,7 @@ import Cmm
 import CmmUtils
 import CostCentre
 import IdInfo( CafInfo(..), mayHaveCafRefs )
+import Id ( Id )
 import Module
 import DynFlags
 import FastString( mkFastString, fsLit )
@@ -54,7 +54,8 @@ import Data.Maybe (isJust)
 -----------------------------------------------------------
 
 allocDynClosure
-        :: CmmInfoTable
+        :: Maybe Id
+        -> CmmInfoTable
         -> LambdaFormInfo
         -> CmmExpr              -- Cost Centre to stick in the object
         -> CmmExpr              -- Cost Centre to blame for this alloc
@@ -66,7 +67,7 @@ allocDynClosure
         -> FCode CmmExpr -- returns Hp+n
 
 allocDynClosureCmm
-        :: CmmInfoTable -> LambdaFormInfo -> CmmExpr -> CmmExpr
+        :: Maybe Id -> CmmInfoTable -> LambdaFormInfo -> CmmExpr -> CmmExpr
         -> [(CmmExpr, VirtualHpOffset)]
         -> FCode CmmExpr -- returns Hp+n
 
@@ -88,19 +89,19 @@ allocDynClosureCmm
 -- significant - see test T4801.
 
 
-allocDynClosure info_tbl lf_info use_cc _blame_cc args_w_offsets
+allocDynClosure mb_id info_tbl lf_info use_cc _blame_cc args_w_offsets
   = do  { let (args, offsets) = unzip args_w_offsets
         ; cmm_args <- mapM getArgAmode args     -- No void args
-        ; allocDynClosureCmm info_tbl lf_info
+        ; allocDynClosureCmm mb_id info_tbl lf_info
                              use_cc _blame_cc (zip cmm_args offsets)
         }
 
-allocDynClosureCmm info_tbl lf_info use_cc _blame_cc amodes_w_offsets
+allocDynClosureCmm mb_id info_tbl lf_info use_cc _blame_cc amodes_w_offsets
   = do  { virt_hp <- getVirtHp
 
         -- SAY WHAT WE ARE ABOUT TO DO
         ; let rep = cit_rep info_tbl
-        ; tickyDynAlloc rep lf_info
+        ; tickyDynAlloc mb_id rep lf_info
         ; profDynAlloc rep use_cc
 
         -- FIND THE OFFSET OF THE INFO-PTR WORD
@@ -133,8 +134,7 @@ emitSetDynHdr base info_ptr ccs
   where
     header :: DynFlags -> [CmmExpr]
     header dflags = [info_ptr] ++ dynProfHdr dflags ccs
-        -- ToDo: Gransim stuff
-        -- ToDo: Parallel stuff
+        -- ToDof: Parallel stuff
         -- No ticky header
 
 hpStore :: CmmExpr -> [CmmExpr] -> [VirtualHpOffset] -> FCode ()
@@ -205,17 +205,11 @@ mkStaticClosure :: DynFlags -> CLabel -> CostCentreStack -> [CmmLit]
   -> [CmmLit] -> [CmmLit] -> [CmmLit] -> [CmmLit]
 mkStaticClosure dflags info_lbl ccs payload padding static_link_field saved_info_field
   =  [CmmLabel info_lbl]
-  ++ variable_header_words
+  ++ staticProfHdr dflags ccs
   ++ concatMap (padLitToWord dflags) payload
   ++ padding
   ++ static_link_field
   ++ saved_info_field
-  where
-    variable_header_words
-        =  staticGranHdr
-        ++ staticParHdr
-        ++ staticProfHdr dflags ccs
-        ++ staticTickyHdr
 
 -- JD: Simon had ellided this padding, but without it the C back end asserts
 -- failure. Maybe it's a bad assertion, and this padding is indeed unnecessary?
@@ -468,7 +462,7 @@ cannedGCEntryPoint dflags regs
                                   W32       -> Just (mkGcLabel "stg_gc_f1")
                                   W64       -> Just (mkGcLabel "stg_gc_d1")
                                   _         -> Nothing
-        
+
           | width == wordWidth dflags -> Just (mkGcLabel "stg_gc_unbx_r1")
           | width == W64              -> Just (mkGcLabel "stg_gc_l1")
           | otherwise                 -> Nothing
@@ -527,8 +521,7 @@ heapCheck checkStack checkYield do_gc code
               stk_hwm | checkStack = Just (CmmLit CmmHighStackMark)
                       | otherwise  = Nothing
         ; codeOnly $ do_checks stk_hwm checkYield mb_alloc_bytes do_gc
-        ; tickyAllocHeap hpHw
-        ; doGranAllocate hpHw
+        ; tickyAllocHeap True hpHw
         ; setRealHp hpHw
         ; code }
 
@@ -540,10 +533,57 @@ heapStackCheckGen stk_hwm mb_bytes
        call <- mkCall generic_gc (GC, GC) [] [] updfr_sz []
        do_checks stk_hwm False  mb_bytes (call <*> mkBranch lretry)
 
+-- Note [Single stack check]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~
+-- When compiling a function we can determine how much stack space it
+-- will use. We therefore need to perform only a single stack check at
+-- the beginning of a function to see if we have enough stack space.
+--
+-- The check boils down to comparing Sp-N with SpLim, where N is the
+-- amount of stack space needed (see Note [Stack usage] below).  *BUT*
+-- at this stage of the pipeline we are not supposed to refer to Sp
+-- itself, because the stack is not yet manifest, so we don't quite
+-- know where Sp pointing.
+
+-- So instead of referring directly to Sp - as we used to do in the
+-- past - the code generator uses (old + 0) in the stack check. That
+-- is the address of the first word of the old area, so if we add N
+-- we'll get the address of highest used word.
+--
+-- This makes the check robust.  For example, while we need to perform
+-- only one stack check for each function, we could in theory place
+-- more stack checks later in the function. They would be redundant,
+-- but not incorrect (in a sense that they should not change program
+-- behaviour). We need to make sure however that a stack check
+-- inserted after incrementing the stack pointer checks for a
+-- respectively smaller stack space. This would not be the case if the
+-- code generator produced direct references to Sp. By referencing
+-- (old + 0) we make sure that we always check for a correct amount of
+-- stack: when converting (old + 0) to Sp the stack layout phase takes
+-- into account changes already made to stack pointer. The idea for
+-- this change came from observations made while debugging #8275.
+
+-- Note [Stack usage]
+-- ~~~~~~~~~~~~~~~~~~
+-- At the moment we convert from STG to Cmm we don't know N, the
+-- number of bytes of stack that the function will use, so we use a
+-- special late-bound CmmLit, namely
+--       CmmHighStackMark
+-- to stand for the number of bytes needed. When the stack is made 
+-- manifest, the number of bytes needed is calculated, and used to
+-- replace occurrences of CmmHighStackMark
+--
+-- The (Maybe CmmExpr) passed to do_checks is usually 
+--     Just (CmmLit CmmHighStackMark)
+-- but can also (in certain hand-written RTS functions)
+--     Just (CmmLit 8)  or some other fixed valuet
+-- If it is Nothing, we don't generate a stack check at all.
+
 do_checks :: Maybe CmmExpr    -- Should we check the stack?
-          -> Bool       -- Should we check for preemption?
+                              -- See Note [Stack usage]
+          -> Bool             -- Should we check for preemption?
           -> Maybe CmmExpr    -- Heap headroom (bytes)
-          -> CmmAGraph  -- What to do on failure
+          -> CmmAGraph        -- What to do on failure
           -> FCode ()
 do_checks mb_stk_hwm checkYield mb_alloc_lit do_gc = do
   dflags <- getDynFlags
@@ -554,11 +594,13 @@ do_checks mb_stk_hwm checkYield mb_alloc_lit do_gc = do
 
     bump_hp   = cmmOffsetExprB dflags (CmmReg hpReg) alloc_lit
 
-    -- Sp overflow if (Sp - CmmHighStack < SpLim)
+    -- Sp overflow if ((old + 0) - CmmHighStack < SpLim)
+    -- At the beginning of a function old + 0 = Sp
+    -- See Note [Single stack check]
     sp_oflo sp_hwm =
          CmmMachOp (mo_wordULt dflags)
                   [CmmMachOp (MO_Sub (typeWidth (cmmRegType dflags spReg)))
-                             [CmmReg spReg, sp_hwm],
+                             [CmmStackSlot Old 0, sp_hwm],
                    CmmReg spLimReg]
 
     -- Hp overflow if (Hp > HpLim)
@@ -571,10 +613,11 @@ do_checks mb_stk_hwm checkYield mb_alloc_lit do_gc = do
 
   case mb_stk_hwm of
     Nothing -> return ()
-    Just stk_hwm -> emit =<< mkCmmIfGoto (sp_oflo stk_hwm) gc_id
+    Just stk_hwm -> tickyStackCheck >> (emit =<< mkCmmIfGoto (sp_oflo stk_hwm) gc_id)
 
   if (isJust mb_alloc_lit)
     then do
+     tickyHeapCheck
      emitAssign hpReg bump_hp
      emit =<< mkCmmIfThen hp_oflo (alloc_n <*> mkBranch gc_id)
     else do

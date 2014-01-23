@@ -5,7 +5,7 @@
  * Tasks
  *
  * For details on the high-level design, see
- *   http://hackage.haskell.org/trac/ghc/wiki/Commentary/Rts/Scheduler
+ *   http://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Scheduler
  *
  * -------------------------------------------------------------------------*/
 
@@ -212,11 +212,6 @@ void startWorkerTask (Capability *cap);
 void interruptWorkerTask (Task *task);
 
 #endif /* THREADED_RTS */
-
-// Update any (Capability *) pointers belonging to Tasks after the
-// Capability array is moved/resized.
-//
-void updateCapabilityRefs (void);
 
 // For stats
 extern nat taskCount;

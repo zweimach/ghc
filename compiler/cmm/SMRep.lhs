@@ -50,7 +50,6 @@ import Outputable
 import Platform
 import FastString
 
-import Data.Array.Base
 import Data.Char( ord )
 import Data.Word
 import Data.Bits
@@ -80,7 +79,7 @@ newtype StgWord = StgWord Word64
 #if __GLASGOW_HASKELL__ < 706
               Num,
 #endif
-              Bits, IArray UArray)
+              Bits)
 
 fromStgWord :: StgWord -> Integer
 fromStgWord (StgWord i) = toInteger i
@@ -124,7 +123,6 @@ hALF_WORD_SIZE dflags = platformWordSize (targetPlatform dflags) `shiftR` 1
 hALF_WORD_SIZE_IN_BITS :: DynFlags -> Int
 hALF_WORD_SIZE_IN_BITS dflags = platformWordSize (targetPlatform dflags) `shiftL` 2
 \end{code}
-
 
 %************************************************************************
 %*                                                                      *

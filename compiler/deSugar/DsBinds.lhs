@@ -14,7 +14,7 @@ lower levels it is preserved with @let@/@letrec@s).
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
+--     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
 -- for details
 
 module DsBinds ( dsTopLHsBinds, dsLHsBinds, decomposeRuleLhs, dsSpec,
@@ -49,7 +49,7 @@ import TcEvidence
 import TcType
 import Type
 import Coercion hiding (substCo)
-import TysWiredIn ( eqBoxDataCon, tupleCon )
+import TysWiredIn ( eqBoxDataCon, coercibleDataCon, tupleCon )
 import PrelNames  ( wildCardName )
 import Id
 import Class
@@ -448,24 +448,24 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
   = putSrcSpanDs loc $ 
     do { uniq <- newUnique
        ; let poly_name = idName poly_id
-             spec_name = mkClonedInternalName uniq poly_name
+             spec_occ  = mkSpecOcc (getOccName poly_name)
+             spec_name = mkInternalName uniq spec_occ (getSrcSpan poly_name)
        ; (bndrs, ds_lhs) <- liftM collectBinders
                                   (dsHsWrapper spec_co (Var poly_id))
        ; let spec_ty = mkPiTypes bndrs (exprType ds_lhs)
        ; case decomposeRuleLhs bndrs ds_lhs of {
            Left msg -> do { warnDs msg; return Nothing } ;
-           Right (final_bndrs, _fn, args) -> do
+           Right (rule_bndrs, _fn, args) -> do
 
-       { (spec_unf, unf_pairs) <- specUnfolding spec_co spec_ty (realIdUnfolding poly_id)
-
-       ; dflags <- getDynFlags
-       ; let spec_id  = mkLocalId spec_name spec_ty 
+       { dflags <- getDynFlags
+       ; let spec_unf = specUnfolding bndrs args (realIdUnfolding poly_id)
+             spec_id  = mkLocalId spec_name spec_ty 
          	            `setInlinePragma` inl_prag
          	 	    `setIdUnfolding`  spec_unf
              rule =  mkRule False {- Not auto -} is_local_id
                         (mkFastString ("SPEC " ++ showPpr dflags poly_name))
        			rule_act poly_name
-       		        final_bndrs args
+       		        rule_bndrs args
        			(mkVarApps (Var spec_id) bndrs)
 
        ; spec_rhs <- dsHsWrapper spec_co poly_rhs
@@ -473,7 +473,7 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
 
        ; when (isInlinePragma id_inl && wopt Opt_WarnPointlessPragmas dflags)
               (warnDs (specOnInline poly_name))
-       ; return (Just (spec_pair `consOL` unf_pairs, rule))
+       ; return (Just (unitOL spec_pair, rule))
        } } }
   where
     is_local_id = isJust mb_poly_rhs
@@ -510,18 +510,15 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
              | otherwise   = spec_prag_act                   -- Specified by user
 
 
-specUnfolding :: HsWrapper -> Type 
-              -> Unfolding -> DsM (Unfolding, OrdList (Id,CoreExpr))
-{-   [Dec 10: TEMPORARILY commented out, until we can straighten out how to
-              generate unfoldings for specialised DFuns
+specUnfolding :: [Var] -> [CoreExpr] -> Unfolding -> Unfolding
+specUnfolding new_bndrs new_args df@(DFunUnfolding { df_bndrs = bndrs, df_args = args })
+  = ASSERT2( equalLength new_args bndrs, ppr df $$ ppr new_args $$ ppr new_bndrs )
+    df { df_bndrs = new_bndrs, df_args = map (substExpr (text "specUnfolding") subst) args }
+  where
+    subst = mkOpenSubst (mkInScopeSet fvs) (bndrs `zip` new_args)
+    fvs = (exprsFreeVars args `delVarSetList` bndrs) `extendVarSetList` new_bndrs
 
-specUnfolding wrap_fn spec_ty (DFunUnfolding _ _ ops)
-  = do { let spec_rhss = map wrap_fn ops
-       ; spec_ids <- mapM (mkSysLocalM (fsLit "spec") . exprType) spec_rhss
-       ; return (mkDFunUnfolding spec_ty (map Var spec_ids), toOL (spec_ids `zip` spec_rhss)) }
--}
-specUnfolding _ _ _
-  = return (noUnfolding, nilOL)
+specUnfolding _ _ _ = noUnfolding
 
 specOnInline :: Name -> MsgDoc
 specOnInline f = ptext (sLit "SPECIALISE pragma on INLINE function probably won't fire:") 
@@ -578,10 +575,10 @@ SPEC f :: ty                [n]   INLINE [k]
 
 \begin{code}
 decomposeRuleLhs :: [Var] -> CoreExpr -> Either SDoc ([Var], Id, [CoreExpr])
--- Take apart the LHS of a RULE.  It's supposed to look like
---     /\a. f a Int dOrdInt
--- or  /\a.\d:Ord a. let { dl::Ord [a] = dOrdList a d } in f [a] dl
--- That is, the RULE binders are lambda-bound
+-- (decomposeRuleLhs bndrs lhs) takes apart the LHS of a RULE,
+-- The 'bndrs' are the quantified binders of the rules, but decomposeRuleLhs
+-- may add some extra dictionary binders (see Note [Constant rule dicts])
+--
 -- Returns Nothing if the LHS isn't of the expected shape
 decomposeRuleLhs bndrs lhs 
   =  -- Note [Simplifying the left-hand side of a RULE]
@@ -599,8 +596,8 @@ decomposeRuleLhs bndrs lhs
    opt_lhs = simpleOptExpr lhs
 
    check_bndrs fn args
-     | null (dead_bndrs) = Right (extra_dict_bndrs ++ bndrs, fn, args)
-     | otherwise         = Left (vcat (map dead_msg dead_bndrs))
+     | null dead_bndrs = Right (extra_dict_bndrs ++ bndrs, fn, args)
+     | otherwise       = Left (vcat (map dead_msg dead_bndrs))
      where
        arg_fvs = exprsFreeVars args
 
@@ -709,7 +706,8 @@ dsHsWrapper (WpTyApp ty)      e = return $ App e (Type ty)
 dsHsWrapper (WpLet ev_binds)  e = do bs <- dsTcEvBinds ev_binds
                                      return (mkCoreLets bs e)
 dsHsWrapper (WpCompose c1 c2) e = dsHsWrapper c1 =<< dsHsWrapper c2 e
-dsHsWrapper (WpCast co)       e = dsTcCoercion co (mkCast e) 
+dsHsWrapper (WpCast co)       e = ASSERT(tcCoercionRole co == Representational)
+                                  dsTcCoercion co (mkCast e)
 dsHsWrapper (WpEvLam ev)      e = return $ Lam ev e 
 dsHsWrapper (WpTyLam tv)      e = return $ Lam tv e 
 dsHsWrapper (WpEvApp evtrm)   e = liftM (App e) (dsEvTerm evtrm)
@@ -749,7 +747,10 @@ dsEvTerm (EvCast tm co)
 
 dsEvTerm (EvDFunApp df tys tms) = do { tms' <- mapM dsEvTerm tms
                                      ; return (Var df `mkTyApps` tys `mkApps` tms') }
-dsEvTerm (EvCoercion co)         = dsTcCoercion co mkEqBox
+
+dsEvTerm (EvCoercion (TcCoVarCo v)) = return (Var v)  -- See Note [Simple coercions]
+dsEvTerm (EvCoercion co)            = dsTcCoercion co mkEqBox
+
 dsEvTerm (EvTupleSel v n)
    = do { tm' <- dsEvTerm v
         ; let scrut_ty = exprType tm'
@@ -790,7 +791,7 @@ dsEvTerm (EvUnbox evtm)
        ; u <- newUnique
        ; let boxed_type = exprType tm
              (_boxed_eq, [k1, k2, t1, t2]) = splitTyConApp boxed_type
-             unboxed_type = mkHeteroCoercionType k1 k2 t1 t2
+             unboxed_type = mkHeteroCoercionType Nominal k1 k2 t1 t2
              name = mkSystemVarName u (mkFastString "cv")
              cv = mkCoVar name unboxed_type
              wildcard = mkLocalId wildCardName boxed_type
@@ -805,6 +806,7 @@ dsTcCoercion :: TcCoercion -> (Coercion -> CoreExpr) -> DsM CoreExpr
 --       = case g1 of EqBox g1# ->
 --         case g2 of EqBox g2# ->
 --         k (trans g1# g2#)
+-- thing_inside will get a coercion at the role requested
 dsTcCoercion co thing_inside
   = do { us <- newUniqueSupply
        ; let eqvs_covs :: [(EqVar,CoVar)]
@@ -815,7 +817,6 @@ dsTcCoercion co thing_inside
              result_expr = thing_inside (ds_tc_coercion subst co)
              result_ty   = exprType result_expr
 
-
        ; return (foldr (wrap_in_case result_ty) result_expr eqvs_covs) }
   where
     mk_co_var :: Id -> Unique -> (Id, Id)
@@ -824,37 +825,44 @@ dsTcCoercion co thing_inside
          eq_nm = idName eqv
          occ = nameOccName eq_nm
          loc = nameSrcSpan eq_nm
-         ty  = mkCoercionType ty1 ty2
+         ty  = mkCoercionType (getEqPredRole (evVarPred eqv)) ty1 ty2
          (ty1, ty2) = getEqPredTys (evVarPred eqv)
 
-    wrap_in_case result_ty (eqv, cov) body 
-      = Case (Var eqv) eqv result_ty [(DataAlt eqBoxDataCon, [cov], body)]
+    wrap_in_case result_ty (eqv, cov) body
+      = case getEqPredRole (evVarPred eqv) of
+         Nominal          -> Case (Var eqv) eqv result_ty [(DataAlt eqBoxDataCon, [cov], body)]
+         Representational -> Case (Var eqv) eqv result_ty [(DataAlt coercibleDataCon, [cov], body)]
+         Phantom          -> panic "wrap_in_case/phantom"
 
 ds_tc_coercion :: TCvSubst -> TcCoercion -> Coercion
--- If the incoming TcCoercion if of type (a ~ b), 
---                 the result is of type (a ~# b)
--- The VarEnv maps EqVars of type (a ~ b) to Coercions of type (a ~# b)
+-- If the incoming TcCoercion if of type (a ~ b)   (resp.  Coercible a b)
+--                 the result is of type (a ~# b)  (reps.  a ~# b)
+-- The VarEnv maps EqVars of type (a ~ b) to Coercions of type (a ~# b) (resp. and so on)
 -- No need for InScope set etc because the 
 ds_tc_coercion subst tc_co
   = go tc_co
   where
-    go (TcRefl ty)            = mkReflCo (Type.substTy subst ty)
-    go (TcTyConAppCo tc cos)  = mkTyConAppCo tc (map go_arg cos)
-    go (TcAppCo co1 co2)      = mkAppCo (go co1) (go_arg co2)
+    go (TcRefl r ty)            = mkReflCo r (Type.substTy subst ty)
+    go (TcTyConAppCo r tc cos)  = mkTyConAppCo r tc (map go_arg cos)
+    go (TcAppCo co1 co2)        = let leftCo    = go co1
+                                      rightRole = nextRole leftCo in
+                                  mkAppCoFlexible leftCo rightRole (go_arg co2)
     go (TcForAllCo tv co)     = mkForAllCo cobndr' (ds_tc_coercion subst' co)
                               where
                                 cobndr = mkHomoCoBndr tv
                                 (subst', cobndr') = substForAllCoBndr subst cobndr
-    go (TcAxiomInstCo ax ind tys)
-                              = mkAxInstCo ax ind (map (Type.substTy subst) tys)
-    go (TcSymCo co)           = mkSymCo (go co)
-    go (TcTransCo co1 co2)    = mkTransCo (go co1) (go co2)
-    go (TcNthCo n co)         = mkNthCo n (go co)
-    go (TcLRCo lr co)         = mkLRCo lr (go co)
-    go (TcInstCo co ty)       = mkInstCo (go co) (liftSimply ty)
-    go (TcLetCo bs co)        = ds_tc_coercion (ds_co_binds bs) co
-    go (TcCastCo co1 co2)     = mkCoCast (go co1) (go co2)
-    go (TcCoVarCo v)          = ds_ev_id subst v
+    go (TcAxiomInstCo ax ind cos)
+                                = AxiomInstCo ax ind (map go_arg cos)
+    go (TcPhantomCo ty1 ty2)    = UnivCo Phantom ty1 ty2
+    go (TcSymCo co)             = mkSymCo (go co)
+    go (TcTransCo co1 co2)      = mkTransCo (go co1) (go co2)
+    go (TcNthCo n co)           = mkNthCo n (go co)
+    go (TcLRCo lr co)           = mkLRCo lr (go co)
+    go (TcSubCo co)             = mkSubCo (go co)
+    go (TcLetCo bs co)          = ds_tc_coercion (ds_co_binds bs) co
+    go (TcCastCo co1 co2)       = mkCoCast (go co1) (go co2)
+    go (TcCoVarCo v)            = ds_ev_id subst v
+    go (TcAxiomRuleCo co ts cs) = AxiomRuleCo co (map (Coercion.substTy subst) ts) (map go cs)
 
     go_arg tc_co              = mkTyCoArg $ go tc_co
 
@@ -878,3 +886,30 @@ ds_tc_coercion subst tc_co
      | Just co <- lookupCoVar subst v = co
      | otherwise  = pprPanic "ds_tc_coercion" (ppr v $$ ppr tc_co)
 \end{code}
+
+Note [Simple coercions]
+~~~~~~~~~~~~~~~~~~~~~~~
+We have a special case for coercions that are simple variables.
+Suppose   cv :: a ~ b   is in scope
+Lacking the special case, if we see
+	f a b cv
+we'd desguar to
+        f a b (case cv of EqBox (cv# :: a ~# b) -> EqBox cv#)
+which is a bit stupid.  The special case does the obvious thing.
+
+This turns out to be important when desugaring the LHS of a RULE
+(see Trac #7837).  Suppose we have
+    normalise        :: (a ~ Scalar a) => a -> a
+    normalise_Double :: Double -> Double
+    {-# RULES "normalise" normalise = normalise_Double #-}
+
+Then the RULE we want looks like
+     forall a, (cv:a~Scalar a). 
+       normalise a cv = normalise_Double
+But without the special case we generate the redundant box/unbox,
+which simpleOpt (currently) doesn't remove. So the rule never matches.
+
+Maybe simpleOpt should be smarter.  But it seems like a good plan
+to simply never generate the redundant box/unbox in the first place.
+
+

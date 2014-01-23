@@ -6,13 +6,13 @@ module CmmLayoutStack (
 import StgCmmUtils      ( callerSaveVolatileRegs ) -- XXX layering violation
 import StgCmmForeign    ( saveThreadState, loadThreadState ) -- XXX layering violation
 
+import BasicTypes
 import Cmm
 import CmmInfo
 import BlockId
 import CLabel
 import CmmUtils
 import MkGraph
-import Module
 import ForeignCall
 import CmmLive
 import CmmProcPoint
@@ -147,7 +147,7 @@ layout :: DynFlags
           , [CmmBlock]                  -- [out] new blocks
           )
 
-layout dflags procpoints liveness entry entry_args final_stackmaps final_hwm blocks
+layout dflags procpoints liveness entry entry_args final_stackmaps final_sp_high blocks
   = go blocks init_stackmap entry_args []
   where
     (updfr, cont_info)  = collectContInfo blocks
@@ -164,24 +164,24 @@ layout dflags procpoints liveness entry entry_args final_stackmaps final_hwm blo
     go (b0 : bs) acc_stackmaps acc_hwm acc_blocks
       = do
        let (entry0@(CmmEntry entry_lbl), middle0, last0) = blockSplit b0
-    
+
        let stack0@StackMap { sm_sp = sp0 }
                = mapFindWithDefault
                      (pprPanic "no stack map for" (ppr entry_lbl))
                      entry_lbl acc_stackmaps
-    
+
        -- pprTrace "layout" (ppr entry_lbl <+> ppr stack0) $ return ()
-    
+
        -- (a) Update the stack map to include the effects of
        --     assignments in this block
        let stack1 = foldBlockNodesF (procMiddle acc_stackmaps) middle0 stack0
-    
+
        -- (b) Insert assignments to reload all the live variables if this
        --     block is a proc point
        let middle1 = if entry_lbl `setMember` procpoints
                         then foldr blockCons middle0 (insertReloads stack0)
                         else middle0
-    
+
        -- (c) Look at the last node and if we are making a call or
        --     jumping to a proc point, we must save the live
        --     variables, adjust Sp, and construct the StackMaps for
@@ -190,7 +190,7 @@ layout dflags procpoints liveness entry entry_args final_stackmaps final_hwm blo
        (middle2, sp_off, last1, fixup_blocks, out)
            <- handleLastNode dflags procpoints liveness cont_info
                              acc_stackmaps stack1 middle0 last0
-    
+
        -- pprTrace "layout(out)" (ppr out) $ return ()
 
        -- (d) Manifest Sp: run over the nodes in the block and replace
@@ -204,14 +204,7 @@ layout dflags procpoints liveness entry entry_args final_stackmaps final_hwm blo
        --
        let middle_pre = blockToList $ foldl blockSnoc middle1 middle2
 
-           sp_high = final_hwm - entry_args
-              -- The stack check value is adjusted by the Sp offset on
-              -- entry to the proc, which is entry_args.  We are
-              -- assuming that we only do a stack check at the
-              -- beginning of a proc, and we don't modify Sp before the
-              -- check.
-
-           final_blocks = manifestSp dflags final_stackmaps stack0 sp0 sp_high entry0
+           final_blocks = manifestSp dflags final_stackmaps stack0 sp0 final_sp_high entry0
                               middle_pre sp_off last1 fixup_blocks
 
            acc_stackmaps' = mapUnion acc_stackmaps out
@@ -264,7 +257,7 @@ collectContInfo blocks
         CmmCall { cml_cont = Just l, .. }
            -> (Just (l, cml_ret_args), cml_ret_off)
         CmmForeignCall { .. }
-           -> (Just (succ, 0), updfr) -- ??
+           -> (Just (succ, ret_args), ret_off)
         _other -> (Nothing, 0)
 
 
@@ -346,8 +339,8 @@ handleLastNode dflags procpoints liveness cont_info stackmaps
        return $ lastCall cont_lbl cml_args cml_ret_args cml_ret_off
 
     CmmForeignCall{ succ = cont_lbl, .. } -> do
-       return $ lastCall cont_lbl (wORD_SIZE dflags) (wORD_SIZE dflags) (sm_ret_off stack0)
-            -- one word each for args and results: the return address
+       return $ lastCall cont_lbl (wORD_SIZE dflags) ret_args ret_off
+            -- one word of args: the return address
 
     CmmBranch{..}     ->  handleBranches
     CmmCondBranch{..} ->  handleBranches
@@ -566,9 +559,9 @@ setupStackFrame dflags lbl liveness updfr_off ret_args stack0
 -- So to fix this we want to set up the stack frame before the
 -- conditional jump.  How do we know when to do this, and when it is
 -- safe?  The basic idea is, when we see the assignment
--- 
+--
 --   Sp[young(L)] = L
--- 
+--
 -- we know that
 --   * we are definitely heading for L
 --   * there can be no more reads from another stack area, because young(L)
@@ -777,28 +770,40 @@ arguments.
 -}
 
 areaToSp :: DynFlags -> ByteOff -> ByteOff -> (Area -> StackLoc) -> CmmExpr -> CmmExpr
-areaToSp dflags sp_old _sp_hwm area_off (CmmStackSlot area n) =
-  cmmOffset dflags (CmmReg spReg) (sp_old - area_off area - n)
-areaToSp dflags _ sp_hwm _ (CmmLit CmmHighStackMark) = mkIntExpr dflags sp_hwm
-areaToSp dflags _ _ _ (CmmMachOp (MO_U_Lt _)  -- Note [null stack check]
+
+areaToSp dflags sp_old _sp_hwm area_off (CmmStackSlot area n)
+  = cmmOffset dflags (CmmReg spReg) (sp_old - area_off area - n)
+    -- Replace (CmmStackSlot area n) with an offset from Sp
+
+areaToSp dflags _ sp_hwm _ (CmmLit CmmHighStackMark) 
+  = mkIntExpr dflags sp_hwm
+    -- Replace CmmHighStackMark with the number of bytes of stack used, 
+    -- the sp_hwm.   See Note [Stack usage] in StgCmmHeap
+
+areaToSp dflags _ _ _ (CmmMachOp (MO_U_Lt _)  
                           [CmmMachOp (MO_Sub _)
-                                  [ CmmReg (CmmGlobal Sp)
-                                  , CmmLit (CmmInt 0 _)],
-                           CmmReg (CmmGlobal SpLim)]) = zeroExpr dflags
+                                  [ CmmRegOff (CmmGlobal Sp) x_off
+                                  , CmmLit (CmmInt y_lit _)],
+                           CmmReg (CmmGlobal SpLim)])
+  | fromIntegral x_off >= y_lit 
+  = zeroExpr dflags
+    -- Replace a stack-overflow test that cannot fail with a no-op
+    -- See Note [Always false stack check]
+
 areaToSp _ _ _ _ other = other
 
--- -----------------------------------------------------------------------------
--- Note [null stack check]
+-- Note [Always false stack check]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- We can optimise stack checks of the form
 --
--- If the high-water Sp is zero, then we end up with
+--   if ((Sp + x) - y < SpLim) then .. else ..
 --
---   if (Sp - 0 < SpLim) then .. else ..
---
--- and possibly some dead code for the failure case.  Optimising this
--- away depends on knowing that SpLim <= Sp, so it is really the job
--- of the stack layout algorithm, hence we do it now.  This is also
--- convenient because control-flow optimisation later will drop the
--- dead code.
+-- where are non-negative integer byte offsets.  Since we know that
+-- SpLim <= Sp (remember the stack grows downwards), this test must
+-- yield False if (x >= y), so we can rewrite the comparison to False.
+-- A subsequent sinking pass will later drop the dead code.
+-- Optimising this away depends on knowing that SpLim <= Sp, so it is
+-- really the job of the stack layout algorithm, hence we do it now.
 
 optStackCheck :: CmmNode O C -> CmmNode O C
 optStackCheck n = -- Note [null stack check]
@@ -877,7 +882,7 @@ stackMapToLiveness dflags StackMap{..} =
 -- Lowering safe foreign calls
 
 {-
-Note [lower safe foreign calls]
+Note [Lower safe foreign calls]
 
 We start with
 
@@ -907,7 +912,8 @@ live across the call.  Our job now is to expand the call so we get
    ...
 
 Note the copyOut, which saves the results in the places that L1 is
-expecting them (see Note {safe foreign call convention]).
+expecting them (see Note {safe foreign call convention]). Note also
+that safe foreign call is replace by an unsafe one in the Cmm graph.
 -}
 
 lowerSafeForeignCall :: DynFlags -> CmmBlock -> UniqSM CmmBlock
@@ -932,9 +938,10 @@ lowerSafeForeignCall dflags block
                   caller_load <*>
                   loadThreadState dflags load_tso load_stack
 
-        (ret_args, regs, copyout) = copyOutOflow dflags NativeReturn Jump (Young succ)
-                                           (map (CmmReg . CmmLocal) res)
-                                           updfr []
+        (_, regs, copyout) =
+             copyOutOflow dflags NativeReturn Jump (Young succ)
+                            (map (CmmReg . CmmLocal) res)
+                            ret_off []
 
         -- NB. after resumeThread returns, the top-of-stack probably contains
         -- the stack frame for succ, but it might not: if the current thread
@@ -947,7 +954,7 @@ lowerSafeForeignCall dflags block
                        , cml_args_regs = regs
                        , cml_args      = widthInBytes (wordWidth dflags)
                        , cml_ret_args  = ret_args
-                       , cml_ret_off   = updfr }
+                       , cml_ret_off   = ret_off }
 
     graph' <- lgraphOfAGraph $ suspend <*>
                                midCall <*>
@@ -965,7 +972,7 @@ lowerSafeForeignCall dflags block
 
 
 foreignLbl :: FastString -> CmmExpr
-foreignLbl name = CmmLit (CmmLabel (mkCmmCodeLabel rtsPackageId name))
+foreignLbl name = CmmLit (CmmLabel (mkForeignLabel name Nothing ForeignLabelInExternalPackage IsFunction))
 
 newTemp :: CmmType -> UniqSM LocalReg
 newTemp rep = getUniqueM >>= \u -> return (LocalReg u rep)
@@ -1019,4 +1026,3 @@ insertReloads stackmap =
 
 stackSlotRegs :: StackMap -> [(LocalReg, StackLoc)]
 stackSlotRegs sm = eltsUFM (sm_regs sm)
-

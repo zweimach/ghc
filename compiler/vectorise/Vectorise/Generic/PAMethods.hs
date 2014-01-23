@@ -32,13 +32,13 @@ import Control.Monad
 import Outputable
 
 
-buildPReprTyCon :: TyCon -> TyCon -> SumRepr -> VM (FamInst Unbranched)
+buildPReprTyCon :: TyCon -> TyCon -> SumRepr -> VM FamInst
 buildPReprTyCon orig_tc vect_tc repr
  = do name      <- mkLocalisedName mkPReprTyConOcc (tyConName orig_tc)
       rhs_ty    <- sumReprType repr
       prepr_tc  <- builtin preprTyCon
       let axiom = mkSingleCoAxiom name tyvars prepr_tc instTys rhs_ty
-      liftDs $ newFamInst SynFamilyInst False axiom
+      liftDs $ newFamInst SynFamilyInst axiom
   where
     tyvars = tyConTyVars vect_tc
     instTys = [mkTyConApp vect_tc . mkOnlyTyVarTys $ tyConTyVars vect_tc]
@@ -219,7 +219,7 @@ buildToArrPRepr vect_tc repr_co pdata_tc _ r
       let co           = mkAppCo pdata_co
                        . mkTyCoArg
                        $ mkSymCo
-                       $ mkUnbranchedAxInstCo repr_co ty_args
+                       $ mkUnbranchedAxInstCo Nominal repr_co ty_args
 
           scrut   = unwrapFamInstScrut pdata_tc ty_args (Var arg)
 
@@ -283,7 +283,7 @@ buildFromArrPRepr vect_tc repr_co pdata_tc _ r
 
       pdata_co <- mkBuiltinCo pdataTyCon
       let co           = mkAppCo pdata_co
-                       $ mkTyCoArg $ mkUnbranchedAxInstCo repr_co var_tys
+                       $ mkTyCoArg $ mkUnbranchedAxInstCo Nominal repr_co var_tys
 
       let scrut        = mkCast (Var arg) co
 
@@ -370,7 +370,7 @@ buildToArrPReprs vect_tc repr_co _ pdatas_tc r
     let co           = mkAppCo pdatas_co
                      . mkTyCoArg
                      $ mkSymCo
-                     $ mkUnbranchedAxInstCo repr_co ty_args
+                     $ mkUnbranchedAxInstCo Nominal repr_co ty_args
 
     let scrut        = unwrapFamInstScrut pdatas_tc ty_args (Var varg)
     (vars, result)  <- to_sum r
@@ -461,7 +461,7 @@ buildFromArrPReprs vect_tc repr_co _ pdatas_tc r
     pdatas_co <- mkBuiltinCo pdatasTyCon
     let co           = mkAppCo pdatas_co
                      $ mkTyCoArg
-                     $ mkUnbranchedAxInstCo repr_co var_tys
+                     $ mkUnbranchedAxInstCo Nominal repr_co var_tys
 
     let scrut        = mkCast (Var varg) co
 

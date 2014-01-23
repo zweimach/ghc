@@ -8,7 +8,7 @@
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
+--     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
 -- for details
 
 module BuildTyCl (
@@ -46,13 +46,13 @@ import Outputable
 
 \begin{code}
 ------------------------------------------------------
-buildSynTyCon :: Name -> [TyCoVar] 
-              -> SynTyConRhs Type
+buildSynTyCon :: Name -> [TyCoVar] -> [Role] 
+              -> SynTyConRhs
               -> Kind                   -- ^ Kind of the RHS
               -> TyConParent
               -> TcRnIf m n TyCon
-buildSynTyCon tc_name tvs rhs rhs_kind parent 
-  = return (mkSynTyCon tc_name kind tvs rhs parent)
+buildSynTyCon tc_name tvs roles rhs rhs_kind parent 
+  = return (mkSynTyCon tc_name kind tvs roles rhs parent)
   where kind = mkPiKinds tvs rhs_kind
 
 
@@ -80,7 +80,7 @@ mkNewTyConRhs :: Name -> TyCon -> DataCon -> TcRnIf m n AlgTyConRhs
 --   because the latter is part of a knot, whereas the former is not.
 mkNewTyConRhs tycon_name tycon con 
   = do	{ co_tycon_name <- newImplicitBinder tycon_name mkNewTyCoOcc
-	; let co_tycon = mkNewTypeCo co_tycon_name tycon etad_tvs etad_rhs
+	; let co_tycon = mkNewTypeCo co_tycon_name tycon etad_tvs etad_roles etad_rhs
 	; traceIf (text "mkNewTyConRhs" <+> ppr co_tycon)
 	; return (NewTyCon { data_con    = con, 
 		       	     nt_rhs      = rhs_ty,
@@ -90,6 +90,7 @@ mkNewTyConRhs tycon_name tycon con
                              -- for nt_co, or uses explicit coercions otherwise
   where
     tvs    = tyConTyVars tycon
+    roles  = tyConRoles tycon
     inst_con_ty = applyTys (dataConUserType con) (mkOnlyTyVarTys tvs)
     rhs_ty = ASSERT( isFunTy inst_con_ty ) funArgTy inst_con_ty
 	-- Instantiate the data con with the 
@@ -101,21 +102,22 @@ mkNewTyConRhs tycon_name tycon con
   	-- has a single argument (Foo a) that is a *type class*, so
 	-- dataConInstOrigArgTys returns [].
 
-    etad_tvs :: [TyVar]	-- Matched lazily, so that mkNewTypeCo can
-    etad_rhs :: Type	-- return a TyCon without pulling on rhs_ty
-			-- See Note [Tricky iface loop] in LoadIface
-    (etad_tvs, etad_rhs) = eta_reduce (reverse tvs) rhs_ty
+    etad_tvs   :: [TyVar]  -- Matched lazily, so that mkNewTypeCo can
+    etad_roles :: [Role]   -- return a TyCon without pulling on rhs_ty
+    etad_rhs   :: Type     -- See Note [Tricky iface loop] in LoadIface
+    (etad_tvs, etad_roles, etad_rhs) = eta_reduce (reverse tvs) (reverse roles) rhs_ty
  
-    eta_reduce :: [TyVar]		-- Reversed
-	       -> Type			-- Rhs type
-	       -> ([TyVar], Type)	-- Eta-reduced version (tyvars in normal order)
-    eta_reduce (a:as) ty | Just (fun, arg) <- splitAppTy_maybe ty,
-			   Just tv <- getTyCoVar_maybe arg,
-			   tv == a,
-			   not (a `elemVarSet` tyCoVarsOfType fun)
-			 = eta_reduce as fun
-    eta_reduce tvs ty = (reverse tvs, ty)
-				
+    eta_reduce :: [TyVar]	-- Reversed
+               -> [Role]        -- also reversed
+	       -> Type		-- Rhs type
+	       -> ([TyVar], [Role], Type)  -- Eta-reduced version
+                                           -- (tyvars in normal order)
+    eta_reduce (a:as) (_:rs) ty | Just (fun, arg) <- splitAppTy_maybe ty,
+			          Just tv <- getTyCoVar_maybe arg,
+			          tv == a,
+			          not (a `elemVarSet` tyCoVarsOfType fun)
+			        = eta_reduce as rs fun
+    eta_reduce tvs rs ty = (reverse tvs, reverse rs, ty)
 
 ------------------------------------------------------
 buildDataCon :: FamInstEnvs 
@@ -185,14 +187,15 @@ type TcMethInfo = (Name, DefMethSpec, Type)
 buildClass :: Bool		-- True <=> do not include unfoldings 
 				--	    on dict selectors
 				-- Used when importing a class without -O
-	   -> Name -> [TyVar] -> ThetaType
+	   -> Name -> [TyVar] -> [Role] -> ThetaType
 	   -> [FunDep TyVar]		   -- Functional dependencies
 	   -> [ClassATItem]		   -- Associated types
 	   -> [TcMethInfo]                 -- Method info
+	   -> ClassMinimalDef              -- Minimal complete definition
 	   -> RecFlag			   -- Info for type constructor
 	   -> TcRnIf m n Class
 
-buildClass no_unf tycon_name tvs sc_theta fds at_items sig_stuff tc_isrec
+buildClass no_unf tycon_name tvs roles sc_theta fds at_items sig_stuff mindef tc_isrec
   = fixM  $ \ rec_clas -> 	-- Only name generation inside loop
     do	{ traceIf (text "buildClass")
         ; dflags <- getDynFlags
@@ -255,7 +258,7 @@ buildClass no_unf tycon_name tvs sc_theta fds at_items sig_stuff tc_isrec
 
 	; let {	clas_kind = mkPiKinds tvs constraintKind
 
- 	      ; tycon = mkClassTyCon tycon_name clas_kind tvs
+ 	      ; tycon = mkClassTyCon tycon_name clas_kind tvs roles
  	                             rhs rec_clas tc_isrec
 		-- A class can be recursive, and in the case of newtypes 
 		-- this matters.  For example
@@ -268,7 +271,7 @@ buildClass no_unf tycon_name tvs sc_theta fds at_items sig_stuff tc_isrec
 
 	      ; result = mkClass tvs fds 
 			         sc_theta sc_sel_ids at_items
-				 op_items tycon
+				 op_items mindef tycon
 	      }
 	; traceIf (text "buildClass" <+> ppr tycon) 
 	; return result }

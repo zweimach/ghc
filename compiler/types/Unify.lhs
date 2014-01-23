@@ -4,25 +4,19 @@
 
 \begin{code}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
 
 module Unify ( 
-	-- Matching of types: 
-	--	the "tc" prefix indicates that matching always
-	--	respects newtypes (rather than looking through them)
+        -- Matching of types: 
+        --      the "tc" prefix indicates that matching always
+        --      respects newtypes (rather than looking through them)
         MatchEnv(..),
 
-	tcMatchTy, tcMatchTys, tcMatchTyX, 
-	ruleMatchTyX, tcMatchPreds,
+        tcMatchTy, tcMatchTys, tcMatchTyX, 
+        ruleMatchTyX, tcMatchPreds,
 
         tcMatchCo, tcMatchCos, tcMatchCoX, ruleMatchCoX,
 
-	typesCantMatch,
+        typesCantMatch,
 
         -- Side-effect free unification
         tcUnifyTys, BindFlag(..),
@@ -31,8 +25,9 @@ module Unify (
         ApartResult(..), tcApartTys,
 
         -- Matching a type against a lifted type (coercion)
-        liftCoMatch
+        liftCoMatch,
 
+        tcUnifyTysFG
    ) where
 
 #include "HsVersions.h"
@@ -50,14 +45,16 @@ import Pair
 import Outputable
 import FastString
 import Unique
+
 import Control.Monad
+import Control.Applicative (Applicative(..))
 \end{code}
 
 
 %************************************************************************
-%*									*
-		Matching
-%*									*
+%*                                                                      *
+                Matching
+%*                                                                      *
 %************************************************************************
 
 
@@ -67,7 +64,7 @@ Matching is much tricker than you might think.
    which are given to us explicitly.
 
 2. We want to match in the presence of foralls; 
-	e.g 	(forall a. t1) ~ (forall b. t2)
+        e.g     (forall a. t1) ~ (forall b. t2)
 
    That is what the RnEnv2 is for; it does the alpha-renaming
    that makes it as if a and b were the same variable.
@@ -77,7 +74,7 @@ Matching is much tricker than you might think.
 
 3. We must be careful not to bind a template type variable to a
    locally bound variable.  E.g.
-	(forall a. x) ~ (forall b. b)
+        (forall a. x) ~ (forall b. b)
    where x is the template type variable.  Then we do not want to
    bind x to a/b!  This is a kind of occurs check.
    The necessary locals accumulate in the RnEnv2.
@@ -111,28 +108,28 @@ instance Unifiable CoercionArg where
   tyCoVarsOf_s = tyCoVarsOfCoArgs
 
 data MatchEnv
-  = ME	{ me_tmpls :: VarSet	-- Template variables
- 	, me_env   :: RnEnv2	-- Renaming envt for nested foralls
-	}			--   In-scope set includes template variables
+  = ME  { me_tmpls :: VarSet    -- Template variables
+        , me_env   :: RnEnv2    -- Renaming envt for nested foralls
+        }                       --   In-scope set includes template variables
     -- Nota Bene: MatchEnv isn't specific to Types.  It is used
     --            for matching terms and coercions as well as types
 
 tcMatch :: Unifiable t
-        => TyCoVarSet	  -- Template tyvars
-        -> t		  -- Template
+        => TyCoVarSet     -- Template tyvars
+        -> t              -- Template
         -> t              -- Target
         -> Maybe TCvSubst -- One-shot; in principle the template
-			  -- variables could be free in the target
+                          -- variables could be free in the target
 
 tcMatch tmpls ty1 ty2
   = case match menv emptyTvSubstEnv emptyCvSubstEnv ty1 ty2 of
-	Just (tv_env, cv_env) -> Just (TCvSubst in_scope tv_env cv_env)
-	Nothing	              -> Nothing
+        Just (tv_env, cv_env) -> Just (TCvSubst in_scope tv_env cv_env)
+        Nothing               -> Nothing
   where
     menv     = ME { me_tmpls = tmpls, me_env = mkRnEnv2 in_scope }
     in_scope = mkInScopeSet (tmpls `unionVarSet` tyCoVarsOf ty2)
-	-- We're assuming that all the interesting 
-	-- tyvars in tys1 are in tmpls
+        -- We're assuming that all the interesting 
+        -- tyvars in tys1 are in tmpls
 
 tcMatchTy :: TyCoVarSet -> Type -> Type -> Maybe TCvSubst
 tcMatchTy = tcMatch
@@ -141,21 +138,21 @@ tcMatchCo :: TyCoVarSet -> Coercion -> Coercion -> Maybe TCvSubst
 tcMatchCo = tcMatch
 
 tcMatches :: Unifiable t
-          => TyCoVarSet	    -- Template tyvars
-	  -> [t]	    -- Template
-	  -> [t]	    -- Target
-	  -> Maybe TCvSubst -- One-shot; in principle the template
-			    -- variables could be free in the target
+          => TyCoVarSet     -- Template tyvars
+          -> [t]            -- Template
+          -> [t]            -- Target
+          -> Maybe TCvSubst -- One-shot; in principle the template
+                            -- variables could be free in the target
 
 tcMatches tmpls tys1 tys2
   = case match_list menv emptyTvSubstEnv emptyCvSubstEnv tys1 tys2 of
-	Just (tv_env, cv_env) -> Just (TCvSubst in_scope tv_env cv_env)
-	Nothing	              -> Nothing
+        Just (tv_env, cv_env) -> Just (TCvSubst in_scope tv_env cv_env)
+        Nothing               -> Nothing
   where
     menv     = ME { me_tmpls = tmpls, me_env = mkRnEnv2 in_scope }
     in_scope = mkInScopeSet (tmpls `unionVarSet` tyCoVarsOf_s tys2)
-	-- We're assuming that all the interesting 
-	-- tyvars in tys1 are in tmpls
+        -- We're assuming that all the interesting 
+        -- tyvars in tys1 are in tmpls
 
 tcMatchTys :: TyCoVarSet -> [Type] -> [Type] -> Maybe TCvSubst
 tcMatchTys = tcMatches
@@ -165,15 +162,15 @@ tcMatchCos = tcMatches
 
 -- This is similar, but extends a substitution
 tcMatchX :: Unifiable t
-         => TyCoVarSet 	        -- Template tyvars
-         -> TCvSubst		-- Substitution to extend
-         -> t          		-- Template
-         -> t	        	-- Target
+         => TyCoVarSet          -- Template tyvars
+         -> TCvSubst            -- Substitution to extend
+         -> t                   -- Template
+         -> t                   -- Target
          -> Maybe TCvSubst
 tcMatchX tmpls (TCvSubst in_scope tv_env cv_env) ty1 ty2
   = case match menv tv_env cv_env ty1 ty2 of
-	Just (tv_env, cv_env) -> Just (TCvSubst in_scope tv_env cv_env)
-	Nothing	              -> Nothing
+        Just (tv_env, cv_env) -> Just (TCvSubst in_scope tv_env cv_env)
+        Nothing               -> Nothing
   where
     menv = ME {me_tmpls = tmpls, me_env = mkRnEnv2 in_scope}
 
@@ -184,9 +181,9 @@ tcMatchCoX :: TyCoVarSet -> TCvSubst -> Coercion -> Coercion -> Maybe TCvSubst
 tcMatchCoX = tcMatchX
 
 tcMatchPreds
-	:: [TyVar]			-- Bind these
-	-> [PredType] -> [PredType]
-   	-> Maybe (TvSubstEnv, CvSubstEnv)
+        :: [TyVar]                      -- Bind these
+        -> [PredType] -> [PredType]
+        -> Maybe (TvSubstEnv, CvSubstEnv)
 tcMatchPreds tmpls ps1 ps2
   = match_list menv emptyTvSubstEnv emptyCvSubstEnv ps1 ps2
   where
@@ -195,11 +192,11 @@ tcMatchPreds tmpls ps1 ps2
 
 -- This one is called from the expression matcher, which already has a MatchEnv in hand
 ruleMatchTyX :: MatchEnv 
-	 -> TvSubstEnv		-- type substitution to extend
+         -> TvSubstEnv          -- type substitution to extend
          -> CvSubstEnv          -- coercion substitution to extend
-	 -> Type		-- Template
-	 -> Type		-- Target
-	 -> Maybe (TvSubstEnv, CvSubstEnv)
+         -> Type                -- Template
+         -> Type                -- Target
+         -> Maybe (TvSubstEnv, CvSubstEnv)
 ruleMatchTyX = match
 
 ruleMatchCoX :: MatchEnv -> TvSubstEnv -> CvSubstEnv
@@ -212,13 +209,13 @@ ruleMatchCoX = match
 Now the internals of matching
 
 \begin{code}
-match_ty :: MatchEnv	-- For the most part this is pushed downwards
-      -> TvSubstEnv 	-- Substitution so far:
-			--   Domain is subset of template tyvars
-			--   Free vars of range is subset of 
-			--	in-scope set of the RnEnv2
+match_ty :: MatchEnv    -- For the most part this is pushed downwards
+      -> TvSubstEnv     -- Substitution so far:
+                        --   Domain is subset of template tyvars
+                        --   Free vars of range is subset of 
+                        --      in-scope set of the RnEnv2
       -> CvSubstEnv
-      -> Type -> Type	-- Template and target respectively
+      -> Type -> Type   -- Template and target respectively
       -> Maybe (TvSubstEnv, CvSubstEnv)
 
 match_ty menv tsubst csubst ty1 ty2
@@ -226,23 +223,23 @@ match_ty menv tsubst csubst ty1 ty2
   | Just ty2' <- coreView ty2 = match_ty menv tsubst csubst ty1 ty2'
 
 match_ty menv tsubst csubst (TyVarTy tv1) ty2
-  | Just ty1' <- lookupVarEnv tsubst tv1'	-- tv1' is already bound
+  | Just ty1' <- lookupVarEnv tsubst tv1'       -- tv1' is already bound
   = if eqTypeX (nukeRnEnvL rn_env) ty1' ty2
-	-- ty1 has no locally-bound variables, hence nukeRnEnvL
+        -- ty1 has no locally-bound variables, hence nukeRnEnvL
     then Just (tsubst, csubst)
-    else Nothing	-- ty2 doesn't match
+    else Nothing        -- ty2 doesn't match
 
   | tv1' `elemVarSet` me_tmpls menv
   = if any (inRnEnvR rn_env) (varSetElems (tyCoVarsOfType ty2))
-    then Nothing	-- Occurs check
+    then Nothing        -- Occurs check
     else do { (tsubst1, csubst1)
                 <- match_kind menv tsubst csubst (tyVarKind tv1') (typeKind ty2)
-	    ; return (extendVarEnv tsubst1 tv1' ty2, csubst1) }
+            ; return (extendVarEnv tsubst1 tv1' ty2, csubst1) }
 
-   | otherwise	-- tv1 is not a template tyvar
+   | otherwise  -- tv1 is not a template tyvar
    = case ty2 of
-	TyVarTy tv2 | tv1' == rnOccR rn_env tv2 -> Just (tsubst, csubst)
-	_                                       -> Nothing
+        TyVarTy tv2 | tv1' == rnOccR rn_env tv2 -> Just (tsubst, csubst)
+        _                                       -> Nothing
   where
     rn_env = me_env menv
     tv1' = rnOccL rn_env tv1
@@ -250,7 +247,7 @@ match_ty menv tsubst csubst (TyVarTy tv1) ty2
 match_ty menv tsubst csubst (ForAllTy tv1 ty1) (ForAllTy tv2 ty2) 
   = do { (tsubst', csubst') <- match_kind menv tsubst csubst (tyVarKind tv1) (tyVarKind tv2)
        ; match_ty menv' tsubst' csubst' ty1 ty2 }
-  where		-- Use the magic of rnBndr2 to go under the binders
+  where         -- Use the magic of rnBndr2 to go under the binders
     menv' = menv { me_env = rnBndr2 (me_env menv) tv1 tv2 }
 
 match_ty menv tsubst csubst (TyConApp tc1 tys1) (TyConApp tc2 tys2) 
@@ -260,7 +257,7 @@ match_ty menv tsubst csubst (FunTy ty1a ty1b) (FunTy ty2a ty2b)
        ; match_ty menv tsubst' csubst' ty1b ty2b }
 match_ty menv tsubst csubst (AppTy ty1a ty1b) ty2
   | Just (ty2a, ty2b) <- repSplitAppTy_maybe ty2
-	-- 'repSplit' used because the tcView stuff is done above
+        -- 'repSplit' used because the tcView stuff is done above
   = do { (tsubst', csubst') <- match_ty menv tsubst csubst ty1a ty2a
        ; match_ty menv tsubst' csubst' ty1b ty2b }
 
@@ -331,9 +328,17 @@ a TyConAppCo after substitution, and check for this case in matching.
 match_co :: MatchEnv -> TvSubstEnv -> CvSubstEnv
          -> Coercion -> Coercion -> Maybe (TvSubstEnv, CvSubstEnv)
 
+ -- There are no "unification role varialbles", so if the roles don't match,
+ -- fail eagerly.
+match_co _ _ _ co1 co2
+  | coercionRole co1 /= coercionRole co2
+  = Nothing
+
+-- From now on, assume that the roles match!
+
 -- See Note [Unifying with Refl]
 -- any coercion shape can become a refl under certain conditions:
-match_co menv tsubst csubst co1 (Refl ty2)
+match_co menv tsubst csubst co1 (Refl _ ty2)
   = do { let Pair tyl1 tyr1 = coercionKind co1
        ; (tsubst', csubst') <- match_ty menv tsubst csubst tyl1 ty2
        ; match_ty menv tsubst' csubst' tyr1 ty2 }
@@ -362,7 +367,7 @@ match_co menv tsubst csubst (CoVarCo cv1) co2
     cv1' = rnOccL rn_env cv1
 
 -- Refl case already handled:
-match_co menv tsubst csubst (TyConAppCo tc1 args1) (TyConAppCo tc2 args2)
+match_co menv tsubst csubst (TyConAppCo _ tc1 args1) (TyConAppCo _ tc2 args2)
   | tc1 == tc2 = match_list menv tsubst csubst args1 args2
 
 match_co menv tsubst csubst (AppCo co1 arg1) co2
@@ -443,10 +448,10 @@ match_co menv tsubst csubst (AxiomInstCo ax1 ind1 args1)
   , ind1 == ind2
   = match_list menv tsubst csubst args1 args2
 
-match_co menv tsubst csubst (UnsafeCo tyl1 tyr1) (UnsafeCo tyl2 tyr2)
+match_co menv tsubst csubst (UnivCo _ tyl1 tyr1) (UnivCo _ tyl2 tyr2)
   = do { (tsubst', csubst') <- match_ty menv tsubst csubst tyl1 tyl2
        ; match_ty menv tsubst' csubst' tyr1 tyr2 }
-match_co menv tsubst csubst (UnsafeCo lty1 rty1) co2@(TyConAppCo _ _)
+match_co menv tsubst csubst (UnivCo _ lty1 rty1) co2@(TyConAppCo _ _ _)
   = do { let Pair lty2 rty2 = coercionKind co2
        ; (tsubst', csubst') <- match_ty menv tsubst csubst lty1 lty2
        ; match_ty menv tsubst' csubst' rty1 rty2 }
@@ -455,7 +460,7 @@ match_co menv tsubst csubst (UnsafeCo lty1 rty1) co2@(TyConAppCo _ _)
 -- or a SymCo (UnsafeCo ...)
 match_co menv tsubst csubst (SymCo co1) (SymCo co2)
   = match_co menv tsubst csubst co1 co2
-match_co menv tsubst csubst (SymCo co1) (UnsafeCo lty2 rty2)
+match_co menv tsubst csubst (SymCo co1) (UnivCo _ lty2 rty2)
   = match_co menv tsubst csubst co1 (UnsafeCo rty2 lty2)
 match_co menv tsubst csubst (SymCo co1) co2
   = match_co menv tsubst csubst co1 (SymCo co2)
@@ -483,6 +488,18 @@ match_co menv tsubst csubst (CoherenceCo lco1 rco1) (CoherenceCo lco2 rco2)
 match_co menv tsubst csubst (KindCo co1) (KindCo co2)
   = match_co menv tsubst csubst co1 co2
 
+match_co menv tsubst csubst (SubCo co1) (SubCo co2)
+  = match_co menv tsubst csubst co1 co2
+match_co menv tsubst csubst (SubCo co1) co2@(TyConAppCo _ _ _)
+  = match_co menv tsubst csubst co1 co2
+match_co menv tsubst csubst (SubCo co1) (UnivCo Representational ty1 ty2)
+  = match_co menv tsubst csubst co1 (UnivCo Nominal ty1 ty2)
+
+match_co menv tsubst csubst (AxiomRuleCo ax1 ts1 cs1) (AxiomRuleCo ax2 ts2 cs2)
+  | ax1 == ax2
+  = do { (tsubst', csubst') <- match_list menv tsubst csubst ts1 ts2
+       ; match_list menv tsubst' csubst' cs1 cs2 }
+
 match_co _ _ _ _ _
   = Nothing
 
@@ -508,9 +525,9 @@ match_list _    _    _    _      _      = Nothing
 \end{code}
 
 %************************************************************************
-%*									*
-	Matching monad
-%*									*
+%*                                                                      *
+        Matching monad
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -543,42 +560,42 @@ _withRnEnv rn_env mm = MM $ \menv tsubst csubst
 \end{code}
 
 %************************************************************************
-%*									*
-		GADTs
-%*									*
+%*                                                                      *
+                GADTs
+%*                                                                      *
 %************************************************************************
 
 Note [Pruning dead case alternatives]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider	data T a where
-		   T1 :: T Int
-		   T2 :: T a
+Consider        data T a where
+                   T1 :: T Int
+                   T2 :: T a
 
-		newtype X = MkX Int
-		newtype Y = MkY Char
+                newtype X = MkX Int
+                newtype Y = MkY Char
 
-		type family F a
-		type instance F Bool = Int
+                type family F a
+                type instance F Bool = Int
 
-Now consider	case x of { T1 -> e1; T2 -> e2 }
+Now consider    case x of { T1 -> e1; T2 -> e2 }
 
 The question before the house is this: if I know something about the type
 of x, can I prune away the T1 alternative?
 
 Suppose x::T Char.  It's impossible to construct a (T Char) using T1, 
-	Answer = YES we can prune the T1 branch (clearly)
+        Answer = YES we can prune the T1 branch (clearly)
 
 Suppose x::T (F a), where 'a' is in scope.  Then 'a' might be instantiated
 to 'Bool', in which case x::T Int, so
-	ANSWER = NO (clearly)
+        ANSWER = NO (clearly)
 
 Suppose x::T X.  Then *in Haskell* it's impossible to construct a (non-bottom) 
 value of type (T X) using T1.  But *in FC* it's quite possible.  The newtype
 gives a coercion
-	CoX :: X ~ Int
+        CoX :: X ~ Int
 So (T CoX) :: T X ~ T Int; hence (T1 `cast` sym (T CoX)) is a non-bottom value
 of type (T X) constructed with T1.  Hence
-	ANSWER = NO we can't prune the T1 branch (surprisingly)
+        ANSWER = NO we can't prune the T1 branch (surprisingly)
 
 Furthermore, this can even happen; see Trac #1251.  GHC's newtype-deriving
 mechanism uses a cast, just as above, to move from one dictionary to another,
@@ -589,9 +606,9 @@ non-bottom value of type (T Y) using T1.  That's because we can get
 from Y to Char, but not to Int.
 
 
-Here's a related question.  	data Eq a b where EQ :: Eq a a
+Here's a related question.      data Eq a b where EQ :: Eq a a
 Consider
-	case x of { EQ -> ... }
+        case x of { EQ -> ... }
 
 Suppose x::Eq Int Char.  Is the alternative dead?  Clearly yes.
 
@@ -599,7 +616,7 @@ What about x::Eq Int a, in a context where we have evidence that a~Char.
 Then again the alternative is dead.   
 
 
-			Summary
+                        Summary
 
 We are really doing a test for unsatisfiability of the type
 constraints implied by the match. And that is clearly, in general, a
@@ -619,101 +636,95 @@ typesCantMatch prs = any (\(s,t) -> cant_match s t) prs
   where
     cant_match :: Type -> Type -> Bool
     cant_match t1 t2
-	| Just t1' <- coreView t1 = cant_match t1' t2
-	| Just t2' <- coreView t2 = cant_match t1 t2'
+        | Just t1' <- coreView t1 = cant_match t1' t2
+        | Just t2' <- coreView t2 = cant_match t1 t2'
 
     cant_match (FunTy a1 r1) (FunTy a2 r2)
-	= cant_match a1 a2 || cant_match r1 r2
+        = cant_match a1 a2 || cant_match r1 r2
 
     cant_match (TyConApp tc1 tys1) (TyConApp tc2 tys2)
-	| isDistinctTyCon tc1 && isDistinctTyCon tc2
-	= tc1 /= tc2 || typesCantMatch (zipEqual "typesCantMatch" tys1 tys2)
+        | isDistinctTyCon tc1 && isDistinctTyCon tc2
+        = tc1 /= tc2 || typesCantMatch (zipEqual "typesCantMatch" tys1 tys2)
 
     cant_match (FunTy {}) (TyConApp tc _) = isDistinctTyCon tc
     cant_match (TyConApp tc _) (FunTy {}) = isDistinctTyCon tc
-	-- tc can't be FunTyCon by invariant
+        -- tc can't be FunTyCon by invariant
 
     cant_match (AppTy f1 a1) ty2
-	| Just (f2, a2) <- repSplitAppTy_maybe ty2
-	= cant_match f1 f2 || cant_match a1 a2
+        | Just (f2, a2) <- repSplitAppTy_maybe ty2
+        = cant_match f1 f2 || cant_match a1 a2
     cant_match ty1 (AppTy f2 a2)
-	| Just (f1, a1) <- repSplitAppTy_maybe ty1
-	= cant_match f1 f2 || cant_match a1 a2
+        | Just (f1, a1) <- repSplitAppTy_maybe ty1
+        = cant_match f1 f2 || cant_match a1 a2
 
     cant_match (LitTy x) (LitTy y) = x /= y
 
     cant_match _ _ = False      -- Safe!
 
 -- Things we could add;
---	foralls
---	look through newtypes
---	take account of tyvar bindings (EQ example above)
+--      foralls
+--      look through newtypes
+--      take account of tyvar bindings (EQ example above)
 \end{code}
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
              Unification
 %*                                                                      *
 %************************************************************************
 
-Note [Unification and apartness]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The workhorse function behind unification actually is testing for apartness,
-not unification. Here, two types are apart if it is never possible to unify
-them or any types they are safely coercible to. There are three
-possibilities here:
+Note [Fine-grained unification]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Do the types (x, x) and ([y], y) unify? The answer is seemingly "no" --
+no substitution to finite types makes these match. But, a substitution to
+*infinite* types can unify these two types: [x |-> [[[...]]], y |-> [[[...]]] ].
+Why do we care? Consider these two type family instances:
 
- - two types might be NotApart, which means a substitution can be found between
-   them,
+type instance F x x   = Int
+type instance F [y] y = Bool
 
-   Example: (Either a Int) and (Either Bool b) are NotApart, with
-   [a |-> Bool, b |-> Int]
+If we also have
 
- - they might be MaybeApart, which means that we're not sure, but a substitution
-   cannot be found
+type instance Looper = [Looper]
 
-   Example: Int and F a (for some type family F) are MaybeApart
+then the instances potentially overlap. The solution is to use unification
+over infinite terms. This is possible (see [1] for lots of gory details), but
+a full algorithm is a little more power than we need. Instead, we make a
+conservative approximation and just omit the occurs check.
 
- - they might be SurelyApart, in which case we can guarantee that they never
-   unify
+[1]: http://research.microsoft.com/en-us/um/people/simonpj/papers/ext-f/axioms-extended.pdf
 
-   Example: (Either Int a) and (Either Bool b) are SurelyApart
+tcUnifyTys considers an occurs-check problem as the same as general unification
+failure.
 
-In the NotApart case, the apartness finding function also returns a
-substitution, which we can then use to unify the types. It is necessary for
-the unification algorithm to depend on the apartness algorithm, because
-apartness is finer-grained than unification.
+tcUnifyTysFG ("fine-grained") returns one of three results: success, occurs-check
+failure ("MaybeApart"), or general failure ("SurelyApart").
 
-Note [Unifying with type families]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We wish to separate out the case where unification fails on a type family
-from other unification failure. What does "fail on a type family" look like?
-According to the TyConApp invariant, a type family application must always
-be in a TyConApp. This TyConApp may not be buried within the left-hand-side
-of an AppTy.
+See also Trac #8162.
 
-Furthermore, we wish to proceed with unification if we are unifying
-(F a b) with (F Int Bool). Here, unification should succeed with
-[a |-> Int, b |-> Bool]. So, here is what we do:
+It's worth noting that unification in the presence of infinite types is not
+complete. This means that, sometimes, a closed type family does not reduce
+when it should. See test case indexed-types/should_fail/Overlap15 for an
+example.
 
- - If we are unifying two TyConApps, check the heads for equality and
-   proceed iff they are equal.
+Note [The substitution in MaybeApart]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The constructor MaybeApart carries data with it, typically a TvSubstEnv. Why?
+Because consider unifying these:
 
- - Otherwise, if either (or both) type is a TyConApp headed by a type family,
-   we know they cannot fully unify. But, they might unify later, depending
-   on the type family. So, we return "maybeApart".
+(a, a, Int) ~ (b, [b], Bool)
 
-Note that we never want to unify, say, (a Int) with (F Int), because doing so
-leads to an unsaturated type family. So, we don't have to worry about any
-unification between type families and AppTys.
+If we go left-to-right, we start with [a |-> b]. Then, on the middle terms, we
+apply the subst we have so far and discover that we need [b |-> [b]]. Because
+this fails the occurs check, we say that the types are MaybeApart (see above
+Note [Fine-grained unification]). But, we can't stop there! Because if we
+continue, we discover that Int is SurelyApart from Bool, and therefore the
+types are apart. This has practical consequences for the ability for closed
+type family applications to reduce. See test case
+indexed-types/should_compile/Overlap14.
 
-But wait! There is one more possibility. What about nullary type families?
-If G is a nullary type family, we *do* want to unify (a) with (G). This is
-handled in uVar, which is triggered before we look at TyConApps. Ah. All is
-well again.
-
-Note [Apartness with skolems]
+Note [Unifying with skolems]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 If we discover that two types unify if and only if a skolem variable is
 substituted, we can't properly unify the types. But, that skolem variable
@@ -733,34 +744,37 @@ coerced between are surelyApart. Otherwise, two coercions either unify or
 are maybeApart.
 
 \begin{code}
--- See Note [Unification and apartness]
 tcUnifyTys :: (TyCoVar -> BindFlag)
-	   -> [Type] -> [Type]
-	   -> Maybe TCvSubst	-- A regular one-shot (idempotent) substitution
+           -> [Type] -> [Type]
+           -> Maybe TCvSubst    -- A regular one-shot (idempotent) substitution
 -- The two types may have common type variables, and indeed do so in the
 -- second call to tcUnifyTys in FunDeps.checkClsFD
 --
 tcUnifyTys bind_fn tys1 tys2
-  | NotApart subst <- tcApartTys bind_fn tys1 tys2
+  | Unifiable subst <- tcUnifyTysFG bind_fn tys1 tys2
   = Just subst
   | otherwise
   = Nothing
 
-data ApartResult = NotApart TCvSubst   -- the subst that unifies the types
-                 | MaybeApart
-                 | SurelyApart
+-- This type does double-duty. It is used in the UM (unifier monad) and to
+-- return the final result. See Note [Fine-grained unification]
+type UnifyResult = UnifyResultM TCvSubst
+data UnifyResultM a = Unifiable a        -- the subst that unifies the types
+                    | MaybeApart a       -- the subst has as much as we know
+                                         -- it must be part of an most general unifier
+                                         -- See Note [The substitution in MaybeApart]
+                    | SurelyApart
 
-tcApartTys :: (TyCoVar -> BindFlag)
-           -> [Type] -> [Type]
-           -> ApartResult
-tcApartTys bind_fn tys1 tys2
+-- See Note [Fine-grained unification]
+tcUnifyTysFG :: (TyCoVar -> BindFlag)
+             -> [Type] -> [Type]
+             -> UnifyResult
+tcUnifyTysFG bind_fn tys1 tys2
   = initUM bind_fn vars $
     do { unifyList tys1 tys2
-
        ; tsubst <- getTvSubstEnv
        ; csubst <- getCvSubstEnv
-  
-       -- Find the fixed point of the resulting non-idempotent substitution
+
        ; return (niFixTCvSubst tsubst csubst) }
   where
     vars = tyCoVarsOfTypes tys1 `unionVarSet` tyCoVarsOfTypes tys2
@@ -769,9 +783,9 @@ tcApartTys bind_fn tys1 tys2
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
                 Non-idempotent substitution
-%*									*
+%*                                                                      *
 %************************************************************************
 
 Note [Non-idempotent substitution]
@@ -810,7 +824,7 @@ niSubstTvSet tsubst csubst tvs
     get tv
       | isTyVar tv
       = case lookupVarEnv tsubst tv of
-	       Nothing -> unitVarSet tv
+               Nothing -> unitVarSet tv
                Just ty -> niSubstTvSet tsubst csubst (tyCoVarsOfType ty)
       | otherwise
       = case lookupVarEnv csubst tv of
@@ -819,9 +833,9 @@ niSubstTvSet tsubst csubst tvs
 \end{code}
 
 %************************************************************************
-%*									*
-		The workhorse
-%*									*
+%*                                                                      *
+                The workhorse
+%*                                                                      *
 %************************************************************************
 
 Note [unify_co SymCo case]
@@ -830,7 +844,7 @@ mkSymCo says that mkSymCo (SymCo co) = co. So, it is, in general, possible
 for a SymCo to unify with any other coercion. For example, if we have
 (SymCo c) (for a coercion variable c), that unifies with any coercion co
 with [c |-> SymCo co]. Now, consider a unification problem: we wish to unify
-(SymCo co1) with co2. If co2 is not a SymCo or an UnsafeCo (the two other
+(SymCo co1) with co2. If co2 is not a SymCo or an UnivCo (the two other
 possible outcomes of mkSymCo) then we should try to unify co1 with (SymCo co2).
 The problem is that, if that also fails, a naive algorithm would then try
 pushing the SymCo back onto co1. What we need is to make sure we swap the SymCo
@@ -853,17 +867,17 @@ So, what do we do? If we're unifying (t1 |> g1) and (t2 |> g2):
 1. We first go ahead and try straightforward unification. If that works (i.e., there is a
 unifying substitution), hooray. Stop.
 
-2. Now, we try just to unify t1 and t2. If that succeeds, then we've shown that
-(t1 |> g1) and (t2 |> g2) are not apart, because we can build a coercion between
-a type that appears after applying a substitution to these types. However, we
-can't just return NotApart, because NotApart requires a unifying substitution,
-which doesn't exist. So, we conclude MaybeApart, which is a safe fallback.
+2. Now, we try just to unify t1 and t2. If that succeeds, then we've shown
+that (t1 |> g1) and (t2 |> g2) are not apart, because we can build a coercion
+between a type that appears after applying a substitution to these types.
+However, we can't just return Unifiable, because they're not unifiable! So, we
+conclude MaybeApart, which is a safe fallback.
 
 This logic is remarkably easy to implement. We simply do this:
   do { unify_ty t1 t2
      ; unify_co g1 g2 }
 If they both succeed: perfect. If unify_ty fails, the whole thing fails for the same
-reason: perfect. If unify_ty succeeds by unify_co fails, the whole thing fails with
+reason: perfect. If unify_ty succeeds but unify_co fails, the whole thing fails with
 MaybeApart, by the definition of unify_co: perfect. So, easy implementation, somewhat
 involved reasoning behind it. For example, reversing the order of the statements would
 *not* be correct!
@@ -904,28 +918,22 @@ unify_ty (TyConApp tyc1 tys1) (TyConApp tyc2 tys2)
   | tyc1 == tyc2                                   
   = unify_tys tys1 tys2
 
--- See Note [Unifying with type families]
-unify_ty (TyConApp tyc _) _
-  | not (isDistinctTyCon tyc) = maybeApart
-unify_ty _ (TyConApp tyc _)
-  | not (isDistinctTyCon tyc) = maybeApart
-
 unify_ty (FunTy ty1a ty1b) (FunTy ty2a ty2b) 
-  = do	{ unify_ty ty1a ty2a
-	; unify_ty ty1b ty2b }
+  = do  { unify_ty ty1a ty2a
+        ; unify_ty ty1b ty2b }
 
-	-- Applications need a bit of care!
-	-- They can match FunTy and TyConApp, so use splitAppTy_maybe
-	-- NB: we've already dealt with type variables and Notes,
-	-- so if one type is an App the other one jolly well better be too
+        -- Applications need a bit of care!
+        -- They can match FunTy and TyConApp, so use splitAppTy_maybe
+        -- NB: we've already dealt with type variables and Notes,
+        -- so if one type is an App the other one jolly well better be too
 unify_ty (AppTy ty1a ty1b) ty2
   | Just (ty2a, ty2b) <- repSplitAppTy_maybe ty2
-  = do	{ unify_ty ty1a ty2a
+  = do  { unify_ty ty1a ty2a
         ; unify_ty ty1b ty2b }
 
 unify_ty ty1 (AppTy ty2a ty2b)
   | Just (ty1a, ty1b) <- repSplitAppTy_maybe ty1
-  = do	{ unify_ty ty1a ty2a
+  = do  { unify_ty ty1a ty2a
         ; unify_ty ty1b ty2b }
 
 unify_ty (LitTy x) (LitTy y) | x == y = return ()
@@ -947,8 +955,11 @@ unify_co :: Coercion -> Coercion -> UM ()
 -- See Note [Coercion optimizations and match_co]. It applies here too.
 -- See Note [Apartness and coercions]
 unify_co co1 co2
-  = do { let Pair tyl1 tyr1 = coercionKind co1
+  = do { let role1 = coercionRole co1
+             role2 = coercionRole co2
+             Pair tyl1 tyr1 = coercionKind co1
              Pair tyl2 tyr2 = coercionKind co2
+       ; guard (role1 == role2)
        ; unify_ty tyl1 tyl2
        ; unify_ty tyr1 tyr2
        ; dontBeSoSure $ unify_co' co1 co2 }
@@ -958,8 +969,8 @@ unify_co' :: Coercion -> Coercion -> UM ()
 
 -- in the Refl case, the kinds are already unified, so there is no more work.
 -- See Note [Unifying with Refl]
-unify_co' (Refl _) _ = return ()
-unify_co' _ (Refl _) = return ()
+unify_co' (Refl _ _) _ = return ()
+unify_co' _ (Refl _ _) = return ()
 
 unify_co' (CoVarCo cv1) co2 = uVar cv1 co2
 unify_co' co1 (CoVarCo cv2) = umSwapRn $ uVar cv2 co1
@@ -1099,7 +1110,7 @@ unifyList orig_xs orig_ys
   where
     go []     []     = return ()
     go (x:xs) (y:ys) = do { unify x y
-			  ; go xs ys }
+                          ; go xs ys }
     go _ _ = surelyApart
 
 ---------------------------------
@@ -1125,10 +1136,10 @@ uUnrefined :: forall tyco. TyOrCo tyco
 
 uUnrefined tv1 ty2 ty2'
   | Just ty2'' <- tycoTcView ty2'
-  = uUnrefined tv1 ty2 ty2''	-- Unwrap synonyms
-		-- This is essential, in case we have
-		--	type Foo a = a
-		-- and then unify a ~ Foo a
+  = uUnrefined tv1 ty2 ty2''    -- Unwrap synonyms
+                -- This is essential, in case we have
+                --      type Foo a = a
+                -- and then unify a ~ Foo a
 
 uUnrefined tv1 ty2 ty2'
   | Just tv2 <- getVar_maybe ty2'
@@ -1145,26 +1156,26 @@ uUnrefined tv1 ty2 ty2'
 
            -- And then bind one or the other, 
            -- depending on which is bindable
-	   -- NB: unlike TcUnify we do not have an elaborate sub-kinding 
-	   --     story.  That is relevant only during type inference, and
+           -- NB: unlike TcUnify we do not have an elaborate sub-kinding 
+           --     story.  That is relevant only during type inference, and
            --     (I very much hope) is not relevant here.
        ; b1 <- tvBindFlag tv1
        ; b2 <- tvBindFlag tv2
        ; let ty1 = (mkVar tv1 :: tyco)
        ; case (b1, b2) of
-           (Skolem, Skolem) -> maybeApart  -- See Note [Apartness with skolems]
+           (Skolem, Skolem) -> maybeApart -- See Note [Unification with skolems]
            (BindMe, _)      -> do { checkRnEnvR ty2 -- make sure ty2 is not a local
                                   ; extendEnv tv1 ty2 }
            (_, BindMe)      -> do { checkRnEnvL ty1 -- ditto for ty1
                                   ; extendEnv tv2 ty1 }}}}}
 
-uUnrefined tv1 ty2 ty2'	-- ty2 is not a type variable
+uUnrefined tv1 ty2 ty2' -- ty2 is not a type variable
   = do { occurs <- elemNiSubstSet tv1 (tyCoVarsOf ty2')
        ; if occurs 
-         then surelyApart               -- Occurs check
+         then maybeApart               -- Occurs check, see Note [Fine-grained unification]
          else do
        { unify k1 k2
-       ; bindTv tv1 ty2 }}	-- Bind tyvar to the synonym if poss
+       ; bindTv tv1 ty2 }}      -- Bind tyvar to the synonym if poss
   where
     k1 = tyVarKind tv1
     k2 = getKind ty2'
@@ -1176,19 +1187,19 @@ elemNiSubstSet v set
        ; return $ v `elemVarSet` niSubstTvSet tsubst csubst set }
 
 bindTv :: TyOrCo tyco => TyCoVar -> tyco -> UM ()
-bindTv tv ty	-- ty is not a variable
+bindTv tv ty    -- ty is not a variable
   = do  { checkRnEnvR ty -- make sure ty mentions no local variables
         ; b <- tvBindFlag tv
-	; case b of
-	    Skolem -> maybeApart  -- See Note [Apartness with skolems]
-	    BindMe -> extendEnv tv ty
-	}
+        ; case b of
+            Skolem -> maybeApart  -- See Note [Unification with skolems]
+            BindMe -> extendEnv tv ty
+        }
 \end{code}
 
 %************************************************************************
-%*									*
-	        TyOrCo class
-%*									*
+%*                                                                      *
+                TyOrCo class
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -1223,59 +1234,82 @@ instance TyOrCo Coercion where
 \end{code}
 
 %************************************************************************
-%*									*
-		Binding decisions
-%*									*
+%*                                                                      *
+                Binding decisions
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
 data BindFlag 
-  = BindMe	-- A regular type variable
+  = BindMe      -- A regular type variable
 
-  | Skolem	-- This type variable is a skolem constant
-		-- Don't bind it; it only matches itself
+  | Skolem      -- This type variable is a skolem constant
+                -- Don't bind it; it only matches itself
 \end{code}
 
 
 %************************************************************************
-%*									*
-		Unification monad
-%*									*
+%*                                                                      *
+                Unification monad
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
-data UnifFailure = UFMaybeApart
-                 | UFSurelyApart
-
 newtype UM a = UM { unUM :: (TyVar -> BindFlag) -- the user-supplied BingFlag function
                          -> RnEnv2              -- the renaming env for local variables
                          -> TyCoVarSet          -- set of all local variables
                          -> TvSubstEnv -> CvSubstEnv -- substitutions
-		         -> Either UnifFailure ((TvSubstEnv, CvSubstEnv), a) }
+                         -> UnifyResultM ((TvSubstEnv, CvSubstEnv), a) }
+
+instance Functor UM where
+      fmap = liftM
+
+instance Applicative UM where
+      pure = return
+      (<*>) = ap
 
 instance Monad UM where
-  return a = UM (\_ _ _ tsubst csubst -> Right ((tsubst, csubst), a))
-  fail _   = UM (\_ _ _ _ _ -> Left UFSurelyApart) -- failed pattern match
+  return a = UM (\_ _ _ tsubst csubst -> Unifiable ((tsubst, csubst), a))
+  fail _   = UM (\_ _ _ _ _ -> SurelyApart) -- failed pattern match
   m >>= k  = UM (\tvs rn_env locals tsubst csubst ->
                  case unUM m tvs rn_env locals tsubst csubst of
-		   Right ((tsubst', csubst'), v)
+                   Unifiable ((tsubst', csubst'), v)
                      -> unUM (k v) tvs rn_env locals tsubst' csubst'
-		   Left f  -> Left f)
+                   MaybeApart ((tsubst', csubst'), v)
+                     -> case unUM (k v) tvs rn_env locals tsubst' csubst' of
+                          Unifiable result -> MaybeApart result
+                          other            -> other
+                   SurelyApart -> SurelyApart)
+
+  -- need this instance because of a use of 'guard' above
+instance MonadPlus UM where
+  mzero = UM (\_ _ _ _ _ -> SurelyApart)
+
+    -- This function should never be called, but it has a sensible implementation,
+    -- so why not?
+  mplus m1 m2 = UM (\tvs rn_env locals tsubst csubst ->
+                     let res2 = unUM m2 tvs rn_env locals tsubst csubst in
+                     case unUM m1 tvs rn_env locals tsubst csubst of
+                       res1@(Unifiable _)  -> res1
+                       res1@(MaybeApart _) -> case res2 of
+                                                  Unifiable _ -> res2
+                                                  _           -> res1
+                       SurelyApart         -> res2)
 
 initUM :: (TyVar -> BindFlag)
        -> TyCoVarSet  -- set of variables in scope
        -> UM TCvSubst -> ApartResult
 initUM badtvs vars um
   = case unUM um badtvs rn_env emptyVarSet emptyTvSubstEnv emptyCvSubstEnv of
-      Right (_, subst)   -> NotApart subst
-      Left UFMaybeApart  -> MaybeApart
-      Left UFSurelyApart -> SurelyApart
+      Unifiable (_, subst)  -> Unifiable subst
+      MaybeApart (_, subst) -> MaybeApart subst
+      SurelyApart           -> SurelyApart
   where
     rn_env = mkRnEnv2 (mkInScopeSet vars)
-    
+
 tvBindFlag :: TyVar -> UM BindFlag
 tvBindFlag tv = UM $ \tv_fn _ locals tsubst csubst ->
-  Right ((tsubst, csubst), if tv `elemVarSet` locals then Skolem else tv_fn tv)
+  Unifiable ((tsubst, csubst), if tv `elemVarSet` locals then Skolem else tv_fn tv)
 
 getTvSubstEnv :: UM TvSubstEnv
 getTvSubstEnv = UM $ \_ _ _ tsubst csubst -> Right ((tsubst, csubst), tsubst)
@@ -1340,17 +1374,17 @@ dontUnify thing = UM $ \ty_fn rn_env locals tsubst csubst ->
     Left failure -> Left failure
     Right _      -> Left UFMaybeApart
 
-maybeApart :: UM a
-maybeApart = UM (\_ _ _ _ _ -> Left UFMaybeApart)
+maybeApart :: UM ()
+maybeApart = UM (\_ _ _ tsubst csubst -> MaybeApart ((tsubst, csubst), ()))
 
 surelyApart :: UM a
-surelyApart = UM (\_ _ _ _ _ -> Left UFSurelyApart)
+surelyApart = UM (\_ _ _ _ _ -> SurelyApart)
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
             Matching a (lifted) type against a coercion
-%*									*
+%*                                                                      *
 %************************************************************************
 
 This section defines essentially an inverse to liftCoSubst. It is defined
@@ -1523,15 +1557,19 @@ ty_co_match menv subst (TyVarTy tv1) co
     rn_env = me_env menv
     tv1' = rnOccL rn_env tv1
 
+  -- just look through SubCo's. We don't really care about roles here.
+ty_co_match menv subst ty (SubCo co)
+  = ty_co_match menv subst ty co
+
 ty_co_match menv subst (AppTy ty1 ty2) co
-  | Just (co1, arg2) <- splitAppCo_maybe co	-- c.f. Unify.match on AppTy
+  | Just (co1, arg2) <- splitAppCo_maybe co     -- c.f. Unify.match on AppTy
   = do { subst' <- ty_co_match menv subst ty1 co1 
        ; ty_co_match_arg menv subst' ty2 arg2 }
 
-ty_co_match menv subst (TyConApp tc1 tys) (TyConAppCo tc2 cos)
+ty_co_match menv subst (TyConApp tc1 tys) (TyConAppCo _ tc2 cos)
   | tc1 == tc2 = ty_co_match_args menv subst tys cos
 
-ty_co_match menv subst (FunTy ty1 ty2) (TyConAppCo tc cos)
+ty_co_match menv subst (FunTy ty1 ty2) (TyConAppCo _ tc cos)
   | tc == funTyCon = ty_co_match_args menv subst [ty1, ty2] cos
 
 ty_co_match menv subst (ForAllTy tv ty) (ForAllCo cobndr co)
@@ -1635,12 +1673,15 @@ ty_co_match_lr menv subst co1 col cor
     in_scope = rnInScopeSet rn_env
   
 pushRefl :: Coercion -> Maybe Coercion
-pushRefl (Refl (AppTy ty1 ty2))   = Just (AppCo (Refl ty1) (liftSimply ty2))
-pushRefl (Refl (FunTy ty1 ty2))   = Just (TyConAppCo funTyCon [liftSimply ty1, liftSimply ty2])
-pushRefl (Refl (TyConApp tc tys)) = Just (TyConAppCo tc (map liftSimply tys))
-pushRefl (Refl (ForAllTy tv ty))
-  | isTyVar tv                    = Just (ForAllCo (TyHomo tv) (Refl ty))
-  | otherwise                     = Just (ForAllCo (CoHomo tv) (Refl ty))
-pushRefl (Refl (CastTy ty co))    = Just ((mkSymCo co) `TransCo` (Refl ty) `TransCo` co)
+pushRefl (Refl Nominal (AppTy ty1 ty2))
+  = Just (AppCo (Refl Nominal ty1) (liftSimply Nominal ty2))
+pushRefl (Refl r (FunTy ty1 ty2))
+  = Just (TyConAppCo r funTyCon [liftSimply r ty1, liftSimply r ty2])
+pushRefl (Refl r (TyConApp tc tys))
+  = Just (TyConAppCo r tc (zipWith liftSimply (tyConRolesX r tc) tys))
+pushRefl (Refl r (ForAllTy tv ty))
+  | isTyVar tv                    = Just (ForAllCo (TyHomo tv) (Refl r ty))
+  | otherwise                     = Just (ForAllCo (CoHomo tv) (Refl r ty))
+pushRefl (Refl r (CastTy ty co))  = Just (castCoercionKind (Refl r ty) co co)
 pushRefl _                        = Nothing
 \end{code}

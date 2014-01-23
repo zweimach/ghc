@@ -156,6 +156,12 @@ FP_COMPARE_VERSIONS([$GhcVersion],[-lt],[7.5],
                     GHC_PACKAGE_DB_FLAG=package-db)
 AC_SUBST(GHC_PACKAGE_DB_FLAG)
 
+# GHC 7.7+ needs -fcmm-sink when compiling Parser.hs. See #8182
+FP_COMPARE_VERSIONS([$GhcVersion],[-gt],[7.7],
+                    CMM_SINK_BOOTSTRAP_IS_NEEDED=YES,
+                    CMM_SINK_BOOTSTRAP_IS_NEEDED=NO)
+AC_SUBST(CMM_SINK_BOOTSTRAP_IS_NEEDED)
+
 # GHC is passed to Cabal, so we need a native path
 if test "${WithGhc}" != ""
 then
@@ -328,6 +334,7 @@ then
     CC="${mingwbin}gcc.exe"
     LD="${mingwbin}ld.exe"
     NM="${mingwbin}nm.exe"
+    RANLIB="${mingwbin}ranlib.exe"
     OBJDUMP="${mingwbin}objdump.exe"
     fp_prog_ar="${mingwbin}ar.exe"
 
@@ -368,7 +375,7 @@ AC_ARG_WITH([ffi-includes],
     AC_MSG_WARN([--with-ffi-includes will be ignored, --with-system-libffi not set])
  else
     FFIIncludeDir="$withval"
-    LIBFFI_CFLAGS="-I $withval" 
+    LIBFFI_CFLAGS="-I$withval"
  fi
 ])
 
@@ -553,8 +560,6 @@ dnl ** look to see if we have a C compiler using an llvm back end.
 dnl
 FP_CC_LLVM_BACKEND
 
-FP_PROG_LD_HashSize31
-FP_PROG_LD_ReduceMemoryOverheads
 FP_PROG_LD_IS_GNU
 FP_PROG_LD_BUILD_ID
 FP_PROG_LD_NO_COMPACT_UNWIND
@@ -786,7 +791,7 @@ dnl ** check for math library
 dnl    Keep that check as early as possible.
 dnl    as we need to know whether we need libm
 dnl    for math functions or not
-dnl    (see http://hackage.haskell.org/trac/ghc/ticket/3730)
+dnl    (see http://ghc.haskell.org/trac/ghc/ticket/3730)
 AC_CHECK_LIB(m, atan, HaveLibM=YES, HaveLibM=NO)
 if test $HaveLibM = YES
 then
@@ -901,8 +906,7 @@ if grep '	' compiler/ghc.cabal.in 2>&1 >/dev/null; then
    AC_MSG_ERROR([compiler/ghc.cabal.in contains tab characters; please remove them])
 fi
 
-AC_CONFIG_FILES([mk/config.mk mk/install.mk mk/project.mk compiler/ghc.cabal ghc/ghc-bin.cabal utils/runghc/runghc.cabal ghc.spec settings docs/users_guide/ug-book.xml docs/users_guide/ug-ent.xml docs/index.html libraries/prologue.txt distrib/ghc.iss distrib/configure.ac])
-AC_CONFIG_COMMANDS([mk/stamp-h],[echo timestamp > mk/stamp-h])
+AC_CONFIG_FILES([mk/config.mk mk/install.mk mk/project.mk compiler/ghc.cabal ghc/ghc-bin.cabal utils/runghc/runghc.cabal settings docs/users_guide/ug-book.xml docs/users_guide/ug-ent.xml docs/index.html libraries/prologue.txt distrib/configure.ac])
 AC_OUTPUT
 
 # We got caught by
@@ -991,5 +995,5 @@ To make changes to the default build configuration, copy the file
 mk/build.mk.sample to mk/build.mk, and edit the settings in there.
 
 For more information on how to configure your GHC build, see
-   http://hackage.haskell.org/trac/ghc/wiki/Building
+   http://ghc.haskell.org/trac/ghc/wiki/Building
 "

@@ -10,8 +10,8 @@ import Outputable
 import VarEnv
 import Pair
 
-mkReflCo :: Type -> Coercion
-mkTyConAppCo :: TyCon -> [CoercionArg] -> Coercion
+mkReflCo :: Role -> Type -> Coercion
+mkTyConAppCo :: Role -> TyCon -> [CoercionArg] -> Coercion
 mkAppCo :: Coercion -> CoercionArg -> Coercion
 mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
 mkCoVarCo :: CoVar -> Coercion
@@ -35,9 +35,9 @@ mkCoHeteroCoBndr :: Coercion -> CoVar -> CoVar -> ForAllCoBndr
 getHomoVar_maybe :: ForAllCoBndr -> Maybe TyCoVar
 splitHeteroCoBndr_maybe :: ForAllCoBndr -> Maybe (Coercion, TyCoVar, TyCoVar)
 
-mkCoercionType :: Type -> Type -> Type
+mkCoercionType :: Role -> Type -> Type -> Type
 
-liftCoSubst :: [(TyCoVar, CoercionArg)] -> Type -> Coercion
+liftCoSubst :: Role -> [(TyCoVar, CoercionArg)] -> Type -> Coercion
 coercionSize :: Coercion -> Int
 seqCo :: Coercion -> ()
 

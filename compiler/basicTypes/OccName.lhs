@@ -24,7 +24,7 @@
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
+--     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
 -- for details
 
 module OccName (
@@ -58,7 +58,8 @@ module OccName (
 
 	-- ** Derived 'OccName's
         isDerivedOccName,
-	mkDataConWrapperOcc, mkWorkerOcc, mkDefaultMethodOcc, mkGenDefMethodOcc,
+	mkDataConWrapperOcc, mkWorkerOcc, mkDefaultMethodOcc, 
+        mkGenDefMethodOcc, 
 	mkDerivedTyConOcc, mkNewTyCoOcc, mkClassOpAuxOcc,
         mkCon2TagOcc, mkTag2ConOcc, mkMaxTagOcc,
   	mkClassDataConOcc, mkDictOcc, mkIPOcc, 
@@ -88,6 +89,7 @@ module OccName (
 	lookupOccEnv, mkOccEnv, mkOccEnv_C, extendOccEnvList, elemOccEnv,
 	occEnvElts, foldOccEnv, plusOccEnv, plusOccEnv_C, extendOccEnv_C,
         extendOccEnv_Acc, filterOccEnv, delListFromOccEnv, delFromOccEnv,
+        alterOccEnv, 
 
 	-- * The 'OccSet' type
 	OccSet, emptyOccSet, unitOccSet, mkOccSet, extendOccSet, 
@@ -103,8 +105,6 @@ module OccName (
 	isLexConId, isLexConSym, isLexVarId, isLexVarSym,
 	startsVarSym, startsVarId, startsConSym, startsConId
     ) where
-
-#include "Typeable.h"
 
 import Util
 import Unique
@@ -392,6 +392,7 @@ mapOccEnv      :: (a->b) -> OccEnv a -> OccEnv b
 delFromOccEnv 	   :: OccEnv a -> OccName -> OccEnv a
 delListFromOccEnv :: OccEnv a -> [OccName] -> OccEnv a
 filterOccEnv	   :: (elt -> Bool) -> OccEnv elt -> OccEnv elt
+alterOccEnv	   :: (Maybe elt -> Maybe elt) -> OccEnv elt -> OccName -> OccEnv elt
 
 emptyOccEnv  	 = A emptyUFM
 unitOccEnv x y = A $ unitUFM x y 
@@ -411,6 +412,7 @@ mkOccEnv_C comb l = A $ addListToUFM_C comb emptyUFM l
 delFromOccEnv (A x) y    = A $ delFromUFM x y
 delListFromOccEnv (A x) y  = A $ delListFromUFM x y
 filterOccEnv x (A y)       = A $ filterUFM x y
+alterOccEnv fn (A y) k     = A $ alterUFM fn y k
 
 instance Outputable a => Outputable (OccEnv a) where
     ppr (A x) = ppr x
@@ -481,18 +483,12 @@ isValOcc (OccName DataName _) = True
 isValOcc _                    = False
 
 isDataOcc (OccName DataName _) = True
-isDataOcc (OccName VarName s)  
-  | isLexCon s = pprPanic "isDataOcc: check me" (ppr s)
-		-- Jan06: I don't think this should happen
 isDataOcc _                    = False
 
 -- | Test if the 'OccName' is a data constructor that starts with
 -- a symbol (e.g. @:@, or @[]@)
 isDataSymOcc :: OccName -> Bool
 isDataSymOcc (OccName DataName s) = isLexConSym s
-isDataSymOcc (OccName VarName s)  
-  | isLexConSym s = pprPanic "isDataSymOcc: check me" (ppr s)
-		-- Jan06: I don't think this should happen
 isDataSymOcc _                    = False
 -- Pretty inefficient!
 
@@ -574,8 +570,8 @@ isDerivedOccName occ =
 \end{code}
 
 \begin{code}
-mkDataConWrapperOcc, mkWorkerOcc, mkDefaultMethodOcc, mkGenDefMethodOcc,
-  	mkDerivedTyConOcc, mkClassDataConOcc, mkDictOcc,
+mkDataConWrapperOcc, mkWorkerOcc, mkDefaultMethodOcc, 
+        mkGenDefMethodOcc, mkDerivedTyConOcc, mkClassDataConOcc, mkDictOcc,
  	mkIPOcc, mkSpecOcc, mkForeignExportOcc, mkGenOcc1, mkGenOcc2,
  	mkGenD, mkGenR, mkGen1R, mkGenRCo,
 	mkDataTOcc, mkDataCOcc, mkDataConWorkerOcc, mkNewTyCoOcc,
@@ -623,7 +619,7 @@ mkGenR   = mk_simple_deriv tcName "Rep_"
 mkGen1R  = mk_simple_deriv tcName "Rep1_"
 mkGenRCo = mk_simple_deriv tcName "CoRep_"
 
--- data T = MkT ... deriving( Data ) needs defintions for 
+-- data T = MkT ... deriving( Data ) needs definitions for 
 --	$tT   :: Data.Generics.Basics.DataType
 --	$cMkT :: Data.Generics.Basics.Constr
 mkDataTOcc = mk_simple_deriv varName  "$t"

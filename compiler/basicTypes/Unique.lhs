@@ -23,7 +23,7 @@ module Unique (
         Unique, Uniquable(..),
 
         -- ** Constructors, desctructors and operations on 'Unique's
-        hasKey,
+        hasKey, cmpByUnique,
 
         pprUnique,
 
@@ -172,6 +172,9 @@ instance Uniquable FastString where
 
 instance Uniquable Int where
  getUnique i = mkUniqueGrimily i
+
+cmpByUnique :: Uniquable a => a -> a -> Ordering
+cmpByUnique x y = (getUnique x) `cmpUnique` (getUnique y)
 \end{code}
 
 

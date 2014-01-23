@@ -157,7 +157,7 @@ module GHC (
         TyCon, 
         tyConTyVars, tyConDataCons, tyConArity,
         isClassTyCon, isSynTyCon, isNewTyCon, isPrimTyCon, isFunTyCon,
-        isFamilyTyCon, tyConClass_maybe,
+        isFamilyTyCon, isOpenFamilyTyCon, tyConClass_maybe,
         synTyConRhs_maybe, synTyConDefn_maybe, synTyConResKind,
 
         -- ** Type variables
@@ -182,7 +182,7 @@ module GHC (
         pprInstance, pprInstanceHdr,
         pprFamInst,
 
-        FamInst, Branched,
+        FamInst,
 
         -- ** Types and Kinds
         Type, splitForAllTys, funResultTy, 
@@ -254,7 +254,6 @@ module GHC (
 #include "HsVersions.h"
 
 #ifdef GHCI
-import Linker           ( HValue )
 import ByteCodeInstr
 import BreakArray
 import InteractiveEval
@@ -345,7 +344,10 @@ defaultErrorHandler fm (FlushOut flushOut) inner =
                 Just (ioe :: IOException) ->
                   fatalErrorMsg'' fm (show ioe)
                 _ -> case fromException exception of
-                     Just UserInterrupt -> exitWith (ExitFailure 1)
+                     Just UserInterrupt ->
+                         -- Important to let this one propagate out so our
+                         -- calling process knows we were interrupted by ^C
+                         liftIO $ throwIO UserInterrupt
                      Just StackOverflow ->
                          fatalErrorMsg'' fm "stack overflow: use +RTS -K<size> to increase it"
                      _ -> case fromException exception of
@@ -442,16 +444,17 @@ runGhcT mb_top_dir ghct = do
 -- <http://hackage.haskell.org/cgi-bin/hackage-scripts/package/ghc-paths>.
 
 initGhcMonad :: GhcMonad m => Maybe FilePath -> m ()
-initGhcMonad mb_top_dir = do
-  -- catch ^C
-  liftIO $ installSignalHandlers
-
-  liftIO $ initStaticOpts
-
-  mySettings <- liftIO $ initSysTools mb_top_dir
-  dflags <- liftIO $ initDynFlags (defaultDynFlags mySettings)
-  env <- liftIO $ newHscEnv dflags
-  setSession env
+initGhcMonad mb_top_dir
+  = do { env <- liftIO $
+                do { installSignalHandlers  -- catch ^C
+                   ; initStaticOpts
+                   ; mySettings <- initSysTools mb_top_dir
+                   ; dflags <- initDynFlags (defaultDynFlags mySettings)
+                   ; setUnsafeGlobalDynFlags dflags
+                      -- c.f. DynFlags.parseDynamicFlagsFull, which
+                      -- creates DynFlags and sets the UnsafeGlobalDynFlags
+                   ; newHscEnv dflags }
+       ; setSession env }
 
 
 -- %************************************************************************
@@ -892,8 +895,10 @@ compileToCoreSimplified = compileCore True
 -- The resulting .o, .hi, and executable files, if any, are stored in the
 -- current directory, and named according to the module name.
 -- This has only so far been tested with a single self-contained module.
-compileCoreToObj :: GhcMonad m => Bool -> CoreModule -> m ()
-compileCoreToObj simplify cm@(CoreModule{ cm_module = mName }) = do
+compileCoreToObj :: GhcMonad m
+                 => Bool -> CoreModule -> FilePath -> FilePath -> m ()
+compileCoreToObj simplify cm@(CoreModule{ cm_module = mName })
+                 output_fn extCore_filename = do
   dflags      <- getSessionDynFlags
   currentTime <- liftIO $ getCurrentTime
   cwd         <- liftIO $ getCurrentDirectory
@@ -919,7 +924,7 @@ compileCoreToObj simplify cm@(CoreModule{ cm_module = mName }) = do
       }
 
   hsc_env <- getSession
-  liftIO $ hscCompileCore hsc_env simplify (cm_safe cm) modSum (cm_binds cm)
+  liftIO $ hscCompileCore hsc_env simplify (cm_safe cm) modSum (cm_binds cm) output_fn extCore_filename
 
 
 compileCore :: GhcMonad m => Bool -> FilePath -> m CoreModule
@@ -1002,7 +1007,7 @@ getBindings = withSession $ \hsc_env ->
     return $ icInScopeTTs $ hsc_IC hsc_env
 
 -- | Return the instances for the current interactive session.
-getInsts :: GhcMonad m => m ([ClsInst], [FamInst Branched])
+getInsts :: GhcMonad m => m ([ClsInst], [FamInst])
 getInsts = withSession $ \hsc_env ->
     return $ ic_instances (hsc_IC hsc_env)
 
@@ -1309,7 +1314,7 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
       res <- findImportedModule hsc_env mod_name maybe_pkg
       case res of
         Found _ m -> return m
-        err       -> noModError dflags noSrcSpan mod_name err
+        err       -> throwOneError $ noModError dflags noSrcSpan mod_name err
     _otherwise -> do
       home <- lookupLoadedHomeModule mod_name
       case home of
@@ -1319,7 +1324,7 @@ findModule mod_name maybe_pkg = withSession $ \hsc_env -> do
            case res of
              Found loc m | modulePackageId m /= this_pkg -> return m
                          | otherwise -> modNotLoadedError dflags m loc
-             err -> noModError dflags noSrcSpan mod_name err
+             err -> throwOneError $ noModError dflags noSrcSpan mod_name err
 
 modNotLoadedError :: DynFlags -> Module -> ModLocation -> IO a
 modNotLoadedError dflags m loc = throwGhcExceptionIO $ CmdLineError $ showSDoc dflags $
@@ -1344,7 +1349,7 @@ lookupModule mod_name Nothing = withSession $ \hsc_env -> do
       res <- findExposedPackageModule hsc_env mod_name Nothing
       case res of
         Found _ m -> return m
-        err       -> noModError (hsc_dflags hsc_env) noSrcSpan mod_name err
+        err       -> throwOneError $ noModError (hsc_dflags hsc_env) noSrcSpan mod_name err
 
 lookupLoadedHomeModule :: GhcMonad m => ModuleName -> m (Maybe Module)
 lookupLoadedHomeModule mod_name = withSession $ \hsc_env ->

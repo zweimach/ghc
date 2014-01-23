@@ -5,7 +5,7 @@
  * API for invoking Haskell functions via the RTS
  *
  * To understand the structure of the RTS headers, see the wiki:
- *   http://hackage.haskell.org/trac/ghc/wiki/Commentary/SourceTree/Includes
+ *   http://ghc.haskell.org/trac/ghc/wiki/Commentary/SourceTree/Includes
  *
  * --------------------------------------------------------------------------*/
 
@@ -62,6 +62,7 @@ typedef enum {
 typedef struct {
     RtsOptsEnabledEnum rts_opts_enabled;
     const char *rts_opts;
+    HsBool rts_hs_main;
 } RtsConfig;
 
 // Clients should start with defaultRtsConfig and then customise it.
@@ -80,6 +81,10 @@ extern void startupHaskell         ( int argc, char *argv[],
 /* DEPRECATED, use hs_exit() instead  */
 extern void shutdownHaskell        ( void );
 
+/* Like hs_init(), but allows rtsopts. For more complicated usage,
+ * use hs_init_ghc. */
+extern void hs_init_with_rtsopts (int *argc, char **argv[]);
+
 /*
  * GHC-specific version of hs_init() that allows specifying whether
  * +RTS ... -RTS options are allowed or not (default: only "safe"
@@ -89,14 +94,12 @@ extern void shutdownHaskell        ( void );
 extern void hs_init_ghc (int *argc, char **argv[],   // program arguments
                          RtsConfig rts_config);      // RTS configuration
 
-extern void shutdownHaskellAndExit ( int exitCode )
-#if __GNUC__ >= 3
-    __attribute__((__noreturn__))
-#endif
-    ;
+extern void shutdownHaskellAndExit (int exitCode, int fastExit)
+    GNUC3_ATTRIBUTE(__noreturn__);
 
 #ifndef mingw32_HOST_OS
-extern void shutdownHaskellAndSignal (int sig);
+extern void shutdownHaskellAndSignal (int sig, int fastExit)
+     GNUC3_ATTRIBUTE(__noreturn__);
 #endif
 
 extern void getProgArgv            ( int *argc, char **argv[] );

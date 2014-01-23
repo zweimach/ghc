@@ -13,6 +13,7 @@ module Platform (
         isARM,
         osElfTarget,
         platformUsesFrameworks,
+        platformBinariesAreStaticLibs,
 )
 
 where
@@ -53,6 +54,7 @@ data Arch
         | ArchAlpha
         | ArchMipseb
         | ArchMipsel
+        | ArchJavaScript
         deriving (Read, Show, Eq)
 
 isARM :: Arch -> Bool
@@ -134,4 +136,11 @@ osUsesFrameworks _        = False
 
 platformUsesFrameworks :: Platform -> Bool
 platformUsesFrameworks = osUsesFrameworks . platformOS
+
+osBinariesAreStaticLibs :: OS -> Bool
+osBinariesAreStaticLibs OSiOS = True
+osBinariesAreStaticLibs _     = False
+
+platformBinariesAreStaticLibs :: Platform -> Bool
+platformBinariesAreStaticLibs = osBinariesAreStaticLibs . platformOS
 

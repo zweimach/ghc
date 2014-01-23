@@ -64,7 +64,7 @@ INFO_TABLE_RET(stg_unmaskAsyncExceptionszh_ret, RET_SMALL, W_ info_ptr)
     /* Eagerly raise a blocked exception, if there is one */
     if (StgTSO_blocked_exceptions(CurrentTSO) != END_TSO_QUEUE) {
 
-        STK_CHK_P (WDS(2), stg_unmaskAsyncExceptionszh_ret_info, R1);
+        STK_CHK_P_LL (WDS(2), stg_unmaskAsyncExceptionszh_ret_info, R1);
         /* 
          * We have to be very careful here, as in killThread#, since
          * we are about to raise an async exception in the current
@@ -129,7 +129,7 @@ INFO_TABLE_RET(stg_maskUninterruptiblezh_ret, RET_SMALL, W_ info_ptr)
 stg_maskAsyncExceptionszh /* explicit stack */
 {
     /* Args: R1 :: IO a */
-    STK_CHK_P( WDS(1)/* worst case */, stg_maskAsyncExceptionszh, R1);
+    STK_CHK_P_LL (WDS(1)/* worst case */, stg_maskAsyncExceptionszh, R1);
 
     if ((TO_W_(StgTSO_flags(CurrentTSO)) & TSO_BLOCKEX) == 0) {
         /* avoid growing the stack unnecessarily */
@@ -150,14 +150,14 @@ stg_maskAsyncExceptionszh /* explicit stack */
         TO_W_(StgTSO_flags(CurrentTSO)) | TSO_BLOCKEX | TSO_INTERRUPTIBLE);
 
     TICK_UNKNOWN_CALL();
-    TICK_SLOW_CALL_v();
+    TICK_SLOW_CALL_fast_v();
     jump stg_ap_v_fast [R1];
 }
 
 stg_maskUninterruptiblezh /* explicit stack */
 {
     /* Args: R1 :: IO a */
-    STK_CHK_P( WDS(1)/* worst case */, stg_maskAsyncExceptionszh, R1);
+    STK_CHK_P_LL (WDS(1)/* worst case */, stg_maskAsyncExceptionszh, R1);
 
     if ((TO_W_(StgTSO_flags(CurrentTSO)) & TSO_BLOCKEX) == 0) {
         /* avoid growing the stack unnecessarily */
@@ -178,7 +178,7 @@ stg_maskUninterruptiblezh /* explicit stack */
         (TO_W_(StgTSO_flags(CurrentTSO)) | TSO_BLOCKEX) & ~TSO_INTERRUPTIBLE);
 
     TICK_UNKNOWN_CALL();
-    TICK_SLOW_CALL_v();
+    TICK_SLOW_CALL_fast_v();
     jump stg_ap_v_fast [R1];
 }
 
@@ -191,7 +191,7 @@ stg_unmaskAsyncExceptionszh /* explicit stack */
     P_ io;
     io = R1;
 
-    STK_CHK_P (WDS(4), stg_unmaskAsyncExceptionszh, io);
+    STK_CHK_P_LL (WDS(4), stg_unmaskAsyncExceptionszh, io);
     /* 4 words: one for the unblock frame, 3 for setting up the
      * stack to call maybePerformBlockedException() below.
      */
@@ -253,7 +253,7 @@ stg_unmaskAsyncExceptionszh /* explicit stack */
 
     }
     TICK_UNKNOWN_CALL();
-    TICK_SLOW_CALL_v();
+    TICK_SLOW_CALL_fast_v();
     R1 = io;
     jump stg_ap_v_fast [R1];
 }
@@ -394,7 +394,7 @@ stg_catchzh ( P_ io,      /* :: IO a */
 
     /* Apply R1 to the realworld token */
     TICK_UNKNOWN_CALL();
-    TICK_SLOW_CALL_v();
+    TICK_SLOW_CALL_fast_v();
 
     jump stg_ap_v_fast
         (CATCH_FRAME_FIELDS(,,stg_catch_frame_info, CCCS, 0,
@@ -577,7 +577,7 @@ retry_pop_stack:
           Sp(0) = stg_unmaskAsyncExceptionszh_ret_info;
       }
 
-      /* Ensure that async excpetions are blocked when running the handler.
+      /* Ensure that async exceptions are blocked when running the handler.
       */
       StgTSO_flags(CurrentTSO) = %lobits32(
           TO_W_(StgTSO_flags(CurrentTSO)) | TSO_BLOCKEX | TSO_INTERRUPTIBLE);
@@ -612,7 +612,7 @@ retry_pop_stack:
     R1 = handler;
     Sp_adj(-1);
     TICK_UNKNOWN_CALL();
-    TICK_SLOW_CALL_pv();
+    TICK_SLOW_CALL_fast_pv();
     jump RET_LBL(stg_ap_pv) [R1];
 }
 

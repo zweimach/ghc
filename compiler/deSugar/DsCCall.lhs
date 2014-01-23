@@ -10,7 +10,7 @@ Desugaring foreign calls
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
+--     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
 -- for details
 
 module DsCCall 
@@ -19,7 +19,6 @@ module DsCCall
 	, unboxArg
 	, boxResult
 	, resultWrapper
-        , splitDataProductType_maybe
 	) where
 
 #include "HsVersions.h"
@@ -144,7 +143,7 @@ unboxArg arg
   = return (arg, \body -> body)
 
   -- Recursive newtypes
-  | Just(_rep_ty, co) <- splitNewTypeRepCo_maybe arg_ty
+  | Just(co, _rep_ty) <- topNormaliseNewType_maybe arg_ty
   = unboxArg (mkCast arg co)
       
   -- Booleans
@@ -345,8 +344,8 @@ resultWrapper result_ty
                                    [(DEFAULT                    ,[],Var trueDataConId ),
                                     (LitAlt (mkMachInt dflags 0),[],Var falseDataConId)])
 
-  -- Recursive newtypes
-  | Just (rep_ty, co) <- splitNewTypeRepCo_maybe result_ty
+  -- Newtypes
+  | Just (co, rep_ty) <- topNormaliseNewType_maybe result_ty
   = do (maybe_ty, wrapper) <- resultWrapper rep_ty
        return (maybe_ty, \e -> mkCast (wrapper e) (mkSymCo co))
 
@@ -392,43 +391,3 @@ maybeNarrow dflags tycon
 	 && wORD_SIZE dflags > 4         = \e -> App (Var (mkPrimOpId Narrow32WordOp)) e
   | otherwise			  = id
 \end{code}
-
-%************************************************************************
-%*									*
-\subsection{Splitting products}
-%*									*
-%************************************************************************
-
-\begin{code}
--- | Extract the type constructor, type argument, data constructor and it's
--- /representation/ argument types from a type if it is a product type.
---
--- Precisely, we return @Just@ for any type that is all of:
---
---  * Concrete (i.e. constructors visible)
---
---  * Single-constructor
---
---  * Not existentially quantified
---
--- Whether the type is a @data@ type or a @newtype@
-splitDataProductType_maybe
-	:: Type 			-- ^ A product type, perhaps
-	-> Maybe (TyCon, 		-- The type constructor
-		  [Type],		-- Type args of the tycon
-		  DataCon,		-- The data constructor
-		  [Type])		-- Its /representation/ arg types
-
-	-- Rejecing existentials is conservative.  Maybe some things
-	-- could be made to work with them, but I'm not going to sweat
-	-- it through till someone finds it's important.
-
-splitDataProductType_maybe ty
-  | Just (tycon, ty_args) <- splitTyConApp_maybe ty
-  , Just con <- isDataProductTyCon_maybe tycon
-  = Just (tycon, ty_args, con, dataConInstArgTys con ty_args)
-  | otherwise
-  = Nothing
-\end{code}
-
-

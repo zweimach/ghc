@@ -8,10 +8,13 @@ Core pass to saturate constructors and PrimOps
 {-# LANGUAGE BangPatterns #-}
 
 module CorePrep (
-      corePrepPgm, corePrepExpr, cvtLitInteger
+      corePrepPgm, corePrepExpr, cvtLitInteger,
+      lookupMkIntegerName,
   ) where
 
 #include "HsVersions.h"
+
+import OccurAnal
 
 import HscTypes
 import PrelNames
@@ -38,6 +41,7 @@ import TysWiredIn
 import DataCon
 import PrimOp
 import BasicTypes
+import Module
 import UniqSupply
 import Maybes
 import OrdList
@@ -168,7 +172,7 @@ corePrepPgm dflags hsc_env binds data_tycons = do
                       floats2 <- corePrepTopBinds initialCorePrepEnv implicit_binds
                       return (deFloatTop (floats1 `appendFloats` floats2))
 
-    endPass dflags CorePrep binds_out []
+    endPass hsc_env CorePrep binds_out []
     return binds_out
 
 corePrepExpr :: DynFlags -> HscEnv -> CoreExpr -> IO CoreExpr
@@ -270,7 +274,7 @@ partial applications. But it's easier to let them through.
 
 Note [Dead code in CorePrep]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Imagine that we got an input program like this:
+Imagine that we got an input program like this (see Trac #4962):
 
   f :: Show b => Int -> (Int, b -> Maybe Int -> Int)
   f x = (g True (Just x) + g () (Just x), g)
@@ -306,11 +310,12 @@ unreachable g$Bool and g$Unit functions.
 
 The way we fix this is to:
  * In cloneBndr, drop all unfoldings/rules
- * In deFloatTop, run a simple dead code analyser on each top-level RHS to drop
-   the dead local bindings. (we used to run the occurrence analyser to do
-   this job, but the occurrence analyser sometimes introduces new let
-   bindings for case binders, which lead to the bug in #5433, hence we
-   now have a special-purpose dead code analyser).
+
+ * In deFloatTop, run a simple dead code analyser on each top-level
+   RHS to drop the dead local bindings. For that call to OccAnal, we
+   disable the binder swap, else the occurrence analyser sometimes
+   introduces new let bindings for cased binders, which lead to the bug
+   in #5433.
 
 The reason we don't just OccAnal the whole output of CorePrep is that
 the tidier ensures that all top-level binders are GlobalIds, so they
@@ -340,12 +345,13 @@ cpeBind :: TopLevelFlag -> CorePrepEnv -> CoreBind
         -> UniqSM (CorePrepEnv, Floats)
 cpeBind top_lvl env (NonRec bndr rhs)
   = do { (_, bndr1) <- cpCloneBndr env bndr
-       ; let is_strict   = isStrictDmd (idDemandInfo bndr)
+       ; let dmd         = idDemandInfo bndr
              is_unlifted = isUnLiftedType (idType bndr)
        ; (floats, bndr2, rhs2) <- cpePair top_lvl NonRecursive
-                                          (is_strict || is_unlifted)
+                                          dmd 
+                                          is_unlifted
                                           env bndr1 rhs
-       ; let new_float = mkFloat is_strict is_unlifted bndr2 rhs2
+       ; let new_float = mkFloat dmd is_unlifted bndr2 rhs2
 
         -- We want bndr'' in the envt, because it records
         -- the evaluated-ness of the binder
@@ -355,7 +361,7 @@ cpeBind top_lvl env (NonRec bndr rhs)
 cpeBind top_lvl env (Rec pairs)
   = do { let (bndrs,rhss) = unzip pairs
        ; (env', bndrs1) <- cpCloneBndrs env (map fst pairs)
-       ; stuff <- zipWithM (cpePair top_lvl Recursive False env') bndrs1 rhss
+       ; stuff <- zipWithM (cpePair top_lvl Recursive topDmd False env') bndrs1 rhss
 
        ; let (floats_s, bndrs2, rhss2) = unzip3 stuff
              all_pairs = foldrOL add_float (bndrs2 `zip` rhss2)
@@ -370,11 +376,11 @@ cpeBind top_lvl env (Rec pairs)
     add_float b                       _    = pprPanic "cpeBind" (ppr b)
 
 ---------------
-cpePair :: TopLevelFlag -> RecFlag -> RhsDemand
+cpePair :: TopLevelFlag -> RecFlag -> Demand -> Bool
         -> CorePrepEnv -> Id -> CoreExpr
         -> UniqSM (Floats, Id, CpeRhs)
 -- Used for all bindings
-cpePair top_lvl is_rec is_strict_or_unlifted env bndr rhs
+cpePair top_lvl is_rec dmd is_unlifted env bndr rhs
   = do { (floats1, rhs1) <- cpeRhsE env rhs
 
        -- See if we are allowed to float this stuff out of the RHS
@@ -387,7 +393,7 @@ cpePair top_lvl is_rec is_strict_or_unlifted env bndr rhs
                else WARN(True, text "CorePrep: silly extra arguments:" <+> ppr bndr)
                                -- Note [Silly extra arguments]
                     (do { v <- newVar (idType bndr)
-                        ; let float = mkFloat False False v rhs2
+                        ; let float = mkFloat topDmd False v rhs2
                         ; return ( addFloat floats2 float
                                  , cpeEtaExpand arity (Var v)) })
 
@@ -401,6 +407,8 @@ cpePair top_lvl is_rec is_strict_or_unlifted env bndr rhs
 
        ; return (floats3, bndr', rhs') }
   where
+    is_strict_or_unlifted = (isStrictDmd dmd) || is_unlifted
+
     platform = targetPlatform (cpe_dynFlags env)
 
     arity = idArity bndr        -- We must match this arity
@@ -645,9 +653,8 @@ cpeApp env expr
                                    []                        -> (topDmd, [])
               (arg_ty, res_ty) = expectJust "cpeBody:collect_args" $
                                  splitFunTy_maybe fun_ty
-              is_strict = isStrictDmd ss1
 
-           ; (fs, arg') <- cpeArg env is_strict arg arg_ty
+           ; (fs, arg') <- cpeArg env ss1 arg arg_ty
            ; return (App fun' arg', hd, res_ty, fs `appendFloats` floats, ss_rest) }
 
     collect_args (Var v) depth
@@ -677,8 +684,8 @@ cpeApp env expr
 
         -- N-variable fun, better let-bind it
     collect_args fun depth
-      = do { (fun_floats, fun') <- cpeArg env True fun ty
-                          -- The True says that it's sure to be evaluated,
+      = do { (fun_floats, fun') <- cpeArg env evalDmd fun ty
+                          -- The evalDmd says that it's sure to be evaluated,
                           -- so we'll end up case-binding it
            ; return (fun', (fun', depth), ty, fun_floats, []) }
         where
@@ -689,9 +696,9 @@ cpeApp env expr
 -- ---------------------------------------------------------------------------
 
 -- This is where we arrange that a non-trivial argument is let-bound
-cpeArg :: CorePrepEnv -> RhsDemand 
+cpeArg :: CorePrepEnv -> Demand 
        -> CoreArg -> Type -> UniqSM (Floats, CpeTriv)
-cpeArg env is_strict arg arg_ty
+cpeArg env dmd arg arg_ty
   = do { (floats1, arg1) <- cpeRhsE env arg     -- arg1 can be a lambda
        ; (floats2, arg2) <- if want_float floats1 arg1
                             then return (floats1, arg1)
@@ -705,11 +712,12 @@ cpeArg env is_strict arg arg_ty
          else do
        { v <- newVar arg_ty
        ; let arg3      = cpeEtaExpand (exprArity arg2) arg2
-             arg_float = mkFloat is_strict is_unlifted v arg3
+             arg_float = mkFloat dmd is_unlifted v arg3
        ; return (addFloat floats2 arg_float, varToCoreExpr v) } }
   where
     is_unlifted = isUnLiftedType arg_ty
-    want_float = wantFloatNested NonRecursive (is_strict || is_unlifted)
+    is_strict   = isStrictDmd dmd
+    want_float  = wantFloatNested NonRecursive (is_strict || is_unlifted)
 \end{code}
 
 Note [Floating unlifted arguments]
@@ -799,15 +807,15 @@ ignoreTickish _ = False
 
 cpe_ExprIsTrivial :: CoreExpr -> Bool
 -- Version that doesn't consider an scc annotation to be trivial.
-cpe_ExprIsTrivial (Var _)                  = True
-cpe_ExprIsTrivial (Type _)                 = True
-cpe_ExprIsTrivial (Coercion _)             = True
-cpe_ExprIsTrivial (Lit _)                  = True
-cpe_ExprIsTrivial (App e arg)              = isTypeArg arg && cpe_ExprIsTrivial e
-cpe_ExprIsTrivial (Tick t e)             = not (tickishIsCode t) && cpe_ExprIsTrivial e
-cpe_ExprIsTrivial (Cast e _)               = cpe_ExprIsTrivial e
+cpe_ExprIsTrivial (Var _)        = True
+cpe_ExprIsTrivial (Type _)       = True
+cpe_ExprIsTrivial (Coercion _)   = True
+cpe_ExprIsTrivial (Lit _)        = True
+cpe_ExprIsTrivial (App e arg)    = isTypeArg arg && cpe_ExprIsTrivial e
+cpe_ExprIsTrivial (Tick t e)     = not (tickishIsCode t) && cpe_ExprIsTrivial e
+cpe_ExprIsTrivial (Cast e _)     = cpe_ExprIsTrivial e
 cpe_ExprIsTrivial (Lam b body) | isTyVar b = cpe_ExprIsTrivial body
-cpe_ExprIsTrivial _                        = False
+cpe_ExprIsTrivial _              = False
 \end{code}
 
 -- -----------------------------------------------------------------------------
@@ -904,19 +912,15 @@ tryEtaReducePrep _ _ = Nothing
 \end{code}
 
 
--- -----------------------------------------------------------------------------
--- Demands
--- -----------------------------------------------------------------------------
-
-\begin{code}
-type RhsDemand = Bool  -- True => used strictly; hence not top-level, non-recursive
-\end{code}
-
 %************************************************************************
 %*                                                                      *
                 Floats
 %*                                                                      *
 %************************************************************************
+
+Note [Pin demand info on floats]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We pin demand info on floated lets so that we can see the one-shot thunks.
 
 \begin{code}
 data FloatingBind
@@ -952,12 +956,16 @@ data OkToSpec
                         -- ok-to-speculate unlifted bindings
    | NotOkToSpec        -- Some not-ok-to-speculate unlifted bindings
 
-mkFloat :: Bool -> Bool -> Id -> CpeRhs -> FloatingBind
-mkFloat is_strict is_unlifted bndr rhs
+mkFloat :: Demand -> Bool -> Id -> CpeRhs -> FloatingBind
+mkFloat dmd is_unlifted bndr rhs
   | use_case  = FloatCase bndr rhs (exprOkForSpeculation rhs)
-  | otherwise = FloatLet (NonRec bndr rhs)
+  | is_hnf    = FloatLet (NonRec bndr                       rhs)
+  | otherwise = FloatLet (NonRec (setIdDemandInfo bndr dmd) rhs)
+                   -- See Note [Pin demand info on floats]
   where
-    use_case = is_unlifted || is_strict && not (exprIsHNF rhs)
+    is_hnf    = exprIsHNF rhs
+    is_strict = isStrictDmd dmd
+    use_case  = is_unlifted || is_strict && not is_hnf
                 -- Don't make a case for a value binding,
                 -- even if it's strict.  Otherwise we get
                 --      case (\x -> e) of ...!
@@ -1014,64 +1022,11 @@ deFloatTop (Floats _ floats)
     get b            _  = pprPanic "corePrepPgm" (ppr b)
 
     -- See Note [Dead code in CorePrep]
-    occurAnalyseRHSs (NonRec x e) = NonRec x (fst (dropDeadCode e))
-    occurAnalyseRHSs (Rec xes)    = Rec [ (x, fst (dropDeadCode e))
-                                        | (x, e) <- xes]
+    occurAnalyseRHSs (NonRec x e) = NonRec x (occurAnalyseExpr_NoBinderSwap e)
+    occurAnalyseRHSs (Rec xes)    = Rec [(x, occurAnalyseExpr_NoBinderSwap e) | (x, e) <- xes]
 
 ---------------------------------------------------------------------------
--- Simple dead-code analyser, see Note [Dead code in CorePrep]
 
-dropDeadCode :: CoreExpr -> (CoreExpr, VarSet)
-dropDeadCode (Var v)
-  = (Var v, if isLocalId v then unitVarSet v else emptyVarSet)
-dropDeadCode (App fun arg)
-  = (App fun' arg', fun_fvs `unionVarSet` arg_fvs)
-  where !(fun', fun_fvs) = dropDeadCode fun
-        !(arg', arg_fvs) = dropDeadCode arg
-dropDeadCode (Lam v e)
-  = (Lam v e', delVarSet fvs v)
-  where !(e', fvs) = dropDeadCode e
-dropDeadCode (Let (NonRec v rhs) body)
-  | v `elemVarSet` body_fvs
-  = (Let (NonRec v rhs') body', rhs_fvs `unionVarSet` (body_fvs `delVarSet` v))
-  | otherwise
-  = (body', body_fvs) -- drop the dead let bind!
-  where !(body', body_fvs) = dropDeadCode body
-        !(rhs',  rhs_fvs)  = dropDeadCode rhs
-dropDeadCode (Let (Rec prs) body)
-  | any (`elemVarSet` all_fvs) bndrs
-    -- approximation: strictly speaking we should do SCC analysis here,
-    -- but for simplicity we just look to see whether any of the binders
-    -- is used and drop the entire group if all are unused.
-  = (Let (Rec (zip bndrs rhss')) body', all_fvs `delVarSetList` bndrs)
-  | otherwise
-  = (body', body_fvs) -- drop the dead let bind!
-  where !(body', body_fvs) = dropDeadCode body
-        !(bndrs, rhss)     = unzip prs
-        !(rhss', rhs_fvss) = unzip (map dropDeadCode rhss)
-        all_fvs            = unionVarSets (body_fvs : rhs_fvss)
-
-dropDeadCode (Case scrut bndr t alts)
-  = (Case scrut' bndr t alts', scrut_fvs `unionVarSet` alts_fvs)
-  where !(scrut', scrut_fvs) = dropDeadCode scrut
-        !(alts',  alts_fvs)  = dropDeadCodeAlts alts
-dropDeadCode (Cast e c)
-  = (Cast e' c, fvs)
-  where !(e', fvs) = dropDeadCode e
-dropDeadCode (Tick t e)
-  = (Tick t e', fvs')
-  where !(e', fvs) = dropDeadCode e
-        fvs' | Breakpoint _ xs <- t =  fvs `unionVarSet` mkVarSet xs
-             | otherwise            =  fvs
-dropDeadCode e = (e, emptyVarSet)  -- Lit, Type, Coercion
-
-dropDeadCodeAlts :: [CoreAlt] -> ([CoreAlt], VarSet)
-dropDeadCodeAlts alts = (alts', unionVarSets fvss)
-  where !(alts', fvss) = unzip (map do_alt alts)
-        do_alt (c, vs, e) = ((c,vs,e'), fvs `delVarSetList` vs)
-          where !(e', fvs) = dropDeadCode e
-
--------------------------------------------
 canFloatFromNoCaf :: Platform -> Floats -> CpeRhs -> Maybe (Floats, CpeRhs)
        -- Note [CafInfo and floating]
 canFloatFromNoCaf platform (Floats ok_to_spec fs) rhs
@@ -1157,10 +1112,18 @@ data CorePrepEnv = CPE {
                        cpe_mkIntegerId :: Id
                    }
 
+lookupMkIntegerName :: DynFlags -> HscEnv -> IO Id
+lookupMkIntegerName dflags hsc_env
+    = if thisPackage dflags == primPackageId
+      then return $ panic "Can't use Integer in ghc-prim"
+      else if thisPackage dflags == integerPackageId
+      then return $ panic "Can't use Integer in integer"
+      else liftM tyThingId
+         $ initTcForLookup hsc_env (tcLookupGlobal mkIntegerName)
+
 mkInitialCorePrepEnv :: DynFlags -> HscEnv -> IO CorePrepEnv
 mkInitialCorePrepEnv dflags hsc_env
-    = do mkIntegerId <- liftM tyThingId
-                      $ initTcForLookup hsc_env (tcLookupGlobal mkIntegerName)
+    = do mkIntegerId <- lookupMkIntegerName dflags hsc_env
          return $ CPE {
                       cpe_dynFlags = dflags,
                       cpe_env = emptyVarEnv,

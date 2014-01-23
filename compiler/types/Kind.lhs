@@ -7,7 +7,7 @@
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
---     http://hackage.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
+--     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
 -- for details
 
 module Kind (
@@ -39,10 +39,10 @@ module Kind (
         isAnyKind, isAnyKindCon,
         okArrowArgKind, okArrowResultKind,
 
-        isSubOpenTypeKind, isStarKindCon,
+        isSubOpenTypeKind, isSubOpenTypeKindKey, isStarKindCon,
         isSubKind, isSubKindCon, 
         tcIsSubKind, tcIsSubKindCon,
-        defaultKind, isStarKind,
+        defaultKind, defaultKind_maybe, isStarKind
 
        ) where
 
@@ -55,6 +55,7 @@ import TysPrim
 import TyCon
 import PrelNames
 import Outputable
+import Maybes( orElse )
 import Util
 \end{code}
 
@@ -149,12 +150,8 @@ returnsConstraintKind _               = False
 --     arg -> res
 
 okArrowArgKindCon, okArrowResultKindCon :: TyCon -> Bool
-okArrowArgKindCon kc
-  | isUnliftedTypeKindCon kc = True
-  | isStarKindCon kc         = True
-  | otherwise                = False
-
-okArrowResultKindCon = okArrowArgKindCon
+okArrowArgKindCon    = isSubOpenTypeKindCon
+okArrowResultKindCon = isSubOpenTypeKindCon
 
 okArrowArgKind, okArrowResultKind :: Kind -> Bool
 okArrowArgKind    (TyConApp kc []) = okArrowArgKindCon kc
@@ -175,12 +172,6 @@ isSubOpenTypeKind :: Kind -> Bool
 isSubOpenTypeKind (TyConApp kc []) = isSubOpenTypeKindCon kc
 isSubOpenTypeKind _                = False
 
-isSubOpenTypeKindCon kc
-  =  isOpenTypeKindCon     kc
-  || isUnliftedTypeKindCon kc
-  || isStarKindCon         kc
-
-
 -- | Is this kind equivalent to *?
 isStarKind :: Kind -> Bool
 isStarKind (TyConApp kc []) = isStarKindCon kc
@@ -188,14 +179,25 @@ isStarKind _                = False
 
 -- | Is this kind constructor equivalent to *?
 isStarKindCon :: TyCon -> Bool
-isStarKindCon kc
-  =  isLiftedTypeKindCon kc  
-  || isSuperKindCon      kc
-  || isConstraintKindCon kc   -- Needed for error (Num a) "blah"
+isStarKindCon kc = isStarKindConKey (tyConUnique kc)
+
+isStarKindConKey :: Unique -> Bool
+isStarKindConKey uniq
+  =  uniq == liftedTypeKindConKey
+  || uniq == superKindConKey
+  || uniq == constraintKindConKey
+                              -- Needed for error (Num a) "blah"
                               -- and so that (Ord a -> Eq a) is well-kinded
                               -- and so that (# Eq a, Ord b #) is well-kinded
                               -- See Note [Kind Constraint and kind *]
 
+isSubOpenTypeKindCon kc = isSubOpenTypeKindKey (tyConUnique kc)
+
+isSubOpenTypeKindKey :: Unique -> Bool
+isSubOpenTypeKindKey uniq
+  =  isStarKindConKey uniq
+  || uniq == openTypeKindTyConKey
+  || uniq == unliftedTypeKindTyConKey
 
 -- | Is this a kind (i.e. a type-of-types)?
 isKind :: Kind -> Bool
@@ -264,7 +266,8 @@ tcIsSubKindCon kc1 kc2
   | otherwise               = isSubKindCon kc1 kc2
 
 -------------------------
-defaultKind :: Kind -> Kind
+defaultKind       :: Kind -> Kind
+defaultKind_maybe :: Kind -> Maybe Kind
 -- ^ Used when generalising: default OpenKind and ArgKind to *.
 -- See "Type#kind_subtyping" for more information on what that means
 
@@ -282,8 +285,10 @@ defaultKind :: Kind -> Kind
 -- This defaulting is done in TcMType.zonkTcTyCoVarBndr.
 --
 -- The test is really whether the kind is strictly above '*'
-defaultKind (TyConApp kc _args)
-  | isOpenTypeKindCon kc = ASSERT( null _args ) liftedTypeKind
-defaultKind k = k
+defaultKind_maybe (TyConApp kc _args)
+  | isOpenTypeKindCon kc = ASSERT( null _args ) Just liftedTypeKind
+defaultKind_maybe _      = Nothing
+
+defaultKind k = defaultKind_maybe k `orElse` k
 
 \end{code}

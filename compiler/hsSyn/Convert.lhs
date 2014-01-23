@@ -20,6 +20,7 @@ import qualified OccName
 import OccName
 import SrcLoc
 import Type
+import qualified Coercion ( Role(..) )
 import TysWiredIn
 import BasicTypes as Hs
 import ForeignCall
@@ -31,7 +32,8 @@ import FastString
 import Outputable
 
 import qualified Data.ByteString as BS
-import Control.Monad( unless )
+import Control.Monad( unless, liftM, ap )
+import Control.Applicative (Applicative(..))
 
 import Language.Haskell.TH as TH hiding (sigP)
 import Language.Haskell.TH.Syntax as TH
@@ -70,6 +72,13 @@ newtype CvtM a = CvtM { unCvtM :: SrcSpan -> Either MsgDoc a }
 -- Use the loc everywhere, for lack of anything better
 -- In particular, we want it on binding locations, so that variables bound in
 -- the spliced-in declarations get a location that at least relates to the splice point
+
+instance Functor CvtM where
+    fmap = liftM
+
+instance Applicative CvtM where
+    pure = return
+    (<*>) = ap
 
 instance Monad CvtM where
   return x       = CvtM $ \_   -> Right x
@@ -215,7 +224,7 @@ cvtDec (FamilyD flav tc tvs kind)
        ; kind' <- cvtMaybeKind kind
        ; returnL $ TyClD (FamDecl (FamilyDecl (cvtFamFlavour flav) tc' tvs' kind')) }
   where
-    cvtFamFlavour TypeFam = TypeFamily
+    cvtFamFlavour TypeFam = OpenTypeFamily
     cvtFamFlavour DataFam = DataFamily
 
 cvtDec (DataInstD ctxt tc tys constrs derivs)
@@ -243,13 +252,26 @@ cvtDec (NewtypeInstD ctxt tc tys constr derivs)
            { dfid_inst = DataFamInstDecl { dfid_tycon = tc', dfid_pats = typats'
                                          , dfid_defn = defn, dfid_fvs = placeHolderNames } }}
 
-cvtDec (TySynInstD tc eqns)
+cvtDec (TySynInstD tc eqn)
   = do  { tc' <- tconNameL tc
-        ; eqns' <- mapM (cvtTySynEqn tc') eqns
+        ; eqn' <- cvtTySynEqn tc' eqn
         ; returnL $ InstD $ TyFamInstD
-            { tfid_inst = TyFamInstDecl { tfid_eqns = eqns'
-                                        , tfid_group = (length eqns' /= 1)
+            { tfid_inst = TyFamInstDecl { tfid_eqn = eqn'
                                         , tfid_fvs = placeHolderNames } } }
+
+cvtDec (ClosedTypeFamilyD tc tyvars mkind eqns)
+  | not $ null eqns
+  = do { (_, tc', tvs') <- cvt_tycl_hdr [] tc tyvars
+       ; mkind' <- cvtMaybeKind mkind
+       ; eqns' <- mapM (cvtTySynEqn tc') eqns
+       ; returnL $ TyClD (FamDecl (FamilyDecl (ClosedTypeFamily eqns') tc' tvs' mkind')) }
+  | otherwise
+  = failWith (ptext (sLit "Illegal empty closed type family"))
+
+cvtDec (TH.RoleAnnotD tc roles)
+  = do { tc' <- tconNameL tc
+       ; let roles' = map (noLoc . cvtRole) roles
+       ; returnL $ Hs.RoleAnnotD (RoleAnnotDecl tc' roles') }
 ----------------
 cvtTySynEqn :: Located RdrName -> TySynEqn -> CvtM (LTyFamInstEqn RdrName)
 cvtTySynEqn tc (TySynEqn lhs rhs)
@@ -456,6 +478,19 @@ cvtPragmaD (RuleP nm bndrs lhs rhs phases)
        ; returnL $ Hs.RuleD $ HsRule nm' act bndrs'
                                      lhs' placeHolderNames
                                      rhs' placeHolderNames
+       }
+
+cvtPragmaD (AnnP target exp)
+  = do { exp' <- cvtl exp
+       ; target' <- case target of
+         ModuleAnnotation  -> return ModuleAnnProvenance
+         TypeAnnotation n  -> do
+           n' <- tconName n
+           return (TypeAnnProvenance  n')
+         ValueAnnotation n -> do
+           n' <- if isVarName n then vName n else cName n
+           return (ValueAnnProvenance n')
+       ; returnL $ Hs.AnnD $ HsAnnotation target' exp'
        }
 
 dfltActivation :: TH.Inline -> Activation
@@ -845,6 +880,12 @@ cvt_tv (TH.KindedTV nm ki)
        ; ki' <- cvtKind ki
        ; returnL $ KindedTyVar nm' ki' }
 
+cvtRole :: TH.Role -> Maybe Coercion.Role
+cvtRole TH.NominalR          = Just Coercion.Nominal
+cvtRole TH.RepresentationalR = Just Coercion.Representational
+cvtRole TH.PhantomR          = Just Coercion.Phantom
+cvtRole TH.InferR            = Nothing
+
 cvtContext :: TH.Cxt -> CvtM (LHsContext RdrName)
 cvtContext tys = do { preds' <- mapM cvtPred tys; returnL preds' }
 
@@ -871,7 +912,7 @@ cvtTypeKind ty_str ty
              | length tys' == n         -- Saturated
              -> if n==1 then return (head tys') -- Singleton tuples treated
                                                 -- like nothing (ie just parens)
-                        else returnL (HsTupleTy HsBoxedTuple tys')
+                        else returnL (HsTupleTy HsBoxedOrConstraintTuple tys')
              | n == 1
              -> failWith (ptext (sLit ("Illegal 1-tuple " ++ ty_str ++ " constructor")))
              | otherwise
@@ -1026,8 +1067,11 @@ cvtName ctxt_ns (TH.Name occ flavour)
 okOcc :: OccName.NameSpace -> String -> Bool
 okOcc _  []      = False
 okOcc ns str@(c:_)
-  | OccName.isVarNameSpace ns = startsVarId c || startsVarSym c
-  | otherwise                 = startsConId c || startsConSym c || str == "[]"
+  | OccName.isVarNameSpace ns     = startsVarId c || startsVarSym c
+  | OccName.isDataConNameSpace ns = startsConId c || startsConSym c || str == "[]"
+  | otherwise                     = startsConId c || startsConSym c ||
+                                    startsVarSym c || str == "[]" || str == "->"
+                                     -- allow type operators like "+"
 
 -- Determine the name space of a name in a type
 --
