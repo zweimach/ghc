@@ -660,7 +660,10 @@ mkDataCon name declared_infix
       | otherwise 
       = Nothing          
     prom_kind = promoteType (dataConUserType con)
-    roles = map (const Nominal)          (univ_tvs ++ ex_tvs) ++
+
+                -- covars have role P
+    roles = map (\tv -> if isTyVar tv then Nominal else Phantom)
+                (univ_tvs ++ ex_tvs) ++
             map (const Representational) orig_arg_tys
 
 eqSpecPreds :: [(TyVar,Type)] -> ThetaType

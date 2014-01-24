@@ -652,6 +652,13 @@ so we need to take into account
   * the context:     C a b
   * the result type: (G a)   -- this is in the eq_spec
 
+Note [Coercions in role inference]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Is (t |> co1) representationally equal to (t |> co2)? Of course they are! Changing
+the kind of a type is totally irrelevant to the representation of that type. So,
+we want to totally ignore coercions when doing role inference. This includes omitting
+any type variables that appear in nominal positions but only within coercions.
+
 \begin{code}
 type RoleEnv    = NameEnv [Role]        -- from tycon names to roles
 
@@ -747,22 +754,38 @@ irDataCon tc_name datacon
 irType :: VarSet -> Type -> RoleM ()
 irType = go
   where
-    go lcls (TyVarTy tv) = unless (tv `elemVarSet` lcls) $
-                           updateRole Representational tv
-    go lcls (AppTy t1 t2) = go lcls t1 >> mark_nominal lcls t2
-    go lcls (TyConApp tc tys)
-      = do { roles <- lookupRolesX tc
-           ; zipWithM_ (go_app lcls) roles tys }
-    go lcls (FunTy t1 t2) = go lcls t1 >> go lcls t2
-    go lcls (ForAllTy tv ty) = go (extendVarSet lcls tv) ty
-    go _    (LitTy {}) = return ()
+    go lcls (TyVarTy tv)      = unless (tv `elemVarSet` lcls) $
+                                updateRole Representational tv
+    go lcls (AppTy t1 t2)     = go lcls t1 >> mark_nominal lcls t2
+    go lcls (TyConApp tc tys) = do { roles <- lookupRolesX tc
+                                   ; zipWithM_ (go_app lcls) roles tys }
+    go lcls (FunTy t1 t2)     = go lcls t1 >> go lcls t2
+    go lcls (ForAllTy tv ty)  = go (extendVarSet lcls tv) ty
+    go _    (LitTy {})        = return ()
+      -- See Note [Coercions in role inference]
+    go lcls (CastTy ty _)     = go lcls ty  
+    go lcls (CoercionTy _)    = return ()
 
     go_app _ Phantom _ = return ()                 -- nothing to do here
     go_app lcls Nominal ty = mark_nominal lcls ty  -- all vars below here are N
     go_app lcls Representational ty = go lcls ty
 
-    mark_nominal lcls ty = let nvars = tyVarsOfType ty `minusVarSet` lcls in
+    mark_nominal lcls ty = let nvars = get_ty_vars ty `minusVarSet` lcls in
                            mapM_ (updateRole Nominal) (varSetElems nvars)
+
+     -- get_ty_vars gets all the tyvars (no covars!) from a type *without*
+     -- recurring into coercions. Recall: coercions are totally ignored during
+     -- role inference. See [Coercions in role inference]
+    get_ty_vars (TyVarTy tv)     = unitVarSet tv
+    get_ty_vars (AppTy t1 t2)    = get_ty_vars t1 `unionVarSet` get_ty_vars t2
+    get_ty_vars (TyConApp _ tys) = unionVarSetList $ map get_ty_vars tys
+    get_ty_vars (FunTy t1 t2)    = get_ty_vars t1 `unionVarSet` get_ty_vars t2
+    get_ty_vars (ForAllTy tv ty) = get_ty_vars ty
+                                   `delVarSet` tv
+                                   `unionVarSet` (tyVarKind tv)
+    get_ty_vars (LitTy {})       = emptyVarSet
+    get_ty_vars (CastTy ty _)    = get_ty_vars ty
+    get_ty_vars (CoercionTy _)   = emptyVarSet   
 
 -- like lookupRoles, but with Nominal tags at the end for oversaturated TyConApps
 lookupRolesX :: TyCon -> RoleM [Role]
