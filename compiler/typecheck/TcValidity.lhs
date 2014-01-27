@@ -381,7 +381,7 @@ check_arg_type ctxt rank ty
              -- NB the isUnLiftedType test also checks for 
              --    T State#
              -- where there is an illegal partial application of State# (which has
-             -- kind * -> #); see Note [The kind invariant] in TypeRep
+             -- kind * -> #); see Note [The kind invariant] in TyCoRep
 
 ----------------------------------------
 forAllTyErr :: Rank -> Type -> SDoc

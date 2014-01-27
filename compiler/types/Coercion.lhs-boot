@@ -16,7 +16,7 @@ mkAppCo :: Coercion -> CoercionArg -> Coercion
 mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
 mkCoVarCo :: CoVar -> Coercion
 mkAxiomInstCo :: CoAxiom Branched -> BranchIndex -> [CoercionArg] -> Coercion
-mkUnsafeCo :: Type -> Type -> Coercion
+mkUnivCo :: Role -> Type -> Type -> Coercion
 mkSymCo :: Coercion -> Coercion
 mkTransCo :: Coercion -> Coercion -> Coercion
 mkNthCo :: Int -> Coercion -> Coercion
@@ -24,10 +24,11 @@ mkLRCo :: LeftOrRight -> Coercion -> Coercion
 mkInstCo :: Coercion -> CoercionArg -> Coercion
 mkCoherenceCo :: Coercion -> Coercion -> Coercion
 mkKindCo :: Coercion -> Coercion
+mkSubCo :: Coercion -> Coercion
 
 isReflCo :: Coercion -> Bool
 mkAppCos :: Coercion -> [CoercionArg] -> Coercion
-coVarTypes :: CoVar -> (Type, Type)
+coVarKindsTypesRole :: CoVar -> (Kind, Kind, Type, Type, Role)
 
 mkHomoCoBndr :: TyCoVar -> ForAllCoBndr
 mkTyHeteroCoBndr :: Coercion -> TyVar -> TyVar -> CoVar -> ForAllCoBndr

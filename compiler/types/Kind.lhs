@@ -183,9 +183,9 @@ isStarKindCon kc = isStarKindConKey (tyConUnique kc)
 
 isStarKindConKey :: Unique -> Bool
 isStarKindConKey uniq
-  =  uniq == liftedTypeKindConKey
-  || uniq == superKindConKey
-  || uniq == constraintKindConKey
+  =  uniq == liftedTypeKindTyConKey
+  || uniq == superKindTyConKey
+  || uniq == constraintKindTyConKey
                               -- Needed for error (Num a) "blah"
                               -- and so that (Ord a -> Eq a) is well-kinded
                               -- and so that (# Eq a, Ord b #) is well-kinded

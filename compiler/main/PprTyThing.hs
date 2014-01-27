@@ -22,7 +22,7 @@ module PprTyThing (
   	pprTypeForUser
   ) where
 
-import TypeRep ( TyThing(..) )
+import TyCoRep ( TyThing(..) )
 import DataCon
 import Id
 import TyCon
@@ -32,7 +32,7 @@ import CoAxiom( CoAxiom(..), brListMap )
 import HscTypes( tyThingParent_maybe )
 import Type( tidyTopType, tidyOpenType, splitForAllTys, funResultTy )
 import Kind( synTyConResKind )
-import TypeRep( pprTvBndrs, pprForAll, suppressKinds )
+import TyCoRep( pprTvBndrs, pprForAll, suppressKinds )
 import TysPrim( alphaTyVars )
 import TcType
 import Name

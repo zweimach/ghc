@@ -493,7 +493,7 @@ proxyPrimTyCon :: TyCon
 proxyPrimTyCon = mkPrimTyCon proxyPrimTyConName kind [Nominal,Nominal] VoidRep
   where kind = ForAllTy kv $ mkArrowKind k unliftedTypeKind
         kv   = kKiVar
-        k    = mkTyVarTy kv
+        k    = mkOnlyTyVarTy kv
 
 eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 		      -- See Note [The ~# TyCon]
@@ -515,7 +515,7 @@ eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
                               VoidRep
   where kind = ForAllTy kv $ mkArrowKinds [k, k] unliftedTypeKind
         kv = kKiVar
-        k  = mkTyVarTy kv
+        k  = mkOnlyTyVarTy kv
 \end{code}
 
 RealWorld is deeply magical.  It is *primitive*, but it is not

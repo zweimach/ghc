@@ -1457,7 +1457,6 @@ tyConRoles tc
     ; SynTyCon { tc_roles = roles }        -> roles
     ; PrimTyCon { tc_roles = roles }       -> roles
     ; PromotedDataCon { tc_roles = roles } -> roles
-    ; PromotedTyCon {}                     -> const_role Nominal
     }
   where
     const_role r = replicate (tyConArity tc) r

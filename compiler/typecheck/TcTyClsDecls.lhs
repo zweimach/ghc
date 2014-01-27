@@ -40,7 +40,7 @@ import FamInst
 import FamInstEnv( isDominatedBy, mkCoAxBranch, mkBranchedCoAxiom )
 import Coercion( pprCoAxBranch, ltRole )
 import Type
-import TypeRep   -- for checkValidRoles
+import TyCoRep   -- for checkValidRoles
 import Kind
 import Class
 import CoAxiom

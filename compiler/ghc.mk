@@ -603,7 +603,7 @@ compiler_stage2_dll0_MODULES = \
 	TrieMap \
 	TyCon \
 	Type \
-	TypeRep \
+	TyCoRep \
 	TysPrim \
 	TysWiredIn \
 	Unify \

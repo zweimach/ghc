@@ -10,4 +10,6 @@ type BranchIndex = Int
 data Unbranched
 data Branched
 
+data Role
+
 \end{code}

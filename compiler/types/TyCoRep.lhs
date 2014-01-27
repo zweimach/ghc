@@ -104,7 +104,9 @@ import CoAxiom
 
 -- others
 import PrelNames
+import Binary
 import Outputable
+import DynFlags
 import FastString
 import Pair
 import Util
@@ -429,7 +431,7 @@ data Coercion
 
   -- TyConAppCo :: "e" -> _ -> ?? -> e
   -- See Note [TyConAppCo roles]
-  | TyConAppCo Role TyCon [Coercion]    -- lift TyConApp
+  | TyConAppCo Role TyCon [CoercionArg]    -- lift TyConApp
                -- The TyCon is never a synonym;
                -- we expand synonyms eagerly
                -- But it can be a type function
@@ -466,7 +468,7 @@ data Coercion
     -- :: _ -> e -> ?? (inverse of TyConAppCo, see Note [TyConAppCo roles])
   | LRCo   LeftOrRight Coercion     -- Decomposes (t_left t_right)
     -- :: _ -> N -> N
-  | InstCo Coercion Type
+  | InstCo Coercion CoercionArg
     -- :: e -> _ -> e
 
   -- Coherence applies a coercion to the left-hand type of another coercion
@@ -1626,7 +1628,7 @@ substForAllCoBndrCallback sym sty sco subst (TyHetero h tv1 tv2 cv)
     then let subst4 = extendTCvSubstList subst3
                         [tv2,                cv]
                         [mkOnlyTyVarTy tv1', CoercionTy $
-                                             mkReflCo (tyVarKind tv1')] in
+                                             mkReflCo Nominal (tyVarKind tv1')] in
          (subst4, TyHomo tv1')
     else if sym
          then (subst3, (TyHetero $! h') tv2' tv1' cv')
@@ -1718,10 +1720,10 @@ substCoVarBndrCallback sym subst_fun subst@(TCvSubst in_scope tenv cenv) old_var
     new_var = uniqAway in_scope subst_old_var
     subst_old_var = mkCoVar (varName old_var) new_var_type
 
-    (t1, t2) = coVarTypes old_var
+    (_, _, t1, t2, role) = coVarKindsTypesRole old_var
     t1' = subst_fun subst t1
     t2' = subst_fun subst t2
-    new_var_type = uncurry mkCoercionType (if sym then (t2', t1') else (t1', t2'))
+    new_var_type = uncurry (mkCoercionType role) (if sym then (t2', t1') else (t1', t2'))
                   -- It's important to do the substitution for coercions,
                   -- because they can have free type variables
 

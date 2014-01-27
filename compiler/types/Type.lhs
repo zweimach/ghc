@@ -68,7 +68,7 @@ module Type (
 
         -- ** Predicates on types
         isTypeVar, isKindVar, isTyCoVarTy,
-        isTyVarTy, isFunTy, isDictTy, isPredTy, isVoidTy, isKindTy, isCoercionTy,
+        isTyVarTy, isFunTy, isDictTy, isPredTy, isVoidTy, isCoercionTy,
         isCoercionTy_maybe, isCoercionType,
 
         -- (Lifting and boxity)
@@ -96,8 +96,8 @@ module Type (
         typeSize, varSetElemsWellScoped,
 
         -- * Type comparison
-        eqType, eqTypeX, eqTypes, cmpType, cmpTypes, cmpTypeX, cmpTc,
-        eqPred, eqPredX, cmpPred, eqKind, eqTyVarBndrs,
+        eqType, eqTypeX, eqTypes, cmpType, cmpTypes, cmpTypeX, cmpTypesX, cmpTc,
+        eqPred, eqPredX, cmpPred, eqKind, eqTyCoVarBndrs,
 
         -- * Forcing evaluation of types
         seqType, seqTypes,
@@ -147,9 +147,7 @@ module Type (
         tidyOpenTyCoVar, tidyOpenTyCoVars,
         tidyTyVarOcc,
         tidyTopType,
-        tidyKind,
-
-        tcTyConsOfType
+        tidyKind
     ) where
 
 #include "HsVersions.h"
@@ -170,21 +168,21 @@ import Class
 import TyCon
 import TysPrim
 import {-# SOURCE #-} TysWiredIn ( eqTyCon, coercibleTyCon, typeNatKind, typeSymbolKind )
-import PrelNames ( eqTyConKey, coercibleTyConKey,
+import PrelNames ( eqTyConKey, coercibleTyConKey, wildCardName, eqPrimTyConKey,
                    ipClassNameKey, openTypeKindTyConKey,
-                   constraintKindTyConKey, liftedTypeKindTyConKey )
+                   liftedTypeKindTyConKey )
 import CoAxiom
 import {-# SOURCE #-} Coercion
 
 -- others
-import Unique           ( Unique, hasKey )
+import Unique           ( hasKey )
 import BasicTypes       ( Arity, RepArity )
 import Util
 import Outputable
 import FastString
 import Pair
-import NameEnv
 
+import Data.List        ( partition, sort )
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
@@ -306,17 +304,20 @@ expandTypeSynonyms ty
     go (CastTy ty co)  = mkCastTy (go ty) (go_co co)
     go (CoercionTy co) = mkCoercionTy (go_co co)
 
-    go_co (Refl ty)                 = mkReflCo (go ty)
-    go_co (TyConAppCo tc args)
+    go_co (Refl r ty)               = mkReflCo r (go ty)
+    go_co (TyConAppCo r tc args)
       | Just (cenv, rhs, args') <- tcExpandTyCon_maybe tc args
-      = go_co (mkAppCos (liftCoSubst cenv rhs) args')
+        -- mkAppCos expects all of args' to be Nominal... but it has to be, because
+        -- args' are the oversaturated arguments to tc. All oversaturated arguments
+        -- are nominal. Perfect.
+      = go_co (mkAppCos (liftCoSubst r cenv rhs) args')
       | otherwise
-      = mkTyConAppCo tc (map go_arg args)
+      = mkTyConAppCo r tc (map go_arg args)
     go_co (AppCo co arg)            = mkAppCo (go_co co) (go_arg arg)
     go_co (ForAllCo cobndr co)      = mkForAllCo cobndr (go_co co)
     go_co (CoVarCo cv)              = mkCoVarCo cv
     go_co (AxiomInstCo ax ind args) = mkAxiomInstCo ax ind (map go_arg args)
-    go_co (UnsafeCo ty1 ty2)        = mkUnsafeCo (go ty1) (go ty2)
+    go_co (UnivCo r ty1 ty2)        = mkUnivCo r (go ty1) (go ty2)
     go_co (SymCo co)                = mkSymCo (go_co co)
     go_co (TransCo co1 co2)         = mkTransCo (go_co co1) (go_co co2)
     go_co (NthCo n co)              = mkNthCo n (go_co co)
@@ -324,9 +325,11 @@ expandTypeSynonyms ty
     go_co (InstCo co arg)           = mkInstCo (go_co co) (go_arg arg)
     go_co (CoherenceCo co1 co2)     = mkCoherenceCo (go_co co1) (go_co co2)
     go_co (KindCo co)               = mkKindCo (go_co co)
+    go_co (SubCo co)                = mkSubCo (go_co co)
+    go_co (AxiomRuleCo ax ts cs)    = AxiomRuleCo ax (map go ts) (map go_co cs)
 
-    go_arg (TyCoArg co)      = TyCoArg (go_co co)
-    go_arg (CoCoArg co1 co2) = CoCoArg (go_co co1) (go_co co2)
+    go_arg (TyCoArg co)        = TyCoArg (go_co co)
+    go_arg (CoCoArg r co1 co2) = CoCoArg r (go_co co1) (go_co co2)
 \end{code}
 
 
@@ -751,26 +754,6 @@ repType ty
       = pprPanic "repType" (ppr ty)
 
     go _ ty = UnaryRep ty
-
-
--- | All type constructors occurring in the type; looking through type
---   synonyms, but not newtypes.
---  When it finds a Class, it returns the class TyCon.
-tyConsOfType :: Type -> [TyCon]
-tyConsOfType ty
-  = nameEnvElts (go ty)
-  where
-     go :: Type -> NameEnv TyCon  -- The NameEnv does duplicate elim
-     go ty | Just ty' <- tcView ty = go ty'
-     go (TyVarTy {})               = emptyNameEnv
-     go (LitTy {})                 = emptyNameEnv
-     go (TyConApp tc tys)          = go_tc tc tys
-     go (AppTy a b)                = go a `plusNameEnv` go b
-     go (FunTy a b)                = go a `plusNameEnv` go b
-     go (ForAllTy _ ty)            = go ty
-
-     go_tc tc tys = extendNameEnv (go_s tys) (tyConName tc) tc
-     go_s tys = foldr (plusNameEnv . go) emptyNameEnv tys
 
 -- ToDo: this could be moved to the code generator, using splitTyConApp instead
 -- of inspecting the type directly.
@@ -1617,11 +1600,11 @@ less-informative one to the more informative one.  Neat, eh?
 
 
 \begin{code}
-tcTyConsOfType :: Type -> [TyCon]
--- tcTyConsOfType looks through all synonyms, but not through any newtypes.
--- When it finds a Class, it returns the class TyCon.  The reaons it's here
--- (not in Type.lhs) is because it is newtype-aware.
-tcTyConsOfType ty
+-- | All type constructors occurring in the type; looking through type
+--   synonyms, but not newtypes.
+--  When it finds a Class, it returns the class TyCon.
+tyConsOfType :: Type -> [TyCon]
+tyConsOfType ty
   = nameEnvElts (go ty)
   where
      go :: Type -> NameEnv TyCon  -- The NameEnv does duplicate elim
@@ -1635,8 +1618,8 @@ tcTyConsOfType ty
      go (CastTy ty co)             = go ty `plusNameEnv` go_co co
      go (CoercionTy co)            = go_co co
 
-     go_co (Refl ty)               = go ty
-     go_co (TyConAppCo tc args)    = go_tc tc `plusNameEnv` go_args args
+     go_co (Refl _ ty)             = go ty
+     go_co (TyConAppCo _ tc args)  = go_tc tc `plusNameEnv` go_args args
      go_co (AppCo co arg)          = go_co co `plusNameEnv` go_arg arg
      go_co (ForAllCo cobndr co)
        | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
@@ -1646,7 +1629,7 @@ tcTyConsOfType ty
        where var_names = go_s (snd (coBndrVarsKinds cobndr))
      go_co (CoVarCo {})            = emptyNameEnv
      go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_args args
-     go_co (UnsafeCo ty1 ty2)      = go ty1 `plusNameEnv` go ty2
+     go_co (UnivCo _ ty1 ty2)      = go ty1 `plusNameEnv` go ty2
      go_co (SymCo co)              = go_co co
      go_co (TransCo co1 co2)       = go_co co1 `plusNameEnv` go_co co2
      go_co (NthCo _ co)            = go_co co
@@ -1654,11 +1637,14 @@ tcTyConsOfType ty
      go_co (InstCo co arg)         = go_co co `plusNameEnv` go_arg arg
      go_co (CoherenceCo co1 co2)   = go_co co1 `plusNameEnv` go_co co2
      go_co (KindCo co)             = go_co co
+     go_co (SubCo co)              = go_co co
+     go_co (AxiomRuleCo _ ts cs)   = go_s ts `plusNameEnv` go_cos cs
 
      go_arg (TyCoArg co)           = go_co co
-     go_arg (CoCoArg co1 co2)      = go_co co1 `plusNameEnv` go_co co2
+     go_arg (CoCoArg _ co1 co2)    = go_co co1 `plusNameEnv` go_co co2
 
-     go_s tys = foldr (plusNameEnv . go) emptyNameEnv tys
+     go_s tys     = foldr (plusNameEnv . go)     emptyNameEnv tys
+     go_cos cos   = foldr (plusNameEnv . go_co)  emptyNameEnv cos
      go_args args = foldr (plusNameEnv . go_arg) emptyNameEnv args
 
      go_tc tc = unitNameEnv (tyConName tc) tc

@@ -51,7 +51,7 @@ import TcUnify
 import TcIface
 import TcType
 import Type
-import TypeRep( Type(..) )  -- For the mkNakedXXX stuff
+import TyCoRep( Type(..) )  -- For the mkNakedXXX stuff
 import Kind
 import Var
 import VarSet

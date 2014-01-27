@@ -53,7 +53,7 @@ import DynFlags
 import PrelNames
 import TyCon               ( tyConName )
 import DataCon             ( dataConTyCon )
-import TypeRep             ( TyThing(..) )
+import TyCoRep             ( TyThing(..) )
 import Name
 import NameSet
 import RdrName
