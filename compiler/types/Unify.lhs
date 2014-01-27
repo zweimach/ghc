@@ -460,8 +460,8 @@ match_co menv tsubst csubst (UnivCo _ lty1 rty1) co2@(TyConAppCo _ _ _)
 -- or a SymCo (UnsafeCo ...)
 match_co menv tsubst csubst (SymCo co1) (SymCo co2)
   = match_co menv tsubst csubst co1 co2
-match_co menv tsubst csubst (SymCo co1) (UnivCo _ lty2 rty2)
-  = match_co menv tsubst csubst co1 (UnsafeCo rty2 lty2)
+match_co menv tsubst csubst (SymCo co1) (UnivCo r lty2 rty2)
+  = match_co menv tsubst csubst co1 (UnivCo r rty2 lty2)
 match_co menv tsubst csubst (SymCo co1) co2
   = match_co menv tsubst csubst co1 (SymCo co2)
 
@@ -1034,14 +1034,14 @@ unify_co' (AxiomInstCo ax1 ind1 args1) (AxiomInstCo ax2 ind2 args2)
   , ind1 == ind2
   = unifyList args1 args2
 
-unify_co' (UnsafeCo tyl1 tyr1) (UnsafeCo tyl2 tyr2)
+unify_co' (UnivCo _ tyl1 tyr1) (UnivCo _ tyl2 tyr2)
   = do { unify_ty tyl1 tyl2
        ; unify_ty tyr1 tyr2 }
-unify_co' (UnsafeCo lty1 rty1) co2@(TyConAppCo _ _)
+unify_co' (UnivCo _ lty1 rty1) co2@(TyConAppCo _ _ _)
   = do { let Pair lty2 rty2 = coercionKind co2
        ; unify_ty lty1 lty2
        ; unify_ty rty1 rty2 }
-unify_co' co1@(TyConAppCo _ _) (UnsafeCo lty2 rty2)
+unify_co' co1@(TyConAppCo _ _ _) (UnivCo _ lty2 rty2)
   = do { let Pair lty1 rty1 = coercionKind co1
        ; unify_ty lty1 lty2
        ; unify_ty rty1 rty2 }
@@ -1084,10 +1084,10 @@ data SymFlag = TrySwitchingSym
 unify_co_sym :: SymFlag -> Coercion -> Coercion -> UM ()
 unify_co_sym _ (SymCo co1) (SymCo co2)
   = unify_co' co1 co2
-unify_co_sym _ (SymCo co1) (UnsafeCo lty2 rty2)
-  = unify_co' co1 (UnsafeCo rty2 lty2)
-unify_co_sym _ (UnsafeCo lty1 rty1) (SymCo co2)
-  = unify_co' (UnsafeCo rty1 lty1) co2
+unify_co_sym _ (SymCo co1) (UnivCo r lty2 rty2)
+  = unify_co' co1 (UnivCo r rty2 lty2)
+unify_co_sym _ (UnivCo r lty1 rty1) (SymCo co2)
+  = unify_co' (UnivCo r rty1 lty1) co2
 
 -- note that neither co1 nor co2 can be Refl, so we don't have to worry
 -- about missing that catchall case in unify_co'
@@ -1298,7 +1298,7 @@ instance MonadPlus UM where
 
 initUM :: (TyVar -> BindFlag)
        -> TyCoVarSet  -- set of variables in scope
-       -> UM TCvSubst -> ApartResult
+       -> UM TCvSubst -> UnifyResult
 initUM badtvs vars um
   = case unUM um badtvs rn_env emptyVarSet emptyTvSubstEnv emptyCvSubstEnv of
       Unifiable (_, subst)  -> Unifiable subst
@@ -1340,8 +1340,8 @@ checkRnEnv :: TyOrCo tyco => (RnEnv2 -> Var -> Bool) -> tyco -> UM ()
 checkRnEnv inRnEnv tyco = UM $ \_ rn_env _ tsubst csubst ->
   let varset = tyCoVarsOf tyco in
   if any (inRnEnv rn_env) (varSetElems varset)
-  then Left UFMaybeApart
-  else Right ((tsubst, csubst), ())
+  then MaybeApart ((tsubst, csubst), ())
+  else Unifiable ((tsubst, csubst), ())
 
 checkRnEnvR :: TyOrCo tyco => tyco -> UM ()
 checkRnEnvR = checkRnEnv inRnEnvR
@@ -1362,17 +1362,18 @@ umSwapRn thing = UM $ \tv_fn rn_env locals tsubst csubst ->
   let rn_env' = rnSwap rn_env in
   unUM thing tv_fn rn_env' locals tsubst csubst
 
-dontBeSoSure :: UM a -> UM a
+dontBeSoSure :: UM () -> UM ()
 dontBeSoSure thing = UM $ \ty_fn rn_env locals tsubst csubst ->
   case unUM thing ty_fn rn_env locals tsubst csubst of
-    Left UFSurelyApart -> Left UFMaybeApart
-    other              -> other
+    SurelyApart -> MaybeApart ((tsubst, csubst), ())
+    other       -> other
 
 dontUnify :: UM a -> UM a
 dontUnify thing = UM $ \ty_fn rn_env locals tsubst csubst ->
   case unUM thing ty_fn rn_env locals tsubst csubst of
-    Left failure -> Left failure
-    Right _      -> Left UFMaybeApart
+    Unifiable result  -> MaybeApart result
+    MaybeApart result -> MaybeApart result
+    SurelyApart       -> SurelyApart
 
 maybeApart :: UM ()
 maybeApart = UM (\_ _ _ tsubst csubst -> MaybeApart ((tsubst, csubst), ()))
