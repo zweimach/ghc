@@ -56,6 +56,7 @@ import Bag
 import Util
 import Data.List
 import Data.Ord
+import Control.Monad ( guard )
 \end{code}
 
 Note [Overall plumbing for rules]

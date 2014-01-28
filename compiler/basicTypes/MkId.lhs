@@ -1064,9 +1064,9 @@ proxyHashId
   where
     ty      = mkForAllTys [kv, tv] (mkProxyPrimTy k t)
     kv      = kKiVar
-    k       = mkTyVarTy kv
+    k       = mkOnlyTyVarTy kv
     tv:_    = tyVarList k
-    t       = mkTyVarTy tv
+    t       = mkOnlyTyVarTy tv
 
 ------------------------------------------------
 -- unsafeCoerce# :: forall a b. a -> b
@@ -1149,7 +1149,7 @@ coerceId = pcMiscPrelId coerceName ty info
     kv = kKiVar
     k = mkOnlyTyVarTy kv
     a:b:_ = tyVarList k
-    [aTy,bTy] = map mkTyVarTy [a,b]
+    [aTy,bTy] = map mkOnlyTyVarTy [a,b]
     eqRTy     = mkTyConApp coercibleTyCon  [k, aTy, bTy]
     eqRPrimTy = mkTyConApp eqReprPrimTyCon [k, k, aTy, bTy]
     ty   = mkForAllTys [kv, a, b] (mkFunTys [eqRTy, aTy] bTy)
@@ -1157,7 +1157,7 @@ coerceId = pcMiscPrelId coerceName ty info
     [eqR,x,eq] = mkTemplateLocals [eqRTy, aTy,eqRPrimTy]
     rhs = mkLams [kv,a,b,eqR,x] $
           mkWildCase (Var eqR) eqRTy bTy $
-	  [(DataAlt coercibleDataCon, [eq], Cast (Var x) (CoVarCo eq))]
+	  [(DataAlt coercibleDataCon, [eq], Cast (Var x) (mkCoVarCo eq))]
 \end{code}
 
 Note [Unsafe coerce magic]

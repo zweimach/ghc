@@ -470,7 +470,7 @@ coercibleTyCon = mkClassTyCon
     rhs coercibleClass NonRecursive
   where kind = (ForAllTy kv $ mkArrowKinds [k, k] constraintKind)
         kv = kKiVar
-        k = mkTyVarTy kv
+        k = mkOnlyTyVarTy kv
         a:b:_ = tyVarList k
         tvs = [kv, a, b]
         rhs = DataTyCon [coercibleDataCon] False

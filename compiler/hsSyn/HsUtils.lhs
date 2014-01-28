@@ -88,6 +88,7 @@ import TcEvidence
 import RdrName
 import Var
 import TyCoRep
+import Type   ( isCoercionTy )
 import TcType
 import Kind
 import DataCon
@@ -417,7 +418,7 @@ toHsType ty
     to_hs_type (AppTy t1 t2) = nlHsAppTy (toHsType t1) (toHsType t2)
     to_hs_type (TyConApp tc args) = nlHsTyConApp (getRdrName tc) (map toHsType args')
        where 
-         args' = filterOut isKind args
+         args' = filterOut (\ty -> isKind ty || isCoercionTy ty) args
          -- Source-language types have _implicit_ kind arguments,
          -- so we must remove them here (Trac #8563)
     to_hs_type (FunTy arg res) = ASSERT( not (isConstraintKind (typeKind arg)) )
@@ -425,6 +426,8 @@ toHsType ty
     to_hs_type t@(ForAllTy {}) = pprPanic "toHsType" (ppr t)
     to_hs_type (LitTy (NumTyLit n)) = noLoc $ HsTyLit (HsNumTy n)
     to_hs_type (LitTy (StrTyLit s)) = noLoc $ HsTyLit (HsStrTy s)
+    to_hs_type (CastTy ty _)   = to_hs_type ty
+    to_hs_type (CoercionTy co) = pprPanic "toHsType(2)" (ppr co)
 
     mk_hs_tvb tv = noLoc $ KindedTyVar (getRdrName tv) (toHsKind (tyVarKind tv))
 

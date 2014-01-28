@@ -32,13 +32,12 @@ module TcEvidence (
 #include "HsVersions.h"
 
 import Var
-import Coercion( getCoVar_maybe, nthRole )
-import qualified Coercion as C
+import Coercion( getCoVar_maybe, nthRole, eqCoercion )
+import qualified TyCoRep as C
 import PprCore ()   -- Instance OutputableBndr TyVar
 import TyCoRep  -- Knows type representation
 import TcType
 import Type
-import TysPrim( funTyCon )
 import TyCon
 import CoAxiom
 import PrelNames
@@ -90,6 +89,17 @@ differences
      - TcSubCo is not applied as deep as done with mkSubCo
     Reason: they'll get established when we desugar to Coercion
 
+Note [TcAxiomInstCo takes TcCoercions]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Why does TcAxiomInstCo take a list of TcCoercions? Because AxiomInstCo does,
+of course! Generally, we think of axioms as being applied to a list of types.
+The only reason for coercions in AxiomInstCo is to allow for coercion
+optimization -- see Note [Coercion axioms applied to coercions] in TyCoRep.
+The reason, in turn, TcAxiomInstCo has to take TcCoercions is to be able to
+write coercionToTcCoercion. But, of course, we don't want to fiddle with
+CoCoArgs in the type-checker, so we ensure that all CoCoArgs are actually
+reflexive and then we can proceed.
+
 \begin{code}
 data TcCoercion 
   = TcRefl Role TcType
@@ -97,8 +107,8 @@ data TcCoercion
   | TcAppCo TcCoercion TcCoercion
   | TcForAllCo TyCoVar TcCoercion 
   | TcCoVarCo EqVar
-  | TcAxiomInstCo (CoAxiom Branched) Int [TcCoercion] -- Int specifies branch number
-                                                      -- See [CoAxiom Index] in Coercion.lhs
+  | TcAxiomInstCo (CoAxiom Branched) BranchIndex [TcCoercion]
+          -- See Note [TcAxiomInstCo takes TcCoercions]
   -- This is number of types and coercions are expected to match to CoAxiomRule
   -- (i.e., the CoAxiomRules are always fully saturated)
   | TcAxiomRuleCo CoAxiomRule [TcType] [TcCoercion]
@@ -183,7 +193,7 @@ mkTcAxInstCo role ax index tys
     n_tys     = length tys
     ax_br     = toBranchedAxiom ax
     branch    = coAxiomNthBranch ax_br index
-    arity     = length $ coAxBranchTyVars branch
+    arity     = length $ coAxBranchTyCoVars branch
     ax_role   = coAxiomRole ax
     arg_roles = coAxBranchRoles branch
     rtys      = zipWith mkTcReflCo (arg_roles ++ repeat Nominal) tys
@@ -427,10 +437,16 @@ coercionToTcCoercion = go
   where
     go (C.Refl r t)                = TcRefl r t
     go (C.TransCo c1 c2)           = TcTransCo (go c1) (go c2)
-    go (C.AxiomInstCo coa ind cos) = TcAxiomInstCo coa ind (map go cos)
+    go (C.AxiomInstCo coa ind cos) = TcAxiomInstCo coa ind (map go_arg cos)
     go (C.SubCo c)                 = TcSubCo (go c)
-    go (C.AppCo c1 c2)             = TcAppCo (go c1) (go c2)
+    go (C.AppCo c1 (TyCoArg c2))   = TcAppCo (go c1) (go c2)
     go co                          = pprPanic "coercionToTcCoercion" (ppr co)
+      -- TODO (RAE): Fix!
+
+    go_arg (C.TyCoArg co) = go co
+      -- See Note [TcAxiomInstCo takes TcCoercions]
+    go_arg (C.CoCoArg r co1 co2) = ASSERT( co1 `eqCoercion` co2 )
+                                   TcRefl r (CoercionTy co1)
 \end{code}
 
 

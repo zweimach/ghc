@@ -22,7 +22,7 @@ module Unify (
         tcUnifyTys, BindFlag(..),
         niFixTCvSubst, niSubstTvSet,
 
-        ApartResult(..), tcApartTys,
+        UnifyResult, UnifyResultM(..),
 
         -- Matching a type against a lifted type (coercion)
         liftCoMatch,
@@ -386,14 +386,15 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
   | TyHetero eta1 tvl1 tvr1 cv1 <- cobndr1
   , TyHomo tv2 <- cobndr2
   = do { (tsubst1, csubst1) <- match_co menv tsubst csubst 
-                                        eta1 (mkReflCo (tyVarKind tv2))
+                                        eta1 (mkReflCo Nominal (tyVarKind tv2))
        ; (tsubst2, csubst2) <- match_kind menv tsubst1 csubst1 (tyVarKind tvl1)
                                                                (tyVarKind tvr1)
        ; let rn_env = me_env menv
              in_scope = rnInScopeSet rn_env
              homogenized = substCoWithIS in_scope
                                          [tvr1,               cv1]
-                                         [mkOnlyTyVarTy tvl1, mkCoercionTy $ mkReflCo (mkOnlyTyVarTy tvl1)]
+                                         [mkOnlyTyVarTy tvl1, mkCoercionTy $
+                                                              mkReflCo Nominal (mkOnlyTyVarTy tvl1)]
                                          co1
              menv' = menv { me_env = rnBndr2 rn_env tvl1 tv2 }
        ; match_co menv' tsubst2 csubst2 homogenized co2 }
@@ -419,7 +420,7 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
   | CoHetero eta1 cvl1 cvr1 <- cobndr1
   , CoHomo cv2 <- cobndr2
   = do { (tsubst1, csubst1) <- match_co menv tsubst csubst
-                                        eta1 (mkReflCo (coVarKind cv2))
+                                        eta1 (mkReflCo Nominal (coVarKind cv2))
        ; (tsubst2, csubst2) <- match_ty menv tsubst1 csubst1 (coVarKind cvl1)
                                                              (coVarKind cvr1)
        ; let rn_env = me_env menv
@@ -508,7 +509,8 @@ match_co_arg :: MatchEnv -> TvSubstEnv -> CvSubstEnv
              -> CoercionArg -> CoercionArg -> Maybe (TvSubstEnv, CvSubstEnv)
 match_co_arg menv tsubst csubst (TyCoArg co1) (TyCoArg co2)
   = match_co menv tsubst csubst co1 co2
-match_co_arg menv tsubst csubst (CoCoArg lco1 rco1) (CoCoArg lco2 rco2)
+match_co_arg menv tsubst csubst (CoCoArg r1 lco1 rco1) (CoCoArg r2 lco2 rco2)
+  | r1 == r2
   = do { (tsubst', csubst') <- match_co menv tsubst csubst lco1 lco2
        ; match_co menv tsubst' csubst' rco1 rco2 }
 match_co_arg _ _ _ _ _ = Nothing
@@ -975,7 +977,7 @@ unify_co' _ (Refl _ _) = return ()
 unify_co' (CoVarCo cv1) co2 = uVar cv1 co2
 unify_co' co1 (CoVarCo cv2) = umSwapRn $ uVar cv2 co1
 
-unify_co' (TyConAppCo tc1 args1) (TyConAppCo tc2 args2)
+unify_co' (TyConAppCo _ tc1 args1) (TyConAppCo _ tc2 args2)
  | tc1 == tc2 = unifyList args1 args2
 
 unify_co' g1@(ForAllCo cobndr1 co1) g2@(ForAllCo cobndr2 co2)
@@ -989,7 +991,7 @@ unify_co' g1@(ForAllCo cobndr1 co1) g2@(ForAllCo cobndr2 co2)
  = do { unify_co eta1 eta2
       ; unify_ty (varType lv1) (varType lv2)
       ; unify_ty (varType rv1) (varType rv2)
-      ; let rnCoVar :: UM a -> UM a
+      ; let rnCoVar :: UM () -> UM ()
             rnCoVar
               = case cobndr1 of
                 { TyHetero _ _ _ cv1 -> case cobndr2 of
@@ -1009,7 +1011,7 @@ unify_co' g1@(ForAllCo cobndr1 co1) g2@(ForAllCo cobndr2 co2)
 
   | Just (eta1, lv1, rv1) <- splitHeteroCoBndr_maybe cobndr1
   , Just v2               <- getHomoVar_maybe cobndr2
-  = do { unify_co eta1 (mkReflCo (varType v2))
+  = do { unify_co eta1 (mkReflCo Nominal (varType v2))
        ; unify_ty (varType lv1) (varType rv1)
        ; homogenize $ \co1' ->
          umRnBndr2 lv1 v2 $
@@ -1022,7 +1024,7 @@ unify_co' g1@(ForAllCo cobndr1 co1) g2@(ForAllCo cobndr2 co2)
                         { TyHetero _ ltv1 rtv1 cv1
                             -> let lty = mkOnlyTyVarTy ltv1 in
                                substCoWithIS in_scope [rtv1, cv1]
-                                                      [lty,  mkCoercionTy $ mkReflCo lty] co1
+                                                      [lty,  mkCoercionTy $ mkReflCo Nominal lty] co1
                         ; CoHetero _ lcv1 rcv1
                             -> let lco = mkCoVarCo lcv1 in
                                substCoWithIS in_scope [rcv1] [mkCoercionTy lco] co1
@@ -1099,7 +1101,8 @@ unify_co_sym _ _ _ = maybeApart
 
 unify_co_arg :: CoercionArg -> CoercionArg -> UM ()
 unify_co_arg (TyCoArg co1) (TyCoArg co2) = unify_co co1 co2
-unify_co_arg (CoCoArg lco1 rco1) (CoCoArg lco2 rco2)
+unify_co_arg (CoCoArg r1 lco1 rco1) (CoCoArg r2 lco2 rco2)
+  | r1 == r2
   = do { unify_co lco1 lco2
        ; unify_co rco1 rco2 }
 unify_co_arg _ _ = surelyApart
@@ -1312,23 +1315,23 @@ tvBindFlag tv = UM $ \tv_fn _ locals tsubst csubst ->
   Unifiable ((tsubst, csubst), if tv `elemVarSet` locals then Skolem else tv_fn tv)
 
 getTvSubstEnv :: UM TvSubstEnv
-getTvSubstEnv = UM $ \_ _ _ tsubst csubst -> Right ((tsubst, csubst), tsubst)
+getTvSubstEnv = UM $ \_ _ _ tsubst csubst -> Unifiable ((tsubst, csubst), tsubst)
 
 extendTvEnv :: TyVar -> Type -> UM ()
 extendTvEnv tv ty = UM $ \_ _ _ tsubst csubst ->
   let tsubst' = extendVarEnv tsubst tv ty in
-  Right ((tsubst', csubst), ())
+  Unifiable ((tsubst', csubst), ())
 
 getCvSubstEnv :: UM CvSubstEnv
-getCvSubstEnv = UM $ \_ _ _ tsubst csubst -> Right ((tsubst, csubst), csubst)
+getCvSubstEnv = UM $ \_ _ _ tsubst csubst -> Unifiable ((tsubst, csubst), csubst)
 
 extendCvEnv :: CoVar -> Coercion -> UM ()
 extendCvEnv cv co = UM $ \_ _ _ tsubst csubst ->
   let csubst' = extendVarEnv csubst cv co in
-  Right ((tsubst, csubst'), ())
+  Unifiable ((tsubst, csubst'), ())
 
 getInScope :: UM InScopeSet
-getInScope = UM $ \_ rn_env _ tsubst csubst -> Right ((tsubst, csubst), rnInScopeSet rn_env)
+getInScope = UM $ \_ rn_env _ tsubst csubst -> Unifiable ((tsubst, csubst), rnInScopeSet rn_env)
 
 umRnBndr2 :: TyCoVar -> TyCoVar -> UM a -> UM a
 umRnBndr2 v1 v2 thing = UM $ \tv_fn rn_env locals tsubst csubst ->
@@ -1351,11 +1354,11 @@ checkRnEnvL = checkRnEnv inRnEnvL
 
 umRnOccL :: TyCoVar -> UM TyCoVar
 umRnOccL v = UM $ \_ rn_env _ tsubst csubst ->
-  Right ((tsubst, csubst), rnOccL rn_env v)
+  Unifiable ((tsubst, csubst), rnOccL rn_env v)
 
 umRnOccR :: TyCoVar -> UM TyCoVar
 umRnOccR v = UM $ \_ rn_env _ tsubst csubst ->
-  Right ((tsubst, csubst), rnOccR rn_env v)
+  Unifiable ((tsubst, csubst), rnOccR rn_env v)
 
 umSwapRn :: UM a -> UM a
 umSwapRn thing = UM $ \tv_fn rn_env locals tsubst csubst ->
@@ -1454,8 +1457,10 @@ cancel out all the coercions. It's a little fiddly, but because there can
 be many equivalent coercions, I don't see an easier way.
 
 \begin{code}
-zipLiftCoEnv :: RnEnv2 -> LiftCoEnv -> TCvSubst -> TCvSubst -> Maybe LiftCoEnv
-zipLiftCoEnv rn_env lc_env (TCvSubst _ l_tenv l_cenv) (TCvSubst _ r_tenv r_cenv)
+zipLiftCoEnv :: RnEnv2 -> LiftCoEnv -> Role
+             -> TCvSubst -> TCvSubst -> Maybe LiftCoEnv
+zipLiftCoEnv rn_env lc_env role
+             (TCvSubst _ l_tenv l_cenv) (TCvSubst _ r_tenv r_cenv)
   = do { lc_env1 <- go_ty lc_env  r_tenv (varEnvKeys l_tenv)
        ;            go_co lc_env1 r_cenv (varEnvKeys l_cenv) }
   where
@@ -1474,7 +1479,7 @@ zipLiftCoEnv rn_env lc_env (TCvSubst _ l_tenv l_cenv) (TCvSubst _ r_tenv r_cenv)
       | Just tyl <- lookupVarEnv_Directly l_tenv u
       , Just tyr <- lookupVarEnv_Directly r_tenv u
       , eqTypeX rn_env tyl tyr
-      = go_ty (extendVarEnv_Directly env u (TyCoArg (mkReflCo tyr)))
+      = go_ty (extendVarEnv_Directly env u (TyCoArg (mkReflCo role tyr)))
               (delVarEnv_Directly r_tenv u) us
 
       | otherwise
@@ -1494,7 +1499,7 @@ zipLiftCoEnv rn_env lc_env (TCvSubst _ l_tenv l_cenv) (TCvSubst _ r_tenv r_cenv)
 
       | Just col <- lookupVarEnv_Directly l_cenv u
       , Just cor <- lookupVarEnv_Directly r_cenv u
-      = go_co (extendVarEnv_Directly env u (CoCoArg col cor))
+      = go_co (extendVarEnv_Directly env u (CoCoArg role col cor))
               (delVarEnv_Directly r_cenv u) us
 
       | otherwise
@@ -1576,7 +1581,8 @@ ty_co_match menv subst (FunTy ty1 ty2) (TyConAppCo _ tc cos)
 ty_co_match menv subst (ForAllTy tv ty) (ForAllCo cobndr co)
   | TyHomo tv2 <- cobndr
   = ASSERT( isTyVar tv )
-    do { subst1 <- ty_co_match menv subst (tyVarKind tv) (mkReflCo $ tyVarKind tv2)
+    do { subst1 <- ty_co_match menv subst (tyVarKind tv)
+                                          (mkReflCo Nominal $ tyVarKind tv2)
        ; let menv1 = menv { me_env = rnBndr2 (me_env menv) tv tv2 }
        ; ty_co_match menv1 subst1 ty co }
 
@@ -1596,7 +1602,8 @@ ty_co_match menv subst (ForAllTy tv ty) (ForAllCo cobndr co)
 
   | CoHomo cv <- cobndr
   = ASSERT( isCoVar tv )
-    do { subst1 <- ty_co_match menv subst (coVarKind tv) (mkReflCo $ coVarKind cv)
+    do { subst1 <- ty_co_match menv subst (coVarKind tv)
+                                          (mkReflCo Nominal $ coVarKind cv)
        ; let rn_env0 = me_env menv
              (rn_env1, tv') = rnBndrL rn_env0 tv
              (rn_env2, cv') = rnBndrR rn_env1 cv
@@ -1613,13 +1620,13 @@ ty_co_match menv subst (ForAllTy tv ty) (ForAllCo cobndr co)
              (rn_env2, cvl') = rnBndrR rn_env1 cvl
              (rn_env3, cvr') = rnBndrR rn_env2 cvr
              menv' = menv { me_env = rn_env3 }
-             subst2 = extendVarEnv subst1 tv' (CoCoArg (mkCoVarCo cvl') (mkCoVarCo cvr'))
+             subst2 = extendVarEnv subst1 tv' (CoCoArg Nominal (mkCoVarCo cvl') (mkCoVarCo cvr'))
        ; subst3 <- ty_co_match menv' subst2 ty co
        ; return $ delVarEnv subst3 tv' }
 
 ty_co_match menv subst (CastTy ty1 co1) co
   | Pair (CastTy _ col) (CastTy _ cor) <- coercionKind co
-  = do { subst1 <- ty_co_match_lr menv subst co1 col cor
+  = do { subst1 <- ty_co_match_lr menv subst co1 Nominal col cor
          -- don't use castCoercionKind! See Note [ty_co_match CastTy case]
        ; ty_co_match menv subst1 ty1
                      (opt_coh (co `mkCoherenceRightCo` (mkSymCo cor)
@@ -1627,8 +1634,8 @@ ty_co_match menv subst (CastTy ty1 co1) co
   where
     -- in a very limited number of cases, optimize CoherenceCo
     -- see Note [ty_co_match CastTy case]
-    mk_coh co1 (Refl _) = co1
-    mk_coh co1 co2      = mkCoherenceCo co1 co2
+    mk_coh co1 (Refl {}) = co1
+    mk_coh co1 co2       = mkCoherenceCo co1 co2
 
     opt_coh (SymCo co) = mkSymCo (opt_coh co)
     opt_coh (CoherenceCo (CoherenceCo co1 co2) co3)
@@ -1655,19 +1662,19 @@ ty_co_match_arg menv subst ty arg
   | TyCoArg co <- arg
   = ty_co_match menv subst ty co
   | CoercionTy co1 <- ty
-  , CoCoArg col cor <- arg
-  = ty_co_match_lr menv subst co1 col cor
+  , CoCoArg r col cor <- arg
+  = ty_co_match_lr menv subst co1 r col cor
   | otherwise
   = pprPanic "ty_co_match_arg" (ppr ty <+> ptext (sLit "<->") <+> ppr arg)
 
 ty_co_match_lr :: MatchEnv -> LiftCoEnv
-               -> Coercion -> Coercion -> Coercion -> Maybe LiftCoEnv
-ty_co_match_lr menv subst co1 col cor
+               -> Coercion -> Role -> Coercion -> Coercion -> Maybe LiftCoEnv
+ty_co_match_lr menv subst co1 role col cor
   = do { let subst_left  = liftEnvSubstLeft  in_scope subst
              subst_right = liftEnvSubstRight in_scope subst
        ; tcvsubst1 <- tcMatchCoX tmpl_vars subst_left  co1 col
        ; tcvsubst2 <- tcMatchCoX tmpl_vars subst_right co1 cor
-       ; zipLiftCoEnv rn_env subst tcvsubst1 tcvsubst2 }
+       ; zipLiftCoEnv rn_env subst role tcvsubst1 tcvsubst2 }
   where
     ME { me_tmpls = tmpl_vars
        , me_env   = rn_env } = menv

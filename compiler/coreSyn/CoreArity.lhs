@@ -113,7 +113,7 @@ typeArity ty
       | Just (tv, ty')  <- splitForAllTy_maybe ty 
       = if isTyVar tv
         then go rec_nts ty'
-        else False : go rec_nts ty'
+        else NoOneShotInfo : go rec_nts ty'
 
       | Just (arg,res) <- splitFunTy_maybe ty    
       = typeOneShot arg : go rec_nts res

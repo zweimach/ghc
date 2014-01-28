@@ -1299,8 +1299,8 @@ instance Outputable Implication where
               , ic_binds = binds, ic_info = info })
    = ptext (sLit "Implic") <+> braces
      (sep [ ptext (sLit "Untouchables =") <+> ppr untch
-          , ptext (sLit "Skolems =") <+> pprTvBndrs skols
-          , ptext (sLit "Flatten-skolems =") <+> pprTvBndrs fsks
+          , ptext (sLit "Skolems =") <+> pprTCvBndrs skols
+          , ptext (sLit "Flatten-skolems =") <+> pprTCvBndrs fsks
           , ptext (sLit "No-eqs =") <+> ppr no_eqs
           , ptext (sLit "Given =") <+> pprEvVars given
           , ptext (sLit "Wanted =") <+> ppr wanted

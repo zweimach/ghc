@@ -274,7 +274,7 @@ lintIdUnfolding :: Id -> Type -> Unfolding -> LintM ()
 lintIdUnfolding bndr bndr_ty (CoreUnfolding { uf_tmpl = rhs, uf_src = src })
   | isStableSource src
   = do { ty <- lintCoreExpr rhs
-       ; checkTys bndr_ty ty (mkRhsMsg bndr (ptext (sLit "unfolding")) ty) }
+       ; ensureEqTys bndr_ty ty (mkRhsMsg bndr (ptext (sLit "unfolding")) ty) }
 lintIdUnfolding  _ _ _
   = return ()       -- We could check more
 \end{code}
@@ -333,7 +333,7 @@ lintCoreExpr (Cast expr co)
 -- RAE                (ptext (sLit "Cast by Refl in expression:") <+> ppr e)
 -- RAE This check fails, because of (at least) a failure to use mkCast in Specialise.specExpr
        ; co' <- applySubstCo co
-       ; (_, k2, from_ty, to_ty) <- lintCoercion co'
+       ; (_, k2, from_ty, to_ty, r) <- lintCoercion co'
        ; lintL (isStarKind k2 || isUnliftedTypeKind k2)
                 (ptext (sLit "Target of cast not # or *:") <+> ppr co)
        ; lintRole co' Representational r
@@ -496,10 +496,11 @@ lintCoApp :: OutType -> OutCoercion -> LintM OutType
 lintCoApp fun_ty arg_co
   | Just (covar,body_ty) <- splitForAllTy_maybe fun_ty
   , isId covar
-  = do { (_, _, t1, t2) <- lintCoercion arg_co
-       ; let (t1', t2') = coVarTypes covar
+  = do { (_, _, t1, t2, rAct) <- lintCoercion arg_co
+       ; let (_, _, t1', t2', rExp) = coVarKindsTypesRole covar
        ; ensureEqTys t1' t1 (mkCoAppMsg t1' t1 (Just CLeft))
        ; ensureEqTys t2' t2 (mkCoAppMsg t2' t2 (Just CRight))
+       ; lintRole arg_co rExp rAct
        ; return (substTyWith [covar] [CoercionTy arg_co] body_ty) }
   | otherwise
   = failWithL (mkCoAppMsg fun_ty (CoercionTy arg_co) Nothing)
@@ -764,8 +765,8 @@ lintType (CastTy ty co)
        ; return k2 }
 
 lintType (CoercionTy co)
-  = do { (k1, k2, ty1, ty2) <- lintCoercion co
-       ; return $ mkHeteroCoercionType Nominal k1 k2 ty1 ty2 }
+  = do { (k1, k2, ty1, ty2, r) <- lintCoercion co
+       ; return $ mkHeteroCoercionType r k1 k2 ty1 ty2 }
 
 \end{code}
 
@@ -909,7 +910,7 @@ lintCoercion co@(TyConAppCo r tc cos)
 lintCoercion co@(AppCo co1 co2)
   | TyConAppCo {} <- co1
   = failWithL (ptext (sLit "TyConAppCo to the left of AppCo:") <+> ppr co)
-  | Refl (TyConApp {}) <- co1
+  | Refl _ (TyConApp {}) <- co1
   = failWithL (ptext (sLit "Refl (TyConApp ...) to the left of AppCo:") <+> ppr co)
   | otherwise
   = do { (k1,k2,s1,s2,r1) <- lintCoercion co1
@@ -939,7 +940,7 @@ lintCoercion g@(ForAllCo (TyHetero h tv1 tv2 cv) co)
        ; lintL (not (k1 `eqType` k2)) (mkBadHeteroCoMsg h g)
        ; ensureEqTys k1 (tyVarKind tv1) (mkBadHeteroVarMsg CLeft k1 tv1 g)
        ; ensureEqTys k2 (tyVarKind tv2) (mkBadHeteroVarMsg CRight k2 tv2 g)
-       ; ensureEqTys (mkCoercionType (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2))
+       ; ensureEqTys (mkCoercionType Nominal (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2))
                   (coVarKind cv) (mkBadHeteroCoVarMsg tv1 tv2 cv g)
        ; (k3, k4, t1, t2, r) <- addInScopeVars [tv1, tv2, cv] $ lintCoercion co
        ; let tyl = mkForAllTy tv1 t1
@@ -1058,7 +1059,7 @@ lintCoercion (InstCo co arg)
             , k2' `isSubKind` tyVarKind tv2
             -> return (k3, k4,
                        substTyWith [tv1] [s1] t1, 
-                       substTyWith [tv2] [s2] t2) 
+                       substTyWith [tv2] [s2] t2, r) 
             | otherwise
             -> failWithL (ptext (sLit "Kind mis-match in inst coercion"))
           _ -> failWithL (ptext (sLit "Bad argument of inst")) }
@@ -1106,11 +1107,11 @@ lintCoercion (CoherenceCo co1 co2)
        ; return (k1', k2, lhsty, t2, r) }
 
 lintCoercion (KindCo co)
-  = do { (k1, k2, _, _) <- lintCoercion co
+  = do { (k1, k2, _, _, _) <- lintCoercion co
        ; return (liftedTypeKind, liftedTypeKind, k1, k2, Nominal) }
 
 
-lintCoercion co@(SubCo co')
+lintCoercion (SubCo co')
   = do { (k1,k2,s,t,r) <- lintCoercion co'
        ; lintRole co' Nominal r
        ; return (k1,k2,s,t,Representational) }
@@ -1124,11 +1125,11 @@ lintCoercion this@(AxiomRuleCo co ts cs)
        case compare (coaxrTypeArity co) tyNum of
          EQ -> return ()
          LT -> err "Too many type arguments"
-                    [ txt "expected" <+> int (coaxrTypeArity co)
-                    , txt "provided" <+> int tyNum ]
+                    [ text "expected" <+> int (coaxrTypeArity co)
+                    , text "provided" <+> int tyNum ]
          GT -> err "Not enough type arguments"
-                    [ txt "expected" <+> int (coaxrTypeArity co)
-                          , txt "provided" <+> int tyNum ]
+                    [ text "expected" <+> int (coaxrTypeArity co)
+                          , text "provided" <+> int tyNum ]
        lintRoles 0 (coaxrAsmpRoles co) eqs
 
        case coaxrProves co ts [ Pair l r | (_,_,l,r,_) <- eqs ] of
@@ -1144,17 +1145,17 @@ lintCoercion this@(AxiomRuleCo co ts cs)
   lintRoles n (e : es) ((_,_,_,_,r) : rs)
     | e == r    = lintRoles (n+1) es rs
     | otherwise = err "Argument roles mismatch"
-                      [ txt "In argument:" <+> int (n+1)
-                      , txt "Expected:" <+> ppr e
-                      , txt "Found:" <+> ppr r ]
+                      [ text "In argument:" <+> int (n+1)
+                      , text "Expected:" <+> ppr e
+                      , text "Found:" <+> ppr r ]
   lintRoles _ [] []  = return ()
   lintRoles n [] rs  = err "Too many coercion arguments"
-                          [ txt "Expected:" <+> int n
-                          , txt "Provided:" <+> int (n + length rs) ]
+                          [ text "Expected:" <+> int n
+                          , text "Provided:" <+> int (n + length rs) ]
 
   lintRoles n es []  = err "Not enough coercion arguments"
-                          [ txt "Expected:" <+> int (n + length es)
-                          , txt "Provided:" <+> int n ]
+                          [ text "Expected:" <+> int (n + length es)
+                          , text "Provided:" <+> int n ]
 
 ----------
 lintCoercionArg :: OutCoercionArg
@@ -1178,8 +1179,8 @@ in the quantification. See http://www.cis.upenn.edu/~sweirich/papers/nokinds-ext
 \begin{code}
 
 freeInCoercion :: CoVar -> Coercion -> Bool
-freeInCoercion v (Refl t)                  = freeInType v t
-freeInCoercion v (TyConAppCo _ args)       = all (freeInCoercionArg v) args
+freeInCoercion v (Refl _ t)                = freeInType v t
+freeInCoercion v (TyConAppCo _ _ args)     = all (freeInCoercionArg v) args
 freeInCoercion v (AppCo g w)               = (freeInCoercion v g) &&
                                              (freeInCoercionArg v w)
 freeInCoercion v (ForAllCo (TyHomo a) g)   = (freeInTyVar v a) &&
@@ -1194,7 +1195,7 @@ freeInCoercion v (ForAllCo (CoHetero h c1 c2) g)
     (freeInCoVar v c1 $ freeInCoVar v c2 $ freeInCoercion v g)
 freeInCoercion v (CoVarCo c)               = freeInCoVar v c True
 freeInCoercion v (AxiomInstCo _ _ args)    = all (freeInCoercionArg v) args
-freeInCoercion v (UnsafeCo t1 t2)          = (freeInType v t1) && (freeInType v t2)
+freeInCoercion v (UnivCo _ t1 t2)          = (freeInType v t1) && (freeInType v t2)
 freeInCoercion v (SymCo g)                 = freeInCoercion v g
 freeInCoercion v (TransCo g1 g2)           = (freeInCoercion v g1) && (freeInCoercion v g2)
 freeInCoercion v (NthCo _ g)               = freeInCoercion v g
@@ -1202,6 +1203,8 @@ freeInCoercion v (LRCo _ g)                = freeInCoercion v g
 freeInCoercion v (InstCo g w)              = (freeInCoercion v g) && (freeInCoercionArg v w)
 freeInCoercion v (CoherenceCo g _)         = freeInCoercion v g
 freeInCoercion v (KindCo g)                = freeInCoercion v g
+freeInCoercion v (SubCo g)                 = freeInCoercion v g
+freeInCoercion v (AxiomRuleCo _ ts cs)     = all (freeInType v) ts && all (freeInCoercion v) cs
 
 freeInType :: CoVar -> Type -> Bool
 freeInType v (TyVarTy tv)       = freeInTyVar v tv
@@ -1222,7 +1225,7 @@ freeInCoVar v c cont = freeInType v (varType c) && (v == c || cont)
 
 freeInCoercionArg :: CoVar -> CoercionArg -> Bool
 freeInCoercionArg v (TyCoArg g)   = freeInCoercion v g
-freeInCoercionArg _ (CoCoArg _ _) = True
+freeInCoercionArg _ (CoCoArg _ _ _) = True
 
 \end{code}
 

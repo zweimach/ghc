@@ -167,7 +167,7 @@ applyTypeToArgs e op_ty args
   where
     go op_ty []                   = op_ty
     go op_ty (Type ty : args)     = go_ty_args op_ty [ty] args
-    go op_ty (Coercion co : args) = go_ty_args op_ty [CoercionTy co] args
+    go op_ty (Coercion co : args) = go_ty_args op_ty [mkCoercionTy co] args
     go op_ty (_ : args)           | Just (_, res_ty) <- splitFunTy_maybe op_ty
                                   = go res_ty args
     go _ _ = pprPanic "applyTypeToArgs" panic_msg
@@ -176,7 +176,7 @@ applyTypeToArgs e op_ty args
     go_ty_args op_ty rev_tys (Type ty : args) 
        = go_ty_args op_ty (ty:rev_tys) args
     go_ty_args op_ty rev_tys (Coercion co : args)
-       = go_ty_args op_ty (CoercionTy co : rev_tys) args
+       = go_ty_args op_ty (mkCoercionTy co : rev_tys) args
     go_ty_args op_ty rev_tys args
        = go (applyTysD panic_msg_w_hdr op_ty (reverse rev_tys)) args
     

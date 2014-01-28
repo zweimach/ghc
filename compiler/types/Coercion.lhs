@@ -54,7 +54,7 @@ module Coercion (
 
         pickLR,
 
-        getHomoVar_maybe, splitHeteroCoBndr_maybe,
+        getHomoVar_maybe, splitHeteroCoBndr_maybe, coBndrBoundVars,
 
         stripTyCoArg, splitCoCoArg_maybe,
 
@@ -72,7 +72,7 @@ module Coercion (
         lookupCoVar,
         substCo, substCos, substCoVar, substCoVars,
         substCoVarBndr, substCoWithIS, substForAllCoBndr,
-        extendTCvSubstAndInScope,
+        extendTCvSubstAndInScope, rnCoBndr2,
 
         -- ** Lifting
         liftCoSubst, liftCoSubstTyVar, liftCoSubstWith, liftCoSubstWithEx,
@@ -981,6 +981,12 @@ splitHeteroCoBndr_maybe (TyHetero eta tv1 tv2 _) = Just (eta, tv1, tv2)
 splitHeteroCoBndr_maybe (CoHetero eta cv1 cv2)   = Just (eta, cv1, cv2)
 splitHeteroCoBndr_maybe _                        = Nothing
 
+coBndrBoundVars :: ForAllCoBndr -> (TyCoVar, TyCoVar)
+coBndrBoundVars (TyHomo tv)            = (tv,  tv)
+coBndrBoundVars (TyHetero _ tv1 tv2 _) = (tv1, tv2)
+coBndrBoundVars (CoHomo cv)            = (cv,  cv)
+coBndrBoundVars (CoHetero _ cv1 cv2)   = (cv1, cv2)
+
 isHomoCoBndr :: ForAllCoBndr -> Bool
 isHomoCoBndr (TyHomo {}) = True
 isHomoCoBndr (CoHomo {}) = True
@@ -1802,13 +1808,3 @@ applyCo (FunTy _ ty)     _  = ty
 applyCo _                _  = panic "applyCo"
 \end{code}
 
-Utility function, needed in DsBinds:
-
-\begin{code}
-extendTCvSubstAndInScope :: TCvSubst -> CoVar -> Coercion -> TCvSubst
--- Also extends the in-scope set
-extendTCvSubstAndInScope (TCvSubst in_scope tenv cenv) cv co
-  = TCvSubst (in_scope `extendInScopeSetSet` tyCoVarsOfCo co)
-             tenv
-             (extendVarEnv cenv cv co)
-\end{code}

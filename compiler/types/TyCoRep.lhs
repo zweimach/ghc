@@ -60,7 +60,7 @@ module TyCoRep (
         getCvSubstEnv, getTCvInScope, isInScope, notElemTCvSubst,
         setTvSubstEnv, setCvSubstEnv, zapTCvSubst,
         extendTCvInScope, extendTCvInScopeList,
-        extendTCvSubst, extendTCvSubstList,
+        extendTCvSubst, extendTCvSubstAndInScope, extendTCvSubstList,
         unionTCvSubst, zipTyCoEnv,
         mkOpenTCvSubst, zipOpenTCvSubst, mkTopTCvSubst, zipTopTCvSubst,
 
@@ -1283,6 +1283,13 @@ extendSubstEnvs (tenv, cenv) v ty
 extendTCvSubst :: TCvSubst -> Var -> Type -> TCvSubst
 extendTCvSubst (TCvSubst in_scope tenv cenv) tv ty
   = TCvSubst in_scope tenv' cenv'
+  where (tenv', cenv') = extendSubstEnvs (tenv, cenv) tv ty
+
+extendTCvSubstAndInScope :: TCvSubst -> TyCoVar -> Type -> TCvSubst
+-- Also extends the in-scope set
+extendTCvSubstAndInScope (TCvSubst in_scope tenv cenv) tv ty
+  = TCvSubst (in_scope `extendInScopeSetSet` tyCoVarsOfType ty)
+             tenv' cenv'
   where (tenv', cenv') = extendSubstEnvs (tenv, cenv) tv ty
 
 extendTCvSubstList :: TCvSubst -> [Var] -> [Type] -> TCvSubst

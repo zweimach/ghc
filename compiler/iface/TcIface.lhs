@@ -591,7 +591,7 @@ tc_ax_branch tc_kind prev_branches
                             , ifaxbRoles = roles, ifaxbIncomps = incomps })
   = bindIfaceTyVars_AT tv_bndrs $ \ tvs -> do
          -- The _AT variant is needed here; see Note [CoAxBranch type variables] in CoAxiom
-    { tc_lhs <- tcIfaceTcArgs tc_kind lhs   -- See Note [Checking IfaceTypes vs IfaceKinds]
+    { tc_lhs <- mapM tcIfaceType lhs
     ; tc_rhs <- tcIfaceType rhs
     ; let br = CoAxBranch { cab_loc     = noSrcSpan
                           , cab_tvs     = tvs
@@ -949,31 +949,22 @@ tcIfaceTyKi kf = go
            ; return (mkTyConApp tc' tks') }
     go (IfaceForAllTy bndr t)
       = bindIfaceBndrTy bndr $ \ tv' -> ForAllTy tv' <$> go t
-    go t@(IfaceCoConApp {})  = pprPanic "tcIfaceType" (ppr t)
     go (IfaceCastTy ty co)   = CastTy <$> go ty <*> tcIfaceKindCo co
+    go (IfaceCoercionTy co)  = CoercionTy <$> tcIfaceTyKiCo kf co
 
 tcIfaceTyArgs :: Kind -> [IfaceType] -> IfL [Type]
 tcIfaceTyArgs _ [] = return []
 tcIfaceTyArgs kind (tk:tks)
   | Just (arg, res) <- splitFunTy_maybe kind
   = let kf = determineLevel arg in
-    if isCoercionType arg
-    then do { co' <- tcIfaceTyKiCo kf tk
-            ; tks' <- tcIfaceTyArgs res tks
-            ; return (CoercionTy co' : tks') }
-    else do { ty' <- tcIfaceTyKi kf tk
-            ; tks' <- tcIfaceTyArgs res tks
-            ; return (ty' : tks') }
+    do { ty' <- tcIfaceTyKi kf tk
+       ; tks' <- tcIfaceTyArgs res tks
+       ; return (ty' : tks') }
 
   | Just (tv, kind') <- splitForAllTy_maybe kind
-  = if isTyVar tv
-    then do { k'   <- tcIfaceKind tk
-            ; tks' <- tcIfaceTyArgs (substTyWith [tv] [k'] kind') tks
-            ; return (k':tks') }
-    else do { co'  <- tcIfaceKindCo tk
-            ; let ty = CoercionTy co'
-            ; tks' <- tcIfaceTyArgs (substTyWith [tv] [ty] kind') tks
-            ; return (ty:tks') }
+  = do { k'   <- tcIfaceKind tk
+       ; tks' <- tcIfaceTyArgs (substTyWith [tv] [k'] kind') tks
+       ; return (k':tks') }
 
   | otherwise
   = pprPanic "tcIfaceTyArgs" (ppr kind)
@@ -1038,48 +1029,93 @@ This context business is why we need tcIfaceTcArgs, and tcIfaceApps
 -- TODO (RAE): This might get type vs. kind levels wrong. But it won't matter
 -- soon anyway.
 tcIfaceCo :: IfaceCoercion -> IfL Coercion
-tcIfaceCo (IfaceReflCo r t)         = mkReflCo r <$> tcIfaceType t
-tcIfaceCo (IfaceFunCo r c1 c2)      = mkFunCo r <$> tcIfaceCo c1 <*> tcIfaceCo c2
-tcIfaceCo (IfaceTyConAppCo r tc cs) = mkTyConAppCo r <$> tcIfaceTyCon tc
-                                                     <*> mapM tcIfaceCoArg cs
-tcIfaceCo (IfaceAppCo c1 c2)        = mkAppCo <$> tcIfaceCo c1
-                                              <*> tcIfaceCoArg c2
-tcIfaceCo (IfaceForAllCo bndr c)    = bindIfaceBndrCo bndr $ \ cobndr ->
-                                        mkForAllCo cobndr <$> tcIfaceCo c
-tcIfaceCo (IfaceCoVarCo n)          = mkCoVarCo <$> tcIfaceCoVar n
-tcIfaceCo (IfaceAxiomInstCo n i cs) = AxiomInstCo <$> tcIfaceCoAxiom n
-                                                  <*> pure i
-                                                  <*> mapM tcIfaceCoArg cs
-tcIfaceCo (IfaceUnivCo r t1 t2)     = UnivCo r <$> tcIfaceType t1
-                                               <*> tcIfaceType t2
-tcIfaceCo (IfaceSymCo c)            = SymCo    <$> tcIfaceCo c
-tcIfaceCo (IfaceTransCo c1 c2)      = TransCo  <$> tcIfaceCo c1
-                                               <*> tcIfaceCo c2
-tcIfaceCo (IfaceInstCo c1 t2)       = InstCo   <$> tcIfaceCo c1
-                                               <*> tcIfaceCoArg t2
-tcIfaceCo (IfaceNthCo d c)          = NthCo d  <$> tcIfaceCo c
-tcIfaceCo (IfaceLRCo lr c)          = LRCo lr  <$> tcIfaceCo c
-tcIfaceCo (IfaceCoherencoCo c1 c2)  = CoherenceCo <$> tcIfaceCo c1
-                                                  <*> tcIfaceCo c2
-tcIfaceCo (IfaceKindCo c)           = KindCo   <$> tcIfaceCo c
-tcIfaceCo (IfaceSubCo c)            = SubCo    <$> tcIfaceCo c
-tcIfaceCo (IfaceAxiomRuleCo ax tys cos) = AxiomRuleCo
-                                            <$> tcIfaceCoAxiomRule ax
-                                            <*> mapM tcIfaceType tys
-                                            <*> mapM tcIfaceCo cos
+tcIfaceCo = tcIfaceTyKiCo TypeLevel
 
-tcIfaceCoArg :: IfaceCoercion -> IfL CoercionArg
-tcIfaceCoArg (IfaceCoCoArg c1 c2) = CoCoArg <$> tcIfaceCo c1 <*> tcIfaceCo c2
-tcIfaceCoArg ico                  = TyCoArg <$> tcIfaceCo ico
+tcIfaceKindCo :: IfaceCoercion -> IfL Coercion
+tcIfaceKindCo = tcIfaceTyKiCo KindLevel
 
-tcIfaceCoVar :: FastString -> IfL CoVar
-tcIfaceCoVar = tcIfaceLclId
+tcIfaceTyKiCo :: KindFlag -> IfaceCoercion -> IfL Coercion
+tcIfaceTyKiCo kf = go
+  where
+    go (IfaceReflCo r t)         = mkReflCo r <$> tcIfaceTyKi kf t
+    go (IfaceFunCo r c1 c2)      = mkFunCo r <$> go c1 <*> go c2
+    go (IfaceTyConAppCo r tc cs)
+      = do { tc' <- tcIfaceTyCon kf tc
+           ; cs' <- tcIfaceCoArgs (pure $ tyConKind tc') cs
+           ; return $ mkTyConAppCo r tc' cs' }
+    go (IfaceAppCo c1 c2)
+      = do { co1' <- go c1
+           ; [co2'] <- tcIfaceCoArgs (typeKind <$> coercionKind co1') [c2]
+           ; return $ mkAppCo co1' co2' }
+    go (IfaceForAllCo bndr c)    = bindIfaceBndrCo bndr $ \ cobndr ->
+                                            mkForAllCo cobndr <$> go c
+    go (IfaceCoVarCo n)          = mkCoVarCo <$> go_var n
+    go (IfaceAxiomInstCo n i cs)
+      = do { ax <- tcIfaceCoAxiom n
+           ; let branch = coAxiomNthBranch ax i
+                 tvs = coAxBranchTyCoVars branch
+                 lhs = mkTyConApp (coAxiomTyCon ax) (coAxBranchLHS branch)
+                 rhs = coAxBranchRHS branch
+                 kind = mkForAllTys tvs (mkCoercionType lhs rhs)
+           ; cos <- tcIfaceCoArgs (pure kind) cs
+           ; return $ AxiomInstCo ax i cos }
+    go (IfaceAxiomInstCo n i cs) = AxiomInstCo <$> tcIfaceCoAxiom n
+                                               <*> pure i
+                                               <*> mapM
+    go (IfaceUnivCo r t1 t2)     = UnivCo r <$> tcIfaceTyKi kf t1
+                                            <*> tcIfaceTyKi kf t2
+    go (IfaceSymCo c)            = SymCo    <$> go c
+    go (IfaceTransCo c1 c2)      = TransCo  <$> go c1
+                                            <*> go c2
+    go (IfaceInstCo c1 t2)       = InstCo   <$> go c1
+                                            <*> tcIfaceTyKiCoArg kf t2
+    go (IfaceNthCo d c)          = NthCo d  <$> go c
+    go (IfaceLRCo lr c)          = LRCo lr  <$> go c
+    go (IfaceCoherenceCo c1 c2)  = CoherenceCo <$> go c1
+                                               <*> tcIfaceKindCo c2
+    go (IfaceKindCo c)           = KindCo   <$> tcIfaceCo c
+    go (IfaceSubCo c)            = SubCo    <$> go c
+    go (IfaceAxiomRuleCo ax tys cos) = AxiomRuleCo <$> go_axiom_rule ax
+                                                   <*> mapM (tcIfaceTyKi kf) tys
+                                                   <*> mapM go cos
 
-tcIfaceCoAxiomRule :: FastString -> IfL CoAxiomRule
-tcIfaceCoAxiomRule n =
-  case Map.lookup n typeNatCoAxiomRules of
-    Just ax -> return ax
-    _  -> pprPanic "tcIfaceCoAxiomRule" (ppr n)
+    go_var :: FastString -> IfL CoVar
+    go_var = tcIfaceLclId
+
+    go_axiom_rule :: FastString -> IfL CoAxiomRule
+    go_axiom_rule n =
+      case Map.lookup n typeNatCoAxiomRules of
+        Just ax -> return ax
+        _  -> pprPanic "go_axiom_rule" (ppr n)
+
+tcIfaceTyKiCoArg :: KindFlag -> IfaceCoercion -> IfL CoercionArg
+tcIfaceTyKiCoArg _ (IfaceCoCoArg c1 c2)
+  = CoCoArg <$> tcIfaceKindCo c1 <*> tcIfaceKindCo c2
+tcIfaceTyKiCoArg kf ico = TyCoArg <$> tcIfaceTyKiCo kf ico
+
+tcIfaceCoArgs :: Pair Kind -> [IfaceCoercion] -> IfL [CoercionArg]
+tcIfaceCoArgs _ [] = return []
+tcIfaceCoArgs kinds@(Pair kind1 kind2) (co:cos)
+  | Just (arg1, res1) <- splitFunTy_maybe kind1
+  = do { let kf = determineLevel arg1
+       ; co' <- tcIfaceTyKiCoArg kf co
+       ; let (_, res2) = splitFunTy kind2
+       ; cos' <- tcIfaceCoArgs (Pair res1 res2) cos
+       ; return (co':cos') }
+
+  | Just (tv1, kind1') <- splitForAllTy_maybe kind1
+  = do { let kf = determineLevel (Var.tyVarKind tv1)
+       ; co' <- tcIfaceTyKiCoArg kf co
+       ; let Pair argty1 argty2 = coercionArgKind co'
+             kind1'' = substTyWith [tv1] [argty1] kind1'
+             kind2'' = let (tv2, kind2') = splitForAllTy kind2 in 
+                       substTyWith [tv2] [argty2] kind2'
+       ; cos' <- tcIfaceCoArgs (Pair kind1'' kind2'') cos
+       ; return (co':cos') }
+ 
+  | otherwise
+  = pprPanic "tcIfaceCoArgs" (ppr kinds $$ ppr (co:cos))
+
 \end{code}
 
 

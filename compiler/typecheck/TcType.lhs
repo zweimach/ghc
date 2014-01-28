@@ -139,8 +139,7 @@ module TcType (
 
   tyVarsOnlyOfType, tyVarsOnlyOfTypes, tyCoVarsOfType, tyCoVarsOfTypes,
   closeOverKinds,
-  tcTyVarsOfType, tcTyVarsOfTypes,
-
+  
   pprKind, pprParendKind, pprSigmaType,
   pprType, pprParendType, pprTypeApp, pprTyThingCategory,
   pprTheta, pprThetaArrowTy, pprClassPred
@@ -543,8 +542,8 @@ tcTyFamInsts (CoercionTy co)    = tcTyFamInstsCo co
 tcTyFamInstsCo :: Coercion -> [(TyCon, [Type])]
 tcTyFamInstsCo = go
   where
-    go (Refl ty)             = tcTyFamInsts ty
-    go co@(TyConAppCo tc args)
+    go (Refl _ ty)           = tcTyFamInsts ty
+    go co@(TyConAppCo _ tc args)
       | isSynFamilyTyCon tc  = let Pair tyl tyr = coercionKind co
                                    (_tc1, tysl) = splitTyConApp tyl
                                    (_tc2, tysr) = splitTyConApp tyr in
@@ -558,7 +557,7 @@ tcTyFamInstsCo = go
       | otherwise            = go co
     go (CoVarCo _)           = []
     go (AxiomInstCo _ _ cos) = concatMap go_arg cos
-    go (UnsafeCo ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
+    go (UnivCo _ ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
     go (SymCo co)            = go co
     go (TransCo co1 co2)     = go co1 ++ go co2
     go (NthCo _ co)          = go co
@@ -566,9 +565,11 @@ tcTyFamInstsCo = go
     go (InstCo co arg)       = go co ++ go_arg arg
     go (CoherenceCo co1 co2) = go co1 ++ go co2
     go (KindCo co)           = go co
+    go (SubCo co)            = go co
+    go (AxiomRuleCo _ ts cs) = concatMap tcTyFamInsts ts ++ concatMap go cs
 
-    go_arg (TyCoArg co)      = go co
-    go_arg (CoCoArg co1 co2) = go co1 ++ go co2
+    go_arg (TyCoArg co)        = go co
+    go_arg (CoCoArg _ co1 co2) = go co1 ++ go co2
 
 \end{code}
 
@@ -623,15 +624,15 @@ exactTyCoVarsOfType ty
     go (CastTy ty co)       = go ty `unionVarSet` goCo co
     go (CoercionTy co)      = goCo co
 
-    goCo (Refl ty)          = go ty
-    goCo (TyConAppCo _ args)= goCoArgs args
+    goCo (Refl _ ty)        = go ty
+    goCo (TyConAppCo _ _ args)= goCoArgs args
     goCo (AppCo co arg)     = goCo co `unionVarSet` goCoArg arg
     goCo (ForAllCo bndr co)
       = let (vars, kinds) = coBndrVarsKinds bndr in
         goCo co `delVarSetList` vars `unionVarSet` exactTyCoVarsOfTypes kinds
     goCo (CoVarCo v)         = unitVarSet v
     goCo (AxiomInstCo _ _ args) = goCoArgs args
-    goCo (UnsafeCo ty1 ty2)  = go ty1 `unionVarSet` go ty2
+    goCo (UnivCo _ ty1 ty2)  = go ty1 `unionVarSet` go ty2
     goCo (SymCo co)          = goCo co
     goCo (TransCo co1 co2)   = goCo co1 `unionVarSet` goCo co2
     goCo (NthCo _ co)        = goCo co
@@ -639,9 +640,13 @@ exactTyCoVarsOfType ty
     goCo (InstCo co arg)     = goCo co `unionVarSet` goCoArg arg
     goCo (CoherenceCo c1 c2) = goCo c1 `unionVarSet` goCo c2
     goCo (KindCo co)         = goCo co
+    goCo (SubCo co)          = goCo co
+    goCo (AxiomRuleCo _ t c) = exactTyCoVarsOfTypes t `unionVarSet` goCos c
 
-    goCoArg (TyCoArg co)     = goCo co
-    goCoArg (CoCoArg co1 co2)= goCo co1 `unionVarSet` goCo co2
+    goCos cos = foldr (unionVarSet . goCo) emptyVarSet cos
+
+    goCoArg (TyCoArg co)        = goCo co
+    goCoArg (CoCoArg _ co1 co2) = goCo co1 `unionVarSet` goCo co2
 
     goCoArgs args            = foldr (unionVarSet . goCoArg) emptyVarSet args
 
@@ -1103,20 +1108,79 @@ tcEqType :: TcType -> TcType -> Bool
 tcEqType ty1 ty2
   = go init_env ty1 ty2
   where
-    init_env = mkRnEnv2 (mkInScopeSet (tyVarsOfType ty1 `unionVarSet` tyVarsOfType ty2))
+    init_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2))
     go env t1 t2 | Just t1' <- tcView t1 = go env t1' t2
                  | Just t2' <- tcView t2 = go env t1 t2'
     go env (TyVarTy tv1)       (TyVarTy tv2)     = rnOccL env tv1 == rnOccR env tv2
     go _   (LitTy lit1)        (LitTy lit2)      = lit1 == lit2
-    go env (ForAllTy tv1 t1)   (ForAllTy tv2 t2) = go (rnBndr2 env tv1 tv2) t1 t2
+    go env (ForAllTy tv1 t1)   (ForAllTy tv2 t2)
+      = go env (tyVarKind tv1) (tyVarKind tv2) && go (rnBndr2 env tv1 tv2) t1 t2
     go env (AppTy s1 t1)       (AppTy s2 t2)     = go env s1 s2 && go env t1 t2
     go env (FunTy s1 t1)       (FunTy s2 t2)     = go env s1 s2 && go env t1 t2
     go env (TyConApp tc1 ts1) (TyConApp tc2 ts2) = (tc1 == tc2) && gos env ts1 ts2
+    go env (CastTy t1 c1)      (CastTy t2 c2)    = go env t1 t2 && go_co env c1 c2
+    go env (CoercionTy c1)     (CoercionTy c2)   = go_co env c1 c2
     go _ _ _ = False
 
     gos _   []       []       = True
     gos env (t1:ts1) (t2:ts2) = go env t1 t2 && gos env ts1 ts2
     gos _ _ _ = False
+
+    go_co env (Refl r1 t1)              (Refl r2 t2) = r1 == r2 && go env t1 t2
+    go_co env (TyConAppCo r1 tc1 args1) (TyConAppCo r2 tc2 args2)
+      = r1 == r2 && tc1 == tc2 && go_args env args1 args2
+    go_co env (AppCo col1 cor1)         (AppCo col2 cor2)
+      = go_co env col1 col2 && go_arg env cor1 cor2
+    go_co env (ForAllCo cobndr1 co1)    (ForAllCo cobndr2 co2)
+      =  go_cobndr env cobndr1 cobndr2
+      && go_co (rnCoBndr2 env cobndr1 cobndr2) co1 co2
+    go_co env (CoVarCo cv1)             (CoVarCo cv2)
+      = rnOccL env cv1 == rnOccR env cv2
+    go_co env (AxiomInstCo x1 i1 cos1)  (AxiomInstCo x2 i2 cos2)
+      = x1 == x2 && i1 == i2 && go_args env cos1 cos2
+    go_co env (UnivCo r1 tl1 tr1)       (UnivCo r2 tl2 tr2)
+      = r1 == r2 && go env tl1 tl2 && go env tr1 tr2
+    go_co env (SymCo co1)               (SymCo co2) = go_co env co1 co2
+    go_co env (TransCo col1 cor1)       (TransCo col2 cor2)
+      = go_co env col1 col2 && go_co env cor1 cor2
+    go_co env (NthCo d1 co1)            (NthCo d2 co2)
+      = d1 == d2 && go_co env co1 co2
+    go_co env (LRCo lr1 co1)            (LRCo lr2 co2)
+      = lr1 == lr2 && go_co env co1 co2
+    go_co env (InstCo co1 arg1)         (InstCo co2 arg2)
+      = go_co env co1 co2 && go_arg env arg1 arg2
+    go_co env (CoherenceCo col1 cor1)   (CoherenceCo col2 cor2)
+      = go_co env col1 col2 && go_co env cor1 cor2
+    go_co env (KindCo co1)              (KindCo co2) = go_co env co1 co2
+    go_co env (SubCo co1)               (SubCo co2) = go_co env co1 co2
+    go_co env (AxiomRuleCo ax1 ts1 cs1) (AxiomRuleCo ax2 ts2 cs2)
+      = ax1 == ax2 && gos env ts1 ts2 && go_cos env cs1 cs2
+    go_co _ _ _ = False
+
+    go_arg env (TyCoArg co1)          (TyCoArg co2) = go_co env co1 co2
+    go_arg env (CoCoArg r1 col1 cor1) (CoCoArg r2 col2 cor2)
+      = r1 == r2 && go_co env col1 col2 && go_co env cor1 cor2
+    go_arg _ _ _ = False
+
+    go_cos _   []       []       = True
+    go_cos env (c1:cs1) (c2:cs2) = go_co env c1 c2 && go_cos env cs1 cs2
+    go_cos _   _        _        = False
+
+    go_args _   []       []       = True
+    go_args env (a1:as1) (a2:as2) = go_arg env a1 a2 && go_args env as1 as2
+    go_args _   _        _        = False
+
+    go_cobndr env (TyHomo tv1)               (TyHomo tv2)
+      = go env (tyVarKind tv1) (tyVarKind tv2)
+    go_cobndr env (TyHetero co1 tvl1 tvr1 _) (TyHetero co2 tvl2 tvr2 _)
+      = go_co env co1 co2 && go env (tyVarKind tvl1) (tyVarKind tvl2)
+                          && go env (tyVarKind tvr1) (tyVarKind tvr2)
+    go_cobndr env (CoHomo cv1)               (CoHomo cv2)
+      = go env (tyVarKind cv1) (tyVarKind cv2)
+    go_cobndr env (CoHetero co1 cvl1 cvr1)   (CoHetero co2 cvl2 cvr2)
+      = go_co env co1 co2 && go env (tyVarKind cvl1) (tyVarKind cvl2)
+                          && go env (tyVarKind cvr1) (tyVarKind cvr2)
+    go_cobndr _ _ _ = False
 
 pickyEqType :: TcType -> TcType -> Bool
 -- Check when two types _look_ the same, _including_ synonyms.
@@ -1131,7 +1195,6 @@ pickyEqType ty1 ty2
     go env (AppTy s1 t1)       (AppTy s2 t2)     = go env s1 s2 && go env t1 t2
     go env (FunTy s1 t1)       (FunTy s2 t2)     = go env s1 s2 && go env t1 t2
     go env (TyConApp tc1 ts1) (TyConApp tc2 ts2) = (tc1 == tc2) && gos env ts1 ts2
-    go _   (LitTy lit1)        (LitTy lit2)      = lit1 == lit2
     go env (CastTy ty1 co1)    (CastTy ty2 co2)  = go env ty1 ty2 && go_co env co1 co2
     go env (CoercionTy co1)    (CoercionTy co2)  = go_co env co1 co2
     go _ _ _ = False
@@ -1140,8 +1203,8 @@ pickyEqType ty1 ty2
     gos env (t1:ts1) (t2:ts2) = go env t1 t2 && gos env ts1 ts2
     gos _ _ _ = False
 
-    go_co env (Refl ty1)       (Refl ty2)       = go env ty1 ty2
-    go_co env (TyConAppCo tc1 args1) (TyConAppCo tc2 args2) = (tc1 == tc2) && go_args env args1 args2
+    go_co env (Refl r1 ty1)    (Refl r2 ty2)    = r1 == r2 && go env ty1 ty2
+    go_co env (TyConAppCo r1 tc1 args1) (TyConAppCo r2 tc2 args2) = (r1 == r2) && (tc1 == tc2) && go_args env args1 args2
     go_co env (AppCo co1 arg1) (AppCo co2 arg2) = go_co env co1 co2 && go_arg env arg1 arg2
     go_co env (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
       = cobndr1 `eqCoBndrSort` cobndr2 &&
@@ -1149,7 +1212,7 @@ pickyEqType ty1 ty2
     go_co env (CoVarCo cv1)    (CoVarCo cv2)    = rnOccL env cv1 == rnOccR env cv2
     go_co env (AxiomInstCo ax1 ind1 args1) (AxiomInstCo ax2 ind2 args2)
       = (ax1 == ax2) && (ind1 == ind2) && (go_args env args1 args2)
-    go_co env (UnsafeCo s1 t1) (UnsafeCo s2 t2) = go env s1 s2 && go env t1 t2
+    go_co env (UnivCo r1 s1 t1) (UnivCo r2 s2 t2) = r1 == r2 && go env s1 s2 && go env t1 t2
     go_co env (SymCo co1)      (SymCo co2)      = go_co env co1 co2
     go_co env (TransCo c1 d1)  (TransCo c2 d2)  = go_co env c1 c2 && go_co env d1 d2
     go_co env (NthCo n1 co1)   (NthCo n2 co2)   = (n1 == n2) && go_co env co1 co2
@@ -1157,10 +1220,18 @@ pickyEqType ty1 ty2
     go_co env (InstCo c1 a1)   (InstCo c2 a2)   = go_co env c1 c2 && go_arg env a1 a2
     go_co env (CoherenceCo c1 d1) (CoherenceCo c2 d2) = go_co env c1 c2 && go_co env d1 d2
     go_co env (KindCo co1)     (KindCo co2)    = go_co env co1 co2
+    go_co env (SubCo co1)      (SubCo co2)     = go_co env co1 co2
+    go_co env (AxiomRuleCo ax1 ts1 cs1) (AxiomRuleCo ax2 ts2 cs2)
+      = ax1 == ax2 && gos env ts1 ts2 && go_cos env cs1 cs2
     go_co _   _                _               = False
 
-    go_arg env (TyCoArg co1)   (TyCoArg co2)   = go_co env co1 co2
-    go_arg env (CoCoArg c1 d1) (CoCoArg c2 d2) = go_co env c1 c2 && go_co env d1 d2
+    go_cos _   []       []       = True
+    go_cos env (c1:cs1) (c2:cs2) = go_co env c1 c2 && go_cos env cs1 cs2
+    go_cos _   _        _        = False
+
+    go_arg env (TyCoArg co1   )   (TyCoArg co2)      = go_co env co1 co2
+    go_arg env (CoCoArg r1 c1 d1) (CoCoArg r2 c2 d2)
+      = r1 == r2 && go_co env c1 c2 && go_co env d1 d2
     go_arg _   _               _               = False
     
     go_args _   []             []              = True
@@ -1263,8 +1334,8 @@ occurCheckExpand dflags tv ty
     fast_check (CastTy ty co)    = fast_check ty && fast_check_co co
     fast_check (CoercionTy co)   = fast_check_co co
 
-    fast_check_co (Refl ty)              = fast_check ty
-    fast_check_co (TyConAppCo _ args)    = all fast_check_co_arg args
+    fast_check_co (Refl _ ty)            = fast_check ty
+    fast_check_co (TyConAppCo _ _ args)  = all fast_check_co_arg args
     fast_check_co (AppCo co arg)         = fast_check_co co && fast_check_co_arg arg
     fast_check_co (ForAllCo cobndr co)
       | Just v <- getHomoVar_maybe cobndr
@@ -1276,7 +1347,7 @@ occurCheckExpand dflags tv ty
       = pprPanic "fast_check_co" (ppr cobndr)
     fast_check_co (CoVarCo _)            = True
     fast_check_co (AxiomInstCo _ _ args) = all fast_check_co_arg args
-    fast_check_co (UnsafeCo ty1 ty2)     = fast_check ty1 && fast_check ty2
+    fast_check_co (UnivCo _ ty1 ty2)     = fast_check ty1 && fast_check ty2
     fast_check_co (SymCo co)             = fast_check_co co
     fast_check_co (TransCo co1 co2)      = fast_check_co co1 && fast_check_co co2
     fast_check_co (InstCo co arg)        = fast_check_co co && fast_check_co_arg arg
@@ -1284,9 +1355,12 @@ occurCheckExpand dflags tv ty
     fast_check_co (LRCo _ co)            = fast_check_co co
     fast_check_co (CoherenceCo co1 co2)  = fast_check_co co1 && fast_check_co co2
     fast_check_co (KindCo co)            = fast_check_co co
+    fast_check_co (SubCo co)             = fast_check_co co
+    fast_check_co (AxiomRuleCo _ ts cs)
+      = all fast_check ts && all fast_check_co cs
 
-    fast_check_co_arg (TyCoArg co)       = fast_check_co co
-    fast_check_co_arg (CoCoArg co1 co2)  = fast_check_co co1 && fast_check_co co2
+    fast_check_co_arg (TyCoArg co)         = fast_check_co co
+    fast_check_co_arg (CoCoArg _ co1 co2)  = fast_check_co co1 && fast_check_co co2
 
     go t@(TyVarTy tv') | tv == tv' = OC_Occurs
                        | otherwise = return t
@@ -1326,11 +1400,11 @@ occurCheckExpand dflags tv ty
     go (CoercionTy co) = do { co' <- go_co co
                             ; return (mkCoercionTy co') }
 
-    go_co (Refl ty)                 = do { ty' <- go ty
-                                         ; return (mkReflCo ty') }
+    go_co (Refl r ty)               = do { ty' <- go ty
+                                         ; return (mkReflCo r ty') }
       -- Note: Coercions do not contain type synonyms
-    go_co (TyConAppCo tc args)      = do { args' <- mapM go_arg args
-                                         ; return (mkTyConAppCo tc args') }
+    go_co (TyConAppCo r tc args)    = do { args' <- mapM go_arg args
+                                         ; return (mkTyConAppCo r tc args') }
     go_co (AppCo co arg)            = do { co' <- go_co co
                                          ; arg' <- go_arg arg
                                          ; return (mkAppCo co' arg') }
@@ -1348,9 +1422,9 @@ occurCheckExpand dflags tv ty
     go_co co@(CoVarCo {})           = return co
     go_co (AxiomInstCo ax ind args) = do { args' <- mapM go_arg args
                                          ; return (mkAxiomInstCo ax ind args') }
-    go_co (UnsafeCo ty1 ty2)        = do { ty1' <- go ty1
+    go_co (UnivCo r ty1 ty2)        = do { ty1' <- go ty1
                                          ; ty2' <- go ty2
-                                         ; return (mkUnsafeCo ty1' ty2') }
+                                         ; return (mkUnivCo r ty1' ty2') }
     go_co (SymCo co)                = do { co' <- go_co co
                                          ; return (mkSymCo co') }
     go_co (TransCo co1 co2)         = do { co1' <- go_co co1
@@ -1368,12 +1442,17 @@ occurCheckExpand dflags tv ty
                                          ; return (mkCoherenceCo co1' co2') }
     go_co (KindCo co)               = do { co' <- go_co co
                                          ; return (mkKindCo co') }
+    go_co (SubCo co)                = do { co' <- go_co co
+                                         ; return (mkSubCo co') }
+    go_co (AxiomRuleCo ax ts cs)    = do { ts' <- mapM go ts
+                                         ; cs' <- mapM go_co cs
+                                         ; return (AxiomRuleCo ax ts' cs') }
 
     go_arg (TyCoArg co)             = do { co' <- go_co co
                                          ; return (TyCoArg co') }
-    go_arg (CoCoArg co1 co2)        = do { co1' <- go_co co1
+    go_arg (CoCoArg r co1 co2)      = do { co1' <- go_co co1
                                          ; co2' <- go_co co2
-                                         ; return (CoCoArg co1' co2') }
+                                         ; return (CoCoArg r co1' co2') }
 \end{code}
 
 %************************************************************************
@@ -1574,7 +1653,6 @@ orphNamesOfCo (SymCo co)            = orphNamesOfCo co
 orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
 orphNamesOfCo (NthCo _ co)          = orphNamesOfCo co
 orphNamesOfCo (LRCo  _ co)          = orphNamesOfCo co
-o co2
 orphNamesOfCo (InstCo co arg)       = orphNamesOfCo co `unionNameSets` orphNamesOfCoArg arg
 orphNamesOfCo (CoherenceCo co1 co2) = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
 orphNamesOfCo (KindCo co)           = orphNamesOfCo co
@@ -1582,9 +1660,12 @@ orphNamesOfCo (SubCo co)            = orphNamesOfCo co
 orphNamesOfCo (AxiomRuleCo _ ts cs) = orphNamesOfTypes ts `unionNameSets`
                                       orphNamesOfCos cs
 
+orphNamesOfCos :: [Coercion] -> NameSet
+orphNamesOfCos = orphNamesOfThings orphNamesOfCo
+
 orphNamesOfCoArg :: CoercionArg -> NameSet
-orphNamesOfCoArg (TyCoArg co)      = orphNamesOfCo co
-orphNamesOfCoArg (CoCoArg co1 co2) = orphNamesOfCo co1 `unionNameSets` orphNamesOfC
+orphNamesOfCoArg (TyCoArg co)        = orphNamesOfCo co
+orphNamesOfCoArg (CoCoArg _ co1 co2) = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
 
 orphNamesOfCoArgs :: [CoercionArg] -> NameSet
 orphNamesOfCoArgs = orphNamesOfThings orphNamesOfCoArg

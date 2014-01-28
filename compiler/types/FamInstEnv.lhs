@@ -49,6 +49,7 @@ import VarSet
 import VarEnv
 import Module( isInteractiveModule )
 import Name
+import PrelNames ( eqPrimTyConKey )
 import UniqFM
 import Outputable
 import Maybes
@@ -60,7 +61,6 @@ import Pair
 import SrcLoc
 import NameSet
 import FastString
-import Pair
 \end{code}
 
 %************************************************************************
@@ -788,7 +788,7 @@ reduceTyFamApp_maybe :: FamInstEnvs -> Role -> TyCon -> [Type] -> Maybe (Coercio
 -- Always returns a *homogeneous* coercion -- type family reductions are always
 -- homogeneous
 reduceTyFamApp_maybe env role tc tys
-  = reduce_ty_fam_app_maybe env role lc tc tys
+  = reduce_ty_fam_app_maybe env lc role tc tys
   where
     lc = emptyLiftingContext (mkInScopeSet (tyCoVarsOfTypes tys))
 
@@ -1012,7 +1012,7 @@ topNormaliseType_maybe env ty
 ---------------
 normaliseTcApp :: FamInstEnvs -> Role -> TyCon -> [Type] -> (Coercion, Type)
 normaliseTcApp env role tc tys
-  = normalise_tc_app env role lc tc tys
+  = normalise_tc_app env lc role tc tys
   where
     in_scope = mkInScopeSet (tyCoVarsOfTypes tys)
     lc       = emptyLiftingContext in_scope
@@ -1023,7 +1023,7 @@ normalise_tc_app :: FamInstEnvs -> LiftingContext -> Role
 normalise_tc_app env lc role tc tys
   | Just (first_co, ty') <- reduce_ty_fam_app_maybe env lc role tc tys
   = let    -- A reduction is possible
-        (rest_co,nty) = normalise_type env lc role lc ty'
+        (rest_co,nty) = normalise_type env lc role ty'
     in
     (first_co `mkTransCo` rest_co, nty)
 
@@ -1070,7 +1070,7 @@ normalise_type env lc
   = go
   where
     go r ty | Just ty' <- coreView ty = go r ty'
-    go r (TyConApp tc tys) = normalise_tc_app env lc tc tys
+    go r (TyConApp tc tys) = normalise_tc_app env lc r tc tys
     go r ty@(LitTy {})     = (mkReflCo r ty, ty)
     go r (AppTy ty1 ty2)
       = let (co,  nty1) = go r ty1
@@ -1081,8 +1081,9 @@ normalise_type env lc
             (co2, nty2) = go r ty2
         in (mkFunCo r co1 co2, mkFunTy nty1 nty2)
     go r (ForAllTy tyvar ty)
-      = let (lc', cobndr, tyvar') = normalise_tycovar_bndr env lc tyvar
-            (co, nty)             = normalise_type env lc' r ty
+      = let (lc', cobndr) = normalise_tycovar_bndr env lc tyvar
+            (co, nty)     = normalise_type env lc' r ty
+            (_, tyvar')   = coBndrBoundVars cobndr
         in (mkForAllCo cobndr co, mkForAllTy tyvar' nty)
     go r (TyVarTy tv)    = normalise_tyvar lc r tv
     go r (CastTy ty co)  =
@@ -1099,8 +1100,6 @@ normalise_ty_arg _ lc r (CoercionTy co)
 normalise_ty_arg env lc r ty
   = let (co, ty') = normalise_type env lc r ty in
     (TyCoArg co, ty')
-normalise_ty_arg _ lc r ty
-  = pprPanic "normalise_ty_arg" (vcat [ppr lc, ppr r, ppr ty])
 
 normalise_tyvar :: LiftingContext -> Role -> TyVar -> (Coercion, Type)
 normalise_tyvar lc r tv
@@ -1170,7 +1169,8 @@ emptyFlattenEnv :: InScopeSet -> FlattenEnv
 emptyFlattenEnv in_scope
   = FlattenEnv { fe_type_map = emptyTypeMap
                , fe_in_scope = in_scope
-               , fe_subst    = mkTCvSubst in_scope emptyTCvSubstEnv }
+               , fe_subst    = mkTCvSubst in_scope emptyTvSubstEnv
+                                                   emptyCvSubstEnv }
 
 -- See Note [Flattening]
 flattenTys :: InScopeSet -> [Type] -> [Type]
@@ -1222,8 +1222,8 @@ coreFlattenTy = go
                                 (env2, co') = coreFlattenCo env1 co in
                             (env2, CastTy ty' co')
 
-    go env (CoercionTy co) = let (env, co') = coreFlattenCo env co in
-                             (env, CoercionTy co')
+    go env (CoercionTy co) = let (env', co') = coreFlattenCo env co in
+                             (env', CoercionTy co')
 
 -- when flattening, we don't care about the contents of coercions.
 -- so, just return a fresh variable of the right (flattened) type
@@ -1232,9 +1232,10 @@ coreFlattenCo env co
   = (env2, mkCoVarCo covar)
   where
     (env1, kind') = coreFlattenTy env (coercionType co)
-    fresh_name    = mkFlattenFreshCoName env1
-    covar         = mkCoVar fresh_name kind'
-    env2          = env1 { fe_in_scope = fe_in_scope env1 `extendInScopeSet` covar }
+    fresh_name    = mkFlattenFreshCoName
+    in_scope      = fe_in_scope env1
+    covar         = uniqAway in_scope $ mkCoVar fresh_name kind'
+    env2          = env1 { fe_in_scope = in_scope `extendInScopeSet` covar }
 
 coreFlattenVarBndr :: FlattenEnv -> TyCoVar -> (FlattenEnv, TyCoVar)
 coreFlattenVarBndr env tv
@@ -1260,17 +1261,19 @@ coreFlattenTyFamApp :: FlattenEnv
                     -> [Type]        -- args
                     -> (FlattenEnv, TyVar)
 coreFlattenTyFamApp env fam_tc fam_args
-  = case lookupTypeMap env fam_ty of
+  = case lookupTypeMap type_map fam_ty of
       Just tv -> (env, tv)
               -- we need fresh variables here, but this is called far from
               -- any good source of uniques. So, we generate one from thin
               -- air, using the arbitrary prime number 71 as a seed
-      Nothing -> let tyvar_name = mkFlattenFreshTyName env fam_tc
+      Nothing -> let tyvar_name = mkFlattenFreshTyName fam_tc
                      tv = uniqAway in_scope $ mkTyVar tyvar_name (typeKind fam_ty)
-                     env' = env { fe_type_map = extendTypeMap (fe_type_map env) fam_ty tv
-                                , fe_in_scope = extendInScopeSet (fe_in_scope env) tv }
+                     env' = env { fe_type_map = extendTypeMap type_map fam_ty tv
+                                , fe_in_scope = extendInScopeSet in_scope tv }
                  in (env', tv)
-  where fam_ty = mkTyConApp fam_tc fam_args
+  where fam_ty   = mkTyConApp fam_tc fam_args
+        FlattenEnv { fe_type_map = type_map
+                   , fe_in_scope = in_scope } = env
 
 allTyVarsInTys :: [Type] -> VarSet
 allTyVarsInTys []       = emptyVarSet
@@ -1287,13 +1290,39 @@ allTyVarsInTy = go
                            unitVarSet tv `unionVarSet`
                            (go ty) -- don't remove tv
     go (LitTy {})        = emptyVarSet
+    go (CastTy ty co)    = go ty `unionVarSet` go_co co
+    go (CoercionTy co)   = go_co co
 
-mkFlattenFreshTyName :: Uniquable a => FlattenEnv -> a -> Name
-mkFlattenFreshTyName env unq
+    go_co (Refl _ ty)           = go ty
+    go_co (TyConAppCo _ _ args) = go_args args
+    go_co (AppCo co arg)        = go_co co `unionVarSet` go_arg arg
+    go_co (ForAllCo cobndr co)  = mkVarSet (coBndrVars cobndr) `unionVarSet` go_co co
+    go_co (CoVarCo cv)          = unitVarSet cv
+    go_co (AxiomInstCo _ _ cos) = go_args cos
+    go_co (UnivCo _ t1 t2)      = go t1 `unionVarSet` go t2
+    go_co (SymCo co)            = go_co co
+    go_co (TransCo c1 c2)       = go_co c1 `unionVarSet` go_co c2
+    go_co (NthCo _ co)          = go_co co
+    go_co (LRCo _ co)           = go_co co
+    go_co (InstCo co arg)       = go_co co `unionVarSet` go_arg arg
+    go_co (CoherenceCo c1 c2)   = go_co c1 `unionVarSet` go_co c2
+    go_co (KindCo co)           = go_co co
+    go_co (SubCo co)            = go_co co
+    go_co (AxiomRuleCo _ ts cs) = allTyVarsInTys ts `unionVarSet` go_cos cs
+
+    go_cos = foldr (unionVarSet . go_co) emptyVarSet
+
+    go_arg (TyCoArg co)      = go_co co
+    go_arg (CoCoArg _ c1 c2) = go_co c1 `unionVarSet` go_co c2
+
+    go_args = foldr (unionVarSet . go_arg) emptyVarSet
+
+mkFlattenFreshTyName :: Uniquable a => a -> Name
+mkFlattenFreshTyName unq
   = mkSysTvName (deriveUnique (getUnique unq) 71) (fsLit "flt")
 
-mkFlattenFreshCoName :: FlattenEnv -> Name
-mkFlattenFreshCoName env
-  = mkSystemVarName (deriveUnique (getUnique eqPrimTyCon) 71) (fsLit "flc")
+mkFlattenFreshCoName :: Name
+mkFlattenFreshCoName
+  = mkSystemVarName (deriveUnique eqPrimTyConKey 71) (fsLit "flc")
 
 \end{code}

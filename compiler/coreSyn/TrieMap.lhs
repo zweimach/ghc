@@ -493,11 +493,11 @@ data CoercionMap a
 data CoercionArgMap a
   = EmptyKAM
   | KAM { kam_tyco :: CoercionMap a
-        , kam_coco :: CoercionMap (CoercionMap a)
+        , kam_coco :: RoleMap (CoercionMap (CoercionMap a))
         }
 
 wrapEmptyKM :: CoercionMap a
-wrapEmptyKM = KM { km_refl = emptyTM, km_tc_app = emptyNameEnv
+wrapEmptyKM = KM { km_refl = emptyTM, km_tc_app = emptyTM
                  , km_app = emptyTM, km_fa_tho = emptyTM, km_fa_the = emptyTM
                  , km_fa_cho = emptyTM, km_fa_che = emptyTM
                  , km_var = emptyTM, km_axiom = emptyNameEnv
@@ -561,7 +561,7 @@ mapCA :: (a->b) -> CoercionArgMap a -> CoercionArgMap b
 mapCA _ EmptyKAM = EmptyKAM
 mapCA f (KAM { kam_tyco = kty, kam_coco = kco })
    = KAM { kam_tyco = mapTM f kty
-         , kam_coco = mapTM (mapTM f) kco }
+         , kam_coco = mapTM (mapTM (mapTM f)) kco }
 
 lkC :: CmEnv -> Coercion -> CoercionMap a -> Maybe a
 lkC env co m 
@@ -574,7 +574,7 @@ lkC env co m
     go (AppCo c1 c2)           = km_app    >.> lkC env c1 >=> lkCA env c2
     go (TransCo c1 c2)         = km_trans  >.> lkC env c1 >=> lkC env c2
     go (UnivCo r t1 t2)        = km_univ   >.> lookupTM r >=> lkT env t1 >=> lkT env t2
-    go (InstCo c t)            = km_inst   >.> lkC env c  >=> lkT env t
+    go (InstCo c t)            = km_inst   >.> lkC env c  >=> lkCA env t
     go (ForAllCo (TyHomo tv) co)
                                = km_fa_tho
                                >.> lkC (extendCME env tv) co
@@ -609,8 +609,8 @@ lkCA env arg m
   | EmptyKAM <- m = Nothing
   | otherwise = go arg m
   where
-    go (TyCoArg co)      = kam_tyco >.> lkC env co
-    go (CoCoArg co1 co2) = kam_coco >.> lkC env co1 >=> lkC env co2
+    go (TyCoArg co)        = kam_tyco >.> lkC env co
+    go (CoCoArg r co1 co2) = kam_coco >.> lookupTM r >=> lkC env co1 >=> lkC env co2
 
 xtC :: CmEnv -> Coercion -> XT a -> CoercionMap a -> CoercionMap a
 xtC env co f EmptyKM = xtC env co f wrapEmptyKM
@@ -620,7 +620,7 @@ xtC env (AxiomInstCo ax ind cs) f m = m { km_axiom  = km_axiom m  |> xtNamed ax 
 xtC env (AppCo c1 c2)           f m = m { km_app    = km_app m    |> xtC env c1 |>> xtCA env c2 f }
 xtC env (TransCo c1 c2)         f m = m { km_trans  = km_trans m  |> xtC env c1 |>> xtC env c2 f }
 xtC env (UnivCo r t1 t2)        f m = m { km_univ   = km_univ   m |> xtR r |>> xtT env t1 |>> xtT env t2 f }
-xtC env (InstCo c t)            f m = m { km_inst   = km_inst m   |> xtC env c  |>> xtT env t  f }
+xtC env (InstCo c t)            f m = m { km_inst   = km_inst m   |> xtC env c  |>> xtCA env t  f }
 xtC env (ForAllCo (TyHomo tv) co) f m
   = m { km_fa_tho = km_fa_tho m |> xtC (extendCME env tv) co |>> xtBndr env tv f }
 xtC env (ForAllCo (TyHetero h a b c) co) f m
@@ -647,8 +647,8 @@ xtC env (AxiomRuleCo co ts cs)  f m = m { km_axiom_rule = km_axiom_rule m
 
 xtCA :: CmEnv -> CoercionArg -> XT a -> CoercionArgMap a -> CoercionArgMap a
 xtCA env co f EmptyKAM = xtCA env co f wrapEmptyKAM
-xtCA env (TyCoArg c)     f m = m { kam_tyco = kam_tyco m |> xtC env c f }
-xtCA env (CoCoArg c1 c2) f m = m { kam_coco = kam_coco m |> xtC env c1 |>> xtC env c2 f }
+xtCA env (TyCoArg c)       f m = m { kam_tyco = kam_tyco m |> xtC env c f }
+xtCA env (CoCoArg r c1 c2) f m = m { kam_coco = kam_coco m |> xtR r |>> xtC env c1 |>> xtC env c2 f }
 
 fdC :: (a -> b -> b) -> CoercionMap a -> b -> b
 fdC _ EmptyKM = \z -> z
@@ -675,8 +675,8 @@ fdC k m = foldTM (foldTM k) (km_refl m)
 
 fdCA :: (a -> b -> b) -> CoercionArgMap a -> b -> b
 fdCA _ EmptyKAM = \z -> z
-fdCA k m = foldTM k          (kam_tyco m)
-         . foldTM (foldTM k) (kam_coco m)
+fdCA k m = foldTM k                   (kam_tyco m)
+         . foldTM (foldTM (foldTM k)) (kam_coco m)
 
 \end{code}
 
