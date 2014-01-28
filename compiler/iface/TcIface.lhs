@@ -549,7 +549,7 @@ tc_iface_decl _parent ignore_prags
 
    tc_at cls (IfaceAT tc_decl defs_decls)
      = do ATyCon tc <- tc_iface_decl (AssocFamilyTyCon cls) ignore_prags tc_decl
-          defs <- forkM (mk_at_doc tc) (tc_ax_branches tc defs_decls)
+          defs <- forkM (mk_at_doc tc) (tc_ax_branches defs_decls)
                   -- Must be done lazily in case the RHS of the defaults mention
                   -- the type constructor being defined here
                   -- e.g.   type AT a; type AT b = AT [b]   Trac #8002
@@ -572,7 +572,7 @@ tc_iface_decl _ _ (IfaceAxiom { ifName = ax_occ, ifTyCon = tc
                               , ifAxBranches = branches, ifRole = role })
   = do { tc_name     <- lookupIfaceTop ax_occ
        ; tc_tycon    <- tcIfaceTyCon TypeLevel tc
-       ; tc_branches <- tc_ax_branches tc_tycon branches
+       ; tc_branches <- tc_ax_branches branches
        ; let axiom = computeAxiomIncomps $
                      CoAxiom { co_ax_unique   = nameUnique tc_name
                              , co_ax_name     = tc_name
@@ -582,14 +582,14 @@ tc_iface_decl _ _ (IfaceAxiom { ifName = ax_occ, ifTyCon = tc
                              , co_ax_implicit = False }
        ; return (ACoAxiom axiom) }
 
-tc_ax_branches :: TyCon -> [IfaceAxBranch] -> IfL [CoAxBranch]
-tc_ax_branches tc if_branches = foldlM (tc_ax_branch (tyConKind tc)) [] if_branches
+tc_ax_branches :: [IfaceAxBranch] -> IfL [CoAxBranch]
+tc_ax_branches if_branches = foldlM tc_ax_branch [] if_branches
 
-tc_ax_branch :: Kind -> [CoAxBranch] -> IfaceAxBranch -> IfL [CoAxBranch]
-tc_ax_branch tc_kind prev_branches
+tc_ax_branch :: [CoAxBranch] -> IfaceAxBranch -> IfL [CoAxBranch]
+tc_ax_branch prev_branches
              (IfaceAxBranch { ifaxbTyCoVars = tv_bndrs, ifaxbLHS = lhs, ifaxbRHS = rhs
                             , ifaxbRoles = roles, ifaxbIncomps = incomps })
-  = bindIfaceTyVars_AT tv_bndrs $ \ tvs -> do
+  = bindIfaceBndrs_AT tv_bndrs $ \ tvs -> do
          -- The _AT variant is needed here; see Note [CoAxBranch type variables] in CoAxiom
     { tc_lhs <- mapM tcIfaceType lhs
     ; tc_rhs <- tcIfaceType rhs
@@ -1056,12 +1056,9 @@ tcIfaceTyKiCo kf = go
                  tvs = coAxBranchTyCoVars branch
                  lhs = mkTyConApp (coAxiomTyCon ax) (coAxBranchLHS branch)
                  rhs = coAxBranchRHS branch
-                 kind = mkForAllTys tvs (mkCoercionType lhs rhs)
+                 kind = mkForAllTys tvs (mkCoercionType (coAxiomRole ax) lhs rhs)
            ; cos <- tcIfaceCoArgs (pure kind) cs
            ; return $ AxiomInstCo ax i cos }
-    go (IfaceAxiomInstCo n i cs) = AxiomInstCo <$> tcIfaceCoAxiom n
-                                               <*> pure i
-                                               <*> mapM
     go (IfaceUnivCo r t1 t2)     = UnivCo r <$> tcIfaceTyKi kf t1
                                             <*> tcIfaceTyKi kf t2
     go (IfaceSymCo c)            = SymCo    <$> go c
@@ -1078,6 +1075,7 @@ tcIfaceTyKiCo kf = go
     go (IfaceAxiomRuleCo ax tys cos) = AxiomRuleCo <$> go_axiom_rule ax
                                                    <*> mapM (tcIfaceTyKi kf) tys
                                                    <*> mapM go cos
+    go co@(IfaceCoCoArg {})      = pprPanic "tcIfaceTyKiCo" (ppr co)
 
     go_var :: FastString -> IfL CoVar
     go_var = tcIfaceLclId
@@ -1089,8 +1087,8 @@ tcIfaceTyKiCo kf = go
         _  -> pprPanic "go_axiom_rule" (ppr n)
 
 tcIfaceTyKiCoArg :: KindFlag -> IfaceCoercion -> IfL CoercionArg
-tcIfaceTyKiCoArg _ (IfaceCoCoArg c1 c2)
-  = CoCoArg <$> tcIfaceKindCo c1 <*> tcIfaceKindCo c2
+tcIfaceTyKiCoArg _ (IfaceCoCoArg r c1 c2)
+  = CoCoArg r <$> tcIfaceKindCo c1 <*> tcIfaceKindCo c2
 tcIfaceTyKiCoArg kf ico = TyCoArg <$> tcIfaceTyKiCo kf ico
 
 tcIfaceCoArgs :: Pair Kind -> [IfaceCoercion] -> IfL [CoercionArg]
@@ -1620,13 +1618,31 @@ bindIfaceTyVars_AT :: [IfaceTvBndr] -> ([TyVar] -> IfL a) -> IfL a
 bindIfaceTyVars_AT [] thing_inside
   = thing_inside []
 bindIfaceTyVars_AT (b : bs) thing_inside
-  = do { mb_tv <- lookupIfaceTyVar b
-       ; let bind_b :: (TyCoVar -> IfL a) -> IfL a
-             bind_b = case mb_tv of
-                        Just b' -> \k -> k b'
-                        Nothing -> bindIfaceTyVar b
-       ; bind_b $ \b' ->
+  = do { bindIfaceTyVar_AT b $ \b' ->
          bindIfaceTyVars_AT bs $ \bs' ->
          thing_inside (b':bs') }
+
+bindIfaceBndr_AT :: IfaceBndr -> (Id -> IfL a) -> IfL a
+bindIfaceBndr_AT bndr thing_inside
+  = do { mb_id <- lookupIfaceVar bndr
+       ; case mb_id of
+           Just b' -> thing_inside b'
+           Nothing -> bindIfaceBndr bndr thing_inside }
+
+bindIfaceTyVar_AT :: IfaceTvBndr -> (TyVar -> IfL a) -> IfL a
+bindIfaceTyVar_AT tv thing
+  = do { mb_tv <- lookupIfaceTyVar tv
+       ; case mb_tv of
+           Just b' -> thing b'
+           Nothing -> bindIfaceTyVar tv thing }
+
+bindIfaceBndrs_AT :: [IfaceBndr] -> ([TyCoVar] -> IfL a) -> IfL a
+bindIfaceBndrs_AT [] thing_inside
+  = thing_inside []
+bindIfaceBndrs_AT (b:bs) thing_inside
+  = bindIfaceBndr_AT b $ \b' ->
+    bindIfaceBndrs_AT bs $ \bs' ->
+    thing_inside (b':bs')
+     
 \end{code}
 
