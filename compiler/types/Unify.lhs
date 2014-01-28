@@ -47,7 +47,7 @@ import FastString
 import Unique
 
 import Control.Monad
-import Control.Applicative (Applicative(..))
+import Control.Applicative (Applicative(..), Alternative(..))
 \end{code}
 
 
@@ -536,6 +536,13 @@ match_list _    _    _    _      _      = Nothing
 
 newtype MatchM a = MM { unMM :: MatchEnv -> TvSubstEnv -> CvSubstEnv
                              -> Maybe ((TvSubstEnv, CvSubstEnv), a) }
+
+instance Functor MatchM where
+      fmap = liftM
+
+instance Applicative MatchM where
+      pure = return
+      (<*>) = ap
 
 instance Monad MatchM where
   return x = MM $ \_ tsubst csubst -> Just ((tsubst, csubst), x)
@@ -1283,6 +1290,11 @@ instance Monad UM where
                           Unifiable result -> MaybeApart result
                           other            -> other
                    SurelyApart -> SurelyApart)
+
+-- RAE: Is this right?
+instance Alternative UM where
+  empty = mzero
+  (<|>) = mplus
 
   -- need this instance because of a use of 'guard' above
 instance MonadPlus UM where

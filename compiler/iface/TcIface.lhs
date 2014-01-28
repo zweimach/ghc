@@ -1026,8 +1026,6 @@ This context business is why we need tcIfaceTcArgs, and tcIfaceApps
 %************************************************************************
 
 \begin{code}
--- TODO (RAE): This might get type vs. kind levels wrong. But it won't matter
--- soon anyway.
 tcIfaceCo :: IfaceCoercion -> IfL Coercion
 tcIfaceCo = tcIfaceTyKiCo TypeLevel
 
@@ -1240,6 +1238,11 @@ tcIfaceApps fun arg
                     else tcIfaceType t
             ; let fun_ty' = substTyWith [tv] [t'] body_ty
             ; go_up (App fun (Type t')) fun_ty' args }
+    go_up fun fun_ty (IfaceCo co : args)
+       | Just (cv,body_ty) <- splitForAllTy_maybe fun_ty
+       = do { co' <- tcIfaceCo co  -- TODO (RAE): might be at kind level
+            ; let fun_ty' = substTyWith [cv] [CoercionTy co'] body_ty
+            ; go_up (App fun (Coercion co')) fun_ty' args }
     go_up fun fun_ty (arg : args)
        | Just (_, fun_ty') <- splitFunTy_maybe fun_ty
        = do { arg' <- tcIfaceExpr arg

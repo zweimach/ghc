@@ -500,8 +500,7 @@ eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind (replicate 4 Nominal) VoidRep
   where kind = ForAllTy kv1 $ ForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
         kVars = tyVarList superKind
-        kv1 = kVars !! 0
-        kv2 = kVars !! 1
+        kv1 : kv2 : _ = kVars
         k1 = mkOnlyTyVarTy kv1
         k2 = mkOnlyTyVarTy kv2
 
@@ -513,9 +512,11 @@ eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
                                   -- the roles really should be irrelevant!
                               [Nominal, Nominal, Representational, Representational]
                               VoidRep
-  where kind = ForAllTy kv $ mkArrowKinds [k, k] unliftedTypeKind
-        kv = kKiVar
-        k  = mkOnlyTyVarTy kv
+  where kind = ForAllTy kv1 $ ForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
+        kVars         = tyVarList superKind
+        kv1 : kv2 : _ = kVars
+        k1            = mkOnlyTyVarTy kv1
+        k2            = mkOnlyTyVarTy kv2
 \end{code}
 
 RealWorld is deeply magical.  It is *primitive*, but it is not
