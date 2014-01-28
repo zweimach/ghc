@@ -1406,6 +1406,7 @@ reifyTyCoVars tvs = mapMaybeM reify_tv tvs
   where
     reify_tv tv | not (isTyVar tv)      = noTH (sLit "coercion variables") (ppr tv)
                 | isKindVar tv          = return Nothing
+                | isLiftedTypeKind kind = return (Just $ TH.PlainTV name)
                 | otherwise             = do kind' <- reifyKind kind
                                              return (Just $ TH.KindedTV name kind')
       where
