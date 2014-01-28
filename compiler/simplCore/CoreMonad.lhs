@@ -85,7 +85,7 @@ import qualified IOEnv  ( liftIO )
 import TcEnv            ( tcLookupGlobal )
 import TcRnMonad        ( initTcForLookup )
 import InstEnv          ( instanceDFunId )
-import Type             ( tyVarsOfType )
+import Type             ( tyCoVarsOfType )
 import Id               ( idType )
 import Var
 import VarSet
@@ -275,7 +275,7 @@ interactiveInScope hsc_env
     te1    = mkTypeEnvWithImplicits (ic_tythings ictxt)
     te     = extendTypeEnvWithIds te1 (map instanceDFunId cls_insts)
     ids    = typeEnvIds te
-    tyvars = foldr (unionVarSet . tyVarsOfType . idType) emptyVarSet ids
+    tyvars = foldr (unionVarSet . tyCoVarsOfType . idType) emptyVarSet ids
               -- Why the type variables?  How can the top level envt have free tyvars?
               -- I think it's because of the GHCi debugger, which can bind variables
               --   f :: [t] -> [t]

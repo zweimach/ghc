@@ -105,7 +105,6 @@ pty (Tforall tb t) = text "%forall" <+> pforall [tb] t
 pty ty@(Tapp {}) = pappty ty []
 pty ty@(Tvar {}) = paty ty
 pty ty@(Tcon {}) = paty ty
-pty (CoCoArgCoercion t1 t2) = parens (pty t1 <> comma <+> pty t2)
 
 pappty :: Ty -> [Ty] -> Doc
 pappty (Tapp t1 t2) ts = pappty t1 (t2:ts)
@@ -137,12 +136,13 @@ pco co@(AppCoercion {})          = pappco co []
 pco (ForAllCoercion tb co)       = text "%forall" <+> pforallco [tb] co
 pco co@(CoVarCoercion {})        = paco co
 pco (UnivCoercion r ty1 ty2)     = sep [text "%univ", prole r, paty ty1, paty ty2]
-pco (InstCoercion co ty)         = sep [text "%inst", paco co, paty ty]
+pco (InstCoercion co1 co2)       = sep [text "%inst", paco co1, paco co2]
 pco (NthCoercion i co)           = sep [text "%nth", int i, paco co]
 pco (AxiomCoercion qtc i cos)    = pqname qtc <> char '[' <> int i <> char ']' <+> sep (map paco cos)
 pco (LRCoercion CLeft co)        = sep [text "%left", paco co]
 pco (LRCoercion CRight co)       = sep [text "%right", paco co]
 pco (SubCoercion co)             = sep [text "%sub", paco co]
+pco (CoCoArgCoercion t1 t2)      = parens (pco t1 <> comma <+> pco t2)
 
 pappco :: Coercion -> [Coercion ] -> Doc
 pappco (AppCoercion co1 co2) cos = pappco co1 (co2:cos)

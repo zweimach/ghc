@@ -20,9 +20,10 @@ module TcHsSyn (
         TcId, TcIdSet,
 
         zonkTopDecls, zonkTopExpr, zonkTopLExpr,
-        zonkTopBndrs, zonkTyBndrsX,
+        zonkTopBndrs, zonkTyCoBndrsX,
         emptyZonkEnv, mkEmptyZonkEnv, mkTyVarZonkEnv,
         zonkTcTypeToType, zonkTcTypeToTypes, zonkTyVarOcc,
+        zonkCoToCo
   ) where
 
 #include "HsVersions.h"
@@ -1372,14 +1373,14 @@ zonkCoToCo :: ZonkEnv -> Coercion -> TcM Coercion
 zonkCoToCo env co
   = go co
   where
-    go (Refl ty)                 = mkReflCo <$> zonkTcTypeToType env ty
-    go (TyConAppCo tc args)      = mkTyConAppCo tc
+    go (Refl r ty)               = mkReflCo r <$> zonkTcTypeToType env ty
+    go (TyConAppCo r tc args)    = mkTyConAppCo r tc
                                      <$> mapM (zonkCoArgToCoArg env) args
     go (AppCo co arg)            = mkAppCo <$> go co
                                            <*> zonkCoArgToCoArg env arg
     go (AxiomInstCo ax ind args) = mkAxiomInstCo ax ind
                                      <$> mapM (zonkCoArgToCoArg env) args
-    go (UnsafeCo ty1 ty2)        = mkUnsafeCo <$> zonkTcTypeToType env ty1
+    go (UnivCo r ty1 ty2)        = mkUnivCo r <$> zonkTcTypeToType env ty1
                                               <*> zonkTcTypeToType env ty2
     go (SymCo co)                = mkSymCo <$> go co
     go (TransCo co1 co2)         = mkTransCo <$> go co1 <*> go co2
@@ -1388,6 +1389,9 @@ zonkCoToCo env co
     go (InstCo co arg)           = mkInstCo <$> go co <*> zonkCoArgToCoArg env arg
     go (CoherenceCo co1 co2)     = mkCoherenceCo <$> go co1 <*> go co2
     go (KindCo co)               = mkKindCo <$> go co
+    go (SubCo co)                = mkSubCo <$> go co
+    go (AxiomRuleCo ax ts cs)    = AxiomRuleCo ax <$> mapM (zonkTcTypeToType env) ts
+                                                  <*> mapM go cs
 
     -- The two interesting cases!
     go (CoVarCo cv)              = return (mkCoVarCo $ zonkIdOcc env cv)
@@ -1413,9 +1417,9 @@ zonkCoToCo env co
       = pprPanic "zonkCoToCo" (ppr cobndr)
 
 zonkCoArgToCoArg :: ZonkEnv -> CoercionArg -> TcM CoercionArg
-zonkCoArgToCoArg env (TyCoArg co)      = TyCoArg <$> zonkCoToCo env co
-zonkCoArgToCoArg env (CoCoArg co1 co2) = CoCoArg <$> zonkCoToCo env co1
-                                                 <*> zonkCoToCo env co2
+zonkCoArgToCoArg env (TyCoArg co)        = TyCoArg <$> zonkCoToCo env co
+zonkCoArgToCoArg env (CoCoArg r co1 co2) = CoCoArg r <$> zonkCoToCo env co1
+                                                     <*> zonkCoToCo env co2
 
 zonkTvCollecting :: TcRef TyVarSet -> UnboundTyVarZonker
 -- This variant collects unbound type variables in a mutable variable

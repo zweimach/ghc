@@ -322,19 +322,19 @@ make_con_qid dflags = make_qid dflags False False
 
 make_co :: DynFlags -> Coercion -> C.Coercion
 make_co dflags (Refl r ty)           = C.ReflCoercion (make_role r) $ make_ty dflags ty
-make_co dflags (TyConAppCo r tc cos) = C.TyConAppCoercion (make_role r) (qtc dflags tc) (map (make_co dflags) cos)
-make_co dflags (AppCo c1 c2)         = C.AppCoercion (make_co dflags c1) (make_co dflags c2)
+make_co dflags (TyConAppCo r tc cos) = C.TyConAppCoercion (make_role r) (qtc dflags tc) (map (make_co_arg dflags) cos)
+make_co dflags (AppCo c1 c2)         = C.AppCoercion (make_co dflags c1) (make_co_arg dflags c2)
 make_co dflags (ForAllCo cobndr co)
  | Just v <- getHomoVar_maybe cobndr = C.ForAllCoercion (make_tbind v) (make_co dflags co)
  | otherwise                         = panic "MkExternalCore can't do hetero cobndrs yet"
 make_co _      (CoVarCo cv)          = C.CoVarCoercion (make_var_id (coVarName cv))
-make_co dflags (AxiomInstCo cc ind cos) = C.AxiomCoercion (qcc dflags cc) ind (map (make_co dflags) cos)
+make_co dflags (AxiomInstCo cc ind cos) = C.AxiomCoercion (qcc dflags cc) ind (map (make_co_arg dflags) cos)
 make_co dflags (UnivCo r t1 t2)      = C.UnivCoercion (make_role r) (make_ty dflags t1) (make_ty dflags t2)
 make_co dflags (SymCo co)            = C.SymCoercion (make_co dflags co)
 make_co dflags (TransCo c1 c2)       = C.TransCoercion (make_co dflags c1) (make_co dflags c2)
 make_co dflags (NthCo d co)          = C.NthCoercion d (make_co dflags co)
 make_co dflags (LRCo lr co)          = C.LRCoercion (make_lr lr) (make_co dflags co)
-make_co dflags (InstCo co ty)        = C.InstCoercion (make_co dflags co) (make_ty dflags ty)
+make_co dflags (InstCo co ty)        = C.InstCoercion (make_co dflags co) (make_co_arg dflags ty)
 make_co _      (CoherenceCo {})      = panic "MkExternalCore can't do coherence coercions yet"
 make_co _      (KindCo {})           = panic "MkExternalCore can't do kind coercions yet"
 make_co dflags (SubCo co)            = C.SubCoercion (make_co dflags co)
@@ -344,9 +344,9 @@ make_lr :: LeftOrRight -> C.LeftOrRight
 make_lr CLeft  = C.CLeft
 make_lr CRight = C.CRight
 
-make_co_arg :: DynFlags -> CoercionArg -> C.Ty
+make_co_arg :: DynFlags -> CoercionArg -> C.Coercion
 make_co_arg dflags (TyCoArg co) = make_co dflags co
-make_co_arg dflags (CoCoArg co1 co2)
+make_co_arg dflags (CoCoArg _ co1 co2)
   = C.CoCoArgCoercion (make_co dflags co1) (make_co dflags co2)
 
 make_role :: Role -> C.Role

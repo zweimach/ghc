@@ -658,7 +658,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
               con1 = ASSERT( not (null relevant_cons) ) head relevant_cons
               (con1_tvs, _, _, _, con1_arg_tys, _) = dataConFullSig con1
               con1_flds = dataConFieldLabels con1
-              con1_res_ty = mkFamilyTyConApp tycon (mkTyVarTys con1_tvs)
+              con1_res_ty = mkFamilyTyConApp tycon (mkTyCoVarTys con1_tvs)
 
         -- Step 2
         -- Check that at least one constructor has all the named fields

@@ -681,7 +681,7 @@ interactTyVarEq inerts workItem@(CTyEqCan { cc_tyvar = tv, cc_rhs = rhs , cc_ev 
   , (ev_i : _) <- [ ev_i | CTyEqCan { cc_ev = ev_i, cc_rhs = rhs_i }
                              <- findTyEqs (inert_eqs inerts) tv_rhs
                          , ev_i `canRewriteOrSame` ev
-                         , rhs_i `tcEqType` mkTyVarTy tv ]
+                         , rhs_i `tcEqType` mkTyCoVarTy tv ]
   =  -- Inert:     a ~ b
      -- Work item: b ~ a
     do { when (isWanted ev) (setEvBind (ctev_evar ev)

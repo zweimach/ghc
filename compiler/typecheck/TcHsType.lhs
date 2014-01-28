@@ -49,6 +49,7 @@ import TcMType
 import TcValidity
 import TcUnify
 import TcIface
+import TcHsSyn ( zonkCoToCo, emptyZonkEnv )  -- TODO (RAE): Remove!
 import TcType
 import Type
 import TyCoRep( Type(..) )  -- For the mkNakedXXX stuff
@@ -749,13 +750,18 @@ zonkSigType ty
 		-- to pull the TyConApp to the top.
 
 	-- The two interesting cases!
-    go (TyVarTy tyvar) | isTcTyVar tyvar = zonkTcTyVar tyvar
+    go (TyVarTy tyvar) | isTcTyVar tyvar = zonkTcTyCoVar tyvar
 		       | otherwise	 = TyVarTy <$> updateTyVarKindM go tyvar
 		-- Ordinary (non Tc) tyvars occur inside quantified types
 
-    go (ForAllTy tv ty) = do { tv' <- zonkTcTyVarBndr tv
+    go (ForAllTy tv ty) = do { tv' <- zonkTcTyCoVarBndr tv
                              ; ty' <- go ty
                              ; return (ForAllTy tv' ty') }
+
+    go (CastTy ty co) = do { ty' <- go ty
+                           ; co' <- zonkCoToCo emptyZonkEnv co  -- TODO (RAE): This is wrong.
+                           ; return (CastTy ty' co') }
+    go (CoercionTy co) = CoercionTy <$> zonkCoToCo emptyZonkEnv co -- TODO (RAE): Still wrong.
 \end{code}
 
 Note [Body kind of a forall]
@@ -1100,7 +1106,7 @@ kcHsTyVarBndrs strat (HsQTvs { hsq_kvs = kv_ns, hsq_tvs = hs_tvs }) thing_inside
        ; (res_kind, stuff) <- tcExtendKindEnv nks thing_inside
        ; let full_kind = mkArrowKinds (map snd nks) res_kind
              kvs       = filter (not . isMetaTyVar) $
-                         varSetElems $ tyVarsOfType full_kind
+                         varSetElems $ tyCoVarsOfType full_kind
              gen_kind  = if generalise
                          then mkForAllTys kvs full_kind
                          else full_kind
@@ -1179,7 +1185,7 @@ tcHsTyVarBndr (L _ hs_tv)
 kindGeneralize :: TyVarSet -> TcM [KindVar]
 kindGeneralize tkvs
   = do { gbl_tvs <- tcGetGlobalTyVars -- Already zonked
-       ; quantifyTyVars gbl_tvs (filterVarSet isKindVar tkvs) }
+       ; quantifyTyCoVars gbl_tvs (filterVarSet isKindVar tkvs) }
                 -- ToDo: remove the (filter isKindVar)
                 -- Any type variables in tkvs will be in scope,
                 -- and hence in gbl_tvs, so after removing gbl_tvs

@@ -431,8 +431,8 @@ tcExtendGhciIdEnv ids thing_inside
                     | AnId id <- ids
                     , let name = idName id
                     , isInternalName name ]
-    is_top id | isEmptyVarSet (tyVarsOfType (idType id)) = TopLevel
-              | otherwise                                = NotTopLevel
+    is_top id | isEmptyVarSet (tyCoVarsOfType (idType id)) = TopLevel
+              | otherwise                                  = NotTopLevel
 
 tcExtendLetEnv :: TopLevelFlag -> TopLevelFlag -> [TcId] -> TcM a -> TcM a
 -- Used for both top-level value bindings and and nested let/where-bindings

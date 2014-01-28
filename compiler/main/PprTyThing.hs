@@ -32,7 +32,7 @@ import CoAxiom( CoAxiom(..), brListMap )
 import HscTypes( tyThingParent_maybe )
 import Type( tidyTopType, tidyOpenType, splitForAllTys, funResultTy )
 import Kind( synTyConResKind )
-import TyCoRep( pprTvBndrs, pprForAll, suppressKinds )
+import TyCoRep( pprTCvBndrs, pprForAll, suppressKinds )
 import TysPrim( alphaTyVars )
 import TcType
 import Name
@@ -117,7 +117,7 @@ pprTyConHdr tyCon
   | otherwise
   = sdocWithDynFlags $ \dflags ->
     ptext keyword <+> opt_family <+> opt_stupid <+> ppr_bndr tyCon
-    <+> pprTvBndrs (suppressKinds dflags (tyConKind tyCon) vars)
+    <+> pprTCvBndrs (suppressKinds dflags (tyConKind tyCon) vars)
   where
     vars | isPrimTyCon tyCon ||
 	   isFunTyCon tyCon = take (tyConArity tyCon) alphaTyVars
@@ -145,7 +145,7 @@ pprClassHdr cls
     ptext (sLit "class") <+>
     sep [ pprThetaArrowTy (classSCTheta cls)
         , ppr_bndr cls
-          <+> pprTvBndrs (suppressKinds dflags (tyConKind (classTyCon cls)) tvs)
+          <+> pprTCvBndrs (suppressKinds dflags (tyConKind (classTyCon cls)) tvs)
         , pprFundeps funDeps ]
   where
      (tvs, funDeps) = classTvsFds cls

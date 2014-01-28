@@ -433,8 +433,8 @@ checkInstCoverage be_liberal clas theta inst_taus
        = Just msg
        where
          (ls,rs) = instFD fd tyvars inst_taus
-         ls_tvs = closeOverKinds (tyVarsOfTypes ls)  -- See Note [Closing over kinds in coverage]
-         rs_tvs = tyVarsOfTypes rs
+         ls_tvs = closeOverKinds (tyCoVarsOfTypes ls)  -- See Note [Closing over kinds in coverage]
+         rs_tvs = tyCoVarsOfTypes rs
 
          conservative_ok = rs_tvs `subVarSet` ls_tvs
          liberal_ok      = rs_tvs `subVarSet` oclose theta ls_tvs
@@ -491,7 +491,7 @@ oclose is used (only) when checking the coverage condition for
 an instance declaration
 
 \begin{code}
-oclose :: [PredType] -> TyVarSet -> TyVarSet
+oclose :: [PredType] -> TyCoVarSet -> TyCoVarSet
 -- See Note [The liberal coverage condition]
 oclose preds fixed_tvs
   | null tv_fds = fixed_tvs -- Fast escape hatch for common case.
@@ -506,8 +506,8 @@ oclose preds fixed_tvs
         | ls `subVarSet` fixed_tvs = fixed_tvs `unionVarSet` rs
         | otherwise                = fixed_tvs
 
-    tv_fds  :: [(TyVarSet,TyVarSet)]
-    tv_fds  = [ (tyVarsOfTypes xs, tyVarsOfTypes ys)
+    tv_fds  :: [(TyCoVarSet,TyCoVarSet)]
+    tv_fds  = [ (tyCoVarsOfTypes xs, tyCoVarsOfTypes ys)
               | (xs, ys) <- concatMap determined preds
               ]
 

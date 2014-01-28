@@ -33,6 +33,7 @@ import TyCon
 import DataCon
 import Var
 import Name
+import NameEnv
 import VarEnv
 import VarSet
 import NameSet
@@ -423,7 +424,7 @@ calcRecFlags boot_details is_boot mrole_env tyclss
     nt_edges = [(t, mk_nt_edges t) | t <- new_tycons]
 
     mk_nt_edges nt      -- Invariant: nt is a newtype
-        = concatMap (mk_nt_edges1 nt) (tcTyConsOfType (new_tc_rhs nt))
+        = concatMap (mk_nt_edges1 nt) (tyConsOfType (new_tc_rhs nt))
                         -- tcTyConsOfType looks through synonyms
 
     mk_nt_edges1 _ tc
@@ -764,7 +765,7 @@ irType = go
     go _    (LitTy {})        = return ()
       -- See Note [Coercions in role inference]
     go lcls (CastTy ty _)     = go lcls ty  
-    go lcls (CoercionTy _)    = return ()
+    go _    (CoercionTy _)    = return ()
 
     go_app _ Phantom _ = return ()                 -- nothing to do here
     go_app lcls Nominal ty = mark_nominal lcls ty  -- all vars below here are N
@@ -778,11 +779,11 @@ irType = go
      -- role inference. See [Coercions in role inference]
     get_ty_vars (TyVarTy tv)     = unitVarSet tv
     get_ty_vars (AppTy t1 t2)    = get_ty_vars t1 `unionVarSet` get_ty_vars t2
-    get_ty_vars (TyConApp _ tys) = unionVarSetList $ map get_ty_vars tys
+    get_ty_vars (TyConApp _ tys) = foldr (unionVarSet . get_ty_vars) emptyVarSet tys
     get_ty_vars (FunTy t1 t2)    = get_ty_vars t1 `unionVarSet` get_ty_vars t2
     get_ty_vars (ForAllTy tv ty) = get_ty_vars ty
                                    `delVarSet` tv
-                                   `unionVarSet` (tyVarKind tv)
+                                   `unionVarSet` (tyCoVarsOfType $ tyVarKind tv)
     get_ty_vars (LitTy {})       = emptyVarSet
     get_ty_vars (CastTy ty _)    = get_ty_vars ty
     get_ty_vars (CoercionTy _)   = emptyVarSet   

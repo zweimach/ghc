@@ -25,8 +25,8 @@ module Inst (
        tcSyntaxName,
 
        -- Simple functions over evidence variables
-       tyVarsOfWC,
-       tyVarsOfCt, tyVarsOfCts, 
+       tyCoVarsOfWC,
+       tyCoVarsOfCt, tyCoVarsOfCts, 
 
        tidyEvVar, tidyCt, tidySkolemInfo
     ) where

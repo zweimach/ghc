@@ -906,14 +906,14 @@ checkTauTvUpdate dflags tv ty
     defer_me (CastTy ty co)    = defer_me ty || defer_me_co co
     defer_me (CoercionTy co)   = defer_me_co co
 
-    defer_me_co (Refl ty)      = defer_me ty
-    defer_me_co (TyConAppCo tc args) = isSynFamilyTyCon tc
+    defer_me_co (Refl _ ty)          = defer_me ty
+    defer_me_co (TyConAppCo _ tc args)= isSynFamilyTyCon tc
                                        || any defer_me_arg args
     defer_me_co (AppCo co arg)       = defer_me_co co || defer_me_arg arg
     defer_me_co (ForAllCo _ co)      = not impredicative || defer_me_co co
     defer_me_co (CoVarCo _)          = False
     defer_me_co (AxiomInstCo _ _ as) = any defer_me_arg as
-    defer_me_co (UnsafeCo ty1 ty2)   = defer_me ty1 || defer_me ty2
+    defer_me_co (UnivCo _ ty1 ty2)   = defer_me ty1 || defer_me ty2
     defer_me_co (SymCo co)           = defer_me_co co
     defer_me_co (TransCo co1 co2)    = defer_me_co co1 || defer_me_co co2
     defer_me_co (NthCo _ co)         = defer_me_co co
@@ -921,9 +921,11 @@ checkTauTvUpdate dflags tv ty
     defer_me_co (InstCo co arg)      = defer_me_co co || defer_me_arg arg
     defer_me_co (CoherenceCo c1 c2)  = defer_me_co c1 || defer_me_co c2
     defer_me_co (KindCo co)          = defer_me_co co
+    defer_me_co (SubCo co)           = defer_me_co co
+    defer_me_co (AxiomRuleCo _ ts cs)= any defer_me ts || any defer_me_co cs
 
     defer_me_arg (TyCoArg co)        = defer_me_co co
-    defer_me_arg (CoCoArg co1 co2)   = defer_me_co co1 || defer_me_co co2
+    defer_me_arg (CoCoArg _ co1 co2) = defer_me_co co1 || defer_me_co co2
 \end{code}
 
 Note [OpenTypeKind accepts foralls]

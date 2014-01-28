@@ -52,7 +52,7 @@ module TcMType (
   skolemiseSigTv, skolemiseUnboundMetaTyVar,
   zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, zonkTcTypeAndFV,
   zonkQuantifiedTyCoVar, quantifyTyCoVars,
-  zonkTcTyVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, 
+  zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, 
 
   zonkTcKind, defaultKindVarToStar,
   zonkEvVar, zonkWC, zonkId, zonkCt, zonkCts, zonkSkolemInfo,
@@ -494,11 +494,12 @@ tcInstTyCoVarX origin subst tyvar
          -- can't call unifyType, because we need to return a CoVar,
          -- and unification might result in a TcCoercion that's not a CoVar
          -- See Note [Coercion variables in tcInstTyCoVarX]
+       ; loc <- getCtLoc origin
        ; let (ty1, ty2) = coVarTypes new_cv
              ctev = CtWanted { ctev_evar = new_cv
-                             , ctev_pred = mkTcEqPred ty1 ty2 }
-       ; loc <- getCtLoc origin
-       ; emitFlat $ mkNonCanonical loc ctev
+                             , ctev_pred = mkTcEqPred ty1 ty2
+                             , ctev_loc  = loc }
+       ; emitFlat $ mkNonCanonical ctev
        ; return (extendTCvSubst subst tyvar (mkTyCoVarTy new_cv), new_cv) }
 
 \end{code}
@@ -537,9 +538,9 @@ quantifyTyCoVars :: TcTyCoVarSet -> TcTyCoVarSet -> TcM [TcTyCoVar]
 --   associated type declarations
 
 quantifyTyCoVars gbl_tvs tkvs
-  = do { tkvs    <- zonkTyVarsAndFV tkvs
-       ; gbl_tvs <- zonkTyVarsAndFV gbl_tvs
-       ; let (kvs, tvs) = partitionVarSet (\v -> isKindVar || isCoVar v)
+  = do { tkvs    <- zonkTyCoVarsAndFV tkvs
+       ; gbl_tvs <- zonkTyCoVarsAndFV gbl_tvs
+       ; let (kvs, tvs) = partitionVarSet (\v -> isKindVar v || isCoVar v)
                                           (closeOverKinds tkvs `minusVarSet` gbl_tvs)
                               -- NB kinds of tvs are zonked by zonkTyVarsAndFV
              kvs2 = varSetElems kvs
@@ -728,7 +729,7 @@ tcGetGlobalTyVars :: TcM TcTyVarSet
 tcGetGlobalTyVars
   = do { (TcLclEnv {tcl_tyvars = gtv_var}) <- getLclEnv
        ; gbl_tvs  <- readMutVar gtv_var
-       ; gbl_tvs' <- zonkTyVarsAndFV gbl_tvs
+       ; gbl_tvs' <- zonkTyCoVarsAndFV gbl_tvs
        ; writeMutVar gtv_var gbl_tvs'
        ; return gbl_tvs' }
   where
@@ -737,34 +738,34 @@ tcGetGlobalTyVars
 -----------------  Type variables
 
 \begin{code}
-zonkTcTypeAndFV :: TcType -> TcM TyVarSet
+zonkTcTypeAndFV :: TcType -> TcM TyCoVarSet
 -- Zonk a type and take its free variables
 -- With kind polymorphism it can be essential to zonk *first*
 -- so that we find the right set of free variables.  Eg
 --    forall k1. forall (a:k2). a
 -- where k2:=k1 is in the substitution.  We don't want
 -- k2 to look free in this type!
-zonkTcTypeAndFV ty = do { ty <- zonkTcType ty; return (tyVarsOfType ty) }
+zonkTcTypeAndFV ty = do { ty <- zonkTcType ty; return (tyCoVarsOfType ty) }
 
-zonkTyVar :: TyVar -> TcM TcType
+zonkTyCoVar :: TyCoVar -> TcM TcType
 -- Works on TyVars and TcTyVars
-zonkTyVar tv | isTcTyVar tv = zonkTcTyVar tv
-             | otherwise    = return (mkTyVarTy tv)
+zonkTyCoVar tv | isTcTyVar tv = zonkTcTyCoVar tv
+             | otherwise    = return (mkTyCoVarTy tv)
    -- Hackily, when typechecking type and class decls
    -- we have TyVars in scopeadded (only) in 
    -- TcHsType.tcTyClTyVars, but it seems
    -- painful to make them into TcTyVars there
 
-zonkTyVarsAndFV :: TyVarSet -> TcM TyVarSet
-zonkTyVarsAndFV tyvars = tyVarsOfTypes <$> mapM zonkTyVar (varSetElems tyvars)
+zonkTyCoVarsAndFV :: TyCoVarSet -> TcM TyCoVarSet
+zonkTyCoVarsAndFV tycovars = tyCoVarsOfTypes <$> mapM zonkTyCoVar (varSetElems tycovars)
 
-zonkTcTyVars :: [TcTyVar] -> TcM [TcType]
-zonkTcTyVars tyvars = mapM zonkTcTyVar tyvars
+zonkTcTyCoVars :: [TcTyCoVar] -> TcM [TcType]
+zonkTcTyCoVars tyvars = mapM zonkTcTyCoVar tyvars
 
 -----------------  Types
-zonkTyVarKind :: TyVar -> TcM TyVar
-zonkTyVarKind tv = do { kind' <- zonkTcKind (tyVarKind tv)
-                      ; return (setTyVarKind tv kind') }
+zonkTyCoVarKind :: TyCoVar -> TcM TyCoVar
+zonkTyCoVarKind tv = do { kind' <- zonkTcKind (tyVarKind tv)
+                        ; return (setTyVarKind tv kind') }
 
 zonkTcTypes :: [TcType] -> TcM [TcType]
 zonkTcTypes tys = mapM zonkTcType tys
@@ -995,12 +996,12 @@ zonkTcType ty
                              ; ty' <- go ty
                              ; return (mkForAllTy tv' ty') }
 
-    go_co (Refl ty)                 = mkReflCo <$> go ty
-    go_co (TyConAppCo tc args)      = mkTyConAppCo tc <$> mapM go_arg args
+    go_co (Refl r ty)               = mkReflCo r <$> go ty
+    go_co (TyConAppCo r tc args)    = mkTyConAppCo r tc <$> mapM go_arg args
     go_co (AppCo co arg)            = mkAppCo <$> go_co co <*> go_arg arg
     go_co (CoVarCo cv)              = mkCoVarCo <$> zonkTyCoVarKind cv
     go_co (AxiomInstCo ax ind args) = mkAxiomInstCo ax ind <$> mapM go_arg args
-    go_co (UnsafeCo ty1 ty2)        = mkUnsafeCo <$> go ty1 <*> go ty2
+    go_co (UnivCo r ty1 ty2)        = mkUnivCo r <$> go ty1 <*> go ty2
     go_co (SymCo co)                = mkSymCo <$> go_co co
     go_co (TransCo co1 co2)         = mkTransCo <$> go_co co1 <*> go_co co2
     go_co (NthCo n co)              = mkNthCo n <$> go_co co
@@ -1008,6 +1009,8 @@ zonkTcType ty
     go_co (InstCo co arg)           = mkInstCo <$> go_co co <*> go_arg arg
     go_co (CoherenceCo co1 co2)     = mkCoherenceCo <$> go_co co1 <*> go_co co2
     go_co (KindCo co)               = mkKindCo <$> go_co co
+    go_co (SubCo co)                = mkSubCo <$> go_co co
+    go_co (AxiomRuleCo ax ts cs)    = AxiomRuleCo ax <$> mapM go ts <*> mapM go_co cs
 
     go_co (ForAllCo cobndr co)
       | Just v <- getHomoVar_maybe cobndr
@@ -1033,8 +1036,8 @@ zonkTcType ty
       | otherwise
       = pprPanic "zonkTcType" (ppr cobndr)
 
-    go_arg (TyCoArg co)      = TyCoArg <$> go_co co
-    go_arg (CoCoArg co1 co2) = CoCoArg <$> go_co co1 <*> go_co co2
+    go_arg (TyCoArg co)        = TyCoArg <$> go_co co
+    go_arg (CoCoArg r co1 co2) = CoCoArg r <$> go_co co1 <*> go_co co2
 
 zonkTcTyCoVarBndr :: TcTyCoVar -> TcM TcTyCoVar
 -- A tyvar binder is never a unification variable (MetaTv),

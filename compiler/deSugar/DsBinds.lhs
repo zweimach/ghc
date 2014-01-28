@@ -852,8 +852,8 @@ ds_tc_coercion subst tc_co
                                 cobndr = mkHomoCoBndr tv
                                 (subst', cobndr') = substForAllCoBndr subst cobndr
     go (TcAxiomInstCo ax ind cos)
-                                = AxiomInstCo ax ind (map go_arg cos)
-    go (TcPhantomCo ty1 ty2)    = UnivCo Phantom ty1 ty2
+                                = mkAxiomInstCo ax ind (map go_arg cos)
+    go (TcPhantomCo ty1 ty2)    = mkUnivCo Phantom ty1 ty2
     go (TcSymCo co)             = mkSymCo (go co)
     go (TcTransCo co1 co2)      = mkTransCo (go co1) (go co2)
     go (TcNthCo n co)           = mkNthCo n (go co)
@@ -862,7 +862,7 @@ ds_tc_coercion subst tc_co
     go (TcLetCo bs co)          = ds_tc_coercion (ds_co_binds bs) co
     go (TcCastCo co1 co2)       = mkCoCast (go co1) (go co2)
     go (TcCoVarCo v)            = ds_ev_id subst v
-    go (TcAxiomRuleCo co ts cs) = AxiomRuleCo co (map (Coercion.substTy subst) ts) (map go cs)
+    go (TcAxiomRuleCo co ts cs) = mkAxiomRuleCo co (map (Type.substTy subst) ts) (map go cs)
 
     go_arg tc_co              = mkTyCoArg $ go tc_co
 
@@ -872,7 +872,7 @@ ds_tc_coercion subst tc_co
 
     ds_scc :: TCvSubst -> SCC EvBind -> TCvSubst
     ds_scc subst (AcyclicSCC (EvBind v ev_term))
-      = extendTCvSubstAndInScope subst v (ds_co_term subst ev_term)
+      = extendTCvSubstAndInScope subst v (mkCoercionTy (ds_co_term subst ev_term))
     ds_scc _ (CyclicSCC other) = pprPanic "ds_scc:cyclic" (ppr other $$ ppr tc_co)
 
     ds_co_term :: TCvSubst -> EvTerm -> Coercion

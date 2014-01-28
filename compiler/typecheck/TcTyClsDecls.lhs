@@ -993,7 +993,7 @@ tc_fam_ty_pats fam_tc_name kind
          -- Note that we don't have enough information at hand to do a full check,
          -- as that requires the full declared arity of the family, which isn't
          -- nearby.
-       ; let max_args = length (fst $ splitKindFunTys fam_body)
+       ; let max_args = length (fst $ splitFunTys fam_body)
        ; checkTc (length arg_pats <= max_args) $
            wrongNumberOfParmsErrTooMany max_args
 
@@ -1030,7 +1030,7 @@ tcFamTyPats fam_tc_name kind pats kind_checker thing_inside
             -- them into skolems, so that we don't subsequently
             -- replace a meta kind var with AnyK
             -- Very like kindGeneralize
-       ; qtkvs <- quantifyTyVars emptyVarSet (tyCoVarsOfTypes all_args)
+       ; qtkvs <- quantifyTyCoVars emptyVarSet (tyCoVarsOfTypes all_args)
 
             -- Zonk the patterns etc into the Type world
        ; (ze, qtkvs') <- zonkTyCoBndrsX emptyZonkEnv qtkvs
@@ -1160,8 +1160,8 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
              --    ResTyGADT: *all* the quantified type variables
              -- c.f. the comment on con_qvars in HsDecls
        ; tkvs <- case res_ty of
-                   ResTyH98         -> quantifyTyVars (mkVarSet tmpl_tvs) (tyCoVarsOfTypes (ctxt++arg_tys))
-                   ResTyGADT res_ty -> quantifyTyVars emptyVarSet (tyCoVarsOfTypes (res_ty:ctxt++arg_tys))
+                   ResTyH98         -> quantifyTyCoVars (mkVarSet tmpl_tvs) (tyCoVarsOfTypes (ctxt++arg_tys))
+                   ResTyGADT res_ty -> quantifyTyCoVars emptyVarSet (tyCoVarsOfTypes (res_ty:ctxt++arg_tys))
 
              -- Zonk to Types
        ; (ze, qtkvs) <- zonkTyCoBndrsX emptyZonkEnv tkvs
@@ -1771,7 +1771,7 @@ checkValidRoles tc
     check_ty_roles env role (CastTy t _)
       = check_ty_roles env role t
 
-    check_ty_roles env role (CoercionTy co)
+    check_ty_roles _   role (CoercionTy co)
       = unless (role == Phantom) $
         report_error $ text "coercion" <+> ppr co <+> text "has bad role" <+> ppr role
 

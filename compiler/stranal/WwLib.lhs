@@ -304,7 +304,7 @@ mkWWargs subst fun_ty arg_info
              <- mkWWargs subst' fun_ty' arg_info
         ; return (tv' : wrap_args,
                   Lam tv' . wrap_fn_args,
-                  work_fn_args . (`mkTyApps` (mkTyVarTy tv')),
+                  work_fn_args . (`mkTyApps` [mkTyCoVarTy tv']),
                   res_ty) }
 
   | Just (co, rep_ty) <- topNormaliseNewType_maybe fun_ty

@@ -863,7 +863,7 @@ checkBootTyCon tc1 tc2
 
     eqClosedFamilyBranch (CoAxBranch { cab_tvs = tvs1, cab_lhs = lhs1, cab_rhs = rhs1 })
                          (CoAxBranch { cab_tvs = tvs2, cab_lhs = lhs2, cab_rhs = rhs2 })
-      | Just env <- eqTyVarBndrs emptyRnEnv2 tvs1 tvs2
+      | Just env <- eqTyCoVarBndrs emptyRnEnv2 tvs1 tvs2
       = eqListBy (eqTypeX env) lhs1 lhs2 &&
         eqTypeX env rhs1 rhs2
 

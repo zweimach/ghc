@@ -673,22 +673,22 @@ deriveTyData tvs tc tc_args (L loc deriv_pred)
         ; checkTc (not (null cls_tyvars)) derivingNullaryErr
 
         ; let kind            = tyVarKind (last cls_tyvars)
-              (arg_kinds, _)  = splitKindFunTys kind
+              (arg_kinds, _)  = splitFunTys kind
               n_args_to_drop  = length arg_kinds
               n_args_to_keep  = tyConArity tc - n_args_to_drop
               args_to_drop    = drop n_args_to_keep tc_args
               tc_args_to_keep = take n_args_to_keep tc_args
               inst_ty_kind    = typeKind (mkTyConApp tc tc_args_to_keep)
-              dropped_tvs     = tyVarsOfTypes args_to_drop
+              dropped_tvs     = tyCoVarsOfTypes args_to_drop
               tv_set          = mkVarSet tvs
               mb_match        = tcMatchTy tv_set inst_ty_kind kind
               Just subst      = mb_match   -- See Note [Match kinds in deriving]
 
               final_tc_args   = substTys subst tc_args_to_keep
-              univ_tvs        = mkVarSet deriv_tvs `unionVarSet` tyVarsOfTypes final_tc_args
+              univ_tvs        = mkVarSet deriv_tvs `unionVarSet` tyCoVarsOfTypes final_tc_args
 
-        ; traceTc "derivTyData1" (vcat [ pprTvBndrs tvs, ppr tc, ppr tc_args
-                                       , pprTvBndrs (varSetElems $ tyCoVarsOfTypes tc_args)
+        ; traceTc "derivTyData1" (vcat [ pprTCvBndrs tvs, ppr tc, ppr tc_args
+                                       , pprTCvBndrs (varSetElems $ tyCoVarsOfTypes tc_args)
                                        , ppr n_args_to_keep, ppr n_args_to_drop
                                        , ppr inst_ty_kind, ppr kind, ppr mb_match ])
 
@@ -732,7 +732,7 @@ derivePolyKindedTypeable cls cls_tys _tvs tc tc_args
        ; mkEqnHelp kind_vars cls cls_tys tc tc_kind_args Nothing }
   where
     kind_vars    = kindVarsOnly tc_args
-    tc_kind_args = mkTyVarTys kind_vars
+    tc_kind_args = mkOnlyTyVarTys kind_vars
 
     kindVarsOnly :: [Type] -> [KindVar]
     kindVarsOnly [] = []
@@ -1468,7 +1468,7 @@ mkNewTypeEqn dflags tvs
             , ds_newtype = True }
         Nothing -> return $ InferTheta $ DS
             { ds_loc = loc
-            , ds_name = dfun_name, ds_tvs = varSetElemsKvsFirst dfun_tvs
+            , ds_name = dfun_name, ds_tvs = varSetElemsWellScoped dfun_tvs
             , ds_cls = cls, ds_tys = inst_tys
             , ds_tc = rep_tycon, ds_tc_args = rep_tc_args
             , ds_theta = all_preds
@@ -1562,7 +1562,7 @@ mkNewTypeEqn dflags tvs
         -- newtype type; precisely the constraints required for the
         -- calls to coercible that we are going to generate.
         coercible_constraints =
-            [ let (Pair t1 t2) = mkCoerceClassMethEqn cls (varSetElemsKvsFirst dfun_tvs) inst_tys rep_inst_ty meth
+            [ let (Pair t1 t2) = mkCoerceClassMethEqn cls (varSetElemsWellScoped dfun_tvs) inst_tys rep_inst_ty meth
               in mkPredOrigin (DerivOriginCoerce meth t1 t2) (mkCoerciblePred t1 t2)
             | meth <- classMethods cls ]
 

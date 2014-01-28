@@ -24,7 +24,7 @@ import UniqFM
 import DataCon hiding (tyConsOfTyCon)
 import TyCon
 import TyCoRep
-import Type hiding (tyConsOfType)
+import qualified Type
 import PrelNames
 import Digraph
 
@@ -119,6 +119,6 @@ tyConsOfTypes = unionManyUniqSets . map tyConsOfType
 -- |Collect the set of TyCons that occur in this type.
 --
 tyConsOfType :: Type -> UniqSet TyCon
-tyConsOfType ty = filterUniqSet not_tuple_or_unlifted $ mkUniqSet (tcTyConsOfType ty)
+tyConsOfType ty = filterUniqSet not_tuple_or_unlifted $ mkUniqSet (Type.tyConsOfType ty)
   where not_tuple_or_unlifted tc = not (isUnLiftedTyCon tc || isTupleTyCon tc)
 

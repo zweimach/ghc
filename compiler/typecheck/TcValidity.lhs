@@ -1234,8 +1234,8 @@ fvTypes :: [Type] -> [TyVar]
 fvTypes tys                = concat (map fvType tys)
 
 fvCo :: Coercion -> [TyCoVar]
-fvCo (Refl ty)              = fvType ty
-fvCo (TyConAppCo _ args)    = concatMap fvCoArg args
+fvCo (Refl _ ty)            = fvType ty
+fvCo (TyConAppCo _ _ args)  = concatMap fvCoArg args
 fvCo (AppCo co arg)         = fvCo co ++ fvCoArg arg
 fvCo (ForAllCo cobndr co)   = (fvCo co \\ coBndrVars cobndr)
                               ++ case splitHeteroCoBndr_maybe cobndr of
@@ -1243,7 +1243,7 @@ fvCo (ForAllCo cobndr co)   = (fvCo co \\ coBndrVars cobndr)
                                    Nothing        -> []
 fvCo (CoVarCo v)            = [v]
 fvCo (AxiomInstCo _ _ args) = concatMap fvCoArg args 
-fvCo (UnsafeCo ty1 ty2)     = fvType ty1 ++ fvType ty2
+fvCo (UnivCo _ ty1 ty2)     = fvType ty1 ++ fvType ty2
 fvCo (SymCo co)             = fvCo co
 fvCo (TransCo co1 co2)      = fvCo co1 ++ fvCo co2
 fvCo (NthCo _ co)           = fvCo co
@@ -1251,10 +1251,12 @@ fvCo (LRCo _ co)            = fvCo co
 fvCo (InstCo co arg)        = fvCo co ++ fvCoArg arg
 fvCo (CoherenceCo co1 co2)  = fvCo co1 ++ fvCo co2
 fvCo (KindCo co)            = fvCo co
+fvCo (SubCo co)             = fvCo co
+fvCo (AxiomRuleCo _ ts cs)  = concatMap fvType ts ++ concatMap fvCo cs
 
 fvCoArg :: CoercionArg -> [TyCoVar]
-fvCoArg (TyCoArg co)      = fvCo co
-fvCoArg (CoCoArg co1 co2) = fvCo co1 ++ fvCo co2
+fvCoArg (TyCoArg co)        = fvCo co
+fvCoArg (CoCoArg _ co1 co2) = fvCo co1 ++ fvCo co2
 
 sizeType :: Type -> Int
 -- Size of a type: the number of variables and constructors

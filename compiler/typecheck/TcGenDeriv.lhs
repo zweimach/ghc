@@ -1920,8 +1920,9 @@ mkCoerceClassMethEqn cls inst_tvs cls_tys rhs_ty id
   where
     cls_tvs = classTyVars cls
     in_scope = mkInScopeSet $ mkVarSet inst_tvs
-    lhs_subst = mkTvSubst in_scope (zipTyEnv cls_tvs cls_tys)
-    rhs_subst = mkTvSubst in_scope (zipTyEnv cls_tvs (changeLast cls_tys rhs_ty))
+    lhs_subst = uncurry (mkTCvSubst in_scope) (zipTyCoEnv cls_tvs cls_tys)
+    rhs_subst = uncurry (mkTCvSubst in_scope)
+                        (zipTyCoEnv cls_tvs (changeLast cls_tys rhs_ty))
     (_class_tvs, _class_constraint, user_meth_ty) = tcSplitSigmaTy (varType id)
 
     changeLast :: [a] -> a -> [a]

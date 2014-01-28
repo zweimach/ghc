@@ -300,9 +300,9 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
              mr_bites        = apply_mr && not (null pbound)
 
        ; (qtvs, bound) <- if mr_bites
-                          then do { qtvs <- quantifyTyVars constrained_tvs zonked_tau_tvs
+                          then do { qtvs <- quantifyTyCoVars constrained_tvs zonked_tau_tvs
                                   ; return (qtvs, []) }
-                          else do { qtvs <- quantifyTyVars gbl_tvs poly_qtvs
+                          else do { qtvs <- quantifyTyCoVars gbl_tvs poly_qtvs
                                   ; return (qtvs, pbound) }
 
        ; traceTc "simplifyWithApprox" $
@@ -827,8 +827,8 @@ floatEqualities skols no_given_eqs wanteds@(WC { wc_flat = flats })
     skol_set = fixVarSet mk_next (mkVarSet skols)
     mk_next tvs = foldrBag grow_one tvs flats
     grow_one (CFunEqCan { cc_tyargs = xis, cc_rhs = rhs }) tvs
-       | intersectsVarSet tvs (tyVarsOfTypes xis)
-       = tvs `unionVarSet` tyVarsOfType rhs
+       | intersectsVarSet tvs (tyCoVarsOfTypes xis)
+       = tvs `unionVarSet` tyCoVarsOfType rhs
     grow_one _ tvs = tvs
 
     is_floatable :: Ct -> Bool
@@ -884,13 +884,13 @@ approximateWC wc
         do_bag (float_implic new_trapping_tvs) implics
       where
         new_trapping_tvs = fixVarSet grow trapping_tvs
-        is_floatable ct = tyVarsOfCt ct `disjointVarSet` new_trapping_tvs
+        is_floatable ct = tyCoVarsOfCt ct `disjointVarSet` new_trapping_tvs
 
         grow tvs = foldrBag grow_one tvs flats
         grow_one ct tvs | ct_tvs `intersectsVarSet` tvs = tvs `unionVarSet` ct_tvs
                         | otherwise                     = tvs
                         where
-                          ct_tvs = tyVarsOfCt ct
+                          ct_tvs = tyCoVarsOfCt ct
 
     float_implic :: TcTyCoVarSet -> Implication -> Cts
     float_implic trapping_tvs imp

@@ -69,11 +69,11 @@ data Coercion
   | ForAllCoercion Tbind Coercion
   | CoVarCoercion Var
   | UnivCoercion Role Ty Ty
-  | InstCoercion Coercion Ty
+  | InstCoercion Coercion Coercion
   | NthCoercion Int Coercion
   | AxiomCoercion (Qual Tcon) Int [Coercion]
   | LRCoercion LeftOrRight Coercion
-  | CoCoArgCoercion Ty Ty
+  | CoCoArgCoercion Coercion Coercion
   | SubCoercion Coercion
 
 data Role = Nominal | Representational | Phantom

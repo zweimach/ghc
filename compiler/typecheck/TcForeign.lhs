@@ -173,8 +173,9 @@ normaliseFfiType' env ty0 = go initRecTc ty0
     go _ ty@(AppTy {})   = return (Refl Representational ty, ty, emptyBag)
          -- See Note [Don't recur in normaliseFfiType']
 
-    go_arg :: [TyCon] -> Type -> TcM (CoercionArg, Type, Bag GlobalRdrElt)
-    go_arg _       (CoercionTy co) = return (CoCoArg co co, CoercionTy co, emptyBag)
+    go_arg :: RecTcChecker -> Type -> TcM (CoercionArg, Type, Bag GlobalRdrElt)
+    go_arg _       (CoercionTy co) = return ( CoCoArg Representational co co
+                                            , CoercionTy co, emptyBag )
     go_arg rec_nts ty              = do { (co, ty', gres) <- go rec_nts ty
                                         ; return (TyCoArg co, ty', gres) }
 

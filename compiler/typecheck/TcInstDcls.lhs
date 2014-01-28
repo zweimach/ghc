@@ -41,6 +41,7 @@ import MkCore     ( nO_METHOD_BINDING_ERROR_ID )
 import Type
 import TcEvidence
 import TyCon
+import Coercion   ( emptyCvSubstEnv )
 import CoAxiom
 import DataCon
 import Class
@@ -722,7 +723,7 @@ tcDataFamInstDecl mb_clsinfo
     go (tv:tvs) (pat:pats)
       | Just tv' <- getTyVar_maybe pat
       , tv == tv'
-      , not (tv `elemVarSet` tyVarsOfTypes pats)
+      , not (tv `elemVarSet` tyCoVarsOfTypes pats)
       = go tvs pats
     go tvs pats = (reverse tvs, reverse pats)
 

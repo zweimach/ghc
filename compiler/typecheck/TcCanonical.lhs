@@ -551,9 +551,9 @@ flatten _f ctxt ty@(ForAllTy {})
        ; return (mkForAllTys tvs rho', foldr mkTcForAllCo co tvs) }
 
 -- TODO (RAE): Fix this. Requires update of TcCoercion.
-flatten _ _ _ ty@(CastTy {})
+flatten _ _ ty@(CastTy {})
   = pprPanic "flatten" (ppr ty)
-flatten _ _ _ ty@(CoercionTy {})
+flatten _ _ ty@(CoercionTy {})
   = pprPanic "flatten" (ppr ty)
 \end{code}
 
@@ -632,7 +632,7 @@ flattenTyVar f ctxt tv
            Left tv'         -> -- Done 
                                return (ty, mkTcNomReflCo ty)
                             where
-                               ty = mkTyVarTy tv'
+                               ty = mkTyCoVarTy tv'
 
            Right (ty1, co1) -> -- Recurse
                                do { (ty2, co2) <- flatten f ctxt ty1
@@ -1181,7 +1181,7 @@ canEqTyVar2 dflags ev swapped tv1 xi2 co2
            Just new_ev -> emitInsoluble (mkNonCanonical new_ev)
        ; return Stop }
   where
-    xi1 = mkTyVarTy tv1
+    xi1 = mkTyCoVarTy tv1
     co1 = mkTcNomReflCo xi1
 
 
@@ -1227,8 +1227,8 @@ canEqTyVarTyVar ev swapped tv1 tv2 co2
       | k1 `isSubKind` k2   = True  -- Note [Kind orientation for CTyEqCan]
       | otherwise           = False -- in TcRnTypes
 
-    xi1 = mkTyVarTy tv1
-    xi2 = mkTyVarTy tv2
+    xi1 = mkTyCoVarTy tv1
+    xi2 = mkTyCoVarTy tv2
     k1  = tyVarKind tv1
     k2  = tyVarKind tv2
 
