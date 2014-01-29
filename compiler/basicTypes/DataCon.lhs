@@ -1055,50 +1055,6 @@ promoteDataCon_maybe :: DataCon -> Maybe TyCon
 promoteDataCon_maybe (MkData { dcPromoted = mb_tc }) = mb_tc
 \end{code}
 
-Note [Promoting a Type to a Kind]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Suppsoe we have a data constructor D
-     D :: forall (a:*). Maybe a -> T a
-We promote this to be a type constructor 'D:
-     'D :: forall (k:BOX). 'Maybe k -> 'T k
-
-The transformation from type to kind is done by promoteType
-
-  * Convert forall (a:*) to forall (k:BOX), and substitute
-
-  * Ensure all foralls are at the top (no higher rank stuff)
-
-  * Ensure that all type constructors mentioned (Maybe and T
-    in the example) are promotable; that is, they have kind 
-          * -> ... -> * -> *
-
-\begin{code}
--- | Promotes a type to a kind. 
--- Assumes the argument satisfies 'isPromotableType'
-promoteType :: Type -> Kind
-promoteType ty
-  = mkForAllTys kvs (go rho)
-  where
-    (tvs, rho) = splitForAllTys ty
-    kvs = [ mkKindVar (tyVarName tv) superKind | tv <- tvs ]
-    env = zipVarEnv tvs kvs
-
-    go (TyConApp tc tys) | Just prom_tc <- promotableTyCon_maybe tc
-                         = mkTyConApp prom_tc (map go tys)
-    go (FunTy arg res)   = mkArrowKind (go arg) (go res)
-    go (TyVarTy tv)      | Just kv <- lookupVarEnv env tv 
-                         = TyVarTy kv
-    go _ = panic "promoteType"  -- Argument did not satisfy isPromotableType
-
-promoteKind :: Kind -> SuperKind
--- Promote the kind of a type constructor
--- from (* -> * -> *) to (BOX -> BOX -> BOX) 
-promoteKind (TyConApp tc []) 
-  | isStarKindCon tc = superKind
-promoteKind (FunTy arg res) = FunTy (promoteKind arg) (promoteKind res)
-promoteKind k = pprPanic "promoteKind" (ppr k)
-\end{code}
-
 %************************************************************************
 %*									*
 \subsection{Splitting products}
@@ -1147,3 +1103,4 @@ tyConsOfTyCon tc = nameEnvElts (add tc emptyNameEnv)
      add tc env | tyConName tc `elemNameEnv` env = env
                 | otherwise = go (extendNameEnv env (tyConName tc) tc) tc
 \end{code}
+

@@ -1100,7 +1100,7 @@ kcHsTyVarBndrs :: KindCheckingStrategy
 kcHsTyVarBndrs strat (HsQTvs { hsq_kvs = kv_ns, hsq_tvs = hs_tvs }) thing_inside
   = do { kvs <- if skolem_kvs
                 then mapM mkKindSigVar kv_ns
-                else mapM (\n -> newSigTyVar n superKind) kv_ns
+                else mapM (\n -> newSigTyVar n liftedTypeKind Implicit) kv_ns
        ; tcExtendTyVarEnv2 (kv_ns `zip` kvs) $
     do { nks <- mapM (kc_hs_tv . unLoc) hs_tvs
        ; (res_kind, stuff) <- tcExtendKindEnv nks thing_inside
@@ -1419,14 +1419,14 @@ tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_kvs = sig_kvs, hswb_tvs = sig
 	; checkValidType ctxt sig_ty 
 	; return (sig_ty, ktv_binds) }
   where
-    new_kv name = new_tkv name superKind
+    new_kv name = new_tkv name liftedTypeKind Implicit
     new_tv name = do { kind <- newMetaKindVar
-                     ; new_tkv name kind }
+                     ; new_tkv name kind Explicit }
 
-    new_tkv name kind   -- See Note [Pattern signature binders]
+    new_tkv name kind imp  -- See Note [Pattern signature binders]
       = case ctxt of
-          RuleSigCtxt {} -> return (mkTcTyVar name kind (SkolemTv False))
-          _              -> newSigTyVar name kind  -- See Note [Unifying SigTvs]
+          RuleSigCtxt {} -> return (mkTcTyVar name kind (SkolemTv False) imp)
+          _              -> newSigTyVar name kind imp -- See Note [Unifying SigTvs]
 
 tcPatSig :: UserTypeCtxt
 	 -> HsWithBndrs (LHsType Name)

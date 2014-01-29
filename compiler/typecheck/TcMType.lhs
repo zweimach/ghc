@@ -108,7 +108,7 @@ kind_var_occ = mkOccName tvName "k"
 newMetaKindVar :: TcM TcKind
 newMetaKindVar = do { uniq <- newUnique
 		    ; details <- newMetaDetails TauTv
-                    ; let kv = mkTcTyVar (mkKindName uniq) superKind details
+                    ; let kv = mkTcTyVar (mkKindName uniq) liftedTypeKind details Implicit
 		    ; return (mkOnlyTyVarTy kv) }
 
 newMetaKindVars :: Int -> TcM [TcKind]
@@ -278,14 +278,14 @@ tcInstSigTyCoVar subst tv
                    else newEvVar (substTy subst (varType tv))
        ; return (extendTCvSubst subst tv (mkTyCoVarTy new_tv), new_tv) }
 
-newSigTyVar :: Name -> Kind -> TcM TcTyVar
-newSigTyVar name kind
+newSigTyVar :: Name -> Kind -> ImplicitFlag -> TcM TcTyVar
+newSigTyVar name kind imp
   = do { uniq <- newUnique
        ; let name' = setNameUnique name uniq
                       -- Use the same OccName so that the tidy-er
                       -- doesn't gratuitously rename 'a' to 'a0' etc
        ; details <- newMetaDetails SigTv
-       ; return (mkTcTyVar name' kind details) }
+       ; return (mkTcTyVar name' kind details imp) }
 
 newMetaDetails :: MetaInfo -> TcM TcTyVarDetails
 newMetaDetails info 

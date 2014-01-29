@@ -24,10 +24,10 @@ module TysPrim(
         kKiVar,
 
         -- Kind constructors...
-        superKindTyCon, superKind, anyKindTyCon, liftedTypeKindTyCon,
+        anyKindTyCon, liftedTypeKindTyCon,
         openTypeKindTyCon, unliftedTypeKindTyCon, constraintKindTyCon,
 
-        superKindTyConName, anyKindTyConName, liftedTypeKindTyConName,
+        anyKindTyConName, liftedTypeKindTyConName,
         openTypeKindTyConName, unliftedTypeKindTyConName,
         constraintKindTyConName,
 
@@ -143,7 +143,6 @@ primTyCons
     , unliftedTypeKindTyCon
     , openTypeKindTyCon
     , constraintKindTyCon
-    , superKindTyCon
     , anyKindTyCon
 
 #include "primop-vector-tycons.hs-incl"
@@ -199,10 +198,10 @@ alphaTyVars is a list of type variables for use in templates:
 	["a", "b", ..., "z", "t1", "t2", ... ]
 
 \begin{code}
-tyVarList :: Kind -> [TyVar]
-tyVarList kind = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u) 
-				(mkTyVarOccFS (mkFastString name))
-			 	noSrcSpan) kind
+tyVarList :: Kind -> ImplicitFlag -> [TyVar]
+tyVarList kind imp = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u) 
+		       		               (mkTyVarOccFS (mkFastString name))
+			 	               noSrcSpan) kind imp
 	         | u <- [2..],
 		   let name | c <= 'z'  = [c]
 		            | otherwise = 't':show u
@@ -210,10 +209,10 @@ tyVarList kind = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u)
 	         ]
 
 alphaTyVars :: [TyVar]
-alphaTyVars = tyVarList liftedTypeKind
+alphaTyVars = tyVarList liftedTypeKind Explicit
 
 betaTyVars :: [TyVar]
-betaTyVars = tail alphaTyVars
+betaTyVars = tail alphaTyVars Explicit
 
 alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar :: TyVar
 (alphaTyVar:betaTyVar:gammaTyVar:deltaTyVar:_) = alphaTyVars
@@ -228,14 +227,14 @@ alphaTy, betaTy, gammaTy, deltaTy :: Type
 	-- result type for "error", so that we can have (error Int# "Help")
 openAlphaTyVars :: [TyVar]
 openAlphaTyVar, openBetaTyVar :: TyVar
-openAlphaTyVars@(openAlphaTyVar:openBetaTyVar:_) = tyVarList openTypeKind
+openAlphaTyVars@(openAlphaTyVar:openBetaTyVar:_) = tyVarList openTypeKind Explicit
 
 openAlphaTy, openBetaTy :: Type
 openAlphaTy = mkOnlyTyVarTy openAlphaTyVar
 openBetaTy  = mkOnlyTyVarTy openBetaTyVar
 
 kKiVar :: KindVar
-kKiVar = (tyVarList superKind) !! 10
+kKiVar = (tyVarList liftedTypeKind Implicit) !! 10
   -- the 10 selects the 11th letter in the alphabet: 'k'
 
 \end{code}
@@ -285,50 +284,28 @@ funTyCon = mkFunTyCon funTyConName $
 %*									*
 %************************************************************************
 
-Note [SuperKind (BOX)]
-~~~~~~~~~~~~~~~~~~~~~~
-Kinds are classified by "super-kinds".  There is only one super-kind, namely BOX.
-
-Perhaps surprisingly we give BOX the kind BOX, thus   BOX :: BOX
-Reason: we want to have kind equalities, thus (without the kind applications)
-            keq :: * ~ * = Eq# <refl *>
-Remember that
-   (~)  :: forall (k:BOX). k -> k -> Constraint
-   (~#) :: forall (k:BOX). k -> k -> #
-   Eq#  :: forall (k:BOX). forall (a:k) (b:k). (~#) k a b -> (~) k a b
-
-So the full defn of keq is
-   keq :: (~) BOX * * = Eq# BOX * * <refl *>
-
-So you can see it's convenient to have BOX:BOX
-
-
 \begin{code}
 -- | See "Type#kind_subtyping" for details of the distinction between the 'Kind' 'TyCon's
-superKindTyCon, anyKindTyCon, liftedTypeKindTyCon,
+anyKindTyCon, liftedTypeKindTyCon,
       openTypeKindTyCon, unliftedTypeKindTyCon,
       constraintKindTyCon
    :: TyCon
-superKindTyConName, anyKindTyConName, liftedTypeKindTyConName,
+anyKindTyConName, liftedTypeKindTyConName,
       openTypeKindTyConName, unliftedTypeKindTyConName,
       constraintKindTyConName
    :: Name
 
-superKindTyCon        = mkKindTyCon superKindTyConName        superKind
-   -- See Note [SuperKind (BOX)]
-
-anyKindTyCon          = mkKindTyCon anyKindTyConName          superKind
-liftedTypeKindTyCon   = mkKindTyCon liftedTypeKindTyConName   superKind
-openTypeKindTyCon     = mkKindTyCon openTypeKindTyConName     superKind
-unliftedTypeKindTyCon = mkKindTyCon unliftedTypeKindTyConName superKind
-constraintKindTyCon   = mkKindTyCon constraintKindTyConName   superKind
+anyKindTyCon          = mkKindTyCon anyKindTyConName          liftedTypeKind
+liftedTypeKindTyCon   = mkKindTyCon liftedTypeKindTyConName   liftedTypeKind
+openTypeKindTyCon     = mkKindTyCon openTypeKindTyConName     liftedTypeKind
+unliftedTypeKindTyCon = mkKindTyCon unliftedTypeKindTyConName liftedTypeKind
+constraintKindTyCon   = mkKindTyCon constraintKindTyConName   liftedTypeKind
 
 --------------------------
 -- ... and now their names
 
 -- If you edit these, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-superKindTyConName      = mkPrimTyConName (fsLit "BOX") superKindTyConKey superKindTyCon
 anyKindTyConName          = mkPrimTyConName (fsLit "AnyK") anyKindTyConKey anyKindTyCon
 liftedTypeKindTyConName   = mkPrimTyConName (fsLit "*") liftedTypeKindTyConKey liftedTypeKindTyCon
 openTypeKindTyConName     = mkPrimTyConName (fsLit "OpenKind") openTypeKindTyConKey openTypeKindTyCon
@@ -350,9 +327,8 @@ kindTyConType :: TyCon -> Type
 kindTyConType kind = TyConApp kind []   -- mkTyConApp isn't defined yet
 
 -- | See "Type#kind_subtyping" for details of the distinction between these 'Kind's
-anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind, superKind :: Kind
+anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind :: Kind
 
-superKind        = kindTyConType superKindTyCon 
 anyKind          = kindTyConType anyKindTyCon  -- See Note [Any kinds]
 liftedTypeKind   = kindTyConType liftedTypeKindTyCon
 unliftedTypeKind = kindTyConType unliftedTypeKindTyCon
@@ -499,7 +475,7 @@ eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 		      -- See Note [The ~# TyCon]
 eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind (replicate 4 Nominal) VoidRep
   where kind = ForAllTy kv1 $ ForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
-        kVars = tyVarList superKind
+        kVars = tyVarList liftedTypeKind Implicit
         kv1 : kv2 : _ = kVars
         k1 = mkOnlyTyVarTy kv1
         k2 = mkOnlyTyVarTy kv2
