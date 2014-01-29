@@ -489,7 +489,7 @@ eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
                               [Nominal, Nominal, Representational, Representational]
                               VoidRep
   where kind = ForAllTy kv1 $ ForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
-        kVars         = tyVarList superKind
+        kVars         = tyVarList liftedTypeKind Implicit
         kv1 : kv2 : _ = kVars
         k1            = mkOnlyTyVarTy kv1
         k2            = mkOnlyTyVarTy kv2

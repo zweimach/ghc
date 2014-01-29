@@ -1081,7 +1081,7 @@ mkKindSigVar n
            Just (AThing k)
              | Just kvar <- getTyVar_maybe k
              -> return kvar
-           _ -> return $ mkTcTyVar n superKind (SkolemTv False) }
+           _ -> return $ mkTcTyVar n liftedTypeKind (SkolemTv False) Implicit }
 
 kcScopedKindVars :: [Name] -> TcM a -> TcM a
 -- Given some tyvar binders like [a (b :: k -> *) (c :: k)]
