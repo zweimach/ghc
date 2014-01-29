@@ -91,7 +91,6 @@ genGenericMetaTyCons tc mod =
         mkTyCon name = ASSERT( isExternalName name )
                        buildAlgTyCon name [] [] Nothing [] distinctAbstractTyConRhs
                                           NonRecursive 
-                                          False          -- Not promotable
                                           False          -- Not GADT syntax
                                           NoParentTyCon
 

@@ -631,6 +631,7 @@ Note [Closed type families]
 
 Note [Promoted data constructors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+TODO (RAE): Update note.
 A data constructor can be promoted to become a type constructor,
 via the PromotedDataCon alternative in TyCon.
 
@@ -930,7 +931,7 @@ mkAlgTyCon :: Name
            -> RecFlag           -- ^ Is the 'TyCon' recursive?
            -> Bool              -- ^ Was the 'TyCon' declared with GADT syntax?
            -> TyCon
-mkAlgTyCon name kind tyvars roles cType stupid rhs parent is_rec gadt_syn prom_tc
+mkAlgTyCon name kind tyvars roles cType stupid rhs parent is_rec gadt_syn
   = AlgTyCon {
         tyConName        = name,
         tyConUnique      = nameUnique name,
@@ -951,8 +952,7 @@ mkClassTyCon :: Name -> Kind -> [TyVar] -> [Role] -> AlgTyConRhs -> Class -> Rec
 mkClassTyCon name kind tyvars roles rhs clas is_rec
   = mkAlgTyCon name kind tyvars roles Nothing [] rhs (ClassTyCon clas) 
                is_rec False 
-               Nothing    -- Class TyCons are not pormoted
-
+  
 mkTupleTyCon :: Name
              -> Kind    -- ^ Kind of the resulting 'TyCon'
              -> Arity   -- ^ Arity of the tuple
@@ -960,7 +960,7 @@ mkTupleTyCon :: Name
              -> DataCon
              -> TupleSort    -- ^ Whether the tuple is boxed or unboxed
              -> TyCon
-mkTupleTyCon name kind arity tyvars con sort prom_tc
+mkTupleTyCon name kind arity tyvars con sort
   = TupleTyCon {
         tyConUnique = nameUnique name,
         tyConName = name,

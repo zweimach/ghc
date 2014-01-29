@@ -703,7 +703,6 @@ tcDataFamInstDecl mb_clsinfo
                     roles    = map (const Nominal) tvs'
                     rep_tc   = buildAlgTyCon rep_tc_name tvs' roles cType stupid_theta tc_rhs 
                                              Recursive 
-                                             False      -- No promotable to the kind level
                                              h98_syntax parent
                  -- We always assume that indexed types are recursive.  Why?
                  -- (1) Due to their open nature, we can never be sure that a

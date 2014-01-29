@@ -460,7 +460,7 @@ tc_hs_type hs_ty@(HsExplicitListTy _k tys) exp_kind
   = do { tks <- mapM tc_infer_lhs_type tys
        ; let taus = map fst tks
        ; kind <- unifyKinds (ptext (sLit "In a promoted list")) tks
-       ; checkExpectedKind hs_ty (mkPromotedListTy kind) exp_kind
+       ; checkExpectedKind hs_ty (mkListTy kind) exp_kind
        ; return (foldr (mk_cons kind) (mk_nil kind) taus) }
   where
     mk_cons k a b = mkTyConApp (promoteDataCon consDataCon) [k, a, b]
@@ -469,7 +469,7 @@ tc_hs_type hs_ty@(HsExplicitListTy _k tys) exp_kind
 tc_hs_type hs_ty@(HsExplicitTupleTy _ tys) exp_kind
   = do { tks <- mapM tc_infer_lhs_type tys
        ; let n          = length tys
-             kind_con   = promotedTupleTyCon   BoxedTuple n
+             kind_con   = tupleTyCon   BoxedTuple n
              ty_con     = promotedTupleDataCon BoxedTuple n
              (taus, ks) = unzip tks
              tup_k      = mkTyConApp kind_con ks
@@ -630,13 +630,10 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
            AGlobal (ATyCon tc) -> inst_tycon (mkTyConApp tc) (tyConKind tc)
 
            AGlobal (ADataCon dc)
-             | Just tc <- promoteDataCon_maybe dc
              -> do { data_kinds <- xoptM Opt_DataKinds
                    ; unless data_kinds $ promotionErr name NoDataKinds
+                   ; let tc = promoteDataCon dc
                    ; inst_tycon (mkTyConApp tc) (tyConKind tc) }
-             | otherwise -> failWithTc (ptext (sLit "Data constructor") <+> quotes (ppr dc)
-                                        <+> ptext (sLit "comes from an un-promotable type") 
-                                        <+> quotes (ppr (dataConTyCon dc)))
 
            APromotionErr err -> promotionErr name err
 
@@ -1088,7 +1085,7 @@ kcScopedKindVars :: [Name] -> TcM a -> TcM a
 -- bind each scoped kind variable (k in this case) to a fresh
 -- kind skolem variable
 kcScopedKindVars kv_ns thing_inside 
-  = do { kvs <- mapM (\n -> newSigTyVar n superKind) kv_ns
+  = do { kvs <- mapM (\n -> newSigTyVar n liftedTypeKind Implicit) kv_ns
                      -- NB: use mutable signature variables
        ; tcExtendTyVarEnv2 (kv_ns `zip` kvs) thing_inside } 
 
@@ -1179,7 +1176,7 @@ tcHsTyVarBndr (L _ hs_tv)
        { kind <- case hs_tv of
                    UserTyVar {}       -> newMetaKindVar
                    KindedTyVar _ kind -> tcLHsKind kind
-       ; return ( mkTcTyVar name kind (SkolemTv False)) } } }
+       ; return ( mkTcTyVar name kind (SkolemTv False) Explicit) } } }
 
 ------------------
 kindGeneralize :: TyVarSet -> TcM [KindVar]
@@ -1302,10 +1299,10 @@ tcTyClTyVars tycon (HsQTvs { hsq_kvs = hs_kvs, hsq_tvs = hs_tvs }) thing_inside
        ; tvs <- zipWithM tc_hs_tv hs_tvs kinds
        ; tcExtendTyVarEnv tvs (thing_inside (kvs ++ tvs) res) }
   where
-    tc_hs_tv (L _ (UserTyVar n))        kind = return (mkTyVar n kind)
+    tc_hs_tv (L _ (UserTyVar n))        kind = return (mkTyVar n kind Explicit)
     tc_hs_tv (L _ (KindedTyVar n hs_k)) kind = do { tc_kind <- tcLHsKind hs_k
                                                   ; checkKind kind tc_kind
-                                                  ; return (mkTyVar n kind) }
+                                                  ; return (mkTyVar n kind Explicit) }
 
 -----------------------------------
 tcDataKindSig :: Kind -> TcM [TyVar]
@@ -1323,7 +1320,7 @@ tcDataKindSig kind
 		 | ((kind, str), uniq) <- arg_kinds `zip` dnames `zip` uniqs ] }
   where
     (arg_kinds, res_kind) = splitFunTys kind
-    mk_tv loc uniq str kind = mkTyVar name kind
+    mk_tv loc uniq str kind = mkTyVar name kind Explicit
 	where
 	   name = mkInternalName uniq occ loc
 	   occ  = mkOccName tvName str
@@ -1697,14 +1694,14 @@ tc_hs_kind (HsFunTy ki1 ki2) =
 tc_hs_kind (HsListTy ki) =
   do kappa <- tc_lhs_kind ki
      checkWiredInTyCon listTyCon
-     return $ mkPromotedListTy kappa
+     return $ mkListTy kappa
 
 tc_hs_kind (HsTupleTy _ kis) =
   do kappas <- mapM tc_lhs_kind kis
      checkWiredInTyCon tycon
      return $ mkTyConApp tycon kappas
   where 
-     tycon = promotedTupleTyCon BoxedTuple (length kis)
+     tycon = tupleTyCon BoxedTuple (length kis)
 
 -- Argument not kind-shaped
 tc_hs_kind k = pprPanic "tc_hs_kind" (ppr k)
@@ -1737,11 +1734,7 @@ tc_kind_var_app name arg_kis
   	   AGlobal (ATyCon tc)
   	     -> do { data_kinds <- xoptM Opt_DataKinds
   	           ; unless data_kinds $ addErr (dataKindsErr name)
-  	     	   ; case promotableTyCon_maybe tc of
-  	     	       Just prom_tc | arg_kis `lengthIs` tyConArity prom_tc
-  	     	               -> return (mkTyConApp prom_tc arg_kis)
-  	     	       Just _  -> tycon_err tc "is not fully applied"
-  	     	       Nothing -> tycon_err tc "is not promotable" }
+  	     	   ; return (mkTyConApp tc arg_kis)
 
   	   -- A lexically scoped kind variable
   	   ATyVar _ kind_var 

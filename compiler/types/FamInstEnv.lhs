@@ -1267,7 +1267,9 @@ coreFlattenTyFamApp env fam_tc fam_args
               -- any good source of uniques. So, we generate one from thin
               -- air, using the arbitrary prime number 71 as a seed
       Nothing -> let tyvar_name = mkFlattenFreshTyName fam_tc
-                     tv = uniqAway in_scope $ mkTyVar tyvar_name (typeKind fam_ty)
+                     tv = uniqAway in_scope $ mkTyVar tyvar_name
+                                                      (typeKind fam_ty)
+                                                      Don'tCareImp
                      env' = env { fe_type_map = extendTypeMap type_map fam_ty tv
                                 , fe_in_scope = extendInScopeSet in_scope tv }
                  in (env', tv)

@@ -358,8 +358,7 @@ recursiveness, because we need only look at the type decls in the module being
 compiled, plus the outer structure of directly-mentioned types.
 
 \begin{code}
-data RecTyInfo = RTI { rti_promotable :: Bool
-                     , rti_roles      :: Name -> [Role]
+data RecTyInfo = RTI { rti_roles      :: Name -> [Role]
                      , rti_is_rec     :: Name -> RecFlag }
 
 calcRecFlags :: ModDetails -> Bool  -- hs-boot file?
@@ -367,16 +366,12 @@ calcRecFlags :: ModDetails -> Bool  -- hs-boot file?
 -- The 'boot_names' are the things declared in M.hi-boot, if M is the current module.
 -- Any type constructors in boot_names are automatically considered loop breakers
 calcRecFlags boot_details is_boot mrole_env tyclss
-  = RTI { rti_promotable = is_promotable
-        , rti_roles      = roles
+  = RTI { rti_roles      = roles
         , rti_is_rec     = is_rec }
   where
-    rec_tycon_names = mkNameSet (map tyConName all_tycons)
     all_tycons = mapCatMaybes getTyCon tyclss
                    -- Recursion of newtypes/data types can happen via
                    -- the class TyCon, so tyclss includes the class tycons
-
-    is_promotable = all (isPromotableTyCon rec_tycon_names) all_tycons
 
     roles = inferRoles is_boot mrole_env all_tycons
 
@@ -467,67 +462,6 @@ findLoopBreakers deps
     go edges = [ name
                | CyclicSCC ((tc,_,_) : edges') <- stronglyConnCompFromEdgedVerticesR edges,
                  name <- tyConName tc : go edges']
-\end{code}
-
-
-%************************************************************************
-%*                                                                      *
-                  Promotion calculation
-%*                                                                      *
-%************************************************************************
-
-See Note [Checking whether a group is promotable]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We only want to promote a TyCon if all its data constructors
-are promotable; it'd be very odd to promote some but not others.
-
-But the data constructors may mention this or other TyCons.
-
-So we treat the recursive uses as all OK (ie promotable) and
-do one pass to check that each TyCon is promotable.
-
-Currently type synonyms are not promotable, though that
-could change.
-
-\begin{code}
-isPromotableTyCon :: NameSet -> TyCon -> Bool
-isPromotableTyCon rec_tycons tc
-  =  isAlgTyCon tc    -- Only algebraic; not even synonyms
-                     -- (we could reconsider the latter)
-  && ok_kind (tyConKind tc)
-  && case algTyConRhs tc of 
-       DataTyCon { data_cons = cs } -> all ok_con cs 
-       NewTyCon { data_con = c }    -> ok_con c
-       AbstractTyCon {}             -> False
-       DataFamilyTyCon {}           -> False
-
-  where
-    ok_kind kind = all isLiftedTypeKind args && isLiftedTypeKind res
-            where  -- Checks for * -> ... -> * -> *
-              (args, res) = splitFunTys kind
-
-    -- See Note [Promoted data constructors] in TyCon
-    ok_con con = all (isLiftedTypeKind . tyVarKind) ex_tvs
-              && null eq_spec   -- No constraints
-              && null theta
-              && all (isPromotableType rec_tycons) orig_arg_tys
-       where
-         (_, ex_tvs, eq_spec, theta, orig_arg_tys, _) = dataConFullSig con
-
-
-isPromotableType :: NameSet -> Type -> Bool
--- The function lives here because we must treat the
--- *recursive* tycons as promotable
-isPromotableType rec_tcs con_arg_ty
-  = go con_arg_ty
-  where
-    go (TyConApp tc tys) =  tys `lengthIs` tyConArity tc 
-                         && (tyConName tc `elemNameSet` rec_tcs 
-                             || isJust (promotableTyCon_maybe tc))
-                         && all go tys
-    go (FunTy arg res) 	 = go arg && go res
-    go (TyVarTy {})    	 = True
-    go _               	 = False
 \end{code}
 
 %************************************************************************

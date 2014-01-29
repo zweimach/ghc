@@ -277,7 +277,7 @@ zonkTyCoBndrX :: ZonkEnv -> TyCoVar -> TcM (ZonkEnv, TyCoVar)
 zonkTyCoBndrX env tv
   = do { ki <- zonkTcTypeToType env (tyVarKind tv)
        ; if isTyVar tv
-         then let tv' = mkTyVar (tyVarName tv) ki in
+         then let tv' = setTyVarKind tv ki in
               return (extendTyZonkEnv1 env tv', tv')
          else let tv' = setVarType tv ki in
               return (extendIdZonkEnv1 env tv', tv') }

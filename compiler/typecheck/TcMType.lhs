@@ -218,7 +218,7 @@ tcSuperSkolTyCoVar subst tv
   = (extendTCvSubst subst tv (mkTyCoVarTy new_tv), new_tv)
   where
     kind   = substTy subst (tyVarKind tv)
-    new_tv | isTyVar tv = mkTcTyVar (tyVarName tv) kind superSkolemTv
+    new_tv | isTyVar tv = mkTcTyVar (tyVarName tv) kind superSkolemTv (tyVarImp tv)
            | otherwise  = uniqAway (getTCvInScope subst) (setVarType tv kind)
 
 tcInstSkolTyCoVar :: SrcSpan -> Bool -> TCvSubst -> TyCoVar
@@ -232,7 +232,7 @@ tcInstSkolTyCoVar loc overlappable subst tyvar
   | isTyVar tyvar
   = do  { uniq <- newUnique
         ; let new_name = mkInternalName uniq occ loc
-              new_tv   = mkTcTyVar new_name kind (SkolemTv overlappable)
+              new_tv   = mkTcTyVar new_name kind (SkolemTv overlappable) (tyVarImp tyvar)
         ; return (extendTCvSubst subst tyvar (mkOnlyTyVarTy new_tv), new_tv) }
   | otherwise -- coercion variable
   = do  { ev_var <- newEvVar kind
@@ -275,6 +275,7 @@ tcInstSigTyCoVar :: TCvSubst -> TyCoVar -> TcM (TCvSubst, TcTyCoVar)
 tcInstSigTyCoVar subst tv
   = do { new_tv <- if isTyVar tv
                    then newSigTyVar (tyVarName tv) (substTy subst (tyVarKind tv))
+                                    (tyVarImp tv)
                    else newEvVar (substTy subst (varType tv))
        ; return (extendTCvSubst subst tv (mkTyCoVarTy new_tv), new_tv) }
 
@@ -327,7 +328,7 @@ newMetaTyVar meta_info kind
                         TauTv  -> fsLit "t"
                         SigTv  -> fsLit "a"
         ; details <- newMetaDetails meta_info
-	; return (mkTcTyVar name kind details) }
+	; return (mkTcTyVar name kind details Don'tCareImp) }
 
 cloneMetaTyVar :: TcTyVar -> TcM TcTyVar
 cloneMetaTyVar tv
@@ -338,7 +339,7 @@ cloneMetaTyVar tv
               details' = case tcTyVarDetails tv of 
                            details@(MetaTv {}) -> details { mtv_ref = ref }
                            _ -> pprPanic "cloneMetaTyVar" (ppr tv)
-        ; return (mkTcTyVar name' (tyVarKind tv) details') }
+        ; return (mkTcTyVar name' (tyVarKind tv) details' (tyVarImp tv)) }
 
 mkTcTyVarName :: Unique -> FastString -> Name
 -- Make sure that fresh TcTyVar names finish with a digit
@@ -447,7 +448,7 @@ correctly. See also [Wrapping coercions embedded in types] in TcEvidence.
 
 \begin{code}
 newFlexiTyVar :: Kind -> TcM TcTyVar
-newFlexiTyVar kind = newMetaTyVar TauTv kind
+newFlexiTyVar kind imp = newMetaTyVar TauTv kind
 
 newFlexiTyVarTy  :: Kind -> TcM TcType
 newFlexiTyVarTy kind = do
@@ -487,7 +488,7 @@ tcInstTyCoVarX origin subst tyvar
         ; details <- newMetaDetails TauTv
         ; let name   = mkSystemName uniq (getOccName tyvar)
               kind   = substTy subst (tyVarKind tyvar)
-              new_tv = mkTcTyVar name kind details 
+              new_tv = mkTcTyVar name kind details (tyVarImp tyvar)
         ; return (extendTCvSubst subst tyvar (mkOnlyTyVarTy new_tv), new_tv) }
   | otherwise
   = do { new_cv <- newEvVar (substTy subst (varType tyvar))
@@ -628,7 +629,7 @@ skolemiseUnboundMetaTyVar tv details
         ; kind <- zonkTcKind (tyVarKind tv)
         ; let final_kind = defaultKind kind
               final_name = mkInternalName uniq (getOccName tv) span
-              final_tv   = mkTcTyVar final_name final_kind details
+              final_tv   = mkTcTyVar final_name final_kind details (tyVarImp tv)
 
         ; writeMetaTyVar tv (mkTyCoVarTy final_tv)
         ; return final_tv }

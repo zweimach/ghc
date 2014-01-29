@@ -117,10 +117,10 @@ newDummyVar = newLocalVar (fsLit "vv")
 -- |Make a fresh type variable with the given kind.
 -- The variable's name is formed using the given string as the prefix.
 --
-newTyVar :: FastString -> Kind -> VM Var
-newTyVar fs k
+newTyVar :: FastString -> Kind -> ImplicitFlag -> VM Var
+newTyVar fs k imp
  = do u <- liftDs newUnique
-      return $ mkTyVar (mkSysTvName u fs) k
+      return $ mkTyVar (mkSysTvName u fs) k imp
 
 -- |Mkae a fresh coercion variable with the given kind.
 newCoVar :: FastString -> Kind -> VM Var

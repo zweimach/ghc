@@ -59,13 +59,13 @@ module Var (
         isLocalVar, isLocalId, isCoVar,
 	isGlobalId, isExportedId,
 	mustHaveLocalBinding,
-        isImplicitTyVar,
 
 	-- ** Constructing 'TyVar's
 	mkTyVar, mkTcTyVar,
 
 	-- ** Taking 'TyVar's apart
         tyVarName, tyVarKind, tcTyVarDetails, setTcTyVarDetails,
+        tyVarImp, isImplicitTyVar,
 
 	-- ** Modifying 'TyVar's
 	setTyVarName, setTyVarUnique, setTyVarKind, updateTyVarKind,
@@ -200,8 +200,9 @@ data ExportFlag
 
 -- See Note [Implicit flags]
 data ImplicitFlag
-  = Implicit  -- ^ The parameter is not supplied
-  | Explicit  -- ^ The parameter must be supplied
+  = Implicit     -- ^ The parameter is not supplied
+  | Explicit     -- ^ The parameter must be supplied
+  | Don'tCareImp -- ^ This tyvar is never used as a parameter
 \end{code}
 
 Note [Implicit flags]
@@ -309,6 +310,14 @@ tyVarName = varName
 
 tyVarKind :: TyVar -> Kind
 tyVarKind = varType
+
+tyVarImp :: TyVar -> ImplicitFlag
+tyVarImp = isImplicit
+
+isImplicitTyVar :: TyVar -> Bool
+isImplicitTyVar (TyVar { isImplicit = Implicit })   = True
+isImplicitTyVar (TcTyVar { isImplicit = Implicit }) = True
+isImplicitTyVar _                                   = False
 
 setTyVarUnique :: TyVar -> Unique -> TyVar
 setTyVarUnique = setVarUnique

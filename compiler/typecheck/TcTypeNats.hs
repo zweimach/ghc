@@ -13,7 +13,6 @@ import TcRnTypes  ( Xi )
 import CoAxiom    ( CoAxiomRule(..), BuiltInSynFamily(..) )
 import Name       ( Name, BuiltInSyntax(..) )
 import TysWiredIn ( typeNatKind, mkWiredInTyConName
-                  , promotedBoolTyCon
                   , promotedFalseDataCon, promotedTrueDataCon
                   )
 import TysPrim    ( tyVarList, mkArrowKinds )
@@ -88,7 +87,7 @@ typeNatExpTyCon = mkTypeNatFunTyCon2 name
 typeNatLeqTyCon :: TyCon
 typeNatLeqTyCon =
   mkSynTyCon name
-    (mkArrowKinds [ typeNatKind, typeNatKind ] boolKind)
+    (mkArrowKinds [ typeNatKind, typeNatKind ] boolTy)
     (take 2 $ tyVarList typeNatKind)
     [Nominal,Nominal]
     (BuiltInSynFamTyCon ops)
@@ -216,9 +215,6 @@ x === y = Pair x y
 
 num :: Integer -> Type
 num = mkNumLitTy
-
-boolKind :: Kind
-boolKind = mkTyConApp promotedBoolTyCon []
 
 bool :: Bool -> Type
 bool b = if b then mkTyConApp promotedTrueDataCon []

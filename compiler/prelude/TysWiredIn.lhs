@@ -14,7 +14,7 @@ module TysWiredIn (
         boolTy, boolTyCon, boolTyCon_RDR, boolTyConName,
         trueDataCon,  trueDataConId,  true_RDR,
         falseDataCon, falseDataConId, false_RDR,
-        promotedBoolTyCon, promotedFalseDataCon, promotedTrueDataCon,
+        promotedFalseDataCon, promotedTrueDataCon,
 
         -- * Ordering
         ltDataCon, ltDataConId,
@@ -44,12 +44,12 @@ module TysWiredIn (
         -- * List
         listTyCon, nilDataCon, nilDataConName, consDataCon, consDataConName,
         listTyCon_RDR, consDataCon_RDR, listTyConName,
-        mkListTy, mkPromotedListTy,
+        mkListTy,
 
         -- * Tuples
         mkTupleTy, mkBoxedTupleTy,
         tupleTyCon, tupleCon,
-        promotedTupleTyCon, promotedTupleDataCon,
+        promotedTupleDataCon,
         unitTyCon, unitDataCon, unitDataConId, pairTyCon,
         unboxedUnitTyCon, unboxedUnitDataCon,
         unboxedSingletonTyCon, unboxedSingletonDataCon,
@@ -247,13 +247,13 @@ eqTyCon_RDR     = nameRdrName eqTyConName
 
 \begin{code}
 pcNonRecDataTyCon :: Name -> Maybe CType -> [TyVar] -> [DataCon] -> TyCon
--- Not an enumeration, not promotable
-pcNonRecDataTyCon = pcTyCon False NonRecursive False
+-- Not an enumeration
+pcNonRecDataTyCon = pcTyCon False NonRecursive
 
 -- This function assumes that the types it creates have all parameters at
 -- Representational role!
-pcTyCon :: Bool -> RecFlag -> Bool -> Name -> Maybe CType -> [TyVar] -> [DataCon] -> TyCon
-pcTyCon is_enum is_rec is_prom name cType tyvars cons
+pcTyCon :: Bool -> RecFlag -> Name -> Maybe CType -> [TyVar] -> [DataCon] -> TyCon
+pcTyCon is_enum is_rec name cType tyvars cons
   = tycon
   where
     tycon = buildAlgTyCon name
@@ -263,7 +263,6 @@ pcTyCon is_enum is_rec is_prom name cType tyvars cons
                 []              -- No stupid theta
                 (DataTyCon cons is_enum)
                 is_rec
-                is_prom
                 False           -- Not in GADT syntax
                 NoParentTyCon
 
@@ -317,12 +316,12 @@ pcDataConWithFixity' declared_infix dc_name wrk_key tyvars arg_tys tycon
 typeNatKindCon, typeSymbolKindCon :: TyCon
 -- data Nat
 -- data Symbol
-typeNatKindCon    = pcTyCon False NonRecursive True typeNatKindConName    Nothing [] []
-typeSymbolKindCon = pcTyCon False NonRecursive True typeSymbolKindConName Nothing [] []
+typeNatKindCon    = pcTyCon False NonRecursive typeNatKindConName    Nothing [] []
+typeSymbolKindCon = pcTyCon False NonRecursive typeSymbolKindConName Nothing [] []
 
 typeNatKind, typeSymbolKind :: Kind
-typeNatKind    = TyConApp (promoteTyCon typeNatKindCon)    []
-typeSymbolKind = TyConApp (promoteTyCon typeSymbolKindCon) []
+typeNatKind    = TyConApp typeNatKindCon    []
+typeSymbolKind = TyConApp typeSymbolKindCon []
 \end{code}
 
 
@@ -357,9 +356,6 @@ tupleTyCon BoxedTuple   i = fst (boxedTupleArr   ! i)
 tupleTyCon UnboxedTuple i = fst (unboxedTupleArr ! i)
 tupleTyCon ConstraintTuple    i = fst (factTupleArr    ! i)
 
-promotedTupleTyCon :: TupleSort -> Arity -> TyCon
-promotedTupleTyCon sort i = promoteTyCon (tupleTyCon sort i)
-
 promotedTupleDataCon :: TupleSort -> Arity -> TyCon
 promotedTupleDataCon sort i = promoteDataCon (tupleCon sort i)
 
@@ -377,11 +373,7 @@ factTupleArr = listArray (0,mAX_TUPLE_SIZE) [mk_tuple ConstraintTuple i | i <- [
 mk_tuple :: TupleSort -> Int -> (TyCon,DataCon)
 mk_tuple sort arity = (tycon, tuple_con)
   where
-        tycon   = mkTupleTyCon tc_name tc_kind arity tyvars tuple_con sort prom_tc
-        prom_tc = case sort of
-          BoxedTuple      -> Just (mkPromotedTyCon tycon (promoteKind tc_kind))
-          UnboxedTuple    -> Nothing
-          ConstraintTuple -> Nothing
+        tycon   = mkTupleTyCon tc_name tc_kind arity tyvars tuple_con sort
 
         modu    = mkTupleModule sort arity
         tc_name = mkWiredInName modu (mkTupleOcc tcName sort arity) tc_uniq
@@ -449,7 +441,6 @@ eqTyCon = mkAlgTyCon eqTyConName
             NoParentTyCon
             NonRecursive
             False
-            Nothing   -- No parent for constraint-kinded types
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
@@ -621,7 +612,7 @@ boolTy :: Type
 boolTy = mkTyConTy boolTyCon
 
 boolTyCon :: TyCon
-boolTyCon = pcTyCon True NonRecursive True boolTyConName
+boolTyCon = pcTyCon True NonRecursive boolTyConName
                     (Just (CType Nothing (fsLit "HsBool")))
                     [] [falseDataCon, trueDataCon]
 
@@ -634,7 +625,7 @@ falseDataConId = dataConWorkId falseDataCon
 trueDataConId  = dataConWorkId trueDataCon
 
 orderingTyCon :: TyCon
-orderingTyCon = pcTyCon True NonRecursive True orderingTyConName Nothing
+orderingTyCon = pcTyCon True NonRecursive orderingTyConName Nothing
                         [] [ltDataCon, eqDataCon, gtDataCon]
 
 ltDataCon, eqDataCon, gtDataCon :: DataCon
@@ -668,14 +659,8 @@ mkListTy :: Type -> Type
 mkListTy ty = mkTyConApp listTyCon [ty]
 
 listTyCon :: TyCon
-listTyCon = pcTyCon False Recursive True
+listTyCon = pcTyCon False Recursive
                     listTyConName Nothing alpha_tyvar [nilDataCon, consDataCon]
-
-mkPromotedListTy :: Type -> Type
-mkPromotedListTy ty = mkTyConApp promotedListTyCon [ty]
-
-promotedListTyCon :: TyCon
-promotedListTyCon = promoteTyCon listTyCon
 
 nilDataCon :: DataCon
 nilDataCon  = pcDataCon nilDataConName alpha_tyvar [] listTyCon
@@ -825,8 +810,7 @@ isPArrFakeCon dcon  = dcon == parrFakeCon (dataConSourceArity dcon)
 Promoted Booleans
 
 \begin{code}
-promotedBoolTyCon, promotedFalseDataCon, promotedTrueDataCon :: TyCon
-promotedBoolTyCon     = promoteTyCon boolTyCon
+promotedFalseDataCon, promotedTrueDataCon :: TyCon
 promotedTrueDataCon   = promoteDataCon trueDataCon
 promotedFalseDataCon  = promoteDataCon falseDataCon
 \end{code}

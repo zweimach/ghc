@@ -750,7 +750,6 @@ tcFamDecl1 parent
         roles     = map (const Nominal) final_tvs
         tycon = buildAlgTyCon tc_name final_tvs roles Nothing []
                               DataFamilyTyCon Recursive
-                              False   -- Not promotable to the kind level
                               True    -- GADT syntax
                               parent
   ; return [ATyCon tycon] }
@@ -806,7 +805,6 @@ tcDataDefn rec_info tc_name tvs kind
                                     mkNewTyConRhs tc_name tycon (head data_cons)
              ; return (buildAlgTyCon tc_name final_tvs roles cType stupid_theta tc_rhs
                                      (rti_is_rec rec_info tc_name)
-                                     (rti_promotable rec_info)
                                      (not h98_syntax) NoParentTyCon) }
        ; return [ATyCon tycon] }
 \end{code}

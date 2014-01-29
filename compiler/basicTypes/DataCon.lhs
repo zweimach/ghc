@@ -47,14 +47,13 @@ module DataCon (
         isBanged, isMarkedStrict, eqHsBang,
 
         -- ** Promotion related functions
-        promoteKind, promoteDataCon, promoteDataCon_maybe
+        promoteDataCon
     ) where
 
 #include "HsVersions.h"
 
 import {-# SOURCE #-} MkId( DataConBoxer )
 import Type
-import TyCoRep( Type(..) )  -- Used in promoteType
 import ForeignCall( CType )
 import Coercion
 import Kind
@@ -393,8 +392,8 @@ data DataCon
 				-- Used for Template Haskell and 'deriving' only
 				-- The actual fixity is stored elsewhere
 
-        dcPromoted :: Maybe TyCon    -- The promoted TyCon if this DataCon is promotable
-                                     -- See Note [Promoted data constructors] in TyCon
+        dcPromoted :: TyCon    -- The promoted TyCon
+                               -- See Note [Promoted data constructors] in TyCon
   }
   deriving Data.Typeable.Typeable
 
@@ -640,7 +639,7 @@ mkDataCon name declared_infix
                   dcRep = rep, 
                   dcSourceArity = length orig_arg_tys + count isId ex_tvs,
                   dcRepArity = length rep_arg_tys + count isId ex_tvs,
-                  dcPromoted = mb_promoted }
+                  dcPromoted = promoted }
 
 	-- The 'arg_stricts' passed to mkDataCon are simply those for the
 	-- source-language arguments.  We add extra ones for the
@@ -652,14 +651,9 @@ mkDataCon name declared_infix
 	     mkPiTypesNoTv rep_arg_tys $
 	     mkTyConApp rep_tycon (mkTyCoVarTys univ_tvs)
 
-    mb_promoted   -- See Note [Promoted data constructors] in TyCon
-      | isJust (promotableTyCon_maybe rep_tycon)
-          -- The TyCon is promotable only if all its datacons
-          -- are, so the promoteType for prom_kind should succeed
-      = Just (mkPromotedDataCon con name (getUnique name) prom_kind roles)
-      | otherwise 
-      = Nothing          
-    prom_kind = promoteType (dataConUserType con)
+    promoted   -- See Note [Promoted data constructors] in TyCon
+               -- TODO (RAE): Update note.
+      = mkPromotedDataCon con name (getUnique name) kind roles
 
                 -- covars have role P
     roles = map (\tv -> if isTyVar tv then Nominal else Phantom)
@@ -1014,13 +1008,12 @@ buildAlgTyCon :: Name
 	      -> ThetaType	       -- ^ Stupid theta
 	      -> AlgTyConRhs
 	      -> RecFlag
-	      -> Bool		       -- ^ True <=> this TyCon is promotable
 	      -> Bool		       -- ^ True <=> was declared in GADT syntax
               -> TyConParent
 	      -> TyCon
 
 buildAlgTyCon tc_name ktvs roles cType stupid_theta rhs 
-              is_rec is_promotable gadt_syn parent
+              is_rec gadt_syn parent
   = tc
   where 
     kind = mkPiKinds ktvs liftedTypeKind
@@ -1028,11 +1021,6 @@ buildAlgTyCon tc_name ktvs roles cType stupid_theta rhs
     -- tc and mb_promoted_tc are mutually recursive
     tc = mkAlgTyCon tc_name kind ktvs roles cType stupid_theta 
                     rhs parent is_rec gadt_syn 
-                    mb_promoted_tc
-
-    mb_promoted_tc
-      | is_promotable = Just (mkPromotedTyCon tc (promoteKind kind))
-      | otherwise     = Nothing
 \end{code}
 
 
@@ -1048,11 +1036,7 @@ These two 'promoted..' functions are here because
 
 \begin{code}
 promoteDataCon :: DataCon -> TyCon
-promoteDataCon (MkData { dcPromoted = Just tc }) = tc
-promoteDataCon dc = pprPanic "promoteDataCon" (ppr dc)
-
-promoteDataCon_maybe :: DataCon -> Maybe TyCon
-promoteDataCon_maybe (MkData { dcPromoted = mb_tc }) = mb_tc
+promoteDataCon (MkData { dcPromoted = tc }) = tc
 \end{code}
 
 %************************************************************************

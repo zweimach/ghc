@@ -573,7 +573,7 @@ bindLocalsAtBreakpoint hsc_env apStack Nothing = do
        exn_name  = mkInternalName (getUnique exn_fs) (mkVarOccFS exn_fs) span
        e_fs      = fsLit "e"
        e_name    = mkInternalName (getUnique e_fs) (mkTyVarOccFS e_fs) span
-       e_tyvar   = mkRuntimeUnkTyVar e_name liftedTypeKind
+       e_tyvar   = mkRuntimeUnkTyVar e_name liftedTypeKind Don'tCareImp
        exn_id    = AnId $ Id.mkVanillaGlobal exn_name (mkOnlyTyVarTy e_tyvar)
 
        ictxt0 = hsc_IC hsc_env
@@ -669,7 +669,9 @@ bindLocalsAtBreakpoint hsc_env apStack (Just info) = do
      -- Similarly, clone the type variables mentioned in the types
      -- we have here, *and* make them all RuntimeUnk tyars
    newTyVars us tvs
-     = mkTopTCvSubst [ (tv, mkTyCoVarTy (mkRuntimeUnkTyVar name (tyVarKind tv)))
+     = mkTopTCvSubst [ (tv, mkTyCoVarTy (mkRuntimeUnkTyVar name (tyVarKind tv)
+                                                           Don'tCareImp))
+                                                     -- TODO (RAE): Check?
                      | (tv, uniq) <- varSetElems tvs `zip` uniqsFromSupply us
                      , let name = setNameUnique (tyVarName tv) uniq ]
 
@@ -1044,7 +1046,7 @@ reconstructType hsc_env bound id = do
               hv <- Linker.getHValue hsc_env (varName id)
               cvReconstructType hsc_env bound (idType id) hv
 
-mkRuntimeUnkTyVar :: Name -> Kind -> TyVar
-mkRuntimeUnkTyVar name kind = mkTcTyVar name kind RuntimeUnk
+mkRuntimeUnkTyVar :: Name -> Kind -> ImplicitFlag -> TyVar
+mkRuntimeUnkTyVar name kind imp = mkTcTyVar name kind RuntimeUnk imp
 #endif /* GHCI */
 

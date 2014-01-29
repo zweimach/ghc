@@ -37,7 +37,7 @@ paDictArgType tv = go (mkTyCoVarTy tv) (tyVarKind tv)
       = do
           tv   <- if isCoercionType k1
                   then newCoVar (fsLit "c") k1
-                  else newTyVar (fsLit "a") k1
+                  else newTyVar (fsLit "a") k1 Explicit -- TODO (RAE): Check?
           mty1 <- go (mkTyCoVarTy tv) k1
           case mty1 of
             Just ty1 -> do

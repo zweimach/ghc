@@ -449,8 +449,7 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
                           ifRoles = roles,
                           ifCtxt = ctxt, ifGadtSyntax = gadt_syn,
                           ifCons = rdr_cons,
-                          ifRec = is_rec, ifPromotable = is_prom,
-                          ifAxiom = mb_axiom_name })
+                          ifRec = is_rec, ifAxiom = mb_axiom_name })
   = bindIfaceTyVars_AT tv_bndrs $ \ tyvars -> do
     { tc_name <- lookupIfaceTop occ_name
     ; tycon <- fixM $ \ tycon -> do
@@ -458,7 +457,7 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
             ; parent' <- tc_parent tyvars mb_axiom_name
             ; cons <- tcIfaceDataCons tc_name tycon tyvars rdr_cons
             ; return (buildAlgTyCon tc_name tyvars roles cType stupid_theta
-                                    cons is_rec is_prom gadt_syn parent') }
+                                    cons is_rec gadt_syn parent') }
     ; traceIf (text "tcIfaceDecl4" <+> ppr tycon)
     ; return (ATyCon tycon) }
   where
@@ -1513,9 +1512,7 @@ tcIfaceTyCon kf (IfaceTc name)
   = do { thing <- tcIfaceGlobal name
        ; case (thing, kf) of    -- A "type constructor" can be a promoted data constructor
                           --           c.f. Trac #5881
-           (ATyCon tc, KindLevel)
-             | isSuperKind (tyConKind tc) -> return tc
-             | otherwise                  -> return (promoteTyCon tc)
+           (ATyCon tc, KindLevel) -> return tc
            (ATyCon tc, TypeLevel) -> return tc
            (ADataCon dc, _)       -> return (promoteDataCon dc)
            _ -> pprPanic "tcIfaceTyCon" (ppr name $$ ppr thing) }

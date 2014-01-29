@@ -568,7 +568,7 @@ deriveTyDecl (L _ decl@(DataDecl { tcdLName = L loc tc_name
              pdcs :: [LDerivDecl Name]
              pdcs = [ L loc (DerivDecl (L loc (HsAppTy (noLoc (HsTyVar typeableClassName))
                                        (L loc (HsTyVar (tyConName pdc))))))
-                    | Just pdc <- map promoteDataCon_maybe (tyConDataCons tc) ]
+                    | pdc <- map promoteDataCon (tyConDataCons tc) ]
         -- If AutoDeriveTypeable and DataKinds is set, we add Typeable instances
         -- for every promoted data constructor of datatypes in this module
        ; isAutoTypeable <- xoptM Opt_AutoDeriveTypeable
