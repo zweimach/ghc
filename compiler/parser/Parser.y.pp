@@ -1141,6 +1141,7 @@ atype :: { LHsType RdrName }
         | '[' ctype ',' comma_types1 ']'              { LL $ HsExplicitListTy placeHolderKind ($2 : $4) }
         | INTEGER            {% mkTyLit $ LL $ HsNumTy $ getINTEGER $1 }
         | STRING             {% mkTyLit $ LL $ HsStrTy $ getSTRING  $1 }
+        | '*'                             { L1 $ HsTyVar (nameRdrName liftedTypeKindTyConName) }
 
 -- An inst_type is what occurs in the head of an instance decl
 --      e.g.  (Foo a, Gaz b) => Wibble a b
@@ -1189,28 +1190,7 @@ varids0 :: { Located [RdrName] }
 -- Kinds
 
 kind :: { LHsKind RdrName }
-        : bkind                  { $1 }
-        | bkind '->' kind        { LL $ HsFunTy $1 $3 }
-
-bkind :: { LHsKind RdrName }
-        : akind                  { $1 }
-        | bkind akind            { LL $ HsAppTy $1 $2 }
-
-akind :: { LHsKind RdrName }
-        : '*'                    { L1 $ HsTyVar (nameRdrName liftedTypeKindTyConName) }
-        | '(' kind ')'           { LL $ HsParTy $2 }
-        | pkind                  { $1 }
-        | tyvar                  { L1 $ HsTyVar (unLoc $1) }
-
-pkind :: { LHsKind RdrName }  -- promoted type, see Note [Promotion]
-        : qtycon                          { L1 $ HsTyVar $ unLoc $1 }
-        | '(' ')'                         { LL $ HsTyVar $ getRdrName unitTyCon }
-        | '(' kind ',' comma_kinds1 ')'   { LL $ HsTupleTy HsBoxedTuple ($2 : $4) }
-        | '[' kind ']'                    { LL $ HsListTy $2 }
-
-comma_kinds1 :: { [LHsKind RdrName] }
-        : kind                          { [$1] }
-        | kind  ',' comma_kinds1        { $1 : $3 }
+        : type                   { $1 }
 
 {- Note [Promotion]
    ~~~~~~~~~~~~~~~~
@@ -1222,12 +1202,6 @@ few reasons:
   1. we don't need quotes since we cannot define names in kinds
   2. if one day we merge types and kinds, tick would mean look in DataName
   3. we don't have a kind namespace anyway
-
-- Syntax of explicit kind polymorphism  (IA0_TODO: not yet implemented)
-Kind abstraction is implicit. We write
-> data SList (s :: k -> *) (as :: [k]) where ...
-because it looks like what we do in terms
-> id (x :: a) = x
 
 - Name resolution
 When the user write Zero instead of 'Zero in types, we parse it a
