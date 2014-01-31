@@ -30,7 +30,7 @@ module Kind (
         -- ** Predicates on Kinds
         isLiftedTypeKind, isUnliftedTypeKind, isOpenTypeKind,
         isConstraintKind, returnsConstraintKind,
-        isKind, isKindVar,
+        
         isLiftedTypeKindCon, isConstraintKindCon,
         isAnyKind, isAnyKindCon,
         okArrowArgKind, okArrowResultKind,
@@ -85,45 +85,19 @@ Bottom line: although '*' and 'Constraint' are distinct TyCons, with
 distinct uniques, they are treated as equal at all times except 
 during type inference.  Hence cmpTc treats them as equal.
 
-Note [SuperKind]
-~~~~~~~~~~~~~~~~
-Ostensibly, SuperKind is the kind of kinds. But, because we have *:*
-in Core, we don't want to distinguish superKind from liftedTypeKind
-after typechecking. So, we consider superKind to be a subkind of
-liftedTypeKind (and constraintKind) when checking Core, but we consider
-it to be distinct beforehand. Thus, tc... thinks superKind is separate,
-but non-tc functions do not.
-
 \begin{code}
-kindAppResult :: Kind -> [Type] -> Kind
-kindAppResult k []     = k
-kindAppResult k (a:as) = kindAppResult (piResultTy k a) as
-
--- | Find the result 'Kind' of a type synonym, 
--- after applying it to its 'arity' number of type variables
--- Actually this function works fine on data types too, 
--- but they'd always return '*', so we never need to ask
-synTyConResKind :: TyCon -> Kind
-synTyConResKind tycon = kindAppResult (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
-
 -- | See "Type#kind_subtyping" for details of the distinction between these 'Kind's
-isOpenTypeKind, isUnliftedTypeKind,
-  isConstraintKind, isAnyKind :: Kind -> Bool
+isOpenTypeKind, isUnliftedTypeKind, isConstraintKind :: Kind -> Bool
 
 isOpenTypeKindCon, isUnliftedTypeKindCon,
   isSubOpenTypeKindCon, isConstraintKindCon,
-  isLiftedTypeKindCon, isAnyKindCon, isSuperKindCon :: TyCon -> Bool
+  isLiftedTypeKindCon :: TyCon -> Bool
 
 
 isLiftedTypeKindCon   tc = tyConUnique tc == liftedTypeKindTyConKey
-isAnyKindCon          tc = tyConUnique tc == anyKindTyConKey
 isOpenTypeKindCon     tc = tyConUnique tc == openTypeKindTyConKey
 isUnliftedTypeKindCon tc = tyConUnique tc == unliftedTypeKindTyConKey
 isConstraintKindCon   tc = tyConUnique tc == constraintKindTyConKey
-isSuperKindCon        tc = tyConUnique tc == superKindTyConKey
-
-isAnyKind (TyConApp tc _) = isAnyKindCon tc
-isAnyKind _               = False
 
 isOpenTypeKind (TyConApp tc _) = isOpenTypeKindCon tc
 isOpenTypeKind _               = False
@@ -194,10 +168,6 @@ isSubOpenTypeKindKey uniq
   =  isStarKindConKey uniq
   || uniq == openTypeKindTyConKey
   || uniq == unliftedTypeKindTyConKey
-
--- | Is this a kind (i.e. a type-of-types)?
-isKind :: Kind -> Bool
-isKind k = isSuperKind (typeKind k)
 
 isSubKind :: Kind -> Kind -> Bool
 -- ^ @k1 \`isSubKind\` k2@ checks that @k1@ <: @k2@

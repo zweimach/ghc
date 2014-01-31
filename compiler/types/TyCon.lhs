@@ -1575,6 +1575,15 @@ tyConFamilyCoercion_maybe tc
   = case tyConParent tc of
       FamInstTyCon co _ _ -> Just co
       _                   -> Nothing
+
+------------------------------------------------------------------------
+-- | Find the result 'Kind' of a type synonym, 
+-- after applying it to its 'arity' number of type variables
+-- Actually this function works fine on data types too, 
+-- but they'd always return '*', so we never need to ask
+synTyConResKind :: TyCon -> Kind
+synTyConResKind tycon = kindAppResult (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
+
 \end{code}
 
 

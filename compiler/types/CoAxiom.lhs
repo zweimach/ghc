@@ -67,9 +67,9 @@ type instance where
 
 This will give rise to this axiom:
 
-axF :: {                                           F [Int] ~ Bool
-       ; forall (a :: *).                          F [a]   ~ Double
-       ; forall (k :: BOX) (a :: k -> *) (b :: k). F (a b) ~ Char
+axF :: {                                         F [Int] ~ Bool
+       ; forall (a :: *).                        F [a]   ~ Double
+       ; forall (k :: *) (a :: k -> *) (b :: k). F (a b) ~ Char
        }
 
 The axiom is used with the AxiomInstCo constructor of Coercion. If we wish

@@ -1249,7 +1249,7 @@ checkKind :: CtEvidence         -- t1~t2
 -- a second attempt at solving
 
 checkKind new_ev s1 k1 s2 k2   -- See Note [Equalities with incompatible kinds]
-  = ASSERT( isKind k1 && isKind k2 )
+  = -- TODO (RAE): Remove: ASSERT( isKind k1 && isKind k2 )
     do { traceTcS "canEqLeaf: incompatible kinds" (vcat [ppr k1, ppr k2])
 
          -- Put the not-currently-soluble thing back onto the work list

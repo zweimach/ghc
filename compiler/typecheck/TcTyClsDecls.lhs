@@ -93,7 +93,7 @@ following example:
 If we were to kind check the two declarations together, we would give Id the
 kind * -> *, since we apply it to an Int in the definition of X. But we can do
 better than that, since Id really is kind polymorphic, and should get kind
-forall (k::BOX). k -> k. Since it does not depend on anything else, it can be
+forall (k::*). k -> k. Since it does not depend on anything else, it can be
 kind-checked by itself, hence getting the most general kind. We then kind check
 X, which works fine because we then know the polymorphic kind of Id, and simply
 instantiate k to *.
@@ -1072,7 +1072,7 @@ Consider   type family KindFam (p :: k1) (q :: k1)
 The HsBSig for the family patterns will be ([k], [a])
 
 Then in the family instance we want to
-  * Bring into scope [ "k" -> k:BOX, "a" -> a:k ]
+  * Bring into scope [ "k" -> k:*, "a" -> a:k ]
   * Kind-check the RHS
   * Quantify the type instance over k and k', as well as a,b, thus
        type instance [k, k', a:Maybe k, b:k']
@@ -1302,7 +1302,7 @@ data SList s as where
   SNil :: SList s Nil
 
 We call tcResultType with
-  tmpl_tvs = [(k :: BOX), (s :: k -> *), (as :: List k)]
+  tmpl_tvs = [(k :: *), (s :: k -> *), (as :: List k)]
   res_tmpl = SList k s as
   res_ty = ResTyGADT (SList k1 (s1 :: k1 -> *) (Nil k1))
 

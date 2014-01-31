@@ -23,7 +23,6 @@ module TcGenGenerics (canDoGenerics, canDoGenerics1,
 import DynFlags
 import HsSyn
 import Type
-import Kind             ( isKind )
 import TcType
 import TcGenDeriv
 import DataCon
@@ -256,7 +255,7 @@ canDoGenerics tc tc_args
           --
           -- Data family indices can be instantiated; the `tc_args` here are
           -- the representation tycon args
-              (if (all isTyVarTy (filterOut isKind tc_args))
+              (if (all isTyVarTy (filterImplicits tc tc_args))
                 then Nothing
                 else Just (tc_name <+> text "must not be instantiated;" <+>
                            text "try deriving `" <> tc_name <+> tc_tys <>

@@ -1281,7 +1281,7 @@ type and kind variables. Consider the following datatype:
 
   data Phantom a = Phantom Int
 
-The type of Phantom is (forall (k : BOX). forall (a : k). Int). Both `a` and
+The type of Phantom is (forall (k : *). forall (a : k). Int). Both `a` and
 `k` are unbound variables. We want to zonk this to
 (forall (k : Any *). forall (a : Any (Any *)). Int).
 

@@ -40,7 +40,6 @@ import Unify( tcMatchTy )
 import Id( idType )
 import Class
 import Type
-import Kind( isKind )
 import ErrUtils
 import MkId
 import DataCon
@@ -1018,7 +1017,6 @@ mkPolyKindedTypeableEqn tvs cls tycon tc_args mtheta
                            Nothing -> False
 
     mk_msg polykinds | not polykinds
-                     , all isKind tc_args   -- Non-empty, all kinds, at least one not a kind variable
                      = hang (ptext (sLit "To make a Typeable instance of poly-kinded")
                               <+> quotes (ppr tycon) <> comma)
                           2 (ptext (sLit "use XPolyKinds"))

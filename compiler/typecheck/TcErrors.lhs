@@ -22,7 +22,6 @@ import TcMType
 import TcType
 import TyCoRep
 import Type
-import Kind ( isKind )
 import Unify            ( tcMatchTys )
 import Module
 import Inst
@@ -856,16 +855,13 @@ misMatchMsg oriented ty1 ty2
   | Just IsSwapped <- oriented
   = misMatchMsg (Just NotSwapped) ty2 ty1
   | Just NotSwapped <- oriented
-  = sep [ ptext (sLit "Couldn't match expected") <+> what <+> quotes (ppr ty2)
-        , nest 12 $   ptext (sLit "with actual") <+> what <+> quotes (ppr ty1)
+  = sep [ ptext (sLit "Couldn't match expected type") <+> quotes (ppr ty2)
+        , nest 12 $   ptext (sLit "with actual type") <+> quotes (ppr ty1)
         , sameOccExtra ty2 ty1 ]
   | otherwise
-  = sep [ ptext (sLit "Couldn't match") <+> what <+> quotes (ppr ty1)
+  = sep [ ptext (sLit "Couldn't match type") <+> quotes (ppr ty1)
         , nest 14 $ ptext (sLit "with") <+> quotes (ppr ty2)
         , sameOccExtra ty1 ty2 ]
-  where
-    what | isKind ty1 = ptext (sLit "kind")
-         | otherwise  = ptext (sLit "type")
 
 mkExpectedActualMsg :: Type -> Type -> CtOrigin -> (Maybe SwapFlag, SDoc)
 -- NotSwapped means (actual, expected), IsSwapped is the reverse

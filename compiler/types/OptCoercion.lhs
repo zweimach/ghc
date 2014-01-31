@@ -703,9 +703,9 @@ type instance where
   Equal a a = True
   Equal a b = False
 --
-Equal :: forall k::BOX. k -> k -> Bool
-axEqual :: { forall k::BOX. forall a::k. Equal k a a ~ True
-           ; forall k::BOX. forall a::k. forall b::k. Equal k a b ~ False }
+Equal :: forall k::*. k -> k -> Bool
+axEqual :: { forall k::*. forall a::k. Equal k a a ~ True
+           ; forall k::*. forall a::k. forall b::k. Equal k a b ~ False }
 
 We wish to disallow (axEqual[1] <*> <Int> <Int). (Recall that the index is 0-based,
 so this is the second branch of the axiom.) The problem is that, on the surface, it

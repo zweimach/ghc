@@ -1638,34 +1638,6 @@ But that superclass selector can't (yet) appear in a coercion
 
 See Note [Coercion evidence terms] in TcEvidence.
 
-Note [Do not create Given kind equalities]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We do not want to create a Given like
-
-     kv ~ k            -- kv is a skolem kind variable
-                       -- Reason we don't yet support non-Refl kind equalities
-
-or   t1::k1 ~ t2::k2   -- k1 and k2 are un-equal kinds
-                       -- Reason: (~) is kind-uniform at the moment, and
-                       -- k1/k2 may be distinct kind skolems
-
-This showed up in Trac #8566, where we had a data type
-   data I (u :: U *) (r :: [*]) :: * where
-        A :: I (AA t as) r                  -- Existential k
-so A has type
-   A :: forall (u:U *) (r:[*])                  Universal
-        (k:BOX) (t:k) (as:[U *]).        Existential
-        (u ~ AA * k t as) => I u r
-
-There is no direct kind equality, but in a pattern match where 'u' is
-instantiated to, say, (AA * kk t1 as1), we'd decompose to get
-   k ~ kk, t ~ t1, as ~ as1
-This is bad.  We "fix" this by simply ignoring
-  *     the Given kind equality
-  * AND the Given type equality (t:k1) ~ (t1:kk)
-
-But the Right Thing is to add kind equalities!
-
 \begin{code}
 xCtEvidence :: CtEvidence            -- Original flavor
             -> XEvTerm               -- Instructions about how to manipulate evidence
@@ -1675,14 +1647,7 @@ xCtEvidence (CtGiven { ctev_evtm = tm, ctev_loc = loc })
             (XEvTerm { ev_preds = ptys, ev_decomp = decomp_fn })
   = ASSERT( equalLength ptys (decomp_fn tm) )
     mapM (newGivenEvVar loc)     -- See Note [Bind new Givens immediately]
-         (filterOut bad_given_pred (ptys `zip` decomp_fn tm))
-  where
-    -- See Note [Do not create Given kind equalities]
-    bad_given_pred (pred_ty, _)
-      | EqPred t1 t2 <- classifyPredType pred_ty
-      = isKind t1 || not (typeKind t1 `tcEqKind` typeKind t2)
-      | otherwise
-      = False
+         (ptys `zip` decomp_fn tm)
 
 xCtEvidence (CtWanted { ctev_evar = evar, ctev_loc = loc })
             (XEvTerm { ev_preds = ptys, ev_comp = comp_fn })

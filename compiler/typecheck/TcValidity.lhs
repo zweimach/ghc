@@ -251,10 +251,8 @@ check_mono_type :: UserTypeCtxt -> Rank
                 -> KindOrType -> TcM () -- No foralls anywhere
                                         -- No unlifted types of any kind
 check_mono_type ctxt rank ty
-  | isKind ty = return ()  -- IA0_NOTE: Do we need to check kinds?
-  | otherwise
-   = do { check_type ctxt rank ty
-        ; checkTc (not (isUnLiftedType ty)) (unliftedArgErr ty) }
+  = do { check_type ctxt rank ty
+       ; checkTc (not (isUnLiftedType ty)) (unliftedArgErr ty) }
 
 check_type :: UserTypeCtxt -> Rank -> Type -> TcM ()
 -- The args say what the *type context* requires, independent
@@ -364,8 +362,6 @@ check_arg_type :: UserTypeCtxt -> Rank -> KindOrType -> TcM ()
 -- Anyway, they are dealt with by a special case in check_tau_type
 
 check_arg_type ctxt rank ty
-  | isKind ty = return ()  -- IA0_NOTE: Do we need to check a kind?
-  | otherwise
   = do  { impred <- xoptM Opt_ImpredicativeTypes
         ; let rank' = case rank of          -- Predictive => must be monotype
                         MustBeMonoType     -> MustBeMonoType  -- Monotype, regardless
@@ -493,7 +489,7 @@ check_class_pred dflags ctxt cls tys
 
                 -- Check the form of the argument types
        ; mapM_ checkValidMonoType tys
-       ; checkTc (check_class_pred_tys dflags ctxt tys)
+       ; checkTc (check_class_pred_tys dflags ctxt cls tys)
                  (predTyVarErr (mkClassPred cls tys) $$ how_to_allow)
        }
   where
@@ -551,8 +547,8 @@ check_irred_pred dflags ctxt pred arg_tys
                  (predIrredBadCtxtErr pred) }
 
 -------------------------
-check_class_pred_tys :: DynFlags -> UserTypeCtxt -> [KindOrType] -> Bool
-check_class_pred_tys dflags ctxt kts
+check_class_pred_tys :: DynFlags -> UserTypeCtxt -> Class -> [KindOrType] -> Bool
+check_class_pred_tys dflags ctxt cls kts
   = case ctxt of
         SpecInstCtxt -> True    -- {-# SPECIALISE instance Eq (T Int) #-} is fine
         InstDeclCtxt -> flexible_contexts || undecidable_ok || all tcIsTyVarTy tys
@@ -560,7 +556,9 @@ check_class_pred_tys dflags ctxt kts
                                 -- checkInstTermination
         _             -> flexible_contexts || all tyvar_head tys
   where
-    (_, tys) = span isKind kts  -- see Note [Kind polymorphic type classes]
+    tys = filterImplicits (classTyCon cls) kts
+      -- see Note [Kind polymorphic type classes]
+          
     flexible_contexts = xopt Opt_FlexibleContexts dflags
     undecidable_ok = xopt Opt_UndecidableInstances dflags
 
@@ -752,7 +750,7 @@ checkValidInstHead ctxt clas cls_args
 
            -- Check language restrictions; 
            -- but not for SPECIALISE isntance pragmas
-       ; let ty_args = dropWhile isKind cls_args
+       ; let ty_args = filterImplicits (classTyCon clas) cls_args
        ; unless spec_inst_prag $
          do { checkTc (xopt Opt_TypeSynonymInstances dflags ||
                        all tcInstHeadTyNotSynonym ty_args)
@@ -1252,24 +1250,6 @@ fvCoArg :: CoercionArg -> [TyCoVar]
 fvCoArg (TyCoArg co)        = fvCo co
 fvCoArg (CoCoArg _ co1 co2) = fvCo co1 ++ fvCo co2
 
-sizeType :: Type -> Int
--- Size of a type: the number of variables and constructors
-sizeType ty | Just exp_ty <- tcView ty = sizeType exp_ty
-sizeType (TyVarTy {})      = 1
-sizeType (TyConApp _ tys)  = sizeTypes tys + 1
-sizeType (LitTy {})        = 1
-sizeType (FunTy arg res)   = sizeType arg + sizeType res + 1
-sizeType (AppTy fun arg)   = sizeType fun + sizeType arg
-sizeType (ForAllTy _ ty)   = sizeType ty
-sizeType (CastTy ty _)     = sizeType ty
-sizeType t@(CoercionTy {}) = pprPanic "sizeType" (ppr t)
-
-sizeTypes :: [Type] -> Int
--- IA0_NOTE: Avoid kinds.
--- Also, avoid coercions.
-sizeTypes xs = sum (map sizeType tys)
-  where tys = filter (\t -> not (isKind t) && not (isCoercionType t)) xs
-
 -- Size of a predicate
 --
 -- We are considering whether class constraints terminate.
@@ -1285,14 +1265,15 @@ sizePred ty = goClass ty
     goClass p | isIPPred p = 0
               | otherwise  = go (classifyPredType p)
 
-    go (ClassPred _ tys') = sizeTypes tys'
+    go (ClassPred _ tys') = sum $ map typeSize tys'
     go (EqPred {})        = 0
     go (TuplePred ts)     = sum (map goClass ts)
-    go (IrredPred ty)     = sizeType ty
+    go (IrredPred ty)     = typeSize ty
 \end{code}
 
 Note [Paterson conditions on PredTypes]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+TODO (RAE): Update.
 We are considering whether *class* constraints terminate
 (see Note [Paterson conditions]). Precisely, the Paterson conditions
 would have us check that "the constraint has fewer constructors and variables

@@ -548,6 +548,10 @@ piResultTy (FunTy _arg res) _    = res
 piResultTy (ForAllTy tv res) arg = substTyWith [tv] [arg] res
 piResultTy ty _                  = pprPanic "piResultTy" (ppr ty)
 
+-- | Fold 'piResultTy' over many types
+piResultTys :: Type -> [Type] -> Type
+piResultTys ty = foldl piResultTy ty
+
 funArgTy :: Type -> Type
 -- ^ Extract the function argument type and panic if that is not possible
 funArgTy ty | Just ty' <- coreView ty = funArgTy ty'
@@ -874,6 +878,23 @@ splitForAllTys ty = split ty ty []
 -- | Equivalent to @snd . splitForAllTys@
 dropForAlls :: Type -> Type
 dropForAlls ty = snd (splitForAllTys ty)
+
+-- | Returns True iff the argument type is a forall type with an implicit
+-- bound variable. Note that coercions in types are always implicit.
+isImplicitForall :: Type -> Bool
+isImplicitForall (ForAllTy tv _) = isImplicitTyVar tv || isCoVar tv
+
+-- | Given a tycon and its arguments, filters out any implicit arguments
+filterImplicits :: TyCon -> [Type] -> [Type]
+filterImplicits tc = go (tyConKind tc)
+  where
+    go k [] = []
+    go k (a:as)
+      | isImplicitForall k = filter_implicits res_k as
+      | otherwise          = a : filter_implicits res_k as
+      where
+        res_k = piResultTy k a
+
 \end{code}
 
 -- (mkPiType now in CoreUtils)
@@ -1456,8 +1477,8 @@ cmpTypesX _   _         []        = GT
 
 -------------
 cmpTc :: TyCon -> TyCon -> Ordering
--- Here we treat BOX, *, and Constraint as equal
--- See Note [Kind Constraint and kind *] and Note [SuperKind] in Kind.lhs
+-- Here we treat * and Constraint as equal
+-- See Note [Kind Constraint and kind *]
 --
 -- Also we treat OpenTypeKind as equal to either * or #
 -- See Note [Comparison with OpenTypeKind]
@@ -1532,10 +1553,8 @@ type SimpleKind = Kind
 
 \begin{code}
 typeKind :: Type -> Kind
-typeKind (TyConApp tc tys)
-  = kindAppResult (tyConKind tc) tys
-
-typeKind (AppTy fun arg)      = kindAppResult (typeKind fun) [arg]
+typeKind (TyConApp tc tys)    = piResultTys (tyConKind tc) tys
+typeKind (AppTy fun arg)      = piResultTy (typeKind fun) arg
 typeKind (LitTy l)            = typeLiteralKind l
 typeKind (ForAllTy _ ty)      = typeKind ty
 typeKind (TyVarTy tyvar)      = tyVarKind tyvar

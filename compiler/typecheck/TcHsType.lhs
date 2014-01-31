@@ -791,7 +791,7 @@ Then the dfun has type
       T :: * -> *
       MkT :: forall k. (Typeable ((k->*) -> k -> *) (Apply k)) -> T a
 
-   f :: (forall (k:BOX). forall (t:: k->*) (a:k). t a -> t a) -> Int
+   f :: (forall (k:*). forall (t:: k->*) (a:k). t a -> t a) -> Int
    f :: (forall a. a -> Typeable Apply) -> Int
 
 So we *must* keep the HsForAll on the instance type

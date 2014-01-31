@@ -298,17 +298,17 @@ newMetaDetails info
 Note [Kind substitution when instantiating]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 When we instantiate a bunch of kind and type variables, first we
-expect them to be sorted (kind variables first, then type variables).
+expect them to be topologically sorted.
 Then we have to instantiate the kind variables, build a substitution
 from old variables to the new variables, then instantiate the type
 variables substituting the original kind.
 
 Exemple: If we want to instantiate
-  [(k1 :: BOX), (k2 :: BOX), (a :: k1 -> k2), (b :: k1)]
+  [(k1 :: *), (k2 :: *), (a :: k1 -> k2), (b :: k1)]
 we want
-  [(?k1 :: BOX), (?k2 :: BOX), (?a :: ?k1 -> ?k2), (?b :: ?k1)]
+  [(?k1 :: *), (?k2 :: *), (?a :: ?k1 -> ?k2), (?b :: ?k1)]
 instead of the buggous
-  [(?k1 :: BOX), (?k2 :: BOX), (?a :: k1 -> k2), (?b :: k1)]
+  [(?k1 :: *), (?k2 :: *), (?a :: k1 -> k2), (?b :: k1)]
 
 
 %************************************************************************
@@ -465,8 +465,8 @@ newPolyFlexiTyVarTy = do { tv <- newMetaTyVar PolyTv liftedTypeKind
 tcInstTyCoVars :: CtOrigin -> [TyCoVar] -> TcM ([TcTyCoVar], [TcType], TCvSubst)
 -- Instantiate with META type variables
 -- Note that this works for a sequence of kind, type, and coercion variables
--- variables.  Eg    [ (k:BOX), (a:k->k) ]
---             Gives [ (k7:BOX), (a8:k7->k7) ]
+-- variables.  Eg    [ (k:*), (a:k->k) ]
+--             Gives [ (k7:*), (a8:k7->k7) ]
 tcInstTyCoVars = tcInstTyCoVarsX emptyTCvSubst
     -- emptyTCvSubst has an empty in-scope set, but that's fine here
     -- Since the tyvars are freshly made, they cannot possibly be
