@@ -1538,6 +1538,9 @@ ekLifted     = EK liftedTypeKind expectedKindMsg
 ekOpen       = EK openTypeKind   expectedKindMsg
 ekConstraint = EK constraintKind expectedKindMsg
 
+expectedToBeAKindMsg :: TcKind -> SDoc
+expectedToBeAKindMsg _ = ptext (sLit "Expected a kind")
+
 expectedKindMsg :: TcKind -> SDoc
 expectedKindMsg pkind
   | isConstraintKind pkind = ptext (sLit "Expected a constraint")
@@ -1653,97 +1656,12 @@ checkExpectedKind ty act_kind (EK exp_kind ek_ctxt)
 
 tcLHsKind converts a user-written kind to an internal, sort-checked kind.
 It does sort checking and desugaring at the same time, in one single pass.
-It fails when the kinds are not well-formed (eg. data A :: * Int), or if there
-are non-promotable or non-fully applied kinds.
+It fails when the kinds are not well-formed (eg. data A :: * Int).
 
 \begin{code}
 tcLHsKind :: LHsKind Name -> TcM Kind
 tcLHsKind k = addErrCtxt (ptext (sLit "In the kind") <+> quotes (ppr k)) $
-              tc_lhs_kind k
-
-tc_lhs_kind :: LHsKind Name -> TcM Kind
-tc_lhs_kind (L span ki) = setSrcSpan span (tc_hs_kind ki)
-
--- The main worker
-tc_hs_kind :: HsKind Name -> TcM Kind
-tc_hs_kind (HsTyVar tc)    = tc_kind_var_app tc []
-tc_hs_kind k@(HsAppTy _ _) = tc_kind_app k []
-
-tc_hs_kind (HsParTy ki) = tc_lhs_kind ki
-
-tc_hs_kind (HsFunTy ki1 ki2) =
-  do kappa_ki1 <- tc_lhs_kind ki1
-     kappa_ki2 <- tc_lhs_kind ki2
-     return (mkArrowKind kappa_ki1 kappa_ki2)
-
-tc_hs_kind (HsListTy ki) =
-  do kappa <- tc_lhs_kind ki
-     checkWiredInTyCon listTyCon
-     return $ mkListTy kappa
-
-tc_hs_kind (HsTupleTy _ kis) =
-  do kappas <- mapM tc_lhs_kind kis
-     checkWiredInTyCon tycon
-     return $ mkTyConApp tycon kappas
-  where 
-     tycon = tupleTyCon BoxedTuple (length kis)
-
--- Argument not kind-shaped
-tc_hs_kind k = pprPanic "tc_hs_kind" (ppr k)
-
--- Special case for kind application
-tc_kind_app :: HsKind Name -> [LHsKind Name] -> TcM Kind
-tc_kind_app (HsAppTy ki1 ki2) kis = tc_kind_app (unLoc ki1) (ki2:kis)
-tc_kind_app (HsTyVar tc)      kis = do { arg_kis <- mapM tc_lhs_kind kis
-                                       ; tc_kind_var_app tc arg_kis }
-tc_kind_app ki                _   = failWithTc (quotes (ppr ki) <+> 
-                                    ptext (sLit "is not a kind constructor"))
-
-tc_kind_var_app :: Name -> [Kind] -> TcM Kind
--- Special case for * and Constraint kinds
--- They are kinds already, so we don't need to promote them
-tc_kind_var_app name arg_kis
-  |  name == liftedTypeKindTyConName
-  || name == constraintKindTyConName
-  = do { unless (null arg_kis)
-           (failWithTc (text "Kind" <+> ppr name <+> text "cannot be applied"))
-       ; thing <- tcLookup name
-       ; case thing of
-           AGlobal (ATyCon tc) -> return (mkTyConApp tc [])
-           _                   -> panic "tc_kind_var_app 1" }
-
--- General case
-tc_kind_var_app name arg_kis
-  = do { thing <- tcLookup name
-       ; case thing of
-  	   AGlobal (ATyCon tc)
-  	     -> do { data_kinds <- xoptM Opt_DataKinds
-  	           ; unless data_kinds $ addErr (dataKindsErr name)
-  	     	   ; return (mkTyConApp tc arg_kis)
-
-  	   -- A lexically scoped kind variable
-  	   ATyVar _ kind_var 
-             -> return (mkAppTys (mkOnlyTyVarTy kind_var) arg_kis)
-
-  	   -- It is in scope, but not what we expected
-  	   AThing _
-                -- TODO (RAE): this next bit is curious. investigate.
-             | isTyVarName name 
-             -> failWithTc (ptext (sLit "Type variable") <+> quotes (ppr name)
-                            <+> ptext (sLit "used in a kind"))
-             | otherwise 
-             -> failWithTc (hang (ptext (sLit "Type constructor") <+> quotes (ppr name)
-                                  <+> ptext (sLit "used in a kind"))
-  	                       2 (ptext (sLit "inside its own recursive group"))) 
-
-           APromotionErr err -> promotionErr name err
-
-  	   _ -> wrongThingErr "promoted type" thing name
-                -- This really should not happen
-     }
-  where 
-   tycon_err tc msg = failWithTc (quotes (ppr tc) <+> ptext (sLit "of kind")
-                                  <+> quotes (ppr (tyConKind tc)) <+> ptext (sLit msg))
+              tc_lhs_type k (EK liftedTypeKind expectedToBeAKindMsg)
 
 dataKindsErr :: Name -> SDoc
 dataKindsErr name
