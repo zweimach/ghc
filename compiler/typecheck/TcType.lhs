@@ -34,7 +34,6 @@ module TcType (
   isSigTyVar, isOverlappableTyVar,  isTyConableTyVar, isFlatSkolTyVar,
   isAmbiguousTyVar, metaTvRef, metaTyVarInfo,
   isFlexi, isIndirect, isRuntimeUnkSkol,
-  isTypeVar, isKindVar,
   metaTyVarUntouchables, setMetaTyVarUntouchables,
   isTouchableMetaTyVar, isFloatedTouchableMetaTyVar,
 

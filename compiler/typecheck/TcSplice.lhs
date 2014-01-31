@@ -1405,7 +1405,7 @@ reifyTyCoVars :: [TyCoVar]
 reifyTyCoVars tvs = mapMaybeM reify_tv tvs
   where
     reify_tv tv | not (isTyVar tv)      = noTH (sLit "coercion variables") (ppr tv)
-                | isKindVar tv          = return Nothing
+                | isImplicitTyVar tv    = return Nothing
                 | isLiftedTypeKind kind = return (Just $ TH.PlainTV name)
                 | otherwise             = do kind' <- reifyKind kind
                                              return (Just $ TH.KindedTV name kind')
@@ -1427,11 +1427,9 @@ reify_tc_app tc tys
          | tc `hasKey` consDataConKey = TH.PromotedConsT
          | otherwise                  = TH.ConT (reifyName tc)
     removeKinds :: Kind -> [TyCoRep.Type] -> [TyCoRep.Type]
-    removeKinds (FunTy k1 k2) (h:t)
-      | isSuperKind k1          = removeKinds k2 t
-      | otherwise               = h : removeKinds k2 t
+    removeKinds (FunTy k1 k2)  (h:t) = h : removeKinds k2 t
     removeKinds (ForAllTy v k) (h:t)
-      | isSuperKind (varType v) = removeKinds k t
+      | isImplicitTyVar v       = removeKinds k t
       | otherwise               = h : removeKinds k t
     removeKinds _ tys           = tys
 

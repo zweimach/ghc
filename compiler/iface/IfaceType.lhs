@@ -67,7 +67,7 @@ data IfaceBndr          -- Local (non-top-level) binders
   | IfaceTvBndr {-# UNPACK #-} !IfaceTvBndr
 
 type IfaceIdBndr  = (IfLclName, IfaceType)
-type IfaceTvBndr  = (IfLclName, IfaceKind)
+type IfaceTvBndr  = (IfLclName, IfaceKind, ImplicitFlag)
 
 \end{code}
 
@@ -202,9 +202,17 @@ pprIfaceIdBndr :: (IfLclName, IfaceType) -> SDoc
 pprIfaceIdBndr (name, ty) = hsep [ppr name, dcolon, ppr ty]
 
 pprIfaceTvBndr :: IfaceTvBndr -> SDoc
-pprIfaceTvBndr (tv, IfaceTyConApp tc [])
-  | ifaceTyConName tc == liftedTypeKindTyConName = ppr tv
-pprIfaceTvBndr (tv, kind) = parens (ppr tv <> dcolon <> ppr kind)
+pprIfaceTvBndr (tv, kind, imp)
+  | IfaceTyConApp tc [] <- kind
+  , ifaceTyConName tc == liftedTypeKindTyConName
+  = ppr tv <+> ppr_imp
+
+  | otherwise
+  = parens (ppr tv <> dcolon <> ppr kind <+> ppr_imp)
+  where
+    ppr_imp = case imp of
+                Implicit -> brackets (text "imp")
+                _        -> empty
 
 pprIfaceTvBndrs :: [IfaceTvBndr] -> SDoc
 pprIfaceTvBndrs tyvars = sep (map pprIfaceTvBndr tyvars)
@@ -677,8 +685,10 @@ instance Binary IfaceCoercion where
 
 \begin{code}
 ----------------
-toIfaceTvBndr :: TyVar -> (IfLclName, IfaceKind)
-toIfaceTvBndr tyvar   = (occNameFS (getOccName tyvar), toIfaceKind (tyVarKind tyvar))
+toIfaceTvBndr :: TyVar -> (IfLclName, IfaceKind, ImplicitFlag)
+toIfaceTvBndr tyvar   = ( occNameFS (getOccName tyvar)
+                        , toIfaceKind (tyVarKind tyvar)
+                        , tyVarImp tyvar)
 
 toIfaceIdBndr :: Id -> (IfLclName, IfaceType)
 toIfaceIdBndr id      = (occNameFS (getOccName id),    toIfaceType (idType id))

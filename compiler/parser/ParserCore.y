@@ -231,8 +231,8 @@ id_bndr	:: { IfaceIdBndr }
 	: '(' fs_var_occ '::' ty ')'	{ ($2,$4) }
 
 tv_bndr	:: { IfaceTvBndr }
-	:  fs_var_occ                    { ($1, ifaceLiftedTypeKind) }
-	|  '(' fs_var_occ '::' akind ')' { ($2, $4) }
+        :  fs_var_occ                    { ($1, ifaceLiftedTypeKind, Explicit) }
+        |  '(' fs_var_occ '::' akind ')' { ($2, $4, Explicit) }
 
 tv_bndrs 	:: { [IfaceTvBndr] }
 	: {- empty -}	{ [] }
@@ -325,7 +325,7 @@ d_pat_occ :: { OccName }
 ifaceKind kc = IfaceTyConApp kc []
 
 ifaceBndrName (IfaceIdBndr (n,_)) = n
-ifaceBndrName (IfaceTvBndr (n,_)) = n
+ifaceBndrName (IfaceTvBndr (n,_,_)) = n
 
 convIntLit :: Integer -> IfaceType -> Literal
 convIntLit i (IfaceTyConApp tc [])
@@ -378,7 +378,7 @@ ifaceUnliftedTypeKind = ifaceTcType (IfaceTc unliftedTypeKindTyConName)
 ifaceArrow ifT1 ifT2 = IfaceFunTy ifT1 ifT2
 
 toHsTvBndr :: IfaceTvBndr -> LHsTyVarBndr RdrName
-toHsTvBndr (tv,k) = noLoc $ KindedTyVar (mkRdrUnqual (mkTyVarOccFS tv)) bsig
+toHsTvBndr (tv,k,_) = noLoc $ KindedTyVar (mkRdrUnqual (mkTyVarOccFS tv)) bsig
                   where
                     bsig = toHsKind k
 

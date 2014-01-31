@@ -53,7 +53,7 @@ buildSynTyCon :: Name -> [TyCoVar] -> [Role]
               -> TcRnIf m n TyCon
 buildSynTyCon tc_name tvs roles rhs rhs_kind parent 
   = return (mkSynTyCon tc_name kind tvs roles rhs parent)
-  where kind = mkPiKinds tvs rhs_kind
+  where kind = mkPiTypes tvs rhs_kind
 
 
 ------------------------------------------------------
@@ -256,7 +256,7 @@ buildClass no_unf tycon_name tvs roles sc_theta fds at_items sig_stuff mindef tc
 		 then mkNewTyConRhs tycon_name rec_tycon dict_con
 		 else return (mkDataTyConRhs [dict_con])
 
-	; let {	clas_kind = mkPiKinds tvs constraintKind
+	; let {	clas_kind = mkPiTypes tvs constraintKind
 
  	      ; tycon = mkClassTyCon tycon_name clas_kind tvs roles
  	                             rhs rec_clas tc_isrec

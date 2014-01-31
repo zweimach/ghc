@@ -406,13 +406,13 @@ toHsType ty
   = to_hs_type tau
   | otherwise
   = noLoc $
-    mkExplicitHsForAllTy (map mk_hs_tvb tvs_only)
+    mkExplicitHsForAllTy (map mk_hs_tvb explicit_tvs_only)
                          (noLoc $ map toHsType theta)
                          (to_hs_type tau)
 
   where
     (tvs, theta, tau) = tcSplitSigmaTy ty
-    tvs_only = filter isTypeVar tvs
+    explicit_tvs_only = filter (not . isImplicitTyVar) tvs
 
     to_hs_type (TyVarTy tv) = nlHsTyVar (getRdrName tv)
     to_hs_type (AppTy t1 t2) = nlHsAppTy (toHsType t1) (toHsType t2)

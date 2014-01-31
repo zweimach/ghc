@@ -616,12 +616,7 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
        ; thing <- tcLookup name
        ; traceTc "lk2" (ppr name <+> ppr thing)
        ; case thing of
-           ATyVar _ tv 
-              | isKindVar tv
-              -> failWithTc (ptext (sLit "Kind variable") <+> quotes (ppr tv)
-                             <+> ptext (sLit "used as a type"))
-              | otherwise
-              -> return (mkTyCoVarTy tv, tyVarKind tv)
+           ATyVar _ tv -> return (mkTyCoVarTy tv, tyVarKind tv)
 
            AThing kind -> do { tc <- get_loopy_tc name
                              ; inst_tycon (mkNakedTyConApp tc) kind }
@@ -836,7 +831,7 @@ The type desugarer is phase 2 of dealing with HsTypes.  Specifically:
 
   * It zonks any kinds.  The returned type should have no mutable kind
     or type variables (hence returning Type not TcType):
-      - any unconstrained kind variables are defaulted to AnyK just 
+      - any unconstrained kind variables are defaulted to (Any *) just 
         as in TcHsSyn. 
       - there are no mutable type variables because we are 
         kind-checking a type
@@ -847,7 +842,7 @@ You might worry about nested scopes:
         ..a:kappa in scope..
             let f :: forall b. T '[a,b] -> Int
 In this case, f's type could have a mutable kind variable kappa in it;
-and we might then default it to AnyK when dealing with f's type
+and we might then default it to (Any *) when dealing with f's type
 signature.  But we don't expect this to happen because we can't get a
 lexically scoped type variable with a mutable kind variable in it.  A
 delicate point, this.  If it becomes an issue we might need to
@@ -872,7 +867,7 @@ as if $(..blah..) :: forall k. k.
 In the e1 example, the context of the splice fixes kappa to *.  But
 in the e2 example, we'll desugar the type, zonking the kind unification
 variables as we go.  When we encounter the unconstrained kappa, we
-want to default it to '*', not to AnyK.
+want to default it to '*', not to (Any *).
 
 
 Help functions for type applications
@@ -1182,17 +1177,7 @@ tcHsTyVarBndr (L _ hs_tv)
 kindGeneralize :: TyVarSet -> TcM [KindVar]
 kindGeneralize tkvs
   = do { gbl_tvs <- tcGetGlobalTyVars -- Already zonked
-       ; quantifyTyCoVars gbl_tvs (filterVarSet isKindVar tkvs) }
-                -- ToDo: remove the (filter isKindVar)
-                -- Any type variables in tkvs will be in scope,
-                -- and hence in gbl_tvs, so after removing gbl_tvs
-                -- we should only have kind variables left
-		--
- 		-- BUT there is a smelly case (to be fixed when TH is reorganised)
-		--     f t = [| e :: $t |]
-                -- When typechecking the body of the bracket, we typecheck $t to a
-                -- unification variable 'alpha', with no biding forall.  We don't
-                -- want to kind-quantify it!
+       ; quantifyTyCoVars gbl_tvs tkvs }
 \end{code}
 
 Note [Kind generalisation]
@@ -1738,18 +1723,11 @@ tc_kind_var_app name arg_kis
 
   	   -- A lexically scoped kind variable
   	   ATyVar _ kind_var 
-             | not (isKindVar kind_var) 
-             -> failWithTc (ptext (sLit "Type variable") <+> quotes (ppr kind_var)
-                            <+> ptext (sLit "used as a kind"))
-             | not (null arg_kis) -- Kind variables always have kind BOX, 
-                                  -- so cannot be applied to anything
-             -> failWithTc (ptext (sLit "Kind variable") <+> quotes (ppr name)
-                            <+> ptext (sLit "cannot appear in a function position"))
-             | otherwise 
              -> return (mkAppTys (mkOnlyTyVarTy kind_var) arg_kis)
 
   	   -- It is in scope, but not what we expected
-  	   AThing _ 
+  	   AThing _
+                -- TODO (RAE): this next bit is curious. investigate.
              | isTyVarName name 
              -> failWithTc (ptext (sLit "Type variable") <+> quotes (ppr name)
                             <+> ptext (sLit "used in a kind"))

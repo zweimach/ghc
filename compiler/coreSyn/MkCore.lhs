@@ -104,16 +104,8 @@ infixl 4 `mkCoreApp`, `mkCoreApps`
 
 \begin{code}
 sortQuantVars :: [Var] -> [Var]
--- Sort the variables (KindVars, TypeVars, and Ids) 
--- into order: Kind, then Type, then Id
-sortQuantVars = sortBy (comparing withCategory)
-  where
-    withCategory v = (category v, v)
-    category :: Var -> Int
-    category v
-     | isKindVar v = 1
-     | isTyVar   v = 2
-     | otherwise   = 3
+-- Sort the variables into scoped order
+sortQuantVars = varSetElemsWellScoped . mkVarSet
 
 -- | Bind a binding group over an expression, using a @let@ or @case@ as
 -- appropriate (see "CoreSyn#let_app_invariant")

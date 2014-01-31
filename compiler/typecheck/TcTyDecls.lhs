@@ -619,16 +619,16 @@ initialRoleEnv1 is_boot annots_env tc
   | otherwise        = pprPanic "initialRoleEnv1" (ppr tc)
   where name         = tyConName tc
         tyvars       = tyConTyVars tc
-        (kvs, tvs)   = span isKindVar tyvars
+        (imps, exps) = span isImplicitTyVar tyvars
 
           -- if the number of annotations in the role annotation decl
           -- is wrong, just ignore it. We check this in the validity check.
         role_annots
           = case lookupNameEnv annots_env name of
               Just (L _ (RoleAnnotDecl _ annots))
-                | annots `equalLength` tvs -> map unLoc annots
-              _                            -> map (const Nothing) tvs
-        default_roles = map (const Nominal) kvs ++
+                | annots `equalLength` exps -> map unLoc annots
+              _                             -> map (const Nothing) exps
+        default_roles = map (const Nominal) imps ++
                         zipWith orElse role_annots (repeat default_role)
 
         default_role

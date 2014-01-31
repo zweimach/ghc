@@ -35,7 +35,7 @@ module Type (
         splitTyConApp_maybe, splitTyConApp, tyConAppArgN,
 
         mkForAllTy, mkForAllTys, splitForAllTy_maybe, splitForAllTys, splitForAllTy,
-        mkPiKinds, mkPiType, mkPiTypes, mkPiTypesNoTv, piResultTy, splitPiTypes,
+        mkPiType, mkPiTypes, mkPiTypesNoTv, piResultTy, splitPiTypes,
         applyTy, applyTys, applyTysD, isForAllTy, dropForAlls,
 
         mkNumLitTy, isNumLitTy,
@@ -67,7 +67,7 @@ module Type (
         funTyCon,
 
         -- ** Predicates on types
-        isTypeVar, isKindVar, isTyCoVarTy,
+        isTyCoVarTy,
         isTyVarTy, isFunTy, isDictTy, isPredTy, isVoidTy, isCoercionTy,
         isCoercionTy_maybe, isCoercionType,
 
@@ -82,13 +82,13 @@ module Type (
         -- ** Finding the kind of a type
         typeKind,
 
-        -- ** Common Kinds and SuperKinds
-        anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind,
+        -- ** Common Kinds
+        liftedTypeKind, unliftedTypeKind, openTypeKind,
         constraintKind,
 
         -- ** Common Kind type constructors
         liftedTypeKindTyCon, openTypeKindTyCon, unliftedTypeKindTyCon,
-        constraintKindTyCon, anyKindTyCon,
+        constraintKindTyCon,
 
         -- * Type free variables
         tyCoVarsOfType, tyCoVarsOfTypes, closeOverKinds,
@@ -793,14 +793,6 @@ that they are represented by pointers.  The reason is that f must have
 kind (kk -> kk) and kk cannot be unlifted; see Note [The kind invariant]
 in TyCoRep.
 
-Note [mkPiKinds vs mkPiTypes]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-If kinds and types are the same, why have separate mkPiKinds and mkPiTypes?
-Because kinds and types are most certainly *not* the same, in source Haskell.
-And, because 'Type's are shared between the levels, we need to maintain that
-distinction down here. mkPiKinds is used to create the kind for user-visible
-TyCons.
-
 ---------------------------------------------------------------------
                                 ForAllTy
                                 ~~~~~~~~
@@ -813,15 +805,6 @@ mkForAllTy tyvar ty
 -- | Wraps foralls over the type using the provided 'TyVar's from left to right
 mkForAllTys :: [TyVar] -> Type -> Type
 mkForAllTys tyvars ty = foldr ForAllTy ty tyvars
-
--- See Note [mkPiKinds vs mkPiTypes]
-mkPiKinds :: [TyVar] -> Kind -> Kind
--- mkPiKinds [k1, k2, (a:k1 -> *)] k2
--- returns forall k1 k2. (k1 -> *) -> k2
-mkPiKinds [] res = res
-mkPiKinds (tv:tvs) res
-  | isKindVar tv = ForAllTy tv          (mkPiKinds tvs res)
-  | otherwise    = FunTy (tyVarKind tv) (mkPiKinds tvs res)
 
 mkPiType  :: Var -> Type -> Type
 -- ^ Makes a @(->)@ type or a forall type, depending
@@ -1192,10 +1175,13 @@ typeSize (CoercionTy co) = coercionSize co
 
 -- no promises that this is the most efficient, but it will do the job
 -- TODO (RAE): make better.
+-- Works on all kinds of Vars, including Ids.
 type DepEnv = VarEnv VarSet
-varSetElemsWellScoped :: VarSet -> [TyCoVar]
+varSetElemsWellScoped :: VarSet -> [Var]
 varSetElemsWellScoped set
-  = build_list [] (varSetElems set)
+  = let result = build_list [] (varSetElems set) in
+    ASSERT( null $ filter isImplicitTyVar $ dropWhile isImplicitTyVar result )
+    result
   where
     deps = foldVarSet add_dep emptyVarEnv set
 
@@ -1216,9 +1202,15 @@ varSetElemsWellScoped set
     build_list scoped unsorted
       = let (new_scoped, unsorted') = partition (well_scoped scoped) unsorted in
         ASSERT( not $ null new_scoped )
-        build_list (scoped ++ sort new_scoped) unsorted'
+        build_list (scoped ++ sortBy implicits_first new_scoped) unsorted'
 
     well_scoped scoped var = get_deps var `subVarSet` (mkVarSet scoped)
+
+    implicits_first v1 v2
+      = case (isImplicitTyVar v1, isImplicitTyVar v2) of
+          (True, False) -> LT
+          (False, True) -> GT
+          _             -> compare v1 v2
 
 \end{code}
 
@@ -1551,12 +1543,10 @@ typeKind _ty@(FunTy _arg res)
     -- Hack alert.  The kind of (Int -> Int#) is liftedTypeKind (*),
     --              not unliftedTypKind (#)
     -- The only things that can be after a function arrow are
-    --   (a) types (of kind openTypeKind or its sub-kinds)
-    --   (b) kinds (of super-kind TY) (e.g. * -> (* -> *))
-    | isSuperKind k         = k
-    | otherwise             = ASSERT2( isSubOpenTypeKind k, ppr _ty $$ ppr k ) liftedTypeKind
+    -- types (of kind openTypeKind or its sub-kinds)
+    = ASSERT2( isSubOpenTypeKind _k, ppr _ty $$ ppr _k ) liftedTypeKind
     where
-      k = typeKind res
+      _k = typeKind res
 typeKind (CastTy _ty co)    = pSnd $ coercionKind co
 typeKind (CoercionTy co)    = coercionType co
 

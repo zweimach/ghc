@@ -54,7 +54,7 @@ module TcMType (
   zonkQuantifiedTyCoVar, quantifyTyCoVars,
   zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, 
 
-  zonkTcKind, defaultKindVarToStar,
+  zonkTcKind,
   zonkEvVar, zonkWC, zonkId, zonkCt, zonkCts, zonkSkolemInfo,
 
   tcGetGlobalTyVars, 
@@ -541,6 +541,9 @@ quantifyTyCoVars :: TcTyCoVarSet -> TcTyCoVarSet -> TcM [TcTyCoVar]
 quantifyTyCoVars gbl_tvs tkvs
   = do { tkvs    <- zonkTyCoVarsAndFV tkvs
        ; gbl_tvs <- zonkTyCoVarsAndFV gbl_tvs
+       ; let qtkvs = varSetElemsWellScoped (closeOverKinds tkvs `minusVarSet` gbl_tvs)
+{-
+       TODO (RAE): Fix defaultKindVarToStar
        ; let (kvs, tvs) = partitionVarSet (\v -> isKindVar v || isCoVar v)
                                           (closeOverKinds tkvs `minusVarSet` gbl_tvs)
                               -- NB kinds of tvs are zonked by zonkTyVarsAndFV
@@ -559,16 +562,19 @@ quantifyTyCoVars gbl_tvs tkvs
                          ; mapM_ defaultKindVarToStar meta_kvs
                          ; return skolem_kvs }  -- should be empty
 
-       ; mapM zonk_quant (qkvs ++ qtvs) } 
+       ; mapM zonk_quant (qkvs ++ qtvs) 
            -- Because of the order, any kind variables
            -- mentioned in the kinds of the type variables refer to
            -- the now-quantified versions
+-}
+       ; mapM zonk_quant qtkvs }
   where
     zonk_quant tkv
       | isTcTyCoVar tkv = zonkQuantifiedTyCoVar tkv
       | otherwise     = return tkv
       -- For associated types, we have the class variables 
       -- in scope, and they are TyVars not TcTyVars
+
 
 zonkQuantifiedTyCoVar :: TcTyCoVar -> TcM TcTyCoVar
 -- The quantified type variables often include meta type variables
@@ -608,12 +614,14 @@ zonkQuantifiedTyCoVar tv
   = do { ty <- zonkTcKind (coVarKind tv)
        ; return $ setVarType tv ty }
 
+{-
 defaultKindVarToStar :: TcTyVar -> TcM Kind
 -- We have a meta-kind: unify it with '*'
 defaultKindVarToStar kv 
   = do { ASSERT( isKindVar kv && isMetaTyVar kv )
          writeMetaTyVar kv liftedTypeKind
        ; return liftedTypeKind }
+-}
 
 skolemiseUnboundMetaTyVar :: TcTyVar -> TcTyVarDetails -> TcM TyVar
 -- We have a Meta tyvar with a ref-cell inside it

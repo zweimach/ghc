@@ -729,16 +729,16 @@ derivePolyKindedTypeable cls cls_tys _tvs tc tc_args
        ; checkTc (allDistinctTyVars tc_args) $
          derivingEtaErr cls cls_tys (mkTyConApp tc tc_kind_args)
 
-       ; mkEqnHelp kind_vars cls cls_tys tc tc_kind_args Nothing }
+       ; mkEqnHelp imp_vars cls cls_tys tc tc_kind_args Nothing }
   where
-    kind_vars    = kindVarsOnly tc_args
-    tc_kind_args = mkOnlyTyVarTys kind_vars
+    imp_vars    = impVarsOnly tc_args
+    tc_imp_args = mkOnlyTyVarTys imp_vars
 
-    kindVarsOnly :: [Type] -> [KindVar]
-    kindVarsOnly [] = []
-    kindVarsOnly (t:ts) | Just v <- getTyVar_maybe t
-                        , isKindVar v = v : kindVarsOnly ts
-                        | otherwise   =     kindVarsOnly ts
+    impVarsOnly :: [Type] -> [TyVar]
+    impVarsOnly [] = []
+    impVarsOnly (t:ts) | Just v <- getTyVar_maybe t
+                       , isImplicitTyVar v = v : impVarsOnly ts
+                       | otherwise         =     impVarsOnly ts
 \end{code}
 
 Note [Match kinds in deriving]
@@ -1006,7 +1006,7 @@ mkPolyKindedTypeableEqn tvs cls tycon tc_args mtheta
         ; let tc_app = mkTyConApp tycon tc_args
         ; return (GivenTheta $
                   DS { ds_loc = loc, ds_name = dfun_name
-                     , ds_tvs = filter isKindVar tvs, ds_cls = cls
+                     , ds_tvs = filter isImplicitTyVar tvs, ds_cls = cls
                      , ds_tys = typeKind tc_app : [tc_app]
                          -- Remember, Typeable :: forall k. k -> *
                      , ds_tc = tycon, ds_tc_args = tc_args
@@ -1014,7 +1014,7 @@ mkPolyKindedTypeableEqn tvs cls tycon tc_args mtheta
                      , ds_newtype = False })  }
   where
     is_kind_var tc_arg = case tcGetTyVar_maybe tc_arg of
-                           Just v  -> isKindVar v
+                           Just v  -> isImplicitTyVar v
                            Nothing -> False
 
     mk_msg polykinds | not polykinds

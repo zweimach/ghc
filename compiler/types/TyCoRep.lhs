@@ -32,7 +32,7 @@ module TyCoRep (
         -- Functions over types
         mkTyConTy, mkOnlyTyVarTy, mkOnlyTyVarTys,
         mkTyCoVarTy, mkTyCoVarTys,
-        isLiftedTypeKind, isSuperKind, isTypeVar, isKindVar,
+        isLiftedTypeKind,
         isCoercionType,
 
         -- Functions over coercions
@@ -374,13 +374,6 @@ Some basic functions, put here to break loops eg with the pretty printer
 isLiftedTypeKind :: Kind -> Bool
 isLiftedTypeKind (TyConApp tc []) = tc `hasKey` liftedTypeKindTyConKey
 isLiftedTypeKind _                = False
-
-isTypeVar :: Var -> Bool
-isTypeVar v = isTKVar v && not (isSuperKind (varType v))
-
-isKindVar :: Var -> Bool
-isKindVar v = isTKVar v && isSuperKind (varType v)
-
 
 \end{code}
 
@@ -1891,7 +1884,7 @@ ppr_sigma_type show_foralls ty
     let filtered_tvs | gopt Opt_PrintExplicitKinds dflags
                      = tvs
                      | otherwise
-                     = filterOut isKindVar tvs
+                     = filterOut isImplicitTyVar tvs
     in sep [ ppWhen show_foralls (pprForAll filtered_tvs)
            , pprThetaArrowTy ctxt
            , pprType tau ]

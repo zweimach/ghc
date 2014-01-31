@@ -24,15 +24,15 @@ module TysPrim(
         kKiVar,
 
         -- Kind constructors...
-        anyKindTyCon, liftedTypeKindTyCon,
+        liftedTypeKindTyCon,
         openTypeKindTyCon, unliftedTypeKindTyCon, constraintKindTyCon,
 
-        anyKindTyConName, liftedTypeKindTyConName,
+        liftedTypeKindTyConName,
         openTypeKindTyConName, unliftedTypeKindTyConName,
         constraintKindTyConName,
 
         -- Kinds
-	anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind,
+	liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind,
         mkArrowKind, mkArrowKinds,
 
         funTyCon, funTyConName,
@@ -143,7 +143,6 @@ primTyCons
     , unliftedTypeKindTyCon
     , openTypeKindTyCon
     , constraintKindTyCon
-    , anyKindTyCon
 
 #include "primop-vector-tycons.hs-incl"
     ]
@@ -286,16 +285,15 @@ funTyCon = mkFunTyCon funTyConName $
 
 \begin{code}
 -- | See "Type#kind_subtyping" for details of the distinction between the 'Kind' 'TyCon's
-anyKindTyCon, liftedTypeKindTyCon,
+liftedTypeKindTyCon,
       openTypeKindTyCon, unliftedTypeKindTyCon,
       constraintKindTyCon
    :: TyCon
-anyKindTyConName, liftedTypeKindTyConName,
+liftedTypeKindTyConName,
       openTypeKindTyConName, unliftedTypeKindTyConName,
       constraintKindTyConName
    :: Name
 
-anyKindTyCon          = mkKindTyCon anyKindTyConName          liftedTypeKind
 liftedTypeKindTyCon   = mkKindTyCon liftedTypeKindTyConName   liftedTypeKind
 openTypeKindTyCon     = mkKindTyCon openTypeKindTyConName     liftedTypeKind
 unliftedTypeKindTyCon = mkKindTyCon unliftedTypeKindTyConName liftedTypeKind
@@ -306,7 +304,6 @@ constraintKindTyCon   = mkKindTyCon constraintKindTyConName   liftedTypeKind
 
 -- If you edit these, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-anyKindTyConName          = mkPrimTyConName (fsLit "AnyK") anyKindTyConKey anyKindTyCon
 liftedTypeKindTyConName   = mkPrimTyConName (fsLit "*") liftedTypeKindTyConKey liftedTypeKindTyCon
 openTypeKindTyConName     = mkPrimTyConName (fsLit "OpenKind") openTypeKindTyConKey openTypeKindTyCon
 unliftedTypeKindTyConName = mkPrimTyConName (fsLit "#") unliftedTypeKindTyConKey unliftedTypeKindTyCon
@@ -327,9 +324,8 @@ kindTyConType :: TyCon -> Type
 kindTyConType kind = TyConApp kind []   -- mkTyConApp isn't defined yet
 
 -- | See "Type#kind_subtyping" for details of the distinction between these 'Kind's
-anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind :: Kind
+liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind :: Kind
 
-anyKind          = kindTyConType anyKindTyCon  -- See Note [Any kinds]
 liftedTypeKind   = kindTyConType liftedTypeKindTyCon
 unliftedTypeKind = kindTyConType unliftedTypeKindTyCon
 openTypeKind     = kindTyConType openTypeKindTyCon
@@ -696,19 +692,6 @@ The type constructor Any of kind forall k. k -> k has these properties:
   * It is used to instantiate otherwise un-constrained type variables
     For example   	length Any []
     See Note [Strangely-kinded void TyCons]
-
-Note [Any kinds]
-~~~~~~~~~~~~~~~~
-
-The type constructor AnyK (of sort BOX) is used internally only to zonk kind
-variables with no constraints on them. It appears in similar circumstances to
-Any, but at the kind level. For example:
-
-  type family Length (l :: [k]) :: Nat
-  type instance Length [] = Zero
-
-Length is kind-polymorphic, and when applied to the empty (promoted) list it
-will have the kind Length AnyK [].
 
 Note [Strangely-kinded void TyCons]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

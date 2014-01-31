@@ -931,10 +931,7 @@ checkInstTermination tys theta
            | otherwise
            -> return ()
      where
-        bad_tvs = filterOut isKindVar (fvType pred \\ fvs)
-             -- Rightly or wrongly, we only check for
-             -- excessive occurrences of *type* variables.
-             -- e.g. type instance Demote {T k} a = T (Demote {k} (Any {k}))
+        bad_tvs = fvType pred \\ fvs
 
 predUndecErr :: PredType -> SDoc -> SDoc
 predUndecErr pred msg = sep [msg,
@@ -1140,10 +1137,7 @@ checkFamInstRhs lhsTys famInsts
       = Nothing
       where
         famInst = TyConApp tc tys
-        bad_tvs = filterOut isKindVar (fvTypes tys \\ fvs)
-             -- Rightly or wrongly, we only check for
-             -- excessive occurrences of *type* variables.
-             -- e.g. type instance Demote {T k} a = T (Demote {k} (Any {k}))
+        bad_tvs = fvTypes tys \\ fvs
 
 checkValidFamPats :: TyCon -> [TyCoVar] -> [Type] -> TcM ()
 -- Patterns in a 'type instance' or 'data instance' decl should

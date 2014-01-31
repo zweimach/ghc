@@ -31,7 +31,6 @@ module Kind (
         isLiftedTypeKind, isUnliftedTypeKind, isOpenTypeKind,
         isConstraintKind, returnsConstraintKind,
         isKind, isKindVar,
-        isSuperKind, isSuperKindCon,
         isLiftedTypeKindCon, isConstraintKindCon,
         isAnyKind, isAnyKindCon,
         okArrowArgKind, okArrowResultKind,

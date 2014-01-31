@@ -1026,7 +1026,7 @@ tcFamTyPats fam_tc_name kind pats kind_checker thing_inside
 
             -- Find free variables (after zonking) and turn
             -- them into skolems, so that we don't subsequently
-            -- replace a meta kind var with AnyK
+            -- replace a meta kind var with (Any *)
             -- Very like kindGeneralize
        ; qtkvs <- quantifyTyCoVars emptyVarSet (tyCoVarsOfTypes all_args)
 
@@ -1518,11 +1518,9 @@ checkValidDataCon dflags existential_ok tc con
           -- e.g reject    data T (a::k) where
           --                  T1 :: T Int
           --                  T2 :: T Maybe
-        ; checkTc (not (any (isKindVar . fst) (dataConEqSpec con)))
-                  (badGadtCon (ptext (sLit "kind")) con)
-
         ; checkTc (not (any (isCoVar . fst) (dataConEqSpec con)))
                   (badGadtCon (ptext (sLit "coercion")) con)
+          -- TODO (RAE): The above case should never, ever happen. Investigate.
 
         ; traceTc "Done validity of data con" (ppr con <+> ppr (dataConRepType con))
     }
@@ -1598,7 +1596,7 @@ checkValidClass cls
         ; mapM_ check_at_defs at_stuff  }
   where
     (tyvars, fundeps, theta, _, at_stuff, op_stuff) = classExtraBigSig cls
-    arity = count isTypeVar tyvars    -- Ignore kind variables
+    arity = count (not . isImplicitTyVar) tyvars    -- Ignore imp. variables
 
     check_op constrained_class_methods (sel_id, dm)
       = addErrCtxt (classOpCtxt sel_id tau) $ do
@@ -1676,13 +1674,14 @@ checkValidRoleAnnots role_annots thing
         where
           name                   = tyConName tc
 
-     -- Role annotations are given only on *type* variables, but a tycon stores
-     -- roles for all variables. So, we drop the kind roles (which are all
+     -- Role annotations are given only on *explicit* variables, but a tycon stores
+     -- roles for all variables. So, we drop the implicit roles (which are all
      -- Nominal, anyway).
           tyvars                 = tyConTyVars tc
           roles                  = tyConRoles tc
-          (kind_vars, type_vars) = span isKindVar tyvars
-          type_roles             = dropList kind_vars roles
+          (exp_roles, exp_vars)  = unzip $
+                                   filter ((== Explicit) . tyVarImp . snd) $
+                                   zip roles tyvars
           role_annot_decl_maybe  = lookupRoleAnnots role_annots name
 
           check_roles
@@ -1694,7 +1693,7 @@ checkValidRoleAnnots role_annots thing
                 ; checkTc role_annots_ok $ needXRoleAnnotations tc
                 ; checkTc (type_vars `equalLength` the_role_annots)
                           (wrongNumberOfRoles type_vars decl)
-                ; _ <- zipWith3M checkRoleAnnot type_vars the_role_annots type_roles
+                ; _ <- zipWith3M checkRoleAnnot exp_vars the_role_annots exp_roles
                 ; lint <- goptM Opt_DoCoreLinting
                 ; when lint $ checkValidRoles tc }
 

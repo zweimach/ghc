@@ -1016,7 +1016,7 @@ buildAlgTyCon tc_name ktvs roles cType stupid_theta rhs
               is_rec gadt_syn parent
   = tc
   where 
-    kind = mkPiKinds ktvs liftedTypeKind
+    kind = mkPiTypes ktvs liftedTypeKind
 
     -- tc and mb_promoted_tc are mutually recursive
     tc = mkAlgTyCon tc_name kind ktvs roles cType stupid_theta 

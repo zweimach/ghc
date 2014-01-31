@@ -34,7 +34,7 @@ import TcRnMonad
 import PrelNames
 import TyCoRep     -- We can see the representation of types
 import TcType
-import TcMType ( defaultKindVarToStar, zonkQuantifiedTyCoVar, writeMetaTyVar )
+import TcMType ( zonkQuantifiedTyCoVar, writeMetaTyVar )
 import TcEvidence
 import TysPrim
 import TysWiredIn
@@ -1283,9 +1283,7 @@ type and kind variables. Consider the following datatype:
 
 The type of Phantom is (forall (k : BOX). forall (a : k). Int). Both `a` and
 `k` are unbound variables. We want to zonk this to
-(forall (k : AnyK). forall (a : Any AnyK). Int). For that we have to check if
-we have a type or a kind variable; for kind variables we just return AnyK (and
-not the ill-kinded Any BOX).
+(forall (k : Any *). forall (a : Any (Any *)). Int).
 
 Note [Optimise coercion zonkind]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1426,22 +1424,20 @@ zonkTvCollecting :: TcRef TyVarSet -> UnboundTyVarZonker
 -- Works on both types and kinds
 zonkTvCollecting unbound_tv_set tv
   = do { poly_kinds <- xoptM Opt_PolyKinds
-       ; if isKindVar tv && not poly_kinds then defaultKindVarToStar tv
-         else do
-       { tv' <- zonkQuantifiedTyCoVar tv
+--       ; if isKindVar tv && not poly_kinds then defaultKindVarToStar tv
+--         else do
+                       -- TODO (RAE): Fix defaultKindVarToStar
+       ; tv' <- zonkQuantifiedTyCoVar tv
        ; tv_set <- readMutVar unbound_tv_set
        ; writeMutVar unbound_tv_set (extendVarSet tv_set tv')
-       ; return (mkTyCoVarTy tv') } }
+       ; return (mkTyCoVarTy tv') } 
 
 zonkTypeZapping :: UnboundTyVarZonker
 -- This variant is used for everything except the LHS of rules
 -- It zaps unbound type variables to (), or some other arbitrary type
 -- Works on both types and kinds
 zonkTypeZapping tv
-  = do { let ty = if isKindVar tv
-                  -- ty is actually a kind, zonk to AnyK
-                  then anyKind
-                  else anyTypeOfKind (defaultKind (tyVarKind tv))
+  = do { let ty = anyTypeOfKind (defaultKind (tyVarKind tv))
        ; writeMetaTyVar tv ty
        ; return ty }
 
