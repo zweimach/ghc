@@ -642,14 +642,12 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
     -- Instantiate the polymorphic kind
     -- Lazy in the TyCon
     inst_tycon mk_tc_app kind
-      | null kvs 
-      = return (mk_tc_app [], ki_body)
-      | otherwise
       = do { traceTc "lk4" (ppr name <+> dcolon <+> ppr kind)
-           ; ks <- mapM (const newMetaKindVar) kvs
-           ; return (mk_tc_app ks, substKiWith kvs ks ki_body) }
+           ; ks <- mapM (const newMetaKindVar) imp_tvs
+           ; return (mk_tc_app ks, substKiWith imp_tvs ks (mkForAllTys exp_tvs ki_body)) }
       where 
-        (kvs, ki_body) = splitForAllTys kind
+        (tvs, ki_body) = splitForAllTys kind
+        (imp_tvs, exp_tvs) = span isImplicitBinder tvs 
 
 tcClass :: Name -> TcM (Class, TcKind)
 tcClass cls 	-- Must be a class

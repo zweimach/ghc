@@ -71,7 +71,7 @@ module Type (
         -- ** Predicates on types
         isTyCoVarTy,
         isTyVarTy, isFunTy, isDictTy, isPredTy, isVoidTy, isCoercionTy,
-        isCoercionTy_maybe, isCoercionType, isImplicitForall,
+        isCoercionTy_maybe, isCoercionType, isImplicitForall, isImplicitBinder,
 
         -- (Lifting and boxity)
         isUnLiftedType, isUnboxedTupleType, isAlgType, isClosedAlgType,
@@ -884,8 +884,12 @@ dropForAlls ty = snd (splitForAllTys ty)
 -- | Returns True iff the argument type is a forall type with an implicit
 -- bound variable. Note that coercions in types are always implicit.
 isImplicitForall :: Type -> Bool
-isImplicitForall (ForAllTy tv _) = isImplicitTyVar tv || isCoVar tv
+isImplicitForall (ForAllTy tv _) = isImplicitBinder tv
 isImplicitForall _               = False
+
+-- | Returns True iff hte argument is either an implicit tyvar or a covar.
+isImplicitBinder :: TyCoVar -> Bool
+isImplicitBinder tv = isImplicitTyVar tv || isCoVar tv
 
 -- | Given a tycon and its arguments, filters out any implicit arguments
 filterImplicits :: TyCon -> [Type] -> [Type]
