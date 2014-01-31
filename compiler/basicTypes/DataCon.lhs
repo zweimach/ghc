@@ -56,7 +56,6 @@ import {-# SOURCE #-} MkId( DataConBoxer )
 import Type
 import ForeignCall( CType )
 import Coercion
-import Kind
 import Unify
 import TyCon
 import Class
@@ -69,12 +68,10 @@ import Util
 import BasicTypes
 import FastString
 import Module
-import VarEnv
 import NameEnv
 
 import qualified Data.Data as Data
 import qualified Data.Typeable
-import Data.Maybe
 import Data.Char
 import Data.Word
 \end{code}
@@ -653,7 +650,7 @@ mkDataCon name declared_infix
 
     promoted   -- See Note [Promoted data constructors] in TyCon
                -- TODO (RAE): Update note.
-      = mkPromotedDataCon con name (getUnique name) kind roles
+      = mkPromotedDataCon con name (getUnique name) (dataConUserType con) roles
 
                 -- covars have role P
     roles = map (\tv -> if isTyVar tv then Nominal else Phantom)

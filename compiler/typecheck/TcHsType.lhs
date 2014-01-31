@@ -58,7 +58,6 @@ import Var
 import VarSet
 import TyCon
 import DataCon
-import TysPrim ( liftedTypeKindTyConName, constraintKindTyConName )
 import Class
 import Name
 import NameEnv
@@ -70,7 +69,6 @@ import Unique
 import UniqSupply
 import Outputable
 import FastString
-import Util
 
 import Control.Monad ( unless, when, zipWithM )
 import PrelNames( ipClassName, funTyConKey )
@@ -1073,14 +1071,14 @@ mkKindSigVar n
            Just (AThing k)
              | Just kvar <- getTyVar_maybe k
              -> return kvar
-           _ -> return $ mkTcTyVar n liftedTypeKind (SkolemTv False) Implicit }
+           _ -> return $ mkTcTyVar n liftedTypeKind (SkolemTv False) Var.Implicit }
 
 kcScopedKindVars :: [Name] -> TcM a -> TcM a
 -- Given some tyvar binders like [a (b :: k -> *) (c :: k)]
 -- bind each scoped kind variable (k in this case) to a fresh
 -- kind skolem variable
 kcScopedKindVars kv_ns thing_inside 
-  = do { kvs <- mapM (\n -> newSigTyVar n liftedTypeKind Implicit) kv_ns
+  = do { kvs <- mapM (\n -> newSigTyVar n liftedTypeKind Var.Implicit) kv_ns
                      -- NB: use mutable signature variables
        ; tcExtendTyVarEnv2 (kv_ns `zip` kvs) thing_inside } 
 
@@ -1092,7 +1090,7 @@ kcHsTyVarBndrs :: KindCheckingStrategy
 kcHsTyVarBndrs strat (HsQTvs { hsq_kvs = kv_ns, hsq_tvs = hs_tvs }) thing_inside
   = do { kvs <- if skolem_kvs
                 then mapM mkKindSigVar kv_ns
-                else mapM (\n -> newSigTyVar n liftedTypeKind Implicit) kv_ns
+                else mapM (\n -> newSigTyVar n liftedTypeKind Var.Implicit) kv_ns
        ; tcExtendTyVarEnv2 (kv_ns `zip` kvs) $
     do { nks <- mapM (kc_hs_tv . unLoc) hs_tvs
        ; (res_kind, stuff) <- tcExtendKindEnv nks thing_inside
@@ -1171,7 +1169,7 @@ tcHsTyVarBndr (L _ hs_tv)
        { kind <- case hs_tv of
                    UserTyVar {}       -> newMetaKindVar
                    KindedTyVar _ kind -> tcLHsKind kind
-       ; return ( mkTcTyVar name kind (SkolemTv False) Explicit) } } }
+       ; return ( mkTcTyVar name kind (SkolemTv False) Var.Explicit) } } }
 
 ------------------
 kindGeneralize :: TyVarSet -> TcM [KindVar]
@@ -1284,10 +1282,10 @@ tcTyClTyVars tycon (HsQTvs { hsq_kvs = hs_kvs, hsq_tvs = hs_tvs }) thing_inside
        ; tvs <- zipWithM tc_hs_tv hs_tvs kinds
        ; tcExtendTyVarEnv tvs (thing_inside (kvs ++ tvs) res) }
   where
-    tc_hs_tv (L _ (UserTyVar n))        kind = return (mkTyVar n kind Explicit)
+    tc_hs_tv (L _ (UserTyVar n))        kind = return (mkTyVar n kind Var.Explicit)
     tc_hs_tv (L _ (KindedTyVar n hs_k)) kind = do { tc_kind <- tcLHsKind hs_k
                                                   ; checkKind kind tc_kind
-                                                  ; return (mkTyVar n kind Explicit) }
+                                                  ; return (mkTyVar n kind Var.Explicit) }
 
 -----------------------------------
 tcDataKindSig :: Kind -> TcM [TyVar]
@@ -1305,7 +1303,7 @@ tcDataKindSig kind
 		 | ((kind, str), uniq) <- arg_kinds `zip` dnames `zip` uniqs ] }
   where
     (arg_kinds, res_kind) = splitFunTys kind
-    mk_tv loc uniq str kind = mkTyVar name kind Explicit
+    mk_tv loc uniq str kind = mkTyVar name kind Var.Explicit
 	where
 	   name = mkInternalName uniq occ loc
 	   occ  = mkOccName tvName str
@@ -1401,9 +1399,9 @@ tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_kvs = sig_kvs, hswb_tvs = sig
 	; checkValidType ctxt sig_ty 
 	; return (sig_ty, ktv_binds) }
   where
-    new_kv name = new_tkv name liftedTypeKind Implicit
+    new_kv name = new_tkv name liftedTypeKind Var.Implicit
     new_tv name = do { kind <- newMetaKindVar
-                     ; new_tkv name kind Explicit }
+                     ; new_tkv name kind Var.Explicit }
 
     new_tkv name kind imp  -- See Note [Pattern signature binders]
       = case ctxt of
@@ -1663,8 +1661,9 @@ tcLHsKind :: LHsKind Name -> TcM Kind
 tcLHsKind k = addErrCtxt (ptext (sLit "In the kind") <+> quotes (ppr k)) $
               tc_lhs_type k (EK liftedTypeKind expectedToBeAKindMsg)
 
-dataKindsErr :: Name -> SDoc
-dataKindsErr name
+-- TODO (RAE): Remove?
+_dataKindsErr :: Name -> SDoc
+_dataKindsErr name
   = hang (ptext (sLit "Illegal kind:") <+> quotes (ppr name))
        2 (ptext (sLit "Perhaps you intended to use DataKinds"))
 

@@ -66,7 +66,7 @@ import PrimOp
 import ForeignCall
 import DataCon
 import Id
-import Var              ( mkExportedLocalVar )
+import Var              ( mkExportedLocalVar, ImplicitFlag(..) )
 import IdInfo
 import Demand
 import CoreSyn
@@ -1065,7 +1065,7 @@ proxyHashId
     ty      = mkForAllTys [kv, tv] (mkProxyPrimTy k t)
     kv      = kKiVar
     k       = mkOnlyTyVarTy kv
-    tv:_    = tyVarList k
+    tv:_    = tyVarList k Explicit
     t       = mkOnlyTyVarTy tv
 
 ------------------------------------------------
@@ -1148,7 +1148,7 @@ coerceId = pcMiscPrelId coerceName ty info
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
     kv = kKiVar
     k = mkOnlyTyVarTy kv
-    a:b:_ = tyVarList k
+    a:b:_ = tyVarList k Explicit
     [aTy,bTy] = map mkOnlyTyVarTy [a,b]
     eqRTy     = mkTyConApp coercibleTyCon  [k, aTy, bTy]
     eqRPrimTy = mkTyConApp eqReprPrimTyCon [k, k, aTy, bTy]

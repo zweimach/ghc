@@ -827,7 +827,7 @@ not converge.  See Trac #5287.
 validDerivPred :: TyCoVarSet -> PredType -> Bool
 validDerivPred tv_set pred
   = case classifyPredType pred of
-       ClassPred _ tys -> hasNoDups fvs 
+       ClassPred _ tys -> hasNoDups fvs
                        && sizeTypes tys == length fvs
                        && all (`elemVarSet` tv_set) fvs
        TuplePred ps -> all (validDerivPred tv_set) ps
@@ -1250,6 +1250,22 @@ fvCoArg :: CoercionArg -> [TyCoVar]
 fvCoArg (TyCoArg co)        = fvCo co
 fvCoArg (CoCoArg _ co1 co2) = fvCo co1 ++ fvCo co2
 
+sizeType :: Type -> Int
+-- Size of a type: the number of variables and constructors
+sizeType ty | Just exp_ty <- tcView ty = sizeType exp_ty
+sizeType (TyVarTy {})      = 1
+  -- TODO (RAE): check the necessity of filterImplicits
+sizeType (TyConApp tc tys) = sizeTypes (filterImplicits tc tys) + 1
+sizeType (LitTy {})        = 1
+sizeType (FunTy arg res)   = sizeType arg + sizeType res + 1
+sizeType (AppTy fun arg)   = sizeType fun + sizeType arg
+sizeType (ForAllTy _ ty)   = sizeType ty
+sizeType (CastTy ty _)     = sizeType ty
+sizeType (CoercionTy _)    = 1
+
+sizeTypes :: [Type] -> Int
+sizeTypes = sum . map sizeType
+
 -- Size of a predicate
 --
 -- We are considering whether class constraints terminate.
@@ -1265,10 +1281,11 @@ sizePred ty = goClass ty
     goClass p | isIPPred p = 0
               | otherwise  = go (classifyPredType p)
 
-    go (ClassPred _ tys') = sum $ map typeSize tys'
+         -- TODO (RAE): Check the necessity of the filterImplicits
+    go (ClassPred cls tys') = sizeTypes (filterImplicits (classTyCon cls) tys')
     go (EqPred {})        = 0
     go (TuplePred ts)     = sum (map goClass ts)
-    go (IrredPred ty)     = typeSize ty
+    go (IrredPred ty)     = sizeType ty
 \end{code}
 
 Note [Paterson conditions on PredTypes]

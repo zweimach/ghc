@@ -23,7 +23,7 @@ module TyCoRep (
         TyThing(..),
         Type(..),
         TyLit(..),
-        KindOrType, Kind, SuperKind,
+        KindOrType, Kind,
         PredType, ThetaType,      -- Synonyms
 
         -- Coercions
@@ -191,19 +191,8 @@ data TyLit
 type KindOrType = Type -- See Note [Arguments to type constructors]
 
 -- | The key type representing kinds in the compiler.
--- Invariant: a kind is always in one of these forms:
---
--- > FunTy k1 k2
--- > TyConApp PrimTyCon [...]
--- > TyVar kv   -- (during inference only)
--- > ForAll ... -- (for top-level coercions)
 type Kind = Type
 
--- | "Super kinds", used to help encode 'Kind's as types.
--- Invariant: a super kind is always of this form:
---
--- > TyConApp SuperKindTyCon ...
-type SuperKind = Type
 \end{code}
 
 Note [The kind invariant]

@@ -65,7 +65,6 @@ import Maybes
 import SrcLoc
 import DynFlags
 import Util
-import Pair
 import FastString
 
 import Control.Monad
@@ -962,7 +961,7 @@ tcIfaceCo = go
   where
     go (IfaceReflCo r t)         = mkReflCo r <$> tcIfaceType t
     go (IfaceFunCo r c1 c2)      = mkFunCo r <$> go c1 <*> go c2
-    go (IfaceTyConAppCo r tc cs) = mkTyConAppCo <$> tcIfaceTyCon tc <*> mapM tcIfaceCoArg cs
+    go (IfaceTyConAppCo r tc cs) = mkTyConAppCo r <$> tcIfaceTyCon tc <*> mapM tcIfaceCoArg cs
     go (IfaceAppCo c1 c2)        = mkAppCo <$> go c1 <*> tcIfaceCoArg c2
     go (IfaceForAllCo bndr c)    = bindIfaceBndrCo bndr $ \ cobndr ->
                                             mkForAllCo cobndr <$> go c
@@ -1118,7 +1117,7 @@ tcIfaceLit :: Literal -> IfL Literal
 -- so tcIfaceLit just fills in the type.
 -- See Note [Integer literals] in Literal
 tcIfaceLit (LitInteger i _)
-  = do t <- tcIfaceTyCon TypeLevel (IfaceTc integerTyConName)
+  = do t <- tcIfaceTyCon (IfaceTc integerTyConName)
        return (mkLitInteger i (mkTyConTy t))
 tcIfaceLit lit = return lit
 
@@ -1200,7 +1199,7 @@ tcIdDetails ty (IfDFunId ns)
     (_, _, cls, _) = tcSplitDFunTy ty
 
 tcIdDetails _ (IfRecSelId tc naughty)
-  = do { tc' <- tcIfaceTyCon TypeLevel tc
+  = do { tc' <- tcIfaceTyCon tc
        ; return (RecSelId { sel_tycon = tc', sel_naughty = naughty }) }
 
 tcIdInfo :: Bool -> Name -> Type -> IfaceIdInfo -> IfL IdInfo
@@ -1463,9 +1462,9 @@ bindIfaceTvBndrs (tv:tvs) thing_inside
     bindIfaceTvBndrs tvs $ \tvs' ->
     thing_inside (tv':tvs')
 
-mk_iface_tyvar :: Name -> IfaceKind -> ImplicitFlag -> IfL TyVar
+mk_iface_tyvar :: Name -> IfaceKind -> Var.ImplicitFlag -> IfL TyVar
 mk_iface_tyvar name ifKind imp
-   = do { kind <- tcIfaceKind ifKind
+   = do { kind <- tcIfaceType ifKind
         ; return (Var.mkTyVar name kind imp) }
 
 bindIfaceTyVars_AT :: [IfaceTvBndr] -> ([TyVar] -> IfL a) -> IfL a

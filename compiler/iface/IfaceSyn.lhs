@@ -134,7 +134,7 @@ instance Binary IfaceDecl where
     put_ _ (IfaceForeign _ _) = 
         error "Binary.put_(IfaceDecl): IfaceForeign"
 
-    put_ bh (IfaceData a1 a2 a3 a4 a5 a6 a7 a8 a9 a10) = do
+    put_ bh (IfaceData a1 a2 a3 a4 a5 a6 a7 a8 a9) = do
         putByte bh 2
         put_ bh (occNameFS a1)
         put_ bh a2
@@ -145,7 +145,6 @@ instance Binary IfaceDecl where
         put_ bh a7
         put_ bh a8
         put_ bh a9
-        put_ bh a10
 
     put_ bh (IfaceSyn a1 a2 a3 a4 a5) = do
         putByte bh 3
@@ -193,9 +192,8 @@ instance Binary IfaceDecl where
                     a7  <- get bh
                     a8  <- get bh
                     a9  <- get bh
-                    a10 <- get bh
                     occ <- return $! mkOccNameFS tcName a1
-                    return (IfaceData occ a2 a3 a4 a5 a6 a7 a8 a9 a10)
+                    return (IfaceData occ a2 a3 a4 a5 a6 a7 a8 a9)
             3 -> do a1 <- get bh
                     a2 <- get bh
                     a3 <- get bh
@@ -1137,7 +1135,7 @@ pprIfaceConDecl tc
     to_forall_bndr (IfaceTvBndr tv) = IfaceTv tv
 
     get_occ (IfaceIdBndr (occ, _)) = occ
-    get_occ (IfaceTvBndr (occ, _)) = occ
+    get_occ (IfaceTvBndr (occ, _, _)) = occ
 
 instance Outputable IfaceRule where
   ppr (IfaceRule { ifRuleName = name, ifActivation = act, ifRuleBndrs = bndrs,
@@ -1463,7 +1461,7 @@ freeNamesIfTvBndr (_fs,k,_imp) = freeNamesIfKind k
     -- kinds can have Names inside, because of promotion
 
 freeNamesIfIdBndr :: IfaceIdBndr -> NameSet
-freeNamesIfIdBndr = freeNamesIfTvBndr
+freeNamesIfIdBndr (_fs,k) = freeNamesIfKind k
 
 freeNamesIfIdBndrs :: [IfaceIdBndr] -> NameSet
 freeNamesIfIdBndrs = fnList freeNamesIfIdBndr

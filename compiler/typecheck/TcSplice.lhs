@@ -1427,7 +1427,7 @@ reify_tc_app tc tys
          | tc `hasKey` consDataConKey = TH.PromotedConsT
          | otherwise                  = TH.ConT (reifyName tc)
     removeKinds :: Kind -> [TyCoRep.Type] -> [TyCoRep.Type]
-    removeKinds (FunTy k1 k2)  (h:t) = h : removeKinds k2 t
+    removeKinds (FunTy _ k2)   (h:t) = h : removeKinds k2 t
     removeKinds (ForAllTy v k) (h:t)
       | isImplicitTyVar v       = removeKinds k t
       | otherwise               = h : removeKinds k t

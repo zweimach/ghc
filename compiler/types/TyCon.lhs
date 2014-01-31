@@ -371,7 +371,7 @@ data TyCon
         algTcRec :: RecFlag,      -- ^ Tells us whether the data type is part
                                   -- of a mutually-recursive group or not
 
-        algTcParent :: TyConParent,     -- ^ Gives the class or family declaration 'TyCon'
+        algTcParent :: TyConParent      -- ^ Gives the class or family declaration 'TyCon'
                                         -- for derived 'TyCon's representing class
                                         -- or family instances, respectively.
                                         -- See also 'synTcParent'
@@ -386,7 +386,7 @@ data TyCon
         tyConArity     :: Arity,
         tyConTupleSort :: TupleSort,
         tyConTyVars    :: [TyVar],
-        dataCon        :: DataCon, -- ^ Corresponding tuple data constructor
+        dataCon        :: DataCon  -- ^ Corresponding tuple data constructor
     }
 
   -- | Represents type synonyms
@@ -944,7 +944,7 @@ mkAlgTyCon name kind tyvars roles cType stupid rhs parent is_rec gadt_syn
         algTcRhs         = rhs,
         algTcParent      = ASSERT2( okParent name parent, ppr name $$ ppr parent ) parent,
         algTcRec         = is_rec,
-        algTcGadtSyntax  = gadt_syn,
+        algTcGadtSyntax  = gadt_syn
     }
 
 -- | Simpler specialization of 'mkAlgTyCon' for classes
@@ -968,7 +968,7 @@ mkTupleTyCon name kind arity tyvars con sort
         tyConArity = arity,
         tyConTupleSort = sort,
         tyConTyVars = tyvars,
-        dataCon = con,
+        dataCon = con
     }
 
 -- ^ Foreign-imported (.NET) type constructors are represented
@@ -1577,12 +1577,6 @@ tyConFamilyCoercion_maybe tc
       _                   -> Nothing
 
 ------------------------------------------------------------------------
--- | Find the result 'Kind' of a type synonym, 
--- after applying it to its 'arity' number of type variables
--- Actually this function works fine on data types too, 
--- but they'd always return '*', so we never need to ask
-synTyConResKind :: TyCon -> Kind
-synTyConResKind tycon = kindAppResult (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
 
 \end{code}
 

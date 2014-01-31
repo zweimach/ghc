@@ -35,7 +35,7 @@ module Type (
         splitTyConApp_maybe, splitTyConApp, tyConAppArgN,
 
         mkForAllTy, mkForAllTys, splitForAllTy_maybe, splitForAllTys, splitForAllTy,
-        mkPiType, mkPiTypes, mkPiTypesNoTv, piResultTy, splitPiTypes,
+        mkPiType, mkPiTypes, mkPiTypesNoTv, piResultTy, piResultTys, splitPiTypes,
         applyTy, applyTys, applyTysD, isForAllTy, dropForAlls,
 
         mkNumLitTy, isNumLitTy,
@@ -45,6 +45,8 @@ module Type (
 
         coAxNthLHS,
         stripCoercionTy, splitCoercionType_maybe,
+
+        filterImplicits, synTyConResKind,
 
         -- (Newtypes)
         newTyConInstRhs,
@@ -69,7 +71,7 @@ module Type (
         -- ** Predicates on types
         isTyCoVarTy,
         isTyVarTy, isFunTy, isDictTy, isPredTy, isVoidTy, isCoercionTy,
-        isCoercionTy_maybe, isCoercionType,
+        isCoercionTy_maybe, isCoercionType, isImplicitForall,
 
         -- (Lifting and boxity)
         isUnLiftedType, isUnboxedTupleType, isAlgType, isClosedAlgType,
@@ -182,7 +184,7 @@ import Outputable
 import FastString
 import Pair
 
-import Data.List        ( partition, sort )
+import Data.List        ( partition, sortBy )
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
@@ -883,15 +885,16 @@ dropForAlls ty = snd (splitForAllTys ty)
 -- bound variable. Note that coercions in types are always implicit.
 isImplicitForall :: Type -> Bool
 isImplicitForall (ForAllTy tv _) = isImplicitTyVar tv || isCoVar tv
+isImplicitForall _               = False
 
 -- | Given a tycon and its arguments, filters out any implicit arguments
 filterImplicits :: TyCon -> [Type] -> [Type]
 filterImplicits tc = go (tyConKind tc)
   where
-    go k [] = []
+    go _ [] = []
     go k (a:as)
-      | isImplicitForall k = filter_implicits res_k as
-      | otherwise          = a : filter_implicits res_k as
+      | isImplicitForall k = go res_k as
+      | otherwise          = a : go res_k as
       where
         res_k = piResultTy k a
 
@@ -1658,4 +1661,12 @@ tyConsOfType ty
 
      go_tc tc = unitNameEnv (tyConName tc) tc
      go_ax ax = go_tc $ coAxiomTyCon ax
+
+-- | Find the result 'Kind' of a type synonym, 
+-- after applying it to its 'arity' number of type variables
+-- Actually this function works fine on data types too, 
+-- but they'd always return '*', so we never need to ask
+synTyConResKind :: TyCon -> Kind
+synTyConResKind tycon = piResultTys (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
+
 \end{code}

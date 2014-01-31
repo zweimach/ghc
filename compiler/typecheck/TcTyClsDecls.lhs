@@ -1680,7 +1680,7 @@ checkValidRoleAnnots role_annots thing
           tyvars                 = tyConTyVars tc
           roles                  = tyConRoles tc
           (exp_roles, exp_vars)  = unzip $
-                                   filter ((== Explicit) . tyVarImp . snd) $
+                                   filter ((== Var.Explicit) . tyVarImp . snd) $
                                    zip roles tyvars
           role_annot_decl_maybe  = lookupRoleAnnots role_annots name
 
@@ -1691,8 +1691,8 @@ checkValidRoleAnnots role_annots thing
                 setSrcSpan loc $ do
                 { role_annots_ok <- xoptM Opt_RoleAnnotations
                 ; checkTc role_annots_ok $ needXRoleAnnotations tc
-                ; checkTc (type_vars `equalLength` the_role_annots)
-                          (wrongNumberOfRoles type_vars decl)
+                ; checkTc (exp_vars `equalLength` the_role_annots)
+                          (wrongNumberOfRoles exp_vars decl)
                 ; _ <- zipWith3M checkRoleAnnot exp_vars the_role_annots exp_roles
                 ; lint <- goptM Opt_DoCoreLinting
                 ; when lint $ checkValidRoles tc }

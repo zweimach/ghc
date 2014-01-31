@@ -79,7 +79,6 @@ import Name
 import VarSet
 import VarEnv
 import PrelNames
-import DynFlags
 import Util
 import Outputable
 import FastString
@@ -87,7 +86,7 @@ import SrcLoc
 import Bag
 
 import Control.Monad
-import Data.List        ( partition, mapAccumL )
+import Data.List        ( mapAccumL )
 \end{code}
 
 
@@ -448,7 +447,7 @@ correctly. See also [Wrapping coercions embedded in types] in TcEvidence.
 
 \begin{code}
 newFlexiTyVar :: Kind -> TcM TcTyVar
-newFlexiTyVar kind imp = newMetaTyVar TauTv kind
+newFlexiTyVar kind = newMetaTyVar TauTv kind
 
 newFlexiTyVarTy  :: Kind -> TcM TcType
 newFlexiTyVarTy kind = do

@@ -75,7 +75,7 @@ module Var (
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-}	TyCoRep( Type, Kind, SuperKind, isCoercionType )
+import {-# SOURCE #-}	TyCoRep( Type, Kind, isCoercionType )
 import {-# SOURCE #-}	TcType( TcTyVarDetails, pprTcTyVarDetails )
 import {-# SOURCE #-}	IdInfo( IdDetails, IdInfo, coVarDetails, vanillaIdInfo, pprIdDetails )
 
@@ -83,6 +83,7 @@ import Name hiding (varName)
 import Unique
 import Util
 import FastTypes
+import Binary
 import FastString
 import Outputable
 
@@ -203,6 +204,7 @@ data ImplicitFlag
   = Implicit     -- ^ The parameter is not supplied
   | Explicit     -- ^ The parameter must be supplied
   | Don'tCareImp -- ^ This tyvar is never used as a parameter
+    deriving (Eq, Typeable)
 \end{code}
 
 Note [Implicit flags]
@@ -274,8 +276,21 @@ instance Data Var where
   dataTypeOf _ = mkNoRepType "Var"
 
 instance Outputable ImplicitFlag where
-  ppr Implicit = text "i"
-  ppr Explicit = text "e"
+  ppr Implicit     = text "i"
+  ppr Explicit     = text "e"
+  ppr Don'tCareImp = text "dc"
+
+instance Binary ImplicitFlag where
+  put_ bh Implicit     = putByte bh 0
+  put_ bh Explicit     = putByte bh 1
+  put_ bh Don'tCareImp = putByte bh 2
+
+  get bh = do h <- getByte bh
+              case h of
+                0 -> return Implicit
+                1 -> return Explicit
+                2 -> return Don'tCareImp
+                _ -> panic "ImplicitFlag"
 \end{code}
 
 

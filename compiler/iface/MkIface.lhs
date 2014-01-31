@@ -70,7 +70,6 @@ import Annotations
 import CoreSyn
 import CoreFVs
 import Class
-import Kind
 import TyCon
 import CoAxiom
 import DataCon

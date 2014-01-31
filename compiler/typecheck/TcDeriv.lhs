@@ -726,9 +726,9 @@ derivePolyKindedTypeable cls cls_tys _tvs tc tc_args
        --       deriving Typeable (T Int)
        -- or    deriving Typeable (S :: * -> *)     where S is kind-polymorphic
        ; checkTc (allDistinctTyVars tc_args) $
-         derivingEtaErr cls cls_tys (mkTyConApp tc tc_kind_args)
+         derivingEtaErr cls cls_tys (mkTyConApp tc tc_imp_args)
 
-       ; mkEqnHelp imp_vars cls cls_tys tc tc_kind_args Nothing }
+       ; mkEqnHelp imp_vars cls cls_tys tc tc_imp_args Nothing }
   where
     imp_vars    = impVarsOnly tc_args
     tc_imp_args = mkOnlyTyVarTys imp_vars

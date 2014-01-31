@@ -85,7 +85,7 @@ module TysPrim(
 
 #include "HsVersions.h"
 
-import Var		( TyVar, KindVar, mkTyVar )
+import Var		( TyVar, KindVar, mkTyVar, ImplicitFlag(..) )
 import Name		( Name, BuiltInSyntax(..), mkInternalName, mkWiredInName )
 import OccName          ( mkTyVarOccFS, mkTcOccFS )
 import TyCon
@@ -211,7 +211,7 @@ alphaTyVars :: [TyVar]
 alphaTyVars = tyVarList liftedTypeKind Explicit
 
 betaTyVars :: [TyVar]
-betaTyVars = tail alphaTyVars Explicit
+betaTyVars = tail alphaTyVars
 
 alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar :: TyVar
 (alphaTyVar:betaTyVar:gammaTyVar:deltaTyVar:_) = alphaTyVars

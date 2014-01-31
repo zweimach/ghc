@@ -88,7 +88,7 @@ import TcEvidence
 import RdrName
 import Var
 import TyCoRep
-import Type   ( isCoercionTy )
+import Type   ( filterImplicits )
 import TcType
 import Kind
 import DataCon
@@ -401,7 +401,7 @@ This is needed to implement GeneralizedNewtypeDeriving.
 \begin{code}
 toHsType :: Type -> LHsType RdrName
 toHsType ty
-  | [] <- tvs_only
+  | [] <- explicit_tvs_only
   , [] <- theta
   = to_hs_type tau
   | otherwise

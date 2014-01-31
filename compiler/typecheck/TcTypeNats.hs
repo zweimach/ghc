@@ -14,6 +14,7 @@ import CoAxiom    ( CoAxiomRule(..), BuiltInSynFamily(..) )
 import Name       ( Name, BuiltInSyntax(..) )
 import TysWiredIn ( typeNatKind, mkWiredInTyConName
                   , promotedFalseDataCon, promotedTrueDataCon
+                  , boolTy
                   )
 import TysPrim    ( tyVarList, mkArrowKinds )
 import PrelNames  ( gHC_TYPELITS
@@ -23,6 +24,7 @@ import PrelNames  ( gHC_TYPELITS
                   , typeNatLeqTyFamNameKey
                   , typeNatSubTyFamNameKey
                   )
+import Var        ( ImplicitFlag(..) )
 import FastString ( FastString, fsLit )
 import qualified Data.Map as Map
 import Data.Maybe ( isJust )
@@ -88,7 +90,7 @@ typeNatLeqTyCon :: TyCon
 typeNatLeqTyCon =
   mkSynTyCon name
     (mkArrowKinds [ typeNatKind, typeNatKind ] boolTy)
-    (take 2 $ tyVarList typeNatKind)
+    (take 2 $ tyVarList typeNatKind Explicit)
     [Nominal,Nominal]
     (BuiltInSynFamTyCon ops)
     NoParentTyCon
@@ -108,7 +110,7 @@ mkTypeNatFunTyCon2 :: Name -> BuiltInSynFamily -> TyCon
 mkTypeNatFunTyCon2 op tcb =
   mkSynTyCon op
     (mkArrowKinds [ typeNatKind, typeNatKind ] typeNatKind)
-    (take 2 $ tyVarList typeNatKind)
+    (take 2 $ tyVarList typeNatKind Explicit)
     [Nominal,Nominal]
     (BuiltInSynFamTyCon tcb)
     NoParentTyCon

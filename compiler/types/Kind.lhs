@@ -12,27 +12,23 @@
 
 module Kind (
         -- * Main data type
-        SuperKind, Kind, typeKind,
+        Kind, typeKind,
 
 	-- Kinds
-	anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind,
+	liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind,
         mkArrowKind, mkArrowKinds,
 
         -- Kind constructors...
-        anyKindTyCon, liftedTypeKindTyCon, openTypeKindTyCon,
+        liftedTypeKindTyCon, openTypeKindTyCon,
         unliftedTypeKindTyCon, constraintKindTyCon,
 
         pprKind, pprParendKind,
-
-        -- ** Deconstructing Kinds
-        kindAppResult, synTyConResKind,
 
         -- ** Predicates on Kinds
         isLiftedTypeKind, isUnliftedTypeKind, isOpenTypeKind,
         isConstraintKind, returnsConstraintKind,
         
         isLiftedTypeKindCon, isConstraintKindCon,
-        isAnyKind, isAnyKindCon,
         okArrowArgKind, okArrowResultKind,
 
         isSubOpenTypeKind, isSubOpenTypeKindKey, isStarKindCon,
@@ -44,7 +40,7 @@ module Kind (
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} Type      ( typeKind, eqKind, piResultTy )
+import {-# SOURCE #-} Type      ( typeKind, eqKind )
 
 import TyCoRep
 import TysPrim
@@ -133,8 +129,8 @@ okArrowResultKind _                = False
 -----------------------------------------
 --              Subkinding
 -- The tc variants are used during type-checking, where ConstraintKind
--- and SuperKind are distinct from all other kinds
--- After type-checking (in core), Constraint, SuperKind, and liftedTypeKind are
+-- is distinct from all other kinds
+-- After type-checking (in core), Constraint and liftedTypeKind are
 -- indistinguishable
 
 isSubOpenTypeKind :: Kind -> Bool
@@ -154,7 +150,6 @@ isStarKindCon kc = isStarKindConKey (tyConUnique kc)
 isStarKindConKey :: Unique -> Bool
 isStarKindConKey uniq
   =  uniq == liftedTypeKindTyConKey
-  || uniq == superKindTyConKey
   || uniq == constraintKindTyConKey
                               -- Needed for error (Num a) "blah"
                               -- and so that (Ord a -> Eq a) is well-kinded
@@ -197,7 +192,7 @@ isSubKindCon kc1 kc2
   | kc1 == kc2              = True
   | isOpenTypeKindCon kc2   = isSubOpenTypeKindCon kc1
   | otherwise               = isStarKindCon kc1 && isStarKindCon kc2
-    -- See Note [Kind Constraint and kind *] and Note [SuperKind]
+    -- See Note [Kind Constraint and kind *]
   | otherwise               = False
 
 -------------------------
@@ -219,16 +214,12 @@ isSubKindCon kc1 kc2
 tcIsSubKind :: Kind -> Kind -> Bool
 tcIsSubKind k1 k2
   | isConstraintKind k1 = isConstraintKind k2
-  | isSuperKind k1      = isSuperKind k2
-  | isSuperKind k2      = False -- if it were True, handled on previous line
   | otherwise           = isSubKind k1 k2
 
 tcIsSubKindCon :: TyCon -> TyCon -> Bool
 tcIsSubKindCon kc1 kc2
   | isConstraintKindCon kc1 = isConstraintKindCon kc2
   | isConstraintKindCon kc2 = False
-  | isSuperKindCon kc1      = isSuperKindCon kc2
-  | isSuperKindCon kc2      = False
   | otherwise               = isSubKindCon kc1 kc2
 
 -------------------------

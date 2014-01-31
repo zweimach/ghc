@@ -85,12 +85,11 @@ import UniqSupply
 import BasicTypes
 import Util
 import Pair
+import VarSet
 import Constants
 import DynFlags
 
 import Data.Char        ( ord )
-import Data.List
-import Data.Ord
 import Data.Word
 
 infixl 4 `mkCoreApp`, `mkCoreApps`

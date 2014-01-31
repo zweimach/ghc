@@ -30,8 +30,7 @@ import Class
 import Coercion( pprCoAxiom, pprCoAxBranch )
 import CoAxiom( CoAxiom(..), brListMap )
 import HscTypes( tyThingParent_maybe )
-import Type( tidyTopType, tidyOpenType, splitForAllTys, funResultTy )
-import Kind( synTyConResKind )
+import Type( tidyTopType, tidyOpenType, splitForAllTys, funResultTy, synTyConResKind )
 import TyCoRep( pprTCvBndrs, pprForAll, suppressKinds )
 import TysPrim( alphaTyVars )
 import TcType

@@ -462,7 +462,7 @@ coercibleTyCon = mkClassTyCon
   where kind = (ForAllTy kv $ mkArrowKinds [k, k] constraintKind)
         kv = kKiVar
         k = mkOnlyTyVarTy kv
-        a:b:_ = tyVarList k
+        a:b:_ = tyVarList k Explicit
         tvs = [kv, a, b]
         rhs = DataTyCon [coercibleDataCon] False
 
@@ -471,7 +471,7 @@ coercibleDataCon = pcDataCon coercibleDataConName args [TyConApp eqReprPrimTyCon
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
-    a:b:_ = tyVarList k
+    a:b:_ = tyVarList k Explicit
     args  = [kv, a, b]
     args' = map mkOnlyTyVarTy [kv, kv, a, b]
 

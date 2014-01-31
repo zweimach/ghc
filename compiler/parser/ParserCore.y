@@ -27,6 +27,7 @@ import ParserCoreUtils
 import LexCore
 import Literal
 import SrcLoc
+import qualified Var  ( ImplicitFlag(..) )
 import PrelNames
 import TysPrim
 import TyCon ( TyCon, tyConName )
@@ -231,8 +232,8 @@ id_bndr	:: { IfaceIdBndr }
 	: '(' fs_var_occ '::' ty ')'	{ ($2,$4) }
 
 tv_bndr	:: { IfaceTvBndr }
-        :  fs_var_occ                    { ($1, ifaceLiftedTypeKind, Explicit) }
-        |  '(' fs_var_occ '::' akind ')' { ($2, $4, Explicit) }
+        :  fs_var_occ                    { ($1, ifaceLiftedTypeKind, Var.Explicit) }
+        |  '(' fs_var_occ '::' akind ')' { ($2, $4, Var.Explicit) }
 
 tv_bndrs 	:: { [IfaceTvBndr] }
 	: {- empty -}	{ [] }
