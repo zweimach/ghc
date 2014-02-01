@@ -564,10 +564,16 @@ tcInferApps :: Outputable a
        -> TcKind			-- Function kind
        -> [LHsType Name]		-- Arg types
        -> TcM ([TcType], TcKind)	-- Kind-checked args
-tcInferApps the_fun fun_kind args
-  = do { (args_w_kinds, res_kind) <- splitFunKind (ppr the_fun) fun_kind args
-       ; args' <- tc_lhs_types args_w_kinds
-       ; return (args', res_kind) }
+tcInferApps the_fun = go 1
+  where
+    the_fun_doc = ppr the_fun
+    
+    go _      fun_kind [] = return ([], fun_kind)
+    go arg_no fun_kind (arg:args)
+      = do { (arg_kind, res_kind_fn) <- splitFunKind the_fun_doc fun_kind
+           ; arg' <- tc_lhs_type arg (expArgKind (quotes the_fun_doc) arg_kind arg_no)
+           ; (args', res_kind) <- go (arg_no+1) (res_kind_fn arg') args
+           ; return (arg' : args', res_kind) }
 
 tcCheckApps :: Outputable a 
             => HsType Name     -- The type being checked (for err messages only)
@@ -581,22 +587,17 @@ tcCheckApps hs_ty the_fun fun_kind args exp_kind
        ; return arg_tys }
 
 ---------------------------
-splitFunKind :: SDoc -> TcKind -> [b] -> TcM ([(b,ExpKind)], TcKind)
-splitFunKind the_fun fun_kind args
-  = go 1 fun_kind args
+-- splitFunKind returns the argument kind and a function that, when given the actual
+-- argument type, produces the result kind.
+splitFunKind :: SDoc -> TcKind -> TcM (TcKind, TcType -> TcKind)
+splitFunKind the_fun fun_kind
+  = do { mb_fk <- matchExpectedFunKind fun_kind
+       ; case mb_fk of
+           Nothing        -> failWithTc too_many_args
+           Just (ak, fk') -> return (ak, fk') }
   where
-    go _      fk [] = return ([], fk)
-    go arg_no fk (arg:args)
-       = do { mb_fk <- matchExpectedFunKind fk
-            ; case mb_fk of
-                 Nothing       -> failWithTc too_many_args 
-                 Just (ak,fk') -> do { (aks, rk) <- go (arg_no+1) fk' args
-                                     ; let exp_kind = expArgKind (quotes the_fun) ak arg_no
-                                     ; return ((arg, exp_kind) : aks, rk) } }
- 
     too_many_args = quotes the_fun <+>
 		    ptext (sLit "is applied to too many type arguments")
-
 
 ---------------------------
 tcHsContext :: LHsContext Name -> TcM [PredType]

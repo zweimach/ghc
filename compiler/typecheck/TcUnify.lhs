@@ -1093,13 +1093,16 @@ The situation is different in the core of the compiler, where we are perfectly
 happy to have types of kind Constraint on either end of an arrow.
 
 \begin{code}
-matchExpectedFunKind :: TcKind -> TcM (Maybe (TcKind, TcKind))
--- Like unifyFunTy, but does not fail; instead just returns Nothing
+matchExpectedFunKind :: TcKind       -- function kind
+                     -> TcM (Maybe ( TcKind -- arg kind
+                                   , TcType -> TcKind )) -- fn producing result kind
+-- This function takes the arg to do result-kind substitution for forall
+-- types. It does *not* check the arg against the expected kind!
 
-matchExpectedFunKind (FunTy arg_kind res_kind) 
-  = return (Just (arg_kind,res_kind))
+matchExpectedFunKind (FunTy arg_kind res_kind)
+  = return (Just (arg_kind, const res_kind))
 
-matchExpectedFunKind (TyVarTy kvar) 
+matchExpectedFunKind (TyVarTy kvar)
   | isTcTyVar kvar, isMetaTyVar kvar
   = do { maybe_kind <- readMetaTyVar kvar
        ; case maybe_kind of
@@ -1108,7 +1111,11 @@ matchExpectedFunKind (TyVarTy kvar)
                 do { arg_kind <- newMetaKindVar
                    ; res_kind <- newMetaKindVar
                    ; writeMetaTyVar kvar (mkArrowKind arg_kind res_kind)
-                   ; return (Just (arg_kind,res_kind)) } }
+                   ; return (Just (arg_kind, const res_kind)) } }
+
+matchExpectedFunKind (ForAllTy kv inner_ki)
+  | not (isImplicitBinder kv)
+  = return (Just (tyVarKind kv, \arg -> substTyWith [kv] [arg] inner_ki))
 
 matchExpectedFunKind _ = return Nothing
 

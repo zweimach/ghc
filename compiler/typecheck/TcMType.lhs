@@ -106,7 +106,7 @@ kind_var_occ = mkOccName tvName "k"
 
 newMetaKindVar :: TcM TcKind
 newMetaKindVar = do { uniq <- newUnique
-		    ; details <- newMetaDetails TauTv
+		    ; details <- newMetaDetails PolyTv
                     ; let kv = mkTcTyVar (mkKindName uniq) liftedTypeKind details Implicit
 		    ; return (mkOnlyTyVarTy kv) }
 
