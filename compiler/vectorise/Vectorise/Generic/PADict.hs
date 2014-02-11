@@ -90,7 +90,7 @@ buildPADict vect_tc prepr_ax pdata_tc pdatas_tc repr
 
           -- Build the type of the dictionary function.
       ; pa_cls <- builtin paClass
-      ; let dfun_ty = mkForAllTys tvs
+      ; let dfun_ty = mkImpForAllTys tvs
                     $ mkFunTys (map varType val_args)
                                (mkClassPred pa_cls [inst_ty])
 

@@ -270,7 +270,7 @@ check_type ctxt rank ty
         ; check_type ctxt rank tau      -- Allow foralls to right of arrow
         ; checkAmbiguity ctxt ty }
   where
-    (tvs, theta, tau) = tcSplitSigmaTy ty
+    (tvs, _, theta, tau) = tcSplitSigmaTy ty
    
 check_type _ _ (TyVarTy _) = return ()
 
@@ -876,7 +876,7 @@ checkValidInstance ctxt hs_type ty
   | otherwise 
   = failWithTc (ptext (sLit "Malformed instance head:") <+> ppr tau)
   where
-    (tvs, theta, tau) = tcSplitSigmaTy ty
+    (tvs, _, theta, tau) = tcSplitSigmaTy ty
 
         -- The location of the "head" of the instance
     head_loc = case hs_type of
@@ -1213,14 +1213,14 @@ smallerAppMsg = ptext (sLit "Application is no smaller than the instance head")
 -- Free variables of a type, retaining repetitions, and expanding synonyms
 fvType :: Type -> [TyCoVar]
 fvType ty | Just exp_ty <- tcView ty = fvType exp_ty
-fvType (TyVarTy tv)        = [tv]
-fvType (TyConApp _ tys)    = fvTypes tys
-fvType (LitTy {})          = []
-fvType (FunTy arg res)     = fvType arg ++ fvType res
-fvType (AppTy fun arg)     = fvType fun ++ fvType arg
-fvType (ForAllTy tyvar ty) = filter (/= tyvar) (fvType ty)
-fvType (CastTy ty co)      = fvType ty ++ fvCo co
-fvType (CoercionTy co)     = fvCo co
+fvType (TyVarTy tv)          = [tv]
+fvType (TyConApp _ tys)      = fvTypes tys
+fvType (LitTy {})            = []
+fvType (FunTy arg res)       = fvType arg ++ fvType res
+fvType (AppTy fun arg)       = fvType fun ++ fvType arg
+fvType (ForAllTy tyvar _ ty) = filter (/= tyvar) (fvType ty)
+fvType (CastTy ty co)        = fvType ty ++ fvCo co
+fvType (CoercionTy co)       = fvCo co
 
 fvTypes :: [Type] -> [TyVar]
 fvTypes tys                = concat (map fvType tys)
@@ -1259,7 +1259,7 @@ sizeType (TyConApp tc tys) = sizeTypes (filterImplicits tc tys) + 1
 sizeType (LitTy {})        = 1
 sizeType (FunTy arg res)   = sizeType arg + sizeType res + 1
 sizeType (AppTy fun arg)   = sizeType fun + sizeType arg
-sizeType (ForAllTy _ ty)   = sizeType ty
+sizeType (ForAllTy _ _ ty) = sizeType ty
 sizeType (CastTy ty _)     = sizeType ty
 sizeType (CoercionTy _)    = 1
 

@@ -1058,16 +1058,16 @@ specCalls env rules_for_me calls_for_me fn rhs
                      , ppr rhs_ids, ppr n_dicts
                      , ppr (idInlineActivation fn) ]
 
-    fn_type              = idType fn
-    fn_arity             = idArity fn
-    fn_unf               = realIdUnfolding fn     -- Ignore loop-breaker-ness here
-    (tycovars, theta, _) = tcSplitSigmaTy fn_type
-    (tyvars, covars)     = partition isTyVar tycovars
-    n_tyvars             = length tyvars
-    n_dicts              = length covars + length theta
-    inl_prag             = idInlinePragma fn
-    inl_act              = inlinePragmaActivation inl_prag
-    is_local             = isLocalId fn
+    fn_type                 = idType fn
+    fn_arity                = idArity fn
+    fn_unf                  = realIdUnfolding fn  -- Ignore loop-breaker-ness here
+    (tycovars, _, theta, _) = tcSplitSigmaTy fn_type
+    (tyvars, covars)        = partition isTyVar tycovars
+    n_tyvars                = length tyvars
+    n_dicts                 = length covars + length theta
+    inl_prag                = idInlinePragma fn
+    inl_act                 = inlinePragmaActivation inl_prag
+    is_local                = isLocalId fn
 
         -- Figure out whether the function has an INLINE pragma
         -- See Note [Inline specialisations]
@@ -1632,12 +1632,12 @@ mkCallUDs env f args
   where
     _trace_doc = vcat [ppr f, ppr args, ppr n_tyvars, ppr n_dicts
                       , ppr (map (interestingDict env) dicts)]
-    (tycovars, theta, _) = tcSplitSigmaTy (idType f)
-    (tyvars, covars)     = partition isTyVar tycovars
-    constrained_tyvars   = closeOverKinds (tyCoVarsOfTypes theta `unionVarSet`
+    (tycovars, _, theta, _) = tcSplitSigmaTy (idType f)
+    (tyvars, covars)        = partition isTyVar tycovars
+    constrained_tyvars      = closeOverKinds (tyCoVarsOfTypes theta `unionVarSet`
                                            tyCoVarsOfTypes (map varType covars))
-    n_tyvars             = length tyvars
-    n_dicts              = length covars + length theta
+    n_tyvars                = length tyvars
+    n_dicts                 = length covars + length theta
 
     spec_tys = [mk_spec_ty tv ty | (tv, ty) <- tyvars `type_zip` args]
     cv_dicts = take (length covars) [cv_dict | cv_dict@(Coercion _) <- args]

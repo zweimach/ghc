@@ -156,9 +156,9 @@ normaliseFfiType' env ty0 = go initRecTc ty0
            (coi2,nty2,gres2) <- go rec_nts ty2
            return (mkFunCo Representational coi1 coi2, mkFunTy nty1 nty2, gres1 `unionBags` gres2)
 
-    go rec_nts (ForAllTy tyvar ty1)
+    go rec_nts (ForAllTy tyvar imp ty1)
       = do (coi,nty1,gres1) <- go rec_nts ty1
-           return (mkForAllCo_TyHomo tyvar coi, mkForAllTy tyvar nty1, gres1)
+           return (mkForAllCo_TyHomo tyvar coi, mkForAllTy tyvar imp nty1, gres1)
 
     go rec_nts (CastTy ty1 co)
       = do (coi,nty1,gres1) <- go rec_nts ty1

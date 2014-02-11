@@ -1211,7 +1211,7 @@ reifyTyCon tc
        ; kind' <- if isLiftedTypeKind kind then return Nothing
                   else fmap Just (reifyKind kind)
 
-       ; tvs' <- reifyTyCoVars tvs
+       ; tvs' <- reifyTyCoVars tvs (Just tc)
        ; flav' <- reifyFamFlavour tc
        ; case flav' of
          { Left flav ->  -- open type/data family
@@ -1227,7 +1227,7 @@ reifyTyCon tc
 
   | Just (tvs, rhs) <- synTyConDefn_maybe tc  -- Vanilla type synonym
   = do { rhs' <- reifyType rhs
-       ; tvs' <- reifyTyCoVars tvs
+       ; tvs' <- reifyTyCoVars tvs (Just tc)
        ; return (TH.TyConI
                    (TH.TySynD (reifyName tc) tvs' rhs'))
        }
@@ -1236,7 +1236,7 @@ reifyTyCon tc
   = do  { cxt <- reifyCxt (tyConStupidTheta tc)
         ; let tvs = tyConTyVars tc
         ; cons <- mapM (reifyDataCon (mkOnlyTyVarTys tvs)) (tyConDataCons tc)
-        ; r_tvs <- reifyTyCoVars tvs
+        ; r_tvs <- reifyTyCoVars tvs (Just tc)
         ; let name = reifyName tc
               deriv = []        -- Don't know about deriving
               decl | isNewTyCon tc = TH.NewtypeD cxt name r_tvs (head cons) deriv
@@ -1272,7 +1272,7 @@ reifyDataCon tys dc
              return main_con
          else do
          { cxt <- reifyCxt theta'
-         ; ex_tvs'' <- reifyTyCoVars ex_tvs'
+         ; ex_tvs'' <- reifyTyCoVars ex_tvs' Nothing
          ; return (TH.ForallC ex_tvs'' cxt main_con) } }
 
 ------------------------------
@@ -1282,7 +1282,7 @@ reifyClass cls
         ; inst_envs <- tcGetInstEnvs
         ; insts <- mapM reifyClassInstance (InstEnv.classInstances inst_envs cls)
         ; ops <- mapM reify_op op_stuff
-        ; tvs' <- reifyTyCoVars tvs
+        ; tvs' <- reifyTyCoVars tvs (Just $ classTyCon cls)
         ; let dec = TH.ClassD cxt (reifyName cls) tvs' fds' ops
         ; return (TH.ClassI dec insts ) }
   where
@@ -1327,7 +1327,7 @@ reifyFamilyInstance (FamInst { fi_flavor = flavor
 ------------------------------
 reifyType :: TyCoRep.Type -> TcM TH.Type
 -- Monadic only because of failure
-reifyType ty@(ForAllTy _ _)        = reify_for_all ty
+reifyType ty@(ForAllTy _ _ _)        = reify_for_all ty
 reifyType (LitTy t)         = do { r <- reifyTyLit t; return (TH.LitT r) }
 reifyType (TyVarTy tv)      = return (TH.VarT (reifyName tv))
 reifyType (TyConApp tc tys) = reify_tc_app tc tys   -- Do not expand type synonyms here
@@ -1342,10 +1342,11 @@ reify_for_all :: TyCoRep.Type -> TcM TH.Type
 reify_for_all ty
   = do { cxt' <- reifyCxt cxt;
        ; tau' <- reifyType tau
-       ; tvs' <- reifyTyCoVars tvs
+       ; tvs' <- reifyTyCoVars tvs Nothing
        ; return (TH.ForallT tvs' cxt' tau') }
   where
-    (tvs, cxt, tau) = tcSplitSigmaTy ty
+      -- TODO (RAE): Fix TH.
+    (tvs, _, cxt, tau) = tcSplitSigmaTy ty
 
 reifyTyLit :: TyCoRep.TyLit -> TcM TH.TyLit
 reifyTyLit (NumTyLit n) = return (TH.NumTyLit n)
@@ -1401,21 +1402,26 @@ reifyFamFlavour tc
   = panic "TcSplice.reifyFamFlavour: not a type family"
 
 reifyTyCoVars :: [TyCoVar]
+              -> Maybe TyCon  -- the tycon if the tycovars are from a tycon.
+                              -- Used to detect which tvs are implicit.
               -> TcM [TH.TyVarBndr]
-reifyTyCoVars tvs = mapMaybeM reify_tv tvs
+reifyTyCoVars tvs m_tc = mapM reify_tv tvs'
   where
+    tvs' = case m_tc of
+             Just tc -> filterImplicits tc tvs
+             Nothing -> tvs
+             
     reify_tv tv | not (isTyVar tv)      = noTH (sLit "coercion variables") (ppr tv)
-                | isImplicitTyVar tv    = return Nothing
-                | isLiftedTypeKind kind = return (Just $ TH.PlainTV name)
+                | isLiftedTypeKind kind = return (TH.PlainTV name)
                 | otherwise             = do kind' <- reifyKind kind
-                                             return (Just $ TH.KindedTV name kind')
+                                             return (TH.KindedTV name kind')
       where
         kind = tyVarKind tv
         name = reifyName tv
 
 reify_tc_app :: TyCon -> [TyCoRep.Type] -> TcM TH.Type
 reify_tc_app tc tys
-  = do { tys' <- reifyTypes (removeKinds (tyConKind tc) tys)
+  = do { tys' <- reifyTypes (filterImplicits tc tys)
        ; return (mkThAppTs r_tc tys') }
   where
     arity = tyConArity tc
@@ -1426,12 +1432,6 @@ reify_tc_app tc tys
          | tc `hasKey` nilDataConKey  = TH.PromotedNilT
          | tc `hasKey` consDataConKey = TH.PromotedConsT
          | otherwise                  = TH.ConT (reifyName tc)
-    removeKinds :: Kind -> [TyCoRep.Type] -> [TyCoRep.Type]
-    removeKinds (FunTy _ k2)   (h:t) = h : removeKinds k2 t
-    removeKinds (ForAllTy v k) (h:t)
-      | isImplicitTyVar v       = removeKinds k t
-      | otherwise               = h : removeKinds k t
-    removeKinds _ tys           = tys
 
 reifyPred :: TyCoRep.PredType -> TcM TH.Pred
 reifyPred ty

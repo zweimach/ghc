@@ -25,6 +25,7 @@ module TyCoRep (
         TyLit(..),
         KindOrType, Kind,
         PredType, ThetaType,      -- Synonyms
+        ImplicitFlag(..),
 
         -- Coercions
         Coercion(..), CoercionArg(..), LeftOrRight(..), ForAllCoBndr(..),
@@ -165,6 +166,7 @@ data Type
 
   | ForAllTy            -- See Note [Type abstractions over coercions]
         TyCoVar
+        ImplicitFlag    -- ^ Whether or not this is implicit in surface Haskell
         Type            -- ^ A polymorphic type
 
   | LitTy TyLit     -- ^ Type literals are similar to type constructors.
@@ -193,7 +195,40 @@ type KindOrType = Type -- See Note [Arguments to type constructors]
 -- | The key type representing kinds in the compiler.
 type Kind = Type
 
+-- See Note [Implicit flags]
+data ImplicitFlag
+  = Implicit     -- ^ The parameter is not supplied
+  | Explicit     -- ^ The parameter must be supplied
+    deriving (Eq, Typeable)
+
+instance Outputable ImplicitFlag where
+  ppr Implicit     = text "i"
+  ppr Explicit     = text "e"
+
+instance Binary ImplicitFlag where
+  put_ bh Implicit     = putByte bh 0
+  put_ bh Explicit     = putByte bh 1
+
+  get bh = do h <- getByte bh
+              case h of
+                0 -> return Implicit
+                1 -> return Explicit
+                _ -> panic "ImplicitFlag"
+
 \end{code}
+
+Note [Implicit flags]
+~~~~~~~~~~~~~~~~~~~~~
+Though all type parameters are implicit in terms, some are implicit even in
+types. This is most often used with dependent types, where an explicit type's
+kind depends on an earlier implicit type. For example:
+
+  data SList :: [k] -> * where ...
+
+The parameter `k` to SList is implicit.
+
+Note that the implicit flag applies only to surface Haskell. This flag is
+unused in Core.
 
 Note [The kind invariant]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -879,7 +914,7 @@ tyVarsOnlyOfType (TyConApp _ tys)    = tyVarsOnlyOfTypes tys
 tyVarsOnlyOfType (LitTy {})          = emptyVarSet
 tyVarsOnlyOfType (FunTy arg res)     = tyVarsOnlyOfType arg `unionVarSet` tyVarsOnlyOfType res
 tyVarsOnlyOfType (AppTy fun arg)     = tyVarsOnlyOfType fun `unionVarSet` tyVarsOnlyOfType arg
-tyVarsOnlyOfType (ForAllTy tyvar ty) = delVarSet (tyVarsOnlyOfType ty) tyvar
+tyVarsOnlyOfType (ForAllTy tyvar _ ty) = delVarSet (tyVarsOnlyOfType ty) tyvar
                                    `unionVarSet` tyVarsOnlyOfType (tyVarKind tyvar)
 tyVarsOnlyOfType (CastTy ty co)      = tyVarsOnlyOfType ty `unionVarSet` tyVarsOnlyOfCo co
 tyVarsOnlyOfType (CoercionTy co)     = tyVarsOnlyOfCo co
@@ -928,7 +963,7 @@ tyCoVarsOfType (TyConApp _ tys)    = tyCoVarsOfTypes tys
 tyCoVarsOfType (LitTy {})          = emptyVarSet
 tyCoVarsOfType (FunTy arg res)     = tyCoVarsOfType arg `unionVarSet` tyCoVarsOfType res
 tyCoVarsOfType (AppTy fun arg)     = tyCoVarsOfType fun `unionVarSet` tyCoVarsOfType arg
-tyCoVarsOfType (ForAllTy tyvar ty) = delVarSet (tyCoVarsOfType ty) tyvar
+tyCoVarsOfType (ForAllTy tyvar _ ty) = delVarSet (tyCoVarsOfType ty) tyvar
                                    `unionVarSet` tyCoVarsOfType (tyVarKind tyvar)
 tyCoVarsOfType (CastTy ty co)      = tyCoVarsOfType ty `unionVarSet` tyCoVarsOfCo co
 tyCoVarsOfType (CoercionTy co)     = tyCoVarsOfCo co
@@ -974,7 +1009,7 @@ coVarsOfType (TyConApp _ tys)    = coVarsOfTypes tys
 coVarsOfType (LitTy {})          = emptyVarSet
 coVarsOfType (FunTy arg res)     = coVarsOfType arg `unionVarSet` coVarsOfType res
 coVarsOfType (AppTy fun arg)     = coVarsOfType fun `unionVarSet` coVarsOfType arg
-coVarsOfType (ForAllTy tyvar ty) = delVarSet (coVarsOfType ty) tyvar
+coVarsOfType (ForAllTy tyvar _ ty) = delVarSet (coVarsOfType ty) tyvar
                                    `unionVarSet` coVarsOfType (tyVarKind tyvar)
 coVarsOfType (CastTy ty co)      = coVarsOfType ty `unionVarSet` coVarsOfCo co
 coVarsOfType (CoercionTy co)     = coVarsOfCo co
@@ -1482,9 +1517,9 @@ subst_ty subst ty
     go (TyConApp tc tys) = let args = map go tys
                            in  args `seqList` TyConApp tc args
     go (FunTy arg res)   = (FunTy $! (go arg)) $! (go res)
-    go (ForAllTy tv ty)  = case substTyCoVarBndr subst tv of
-                              (subst', tv') ->
-                                 ForAllTy tv' $! (subst_ty subst' ty)
+    go (ForAllTy tv imp ty)  = case substTyCoVarBndr subst tv of
+                                (subst', tv') ->
+                                   ForAllTy tv' imp $! (subst_ty subst' ty)
     go (LitTy n)         = LitTy $! n
     go (CastTy ty co)    = (CastTy $! (go ty)) $! (subst_co subst co)
     go (CoercionTy co)   = CoercionTy $! (subst_co subst co)
@@ -1870,18 +1905,20 @@ ppr_sigma_type :: Bool -> Type -> SDoc
 -- Bool <=> Show the foralls
 ppr_sigma_type show_foralls ty
   = sdocWithDynFlags $ \ dflags ->
-    let filtered_tvs | gopt Opt_PrintExplicitKinds dflags
-                     = tvs
-                     | otherwise
-                     = filterOut isImplicitTyVar tvs
-    in sep [ ppWhen show_foralls (pprForAll filtered_tvs)
+    in sep [ ppWhen show_foralls (pprForAll tvs)
            , pprThetaArrowTy ctxt
            , pprType tau ]
   where
+    print_implicits = gopt Opt_PrintExplicitKinds dflags
+    
     (tvs,  rho) = split1 [] ty
     (ctxt, tau) = split2 [] rho
 
-    split1 tvs (ForAllTy tv ty) = split1 (tv:tvs) ty
+    split1 tvs (ForAllTy tv imp ty)
+      | imp == Explicit || print_implicits
+      = split1 (tv:tvs) ty
+      | otherwise
+      = split1 tvs ty
     split1 tvs ty          = (reverse tvs, ty)
 
     split2 ps (ty1 `FunTy` ty2) | isPredTy ty1 = split2 (ty1:ps) ty2
@@ -2130,7 +2167,7 @@ tidyType env (TyConApp tycon tys) = let args = tidyTypes env tys
                                     in args `seqList` TyConApp tycon args
 tidyType env (AppTy fun arg)      = (AppTy $! (tidyType env fun)) $! (tidyType env arg)
 tidyType env (FunTy fun arg)      = (FunTy $! (tidyType env fun)) $! (tidyType env arg)
-tidyType env (ForAllTy tv ty)     = ForAllTy tvp $! (tidyType envp ty)
+tidyType env (ForAllTy tv imp ty) = ForAllTy tvp imp $! (tidyType envp ty)
                                   where
                                     (envp, tvp) = tidyTyCoVarBndr env tv
 tidyType env (CastTy ty co)       = (CastTy $! tidyType env ty) $! (tidyCo env co)

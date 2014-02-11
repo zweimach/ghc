@@ -244,7 +244,7 @@ match_ty menv tsubst csubst (TyVarTy tv1) ty2
     rn_env = me_env menv
     tv1' = rnOccL rn_env tv1
 
-match_ty menv tsubst csubst (ForAllTy tv1 ty1) (ForAllTy tv2 ty2) 
+match_ty menv tsubst csubst (ForAllTy tv1 _ ty1) (ForAllTy tv2 _ ty2) 
   = do { (tsubst', csubst') <- match_kind menv tsubst csubst (tyVarKind tv1) (tyVarKind tv2)
        ; match_ty menv' tsubst' csubst' ty1 ty2 }
   where         -- Use the magic of rnBndr2 to go under the binders
@@ -947,7 +947,7 @@ unify_ty ty1 (AppTy ty2a ty2b)
 
 unify_ty (LitTy x) (LitTy y) | x == y = return ()
 
-unify_ty (ForAllTy tv1 ty1) (ForAllTy tv2 ty2)
+unify_ty (ForAllTy tv1 _ ty1) (ForAllTy tv2 _ ty2)
   = do { unify_ty (tyVarKind tv1) (tyVarKind tv2)
        ; umRnBndr2 tv1 tv2 $ unify_ty ty1 ty2 }
 
@@ -1590,7 +1590,7 @@ ty_co_match menv subst (TyConApp tc1 tys) (TyConAppCo _ tc2 cos)
 ty_co_match menv subst (FunTy ty1 ty2) (TyConAppCo _ tc cos)
   | tc == funTyCon = ty_co_match_args menv subst [ty1, ty2] cos
 
-ty_co_match menv subst (ForAllTy tv ty) (ForAllCo cobndr co)
+ty_co_match menv subst (ForAllTy tv _ ty) (ForAllCo cobndr co)
   | TyHomo tv2 <- cobndr
   = ASSERT( isTyVar tv )
     do { subst1 <- ty_co_match menv subst (tyVarKind tv)
@@ -1699,7 +1699,7 @@ pushRefl (Refl r (FunTy ty1 ty2))
   = Just (TyConAppCo r funTyCon [liftSimply r ty1, liftSimply r ty2])
 pushRefl (Refl r (TyConApp tc tys))
   = Just (TyConAppCo r tc (zipWith liftSimply (tyConRolesX r tc) tys))
-pushRefl (Refl r (ForAllTy tv ty))
+pushRefl (Refl r (ForAllTy tv _ ty))
   | isTyVar tv                    = Just (ForAllCo (TyHomo tv) (Refl r ty))
   | otherwise                     = Just (ForAllCo (CoHomo tv) (Refl r ty))
 pushRefl (Refl r (CastTy ty co))  = Just (castCoercionKind (Refl r ty) co co)

@@ -730,14 +730,13 @@ derivePolyKindedTypeable cls cls_tys _tvs tc tc_args
 
        ; mkEqnHelp imp_vars cls cls_tys tc tc_imp_args Nothing }
   where
-    imp_vars    = impVarsOnly tc_args
-    tc_imp_args = mkOnlyTyVarTys imp_vars
+    tc_imps     = tyConTvVisibilities tc
+    implicits   = span (== Implicit) tc_imps
+      -- we only want the *prefix* of implicit vars
 
-    impVarsOnly :: [Type] -> [TyVar]
-    impVarsOnly [] = []
-    impVarsOnly (t:ts) | Just v <- getTyVar_maybe t
-                       , isImplicitTyVar v = v : impVarsOnly ts
-                       | otherwise         =     impVarsOnly ts
+    tc_imp_args = takeList implicits tc_args
+    imp_vars    = map (getTyVar "derivePolyKindedTypeable") tc_imp_args
+
 \end{code}
 
 Note [Match kinds in deriving]
@@ -999,22 +998,21 @@ mkPolyKindedTypeableEqn tvs cls tycon tc_args mtheta
              -- or    deriving Typeable (S :: * -> *)     where S is kind-polymorphic
 
           polykinds <- xoptM Opt_PolyKinds
-        ; checkTc (all is_kind_var tc_args) (mk_msg polykinds)
+        ; checkTc only_implicit_args (mk_msg polykinds)
         ; dfun_name <- new_dfun_name cls tycon
         ; loc <- getSrcSpanM
         ; let tc_app = mkTyConApp tycon tc_args
         ; return (GivenTheta $
                   DS { ds_loc = loc, ds_name = dfun_name
-                     , ds_tvs = filter isImplicitTyVar tvs, ds_cls = cls
+                     , ds_tvs = tvs, ds_cls = cls
                      , ds_tys = typeKind tc_app : [tc_app]
                          -- Remember, Typeable :: forall k. k -> *
                      , ds_tc = tycon, ds_tc_args = tc_args
                      , ds_theta = mtheta `orElse` []  -- Context is empty for polykinded Typeable
                      , ds_newtype = False })  }
   where
-    is_kind_var tc_arg = case tcGetTyVar_maybe tc_arg of
-                           Just v  -> isImplicitTyVar v
-                           Nothing -> False
+    tc_imps            = tyConTvVisibilities tc
+    only_implicit_args = tc_args `equalLength` (span (== Implicit) tc_imps)
 
     mk_msg polykinds | not polykinds
                      = hang (ptext (sLit "To make a Typeable instance of poly-kinded")

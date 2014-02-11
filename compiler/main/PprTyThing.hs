@@ -169,8 +169,8 @@ pprTypeForUser ty
     then ppr tidy_ty
     else ppr (mkPhiTy ctxt ty')
   where
-    (_, ctxt, ty') = tcSplitSigmaTy tidy_ty
-    (_, tidy_ty)   = tidyOpenType emptyTidyEnv ty
+    (_, _, ctxt, ty') = tcSplitSigmaTy tidy_ty
+    (_, tidy_ty)      = tidyOpenType emptyTidyEnv ty
      -- Often the types/kinds we print in ghci are fully generalised
      -- and have no free variables, but it turns out that we sometimes
      -- print un-generalised kinds (eg when doing :k T), so it's
@@ -239,14 +239,14 @@ pprDataConDecl ss gadt_style dataCon
 			sep [ pp_foralls, pprThetaArrowTy theta, pp_tau ]
 	-- Printing out the dataCon as a type signature, in GADT style
   where
-    (forall_tvs, theta, tau) = tcSplitSigmaTy (dataConUserType dataCon)
-    (arg_tys, res_ty)        = tcSplitFunTys tau
+    (forall_tvs, imps, theta, tau) = tcSplitSigmaTy (dataConUserType dataCon)
+    (arg_tys, res_ty)              = tcSplitFunTys tau
     labels     = dataConFieldLabels dataCon
     stricts    = dataConStrictMarks dataCon
     tys_w_strs = zip (map user_ify stricts) arg_tys
     pp_foralls = sdocWithDynFlags $ \dflags ->
                  ppWhen (gopt Opt_PrintExplicitForalls dflags)
-                        (pprForAll forall_tvs)
+                        (pprForAll forall_tvs imps)
 
     pp_tau = foldr add (ppr res_ty) tys_w_strs
     add str_ty pp_ty = pprParendBangTy str_ty <+> arrow <+> pp_ty

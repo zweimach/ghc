@@ -190,7 +190,7 @@ bty	:: { IfaceType }
 ty	:: { IfaceType }
 	: bty	                     { $1 }
 	| bty '->' ty                { IfaceFunTy $1 $3 }
-        | '%forall' tv_bndrs '.' ty  { foldr IfaceForAllTy $4 (map IfaceTv $2) }
+        | '%forall' tv_bndrs '.' ty  { foldr (\a -> IfaceForAllTy a Implicit) $4 (map IfaceTv $2) }
 -- ToDo: make the last production above work.
 ----------------------------------------------
 --        Bindings are in Iface syntax
@@ -357,7 +357,7 @@ toHsType (IfaceTyVar v)        		 = noLoc $ HsTyVar (mkRdrUnqual (mkTyVarOccFS v
 toHsType (IfaceAppTy t1 t2)    		 = noLoc $ HsAppTy (toHsType t1) (toHsType t2)
 toHsType (IfaceFunTy t1 t2)    		 = noLoc $ HsFunTy (toHsType t1) (toHsType t2)
 toHsType (IfaceTyConApp (IfaceTc tc) ts) = foldl mkHsAppTy (noLoc $ HsTyVar (ifaceExtRdrName tc)) (map toHsType ts) 
-toHsType (IfaceForAllTy (IfaceTv tv) t)            = add_forall (toHsTvBndr tv) (toHsType t)
+toHsType (IfaceForAllTy (IfaceTv tv) _ t)= add_forall (toHsTvBndr tv) (toHsType t)
 
 -- Only a limited form of kind will be encountered... hopefully
 toHsKind :: IfaceKind -> LHsKind RdrName

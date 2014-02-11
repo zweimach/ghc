@@ -1080,11 +1080,11 @@ normalise_type env lc
       = let (co1, nty1) = go r ty1
             (co2, nty2) = go r ty2
         in (mkFunCo r co1 co2, mkFunTy nty1 nty2)
-    go r (ForAllTy tyvar ty)
+    go r (ForAllTy tyvar imp ty)
       = let (lc', cobndr) = normalise_tycovar_bndr env lc tyvar
             (co, nty)     = normalise_type env lc' r ty
             (_, tyvar')   = coBndrBoundVars cobndr
-        in (mkForAllCo cobndr co, mkForAllTy tyvar' nty)
+        in (mkForAllCo cobndr co, mkForAllTy tyvar' imp nty)
     go r (TyVarTy tv)    = normalise_tyvar lc r tv
     go r (CastTy ty co)  =
       let (nco, nty) = go r ty
@@ -1212,9 +1212,9 @@ coreFlattenTy = go
                                  (env2, ty2') = go env1 ty2 in
                              (env2, FunTy ty1' ty2')
 
-    go env (ForAllTy tv ty) = let (env1, tv') = coreFlattenVarBndr env tv
-                                  (env2, ty') = go env1 ty in
-                              (env2, ForAllTy tv' ty')
+    go env (ForAllTy tv imp ty) = let (env1, tv') = coreFlattenVarBndr env tv
+                                      (env2, ty') = go env1 ty in
+                                  (env2, ForAllTy tv' imp ty')
 
     go env ty@(LitTy {}) = (env, ty)
 
@@ -1269,7 +1269,6 @@ coreFlattenTyFamApp env fam_tc fam_args
       Nothing -> let tyvar_name = mkFlattenFreshTyName fam_tc
                      tv = uniqAway in_scope $ mkTyVar tyvar_name
                                                       (typeKind fam_ty)
-                                                      Don'tCareImp
                      env' = env { fe_type_map = extendTypeMap type_map fam_ty tv
                                 , fe_in_scope = extendInScopeSet in_scope tv }
                  in (env', tv)
@@ -1288,7 +1287,7 @@ allTyVarsInTy = go
     go (AppTy ty1 ty2)   = (go ty1) `unionVarSet` (go ty2)
     go (TyConApp _ tys)  = allTyVarsInTys tys
     go (FunTy ty1 ty2)   = (go ty1) `unionVarSet` (go ty2)
-    go (ForAllTy tv ty)  = (go (tyVarKind tv)) `unionVarSet`
+    go (ForAllTy tv _ ty)= (go (tyVarKind tv)) `unionVarSet`
                            unitVarSet tv `unionVarSet`
                            (go ty) -- don't remove tv
     go (LitTy {})        = emptyVarSet

@@ -709,11 +709,11 @@ vectScalarDFun var
        ; return $ mkLams (tvs ++ vThetaBndr) vBody
        }
   where
-    ty                = varType var
-    (tvs, theta, pty) = tcSplitSigmaTy  ty        -- 'theta' is the instance context
-    (cls, tys)        = tcSplitDFunHead pty       -- 'pty' is the instance head
-    selIds            = classAllSelIds cls
-    dataCon           = classDataCon cls
+    ty                   = varType var
+    (tvs, _, theta, pty) = tcSplitSigmaTy  ty        -- 'theta' is the instance context
+    (cls, tys)           = tcSplitDFunHead pty       -- 'pty' is the instance head
+    selIds               = classAllSelIds cls
+    dataCon              = classDataCon cls
 
 -- Build a value of the dictionary before vectorisation from original, unvectorised type and an
 -- expression computing the vectorised dictionary.
@@ -1208,8 +1208,8 @@ maybeParrTy ty
       then return True 
       else or <$> mapM maybeParrTy ts
     }
-maybeParrTy (ForAllTy _ ty) = maybeParrTy ty
-maybeParrTy _               = return False
+maybeParrTy (ForAllTy _ _ ty) = maybeParrTy ty
+maybeParrTy _                 = return False
 
 -- Are the types of all variables in the 'Scalar' class or toplevel variables?
 --

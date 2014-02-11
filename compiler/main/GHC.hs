@@ -1142,7 +1142,8 @@ modInfoModBreaks = minf_modBreaks
 
 isDictonaryId :: Id -> Bool
 isDictonaryId id
-  = case tcSplitSigmaTy (idType id) of { (_tvs, _theta, tau) -> isDictTy tau }
+  = case tcSplitSigmaTy (idType id) of {
+      (_tvs, _imps, _theta, tau) -> isDictTy tau }
 
 -- | Looks up a global name: that is, any top-level name in any
 -- visible module.  Unlike 'lookupName', lookupGlobalName does not use

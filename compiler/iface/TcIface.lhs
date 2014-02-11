@@ -444,6 +444,7 @@ tc_iface_decl _ ignore_prags (IfaceId {ifName = occ_name, ifType = iface_type,
 
 tc_iface_decl parent _ (IfaceData {ifName = occ_name,
                           ifCType = cType,
+                          ifKind = kind,
                           ifTyVars = tv_bndrs,
                           ifRoles = roles,
                           ifCtxt = ctxt, ifGadtSyntax = gadt_syn,
@@ -455,8 +456,8 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
             { stupid_theta <- tcIfaceCtxt ctxt
             ; parent' <- tc_parent tyvars mb_axiom_name
             ; cons <- tcIfaceDataCons tc_name tycon tyvars rdr_cons
-            ; return (buildAlgTyCon tc_name tyvars roles cType stupid_theta
-                                    cons is_rec gadt_syn parent') }
+            ; return (mkAlgTyCon tc_name kind tyvars roles cType stupid_theta
+                                    cons parent' is_rec gadt_syn) }
     ; traceIf (text "tcIfaceDecl4" <+> ppr tycon)
     ; return (ATyCon tycon) }
   where
@@ -491,10 +492,10 @@ tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyVars = tv_bndrs,
                                   ifSynKind = kind })
    = bindIfaceTyVars_AT tv_bndrs $ \ tyvars -> do
      { tc_name  <- lookupIfaceTop occ_name
-     ; rhs_kind <- tcIfaceType kind     -- Note [Synonym kind loop]
+     ; kind     <- tcIfaceType kind     -- Note [Synonym kind loop]
      ; rhs      <- forkM (mk_doc tc_name) $
                    tc_syn_rhs mb_rhs_ty
-     ; tycon    <- buildSynTyCon tc_name tyvars roles rhs rhs_kind parent
+     ; let tycon = mkSynTyCon tc_name kind tyvars roles rhs parent
      ; return (ATyCon tycon) }
    where
      mk_doc n = ptext (sLit "Type syonym") <+> ppr n
@@ -933,8 +934,8 @@ tcIfaceType = go
     go (IfaceLitTy l)         = LitTy <$> tcIfaceTyLit l
     go (IfaceFunTy t1 t2)     = FunTy <$> go t1 <*> go t2
     go (IfaceTyConApp tc tks) = mkTyConApp <$> tcIfaceTyCon tc <*> mapM go tks
-    go (IfaceForAllTy bndr t)
-      = bindIfaceBndrTy bndr $ \ tv' -> ForAllTy tv' <$> go t
+    go (IfaceForAllTy bndr imp t)
+      = bindIfaceBndrTy bndr $ \ tv' -> ForAllTy tv' imp <$> go t
     go (IfaceCastTy ty co)   = CastTy <$> go ty <*> tcIfaceCo co
     go (IfaceCoercionTy co)  = CoercionTy <$> tcIfaceCo co
 
@@ -1450,9 +1451,9 @@ bindIfaceBndrCo (IfaceHeteroCv co cv1 cv2) thing_inside
          thing_inside (mkCoHeteroCoBndr co' cv1' cv2') }
 
 bindIfaceTyVar :: IfaceTvBndr -> (TyVar -> IfL a) -> IfL a
-bindIfaceTyVar (occ,kind,imp) thing_inside
+bindIfaceTyVar (occ,kind) thing_inside
   = do  { name <- newIfaceName (mkTyVarOccFS occ)
-        ; tyvar <- mk_iface_tyvar name kind imp
+        ; tyvar <- mk_iface_tyvar name kind
         ; extendIfaceTyVarEnv [tyvar] (thing_inside tyvar) }
 
 bindIfaceTvBndrs :: [IfaceTvBndr] -> ([TyVar] -> IfL a) -> IfL a
@@ -1462,10 +1463,10 @@ bindIfaceTvBndrs (tv:tvs) thing_inside
     bindIfaceTvBndrs tvs $ \tvs' ->
     thing_inside (tv':tvs')
 
-mk_iface_tyvar :: Name -> IfaceKind -> Var.ImplicitFlag -> IfL TyVar
-mk_iface_tyvar name ifKind imp
+mk_iface_tyvar :: Name -> IfaceKind -> IfL TyVar
+mk_iface_tyvar name ifKind
    = do { kind <- tcIfaceType ifKind
-        ; return (Var.mkTyVar name kind imp) }
+        ; return (Var.mkTyVar name kind) }
 
 bindIfaceTyVars_AT :: [IfaceTvBndr] -> ([TyVar] -> IfL a) -> IfL a
 -- Used for type variable in nested associated data/type declarations

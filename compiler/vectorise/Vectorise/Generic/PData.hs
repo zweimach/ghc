@@ -50,15 +50,16 @@ buildDataFamInst name' fam_tc vect_tc rhs
             tys'     = mkTyCoVarTys tyvars'
             rep_ty   = mkTyConApp rep_tc tys'
             pat_tys  = [mkTyConApp vect_tc tys']
-            rep_tc   = buildAlgTyCon name'
+            rep_tc   = mkAlgTyCon name'
+                           (mkPiTypesPreferFunTy tyvars' liftedTypeKind)
                            tyvars'
                            (map (const Nominal) tyvars')
                            Nothing
                            []          -- no stupid theta
                            rhs
+                           (FamInstTyCon ax fam_tc pat_tys)
                            rec_flag    -- FIXME: is this ok?
                            False       -- not GADT syntax
-                           (FamInstTyCon ax fam_tc pat_tys)
       ; liftDs $ newFamInst (DataFamilyInst rep_tc) ax }
  where
     tyvars    = tyConTyVars vect_tc

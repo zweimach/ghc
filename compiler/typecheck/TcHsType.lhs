@@ -191,7 +191,7 @@ tcHsInstHead user_ctxt lhs_ty@(L loc hs_ty)
     do { inst_ty <- tc_inst_head hs_ty
        ; kvs     <- zonkTcTypeAndFV inst_ty
        ; kvs     <- kindGeneralize kvs
-       ; inst_ty <- zonkSigType (mkForAllTys kvs inst_ty)
+       ; inst_ty <- zonkSigType (mkImpForAllTys kvs inst_ty)
        ; checkValidInstance user_ctxt lhs_ty inst_ty }
 
 tc_inst_head :: HsType Name -> TcM TcType
@@ -199,7 +199,8 @@ tc_inst_head (HsForAllTy _ hs_tvs hs_ctxt hs_ty)
   = tcHsTyVarBndrs hs_tvs $ \ tvs -> 
     do { ctxt <- tcHsContext hs_ctxt
        ; ty   <- tc_lhs_type hs_ty ekConstraint    -- Body for forall has kind Constraint
-       ; return (mkSigmaTy tvs ctxt ty) }
+                  -- TODO (RAE): This will be changed with "forall ->" syntax
+       ; return (mkImpSigmaTy tvs ctxt ty) }
 
 tc_inst_head hs_ty
   = tc_hs_type hs_ty ekConstraint
@@ -302,7 +303,7 @@ tcCheckHsTypeAndGen hs_ty kind
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
        ; kvs <- zonkTcTypeAndFV ty 
        ; kvs <- kindGeneralize kvs
-       ; return (mkForAllTys kvs ty) }
+       ; return (mkImpForAllTys kvs ty) }
 \end{code}
 
 Like tcExpr, tc_hs_type takes an expected kind which it unifies with
@@ -399,7 +400,8 @@ tc_hs_type hs_ty@(HsForAllTy _ hs_tvs context ty) exp_kind
                    -- The body kind (result of the function can be * or #, hence ekOpen
                    do { checkExpectedKind hs_ty liftedTypeKind exp_kind
                       ; tc_lhs_type ty ekOpen }
-       ; return (mkSigmaTy tvs' ctxt' ty') }
+         -- TODO (RAE): Change this when "forall ->" syntax exists
+       ; return (mkImpSigmaTy tvs' ctxt' ty') }
 
 --------- Lists, arrays, and tuples
 tc_hs_type hs_ty@(HsListTy elt_ty) exp_kind 
@@ -642,13 +644,18 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
     inst_tycon :: ([Type] -> Type) -> Kind -> TcM (Type, Kind)
     -- Instantiate the polymorphic kind
     -- Lazy in the TyCon
+    -- TODO (RAE): This is wrong, for two reasons:
+    --   1) it assumes all implicit variables are of kind *
+    --   2) it assumes all implicit variables come before explicit ones
+    --   This will take some refactoring. Argh.
     inst_tycon mk_tc_app kind
       = do { traceTc "lk4" (ppr name <+> dcolon <+> ppr kind)
            ; ks <- mapM (const newMetaKindVar) imp_tvs
-           ; return (mk_tc_app ks, substKiWith imp_tvs ks (mkForAllTys exp_tvs ki_body)) }
+           ; return (mk_tc_app ks, substKiWith imp_tvs ks (mkExpForAllTys exp_tvs ki_body)) }
       where 
-        (tvs, ki_body) = splitForAllTys kind
-        (imp_tvs, exp_tvs) = span isImplicitBinder tvs 
+        (tvs, impflags, ki_body) = splitForAllTys kind
+        (imps, _) = span (== Implicit) imps
+        (imp_tvs, exp_tvs) = splitAtList imps tvs
 
 tcClass :: Name -> TcM (Class, TcKind)
 tcClass cls 	-- Must be a class
@@ -743,9 +750,9 @@ zonkSigType ty
 		       | otherwise	 = TyVarTy <$> updateTyVarKindM go tyvar
 		-- Ordinary (non Tc) tyvars occur inside quantified types
 
-    go (ForAllTy tv ty) = do { tv' <- zonkTcTyCoVarBndr tv
-                             ; ty' <- go ty
-                             ; return (ForAllTy tv' ty') }
+    go (ForAllTy tv imp ty) = do { tv' <- zonkTcTyCoVarBndr tv
+                                 ; ty' <- go ty
+                                 ; return (ForAllTy tv' imp ty') }
 
     go (CastTy ty co) = do { ty' <- go ty
                            ; co' <- zonkCoToCo emptyZonkEnv co  -- TODO (RAE): This is wrong.
@@ -1070,14 +1077,14 @@ mkKindSigVar n
            Just (AThing k)
              | Just kvar <- getTyVar_maybe k
              -> return kvar
-           _ -> return $ mkTcTyVar n liftedTypeKind (SkolemTv False) Var.Implicit }
+           _ -> return $ mkTcTyVar n liftedTypeKind (SkolemTv False) }
 
 kcScopedKindVars :: [Name] -> TcM a -> TcM a
 -- Given some tyvar binders like [a (b :: k -> *) (c :: k)]
 -- bind each scoped kind variable (k in this case) to a fresh
 -- kind skolem variable
 kcScopedKindVars kv_ns thing_inside 
-  = do { kvs <- mapM (\n -> newSigTyVar n liftedTypeKind Var.Implicit) kv_ns
+  = do { kvs <- mapM (\n -> newSigTyVar n liftedTypeKind) kv_ns
                      -- NB: use mutable signature variables
        ; tcExtendTyVarEnv2 (kv_ns `zip` kvs) thing_inside } 
 
@@ -1089,7 +1096,7 @@ kcHsTyVarBndrs :: KindCheckingStrategy
 kcHsTyVarBndrs strat (HsQTvs { hsq_kvs = kv_ns, hsq_tvs = hs_tvs }) thing_inside
   = do { kvs <- if skolem_kvs
                 then mapM mkKindSigVar kv_ns
-                else mapM (\n -> newSigTyVar n liftedTypeKind Var.Implicit) kv_ns
+                else mapM (\n -> newSigTyVar n liftedTypeKind) kv_ns
        ; tcExtendTyVarEnv2 (kv_ns `zip` kvs) $
     do { nks <- mapM (kc_hs_tv . unLoc) hs_tvs
        ; (res_kind, stuff) <- tcExtendKindEnv nks thing_inside
@@ -1097,7 +1104,7 @@ kcHsTyVarBndrs strat (HsQTvs { hsq_kvs = kv_ns, hsq_tvs = hs_tvs }) thing_inside
              kvs       = filter (not . isMetaTyVar) $
                          varSetElems $ tyCoVarsOfType full_kind
              gen_kind  = if generalise
-                         then mkForAllTys kvs full_kind
+                         then mkImpForAllTys kvs full_kind
                          else full_kind
        ; return (gen_kind, stuff) } }
   where
@@ -1168,7 +1175,7 @@ tcHsTyVarBndr (L _ hs_tv)
        { kind <- case hs_tv of
                    UserTyVar {}       -> newMetaKindVar
                    KindedTyVar _ kind -> tcLHsKind kind
-       ; return ( mkTcTyVar name kind (SkolemTv False) Var.Explicit) } } }
+       ; return ( mkTcTyVar name kind (SkolemTv False) ) } } }
 
 ------------------
 kindGeneralize :: TyVarSet -> TcM [KindVar]
@@ -1253,13 +1260,13 @@ kcTyClTyVars name (HsQTvs { hsq_kvs = kvs, hsq_tvs = hs_tvs }) thing_inside
 
 -----------------------
 tcTyClTyVars :: Name -> LHsTyVarBndrs Name	-- LHS of the type or class decl
-             -> ([TyVar] -> Kind -> TcM a) -> TcM a
+             -> ([TyVar] -> Kind -> Kind -> TcM a) -> TcM a
 -- Used for the type variables of a type or class decl,
 -- on the second pass when constructing the final result
 -- (tcTyClTyVars T [a,b] thing_inside) 
 --   where T : forall k1 k2 (a:k1 -> *) (b:k1). k2 -> *
 --   calls thing_inside with arguments
---      [k1,k2,a,b] (k2 -> *)
+--      [k1,k2,a,b] (forall (k1:*) (k2:*) (a:k1 -> *) (b:k1). k2 -> *) (k2 -> *)
 --   having also extended the type environment with bindings 
 --   for k1,k2,a,b
 --
@@ -1279,12 +1286,12 @@ tcTyClTyVars tycon (HsQTvs { hsq_kvs = hs_kvs, hsq_tvs = hs_tvs }) thing_inside
              ; (kvs, body)  = splitForAllTys kind
              ; (kinds, res) = splitFunTysN (length hs_tvs) body }
        ; tvs <- zipWithM tc_hs_tv hs_tvs kinds
-       ; tcExtendTyVarEnv tvs (thing_inside (kvs ++ tvs) res) }
+       ; tcExtendTyVarEnv tvs (thing_inside (kvs ++ tvs) kind res) }
   where
-    tc_hs_tv (L _ (UserTyVar n))        kind = return (mkTyVar n kind Var.Explicit)
+    tc_hs_tv (L _ (UserTyVar n))        kind = return (mkTyVar n kind)
     tc_hs_tv (L _ (KindedTyVar n hs_k)) kind = do { tc_kind <- tcLHsKind hs_k
                                                   ; checkKind kind tc_kind
-                                                  ; return (mkTyVar n kind Var.Explicit) }
+                                                  ; return (mkTyVar n kind) }
 
 -----------------------------------
 tcDataKindSig :: Kind -> TcM [TyVar]
@@ -1302,7 +1309,7 @@ tcDataKindSig kind
 		 | ((kind, str), uniq) <- arg_kinds `zip` dnames `zip` uniqs ] }
   where
     (arg_kinds, res_kind) = splitFunTys kind
-    mk_tv loc uniq str kind = mkTyVar name kind Var.Explicit
+    mk_tv loc uniq str kind = mkTyVar name kind
 	where
 	   name = mkInternalName uniq occ loc
 	   occ  = mkOccName tvName str
@@ -1398,14 +1405,14 @@ tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_kvs = sig_kvs, hswb_tvs = sig
 	; checkValidType ctxt sig_ty 
 	; return (sig_ty, ktv_binds) }
   where
-    new_kv name = new_tkv name liftedTypeKind Var.Implicit
+    new_kv name = new_tkv name liftedTypeKind
     new_tv name = do { kind <- newMetaKindVar
-                     ; new_tkv name kind Var.Explicit }
+                     ; new_tkv name kind }
 
-    new_tkv name kind imp  -- See Note [Pattern signature binders]
+    new_tkv name kind  -- See Note [Pattern signature binders]
       = case ctxt of
-          RuleSigCtxt {} -> return (mkTcTyVar name kind (SkolemTv False) imp)
-          _              -> newSigTyVar name kind imp -- See Note [Unifying SigTvs]
+          RuleSigCtxt {} -> return (mkTcTyVar name kind (SkolemTv False))
+          _              -> newSigTyVar name kind -- See Note [Unifying SigTvs]
 
 tcPatSig :: UserTypeCtxt
 	 -> HsWithBndrs (LHsType Name)

@@ -105,10 +105,10 @@ isConstraintKind (TyConApp tc _) = isConstraintKindCon tc
 isConstraintKind _               = False
 
 returnsConstraintKind :: Kind -> Bool
-returnsConstraintKind (ForAllTy _ k)  = returnsConstraintKind k
-returnsConstraintKind (FunTy _ k)     = returnsConstraintKind k
-returnsConstraintKind (TyConApp tc _) = isConstraintKindCon tc
-returnsConstraintKind _               = False
+returnsConstraintKind (ForAllTy _ _ k) = returnsConstraintKind k
+returnsConstraintKind (FunTy _ k)      = returnsConstraintKind k
+returnsConstraintKind (TyConApp tc _)  = isConstraintKindCon tc
+returnsConstraintKind _                = False
 
 --------------------------------------------
 --            Kinding for arrow (->)

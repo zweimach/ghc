@@ -157,7 +157,7 @@ data TcSigInfo
 
 instance Outputable TcSigInfo where
     ppr (TcSigInfo { sig_id = id, sig_tvs = tyvars, sig_theta = theta, sig_tau = tau})
-        = ppr id <+> dcolon <+> vcat [ pprSigmaType (mkSigmaTy (map snd tyvars) theta tau)
+        = ppr id <+> dcolon <+> vcat [ pprSigmaType (mkImpSigmaTy (map snd tyvars) theta tau)
                                      , ppr (map fst tyvars) ]
 \end{code}
 
@@ -749,7 +749,8 @@ matchExpectedPatTy inner_match pat_ty
        ; (wrap2, arg_tys) <- matchExpectedPatTy inner_match (TcType.substTy subst tau)
        ; return (wrap2 <.> wrap1 , arg_tys) }
   where
-    (tvs, theta, tau) = tcSplitSigmaTy pat_ty
+      -- TODO (RAE): This cares about visibility.
+    (tvs, _imps, theta, tau) = tcSplitSigmaTy pat_ty
 
 ----------------------------
 matchExpectedConTy :: TyCon  	 -- The TyCon that this data 

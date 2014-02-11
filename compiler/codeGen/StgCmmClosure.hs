@@ -884,13 +884,13 @@ mkProfilingInfo dflags id val_descr
 
 getTyDescription :: Type -> String
 getTyDescription ty
-  = case (tcSplitSigmaTy ty) of { (_, _, tau_ty) ->
+  = case (tcSplitSigmaTy ty) of { (_, _, _, tau_ty) ->
     case tau_ty of
       TyVarTy _                            -> "*"
       AppTy fun _                   -> getTyDescription fun
       FunTy _ res                   -> '-' : '>' : fun_result res
       TyConApp tycon _              -> getOccString tycon
-      ForAllTy _ ty          -> getTyDescription ty
+      ForAllTy _ _ ty        -> getTyDescription ty
       LitTy n                -> getTyLitDescription n
       CastTy ty _            -> getTyDescription ty
       CoercionTy co          -> pprPanic "getTyDescription" (ppr co)

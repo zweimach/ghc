@@ -312,7 +312,7 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
            ; kc_kind' <- zonkTcKind kc_kind    -- Make sure kc_kind' has the final,
                                                -- skolemised kind variables
            ; traceTc "Generalise kind" (vcat [ ppr name, ppr kc_kind, ppr kvs, ppr kc_kind' ])
-           ; return (name, mkForAllTys kvs kc_kind') }
+           ; return (name, mkImpForAllTys kvs kc_kind') }
 
     generaliseTCD :: TcTypeEnv -> LTyClDecl Name -> TcM [(Name, Kind)]
     generaliseTCD kind_env (L _ decl)
@@ -605,15 +605,15 @@ tcTyClDecl1 parent _rec_info (FamDecl { tcdFam = fd })
 tcTyClDecl1 _parent rec_info
             (SynDecl { tcdLName = L _ tc_name, tcdTyVars = tvs, tcdRhs = rhs })
   = ASSERT( isNoParent _parent )
-    tcTyClTyVars tc_name tvs $ \ tvs' kind ->
-    tcTySynRhs rec_info tc_name tvs' kind rhs
+    tcTyClTyVars tc_name tvs $ \ tvs' full_kind res_kind ->
+    tcTySynRhs rec_info tc_name tvs' full_kind res_kind rhs
 
   -- "data/newtype" declaration
 tcTyClDecl1 _parent rec_info
             (DataDecl { tcdLName = L _ tc_name, tcdTyVars = tvs, tcdDataDefn = defn })
   = ASSERT( isNoParent _parent )
-    tcTyClTyVars tc_name tvs $ \ tvs' kind ->
-    tcDataDefn rec_info tc_name tvs' kind defn
+    tcTyClTyVars tc_name tvs $ \ tvs' tycon_kind res_kind ->
+    tcDataDefn rec_info tc_name tvs' tycon_kind res_kind defn
 
 tcTyClDecl1 _parent rec_info
             (ClassDecl { tcdLName = L _ class_name, tcdTyVars = tvs
@@ -622,8 +622,8 @@ tcTyClDecl1 _parent rec_info
             , tcdATs = ats, tcdATDefs = at_defs })
   = ASSERT( isNoParent _parent )
     do { (clas, tvs', gen_dm_env) <- fixM $ \ ~(clas,_,_) ->
-            tcTyClTyVars class_name tvs $ \ tvs' kind ->
-            do { MASSERT( isConstraintKind kind )
+            tcTyClTyVars class_name tvs $ \ tvs' _full_kind res_kind ->
+            do { MASSERT( isConstraintKind res_kind )
                  -- This little knot is just so we can get
                  -- hold of the name of the class TyCon, which we
                  -- need to look up its recursiveness
@@ -648,7 +648,7 @@ tcTyClDecl1 _parent rec_info
                             | (sel_id, GenDefMeth gen_dm_name) <- classOpItems clas
                             , let gen_dm_tau = expectJust "tcTyClDecl1" $
                                                lookupNameEnv gen_dm_env (idName sel_id)
-                            , let gen_dm_ty = mkSigmaTy tvs'
+                            , let gen_dm_ty = mkImpSigmaTy tvs'
                                                       [mkClassPred clas (mkTyCoVarTys tvs')] 
                                                       gen_dm_tau
                             ]
@@ -679,11 +679,11 @@ tcTyClDecl1 _ _
 tcFamDecl1 :: TyConParent -> FamilyDecl Name -> TcM [TyThing]
 tcFamDecl1 parent
             (FamilyDecl {fdInfo = OpenTypeFamily, fdLName = L _ tc_name, fdTyVars = tvs})
-  = tcTyClTyVars tc_name tvs $ \ tvs' kind -> do
+  = tcTyClTyVars tc_name tvs $ \ tvs' full_kind _res_kind -> do
   { traceTc "open type family:" (ppr tc_name)
   ; checkFamFlag tc_name
   ; let roles = map (const Nominal) tvs'
-  ; tycon <- buildSynTyCon tc_name tvs' roles OpenSynFamilyTyCon kind parent
+  ;     tycon = mkSynTyCon tc_name full_kind tvs' roles OpenSynFamilyTyCon parent
   ; return [ATyCon tycon] }
 
 tcFamDecl1 parent
@@ -694,8 +694,8 @@ tcFamDecl1 parent
 -- Note: eqns might be empty, in a hs-boot file!
   = do { traceTc "closed type family:" (ppr tc_name)
          -- the variables in the header have no scope:
-       ; (tvs', kind) <- tcTyClTyVars tc_name tvs $ \ tvs' kind ->
-                         return (tvs', kind)
+       ; (tvs', kind) <- tcTyClTyVars tc_name tvs $ \ tvs' full_kind _res_kind ->
+                         return (tvs', full_kind)
 
        ; checkFamFlag tc_name -- make sure we have -XTypeFamilies
 
@@ -731,7 +731,7 @@ tcFamDecl1 parent
                        then AbstractClosedSynFamilyTyCon
                        else ClosedSynFamilyTyCon co_ax
              roles   = map (const Nominal) tvs'
-       ; tycon <- buildSynTyCon tc_name tvs' roles syn_rhs kind parent
+       ;     tycon = mkSynTyCon tc_name kind tvs' roles syn_rhs parent
 
        ; let result = if null eqns
                       then [ATyCon tycon]
@@ -742,42 +742,42 @@ tcFamDecl1 parent
 
 tcFamDecl1 parent
            (FamilyDecl {fdInfo = DataFamily, fdLName = L _ tc_name, fdTyVars = tvs})
-  = tcTyClTyVars tc_name tvs $ \ tvs' kind -> do
+  = tcTyClTyVars tc_name tvs $ \ tvs' tycon_kind res_kind -> do
   { traceTc "data family:" (ppr tc_name)
   ; checkFamFlag tc_name
-  ; extra_tvs <- tcDataKindSig kind
-  ; let final_tvs = tvs' ++ extra_tvs    -- we may not need these
+  ; extra_tvs <- tcDataKindSig res_kind
+  ; let final_tvs = tvs' `chkAppend` extra_tvs    -- we may not need these
         roles     = map (const Nominal) final_tvs
-        tycon = buildAlgTyCon tc_name final_tvs roles Nothing []
-                              DataFamilyTyCon Recursive
-                              True    -- GADT syntax
-                              parent
+        tycon = mkAlgTyCon tc_name tycon_kind final_tvs roles Nothing []
+                           DataFamilyTyCon parent Recursive
+                           True    -- GADT syntax
+                  
   ; return [ATyCon tycon] }
 
 tcTySynRhs :: RecTyInfo
            -> Name
-           -> [TyVar] -> Kind
+           -> [TyVar] -> Kind -> Kind
            -> LHsType Name -> TcM [TyThing]
-tcTySynRhs rec_info tc_name tvs kind hs_ty
+tcTySynRhs rec_info tc_name tvs full_kind res_kind hs_ty
   = do { env <- getLclEnv
        ; traceTc "tc-syn" (ppr tc_name $$ ppr (tcl_env env))
-       ; rhs_ty <- tcCheckLHsType hs_ty kind
+       ; rhs_ty <- tcCheckLHsType hs_ty res_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
        ; let roles = rti_roles rec_info tc_name
-       ; tycon <- buildSynTyCon tc_name tvs roles (SynonymTyCon rhs_ty)
-                                kind NoParentTyCon
+       ;     tycon = mkSynTyCon tc_name full_kind tvs roles (SynonymTyCon rhs_ty)
+                                NoParentTyCon
        ; return [ATyCon tycon] }
 
 tcDataDefn :: RecTyInfo -> Name
-           -> [TyVar] -> Kind
+           -> [TyVar] -> Kind -> Kind
            -> HsDataDefn Name -> TcM [TyThing]
   -- NB: not used for newtype/data instances (whether associated or not)
-tcDataDefn rec_info tc_name tvs kind
+tcDataDefn rec_info tc_name tvs tycon_kind res_kind
          (HsDataDefn { dd_ND = new_or_data, dd_cType = cType
                      , dd_ctxt = ctxt, dd_kindSig = mb_ksig
                      , dd_cons = cons })
-  = do { extra_tvs <- tcDataKindSig kind
-       ; let final_tvs  = tvs ++ extra_tvs
+  = do { extra_tvs <- tcDataKindSig res_kind
+       ; let final_tvs  = tvs `chkAppend` extra_tvs
              roles      = rti_roles rec_info tc_name
        ; stupid_theta <- tcHsContext ctxt
        ; kind_signatures <- xoptM Opt_KindSignatures
@@ -788,7 +788,7 @@ tcDataDefn rec_info tc_name tvs kind
            Nothing   -> return ()
            Just hs_k -> do { checkTc (kind_signatures) (badSigTyDecl tc_name)
                            ; tc_kind <- tcLHsKind hs_k
-                           ; checkKind kind tc_kind
+                           ; checkKind res_kind tc_kind
                            ; return () }
 
        ; h98_syntax <- dataDeclChecks tc_name new_or_data stupid_theta cons
@@ -803,9 +803,10 @@ tcDataDefn rec_info tc_name tvs kind
                    DataType -> return (mkDataTyConRhs data_cons)
                    NewType  -> ASSERT( not (null data_cons) )
                                     mkNewTyConRhs tc_name tycon (head data_cons)
-             ; return (buildAlgTyCon tc_name final_tvs roles cType stupid_theta tc_rhs
-                                     (rti_is_rec rec_info tc_name)
-                                     (not h98_syntax) NoParentTyCon) }
+             ; return (mkAlgTyCon tc_name tycon_kind final_tvs roles
+                                  cType stupid_theta tc_rhs
+                                  NoParentTyCon (rti_is_rec rec_info tc_name)
+                                  (not h98_syntax)) }
        ; return [ATyCon tycon] }
 \end{code}
 
@@ -1596,7 +1597,8 @@ checkValidClass cls
         ; mapM_ check_at_defs at_stuff  }
   where
     (tyvars, fundeps, theta, _, at_stuff, op_stuff) = classExtraBigSig cls
-    arity = count (not . isImplicitTyVar) tyvars    -- Ignore imp. variables
+    arity = length $ filterImplicits (classTyCon cls) tyvars
+       -- Ignore imp. variables
 
     check_op constrained_class_methods (sel_id, dm)
       = addErrCtxt (classOpCtxt sel_id tau) $ do
@@ -1628,8 +1630,8 @@ checkValidClass cls
           ctxt    = FunSigCtxt op_name
           op_name = idName sel_id
           op_ty   = idType sel_id
-          (_,theta1,tau1) = tcSplitSigmaTy op_ty
-          (_,theta2,tau2)  = tcSplitSigmaTy tau1
+          (_,_,theta1,tau1) = tcSplitSigmaTy op_ty
+          (_,_,theta2,tau2) = tcSplitSigmaTy tau1
           (theta,tau) | constrained_class_methods = (theta1 ++ theta2, tau2)
                       | otherwise = (theta1, mkPhiTy (tail theta1) tau1)
                 -- Ugh!  The function might have a type like
@@ -1679,9 +1681,7 @@ checkValidRoleAnnots role_annots thing
      -- Nominal, anyway).
           tyvars                 = tyConTyVars tc
           roles                  = tyConRoles tc
-          (exp_roles, exp_vars)  = unzip $
-                                   filter ((== Var.Explicit) . tyVarImp . snd) $
-                                   zip roles tyvars
+          (exp_roles, exp_vars)  = unzip $ filterImplicits tc $ zip roles tyvars
           role_annot_decl_maybe  = lookupRoleAnnots role_annots name
 
           check_roles
@@ -1760,7 +1760,7 @@ checkValidRoles tc
       =  check_ty_roles env role ty1
       >> check_ty_roles env role ty2
 
-    check_ty_roles env role (ForAllTy tv ty)
+    check_ty_roles env role (ForAllTy tv _ ty)
       = check_ty_roles (extendVarEnv env tv Nominal) role ty
 
     check_ty_roles _   _    (LitTy {}) = return ()
@@ -1848,10 +1848,10 @@ mkRecSelBind (tycon, sel_name)
     data_ty    = dataConOrigResTy con1
     data_tvs   = tyCoVarsOfType data_ty
     is_naughty = not (tyCoVarsOfType field_ty `subVarSet` data_tvs)  
-    (field_tvs, field_theta, field_tau) = tcSplitSigmaTy field_ty
+    (field_tvs, _, field_theta, field_tau) = tcSplitSigmaTy field_ty
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
-           | otherwise  = mkForAllTys (varSetElemsWellScoped $
-                                       data_tvs `extendVarSetList` field_tvs) $
+           | otherwise  = mkImpForAllTys (varSetElemsWellScoped $
+                                         data_tvs `extendVarSetList` field_tvs) $
                           mkPhiTy (dataConStupidTheta con1) $   -- Urgh!
                           mkPhiTy field_theta               $   -- Urgh!
                           mkFunTy data_ty field_tau

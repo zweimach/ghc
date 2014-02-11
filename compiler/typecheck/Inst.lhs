@@ -346,8 +346,8 @@ tcSyntaxName orig ty (std_nm, user_nm_expr) = do
     std_id <- tcLookupId std_nm
     let	
 	-- C.f. newMethodAtLoc
-	([tv], _, tau)  = tcSplitSigmaTy (idType std_id)
- 	sigma1		= substTyWith [tv] [ty] tau
+	([tv], _, _, tau) = tcSplitSigmaTy (idType std_id)
+ 	sigma1	          = substTyWith [tv] [ty] tau
 	-- Actually, the "tau-type" might be a sigma-type in the
 	-- case of locally-polymorphic methods.
 

@@ -99,16 +99,17 @@ vectTyConDecl tycon name'
              gadt_flag = isGadtSyntaxTyCon tycon
 
            -- build the vectorised type constructor
-       ; return $ buildAlgTyCon 
+       ; return $ mkAlgTyCon 
                     name'                   -- new name
+                    (tyConKind tycon)       -- keep original kind
                     (tyConTyVars tycon)     -- keep original type vars
                     (map (const Nominal) (tyConRoles tycon)) -- all roles are N for safety
                     Nothing
                     []                      -- no stupid theta
                     rhs'                    -- new constructor defs
+                    NoParentTyCon           
                     rec_flag                -- whether recursive
                     gadt_flag               -- whether in GADT syntax
-                    NoParentTyCon           
        }
 
   -- some other crazy thing that we don't handle

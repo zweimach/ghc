@@ -567,7 +567,7 @@ mkAppCos co1 cos = foldl mkAppCo co1 cos
 mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
 mkForAllCo cobndr co
   | Refl r ty <- co
-  = Refl r (mkForAllTy (getHomoVar cobndr) ty)
+  = Refl r (mkForAllTy (getHomoVar cobndr) Implicit ty) -- Imp. doesn't matter
   | otherwise
   = ASSERT( isHomoCoBndr cobndr || (not $ isReflCo $ getHeteroKindCo cobndr) )
     ForAllCo cobndr co
@@ -575,13 +575,15 @@ mkForAllCo cobndr co
 -- | Make a Coercion quantified over a type variable; the variable has
 -- the same type in both types of the coercion
 mkForAllCo_TyHomo :: TyVar -> Coercion -> Coercion
-mkForAllCo_TyHomo tv (Refl r ty) = ASSERT( isTyVar tv ) Refl r (mkForAllTy tv ty)
+mkForAllCo_TyHomo tv (Refl r ty)
+  = ASSERT( isTyVar tv ) Refl r (mkForAllTy tv Implicit ty)
 mkForAllCo_TyHomo tv co          = ASSERT( isTyVar tv ) ForAllCo (TyHomo tv) co
 
 -- | Make a Coercion quantified over type variables, potentially of
 -- different kinds.
 mkForAllCo_Ty :: Coercion -> TyVar -> TyVar -> CoVar -> Coercion -> Coercion
-mkForAllCo_Ty _ tv _ _ (Refl r ty) = ASSERT( isTyVar tv ) Refl r (mkForAllTy tv ty)
+mkForAllCo_Ty _ tv _ _ (Refl r ty)
+  = ASSERT( isTyVar tv ) Refl r (mkForAllTy tv Implicit ty)
 mkForAllCo_Ty h tv1 tv2 cv co
   | tyVarKind tv1 `eqType` tyVarKind tv2
   = ASSERT( isReflCo h )
@@ -597,13 +599,15 @@ mkForAllCo_Ty h tv1 tv2 cv co
 -- | Make a Coercion quantified over a coercion variable; the variable has
 -- the same type in both types of the coercion
 mkForAllCo_CoHomo :: CoVar -> Coercion -> Coercion
-mkForAllCo_CoHomo cv (Refl r ty) = ASSERT( isCoVar cv ) Refl r (mkForAllTy cv ty)
+mkForAllCo_CoHomo cv (Refl r ty)
+  = ASSERT( isCoVar cv ) Refl r (mkForAllTy cv Implicit ty)
 mkForAllCo_CoHomo cv co          = ASSERT( isCoVar cv ) ForAllCo (CoHomo cv) co
 
 -- | Make a Coercion quantified over two coercion variables, possibly of
 -- different kinds
 mkForAllCo_Co :: Coercion -> CoVar -> CoVar -> Coercion -> Coercion
-mkForAllCo_Co _ cv _ (Refl r ty) = ASSERT( isCoVar cv ) Refl r (mkForAllTy cv ty)
+mkForAllCo_Co _ cv _ (Refl r ty)
+  = ASSERT( isCoVar cv ) Refl r (mkForAllTy cv Implicit ty)
 mkForAllCo_Co h cv1 cv2 co
   | coVarKind cv1 `eqType` coVarKind cv2
   = ASSERT( isReflCo h )
@@ -1486,7 +1490,7 @@ ty_co_subst lc@(LC _ env) role ty
     go r (AppTy ty1 ty2)   = mkAppCo (go r ty1) (go_arg Nominal ty2)
     go r (TyConApp tc tys) = mkTyConAppCo r tc (zipWith go_arg (tyConRolesX r tc) tys)
     go r (FunTy ty1 ty2)   = mkFunCo r (go r ty1) (go r ty2)
-    go r (ForAllTy v ty)   = let (lc', cobndr) = liftCoSubstVarBndr lc v in
+    go r (ForAllTy v _ ty) = let (lc', cobndr) = liftCoSubstVarBndr lc v in
                              mkForAllCo cobndr $! ty_co_subst lc' r ty
     go r ty@(LitTy {})     = ASSERT( r == Nominal )
                              mkReflCo r ty
@@ -1701,10 +1705,10 @@ coercionKind co = go co
     go (Refl _ ty)          = Pair ty ty
     go (TyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map coercionArgKind cos)
     go (AppCo co1 co2)      = mkAppTy <$> go co1 <*> coercionArgKind co2
-    go (ForAllCo (TyHomo tv) co)            = mkForAllTy tv <$> go co
-    go (ForAllCo (TyHetero _ tv1 tv2 _) co) = mkForAllTy <$> Pair tv1 tv2 <*> go co
-    go (ForAllCo (CoHomo tv) co)            = mkForAllTy tv <$> go co
-    go (ForAllCo (CoHetero _ cv1 cv2) co)   = mkForAllTy <$> Pair cv1 cv2 <*> go co
+    go (ForAllCo (TyHomo tv) co)            = mkForAllTy tv Implicit <$> go co
+    go (ForAllCo (TyHetero _ tv1 tv2 _) co) = mkForAllTy <$> Pair tv1 tv2 <*> pure Implicit <*> go co
+    go (ForAllCo (CoHomo tv) co)            = mkForAllTy tv Implicit <$> go co
+    go (ForAllCo (CoHetero _ cv1 cv2) co)   = mkForAllTy <$> Pair cv1 cv2 <*> pure Implicit <*> go co
     go (CoVarCo cv)         = toPair $ coVarTypes cv
     go (AxiomInstCo ax ind cos)
       | CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs } <- coAxiomNthBranch ax ind
@@ -1803,8 +1807,8 @@ cf Type.applyTys (which in fact we call here)
 applyCo :: Type -> Coercion -> Type
 -- Gives the type of (e co) where e :: (a~b) => ty
 applyCo ty co | Just ty' <- coreView ty = applyCo ty' co
-applyCo (ForAllTy cv ty) co = substTyWith [cv] [CoercionTy co] ty
-applyCo (FunTy _ ty)     _  = ty
-applyCo _                _  = panic "applyCo"
+applyCo (ForAllTy cv _ ty) co = substTyWith [cv] [CoercionTy co] ty
+applyCo (FunTy _ ty)       _  = ty
+applyCo _                  _  = panic "applyCo"
 \end{code}
 

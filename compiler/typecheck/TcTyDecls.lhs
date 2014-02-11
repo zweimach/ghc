@@ -233,7 +233,8 @@ calcClassCycles cls
     expandType _    _    (LitTy {})       = id
     expandType seen path (AppTy t1 t2)    = expandType seen path t1 . expandType seen path t2
     expandType seen path (FunTy t1 t2)    = expandType seen path t1 . expandType seen path t2
-    expandType seen path (ForAllTy _tv t) = expandType seen path t
+    expandType seen path (ForAllTy _tv _imp t)
+                                          = expandType seen path t
     expandType seen path (CastTy ty _co)  = expandType seen path ty
     expandType _    _    (CoercionTy {})  = id
 
@@ -619,18 +620,26 @@ initialRoleEnv1 is_boot annots_env tc
   | otherwise        = pprPanic "initialRoleEnv1" (ppr tc)
   where name         = tyConName tc
         tyvars       = tyConTyVars tc
-        (imps, exps) = span isImplicitTyVar tyvars
+        impflags     = tyConTvVisibilities tc
+        num_exps     = count (== Explicit) impflags
 
           -- if the number of annotations in the role annotation decl
           -- is wrong, just ignore it. We check this in the validity check.
         role_annots
           = case lookupNameEnv annots_env name of
               Just (L _ (RoleAnnotDecl _ annots))
-                | annots `equalLength` exps -> map unLoc annots
-              _                             -> map (const Nothing) exps
-        default_roles = map (const Nominal) imps ++
-                        zipWith orElse role_annots (repeat default_role)
+                | annots `lengthIs` num_exps -> map unLoc annots
+              _                              -> replicate num_exps Nothing
+        default_roles = build_default_roles impflags role_annots
 
+        build_default_roles (Implicit : imps) ras
+          = Nominal : build_default_roles imps ras
+        build_default_roles (Explicit : imps) (m_annot : ras)
+          = (m_annot `orElse` default_role) : build_default_roles imps ras
+        build_default_roles [] [] = []
+        build_default_roles _ _ = pprPanic "initialRoleEnv1 (2)"
+                                           (vcat [ppr tc, ppr role_annots])
+        
         default_role
           | isClassTyCon tc = Nominal
           | is_boot         = Representational
@@ -688,17 +697,17 @@ irDataCon tc_name datacon
 irType :: VarSet -> Type -> RoleM ()
 irType = go
   where
-    go lcls (TyVarTy tv)      = unless (tv `elemVarSet` lcls) $
-                                updateRole Representational tv
-    go lcls (AppTy t1 t2)     = go lcls t1 >> mark_nominal lcls t2
-    go lcls (TyConApp tc tys) = do { roles <- lookupRolesX tc
-                                   ; zipWithM_ (go_app lcls) roles tys }
-    go lcls (FunTy t1 t2)     = go lcls t1 >> go lcls t2
-    go lcls (ForAllTy tv ty)  = go (extendVarSet lcls tv) ty
-    go _    (LitTy {})        = return ()
+    go lcls (TyVarTy tv)       = unless (tv `elemVarSet` lcls) $
+                                 updateRole Representational tv
+    go lcls (AppTy t1 t2)      = go lcls t1 >> mark_nominal lcls t2
+    go lcls (TyConApp tc tys)  = do { roles <- lookupRolesX tc
+                                    ; zipWithM_ (go_app lcls) roles tys }
+    go lcls (FunTy t1 t2)      = go lcls t1 >> go lcls t2
+    go lcls (ForAllTy tv _ ty) = go (extendVarSet lcls tv) ty
+    go _    (LitTy {})         = return ()
       -- See Note [Coercions in role inference]
-    go lcls (CastTy ty _)     = go lcls ty  
-    go _    (CoercionTy _)    = return ()
+    go lcls (CastTy ty _)      = go lcls ty  
+    go _    (CoercionTy _)     = return ()
 
     go_app _ Phantom _ = return ()                 -- nothing to do here
     go_app lcls Nominal ty = mark_nominal lcls ty  -- all vars below here are N
@@ -714,9 +723,9 @@ irType = go
     get_ty_vars (AppTy t1 t2)    = get_ty_vars t1 `unionVarSet` get_ty_vars t2
     get_ty_vars (TyConApp _ tys) = foldr (unionVarSet . get_ty_vars) emptyVarSet tys
     get_ty_vars (FunTy t1 t2)    = get_ty_vars t1 `unionVarSet` get_ty_vars t2
-    get_ty_vars (ForAllTy tv ty) = get_ty_vars ty
-                                   `delVarSet` tv
-                                   `unionVarSet` (tyCoVarsOfType $ tyVarKind tv)
+    get_ty_vars (ForAllTy tv _ ty) = get_ty_vars ty
+                                     `delVarSet` tv
+                                     `unionVarSet` (tyCoVarsOfType $ tyVarKind tv)
     get_ty_vars (LitTy {})       = emptyVarSet
     get_ty_vars (CastTy ty _)    = get_ty_vars ty
     get_ty_vars (CoercionTy _)   = emptyVarSet   

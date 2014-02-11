@@ -35,7 +35,7 @@ module Util (
         -- * Tuples
         fstOf3, sndOf3, thirdOf3,
         firstM, first3M,
-        third3,
+        fst3, snd3, third3,
         uncurry3,
 
         -- * List operations controlled by another list
@@ -215,6 +215,12 @@ thirdOf3 :: (a,b,c) -> c
 fstOf3      (a,_,_) =  a
 sndOf3      (_,b,_) =  b
 thirdOf3    (_,_,c) =  c
+
+fst3 :: (a -> d) -> (a, b, c) -> (d, b, c)
+fst3 f (a, b, c) = (f a, b, c)
+
+snd3 :: (b -> d) -> (a, b, c) -> (a, d, c)
+snd3 f (a, b, c) = (a, f b, c)
 
 third3 :: (c -> d) -> (a, b, c) -> (a, b, d)
 third3 f (a, b, c) = (a, b, f c)

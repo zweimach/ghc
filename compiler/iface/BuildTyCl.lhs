@@ -12,8 +12,6 @@
 -- for details
 
 module BuildTyCl (
-        buildSynTyCon,
-        buildAlgTyCon, 
         buildDataCon,
         TcMethInfo, buildClass,
         distinctAbstractTyConRhs, totallyAbstractTyConRhs,
@@ -45,16 +43,6 @@ import Outputable
 	
 
 \begin{code}
-------------------------------------------------------
-buildSynTyCon :: Name -> [TyCoVar] -> [Role] 
-              -> SynTyConRhs
-              -> Kind                   -- ^ Kind of the RHS
-              -> TyConParent
-              -> TcRnIf m n TyCon
-buildSynTyCon tc_name tvs roles rhs rhs_kind parent 
-  = return (mkSynTyCon tc_name kind tvs roles rhs parent)
-  where kind = mkPiTypes tvs rhs_kind
-
 
 ------------------------------------------------------
 distinctAbstractTyConRhs, totallyAbstractTyConRhs :: AlgTyConRhs
@@ -256,7 +244,7 @@ buildClass no_unf tycon_name tvs roles sc_theta fds at_items sig_stuff mindef tc
 		 then mkNewTyConRhs tycon_name rec_tycon dict_con
 		 else return (mkDataTyConRhs [dict_con])
 
-	; let {	clas_kind = mkPiTypes tvs constraintKind
+	; let {	clas_kind = mkPiTypesPreferFunTy tvs constraintKind
 
  	      ; tycon = mkClassTyCon tycon_name clas_kind tvs roles
  	                             rhs rec_clas tc_isrec

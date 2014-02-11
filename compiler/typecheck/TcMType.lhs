@@ -107,7 +107,7 @@ kind_var_occ = mkOccName tvName "k"
 newMetaKindVar :: TcM TcKind
 newMetaKindVar = do { uniq <- newUnique
 		    ; details <- newMetaDetails PolyTv
-                    ; let kv = mkTcTyVar (mkKindName uniq) liftedTypeKind details Implicit
+                    ; let kv = mkTcTyVar (mkKindName uniq) liftedTypeKind details
 		    ; return (mkOnlyTyVarTy kv) }
 
 newMetaKindVars :: Int -> TcM [TcKind]
@@ -217,7 +217,7 @@ tcSuperSkolTyCoVar subst tv
   = (extendTCvSubst subst tv (mkTyCoVarTy new_tv), new_tv)
   where
     kind   = substTy subst (tyVarKind tv)
-    new_tv | isTyVar tv = mkTcTyVar (tyVarName tv) kind superSkolemTv (tyVarImp tv)
+    new_tv | isTyVar tv = mkTcTyVar (tyVarName tv) kind superSkolemTv
            | otherwise  = uniqAway (getTCvInScope subst) (setVarType tv kind)
 
 tcInstSkolTyCoVar :: SrcSpan -> Bool -> TCvSubst -> TyCoVar
@@ -231,7 +231,7 @@ tcInstSkolTyCoVar loc overlappable subst tyvar
   | isTyVar tyvar
   = do  { uniq <- newUnique
         ; let new_name = mkInternalName uniq occ loc
-              new_tv   = mkTcTyVar new_name kind (SkolemTv overlappable) (tyVarImp tyvar)
+              new_tv   = mkTcTyVar new_name kind (SkolemTv overlappable)
         ; return (extendTCvSubst subst tyvar (mkOnlyTyVarTy new_tv), new_tv) }
   | otherwise -- coercion variable
   = do  { ev_var <- newEvVar kind
@@ -274,18 +274,17 @@ tcInstSigTyCoVar :: TCvSubst -> TyCoVar -> TcM (TCvSubst, TcTyCoVar)
 tcInstSigTyCoVar subst tv
   = do { new_tv <- if isTyVar tv
                    then newSigTyVar (tyVarName tv) (substTy subst (tyVarKind tv))
-                                    (tyVarImp tv)
                    else newEvVar (substTy subst (varType tv))
        ; return (extendTCvSubst subst tv (mkTyCoVarTy new_tv), new_tv) }
 
-newSigTyVar :: Name -> Kind -> ImplicitFlag -> TcM TcTyVar
-newSigTyVar name kind imp
+newSigTyVar :: Name -> Kind -> TcM TcTyVar
+newSigTyVar name kind
   = do { uniq <- newUnique
        ; let name' = setNameUnique name uniq
                       -- Use the same OccName so that the tidy-er
                       -- doesn't gratuitously rename 'a' to 'a0' etc
        ; details <- newMetaDetails SigTv
-       ; return (mkTcTyVar name' kind details imp) }
+       ; return (mkTcTyVar name' kind details) }
 
 newMetaDetails :: MetaInfo -> TcM TcTyVarDetails
 newMetaDetails info 
@@ -327,7 +326,7 @@ newMetaTyVar meta_info kind
                         TauTv  -> fsLit "t"
                         SigTv  -> fsLit "a"
         ; details <- newMetaDetails meta_info
-	; return (mkTcTyVar name kind details Don'tCareImp) }
+	; return (mkTcTyVar name kind details) }
 
 cloneMetaTyVar :: TcTyVar -> TcM TcTyVar
 cloneMetaTyVar tv
@@ -338,7 +337,7 @@ cloneMetaTyVar tv
               details' = case tcTyVarDetails tv of 
                            details@(MetaTv {}) -> details { mtv_ref = ref }
                            _ -> pprPanic "cloneMetaTyVar" (ppr tv)
-        ; return (mkTcTyVar name' (tyVarKind tv) details' (tyVarImp tv)) }
+        ; return (mkTcTyVar name' (tyVarKind tv) details') }
 
 mkTcTyVarName :: Unique -> FastString -> Name
 -- Make sure that fresh TcTyVar names finish with a digit
@@ -487,7 +486,7 @@ tcInstTyCoVarX origin subst tyvar
         ; details <- newMetaDetails TauTv
         ; let name   = mkSystemName uniq (getOccName tyvar)
               kind   = substTy subst (tyVarKind tyvar)
-              new_tv = mkTcTyVar name kind details (tyVarImp tyvar)
+              new_tv = mkTcTyVar name kind details
         ; return (extendTCvSubst subst tyvar (mkOnlyTyVarTy new_tv), new_tv) }
   | otherwise
   = do { new_cv <- newEvVar (substTy subst (varType tyvar))
@@ -636,7 +635,7 @@ skolemiseUnboundMetaTyVar tv details
         ; kind <- zonkTcKind (tyVarKind tv)
         ; let final_kind = defaultKind kind
               final_name = mkInternalName uniq (getOccName tv) span
-              final_tv   = mkTcTyVar final_name final_kind details (tyVarImp tv)
+              final_tv   = mkTcTyVar final_name final_kind details
 
         ; writeMetaTyVar tv (mkTyCoVarTy final_tv)
         ; return final_tv }
@@ -1000,9 +999,9 @@ zonkTcType ty
 		       | otherwise	 = TyVarTy <$> updateTyVarKindM go tyvar
 		-- Ordinary (non Tc) tyvars occur inside quantified types
 
-    go (ForAllTy tv ty) = do { tv' <- zonkTcTyCoVarBndr tv
-                             ; ty' <- go ty
-                             ; return (mkForAllTy tv' ty') }
+    go (ForAllTy tv imp ty) = do { tv' <- zonkTcTyCoVarBndr tv
+                                 ; ty' <- go ty
+                                 ; return (mkForAllTy tv' imp ty') }
 
     go_co (Refl r ty)               = mkReflCo r <$> go ty
     go_co (TyConAppCo r tc args)    = mkTyConAppCo r tc <$> mapM go_arg args

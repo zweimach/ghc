@@ -40,7 +40,7 @@
 module Var (
         -- * The main data type and synonyms
         Var, CoVar, Id, DictId, DFunId, EvVar, EqVar, EvId, IpId,
-        TyVar, TypeVar, KindVar, TKVar, TyCoVar, ImplicitFlag(..),
+        TyVar, TypeVar, KindVar, TKVar, TyCoVar,
 
 	-- ** Taking 'Var's apart
 	varName, varUnique, varType, 
@@ -65,7 +65,6 @@ module Var (
 
 	-- ** Taking 'TyVar's apart
         tyVarName, tyVarKind, tcTyVarDetails, setTcTyVarDetails,
-        tyVarImp, isImplicitTyVar,
 
 	-- ** Modifying 'TyVar's
 	setTyVarName, setTyVarUnique, setTyVarKind, updateTyVarKind,
@@ -168,8 +167,7 @@ data Var
 	realUnique :: FastInt,	     -- Key for fast comparison
 				     -- Identical to the Unique in the name,
 				     -- cached here for speed
-	varType    :: Kind,          -- ^ The type or kind of the 'Var' in question
-        isImplicit :: ImplicitFlag   -- See Note [Implicit flags]
+	varType    :: Kind           -- ^ The type or kind of the 'Var' in question
  }
 
   | TcTyVar { 				-- Used only during type inference
@@ -178,8 +176,7 @@ data Var
 	varName        :: !Name,
 	realUnique     :: FastInt,
 	varType        :: Kind,
-	tc_tv_details  :: TcTyVarDetails,
-        isImplicit :: ImplicitFlag   -- See Note [Implicit flags]
+	tc_tv_details  :: TcTyVarDetails
   }
 
   | Id {
@@ -199,23 +196,7 @@ data ExportFlag
   = NotExported	-- ^ Not exported: may be discarded as dead code.
   | Exported	-- ^ Exported: kept alive
 
--- See Note [Implicit flags]
-data ImplicitFlag
-  = Implicit     -- ^ The parameter is not supplied
-  | Explicit     -- ^ The parameter must be supplied
-  | Don'tCareImp -- ^ This tyvar is never used as a parameter
-    deriving (Eq, Typeable)
 \end{code}
-
-Note [Implicit flags]
-~~~~~~~~~~~~~~~~~~~~~
-Though all type parameters are implicit in terms, some are implicit even in
-types. This is most often used with dependent types, where an explicit type's
-kind depends on an earlier implicit type. For example:
-
-  data SList :: [k] -> * where ...
-
-The parameter `k` to SList is implicit.
 
 Note [GlobalId/LocalId]
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -243,9 +224,8 @@ instance Outputable Var where
 --                else empty
 
 ppr_debug :: Var -> SDoc
-ppr_debug (TyVar {isImplicit = imp})           = ptext (sLit "tv") <> parens (ppr imp)
-ppr_debug (TcTyVar {tc_tv_details = d, isImplicit = imp})
-                                               = pprTcTyVarDetails d <> parens (ppr imp)
+ppr_debug (TyVar {})           = ptext (sLit "tv")
+ppr_debug (TcTyVar {tc_tv_details = d}) = pprTcTyVarDetails d
 ppr_debug (Id { idScope = s, id_details = d }) = ppr_id_scope s <> pprIdDetails d
 
 ppr_id_scope :: IdScope -> SDoc
@@ -275,22 +255,6 @@ instance Data Var where
   gunfold _ _  = error "gunfold"
   dataTypeOf _ = mkNoRepType "Var"
 
-instance Outputable ImplicitFlag where
-  ppr Implicit     = text "i"
-  ppr Explicit     = text "e"
-  ppr Don'tCareImp = text "dc"
-
-instance Binary ImplicitFlag where
-  put_ bh Implicit     = putByte bh 0
-  put_ bh Explicit     = putByte bh 1
-  put_ bh Don'tCareImp = putByte bh 2
-
-  get bh = do h <- getByte bh
-              case h of
-                0 -> return Implicit
-                1 -> return Explicit
-                2 -> return Don'tCareImp
-                _ -> panic "ImplicitFlag"
 \end{code}
 
 
@@ -326,14 +290,6 @@ tyVarName = varName
 tyVarKind :: TyVar -> Kind
 tyVarKind = varType
 
-tyVarImp :: TyVar -> ImplicitFlag
-tyVarImp = isImplicit
-
-isImplicitTyVar :: TyVar -> Bool
-isImplicitTyVar (TyVar { isImplicit = Implicit })   = True
-isImplicitTyVar (TcTyVar { isImplicit = Implicit }) = True
-isImplicitTyVar _                                   = False
-
 setTyVarUnique :: TyVar -> Unique -> TyVar
 setTyVarUnique = setVarUnique
 
@@ -353,21 +309,19 @@ updateTyVarKindM update tv
 \end{code}
 
 \begin{code}
-mkTyVar :: Name -> Kind -> ImplicitFlag -> TyVar
-mkTyVar name kind imp = TyVar { varName    = name
-		 	      , realUnique = getKeyFastInt (nameUnique name)
-			      , varType  = kind
-                              , isImplicit = imp
-			      }
+mkTyVar :: Name -> Kind -> TyVar
+mkTyVar name kind = TyVar { varName    = name
+		          , realUnique = getKeyFastInt (nameUnique name)
+		          , varType  = kind
+		          }
 
-mkTcTyVar :: Name -> Kind -> TcTyVarDetails -> ImplicitFlag -> TyVar
-mkTcTyVar name kind details imp
+mkTcTyVar :: Name -> Kind -> TcTyVarDetails -> TyVar
+mkTcTyVar name kind details
   = -- NB: 'kind' may be a coercion kind; cf, 'TcMType.newMetaCoVar'
     TcTyVar {	varName    = name,
 		realUnique = getKeyFastInt (nameUnique name),
 		varType  = kind,
-		tc_tv_details = details,
-                isImplicit = imp
+		tc_tv_details = details
 	}
 
 tcTyVarDetails :: TyVar -> TcTyVarDetails

@@ -233,11 +233,11 @@ mkTcAppCos co1 tys = foldl mkTcAppCo co1 tys
 
 mkTcForAllCo :: TyCoVar -> TcCoercion -> TcCoercion
 -- note that a TyVar or CoVar should be used here, not a TcTyVar
-mkTcForAllCo tv (TcRefl r ty) = TcRefl r (mkForAllTy tv ty)
+mkTcForAllCo tv (TcRefl r ty) = TcRefl r (mkForAllTy tv Implicit ty)  -- TODO (RAE): Check.
 mkTcForAllCo tv  co           = TcForAllCo tv co
 
 mkTcForAllCos :: [TyCoVar] -> TcCoercion -> TcCoercion
-mkTcForAllCos tvs (TcRefl r ty) = TcRefl r (mkForAllTys tvs ty)
+mkTcForAllCos tvs (TcRefl r ty) = TcRefl r (mkImpForAllTys tvs ty)  -- TODO (RAE): Check.
 mkTcForAllCos tvs co            = foldr TcForAllCo co tvs
 
 mkTcCoVarCo :: EqVar -> TcCoercion
@@ -260,7 +260,8 @@ tcCoercionKind co = go co
                                    (ty1,ty2) -> Pair ty1 ty2
     go (TcTyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map go cos)
     go (TcAppCo co1 co2)      = mkAppTy <$> go co1 <*> go co2
-    go (TcForAllCo tv co)     = mkForAllTy tv <$> go co
+    go (TcForAllCo tv co)     = mkForAllTy tv Implicit <$> go co
+       -- TODO (RAE): Check above.
     go (TcCoVarCo cv)         = eqVarKind cv
     go (TcAxiomInstCo ax ind cos)
       = let branch = coAxiomNthBranch ax ind

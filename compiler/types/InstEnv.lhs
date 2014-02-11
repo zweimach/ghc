@@ -171,7 +171,7 @@ pprInstanceHdr (ClsInst { is_flag = flag, is_dfun = dfun })
     in ptext (sLit "instance") <+> ppr flag
        <+> sep [pprThetaArrowTy theta_to_print, ppr res_ty]
   where
-    (_, theta, res_ty) = tcSplitSigmaTy (idType dfun)
+    (_, _, theta, res_ty) = tcSplitSigmaTy (idType dfun)
        -- Print without the for-all, which the programmer doesn't write
 
 pprInstances :: [ClsInst] -> SDoc

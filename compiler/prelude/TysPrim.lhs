@@ -18,7 +18,7 @@
 module TysPrim(
 	mkPrimTyConName, -- For implicit parameters in TysWiredIn only
 
-        tyVarList, alphaTyVars, betaTyVars, alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar,
+        tyVarList, alphaTyVars, alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar,
 	alphaTy, betaTy, gammaTy, deltaTy,
 	openAlphaTy, openBetaTy, openAlphaTyVar, openBetaTyVar, openAlphaTyVars,
         kKiVar,
@@ -85,7 +85,7 @@ module TysPrim(
 
 #include "HsVersions.h"
 
-import Var		( TyVar, KindVar, mkTyVar, ImplicitFlag(..) )
+import Var		( TyVar, KindVar, mkTyVar )
 import Name		( Name, BuiltInSyntax(..), mkInternalName, mkWiredInName )
 import OccName          ( mkTyVarOccFS, mkTcOccFS )
 import TyCon
@@ -197,10 +197,10 @@ alphaTyVars is a list of type variables for use in templates:
 	["a", "b", ..., "z", "t1", "t2", ... ]
 
 \begin{code}
-tyVarList :: Kind -> ImplicitFlag -> [TyVar]
-tyVarList kind imp = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u) 
-		       		               (mkTyVarOccFS (mkFastString name))
-			 	               noSrcSpan) kind imp
+tyVarList :: Kind -> [TyVar]
+tyVarList kind = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u) 
+	      		                   (mkTyVarOccFS (mkFastString name))
+			 	           noSrcSpan) kind
 	         | u <- [2..],
 		   let name | c <= 'z'  = [c]
 		            | otherwise = 't':show u
@@ -208,10 +208,7 @@ tyVarList kind imp = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u)
 	         ]
 
 alphaTyVars :: [TyVar]
-alphaTyVars = tyVarList liftedTypeKind Explicit
-
-betaTyVars :: [TyVar]
-betaTyVars = tail alphaTyVars
+alphaTyVars = tyVarList liftedTypeKind
 
 alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar :: TyVar
 (alphaTyVar:betaTyVar:gammaTyVar:deltaTyVar:_) = alphaTyVars
@@ -226,14 +223,14 @@ alphaTy, betaTy, gammaTy, deltaTy :: Type
 	-- result type for "error", so that we can have (error Int# "Help")
 openAlphaTyVars :: [TyVar]
 openAlphaTyVar, openBetaTyVar :: TyVar
-openAlphaTyVars@(openAlphaTyVar:openBetaTyVar:_) = tyVarList openTypeKind Explicit
+openAlphaTyVars@(openAlphaTyVar:openBetaTyVar:_) = tyVarList openTypeKind
 
 openAlphaTy, openBetaTy :: Type
 openAlphaTy = mkOnlyTyVarTy openAlphaTyVar
 openBetaTy  = mkOnlyTyVarTy openBetaTyVar
 
 kKiVar :: KindVar
-kKiVar = (tyVarList liftedTypeKind Implicit) !! 10
+kKiVar = (tyVarList liftedTypeKind) !! 10
   -- the 10 selects the 11th letter in the alphabet: 'k'
 
 \end{code}
@@ -463,15 +460,16 @@ mkProxyPrimTy k ty = TyConApp proxyPrimTyCon [k, ty]
 
 proxyPrimTyCon :: TyCon
 proxyPrimTyCon = mkPrimTyCon proxyPrimTyConName kind [Nominal,Nominal] VoidRep
-  where kind = ForAllTy kv $ mkArrowKind k unliftedTypeKind
+  where kind = ForAllTy Implicit kv $ mkArrowKind k unliftedTypeKind
         kv   = kKiVar
         k    = mkOnlyTyVarTy kv
 
 eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 		      -- See Note [The ~# TyCon]
 eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind (replicate 4 Nominal) VoidRep
-  where kind = ForAllTy kv1 $ ForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
-        kVars = tyVarList liftedTypeKind Implicit
+  where kind = ForAllTy kv1 Implicit $ ForAllTy kv2 Implicit $
+               mkArrowKinds [k1, k2] unliftedTypeKind
+        kVars = tyVarList liftedTypeKind
         kv1 : kv2 : _ = kVars
         k1 = mkOnlyTyVarTy kv1
         k2 = mkOnlyTyVarTy kv2
@@ -484,8 +482,9 @@ eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
                                   -- the roles really should be irrelevant!
                               [Nominal, Nominal, Representational, Representational]
                               VoidRep
-  where kind = ForAllTy kv1 $ ForAllTy kv2 $ mkArrowKinds [k1, k2] unliftedTypeKind
-        kVars         = tyVarList liftedTypeKind Implicit
+  where kind = ForAllTy kv1 Implicit $ ForAllTy kv2 Implicit $
+               mkArrowKinds [k1, k2] unliftedTypeKind
+        kVars         = tyVarList liftedTypeKind
         kv1 : kv2 : _ = kVars
         k1            = mkOnlyTyVarTy kv1
         k2            = mkOnlyTyVarTy kv2
@@ -722,7 +721,7 @@ anyTy = mkTyConTy anyTyCon
 
 anyTyCon :: TyCon
 anyTyCon = mkLiftedPrimTyCon anyTyConName kind [Nominal] PtrRep
-  where kind = ForAllTy kKiVar (mkOnlyTyVarTy kKiVar)
+  where kind = ForAllTy kKiVar Implicit (mkOnlyTyVarTy kKiVar)
 
 {-   Can't do this yet without messing up kind proxies
 -- RAE: I think you can now.

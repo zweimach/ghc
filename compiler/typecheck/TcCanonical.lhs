@@ -544,11 +544,11 @@ flatten f ctxt (TyConApp tc tys)
 flatten _f ctxt ty@(ForAllTy {})
 -- We allow for-alls when, but only when, no type function
 -- applications inside the forall involve the bound type variables.
-  = do { let (tvs, rho) = splitForAllTys ty
+  = do { let (tvs, imps, rho) = splitForAllTys ty
        ; (rho', co) <- flatten FMSubstOnly ctxt rho
                          -- Substitute only under a forall
                          -- See Note [Flattening under a forall]
-       ; return (mkForAllTys tvs rho', foldr mkTcForAllCo co tvs) }
+       ; return (zipForAllTys tvs imps rho', foldr mkTcForAllCo co tvs) }
 
 -- TODO (RAE): Fix this. Requires update of TcCoercion.
 flatten _ _ ty@(CastTy {})

@@ -1435,8 +1435,7 @@ newFlattenSkolem ev fam_ty
   = do { tv <- wrapTcS $
                do { uniq <- TcM.newUnique
                   ; let name = TcM.mkTcTyVarName uniq (fsLit "f")
-                  ; return $ mkTcTyVar name (typeKind fam_ty) (FlatSkol fam_ty)
-                                       Don'tCareImp }
+                  ; return $ mkTcTyVar name (typeKind fam_ty) (FlatSkol fam_ty) }
        ; traceTcS "New Flatten Skolem Born" $
          ppr tv <+> text "[:= " <+> ppr fam_ty <+> text "]"
 
@@ -1505,7 +1504,7 @@ instFlexiTcSHelper tvname kind
   = do { uniq <- TcM.newUnique
        ; details <- TcM.newMetaDetails TauTv
        ; let name = setNameUnique tvname uniq
-       ; return (mkTyCoVarTy (mkTcTyVar name kind details Don'tCareImp)) }
+       ; return (mkTyCoVarTy (mkTcTyVar name kind details)) }
 
 instFlexiTcSHelperTcS :: Name -> Kind -> TcS TcType
 instFlexiTcSHelperTcS n k = wrapTcS (instFlexiTcSHelper n k)

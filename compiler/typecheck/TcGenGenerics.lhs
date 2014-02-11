@@ -88,10 +88,11 @@ genGenericMetaTyCons tc mod =
         s_occ m n = mkGenS tc_occ m n
 
         mkTyCon name = ASSERT( isExternalName name )
-                       buildAlgTyCon name [] [] Nothing [] distinctAbstractTyConRhs
-                                          NonRecursive 
-                                          False          -- Not GADT syntax
-                                          NoParentTyCon
+                       mkAlgTyCon name liftedTypeKind
+                                  [] [] Nothing [] distinctAbstractTyConRhs
+                                  NoParentTyCon
+                                  NonRecursive 
+                                  False          -- Not GADT syntax
 
       d_name  <- newGlobalBinder mod d_occ loc
       c_names <- forM (zip [0..] tc_cons) $ \(m,_) ->

@@ -501,7 +501,7 @@ primOpType op
     Compare _occ ty -> compare_fun_ty ty
 
     GenPrimOp _occ tyvars arg_tys res_ty ->
-        mkForAllTys tyvars (mkFunTys arg_tys res_ty)
+        mkImpForAllTys tyvars (mkFunTys arg_tys res_ty)
 
 primOpOcc :: PrimOp -> OccName
 primOpOcc op = case primOpInfo op of

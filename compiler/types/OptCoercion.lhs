@@ -130,16 +130,16 @@ optType :: TCvSubst -> Type -> Type
 -- *and* optimises any coercions therein
 optType subst = go
   where
-    go (TyVarTy tv)      = substTyVar subst tv
-    go (AppTy fun arg)   = mkAppTy (go fun) $! (go arg)
-    go (TyConApp tc tys) = let args = map go tys
-                           in  args `seqList` TyConApp tc args
-    go (FunTy arg res)   = (FunTy $! (go arg)) (go res)
-    go (ForAllTy tv ty)  = case optTyVarBndr subst tv of
-                             (subst', tv') -> ForAllTy tv' $! (optType subst' ty)
-    go (LitTy n)         = LitTy $! n
-    go (CastTy ty co)    = (CastTy $! (go ty)) $! (optCoercion subst co)
-    go (CoercionTy co)   = CoercionTy $! (optCoercion subst co)
+    go (TyVarTy tv)         = substTyVar subst tv
+    go (AppTy fun arg)      = mkAppTy (go fun) $! (go arg)
+    go (TyConApp tc tys)    = let args = map go tys
+                              in  args `seqList` TyConApp tc args
+    go (FunTy arg res)      = (FunTy $! (go arg)) (go res)
+    go (ForAllTy tv imp ty) = case optTyVarBndr subst tv of
+                              (subst', tv') -> ForAllTy tv' imp $! (optType subst' ty)
+    go (LitTy n)            = LitTy $! n
+    go (CastTy ty co)       = (CastTy $! (go ty)) $! (optCoercion subst co)
+    go (CoercionTy co)      = CoercionTy $! (optCoercion subst co)
 
 type NormalCo    = Coercion
 type NormalCoArg = CoercionArg

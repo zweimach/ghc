@@ -1689,8 +1689,10 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
                               Just (fun_ty, _) -> (caseTyApp fun_ty (last xrs), True)
        where
          (xrs,xcs) = unzip (map (go co) args)
-    go co (ForAllTy v x) | v /= var && xc = (caseForAll v xr,True)
+    go co (ForAllTy v Implicit x) | v /= var && xc = (caseForAll v xr,True)
         where (xr,xc) = go co x
+              -- TODO (RAE): Fix.
+    go co (ForAllTy v Explicit x) = panic "unexpected explicit binder"
     go _ _ = (caseTrivial,False)
 
 -- Return all syntactic subterms of ty that contain var somewhere
@@ -1923,7 +1925,8 @@ mkCoerceClassMethEqn cls inst_tvs cls_tys rhs_ty id
     lhs_subst = uncurry (mkTCvSubst in_scope) (zipTyCoEnv cls_tvs cls_tys)
     rhs_subst = uncurry (mkTCvSubst in_scope)
                         (zipTyCoEnv cls_tvs (changeLast cls_tys rhs_ty))
-    (_class_tvs, _class_constraint, user_meth_ty) = tcSplitSigmaTy (varType id)
+    (_class_tvs, _class_imps, _class_constraint, user_meth_ty)
+      = tcSplitSigmaTy (varType id)
 
     changeLast :: [a] -> a -> [a]
     changeLast []     _  = panic "changeLast"
@@ -1955,7 +1958,7 @@ gen_Newtype_binds loc cls inst_tvs cls_tys rhs_ty
             `nlExprWithTySig` toHsType user_ty
         -- Open the representation type here, so that it's forall'ed type
         -- variables refer to the ones bound in the user_ty
-        (_, _, tau_ty')  = tcSplitSigmaTy tau_ty
+        (_, _, _, tau_ty')  = tcSplitSigmaTy tau_ty
 
     nlExprWithTySig e s = noLoc (ExprWithTySig e s)
 \end{code}
@@ -1986,7 +1989,8 @@ genAuxBindSpec loc (DerivCon2Tag tycon)
     rdr_name = con2tag_RDR tycon
 
     sig_ty = HsCoreTy $
-             mkSigmaTy (tyConTyVars tycon) (tyConStupidTheta tycon) $
+                 -- TODO (RAE): Check.
+             mkImpSigmaTy (tyConTyVars tycon) (tyConStupidTheta tycon) $
              mkParentType tycon `mkFunTy` intPrimTy
 
     lots_of_constructors = tyConFamilySize tycon > 8
@@ -2008,7 +2012,8 @@ genAuxBindSpec loc (DerivTag2Con tycon)
            nlHsApp (nlHsVar tagToEnum_RDR) a_Expr)],
      L loc (TypeSig [L loc rdr_name] (L loc sig_ty)))
   where
-    sig_ty = HsCoreTy $ mkForAllTys (tyConTyVars tycon) $
+    sig_ty = HsCoreTy $ zipForAllTys (tyConTyVars tycon)
+                                     (tyConTvVisibilities tycon) $
              intTy `mkFunTy` mkParentType tycon
 
     rdr_name = tag2con_RDR tycon

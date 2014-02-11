@@ -618,6 +618,7 @@ data SynTyConRhs
    | AbstractClosedSynFamilyTyCon
 
    | BuiltInSynFamTyCon BuiltInSynFamily
+
 \end{code}
 
 Note [Closed type families]

@@ -62,7 +62,7 @@ vectType (FunTy ty1 ty2)
   = FunTy <$> vectType ty1 <*> vectType ty2   -- don't build a closure for dictionary abstraction
   | otherwise
   = TyConApp <$> builtin closureTyCon <*> mapM vectType [ty1, ty2]
-vectType ty@(ForAllTy _ _)
+vectType ty@(ForAllTy {})
  = do {   -- strip off consecutive foralls
       ; let (tyvars, tyBody) = splitForAllTys ty
 
@@ -83,4 +83,4 @@ vectType ty@(CoercionTy {})
 -- |Add quantified vars and dictionary parameters to the front of a type.
 --
 abstractType :: [TyCoVar] -> [Type] -> Type -> Type
-abstractType tyvars dicts = mkForAllTys tyvars . mkFunTys dicts
+abstractType tyvars dicts = mkImpForAllTys tyvars . mkFunTys dicts

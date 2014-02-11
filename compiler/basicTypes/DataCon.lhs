@@ -19,7 +19,6 @@ module DataCon (
 	
 	-- ** Type construction
 	mkDataCon, fIRST_TAG,
-        buildAlgTyCon, 
 	
 	-- ** Type deconstruction
 	dataConRepType, dataConSig, dataConFullSig,
@@ -644,7 +643,7 @@ mkDataCon name declared_infix
 
     tag = assoc "mkDataCon" (tyConDataCons rep_tycon `zip` [fIRST_TAG..]) con
     rep_arg_tys = dataConRepArgTys con
-    rep_ty = mkForAllTys univ_tvs $ mkForAllTys ex_tvs $ 
+    rep_ty = mkImpForAllTys univ_tvs $ mkImpForAllTys ex_tvs $ 
 	     mkPiTypesNoTv rep_arg_tys $
 	     mkTyConApp rep_tycon (mkTyCoVarTys univ_tvs)
 
@@ -873,7 +872,7 @@ dataConUserType  (MkData { dcUnivTyVars = univ_tvs,
 			   dcExTyCoVars = ex_tvs, dcEqSpec = eq_spec,
 			   dcOtherTheta = theta, dcOrigArgTys = arg_tys,
 			   dcOrigResTy = res_ty })
-  = mkForAllTys ((univ_tvs `minusList` map fst eq_spec) ++ ex_tvs) $
+  = mkImpForAllTys ((univ_tvs `minusList` map fst eq_spec) ++ ex_tvs) $
     mkFunTys theta $
     mkFunTys arg_tys $
     res_ty
@@ -987,39 +986,6 @@ dataConCannotMatch tys con
                      TuplePred ts   -> concatMap predEqs ts
                      _              -> []
 \end{code}
-
-%************************************************************************
-%*									*
-              Building an algebraic data type
-%*									*
-%************************************************************************
-
-buildAlgTyCon is here because it is called from TysWiredIn, which in turn
-depends on DataCon, but not on BuildTyCl.
-
-\begin{code}
-buildAlgTyCon :: Name 
-              -> [TyVar]               -- ^ Kind variables and type variables
-              -> [Role]
-	      -> Maybe CType
-	      -> ThetaType	       -- ^ Stupid theta
-	      -> AlgTyConRhs
-	      -> RecFlag
-	      -> Bool		       -- ^ True <=> was declared in GADT syntax
-              -> TyConParent
-	      -> TyCon
-
-buildAlgTyCon tc_name ktvs roles cType stupid_theta rhs 
-              is_rec gadt_syn parent
-  = tc
-  where 
-    kind = mkPiTypes ktvs liftedTypeKind
-
-    -- tc and mb_promoted_tc are mutually recursive
-    tc = mkAlgTyCon tc_name kind ktvs roles cType stupid_theta 
-                    rhs parent is_rec gadt_syn 
-\end{code}
-
 
 %************************************************************************
 %*                                                                      *

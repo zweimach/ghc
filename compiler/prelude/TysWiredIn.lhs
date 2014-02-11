@@ -251,20 +251,21 @@ pcNonRecDataTyCon :: Name -> Maybe CType -> [TyVar] -> [DataCon] -> TyCon
 pcNonRecDataTyCon = pcTyCon False NonRecursive
 
 -- This function assumes that the types it creates have all parameters at
--- Representational role!
+-- Representational role, and that there is no kind polymorphism.
 pcTyCon :: Bool -> RecFlag -> Name -> Maybe CType -> [TyVar] -> [DataCon] -> TyCon
 pcTyCon is_enum is_rec name cType tyvars cons
   = tycon
   where
-    tycon = buildAlgTyCon name
+    tycon = mkAlgTyCon name
+                (mkFunTys (map tyVarKind tyvars) liftedTypeKind)
                 tyvars
                 (map (const Representational) tyvars)
                 cType
                 []              -- No stupid theta
                 (DataTyCon cons is_enum)
+                NoParentTyCon
                 is_rec
                 False           -- Not in GADT syntax
-                NoParentTyCon
 
 pcDataCon :: Name -> [TyVar] -> [Type] -> TyCon -> DataCon
 pcDataCon = pcDataConWithFixity False
@@ -387,7 +388,7 @@ mk_tuple sort arity = (tycon, tuple_con)
         tyvars = take arity $ case sort of
           BoxedTuple      -> alphaTyVars
           UnboxedTuple    -> openAlphaTyVars
-          ConstraintTuple -> tyVarList constraintKind Explicit
+          ConstraintTuple -> tyVarList constraintKind
 
         tuple_con = pcDataCon dc_name tyvars tyvar_tys tycon
         tyvar_tys = mkOnlyTyVarTys tyvars
@@ -432,7 +433,7 @@ unboxedPairDataCon = tupleCon   UnboxedTuple 2
 \begin{code}
 eqTyCon :: TyCon
 eqTyCon = mkAlgTyCon eqTyConName
-            (ForAllTy kv $ mkArrowKinds [k, k] constraintKind)
+            (ForAllTy kv Implicit $ mkArrowKinds [k, k] constraintKind)
             [kv, a, b]
             [Nominal, Nominal, Nominal]
             Nothing
@@ -444,14 +445,14 @@ eqTyCon = mkAlgTyCon eqTyConName
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
-    a:b:_ = tyVarList k Explicit
+    a:b:_ = tyVarList k
 
 eqBoxDataCon :: DataCon
 eqBoxDataCon = pcDataCon eqBoxDataConName args [arg_ty] eqTyCon
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
-    a:b:_ = tyVarList k Explicit
+    a:b:_ = tyVarList k
     args = [kv, a, b]
     arg_ty = TyConApp eqPrimTyCon ([k, k] ++ mkOnlyTyVarTys [a, b])
 
@@ -459,10 +460,10 @@ coercibleTyCon :: TyCon
 coercibleTyCon = mkClassTyCon
     coercibleTyConName kind tvs [Nominal, Representational, Representational]
     rhs coercibleClass NonRecursive
-  where kind = (ForAllTy kv $ mkArrowKinds [k, k] constraintKind)
+  where kind = (ForAllTy kv Implicit $ mkArrowKinds [k, k] constraintKind)
         kv = kKiVar
         k = mkOnlyTyVarTy kv
-        a:b:_ = tyVarList k Explicit
+        a:b:_ = tyVarList k
         tvs = [kv, a, b]
         rhs = DataTyCon [coercibleDataCon] False
 
@@ -471,7 +472,7 @@ coercibleDataCon = pcDataCon coercibleDataConName args [TyConApp eqReprPrimTyCon
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
-    a:b:_ = tyVarList k Explicit
+    a:b:_ = tyVarList k
     args  = [kv, a, b]
     args' = map mkOnlyTyVarTy [kv, kv, a, b]
 

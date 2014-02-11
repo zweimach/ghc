@@ -390,7 +390,8 @@ lintCoreExpr (Lam var expr)
     lintBinder var $ \ var' ->
     do { body_ty <- lintCoreExpr expr
        ; if isTyVar var' || isCoVar var'
-         then return (mkForAllTy var' body_ty)
+         then return (mkForAllTy var' Implicit body_ty)
+                -- visibility shouldn't matter!
          else return (mkFunTy (idType var') body_ty) }
         -- The applySubstTy is needed to apply the subst to var
 
@@ -751,7 +752,7 @@ lintType ty@(TyConApp tc tys)
   | otherwise
   = failWithL (hang (ptext (sLit "Malformed type:")) 2 (ppr ty))
 
-lintType (ForAllTy tv ty)
+lintType (ForAllTy tv _imp ty)
   = do { lintTyCoBndrKind tv
        ; k <- addInScopeVar tv (lintType ty) 
        ; return k }
@@ -845,7 +846,7 @@ lint_app doc kfn kas
                     ) (addErrL fail_msg)
            ; return kfb }
 
-    go_app (ForAllTy kv kfn) (ta,ka)
+    go_app (ForAllTy kv _imp kfn) (ta,ka)
       = do { unless (ka `isSubKind` tyVarKind kv) (addErrL fail_msg)
            ; return (substKiWith [kv] [ta] kfn) }
 
@@ -927,8 +928,8 @@ lintCoercion co@(AppCo co1 co2)
 ----------
 lintCoercion (ForAllCo (TyHomo tv) co)
   = do { (k1, k2, t1, t2, r) <- addInScopeVar tv (lintCoercion co)
-       ; let tyl = mkForAllTy tv t1
-       ; let tyr = mkForAllTy tv t2
+       ; let tyl = mkForAllTy tv Implicit t1  -- visibility shouldn't matter
+       ; let tyr = mkForAllTy tv Implicit t2
        ; k1' <- lintType tyl
        ; k2' <- lintType tyr
        ; ensureEqTys k1 k1' (mkBadForAllKindMsg CLeft co k1 k1')
@@ -943,8 +944,8 @@ lintCoercion g@(ForAllCo (TyHetero h tv1 tv2 cv) co)
        ; ensureEqTys (mkCoercionType Nominal (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2))
                   (coVarKind cv) (mkBadHeteroCoVarMsg tv1 tv2 cv g)
        ; (k3, k4, t1, t2, r) <- addInScopeVars [tv1, tv2, cv] $ lintCoercion co
-       ; let tyl = mkForAllTy tv1 t1
-       ; let tyr = mkForAllTy tv2 t2
+       ; let tyl = mkForAllTy tv1 Implicit t1
+       ; let tyr = mkForAllTy tv2 Implicit t2
        ; k3' <- lintType tyl
        ; k4' <- lintType tyr
        ; ensureEqTys k3 k3' (mkBadForAllKindMsg CLeft co k3 k3')
@@ -954,8 +955,8 @@ lintCoercion g@(ForAllCo (TyHetero h tv1 tv2 cv) co)
 lintCoercion (ForAllCo (CoHomo cv) co)
   = do { lintL (cv `freeInCoercion` co) (mkFreshnessViolationMsg cv co)
        ; (k1, k2, t1, t2, r) <- addInScopeVar cv $ lintCoercion co
-       ; let tyl = mkForAllTy cv t1
-       ; let tyr = mkForAllTy cv t2
+       ; let tyl = mkForAllTy cv Implicit t1
+       ; let tyr = mkForAllTy cv Implicit t2
        ; k1' <- lintType tyl
        ; k2' <- lintType tyr
        ; ensureEqTys k1 k1' (mkBadForAllKindMsg CLeft co k1 k1')
@@ -970,8 +971,8 @@ lintCoercion g@(ForAllCo (CoHetero h cv1 cv2) co)
        ; ensureEqTys phi1 (coVarKind cv1) (mkBadHeteroVarMsg CLeft phi1 cv1 g)
        ; ensureEqTys phi2 (coVarKind cv2) (mkBadHeteroVarMsg CRight phi2 cv2 g)
        ; (k1, k2, t1, t2, r) <- addInScopeVars [cv1, cv2] $ lintCoercion co
-       ; let tyl = mkForAllTy cv1 t1
-       ; let tyr = mkForAllTy cv2 t2
+       ; let tyl = mkForAllTy cv1 Implicit t1
+       ; let tyr = mkForAllTy cv2 Implicit t2
        ; k1' <- lintType tyl
        ; k2' <- lintType tyr
        ; ensureEqTys k1 k1' (mkBadForAllKindMsg CLeft co k1 k1')
@@ -1211,7 +1212,7 @@ freeInType v (TyVarTy tv)       = freeInTyVar v tv
 freeInType v (AppTy t1 t2)      = (freeInType v t1) && (freeInType v t2)
 freeInType v (TyConApp _ args)  = all (freeInType v) args
 freeInType v (FunTy t1 t2)      = (freeInType v t1) && (freeInType v t2)
-freeInType v (ForAllTy tv ty)   = (freeInTyVar v tv) && (freeInType v ty)
+freeInType v (ForAllTy tv _ ty) = (freeInTyVar v tv) && (freeInType v ty)
 freeInType _ (LitTy {})         = True
 freeInType v (CastTy t _)       = freeInType v t
 freeInType _ (CoercionTy _)     = True

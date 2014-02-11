@@ -76,8 +76,8 @@ mkVectId id ty
     -- Decompose a dictionary function signature: \forall tvs. theta -> cls tys
     -- NB: We do *not* use closures '(:->)' for vectorised predicate abstraction as dictionary
     --     functions are always fully applied.
-    (tvs, theta, pty) = tcSplitSigmaTy  ty
-    (cls, tys)        = tcSplitDFunHead pty
+    (tvs, _, theta, pty) = tcSplitSigmaTy  ty
+    (cls, tys)           = tcSplitDFunHead pty
 
 -- |Make a fresh instance of this var, with a new unique.
 --
@@ -117,10 +117,10 @@ newDummyVar = newLocalVar (fsLit "vv")
 -- |Make a fresh type variable with the given kind.
 -- The variable's name is formed using the given string as the prefix.
 --
-newTyVar :: FastString -> Kind -> ImplicitFlag -> VM Var
-newTyVar fs k imp
+newTyVar :: FastString -> Kind -> VM Var
+newTyVar fs k
  = do u <- liftDs newUnique
-      return $ mkTyVar (mkSysTvName u fs) k imp
+      return $ mkTyVar (mkSysTvName u fs) k
 
 -- |Mkae a fresh coercion variable with the given kind.
 newCoVar :: FastString -> Kind -> VM Var

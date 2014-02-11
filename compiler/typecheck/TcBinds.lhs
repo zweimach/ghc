@@ -562,13 +562,13 @@ mkExport prag_fn qtvs theta (poly_name, mb_sig, mono_id)
                             -- Include kind variables!  Trac #7916
               my_tvs   = filter (`elemVarSet` my_tvs2) qtvs   -- Maintain original order
               my_theta = filter (quantifyPred my_tvs2) theta
-              inferred_poly_ty = mkSigmaTy my_tvs my_theta mono_ty
+              inferred_poly_ty = mkImpSigmaTy my_tvs my_theta mono_ty
 
         ; poly_id <- addInlinePrags poly_id prag_sigs
         ; spec_prags <- tcSpecPrags poly_id prag_sigs
                 -- tcPrags requires a zonked poly_id
 
-        ; let sel_poly_ty = mkSigmaTy qtvs theta mono_ty
+        ; let sel_poly_ty = mkImpSigmaTy qtvs theta mono_ty
         ; traceTc "mkExport: check sig"
                   (ppr poly_name $$ ppr sel_poly_ty $$ ppr (idType poly_id))
 
@@ -881,7 +881,7 @@ recoveryCode binder_names sig_fn
     is_closed poly_id = isEmptyVarSet (tyCoVarsOfType (idType poly_id))
 
 forall_a_a :: TcType
-forall_a_a = mkForAllTy openAlphaTyVar (mkOnlyTyVarTy openAlphaTyVar)
+forall_a_a = mkForAllTy openAlphaTyVar Implicit (mkOnlyTyVarTy openAlphaTyVar)
 \end{code}
 
 Note [SPECIALISE pragmas]

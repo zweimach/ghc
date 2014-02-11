@@ -456,7 +456,7 @@ tcLcStmt m_tc ctxt (TransStmt { trS_form = form, trS_stmts = stmts
              tup_ty        = mkBigCoreVarTupTy bndr_ids
              poly_arg_ty   = m_app alphaTy
 	     poly_res_ty   = m_app (n_app alphaTy)
-	     using_poly_ty = mkForAllTy alphaTyVar $ by_arrow $ 
+	     using_poly_ty = mkForAllTy alphaTyVar Implicit $ by_arrow $ 
                              poly_arg_ty `mkFunTy` poly_res_ty
 
        ; using' <- tcPolyExpr using using_poly_ty
@@ -590,7 +590,7 @@ tcMcStmt ctxt (TransStmt { trS_stmts = stmts, trS_bndrs = bindersMap
              using_arg_ty = m1_ty `mkAppTy` tup_ty
 	     poly_res_ty  = m2_ty `mkAppTy` n_app alphaTy
 	     using_res_ty = m2_ty `mkAppTy` n_app tup_ty
-	     using_poly_ty = mkForAllTy alphaTyVar $ by_arrow $ 
+	     using_poly_ty = mkForAllTy alphaTyVar Implicit $ by_arrow $ 
                              poly_arg_ty `mkFunTy` poly_res_ty
 
 	     -- 'stmts' returns a result of type (m1_ty tuple_ty),
@@ -624,7 +624,8 @@ tcMcStmt ctxt (TransStmt { trS_stmts = stmts, trS_bndrs = bindersMap
        ; fmap_op' <- case form of
                        ThenForm -> return noSyntaxExpr
                        _ -> fmap unLoc . tcPolyExpr (noLoc fmap_op) $
-                            mkForAllTy alphaTyVar $ mkForAllTy betaTyVar $
+                            mkForAllTy alphaTyVar Implicit $
+                            mkForAllTy betaTyVar  Implicit $
                             (alphaTy `mkFunTy` betaTy)
                             `mkFunTy` (n_app alphaTy)
                             `mkFunTy` (n_app betaTy)
@@ -687,7 +688,7 @@ tcMcStmt ctxt (ParStmt bndr_stmts_s mzip_op bind_op) res_ty thing_inside
   = do { let star_star_kind = liftedTypeKind `mkArrowKind` liftedTypeKind
        ; m_ty   <- newFlexiTyVarTy star_star_kind
 
-       ; let mzip_ty  = mkForAllTys [alphaTyVar, betaTyVar] $
+       ; let mzip_ty  = mkImpForAllTys [alphaTyVar, betaTyVar] $
                         (m_ty `mkAppTy` alphaTy)
                         `mkFunTy`
                         (m_ty `mkAppTy` betaTy)

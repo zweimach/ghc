@@ -34,8 +34,10 @@ module Type (
         tyConAppTyCon_maybe, tyConAppArgs_maybe, tyConAppTyCon, tyConAppArgs,
         splitTyConApp_maybe, splitTyConApp, tyConAppArgN,
 
-        mkForAllTy, mkForAllTys, splitForAllTy_maybe, splitForAllTys, splitForAllTy,
-        mkPiType, mkPiTypes, mkPiTypesNoTv, piResultTy, piResultTys, splitPiTypes,
+        mkForAllTy, mkForAllTys, zipForAllTys, mkImpForAllTys, mkExpForAllTys,
+        splitForAllTy_maybe, splitForAllTys, splitForAllTy,
+        mkPiType, mkPiTypes, mkPiTypesNoTv, mkPiTypesPreferFunTy,
+        piResultTy, piResultTys, splitPiTypes,
         applyTy, applyTys, applyTysD, isForAllTy, dropForAlls,
 
         mkNumLitTy, isNumLitTy,
@@ -71,7 +73,7 @@ module Type (
         -- ** Predicates on types
         isTyCoVarTy,
         isTyVarTy, isFunTy, isDictTy, isPredTy, isVoidTy, isCoercionTy,
-        isCoercionTy_maybe, isCoercionType, isImplicitForall, isImplicitBinder,
+        isCoercionTy_maybe, isCoercionType, isImplicitForall,
 
         -- (Lifting and boxity)
         isUnLiftedType, isUnboxedTupleType, isAlgType, isClosedAlgType,
@@ -298,13 +300,13 @@ expandTypeSynonyms ty
       = go (mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys')
       | otherwise
       = TyConApp tc (map go tys)
-    go (LitTy l)       = LitTy l
-    go (TyVarTy tv)    = TyVarTy tv
-    go (AppTy t1 t2)   = mkAppTy (go t1) (go t2)
-    go (FunTy t1 t2)   = FunTy (go t1) (go t2)
-    go (ForAllTy tv t) = ForAllTy tv (go t)
-    go (CastTy ty co)  = mkCastTy (go ty) (go_co co)
-    go (CoercionTy co) = mkCoercionTy (go_co co)
+    go (LitTy l)           = LitTy l
+    go (TyVarTy tv)        = TyVarTy tv
+    go (AppTy t1 t2)       = mkAppTy (go t1) (go t2)
+    go (FunTy t1 t2)       = FunTy (go t1) (go t2)
+    go (ForAllTy tv imp t) = ForAllTy tv imp (go t)
+    go (CastTy ty co)      = mkCastTy (go ty) (go_co co)
+    go (CoercionTy co)     = mkCoercionTy (go_co co)
 
     go_co (Refl r ty)               = mkReflCo r (go ty)
     go_co (TyConAppCo r tc args)
@@ -546,9 +548,9 @@ funResultTy ty = piResultTy ty (pprPanic "funResultTy" (ppr ty))
 -- | Essentially 'funResultTy' on kinds handling pi-types too
 piResultTy :: Type -> Type -> Type
 piResultTy ty arg | Just ty' <- coreView ty = piResultTy ty' arg
-piResultTy (FunTy _arg res) _    = res
-piResultTy (ForAllTy tv res) arg = substTyWith [tv] [arg] res
-piResultTy ty _                  = pprPanic "piResultTy" (ppr ty)
+piResultTy (FunTy _arg res)    _   = res
+piResultTy (ForAllTy tv _ res) arg = substTyWith [tv] [arg] res
+piResultTy ty _                    = pprPanic "piResultTy" (ppr ty)
 
 -- | Fold 'piResultTy' over many types
 piResultTys :: Type -> [Type] -> Type
@@ -735,7 +737,7 @@ repType ty
       | Just ty' <- coreView ty
       = go rec_nts ty'
 
-    go rec_nts ty@(ForAllTy tv ty2)             -- Drop type foralls
+    go rec_nts ty@(ForAllTy tv _ ty2)             -- Drop type foralls
       | isTyVar tv
       = go rec_nts ty2
       | otherwise
@@ -770,20 +772,20 @@ typePrimRep ty
   = case repType ty of
       UbxTupleRep _ -> pprPanic "typePrimRep: UbxTupleRep" (ppr ty)
       UnaryRep rep -> go rep
-    where go (TyConApp tc _) = tyConPrimRep tc
-          go (ForAllTy _v _) = ASSERT( isCoVar _v ) PtrRep
-          go (FunTy _ _)     = PtrRep
-          go (AppTy _ _)     = PtrRep      -- See Note [AppTy rep]
-          go (TyVarTy _)     = PtrRep
-          go (CastTy ty _)   = go ty
-          go _               = pprPanic "typePrimRep: UnaryRep" (ppr ty)
+    where go (TyConApp tc _)   = tyConPrimRep tc
+          go (ForAllTy _v _ _) = ASSERT( isCoVar _v ) PtrRep
+          go (FunTy _ _)       = PtrRep
+          go (AppTy _ _)       = PtrRep      -- See Note [AppTy rep]
+          go (TyVarTy _)       = PtrRep
+          go (CastTy ty _)     = go ty
+          go _                 = pprPanic "typePrimRep: UnaryRep" (ppr ty)
 
 typeRepArity :: Arity -> Type -> RepArity
 typeRepArity 0 _ = 0
 typeRepArity n ty = case repType ty of
-  UnaryRep (ForAllTy cv ty) -> length (flattenRepType (repType (varType cv))) + typeRepArity (n - 1) ty
-  UnaryRep (FunTy ty1 ty2)  -> length (flattenRepType (repType ty1)) + typeRepArity (n - 1) ty2
-  _                         -> pprPanic "typeRepArity: arity greater than type can handle" (ppr (n, ty, repType ty))
+  UnaryRep (ForAllTy cv _ ty) -> length (flattenRepType (repType (varType cv))) + typeRepArity (n - 1) ty
+  UnaryRep (FunTy ty1 ty2)    -> length (flattenRepType (repType ty1)) + typeRepArity (n - 1) ty2
+  _                           -> pprPanic "typeRepArity: arity greater than type can handle" (ppr (n, ty, repType ty))
 
 isVoidTy :: Type -> Bool
 -- True if the type has zero width
@@ -804,13 +806,29 @@ in TyCoRep.
                                 ~~~~~~~~
 
 \begin{code}
-mkForAllTy :: TyVar -> Type -> Type
-mkForAllTy tyvar ty
-  = ForAllTy tyvar ty
+mkForAllTy :: TyCoVar -> ImplicitFlag -> Type -> Type
+mkForAllTy tyvar imp ty
+  = ForAllTy tyvar imp ty
 
 -- | Wraps foralls over the type using the provided 'TyVar's from left to right
-mkForAllTys :: [TyVar] -> Type -> Type
-mkForAllTys tyvars ty = foldr ForAllTy ty tyvars
+mkForAllTys :: [(TyCoVar,ImplicitFlag)] -> Type -> Type
+mkForAllTys tyvars ty = foldr (uncurry ForAllTy) ty tyvars
+
+-- | Wraps foralls over the type using the provided 'TyVar's from left to right,
+-- using the corresponding visibility flag.
+zipForAllTys :: [TyCoVar] -> [ImplicitFlag] -> Type -> Type
+zipForAllTys [] _ ty = ty   -- allow the flags list to continue, for convenience
+zipForAllTys (tv:tvs) (imp:imps) ty = ForAllTy tv imp (zipForAllTys tvs imps ty)
+zipForAllTys tvs imps ty
+  = pprPanic "zipForAllTys" (vcat [ppr tvs, ppr imps, ppr ty])
+
+-- | Like mkForAllTys, but assumes all variables are implicit, a common case
+mkImpForAllTys :: [TyCoVar] -> Type -> Type
+mkImpForAllTys tvs = zipForAllTys tvs (repeat Implicit)
+
+-- | Like mkForAllTys, but assumes all variables are explicit
+mkExpForAllTys :: [TyCoVar] -> Type -> Type
+mkExpForAllTys tvs = zipForAllTys tvs (repeat Explicit)
 
 mkPiType  :: Var -> Type -> Type
 -- ^ Makes a @(->)@ type or a forall type, depending
@@ -825,6 +843,26 @@ mkPiType v ty
 
 mkPiTypes vs ty = foldr mkPiType ty vs
 
+-- | Given a list of type-level vars, makes either FunTys or ForAllTys,
+-- depending on whether a variable is free in the enclosed type. This used to
+-- be @mkPiKinds@.
+mkPiTypesPreferFunTy :: [TyCoVar] -> Type -> Type
+mkPiTypesPreferFunTy vars inner_ty = fst $ go vars inner_ty
+  where
+    go :: [TyCoVar] -> Type -> (Type, VarSet) -- also returns the free vars
+    go [] ty = (ty, tyCoVarsOfType ty)
+    go (v:vs) ty
+      | isTyVar v
+      = if v `elemVarSet` fvs
+        then (mkForAllTy v qty, fvs `delVarSet` v `unionVarSet` kind_vars)
+        else (mkFunTy (tyVarKind v) qty, fvs `unionVarSet` kind_vars))
+      | otherwise
+      = ASSERT( isCoVar v )
+        (mkForAllTy v qty, fvs `delVarSet` v `unionVarSet` kind_vars)
+      where
+        (qty, fvs) = go vs ty
+        kind_vars  = tyCoVarsOfType $ tyVarKind v
+
 -- | Given a list of kinds, makes either FunTys or ForAllTys (quantified
 -- over a wild card) as appropriate. (A ForAllTy is used only when the type
 -- is a coercion type.)
@@ -833,7 +871,7 @@ mkPiTypesNoTv [] ty = ty
 mkPiTypesNoTv (k:ks) ty
   = let result = mkPiTypesNoTv ks ty in
     if isCoercionType k
-    then mkForAllTy (mkCoVar wildCardName k) result
+    then mkForAllTy (mkCoVar wildCardName k) Implicit result
     else mkFunTy k result
 
 -- | Take a pi type (that is, either a ForAllTy or a FunTy) apart, returning
@@ -844,38 +882,41 @@ splitPiTypes :: Type -> ([Type], Type)
 splitPiTypes ty | Just ty' <- coreView ty = splitPiTypes ty'
 splitPiTypes (FunTy arg res)              = let (args, res') = splitPiTypes res in
                                             (arg:args, res')
-splitPiTypes (ForAllTy tv ty)             = let (args, res') = splitPiTypes ty in
+splitPiTypes (ForAllTy tv _ ty)           = let (args, res') = splitPiTypes ty in
                                             (tyVarKind tv : args, res')
 splitPiTypes ty                           = ([], ty)
 
 isForAllTy :: Type -> Bool
-isForAllTy (ForAllTy _ _) = True
+isForAllTy (ForAllTy {})  = True
 isForAllTy _              = False
 
 -- | Take a forall type apart, or panics if that is not possible.
-splitForAllTy :: Type -> (TyCoVar, Type)
+splitForAllTy :: Type -> (TyCoVar, ImplicitFlag, Type)
 splitForAllTy ty
-  | Just (tv, ty') <- splitForAllTy_maybe ty = (tv, ty')
-  | otherwise                                = pprPanic "splitForAllTy" (ppr ty)
+  | Just answer <- splitForAllTy_maybe ty = answer
+  | otherwise                             = pprPanic "splitForAllTy" (ppr ty)
 
--- | Attempts to take a forall type apart, returning the bound type variable
--- and the remainder of the type
-splitForAllTy_maybe :: Type -> Maybe (TyCoVar, Type)
+-- | Attempts to take a forall type apart, returning the bound type variable,
+-- its visibility, and the remainder of the type
+splitForAllTy_maybe :: Type -> Maybe (TyCoVar, ImplicitFlag, Type)
 splitForAllTy_maybe ty = splitFAT_m ty
   where
     splitFAT_m ty | Just ty' <- coreView ty = splitFAT_m ty'
-    splitFAT_m (ForAllTy tyvar ty)          = Just(tyvar, ty)
+    splitFAT_m (ForAllTy tyvar imp ty)      = Just (tyvar, imp, ty)
     splitFAT_m _                            = Nothing
 
 -- | Attempts to take a forall type apart, returning all the immediate such bound
--- type variables and the remainder of the type. Always suceeds, even if that means
+-- type variables (with their visibilities)
+-- and the remainder of the type. Always suceeds, even if that means
 -- returning an empty list of 'TyVar's
-splitForAllTys :: Type -> ([TyCoVar], Type)
-splitForAllTys ty = split ty ty []
+splitForAllTys :: Type -> ([TyCoVar], [ImplicitFlag], Type)
+splitForAllTys ty = split ty ty [] []
    where
-     split orig_ty ty tvs | Just ty' <- coreView ty = split orig_ty ty' tvs
-     split _       (ForAllTy tv ty)  tvs = split ty ty (tv:tvs)
-     split orig_ty _                 tvs = (reverse tvs, orig_ty)
+     split orig_ty ty tvs imps
+       | Just ty' <- coreView ty = split orig_ty ty' tvs imps
+     split _       (ForAllTy tv imp ty) tvs imps = split ty ty (tv:tvs) (imp:imps)
+     split orig_ty _                    tvs imps
+       = (reverse tvs, reverse imps, orig_ty)
 
 -- | Equivalent to @snd . splitForAllTys@
 dropForAlls :: Type -> Type
@@ -884,15 +925,11 @@ dropForAlls ty = snd (splitForAllTys ty)
 -- | Returns True iff the argument type is a forall type with an implicit
 -- bound variable. Note that coercions in types are always implicit.
 isImplicitForall :: Type -> Bool
-isImplicitForall (ForAllTy tv _) = isImplicitBinder tv
-isImplicitForall _               = False
-
--- | Returns True iff hte argument is either an implicit tyvar or a covar.
-isImplicitBinder :: TyCoVar -> Bool
-isImplicitBinder tv = isImplicitTyVar tv || isCoVar tv
+isImplicitForall (ForAllTy _ Implicit _) = True
+isImplicitForall _                       = False
 
 -- | Given a tycon and its arguments, filters out any implicit arguments
-filterImplicits :: TyCon -> [Type] -> [Type]
+filterImplicits :: TyCon -> [a] -> [a]
 filterImplicits tc = go (tyConKind tc)
   where
     go _ [] = []
@@ -900,7 +937,12 @@ filterImplicits tc = go (tyConKind tc)
       | isImplicitForall k = go res_k as
       | otherwise          = a : go res_k as
       where
-        res_k = piResultTy k a
+        res_k = piResultTy k (pprPanic "filterImplicits" (ppr k))
+
+tyConTvVisibilities :: TyCon -> [ImplicitFlag]
+tyConTvVisibilities tc = imps ++ replicate (tyConArity tc - length imps) Explicit
+  where
+    (_, imps, _) = splitForAllTys $ tyConKind tc
 
 \end{code}
 
@@ -919,8 +961,8 @@ applyTy, applyTys
 -- Panics if no application is possible.
 applyTy :: Type -> KindOrType -> Type
 applyTy ty arg | Just ty' <- coreView ty = applyTy ty' arg
-applyTy (ForAllTy tv ty) arg = substTyWith [tv] [arg] ty
-applyTy _                _   = panic "applyTy"
+applyTy (ForAllTy tv _ ty) arg = substTyWith [tv] [arg] ty
+applyTy _                  _   = panic "applyTy"
 
 applyTys :: Type -> [KindOrType] -> Type
 -- ^ This function is interesting because:
@@ -951,13 +993,13 @@ applyTysD doc orig_fun_ty arg_tys
   = substTyWith tvs arg_tys rho_ty
   | n_tvs > n_args      -- Too many for-alls
   = substTyWith (take n_args tvs) arg_tys
-                (mkForAllTys (drop n_args tvs) rho_ty)
+                (zipForAllTys (drop n_args tvs) (drop n_args imps) rho_ty)
   | otherwise           -- Too many type args
   = ASSERT2( n_tvs > 0, doc $$ ppr orig_fun_ty )        -- Zero case gives infnite loop!
     applyTysD doc (substTyWith tvs (take n_tvs arg_tys) rho_ty)
                   (drop n_tvs arg_tys)
   where
-    (tvs, rho_ty) = splitForAllTys orig_fun_ty
+    (tvs, imps, rho_ty) = splitForAllTys orig_fun_ty
     n_tvs = length tvs
     n_args = length arg_tys
 \end{code}
@@ -995,9 +1037,9 @@ isPredTy ty = go ty []
 
     go_k :: Kind -> [KindOrType] -> Bool
     -- True <=> kind is k1 -> .. -> kn -> Constraint
-    go_k k                [] = isConstraintKind k
-    go_k (FunTy _ k1)     (_ :args) = go_k k1 args
-    go_k (ForAllTy kv k1) (k2:args) = go_k (substKiWith [kv] [k2] k1) args
+    go_k k                  [] = isConstraintKind k
+    go_k (FunTy _ k1)       (_ :args) = go_k k1 args
+    go_k (ForAllTy kv _ k1) (k2:args) = go_k (substKiWith [kv] [k2] k1) args
     go_k _ _ = False                  -- Typeable * Int :: Constraint
 
 isClassPred, isEqPred, isIPPred :: PredType -> Bool
@@ -1192,14 +1234,14 @@ getEqPredRole ty
 
 \begin{code}
 typeSize :: Type -> Int
-typeSize (LitTy {})      = 1
-typeSize (TyVarTy {})    = 1
-typeSize (AppTy t1 t2)   = typeSize t1 + typeSize t2
-typeSize (FunTy t1 t2)   = typeSize t1 + typeSize t2
-typeSize (ForAllTy _ t)  = 1 + typeSize t
-typeSize (TyConApp _ ts) = 1 + sum (map typeSize ts)
-typeSize (CastTy ty co)  = typeSize ty + coercionSize co
-typeSize (CoercionTy co) = coercionSize co
+typeSize (LitTy {})       = 1
+typeSize (TyVarTy {})     = 1
+typeSize (AppTy t1 t2)    = typeSize t1 + typeSize t2
+typeSize (FunTy t1 t2)    = typeSize t1 + typeSize t2
+typeSize (ForAllTy _ _ t) = 1 + typeSize t
+typeSize (TyConApp _ ts)  = 1 + sum (map typeSize ts)
+typeSize (CastTy ty co)   = typeSize ty + coercionSize co
+typeSize (CoercionTy co)  = coercionSize co
 
 -- no promises that this is the most efficient, but it will do the job
 -- TODO (RAE): make better.
@@ -1207,9 +1249,7 @@ typeSize (CoercionTy co) = coercionSize co
 type DepEnv = VarEnv VarSet
 varSetElemsWellScoped :: VarSet -> [Var]
 varSetElemsWellScoped set
-  = let result = build_list [] (varSetElems set) in
-    ASSERT( null $ filter isImplicitTyVar $ dropWhile isImplicitTyVar result )
-    result
+  = build_list [] (varSetElems set)
   where
     deps = foldVarSet add_dep emptyVarEnv set
 
@@ -1230,15 +1270,9 @@ varSetElemsWellScoped set
     build_list scoped unsorted
       = let (new_scoped, unsorted') = partition (well_scoped scoped) unsorted in
         ASSERT( not $ null new_scoped )
-        build_list (scoped ++ sortBy implicits_first new_scoped) unsorted'
+        build_list (scoped ++ sort new_scoped) unsorted'
 
     well_scoped scoped var = get_deps var `subVarSet` (mkVarSet scoped)
-
-    implicits_first v1 v2
-      = case (isImplicitTyVar v1, isImplicitTyVar v2) of
-          (True, False) -> LT
-          (False, True) -> GT
-          _             -> compare v1 v2
 
 \end{code}
 
@@ -1305,7 +1339,7 @@ isUnLiftedType :: Type -> Bool
         -- construct them
 
 isUnLiftedType ty | Just ty' <- coreView ty = isUnLiftedType ty'
-isUnLiftedType (ForAllTy tv ty)
+isUnLiftedType (ForAllTy tv _ ty)
   | isTyVar tv                      = isUnLiftedType ty
   | otherwise {- co var -}          = False
 isUnLiftedType (TyConApp tc _)      = isUnLiftedTyCon tc
@@ -1367,14 +1401,14 @@ isPrimitiveType ty = case splitTyConApp_maybe ty of
 
 \begin{code}
 seqType :: Type -> ()
-seqType (LitTy n)         = n `seq` ()
-seqType (TyVarTy tv)      = tv `seq` ()
-seqType (AppTy t1 t2)     = seqType t1 `seq` seqType t2
-seqType (FunTy t1 t2)     = seqType t1 `seq` seqType t2
-seqType (TyConApp tc tys) = tc `seq` seqTypes tys
-seqType (ForAllTy tv ty)  = seqType (tyVarKind tv) `seq` seqType ty
-seqType (CastTy ty co)    = seqType ty `seq` seqCo co
-seqType (CoercionTy co)   = seqCo co
+seqType (LitTy n)            = n `seq` ()
+seqType (TyVarTy tv)         = tv `seq` ()
+seqType (AppTy t1 t2)        = seqType t1 `seq` seqType t2
+seqType (FunTy t1 t2)        = seqType t1 `seq` seqType t2
+seqType (TyConApp tc tys)    = tc `seq` seqTypes tys
+seqType (ForAllTy tv imp ty) = imp `seq` seqType (tyVarKind tv) `seq` seqType ty
+seqType (CastTy ty co)       = seqType ty `seq` seqCo co
+seqType (CoercionTy co)      = seqCo co
 
 seqTypes :: [Type] -> ()
 seqTypes []       = ()
@@ -1453,7 +1487,7 @@ cmpTypeX env t1 t2 | Just t1' <- coreView t1 = cmpTypeX env t1' t2
 -- So the RHS has a data type
 
 cmpTypeX env (TyVarTy tv1)       (TyVarTy tv2)       = rnOccL env tv1 `compare` rnOccR env tv2
-cmpTypeX env (ForAllTy tv1 t1)   (ForAllTy tv2 t2)   = cmpTypeX env (tyVarKind tv1) (tyVarKind tv2)
+cmpTypeX env (ForAllTy tv1 _ t1) (ForAllTy tv2 _ t2) = cmpTypeX env (tyVarKind tv1) (tyVarKind tv2)
                                                        `thenCmp` cmpTypeX (rnBndr2 env tv1 tv2) t1 t2
 cmpTypeX env (AppTy s1 t1)       (AppTy s2 t2)       = cmpTypeX env s1 s2 `thenCmp` cmpTypeX env t1 t2
 cmpTypeX env (FunTy s1 t1)       (FunTy s2 t2)       = cmpTypeX env s1 s2 `thenCmp` cmpTypeX env t1 t2
@@ -1563,7 +1597,7 @@ typeKind :: Type -> Kind
 typeKind (TyConApp tc tys)    = piResultTys (tyConKind tc) tys
 typeKind (AppTy fun arg)      = piResultTy (typeKind fun) arg
 typeKind (LitTy l)            = typeLiteralKind l
-typeKind (ForAllTy _ ty)      = typeKind ty
+typeKind (ForAllTy _ _ ty)    = typeKind ty
 typeKind (TyVarTy tyvar)      = tyVarKind tyvar
 typeKind _ty@(FunTy _arg res)
     -- Hack alert.  The kind of (Int -> Int#) is liftedTypeKind (*),
@@ -1630,7 +1664,7 @@ tyConsOfType ty
      go (TyConApp tc tys)          = go_tc tc `plusNameEnv` go_s tys
      go (AppTy a b)                = go a `plusNameEnv` go b
      go (FunTy a b)                = go a `plusNameEnv` go b `plusNameEnv` go_tc funTyCon
-     go (ForAllTy tv ty)           = go ty `plusNameEnv` go (tyVarKind tv)
+     go (ForAllTy tv _ ty)         = go ty `plusNameEnv` go (tyVarKind tv)
      go (CastTy ty co)             = go ty `plusNameEnv` go_co co
      go (CoercionTy co)            = go_co co
 
@@ -1671,6 +1705,6 @@ tyConsOfType ty
 -- Actually this function works fine on data types too, 
 -- but they'd always return '*', so we never need to ask
 synTyConResKind :: TyCon -> Kind
-synTyConResKind tycon = piResultTys (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
+synTyConResKind tycon = piResultTys (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon)
 
 \end{code}

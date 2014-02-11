@@ -41,6 +41,7 @@ import VarEnv
 import NameEnv
 import Outputable
 import Control.Monad( (>=>) )
+import qualified Data.Foldable as Foldable
 \end{code}
 
 This module implements TrieMaps, which are finite mappings
@@ -682,31 +683,57 @@ fdCA k m = foldTM k                   (kam_tyco m)
 
 \begin{code}
 
-newtype RoleMap a = RM { unRM :: (IntMap.IntMap a) }
+newtype RoleMap a = RM { unRM :: (Maybe a, Maybe a, Maybe a) }
 
 instance TrieMap RoleMap where
   type Key RoleMap = Role
-  emptyTM = RM emptyTM
+  emptyTM = (Nothing, Nothing, Nothing)
   lookupTM = lkR
   alterTM = xtR
   foldTM = fdR
   mapTM = mapR
 
 lkR :: Role -> RoleMap a -> Maybe a
-lkR Nominal          = lookupTM 1 . unRM
-lkR Representational = lookupTM 2 . unRM
-lkR Phantom          = lookupTM 3 . unRM
+lkR Nominal          = fstOf3 . unRM
+lkR Representational = sndOf3 . unRM
+lkR Phantom          = thirdOf3 . unRM
 
 xtR :: Role -> XT a -> RoleMap a -> RoleMap a
-xtR Nominal          f = RM . alterTM 1 f . unRM
-xtR Representational f = RM . alterTM 2 f . unRM
-xtR Phantom          f = RM . alterTM 3 f . unRM
+xtR Nominal          f = RM . fst3 f   . unRM
+xtR Representational f = RM . snd3 f   . unRM
+xtR Phantom          f = RM . third3 f . unRM
 
 fdR :: (a -> b -> b) -> RoleMap a -> b -> b
-fdR f (RM m) = foldTM f m
+fdR f (RM (a, b, c)) z = maybe_f a $ maybe_f b $ maybe_f c z
+  where maybe_f :: Maybe a -> b -> b
+        maybe_f Nothing z  = z
+        maybe_f (Just x) z = f x z
 
 mapR :: (a -> b) -> RoleMap a -> RoleMap b
-mapR f = RM . mapTM f . unRM
+mapR f (RM (a, b, c)) = RM $ (fmap f a, fmap f b, fmap f c)
+
+
+newtype IFMap a = IFM { unIFM :: Pair (Maybe a) }
+  deriving (Functor, Foldable.Foldable)
+
+instance TrieMap IFMap where
+  type Key IFMap = ImplicitFlag
+  emptyTM = pure Nothing
+  lookupTM = lkIF
+  alterTM = xtIF
+  foldTM = fdIF
+  mapTM = fmap
+
+lkIF :: ImplicitFlag -> IFMap a -> Maybe a
+lkIF Implicit = pFst . unIFM
+lkIF Explicit = pSnd . unIFM
+
+xtIF :: ImplicitFlag -> XT a -> IFMap a -> IFMap a
+xtIF Implicit f = IFM . pLiftFst f . unIFM
+xtIF Explicit f = IFM . pLiftSnd f . unIFM
+
+fdIF :: (a -> b -> b) -> IFMap a -> b -> b
+fdIF f ifm z = Foldable.foldr (Foldable.foldr f) z ifm
 
 \end{code}
 
@@ -724,7 +751,7 @@ data TypeMap a
        , tm_app    :: TypeMap (TypeMap a)
        , tm_fun    :: TypeMap (TypeMap a)
        , tm_tc_app :: NameEnv (ListMap TypeMap a)
-       , tm_forall :: TypeMap (BndrMap a)
+       , tm_forall :: TypeMap (IFMap (BndrMap a))
        , tm_tylit  :: TyLitMap a
        , tm_cast   :: TypeMap (CoercionMap a)
        , tm_coerce :: CoercionMap a
@@ -782,7 +809,7 @@ mapT f (TM { tm_var  = tvar, tm_app = tapp, tm_fun = tfun
        , tm_app    = mapTM (mapTM f) tapp
        , tm_fun    = mapTM (mapTM f) tfun
        , tm_tc_app = mapNameEnv (mapTM f) ttcapp
-       , tm_forall = mapTM (mapTM f) tforall
+       , tm_forall = mapTM (mapTM (mapTM f)) tforall
        , tm_tylit  = mapTM f tlit 
        , tm_cast   = mapTM (mapTM f) tcast
        , tm_coerce = mapTM f tco
@@ -795,14 +822,14 @@ lkT env ty m
   | otherwise    = go ty m
   where
     go ty | Just ty' <- coreView ty = go ty'
-    go (TyVarTy v)       = tm_var    >.> lkVar env v
-    go (AppTy t1 t2)     = tm_app    >.> lkT env t1 >=> lkT env t2
-    go (FunTy t1 t2)     = tm_fun    >.> lkT env t1 >=> lkT env t2
-    go (TyConApp tc tys) = tm_tc_app >.> lkNamed tc >=> lkList (lkT env) tys
-    go (LitTy l)         = tm_tylit  >.> lkTyLit l
-    go (ForAllTy tv ty)  = tm_forall >.> lkT (extendCME env tv) ty >=> lkBndr env tv
-    go (CastTy ty co)    = tm_cast   >.> lkT env ty >=> lkC env co
-    go (CoercionTy co)   = tm_coerce >.> lkC env co
+    go (TyVarTy v)          = tm_var    >.> lkVar env v
+    go (AppTy t1 t2)        = tm_app    >.> lkT env t1 >=> lkT env t2
+    go (FunTy t1 t2)        = tm_fun    >.> lkT env t1 >=> lkT env t2
+    go (TyConApp tc tys)    = tm_tc_app >.> lkNamed tc >=> lkList (lkT env) tys
+    go (LitTy l)            = tm_tylit  >.> lkTyLit l
+    go (ForAllTy tv imp ty) = tm_forall >.> lkT (extendCME env tv) ty >=> lkIF imp >=> lkBndr env tv
+    go (CastTy ty co)       = tm_cast   >.> lkT env ty >=> lkC env co
+    go (CoercionTy co)      = tm_coerce >.> lkC env co
 
 {-
 lkT_mod :: CmEnv  
@@ -846,16 +873,18 @@ xtT env ty f m
   | EmptyTM <- m            = xtT env ty  f wrapEmptyTypeMap 
   | Just ty' <- coreView ty = xtT env ty' f m                
 
-xtT env (TyVarTy v)       f  m = m { tm_var    = tm_var m |> xtVar env v f }
-xtT env (AppTy t1 t2)     f  m = m { tm_app    = tm_app m |> xtT env t1 |>> xtT env t2 f }
-xtT env (FunTy t1 t2)     f  m = m { tm_fun    = tm_fun m |> xtT env t1 |>> xtT env t2 f }
-xtT env (ForAllTy tv ty)  f  m = m { tm_forall = tm_forall m |> xtT (extendCME env tv) ty 
+xtT env (TyVarTy v)       f  m     = m { tm_var    = tm_var m |> xtVar env v f }
+xtT env (AppTy t1 t2)     f  m     = m { tm_app    = tm_app m |> xtT env t1 |>> xtT env t2 f }
+xtT env (FunTy t1 t2)     f  m     = m { tm_fun    = tm_fun m |> xtT env t1 |>> xtT env t2 f }
+xtT env (ForAllTy tv imp ty)  f  m = m { tm_forall = tm_forall m
+                                                 |> xtT (extendCME env tv) ty
+                                                 |>> xtIF imp f
                                                  |>> xtBndr env tv f }
-xtT env (TyConApp tc tys) f  m = m { tm_tc_app = tm_tc_app m |> xtNamed tc 
+xtT env (TyConApp tc tys) f  m     = m { tm_tc_app = tm_tc_app m |> xtNamed tc 
                                                  |>> xtList (xtT env) tys f }
-xtT _   (LitTy l)         f  m = m { tm_tylit  = tm_tylit m |> xtTyLit l f }
-xtT env (CastTy ty co)    f  m = m { tm_cast   = tm_cast m |> xtT env ty |>> xtC env co f }
-xtT env (CoercionTy co)   f  m = m { tm_coerce = tm_coerce m |> xtC env co f }
+xtT _   (LitTy l)         f  m     = m { tm_tylit  = tm_tylit m |> xtTyLit l f }
+xtT env (CastTy ty co)    f  m     = m { tm_cast   = tm_cast m |> xtT env ty |>> xtC env co f }
+xtT env (CoercionTy co)   f  m     = m { tm_coerce = tm_coerce m |> xtC env co f }
 
 fdT :: (a -> b -> b) -> TypeMap a -> b -> b
 fdT _ EmptyTM = \z -> z
@@ -863,7 +892,7 @@ fdT k m = foldTM k (tm_var m)
         . foldTM (foldTM k) (tm_app m)
         . foldTM (foldTM k) (tm_fun m)
         . foldTM (foldTM k) (tm_tc_app m)
-        . foldTM (foldTM k) (tm_forall m)
+        . foldTM (foldTM (foldTM k)) (tm_forall m)
         . foldTyLit k (tm_tylit m)
         . foldTM (foldTM k) (tm_cast m)
         . foldTM k (tm_coerce m)

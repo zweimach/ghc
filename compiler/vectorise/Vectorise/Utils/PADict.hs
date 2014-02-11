@@ -37,12 +37,12 @@ paDictArgType tv = go (mkTyCoVarTy tv) (tyVarKind tv)
       = do
           tv   <- if isCoercionType k1
                   then newCoVar (fsLit "c") k1
-                  else newTyVar (fsLit "a") k1 Explicit -- TODO (RAE): Check?
+                  else newTyVar (fsLit "a") k1
           mty1 <- go (mkTyCoVarTy tv) k1
           case mty1 of
             Just ty1 -> do
                           mty2 <- go (mkAppTy ty (mkTyCoVarTy tv)) k2
-                          return $ fmap (mkForAllTy tv . FunTy ty1) mty2
+                          return $ fmap (mkForAllTy tv Implicit . FunTy ty1) mty2
             Nothing  -> go ty k2
 
     go ty k

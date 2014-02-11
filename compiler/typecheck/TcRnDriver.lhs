@@ -1800,7 +1800,7 @@ tcRnExpr hsc_env rdr_expr
                                                     lie ;
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
 
-    let { all_expr_ty = mkForAllTys qtvs (mkPiTypes dicts res_ty) } ;
+    let { all_expr_ty = mkImpForAllTys qtvs (mkPiTypes dicts res_ty) } ;
     zonkTcType all_expr_ty
     }
 

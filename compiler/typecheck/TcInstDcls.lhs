@@ -701,9 +701,10 @@ tcDataFamInstDecl mb_clsinfo
                                                (mkTyConApp rep_tc (mkTyCoVarTys eta_tvs))
                     parent   = FamInstTyCon axiom fam_tc pats'
                     roles    = map (const Nominal) tvs'
-                    rep_tc   = buildAlgTyCon rep_tc_name tvs' roles cType stupid_theta tc_rhs 
-                                             Recursive 
-                                             h98_syntax parent
+                    kind     = mkPiTypesPreferFunTy tvs' liftedTypeKind
+                    rep_tc   = mkAlgTyCon rep_tc_name kind
+                                          tvs' roles cType stupid_theta tc_rhs 
+                                          parent Recursive h98_syntax 
                  -- We always assume that indexed types are recursive.  Why?
                  -- (1) Due to their open nature, we can never be sure that a
                  -- further instance might not introduce a new recursive
@@ -951,7 +952,7 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
   where
     sel_name      = idName sel_id
     local_meth_ty = instantiateMethod clas sel_id inst_tys
-    meth_ty       = mkForAllTys tyvars $ mkPiTypes dfun_ev_vars local_meth_ty
+    meth_ty       = mkImpForAllTys tyvars $ mkPiTypes dfun_ev_vars local_meth_ty
 
     -- Check that any type signatures have exactly the right type
     check_inst_sig hs_ty@(L loc _) 

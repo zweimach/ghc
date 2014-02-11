@@ -1388,7 +1388,7 @@ abstractFloats main_tvs body_env body
     mk_poly tvs_here var
       = do { uniq <- getUniqueM
            ; let  poly_name = setNameUnique (idName var) uniq           -- Keep same name
-                  poly_ty   = mkForAllTys tvs_here (idType var) -- But new type of course
+                  poly_ty   = mkImpForAllTys tvs_here (idType var) -- But new type of course
                   poly_id   = transferPolyIdInfo var tvs_here $ -- Note [transferPolyIdInfo] in Id.lhs
                               mkLocalId poly_name poly_ty
            ; return (poly_id, mkTyApps (Var poly_id) (mkTyCoVarTys tvs_here)) }

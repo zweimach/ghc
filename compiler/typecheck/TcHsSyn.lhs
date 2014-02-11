@@ -1359,10 +1359,10 @@ zonkTcTypeToType env ty
         -- The two interesting cases!
     go (TyVarTy tv) = zonkTyVarOcc env tv
 
-    go (ForAllTy tv ty) = ASSERT( isImmutableTyVar tv ) do
+    go (ForAllTy tv imp ty) = ASSERT( isImmutableTyVar tv ) do
                           do { (env', tv') <- zonkTyCoBndrX env tv
                              ; ty' <- zonkTcTypeToType env' ty
-                             ; return (mkForAllTy tv' ty') }
+                             ; return (mkForAllTy tv' imp ty') }
 
 zonkTcTypeToTypes :: ZonkEnv -> [TcType] -> TcM [Type]
 zonkTcTypeToTypes env tys = mapM (zonkTcTypeToType env) tys

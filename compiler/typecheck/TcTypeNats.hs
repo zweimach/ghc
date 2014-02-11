@@ -24,7 +24,6 @@ import PrelNames  ( gHC_TYPELITS
                   , typeNatLeqTyFamNameKey
                   , typeNatSubTyFamNameKey
                   )
-import Var        ( ImplicitFlag(..) )
 import FastString ( FastString, fsLit )
 import qualified Data.Map as Map
 import Data.Maybe ( isJust )
@@ -90,7 +89,7 @@ typeNatLeqTyCon :: TyCon
 typeNatLeqTyCon =
   mkSynTyCon name
     (mkArrowKinds [ typeNatKind, typeNatKind ] boolTy)
-    (take 2 $ tyVarList typeNatKind Explicit)
+    (take 2 $ tyVarList typeNatKind)
     [Nominal,Nominal]
     (BuiltInSynFamTyCon ops)
     NoParentTyCon
@@ -110,7 +109,7 @@ mkTypeNatFunTyCon2 :: Name -> BuiltInSynFamily -> TyCon
 mkTypeNatFunTyCon2 op tcb =
   mkSynTyCon op
     (mkArrowKinds [ typeNatKind, typeNatKind ] typeNatKind)
-    (take 2 $ tyVarList typeNatKind Explicit)
+    (take 2 $ tyVarList typeNatKind)
     [Nominal,Nominal]
     (BuiltInSynFamTyCon tcb)
     NoParentTyCon

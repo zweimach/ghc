@@ -67,7 +67,7 @@ data IfaceBndr          -- Local (non-top-level) binders
   | IfaceTvBndr {-# UNPACK #-} !IfaceTvBndr
 
 type IfaceIdBndr  = (IfLclName, IfaceType)
-type IfaceTvBndr  = (IfLclName, IfaceKind, ImplicitFlag)
+type IfaceTvBndr  = (IfLclName, IfaceKind)
 
 \end{code}
 
@@ -86,7 +86,7 @@ data IfaceType     -- A kind of universal type, used for types and kinds
   = IfaceTyVar    IfLclName               -- Type/coercion variable only, not tycon
   | IfaceAppTy    IfaceType IfaceType
   | IfaceFunTy    IfaceType IfaceType
-  | IfaceForAllTy IfaceForAllBndr IfaceType
+  | IfaceForAllTy IfaceForAllBndr ImplicitFlag IfaceType
   | IfaceTyConApp IfaceTyCon [IfaceType]  -- Not necessarily saturated
                                           -- Includes newtypes, synonyms, tuples
   | IfaceLitTy      IfaceTyLit
@@ -147,7 +147,7 @@ splitIfaceSigmaTy ty
     (bndrs, rho)   = split_foralls ty
     (theta, tau)   = split_rho rho
 
-    split_foralls (IfaceForAllTy bndr ty)
+    split_foralls (IfaceForAllTy bndr _ ty)
         = case split_foralls ty of { (bndrs, rho) -> (bndr:bndrs, rho) }
     split_foralls rho = ([], rho)
 
@@ -202,17 +202,13 @@ pprIfaceIdBndr :: (IfLclName, IfaceType) -> SDoc
 pprIfaceIdBndr (name, ty) = hsep [ppr name, dcolon, ppr ty]
 
 pprIfaceTvBndr :: IfaceTvBndr -> SDoc
-pprIfaceTvBndr (tv, kind, imp)
+pprIfaceTvBndr (tv, kind)
   | IfaceTyConApp tc [] <- kind
   , ifaceTyConName tc == liftedTypeKindTyConName
-  = ppr tv <+> ppr_imp
+  = ppr tv
 
   | otherwise
-  = parens (ppr tv <> dcolon <> ppr kind <+> ppr_imp)
-  where
-    ppr_imp = case imp of
-                Implicit -> brackets (text "imp")
-                _        -> empty
+  = parens (ppr tv <> dcolon <> ppr kind)
 
 pprIfaceTvBndrs :: [IfaceTvBndr] -> SDoc
 pprIfaceTvBndrs tyvars = sep (map pprIfaceTvBndr tyvars)
@@ -273,7 +269,7 @@ ppr_ty ctxt_prec (IfaceAppTy ty1 ty2)
   = maybeParen ctxt_prec tYCON_PREC $
     ppr_ty fUN_PREC ty1 <+> pprParendIfaceType ty2
 
-ppr_ty ctxt_prec ty@(IfaceForAllTy _ _)
+ppr_ty ctxt_prec ty@(IfaceForAllTy _ _ _)
   = maybeParen ctxt_prec fUN_PREC (pprIfaceForAllPart tvs theta (pprIfaceType tau))
  where
     (tvs, theta, tau) = splitIfaceSigmaTy ty
@@ -487,10 +483,11 @@ ppr_preds [pred] = ppr pred    -- No parens
 ppr_preds preds  = parens (sep (punctuate comma (map ppr preds)))
 
 instance Binary IfaceType where
-    put_ bh (IfaceForAllTy aa ab) = do
+    put_ bh (IfaceForAllTy aa ab ac) = do
             putByte bh 0
             put_ bh aa
             put_ bh ab
+            put_ bh ac
     put_ bh (IfaceTyVar ad) = do
             putByte bh 1
             put_ bh ad
@@ -517,7 +514,8 @@ instance Binary IfaceType where
             case h of
               0 -> do aa <- get bh
                       ab <- get bh
-                      return (IfaceForAllTy aa ab)
+                      ac <- get bh
+                      return (IfaceForAllTy aa ab ac)
               1 -> do ad <- get bh
                       return (IfaceTyVar ad)
               2 -> do ae <- get bh
@@ -685,10 +683,10 @@ instance Binary IfaceCoercion where
 
 \begin{code}
 ----------------
-toIfaceTvBndr :: TyVar -> (IfLclName, IfaceKind, ImplicitFlag)
+toIfaceTvBndr :: TyVar -> (IfLclName, IfaceKind)
 toIfaceTvBndr tyvar   = ( occNameFS (getOccName tyvar)
                         , toIfaceKind (tyVarKind tyvar)
-                        , tyVarImp tyvar)
+                        )
 
 toIfaceIdBndr :: Id -> (IfLclName, IfaceType)
 toIfaceIdBndr id      = (occNameFS (getOccName id),    toIfaceType (idType id))
@@ -710,14 +708,14 @@ toIfaceKind = toIfaceType
 ---------------------
 toIfaceType :: Type -> IfaceType
 -- Synonyms are retained in the interface type
-toIfaceType (TyVarTy tv)      = IfaceTyVar (toIfaceTyVar tv)
-toIfaceType (AppTy t1 t2)     = IfaceAppTy (toIfaceType t1) (toIfaceType t2)
-toIfaceType (FunTy t1 t2)     = IfaceFunTy (toIfaceType t1) (toIfaceType t2)
-toIfaceType (TyConApp tc tys) = IfaceTyConApp (toIfaceTyCon tc) (toIfaceTypes tys)
-toIfaceType (LitTy n)         = IfaceLitTy (toIfaceTyLit n)
-toIfaceType (ForAllTy tv t)   = IfaceForAllTy (varToIfaceForAllBndr tv) (toIfaceType t)
-toIfaceType (CastTy ty co)    = IfaceCastTy (toIfaceType ty) (toIfaceCoercion co)
-toIfaceType (CoercionTy co)   = IfaceCoercionTy (toIfaceCoercion co)
+toIfaceType (TyVarTy tv)        = IfaceTyVar (toIfaceTyVar tv)
+toIfaceType (AppTy t1 t2)       = IfaceAppTy (toIfaceType t1) (toIfaceType t2)
+toIfaceType (FunTy t1 t2)       = IfaceFunTy (toIfaceType t1) (toIfaceType t2)
+toIfaceType (TyConApp tc tys)   = IfaceTyConApp (toIfaceTyCon tc) (toIfaceTypes tys)
+toIfaceType (LitTy n)           = IfaceLitTy (toIfaceTyLit n)
+toIfaceType (ForAllTy tv imp t) = IfaceForAllTy (varToIfaceForAllBndr tv) imp (toIfaceType t)
+toIfaceType (CastTy ty co)      = IfaceCastTy (toIfaceType ty) (toIfaceCoercion co)
+toIfaceType (CoercionTy co)     = IfaceCoercionTy (toIfaceCoercion co)
 
 toIfaceTyVar :: TyVar -> FastString
 toIfaceTyVar = occNameFS . getOccName

@@ -902,7 +902,7 @@ checkTauTvUpdate dflags tv ty
     defer_me (TyConApp tc tys) = isSynFamilyTyCon tc || any defer_me tys
     defer_me (FunTy arg res)   = defer_me arg || defer_me res
     defer_me (AppTy fun arg)   = defer_me fun || defer_me arg
-    defer_me (ForAllTy _ ty)   = not impredicative || defer_me ty
+    defer_me (ForAllTy _ _ ty) = not impredicative || defer_me ty
     defer_me (CastTy ty co)    = defer_me ty || defer_me_co co
     defer_me (CoercionTy co)   = defer_me_co co
 
@@ -1113,8 +1113,7 @@ matchExpectedFunKind (TyVarTy kvar)
                    ; writeMetaTyVar kvar (mkArrowKind arg_kind res_kind)
                    ; return (Just (arg_kind, const res_kind)) } }
 
-matchExpectedFunKind (ForAllTy kv inner_ki)
-  | not (isImplicitBinder kv)
+matchExpectedFunKind (ForAllTy kv Explicit inner_ki)
   = return (Just (tyVarKind kv, \arg -> substTyWith [kv] [arg] inner_ki))
 
 matchExpectedFunKind _ = return Nothing

@@ -248,7 +248,7 @@ make_ty' :: DynFlags -> Type -> C.Ty
 make_ty' _      (TyVarTy tv)     = C.Tvar (make_var_id (tyVarName tv))
 make_ty' dflags (AppTy t1 t2)     = C.Tapp (make_ty dflags t1) (make_ty dflags t2)
 make_ty' dflags (FunTy t1 t2)     = make_ty dflags (TyConApp funTyCon [t1,t2])
-make_ty' dflags (ForAllTy tv t)  = C.Tforall (make_tbind tv) (make_ty dflags t)
+make_ty' dflags (ForAllTy tv _ t)= C.Tforall (make_tbind tv) (make_ty dflags t)
 make_ty' dflags (TyConApp tc ts) = make_tyConApp dflags tc ts
 make_ty' _      (LitTy {})       = panic "MkExternalCore can't do literal types yet"
 make_ty' _      (CastTy {})      = panic "MkExternalCore can't do casted types yet"

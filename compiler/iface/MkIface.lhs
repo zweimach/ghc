@@ -1529,10 +1529,11 @@ tyConToIfaceDecl env tycon
                 ifTyVars  = toIfaceTvBndrs tyvars,
                 ifRoles   = tyConRoles tycon,
                 ifSynRhs  = to_ifsyn_rhs syn_rhs,
-                ifSynKind = tidyToIfaceType env1 (synTyConResKind tycon) }
+                ifSynKind = tidyToIfaceType env1 (tyConKind tycon) }
 
   | isAlgTyCon tycon
   = IfaceData { ifName    = getOccName tycon,
+                ifKind    = toIfaceType (tyConKind tycon),
                 ifCType   = tyConCType tycon,
                 ifTyVars  = toIfaceTvBndrs tyvars,
                 ifRoles   = tyConRoles tycon,

@@ -1103,7 +1103,8 @@ instantiateOuter orig id
        ; wrap <- instCall orig tys theta'
        ; return (mkHsWrap wrap (HsVar id), TcType.substTy subst tau) }
   where
-    (tvs, theta, tau) = tcSplitSigmaTy (idType id)
+    -- TODO (RAE): This very clearly cares about visibility!
+    (tvs, _imps, theta, tau) = tcSplitSigmaTy (idType id)
 
 doStupidChecks :: TcId
                -> [TcType]
