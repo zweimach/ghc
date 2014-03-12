@@ -295,7 +295,7 @@ instantiateMethod :: Class -> Id -> [TcType] -> TcType
 instantiateMethod clas sel_id inst_tys
   = ASSERT( ok_first_pred ) local_meth_ty
   where
-    (sel_tyvars,sel_rho) = tcSplitForAllTys (idType sel_id)
+    (sel_tyvars,_imps,sel_rho) = tcSplitForAllTys (idType sel_id)
     rho_ty = ASSERT( length sel_tyvars == length inst_tys )
     	     substTyWith sel_tyvars inst_tys sel_rho
 

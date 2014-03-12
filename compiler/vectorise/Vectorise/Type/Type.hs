@@ -40,8 +40,8 @@ vectAndLiftType ty
                  abstractType tyvars (padicts ++ theta) lmono_ty)
        }
   where
-    (tyvars, phiTy)  = splitForAllTys ty
-    (theta, mono_ty) = tcSplitPhiTy phiTy 
+    (tyvars, _, phiTy) = splitForAllTys ty
+    (theta, mono_ty)   = tcSplitPhiTy phiTy 
 
 -- |Vectorise a type.
 --
@@ -64,7 +64,7 @@ vectType (FunTy ty1 ty2)
   = TyConApp <$> builtin closureTyCon <*> mapM vectType [ty1, ty2]
 vectType ty@(ForAllTy {})
  = do {   -- strip off consecutive foralls
-      ; let (tyvars, tyBody) = splitForAllTys ty
+      ; let (tyvars, _, tyBody) = splitForAllTys ty
 
           -- vectorise the body
       ; vtyBody <- vectType tyBody

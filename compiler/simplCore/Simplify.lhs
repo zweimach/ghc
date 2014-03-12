@@ -1219,7 +1219,7 @@ simplCast env body co0 cont0
        add_coerce co (Pair s1s2 _t1t2) (ApplyTo dup (Type arg_ty) arg_se cont)
                 -- (f |> g) ty  --->   (f ty) |> (g @ ty)
                 -- This implements the PushT rule from the paper
-         | Just (tyvar,_) <- splitForAllTy_maybe s1s2
+         | Just (tyvar,_,_) <- splitForAllTy_maybe s1s2
          = ASSERT( isTyVar tyvar )
            ApplyTo Simplified (Type arg_ty') (zapSubstEnv arg_se) (addCoerce new_cast cont)
          where

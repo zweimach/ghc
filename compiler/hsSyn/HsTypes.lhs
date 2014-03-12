@@ -25,10 +25,10 @@ module HsTypes (
 
         ConDeclField(..), pprConDeclFields,
         
-        mkHsQTvs, hsQTvBndrs,
+        mkHsQTvs, hsQTvExplicit,
         mkExplicitHsForAllTy, mkImplicitHsForAllTy, hsExplicitTvs,
         hsTyVarName, mkHsWithBndrs, hsLKiTyVarNames,
-        hsLTyVarName, hsLTyVarNames, hsLTyVarLocName, hsLTyVarLocNames,
+        hsLTyVarName, hsLTyVarLocName, hsLTyVarLocNames,
         splitLHsInstDeclTy_maybe,
         splitHsClassTy_maybe, splitLHsClassTy_maybe,
         splitHsFunType,
@@ -131,36 +131,33 @@ type LHsKind name = Located (HsKind name)
 type LHsTyVarBndr name = Located (HsTyVarBndr name)
 
 data LHsTyVarBndrs name 
-  = HsQTvs { hsq_kvs :: [Name]                  -- Kind variables
-           , hsq_tvs :: [LHsTyVarBndr name]     -- Type variables
+  = HsQTvs { hsq_implicit :: [name]               -- implicit (dependent) variables
+           , hsq_explicit :: [LHsTyVarBndr name]  -- explicit variables
              -- See Note [HsForAllTy tyvar binders]
     }
   deriving( Data, Typeable )
 
 mkHsQTvs :: [LHsTyVarBndr RdrName] -> LHsTyVarBndrs RdrName
 -- Just at RdrName because in the Name variant we should know just
--- what the kind-variable binders are; and we don't
--- We put an empty list (rather than a panic) for the kind vars so 
+-- what the implicit binders are; and we don't
+-- We put an empty list (rather than a panic) for the implicit vars so 
 -- that the pretty printer works ok on them.
-mkHsQTvs tvs = HsQTvs { hsq_kvs = [], hsq_tvs = tvs }
+mkHsQTvs tvs = HsQTvs { hsq_implicit = [], hsq_explicit = tvs }
 
-emptyHsQTvs :: LHsTyVarBndrs name   -- Use only when you know there are no kind binders
-emptyHsQTvs =  HsQTvs { hsq_kvs = [], hsq_tvs = [] }
+emptyHsQTvs :: LHsTyVarBndrs name   -- Use only when you know there are no implicit binders
+emptyHsQTvs =  HsQTvs { hsq_implicit = [], hsq_explicit = [] }
 
-hsQTvBndrs :: LHsTyVarBndrs name -> [LHsTyVarBndr name]
-hsQTvBndrs = hsq_tvs
+hsQTvExplicit :: LHsTyVarBndrs name -> [LHsTyVarBndr name]
+hsQTvExplicit = hsq_explicit
 
 data HsWithBndrs thing
-  = HsWB { hswb_cts :: thing         -- Main payload (type or list of types)
-         , hswb_kvs :: [Name]        -- Kind vars
-         , hswb_tvs :: [Name]        -- Type vars
+  = HsWB { hswb_cts  :: thing        -- Main payload (type or list of types)
+         , hswb_vars :: [Name]       -- Kind and type vars
     }                  
   deriving (Data, Typeable)
 
 mkHsWithBndrs :: thing -> HsWithBndrs thing
-mkHsWithBndrs x = HsWB { hswb_cts = x, hswb_kvs = panic "mkHsTyWithBndrs:kvs"
-                                     , hswb_tvs = panic "mkHsTyWithBndrs:tvs" }
-
+mkHsWithBndrs x = HsWB { hswb_cts = x, hswb_vars = panic "mkHsTyWithBndrs:vars" }
 
 -- | These names are used eary on to store the names of implicit
 -- parameters.  They completely disappear after type-checking.
@@ -279,7 +276,7 @@ After renaming
   * Implicit => the *type* variables free in the type
     Explicit => the variables the user wrote (renamed)
 
-The kind variables bound in the hsq_kvs field come both
+The kind variables bound in the hsq_implcit field come both
   a) from the kind signatures on the kind vars (eg k1)
   b) from the scope of the forall (eg k2)
 Example:   f :: forall (a::k1) b. T a (b::k2)
@@ -395,7 +392,7 @@ mkHsForAllTy exp tvs ctxt     ty = HsForAllTy exp (mkHsQTvs tvs) ctxt ty
 -- mk_forall_ty makes a pure for-all type (no context)
 mk_forall_ty :: HsExplicitFlag -> [LHsTyVarBndr RdrName] -> LHsType RdrName -> HsType RdrName
 mk_forall_ty exp  tvs  (L _ (HsParTy ty))                    = mk_forall_ty exp tvs ty
-mk_forall_ty exp1 tvs1 (L _ (HsForAllTy exp2 qtvs2 ctxt ty)) = mkHsForAllTy (exp1 `plus` exp2) (tvs1 ++ hsq_tvs qtvs2) ctxt ty
+mk_forall_ty exp1 tvs1 (L _ (HsForAllTy exp2 qtvs2 ctxt ty)) = mkHsForAllTy (exp1 `plus` exp2) (tvs1 ++ hsq_explicit qtvs2) ctxt ty
 mk_forall_ty exp  tvs  ty                                    = HsForAllTy exp (mkHsQTvs tvs) (noLoc []) ty
         -- Even if tvs is empty, we still make a HsForAll!
         -- In the Implicit case, this signals the place to do implicit quantification
@@ -420,20 +417,16 @@ hsTyVarName (KindedTyVar n _) = n
 hsLTyVarName :: LHsTyVarBndr name -> name
 hsLTyVarName = hsTyVarName . unLoc
 
-hsLTyVarNames :: LHsTyVarBndrs name -> [name]
--- Type variables only
-hsLTyVarNames qtvs = map hsLTyVarName (hsQTvBndrs qtvs)
-
 hsLKiTyVarNames :: LHsTyVarBndrs Name -> [Name]
 -- Kind and type variables
-hsLKiTyVarNames (HsQTvs { hsq_kvs = kvs, hsq_tvs = tvs })
+hsLKiTyVarNames (HsQTvs { hsq_implicit = kvs, hsq_explicit = tvs })
   = kvs ++ map hsLTyVarName tvs
 
 hsLTyVarLocName :: LHsTyVarBndr name -> Located name
 hsLTyVarLocName = fmap hsTyVarName
 
 hsLTyVarLocNames :: LHsTyVarBndrs name -> [Located name]
-hsLTyVarLocNames qtvs = map hsLTyVarLocName (hsQTvBndrs qtvs)
+hsLTyVarLocNames qtvs = map hsLTyVarLocName (hsQTvExplicit qtvs)
 \end{code}
 
 
@@ -532,7 +525,7 @@ instance Outputable HsTyLit where
     ppr = ppr_tylit
 
 instance (OutputableBndr name) => Outputable (LHsTyVarBndrs name) where
-    ppr (HsQTvs { hsq_kvs = kvs, hsq_tvs = tvs }) 
+    ppr (HsQTvs { hsq_implicit = kvs, hsq_explicit = tvs }) 
       = sep [ ifPprDebug $ braces (interppSP kvs), interppSP tvs ]
 
 instance (OutputableBndr name) => Outputable (HsTyVarBndr name) where
@@ -548,7 +541,7 @@ pprHsForAll exp qtvs cxt
   | otherwise   = pprHsContext (unLoc cxt)
   where
     show_forall =  opt_PprStyle_Debug
-                || (not (null (hsQTvBndrs qtvs)) && is_explicit)
+                || (not (null (hsQTvExplicit qtvs)) && is_explicit)
     is_explicit = case exp of {Explicit -> True; Implicit -> False}
     forall_part = ptext (sLit "forall") <+> ppr qtvs <> dot
 

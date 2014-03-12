@@ -185,11 +185,11 @@ module GHC (
         FamInst,
 
         -- ** Types and Kinds
-        Type, splitForAllTys, funResultTy, 
+        Type, ImplicitFlag(..), splitForAllTys, funResultTy, 
         pprParendType, pprTypeApp, 
         Kind,
         PredType,
-        ThetaType, pprForAll, pprThetaArrowTy,
+        ThetaType, pprForAll, pprForAllImplicit, pprThetaArrowTy,
 
         -- ** Entities
         TyThing(..), 

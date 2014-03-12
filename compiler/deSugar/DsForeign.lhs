@@ -183,7 +183,7 @@ fun_type_arg_stdcall_info dflags StdCallConv ty
   | Just (tc,[arg_ty]) <- splitTyConApp_maybe ty,
     tyConUnique tc == funPtrTyConKey
   = let
-       (_tvs,sans_foralls)        = tcSplitForAllTys arg_ty
+       (_tvs,_imps,sans_foralls   = tcSplitForAllTys arg_ty
        (fe_arg_tys, _orig_res_ty) = tcSplitFunTys sans_foralls
     in Just $ sum (map (widthInBytes . typeWidth . typeCmmType dflags . getPrimTyOf) fe_arg_tys)
 fun_type_arg_stdcall_info _ _other_conv _
@@ -203,7 +203,7 @@ dsFCall :: Id -> Coercion -> ForeignCall -> Maybe Header
 dsFCall fn_id co fcall mDeclHeader = do
     let
         ty                   = pFst $ coercionKind co
-        (tvs, fun_ty)        = tcSplitForAllTys ty
+        (tvs, imps, fun_ty)  = tcSplitForAllTys ty
         (arg_tys, io_res_ty) = tcSplitFunTys fun_ty
                 -- Must use tcSplit* functions because we want to
                 -- see that (IO t) in the corner
@@ -264,7 +264,7 @@ dsFCall fn_id co fcall mDeclHeader = do
                   return (fcall, empty)
     let
         -- Build the worker
-        worker_ty     = mkImpForAllTys tvs (mkFunTys (map idType work_arg_ids) ccall_result_ty)
+        worker_ty     = zipForAllTys tvs imps (mkFunTys (map idType work_arg_ids) ccall_result_ty)
         the_ccall_app = mkFCall dflags ccall_uniq fcall' val_args ccall_result_ty
         work_rhs      = mkLams tvs (mkLams work_arg_ids the_ccall_app)
         work_id       = mkSysLocal (fsLit "$wccall") work_uniq worker_ty
@@ -299,7 +299,7 @@ dsPrimCall :: Id -> Coercion -> ForeignCall
 dsPrimCall fn_id co fcall = do
     let
         ty                   = pFst $ coercionKind co
-        (tvs, fun_ty)        = tcSplitForAllTys ty
+        (tvs, _, fun_ty)     = tcSplitForAllTys ty
         (arg_tys, io_res_ty) = tcSplitFunTys fun_ty
                 -- Must use tcSplit* functions because we want to
                 -- see that (IO t) in the corner
@@ -352,7 +352,7 @@ dsFExport :: Id                 -- Either the exported Id,
 dsFExport fn_id co ext_name cconv isDyn = do
     let
        ty                              = pSnd $ coercionKind co
-       (_tvs,sans_foralls)             = tcSplitForAllTys ty
+       (_tvs,_imps,sans_foralls)       = tcSplitForAllTys ty
        (fe_arg_tys', orig_res_ty)      = tcSplitFunTys sans_foralls
        -- We must use tcSplits here, because we want to see
        -- the (IO t) in the corner of the type!
@@ -474,7 +474,7 @@ dsFExportDynamic id co0 cconv = do
 
  where
   ty                       = pFst (coercionKind co0)
-  (tvs,sans_foralls)       = tcSplitForAllTys ty
+  (tvs,_,sans_foralls)     = tcSplitForAllTys ty
   ([arg_ty], fn_res_ty)    = tcSplitFunTys sans_foralls
   Just (io_tc, res_ty)     = tcSplitIOType_maybe fn_res_ty
         -- Must have an IO type; hence Just

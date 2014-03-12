@@ -521,13 +521,11 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
 
 
        ; rdr_env  <- getLocalRdrEnv
-       ; kv_names <- mapM (newTyVarNameRn mb_cls rdr_env loc) kv_rdr_names
-       ; tv_names <- mapM (newTyVarNameRn mb_cls rdr_env loc) tv_rdr_names
+       ; var_names <- mapM (newTyVarNameRn mb_cls rdr_env loc) (kv_rdr_names ++ tv_rdr_names)
              -- All the free vars of the family patterns
              -- with a sensible binding location
        ; ((pats', payload'), fvs) 
-              <- bindLocalNamesFV kv_names $ 
-                 bindLocalNamesFV tv_names $ 
+              <- bindLocalNamesFV var_names $ 
                  do { (pats', pat_fvs) <- rnLHsTypes doc pats
                     ; (payload', rhs_fvs) <- rnPayload doc payload
 
@@ -543,7 +541,7 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
 
        ; let all_fvs = fvs `addOneFV` unLoc tycon'
        ; return (tycon',
-                 HsWB { hswb_cts = pats', hswb_kvs = kv_names, hswb_tvs = tv_names },
+                 HsWB { hswb_cts = pats', hswb_vars = var_names },
                  payload',
                  all_fvs) }
              -- type instance => use, hence addOneFV
@@ -607,7 +605,7 @@ rnATInstDecls :: (Maybe (Name, [Name]) ->    -- The function that renames
 rnATInstDecls rnFun cls hs_tvs at_insts
   = rnList (rnFun (Just (cls, tv_ns))) at_insts
   where
-    tv_ns = hsLTyVarNames hs_tvs
+    tv_ns = map hsLTyVarName . hsQTvExplicit hs_tvs
     -- Type variable binders (but NOT kind variables)
     -- See Note [Renaming associated types] in RnTypes
 \end{code}

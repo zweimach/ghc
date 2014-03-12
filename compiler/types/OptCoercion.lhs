@@ -370,8 +370,8 @@ opt_univ env role oty1 oty2
        -- role' is to comform to mkAppCo's precondition
     mkAppCo (opt_univ env role l1 l2) (opt_univ_arg env role' r1 r2)
 
-  | Just (tv1, ty1) <- splitForAllTy_maybe oty1
-  , Just (tv2, ty2) <- splitForAllTy_maybe oty2
+  | Just (tv1, _, ty1) <- splitForAllTy_maybe oty1
+  , Just (tv2, _, ty2) <- splitForAllTy_maybe oty2
   , isTyVar tv1 == isTyVar tv2   -- rule out weird UnivCo
   , let k1 = tyVarKind tv1
         k2 = tyVarKind tv2
@@ -823,8 +823,8 @@ etaForAllCo_maybe is co
   = Just (cobndr, r)
 
   | Pair ty1 ty2  <- coercionKind co
-  , Just (tv1, _) <- splitForAllTy_maybe ty1
-  , Just (tv2, _) <- splitForAllTy_maybe ty2
+  , Just (tv1, _, _) <- splitForAllTy_maybe ty1
+  , Just (tv2, _, _) <- splitForAllTy_maybe ty2
   , isTyVar tv1 == isTyVar tv2 -- we want them to be the same sort
   = if varType tv1 `eqType` varType tv2
 

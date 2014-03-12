@@ -106,7 +106,7 @@ kind_var_occ = mkOccName tvName "k"
 
 newMetaKindVar :: TcM TcKind
 newMetaKindVar = do { uniq <- newUnique
-		    ; details <- newMetaDetails PolyTv
+		    ; details <- newMetaDetails TauTv
                     ; let kv = mkTcTyVar (mkKindName uniq) liftedTypeKind details
 		    ; return (mkOnlyTyVarTy kv) }
 
@@ -189,15 +189,15 @@ tcInstType :: ([TyCoVar] -> TcM (TCvSubst, [TcTyCoVar])) -- How to instantiate t
 		-- (type vars (excl coercion vars), preds (incl equalities), rho)
 tcInstType inst_tyvars ty
   = case tcSplitForAllTys ty of
-	([],     rho) -> let	-- There may be overloading despite no type variables;
+	([],     _, rho) -> let	-- There may be overloading despite no type variables;
 				-- 	(?x :: Int) => Int -> Int
-			   (theta, tau) = tcSplitPhiTy rho
-			 in
-			 return ([], theta, tau)
+			        (theta, tau) = tcSplitPhiTy rho
+			    in
+			    return ([], theta, tau)
 
-	(tyvars, rho) -> do { (subst, tyvars') <- inst_tyvars tyvars
-			    ; let (theta, tau) = tcSplitPhiTy (substTy subst rho)
-			    ; return (tyvars', theta, tau) }
+	(tyvars, _, rho) -> do { (subst, tyvars') <- inst_tyvars tyvars
+		   	       ; let (theta, tau) = tcSplitPhiTy (substTy subst rho)
+			       ; return (tyvars', theta, tau) }
 
 tcSkolDFunType :: Type -> TcM ([TcTyVar], TcThetaType, TcType)
 -- Instantiate a type signature with skolem constants, but 

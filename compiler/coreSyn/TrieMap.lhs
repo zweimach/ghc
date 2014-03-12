@@ -696,7 +696,7 @@ instance TrieMap RoleMap where
 lkR :: Role -> RoleMap a -> Maybe a
 lkR Nominal          = fstOf3 . unRM
 lkR Representational = sndOf3 . unRM
-lkR Phantom          = thirdOf3 . unRM
+lkR Phantom          = thdOf3 . unRM
 
 xtR :: Role -> XT a -> RoleMap a -> RoleMap a
 xtR Nominal          f = RM . fst3 f   . unRM

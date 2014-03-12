@@ -482,7 +482,7 @@ renameDeriv is_boot inst_infos bagBinds
                                            , ib_standalone_deriving = sa }
               ; return (inst_info { iBinds = binds' }, fvs) }
         where
-          (tyvars, _) = tcSplitForAllTys (idType (instanceDFunId inst))
+          (tyvars, _, _) = tcSplitForAllTys (idType (instanceDFunId inst))
 \end{code}
 
 Note [Newtype deriving and unused constructors]
@@ -730,12 +730,9 @@ derivePolyKindedTypeable cls cls_tys _tvs tc tc_args
 
        ; mkEqnHelp imp_vars cls cls_tys tc tc_imp_args Nothing }
   where
-    tc_imps     = tyConTvVisibilities tc
-    implicits   = span (== Implicit) tc_imps
-      -- we only want the *prefix* of implicit vars
-
-    tc_imp_args = takeList implicits tc_args
-    imp_vars    = map (getTyVar "derivePolyKindedTypeable") tc_imp_args
+    tc_imps          = tyConTvVisibilities tc
+    (tc_imp_args, _) = splitAtImplicits tc_args tc_imps
+    imp_vars         = map (getTyVar "derivePolyKindedTypeable") tc_imp_args
 
 \end{code}
 

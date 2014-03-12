@@ -796,7 +796,7 @@ cvObtainTerm hsc_env max_depth force old_ty hval = runTR hsc_env $ do
 
 extractSubTerms :: (Type -> HValue -> TcM Term)
                 -> Closure -> [Type] -> TcM [Term]
-extractSubTerms recurse clos = liftM thirdOf3 . go 0 (nonPtrs clos)
+extractSubTerms recurse clos = liftM thdOf3 . go 0 (nonPtrs clos)
   where
     go ptr_i ws [] = return (ptr_i, ws, [])
     go ptr_i ws (ty:tys)
@@ -1108,7 +1108,7 @@ If that is not the case, then we consider two conditions.
 check1 :: QuantifiedType -> Bool
 check1 (tvs, _) = not $ any isHigherKind (map tyVarKind tvs)
  where
-   isHigherKind = not . null . fst . splitPiTypes
+   isHigherKind = not . null . fstOf4 . splitPiTypes
 
 check2 :: QuantifiedType -> QuantifiedType -> Bool
 check2 (_, rtti_ty) (_, old_ty)
@@ -1269,7 +1269,7 @@ quantifyType :: Type -> QuantifiedType
 
 quantifyType ty = (varSetElems (tyCoVarsOfType rho), rho)
   where
-    (_tvs, rho) = tcSplitForAllTys ty
+    (_tvs, _imps, rho) = tcSplitForAllTys ty
 
 unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM condM acc = condM >>= \c -> unless c acc

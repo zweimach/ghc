@@ -943,7 +943,7 @@ mkFCallId dflags uniq fcall ty
            `setArityInfo`         arity
            `setStrictnessInfo`    strict_sig
 
-    (tvs, tau)      = tcSplitForAllTys ty
+    (tvs, _, tau)   = tcSplitForAllTys ty
     (arg_tys, _)    = tcSplitFunTys tau
     arity           = count isId tvs + length arg_tys
     strict_sig      = mkClosedStrictSig (replicate arity evalDmd) topRes

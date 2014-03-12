@@ -812,9 +812,9 @@ can_eq_nc' ev (FunTy {}) ps_ty1 (TyConApp tc2 _) ps_ty2
 
 can_eq_nc' ev s1@(ForAllTy {}) _ s2@(ForAllTy {}) _
  | CtWanted { ctev_loc = loc, ctev_evar = orig_ev } <- ev
- = do { let (tvs1,body1) = tcSplitForAllTys s1
-            (tvs2,body2) = tcSplitForAllTys s2
-      ; if not (equalLength tvs1 tvs2) then
+ = do { let (tvs1,imps1,body1) = tcSplitForAllTys s1
+            (tvs2,imps2,body2) = tcSplitForAllTys s2
+      ; if not (equalLength tvs1 tvs2) || not (imps1 == imps2) then
           canEqFailure ev s1 s2
         else
           do { traceTcS "Creating implication for polytype equality" $ ppr ev

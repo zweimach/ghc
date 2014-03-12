@@ -42,8 +42,9 @@ module TyCoRep (
         -- Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTCvBndr, pprTCvBndrs,
         pprTyThing, pprTyThingCategory, pprSigmaType,
-        pprEqPred, pprTheta, pprForAll, pprThetaArrowTy, pprClassPred,
-        pprKind, pprParendKind, pprTyLit, suppressKinds,
+        pprEqPred, pprTheta, pprForAll, pprForAllImplicit,
+        pprThetaArrowTy, pprClassPred,
+        pprKind, pprParendKind, pprTyLit, suppressImplicits,
         Prec(..), maybeParen, pprTcApp,
         pprPrefixApp, pprArrowChain, ppr_type,
 
@@ -65,7 +66,7 @@ module TyCoRep (
         unionTCvSubst, zipTyCoEnv,
         mkOpenTCvSubst, zipOpenTCvSubst, mkTopTCvSubst, zipTopTCvSubst,
 
-        substTyWith, substKiWith, substTysWith, substKisWith, substTy,
+        substTyWith, substTysWith, substTy,
         substTys, substTheta, substTyCoVar, substTyCoVars,
         lookupTyVar, lookupVar, substTyVarBndr,
         substCo, substCos, substCoVar, substCoVars, lookupCoVar,
@@ -1475,17 +1476,11 @@ substTyWith :: [TyVar] -> [Type] -> Type -> Type
 substTyWith tvs tys = ASSERT( length tvs == length tys )
                       substTy (zipOpenTCvSubst tvs tys)
 
-substKiWith :: [KindVar] -> [Kind] -> Kind -> Kind
-substKiWith = substTyWith
-
 -- | Type substitution making use of an 'TCvSubst' that
 -- is assumed to be open, see 'zipOpenTCvSubst'
 substTysWith :: [TyVar] -> [Type] -> [Type] -> [Type]
 substTysWith tvs tys = ASSERT( length tvs == length tys )
                        substTys (zipOpenTCvSubst tvs tys)
-
-substKisWith :: [KindVar] -> [Kind] -> [Kind] -> [Kind]
-substKisWith = substTysWith
 
 -- | Substitute within a 'Type'
 substTy :: TCvSubst -> Type  -> Type
@@ -1905,21 +1900,15 @@ ppr_sigma_type :: Bool -> Type -> SDoc
 -- Bool <=> Show the foralls
 ppr_sigma_type show_foralls ty
   = sdocWithDynFlags $ \ dflags ->
-    in sep [ ppWhen show_foralls (pprForAll tvs)
+    in sep [ ppWhen show_foralls (pprForAll tvs imps)
            , pprThetaArrowTy ctxt
            , pprType tau ]
   where
-    print_implicits = gopt Opt_PrintExplicitKinds dflags
-    
-    (tvs,  rho) = split1 [] ty
-    (ctxt, tau) = split2 [] rho
+    (tvs, imps, rho) = split1 [] [] ty
+    (ctxt, tau)      = split2 [] rho
 
-    split1 tvs (ForAllTy tv imp ty)
-      | imp == Explicit || print_implicits
-      = split1 (tv:tvs) ty
-      | otherwise
-      = split1 tvs ty
-    split1 tvs ty          = (reverse tvs, ty)
+    split1 tvs imps (ForAllTy tv imp ty) = split1 (tv:tvs) (imp:imps) ty
+    split1 tvs imps ty                   = (reverse tvs, reverse imps, ty)
 
     split2 ps (ty1 `FunTy` ty2) | isPredTy ty1 = split2 (ty1:ps) ty2
     split2 ps ty                               = (reverse ps, ty)
@@ -1929,12 +1918,29 @@ pprSigmaType :: Type -> SDoc
 pprSigmaType ty = sdocWithDynFlags $ \dflags ->
                   ppr_sigma_type (gopt Opt_PrintExplicitForalls dflags) ty
 
-pprForAll :: [TyCoVar] -> SDoc
-pprForAll []  = empty
-pprForAll tvs = ptext (sLit "forall") <+> pprTCvBndrs tvs <> dot
+pprForAllImplicit :: [TyCoVar] -> SDoc
+pprForAllImplicit tvs = pprForAll tvs (repeat Implicit)
+
+pprForAll :: [TyCoVar] -> [ImplicitFlag] -> SDoc
+pprForAll []  _    = empty
+pprForAll tvs imps = add_separator $ text "forall" <+> doc <+> pprForAll tvs' imps'
+  first_imp : _ = imps       -- guaranteed to work, because length imps >= length tvs
+  (tvs', imps', doc) = ppr_tcv_bndrs tvs imps first_imp
+
+  add_separator stuff = case first_imp of
+                          Implicit -> stuff <>  dot
+                          Explicit -> stuff <+> arrow
 
 pprTCvBndrs :: [TyCoVar] -> SDoc
 pprTCvBndrs tvs = sep (map pprTCvBndr tvs)
+
+ppr_tcv_bndrs :: [TyCoVar] -> [ImplicitFlag] -> ImplicitFlag
+              -> ([TyCoVar], [ImplicitFlag], SDoc)
+ppr_tcv_bndrs []       _          _         = ([], [], empty)
+ppr_tcv_bndrs (tv:tvs) (imp:imps) first_imp
+  | imp == first_imp = let (tvs', imps', doc) = ppr_tcv_bndrs tvs imps first_imp in
+                       (tvs', imps', pprTCvBndr tv <+> doc)
+  | otherwise        = (tv:tvs, imp:imps, empty)
 
 pprTCvBndr :: TyCoVar -> SDoc
 pprTCvBndr tv
@@ -2034,19 +2040,20 @@ pprTcApp_help p pp tc tys dflags
   | otherwise
   = pprPrefixApp p (parens (ppr tc)) (map (pp TyConPrec) tys_wo_kinds)
   where
-    tys_wo_kinds = suppressKinds dflags (tyConKind tc) tys
+    tys_wo_kinds = suppressImplicits dflags (tyConKind tc) tys
 
 ------------------
-suppressKinds :: DynFlags -> Kind -> [a] -> [a]
+suppressImplicits :: DynFlags -> Kind -> [a] -> [a]
 -- Given the kind of a TyCon, and the args to which it is applied,
--- suppress the args that are kind args
-suppressKinds dflags kind xs
+-- suppress the args that are implicit
+suppressImplicits dflags kind xs
   | gopt Opt_PrintExplicitKinds dflags = xs
   | otherwise                          = suppress kind xs
   where
-    suppress (ForAllTy _ kind) (_ : xs) = suppress kind xs
-    suppress (FunTy _ res)     (x:xs)   = x : suppress res xs
-    suppress _                 xs       = xs
+    suppress (ForAllTy _ Implicit kind) (_ : xs) = suppress kind xs
+    suppress (ForAllTy _ Explicit kind) (x : xs) = x : suppress kind xs
+    suppress (FunTy _ res)              (x:xs)   = x : suppress res xs
+    suppress _                          xs       = xs
 
 ----------------
 pprTyList :: Prec -> Type -> Type -> SDoc

@@ -37,7 +37,7 @@ module Type (
         mkForAllTy, mkForAllTys, zipForAllTys, mkImpForAllTys, mkExpForAllTys,
         splitForAllTy_maybe, splitForAllTys, splitForAllTy,
         mkPiType, mkPiTypes, mkPiTypesNoTv, mkPiTypesPreferFunTy,
-        piResultTy, piResultTys, splitPiTypes,
+        piResultTy, piResultTys, splitPiTypes, unsplitPiTypes,
         applyTy, applyTys, applyTysD, isForAllTy, dropForAlls,
 
         mkNumLitTy, isNumLitTy,
@@ -48,7 +48,8 @@ module Type (
         coAxNthLHS,
         stripCoercionTy, splitCoercionType_maybe,
 
-        filterImplicits, synTyConResKind,
+        splitForAllTysImplicit, filterImplicits,
+        splitAtImplicits, synTyConResKind,
 
         -- (Newtypes)
         newTyConInstRhs,
@@ -135,11 +136,10 @@ module Type (
         substTy, substTys, substTyWith, substTysWith, substTheta,
         substTyCoVar, substTyCoVars, substTyVarBndr, substTyCoVarBndr,
         cloneTyVarBndr, lookupTyVar, lookupVar,
-        substKiWith, substKisWith,
 
         -- * Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTyThingCategory, pprTyThing,
-        pprTCvBndr, pprTCvBndrs, pprForAll, pprSigmaType,
+        pprTCvBndr, pprTCvBndrs, pprForAll, pprForAllImplicit, pprSigmaType,
         pprEqPred, pprTheta, pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprSourceTyCon,
 
@@ -875,16 +875,29 @@ mkPiTypesNoTv (k:ks) ty
     else mkFunTy k result
 
 -- | Take a pi type (that is, either a ForAllTy or a FunTy) apart, returning
--- the list of argument types and the result type. This always succeeds, even
--- if it returns only an empty list. Note that the second type returned may
+-- the list of bound tyvars, the list of argument types and the result type.
+-- This always succeeds, even
+-- if it returns only an empty list. Note that the third type returned may
 -- have free variables that were bound by a forall.
-splitPiTypes :: Type -> ([Type], Type)
-splitPiTypes ty | Just ty' <- coreView ty = splitPiTypes ty'
-splitPiTypes (FunTy arg res)              = let (args, res') = splitPiTypes res in
-                                            (arg:args, res')
-splitPiTypes (ForAllTy tv _ ty)           = let (args, res') = splitPiTypes ty in
-                                            (tyVarKind tv : args, res')
-splitPiTypes ty                           = ([], ty)
+splitPiTypes :: Type -> ([Maybe TyVar], [ImplicitFlag], [Type], Type)
+splitPiTypes = split [] [] []
+  where
+    split tvs imps tys ty | Just ty' <- coreView ty = split tvs imps tys ty'
+    split tvs imps tys (FunTy arg res)
+      = split (Nothing : tvs) (Explicit : imps) (arg : tys) res
+    split tvs imps tys (ForAllTy tv imp ty)
+      = split (Just tv : tvs) (imp : imps) (tyVarKind tv : tys) ty
+    split tvs imps tys ty
+      = (reverse tvs, reverse imps, reverse tys, ty)
+
+-- | The inverse of 'splitPiTypes', assuming explicit quantification
+unsplitPiTypes :: [Maybe TyVar] -> [ImplicitFlag] -> [Kind] -> Type -> Type
+unsplitPiTypes [] [] [] ty = ty
+unsplitPiTypes (Nothing : m_tvs) (Explicit : imps) (ki : kis) ty
+  = mkFunTy ki (unsplitPiTypes m_tvs imps kis ty)
+unsplitPiTypes (Just tv : m_tvs) (imp : imps) (ki : kis) ty
+  = mkForAllTy tv imp (unsplitPiTypes m_tvs imps kis ty)
+unsplitPiTypes _ _ _ = panic "unsplitPiTypes"
 
 isForAllTy :: Type -> Bool
 isForAllTy (ForAllTy {})  = True
@@ -918,9 +931,9 @@ splitForAllTys ty = split ty ty [] []
      split orig_ty _                    tvs imps
        = (reverse tvs, reverse imps, orig_ty)
 
--- | Equivalent to @snd . splitForAllTys@
+-- | Equivalent to @thdOf3 . splitForAllTys@
 dropForAlls :: Type -> Type
-dropForAlls ty = snd (splitForAllTys ty)
+dropForAlls ty = thdOf3 (splitForAllTys ty)
 
 -- | Returns True iff the argument type is a forall type with an implicit
 -- bound variable. Note that coercions in types are always implicit.
@@ -938,6 +951,24 @@ filterImplicits tc = go (tyConKind tc)
       | otherwise          = a : go res_k as
       where
         res_k = piResultTy k (pprPanic "filterImplicits" (ppr k))
+
+
+-- like splitForAllTys, but returns only *implicit* variables
+splitForAllTysImplicit :: Type -> ([TyCoVar], [ImplicitFlag], Type)
+splitForAllTysImplicit ty = split ty ty []
+   where
+     split orig_ty ty tvs
+       | Just ty' <- coreView ty = split orig_ty ty' tvs
+     split _       (ForAllTy tv Implicit ty) tvs = split ty ty (tv:tvs)
+     split orig_ty _                         tvs = (reverse tvs, orig_ty)
+
+-- assuming that the list of flags has all of its Implicits at the front,
+-- splits the list at the change from implicit to explicit
+splitAtImplicits :: [a] -> [ImplicitFlag] -> ([a],[a])
+splitAtImplicits = go []
+  where go acc []     _             = (reverse acc, [])
+        go acc (x:xs) (Implicit:is) = go (x:acc) xs is
+        go acc xs     (Explicit:_)  = (reverse acc, xs)
 
 tyConTvVisibilities :: TyCon -> [ImplicitFlag]
 tyConTvVisibilities tc = imps ++ replicate (tyConArity tc - length imps) Explicit
@@ -1039,7 +1070,7 @@ isPredTy ty = go ty []
     -- True <=> kind is k1 -> .. -> kn -> Constraint
     go_k k                  [] = isConstraintKind k
     go_k (FunTy _ k1)       (_ :args) = go_k k1 args
-    go_k (ForAllTy kv _ k1) (k2:args) = go_k (substKiWith [kv] [k2] k1) args
+    go_k (ForAllTy kv _ k1) (k2:args) = go_k (substTyWith [kv] [k2] k1) args
     go_k _ _ = False                  -- Typeable * Int :: Constraint
 
 isClassPred, isEqPred, isIPPred :: PredType -> Bool

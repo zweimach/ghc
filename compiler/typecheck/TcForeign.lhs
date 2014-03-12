@@ -237,7 +237,7 @@ tcFImport (L dloc fo@(ForeignImport (L nloc nm) hs_ty _ imp_decl))
        ; let
            -- Drop the foralls before inspecting the
            -- structure of the foreign type.
-             (_, t_ty)         = tcSplitForAllTys norm_sig_ty
+             (_, _, t_ty)      = tcSplitForAllTys norm_sig_ty
              (arg_tys, res_ty) = tcSplitFunTys t_ty
              id                = mkLocalId nm sig_ty
                  -- Use a LocalId to obey the invariant that locally-defined
@@ -406,7 +406,7 @@ tcCheckFEType sig_ty (CExport (CExportStatic str cconv)) = do
   where
       -- Drop the foralls before inspecting n
       -- the structure of the foreign type.
-    (_, t_ty) = tcSplitForAllTys sig_ty
+    (_, _, t_ty) = tcSplitForAllTys sig_ty
     (arg_tys, res_ty) = tcSplitFunTys t_ty
 \end{code}
 

@@ -1469,7 +1469,7 @@ instDFunType :: DFunId -> [DFunInstType] -> TcS ([TcType], TcType)
 instDFunType dfun_id mb_inst_tys
   = wrapTcS $ go dfun_tvs mb_inst_tys (mkTopTCvSubst [])
   where
-    (dfun_tvs, dfun_phi) = tcSplitForAllTys (idType dfun_id)
+    (dfun_tvs, _, dfun_phi) = tcSplitForAllTys (idType dfun_id)
 
     go :: [TyCoVar] -> [DFunInstType] -> TCvSubst -> TcM ([TcType], TcType)
     go [] [] subst = return ([], substTy subst dfun_phi)

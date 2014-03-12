@@ -110,7 +110,7 @@ typeArity ty
   = go initRecTc ty
   where
     go rec_nts ty 
-      | Just (tv, ty')  <- splitForAllTy_maybe ty 
+      | Just (tv, _, ty')  <- splitForAllTy_maybe ty 
       = if isTyVar tv
         then go rec_nts ty'
         else NoOneShotInfo : go rec_nts ty'
@@ -969,7 +969,7 @@ mkEtaWW orig_n orig_expr in_scope orig_ty
        | n == 0
        = (getTCvInScope subst, reverse eis)
 
-       | Just (tv,ty') <- splitForAllTy_maybe ty
+       | Just (tv,_,ty') <- splitForAllTy_maybe ty
            -- Avoid free vars of the original expression
        = let (subst1, tv1) = Type.substTyCoVarBndr subst tv
              ((subst2, tv2), new_n)

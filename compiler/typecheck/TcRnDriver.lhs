@@ -776,9 +776,9 @@ checkBootTyCon tc1 tc2
            eqTypeX env op_ty1 op_ty2 &&
            def_meth1 == def_meth2
          where
-          (_, rho_ty1) = splitForAllTys (idType id1)
+          (_, _, rho_ty1) = splitForAllTys (idType id1)
           op_ty1 = funResultTy rho_ty1
-          (_, rho_ty2) = splitForAllTys (idType id2)
+          (_, _, rho_ty2) = splitForAllTys (idType id2)
           op_ty2 = funResultTy rho_ty2
 
        eqAT (tc1, def_ats1) (tc2, def_ats2)
@@ -1747,8 +1747,8 @@ getGhciStepIO = do
 
         stepTy :: LHsType Name    -- Renamed, so needs all binders in place
         stepTy = noLoc $ HsForAllTy Implicit
-                            (HsQTvs { hsq_tvs = [noLoc (UserTyVar a_tv)]
-                                    , hsq_kvs = [] })
+                            (HsQTvs { hsq_explicit = [noLoc (UserTyVar a_tv)]
+                                    , hsq_implicit = [] })
                             (noLoc [])
                             (nlHsFunTy ghciM ioM)
         step   = noLoc $ ExprWithTySig (nlHsVar ghciStepIoMName) stepTy

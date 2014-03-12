@@ -149,7 +149,7 @@ hsSigTvBinders :: HsValBinds Name -> [Name]
 -- See Note [Scoped type variables in bindings]
 hsSigTvBinders binds
   = [hsLTyVarName tv | L _ (TypeSig _ (L _ (HsForAllTy Explicit qtvs _ _))) <- sigs
-                     , tv <- hsQTvBndrs qtvs]
+                     , tv <- hsQTvExplicit qtvs]
   where
     sigs = case binds of
              ValBindsIn  _ sigs -> sigs
@@ -213,7 +213,7 @@ repTyClD (L loc (DataDecl { tcdLName = tc, tcdTyVars = tvs, tcdDataDefn = defn }
   = do { tc1 <- lookupLOcc tc           -- See note [Binders and occurrences]
        ; tc_tvs <- mk_extra_tvs tc tvs defn
        ; dec <- addTyClTyVarBinds tc_tvs $ \bndrs ->
-                repDataDefn tc1 bndrs Nothing (hsLTyVarNames tc_tvs) defn
+                repDataDefn tc1 bndrs Nothing (map hsLTyVarName $ hsQTvExplicit tc_tvs) defn
        ; return (Just (loc, dec)) }
 
 repTyClD (L loc (ClassDecl { tcdCtxt = cxt, tcdLName = cls,
@@ -309,7 +309,7 @@ mk_extra_tvs :: Located Name -> LHsTyVarBndrs Name
 mk_extra_tvs tc tvs defn
   | HsDataDefn { dd_kindSig = Just hs_kind } <- defn
   = do { extra_tvs <- go hs_kind
-       ; return (tvs { hsq_tvs = hsq_tvs tvs ++ extra_tvs }) }
+       ; return (tvs { hsq_explicit = hsq_tvs tvs ++ extra_tvs }) }
   | otherwise
   = return tvs
   where
@@ -398,8 +398,8 @@ repTyFamEqn (L loc (TyFamInstEqn { tfie_pats = HsWB { hswb_cts = tys
                                                     , hswb_kvs = kv_names
                                                     , hswb_tvs = tv_names }
                                  , tfie_rhs = rhs }))
-  = do { let hs_tvs = HsQTvs { hsq_kvs = kv_names
-                             , hsq_tvs = userHsTyVarBndrs loc tv_names }   -- Yuk
+  = do { let hs_tvs = HsQTvs { hsq_implicit = kv_names
+                             , hsq_explicit = userHsTyVarBndrs loc tv_names }   -- Yuk
        ; addTyClTyVarBinds hs_tvs $ \ _ ->
          do { tys1 <- repLTys tys
             ; tys2 <- coreList typeQTyConName tys1
@@ -412,7 +412,8 @@ repDataFamInstD (DataFamInstDecl { dfid_tycon = tc_name
                                  , dfid_defn = defn })
   = do { tc <- lookupLOcc tc_name               -- See note [Binders and occurrences]
        ; let loc = getLoc tc_name
-             hs_tvs = HsQTvs { hsq_kvs = kv_names, hsq_tvs = userHsTyVarBndrs loc tv_names }   -- Yuk
+             hs_tvs = HsQTvs { hsq_implicit = kv_names
+                             , hsq_explicit = userHsTyVarBndrs loc tv_names }   -- Yuk
        ; addTyClTyVarBinds hs_tvs $ \ bndrs ->
          do { tys1 <- repList typeQTyConName repLTy tys
             ; repDataDefn tc bndrs (Just tys1) tv_names defn } }
@@ -500,7 +501,7 @@ ds_msg = ptext (sLit "Cannot desugar this Template Haskell declaration:")
 repC :: [Name] -> LConDecl Name -> DsM (Core TH.ConQ)
 repC _ (L _ (ConDecl { con_name = con, con_qvars = con_tvs, con_cxt = L _ []
                      , con_details = details, con_res = ResTyH98 }))
-  | null (hsQTvBndrs con_tvs)
+  | null (hsQTvExplicit con_tvs)
   = do { con1 <- lookupLOcc con         -- See Note [Binders and occurrences]
        ; repConstr con1 details  }
 
@@ -509,8 +510,8 @@ repC tvs (L _ (ConDecl { con_name = con
                        , con_details = details
                        , con_res = res_ty }))
   = do { (eq_ctxt, con_tv_subst) <- mkGadtCtxt tvs res_ty
-       ; let ex_tvs = HsQTvs { hsq_kvs = filterOut (in_subst con_tv_subst) (hsq_kvs con_tvs)
-                             , hsq_tvs = filterOut (in_subst con_tv_subst . hsLTyVarName) (hsq_tvs con_tvs) }
+       ; let ex_tvs = HsQTvs { hsq_implicit = filterOut (in_subst con_tv_subst) (hsq_implicits con_tvs)
+                             , hsq_explicit = filterOut (in_subst con_tv_subst . hsLTyVarName) (hsq_explicit con_tvs) }
 
        ; binds <- mapM dupBinder con_tv_subst
        ; dsExtendMetaEnv (mkNameEnv binds) $     -- Binds some of the con_tvs
@@ -634,7 +635,7 @@ rep_ty_sig loc (L _ ty) nm
     rep_ty (HsForAllTy Explicit tvs ctxt ty)
       = do { let rep_in_scope_tv tv = do { name <- lookupBinder (hsLTyVarName tv)
                                          ; repTyVarBndrWithKind tv name }
-           ; bndrs1 <- repList tyVarBndrTyConName rep_in_scope_tv (hsQTvBndrs tvs)
+           ; bndrs1 <- repList tyVarBndrTyConName rep_in_scope_tv (hsQTvExplicit tvs)
            ; ctxt1  <- repLContext ctxt
            ; ty1    <- repLTy ty
            ; repTForall bndrs1 ctxt1 ty1 }
@@ -708,7 +709,7 @@ addTyVarBinds :: LHsTyVarBndrs Name                            -- the binders to
 addTyVarBinds tvs m
   = do { freshNames <- mkGenSyms (hsLKiTyVarNames tvs)
        ; term <- addBinds freshNames $
-                 do { kbs <- repList tyVarBndrTyConName mk_tv_bndr (hsQTvBndrs tvs `zip` freshNames)
+                 do { kbs <- repList tyVarBndrTyConName mk_tv_bndr (hsQTvExplicit tvs `zip` freshNames)
                     ; m kbs }
        ; wrapGenSyms freshNames term }
   where
@@ -731,7 +732,7 @@ addTyClTyVarBinds tvs m
             -- This makes things work for family declarations
 
        ; term <- addBinds freshNames $
-                 do { kbs <- repList tyVarBndrTyConName mk_tv_bndr (hsQTvBndrs tvs)
+                 do { kbs <- repList tyVarBndrTyConName mk_tv_bndr (hsQTvExplicit tvs)
                     ; m kbs }
 
        ; wrapGenSyms freshNames term }

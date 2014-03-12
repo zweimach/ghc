@@ -274,7 +274,7 @@ ppr_forall_co p (ForAllCo cobndr co)
 ppr_forall_co _ _ = panic "ppr_forall_co"
 
 pprCoBndr :: ForAllCoBndr -> SDoc
-pprCoBndr cobndr = pprForAll (coBndrVars cobndr)
+pprCoBndr cobndr = pprForAllImplicit (coBndrVars cobndr)
 \end{code}
 
 \begin{code}
@@ -287,7 +287,7 @@ pprCoAxBranch :: TyCon -> CoAxBranch -> SDoc
 pprCoAxBranch fam_tc (CoAxBranch { cab_tvs = tvs
                                  , cab_lhs = lhs
                                  , cab_rhs = rhs })
-  = hang (ifPprDebug (pprForAll tvs))
+  = hang (ifPprDebug (pprForAllImplicit tvs))
        2 (hang (pprTypeApp fam_tc lhs) 2 (equals <+> (ppr rhs)))
 
 pprCoAxBranchHdr :: CoAxiom br -> BranchIndex -> SDoc
@@ -750,8 +750,8 @@ mkNthCoArg n (Refl r ty) = ASSERT( ok_tc_app ty n )
         r' = nthRole r tc n
         
 mkNthCoArg n co
-  | Just (tv1, _) <- splitForAllTy_maybe ty1
-  , Just (tv2, _) <- splitForAllTy_maybe ty2
+  | Just (tv1, _, _) <- splitForAllTy_maybe ty1
+  , Just (tv2, _, _) <- splitForAllTy_maybe ty2
   , tyVarKind tv1 `eqType` tyVarKind tv2
   , n == 0
   = liftSimply Nominal (tyVarKind tv1)
@@ -1727,8 +1727,8 @@ coercionKind co = go co
         (!! d) <$> Pair args1 args2
      
       | d == 0
-      , Just (tv1, _) <- splitForAllTy_maybe ty1
-      , Just (tv2, _) <- splitForAllTy_maybe ty2
+      , Just (tv1, _, _) <- splitForAllTy_maybe ty1
+      , Just (tv2, _, _) <- splitForAllTy_maybe ty2
       = tyVarKind <$> Pair tv1 tv2
 
       | otherwise

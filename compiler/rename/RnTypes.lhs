@@ -311,7 +311,7 @@ rnForAll :: HsDocContext -> HsExplicitFlag
          -> RnM (HsType Name, FreeVars)
 
 rnForAll doc exp kvs forall_tyvars ctxt ty
-  | null kvs, null (hsQTvBndrs forall_tyvars), null (unLoc ctxt)
+  | null kvs, null (hsQTvExplicit forall_tyvars), null (unLoc ctxt)
   = rnHsType doc (unLoc ty)
         -- One reason for this case is that a type like Int#
         -- starts off as (HsForAllTy Nothing [] Int), in case
@@ -356,49 +356,50 @@ bindHsTyVars :: HsDocContext
 -- (b) Bring type variables into scope
 bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
   = do { rdr_env <- getLocalRdrEnv
-       ; let tvs = hsQTvBndrs tv_bndrs
+       ; let tvs = hsQTvExplicit tv_bndrs
              kvs_from_tv_bndrs = [ kv | L _ (KindedTyVar _ kind) <- tvs
                                  , let (_, kvs) = extractHsTyRdrTyVars kind
                                  , kv <- kvs ]
-             all_kvs = filterOut (`elemLocalRdrEnv` rdr_env) $
+             all_kvs = filterOut (\kv -> kv `elemLocalRdrEnv` rdr_env
+                                      || any ((== kv) . hsLTyVarName) tvs) $
                        nub (kv_bndrs ++ kvs_from_tv_bndrs)
-             overlap_kvs = [ kv | kv <- all_kvs, any ((==) kv . hsLTyVarName) tvs ]
-                -- These variables appear both as kind and type variables
-                -- in the same declaration; eg  type family  T (x :: *) (y :: x)
-                -- We disallow this: too confusing!
 
        ; poly_kind <- xoptM Opt_PolyKinds
        ; unless (poly_kind || null all_kvs)
                 (addErr (badKindBndrs doc all_kvs))
-       ; unless (null overlap_kvs)
-                (addErr (overlappingKindVars doc overlap_kvs))
 
        ; loc <- getSrcSpanM
        ; kv_names <- mapM (newLocalBndrRn . L loc) all_kvs
        ; bindLocalNamesFV kv_names $
     do { let tv_names_w_loc = hsLTyVarLocNames tv_bndrs
 
-             rn_tv_bndr :: LHsTyVarBndr RdrName -> RnM (LHsTyVarBndr Name, FreeVars)
-             rn_tv_bndr (L loc (UserTyVar rdr))
+             rn_tv_bndr :: [LHsTyVarBndr Name]  -- already renamed (in reverse order)
+                        -> [LHsTyVarBndr RdrName] -- still to be renamed
+                        -> RnM (b, FreeVars)
+             rn_tv_bndr renamed (L loc (UserTyVar rdr) : hs_tvs)
                = do { nm <- newTyVarNameRn mb_assoc rdr_env loc rdr
-                    ; return (L loc (UserTyVar nm), emptyFVs) }
-             rn_tv_bndr (L loc (KindedTyVar rdr kind))
+                    ; bindLocalNamesFV [nm] $
+                      rn_tv_bndr (L loc (UserTyVar nm) : renamed) hs_tvs }
+             rn_tv_bndr renamed (L loc (KindedTyVar rdr kind) : hs_tvs)
                = do { sig_ok <- xoptM Opt_KindSignatures
                     ; unless sig_ok (badSigErr False doc kind)
                     ; nm <- newTyVarNameRn mb_assoc rdr_env loc rdr
-                    ; (kind', fvs) <- rnLHsKind doc kind
-                    ; return (L loc (KindedTyVar nm kind'), fvs) }
-
+                    ; (kind', fvs1) <- rnLHsKind doc kind
+                    ; (b, fvs2) <- bindLocalNamesFV [nm] $
+                                   rn_tv_bndr (L loc (KindedTyVar nm kind') : renamed)
+                                              hs_tvs
+                    ; return (b, fvs1 `plusFV` fvs2) }
+             rn_tv_bndr renamed []
+               = do { env <- getLocalRdrEnv
+                    ; traceRn (text "bhtv" <+> (ppr tvs $$ ppr all_kvs $$ ppr env))
+                    ; thing_inside (HsQTvs { hsq_explicit = reverse renamed,
+                                             hsq_implicit = kv_names }) }
+                                  
        -- Check for duplicate or shadowed tyvar bindrs
        ; checkDupRdrNames tv_names_w_loc
        ; when (isNothing mb_assoc) (checkShadowedRdrNames tv_names_w_loc)
 
-       ; (tv_bndrs', fvs1) <- mapFvRn rn_tv_bndr tvs
-       ; (res, fvs2) <- bindLocalNamesFV (map hsLTyVarName tv_bndrs') $
-                        do { env <- getLocalRdrEnv
-                           ; traceRn (text "bhtv" <+> (ppr tvs $$ ppr all_kvs $$ ppr env))
-                           ; thing_inside (HsQTvs { hsq_tvs = tv_bndrs', hsq_kvs = kv_names }) }
-       ; return (res, fvs1 `plusFV` fvs2) } }
+       ; rn_tv_bndr tvs } }
 
 newTyVarNameRn :: Maybe a -> LocalRdrEnv -> SrcSpan -> RdrName -> RnM Name
 newTyVarNameRn mb_assoc rdr_env loc rdr
@@ -418,22 +419,12 @@ rnHsBndrSig doc (HsWB { hswb_cts = ty@(L loc _) }) thing_inside
        ; unless sig_ok (badSigErr True doc ty)
        ; let (kv_bndrs, tv_bndrs) = extractHsTyRdrTyVars ty
        ; name_env <- getLocalRdrEnv
-       ; tv_names <- newLocalBndrsRn [L loc tv | tv <- tv_bndrs
-                                               , not (tv `elemLocalRdrEnv` name_env) ]
-       ; kv_names <- newLocalBndrsRn [L loc kv | kv <- kv_bndrs
-                                               , not (kv `elemLocalRdrEnv` name_env) ]
-       ; bindLocalNamesFV kv_names $
-         bindLocalNamesFV tv_names $
+       ; arv_names <- newLocalBndrsRn [L loc tv | tv <- (kv_bndrs ++ tv_bndrs)
+                                                , not (tv `elemLocalRdrEnv` name_env) ]
+       ; bindLocalNamesFV var_names $
     do { (ty', fvs1) <- rnLHsType doc ty
-       ; (res, fvs2) <- thing_inside (HsWB { hswb_cts = ty', hswb_kvs = kv_names, hswb_tvs = tv_names })
+       ; (res, fvs2) <- thing_inside (HsWB { hswb_cts = ty', hswb_vars = var_names })
        ; return (res, fvs1 `plusFV` fvs2) } }
-
-overlappingKindVars :: HsDocContext -> [RdrName] -> SDoc
-overlappingKindVars doc kvs
-  = vcat [ ptext (sLit "Kind variable") <> plural kvs <+>
-           ptext (sLit "also used as type variable") <> plural kvs
-           <> colon <+> pprQuotedList kvs
-         , docOfHsDocContext doc ]
 
 badKindBndrs :: HsDocContext -> [RdrName] -> SDoc
 badKindBndrs doc kvs
@@ -960,7 +951,7 @@ extract_lty (L _ ty) acc
 
 extract_hs_tv_bndrs :: LHsTyVarBndrs RdrName -> FreeKiTyVars
                     -> FreeKiTyVars -> FreeKiTyVars
-extract_hs_tv_bndrs (HsQTvs { hsq_tvs = tvs })
+extract_hs_tv_bndrs (HsQTvs { hsq_explicit = tvs })
                     (acc_kvs, acc_tvs)   -- Note accumulator comes first
                     (body_kvs, body_tvs)
   | null tvs

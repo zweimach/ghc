@@ -1220,8 +1220,8 @@ instTcTySig hs_ty@(L loc _) sigma_ty name
   where
     poly_id      = mkLocalId name sigma_ty
 
-    scoped_names = hsExplicitTvs hs_ty
-    (sig_tvs,_)  = tcSplitForAllTys sigma_ty
+    scoped_names  = hsExplicitTvs hs_ty
+    (sig_tvs,_,_) = tcSplitForAllTys sigma_ty
 
     scoped_tvs :: [Maybe Name]
     scoped_tvs = mk_scoped scoped_names sig_tvs
@@ -1368,7 +1368,7 @@ checkStrictBinds top_lvl rec_group orig_binds tc_binds poly_ids
     lifted_pat  = any (isLiftedPatBind . unLoc) orig_binds
 
     is_unlifted id = case tcSplitForAllTys (idType id) of
-                       (_, rho) -> isUnLiftedType rho
+                       (_, _, rho) -> isUnLiftedType rho
 
     is_monomorphic (L _ (AbsBinds { abs_tvs = tvs, abs_ev_vars = evs }))
                      = null tvs && null evs

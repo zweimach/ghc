@@ -1060,9 +1060,9 @@ tcSplitDFunTy :: Type -> ([TyCoVar], [Type], Class, [Type])
 -- the latter  specifically stops at PredTy arguments,
 -- and we don't want to do that here
 tcSplitDFunTy ty
-  = case tcSplitForAllTys ty   of { (tvs, rho)   ->
-    case splitFunTys rho       of { (theta, tau) ->
-    case tcSplitDFunHead tau   of { (clas, tys)  ->
+  = case tcSplitForAllTys ty   of { (tvs, _, rho) ->
+    case splitFunTys rho       of { (theta, tau)  ->
+    case tcSplitDFunHead tau   of { (clas, tys)   ->
     (tvs, theta, clas, tys) }}}
 
 tcSplitDFunHead :: Type -> (Class, [Type])
@@ -1782,7 +1782,7 @@ isFFIDotnetObjTy :: Type -> Bool
 isFFIDotnetObjTy ty
   = checkRepTyCon check_tc t_ty
   where
-   (_, t_ty) = tcSplitForAllTys ty
+   (_, _, t_ty) = tcSplitForAllTys ty
    check_tc tc = getName tc == objectTyConName
 
 isFunPtrTy :: Type -> Bool

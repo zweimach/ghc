@@ -217,7 +217,7 @@ prDFunApply dfun tys
          $ map splitTyConApp_maybe
          $ fst
          $ splitFunTys
-         $ snd
+         $ thdOf3
          $ splitForAllTys
          $ varType dfun
 

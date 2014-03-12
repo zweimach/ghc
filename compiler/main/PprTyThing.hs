@@ -31,7 +31,7 @@ import Coercion( pprCoAxiom, pprCoAxBranch )
 import CoAxiom( CoAxiom(..), brListMap )
 import HscTypes( tyThingParent_maybe )
 import Type( tidyTopType, tidyOpenType, splitForAllTys, funResultTy, synTyConResKind )
-import TyCoRep( pprTCvBndrs, pprForAll, suppressKinds )
+import TyCoRep( pprTCvBndrs, pprForAll, suppressImplicits )
 import TysPrim( alphaTyVars )
 import TcType
 import Name
@@ -116,7 +116,7 @@ pprTyConHdr tyCon
   | otherwise
   = sdocWithDynFlags $ \dflags ->
     ptext keyword <+> opt_family <+> opt_stupid <+> ppr_bndr tyCon
-    <+> pprTCvBndrs (suppressKinds dflags (tyConKind tyCon) vars)
+    <+> pprTCvBndrs (suppressImplicits dflags (tyConKind tyCon) vars)
   where
     vars | isPrimTyCon tyCon ||
 	   isFunTyCon tyCon = take (tyConArity tyCon) alphaTyVars
@@ -144,7 +144,7 @@ pprClassHdr cls
     ptext (sLit "class") <+>
     sep [ pprThetaArrowTy (classSCTheta cls)
         , ppr_bndr cls
-          <+> pprTCvBndrs (suppressKinds dflags (tyConKind (classTyCon cls)) tvs)
+          <+> pprTCvBndrs (suppressImplicits dflags (tyConKind (classTyCon cls)) tvs)
         , pprFundeps funDeps ]
   where
      (tvs, funDeps) = classTvsFds cls
@@ -207,7 +207,7 @@ pprTyCon ss tyCon
     pp_roles :: (Role -> Bool) -> SDoc
     pp_roles suppress_if
       = sdocWithDynFlags $ \dflags ->
-        let roles = suppressKinds dflags (tyConKind tyCon) (tyConRoles tyCon)
+        let roles = suppressImplicits dflags (tyConKind tyCon) (tyConRoles tyCon)
         in ppUnless (all suppress_if roles) $
            ptext (sLit "type role") <+> ppr tyCon <+> hsep (map ppr roles)
 
@@ -309,7 +309,7 @@ pprClassMethod id
   --		  op :: a1 -> b
 
   tidy_sel_ty = tidyTopType (idType id)
-  (_sel_tyvars, rho_ty) = splitForAllTys tidy_sel_ty
+  (_sel_tyvars, _, rho_ty) = splitForAllTys tidy_sel_ty
   op_ty = funResultTy rho_ty
 
 ppr_trim :: [Maybe SDoc] -> [SDoc]

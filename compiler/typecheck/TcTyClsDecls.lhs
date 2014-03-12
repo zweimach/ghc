@@ -435,7 +435,7 @@ kcSynDecls :: [SCC (LTyClDecl Name)]
 kcSynDecls [] = getLclEnv
 kcSynDecls (group : groups)
   = do  { (n,k) <- kcSynDecl1 group
-        ; lcl_env <- tcExtendKindEnv [(n,k)] (kcSynDecls groups)
+        ; lcl_env <- tcExtendKindEnv (n,k) (kcSynDecls groups)
         ; return lcl_env }
 
 kcSynDecl1 :: SCC (LTyClDecl Name)
@@ -514,7 +514,7 @@ kcConDecl (ConDecl { con_name = name, con_qvars = ex_tvs
                    , con_cxt = ex_ctxt, con_details = details
                    , con_res = res })
   = addErrCtxt (dataConCtxt name) $
-    do { _ <- kcHsTyVarBndrs ParametricKinds ex_tvs $
+    do { _ <- kcHsTyVarBndrs NonParametricKinds ex_tvs $
               do { _ <- tcHsContext ex_ctxt
                  ; mapM_ (tcHsOpenType . getBangType) (hsConDeclArgTys details)
                  ; _ <- tcConRes res
@@ -981,37 +981,56 @@ tc_fam_ty_pats :: Name -- of the family TyCon
 -- (and, if C is poly-kinded, so will its kind parameter).
 
 tc_fam_ty_pats fam_tc_name kind
-               (HsWB { hswb_cts = arg_pats, hswb_kvs = kvars, hswb_tvs = tvars })
+               (HsWB { hswb_cts = arg_pats, hswb_vars = vars })
                kind_checker
-  = do { let (fam_kvs, fam_body) = splitForAllTys kind
+  = do { let (fam_imp_tkvs, fam_body) = splitForAllTysImplicit kind
 
+         -- Instantiate with meta kind vars
+       ; fam_arg_kinds <- mapM (newFlexiTyVar . tyVarKind) fam_imp_tkvs
+            -- if there is any dependency among the fam_kvs, we need to
+            -- substitute in the new variables
+       ; let (fam_arg_kinds', imp_subst) = subst_telescope imp_tkvs fam_arg_kinds
+             fam_body' = substTy imp_subst fam_body
+             (exp_m_tvs, exp_kis, bare_kind) = splitPiTypes fam_body'
+             (arg_m_tvs, leftover_m_tvs) = splitAtList arg_tys exp_m_tvs
+             (arg_kis, leftover_kis) = splitAtList arg_tys exp_kis
+             res_kind = unsplitPiTypes leftover_m_tvs leftover_kis bare_kind
+
+             {- TODO (RAE): remove?
          -- We wish to check that the pattern has the right number of arguments
          -- in checkValidFamPats (in TcValidity), so we can do the check *after*
-         -- we're done with the knot. But, the splitKindFunTysN below will panic
+         -- we're done with the knot. But, we will panic below
          -- if there are *too many* patterns. So, we do a preliminary check here.
          -- Note that we don't have enough information at hand to do a full check,
          -- as that requires the full declared arity of the family, which isn't
          -- nearby.
-       ; let max_args = length (fst $ splitFunTys fam_body)
-       ; checkTc (length arg_pats <= max_args) $
-           wrongNumberOfParmsErrTooMany max_args
+       ; checkTc (compareLength arg_pats exp_kis /= GT) $
+           wrongNumberOfParmsErrTooMany (length exp_kis)
+             -}
 
-         -- Instantiate with meta kind vars
-       ; fam_arg_kinds <- mapM (const newMetaKindVar) fam_kvs
        ; loc <- getSrcSpanM
-       ; let (arg_kinds, res_kind)
-                 = splitFunTysN (length arg_pats) $
-                   substKiWith fam_kvs fam_arg_kinds fam_body
-             hs_tvs = HsQTvs { hsq_kvs = kvars
-                             , hsq_tvs = userHsTyVarBndrs loc tvars }
+       ; let hs_tvs = mkHsQTvs (userHsTyVarBndrs loc vars)
 
          -- Kind-check and quantify
          -- See Note [Quantifying over family patterns]
        ; typats <- tcHsTyVarBndrs hs_tvs $ \ _ ->
                    do { kind_checker res_kind
-                      ; tcHsArgTys (quotes (ppr fam_tc_name)) arg_pats arg_kinds }
+                      ; tcHsTelescope (quotes (ppr fam_tc_name)) arg_pats arg_m_tvs arg_kis }
 
-       ; return (fam_arg_kinds, typats, res_kind) }
+       ; return (fam_arg_kinds', typats, res_kind) }
+
+  where
+    subst_telescope :: [TyVar] -> [Kind] -> ([Kind], TCvSubst)
+    subst_telescope = go_subst emptyTCvSubst
+
+    go_subst :: TCvSubst -> [TyVar] -> [Kind] -> ([Kind], TCvSubst)
+    go_subst subst [] [] = ([], subst)
+    go_subst subst (tv:tvs) (k:ks)
+      = let k' = substTy subst k in
+        (k' :) `lift_fst` go_subst (extendTCvSubst tv k') tvs ks
+
+    lift_fst :: (a -> b) -> (a,c) -> (b,c)
+    lift_fst f (x,y) = (f x, y)
 
 -- See Note [tc_fam_ty_pats vs tcFamTyPats]
 tcFamTyPats :: Name -- of the family ToCon

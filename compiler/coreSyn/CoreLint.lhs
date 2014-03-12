@@ -484,7 +484,7 @@ lintAltBinders scrut_ty con_ty (bndr:bndrs)
 -----------------
 lintTyApp :: OutType -> OutType -> LintM OutType
 lintTyApp fun_ty arg_ty
-  | Just (tyvar,body_ty) <- splitForAllTy_maybe fun_ty
+  | Just (tyvar,_,body_ty) <- splitForAllTy_maybe fun_ty
   , isTyVar tyvar
   = do  { lintTyKind tyvar arg_ty
         ; return (substTyWith [tyvar] [arg_ty] body_ty) }
@@ -495,7 +495,7 @@ lintTyApp fun_ty arg_ty
 -----------------
 lintCoApp :: OutType -> OutCoercion -> LintM OutType
 lintCoApp fun_ty arg_co
-  | Just (covar,body_ty) <- splitForAllTy_maybe fun_ty
+  | Just (covar,_,body_ty) <- splitForAllTy_maybe fun_ty
   , isId covar
   = do { (_, _, t1, t2, rAct) <- lintCoercion arg_co
        ; let (_, _, t1', t2', rExp) = coVarKindsTypesRole covar
@@ -848,7 +848,7 @@ lint_app doc kfn kas
 
     go_app (ForAllTy kv _imp kfn) (ta,ka)
       = do { unless (ka `isSubKind` tyVarKind kv) (addErrL fail_msg)
-           ; return (substKiWith [kv] [ta] kfn) }
+           ; return (substTyWith [kv] [ta] kfn) }
 
     go_app _ _ = failWithL fail_msg
 \end{code}
@@ -1025,7 +1025,7 @@ lintCoercion the_co@(NthCo n co)
 
          ; _ ->
          case (splitForAllTy_maybe s, splitForAllTy_maybe t) of
-         { (Just (v_s, _ty_s), Just (v_t, _ty_t))
+         { (Just (v_s, _, _ty_s), Just (v_t, _, _ty_t))
              | n == 0
              -> return (liftedTypeKind, liftedTypeKind,
                         tyVarKind v_s, tyVarKind v_t, Nominal)
@@ -1055,7 +1055,7 @@ lintCoercion (InstCo co arg)
        ; (k1',k2',s1,s2, r') <- lintCoercionArg arg
        ; lintRole arg Nominal r'
        ; case (splitForAllTy_maybe t1', splitForAllTy_maybe t2') of
-          (Just (tv1,t1), Just (tv2,t2))
+          (Just (tv1,_,t1), Just (tv2,_,t2))
             | k1' `isSubKind` tyVarKind tv1
             , k2' `isSubKind` tyVarKind tv2
             -> return (k3, k4,

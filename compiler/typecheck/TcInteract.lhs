@@ -1934,9 +1934,10 @@ getCoercibleInst loc ty1 ty2 = do
     -- Coercible (forall a. ty) (forall a. ty')  (see case 2 in [Coercible Instances])
     | tcIsForAllTy ty1
     , tcIsForAllTy ty2
-    , let (tvs1,body1) = tcSplitForAllTys ty1
-          (tvs2,body2) = tcSplitForAllTys ty2
+    , let (tvs1,imps1,body1) = tcSplitForAllTys ty1
+          (tvs2,imps2,body2) = tcSplitForAllTys ty2
     , equalLength tvs1 tvs2
+    , imps1 == imps2
     = do
        ev_term <- deferTcSForAllEq Representational loc (tvs1,body1) (tvs2,body2)
        return $ GenInst [] ev_term

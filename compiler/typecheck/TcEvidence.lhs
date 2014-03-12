@@ -421,7 +421,7 @@ ppr_fun_co p co = pprArrowChain p (split co)
 ppr_forall_co :: Prec -> TcCoercion -> SDoc
 ppr_forall_co p ty
   = maybeParen p FunPrec $
-    sep [pprForAll tvs, ppr_co TopPrec rho]
+    sep [pprForAllImplicit tvs, ppr_co TopPrec rho]
   where
     (tvs,  rho) = split1 [] ty
     split1 tvs (TcForAllCo tv ty) = split1 (tv:tvs) ty

@@ -934,7 +934,7 @@ ignoreTyCon env tycon
   = lookupUFM (sc_annotations env) tycon == Just NoSpecConstr
 #endif /* GHCI */
 
-forceSpecBndr env var = forceSpecFunTy env . snd . splitForAllTys . varType $ var
+forceSpecBndr env var = forceSpecFunTy env . thdOf3 . splitForAllTys . varType $ var
 
 forceSpecFunTy :: ScEnv -> Type -> Bool
 forceSpecFunTy env = any (forceSpecArgTy env) . fst . splitFunTys

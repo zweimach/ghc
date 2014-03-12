@@ -245,12 +245,13 @@ matchExpectedTyConApp tc orig_ty
     -- This happened in Trac #7368
     defer = ASSERT2( isSubOpenTypeKind res_kind, ppr tc )
             do { kappa_tys <- mapM (const newMetaKindVar) kvs
-               ; let arg_kinds' = map (substKiWith kvs kappa_tys) arg_kinds
+               ; let arg_kinds' = map (substTyWith kvs kappa_tys) arg_kinds
                ; tau_tys <- mapM newFlexiTyVarTy arg_kinds'
                ; co <- unifyType (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
                ; return (co, kappa_tys ++ tau_tys) }
 
-    (kvs, body)           = splitForAllTys (tyConKind tc)
+        -- RAE believes that implicits aren't needed here (Mar 4 '14)
+    (kvs, _, body)        = splitForAllTys (tyConKind tc)
     (arg_kinds, res_kind) = splitFunTys body
 
 ----------------------
@@ -653,10 +654,10 @@ uType origin orig_ty1 orig_ty2
 
 unifySigmaTy :: CtOrigin -> TcType -> TcType -> TcM TcCoercion
 unifySigmaTy origin ty1 ty2
-  = do { let (tvs1, body1) = tcSplitForAllTys ty1
-             (tvs2, body2) = tcSplitForAllTys ty2
+  = do { let (tvs1, imps1, body1) = tcSplitForAllTys ty1
+             (tvs2, imps2, body2) = tcSplitForAllTys ty2
 
-       ; defer_or_continue (not (equalLength tvs1 tvs2)) $ do {
+       ; defer_or_continue (not (equalLength tvs1 tvs2) || not (imps1 == imps2)) $ do {
          (subst1, skol_tvs) <- tcInstSkolTyCoVars tvs1
                   -- Get location from monad, not from tvs1
        ; let tys      = mkTyCoVarTys skol_tvs

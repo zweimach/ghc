@@ -33,7 +33,7 @@ module Util (
         isIn, isn'tIn,
 
         -- * Tuples
-        fstOf3, sndOf3, thirdOf3,
+        fstOf3, sndOf3, thdOf3,
         firstM, first3M,
         fst3, snd3, third3,
         uncurry3,
@@ -211,10 +211,10 @@ nTimes n f = f . nTimes (n-1) f
 \begin{code}
 fstOf3   :: (a,b,c) -> a
 sndOf3   :: (a,b,c) -> b
-thirdOf3 :: (a,b,c) -> c
+thdOf3   :: (a,b,c) -> c
 fstOf3      (a,_,_) =  a
 sndOf3      (_,b,_) =  b
-thirdOf3    (_,_,c) =  c
+thdOf3      (_,_,c) =  c
 
 fst3 :: (a -> d) -> (a, b, c) -> (d, b, c)
 fst3 f (a, b, c) = (f a, b, c)
