@@ -989,9 +989,9 @@ tc_fam_ty_pats fam_tc_name kind
        ; fam_arg_kinds <- mapM (newFlexiTyVar . tyVarKind) fam_imp_tkvs
             -- if there is any dependency among the fam_kvs, we need to
             -- substitute in the new variables
-       ; let (fam_arg_kinds', imp_subst) = subst_telescope imp_tkvs fam_arg_kinds
+       ; let (fam_arg_kinds', imp_subst) = substTelescope imp_tkvs fam_arg_kinds
              fam_body' = substTy imp_subst fam_body
-             (exp_m_tvs, exp_kis, bare_kind) = splitPiTypes fam_body'
+             (exp_m_tvs, _, exp_kis, bare_kind) = splitPiTypes fam_body'
              (arg_m_tvs, leftover_m_tvs) = splitAtList arg_tys exp_m_tvs
              (arg_kis, leftover_kis) = splitAtList arg_tys exp_kis
              res_kind = unsplitPiTypes leftover_m_tvs leftover_kis bare_kind
@@ -1018,19 +1018,6 @@ tc_fam_ty_pats fam_tc_name kind
                       ; tcHsTelescope (quotes (ppr fam_tc_name)) arg_pats arg_m_tvs arg_kis }
 
        ; return (fam_arg_kinds', typats, res_kind) }
-
-  where
-    subst_telescope :: [TyVar] -> [Kind] -> ([Kind], TCvSubst)
-    subst_telescope = go_subst emptyTCvSubst
-
-    go_subst :: TCvSubst -> [TyVar] -> [Kind] -> ([Kind], TCvSubst)
-    go_subst subst [] [] = ([], subst)
-    go_subst subst (tv:tvs) (k:ks)
-      = let k' = substTy subst k in
-        (k' :) `lift_fst` go_subst (extendTCvSubst tv k') tvs ks
-
-    lift_fst :: (a -> b) -> (a,c) -> (b,c)
-    lift_fst f (x,y) = (f x, y)
 
 -- See Note [tc_fam_ty_pats vs tcFamTyPats]
 tcFamTyPats :: Name -- of the family ToCon

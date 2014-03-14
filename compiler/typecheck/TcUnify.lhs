@@ -1094,14 +1094,8 @@ The situation is different in the core of the compiler, where we are perfectly
 happy to have types of kind Constraint on either end of an arrow.
 
 \begin{code}
-matchExpectedFunKind :: TcKind       -- function kind
-                     -> TcM (Maybe ( TcKind -- arg kind
-                                   , TcType -> TcKind )) -- fn producing result kind
--- This function takes the arg to do result-kind substitution for forall
--- types. It does *not* check the arg against the expected kind!
-
-matchExpectedFunKind (FunTy arg_kind res_kind)
-  = return (Just (arg_kind, const res_kind))
+matchExpectedFunKind :: TcKind             -- function kind
+                     -> TcM (Maybe TcKind) -- more informative function kind
 
 matchExpectedFunKind (TyVarTy kvar)
   | isTcTyVar kvar, isMetaTyVar kvar
@@ -1111,11 +1105,9 @@ matchExpectedFunKind (TyVarTy kvar)
             Flexi ->
                 do { arg_kind <- newMetaKindVar
                    ; res_kind <- newMetaKindVar
-                   ; writeMetaTyVar kvar (mkArrowKind arg_kind res_kind)
-                   ; return (Just (arg_kind, const res_kind)) } }
-
-matchExpectedFunKind (ForAllTy kv Explicit inner_ki)
-  = return (Just (tyVarKind kv, \arg -> substTyWith [kv] [arg] inner_ki))
+                   ; let new_kind = mkFunTy arg_kind res_kind
+                   ; writeMetaTyVar kvar new_kind
+                   ; return (Just new_kind) } }
 
 matchExpectedFunKind _ = return Nothing
 

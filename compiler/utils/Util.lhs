@@ -37,6 +37,7 @@ module Util (
         firstM, first3M,
         fst3, snd3, third3,
         uncurry3,
+        liftFst, liftSnd,
 
         -- * List operations controlled by another list
         takeList, dropList, splitAtList, split,
@@ -227,6 +228,12 @@ third3 f (a, b, c) = (a, b, f c)
 
 uncurry3 :: (a -> b -> c -> d) -> (a, b, c) -> d
 uncurry3 f (a, b, c) = f a b c
+
+liftFst :: (a -> b) -> (a, c) -> (b, c)
+liftFst f (a,c) = (f a, c)
+
+liftSnd :: (a -> b) -> (c, a) -> (c, b)
+liftSnd f (c,a) = (c, f a)
 \end{code}
 
 \begin{code}

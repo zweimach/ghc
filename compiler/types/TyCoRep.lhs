@@ -66,7 +66,7 @@ module TyCoRep (
         unionTCvSubst, zipTyCoEnv,
         mkOpenTCvSubst, zipOpenTCvSubst, mkTopTCvSubst, zipTopTCvSubst,
 
-        substTyWith, substTysWith, substTy,
+        substTelescope, substTyWith, substTysWith, substTy,
         substTys, substTheta, substTyCoVar, substTyCoVars,
         lookupTyVar, lookupVar, substTyVarBndr,
         substCo, substCos, substCoVar, substCoVars, lookupCoVar,
@@ -375,8 +375,7 @@ mkTyCoVarTy v
   | isTyVar v
   = TyVarTy v
   | otherwise
-  = ASSERT( isCoVar v )
-    CoercionTy (CoVarCo v)
+  = CoercionTy (CoVarCo v)
 
 mkTyCoVarTys :: [TyCoVar] -> [Type]
 mkTyCoVarTys = map mkTyCoVarTy
@@ -1470,6 +1469,19 @@ to cv, so it's much simpler. Similarly, the TyHomo and CoHomo cases are
 straightforward once you understand the rule above.
 
 \begin{code}
+-- | Create a substitution from tyvars to types, but later types may depend
+-- on earlier ones. Return the substed types and the built substitution.
+substTelescope :: [TyCoVar] -> [Type] -> ([Type], TCvSubst)
+substTelescope = go_subst emptyTCvSubst
+  where
+    go_subst :: TCvSubst -> [TyCoVar] -> [Type] -> ([Type], TCvSubst)
+    go_subst subst [] [] = ([], subst)
+    go_subst subst (tv:tvs) (k:ks)
+      = let k' = substTy subst k in
+        liftFst (k' :) $ go_subst (extendTCvSubst subst tv k') tvs ks
+    go_subst _ _ _ = panic "substTelescope"
+
+
 -- | Type substitution making use of an 'TCvSubst' that
 -- is assumed to be open, see 'zipOpenTCvSubst'
 substTyWith :: [TyVar] -> [Type] -> Type -> Type

@@ -135,7 +135,7 @@ module Type (
         -- ** Performing substitution on types and kinds
         substTy, substTys, substTyWith, substTysWith, substTheta,
         substTyCoVar, substTyCoVars, substTyVarBndr, substTyCoVarBndr,
-        cloneTyVarBndr, lookupTyVar, lookupVar,
+        cloneTyVarBndr, lookupTyVar, lookupVar, substTelescope,
 
         -- * Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTyThingCategory, pprTyThing,
@@ -954,7 +954,7 @@ filterImplicits tc = go (tyConKind tc)
 
 
 -- like splitForAllTys, but returns only *implicit* variables
-splitForAllTysImplicit :: Type -> ([TyCoVar], [ImplicitFlag], Type)
+splitForAllTysImplicit :: Type -> ([TyCoVar], Type)
 splitForAllTysImplicit ty = split ty ty []
    where
      split orig_ty ty tvs

@@ -960,7 +960,6 @@ zonkId id
 -- For unbound, mutable tyvars, zonkType uses the function given to it
 -- For tyvars bound at a for-all, zonkType zonks them to an immutable
 --	type variable and zonks the kind too
-
 zonkTcType :: TcType -> TcM TcType
 zonkTcType ty
   = go ty
@@ -979,20 +978,15 @@ zonkTcType ty
 
     go (AppTy fun arg)   = do fun' <- go fun
                               arg' <- go arg
-                              return (mkAppTy fun' arg')
-		-- NB the mkAppTy; we might have instantiated a
-		-- type variable to a type constructor, so we need
-		-- to pull the TyConApp to the top.
-                -- OK to do this because only strict in the structure
-                -- not in the TyCon.
+                              return (AppTy fun' arg')
                 -- See Note [Zonking inside the knot] in TcHsType
 
     go (CastTy ty co)    = do ty' <- go ty
                               co' <- go_co co
-                              return (mkCastTy ty' co')
+                              return (CastTy ty' co')
 
     go (CoercionTy co)   = do co' <- go_co co
-                              return (mkCoercionTy co')
+                              return (CoercionTy co')
 
 	-- The two interesting cases!
     go (TyVarTy tyvar) | isTcTyVar tyvar = zonkTcTyCoVar tyvar
@@ -1001,29 +995,29 @@ zonkTcType ty
 
     go (ForAllTy tv imp ty) = do { tv' <- zonkTcTyCoVarBndr tv
                                  ; ty' <- go ty
-                                 ; return (mkForAllTy tv' imp ty') }
+                                 ; return (ForAllTy tv' imp ty') }
 
-    go_co (Refl r ty)               = mkReflCo r <$> go ty
-    go_co (TyConAppCo r tc args)    = mkTyConAppCo r tc <$> mapM go_arg args
-    go_co (AppCo co arg)            = mkAppCo <$> go_co co <*> go_arg arg
-    go_co (CoVarCo cv)              = mkCoVarCo <$> zonkTyCoVarKind cv
-    go_co (AxiomInstCo ax ind args) = mkAxiomInstCo ax ind <$> mapM go_arg args
-    go_co (UnivCo r ty1 ty2)        = mkUnivCo r <$> go ty1 <*> go ty2
-    go_co (SymCo co)                = mkSymCo <$> go_co co
-    go_co (TransCo co1 co2)         = mkTransCo <$> go_co co1 <*> go_co co2
-    go_co (NthCo n co)              = mkNthCo n <$> go_co co
-    go_co (LRCo lr co)              = mkLRCo lr <$> go_co co
-    go_co (InstCo co arg)           = mkInstCo <$> go_co co <*> go_arg arg
-    go_co (CoherenceCo co1 co2)     = mkCoherenceCo <$> go_co co1 <*> go_co co2
-    go_co (KindCo co)               = mkKindCo <$> go_co co
-    go_co (SubCo co)                = mkSubCo <$> go_co co
+    go_co (Refl r ty)               = ReflCo r <$> go ty
+    go_co (TyConAppCo r tc args)    = TyConAppCo r tc <$> mapM go_arg args
+    go_co (AppCo co arg)            = AppCo <$> go_co co <*> go_arg arg
+    go_co (CoVarCo cv)              = CoVarCo <$> zonkTyCoVarKind cv
+    go_co (AxiomInstCo ax ind args) = AxiomInstCo ax ind <$> mapM go_arg args
+    go_co (UnivCo r ty1 ty2)        = UnivCo r <$> go ty1 <*> go ty2
+    go_co (SymCo co)                = SymCo <$> go_co co
+    go_co (TransCo co1 co2)         = TransCo <$> go_co co1 <*> go_co co2
+    go_co (NthCo n co)              = NthCo n <$> go_co co
+    go_co (LRCo lr co)              = LRCo lr <$> go_co co
+    go_co (InstCo co arg)           = InstCo <$> go_co co <*> go_arg arg
+    go_co (CoherenceCo co1 co2)     = CoherenceCo <$> go_co co1 <*> go_co co2
+    go_co (KindCo co)               = KindCo <$> go_co co
+    go_co (SubCo co)                = SubCo <$> go_co co
     go_co (AxiomRuleCo ax ts cs)    = AxiomRuleCo ax <$> mapM go ts <*> mapM go_co cs
 
     go_co (ForAllCo cobndr co)
       | Just v <- getHomoVar_maybe cobndr
       = do { v' <- zonkTcTyCoVarBndr v
            ; co' <- go_co co
-           ; return (mkForAllCo (mkHomoCoBndr v') co') }
+           ; return (ForAllCo (mkHomoCoBndr v') co') }
 
       | TyHetero h tv1 tv2 cv <- cobndr
       = do { h' <- go_co h
@@ -1031,14 +1025,14 @@ zonkTcType ty
            ; tv2' <- zonkTcTyCoVarBndr tv2
            ; cv' <- zonkTcTyCoVarBndr cv
            ; co' <- go_co co
-           ; return (mkForAllCo (mkTyHeteroCoBndr h' tv1' tv2' cv') co') }
+           ; return (mkForAllCo (TyHetero h' tv1' tv2' cv') co') }
 
       | CoHetero h cv1 cv2 <- cobndr
       = do { h' <- go_co h
            ; cv1' <- zonkTcTyCoVarBndr cv1
            ; cv2' <- zonkTcTyCoVarBndr cv2
            ; co' <- go_co co
-           ; return (mkForAllCo (mkCoHeteroCoBndr h' cv1' cv2') co') }
+           ; return (mkForAllCo (CoHetero h' cv1' cv2') co') }
 
       | otherwise
       = pprPanic "zonkTcType" (ppr cobndr)
@@ -1052,7 +1046,8 @@ zonkTcTyCoVarBndr :: TcTyCoVar -> TcM TcTyCoVar
 -- that has not yet been zonked, and may include kind
 -- unification variables.
 zonkTcTyCoVarBndr tyvar
-  = ASSERT2( isImmutableTyVar tyvar || isCoVar tyvar, ppr tyvar ) do
+    -- can't use isCoVar, because it looks at a TyCon. Argh.
+  = ASSERT2( isImmutableTyVar tyvar || (not isTyVar tyvar), ppr tyvar ) do
     updateTyVarKindM zonkTcType tyvar
 
 zonkTcTyCoVar :: TcTyCoVar -> TcM TcType
