@@ -183,7 +183,7 @@ fun_type_arg_stdcall_info dflags StdCallConv ty
   | Just (tc,[arg_ty]) <- splitTyConApp_maybe ty,
     tyConUnique tc == funPtrTyConKey
   = let
-       (_tvs,_imps,sans_foralls   = tcSplitForAllTys arg_ty
+       (_tvs,_imps,sans_foralls)  = tcSplitForAllTys arg_ty
        (fe_arg_tys, _orig_res_ty) = tcSplitFunTys sans_foralls
     in Just $ sum (map (widthInBytes . typeWidth . typeCmmType dflags . getPrimTyOf) fe_arg_tys)
 fun_type_arg_stdcall_info _ _other_conv _

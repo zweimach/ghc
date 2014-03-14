@@ -21,7 +21,7 @@ module TcTyClsDecls (
 
 #include "HsVersions.h"
 
-import HsSyn
+import HsSyn hiding ( Implicit, Explicit )
 import HscTypes
 import BuildTyCl
 import TcRnMonad
@@ -435,7 +435,7 @@ kcSynDecls :: [SCC (LTyClDecl Name)]
 kcSynDecls [] = getLclEnv
 kcSynDecls (group : groups)
   = do  { (n,k) <- kcSynDecl1 group
-        ; lcl_env <- tcExtendKindEnv (n,k) (kcSynDecls groups)
+        ; lcl_env <- tcExtendKindEnv [(n,k)] (kcSynDecls groups)
         ; return lcl_env }
 
 kcSynDecl1 :: SCC (LTyClDecl Name)
@@ -683,7 +683,7 @@ tcFamDecl1 parent
   { traceTc "open type family:" (ppr tc_name)
   ; checkFamFlag tc_name
   ; let roles = map (const Nominal) tvs'
-  ;     tycon = mkSynTyCon tc_name full_kind tvs' roles OpenSynFamilyTyCon parent
+        tycon = mkSynTyCon tc_name full_kind tvs' roles OpenSynFamilyTyCon parent
   ; return [ATyCon tycon] }
 
 tcFamDecl1 parent
@@ -731,7 +731,7 @@ tcFamDecl1 parent
                        then AbstractClosedSynFamilyTyCon
                        else ClosedSynFamilyTyCon co_ax
              roles   = map (const Nominal) tvs'
-       ;     tycon = mkSynTyCon tc_name kind tvs' roles syn_rhs parent
+             tycon   = mkSynTyCon tc_name kind tvs' roles syn_rhs parent
 
        ; let result = if null eqns
                       then [ATyCon tycon]
@@ -764,7 +764,7 @@ tcTySynRhs rec_info tc_name tvs full_kind res_kind hs_ty
        ; rhs_ty <- tcCheckLHsType hs_ty res_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
        ; let roles = rti_roles rec_info tc_name
-       ;     tycon = mkSynTyCon tc_name full_kind tvs roles (SynonymTyCon rhs_ty)
+             tycon = mkSynTyCon tc_name full_kind tvs roles (SynonymTyCon rhs_ty)
                                 NoParentTyCon
        ; return [ATyCon tycon] }
 
@@ -986,15 +986,18 @@ tc_fam_ty_pats fam_tc_name kind
   = do { let (fam_imp_tkvs, fam_body) = splitForAllTysImplicit kind
 
          -- Instantiate with meta kind vars
-       ; fam_arg_kinds <- mapM (newFlexiTyVar . tyVarKind) fam_imp_tkvs
+       ; fam_arg_kinds <- mapM (newFlexiTyVarTy . tyVarKind) fam_imp_tkvs
             -- if there is any dependency among the fam_kvs, we need to
             -- substitute in the new variables
-       ; let (fam_arg_kinds', imp_subst) = substTelescope imp_tkvs fam_arg_kinds
+       ; let (fam_arg_kinds', imp_subst) = substTelescope fam_imp_tkvs fam_arg_kinds
              fam_body' = substTy imp_subst fam_body
-             (exp_m_tvs, _, exp_kis, bare_kind) = splitPiTypes fam_body'
-             (arg_m_tvs, leftover_m_tvs) = splitAtList arg_tys exp_m_tvs
-             (arg_kis, leftover_kis) = splitAtList arg_tys exp_kis
-             res_kind = unsplitPiTypes leftover_m_tvs leftover_kis bare_kind
+             (exp_m_tvs, impflags, exp_kis, bare_kind) = splitPiTypes fam_body'
+             pi_slices = zip3 exp_m_tvs impflags exp_kis
+             (arg_pi_slices, leftover_pi) = splitAtList arg_pats pi_slices
+             (arg_m_tvs, arg_impflags, arg_kis) = unzip3 arg_pi_slices
+             (leftover_m_tvs, leftover_impflags, leftover_kis) = unzip3 leftover_pi
+             res_kind = unsplitPiTypes leftover_m_tvs leftover_impflags
+                                       leftover_kis bare_kind
 
              {- TODO (RAE): remove?
          -- We wish to check that the pattern has the right number of arguments
@@ -1013,7 +1016,8 @@ tc_fam_ty_pats fam_tc_name kind
 
          -- Kind-check and quantify
          -- See Note [Quantifying over family patterns]
-       ; typats <- tcHsTyVarBndrs hs_tvs $ \ _ ->
+       ; typats <- ASSERT( all (== Explicit) arg_impflags )
+                   tcHsTyVarBndrs hs_tvs $ \ _ ->
                    do { kind_checker res_kind
                       ; tcHsTelescope (quotes (ppr fam_tc_name)) arg_pats arg_m_tvs arg_kis }
 
@@ -2152,8 +2156,9 @@ wrongKindOfFamily family
                  | isAlgTyCon family = ptext (sLit "data type")
                  | otherwise = pprPanic "wrongKindOfFamily" (ppr family)
 
-wrongNumberOfParmsErrTooMany :: Arity -> SDoc
-wrongNumberOfParmsErrTooMany max_args
+-- TODO (RAE): Remove?
+_wrongNumberOfParmsErrTooMany :: Arity -> SDoc
+_wrongNumberOfParmsErrTooMany max_args
   = ptext (sLit "Number of parameters must match family declaration; expected no more than")
     <+> ppr max_args
 

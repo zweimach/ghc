@@ -339,9 +339,9 @@ tcExtendKindEnv2 things thing_inside
   where
     upd_env env = env { tcl_env = extendNameEnvList (tcl_env env) things }
 
-tcExtendKindEnv :: (Name, TcKind) -> TcM r -> TcM r
-tcExtendKindEnv (n, k)
-  = tcExtendKindEnv2 [(n, AThing k)]
+tcExtendKindEnv :: [(Name, TcKind)] -> TcM r -> TcM r
+tcExtendKindEnv nks
+  = tcExtendKindEnv2 $ mapSnd AThing nks
 
 -----------------------
 -- Scoped type and kind variables

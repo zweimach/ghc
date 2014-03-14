@@ -27,11 +27,9 @@ import TysWiredIn
 
 import CmmType
 import Demand
-import Var              ( TyVar )
 import OccName          ( OccName, pprOccName, mkVarOccFS )
 import TyCon            ( TyCon, isPrimTyCon, tyConPrimRep, PrimRep(..) )
-import Type             ( Type, mkForAllTys, mkFunTy, mkFunTys, tyConAppTyCon,
-                          typePrimRep )
+import Type
 import BasicTypes       ( Arity, Fixity(..), FixityDirection(..), TupleSort(..) )
 import ForeignCall      ( CLabelString )
 import Unique           ( Unique, mkPrimOpIdUnique )

@@ -1153,7 +1153,7 @@ checkValidFamPats fam_tc tvs ty_pats
          --     type instance F Int y = y
          -- because then the type (F Int) would be like (\y.y)
          checkTc (length ty_pats == fam_arity) $
-           wrongNumberOfParmsErr (fam_arity - count (== Implicit) imps)
+           wrongNumberOfParmsErr (fam_arity - count (== TyCoRep.Implicit) imps)
              -- report only explicit arguments
            
        ; mapM_ checkTyFamFreeness ty_pats

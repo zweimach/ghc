@@ -1008,8 +1008,8 @@ mkPolyKindedTypeableEqn tvs cls tycon tc_args mtheta
                      , ds_theta = mtheta `orElse` []  -- Context is empty for polykinded Typeable
                      , ds_newtype = False })  }
   where
-    tc_imps            = tyConTvVisibilities tc
-    only_implicit_args = tc_args `equalLength` (span (== Implicit) tc_imps)
+    (imp_tvs, _)       = splitForAllTysImplicit (tyConKind tycon)
+    only_implicit_args = tc_args `equalLength` imp_tvs
 
     mk_msg polykinds | not polykinds
                      = hang (ptext (sLit "To make a Typeable instance of poly-kinded")

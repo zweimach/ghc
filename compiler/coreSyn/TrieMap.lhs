@@ -11,7 +11,7 @@
 --     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
 -- for details
 
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies, DeriveFunctor, ScopedTypeVariables #-}
 module TrieMap(
    CoreMap, emptyCoreMap, extendCoreMap, lookupCoreMap, foldCoreMap,
    TypeMap, emptyTypeMap, extendTypeMap, lookupTypeMap, foldTypeMap, 
@@ -32,6 +32,8 @@ import TyCon(TyCon)
 import Var
 import UniqFM
 import Unique( Unique )
+import Util
+import Pair
 import FastString(FastString)
 import CoAxiom(CoAxiomRule(coaxrName))
 
@@ -41,6 +43,7 @@ import VarEnv
 import NameEnv
 import Outputable
 import Control.Monad( (>=>) )
+import Control.Applicative
 import qualified Data.Foldable as Foldable
 \end{code}
 
@@ -687,7 +690,7 @@ newtype RoleMap a = RM { unRM :: (Maybe a, Maybe a, Maybe a) }
 
 instance TrieMap RoleMap where
   type Key RoleMap = Role
-  emptyTM = (Nothing, Nothing, Nothing)
+  emptyTM = RM (Nothing, Nothing, Nothing)
   lookupTM = lkR
   alterTM = xtR
   foldTM = fdR
@@ -703,7 +706,7 @@ xtR Nominal          f = RM . fst3 f   . unRM
 xtR Representational f = RM . snd3 f   . unRM
 xtR Phantom          f = RM . third3 f . unRM
 
-fdR :: (a -> b -> b) -> RoleMap a -> b -> b
+fdR :: forall a b. (a -> b -> b) -> RoleMap a -> b -> b
 fdR f (RM (a, b, c)) z = maybe_f a $ maybe_f b $ maybe_f c z
   where maybe_f :: Maybe a -> b -> b
         maybe_f Nothing z  = z
@@ -714,11 +717,11 @@ mapR f (RM (a, b, c)) = RM $ (fmap f a, fmap f b, fmap f c)
 
 
 newtype IFMap a = IFM { unIFM :: Pair (Maybe a) }
-  deriving (Functor, Foldable.Foldable)
+  deriving (Functor)
 
 instance TrieMap IFMap where
   type Key IFMap = ImplicitFlag
-  emptyTM = pure Nothing
+  emptyTM = IFM $ pure Nothing
   lookupTM = lkIF
   alterTM = xtIF
   foldTM = fdIF
@@ -732,8 +735,8 @@ xtIF :: ImplicitFlag -> XT a -> IFMap a -> IFMap a
 xtIF Implicit f = IFM . pLiftFst f . unIFM
 xtIF Explicit f = IFM . pLiftSnd f . unIFM
 
-fdIF :: (a -> b -> b) -> IFMap a -> b -> b
-fdIF f ifm z = Foldable.foldr (Foldable.foldr f) z ifm
+fdIF :: (b -> a -> a) -> IFMap b -> a -> a
+fdIF f (IFM pr) z = Foldable.foldl (Foldable.foldl (flip f)) z pr
 
 \end{code}
 
@@ -878,7 +881,7 @@ xtT env (AppTy t1 t2)     f  m     = m { tm_app    = tm_app m |> xtT env t1 |>> 
 xtT env (FunTy t1 t2)     f  m     = m { tm_fun    = tm_fun m |> xtT env t1 |>> xtT env t2 f }
 xtT env (ForAllTy tv imp ty)  f  m = m { tm_forall = tm_forall m
                                                  |> xtT (extendCME env tv) ty
-                                                 |>> xtIF imp f
+                                                 |>> xtIF imp
                                                  |>> xtBndr env tv f }
 xtT env (TyConApp tc tys) f  m     = m { tm_tc_app = tm_tc_app m |> xtNamed tc 
                                                  |>> xtList (xtT env) tys f }

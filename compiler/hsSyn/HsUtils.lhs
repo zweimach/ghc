@@ -412,7 +412,7 @@ toHsType ty
 
   where
     (tvs, imps, theta, tau) = tcSplitSigmaTy ty
-    explicit_tvs_only = map fst $ filter ((== Explicit) . snd) $ zip tvs imps
+    explicit_tvs_only = map fst $ filter ((== TyCoRep.Explicit) . snd) $ zip tvs imps
 
     to_hs_type (TyVarTy tv) = nlHsTyVar (getRdrName tv)
     to_hs_type (AppTy t1 t2) = nlHsAppTy (toHsType t1) (toHsType t2)

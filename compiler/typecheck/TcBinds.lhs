@@ -26,7 +26,7 @@ import TcEvidence
 import TcHsType
 import TcPat
 import TcMType
-import Type( tidyOpenType )
+import Type( tidyOpenType, ImplicitFlag(..) )
 import FunDeps( growThetaTyCoVars )
 import TyCon
 import TcType
@@ -881,7 +881,7 @@ recoveryCode binder_names sig_fn
     is_closed poly_id = isEmptyVarSet (tyCoVarsOfType (idType poly_id))
 
 forall_a_a :: TcType
-forall_a_a = mkForAllTy openAlphaTyVar Implicit (mkOnlyTyVarTy openAlphaTyVar)
+forall_a_a = mkForAllTy openAlphaTyVar Type.Implicit (mkOnlyTyVarTy openAlphaTyVar)
 \end{code}
 
 Note [SPECIALISE pragmas]

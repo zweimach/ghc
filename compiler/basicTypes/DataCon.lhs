@@ -53,7 +53,6 @@ module DataCon (
 
 import {-# SOURCE #-} MkId( DataConBoxer )
 import Type
-import ForeignCall( CType )
 import Coercion
 import Unify
 import TyCon

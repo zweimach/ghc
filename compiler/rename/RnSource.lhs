@@ -533,7 +533,7 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
                     ; let bad_tvs = case mb_cls of
                                       Nothing          -> []
                                       Just (_,cls_tvs) -> filter is_bad cls_tvs
-                          is_bad tv = not (tv `elem` tv_names) && tv `elemNameSet` rhs_fvs
+                          is_bad tv = not (tv `elem` var_names) && tv `elemNameSet` rhs_fvs
 
                     ; unless (null bad_tvs) (badAssocRhs bad_tvs)
                     ; return ((pats', payload'), rhs_fvs `plusFV` pat_fvs) }
@@ -605,7 +605,7 @@ rnATInstDecls :: (Maybe (Name, [Name]) ->    -- The function that renames
 rnATInstDecls rnFun cls hs_tvs at_insts
   = rnList (rnFun (Just (cls, tv_ns))) at_insts
   where
-    tv_ns = map hsLTyVarName . hsQTvExplicit hs_tvs
+    tv_ns = map hsLTyVarName $ hsQTvExplicit hs_tvs
     -- Type variable binders (but NOT kind variables)
     -- See Note [Renaming associated types] in RnTypes
 \end{code}

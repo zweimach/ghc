@@ -45,7 +45,7 @@ import HsLit
 import Name( Name )
 import RdrName( RdrName )
 import DataCon( HsBang(..) )
-import Type
+import Type hiding ( ImplicitFlag(..) )
 import HsDoc
 import BasicTypes
 import SrcLoc
@@ -137,11 +137,11 @@ data LHsTyVarBndrs name
     }
   deriving( Data, Typeable )
 
-mkHsQTvs :: [LHsTyVarBndr RdrName] -> LHsTyVarBndrs RdrName
--- Just at RdrName because in the Name variant we should know just
--- what the implicit binders are; and we don't
--- We put an empty list (rather than a panic) for the implicit vars so 
--- that the pretty printer works ok on them.
+mkHsQTvs :: [LHsTyVarBndr name] -> LHsTyVarBndrs name
+-- Usually, this will be called at RdrName, but sometimes we
+-- just need a LHsTyVarBndrs for impedance matching, and we don't
+-- care about the implicit / explicit distinction. So, we allow
+-- this to be called with any binder.
 mkHsQTvs tvs = HsQTvs { hsq_implicit = [], hsq_explicit = tvs }
 
 emptyHsQTvs :: LHsTyVarBndrs name   -- Use only when you know there are no implicit binders

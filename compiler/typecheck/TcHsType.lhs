@@ -41,7 +41,7 @@ module TcHsType (
 
 #include "HsVersions.h"
 
-import HsSyn
+import HsSyn hiding ( Implicit, Explicit )
 import TcRnMonad
 import TcEvidence( HsWrapper )
 import TcEnv
@@ -66,12 +66,14 @@ import BasicTypes
 import SrcLoc
 import DynFlags ( ExtensionFlag( Opt_DataKinds ), getDynFlags )
 import Unique
+import Util
 import UniqSupply
 import Outputable
 import FastString
 
-import Control.Monad ( unless, when, zipWithM )
+import Control.Monad ( unless, when )
 import PrelNames( ipClassName, funTyConKey )
+import Data.List ( zip4, sort )
 \end{code}
 
 
@@ -330,9 +332,6 @@ tc_lhs_type (L span ty) exp_kind
     do { traceTc "tc_lhs_type:" (ppr ty $$ ppr exp_kind)
        ; tc_hs_type ty exp_kind }
 
-tc_lhs_types :: [(LHsType Name, ExpKind)] -> TcM [TcType]
-tc_lhs_types tys_w_kinds = mapM (uncurry tc_lhs_type) tys_w_kinds
-
 ------------------------------------------
 tc_fun_type :: HsType Name -> LHsType Name -> LHsType Name -> ExpKind -> TcM TcType
 -- We need to recognise (->) so that we can construct a FunTy, 
@@ -453,9 +452,8 @@ tc_hs_type hs_ty@(HsTupleTy hs_tup_sort tys) exp_kind
 -- matchExpectedListTy
 tc_hs_type hs_ty@(HsExplicitListTy _k tys) exp_kind
   = do { tks <- mapM tc_infer_lhs_type tys
-       ; let taus = map fst tks
-       ; kind <- unifyKinds (ptext (sLit "In a promoted list")) tks
-       ; let ty = (foldr (mk_cons kind) (mk_nil kind) taus)
+       ; (taus', kind) <- unifyKinds (ptext (sLit "In a promoted list")) tks
+       ; let ty = (foldr (mk_cons kind) (mk_nil kind) taus')
        ; checkExpectedKind hs_ty ty (mkListTy kind) exp_kind }
   where
     mk_cons k a b = mkTyConApp (promoteDataCon consDataCon) [k, a, b]
@@ -614,19 +612,6 @@ tcCheckApps hs_ty the_fun fun fun_kind args exp_kind
        ; (arg_tys, res_kind) <- tcInferApps the_fun fun_kind' args
        ; checkExpectedKind hs_ty (mkNakedAppTys fun arg_tys) res_kind exp_kind }
          -- mkNakedAppTys: see Note [Zonking inside the knot]
-
----------------------------
--- splitFunKind returns the argument kind and a function that, when given the actual
--- argument type, produces the result kind.
-splitFunKind :: SDoc -> TcKind -> TcM (TcKind, TcType -> TcKind)
-splitFunKind the_fun fun_kind
-  = do { mb_fk <- matchExpectedFunKind fun_kind
-       ; case mb_fk of
-           Nothing        -> failWithTc too_many_args
-           Just (ak, fk') -> return (ak, fk') }
-  where
-    too_many_args = quotes the_fun <+>
-		    ptext (sLit "is applied to too many type arguments")
 
 ---------------------------
 tcHsContext :: LHsContext Name -> TcM [PredType]
@@ -1078,22 +1063,6 @@ kcStrategyFamDecl :: FamilyDecl Name -> KindCheckingStrategy
 kcStrategyFamDecl (FamilyDecl { fdInfo = ClosedTypeFamily (_:_) }) = NonParametricKinds
 kcStrategyFamDecl _                                                = FullKindSignature
 
-kcScopedImplicitVars :: [Name] -> Kind -> ([TyVar] -> Kind -> TcM a) -> TcM a
--- Pull off all implicit ForAllTys from the given kind, check to make sure
--- that the names match the passed in list (this is an internal check)
--- and then kind-check the thing_inside
-kcScopedImplicitVars kv_ns kind
-  = do { let (imp_tkvs, inner_ki) = splitForAllTysImplicit tc_kind
-             -- this function can be called during both *kind* checking and
-             -- *type* checking. In the former case, the kind passed in is
-             -- generalised w.r.t. the named scoped kind vars only. During
-             -- type checking, the kind passed in is generalised w.r.t. all
-             -- kind vars. So, we must discard the unnamed kind vars before
-             -- processing the named ones.
-             named_imp_tkvs = drop (length imp_tkvs - length kv_ns) imp_tkvs
-       ; ASSERT( map getName named_imp_tkvs == kv_ns )
-         tcExtendTyVarEnv named_imp_tkvs $ thing_inside imp_tkvs inner_ki }
-
 -- TODO (RAE): Update [Kind-checking strategies] to reflect that datatypes now
 --             have **Non**ParametricKinds, to support kind-indexed GADTs.
 kcHsTyVarBndrs :: KindCheckingStrategy
@@ -1103,9 +1072,9 @@ kcHsTyVarBndrs :: KindCheckingStrategy
 -- Used in getInitialKind
 kcHsTyVarBndrs strat (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thing_inside
   = do { meta_kvs <- mapM (const newMetaKindVar) kv_ns
-         let kvs = zipWithM new_skolem_tv kv_ns meta_kvs
+       ; let kvs = zipWith new_skolem_tv kv_ns meta_kvs
        ; tcExtendTyVarEnv2 (kv_ns `zip` kvs) $
-    do { (full_kind, stuff) <- bind_telescope hs_tvs thing_inside
+    do { (full_kind, _, stuff) <- bind_telescope hs_tvs thing_inside
        ; let _all_kvs  = filter (not . isMetaTyVar) $
                          varSetElems $ tyCoVarsOfType full_kind
 
@@ -1134,13 +1103,16 @@ kcHsTyVarBndrs strat (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) th
            ; return (res_kind, tyCoVarsOfType res_kind, stuff) }
     bind_telescope (L _ hs_tv : hs_tvs) thing
       = do { (n,k) <- kc_hs_tv hs_tv
-           ; (res_kind, fvs, stuff) <- tcExtendKindEnv (n,k) $ bind_telescope hs_tvs thing
-           ; if n `varSetElem` fvs
-                then do { kv <- mk_kv n k
-                        ; return ( mkForAllTy kv Explicit res_kind
-                                 , fvs `delVarSet` kv `unionVarSet` (tyCoVarsOfType k)
-                                 , stuff ) }
-                else return (mkFunTy k, fvs `unionVarSet` tyCoVarsOfType k, stuff)
+           ; (res_kind, fvs, stuff) <- tcExtendKindEnv [(n,k)] $ bind_telescope hs_tvs thing
+           ; case lookupVarSetByName fvs n of
+                Just kv ->
+                  return ( mkForAllTy kv Explicit res_kind
+                         , fvs `delVarSet` kv `unionVarSet` (tyCoVarsOfType k)
+                         , stuff )
+                Nothing ->
+                  return ( mkFunTy k res_kind
+                         , fvs `unionVarSet` tyCoVarsOfType k
+                         , stuff )
            }
 
     kc_hs_tv :: HsTyVarBndr Name -> TcM (Name, TcKind)
@@ -1169,7 +1141,7 @@ tcHsTyVarBndrs :: LHsTyVarBndrs Name
 -- Bind the kind variables to fresh skolem variables
 -- and type variables to skolems, each with a meta-kind variable kind
 tcHsTyVarBndrs (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thing_inside
-  = go (map UserTyVar kv_ns ++ hs_tvs) $ \tvs ->
+  = go (map UserTyVar kv_ns ++ map unLoc hs_tvs) $ \tvs ->
     do { traceTc "tcHsTyVarBndrs {" (vcat [ text "Hs implicit vars:" <+> ppr kv_ns
                                           , text "Hs explicit vars:" <+> ppr hs_tvs
                                           , text "Tyvars:" <+> ppr tvs ])
@@ -1336,14 +1308,15 @@ splitTelescopeTvs kind (HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
            -> [LHsTyVarBndr Name] -- explicit variables
            -> ( [TyVar]           -- the tyvars to be bound
               , Type -> Type )    -- a function to create the result k
-    mk_tvs (m_tv : m_tvs) (imp : imps) (kind : kinds) all_hs_kvs all_hs_tvs
-      | Just tv <- m_tv
-      , (hs_kv : hs_kvs) <- all_hs_kvs
-      = ASSERT( imp == Implicit )
-        ASSERT( kind `eqType` tyVarKind tv)
-        if getName tv == hs_kv
-        then mk_tvs1 m_tvs imps kinds all_hs_kvs all_hs_tvs -- no more Case (1)
-        else mk_tvs m_tvs imps kinds all_hs_kvs all_hs_tvs  -- Case (1)
+    mk_tvs (Just tv : m_tvs) (Implicit : imps) (kind : kinds) all_hs_kvs all_hs_tvs
+      | hs_kv : hs_kvs <- all_hs_kvs
+      , getName tv == hs_kv
+      = ASSERT( kind `eqType` tyVarKind tv)
+        mk_tvs1 m_tvs imps kinds hs_kvs all_hs_tvs -- no more Case (1)
+
+      | otherwise
+      = ASSERT( kind `eqType` tyVarKind tv)
+        mk_tvs m_tvs imps kinds all_hs_kvs all_hs_tvs  -- Case (1)
 
     mk_tvs all_m_tvs all_imps all_kinds all_hs_kvs all_hs_tvs
       | [] <- all_hs_kvs
@@ -1364,10 +1337,10 @@ splitTelescopeTvs kind (HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
             -> [LHsTyVarBndr Name] -- explicit variables
             -> ( [TyVar]           -- the tyvars to be bound
                , Type -> Type )    -- a function to create the result k
-    mk_tvs1 (m_tv : m_tvs) (imp : imps) (kind : kinds) (hs_kv : hs_kvs) all_hs_tvs
-      | Just tv <- m_tv
+    mk_tvs1 (Just tv : m_tvs) (imp : imps) (kind : kinds)
+            (hs_kv : hs_kvs) all_hs_tvs
       = ASSERT( imp == Implicit )
-        ASSERT( getName m_tv == hs_kv )
+        ASSERT( getName tv == hs_kv )
         ASSERT( kind `eqType` tyVarKind tv )
         liftFst (tv :) $ mk_tvs1 m_tvs imps kinds hs_kvs all_hs_tvs -- Case (2)
 
@@ -1390,7 +1363,7 @@ splitTelescopeTvs kind (HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
                , Type -> Type )
     mk_tvs2 (m_tv : m_tvs) (imp : imps) (kind : kinds) (hs_tv : hs_tvs)
       | Just tv <- m_tv
-      = ASSERT( imp == Explicit )
+      = ASSERT2( imp == Explicit, err_doc )
         ASSERT( getName tv == hsLTyVarName hs_tv )
         ASSERT( tyVarKind tv `eqType` kind )
         liftFst (tv :) $ mk_tvs2 m_tvs imps kinds hs_tvs   -- Case (3)
@@ -1399,6 +1372,11 @@ splitTelescopeTvs kind (HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
       = ASSERT( Explicit == imp )
         liftFst (mkTyVar (hsLTyVarName hs_tv) kind :) $
         mk_tvs2 m_tvs imps kinds hs_tvs                    -- Case (4)
+      where
+        err_doc = vcat [ ppr (m_tv : m_tvs)
+                       , ppr (imp : imps)
+                       , ppr (kind : kinds)
+                       , ppr (hs_tv : hs_tvs) ]
 
     mk_tvs2 all_m_tvs all_imps all_kinds []                -- All done!
       = ([], unsplitPiTypes all_m_tvs all_imps all_kinds)
@@ -1415,8 +1393,13 @@ kcTyClTyVars :: Name -> LHsTyVarBndrs Name -> TcM () -> TcM ()
 -- when doing the initial kind-check.  
 kcTyClTyVars name hs_tvs thing_inside
   = do { tc_kind <- kcLookupKind name
-       ; let (tvs, res_k) = splitTelescopeTvs tc_kind hs_tvs
-       ; tcExtendTyVarEnv tvs $ thing_inside
+       ; let (tvs, _) = splitTelescopeTvs tc_kind hs_tvs
+       ; traceTc "kcTyClTyVars splitTelescopeTvs:"
+           (vcat [ text "Tycon:" <+> ppr name
+                 , text "Kind:" <+> ppr tc_kind
+                 , text "hs_tvs:" <+> ppr hs_tvs
+                 , text "tvs:" <+> ppr tvs ])
+       ; tcExtendTyVarEnv tvs $ thing_inside }
 
 -----------------------
 tcTyClTyVars :: Name -> LHsTyVarBndrs Name	-- LHS of the type or class decl
@@ -1441,6 +1424,13 @@ tcTyClTyVars tycon hs_tvs thing_inside
                      -- TcTyClDecls, where the local env is extended with
                      -- the generalized_env (mapping Names to AThings).
              (tvs, res_k) = splitTelescopeTvs kind hs_tvs
+       ; traceTc "tcTyClTyVars splitTelescopeTvs:"
+           (vcat [ text "Tycon:" <+> ppr tycon
+                 , text "Kind:" <+> ppr kind
+                 , text "hs_tvs:" <+> ppr hs_tvs
+                 , text "tvs:" <+> ppr tvs
+                 , text "res_k:" <+> ppr res_k] )
+
        ; tcExtendTyVarEnv tvs $ thing_inside tvs kind res_k }
 
 -----------------------------------
@@ -1811,10 +1801,10 @@ checkExpectedKind hs_ty ty act_kind (EK exp_kind ek_ctxt)
     -- in unifyKindX and such.
     instantiate :: TcType    -- the type
                 -> TcKind    -- of this kind
-                -> ExpKind   -- but expected to be of this one
+                -> TcKind   -- but expected to be of this one
                 -> TcM ( TcType   -- the inst'ed type
                        , TcKind ) -- its new kind
-    instantiate ty act_ki (EK exp_ki _)
+    instantiate ty act_ki exp_ki
       = let (act_tvs, act_inner_ki) = splitForAllTysImplicit act_ki
             (exp_tvs, _)            = splitForAllTysImplicit exp_ki
             num_to_inst = length act_tvs - length exp_tvs
@@ -1824,10 +1814,13 @@ checkExpectedKind hs_ty ty act_kind (EK exp_kind ek_ctxt)
         if num_to_inst <= 0 then return (ty, act_ki)
         else
         do { args <- mapM (newFlexiTyVarTy . tyVarKind) inst_tvs
+           ; traceTc "instantiating implicit dependent vars:"
+               (vcat $ zipWith (\tv arg -> ppr tv <+> text ":=" <+> ppr arg)
+                               inst_tvs args)
            ; let (args', subst) = substTelescope inst_tvs args
                  rebuilt_act_ki = mkImpForAllTys leftover_tvs act_inner_ki
                  act_ki' = substTy subst rebuilt_act_ki
-           ; return (mkNakedAppTys ty args, act_ki') }
+           ; return (mkNakedAppTys ty args', act_ki') }
 
 \end{code}
 

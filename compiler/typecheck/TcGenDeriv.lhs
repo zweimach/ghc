@@ -1689,10 +1689,10 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
                               Just (fun_ty, _) -> (caseTyApp fun_ty (last xrs), True)
        where
          (xrs,xcs) = unzip (map (go co) args)
-    go co (ForAllTy v Implicit x) | v /= var && xc = (caseForAll v xr,True)
+    go co (ForAllTy v TyCoRep.Implicit x) | v /= var && xc = (caseForAll v xr,True)
         where (xr,xc) = go co x
               -- TODO (RAE): Fix.
-    go co (ForAllTy v Explicit x) = panic "unexpected explicit binder"
+    go _ (ForAllTy _ TyCoRep.Explicit _) = panic "unexpected explicit binder"
     go _ _ = (caseTrivial,False)
 
 -- Return all syntactic subterms of ty that contain var somewhere

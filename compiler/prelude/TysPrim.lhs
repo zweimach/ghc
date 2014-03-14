@@ -460,7 +460,7 @@ mkProxyPrimTy k ty = TyConApp proxyPrimTyCon [k, ty]
 
 proxyPrimTyCon :: TyCon
 proxyPrimTyCon = mkPrimTyCon proxyPrimTyConName kind [Nominal,Nominal] VoidRep
-  where kind = ForAllTy Implicit kv $ mkArrowKind k unliftedTypeKind
+  where kind = ForAllTy kv Implicit $ mkArrowKind k unliftedTypeKind
         kv   = kKiVar
         k    = mkOnlyTyVarTy kv
 

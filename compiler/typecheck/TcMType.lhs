@@ -997,7 +997,7 @@ zonkTcType ty
                                  ; ty' <- go ty
                                  ; return (ForAllTy tv' imp ty') }
 
-    go_co (Refl r ty)               = ReflCo r <$> go ty
+    go_co (Refl r ty)               = Refl r <$> go ty
     go_co (TyConAppCo r tc args)    = TyConAppCo r tc <$> mapM go_arg args
     go_co (AppCo co arg)            = AppCo <$> go_co co <*> go_arg arg
     go_co (CoVarCo cv)              = CoVarCo <$> zonkTyCoVarKind cv
@@ -1047,7 +1047,7 @@ zonkTcTyCoVarBndr :: TcTyCoVar -> TcM TcTyCoVar
 -- unification variables.
 zonkTcTyCoVarBndr tyvar
     -- can't use isCoVar, because it looks at a TyCon. Argh.
-  = ASSERT2( isImmutableTyVar tyvar || (not isTyVar tyvar), ppr tyvar ) do
+  = ASSERT2( isImmutableTyVar tyvar || (not $ isTyVar tyvar), ppr tyvar ) do
     updateTyVarKindM zonkTcType tyvar
 
 zonkTcTyCoVar :: TcTyCoVar -> TcM TcType

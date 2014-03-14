@@ -27,7 +27,7 @@ import ParserCoreUtils
 import LexCore
 import Literal
 import SrcLoc
-import qualified Var  ( ImplicitFlag(..) )
+import qualified Type  ( ImplicitFlag(..) )
 import PrelNames
 import TysPrim
 import TyCon ( TyCon, tyConName )
@@ -190,7 +190,7 @@ bty	:: { IfaceType }
 ty	:: { IfaceType }
 	: bty	                     { $1 }
 	| bty '->' ty                { IfaceFunTy $1 $3 }
-        | '%forall' tv_bndrs '.' ty  { foldr (\a -> IfaceForAllTy a Implicit) $4 (map IfaceTv $2) }
+        | '%forall' tv_bndrs '.' ty  { foldr (\a -> IfaceForAllTy a Type.Implicit) $4 (map IfaceTv $2) }
 -- ToDo: make the last production above work.
 ----------------------------------------------
 --        Bindings are in Iface syntax
@@ -232,8 +232,8 @@ id_bndr	:: { IfaceIdBndr }
 	: '(' fs_var_occ '::' ty ')'	{ ($2,$4) }
 
 tv_bndr	:: { IfaceTvBndr }
-        :  fs_var_occ                    { ($1, ifaceLiftedTypeKind, Var.Explicit) }
-        |  '(' fs_var_occ '::' akind ')' { ($2, $4, Var.Explicit) }
+        :  fs_var_occ                    { ($1, ifaceLiftedTypeKind) }
+        |  '(' fs_var_occ '::' akind ')' { ($2, $4) }
 
 tv_bndrs 	:: { [IfaceTvBndr] }
 	: {- empty -}	{ [] }
@@ -326,7 +326,7 @@ d_pat_occ :: { OccName }
 ifaceKind kc = IfaceTyConApp kc []
 
 ifaceBndrName (IfaceIdBndr (n,_)) = n
-ifaceBndrName (IfaceTvBndr (n,_,_)) = n
+ifaceBndrName (IfaceTvBndr (n,_)) = n
 
 convIntLit :: Integer -> IfaceType -> Literal
 convIntLit i (IfaceTyConApp tc [])
@@ -379,7 +379,7 @@ ifaceUnliftedTypeKind = ifaceTcType (IfaceTc unliftedTypeKindTyConName)
 ifaceArrow ifT1 ifT2 = IfaceFunTy ifT1 ifT2
 
 toHsTvBndr :: IfaceTvBndr -> LHsTyVarBndr RdrName
-toHsTvBndr (tv,k,_) = noLoc $ KindedTyVar (mkRdrUnqual (mkTyVarOccFS tv)) bsig
+toHsTvBndr (tv,k) = noLoc $ KindedTyVar (mkRdrUnqual (mkTyVarOccFS tv)) bsig
                   where
                     bsig = toHsKind k
 
@@ -388,7 +388,7 @@ ifaceExtRdrName name = mkOrig (nameModule name) (nameOccName name)
 ifaceExtRdrName other = pprPanic "ParserCore.ifaceExtRdrName" (ppr other)
 
 add_forall tv (L _ (HsForAllTy exp tvs cxt t))
-  = noLoc $ HsForAllTy exp (mkHsQTvs (tv : hsQTvBndrs tvs)) cxt t
+  = noLoc $ HsForAllTy exp (mkHsQTvs (tv : hsQTvExplicit tvs)) cxt t
 add_forall tv t
   = noLoc $ HsForAllTy Explicit (mkHsQTvs [tv]) (noLoc []) t
   

@@ -4,6 +4,8 @@
 \section[RnSource]{Main pass of renamer}
 
 \begin{code}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module RnTypes (
         -- Type related stuff
         rnHsType, rnLHsType, rnLHsTypes, rnContext,
@@ -344,7 +346,8 @@ bindSigTyVarsFV tvs thing_inside
                 bindLocalNamesFV tvs thing_inside }
 
 ---------------
-bindHsTyVars :: HsDocContext
+bindHsTyVars :: forall a b.
+                HsDocContext
              -> Maybe a                 -- Just _  => an associated type decl
              -> [RdrName]               -- Kind variables from scope
              -> LHsTyVarBndrs RdrName   -- Type variables
@@ -399,7 +402,7 @@ bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
        ; checkDupRdrNames tv_names_w_loc
        ; when (isNothing mb_assoc) (checkShadowedRdrNames tv_names_w_loc)
 
-       ; rn_tv_bndr tvs } }
+       ; rn_tv_bndr [] tvs } }
 
 newTyVarNameRn :: Maybe a -> LocalRdrEnv -> SrcSpan -> RdrName -> RnM Name
 newTyVarNameRn mb_assoc rdr_env loc rdr
@@ -419,7 +422,7 @@ rnHsBndrSig doc (HsWB { hswb_cts = ty@(L loc _) }) thing_inside
        ; unless sig_ok (badSigErr True doc ty)
        ; let (kv_bndrs, tv_bndrs) = extractHsTyRdrTyVars ty
        ; name_env <- getLocalRdrEnv
-       ; arv_names <- newLocalBndrsRn [L loc tv | tv <- (kv_bndrs ++ tv_bndrs)
+       ; var_names <- newLocalBndrsRn [L loc tv | tv <- (kv_bndrs ++ tv_bndrs)
                                                 , not (tv `elemLocalRdrEnv` name_env) ]
        ; bindLocalNamesFV var_names $
     do { (ty', fvs1) <- rnLHsType doc ty

@@ -200,7 +200,7 @@ type Kind = Type
 data ImplicitFlag
   = Implicit     -- ^ The parameter is not supplied
   | Explicit     -- ^ The parameter must be supplied
-    deriving (Eq, Typeable)
+    deriving (Eq, Data.Data, Data.Typeable)
 
 instance Outputable ImplicitFlag where
   ppr Implicit     = text "i"
@@ -1911,10 +1911,9 @@ ppr_tylit _ tl =
 ppr_sigma_type :: Bool -> Type -> SDoc
 -- Bool <=> Show the foralls
 ppr_sigma_type show_foralls ty
-  = sdocWithDynFlags $ \ dflags ->
-    in sep [ ppWhen show_foralls (pprForAll tvs imps)
-           , pprThetaArrowTy ctxt
-           , pprType tau ]
+  = sep [ ppWhen show_foralls (pprForAll tvs imps)
+        , pprThetaArrowTy ctxt
+        , pprType tau ]
   where
     (tvs, imps, rho) = split1 [] [] ty
     (ctxt, tau)      = split2 [] rho
@@ -1936,23 +1935,24 @@ pprForAllImplicit tvs = pprForAll tvs (repeat Implicit)
 pprForAll :: [TyCoVar] -> [ImplicitFlag] -> SDoc
 pprForAll []  _    = empty
 pprForAll tvs imps = add_separator $ text "forall" <+> doc <+> pprForAll tvs' imps'
-  first_imp : _ = imps       -- guaranteed to work, because length imps >= length tvs
-  (tvs', imps', doc) = ppr_tcv_bndrs tvs imps first_imp
+  where
+    first_imp : _ = imps       -- guaranteed to work, because length imps >= length tvs
+    (tvs', imps', doc) = ppr_tcv_bndrs tvs imps first_imp
 
-  add_separator stuff = case first_imp of
-                          Implicit -> stuff <>  dot
-                          Explicit -> stuff <+> arrow
+    add_separator stuff = case first_imp of
+                            Implicit -> stuff <>  dot
+                            Explicit -> stuff <+> arrow
 
 pprTCvBndrs :: [TyCoVar] -> SDoc
 pprTCvBndrs tvs = sep (map pprTCvBndr tvs)
 
 ppr_tcv_bndrs :: [TyCoVar] -> [ImplicitFlag] -> ImplicitFlag
               -> ([TyCoVar], [ImplicitFlag], SDoc)
-ppr_tcv_bndrs []       _          _         = ([], [], empty)
 ppr_tcv_bndrs (tv:tvs) (imp:imps) first_imp
   | imp == first_imp = let (tvs', imps', doc) = ppr_tcv_bndrs tvs imps first_imp in
                        (tvs', imps', pprTCvBndr tv <+> doc)
   | otherwise        = (tv:tvs, imp:imps, empty)
+ppr_tcv_bndrs _       _          _         = ([], [], empty)
 
 pprTCvBndr :: TyCoVar -> SDoc
 pprTCvBndr tv

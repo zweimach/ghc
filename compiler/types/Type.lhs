@@ -16,7 +16,7 @@ module Type (
         -- $type_classification
 
         -- $representation_types
-        TyThing(..), Type, KindOrType, PredType, ThetaType,
+        TyThing(..), Type, ImplicitFlag(..), KindOrType, PredType, ThetaType,
         Var, TyVar, isTyVar, TyCoVar,
 
         -- ** Constructing and deconstructing types
@@ -50,6 +50,7 @@ module Type (
 
         splitForAllTysImplicit, filterImplicits,
         splitAtImplicits, synTyConResKind,
+        tyConTvVisibilities,
 
         -- (Newtypes)
         newTyConInstRhs,
@@ -186,7 +187,7 @@ import Outputable
 import FastString
 import Pair
 
-import Data.List        ( partition, sortBy )
+import Data.List        ( partition, sort )
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
@@ -830,15 +831,16 @@ mkImpForAllTys tvs = zipForAllTys tvs (repeat Implicit)
 mkExpForAllTys :: [TyCoVar] -> Type -> Type
 mkExpForAllTys tvs = zipForAllTys tvs (repeat Explicit)
 
+  -- TODO (RAE): should these ever produce Explicit?
 mkPiType  :: Var -> Type -> Type
--- ^ Makes a @(->)@ type or a forall type, depending
+-- ^ Makes a @(->)@ type or an implicit forall type, depending
 -- on whether it is given a type variable or a term variable.
 mkPiTypes :: [Var] -> Type -> Type
 -- ^ 'mkPiType' for multiple type or value arguments
 
 mkPiType v ty
    |  isTyVar v
-   || isCoVar v = mkForAllTy v ty
+   || isCoVar v = mkForAllTy v Implicit ty
    | otherwise  = mkFunTy (varType v) ty
 
 mkPiTypes vs ty = foldr mkPiType ty vs
@@ -854,11 +856,11 @@ mkPiTypesPreferFunTy vars inner_ty = fst $ go vars inner_ty
     go (v:vs) ty
       | isTyVar v
       = if v `elemVarSet` fvs
-        then (mkForAllTy v qty, fvs `delVarSet` v `unionVarSet` kind_vars)
-        else (mkFunTy (tyVarKind v) qty, fvs `unionVarSet` kind_vars))
+        then (mkForAllTy v Explicit qty, fvs `delVarSet` v `unionVarSet` kind_vars)
+        else (mkFunTy (tyVarKind v) qty, fvs `unionVarSet` kind_vars)
       | otherwise
       = ASSERT( isCoVar v )
-        (mkForAllTy v qty, fvs `delVarSet` v `unionVarSet` kind_vars)
+        (mkForAllTy v Implicit qty, fvs `delVarSet` v `unionVarSet` kind_vars)
       where
         (qty, fvs) = go vs ty
         kind_vars  = tyCoVarsOfType $ tyVarKind v
@@ -896,8 +898,9 @@ unsplitPiTypes [] [] [] ty = ty
 unsplitPiTypes (Nothing : m_tvs) (Explicit : imps) (ki : kis) ty
   = mkFunTy ki (unsplitPiTypes m_tvs imps kis ty)
 unsplitPiTypes (Just tv : m_tvs) (imp : imps) (ki : kis) ty
-  = mkForAllTy tv imp (unsplitPiTypes m_tvs imps kis ty)
-unsplitPiTypes _ _ _ = panic "unsplitPiTypes"
+  = ASSERT( tyVarKind tv `eqType` ki )
+    mkForAllTy tv imp (unsplitPiTypes m_tvs imps kis ty)
+unsplitPiTypes _ _ _ _ = panic "unsplitPiTypes"
 
 isForAllTy :: Type -> Bool
 isForAllTy (ForAllTy {})  = True
@@ -969,6 +972,7 @@ splitAtImplicits = go []
   where go acc []     _             = (reverse acc, [])
         go acc (x:xs) (Implicit:is) = go (x:acc) xs is
         go acc xs     (Explicit:_)  = (reverse acc, xs)
+        go _   (_:_)  _             = panic "splitAtImplicits"
 
 tyConTvVisibilities :: TyCon -> [ImplicitFlag]
 tyConTvVisibilities tc = imps ++ replicate (tyConArity tc - length imps) Explicit
@@ -1736,6 +1740,6 @@ tyConsOfType ty
 -- Actually this function works fine on data types too, 
 -- but they'd always return '*', so we never need to ask
 synTyConResKind :: TyCon -> Kind
-synTyConResKind tycon = piResultTys (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon)
+synTyConResKind tycon = piResultTys (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
 
 \end{code}

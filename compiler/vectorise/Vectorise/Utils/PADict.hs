@@ -20,6 +20,7 @@ import TyCon
 import CoAxiom
 import Var
 import Outputable
+import Util               ( thdOf3 )
 import DynFlags
 import FastString
 import Control.Monad

@@ -621,7 +621,7 @@ initialRoleEnv1 is_boot annots_env tc
   where name         = tyConName tc
         tyvars       = tyConTyVars tc
         impflags     = tyConTvVisibilities tc
-        num_exps     = count (== Explicit) impflags
+        num_exps     = count (== Type.Explicit) impflags
 
           -- if the number of annotations in the role annotation decl
           -- is wrong, just ignore it. We check this in the validity check.
@@ -632,9 +632,9 @@ initialRoleEnv1 is_boot annots_env tc
               _                              -> replicate num_exps Nothing
         default_roles = build_default_roles impflags role_annots
 
-        build_default_roles (Implicit : imps) ras
+        build_default_roles (Type.Implicit : imps) ras
           = Nominal : build_default_roles imps ras
-        build_default_roles (Explicit : imps) (m_annot : ras)
+        build_default_roles (Type.Explicit : imps) (m_annot : ras)
           = (m_annot `orElse` default_role) : build_default_roles imps ras
         build_default_roles [] [] = []
         build_default_roles _ _ = pprPanic "initialRoleEnv1 (2)"

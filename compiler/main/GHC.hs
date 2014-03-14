@@ -185,7 +185,7 @@ module GHC (
         FamInst,
 
         -- ** Types and Kinds
-        Type, ImplicitFlag(..), splitForAllTys, funResultTy, 
+        Type, splitForAllTys, funResultTy, 
         pprParendType, pprTypeApp, 
         Kind,
         PredType,
@@ -270,7 +270,7 @@ import NameSet
 import RdrName
 import qualified HsSyn -- hack as we want to reexport the whole module
 import HsSyn
-import Type     hiding( typeKind )
+import Type     hiding( typeKind, ImplicitFlag(..) )
 import TcType           hiding( typeKind )
 import Id
 import TysPrim          ( alphaTyVars )

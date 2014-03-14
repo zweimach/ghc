@@ -23,7 +23,8 @@ module VarSet (
 	intersectVarSet, intersectsVarSet, disjointVarSet,
 	isEmptyVarSet, delVarSet, delVarSetList, delVarSetByKey,
 	minusVarSet, foldVarSet, filterVarSet, fixVarSet,
-	lookupVarSet, mapVarSet, sizeVarSet, seqVarSet,
+	lookupVarSet, lookupVarSetByName,
+        mapVarSet, sizeVarSet, seqVarSet,
 	elemVarSetByKey, partitionVarSet
     ) where
 
@@ -31,6 +32,7 @@ module VarSet (
 
 import Var      ( Var, TyVar, CoVar, TyCoVar, Id )
 import Unique
+import Name     ( Name )
 import UniqSet
 \end{code}
 
@@ -65,6 +67,7 @@ foldVarSet	:: (Var -> a -> a) -> a -> VarSet -> a
 lookupVarSet	:: VarSet -> Var -> Maybe Var
 			-- Returns the set element, which may be
 			-- (==) to the argument, but not the same as
+lookupVarSetByName :: VarSet -> Name -> Maybe Var
 mapVarSet 	:: (Var -> Var) -> VarSet -> VarSet
 sizeVarSet	:: VarSet -> Int
 filterVarSet	:: (Var -> Bool) -> VarSet -> VarSet
@@ -98,6 +101,7 @@ isEmptyVarSet	= isEmptyUniqSet
 mkVarSet	= mkUniqSet
 foldVarSet	= foldUniqSet
 lookupVarSet	= lookupUniqSet
+lookupVarSetByName = lookupUniqSet
 mapVarSet	= mapUniqSet
 sizeVarSet	= sizeUniqSet
 filterVarSet	= filterUniqSet

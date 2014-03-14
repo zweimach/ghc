@@ -452,11 +452,12 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
                           ifRec = is_rec, ifAxiom = mb_axiom_name })
   = bindIfaceTyVars_AT tv_bndrs $ \ tyvars -> do
     { tc_name <- lookupIfaceTop occ_name
+    ; kind' <- tcIfaceType kind
     ; tycon <- fixM $ \ tycon -> do
             { stupid_theta <- tcIfaceCtxt ctxt
             ; parent' <- tc_parent tyvars mb_axiom_name
             ; cons <- tcIfaceDataCons tc_name tycon tyvars rdr_cons
-            ; return (mkAlgTyCon tc_name kind tyvars roles cType stupid_theta
+            ; return (mkAlgTyCon tc_name kind' tyvars roles cType stupid_theta
                                     cons parent' is_rec gadt_syn) }
     ; traceIf (text "tcIfaceDecl4" <+> ppr tycon)
     ; return (ATyCon tycon) }
