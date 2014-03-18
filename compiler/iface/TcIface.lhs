@@ -510,13 +510,15 @@ tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyVars = tv_bndrs,
 
 tc_iface_decl _parent ignore_prags
             (IfaceClass {ifCtxt = rdr_ctxt, ifName = tc_occ,
-                         ifTyVars = tv_bndrs, ifRoles = roles, ifFDs = rdr_fds,
+                         ifTyVars = tv_bndrs, ifRoles = roles, ifKind = kind,
+                         ifFDs = rdr_fds,
                          ifATs = rdr_ats, ifSigs = rdr_sigs,
                          ifMinDef = mindef_occ, ifRec = tc_isrec })
 -- ToDo: in hs-boot files we should really treat abstract classes specially,
 --       as we do abstract tycons
   = bindIfaceTvBndrs tv_bndrs $ \ tyvars -> do
     { tc_name <- lookupIfaceTop tc_occ
+    ; kind' <- tcIfaceType kind
     ; traceIf (text "tc-iface-class1" <+> ppr tc_occ)
     ; ctxt <- mapM tc_sc rdr_ctxt
     ; traceIf (text "tc-iface-class2" <+> ppr tc_occ)
@@ -527,7 +529,7 @@ tc_iface_decl _parent ignore_prags
     ; cls  <- fixM $ \ cls -> do
               { ats  <- mapM (tc_at cls) rdr_ats
               ; traceIf (text "tc-iface-class4" <+> ppr tc_occ)
-              ; buildClass ignore_prags tc_name tyvars roles ctxt fds ats sigs mindef tc_isrec }
+              ; buildClass ignore_prags tc_name tyvars roles ctxt kind' fds ats sigs mindef tc_isrec }
     ; return (ATyCon (classTyCon cls)) }
   where
    tc_sc pred = forkM (mk_sc_doc pred) (tcIfaceType pred)

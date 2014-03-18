@@ -64,6 +64,7 @@ vectTyConDecl tycon name'
                      (tyConTyVars tycon)        -- keep original type vars
                      (map (const Nominal) (tyConRoles tycon)) -- all role are N for safety
                      theta'                     -- superclasses
+                     (tyConKind tycon)          -- keep original kind
                      (snd . classTvsFds $ cls)  -- keep the original functional dependencies
                      []                         -- no associated types (for the moment)
                      methods'                   -- method info

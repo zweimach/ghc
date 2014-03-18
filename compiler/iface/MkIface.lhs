@@ -1602,9 +1602,10 @@ toIfaceBang _   (HsUserBang {})      = panic "toIfaceBang"
 classToIfaceDecl :: TidyEnv -> Class -> IfaceDecl
 classToIfaceDecl env clas
   = IfaceClass { ifCtxt   = tidyToIfaceContext env1 sc_theta,
-                 ifName   = getOccName (classTyCon clas),
+                 ifName   = getOccName tycon,
                  ifTyVars = toIfaceTvBndrs clas_tyvars',
-                 ifRoles  = tyConRoles (classTyCon clas),
+                 ifRoles  = tyConRoles tycon,
+                 ifKind   = toIfaceType (tyConKind tycon),
                  ifFDs    = map toIfaceFD clas_fds,
                  ifATs    = map toIfaceAT clas_ats,
                  ifSigs   = map toIfaceClassOp op_stuff,

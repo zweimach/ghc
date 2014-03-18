@@ -7,7 +7,7 @@ TcTyClsDecls: Typecheck type and class declarations
 
 \begin{code}
 {-# LANGUAGE TupleSections #-}
-
+{-# LANGUAGE MultiWayIf #-} -- RAE
 module TcTyClsDecls (
         tcTyAndClassDecls, tcAddImplicits,
 
@@ -163,6 +163,12 @@ tcTyClGroup boot_details tyclds
            -- We can do this now because we are done with the recursive knot
            -- Do it before Step 4 (adding implicit things) because the latter
            -- expects well-formed TyCons
+       ; traceTc "RAE2" (ppr tyclss)
+       ; if | [ATyCon tc] <- tyclss
+            , isAlgTyCon tc
+            , let dcs = visibleDataCons (algTyConRhs tc)
+            -> traceTc "RAE3" (vcat [ ppr tc, ppr (map dataConFullSig dcs) ])
+            | otherwise -> return ()
        ; tcExtendGlobalEnv tyclss $ do
        { traceTc "Starting validity check" (ppr tyclss)
        ; checkNoErrs $
@@ -622,7 +628,7 @@ tcTyClDecl1 _parent rec_info
             , tcdATs = ats, tcdATDefs = at_defs })
   = ASSERT( isNoParent _parent )
     do { (clas, tvs', gen_dm_env) <- fixM $ \ ~(clas,_,_) ->
-            tcTyClTyVars class_name tvs $ \ tvs' _full_kind res_kind ->
+            tcTyClTyVars class_name tvs $ \ tvs' full_kind res_kind ->
             do { MASSERT( isConstraintKind res_kind )
                  -- This little knot is just so we can get
                  -- hold of the name of the class TyCon, which we
@@ -639,7 +645,7 @@ tcTyClDecl1 _parent rec_info
                ; at_stuff <- tcClassATs class_name (AssocFamilyTyCon clas) ats at_defs
                ; mindef <- tcClassMinimalDef class_name sigs sig_stuff
                ; clas <- buildClass False {- Must include unfoldings for selectors -}
-                            class_name tvs' roles ctxt' fds' at_stuff
+                            class_name tvs' roles ctxt' full_kind fds' at_stuff
                             sig_stuff mindef tc_isrec
                ; traceTc "tcClassDecl" (ppr fundeps $$ ppr tvs' $$ ppr fds')
                ; return (clas, tvs', gen_dm_env) }
@@ -779,6 +785,7 @@ tcDataDefn rec_info tc_name tvs tycon_kind res_kind
   = do { extra_tvs <- tcDataKindSig res_kind
        ; let final_tvs  = tvs `chkAppend` extra_tvs
              roles      = rti_roles rec_info tc_name
+       ; traceTc "RAE1" (vcat [ppr tc_name, ppr cons, ppr final_tvs])
        ; stupid_theta <- tcHsContext ctxt
        ; kind_signatures <- xoptM Opt_KindSignatures
        ; is_boot         <- tcIsHsBoot  -- Are we compiling an hs-boot file?

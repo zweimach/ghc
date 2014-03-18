@@ -176,6 +176,7 @@ buildClass :: Bool		-- True <=> do not include unfoldings
 				--	    on dict selectors
 				-- Used when importing a class without -O
 	   -> Name -> [TyVar] -> [Role] -> ThetaType
+           -> Kind
 	   -> [FunDep TyVar]		   -- Functional dependencies
 	   -> [ClassATItem]		   -- Associated types
 	   -> [TcMethInfo]                 -- Method info
@@ -183,7 +184,7 @@ buildClass :: Bool		-- True <=> do not include unfoldings
 	   -> RecFlag			   -- Info for type constructor
 	   -> TcRnIf m n Class
 
-buildClass no_unf tycon_name tvs roles sc_theta fds at_items sig_stuff mindef tc_isrec
+buildClass no_unf tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_isrec
   = fixM  $ \ rec_clas -> 	-- Only name generation inside loop
     do	{ traceIf (text "buildClass")
         ; dflags <- getDynFlags
@@ -244,9 +245,7 @@ buildClass no_unf tycon_name tvs roles sc_theta fds at_items sig_stuff mindef tc
 		 then mkNewTyConRhs tycon_name rec_tycon dict_con
 		 else return (mkDataTyConRhs [dict_con])
 
-	; let {	clas_kind = mkPiTypesPreferFunTy tvs constraintKind
-
- 	      ; tycon = mkClassTyCon tycon_name clas_kind tvs roles
+	; let { tycon = mkClassTyCon tycon_name kind tvs roles
  	                             rhs rec_clas tc_isrec
 		-- A class can be recursive, and in the case of newtypes 
 		-- this matters.  For example

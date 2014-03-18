@@ -946,15 +946,9 @@ isImplicitForall _                       = False
 
 -- | Given a tycon and its arguments, filters out any implicit arguments
 filterImplicits :: TyCon -> [a] -> [a]
-filterImplicits tc = go (tyConKind tc)
+filterImplicits tc xs = [ x | (x, Explicit) <- zip xs imps ]
   where
-    go _ [] = []
-    go k (a:as)
-      | isImplicitForall k = go res_k as
-      | otherwise          = a : go res_k as
-      where
-        res_k = piResultTy k (pprPanic "filterImplicits" (ppr k))
-
+    (_, imps, _, _) = splitPiTypes (tyConKind tc)
 
 -- like splitForAllTys, but returns only *implicit* variables
 splitForAllTysImplicit :: Type -> ([TyCoVar], Type)

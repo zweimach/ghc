@@ -100,6 +100,7 @@ data IfaceDecl
                  ifName    :: OccName,          -- Name of the class TyCon
                  ifTyVars  :: [IfaceTvBndr],    -- Type variables
                  ifRoles   :: [Role],           -- Roles
+                 ifKind    :: IfaceType,        -- Kind of TyCon
                  ifFDs     :: [FunDep FastString], -- Functional dependencies
                  ifATs     :: [IfaceAT],      -- Associated type families
                  ifSigs    :: [IfaceClassOp],   -- Method signatures
@@ -156,7 +157,7 @@ instance Binary IfaceDecl where
         put_ bh a4
         put_ bh a5
 
-    put_ bh (IfaceClass a1 a2 a3 a4 a5 a6 a7 a8 a9) = do
+    put_ bh (IfaceClass a1 a2 a3 a4 a5 a6 a7 a8 a9 a10) = do
         putByte bh 4
         put_ bh a1
         put_ bh (occNameFS a2)
@@ -167,6 +168,7 @@ instance Binary IfaceDecl where
         put_ bh a7
         put_ bh a8
         put_ bh a9
+        put_ bh a10
 
     put_ bh (IfaceAxiom a1 a2 a3 a4) = do
         putByte bh 5
@@ -213,8 +215,9 @@ instance Binary IfaceDecl where
                     a7 <- get bh
                     a8 <- get bh
                     a9 <- get bh
+                    a10<- get bh
                     occ <- return $! mkOccNameFS clsName a2
-                    return (IfaceClass a1 occ a3 a4 a5 a6 a7 a8 a9)
+                    return (IfaceClass a1 occ a3 a4 a5 a6 a7 a8 a9 a10)
             _ -> do a1 <- get bh
                     a2 <- get bh
                     a3 <- get bh
@@ -1333,6 +1336,7 @@ freeNamesIfDecl d@IfaceSyn{} =
 freeNamesIfDecl d@IfaceClass{} =
   freeNamesIfTvBndrs (ifTyVars d) &&&
   freeNamesIfContext (ifCtxt d) &&&
+  freeNamesIfType (ifKind d) &&&
   fnList freeNamesIfAT     (ifATs d) &&&
   fnList freeNamesIfClsSig (ifSigs d)
 freeNamesIfDecl d@IfaceAxiom{} =

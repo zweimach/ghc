@@ -1934,7 +1934,7 @@ pprForAllImplicit tvs = pprForAll tvs (repeat Implicit)
 
 pprForAll :: [TyCoVar] -> [ImplicitFlag] -> SDoc
 pprForAll []  _    = empty
-pprForAll tvs imps = add_separator $ text "forall" <+> doc <+> pprForAll tvs' imps'
+pprForAll tvs imps = add_separator (text "forall" <+> doc) <+> pprForAll tvs' imps'
   where
     first_imp : _ = imps       -- guaranteed to work, because length imps >= length tvs
     (tvs', imps', doc) = ppr_tcv_bndrs tvs imps first_imp
