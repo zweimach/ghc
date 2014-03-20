@@ -218,7 +218,7 @@ tcExpr e@(HsLamCase _ matches) res_ty
 
 tcExpr (ExprWithTySig expr sig_ty) res_ty
  = do { sig_tc_ty <- tcHsSigType ExprSigCtxt sig_ty
-
+      
       -- Remember to extend the lexical type-variable environment
       ; (gen_fn, expr')
             <- tcGen ExprSigCtxt sig_tc_ty $ \ skol_tvs res_ty ->

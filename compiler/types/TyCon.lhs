@@ -1001,7 +1001,7 @@ mkPrimTyCon name kind roles rep
 -- | Kind constructors
 mkKindTyCon :: Name -> Kind -> TyCon
 mkKindTyCon name kind
-  = mkPrimTyCon' name kind [] VoidRep True
+  = mkPrimTyCon' name kind [] VoidRep False
 
 -- | Create a lifted primitive 'TyCon' such as @RealWorld@
 mkLiftedPrimTyCon :: Name  -> Kind -> [Role] -> PrimRep -> TyCon

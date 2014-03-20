@@ -227,9 +227,8 @@ tcGRHSs :: TcMatchCtxt body -> GRHSs Name (Located (body Name)) -> TcRhoType
 -- but we don't need to do that any more
 
 tcGRHSs ctxt (GRHSs grhss binds) res_ty
-  = do	{ (binds', grhss') <- tcLocalBinds binds $
+  = do	{(binds', grhss') <- tcLocalBinds binds $
 			      mapM (wrapLocM (tcGRHS ctxt res_ty)) grhss
-
 	; return (GRHSs grhss' binds') }
 
 -------------

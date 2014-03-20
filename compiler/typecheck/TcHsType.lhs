@@ -1146,7 +1146,7 @@ tcHsTyVarBndrs (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thing_in
     do { traceTc "tcHsTyVarBndrs {" (vcat [ text "Hs implicit vars:" <+> ppr kv_ns
                                           , text "Hs explicit vars:" <+> ppr hs_tvs
                                           , text "Tyvars:" <+> ppr tvs ])
-       ; result <- tcExtendTyVarEnv tvs $ thing_inside tvs
+       ; result <- thing_inside tvs
        ; traceTc "tcHsTyVarBndrs }" (vcat [ text "Hs implicit vars:" <+> ppr kv_ns
                                           , text "Hs explicit vars:" <+> ppr hs_tvs
                                           , text "Tyvars:" <+> ppr tvs ])
@@ -1154,6 +1154,7 @@ tcHsTyVarBndrs (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thing_in
   where go [] thing = thing []
         go (hs_tv : hs_tvs) thing
           = tcHsTyVarBndr hs_tv $ \tv ->
+            tcExtendTyVarEnv [tv] $
             go hs_tvs $ \tvs ->
             thing (tv : tvs)
 
@@ -1320,8 +1321,8 @@ splitTelescopeTvs kind (HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
       | hs_kv : hs_kvs <- all_hs_kvs
       , getName tv == hs_kv
       = ASSERT( kind `eqType` tyVarKind tv)
-        mk_tvs1 scoped_tv_acc all_tv_acc
-                m_tvs imps kinds hs_kvs all_hs_tvs -- no more Case (1)
+        mk_tvs1 (tv : scoped_tv_acc) (tv : all_tv_acc)
+                m_tvs imps kinds hs_kvs all_hs_tvs -- Case (2); no more Case (1)
 
       | otherwise
       = ASSERT( kind `eqType` tyVarKind tv)

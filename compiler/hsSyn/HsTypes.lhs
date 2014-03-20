@@ -526,7 +526,7 @@ instance Outputable HsTyLit where
 
 instance (OutputableBndr name) => Outputable (LHsTyVarBndrs name) where
     ppr (HsQTvs { hsq_implicit = kvs, hsq_explicit = tvs }) 
-      = sep [ ifPprDebug $ braces (interppSP kvs), interppSP tvs ]
+      = sep [ braces (interppSP kvs), interppSP tvs ]
 
 instance (OutputableBndr name) => Outputable (HsTyVarBndr name) where
     ppr (UserTyVar n)     = ppr n

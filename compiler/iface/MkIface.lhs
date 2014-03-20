@@ -1533,7 +1533,7 @@ tyConToIfaceDecl env tycon
 
   | isAlgTyCon tycon
   = IfaceData { ifName    = getOccName tycon,
-                ifKind    = toIfaceType (tyConKind tycon),
+                ifKind    = tidyToIfaceType env1 (tyConKind tycon),
                 ifCType   = tyConCType tycon,
                 ifTyVars  = toIfaceTvBndrs tyvars,
                 ifRoles   = tyConRoles tycon,
@@ -1605,7 +1605,7 @@ classToIfaceDecl env clas
                  ifName   = getOccName tycon,
                  ifTyVars = toIfaceTvBndrs clas_tyvars',
                  ifRoles  = tyConRoles tycon,
-                 ifKind   = toIfaceType (tyConKind tycon),
+                 ifKind   = tidyToIfaceType env1 (tyConKind tycon),
                  ifFDs    = map toIfaceFD clas_fds,
                  ifATs    = map toIfaceAT clas_ats,
                  ifSigs   = map toIfaceClassOp op_stuff,

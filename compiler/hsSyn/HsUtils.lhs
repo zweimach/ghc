@@ -401,18 +401,17 @@ This is needed to implement GeneralizedNewtypeDeriving.
 \begin{code}
 toHsType :: Type -> LHsType RdrName
 toHsType ty
-  | [] <- explicit_tvs_only
+  | [] <- tvs
   , [] <- theta
   = to_hs_type tau
   | otherwise
   = noLoc $
-    mkExplicitHsForAllTy (map mk_hs_tvb explicit_tvs_only)
+    mkExplicitHsForAllTy (map mk_hs_tvb tvs)
                          (noLoc $ map toHsType theta)
                          (to_hs_type tau)
 
   where
-    (tvs, imps, theta, tau) = tcSplitSigmaTy ty
-    explicit_tvs_only = map fst $ filter ((== TyCoRep.Explicit) . snd) $ zip tvs imps
+    (tvs, _, theta, tau) = tcSplitSigmaTy ty
 
     to_hs_type (TyVarTy tv) = nlHsTyVar (getRdrName tv)
     to_hs_type (AppTy t1 t2) = nlHsAppTy (toHsType t1) (toHsType t2)
