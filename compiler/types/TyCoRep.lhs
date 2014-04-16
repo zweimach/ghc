@@ -1052,8 +1052,8 @@ closeOverKinds :: TyCoVarSet -> TyCoVarSet
 -- Add the kind variables free in the kinds
 -- of the tyvars in the given set
 closeOverKinds tvs
-  = foldVarSet (\tv ktvs -> tyCoVarsOfType (tyVarKind tv) `unionVarSet` ktvs)
-               tvs tvs
+  = foldVarSet (\tv ktvs -> closeOverKinds (tyCoVarsOfType (tyVarKind tv))
+                            `unionVarSet` ktvs) tvs tvs
 \end{code}
 
 %************************************************************************

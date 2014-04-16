@@ -34,7 +34,7 @@ import TcRnMonad
 import PrelNames
 import TyCoRep     -- We can see the representation of types
 import TcType
-import TcMType ( zonkQuantifiedTyCoVar, writeMetaTyVar )
+import TcMType ( zonkQuantifiedTyCoVar, writeMetaTyVar, defaultKindVarToStar )
 import TcEvidence
 import TysPrim
 import TysWiredIn
@@ -1108,7 +1108,8 @@ zonkRules env rs = mapM (wrapLocM (zonkRule env)) rs
 zonkRule :: ZonkEnv -> RuleDecl TcId -> TcM (RuleDecl Id)
 zonkRule env (HsRule name act (vars{-::[RuleBndr TcId]-}) lhs fv_lhs rhs fv_rhs)
   = do { unbound_tkv_set <- newMutVar emptyVarSet
-       ; let env_rule = setZonkType env (zonkTvCollecting unbound_tkv_set)
+       ; let kind_var_set = identify_kind_vars vars
+             env_rule = setZonkType env (zonkTvCollecting kind_var_set unbound_tkv_set)
               -- See Note [Zonking the LHS of a RULE]
 
        ; (env_inside, new_bndrs) <- mapAccumLM zonk_bndr env_rule vars
@@ -1139,6 +1140,18 @@ zonkRule env (HsRule name act (vars{-::[RuleBndr TcId]-}) lhs fv_lhs rhs fv_rhs)
                     -- DV: used to be return (env,v) but that is plain
                     -- wrong because we may need to go inside the kind
                     -- of v and zonk there!
+
+     -- returns the set of type variables mentioned in the kind of another
+     -- type. This is used only when -XPolyKinds is not set.
+   identify_kind_vars :: [RuleBndr TcId] -> TyVarSet
+   identify_kind_vars rule_bndrs
+     = let vars = map strip_rulebndr rule_bndrs in
+       unionVarSets (map (\v -> if isTyVar v
+                                then tyCoVarsOfType (tyVarKind v)
+                                else emptyVarSet) vars)
+
+   strip_rulebndr (RuleBndr (L _ v)) = v
+   strip_rulebndr (RuleBndrSig {})   = panic "strip_rulebndr zonkRule"
 \end{code}
 
 \begin{code}
@@ -1419,14 +1432,13 @@ zonkCoArgToCoArg env (TyCoArg co)        = TyCoArg <$> zonkCoToCo env co
 zonkCoArgToCoArg env (CoCoArg r co1 co2) = CoCoArg r <$> zonkCoToCo env co1
                                                      <*> zonkCoToCo env co2
 
-zonkTvCollecting :: TcRef TyVarSet -> UnboundTyVarZonker
+zonkTvCollecting :: TyVarSet -> TcRef TyVarSet -> UnboundTyVarZonker
 -- This variant collects unbound type variables in a mutable variable
 -- Works on both types and kinds
-zonkTvCollecting unbound_tv_set tv
-  = do { -- poly_kinds <- xoptM Opt_PolyKinds
---       ; if isKindVar tv && not poly_kinds then defaultKindVarToStar tv
---         else do
-                       -- TODO (RAE): Fix defaultKindVarToStar
+zonkTvCollecting kind_vars unbound_tv_set tv
+  = do { poly_kinds <- xoptM Opt_PolyKinds
+       ; if tv `elemVarSet` kind_vars && not poly_kinds then defaultKindVarToStar tv
+         else do
        ; tv' <- zonkQuantifiedTyCoVar tv
        ; tv_set <- readMutVar unbound_tv_set
        ; writeMutVar unbound_tv_set (extendVarSet tv_set tv')

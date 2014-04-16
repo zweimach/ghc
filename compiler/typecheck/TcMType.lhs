@@ -52,7 +52,8 @@ module TcMType (
   skolemiseSigTv, skolemiseUnboundMetaTyVar,
   zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, zonkTcTypeAndFV,
   zonkQuantifiedTyCoVar, quantifyTyCoVars,
-  zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, 
+  zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType,
+  defaultKindVarToStar,
 
   zonkTcKind,
   zonkEvVar, zonkWC, zonkId, zonkCt, zonkCts, zonkSkolemInfo,
@@ -84,9 +85,10 @@ import Outputable
 import FastString
 import SrcLoc
 import Bag
+import DynFlags
 
 import Control.Monad
-import Data.List        ( mapAccumL )
+import Data.List        ( mapAccumL, partition )
 \end{code}
 
 
@@ -539,37 +541,36 @@ quantifyTyCoVars :: TcTyCoVarSet -> TcTyCoVarSet -> TcM [TcTyCoVar]
 quantifyTyCoVars gbl_tvs tkvs
   = do { tkvs    <- zonkTyCoVarsAndFV tkvs
        ; gbl_tvs <- zonkTyCoVarsAndFV gbl_tvs
-       ; let qtkvs = varSetElemsWellScoped (closeOverKinds tkvs `minusVarSet` gbl_tvs)
-{-
-       TODO (RAE): Fix defaultKindVarToStar
-       ; let (kvs, tvs) = partitionVarSet (\v -> isKindVar v || isCoVar v)
-                                          (closeOverKinds tkvs `minusVarSet` gbl_tvs)
+       ; let dep_var_set    = closeOverKinds (unionVarSets $
+                                              map (tyCoVarsOfType . tyVarKind) $
+                                              varSetElems tkvs)
+                              `minusVarSet` gbl_tvs
+             nondep_var_set = tkvs `minusVarSet` dep_var_set `minusVarSet` gbl_tvs
+             dep_vars       = varSetElemsWellScoped dep_var_set
+             nondep_vars    = varSetElemsWellScoped nondep_var_set
+
                               -- NB kinds of tvs are zonked by zonkTyVarsAndFV
-             kvs2 = varSetElems kvs
-             qtvs = varSetElems tvs                       
 
              -- In the non-PolyKinds case, default the kind variables
              -- to *, and zonk the tyvars as usual.  Notice that this
              -- may make quantifyTyCoVars return a shorter list
              -- than it was passed, but that's ok
        ; poly_kinds <- xoptM Opt_PolyKinds
-       ; qkvs <- if poly_kinds
-                 then return kvs2
-                 else do { let (meta_kvs, skolem_kvs) = partition is_meta kvs2
-                               is_meta kv = isTcTyVar kv && isMetaTyVar kv
-                         ; mapM_ defaultKindVarToStar meta_kvs
-                         ; return skolem_kvs }  -- should be empty
+       ; dep_vars2 <- if poly_kinds
+                      then return dep_vars
+                      else do { let (meta_kvs, skolem_kvs) = partition is_meta dep_vars
+                                    is_meta kv = isTcTyVar kv && isMetaTyVar kv
+                              ; mapM_ defaultKindVarToStar meta_kvs
+                              ; return skolem_kvs }  -- should be empty
 
-       ; mapM zonk_quant (qkvs ++ qtvs) 
+       ; mapM zonk_quant (dep_vars2 ++ nondep_vars) }
            -- Because of the order, any kind variables
            -- mentioned in the kinds of the type variables refer to
            -- the now-quantified versions
--}
-       ; mapM zonk_quant qtkvs }
   where
     zonk_quant tkv
       | isTcTyCoVar tkv = zonkQuantifiedTyCoVar tkv
-      | otherwise     = return tkv
+      | otherwise       = return tkv
       -- For associated types, we have the class variables 
       -- in scope, and they are TyVars not TcTyVars
 
@@ -612,14 +613,12 @@ zonkQuantifiedTyCoVar tv
   = do { ty <- zonkTcKind (coVarKind tv)
        ; return $ setVarType tv ty }
 
-{-
 defaultKindVarToStar :: TcTyVar -> TcM Kind
 -- We have a meta-kind: unify it with '*'
 defaultKindVarToStar kv 
-  = do { ASSERT( isKindVar kv && isMetaTyVar kv )
+  = do { ASSERT( isMetaTyVar kv )
          writeMetaTyVar kv liftedTypeKind
        ; return liftedTypeKind }
--}
 
 skolemiseUnboundMetaTyVar :: TcTyVar -> TcTyVarDetails -> TcM TyVar
 -- We have a Meta tyvar with a ref-cell inside it
