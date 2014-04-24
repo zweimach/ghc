@@ -827,14 +827,10 @@ not converge.  See Trac #5287.
 validDerivPred :: TyCoVarSet -> PredType -> Bool
 validDerivPred tv_set pred
   = case classifyPredType pred of
-       ClassPred cls tys -> hasNoDups fvs
-                         && sizeTypes tys_only == length fvs
-                         && all (`elemVarSet` tv_set) fvs
-         where
-           fvs = fvTypes tys_only
-           tys_only
-             | className cls == typeableClassName = tail tys  -- drop the kind arg
-             | otherwise                          = tys
+       ClassPred _ _ -> hasNoDups fvs
+                           -- use sizePred to ignore implicit args
+                      && sizePred pred == length fvs
+                      && all (`elemVarSet` tv_set) fvs
        TuplePred ps -> all (validDerivPred tv_set) ps
        _            -> True   -- Non-class predicates are ok
 \end{code}
