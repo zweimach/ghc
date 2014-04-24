@@ -91,7 +91,8 @@ module TyCoRep (
 #include "HsVersions.h"
 
 import {-# SOURCE #-} DataCon( DataCon, dataConTyCon, dataConName )
-import {-# SOURCE #-} Type( noParenPred, isPredTy, isCoercionTy, mkAppTy ) -- Transitively pulls in a LOT of stuff, better to break the loop
+import {-# SOURCE #-} Type( noParenPred, isPredTy, isCoercionTy
+                          , mkAppTy, typeKind ) -- Transitively pulls in a LOT of stuff, better to break the loop
 import {-# SOURCE #-} Coercion
 
 -- friends:
@@ -386,6 +387,14 @@ isCoercionType (TyConApp tc tys)
   , length tys == 4
   = True
 isCoercionType _ = False
+
+isVisibleType :: Type -> Bool
+isVisibleType ty
+  | TyConApp tc [] <- typeKind ty
+  , tc `hasKey` constraintTyConKey
+  = False
+  | otherwise
+  = True
 
 -- | Create the plain type constructor type which has been applied to no type arguments at all.
 mkTyConTy :: TyCon -> Type
