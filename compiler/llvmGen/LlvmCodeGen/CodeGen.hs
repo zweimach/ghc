@@ -141,8 +141,14 @@ getInstrinct2 _ _ = error "getInstrinct2: Non-function type!"
 -- | Declares an instrinct function by return and parameter types
 getInstrinct :: LMString -> LlvmType -> [LlvmType] -> LlvmM ExprData
 getInstrinct fname retTy parTys =
-    let funSig = LlvmFunctionDecl fname ExternallyVisible CC_Ccc retTy
-                    FixedArgs (tysToParams parTys) Nothing
+    let funSig = LlvmFunctionDecl { decName       = fname
+                                  , funcLinkage   = ExternallyVisible
+                                  , funcCc        = CC_Ccc
+                                  , decReturnType = retTy
+                                  , decVarargs    = FixedArgs
+                                  , decParams     = tysToParams parTys
+                                  , funcAlign     = Nothing
+                                  }
         fty = LMFunction funSig
     in getInstrinct2 fname fty
 
@@ -205,8 +211,16 @@ genCall t@(PrimTarget (MO_Prefetch_Data localityInt)) [] args
     ver <- getLlvmVer
     let argTy | ver <= 29  = [i8Ptr, i32, i32]
               | otherwise  = [i8Ptr, i32, i32, i32]
-        funTy = \name -> LMFunction $ LlvmFunctionDecl name ExternallyVisible
-                             CC_Ccc LMVoid FixedArgs (tysToParams argTy) Nothing
+        funTy = \name -> LMFunction
+                         $ LlvmFunctionDecl
+                             { decName       = name
+                             , funcLinkage   = ExternallyVisible
+                             , funcCc        = CC_Ccc
+                             , decReturnType = LMVoid
+                             , decVarargs    = FixedArgs
+                             , decParams     = tysToParams argTy
+                             , funcAlign     = Nothing
+                             }
 
     let (_, arg_hints) = foreignTargetHints t
     let args_hints' = zip args arg_hints
@@ -243,9 +257,16 @@ genCall t@(PrimTarget op) [] args'
               | otherwise       = ([], [])
         argTy | op == MO_Memset = [i8Ptr, i8,    llvmWord dflags, i32] ++ isVolTy
               | otherwise       = [i8Ptr, i8Ptr, llvmWord dflags, i32] ++ isVolTy
-        funTy = \name -> LMFunction $ LlvmFunctionDecl name ExternallyVisible
-                             CC_Ccc LMVoid FixedArgs (tysToParams argTy) Nothing
-
+        funTy = \name -> LMFunction
+                         $ LlvmFunctionDecl
+                             { decName       = name
+                             , funcLinkage   = ExternallyVisible
+                             , funcCc        = CC_Ccc
+                             , decReturnType = LMVoid
+                             , decVarargs    = FixedArgs
+                             , decParams     = tysToParams argTy
+                             , funcAlign     = Nothing
+                             }
     let (_, arg_hints) = foreignTargetHints t
     let args_hints = zip args arg_hints
     (argVars, stmts1, top1)       <- arg_vars args_hints ([], nilOL, [])
@@ -325,9 +346,16 @@ genCall target res args = do
     let ccTy  = StdCall -- tail calls should be done through CmmJump
     let retTy = ret_type ress_hints
     let argTy = tysToParams $ map arg_type args_hints
-    let funTy = \name -> LMFunction $ LlvmFunctionDecl name ExternallyVisible
-                             lmconv retTy FixedArgs argTy (llvmFunAlign dflags)
-
+    let funTy = \name -> LMFunction
+                         $ LlvmFunctionDecl
+                             { decName       = name
+                             , funcLinkage   = ExternallyVisible
+                             , funcCc        = lmconv
+                             , decReturnType = retTy
+                             , decVarargs    = FixedArgs
+                             , decParams     = argTy
+                             , funcAlign     = llvmFunAlign dflags
+                             }
 
     (argVars, stmts1, top1) <- arg_vars args_hints ([], nilOL, [])
     (fptr, stmts2, top2)    <- getFunPtr funTy target

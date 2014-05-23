@@ -72,8 +72,12 @@ instance Outputable LlvmType where
   ppr (LMStruct tys   ) = text "<{" <> ppCommaJoin tys <> text "}>"
   ppr (LMMetadata     ) = text "metadata"
 
-  ppr (LMFunction (LlvmFunctionDecl _ _ _ r varg p _))
+  ppr (LMFunction f)
     = ppr r <+> lparen <> ppParams varg p <> rparen
+    where
+      r = decReturnType f
+      varg = decVarargs f
+      p = decParams f
 
   ppr (LMAlias (s,_)) = char '%' <> ftext s
 
@@ -375,10 +379,13 @@ data LlvmFunctionDecl = LlvmFunctionDecl {
   deriving (Eq)
 
 instance Outputable LlvmFunctionDecl where
-  ppr (LlvmFunctionDecl n l c r varg p a)
-    = let align = case a of
+  ppr f
+    = let align = case funcAlign f of
                        Just a' -> text " align " <> ppr a'
                        Nothing -> empty
+          LlvmFunctionDecl { decName=n, funcLinkage=l, funcCc=c
+                           , decReturnType=r, decVarargs=varg, decParams=p
+                           } = f
       in ppr l <+> ppr c <+> ppr r <+> char '@' <> ftext n <>
              lparen <> ppParams varg p <> rparen <> align
 

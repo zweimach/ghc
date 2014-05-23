@@ -124,9 +124,15 @@ llvmFunSig' live lbl link
   = do let toParams x | isPointer x = (x, [NoAlias, NoCapture])
                       | otherwise   = (x, [])
        dflags <- getDynFlags
-       return $ LlvmFunctionDecl lbl link (llvmGhcCC dflags) LMVoid FixedArgs
-                                 (map (toParams . getVarType) (llvmFunArgs dflags live))
-                                 (llvmFunAlign dflags)
+       return $ LlvmFunctionDecl
+           { decName       = lbl
+           , funcLinkage   = link
+           , funcCc        = (llvmGhcCC dflags)
+           , decReturnType = LMVoid
+           , decVarargs    = FixedArgs
+           , decParams     = map (toParams . getVarType) (llvmFunArgs dflags live)
+           , funcAlign     = llvmFunAlign dflags
+           }
 
 -- | Create a Haskell function in LLVM.
 mkLlvmFunc :: LiveGlobalRegs -> CLabel -> LlvmLinkageType -> LMSection -> LlvmBlocks
@@ -380,8 +386,15 @@ ghcInternalFunctions = do
   where
     mk n ret args = do
       let n' = fsLit n
-          decl = LlvmFunctionDecl n' ExternallyVisible CC_Ccc ret
-                                 FixedArgs (tysToParams args) Nothing
+          decl = LlvmFunctionDecl
+                   { decName       = n'
+                   , funcLinkage   = ExternallyVisible
+                   , funcCc        = CC_Ccc
+                   , decReturnType = ret
+                   , decVarargs    = FixedArgs
+                   , decParams     = tysToParams args
+                   , funcAlign     = Nothing
+                   }
       renderLlvm $ ppLlvmFunctionDecl decl
       funInsert n' (LMFunction decl)
 

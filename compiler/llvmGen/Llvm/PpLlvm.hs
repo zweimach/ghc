@@ -141,19 +141,23 @@ ppLlvmFunction (LlvmFunction dec args attrs sec body) =
         $+$ newLine
         $+$ newLine
 
--- | Print out a function defenition header.
+-- | Print out a function definition header.
 ppLlvmFunctionHeader :: LlvmFunctionDecl -> [LMString] -> SDoc
-ppLlvmFunctionHeader (LlvmFunctionDecl n l c r varg p a) args
-  = let varg' = case varg of
+ppLlvmFunctionHeader f args
+  = let varg' = case decVarargs f of
                       VarArgs | null p    -> sLit "..."
                               | otherwise -> sLit ", ..."
                       _otherwise          -> sLit ""
-        align = case a of
+                  where p = decParams f
+        align = case funcAlign f of
                      Just a' -> text " align " <> ppr a'
                      Nothing -> empty
         args' = map (\((ty,p),n) -> ppr ty <+> ppSpaceJoin p <+> char '%'
                                     <> ftext n)
-                    (zip p args)
+                    (zip (decParams f) args)
+        LlvmFunctionDecl { decName=n, funcLinkage=l, funcCc=c
+                         , decReturnType=r
+                         } = f
     in ppr l <+> ppr c <+> ppr r <+> char '@' <> ftext n <> lparen <>
         (hsep $ punctuate comma args') <> ptext varg' <> rparen <> align
 
@@ -165,16 +169,19 @@ ppLlvmFunctionDecls decs = vcat $ map ppLlvmFunctionDecl decs
 -- Declarations define the function type but don't define the actual body of
 -- the function.
 ppLlvmFunctionDecl :: LlvmFunctionDecl -> SDoc
-ppLlvmFunctionDecl (LlvmFunctionDecl n l c r varg p a)
-  = let varg' = case varg of
+ppLlvmFunctionDecl f
+  = let varg' = case decVarargs f of
                       VarArgs | null p    -> sLit "..."
                               | otherwise -> sLit ", ..."
                       _otherwise          -> sLit ""
-        align = case a of
+        align = case funcAlign f of
                      Just a' -> text " align" <+> ppr a'
                      Nothing -> empty
         args = hcat $ intersperse (comma <> space) $
                   map (\(t,a) -> ppr t <+> ppSpaceJoin a) p
+        LlvmFunctionDecl { decName=n, funcLinkage=l, funcCc=c
+                         , decReturnType=r, decParams=p
+                         } = f
     in text "declare" <+> ppr l <+> ppr c <+> ppr r <+> char '@' <>
         ftext n <> lparen <> args <> ptext varg' <> rparen <> align $+$ newLine
 
@@ -264,16 +271,16 @@ ppCall ct fptr args attrs = case fptr of
                 ++ "local var of pointer function type."
 
     where
-        ppCall' (LlvmFunctionDecl _ _ cc ret argTy params _) =
+        ppCall' f =
             let tc = if ct == TailCall then text "tail " else empty
                 ppValues = ppCommaJoin args
-                ppArgTy  = (ppCommaJoin $ map fst params) <>
-                           (case argTy of
+                ppArgTy  = (ppCommaJoin $ map fst $ decParams f) <>
+                           (case decVarargs f of
                                VarArgs   -> text ", ..."
                                FixedArgs -> empty)
                 fnty = space <> lparen <> ppArgTy <> rparen <> char '*'
                 attrDoc = ppSpaceJoin attrs
-            in  tc <> text "call" <+> ppr cc <+> ppr ret
+            in  tc <> text "call" <+> ppr (funcCc f) <+> ppr (decReturnType f)
                     <> fnty <+> ppName fptr <> lparen <+> ppValues
                     <+> rparen <+> attrDoc
 
