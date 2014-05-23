@@ -17,6 +17,7 @@ module LlvmCodeGen.Base (
         runLlvm, liftStream, withClearVars, varLookup, varInsert,
         markStackReg, checkStackReg,
         funLookup, funInsert, getLlvmVer, getDynFlags, getDynFlag, getLlvmPlatform,
+        isManglerNeeded,
         dumpIfSetLlvm, renderLlvm, runUs, markUsedVar, getUsedVars,
         ghcInternalFunctions,
 
@@ -318,6 +319,13 @@ getDynFlag f = getEnv (f . envDynFlags)
 -- | Get the platform we are generating code for
 getLlvmPlatform :: LlvmM Platform
 getLlvmPlatform = getDynFlag targetPlatform
+
+-- | Prior to LLVM 3.5 we needed to mangle LLVM's output to support
+-- tables-next-to-code
+isManglerNeeded :: LlvmM Bool
+isManglerNeeded = do
+    ver <- getLlvmVer
+    return $ ver < 35
 
 -- | Dumps the document if the corresponding flag has been set by the user
 dumpIfSetLlvm :: DumpFlag -> String -> Outp.SDoc -> LlvmM ()
