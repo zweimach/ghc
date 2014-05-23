@@ -141,11 +141,11 @@ mkLlvmFunc live lbl link sec blks
 llvmFunAlign :: DynFlags -> LMAlign
 llvmFunAlign dflags = Just (wORD_SIZE dflags)
 
--- | Alignment to use for into tables
+-- | Alignment to use for info tables
 llvmInfAlign :: DynFlags -> LMAlign
 llvmInfAlign dflags = Just (wORD_SIZE dflags)
 
--- | A Function's arguments
+-- | A function's arguments
 llvmFunArgs :: DynFlags -> LiveGlobalRegs -> [LlvmVar]
 llvmFunArgs dflags live =
     map (lmGlobalRegArg dflags) (filter isPassed (activeStgRegs platform))
@@ -159,7 +159,7 @@ llvmFunArgs dflags live =
           isSSE (ZmmReg _)    = True
           isSSE _             = False
 
--- | Llvm standard fun attributes
+-- | Standard LLVM function attributes
 llvmStdFunAttrs :: [LlvmFuncAttr]
 llvmStdFunAttrs = [NoUnwind]
 
