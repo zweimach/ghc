@@ -1385,11 +1385,9 @@ runPhase (RealPhase LlvmLlc) input_fn dflags
              | gopt Opt_LlvmTBAA dflags = "--enable-tbaa=true"
              | otherwise                = "--enable-tbaa=false"
 
-    -- hidden debugging flag '-dno-llvm-mangler' to skip mangling
-    let next_phase = case gopt Opt_NoLlvmMangler dflags of
-                         False                            -> LlvmMangle
-                         True | gopt Opt_SplitObjs dflags -> Splitter
-                         True                             -> As False
+    let next_phase = case gopt Opt_SplitObjs dflags of
+                         True  -> Splitter
+                         False -> As False
                         
     output_fn <- phaseOutputFilename next_phase
 

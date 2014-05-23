@@ -280,7 +280,6 @@ data GeneralFlag
    | Opt_DoStgLinting
    | Opt_DoCmmLinting
    | Opt_DoAsmLinting
-   | Opt_NoLlvmMangler                 -- hidden flag
 
    | Opt_WarnIsError                    -- -Werror; makes warnings fatal
 
@@ -2361,7 +2360,6 @@ dynamic_flags = [
   , Flag "dshow-passes"            (NoArg (do forceRecompile
                                               setVerbosity $ Just 2))
   , Flag "dfaststring-stats"       (NoArg (setGeneralFlag Opt_D_faststring_stats))
-  , Flag "dno-llvm-mangler"        (NoArg (setGeneralFlag Opt_NoLlvmMangler)) -- hidden flag
 
         ------ Machine dependant (-m<blah>) stuff ---------------------------
 
