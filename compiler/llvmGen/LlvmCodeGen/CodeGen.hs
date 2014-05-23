@@ -46,6 +46,8 @@ functionDecl name argTy =
                      , decVarargs    = FixedArgs
                      , decParams     = tysToParams argTy
                      , funcAlign     = Nothing
+                     , funcPrefix    = Nothing
+                     , funcOffset    = Nothing
                      }
 
 -- -----------------------------------------------------------------------------
@@ -161,6 +163,8 @@ getInstrinct fname retTy parTys =
                                   , decVarargs    = FixedArgs
                                   , decParams     = tysToParams parTys
                                   , funcAlign     = Nothing
+                                  , funcPrefix    = Nothing
+                                  , funcOffset    = Nothing
                                   }
         fty = LMFunction funSig
     in getInstrinct2 fname fty
@@ -351,6 +355,8 @@ genCall target res args = do
                              , decVarargs    = FixedArgs
                              , decParams     = argTy
                              , funcAlign     = llvmFunAlign dflags
+                             , funcPrefix    = Nothing
+                             , funcOffset    = Nothing
                              }
 
     (argVars, stmts1, top1) <- arg_vars args_hints ([], nilOL, [])

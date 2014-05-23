@@ -155,11 +155,18 @@ ppLlvmFunctionHeader f args
         args' = map (\((ty,p),n) -> ppr ty <+> ppSpaceJoin p <+> char '%'
                                     <> ftext n)
                     (zip (decParams f) args)
+        prefix = case funcPrefix f of
+                     Just p  -> text " prefix " <> ppr p
+                     Nothing -> empty
+        offset = case funcOffset f of
+                     Just o  -> text " symbol_offset " <> ppr o
+                     Nothing -> empty
         LlvmFunctionDecl { decName=n, funcLinkage=l, funcCc=c
                          , decReturnType=r
                          } = f
     in ppr l <+> ppr c <+> ppr r <+> char '@' <> ftext n <> lparen <>
-        (hsep $ punctuate comma args') <> ptext varg' <> rparen <> align
+        (hsep $ punctuate comma args') <> ptext varg' <> rparen <> align <>
+        prefix <> offset
 
 -- | Print out a list of function declaration.
 ppLlvmFunctionDecls :: LlvmFunctionDecls -> SDoc
@@ -179,11 +186,18 @@ ppLlvmFunctionDecl f
                      Nothing -> empty
         args = hcat $ intersperse (comma <> space) $
                   map (\(t,a) -> ppr t <+> ppSpaceJoin a) p
+        prefix = case funcPrefix f of
+                     Just p  -> text " prefix " <> ppr p
+                     Nothing -> empty
+        offset = case funcOffset f of
+                     Just o  -> text " symbol_offset " <> ppr o
+                     Nothing -> empty
         LlvmFunctionDecl { decName=n, funcLinkage=l, funcCc=c
                          , decReturnType=r, decParams=p
                          } = f
     in text "declare" <+> ppr l <+> ppr c <+> ppr r <+> char '@' <>
-        ftext n <> lparen <> args <> ptext varg' <> rparen <> align $+$ newLine
+        ftext n <> lparen <> args <> ptext varg' <> rparen <> align <>
+        prefix <> offset $+$ newLine
 
 
 -- | Print out a list of LLVM blocks.

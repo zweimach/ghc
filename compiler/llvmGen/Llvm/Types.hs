@@ -159,6 +159,7 @@ data LlvmStatic
   | LMPtoI LlvmStatic LlvmType         -- ^ Pointer to Integer conversion
   | LMAdd LlvmStatic LlvmStatic        -- ^ Constant addition operation
   | LMSub LlvmStatic LlvmStatic        -- ^ Constant subtraction operation
+  deriving (Eq)
 
 instance Outputable LlvmStatic where
   ppr (LMComment       s) = text "; " <> ftext s
@@ -374,7 +375,11 @@ data LlvmFunctionDecl = LlvmFunctionDecl {
         -- | Parameter types and attributes
         decParams     :: [LlvmParameter],
         -- | Function align value, must be power of 2
-        funcAlign     :: LMAlign
+        funcAlign     :: LMAlign,
+        -- | Prefix data
+        funcPrefix    :: Maybe LlvmStatic,
+        -- | Symbol offset
+        funcOffset    :: Maybe Int
   }
   deriving (Eq)
 
@@ -383,11 +388,18 @@ instance Outputable LlvmFunctionDecl where
     = let align = case funcAlign f of
                        Just a' -> text " align " <> ppr a'
                        Nothing -> empty
+          prefix = case funcPrefix f of
+                       Just p  -> text " prefix " <> ppr p
+                       Nothing -> empty
+          offset = case funcOffset f of
+                       Just o  -> text " symbol_offset " <> ppr o
+                       Nothing -> empty
           LlvmFunctionDecl { decName=n, funcLinkage=l, funcCc=c
                            , decReturnType=r, decVarargs=varg, decParams=p
                            } = f
       in ppr l <+> ppr c <+> ppr r <+> char '@' <> ftext n <>
-             lparen <> ppParams varg p <> rparen <> align
+             lparen <> ppParams varg p <> rparen <> align <>
+             prefix <> offset
 
 type LlvmFunctionDecls = [LlvmFunctionDecl]
 

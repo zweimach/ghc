@@ -132,6 +132,8 @@ llvmFunSig' live lbl link
            , decVarargs    = FixedArgs
            , decParams     = map (toParams . getVarType) (llvmFunArgs dflags live)
            , funcAlign     = llvmFunAlign dflags
+           , funcPrefix    = Nothing
+           , funcOffset    = Nothing
            }
 
 -- | Create a Haskell function in LLVM.
@@ -394,6 +396,8 @@ ghcInternalFunctions = do
                    , decVarargs    = FixedArgs
                    , decParams     = tysToParams args
                    , funcAlign     = Nothing
+                   , funcPrefix    = Nothing
+                   , funcOffset    = Nothing
                    }
       renderLlvm $ ppLlvmFunctionDecl decl
       funInsert n' (LMFunction decl)
