@@ -35,6 +35,19 @@ import Data.Maybe ( catMaybes )
 
 type LlvmStatements = OrdList LlvmStatement
 
+-- | A decl for a "normal" function. This pattern is used a few places
+-- below.
+functionDecl :: LMString -> [LlvmType] -> LlvmFunctionDecl
+functionDecl name argTy =
+    LlvmFunctionDecl { decName       = name
+                     , funcLinkage   = ExternallyVisible
+                     , funcCc        = CC_Ccc
+                     , decReturnType = LMVoid
+                     , decVarargs    = FixedArgs
+                     , decParams     = tysToParams argTy
+                     , funcAlign     = Nothing
+                     }
+
 -- -----------------------------------------------------------------------------
 -- | Top-level of the LLVM proc Code generator
 --
@@ -211,16 +224,7 @@ genCall t@(PrimTarget (MO_Prefetch_Data localityInt)) [] args
     ver <- getLlvmVer
     let argTy | ver <= 29  = [i8Ptr, i32, i32]
               | otherwise  = [i8Ptr, i32, i32, i32]
-        funTy = \name -> LMFunction
-                         $ LlvmFunctionDecl
-                             { decName       = name
-                             , funcLinkage   = ExternallyVisible
-                             , funcCc        = CC_Ccc
-                             , decReturnType = LMVoid
-                             , decVarargs    = FixedArgs
-                             , decParams     = tysToParams argTy
-                             , funcAlign     = Nothing
-                             }
+        funTy = \name -> LMFunction $ functionDecl name argTy
 
     let (_, arg_hints) = foreignTargetHints t
     let args_hints' = zip args arg_hints
@@ -257,16 +261,8 @@ genCall t@(PrimTarget op) [] args'
               | otherwise       = ([], [])
         argTy | op == MO_Memset = [i8Ptr, i8,    llvmWord dflags, i32] ++ isVolTy
               | otherwise       = [i8Ptr, i8Ptr, llvmWord dflags, i32] ++ isVolTy
-        funTy = \name -> LMFunction
-                         $ LlvmFunctionDecl
-                             { decName       = name
-                             , funcLinkage   = ExternallyVisible
-                             , funcCc        = CC_Ccc
-                             , decReturnType = LMVoid
-                             , decVarargs    = FixedArgs
-                             , decParams     = tysToParams argTy
-                             , funcAlign     = Nothing
-                             }
+        funTy = \name -> LMFunction $ functionDecl name argTy
+
     let (_, arg_hints) = foreignTargetHints t
     let args_hints = zip args arg_hints
     (argVars, stmts1, top1)       <- arg_vars args_hints ([], nilOL, [])
