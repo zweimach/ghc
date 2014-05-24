@@ -133,8 +133,14 @@ ppLlvmFunction (LlvmFunction dec args attrs sec body) =
         secDoc = case sec of
                       Just s' -> text "section" <+> (doubleQuotes $ ftext s')
                       Nothing -> empty
+        prefixDoc = case funcPrefix dec of
+                        Just p  -> text " prefix " <> ppr p
+                        Nothing -> empty
+        offsetDoc = case funcOffset dec of
+                        Just o  -> text " symbol_offset " <> ppr o
+                        Nothing -> empty
     in text "define" <+> ppLlvmFunctionHeader dec args
-        <+> attrDoc <+> secDoc
+        <+> attrDoc <+> secDoc <+> prefixDoc <+> offsetDoc
         $+$ lbrace
         $+$ ppLlvmBlocks body
         $+$ rbrace
@@ -155,18 +161,11 @@ ppLlvmFunctionHeader f args
         args' = map (\((ty,p),n) -> ppr ty <+> ppSpaceJoin p <+> char '%'
                                     <> ftext n)
                     (zip (decParams f) args)
-        prefix = case funcPrefix f of
-                     Just p  -> text " prefix " <> ppr p
-                     Nothing -> empty
-        offset = case funcOffset f of
-                     Just o  -> text " symbol_offset " <> ppr o
-                     Nothing -> empty
         LlvmFunctionDecl { decName=n, funcLinkage=l, funcCc=c
                          , decReturnType=r
                          } = f
     in ppr l <+> ppr c <+> ppr r <+> char '@' <> ftext n <> lparen <>
-        (hsep $ punctuate comma args') <> ptext varg' <> rparen <> align <>
-        prefix <> offset
+        (hsep $ punctuate comma args') <> ptext varg' <> rparen <> align
 
 -- | Print out a list of function declaration.
 ppLlvmFunctionDecls :: LlvmFunctionDecls -> SDoc
