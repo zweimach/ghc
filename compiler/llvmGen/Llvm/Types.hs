@@ -146,6 +146,7 @@ data LlvmStatic
   | LMStaticArray [LlvmStatic] LlvmType -- ^ A static array
   | LMStaticStruc [LlvmStatic] LlvmType -- ^ A static structure type
   | LMStaticPointer LlvmVar             -- ^ A pointer to other data
+  | LMZeroInitializer LlvmType          -- ^ Data initialized to zero
 
   -- static expressions, could split out but leave
   -- for moment for ease of use. Not many of them.
@@ -163,6 +164,7 @@ instance Outputable LlvmStatic where
   ppr (LMStaticArray d t) = ppr t <> text " [" <> ppCommaJoin d <> char ']'
   ppr (LMStaticStruc d t) = ppr t <> text "<{" <> ppCommaJoin d <> text "}>"
   ppr (LMStaticPointer v) = ppr v
+  ppr (LMZeroInitializer t) = ppr t <> text " zeroinitializer"
   ppr (LMBitc v t)
       = ppr t <> text " bitcast (" <> ppr v <> text " to " <> ppr t <> char ')'
   ppr (LMPtoI v t)
@@ -241,6 +243,7 @@ getStatType (LMStaticStr   _ t) = t
 getStatType (LMStaticArray _ t) = t
 getStatType (LMStaticStruc _ t) = t
 getStatType (LMStaticPointer v) = getVarType v
+getStatType (LMZeroInitializer t) = t
 getStatType (LMBitc        _ t) = t
 getStatType (LMPtoI        _ t) = t
 getStatType (LMAdd         t _) = getStatType t

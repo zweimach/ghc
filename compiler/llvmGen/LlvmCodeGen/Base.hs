@@ -453,7 +453,7 @@ generateAliases :: LlvmM ([LMGlobal], [LlvmType])
 generateAliases = do
   delayed <- fmap uniqSetToList $ getEnv envAliases
   defss <- flip mapM delayed $ \lbl -> do
-    let var      ty = LMGlobalVar lbl (LMPointer ty) External Nothing Nothing Global
+    let var      ty = LMGlobalVar lbl (LMPointer ty) Internal Nothing Nothing Global
         aliasLbl    = lbl `appendFS` fsLit "$alias"
         aliasVar    = LMGlobalVar aliasLbl i8Ptr Private Nothing Nothing Alias
     -- If we have a definition, set the alias value using a
@@ -461,7 +461,7 @@ generateAliases = do
     m_ty <- funLookup lbl
     case m_ty of
       Just ty -> return [LMGlobal aliasVar $ Just $ LMBitc (LMStaticPointer (var ty)) i8Ptr]
-      Nothing -> return [LMGlobal (var i8) Nothing,
+      Nothing -> return [LMGlobal (var i8) (Just $ LMZeroInitializer i8),
                          LMGlobal aliasVar $ Just $ LMStaticPointer (var i8) ]
   -- Reset forward list
   modifyEnv $ \env -> env { envAliases = emptyUniqSet }
