@@ -383,7 +383,7 @@ data LlvmFunctionDecl = LlvmFunctionDecl {
         -- | Prefix data
         funcPrefix    :: Maybe LlvmStatic,
         -- | Symbol offset
-        funcOffset    :: Maybe Int
+        funcOffset    :: Maybe LlvmStatic
   }
   deriving (Eq)
 

@@ -3,7 +3,7 @@
 --
 
 module LlvmCodeGen.Data (
-        genLlvmData
+        genStaticsStruct, genLlvmData
     ) where
 
 #include "HsVersions.h"
@@ -30,21 +30,26 @@ structStr = fsLit "_struct"
 -- * Top level
 --
 
+genStaticsStruct :: CmmStatics -> LlvmM (LlvmStatic, LlvmAlias)
+genStaticsStruct (Statics lbl xs) = do
+    label <- strCLabel_llvm lbl
+    static <- mapM genData xs
+    let types = map getStatType static
+        alias = ((label `appendFS` structStr), LMStruct types)
+    return (LMStaticStruc static (LMAlias alias), alias)
+
 -- | Pass a CmmStatic section to an equivalent Llvm code.
 genLlvmData :: (Section, CmmStatics) -> LlvmM LlvmData
 genLlvmData (sec, Statics lbl xs) = do
     label <- strCLabel_llvm lbl
     static <- mapM genData xs
-    let types   = map getStatType static
-
-        strucTy = LMStruct types
-        alias   = LMAlias ((label `appendFS` structStr), strucTy)
-
-        struct         = Just $ LMStaticStruc static alias
-        link           = if (externallyVisibleCLabel lbl)
-                            then ExternallyVisible else Internal
-        const          = if isSecConstant sec then Constant else Global
-        glob           = LMGlobalVar label alias link Nothing Nothing const
+    let types  = map getStatType static
+        alias  = LMAlias ((label `appendFS` structStr), LMStruct types)
+        link   = if (externallyVisibleCLabel lbl)
+                     then ExternallyVisible else Internal
+        const  = if isSecConstant sec then Constant else Global
+        glob   = LMGlobalVar label alias link Nothing Nothing const
+        struct = Just $ LMStaticStruc static alias
 
     return ([LMGlobal glob struct], [alias])
 

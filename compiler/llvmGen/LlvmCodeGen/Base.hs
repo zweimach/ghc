@@ -27,7 +27,7 @@ module LlvmCodeGen.Base (
 
         cmmToLlvmType, widthToLlvmFloat, widthToLlvmInt, llvmFunTy,
         llvmFunSig, llvmStdFunAttrs, llvmFunAlign, llvmInfAlign,
-        llvmPtrBits, mkLlvmFunc, tysToParams,
+        llvmPtrBits, mkLlvmFunc, mkLlvmFuncWithPrefix, tysToParams,
 
         strCLabel_llvm, strDisplayName_llvm, strProcedureName_llvm,
         getGlobalPtr, generateAliases,
@@ -112,16 +112,28 @@ llvmGhcCC dflags
 
 -- | Llvm Function type for Cmm function
 llvmFunTy :: LiveGlobalRegs -> LlvmM LlvmType
-llvmFunTy live = return . LMFunction =<< llvmFunSig' live (fsLit "a") ExternallyVisible
+llvmFunTy live = LMFunction `fmap` llvmFunSig' live (fsLit "a") ExternallyVisible Nothing
+
+-- | An i64 LLVM expression giving the size of a type
+sizeOf :: LlvmType -> LlvmStatic
+sizeOf ty =
+  LMPtoI ptr (LMInt 64)
+  where
+    ptr = LMGetElemP nullPtr [i32Lit 1] ptrTy
+    nullPtr = LMStaticLit $ LMNullLit $ LMPointer ty
+    ptrTy = LMPointer ty
+    i32Lit n = LMStaticLit $ LMIntLit n (LMInt 32)
 
 -- | Llvm Function signature
-llvmFunSig :: LiveGlobalRegs ->  CLabel -> LlvmLinkageType -> LlvmM LlvmFunctionDecl
-llvmFunSig live lbl link = do
+llvmFunSig :: LiveGlobalRegs ->  CLabel -> LlvmLinkageType -> Maybe LlvmStatic
+           -> LlvmM LlvmFunctionDecl
+llvmFunSig live lbl link prefix = do
   lbl' <- strCLabel_llvm lbl
-  llvmFunSig' live lbl' link
+  llvmFunSig' live lbl' link prefix
 
-llvmFunSig' :: LiveGlobalRegs -> LMString -> LlvmLinkageType -> LlvmM LlvmFunctionDecl
-llvmFunSig' live lbl link
+llvmFunSig' :: LiveGlobalRegs -> LMString -> LlvmLinkageType -> Maybe LlvmStatic
+            -> LlvmM LlvmFunctionDecl
+llvmFunSig' live lbl link prefix
   = do let toParams x | isPointer x = (x, [NoAlias, NoCapture])
                       | otherwise   = (x, [])
        dflags <- getDynFlags
@@ -133,15 +145,24 @@ llvmFunSig' live lbl link
            , decVarargs    = FixedArgs
            , decParams     = map (toParams . getVarType) (llvmFunArgs dflags live)
            , funcAlign     = llvmFunAlign dflags
-           , funcPrefix    = Nothing
-           , funcOffset    = Nothing
+           , funcPrefix    = prefix
+           , funcOffset    = fmap (sizeOf . getStatType) prefix
            }
 
 -- | Create a Haskell function in LLVM.
 mkLlvmFunc :: LiveGlobalRegs -> CLabel -> LlvmLinkageType -> LMSection -> LlvmBlocks
            -> LlvmM LlvmFunction
 mkLlvmFunc live lbl link sec blks
-  = do funDec <- llvmFunSig live lbl link
+  = do funDec <- llvmFunSig live lbl link Nothing
+       dflags <- getDynFlags
+       let funArgs = map (fsLit . Outp.showSDoc dflags . ppPlainName) (llvmFunArgs dflags live)
+       return $ LlvmFunction funDec funArgs llvmStdFunAttrs sec blks
+
+mkLlvmFuncWithPrefix :: LiveGlobalRegs -> CLabel -> LlvmLinkageType
+                     -> LMSection -> LlvmBlocks -> LlvmStatic
+                     -> LlvmM LlvmFunction
+mkLlvmFuncWithPrefix live lbl link sec blks prefix
+  = do funDec <- llvmFunSig live lbl link (Just prefix)
        dflags <- getDynFlags
        let funArgs = map (fsLit . Outp.showSDoc dflags . ppPlainName) (llvmFunArgs dflags live)
        return $ LlvmFunction funDec funArgs llvmStdFunAttrs sec blks

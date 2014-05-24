@@ -87,27 +87,49 @@ pprLlvmCmmDecl _ (CmmData _ lmdata)
   = return (vcat $ map pprLlvmData lmdata, [])
 
 pprLlvmCmmDecl count (CmmProc mb_info entry_lbl live (ListGraph blks))
-  = do (idoc, ivar) <- case mb_info of
-                        Nothing -> return (empty, [])
-                        Just (Statics info_lbl dat)
-                         -> pprInfoTable count info_lbl (Statics entry_lbl dat)
+  = do mangle <- isManglerNeeded
+       if mangle then mangled else notMangled
+  where
+    linkageType lbl =
+      if externallyVisibleCLabel lbl
+           then ExternallyVisible
+           else Internal
 
-       let sec = mkLayoutSection (count + 1)
-           (lbl',sec') = case mb_info of
-                           Nothing                   -> (entry_lbl, Nothing)
-                           Just (Statics info_lbl _) -> (info_lbl,  sec)
-           link = if externallyVisibleCLabel lbl'
-                      then ExternallyVisible
-                      else Internal
-           lmblocks = map (\(BasicBlock id stmts) ->
-                                LlvmBlock (getUnique id) stmts) blks
+    lmblocks = map (\(BasicBlock id stmts) -> LlvmBlock (getUnique id) stmts) blks
 
-       fun <- mkLlvmFunc live lbl' link  sec' lmblocks
+    notMangled -- FIXME: Set alignment
+      = do case mb_info of
+             Nothing ->
+               do let lbl' = entry_lbl
+                      link = linkageType lbl'
+                  fun <- mkLlvmFunc live lbl' link Nothing lmblocks
+                  return (ppLlvmFunction fun, [])
 
-       return (idoc $+$ ppLlvmFunction fun, ivar)
+             Just statics@(Statics info_lbl _) ->
+               do (itbl, alias) <- genStaticsStruct statics
+                  let lbl' = info_lbl
+                      link = linkageType lbl'
+                  fun <- mkLlvmFuncWithPrefix live lbl' link Nothing lmblocks itbl
+                  return (ppLlvmAlias alias $+$ ppLlvmFunction fun, [])
+
+    mangled
+      = do (idoc, ivar) <- case mb_info of
+                            Nothing -> return (empty, [])
+                            Just (Statics info_lbl dat)
+                             -> pprInfoTable count info_lbl (Statics entry_lbl dat)
+
+           let sec = mkLayoutSection (count + 1)
+               (lbl',sec') = case mb_info of
+                               Nothing                   -> (entry_lbl, Nothing)
+                               Just (Statics info_lbl _) -> (info_lbl,  sec)
+               link = linkageType lbl'
+           fun <- mkLlvmFunc live lbl' link  sec' lmblocks
+           return (idoc $+$ ppLlvmFunction fun, ivar)
 
 
--- | Pretty print CmmStatic
+-- | Pretty print CmmStatic for the mangler.
+-- The info table is output by pprLlvmCmmDecl itself when the mangler
+-- isn't used
 pprInfoTable :: Int -> CLabel -> CmmStatics -> LlvmM (SDoc, [LlvmVar])
 pprInfoTable count info_lbl stat
   = do (ldata, ltypes) <- genLlvmData (Text, stat)
