@@ -157,6 +157,7 @@ data LlvmStatic
 
   | LMBitc LlvmStatic LlvmType         -- ^ Pointer to Pointer conversion
   | LMPtoI LlvmStatic LlvmType         -- ^ Pointer to Integer conversion
+  | LMGetElemP LlvmStatic [LlvmStatic] LlvmType -- ^ Get element pointer
   | LMAdd LlvmStatic LlvmStatic        -- ^ Constant addition operation
   | LMSub LlvmStatic LlvmStatic        -- ^ Constant subtraction operation
   deriving (Eq)
@@ -174,6 +175,8 @@ instance Outputable LlvmStatic where
       = ppr t <> text " bitcast (" <> ppr v <> text " to " <> ppr t <> char ')'
   ppr (LMPtoI v t)
       = ppr t <> text " ptrtoint (" <> ppr v <> text " to " <> ppr t <> char ')'
+  ppr (LMGetElemP p is t)
+      = ppr t <> text " getelementptr (" <> ppr p <> text ", " <> ppCommaJoin is <> char ')'
 
   ppr (LMAdd s1 s2)
       = pprStaticArith s1 s2 (sLit "add") (sLit "fadd") "LMAdd"
@@ -249,6 +252,7 @@ getStatType (LMStaticArray _ t) = t
 getStatType (LMStaticStruc _ t) = t
 getStatType (LMStaticPointer v) = getVarType v
 getStatType (LMZeroInitializer t) = t
+getStatType (LMGetElemP  _ _ t) = t
 getStatType (LMBitc        _ t) = t
 getStatType (LMPtoI        _ t) = t
 getStatType (LMAdd         t _) = getStatType t
