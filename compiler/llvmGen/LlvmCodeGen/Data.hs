@@ -101,11 +101,10 @@ genStaticLit (CmmVec ls)
 
 -- Leave unresolved, will fix later
 genStaticLit cmm@(CmmLabel l) = do
-    var <- getGlobalPtr =<< strCLabel_llvm l
     dflags <- getDynFlags
-    let ptr = LMStaticPointer var
-        lmty = cmmToLlvmType $ cmmLitType dflags cmm
-    return $ LMPtoI ptr lmty
+    let lmty = cmmToLlvmType $ cmmLitType dflags cmm
+    var <- flip getGlobalPtr lmty =<< strCLabel_llvm l
+    return $ LMStaticPointer var
 
 genStaticLit (CmmLabelOff label off) = do
     dflags <- getDynFlags

@@ -1439,9 +1439,9 @@ genLit opt (CmmVec ls)
           _ -> panic "genLit"
 
 genLit _ cmm@(CmmLabel l)
-  = do var <- getGlobalPtr =<< strCLabel_llvm l
-       dflags <- getDynFlags
+  = do dflags <- getDynFlags
        let lmty = cmmToLlvmType $ cmmLitType dflags cmm
+       var <- flip getGlobalPtr lmty =<< strCLabel_llvm l
        (v1, s1) <- doExpr lmty $ Cast LM_Ptrtoint var (llvmWord dflags)
        return (v1, unitOL s1, [])
 
@@ -1595,12 +1595,8 @@ getHsFunc live lbl
 
 getHsFunc' :: LMString -> LlvmType -> LlvmM ExprData
 getHsFunc' name fty
-  = do fun <- getGlobalPtr name
-       if getVarType fun == fty
-         then return (fun, nilOL, [])
-         else do (v1, s1) <- doExpr (pLift fty)
-                               $ Cast LM_Bitcast fun (pLift fty)
-                 return  (v1, unitOL s1, [])
+  = do fun <- getGlobalPtr name fty
+       return (fun, nilOL, [])
 
 -- | Create a new local var
 mkLocalVar :: LlvmType -> LlvmM LlvmVar

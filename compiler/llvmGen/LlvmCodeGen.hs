@@ -79,8 +79,10 @@ llvmCodeGen' cmm_stream
         let llvmStream = Stream.mapM llvmGroupLlvmGens cmm_stream
         _ <- Stream.collect llvmStream
 
-        -- Declare aliases for forward references
-        renderLlvm . pprLlvmData =<< generateAliases
+        -- Declare declarations
+        (funDecls, dataDecls) <- generateDecls
+        renderLlvm $ pprLlvmData dataDecls
+        renderLlvm $ ppLlvmFunctionDecls funDecls
 
         -- Postamble
         cmmUsedLlvmGens

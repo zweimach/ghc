@@ -29,7 +29,7 @@ module LlvmCodeGen.Base (
         llvmPtrBits, mkLlvmFunc, tysToParams,
 
         strCLabel_llvm, strDisplayName_llvm, strProcedureName_llvm,
-        getGlobalPtr, generateAliases,
+        getGlobalPtr, generateDecls,
 
     ) where
 
@@ -53,6 +53,7 @@ import UniqSet
 import UniqSupply
 import ErrUtils
 import qualified Stream
+import Data.Either (partitionEithers)
 
 import Control.Monad (ap)
 import Control.Applicative (Applicative(..))
@@ -198,7 +199,7 @@ data LlvmEnv = LlvmEnv
   , envFreshMeta :: Int            -- ^ Supply of fresh metadata IDs
   , envUniqMeta :: UniqFM Int      -- ^ Global metadata nodes
   , envFunMap :: LlvmEnvMap        -- ^ Global functions so far, with type
-  , envAliases :: UniqSet LMString -- ^ Globals that we had to alias, see [Llvm Forward References]
+  , envGlobalRefs :: UniqFM (LlvmType, LMString) -- ^ Globals that we had to alias, see [Llvm Forward References]
   , envUsedVars :: [LlvmVar]       -- ^ Pointers to be added to llvm.used (see @cmmUsedLlvmGens@)
 
     -- the following get cleared for every function (see @withClearVars@)
@@ -241,7 +242,7 @@ runLlvm dflags ver out us m = do
                       , envVarMap = emptyUFM
                       , envStackRegs = []
                       , envUsedVars = []
-                      , envAliases = emptyUniqSet
+                      , envGlobalRefs = emptyUniqSet
                       , envVersion = ver
                       , envDynFlags = dflags
                       , envOutput = out
@@ -341,10 +342,10 @@ markUsedVar v = modifyEnv $ \env -> env { envUsedVars = v : envUsedVars env }
 getUsedVars :: LlvmM [LlvmVar]
 getUsedVars = getEnv envUsedVars
 
--- | Saves that at some point we didn't know the type of the label and
--- generated a reference to a type variable instead
-saveAlias :: LMString -> LlvmM ()
-saveAlias lbl = modifyEnv $ \env -> env { envAliases = addOneToUniqSet (envAliases env) lbl }
+-- | Saves that at some point we referred to a global for which we had not yet
+-- seen a definition
+saveGlobalRef :: LMString -> LlvmType -> LlvmM ()
+saveGlobalRef lbl t = modifyEnv $ \env -> env { envGlobalRefs = addToUFM (envGlobalRefs env) lbl (t,lbl) }
 
 -- | Sets metadata node for a given unique
 setUniqMeta :: Unique -> Int -> LlvmM ()
@@ -426,55 +427,77 @@ strProcedureName_llvm lbl = do
 -- * Global variables / forward references
 --
 
--- | Create/get a pointer to a global value. Might return an alias if
--- the value in question hasn't been defined yet. We especially make
--- no guarantees on the type of the returned pointer.
-getGlobalPtr :: LMString -> LlvmM LlvmVar
-getGlobalPtr llvmLbl = do
+-- | Create/get a pointer to a global value.
+getGlobalPtr :: LMString -> LlvmType -> LlvmM LlvmVar
+getGlobalPtr llvmLbl desiredTy = do
   m_ty <- funLookup llvmLbl
   let mkGlbVar lbl ty = LMGlobalVar lbl (LMPointer ty) Private Nothing Nothing
   case m_ty of
-    -- Directly reference if we have seen it already
-    Just ty -> return $ mkGlbVar llvmLbl ty Global
-    -- Otherwise use a forward alias of it
-    Nothing -> do
-      saveAlias llvmLbl
-      return $ mkGlbVar (llvmLbl `appendFS` fsLit "$alias") i8 Alias
+    -- Directly reference if we have seen a definition
+    Just ty -> do
+      if (ty /= desiredTy)
+        then panic "getGlobalPtr: Definition doesn't match desired type"
+        else return $ mkGlbVar llvmLbl ty Global
 
--- | Generate definitions for aliases forward-referenced by @getGlobalPtr@.
+    -- Otherwise mark that we might need a declaration
+    Nothing -> do
+      saveGlobalRef llvmLbl desiredTy
+      return $ mkGlbVar llvmLbl desiredTy Global
+
+-- | Generate declarations for globals forward-referenced by @getGlobalPtr@.
 --
 -- Must be called at a point where we are sure that no new global definitions
 -- will be generated anymore!
-generateAliases :: LlvmM ([LMGlobal], [LlvmType])
-generateAliases = do
-  delayed <- fmap uniqSetToList $ getEnv envAliases
-  defss <- flip mapM delayed $ \lbl -> do
-    let var      ty = LMGlobalVar lbl (LMPointer ty) External Nothing Nothing Global
-        aliasLbl    = lbl `appendFS` fsLit "$alias"
-        aliasVar    = LMGlobalVar aliasLbl i8Ptr Private Nothing Nothing Alias
-    -- If we have a definition, set the alias value using a
-    -- cost. Otherwise, declare it as an undefined external symbol.
-    m_ty <- funLookup lbl
+generateDecls :: LlvmM ([LlvmFunctionDecl], LlvmData)
+generateDecls = do
+  globalRefs <- ufmToList `fmap` getEnv envGlobalRefs
+  decls <- flip mapM globalRefs $ \(lbl_uniq, (refTy, lbl)) -> do
+    m_ty <- funLookup lbl_uniq
     case m_ty of
-      Just ty -> return [LMGlobal aliasVar $ Just $ LMBitc (LMStaticPointer (var ty)) i8Ptr]
-      Nothing -> return [LMGlobal (var i8) Nothing,
-                         LMGlobal aliasVar $ Just $ LMStaticPointer (var i8) ]
+      -- We already have a definition, no declaration needed
+      Just ty
+        | ty /= refTy -> panic "generateDecls: Definition doesn't match reference type"
+        | otherwise   -> return []
+
+      -- No definition in this compilation unit, needs a declaration
+      Nothing ->
+        case refTy of
+          -- functions need `declare` syntax
+          LMFunction funDecl -> return [Left funDecl]
+
+          -- other globals can just be defined with `external` linkage
+          ty ->
+            let var = LMGlobalVar lbl ty External Nothing Nothing Global
+            in return [Right $ LMGlobal var Nothing]
+
   -- Reset forward list
-  modifyEnv $ \env -> env { envAliases = emptyUniqSet }
-  return (concat defss, [])
+  modifyEnv $ \env -> env { envGlobalRefs = emptyUniqSet }
+  let (funDecls, varDecls) = partitionEithers $ concat decls
+  return (funDecls, (varDecls, []))
 
 -- Note [Llvm Forward References]
 --
--- The issue here is that LLVM insists on being strongly typed at
--- every corner, so the first time we mention something, we have to
--- settle what type we assign to it. That makes things awkward, as Cmm
--- will often reference things before their definition, and we have no
--- idea what (LLVM) type it is going to be before that point.
+-- LLVM treats functions and variables differently. This difference is
+-- especially apparent in declarations of external globals. While in the
+-- case of a variable a declaration looks like,
 --
--- Our work-around is to define "aliases" of a standard type (i8 *) in
--- these kind of situations, which we later tell LLVM to be either
--- references to their actual local definitions (involving a cast) or
--- an external reference. This obviously only works for pointers.
+--     @myExtern = external global i8
+--
+-- in the case of a function a declaration should look like,
+--
+--     declare i8 @myExtern(i8)
+--
+-- As C-- doesn't give us forward declarations, we need to figure out which
+-- symbols will require declarations ourselves. We do this by keeping track
+-- of which functions have been defined in the current compilation
+-- unit (in envFun). Every time we reference a global variable, we (or
+-- rather, getGlobalPtr) checks whether we've seen a definition yet. If so,
+-- we just return a reference to this. If not, we mark down the fact that it
+-- may need a declaration (with saveGlobalRef). After processing all of the C--,
+-- we then emit declarations for undefined global references in generateDecls.
+--
+-- Note that we assume here that each symbol is used as only one type. To do
+-- otherwise is clearly a bug.
 
 -- ----------------------------------------------------------------------------
 -- * Misc
