@@ -435,7 +435,7 @@ getGlobalPtr llvmLbl desiredTy = do
   case m_ty of
     -- Directly reference if we have seen a definition
     Just ty -> do
-      if (ty /= desiredTy)
+      if ty /= desiredTy
         then panic "getGlobalPtr: Definition doesn't match desired type"
         else return $ mkGlbVar llvmLbl Global
 
