@@ -1442,7 +1442,7 @@ genLit _ cmm@(CmmLabel l)
   = do dflags <- getDynFlags
        let lmty = cmmToLlvmType $ cmmLitType dflags cmm
        var <- flip getGlobalPtr lmty =<< strCLabel_llvm l
-       (v1, s1) <- doExpr lmty var
+       (v1, s1) <- doExpr lmty $ Cast LM_Ptrtoint var (llvmWord dflags)
        return (v1, unitOL s1, [])
 
 genLit opt (CmmLabelOff label off) = do
