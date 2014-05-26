@@ -431,18 +431,18 @@ strProcedureName_llvm lbl = do
 getGlobalPtr :: LMString -> LlvmType -> LlvmM LlvmVar
 getGlobalPtr llvmLbl desiredTy = do
   m_ty <- funLookup llvmLbl
-  let mkGlbVar lbl ty = LMGlobalVar lbl (LMPointer ty) Private Nothing Nothing
+  let mkGlbVar lbl = LMGlobalVar lbl desiredTy Private Nothing Nothing
   case m_ty of
     -- Directly reference if we have seen a definition
     Just ty -> do
       if (ty /= desiredTy)
         then panic "getGlobalPtr: Definition doesn't match desired type"
-        else return $ mkGlbVar llvmLbl ty Global
+        else return $ mkGlbVar llvmLbl Global
 
     -- Otherwise mark that we might need a declaration
     Nothing -> do
       saveGlobalRef llvmLbl desiredTy
-      return $ mkGlbVar llvmLbl desiredTy Global
+      return $ mkGlbVar llvmLbl Global
 
 -- | Generate declarations for globals forward-referenced by @getGlobalPtr@.
 --
