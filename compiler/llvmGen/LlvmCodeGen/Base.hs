@@ -8,7 +8,7 @@ module LlvmCodeGen.Base (
 
         LlvmCmmDecl, LlvmBasicBlock,
         LiveGlobalRegs,
-        LlvmUnresData, LlvmData, UnresLabel, UnresStatic,
+        LlvmData, UnresLabel, UnresStatic,
 
         LlvmVersion, defaultLlvmVersion, minSupportLlvmVersion,
         maxSupportLlvmVersion,
@@ -66,10 +66,6 @@ type LlvmBasicBlock = GenBasicBlock LlvmStatement
 
 -- | Global registers live on proc entry
 type LiveGlobalRegs = [GlobalReg]
-
--- | Unresolved code.
--- Of the form: (data label, data type, unresolved data)
-type LlvmUnresData = (CLabel, Section, LlvmType, [UnresStatic])
 
 -- | Top level LLVM Data (globals and type aliases)
 type LlvmData = ([LMGlobal], [LlvmType])
