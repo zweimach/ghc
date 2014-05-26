@@ -435,8 +435,15 @@ getGlobalPtr llvmLbl desiredTy = do
   case m_ty of
     -- Directly reference if we have seen a definition
     Just ty -> do
+      let ($$) = (Outp.$$)
+          (<+>) = (Outp.<+>)
+          text = Outp.text
       if ty /= desiredTy
-        then panic "getGlobalPtr: Definition doesn't match desired type"
+        then Outp.pprPanic "getGlobalPtr: Definition doesn't match desired type"
+             $ text "Saw definition for " <+> Outp.ppr llvmLbl <+> text " of type,"
+            $$ Outp.nest 2 (Outp.ppr ty)
+            $$ text "but reference wanted value of type,"
+            $$ Outp.nest 2 (Outp.ppr desiredTy)
         else return $ mkGlbVar llvmLbl Global
 
     -- Otherwise mark that we might need a declaration
