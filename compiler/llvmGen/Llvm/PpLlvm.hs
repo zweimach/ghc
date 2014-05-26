@@ -259,9 +259,10 @@ ppCall ct fptr args attrs = case fptr of
     LMGlobalVar _ (LMFunction d) _ _ _ _    -> ppCall' d
 
     -- not pointer or function, so error
-    _other -> error $ "ppCall called with non LMFunction type!\nMust be "
-                ++ " called with either global var of function type or "
-                ++ "local var of pointer function type."
+    _other -> pprPanic "ppCall called with non LMFunction type!"
+              $ text ("Must be called with either global var of function type or "
+                       ++ "local var of pointer function type.")
+             $$ text "Called with " <+> ppr _other
 
     where
         ppCall' (LlvmFunctionDecl _ _ cc ret argTy params _) =
