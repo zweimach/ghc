@@ -72,7 +72,8 @@ module Var (
 
         -- * Binders
         Binder, VisibilityFlag(..),
-        isNamedBinder, isAnonBinder, binderType, binderVisibility
+        isNamedBinder, isAnonBinder, binderType, binderVisibility,
+        binderVar_maybe
 
     ) where
 
@@ -502,3 +503,7 @@ binderVisibitity (NamedBndr _ vis) = vis
 binderVisibility (AnonBndr ty)
   | isVisibleType ty = Visible
   | otherwise        = Invisible
+
+binderVar_maybe :: Binder -> Maybe Var
+binderVar_maybe (NamedBndr v _) = Just v
+binderVar_maybe (AnonBndr {})   = Nothing

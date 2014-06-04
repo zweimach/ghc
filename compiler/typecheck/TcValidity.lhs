@@ -833,6 +833,8 @@ validDerivPred tv_set pred
                       && all (`elemVarSet` tv_set) fvs
        TuplePred ps -> all (validDerivPred tv_set) ps
        _            -> True   -- Non-class predicates are ok
+  where
+    fvs = fvType pred
 \end{code}
 
 

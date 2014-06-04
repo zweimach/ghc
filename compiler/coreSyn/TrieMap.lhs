@@ -716,28 +716,6 @@ mapR :: (a -> b) -> RoleMap a -> RoleMap b
 mapR f (RM (a, b, c)) = RM $ (fmap f a, fmap f b, fmap f c)
 
 
-newtype IFMap a = IFM { unIFM :: Pair (Maybe a) }
-  deriving (Functor)
-
-instance TrieMap IFMap where
-  type Key IFMap = ImplicitFlag
-  emptyTM = IFM $ pure Nothing
-  lookupTM = lkIF
-  alterTM = xtIF
-  foldTM = fdIF
-  mapTM = fmap
-
-lkIF :: ImplicitFlag -> IFMap a -> Maybe a
-lkIF Implicit = pFst . unIFM
-lkIF Explicit = pSnd . unIFM
-
-xtIF :: ImplicitFlag -> XT a -> IFMap a -> IFMap a
-xtIF Implicit f = IFM . pLiftFst f . unIFM
-xtIF Explicit f = IFM . pLiftSnd f . unIFM
-
-fdIF :: (b -> a -> a) -> IFMap b -> a -> a
-fdIF f (IFM pr) z = Foldable.foldl (Foldable.foldl (flip f)) z pr
-
 \end{code}
 
 
@@ -754,7 +732,7 @@ data TypeMap a
        , tm_app    :: TypeMap (TypeMap a)
        , tm_fun    :: TypeMap (TypeMap a)
        , tm_tc_app :: NameEnv (ListMap TypeMap a)
-       , tm_forall :: TypeMap (IFMap (BndrMap a))
+       , tm_forall :: TypeMap (BinderMap a)
        , tm_tylit  :: TyLitMap a
        , tm_cast   :: TypeMap (CoercionMap a)
        , tm_coerce :: CoercionMap a
@@ -812,7 +790,7 @@ mapT f (TM { tm_var  = tvar, tm_app = tapp, tm_fun = tfun
        , tm_app    = mapTM (mapTM f) tapp
        , tm_fun    = mapTM (mapTM f) tfun
        , tm_tc_app = mapNameEnv (mapTM f) ttcapp
-       , tm_forall = mapTM (mapTM (mapTM f)) tforall
+       , tm_forall = mapTM (mapTM f) tforall
        , tm_tylit  = mapTM f tlit 
        , tm_cast   = mapTM (mapTM f) tcast
        , tm_coerce = mapTM f tco
@@ -830,7 +808,7 @@ lkT env ty m
     go (FunTy t1 t2)        = tm_fun    >.> lkT env t1 >=> lkT env t2
     go (TyConApp tc tys)    = tm_tc_app >.> lkNamed tc >=> lkList (lkT env) tys
     go (LitTy l)            = tm_tylit  >.> lkTyLit l
-    go (ForAllTy tv imp ty) = tm_forall >.> lkT (extendCME env tv) ty >=> lkIF imp >=> lkBndr env tv
+    go (ForAllTy bndr ty)   = tm_forall >.> lkT (extendCME env tv) ty >=> lkB env bndr
     go (CastTy ty co)       = tm_cast   >.> lkT env ty >=> lkC env co
     go (CoercionTy co)      = tm_coerce >.> lkC env co
 
@@ -879,10 +857,9 @@ xtT env ty f m
 xtT env (TyVarTy v)       f  m     = m { tm_var    = tm_var m |> xtVar env v f }
 xtT env (AppTy t1 t2)     f  m     = m { tm_app    = tm_app m |> xtT env t1 |>> xtT env t2 f }
 xtT env (FunTy t1 t2)     f  m     = m { tm_fun    = tm_fun m |> xtT env t1 |>> xtT env t2 f }
-xtT env (ForAllTy tv imp ty)  f  m = m { tm_forall = tm_forall m
+xtT env (ForAllTy bndr ty) f m     = m { tm_forall = tm_forall m
                                                  |> xtT (extendCME env tv) ty
-                                                 |>> xtIF imp
-                                                 |>> xtBndr env tv f }
+                                                 |>> xtB bndr f }
 xtT env (TyConApp tc tys) f  m     = m { tm_tc_app = tm_tc_app m |> xtNamed tc 
                                                  |>> xtList (xtT env) tys f }
 xtT _   (LitTy l)         f  m     = m { tm_tylit  = tm_tylit m |> xtTyLit l f }
@@ -899,6 +876,65 @@ fdT k m = foldTM k (tm_var m)
         . foldTyLit k (tm_tylit m)
         . foldTM (foldTM k) (tm_cast m)
         . foldTM k (tm_coerce m)
+
+------------------------
+data BinderMap a
+  = BM { bm_named_vis   :: VarMap a
+       , bm_named_invis :: VarMap a
+       , bm_anon        :: TypeMap a
+       }
+
+instance Outputable a => Outputable (BinderMap a) where
+  ppr m = text "BinderMap elts" <+> ppr (foldBinderMap (:) [] m)
+
+foldBinderMap :: (a -> b -> b) -> b -> TypeMap a -> b
+foldBinderMap k z m = fdB k m z
+
+emptyBinderMap :: TypeMap a
+emptyBinderMap = BM { bm_named_vis   = emptyTM
+                    , bm_named_invis = emptyTM
+                    , bm_anon        = emptyTM }
+
+instance TrieMap BinderMap where
+   type Key BinderMap = Binder
+   emptyTM  = emptyBinderMap
+   lookupTM = lkB emptyCME
+   alterTM  = xtB emptyCME
+   foldTM   = fdB
+   mapTM    = mapB
+
+mapB :: (a->b) -> BinderMap a -> BinderMap b
+mapB f (BM { bm_named_vis = n_vis, bm_named_invis = n_invis,
+             bm_anon = anon })
+  = BM { bm_named_vis   = mapTM f n_vis
+       , bm_named_invis = mapTM f n_invis
+       , bm_anon        = mapTM f anon
+       }
+
+lkB :: CmEnv -> Binder -> BinderMap a -> Maybe a
+lkB env = go
+  where
+    go bndr
+      | Just v <- binderVar_maybe
+      = case binderVisibility bndr of
+          Visible   -> bm_named_vis   >.> lkVar env v
+          Invisible -> bm_named_invis >.> lkVar env v
+      | otherwise
+      = bm_anon >.> lkT env (binderType bndr)
+
+xtB :: CmEnv -> Binder -> XT a -> BinderMap a -> BinderMap a
+xtB env bndr f m
+  | Just v <- binderVar_maybe
+  = case binderVisibility bndr of
+      Visible ->   m { bm_named_vis   = bm_named_vis m   |> xtVar env v f }
+      Invisible -> m { bm_named_invis = bm_named_invis m |> xtVar env v f }
+  | otherwise
+  = m { bm_anon = bm_anon m |> xtT env (binderType bndr) }
+
+fdB :: (a -> b -> b) -> BinderMap a -> b -> b
+fdB k m = foldTM k (bm_named_vis m)
+        . foldTM k (bm_named_invis m)
+        . foldTM k (bm_anon m)
 
 ------------------------
 data TyLitMap a = TLM { tlm_number :: Map.Map Integer a

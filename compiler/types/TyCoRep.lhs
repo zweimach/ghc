@@ -167,8 +167,7 @@ data Type
                         -- See Note [Equality-constrained types]
 
   | ForAllTy            -- See Note [Type abstractions over coercions]
-        TyCoVar
-        ImplicitFlag    -- ^ Whether or not this is implicit in surface Haskell
+        Binder          -- never Anon (use FunTy for anonymous binders)
         Type            -- ^ A polymorphic type
 
   | LitTy TyLit     -- ^ Type literals are similar to type constructors.
