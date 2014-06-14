@@ -427,7 +427,8 @@ strProcedureName_llvm lbl = do
 -- * Global variables / forward references
 --
 
--- | Create/get a pointer to a global value.
+-- | Get a pointer to a global value. We cannot guarantee anything about the
+-- LLVM type of the returned pointer
 getGlobalPtr :: LMString -> LlvmType -> LlvmM LlvmVar
 getGlobalPtr llvmLbl desiredTy = do
   m_ty <- funLookup llvmLbl
@@ -462,9 +463,7 @@ generateDecls = do
     m_ty <- funLookup lbl_uniq
     case m_ty of
       -- We already have a definition, no declaration needed
-      Just ty
-        | ty /= refTy -> panic "generateDecls: Definition doesn't match reference type"
-        | otherwise   -> return []
+      Just ty -> return []
 
       -- No definition in this compilation unit, needs a declaration
       Nothing ->
