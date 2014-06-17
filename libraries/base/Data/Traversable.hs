@@ -1,5 +1,7 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -221,6 +223,17 @@ instance Traversable Last where
 
 instance Traversable ZipList where
     traverse f (ZipList x) = ZipList <$> traverse f x
+
+-- Instances for GHC.Generics
+deriving instance Traversable V1
+deriving instance Traversable U1
+deriving instance Traversable Par1
+deriving instance Traversable f => Traversable (Rec1 f)
+deriving instance Traversable (K1 i c)
+deriving instance Traversable f => Traversable (M1 i c f)
+deriving instance (Traversable f, Traversable g) => Traversable ((:+:) f g)
+deriving instance (Traversable f, Traversable g) => Traversable ((:*:) f g)
+deriving instance (Traversable f, Traversable g) => Traversable ((:.:) f g)
 
 -- general functions
 

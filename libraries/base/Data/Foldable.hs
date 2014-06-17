@@ -390,6 +390,17 @@ instance Foldable First where
 instance Foldable Last where
     foldMap f = foldMap f . getLast
 
+-- Instances for GHC.Generics
+deriving instance Foldable V1
+deriving instance Foldable U1
+deriving instance Foldable Par1
+deriving instance Foldable f => Foldable (Rec1 f)
+deriving instance Foldable (K1 i c)
+deriving instance Foldable f => Foldable (M1 i c f)
+deriving instance (Foldable f, Foldable g) => Foldable ((:+:) f g)
+deriving instance (Foldable f, Foldable g) => Foldable ((:*:) f g)
+deriving instance (Foldable f, Foldable g) => Foldable ((:.:) f g)
+
 -- We don't export Max and Min because, as Edward Kmett pointed out to me,
 -- there are two reasonable ways to define them. One way is to use Maybe, as we
 -- do here; the other way is to impose a Bounded constraint on the Monoid

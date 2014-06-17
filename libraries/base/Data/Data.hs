@@ -1509,3 +1509,158 @@ instance (Data (f a), Data a, Typeable f) => Data (Alt f a) where
   gunfold k z _ = k (z Alt)
   toConstr (Alt _) = altConstr
   dataTypeOf _ = altDataType
+
+-----------------------------------------------------------------------
+-- instances for GHC.Generics
+
+u1Constr :: Constr
+u1Constr = mkConstr u1DataType "U1" [] Prefix
+
+u1DataType :: DataType
+u1DataType = mkDataType "GHC.Generics.U1" [u1Constr]
+
+instance Data a => Data (U1 a) where
+  gfoldl k z U1 = z U1
+  toConstr U1 = u1Constr
+  gunfold k z c = case constrIndex c of
+                    1 -> z U1
+                    _ -> error "Data.Data.gunfold(U1)"
+  dataTypeOf _  = u1DataType
+  dataCast1 f = gcast1 f
+
+----------------------------------------------------------------------
+
+par1Constr :: Constr
+par1Constr = mkConstr par1DataType "Par1" [] Prefix
+
+par1DataType :: DataType
+par1DataType = mkDataType "GHC.Generics.Par1" [par1Constr]
+
+instance Data a => Data (Par1 a) where
+  gfoldl k z (Par1 p) = z Par1 `k` p
+  toConstr (Par1 _) = par1Constr
+  gunfold k z c = case constrIndex c of
+                    1 -> k (z Par1)
+                    _ -> error "Data.Data.gunfold(Par1)"
+  dataTypeOf _  = par1DataType
+  dataCast1 f = gcast1 f
+
+----------------------------------------------------------------------
+
+rec1Constr :: Constr
+rec1Constr = mkConstr rec1DataType "Rec1" [] Prefix
+
+rec1DataType :: DataType
+rec1DataType = mkDataType "GHC.Generics.Rec1" [rec1Constr]
+
+instance (Data (f p), Typeable f, Data p) => Data (Rec1 f p) where
+  gfoldl k z (Rec1 p) = z Rec1 `k` p
+  toConstr (Rec1 _) = rec1Constr
+  gunfold k z c = case constrIndex c of
+                    1 -> k (z Rec1)
+                    _ -> error "Data.Data.gunfold(Rec1)"
+  dataTypeOf _  = rec1DataType
+  dataCast1 f = gcast1 f
+
+----------------------------------------------------------------------
+
+k1Constr :: Constr
+k1Constr = mkConstr k1DataType "K1" [] Prefix
+
+k1DataType :: DataType
+k1DataType = mkDataType "GHC.Generics.K1" [k1Constr]
+
+instance (Typeable i, Data p, Data c) => Data (K1 i c p) where
+  gfoldl k z (K1 p) = z K1 `k` p
+  toConstr (K1 _) = k1Constr
+  gunfold k z c = case constrIndex c of
+                    1 -> k (z K1)
+                    _ -> error "Data.Data.gunfold(K1)"
+  dataTypeOf _  = k1DataType
+  dataCast1 f = gcast1 f
+
+----------------------------------------------------------------------
+
+m1Constr :: Constr
+m1Constr = mkConstr m1DataType "M1" [] Prefix
+
+m1DataType :: DataType
+m1DataType = mkDataType "GHC.Generics.M1" [m1Constr]
+
+instance (Data p, Data (f p), Typeable c, Typeable i, Typeable f) => Data (M1 i c f p) where
+  gfoldl k z (M1 p) = z M1 `k` p
+  toConstr (M1 _) = m1Constr
+  gunfold k z c = case constrIndex c of
+                    1 -> k (z M1)
+                    _ -> error "Data.Data.gunfold(M1)"
+  dataTypeOf _  = m1DataType
+  dataCast1 f = gcast1 f
+
+----------------------------------------------------------------------------------
+
+sum1DataType :: DataType
+sum1DataType = mkDataType "GHC.Generics.:+:" [l1Constr, r1Constr]
+
+l1Constr :: Constr
+l1Constr = mkConstr sum1DataType "L1" [] Prefix
+
+r1Constr :: Constr
+r1Constr = mkConstr sum1DataType "R1" [] Prefix
+
+instance (Typeable f, Typeable g, Data a, Data (f a), Data (g a)) => Data ((f :+: g) a) where
+  gfoldl k z (L1 a) = z L1 `k` a
+  gfoldl k z (R1 a) = z R1 `k` a
+  toConstr L1{} = l1Constr
+  toConstr R1{} = r1Constr
+  gunfold k z c = case constrIndex c of
+                    1 -> k (z L1)
+                    2 -> k (z R1)
+                    _ -> error "gunfold"
+  dataTypeOf _ = sum1DataType
+  dataCast1 f = gcast1 f
+
+--------------------------------------------------------------------------------
+
+comp1Constr :: Constr
+comp1Constr = mkConstr comp1DataType "Comp1" [] Prefix
+
+comp1DataType :: DataType
+comp1DataType = mkDataType "GHC.Generics.:.:" [comp1Constr]
+
+instance (Typeable a, Typeable f, Typeable g, Data a, Data (f (g a))) => Data ((f :.: g) a) where
+  gfoldl k z (Comp1 c) = z Comp1 `k` c
+  toConstr (Comp1 _) = m1Constr
+  gunfold k z c = case constrIndex c of
+                    1 -> k (z Comp1)
+                    _ -> error "gunfold"
+  dataTypeOf _ = comp1DataType
+  dataCast1 f = gcast1 f
+
+--------------------------------------------------------------------------------
+
+v1DataType :: DataType
+v1DataType = mkDataType "GHC.Generics.V1" []
+
+instance Data a => Data (V1 a) where
+  gfoldl f z !x = undefined
+  toConstr !x = undefined
+  gunfold k z c = error "gunfold"
+  dataTypeOf _ = v1DataType
+  dataCast1 f = gcast1 f
+
+--------------------------------------------------------------------------------
+
+prod1DataType :: DataType
+prod1DataType = mkDataType "GHC.Generics.:*:" [prod1Constr]
+
+prod1Constr :: Constr
+prod1Constr = mkConstr prod1DataType "Prod1" [] Infix
+
+instance (Typeable f, Typeable g, Data a, Data (f a), Data (g a)) => Data ((f :*: g) a) where
+  gfoldl k z (l :*: r) = z (:*:) `k` l `k` r
+  toConstr _ = prod1Constr
+  gunfold k z c = case constrIndex c of
+                    1 -> k (k (z (:*:)))
+                    _ -> error "gunfold"
+  dataCast1 f = gcast1 f
+  dataTypeOf _ = prod1DataType

@@ -15,6 +15,7 @@
 {-# LANGUAGE TypeOperators          #-}
 {-# LANGUAGE TypeSynonymInstances   #-}
 {-# LANGUAGE UndecidableInstances   #-}
+{-# LANGUAGE DeriveFunctor          #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -709,6 +710,9 @@ import Data.Either ( Either(..) )
 
 -- Needed for instances
 import GHC.Base    ( String )
+import Control.Monad (MonadPlus(..))
+import Data.Typeable (Typeable)
+import GHC.Base (Functor(..), Applicative(..), Alternative(..), Monad(..))
 import GHC.Classes ( Eq, Ord )
 import GHC.Read    ( Read )
 import GHC.Show    ( Show )
@@ -723,41 +727,113 @@ import GHC.TypeLits ( Nat, Symbol, KnownSymbol, KnownNat, symbolVal, natVal )
 
 -- | Void: used for datatypes without constructors
 data V1 (p :: *)
+  deriving (Functor, Generic)
 
 -- | Unit: used for constructors without arguments
 data U1 (p :: *) = U1
-  deriving (Eq, Ord, Read, Show, Generic)
+  deriving (Eq, Ord, Read, Show, Generic, Functor)
+
+instance Applicative U1 where
+  pure _ = U1
+  U1 <*> U1 = U1
+
+instance Alternative U1 where
+  empty = U1
+  U1 <|> U1 = U1
+
+instance Monad U1 where
+  return _ = U1
+  U1 >>= f = U1
 
 -- | Used for marking occurrences of the parameter
 newtype Par1 p = Par1 { unPar1 :: p }
-  deriving (Eq, Ord, Read, Show, Generic)
+  deriving (Eq, Ord, Read, Show, Generic, Functor)
+
+instance Applicative Par1 where
+  pure a = Par1 a
+  Par1 f <*> Par1 x = Par1 (f x)
 
 -- | Recursive calls of kind * -> *
 newtype Rec1 f (p :: *) = Rec1 { unRec1 :: f p }
-  deriving (Eq, Ord, Read, Show, Generic)
+  deriving (Eq, Ord, Read, Show, Generic, Functor)
+
+instance Applicative f => Applicative (Rec1 f) where
+  pure a = Rec1 (pure a)
+  (Rec1 f) <*> (Rec1 x) = Rec1 (f <*> x)
+
+instance Alternative f => Alternative (Rec1 f) where
+  empty = Rec1 empty
+  (Rec1 l) <|> (Rec1 r) = Rec1 (l <|> r)
+
+instance Monad f => Monad (Rec1 f) where
+  return = pure
+  Rec1 x >>= f = Rec1 (x >>= \a -> unRec1 (f a))
+
+instance MonadPlus f => MonadPlus (Rec1 f)
 
 -- | Constants, additional parameters and recursion of kind *
 newtype K1 (i :: *) c (p :: *) = K1 { unK1 :: c }
-  deriving (Eq, Ord, Read, Show, Generic)
+  deriving (Eq, Ord, Read, Show, Generic, Functor)
 
 -- | Meta-information (constructor names, etc.)
 newtype M1 (i :: *) (c :: Meta) f (p :: *) = M1 { unM1 :: f p }
-  deriving (Eq, Ord, Read, Show, Generic)
+  deriving (Eq, Ord, Read, Show, Generic, Functor)
+
+instance Applicative f => Applicative (M1 i c f) where
+  pure a = M1 (pure a)
+  M1 f <*> M1 x = M1 (f <*> x)
+
+instance Alternative f => Alternative (M1 i c f) where
+  empty = M1 empty
+  M1 l <|> M1 r = M1 (l <|> r)
+
+instance Monad f => Monad (M1 i c f) where
+  return = pure
+  M1 x >>= f = M1 (x >>= \a -> unM1 (f a))
+
+instance MonadPlus f => MonadPlus (M1 i c f)
 
 -- | Sums: encode choice between constructors
 infixr 5 :+:
 data (:+:) f g (p :: *) = L1 (f p) | R1 (g p)
-  deriving (Eq, Ord, Read, Show, Generic)
+  deriving (Eq, Ord, Read, Show, Generic, Functor)
 
 -- | Products: encode multiple arguments to constructors
 infixr 6 :*:
 data (:*:) f g (p :: *) = f p :*: g p
-  deriving (Eq, Ord, Read, Show, Generic)
+  deriving (Eq, Ord, Read, Show, Generic, Functor)
+
+instance (Applicative f, Applicative g) => Applicative ((:*:) f g) where
+  pure a = pure a :*: pure a
+  (f :*: g) <*> (x :*: y) = (f <*> x) :*: (g <*> y)
+
+instance (Alternative f, Alternative g) => Alternative ((:*:) f g) where
+    empty = empty :*: empty
+    (x1 :*: y1) <|> (x2 :*: y2) = (x1 <|> x2) :*: (y1 <|> y2)
+
+instance (Monad f, Monad g) => Monad ((:*:) f g) where
+    return = pure
+    (m :*: n) >>= f = (m >>= \a -> fstP (f a)) :*: (n >>= \a -> sndP (f a))
+      where
+        fstP (a :*: _) = a
+        sndP (_ :*: b) = b
+
+instance (MonadPlus f, MonadPlus g) => MonadPlus ((:*:) f g)
 
 -- | Composition of functors
 infixr 7 :.:
 newtype (:.:) f (g :: * -> *) (p :: *) = Comp1 { unComp1 :: f (g p) }
-  deriving (Eq, Ord, Read, Show, Generic)
+  deriving (Eq, Ord, Read, Show, Generic, Functor)
+
+instance (Applicative f, Applicative g) => Applicative ((:.:) f g) where
+    pure x = Comp1 (pure (pure x))
+    Comp1 f <*> Comp1 x = Comp1 ((<*>) <$> f <*> x)
+
+instance (Alternative f, Applicative g) => Alternative ((:.:) f g) where
+    empty = Comp1 empty
+    Comp1 x <|> Comp1 y = Comp1 (x <|> y)
+
+instance (MonadPlus f, MonadPlus g) => MonadPlus ((:.:) f g)
 
 -- | Constants of kind @#@
 --
@@ -908,7 +984,7 @@ prec (Infix _ n) = n
 data Associativity = LeftAssociative
                    | RightAssociative
                    | NotAssociative
-  deriving (Eq, Show, Ord, Read, Generic)
+  deriving (Eq, Show, Ord, Read, Generic, Enum, Bounded)
 
 -- | The unpackedness of a field as the user wrote it in the source code. For
 -- example, in the following data type:
@@ -926,7 +1002,7 @@ data Associativity = LeftAssociative
 data SourceUnpackedness = NoSourceUnpackedness
                         | SourceNoUnpack
                         | SourceUnpack
-  deriving (Eq, Show, Ord, Read, Generic)
+  deriving (Eq, Show, Ord, Read, Generic, Enum, Bounded)
 
 -- | The strictness of a field as the user wrote it in the source code. For
 -- example, in the following data type:
@@ -942,7 +1018,7 @@ data SourceUnpackedness = NoSourceUnpackedness
 data SourceStrictness = NoSourceStrictness
                       | SourceLazy
                       | SourceStrict
-  deriving (Eq, Show, Ord, Read, Generic)
+  deriving (Eq, Show, Ord, Read, Generic, Enum, Bounded)
 
 -- | The strictness that GHC infers for a field during compilation. Whereas
 -- there are nine different combinations of 'SourceUnpackedness' and
@@ -969,7 +1045,7 @@ data SourceStrictness = NoSourceStrictness
 data DecidedStrictness = DecidedLazy
                        | DecidedStrict
                        | DecidedUnpack
-  deriving (Eq, Show, Ord, Read, Generic)
+  deriving (Eq, Show, Ord, Read, Generic, Enum, Bounded)
 
 -- | Class for datatypes that represent records
 class Selector s where
