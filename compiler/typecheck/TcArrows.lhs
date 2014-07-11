@@ -39,7 +39,6 @@ import SrcLoc
 import Outputable
 import FastString
 import Util
-import qualified Type ( ImplicitFlag(..) )
 
 import Control.Monad
 \end{code}
@@ -298,7 +297,8 @@ tc_cmd env (HsCmdDo stmts _) (cmd_stk, res_ty)
 tc_cmd env cmd@(HsCmdArrForm expr fixity cmd_args) (cmd_stk, res_ty)	
   = addErrCtxt (cmdCtxt cmd)	$
     do	{ (cmd_args', cmd_tys) <- mapAndUnzipM tc_cmd_arg cmd_args
-        ; let e_ty = mkForAllTy alphaTyVar Type.Implicit $   -- We use alphaTyVar for 'w'
+                          -- We use alphaTyVar for 'w'
+        ; let e_ty = mkNamedForAllTy alphaTyVar Invisible $
                      mkFunTys cmd_tys $
                      mkCmdArrTy env (mkPairTy alphaTy cmd_stk) res_ty
         ; expr' <- tcPolyExpr expr e_ty

@@ -1351,9 +1351,10 @@ zonkTcTypeToType env ty
 
     go (LitTy n)         = return (LitTy n)
 
-    go (FunTy arg res)   = do arg' <- go arg
+    go (ForAllTy (Anon arg) res)
+                         = do arg' <- go arg
                               res' <- go res
-                              return (FunTy arg' res')
+                              return (mkFunTy arg' res')
 
     go (AppTy fun arg)   = do fun' <- go fun
                               arg' <- go arg
@@ -1372,10 +1373,11 @@ zonkTcTypeToType env ty
         -- The two interesting cases!
     go (TyVarTy tv) = zonkTyVarOcc env tv
 
-    go (ForAllTy tv imp ty) = ASSERT( isImmutableTyVar tv ) do
+    go (ForAllTy (Named tv vis) ty)
+                        = ASSERT( isImmutableTyVar tv )
                           do { (env', tv') <- zonkTyCoBndrX env tv
                              ; ty' <- zonkTcTypeToType env' ty
-                             ; return (mkForAllTy tv' imp ty') }
+                             ; return (mkNamedForAllTy tv' vis ty') }
 
 zonkTcTypeToTypes :: ZonkEnv -> [TcType] -> TcM [Type]
 zonkTcTypeToTypes env tys = mapM (zonkTcTypeToType env) tys

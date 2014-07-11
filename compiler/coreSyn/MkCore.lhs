@@ -70,7 +70,7 @@ import HscTypes
 import TysWiredIn
 import PrelNames
 
-import TcType		( mkImpSigmaTy )
+import TcType		( mkInvSigmaTy )
 import Type
 import Coercion
 import TysPrim
@@ -704,7 +704,7 @@ mkRuntimeErrorId name = pc_bottoming_Id1 name runtimeErrorTy
 
 runtimeErrorTy :: Type
 -- The runtime error Ids take a UTF8-encoded string as argument
-runtimeErrorTy = mkImpSigmaTy [openAlphaTyVar] [] (mkFunTy addrPrimTy openAlphaTy)
+runtimeErrorTy = mkInvSigmaTy [openAlphaTyVar] [] (mkFunTy addrPrimTy openAlphaTy)
 \end{code}
 
 \begin{code}
@@ -715,7 +715,7 @@ eRROR_ID :: Id
 eRROR_ID = pc_bottoming_Id1 errorName errorTy
 
 errorTy  :: Type   -- See Note [Error and friends have an "open-tyvar" forall]
-errorTy  = mkImpSigmaTy [openAlphaTyVar] [] (mkFunTys [mkListTy charTy] openAlphaTy)
+errorTy  = mkInvSigmaTy [openAlphaTyVar] [] (mkFunTys [mkListTy charTy] openAlphaTy)
 
 undefinedName :: Name
 undefinedName = mkWiredInIdName gHC_ERR (fsLit "undefined") undefinedKey uNDEFINED_ID
@@ -724,7 +724,7 @@ uNDEFINED_ID :: Id
 uNDEFINED_ID = pc_bottoming_Id0 undefinedName undefinedTy
 
 undefinedTy  :: Type   -- See Note [Error and friends have an "open-tyvar" forall]
-undefinedTy  = mkImpSigmaTy [openAlphaTyVar] [] openAlphaTy
+undefinedTy  = mkInvSigmaTy [openAlphaTyVar] [] openAlphaTy
 \end{code}
 
 Note [Error and friends have an "open-tyvar" forall]

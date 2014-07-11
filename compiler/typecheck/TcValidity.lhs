@@ -270,11 +270,11 @@ check_type ctxt rank ty
         ; check_type ctxt rank tau      -- Allow foralls to right of arrow
         ; checkAmbiguity ctxt ty }
   where
-    (tvs, _, theta, tau) = tcSplitSigmaTy ty
+    (tvs, theta, tau) = tcSplitSigmaTy ty
    
 check_type _ _ (TyVarTy _) = return ()
 
-check_type ctxt rank (FunTy arg_ty res_ty)
+check_type ctxt rank (ForAllTy (Anon arg_ty) res_ty)
   = do  { check_type ctxt arg_rank arg_ty
         ; check_type ctxt res_rank res_ty }
   where
@@ -556,7 +556,7 @@ check_class_pred_tys dflags ctxt cls kts
                                 -- checkInstTermination
         _             -> flexible_contexts || all tyvar_head tys
   where
-    tys = filterImplicits (classTyCon cls) kts
+    tys = filterInvisibles (classTyCon cls) kts
       -- see Note [Kind polymorphic type classes]
           
     flexible_contexts = xopt Opt_FlexibleContexts dflags
@@ -750,7 +750,7 @@ checkValidInstHead ctxt clas cls_args
 
            -- Check language restrictions; 
            -- but not for SPECIALISE isntance pragmas
-       ; let ty_args = filterImplicits (classTyCon clas) cls_args
+       ; let ty_args = filterInvisibles (classTyCon clas) cls_args
        ; unless spec_inst_prag $
          do { checkTc (xopt Opt_TypeSynonymInstances dflags ||
                        all tcInstHeadTyNotSynonym ty_args)
@@ -877,7 +877,7 @@ checkValidInstance ctxt hs_type ty
   | otherwise 
   = failWithTc (ptext (sLit "Malformed instance head:") <+> ppr tau)
   where
-    (tvs, _, theta, tau) = tcSplitSigmaTy ty
+    (tvs, theta, tau) = tcSplitSigmaTy ty
 
         -- The location of the "head" of the instance
     head_loc = case hs_type of
@@ -1154,14 +1154,14 @@ checkValidFamPats fam_tc tvs ty_pats
          --     type instance F Int y = y
          -- because then the type (F Int) would be like (\y.y)
          checkTc (length ty_pats == fam_arity) $
-           wrongNumberOfParmsErr (fam_arity - count (== TyCoRep.Implicit) imps)
+           wrongNumberOfParmsErr (fam_arity - count isInvisibleBinder bndrs)
              -- report only explicit arguments
            
        ; mapM_ checkTyFamFreeness ty_pats
        ; let unbound_tvs = filterOut (`elemVarSet` exactTyCoVarsOfTypes ty_pats) tvs
        ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
   where fam_arity    = tyConArity fam_tc
-        (_, imps, _) = splitForAllTys (tyConKind fam_tc)
+        (bndrs, _)   = splitForAllTys (tyConKind fam_tc)
 
 wrongNumberOfParmsErr :: Arity -> SDoc
 wrongNumberOfParmsErr exp_arity
@@ -1219,9 +1219,10 @@ fvType ty | Just exp_ty <- tcView ty = fvType exp_ty
 fvType (TyVarTy tv)          = [tv]
 fvType (TyConApp _ tys)      = fvTypes tys
 fvType (LitTy {})            = []
-fvType (FunTy arg res)       = fvType arg ++ fvType res
 fvType (AppTy fun arg)       = fvType fun ++ fvType arg
-fvType (ForAllTy tyvar _ ty) = filter (/= tyvar) (fvType ty)
+fvType (ForAllTy bndr ty)
+  = fvType (binderType bndr) ++
+    caseBinder bndr (\tv -> filter (/= tv)) (const id) (fvType ty)
 fvType (CastTy ty co)        = fvType ty ++ fvCo co
 fvType (CoercionTy co)       = fvCo co
 
@@ -1257,12 +1258,14 @@ sizeType :: Type -> Int
 -- Size of a type: the number of variables and constructors
 sizeType ty | Just exp_ty <- tcView ty = sizeType exp_ty
 sizeType (TyVarTy {})      = 1
-  -- TODO (RAE): check the necessity of filterImplicits
-sizeType (TyConApp tc tys) = sizeTypes (filterImplicits tc tys) + 1
+  -- TODO (RAE): check the necessity of filterInvisibles
+sizeType (TyConApp tc tys) = sizeTypes (filterInvisibles tc tys) + 1
 sizeType (LitTy {})        = 1
-sizeType (FunTy arg res)   = sizeType arg + sizeType res + 1
 sizeType (AppTy fun arg)   = sizeType fun + sizeType arg
-sizeType (ForAllTy _ _ ty) = sizeType ty
+sizeType (ForAllTy (Anon arg) res)
+                           = sizeType arg + sizeType res + 1
+sizeType (ForAllTy (Named {}) ty)
+                           = sizeType ty
 sizeType (CastTy ty _)     = sizeType ty
 sizeType (CoercionTy _)    = 1
 
@@ -1285,7 +1288,7 @@ sizePred ty = goClass ty
               | otherwise  = go (classifyPredType p)
 
          -- TODO (RAE): Check the necessity of the filterImplicits
-    go (ClassPred cls tys') = sizeTypes (filterImplicits (classTyCon cls) tys')
+    go (ClassPred cls tys') = sizeTypes (filterInvisibles (classTyCon cls) tys')
     go (EqPred {})        = 0
     go (TuplePred ts)     = sum (map goClass ts)
     go (IrredPred ty)     = sizeType ty

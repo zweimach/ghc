@@ -52,7 +52,7 @@ import TcIface
 import TcHsSyn ( zonkCoToCo, emptyZonkEnv )  -- TODO (RAE): Remove!
 import TcType
 import Type
-import TyCoRep( Type(..) )  -- For the mkNakedXXX stuff
+import TyCoRep( Type(..), Binder(..) ) 
 import Kind
 import Var
 import VarSet
@@ -193,7 +193,7 @@ tcHsInstHead user_ctxt lhs_ty@(L loc hs_ty)
     do { inst_ty <- tc_inst_head hs_ty
        ; kvs     <- zonkTcTypeAndFV inst_ty
        ; kvs     <- kindGeneralize kvs (usesAsKindVar inst_ty)
-       ; inst_ty <- zonkSigType (mkImpForAllTys kvs inst_ty)
+       ; inst_ty <- zonkSigType (mkInvForAllTys kvs inst_ty)
        ; checkValidInstance user_ctxt lhs_ty inst_ty }
 
 tc_inst_head :: HsType Name -> TcM TcType
@@ -202,7 +202,7 @@ tc_inst_head (HsForAllTy _ hs_tvs hs_ctxt hs_ty)
     do { ctxt <- tcHsContext hs_ctxt
        ; ty   <- tc_lhs_type hs_ty ekConstraint    -- Body for forall has kind Constraint
                   -- TODO (RAE): This will be changed with "forall ->" syntax
-       ; return (mkImpSigmaTy tvs ctxt ty) }
+       ; return (mkInvSigmaTy tvs ctxt ty) }
 
 tc_inst_head hs_ty
   = tc_hs_type hs_ty ekConstraint
@@ -217,7 +217,7 @@ tcHsDeriv hs_ty
                  -- 	forall a. C [a]
                  -- where C has arity 2. Hence any-kinded result
        ; ty   <- zonkSigType ty
-       ; let (tvs, _, pred) = splitForAllTys ty
+       ; let (tvs, pred) = splitNamedForAllTys ty
        ; case getClassPredTys_maybe pred of
            Just (cls, tys) -> return (tvs, cls, tys)
            Nothing -> failWithTc (ptext (sLit "Illegal deriving item") <+> quotes (ppr hs_ty)) }
@@ -266,18 +266,18 @@ tcHsConArgType DataType bty = tcHsOpenType (getBangType bty)
   -- And newtypes can't be bang'd
 
 ---------------------------
-tcHsTelescope :: SDoc -> [LHsType Name] -> [Maybe TyVar] -> [Kind] -> TcM [TcType]
+tcHsTelescope :: SDoc -> [LHsType Name] -> [Binder] -> TcM [TcType]
 tcHsTelescope what = go 1 emptyTCvSubst
   where
-    go n subst (hs_ty : hs_tys) (m_tv : m_tvs) (kind : kinds)
+    go n subst (hs_ty : hs_tys) (bndr : bndrs)
       = do { ty <- addTypeCtxt hs_ty $
-                   tc_lhs_type hs_ty (expArgKind what (substTy subst kind) n)
-           ; let subst' = case m_tv of
+                   tc_lhs_type hs_ty (expArgKind what (substTy subst (binderType bndr)) n)
+           ; let subst' = case binderVar_maybe bndr of
                             Just tv -> extendTCvSubst subst tv ty
                             Nothing -> subst
-           ; tys <- go (n+1) subst' hs_tys m_tvs kinds
+           ; tys <- go (n+1) subst' hs_tys bndrs
            ; return (ty : tys) }
-    go _ _ _ _ _ = return []
+    go _ _ _ _ = return []
 
 tcHsArgTys :: SDoc -> [LHsType Name] -> [Kind] -> TcM [TcType]
 tcHsArgTys what tys kinds
@@ -311,7 +311,7 @@ tcCheckHsTypeAndGen hs_ty kind
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
        ; kvs <- zonkTcTypeAndFV ty 
        ; kvs <- kindGeneralize kvs (usesAsKindVar ty)
-       ; return (mkImpForAllTys kvs ty) }
+       ; return (mkInvForAllTys kvs ty) }
 \end{code}
 
 Like tcExpr, tc_hs_type takes an expected kind which it unifies with
@@ -386,13 +386,13 @@ tc_hs_type hs_ty@(HsForAllTy _ hs_tvs context ty) exp_kind
        ; if null (unLoc context) then  -- Plain forall, no context
          do { ty' <- tc_lhs_type ty exp_kind
                 -- Why exp_kind?  See Note [Body kind of forall]
-            ; return $ mkImpSigmaTy tvs' ctxt' ty' }
+            ; return $ mkInvSigmaTy tvs' ctxt' ty' }
          else
            -- If there is a context, then this forall is really a
            -- _function_, so the kind of the result really is *
            -- The body kind (result of the function) can be * or #, hence ekOpen
          do { ty' <- tc_lhs_type ty ekOpen
-            ; checkExpectedKind hs_ty (mkImpSigmaTy tvs' ctxt' ty')
+            ; checkExpectedKind hs_ty (mkInvSigmaTy tvs' ctxt' ty')
                                 liftedTypeKind exp_kind } }
          -- TODO (RAE): Change this when "forall ->" syntax exists
 
@@ -483,8 +483,8 @@ tc_hs_type ipTy@(HsIParamTy n ty) exp_kind
 tc_hs_type ty@(HsEqTy ty1 ty2) exp_kind 
   = do { (ty1', kind1) <- tc_infer_lhs_type ty1
        ; (ty2', kind2) <- tc_infer_lhs_type ty2
-       ; let (tvs1, _) = splitForAllTysImplicit kind1
-             (tvs2, _) = splitForAllTysImplicit kind2
+       ; let (tvs1, _) = splitForAllTysInvisible kind1
+             (tvs2, _) = splitForAllTysInvisible kind2
        ; tys <-
          if length tvs1 > length tvs2
          then do { ty1'' <- checkExpectedKind ty1 ty1' kind1
@@ -571,13 +571,17 @@ tcInferApps the_fun = go 1
     
     go _      fun_kind [] = return ([], fun_kind)
     go arg_no fun_kind (arg:args)
-      | Just (tv, Implicit, res_k) <- splitForAllTy_maybe fun_kind
+      | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
+      , isInvisibleBinder bndr
+      , Just tv <- binderVar_maybe bndr
       = do { imp_param <- newFlexiTyVarTy (tyVarKind tv)
            ; (args', res_kind) <-
                 go arg_no (substTyWith [tv] [imp_param] res_k) (arg:args)
            ; return (imp_param : args', res_kind) }
 
-      | Just (tv, Explicit, res_k) <- splitForAllTy_maybe fun_kind
+      | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
+      , Just tv <- binderVar_maybe bndr
+      , isVisibleBinder bndr
       = do { arg' <- tc_lhs_type arg
                        (expArgKind (quotes the_fun_doc) (tyVarKind tv) arg_no)
            ; (args', res_kind) <-
@@ -683,7 +687,7 @@ So we must be careful not to use "smart constructors" for types that
 look at the TyCon or Class involved.  
 
   * Hence the use of mkNakedXXX functions. These do *not* enforce 
-    the invariants (for example that we use (FunTy s t) rather 
+    the invariants (for example that we use (ForAllTy (Anon s) t) rather 
     than (TyConApp (->) [s,t])).  
 
   * Ditto in zonkTcType (which may be applied more than once, eg to
@@ -730,9 +734,10 @@ zonkSigType ty
 
     go (LitTy n)         = return (LitTy n)
 
-    go (FunTy arg res)   = do arg' <- go arg
+    go (ForAllTy (Anon arg) res)
+                         = do arg' <- go arg
                               res' <- go res
-                              return (FunTy arg' res')
+                              return (mkFunTy arg' res')
 
     go (AppTy fun arg)   = do fun' <- go fun
                               arg' <- go arg
@@ -746,9 +751,10 @@ zonkSigType ty
 		       | otherwise	 = TyVarTy <$> updateTyVarKindM go tyvar
 		-- Ordinary (non Tc) tyvars occur inside quantified types
 
-    go (ForAllTy tv imp ty) = do { tv' <- zonkTcTyCoVarBndr tv
+    go (ForAllTy (Named tv vis) ty)
+                            = do { tv' <- zonkTcTyCoVarBndr tv
                                  ; ty' <- go ty
-                                 ; return (ForAllTy tv' imp ty') }
+                                 ; return (mkNamedForAllTy tv' vis ty') }
 
     go (CastTy ty co) = do { ty' <- go ty
                            ; co' <- zonkCoToCo emptyZonkEnv co  -- TODO (RAE): This is wrong.
@@ -1084,7 +1090,7 @@ kcHsTyVarBndrs strat (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) th
                 -- not the found _all_kvs, because we depend hsq_implicit and the
                 -- quantified tyvars to line up in kcTyClTyVars
              gen_kind  = ASSERT( sort _all_kvs == sort kvs )
-                         mkImpForAllTys kvs full_kind
+                         mkInvForAllTys kvs full_kind
        ; return (gen_kind, stuff) } }
   where
     -- See Note [Kind-checking strategies]
@@ -1094,9 +1100,10 @@ kcHsTyVarBndrs strat (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) th
 
       -- there may be dependency between the explicit "ty" vars. So, we have
       -- to handle them one at a time. We also need to build up a full kind
-      -- here, because this is the place we know whether to use a FunTy
-      -- or a ForAllTy. We prefer using a FunTy over a trivial ForAllTy.
-      -- If a user wants a trivial ForAllTy, use an explicit kind signature.
+      -- here, because this is the place we know whether to use a FunTy or a
+      -- ForAllTy. We prefer using an anonymous binder over a trivial named
+      -- binder. If a user wants a trivial named one, use an explicit kind
+      -- signature.
     bind_telescope :: [LHsTyVarBndr Name] -> TcM (Kind, r) -> TcM (Kind, VarSet, r)
     bind_telescope [] thing
       = do { (res_kind, stuff) <- thing
@@ -1108,13 +1115,14 @@ kcHsTyVarBndrs strat (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) th
               -- caller of kcHsTyVarBndrs is, too), as sometimes these hold
               -- panics. See kcConDecl.
            ; let m_kv = lookupVarSetByName fvs n
-                 fvs' = case m_kv of
-                          Just kv -> fvs `delVarSet` kv
-                                         `unionVarSet` tyCoVarsOfType k
-                          Nothing -> fvs `unionVarSet` tyCoVarsOfType k
+                 (bndr, fvs') = case m_kv of
+                   Just kv -> ( mkNamedBinder kv Visible
+                              , fvs `delVarSet` kv
+                                    `unionVarSet` tyCoVarsOfType k )
+                   Nothing -> ( mkAnonBinder k
+                              , fvs `unionVarSet` tyCoVarsOfType k )
                           
-           ; return ( unsplitPiTypes [m_kv] [Explicit] [k] res_kind
-                    , fvs', stuff ) }
+           ; return ( mkForAllTy bndr res_kind, fvs', stuff ) }
 
     kc_hs_tv :: HsTyVarBndr Name -> TcM (Name, TcKind)
     kc_hs_tv (UserTyVar n)
@@ -1270,7 +1278,7 @@ We now have several sorts of variables to think about:
    scope, even though it is non-dependent), and will appear in the
    hsq_explicit field of a LHsTyVarBndrs.
 
-splitTelescopeTvs walks through the output of a splitPiTypes on the
+splitTelescopeTvs walks through the output of a splitForAllTys on the
 telescope head's kind (Foo, in our example), creating a list of tyvars
 to be bound within the telescope scope. It must simultaneously walk
 through the hsq_implicit and hsq_explicit fields of a LHsTyVarBndrs.
@@ -1303,118 +1311,95 @@ splitTelescopeTvs :: Kind         -- of the head of the telescope
                      , [TyVar]    -- *all* type variables
                      , Kind )     -- inner kind
 splitTelescopeTvs kind (HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
-  = let (m_tvs, imps, kinds, inner_ki) = splitPiTypes kind
-        (scoped_tvs, all_tvs, mk_kind)
-          = mk_tvs [] [] m_tvs imps kinds hs_kvs hs_tvs
+  = let (bndrs, inner_ki) = splitForAllTys kind
+        (scoped_tvs, all_tvs, mk_kind) = mk_tvs [] [] bndrs hs_kvs hs_tvs
     in
     (scoped_tvs, all_tvs, mk_kind inner_ki)
   where
     mk_tvs :: [TyVar]    -- scoped tv accum (reversed)
            -> [TyVar]    -- all tv accum (reversed)
-           -> [Maybe TyVar]       
-           -> [ImplicitFlag]      
-           -> [Kind]
+           -> [Binder]
            -> [Name]              -- implicit variables
            -> [LHsTyVarBndr Name] -- explicit variables
            -> ( [TyVar]           -- the tyvars to be lexically bound
               , [TyVar]           -- all tyvars
               , Type -> Type )    -- a function to create the result k
-    mk_tvs scoped_tv_acc all_tv_acc
-           (Just tv : m_tvs) (Implicit : imps) (kind : kinds) all_hs_kvs all_hs_tvs
-      | hs_kv : hs_kvs <- all_hs_kvs
+    mk_tvs scoped_tv_acc all_tv_acc (bndr : bndrs) all_hs_kvs all_hs_tvs
+      | Just tv <- binderVar_maybe bndr
+      , isInvisibleBinder bndr
+      , hs_kv : hs_kvs <- all_hs_kvs
       , getName tv == hs_kv
-      = ASSERT( kind `eqType` tyVarKind tv)
-        mk_tvs1 (tv : scoped_tv_acc) (tv : all_tv_acc)
-                m_tvs imps kinds hs_kvs all_hs_tvs -- Case (2); no more Case (1)
+      = mk_tvs1 (tv : scoped_tv_acc) (tv : all_tv_acc)
+                bndrs hs_kvs all_hs_tvs -- Case (2); no more Case (1)
 
-      | otherwise
-      = ASSERT( kind `eqType` tyVarKind tv)
-        mk_tvs scoped_tv_acc (tv : all_tv_acc)
-               m_tvs imps kinds all_hs_kvs all_hs_tvs  -- Case (1)
+      | Just tv <- binderVar_maybe bndr
+      , isInvisibleBinder bndr
+      = mk_tvs scoped_tv_acc (tv : all_tv_acc)
+               bndrs all_hs_kvs all_hs_tvs  -- Case (1)
 
-    mk_tvs scoped_tv_acc all_tv_acc
-           all_m_tvs all_imps all_kinds all_hs_kvs all_hs_tvs
+    mk_tvs scoped_tv_acc all_tv_acc all_bndrs all_hs_kvs all_hs_tvs
       | [] <- all_hs_kvs
-      = mk_tvs2 scoped_tv_acc all_tv_acc
-                all_m_tvs all_imps all_kinds all_hs_tvs -- no more Case (1) or (2)
+      = mk_tvs2 scoped_tv_acc all_tv_acc all_bndrs all_hs_tvs
+           -- no more Case (1) or (2)
 
       | otherwise
-      = pprPanic "splitTelescopeTvs 0" (vcat [ ppr all_m_tvs
-                                             , ppr all_imps
-                                             , ppr all_kinds
+      = pprPanic "splitTelescopeTvs 0" (vcat [ ppr all_bndrs
                                              , ppr all_hs_kvs
                                              , ppr all_hs_tvs ])
 
     -- This can't handle Case (1) from Note [Typechecking telescopes]
     mk_tvs1 :: [TyVar]
             -> [TyVar]
-            -> [Maybe TyVar]       
-            -> [ImplicitFlag]      
-            -> [Kind]
+            -> [Binder]
             -> [Name]              -- implicit variables
             -> [LHsTyVarBndr Name] -- explicit variables
             -> ( [TyVar]
                , [TyVar]
                , Type -> Type )    -- a function to create the result k
-    mk_tvs1 scoped_tv_acc all_tv_acc
-            (Just tv : m_tvs) (imp : imps) (kind : kinds)
-            (hs_kv : hs_kvs) all_hs_tvs
-      = ASSERT( imp == Implicit )
+    mk_tvs1 scoped_tv_acc all_tv_acc (bndr : bndrs) (hs_kv : hs_kvs) all_hs_tvs
+      | Just tv <- binderVar_maybe bndr
+      = ASSERT( isInvisibleBinder bndr )
         ASSERT( getName tv == hs_kv )
-        ASSERT( kind `eqType` tyVarKind tv )
         mk_tvs1 (tv : scoped_tv_acc) (tv : all_tv_acc)
-                m_tvs imps kinds hs_kvs all_hs_tvs -- Case (2)
+                bndrs hs_kvs all_hs_tvs -- Case (2)
 
-    mk_tvs1 scoped_tv_acc all_tv_acc all_m_tvs all_imps all_kinds [] all_hs_tvs
-      = mk_tvs2 scoped_tv_acc all_tv_acc
-                all_m_tvs all_imps all_kinds all_hs_tvs -- no more Case (2)
+    mk_tvs1 scoped_tv_acc all_tv_acc all_bndrs [] all_hs_tvs
+      = mk_tvs2 scoped_tv_acc all_tv_acc all_bndrs all_hs_tvs -- no more Case (2)
 
-    mk_tvs1 _ _ all_m_tvs all_imps all_kinds all_hs_kvs all_hs_tvs
-      = pprPanic "splitTelescopeTvs 1" (vcat [ ppr all_m_tvs
-                                             , ppr all_imps
-                                             , ppr all_kinds
+    mk_tvs1 _ _ all_bndrs all_hs_kvs all_hs_tvs
+      = pprPanic "splitTelescopeTvs 1" (vcat [ ppr all_bndrs
                                              , ppr all_hs_kvs
                                              , ppr all_hs_tvs ])
 
     -- This can't handle Case (1) or Case (2) from [Typechecking telescopes]
     mk_tvs2 :: [TyVar]
             -> [TyVar]
-            -> [Maybe TyVar]
-            -> [ImplicitFlag]
-            -> [Kind]
+            -> [Binder]
             -> [LHsTyVarBndr Name]
             -> ( [TyVar]
                , [TyVar]
                , Type -> Type )
-    mk_tvs2 scoped_tv_acc all_tv_acc
-            (m_tv : m_tvs) (imp : imps) (kind : kinds) (hs_tv : hs_tvs)
-      | Just tv <- m_tv
-      = ASSERT2( imp == Explicit, err_doc )
+    mk_tvs2 scoped_tv_acc all_tv_acc (bndr : bndrs) (hs_tv : hs_tvs)
+      | Just tv <- binderVar_maybe bndr
+      = ASSERT2( isVisibleBinder bndr, err_doc )
         ASSERT( getName tv == hsLTyVarName hs_tv )
-        ASSERT( tyVarKind tv `eqType` kind )
-        mk_tvs2 (tv : scoped_tv_acc) (tv : all_tv_acc)
-                m_tvs imps kinds hs_tvs   -- Case (3)
+        mk_tvs2 (tv : scoped_tv_acc) (tv : all_tv_acc) bndrs hs_tvs   -- Case (3)
         
       | otherwise
-      = ASSERT( Explicit == imp )
-        let tv = mkTyVar (hsLTyVarName hs_tv) kind in
-        mk_tvs2 (tv : scoped_tv_acc) (tv : all_tv_acc)
-                m_tvs imps kinds hs_tvs                    -- Case (4)
+      = ASSERT( isVisibleBinder bndr )
+        let tv = mkTyVar (hsLTyVarName hs_tv) (binderType bndr) in
+        mk_tvs2 (tv : scoped_tv_acc) (tv : all_tv_acc) bndrs hs_tvs   -- Case (4)
       where
-        err_doc = vcat [ ppr (m_tv : m_tvs)
-                       , ppr (imp : imps)
-                       , ppr (kind : kinds)
+        err_doc = vcat [ ppr (bndr : bndrs)
                        , ppr (hs_tv : hs_tvs) ]
 
-    mk_tvs2 scoped_tv_acc all_tv_acc all_m_tvs all_imps all_kinds [] -- All done!
+    mk_tvs2 scoped_tv_acc all_tv_acc all_bndrs [] -- All done!
       = ( reverse scoped_tv_acc
         , reverse all_tv_acc
-        , unsplitPiTypes all_m_tvs all_imps all_kinds )
+        , mkForAllTys all_bndrs )
 
-    mk_tvs2 _ _ all_m_tvs all_imps all_kinds all_hs_tvs
-      = pprPanic "splitTelescopeTvs 2" (vcat [ ppr all_m_tvs
-                                             , ppr all_imps
-                                             , ppr all_kinds
+    mk_tvs2 _ _ all_bndrs all_hs_tvs
+      = pprPanic "splitTelescopeTvs 2" (vcat [ ppr all_bndrs
                                              , ppr all_hs_tvs ])
 
 
@@ -1841,8 +1826,8 @@ checkExpectedKind hs_ty ty act_kind (EK exp_kind ek_ctxt)
                 -> TcM ( TcType   -- the inst'ed type
                        , TcKind ) -- its new kind
     instantiate ty act_ki exp_ki
-      = let (act_tvs, act_inner_ki) = splitForAllTysImplicit act_ki
-            (exp_tvs, _)            = splitForAllTysImplicit exp_ki
+      = let (act_tvs, act_inner_ki) = splitForAllTysInvisible act_ki
+            (exp_tvs, _)            = splitForAllTysInvisible exp_ki
             num_to_inst = length act_tvs - length exp_tvs
                -- NB: splitAt is forgiving with invalid numbers
             (inst_tvs, leftover_tvs) = splitAt num_to_inst act_tvs
@@ -1854,7 +1839,7 @@ checkExpectedKind hs_ty ty act_kind (EK exp_kind ek_ctxt)
                (vcat $ zipWith (\tv arg -> ppr tv <+> text ":=" <+> ppr arg)
                                inst_tvs args)
            ; let (args', subst) = substTelescope inst_tvs args
-                 rebuilt_act_ki = mkImpForAllTys leftover_tvs act_inner_ki
+                 rebuilt_act_ki = mkInvForAllTys leftover_tvs act_inner_ki
                  act_ki' = substTy subst rebuilt_act_ki
            ; return (mkNakedAppTys ty args', act_ki') }
 

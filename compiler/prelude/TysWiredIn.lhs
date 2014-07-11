@@ -85,7 +85,7 @@ import TysPrim
 -- others:
 import Constants        ( mAX_TUPLE_SIZE )
 import Module           ( Module )
-import Type             ( mkTyConApp, mkFunTys )
+import Type             ( mkTyConApp, mkFunTys, mkNamedForAllTy )
 import DataCon
 import Var
 import TyCon
@@ -433,7 +433,8 @@ unboxedPairDataCon = tupleCon   UnboxedTuple 2
 \begin{code}
 eqTyCon :: TyCon
 eqTyCon = mkAlgTyCon eqTyConName
-            (ForAllTy kv Implicit $ mkArrowKinds [k, k] constraintKind)
+            (mkNamedForAllTy kv Invisible $
+             mkArrowKinds [k, k] constraintKind)
             [kv, a, b]
             [Nominal, Nominal, Nominal]
             Nothing
@@ -460,7 +461,8 @@ coercibleTyCon :: TyCon
 coercibleTyCon = mkClassTyCon
     coercibleTyConName kind tvs [Nominal, Representational, Representational]
     rhs coercibleClass NonRecursive
-  where kind = (ForAllTy kv Implicit $ mkArrowKinds [k, k] constraintKind)
+  where kind = (mkNamedForAllTy kv Invisible $
+                mkArrowKinds [k, k] constraintKind)
         kv = kKiVar
         k = mkOnlyTyVarTy kv
         a:b:_ = tyVarList k

@@ -33,7 +33,6 @@ import Var
 import UniqFM
 import Unique( Unique )
 import Util
-import Pair
 import FastString(FastString)
 import CoAxiom(CoAxiomRule(coaxrName))
 
@@ -43,8 +42,6 @@ import VarEnv
 import NameEnv
 import Outputable
 import Control.Monad( (>=>) )
-import Control.Applicative
-import qualified Data.Foldable as Foldable
 \end{code}
 
 This module implements TrieMaps, which are finite mappings
@@ -805,10 +802,12 @@ lkT env ty m
     go ty | Just ty' <- coreView ty = go ty'
     go (TyVarTy v)          = tm_var    >.> lkVar env v
     go (AppTy t1 t2)        = tm_app    >.> lkT env t1 >=> lkT env t2
-    go (FunTy t1 t2)        = tm_fun    >.> lkT env t1 >=> lkT env t2
     go (TyConApp tc tys)    = tm_tc_app >.> lkNamed tc >=> lkList (lkT env) tys
     go (LitTy l)            = tm_tylit  >.> lkTyLit l
-    go (ForAllTy bndr ty)   = tm_forall >.> lkT (extendCME env tv) ty >=> lkB env bndr
+    go (ForAllTy bndr ty)   = tm_forall >.> lkT env' ty >=> lkB env bndr
+      where env'
+              | Just tv <- binderVar_maybe bndr = extendCME env tv
+              | otherwise                       = env
     go (CastTy ty co)       = tm_cast   >.> lkT env ty >=> lkC env co
     go (CoercionTy co)      = tm_coerce >.> lkC env co
 
@@ -834,7 +833,6 @@ lkT_mod env s ty m
                   
     go env _s (TyVarTy v)      = tm_var    >.> lkVar env v
     go env s (AppTy t1 t2)     = tm_app    >.> lkT_mod env s t1 >=> lkT_mod env s t2
-    go env s (FunTy t1 t2)     = tm_fun    >.> lkT_mod env s t1 >=> lkT_mod env s t2
     go env s (TyConApp tc tys) = tm_tc_app >.> lkNamed tc >=> lkList (lkT_mod env s) tys
     go _env _s (LitTy l)       = tm_tylit  >.> lkTyLit l
     go _env _s (ForAllTy _tv _ty) = const Nothing
@@ -856,10 +854,12 @@ xtT env ty f m
 
 xtT env (TyVarTy v)       f  m     = m { tm_var    = tm_var m |> xtVar env v f }
 xtT env (AppTy t1 t2)     f  m     = m { tm_app    = tm_app m |> xtT env t1 |>> xtT env t2 f }
-xtT env (FunTy t1 t2)     f  m     = m { tm_fun    = tm_fun m |> xtT env t1 |>> xtT env t2 f }
 xtT env (ForAllTy bndr ty) f m     = m { tm_forall = tm_forall m
-                                                 |> xtT (extendCME env tv) ty
-                                                 |>> xtB bndr f }
+                                                 |> xtT env' ty
+                                                 |>> xtB env bndr f }
+  where env'
+          | Just tv <- binderVar_maybe bndr = extendCME env tv
+          | otherwise                       = env
 xtT env (TyConApp tc tys) f  m     = m { tm_tc_app = tm_tc_app m |> xtNamed tc 
                                                  |>> xtList (xtT env) tys f }
 xtT _   (LitTy l)         f  m     = m { tm_tylit  = tm_tylit m |> xtTyLit l f }
@@ -872,7 +872,7 @@ fdT k m = foldTM k (tm_var m)
         . foldTM (foldTM k) (tm_app m)
         . foldTM (foldTM k) (tm_fun m)
         . foldTM (foldTM k) (tm_tc_app m)
-        . foldTM (foldTM (foldTM k)) (tm_forall m)
+        . foldTM (foldTM k) (tm_forall m)
         . foldTyLit k (tm_tylit m)
         . foldTM (foldTM k) (tm_cast m)
         . foldTM k (tm_coerce m)
@@ -887,10 +887,10 @@ data BinderMap a
 instance Outputable a => Outputable (BinderMap a) where
   ppr m = text "BinderMap elts" <+> ppr (foldBinderMap (:) [] m)
 
-foldBinderMap :: (a -> b -> b) -> b -> TypeMap a -> b
+foldBinderMap :: (a -> b -> b) -> b -> BinderMap a -> b
 foldBinderMap k z m = fdB k m z
 
-emptyBinderMap :: TypeMap a
+emptyBinderMap :: BinderMap a
 emptyBinderMap = BM { bm_named_vis   = emptyTM
                     , bm_named_invis = emptyTM
                     , bm_anon        = emptyTM }
@@ -915,7 +915,7 @@ lkB :: CmEnv -> Binder -> BinderMap a -> Maybe a
 lkB env = go
   where
     go bndr
-      | Just v <- binderVar_maybe
+      | Just v <- binderVar_maybe bndr
       = case binderVisibility bndr of
           Visible   -> bm_named_vis   >.> lkVar env v
           Invisible -> bm_named_invis >.> lkVar env v
@@ -924,12 +924,12 @@ lkB env = go
 
 xtB :: CmEnv -> Binder -> XT a -> BinderMap a -> BinderMap a
 xtB env bndr f m
-  | Just v <- binderVar_maybe
+  | Just v <- binderVar_maybe bndr
   = case binderVisibility bndr of
       Visible ->   m { bm_named_vis   = bm_named_vis m   |> xtVar env v f }
       Invisible -> m { bm_named_invis = bm_named_invis m |> xtVar env v f }
   | otherwise
-  = m { bm_anon = bm_anon m |> xtT env (binderType bndr) }
+  = m { bm_anon = bm_anon m |> xtT env (binderType bndr) f }
 
 fdB :: (a -> b -> b) -> BinderMap a -> b -> b
 fdB k m = foldTM k (bm_named_vis m)

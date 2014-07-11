@@ -326,7 +326,7 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
 
       {     -- Step 7) Emit an implication
          let minimal_flat_preds = mkMinimalBySCs bound
-             skol_info = InferSkol [ (name, zipSigmaTy [] [] minimal_flat_preds ty)
+             skol_info = InferSkol [ (name, mkSigmaTy [] minimal_flat_preds ty)
                                    | (name, ty) <- name_taus ]
                         -- Don't add the quantified variables here, because
                         -- they are also bound in ic_skols and we want them to be

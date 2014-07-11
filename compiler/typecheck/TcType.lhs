@@ -39,13 +39,15 @@ module TcType (
 
   --------------------------------
   -- Builders
-  mkPhiTy, mkImpSigmaTy, zipSigmaTy, mkTcEqPred,
+  mkPhiTy, mkInvSigmaTy, mkSigmaTy, mkTcEqPred,
 
   --------------------------------
   -- Splitters
   -- These are important because they do not look through newtypes
   tcView,
-  tcSplitForAllTys, tcSplitPhiTy, tcSplitPredFunTy_maybe,
+  tcSplitForAllTys, tcSplitNamedForAllTys, tcSplitNamedForAllTysB,
+  tcIsNamedForAllTy,
+  tcSplitPhiTy, tcSplitPredFunTy_maybe,
   tcSplitFunTy_maybe, tcSplitFunTys, tcFunArgTy, tcFunResultTy, tcSplitFunTysN,
   tcSplitTyConApp, tcSplitTyConApp_maybe, tcTyConAppTyCon, tcTyConAppArgs,
   tcSplitAppTy_maybe, tcSplitAppTy, tcSplitAppTys, repSplitAppTy_maybe,
@@ -109,9 +111,10 @@ module TcType (
 
   --------------------------------
   -- Rexported from Type
-  Type, PredType, ThetaType,
-  mkForAllTy, mkForAllTys, mkImpForAllTys,
-  mkFunTy, mkFunTys, zipFunTys,
+  Type, PredType, ThetaType, Binder, VisibilityFlag(..),
+
+  mkForAllTy, mkForAllTys, mkInvForAllTys, mkNamedForAllTy,
+  mkFunTy, mkFunTys,
   mkTyConApp, mkAppTy, mkAppTys, applyTy, applyTys,
   mkTyCoVarTy, mkTyCoVarTys, mkTyConTy, mkOnlyTyVarTy,
   mkOnlyTyVarTys,
@@ -532,9 +535,9 @@ tcTyFamInsts (TyConApp tc tys)
   | isSynFamilyTyCon tc         = [(tc, tys)]
   | otherwise                   = concat (map tcTyFamInsts tys)
 tcTyFamInsts (LitTy {})         = []
-tcTyFamInsts (FunTy ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
+tcTyFamInsts (ForAllTy bndr ty) = tcTyFamInsts (binderType bndr)
+                                  ++ tcTyFamInsts ty
 tcTyFamInsts (AppTy ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
-tcTyFamInsts (ForAllTy _ _ ty)  = tcTyFamInsts ty
 tcTyFamInsts (CastTy ty co)     = tcTyFamInsts ty ++ tcTyFamInstsCo co
 tcTyFamInsts (CoercionTy co)    = tcTyFamInstsCo co
 
@@ -617,9 +620,8 @@ exactTyCoVarsOfType ty
     go (TyVarTy tv)         = unitVarSet tv
     go (TyConApp _ tys)     = exactTyCoVarsOfTypes tys
     go (LitTy {})           = emptyVarSet
-    go (FunTy arg res)      = go arg `unionVarSet` go res
     go (AppTy fun arg)      = go fun `unionVarSet` go arg
-    go (ForAllTy tyvar _ ty)= delVarSet (go ty) tyvar `unionVarSet` go (tyVarKind tyvar)
+    go (ForAllTy bndr ty)   = delBinderVar (go ty) bndr `unionVarSet` go (binderType bndr)
     go (CastTy ty co)       = go ty `unionVarSet` goCo co
     go (CoercionTy co)      = goCo co
 
@@ -808,11 +810,12 @@ isRuntimeUnkSkol x
 %************************************************************************
 
 \begin{code}
-zipSigmaTy :: [TyCoVar] -> [ImplicitFlag] -> [PredType] -> Type -> Type
-zipSigmaTy tyvars imps theta tau = zipForAllTys tyvars imps (mkPhiTy theta tau)
+mkSigmaTy :: [Binder] -> [PredType] -> Type -> Type
+mkSigmaTy bndrs theta tau = mkForAllTys bndrs (mkPhiTy theta tau)
 
-mkImpSigmaTy :: [TyCoVar] -> [PredType] -> Type -> Type
-mkImpSigmaTy tyvars = zipSigmaTy tyvars (repeat Implicit)
+mkInvSigmaTy :: [TyCoVar] -> [PredType] -> Type -> Type
+mkInvSigmaTy tyvars
+  = mkSigmaTy (zipWith mkNamedBinder tyvars (repeat Invisible))
 
 mkPhiTy :: [PredType] -> Type -> Type
 mkPhiTy theta ty = foldr mkFunTy ty theta
@@ -840,14 +843,14 @@ mkTcEqPred ty1 ty2
 \begin{code}
 isTauTy :: Type -> Bool
 isTauTy ty | Just ty' <- tcView ty = isTauTy ty'
-isTauTy (TyVarTy _)       = True
-isTauTy (LitTy {})        = True
-isTauTy (TyConApp tc tys) = all isTauTy tys && isTauTyCon tc
-isTauTy (AppTy a b)       = isTauTy a && isTauTy b
-isTauTy (FunTy a b)       = isTauTy a && isTauTy b
-isTauTy (ForAllTy {})     = False
-isTauTy (CastTy _ _)      = False
-isTauTy (CoercionTy _)    = False
+isTauTy (TyVarTy _)           = True
+isTauTy (LitTy {})            = True
+isTauTy (TyConApp tc tys)     = all isTauTy tys && isTauTyCon tc
+isTauTy (AppTy a b)           = isTauTy a && isTauTy b
+isTauTy (ForAllTy (Anon a) b) = isTauTy a && isTauTy b
+isTauTy (ForAllTy {})         = False
+isTauTy (CastTy _ _)          = False
+isTauTy (CoercionTy _)        = False
 
 isTauTyCon :: TyCon -> Bool
 -- Returns False for type synonyms whose expansion is a polytype
@@ -859,14 +862,14 @@ isTauTyCon tc
 getDFunTyKey :: Type -> OccName -- Get some string from a type, to be used to
                                 -- construct a dictionary function name
 getDFunTyKey ty | Just ty' <- tcView ty = getDFunTyKey ty'
-getDFunTyKey (TyVarTy tv)     = getOccName tv
-getDFunTyKey (TyConApp tc _)  = getOccName tc
-getDFunTyKey (LitTy x)        = getDFunTyLitKey x
-getDFunTyKey (AppTy fun _)    = getDFunTyKey fun
-getDFunTyKey (FunTy _ _)      = getOccName funTyCon
-getDFunTyKey (ForAllTy _ _ t) = getDFunTyKey t
-getDFunTyKey (CastTy ty _)    = getDFunTyKey ty
-getDFunTyKey t@(CoercionTy _) = pprPanic "getDFunTyKey" (ppr t)
+getDFunTyKey (TyVarTy tv)            = getOccName tv
+getDFunTyKey (TyConApp tc _)         = getOccName tc
+getDFunTyKey (LitTy x)               = getDFunTyLitKey x
+getDFunTyKey (AppTy fun _)           = getDFunTyKey fun
+getDFunTyKey (ForAllTy (Anon _) _)   = getOccName funTyCon
+getDFunTyKey (ForAllTy (Named {}) t) = getDFunTyKey t
+getDFunTyKey (CastTy ty _)           = getDFunTyKey ty
+getDFunTyKey t@(CoercionTy _)        = pprPanic "getDFunTyKey" (ppr t)
 
 getDFunTyLitKey :: TyLit -> OccName
 getDFunTyLitKey (NumTyLit n) = mkOccName Name.varName (show n)
@@ -887,26 +890,36 @@ However, they are non-monadic and do not follow through mutable type
 variables.  It's up to you to make sure this doesn't matter.
 
 \begin{code}
--- | The @[ImplicitFlag]@ return value is meant to be zipped with the
--- variables. Returned separately because most callers won't need it.
-tcSplitForAllTys :: Type -> ([TyCoVar], [ImplicitFlag], Type)
-tcSplitForAllTys ty = split ty ty [] []
-   where
-     split orig_ty ty tvs imps
-       | Just ty' <- tcView ty = split orig_ty ty' tvs imps
-     split _ (ForAllTy tv imp ty) tvs imps = split ty ty (tv:tvs) (imp:imps)
-     split orig_ty _              tvs imps = (reverse tvs, reverse imps, orig_ty)
+-- | Splits a forall type into a list of 'Binder's and the inner type.
+-- Always succeeds, even if it returns an empty list.
+tcSplitForAllTys :: Type -> ([Binder], Type)
+tcSplitForAllTys = splitForAllTys
+
+-- | Like 'tcSplitForAllTys', but splits off only named binders, returning
+-- just the tycovars.
+tcSplitNamedForAllTys :: Type -> ([TyCoVar], Type)
+tcSplitNamedForAllTys = splitNamedForAllTys
+
+-- | Like 'tcSplitForAllTys', but splits off only named binders.
+tcSplitNamedForAllTysB :: Type -> ([Binder], Type)
+tcSplitNamedForAllTysB = splitNamedForAllTysB
 
 tcIsForAllTy :: Type -> Bool
 tcIsForAllTy ty | Just ty' <- tcView ty = tcIsForAllTy ty'
 tcIsForAllTy (ForAllTy {}) = True
 tcIsForAllTy _             = False
 
+-- | Is this a ForAllTy with a named binder?
+tcIsNamedForAllTy :: Type -> Bool
+tcIsNamedForAllTy ty | Just ty' <- tcView ty = tcIsNamedForAllTy ty'
+tcIsNamedForAllTy (ForAllTy (Named {}) _) = True
+tcIsNamedForAllTy _                       = False
+
 tcSplitPredFunTy_maybe :: Type -> Maybe (PredType, Type)
 -- Split off the first predicate argument from a type
 tcSplitPredFunTy_maybe ty
   | Just ty' <- tcView ty = tcSplitPredFunTy_maybe ty'
-tcSplitPredFunTy_maybe (FunTy arg res)
+tcSplitPredFunTy_maybe (ForAllTy (Anon arg) res)
   | isPredTy arg = Just (arg, res)
 tcSplitPredFunTy_maybe _
   = Nothing
@@ -920,12 +933,11 @@ tcSplitPhiTy ty
           Just (pred, ty) -> split ty (pred:ts)
           Nothing         -> (reverse ts, ty)
 
--- | The @[ImplicitFlag]@ return value is meant to be zipped with the
--- variables. Returned separately because most callers won't need it.
-tcSplitSigmaTy :: Type -> ([TyCoVar], [ImplicitFlag], ThetaType, Type)
-tcSplitSigmaTy ty = case tcSplitForAllTys ty of
-                        (tvs, imps, rho) -> case tcSplitPhiTy rho of
-                                        (theta, tau) -> (tvs, imps, theta, tau)
+-- | Split a sigma type into its parts.
+tcSplitSigmaTy :: Type -> ([TyCoVar], ThetaType, Type)
+tcSplitSigmaTy ty = case tcSplitNamedForAllTys ty of
+                        (tvs, rho) -> case tcSplitPhiTy rho of
+                                        (theta, tau) -> (tvs, theta, tau)
 
 -----------------------
 tcDeepSplitSigmaTy_maybe
@@ -938,7 +950,7 @@ tcDeepSplitSigmaTy_maybe ty
   , Just (arg_tys, tvs, theta, rho) <- tcDeepSplitSigmaTy_maybe res_ty
   = Just (arg_ty:arg_tys, tvs, theta, rho)
 
-  | (tvs, _, theta, rho) <- tcSplitSigmaTy ty
+  | (tvs, theta, rho) <- tcSplitSigmaTy ty
   , not (null tvs && null theta)
   = Just ([], tvs, theta, rho)
 
@@ -962,8 +974,8 @@ tcSplitTyConApp ty = case tcSplitTyConApp_maybe ty of
 
 tcSplitTyConApp_maybe :: Type -> Maybe (TyCon, [Type])
 tcSplitTyConApp_maybe ty | Just ty' <- tcView ty = tcSplitTyConApp_maybe ty'
-tcSplitTyConApp_maybe (TyConApp tc tys) = Just (tc, tys)
-tcSplitTyConApp_maybe (FunTy arg res)   = Just (funTyCon, [arg,res])
+tcSplitTyConApp_maybe (TyConApp tc tys)          = Just (tc, tys)
+tcSplitTyConApp_maybe (ForAllTy (Anon arg) res)  = Just (funTyCon, [arg,res])
         -- Newtypes are opaque, so they may be split
         -- However, predicates are not treated
         -- as tycon applications by the type checker
@@ -979,7 +991,8 @@ tcSplitFunTys ty = case tcSplitFunTy_maybe ty of
 
 tcSplitFunTy_maybe :: Type -> Maybe (Type, Type)
 tcSplitFunTy_maybe ty | Just ty' <- tcView ty           = tcSplitFunTy_maybe ty'
-tcSplitFunTy_maybe (FunTy arg res) | not (isPredTy arg) = Just (arg, res)
+tcSplitFunTy_maybe (ForAllTy (Anon arg) res)
+                                   | not (isPredTy arg) = Just (arg, res)
 tcSplitFunTy_maybe _                                    = Nothing
         -- Note the typeKind guard
         -- Consider     (?x::Int) => Bool
@@ -1060,9 +1073,9 @@ tcSplitDFunTy :: Type -> ([TyCoVar], [Type], Class, [Type])
 -- the latter  specifically stops at PredTy arguments,
 -- and we don't want to do that here
 tcSplitDFunTy ty
-  = case tcSplitForAllTys ty   of { (tvs, _, rho) ->
-    case splitFunTys rho       of { (theta, tau)  ->
-    case tcSplitDFunHead tau   of { (clas, tys)   ->
+  = case tcSplitNamedForAllTys ty   of { (tvs, rho)    ->
+    case splitFunTys rho            of { (theta, tau)  ->
+    case tcSplitDFunHead tau        of { (clas, tys)   ->
     (tvs, theta, clas, tys) }}}
 
 tcSplitDFunHead :: Type -> (Class, [Type])
@@ -1086,9 +1099,9 @@ tcInstHeadTyAppAllTyVars ty
   = tcInstHeadTyAppAllTyVars ty'
   | otherwise
   = case ty of
-        TyConApp tc tys -> ok (filterImplicits tc tys)  -- avoid kinds
-        FunTy arg res   -> ok [arg, res]
-        _               -> False
+        TyConApp tc tys         -> ok (filterInvisibles tc tys)  -- avoid kinds
+        ForAllTy (Anon arg) res -> ok [arg, res]
+        _                       -> False
   where
         -- Check that all the types are type variables,
         -- and that each is distinct
@@ -1120,12 +1133,19 @@ tcEqType ty1 ty2
                  | Just t2' <- tcView t2 = go env t1 t2'
     go env (TyVarTy tv1)       (TyVarTy tv2)     = rnOccL env tv1 == rnOccR env tv2
     go _   (LitTy lit1)        (LitTy lit2)      = lit1 == lit2
-    go env (ForAllTy tv1 i1 t1) (ForAllTy tv2 i2 t2)
-      =  go env (tyVarKind tv1) (tyVarKind tv2)
-      && go (rnBndr2 env tv1 tv2) t1 t2
-      && i1 == i2 
+    go env (ForAllTy bndr1 t1) (ForAllTy bndr2 t2)
+      =  go env (binderType bndr1) (binderType bndr2)
+      && let env'
+               | Just tv1 <- binderVar_maybe bndr1
+               , Just tv2 <- binderVar_maybe bndr2
+               = rnBndr2 env tv1 tv2
+
+               | otherwise
+               = env
+         in go env' t1 t2
+      && binderVisibility bndr1 == binderVisibility bndr2
+      && isNamedBinder bndr1    == isNamedBinder bndr2
     go env (AppTy s1 t1)       (AppTy s2 t2)     = go env s1 s2 && go env t1 t2
-    go env (FunTy s1 t1)       (FunTy s2 t2)     = go env s1 s2 && go env t1 t2
     go env (TyConApp tc1 ts1) (TyConApp tc2 ts2) = (tc1 == tc2) && gos env ts1 ts2
     go env (CastTy t1 c1)      (CastTy t2 c2)    = go env t1 t2 && go_co env c1 c2
     go env (CoercionTy c1)     (CoercionTy c2)   = go_co env c1 c2
@@ -1200,10 +1220,20 @@ pickyEqType ty1 ty2
     init_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2))
     go env (TyVarTy tv1)       (TyVarTy tv2)     = rnOccL env tv1 == rnOccR env tv2
     go _   (LitTy lit1)        (LitTy lit2)      = lit1 == lit2
-    go env (ForAllTy tv1 i1 t1) (ForAllTy tv2 i2 t2)
-      = i1 == i2 && go (rnBndr2 env tv1 tv2) t1 t2
+    go env (ForAllTy bndr1 t1) (ForAllTy bndr2 t2)
+      =  go env (binderType bndr1) (binderType bndr2)
+      && let env'
+               | Just tv1 <- binderVar_maybe bndr1
+               , Just tv2 <- binderVar_maybe bndr2
+               = rnBndr2 env tv1 tv2
+
+               | otherwise
+               = env
+         in go env' t1 t2
+      && binderVisibility bndr1 == binderVisibility bndr2
+      && isNamedBinder bndr1    == isNamedBinder bndr2
+
     go env (AppTy s1 t1)       (AppTy s2 t2)     = go env s1 s2 && go env t1 t2
-    go env (FunTy s1 t1)       (FunTy s2 t2)     = go env s1 s2 && go env t1 t2
     go env (TyConApp tc1 ts1) (TyConApp tc2 ts2) = (tc1 == tc2) && gos env ts1 ts2
     go env (CastTy ty1 co1)    (CastTy ty2 co2)  = go env ty1 ty2 && go_co env co1 co2
     go env (CoercionTy co1)    (CoercionTy co2)  = go_co env co1 co2
@@ -1336,9 +1366,10 @@ occurCheckExpand dflags tv ty
     fast_check (LitTy {})          = True
     fast_check (TyVarTy tv')       = tv /= tv'
     fast_check (TyConApp _ tys)    = all fast_check tys
-    fast_check (FunTy arg res)     = fast_check arg && fast_check res
+    fast_check (ForAllTy (Anon a) r) = fast_check a && fast_check r
     fast_check (AppTy fun arg)     = fast_check fun && fast_check arg
-    fast_check (ForAllTy tv' _ ty) = impredicative
+    fast_check (ForAllTy (Named tv' _) ty)
+                                   = impredicative
                                    && fast_check (tyVarKind tv')
                                    && (tv == tv' || fast_check ty)
     fast_check (CastTy ty co)      = fast_check ty && fast_check_co co
@@ -1378,10 +1409,11 @@ occurCheckExpand dflags tv ty
     go (AppTy ty1 ty2) = do { ty1' <- go ty1
                             ; ty2' <- go ty2
                             ; return (mkAppTy ty1' ty2') }
-    go (FunTy ty1 ty2) = do { ty1' <- go ty1
+    go (ForAllTy (Anon ty1) ty2)
+                       = do { ty1' <- go ty1
                             ; ty2' <- go ty2
                             ; return (mkFunTy ty1' ty2') }
-    go ty@(ForAllTy tv' imp body_ty)
+    go ty@(ForAllTy (Named tv' vis) body_ty)
        | not impredicative                = OC_Forall
        | not (fast_check (tyVarKind tv')) = OC_Occurs
            -- Can't expand away the kinds unless we create
@@ -1391,7 +1423,7 @@ occurCheckExpand dflags tv ty
            -- going to worry about that now
        | tv == tv' = return ty
        | otherwise = do { body' <- go body_ty
-                        ; return (ForAllTy tv' imp body') }
+                        ; return (ForAllTy (Named tv' vis) body') }
 
     -- For a type constructor application, first try expanding away the
     -- offending variable from the arguments.  If that doesn't work, next
@@ -1543,17 +1575,17 @@ any foralls.  E.g.
 \begin{code}
 isSigmaTy :: Type -> Bool
 isSigmaTy ty | Just ty' <- tcView ty = isSigmaTy ty'
-isSigmaTy (ForAllTy {})  = True
-isSigmaTy (FunTy a _)    = isPredTy a
-isSigmaTy _              = False
+isSigmaTy (ForAllTy (Named {}) _) = True
+isSigmaTy (ForAllTy (Anon a) _)   = isPredTy a
+isSigmaTy _                       = False
 
 isOverloadedTy :: Type -> Bool
 -- Yes for a type of a function that might require evidence-passing
 -- Used only by bindLocalMethods
 isOverloadedTy ty | Just ty' <- tcView ty = isOverloadedTy ty'
-isOverloadedTy (ForAllTy _ _ ty) = isOverloadedTy ty
-isOverloadedTy (FunTy a _)       = isPredTy a
-isOverloadedTy _                 = False
+isOverloadedTy (ForAllTy (Named {}) ty) = isOverloadedTy ty
+isOverloadedTy (ForAllTy (Anon a) _)    = isPredTy a
+isOverloadedTy _                        = False
 \end{code}
 
 \begin{code}
@@ -1622,11 +1654,10 @@ orphNamesOfType (TyVarTy _)          = emptyNameSet
 orphNamesOfType (LitTy {})           = emptyNameSet
 orphNamesOfType (TyConApp tycon tys) = orphNamesOfTyCon tycon
                                        `unionNameSets` orphNamesOfTypes tys
-orphNamesOfType (FunTy arg res)      = orphNamesOfTyCon funTyCon   -- NB!  See Trac #8535
-                                       `unionNameSets` orphNamesOfType arg
+orphNamesOfType (ForAllTy bndr res)  = orphNamesOfTyCon funTyCon   -- NB!  See Trac #8535
+                                       `unionNameSets` orphNamesOfType (binderType bndr)
                                        `unionNameSets` orphNamesOfType res
 orphNamesOfType (AppTy fun arg)      = orphNamesOfType fun `unionNameSets` orphNamesOfType arg
-orphNamesOfType (ForAllTy _ _ ty)    = orphNamesOfType ty
 orphNamesOfType (CastTy ty co)       = orphNamesOfType ty `unionNameSets` orphNamesOfCo co
 orphNamesOfType (CoercionTy co)      = orphNamesOfCo co
 
@@ -1645,7 +1676,7 @@ orphNamesOfDFunHead :: Type -> NameSet
 --      even if Foo *is* locally defined
 orphNamesOfDFunHead dfun_ty
   = case tcSplitSigmaTy dfun_ty of
-        (_, _, _, head_ty) -> orphNamesOfType head_ty
+        (_, _, head_ty) -> orphNamesOfType head_ty
 
 orphNamesOfCo :: Coercion -> NameSet
 orphNamesOfCo (Refl _ ty)           = orphNamesOfType ty
@@ -1782,7 +1813,7 @@ isFFIDotnetObjTy :: Type -> Bool
 isFFIDotnetObjTy ty
   = checkRepTyCon check_tc t_ty
   where
-   (_, _, t_ty) = tcSplitForAllTys ty
+   (_, t_ty) = tcSplitNamedForAllTys ty
    check_tc tc = getName tc == objectTyConName
 
 isFunPtrTy :: Type -> Bool

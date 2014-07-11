@@ -1327,12 +1327,12 @@ reifyFamilyInstance (FamInst { fi_flavor = flavor
 ------------------------------
 reifyType :: TyCoRep.Type -> TcM TH.Type
 -- Monadic only because of failure
-reifyType ty@(ForAllTy _ _ _)        = reify_for_all ty
+reifyType ty@(ForAllTy (Named _ _) _)        = reify_for_all ty
 reifyType (LitTy t)         = do { r <- reifyTyLit t; return (TH.LitT r) }
 reifyType (TyVarTy tv)      = return (TH.VarT (reifyName tv))
 reifyType (TyConApp tc tys) = reify_tc_app tc tys   -- Do not expand type synonyms here
 reifyType (AppTy t1 t2)     = do { [r1,r2] <- reifyTypes [t1,t2] ; return (r1 `TH.AppT` r2) }
-reifyType ty@(FunTy t1 t2)
+reifyType ty@(ForAllTy (Anon t1) t2)
   | isPredTy t1 = reify_for_all ty  -- Types like ((?x::Int) => Char -> Char)
   | otherwise   = do { [r1,r2] <- reifyTypes [t1,t2] ; return (TH.ArrowT `TH.AppT` r1 `TH.AppT` r2) }
 reifyType ty@(CastTy {})    = noTH (sLit "kind casts") (ppr ty)
@@ -1346,7 +1346,7 @@ reify_for_all ty
        ; return (TH.ForallT tvs' cxt' tau') }
   where
       -- TODO (RAE): Fix TH.
-    (tvs, _, cxt, tau) = tcSplitSigmaTy ty
+    (tvs, cxt, tau) = tcSplitSigmaTy ty
 
 reifyTyLit :: TyCoRep.TyLit -> TcM TH.TyLit
 reifyTyLit (NumTyLit n) = return (TH.NumTyLit n)
@@ -1408,7 +1408,7 @@ reifyTyCoVars :: [TyCoVar]
 reifyTyCoVars tvs m_tc = mapM reify_tv tvs'
   where
     tvs' = case m_tc of
-             Just tc -> filterImplicits tc tvs
+             Just tc -> filterInvisibles tc tvs
              Nothing -> tvs
              
     reify_tv tv | not (isTyVar tv)      = noTH (sLit "coercion variables") (ppr tv)
@@ -1421,7 +1421,7 @@ reifyTyCoVars tvs m_tc = mapM reify_tv tvs'
 
 reify_tc_app :: TyCon -> [TyCoRep.Type] -> TcM TH.Type
 reify_tc_app tc tys
-  = do { tys' <- reifyTypes (filterImplicits tc tys)
+  = do { tys' <- reifyTypes (filterInvisibles tc tys)
        ; return (mkThAppTs r_tc tys') }
   where
     arity = tyConArity tc
@@ -1435,7 +1435,7 @@ reify_tc_app tc tys
 
 reifyPred :: TyCoRep.PredType -> TcM TH.Pred
 reifyPred ty
-  -- We could reify the implicit paramter as a class but it seems
+  -- We could reify the invisible paramter as a class but it seems
   -- nicer to support them properly...
   | isIPPred ty = noTH (sLit "implicit parameters") (ppr ty)
   | otherwise

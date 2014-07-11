@@ -567,7 +567,8 @@ mkAppCos co1 cos = foldl mkAppCo co1 cos
 mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
 mkForAllCo cobndr co
   | Refl r ty <- co
-  = Refl r (mkForAllTy (getHomoVar cobndr) Implicit ty) -- Imp. doesn't matter
+  = Refl r (mkNamedForAllTy (getHomoVar cobndr) Invisible ty)
+                            -- vis. doesn't matter
   | otherwise
   = ASSERT( isHomoCoBndr cobndr || (not $ isReflCo $ getHeteroKindCo cobndr) )
     ForAllCo cobndr co
@@ -576,14 +577,14 @@ mkForAllCo cobndr co
 -- the same type in both types of the coercion
 mkForAllCo_TyHomo :: TyVar -> Coercion -> Coercion
 mkForAllCo_TyHomo tv (Refl r ty)
-  = ASSERT( isTyVar tv ) Refl r (mkForAllTy tv Implicit ty)
+  = ASSERT( isTyVar tv ) Refl r (mkNamedForAllTy tv Invisible ty)
 mkForAllCo_TyHomo tv co          = ASSERT( isTyVar tv ) ForAllCo (TyHomo tv) co
 
 -- | Make a Coercion quantified over type variables, potentially of
 -- different kinds.
 mkForAllCo_Ty :: Coercion -> TyVar -> TyVar -> CoVar -> Coercion -> Coercion
 mkForAllCo_Ty _ tv _ _ (Refl r ty)
-  = ASSERT( isTyVar tv ) Refl r (mkForAllTy tv Implicit ty)
+  = ASSERT( isTyVar tv ) Refl r (mkNamedForAllTy tv Invisible ty)
 mkForAllCo_Ty h tv1 tv2 cv co
   | tyVarKind tv1 `eqType` tyVarKind tv2
   = ASSERT( isReflCo h )
@@ -600,14 +601,14 @@ mkForAllCo_Ty h tv1 tv2 cv co
 -- the same type in both types of the coercion
 mkForAllCo_CoHomo :: CoVar -> Coercion -> Coercion
 mkForAllCo_CoHomo cv (Refl r ty)
-  = ASSERT( isCoVar cv ) Refl r (mkForAllTy cv Implicit ty)
+  = ASSERT( isCoVar cv ) Refl r (mkNamedForAllTy cv Invisible ty)
 mkForAllCo_CoHomo cv co          = ASSERT( isCoVar cv ) ForAllCo (CoHomo cv) co
 
 -- | Make a Coercion quantified over two coercion variables, possibly of
 -- different kinds
 mkForAllCo_Co :: Coercion -> CoVar -> CoVar -> Coercion -> Coercion
 mkForAllCo_Co _ cv _ (Refl r ty)
-  = ASSERT( isCoVar cv ) Refl r (mkForAllTy cv Implicit ty)
+  = ASSERT( isCoVar cv ) Refl r (mkNamedForAllTy cv Invisible ty)
 mkForAllCo_Co h cv1 cv2 co
   | coVarKind cv1 `eqType` coVarKind cv2
   = ASSERT( isReflCo h )
@@ -750,11 +751,12 @@ mkNthCoArg n (Refl r ty) = ASSERT( ok_tc_app ty n )
         r' = nthRole r tc n
         
 mkNthCoArg n co
-  | Just (tv1, _, _) <- splitForAllTy_maybe ty1
-  , Just (tv2, _, _) <- splitForAllTy_maybe ty2
-  , tyVarKind tv1 `eqType` tyVarKind tv2
+  | Just (bndr1, _) <- splitForAllTy_maybe ty1
+  , Just (bndr2, _) <- splitForAllTy_maybe ty2
+  , binderType bndr1 `eqType` binderType bndr2
   , n == 0
-  = liftSimply Nominal (tyVarKind tv1)
+       -- TODO (RAE): Is this the correct role in the named case??
+  = liftSimply (coercionRole co) (binderType bndr1)
 
   | Just (tc1, tys1) <- splitTyConApp_maybe ty1
   , Just (_tc2, tys2) <- splitTyConApp_maybe ty2
@@ -1079,7 +1081,7 @@ promoteCoercion g@(AxiomRuleCo {})= mkKindCo g
 -- fails if this is not possible, if g coerces between a forall and an ->
 instCoercion :: Coercion -> CoercionArg -> Maybe Coercion
 instCoercion g w
-  | isForAllTy ty1 && isForAllTy ty2
+  | isNamedForAllTy ty1 && isNamedForAllTy ty2
   = Just $ mkInstCo g w
   | isFunTy ty1 && isFunTy ty2
   = Just $ mkNthCo 1 g -- extract result type, which is the 2nd argument to (->)
@@ -1489,8 +1491,10 @@ ty_co_subst lc@(LC _ env) role ty
                                Nothing -> pprPanic "ty_co_subst" (vcat [ppr tv, ppr env])
     go r (AppTy ty1 ty2)   = mkAppCo (go r ty1) (go_arg Nominal ty2)
     go r (TyConApp tc tys) = mkTyConAppCo r tc (zipWith go_arg (tyConRolesX r tc) tys)
-    go r (FunTy ty1 ty2)   = mkFunCo r (go r ty1) (go r ty2)
-    go r (ForAllTy v _ ty) = let (lc', cobndr) = liftCoSubstVarBndr lc v in
+    go r (ForAllTy (Anon ty1) ty2)
+                           = mkFunCo r (go r ty1) (go r ty2)
+    go r (ForAllTy (Named v _) ty)
+                           = let (lc', cobndr) = liftCoSubstVarBndr lc v in
                              mkForAllCo cobndr $! ty_co_subst lc' r ty
     go r ty@(LitTy {})     = ASSERT( r == Nominal )
                              mkReflCo r ty
@@ -1705,10 +1709,10 @@ coercionKind co = go co
     go (Refl _ ty)          = Pair ty ty
     go (TyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map coercionArgKind cos)
     go (AppCo co1 co2)      = mkAppTy <$> go co1 <*> coercionArgKind co2
-    go (ForAllCo (TyHomo tv) co)            = mkForAllTy tv Implicit <$> go co
-    go (ForAllCo (TyHetero _ tv1 tv2 _) co) = mkForAllTy <$> Pair tv1 tv2 <*> pure Implicit <*> go co
-    go (ForAllCo (CoHomo tv) co)            = mkForAllTy tv Implicit <$> go co
-    go (ForAllCo (CoHetero _ cv1 cv2) co)   = mkForAllTy <$> Pair cv1 cv2 <*> pure Implicit <*> go co
+    go (ForAllCo (TyHomo tv) co)            = mkNamedForAllTy tv Invisible <$> go co
+    go (ForAllCo (TyHetero _ tv1 tv2 _) co) = mkNamedForAllTy <$> Pair tv1 tv2 <*> pure Invisible <*> go co
+    go (ForAllCo (CoHomo tv) co)            = mkNamedForAllTy tv Invisible <$> go co
+    go (ForAllCo (CoHetero _ cv1 cv2) co)   = mkNamedForAllTy <$> Pair cv1 cv2 <*> pure Invisible <*> go co
     go (CoVarCo cv)         = toPair $ coVarTypes cv
     go (AxiomInstCo ax ind cos)
       | CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs } <- coAxiomNthBranch ax ind
@@ -1727,9 +1731,9 @@ coercionKind co = go co
         (!! d) <$> Pair args1 args2
      
       | d == 0
-      , Just (tv1, _, _) <- splitForAllTy_maybe ty1
-      , Just (tv2, _, _) <- splitForAllTy_maybe ty2
-      = tyVarKind <$> Pair tv1 tv2
+      , Just (bndr1, _) <- splitForAllTy_maybe ty1
+      , Just (bndr2, _) <- splitForAllTy_maybe ty2
+      = binderType <$> Pair bndr1 bndr2
 
       | otherwise
       = pprPanic "coercionKind" (ppr g)
@@ -1807,8 +1811,8 @@ cf Type.applyTys (which in fact we call here)
 applyCo :: Type -> Coercion -> Type
 -- Gives the type of (e co) where e :: (a~b) => ty
 applyCo ty co | Just ty' <- coreView ty = applyCo ty' co
-applyCo (ForAllTy cv _ ty) co = substTyWith [cv] [CoercionTy co] ty
-applyCo (FunTy _ ty)       _  = ty
-applyCo _                  _  = panic "applyCo"
+applyCo (ForAllTy (Named cv _) ty) co = substTyWith [cv] [CoercionTy co] ty
+applyCo (ForAllTy (Anon _)     ty) _  = ty
+applyCo _                          _  = panic "applyCo"
 \end{code}
 

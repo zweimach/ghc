@@ -1670,8 +1670,8 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
 
     go co ty | Just ty' <- coreView ty = go co ty'
     go co (TyVarTy    v) | v == var = (if co then caseCoVar else caseVar,True)
-    go co (FunTy x y)  | isPredTy x = go co y
-                       | xc || yc   = (caseFun xr yr,True)
+    go co (ForAllTy (Anon x) y)  | isPredTy x = go co y
+                                 | xc || yc   = (caseFun xr yr,True)
         where (xr,xc) = go (not co) x
               (yr,yc) = go co       y
     go co (AppTy    x y) | xc = (caseWrongArg,   True)
@@ -1689,10 +1689,10 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
                               Just (fun_ty, _) -> (caseTyApp fun_ty (last xrs), True)
        where
          (xrs,xcs) = unzip (map (go co) args)
-    go co (ForAllTy v TyCoRep.Implicit x) | v /= var && xc = (caseForAll v xr,True)
+    go co (ForAllTy (Named v Invisible) x) | v /= var && xc = (caseForAll v xr,True)
         where (xr,xc) = go co x
               -- TODO (RAE): Fix.
-    go _ (ForAllTy _ TyCoRep.Explicit _) = panic "unexpected explicit binder"
+    go _ (ForAllTy (Named _ Visible) _) = panic "unexpected visible binder"
     go _ _ = (caseTrivial,False)
 
 -- Return all syntactic subterms of ty that contain var somewhere
@@ -1925,7 +1925,7 @@ mkCoerceClassMethEqn cls inst_tvs cls_tys rhs_ty id
     lhs_subst = uncurry (mkTCvSubst in_scope) (zipTyCoEnv cls_tvs cls_tys)
     rhs_subst = uncurry (mkTCvSubst in_scope)
                         (zipTyCoEnv cls_tvs (changeLast cls_tys rhs_ty))
-    (_class_tvs, _class_imps, _class_constraint, user_meth_ty)
+    (_class_tvs, _class_constraint, user_meth_ty)
       = tcSplitSigmaTy (varType id)
 
     changeLast :: [a] -> a -> [a]
@@ -1958,7 +1958,7 @@ gen_Newtype_binds loc cls inst_tvs cls_tys rhs_ty
             `nlExprWithTySig` toHsType user_ty
         -- Open the representation type here, so that it's forall'ed type
         -- variables refer to the ones bound in the user_ty
-        (_, _, _, tau_ty')  = tcSplitSigmaTy tau_ty
+        (_, _, tau_ty')  = tcSplitSigmaTy tau_ty
 
     nlExprWithTySig e s = noLoc (ExprWithTySig e s)
 \end{code}
@@ -1990,7 +1990,7 @@ genAuxBindSpec loc (DerivCon2Tag tycon)
 
     sig_ty = HsCoreTy $
                  -- TODO (RAE): Check.
-             mkImpSigmaTy (tyConTyVars tycon) (tyConStupidTheta tycon) $
+             mkInvSigmaTy (tyConTyVars tycon) (tyConStupidTheta tycon) $
              mkParentType tycon `mkFunTy` intPrimTy
 
     lots_of_constructors = tyConFamilySize tycon > 8
@@ -2012,8 +2012,7 @@ genAuxBindSpec loc (DerivTag2Con tycon)
            nlHsApp (nlHsVar tagToEnum_RDR) a_Expr)],
      L loc (TypeSig [L loc rdr_name] (L loc sig_ty)))
   where
-    sig_ty = HsCoreTy $ zipForAllTys (tyConTyVars tycon)
-                                     (tyConTvVisibilities tycon) $
+    sig_ty = HsCoreTy $ mkForAllTys (tyConBinders tycon) $
              intTy `mkFunTy` mkParentType tycon
 
     rdr_name = tag2con_RDR tycon

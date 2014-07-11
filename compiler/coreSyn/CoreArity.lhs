@@ -110,13 +110,11 @@ typeArity ty
   = go initRecTc ty
   where
     go rec_nts ty 
-      | Just (tv, _, ty')  <- splitForAllTy_maybe ty 
-      = if isTyVar tv
-        then go rec_nts ty'
-        else NoOneShotInfo : go rec_nts ty'
+      | Just (bndr, ty')  <- splitForAllTy_maybe ty 
+      = if isIdLikeBinder bndr
+        then typeOneShot (binderType bndr) : go rec_nts ty'
+        else go rec_nts ty'
 
-      | Just (arg,res) <- splitFunTy_maybe ty    
-      = typeOneShot arg : go rec_nts res
       | Just (tc,tys) <- splitTyConApp_maybe ty 
       , Just (ty', _) <- instNewTyCon_maybe tc tys
       , Just rec_nts' <- checkRecTc rec_nts tc  -- See Note [Expanding newtypes]
@@ -969,19 +967,16 @@ mkEtaWW orig_n orig_expr in_scope orig_ty
        | n == 0
        = (getTCvInScope subst, reverse eis)
 
-       | Just (tv,_,ty') <- splitForAllTy_maybe ty
-           -- Avoid free vars of the original expression
-       = let (subst1, tv1) = Type.substTyCoVarBndr subst tv
-             ((subst2, tv2), new_n)
-               = if isTyVar tv
-                 then ((subst1, tv1), n)
-                 else (freshEtaId n subst1 (varType tv1), n-1)
-         in go new_n subst2 ty' (EtaVar tv2 : eis)
-
-       | Just (arg_ty, res_ty) <- splitFunTy_maybe ty
-       , let (subst', eta_id') = freshEtaId n subst arg_ty 
-           -- Avoid free vars of the original expression
-       = go (n-1) subst' res_ty (EtaVar eta_id' : eis)
+       | Just (bndr,ty') <- splitForAllTy_maybe ty
+       = let ((subst', eta_id'), new_n) = caseBinder bndr
+               (\tv -> let (subst1, tv1) = Type.substTyCoVarBndr subst tv in
+                       if isTyVar tv
+                       then ((subst1, tv1), n)
+                       else (freshEtaId n subst1 (varType tv1), n-1))
+               (\arg_ty -> (freshEtaId n subst arg_ty, n-1))
+         in
+            -- Avoid free vars of the original expression
+         go new_n subst' ty' (EtaVar eta_id' : eis)
        				   
        | Just (co, ty') <- topNormaliseNewType_maybe ty
        = 	-- Given this:

@@ -61,6 +61,7 @@ import FastString
 import Hooks
 
 import Control.Monad
+import Data.Maybe
 \end{code}
 
 \begin{code}
@@ -151,14 +152,14 @@ normaliseFfiType' env ty0 = go initRecTc ty0
           nt_rhs = newTyConInstRhs tc tys
           nothing = return (Refl Representational ty, ty, emptyBag)
 
-    go rec_nts (FunTy ty1 ty2)
+    go rec_nts (ForAllTy (Anon ty1) ty2)
       = do (coi1,nty1,gres1) <- go rec_nts ty1
            (coi2,nty2,gres2) <- go rec_nts ty2
            return (mkFunCo Representational coi1 coi2, mkFunTy nty1 nty2, gres1 `unionBags` gres2)
 
-    go rec_nts (ForAllTy tyvar imp ty1)
+    go rec_nts (ForAllTy bndr@(Named tyvar _) ty1)
       = do (coi,nty1,gres1) <- go rec_nts ty1
-           return (mkForAllCo_TyHomo tyvar coi, mkForAllTy tyvar imp nty1, gres1)
+           return (mkForAllCo_TyHomo tyvar coi, mkForAllTy bndr nty1, gres1)
 
     go rec_nts (CastTy ty1 co)
       = do (coi,nty1,gres1) <- go rec_nts ty1
@@ -237,8 +238,8 @@ tcFImport (L dloc fo@(ForeignImport (L nloc nm) hs_ty _ imp_decl))
        ; let
            -- Drop the foralls before inspecting the
            -- structure of the foreign type.
-             (_, _, t_ty)      = tcSplitForAllTys norm_sig_ty
-             (arg_tys, res_ty) = tcSplitFunTys t_ty
+             (bndrs, res_ty)   = tcSplitForAllTys norm_sig_ty
+             arg_tys           = mapMaybe binderRelevantType_maybe bndrs
              id                = mkLocalId nm sig_ty
                  -- Use a LocalId to obey the invariant that locally-defined
                  -- things are LocalIds.  However, it does not need zonking,
@@ -291,7 +292,7 @@ tcCheckFIType sig_ty arg_tys res_ty idecl@(CImport cconv safety mh (CFunction ta
           check False (illegalForeignTyErr empty sig_ty)
         (arg1_ty:arg_tys) -> do
           dflags <- getDynFlags
-          let curried_res_ty = foldr FunTy res_ty arg_tys
+          let curried_res_ty = mkFunTys arg_tys res_ty
           check (isFFIDynTy curried_res_ty arg1_ty)
                 (illegalForeignTyErr argument arg1_ty)
           checkForeignArgs (isFFIArgumentTy dflags safety) arg_tys
@@ -406,8 +407,8 @@ tcCheckFEType sig_ty (CExport (CExportStatic str cconv)) = do
   where
       -- Drop the foralls before inspecting n
       -- the structure of the foreign type.
-    (_, _, t_ty) = tcSplitForAllTys sig_ty
-    (arg_tys, res_ty) = tcSplitFunTys t_ty
+    (bndrs, res_ty) = tcSplitForAllTys sig_ty
+    arg_tys         = mapMaybe binderRelevantType_maybe bndrs
 \end{code}
 
 

@@ -190,16 +190,16 @@ tcInstType :: ([TyCoVar] -> TcM (TCvSubst, [TcTyCoVar])) -- How to instantiate t
 	   -> TcM ([TcTyCoVar], TcThetaType, TcType)	 -- Result
 		-- (type vars (excl coercion vars), preds (incl equalities), rho)
 tcInstType inst_tyvars ty
-  = case tcSplitForAllTys ty of
-	([],     _, rho) -> let	-- There may be overloading despite no type variables;
+  = case tcSplitNamedForAllTys ty of
+	([],    rho) -> let	-- There may be overloading despite no type variables;
 				-- 	(?x :: Int) => Int -> Int
 			        (theta, tau) = tcSplitPhiTy rho
 			    in
 			    return ([], theta, tau)
 
-	(tyvars, _, rho) -> do { (subst, tyvars') <- inst_tyvars tyvars
-		   	       ; let (theta, tau) = tcSplitPhiTy (substTy subst rho)
-			       ; return (tyvars', theta, tau) }
+	(tyvars, rho) -> do { (subst, tyvars') <- inst_tyvars tyvars
+                 	    ; let (theta, tau) = tcSplitPhiTy (substTy subst rho)
+			    ; return (tyvars', theta, tau) }
 
 tcSkolDFunType :: Type -> TcM ([TcTyVar], TcThetaType, TcType)
 -- Instantiate a type signature with skolem constants, but 
@@ -591,8 +591,8 @@ usesAsKindVar ty =
     go (TyVarTy tv)                = closeOverKinds $ tyCoVarsOfType (tyVarKind tv)
     go (AppTy t1 t2)               = go t1 `unionVarSet` go t2
     go (TyConApp _ tys)            = unionVarSets (map go tys)
-    go (FunTy t1 t2)               = go t1 `unionVarSet` go t2
-    go (ForAllTy tv _imp inner_ty) = go inner_ty `delVarSet` tv `unionVarSet`
+    go (ForAllTy (Anon t1) t2)     = go t1 `unionVarSet` go t2
+    go (ForAllTy (Named tv _) t)   = go t `delVarSet` tv `unionVarSet`
                                      closeOverKinds (tyCoVarsOfType (tyVarKind tv))
     go (LitTy _)                   = emptyVarSet
     go (CastTy ty co)              = go ty `unionVarSet` closeOverKinds (tyCoVarsOfCo co)
@@ -994,9 +994,10 @@ zonkTcType ty
 
     go (LitTy n)         = return (LitTy n)
 
-    go (FunTy arg res)   = do arg' <- go arg
+    go (ForAllTy (Anon arg) res)
+                         = do arg' <- go arg
                               res' <- go res
-                              return (FunTy arg' res')
+                              return (mkFunTy arg' res')
 
     go (AppTy fun arg)   = do fun' <- go fun
                               arg' <- go arg
@@ -1015,9 +1016,10 @@ zonkTcType ty
 		       | otherwise	 = TyVarTy <$> updateTyVarKindM go tyvar
 		-- Ordinary (non Tc) tyvars occur inside quantified types
 
-    go (ForAllTy tv imp ty) = do { tv' <- zonkTcTyCoVarBndr tv
+    go (ForAllTy (Named tv vis) ty)
+                            = do { tv' <- zonkTcTyCoVarBndr tv
                                  ; ty' <- go ty
-                                 ; return (ForAllTy tv' imp ty') }
+                                 ; return (ForAllTy (Named tv' vis) ty') }
 
     go_co (Refl r ty)               = Refl r <$> go ty
     go_co (TyConAppCo r tc args)    = TyConAppCo r tc <$> mapM go_arg args

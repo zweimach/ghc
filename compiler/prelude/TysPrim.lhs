@@ -330,7 +330,7 @@ constraintKind   = kindTyConType constraintKindTyCon
 
 -- | Given two kinds @k1@ and @k2@, creates the 'Kind' @k1 -> k2@
 mkArrowKind :: Kind -> Kind -> Kind
-mkArrowKind k1 k2 = FunTy k1 k2
+mkArrowKind k1 k2 = mkFunTy k1 k2
 
 -- | Iterated application of 'mkArrowKind'
 mkArrowKinds :: [Kind] -> Kind -> Kind
@@ -460,14 +460,16 @@ mkProxyPrimTy k ty = TyConApp proxyPrimTyCon [k, ty]
 
 proxyPrimTyCon :: TyCon
 proxyPrimTyCon = mkPrimTyCon proxyPrimTyConName kind [Nominal,Nominal] VoidRep
-  where kind = ForAllTy kv Implicit $ mkArrowKind k unliftedTypeKind
+  where kind = ForAllTy (Named kv Invisible) $
+               mkArrowKind k unliftedTypeKind
         kv   = kKiVar
         k    = mkOnlyTyVarTy kv
 
 eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 		      -- See Note [The ~# TyCon]
 eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind (replicate 4 Nominal) VoidRep
-  where kind = ForAllTy kv1 Implicit $ ForAllTy kv2 Implicit $
+  where kind = ForAllTy (Named kv1 Invisible) $
+               ForAllTy (Named kv2 Invisible) $
                mkArrowKinds [k1, k2] unliftedTypeKind
         kVars = tyVarList liftedTypeKind
         kv1 : kv2 : _ = kVars
@@ -482,7 +484,8 @@ eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
                                   -- the roles really should be irrelevant!
                               [Nominal, Nominal, Representational, Representational]
                               VoidRep
-  where kind = ForAllTy kv1 Implicit $ ForAllTy kv2 Implicit $
+  where kind = ForAllTy (Named kv1 Invisible) $
+               ForAllTy (Named kv2 Invisible) $
                mkArrowKinds [k1, k2] unliftedTypeKind
         kVars         = tyVarList liftedTypeKind
         kv1 : kv2 : _ = kVars
@@ -721,7 +724,7 @@ anyTy = mkTyConTy anyTyCon
 
 anyTyCon :: TyCon
 anyTyCon = mkLiftedPrimTyCon anyTyConName kind [Nominal] PtrRep
-  where kind = ForAllTy kKiVar Implicit (mkOnlyTyVarTy kKiVar)
+  where kind = ForAllTy (Named kKiVar Invisible) (mkOnlyTyVarTy kKiVar)
 
 {-   Can't do this yet without messing up kind proxies
 -- RAE: I think you can now.

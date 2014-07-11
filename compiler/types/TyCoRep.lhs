@@ -22,19 +22,23 @@ Note [The Type-related module hierarchy]
 module TyCoRep (
         TyThing(..),
         Type(..),
+        Binder(..),
         TyLit(..),
         KindOrType, Kind,
         PredType, ThetaType,      -- Synonyms
-        ImplicitFlag(..),
+        VisibilityFlag(..),
 
         -- Coercions
         Coercion(..), CoercionArg(..), LeftOrRight(..), ForAllCoBndr(..),
 
         -- Functions over types
         mkTyConTy, mkOnlyTyVarTy, mkOnlyTyVarTys,
-        mkTyCoVarTy, mkTyCoVarTys,
+        mkTyCoVarTy, mkTyCoVarTys, mkFunTy,
         isLiftedTypeKind,
         isCoercionType,
+
+        -- Functions over binders
+        binderType, delBinderVar, isInvisibleBinder, isVisibleBinder,
 
         -- Functions over coercions
         setCoBndrEta, eqCoBndrSort, pickLR, coBndrVars, coBndrVarsKinds,
@@ -63,10 +67,11 @@ module TyCoRep (
         setTvSubstEnv, setCvSubstEnv, zapTCvSubst,
         extendTCvInScope, extendTCvInScopeList,
         extendTCvSubst, extendTCvSubstAndInScope, extendTCvSubstList,
-        unionTCvSubst, zipTyCoEnv,
+        unionTCvSubst, zipTyCoEnv, mkTyCoInScopeSet,
         mkOpenTCvSubst, zipOpenTCvSubst, mkTopTCvSubst, zipTopTCvSubst,
 
         substTelescope, substTyWith, substTysWith, substTy,
+        substTyWithBinders,
         substTys, substTheta, substTyCoVar, substTyCoVars,
         lookupTyVar, lookupVar, substTyVarBndr,
         substCo, substCos, substCoVar, substCoVars, lookupCoVar,
@@ -92,7 +97,7 @@ module TyCoRep (
 
 import {-# SOURCE #-} DataCon( DataCon, dataConTyCon, dataConName )
 import {-# SOURCE #-} Type( noParenPred, isPredTy, isCoercionTy
-                          , mkAppTy, typeKind ) -- Transitively pulls in a LOT of stuff, better to break the loop
+                          , mkAppTy ) -- Transitively pulls in a LOT of stuff, better to break the loop
 import {-# SOURCE #-} Coercion
 
 -- friends:
@@ -161,14 +166,12 @@ data Type
                         --    for example unsaturated type synonyms
                         --    can appear as the right hand side of a type synonym.
 
-  | FunTy
-        Type
-        Type            -- ^ Special case of 'TyConApp': @TyConApp FunTyCon [t1, t2]@
+  | ForAllTy            
+        Binder          
+        Type            -- ^ A Π type.
                         -- See Note [Equality-constrained types]
-
-  | ForAllTy            -- See Note [Type abstractions over coercions]
-        Binder          -- never Anon (use FunTy for anonymous binders)
-        Type            -- ^ A polymorphic type
+                        -- This includes arrow types, constructed with
+                        -- @ForAllTy (Anon ...)@.
 
   | LitTy TyLit     -- ^ Type literals are similar to type constructors.
 
@@ -191,45 +194,32 @@ data TyLit
   | StrTyLit FastString
   deriving (Eq, Ord, Data.Data, Data.Typeable)
 
+-- | A 'Binder' represents an argument to a function. Binders can be dependent
+-- ('Named') or nondependent ('Anon'). They may also be visible or not.
+data Binder
+  = Named Var VisibilityFlag
+  | Anon Type   -- visibility is determined by the type (Constraint vs. *)
+    deriving (Data.Typeable, Data.Data)
+
+data VisibilityFlag = Visible | Invisible
+  deriving (Eq, Data.Typeable, Data.Data)
+
+instance Binary VisibilityFlag where
+  put_ bh Visible   = putByte bh 0
+  put_ bh Invisible = putByte bh 1
+  
+  get bh = do
+    h <- getByte bh
+    case h of
+      0 -> return Visible
+      _ -> return Invisible
+
 type KindOrType = Type -- See Note [Arguments to type constructors]
 
 -- | The key type representing kinds in the compiler.
 type Kind = Type
 
--- See Note [Implicit flags]
-data ImplicitFlag
-  = Implicit     -- ^ The parameter is not supplied
-  | Explicit     -- ^ The parameter must be supplied
-    deriving (Eq, Data.Data, Data.Typeable)
-
-instance Outputable ImplicitFlag where
-  ppr Implicit     = text "i"
-  ppr Explicit     = text "e"
-
-instance Binary ImplicitFlag where
-  put_ bh Implicit     = putByte bh 0
-  put_ bh Explicit     = putByte bh 1
-
-  get bh = do h <- getByte bh
-              case h of
-                0 -> return Implicit
-                1 -> return Explicit
-                _ -> panic "ImplicitFlag"
-
 \end{code}
-
-Note [Implicit flags]
-~~~~~~~~~~~~~~~~~~~~~
-Though all type parameters are implicit in terms, some are implicit even in
-types. This is most often used with dependent types, where an explicit type's
-kind depends on an earlier implicit type. For example:
-
-  data SList :: [k] -> * where ...
-
-The parameter `k` to SList is implicit.
-
-Note that the implicit flag applies only to surface Haskell. This flag is
-unused in Core.
 
 Note [The kind invariant]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -294,19 +284,19 @@ The type   forall ab. (a ~ [b]) => blah
 is encoded like this:
 
    ForAllTy (a:*) $ ForAllTy (b:*) $
-   FunTy (TyConApp (~) [*, *, a, [b]]) $
+   ForAllTy (Anon (TyConApp (~) [*, a, [b]])) $
    blah
 
 Note that there are two equality types, boxed (~) and unboxed (~#).
 'Coercion's have a type built with (~#). 'TcCoercion's have a type built with
 (~). Only 'Coercion's can be quantified over in a ForAllTy, never
 'TcCoercion's. To simplify equality among types, we then forbid having
-a type constructed with (~#) on the left of a FunTy. Instead, use a ForAllTy
-with a wildcard variable.
+a type constructed with (~#) on the left of a anonymous ForAllTy.
+Instead, use a Named ForAllTy with a wildcard variable.
 
 So, to summarize:
 
-      ForAllTy  |  FunTy
+       Named|  Anon
 ----------------+-------
 (~)  |   no     |   yes
 (~#) |  yes     |   no
@@ -380,6 +370,11 @@ mkTyCoVarTy v
 mkTyCoVarTys :: [TyCoVar] -> [Type]
 mkTyCoVarTys = map mkTyCoVarTy
 
+infixr 3 `mkFunTy`      -- Associates to the right
+-- | Make an arrow type
+mkFunTy :: Type -> Type -> Type
+mkFunTy arg res = ForAllTy (Anon arg) res
+
 isCoercionType :: Type -> Bool
 isCoercionType (TyConApp tc tys)
   | (tc `hasKey` eqPrimTyConKey) || (tc `hasKey` eqReprPrimTyConKey)
@@ -387,13 +382,24 @@ isCoercionType (TyConApp tc tys)
   = True
 isCoercionType _ = False
 
-isVisibleType :: Type -> Bool
-isVisibleType ty
-  | TyConApp tc [] <- typeKind ty
-  , tc `hasKey` constraintTyConKey
-  = False
-  | otherwise
-  = True
+binderType :: Binder -> Type
+binderType (Named v _) = varType v
+binderType (Anon ty)   = ty
+
+-- | Remove the binder's variable from the set, if the binder has
+-- a variable.
+delBinderVar :: VarSet -> Binder -> VarSet
+delBinderVar vars (Named tv _) = vars `delVarSet` tv
+delBinderVar vars (Anon {})    = vars
+
+-- | Does this binder bind an invisible argument?
+isInvisibleBinder :: Binder -> Bool
+isInvisibleBinder (Named _ Invisible) = True
+isInvisibleBinder _                   = False
+
+-- | Does this binder bind a visible argument?
+isVisibleBinder :: Binder -> Bool
+isVisibleBinder = not . isInvisibleBinder
 
 -- | Create the plain type constructor type which has been applied to no type arguments at all.
 mkTyConTy :: TyCon -> Type
@@ -907,7 +913,7 @@ The rules here also dictate what the parameters to mkTyConAppCo.
 
 %************************************************************************
 %*                                                                      *
-                        Free variables of types and coercions
+                 Free variables of types and coercions
 %*                                                                      *
 %************************************************************************
 
@@ -920,10 +926,10 @@ tyVarsOnlyOfType :: Type -> TyVarSet
 tyVarsOnlyOfType (TyVarTy v)         = unitVarSet v
 tyVarsOnlyOfType (TyConApp _ tys)    = tyVarsOnlyOfTypes tys
 tyVarsOnlyOfType (LitTy {})          = emptyVarSet
-tyVarsOnlyOfType (FunTy arg res)     = tyVarsOnlyOfType arg `unionVarSet` tyVarsOnlyOfType res
 tyVarsOnlyOfType (AppTy fun arg)     = tyVarsOnlyOfType fun `unionVarSet` tyVarsOnlyOfType arg
-tyVarsOnlyOfType (ForAllTy tyvar _ ty) = delVarSet (tyVarsOnlyOfType ty) tyvar
-                                   `unionVarSet` tyVarsOnlyOfType (tyVarKind tyvar)
+tyVarsOnlyOfType (ForAllTy bndr ty)
+  = tyVarsOnlyOfType ty `delBinderVar` bndr
+    `unionVarSet` tyVarsOnlyOfType (binderType bndr)
 tyVarsOnlyOfType (CastTy ty co)      = tyVarsOnlyOfType ty `unionVarSet` tyVarsOnlyOfCo co
 tyVarsOnlyOfType (CoercionTy co)     = tyVarsOnlyOfCo co
 
@@ -969,10 +975,10 @@ tyCoVarsOfType :: Type -> TyCoVarSet
 tyCoVarsOfType (TyVarTy v)         = unitVarSet v
 tyCoVarsOfType (TyConApp _ tys)    = tyCoVarsOfTypes tys
 tyCoVarsOfType (LitTy {})          = emptyVarSet
-tyCoVarsOfType (FunTy arg res)     = tyCoVarsOfType arg `unionVarSet` tyCoVarsOfType res
 tyCoVarsOfType (AppTy fun arg)     = tyCoVarsOfType fun `unionVarSet` tyCoVarsOfType arg
-tyCoVarsOfType (ForAllTy tyvar _ ty) = delVarSet (tyCoVarsOfType ty) tyvar
-                                   `unionVarSet` tyCoVarsOfType (tyVarKind tyvar)
+tyCoVarsOfType (ForAllTy bndr ty)
+  = tyCoVarsOfType ty `delBinderVar` bndr
+    `unionVarSet` tyCoVarsOfType (binderType bndr)
 tyCoVarsOfType (CastTy ty co)      = tyCoVarsOfType ty `unionVarSet` tyCoVarsOfCo co
 tyCoVarsOfType (CoercionTy co)     = tyCoVarsOfCo co
 
@@ -1015,10 +1021,10 @@ coVarsOfType :: Type -> CoVarSet
 coVarsOfType (TyVarTy _)         = emptyVarSet
 coVarsOfType (TyConApp _ tys)    = coVarsOfTypes tys
 coVarsOfType (LitTy {})          = emptyVarSet
-coVarsOfType (FunTy arg res)     = coVarsOfType arg `unionVarSet` coVarsOfType res
 coVarsOfType (AppTy fun arg)     = coVarsOfType fun `unionVarSet` coVarsOfType arg
-coVarsOfType (ForAllTy tyvar _ ty) = delVarSet (coVarsOfType ty) tyvar
-                                   `unionVarSet` coVarsOfType (tyVarKind tyvar)
+coVarsOfType (ForAllTy bndr ty)
+  = coVarsOfType ty `delBinderVar` bndr
+    `unionVarSet` coVarsOfType (binderType bndr)
 coVarsOfType (CastTy ty co)      = coVarsOfType ty `unionVarSet` coVarsOfCo co
 coVarsOfType (CoercionTy co)     = coVarsOfCo co
 
@@ -1364,6 +1370,17 @@ zipOpenTCvSubst tyvars tys
   = TCvSubst (mkInScopeSet (tyCoVarsOfTypes tys)) tenv cenv
   where (tenv, cenv) = zipTyCoEnv tyvars tys
 
+zipOpenTCvSubstBinders :: [Binder] -> [Type] -> TCvSubst
+zipOpenTCvSubstBinders bndrs tys
+  | debugIsOn && (length bndrs /= length tys)
+  = pprTrace "zipOpenTCvSubstBinders" (ppr bndrs $$ ppr tys) emptyTCvSubst
+  | otherwise
+  = TCvSubst is tenv cenv
+  where
+    is = mkInScopeSet (tyCoVarsOfTypes tys)
+    (tvs, tys') = unzip [ (tv, ty) | (Named tv _, ty) <- zip bndrs tys ]
+    (tenv, cenv) = zipTyCoEnv tvs tys'
+
 -- | Called when doing top-level substitutions. Here we expect that the
 -- free vars of the range of the substitution will be empty.
 mkTopTCvSubst :: [(TyVar, Type)] -> TCvSubst
@@ -1502,6 +1519,12 @@ substTysWith :: [TyVar] -> [Type] -> [Type] -> [Type]
 substTysWith tvs tys = ASSERT( length tvs == length tys )
                        substTys (zipOpenTCvSubst tvs tys)
 
+-- | Type substitution using 'Binder's. Anonymous binders
+-- simply ignore their matching type.
+substTyWithBinders :: [Binder] -> [Type] -> Type -> Type
+substTyWithBinders bndrs tys = ASSERT( length bndrs == length tys )
+                               substTy (zipOpenTCvSubstBinders bndrs tys)
+
 -- | Substitute within a 'Type'
 substTy :: TCvSubst -> Type  -> Type
 substTy subst ty | isEmptyTCvSubst subst = ty
@@ -1531,10 +1554,13 @@ subst_ty subst ty
                 -- by [Int], represented with TyConApp
     go (TyConApp tc tys) = let args = map go tys
                            in  args `seqList` TyConApp tc args
-    go (FunTy arg res)   = (FunTy $! (go arg)) $! (go res)
-    go (ForAllTy tv imp ty)  = case substTyCoVarBndr subst tv of
-                                (subst', tv') ->
-                                   ForAllTy tv' imp $! (subst_ty subst' ty)
+    go (ForAllTy (Anon arg) res)
+                         = (ForAllTy $! (Anon $! go arg)) $! go res
+    go (ForAllTy (Named tv vis) ty)
+                         = case substTyCoVarBndr subst tv of
+                             (subst', tv') ->
+                               (ForAllTy $! ((Named $! tv') vis)) $!
+                                            (subst_ty subst' ty)
     go (LitTy n)         = LitTy $! n
     go (CastTy ty co)    = (CastTy $! (go ty)) $! (subst_co subst co)
     go (CoercionTy co)   = CoercionTy $! (subst_co subst co)
@@ -1702,7 +1728,9 @@ substTyCoVarBndr subst v
 substTyVarBndr :: TCvSubst -> TyVar -> (TCvSubst, TyVar)
 substTyVarBndr = substTyVarBndrCallback substTy
 
-substTyVarBndrCallback :: (TCvSubst -> Type -> Type)
+-- | Substitute a tyvar in a binding position, returning an
+-- extended subst and a new tyvar.
+substTyVarBndrCallback :: (TCvSubst -> Type -> Type)  -- ^ the subst function
                        -> TCvSubst -> TyVar -> (TCvSubst, TyVar)
 substTyVarBndrCallback subst_fn subst@(TCvSubst in_scope tenv cenv) old_var
   = ASSERT2( _no_capture, ppr old_var $$ ppr subst )
@@ -1884,17 +1912,6 @@ ppr_type p ty@(ForAllTy {})   = ppr_forall_type p ty
 ppr_type p (AppTy t1 t2) = maybeParen p TyConPrec $
                            ppr_type FunPrec t1 <+> ppr_type TyConPrec t2
 
-ppr_type p fun_ty@(FunTy ty1 ty2)
-  | isPredTy ty1
-  = ppr_forall_type p fun_ty
-  | otherwise
-  = pprArrowChain p (ppr_type FunPrec ty1 : ppr_fun_tail ty2)
-  where
-    -- We don't want to lose synonyms, so we mustn't use splitFunTys here.
-    ppr_fun_tail (FunTy ty1 ty2)
-      | not (isPredTy ty1) = ppr_type FunPrec ty1 : ppr_fun_tail ty2
-    ppr_fun_tail other_ty = [ppr_type TopPrec other_ty]
-
 ppr_type _ (CastTy ty co)
   = parens (ppr_type TopPrec ty <+> ptext (sLit "|>") <+> ppr co)
 
@@ -1916,51 +1933,64 @@ ppr_tylit _ tl =
     StrTyLit s -> text (show s)
 
 -------------------
-ppr_sigma_type :: Bool -> Type -> SDoc
--- Bool <=> Show the foralls
+-- | Render a type, potentially headed with a forall.
+ppr_sigma_type :: Bool   -- ^ @True@ <=> show the foralls
+               -> Type -> SDoc
 ppr_sigma_type show_foralls ty
-  = sep [ ppWhen show_foralls (pprForAll tvs imps)
+  = sep [ ppWhen show_foralls (pprForAll bndrs)
         , pprThetaArrowTy ctxt
-        , pprType tau ]
+        , pprArrowChain TopPrec (ppr_fun_tail tau) ]
   where
-    (tvs, imps, rho) = split1 [] [] ty
-    (ctxt, tau)      = split2 [] rho
+    (bndrs, rho) = split1 [] ty
+    (ctxt, tau)  = split2 [] rho
 
-    split1 tvs imps (ForAllTy tv imp ty) = split1 (tv:tvs) (imp:imps) ty
-    split1 tvs imps ty                   = (reverse tvs, reverse imps, ty)
+    split1 bndrs (ForAllTy bndr@(Named {}) ty) = split1 (bndr:bndrs) ty
+    split1 bndrs ty                            = (reverse bndrs, ty)
 
-    split2 ps (ty1 `FunTy` ty2) | isPredTy ty1 = split2 (ty1:ps) ty2
-    split2 ps ty                               = (reverse ps, ty)
+    split2 ps (ForAllTy (Anon ty1) ty2) | isPredTy ty1 = split2 (ty1:ps) ty2
+    split2 ps ty                                           = (reverse ps, ty)
 
+    -- We don't want to lose synonyms, so we mustn't use splitFunTys here.
+    ppr_fun_tail (ForAllTy (Anon ty1) ty2)
+      | not (isPredTy ty1) = ppr_type FunPrec ty1 : ppr_fun_tail ty2
+    ppr_fun_tail other_ty = [ppr_type TopPrec other_ty]
 
 pprSigmaType :: Type -> SDoc
 pprSigmaType ty = sdocWithDynFlags $ \dflags ->
                   ppr_sigma_type (gopt Opt_PrintExplicitForalls dflags) ty
 
 pprForAllImplicit :: [TyCoVar] -> SDoc
-pprForAllImplicit tvs = pprForAll tvs (repeat Implicit)
+pprForAllImplicit tvs = pprForAll (zipWith Named tvs (repeat Invisible))
 
-pprForAll :: [TyCoVar] -> [ImplicitFlag] -> SDoc
-pprForAll []  _    = empty
-pprForAll tvs imps = add_separator (text "forall" <+> doc) <+> pprForAll tvs' imps'
+-- | Render the "forall ... ." or "forall ... ->" bit of a type.
+-- Do not pass in anonymous binders!
+pprForAll :: [Binder] -> SDoc
+pprForAll [] = empty
+pprForAll bndrs@(Named _ vis : _)
+  = add_separator (text "forall" <+> doc) <+> pprForAll bndrs'
   where
-    first_imp : _ = imps       -- guaranteed to work, because length imps >= length tvs
-    (tvs', imps', doc) = ppr_tcv_bndrs tvs imps first_imp
+    (bndrs', doc) = ppr_tcv_bndrs bndrs vis
 
-    add_separator stuff = case first_imp of
-                            Implicit -> stuff <>  dot
-                            Explicit -> stuff <+> arrow
+    add_separator stuff = case vis of
+                            Visible   -> stuff <>  dot
+                            Invisible -> stuff <+> arrow
+pprForAll bndrs = pprPanic "pprForAll: anonymous binder" (ppr bndrs)
 
 pprTCvBndrs :: [TyCoVar] -> SDoc
 pprTCvBndrs tvs = sep (map pprTCvBndr tvs)
 
-ppr_tcv_bndrs :: [TyCoVar] -> [ImplicitFlag] -> ImplicitFlag
-              -> ([TyCoVar], [ImplicitFlag], SDoc)
-ppr_tcv_bndrs (tv:tvs) (imp:imps) first_imp
-  | imp == first_imp = let (tvs', imps', doc) = ppr_tcv_bndrs tvs imps first_imp in
-                       (tvs', imps', pprTCvBndr tv <+> doc)
-  | otherwise        = (tv:tvs, imp:imps, empty)
-ppr_tcv_bndrs _       _          _         = ([], [], empty)
+-- | Render the ... in @(forall ... .)@ or @(forall ... ->)@.
+-- Returns both the list of not-yet-rendered binders and the doc.
+-- No anonymous binders here!
+ppr_tcv_bndrs :: [Binder]
+              -> VisibilityFlag  -- ^ visibility of the first binder in the list
+              -> ([Binder], SDoc)
+ppr_tcv_bndrs all_bndrs@(Named tv vis : bndrs) vis1
+  | vis == vis1 = let (bndrs', doc) = ppr_tcv_bndrs bndrs vis1 in
+                  (bndrs', pprTCvBndr tv <+> doc)
+  | otherwise   = (all_bndrs, empty)
+ppr_tcv_bndrs [] _ = ([], empty)
+ppr_tcv_bndrs bndrs _ = pprPanic "ppr_tcv_bndrs: anonymous binder" (ppr bndrs)
 
 pprTCvBndr :: TyCoVar -> SDoc
 pprTCvBndr tv
@@ -1968,6 +1998,11 @@ pprTCvBndr tv
   | otherwise             = parens (ppr_tvar tv <+> dcolon <+> pprKind kind)
              where
                kind = tyVarKind tv
+
+instance Outputable Binder where
+  ppr (Named v Visible)   = ppr v
+  ppr (Named v Invisible) = braces (ppr v)
+  ppr (Anon ty)       = text "[anon]" <+> ppr ty
 
 -----------------
 instance Outputable Coercion where -- defined here to avoid orphans
@@ -2063,16 +2098,16 @@ pprTcApp_help p pp tc tys dflags
     tys_wo_kinds = suppressImplicits dflags (tyConKind tc) tys
 
 ------------------
-suppressImplicits :: DynFlags -> Kind -> [a] -> [a]
--- Given the kind of a TyCon, and the args to which it is applied,
+-- | Given the kind of a 'TyCon', and the args to which it is applied,
 -- suppress the args that are implicit
+suppressImplicits :: DynFlags -> Kind -> [a] -> [a]
 suppressImplicits dflags kind xs
   | gopt Opt_PrintExplicitKinds dflags = xs
   | otherwise                          = suppress kind xs
   where
-    suppress (ForAllTy _ Implicit kind) (_ : xs) = suppress kind xs
-    suppress (ForAllTy _ Explicit kind) (x : xs) = x : suppress kind xs
-    suppress (FunTy _ res)              (x:xs)   = x : suppress res xs
+    suppress (ForAllTy bndr kind) (x : xs)
+      | isInvisibleBinder bndr = suppress kind xs
+      | otherwise              = x : suppress kind xs
     suppress _                          xs       = xs
 
 ----------------
@@ -2193,10 +2228,12 @@ tidyType env (TyVarTy tv)         = TyVarTy (tidyTyVarOcc env tv)
 tidyType env (TyConApp tycon tys) = let args = tidyTypes env tys
                                     in args `seqList` TyConApp tycon args
 tidyType env (AppTy fun arg)      = (AppTy $! (tidyType env fun)) $! (tidyType env arg)
-tidyType env (FunTy fun arg)      = (FunTy $! (tidyType env fun)) $! (tidyType env arg)
-tidyType env (ForAllTy tv imp ty) = ForAllTy tvp imp $! (tidyType envp ty)
-                                  where
-                                    (envp, tvp) = tidyTyCoVarBndr env tv
+tidyType env (ForAllTy (Anon fun) arg)
+  = (ForAllTy $! (Anon $! (tidyType env fun))) $! (tidyType env arg)
+tidyType env (ForAllTy (Named tv vis) ty)
+  = (ForAllTy $! ((Named $! tvp) $! vis)) $! (tidyType envp ty)
+  where
+    (envp, tvp) = tidyTyCoVarBndr env tv
 tidyType env (CastTy ty co)       = (CastTy $! tidyType env ty) $! (tidyCo env co)
 tidyType env (CoercionTy co)      = CoercionTy $! (tidyCo env co)
 

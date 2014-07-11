@@ -86,7 +86,7 @@ data IfaceType     -- A kind of universal type, used for types and kinds
   = IfaceTyVar    IfLclName               -- Type/coercion variable only, not tycon
   | IfaceAppTy    IfaceType IfaceType
   | IfaceFunTy    IfaceType IfaceType
-  | IfaceForAllTy IfaceForAllBndr ImplicitFlag IfaceType
+  | IfaceForAllTy IfaceForAllBndr VisibilityFlag IfaceType
   | IfaceTyConApp IfaceTyCon [IfaceType]  -- Not necessarily saturated
                                           -- Includes newtypes, synonyms, tuples
   | IfaceLitTy      IfaceTyLit
@@ -710,10 +710,12 @@ toIfaceType :: Type -> IfaceType
 -- Synonyms are retained in the interface type
 toIfaceType (TyVarTy tv)        = IfaceTyVar (toIfaceTyVar tv)
 toIfaceType (AppTy t1 t2)       = IfaceAppTy (toIfaceType t1) (toIfaceType t2)
-toIfaceType (FunTy t1 t2)       = IfaceFunTy (toIfaceType t1) (toIfaceType t2)
+toIfaceType (ForAllTy (Anon t1) t2)
+                                = IfaceFunTy (toIfaceType t1) (toIfaceType t2)
 toIfaceType (TyConApp tc tys)   = IfaceTyConApp (toIfaceTyCon tc) (toIfaceTypes tys)
 toIfaceType (LitTy n)           = IfaceLitTy (toIfaceTyLit n)
-toIfaceType (ForAllTy tv imp t) = IfaceForAllTy (varToIfaceForAllBndr tv) imp (toIfaceType t)
+toIfaceType (ForAllTy (Named tv vis) t)
+  = IfaceForAllTy (varToIfaceForAllBndr tv) vis (toIfaceType t)
 toIfaceType (CastTy ty co)      = IfaceCastTy (toIfaceType ty) (toIfaceCoercion co)
 toIfaceType (CoercionTy co)     = IfaceCoercionTy (toIfaceCoercion co)
 

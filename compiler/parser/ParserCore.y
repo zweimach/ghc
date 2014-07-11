@@ -18,7 +18,7 @@ import OccName
 import TyCoRep ( TyThing(..) )
 import Type ( Kind,
               liftedTypeKindTyCon, openTypeKindTyCon, unliftedTypeKindTyCon,
-              mkTyConApp
+              mkTyConApp, VisibilityFlag(..)
             )
 import Kind( mkArrowKind )
 import Name( Name, nameOccName, nameModule, mkExternalName, wiredInNameTyThing_maybe )
@@ -27,7 +27,6 @@ import ParserCoreUtils
 import LexCore
 import Literal
 import SrcLoc
-import qualified Type  ( ImplicitFlag(..) )
 import PrelNames
 import TysPrim
 import TyCon ( TyCon, tyConName )
@@ -190,7 +189,7 @@ bty	:: { IfaceType }
 ty	:: { IfaceType }
 	: bty	                     { $1 }
 	| bty '->' ty                { IfaceFunTy $1 $3 }
-        | '%forall' tv_bndrs '.' ty  { foldr (\a -> IfaceForAllTy a Type.Implicit) $4 (map IfaceTv $2) }
+        | '%forall' tv_bndrs '.' ty  { foldr (\a -> IfaceForAllTy a Invisible) $4 (map IfaceTv $2) }
 -- ToDo: make the last production above work.
 ----------------------------------------------
 --        Bindings are in Iface syntax

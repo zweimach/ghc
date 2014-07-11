@@ -1469,7 +1469,7 @@ instDFunType :: DFunId -> [DFunInstType] -> TcS ([TcType], TcType)
 instDFunType dfun_id mb_inst_tys
   = wrapTcS $ go dfun_tvs mb_inst_tys (mkTopTCvSubst [])
   where
-    (dfun_tvs, _, dfun_phi) = tcSplitForAllTys (idType dfun_id)
+    (dfun_tvs, dfun_phi) = tcSplitNamedForAllTys (idType dfun_id)
 
     go :: [TyCoVar] -> [DFunInstType] -> TCvSubst -> TcM ([TcType], TcType)
     go [] [] subst = return ([], substTy subst dfun_phi)
@@ -1820,12 +1820,12 @@ matchFam tycon args
 
 deferTcSForAllEq :: Role -- Nominal or Representational
                  -> CtLoc  -- Original wanted equality flavor
-                 -> ([TyCoVar],TcType)   -- ForAll tvs1 body1
-                 -> ([TyCoVar],TcType)   -- ForAll tvs2 body2
+                 -> ([Binder],TcType)   -- ForAll tvs1 body1
+                 -> ([Binder],TcType)   -- ForAll tvs2 body2
                  -> TcS EvTerm
 -- Some of this functionality is repeated from TcUnify,
 -- consider having a single place where we create fresh implications.
-deferTcSForAllEq role loc (tvs1,body1) (tvs2,body2)
+deferTcSForAllEq role loc (bndrs1,body1) (bndrs2,body2)
  = do { (subst1, skol_tvs) <- wrapTcS $ TcM.tcInstSkolTyCoVars tvs1
       ; let tys  = mkTyCoVarTys skol_tvs
             phi1 = Type.substTy subst1 body1
@@ -1861,5 +1861,8 @@ deferTcSForAllEq role loc (tvs1,body1) (tvs2,body2)
 
         ; return $ EvCoercion (foldr mkTcForAllCo coe_inside skol_tvs)
         }
+  where
+    tvs1 = map (binderVar "deferTcSForAllEq") bndrs1
+    tvs2 = map (binderVar "deferTcSForAllEq") bndrs2
 \end{code}
 

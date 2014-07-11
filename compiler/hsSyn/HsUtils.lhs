@@ -88,7 +88,7 @@ import TcEvidence
 import RdrName
 import Var
 import TyCoRep
-import Type   ( filterImplicits )
+import Type   ( filterInvisibles )
 import TcType
 import Kind
 import DataCon
@@ -411,17 +411,18 @@ toHsType ty
                          (to_hs_type tau)
 
   where
-    (tvs, _, theta, tau) = tcSplitSigmaTy ty
+    (tvs, theta, tau) = tcSplitSigmaTy ty
 
     to_hs_type (TyVarTy tv) = nlHsTyVar (getRdrName tv)
     to_hs_type (AppTy t1 t2) = nlHsAppTy (toHsType t1) (toHsType t2)
     to_hs_type (TyConApp tc args) = nlHsTyConApp (getRdrName tc) (map toHsType args')
        where
-         args' = filterImplicits tc args
+         args' = filterInvisibles tc args
 
-         -- Source-language types have _implicit_ kind arguments,
+         -- Source-language types have _invisible_ kind arguments,
          -- so we must remove them here (Trac #8563)
-    to_hs_type (FunTy arg res) = ASSERT( not (isConstraintKind (typeKind arg)) )
+    to_hs_type (ForAllTy (Anon arg) res)
+                               = ASSERT( not (isConstraintKind (typeKind arg)) )
                                  nlHsFunTy (toHsType arg) (toHsType res)
     to_hs_type t@(ForAllTy {}) = pprPanic "toHsType" (ppr t)
     to_hs_type (LitTy (NumTyLit n)) = noLoc $ HsTyLit (HsNumTy n)

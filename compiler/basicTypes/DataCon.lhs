@@ -642,7 +642,7 @@ mkDataCon name declared_infix
 
     tag = assoc "mkDataCon" (tyConDataCons rep_tycon `zip` [fIRST_TAG..]) con
     rep_arg_tys = dataConRepArgTys con
-    rep_ty = mkImpForAllTys univ_tvs $ mkImpForAllTys ex_tvs $ 
+    rep_ty = mkInvForAllTys univ_tvs $ mkInvForAllTys ex_tvs $ 
 	     mkPiTypesNoTv rep_arg_tys $
 	     mkTyConApp rep_tycon (mkTyCoVarTys univ_tvs)
 
@@ -871,7 +871,7 @@ dataConUserType  (MkData { dcUnivTyVars = univ_tvs,
 			   dcExTyCoVars = ex_tvs, dcEqSpec = eq_spec,
 			   dcOtherTheta = theta, dcOrigArgTys = arg_tys,
 			   dcOrigResTy = res_ty })
-  = mkImpForAllTys ((univ_tvs `minusList` map fst eq_spec) ++ ex_tvs) $
+  = mkInvForAllTys ((univ_tvs `minusList` map fst eq_spec) ++ ex_tvs) $
     mkFunTys theta $
     mkFunTys arg_tys $
     res_ty

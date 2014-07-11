@@ -458,7 +458,8 @@ mkArgInfo fun rules n_val_args call_cont
     -- But beware primops/datacons with no strictness
     add_type_str _ [] = []
     add_type_str fun_ty strs            -- Look through foralls
-        | Just (_, _, fun_ty') <- splitForAllTy_maybe fun_ty       -- Includes coercions
+        | Just (bndr, fun_ty') <- splitForAllTy_maybe fun_ty       -- Includes coercions
+        , isNamedBinder bndr
         = add_type_str fun_ty' strs
     add_type_str fun_ty (str:strs)      -- Add strict-type info
         | Just (arg_ty, fun_ty') <- splitFunTy_maybe fun_ty
@@ -1388,7 +1389,7 @@ abstractFloats main_tvs body_env body
     mk_poly tvs_here var
       = do { uniq <- getUniqueM
            ; let  poly_name = setNameUnique (idName var) uniq           -- Keep same name
-                  poly_ty   = mkImpForAllTys tvs_here (idType var) -- But new type of course
+                  poly_ty   = mkInvForAllTys tvs_here (idType var) -- But new type of course
                   poly_id   = transferPolyIdInfo var tvs_here $ -- Note [transferPolyIdInfo] in Id.lhs
                               mkLocalId poly_name poly_ty
            ; return (poly_id, mkTyApps (Var poly_id) (mkTyCoVarTys tvs_here)) }

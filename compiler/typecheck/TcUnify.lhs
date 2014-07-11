@@ -136,7 +136,7 @@ matchExpectedFunTys herald arity orig_ty
     go n_req ty
       | Just ty' <- tcView ty = go n_req ty'
 
-    go n_req (FunTy arg_ty res_ty)
+    go n_req (ForAllTy (Anon arg_ty) res_ty)
       | not (isPredTy arg_ty)
       = do { (co, tys, ty_r) <- go (n_req-1) res_ty
            ; return (mkTcFunCo Nominal (mkTcNomReflCo arg_ty) co, arg_ty:tys, ty_r) }
@@ -250,9 +250,8 @@ matchExpectedTyConApp tc orig_ty
                ; co <- unifyType (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
                ; return (co, kappa_tys ++ tau_tys) }
 
-        -- RAE believes that implicits aren't needed here (Mar 4 '14)
-    (kvs, _, body)        = splitForAllTys (tyConKind tc)
-    (arg_kinds, res_kind) = splitFunTys body
+    (bndrs, res_kind)     = splitForAllTys (tyConKind tc)
+    (kvs, arg_kinds)      = partitionBinders bndrs
 
 ----------------------
 matchExpectedAppTy :: TcRhoType                         -- orig_ty
@@ -601,7 +600,7 @@ uType origin orig_ty1 orig_ty2
       | Just ty2' <- tcView ty2 = go ty1  ty2'
       	     
         -- Functions (or predicate functions) just check the two parts
-    go (FunTy fun1 arg1) (FunTy fun2 arg2)
+    go (ForAllTy (Anon fun1) arg1) (ForAllTy (Anon fun2) arg2)
       = do { co_l <- uType origin fun1 fun2
            ; co_r <- uType origin arg1 arg2
            ; return $ mkTcFunCo Nominal co_l co_r }
@@ -640,7 +639,7 @@ uType origin orig_ty1 orig_ty2
         go_app (TyConApp tc1 ts1') t1' s2 t2 
 
     go ty1 ty2
-      | tcIsForAllTy ty1 || tcIsForAllTy ty2 
+      | tcIsNamedForAllTy ty1 || tcIsNamedForAllTy ty2 
       = unifySigmaTy origin ty1 ty2
 
         -- Anything else fails
@@ -654,11 +653,13 @@ uType origin orig_ty1 orig_ty2
 
 unifySigmaTy :: CtOrigin -> TcType -> TcType -> TcM TcCoercion
 unifySigmaTy origin ty1 ty2
-  = do { let (tvs1, imps1, body1) = tcSplitForAllTys ty1
-             (tvs2, imps2, body2) = tcSplitForAllTys ty2
+  = do { let (bndrs1, body1) = tcSplitNamedForAllTysB ty1
+             (bndrs2, body2) = tcSplitNamedForAllTysB ty2
 
-       ; defer_or_continue (not (equalLength tvs1 tvs2) || not (imps1 == imps2)) $ do {
-         (subst1, skol_tvs) <- tcInstSkolTyCoVars tvs1
+       ; defer_or_continue (not (equalLength bndrs1 bndrs2) || not (map binderVisibility bndrs1 == map binderVisibility bndrs2)) $ do {
+         let tvs1 = map (binderVar "unifySigmaTy1") bndrs1
+             tvs2 = map (binderVar "unifySigmaTy2") bndrs2
+       ; (subst1, skol_tvs) <- tcInstSkolTyCoVars tvs1
                   -- Get location from monad, not from tvs1
        ; let tys      = mkTyCoVarTys skol_tvs
              phi1     = Type.substTy subst1                    body1
@@ -901,9 +902,9 @@ checkTauTvUpdate dflags tv ty
     defer_me (LitTy {})        = False
     defer_me (TyVarTy tv')     = tv == tv'
     defer_me (TyConApp tc tys) = isSynFamilyTyCon tc || any defer_me tys
-    defer_me (FunTy arg res)   = defer_me arg || defer_me res
+    defer_me (ForAllTy bndr t) = defer_me (binderType bndr) || defer_me t
+                                 || (isNamedBinder bndr && not impredicative)
     defer_me (AppTy fun arg)   = defer_me fun || defer_me arg
-    defer_me (ForAllTy _ _ ty) = not impredicative || defer_me ty
     defer_me (CastTy ty co)    = defer_me ty || defer_me_co co
     defer_me (CoercionTy co)   = defer_me_co co
 
@@ -1178,7 +1179,7 @@ unifyKindEq :: TcKind -> TcKind -> TcM (Maybe Ordering)
 unifyKindEq (TyVarTy kv1) k2 = uKVar NotSwapped unifyKindEq kv1 k2
 unifyKindEq k1 (TyVarTy kv2) = uKVar IsSwapped  unifyKindEq kv2 k1
 
-unifyKindEq (FunTy a1 r1) (FunTy a2 r2)
+unifyKindEq (ForAllTy (Anon a1) r1) (ForAllTy (Anon a2) r2)
   = do { mb1 <- unifyKindEq a1 a2; mb2 <- unifyKindEq r1 r2
        ; return (if isJust mb1 && isJust mb2 then Just EQ else Nothing) }
   

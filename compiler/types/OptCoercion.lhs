@@ -134,9 +134,12 @@ optType subst = go
     go (AppTy fun arg)      = mkAppTy (go fun) $! (go arg)
     go (TyConApp tc tys)    = let args = map go tys
                               in  args `seqList` TyConApp tc args
-    go (FunTy arg res)      = (FunTy $! (go arg)) (go res)
-    go (ForAllTy tv imp ty) = case optTyVarBndr subst tv of
-                              (subst', tv') -> ForAllTy tv' imp $! (optType subst' ty)
+    go (ForAllTy (Anon arg) res)
+                            = (mkFunTy $! (go arg)) $! (go res)
+    go (ForAllTy (Named tv vis) ty)
+                            = case optTyVarBndr subst tv of
+                              (subst', tv') ->
+                                mkNamedForAllTy tv' vis $! (optType subst' ty)
     go (LitTy n)            = LitTy $! n
     go (CastTy ty co)       = (CastTy $! (go ty)) $! (optCoercion subst co)
     go (CoercionTy co)      = CoercionTy $! (optCoercion subst co)
@@ -370,8 +373,10 @@ opt_univ env role oty1 oty2
        -- role' is to comform to mkAppCo's precondition
     mkAppCo (opt_univ env role l1 l2) (opt_univ_arg env role' r1 r2)
 
-  | Just (tv1, _, ty1) <- splitForAllTy_maybe oty1
-  , Just (tv2, _, ty2) <- splitForAllTy_maybe oty2
+  | Just (bndr1, ty1) <- splitForAllTy_maybe oty1
+  , Just tv1          <- binderVar_maybe bndr1
+  , Just (bndr2, ty2) <- splitForAllTy_maybe oty2
+  , Just tv2          <- binderVar_maybe bndr2
   , isTyVar tv1 == isTyVar tv2   -- rule out weird UnivCo
   , let k1 = tyVarKind tv1
         k2 = tyVarKind tv2
@@ -823,8 +828,10 @@ etaForAllCo_maybe is co
   = Just (cobndr, r)
 
   | Pair ty1 ty2  <- coercionKind co
-  , Just (tv1, _, _) <- splitForAllTy_maybe ty1
-  , Just (tv2, _, _) <- splitForAllTy_maybe ty2
+  , Just (bndr1, _) <- splitForAllTy_maybe ty1
+  , Just (bndr2, _) <- splitForAllTy_maybe ty2
+  , Just tv1 <- binderVar_maybe bndr1
+  , Just tv2 <- binderVar_maybe bndr2
   , isTyVar tv1 == isTyVar tv2 -- we want them to be the same sort
   = if varType tv1 `eqType` varType tv2
 

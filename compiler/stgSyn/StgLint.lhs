@@ -412,7 +412,7 @@ checkFunApp fun_ty arg_tys msg
         then (Nothing, Just msg)       -- Arg type mismatch
         else cfa accurate res_ty arg_tys'
 
-      | Just (_, _, fun_ty') <- splitForAllTy_maybe fun_ty
+      | Just (_, fun_ty') <- splitForAllTy_maybe fun_ty
       = cfa False fun_ty' arg_tys
 
       | Just (tc,tc_args) <- splitTyConApp_maybe fun_ty

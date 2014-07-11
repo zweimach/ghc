@@ -9,6 +9,6 @@ isCoercionTy :: Type -> Bool
 mkAppTy :: Type -> Type -> Type
 piResultTy :: Type -> Type -> Type
 
-typeKind :: Type -> Kind
 eqKind :: Kind -> Kind -> Bool
+typeKind :: Type -> Kind
 \end{code}

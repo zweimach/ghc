@@ -30,7 +30,7 @@ import Class
 import Coercion( pprCoAxiom, pprCoAxBranch )
 import CoAxiom( CoAxiom(..), brListMap )
 import HscTypes( tyThingParent_maybe )
-import Type( tidyTopType, tidyOpenType, splitForAllTys, funResultTy, synTyConResKind )
+import Type( tidyTopType, tidyOpenType, funResultTy, synTyConResKind )
 import TyCoRep( pprTCvBndrs, pprForAll, suppressImplicits )
 import TysPrim( alphaTyVars )
 import TcType
@@ -169,8 +169,8 @@ pprTypeForUser ty
     then ppr tidy_ty
     else ppr (mkPhiTy ctxt ty')
   where
-    (_, _, ctxt, ty') = tcSplitSigmaTy tidy_ty
-    (_, tidy_ty)      = tidyOpenType emptyTidyEnv ty
+    (_, ctxt, ty') = tcSplitSigmaTy tidy_ty
+    (_, tidy_ty)   = tidyOpenType emptyTidyEnv ty
      -- Often the types/kinds we print in ghci are fully generalised
      -- and have no free variables, but it turns out that we sometimes
      -- print un-generalised kinds (eg when doing :k T), so it's
@@ -239,14 +239,15 @@ pprDataConDecl ss gadt_style dataCon
 			sep [ pp_foralls, pprThetaArrowTy theta, pp_tau ]
 	-- Printing out the dataCon as a type signature, in GADT style
   where
-    (forall_tvs, imps, theta, tau) = tcSplitSigmaTy (dataConUserType dataCon)
-    (arg_tys, res_ty)              = tcSplitFunTys tau
+    (bndrs, rho)        = tcSplitNamedForAllTysB (dataConUserType dataCon)
+    (theta, tau)        = tcSplitPhiTy rho
+    (arg_tys, res_ty)   = tcSplitFunTys tau
     labels     = dataConFieldLabels dataCon
     stricts    = dataConStrictMarks dataCon
     tys_w_strs = zip (map user_ify stricts) arg_tys
     pp_foralls = sdocWithDynFlags $ \dflags ->
                  ppWhen (gopt Opt_PrintExplicitForalls dflags)
-                        (pprForAll forall_tvs imps)
+                        (pprForAll bndrs)
 
     pp_tau = foldr add (ppr res_ty) tys_w_strs
     add str_ty pp_ty = pprParendBangTy str_ty <+> arrow <+> pp_ty
@@ -309,7 +310,7 @@ pprClassMethod id
   --		  op :: a1 -> b
 
   tidy_sel_ty = tidyTopType (idType id)
-  (_sel_tyvars, _, rho_ty) = splitForAllTys tidy_sel_ty
+  (_tvs, rho_ty) = tcSplitNamedForAllTys tidy_sel_ty
   op_ty = funResultTy rho_ty
 
 ppr_trim :: [Maybe SDoc] -> [SDoc]

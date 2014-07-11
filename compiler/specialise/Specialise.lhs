@@ -1061,10 +1061,9 @@ specCalls env rules_for_me calls_for_me fn rhs
     fn_type                 = idType fn
     fn_arity                = idArity fn
     fn_unf                  = realIdUnfolding fn  -- Ignore loop-breaker-ness here
-    (tycovars, _, theta, _) = tcSplitSigmaTy fn_type
-    (tyvars, covars)        = partition isTyVar tycovars
-    n_tyvars                = length tyvars
-    n_dicts                 = length covars + length theta
+    (tycovars, theta, _)    = tcSplitSigmaTy fn_type
+    n_tyvars                = count isTyVar tycovars
+    n_dicts                 = length tycovars + length theta - n_tyvars
     inl_prag                = idInlinePragma fn
     inl_act                 = inlinePragmaActivation inl_prag
     is_local                = isLocalId fn
@@ -1632,7 +1631,7 @@ mkCallUDs env f args
   where
     _trace_doc = vcat [ppr f, ppr args, ppr n_tyvars, ppr n_dicts
                       , ppr (map (interestingDict env) dicts)]
-    (tycovars, _, theta, _) = tcSplitSigmaTy (idType f)
+    (tycovars, theta, _)    = tcSplitSigmaTy (idType f)
     (tyvars, covars)        = partition isTyVar tycovars
     constrained_tyvars      = closeOverKinds (tyCoVarsOfTypes theta `unionVarSet`
                                            tyCoVarsOfTypes (map varType covars))

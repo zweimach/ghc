@@ -282,7 +282,7 @@ mkDictSelId :: DynFlags
 mkDictSelId dflags no_unf name clas
   = mkGlobalId (ClassOpId clas) name sel_ty info
   where
-    sel_ty = mkImpForAllTys tyvars (mkFunTy (idType dict_id) (idType the_arg_id))
+    sel_ty = mkInvForAllTys tyvars (mkFunTy (idType dict_id) (idType the_arg_id))
         -- We can't just say (exprType rhs), because that would give a type
         --      C a -> C a
         -- for a single-op class (after all, the selector is the identity)
@@ -901,7 +901,7 @@ mkPrimOpId prim_op
   = id
   where
     (tyvars,arg_tys,res_ty, arity, strict_sig) = primOpSig prim_op
-    ty   = mkImpForAllTys tyvars (mkFunTys arg_tys res_ty)
+    ty   = mkInvForAllTys tyvars (mkFunTys arg_tys res_ty)
     name = mkWiredInName gHC_PRIM (primOpOcc prim_op) 
                          (mkPrimOpIdUnique (primOpTag prim_op))
                          (AnId id) UserSyntax
@@ -943,10 +943,9 @@ mkFCallId dflags uniq fcall ty
            `setArityInfo`         arity
            `setStrictnessInfo`    strict_sig
 
-    (tvs, _, tau)   = tcSplitForAllTys ty
-    (arg_tys, _)    = tcSplitFunTys tau
-    arity           = count isId tvs + length arg_tys
-    strict_sig      = mkClosedStrictSig (replicate arity evalDmd) topRes
+    (bndrs, _)        = tcSplitForAllTys ty
+    arity             = count isIdLikeBinder bndrs
+    strict_sig        = mkClosedStrictSig (replicate arity evalDmd) topRes
 \end{code}
 
 
@@ -1002,7 +1001,7 @@ mkDictFunTy :: [TyCoVar] -> ThetaType -> Class -> [Type] -> (Int, Type)
 mkDictFunTy tvs theta clas tys
   = (length silent_theta, dfun_ty)
   where
-    dfun_ty = mkImpSigmaTy tvs (silent_theta ++ theta) (mkClassPred clas tys)
+    dfun_ty = mkInvSigmaTy tvs (silent_theta ++ theta) (mkClassPred clas tys)
     silent_theta 
       | null tvs, null theta 
       = []
@@ -1062,7 +1061,7 @@ proxyHashId
   = pcMiscPrelId proxyName ty
        (noCafIdInfo `setUnfoldingInfo` evaldUnfolding) -- Note [evaldUnfoldings]
   where
-    ty      = mkImpForAllTys [kv, tv] (mkProxyPrimTy k t)
+    ty      = mkInvForAllTys [kv, tv] (mkProxyPrimTy k t)
     kv      = kKiVar
     k       = mkOnlyTyVarTy kv
     tv:_    = tyVarList k
@@ -1078,7 +1077,7 @@ unsafeCoerceId
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
            
 
-    ty  = mkImpForAllTys [openAlphaTyVar,openBetaTyVar]
+    ty  = mkInvForAllTys [openAlphaTyVar,openBetaTyVar]
                          (mkFunTy openAlphaTy openBetaTy)
     [x] = mkTemplateLocals [openAlphaTy]
     rhs = mkLams [openAlphaTyVar,openBetaTyVar,x] $
@@ -1103,7 +1102,7 @@ seqId = pcMiscPrelId seqName ty info
                        `setSpecInfo`       mkSpecInfo [seq_cast_rule]
            
 
-    ty  = mkImpForAllTys [alphaTyVar,betaTyVar]
+    ty  = mkInvForAllTys [alphaTyVar,betaTyVar]
                          (mkFunTy alphaTy (mkFunTy betaTy betaTy))
               -- NB argBetaTyVar; see Note [seqId magic]
 
@@ -1129,7 +1128,7 @@ lazyId :: Id	-- See Note [lazyId magic]
 lazyId = pcMiscPrelId lazyIdName ty info
   where
     info = noCafIdInfo
-    ty  = mkImpForAllTys [alphaTyVar] (mkFunTy alphaTy alphaTy)
+    ty  = mkInvForAllTys [alphaTyVar] (mkFunTy alphaTy alphaTy)
 
 
 --------------------------------------------------------------------------------
@@ -1137,7 +1136,7 @@ magicDictId :: Id  -- See Note [magicDictId magic]
 magicDictId = pcMiscPrelId magicDictName ty info
   where
   info = noCafIdInfo `setInlinePragInfo` neverInlinePragma
-  ty   = mkImpForAllTys [alphaTyVar] alphaTy
+  ty   = mkInvForAllTys [alphaTyVar] alphaTy
 
 --------------------------------------------------------------------------------
 
@@ -1152,7 +1151,7 @@ coerceId = pcMiscPrelId coerceName ty info
     [aTy,bTy] = map mkOnlyTyVarTy [a,b]
     eqRTy     = mkTyConApp coercibleTyCon  [k, aTy, bTy]
     eqRPrimTy = mkTyConApp eqReprPrimTyCon [k, k, aTy, bTy]
-    ty        = mkImpForAllTys [kv, a, b] (mkFunTys [eqRTy, aTy] bTy)
+    ty        = mkInvForAllTys [kv, a, b] (mkFunTys [eqRTy, aTy] bTy)
 
     [eqR,x,eq] = mkTemplateLocals [eqRTy, aTy,eqRPrimTy]
     rhs = mkLams [kv,a,b,eqR,x] $

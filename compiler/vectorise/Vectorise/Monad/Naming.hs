@@ -76,8 +76,8 @@ mkVectId id ty
     -- Decompose a dictionary function signature: \forall tvs. theta -> cls tys
     -- NB: We do *not* use closures '(:->)' for vectorised predicate abstraction as dictionary
     --     functions are always fully applied.
-    (tvs, _, theta, pty) = tcSplitSigmaTy  ty
-    (cls, tys)           = tcSplitDFunHead pty
+    (tvs, theta, pty) = tcSplitSigmaTy  ty
+    (cls, tys)        = tcSplitDFunHead pty
 
 -- |Make a fresh instance of this var, with a new unique.
 --

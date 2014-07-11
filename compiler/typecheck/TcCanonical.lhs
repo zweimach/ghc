@@ -507,11 +507,6 @@ flatten f ctxt (AppTy ty1 ty2)
        ; traceTcS "flatten/appty" (ppr ty1 $$ ppr ty2 $$ ppr xi1 $$ ppr co1 $$ ppr xi2 $$ ppr co2)
        ; return (mkAppTy xi1 xi2, mkTcAppCo co1 co2) }
 
-flatten f ctxt (FunTy ty1 ty2)
-  = do { (xi1,co1) <- flatten f ctxt ty1
-       ; (xi2,co2) <- flatten f ctxt ty2
-       ; return (mkFunTy xi1 xi2, mkTcFunCo Nominal co1 co2) }
-
 flatten f ctxt (TyConApp tc tys)
   -- For a normal type constructor or data family application,
   -- we just recursively flatten the arguments.
@@ -541,14 +536,20 @@ flatten f ctxt (TyConApp tc tys)
                   )
          }
 
-flatten _f ctxt ty@(ForAllTy {})
+flatten f ctxt (ForAllTy (Anon ty1) ty2)
+  = do { (xi1,co1) <- flatten f ctxt ty1
+       ; (xi2,co2) <- flatten f ctxt ty2
+       ; return (mkFunTy xi1 xi2, mkTcFunCo Nominal co1 co2) }
+
+flatten _f ctxt ty@(ForAllTy (Named {}) _)
 -- We allow for-alls when, but only when, no type function
 -- applications inside the forall involve the bound type variables.
-  = do { let (tvs, imps, rho) = splitForAllTys ty
+  = do { let (bndrs, rho) = splitNamedForAllTysB ty
+             tvs          = map (binderVar "flatten") bndrs
        ; (rho', co) <- flatten FMSubstOnly ctxt rho
                          -- Substitute only under a forall
                          -- See Note [Flattening under a forall]
-       ; return (zipForAllTys tvs imps rho', foldr mkTcForAllCo co tvs) }
+       ; return (mkForAllTys bndrs rho', foldr mkTcForAllCo co tvs) }
 
 -- TODO (RAE): Fix this. Requires update of TcCoercion.
 flatten _ _ ty@(CastTy {})
@@ -796,29 +797,30 @@ can_eq_nc' ev (TyConApp tc1 tys1) _ (TyConApp tc2 tys2) _
   , isDecomposableTyCon tc2
   = canDecomposableTyConApp ev tc1 tys1 tc2 tys2
 
-can_eq_nc' ev (TyConApp tc1 _) ps_ty1 (FunTy {}) ps_ty2
+can_eq_nc' ev (TyConApp tc1 _) ps_ty1 (ForAllTy (Anon _) _) ps_ty2
   | isDecomposableTyCon tc1 
       -- The guard is important
       -- e.g.  (x -> y) ~ (F x y) where F has arity 1
       --       should not fail, but get the app/app case
   = canEqFailure ev ps_ty1 ps_ty2
 
-can_eq_nc' ev (FunTy s1 t1) _ (FunTy s2 t2) _
+can_eq_nc' ev (ForAllTy (Anon s1) t1) _ (ForAllTy (Anon s2) t2) _
   = canDecomposableTyConAppOK ev funTyCon [s1,t1] [s2,t2]
 
-can_eq_nc' ev (FunTy {}) ps_ty1 (TyConApp tc2 _) ps_ty2
+can_eq_nc' ev (ForAllTy (Anon _) _) ps_ty1 (TyConApp tc2 _) ps_ty2
   | isDecomposableTyCon tc2 
   = canEqFailure ev ps_ty1 ps_ty2
 
-can_eq_nc' ev s1@(ForAllTy {}) _ s2@(ForAllTy {}) _
+can_eq_nc' ev s1@(ForAllTy (Named {}) _) _ s2@(ForAllTy (Named {}) _) _
  | CtWanted { ctev_loc = loc, ctev_evar = orig_ev } <- ev
- = do { let (tvs1,imps1,body1) = tcSplitForAllTys s1
-            (tvs2,imps2,body2) = tcSplitForAllTys s2
-      ; if not (equalLength tvs1 tvs2) || not (imps1 == imps2) then
-          canEqFailure ev s1 s2
+ = do { let (bndrs1,body1) = tcSplitNamedForAllTysB s1
+            (bndrs2,body2) = tcSplitNamedForAllTysB s2
+      ; if not (equalLength bndrs1 bndrs2)
+           || not (map binderVisibility bndrs1 == map binderVisibility bndrs2)
+        then canEqFailure ev s1 s2
         else
           do { traceTcS "Creating implication for polytype equality" $ ppr ev
-             ; ev_term <- deferTcSForAllEq Nominal loc (tvs1,body1) (tvs2,body2)
+             ; ev_term <- deferTcSForAllEq Nominal loc (bndrs1,body1) (bndrs2,body2)
              ; setEvBind orig_ev ev_term
              ; return Stop } }
  | otherwise

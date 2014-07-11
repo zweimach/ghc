@@ -1076,15 +1076,15 @@ normalise_type env lc
       = let (co,  nty1) = go r ty1
             (arg, nty2) = normalise_ty_arg env lc Nominal ty2
         in (mkAppCo co arg, mkAppTy nty1 nty2)
-    go r (FunTy ty1 ty2)
+    go r (ForAllTy (Anon ty1) ty2)
       = let (co1, nty1) = go r ty1
             (co2, nty2) = go r ty2
         in (mkFunCo r co1 co2, mkFunTy nty1 nty2)
-    go r (ForAllTy tyvar imp ty)
+    go r (ForAllTy (Named tyvar vis) ty)
       = let (lc', cobndr) = normalise_tycovar_bndr env lc tyvar
             (co, nty)     = normalise_type env lc' r ty
             (_, tyvar')   = coBndrBoundVars cobndr
-        in (mkForAllCo cobndr co, mkForAllTy tyvar' imp nty)
+        in (mkForAllCo cobndr co, mkNamedForAllTy tyvar' vis nty)
     go r (TyVarTy tv)    = normalise_tyvar lc r tv
     go r (CastTy ty co)  =
       let (nco, nty) = go r ty
@@ -1208,13 +1208,14 @@ coreFlattenTy = go
       = let (env', tys') = coreFlattenTys env tys in
         (env', mkTyConApp tc tys')
 
-    go env (FunTy ty1 ty2) = let (env1, ty1') = go env  ty1
-                                 (env2, ty2') = go env1 ty2 in
-                             (env2, FunTy ty1' ty2')
+    go env (ForAllTy (Anon ty1) ty2) = let (env1, ty1') = go env  ty1
+                                           (env2, ty2') = go env1 ty2 in
+                                       (env2, mkFunTy ty1' ty2')
 
-    go env (ForAllTy tv imp ty) = let (env1, tv') = coreFlattenVarBndr env tv
-                                      (env2, ty') = go env1 ty in
-                                  (env2, ForAllTy tv' imp ty')
+    go env (ForAllTy (Named tv vis) ty)
+      = let (env1, tv') = coreFlattenVarBndr env tv
+            (env2, ty') = go env1 ty in
+        (env2, mkNamedForAllTy tv' vis ty')
 
     go env ty@(LitTy {}) = (env, ty)
 
@@ -1276,20 +1277,23 @@ coreFlattenTyFamApp env fam_tc fam_args
         FlattenEnv { fe_type_map = type_map
                    , fe_in_scope = in_scope } = env
 
+-- | Get the set of all type variables mentioned anywhere in the list
+-- of types. These variables are not necessarily free.
 allTyVarsInTys :: [Type] -> VarSet
 allTyVarsInTys []       = emptyVarSet
 allTyVarsInTys (ty:tys) = allTyVarsInTy ty `unionVarSet` allTyVarsInTys tys
 
+-- | Get the set of all type variables mentioned anywhere in a type.
 allTyVarsInTy :: Type -> VarSet
 allTyVarsInTy = go
   where
     go (TyVarTy tv)      = unitVarSet tv
     go (AppTy ty1 ty2)   = (go ty1) `unionVarSet` (go ty2)
     go (TyConApp _ tys)  = allTyVarsInTys tys
-    go (FunTy ty1 ty2)   = (go ty1) `unionVarSet` (go ty2)
-    go (ForAllTy tv _ ty)= (go (tyVarKind tv)) `unionVarSet`
-                           unitVarSet tv `unionVarSet`
-                           (go ty) -- don't remove tv
+    go (ForAllTy bndr ty) =
+      caseBinder bndr (\tv -> unitVarSet tv) (const emptyVarSet)
+      `unionVarSet` go (binderType bndr) `unionVarSet` go ty
+        -- don't remove the tv from the set!
     go (LitTy {})        = emptyVarSet
     go (CastTy ty co)    = go ty `unionVarSet` go_co co
     go (CoercionTy co)   = go_co co

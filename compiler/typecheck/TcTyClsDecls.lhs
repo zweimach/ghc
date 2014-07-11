@@ -313,7 +313,7 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
            ; kc_kind' <- zonkTcKind kc_kind    -- Make sure kc_kind' has the final,
                                                -- skolemised kind variables
            ; traceTc "Generalise kind" (vcat [ ppr name, ppr kc_kind, ppr kvs, ppr kc_kind' ])
-           ; return (name, mkImpForAllTys kvs kc_kind') }
+           ; return (name, mkInvForAllTys kvs kc_kind') }
 
     generaliseTCD :: TcTypeEnv -> LTyClDecl Name -> TcM [(Name, Kind)]
     generaliseTCD kind_env (L _ decl)
@@ -649,7 +649,7 @@ tcTyClDecl1 _parent rec_info
                             | (sel_id, GenDefMeth gen_dm_name) <- classOpItems clas
                             , let gen_dm_tau = expectJust "tcTyClDecl1" $
                                                lookupNameEnv gen_dm_env (idName sel_id)
-                            , let gen_dm_ty = mkImpSigmaTy tvs'
+                            , let gen_dm_ty = mkInvSigmaTy tvs'
                                                       [mkClassPred clas (mkTyCoVarTys tvs')] 
                                                       gen_dm_tau
                             ]
@@ -984,21 +984,18 @@ tc_fam_ty_pats :: Name -- of the family TyCon
 tc_fam_ty_pats fam_tc_name kind
                (HsWB { hswb_cts = arg_pats, hswb_vars = vars })
                kind_checker
-  = do { let (fam_imp_tkvs, fam_body) = splitForAllTysImplicit kind
+  = do { let (fam_inv_tkvs, fam_body) = splitForAllTysInvisible kind
 
          -- Instantiate with meta kind vars
-       ; fam_arg_kinds <- mapM (newFlexiTyVarTy . tyVarKind) fam_imp_tkvs
+       ; fam_arg_kinds <- mapM (newFlexiTyVarTy . tyVarKind) fam_inv_tkvs
             -- if there is any dependency among the fam_kvs, we need to
             -- substitute in the new variables
-       ; let (fam_arg_kinds', imp_subst) = substTelescope fam_imp_tkvs fam_arg_kinds
+       ; let (fam_arg_kinds', imp_subst) = substTelescope fam_inv_tkvs fam_arg_kinds
              fam_body' = substTy imp_subst fam_body
-             (exp_m_tvs, impflags, exp_kis, bare_kind) = splitPiTypes fam_body'
-             pi_slices = zip3 exp_m_tvs impflags exp_kis
-             (arg_pi_slices, leftover_pi) = splitAtList arg_pats pi_slices
-             (arg_m_tvs, arg_impflags, arg_kis) = unzip3 arg_pi_slices
-             (leftover_m_tvs, leftover_impflags, leftover_kis) = unzip3 leftover_pi
-             res_kind = unsplitPiTypes leftover_m_tvs leftover_impflags
-                                       leftover_kis bare_kind
+             (exp_bndrs, bare_kind) = splitForAllTys fam_body'
+             (arg_bndrs, leftover_bndrs) = splitAtList arg_pats exp_bndrs
+--             (arg_m_tvs, arg_impflags, arg_kis) = unzip3 arg_pi_slices
+             res_kind = mkForAllTys leftover_bndrs bare_kind
 
              {- TODO (RAE): remove?
          -- We wish to check that the pattern has the right number of arguments
@@ -1017,10 +1014,10 @@ tc_fam_ty_pats fam_tc_name kind
 
          -- Kind-check and quantify
          -- See Note [Quantifying over family patterns]
-       ; typats <- ASSERT( all (== Explicit) arg_impflags )
+       ; typats <- ASSERT( all isVisibleBinder arg_bndrs )
                    tcHsTyVarBndrs hs_tvs $ \ _ ->
                    do { kind_checker res_kind
-                      ; tcHsTelescope (quotes (ppr fam_tc_name)) arg_pats arg_m_tvs arg_kis }
+                      ; tcHsTelescope (quotes (ppr fam_tc_name)) arg_pats arg_bndrs }
 
        ; return (fam_arg_kinds', typats, res_kind) }
 
@@ -1608,7 +1605,7 @@ checkValidClass cls
         ; mapM_ check_at_defs at_stuff  }
   where
     (tyvars, fundeps, theta, _, at_stuff, op_stuff) = classExtraBigSig cls
-    arity = length $ filterImplicits (classTyCon cls) tyvars
+    arity = length $ filterInvisibles (classTyCon cls) tyvars
        -- Ignore imp. variables
 
     check_op constrained_class_methods (sel_id, dm)
@@ -1641,8 +1638,8 @@ checkValidClass cls
           ctxt    = FunSigCtxt op_name
           op_name = idName sel_id
           op_ty   = idType sel_id
-          (_,_,theta1,tau1) = tcSplitSigmaTy op_ty
-          (_,_,theta2,tau2) = tcSplitSigmaTy tau1
+          (_,theta1,tau1) = tcSplitSigmaTy op_ty
+          (_,theta2,tau2) = tcSplitSigmaTy tau1
           (theta,tau) | constrained_class_methods = (theta1 ++ theta2, tau2)
                       | otherwise = (theta1, mkPhiTy (tail theta1) tau1)
                 -- Ugh!  The function might have a type like
@@ -1692,7 +1689,7 @@ checkValidRoleAnnots role_annots thing
      -- Nominal, anyway).
           tyvars                 = tyConTyVars tc
           roles                  = tyConRoles tc
-          (exp_roles, exp_vars)  = unzip $ filterImplicits tc $ zip roles tyvars
+          (exp_roles, exp_vars)  = unzip $ filterInvisibles tc $ zip roles tyvars
           role_annot_decl_maybe  = lookupRoleAnnots role_annots name
 
           check_roles
@@ -1767,11 +1764,12 @@ checkValidRoles tc
       =  check_ty_roles env role    ty1
       >> check_ty_roles env Nominal ty2
 
-    check_ty_roles env role (FunTy ty1 ty2)
+    check_ty_roles env role (ForAllTy (Anon ty1) ty2)
       =  check_ty_roles env role ty1
       >> check_ty_roles env role ty2
 
-    check_ty_roles env role (ForAllTy tv _ ty)
+      -- TODO (RAE): Is this right??
+    check_ty_roles env role (ForAllTy (Named tv _) ty)
       = check_ty_roles (extendVarEnv env tv Nominal) role ty
 
     check_ty_roles _   _    (LitTy {}) = return ()
@@ -1859,9 +1857,9 @@ mkRecSelBind (tycon, sel_name)
     data_ty    = dataConOrigResTy con1
     data_tvs   = tyCoVarsOfType data_ty
     is_naughty = not (tyCoVarsOfType field_ty `subVarSet` data_tvs)  
-    (field_tvs, _, field_theta, field_tau) = tcSplitSigmaTy field_ty
+    (field_tvs, field_theta, field_tau) = tcSplitSigmaTy field_ty
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
-           | otherwise  = mkImpForAllTys (varSetElemsWellScoped $
+           | otherwise  = mkInvForAllTys (varSetElemsWellScoped $
                                          data_tvs `extendVarSetList` field_tvs) $
                           mkPhiTy (dataConStupidTheta con1) $   -- Urgh!
                           mkPhiTy field_theta               $   -- Urgh!

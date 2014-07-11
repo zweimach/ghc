@@ -45,7 +45,7 @@ import HsLit
 import Name( Name )
 import RdrName( RdrName )
 import DataCon( HsBang(..) )
-import Type hiding ( ImplicitFlag(..) )
+import Type
 import HsDoc
 import BasicTypes
 import SrcLoc

@@ -135,6 +135,10 @@ A program is just a list of bindings:
 
 \gram{\ottt}
 
+\ctor{ForAllTy}s are represented in two different ways, depending on whether
+the \ctor{ForAllTy} is anonymous (written $[[t1 -> t2]]$) or
+named (written $[[forall n . t]]$).
+
 There are some invariants on types:
 \begin{itemize}
 \item The name used in a type must be a type-level name (\ctor{TyVar}).

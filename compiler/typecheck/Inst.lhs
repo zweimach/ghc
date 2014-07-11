@@ -101,7 +101,7 @@ newMethodFromName origin name inst_ty
 
        ; let ty = applyTy (idType id) inst_ty
              (theta, _caller_knows_this) = tcSplitPhiTy ty
-       ; wrap <- ASSERT( not (isForAllTy ty) && isSingleton theta )
+       ; wrap <- ASSERT( not (isNamedForAllTy ty) && isSingleton theta )
                  instCall origin [inst_ty] theta
 
        ; return (mkHsWrap wrap (HsVar id)) }
@@ -346,8 +346,8 @@ tcSyntaxName orig ty (std_nm, user_nm_expr) = do
     std_id <- tcLookupId std_nm
     let	
 	-- C.f. newMethodAtLoc
-	([tv], _, _, tau) = tcSplitSigmaTy (idType std_id)
- 	sigma1	          = substTyWith [tv] [ty] tau
+	([tv], _, tau) = tcSplitSigmaTy (idType std_id)
+ 	sigma1	       = substTyWith [tv] [ty] tau
 	-- Actually, the "tau-type" might be a sigma-type in the
 	-- case of locally-polymorphic methods.
 

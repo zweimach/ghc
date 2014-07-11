@@ -270,7 +270,7 @@ import NameSet
 import RdrName
 import qualified HsSyn -- hack as we want to reexport the whole module
 import HsSyn
-import Type     hiding( typeKind, ImplicitFlag(..) )
+import Type     hiding( typeKind )
 import TcType           hiding( typeKind )
 import Id
 import TysPrim          ( alphaTyVars )
@@ -1143,7 +1143,7 @@ modInfoModBreaks = minf_modBreaks
 isDictonaryId :: Id -> Bool
 isDictonaryId id
   = case tcSplitSigmaTy (idType id) of {
-      (_tvs, _imps, _theta, tau) -> isDictTy tau }
+      (_tvs, _theta, tau) -> isDictTy tau }
 
 -- | Looks up a global name: that is, any top-level name in any
 -- visible module.  Unlike 'lookupName', lookupGlobalName does not use

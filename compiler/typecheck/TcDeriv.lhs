@@ -482,7 +482,7 @@ renameDeriv is_boot inst_infos bagBinds
                                            , ib_standalone_deriving = sa }
               ; return (inst_info { iBinds = binds' }, fvs) }
         where
-          (tyvars, _, _) = tcSplitForAllTys (idType (instanceDFunId inst))
+          (tyvars, _) = tcSplitNamedForAllTys (idType (instanceDFunId inst))
 \end{code}
 
 Note [Newtype deriving and unused constructors]
@@ -730,9 +730,10 @@ derivePolyKindedTypeable cls cls_tys _tvs tc tc_args
 
        ; mkEqnHelp imp_vars cls cls_tys tc tc_imp_args Nothing }
   where
-    tc_imps          = tyConTvVisibilities tc
-    (tc_imp_args, _) = splitAtImplicits tc_args tc_imps
-    imp_vars         = map (getTyVar "derivePolyKindedTypeable") tc_imp_args
+    tc_bndrs    = fst $ splitForAllTys (tyConKind tc)
+    tc_imp_args = [ tc_arg | (tc_bndr, tc_arg) <- zip tc_bndrs tc_args
+                           , isInvisibleBinder tc_bndr ]
+    imp_vars    = map (getTyVar "derivePolyKindedTypeable") tc_imp_args
 
 \end{code}
 
@@ -1008,8 +1009,8 @@ mkPolyKindedTypeableEqn tvs cls tycon tc_args mtheta
                      , ds_theta = mtheta `orElse` []  -- Context is empty for polykinded Typeable
                      , ds_newtype = False })  }
   where
-    (imp_tvs, _)       = splitForAllTysImplicit (tyConKind tycon)
-    only_implicit_args = tc_args `equalLength` imp_tvs
+    (inv_tvs, _)       = splitForAllTysInvisible (tyConKind tycon)
+    only_implicit_args = tc_args `equalLength` inv_tvs
 
     mk_msg polykinds | not polykinds
                      = hang (ptext (sLit "To make a Typeable instance of poly-kinded")

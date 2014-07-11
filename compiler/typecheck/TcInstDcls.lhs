@@ -952,7 +952,7 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
   where
     sel_name      = idName sel_id
     local_meth_ty = instantiateMethod clas sel_id inst_tys
-    meth_ty       = mkImpForAllTys tyvars $ mkPiTypes dfun_ev_vars local_meth_ty
+    meth_ty       = mkInvForAllTys tyvars $ mkPiTypes dfun_ev_vars local_meth_ty
 
     -- Check that any type signatures have exactly the right type
     check_inst_sig hs_ty@(L loc _) 

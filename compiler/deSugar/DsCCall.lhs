@@ -124,7 +124,7 @@ mkFCall dflags uniq the_fcall val_args res_ty
     arg_tys = map exprType val_args
     body_ty = (mkFunTys arg_tys res_ty)
     tyvars  = varSetElems (tyCoVarsOfType body_ty)
-    ty 	    = mkImpForAllTys tyvars body_ty
+    ty 	    = mkInvForAllTys tyvars body_ty
     the_fcall_id = mkFCallId dflags uniq the_fcall ty
 \end{code}
 
@@ -351,7 +351,8 @@ resultWrapper result_ty
 
   -- The type might contain foralls (eg. for dummy type arguments,
   -- referring to 'Ptr a' is legal).
-  | Just (tyvar, _, rest) <- splitForAllTy_maybe result_ty
+  | Just (bndr, rest) <- splitForAllTy_maybe result_ty
+  , Just tyvar <- binderVar_maybe bndr
   = do (maybe_ty, wrapper) <- resultWrapper rest
        return (maybe_ty, \e -> Lam tyvar (wrapper e))
 

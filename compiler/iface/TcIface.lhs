@@ -935,10 +935,10 @@ tcIfaceType = go
     go (IfaceTyVar n)         = TyVarTy <$> tcIfaceTyVar n
     go (IfaceAppTy t1 t2)     = mkAppTy <$> go t1 <*> go t2
     go (IfaceLitTy l)         = LitTy <$> tcIfaceTyLit l
-    go (IfaceFunTy t1 t2)     = FunTy <$> go t1 <*> go t2
+    go (IfaceFunTy t1 t2)     = mkFunTy <$> go t1 <*> go t2
     go (IfaceTyConApp tc tks) = mkTyConApp <$> tcIfaceTyCon tc <*> mapM go tks
-    go (IfaceForAllTy bndr imp t)
-      = bindIfaceBndrTy bndr $ \ tv' -> ForAllTy tv' imp <$> go t
+    go (IfaceForAllTy bndr vis t)
+      = bindIfaceBndrTy bndr $ \ tv' -> mkNamedForAllTy tv' vis <$> go t
     go (IfaceCastTy ty co)   = CastTy <$> go ty <*> tcIfaceCo co
     go (IfaceCoercionTy co)  = CoercionTy <$> tcIfaceCo co
 

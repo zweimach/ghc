@@ -20,7 +20,6 @@ import TyCon
 import CoAxiom
 import Var
 import Outputable
-import Util               ( thdOf3 )
 import DynFlags
 import FastString
 import Control.Monad
@@ -34,7 +33,7 @@ import Control.Monad
 paDictArgType :: TyCoVar -> VM (Maybe Type)
 paDictArgType tv = go (mkTyCoVarTy tv) (tyVarKind tv)
   where
-    go ty (FunTy k1 k2)
+    go ty (ForAllTy (Anon k1) k2)
       = do
           tv   <- if isCoercionType k1
                   then newCoVar (fsLit "c") k1
@@ -43,7 +42,7 @@ paDictArgType tv = go (mkTyCoVarTy tv) (tyVarKind tv)
           case mty1 of
             Just ty1 -> do
                           mty2 <- go (mkAppTy ty (mkTyCoVarTy tv)) k2
-                          return $ fmap (mkForAllTy tv Implicit . FunTy ty1) mty2
+                          return $ fmap (mkNamedForAllTy tv Invisible . mkFunTy ty1) mty2
             Nothing  -> go ty k2
 
     go ty k
@@ -218,8 +217,8 @@ prDFunApply dfun tys
          $ map splitTyConApp_maybe
          $ fst
          $ splitFunTys
-         $ thdOf3
-         $ splitForAllTys
+         $ snd
+         $ splitNamedForAllTys
          $ varType dfun
 
     dictionary dflags pa pr ty tycon

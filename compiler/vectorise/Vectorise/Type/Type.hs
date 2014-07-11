@@ -40,8 +40,8 @@ vectAndLiftType ty
                  abstractType tyvars (padicts ++ theta) lmono_ty)
        }
   where
-    (tyvars, _, phiTy) = splitForAllTys ty
-    (theta, mono_ty)   = tcSplitPhiTy phiTy 
+    (tyvars, phiTy)  = splitNamedForAllTys ty
+    (theta, mono_ty) = tcSplitPhiTy phiTy 
 
 -- |Vectorise a type.
 --
@@ -57,14 +57,14 @@ vectType (TyVarTy tv)      = return $ TyVarTy tv
 vectType (LitTy l)         = return $ LitTy l
 vectType (AppTy ty1 ty2)   = AppTy <$> vectType ty1 <*> vectType ty2
 vectType (TyConApp tc tys) = TyConApp <$> vectTyCon tc <*> mapM vectType tys
-vectType (FunTy ty1 ty2)   
+vectType (ForAllTy (Anon ty1) ty2)   
   | isPredTy ty1
-  = FunTy <$> vectType ty1 <*> vectType ty2   -- don't build a closure for dictionary abstraction
+  = mkFunTy <$> vectType ty1 <*> vectType ty2   -- don't build a closure for dictionary abstraction
   | otherwise
   = TyConApp <$> builtin closureTyCon <*> mapM vectType [ty1, ty2]
 vectType ty@(ForAllTy {})
  = do {   -- strip off consecutive foralls
-      ; let (tyvars, _, tyBody) = splitForAllTys ty
+      ; let (tyvars, tyBody) = splitNamedForAllTys ty
 
           -- vectorise the body
       ; vtyBody <- vectType tyBody
@@ -83,4 +83,4 @@ vectType ty@(CoercionTy {})
 -- |Add quantified vars and dictionary parameters to the front of a type.
 --
 abstractType :: [TyCoVar] -> [Type] -> Type -> Type
-abstractType tyvars dicts = mkImpForAllTys tyvars . mkFunTys dicts
+abstractType tyvars dicts = mkInvForAllTys tyvars . mkFunTys dicts

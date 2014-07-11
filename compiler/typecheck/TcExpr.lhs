@@ -1104,7 +1104,7 @@ instantiateOuter orig id
        ; return (mkHsWrap wrap (HsVar id), TcType.substTy subst tau) }
   where
     -- TODO (RAE): This very clearly cares about visibility!
-    (tvs, _imps, theta, tau) = tcSplitSigmaTy (idType id)
+    (tvs, theta, tau) = tcSplitSigmaTy (idType id)
 
 doStupidChecks :: TcId
                -> [TcType]

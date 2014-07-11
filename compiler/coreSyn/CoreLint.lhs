@@ -389,11 +389,7 @@ lintCoreExpr (Lam var expr)
   = addLoc (LambdaBodyOf var) $
     lintBinder var $ \ var' ->
     do { body_ty <- lintCoreExpr expr
-       ; if isTyVar var' || isCoVar var'
-         then return (mkForAllTy var' Implicit body_ty)
-                -- visibility shouldn't matter!
-         else return (mkFunTy (idType var') body_ty) }
-        -- The applySubstTy is needed to apply the subst to var
+       ; return $ mkPiType var' body_ty }
 
 lintCoreExpr e@(Case scrut var alt_ty alts) =
        -- Check the scrutinee
@@ -453,7 +449,6 @@ lintCoreArg fun_ty (Type arg_ty)
        ; lintTyApp fun_ty arg_ty' }
 
 lintCoreArg fun_ty (Coercion arg_co)
-  | isForAllTy fun_ty
   = do { arg_co' <- applySubstCo arg_co
        ; lintCoApp fun_ty arg_co' }
 
@@ -484,10 +479,11 @@ lintAltBinders scrut_ty con_ty (bndr:bndrs)
 -----------------
 lintTyApp :: OutType -> OutType -> LintM OutType
 lintTyApp fun_ty arg_ty
-  | Just (tyvar,_,body_ty) <- splitForAllTy_maybe fun_ty
-  , isTyVar tyvar
-  = do  { lintTyKind tyvar arg_ty
-        ; return (substTyWith [tyvar] [arg_ty] body_ty) }
+  | Just (bndr,body_ty) <- splitForAllTy_maybe fun_ty
+  , Just tv <- binderVar_maybe bndr
+  , isTyVar tv
+  = do  { lintTyKind tv arg_ty
+        ; return (substTyWith [tv] [arg_ty] body_ty) }
 
   | otherwise
   = failWithL (mkTyAppMsg fun_ty arg_ty)
@@ -495,7 +491,8 @@ lintTyApp fun_ty arg_ty
 -----------------
 lintCoApp :: OutType -> OutCoercion -> LintM OutType
 lintCoApp fun_ty arg_co
-  | Just (covar,_,body_ty) <- splitForAllTy_maybe fun_ty
+  | Just (bndr,body_ty) <- splitForAllTy_maybe fun_ty
+  , Just covar <- binderVar_maybe bndr
   , isId covar
   = do { (_, _, t1, t2, rAct) <- lintCoercion arg_co
        ; let (_, _, t1', t2', rExp) = coVarKindsTypesRole covar
@@ -739,11 +736,6 @@ lintType ty@(AppTy t1 t2)
        ; k2 <- lintType t2
        ; lint_ty_app ty k1 [(t2,k2)] }
 
-lintType ty@(FunTy t1 t2) 
-  = do { k1 <- lintType t1
-       ; k2 <- lintType t2
-       ; lintArrow (ptext (sLit "type or kind") <+> quotes (ppr ty)) k1 k2 }
-
 lintType ty@(TyConApp tc tys)
   | not (isUnLiftedTyCon tc) || tys `lengthIs` tyConArity tc
        -- Check that primitive types are saturated
@@ -752,7 +744,14 @@ lintType ty@(TyConApp tc tys)
   | otherwise
   = failWithL (hang (ptext (sLit "Malformed type:")) 2 (ppr ty))
 
-lintType (ForAllTy tv _imp ty)
+-- arrows can related *unlifted* kinds, so this has to be separate from
+-- a dependent forall.
+lintType ty@(ForAllTy (Anon t1) t2) 
+  = do { k1 <- lintType t1
+       ; k2 <- lintType t2
+       ; lintArrow (ptext (sLit "type or kind") <+> quotes (ppr ty)) k1 k2 }
+
+lintType (ForAllTy (Named tv _vis) ty)
   = do { lintTyCoBndrKind tv
        ; k <- addInScopeVar tv (lintType ty) 
        ; return k }
@@ -761,7 +760,7 @@ lintType ty@(LitTy l) = lintTyLit l >> return (typeKind ty)
 
 lintType (CastTy ty co)
   = do { k1 <- lintType ty
-       ; (k1', k2) <- lintStarCoercion co
+       ; (k1', k2) <- lintStarCoercion Representational co
        ; ensureEqTys k1 k1' (mkCastErr ty co k1' k1)
        ; return k2 }
 
@@ -840,13 +839,13 @@ lint_app doc kfn kas
       | Just kfn' <- coreView kfn
       = go_app kfn' ka
 
-    go_app (FunTy kfa kfb) (_,ka)
+    go_app (ForAllTy (Anon kfa) kfb) (_,ka)
       = do { unless (ka `isSubKind` kfa 
                     || (isStarKind kfa && isUnliftedTypeKind ka) -- TODO (RAE): Remove this horrible hack
                     ) (addErrL fail_msg)
            ; return kfb }
 
-    go_app (ForAllTy kv _imp kfn) (ta,ka)
+    go_app (ForAllTy (Named kv _vis) kfn) (ta,ka)
       = do { unless (ka `isSubKind` tyVarKind kv) (addErrL fail_msg)
            ; return (substTyWith [kv] [ta] kfn) }
 
@@ -869,13 +868,13 @@ lintInCo co
         ; lintCoercion co' }
 
 -- lints a coercion, confirming that its lh kind and its rh kind are both *
--- also ensures that the role is Nominal
-lintStarCoercion :: OutCoercion -> LintM (LintedType, LintedType)
-lintStarCoercion g
+-- also ensures that the role is as requested
+lintStarCoercion :: Role -> OutCoercion -> LintM (LintedType, LintedType)
+lintStarCoercion r_exp g
   = do { (k1, k2, t1, t2, r) <- lintCoercion g
        ; lintStar (ptext (sLit "the kind of the left type in") <+> ppr g) k1
        ; lintStar (ptext (sLit "the kind of the right type in") <+> ppr g) k2
-       ; lintRole g Nominal r
+       ; lintRole g r_exp r
        ; return (t1, t2) }
 
 lintCoercion :: OutCoercion -> LintM (LintedKind, LintedKind, LintedType, LintedType, Role)
@@ -928,8 +927,9 @@ lintCoercion co@(AppCo co1 co2)
 ----------
 lintCoercion (ForAllCo (TyHomo tv) co)
   = do { (k1, k2, t1, t2, r) <- addInScopeVar tv (lintCoercion co)
-       ; let tyl = mkForAllTy tv Implicit t1  -- visibility shouldn't matter
-       ; let tyr = mkForAllTy tv Implicit t2
+                            -- visibility shouldn't matter
+       ; let tyl = mkNamedForAllTy tv Invisible t1
+       ; let tyr = mkNamedForAllTy tv Invisible t2
        ; k1' <- lintType tyl
        ; k2' <- lintType tyr
        ; ensureEqTys k1 k1' (mkBadForAllKindMsg CLeft co k1 k1')
@@ -937,15 +937,15 @@ lintCoercion (ForAllCo (TyHomo tv) co)
        ; return (k1, k2, tyl, tyr, r) }
 
 lintCoercion g@(ForAllCo (TyHetero h tv1 tv2 cv) co)
-  = do { (k1, k2) <- lintStarCoercion h
+  = do { (k3, k4, t1, t2, r) <- addInScopeVars [tv1, tv2, cv] $ lintCoercion co
+       ; (k1, k2) <- lintStarCoercion r h
        ; lintL (not (k1 `eqType` k2)) (mkBadHeteroCoMsg h g)
        ; ensureEqTys k1 (tyVarKind tv1) (mkBadHeteroVarMsg CLeft k1 tv1 g)
        ; ensureEqTys k2 (tyVarKind tv2) (mkBadHeteroVarMsg CRight k2 tv2 g)
        ; ensureEqTys (mkCoercionType Nominal (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2))
                   (coVarKind cv) (mkBadHeteroCoVarMsg tv1 tv2 cv g)
-       ; (k3, k4, t1, t2, r) <- addInScopeVars [tv1, tv2, cv] $ lintCoercion co
-       ; let tyl = mkForAllTy tv1 Implicit t1
-       ; let tyr = mkForAllTy tv2 Implicit t2
+       ; let tyl = mkNamedForAllTy tv1 Invisible t1
+       ; let tyr = mkNamedForAllTy tv2 Invisible t2
        ; k3' <- lintType tyl
        ; k4' <- lintType tyr
        ; ensureEqTys k3 k3' (mkBadForAllKindMsg CLeft co k3 k3')
@@ -955,8 +955,8 @@ lintCoercion g@(ForAllCo (TyHetero h tv1 tv2 cv) co)
 lintCoercion (ForAllCo (CoHomo cv) co)
   = do { lintL (cv `freeInCoercion` co) (mkFreshnessViolationMsg cv co)
        ; (k1, k2, t1, t2, r) <- addInScopeVar cv $ lintCoercion co
-       ; let tyl = mkForAllTy cv Implicit t1
-       ; let tyr = mkForAllTy cv Implicit t2
+       ; let tyl = mkNamedForAllTy cv Invisible t1
+       ; let tyr = mkNamedForAllTy cv Invisible t2
        ; k1' <- lintType tyl
        ; k2' <- lintType tyr
        ; ensureEqTys k1 k1' (mkBadForAllKindMsg CLeft co k1 k1')
@@ -966,13 +966,13 @@ lintCoercion (ForAllCo (CoHomo cv) co)
 lintCoercion g@(ForAllCo (CoHetero h cv1 cv2) co)
   = do { lintL (cv1 `freeInCoercion` co) (mkFreshnessViolationMsg cv1 co)
        ; lintL (cv2 `freeInCoercion` co) (mkFreshnessViolationMsg cv2 co)
-       ; (phi1, phi2) <- lintStarCoercion h
+       ; (k1, k2, t1, t2, r) <- addInScopeVars [cv1, cv2] $ lintCoercion co
+       ; (phi1, phi2) <- lintStarCoercion r h
        ; lintL (not (phi1 `eqType` phi2)) (mkBadHeteroCoMsg h g)
        ; ensureEqTys phi1 (coVarKind cv1) (mkBadHeteroVarMsg CLeft phi1 cv1 g)
        ; ensureEqTys phi2 (coVarKind cv2) (mkBadHeteroVarMsg CRight phi2 cv2 g)
-       ; (k1, k2, t1, t2, r) <- addInScopeVars [cv1, cv2] $ lintCoercion co
-       ; let tyl = mkForAllTy cv1 Implicit t1
-       ; let tyr = mkForAllTy cv2 Implicit t2
+       ; let tyl = mkNamedForAllTy cv1 Invisible t1
+       ; let tyr = mkNamedForAllTy cv2 Invisible t2
        ; k1' <- lintType tyl
        ; k2' <- lintType tyr
        ; ensureEqTys k1 k1' (mkBadForAllKindMsg CLeft co k1 k1')
@@ -1008,7 +1008,18 @@ lintCoercion co@(TransCo co1 co2)
 
 lintCoercion the_co@(NthCo n co)
   = do { (_, _, s, t, r) <- lintCoercion co
-       ; case (splitTyConApp_maybe s, splitTyConApp_maybe t) of
+       ; case (splitForAllTy_maybe s, splitForAllTy_maybe t) of
+         { (Just (bndr_s, _ty_s), Just (bndr_t, _ty_t))
+             |  n == 0
+                -- TODO (RAE): Is 'r' the right role here??
+             -> return (ks, kt, ts, tt, r)
+             where
+               ts = binderType bndr_s
+               tt = binderType bndr_t
+               ks = typeKind ts
+               kt = typeKind tt
+               
+         ; _ -> case (splitTyConApp_maybe s, splitTyConApp_maybe t) of
          { (Just (tc_s, tys_s), Just (tc_t, tys_t))
              | tc_s == tc_t
              , tys_s `equalLength` tys_t
@@ -1022,13 +1033,6 @@ lintCoercion the_co@(NthCo n co)
                tr = nthRole r tc_s n
                ks = typeKind ts
                kt = typeKind tt
-
-         ; _ ->
-         case (splitForAllTy_maybe s, splitForAllTy_maybe t) of
-         { (Just (v_s, _, _ty_s), Just (v_t, _, _ty_t))
-             | n == 0
-             -> return (liftedTypeKind, liftedTypeKind,
-                        tyVarKind v_s, tyVarKind v_t, Nominal)
 
          ; _ -> failWithL (hang (ptext (sLit "Bad getNth:"))
                               2 (ppr the_co $$ ppr s $$ ppr t)) }}}
@@ -1055,8 +1059,10 @@ lintCoercion (InstCo co arg)
        ; (k1',k2',s1,s2, r') <- lintCoercionArg arg
        ; lintRole arg Nominal r'
        ; case (splitForAllTy_maybe t1', splitForAllTy_maybe t2') of
-          (Just (tv1,_,t1), Just (tv2,_,t2))
-            | k1' `isSubKind` tyVarKind tv1
+          (Just (bndr1,t1), Just (bndr2,t2))
+            | Just tv1 <- binderVar_maybe bndr1
+            , Just tv2 <- binderVar_maybe bndr2
+            , k1' `isSubKind` tyVarKind tv1
             , k2' `isSubKind` tyVarKind tv2
             -> return (k3, k4,
                        substTyWith [tv1] [s1] t1, 
@@ -1211,14 +1217,16 @@ freeInType :: CoVar -> Type -> Bool
 freeInType v (TyVarTy tv)       = freeInTyVar v tv
 freeInType v (AppTy t1 t2)      = (freeInType v t1) && (freeInType v t2)
 freeInType v (TyConApp _ args)  = all (freeInType v) args
-freeInType v (FunTy t1 t2)      = (freeInType v t1) && (freeInType v t2)
-freeInType v (ForAllTy tv _ ty) = (freeInTyVar v tv) && (freeInType v ty)
+freeInType v (ForAllTy bndr ty) = (freeInBinder v bndr) && (freeInType v ty)
 freeInType _ (LitTy {})         = True
 freeInType v (CastTy t _)       = freeInType v t
 freeInType _ (CoercionTy _)     = True
 
 freeInTyVar :: CoVar -> TyVar -> Bool
 freeInTyVar v tv = freeInType v (tyVarKind tv)
+
+freeInBinder :: CoVar -> Binder -> Bool
+freeInBinder v bndr = freeInType v (binderType bndr)
 
 -- Third parameter is a continuation
 freeInCoVar :: CoVar -> CoVar -> Bool -> Bool

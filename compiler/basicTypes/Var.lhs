@@ -68,18 +68,13 @@ module Var (
 
 	-- ** Modifying 'TyVar's
 	setTyVarName, setTyVarUnique, setTyVarKind, updateTyVarKind,
-        updateTyVarKindM,
-
-        -- * Binders
-        Binder, VisibilityFlag(..),
-        isNamedBinder, isAnonBinder, binderType, binderVisibility,
-        binderVar_maybe
+        updateTyVarKindM
 
     ) where
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-}	TyCoRep( Type, Kind, isCoercionType, isVisibleType )
+import {-# SOURCE #-}	TyCoRep( Type, Kind, isCoercionType )
 import {-# SOURCE #-}	TcType( TcTyVarDetails, pprTcTyVarDetails )
 import {-# SOURCE #-}	IdInfo( IdDetails, IdInfo, coVarDetails, vanillaIdInfo, pprIdDetails )
 
@@ -87,7 +82,6 @@ import Name hiding (varName)
 import Unique
 import Util
 import FastTypes
-import Binary
 import FastString
 import Outputable
 
@@ -201,16 +195,6 @@ data ExportFlag
   = NotExported	-- ^ Not exported: may be discarded as dead code.
   | Exported	-- ^ Exported: kept alive
 
--- | A 'Binder' represents an argument to a function. Binders can be dependent
--- ('NamedBndr') or nondependent ('AnonBndr'). They may also be visible or not.
-data Binder
-  = NamedBndr Var VisibilityFlag
-  | AnonBndr Type   -- visibility is determined by the type (Constraint vs. *)
-    deriving Typeable
-
-data VisibilityFlag = Visible | Invisible
-  deriving (Eq, Typeable)
-
 \end{code}
 
 Note [GlobalId/LocalId]
@@ -269,11 +253,6 @@ instance Data Var where
   toConstr _   = abstractConstr "Var"
   gunfold _ _  = error "gunfold"
   dataTypeOf _ = mkNoRepType "Var"
-
-instance Outputable Binder where
-  ppr (NamedBndr v Visible)   = ppr v
-  ppr (NamedBndr v Invisible) = braces (ppr v)
-  ppr (AnonBndr ty)           = text "[anon]" <+> ppr ty
 
 \end{code}
 
@@ -477,33 +456,3 @@ isExportedId (Id { idScope = GlobalId })        = True
 isExportedId (Id { idScope = LocalId Exported}) = True
 isExportedId _ = False
 \end{code}
-
-%************************************************************************
-%*									*
-   Binders
-%*									*
-%************************************************************************
-
-\begin{code}
-
-isNamedBinder :: Binder -> Bool
-isNamedBinder (NamedBndr {}) = True
-isNamedBinder _              = False
-
-isAnonBinder :: Binder -> Bool
-isAnonBinder (AnonBndr {}) = True
-isAnonBinder _             = False
-
-binderType :: Binder -> Type
-binderType (NamedBndr v _) = varType v
-binderType (AnonBndr ty)   = ty
-
-binderVisibility :: Binder -> VisibilityFlag
-binderVisibitity (NamedBndr _ vis) = vis
-binderVisibility (AnonBndr ty)
-  | isVisibleType ty = Visible
-  | otherwise        = Invisible
-
-binderVar_maybe :: Binder -> Maybe Var
-binderVar_maybe (NamedBndr v _) = Just v
-binderVar_maybe (AnonBndr {})   = Nothing

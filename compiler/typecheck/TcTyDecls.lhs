@@ -31,7 +31,6 @@ import Type
 import HscTypes
 import TyCon
 import DataCon
-import Var
 import Name
 import NameEnv
 import VarEnv
@@ -232,9 +231,7 @@ calcClassCycles cls
     expandType _    _    (TyVarTy {})     = id
     expandType _    _    (LitTy {})       = id
     expandType seen path (AppTy t1 t2)    = expandType seen path t1 . expandType seen path t2
-    expandType seen path (FunTy t1 t2)    = expandType seen path t1 . expandType seen path t2
-    expandType seen path (ForAllTy _tv _imp t)
-                                          = expandType seen path t
+    expandType seen path (ForAllTy b t)   = expandType seen path (binderType b) . expandType seen path t
     expandType seen path (CastTy ty _co)  = expandType seen path ty
     expandType _    _    (CoercionTy {})  = id
 
@@ -614,14 +611,14 @@ initialRoleEnv is_boot annots = extendNameEnvList emptyNameEnv .
 
 initialRoleEnv1 :: Bool -> RoleAnnots -> TyCon -> (Name, [Role])
 initialRoleEnv1 is_boot annots_env tc
-  | isFamilyTyCon tc = (name, map (const Nominal) tyvars)
+  | isFamilyTyCon tc = (name, map (const Nominal) bndrs)
   |  isAlgTyCon tc
   || isSynTyCon tc   = (name, default_roles)
   | otherwise        = pprPanic "initialRoleEnv1" (ppr tc)
   where name         = tyConName tc
-        tyvars       = tyConTyVars tc
-        impflags     = tyConTvVisibilities tc
-        num_exps     = count (== Type.Explicit) impflags
+        bndrs        = tyConBinders tc
+        visflags     = map binderVisibility bndrs
+        num_exps     = count (== Visible) visflags
 
           -- if the number of annotations in the role annotation decl
           -- is wrong, just ignore it. We check this in the validity check.
@@ -630,12 +627,12 @@ initialRoleEnv1 is_boot annots_env tc
               Just (L _ (RoleAnnotDecl _ annots))
                 | annots `lengthIs` num_exps -> map unLoc annots
               _                              -> replicate num_exps Nothing
-        default_roles = build_default_roles impflags role_annots
+        default_roles = build_default_roles visflags role_annots
 
-        build_default_roles (Type.Implicit : imps) ras
-          = Nominal : build_default_roles imps ras
-        build_default_roles (Type.Explicit : imps) (m_annot : ras)
-          = (m_annot `orElse` default_role) : build_default_roles imps ras
+        build_default_roles (Invisible : viss) ras
+          = Nominal : build_default_roles viss ras
+        build_default_roles (Visible : viss) (m_annot : ras)
+          = (m_annot `orElse` default_role) : build_default_roles viss ras
         build_default_roles [] [] = []
         build_default_roles _ _ = pprPanic "initialRoleEnv1 (2)"
                                            (vcat [ppr tc, ppr role_annots])
@@ -702,8 +699,13 @@ irType = go
     go lcls (AppTy t1 t2)      = go lcls t1 >> mark_nominal lcls t2
     go lcls (TyConApp tc tys)  = do { roles <- lookupRolesX tc
                                     ; zipWithM_ (go_app lcls) roles tys }
-    go lcls (FunTy t1 t2)      = go lcls t1 >> go lcls t2
-    go lcls (ForAllTy tv _ ty) = go (extendVarSet lcls tv) ty
+    go lcls (ForAllTy bndr ty)
+      = let lcls'
+              | Just v <- binderVar_maybe bndr = extendVarSet lcls v
+              | otherwise                      = lcls
+        in
+           -- TODO (RAE): Is this right in the Named case??
+        go lcls (binderType bndr) >> go lcls' ty
     go _    (LitTy {})         = return ()
       -- See Note [Coercions in role inference]
     go lcls (CastTy ty _)      = go lcls ty  
@@ -722,10 +724,9 @@ irType = go
     get_ty_vars (TyVarTy tv)     = unitVarSet tv
     get_ty_vars (AppTy t1 t2)    = get_ty_vars t1 `unionVarSet` get_ty_vars t2
     get_ty_vars (TyConApp _ tys) = foldr (unionVarSet . get_ty_vars) emptyVarSet tys
-    get_ty_vars (FunTy t1 t2)    = get_ty_vars t1 `unionVarSet` get_ty_vars t2
-    get_ty_vars (ForAllTy tv _ ty) = get_ty_vars ty
-                                     `delVarSet` tv
-                                     `unionVarSet` (tyCoVarsOfType $ tyVarKind tv)
+    get_ty_vars (ForAllTy bndr ty)
+      = get_ty_vars ty `delBinderVar` bndr
+        `unionVarSet` (tyCoVarsOfType $ binderType bndr)
     get_ty_vars (LitTy {})       = emptyVarSet
     get_ty_vars (CastTy ty _)    = get_ty_vars ty
     get_ty_vars (CoercionTy _)   = emptyVarSet   

@@ -1632,8 +1632,8 @@ classToIfaceDecl env clas
                 --                op :: (?x :: String) => a -> a
                 -- and          class Baz a where
                 --                op :: (Ord a) => a -> a
-          (sel_tyvars, _, rho_ty) = splitForAllTys (idType sel_id)
-          op_ty                   = funResultTy rho_ty
+          (sel_tyvars, rho_ty) = splitNamedForAllTys (idType sel_id)
+          op_ty                = funResultTy rho_ty
 
     toDmSpec NoDefMeth      = NoDM
     toDmSpec (GenDefMeth _) = GenericDM

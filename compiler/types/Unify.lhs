@@ -244,7 +244,7 @@ match_ty menv tsubst csubst (TyVarTy tv1) ty2
     rn_env = me_env menv
     tv1' = rnOccL rn_env tv1
 
-match_ty menv tsubst csubst (ForAllTy tv1 _ ty1) (ForAllTy tv2 _ ty2) 
+match_ty menv tsubst csubst (ForAllTy (Named tv1 _) ty1) (ForAllTy (Named tv2 _) ty2) 
   = do { (tsubst', csubst') <- match_kind menv tsubst csubst (tyVarKind tv1) (tyVarKind tv2)
        ; match_ty menv' tsubst' csubst' ty1 ty2 }
   where         -- Use the magic of rnBndr2 to go under the binders
@@ -252,7 +252,7 @@ match_ty menv tsubst csubst (ForAllTy tv1 _ ty1) (ForAllTy tv2 _ ty2)
 
 match_ty menv tsubst csubst (TyConApp tc1 tys1) (TyConApp tc2 tys2) 
   | tc1 == tc2 = match_list menv tsubst csubst tys1 tys2
-match_ty menv tsubst csubst (FunTy ty1a ty1b) (FunTy ty2a ty2b) 
+match_ty menv tsubst csubst (ForAllTy (Anon ty1a) ty1b) (ForAllTy (Anon ty2a) ty2b) 
   = do { (tsubst', csubst') <- match_ty menv tsubst csubst ty1a ty2a
        ; match_ty menv tsubst' csubst' ty1b ty2b }
 match_ty menv tsubst csubst (AppTy ty1a ty1b) ty2
@@ -648,15 +648,15 @@ typesCantMatch prs = any (\(s,t) -> cant_match s t) prs
         | Just t1' <- coreView t1 = cant_match t1' t2
         | Just t2' <- coreView t2 = cant_match t1 t2'
 
-    cant_match (FunTy a1 r1) (FunTy a2 r2)
+    cant_match (ForAllTy (Anon a1) r1) (ForAllTy (Anon a2) r2)
         = cant_match a1 a2 || cant_match r1 r2
 
     cant_match (TyConApp tc1 tys1) (TyConApp tc2 tys2)
         | isDistinctTyCon tc1 && isDistinctTyCon tc2
         = tc1 /= tc2 || typesCantMatch (zipEqual "typesCantMatch" tys1 tys2)
 
-    cant_match (FunTy {}) (TyConApp tc _) = isDistinctTyCon tc
-    cant_match (TyConApp tc _) (FunTy {}) = isDistinctTyCon tc
+    cant_match (ForAllTy (Anon _) _) (TyConApp tc _) = isDistinctTyCon tc
+    cant_match (TyConApp tc _) (ForAllTy (Anon _) _) = isDistinctTyCon tc
         -- tc can't be FunTyCon by invariant
 
     cant_match (AppTy f1 a1) ty2
@@ -927,7 +927,7 @@ unify_ty (TyConApp tyc1 tys1) (TyConApp tyc2 tys2)
   | tyc1 == tyc2                                   
   = unify_tys tys1 tys2
 
-unify_ty (FunTy ty1a ty1b) (FunTy ty2a ty2b) 
+unify_ty (ForAllTy (Anon ty1a) ty1b) (ForAllTy (Anon ty2a) ty2b) 
   = do  { unify_ty ty1a ty2a
         ; unify_ty ty1b ty2b }
 
@@ -947,7 +947,7 @@ unify_ty ty1 (AppTy ty2a ty2b)
 
 unify_ty (LitTy x) (LitTy y) | x == y = return ()
 
-unify_ty (ForAllTy tv1 _ ty1) (ForAllTy tv2 _ ty2)
+unify_ty (ForAllTy (Named tv1 _) ty1) (ForAllTy (Named tv2 _) ty2)
   = do { unify_ty (tyVarKind tv1) (tyVarKind tv2)
        ; umRnBndr2 tv1 tv2 $ unify_ty ty1 ty2 }
 
@@ -1587,10 +1587,10 @@ ty_co_match menv subst (AppTy ty1 ty2) co
 ty_co_match menv subst (TyConApp tc1 tys) (TyConAppCo _ tc2 cos)
   | tc1 == tc2 = ty_co_match_args menv subst tys cos
 
-ty_co_match menv subst (FunTy ty1 ty2) (TyConAppCo _ tc cos)
+ty_co_match menv subst (ForAllTy (Anon ty1) ty2) (TyConAppCo _ tc cos)
   | tc == funTyCon = ty_co_match_args menv subst [ty1, ty2] cos
 
-ty_co_match menv subst (ForAllTy tv _ ty) (ForAllCo cobndr co)
+ty_co_match menv subst (ForAllTy (Named tv _) ty) (ForAllCo cobndr co)
   | TyHomo tv2 <- cobndr
   = ASSERT( isTyVar tv )
     do { subst1 <- ty_co_match menv subst (tyVarKind tv)
@@ -1695,11 +1695,11 @@ ty_co_match_lr menv subst co1 role col cor
 pushRefl :: Coercion -> Maybe Coercion
 pushRefl (Refl Nominal (AppTy ty1 ty2))
   = Just (AppCo (Refl Nominal ty1) (liftSimply Nominal ty2))
-pushRefl (Refl r (FunTy ty1 ty2))
+pushRefl (Refl r (ForAllTy (Anon ty1) ty2))
   = Just (TyConAppCo r funTyCon [liftSimply r ty1, liftSimply r ty2])
 pushRefl (Refl r (TyConApp tc tys))
   = Just (TyConAppCo r tc (zipWith liftSimply (tyConRolesX r tc) tys))
-pushRefl (Refl r (ForAllTy tv _ ty))
+pushRefl (Refl r (ForAllTy (Named tv _) ty))
   | isTyVar tv                    = Just (ForAllCo (TyHomo tv) (Refl r ty))
   | otherwise                     = Just (ForAllCo (CoHomo tv) (Refl r ty))
 pushRefl (Refl r (CastTy ty co))  = Just (castCoercionKind (Refl r ty) co co)

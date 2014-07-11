@@ -1141,7 +1141,7 @@ match_IntToInteger :: RuleFun
 match_IntToInteger _ id_unf fn [xl]
   | Just (MachInt x) <- exprIsLiteral_maybe id_unf xl
   = case idType fn of
-    FunTy _ integerTy ->
+    ForAllTy (Anon _) integerTy ->
         Just (Lit (LitInteger x integerTy))
     _ ->
         panic "match_IntToInteger: Id has the wrong type"
@@ -1151,7 +1151,7 @@ match_WordToInteger :: RuleFun
 match_WordToInteger _ id_unf id [xl]
   | Just (MachWord x) <- exprIsLiteral_maybe id_unf xl
   = case idType id of
-    FunTy _ integerTy ->
+    ForAllTy (Anon _) integerTy ->
         Just (Lit (LitInteger x integerTy))
     _ ->
         panic "match_WordToInteger: Id has the wrong type"
@@ -1161,7 +1161,7 @@ match_Int64ToInteger :: RuleFun
 match_Int64ToInteger _ id_unf id [xl]
   | Just (MachInt64 x) <- exprIsLiteral_maybe id_unf xl
   = case idType id of
-    FunTy _ integerTy ->
+    ForAllTy (Anon _) integerTy ->
         Just (Lit (LitInteger x integerTy))
     _ ->
         panic "match_Int64ToInteger: Id has the wrong type"
@@ -1171,7 +1171,7 @@ match_Word64ToInteger :: RuleFun
 match_Word64ToInteger _ id_unf id [xl]
   | Just (MachWord64 x) <- exprIsLiteral_maybe id_unf xl
   = case idType id of
-    FunTy _ integerTy ->
+    ForAllTy (Anon _) integerTy ->
         Just (Lit (LitInteger x integerTy))
     _ ->
         panic "match_Word64ToInteger: Id has the wrong type"
@@ -1280,7 +1280,7 @@ match_decodeDouble :: RuleFun
 match_decodeDouble _ id_unf fn [xl]
   | Just (MachDouble x) <- exprIsLiteral_maybe id_unf xl
   = case idType fn of
-    FunTy _ (TyConApp _ [integerTy, intHashTy]) ->
+    ForAllTy (Anon _) (TyConApp _ [integerTy, intHashTy]) ->
         case decodeFloat (fromRational x :: Double) of
         (y, z) ->
             Just $ mkConApp (tupleCon UnboxedTuple 2)

@@ -776,9 +776,9 @@ checkBootTyCon tc1 tc2
            eqTypeX env op_ty1 op_ty2 &&
            def_meth1 == def_meth2
          where
-          (_, _, rho_ty1) = splitForAllTys (idType id1)
+          (_, rho_ty1) = splitNamedForAllTys (idType id1)
           op_ty1 = funResultTy rho_ty1
-          (_, _, rho_ty2) = splitForAllTys (idType id2)
+          (_, rho_ty2) = splitNamedForAllTys (idType id2)
           op_ty2 = funResultTy rho_ty2
 
        eqAT (tc1, def_ats1) (tc2, def_ats2)
@@ -1800,7 +1800,7 @@ tcRnExpr hsc_env rdr_expr
                                                     lie ;
     _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
 
-    let { all_expr_ty = mkImpForAllTys qtvs (mkPiTypes dicts res_ty) } ;
+    let { all_expr_ty = mkInvForAllTys qtvs (mkPiTypes dicts res_ty) } ;
     zonkTcType all_expr_ty
     }
 

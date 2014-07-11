@@ -710,7 +710,7 @@ vectScalarDFun var
        }
   where
     ty                   = varType var
-    (tvs, _, theta, pty) = tcSplitSigmaTy  ty        -- 'theta' is the instance context
+    (tvs, theta, pty)    = tcSplitSigmaTy  ty        -- 'theta' is the instance context
     (cls, tys)           = tcSplitDFunHead pty       -- 'pty' is the instance head
     selIds               = classAllSelIds cls
     dataCon              = classDataCon cls
@@ -1208,8 +1208,9 @@ maybeParrTy ty
       then return True 
       else or <$> mapM maybeParrTy ts
     }
-maybeParrTy (ForAllTy _ _ ty) = maybeParrTy ty
-maybeParrTy _                 = return False
+  -- must be a Named ForAllTy because anon ones respond to splitTyConApp_maybe
+maybeParrTy (ForAllTy _ ty) = maybeParrTy ty
+maybeParrTy _               = return False
 
 -- Are the types of all variables in the 'Scalar' class or toplevel variables?
 --
