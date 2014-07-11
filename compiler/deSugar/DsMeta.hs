@@ -309,10 +309,11 @@ mk_extra_tvs :: Located Name -> LHsTyVarBndrs Name
 mk_extra_tvs tc tvs defn
   | HsDataDefn { dd_kindSig = Just hs_kind } <- defn
   = do { extra_tvs <- go hs_kind
-       ; return (tvs { hsq_explicit = hsq_tvs tvs ++ extra_tvs }) }
+       ; return (tvs { hsq_explicit = hsq_explicit tvs ++ extra_tvs }) }
   | otherwise
   = return tvs
   where
+    -- TODO (RAE): Fix this. It doesn't handle as many cases as it should.
     go :: LHsKind Name -> DsM [LHsTyVarBndr Name]
     go (L loc (HsFunTy kind rest))
       = do { uniq <- newUnique
@@ -394,12 +395,11 @@ repTyFamInstD decl@(TyFamInstDecl { tfid_eqn = eqn })
        ; repTySynInst tc eqn1 }
 
 repTyFamEqn :: LTyFamInstEqn Name -> DsM (Core TH.TySynEqnQ)
-repTyFamEqn (L loc (TyFamInstEqn { tfie_pats = HsWB { hswb_cts = tys
-                                                    , hswb_kvs = kv_names
-                                                    , hswb_tvs = tv_names }
-                                 , tfie_rhs = rhs }))
-  = do { let hs_tvs = HsQTvs { hsq_implicit = kv_names
-                             , hsq_explicit = userHsTyVarBndrs loc tv_names }   -- Yuk
+repTyFamEqn (L _ (TyFamInstEqn { tfie_pats = HsWB { hswb_cts  = tys
+                                                  , hswb_vars = var_names }
+                               , tfie_rhs = rhs }))
+  = do { let hs_tvs = HsQTvs { hsq_implicit = var_names
+                             , hsq_explicit = [] }   -- Yuk
        ; addTyClTyVarBinds hs_tvs $ \ _ ->
          do { tys1 <- repLTys tys
             ; tys2 <- coreList typeQTyConName tys1
@@ -408,15 +408,21 @@ repTyFamEqn (L loc (TyFamInstEqn { tfie_pats = HsWB { hswb_cts = tys
 
 repDataFamInstD :: DataFamInstDecl Name -> DsM (Core TH.DecQ)
 repDataFamInstD (DataFamInstDecl { dfid_tycon = tc_name
-                                 , dfid_pats = HsWB { hswb_cts = tys, hswb_kvs = kv_names, hswb_tvs = tv_names }
+                                 , dfid_pats = HsWB { hswb_cts = tys, hswb_vars = var_names }
                                  , dfid_defn = defn })
   = do { tc <- lookupLOcc tc_name               -- See note [Binders and occurrences]
-       ; let loc = getLoc tc_name
-             hs_tvs = HsQTvs { hsq_implicit = kv_names
-                             , hsq_explicit = userHsTyVarBndrs loc tv_names }   -- Yuk
+       ; let hs_tvs = HsQTvs { hsq_implicit = var_names
+                             , hsq_explicit = [] }   -- Yuk
        ; addTyClTyVarBinds hs_tvs $ \ bndrs ->
          do { tys1 <- repList typeQTyConName repLTy tys
-            ; repDataDefn tc bndrs (Just tys1) tv_names defn } }
+                -- TODO (RAE): The GADT case below here is terribly, horribly
+                -- broken, but it was before I got here. Fix. Example quote
+                -- to witness brokenness:
+                --
+                -- > data family Fuggle x y
+                -- > [d| data instance Fuggle Int (Maybe (a,b)) where
+                -- >       MkFuggle :: Fuggle Int (Maybe Bool) |]
+            ; repDataDefn tc bndrs (Just tys1) var_names defn } }
 
 repForD :: Located (ForeignDecl Name) -> DsM (SrcSpan, Core TH.DecQ)
 repForD (L loc (ForeignImport name typ _ (CImport cc s mch cis)))
@@ -479,8 +485,8 @@ repRuleD (L loc (HsRule n act bndrs lhs _ rhs _))
 
 ruleBndrNames :: RuleBndr Name -> [Name]
 ruleBndrNames (RuleBndr n)      = [unLoc n]
-ruleBndrNames (RuleBndrSig n (HsWB { hswb_kvs = kvs, hswb_tvs = tvs }))
-  = unLoc n : kvs ++ tvs
+ruleBndrNames (RuleBndrSig n (HsWB { hswb_vars = vars }))
+  = unLoc n : vars
 
 repRuleBndr :: RuleBndr Name -> DsM (Core TH.RuleBndrQ)
 repRuleBndr (RuleBndr n)
@@ -510,7 +516,7 @@ repC tvs (L _ (ConDecl { con_name = con
                        , con_details = details
                        , con_res = res_ty }))
   = do { (eq_ctxt, con_tv_subst) <- mkGadtCtxt tvs res_ty
-       ; let ex_tvs = HsQTvs { hsq_implicit = filterOut (in_subst con_tv_subst) (hsq_implicits con_tvs)
+       ; let ex_tvs = HsQTvs { hsq_implicit = filterOut (in_subst con_tv_subst) (hsq_implicit con_tvs)
                              , hsq_explicit = filterOut (in_subst con_tv_subst . hsLTyVarName) (hsq_explicit con_tvs) }
 
        ; binds <- mapM dupBinder con_tv_subst

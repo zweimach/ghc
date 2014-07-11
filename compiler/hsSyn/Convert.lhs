@@ -381,7 +381,7 @@ cvtConstr (ForallC tvs ctxt con)
   = do  { tvs'  <- cvtTvs tvs
         ; L loc ctxt' <- cvtContext ctxt
         ; L _ con' <- cvtConstr con
-        ; returnL $ con' { con_qvars = mkHsQTvs (hsQTvExplicit tvs' ++ hsQTvBndrs (con_qvars con'))
+        ; returnL $ con' { con_qvars = mkHsQTvs (hsQTvExplicit tvs' ++ hsQTvExplicit (con_qvars con'))
                          , con_cxt = L loc (ctxt' ++ (unLoc $ con_cxt con')) } }
 
 cvt_arg :: (TH.Strict, TH.Type) -> CvtM (LHsType RdrName)
