@@ -74,9 +74,9 @@ module Var (
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-}	TyCoRep( Type, Kind, isCoercionType )
+import {-# SOURCE #-}	TyCoRep( Type, Kind )
 import {-# SOURCE #-}	TcType( TcTyVarDetails, pprTcTyVarDetails )
-import {-# SOURCE #-}	IdInfo( IdDetails, IdInfo, coVarDetails, vanillaIdInfo, pprIdDetails )
+import {-# SOURCE #-}	IdInfo( IdDetails, IdInfo, coVarDetails, isCoVarDetails, vanillaIdInfo, pprIdDetails )
 
 import Name hiding (varName)
 import Unique
@@ -426,7 +426,7 @@ isId (Id {}) = True
 isId _       = False
 
 isCoVar :: Var -> Bool
-isCoVar v = isCoercionType (varType v)
+isCoVar v = isId v && isCoVarDetails (id_details v)
 
 isLocalId :: Var -> Bool
 isLocalId (Id { idScope = LocalId _ }) = True

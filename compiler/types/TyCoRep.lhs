@@ -201,6 +201,7 @@ data Binder
   | Anon Type   -- visibility is determined by the type (Constraint vs. *)
     deriving (Data.Typeable, Data.Data)
 
+-- | TODO (RAE): Add comment
 data VisibilityFlag = Visible | Invisible
   deriving (Eq, Data.Typeable, Data.Data)
 

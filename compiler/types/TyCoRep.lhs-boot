@@ -11,8 +11,6 @@ data CoercionArg
 data ForAllCoBndr
 data LeftOrRight
 
-isCoercionType :: Type -> Bool
-
 type PredType = Type
 type Kind = Type
 
