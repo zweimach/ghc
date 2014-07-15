@@ -992,20 +992,7 @@ tc_fam_ty_pats fam_tc_name kind
              fam_body' = substTy imp_subst fam_body
              (exp_bndrs, bare_kind) = splitForAllTys fam_body'
              (arg_bndrs, leftover_bndrs) = splitAtList arg_pats exp_bndrs
---             (arg_m_tvs, arg_impflags, arg_kis) = unzip3 arg_pi_slices
              res_kind = mkForAllTys leftover_bndrs bare_kind
-
-             {- TODO (RAE): remove?
-         -- We wish to check that the pattern has the right number of arguments
-         -- in checkValidFamPats (in TcValidity), so we can do the check *after*
-         -- we're done with the knot. But, we will panic below
-         -- if there are *too many* patterns. So, we do a preliminary check here.
-         -- Note that we don't have enough information at hand to do a full check,
-         -- as that requires the full declared arity of the family, which isn't
-         -- nearby.
-       ; checkTc (compareLength arg_pats exp_kis /= GT) $
-           wrongNumberOfParmsErrTooMany (length exp_kis)
-             -}
 
        ; loc <- getSrcSpanM
        ; let hs_tvs = mkHsQTvs (userHsTyVarBndrs loc vars)
@@ -2152,12 +2139,6 @@ wrongKindOfFamily family
     kindOfFamily | isSynTyCon family = ptext (sLit "type synonym")
                  | isAlgTyCon family = ptext (sLit "data type")
                  | otherwise = pprPanic "wrongKindOfFamily" (ppr family)
-
--- TODO (RAE): Remove?
-_wrongNumberOfParmsErrTooMany :: Arity -> SDoc
-_wrongNumberOfParmsErrTooMany max_args
-  = ptext (sLit "Number of parameters must match family declaration; expected no more than")
-    <+> ppr max_args
 
 wrongNamesInInstGroup :: Name -> Name -> SDoc
 wrongNamesInInstGroup first cur

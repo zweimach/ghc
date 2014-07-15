@@ -277,6 +277,21 @@ tcHsTelescope what = go 1 emptyTCvSubst
                             Nothing -> subst
            ; tys <- go (n+1) subst' hs_tys bndrs
            ; return (ty : tys) }
+    go n _ (hs_ty : _) [] =
+      addErrTc (hang (text "Too many parameters to" <+> what <> colon)
+                   2 (vcat [ ppr hs_ty <+> text "is unexpected;"
+                           , text "expected only" <+> (ppr (n-1))
+                             <+> text "parameter" <> plural_n ]))
+      >> return []  -- won't cause panic later
+      where plural_n
+              | n-1 == 1  = empty
+              | otherwise = char 's'
+    go n _ [] bndrs@(_:_) =
+      addErrTc (text "Not enough parameters to" <+> what <> semi
+                <+> text "expected" <+> (ppr (n + length bndrs - 1))
+                <+> text "but got" <+> (ppr (n-1)))
+      >> return []
+                   
     go _ _ _ _ = return []
 
 tcHsArgTys :: SDoc -> [LHsType Name] -> [Kind] -> TcM [TcType]

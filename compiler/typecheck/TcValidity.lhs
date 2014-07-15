@@ -1153,15 +1153,16 @@ checkValidFamPats fam_tc tvs ty_pats
          --     type family F a :: * -> *
          --     type instance F Int y = y
          -- because then the type (F Int) would be like (\y.y)
-         checkTc (length ty_pats == fam_arity) $
-           wrongNumberOfParmsErr (fam_arity - count isInvisibleBinder bndrs)
+         traceTc "RAE1 checkValidFamPats" (ppr fam_tc $$ ppr tvs $$ ppr ty_pats $$ ppr fam_arity $$ ppr fam_bndrs)
+       ; checkTc (length ty_pats == fam_arity) $
+           wrongNumberOfParmsErr (fam_arity - count isInvisibleBinder fam_bndrs)
              -- report only explicit arguments
            
        ; mapM_ checkTyFamFreeness ty_pats
        ; let unbound_tvs = filterOut (`elemVarSet` exactTyCoVarsOfTypes ty_pats) tvs
        ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
   where fam_arity    = tyConArity fam_tc
-        (bndrs, _)   = splitForAllTys (tyConKind fam_tc)
+        fam_bndrs    = take fam_arity $ fst $ splitForAllTys (tyConKind fam_tc)
 
 wrongNumberOfParmsErr :: Arity -> SDoc
 wrongNumberOfParmsErr exp_arity
