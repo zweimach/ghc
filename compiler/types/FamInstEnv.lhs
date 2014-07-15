@@ -1081,7 +1081,7 @@ normalise_type env lc
             (co2, nty2) = go r ty2
         in (mkFunCo r co1 co2, mkFunTy nty1 nty2)
     go r (ForAllTy (Named tyvar vis) ty)
-      = let (lc', cobndr) = normalise_tycovar_bndr env lc tyvar
+      = let (lc', cobndr) = normalise_tycovar_bndr env lc r tyvar
             (co, nty)     = normalise_type env lc' r ty
             (_, tyvar')   = coBndrBoundVars cobndr
         in (mkForAllCo cobndr co, mkNamedForAllTy tyvar' vis nty)
@@ -1110,10 +1110,11 @@ normalise_tyvar lc r tv
         where ty = mkOnlyTyVarTy tv
       bad_news          -> pprPanic "normaliseTyVar" (ppr bad_news)
 
-normalise_tycovar_bndr :: FamInstEnvs -> LiftingContext -> TyCoVar
+normalise_tycovar_bndr :: FamInstEnvs -> LiftingContext -> Role -> TyCoVar
                        -> (LiftingContext, ForAllCoBndr)
-normalise_tycovar_bndr env
+normalise_tycovar_bndr env lc1 r1
   = liftCoSubstVarBndrCallback (\lc r ty -> fst $ normalise_type env lc r ty) True
+    r1 lc1
   -- the True there means that we want homogeneous coercions
   -- See Note [Homogenizing TyHetero substs] in Coercion
 

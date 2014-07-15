@@ -661,6 +661,7 @@ A casted type has its *kind* casted into something new.
 
 Why not ignore Refl coercions? See Note [Optimising Refl] in OptCoercion.
 \begin{code}
+-- | Make a `CastTy`. The Coercion must be representational.
 mkCastTy :: Type -> Coercion -> Type
 mkCastTy = CastTy
 \end{code}

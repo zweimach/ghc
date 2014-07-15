@@ -481,8 +481,7 @@ eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind (replicate 4 Nominal) VoidRep
 -- interpreted in coercionRole
 eqReprPrimTyCon :: TyCon
 eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
-                                  -- the roles really should be irrelevant!
-                              [Nominal, Nominal, Representational, Representational]
+                              (replicate 4 Representational)
                               VoidRep
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $

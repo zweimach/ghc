@@ -343,7 +343,7 @@ In the coercion typing judgment, the $\#$ marks are left off the equality
 operators to reduce clutter. This is not actually inconsistent, because
 the GHC function that implements this check, \texttt{lintCoercion}, actually
 returns five separate values (the two kinds, the two types, and the role), not
-a type with head $[[(~#)]]$ or $[[(~R#)]]$. Note that the difference between
+a type with head $[[(~#)]]$ or $[[(~Rep#)]]$. Note that the difference between
 these two forms of equality is interpreted in the rules \ottdrulename{Co\_CoVarCoNom}
 and \ottdrulename{Co\_CoVarCoRepr}.
 

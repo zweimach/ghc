@@ -29,6 +29,7 @@ mkSubCo :: Coercion -> Coercion
 isReflCo :: Coercion -> Bool
 mkAppCos :: Coercion -> [CoercionArg] -> Coercion
 coVarKindsTypesRole :: CoVar -> (Kind, Kind, Type, Type, Role)
+coVarRole :: CoVar -> Role
 
 mkHomoCoBndr :: TyCoVar -> ForAllCoBndr
 mkTyHeteroCoBndr :: Coercion -> TyVar -> TyVar -> CoVar -> ForAllCoBndr

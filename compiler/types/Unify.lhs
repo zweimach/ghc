@@ -385,8 +385,9 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
   
   | TyHetero eta1 tvl1 tvr1 cv1 <- cobndr1
   , TyHomo tv2 <- cobndr2
-  = do { (tsubst1, csubst1) <- match_co menv tsubst csubst 
-                                        eta1 (mkReflCo Nominal (tyVarKind tv2))
+  = do { let role = coVarRole cv1
+       ; (tsubst1, csubst1) <- match_co menv tsubst csubst 
+                                        eta1 (mkReflCo role (tyVarKind tv2))
        ; (tsubst2, csubst2) <- match_kind menv tsubst1 csubst1 (tyVarKind tvl1)
                                                                (tyVarKind tvr1)
        ; let rn_env = me_env menv
@@ -394,7 +395,7 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
              homogenized = substCoWithIS in_scope
                                          [tvr1,               cv1]
                                          [mkOnlyTyVarTy tvl1, mkCoercionTy $
-                                                              mkReflCo Nominal (mkOnlyTyVarTy tvl1)]
+                                                              mkReflCo role (mkOnlyTyVarTy tvl1)]
                                          co1
              menv' = menv { me_env = rnBndr2 rn_env tvl1 tv2 }
        ; match_co menv' tsubst2 csubst2 homogenized co2 }
@@ -419,8 +420,9 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
 
   | CoHetero eta1 cvl1 cvr1 <- cobndr1
   , CoHomo cv2 <- cobndr2
-  = do { (tsubst1, csubst1) <- match_co menv tsubst csubst
-                                        eta1 (mkReflCo Nominal (coVarKind cv2))
+  = do { let role = coercionRole eta1
+       ; (tsubst1, csubst1) <- match_co menv tsubst csubst
+                                        eta1 (mkReflCo role (coVarKind cv2))
        ; (tsubst2, csubst2) <- match_ty menv tsubst1 csubst1 (coVarKind cvl1)
                                                              (coVarKind cvr1)
        ; let rn_env = me_env menv
@@ -1031,7 +1033,7 @@ unify_co' g1@(ForAllCo cobndr1 co1) g2@(ForAllCo cobndr2 co2)
                         { TyHetero _ ltv1 rtv1 cv1
                             -> let lty = mkOnlyTyVarTy ltv1 in
                                substCoWithIS in_scope [rtv1, cv1]
-                                                      [lty,  mkCoercionTy $ mkReflCo Nominal lty] co1
+                                                      [lty,  mkCoercionTy $ mkReflCo (coVarRole cv1) lty] co1
                         ; CoHetero _ lcv1 rcv1
                             -> let lco = mkCoVarCo lcv1 in
                                substCoWithIS in_scope [rcv1] [mkCoercionTy lco] co1
@@ -1430,7 +1432,7 @@ Note [Heterogeneous type matching]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Say we have the following in our LiftCoEnv:
 
-[k |-> g]
+[a |-> g]
 where g :: k1 ~ k2
 
 Now, we are matching the following:
@@ -1469,9 +1471,9 @@ cancel out all the coercions. It's a little fiddly, but because there can
 be many equivalent coercions, I don't see an easier way.
 
 \begin{code}
-zipLiftCoEnv :: RnEnv2 -> LiftCoEnv -> Role
+zipLiftCoEnv :: RnEnv2 -> LiftCoEnv
              -> TCvSubst -> TCvSubst -> Maybe LiftCoEnv
-zipLiftCoEnv rn_env lc_env role
+zipLiftCoEnv rn_env lc_env
              (TCvSubst _ l_tenv l_cenv) (TCvSubst _ r_tenv r_cenv)
   = do { lc_env1 <- go_ty lc_env  r_tenv (varEnvKeys l_tenv)
        ;            go_co lc_env1 r_cenv (varEnvKeys l_cenv) }
@@ -1491,7 +1493,7 @@ zipLiftCoEnv rn_env lc_env role
       | Just tyl <- lookupVarEnv_Directly l_tenv u
       , Just tyr <- lookupVarEnv_Directly r_tenv u
       , eqTypeX rn_env tyl tyr
-      = go_ty (extendVarEnv_Directly env u (TyCoArg (mkReflCo role tyr)))
+      = go_ty (extendVarEnv_Directly env u (TyCoArg (mkReflCo Nominal tyr)))
               (delVarEnv_Directly r_tenv u) us
 
       | otherwise
@@ -1511,7 +1513,7 @@ zipLiftCoEnv rn_env lc_env role
 
       | Just col <- lookupVarEnv_Directly l_cenv u
       , Just cor <- lookupVarEnv_Directly r_cenv u
-      = go_co (extendVarEnv_Directly env u (CoCoArg role col cor))
+      = go_co (extendVarEnv_Directly env u (CoCoArg Nominal col cor))
               (delVarEnv_Directly r_cenv u) us
 
       | otherwise
@@ -1525,6 +1527,11 @@ zipLiftCoEnv rn_env lc_env role
 --   Note that this function is incomplete -- it might return Nothing
 --   when there does indeed exist a possible lifting context.
 --   See Note [zipLiftCoEnv incomplete]
+--
+-- The lifting context produced doesn't have to be exacting in the roles
+-- of the mappings. This is because any use of the lifting context will
+-- also require a desired role. Thus, this algorithm prefers mapping to
+-- nominal coercions where it can do so.
 liftCoMatch :: TyCoVarSet -> Type -> Coercion -> Maybe LiftingContext
 liftCoMatch tmpls ty co 
   = case ty_co_match menv emptyVarEnv ty co of
@@ -1638,11 +1645,24 @@ ty_co_match menv subst (ForAllTy (Named tv _) ty) (ForAllCo cobndr co)
 
 ty_co_match menv subst (CastTy ty1 co1) co
   | Pair (CastTy _ col) (CastTy _ cor) <- coercionKind co
-  = do { subst1 <- ty_co_match_lr menv subst co1 Nominal col cor
+  = do { subst1 <- ty_co_match_lr menv subst co1 col cor
+         -- we need co, cor, and col to have the same roles. But, they
+         -- might not. If they differ, we try to twiddle col and cor.
+       ; (col', cor') <-
+           case coercionRole co of
+             Nominal -> do
+               col' <- unSubCo_maybe col
+               cor' <- unSubCo_maybe cor
+               return (col', cor')
+             Representational ->
+               return (col, cor)
+             Phantom ->
+               return (mkPhantomCo col, mkPhantomCo cor)
+                   
          -- don't use castCoercionKind! See Note [ty_co_match CastTy case]
        ; ty_co_match menv subst1 ty1
-                     (opt_coh (co `mkCoherenceRightCo` (mkSymCo cor)
-                                  `mkCoherenceLeftCo` (mkSymCo col))) }
+                     (opt_coh (co `mkCoherenceRightCo` (mkSymCo cor')
+                                  `mkCoherenceLeftCo` (mkSymCo col'))) }
   where
     -- in a very limited number of cases, optimize CoherenceCo
     -- see Note [ty_co_match CastTy case]
@@ -1674,19 +1694,19 @@ ty_co_match_arg menv subst ty arg
   | TyCoArg co <- arg
   = ty_co_match menv subst ty co
   | CoercionTy co1 <- ty
-  , CoCoArg r col cor <- arg
-  = ty_co_match_lr menv subst co1 r col cor
+  , CoCoArg _ col cor <- arg
+  = ty_co_match_lr menv subst co1 col cor
   | otherwise
   = pprPanic "ty_co_match_arg" (ppr ty <+> ptext (sLit "<->") <+> ppr arg)
 
 ty_co_match_lr :: MatchEnv -> LiftCoEnv
-               -> Coercion -> Role -> Coercion -> Coercion -> Maybe LiftCoEnv
-ty_co_match_lr menv subst co1 role col cor
+               -> Coercion -> Coercion -> Coercion -> Maybe LiftCoEnv
+ty_co_match_lr menv subst co1 col cor
   = do { let subst_left  = liftEnvSubstLeft  in_scope subst
              subst_right = liftEnvSubstRight in_scope subst
        ; tcvsubst1 <- tcMatchCoX tmpl_vars subst_left  co1 col
        ; tcvsubst2 <- tcMatchCoX tmpl_vars subst_right co1 cor
-       ; zipLiftCoEnv rn_env subst role tcvsubst1 tcvsubst2 }
+       ; zipLiftCoEnv rn_env subst tcvsubst1 tcvsubst2 }
   where
     ME { me_tmpls = tmpl_vars
        , me_env   = rn_env } = menv

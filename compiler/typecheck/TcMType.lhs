@@ -51,7 +51,7 @@ module TcMType (
   zonkTcPredType, 
   skolemiseSigTv, skolemiseUnboundMetaTyVar,
   zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, zonkTcTypeAndFV,
-  zonkQuantifiedTyCoVar, quantifyTyCoVars, quantifyTyCoVars', usesAsKindVar,
+  zonkQuantifiedTyCoVar, quantifyTyCoVars, quantifyTyCoVars',
   zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType,
   defaultKindVarToStar,
 
@@ -532,12 +532,12 @@ has free vars {f,a}, but we must add 'k' as well! Hence step (3).
 
 \begin{code}
 quantifyTyCoVars :: TcTyCoVarSet -> TcTyCoVarSet -> TcM [TcTyCoVar]
-quantifyTyCoVars gbls tkvs = quantifyTyCoVars' gbls tkvs (const False)
+quantifyTyCoVars gbls tkvs = quantifyTyCoVars' gbls tkvs False
 
 quantifyTyCoVars' :: TcTyCoVarSet   -- globals
                   -> TcTyCoVarSet   -- variables we're quantifying
-                  -> (TcTyVar -> Bool) -- returns True if we *know* this is a kind var
-                                       -- used only for defaulting if -XNoPolyKinds
+                  -> Bool           -- True <=> all variables are kind
+                                    -- variables; used for -XNoPolyKinds defaults
                   -> TcM [TcTyCoVar]
 -- See Note [quantifyTyCoVars]
 -- The input is a mixture of type and kind variables; a kind variable k 
@@ -545,14 +545,16 @@ quantifyTyCoVars' :: TcTyCoVarSet   -- globals
 -- Can be given a mixture of TcTyVars and TyVars, in the case of
 --   associated type declarations
 
-quantifyTyCoVars' gbl_tvs tkvs is_kind_var
+quantifyTyCoVars' gbl_tvs tkvs all_kind_vars
   = do { tkvs    <- zonkTyCoVarsAndFV tkvs
        ; gbl_tvs <- zonkTyCoVarsAndFV gbl_tvs
-       ; let dep_var_set    = closeOverKinds (unionVarSets $
-                                              map (tyCoVarsOfType . tyVarKind) $
-                                              varSetElems tkvs)
-                              `unionVarSet` (filterVarSet is_kind_var tkvs)
-                              `minusVarSet` gbl_tvs
+       ; let dep_var_set
+               = if all_kind_vars
+                 then tkvs `minusVarSet` gbl_tvs
+                 else closeOverKinds (unionVarSets $
+                                      map (tyCoVarsOfType . tyVarKind) $
+                                      varSetElems tkvs)
+                      `minusVarSet` gbl_tvs
              nondep_var_set = tkvs `minusVarSet` dep_var_set `minusVarSet` gbl_tvs
              dep_vars       = varSetElemsWellScoped dep_var_set
              nondep_vars    = varSetElemsWellScoped nondep_var_set
@@ -568,6 +570,7 @@ quantifyTyCoVars' gbl_tvs tkvs is_kind_var
                       then return dep_vars
                       else do { let (meta_kvs, skolem_kvs) = partition is_meta dep_vars
                                     is_meta kv = isTcTyVar kv && isMetaTyVar kv
+                              
                               ; mapM_ defaultKindVarToStar meta_kvs
                               ; return skolem_kvs }  -- should be empty
 
@@ -581,22 +584,6 @@ quantifyTyCoVars' gbl_tvs tkvs is_kind_var
       | otherwise       = return tkv
       -- For associated types, we have the class variables 
       -- in scope, and they are TyVars not TcTyVars
-
--- often useful with quantifyTyCoVars'
-usesAsKindVar :: Type -> TcTyVar -> Bool
-usesAsKindVar ty =
-  let kind_vars = go ty in
-  (`elemVarSet` kind_vars)
-  where
-    go (TyVarTy tv)                = closeOverKinds $ tyCoVarsOfType (tyVarKind tv)
-    go (AppTy t1 t2)               = go t1 `unionVarSet` go t2
-    go (TyConApp _ tys)            = unionVarSets (map go tys)
-    go (ForAllTy (Anon t1) t2)     = go t1 `unionVarSet` go t2
-    go (ForAllTy (Named tv _) t)   = go t `delVarSet` tv `unionVarSet`
-                                     closeOverKinds (tyCoVarsOfType (tyVarKind tv))
-    go (LitTy _)                   = emptyVarSet
-    go (CastTy ty co)              = go ty `unionVarSet` closeOverKinds (tyCoVarsOfCo co)
-    go (CoercionTy co)             = closeOverKinds (tyCoVarsOfCo co)
 
 zonkQuantifiedTyCoVar :: TcTyCoVar -> TcM TcTyCoVar
 -- The quantified type variables often include meta type variables

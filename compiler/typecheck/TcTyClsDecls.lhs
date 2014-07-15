@@ -307,9 +307,7 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
       = do { let kc_kind = case lookupNameEnv kind_env name of
                                Just (AThing k) -> k
                                _ -> pprPanic "kcTyClGroup" (ppr name $$ ppr kind_env)
-                      -- the last param of kindGeneralize determines which vars
-                      -- are kind vars. All of these are.
-           ; kvs <- kindGeneralize (tyCoVarsOfType kc_kind) (const True)
+           ; kvs <- kindGeneralize (tyCoVarsOfType kc_kind)
            ; kc_kind' <- zonkTcKind kc_kind    -- Make sure kc_kind' has the final,
                                                -- skolemised kind variables
            ; traceTc "Generalise kind" (vcat [ ppr name, ppr kc_kind, ppr kvs, ppr kc_kind' ])

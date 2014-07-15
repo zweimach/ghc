@@ -105,7 +105,7 @@ t {{ tex \tau }}, k {{ tex \kappa }}, s {{ tex \sigma }}, phi {{ tex \phi }}
   | tyConKind T             :: M :: tyConKind     {{ com \coderef{types/TyCon.lhs}{tyConKind} }}
   | t1 k1 ~# k2 t2          :: M :: unliftedEq    {{ com Metanotation for coercion types }}
     {{ tex [[t1]] \mathop{ {}^{[[k1]]}\!\! \sim_{\#}^{[[k2]]} } [[t2]] }}
-  | t1 k1 ~R# k2 t2         :: M :: unliftedREq   {{ com Metanotation for coercion types }}
+  | t1 k1 ~Rep# k2 t2         :: M :: unliftedREq   {{ com Metanotation for coercion types }}
     {{ tex [[t1]] \mathop{ {}^{[[k1]]}\!\! \sim_{\mathsf{R}\#}^{[[k2]]} } [[t2]] }}
   | literalType lit         :: M :: literalType   {{ com \coderef{basicTypes/Literal.lhs}{literalType} }}
   | ( t )                   :: M :: parens        {{ com Parentheses }}
@@ -199,7 +199,7 @@ T :: 'TyCon_' ::= {{ com Type constructors, \coderef{types/TyCon.lhs}{TyCon} }}
 H :: 'PrimTyCon_' ::= {{ com Primitive type constructors, \coderef{prelude/TysPrim.lhs}{} }}
   | Int#         ::   :: intPrimTyCon           {{ com Unboxed Int (\texttt{intPrimTyCon}) }}
   | ( ~# )       ::   :: eqPrimTyCon            {{ com Unboxed equality (\texttt{eqPrimTyCon}) }}
-  | ( ~R# )      ::   :: eqReprPrimTyCon        {{ com Unboxed representational equality (\texttt{eqReprPrimTyCon}) }}
+  | ( ~Rep# )      ::   :: eqReprPrimTyCon        {{ com Unboxed representational equality (\texttt{eqReprPrimTyCon}) }}
   | BOX          ::   :: superKindTyCon         {{ com Sort of kinds (\texttt{superKindTyCon}) }}
   | *            ::   :: liftedTypeKindTyCon    {{ com Kind of lifted types (\texttt{liftedTypeKindTyCon}) }}
   | #            ::   :: unliftedTypeKindTyCon  {{ com Kind of unlifted types (\texttt{unliftedTypeKindTyCon}) }}
@@ -307,7 +307,7 @@ terminals :: 'terminals_' ::=
   | _            ::   :: wildcard         {{ tex \text{\textvisiblespace} }}
   | Int#         ::   :: int_hash         {{ tex {\textsf{Int} }_{\#} }}
   | ~#           ::   :: eq_hash          {{ tex \mathop{ {\sim}_{\#} } }}
-  | ~R#          ::   :: eq_repr_hash     {{ tex \mathop{ {\sim}_{\mathsf{R}\#} } }}
+  | ~Rep#        ::   :: eq_repr_hash     {{ tex \mathop{ {\sim}_{\mathsf{R}\#} } }}
   | OpenKind     ::   :: OpenKind         {{ tex \textsf{OpenKind} }}
   | ok           ::   :: ok               {{ tex \textsf{ ok} }}
   | no_duplicates ::  :: no_duplicates    {{ tex \textsf{no\_duplicates } }}

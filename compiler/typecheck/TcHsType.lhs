@@ -192,7 +192,7 @@ tcHsInstHead user_ctxt lhs_ty@(L loc hs_ty)
   = setSrcSpan loc $    -- The "In the type..." context comes from the caller
     do { inst_ty <- tc_inst_head hs_ty
        ; kvs     <- zonkTcTypeAndFV inst_ty
-       ; kvs     <- kindGeneralize kvs (usesAsKindVar inst_ty)
+       ; kvs     <- kindGeneralize kvs
        ; inst_ty <- zonkSigType (mkInvForAllTys kvs inst_ty)
        ; checkValidInstance user_ctxt lhs_ty inst_ty }
 
@@ -310,7 +310,7 @@ tcCheckHsTypeAndGen hs_ty kind
   = do { ty  <- tc_hs_type hs_ty (EK kind expectedKindMsg)
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
        ; kvs <- zonkTcTypeAndFV ty 
-       ; kvs <- kindGeneralize kvs (usesAsKindVar ty)
+       ; kvs <- kindGeneralize kvs
        ; return (mkInvForAllTys kvs ty) }
 \end{code}
 
@@ -1193,13 +1193,10 @@ new_skolem_tv :: Name -> Kind -> TcTyVar
 new_skolem_tv n k = mkTcTyVar n k vanillaSkolemTv
 
 ------------------
-kindGeneralize :: TyVarSet
-               -> (TyVar -> Bool)  -- returns True if the tyvar is definitely a kind
-                                   -- returns False if no information
-               -> TcM [KindVar]
-kindGeneralize tkvs is_kind_var
+kindGeneralize :: TyVarSet -> TcM [KindVar]
+kindGeneralize tkvs
   = do { gbl_tvs <- tcGetGlobalTyVars -- Already zonked
-       ; quantifyTyCoVars' gbl_tvs tkvs is_kind_var }
+       ; quantifyTyCoVars' gbl_tvs tkvs True }
 \end{code}
 
 Note [Kind generalisation]
