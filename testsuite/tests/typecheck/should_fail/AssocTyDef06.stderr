@@ -1,5 +1,7 @@
 
 AssocTyDef06.hs:6:10:
-    Number of parameters must match family declaration; expected no more than 1
+    Too many parameters to ‛Typ’:
+      Int is unexpected;
+      expected only 1 parameter
     In the type instance declaration for ‛Typ’
     In the class declaration for ‛Cls’
