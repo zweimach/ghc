@@ -1118,6 +1118,7 @@ btype :: { LHsType RdrName }
 
 atype :: { LHsType RdrName }
         : ntgtycon                       { L1 (HsTyVar (unLoc $1)) }      -- Not including unit tuples
+        | '*'                            { L1 (HsTyVar (nameRdrName liftedTypeKindTyConName)) }
         | tyvar                          { L1 (HsTyVar (unLoc $1)) }      -- (See Note [Unit tuples])
         | strict_mark atype              { LL (HsBangTy (unLoc $1) $2) }  -- Constructor sigs only
         | '{' fielddecls '}'             {% checkRecordSyntax (LL $ HsRecTy $2) } -- Constructor sigs only
@@ -1957,7 +1958,6 @@ qtyconsym :: { Located RdrName }
 tyconsym :: { Located RdrName }
         : CONSYM                        { L1 $! mkUnqual tcClsName (getCONSYM $1) }
         | VARSYM                        { L1 $! mkUnqual tcClsName (getVARSYM $1) }
-        | '*'                           { L1 $! mkUnqual tcClsName (fsLit "*")    }
         | '-'                           { L1 $! mkUnqual tcClsName (fsLit "-")    }
 
 
