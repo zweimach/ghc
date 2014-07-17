@@ -555,7 +555,7 @@ checkTyClHdr ty
 
     go l (HsTyVar tc) acc 
         | isRdrTc tc          = return (L l tc, acc)
-    go _ (HsOpTy t1 (_, ltc@(L _ tc)) t2) acc
+    go _ (HsOpTy t1 ltc@(L _ tc) t2) acc
         | isRdrTc tc         = return (ltc, t1:t2:acc)
     go _ (HsParTy ty)    acc = goL ty acc
     go _ (HsAppTy t1 t2) acc = goL t1 (t2:acc)

@@ -308,7 +308,7 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
                                Just (AThing k) -> k
                                _ -> pprPanic "kcTyClGroup" (ppr name $$ ppr kind_env)
            ; kvs <- kindGeneralize (tyCoVarsOfType kc_kind)
-           ; kc_kind' <- zonkTcKind kc_kind    -- Make sure kc_kind' has the final,
+           ; kc_kind' <- zonkTcType kc_kind    -- Make sure kc_kind' has the final,
                                                -- skolemised kind variables
            ; traceTc "Generalise kind" (vcat [ ppr name, ppr kc_kind, ppr kvs, ppr kc_kind' ])
            ; return (name, mkInvForAllTys kvs kc_kind') }

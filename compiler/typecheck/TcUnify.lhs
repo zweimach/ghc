@@ -1211,7 +1211,7 @@ uUnboundKVar kv1 non_var_k2
   | isSigTyVar kv1
   = return Nothing
   | otherwise
-  = do { k2a <- zonkTcKind non_var_k2
+  = do { k2a <- zonkTcType non_var_k2
        ; let k2b = defaultKind k2a
                 -- MetaKindVars must be bound only to simple kinds
 

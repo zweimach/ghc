@@ -55,7 +55,6 @@ module TcMType (
   zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType,
   defaultKindVarToStar,
 
-  zonkTcKind,
   zonkEvVar, zonkWC, zonkId, zonkCt, zonkCts, zonkSkolemInfo,
 
   tcGetGlobalTyVars, 
@@ -403,8 +402,8 @@ writeMetaTyVarRef tyvar ref ty
   | otherwise
   = do { meta_details <- readMutVar ref; 
        -- Zonk kinds to allow the error check to work
-       ; zonked_tv_kind <- zonkTcKind tv_kind 
-       ; zonked_ty_kind <- zonkTcKind ty_kind
+       ; zonked_tv_kind <- zonkTcType tv_kind 
+       ; zonked_ty_kind <- zonkTcType ty_kind
 
        -- Check for double updates
        ; ASSERT2( isFlexi meta_details, 
@@ -602,7 +601,7 @@ zonkQuantifiedTyCoVar tv
   | isTyVar tv
   = ASSERT2( isTcTyVar tv, ppr tv ) 
     case tcTyVarDetails tv of
-      SkolemTv {} -> do { kind <- zonkTcKind (tyVarKind tv)
+      SkolemTv {} -> do { kind <- zonkTcType (tyVarKind tv)
                         ; return $ setTyVarKind tv kind }
 	-- It might be a skolem type variable, 
 	-- for example from a user type signature
@@ -620,7 +619,7 @@ zonkQuantifiedTyCoVar tv
       _other -> pprPanic "zonkQuantifiedTyCoVar" (ppr tv) -- FlatSkol, RuntimeUnk
 
   | otherwise -- coercion variable
-  = do { ty <- zonkTcKind (coVarKind tv)
+  = do { ty <- zonkTcType (coVarKind tv)
        ; return $ setVarType tv ty }
 
 defaultKindVarToStar :: TcTyVar -> TcM Kind
@@ -641,7 +640,7 @@ skolemiseUnboundMetaTyVar tv details
     do  { span <- getSrcSpanM    -- Get the location from "here"
                                  -- ie where we are generalising
         ; uniq <- newUnique      -- Remove it from TcMetaTyVar unique land
-        ; kind <- zonkTcKind (tyVarKind tv)
+        ; kind <- zonkTcType (tyVarKind tv)
         ; let final_kind = defaultKind kind
               final_name = mkInternalName uniq (getOccName tv) span
               final_tv   = mkTcTyVar final_name final_kind details
@@ -780,7 +779,7 @@ zonkTcTyCoVars tyvars = mapM zonkTcTyCoVar tyvars
 
 -----------------  Types
 zonkTyCoVarKind :: TyCoVar -> TcM TyCoVar
-zonkTyCoVarKind tv = do { kind' <- zonkTcKind (tyVarKind tv)
+zonkTyCoVarKind tv = do { kind' <- zonkTcType (tyVarKind tv)
                         ; return (setTyVarKind tv kind') }
 
 zonkTcTypes :: [TcType] -> TcM [TcType]
@@ -1082,6 +1081,4 @@ zonkTcTyCoVar tv
     zonk_kind_and_return = do { z_tv <- zonkTyCoVarKind tv
                               ; return (mkTyCoVarTy z_tv) }
 
-zonkTcKind :: TcKind -> TcM TcKind
-zonkTcKind k = zonkTcType k
 \end{code}

@@ -16,7 +16,6 @@ module HsTypes (
         HsTupleSort(..), HsExplicitFlag(..),
         HsContext, LHsContext,
         HsQuasiQuote(..),
-        HsTyWrapper(..),
         HsTyLit(..),
         HsIPName(..), hsIPNameFS,
 
@@ -208,7 +207,7 @@ data HsType name
   | HsTupleTy           HsTupleSort
                         [LHsType name]  -- Element types (length gives arity)
 
-  | HsOpTy              (LHsType name) (LHsTyOp name) (LHsType name)
+  | HsOpTy              (LHsType name) (Located name) (LHsType name)
 
   | HsParTy             (LHsType name)   -- See Note [Parens in HsSyn] in HsExpr
         -- Parenthesis preserved for the precedence re-arrangement in RnTypes
@@ -245,25 +244,15 @@ data HsType name
         [LHsType name]   
 
   | HsTyLit HsTyLit      -- A promoted numeric literal.
-
-  | HsWrapTy HsTyWrapper (HsType name)  -- only in typechecker output
   deriving (Data, Typeable)
-
 
 data HsTyLit
   = HsNumTy Integer
   | HsStrTy FastString
     deriving (Data, Typeable)
 
-data HsTyWrapper
-  = WpKiApps [Kind]  -- kind instantiation: [] k1 k2 .. kn
-  deriving (Data, Typeable)
-
-type LHsTyOp name = HsTyOp (Located name)
-type HsTyOp name = (HsTyWrapper, name)
-
 mkHsOpTy :: LHsType name -> Located name -> LHsType name -> HsType name
-mkHsOpTy ty1 op ty2 = HsOpTy ty1 (WpKiApps [], op) ty2
+mkHsOpTy ty1 op ty2 = HsOpTy ty1 op ty2
 \end{code}
 
 Note [HsForAllTy tyvar binders]
@@ -445,7 +434,7 @@ hsTyGetAppHead_maybe = go []
   where
     go tys (L _ (HsTyVar n))             = Just (n, tys)
     go tys (L _ (HsAppTy l r))           = go (r : tys) l
-    go tys (L _ (HsOpTy l (_, L _ n) r)) = Just (n, l : r : tys)
+    go tys (L _ (HsOpTy l (L _ n) r))    = Just (n, l : r : tys)
     go tys (L _ (HsParTy t))             = go tys t
     go tys (L _ (HsKindSig t _))         = go tys t
     go _   _                             = Nothing
@@ -494,7 +483,7 @@ splitLHsClassTy_maybe ty
     checkl (L l ty) args = case ty of
         HsTyVar t          -> Just (L l t, args)
         HsAppTy l r        -> checkl l (r:args)
-        HsOpTy l (_, tc) r -> checkl (fmap HsTyVar tc) (l:r:args)
+        HsOpTy l tc r      -> checkl (fmap HsTyVar tc) (l:r:args)
         HsParTy t          -> checkl t args
         HsKindSig ty _     -> checkl ty args
         _                  -> Nothing
@@ -635,20 +624,6 @@ ppr_mono_ty _    (HsExplicitListTy _ tys) = quote $ brackets (interpp'SP tys)
 ppr_mono_ty _    (HsExplicitTupleTy _ tys) = quote $ parens (interpp'SP tys)
 ppr_mono_ty _    (HsTyLit t)         = ppr_tylit t
 
-ppr_mono_ty ctxt_prec (HsWrapTy (WpKiApps _kis) ty)
-  = ppr_mono_ty ctxt_prec ty
--- We are not printing kind applications. If we wanted to do so, we should do
--- something like this:
-{-
-  = go ctxt_prec kis ty
-  where
-    go ctxt_prec [] ty = ppr_mono_ty ctxt_prec ty
-    go ctxt_prec (ki:kis) ty
-      = maybeParen ctxt_prec pREC_CON $
-        hsep [ go pREC_FUN kis ty
-             , ptext (sLit "@") <> pprParendKind ki ]
--}
-
 ppr_mono_ty ctxt_prec (HsEqTy ty1 ty2)
   = maybeParen ctxt_prec pREC_OP $
     ppr_mono_lty pREC_OP ty1 <+> char '~' <+> ppr_mono_lty pREC_OP ty2
@@ -657,12 +632,10 @@ ppr_mono_ty ctxt_prec (HsAppTy fun_ty arg_ty)
   = maybeParen ctxt_prec pREC_CON $
     hsep [ppr_mono_lty pREC_FUN fun_ty, ppr_mono_lty pREC_CON arg_ty]
 
-ppr_mono_ty ctxt_prec (HsOpTy ty1 (_wrapper, L _ op) ty2)
+ppr_mono_ty ctxt_prec (HsOpTy ty1 (L _ op) ty2)
   = maybeParen ctxt_prec pREC_OP $
     sep [ ppr_mono_lty pREC_OP ty1
         , sep [pprInfixOcc op, ppr_mono_lty pREC_OP ty2 ] ]
-    -- Don't print the wrapper (= kind applications)
-    -- c.f. HsWrapTy
 
 ppr_mono_ty _         (HsParTy ty)
   = parens (ppr_mono_lty pREC_TOP ty)

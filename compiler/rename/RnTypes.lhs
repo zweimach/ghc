@@ -153,7 +153,7 @@ rnHsTyKi isType _ (HsTyVar rdr_name)
 -- If we see (forall a . ty), without foralls on, the forall will give
 -- a sensible error message, but we don't want to complain about the dot too
 -- Hence the jiggery pokery with ty1
-rnHsTyKi isType doc ty@(HsOpTy ty1 (wrapper, L loc op) ty2)
+rnHsTyKi isType doc ty@(HsOpTy ty1 (L loc op) ty2)
   = ASSERT( isType ) setSrcSpan loc $
     do  { ops_ok <- xoptM Opt_TypeOperators
         ; op' <- if ops_ok
@@ -164,7 +164,7 @@ rnHsTyKi isType doc ty@(HsOpTy ty1 (wrapper, L loc op) ty2)
         ; fix <- lookupTyFixityRn l_op'
         ; (ty1', fvs1) <- rnLHsType doc ty1
         ; (ty2', fvs2) <- rnLHsType doc ty2
-        ; res_ty <- mkHsOpTyRn (\t1 t2 -> HsOpTy t1 (wrapper, l_op') t2)
+        ; res_ty <- mkHsOpTyRn (\t1 t2 -> HsOpTy t1 l_op' t2)
                                op' fix ty1' ty2'
         ; return (res_ty, (fvs1 `plusFV` fvs2) `addOneFV` op') }
 
@@ -273,9 +273,6 @@ rnHsTyKi isType _ (HsCoreTy ty)
     return (HsCoreTy ty, emptyFVs)
     -- The emptyFVs probably isn't quite right
     -- but I don't think it matters
-
-rnHsTyKi _ _ (HsWrapTy {})
-  = panic "rnHsTyKi"
 
 rnHsTyKi isType doc ty@(HsExplicitListTy k tys)
   = ASSERT( isType )
@@ -539,10 +536,10 @@ mkHsOpTyRn :: (LHsType Name -> LHsType Name -> HsType Name)
            -> Name -> Fixity -> LHsType Name -> LHsType Name
            -> RnM (HsType Name)
 
-mkHsOpTyRn mk1 pp_op1 fix1 ty1 (L loc2 (HsOpTy ty21 (w2, op2) ty22))
+mkHsOpTyRn mk1 pp_op1 fix1 ty1 (L loc2 (HsOpTy ty21 op2 ty22))
   = do  { fix2 <- lookupTyFixityRn op2
         ; mk_hs_op_ty mk1 pp_op1 fix1 ty1
-                      (\t1 t2 -> HsOpTy t1 (w2, op2) t2)
+                      (\t1 t2 -> HsOpTy t1 op2 t2)
                       (unLoc op2) fix2 ty21 ty22 loc2 }
 
 mkHsOpTyRn mk1 pp_op1 fix1 ty1 (L loc2 (HsFunTy ty21 ty22))
@@ -937,7 +934,7 @@ extract_lty (L _ ty) acc
       HsFunTy ty1 ty2           -> extract_lty ty1 (extract_lty ty2 acc)
       HsIParamTy _ ty           -> extract_lty ty acc
       HsEqTy ty1 ty2            -> extract_lty ty1 (extract_lty ty2 acc)
-      HsOpTy ty1 (_, (L _ tv)) ty2 -> extract_tv tv (extract_lty ty1 (extract_lty ty2 acc))
+      HsOpTy ty1 (L _ tv) ty2   -> extract_tv tv (extract_lty ty1 (extract_lty ty2 acc))
       HsParTy ty                -> extract_lty ty acc
       HsCoreTy {}               -> acc  -- The type is closed
       HsQuasiQuoteTy {}         -> acc  -- Quasi quotes mention no type variables
@@ -946,7 +943,6 @@ extract_lty (L _ ty) acc
       HsExplicitListTy _ tys    -> extract_ltys tys acc
       HsExplicitTupleTy _ tys   -> extract_ltys tys acc
       HsTyLit _                 -> acc
-      HsWrapTy _ _              -> panic "extract_lty"
       HsKindSig ty ki           -> extract_lty ty (extract_lkind ki acc)
       HsForAllTy _ tvs cx ty    -> extract_hs_tv_bndrs tvs acc $
                                    extract_lctxt cx   $

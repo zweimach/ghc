@@ -81,47 +81,22 @@ import Data.List ( zip4, sort )
 		General notes
 	----------------------------
 
-Generally speaking we now type-check types in three phases
+Unlike with expressions, type-checking types both does some checking and
+desugars at the same time. This is necessary because we often want to perform
+equality checks on the types right away, and it would be incredibly painful
+to do this on un-desugared types. Luckily, desugared types are close enough
+to HsTypes to make the error messages sane.
 
-  1.  kcHsType: kind check the HsType
-	*includes* performing any TH type splices;
-	so it returns a translated, and kind-annotated, type
+During type-checking, we perform as little validity checking as possible.
+This is because some type-checking is done in a mutually-recursive knot, and
+if we look too closely at the tycons, we'll loop. This is why we always must
+use mkNakedTyConApp and mkNakedAppTys, etc., which never look at a tycon.
+The mkNamed... functions don't uphold Type invariants, but zonkTcTypeToType
+will repair this for us. Note that zonkTcType *is* safe within a knot, and
+can be done repeatedly with no ill effect: it just squeezes out metavariables.
 
-  2.  dsHsType: convert from HsType to Type:
-	perform zonking
-	expand type synonyms [mkGenTyApps]
-	hoist the foralls [tcHsType]
-
-  3.  checkValidType: check the validity of the resulting type
-
-Often these steps are done one after the other (tcHsSigType).
-But in mutually recursive groups of type and class decls we do
-	1 kind-check the whole group
-	2 build TyCons/Classes in a knot-tied way
-	3 check the validity of types in the now-unknotted TyCons/Classes
-
-For example, when we find
-	(forall a m. m a -> m a)
-we bind a,m to kind varibles and kind-check (m a -> m a).  This makes
-a get kind *, and m get kind *->*.  Now we typecheck (m a -> m a) in
-an environment that binds a and m suitably.
-
-The kind checker passed to tcHsTyVars needs to look at enough to
-establish the kind of the tyvar:
-  * For a group of type and class decls, it's just the group, not
-	the rest of the program
-  * For a tyvar bound in a pattern type signature, its the types
-	mentioned in the other type signatures in that bunch of patterns
-  * For a tyvar bound in a RULE, it's the type signatures on other
-	universally quantified variables in the rule
-
-Note that this may occasionally give surprising results.  For example:
-
-	data T a b = MkT (a b)
-
-Here we deduce			a::*->*,       b::*
-But equally valid would be	a::(*->*)-> *, b::*->*
-
+Generally, after type-checking, you will want to do validity checking, say
+with TcValidity.checkValidType.
 
 Validity checking
 ~~~~~~~~~~~~~~~~~
@@ -151,7 +126,6 @@ During step (1) we might fault in a TyCon defined in another module, and it migh
 (via a loop) refer back to a TyCon defined in this module. So when we tie a big
 knot around type declarations with ARecThing, so that the fault-in code can get
 the TyCon being defined.
-
 
 %************************************************************************
 %*									*
@@ -329,17 +303,90 @@ tcCheckHsTypeAndGen hs_ty kind
        ; return (mkInvForAllTys kvs ty) }
 \end{code}
 
-Like tcExpr, tc_hs_type takes an expected kind which it unifies with
-the kind it figures out. When we don't know what kind to expect, we use
-tc_lhs_type_fresh, to first create a new meta kind variable and use that as
-the expected kind.
+Note [Bidirectional type checking]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In expressions, whenever we see a polymorphic identifier, say `id`, we are
+free to instantiate it with metavariables, knowing that we can always
+re-generalize with type-lambdas when necessary. For example:
+
+  rank2 :: (forall a. a -> a) -> ()
+  x = rank2 id
+
+When checking the body of `x`, we can instantiate `id` with a metavariable.
+Then, when we're checking the application of `rank2`, we notice that we really
+need a polymorphic `id`, and then re-generalize over the unconstrained
+metavariable.
+
+In types, however, we're not so lucky, because *we cannot re-generalize*!
+There is no lambda. So, we must be careful only to instantiate at the last
+possible moment, when we're sure we're never going to want the lost polymorphism
+again.
+
+To implement this behavior, we use bidirectional type checking, where we
+explicitly think about whether we know the kind of the type we're checking
+or not. Note that there is a difference between not knowing a kind and
+knowing a metavariable kind: the metavariables are TauTvs, and cannot become
+forall-quantified kinds. Previously (before dependent types), there were
+no higher-rank kinds, and so we could instantiate early and be sure that
+no types would have polymorphic kinds, and so we could always assume that
+the kind of a type was a fresh metavariable. Not so anymore, thus the
+need for two algorithms.
+
+For HsType forms that can never be kind-polymorphic, we implement only the
+"down" direction, where we safely assume a metavariable kind. For HsType forms
+that *can* be kind-polymorphic, we implement just the "up" (functions with
+"infer" in their name) version, as we gain nothing by also implementing the
+"down" version.
+
+Note [Future-proofing the type checker]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+As discussed in Note [Bidirectional type checking], each HsType form is
+handled in *either* tc_infer_hs_type *or* tc_hs_type. These functions
+are mutually recursive, so that either one can work for any type former.
+But, we want to make sure that our pattern-matches are complete. So,
+we have a bunch of repetitive code just so that we get warnings if we're
+missing any patterns.
 
 \begin{code}
+-- | Check and desugar a type, returning the core type and its
+-- possibly-polymorphic kind. Much like 'tcInferRho' at the expression
+-- level.
 tc_infer_lhs_type :: LHsType Name -> TcM (TcType, TcKind)
-tc_infer_lhs_type ty =
-  do { kv <- newMetaKindVar
-     ; r <- tc_lhs_type ty (EK kv expectedKindMsg)
-     ; return (r, kv) }
+tc_infer_lhs_type (L span ty)
+  = setSrcSpan span $
+    do { traceTc "tc_infer_lhs_type:" (ppr ty)
+       ; tc_infer_hs_type ty }
+
+-- | Infer the kind of a type and desugar. This is the "up" type-checker,
+-- as described in Note [Bidirectional type checking]
+tc_infer_hs_type :: HsType Name -> TcM (TcType, TcKind)
+tc_infer_hs_type (HsTyVar tv)    = tcTyVar tv
+tc_infer_hs_type (HsAppTy ty1 ty2)
+  = do { let (fun_ty, arg_tys) = splitHsAppTys ty1 [ty2]
+       ; (fun_ty', fun_kind) <- tc_infer_lhs_type fun_ty
+       ; fun_kind' <- zonkTcType fun_kind
+       ; (arg_tys', res_kind) <- tcInferApps fun_ty fun_kind' arg_tys
+       ; return (mkNakedAppTys fun_ty' arg_tys', res_kind) }
+tc_infer_hs_type (HsParTy t)     = tc_infer_lhs_type t
+tc_infer_hs_type (HsOpTy lhs l_op@(L _ op) rhs)
+  | not (op `hasKey` funTyConKey)
+  = do { (op', op_kind) <- tcTyVar op
+       ; op_kind' <- zonkTcType op_kind
+       ; (arg_tys', res_kind) <- tcInferApps l_op op_kind' [lhs, rhs]
+       ; return (mkNakedAppTys op' arg_tys', res_kind) }
+tc_infer_hs_type (HsKindSig ty sig)
+  = do { sig' <- tcLHsKind sig
+       ; ty' <- tc_lhs_type ty (EK sig' msg_fn)
+       ; return (ty', sig') }
+  where
+    msg_fn pkind = ptext (sLit "The signature specified kind") 
+                   <+> quotes (pprKind pkind)
+tc_infer_hs_type (HsDocTy ty _) = tc_infer_lhs_type ty
+tc_infer_hs_type (HsCoreTy ty)  = return (ty, typeKind ty)
+tc_infer_hs_type other_ty
+  = do { kv <- newMetaKindVar
+       ; ty' <- tc_hs_type other_ty (EK kv expectedKindMsg)
+       ; return (ty', kv) }
 
 tc_lhs_type :: LHsType Name -> ExpKind -> TcM TcType
 tc_lhs_type (L span ty) exp_kind
@@ -372,26 +419,17 @@ tc_hs_type (HsRecTy _)         _ = panic "tc_hs_type: record" -- Unwrapped by co
       -- Record types (which only show up temporarily in constructor 
       -- signatures) should have been removed by now
 
----------- Functions and applications
-tc_hs_type hs_ty@(HsTyVar name) exp_kind
-  = do { (ty, k) <- tcTyVar name
-       ; checkExpectedKind hs_ty ty k exp_kind }
+-- This should never happen; type splices are expanded by the renamer
+tc_hs_type ty@(HsSpliceTy {}) _exp_kind
+  = failWithTc (ptext (sLit "Unexpected type splice:") <+> ppr ty)
 
+---------- Functions and applications
 tc_hs_type ty@(HsFunTy ty1 ty2) exp_kind
   = tc_fun_type ty ty1 ty2 exp_kind
 
-tc_hs_type hs_ty@(HsOpTy ty1 (_, l_op@(L _ op)) ty2) exp_kind
+tc_hs_type hs_ty@(HsOpTy ty1 (L _ op) ty2) exp_kind
   | op `hasKey` funTyConKey
   = tc_fun_type hs_ty ty1 ty2 exp_kind
-  | otherwise
-  = do { (op', op_kind) <- tcTyVar op
-       ; tcCheckApps hs_ty l_op op' op_kind [ty1,ty2] exp_kind }
-
-tc_hs_type hs_ty@(HsAppTy ty1 ty2) exp_kind
-  = do { (fun_ty', fun_kind) <- tc_infer_lhs_type fun_ty
-       ; tcCheckApps hs_ty fun_ty fun_ty' fun_kind arg_tys exp_kind }
-  where
-    (fun_ty, arg_tys) = splitHsAppTys ty1 [ty2]
 
 --------- Foralls
 tc_hs_type hs_ty@(HsForAllTy _ hs_tvs context ty) exp_kind
@@ -430,7 +468,7 @@ tc_hs_type hs_ty@(HsTupleTy HsBoxedOrConstraintTuple hs_tys) exp_kind@(EK exp_k 
   = tc_tuple hs_ty tup_sort hs_tys exp_kind
   | otherwise
   = do { (tys, kinds) <- mapAndUnzipM tc_infer_lhs_type hs_tys
-       ; kinds <- mapM zonkTcKind kinds
+       ; kinds <- mapM zonkTcType kinds
            -- Infer each arg type separately, because errors can be
            -- confusing if we give them a shared kind.  Eg Trac #7410
            -- (Either Int, Int), we do not want to get an error saying
@@ -515,25 +553,7 @@ tc_hs_type ty@(HsEqTy ty1 ty2) exp_kind
       = text "The" <+> side <+> text "argument of the equality had kind"
                    <+> quotes (pprKind pkind)
 
---------- Misc
-tc_hs_type (HsKindSig ty sig_k) exp_kind 
-  = do { sig_k' <- tcLHsKind sig_k
-       ; ty' <- tc_lhs_type ty (EK sig_k' msg_fn)
-       ; checkExpectedKind ty ty' sig_k' exp_kind }
-  where
-    msg_fn pkind = ptext (sLit "The signature specified kind") 
-                   <+> quotes (pprKind pkind)
-
-tc_hs_type (HsCoreTy ty) exp_kind
-  = checkExpectedKind ty ty (typeKind ty) exp_kind
-
--- This should never happen; type splices are expanded by the renamer
-tc_hs_type ty@(HsSpliceTy {}) _exp_kind
-  = failWithTc (ptext (sLit "Unexpected type splice:") <+> ppr ty)
-
-tc_hs_type (HsWrapTy {}) _exp_kind
-  = panic "tc_hs_type HsWrapTy"  -- We kind checked something twice
-
+--------- Literals
 tc_hs_type hs_ty@(HsTyLit (HsNumTy n)) exp_kind
   = do { checkWiredInTyCon typeNatKindCon
        ; checkExpectedKind hs_ty (mkNumLitTy n) typeNatKind exp_kind }
@@ -541,6 +561,20 @@ tc_hs_type hs_ty@(HsTyLit (HsNumTy n)) exp_kind
 tc_hs_type hs_ty@(HsTyLit (HsStrTy s)) exp_kind
   = do { checkWiredInTyCon typeSymbolKindCon
        ; checkExpectedKind hs_ty (mkStrLitTy s) typeSymbolKind exp_kind }
+
+--------- Potentially kind-polymorphic types: call the "up" checker
+-- See Note [Future-proofing the type checker]
+tc_hs_type ty@(HsTyVar {})   ek = tc_infer_hs_type_ek ty ek
+tc_hs_type ty@(HsAppTy {})   ek = tc_infer_hs_type_ek ty ek
+tc_hs_type ty@(HsOpTy {})    ek = tc_infer_hs_type_ek ty ek
+tc_hs_type ty@(HsKindSig {}) ek = tc_infer_hs_type_ek ty ek
+tc_hs_type ty@(HsCoreTy {})  ek = tc_infer_hs_type_ek ty ek
+
+-- | Call 'tc_infer_hs_type' and check its result against an expected kind.
+tc_infer_hs_type_ek :: HsType Name -> ExpKind -> TcM TcType
+tc_infer_hs_type_ek ty ek
+  = do { (ty', k) <- tc_infer_hs_type ty
+       ; checkExpectedKind ty ty' k ek }
 
 ---------------------------
 tupKindSort_maybe :: TcKind -> Maybe TupleSort
@@ -618,19 +652,6 @@ tcInferApps the_fun = go 1
     too_many_args = quotes the_fun_doc <+>
 		    ptext (sLit "is applied to too many type arguments")
 
-
-tcCheckApps :: Outputable a 
-            => HsType Name     -- The type being checked (for err messages only)
-            -> a               -- The function
-            -> TcType          -- The desugared function
-            -> TcKind -> [LHsType Name]   -- Fun kind and arg types
-	    -> ExpKind 	                  -- Expected kind
-	    -> TcM TcType
-tcCheckApps hs_ty the_fun fun fun_kind args exp_kind
-  = do { fun_kind' <- zonkTcKind fun_kind   -- we need to expose any foralls
-       ; (arg_tys, res_kind) <- tcInferApps the_fun fun_kind' args
-       ; checkExpectedKind hs_ty (mkNakedAppTys fun arg_tys) res_kind exp_kind }
-         -- mkNakedAppTys: see Note [Zonking inside the knot]
 
 ---------------------------
 tcHsContext :: LHsContext Name -> TcM [PredType]
@@ -1125,7 +1146,7 @@ kcHsTyVarBndrs strat (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) th
            ; return (res_kind, tyCoVarsOfType res_kind, stuff) }
     bind_telescope (L _ hs_tv : hs_tvs) thing
       = do { (n,k) <- kc_hs_tv hs_tv
-           ; (res_kind, fvs, stuff) <- tcExtendKindEnv [(n,k)] $ bind_telescope hs_tvs thing
+           ; (res_kind, fvs, stuff) <- tcExtendTyVarEnv2 [(n,new_skolem_tv n k)] $ bind_telescope hs_tvs thing
               -- we must be *lazy* in res_kind and fvs (assuming that the
               -- caller of kcHsTyVarBndrs is, too), as sometimes these hold
               -- panics. See kcConDecl.
@@ -1771,8 +1792,8 @@ checkExpectedKind hs_ty ty act_kind (EK exp_kind ek_ctxt)
 
       {  -- So there's an error
          -- Now to find out what sort
-        exp_kind <- zonkTcKind exp_kind
-      ; act_kind <- zonkTcKind act_kind
+        exp_kind <- zonkTcType exp_kind
+      ; act_kind <- zonkTcType act_kind
       ; traceTc "checkExpectedKind" (ppr hs_ty $$ ppr act_kind $$ ppr exp_kind)
       ; env0 <- tcInitTidyEnv
       ; dflags <- getDynFlags
@@ -1918,8 +1939,8 @@ badPatSigTvs sig_ty bad_tvs
 
 unifyKindMisMatch :: TcKind -> TcKind -> TcM a
 unifyKindMisMatch ki1 ki2 = do
-    ki1' <- zonkTcKind ki1
-    ki2' <- zonkTcKind ki2
+    ki1' <- zonkTcType ki1
+    ki2' <- zonkTcType ki2
     let msg = hang (ptext (sLit "Couldn't match kind"))
               2 (sep [quotes (ppr ki1'),
                       ptext (sLit "against"),
