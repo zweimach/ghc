@@ -1,2 +1,2 @@
-# test('Roles5', normal, compile_fail, [''])
+test('DepFail1', normal, compile_fail, [''])
 
