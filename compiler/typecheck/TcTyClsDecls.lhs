@@ -1275,52 +1275,86 @@ rejigConRes tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
 
                 -- /Lazily/ figure out the univ_tvs etc
                 -- Each univ_tv is either a dc_tv or a tmpl_tv
-    (univ_tvs, eq_spec) = foldr choose ([], []) tmpl_tvs
-    choose tmpl (univs, eqs)
-      | Just ty <- lookupVar subst tmpl 
+    (univ_tvs, eq_spec) = choose [] [] (mkTCvSubst in_scope)
+                                       (emptyLiftingContext in_scope)
+                                       tmpl_tvs
+    in_scope = mkInScopeSet (mkVarSet tmpl_tvs `unionVarSet` mkVarSet dc_tvs)
+                                          
+    choose :: [TyVar]           -- accumulator of univ tvs, reversed
+           -> [EqSpec]          -- accumulator of eqs, reversed
+           -> TCvSubst          -- template substutition
+                                -- Note [Substitution in template variables kinds]
+           -> LiftingContext    -- mapping from un-substed kinds to coercions
+                                -- Note [Substitution in template variables kinds]
+                                -- TODO (RAE): Rewrite Note.
+           -> [TyVar]           -- template tvs (the univ tvs passed in)
+           -> ([TyVar], [EqSpec])  -- new univ_tvs and new eq_spec           
+    choose univs eqs sub lc [] = (reverse univs, reverse eqs)
+    choose univs eqs sub (tv:tvs)
+      | Just ty <- lookupVar subst tv
       = case tcGetTyVar_maybe ty of
-          Just tv | not (tv `elem` univs)
-            -> (tv:univs,   eqs)
-          _other  -> (new_tmpl:univs, (new_tmpl,ty):eqs)
-                     where  -- see Note [Substitution in template variables kinds]
-                       new_tmpl = updateTyVarKind (substTy subst) tmpl
-      | otherwise = pprPanic "tcResultType" (ppr res_ty)
+          Just tv'
+            |  not (tv' `elem` univs)
+            -> -- simple variable substitution. we should continue to subst.
+               choose (tv':univs) eqs sub tvs
+
+               -- not a simple substitution. make an equality predicate
+               -- and drop the mapping from sub.
+               -- See Note [Substitution in template variables kinds]
+          _ -> choose (tv':univs) ((tv',ty):eqs) sub' tvs
+            where tv' = updateTyVarKind (substTy sub) tv
+                  sub' = sub `delTCvSubstTyVar` tv
+
+      | otherwise
+      = pprPanic "rejigConRes" (ppr res_ty)
+
     ex_tvs = dc_tvs `minusList` univ_tvs
 \end{code}
 
 Note [Substitution in template variables kinds]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-data List a = Nil | Cons a (List a)
-data SList s as where
-  SNil :: SList s Nil
+data G (a :: Maybe k) where
+  MkG :: G Nothing
 
-We call tcResultType with
-  tmpl_tvs = [(k :: *), (s :: k -> *), (as :: List k)]
-  res_tmpl = SList k s as
-  res_ty = ResTyGADT (SList k1 (s1 :: k1 -> *) (Nil k1))
+With explicit kind variables
 
-We get subst:
-  k -> k1
-  s -> s1
-  as -> Nil k1
+data G k (a :: Maybe k) where
+  MkG :: G k1 (Nothing k1)
 
-Now we want to find out the universal variables and the equivalences
-between some of them and types (GADT).
+Note how k1 is distinct from k. So, when we match the template
+`G k a` against `G k1 (Nothing k1)`, we get a subst
+[ k |-> k1, a |-> Nothing k1 ]. Even though this subst has two
+mappings, we surely don't want to add (k, k1) to the list of
+GADT equalities -- that would be overly complex and would create
+more untouchable variables than we need. So, when figuring out
+which tyvars are GADT-like and which aren't (the fundamental
+job of `choose`), we want to treat `k` as *not* GADT-like.
+Instead, we wish to substitute in `a`'s kind, to get (a :: Maybe k1)
+instead of (a :: Maybe k). This is the reason for dealing
+with a substitution in here.
 
-In this example, k and s are mapped to exactly variables which are not
-already present in the universal set, so we just add them without any
-coercion.
+However, we do not *always* want to substitute. Consider
 
-But 'as' is mapped to 'Nil k1', so we add 'as' to the universal set,
-and add the equivalence with 'Nil k1' in 'eqs'.
+data H (a :: k) where
+  MkH :: H Int
 
-The problem is that with kind polymorphism, as's kind may now contain
-kind variables, and we have to apply the template substitution to it,
-which is why we create new_tmpl.
+With explicit kind variables:
 
-The template substitution only maps kind variables to kind variables,
-since GADTs are not kind indexed.
+data H k (a :: k) where
+  MkH :: H * Int
+
+Here, we have a kind-indexed GADT. The subst in question is
+[ k |-> *, a |-> Int ]. Now, we *don't* want to substitute in `a`'s
+kind, because that would give a constructor with the type
+
+MkH :: forall (k :: *) (a :: *). (k ~ *) -> (a ~ Int) -> H k a
+
+The problem here is that a's kind is wrong -- it needs to be k, not *!
+So, if the matching for a variable is anything but another bare variable,
+we drop the mapping from the substitution before proceeding. This
+was not an issue before kind-indexed GADTs because this case could
+never happen.
 
 %************************************************************************
 %*                                                                      *
@@ -1507,14 +1541,6 @@ checkValidDataCon dflags existential_ok tc con
           -- Check that existentials are allowed if they are used
         ; checkTc (existential_ok || isVanillaDataCon con)
                   (badExistential con)
-
-          -- Check that we aren't doing GADT type refinement on kind variables
-          -- e.g reject    data T (a::k) where
-          --                  T1 :: T Int
-          --                  T2 :: T Maybe
-        ; checkTc (not (any (isCoVar . fst) (dataConEqSpec con)))
-                  (badGadtCon (ptext (sLit "coercion")) con)
-          -- TODO (RAE): The above case should never, ever happen. Investigate.
 
         ; traceTc "Done validity of data con" (ppr con <+> ppr (dataConRepType con))
     }
