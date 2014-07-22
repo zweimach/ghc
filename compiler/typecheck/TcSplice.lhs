@@ -1246,6 +1246,9 @@ reifyTyCon tc
 reifyDataCon :: [Type] -> DataCon -> TcM TH.Con
 -- For GADTs etc, see Note [Reifying data constructors]
 reifyDataCon tys dc
+  -- TODO (RAE): Fix this. It needs to be aware of a telescope of coercions
+  -- and existential variables. Probably would be best just to enhance TH
+  -- to deal with real GADT syntax.
   = do { let (tvs, theta, arg_tys, _) = dataConSig dc
              subst             = mkTopTCvSubst (tvs `zip` tys)   -- Dicard ex_tvs
              (subst', ex_tvs') = mapAccumL substTyCoVarBndr subst (dropList tys tvs)
