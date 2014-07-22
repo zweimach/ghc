@@ -243,7 +243,13 @@ mkLocalId name ty = mkLocalIdWithInfo name ty
                          (vanillaIdInfo `setOneShotInfo` typeOneShot ty)
 
 mkLocalIdWithInfo :: Name -> Type -> IdInfo -> Id
-mkLocalIdWithInfo name ty info = Var.mkLocalVar VanillaId name ty info
+mkLocalIdWithInfo name ty info = Var.mkLocalVar details name ty info
+  where
+      -- TODO (RAE): Is this a good place to make this check?
+      -- It's not particularly cheap.
+    details = if isCoercionType ty
+              then CoVarId
+              else VanillaId
         -- Note [Free type variables]
 
 -- | Create a local 'Id' that is marked as exported.
