@@ -291,6 +291,9 @@ check_type ctxt rank ty@(TyConApp tc tys)
 
 check_type _ _ (LitTy {}) = return ()
 
+-- TODO (RAE): Is this right? Do we need to check the co for something??
+check_type ctxt rank (CastTy ty _) = check_type ctxt rank ty
+
 check_type _ _ ty = pprPanic "check_type" (ppr ty)
 
 ----------------------------------------

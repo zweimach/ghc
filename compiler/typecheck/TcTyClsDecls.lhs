@@ -37,7 +37,7 @@ import TcType
 import TysWiredIn( unitTy )
 import FamInst
 import FamInstEnv( isDominatedBy, mkCoAxBranch, mkBranchedCoAxiom )
-import Coercion( pprCoAxBranch, ltRole )
+import Coercion
 import Type
 import TyCoRep   -- for checkValidRoles
 import Kind
@@ -56,6 +56,7 @@ import Name
 import NameSet
 import NameEnv
 import Outputable
+import UniqSupply
 import Maybes
 import Unify
 import Util
@@ -70,6 +71,8 @@ import BasicTypes
 import Bag
 import Control.Monad
 import Data.List
+import Data.Tuple
+import Control.Arrow  ( first, second )
 \end{code}
 
 
@@ -1162,8 +1165,8 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
        ; res_ty  <- case res_ty of
                       ResTyH98     -> return ResTyH98
                       ResTyGADT ty -> ResTyGADT <$> zonkTcTypeToType ze ty
-
-       ; let (univ_tvs, ex_tvs, eq_preds, res_ty') = rejigConRes tmpl_tvs res_tmpl qtkvs res_ty
+       ; us <- newUniqueSupply
+       ; let (univ_tvs, ex_tvs, eq_preds, res_ty') = rejigConRes us tmpl_tvs res_tmpl qtkvs res_ty
 
        ; fam_envs <- tcGetFamInstEnvs
        ; buildDataCon fam_envs (unLoc name) is_infix
@@ -1224,7 +1227,7 @@ So, we want to make rejigConRes lazy and then check the validity of the return
 type in checkValidDataCon. But, if the return type is bogus, rejigConRes can't
 work -- it will have a failed pattern match. Luckily, if we run
 checkValidDataCon before ever looking at the rejigged return type
-(checkValidDataCon checks the dataConUserType, which is not rejigged!), we
+(checkValidDataCon checks bits of the type which are not rejigged!), we
 catch the error before forcing the rejigged type and panicking.
 
 \begin{code}
@@ -1238,25 +1241,26 @@ catch the error before forcing the rejigged type and panicking.
 --      TI :: forall b1 c1. (b1 ~ c1) => b1 -> :R7T b1 c1
 -- In this case orig_res_ty = T (e,e)
 
-rejigConRes :: [TyCoVar] -> Type  -- Template for result type; e.g.
+rejigConRes :: UniqSupply         -- needed for fresh covars
+            -> [TyCoVar] -> Type  -- Template for result type; e.g.
                                   -- data instance T [a] b c = ...
                                   --      gives template ([a,b,c], T [a] b c)
-             -> [TyCoVar]         -- where MkT :: forall x y z. ...
-             -> ResType Type
-             -> ([TyCoVar],             -- Universal
-                 [TyCoVar],                -- Existential (distinct OccNames from univs)
-                 [(TyCoVar,Type)],        -- Equality predicates
-                 Type)          -- Typechecked return type
+            -> [TyCoVar]         -- where MkT :: forall x y z. ...
+            -> ResType Type
+            -> ([TyCoVar],             -- Universal
+                [TyCoVar],                -- Existential (distinct OccNames from univs)
+                [(TyCoVar,Type)],        -- Equality predicates
+                Type)          -- Typechecked return type
         -- We don't check that the TyCon given in the ResTy is
         -- the same as the parent tycon, because checkValidDataCon will do it
 
-rejigConRes tmpl_tvs res_ty dc_tvs ResTyH98
+rejigConRes _us tmpl_tvs res_ty dc_tvs ResTyH98
   = (tmpl_tvs, dc_tvs, [], res_ty)
         -- In H98 syntax the dc_tvs are the existential ones
         --      data T a b c = forall d e. MkT ...
         -- The {a,b,c} are tc_tvs, and {d,e} are dc_tvs
 
-rejigConRes tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
+rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
         -- E.g.  data T [a] b c where
         --         MkT :: forall x y z. T [(x,y)] z z
         -- Then we generate
@@ -1275,40 +1279,100 @@ rejigConRes tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
 
                 -- /Lazily/ figure out the univ_tvs etc
                 -- Each univ_tv is either a dc_tv or a tmpl_tv
-    (univ_tvs, eq_spec) = choose [] [] (mkTCvSubst in_scope)
-                                       (emptyLiftingContext in_scope)
-                                       tmpl_tvs
+    
+    (univ_tvs, raw_eq_cvs, kind_subst)
+      = initUs_ us $
+        choose [] [] empty_subst empty_subst empty_lc tmpl_tvs
     in_scope = mkInScopeSet (mkVarSet tmpl_tvs `unionVarSet` mkVarSet dc_tvs)
+    empty_subst = mkEmptyTCvSubst in_scope
+    empty_lc    = emptyLiftingContext in_scope
                                           
     choose :: [TyVar]           -- accumulator of univ tvs, reversed
-           -> [EqSpec]          -- accumulator of eqs, reversed
+           -> [CoVar]           -- accumulator of GADT equality covars, reversed
            -> TCvSubst          -- template substutition
                                 -- Note [Substitution in template variables kinds]
+           -> TCvSubst          -- res. substitution
            -> LiftingContext    -- mapping from un-substed kinds to coercions
                                 -- Note [Substitution in template variables kinds]
                                 -- TODO (RAE): Rewrite Note.
            -> [TyVar]           -- template tvs (the univ tvs passed in)
-           -> ([TyVar], [EqSpec])  -- new univ_tvs and new eq_spec           
-    choose univs eqs sub lc [] = (reverse univs, reverse eqs)
-    choose univs eqs sub (tv:tvs)
-      | Just ty <- lookupVar subst tv
-      = case tcGetTyVar_maybe ty of
-          Just tv'
-            |  not (tv' `elem` univs)
+           -> UniqSM ( [TyVar]  -- the univ_tvs
+                     , [CoVar]  -- the covars witnessing GADT equalities
+                     , TCvSubst )  -- a substitution to fix kinds in ex_tvs
+           
+    choose univs eqs _     r_sub _  []
+      = return (reverse univs, reverse eqs, r_sub)
+    choose univs eqs t_sub r_sub lc (t_tv:t_tvs)
+      | Just r_ty <- lookupVar subst t_tv
+      = case tcGetTyVar_maybe r_ty of
+          Just r_tv
+            |  not (r_tv `elem` univs)
             -> -- simple variable substitution. we should continue to subst.
-               choose (tv':univs) eqs sub tvs
+               choose (r_tv':univs) eqs
+                      (extendTCvSubst t_sub t_tv r_ty')
+                      (extendTCvSubst r_sub r_tv (fix_kind r_ty'))
+                      lc t_tvs
+            where
+              -- See Note [Substitution in template variables kinds]
+              r_tv' = setTyVarKind r_tv (substTy t_sub (tyVarKind t_tv))
+              r_ty' = mkOnlyTyVarTy r_tv'
+              fix_kind ty = mkCastTy ty $
+                            liftCoSubst Representational lc (typeKind ty)
 
                -- not a simple substitution. make an equality predicate
-               -- and drop the mapping from sub.
+               -- and extend the lifting context
                -- See Note [Substitution in template variables kinds]
-          _ -> choose (tv':univs) ((tv',ty):eqs) sub' tvs
-            where tv' = updateTyVarKind (substTy sub) tv
-                  sub' = sub `delTCvSubstTyVar` tv
+                            -- TODO (RAE): Update note!
+          _ -> do { cv <- fresh_co_var (mkOnlyTyVarTy t_tv') casted_r_ty
+                  ; let lc1  = extendLiftingContextIS lc  cv
+                        lc2  = extendLiftingContext   lc1 t_tv' (mkCoVarCo cv)
+                        t_sub' = extendTCvInScope t_sub cv
+                        r_sub' = extendTCvInScope r_sub cv
+                  ; choose (t_tv':univs) (cv:eqs)
+                           (extendTCvSubst t_sub' t_tv (mkOnlyTyVarTy t_tv'))
+                           r_sub' lc2 t_tvs }
+            where t_tv' = updateTyVarKind (substTy t_sub) t_tv
+                  casted_r_ty = mkCastTy r_ty $
+                                mkSymCo $
+                                liftCoSubst Representational lc (tyVarKind t_tv')
 
       | otherwise
       = pprPanic "rejigConRes" (ppr res_ty)
 
-    ex_tvs = dc_tvs `minusList` univ_tvs
+      -- creates a fresh gadt covar, with a Nominal role
+    fresh_co_var :: Type -> Type -> UniqSM CoVar
+    fresh_co_var t1 t2
+      = do { u <- getUniqueM
+           ; let name = mkSystemVarName u (fsLit "ga")
+           ; return $ mkCoVar name (mkCoercionType Nominal t1 t2) }
+
+    raw_ex_tvs = dc_tvs `minusList` univ_tvs
+      -- See Note [Substitution in template variables kinds]
+    (_, substed_ex_tvs) = mapAccumL substTyVarBndr kind_subst raw_ex_tvs
+
+    sorted_tcvs = varSetElemsWellScoped $ mkVarSet (substed_ex_tvs ++ raw_eq_cvs)
+
+      -- Remove a suffix of covars: these can be converted to lifted,
+      -- non-dependent equalities for better deferred type errors.
+    (ex_tvs, eq_cvs) = span_from_end isCoVar sorted_tcvs
+    eq_spec = map cv_to_eq_spec eq_cvs
+
+    cv_to_eq_spec cv
+      = ASSERT( isCoVar cv )
+        let (ty1, ty2) = coVarTypes cv
+            tv1        = getTyVar "rejigConRes.cv_to_eq_spec" ty1
+        in
+        (tv1, ty2)
+
+      -- second return value is longest *suffix* that returns True
+      -- to the predicate
+    span_from_end :: (a -> Bool) -> [a] -> ([a], [a])
+    span_from_end p = swap .
+                      first reverse .
+                      second reverse .
+                      span p .
+                      reverse
+
 \end{code}
 
 Note [Substitution in template variables kinds]
@@ -1521,6 +1585,9 @@ checkValidDataCon dflags existential_ok tc con
                                      res_ty_tmpl
                                      orig_res_ty))
                   (badDataConTyCon con res_ty_tmpl orig_res_ty)
+            -- Note that checkTc aborts if it finds an error. This is
+            -- critical to avoid panicking when we call dataConWrapperType
+            -- on an un-rejiggable datacon!
 
           -- Check that the result type is a *monotype*
           --  e.g. reject this:   MkT :: T (forall a. a->a)
@@ -1528,7 +1595,7 @@ checkValidDataCon dflags existential_ok tc con
         ; checkValidMonoType orig_res_ty
 
           -- Check all argument types for validity
-        ; checkValidType ctxt (dataConUserType con)
+        ; checkValidType ctxt (dataConWrapperType con)
 
           -- Extra checks for newtype data constructors
         ; when (isNewTyCon tc) (checkNewDataCon con)
@@ -1579,6 +1646,8 @@ checkNewDataCon con
         ; check_con (null ex_tvs) $
           ptext (sLit "A newtype constructor cannot have existential type variables")
                 -- No existentials
+            -- TODO (RAE): This error message might be bogus if all we have
+            -- is a *dependent* GADT equality. But is that possible??
 
         ; checkTc (not (any isBanged (dataConStrictMarks con)))
                   (newtypeStrictError con)
@@ -1749,8 +1818,11 @@ checkValidRoles tc
         (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty) = dataConFullSig datacon
         univ_roles = zipVarEnv univ_tvs (tyConRoles tc)
               -- zipVarEnv uses zipEqual, but we don't want that for ex_tvs
-        ex_roles   = mkVarEnv (zip ex_tvs (repeat Nominal))
+        ex_roles   = mkVarEnv (map mk_ex_role ex_tvs)
         role_env   = univ_roles `plusVarEnv` ex_roles
+        mk_ex_role tv
+          | isCoVar tv = (tv, Phantom)
+          | otherwise  = (tv, Nominal)
 
     check_ty_roles env role (TyVarTy tv)
       = case lookupVarEnv env tv of
@@ -2107,13 +2179,6 @@ badDataConTyCon data_con res_ty_tmpl actual_res_ty
   = hang (ptext (sLit "Data constructor") <+> quotes (ppr data_con) <+>
                 ptext (sLit "returns type") <+> quotes (ppr actual_res_ty))
        2 (ptext (sLit "instead of an instance of its parent type") <+> quotes (ppr res_ty_tmpl))
-
-badGadtCon :: SDoc -> DataCon -> SDoc
-badGadtCon what data_con
-  = hang (ptext (sLit "Data constructor") <+> quotes (ppr data_con)
-          <+> ptext (sLit "cannot be GADT-like in its *") <> what
-          <>  ptext (sLit "* arguments"))
-       2 (ppr data_con <+> dcolon <+> ppr (dataConUserType data_con))
 
 badGadtDecl :: Name -> SDoc
 badGadtDecl tc_name

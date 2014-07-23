@@ -58,8 +58,8 @@ mkDataTyConRhs cons
     }
   where
     is_enum_con con
-       | (_tvs, theta, arg_tys, _res) <- dataConSig con
-       = null theta && null arg_tys
+       | (_univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res) <- dataConFullSig con
+       = null ex_tvs && null eq_spec && null theta && null arg_tys
 
 
 mkNewTyConRhs :: Name -> TyCon -> DataCon -> TcRnIf m n AlgTyConRhs
@@ -79,7 +79,7 @@ mkNewTyConRhs tycon_name tycon con
   where
     tvs    = tyConTyVars tycon
     roles  = tyConRoles tycon
-    inst_con_ty = applyTys (dataConUserType con) (mkOnlyTyVarTys tvs)
+    inst_con_ty = applyTys (dataConWrapperType con) (mkOnlyTyVarTys tvs)
     rhs_ty = ASSERT( isFunTy inst_con_ty ) funArgTy inst_con_ty
 	-- Instantiate the data con with the 
 	-- type variables from the tycon

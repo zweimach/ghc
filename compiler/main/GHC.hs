@@ -167,7 +167,7 @@ module GHC (
         -- ** Data constructors
         DataCon,
         dataConSig, dataConType, dataConTyCon, dataConFieldLabels,
-        dataConIsInfix, isVanillaDataCon, dataConUserType,
+        dataConIsInfix, isVanillaDataCon, dataConUserType, dataConWrapperType,
         dataConStrictMarks,  
         StrictnessMark(..), isMarkedStrict,
 

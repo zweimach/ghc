@@ -39,7 +39,8 @@ splitHeteroCoBndr_maybe :: ForAllCoBndr -> Maybe (Coercion, TyCoVar, TyCoVar)
 
 mkCoercionType :: Role -> Type -> Type -> Type
 
-liftCoSubst :: Role -> [(TyCoVar, CoercionArg)] -> Type -> Coercion
+data LiftingContext
+liftCoSubst :: Role -> LiftingContext -> Type -> Coercion
 coercionSize :: Coercion -> Int
 seqCo :: Coercion -> ()
 

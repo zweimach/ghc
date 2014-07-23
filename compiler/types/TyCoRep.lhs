@@ -1831,11 +1831,10 @@ substForAllCoBndrCallback sym sty sco subst (CoHetero h cv1 cv2)
          else (subst2, (CoHetero $! h') cv1' cv2') }}
 
 substCoVar :: TCvSubst -> CoVar -> Coercion
-substCoVar (TCvSubst in_scope _ cenv) cv
-  | Just co  <- lookupVarEnv cenv cv      = co
-  | Just cv1 <- lookupInScope in_scope cv = ASSERT( isCoVar cv1 ) CoVarCo cv1
-  | otherwise = WARN( True, ptext (sLit "substCoVar not in scope") <+> ppr cv $$ ppr in_scope)
-                ASSERT( isCoVar cv ) CoVarCo cv
+substCoVar (TCvSubst _ _ cenv) cv
+  = case lookupVarEnv cenv cv of
+      Just co -> co
+      Nothing -> CoVarCo cv
 
 substCoVars :: TCvSubst -> [CoVar] -> [Coercion]
 substCoVars subst cvs = map (substCoVar subst) cvs

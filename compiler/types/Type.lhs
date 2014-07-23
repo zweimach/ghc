@@ -196,7 +196,7 @@ import Outputable
 import FastString
 import Pair
 
-import Data.List        ( partition, sort )
+import Data.List        ( partition, sortBy )
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
@@ -1355,6 +1355,9 @@ typeSize (CoercionTy co)  = coercionSize co
 -- TODO (RAE): make better.
 -- Works on all kinds of Vars, including Ids.
 type DepEnv = VarEnv VarSet
+
+-- | Extract a well-scoped list of variables from a set of variables.
+-- This prefers putting 'Id's after other vars, when it has the choice.
 varSetElemsWellScoped :: VarSet -> [Var]
 varSetElemsWellScoped set
   = build_list [] (varSetElems set)
@@ -1378,9 +1381,12 @@ varSetElemsWellScoped set
     build_list scoped unsorted
       = let (new_scoped, unsorted') = partition (well_scoped scoped) unsorted in
         ASSERT( not $ null new_scoped )
-        build_list (scoped ++ sort new_scoped) unsorted'
+        build_list (scoped ++ sortBy put_ids_later new_scoped) unsorted'
 
     well_scoped scoped var = get_deps var `subVarSet` (mkVarSet scoped)
+    put_ids_later v1 v2
+      = (isId v1 `compare` isId v2) `thenCmp` (v1 `compare` v2)
+          -- NB: True > False!
 
 \end{code}
 

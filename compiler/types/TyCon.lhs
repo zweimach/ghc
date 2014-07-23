@@ -645,15 +645,6 @@ via the PromotedDataCon alternative in TyCon.
   the DataCon.  Eg. If the data constructor Data.Maybe.Just(unique 78,
   say) is promoted to a TyCon whose name is Data.Maybe.Just(unique 78)
 
-* The *kind* of a promoted DataCon may be polymorphic.  Example:
-    type of DataCon           Just :: forall (a:*). a -> Maybe a
-    kind of (promoted) tycon  Just :: forall (a:box). a -> Maybe a
-  The kind is not identical to the type, because of the */box
-  kind signature on the forall'd variable; so the tc_kind field of
-  the promoted tycon is not identical to the dataConUserType of the
-  DataCon.  But it's the same modulo changing the variable kinds,
-  done by DataCon.promoteType. See also Note [Promoted type constructors].
-
 * Small note: We promote the *user* type of the DataCon.  Eg
      data T = MkT {-# UNPACK #-} !(Bool, Bool)
   The promoted kind is

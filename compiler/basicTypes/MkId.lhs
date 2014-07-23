@@ -414,7 +414,7 @@ mkDataConWorkId wkr_name data_con
         ----------- Workers for newtypes --------------
     (nt_tvs, _, nt_arg_tys, _) = dataConSig data_con
     res_ty_args  = mkTyCoVarTys nt_tvs
-    nt_wrap_ty   = dataConUserType data_con
+    nt_wrap_ty   = dataConWrapperType data_con
     nt_work_info = noCafIdInfo          -- The NoCaf-ness is set by noCafIdInfo
                   `setArityInfo` 1      -- Arity 1
                   `setInlinePragInfo`    alwaysInlinePragma
@@ -482,7 +482,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
 
   | otherwise
   = do { wrap_args <- mapM newLocal wrap_arg_tys
-       ; wrap_body <- mk_rep_app (wrap_args `zip` dropList eq_spec unboxers) 
+       ; wrap_body <- mk_rep_app (wrap_args `zip` unboxers) 
                                  initial_wrap_app
 
        ; let wrap_id = mkGlobalId (DataConWrapId data_con) wrap_name wrap_ty wrap_info
@@ -498,7 +498,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
                     	     -- so it not make sure that the CAF info is sane
 
     	     wrap_sig = mkClosedStrictSig wrap_arg_dmds (dataConCPR data_con)
-    	     wrap_arg_dmds = map mk_dmd (dropList eq_spec wrap_bangs)
+    	     wrap_arg_dmds = map mk_dmd wrap_bangs
     	     mk_dmd str | isBanged str = evalDmd
     	                | otherwise    = topDmd
     	         -- The Cpr info can be important inside INLINE rhss, where the
@@ -511,10 +511,9 @@ mkDataConRep dflags fam_envs wrap_name data_con
     	         -- we want to see that w is strict in its two arguments
 
     	     wrap_unf = mkInlineUnfolding (Just wrap_arity) wrap_rhs
-             wrap_tvs = (univ_tvs `minusList` map fst eq_spec) ++ ex_tvs
-    	     wrap_rhs = mkLams wrap_tvs $ 
+    	     wrap_rhs = mkLams all_tvs $ 
     	                mkLams wrap_args $
-    	                wrapFamInstBody tycon res_ty_args $
+    	                wrapFamInstBody tycon (mkOnlyTyVarTys univ_tvs) $
                         wrap_body
 
        ; return (DCR { dcr_wrap_id = wrap_id
@@ -524,22 +523,18 @@ mkDataConRep dflags fam_envs wrap_name data_con
                      , dcr_bangs   = dropList ev_tys wrap_bangs }) }
 
   where
-    (univ_tvs, ex_tvs, eq_spec, theta, orig_arg_tys, _) = dataConFullSig data_con
-    res_ty_args  = substTyCoVars (mkTopTCvSubst eq_spec) univ_tvs
+    (univ_tvs, ex_tvs, eq_spec, theta, orig_arg_tys, _orig_res_ty)
+      = dataConFullSig data_con
+    all_tvs      = univ_tvs ++ ex_tvs
     tycon        = dataConTyCon data_con       -- The representation TyCon (not family)
-    wrap_ty      = dataConUserType data_con
     ev_tys       = eqSpecPreds eq_spec ++ theta
-    all_arg_tys  = ev_tys                         ++ orig_arg_tys
+    wrap_arg_tys = ev_tys                         ++ orig_arg_tys
     orig_bangs   = map mk_pred_strict_mark ev_tys ++ dataConStrictMarks data_con
-
-    wrap_arg_tys = theta ++ orig_arg_tys
+    wrap_ty      = dataConWrapperType data_con
     wrap_arity   = count isId ex_tvs + length wrap_arg_tys
-    	     -- The wrap_args are the arguments *other than* the eq_spec
-    	     -- Because we are going to apply the eq_spec args manually in the
-    	     -- wrapper
 
     (wrap_bangs, rep_tys_w_strs, wrappers)
-       = unzip3 (zipWith (dataConArgRep dflags fam_envs) all_arg_tys orig_bangs)
+       = unzip3 (zipWith (dataConArgRep dflags fam_envs) wrap_arg_tys orig_bangs)
     (unboxers, boxers) = unzip wrappers
     (rep_tys, rep_strs) = unzip (concat rep_tys_w_strs)
 
@@ -549,16 +544,12 @@ mkDataConRep dflags fam_envs wrap_name data_con
                     || isFamInstTyCon tycon)  -- Cast result
 
     initial_wrap_app = Var (dataConWorkId data_con)
-                      `mkTyApps`  res_ty_args
-    	              `mkVarApps` ex_tvs                 
-    	              `mkCoApps`  map (mkReflCo Nominal . snd) eq_spec
-    	                -- Dont box the eq_spec coercions since they are
-    	                -- marked as HsUnpack by mk_dict_strict_mark
+                      `mkVarApps` all_tvs
 
     mk_boxer :: [Boxer] -> DataConBoxer
     mk_boxer boxers = DCB (\ ty_args src_vars -> 
                       do { let ex_vars = takeList ex_tvs src_vars
-                               subst1 = mkTopTCvSubst (univ_tvs `zip` ty_args)
+                               subst1 = mkTopTCvSubst (all_tvs `zip` ty_args)
                                subst2 = extendTCvSubstList subst1 ex_tvs 
                                                           (mkTyCoVarTys ex_vars)
                          ; (rep_ids, binds) <- go subst2 boxers (dropList ex_tvs src_vars)

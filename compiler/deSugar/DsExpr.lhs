@@ -534,6 +534,7 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
 
                         -- Tediously wrap the application in a cast
                         -- Note [Update for GADTs]
+                       -- TODO (RAE): This won't work for kind equalities. Fix.
                  wrap_co = mkTcTyConAppCo Nominal tycon
                                 [ lookup tv ty | (tv,ty) <- univ_tvs `zip` out_inst_tys ]
                  lookup univ_tv ty = case lookupVarEnv wrap_subst univ_tv of

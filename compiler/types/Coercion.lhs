@@ -77,7 +77,8 @@ module Coercion (
 
         -- ** Lifting
         liftCoSubst, liftCoSubstTyVar, liftCoSubstWith, liftCoSubstWithEx,
-        emptyLiftingContext, liftCoSubstTyCoVar, liftSimply,
+        emptyLiftingContext, extendLiftingContext, extendLiftingContextIS,
+        liftCoSubstTyCoVar, liftSimply,
         liftCoSubstVarBndrCallback,
 
         LiftCoEnv, LiftingContext(..), liftEnvSubstLeft, liftEnvSubstRight,
@@ -517,7 +518,7 @@ mkTyConAppCo :: Role -> TyCon -> [CoercionArg] -> Coercion
 mkTyConAppCo r tc cos
                -- Expand type synonyms
   | Just (tv_co_prs, rhs_ty, leftover_cos) <- tcExpandTyCon_maybe tc cos
-  = mkAppCos (liftCoSubst r tv_co_prs rhs_ty) leftover_cos
+  = mkAppCos (liftCoSubst r (mkLiftingContext tv_co_prs) rhs_ty) leftover_cos
 
   | Just tys <- traverse isReflLike_maybe cos 
   = Refl r (mkTyConApp tc tys)    -- See Note [Refl invariant]
@@ -635,7 +636,7 @@ mkCoVarCo cv
 mkFreshCoVar :: InScopeSet -> Role -> Type -> Type -> CoVar
 mkFreshCoVar in_scope r ty1 ty2
   = let cv_uniq = mkCoVarUnique 31 -- arbitrary number
-        cv_name = mkSystemVarName cv_uniq (mkFastString "c") in
+        cv_name = mkSystemVarName cv_uniq (fsLit "c") in
     uniqAway in_scope $ mkCoVar cv_name (mkCoercionType r ty1 ty2)
 
 mkAxInstCo :: Role -> CoAxiom br -> BranchIndex -> [Type] -> Coercion
@@ -1457,17 +1458,17 @@ liftCoSubstWithEx :: Role          -- desired role for output coercion
                   -> (Type -> Coercion, [Type]) -- (lifting function, converted ex args)
 liftCoSubstWithEx role univs omegas exs rhos
   = let theta = mkLiftingContext (zipEqual "liftCoSubstWithExU" univs omegas)
-        psi   = extendLiftingContext theta (zipEqual "liftCoSubstWithExX" exs rhos)
+        psi   = extendLiftingContextEx theta (zipEqual "liftCoSubstWithExX" exs rhos)
     in (ty_co_subst psi role, substTys (lcSubstRight psi) (mkTyCoVarTys exs))
 
 liftCoSubstWith :: Role -> [TyCoVar] -> [CoercionArg] -> Type -> Coercion
 liftCoSubstWith r tvs cos ty
-  = liftCoSubst r (zipEqual "liftCoSubstWith" tvs cos) ty
+  = liftCoSubst r (mkLiftingContext $ zipEqual "liftCoSubstWith" tvs cos) ty
 
-liftCoSubst :: Role -> [(TyCoVar,CoercionArg)] -> Type -> Coercion
-liftCoSubst r prs ty
- | null prs  = Refl r ty
- | otherwise = ty_co_subst (mkLiftingContext prs) r ty
+liftCoSubst :: Role -> LiftingContext -> Type -> Coercion
+liftCoSubst r lc@(LC _ env) ty
+  | isEmptyVarEnv env = Refl r ty
+  | otherwise         = ty_co_subst lc r ty
 
 emptyLiftingContext :: InScopeSet -> LiftingContext
 emptyLiftingContext in_scope = LC in_scope emptyVarEnv
@@ -1476,9 +1477,28 @@ mkLiftingContext :: [(TyCoVar,CoercionArg)] -> LiftingContext
 mkLiftingContext prs = LC (mkInScopeSet (tyCoVarsOfCoArgs (map snd prs)))
                           (mkVarEnv prs)
 
-extendLiftingContext :: LiftingContext -> [(TyCoVar,Type)] -> LiftingContext
-extendLiftingContext lc [] = lc
-extendLiftingContext lc@(LC in_scope env) ((v,ty):rest)
+-- | Add a variable to the in-scope set of a lifting context
+extendLiftingContextIS :: LiftingContext -> Var -> LiftingContext
+extendLiftingContextIS (LC in_scope env) var
+  = LC (extendInScopeSet in_scope var) env
+
+-- | Extend a lifting context with a new /type/ mapping.
+extendLiftingContext :: LiftingContext  -- ^ original LC
+                     -> TyVar           -- ^ new variable to map...
+                     -> Coercion        -- ^ ...to this lifted version
+                     -> LiftingContext
+extendLiftingContext (LC in_scope env) tv co
+  = ASSERT( isTyVar tv )
+    LC in_scope (extendVarEnv env tv (TyCoArg co))
+
+-- | Extend a lifting context with existential-variable bindings.
+-- This follows the lifting context extension definition in the
+-- "FC with Explicit Kind Equality" paper.
+extendLiftingContextEx :: LiftingContext    -- ^ original lifting context
+                       -> [(TyCoVar,Type)]  -- ^ ex. var / value pairs
+                       -> LiftingContext
+extendLiftingContextEx lc [] = lc
+extendLiftingContextEx lc@(LC in_scope env) ((v,ty):rest)
 -- This function adds bindings for *Nominal* coercions. Why? Because it
 -- works with existentially bound variables, which are considered to have
 -- nominal roles.
@@ -1487,7 +1507,7 @@ extendLiftingContext lc@(LC in_scope env) ((v,ty):rest)
                  (extendVarEnv env v (TyCoArg $ mkSymCo $ mkCoherenceCo
                                          (mkReflCo Nominal ty)
                                          (ty_co_subst lc Nominal (tyVarKind v))))
-    in extendLiftingContext lc' rest
+    in extendLiftingContextEx lc' rest
   | CoercionTy co <- ty
   = let (_, _, s1, s2, r) = coVarKindsTypesRole v
         lc' = LC (in_scope `extendInScopeSetSet` tyCoVarsOfCo co)
@@ -1495,9 +1515,9 @@ extendLiftingContext lc@(LC in_scope env) ((v,ty):rest)
                                          (mkSymCo (ty_co_subst lc r s1)) `mkTransCo`
                                          co `mkTransCo`
                                          (ty_co_subst lc r s2)))
-    in extendLiftingContext lc' rest
+    in extendLiftingContextEx lc' rest
   | otherwise
-  = pprPanic "extendLiftingContext" (ppr v <+> ptext (sLit "|->") <+> ppr ty)
+  = pprPanic "extendLiftingContextEx" (ppr v <+> ptext (sLit "|->") <+> ppr ty)
 
 -- | The \"lifting\" operation which substitutes coercions for type
 --   variables in a type to produce a coercion.
