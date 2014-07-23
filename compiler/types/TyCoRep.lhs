@@ -503,12 +503,12 @@ data Coercion
   -- See Note [Coherence]
   -- See Note [Roles and kind coercions]
   | CoherenceCo Coercion Coercion
-     -- :: e -> e -> e
+     -- :: e -> R -> e
 
   -- Extract a kind coercion from a (heterogeneous) type coercion
   -- See Note [Roles and kind coercions]
   | KindCo Coercion
-     -- :: e -> e
+     -- :: e -> R
     
   | SubCo Coercion                  -- Turns a ~N into a ~R
     -- :: N -> R
@@ -947,72 +947,43 @@ g |> h :: t1 |> h ~ t2
 We must consider what the roles of CoherenceCo should be. I (Richard E.)
 propose this:
 
-g :: t1 ~N t2
-t1 |> (sub h) :: k 
----------------------- CoherenceCo_Nom
-g |> h :: t1 |> (sub h) ~N t2
+g :: t1 ~r t2
+t1 |> h :: k
+----------------------- CoherenceCo
+g |> h :: t1 |> h ~r t2
 
-g :: t1 ~R t2
-t1 |> h :: k 
----------------------- CoherenceCo_Rep
-g |> h :: t1 |> h ~R t2
+That is, the second coercion must be representational, while the first's
+role carries through to the result.
 
-That is, both coercions must have the same (non-phantom) role, and the
-coherence coercion has the same role as its constituents. Any other
-configuration seems to lead to problems.
-
-If the second coercion ("h") is allowed to always be representational, then we
-can get a proof of (True |> axSunny) ~N True. Recall that nominal equality
+This may lead to a proof (True |> axSunny) ~N True.
+Recall that nominal equality
 is supposed to be equality in surface Haskell. So, a statement
 ((True |> axSunny) ~N True) means that the two types should be indistinguishable
 in Haskell code. But, they're not indistinguishable! (True |> axSunny) is
 a desugaring of (coerce True), which is certainly distinct from plain old
-True.
-
-If we solve the problem in the above paragraph by making the result of
-a coherence coercion to be representational, then there is no way to
-show coherence among nominal coercions, violating a key design principle
-of the system.
-
-So, we seem to get the two roled rules above.
+True. We resolve this strangeness by noting that (True |> axSunny) and
+True *have different kinds*. Thus, clearly, they are distinguishable.
+Accordingly, we refine our intuition of nominal equality to say that if
+two types are nominally equal and have nominally-equal kinds, then the
+types are indistinguishable in Haskell code.
 
 From this discussion, we can also see how we have to modify the KindCo
 rule:
 
 g :: (~r) k1 k2 t1 t2
 --------------------- :: KindCo
-kind g :: k1 ~r k2
-
-The notion of equality used in (kind g) can certainly be no stronger
-(finer) that that used in g -- otherwise, a construction like
-(True |> axSunny) ~R True could lead to, say, Sunny ~N Bool. But,
-there seems to be no trouble if the equality used in (kind g) is
-*coarser* than the equality used in g. For example, we could imagine
-the following rule:
-
-g :: (~r) k1 k2 t1 t2
-r == R or r == N
------------------- :: KindCo'
 kind g :: k1 ~R k2
 
-This rule says that (kind g) is always representational. I can't
-currently see anything *wrong* with such a rule, but it seems unnecessarily
-weak. It shouldn't be a surprise that we have a choice here -- as
-discussed in the original paper, the presence or absence of KindCo was
-a free choice. So, it is logical that its strength is a free choice,
-as well.
+This rule says that (kind g) is always representational. Accordingly, we must
+be careful that (safe) phantom coercions do not relate types of different
+kinds. TODO (RAE): Expand this point.
 
 Other places that roles are non-trivial with kind coercions are in
 the "eta" coercions in TyHetero and CoHetero CoBndrs, and correspondingly
 in the output of NthCo on forall-coercions. It seems we can follow
-the pattern started here and just make these vary in their role alongside
-the role of the "primary" coercion involved. The motivation here is
-less clear, but it can stem from a desire to treat (->) as a
-degenerate forall. For example, if g1 = (->) g2 g3, then g2 and g3
-must have the same role, and g1 will also have that role. This is
-like saying "h1 = forall _:h2. h3" (the syntax of lifted forall
-coercions is not quite like this!) should behave the same way, which
-is exactly what we do. See docs/core-spec/core-spec.pdf for the
+the pattern started here and just make these be representational --
+this seems strictly more flexible than any other arrangement.
+See docs/core-spec/core-spec.pdf for the
 exact rules.
 
 Note [InstCo roles]
@@ -1811,7 +1782,7 @@ substForAllCoBndrCallback sym sty sco subst (TyHetero h tv1 tv2 cv)
     then let subst4 = extendTCvSubstList subst1   -- yes, subst1!
                         [tv2,                cv]
                         [mkOnlyTyVarTy tv1', CoercionTy $
-                                             mkReflCo (coVarRole cv) (tyVarKind tv1')] in
+                                             mkReflCo Nominal (tyVarKind tv1')] in
          (subst4, TyHomo tv1')
     else if sym
          then (subst3, (TyHetero $! h') tv2' tv1' cv')

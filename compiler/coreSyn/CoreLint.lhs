@@ -942,7 +942,7 @@ lintCoercion g@(ForAllCo (TyHetero h tv1 tv2 cv) co)
        ; lintL (not (k1 `eqType` k2)) (mkBadHeteroCoMsg h g)
        ; ensureEqTys k1 (tyVarKind tv1) (mkBadHeteroVarMsg CLeft k1 tv1 g)
        ; ensureEqTys k2 (tyVarKind tv2) (mkBadHeteroVarMsg CRight k2 tv2 g)
-       ; ensureEqTys (mkCoercionType r (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2))
+       ; ensureEqTys (mkCoercionType Nominal (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2))
                   (coVarKind cv) (mkBadHeteroCoVarMsg tv1 tv2 cv g)
        ; let tyl = mkNamedForAllTy tv1 Invisible t1
        ; let tyr = mkNamedForAllTy tv2 Invisible t2
@@ -1108,18 +1108,13 @@ lintCoercion co@(AxiomInstCo con ind cos)
 
 lintCoercion (CoherenceCo co1 co2)
   = do { (_, k2, t1, t2, r) <- lintCoercion co1
-       ; co2' <- case r of
-                   Nominal          -> return $ mkSubCo co2
-                   Representational -> return co2
-                   Phantom          ->
-                     failWithL $ (text "Cannot use CoherenceCo with a phantom coercion:") <+> ppr co1
-       ; let lhsty = mkCastTy t1 co2'
+       ; let lhsty = mkCastTy t1 co2
        ; k1' <- lintType lhsty
        ; return (k1', k2, lhsty, t2, r) }
 
 lintCoercion (KindCo co)
-  = do { (k1, k2, _, _, r) <- lintCoercion co
-       ; return (liftedTypeKind, liftedTypeKind, k1, k2, r) }
+  = do { (k1, k2, _, _, _) <- lintCoercion co
+       ; return (liftedTypeKind, liftedTypeKind, k1, k2, Representational) }
 
 lintCoercion (SubCo co')
   = do { (k1,k2,s,t,r) <- lintCoercion co'

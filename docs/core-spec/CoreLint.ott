@@ -205,19 +205,12 @@ G |-ty forall alpha_k.t2 : k2
 --------------------------------------------------------------------------- :: ForAllCo_TyHomo
 G |-co forall alpha_k. g : (forall alpha_k. t1) k1~R k2 (forall alpha_k. t2)
 
-G |-co h : k1 *~Nom * k2
-G, alpha1_k1, alpha2_k2, c_(alpha1$ k1~#k2 alpha2$) |-co g : t1 k3~Nom k4 t2
+G |-co h : k1 *~R * k2
+G, alpha1_k1, alpha2_k2, c_(alpha1$ k1~#k2 alpha2$) |-co g : t1 k3~R k4 t2
 G |-ty forall alpha1_k1.t1 : k3
 G |-ty forall alpha2_k2.t2 : k4
------------------------------------------------------------------------------------------------ :: ForAllCo_TyHetero_Nom
-G |-co forall h (alpha1_k1, alpha2_k2, c$). g : (forall alpha1_k1. t1) k3~Nom k4 (forall alpha2_k2. t2)
-
-G |-co h : k1 *~Rep * k2
-G, alpha1_k1, alpha2_k2, c_(alpha1$ k1~Rep#k2 alpha2$) |-co g : t1 k3~Rep k4 t2
-G |-ty forall alpha1_k1.t1 : k3
-G |-ty forall alpha2_k2.t2 : k4
------------------------------------------------------------------------------------------------ :: ForAllCo_TyHetero_Rep
-G |-co forall h (alpha1_k1, alpha2_k2, c$). g : (forall alpha1_k1. t1) k3~Rep k4 (forall alpha2_k2. t2)
+----------------------------------------------------------------------------------------------- :: ForAllCo_TyHetero
+G |-co forall h (alpha1_k1, alpha2_k2, c$). g : (forall alpha1_k1. t1) k3~R k4 (forall alpha2_k2. t2)
 
 c # |g|
 G, c_phi |-co g : t1 k1~R k2 t2
@@ -248,7 +241,7 @@ G |-co z_phi : t1 k1 ~Rep k2 t2
 
 G |-ty t1 : k1
 G |-ty t2 : k2
------------------------------ :: UnsafeCo
+----------------------------- :: UnivCo
 G |-co t1 ==>!_R t2 : t1 k1~R k2 t2
 
 G |-co g : t1 k1~R k2 t2
@@ -309,19 +302,14 @@ G |-ty t2 : k'
 ------------------------------------------------------ :: AxiomInstCo
 G |-co C ind </ wi // i /> : s2 k~R0 k' t2
 
-G |-co g : t1 k1~Nom k2 t2
-G |-ty t1 |> sub h : k1'
----------------------------------- :: CoherenceCo_Nom
-G |-co g |> h : t1 |> sub h k1'~Nom k2 t2
-
-G |-co g : t1 k1~Rep k2 t2
+G |-co g : t1 k1~R k2 t2
 G |-ty t1 |> h : k1'
----------------------------------- :: CoherenceCo_Rep
-G |-co g |> h : t1 |> h k1'~Rep k2 t2
+---------------------------------- :: CoherenceCo
+G |-co g |> h : t1 |> sub h k1'~R k2 t2
 
 G |-co g : t1 k1~R k2 t2
 -------------------------- :: KindCo
-G |-co kind g : k1 *~R * k2
+G |-co kind g : k1 *~Rep * k2
 
 G |-co g : s k' ~Nom k t
 ------------------------- :: SubCo

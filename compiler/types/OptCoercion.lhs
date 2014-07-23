@@ -314,28 +314,28 @@ opt_co env sym mrole (CoherenceCo co1 co2)
   | UnivCo r tyl1 tyr1 <- co1
   = opt_co env sym Nothing
      (mkUnivCo (mrole `orElse` r)
-               (mkCastTy tyl1 (to_rep r co2))
+               (mkCastTy tyl1 co2)
                tyr1)
-  | UnivCo r tyl1' tyr1' <- co1'
-  = if sym then mkUnivCo r tyl1' (mkCastTy tyr1' (to_rep r co2'))
-           else mkUnivCo r (mkCastTy tyl1' (to_rep r co2')) tyr1'
   | TransCo col1 cor1 <- co1
   = opt_co env sym mrole (mkTransCo (mkCoherenceCo col1 co2) cor1)
+  | CoherenceCo col1 cor1 <- co1
+  = opt_co env sym mrole (mkCoherenceCo col1 (mkTransCo cor1 co2))
+    
+  | UnivCo r tyl1' tyr1' <- co1'
+  = if sym then mkUnivCo r tyl1' (mkCastTy tyr1' co2')
+           else mkUnivCo r (mkCastTy tyl1' co2') tyr1'
   | TransCo col1' cor1' <- co1'
   = if sym then opt_trans in_scope col1'
                   (optCoercion (zapTCvSubst env) (mkCoherenceRightCo cor1' co2'))
            else opt_trans in_scope (mkCoherenceCo col1' co2') cor1'
-  | CoherenceCo col1 cor1 <- co1
-  = opt_co env sym mrole (mkCoherenceCo col1 (mkTransCo cor1 co2))
   | CoherenceCo col1' cor1' <- co1'
   = if sym then mkCoherenceCo (mkSymCo col1') (opt_trans in_scope cor1' co2')
            else mkCoherenceCo col1' (opt_trans in_scope cor1' co2')
   | otherwise
   = wrapSym sym $ CoherenceCo (opt_co env False mrole co1) co2'
   where co1' = opt_co env sym mrole co1
-        co2' = opt_co env False mrole co2
+        co2' = opt_co env False Nothing co2
         in_scope = getTCvInScope env
-        to_rep = maybeSubCo2 Representational
 
 opt_co env sym mrole (KindCo co)
   = opt_co env sym mrole (promoteCoercion co)
@@ -855,20 +855,15 @@ etaForAllCo_maybe is co
 
     -- heterogeneous:
     else if isTyVar tv1
-         then case coercionRole co of
-                Nominal ->
-                  let covar = mkFreshCoVar is Nominal (mkOnlyTyVarTy tv1)
-                                                      (mkOnlyTyVarTy tv2)
-                  in
-                  Just ( mkTyHeteroCoBndr (mkNthCo 0 co) tv1 tv2 covar
-                       , mkInstCo co (TyCoArg (mkCoVarCo covar)))
-
-                -- if (coercionRole co) isn't nominal, then the mkInstCo
-                -- above is bogus. There's no easy solution here, so give up.
-                -- If this is causing pain, see Note [InstCo roles] in
-                -- Coercion for some ideas of how to make better.
-                _ -> Nothing
-         else Just ( mkCoHeteroCoBndr (mkNthCo 0 co) tv1 tv2
+         then let covar = mkFreshCoVar is Nominal (mkOnlyTyVarTy tv1)
+                                                  (mkOnlyTyVarTy tv2)
+              in
+              Just ( mkTyHeteroCoBndr (mkNthCo 0 co) tv1 tv2 covar
+                   , mkInstCo co (TyCoArg (mkCoVarCo covar)))
+         else -- TODO (RAE): This mkNthCo has a suspect role. The eta
+              -- coercion in a CoHetero should match the role of the covars.
+              -- but mkNthCo 0 co is probably representational.
+              Just ( mkCoHeteroCoBndr (mkNthCo 0 co) tv1 tv2
                    , mkInstCo co (CoCoArg Nominal (mkCoVarCo tv1) (mkCoVarCo tv2)))
 
   | otherwise

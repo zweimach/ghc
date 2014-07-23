@@ -385,9 +385,9 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
   
   | TyHetero eta1 tvl1 tvr1 cv1 <- cobndr1
   , TyHomo tv2 <- cobndr2
-  = do { let role = coVarRole cv1
-       ; (tsubst1, csubst1) <- match_co menv tsubst csubst 
-                                        eta1 (mkReflCo role (tyVarKind tv2))
+  = do { (tsubst1, csubst1) <- match_co menv tsubst csubst 
+                                        eta1 (mkReflCo Representational
+                                                       (tyVarKind tv2))
        ; (tsubst2, csubst2) <- match_kind menv tsubst1 csubst1 (tyVarKind tvl1)
                                                                (tyVarKind tvr1)
        ; let rn_env = me_env menv
@@ -395,7 +395,7 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
              homogenized = substCoWithIS in_scope
                                          [tvr1,               cv1]
                                          [mkOnlyTyVarTy tvl1, mkCoercionTy $
-                                                              mkReflCo role (mkOnlyTyVarTy tvl1)]
+                                                              mkReflCo Nominal (mkOnlyTyVarTy tvl1)]
                                          co1
              menv' = menv { me_env = rnBndr2 rn_env tvl1 tv2 }
        ; match_co menv' tsubst2 csubst2 homogenized co2 }
@@ -420,7 +420,7 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
 
   | CoHetero eta1 cvl1 cvr1 <- cobndr1
   , CoHomo cv2 <- cobndr2
-  = do { let role = coercionRole eta1
+  = do { let role = coVarRole cvl1
        ; (tsubst1, csubst1) <- match_co menv tsubst csubst
                                         eta1 (mkReflCo role (coVarKind cv2))
        ; (tsubst2, csubst2) <- match_ty menv tsubst1 csubst1 (coVarKind cvl1)
@@ -1020,7 +1020,10 @@ unify_co' g1@(ForAllCo cobndr1 co1) g2@(ForAllCo cobndr2 co2)
 
   | Just (eta1, lv1, rv1) <- splitHeteroCoBndr_maybe cobndr1
   , Just v2               <- getHomoVar_maybe cobndr2
-  = do { unify_co eta1 (mkReflCo Nominal (varType v2))
+  = do { let eta_role = if isCoVar lv1
+                        then coVarRole lv1
+                        else Representational
+       ; unify_co eta1 (mkReflCo eta_role (varType v2))
        ; unify_ty (varType lv1) (varType rv1)
        ; homogenize $ \co1' ->
          umRnBndr2 lv1 v2 $
@@ -1033,7 +1036,7 @@ unify_co' g1@(ForAllCo cobndr1 co1) g2@(ForAllCo cobndr2 co2)
                         { TyHetero _ ltv1 rtv1 cv1
                             -> let lty = mkOnlyTyVarTy ltv1 in
                                substCoWithIS in_scope [rtv1, cv1]
-                                                      [lty,  mkCoercionTy $ mkReflCo (coVarRole cv1) lty] co1
+                                                      [lty,  mkCoercionTy $ mkReflCo Nominal lty] co1
                         ; CoHetero _ lcv1 rcv1
                             -> let lco = mkCoVarCo lcv1 in
                                substCoWithIS in_scope [rcv1] [mkCoercionTy lco] co1
@@ -1646,23 +1649,10 @@ ty_co_match menv subst (ForAllTy (Named tv _) ty) (ForAllCo cobndr co)
 ty_co_match menv subst (CastTy ty1 co1) co
   | Pair (CastTy _ col) (CastTy _ cor) <- coercionKind co
   = do { subst1 <- ty_co_match_lr menv subst co1 col cor
-         -- we need co, cor, and col to have the same roles. But, they
-         -- might not. If they differ, we try to twiddle col and cor.
-       ; (col', cor') <-
-           case coercionRole co of
-             Nominal -> do
-               col' <- unSubCo_maybe col
-               cor' <- unSubCo_maybe cor
-               return (col', cor')
-             Representational ->
-               return (col, cor)
-             Phantom ->
-               return (mkPhantomCo col, mkPhantomCo cor)
-                   
          -- don't use castCoercionKind! See Note [ty_co_match CastTy case]
        ; ty_co_match menv subst1 ty1
-                     (opt_coh (co `mkCoherenceRightCo` (mkSymCo cor')
-                                  `mkCoherenceLeftCo` (mkSymCo col'))) }
+                     (opt_coh (co `mkCoherenceRightCo` (mkSymCo cor)
+                                  `mkCoherenceLeftCo` (mkSymCo col))) }
   where
     -- in a very limited number of cases, optimize CoherenceCo
     -- see Note [ty_co_match CastTy case]
