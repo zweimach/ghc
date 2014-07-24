@@ -1012,7 +1012,8 @@ zonkTcType ty
     go_co (AppCo co arg)            = AppCo <$> go_co co <*> go_arg arg
     go_co (CoVarCo cv)              = CoVarCo <$> zonkTyCoVarKind cv
     go_co (AxiomInstCo ax ind args) = AxiomInstCo ax ind <$> mapM go_arg args
-    go_co (UnivCo r ty1 ty2)        = UnivCo r <$> go ty1 <*> go ty2
+    go_co (PhantomCo h ty1 ty2)     = PhantomCo <$> go_co h <*> go ty1 <*> go ty2
+    go_co (UnsafeCo r ty1 ty2)      = UnsafeCo r <$> go ty1 <*> go ty2
     go_co (SymCo co)                = SymCo <$> go_co co
     go_co (TransCo co1 co2)         = TransCo <$> go_co co1 <*> go_co co2
     go_co (NthCo n co)              = NthCo n <$> go_co co

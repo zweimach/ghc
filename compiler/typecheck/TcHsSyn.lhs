@@ -1393,8 +1393,11 @@ zonkCoToCo env co
                                            <*> zonkCoArgToCoArg env arg
     go (AxiomInstCo ax ind args) = mkAxiomInstCo ax ind
                                      <$> mapM (zonkCoArgToCoArg env) args
-    go (UnivCo r ty1 ty2)        = mkUnivCo r <$> zonkTcTypeToType env ty1
-                                              <*> zonkTcTypeToType env ty2
+    go (PhantomCo h t1 t2)       = mkPhantomCo <$> go h
+                                               <*> zonkTcTypeToType env t1
+                                               <*> zonkTcTypeToType env t2
+    go (UnsafeCo r ty1 ty2)      = mkUnsafeCo r <$> zonkTcTypeToType env ty1
+                                                <*> zonkTcTypeToType env ty2
     go (SymCo co)                = mkSymCo <$> go co
     go (TransCo co1 co2)         = mkTransCo <$> go co1 <*> go co2
     go (NthCo n co)              = mkNthCo n <$> go co

@@ -915,7 +915,8 @@ checkTauTvUpdate dflags tv ty
     defer_me_co (ForAllCo _ co)      = not impredicative || defer_me_co co
     defer_me_co (CoVarCo _)          = False
     defer_me_co (AxiomInstCo _ _ as) = any defer_me_arg as
-    defer_me_co (UnivCo _ ty1 ty2)   = defer_me ty1 || defer_me ty2
+    defer_me_co (PhantomCo h t1 t2)  = defer_me_co h || defer_me t1 || defer_me t2
+    defer_me_co (UnsafeCo _ ty1 ty2) = defer_me ty1 || defer_me ty2
     defer_me_co (SymCo co)           = defer_me_co co
     defer_me_co (TransCo co1 co2)    = defer_me_co co1 || defer_me_co co2
     defer_me_co (NthCo _ co)         = defer_me_co co

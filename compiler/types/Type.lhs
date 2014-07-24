@@ -335,8 +335,10 @@ expandTypeSynonyms ty
       = substCoVar subst cv
     go_co subst (AxiomInstCo ax ind args)
       = mkAxiomInstCo ax ind (map (go_arg subst) args)
-    go_co subst (UnivCo r ty1 ty2)
-      = mkUnivCo r (go subst ty1) (go subst ty2)
+    go_co subst (PhantomCo h t1 t2)
+      = mkPhantomCo (go_co subst h) (go subst t1) (go subst t2)
+    go_co subst (UnsafeCo r ty1 ty2)
+      = mkUnsafeCo r (go subst ty1) (go subst ty2)
     go_co subst (SymCo co)
       = mkSymCo (go_co subst co)
     go_co subst (TransCo co1 co2)
@@ -1787,7 +1789,8 @@ tyConsOfType ty
        where var_names = go_s (snd (coBndrVarsKinds cobndr))
      go_co (CoVarCo {})            = emptyNameEnv
      go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_args args
-     go_co (UnivCo _ ty1 ty2)      = go ty1 `plusNameEnv` go ty2
+     go_co (PhantomCo h t1 t2)     = go_co h `plusNameEnv` go t1 `plusNameEnv` go t2
+     go_co (UnsafeCo _ ty1 ty2)    = go ty1 `plusNameEnv` go ty2
      go_co (SymCo co)              = go_co co
      go_co (TransCo co1 co2)       = go_co co1 `plusNameEnv` go_co co2
      go_co (NthCo _ co)            = go_co co

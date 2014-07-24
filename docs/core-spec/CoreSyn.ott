@@ -127,7 +127,9 @@ g {{ tex \gamma }}, h {{ tex \eta }} :: 'Coercion_' ::= {{ com Coercions, \coder
   | forall cobndr . g       ::   :: ForAllCo      {{ com \ctor{ForAllCo}: Polymorphism }}
   | n                       ::   :: CoVarCo       {{ com \ctor{CoVarCo}: Variable }}
   | C ind </ wi // i />     ::   :: AxiomInstCo   {{ com \ctor{AxiomInstCo}: Axiom application }}
-  | t1 ==>! RA t2           ::   :: UnivCo        {{ com \ctor{UnivCo}: Universal (unsafe) coercion }}
+  | < t1 , t2 > _ h         ::   :: PhantomCo     {{ com \ctor{PhantomCo}: Phantom coercion }}
+    {{ tex \langle [[t1]], [[t2]] \rangle _{[[h]]} }}
+  | t1 ==>! RA t2           ::   :: UnsafeCo      {{ com \ctor{UnsafeCo}: Unsafe coercion }}
   | sym g                   ::   :: SymCo         {{ com \ctor{SymCo}: Symmetry }}
   | g1 ; g2                 ::   :: TransCo       {{ com \ctor{TransCo}: Transitivity }}
   | mu </ ti // i /> $ </ gj // j />

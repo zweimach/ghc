@@ -16,7 +16,8 @@ mkAppCo :: Coercion -> CoercionArg -> Coercion
 mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
 mkCoVarCo :: CoVar -> Coercion
 mkAxiomInstCo :: CoAxiom Branched -> BranchIndex -> [CoercionArg] -> Coercion
-mkUnivCo :: Role -> Type -> Type -> Coercion
+mkPhantomCo :: Coercion -> Type -> Type -> Coercion
+mkUnsafeCo :: Role -> Type -> Type -> Coercion
 mkSymCo :: Coercion -> Coercion
 mkTransCo :: Coercion -> Coercion -> Coercion
 mkNthCo :: Int -> Coercion -> Coercion

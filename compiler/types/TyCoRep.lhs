@@ -482,8 +482,15 @@ data Coercion
      -- any left over, we use AppCo.
      -- See [Coercion axioms applied to coercions]
 
-    -- see Note [UnivCo]
-  | UnivCo Role Type Type      -- :: "e" -> _ -> _ -> e
+  | PhantomCo Coercion Type Type
+      -- :: R -> _ -> _ -> P
+      -- The Coercion proves that the two *kinds* of the types are
+      -- representationally equal. This is necessary so that KindCo
+      -- (which always returns a representational coercion) is
+      -- sensible.
+    
+  | UnsafeCo Role Type Type    -- :: "e" -> _ -> _ -> e
+    
   | SymCo Coercion             -- :: e -> e
   | TransCo Coercion Coercion  -- :: e -> e -> e
 
@@ -864,39 +871,9 @@ following definition
 data Q a = MkQ Int
 
 the Phantom role allows us to say that (Q Bool) ~R (Q Char), because we
-can construct the coercion Bool ~P Char (using UnivCo).
+can construct the coercion Bool ~P Char (using PhantomCo).
 
 See the paper cited above for more examples and information.
-
-Note [UnivCo]
-~~~~~~~~~~~~~
-The UnivCo ("universal coercion") serves two rather separate functions:
- - the implementation for unsafeCoerce#
- - placeholder for phantom parameters in a TyConAppCo
-
-At Representational, it asserts that two (possibly unrelated)
-types have the same representation and can be casted to one another.
-This form is necessary for unsafeCoerce#.
-
-For optimisation purposes, it is convenient to allow UnivCo to appear
-at Nominal role. If we have
-
-data Foo a = MkFoo (F a)   -- F is a type family
-
-and we want an unsafe coercion from Foo Int to Foo Bool, then it would
-be nice to have (TyConAppCo Foo (UnivCo Nominal Int Bool)). So, we allow
-Nominal UnivCo's.
-
-At Phantom role, it is used as an argument to TyConAppCo in the place
-of a phantom parameter (a type parameter unused in the type definition).
-
-For example:
-
-data Q a = MkQ Int
-
-We want a coercion for (Q Bool) ~R (Q Char).
-
-(TyConAppCo Representational Q [UnivCo Phantom Bool Char]) does the trick.
 
 Note [TyConAppCo roles]
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -1045,7 +1022,8 @@ tyVarsOnlyOfCo (ForAllCo cobndr co)
     tyVarsOnlyOfCo co `delVarSetList` vars `unionVarSet` tyVarsOnlyOfTypes kinds
 tyVarsOnlyOfCo (CoVarCo _)         = emptyVarSet
 tyVarsOnlyOfCo (AxiomInstCo _ _ cos) = tyVarsOnlyOfCoArgs cos
-tyVarsOnlyOfCo (UnivCo _ ty1 ty2)  = tyVarsOnlyOfType ty1 `unionVarSet` tyVarsOnlyOfType ty2
+tyVarsOnlyOfCo (PhantomCo h t1 t2) = tyVarsOnlyOfCo h `unionVarSet` tyVarsOnlyOfType t1 `unionVarSet` tyVarsOnlyOfType t2
+tyVarsOnlyOfCo (UnsafeCo _ t1 t2)  = tyVarsOnlyOfType t1 `unionVarSet` tyVarsOnlyOfType t2
 tyVarsOnlyOfCo (SymCo co)          = tyVarsOnlyOfCo co
 tyVarsOnlyOfCo (TransCo co1 co2)   = tyVarsOnlyOfCo co1 `unionVarSet` tyVarsOnlyOfCo co2
 tyVarsOnlyOfCo (NthCo _ co)        = tyVarsOnlyOfCo co
@@ -1094,7 +1072,8 @@ tyCoVarsOfCo (ForAllCo cobndr co)
     tyCoVarsOfCo co `delVarSetList` vars `unionVarSet` tyCoVarsOfTypes kinds
 tyCoVarsOfCo (CoVarCo v)         = unitVarSet v
 tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCoArgs cos
-tyCoVarsOfCo (UnivCo _ ty1 ty2)
+tyCoVarsOfCo (PhantomCo h t1 t2)   = tyCoVarsOfCo h `unionVarSet` tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
+tyCoVarsOfCo (UnsafeCo _ ty1 ty2)
   = tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2
 tyCoVarsOfCo (SymCo co)          = tyCoVarsOfCo co
 tyCoVarsOfCo (TransCo co1 co2)   = tyCoVarsOfCo co1 `unionVarSet` tyCoVarsOfCo co2
@@ -1140,7 +1119,8 @@ coVarsOfCo (ForAllCo cobndr co)
     coVarsOfCo co `delVarSetList` vars `unionVarSet` coVarsOfTypes kinds
 coVarsOfCo (CoVarCo v)         = unitVarSet v
 coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCoArgs args
-coVarsOfCo (UnivCo _ ty1 ty2)  = coVarsOfTypes [ty1, ty2]
+coVarsOfCo (PhantomCo h t1 t2) = coVarsOfCo h `unionVarSet` coVarsOfTypes [t1, t2]
+coVarsOfCo (UnsafeCo _ t1 t2)  = coVarsOfTypes [t1, t2]
 coVarsOfCo (SymCo co)          = coVarsOfCo co
 coVarsOfCo (TransCo co1 co2)   = coVarsOfCo co1 `unionVarSet` coVarsOfCo co2
 coVarsOfCo (NthCo _ co)        = coVarsOfCo co
@@ -1749,7 +1729,8 @@ subst_co subst co
           (mkForAllCo $! cobndr') $! subst_co subst' co }
     go (CoVarCo cv)          = substCoVar subst cv
     go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go_arg cos
-    go (UnivCo r ty1 ty2)    = (mkUnivCo r $! go_ty ty1) $! go_ty ty2
+    go (PhantomCo h t1 t2)   = ((mkPhantomCo $! (go h)) $! (go_ty t1)) $! (go_ty t2)
+    go (UnsafeCo r ty1 ty2)  = (mkUnsafeCo r $! go_ty ty1) $! go_ty ty2
     go (SymCo co)            = mkSymCo $! (go co)
     go (TransCo co1 co2)     = (mkTransCo $! (go co1)) $! (go co2)
     go (NthCo d co)          = mkNthCo d $! (go co)
@@ -2381,7 +2362,8 @@ tidyCo env@(_, subst) co
                                  Just cv' -> CoVarCo cv'
     go (AxiomInstCo con ind cos) = let args = map go_arg cos
                                in  args `seqList` AxiomInstCo con ind args
-    go (UnivCo r ty1 ty2)    = (UnivCo r $! tidyType env ty1) $! tidyType env ty2
+    go (PhantomCo h t1 t2)   = ((PhantomCo $! go h) $! tidyType env t1) $! tidyType env t2
+    go (UnsafeCo r ty1 ty2)  = (UnsafeCo r $! tidyType env ty1) $! tidyType env ty2
     go (SymCo co)            = SymCo $! go co
     go (TransCo co1 co2)     = (TransCo $! go co1) $! go co2
     go (NthCo d co)          = NthCo d $! go co

@@ -1243,7 +1243,8 @@ fvCo (ForAllCo cobndr co)   = (fvCo co \\ coBndrVars cobndr)
                                    Nothing        -> []
 fvCo (CoVarCo v)            = [v]
 fvCo (AxiomInstCo _ _ args) = concatMap fvCoArg args 
-fvCo (UnivCo _ ty1 ty2)     = fvType ty1 ++ fvType ty2
+fvCo (PhantomCo h t1 t2)    = fvCo h ++ fvType t1 ++ fvType t2
+fvCo (UnsafeCo _ ty1 ty2)   = fvType ty1 ++ fvType ty2
 fvCo (SymCo co)             = fvCo co
 fvCo (TransCo co1 co2)      = fvCo co1 ++ fvCo co2
 fvCo (NthCo _ co)           = fvCo co

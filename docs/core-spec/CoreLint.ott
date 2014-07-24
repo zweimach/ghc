@@ -239,9 +239,15 @@ phi = t1 k1 ~Rep# k2 t2
 --------------------- :: CoVarCoRepr
 G |-co z_phi : t1 k1 ~Rep k2 t2
 
+G |-co h : k1 *~Rep* k2
 G |-ty t1 : k1
 G |-ty t2 : k2
------------------------------ :: UnivCo
+-------------- :: PhantomCo
+G |-co <t1,t2>_h : t1 k1 ~Ph k2 t2
+
+G |-ty t1 : k1
+G |-ty t2 : k2
+----------------------------- :: UnsafeCo
 G |-co t1 ==>!_R t2 : t1 k1~R k2 t2
 
 G |-co g : t1 k1~R k2 t2

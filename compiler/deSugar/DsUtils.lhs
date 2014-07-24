@@ -616,7 +616,7 @@ mkSelectorBinds ticks pat val_expr
         return (bndr_var, mkOptTickBox tick rhs_expr)
       where
         error_expr = mkCast (Var err_var) co
-        co         = mkUnsafeCo (exprType (Var err_var)) (idType bndr_var)
+        co         = mkUnsafeCo Representational (exprType (Var err_var)) (idType bndr_var)
 
     is_simple_lpat p = is_simple_pat (unLoc p)
 

@@ -29,7 +29,8 @@ module Coercion (
         mkSymCo, mkTransCo, mkNthCo, mkNthCoRole, mkLRCo,
         mkInstCo, mkAppCo, mkAppCoFlexible, mkTyConAppCo, mkFunCo,
         mkForAllCo, mkForAllCo_TyHomo, mkForAllCo_CoHomo,
-        mkUnsafeCo, mkUnivCo, mkUnsafeCoArg, mkSubCo, mkPhantomCo,
+        mkPhantomCo, mkHomoPhantomCo,
+        mkUnsafeCo, mkUnsafeCoArg, mkSubCo,
         mkNewTypeCo, mkAppCos, mkAxiomInstCo,
         maybeSubCo, maybeSubCo2, mkAxiomRuleCo,
         mkCoherenceCo, mkCoherenceRightCo, mkCoherenceLeftCo,
@@ -155,7 +156,8 @@ coercionSize (AppCo co arg)      = coercionSize co + coercionArgSize arg
 coercionSize (ForAllCo _ co)     = 1 + coercionSize co
 coercionSize (CoVarCo _)         = 1
 coercionSize (AxiomInstCo _ _ args) = 1 + sum (map coercionArgSize args)
-coercionSize (UnivCo _ ty1 ty2)  = typeSize ty1 + typeSize ty2
+coercionSize (PhantomCo h t1 t2) = 1 + coercionSize h + typeSize t1 + typeSize t2
+coercionSize (UnsafeCo _ t1 t2)  = 1 + typeSize t1 + typeSize t2
 coercionSize (SymCo co)          = 1 + coercionSize co
 coercionSize (TransCo co1 co2)   = 1 + coercionSize co1 + coercionSize co2
 coercionSize (NthCo _ co)        = 1 + coercionSize co
@@ -217,7 +219,8 @@ ppr_co p co@(TransCo {}) = maybeParen p FunPrec $
 ppr_co p (InstCo co arg) = maybeParen p TyConPrec $
                            pprParendCo co <> ptext (sLit "@") <> ppr_arg TopPrec arg
 
-ppr_co p (UnivCo r ty1 ty2) = pprPrefixApp p (ptext (sLit "UnivCo") <+> ppr r)
+ppr_co _ (PhantomCo h t1 t2) = angleBrackets ( ppr t1 <> comma <+> ppr t2 ) <> char '_' <> pprParendCo h
+ppr_co p (UnsafeCo r ty1 ty2) = pprPrefixApp p (ptext (sLit "UnsafeCo") <+> ppr r)
                                            [pprParendType ty1, pprParendType ty2]
 ppr_co p (SymCo co)          = pprPrefixApp p (ptext (sLit "Sym")) [pprParendCo co]
 ppr_co p (NthCo n co)        = pprPrefixApp p (ptext (sLit "Nth:") <> int n) [pprParendCo co]
@@ -551,7 +554,7 @@ mkAppCoFlexible (TyConAppCo r tc cos) r2 co
       Representational -> TyConAppCo Representational tc (cos ++ [co'])
         where new_role = (tyConRolesX Representational tc) !! (length cos)
               co'      = maybeSubCoArg2 new_role r2 co
-      Phantom          -> TyConAppCo Phantom tc (cos ++ [mkPhantomCoArg co])
+      Phantom          -> TyConAppCo Phantom tc (cos ++ [toPhantomCoArg co])
 mkAppCoFlexible co1 _r2 co2
   = ASSERT( _r2 == Nominal )
     AppCo co1 co2
@@ -660,20 +663,17 @@ mkUnbranchedAxInstRHS ax = mkAxInstRHS ax 0
 --   bottom, which is one case in which it is safe.  This is also used
 --   to implement the @unsafeCoerce#@ primitive.  Optimise by pushing
 --   down through type constructors.
-mkUnsafeCo :: Type -> Type -> Coercion
-mkUnsafeCo = mkUnivCo Representational
-
-mkUnivCo :: Role -> Type -> Type -> Coercion
-mkUnivCo role ty1 ty2
+mkUnsafeCo :: Role -> Type -> Type -> Coercion
+mkUnsafeCo role ty1 ty2
   | ty1 `eqType` ty2 = Refl role ty1
-  | otherwise        = UnivCo role ty1 ty2
+  | otherwise        = UnsafeCo role ty1 ty2
 
 -- TODO (RAE): Remove this if unused.
 mkUnsafeCoArg :: Role -> Type -> Type -> CoercionArg
 mkUnsafeCoArg r (CoercionTy co1) (CoercionTy co2) = CoCoArg r co1 co2
 mkUnsafeCoArg role ty1 ty2
   = ASSERT( not (isCoercionTy ty1) && not (isCoercionTy ty2) )
-    TyCoArg $ mkUnivCo role ty1 ty2
+    TyCoArg $ mkUnsafeCo role ty1 ty2
 
 -- | Create a symmetric version of the given 'Coercion' that asserts
 --   equality between the same types but in the other "direction", so
@@ -684,7 +684,7 @@ mkSymCo :: Coercion -> Coercion
 -- of symmetry to the leaves; the optimizer will take care of that.
 -- See Note [Optimizing mkSymCo is OK]
 mkSymCo co@(Refl {})              = co
-mkSymCo    (UnivCo r ty1 ty2)    = UnivCo r ty2 ty1
+mkSymCo    (UnsafeCo r ty1 ty2)  = UnsafeCo r ty2 ty1
 mkSymCo    (SymCo co)            = co
 mkSymCo co                       = SymCo co
 
@@ -808,7 +808,7 @@ mkSubCo :: Coercion -> Coercion
 mkSubCo (Refl Nominal ty) = Refl Representational ty
 mkSubCo (TyConAppCo Nominal tc cos)
   = TyConAppCo Representational tc (applyRoles tc cos)
-mkSubCo (UnivCo Nominal ty1 ty2) = UnivCo Representational ty1 ty2
+mkSubCo (UnsafeCo Nominal ty1 ty2) = UnsafeCo Representational ty1 ty2
 mkSubCo co = ASSERT2( coercionRole co == Nominal, ppr co <+> ppr (coercionRole co) )
              SubCo co
 
@@ -824,7 +824,7 @@ maybeSubCo2_maybe :: Role   -- desired role
 maybeSubCo2_maybe Representational Nominal = Just . mkSubCo
 maybeSubCo2_maybe Nominal Representational = const Nothing
 maybeSubCo2_maybe Phantom Phantom          = Just
-maybeSubCo2_maybe Phantom _                = Just . mkPhantomCo
+maybeSubCo2_maybe Phantom _                = Just . toPhantomCo
 maybeSubCo2_maybe _ Phantom                = const Nothing
 maybeSubCo2_maybe _ _                      = Just
 
@@ -865,9 +865,7 @@ unSubCo_maybe (Refl _ ty) = Just $ Refl Nominal ty
 unSubCo_maybe (TyConAppCo Representational tc cos)
   = do { cos' <- mapM unSubCoArg_maybe cos
        ; return $ TyConAppCo Nominal tc cos' }
-unSubCo_maybe (UnivCo Representational ty1 ty2) = Just $ UnivCo Nominal ty1 ty2
-  -- We do *not* promote UnivCo Phantom, as that's unsafe.
-  -- UnivCo Nominal is no more unsafe than UnivCo Representational
+unSubCo_maybe (UnsafeCo _ ty1 ty2) = Just $ UnsafeCo Nominal ty1 ty2
 unSubCo_maybe co
   | Nominal <- coercionRole co = Just co
 unSubCo_maybe _ = Nothing
@@ -877,16 +875,34 @@ unSubCoArg_maybe :: CoercionArg -> Maybe CoercionArg
 unSubCoArg_maybe (TyCoArg co)      = fmap TyCoArg (unSubCo_maybe co)
 unSubCoArg_maybe (CoCoArg _ c1 c2) = Just $ CoCoArg Nominal c1 c2
 
+-- | Make a phantom coercion between two types. The coercion passed
+-- in must be a representational coercion between the kinds of the
+-- types.
+mkPhantomCo :: Coercion -> Type -> Type -> Coercion
+mkPhantomCo h t1 t2
+  | t1 `eqType` t2
+  = Refl Phantom t1
+  | otherwise
+  = PhantomCo h t1 t2
+
+-- | Make a phantom coercion between two types of the same kind.
+mkHomoPhantomCo :: Type -> Type -> Coercion
+mkHomoPhantomCo t1 t2
+  = ASSERT( k1 `eqType` typeKind t2 )
+    mkPhantomCo (mkReflCo Representational k1) t1 t2
+  where
+    k1 = typeKind t1
+
 -- takes any coercion and turns it into a Phantom coercion
-mkPhantomCo :: Coercion -> Coercion
-mkPhantomCo co
+toPhantomCo :: Coercion -> Coercion
+toPhantomCo co
   | Just ty <- isReflCo_maybe co    = Refl Phantom ty
-  | Pair ty1 ty2 <- coercionKind co = UnivCo Phantom ty1 ty2
+  | Pair ty1 ty2 <- coercionKind co = PhantomCo (KindCo co) ty1 ty2
   -- don't optimise here... wait for OptCoercion
 
-mkPhantomCoArg :: CoercionArg -> CoercionArg
-mkPhantomCoArg (TyCoArg co)        = TyCoArg (mkPhantomCo co)
-mkPhantomCoArg (CoCoArg _ co1 co2) = CoCoArg Phantom co1 co2
+toPhantomCoArg :: CoercionArg -> CoercionArg
+toPhantomCoArg (TyCoArg co)        = TyCoArg (toPhantomCo co)
+toPhantomCoArg (CoCoArg _ co1 co2) = CoCoArg Phantom co1 co2
 
 -- All input coercions are assumed to be Nominal,
 -- or, if Role is Phantom, the Coercion can be Phantom, too.
@@ -894,7 +910,7 @@ applyRole :: Role -> CoercionArg -> CoercionArg
 applyRole r (CoCoArg _ c1 c2) = CoCoArg r c1 c2
 applyRole Nominal          a  = a
 applyRole Representational (TyCoArg c)  = TyCoArg $ mkSubCo c
-applyRole Phantom          (TyCoArg c)  = TyCoArg $ mkPhantomCo c
+applyRole Phantom          (TyCoArg c)  = TyCoArg $ toPhantomCo c
 
 -- Convert args to a TyConAppCo Nominal to the same TyConAppCo Representational
 applyRoles :: TyCon -> [CoercionArg] -> [CoercionArg]
@@ -1024,7 +1040,8 @@ promoteCoercion (ForAllCo _ g)
   = ASSERT( False ) mkReflCo (coercionRole g) liftedTypeKind
 promoteCoercion g@(CoVarCo {})     = mkKindCo g
 promoteCoercion g@(AxiomInstCo {}) = mkKindCo g
-promoteCoercion (UnivCo r ty1 ty2) = mkUnivCo r (typeKind ty1) (typeKind ty2)
+promoteCoercion (PhantomCo co _ _) = co
+promoteCoercion (UnsafeCo _ t1 t2) = mkUnsafeCo Representational (typeKind t1) (typeKind t2)
 promoteCoercion (SymCo co)         = mkSymCo (promoteCoercion co)
 promoteCoercion (TransCo co1 co2)  = mkTransCo (promoteCoercion co1)
                                                (promoteCoercion co2)
@@ -1263,7 +1280,9 @@ cmpCoercionX env (AxiomInstCo ax1 ind1 args1) (AxiomInstCo ax2 ind2 args2)
   = (ax1 `cmpByUnique` ax2) `thenCmp`
     (ind1 `compare` ind2) `thenCmp`
     cmpCoercionArgsX env args1 args2
-cmpCoercionX env (UnivCo r1 tyl1 tyr1)        (UnivCo r2 tyl2 tyr2)
+cmpCoercionX env (PhantomCo h1 t1 s1)         (PhantomCo h2 t2 s2)
+  = cmpCoercionX env h1 h2 `thenCmp` cmpTypeX env t1 t2 `thenCmp` cmpTypeX env s1 s2
+cmpCoercionX env (UnsafeCo r1 tyl1 tyr1)      (UnsafeCo r2 tyl2 tyr2)
   = cmpTypeX env tyl1 tyl2 `thenCmp` cmpTypeX env tyr1 tyr2 `thenCmp` compare r1 r2
 cmpCoercionX env (SymCo co1)                  (SymCo co2)
   = cmpCoercionX env co1 co2
@@ -1286,8 +1305,8 @@ cmpCoercionX env (AxiomRuleCo a1 ts1 cs1)     (AxiomRuleCo a2 ts2 cs2)
 
 -- Deal with the rest, in constructor order
 -- Refl < TyConAppCo < AppCo < ForAllCo < CoVarCo < AxiomInstCo <
---  UnivCo < SymCo < TransCo < NthCo < LRCo < InstCo < CoherenceCo < KindCo <
---  SubCo < AxiomRuleCo
+--  PhantomCo < UnsafeCo < SymCo < TransCo < NthCo < LRCo <
+--  InstCo < CoherenceCo < KindCo < SubCo < AxiomRuleCo
 cmpCoercionX _ co1 co2
   = (get_rank co1) `compare` (get_rank co2)
   where get_rank :: Coercion -> Int
@@ -1297,16 +1316,17 @@ cmpCoercionX _ co1 co2
         get_rank (ForAllCo {})    = 3
         get_rank (CoVarCo {})     = 4
         get_rank (AxiomInstCo {}) = 5
-        get_rank (UnivCo {})      = 6
-        get_rank (SymCo {})       = 7
-        get_rank (TransCo {})     = 8
-        get_rank (NthCo {})       = 9
-        get_rank (LRCo {})        = 10
-        get_rank (InstCo {})      = 11
-        get_rank (CoherenceCo {}) = 12
-        get_rank (KindCo {})      = 13
-        get_rank (SubCo {})       = 14
-        get_rank (AxiomRuleCo {}) = 15
+        get_rank (PhantomCo {})   = 6
+        get_rank (UnsafeCo {})    = 7
+        get_rank (SymCo {})       = 8
+        get_rank (TransCo {})     = 9
+        get_rank (NthCo {})       = 10
+        get_rank (LRCo {})        = 11
+        get_rank (InstCo {})      = 12
+        get_rank (CoherenceCo {}) = 13
+        get_rank (KindCo {})      = 14
+        get_rank (SubCo {})       = 15
+        get_rank (AxiomRuleCo {}) = 16
 
 cmpCoercionsX :: RnEnv2 -> [Coercion] -> [Coercion] -> Ordering
 cmpCoercionsX _   []        []        = EQ
@@ -1519,8 +1539,9 @@ ty_co_subst lc@(LC _ env) role ty
     noneSet :: (Var -> Bool) -> VarSet -> Bool
     noneSet f = foldVarSet (\v rest -> rest && (not $ f v)) True
 
-    lift_phantom ty = mkUnivCo Phantom (substTy (lcSubstLeft  lc) ty)
-                                       (substTy (lcSubstRight lc) ty)
+    lift_phantom ty = mkPhantomCo (go Representational (typeKind ty))
+                                  (substTy (lcSubstLeft  lc) ty)
+                                  (substTy (lcSubstRight lc) ty)
 
 \end{code}
 
@@ -1670,7 +1691,8 @@ seqCo (AppCo co1 co2)       = seqCo co1 `seq` seqCoArg co2
 seqCo (ForAllCo cobndr co)  = seqCoBndr cobndr `seq` seqCo co
 seqCo (CoVarCo cv)          = cv `seq` ()
 seqCo (AxiomInstCo con ind cos) = con `seq` ind `seq` seqCoArgs cos
-seqCo (UnivCo r ty1 ty2)    = r `seq` seqType ty1 `seq` seqType ty2
+seqCo (PhantomCo h t1 t2)   = seqCo h `seq` seqType t1 `seq` seqType t2
+seqCo (UnsafeCo r ty1 ty2)  = r `seq` seqType ty1 `seq` seqType ty2
 seqCo (SymCo co)            = seqCo co
 seqCo (TransCo co1 co2)     = seqCo co1 `seq` seqCo co2
 seqCo (NthCo _ co)          = seqCo co
@@ -1737,7 +1759,8 @@ coercionKind co = go co
                                          -- exactly saturate the axiom branch
         Pair (substTyWith tvs tys1 (mkTyConApp (coAxiomTyCon ax) lhs))
              (substTyWith tvs tys2 rhs)
-    go (UnivCo _ ty1 ty2)   = Pair ty1 ty2
+    go (PhantomCo _ t1 t2)  = Pair t1 t2
+    go (UnsafeCo _ ty1 ty2) = Pair ty1 ty2
     go (SymCo co)           = swap $ go co
     go (TransCo co1 co2)    = Pair (pFst $ go co1) (pSnd $ go co2)
     go g@(NthCo d co)
@@ -1790,7 +1813,8 @@ coercionRole = go
     go (ForAllCo _ co)      = go co
     go (CoVarCo cv)         = coVarRole cv
     go (AxiomInstCo ax _ _) = coAxiomRole ax
-    go (UnivCo r _ _)       = r
+    go (PhantomCo {})       = Phantom
+    go (UnsafeCo r _ _)     = r
     go (SymCo co)           = go co
     go (TransCo co1 _)      = go co1 -- same as go co2
     go (NthCo n co)

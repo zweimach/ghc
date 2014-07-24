@@ -198,8 +198,17 @@ opt_co env sym mrole (AxiomInstCo con ind cos)
     AxiomInstCo con ind (map (opt_co_arg env False Nothing) cos)
       -- Note that the_co does *not* have sym pushed into it
 
-opt_co env sym mrole (UnivCo r oty1 oty2)
-  = opt_univ env role a b
+-- TODO (RAE): After merging with new OptCoercion, actually make this work
+-- better.
+opt_co env sym _ (PhantomCo h t1 t2)
+  = PhantomCo (opt_co env sym Nothing h) a' b'
+  where
+    (a, b) = if sym then (t2, t1) else (t1, t2)
+    a' = optType env a
+    b' = optType env b
+
+opt_co env sym mrole (UnsafeCo r oty1 oty2)
+  = opt_unsafe env role (optType env a) (optType env b)
   where
     (a,b) = if sym then (oty2,oty1) else (oty1,oty2)
     role = mrole `orElse` r
@@ -311,19 +320,19 @@ opt_co env sym mrole (InstCo co1 arg)
     arg' = opt_co_arg env sym Nothing arg
 
 opt_co env sym mrole (CoherenceCo co1 co2)
-  | UnivCo r tyl1 tyr1 <- co1
+  | UnsafeCo r tyl1 tyr1 <- co1
   = opt_co env sym Nothing
-     (mkUnivCo (mrole `orElse` r)
-               (mkCastTy tyl1 co2)
-               tyr1)
+     (mkUnsafeCo (mrole `orElse` r)
+                 (mkCastTy tyl1 co2)
+                 tyr1)
   | TransCo col1 cor1 <- co1
   = opt_co env sym mrole (mkTransCo (mkCoherenceCo col1 co2) cor1)
   | CoherenceCo col1 cor1 <- co1
   = opt_co env sym mrole (mkCoherenceCo col1 (mkTransCo cor1 co2))
     
-  | UnivCo r tyl1' tyr1' <- co1'
-  = if sym then mkUnivCo r tyl1' (mkCastTy tyr1' co2')
-           else mkUnivCo r (mkCastTy tyl1' co2') tyr1'
+  | UnsafeCo r tyl1' tyr1' <- co1'
+  = if sym then mkUnsafeCo r tyl1' (mkCastTy tyr1' co2')
+           else mkUnsafeCo r (mkCastTy tyl1' co2') tyr1'
   | TransCo col1' cor1' <- co1'
   = if sym then opt_trans in_scope col1'
                   (optCoercion (zapTCvSubst env) (mkCoherenceRightCo cor1' co2'))
@@ -363,25 +372,25 @@ opt_co_arg env sym mrole (CoCoArg r co1 co2)
         role = mrole `orElse` r
 
 -------------
-opt_univ :: TCvSubst -> Role -> Type -> Type -> Coercion
-opt_univ env role oty1 oty2
+opt_unsafe :: TCvSubst -> Role -> Type -> Type -> Coercion
+opt_unsafe env role oty1 oty2
   | Just (tc1, tys1) <- splitTyConApp_maybe oty1
   , Just (tc2, tys2) <- splitTyConApp_maybe oty2
   , tc1 == tc2
-  = mkTyConAppCo role tc1 (zipWith3 (opt_univ_arg env) (tyConRolesX role tc1) tys1 tys2)
+  = mkTyConAppCo role tc1 (zipWith3 (opt_unsafe_arg env) (tyConRolesX role tc1) tys1 tys2)
 
   | Just (l1, r1) <- splitAppTy_maybe oty1
   , Just (l2, r2) <- splitAppTy_maybe oty2
   , typeKind l1 `eqType` typeKind l2   -- kind(r1) == kind(r2) by consequence
   = let role' = if role == Phantom then Phantom else Nominal in
        -- role' is to comform to mkAppCo's precondition
-    mkAppCo (opt_univ env role l1 l2) (opt_univ_arg env role' r1 r2)
+    mkAppCo (opt_unsafe env role l1 l2) (opt_unsafe_arg env role' r1 r2)
 
   | Just (bndr1, ty1) <- splitForAllTy_maybe oty1
   , Just tv1          <- binderVar_maybe bndr1
   , Just (bndr2, ty2) <- splitForAllTy_maybe oty2
   , Just tv2          <- binderVar_maybe bndr2
-  , isTyVar tv1 == isTyVar tv2   -- rule out weird UnivCo
+  , isTyVar tv1 == isTyVar tv2   -- rule out weird UnsafeCo
   , let k1 = tyVarKind tv1
         k2 = tyVarKind tv2
   = if k1 `eqType` k2
@@ -389,8 +398,8 @@ opt_univ env role oty1 oty2
          let ty1' = optType env1 ty1
              ty2' = optType env2 ty2 in
          mkForAllCo (mkHomoCoBndr tv')
-                    (opt_univ (zapTCvSubstEnv2 env1 env2) role ty1' ty2') }
-    else let eta = opt_univ env role k1 k2
+                    (opt_unsafe (zapTCvSubstEnv2 env1 env2) role ty1' ty2') }
+    else let eta = opt_unsafe env role k1 k2
              cobndr
                | isTyVar tv1 = let c = mkFreshCoVar (getTCvInScope env)
                                                     (mkOnlyTyVarTy tv1)
@@ -398,18 +407,18 @@ opt_univ env role oty1 oty2
                                mkTyHeteroCoBndr eta tv1 tv2 c
                | otherwise   = mkCoHeteroCoBndr eta tv1 tv2
          in
-         mkForAllCo cobndr (opt_univ env role ty1 ty2)
+         mkForAllCo cobndr (opt_unsafe env role ty1 ty2)
 
   | otherwise
-  = mkUnivCo role (optType env oty1) (optType env oty2)
+  = mkUnsafeCo role oty1 oty2
 
-opt_univ_arg :: TCvSubst -> Role -> Type -> Type -> CoercionArg
-opt_univ_arg env role oty1 oty2
+opt_unsafe_arg :: TCvSubst -> Role -> Type -> Type -> CoercionArg
+opt_unsafe_arg env role oty1 oty2
   | Just co1 <- isCoercionTy_maybe oty1
   , Just co2 <- isCoercionTy_maybe oty2
   = CoCoArg role (opt_co env False Nothing co1) (opt_co env False Nothing co2)
   | otherwise
-  = TyCoArg $ opt_univ env role oty1 oty2
+  = TyCoArg $ opt_unsafe env role oty1 oty2
 
 -------------
 opt_transList :: InScopeSet -> [NormalCoArg] -> [NormalCoArg] -> [NormalCoArg]

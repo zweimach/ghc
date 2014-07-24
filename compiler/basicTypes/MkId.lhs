@@ -1072,7 +1072,7 @@ unsafeCoerceId
                          (mkFunTy openAlphaTy openBetaTy)
     [x] = mkTemplateLocals [openAlphaTy]
     rhs = mkLams [openAlphaTyVar,openBetaTyVar,x] $
-          Cast (Var x) (mkUnsafeCo openAlphaTy openBetaTy)
+          Cast (Var x) (mkUnsafeCo Representational openAlphaTy openBetaTy)
 
 ------------------------------------------------
 nullAddrId :: Id

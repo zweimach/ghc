@@ -853,7 +853,7 @@ ds_tc_coercion subst tc_co
                                 (subst', cobndr') = substForAllCoBndr subst cobndr
     go (TcAxiomInstCo ax ind cos)
                                 = mkAxiomInstCo ax ind (map go_arg cos)
-    go (TcPhantomCo ty1 ty2)    = mkUnivCo Phantom ty1 ty2
+    go (TcPhantomCo ty1 ty2)    = mkHomoPhantomCo ty1 ty2
     go (TcSymCo co)             = mkSymCo (go co)
     go (TcTransCo co1 co2)      = mkTransCo (go co1) (go co2)
     go (TcNthCo n co)           = mkNthCo n (go co)

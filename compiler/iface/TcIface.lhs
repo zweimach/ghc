@@ -971,8 +971,10 @@ tcIfaceCo = go
                                             mkForAllCo cobndr <$> go c
     go (IfaceCoVarCo n)          = mkCoVarCo <$> go_var n
     go (IfaceAxiomInstCo n i cs) = mkAxiomInstCo <$> tcIfaceCoAxiom n <*> pure i <*> mapM tcIfaceCoArg cs
-    go (IfaceUnivCo r t1 t2)     = UnivCo r <$> tcIfaceType t1
-                                            <*> tcIfaceType t2
+    go (IfacePhantomCo h t1 t2)  = PhantomCo <$> go h <*> tcIfaceType t1
+                                                      <*> tcIfaceType t2
+    go (IfaceUnsafeCo r t1 t2)   = UnsafeCo r <$> tcIfaceType t1
+                                              <*> tcIfaceType t2
     go (IfaceSymCo c)            = SymCo    <$> go c
     go (IfaceTransCo c1 c2)      = TransCo  <$> go c1
                                             <*> go c2

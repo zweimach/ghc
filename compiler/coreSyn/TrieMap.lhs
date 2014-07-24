@@ -477,7 +477,8 @@ data CoercionMap a
        , km_fa_che :: CoercionMap (CoercionMap (BndrMap (BndrMap a)))
        , km_var    :: VarMap a
        , km_axiom  :: NameEnv (IntMap.IntMap (ListMap CoercionArgMap a))
-       , km_univ   :: RoleMap (TypeMap (TypeMap a))
+       , km_phant  :: CoercionMap (TypeMap (TypeMap a))
+       , km_unsafe :: RoleMap (TypeMap (TypeMap a))
        , km_sym    :: CoercionMap a
        , km_trans  :: CoercionMap (CoercionMap a)
        , km_nth    :: IntMap.IntMap (CoercionMap a)
@@ -502,7 +503,8 @@ wrapEmptyKM = KM { km_refl = emptyTM, km_tc_app = emptyTM
                  , km_app = emptyTM, km_fa_tho = emptyTM, km_fa_the = emptyTM
                  , km_fa_cho = emptyTM, km_fa_che = emptyTM
                  , km_var = emptyTM, km_axiom = emptyNameEnv
-                 , km_univ = emptyTM, km_sym = emptyTM, km_trans = emptyTM
+                 , km_phant = emptyTM
+                 , km_unsafe = emptyTM, km_sym = emptyTM, km_trans = emptyTM
                  , km_nth = emptyTM, km_left = emptyTM, km_right = emptyTM
                  , km_inst = emptyTM, km_coh = emptyTM, km_kind = emptyTM
                  , km_sub = emptyTM, km_axiom_rule = emptyTM }
@@ -532,7 +534,8 @@ mapC f (KM { km_refl = krefl, km_tc_app = ktc
            , km_app = kapp, km_fa_tho = kfatho, km_fa_the = kfathe
            , km_fa_cho = kfacho, km_fa_che = kfache
            , km_var = kvar, km_axiom = kax
-           , km_univ   = kuniv  , km_sym = ksym, km_trans = ktrans
+           , km_phant = kphant
+           , km_unsafe = kunsafe, km_sym = ksym, km_trans = ktrans
            , km_nth = knth, km_left = kml, km_right = kmr
            , km_inst = kinst, km_coh = kco, km_kind = kkind
            , km_sub = ksub, km_axiom_rule = kaxr
@@ -546,7 +549,8 @@ mapC f (KM { km_refl = krefl, km_tc_app = ktc
        , km_fa_che = mapTM (mapTM (mapTM (mapTM f))) kfache
        , km_var    = mapTM f kvar
        , km_axiom  = mapNameEnv (IntMap.map (mapTM f)) kax
-       , km_univ   = mapTM (mapTM (mapTM f)) kuniv  
+       , km_phant  = mapTM (mapTM (mapTM f)) kphant
+       , km_unsafe = mapTM (mapTM (mapTM f)) kunsafe
        , km_sym    = mapTM f ksym
        , km_trans  = mapTM (mapTM f) ktrans
        , km_nth    = IntMap.map (mapTM f) knth
@@ -574,7 +578,8 @@ lkC env co m
     go (AxiomInstCo ax ind cs) = km_axiom  >.> lkNamed ax >=> lookupTM ind >=> lkList (lkCA env) cs
     go (AppCo c1 c2)           = km_app    >.> lkC env c1 >=> lkCA env c2
     go (TransCo c1 c2)         = km_trans  >.> lkC env c1 >=> lkC env c2
-    go (UnivCo r t1 t2)        = km_univ   >.> lookupTM r >=> lkT env t1 >=> lkT env t2
+    go (PhantomCo h t1 t2)     = km_phant  >.> lkC env h  >=> lkT env t1 >=> lkT env t2
+    go (UnsafeCo r t1 t2)      = km_unsafe >.> lookupTM r >=> lkT env t1 >=> lkT env t2
     go (InstCo c t)            = km_inst   >.> lkC env c  >=> lkCA env t
     go (ForAllCo (TyHomo tv) co)
                                = km_fa_tho
@@ -620,7 +625,8 @@ xtC env (TyConAppCo r tc cs)    f m = m { km_tc_app = km_tc_app m |> xtR r |>> x
 xtC env (AxiomInstCo ax ind cs) f m = m { km_axiom  = km_axiom m  |> xtNamed ax |>> xtInt ind |>> xtList (xtCA env) cs f }
 xtC env (AppCo c1 c2)           f m = m { km_app    = km_app m    |> xtC env c1 |>> xtCA env c2 f }
 xtC env (TransCo c1 c2)         f m = m { km_trans  = km_trans m  |> xtC env c1 |>> xtC env c2 f }
-xtC env (UnivCo r t1 t2)        f m = m { km_univ   = km_univ   m |> xtR r |>> xtT env t1 |>> xtT env t2 f }
+xtC env (PhantomCo h t1 t2)     f m = m { km_phant  = km_phant m  |> xtC env h |>> xtT env t1 |>> xtT env t2 f }
+xtC env (UnsafeCo r t1 t2)      f m = m { km_unsafe = km_unsafe m |> xtR r |>> xtT env t1 |>> xtT env t2 f }
 xtC env (InstCo c t)            f m = m { km_inst   = km_inst m   |> xtC env c  |>> xtCA env t  f }
 xtC env (ForAllCo (TyHomo tv) co) f m
   = m { km_fa_tho = km_fa_tho m |> xtC (extendCME env tv) co |>> xtBndr env tv f }
@@ -662,7 +668,7 @@ fdC k m = foldTM (foldTM k) (km_refl m)
         . foldTM (foldTM (foldTM (foldTM k))) (km_fa_che m)
         . foldTM k (km_var m)
         . foldTM (foldTM (foldTM k)) (km_axiom m)
-        . foldTM (foldTM (foldTM k)) (km_univ   m)
+        . foldTM (foldTM (foldTM k)) (km_unsafe m)
         . foldTM k (km_sym m)
         . foldTM (foldTM k) (km_trans m)
         . foldTM (foldTM k) (km_nth m)

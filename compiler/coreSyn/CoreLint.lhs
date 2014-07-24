@@ -988,7 +988,15 @@ lintCoercion (CoVarCo cv)
        ; cv' <- lookupIdInScope cv 
        ; return $ coVarKindsTypesRole cv' }
 
-lintCoercion (UnivCo r ty1 ty2)
+lintCoercion co@(PhantomCo h ty1 ty2)
+  = do { (k1, k2) <- lintStarCoercion Representational h
+       ; k1' <- lintType ty1
+       ; k2' <- lintType ty2
+       ; ensureEqTys k1 k1' (mkBadPhantomCoMsg CLeft  co)
+       ; ensureEqTys k2 k2' (mkBadPhantomCoMsg CRight co)
+       ; return (k1, k2, ty1, ty2, Phantom) }
+
+lintCoercion (UnsafeCo r ty1 ty2)
   = do { k1 <- lintType ty1
        ; k2 <- lintType ty2
        ; return (k1, k2, ty1, ty2, r) }
@@ -1200,7 +1208,8 @@ freeInCoercion v (ForAllCo (CoHetero h c1 c2) g)
     (freeInCoVar v c1 $ freeInCoVar v c2 $ freeInCoercion v g)
 freeInCoercion v (CoVarCo c)               = freeInCoVar v c True
 freeInCoercion v (AxiomInstCo _ _ args)    = all (freeInCoercionArg v) args
-freeInCoercion v (UnivCo _ t1 t2)          = (freeInType v t1) && (freeInType v t2)
+freeInCoercion v (PhantomCo h t1 t2)       = freeInCoercion v h && freeInType v t1 && freeInType v t2
+freeInCoercion v (UnsafeCo _ t1 t2)        = (freeInType v t1) && (freeInType v t2)
 freeInCoercion v (SymCo g)                 = freeInCoercion v g
 freeInCoercion v (TransCo g1 g2)           = (freeInCoercion v g1) && (freeInCoercion v g2)
 freeInCoercion v (NthCo _ g)               = freeInCoercion v g
@@ -1687,6 +1696,11 @@ mkBadForAllKindMsg lr co co_kind ty_kind
       ptext (sLit "side of the coercion") <+> ppr co)  $$
     (ptext (sLit "Coercion kind:") <+> ppr co_kind) $$
     (ptext (sLit "Forall type kind:") <+> ppr ty_kind)
+
+mkBadPhantomCoMsg :: LeftOrRight -> Coercion -> SDoc
+mkBadPhantomCoMsg lr co
+  = text "Kind mismatch on the" <+> pprLeftOrRight lr <+>
+    text "side of a phantom coercion:" <+> ppr co
 
 mkBadTyVarMsg :: TyCoVar -> SDoc
 mkBadTyVarMsg tv

@@ -328,7 +328,8 @@ make_co dflags (ForAllCo cobndr co)
  | otherwise                         = panic "MkExternalCore can't do hetero cobndrs yet"
 make_co _      (CoVarCo cv)          = C.CoVarCoercion (make_var_id (coVarName cv))
 make_co dflags (AxiomInstCo cc ind cos) = C.AxiomCoercion (qcc dflags cc) ind (map (make_co_arg dflags) cos)
-make_co dflags (UnivCo r t1 t2)      = C.UnivCoercion (make_role r) (make_ty dflags t1) (make_ty dflags t2)
+make_co _ (PhantomCo {}) = undefined
+make_co dflags (UnsafeCo r t1 t2)      = C.UnivCoercion (make_role r) (make_ty dflags t1) (make_ty dflags t2)
 make_co dflags (SymCo co)            = C.SymCoercion (make_co dflags co)
 make_co dflags (TransCo c1 c2)       = C.TransCoercion (make_co dflags c1) (make_co dflags c2)
 make_co dflags (NthCo d co)          = C.NthCoercion d (make_co dflags co)

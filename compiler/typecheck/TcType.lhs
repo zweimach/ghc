@@ -559,7 +559,8 @@ tcTyFamInstsCo = go
       | otherwise            = go co
     go (CoVarCo _)           = []
     go (AxiomInstCo _ _ cos) = concatMap go_arg cos
-    go (UnivCo _ ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
+    go (PhantomCo h ty1 ty2) = go h ++ tcTyFamInsts ty1 ++ tcTyFamInsts ty2
+    go (UnsafeCo _ ty1 ty2)  = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
     go (SymCo co)            = go co
     go (TransCo co1 co2)     = go co1 ++ go co2
     go (NthCo _ co)          = go co
@@ -633,7 +634,8 @@ exactTyCoVarsOfType ty
         goCo co `delVarSetList` vars `unionVarSet` exactTyCoVarsOfTypes kinds
     goCo (CoVarCo v)         = unitVarSet v
     goCo (AxiomInstCo _ _ args) = goCoArgs args
-    goCo (UnivCo _ ty1 ty2)  = go ty1 `unionVarSet` go ty2
+    goCo (PhantomCo h t1 t2) = goCo h `unionVarSet` go t1 `unionVarSet` go t2
+    goCo (UnsafeCo _ t1 t2)  = go t1 `unionVarSet` go t2
     goCo (SymCo co)          = goCo co
     goCo (TransCo co1 co2)   = goCo co1 `unionVarSet` goCo co2
     goCo (NthCo _ co)        = goCo co
@@ -1167,7 +1169,9 @@ tcEqType ty1 ty2
       = rnOccL env cv1 == rnOccR env cv2
     go_co env (AxiomInstCo x1 i1 cos1)  (AxiomInstCo x2 i2 cos2)
       = x1 == x2 && i1 == i2 && go_args env cos1 cos2
-    go_co env (UnivCo r1 tl1 tr1)       (UnivCo r2 tl2 tr2)
+    go_co env (PhantomCo h1 tl1 tr1)    (PhantomCo h2 tl2 tr2)
+      = go_co env h1 h2 && go env tl1 tl2 && go env tr1 tr2
+    go_co env (UnsafeCo r1 tl1 tr1)     (UnsafeCo r2 tl2 tr2)
       = r1 == r2 && go env tl1 tl2 && go env tr1 tr2
     go_co env (SymCo co1)               (SymCo co2) = go_co env co1 co2
     go_co env (TransCo col1 cor1)       (TransCo col2 cor2)
@@ -1252,7 +1256,8 @@ pickyEqType ty1 ty2
     go_co env (CoVarCo cv1)    (CoVarCo cv2)    = rnOccL env cv1 == rnOccR env cv2
     go_co env (AxiomInstCo ax1 ind1 args1) (AxiomInstCo ax2 ind2 args2)
       = (ax1 == ax2) && (ind1 == ind2) && (go_args env args1 args2)
-    go_co env (UnivCo r1 s1 t1) (UnivCo r2 s2 t2) = r1 == r2 && go env s1 s2 && go env t1 t2
+    go_co env (PhantomCo h1 t1 s1) (PhantomCo h2 t2 s2) = go_co env h1 h2 && go env t1 t2 && go env s1 s2
+    go_co env (UnsafeCo r1 s1 t1) (UnsafeCo r2 s2 t2) = r1 == r2 && go env s1 s2 && go env t1 t2
     go_co env (SymCo co1)      (SymCo co2)      = go_co env co1 co2
     go_co env (TransCo c1 d1)  (TransCo c2 d2)  = go_co env c1 c2 && go_co env d1 d2
     go_co env (NthCo n1 co1)   (NthCo n2 co2)   = (n1 == n2) && go_co env co1 co2
@@ -1388,7 +1393,9 @@ occurCheckExpand dflags tv ty
       = pprPanic "fast_check_co" (ppr cobndr)
     fast_check_co (CoVarCo _)            = True
     fast_check_co (AxiomInstCo _ _ args) = all fast_check_co_arg args
-    fast_check_co (UnivCo _ ty1 ty2)     = fast_check ty1 && fast_check ty2
+    fast_check_co (PhantomCo h t1 t2)    = fast_check_co h && fast_check t1
+                                                           && fast_check t2
+    fast_check_co (UnsafeCo _ ty1 ty2)   = fast_check ty1 && fast_check ty2
     fast_check_co (SymCo co)             = fast_check_co co
     fast_check_co (TransCo co1 co2)      = fast_check_co co1 && fast_check_co co2
     fast_check_co (InstCo co arg)        = fast_check_co co && fast_check_co_arg arg
@@ -1464,9 +1471,13 @@ occurCheckExpand dflags tv ty
     go_co co@(CoVarCo {})           = return co
     go_co (AxiomInstCo ax ind args) = do { args' <- mapM go_arg args
                                          ; return (mkAxiomInstCo ax ind args') }
-    go_co (UnivCo r ty1 ty2)        = do { ty1' <- go ty1
+    go_co (PhantomCo h ty1 ty2)     = do { h' <- go_co h
+                                         ; ty1' <- go ty1
                                          ; ty2' <- go ty2
-                                         ; return (mkUnivCo r ty1' ty2') }
+                                         ; return (mkPhantomCo h' ty1' ty2') }
+    go_co (UnsafeCo r ty1 ty2)      = do { ty1' <- go ty1
+                                         ; ty2' <- go ty2
+                                         ; return (mkUnsafeCo r ty1' ty2') }
     go_co (SymCo co)                = do { co' <- go_co co
                                          ; return (mkSymCo co') }
     go_co (TransCo co1 co2)         = do { co1' <- go_co co1
@@ -1689,7 +1700,8 @@ orphNamesOfCo (ForAllCo cobndr co)
   = orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
 orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSets` orphNamesOfCoArgs cos
-orphNamesOfCo (UnivCo _ ty1 ty2)    = orphNamesOfType ty1 `unionNameSets` orphNamesOfType ty2
+orphNamesOfCo (PhantomCo h t1 t2)   = orphNamesOfCo h `unionNameSets` orphNamesOfType t1 `unionNameSets` orphNamesOfType t2
+orphNamesOfCo (UnsafeCo _ ty1 ty2)  = orphNamesOfType ty1 `unionNameSets` orphNamesOfType ty2
 orphNamesOfCo (SymCo co)            = orphNamesOfCo co
 orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
 orphNamesOfCo (NthCo _ co)          = orphNamesOfCo co
