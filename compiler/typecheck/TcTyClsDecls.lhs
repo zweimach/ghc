@@ -71,8 +71,6 @@ import BasicTypes
 import Bag
 import Control.Monad
 import Data.List
-import Data.Tuple
-import Control.Arrow  ( first, second )
 \end{code}
 
 
@@ -1270,7 +1268,7 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
         --          z
         -- Existentials are the leftover type vars: [x,y]
         -- So we return ([a,b,z], [x,y], [a~(x,y),b~z], T [(x,y)] z z)
-  = (univ_tvs, ex_tvs, eq_spec, res_ty)
+  = (univ_tvs, sorted_tcvs, [], res_ty)  -- TODO (RAE): split sorted_tcvs
   where
     Just subst = tcMatchTy (mkVarSet tmpl_tvs) res_tmpl res_ty
                 -- This 'Just' pattern is sure to match, because if not
@@ -1343,7 +1341,7 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
     fresh_co_var :: Type -> Type -> UniqSM CoVar
     fresh_co_var t1 t2
       = do { u <- getUniqueM
-           ; let name = mkSystemVarName u (fsLit "ga")
+           ; let name = mkSystemVarName u (fsLit "gadt")
            ; return $ mkCoVar name (mkCoercionType Nominal t1 t2) }
 
     raw_ex_tvs = dc_tvs `minusList` univ_tvs
@@ -1352,6 +1350,7 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
 
     sorted_tcvs = varSetElemsWellScoped $ mkVarSet (substed_ex_tvs ++ raw_eq_cvs)
 
+{- TODO (RAE): Restore this behavior, or some semblance of it.
       -- Remove a suffix of covars: these can be converted to lifted,
       -- non-dependent equalities for better deferred type errors.
     (ex_tvs, eq_cvs) = span_from_end isCoVar sorted_tcvs
@@ -1372,6 +1371,7 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
                       second reverse .
                       span p .
                       reverse
+-}
 
 \end{code}
 

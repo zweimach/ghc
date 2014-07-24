@@ -52,7 +52,7 @@ import Unify
 import HscTypes
 import Id
 import Name
-import Var      ( EvVar, varType, setVarType )
+import Var      ( EvVar, varType, setVarType, isCoVar )
 import VarEnv
 import VarSet
 import PrelNames
@@ -143,12 +143,17 @@ ToDo: this eta-abstraction plays fast and loose with termination,
 \begin{code}
 deeplySkolemise
   :: TcSigmaType
-  -> TcM (HsWrapper, [TyCoVar], [EvVar], TcRhoType)
+  -> TcM ( HsWrapper
+         , [TyCoVar]   -- all skolemised variables, including covars
+         , [EvVar]     -- all "given"s, including dependent covars
+                  -- This means that the dependent covars are returned *twice*
+         , TcRhoType)
 
 deeplySkolemise ty
   | Just (arg_tys, tvs, theta, ty') <- tcDeepSplitSigmaTy_maybe ty
   = do { ids1 <- newSysLocalIds (fsLit "dk") arg_tys
        ; (subst, tvs1) <- tcInstSkolTyCoVars tvs
+       ; let ev_vars0 = filter isCoVar tvs1
        ; ev_vars1 <- newEvVars (substTheta subst theta)
        ; (wrap, tvs2, ev_vars2, rho) <- deeplySkolemise (substTy subst ty')
        ; return ( mkWpLams ids1
@@ -157,7 +162,7 @@ deeplySkolemise ty
                    <.> wrap
                    <.> mkWpEvVarApps ids1
                 , tvs1     ++ tvs2
-                , ev_vars1 ++ ev_vars2
+                , ev_vars0 ++ ev_vars1 ++ ev_vars2
                 , mkFunTys arg_tys rho ) }
 
   | otherwise

@@ -381,7 +381,10 @@ wrapFunResCoercion arg_tys co_fn_res
 
 \begin{code}
 tcGen :: UserTypeCtxt -> TcType
-      -> ([TcTyCoVar] -> TcRhoType -> TcM result)
+      -> ([TcTyVar] -> TcRhoType -> TcM result)
+         -- thing_inside is passed only the *type* variables, not
+         -- *coercion* variables. They are only ever used for scoped type
+         -- variables.
       -> TcM (HsWrapper, result)
         -- The expression has type: spec_ty -> expected_ty
 
@@ -414,7 +417,7 @@ tcGen ctxt expected_ty thing_inside
         ; let skol_info = SigSkol ctxt (mkPiTypes given rho')
 
         ; (ev_binds, result) <- checkConstraints skol_info tvs' given $
-                                thing_inside tvs' rho'
+                                thing_inside (filter isTyVar tvs') rho'
 
         ; return (wrap <.> mkWpLet ev_binds, result) }
 	  -- The ev_binds returned by checkConstraints is very
