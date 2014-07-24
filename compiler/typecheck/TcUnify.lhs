@@ -43,6 +43,7 @@ import TcMType
 import TcRnMonad
 import TcType
 import Type
+import Coercion ( coercionType )
 import TcEvidence
 import Name ( isSystemName )
 import Inst
@@ -637,6 +638,12 @@ uType origin orig_ty1 orig_ty2
       | Just (ts1', t1') <- snocView ts1
       = ASSERT( isDecomposableTyCon tc1 ) 
         go_app (TyConApp tc1 ts1') t1' s2 t2 
+
+     -- TODO (RAE): This is woefully inadequate.
+    go (CastTy t1 co1) (CastTy t2 co2)
+      | coercionType co1 `eqType` coercionType co2
+      = do { co_tys <- go t1 t2
+           ; return (mkTcCoherenceCo co_tys co1) }
 
     go ty1 ty2
       | tcIsNamedForAllTy ty1 || tcIsNamedForAllTy ty2 

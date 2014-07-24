@@ -551,11 +551,10 @@ flatten _f ctxt ty@(ForAllTy (Named {}) _)
                          -- See Note [Flattening under a forall]
        ; return (mkForAllTys bndrs rho', foldr mkTcForAllCo co tvs) }
 
--- TODO (RAE): Fix this. Requires update of TcCoercion.
-flatten _ _ ty@(CastTy {})
-  = pprPanic "flatten" (ppr ty)
-flatten _ _ ty@(CoercionTy {})
-  = pprPanic "flatten" (ppr ty)
+flatten f ctxt (CastTy ty g)
+  = do { (xi, co) <- flatten f ctxt ty
+       ; return (mkCastTy xi g, mkTcCoherenceCo co g) }
+flatten _ _ ty@(CoercionTy {}) = return (ty, mkTcNomReflCo ty)
 \end{code}
 
 Note [Flattening under a forall]

@@ -861,6 +861,7 @@ ds_tc_coercion subst tc_co
     go (TcSubCo co)             = mkSubCo (go co)
     go (TcLetCo bs co)          = ds_tc_coercion (ds_co_binds bs) co
     go (TcCastCo co1 co2)       = mkCoCast (go co1) (go co2)
+    go (TcCoherenceCo tco1 co2) = castCoercionKind (go tco1) co2 co2
     go (TcCoVarCo v)            = ds_ev_id subst v
     go (TcAxiomRuleCo co ts cs) = mkAxiomRuleCo co (map (Type.substTy subst) ts) (map go cs)
 

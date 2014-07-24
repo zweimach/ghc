@@ -23,7 +23,7 @@ module TcEvidence (
   mkTcTyConAppCo, mkTcAppCo, mkTcAppCos, mkTcFunCo,
   mkTcAxInstCo, mkTcUnbranchedAxInstCo, mkTcForAllCo, mkTcForAllCos, 
   mkTcSymCo, mkTcTransCo, mkTcNthCo, mkTcLRCo, mkTcSubCo,
-  mkTcAxiomRuleCo,
+  mkTcAxiomRuleCo, mkTcCoherenceCo,
   tcCoercionKind, coVarsOfTcCo, isEqVar, mkTcCoVarCo, 
   isTcReflCo, isTcReflCo_maybe, getTcCoVar_maybe,
   tcCoercionRole, eqVarRole,
@@ -100,6 +100,16 @@ write coercionToTcCoercion. But, of course, we don't want to fiddle with
 CoCoArgs in the type-checker, so we ensure that all CoCoArgs are actually
 reflexive and then we can proceed.
 
+Note [TcCoherenceCo]
+~~~~~~~~~~~~~~~~~~~~
+We sometimes need to process casted types t = (s |> co). In particular, we
+need to be able to flatten these beasts, which produces a flattened t'
+and a TcCoercion (g :: t' ~ t). What should g look like? We don't need
+to flatten the original co (what would be the point?), so really we need
+(g :: (s' |> co) ~ (s |> co)). This is precisely what the TcCoherenceCo
+form proves, when its TcCoercion argument is (g :: s' ~ s). Note that the
+second coercion is a proper (representational) core Coercion!
+
 \begin{code}
 data TcCoercion 
   = TcRefl Role TcType
@@ -119,6 +129,7 @@ data TcCoercion
   | TcLRCo LeftOrRight TcCoercion
   | TcSubCo TcCoercion
   | TcCastCo TcCoercion TcCoercion     -- co1 |> co2
+  | TcCoherenceCo TcCoercion Coercion  -- See Note [TcCoherenceCo]
   | TcLetCo TcEvBinds TcCoercion
   deriving (Data.Data, Data.Typeable)
 
@@ -248,6 +259,10 @@ mkTcCoVarCo ipv = TcCoVarCo ipv
   -- the constraint solver does not substitute in the types of
   -- evidence variables as it goes.  In any case, the optimisation
   -- will be done in the later zonking phase
+
+mkTcCoherenceCo :: TcCoercion -> Coercion -> TcCoercion
+mkTcCoherenceCo (TcRefl r ty) g = TcRefl r (mkCastTy ty g)
+mkTcCoherenceCo co            g = TcCoherenceCo co g
 \end{code}
 
 \begin{code}
@@ -258,6 +273,7 @@ tcCoercionKind co = go co
     go (TcLetCo _ co)         = go co
     go (TcCastCo _ co)        = case getEqPredTys (pSnd (go co)) of
                                    (ty1,ty2) -> Pair ty1 ty2
+    go (TcCoherenceCo co g)   = (`mkCastTy` g) <$> go co
     go (TcTyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map go cos)
     go (TcAppCo co1 co2)      = mkAppTy <$> go co1 <*> go co2
     go (TcForAllCo tv co)     = mkNamedForAllTy tv Invisible <$> go co
@@ -310,6 +326,7 @@ tcCoercionRole = go
     go (TcSubCo _)            = Representational
     go (TcAxiomRuleCo c _ _)  = coaxrRole c
     go (TcCastCo c _)         = go c
+    go (TcCoherenceCo co _)   = go co
     go (TcLetCo _ c)          = go c
 
 
@@ -318,14 +335,15 @@ coVarsOfTcCo :: TcCoercion -> VarSet
 coVarsOfTcCo tc_co
   = go tc_co
   where
-    go (TcRefl _ _)              = emptyVarSet
+    go (TcRefl _ t)              = coVarsOfType t
     go (TcTyConAppCo _ _ cos)    = foldr (unionVarSet . go) emptyVarSet cos
     go (TcAppCo co1 co2)         = go co1 `unionVarSet` go co2
     go (TcCastCo co1 co2)        = go co1 `unionVarSet` go co2
+    go (TcCoherenceCo co g)      = go co `unionVarSet` coVarsOfCo g
     go (TcForAllCo _ co)         = go co
     go (TcCoVarCo v)             = unitVarSet v
     go (TcAxiomInstCo _ _ cos)   = foldr (unionVarSet . go) emptyVarSet cos
-    go (TcPhantomCo _ _)         = emptyVarSet
+    go (TcPhantomCo t1 t2)       = coVarsOfType t1 `unionVarSet` coVarsOfType t2
     go (TcSymCo co)              = go co
     go (TcTransCo co1 co2)       = go co1 `unionVarSet` go co2
     go (TcNthCo _ co)            = go co
@@ -367,8 +385,11 @@ ppr_co p (TcLetCo bs co)         = maybeParen p TopPrec $
                                    sep [ptext (sLit "let") <+> braces (ppr bs), ppr co]
 ppr_co p (TcAppCo co1 co2)       = maybeParen p TyConPrec $
                                    pprTcCo co1 <+> ppr_co TyConPrec co2
+                                   -- TODO (RAE): Printing TcCastCo like this is terrible.
 ppr_co p (TcCastCo co1 co2)      = maybeParen p FunPrec $
                                    ppr_co FunPrec co1 <+> ptext (sLit "|>") <+> ppr_co FunPrec co2
+ppr_co p (TcCoherenceCo co g)    = maybeParen p FunPrec $
+                                   ppr_co FunPrec co <+> text "|>>" <+> ppr g
 ppr_co p co@(TcForAllCo {})      = ppr_forall_co p co
                      
 ppr_co _ (TcCoVarCo cv)          = parenSymOcc (getOccName cv) (ppr cv)
