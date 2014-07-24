@@ -467,7 +467,7 @@ proxyPrimTyCon = mkPrimTyCon proxyPrimTyConName kind [Nominal,Nominal] VoidRep
 
 eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 		      -- See Note [The ~# TyCon]
-eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind (replicate 4 Nominal) VoidRep
+eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind roles VoidRep
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
                mkArrowKinds [k1, k2] unliftedTypeKind
@@ -475,6 +475,7 @@ eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind (replicate 4 Nominal) VoidRep
         kv1 : kv2 : _ = kVars
         k1 = mkOnlyTyVarTy kv1
         k2 = mkOnlyTyVarTy kv2
+        roles = [Representational, Representational, Nominal, Nominal]
 
 -- like eqPrimTyCon, but the type for *Representational* coercions
 -- this should only ever appear as the type of a covar. Its role is

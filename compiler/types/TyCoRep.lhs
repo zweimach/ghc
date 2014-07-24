@@ -517,15 +517,22 @@ data Coercion
 
 -- | A 'ForAllCoBndr' is a binding form for a quantified coercion. It is
 -- necessary when lifting quantified types into coercions.  See Note
--- [Forall coercions]
+-- [Forall coercions].
 
 -- If you edit this type, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data ForAllCoBndr
   = TyHomo TyVar
-  | TyHetero Coercion TyVar TyVar CoVar   -- the Coercion & CoVar must have the same role
+
+    -- | 'TyHetero's role is derived from its 'Coercion' argument. This role
+    -- must match the role used in the payload of the 'ForAllCo'. The 'CoVar's
+    -- role must be N.
+  | TyHetero Coercion TyVar TyVar CoVar
   | CoHomo CoVar
-  | CoHetero Coercion CoVar CoVar   -- The cobndr's role derives from the coercion's
+
+    -- | 'CoHetero's Coercion's role must match the role of the 'ForAllCo'
+    -- payload. The two covars must have the same role as each other.
+  | CoHetero Coercion CoVar CoVar
   deriving (Data.Data, Data.Typeable)
 
 -- returns the variable bound in a ForAllCoBndr
@@ -978,13 +985,11 @@ This rule says that (kind g) is always representational. Accordingly, we must
 be careful that (safe) phantom coercions do not relate types of different
 kinds. TODO (RAE): Expand this point.
 
-Other places that roles are non-trivial with kind coercions are in
-the "eta" coercions in TyHetero and CoHetero CoBndrs, and correspondingly
-in the output of NthCo on forall-coercions. It seems we can follow
-the pattern started here and just make these be representational --
-this seems strictly more flexible than any other arrangement.
-See docs/core-spec/core-spec.pdf for the
-exact rules.
+Other places that roles are non-trivial with kind coercions are in the "eta"
+coercions in TyHetero and CoHetero CoBndrs, and correspondingly in the output
+of NthCo on forall-coercions. Thinking of (->) as a degenerate forall, we see
+that the correct role to use here is that of the payload coercion in the
+forall. See docs/core-spec/core-spec.pdf for the exact rules.
 
 Note [InstCo roles]
 ~~~~~~~~~~~~~~~~~~~

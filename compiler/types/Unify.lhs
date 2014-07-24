@@ -385,9 +385,9 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
   
   | TyHetero eta1 tvl1 tvr1 cv1 <- cobndr1
   , TyHomo tv2 <- cobndr2
-  = do { (tsubst1, csubst1) <- match_co menv tsubst csubst 
-                                        eta1 (mkReflCo Representational
-                                                       (tyVarKind tv2))
+  = do { let eta_role = coercionRole eta1  -- TODO (RAE): This seems inefficient.
+       ; (tsubst1, csubst1) <- match_co menv tsubst csubst 
+                                        eta1 (mkReflCo eta_role (tyVarKind tv2))
        ; (tsubst2, csubst2) <- match_kind menv tsubst1 csubst1 (tyVarKind tvl1)
                                                                (tyVarKind tvr1)
        ; let rn_env = me_env menv
@@ -420,7 +420,7 @@ match_co menv tsubst csubst (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
 
   | CoHetero eta1 cvl1 cvr1 <- cobndr1
   , CoHomo cv2 <- cobndr2
-  = do { let role = coVarRole cvl1
+  = do { let role = coercionRole eta1  -- TODO (RAE): This seems inefficient.
        ; (tsubst1, csubst1) <- match_co menv tsubst csubst
                                         eta1 (mkReflCo role (coVarKind cv2))
        ; (tsubst2, csubst2) <- match_ty menv tsubst1 csubst1 (coVarKind cvl1)
@@ -1020,9 +1020,7 @@ unify_co' g1@(ForAllCo cobndr1 co1) g2@(ForAllCo cobndr2 co2)
 
   | Just (eta1, lv1, rv1) <- splitHeteroCoBndr_maybe cobndr1
   , Just v2               <- getHomoVar_maybe cobndr2
-  = do { let eta_role = if isCoVar lv1
-                        then coVarRole lv1
-                        else Representational
+  = do { let eta_role = coercionRole eta1
        ; unify_co eta1 (mkReflCo eta_role (varType v2))
        ; unify_ty (varType lv1) (varType rv1)
        ; homogenize $ \co1' ->

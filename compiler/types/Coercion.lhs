@@ -596,13 +596,13 @@ mkCoVarCo cv
   where
     (ty1, ty2) = coVarTypes cv
 
--- | Creates a new, fresh (w.r.t. the InScopeSet) covar, at the
--- given role and between the given types.
-mkFreshCoVar :: InScopeSet -> Role -> Type -> Type -> CoVar
-mkFreshCoVar in_scope r ty1 ty2
+-- | Creates a new, fresh (w.r.t. the InScopeSet) Nominal covar between the
+-- given types.
+mkFreshCoVar :: InScopeSet -> Type -> Type -> CoVar
+mkFreshCoVar in_scope ty1 ty2
   = let cv_uniq = mkCoVarUnique 31 -- arbitrary number
         cv_name = mkSystemVarName cv_uniq (fsLit "c") in
-    uniqAway in_scope $ mkCoVar cv_name (mkCoercionType r ty1 ty2)
+    uniqAway in_scope $ mkCoVar cv_name (mkCoercionType Nominal ty1 ty2)
 
 mkAxInstCo :: Role -> CoAxiom br -> BranchIndex -> [Type] -> Coercion
 -- mkAxInstCo can legitimately be called over-staturated; 
@@ -1010,7 +1010,7 @@ promoteCoercion co
 -- These should never return refl.
 promoteCoercion (Refl _ ty) = ASSERT( False )
                               mkReflCo Representational (typeKind ty)
-promoteCoercion g@(TyConAppCo r tc args)
+promoteCoercion g@(TyConAppCo _ tc args)
   | Just co' <- instCoercions (mkReflCo Representational (tyConKind tc)) args
   = co'
   | otherwise
@@ -1050,7 +1050,7 @@ promoteCoercion g@(LRCo lr co)
   = mkKindCo g
 promoteCoercion (InstCo g _)      = promoteCoercion g
 promoteCoercion (CoherenceCo g h) = (mkSymCo h) `mkTransCo` promoteCoercion g
-promoteCoercion (KindCo g)
+promoteCoercion (KindCo _)
   = ASSERT( False ) mkReflCo Representational liftedTypeKind
 promoteCoercion (SubCo g)         = promoteCoercion g
 promoteCoercion g@(AxiomRuleCo {})= mkKindCo g
@@ -1565,9 +1565,9 @@ liftCoSubstVarBndrCallback :: (LiftingContext -> Role -> Type -> Coercion)
 liftCoSubstVarBndrCallback fun homo r lc@(LC in_scope cenv) old_var
   = (LC (in_scope `extendInScopeSetList` coBndrVars cobndr) new_cenv, cobndr)
   where
-    eta     = fun lc r (tyVarKind old_var)
+    eta        = fun lc r (tyVarKind old_var)
     Pair k1 k2 = coercionKind eta
-    new_var = uniqAway in_scope (setVarType old_var k1)
+    new_var    = uniqAway in_scope (setVarType old_var k1)
 
     (new_cenv, cobndr)
       | new_var == old_var
@@ -1586,8 +1586,7 @@ liftCoSubstVarBndrCallback fun homo r lc@(LC in_scope cenv) old_var
             in_scope1 = in_scope `extendInScopeSet` a1
             a2 = uniqAway in_scope1 $ setVarType new_var k2
             in_scope2 = in_scope1 `extendInScopeSet` a2
-            c  = mkFreshCoVar in_scope2 Nominal
-                              (mkOnlyTyVarTy a1) (mkOnlyTyVarTy a2) 
+            c  = mkFreshCoVar in_scope2 (mkOnlyTyVarTy a1) (mkOnlyTyVarTy a2) 
             lifted = if homo
                      then mkCoVarCo c `mkCoherenceRightCo` mkSymCo eta
                      else mkCoVarCo c
@@ -1600,10 +1599,10 @@ liftCoSubstVarBndrCallback fun homo r lc@(LC in_scope cenv) old_var
             in_scope1 = in_scope `extendInScopeSet` cv1
             cv2 = uniqAway in_scope1 $ setVarType new_var k2
               -- cv_eta is like eta, but its role matches cv1/2
-            cv_eta = case coVarRole cv1 of
-                       Nominal          -> fun lc Nominal (tyVarKind old_var)
-                       Representational -> eta
-                       Phantom          -> mkPhantomCo eta
+            cv_eta = case (coVarRole cv1, r) of
+                       (r1, r2) | r1 == r2       -> eta
+                                | r2 `ltRole` r1 -> maybeSubCo2 r1 r2 eta
+                                | otherwise      -> fun lc r1 (tyVarKind old_var)
             lifted_r = if homo
                        then mkNthCo 2 cv_eta
                             `mkTransCo` (mkCoVarCo cv2)
@@ -1807,7 +1806,7 @@ coercionRole = go
     go (LRCo _ _)           = Nominal
     go (InstCo co _)        = go co
     go (CoherenceCo co _)   = go co
-    go (KindCo co)          = Representational
+    go (KindCo _)           = Representational
     go (SubCo _)            = Representational
     go (AxiomRuleCo c _ _)  = coaxrRole c
 

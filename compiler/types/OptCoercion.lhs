@@ -393,7 +393,6 @@ opt_univ env role oty1 oty2
     else let eta = opt_univ env role k1 k2
              cobndr
                | isTyVar tv1 = let c = mkFreshCoVar (getTCvInScope env)
-                                                    role
                                                     (mkOnlyTyVarTy tv1)
                                                     (mkOnlyTyVarTy tv2) in
                                mkTyHeteroCoBndr eta tv1 tv2 c
@@ -559,8 +558,7 @@ opt_trans_rule is co1 co2
       -- See Note [Hetero case for opt_trans_rule]
       -- kinds of tvl2 and tvr1 must be equal
       (TyHetero col tvl1 tvl2 cvl, TyHetero cor tvr1 tvr2 cvr) ->
-        let cv       = mkFreshCoVar is (coVarRole cvl)
-                                    (mkOnlyTyVarTy tvl1) (mkOnlyTyVarTy tvr2)
+        let cv       = mkFreshCoVar is (mkOnlyTyVarTy tvl1) (mkOnlyTyVarTy tvr2)
             new_tvl2 = mkCastTy (mkOnlyTyVarTy tvr2) (to_rep $ mkSymCo cor)
             new_cvl  = mkCoherenceRightCo (mkCoVarCo cv) (mkSymCo cor)
             new_tvr1 = mkCastTy (mkOnlyTyVarTy tvl1) (to_rep col)
@@ -855,15 +853,11 @@ etaForAllCo_maybe is co
 
     -- heterogeneous:
     else if isTyVar tv1
-         then let covar = mkFreshCoVar is Nominal (mkOnlyTyVarTy tv1)
-                                                  (mkOnlyTyVarTy tv2)
+         then let covar = mkFreshCoVar is (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2)
               in
               Just ( mkTyHeteroCoBndr (mkNthCo 0 co) tv1 tv2 covar
                    , mkInstCo co (TyCoArg (mkCoVarCo covar)))
-         else -- TODO (RAE): This mkNthCo has a suspect role. The eta
-              -- coercion in a CoHetero should match the role of the covars.
-              -- but mkNthCo 0 co is probably representational.
-              Just ( mkCoHeteroCoBndr (mkNthCo 0 co) tv1 tv2
+         else Just ( mkCoHeteroCoBndr (mkNthCo 0 co) tv1 tv2
                    , mkInstCo co (CoCoArg Nominal (mkCoVarCo tv1) (mkCoVarCo tv2)))
 
   | otherwise
