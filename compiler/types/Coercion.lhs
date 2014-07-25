@@ -407,7 +407,7 @@ coVarRole cv
   | tc `hasKey` eqReprPrimTyConKey
   = Representational
   | otherwise
-  = pprPanic "coVarRole: unknown tycon" (ppr cv)
+  = pprPanic "coVarRole: unknown tycon" (ppr cv <+> dcolon <+> ppr (varType cv))
 
   where
     tc = case tyConAppTyCon_maybe (varType cv) of

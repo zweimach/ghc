@@ -498,6 +498,7 @@ tcInstTyCoVarX origin subst tyvar
        ; let (ty1, ty2) = coVarTypes new_cv
              ctev = CtWanted { ctev_evar = new_cv
                              , ctev_pred = mkTcEqPred ty1 ty2
+                                            -- TODO (RAE): the use of mkTcEqPred, as opposed to the (~#) former, is highly suspect
                              , ctev_loc  = loc }
        ; emitFlat $ mkNonCanonical ctev
        ; return (extendTCvSubst subst tyvar (mkTyCoVarTy new_cv), new_cv) }

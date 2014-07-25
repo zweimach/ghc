@@ -1132,17 +1132,29 @@ noParenPred :: PredType -> Bool
 -- But   (?x::Int) => Int -> Int
 noParenPred p = not (isIPPred p) && isClassPred p || isEqPred p
 
+-- | Is the type suitable to classify a given/wanted in the typechecker?
 isPredTy :: Type -> Bool
   -- NB: isPredTy is used when printing types, which can happen in debug printing
   --     during type checking of not-fully-zonked types.  So it's not cool to say
   --     isConstraintKind (typeKind ty) because absent zonking the type might
   --     be ill-kinded, and typeKind crashes
   --     Hence the rather tiresome story here
+  --
+  -- NB: This must return "True" to *unlifted* coercions, which are not
+  --     of kind Constraint!
 isPredTy ty = go ty []
   where
     go :: Type -> [KindOrType] -> Bool
     go (AppTy ty1 ty2)   args = go ty1 (ty2 : args)
-    go (TyConApp tc tys) args = go_k (tyConKind tc) (tys ++ args)
+    go (TyConApp tc tys) args
+      | tc `hasKey` eqPrimTyConKey
+      , [_,_,_,_] <- all_args
+      = True
+
+      | otherwise
+      = go_k (tyConKind tc) all_args
+      where
+        all_args = tys ++ args
     go (TyVarTy tv)      args = go_k (tyVarKind tv) args
     go _                 _    = False
 
@@ -1294,6 +1306,9 @@ classifyPredType ev_ty = case splitTyConApp_maybe ev_ty of
                    -> ClassPred clas tys
     Just (tc, tys) | tc `hasKey` eqTyConKey
                    , let [_, ty1, ty2] = tys
+                   -> EqPred ty1 ty2
+    Just (tc, tys) | tc `hasKey` eqPrimTyConKey
+                   , let [_, _, ty1, ty2] = tys
                    -> EqPred ty1 ty2
     Just (tc, tys) | isTupleTyCon tc
                    -> TuplePred tys
