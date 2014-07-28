@@ -2,7 +2,6 @@
 module Type where
 import {-# SOURCE #-} TyCoRep( Type, Kind )
 
-noParenPred :: Type -> Bool
 isPredTy :: Type -> Bool
 isCoercionTy :: Type -> Bool
 

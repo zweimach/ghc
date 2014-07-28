@@ -110,6 +110,8 @@ test('rn067',
      extra_clean(['Rn067_A.hi', 'Rn067_A.o']),
      multimod_compile, ['rn067', '-v0'])
 
+test('rn068', normal, compile, [''])
+
 test('T1972', normal, compile, [''])
 test('T2205', normal, compile, [''])
 
@@ -201,7 +203,7 @@ test('dodgy',
      multimod_compile,
      ['dodgy', '-v0'])
 test('T7167', normal, compile, [''])
-test('T7336', normal, compile, ['-Wall'])
+test('T7336', expect_broken(7336), compile, ['-Wall'])
 
 test('T2435', normal, multimod_compile, ['T2435','-v0'])
 test('T7963',
@@ -214,3 +216,4 @@ test('T7969',
                    'T7969.imports'])],
      run_command,
      ['$MAKE -s --no-print-directory T7969'])
+test('T9127', normal, compile, [''])

@@ -214,7 +214,7 @@ test('T7804', normal, compile, [''])
 test('T7837', normal, compile, ['-O -ddump-rule-firings'])
 test('T4185', normal, compile, [''])
 
-# Cuased infinite loop in the compiler
+# Caused infinite loop in the compiler
 test('T8002',
      normal,
      run_command,
@@ -226,7 +226,7 @@ test('T8011',
      run_command,
      ['$MAKE -s --no-print-directory T8011'])
 
-# Marshalling of assocatiated types
+# Marshalling of associated types
 test('T8500',
      normal,
      run_command,
@@ -239,3 +239,9 @@ test('ClosedFam1', extra_clean(['ClosedFam1.o-boot', 'ClosedFam1.hi-boot']),
 test('ClosedFam2', extra_clean(['ClosedFam2.o-boot', 'ClosedFam2.hi-boot']),
      multimod_compile, ['ClosedFam2', '-v0'])
 test('T8651', normal, compile, [''])
+test('T8889', normal, compile, [''])
+test('T8913', normal, compile, [''])
+test('T8978', normal, compile, [''])
+test('T8979', normal, compile, [''])
+test('T9085', normal, compile, [''])
+test('T9316', normal, compile, [''])

@@ -4,6 +4,8 @@
 \section[SimplUtils]{The simplifier utilities}
 
 \begin{code}
+{-# LANGUAGE CPP #-}
+
 module SimplUtils (
         -- Rebuilding
         mkLam, mkCase, prepareAlts, tryEtaExpandRhs,
@@ -1190,14 +1192,13 @@ because the latter is not well-kinded.
 \begin{code}
 tryEtaExpandRhs :: SimplEnv -> OutId -> OutExpr -> SimplM (Arity, OutExpr)
 -- See Note [Eta-expanding at let bindings]
--- and Note [Eta expansion to manifest arity]
 tryEtaExpandRhs env bndr rhs
   = do { dflags <- getDynFlags
        ; (new_arity, new_rhs) <- try_expand dflags
 
-       ; WARN( new_arity < old_arity || new_arity < _dmd_arity,
-               (ptext (sLit "Arity decrease:") <+> (ppr bndr <+> ppr old_arity
-                <+> ppr new_arity <+> ppr _dmd_arity) $$ ppr new_rhs) )
+       ; WARN( new_arity < old_id_arity,
+               (ptext (sLit "Arity decrease:") <+> (ppr bndr <+> ppr old_id_arity
+                <+> ppr old_arity <+> ppr new_arity) $$ ppr new_rhs) )
                         -- Note [Arity decrease] in Simplify
          return (new_arity, new_rhs) }
   where
@@ -1206,16 +1207,17 @@ tryEtaExpandRhs env bndr rhs
       = return (exprArity rhs, rhs)
 
       | sm_eta_expand (getMode env)      -- Provided eta-expansion is on
-      , let new_arity = findRhsArity dflags bndr rhs old_arity
-      , new_arity > manifest_arity      -- And the curent manifest arity isn't enough
+      , let new_arity1 = findRhsArity dflags bndr rhs old_arity
+            new_arity2 = idCallArity bndr
+            new_arity  = max new_arity1 new_arity2
+      , new_arity > old_arity      -- And the current manifest arity isn't enough
       = do { tick (EtaExpansion bndr)
            ; return (new_arity, etaExpand new_arity rhs) }
       | otherwise
-      = return (manifest_arity, rhs)
+      = return (old_arity, rhs)
 
-    manifest_arity = manifestArity rhs
-    old_arity  = idArity bndr
-    _dmd_arity = length $ fst $ splitStrictSig $ idStrictness bndr
+    old_arity    = exprArity rhs -- See Note [Do not expand eta-expand PAPs]
+    old_id_arity = idArity bndr
 \end{code}
 
 Note [Eta-expanding at let bindings]
@@ -1224,7 +1226,7 @@ We now eta expand at let-bindings, which is where the payoff comes.
 The most significant thing is that we can do a simple arity analysis
 (in CoreArity.findRhsArity), which we can't do for free-floating lambdas
 
-One useful consequence is this example:
+One useful consequence of not eta-expanding lambdas is this example:
    genMap :: C a => ...
    {-# INLINE genMap #-}
    genMap f xs = ...
@@ -1234,13 +1236,36 @@ One useful consequence is this example:
    myMap = genMap
 
 Notice that 'genMap' should only inline if applied to two arguments.
-In the InlineRule for myMap we'll have the unfolding
+In the stable unfolding for myMap we'll have the unfolding
     (\d -> genMap Int (..d..))
 We do not want to eta-expand to
     (\d f xs -> genMap Int (..d..) f xs)
 because then 'genMap' will inline, and it really shouldn't: at least
 as far as the programmer is concerned, it's not applied to two
 arguments!
+
+Note [Do not eta-expand PAPs]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We used to have old_arity = manifestArity rhs, which meant that we
+would eta-expand even PAPs.  But this gives no particular advantage,
+and can lead to a massive blow-up in code size, exhibited by Trac #9020.  
+Suppose we have a PAP
+    foo :: IO ()
+    foo = returnIO ()
+Then we can eta-expand do
+    foo = (\eta. (returnIO () |> sym g) eta) |> g
+where
+    g :: IO () ~ State# RealWorld -> (# State# RealWorld, () #)
+
+But there is really no point in doing this, and it generates masses of
+coercions and whatnot that eventually disappear again. For T9020, GHC
+allocated 6.6G beore, and 0.8G afterwards; and residency dropped from
+1.8G to 45M.
+
+But note that this won't eta-expand, say
+  f = \g -> map g
+Does it matter not eta-expanding such functions?  I'm not sure.  Perhaps
+strictness analysis will have less to bite on?
 
 
 %************************************************************************

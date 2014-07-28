@@ -7,14 +7,13 @@
 A ``lint'' pass to check for Core correctness
 
 \begin{code}
-
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fprof-auto #-}
 
 module CoreLint ( lintCoreBindings, lintUnfolding, lintExpr ) where
 
 #include "HsVersions.h"
 
-import Demand
 import CoreSyn
 import CoreFVs
 import CoreUtils
@@ -129,8 +128,7 @@ to the type of the binding variable.  lintBinders does this.
 
 For Ids, the type-substituted Id is added to the in_scope set (which
 itself is part of the TCvSubst we are carrying down), and when we
-find an occurence of an Id, we fetch it from the in-scope set.
-
+find an occurrence of an Id, we fetch it from the in-scope set.
 
 \begin{code}
 lintCoreBindings :: [Var] -> CoreProgram -> (Bag MsgDoc, Bag MsgDoc)
@@ -252,9 +250,13 @@ lintSingleBinding top_lvl_flag rec_flag (binder,rhs)
 
       -- Check whether arity and demand type are consistent (only if demand analysis
       -- already happened)
-       ; checkL (case dmdTy of
-                  StrictSig dmd_ty -> idArity binder >= dmdTypeDepth dmd_ty || exprIsTrivial rhs)
-           (mkArityMsg binder)
+      --
+      -- Note (Apr 2014): this is actually ok.  See Note [Demand analysis for trivial right-hand sides]
+      --                  in DmdAnal.  After eta-expansion in CorePrep the rhs is no longer trivial.
+      --       ; let dmdTy = idStrictness binder
+      --       ; checkL (case dmdTy of
+      --                  StrictSig dmd_ty -> idArity binder >= dmdTypeDepth dmd_ty || exprIsTrivial rhs)
+      --           (mkArityMsg binder)
 
        ; lintIdUnfolding binder binder_ty (idUnfolding binder) }
 
@@ -262,7 +264,6 @@ lintSingleBinding top_lvl_flag rec_flag (binder,rhs)
         -- the unfolding is a SimplifiableCoreExpr. Give up for now.
    where
     binder_ty                  = idType binder
-    dmdTy                      = idStrictness binder
     bndr_vars                  = varSetElems (idFreeVars binder)
 
     -- If you edit this function, you may need to update the GHC formalism
@@ -899,6 +900,9 @@ lintCoercion co@(TyConAppCo r tc cos)
        ; lintRole co1 r r1
        ; lintRole co2 r r2
        ; return (k, k', mkFunTy s1 s2, mkFunTy t1 t2, r) }
+
+  | Just {} <- synTyConDefn_maybe tc
+  = failWithL (ptext (sLit "Synonym in TyConAppCo:") <+> ppr co)
 
   | otherwise
   = do { (k's, ks, ss, ts, rs) <- mapAndUnzip5M lintCoercionArg cos
@@ -1619,6 +1623,7 @@ mkKindErrMsg tyvar arg_ty
           hang (ptext (sLit "Arg type:"))
                  4 (ppr arg_ty <+> dcolon <+> ppr (typeKind arg_ty))]
 
+{- Not needed now
 mkArityMsg :: Id -> MsgDoc
 mkArityMsg binder
   = vcat [hsep [ptext (sLit "Demand type has"),
@@ -1631,7 +1636,7 @@ mkArityMsg binder
 
          ]
            where (StrictSig dmd_ty) = idStrictness binder
-
+-}
 mkCastErr :: Outputable casted => casted -> Coercion -> Type -> Type -> MsgDoc
 mkCastErr expr co from_ty expr_ty
   = vcat [ptext (sLit "From-type of Cast differs from type of enclosed expression"),

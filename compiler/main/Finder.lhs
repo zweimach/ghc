@@ -4,6 +4,8 @@
 \section[Finder]{Module Finder}
 
 \begin{code}
+{-# LANGUAGE CPP #-}
+
 module Finder (
     flushFinderCaches,
     FindResult(..),
@@ -41,7 +43,7 @@ import Maybes           ( expectJust )
 import Exception        ( evaluate )
 
 import Distribution.Text
-import Distribution.Package hiding (PackageId)
+import Distribution.Package
 import Data.IORef       ( IORef, writeIORef, readIORef, atomicModifyIORef )
 import System.Directory
 import System.FilePath
@@ -78,12 +80,12 @@ flushFinderCaches hsc_env = do
         fc_ref = hsc_FC hsc_env
         mlc_ref = hsc_MLC hsc_env
 
-flushModLocationCache :: PackageId -> IORef ModLocationCache -> IO ()
+flushModLocationCache :: PackageKey -> IORef ModLocationCache -> IO ()
 flushModLocationCache this_pkg ref = do
   atomicModifyIORef ref $ \fm -> (filterModuleEnv is_ext fm, ())
   _ <- evaluate =<< readIORef ref
   return ()
-  where is_ext mod _ | modulePackageId mod /= this_pkg = True
+  where is_ext mod _ | modulePackageKey mod /= this_pkg = True
                      | otherwise = False
 
 addToFinderCache :: IORef FinderCache -> ModuleName -> FindResult -> IO ()
@@ -146,7 +148,7 @@ findImportedModule hsc_env mod_name mb_pkg =
 findExactModule :: HscEnv -> Module -> IO FindResult
 findExactModule hsc_env mod =
     let dflags = hsc_dflags hsc_env
-    in if modulePackageId mod == thisPackage dflags
+    in if modulePackageKey mod == thisPackage dflags
        then findHomeModule hsc_env (moduleName mod)
        else findPackageModule hsc_env mod
 
@@ -293,7 +295,7 @@ findPackageModule :: HscEnv -> Module -> IO FindResult
 findPackageModule hsc_env mod = do
   let
         dflags = hsc_dflags hsc_env
-        pkg_id = modulePackageId mod
+        pkg_id = modulePackageKey mod
         pkg_map = pkgIdMap (pkgState dflags)
   --
   case lookupPackage pkg_map pkg_id of
@@ -371,7 +373,7 @@ searchPathExts paths mod exts
                 ]
 
     search [] = return (NotFound { fr_paths = map fst to_search
-                                 , fr_pkg   = Just (modulePackageId mod)
+                                 , fr_pkg   = Just (modulePackageKey mod)
                                  , fr_mods_hidden = [], fr_pkgs_hidden = []
                                  , fr_suggestions = [] })
 
@@ -432,8 +434,8 @@ mkHomeModLocation2 :: DynFlags
 mkHomeModLocation2 dflags mod src_basename ext = do
    let mod_basename = moduleNameSlashes mod
 
-   obj_fn  <- mkObjPath  dflags src_basename mod_basename
-   hi_fn   <- mkHiPath   dflags src_basename mod_basename
+       obj_fn = mkObjPath  dflags src_basename mod_basename
+       hi_fn  = mkHiPath   dflags src_basename mod_basename
 
    return (ModLocation{ ml_hs_file   = Just (src_basename <.> ext),
                         ml_hi_file   = hi_fn,
@@ -443,7 +445,7 @@ mkHiOnlyModLocation :: DynFlags -> Suffix -> FilePath -> String
                     -> IO ModLocation
 mkHiOnlyModLocation dflags hisuf path basename
  = do let full_basename = path </> basename
-      obj_fn  <- mkObjPath  dflags full_basename basename
+          obj_fn = mkObjPath  dflags full_basename basename
       return ModLocation{    ml_hs_file   = Nothing,
                              ml_hi_file   = full_basename <.> hisuf,
                                 -- Remove the .hi-boot suffix from
@@ -459,16 +461,15 @@ mkObjPath
   :: DynFlags
   -> FilePath           -- the filename of the source file, minus the extension
   -> String             -- the module name with dots replaced by slashes
-  -> IO FilePath
-mkObjPath dflags basename mod_basename
-  = do  let
+  -> FilePath
+mkObjPath dflags basename mod_basename = obj_basename <.> osuf
+  where
                 odir = objectDir dflags
                 osuf = objectSuf dflags
 
                 obj_basename | Just dir <- odir = dir </> mod_basename
                              | otherwise        = basename
 
-        return (obj_basename <.> osuf)
 
 -- | Constructs the filename of a .hi file for a given source file.
 -- Does /not/ check whether the .hi file exists
@@ -476,16 +477,15 @@ mkHiPath
   :: DynFlags
   -> FilePath           -- the filename of the source file, minus the extension
   -> String             -- the module name with dots replaced by slashes
-  -> IO FilePath
-mkHiPath dflags basename mod_basename
-  = do  let
+  -> FilePath
+mkHiPath dflags basename mod_basename = hi_basename <.> hisuf
+ where
                 hidir = hiDir dflags
                 hisuf = hiSuf dflags
 
                 hi_basename | Just dir <- hidir = dir </> mod_basename
                             | otherwise         = basename
 
-        return (hi_basename <.> hisuf)
 
 
 -- -----------------------------------------------------------------------------
@@ -551,7 +551,7 @@ cantFindErr :: LitString -> LitString -> DynFlags -> ModuleName -> FindResult
 cantFindErr _ multiple_found _ mod_name (FoundMultiple pkgs)
   = hang (ptext multiple_found <+> quotes (ppr mod_name) <> colon) 2 (
        sep [ptext (sLit "it was found in multiple packages:"),
-                hsep (map (text.packageIdString) pkgs)]
+                hsep (map (text.packageKeyString) pkgs)]
     )
 cantFindErr cannot_find _ dflags mod_name find_result
   = ptext cannot_find <+> quotes (ppr mod_name)
@@ -615,7 +615,7 @@ cantFindErr cannot_find _ dflags mod_name find_result
         <> dot $$ cabal_pkg_hidden_hint pkg
     cabal_pkg_hidden_hint pkg
      | gopt Opt_BuildingCabalPackage dflags
-        = case simpleParse (packageIdString pkg) of
+        = case simpleParse (packageKeyString pkg) of
           Just pid ->
               ptext (sLit "Perhaps you need to add") <+>
               quotes (text (display (pkgName pid))) <+>
@@ -635,13 +635,13 @@ cantFindErr cannot_find _ dflags mod_name find_result
       where
         (exposed_sugs, hidden_sugs) = partition from_exposed_pkg sugs
 
-    from_exposed_pkg m = case lookupPackage pkg_map (modulePackageId m) of
+    from_exposed_pkg m = case lookupPackage pkg_map (modulePackageKey m) of
                             Just pkg_config -> exposed pkg_config
                             Nothing         -> WARN( True, ppr m ) -- Should not happen
                                                False
 
     pp_exp mod = ppr (moduleName mod)
-                 <+> parens (ptext (sLit "from") <+> ppr (modulePackageId mod))
+                 <+> parens (ptext (sLit "from") <+> ppr (modulePackageKey mod))
     pp_hid mod = ppr (moduleName mod)
-                 <+> parens (ptext (sLit "needs flag -package") <+> ppr (modulePackageId mod))
+                 <+> parens (ptext (sLit "needs flag -package") <+> ppr (modulePackageKey mod))
 \end{code}

@@ -3,6 +3,8 @@
 % (c) University of Glasgow, 2007
 %
 \begin{code}
+{-# LANGUAGE NondecreasingIndentation #-}
+
 module Coverage (addTicksToBinds, hpcInitCode) where
 
 import Type
@@ -152,8 +154,8 @@ writeMixEntries dflags mod count entries filename
             mod_name = moduleNameString (moduleName mod)
 
             hpc_mod_dir
-              | modulePackageId mod == mainPackageId  = hpc_dir
-              | otherwise = hpc_dir ++ "/" ++ packageIdString (modulePackageId mod)
+              | modulePackageKey mod == mainPackageKey  = hpc_dir
+              | otherwise = hpc_dir ++ "/" ++ packageKeyString (modulePackageKey mod)
 
             tabStop = 8 -- <tab> counts as a normal char in GHC's location ranges.
 
@@ -229,7 +231,7 @@ shouldTickPatBind density top_lev
 -- Adding ticks to bindings
 
 addTickLHsBinds :: LHsBinds Id -> TM (LHsBinds Id)
-addTickLHsBinds binds = mapBagM addTickLHsBind binds
+addTickLHsBinds = mapBagM addTickLHsBind
 
 addTickLHsBind :: LHsBind Id -> TM (LHsBind Id)
 addTickLHsBind (L pos bind@(AbsBinds { abs_binds   = binds,
@@ -325,6 +327,7 @@ addTickLHsBind (L pos (pat@(PatBind { pat_lhs = lhs, pat_rhs = rhs }))) = do
 
 -- Only internal stuff, not from source, uses VarBind, so we ignore it.
 addTickLHsBind var_bind@(L _ (VarBind {})) = return var_bind
+addTickLHsBind patsyn_bind@(L _ (PatSynBind {})) = return patsyn_bind
 
 
 bindTick :: TickDensity -> String -> SrcSpan -> FreeVars -> TM (Maybe (Tickish Id))
@@ -1230,9 +1233,9 @@ hpcInitCode this_mod (HpcInfo tickCount hashNo)
     module_name  = hcat (map (text.charToC) $
                          bytesFS (moduleNameFS (Module.moduleName this_mod)))
     package_name = hcat (map (text.charToC) $
-                         bytesFS (packageIdFS  (modulePackageId this_mod)))
+                         bytesFS (packageKeyFS  (modulePackageKey this_mod)))
     full_name_str
-       | modulePackageId this_mod == mainPackageId
+       | modulePackageKey this_mod == mainPackageKey
        = module_name
        | otherwise
        = package_name <> char '/' <> module_name

@@ -2,13 +2,15 @@
 % (c) The University of Glasgow, 2006
 %
 \begin{code}
+{-# LANGUAGE CPP #-}
+
 -- | Package manipulation
 module Packages (
         module PackageConfig,
 
         -- * The PackageConfigMap
         PackageConfigMap, emptyPackageConfigMap, lookupPackage,
-        extendPackageConfigMap, dumpPackages,
+        extendPackageConfigMap, dumpPackages, simpleDumpPackages,
 
         -- * Reading the package config, and processing cmdline args
         PackageState(..),
@@ -108,11 +110,11 @@ import qualified Data.Set as Set
 -- in a different DLL, by setting the DLL flag.
 
 data PackageState = PackageState {
-  pkgIdMap              :: PackageConfigMap, -- PackageId   -> PackageConfig
+  pkgIdMap              :: PackageConfigMap, -- PackageKey   -> PackageConfig
         -- The exposed flags are adjusted according to -package and
         -- -hide-package flags, and -ignore-package removes packages.
 
-  preloadPackages      :: [PackageId],
+  preloadPackages      :: [PackageKey],
         -- The packages we're going to link in eagerly.  This list
         -- should be in reverse dependency order; that is, a package
         -- is always mentioned before the packages it depends on.
@@ -126,10 +128,10 @@ data PackageState = PackageState {
   installedPackageIdMap :: InstalledPackageIdMap
   }
 
--- | A PackageConfigMap maps a 'PackageId' to a 'PackageConfig'
+-- | A PackageConfigMap maps a 'PackageKey' to a 'PackageConfig'
 type PackageConfigMap = UniqFM PackageConfig
 
-type InstalledPackageIdMap = Map InstalledPackageId PackageId
+type InstalledPackageIdMap = Map InstalledPackageId PackageKey
 
 type InstalledPackageIndex = Map InstalledPackageId PackageConfig
 
@@ -137,7 +139,7 @@ emptyPackageConfigMap :: PackageConfigMap
 emptyPackageConfigMap = emptyUFM
 
 -- | Find the package we know about with the given id (e.g. \"foo-1.0\"), if any
-lookupPackage :: PackageConfigMap -> PackageId -> Maybe PackageConfig
+lookupPackage :: PackageConfigMap -> PackageKey -> Maybe PackageConfig
 lookupPackage = lookupUFM
 
 extendPackageConfigMap
@@ -148,7 +150,7 @@ extendPackageConfigMap pkg_map new_pkgs
 
 -- | Looks up the package with the given id in the package state, panicing if it is
 -- not found
-getPackageDetails :: PackageState -> PackageId -> PackageConfig
+getPackageDetails :: PackageState -> PackageKey -> PackageConfig
 getPackageDetails ps pid = expectJust "getPackageDetails" (lookupPackage (pkgIdMap ps) pid)
 
 -- ----------------------------------------------------------------------------
@@ -167,7 +169,7 @@ getPackageDetails ps pid = expectJust "getPackageDetails" (lookupPackage (pkgIdM
 -- 'packageFlags' field of the 'DynFlags', and it will update the
 -- 'pkgState' in 'DynFlags' and return a list of packages to
 -- link in.
-initPackages :: DynFlags -> IO (DynFlags, [PackageId])
+initPackages :: DynFlags -> IO (DynFlags, [PackageKey])
 initPackages dflags = do
   pkg_db <- case pkgDatabase dflags of
                 Nothing -> readPackageConfigs dflags
@@ -473,14 +475,15 @@ findWiredInPackages dflags pkgs = do
   --
   let
         wired_in_pkgids :: [String]
-        wired_in_pkgids = map packageIdString
-                          [ primPackageId,
-                            integerPackageId,
-                            basePackageId,
-                            rtsPackageId,
-                            thPackageId,
-                            dphSeqPackageId,
-                            dphParPackageId ]
+        wired_in_pkgids = map packageKeyString
+                          [ primPackageKey,
+                            integerPackageKey,
+                            basePackageKey,
+                            rtsPackageKey,
+                            thPackageKey,
+                            thisGhcPackageKey,
+                            dphSeqPackageKey,
+                            dphParPackageKey ]
 
         matches :: PackageConfig -> String -> Bool
         pc `matches` pid = display (pkgName (sourcePackageId pc)) == pid
@@ -667,11 +670,11 @@ depClosure index ipids = closure Map.empty ipids
 mkPackageState
     :: DynFlags
     -> [PackageConfig]          -- initial database
-    -> [PackageId]              -- preloaded packages
-    -> PackageId                -- this package
+    -> [PackageKey]              -- preloaded packages
+    -> PackageKey                -- this package
     -> IO (PackageState,
-           [PackageId],         -- new packages to preload
-           PackageId) -- this package, might be modified if the current
+           [PackageKey],         -- new packages to preload
+           PackageKey) -- this package, might be modified if the current
                       -- package is a wired-in package.
 
 mkPackageState dflags pkgs0 preload0 this_package = do
@@ -794,7 +797,7 @@ mkPackageState dflags pkgs0 preload0 this_package = do
       -- add base & rts to the preload packages
       basicLinkedPackages
        | gopt Opt_AutoLinkPackages dflags
-          = filter (flip elemUFM pkg_db) [basePackageId, rtsPackageId]
+          = filter (flip elemUFM pkg_db) [basePackageKey, rtsPackageKey]
        | otherwise = []
       -- but in any case remove the current package from the set of
       -- preloaded packages so that base/rts does not end up in the
@@ -852,7 +855,7 @@ pprIPkg p = text (display (installedPackageId p))
 -- use.
 
 -- | Find all the include directories in these and the preload packages
-getPackageIncludePath :: DynFlags -> [PackageId] -> IO [String]
+getPackageIncludePath :: DynFlags -> [PackageKey] -> IO [String]
 getPackageIncludePath dflags pkgs =
   collectIncludeDirs `fmap` getPreloadPackagesAnd dflags pkgs
 
@@ -860,7 +863,7 @@ collectIncludeDirs :: [PackageConfig] -> [FilePath]
 collectIncludeDirs ps = nub (filter notNull (concatMap includeDirs ps))
 
 -- | Find all the library paths in these and the preload packages
-getPackageLibraryPath :: DynFlags -> [PackageId] -> IO [String]
+getPackageLibraryPath :: DynFlags -> [PackageKey] -> IO [String]
 getPackageLibraryPath dflags pkgs =
   collectLibraryPaths `fmap` getPreloadPackagesAnd dflags pkgs
 
@@ -869,7 +872,7 @@ collectLibraryPaths ps = nub (filter notNull (concatMap libraryDirs ps))
 
 -- | Find all the link options in these and the preload packages,
 -- returning (package hs lib options, extra library options, other flags)
-getPackageLinkOpts :: DynFlags -> [PackageId] -> IO ([String], [String], [String])
+getPackageLinkOpts :: DynFlags -> [PackageKey] -> IO ([String], [String], [String])
 getPackageLinkOpts dflags pkgs =
   collectLinkOpts dflags `fmap` getPreloadPackagesAnd dflags pkgs
 
@@ -917,19 +920,19 @@ packageHsLibs dflags p = map (mkDynName . addSuffix) (hsLibraries p)
                     | otherwise = '_':t
 
 -- | Find all the C-compiler options in these and the preload packages
-getPackageExtraCcOpts :: DynFlags -> [PackageId] -> IO [String]
+getPackageExtraCcOpts :: DynFlags -> [PackageKey] -> IO [String]
 getPackageExtraCcOpts dflags pkgs = do
   ps <- getPreloadPackagesAnd dflags pkgs
   return (concatMap ccOptions ps)
 
 -- | Find all the package framework paths in these and the preload packages
-getPackageFrameworkPath  :: DynFlags -> [PackageId] -> IO [String]
+getPackageFrameworkPath  :: DynFlags -> [PackageKey] -> IO [String]
 getPackageFrameworkPath dflags pkgs = do
   ps <- getPreloadPackagesAnd dflags pkgs
   return (nub (filter notNull (concatMap frameworkDirs ps)))
 
 -- | Find all the package frameworks in these and the preload packages
-getPackageFrameworks  :: DynFlags -> [PackageId] -> IO [String]
+getPackageFrameworks  :: DynFlags -> [PackageKey] -> IO [String]
 getPackageFrameworks dflags pkgs = do
   ps <- getPreloadPackagesAnd dflags pkgs
   return (concatMap frameworks ps)
@@ -971,7 +974,7 @@ lookupModuleWithSuggestions dflags m
 
 -- | Find all the 'PackageConfig' in both the preload packages from 'DynFlags' and corresponding to the list of
 -- 'PackageConfig's
-getPreloadPackagesAnd :: DynFlags -> [PackageId] -> IO [PackageConfig]
+getPreloadPackagesAnd :: DynFlags -> [PackageKey] -> IO [PackageConfig]
 getPreloadPackagesAnd dflags pkgids =
   let
       state   = pkgState dflags
@@ -987,9 +990,9 @@ getPreloadPackagesAnd dflags pkgids =
 -- in reverse dependency order (a package appears before those it depends on).
 closeDeps :: DynFlags
           -> PackageConfigMap
-          -> Map InstalledPackageId PackageId
-          -> [(PackageId, Maybe PackageId)]
-          -> IO [PackageId]
+          -> Map InstalledPackageId PackageKey
+          -> [(PackageKey, Maybe PackageKey)]
+          -> IO [PackageKey]
 closeDeps dflags pkg_map ipid_map ps
     = throwErr dflags (closeDepsErr pkg_map ipid_map ps)
 
@@ -1000,22 +1003,22 @@ throwErr dflags m
                 Succeeded r -> return r
 
 closeDepsErr :: PackageConfigMap
-             -> Map InstalledPackageId PackageId
-             -> [(PackageId,Maybe PackageId)]
-             -> MaybeErr MsgDoc [PackageId]
+             -> Map InstalledPackageId PackageKey
+             -> [(PackageKey,Maybe PackageKey)]
+             -> MaybeErr MsgDoc [PackageKey]
 closeDepsErr pkg_map ipid_map ps = foldM (add_package pkg_map ipid_map) [] ps
 
 -- internal helper
 add_package :: PackageConfigMap
-            -> Map InstalledPackageId PackageId
-            -> [PackageId]
-            -> (PackageId,Maybe PackageId)
-            -> MaybeErr MsgDoc [PackageId]
+            -> Map InstalledPackageId PackageKey
+            -> [PackageKey]
+            -> (PackageKey,Maybe PackageKey)
+            -> MaybeErr MsgDoc [PackageKey]
 add_package pkg_db ipid_map ps (p, mb_parent)
   | p `elem` ps = return ps     -- Check if we've already added this package
   | otherwise =
       case lookupPackage pkg_db p of
-        Nothing -> Failed (missingPackageMsg (packageIdString p) <>
+        Nothing -> Failed (missingPackageMsg (packageKeyString p) <>
                            missingDependencyMsg mb_parent)
         Just pkg -> do
            -- Add the package's dependents also
@@ -1035,22 +1038,34 @@ missingPackageErr dflags p
 missingPackageMsg :: String -> SDoc
 missingPackageMsg p = ptext (sLit "unknown package:") <+> text p
 
-missingDependencyMsg :: Maybe PackageId -> SDoc
+missingDependencyMsg :: Maybe PackageKey -> SDoc
 missingDependencyMsg Nothing = empty
 missingDependencyMsg (Just parent)
-  = space <> parens (ptext (sLit "dependency of") <+> ftext (packageIdFS parent))
+  = space <> parens (ptext (sLit "dependency of") <+> ftext (packageKeyFS parent))
 
 -- -----------------------------------------------------------------------------
 
 -- | Will the 'Name' come from a dynamically linked library?
-isDllName :: DynFlags -> PackageId -> Module -> Name -> Bool
+isDllName :: DynFlags -> PackageKey -> Module -> Name -> Bool
 -- Despite the "dll", I think this function just means that
 -- the synbol comes from another dynamically-linked package,
 -- and applies on all platforms, not just Windows
-isDllName dflags this_pkg this_mod name
+isDllName dflags _this_pkg this_mod name
   | gopt Opt_Static dflags = False
   | Just mod <- nameModule_maybe name
-    = if modulePackageId mod /= this_pkg
+    -- Issue #8696 - when GHC is dynamically linked, it will attempt
+    -- to load the dynamic dependencies of object files at compile
+    -- time for things like QuasiQuotes or
+    -- TemplateHaskell. Unfortunately, this interacts badly with
+    -- intra-package linking, because we don't generate indirect
+    -- (dynamic) symbols for intra-package calls. This means that if a
+    -- module with an intra-package call is loaded without its
+    -- dependencies, then GHC fails to link. This is the cause of #
+    --
+    -- In the mean time, always force dynamic indirections to be
+    -- generated: when the module name isn't the module being
+    -- compiled, references are dynamic.
+    = if mod /= this_mod
       then True
       else case dllSplit dflags of
            Nothing -> False
@@ -1066,12 +1081,26 @@ isDllName dflags this_pkg this_mod name
 -- -----------------------------------------------------------------------------
 -- Displaying packages
 
--- | Show package info on console, if verbosity is >= 3
+-- | Show (very verbose) package info on console, if verbosity is >= 5
 dumpPackages :: DynFlags -> IO ()
-dumpPackages dflags
+dumpPackages = dumpPackages' showInstalledPackageInfo
+
+dumpPackages' :: (InstalledPackageInfo -> String) -> DynFlags -> IO ()
+dumpPackages' showIPI dflags
   = do let pkg_map = pkgIdMap (pkgState dflags)
        putMsg dflags $
-             vcat (map (text . showInstalledPackageInfo
+             vcat (map (text . showIPI
                              . packageConfigToInstalledPackageInfo)
                        (eltsUFM pkg_map))
+
+-- | Show simplified package info on console, if verbosity == 4.
+-- The idea is to only print package id, and any information that might
+-- be different from the package databases (exposure, trust)
+simpleDumpPackages :: DynFlags -> IO ()
+simpleDumpPackages = dumpPackages' showIPI
+    where showIPI ipi = let InstalledPackageId i = installedPackageId ipi
+                            e = if exposed ipi then "E" else " "
+                            t = if trusted ipi then "T" else " "
+                        in e ++ t ++ "  " ++ i
+
 \end{code}

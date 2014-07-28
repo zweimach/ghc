@@ -3,19 +3,13 @@
 %
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
-
+{-# LANGUAGE CPP #-}
 module Kind (
         -- * Main data type
         SuperKind, Kind, typeKind,
 
-	-- Kinds
-	anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind,
+        -- Kinds
+        anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind,
         mkArrowKind, mkArrowKinds,
 
         -- Kind constructors...
@@ -23,9 +17,9 @@ module Kind (
         unliftedTypeKindTyCon, constraintKindTyCon,
 
         -- Super Kinds
-	superKind, superKindTyCon, 
-        
-	pprKind, pprParendKind,
+        superKind, superKindTyCon,
+
+        pprKind, pprParendKind,
 
         -- ** Deconstructing Kinds
         kindAppResult, synTyConResKind,
@@ -40,7 +34,7 @@ module Kind (
         okArrowArgKind, okArrowResultKind,
 
         isSubOpenTypeKind, isSubOpenTypeKindKey, isStarKindCon,
-        isSubKind, isSubKindCon, 
+        isSubKind, isSubKindCon,
         tcIsSubKind, tcIsSubKindCon,
         defaultKind, defaultKind_maybe, isStarKind
 
@@ -57,36 +51,37 @@ import PrelNames
 import Outputable
 import Maybes( orElse )
 import Util
+import FastString
 \end{code}
 
 %************************************************************************
-%*									*
-	Functions over Kinds		
-%*									*
+%*                                                                      *
+        Functions over Kinds
+%*                                                                      *
 %************************************************************************
 
 Note [Kind Constraint and kind *]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The kind Constraint is the kind of classes and other type constraints.
-The special thing about types of kind Constraint is that 
+The special thing about types of kind Constraint is that
  * They are displayed with double arrow:
      f :: Ord a => a -> a
  * They are implicitly instantiated at call sites; so the type inference
    engine inserts an extra argument of type (Ord a) at every call site
    to f.
 
-However, once type inference is over, there is *no* distinction between 
+However, once type inference is over, there is *no* distinction between
 Constraint and *.  Indeed we can have coercions between the two. Consider
    class C a where
      op :: a -> a
-For this single-method class we may generate a newtype, which in turn 
+For this single-method class we may generate a newtype, which in turn
 generates an axiom witnessing
     Ord a ~ (a -> a)
 so on the left we have Constraint, and on the right we have *.
 See Trac #7451.
 
 Bottom line: although '*' and 'Constraint' are distinct TyCons, with
-distinct uniques, they are treated as equal at all times except 
+distinct uniques, they are treated as equal at all times except
 during type inference.  Hence cmpTc treats them as equal.
 
 Note [SuperKind]
@@ -103,9 +98,9 @@ kindAppResult :: Kind -> [Type] -> Kind
 kindAppResult k []     = k
 kindAppResult k (a:as) = kindAppResult (piResultTy k a) as
 
--- | Find the result 'Kind' of a type synonym, 
+-- | Find the result 'Kind' of a type synonym,
 -- after applying it to its 'arity' number of type variables
--- Actually this function works fine on data types too, 
+-- Actually this function works fine on data types too,
 -- but they'd always return '*', so we never need to ask
 synTyConResKind :: TyCon -> Kind
 synTyConResKind tycon = kindAppResult (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
@@ -275,11 +270,11 @@ defaultKind_maybe :: Kind -> Maybe Kind
 -- simple (* or *->* etc).  So generic type variables (other than
 -- built-in constants like 'error') always have simple kinds.  This is important;
 -- consider
---	f x = True
+--      f x = True
 -- We want f to get type
---	f :: forall (a::*). a -> Bool
--- Not 
---	f :: forall (a::ArgKind). a -> Bool
+--      f :: forall (a::*). a -> Bool
+-- Not
+--      f :: forall (a::ArgKind). a -> Bool
 -- because that would allow a call like (f 3#) as well as (f True),
 -- and the calling conventions differ.
 -- This defaulting is done in TcMType.zonkTcTyCoVarBndr.

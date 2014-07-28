@@ -4,6 +4,7 @@
 \section[HscTypes]{Types for the per-module compiler}
 
 \begin{code}
+{-# LANGUAGE CPP, DeriveDataTypeable, ScopedTypeVariables #-}
 
 -- | Types for the per-module compiler
 module HscTypes (
@@ -39,7 +40,7 @@ module HscTypes (
         PackageTypeEnv, PackageIfaceTable, emptyPackageIfaceTable,
         lookupIfaceByModule, emptyModIface,
 
-        PackageInstEnv, PackageRuleBase,
+        PackageInstEnv, PackageFamInstEnv, PackageRuleBase,
 
         mkSOName, mkHsSOName, soExt,
 
@@ -70,8 +71,10 @@ module HscTypes (
 
         TypeEnv, lookupType, lookupTypeHscEnv, mkTypeEnv, emptyTypeEnv,
         typeEnvFromEntities, mkTypeEnvWithImplicits,
-        extendTypeEnv, extendTypeEnvList, extendTypeEnvWithIds, lookupTypeEnv,
-        typeEnvElts, typeEnvTyCons, typeEnvIds,
+        extendTypeEnv, extendTypeEnvList,
+        extendTypeEnvWithIds, 
+        lookupTypeEnv,
+        typeEnvElts, typeEnvTyCons, typeEnvIds, typeEnvPatSyns,
         typeEnvDataCons, typeEnvCoAxioms, typeEnvClasses,
 
         -- * MonadThings
@@ -143,7 +146,9 @@ import Annotations      ( Annotation, AnnEnv, mkAnnEnv, plusAnnEnv )
 import Class
 import TyCon
 import CoAxiom
+import ConLike
 import DataCon
+import PatSyn
 import PrelNames        ( gHC_PRIM, ioTyConName, printName, mkInteractiveModule )
 import Packages hiding  ( Version(..) )
 import DynFlags
@@ -629,23 +634,23 @@ type FinderCache = ModuleNameEnv FindResult
 data FindResult
   = Found ModLocation Module
         -- ^ The module was found
-  | NoPackage PackageId
+  | NoPackage PackageKey
         -- ^ The requested package was not found
-  | FoundMultiple [PackageId]
+  | FoundMultiple [PackageKey]
         -- ^ _Error_: both in multiple packages
 
         -- | Not found
   | NotFound
       { fr_paths       :: [FilePath]       -- Places where I looked
 
-      , fr_pkg         :: Maybe PackageId  -- Just p => module is in this package's
+      , fr_pkg         :: Maybe PackageKey  -- Just p => module is in this package's
                                            --           manifest, but couldn't find
                                            --           the .hi file
 
-      , fr_mods_hidden :: [PackageId]      -- Module is in these packages,
+      , fr_mods_hidden :: [PackageKey]      -- Module is in these packages,
                                            --   but the *module* is hidden
 
-      , fr_pkgs_hidden :: [PackageId]      -- Module is in these packages,
+      , fr_pkgs_hidden :: [PackageKey]      -- Module is in these packages,
                                            --   but the *package* is hidden
 
       , fr_suggestions :: [Module]         -- Possible mis-spelled modules
@@ -947,7 +952,8 @@ data ModDetails
         -- The next two fields are created by the typechecker
         md_exports   :: [AvailInfo],
         md_types     :: !TypeEnv,       -- ^ Local type environment for this particular module
-        md_insts     :: ![ClsInst],    -- ^ 'DFunId's for the instances in this module
+                                        -- Includes Ids, TyCons, PatSyns
+        md_insts     :: ![ClsInst],     -- ^ 'DFunId's for the instances in this module
         md_fam_insts :: ![FamInst],
         md_rules     :: ![CoreRule],    -- ^ Domain may include 'Id's from other modules
         md_anns      :: ![Annotation],  -- ^ Annotations present in this module: currently
@@ -996,6 +1002,7 @@ data ModGuts
         mg_insts     :: ![ClsInst],      -- ^ Class instances declared in this module
         mg_fam_insts :: ![FamInst],
                                          -- ^ Family instances declared in this module
+        mg_patsyns   :: ![PatSyn],       -- ^ Pattern synonyms declared in this module
         mg_rules     :: ![CoreRule],     -- ^ Before the core pipeline starts, contains
                                          -- See Note [Overall plumbing for rules] in Rules.lhs
         mg_binds     :: !CoreProgram,    -- ^ Bindings for this module
@@ -1060,7 +1067,7 @@ data CgGuts
                 -- as part of the code-gen of tycons
 
         cg_foreign   :: !ForeignStubs,   -- ^ Foreign export stubs
-        cg_dep_pkgs  :: ![PackageId],    -- ^ Dependent packages, used to
+        cg_dep_pkgs  :: ![PackageKey],    -- ^ Dependent packages, used to
                                          -- generate #includes for C code gen
         cg_hpc_info  :: !HpcInfo,        -- ^ Program coverage tick box information
         cg_modBreaks :: !ModBreaks       -- ^ Module breakpoints
@@ -1099,7 +1106,7 @@ they were defined in modules
    interactive:Ghci2
    ...etc...
 with each bunch of declarations using a new module, all sharing a
-common package 'interactive' (see Module.interactivePackageId, and
+common package 'interactive' (see Module.interactivePackageKey, and
 PrelNames.mkInteractiveModule).
 
 This scheme deals well with shadowing.  For example:
@@ -1114,10 +1121,10 @@ shadowed by the second declaration.  But it has a respectable
 qualified name (Ghci1.T), and its source location says where it was
 defined.
 
-So the main invariant continues to hold, that in any session an original
-name M.T only refers to oe unique thing.  (In a previous iteration both
-the T's above were called :Interactive.T, albeit with different uniques,
-which gave rise to all sorts of trouble.)
+So the main invariant continues to hold, that in any session an
+original name M.T only refers to one unique thing.  (In a previous
+iteration both the T's above were called :Interactive.T, albeit with
+different uniques, which gave rise to all sorts of trouble.)
 
 The details are a bit tricky though:
 
@@ -1127,7 +1134,7 @@ The details are a bit tricky though:
  * ic_tythings contains only things from the 'interactive' package.
 
  * Module from the 'interactive' package (Ghci1, Ghci2 etc) never go
-   in the Home Package Table (HPT).  When you say :load, that's when
+   in the Home Package Table (HPT).  When you say :load, that's when we
    extend the HPT.
 
  * The 'thisPackage' field of DynFlags is *not* set to 'interactive'.
@@ -1135,10 +1142,13 @@ The details are a bit tricky though:
    package to which :load'ed modules are added to.
 
  * So how do we arrange that declarations at the command prompt get
-   to be in the 'interactive' package?  By setting 'thisPackage' just
-   before the typecheck/rename step for command-line processing;
-   see the calls to HscTypes.setInteractivePackage in
-   HscMain.hscDeclsWithLocation and hscStmtWithLocation.
+   to be in the 'interactive' package?  Simply by setting the tcg_mod
+   field of the TcGblEnv to "interactive:Ghci1".  This is done by the
+   call to initTc in initTcInteractive, initTcForLookup, which in 
+   turn get the module from it 'icInteractiveModule' field of the 
+   interactive context.
+
+   The 'thisPackage' field stays as 'main' (or whatever -package-name says.
 
  * The main trickiness is that the type environment (tcg_type_env and
    fixity envt (tcg_fix_env) now contains entities from all the
@@ -1331,7 +1341,7 @@ extendInteractiveContext ictxt new_tythings
 setInteractivePackage :: HscEnv -> HscEnv
 -- Set the 'thisPackage' DynFlag to 'interactive'
 setInteractivePackage hsc_env
-   = hsc_env { hsc_dflags = (hsc_dflags hsc_env) { thisPackage = interactivePackageId } }
+   = hsc_env { hsc_dflags = (hsc_dflags hsc_env) { thisPackage = interactivePackageKey } }
 
 setInteractivePrintName :: InteractiveContext -> Name -> InteractiveContext
 setInteractivePrintName ic n = ic{ic_int_print = n}
@@ -1436,11 +1446,11 @@ mkPrintUnqualified dflags env = (qual_name, qual_mod)
     -- current package we can just assume it is unqualified).
 
   qual_mod mod
-     | modulePackageId mod == thisPackage dflags = False
+     | modulePackageKey mod == thisPackage dflags = False
 
      | [pkgconfig] <- [pkg | (pkg,exposed_module) <- lookup,
                              exposed pkg && exposed_module],
-       packageConfigId pkgconfig == modulePackageId mod
+       packageConfigId pkgconfig == modulePackageKey mod
         -- this says: we are given a module P:M, is there just one exposed package
         -- that exposes a module M, and is it package P?
      = False
@@ -1475,7 +1485,7 @@ Examples:
     IfaceClass decl happens to use IfaceDecl recursively for the
     associated types, but that's irrelevant here.)
 
-  * Dictionary function Ids are not implict.
+  * Dictionary function Ids are not implicit.
 
   * Axioms for newtypes are implicit (same as above), but axioms
     for data/type family instances are *not* implicit (like DFunIds).
@@ -1496,8 +1506,17 @@ implicitTyThings :: TyThing -> [TyThing]
 implicitTyThings (AnId _)       = []
 implicitTyThings (ACoAxiom _cc) = []
 implicitTyThings (ATyCon tc)    = implicitTyConThings tc
-implicitTyThings (ADataCon dc)  = map AnId (dataConImplicitIds dc)
+implicitTyThings (AConLike cl)  = implicitConLikeThings cl
+
+implicitConLikeThings :: ConLike -> [TyThing]
+implicitConLikeThings (RealDataCon dc)
+  = map AnId (dataConImplicitIds dc)
     -- For data cons add the worker and (possibly) wrapper
+
+implicitConLikeThings (PatSynCon {})
+  = []  -- Pattern synonyms have no implicit Ids; the wrapper and matcher
+        -- are not "implicit"; they are simply new top-level bindings,
+        -- and they have their own declaration in an interface fiel
 
 implicitClassThings :: Class -> [TyThing]
 implicitClassThings cl
@@ -1520,7 +1539,7 @@ implicitTyConThings tc
 
       -- for each data constructor in order,
       --   the contructor, worker, and (possibly) wrapper
-    concatMap (extras_plus . ADataCon) (tyConDataCons tc)
+    concatMap (extras_plus . AConLike . RealDataCon) (tyConDataCons tc)
       -- NB. record selectors are *not* implicit, they have fully-fledged
       -- bindings that pass through the compilation pipeline as normal.
   where
@@ -1545,7 +1564,9 @@ implicitCoTyCon tc
 -- of some other declaration, or it is generated implicitly by some
 -- other declaration.
 isImplicitTyThing :: TyThing -> Bool
-isImplicitTyThing (ADataCon {}) = True
+isImplicitTyThing (AConLike cl) = case cl of
+                                    RealDataCon {} -> True
+                                    PatSynCon {}   -> False
 isImplicitTyThing (AnId id)     = isImplicitId id
 isImplicitTyThing (ATyCon tc)   = isImplicitTyCon tc
 isImplicitTyThing (ACoAxiom ax) = isImplicitCoAxiom ax
@@ -1557,7 +1578,9 @@ isImplicitTyThing (ACoAxiom ax) = isImplicitCoAxiom ax
 -- but the tycon could be the associated type of a class, so it in turn
 -- might have a parent.
 tyThingParent_maybe :: TyThing -> Maybe TyThing
-tyThingParent_maybe (ADataCon dc) = Just (ATyCon (dataConTyCon dc))
+tyThingParent_maybe (AConLike cl) = case cl of
+    RealDataCon dc  -> Just (ATyCon (dataConTyCon dc))
+    PatSynCon{}     -> Nothing
 tyThingParent_maybe (ATyCon tc)   = case tyConAssoc_maybe tc of
                                       Just cls -> Just (ATyCon (classTyCon cls))
                                       Nothing  -> Nothing
@@ -1572,7 +1595,9 @@ tyThingsTyCoVars tts =
     unionVarSets $ map ttToVarSet tts
     where
         ttToVarSet (AnId id)     = tyCoVarsOfType $ idType id
-        ttToVarSet (ADataCon dc) = tyCoVarsOfType $ dataConRepType dc
+        ttToVarSet (AConLike cl) = case cl of
+            RealDataCon dc  -> tyCoVarsOfType $ dataConRepType dc
+            PatSynCon{}     -> emptyVarSet
         ttToVarSet (ATyCon tc)
           = case tyConClass_maybe tc of
               Just cls -> (mkVarSet . fst . classTvsFds) cls
@@ -1611,6 +1636,7 @@ typeEnvElts     :: TypeEnv -> [TyThing]
 typeEnvTyCons   :: TypeEnv -> [TyCon]
 typeEnvCoAxioms :: TypeEnv -> [CoAxiom Branched]
 typeEnvIds      :: TypeEnv -> [Id]
+typeEnvPatSyns  :: TypeEnv -> [PatSyn]
 typeEnvDataCons :: TypeEnv -> [DataCon]
 typeEnvClasses  :: TypeEnv -> [Class]
 lookupTypeEnv   :: TypeEnv -> Name -> Maybe TyThing
@@ -1620,7 +1646,8 @@ typeEnvElts     env = nameEnvElts env
 typeEnvTyCons   env = [tc | ATyCon tc   <- typeEnvElts env]
 typeEnvCoAxioms env = [ax | ACoAxiom ax <- typeEnvElts env]
 typeEnvIds      env = [id | AnId id     <- typeEnvElts env]
-typeEnvDataCons env = [dc | ADataCon dc <- typeEnvElts env]
+typeEnvPatSyns  env = [ps | AConLike (PatSynCon ps) <- typeEnvElts env]
+typeEnvDataCons env = [dc | AConLike (RealDataCon dc) <- typeEnvElts env]
 typeEnvClasses  env = [cl | tc <- typeEnvTyCons env,
                             Just cl <- [tyConClass_maybe tc]]
 
@@ -1655,7 +1682,6 @@ extendTypeEnvList env things = foldl extendTypeEnv env things
 extendTypeEnvWithIds :: TypeEnv -> [Id] -> TypeEnv
 extendTypeEnvWithIds env ids
   = extendNameEnvList env [(getName id, AnId id) | id <- ids]
-
 \end{code}
 
 \begin{code}
@@ -1704,14 +1730,14 @@ tyThingCoAxiom other         = pprPanic "tyThingCoAxiom" (pprTyThing other)
 
 -- | Get the 'DataCon' from a 'TyThing' if it is a data constructor thing. Panics otherwise
 tyThingDataCon :: TyThing -> DataCon
-tyThingDataCon (ADataCon dc) = dc
-tyThingDataCon other         = pprPanic "tyThingDataCon" (pprTyThing other)
+tyThingDataCon (AConLike (RealDataCon dc)) = dc
+tyThingDataCon other                       = pprPanic "tyThingDataCon" (pprTyThing other)
 
 -- | Get the 'Id' from a 'TyThing' if it is a id *or* data constructor thing. Panics otherwise
 tyThingId :: TyThing -> Id
-tyThingId (AnId id)     = id
-tyThingId (ADataCon dc) = dataConWrapId dc
-tyThingId other         = pprPanic "tyThingId" (pprTyThing other)
+tyThingId (AnId id)                   = id
+tyThingId (AConLike (RealDataCon dc)) = dataConWrapId dc
+tyThingId other                       = pprPanic "tyThingId" (pprTyThing other)
 \end{code}
 
 %************************************************************************
@@ -1878,7 +1904,7 @@ data Dependencies
                         -- I.e. modules that this one imports, or that are in the
                         --      dep_mods of those directly-imported modules
 
-         , dep_pkgs   :: [(PackageId, Bool)]
+         , dep_pkgs   :: [(PackageKey, Bool)]
                         -- ^ All packages transitively below this module
                         -- I.e. packages to which this module's direct imports belong,
                         --      or that are in the dep_pkgs of those modules
@@ -2174,37 +2200,50 @@ type ModuleGraph = [ModSummary]
 emptyMG :: ModuleGraph
 emptyMG = []
 
--- | A single node in a 'ModuleGraph. The nodes of the module graph are one of:
+-- | A single node in a 'ModuleGraph'. The nodes of the module graph
+-- are one of:
 --
 -- * A regular Haskell source module
---
 -- * A hi-boot source module
---
 -- * An external-core source module
+--
 data ModSummary
    = ModSummary {
-        ms_mod          :: Module,              -- ^ Identity of the module
-        ms_hsc_src      :: HscSource,           -- ^ The module source either plain Haskell, hs-boot or external core
-        ms_location     :: ModLocation,         -- ^ Location of the various files belonging to the module
-        ms_hs_date      :: UTCTime,             -- ^ Timestamp of source file
-        ms_obj_date     :: Maybe UTCTime,       -- ^ Timestamp of object, if we have one
-        ms_srcimps      :: [Located (ImportDecl RdrName)],      -- ^ Source imports of the module
-        ms_textual_imps :: [Located (ImportDecl RdrName)],      -- ^ Non-source imports of the module from the module *text*
-        ms_hspp_file    :: FilePath,            -- ^ Filename of preprocessed source file
-        ms_hspp_opts    :: DynFlags,            -- ^ Cached flags from @OPTIONS@, @INCLUDE@
-                                                -- and @LANGUAGE@ pragmas in the modules source code
-        ms_hspp_buf     :: Maybe StringBuffer   -- ^ The actual preprocessed source, if we have it
+        ms_mod          :: Module,
+          -- ^ Identity of the module
+        ms_hsc_src      :: HscSource,
+          -- ^ The module source either plain Haskell, hs-boot or external core
+        ms_location     :: ModLocation,
+          -- ^ Location of the various files belonging to the module
+        ms_hs_date      :: UTCTime,
+          -- ^ Timestamp of source file
+        ms_obj_date     :: Maybe UTCTime,
+          -- ^ Timestamp of object, if we have one
+        ms_srcimps      :: [Located (ImportDecl RdrName)],
+          -- ^ Source imports of the module
+        ms_textual_imps :: [Located (ImportDecl RdrName)],
+          -- ^ Non-source imports of the module from the module *text*
+        ms_hspp_file    :: FilePath,
+          -- ^ Filename of preprocessed source file
+        ms_hspp_opts    :: DynFlags,
+          -- ^ Cached flags from @OPTIONS@, @INCLUDE@ and @LANGUAGE@
+          -- pragmas in the modules source code
+        ms_hspp_buf     :: Maybe StringBuffer
+          -- ^ The actual preprocessed source, if we have it
      }
 
 ms_mod_name :: ModSummary -> ModuleName
 ms_mod_name = moduleName . ms_mod
 
 ms_imps :: ModSummary -> [Located (ImportDecl RdrName)]
-ms_imps ms = ms_textual_imps ms ++ map mk_additional_import (dynFlagDependencies (ms_hspp_opts ms))
+ms_imps ms =
+  ms_textual_imps ms ++
+  map mk_additional_import (dynFlagDependencies (ms_hspp_opts ms))
   where
-    -- This is a not-entirely-satisfactory means of creating an import that corresponds to an
-    -- import that did not occur in the program text, such as those induced by the use of
-    -- plugins (the -plgFoo flag)
+    -- This is a not-entirely-satisfactory means of creating an import
+    -- that corresponds to an import that did not occur in the program
+    -- text, such as those induced by the use of plugins (the -plgFoo
+    -- flag)
     mk_additional_import mod_nm = noLoc $ ImportDecl {
       ideclName      = noLoc mod_nm,
       ideclPkgQual   = Nothing,

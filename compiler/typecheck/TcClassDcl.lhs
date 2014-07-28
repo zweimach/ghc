@@ -6,7 +6,8 @@
 Typechecking class declarations
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
+{-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
@@ -202,7 +203,7 @@ tcDefMeth clas tyvars this_dict binds_in hs_sig_fn prag_fn (sel_id, dm_info)
     sel_name           = idName sel_id
     prags              = prag_fn sel_name
     (dm_bind,bndr_loc) = findMethodBind sel_name binds_in
-	                 `orElse` pprPanic "tcDefMeth" (ppr sel_id)
+                         `orElse` pprPanic "tcDefMeth" (ppr sel_id)
 
     -- Eg.   class C a where
     --          op :: forall b. Eq b => a -> [b] -> a
@@ -238,7 +239,7 @@ tcDefMeth clas tyvars this_dict binds_in hs_sig_fn prag_fn (sel_id, dm_info)
 ---------------
 tcInstanceMethodBody :: SkolemInfo -> [TcTyCoVar] -> [EvVar]
                      -> Id -> TcSigInfo
-          	     -> TcSpecPrags -> LHsBind Name 
+          	     -> TcSpecPrags -> LHsBind Name
           	     -> TcM (LHsBind Id)
 tcInstanceMethodBody skol_info tyvars dfun_ev_vars
                      meth_id local_meth_sig
@@ -249,7 +250,7 @@ tcInstanceMethodBody skol_info tyvars dfun_ev_vars
 			     -- NB: the binding is always a FunBind
 	; (ev_binds, (tc_bind, _, _)) 
                <- checkConstraints skol_info tyvars dfun_ev_vars $
-	          tcPolyCheck NonRecursive no_prag_fn local_meth_sig [lm_bind]
+	          tcPolyCheck NonRecursive no_prag_fn local_meth_sig lm_bind
 
         ; let export = ABE { abe_wrap = idHsWrapper, abe_poly = meth_id
                            , abe_mono = local_meth_id, abe_prags = specs }
@@ -331,9 +332,9 @@ findMethodBind	:: Name  	        -- Selector name
                 -- site of the method binder
 findMethodBind sel_name binds
   = foldlBag mplus Nothing (mapBag f binds)
-  where 
+  where
     f bind@(L _ (FunBind { fun_id = L bndr_loc op_name }))
-             | op_name == sel_name
+      | op_name == sel_name
     	     = Just (bind, bndr_loc)
     f _other = Nothing
 
@@ -341,8 +342,9 @@ findMethodBind sel_name binds
 findMinimalDef :: [LSig Name] -> Maybe ClassMinimalDef
 findMinimalDef = firstJusts . map toMinimalDef
   where
+    toMinimalDef :: LSig Name -> Maybe ClassMinimalDef
     toMinimalDef (L _ (MinimalSig bf)) = Just (fmap unLoc bf)
-    toMinimalDef _ = Nothing
+    toMinimalDef _                     = Nothing
 \end{code}
 
 Note [Polymorphic methods]

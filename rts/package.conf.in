@@ -57,9 +57,9 @@ extra-libraries:
 #endif
 
 #ifdef INSTALLING
-include-dirs:           INCLUDE_DIR PAPI_INCLUDE_DIR
+include-dirs:           INCLUDE_DIR PAPI_INCLUDE_DIR FFI_INCLUDE_DIR
 #else /* !INSTALLING */
-include-dirs:           TOP"/rts/dist/build" TOP"/includes" TOP"/includes/dist-derivedconstants/header"
+include-dirs:           TOP"/rts/dist/build" TOP"/includes" TOP"/includes/dist-derivedconstants/header" FFI_INCLUDE_DIR
 #endif
 
 includes:               Stg.h
@@ -99,6 +99,7 @@ ld-options:
          , "-Wl,-u,_base_GHCziIOziException_blockedIndefinitelyOnMVar_closure"
          , "-Wl,-u,_base_GHCziIOziException_blockedIndefinitelyOnSTM_closure"
          , "-Wl,-u,_base_ControlziExceptionziBase_nestedAtomically_closure"
+         , "-Wl,-u,_base_GHCziEventziThread_blockedOnBadFD_closure"
          , "-Wl,-u,_base_GHCziWeak_runFinalizzerBatch_closure"
          , "-Wl,-u,_base_GHCziTopHandler_flushStdHandles_closure"
          , "-Wl,-u,_base_GHCziTopHandler_runIO_closure"
@@ -139,6 +140,7 @@ ld-options:
          , "-Wl,-u,base_GHCziIOziException_blockedIndefinitelyOnMVar_closure"
          , "-Wl,-u,base_GHCziIOziException_blockedIndefinitelyOnSTM_closure"
          , "-Wl,-u,base_ControlziExceptionziBase_nestedAtomically_closure"
+         , "-Wl,-u,base_GHCziEventziThread_blockedOnBadFD_closure"
          , "-Wl,-u,base_GHCziWeak_runFinalizzerBatch_closure"
          , "-Wl,-u,base_GHCziTopHandler_flushStdHandles_closure"
          , "-Wl,-u,base_GHCziTopHandler_runIO_closure"

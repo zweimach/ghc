@@ -3,7 +3,7 @@
 % (c) The GRASP/AQUA Project, Glasgow University, 1992-1998
 %
 \begin{code}
-{-# LANGUAGE DeriveDataTypeable, ScopedTypeVariables #-}
+{-# LANGUAGE CPP, DeriveDataTypeable, ScopedTypeVariables #-}
 
 -- | Abstract Haskell syntax for expressions.
 module HsExpr where
@@ -79,8 +79,6 @@ noSyntaxExpr = HsLit (HsString (fsLit "noSyntaxExpr"))
 type CmdSyntaxTable id = [(Name, SyntaxExpr id)]
 -- See Note [CmdSyntaxTable]
 
-noSyntaxTable :: CmdSyntaxTable id
-noSyntaxTable = []
 \end{code}
 
 Note [CmdSyntaxtable]
@@ -88,7 +86,7 @@ Note [CmdSyntaxtable]
 Used only for arrow-syntax stuff (HsCmdTop), the CmdSyntaxTable keeps
 track of the methods needed for a Cmd.
 
-* Before the renamer, this list is 'noSyntaxTable'
+* Before the renamer, this list is an empty list
 
 * After the renamer, it takes the form @[(std_name, HsVar actual_name)]@
   For example, for the 'arr' method
@@ -630,13 +628,13 @@ ppr_expr (HsTickPragma externalSrcLoc exp)
           ptext (sLit ")")]
 
 ppr_expr (HsArrApp arrow arg _ HsFirstOrderApp True)
-  = hsep [ppr_lexpr arrow, ptext (sLit "-<"), ppr_lexpr arg]
+  = hsep [ppr_lexpr arrow, larrowt, ppr_lexpr arg]
 ppr_expr (HsArrApp arrow arg _ HsFirstOrderApp False)
-  = hsep [ppr_lexpr arg, ptext (sLit ">-"), ppr_lexpr arrow]
+  = hsep [ppr_lexpr arg, arrowt, ppr_lexpr arrow]
 ppr_expr (HsArrApp arrow arg _ HsHigherOrderApp True)
-  = hsep [ppr_lexpr arrow, ptext (sLit "-<<"), ppr_lexpr arg]
+  = hsep [ppr_lexpr arrow, larrowtt, ppr_lexpr arg]
 ppr_expr (HsArrApp arrow arg _ HsHigherOrderApp False)
-  = hsep [ppr_lexpr arg, ptext (sLit ">>-"), ppr_lexpr arrow]
+  = hsep [ppr_lexpr arg, arrowtt, ppr_lexpr arrow]
 
 ppr_expr (HsArrForm (L _ (HsVar v)) (Just _) [arg1, arg2])
   = sep [pprCmdArg (unLoc arg1), hsep [pprInfixOcc v, pprCmdArg (unLoc arg2)]]
@@ -849,13 +847,13 @@ ppr_cmd (HsCmdCast co cmd) = sep [ ppr_cmd cmd
                                  , ptext (sLit "|>") <+> ppr co ]
 
 ppr_cmd (HsCmdArrApp arrow arg _ HsFirstOrderApp True)
-  = hsep [ppr_lexpr arrow, ptext (sLit "-<"), ppr_lexpr arg]
+  = hsep [ppr_lexpr arrow, larrowt, ppr_lexpr arg]
 ppr_cmd (HsCmdArrApp arrow arg _ HsFirstOrderApp False)
-  = hsep [ppr_lexpr arg, ptext (sLit ">-"), ppr_lexpr arrow]
+  = hsep [ppr_lexpr arg, arrowt, ppr_lexpr arrow]
 ppr_cmd (HsCmdArrApp arrow arg _ HsHigherOrderApp True)
-  = hsep [ppr_lexpr arrow, ptext (sLit "-<<"), ppr_lexpr arg]
+  = hsep [ppr_lexpr arrow, larrowtt, ppr_lexpr arg]
 ppr_cmd (HsCmdArrApp arrow arg _ HsHigherOrderApp False)
-  = hsep [ppr_lexpr arg, ptext (sLit ">>-"), ppr_lexpr arrow]
+  = hsep [ppr_lexpr arg, arrowtt, ppr_lexpr arrow]
 
 ppr_cmd (HsCmdArrForm (L _ (HsVar v)) (Just _) [arg1, arg2])
   = sep [pprCmdArg (unLoc arg1), hsep [pprInfixOcc v, pprCmdArg (unLoc arg2)]]
@@ -909,7 +907,8 @@ patterns in each equation.
 data MatchGroup id body
   = MG { mg_alts    :: [LMatch id body]  -- The alternatives
        , mg_arg_tys :: [PostTcType]      -- Types of the arguments, t1..tn
-       , mg_res_ty  :: PostTcType  }     -- Type of the result, tr 
+       , mg_res_ty  :: PostTcType        -- Type of the result, tr 
+       , mg_origin  :: Origin }
      -- The type is the type of the entire group
      --      t1 -> ... -> tn -> tr
      -- where there are n patterns
@@ -1299,7 +1298,7 @@ instance (OutputableBndr idL, OutputableBndr idR, Outputable body)
 pprStmt :: (OutputableBndr idL, OutputableBndr idR, Outputable body)
         => (StmtLR idL idR body) -> SDoc
 pprStmt (LastStmt expr _)         = ifPprDebug (ptext (sLit "[last]")) <+> ppr expr
-pprStmt (BindStmt pat expr _ _)   = hsep [ppr pat, ptext (sLit "<-"), ppr expr]
+pprStmt (BindStmt pat expr _ _)   = hsep [ppr pat, larrow, ppr expr]
 pprStmt (LetStmt binds)           = hsep [ptext (sLit "let"), pprBinds binds]
 pprStmt (BodyStmt expr _ _ _)     = ppr expr
 pprStmt (ParStmt stmtss _ _)      = sep (punctuate (ptext (sLit " | ")) (map ppr stmtss))
@@ -1498,6 +1497,7 @@ data HsMatchContext id  -- Context of a Match
 
   | ThPatSplice                 -- A Template Haskell pattern splice
   | ThPatQuote                  -- A Template Haskell pattern quotation [p| (a,b) |]
+  | PatSyn                      -- A pattern synonym declaration
   deriving (Data, Typeable)
 
 data HsStmtContext id
@@ -1545,6 +1545,7 @@ matchSeparator (StmtCtxt _) = ptext (sLit "<-")
 matchSeparator RecUpd       = panic "unused"
 matchSeparator ThPatSplice  = panic "unused"
 matchSeparator ThPatQuote   = panic "unused"
+matchSeparator PatSyn       = panic "unused"
 \end{code}
 
 \begin{code}
@@ -1570,6 +1571,7 @@ pprMatchContextNoun LambdaExpr      = ptext (sLit "lambda abstraction")
 pprMatchContextNoun ProcExpr        = ptext (sLit "arrow abstraction")
 pprMatchContextNoun (StmtCtxt ctxt) = ptext (sLit "pattern binding in")
                                       $$ pprStmtContext ctxt
+pprMatchContextNoun PatSyn          = ptext (sLit "pattern synonym declaration")
 
 -----------------
 pprAStmtContext, pprStmtContext :: Outputable id => HsStmtContext id -> SDoc
@@ -1618,6 +1620,7 @@ matchContextErrString LambdaExpr                 = ptext (sLit "lambda")
 matchContextErrString ProcExpr                   = ptext (sLit "proc")
 matchContextErrString ThPatSplice                = panic "matchContextErrString"  -- Not used at runtime
 matchContextErrString ThPatQuote                 = panic "matchContextErrString"  -- Not used at runtime
+matchContextErrString PatSyn                     = panic "matchContextErrString"  -- Not used at runtime
 matchContextErrString (StmtCtxt (ParStmtCtxt c))   = matchContextErrString (StmtCtxt c)
 matchContextErrString (StmtCtxt (TransStmtCtxt c)) = matchContextErrString (StmtCtxt c)
 matchContextErrString (StmtCtxt (PatGuard _))      = ptext (sLit "pattern guard")

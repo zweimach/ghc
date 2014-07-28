@@ -99,8 +99,6 @@ endif
 	@echo 'cGhcEnableTablesNextToCode = "$(GhcEnableTablesNextToCode)"' >> $@
 	@echo 'cLeadingUnderscore    :: String'                             >> $@
 	@echo 'cLeadingUnderscore    = "$(LeadingUnderscore)"'              >> $@
-	@echo 'cRAWCPP_FLAGS         :: String'                             >> $@
-	@echo 'cRAWCPP_FLAGS         = "$(RAWCPP_FLAGS)"'                   >> $@
 	@echo 'cGHC_UNLIT_PGM        :: String'                             >> $@
 	@echo 'cGHC_UNLIT_PGM        = "$(utils/unlit_dist_PROG)"'          >> $@
 	@echo 'cGHC_SPLIT_PGM        :: String'                             >> $@
@@ -353,6 +351,11 @@ else
 compiler_CONFIGURE_OPTS += --ghc-option=-DNO_REGS
 endif
 
+ifneq "$(GhcWithSMP)" "YES"
+compiler_CONFIGURE_OPTS += --ghc-option=-DNOSMP
+compiler_CONFIGURE_OPTS += --ghc-option=-optc-DNOSMP
+endif
+
 # Careful optimisation of the parser: we don't want to throw everything
 # at it, because that takes too long and doesn't buy much, but we do want
 # to inline certain key external functions, so we instruct GHC not to
@@ -479,6 +482,7 @@ compiler_stage2_dll0_MODULES = \
 	CmmType \
 	CmmUtils \
 	CoAxiom \
+	ConLike \
 	CodeGen.Platform \
 	CodeGen.Platform.ARM \
 	CodeGen.Platform.NoRegs \
@@ -563,6 +567,7 @@ compiler_stage2_dll0_MODULES = \
 	Packages \
 	Pair \
 	Panic \
+	PatSyn \
 	PipelineMonad \
 	Platform \
 	PlatformConstants \
@@ -660,9 +665,9 @@ compiler_stage2_CONFIGURE_OPTS += --disable-library-for-ghci
 compiler_stage3_CONFIGURE_OPTS += --disable-library-for-ghci
 
 # after build-package, because that sets compiler_stage1_HC_OPTS:
-compiler_stage1_HC_OPTS += $(GhcStage1HcOpts)
-compiler_stage2_HC_OPTS += $(GhcStage2HcOpts)
-compiler_stage3_HC_OPTS += $(GhcStage3HcOpts)
+compiler_stage1_HC_OPTS += $(GhcHcOpts) $(GhcStage1HcOpts)
+compiler_stage2_HC_OPTS += $(GhcHcOpts) $(GhcStage2HcOpts)
+compiler_stage3_HC_OPTS += $(GhcHcOpts) $(GhcStage3HcOpts)
 
 ifneq "$(BINDIST)" "YES"
 

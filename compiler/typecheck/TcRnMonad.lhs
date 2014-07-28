@@ -5,7 +5,9 @@
 Functions for working with the typechecker environment (setters, getters...).
 
 \begin{code}
+{-# LANGUAGE CPP, ExplicitForAll, FlexibleInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module TcRnMonad(
         module TcRnMonad,
         module TcRnTypes,
@@ -24,7 +26,6 @@ import Module
 import RdrName
 import Name
 import Type
-import Kind ( isSuperKind )
 
 import TcType
 import InstEnv
@@ -150,6 +151,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                 tcg_rules          = [],
                 tcg_fords          = [],
                 tcg_vects          = [],
+                tcg_patsyns        = [],
                 tcg_dfun_n         = dfun_n_var,
                 tcg_keep           = keep_var,
                 tcg_doc_hdr        = Nothing,
@@ -1130,10 +1132,6 @@ setUntouchables untch thing_inside
 
 isTouchableTcM :: TcTyVar -> TcM Bool
 isTouchableTcM tv
-    -- Kind variables are always touchable
-  | isSuperKind (tyVarKind tv) 
-  = return False
-  | otherwise 
   = do { env <- getLclEnv
        ; return (isTouchableMetaTyVar (tcl_untch env) tv) }
 
@@ -1248,17 +1246,6 @@ initIfaceTcRn thing_inside
         ; let { if_env = IfGblEnv { if_rec_types = Just (tcg_mod tcg_env, get_type_env) }
               ; get_type_env = readTcRef (tcg_type_env_var tcg_env) }
         ; setEnvs (if_env, ()) thing_inside }
-
-initIfaceExtCore :: IfL a -> TcRn a
-initIfaceExtCore thing_inside
-  = do  { tcg_env <- getGblEnv
-        ; let { mod = tcg_mod tcg_env
-              ; doc = ptext (sLit "External Core file for") <+> quotes (ppr mod)
-              ; if_env = IfGblEnv {
-                        if_rec_types = Just (mod, return (tcg_type_env tcg_env)) }
-              ; if_lenv = mkIfLclEnv mod doc
-          }
-        ; setEnvs (if_env, if_lenv) thing_inside }
 
 initIfaceCheck :: HscEnv -> IfG a -> IO a
 -- Used when checking the up-to-date-ness of the old Iface

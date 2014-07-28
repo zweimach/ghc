@@ -4,7 +4,8 @@
 \section[WorkWrap]{Worker/wrapper-generating back-end of strictness analyser}
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
+{-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
@@ -17,7 +18,6 @@ import CoreSyn
 import CoreUnfold	( certainlyWillInline, mkInlineUnfolding, mkWwInlineRule )
 import CoreUtils	( exprType, exprIsHNF )
 import CoreArity	( exprArity )
-import Type             ( isVoidTy )
 import Var
 import Id
 import IdInfo
@@ -29,6 +29,7 @@ import Demand
 import WwLib
 import Util
 import Outputable
+import FamInstEnv
 import MonadUtils
 
 #include "HsVersions.h"
@@ -61,11 +62,11 @@ info for exported values).
 \end{enumerate}
 
 \begin{code}
-wwTopBinds :: DynFlags -> UniqSupply -> CoreProgram -> CoreProgram
+wwTopBinds :: DynFlags -> FamInstEnvs -> UniqSupply -> CoreProgram -> CoreProgram
 
-wwTopBinds dflags us top_binds
+wwTopBinds dflags fam_envs us top_binds
   = initUs_ us $ do
-    top_binds' <- mapM (wwBind dflags) top_binds
+    top_binds' <- mapM (wwBind dflags fam_envs) top_binds
     return (concat top_binds')
 \end{code}
 
@@ -80,23 +81,24 @@ turn.  Non-recursive case first, then recursive...
 
 \begin{code}
 wwBind  :: DynFlags
+        -> FamInstEnvs
         -> CoreBind
 	-> UniqSM [CoreBind]	-- returns a WwBinding intermediate form;
 				-- the caller will convert to Expr/Binding,
 				-- as appropriate.
 
-wwBind dflags (NonRec binder rhs) = do
-    new_rhs <- wwExpr dflags rhs
-    new_pairs <- tryWW dflags NonRecursive binder new_rhs
+wwBind dflags fam_envs (NonRec binder rhs) = do
+    new_rhs <- wwExpr dflags fam_envs rhs
+    new_pairs <- tryWW dflags fam_envs NonRecursive binder new_rhs
     return [NonRec b e | (b,e) <- new_pairs]
       -- Generated bindings must be non-recursive
       -- because the original binding was.
 
-wwBind dflags (Rec pairs)
+wwBind dflags fam_envs (Rec pairs)
   = return . Rec <$> concatMapM do_one pairs
   where
-    do_one (binder, rhs) = do new_rhs <- wwExpr dflags rhs
-                              tryWW dflags Recursive binder new_rhs
+    do_one (binder, rhs) = do new_rhs <- wwExpr dflags fam_envs rhs
+                              tryWW dflags fam_envs Recursive binder new_rhs
 \end{code}
 
 @wwExpr@ basically just walks the tree, looking for appropriate
@@ -105,36 +107,36 @@ matching by looking for strict arguments of the correct type.
 @wwExpr@ is a version that just returns the ``Plain'' Tree.
 
 \begin{code}
-wwExpr :: DynFlags -> CoreExpr -> UniqSM CoreExpr
+wwExpr :: DynFlags -> FamInstEnvs -> CoreExpr -> UniqSM CoreExpr
 
-wwExpr _      e@(Type {}) = return e
-wwExpr _      e@(Coercion {}) = return e
-wwExpr _      e@(Lit  {}) = return e
-wwExpr _      e@(Var  {}) = return e
+wwExpr _      _ e@(Type {}) = return e
+wwExpr _      _ e@(Coercion {}) = return e
+wwExpr _      _ e@(Lit  {}) = return e
+wwExpr _      _ e@(Var  {}) = return e
 
-wwExpr dflags (Lam binder expr)
-  = Lam binder <$> wwExpr dflags expr
+wwExpr dflags fam_envs (Lam binder expr)
+  = Lam binder <$> wwExpr dflags fam_envs expr
 
-wwExpr dflags (App f a)
-  = App <$> wwExpr dflags f <*> wwExpr dflags a
+wwExpr dflags fam_envs (App f a)
+  = App <$> wwExpr dflags fam_envs f <*> wwExpr dflags fam_envs a
 
-wwExpr dflags (Tick note expr)
-  = Tick note <$> wwExpr dflags expr
+wwExpr dflags fam_envs (Tick note expr)
+  = Tick note <$> wwExpr dflags fam_envs expr
 
-wwExpr dflags (Cast expr co) = do
-    new_expr <- wwExpr dflags expr
+wwExpr dflags fam_envs (Cast expr co) = do
+    new_expr <- wwExpr dflags fam_envs expr
     return (Cast new_expr co)
 
-wwExpr dflags (Let bind expr)
-  = mkLets <$> wwBind dflags bind <*> wwExpr dflags expr
+wwExpr dflags fam_envs (Let bind expr)
+  = mkLets <$> wwBind dflags fam_envs bind <*> wwExpr dflags fam_envs expr
 
-wwExpr dflags (Case expr binder ty alts) = do
-    new_expr <- wwExpr dflags expr
+wwExpr dflags fam_envs (Case expr binder ty alts) = do
+    new_expr <- wwExpr dflags fam_envs expr
     new_alts <- mapM ww_alt alts
     return (Case new_expr binder ty new_alts)
   where
     ww_alt (con, binders, rhs) = do
-        new_rhs <- wwExpr dflags rhs
+        new_rhs <- wwExpr dflags fam_envs rhs
         return (con, binders, new_rhs)
 \end{code}
 
@@ -239,6 +241,7 @@ it appears in the first place in the defining module.
 
 \begin{code}
 tryWW   :: DynFlags
+        -> FamInstEnvs
         -> RecFlag
 	-> Id				-- The fn binder
 	-> CoreExpr			-- The bound rhs; its innards
@@ -248,7 +251,7 @@ tryWW   :: DynFlags
 					-- the orig "wrapper" lives on);
 					-- if two, then a worker and a
 					-- wrapper.
-tryWW dflags is_rec fn_id rhs
+tryWW dflags fam_envs is_rec fn_id rhs
   | isNeverActive inline_act
 	-- No point in worker/wrappering if the thing is never inlined!
 	-- Because the no-inline prag will prevent the wrapper ever
@@ -257,29 +260,32 @@ tryWW dflags is_rec fn_id rhs
 	-- Furthermore, don't even expose strictness info
   = return [ (fn_id, rhs) ]
 
-  | is_fun && (worth_splitting_args wrap_dmds rhs || returnsCPR res_info)
-  = checkSize dflags new_fn_id rhs $
-    splitFun dflags new_fn_id fn_info wrap_dmds res_info rhs
+  | isStableUnfolding (realIdUnfolding fn_id)
+  = return [ (fn_id, rhs) ]
+      -- See Note [Don't w/w INLINE things]
+      -- and Note [Don't w/w INLINABLE things]
+      -- NB: use realIdUnfolding because we want to see the unfolding
+      --     even if it's a loop breaker!
 
-  | is_thunk && (worthSplittingThunkDmd fn_dmd || returnsCPR res_info)
-  	-- See Note [Thunk splitting]
-  = ASSERT2( isNonRec is_rec, ppr new_fn_id )	-- The thunk must be non-recursive
-    checkSize dflags new_fn_id rhs $
-    splitThunk dflags new_fn_id rhs
+  | certainlyWillInline dflags (idUnfolding fn_id)
+  = let inline_rule = mkInlineUnfolding Nothing rhs
+    in  return [ (fn_id `setIdUnfolding` inline_rule, rhs) ]
+	-- Note [Don't w/w inline small non-loop-breaker things]
+	-- NB: use idUnfolding because we don't want to apply
+	--     this criterion to a loop breaker!
+
+  | is_fun
+  = splitFun dflags fam_envs new_fn_id fn_info wrap_dmds res_info rhs
+
+  | is_thunk                                   -- See Note [Thunk splitting]
+  = splitThunk dflags fam_envs is_rec new_fn_id rhs
 
   | otherwise
   = return [ (new_fn_id, rhs) ]
 
   where
-    fn_info   	 = idInfo fn_id
-    fn_dmd       = demandInfo fn_info
+    fn_info	 = idInfo fn_id
     inline_act   = inlinePragmaActivation (inlinePragInfo fn_info)
-
-    worth_splitting_args [d] (Lam b _)
-      | isAbsDmd d && isVoidTy (idType b)
-      = False  -- Note [Do not split void functions]
-    worth_splitting_args wrap_dmds _
-      = any worthSplittingArgDmd wrap_dmds
 
 	-- In practice it always will have a strictness
 	-- signature, even if it's a uninformative one
@@ -298,39 +304,19 @@ tryWW dflags is_rec fn_id rhs
     is_fun    = notNull wrap_dmds
     is_thunk  = not is_fun && not (exprIsHNF rhs)
 
----------------------
-checkSize :: DynFlags -> Id -> CoreExpr
-	  -> UniqSM [(Id,CoreExpr)] -> UniqSM [(Id,CoreExpr)]
-checkSize dflags fn_id rhs thing_inside
-  | isStableUnfolding (realIdUnfolding fn_id)
-  = return [ (fn_id, rhs) ]
-      -- See Note [Don't w/w INLINE things]
-      -- and Note [Don't w/w INLINABLE things]
-      -- NB: use realIdUnfolding because we want to see the unfolding
-      --     even if it's a loop breaker!
-
-  | certainlyWillInline dflags (idUnfolding fn_id)
-  = return [ (fn_id `setIdUnfolding` inline_rule, rhs) ]
-	-- Note [Don't w/w inline small non-loop-breaker things]
-	-- NB: use idUnfolding because we don't want to apply
-	--     this criterion to a loop breaker!
-
-  | otherwise = thing_inside
-  where
-    inline_rule = mkInlineUnfolding Nothing rhs
 
 ---------------------
-splitFun :: DynFlags -> Id -> IdInfo -> [Demand] -> DmdResult -> Expr Var
+splitFun :: DynFlags -> FamInstEnvs -> Id -> IdInfo -> [Demand] -> DmdResult -> CoreExpr
          -> UniqSM [(Id, CoreExpr)]
-splitFun dflags fn_id fn_info wrap_dmds res_info rhs
-  = WARN( not (wrap_dmds `lengthIs` arity), ppr fn_id <+> (ppr arity $$ ppr wrap_dmds $$ ppr res_info) )
-    (do {
-	-- The arity should match the signature
-      (work_demands, wrap_fn, work_fn) <- mkWwBodies dflags fun_ty wrap_dmds res_info one_shots
-    ; work_uniq <- getUniqueM
-    ; let
-	work_rhs = work_fn rhs
-	work_id  = mkWorkerId work_uniq fn_id (exprType work_rhs)
+splitFun dflags fam_envs fn_id fn_info wrap_dmds res_info rhs
+  = WARN( not (wrap_dmds `lengthIs` arity), ppr fn_id <+> (ppr arity $$ ppr wrap_dmds $$ ppr res_info) ) do
+    -- The arity should match the signature
+    stuff <- mkWwBodies dflags fam_envs fun_ty wrap_dmds res_info one_shots
+    case stuff of
+      Just (work_demands, wrap_fn, work_fn) -> do
+        work_uniq <- getUniqueM
+        let work_rhs = work_fn rhs
+	    work_id  = mkWorkerId work_uniq fn_id (exprType work_rhs)
 		        `setIdOccInfo` occInfo fn_info
 				-- Copy over occurrence info from parent
 				-- Notably whether it's a loop breaker
@@ -354,25 +340,26 @@ splitFun dflags fn_id fn_info wrap_dmds res_info rhs
                                 -- Set the arity so that the Core Lint check that the
                                 -- arity is consistent with the demand type goes through
 
-	wrap_rhs  = wrap_fn work_id
-	wrap_prag = InlinePragma { inl_inline = Inline
-                                 , inl_sat    = Nothing
-                                 , inl_act    = ActiveAfter 0
-                                 , inl_rule   = rule_match_info }
+	    wrap_rhs  = wrap_fn work_id
+	    wrap_prag = InlinePragma { inl_inline = Inline
+                                     , inl_sat    = Nothing
+                                     , inl_act    = ActiveAfter 0
+                                     , inl_rule   = rule_match_info }
 		-- See Note [Wrapper activation]
 		-- The RuleMatchInfo is (and must be) unaffected
 		-- The inl_inline is bound to be False, else we would not be
 		--    making a wrapper
 
-	wrap_id   = fn_id `setIdUnfolding` mkWwInlineRule wrap_rhs arity
-			  `setInlinePragma` wrap_prag
-		          `setIdOccInfo` NoOccInfo
+            wrap_id   = fn_id `setIdUnfolding` mkWwInlineRule wrap_rhs arity
+			      `setInlinePragma` wrap_prag
+		              `setIdOccInfo` NoOccInfo
 			        -- Zap any loop-breaker-ness, to avoid bleating from Lint
 				-- about a loop breaker with an INLINE rule
+        return $ [(work_id, work_rhs), (wrap_id, wrap_rhs)]
+            -- Worker first, because wrapper mentions it
+            -- mkWwBodies has already built a wrap_rhs with an INLINE pragma wrapped around it
 
-    ; return ([(work_id, work_rhs), (wrap_id, wrap_rhs)]) })
-	-- Worker first, because wrapper mentions it
-	-- mkWwBodies has already built a wrap_rhs with an INLINE pragma wrapped around it
+      Nothing -> return [(fn_id, rhs)]
   where
     fun_ty          = idType fn_id
     inl_prag        = inlinePragInfo fn_info
@@ -458,8 +445,11 @@ then the splitting will go deeper too.
 --     -->  x = let x = e in
 --              case x of (a,b) -> let x = (a,b)  in x
 
-splitThunk :: DynFlags -> Var -> Expr Var -> UniqSM [(Var, Expr Var)]
-splitThunk dflags fn_id rhs = do
-    (_, wrap_fn, work_fn) <- mkWWstr dflags [fn_id]
-    return [ (fn_id, Let (NonRec fn_id rhs) (wrap_fn (work_fn (Var fn_id)))) ]
+splitThunk :: DynFlags -> FamInstEnvs -> RecFlag -> Var -> Expr Var -> UniqSM [(Var, Expr Var)]
+splitThunk dflags fam_envs is_rec fn_id rhs
+  = do { (useful,_, wrap_fn, work_fn) <- mkWWstr dflags fam_envs [fn_id]
+       ; let res = [ (fn_id, Let (NonRec fn_id rhs) (wrap_fn (work_fn (Var fn_id)))) ]
+       ; if useful then ASSERT2( isNonRec is_rec, ppr fn_id ) -- The thunk must be non-recursive
+                   return res
+                   else return [(fn_id, rhs)] }
 \end{code}

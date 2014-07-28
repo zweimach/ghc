@@ -6,6 +6,7 @@
 Type - public interface
 
 \begin{code}
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Main functions for manipulating types and type-related things
@@ -55,7 +56,7 @@ module Type (
         mkEqPred, mkCoerciblePred, mkPrimEqPred, mkReprPrimEqPred,
         mkHeteroPrimEqPred, mkHeteroReprPrimEqPred,
         mkClassPred,
-        noParenPred, isClassPred, isEqPred,
+        isClassPred, isEqPred,
         isIPPred, isIPPred_maybe, isIPTyCon, isIPClass,
 
         -- Deconstructing predicate types
@@ -67,7 +68,7 @@ module Type (
         funTyCon,
 
         -- ** Predicates on types
-        isTypeVar, isKindVar, isTyCoVarTy,
+        isTypeVar, isKindVar, isTyCoVarTy, allDistinctTyVars,
         isTyVarTy, isFunTy, isDictTy, isPredTy, isVoidTy, isCoercionTy,
         isCoercionTy_maybe, isCoercionType,
 
@@ -135,9 +136,10 @@ module Type (
 
         -- * Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTyThingCategory, pprTyThing,
-        pprTCvBndr, pprTCvBndrs, pprForAll, pprSigmaType,
-        pprEqPred, pprTheta, pprThetaArrowTy, pprClassPred,
+        pprTCvBndr, pprTCvBndrs, pprForAll, pprUserForAll, pprSigmaType,
+        pprTheta, pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprSourceTyCon,
+        TyPrec(..), maybeParen,
 
         -- * Tidying type related things up for printing
         tidyType,      tidyTypes,
@@ -375,6 +377,15 @@ getTyCoVar_maybe (TyVarTy tv)                 = Just tv
 getTyCoVar_maybe (CoercionTy (CoVarCo cv))    = Just cv
 getTyCoVar_maybe _                            = Nothing
 
+allDistinctTyVars :: [KindOrType] -> Bool
+allDistinctTyVars tkvs = go emptyVarSet tkvs
+  where
+    go _      [] = True
+    go so_far (ty : tys)
+       = case getTyVar_maybe ty of
+             Nothing -> False
+             Just tv | tv `elemVarSet` so_far -> False
+                     | otherwise -> go (so_far `extendVarSet` tv) tys
 \end{code}
 
 
@@ -942,7 +953,7 @@ applyTysD doc orig_fun_ty arg_tys
   = substTyWith (take n_args tvs) arg_tys
                 (mkForAllTys (drop n_args tvs) rho_ty)
   | otherwise           -- Too many type args
-  = ASSERT2( n_tvs > 0, doc $$ ppr orig_fun_ty )        -- Zero case gives infnite loop!
+  = ASSERT2( n_tvs > 0, doc $$ ppr orig_fun_ty )        -- Zero case gives infinite loop!
     applyTysD doc (substTyWith tvs (take n_tvs arg_tys) rho_ty)
                   (drop n_tvs arg_tys)
   where
@@ -961,13 +972,6 @@ applyTysD doc orig_fun_ty arg_tys
 Predicates on PredType
 
 \begin{code}
-noParenPred :: PredType -> Bool
--- A predicate that can appear without parens before a "=>"
---       C a => a -> a
---       a~b => a -> b
--- But   (?x::Int) => Int -> Int
-noParenPred p = not (isIPPred p) && isClassPred p || isEqPred p
-
 isPredTy :: Type -> Bool
   -- NB: isPredTy is used when printing types, which can happen in debug printing
   --     during type checking of not-fully-zonked types.  So it's not cool to say
@@ -1364,7 +1368,7 @@ seqTypes (ty:tys) = seqType ty `seq` seqTypes tys
 
 %************************************************************************
 %*                                                                      *
-                Comparision for types
+                Comparison for types
         (We don't use instances so that we know where it happens)
 %*                                                                      *
 %************************************************************************
@@ -1540,25 +1544,30 @@ type SimpleKind = Kind
 
 \begin{code}
 typeKind :: Type -> Kind
-typeKind (TyConApp tc tys)
-  = kindAppResult (tyConKind tc) tys
+typeKind orig_ty = go orig_ty
+  where
+    
+    go ty@(TyConApp tc tys)
+      = kindAppResult (ptext (sLit "typeKind 1") <+> ppr ty $$ ppr orig_ty)
+                      (tyConKind tc) tys
 
-typeKind (AppTy fun arg)      = kindAppResult (typeKind fun) [arg]
-typeKind (LitTy l)            = typeLiteralKind l
-typeKind (ForAllTy _ ty)      = typeKind ty
-typeKind (TyVarTy tyvar)      = tyVarKind tyvar
-typeKind _ty@(FunTy _arg res)
-    -- Hack alert.  The kind of (Int -> Int#) is liftedTypeKind (*),
-    --              not unliftedTypKind (#)
-    -- The only things that can be after a function arrow are
-    --   (a) types (of kind openTypeKind or its sub-kinds)
-    --   (b) kinds (of super-kind TY) (e.g. * -> (* -> *))
-    | isSuperKind k         = k
-    | otherwise             = ASSERT2( isSubOpenTypeKind k, ppr _ty $$ ppr k ) liftedTypeKind
-    where
-      k = typeKind res
-typeKind (CastTy _ty co)    = pSnd $ coercionKind co
-typeKind (CoercionTy co)    = coercionType co
+    go ty@(AppTy fun arg)   = kindAppResult (ptext (sLit "typeKind 2") <+> ppr ty $$ ppr orig_ty)
+                                            (go fun) [arg]
+    go (LitTy l)            = typeLiteralKind l
+    go (ForAllTy _ ty)      = go ty
+    go (TyVarTy tyvar)      = tyVarKind tyvar
+    go _ty@(FunTy _arg res)
+        -- Hack alert.  The kind of (Int -> Int#) is liftedTypeKind (*),
+        --              not unliftedTypeKind (#)
+        -- The only things that can be after a function arrow are
+        --   (a) types (of kind openTypeKind or its sub-kinds)
+        --   (b) kinds (of super-kind TY) (e.g. * -> (* -> *))
+        | isSuperKind k         = k
+        | otherwise             = ASSERT2( isSubOpenTypeKind k, ppr _ty $$ ppr k ) liftedTypeKind
+        where
+          k = go res
+    go (CastTy _ty co)      = pSnd $ coercionKind co
+    go (CoercionTy co)      = coercionType co
 
 typeLiteralKind :: TyLit -> Kind
 typeLiteralKind l =

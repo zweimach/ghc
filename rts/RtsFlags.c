@@ -97,12 +97,12 @@ void initRtsFlagsDefaults(void)
     StgWord64 maxStkSize = 8 * getPhysicalMemorySize() / 10;
     // if getPhysicalMemorySize fails just move along with an 8MB limit
     if (maxStkSize == 0)
-        maxStkSize = (8 * 1024 * 1024) / sizeof(W_);
+        maxStkSize = 8 * 1024 * 1024;
 
     RtsFlags.GcFlags.statsFile          = NULL;
     RtsFlags.GcFlags.giveStats          = NO_GC_STATS;
 
-    RtsFlags.GcFlags.maxStkSize         = maxStkSize;
+    RtsFlags.GcFlags.maxStkSize         = maxStkSize / sizeof(W_);
     RtsFlags.GcFlags.initialStkSize     = 1024 / sizeof(W_);
     RtsFlags.GcFlags.stkChunkSize       = (32 * 1024) / sizeof(W_);
     RtsFlags.GcFlags.stkChunkBufferSize = (1 * 1024) / sizeof(W_);
@@ -241,7 +241,8 @@ usage_text[] = {
 "  -?       Prints this message and exits; the program is not executed",
 "  --info   Print information about the RTS used by this program",
 "",
-"  -K<size> Sets the maximum stack size (default 8M)  Egs: -K32k   -K512k",
+"  -K<size>  Sets the maximum stack size (default: 80% of the heap)",
+"            Egs: -K32k -K512k -K8M",
 "  -ki<size> Sets the initial thread stack size (default 1k)  Egs: -ki4k -ki2m",
 "  -kc<size> Sets the stack chunk size (default 32k)",
 "  -kb<size> Sets the stack chunk buffer size (default 1k)",

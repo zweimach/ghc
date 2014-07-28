@@ -4,6 +4,7 @@
 
 \begin{code}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE CPP #-}
 
 module Unify ( 
         -- Matching of types: 
@@ -19,9 +20,7 @@ module Unify (
         typesCantMatch,
 
         -- Side-effect free unification
-        tcUnifyTys, BindFlag(..),
-        niFixTCvSubst, niSubstTvSet,
-
+        tcUnifyTy, tcUnifyTys, BindFlag(..),
         UnifyResult, UnifyResultM(..),
 
         -- Matching a type against a lifted type (coercion)
@@ -272,6 +271,8 @@ match_ty menv tsubst csubst (CoercionTy co1) (CoercionTy co2)
 
 match_ty _ _ _ _ _
   = Nothing
+
+
 
 --------------
 match_kind :: MatchEnv -> TvSubstEnv -> CvSubstEnv -> Kind -> Kind -> Maybe (TvSubstEnv, CvSubstEnv)
@@ -753,17 +754,24 @@ coerced between are surelyApart. Otherwise, two coercions either unify or
 are maybeApart.
 
 \begin{code}
+tcUnifyTy :: Type -> Type       -- All tyvars are bindable
+	  -> Maybe TCvSubst	-- A regular one-shot (idempotent) substitution
+-- Simple unification of two types; all type variables are bindable
+tcUnifyTy ty1 ty2
+  = case initUM (const BindMe) (unify emptyTvSubstEnv ty1 ty2) of
+      Unifiable subst_env -> Just (niFixTvSubst subst_env)
+      _other              -> Nothing
+
+-----------------
 tcUnifyTys :: (TyCoVar -> BindFlag)
-           -> [Type] -> [Type]
-           -> Maybe TCvSubst    -- A regular one-shot (idempotent) substitution
+	   -> [Type] -> [Type]
+	   -> Maybe TCvSubst	-- A regular one-shot (idempotent) substitution
 -- The two types may have common type variables, and indeed do so in the
 -- second call to tcUnifyTys in FunDeps.checkClsFD
---
 tcUnifyTys bind_fn tys1 tys2
-  | Unifiable subst <- tcUnifyTysFG bind_fn tys1 tys2
-  = Just subst
-  | otherwise
-  = Nothing
+  = case tcUnifyTysFG bind_fn tys1 tys2 of
+      Unifiable subst -> Just subst
+      _               -> Nothing
 
 -- This type does double-duty. It is used in the UM (unifier monad) and to
 -- return the final result. See Note [Fine-grained unification]
@@ -803,25 +811,55 @@ During unification we use a TvSubstEnv/CvSubstEnv pair that is
   (a) non-idempotent
   (b) loop-free; ie repeatedly applying it yields a fixed point
 
+Note [Finding the substitution fixpoint]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Finding the fixpoint of a non-idempotent substitution arising from a
+unification is harder than it looks, because of kinds.  Consider
+   T k (H k (f:k)) ~ T * (g:*)
+If we unify, we get the substitution
+   [ k -> *
+   , g -> H k (f:k) ]
+To make it idempotent we don't want to get just
+   [ k -> *
+   , g -> H * (f:k) ]
+We also want to substitute inside f's kind, to get
+   [ k -> *
+   , g -> H k (f:*) ]
+If we don't do this, we may apply the substitition to something,
+and get an ill-formed type, i.e. one where typeKind will fail.
+This happened, for example, in Trac #9106.
+
+This is the reason for extending env with [f:k -> f:*], in the
+definition of env' in niFixTvSubst
+
 \begin{code}
 niFixTCvSubst :: TvSubstEnv -> CvSubstEnv -> TCvSubst
 -- Find the idempotent fixed point of the non-idempotent substitution
+-- See Note [Finding the substitution fixpoint]
 -- ToDo: use laziness instead of iteration?
 niFixTCvSubst tenv cenv = f tenv cenv
   where
     f tenv cenv
-        | not_fixpoint = f (mapVarEnv (substTy subst) tenv)
-                           (mapVarEnv (substCo subst) cenv)
+        | not_fixpoint = f (mapVarEnv (substTy subst') tenv)
+                           (mapVarEnv (substCo subst') cenv)
         | otherwise    = subst
         where
-          range_tvs    = foldVarEnv (unionVarSet . tyCoVarsOfType) emptyVarSet tenv
-          range_cvs    = foldVarEnv (unionVarSet . tyCoVarsOfCo) emptyVarSet cenv
-          range        = range_tvs `unionVarSet` range_cvs
-          in_scope     = mkInScopeSet range
-          subst        = mkTCvSubst in_scope tenv cenv
-                         
-          not_fixpoint = foldVarSet ((||) . in_domain) False range
-          in_domain tv = tv `elemVarEnv` tenv || tv `elemVarEnv` cenv
+          not_fixpoint  = foldVarSet ((||) . in_domain) False all_range_tvs
+          in_domain tv  = tv `elemVarEnv` tenv || tv `elemVarEnv` cenv
+
+          range_tvs     = foldVarEnv (unionVarSet . tyCoVarsOfType) emptyVarSet env
+          range_cvs     = foldVarEnv (unionVarSet . tyCoVarsOfCo) emptyVarSet cenv
+          all_range_tvs = closeOverKinds (range_tvs `unionVarSet` range_cvs)
+          subst         = mkTvSubst (mkInScopeSet all_range_tvs) env
+
+             -- env' extends env by replacing any free type with 
+             -- that same tyvar with a substituted kind
+             -- See note [Finding the substitution fixpoint]
+          env'          = extendVarEnvList env [ (rtv, mkTyVarTy $ setTyVarKind rtv $
+                                                       substTy subst $ tyVarKind rtv)
+                                               | rtv <- varSetElems range_tvs
+                                               , not (in_domain rtv) ]
+          subst'        = mkTvSubst (mkInScopeSet all_range_tvs) env'
 
 niSubstTvSet :: TvSubstEnv -> CvSubstEnv -> TyCoVarSet -> TyCoVarSet
 -- Apply the non-idempotent substitution to a set of type variables,
@@ -1185,6 +1223,7 @@ uUnrefined tv1 ty2 ty2' -- ty2 is not a type variable
          then maybeApart               -- Occurs check, see Note [Fine-grained unification]
          else do
        { unify k1 k2
+        -- Note [Kinds Containing Only Literals]
        ; bindTv tv1 ty2 }}      -- Bind tyvar to the synonym if poss
   where
     k1 = tyVarKind tv1
@@ -1313,7 +1352,7 @@ instance MonadPlus UM where
 
 initUM :: (TyVar -> BindFlag)
        -> TyCoVarSet  -- set of variables in scope
-       -> UM TCvSubst -> UnifyResult
+       -> UM a -> UnifyResultM a
 initUM badtvs vars um
   = case unUM um badtvs rn_env emptyVarSet emptyTvSubstEnv emptyCvSubstEnv of
       Unifiable (_, subst)  -> Unifiable subst

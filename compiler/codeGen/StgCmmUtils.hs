@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -----------------------------------------------------------------------------
 --
 -- Code generator utilities; mostly monadic
@@ -142,7 +144,8 @@ addToMemE rep ptr n
 --
 -------------------------------------------------------------------------
 
-mkTaggedObjectLoad :: DynFlags -> LocalReg -> LocalReg -> WordOff -> DynTag -> CmmAGraph
+mkTaggedObjectLoad
+  :: DynFlags -> LocalReg -> LocalReg -> ByteOff -> DynTag -> CmmAGraph
 -- (loadTaggedObjectField reg base off tag) generates assignment
 --      reg = bitsK[ base + off - tag ]
 -- where K is fixed by 'reg'
@@ -150,7 +153,7 @@ mkTaggedObjectLoad dflags reg base offset tag
   = mkAssign (CmmLocal reg)
              (CmmLoad (cmmOffsetB dflags
                                   (CmmReg (CmmLocal base))
-                                  (wORD_SIZE dflags * offset - tag))
+                                  (offset - tag))
                       (localRegType reg))
 
 -------------------------------------------------------------------------
@@ -172,10 +175,10 @@ tagToClosure dflags tycon tag
 --
 -------------------------------------------------------------------------
 
-emitRtsCall :: PackageId -> FastString -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
+emitRtsCall :: PackageKey -> FastString -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
 emitRtsCall pkg fun args safe = emitRtsCallGen [] (mkCmmCodeLabel pkg fun) args safe
 
-emitRtsCallWithResult :: LocalReg -> ForeignHint -> PackageId -> FastString
+emitRtsCallWithResult :: LocalReg -> ForeignHint -> PackageKey -> FastString
         -> [(CmmExpr,ForeignHint)] -> Bool -> FCode ()
 emitRtsCallWithResult res hint pkg fun args safe
    = emitRtsCallGen [(res,hint)] (mkCmmCodeLabel pkg fun) args safe
