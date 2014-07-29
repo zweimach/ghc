@@ -676,7 +676,7 @@ mkInferredPolyId poly_name qtvs theta mono_ty
     do { checkValidType (InfSigCtxt poly_name) inferred_poly_ty
        ; return (mkLocalId poly_name inferred_poly_ty) }
   where
-    my_tvs2 = closeOverKinds (growThetaTyVars theta (tyVarsOfType mono_ty))
+    my_tvs2 = closeOverKinds (growThetaTyCoVars theta (tyCoVarsOfType mono_ty))
                   -- Include kind variables!  Trac #7916
     my_tvs   = filter (`elemVarSet` my_tvs2) qtvs   -- Maintain original order
     my_theta = filter (quantifyPred my_tvs2) theta
@@ -1292,7 +1292,7 @@ tcTySig _ = return []
 
 instTcTySigFromId :: SrcSpan -> Id -> TcM TcSigInfo
 instTcTySigFromId loc id
-  = do { (tvs, theta, tau) <- tcInstType (tcInstSigTyVarsLoc loc)
+  = do { (tvs, theta, tau) <- tcInstType (tcInstSigTyCoVarsLoc loc)
                                          (idType id)
        ; return (TcSigInfo { sig_id = id, sig_loc = loc
                            , sig_tvs = [(Nothing, tv) | tv <- tvs]

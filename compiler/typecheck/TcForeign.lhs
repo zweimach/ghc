@@ -164,7 +164,7 @@ normaliseFfiType' env ty0 = go initRecTc ty0
                  let (cos, tys', gres) = unzip3 xs
                         -- the (repeat Representational) is because 'go' always
                         -- returns R coercions
-                     cos' = zipWith3 downgradeRole (tyConRoles tc)
+                     cos' = zipWith3 downgradeRoleArg (tyConRoles tc)
                                      (repeat Representational) cos
                  return ( mkTyConAppCo Representational tc cos'
                         , mkTyConApp tc tys', unionManyBags gres)

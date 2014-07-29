@@ -1359,7 +1359,6 @@ isImplicitTyCon (FunTyCon {})        = True
 isImplicitTyCon (TupleTyCon {})      = True
 isImplicitTyCon (PrimTyCon {})       = True
 isImplicitTyCon (PromotedDataCon {}) = True
-isImplicitTyCon (PromotedTyCon {})   = True
 isImplicitTyCon (AlgTyCon { algTcParent = AssocFamilyTyCon {} }) = True
 isImplicitTyCon (AlgTyCon {})                                    = False
 isImplicitTyCon (SynTyCon { synTcParent = AssocFamilyTyCon {} }) = True

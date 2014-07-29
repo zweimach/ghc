@@ -67,9 +67,7 @@ import CoreMonad	( FloatOutSwitches(..) )
 import CoreUtils	( exprType, exprOkForSpeculation, exprIsBottom )
 import CoreArity	( exprBotStrictness_maybe )
 import CoreFVs		-- all of it
-import CoreSubst	( Subst, emptySubst, extendInScope, substBndr, substRecBndrs,
-			  extendIdSubst, extendSubstWithVar, cloneBndr, 
-                          cloneRecIdBndrs, substTy, substCo )
+import CoreSubst
 import MkCore           ( sortQuantVars ) 
 import Id
 import IdInfo

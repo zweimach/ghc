@@ -197,7 +197,7 @@ pprFamInstHdr fi@(FamInst {fi_flavor = flavor})
             = getPprStyle $ \ sty ->
               if debugStyle sty
               then vanilla_pp_head   -- With -dppr-debug just show it as-is
-              else pprTypeApp fam_tc (etad_lhs_tys ++ mkTyVarTys extra_tvs)
+              else pprTypeApp fam_tc (etad_lhs_tys ++ mkOnlyTyVarTys extra_tvs)
                      -- Without -dppr-debug, eta-expand
                      -- See Trac #8674
                      -- (This is probably over the top now that we use this
@@ -1046,7 +1046,7 @@ normalise_tc_app env lc role tc tys
 
   | otherwise   -- No unique matching family instance exists;
                 -- we do not do anything
-  = let (co, ntys) = normaliseTcArgs env role tc tys in
+  = let (co, ntys) = normalise_tc_args env lc role tc tys in
     (co, mkTyConApp tc ntys)
     
 

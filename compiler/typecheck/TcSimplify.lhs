@@ -1141,7 +1141,7 @@ floatEqualities skols no_given_eqs wanteds@(WC { wc_flat = flats })
   | otherwise
   = do { let (float_eqs, remaining_flats) = partitionBag is_floatable flats
        ; untch <- TcS.getUntouchables
-       ; mapM_ (promoteTyVar untch) (varSetElems (tyVarsOfCts float_eqs))
+       ; mapM_ (promoteTyVar untch) (varSetElems (tyCoVarsOfCts float_eqs))
              -- See Note [Promoting unification variables]
        ; ty_binds <- getTcSTyBindsMap
        ; traceTcS "floatEqualities" (vcat [ text "Skols =" <+> ppr skols
@@ -1154,14 +1154,14 @@ floatEqualities skols no_given_eqs wanteds@(WC { wc_flat = flats })
     is_floatable :: Ct -> Bool
     is_floatable ct
        = case classifyPredType (ctPred ct) of
-            EqPred ty1 ty2 -> skol_set `disjointVarSet` tyVarsOfType ty1
-                           && skol_set `disjointVarSet` tyVarsOfType ty2
+            EqPred ty1 ty2 -> skol_set `disjointVarSet` tyCoVarsOfType ty1
+                           && skol_set `disjointVarSet` tyCoVarsOfType ty2
             _ -> False
 
     skol_set = fixVarSet mk_next (mkVarSet skols)
     mk_next tvs = foldr grow_one tvs flat_eqs
     flat_eqs :: [(TcTyVarSet, TcTyVarSet)]
-    flat_eqs = [ (tyVarsOfType ty1, tyVarsOfType ty2)
+    flat_eqs = [ (tyCoVarsOfType ty1, tyCoVarsOfType ty2)
                | EqPred ty1 ty2 <- map (classifyPredType . ctPred) (bagToList flats)]
     grow_one (tvs1,tvs2) tvs
       | intersectsVarSet tvs tvs1 = tvs `unionVarSet` tvs2

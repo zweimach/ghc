@@ -755,7 +755,7 @@ deriveTyData is_instance tvs tc tc_args (L loc deriv_pred)
               (univ_kvs, univ_tvs) = partition isKindVar $ varSetElems $
                                      mkVarSet deriv_tvs `unionVarSet`
                                      tyCoVarsOfTypes tc_args_to_keep
-              univ_kvs'           = filter (`notElemTvSubst` kind_subst) univ_kvs
+              univ_kvs'           = filter (`notElemTCvSubst` kind_subst) univ_kvs
               (subst', univ_tvs') = mapAccumL substTyVarBndr kind_subst univ_tvs
               final_tc_args       = substTys subst' tc_args_to_keep
               final_cls_tys       = substTys subst' cls_tys
@@ -1125,7 +1125,7 @@ mkPolyKindedTypeableEqn cls tc
                              , ds_newtype = False } }
         where
           (kvs,tc_app_kind) = splitForAllTys (tyConKind tc)
-          tc_args = mkTyVarTys kvs
+          tc_args = mkOnlyTyVarTys kvs
           tc_app  = mkTyConApp tc tc_args
 
 inferConstraints :: Class -> [TcType]
@@ -1448,7 +1448,7 @@ cond_functorOK allowFunctions (_, rep_tc, _)
     check_universal con
       | Just tv <- getTyVar_maybe (last (tyConAppArgs (dataConOrigResTy con)))
       , tv `elem` dataConUnivTyVars con
-      , not (tv `elemVarSet` tyVarsOfTypes (dataConTheta con))
+      , not (tv `elemVarSet` tyCoVarsOfTypes (dataConTheta con))
       = Nothing   -- See Note [Check that the type variable is truly universal]
       | otherwise
       = Just (badCon con existential)

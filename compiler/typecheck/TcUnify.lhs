@@ -1226,7 +1226,7 @@ uUnfilledKVars kv1 ds1 kv2 ds2
       _ -> return Nothing
   where
     do_update kv1 r1 kv2
-      = do { writeMetaTyVarRef kv1 r1 (mkTyVarTy kv2); return (Just EQ) }
+      = do { writeMetaTyVarRef kv1 r1 (mkOnlyTyVarTy kv2); return (Just EQ) }
 
 ---------------------------
 unifyKindEq :: TcKind -> TcKind -> TcM (Maybe Ordering)

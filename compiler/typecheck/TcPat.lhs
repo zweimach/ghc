@@ -793,10 +793,10 @@ tcPatSynPat :: PatEnv -> Located Name -> PatSyn
 tcPatSynPat penv (L con_span _) pat_syn pat_ty arg_pats thing_inside
   = do	{ let (univ_tvs, ex_tvs, prov_theta, req_theta, arg_tys, ty) = patSynSig pat_syn
 
-        ; (univ_tvs', inst_tys, subst) <- tcInstTyVars univ_tvs
+        ; (univ_tvs', inst_tys, subst) <- tcInstTyCoVars PatOrigin univ_tvs
 
 	; checkExistentials ex_tvs penv
-        ; (tenv, ex_tvs') <- tcInstSuperSkolTyVarsX subst ex_tvs
+        ; (tenv, ex_tvs') <- tcInstSuperSkolTyCoVarsX subst ex_tvs
         ; let ty' = substTy tenv ty
               arg_tys' = substTys tenv arg_tys
               prov_theta' = substTheta tenv prov_theta
@@ -837,7 +837,7 @@ tcPatSynPat penv (L con_span _) pat_syn pat_ty arg_pats thing_inside
 			            pat_dicts = prov_dicts',
 			            pat_binds = ev_binds,
 			            pat_args  = arg_pats',
-                                    pat_arg_tys = mkTyVarTys univ_tvs',
+                                    pat_arg_tys = mkOnlyTyVarTys univ_tvs',
                                     pat_wrap  = req_wrap }
 	; return (mkHsWrapPat wrap res_pat pat_ty, res) }
 

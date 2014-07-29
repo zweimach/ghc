@@ -140,7 +140,6 @@ data IfaceTcArgs
 data IfaceTyCon
   = IfaceTc              { ifaceTyConName :: IfExtName }
   | IfacePromotedDataCon { ifaceTyConName :: IfExtName }
-  | IfacePromotedTyCon   { ifaceTyConName :: IfExtName }
 
 data IfaceCoercion     -- represents Coercions and CoercionArgs
   = IfaceReflCo      Role IfaceType
@@ -217,11 +216,31 @@ ifTyVarsOfType ty
         -> ifTyVarsOfType arg `unionUniqSets` ifTyVarsOfType res
       IfaceDFunTy arg res
         -> ifTyVarsOfType arg `unionUniqSets` ifTyVarsOfType res
-      IfaceForAllTy (var,t) ty
-        -> delOneFromUniqSet (ifTyVarsOfType ty) var `unionUniqSets`
-           ifTyVarsOfType t
+      IfaceForAllTy bndr ty
+        -> let (free, bound) = ifTyVarsOfForAllBndr bndr in
+           delListFromUniqSet (ifTyVarsOfType ty) bound `unionUniqSets` free
       IfaceTyConApp _ args -> ifTyVarsOfArgs args
       IfaceLitTy    _      -> emptyUniqSet
+      IfaceCastTy ty co
+        -> ifTyVarsOfType ty `unionUniqSets` ifTyVarsOfCoercion co
+      IfaceCoercionTy co -> ifTyVarsOfCoercion co
+
+ifTyVarsOfForAllBndr :: IfaceForAllBndr
+                     -> ( UniqSet IfLclName   -- names used free in the binder
+                        , [IfLclName] )       -- names bound by this binder
+ifTyVarsOfForAllBndr (IfaceTv (name, kind)) = (ifTyVarsOfType kind, [name])
+ifTyVarsOfForAllBndr (IfaceHeteroTv eta (tv1, kind1) (tv2, kind2) (cv, _))
+  = ( unionManyUniqSets [ ifTyVarsOfCoercion eta
+                        , ifTyVarsOfType kind1
+                        , ifTyVarsOfType kind2 ]
+    , [tv1, tv2, cv] )
+  -- don't need to check cv's kind because it always mentions just tv1 and tv2
+ifTyVarsOfForAllBndr (IfaceCv (name, kind)) = (ifTyVarsOfType kind, [name])
+ifTyVarsOfForAllBndr (IfaceHeteroCv eta (cv1, kind1) (cv2, kind2))
+  = ( unionManyUniqSets [ ifTyVarsOfCoercion eta
+                        , ifTyVarsOfType kind1
+                        , ifTyVarsOfType kind2 ]
+    , [cv1, cv2] )
 
 ifTyVarsOfArgs :: IfaceTcArgs -> UniqSet IfLclName
 ifTyVarsOfArgs args = argv emptyUniqSet args
@@ -229,6 +248,38 @@ ifTyVarsOfArgs args = argv emptyUniqSet args
      argv vs (ITC_Type t ts) = argv (vs `unionUniqSets` (ifTyVarsOfType t)) ts
      argv vs (ITC_Kind k ks) = argv (vs `unionUniqSets` (ifTyVarsOfType k)) ks
      argv vs ITC_Nil         = vs
+
+ifTyVarsOfCoercion :: IfaceCoercion -> UniqSet IfLclName
+ifTyVarsOfCoercion = go
+  where
+    go (IfaceReflCo _ ty)         = ifTyVarsOfType ty
+    go (IfaceFunCo _ c1 c2)       = go c1 `unionUniqSets` go c2
+    go (IfaceTyConAppCo _ _ cos)  = ifTyVarsOfCoercions cos
+    go (IfaceAppCo c1 c2)         = go c1 `unionUniqSets` go c2
+    go (IfaceForAllCo bndr co)
+     = let (free, bound) = ifTyVarsOfForAllBndr bndr in
+        go co `delListFromUniqSet` bound `unionUniqSets` free
+    go (IfaceCoVarCo cv)          = unitUniqSet cv
+    go (IfaceAxiomInstCo _ _ cos) = ifTyVarsOfCoercions cos
+    go (IfaceUnivCo _ ty1 ty2)
+      = ifTyVarsOfType ty1 `unionUniqSets` ifTyVarsOfType ty2
+    go (IfaceSymCo co)            = go co
+    go (IfaceTransCo c1 c2)       = go c1 `unionUniqSets` go c2
+    go (IfaceNthCo _ co)          = go co
+    go (IfaceLRCo _ co)           = go co
+    go (IfaceInstCo c1 c2)        = go c1 `unionUniqSets` go c2
+    go (IfaceCoherenceCo c1 c2)   = go c1 `unionUniqSets` go c2
+    go (IfaceKindCo co)           = go co
+    go (IfaceSubCo co)            = go co
+    go (IfaceAxiomRuleCo rule tys cos)
+      = unionManyUniqSets
+          [ unitUniqSet rule
+          , foldr (unionUniqSets . ifTyVarsOfType) emptyUniqSet tys
+          , ifTyVarsOfCoercions cos ]
+    go (IfaceCoCoArg _ c1 c2)     = go c1 `unionUniqSets` go c2
+
+ifTyVarsOfCoercions :: [IfaceCoercion] -> UniqSet IfLclName
+ifTyVarsOfCoercions = foldr (unionUniqSets . ifTyVarsOfCoercion) emptyUniqSet
 \end{code}
 
 Substitutions on IfaceType. This is only used during pretty-printing to construct
@@ -252,6 +303,9 @@ substIfaceType env ty
     go ty@(IfaceLitTy {})     = ty
     go (IfaceTyConApp tc tys) = IfaceTyConApp tc (substIfaceTcArgs env tys)
     go (IfaceForAllTy {})     = pprPanic "substIfaceType" (ppr ty)
+      -- TODO (RAE): I think we need to write the following cases.
+    go (IfaceCastTy {})       = pprPanic "substIfaceType:CastTy" (ppr ty)
+    go (IfaceCoercionTy {})   = pprPanic "substIfaceType:CoercionTy" (ppr ty)
 
 substIfaceTcArgs :: IfaceTySubst -> IfaceTcArgs -> IfaceTcArgs
 substIfaceTcArgs env args
@@ -307,7 +361,7 @@ Note [Suppressing kinds]
 We use the IfaceTcArgs to specify which of the arguments to a type
 constructor instantiate a for-all, and which are regular kind args.
 This in turn used to control kind-suppression when printing types,
-under the control of -fprint-explicit-kinds.  See also TypeRep.suppressKinds.
+under the control of -fprint-explicit-kinds.  See also TyCoRep.suppressKinds.
 For example, given
     T :: forall k. (k->*) -> k -> *    -- Ordinary kind polymorphism
     'Just :: forall k. k -> 'Maybe k   -- Promoted
@@ -324,7 +378,6 @@ we want
 
 \begin{code}
 --isPromotedIfaceTyCon :: IfaceTyCon -> Bool
---isPromotedIfaceTyCon (IfacePromotedTyCon _) = True
 --isPromotedIfaceTyCon _ = False
 \end{code}
 %************************************************************************
@@ -415,8 +468,8 @@ ppr_ty ctxt_prec (IfaceAppTy ty1 ty2)
     ppr_ty FunPrec ty1 <+> pprParendIfaceType ty2
 
 ppr_ty ctxt_prec (IfaceCastTy ty co)
-  = maybeParen ctxt_prec fUN_PREC $
-    sep [ppr_ty fUN_PREC ty, ptext (sLit "`cast`"), ppr_co fUN_PREC co]
+  = maybeParen ctxt_prec FunPrec $
+    sep [ppr_ty FunPrec ty, ptext (sLit "`cast`"), ppr_co FunPrec co]
 
 ppr_ty ctxt_prec (IfaceCoercionTy co)
   = ppr_co ctxt_prec co
@@ -454,7 +507,7 @@ pprIfaceForAllPart :: [IfaceForAllBndr] -> [IfaceType] -> SDoc -> SDoc
 pprIfaceForAllPart tvs ctxt sdoc = ppr_iface_forall_part False tvs ctxt sdoc
 
 ppr_iface_forall_part :: Outputable a
-                      => Bool -> [IfaceTvBndr] -> [a] -> SDoc -> SDoc
+                      => Bool -> [IfaceForAllBndr] -> [a] -> SDoc -> SDoc
 ppr_iface_forall_part show_foralls_unconditionally tvs ctxt sdoc
   = sep [ if show_foralls_unconditionally
           then pprIfaceForAll tvs
@@ -483,16 +536,17 @@ pprIfaceForAllBndr (IfaceHeteroCv co cv1 cv2)
 pprIfaceSigmaType :: IfaceType -> SDoc
 pprIfaceSigmaType ty = ppr_iface_sigma_type False ty
 
-pprUserIfaceForAll :: [IfaceTvBndr] -> SDoc
+pprUserIfaceForAll :: [IfaceForAllBndr] -> SDoc
 pprUserIfaceForAll tvs
    = sdocWithDynFlags $ \dflags ->
      ppWhen (any tv_has_kind_var tvs || gopt Opt_PrintExplicitForalls dflags) $
      pprIfaceForAll tvs
    where
-     tv_has_kind_var (_,t) = not (isEmptyUniqSet (ifTyVarsOfType t))
+     tv_has_kind_var bndr
+       = not (isEmptyUniqSet (fst (ifTyVarsOfForAllBndr bndr)))
 -------------------
 
--- See equivalent function in TypeRep.lhs
+-- See equivalent function in TyCoRep.lhs
 pprIfaceTyList :: TyPrec -> IfaceType -> IfaceType -> SDoc
 -- Given a type-level list (t1 ': t2), see if we can print
 -- it in list notation [t1, ...].
@@ -664,7 +718,6 @@ instance Outputable IfaceTyCon where
 
 pprPromotionQuote :: IfaceTyCon -> SDoc
 pprPromotionQuote (IfacePromotedDataCon _ ) = char '\''
-pprPromotionQuote (IfacePromotedTyCon _)    = ifPprDebug (char '\'')
 pprPromotionQuote _                         = empty
 
 instance Outputable IfaceCoercion where
@@ -675,14 +728,12 @@ instance Binary IfaceTyCon where
      case tc of
        IfaceTc n              -> putByte bh 0 >> put_ bh n
        IfacePromotedDataCon n -> putByte bh 1 >> put_ bh n
-       IfacePromotedTyCon   n -> putByte bh 2 >> put_ bh n
 
    get bh =
      do tc <- getByte bh
         case tc of
           0 -> get bh >>= return . IfaceTc
           1 -> get bh >>= return . IfacePromotedDataCon
-          2 -> get bh >>= return . IfacePromotedTyCon
           _ -> panic ("get IfaceTyCon " ++ show tc)
 
 instance Outputable IfaceTyLit where
@@ -1025,7 +1076,6 @@ varToIfaceForAllBndr v
 toIfaceTyCon :: TyCon -> IfaceTyCon
 toIfaceTyCon tc
   | isPromotedDataCon tc = IfacePromotedDataCon tc_name
-  | isPromotedTyCon tc   = IfacePromotedTyCon tc_name
   | otherwise            = IfaceTc tc_name
     where tc_name = tyConName tc
 

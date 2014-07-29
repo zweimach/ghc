@@ -788,7 +788,7 @@ anyTyCon = mkSynTyCon anyTyConName kind [kKiVar] [Nominal]
                       syn_rhs
                       NoParentTyCon
   where 
-    kind = ForAllTy kKiVar (mkTyVarTy kKiVar)
+    kind = ForAllTy kKiVar (mkOnlyTyVarTy kKiVar)
     syn_rhs = AbstractClosedSynFamilyTyCon
 
 anyTypeOfKind :: Kind -> Type

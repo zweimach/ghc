@@ -565,7 +565,8 @@ pprAxBranch pp_tc (IfaceAxBranch { ifaxbTyCoVars = tvs
                                  , ifaxbLHS = pat_tys
                                  , ifaxbRHS = rhs
                                  , ifaxbIncomps = incomps })
-  = hang (pprUserIfaceForAll tvs)
+    -- TODO (RAE): The map IfaceTv is a hack. Is it acceptable, though?
+  = hang (pprUserIfaceForAll (map to_forall_bndr tvs))
        2 (hang pp_lhs 2 (equals <+> ppr rhs))
     $+$
     nest 2 maybe_incomps
@@ -887,7 +888,8 @@ pprIfaceConDecl ss gadt_style mk_user_con_res_ty
     pp_prefix_con = pprPrefixIfDeclBndr ss name
 
     (univ_tvs, pp_res_ty) = mk_user_con_res_ty eq_spec
-    ppr_ty = pprIfaceForAllPart (map to_forall_bndr (univ_tvs ++ ex_tvs))
+    ppr_ty = pprIfaceForAllPart (map IfaceTv univ_tvs ++
+                                 map to_forall_bndr ex_tvs)
                                 ctxt pp_tau
 
         -- A bit gruesome this, but we can't form the full con_tau, and ppr it,
@@ -895,9 +897,6 @@ pprIfaceConDecl ss gadt_style mk_user_con_res_ty
     pp_tau = case map pprParendIfaceType arg_tys ++ [pp_res_ty] of
                 (t:ts) -> fsep (t : map (arrow <+>) ts)
                 []     -> panic "pp_con_taus"
-
-    to_forall_bndr (IfaceIdBndr cv) = IfaceCv cv
-    to_forall_bndr (IfaceTvBndr tv) = IfaceTv tv
 
     ppr_bang IfNoBang = ppWhen opt_PprStyle_Debug $ char '_'
     ppr_bang IfStrict = char '!'
@@ -946,6 +945,10 @@ instance Outputable IfaceFamInst where
 ppr_rough :: Maybe IfaceTyCon -> SDoc
 ppr_rough Nothing   = dot
 ppr_rough (Just tc) = ppr tc
+
+to_forall_bndr :: IfaceBndr -> IfaceForAllBndr
+to_forall_bndr (IfaceIdBndr cv) = IfaceCv cv
+to_forall_bndr (IfaceTvBndr tv) = IfaceTv tv
 \end{code}
 
 Note [Result type of a data family GADT]

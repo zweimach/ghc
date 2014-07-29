@@ -44,7 +44,6 @@ import MkId
 import IdInfo
 import Class
 import TyCon
-import CoAxiom
 import ConLike
 import DataCon
 import PrelNames
@@ -480,7 +479,7 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
         do { ax <- tcIfaceCoAxiom ax_name
            ; let fam_tc  = coAxiomTyCon ax
                  ax_unbr = toUnbranchedAxiom ax
-           ; lhs_tys <- tcIfaceTcArgs arg_tys
+           ; lhs_tys <- tcIfaceTcArgs TypeLevel arg_tys
            ; return (FamInstTyCon ax_unbr fam_tc lhs_tys) }
 
 tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyVars = tv_bndrs,
@@ -601,8 +600,8 @@ tc_iface_decl _ _ (IfacePatSyn{ ifName = occ_name
                         Nothing -> return Nothing
                         Just wn -> do { wid <- tcExt "Wrapper" wn
                                       ; return (Just wid) }
-       ; bindIfaceTyVars univ_tvs $ \univ_tvs -> do
-       { bindIfaceTyVars ex_tvs $ \ex_tvs -> do
+       ; bindIfaceTvBndrs univ_tvs $ \univ_tvs -> do
+       { bindIfaceTvBndrs ex_tvs $ \ex_tvs -> do
        { patsyn <- forkM (mk_doc name) $
              do { prov_theta <- tcIfaceCtxt prov_ctxt
                 ; req_theta  <- tcIfaceCtxt req_ctxt
@@ -624,7 +623,7 @@ tc_ax_branch prev_branches
                             , ifaxbRoles = roles, ifaxbIncomps = incomps })
   = bindIfaceBndrs_AT tv_bndrs $ \ tvs -> do
          -- The _AT variant is needed here; see Note [CoAxBranch type variables] in CoAxiom
-    { tc_lhs <- tcIfaceTcArgs lhs   -- See Note [Checking IfaceTypes vs IfaceKinds]
+    { tc_lhs <- tcIfaceTcArgs TypeLevel lhs   -- See Note [Checking IfaceTypes vs IfaceKinds]
     ; tc_rhs <- tcIfaceType rhs
     ; let br = CoAxBranch { cab_loc     = noSrcSpan
                           , cab_tvs     = tvs
@@ -962,7 +961,6 @@ tcIfaceVectInfo mod typeEnv (IfaceVectInfo
 
 \begin{code}
 tcIfaceType :: IfaceType -> IfL Type
-<<<<<<< HEAD
 tcIfaceType = tcIfaceTyKi TypeLevel
 
 -- See Note [Checking IfaceTypes vs. IfaceKinds]
@@ -988,16 +986,33 @@ tcIfaceTyKi kf = go
     go (IfaceCastTy ty co)   = CastTy <$> go ty <*> tcIfaceKindCo co
     go (IfaceCoercionTy co)  = CoercionTy <$> tcIfaceTyKiCo kf co
 
+tcIfaceTyArgs :: Kind -> [IfaceType] -> IfL [Type]
+tcIfaceTyArgs _ [] = return []
+tcIfaceTyArgs kind (tk:tks)
+  | Just (arg, res) <- splitFunTy_maybe kind
+  = let kf = determineLevel arg in
+    do { tk' <- tcIfaceTyKi kf tk
+       ; tks' <- tcIfaceTyArgs res tks
+       ; return (tk' : tks') }
+
+  | Just (tv, kind') <- splitForAllTy_maybe kind
+  = do { k' <- tcIfaceKind tk
+       ; tks' <- tcIfaceTyArgs (substTyWith [tv] [k'] kind') tks
+       ; return (k' : tks') }
+
+  | otherwise
+  = pprPanic "tcIfaceTyArgs" (ppr kind)
+
 tcIfaceTcArgs :: KindFlag -> IfaceTcArgs -> IfL [Type]
 tcIfaceTcArgs kf (ITC_Type t ts)
   = do { t'  <- tcIfaceTyKi kf t
        ; ts' <- tcIfaceTcArgs kf ts
        ; return (t' : ts') }
-tcIfaceTcArgs (ITC_Kind k ks)
+tcIfaceTcArgs kf (ITC_Kind k ks)
   = do { k'  <- tcIfaceKind k
        ; ks' <- tcIfaceTcArgs kf ks
        ; return (k':ks') }
-tcIfaceTcArgs ITC_Nil = return []
+tcIfaceTcArgs _ ITC_Nil = return []
 
 -- tell if a kind contains types or kinds
 determineLevel :: Kind -> KindFlag
@@ -1494,15 +1509,15 @@ tcIfaceGlobal name
 tcIfaceTyCon :: KindFlag -> IfaceTyCon -> IfL TyCon
 tcIfaceTyCon kf itc
   = do { thing <- tcIfaceGlobal (ifaceTyConName itc)
-       ; case (thing, kf) of    -- A "type constructor" can be a promoted data constructor
-                          --           c.f. Trac #5881
-           (ATyCon tc, KindLevel)
+       ; case (itc, kf) of
+           (IfaceTc _, TypeLevel) -> return $ tyThingTyCon thing
+           (IfaceTc _, KindLevel)
              | isSuperKind (tyConKind tc) -> return tc
-             | otherwise                  -> return (promoteTyCon tc)
-           (ATyCon tc, TypeLevel) -> return tc
-           (ADataCon dc, _)       -> return (promoteDataCon dc)
-           _ -> pprPanic "tcIfaceTyCon" (ppr name $$ ppr thing) }
-
+             | Just prom_tc <- promotableTyCon_maybe tc -> return prom_tc
+             | otherwise -> pprPanic "tcIfaceTyCon" (ppr itc $$ ppr thing)
+             where tc = tyThingTyCon thing
+           (IfacePromotedDataCon _, _) -> return $ promoteDataCon $ tyThingDataCon thing }
+ 
 tcIfaceCoAxiom :: Name -> IfL (CoAxiom Branched)
 tcIfaceCoAxiom name = do { thing <- tcIfaceGlobal name
                          ; return (tyThingCoAxiom thing) }
@@ -1546,14 +1561,6 @@ bindIfaceBndrs (b:bs) thing_inside
   = bindIfaceBndr b     $ \ b' ->
     bindIfaceBndrs bs   $ \ bs' ->
     thing_inside (b':bs')
-
------------------------
-newExtCoreBndr :: IfaceLetBndr -> IfL Id
-newExtCoreBndr (IfLetBndr var ty _)    -- Ignoring IdInfo for now
-  = do  { mod <- getIfModule
-        ; name <- newGlobalBinder mod (mkVarOccFS var) noSrcSpan
-        ; ty' <- tcIfaceType ty
-        ; return (mkLocalId name ty') }
 
 -----------------------
 bindIfaceBndrTy :: IfaceForAllBndr -> (TyCoVar -> IfL a) -> IfL a

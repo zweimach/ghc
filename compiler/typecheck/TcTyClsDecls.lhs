@@ -893,7 +893,7 @@ tcDefaultAssocDecl fam_tc [L loc (TyFamEqn { tfe_tycon = L _ tc_name
        ; rhs_ty <- tcCheckLHsType rhs rhs_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
        ; let fam_tc_tvs = tyConTyVars fam_tc
-             subst = zipTopTvSubst tvs (mkTyVarTys fam_tc_tvs)
+             subst = zipTopTCvSubst tvs (mkOnlyTyVarTys fam_tc_tvs)
        ; return ( ASSERT( equalLength fam_tc_tvs tvs )
                   Just (substTy subst rhs_ty) ) }
     -- We check for well-formedness and validity later, in checkValidClass

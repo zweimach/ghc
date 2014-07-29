@@ -1518,8 +1518,8 @@ patSynToIfaceDecl ps
                 }
   where
     (univ_tvs, ex_tvs, prov_theta, req_theta, args, rhs_ty) = patSynSig ps
-    (env1, univ_tvs') = tidyTyVarBndrs emptyTidyEnv univ_tvs
-    (env2, ex_tvs')   = tidyTyVarBndrs env1 ex_tvs
+    (env1, univ_tvs') = tidyTyCoVarBndrs emptyTidyEnv univ_tvs
+    (env2, ex_tvs')   = tidyTyCoVarBndrs env1 ex_tvs
 
     matcher = idName (patSynMatcher ps)
     wrapper = fmap idName (patSynWrapper ps)

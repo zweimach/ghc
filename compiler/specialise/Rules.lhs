@@ -38,6 +38,7 @@ import CoreFVs          ( exprFreeVars, exprsFreeVars, bindFreeVars, rulesFreeVa
 import CoreUtils        ( exprType, eqExpr )
 import PprCore          ( pprRules )
 import Type             ( Type )
+import TyCoRep          ( CoercionArg(..) )
 import TcType           ( tcSplitTyConApp_maybe )
 import Coercion
 import CoreTidy         ( tidyRules )
@@ -719,27 +720,32 @@ match_co renv subst co1 co2
   = do { ty2 <- isReflCo_maybe co2
        ; guard (coercionRole co1 == coercionRole co2)
        ; match_ty renv subst ty1 ty2 }
-match_co renv subst (TyConAppCo r1 tc1 cos1) co2
-  = case co2 of
-       TyConAppCo r2 tc2 cos2
-         | r1 == r2 && tc1 == tc2
-         -> match_cos renv subst cos1 cos2
-       _ -> Nothing
+match_co renv subst co1 co2
+  | Just (tc1, cos1) <- splitTyConAppCo_maybe co1
+  = case splitTyConAppCo_maybe co2 of
+      Just (tc2, cos2)
+        |  tc1 == tc2
+        -> match_co_args renv subst cos1 cos2
+      _ -> Nothing
 match_co _ _ co1 co2
   = pprTrace "match_co: needs more cases" (ppr co1 $$ ppr co2) Nothing
     -- Currently just deals with CoVarCo, TyConAppCo and Refl
 
-match_cos :: RuleMatchEnv
-         -> RuleSubst
-         -> [Coercion]
-         -> [Coercion]
-         -> Maybe RuleSubst
-match_cos renv subst (co1:cos1) (co2:cos2) =
-    case match_co renv subst co1 co2 of
-       Just subst' -> match_cos renv subst' cos1 cos2
-       Nothing -> Nothing
-match_cos _ subst [] [] = Just subst
-match_cos _ _ cos1 cos2 = pprTrace "match_cos: not same length" (ppr cos1 $$ ppr cos2) Nothing
+match_co_args :: RuleMatchEnv
+              -> RuleSubst
+              -> [CoercionArg]
+              -> [CoercionArg]
+              -> Maybe RuleSubst
+match_co_args renv subst (TyCoArg co1 : args1) (TyCoArg co2 : args2)
+  = do { subst' <- match_co renv subst co1 co2
+       ; match_co_args renv subst' args1 args2 }
+match_co_args renv subst (CoCoArg _ co1l co1r : args1)
+                         (CoCoArg _ co2l co2r : args2)
+  = do { subst'  <- match_co renv subst co1l co2l
+       ; subst'' <- match_co renv subst' co1r co2r
+       ; match_co_args renv subst'' args1 args2 }
+match_co_args _ subst [] [] = Just subst
+match_co_args _ _ cos1 cos2 = pprTrace "match_co_args: not same length" (ppr cos1 $$ ppr cos2) Nothing
 
 -------------
 rnMatchBndr2 :: RuleMatchEnv -> RuleSubst -> Var -> Var -> RuleMatchEnv

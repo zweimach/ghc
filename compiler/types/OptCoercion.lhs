@@ -33,6 +33,7 @@ import FastString
 import Util
 import Unify
 import InstEnv
+import Maybes
 import Control.Monad   ( zipWithM )
 \end{code}
 
@@ -220,7 +221,7 @@ opt_co_arg2 :: TCvSubst
 opt_co_arg2 env sym r (TyCoArg co) = TyCoArg $ opt_co2 env sym r co
 opt_co_arg2 env sym r (CoCoArg _r co1 co2)
   = ASSERT( r == _r )
-    opt_cocoarg env sym Nothing r co1 co2
+    opt_cocoarg env sym r co1 co2
 
 -- See Note [Optimising coercion optimisation]
 -- | Optimize a coercion, knowing the coercion's non-Phantom role.
@@ -233,10 +234,10 @@ opt_co3 env sym _                       r co = opt_co4 env sym False r co
 -- | Like 'opt_co3' but for 'CoercionArg'
 opt_co_arg3 :: TCvSubst -> SymFlag -> Maybe Role -> Role
             -> CoercionArg -> NormalCoArg
-opt_co_arg3 env sym mrole r (TyCoArg co) = opt_co3 env sym mrole r co
+opt_co_arg3 env sym mrole r (TyCoArg co) = TyCoArg $ opt_co3 env sym mrole r co
 opt_co_arg3 env sym mrole r (CoCoArg _r co1 co2)
   = ASSERT( r == _r )
-    opt_cocoarg env sym mrole r co1 co2
+    opt_cocoarg env sym (mrole `orElse` r) co1 co2
 
 -- See Note [Optimising coercion optimisation]
 -- | Optimize a non-phantom coercion.
@@ -268,7 +269,7 @@ opt_co4 env sym rep r g@(TyConAppCo _r tc cos)
       (_, Phantom) -> pprPanic "opt_co4 sees a phantom!" (ppr g)
 
 opt_co4 env sym rep r (AppCo co1 co2) = mkAppCo (opt_co4 env sym rep r co1)
-                                                (opt_co4 env sym False Nominal co2)
+                                                (opt_co_arg4 env sym False Nominal co2)
 
 -- See Note [Sym and ForAllCo] in TyCoRep
 opt_co4 env sym rep r (ForAllCo cobndr co)
@@ -318,15 +319,6 @@ opt_co4 env sym rep r (TransCo co1 co2)
     co2' = opt_co4 env sym rep r co2
     in_scope = getTCvInScope env
 
-        
-  | ForAllCo cobndr _ <- co'
-  , Just v <- getHomoVar_maybe cobndr
-  = Refl Nominal (varType v)
-  
-  | ForAllCo cobndr _ <- co'
-  , Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
-  = h
-
 
 opt_co4 env sym rep r co@(NthCo {}) = opt_nth_co env sym rep r co
 
@@ -348,22 +340,22 @@ opt_co4 env sym rep r g@(LRCo lr co)
     pick_lr CRight (_, TyCoArg r) = r
     pick_lr _      _              = pprPanic "opt_co(LRCo)" (ppr g)
 
-opt_co4 env sym rep r (InstCo co arg)
+opt_co4 env sym rep r (InstCo co1 arg)
     -- forall over type...
   | TyCoArg co2 <- arg'
   , Just (tv1, tv2, cv, co_body) <- splitForAllCo_Ty_maybe co1
   , Pair ty1 ty2 <- coercionKind co2
-  = opt_co (extendTCvSubstList env 
+  = opt_co4 (extendTCvSubstList env 
               [tv1, tv2, cv]
               [ty1, ty2, mkCoercionTy co2])
               -- See Note [Sym and InstCo]
-           sym mrole co_body
+            sym rep r co_body
 
     -- forall over coercion...
   | CoCoArg _ co2 co3 <- arg'
   , Just (cv1, cv2, co_body) <- splitForAllCo_Co_maybe co1
-  = opt_co (extendTCvSubstList env [cv1, cv2] (map mkCoercionTy [co2, co3]))
-           sym mrole co_body
+  = opt_co4 (extendTCvSubstList env [cv1, cv2] (map mkCoercionTy [co2, co3]))
+            sym rep r co_body
 
     -- See if it is a forall after optimization
     -- If so, do an inefficient one-variable substitution, then re-optimize
@@ -372,22 +364,23 @@ opt_co4 env sym rep r (InstCo co arg)
   | TyCoArg co2' <- arg'
   , Just (tv1', tv2', cv', co'_body) <- splitForAllCo_Ty_maybe co1'
   , Pair ty1' ty2' <- coercionKind co2'
-  = opt_co (extendTCvSubstList (zapTCvSubst env)
+  = opt_co4 (extendTCvSubstList (zapTCvSubst env)
                                [tv1', tv2', cv']
                                [ty1', ty2', mkCoercionTy co2'])
-           False Nothing co'_body
+            False False r' co'_body
 
  -- forall over coercion...
   | CoCoArg _ co2' co3' <- arg'
   , Just (cv1', cv2', co'_body) <- splitForAllCo_Co_maybe co1'
-  = opt_co (extendTCvSubstList (zapTCvSubst env)
-                               [cv1', cv2']
-                               [CoercionTy co2', CoercionTy co3'])
-           False Nothing co'_body 
+  = opt_co4 (extendTCvSubstList (zapTCvSubst env)
+                                [cv1', cv2']
+                                [CoercionTy co2', CoercionTy co3'])
+           False False r' co'_body 
 
   | otherwise = InstCo co1' arg'
   where
     co1' = opt_co4 env sym rep r co1
+    r'   = chooseRole rep r
     arg' = opt_co_arg4 env sym False Nominal arg
 
 opt_co4 env sym rep r (CoherenceCo co1 co2)
@@ -418,9 +411,9 @@ opt_co4 env sym rep r (CoherenceCo co1 co2)
         co2' = opt_co4 env False False Representational co2
         in_scope = getTCvInScope env
 
-opt_co4 env sym _rep r kco@(KindCo co)
+opt_co4 env sym _rep r (KindCo co)
   = ASSERT( r == Representational )
-    let kco' = promoteCoercion co
+    let kco' = promoteCoercion co in
     case kco' of
       KindCo co' -> promoteCoercion (opt_co1 env sym co')
       _          -> opt_co4 env sym False Representational kco'
@@ -449,6 +442,21 @@ opt_co_arg4 env sym rep r (CoCoArg _r co1 co2)
   where co1' = opt_co1 env False co1
         co2' = opt_co1 env False co2
         role = chooseRole rep r
+
+-- | Optimize a "coercion" between coercions.
+opt_cocoarg :: TCvSubst
+            -> SymFlag
+            -> Role   -- ^ desired role
+            -> Coercion
+            -> Coercion
+            -> NormalCoArg
+opt_cocoarg env sym r co1 co2
+  = if sym
+    then CoCoArg r co2' co1'
+    else CoCoArg r co1' co2'
+  where
+    co1' = opt_co1 env False co1
+    co2' = opt_co1 env False co2
 
 -------------
 -- | Optimize a phantom coercion. The input coercion may not necessarily
@@ -503,7 +511,7 @@ opt_univ_arg :: TCvSubst -> Role -> Type -> Type -> CoercionArg
 opt_univ_arg env role oty1 oty2
   | Just co1 <- isCoercionTy_maybe oty1
   , Just co2 <- isCoercionTy_maybe oty2
-  = CoCoArg role (opt_co env False Nothing co1) (opt_co env False Nothing co2)
+  = CoCoArg role (opt_co1 env False co1) (opt_co1 env False co2)
   | otherwise
   = TyCoArg $ opt_univ env role oty1 oty2
 
@@ -512,7 +520,7 @@ opt_univ_arg env role oty1 oty2
 -- tell quickly what the component coercion's role is from the containing
 -- coercion. To avoid repeated coercionRole calls as opt_co1 calls opt_co2,
 -- we just look for nested NthCo's, which can happen in practice.
-opt_nth_co :: CvSubst -> SymFlag -> ReprFlag -> Role -> Coercion -> NormalCo
+opt_nth_co :: TCvSubst -> SymFlag -> ReprFlag -> Role -> Coercion -> NormalCo
 opt_nth_co env sym rep r = go []
   where
     go ns (NthCo n co) = go (n:ns) co
@@ -556,7 +564,7 @@ opt_nth_co env sym rep r = go []
     opt_nths' [] co
       = if rep && (r == Nominal)
             -- propagate the SubCo:
-        then opt_co4 (zapCvSubstEnv env) False True r co
+        then opt_co4 (zapTCvSubst env) False True r co
         else co
     opt_nths' (n:ns) co
       | Just co' <- push_nth n co
@@ -840,7 +848,7 @@ opt_trans_rule is co1 co2
   | Just (lco, lh) <- isCohRight_maybe co1
   , Just (rco, rh) <- isCohLeft_maybe co2
   , (coercionType lh) `eqType` (coercionType rh)
-  = opt_trans_rule is (opt_co (mkEmptyTCvSubst is) True Nothing lco) rco
+  = opt_trans_rule is lco rco
 
 opt_trans_rule _ co1 co2	-- Identity rule
   | (Pair ty1 _, r) <- coercionKindRole co1
@@ -1090,6 +1098,7 @@ optTyVarBndr = substTyVarBndrCallback optType
 optForAllCoBndr :: TCvSubst -> Bool -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
 optForAllCoBndr env sym
   = substForAllCoBndrCallback sym optType
-                              (\sym' env' -> opt_co env' sym' Nothing) env
+                              (\sym' env' -> opt_co1 env' sym') env
+                              -- TODO (RAE): Could this be optimized?
 
 \end{code}

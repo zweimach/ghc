@@ -757,10 +757,7 @@ are maybeApart.
 tcUnifyTy :: Type -> Type       -- All tyvars are bindable
 	  -> Maybe TCvSubst	-- A regular one-shot (idempotent) substitution
 -- Simple unification of two types; all type variables are bindable
-tcUnifyTy ty1 ty2
-  = case initUM (const BindMe) (unify emptyTvSubstEnv ty1 ty2) of
-      Unifiable subst_env -> Just (niFixTvSubst subst_env)
-      _other              -> Nothing
+tcUnifyTy t1 t2 = tcUnifyTys (const BindMe) [t1] [t2]
 
 -----------------
 tcUnifyTys :: (TyCoVar -> BindFlag)
@@ -847,19 +844,19 @@ niFixTCvSubst tenv cenv = f tenv cenv
           not_fixpoint  = foldVarSet ((||) . in_domain) False all_range_tvs
           in_domain tv  = tv `elemVarEnv` tenv || tv `elemVarEnv` cenv
 
-          range_tvs     = foldVarEnv (unionVarSet . tyCoVarsOfType) emptyVarSet env
+          range_tvs     = foldVarEnv (unionVarSet . tyCoVarsOfType) emptyVarSet tenv
           range_cvs     = foldVarEnv (unionVarSet . tyCoVarsOfCo) emptyVarSet cenv
           all_range_tvs = closeOverKinds (range_tvs `unionVarSet` range_cvs)
-          subst         = mkTvSubst (mkInScopeSet all_range_tvs) env
+          subst         = mkTCvSubst (mkInScopeSet all_range_tvs) tenv cenv
 
              -- env' extends env by replacing any free type with 
              -- that same tyvar with a substituted kind
              -- See note [Finding the substitution fixpoint]
-          env'          = extendVarEnvList env [ (rtv, mkTyVarTy $ setTyVarKind rtv $
-                                                       substTy subst $ tyVarKind rtv)
-                                               | rtv <- varSetElems range_tvs
-                                               , not (in_domain rtv) ]
-          subst'        = mkTvSubst (mkInScopeSet all_range_tvs) env'
+          tenv'         = extendVarEnvList tenv [ (rtv, mkOnlyTyVarTy $ setTyVarKind rtv $
+                                                        substTy subst $ tyVarKind rtv)
+                                                | rtv <- varSetElems range_tvs
+                                                , not (in_domain rtv) ]
+          subst'        = mkTCvSubst (mkInScopeSet all_range_tvs) tenv' cenv
 
 niSubstTvSet :: TvSubstEnv -> CvSubstEnv -> TyCoVarSet -> TyCoVarSet
 -- Apply the non-idempotent substitution to a set of type variables,

@@ -1546,13 +1546,11 @@ type SimpleKind = Kind
 typeKind :: Type -> Kind
 typeKind orig_ty = go orig_ty
   where
-    
-    go ty@(TyConApp tc tys)
-      = kindAppResult (ptext (sLit "typeKind 1") <+> ppr ty $$ ppr orig_ty)
-                      (tyConKind tc) tys
+    go :: Type -> Kind
+    go (TyConApp tc tys)
+      = kindAppResult (tyConKind tc) tys
 
-    go ty@(AppTy fun arg)   = kindAppResult (ptext (sLit "typeKind 2") <+> ppr ty $$ ppr orig_ty)
-                                            (go fun) [arg]
+    go (AppTy fun arg)      = kindAppResult (go fun) [arg]
     go (LitTy l)            = typeLiteralKind l
     go (ForAllTy _ ty)      = go ty
     go (TyVarTy tyvar)      = tyVarKind tyvar

@@ -41,9 +41,9 @@ module TcMType (
 
   --------------------------------
   -- Instantiation
-  tcInstTyVars, newSigTyVar,
+  tcInstTyCoVars, newSigTyVar,
   tcInstType,
-  tcInstSkolTyCoVars, tcInstSuperSkolTyCoVars,tcInstSuperSkolTyCoVarsX,
+  tcInstSkolTyCoVars, tcInstSkolTyCoVarsLoc, tcInstSuperSkolTyCoVarsX,
   tcInstSigTyCoVarsLoc, tcInstSigTyCoVars,
   tcInstSkolTyCoVar, tcInstSkolType,
   tcSkolDFunType, tcSuperSkolTyCoVars,
@@ -271,7 +271,7 @@ tcInstSigTyCoVarsLoc :: SrcSpan -> [TyCoVar]
 tcInstSigTyCoVarsLoc loc = mapAccumLM (tcInstSkolTyCoVar loc False)
                                       (mkTopTCvSubst [])
 
-tcInstSigTyCoVars :: [TyCoVar] -> TcRnIf gbl lcl (TvSubst, [TcTyCoVar])
+tcInstSigTyCoVars :: [TyCoVar] -> TcRnIf gbl lcl (TCvSubst, [TcTyCoVar])
 -- Get the location from the TyVar itself, not the monad
 tcInstSigTyCoVars = mapAccumLM inst_tv (mkTopTCvSubst [])
   where

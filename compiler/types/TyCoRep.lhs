@@ -109,7 +109,6 @@ import Binary
 import Outputable
 import DynFlags
 import FastString
-import Pair
 import Util
 
 -- libraries

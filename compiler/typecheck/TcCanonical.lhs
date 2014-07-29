@@ -499,7 +499,7 @@ flatten f ctxt (TyConApp tc tys)
   -- on the RHS; see Note [Flattening synonyms]
   | Just (tenv, rhs, tys') <- tcExpandTyCon_maybe tc tys
   , any isSynFamilyTyCon (tyConsOfType rhs)
-  = flatten f ctxt (mkAppTys (substTy (mkTopTvSubst tenv) rhs) tys')
+  = flatten f ctxt (mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys')
 
   -- For * a normal data type application
   --     * data family application

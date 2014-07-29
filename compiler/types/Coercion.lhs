@@ -32,7 +32,7 @@ module Coercion (
         mkForAllCo_Ty, mkForAllCo_Co,
         mkUnsafeCo, mkUnivCo, mkUnsafeCoArg, mkSubCo, mkPhantomCo,
         mkNewTypeCo, mkAppCos, mkAxiomInstCo,
-        downgradeRole, mkAxiomRuleCo,
+        downgradeRole, downgradeRoleArg, mkAxiomRuleCo,
         mkCoherenceCo, mkCoherenceRightCo, mkCoherenceLeftCo,
         mkKindCo, castCoercionKind,
 
@@ -251,7 +251,7 @@ ppr_role r = underscore <> pp_role
                     Representational -> char 'R'
                     Phantom          -> char 'P'
 
-ppr_arg :: Prec -> CoercionArg -> SDoc
+ppr_arg :: TyPrec -> CoercionArg -> SDoc
 ppr_arg p (TyCoArg co) = ppr_co p co
 ppr_arg _ (CoCoArg r co1 co2) = parens (pprCo co1 <> comma <+> pprCo co2) <> ppr_role r
 
@@ -1794,10 +1794,7 @@ coercionKind co = go co
     go (Refl _ ty)          = Pair ty ty
     go (TyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map coercionArgKind cos)
     go (AppCo co1 co2)      = mkAppTy <$> go co1 <*> coercionArgKind co2
-    go (ForAllCo (TyHomo tv) co)            = mkForAllTy tv <$> go co
-    go (ForAllCo (TyHetero _ tv1 tv2 _) co) = mkForAllTy <$> Pair tv1 tv2 <*> go co
-    go (ForAllCo (CoHomo tv) co)            = mkForAllTy tv <$> go co
-    go (ForAllCo (CoHetero _ cv1 cv2) co)   = mkForAllTy <$> Pair cv1 cv2 <*> go co
+    go (ForAllCo cobndr co) = mkForAllTy <$> coBndrKind cobndr <*> go co
     go (CoVarCo cv)         = toPair $ coVarTypes cv
     go (AxiomInstCo ax ind cos)
       | CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs } <- coAxiomNthBranch ax ind
@@ -1856,14 +1853,14 @@ coercionKindRole = go
   where
     go (Refl r ty) = (Pair ty ty, r)
     go (TyConAppCo r tc cos)
-      = (mkTyConApp tc <$> (sequenceA $ map coercionKind cos), r)
+      = (mkTyConApp tc <$> (sequenceA $ map coercionArgKind cos), r)
     go (AppCo co1 co2)
       = let (tys1, r1) = go co1 in
-        (mkAppTy <$> tys1 <*> coercionKind co2, r1)
-    go (ForAllCo tv co)
+        (mkAppTy <$> tys1 <*> coercionArgKind co2, r1)
+    go (ForAllCo cobndr co)
       = let (tys, r) = go co in
-        (mkForAllTy tv <$> tys, r)
-    go (CoVarCo cv) = (toPair $ coVarKind cv, coVarRole cv)
+        (mkForAllTy <$> coBndrKind cobndr <*> tys, r)
+    go (CoVarCo cv) = (toPair $ coVarTypes cv, coVarRole cv)
     go co@(AxiomInstCo ax _ _) = (coercionKind co, coAxiomRole ax)
     go (UnivCo r ty1 ty2) = (Pair ty1 ty2, r)
     go (SymCo co) = first swap $ go co
@@ -1878,7 +1875,7 @@ coercionKindRole = go
         ASSERT( tc1 == _tc2 )
         ((`getNth` d) <$> Pair args1 args2, nthRole r tc1 d)
     go co@(LRCo {}) = (coercionKind co, Nominal)
-    go (InstCo co ty) = go_app co [ty]
+    go (InstCo co arg) = go_app co [arg]
     go (CoherenceCo co1 co2)
       = let (Pair t1 t2, r) = go co1 in
         (Pair (t1 `mkCastTy` co2) t2, r)
@@ -1886,13 +1883,13 @@ coercionKindRole = go
     go (SubCo co) = (coercionKind co, Representational)
     go co@(AxiomRuleCo ax _ _) = (coercionKind co, coaxrRole ax)
 
-    go_app :: Coercion -> [Type] -> (Pair Type, Role)
+    go_app :: Coercion -> [CoercionArg] -> (Pair Type, Role)
     -- Collect up all the arguments and apply all at once
     -- See Note [Nested InstCos]
-    go_app (InstCo co ty) tys = go_app co (ty:tys)
-    go_app co             tys
+    go_app (InstCo co arg) args = go_app co (arg:args)
+    go_app co              args
       = let (pair, r) = go co in
-        ((`applyTys` tys) <$> pair, r)
+        (applyTys <$> pair <*> (sequenceA $ map coercionArgKind args), r)
 
 -- | Retrieve the role from a coercion.
 coercionRole :: Coercion -> Role
@@ -1910,6 +1907,13 @@ coercionArgKindRole (CoCoArg r co1 co2) = (CoercionTy <$> Pair co1 co2, r)
 -- | Get a 'CoercionArg's role.
 coercionArgRole :: CoercionArg -> Role
 coercionArgRole = snd . coercionArgKindRole
+
+-- | Get the pair of vars bound by a 'ForAllCo'
+coBndrKind :: ForAllCoBndr -> Pair Var
+coBndrKind (TyHomo tv)            = pure tv
+coBndrKind (TyHetero _ tv1 tv2 _) = Pair tv1 tv2
+coBndrKind (CoHomo cv)            = pure cv
+coBndrKind (CoHetero _ cv1 cv2)   = Pair cv1 cv2
 \end{code}
 
 Note [Nested InstCos]

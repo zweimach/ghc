@@ -34,7 +34,6 @@ import Data.Monoid
 import Bag
 import TcEvidence
 import BuildTyCl
-import TypeRep
 
 #include "HsVersions.h"
 \end{code}
@@ -67,8 +66,8 @@ tcPatSynDecl lname@(L _ name) details lpat dir
              prov_theta = map evVarPred prov_dicts
              req_theta  = map evVarPred req_dicts
 
-       ; univ_tvs   <- mapM zonkQuantifiedTyVar univ_tvs
-       ; ex_tvs     <- mapM zonkQuantifiedTyVar ex_tvs
+       ; univ_tvs   <- mapM zonkQuantifiedTyCoVar univ_tvs
+       ; ex_tvs     <- mapM zonkQuantifiedTyCoVar ex_tvs
        ; prov_theta <- zonkTcThetaType prov_theta
        ; req_theta  <- zonkTcThetaType req_theta
        ; pat_ty     <- zonkTcType pat_ty
@@ -123,9 +122,9 @@ tcPatSynMatcher :: Located Name
                 -> TcM (Id, LHsBinds Id)
 -- See Note [Matchers and wrappers for pattern synonyms] in PatSyn
 tcPatSynMatcher (L loc name) lpat args univ_tvs ex_tvs ev_binds prov_dicts req_dicts prov_theta req_theta pat_ty
-  = do { res_tv <- zonkQuantifiedTyVar =<< newFlexiTyVar liftedTypeKind
+  = do { res_tv <- zonkQuantifiedTyCoVar =<< newFlexiTyVar liftedTypeKind
        ; matcher_name <- newImplicitBinder name mkMatcherOcc
-       ; let res_ty = TyVarTy res_tv
+       ; let res_ty = mkOnlyTyVarTy res_tv
              cont_ty = mkSigmaTy ex_tvs prov_theta $
                        mkFunTys (map varType args) res_ty
 
@@ -216,7 +215,7 @@ tc_pat_syn_wrapper_from_expr :: Located Name
                              -> TcM (Id, LHsBinds Id)
 tc_pat_syn_wrapper_from_expr (L loc name) lexpr args univ_tvs ex_tvs theta pat_ty
   = do { let qtvs = univ_tvs ++ ex_tvs
-       ; (subst, wrapper_tvs) <- tcInstSkolTyVars qtvs
+       ; (subst, wrapper_tvs) <- tcInstSkolTyCoVars qtvs
        ; let wrapper_theta = substTheta subst theta
              pat_ty' = substTy subst pat_ty
              args' = map (\arg -> setVarType arg $ substTy subst (varType arg)) args

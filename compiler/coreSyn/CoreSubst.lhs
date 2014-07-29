@@ -1385,8 +1385,8 @@ pushCoercionIntoLambda in_scope x e co
           in_scope' = in_scope `extendInScopeSet` x'
           subst = extendIdSubst (mkEmptySubst in_scope')
                                 x
-                                (mkCast (Var x') co1)
-      in Just (x', subst_expr subst e `mkCast` co2)
+                                (mkCast (Var x') (stripTyCoArg co1))
+      in Just (x', subst_expr subst e `mkCast` (stripTyCoArg co2))
     | otherwise
     = pprTrace "exprIsLambda_maybe: Unexpected lambda in case" (ppr (Lam x e))
       Nothing

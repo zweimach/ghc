@@ -560,7 +560,7 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
         ; return ( [inst_info], tyfam_insts0 ++ concat tyfam_insts1 ++ datafam_insts) }
 
 
-tcATDefault :: TvSubst -> NameSet -> ClassATItem -> TcM [FamInst]
+tcATDefault :: TCvSubst -> NameSet -> ClassATItem -> TcM [FamInst]
 -- ^ Construct default instances for any associated types that
 -- aren't given a user definition
 -- Returns [] or singleton
@@ -577,13 +577,13 @@ tcATDefault inst_subst defined_ats (ATI fam_tc defs)
   = do { let (subst', pat_tys') = mapAccumL subst_tv inst_subst
                                             (tyConTyVars fam_tc)
              rhs'     = substTy subst' rhs_ty
-             tv_set'  = tyVarsOfTypes pat_tys'
-             tvs'     = varSetElemsKvsFirst tv_set'
+             tv_set'  = tyCoVarsOfTypes pat_tys'
+             tvs'     = varSetElemsWellScoped tv_set'
        ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
        ; let axiom = mkSingleCoAxiom rep_tc_name tvs' fam_tc pat_tys' rhs'
        ; traceTc "mk_deflt_at_instance" (vcat [ ppr fam_tc, ppr rhs_ty
                                               , pprCoAxiom axiom ])
-       ; fam_inst <- ASSERT( tyVarsOfType rhs' `subVarSet` tv_set' ) 
+       ; fam_inst <- ASSERT( tyCoVarsOfType rhs' `subVarSet` tv_set' ) 
                      newFamInst SynFamilyInst axiom
        ; return [fam_inst] }
 
@@ -596,9 +596,9 @@ tcATDefault inst_subst defined_ats (ATI fam_tc defs)
       | Just ty <- lookupVarEnv (getTvSubstEnv subst) tc_tv
       = (subst, ty)
       | otherwise
-      = (extendTvSubst subst tc_tv ty', ty')
+      = (extendTCvSubst subst tc_tv ty', ty')
       where
-        ty' = mkTyVarTy (updateTyVarKind (substTy subst) tc_tv)
+        ty' = mkOnlyTyVarTy (updateTyVarKind (substTy subst) tc_tv)
                            
 
 --------------

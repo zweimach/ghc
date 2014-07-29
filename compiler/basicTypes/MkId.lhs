@@ -286,7 +286,7 @@ mkDictSelId name clas
     arg_tys    	   = dataConRepArgTys data_con	-- Includes the dictionary superclasses
     val_index      = assoc "MkId.mkDictSelId" (sel_names `zip` [0..]) name
 
-    sel_ty = mkForAllTys tyvars (mkFunTy (mkClassPred clas (mkTyVarTys tyvars))
+    sel_ty = mkForAllTys tyvars (mkFunTy (mkClassPred clas (mkOnlyTyVarTys tyvars))
                                          (getNth arg_tys val_index))
 
     base_info = noCafIdInfo
@@ -343,7 +343,7 @@ mkDictSelRhs clas val_index
     dict_id    	   = mkTemplateLocal 1 pred
     arg_ids    	   = mkTemplateLocalsNum 2 arg_tys
 
-    rhs_body | new_tycon = unwrapNewTypeBody tycon (mkTyCoVarTy tyvars) (Var dict_id)
+    rhs_body | new_tycon = unwrapNewTypeBody tycon (mkOnlyTyVarTys tyvars) (Var dict_id)
              | otherwise = Case (Var dict_id) dict_id (idType the_arg_id)
                                 [(DataAlt data_con, arg_ids, varToCoreExpr the_arg_id)]
 				-- varToCoreExpr needed for equality superclass selectors
