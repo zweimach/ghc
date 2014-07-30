@@ -408,9 +408,10 @@ unfold_coerce bndrs lhs rhs = do
     go :: [Id] -> DsM ([Id], CoreExpr -> CoreExpr)
     go []     = return ([], id)
     go (v:vs)
-        | Just (tc, args) <- splitTyConApp_maybe (idType v)
+        | Just (tc, [k,ty1,ty2]) <- splitTyConApp_maybe (idType v)
         , tc == coercibleTyCon = do
-            let ty' = mkTyConApp eqReprPrimTyCon args
+                -- remember: eqReprPrimTyCon is heterogeneous!
+            let ty' = mkTyConApp eqReprPrimTyCon [k,k,ty1,ty2]
             v' <- mkDerivedLocalM mkRepEqOcc v ty'
 
             (bndrs, wrap) <- go vs

@@ -390,7 +390,8 @@ coVarKindsTypesRole cv
          | tc `hasKey` eqReprPrimTyConKey = Representational
          | otherwise                      = panic "coVarKindsTypesRole"
    in (k1,k2,ty1,ty2,role)
- | otherwise = panic "coVarTypes, non coercion variable"
+ | otherwise = pprPanic "coVarTypes, non coercion variable"
+                        (ppr cv $$ ppr (varType cv))
 
 coVarKind :: CoVar -> Type
 coVarKind cv

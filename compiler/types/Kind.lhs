@@ -51,7 +51,6 @@ import PrelNames
 import Outputable
 import Maybes( orElse )
 import Util
-import FastString
 \end{code}
 
 %************************************************************************

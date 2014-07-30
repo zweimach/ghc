@@ -1226,8 +1226,8 @@ reifyTyCon tc
              -- we need the *result kind* (see #8884)
              (kvs, mono_kind) = splitForAllTys kind
                                 -- tyConArity includes *kind* params
-             (_, res_kind)    = splitKindFunTysN (tyConArity tc - length kvs)
-                                                 mono_kind
+             (_, res_kind)    = splitFunTysN (tyConArity tc - length kvs)
+                                             mono_kind
        ; kind' <- fmap Just (reifyKind res_kind)
 
        ; tvs' <- reifyTyCoVars tvs

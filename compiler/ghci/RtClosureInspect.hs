@@ -612,7 +612,7 @@ type RttiInstantiation = [(TcTyCoVar, TyVar)]
 --   mapping from new (instantiated) -to- old (skolem) type variables
 instScheme :: QuantifiedType -> TR (TcType, RttiInstantiation)
 instScheme (tvs, ty)
-  = liftTcM $ do { (tvs', _, subst) <- tcInstTyCoVars tvs
+  = liftTcM $ do { (tvs', _, subst) <- instTyCoVars tvs
                  ; let rtti_inst = [(tv',tv) | (tv',tv) <- tvs' `zip` tvs]
                  ; return (substTy subst ty, rtti_inst) }
 
