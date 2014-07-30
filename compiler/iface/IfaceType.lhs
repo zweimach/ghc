@@ -48,6 +48,7 @@ import DataCon ( dataConTyCon )
 import TcType
 import DynFlags
 import TyCoRep
+import Kind
 import Unique( hasKey )
 import Util ( filterOut, lengthIs, zipWithEqual )
 import TyCon hiding ( pprPromotionQuote )
@@ -140,6 +141,7 @@ data IfaceTcArgs
 data IfaceTyCon
   = IfaceTc              { ifaceTyConName :: IfExtName }
   | IfacePromotedDataCon { ifaceTyConName :: IfExtName }
+  | IfacePromotedTyCon   { ifaceTyConName :: IfExtName }
 
 data IfaceCoercion     -- represents Coercions and CoercionArgs
   = IfaceReflCo      Role IfaceType
@@ -718,6 +720,7 @@ instance Outputable IfaceTyCon where
 
 pprPromotionQuote :: IfaceTyCon -> SDoc
 pprPromotionQuote (IfacePromotedDataCon _ ) = char '\''
+pprPromotionQuote (IfacePromotedTyCon _)    = ifPprDebug (char '\'')
 pprPromotionQuote _                         = empty
 
 instance Outputable IfaceCoercion where
@@ -728,12 +731,14 @@ instance Binary IfaceTyCon where
      case tc of
        IfaceTc n              -> putByte bh 0 >> put_ bh n
        IfacePromotedDataCon n -> putByte bh 1 >> put_ bh n
+       IfacePromotedTyCon n   -> putByte bh 2 >> put_ bh n
 
    get bh =
      do tc <- getByte bh
         case tc of
           0 -> get bh >>= return . IfaceTc
           1 -> get bh >>= return . IfacePromotedDataCon
+          2 -> get bh >>= return . IfacePromotedTyCon
           _ -> panic ("get IfaceTyCon " ++ show tc)
 
 instance Outputable IfaceTyLit where
@@ -1076,8 +1081,15 @@ varToIfaceForAllBndr v
 toIfaceTyCon :: TyCon -> IfaceTyCon
 toIfaceTyCon tc
   | isPromotedDataCon tc = IfacePromotedDataCon tc_name
+  | ends_in_box (tyConKind tc) = IfacePromotedTyCon tc_name
   | otherwise            = IfaceTc tc_name
     where tc_name = tyConName tc
+          
+          ends_in_box :: Type -> Bool
+          ends_in_box (FunTy _ t2)     = ends_in_box t2
+          ends_in_box (ForAllTy _ t2)  = ends_in_box t2
+          ends_in_box (TyConApp box _) = isSuperKindCon box
+          ends_in_box _                = False
 
 toIfaceTyCon_name :: Name -> IfaceTyCon
 toIfaceTyCon_name = IfaceTc
