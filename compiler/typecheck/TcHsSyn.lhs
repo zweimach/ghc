@@ -37,7 +37,7 @@ import TcRnMonad
 import PrelNames
 import TyCoRep     -- We can see the representation of types
 import TcType
-import TcMType ( defaultKindVarToStar, zonkQuantifiedTyCoVar, writeMetaTyVar )
+import TcMType ( defaultKindVar, zonkQuantifiedTyCoVar, writeMetaTyVar )
 import TcEvidence
 import TysPrim
 import TysWiredIn
@@ -1464,8 +1464,7 @@ zonkTvCollecting :: TcRef TyVarSet -> UnboundTyVarZonker
 -- Works on both types and kinds
 zonkTvCollecting unbound_tv_set tv
   = do { poly_kinds <- xoptM Opt_PolyKinds
-       ; if isKindVar tv && not poly_kinds then defaultKindVarToStar tv
-         else do
+       ; if isKindVar tv && not poly_kinds then defaultKindVar tv else do
        { tv' <- zonkQuantifiedTyCoVar tv
        ; tv_set <- readMutVar unbound_tv_set
        ; writeMutVar unbound_tv_set (extendVarSet tv_set tv')
@@ -1476,13 +1475,11 @@ zonkTypeZapping :: UnboundTyVarZonker
 -- It zaps unbound type variables to (), or some other arbitrary type
 -- Works on both types and kinds
 zonkTypeZapping tv
-  = do { let ty = if isKindVar tv
-                  -- ty is actually a kind, zonk to AnyK
-                  then anyKind
-                  else anyTypeOfKind (defaultKind (tyVarKind tv))
+  = do { let ty | isLevityVar tv = liftedDataConTy
+                | isKindVar   tv = anyKind
+                | otherwise      = anyTypeOfKind (tyVarKind tv)
        ; writeMetaTyVar tv ty
        ; return ty }
-
 
 zonkTcCoToCo :: ZonkEnv -> TcCoercion -> TcM TcCoercion
 -- NB: zonking often reveals that the coercion is an identity

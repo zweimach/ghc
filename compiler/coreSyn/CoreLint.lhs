@@ -531,7 +531,7 @@ lintTyKind tyvar arg_ty
         --      error :: forall a:*. String -> a
         -- and then apply it to both boxed and unboxed types.
   = do { arg_kind <- lintType arg_ty
-       ; unless (arg_kind `isSubKind` tyvar_kind)
+       ; unless (arg_kind `eqType` tyvar_kind)
                 (addErrL (mkKindErrMsg tyvar arg_ty $$ (text "xx" <+> ppr arg_kind))) }
   where
     tyvar_kind = tyVarKind tyvar
@@ -841,13 +841,13 @@ lint_app doc kfn kas
       = go_app kfn' ka
 
     go_app (FunTy kfa kfb) (_,ka)
-      = do { unless (ka `isSubKind` kfa 
+      = do { unless (ka `eqType` kfa 
                     || (isStarKind kfa && isUnliftedTypeKind ka) -- TODO (RAE): Remove this horrible hack
                     ) (addErrL fail_msg)
            ; return kfb }
 
     go_app (ForAllTy kv kfn) (ta,ka)
-      = do { unless (ka `isSubKind` tyVarKind kv) (addErrL fail_msg)
+      = do { unless (ka `eqType` tyVarKind kv) (addErrL fail_msg)
            ; return (substKiWith [kv] [ta] kfn) }
 
     go_app _ _ = failWithL fail_msg
@@ -1059,8 +1059,8 @@ lintCoercion (InstCo co arg)
        ; lintRole arg Nominal r'
        ; case (splitForAllTy_maybe t1', splitForAllTy_maybe t2') of
           (Just (tv1,t1), Just (tv2,t2))
-            | k1' `isSubKind` tyVarKind tv1
-            , k2' `isSubKind` tyVarKind tv2
+            | k1' `eqType` tyVarKind tv1
+            , k2' `eqType` tyVarKind tv2
             -> return (k3, k4,
                        substTyWith [tv1] [s1] t1, 
                        substTyWith [tv2] [s2] t2, r) 
@@ -1097,9 +1097,9 @@ lintCoercion co@(AxiomInstCo con ind cos)
            ; lintRole arg role r
            ; let ktv_kind_l = substTy subst_l (tyVarKind ktv)
                  ktv_kind_r = substTy subst_r (tyVarKind ktv)
-           ; unless (k' `isSubKind` ktv_kind_l) 
+           ; unless (k' `eqType` ktv_kind_l) 
                     (bad_ax (ptext (sLit "check_ki1") <+> vcat [ ppr co, ppr k', ppr ktv, ppr ktv_kind_l ] ))
-           ; unless (k'' `isSubKind` ktv_kind_r)
+           ; unless (k'' `eqType` ktv_kind_r)
                     (bad_ax (ptext (sLit "check_ki2") <+> vcat [ ppr co, ppr k'', ppr ktv, ppr ktv_kind_r ] ))
            ; return (extendTCvSubst subst_l ktv s', 
                      extendTCvSubst subst_r ktv t') }

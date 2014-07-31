@@ -1122,7 +1122,7 @@ canEqLeafFun ev swapped fn tys1 ty2 ps_ty2
              k2 = typeKind xi2
        ; case mb of
             Nothing     -> return Stop
-            Just new_ev | k1 `isSubKind` k2
+            Just new_ev | k1 `tcEqKind` k2
                         -- Establish CFunEqCan kind invariant
                         -> continueWith (CFunEqCan { cc_ev = new_ev, cc_fun = fn
                                                    , cc_tyargs = xis1, cc_rhs = xi2 })
@@ -1178,7 +1178,7 @@ canEqTyVar2 dflags ev swapped tv1 xi2 co2
              k2 = typeKind xi2'
        ; case mb of
             Nothing     -> return Stop
-            Just new_ev | k2 `isSubKind` k1
+            Just new_ev | k2 `tcEqKind` k1
                         -- Establish CTyEqCan kind invariant
                         -- Reorientation has done its best, but the kinds might
                         -- simply be incompatible
@@ -1229,7 +1229,7 @@ canEqTyVarTyVar ev swapped tv1 tv2 co2
                                  (mkTcNomReflCo xi1) co2
        ; case mb of
            Nothing     -> return Stop
-           Just new_ev | k2 `isSubKind` k1
+           Just new_ev | k2 `tcEqKind` k1
                        -> continueWith (CTyEqCan { cc_ev = new_ev
                                                  , cc_tyvar = tv1, cc_rhs = xi2 })
                        | otherwise
@@ -1237,7 +1237,6 @@ canEqTyVarTyVar ev swapped tv1 tv2 co2
   where
     reorient_me 
       | k1 `tcEqKind` k2    = tv2 `better_than` tv1
-      | k1 `isSubKind` k2   = True  -- Note [Kind orientation for CTyEqCan]
       | otherwise           = False -- in TcRnTypes
 
     xi1 = mkTyCoVarTy tv1
@@ -1328,9 +1327,6 @@ NB: it's important that the new CIrredCan goes in the inert set rather
 than back into the work list. We used to do the latter, but that led
 to an infinite loop when we encountered it again, and put it back in
 the work list again.
-
-See also Note [Kind orientation for CTyEqCan] and
-         Note [Kind orientation for CFunEqCan] in TcRnTypes
 
 Note [Type synonyms and canonicalization]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

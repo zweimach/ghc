@@ -161,7 +161,7 @@ tc_cmd env (HsCmdIf Nothing pred b1 b2) res_ty    -- Ordinary 'if'
     }
 
 tc_cmd env (HsCmdIf (Just fun) pred b1 b2) res_ty -- Rebindable syntax for if
-  = do  { pred_ty <- newFlexiTyVarTy openTypeKind
+  = do  { pred_ty <- newOpenFlexiTyVarTy
         -- For arrows, need ifThenElse :: forall r. T -> r -> r -> r
         -- because we're going to apply it to the environment, not
         -- the return value.
@@ -195,7 +195,8 @@ tc_cmd env (HsCmdIf (Just fun) pred b1 b2) res_ty -- Rebindable syntax for if
 
 tc_cmd env cmd@(HsCmdArrApp fun arg _ ho_app lr) (_, res_ty)
   = addErrCtxt (cmdCtxt cmd)    $
-    do  { arg_ty <- newFlexiTyVarTy openTypeKind
+         -- TODO (RAE): from openTypeKind
+    do  { arg_ty <- newOpenFlexiTyVarTy
         ; let fun_ty = mkCmdArrTy env arg_ty res_ty
         ; fun' <- select_arrow_scope (tcMonoExpr fun fun_ty)
              -- ToDo: There should be no need for the escapeArrowScope stuff
@@ -223,7 +224,7 @@ tc_cmd env cmd@(HsCmdArrApp fun arg _ ho_app lr) (_, res_ty)
 
 tc_cmd env cmd@(HsCmdApp fun arg) (cmd_stk, res_ty)
   = addErrCtxt (cmdCtxt cmd)    $
-    do  { arg_ty <- newFlexiTyVarTy openTypeKind
+    do  { arg_ty <- newOpenFlexiTyVarTy
         ; fun'   <- tcCmd env fun (mkPairTy arg_ty cmd_stk, res_ty)
         ; arg'   <- tcMonoExpr arg arg_ty
         ; return (HsCmdApp fun' arg') }

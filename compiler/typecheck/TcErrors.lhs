@@ -681,7 +681,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   -- So tv is a meta tyvar (or started that way before we 
   -- generalised it).  So presumably it is an *untouchable* 
   -- meta tyvar or a SigTv, else it'd have been unified
-  | not (k2 `tcIsSubKind` k1)   	 -- Kind error
+  | not (k2 `tcEqKind` k1)   	 -- Kind error
   = mkErrorMsg ctxt ct $ (kindErrorMsg (mkTyCoVarTy tv1) ty2 $$ extra)
 
   | OC_Occurs <- occ_check_expand

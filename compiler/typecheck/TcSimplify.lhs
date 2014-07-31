@@ -18,12 +18,13 @@ import TcMType as TcM
 import TcType
 import TcSMonad as TcS
 import TcInteract
-import Kind     ( isKind, defaultKind_maybe )
+import Kind     ( isKind )
 import Inst
 import FunDeps  ( growThetaTyCoVars )
 import Type     ( classifyPredType, PredTree(..), getClassPredTys_maybe )
 import Class    ( Class )
 import Var
+import TysWiredIn ( liftedDataConTy )
 import Unique
 import VarSet
 import VarEnv
@@ -867,9 +868,15 @@ defaultTyVar :: TcTyVar -> TcS TcTyVar
 -- Precondition: MetaTyVars only
 -- See Note [DefaultTyVar]
 defaultTyVar the_tv
-  | Just default_k <- defaultKind_maybe (tyVarKind the_tv)
+  | isLevityVar the_tv
+  = do { traceTcS "defaultTyVar levity" (ppr the_tv)
+       ; setWantedTyBind the_tv liftedDataConTy
+       ; return the_tv }
+    
+  | Just lev_tv <- isSortPolymorphic_maybe (tyVarKind the_tv)
+  , isMetaTyVar lev_tv   -- presumably, we just tried to default this to Lifted
   = do { tv' <- TcS.cloneMetaTyVar the_tv
-       ; let new_tv = setTyVarKind tv' default_k
+       ; let new_tv = setTyVarKind tv' liftedTypeKind
        ; traceTcS "defaultTyVar" (ppr the_tv <+> ppr new_tv)
        ; setWantedTyBind the_tv (mkTyCoVarTy new_tv)
        ; return new_tv }
@@ -959,7 +966,7 @@ There are two caveats:
 Note [DefaultTyVar]
 ~~~~~~~~~~~~~~~~~~~
 defaultTyVar is used on any un-instantiated meta type variables to
-default the kind of OpenKind and ArgKind etc to *.  This is important
+default any levity variables to Lifted.  This is important
 to ensure that instance declarations match.  For example consider
 
      instance Show (a->b)

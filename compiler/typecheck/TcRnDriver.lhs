@@ -675,7 +675,7 @@ checkBootDecl _ _ = False -- probably shouldn't happen
 ----------------
 checkBootTyCon :: TyCon -> TyCon -> Bool
 checkBootTyCon tc1 tc2
-  | not (eqKind (tyConKind tc1) (tyConKind tc2))
+  | not (eqType (tyConKind tc1) (tyConKind tc2))
   = False       -- First off, check the kind
 
   | Just c1 <- tyConClass_maybe tc1
@@ -743,7 +743,7 @@ checkBootTyCon tc1 tc2
     eqAlgRhs (algTyConRhs tc1) (algTyConRhs tc2)
 
   | isForeignTyCon tc1 && isForeignTyCon tc2
-  = eqKind (tyConKind tc1) (tyConKind tc2) &&
+  = eqType (tyConKind tc1) (tyConKind tc2) &&
     tyConExtName tc1 == tyConExtName tc2
 
   | otherwise = False

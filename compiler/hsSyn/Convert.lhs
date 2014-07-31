@@ -977,6 +977,7 @@ cvtTypeKind ty_str ty
              -> mk_apps (HsTyVar (getRdrName consDataCon)) tys'
 
            StarT
+              -- TODO (RAE): Fix TH to use 'TYPE ...' syntax
              -> returnL (HsTyVar (getRdrName liftedTypeKindTyCon))
 
            ConstraintT

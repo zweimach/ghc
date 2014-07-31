@@ -8,7 +8,7 @@
 
 module TcValidity (
   Rank, UserTypeCtxt(..), checkValidType, checkValidMonoType,
-  expectedKindInCtxt, 
+  ContextKind(..), expectedKindInCtxt, 
   checkValidTheta, checkValidFamPats,
   checkValidInstance, validDerivPred,
   checkInstTermination, checkValidTyFamInst, checkTyFamFreeness, 
@@ -200,25 +200,29 @@ check_kind ctxt ty
        ; unless ck $
          checkTc (not (returnsConstraintKind actual_kind)) 
                  (constraintSynErr actual_kind) }
-
-  | Just k <- expectedKindInCtxt ctxt
-  = checkTc (tcIsSubKind actual_kind k) (kindErr actual_kind)
-
   | otherwise
-  = return ()   -- Any kind will do
+  = case expectedKindInCtxt ctxt of
+      TheKind k -> checkTc (tcEqType actual_kind k)       (kindErr actual_kind)
+      OpenKind  -> checkTc (isTypeWithValues actual_kind) (kindErr actual_kind)
+      AnythingKind -> return ()
   where
     actual_kind = typeKind ty
 
+-- | The kind expected in a certain context.
+data ContextKind = TheKind Kind   -- ^ a specific kind
+                 | AnythingKind   -- ^ any kind will do
+                 | OpenKind       -- ^ something of the form @TYPE _@
+
 -- Depending on the context, we might accept any kind (for instance, in a TH
 -- splice), or only certain kinds (like in type signatures).
-expectedKindInCtxt :: UserTypeCtxt -> Maybe Kind
-expectedKindInCtxt (TySynCtxt _)  = Nothing -- Any kind will do
-expectedKindInCtxt ThBrackCtxt    = Nothing
-expectedKindInCtxt GhciCtxt       = Nothing
-expectedKindInCtxt (ForSigCtxt _) = Just liftedTypeKind
-expectedKindInCtxt InstDeclCtxt   = Just constraintKind
-expectedKindInCtxt SpecInstCtxt   = Just constraintKind
-expectedKindInCtxt _              = Just openTypeKind
+expectedKindInCtxt :: UserTypeCtxt -> ContextKind
+expectedKindInCtxt (TySynCtxt _)  = AnythingKind
+expectedKindInCtxt ThBrackCtxt    = AnythingKind
+expectedKindInCtxt GhciCtxt       = AnythingKind
+expectedKindInCtxt (ForSigCtxt _) = TheKind liftedTypeKind
+expectedKindInCtxt InstDeclCtxt   = TheKind constraintKind
+expectedKindInCtxt SpecInstCtxt   = TheKind constraintKind
+expectedKindInCtxt _              = OpenKind
 \end{code}
 
 Note [Higher rank types]

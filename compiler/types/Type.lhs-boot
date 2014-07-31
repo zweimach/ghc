@@ -9,5 +9,5 @@ mkAppTy :: Type -> Type -> Type
 piResultTy :: Type -> Type -> Type
 
 typeKind :: Type -> Kind
-eqKind :: Kind -> Kind -> Bool
+eqType :: Type -> Type -> Bool
 \end{code}

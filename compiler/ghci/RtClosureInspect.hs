@@ -663,7 +663,8 @@ cvObtainTerm hsc_env max_depth force old_ty hval = runTR hsc_env $ do
         return $ fixFunDictionaries $ expandNewtypes term'
       else do
               (old_ty', rev_subst) <- instScheme quant_old_ty
-              my_ty <- newVar openTypeKind
+                -- TODO (RAE): I changed this from openTypeKind, but I'm worried.
+              my_ty <- newVar liftedTypeKind
               when (check1 quant_old_ty) (traceTR (text "check1 passed") >>
                                           addConstraint my_ty old_ty')
               term  <- go max_depth my_ty sigma_old_ty hval
@@ -683,7 +684,8 @@ cvObtainTerm hsc_env max_depth force old_ty hval = runTR hsc_env $ do
                       zterm' <- mapTermTypeM
                                  (\ty -> case tcSplitTyConApp_maybe ty of
                                            Just (tc, _:_) | tc /= funTyCon
-                                               -> newVar openTypeKind
+                                               -- TODO (RAE): from openTypeKind
+                                               -> newVar liftedTypeKind
                                            _   -> return ty)
                                  term
                       zonkTerm zterm'
@@ -843,7 +845,8 @@ cvReconstructType hsc_env max_depth old_ty hval = runTR_maybe hsc_env $ do
         then return old_ty
         else do
           (old_ty', rev_subst) <- instScheme sigma_old_ty
-          my_ty <- newVar openTypeKind
+             -- TODO (RAE): from openTypeKind
+          my_ty <- newVar liftedTypeKind
           when (check1 sigma_old_ty) (traceTR (text "check1 passed") >>
                                       addConstraint my_ty old_ty')
           search (isMonomorphic `fmap` zonkTcType my_ty)

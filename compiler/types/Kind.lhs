@@ -9,11 +9,11 @@ module Kind (
         SuperKind, Kind, typeKind,
 
         -- Kinds
-        anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind,
+        anyKind, liftedTypeKind, unliftedTypeKind, constraintKind,
         mkArrowKind, mkArrowKinds,
 
         -- Kind constructors...
-        anyKindTyCon, liftedTypeKindTyCon, openTypeKindTyCon,
+        anyKindTyCon, liftedTypeKindTyCon,
         unliftedTypeKindTyCon, constraintKindTyCon,
 
         -- Super Kinds
@@ -25,32 +25,30 @@ module Kind (
         kindAppResult, synTyConResKind,
 
         -- ** Predicates on Kinds
-        isLiftedTypeKind, isUnliftedTypeKind, isOpenTypeKind,
+        isLiftedTypeKind, isUnliftedTypeKind,
         isConstraintKind, returnsConstraintKind,
         isKind, isKindVar,
         isSuperKind, isSuperKindCon,
-        isLiftedTypeKindCon, isConstraintKindCon,
+        isConstraintKindCon,
         isAnyKind, isAnyKindCon,
         okArrowArgKind, okArrowResultKind,
 
-        isSubOpenTypeKind, isSubOpenTypeKindKey, isStarKindCon,
-        isSubKind, isSubKindCon,
-        tcIsSubKind, tcIsSubKindCon,
-        defaultKind, defaultKind_maybe, isStarKind
+        isTypeWithValues,
+        isStarKind, isStarKindSynonymTyCon,
+        isSortPolymorphic, isSortPolymorphic_maybe
 
        ) where
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} Type      ( typeKind, eqKind, piResultTy )
+import {-# SOURCE #-} Type      ( typeKind, piResultTy )
 
 import TyCoRep
 import TysPrim
 import TyCon
+import Var
 import PrelNames
-import Outputable
-import Maybes( orElse )
-import Util
+import Data.Maybe
 \end{code}
 
 %************************************************************************
@@ -81,7 +79,7 @@ See Trac #7451.
 
 Bottom line: although '*' and 'Constraint' are distinct TyCons, with
 distinct uniques, they are treated as equal at all times except
-during type inference.  Hence cmpTc treats them as equal.
+during type inference.
 
 Note [SuperKind]
 ~~~~~~~~~~~~~~~~
@@ -104,30 +102,16 @@ kindAppResult k (a:as) = kindAppResult (piResultTy k a) as
 synTyConResKind :: TyCon -> Kind
 synTyConResKind tycon = kindAppResult (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
 
--- | See "Type#kind_subtyping" for details of the distinction between these 'Kind's
-isOpenTypeKind, isUnliftedTypeKind,
-  isConstraintKind, isAnyKind :: Kind -> Bool
+isConstraintKind, isAnyKind :: Kind -> Bool
 
-isOpenTypeKindCon, isUnliftedTypeKindCon,
-  isSubOpenTypeKindCon, isConstraintKindCon,
-  isLiftedTypeKindCon, isAnyKindCon, isSuperKindCon :: TyCon -> Bool
+isConstraintKindCon, isAnyKindCon, isSuperKindCon :: TyCon -> Bool
 
-
-isLiftedTypeKindCon   tc = tyConUnique tc == liftedTypeKindTyConKey
 isAnyKindCon          tc = tyConUnique tc == anyKindTyConKey
-isOpenTypeKindCon     tc = tyConUnique tc == openTypeKindTyConKey
-isUnliftedTypeKindCon tc = tyConUnique tc == unliftedTypeKindTyConKey
 isConstraintKindCon   tc = tyConUnique tc == constraintKindTyConKey
 isSuperKindCon        tc = tyConUnique tc == superKindTyConKey
 
 isAnyKind (TyConApp tc _) = isAnyKindCon tc
 isAnyKind _               = False
-
-isOpenTypeKind (TyConApp tc _) = isOpenTypeKindCon tc
-isOpenTypeKind _               = False
-
-isUnliftedTypeKind (TyConApp tc _) = isUnliftedTypeKindCon tc
-isUnliftedTypeKind _               = False
 
 isConstraintKind (TyConApp tc _) = isConstraintKindCon tc
 isConstraintKind _               = False
@@ -138,21 +122,26 @@ returnsConstraintKind (FunTy _ k)     = returnsConstraintKind k
 returnsConstraintKind (TyConApp tc _) = isConstraintKindCon tc
 returnsConstraintKind _               = False
 
+-- | Tests whether the given type looks like "TYPE v", where v is a variable.
+isSortPolymorphic :: Kind -> Bool
+isSortPolymorphic = isJust . isSortPolymorphic_maybe
+
+-- | Retrieves a levity variable in the given kind, if the kind is of the
+-- form "TYPE v".
+isSortPolymorphic_maybe :: Kind -> Maybe TyVar
+isSortPolymorphic_maybe (TyConApp tc [TyVarTy v])
+  | tc `hasKey` tYPETyConKey
+  = Just v
+isSortPolymorphic_maybe _ = Nothing
+
 --------------------------------------------
 --            Kinding for arrow (->)
 -- Says when a kind is acceptable on lhs or rhs of an arrow
 --     arg -> res
 
-okArrowArgKindCon, okArrowResultKindCon :: TyCon -> Bool
-okArrowArgKindCon    = isSubOpenTypeKindCon
-okArrowResultKindCon = isSubOpenTypeKindCon
-
 okArrowArgKind, okArrowResultKind :: Kind -> Bool
-okArrowArgKind    (TyConApp kc []) = okArrowArgKindCon kc
-okArrowArgKind    _                = False
-
-okArrowResultKind (TyConApp kc []) = okArrowResultKindCon kc
-okArrowResultKind _                = False
+okArrowArgKind = isTypeWithValues
+okArrowResultKind = isTypeWithValues
 
 -----------------------------------------
 --              Subkinding
@@ -161,128 +150,28 @@ okArrowResultKind _                = False
 -- After type-checking (in core), Constraint, SuperKind, and liftedTypeKind are
 -- indistinguishable
 
-isSubOpenTypeKind :: Kind -> Bool
+isTypeWithValues :: Kind -> Bool
 -- ^ True of any sub-kind of OpenTypeKind
-isSubOpenTypeKind (TyConApp kc []) = isSubOpenTypeKindCon kc
-isSubOpenTypeKind _                = False
+isTypeWithValues (TyConApp tc [_]) | tc `hasKey` tYPETyConKey = True
+isTypeWithValues _                                            = False
 
 -- | Is this kind equivalent to *?
 isStarKind :: Kind -> Bool
-isStarKind (TyConApp kc []) = isStarKindCon kc
+isStarKind (TyConApp tc [TyConApp l []])
+  | tc `hasKey` tYPETyConKey
+  , l `hasKey` liftedDataConKey
+  = True
+isStarKind (TyConApp tc []) = isStarKindSynonymTyCon tc
 isStarKind _                = False
-
--- | Is this kind constructor equivalent to *?
-isStarKindCon :: TyCon -> Bool
-isStarKindCon kc = isStarKindConKey (tyConUnique kc)
-
-isStarKindConKey :: Unique -> Bool
-isStarKindConKey uniq
-  =  uniq == liftedTypeKindTyConKey
-  || uniq == superKindTyConKey
-  || uniq == constraintKindTyConKey
-                              -- Needed for error (Num a) "blah"
-                              -- and so that (Ord a -> Eq a) is well-kinded
-                              -- and so that (# Eq a, Ord b #) is well-kinded
                               -- See Note [Kind Constraint and kind *]
 
-isSubOpenTypeKindCon kc = isSubOpenTypeKindKey (tyConUnique kc)
-
-isSubOpenTypeKindKey :: Unique -> Bool
-isSubOpenTypeKindKey uniq
-  =  isStarKindConKey uniq
-  || uniq == openTypeKindTyConKey
-  || uniq == unliftedTypeKindTyConKey
+-- | Is the tycon @Constraint@ or @BOX@?
+isStarKindSynonymTyCon :: TyCon -> Bool
+isStarKindSynonymTyCon tc = tc `hasKey` superKindTyConKey
+                         || tc `hasKey` constraintKindTyConKey
 
 -- | Is this a kind (i.e. a type-of-types)?
 isKind :: Kind -> Bool
 isKind k = isSuperKind (typeKind k)
-
-isSubKind :: Kind -> Kind -> Bool
--- ^ @k1 \`isSubKind\` k2@ checks that @k1@ <: @k2@
--- Sub-kinding is extremely simple and does not look
--- under arrrows or type constructors
-
--- If you edit this function, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-isSubKind k1@(TyConApp kc1 k1s) k2@(TyConApp kc2 k2s)
-  |  not (null k1s)
-  || not (null k2s)
-    -- handles promoted kinds (List *, Nat, etc.)
-  = eqKind k1 k2
-
-  | otherwise -- handles usual kinds (*, #, (#), etc.)
-  = ASSERT2( null k1s && null k2s, ppr k1 <+> ppr k2 )
-    kc1 `isSubKindCon` kc2
-
-isSubKind k1 k2 = eqKind k1 k2
-
-isSubKindCon :: TyCon -> TyCon -> Bool
--- ^ @kc1 \`isSubKindCon\` kc2@ checks that @kc1@ <: @kc2@
-
--- If you edit this function, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-isSubKindCon kc1 kc2
-  | kc1 == kc2              = True
-  | isOpenTypeKindCon kc2   = isSubOpenTypeKindCon kc1
-  | otherwise               = isStarKindCon kc1 && isStarKindCon kc2
-    -- See Note [Kind Constraint and kind *] and Note [SuperKind]
-  | otherwise               = False
-
--------------------------
--- Hack alert: we need a tiny variant for the typechecker
--- Reason:     f :: Int -> (a~b)
---             g :: forall (c::Constraint). Int -> c
---             h :: Int => Int
--- We want to reject these, even though Constraint is
--- a sub-kind of OpenTypeKind.  It must be a sub-kind of OpenTypeKind
--- *after* the typechecker
---   a) So that (Ord a -> Eq a) is a legal type
---   b) So that the simplifer can generate (error (Eq a) "urk")
--- Moreover, after the type checker, Constraint and *
--- are identical; see Note [Kind Constraint and kind *]
---
--- Easiest way to reject is simply to make Constraint a compliete
--- below OpenTypeKind when type checking
-
-tcIsSubKind :: Kind -> Kind -> Bool
-tcIsSubKind k1 k2
-  | isConstraintKind k1 = isConstraintKind k2
-  | isSuperKind k1      = isSuperKind k2
-  | isSuperKind k2      = False -- if it were True, handled on previous line
-  | otherwise           = isSubKind k1 k2
-
-tcIsSubKindCon :: TyCon -> TyCon -> Bool
-tcIsSubKindCon kc1 kc2
-  | isConstraintKindCon kc1 = isConstraintKindCon kc2
-  | isConstraintKindCon kc2 = False
-  | isSuperKindCon kc1      = isSuperKindCon kc2
-  | isSuperKindCon kc2      = False
-  | otherwise               = isSubKindCon kc1 kc2
-
--------------------------
-defaultKind       :: Kind -> Kind
-defaultKind_maybe :: Kind -> Maybe Kind
--- ^ Used when generalising: default OpenKind and ArgKind to *.
--- See "Type#kind_subtyping" for more information on what that means
-
--- When we generalise, we make generic type variables whose kind is
--- simple (* or *->* etc).  So generic type variables (other than
--- built-in constants like 'error') always have simple kinds.  This is important;
--- consider
---      f x = True
--- We want f to get type
---      f :: forall (a::*). a -> Bool
--- Not
---      f :: forall (a::ArgKind). a -> Bool
--- because that would allow a call like (f 3#) as well as (f True),
--- and the calling conventions differ.
--- This defaulting is done in TcMType.zonkTcTyCoVarBndr.
---
--- The test is really whether the kind is strictly above '*'
-defaultKind_maybe (TyConApp kc _args)
-  | isOpenTypeKindCon kc = ASSERT( null _args ) Just liftedTypeKind
-defaultKind_maybe _      = Nothing
-
-defaultKind k = defaultKind_maybe k `orElse` k
 
 \end{code}

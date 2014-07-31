@@ -925,7 +925,7 @@ trySpontaneousEqOneWay :: CtEvidence -> TcTyVar -> Xi -> TcS SPSolveResult
 -- tv is a MetaTyVar, not untouchable
 trySpontaneousEqOneWay gw tv xi
   | not (isSigTyVar tv) || isTyVarTy xi
-  , typeKind xi `tcIsSubKind` tyVarKind tv
+  , typeKind xi `tcEqKind` tyVarKind tv
   = solveWithIdentity gw tv xi
   | otherwise -- Still can't solve, sig tyvar and non-variable rhs
   = return SPCantSolve
@@ -935,9 +935,9 @@ trySpontaneousEqTwoWay :: CtEvidence -> TcTyVar -> TcTyVar -> TcS SPSolveResult
 -- Both tyvars are *touchable* MetaTyvars so there is only a chance for kind error here
 
 trySpontaneousEqTwoWay gw tv1 tv2
-  | k1 `tcIsSubKind` k2 && nicer_to_update_tv2
+  | k1 `tcEqKind` k2 && nicer_to_update_tv2
   = solveWithIdentity gw tv2 (mkTyCoVarTy tv1)
-  | k2 `tcIsSubKind` k1
+  | k1 `tcEqKind` k2
   = solveWithIdentity gw tv1 (mkTyCoVarTy tv2)
   | otherwise
   = return SPCantSolve
@@ -968,7 +968,7 @@ unification variables as RHS of type family equations: F xis ~ alpha.
 \begin{code}
 solveWithIdentity :: CtEvidence -> TcTyVar -> Xi -> TcS SPSolveResult
 -- Solve with the identity coercion
--- Precondition: kind(xi) is a sub-kind of kind(tv)
+-- Precondition: kind(xi) equals kind(tv)
 -- Precondition: CtEvidence is Wanted or Derived
 -- See [New Wanted Superclass Work] to see why solveWithIdentity
 --     must work for Derived as well as Wanted
@@ -987,13 +987,8 @@ solveWithIdentity wd tv xi
                              text "Left Kind is:" <+> ppr (typeKind tv_ty),
                              text "Right Kind is:" <+> ppr (typeKind xi) ]
 
-       ; let xi' = defaultKind xi
-               -- We only instantiate kind unification variables
-               -- with simple kinds like *, not OpenKind or ArgKind
-               -- cf TcUnify.uUnboundKVar
-
-       ; setWantedTyBind tv xi'
-       ; let refl_evtm = EvCoercion (mkTcNomReflCo xi')
+       ; setWantedTyBind tv xi
+       ; let refl_evtm = EvCoercion (mkTcNomReflCo xi)
 
        ; when (isWanted wd) $
               setEvBind (ctev_evar wd) refl_evtm

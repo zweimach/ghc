@@ -278,7 +278,7 @@ match_ty _ _ _ _ _
 match_kind :: MatchEnv -> TvSubstEnv -> CvSubstEnv -> Kind -> Kind -> Maybe (TvSubstEnv, CvSubstEnv)
 -- Match the kind of the template tyvar with the kind of Type
 match_kind menv tsubst csubst k1 k2
-  | k2 `isSubKind` k1
+  | k2 `eqType` k1
   = return (tsubst, csubst)
 
   | otherwise

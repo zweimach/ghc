@@ -1042,11 +1042,11 @@ dollarId = pcMiscPrelId dollarName ty
              (noCafIdInfo `setUnfoldingInfo` unf)
   where
     fun_ty = mkFunTy alphaTy openBetaTy
-    ty     = mkForAllTys [alphaTyVar, openBetaTyVar] $
+    ty     = mkForAllTys [levity2TyVar, alphaTyVar, openBetaTyVar] $
              mkFunTy fun_ty fun_ty
     unf    = mkInlineUnfolding (Just 2) rhs
     [f,x]  = mkTemplateLocals [fun_ty, alphaTy]
-    rhs    = mkLams [alphaTyVar, openBetaTyVar, f, x] $
+    rhs    = mkLams [levity2TyVar, alphaTyVar, openBetaTyVar, f, x] $
              App (Var f) (Var x)
 
 ------------------------------------------------
@@ -1071,12 +1071,15 @@ unsafeCoerceId
     info = noCafIdInfo `setInlinePragInfo` alwaysInlinePragma
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
            
-
-    ty  = mkForAllTys [openAlphaTyVar,openBetaTyVar]
+    ty  = mkForAllTys [ levity1TyVar, levity2TyVar
+                      , openAlphaTyVar, openBetaTyVar ]
                       (mkFunTy openAlphaTy openBetaTy)
+    
     [x] = mkTemplateLocals [openAlphaTy]
-    rhs = mkLams [openAlphaTyVar,openBetaTyVar,x] $
-          Cast (Var x) (mkUnsafeCo openAlphaTy openBetaTy)
+    rhs = mkLams [ levity1TyVar, levity2TyVar
+                 , openAlphaTyVar, openBetaTyVar
+                 , x] $
+          Cast (Var x) (mkUnsafeCo alphaTy betaTy)
 
 ------------------------------------------------
 nullAddrId :: Id

@@ -324,6 +324,7 @@ mk_extra_tvs tc tvs defn
            ; hs_tvs <- go rest
            ; return (hs_tv : hs_tvs) }
 
+       -- TODO (RAE): This fails if the result is 'TYPE Lifted'. Do I care?
     go (L _ (HsTyVar n))
       | n == liftedTypeKindTyConName
       = return []
@@ -862,6 +863,7 @@ repNonArrowLKind (L _ ki) = repNonArrowKind ki
 
 repNonArrowKind :: HsKind Name -> DsM (Core TH.Kind)
 repNonArrowKind (HsTyVar name)
+    -- TODO (RAE): Change TH to use 'TYPE v' syntax.
   | name == liftedTypeKindTyConName = repKStar
   | name == constraintKindTyConName = repKConstraint
   | isTvOcc (nameOccName name)      = lookupOcc name >>= repKVar

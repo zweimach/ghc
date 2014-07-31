@@ -430,9 +430,10 @@ data TyCon
                                         --   (may not contain bottom)
                                         --   but foreign-imported ones may be lifted
 
-        tyConExtName :: Maybe FastString   -- ^ @Just e@ for foreign-imported types,
+        tyConExtName :: Maybe FastString,  -- ^ @Just e@ for foreign-imported types,
                                            --   holds the name of the imported thing
-    }
+        tcPromoted    :: Maybe TyCon    -- ^ Holds the promoted tycon, if there is one
+  }
 
   -- | Represents promoted data constructor.
   | PromotedDataCon {         -- See Note [Promoted data constructors]
@@ -996,27 +997,30 @@ mkForeignTyCon name ext_name kind
         tc_roles     = [],
         primTyConRep = PtrRep, -- they all do
         isUnLifted   = False,
-        tyConExtName = ext_name
+        tyConExtName = ext_name,
+        tcPromoted   = Nothing
     }
 
 
 -- | Create an unlifted primitive 'TyCon', such as @Int#@
 mkPrimTyCon :: Name  -> Kind -> [Role] -> PrimRep -> TyCon
 mkPrimTyCon name kind roles rep
-  = mkPrimTyCon' name kind roles rep True
+  = mkPrimTyCon' name kind roles rep True Nothing
 
 -- | Kind constructors
-mkKindTyCon :: Name -> Kind -> TyCon
-mkKindTyCon name kind
-  = mkPrimTyCon' name kind [] VoidRep True
+mkKindTyCon :: Name -> Kind -> [Role] -> TyCon
+mkKindTyCon name kind roles
+  = tc
+  where
+    tc = mkPrimTyCon' name kind roles VoidRep True (Just tc)
 
 -- | Create a lifted primitive 'TyCon' such as @RealWorld@
 mkLiftedPrimTyCon :: Name  -> Kind -> [Role] -> PrimRep -> TyCon
 mkLiftedPrimTyCon name kind roles rep
-  = mkPrimTyCon' name kind roles rep False
+  = mkPrimTyCon' name kind roles rep False Nothing
 
-mkPrimTyCon' :: Name  -> Kind -> [Role] -> PrimRep -> Bool -> TyCon
-mkPrimTyCon' name kind roles rep is_unlifted
+mkPrimTyCon' :: Name  -> Kind -> [Role] -> PrimRep -> Bool -> Maybe TyCon -> TyCon
+mkPrimTyCon' name kind roles rep is_unlifted prom_tc
   = PrimTyCon {
         tyConName    = name,
         tyConUnique  = nameUnique name,
@@ -1025,7 +1029,8 @@ mkPrimTyCon' name kind roles rep is_unlifted
         tc_roles     = roles,
         primTyConRep = rep,
         isUnLifted   = is_unlifted,
-        tyConExtName = Nothing
+        tyConExtName = Nothing,
+        tcPromoted   = prom_tc
     }
 
 -- | Create a type synonym 'TyCon'
@@ -1321,6 +1326,7 @@ isRecursiveTyCon _                                 = False
 promotableTyCon_maybe :: TyCon -> Maybe TyCon
 promotableTyCon_maybe (AlgTyCon { tcPromoted = prom })   = prom
 promotableTyCon_maybe (TupleTyCon { tcPromoted = prom }) = prom
+promotableTyCon_maybe (PrimTyCon { tcPromoted = prom })  = prom
 promotableTyCon_maybe _                                  = Nothing
 
 promoteTyCon :: TyCon -> TyCon

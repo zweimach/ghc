@@ -21,7 +21,7 @@ module TcUnify (
 
   -- Various unifications
   unifyType, unifyTypeList, unifyTheta, 
-  unifyKindX, 
+  unifyKind, 
 
   --------------------------------
   -- Holes
@@ -47,7 +47,6 @@ import Type
 import TcEvidence
 import Name ( isSystemName )
 import Inst
-import Kind
 import TyCon
 import TysWiredIn
 import Var
@@ -55,7 +54,6 @@ import VarEnv
 import ErrUtils
 import DynFlags
 import BasicTypes
-import Maybes ( isJust )
 import Util
 import Outputable
 import FastString
@@ -158,9 +156,9 @@ matchExpectedFunTys herald arity orig_ty
 
     ------------
     defer n_req fun_ty 
-      = do { arg_tys <- newFlexiTyVarTys n_req openTypeKind
+      = do { arg_tys <- replicateM n_req newOpenFlexiTyVarTy
                         -- See Note [Foralls to left of arrow]
-           ; res_ty  <- newFlexiTyVarTy openTypeKind
+           ; res_ty  <- newOpenFlexiTyVarTy
            ; co   <- unifyType fun_ty (mkFunTys arg_tys res_ty)
            ; return (co, arg_tys, res_ty) }
 
@@ -185,8 +183,9 @@ Consider
   f (x :: forall a. a -> a) = x
 We give 'f' the type (alpha -> beta), and then want to unify
 the alpha with (forall a. a->a).  We want to the arg and result
-of (->) to have openTypeKind, and this also permits foralls, so
-we are ok.
+of (->) to be sort-polymorphic, and this also permits foralls, so
+we are ok. See Note [Sort-polymorphic tyvars accept foralls] in TcUnify
+and Note [TYPE] in TysPrim.
 
 \begin{code}
 ----------------------
@@ -244,7 +243,7 @@ matchExpectedTyConApp tc orig_ty
     --    (a::*) ~ Maybe
     -- because that'll make types that are utterly ill-kinded.
     -- This happened in Trac #7368
-    defer = ASSERT2( isSubOpenTypeKind res_kind, ppr tc )
+    defer = ASSERT2( isTypeWithValues res_kind, ppr tc )
             do { kappa_tys <- mapM (const newMetaKindVar) kvs
                ; let arg_kinds' = map (substKiWith kvs kappa_tys) arg_kinds
                ; tau_tys <- mapM newFlexiTyVarTy arg_kinds'
@@ -286,13 +285,9 @@ matchExpectedAppTy orig_ty
                ; return (co, (ty1, ty2)) }
 
     orig_kind = typeKind orig_ty
-    kind1 = mkArrowKind liftedTypeKind (defaultKind orig_kind)
+    kind1 = mkArrowKind liftedTypeKind orig_kind
     kind2 = liftedTypeKind    -- m :: * -> k
                               -- arg type :: *
-        -- The defaultKind is a bit smelly.  If you remove it,
-        -- try compiling        f x = do { x }
-        -- and you'll get a kind mis-match.  It smells, but
-        -- not enough to lose sleep over.
 \end{code}
 
 
@@ -345,7 +340,7 @@ tcSubType origin ctxt ty_actual ty_expected
                       _other       -> TypeEqOrigin { uo_actual = ty1, uo_expected = ty2 }
   
 tcInfer :: (TcType -> TcM a) -> TcM (a, TcType)
-tcInfer tc_infer = do { ty  <- newFlexiTyVarTy openTypeKind
+tcInfer tc_infer = do { ty  <- newOpenFlexiTyVarTy
                       ; res <- tc_infer ty
 		      ; return (res, ty) }
 
@@ -810,29 +805,22 @@ uUnfilledVars :: CtOrigin
 uUnfilledVars origin swapped tv1 details1 tv2 details2
   = do { traceTc "uUnfilledVars" (    text "trying to unify" <+> ppr k1
                                   <+> text "with"            <+> ppr k2)
-       ; mb_sub_kind <- unifyKindX k1 k2
-       ; case mb_sub_kind of {
-           Nothing -> unSwap swapped (uType_defer origin) (mkTyCoVarTy tv1) ty2 ;
-           Just sub_kind -> 
+       ; eq_k <- unifyKind k1 k2
+       ; case eq_k of {
+           False -> unSwap swapped (uType_defer origin) (mkTyCoVarTy tv1) ty2 ;
+           True  -> 
 
-         case (sub_kind, details1, details2) of
-           -- k1 < k2, so update tv2
-           (LT, _, MetaTv { mtv_ref = ref2 }) -> updateMeta tv2 ref2 ty1
-
-           -- k2 < k1, so update tv1
-           (GT, MetaTv { mtv_ref = ref1 }, _) -> updateMeta tv1 ref1 ty2
-
-	   -- k1 = k2, so we are free to update either way
-           (EQ, MetaTv { mtv_info = i1, mtv_ref = ref1 }, 
-                MetaTv { mtv_info = i2, mtv_ref = ref2 })
-                | nicer_to_update_tv1 tv1 i1 i2 -> updateMeta tv1 ref1 ty2
-                | otherwise                     -> updateMeta tv2 ref2 ty1
-           (EQ, MetaTv { mtv_ref = ref1 }, _) -> updateMeta tv1 ref1 ty2
-           (EQ, _, MetaTv { mtv_ref = ref2 }) -> updateMeta tv2 ref2 ty1
+         case (details1, details2) of
+         { ( MetaTv { mtv_info = i1, mtv_ref = ref1 }
+           , MetaTv { mtv_info = i2, mtv_ref = ref2 } )
+             | nicer_to_update_tv1 tv1 i1 i2 -> updateMeta tv1 ref1 ty2
+             | otherwise                     -> updateMeta tv2 ref2 ty1
+         ; (MetaTv { mtv_ref = ref1 }, _) -> updateMeta tv1 ref1 ty2
+         ; (_, MetaTv { mtv_ref = ref2 }) -> updateMeta tv2 ref2 ty1
 
 	   -- Can't do it in-place, so defer
 	   -- This happens for skolems of all sorts
-           (_, _, _) -> unSwap swapped (uType_defer origin) ty1 ty2 } }
+         ; _ -> unSwap swapped (uType_defer origin) ty1 ty2 } } }
   where
     k1  = tyVarKind tv1
     k2  = tyVarKind tv2
@@ -876,10 +864,9 @@ checkTauTvUpdate dflags tv ty
     return Nothing
   | otherwise
   = do { ty1   <- zonkTcType ty
-       ; sub_k <- unifyKindX (tyVarKind tv) (typeKind ty1)
-       ; case sub_k of
-           Nothing           -> return Nothing
-           Just LT           -> return Nothing
+       ; eq_k <- unifyKind (tyVarKind tv) (typeKind ty1)
+       ; case eq_k of
+           False           -> return Nothing
            _  | defer_me ty1   -- Quick test
               -> -- Failed quick test so try harder
                  case occurCheckExpand dflags tv ty1 of 
@@ -891,8 +878,8 @@ checkTauTvUpdate dflags tv ty
     info = ASSERT2( isMetaTyVar tv, ppr tv ) metaTyVarInfo tv
 
     impredicative = xopt Opt_ImpredicativeTypes dflags
-                 || isOpenTypeKind (tyVarKind tv)  
-                       -- Note [OpenTypeKind accepts foralls]
+                 || isSortPolymorphic (tyVarKind tv)  
+                       -- Note [Sort-polymorphic tyvars accept foralls]
                  || case info of { PolyTv -> True;  _ -> False }
 
     defer_me :: TcType -> Bool
@@ -930,8 +917,8 @@ checkTauTvUpdate dflags tv ty
     defer_me_arg (CoCoArg _ co1 co2) = defer_me_co co1 || defer_me_co co2
 \end{code}
 
-Note [OpenTypeKind accepts foralls]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Note [Sort-polymorphic tyvars accept foralls]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Here is a common paradigm:
    foo :: (forall a. a -> a) -> Int
    foo = error "urk"
@@ -942,7 +929,7 @@ A similar case is
    bar False = error "urk"
 Here we need to instantiate 'error' with a polytype. 
 
-But 'error' has an OpenTypeKind type variable, precisely so that
+But 'error' has an sort-polymorphic type variable, precisely so that
 we can instantiate it with Int#.  So we also allow such type variables
 to be instantiate with foralls.  It's a bit of a hack, but seems
 straightforward.
@@ -1139,52 +1126,23 @@ matchExpectedFunKind (TyVarTy kvar)
 
 matchExpectedFunKind _ = return Nothing
 
------------------  
-unifyKindX :: TcKind           -- k1 (actual)
-           -> TcKind           -- k2 (expected)
-           -> TcM (Maybe Ordering)     
-                              -- Returns the relation between the kinds
-                              -- Just LT <=> k1 is a sub-kind of k2
-                              -- Nothing <=> incomparable
-
--- unifyKindX deals with the top-level sub-kinding story
--- but recurses into the simpler unifyKindEq for any sub-terms
--- The sub-kinding stuff only applies at top level
-
-unifyKindX (TyVarTy kv1) k2 = uKVar NotSwapped unifyKindX kv1 k2
-unifyKindX k1 (TyVarTy kv2) = uKVar IsSwapped  unifyKindX kv2 k1
-
-unifyKindX k1 k2       -- See Note [Expanding synonyms during unification]
-  | Just k1' <- tcView k1 = unifyKindX k1' k2
-  | Just k2' <- tcView k2 = unifyKindX k1  k2'
-
-unifyKindX (TyConApp kc1 []) (TyConApp kc2 [])
-  | kc1 == kc2               = return (Just EQ)
-  | kc1 `tcIsSubKindCon` kc2 = return (Just LT)
-  | kc2 `tcIsSubKindCon` kc1 = return (Just GT)
-  | otherwise                = return Nothing
-
-unifyKindX k1 k2 = unifyKindEq k1 k2
-  -- In all other cases, let unifyKindEq do the work
-
 -------------------
-uKVar :: SwapFlag -> (TcKind -> TcKind -> TcM (Maybe Ordering))
-      -> MetaKindVar -> TcKind -> TcM (Maybe Ordering)
-uKVar swapped unify_kind kv1 k2
+uKVar :: MetaKindVar -> TcKind -> TcM Bool
+uKVar kv1 k2
   | isTcTyVar kv1
   = do { lookup_res <- lookupTcTyVar kv1  -- See Note [Kind variables can be untouchable]
        ; case lookup_res of
-           Filled k1    -> unSwap swapped unify_kind k1 k2
+           Filled k1    -> unifyKind k1 k2
            Unfilled ds1 -> uUnfilledKVar kv1 ds1 k2 }
 
   | otherwise   -- See Note [Unifying kind variables]
   = uUnfilledKVar kv1 vanillaSkolemTv k2
 
 -------------------
-uUnfilledKVar :: MetaKindVar -> TcTyVarDetails -> TcKind -> TcM (Maybe Ordering)
+uUnfilledKVar :: MetaKindVar -> TcTyVarDetails -> TcKind -> TcM Bool
 uUnfilledKVar kv1 ds1 (TyVarTy kv2)
   | kv1 == kv2
-  = return (Just EQ)
+  = return True
 
   | isTcTyVar kv2
   = do { lookup_res <- lookupTcTyVar kv2
@@ -1198,22 +1156,19 @@ uUnfilledKVar kv1 ds1 (TyVarTy kv2)
 uUnfilledKVar kv1 ds1 non_var_k2
   = case ds1 of
       MetaTv { mtv_info = SigTv }
-        -> return Nothing
+        -> return False
       MetaTv { mtv_ref = ref1 }
         -> do { k2a <- zonkTcKind non_var_k2
-              ; let k2b = defaultKind k2a
-                     -- MetaKindVars must be bound only to simple kinds
-
               ; dflags <- getDynFlags
-              ; case occurCheckExpand dflags kv1 k2b of
-                   OC_OK k2c -> do { writeMetaTyVarRef kv1 ref1 k2c; return (Just EQ) }
-                   _         -> return Nothing }
-      _ -> return Nothing
+              ; case occurCheckExpand dflags kv1 k2a of
+                   OC_OK k2b -> do { writeMetaTyVarRef kv1 ref1 k2b; return True }
+                   _         -> return False }
+      _ -> return False
 
 -------------------
 uUnfilledKVars :: MetaKindVar -> TcTyVarDetails
                -> MetaKindVar -> TcTyVarDetails
-               -> TcM (Maybe Ordering)
+               -> TcM Bool
 -- kv1 /= kv2
 uUnfilledKVars kv1 ds1 kv2 ds2
   = case (ds1, ds2) of
@@ -1223,31 +1178,31 @@ uUnfilledKVars kv1 ds1 kv2 ds2
               | otherwise                     -> do_update kv2 r2 kv1
       (MetaTv { mtv_ref = r1 }, _) -> do_update kv1 r1 kv2
       (_, MetaTv { mtv_ref = r2 }) -> do_update kv2 r2 kv1
-      _ -> return Nothing
+      _ -> return False
   where
     do_update kv1 r1 kv2
-      = do { writeMetaTyVarRef kv1 r1 (mkOnlyTyVarTy kv2); return (Just EQ) }
+      = do { writeMetaTyVarRef kv1 r1 (mkOnlyTyVarTy kv2); return True }
 
 ---------------------------
-unifyKindEq :: TcKind -> TcKind -> TcM (Maybe Ordering)
--- Unify two kinds looking for equality not sub-kinding
--- So it returns Nothing or (Just EQ) only
-unifyKindEq (TyVarTy kv1) k2 = uKVar NotSwapped unifyKindEq kv1 k2
-unifyKindEq k1 (TyVarTy kv2) = uKVar IsSwapped  unifyKindEq kv2 k1
+unifyKind :: TcKind -> TcKind -> TcM Bool
+unifyKind k1 k2       -- See Note [Expanding synonyms during unification]
+  | Just k1' <- tcView k1 = unifyKind k1' k2
+  | Just k2' <- tcView k2 = unifyKind k1  k2'
 
-unifyKindEq (FunTy a1 r1) (FunTy a2 r2)
-  = do { mb1 <- unifyKindEq a1 a2; mb2 <- unifyKindEq r1 r2
-       ; return (if isJust mb1 && isJust mb2 then Just EQ else Nothing) }
+unifyKind (TyVarTy kv1) k2 = uKVar kv1 k2
+unifyKind k1 (TyVarTy kv2) = uKVar kv2 k1
 
-unifyKindEq (TyConApp kc1 k1s) (TyConApp kc2 k2s)
+unifyKind (FunTy a1 r1) (FunTy a2 r2)
+  = do { b1 <- unifyKind a1 a2
+       ; b2 <- unifyKind r1 r2
+       ; return (b1 && b2) }
+
+unifyKind (TyConApp kc1 k1s) (TyConApp kc2 k2s)
   | kc1 == kc2
   = ASSERT(length k1s == length k2s)
        -- Should succeed since the kind constructors are the same,
        -- and the kinds are sort-checked, thus fully applied
-    do { mb_eqs <- zipWithM unifyKindEq k1s k2s
-       ; return (if all isJust mb_eqs
-                 then Just EQ
-                 else Nothing) }
+    and `liftM` zipWithM unifyKind k1s k2s
 
-unifyKindEq _ _ = return Nothing
+unifyKind _ _ = return False
 \end{code}

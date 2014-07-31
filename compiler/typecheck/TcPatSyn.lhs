@@ -47,7 +47,7 @@ tcPatSynDecl :: Located Name
 tcPatSynDecl lname@(L _ name) details lpat dir
   = do { traceTc "tcPatSynDecl {" $ ppr name $$ ppr lpat
        ; tcCheckPatSynPat lpat
-       ; pat_ty <- newFlexiTyVarTy openTypeKind
+       ; pat_ty <- newOpenFlexiTyVarTy
 
        ; let (arg_names, is_infix) = case details of
                  PrefixPatSyn names      -> (map unLoc names, False)

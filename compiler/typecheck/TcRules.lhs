@@ -208,7 +208,7 @@ tcRuleBndrs :: [RuleBndr Name] -> TcM [Var]
 tcRuleBndrs [] 
   = return []
 tcRuleBndrs (RuleBndr (L _ name) : rule_bndrs)
-  = do 	{ ty <- newFlexiTyVarTy openTypeKind
+  = do 	{ ty <- newOpenFlexiTyVarTy
         ; vars <- tcRuleBndrs rule_bndrs
 	; return (mkLocalId name ty : vars) }
 tcRuleBndrs (RuleBndrSig (L _ name) rn_ty : rule_bndrs)

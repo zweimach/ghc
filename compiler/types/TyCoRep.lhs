@@ -32,8 +32,9 @@ module TyCoRep (
         -- Functions over types
         mkTyConTy, mkOnlyTyVarTy, mkOnlyTyVarTys,
         mkTyCoVarTy, mkTyCoVarTys,
-        isLiftedTypeKind, isSuperKind, isTypeVar, isKindVar,
-        isCoercionType,
+        isLiftedTypeKind, isUnliftedTypeKind,
+        isSuperKind, isTypeVar, isKindVar,
+        isCoercionType, isLevityTy,
 
         -- Functions over coercions
         setCoBndrEta, eqCoBndrSort, pickLR, coBndrVars, coBndrVarsKinds,
@@ -373,18 +374,32 @@ Some basic functions, put here to break loops eg with the pretty printer
 \begin{code}
 isLiftedTypeKind :: Kind -> Bool
 isLiftedTypeKind (TyConApp tc []) = tc `hasKey` liftedTypeKindTyConKey
+isLiftedTypeKind (TyConApp tc [TyConApp lev []])
+  = tc `hasKey` tYPETyConKey && lev `hasKey` liftedDataConKey
 isLiftedTypeKind _                = False
+
+isUnliftedTypeKind :: Kind -> Bool
+isUnliftedTypeKind (TyConApp tc []) = tc `hasKey` unliftedTypeKindTyConKey
+isUnliftedTypeKind (TyConApp tc [TyConApp lev []])
+  = tc `hasKey` tYPETyConKey && lev `hasKey` unliftedDataConKey
+isUnliftedTypeKind _ = False
 
 -- | Is this a super-kind (i.e. a type-of-kinds)?
 isSuperKind :: Type -> Bool
 isSuperKind (TyConApp skc []) = skc `hasKey` superKindTyConKey
 isSuperKind _                 = False
 
+-- | Is this the type 'Levity'?
+isLevityTy :: Type -> Bool
+isLevityTy (TyConApp tc []) = tc `hasKey` levityTyConKey
+isLevityTy _                = False
+
 isTypeVar :: Var -> Bool
 isTypeVar v = isTKVar v && not (isSuperKind (varType v))
 
 isKindVar :: Var -> Bool
-isKindVar v = isTKVar v && isSuperKind (varType v)
+isKindVar v = isTKVar v && (isSuperKind k || isLevityTy k)
+  where k = varType v
 
 
 \end{code}

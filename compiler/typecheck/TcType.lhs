@@ -106,9 +106,8 @@ module TcType (
   -- Rexported from Kind
   Kind, typeKind,
   unliftedTypeKind, liftedTypeKind,
-  openTypeKind, constraintKind, mkArrowKind, mkArrowKinds,
-  isLiftedTypeKind, isUnliftedTypeKind, isSubOpenTypeKind,
-  tcIsSubKind, defaultKind,
+  constraintKind, mkArrowKind, mkArrowKinds,
+  isLiftedTypeKind, isUnliftedTypeKind, isTypeWithValues,
 
   --------------------------------
   -- Rexported from Type
@@ -123,7 +122,7 @@ module TcType (
   mkClassPred,
   isDictLikeTy,
   tcSplitDFunTy, tcSplitDFunHead,
-  mkEqPred,
+  mkEqPred, isLevityVar, isSortPolymorphic, isSortPolymorphic_maybe,
 
   -- Type substitutions
   TCvSubst(..),         -- Representation visible to a few friends
@@ -1303,9 +1302,9 @@ occurCheckExpand dflags tv ty
           MetaTv { mtv_info = PolyTv } -> True
           MetaTv { mtv_info = SigTv }  -> False
           MetaTv { mtv_info = TauTv }  -> xopt Opt_ImpredicativeTypes dflags
-                                       || isOpenTypeKind (tyVarKind tv)
-                                          -- Note [OpenTypeKind accepts foralls]
-                                          -- in TcUnify
+                                       || isSortPolymorphic (tyVarKind tv)
+                            -- Note [Sort-polymorphic tyvars accept foralls]
+                            -- in TcUnify
           _other                       -> True
           -- We can have non-meta tyvars in given constraints
 

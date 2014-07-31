@@ -1094,8 +1094,8 @@ promoteType ty
 promoteKind :: Kind -> SuperKind
 -- Promote the kind of a type constructor
 -- from (* -> * -> *) to (BOX -> BOX -> BOX) 
-promoteKind (TyConApp tc []) 
-  | isStarKindCon tc = superKind
+promoteKind ty@(TyConApp {}) 
+  | isStarKind ty = superKind
 promoteKind (FunTy arg res) = FunTy (promoteKind arg) (promoteKind res)
 promoteKind k = pprPanic "promoteKind" (ppr k)
 \end{code}

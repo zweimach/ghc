@@ -1422,28 +1422,14 @@ superKindTyConKey :: Unique
 superKindTyConKey                     = mkPreludeTyConUnique 85
 
 -- Kind constructors
-liftedTypeKindTyConKey, anyKindTyConKey, openTypeKindTyConKey,
-  unliftedTypeKindTyConKey, constraintKindTyConKey :: Unique
+liftedTypeKindTyConKey, anyKindTyConKey, tYPETyConKey,
+  unliftedTypeKindTyConKey, constraintKindTyConKey, levityTyConKey :: Unique
 anyKindTyConKey                         = mkPreludeTyConUnique 86
 liftedTypeKindTyConKey                  = mkPreludeTyConUnique 87
-openTypeKindTyConKey                    = mkPreludeTyConUnique 88
+tYPETyConKey                            = mkPreludeTyConUnique 88
 unliftedTypeKindTyConKey                = mkPreludeTyConUnique 89
+levityTyConKey                          = mkPreludeTyConUnique 90
 constraintKindTyConKey                  = mkPreludeTyConUnique 92
-
--- Coercion constructors
-symCoercionTyConKey, transCoercionTyConKey, leftCoercionTyConKey,
-    rightCoercionTyConKey, instCoercionTyConKey, unsafeCoercionTyConKey,
-    csel1CoercionTyConKey, csel2CoercionTyConKey, cselRCoercionTyConKey
-    :: Unique
-symCoercionTyConKey                     = mkPreludeTyConUnique 93
-transCoercionTyConKey                   = mkPreludeTyConUnique 94
-leftCoercionTyConKey                    = mkPreludeTyConUnique 95
-rightCoercionTyConKey                   = mkPreludeTyConUnique 96
-instCoercionTyConKey                    = mkPreludeTyConUnique 97
-unsafeCoercionTyConKey                  = mkPreludeTyConUnique 98
-csel1CoercionTyConKey                   = mkPreludeTyConUnique 99
-csel2CoercionTyConKey                   = mkPreludeTyConUnique 100
-cselRCoercionTyConKey                   = mkPreludeTyConUnique 101
 
 pluginTyConKey :: Unique
 pluginTyConKey                          = mkPreludeTyConUnique 102
@@ -1590,6 +1576,11 @@ integerGmpSDataConKey                   = mkPreludeDataConUnique 30
 integerGmpJDataConKey                   = mkPreludeDataConUnique 31
 
 coercibleDataConKey                     = mkPreludeDataConUnique 32
+
+-- Levity
+liftedDataConKey, unliftedDataConKey :: Unique
+liftedDataConKey                        = mkPreludeDataConUnique 33
+unliftedDataConKey                      = mkPreludeDataConUnique 34
 \end{code}
 
 %************************************************************************

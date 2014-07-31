@@ -197,7 +197,7 @@ tcExpr (HsIPVar x) res_ty
               type scheme.  We enforce this by creating a fresh
               type variable as its type.  (Because res_ty may not
               be a tau-type.) -}
-       ; ip_ty <- newFlexiTyVarTy openTypeKind
+       ; ip_ty <- newOpenFlexiTyVarTy
        ; let ip_name = mkStrLitTy (hsIPNameFS x)
        ; ip_var <- emitWanted origin (mkClassPred ipClass [ip_name, ip_ty])
        ; tcWrapResult (fromDict ipClass ip_name ip_ty (HsVar ip_var)) ip_ty res_ty }
@@ -388,12 +388,12 @@ tcExpr (ExplicitTuple tup_args boxity) res_ty
 
   | otherwise
   = -- The tup_args are a mixture of Present and Missing (for tuple sections)
-    do { let kind = case boxity of { Boxed   -> liftedTypeKind
-                                   ; Unboxed -> openTypeKind }
-             arity = length tup_args
+    do { let arity = length tup_args
              tup_tc = tupleTyCon (boxityNormalTupleSort boxity) arity
 
-       ; arg_tys <- newFlexiTyVarTys (tyConArity tup_tc) kind
+       ; arg_tys <- case boxity of
+           { Boxed   -> newFlexiTyVarTys arity liftedTypeKind
+           ; Unboxed -> replicateM arity newOpenFlexiTyVarTy }
        ; let actual_res_ty
                  = mkFunTys [ty | (ty, Missing _) <- arg_tys `zip` tup_args]
                             (mkTyConApp tup_tc arg_tys)
@@ -464,9 +464,9 @@ tcExpr (HsIf Nothing pred b1 b2) res_ty    -- Ordinary 'if'
        ; return (HsIf Nothing pred' b1' b2') }
 
 tcExpr (HsIf (Just fun) pred b1 b2) res_ty   -- Note [Rebindable syntax for if]
-  = do { pred_ty <- newFlexiTyVarTy openTypeKind
-       ; b1_ty   <- newFlexiTyVarTy openTypeKind
-       ; b2_ty   <- newFlexiTyVarTy openTypeKind
+  = do { pred_ty <- newOpenFlexiTyVarTy
+       ; b1_ty   <- newOpenFlexiTyVarTy
+       ; b2_ty   <- newOpenFlexiTyVarTy
        ; let if_ty = mkFunTys [pred_ty, b1_ty, b2_ty] res_ty
        ; fun'  <- tcSyntaxOp IfOrigin fun if_ty
        ; pred' <- tcMonoExpr pred pred_ty

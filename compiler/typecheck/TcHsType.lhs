@@ -61,7 +61,7 @@ import VarSet
 import TyCon
 import ConLike
 import DataCon
-import TysPrim ( liftedTypeKindTyConName, constraintKindTyConName )
+import TysPrim ( tYPE )
 import Class
 import Name
 import NameEnv
@@ -176,8 +176,10 @@ tcHsSigTypeNC ctxt (L loc hs_ty)
   = setSrcSpan loc $    -- The "In the type..." context
                         -- comes from the caller; hence "NC"
     do  { kind <- case expectedKindInCtxt ctxt of
-                    Nothing -> newMetaKindVar
-                    Just k  -> return k
+                    AnythingKind -> newMetaKindVar
+                    TheKind k    -> return k
+                    OpenKind     -> do { lev <- newFlexiTyVarTy levityTy
+                                       ; return $ tYPE lev }
           -- The kind is checked by checkValidType, and isn't necessarily
           -- of kind * in a Template Haskell quote eg [t| Maybe |]
 
@@ -289,7 +291,10 @@ tc_hs_arg_tys what tys kinds
 tcHsOpenType, tcHsLiftedType :: LHsType Name -> TcM TcType
 -- Used for type signatures
 -- Do not do validity checking
-tcHsOpenType ty   = addTypeCtxt ty $ tc_lhs_type ty ekOpen
+tcHsOpenType ty
+  = addTypeCtxt ty $
+    do { ek <- ekOpen
+       ; tc_lhs_type ty ek }
 tcHsLiftedType ty = addTypeCtxt ty $ tc_lhs_type ty ekLifted
 
 -- Like tcHsType, but takes an expected kind
@@ -343,8 +348,12 @@ tc_fun_type :: HsType Name -> LHsType Name -> LHsType Name -> ExpKind -> TcM TcT
 -- (see Note [Zonking inside the knot]).  For example,
 -- consider  f :: (->) Int Int  (Trac #7312)
 tc_fun_type ty ty1 ty2 exp_kind@(EK _ ctxt)
-  = do { ty1' <- tc_lhs_type ty1 (EK openTypeKind ctxt)
-       ; ty2' <- tc_lhs_type ty2 (EK openTypeKind ctxt)
+  = do { arg_lev <- newFlexiTyVarTy levityTy
+       ; res_lev <- newFlexiTyVarTy levityTy
+       ; arg_k <- newFlexiTyVarTy (tYPE arg_lev)
+       ; res_k <- newFlexiTyVarTy (tYPE res_lev)
+       ; ty1' <- tc_lhs_type ty1 (EK arg_k ctxt)
+       ; ty2' <- tc_lhs_type ty2 (EK res_k ctxt)
        ; checkExpectedKind ty liftedTypeKind exp_kind
        ; return (mkFunTy ty1' ty2') }
 
@@ -412,7 +421,8 @@ tc_hs_type hs_ty@(HsForAllTy _ hs_tvs context ty) exp_kind@(EK exp_k _)
                    -- _function_, so the kind of the result really is *
                    -- The body kind (result of the function can be * or #, hence ekOpen
                    do { checkExpectedKind hs_ty liftedTypeKind exp_kind
-                      ; tc_lhs_type ty ekOpen }
+                      ; ek <- ekOpen
+                      ; tc_lhs_type ty ek }
        ; return (mkSigmaTy tvs' ctxt' ty') }
 
 --------- Lists, arrays, and tuples
@@ -548,13 +558,15 @@ tupKindSort_maybe k
 
 tc_tuple :: HsType Name -> TupleSort -> [LHsType Name] -> ExpKind -> TcM TcType
 tc_tuple hs_ty tup_sort tys exp_kind
-  = do { tau_tys <- tc_hs_arg_tys cxt_doc tys (repeat arg_kind)
+  = do { arg_kinds <- case tup_sort of
+           BoxedTuple      -> return (nOfThem arity liftedTypeKind)
+           UnboxedTuple    -> do { levs <- newFlexiTyVarTys arity levityTy
+                                 ; return $ map tYPE levs }
+           ConstraintTuple -> return (nOfThem arity constraintKind)
+       ; tau_tys <- tc_hs_arg_tys cxt_doc tys arg_kinds
        ; finish_tuple hs_ty tup_sort tau_tys exp_kind }
   where
-    arg_kind = case tup_sort of
-                 BoxedTuple      -> liftedTypeKind
-                 UnboxedTuple    -> openTypeKind
-                 ConstraintTuple -> constraintKind
+    arity   = length tys
     cxt_doc = case tup_sort of
                  BoxedTuple      -> ptext (sLit "a tuple")
                  UnboxedTuple    -> ptext (sLit "an unboxed tuple")
@@ -1564,15 +1576,19 @@ data ExpKind = EK TcKind (TcKind -> SDoc)
 instance Outputable ExpKind where
   ppr (EK k f) = f k
 
-ekLifted, ekOpen, ekConstraint :: ExpKind
+ekLifted, ekConstraint :: ExpKind
 ekLifted     = EK liftedTypeKind expectedKindMsg
-ekOpen       = EK openTypeKind   expectedKindMsg
 ekConstraint = EK constraintKind expectedKindMsg
+
+-- | Produce an 'ExpKind' suitable for a checking a type that can be * or #.
+ekOpen :: TcM ExpKind
+ekOpen = do { lev <- newFlexiTyVarTy levityTy
+            ; return $ EK (tYPE lev) expectedKindMsg }
 
 expectedKindMsg :: TcKind -> SDoc
 expectedKindMsg pkind
-  | isConstraintKind pkind = ptext (sLit "Expected a constraint")
-  | isOpenTypeKind   pkind = ptext (sLit "Expected a type")
+  | isConstraintKind pkind  = ptext (sLit "Expected a constraint")
+  | isSortPolymorphic pkind = ptext (sLit "Expected a type")
   | otherwise = ptext (sLit "Expected kind") <+> quotes (pprKind pkind)
 
 -- Build an ExpKind for arguments
@@ -1595,27 +1611,22 @@ unifyKinds fun act_kinds
 
 checkKind :: TcKind -> TcKind -> TcM ()
 checkKind act_kind exp_kind
-  = do { mb_subk <- unifyKindX act_kind exp_kind
-       ; case mb_subk of
-           Just EQ -> return ()
-           _       -> unifyKindMisMatch act_kind exp_kind }
+  = do { eq_k <- unifyKind act_kind exp_kind
+       ; unless eq_k $
+         unifyKindMisMatch act_kind exp_kind }
 
 checkExpectedKind :: Outputable a => a -> TcKind -> ExpKind -> TcM ()
--- A fancy wrapper for 'unifyKindX', which tries
+-- A fancy wrapper for 'unifyKind', which tries
 -- to give decent error messages.
 --      (checkExpectedKind ty act_kind exp_kind)
 -- checks that the actual kind act_kind is compatible
 --      with the expected kind exp_kind
 -- The first argument, ty, is used only in the error message generation
 checkExpectedKind ty act_kind (EK exp_kind ek_ctxt)
- = do { mb_subk <- unifyKindX act_kind exp_kind
+ = do { eq_k <- unifyKind act_kind exp_kind
 
          -- Kind unification only generates definite errors
-      ; case mb_subk of {
-          Just LT -> return () ;    -- act_kind is a sub-kind of exp_kind
-          Just EQ -> return () ;    -- The two are equal
-          _other  -> do
-
+      ; unless eq_k $ do
       {  -- So there's an error
          -- Now to find out what sort
         exp_kind <- zonkTcKind exp_kind
@@ -1672,7 +1683,7 @@ checkExpectedKind ty act_kind (EK exp_kind ek_ctxt)
                               <+> ptext (sLit "has kind") <+> quotes (pprKind tidy_act_kind)]
 
       ; traceTc "checkExpectedKind 1" (ppr ty $$ ppr tidy_act_kind $$ ppr tidy_exp_kind $$ ppr env1 $$ ppr env2)
-      ; failWithTcM (env2, err) } } }
+      ; failWithTcM (env2, err) } }
 
 \end{code}
 
@@ -1731,19 +1742,6 @@ tc_kind_app ki                _   = failWithTc (quotes (ppr ki) <+>
                                     ptext (sLit "is not a kind constructor"))
 
 tc_kind_var_app :: Name -> [Kind] -> TcM Kind
--- Special case for * and Constraint kinds
--- They are kinds already, so we don't need to promote them
-tc_kind_var_app name arg_kis
-  |  name == liftedTypeKindTyConName
-  || name == constraintKindTyConName
-  = do { unless (null arg_kis)
-           (failWithTc (text "Kind" <+> ppr name <+> text "cannot be applied"))
-       ; thing <- tcLookup name
-       ; case thing of
-           AGlobal (ATyCon tc) -> return (mkTyConApp tc [])
-           _                   -> panic "tc_kind_var_app 1" }
-
--- General case
 tc_kind_var_app name arg_kis
   = do { thing <- tcLookup name
        ; case thing of

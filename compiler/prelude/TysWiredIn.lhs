@@ -74,8 +74,13 @@ module TysWiredIn (
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
         coercibleTyCon, coercibleDataCon, coercibleClass,
 
-        mkWiredInTyConName -- This is used in TcTypeNats to define the
-                           -- built-in functions for evaluation.
+        mkWiredInTyConName, -- This is used in TcTypeNats to define the
+                            -- built-in functions for evaluation.
+
+        -- * Levity
+        levityTy, levityTyCon, liftedDataCon, unliftedDataCon,
+        liftedPromDataCon, unliftedPromDataCon,
+        liftedDataConTy, unliftedDataConTy
     ) where
 
 #include "HsVersions.h"
@@ -159,6 +164,7 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
               , coercibleTyCon
               , typeNatKindCon
               , typeSymbolKindCon
+              , levityTyCon
               ]
            ++ (case cIntegerLibraryType of
                IntegerGMP -> [integerTyCon]
@@ -216,6 +222,11 @@ doubleDataConName  = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "D#")     
 typeNatKindConName, typeSymbolKindConName :: Name
 typeNatKindConName    = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "Nat")    typeNatKindConNameKey    typeNatKindCon
 typeSymbolKindConName = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "Symbol") typeSymbolKindConNameKey typeSymbolKindCon
+
+levityTyConName, liftedDataConName, unliftedDataConName :: Name
+levityTyConName     = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Levity") levityTyConKey levityTyCon
+liftedDataConName   = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "Lifted") liftedDataConKey liftedDataCon
+unliftedDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "Unlifted") unliftedDataConKey unliftedDataCon
 
 -- For integer-gmp only:
 integerRealTyConName :: Name
@@ -461,13 +472,18 @@ mk_tuple sort arity = (tycon, tuple_con)
           UnboxedTuple    -> unliftedTypeKind
           ConstraintTuple -> constraintKind
 
-        tyvars = take arity $ case sort of
-          BoxedTuple      -> alphaTyVars
-          UnboxedTuple    -> openAlphaTyVars
-          ConstraintTuple -> tyVarList constraintKind
+        (tyvars, tyvar_tys) = case sort of
+          BoxedTuple      -> (take arity alphaTyVars, take arity alphaTys)
+          UnboxedTuple    -> let lev_tvs  = take arity $ tyVarList levityTy
+                                 open_tvs = zipWith mk_open_tv [0..] lev_tvs
+                                 mk_open_tv n ltv
+                                   = (tyVarList (tYPE (mkOnlyTyVarTy ltv))) !! n
+                             in
+                             (lev_tvs ++ open_tvs, mkOnlyTyVarTys open_tvs)
+          ConstraintTuple -> let tvs = take arity $ tyVarList constraintKind in
+                             (tvs, mkOnlyTyVarTys tvs)
 
         tuple_con = pcDataCon dc_name tyvars tyvar_tys tycon
-        tyvar_tys = mkOnlyTyVarTys tyvars
         dc_name   = mkWiredInName modu (mkTupleOcc dataName sort arity) dc_uniq
                                   (AConLike (RealDataCon tuple_con)) BuiltInSyntax
         tc_uniq   = mkTupleTyConUnique   sort arity
@@ -555,6 +571,27 @@ coercibleDataCon = pcDataCon coercibleDataConName args [TyConApp eqReprPrimTyCon
 
 coercibleClass :: Class
 coercibleClass = mkClass (tyConTyVars coercibleTyCon) [] [] [] [] [] (mkAnd []) coercibleTyCon
+
+-- For information about the usage of the following type, see Note [TYPE]
+-- in module Kind
+levityTy :: Type
+levityTy = mkTyConTy levityTyCon
+
+levityTyCon :: TyCon
+levityTyCon = pcTyCon True NonRecursive True levityTyConName
+                      Nothing [] [liftedDataCon, unliftedDataCon]
+
+liftedDataCon, unliftedDataCon :: DataCon
+liftedDataCon   = pcDataCon liftedDataConName [] [] levityTyCon
+unliftedDataCon = pcDataCon unliftedDataConName [] [] levityTyCon
+
+liftedPromDataCon, unliftedPromDataCon :: TyCon
+liftedPromDataCon   = promoteDataCon liftedDataCon
+unliftedPromDataCon = promoteDataCon unliftedDataCon
+
+liftedDataConTy, unliftedDataConTy :: Type
+liftedDataConTy   = mkTyConTy liftedPromDataCon
+unliftedDataConTy = mkTyConTy unliftedPromDataCon
 
 \end{code}
 

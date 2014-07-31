@@ -242,7 +242,7 @@ tcLocalBinds (HsIPBinds (IPBinds ip_binds _)) thing_inside
         -- Consider     ?x = 4
         --              ?y = ?x + 1
     tc_ip_bind ipClass (IPBind (Left ip) expr)
-       = do { ty <- newFlexiTyVarTy openTypeKind
+       = do { ty <- newOpenFlexiTyVarTy
             ; let p = mkStrLitTy $ hsIPNameFS ip
             ; ip_id <- newDict ipClass [ p, ty ]
             ; expr' <- tcMonoExpr expr ty
@@ -989,7 +989,7 @@ recoveryCode binder_names sig_fn
     is_closed poly_id = isEmptyVarSet (tyCoVarsOfType (idType poly_id))
 
 forall_a_a :: TcType
-forall_a_a = mkForAllTy openAlphaTyVar (mkOnlyTyVarTy openAlphaTyVar)
+forall_a_a = mkForAllTys [levity1TyVar, openAlphaTyVar] openAlphaTy
 \end{code}
 
 Note [SPECIALISE pragmas]
@@ -1064,7 +1064,7 @@ tcMonoBinds is_rec sig_fn no_gen
         -- e.g.         f = \(x::forall a. a->a) -> <body>
         --      We want to infer a higher-rank type for f
     setSrcSpan b_loc    $
-    do  { rhs_ty  <- newFlexiTyVarTy openTypeKind
+    do  { rhs_ty  <- newOpenFlexiTyVarTy
         ; mono_id <- newNoSigLetBndr no_gen name rhs_ty
         ; (co_fn, matches') <- tcExtendIdBndrs [TcIdBndr mono_id NotTopLevel] $
                                  -- We extend the error context even for a non-recursive 
@@ -1127,7 +1127,7 @@ tcLhs sig_fn no_gen (FunBind { fun_id = L nm_loc name, fun_infix = inf, fun_matc
         ; let mono_id = mkLocalId mono_name (sig_tau sig)
         ; return (TcFunBind (name, Just sig, mono_id) nm_loc inf matches) }
   | otherwise
-  = do  { mono_ty <- newFlexiTyVarTy openTypeKind
+  = do  { mono_ty <- newOpenFlexiTyVarTy
         ; mono_id <- newNoSigLetBndr no_gen name mono_ty
         ; return (TcFunBind (name, Nothing, mono_id) nm_loc inf matches) }
 

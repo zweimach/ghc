@@ -20,20 +20,22 @@ module TysPrim(
 	mkPrimTyConName, -- For implicit parameters in TysWiredIn only
 
         tyVarList, alphaTyVars, betaTyVars, alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar,
-	alphaTy, betaTy, gammaTy, deltaTy,
-	openAlphaTy, openBetaTy, openAlphaTyVar, openBetaTyVar, openAlphaTyVars,
+	alphaTys, alphaTy, betaTy, gammaTy, deltaTy,
+	levity1TyVar, levity2TyVar, levity1Ty, levity2Ty,
+        openAlphaTy, openBetaTy, openAlphaTyVar, openBetaTyVar,
         kKiVar,
 
         -- Kind constructors...
         superKindTyCon, superKind, anyKindTyCon, liftedTypeKindTyCon,
-        openTypeKindTyCon, unliftedTypeKindTyCon, constraintKindTyCon,
+        tYPETyCon, unliftedTypeKindTyCon, constraintKindTyCon,
 
         superKindTyConName, anyKindTyConName, liftedTypeKindTyConName,
-        openTypeKindTyConName, unliftedTypeKindTyConName,
+        tYPETyConName, unliftedTypeKindTyConName,
         constraintKindTyConName,
 
         -- Kinds
-	anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind,
+	anyKind, liftedTypeKind, unliftedTypeKind, constraintKind,
+        tYPE,
         mkArrowKind, mkArrowKinds,
 
         funTyCon, funTyConName,
@@ -87,6 +89,8 @@ module TysPrim(
   ) where
 
 #include "HsVersions.h"
+
+import {-# SOURCE #-} TysWiredIn ( levityTy, liftedDataConTy, unliftedDataConTy )
 
 import Var		( TyVar, KindVar, mkTyVar )
 import Name		( Name, BuiltInSyntax(..), mkInternalName, mkWiredInName )
@@ -146,7 +150,7 @@ primTyCons
 
     , liftedTypeKindTyCon
     , unliftedTypeKindTyCon
-    , openTypeKindTyCon
+    , tYPETyCon
     , constraintKindTyCon
     , superKindTyCon
     , anyKindTyCon
@@ -238,12 +242,16 @@ alphaTys = mkOnlyTyVarTys alphaTyVars
 alphaTy, betaTy, gammaTy, deltaTy :: Type
 (alphaTy:betaTy:gammaTy:deltaTy:_) = alphaTys
 
-	-- openAlphaTyVar is prepared to be instantiated
-	-- to a lifted or unlifted type variable.  It's used for the 
-	-- result type for "error", so that we can have (error Int# "Help")
-openAlphaTyVars :: [TyVar]
+levity1TyVar, levity2TyVar :: TyVar
+(levity1TyVar : levity2TyVar : _) = drop 21 (tyVarList levityTy)  -- selects 'v','w'
+
+levity1Ty, levity2Ty :: Type
+levity1Ty = mkOnlyTyVarTy levity1TyVar
+levity2Ty = mkOnlyTyVarTy levity2TyVar
+
 openAlphaTyVar, openBetaTyVar :: TyVar
-openAlphaTyVars@(openAlphaTyVar:openBetaTyVar:_) = tyVarList openTypeKind
+openAlphaTyVar = tyVarList (tYPE levity1Ty) !! 0
+openBetaTyVar  = tyVarList (tYPE levity2Ty) !! 1
 
 openAlphaTy, openBetaTy :: Type
 openAlphaTy = mkOnlyTyVarTy openAlphaTyVar
@@ -317,26 +325,61 @@ So the full defn of keq is
 
 So you can see it's convenient to have BOX:BOX
 
+Note [TYPE]
+~~~~~~~~~~~
+There are a few places where we wish to be able to deal interchangeably
+with kind * and kind #. unsafeCoerce#, error, and (->) are some of these
+places. The way we do this is to use kind polymorphism.
+
+We have (levityTyCon, liftedDataCon, unliftedDataCon)
+
+    data Levity = Lifted | Unlifted
+
+and a magical constant (tYPETyCon)
+
+    TYPE :: Levity -> TYPE Lifted
+
+We then have synonyms (liftedTypeKindTyCon, unliftedTypeKindTyCon)
+
+    type * = TYPE Lifted
+    type # = TYPE Unlifted
+
+So, for example, we get
+
+    unsafeCoerce# :: forall (v1 :: Levity) (v2 :: Levity)
+                            (a :: TYPE v1) (b :: TYPE v2). a -> b
+
+This replaces the old sub-kinding machinery. We call variables `a` and `b`
+above "sort-polymorphic".
 
 \begin{code}
--- | See "Type#kind_subtyping" for details of the distinction between the 'Kind' 'TyCon's
 superKindTyCon, anyKindTyCon, liftedTypeKindTyCon,
-      openTypeKindTyCon, unliftedTypeKindTyCon,
+      tYPETyCon, unliftedTypeKindTyCon,
       constraintKindTyCon
    :: TyCon
 superKindTyConName, anyKindTyConName, liftedTypeKindTyConName,
-      openTypeKindTyConName, unliftedTypeKindTyConName,
+      tYPETyConName, unliftedTypeKindTyConName,
       constraintKindTyConName
    :: Name
 
-superKindTyCon        = mkKindTyCon superKindTyConName        superKind
+superKindTyCon        = mkKindTyCon superKindTyConName        superKind []
    -- See Note [SuperKind (BOX)]
 
-anyKindTyCon          = mkKindTyCon anyKindTyConName          superKind
-liftedTypeKindTyCon   = mkKindTyCon liftedTypeKindTyConName   superKind
-openTypeKindTyCon     = mkKindTyCon openTypeKindTyConName     superKind
-unliftedTypeKindTyCon = mkKindTyCon unliftedTypeKindTyConName superKind
-constraintKindTyCon   = mkKindTyCon constraintKindTyConName   superKind
+anyKindTyCon          = mkKindTyCon anyKindTyConName          superKind []
+constraintKindTyCon   = mkKindTyCon constraintKindTyConName   superKind []
+tYPETyCon = mkKindTyCon tYPETyConName (FunTy levityTy superKind) [Nominal]
+
+   -- See Note [TYPE]
+liftedTypeKindTyCon   = mkSynTyCon liftedTypeKindTyConName
+                                   superKind
+                                   [] []
+                                   (SynonymTyCon (tYPE liftedDataConTy))
+                                   NoParentTyCon
+unliftedTypeKindTyCon = mkSynTyCon unliftedTypeKindTyConName
+                                   superKind
+                                   [] []
+                                   (SynonymTyCon (tYPE unliftedDataConTy))
+                                   NoParentTyCon
 
 --------------------------
 -- ... and now their names
@@ -346,7 +389,7 @@ constraintKindTyCon   = mkKindTyCon constraintKindTyConName   superKind
 superKindTyConName      = mkPrimTyConName (fsLit "BOX") superKindTyConKey superKindTyCon
 anyKindTyConName          = mkPrimTyConName (fsLit "AnyK") anyKindTyConKey anyKindTyCon
 liftedTypeKindTyConName   = mkPrimTyConName (fsLit "*") liftedTypeKindTyConKey liftedTypeKindTyCon
-openTypeKindTyConName     = mkPrimTyConName (fsLit "OpenKind") openTypeKindTyConKey openTypeKindTyCon
+tYPETyConName             = mkPrimTyConName (fsLit "TYPE") tYPETyConKey tYPETyCon
 unliftedTypeKindTyConName = mkPrimTyConName (fsLit "#") unliftedTypeKindTyConKey unliftedTypeKindTyCon
 constraintKindTyConName   = mkPrimTyConName (fsLit "Constraint") constraintKindTyConKey constraintKindTyCon
 
@@ -364,15 +407,19 @@ mkPrimTyConName occ key tycon = mkWiredInName gHC_PRIM (mkTcOccFS occ)
 kindTyConType :: TyCon -> Type
 kindTyConType kind = TyConApp kind []   -- mkTyConApp isn't defined yet
 
--- | See "Type#kind_subtyping" for details of the distinction between these 'Kind's
-anyKind, liftedTypeKind, unliftedTypeKind, openTypeKind, constraintKind, superKind :: Kind
+-- | See Note [TYPE]
+anyKind, liftedTypeKind, unliftedTypeKind, constraintKind, superKind :: Kind
 
 superKind        = kindTyConType superKindTyCon 
 anyKind          = kindTyConType anyKindTyCon  -- See Note [Any kinds]
 liftedTypeKind   = kindTyConType liftedTypeKindTyCon
 unliftedTypeKind = kindTyConType unliftedTypeKindTyCon
-openTypeKind     = kindTyConType openTypeKindTyCon
 constraintKind   = kindTyConType constraintKindTyCon
+
+-----------------------------
+-- | Given a Levity, applies TYPE to it. See Note [TYPE].
+tYPE :: Type -> Type
+tYPE lev = TyConApp tYPETyCon [lev]
 
 -- | Given two kinds @k1@ and @k2@, creates the 'Kind' @k1 -> k2@
 mkArrowKind :: Kind -> Kind -> Kind
