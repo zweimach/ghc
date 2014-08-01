@@ -296,6 +296,17 @@ it's worth noting that (~#)'s parameters are at role N. Promoted data
 constructors' type arguments are at role R. All kind arguments are at role
 N.
 
+Note [Unboxed tuple levity vars]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The contents of an unboxed tuple may be boxed or unboxed. Accordingly,
+the kind of the unboxed tuple constructor is sort-polymorphic. For example,
+
+   (#,#) :: forall (v :: Levity) (w :: Levity). TYPE v -> TYPE w -> #
+
+These extra tyvars (v and w) cause some delicate processing around tuples,
+where we used to be able to assume that the tycon arity and the
+datacon arity were the same.
+
 %************************************************************************
 %*                                                                      *
 \subsection{The data type}
@@ -1316,7 +1327,12 @@ tupleTyConSort tc = tyConTupleSort tc
 -- | Extract the arity of the given 'TyCon', if it is a 'TupleTyCon'.
 -- Panics otherwise
 tupleTyConArity :: TyCon -> Arity
-tupleTyConArity tc = tyConArity tc
+  -- we want the *tuple* arity, not the tycon arity. So, we must discard
+  -- the levity vars from unboxed tuples. See Note [Unboxed tuple levity vars]
+tupleTyConArity (TupleTyCon { tyConTupleSort = UnboxedTuple
+                            , tyConArity     = raw_arity }) = raw_arity `div` 2
+tupleTyConArity (TupleTyCon { tyConArity     = arity     }) = arity
+tupleTyConArity tc = pprPanic "tupleTyConArity" (ppr tc)
 
 -- | Is this a recursive 'TyCon'?
 isRecursiveTyCon :: TyCon -> Bool

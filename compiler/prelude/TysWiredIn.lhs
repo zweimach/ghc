@@ -56,8 +56,6 @@ module TysWiredIn (
         promotedTupleTyCon, promotedTupleDataCon,
         unitTyCon, unitDataCon, unitDataConId, pairTyCon,
         unboxedUnitTyCon, unboxedUnitDataCon,
-        unboxedSingletonTyCon, unboxedSingletonDataCon,
-        unboxedPairTyCon, unboxedPairDataCon,
 
         -- * Unit
         unitTy,
@@ -94,7 +92,7 @@ import TysPrim
 -- others:
 import Constants        ( mAX_TUPLE_SIZE )
 import Module           ( Module )
-import Type             ( mkTyConApp )
+import Type
 import DataCon
 import ConLike
 import Var
@@ -457,32 +455,42 @@ factTupleArr = listArray (0,mAX_TUPLE_SIZE) [mk_tuple ConstraintTuple i | i <- [
 mk_tuple :: TupleSort -> Int -> (TyCon,DataCon)
 mk_tuple sort arity = (tycon, tuple_con)
   where
-        tycon   = mkTupleTyCon tc_name tc_kind arity tyvars tuple_con sort prom_tc
-        prom_tc = case sort of
-          BoxedTuple      -> Just (mkPromotedTyCon tycon (promoteKind tc_kind))
-          UnboxedTuple    -> Nothing
-          ConstraintTuple -> Nothing
+        tycon   = mkTupleTyCon tc_name tc_kind tc_arity tyvars tuple_con sort prom_tc
+        (tc_kind, tc_arity, tyvars, tyvar_tys, prom_tc) = case sort of
+          BoxedTuple ->
+            let boxed_tyvars = take arity alphaTyVars in
+            ( mkFunTys (nOfThem arity liftedTypeKind) liftedTypeKind
+            , arity
+            , boxed_tyvars
+            , mkOnlyTyVarTys boxed_tyvars
+            , Just (mkPromotedTyCon tycon (promoteKind tc_kind)) )
+            -- See Note [Unboxed tuple levity vars] in TyCon
+          UnboxedTuple ->
+            let lev_tvs  = take arity $
+                           drop 21 $  -- to get "v" and "w" ...
+                           tyVarList levityTy
+                open_tvs = zipWith mk_open_tv [0..] lev_tvs
+                mk_open_tv n ltv
+                  = (tyVarList (tYPE (mkOnlyTyVarTy ltv))) !! n
+            in
+            ( mkForAllTys lev_tvs $
+              mkFunTys (map tyVarKind open_tvs) $
+              unliftedTypeKind
+            , arity * 2
+            , lev_tvs ++ open_tvs
+            , mkOnlyTyVarTys open_tvs
+            , Nothing )
+          ConstraintTuple ->
+            let constr_tyvars = take arity $ tyVarList constraintKind in
+            ( mkFunTys (nOfThem arity constraintKind) constraintKind
+            , arity
+            , constr_tyvars
+            , mkOnlyTyVarTys constr_tyvars
+            , Nothing )
 
         modu    = mkTupleModule sort
         tc_name = mkWiredInName modu (mkTupleOcc tcName sort arity) tc_uniq
                                 (ATyCon tycon) BuiltInSyntax
-        tc_kind = mkArrowKinds (map tyVarKind tyvars) res_kind
-        res_kind = case sort of
-          BoxedTuple      -> liftedTypeKind
-          UnboxedTuple    -> unliftedTypeKind
-          ConstraintTuple -> constraintKind
-
-        (tyvars, tyvar_tys) = case sort of
-          BoxedTuple      -> (take arity alphaTyVars, take arity alphaTys)
-          UnboxedTuple    -> let lev_tvs  = take arity $ tyVarList levityTy
-                                 open_tvs = zipWith mk_open_tv [0..] lev_tvs
-                                 mk_open_tv n ltv
-                                   = (tyVarList (tYPE (mkOnlyTyVarTy ltv))) !! n
-                             in
-                             (lev_tvs ++ open_tvs, mkOnlyTyVarTys open_tvs)
-          ConstraintTuple -> let tvs = take arity $ tyVarList constraintKind in
-                             (tvs, mkOnlyTyVarTys tvs)
-
         tuple_con = pcDataCon dc_name tyvars tyvar_tys tycon
         dc_name   = mkWiredInName modu (mkTupleOcc dataName sort arity) dc_uniq
                                   (AConLike (RealDataCon tuple_con)) BuiltInSyntax
@@ -504,15 +512,6 @@ unboxedUnitTyCon   = tupleTyCon UnboxedTuple 0
 unboxedUnitDataCon :: DataCon
 unboxedUnitDataCon = tupleCon   UnboxedTuple 0
 
-unboxedSingletonTyCon :: TyCon
-unboxedSingletonTyCon   = tupleTyCon UnboxedTuple 1
-unboxedSingletonDataCon :: DataCon
-unboxedSingletonDataCon = tupleCon   UnboxedTuple 1
-
-unboxedPairTyCon :: TyCon
-unboxedPairTyCon   = tupleTyCon UnboxedTuple 2
-unboxedPairDataCon :: DataCon
-unboxedPairDataCon = tupleCon   UnboxedTuple 2
 \end{code}
 
 
@@ -842,9 +841,13 @@ done by enumeration\srcloc{lib/prelude/InTup?.hs}.
 \end{itemize}
 
 \begin{code}
+-- | Make a tuple type. The list of types should /not/ include any
+-- levity specifications.
 mkTupleTy :: TupleSort -> [Type] -> Type
 -- Special case for *boxed* 1-tuples, which are represented by the type itself
 mkTupleTy sort [ty] | Boxed <- tupleSortBoxity sort = ty
+mkTupleTy UnboxedTuple tys = mkTyConApp (tupleTyCon UnboxedTuple (length tys))
+                                        (map getLevity tys ++ tys)
 mkTupleTy sort tys = mkTyConApp (tupleTyCon sort (length tys)) tys
 
 -- | Build the type of a small tuple that holds the specified type of thing

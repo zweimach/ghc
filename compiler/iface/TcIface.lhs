@@ -68,6 +68,7 @@ import SrcLoc
 import DynFlags
 import Util
 import FastString
+import BasicTypes   ( TupleSort(..) )
 
 import Control.Monad
 import qualified Data.Map as Map
@@ -1093,7 +1094,11 @@ tcIfaceExpr (IfaceFCall cc ty) = do
 tcIfaceExpr (IfaceTuple boxity args)  = do
     args' <- mapM tcIfaceExpr args
     -- Put the missing type arguments back in
-    let con_args = map (Type . exprType) args' ++ args'
+    let con_tys = map exprType args'
+        some_con_args = map Type con_tys ++ args'
+        con_args = case boxity of
+          UnboxedTuple -> map (Type . getLevity) con_tys ++ some_con_args
+          _            -> some_con_args
     return (mkApps (Var con_id) con_args)
   where
     arity = length args

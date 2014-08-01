@@ -21,7 +21,7 @@ import Id               ( Id, idType, mkSysLocal, idDemandInfo, setIdDemandInfo,
 import IdInfo           ( vanillaIdInfo )
 import DataCon
 import Demand
-import MkCore           ( mkRuntimeErrorApp, aBSENT_ERROR_ID )
+import MkCore           ( mkRuntimeErrorApp, aBSENT_ERROR_ID, mkCoreUbxTup )
 import MkId             ( voidArgId, voidPrimId )
 import TysPrim          ( voidPrimTy )
 import TysWiredIn       ( tupleCon )
@@ -627,13 +627,12 @@ mkWWcpr_help (data_con, inst_tys, arg_tys, co)
         -- Worker:  case (   ...body...  ) of C a b -> (# a, b #)
   = do { (work_uniq : uniqs) <- getUniquesM
        ; let (wrap_wild : args) = zipWith mk_ww_local uniqs (ubx_tup_ty : arg_tys)
-             ubx_tup_con  = tupleCon UnboxedTuple (length arg_tys)
              ubx_tup_ty   = exprType ubx_tup_app
-             ubx_tup_app  = mkConApp2 ubx_tup_con arg_tys args
+             ubx_tup_app  = mkCoreUbxTup arg_tys (map varToCoreExpr args)
              con_app      = mkConApp2 data_con inst_tys args `mkCast` mkSymCo co
 
        ; return (True
-                , \ wkr_call -> Case wkr_call wrap_wild (exprType con_app)  [(DataAlt ubx_tup_con, args, con_app)]
+                , \ wkr_call -> Case wkr_call wrap_wild (exprType con_app)  [(DataAlt (tupleCon UnboxedTuple (length arg_tys)), args, con_app)]
                 , \ body     -> mkUnpackCase body co work_uniq data_con args ubx_tup_app
                 , ubx_tup_ty ) }
 

@@ -74,7 +74,7 @@ module Type (
 
         -- (Lifting and boxity)
         isUnLiftedType, isUnboxedTupleType, isAlgType, isClosedAlgType,
-        isPrimitiveType, isStrictType, isLevityVar,
+        isPrimitiveType, isStrictType, isLevityVar, getLevity,
 
         -- * Main data types representing Kinds
         Kind, SimpleKind, MetaKindVar,
@@ -169,14 +169,11 @@ import Class
 import TyCon
 import TysPrim
 import {-# SOURCE #-} TysWiredIn ( eqTyCon, coercibleTyCon, typeNatKind, typeSymbolKind )
-import PrelNames ( eqTyConKey, coercibleTyConKey, wildCardName, eqPrimTyConKey,
-                   ipClassNameKey )
-                   
+import PrelNames
 import CoAxiom
 import {-# SOURCE #-} Coercion
 
 -- others
-import Unique           ( hasKey )
 import BasicTypes       ( Arity, RepArity )
 import Util
 import Outputable
@@ -1304,6 +1301,21 @@ isUnLiftedType (ForAllTy tv ty)
 isUnLiftedType (TyConApp tc _)      = isUnLiftedTyCon tc
 isUnLiftedType _                    = False
 
+-- | Is a tyvar of type 'Levity'?
+isLevityVar :: TyVar -> Bool
+isLevityVar = isLevityTy . tyVarKind
+
+-- | Extract the levity classifier of a type. Panics if this is not possible.
+getLevity :: Type -> Type
+getLevity ty = go (typeKind ty)
+  where
+    go k | Just k' <- coreViewOneStarKind k = go k'
+    go k
+      | Just (tc, [arg]) <- splitTyConApp_maybe k
+      , tc `hasKey` tYPETyConKey
+      = arg
+    go k = pprPanic "getLevity" (ppr k)
+
 isUnboxedTupleType :: Type -> Bool
 isUnboxedTupleType ty = case tyConAppTyCon_maybe ty of
                            Just tc -> isUnboxedTupleTyCon tc
@@ -1642,8 +1654,4 @@ tyConsOfType ty
 
      go_tc tc = unitNameEnv (tyConName tc) tc
      go_ax ax = go_tc $ coAxiomTyCon ax
-
--- | Is a tyvar of type 'Levity'?
-isLevityVar :: TyVar -> Bool
-isLevityVar = isLevityTy . tyVarKind
 \end{code}

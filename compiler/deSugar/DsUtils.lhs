@@ -472,7 +472,7 @@ mkErrorAppDs err_id ty msg = do
         full_msg = showSDoc dflags (hcat [ppr src_loc, text "|", msg])
         core_msg = Lit (mkMachString full_msg)
         -- mkMachString returns a result of type String#
-    return (mkApps (Var err_id) [Type ty, core_msg])
+    return (mkApps (Var err_id) [Type (getLevity ty), Type ty, core_msg])
 \end{code}
 
 'mkCoreAppDs' and 'mkCoreAppsDs' hand the special-case desugaring of 'seq'.

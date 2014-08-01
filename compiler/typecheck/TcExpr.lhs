@@ -381,9 +381,15 @@ tcExpr (SectionL arg1 op) res_ty
 
 tcExpr (ExplicitTuple tup_args boxity) res_ty
   | all tupArgPresent tup_args
-  = do { let tup_tc = tupleTyCon (boxityNormalTupleSort boxity) (length tup_args)
+  = do { let arity  = length tup_args
+             tup_tc = tupleTyCon (boxityNormalTupleSort boxity) arity
        ; (coi, arg_tys) <- matchExpectedTyConApp tup_tc res_ty
-       ; tup_args1 <- tcTupArgs tup_args arg_tys
+                           -- Unboxed tuples have levity vars, which we
+                           -- don't care about here
+                           -- See Note [Unboxed tuple levity vars] in TyCon
+       ; let arg_tys' = case boxity of Unboxed -> drop arity arg_tys
+                                       Boxed   -> arg_tys
+       ; tup_args1 <- tcTupArgs tup_args arg_tys'
        ; return $ mkHsWrapCo coi (ExplicitTuple tup_args1 boxity) }
 
   | otherwise

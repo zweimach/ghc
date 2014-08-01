@@ -360,7 +360,7 @@ vectExpr (_, AnnApp (_, AnnApp (_, AnnVar v) (_, AnnType ty)) err)
   | v == pAT_ERROR_ID
   = do 
     { (vty, lty) <- vectAndLiftType ty
-    ; return (mkCoreApps (Var v) [Type vty, err'], mkCoreApps (Var v) [Type lty, err'])
+    ; return (mkCoreApps (Var v) [Type (getLevity vty), Type vty, err'], mkCoreApps (Var v) [Type lty, err'])
     }
   where
     err' = deAnnotate err

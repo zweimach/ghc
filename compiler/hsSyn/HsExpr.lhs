@@ -957,8 +957,9 @@ We know the list must have at least one @Match@ in it.
 \begin{code}
 pprMatches :: (OutputableBndr idL, OutputableBndr idR, Outputable body)
            => HsMatchContext idL -> MatchGroup idR body -> SDoc
-pprMatches ctxt (MG { mg_alts = matches })
-    = vcat (map (pprMatch ctxt) (map unLoc matches))
+pprMatches ctxt (MG { mg_alts = matches, mg_arg_tys = arg_tys, mg_res_ty = res_ty })
+    = vcat (map (pprMatch ctxt) (map unLoc matches)) $$
+      ppr arg_tys $$ ppr res_ty -- RAE
       -- Don't print the type; it's only a place-holder before typechecking
 
 -- Exported to HsBinds, which can't see the defn of HsMatchContext

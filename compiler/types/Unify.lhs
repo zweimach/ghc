@@ -1327,7 +1327,7 @@ instance Monad UM where
                           other            -> other
                    SurelyApart -> SurelyApart)
 
--- RAE: Is this right?
+-- TODO (RAE): Is this right?
 instance Alternative UM where
   empty = mzero
   (<|>) = mplus

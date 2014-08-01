@@ -10,4 +10,6 @@ piResultTy :: Type -> Type -> Type
 
 typeKind :: Type -> Kind
 eqType :: Type -> Type -> Bool
+
+coreView :: Type -> Maybe Type
 \end{code}

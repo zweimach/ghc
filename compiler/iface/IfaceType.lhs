@@ -606,8 +606,14 @@ ppr_iface_tc_app pp _ tc [ty]
 
 ppr_iface_tc_app pp ctxt_prec tc tys
   | Just (tup_sort, tup_args) <- is_tuple
-  = pprPromotionQuote tc <>
-    tupleParens tup_sort (sep (punctuate comma (map (pp TopPrec) tup_args)))
+                  -- drop the levity vars.
+                  -- See Note [Unboxed tuple levity vars] in TyCon
+  = let tup_args' = case tup_sort of UnboxedTuple ->
+                                       drop (length tup_args `div` 2) tup_args
+                                     _ -> tup_args
+    in
+    pprPromotionQuote tc <>
+    tupleParens tup_sort (sep (punctuate comma (map (pp TopPrec) tup_args')))
 
   | not (isSymOcc (nameOccName tc_name))
   = pprIfacePrefixApp ctxt_prec (ppr tc) (map (pp TyConPrec) tys)

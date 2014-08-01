@@ -41,7 +41,7 @@ module Kind (
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} Type      ( typeKind, piResultTy )
+import {-# SOURCE #-} Type      ( typeKind, piResultTy, coreView )
 
 import TyCoRep
 import TysPrim
@@ -152,8 +152,10 @@ okArrowResultKind = isTypeWithValues
 
 isTypeWithValues :: Kind -> Bool
 -- ^ True of any sub-kind of OpenTypeKind
-isTypeWithValues (TyConApp tc [_]) | tc `hasKey` tYPETyConKey = True
-isTypeWithValues _                                            = False
+isTypeWithValues t | Just t' <- coreView t = isTypeWithValues t'
+isTypeWithValues (TyConApp tc [_]) = tc `hasKey` tYPETyConKey
+isTypeWithValues (TyConApp tc [])  = isStarKindSynonymTyCon tc
+isTypeWithValues _ = False
 
 -- | Is this kind equivalent to *?
 isStarKind :: Kind -> Bool

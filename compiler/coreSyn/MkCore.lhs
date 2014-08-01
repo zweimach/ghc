@@ -34,7 +34,8 @@ module MkCore (
         mkChunkified,
         
         -- * Constructing small tuples
-        mkCoreVarTup, mkCoreVarTupTy, mkCoreTup, 
+        mkCoreVarTup, mkCoreVarTupTy, mkCoreTup, mkCoreUbxTup,
+        mkCoreTupBoxity,
         
         -- * Constructing big tuples
         mkBigCoreVarTup, mkBigCoreVarTupTy,
@@ -390,6 +391,21 @@ mkCoreTup [c] = c
 mkCoreTup cs  = mkConApp (tupleCon BoxedTuple (length cs))
                          (map (Type . exprType) cs ++ cs)
 
+-- | Build a small unboxed tuple holding the specified expressions,
+-- with the given types. The types must be the types of the expressions.
+-- Do not include the levity specifiers; this function calculates them
+-- for you.
+mkCoreUbxTup :: [Type] -> [CoreExpr] -> CoreExpr
+mkCoreUbxTup tys exps
+  = ASSERT( tys `equalLength` exps)
+    mkConApp (tupleCon UnboxedTuple (length tys))
+             (map (Type . getLevity) tys ++ map Type tys ++ exps)
+
+-- | Make a core tuple of the given boxity
+mkCoreTupBoxity :: Boxity -> [CoreExpr] -> CoreExpr
+mkCoreTupBoxity Boxed   exps = mkCoreTup exps
+mkCoreTupBoxity Unboxed exps = mkCoreUbxTup (map exprType exps) exps
+
 -- | Build a big tuple holding the specified variables
 mkBigCoreVarTup :: [Id] -> CoreExpr
 mkBigCoreVarTup ids = mkBigCoreTup (map Var ids)
@@ -627,7 +643,7 @@ mkRuntimeErrorApp
         -> CoreExpr
 
 mkRuntimeErrorApp err_id res_ty err_msg 
-  = mkApps (Var err_id) [Type res_ty, err_string]
+  = mkApps (Var err_id) [Type (getLevity res_ty), Type res_ty, err_string]
   where
     err_string = Lit (mkMachString err_msg)
 

@@ -31,7 +31,7 @@ import Type
 import FamInstEnv
 import Util
 import Maybes		( isJust )
-import TysWiredIn	( unboxedPairDataCon )
+import TysWiredIn
 import TysPrim		( realWorldStatePrimTy )
 import ErrUtils         ( dumpIfSet_dyn )
 import Name             ( getName, stableNameCmp )
@@ -363,7 +363,7 @@ dmdAnalAlt env dmd (con,bndrs,rhs)
 	--	   ; when (...) (exitWith ExitSuccess)
 	--	   ; print len }
 
-	io_hack_reqd = con == DataAlt unboxedPairDataCon &&
+	io_hack_reqd = con == DataAlt (tupleCon UnboxedTuple 2) &&
 		       idType (head bndrs) `eqType` realWorldStatePrimTy
     in	
     (final_alt_ty, (con, bndrs', rhs'))

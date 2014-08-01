@@ -292,9 +292,8 @@ dsExpr (ExplicitTuple tup_args boxity)
        ; (lam_vars, args) <- foldM go ([], []) (reverse tup_args)
                 -- The reverse is because foldM goes left-to-right
 
-       ; return $ mkCoreLams lam_vars $ 
-                  mkConApp (tupleCon (boxityNormalTupleSort boxity) (length tup_args))
-                           (map (Type . exprType) args ++ args) }
+       ; return $ mkCoreLams lam_vars $
+                  mkCoreTupBoxity boxity args }
 
 dsExpr (HsSCC cc expr@(L loc _)) = do
     mod_name <- getModule

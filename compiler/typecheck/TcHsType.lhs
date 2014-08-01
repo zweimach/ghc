@@ -350,10 +350,8 @@ tc_fun_type :: HsType Name -> LHsType Name -> LHsType Name -> ExpKind -> TcM TcT
 tc_fun_type ty ty1 ty2 exp_kind@(EK _ ctxt)
   = do { arg_lev <- newFlexiTyVarTy levityTy
        ; res_lev <- newFlexiTyVarTy levityTy
-       ; arg_k <- newFlexiTyVarTy (tYPE arg_lev)
-       ; res_k <- newFlexiTyVarTy (tYPE res_lev)
-       ; ty1' <- tc_lhs_type ty1 (EK arg_k ctxt)
-       ; ty2' <- tc_lhs_type ty2 (EK res_k ctxt)
+       ; ty1' <- tc_lhs_type ty1 (EK (tYPE arg_lev) ctxt)
+       ; ty2' <- tc_lhs_type ty2 (EK (tYPE res_lev) ctxt)
        ; checkExpectedKind ty liftedTypeKind exp_kind
        ; return (mkFunTy ty1' ty2') }
 
@@ -576,13 +574,18 @@ finish_tuple :: HsType Name -> TupleSort -> [TcType] -> ExpKind -> TcM TcType
 finish_tuple hs_ty tup_sort tau_tys exp_kind
   = do { checkExpectedKind hs_ty res_kind exp_kind
        ; checkWiredInTyCon tycon
-       ; return (mkTyConApp tycon tau_tys) }
+       ; return (mkTyConApp tycon arg_tys) }
   where
     tycon = tupleTyCon tup_sort (length tau_tys)
     res_kind = case tup_sort of
                  UnboxedTuple    -> unliftedTypeKind
                  BoxedTuple      -> liftedTypeKind
                  ConstraintTuple -> constraintKind
+    arg_tys  = case tup_sort of
+                   -- See also Note [Unboxed tuple levity vars] in TyCon
+                 UnboxedTuple    -> map getLevity tau_tys ++ tau_tys
+                 BoxedTuple      -> tau_tys
+                 ConstraintTuple -> tau_tys
 
 ---------------------------
 tcInferApps :: Outputable a

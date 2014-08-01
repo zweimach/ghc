@@ -2033,10 +2033,15 @@ pprTcApp _ pp tc [ty]
   | tc `hasKey` parrTyConKey = pprPromotionQuote tc <> paBrackets (pp TopPrec ty)
 
 pprTcApp p pp tc tys
+  | Just UnboxedTuple <- tyConTuple_maybe tc
+  , let arity = tyConArity tc
+  , arity == length tys
+  = tupleParens UnboxedTuple
+      (sep (punctuate comma (map (pp TopPrec) $ drop (arity `div` 2) tys)))
+
   | isTupleTyCon tc && tyConArity tc == length tys
   = pprPromotionQuote tc <>
     tupleParens (tupleTyConSort tc) (sep (punctuate comma (map (pp TopPrec) tys)))
-
   | Just dc <- isPromotedDataCon_maybe tc
   , let dc_tc = dataConTyCon dc
   , isTupleTyCon dc_tc

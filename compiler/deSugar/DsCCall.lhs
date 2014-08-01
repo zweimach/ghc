@@ -238,9 +238,9 @@ boxResult result_ty
 		     _ -> []
 
 	      return_result state anss
-		= mkConApp (tupleCon UnboxedTuple (2 + length extra_result_tys))
-	         	   (map Type (realWorldStatePrimTy : io_res_ty : extra_result_tys)
-			      ++ (state : anss)) 
+                = mkCoreUbxTup
+                    (realWorldStatePrimTy : io_res_ty : extra_result_tys)
+                    (state : anss)
 
 	; (ccall_res_ty, the_alt) <- mk_alt return_result res
 
@@ -286,8 +286,8 @@ mk_alt return_result (Nothing, wrap_result)
              the_rhs = return_result (Var state_id) 
                                      [wrap_result (panic "boxResult")]
 
-             ccall_res_ty = mkTyConApp unboxedSingletonTyCon [realWorldStatePrimTy]
-             the_alt      = (DataAlt unboxedSingletonDataCon, [state_id], the_rhs)
+             ccall_res_ty = mkTupleTy UnboxedTuple [realWorldStatePrimTy]
+             the_alt      = (DataAlt (tupleCon UnboxedTuple 1), [state_id], the_rhs)
        
        return (ccall_res_ty, the_alt)
 
@@ -302,8 +302,7 @@ mk_alt return_result (Just prim_res_ty, wrap_result)
     let
         the_rhs = return_result (Var state_id) 
                                 (wrap_result (Var result_id) : map Var as)
-        ccall_res_ty = mkTyConApp (tupleTyCon UnboxedTuple arity)
-                                  (realWorldStatePrimTy : ls)
+        ccall_res_ty = mkTupleTy UnboxedTuple (realWorldStatePrimTy : ls)
         the_alt      = ( DataAlt (tupleCon UnboxedTuple arity)
                        , (state_id : args_ids)
                        , the_rhs
@@ -316,8 +315,8 @@ mk_alt return_result (Just prim_res_ty, wrap_result)
     let
         the_rhs = return_result (Var state_id) 
                                 [wrap_result (Var result_id)]
-        ccall_res_ty = mkTyConApp unboxedPairTyCon [realWorldStatePrimTy, prim_res_ty]
-        the_alt      = (DataAlt unboxedPairDataCon, [state_id, result_id], the_rhs)
+        ccall_res_ty = mkTupleTy UnboxedTuple [realWorldStatePrimTy, prim_res_ty]
+        the_alt      = (DataAlt (tupleCon UnboxedTuple 2), [state_id, result_id], the_rhs)
     return (ccall_res_ty, the_alt)
 
 

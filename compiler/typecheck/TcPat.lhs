@@ -522,10 +522,15 @@ tc_pat penv (PArrPat pats _) pat_ty thing_inside
         }
 
 tc_pat penv (TuplePat pats boxity _) pat_ty thing_inside
-  = do	{ let tc = tupleTyCon (boxityNormalTupleSort boxity) (length pats)
+  = do	{ let arity = length pats
+              tc = tupleTyCon (boxityNormalTupleSort boxity) arity
         ; (coi, arg_tys) <- matchExpectedPatTy (matchExpectedTyConApp tc) pat_ty
-	; (pats', res) <- tc_lpats penv pats arg_tys thing_inside
-
+                     -- Unboxed tuples have levity vars, which we discard:
+                     -- See Note [Unboxed tuple levity vars] in TyCon
+        ; let con_arg_tys = case boxity of Unboxed -> drop arity arg_tys
+                                           Boxed   -> arg_tys
+        ; (pats', res) <- tc_lpats penv pats con_arg_tys thing_inside
+        
 	; dflags <- getDynFlags
 
 	-- Under flag control turn a pattern (x,y,z) into ~(x,y,z)
@@ -533,14 +538,14 @@ tc_pat penv (TuplePat pats boxity _) pat_ty thing_inside
 	-- This is a pretty odd place to make the switch, but
 	-- it was easy to do.
 	; let 
-              unmangled_result = TuplePat pats' boxity arg_tys
+              unmangled_result = TuplePat pats' boxity con_arg_tys
                                  -- pat_ty /= pat_ty iff coi /= IdCo
 	      possibly_mangled_result
 	        | gopt Opt_IrrefutableTuples dflags &&
                   isBoxed boxity            = LazyPat (noLoc unmangled_result)
 	        | otherwise		    = unmangled_result
 
- 	; ASSERT( length arg_tys == length pats )      -- Syntactically enforced
+ 	; ASSERT( length con_arg_tys == length pats ) -- Syntactically enforced
 	  return (mkHsWrapPat coi possibly_mangled_result pat_ty, res)
         }
 
