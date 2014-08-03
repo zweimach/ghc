@@ -1427,9 +1427,9 @@ tcGhciStmts stmts
                 -- if they were overloaded, since they aren't applied to anything.)
             ret_expr = nlHsApp (nlHsTyApp ret_id [ret_ty])
                        (noLoc $ ExplicitList unitTy Nothing (map mk_item ids)) ;
-            ty_args  = [idType id, unitTy]
-            mk_item id = nlHsApp (nlHsTyApp unsafeCoerceId
-                                            (map getLevity ty_args ++ ty_args))
+            mk_item id = let ty_args = [idType id, unitTy] in
+                         nlHsApp (nlHsTyApp unsafeCoerceId
+                                   (map (getLevity "tcGhciStmts") ty_args ++ ty_args))
                                  (nlHsVar id) ;
             stmts = tc_stmts ++ [noLoc (mkLastStmt ret_expr)]
         } ;

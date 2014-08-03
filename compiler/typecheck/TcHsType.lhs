@@ -683,8 +683,8 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
       = return (mk_tc_app [], ki_body)
       | otherwise
       = do { traceTc "lk4" (ppr name <+> dcolon <+> ppr kind)
-           ; ks <- mapM (const newMetaKindVar) kvs
-           ; return (mk_tc_app ks, substKiWith kvs ks ki_body) }
+           ; (_, ks, k_subst) <- tcInstTyCoVars (OccurrenceOf name) kvs
+           ; return (mk_tc_app ks, substTy k_subst ki_body) }
       where 
         (kvs, ki_body) = splitForAllTys kind
 

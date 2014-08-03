@@ -1079,7 +1079,7 @@ unsafeCoerceId
     rhs = mkLams [ levity1TyVar, levity2TyVar
                  , openAlphaTyVar, openBetaTyVar
                  , x] $
-          Cast (Var x) (mkUnsafeCo alphaTy betaTy)
+          Cast (Var x) (mkUnsafeCo openAlphaTy openBetaTy)
 
 ------------------------------------------------
 nullAddrId :: Id

@@ -402,7 +402,8 @@ writeMetaTyVarRef :: TcTyVar -> TcRef MetaDetails -> TcType -> TcM ()
 -- the ref cell must be for the same tyvar
 writeMetaTyVarRef tyvar ref ty
   | not debugIsOn
-  = do { traceTc "writeMetaTyVar" (ppr tyvar <+> text ":=" <+> ppr ty)
+  = do { traceTc "writeMetaTyVar" (ppr tyvar <+> dcolon <+> ppr (tyVarKind tyvar)
+                                   <+> text ":=" <+> ppr ty)
        ; writeMutVar ref (Indirect ty) }
 
 -- Everything from here on only happens if DEBUG is on

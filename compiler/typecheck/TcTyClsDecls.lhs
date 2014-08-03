@@ -1027,11 +1027,11 @@ tc_fam_ty_pats (name, arity, kind)
          wrongNumberOfParmsErr arity
 
          -- Instantiate with meta kind vars
-       ; fam_arg_kinds <- mapM (const newMetaKindVar) fam_kvs
+       ; (_, fam_arg_kinds, k_subst) <- tcInstTyCoVars PatOrigin fam_kvs
        ; loc <- getSrcSpanM
        ; let (arg_kinds, res_kind)
                  = splitFunTysN (length arg_pats) $
-                   substKiWith fam_kvs fam_arg_kinds fam_body
+                   substTy k_subst fam_body
              hs_tvs = HsQTvs { hsq_kvs = kvars
                              , hsq_tvs = userHsTyVarBndrs loc tvars }
 
