@@ -323,7 +323,7 @@ mkTcTyVar name kind details
 
 tcTyVarDetails :: TyVar -> TcTyVarDetails
 tcTyVarDetails (TcTyVar { tc_tv_details = details }) = details
-tcTyVarDetails var = pprPanic "tcTyVarDetails" (ppr var)
+tcTyVarDetails var = pprPanic "tcTyVarDetails" (ppr var <+> dcolon <+> ppr (tyVarKind var))
 
 setTcTyVarDetails :: TyVar -> TcTyVarDetails -> TyVar
 setTcTyVarDetails tv details = tv { tc_tv_details = details }

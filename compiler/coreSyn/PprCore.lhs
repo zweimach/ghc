@@ -108,8 +108,8 @@ ppr_expr :: OutputableBndr b => (SDoc -> SDoc) -> Expr b -> SDoc
         -- an atomic value (e.g. function args)
 
 ppr_expr _       (Var name)    = ppr name
-ppr_expr add_par (Type ty)     = add_par (ptext (sLit "TYPE") <+> ppr ty)       -- Weird
-ppr_expr add_par (Coercion co) = add_par (ptext (sLit "CO") <+> ppr co)
+ppr_expr add_par (Type ty)     = add_par (ptext (sLit "TYPE:") <+> ppr ty)       -- Weird
+ppr_expr add_par (Coercion co) = add_par (ptext (sLit "CO:") <+> ppr co)
 ppr_expr add_par (Lit lit)     = pprLiteral add_par lit
 
 ppr_expr add_par (Cast expr co)

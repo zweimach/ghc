@@ -54,7 +54,7 @@ module TcMType (
   zonkTcPredType, 
   skolemiseUnboundMetaTyVar,
   zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, zonkTcTypeAndFV,
-  zonkQuantifiedTyCoVar, quantifyTyCoVars,
+  zonkQuantifiedTyCoVar, zonkQuantifiedTyCoVarOrType, quantifyTyCoVars,
   zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, 
 
   zonkTcKind, defaultKindVar,
@@ -571,18 +571,18 @@ quantifyTyCoVars gbl_tvs tkvs
                          ; mapM_ defaultKindVar meta_kvs
                          ; return skolem_kvs }  -- should be empty
 
-       ; mapM zonk_quant (qkvs ++ qtvs) } 
+       ; mapMaybeM zonk_quant (qkvs ++ qtvs) } 
            -- Because of the order, any kind variables
            -- mentioned in the kinds of the type variables refer to
            -- the now-quantified versions
   where
     zonk_quant tkv
       | isTcTyCoVar tkv = zonkQuantifiedTyCoVar tkv
-      | otherwise     = return tkv
+      | otherwise       = return $ Just tkv
       -- For associated types, we have the class variables 
       -- in scope, and they are TyVars not TcTyVars
 
-zonkQuantifiedTyCoVar :: TcTyCoVar -> TcM TcTyCoVar
+zonkQuantifiedTyCoVar :: TcTyCoVar -> TcM (Maybe TcTyCoVar)
 -- The quantified type variables often include meta type variables
 -- we want to freeze them into ordinary type variables, and
 -- default their kind (e.g. from TYPE v to TYPE Lifted)
@@ -594,12 +594,26 @@ zonkQuantifiedTyCoVar :: TcTyCoVar -> TcM TcTyCoVar
 --
 -- This function is called on both kind and type variables,
 -- but kind variables *only* if PolyKinds is on.
-zonkQuantifiedTyCoVar tv
+--
+-- This returns a tyvar if it should be quantified over; otherwise,
+-- it returns Nothing. Nothing is
+-- returned only if zonkQuantifiedTyVar is passed a Levity meta-tyvar,
+-- in order to default to Lifted.
+zonkQuantifiedTyCoVar tv = left_only `liftM` zonkQuantifiedTyCoVarOrType tv
+  where left_only :: Either a b -> Maybe a
+        left_only (Left x) =  Just x
+        left_only (Right _) = Nothing
+
+-- | Like zonkQuantifiedTyCoVar, but if zonking reveals that the tyvar
+-- should become a type (when defaulting a levity var to Lifted), it
+-- returns the type instead.
+zonkQuantifiedTyCoVarOrType :: TcTyCoVar -> TcM (Either TcTyCoVar TcType)
+zonkQuantifiedTyCoVarOrType tv
   | isTyVar tv
   = ASSERT2( isTcTyVar tv, ppr tv ) 
     case tcTyVarDetails tv of
       SkolemTv {} -> do { kind <- zonkTcKind (tyVarKind tv)
-                        ; return $ setTyVarKind tv kind }
+                        ; return $ Left $ setTyVarKind tv kind }
 	-- It might be a skolem type variable, 
 	-- for example from a user type signature
 
@@ -612,12 +626,15 @@ zonkQuantifiedTyCoVar tv
                      Flexi -> return ()
                      Indirect ty -> WARN( True, ppr tv $$ ppr ty )
                                     return ()
-             skolemiseUnboundMetaTyVar tv vanillaSkolemTv
+             if isLevityVar tv
+             then do { writeMetaTyVar tv liftedDataConTy
+                     ; return (Right liftedDataConTy) }
+             else Left `liftM` skolemiseUnboundMetaTyVar tv vanillaSkolemTv
       _other -> pprPanic "zonkQuantifiedTyCoVar" (ppr tv) -- FlatSkol, RuntimeUnk
 
   | otherwise -- coercion variable
   = do { ty <- zonkTcKind (coVarKind tv)
-       ; return $ setVarType tv ty }
+       ; return $ Left $ setVarType tv ty }
 
 -- | Take an (unconstrained) meta tyvar and default it. Works only for
 -- kind vars (of type BOX) and levity vars (of type Levity).

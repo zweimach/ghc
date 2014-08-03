@@ -335,8 +335,8 @@ lintCoreExpr (Cast expr co)
 -- RAE This check fails, because of (at least) a failure to use mkCast in Specialise.specExpr
        ; co' <- applySubstCo co
        ; (_, k2, from_ty, to_ty, r) <- lintCoercion co'
-       ; lintL (isStarKind k2 || isUnliftedTypeKind k2)
-                (ptext (sLit "Target of cast not # or *:") <+> ppr co)
+       ; lintL (classifiesTypeWithValues k2)
+               (ptext (sLit "Target of cast not # or *:") <+> ppr co)
        ; lintRole co' Representational r
        ; ensureEqTys from_ty expr_ty (mkCastErr expr co' from_ty expr_ty)
        ; return to_ty }

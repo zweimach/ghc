@@ -1097,7 +1097,7 @@ tcIfaceExpr (IfaceTuple boxity args)  = do
     let con_tys = map exprType args'
         some_con_args = map Type con_tys ++ args'
         con_args = case boxity of
-          UnboxedTuple -> map (Type . getLevity) con_tys ++ some_con_args
+          UnboxedTuple -> map (Type . getLevity "tcIfaceExpr") con_tys ++ some_con_args
           _            -> some_con_args
     return (mkApps (Var con_id) con_args)
   where

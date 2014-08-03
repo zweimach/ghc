@@ -1255,7 +1255,11 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                        mkLHsWrap lam_wrapper (error_rhs dflags)) }
       where
         error_rhs dflags = L inst_loc $ HsApp error_fun (error_msg dflags)
-        error_fun    = L inst_loc $ wrapId (mkWpTyApps [getLevity meth_tau, meth_tau]) nO_METHOD_BINDING_ERROR_ID
+        error_fun    = L inst_loc $
+                       wrapId (mkWpTyApps
+                                [ getLevity "tcInstanceMethods.tc_default" meth_tau
+                                , meth_tau])
+                              nO_METHOD_BINDING_ERROR_ID
         error_msg dflags = L inst_loc (HsLit (HsStringPrim (unsafeMkByteString (error_string dflags))))
         meth_tau     = funResultTy (applyTys (idType sel_id) inst_tys)
         error_string dflags = showSDoc dflags (hcat [ppr inst_loc, text "|", ppr sel_id ])

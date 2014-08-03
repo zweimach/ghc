@@ -1086,17 +1086,11 @@ varToIfaceForAllBndr v
 ----------------
 toIfaceTyCon :: TyCon -> IfaceTyCon
 toIfaceTyCon tc
-  | isPromotedDataCon tc = IfacePromotedDataCon tc_name
-  | ends_in_box (tyConKind tc) = IfacePromotedTyCon tc_name
-  | otherwise            = IfaceTc tc_name
+  | isPromotedDataCon tc            = IfacePromotedDataCon tc_name
+  | returnsSuperKind (tyConKind tc) = IfacePromotedTyCon tc_name
+  | otherwise                       = IfaceTc tc_name
     where tc_name = tyConName tc
           
-          ends_in_box :: Type -> Bool
-          ends_in_box (FunTy _ t2)     = ends_in_box t2
-          ends_in_box (ForAllTy _ t2)  = ends_in_box t2
-          ends_in_box (TyConApp box _) = isSuperKindCon box
-          ends_in_box _                = False
-
 toIfaceTyCon_name :: Name -> IfaceTyCon
 toIfaceTyCon_name = IfaceTc
 

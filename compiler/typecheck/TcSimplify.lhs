@@ -873,17 +873,6 @@ defaultTyVar the_tv
        ; setWantedTyBind the_tv liftedDataConTy
        ; return the_tv }
     
-  | Just lev_tv <- isSortPolymorphic_maybe (tyVarKind the_tv)
-  , isMetaTyVar lev_tv   -- presumably, we just tried to default this to Lifted
-  = do { tv' <- TcS.cloneMetaTyVar the_tv
-       ; let new_tv = setTyVarKind tv' liftedTypeKind
-       ; traceTcS "defaultTyVar" (ppr the_tv <+> ppr new_tv)
-       ; setWantedTyBind the_tv (mkTyCoVarTy new_tv)
-       ; return new_tv }
-             -- Why not directly derived_pred = mkTcEqPred k default_k?
-             -- See Note [DefaultTyVar]
-             -- We keep the same Untouchables on tv'
-
   | otherwise = return the_tv    -- The common case
 
 approximateWC :: WantedConstraints -> Cts

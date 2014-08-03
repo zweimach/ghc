@@ -399,7 +399,7 @@ mkCoreUbxTup :: [Type] -> [CoreExpr] -> CoreExpr
 mkCoreUbxTup tys exps
   = ASSERT( tys `equalLength` exps)
     mkConApp (tupleCon UnboxedTuple (length tys))
-             (map (Type . getLevity) tys ++ map Type tys ++ exps)
+             (map (Type . getLevity "mkCoreUbxTup") tys ++ map Type tys ++ exps)
 
 -- | Make a core tuple of the given boxity
 mkCoreTupBoxity :: Boxity -> [CoreExpr] -> CoreExpr
@@ -643,7 +643,7 @@ mkRuntimeErrorApp
         -> CoreExpr
 
 mkRuntimeErrorApp err_id res_ty err_msg 
-  = mkApps (Var err_id) [Type (getLevity res_ty), Type res_ty, err_string]
+  = mkApps (Var err_id) [Type (getLevity "mkRuntimeErrorApp" res_ty), Type res_ty, err_string]
   where
     err_string = Lit (mkMachString err_msg)
 

@@ -182,12 +182,12 @@ mkWiredInDataConName built_in modu fs unique datacon
                   (AConLike (RealDataCon datacon))    -- Relevant DataCon
                   built_in
 
--- See Note [Kind-changing of (~) and Coercible]
+-- See Note [Kind-changing of (~) and Coercible] in libraries/ghc-prim/GHC/Types.hs
 eqTyConName, eqBoxDataConName :: Name
 eqTyConName      = mkWiredInTyConName   BuiltInSyntax gHC_TYPES (fsLit "~")   eqTyConKey      eqTyCon
 eqBoxDataConName = mkWiredInDataConName UserSyntax    gHC_TYPES (fsLit "Eq#") eqBoxDataConKey eqBoxDataCon
 
--- See Note [Kind-changing of (~) and Coercible]
+-- See Note [Kind-changing of (~) and Coercible] in libraries/ghc-prim/GHC/Types.hs
 coercibleTyConName, coercibleDataConName :: Name
 coercibleTyConName   = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Coercible")  coercibleTyConKey   coercibleTyCon
 coercibleDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "MkCoercible") coercibleDataConKey coercibleDataCon
@@ -847,7 +847,7 @@ mkTupleTy :: TupleSort -> [Type] -> Type
 -- Special case for *boxed* 1-tuples, which are represented by the type itself
 mkTupleTy sort [ty] | Boxed <- tupleSortBoxity sort = ty
 mkTupleTy UnboxedTuple tys = mkTyConApp (tupleTyCon UnboxedTuple (length tys))
-                                        (map getLevity tys ++ tys)
+                                        (map (getLevity "mkTupleTy") tys ++ tys)
 mkTupleTy sort tys = mkTyConApp (tupleTyCon sort (length tys)) tys
 
 -- | Build the type of a small tuple that holds the specified type of thing

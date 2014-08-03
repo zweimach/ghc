@@ -574,6 +574,12 @@ finish_tuple :: HsType Name -> TupleSort -> [TcType] -> ExpKind -> TcM TcType
 finish_tuple hs_ty tup_sort tau_tys exp_kind
   = do { checkExpectedKind hs_ty res_kind exp_kind
        ; checkWiredInTyCon tycon
+       ; tau_tys' <- zonkTcTypes tau_tys  -- necessary so that the getLevity works
+       ; let arg_tys  = case tup_sort of
+                   -- See also Note [Unboxed tuple levity vars] in TyCon
+                 UnboxedTuple    -> map (getLevity "finish_tuple") tau_tys' ++ tau_tys'
+                 BoxedTuple      -> tau_tys
+                 ConstraintTuple -> tau_tys
        ; return (mkTyConApp tycon arg_tys) }
   where
     tycon = tupleTyCon tup_sort (length tau_tys)
@@ -581,11 +587,6 @@ finish_tuple hs_ty tup_sort tau_tys exp_kind
                  UnboxedTuple    -> unliftedTypeKind
                  BoxedTuple      -> liftedTypeKind
                  ConstraintTuple -> constraintKind
-    arg_tys  = case tup_sort of
-                   -- See also Note [Unboxed tuple levity vars] in TyCon
-                 UnboxedTuple    -> map getLevity tau_tys ++ tau_tys
-                 BoxedTuple      -> tau_tys
-                 ConstraintTuple -> tau_tys
 
 ---------------------------
 tcInferApps :: Outputable a
@@ -1749,6 +1750,10 @@ tc_kind_var_app name arg_kis
   = do { thing <- tcLookup name
        ; case thing of
   	   AGlobal (ATyCon tc)
+             | returnsSuperKind (tyConKind tc)  -- already at kind level
+             -> return (mkTyConApp tc arg_kis)
+
+             | otherwise
   	     -> do { data_kinds <- xoptM Opt_DataKinds
   	           ; unless data_kinds $ addErr (dataKindsErr name)
   	     	   ; case promotableTyCon_maybe tc of

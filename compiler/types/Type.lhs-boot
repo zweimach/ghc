@@ -11,5 +11,5 @@ piResultTy :: Type -> Type -> Type
 typeKind :: Type -> Kind
 eqType :: Type -> Type -> Bool
 
-coreView :: Type -> Maybe Type
+coreViewOneStarKind :: Type -> Maybe Type
 \end{code}

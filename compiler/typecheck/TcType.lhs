@@ -107,7 +107,7 @@ module TcType (
   Kind, typeKind,
   unliftedTypeKind, liftedTypeKind,
   constraintKind, mkArrowKind, mkArrowKinds,
-  isLiftedTypeKind, isUnliftedTypeKind, isTypeWithValues,
+  isLiftedTypeKind, isUnliftedTypeKind, classifiesTypeWithValues,
 
   --------------------------------
   -- Rexported from Type

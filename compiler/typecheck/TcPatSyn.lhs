@@ -66,8 +66,8 @@ tcPatSynDecl lname@(L _ name) details lpat dir
              prov_theta = map evVarPred prov_dicts
              req_theta  = map evVarPred req_dicts
 
-       ; univ_tvs   <- mapM zonkQuantifiedTyCoVar univ_tvs
-       ; ex_tvs     <- mapM zonkQuantifiedTyCoVar ex_tvs
+       ; univ_tvs   <- mapMaybeM zonkQuantifiedTyCoVar univ_tvs
+       ; ex_tvs     <- mapMaybeM zonkQuantifiedTyCoVar ex_tvs
        ; prov_theta <- zonkTcThetaType prov_theta
        ; req_theta  <- zonkTcThetaType req_theta
        ; pat_ty     <- zonkTcType pat_ty
@@ -122,7 +122,9 @@ tcPatSynMatcher :: Located Name
                 -> TcM (Id, LHsBinds Id)
 -- See Note [Matchers and wrappers for pattern synonyms] in PatSyn
 tcPatSynMatcher (L loc name) lpat args univ_tvs ex_tvs ev_binds prov_dicts req_dicts prov_theta req_theta pat_ty
-  = do { res_tv <- zonkQuantifiedTyCoVar =<< newFlexiTyVar liftedTypeKind
+          -- zonkQuantifiedTyCoVar returns Nothing only if given a levity var
+          -- TODO (RAE): The following idiom looks funky. Is it? (I didn't write it.)
+  = do { Just res_tv <- zonkQuantifiedTyCoVar =<< newFlexiTyVar liftedTypeKind
        ; matcher_name <- newImplicitBinder name mkMatcherOcc
        ; let res_ty = mkOnlyTyVarTy res_tv
              cont_ty = mkSigmaTy ex_tvs prov_theta $

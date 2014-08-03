@@ -34,7 +34,7 @@ module TyCoRep (
         mkTyCoVarTy, mkTyCoVarTys,
         isLiftedTypeKind, isUnliftedTypeKind,
         isSuperKind, isTypeVar, isKindVar,
-        isCoercionType, isLevityTy,
+        isCoercionType, isLevityTy, isLevityVar,
 
         -- Functions over coercions
         setCoBndrEta, eqCoBndrSort, pickLR, coBndrVars, coBndrVarsKinds,
@@ -394,8 +394,12 @@ isLevityTy :: Type -> Bool
 isLevityTy (TyConApp tc []) = tc `hasKey` levityTyConKey
 isLevityTy _                = False
 
+-- | Is a tyvar of type 'Levity'?
+isLevityVar :: TyVar -> Bool
+isLevityVar = isLevityTy . tyVarKind
+
 isTypeVar :: Var -> Bool
-isTypeVar v = isTKVar v && not (isSuperKind (varType v))
+isTypeVar v = isTKVar v && not (isKindVar v)
 
 isKindVar :: Var -> Bool
 isKindVar v = isTKVar v && (isSuperKind k || isLevityTy k)

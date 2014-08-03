@@ -26,22 +26,22 @@ module Kind (
 
         -- ** Predicates on Kinds
         isLiftedTypeKind, isUnliftedTypeKind,
-        isConstraintKind, returnsConstraintKind,
+        isConstraintKind,
+        returnsTyCon, returnsSuperKind, returnsConstraintKind,
         isKind, isKindVar,
         isSuperKind, isSuperKindCon,
         isConstraintKindCon,
         isAnyKind, isAnyKindCon,
         okArrowArgKind, okArrowResultKind,
 
-        isTypeWithValues,
+        classifiesTypeWithValues,
         isStarKind, isStarKindSynonymTyCon,
         isSortPolymorphic, isSortPolymorphic_maybe
-
        ) where
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} Type      ( typeKind, piResultTy, coreView )
+import {-# SOURCE #-} Type       ( typeKind, piResultTy, coreViewOneStarKind )
 
 import TyCoRep
 import TysPrim
@@ -116,11 +116,19 @@ isAnyKind _               = False
 isConstraintKind (TyConApp tc _) = isConstraintKindCon tc
 isConstraintKind _               = False
 
+-- | Does the given type "end" in the given tycon? For example @k -> [a] -> *@
+-- ends in @*@ and @Maybe a -> [a]@ ends in @[]@.
+returnsTyCon :: TyCon -> Type -> Bool
+returnsTyCon tc (ForAllTy _ ty)  = returnsTyCon tc ty
+returnsTyCon tc (FunTy    _ ty)  = returnsTyCon tc ty
+returnsTyCon tc (TyConApp tc' _) = tc == tc'
+returnsTyCon _  _                = False
+
+returnsSuperKind :: Kind -> Bool
+returnsSuperKind = returnsTyCon superKindTyCon
+
 returnsConstraintKind :: Kind -> Bool
-returnsConstraintKind (ForAllTy _ k)  = returnsConstraintKind k
-returnsConstraintKind (FunTy _ k)     = returnsConstraintKind k
-returnsConstraintKind (TyConApp tc _) = isConstraintKindCon tc
-returnsConstraintKind _               = False
+returnsConstraintKind = returnsTyCon constraintKindTyCon
 
 -- | Tests whether the given type looks like "TYPE v", where v is a variable.
 isSortPolymorphic :: Kind -> Bool
@@ -140,8 +148,8 @@ isSortPolymorphic_maybe _ = Nothing
 --     arg -> res
 
 okArrowArgKind, okArrowResultKind :: Kind -> Bool
-okArrowArgKind = isTypeWithValues
-okArrowResultKind = isTypeWithValues
+okArrowArgKind = classifiesTypeWithValues
+okArrowResultKind = classifiesTypeWithValues
 
 -----------------------------------------
 --              Subkinding
@@ -150,21 +158,20 @@ okArrowResultKind = isTypeWithValues
 -- After type-checking (in core), Constraint, SuperKind, and liftedTypeKind are
 -- indistinguishable
 
-isTypeWithValues :: Kind -> Bool
+-- | Does this classify a type allowed to have values? Responds True to things
+-- like *, #, TYPE Lifted, TYPE v, Constraint.
+classifiesTypeWithValues :: Kind -> Bool
 -- ^ True of any sub-kind of OpenTypeKind
-isTypeWithValues t | Just t' <- coreView t = isTypeWithValues t'
-isTypeWithValues (TyConApp tc [_]) = tc `hasKey` tYPETyConKey
-isTypeWithValues (TyConApp tc [])  = isStarKindSynonymTyCon tc
-isTypeWithValues _ = False
+classifiesTypeWithValues t | Just t' <- coreViewOneStarKind t = classifiesTypeWithValues t'
+classifiesTypeWithValues (TyConApp tc [_]) = tc `hasKey` tYPETyConKey
+classifiesTypeWithValues _ = False
 
 -- | Is this kind equivalent to *?
 isStarKind :: Kind -> Bool
-isStarKind (TyConApp tc [TyConApp l []])
-  | tc `hasKey` tYPETyConKey
-  , l `hasKey` liftedDataConKey
-  = True
-isStarKind (TyConApp tc []) = isStarKindSynonymTyCon tc
-isStarKind _                = False
+isStarKind k | Just k' <- coreViewOneStarKind k = isStarKind k'
+isStarKind (TyConApp tc [TyConApp l []]) = tc `hasKey` tYPETyConKey
+                                        && l `hasKey` liftedDataConKey
+isStarKind _ = False
                               -- See Note [Kind Constraint and kind *]
 
 -- | Is the tycon @Constraint@ or @BOX@?
@@ -174,6 +181,7 @@ isStarKindSynonymTyCon tc = tc `hasKey` superKindTyConKey
 
 -- | Is this a kind (i.e. a type-of-types)?
 isKind :: Kind -> Bool
-isKind k = isSuperKind (typeKind k)
+isKind k = isSuperKind kty || isLevityTy kty
+  where kty = typeKind k
 
 \end{code}

@@ -243,7 +243,7 @@ matchExpectedTyConApp tc orig_ty
     --    (a::*) ~ Maybe
     -- because that'll make types that are utterly ill-kinded.
     -- This happened in Trac #7368
-    defer = ASSERT2( isTypeWithValues res_kind, ppr tc )
+    defer = ASSERT2( classifiesTypeWithValues res_kind, ppr tc )
             do { kappa_tys <- mapM (const newMetaKindVar) kvs
                ; let arg_kinds' = map (substKiWith kvs kappa_tys) arg_kinds
                ; tau_tys <- mapM newFlexiTyVarTy arg_kinds'

@@ -37,7 +37,7 @@ import TcRnMonad
 import PrelNames
 import TyCoRep     -- We can see the representation of types
 import TcType
-import TcMType ( defaultKindVar, zonkQuantifiedTyCoVar, writeMetaTyVar )
+import TcMType
 import TcEvidence
 import TysPrim
 import TysWiredIn
@@ -1465,10 +1465,13 @@ zonkTvCollecting :: TcRef TyVarSet -> UnboundTyVarZonker
 zonkTvCollecting unbound_tv_set tv
   = do { poly_kinds <- xoptM Opt_PolyKinds
        ; if isKindVar tv && not poly_kinds then defaultKindVar tv else do
-       { tv' <- zonkQuantifiedTyCoVar tv
-       ; tv_set <- readMutVar unbound_tv_set
-       ; writeMutVar unbound_tv_set (extendVarSet tv_set tv')
-       ; return (mkTyCoVarTy tv') } }
+       { ty_or_tv <- zonkQuantifiedTyCoVarOrType tv
+       ; case ty_or_tv of
+           Right ty -> return ty
+           Left tv' -> do
+             { tv_set <- readMutVar unbound_tv_set
+             ; writeMutVar unbound_tv_set (extendVarSet tv_set tv')
+             ; return (mkTyCoVarTy tv') } } }
 
 zonkTypeZapping :: UnboundTyVarZonker
 -- This variant is used for everything except the LHS of rules

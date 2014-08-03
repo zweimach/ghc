@@ -74,7 +74,7 @@ module Type (
 
         -- (Lifting and boxity)
         isUnLiftedType, isUnboxedTupleType, isAlgType, isClosedAlgType,
-        isPrimitiveType, isStrictType, isLevityVar, getLevity,
+        isPrimitiveType, isStrictType, isLevityTy, isLevityVar, getLevity,
 
         -- * Main data types representing Kinds
         Kind, SimpleKind, MetaKindVar,
@@ -103,7 +103,7 @@ module Type (
         seqType, seqTypes,
 
         -- * Other views onto Types
-        coreView, tcView,
+        coreView, coreViewOneStarKind, tcView,
 
         UnaryType, RepType(..), flattenRepType, repType,
         tyConsOfType,
@@ -762,7 +762,10 @@ repType ty
       | isUnboxedTupleTyCon tc
       = if null tys
          then UnaryRep voidPrimTy -- See Note [Nullary unboxed tuple]
-         else UbxTupleRep (concatMap (flattenRepType . go rec_nts) tys)
+         else UbxTupleRep (concatMap (flattenRepType . go rec_nts) non_levity_tys)
+      where
+          -- See Note [Unboxed tuple levity vars] in TyCon
+        non_levity_tys = drop (length tys `div` 2) tys
 
     go rec_nts (CastTy ty _)
       = go rec_nts ty
@@ -1301,20 +1304,17 @@ isUnLiftedType (ForAllTy tv ty)
 isUnLiftedType (TyConApp tc _)      = isUnLiftedTyCon tc
 isUnLiftedType _                    = False
 
--- | Is a tyvar of type 'Levity'?
-isLevityVar :: TyVar -> Bool
-isLevityVar = isLevityTy . tyVarKind
-
 -- | Extract the levity classifier of a type. Panics if this is not possible.
-getLevity :: Type -> Type
-getLevity ty = go (typeKind ty)
+getLevity :: String   -- ^ Printed in case of an error
+          -> Type -> Type
+getLevity err ty = go (typeKind ty)
   where
     go k | Just k' <- coreViewOneStarKind k = go k'
     go k
       | Just (tc, [arg]) <- splitTyConApp_maybe k
       , tc `hasKey` tYPETyConKey
       = arg
-    go k = pprPanic "getLevity" (ppr k)
+    go k = pprPanic "getLevity" (text err $$ ppr k <+> dcolon <+> ppr (typeKind k))
 
 isUnboxedTupleType :: Type -> Bool
 isUnboxedTupleType ty = case tyConAppTyCon_maybe ty of
@@ -1559,7 +1559,7 @@ typeKind orig_ty = go orig_ty
         --   (a) types (of kind openTypeKind or its sub-kinds)
         --   (b) kinds (of super-kind TY) (e.g. * -> (* -> *))
         | isSuperKind k         = k
-        | otherwise             = ASSERT2( isTypeWithValues k, ppr _ty $$ ppr k ) liftedTypeKind
+        | otherwise             = ASSERT2( classifiesTypeWithValues k, ppr _ty $$ ppr k ) liftedTypeKind
         where
           k = go res
     go (CastTy _ty co)      = pSnd $ coercionKind co

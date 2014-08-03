@@ -202,8 +202,8 @@ check_kind ctxt ty
                  (constraintSynErr actual_kind) }
   | otherwise
   = case expectedKindInCtxt ctxt of
-      TheKind k -> checkTc (tcEqType actual_kind k)       (kindErr actual_kind)
-      OpenKind  -> checkTc (isTypeWithValues actual_kind) (kindErr actual_kind)
+      TheKind k -> checkTc (tcEqType actual_kind k)               (kindErr actual_kind)
+      OpenKind  -> checkTc (classifiesTypeWithValues actual_kind) (kindErr actual_kind)
       AnythingKind -> return ()
   where
     actual_kind = typeKind ty
