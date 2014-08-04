@@ -395,14 +395,13 @@ tcExpr (ExplicitTuple tup_args boxity) res_ty
   | otherwise
   = -- The tup_args are a mixture of Present and Missing (for tuple sections)
     do { let arity = length tup_args
-             tup_tc = tupleTyCon (boxityNormalTupleSort boxity) arity
 
        ; arg_tys <- case boxity of
            { Boxed   -> newFlexiTyVarTys arity liftedTypeKind
            ; Unboxed -> replicateM arity newOpenFlexiTyVarTy }
        ; let actual_res_ty
                  = mkFunTys [ty | (ty, Missing _) <- arg_tys `zip` tup_args]
-                            (mkTyConApp tup_tc arg_tys)
+                            (mkTupleTy (boxityNormalTupleSort boxity) arg_tys)
 
        ; coi <- unifyType actual_res_ty res_ty
 

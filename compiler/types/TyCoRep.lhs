@@ -2027,6 +2027,12 @@ pprTyTcApp p tc tys
     if gopt Opt_PrintExplicitKinds dflags then pprTcApp  p ppr_type tc tys
                                    else pprTyList p ty1 ty2
 
+  | tc `hasKey` tYPETyConKey
+  , [TyConApp lev_tc []] <- tys
+  = if lev_tc `hasKey` liftedDataConKey then char '*'
+    else if lev_tc `hasKey` unliftedDataConKey then char '#'
+         else pprPanic "pprTyTcApp unknown levity" (ppr lev_tc)
+
   | otherwise
   = pprTcApp p ppr_type tc tys
 
@@ -2046,6 +2052,7 @@ pprTcApp p pp tc tys
   | isTupleTyCon tc && tyConArity tc == length tys
   = pprPromotionQuote tc <>
     tupleParens (tupleTyConSort tc) (sep (punctuate comma (map (pp TopPrec) tys)))
+    
   | Just dc <- isPromotedDataCon_maybe tc
   , let dc_tc = dataConTyCon dc
   , isTupleTyCon dc_tc
