@@ -78,7 +78,8 @@ module TysWiredIn (
         -- * Levity
         levityTy, levityTyCon, liftedDataCon, unliftedDataCon,
         liftedPromDataCon, unliftedPromDataCon,
-        liftedDataConTy, unliftedDataConTy
+        liftedDataConTy, unliftedDataConTy,
+        liftedDataConName, unliftedDataConName
     ) where
 
 #include "HsVersions.h"
@@ -223,8 +224,10 @@ typeSymbolKindConName = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "Symbo
 
 levityTyConName, liftedDataConName, unliftedDataConName :: Name
 levityTyConName     = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Levity") levityTyConKey levityTyCon
-liftedDataConName   = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "Lifted") liftedDataConKey liftedDataCon
-unliftedDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "Unlifted") unliftedDataConKey unliftedDataCon
+ -- TODO (RAE): This are "BuiltInSyntax" so that :info doesn't exclude bits that
+ -- mention Lifted or Unlifted. This is terrible. Fix.
+liftedDataConName   = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "Lifted") liftedDataConKey liftedDataCon
+unliftedDataConName = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "Unlifted") unliftedDataConKey unliftedDataCon
 
 -- For integer-gmp only:
 integerRealTyConName :: Name

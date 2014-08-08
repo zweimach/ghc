@@ -1,6 +1,6 @@
 
 ==================== Tidy Core ====================
-Result size of Tidy Core = {terms: 8, types: 19, coercions: 1}
+Result size of Tidy Core = {terms: 8, types: 21, coercions: 1}
 
 T2431.$WRefl [InlPrag=INLINE] :: forall a. a T2431.:~: a
 [GblId[DataConWrapper],

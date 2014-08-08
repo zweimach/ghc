@@ -594,6 +594,9 @@ liftTcM = id
 newVar :: Kind -> TR TcType
 newVar = liftTcM . newFlexiTyVarTy
 
+newOpenVar :: TR TcType
+newOpenVar = liftTcM newOpenFlexiTyVarTy
+
 instTyCoVars :: [TyCoVar] -> TR ([TcTyCoVar], [TcType], TCvSubst)
 -- Instantiate fresh mutable type variables from some TyVars
 -- This function preserves the print-name, which helps error messages
@@ -663,8 +666,7 @@ cvObtainTerm hsc_env max_depth force old_ty hval = runTR hsc_env $ do
         return $ fixFunDictionaries $ expandNewtypes term'
       else do
               (old_ty', rev_subst) <- instScheme quant_old_ty
-                -- TODO (RAE): I changed this from openTypeKind, but I'm worried.
-              my_ty <- newVar liftedTypeKind
+              my_ty <- newOpenVar
               when (check1 quant_old_ty) (traceTR (text "check1 passed") >>
                                           addConstraint my_ty old_ty')
               term  <- go max_depth my_ty sigma_old_ty hval
@@ -684,8 +686,7 @@ cvObtainTerm hsc_env max_depth force old_ty hval = runTR hsc_env $ do
                       zterm' <- mapTermTypeM
                                  (\ty -> case tcSplitTyConApp_maybe ty of
                                            Just (tc, _:_) | tc /= funTyCon
-                                               -- TODO (RAE): from openTypeKind
-                                               -> newVar liftedTypeKind
+                                               -> newOpenVar
                                            _   -> return ty)
                                  term
                       zonkTerm zterm'
@@ -800,7 +801,8 @@ extractSubTerms recurse clos = liftM thirdOf3 . go 0 (nonPtrs clos)
     go ptr_i ws (ty:tys)
       | Just (tc, elem_tys) <- tcSplitTyConApp_maybe ty
       , isUnboxedTupleTyCon tc
-      = do (ptr_i, ws, terms0) <- go ptr_i ws elem_tys
+                -- See Note [Unboxed tuple levity vars] in TyCon
+      = do (ptr_i, ws, terms0) <- go ptr_i ws (drop (length elem_tys `div` 2) elem_tys)
            (ptr_i, ws, terms1) <- go ptr_i ws tys
            return (ptr_i, ws, unboxedTupleTerm ty terms0 : terms1)
       | otherwise
@@ -845,8 +847,7 @@ cvReconstructType hsc_env max_depth old_ty hval = runTR_maybe hsc_env $ do
         then return old_ty
         else do
           (old_ty', rev_subst) <- instScheme sigma_old_ty
-             -- TODO (RAE): from openTypeKind
-          my_ty <- newVar liftedTypeKind
+          my_ty <- newOpenVar
           when (check1 sigma_old_ty) (traceTR (text "check1 passed") >>
                                       addConstraint my_ty old_ty')
           search (isMonomorphic `fmap` zonkTcType my_ty)

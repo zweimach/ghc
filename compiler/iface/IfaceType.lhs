@@ -418,6 +418,10 @@ pprIfaceIdBndr (name, ty) = hsep [ppr name, dcolon, ppr ty]
 pprIfaceTvBndr :: IfaceTvBndr -> SDoc
 pprIfaceTvBndr (tv, IfaceTyConApp tc ITC_Nil)
   | ifaceTyConName tc == liftedTypeKindTyConName = ppr tv
+pprIfaceTvBndr (tv, IfaceTyConApp tc (ITC_Type (IfaceTyConApp lifted ITC_Nil) ITC_Nil))
+  | ifaceTyConName tc     == tYPETyConName
+  , ifaceTyConName lifted == liftedDataConName
+  = ppr tv
 pprIfaceTvBndr (tv, kind) = parens (ppr tv <+> dcolon <+> ppr kind)
 
 pprIfaceTvBndrs :: [IfaceTvBndr] -> SDoc
@@ -588,6 +592,13 @@ pprTyTcApp ctxt_prec tc tys dflags
   , not (gopt Opt_PrintExplicitKinds dflags)
   , ITC_Kind _ (ITC_Type ty1 (ITC_Type ty2 ITC_Nil)) <- tys
   = pprIfaceTyList ctxt_prec ty1 ty2
+
+  | ifaceTyConName tc == tYPETyConName
+  , ITC_Type (IfaceTyConApp lev_tc ITC_Nil) ITC_Nil <- tys
+  = let n = ifaceTyConName lev_tc in
+    if n == liftedDataConName then char '*'
+    else if n == unliftedDataConName then char '#'
+         else pprPanic "IfaceType.pprTyTcApp" (ppr lev_tc)
 
   | otherwise
   = ppr_iface_tc_app ppr_ty ctxt_prec tc tys_wo_kinds

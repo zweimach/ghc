@@ -1302,9 +1302,6 @@ occurCheckExpand dflags tv ty
           MetaTv { mtv_info = PolyTv } -> True
           MetaTv { mtv_info = SigTv }  -> False
           MetaTv { mtv_info = TauTv }  -> xopt Opt_ImpredicativeTypes dflags
-                                       || isSortPolymorphic (tyVarKind tv)
-                            -- Note [Sort-polymorphic tyvars accept foralls]
-                            -- in TcUnify
           _other                       -> True
           -- We can have non-meta tyvars in given constraints
 

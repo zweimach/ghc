@@ -299,7 +299,8 @@ simplifyInfer _top_lvl apply_mr name_taus wanteds
                                --     hence "incl_derivs"
 
               else do { let quant_cand = approximateWC wanted_transformed
-                            meta_tvs   = filter isMetaTyVar (varSetElems (tyCoVarsOfCts quant_cand))
+                            meta_tvs   = filter isMetaTyVar (varSetElems (closeOverKinds (tyCoVarsOfCts quant_cand)))
+
                       ; gbl_tvs <- tcGetGlobalTyVars
                       ; null_ev_binds_var <- newTcEvBinds
                             -- Miminise quant_cand.  We are not interested in any evidence

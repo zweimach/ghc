@@ -878,8 +878,6 @@ checkTauTvUpdate dflags tv ty
     info = ASSERT2( isMetaTyVar tv, ppr tv ) metaTyVarInfo tv
 
     impredicative = xopt Opt_ImpredicativeTypes dflags
-                 || isSortPolymorphic (tyVarKind tv)  
-                       -- Note [Sort-polymorphic tyvars accept foralls]
                  || case info of { PolyTv -> True;  _ -> False }
 
     defer_me :: TcType -> Bool
@@ -916,24 +914,6 @@ checkTauTvUpdate dflags tv ty
     defer_me_arg (TyCoArg co)        = defer_me_co co
     defer_me_arg (CoCoArg _ co1 co2) = defer_me_co co1 || defer_me_co co2
 \end{code}
-
-Note [Sort-polymorphic tyvars accept foralls]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Here is a common paradigm:
-   foo :: (forall a. a -> a) -> Int
-   foo = error "urk"
-To make this work we need to instantiate 'error' with a polytype.
-A similar case is
-   bar :: Bool -> (forall a. a->a) -> Int
-   bar True = \x. (x 3)
-   bar False = error "urk"
-Here we need to instantiate 'error' with a polytype. 
-
-But 'error' has an sort-polymorphic type variable, precisely so that
-we can instantiate it with Int#.  So we also allow such type variables
-to be instantiate with foralls.  It's a bit of a hack, but seems
-straightforward.
-
 
 Note [Conservative unification check]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1197,9 +1177,9 @@ unifyKind (FunTy a1 r1) (FunTy a2 r2)
        ; b2 <- unifyKind r1 r2
        ; return (b1 && b2) }
 
-unifyKind (TyConApp kc1 k1s) (TyConApp kc2 k2s)
+unifyKind k1@(TyConApp kc1 k1s) k2@(TyConApp kc2 k2s)
   | kc1 == kc2
-  = ASSERT(length k1s == length k2s)
+  = ASSERT2(length k1s == length k2s, ppr k1 $$ ppr k2)
        -- Should succeed since the kind constructors are the same,
        -- and the kinds are sort-checked, thus fully applied
     and `liftM` zipWithM unifyKind k1s k2s

@@ -453,6 +453,23 @@ is done by using an EvUnbox EvTerm in an HsWrapper. The mkWpTyApps function
 used in instCall (frequently called soon after tcInstTyCoVars) does this
 correctly. See also [Wrapping coercions embedded in types] in TcEvidence.
 
+Note [Sort-polymorphic tyvars accept foralls]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Here is a common paradigm:
+   foo :: (forall a. a -> a) -> Int
+   foo = error "urk"
+To make this work we need to instantiate 'error' with a polytype.
+A similar case is
+   bar :: Bool -> (forall a. a->a) -> Int
+   bar True = \x. (x 3)
+   bar False = error "urk"
+Here we need to instantiate 'error' with a polytype. 
+
+But 'error' has an sort-polymorphic type variable, precisely so that
+we can instantiate it with Int#.  So we also allow such type variables
+to be instantiate with foralls.  It's a bit of a hack, but seems
+straightforward.
+
 \begin{code}
 newFlexiTyVar :: Kind -> TcM TcTyVar
 newFlexiTyVar kind = newMetaTyVar TauTv kind
@@ -498,7 +515,11 @@ tcInstTyCoVarX :: CtOrigin -> TCvSubst -> TyCoVar -> TcM (TCvSubst, TcTyCoVar)
 tcInstTyCoVarX origin subst tyvar
   | isTyVar tyvar
   = do  { uniq <- newUnique
-        ; details <- newMetaDetails TauTv
+               -- See Note [
+        ; let info = if isSortPolymorphic (tyVarKind tyvar)
+                     then PolyTv
+                     else TauTv
+        ; details <- newMetaDetails info
         ; let name   = mkSystemName uniq (getOccName tyvar)
               kind   = substTy subst (tyVarKind tyvar)
               new_tv = mkTcTyVar name kind details 
