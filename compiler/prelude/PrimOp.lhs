@@ -4,6 +4,8 @@
 \section[PrimOp]{Primitive operations (machine-level)}
 
 \begin{code}
+{-# LANGUAGE CPP #-}
+
 module PrimOp (
         PrimOp(..), PrimOpVecCat(..), allThePrimOps,
         primOpType, primOpSig,
@@ -36,7 +38,7 @@ import Unique           ( Unique, mkPrimOpIdUnique )
 import Outputable
 import FastTypes
 import FastString
-import Module           ( PackageId )
+import Module           ( PackageKey )
 \end{code}
 
 %************************************************************************
@@ -583,7 +585,7 @@ pprPrimOp other_op = pprOccName (primOpOcc other_op)
 %************************************************************************
 
 \begin{code}
-data PrimCall = PrimCall CLabelString PackageId
+data PrimCall = PrimCall CLabelString PackageKey
 
 instance Outputable PrimCall where
   ppr (PrimCall lbl pkgId)

@@ -9,7 +9,8 @@ This stuff is only used for source-code decls; it's recorded in interface
 files for imported data types.
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
+{-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
@@ -118,7 +119,7 @@ synTyConsOfType ty
 mkSynEdges :: [LTyClDecl Name] -> [(LTyClDecl Name, Name, [Name])]
 mkSynEdges syn_decls = [ (ldecl, name, nameSetToList fvs)
                        | ldecl@(L _ (SynDecl { tcdLName = L _ name
-                                            , tcdFVs = fvs })) <- syn_decls ]
+                                             , tcdFVs = fvs })) <- syn_decls ]
 
 calcSynCycles :: [LTyClDecl Name] -> [SCC (LTyClDecl Name)]
 calcSynCycles = stronglyConnCompFromEdgedVertices . mkSynEdges
@@ -262,7 +263,7 @@ this for all newtypes, we'd get infinite types.  So we figure out for
 each newtype whether it is "recursive", and add a coercion if so.  In
 effect, we are trying to "cut the loops" by identifying a loop-breaker.
 
-2.  Avoid infinite unboxing.  This is nothing to do with newtypes.
+2.  Avoid infinite unboxing.  This has nothing to do with newtypes.
 Suppose we have
         data T = MkT Int T
         f (MkT x t) = f t
@@ -367,7 +368,7 @@ calcRecFlags boot_details is_boot mrole_env tyclss
   = RTI { rti_roles      = roles
         , rti_is_rec     = is_rec }
   where
-    all_tycons = mapCatMaybes getTyCon tyclss
+    all_tycons = mapMaybe getTyCon tyclss
                    -- Recursion of newtypes/data types can happen via
                    -- the class TyCon, so tyclss includes the class tycons
 
@@ -611,10 +612,10 @@ initialRoleEnv is_boot annots = extendNameEnvList emptyNameEnv .
 
 initialRoleEnv1 :: Bool -> RoleAnnots -> TyCon -> (Name, [Role])
 initialRoleEnv1 is_boot annots_env tc
-  | isFamilyTyCon tc = (name, map (const Nominal) bndrs)
-  |  isAlgTyCon tc
-  || isSynTyCon tc   = (name, default_roles)
-  | otherwise        = pprPanic "initialRoleEnv1" (ppr tc)
+  | isFamilyTyCon tc      = (name, map (const Nominal) bndrs)
+  | isAlgTyCon tc         = (name, default_roles)
+  | isTypeSynonymTyCon tc = (name, default_roles)
+  | otherwise             = pprPanic "initialRoleEnv1" (ppr tc)
   where name         = tyConName tc
         bndrs        = tyConBinders tc
         visflags     = map binderVisibility bndrs
@@ -656,6 +657,8 @@ irTyCon tc
        ; unless (all (== Nominal) old_roles) $  -- also catches data families,
                                                 -- which don't want or need role inference
     do { whenIsJust (tyConClass_maybe tc) (irClass tc_name)
+       ; addRoleInferenceInfo tc_name (tyConTyVars tc) $
+         mapM_ (irType emptyVarSet) (tyConStupidTheta tc)  -- See #8958
        ; mapM_ (irDataCon tc_name) (visibleDataCons $ algTyConRhs tc) }}
 
   | Just (SynonymTyCon ty) <- synTyConRhs_maybe tc
@@ -747,7 +750,7 @@ lookupRoles tc
            Just roles -> return roles
            Nothing    -> return $ tyConRoles tc }
 
--- tries to update a role; won't even update a role "downwards"
+-- tries to update a role; won't ever update a role "downwards"
 updateRole :: Role -> TyVar -> RoleM ()
 updateRole role tv
   = do { var_ns <- getVarNs

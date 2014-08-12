@@ -331,16 +331,17 @@ void initProfiling2 (void)
     /* Initialise the log file name */
     hp_filename = stgMallocBytes(strlen(prog) + 6, "hpFileName");
     sprintf(hp_filename, "%s.hp", prog);
-    
+
     /* open the log file */
     if ((hp_file = fopen(hp_filename, "w")) == NULL) {
-      debugBelch("Can't open profiling report file %s\n", 
+      debugBelch("Can't open profiling report file %s\n",
 	      hp_filename);
       RtsFlags.ProfFlags.doHeapProfile = 0;
+      stgFree(prog);
       return;
     }
   }
-  
+
   stgFree(prog);
 
   initHeapProfiling();
@@ -1024,6 +1025,14 @@ heapCensusChain( Census *census, bdescr *bd )
 	    case MUT_ARR_PTRS_FROZEN0:
 		prim = rtsTrue;
 		size = mut_arr_ptrs_sizeW((StgMutArrPtrs *)p);
+		break;
+
+	    case SMALL_MUT_ARR_PTRS_CLEAN:
+	    case SMALL_MUT_ARR_PTRS_DIRTY:
+	    case SMALL_MUT_ARR_PTRS_FROZEN:
+	    case SMALL_MUT_ARR_PTRS_FROZEN0:
+		prim = rtsTrue;
+		size = small_mut_arr_ptrs_sizeW((StgSmallMutArrPtrs *)p);
 		break;
 		
 	    case TSO:

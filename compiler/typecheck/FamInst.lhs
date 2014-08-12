@@ -1,8 +1,8 @@
 The @FamInst@ type: family instance heads
 
 \begin{code}
-{-# LANGUAGE GADTs #-}
-{-# OPTIONS -fno-warn-tabs #-}
+{-# LANGUAGE CPP, GADTs #-}
+{-# OPTIONS_GHC -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
@@ -59,7 +59,7 @@ newFamInst :: FamFlavor -> CoAxiom Unbranched -> TcRnIf gbl lcl FamInst
 -- Called from the vectoriser monad too, hence the rather general type
 newFamInst flavor axiom@(CoAxiom { co_ax_branches = FirstBranch branch
                                  , co_ax_tc = fam_tc })
-  = do { (subst, tvs') <- tcInstSkolTyCoVarsLoc loc tvs
+  = do { (subst, tvs') <- tcInstSigTyCoVarsLoc loc tvs
        ; return (FamInst { fi_fam      = fam_tc_name
                          , fi_flavor   = flavor
                          , fi_tcs      = roughMatchTcs lhs
@@ -216,9 +216,12 @@ tcLookupFamInst tycon tys
   | otherwise
   = do { instEnv <- tcGetFamInstEnvs
        ; let mb_match = lookupFamInstEnv instEnv tycon tys 
-       ; traceTc "lookupFamInst" ((ppr tycon <+> ppr tys) $$ 
-                                  pprTCvBndrs (varSetElems (tyCoVarsOfTypes tys)) $$ 
-                                  ppr mb_match $$ ppr instEnv)
+       ; traceTc "lookupFamInst" $
+         vcat [ ppr tycon <+> ppr tys
+              , pprTCvBndrs (varSetElems (tyCoVarsOfTypes tys))
+              , ppr mb_match
+              -- , ppr instEnv
+         ]
        ; case mb_match of
 	   [] -> return Nothing
 	   (match:_) 
@@ -296,8 +299,11 @@ checkForConflicts :: FamInstEnvs -> FamInst -> TcM Bool
 checkForConflicts inst_envs fam_inst
   = do { let conflicts = lookupFamInstEnvConflicts inst_envs fam_inst
              no_conflicts = null conflicts
-       ; traceTc "checkForConflicts" (ppr (map fim_instance conflicts) $$
-                                      ppr fam_inst $$ ppr inst_envs)
+       ; traceTc "checkForConflicts" $
+         vcat [ ppr (map fim_instance conflicts)
+              , ppr fam_inst
+              -- , ppr inst_envs
+         ]
        ; unless no_conflicts $ conflictInstErr fam_inst conflicts
        ; return no_conflicts }
 

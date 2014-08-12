@@ -6,7 +6,7 @@
 TcRules: Typechecking transformation rules
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
+{-# OPTIONS_GHC -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
@@ -208,7 +208,7 @@ tcRuleBndrs :: [RuleBndr Name] -> TcM [Var]
 tcRuleBndrs [] 
   = return []
 tcRuleBndrs (RuleBndr (L _ name) : rule_bndrs)
-  = do 	{ ty <- newFlexiTyVarTy openTypeKind
+  = do 	{ ty <- newOpenFlexiTyVarTy
         ; vars <- tcRuleBndrs rule_bndrs
 	; return (mkLocalId name ty : vars) }
 tcRuleBndrs (RuleBndrSig (L _ name) rn_ty : rule_bndrs)

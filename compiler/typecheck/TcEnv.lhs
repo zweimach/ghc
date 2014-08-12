@@ -3,7 +3,9 @@
 %
 
 \begin{code}
+{-# LANGUAGE CPP, FlexibleInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+
 module TcEnv(
         TyThing(..), TcTyThing(..), TcId,
 
@@ -17,6 +19,7 @@ module TcEnv(
         tcExtendGlobalValEnv,
         tcLookupLocatedGlobal, tcLookupGlobal, 
         tcLookupField, tcLookupTyCon, tcLookupClass, tcLookupDataCon,
+        tcLookupConLike,
         tcLookupLocatedGlobalId, tcLookupLocatedTyCon,
         tcLookupLocatedClass, tcLookupInstance, tcLookupAxiom,
         
@@ -65,11 +68,13 @@ import TcIface
 import PrelNames
 import TysWiredIn
 import Id
+import IdInfo( IdDetails(VanillaId) )
 import Var
 import VarSet
 import RdrName
 import InstEnv
 import DataCon
+import ConLike
 import TyCon
 import CoAxiom
 import TyCoRep
@@ -152,8 +157,15 @@ tcLookupDataCon :: Name -> TcM DataCon
 tcLookupDataCon name = do
     thing <- tcLookupGlobal name
     case thing of
-        ADataCon con -> return con
-        _            -> wrongThingErr "data constructor" (AGlobal thing) name
+        AConLike (RealDataCon con) -> return con
+        _                          -> wrongThingErr "data constructor" (AGlobal thing) name
+
+tcLookupConLike :: Name -> TcM ConLike
+tcLookupConLike name = do
+    thing <- tcLookupGlobal name
+    case thing of
+        AConLike cl -> return cl
+        _           -> wrongThingErr "constructor-like thing" (AGlobal thing) name
 
 tcLookupClass :: Name -> TcM Class
 tcLookupClass name = do
@@ -249,7 +261,8 @@ tcExtendGlobalEnv :: [TyThing] -> TcM r -> TcM r
   -- module being compiled, extend the global environment
 tcExtendGlobalEnv things thing_inside
   = do { env <- getGblEnv
-       ; let env' = env { tcg_tcs = [tc | ATyCon tc <- things] ++ tcg_tcs env }
+       ; let env' = env { tcg_tcs = [tc | ATyCon tc <- things] ++ tcg_tcs env,
+                          tcg_patsyns = [ps | AConLike (PatSynCon ps) <- things] ++ tcg_patsyns env }
        ; setGblEnv env' $
             tcExtendGlobalEnvImplicit things thing_inside
        }
@@ -708,6 +721,10 @@ data InstBindings a
       { ib_binds :: (LHsBinds a)  -- Bindings for the instance methods
       , ib_pragmas :: [LSig a]    -- User pragmas recorded for generating 
                                   -- specialised instances
+      , ib_extensions :: [ExtensionFlag] -- any extra extensions that should
+                                         -- be enabled when type-checking this
+                                         -- instance; needed for
+                                         -- GeneralizedNewtypeDeriving
                       
       , ib_standalone_deriving :: Bool
            -- True <=> This code came from a standalone deriving clause
@@ -790,7 +807,7 @@ mkStableIdFromString str sig_ty loc occ_wrapper = do
     name <- mkWrapperName "stable" str
     let occ = mkVarOccFS name :: OccName
         gnm = mkExternalName uniq mod (occ_wrapper occ) loc :: Name
-        id  = mkExportedLocalId gnm sig_ty :: Id
+        id  = mkExportedLocalId VanillaId gnm sig_ty :: Id
     return id
 
 mkStableIdFromName :: Name -> Type -> SrcSpan -> (OccName -> OccName) -> TcM TcId
@@ -805,7 +822,7 @@ mkWrapperName what nameBase
          thisMod <- getModule
          let -- Note [Generating fresh names for ccall wrapper]
              wrapperRef = nextWrapperNum dflags
-             pkg = packageIdString  (modulePackageId thisMod)
+             pkg = packageKeyString  (modulePackageKey thisMod)
              mod = moduleNameString (moduleName      thisMod)
          wrapperNum <- liftIO $ atomicModifyIORef wrapperRef $ \mod_env ->
              let num = lookupWithDefaultModuleEnv mod_env 0 thisMod
@@ -853,13 +870,16 @@ notFound name
                      ptext (sLit "is not in scope during type checking, but it passed the renamer"),
                      ptext (sLit "tcl_env of environment:") <+> ppr (tcl_env lcl_env)]
                        -- Take case: printing the whole gbl env can
-                       -- cause an infnite loop, in the case where we
+                       -- cause an infinite loop, in the case where we
                        -- are in the middle of a recursive TyCon/Class group;
                        -- so let's just not print it!  Getting a loop here is
                        -- very unhelpful, because it hides one compiler bug with another
        }
 
 wrongThingErr :: String -> TcTyThing -> Name -> TcM a
+-- It's important that this only calls pprTcTyThingCategory, which in 
+-- turn does not look at the details of the TcTyThing.
+-- See Note [Placeholder PatSyn kinds] in TcBinds
 wrongThingErr expected thing name
   = failWithTc (pprTcTyThingCategory thing <+> quotes (ppr name) <+> 
                 ptext (sLit "used as a") <+> text expected)

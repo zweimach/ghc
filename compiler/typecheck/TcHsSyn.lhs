@@ -9,12 +9,15 @@ This module is an extension of @HsSyn@ syntax, for use in the type
 checker.
 
 \begin{code}
+{-# LANGUAGE CPP #-}
+
 module TcHsSyn (
         mkHsConApp, mkHsDictLet, mkHsApp,
         hsLitType, hsLPatType, hsPatType,
         mkHsAppTy, mkSimpleHsAlt,
         nlHsIntLit,
         shortCutLit, hsOverLitName,
+        conLikeResTy,
 
         -- re-exported from TcMonad
         TcId, TcIdSet,
@@ -34,13 +37,15 @@ import TcRnMonad
 import PrelNames
 import TyCoRep     -- We can see the representation of types
 import TcType
-import TcMType ( zonkQuantifiedTyCoVar, writeMetaTyVar, defaultKindVarToStar )
+import TcMType
 import TcEvidence
 import TysPrim
 import TysWiredIn
 import Type
 import Coercion
+import ConLike
 import DataCon
+import PatSyn( patSynInstResTy )
 import Name
 import NameSet
 import Var
@@ -55,6 +60,7 @@ import Bag
 import FastString
 import Outputable
 import Util
+import Data.Traversable ( traverse )
 \end{code}
 
 %************************************************************************
@@ -81,13 +87,18 @@ hsPatType (ViewPat _ _ ty)            = ty
 hsPatType (ListPat _ ty Nothing)      = mkListTy ty
 hsPatType (ListPat _ _ (Just (ty,_))) = ty
 hsPatType (PArrPat _ ty)              = mkPArrTy ty
-hsPatType (TuplePat _ _ ty)           = ty
-hsPatType (ConPatOut { pat_ty = ty }) = ty
+hsPatType (TuplePat _ bx tys)         = mkTupleTy (boxityNormalTupleSort bx) tys
+hsPatType (ConPatOut { pat_con = L _ con, pat_arg_tys = tys }) 
+                                      = conLikeResTy con tys
 hsPatType (SigPatOut _ ty)            = ty
 hsPatType (NPat lit _ _)              = overLitType lit
 hsPatType (NPlusKPat id _ _ _)        = idType (unLoc id)
 hsPatType (CoPat _ _ ty)              = ty
 hsPatType p                           = pprPanic "hsPatType" (ppr p)
+
+conLikeResTy :: ConLike -> [Type] -> Type
+conLikeResTy (RealDataCon con) tys = mkTyConApp (dataConTyCon con) tys
+conLikeResTy (PatSynCon ps)    tys = patSynInstResTy ps tys
 
 hsLitType :: HsLit -> TcType
 hsLitType (HsChar _)       = charTy
@@ -296,7 +307,7 @@ zonkTopDecls :: Bag EvBind
              -> [LRuleDecl TcId] -> [LVectDecl TcId] -> [LTcSpecPrag] -> [LForeignDecl TcId]
              -> TcM ([Id],
                      Bag EvBind,
-                     Bag (LHsBind  Id),
+                     LHsBinds Id,
                      [LForeignDecl Id],
                      [LTcSpecPrag],
                      [LRuleDecl    Id],
@@ -407,7 +418,10 @@ warnMissingSig msg id
 
 ---------------------------------------------
 zonkMonoBinds :: ZonkEnv -> SigWarn -> LHsBinds TcId -> TcM (LHsBinds Id)
-zonkMonoBinds env sig_warn binds = mapBagM (wrapLocM (zonk_bind env sig_warn)) binds
+zonkMonoBinds env sig_warn binds = mapBagM (zonk_lbind env sig_warn) binds
+
+zonk_lbind :: ZonkEnv -> SigWarn -> LHsBind TcId -> TcM (LHsBind Id)
+zonk_lbind env sig_warn = wrapLocM (zonk_bind env sig_warn)
 
 zonk_bind :: ZonkEnv -> SigWarn -> HsBind TcId -> TcM (HsBind Id)
 zonk_bind env sig_warn bind@(PatBind { pat_lhs = pat, pat_rhs = grhss, pat_rhs_ty = ty})
@@ -459,6 +473,28 @@ zonk_bind env sig_warn (AbsBinds { abs_tvs = tyvars, abs_ev_vars = evs
                         , abe_mono = zonkIdOcc env mono_id
                         , abe_prags = new_prags })
 
+zonk_bind env _sig_warn bind@(PatSynBind { patsyn_id = L loc id
+                                         , patsyn_args = details
+                                         , patsyn_def = lpat
+                                         , patsyn_dir = dir })
+  = do { id' <- zonkIdBndr env id
+       ; details' <- zonkPatSynDetails env details
+       ;(env1, lpat') <- zonkPat env lpat
+       ; (_env2, dir') <- zonkPatSynDir env1 dir
+       ; return (bind { patsyn_id = L loc id'
+                      , patsyn_args = details'
+                      , patsyn_def = lpat'
+                      , patsyn_dir = dir' }) }
+
+zonkPatSynDetails :: ZonkEnv
+                  -> HsPatSynDetails (Located TcId)
+                  -> TcM (HsPatSynDetails (Located Id))
+zonkPatSynDetails env = traverse (wrapLocM $ zonkIdBndr env)
+
+zonkPatSynDir :: ZonkEnv -> HsPatSynDir TcId -> TcM (ZonkEnv, HsPatSynDir Id)
+zonkPatSynDir env Unidirectional = return (env, Unidirectional)
+zonkPatSynDir env ImplicitBidirectional = return (env, ImplicitBidirectional)
+
 zonkSpecPrags :: ZonkEnv -> TcSpecPrags -> TcM TcSpecPrags
 zonkSpecPrags _   IsDefaultMethod = return IsDefaultMethod
 zonkSpecPrags env (SpecPrags ps)  = do { ps' <- zonkLTcSpecPrags env ps
@@ -483,11 +519,11 @@ zonkLTcSpecPrags env ps
 zonkMatchGroup :: ZonkEnv
                -> (ZonkEnv -> Located (body TcId) -> TcM (Located (body Id)))
                -> MatchGroup TcId (Located (body TcId)) -> TcM (MatchGroup Id (Located (body Id)))
-zonkMatchGroup env zBody (MG { mg_alts = ms, mg_arg_tys = arg_tys, mg_res_ty = res_ty })
+zonkMatchGroup env zBody (MG { mg_alts = ms, mg_arg_tys = arg_tys, mg_res_ty = res_ty, mg_origin = origin })
   = do  { ms' <- mapM (zonkMatch env zBody) ms
         ; arg_tys' <- zonkTcTypeToTypes env arg_tys
         ; res_ty'  <- zonkTcTypeToType env res_ty
-        ; return (MG { mg_alts = ms', mg_arg_tys = arg_tys', mg_res_ty = res_ty' }) }
+        ; return (MG { mg_alts = ms', mg_arg_tys = arg_tys', mg_res_ty = res_ty', mg_origin = origin }) }
 
 zonkMatch :: ZonkEnv
           -> (ZonkEnv -> Located (body TcId) -> TcM (Located (body Id)))
@@ -1004,28 +1040,30 @@ zonk_pat env (PArrPat pats ty)
         ; (env', pats') <- zonkPats env pats
         ; return (env', PArrPat pats' ty') }
 
-zonk_pat env (TuplePat pats boxed ty)
-  = do  { ty' <- zonkTcTypeToType env ty
+zonk_pat env (TuplePat pats boxed tys)
+  = do  { tys' <- mapM (zonkTcTypeToType env) tys
         ; (env', pats') <- zonkPats env pats
-        ; return (env', TuplePat pats' boxed ty') }
+        ; return (env', TuplePat pats' boxed tys') }
 
-zonk_pat env p@(ConPatOut { pat_ty = ty, pat_tvs = tyvars
+zonk_pat env p@(ConPatOut { pat_arg_tys = tys, pat_tvs = tyvars
                           , pat_dicts = evs, pat_binds = binds
-                          , pat_args = args })
+                          , pat_args = args, pat_wrap = wrapper })
   = ASSERT( all isImmutableTyVar tyvars )
-    do  { new_ty <- zonkTcTypeToType env ty
+    do  { new_tys <- mapM (zonkTcTypeToType env) tys
         ; (env0, new_tyvars) <- zonkTyCoBndrsX env tyvars
           -- Must zonk the existential variables, because their
           -- /kind/ need potential zonking.
           -- cf typecheck/should_compile/tc221.hs
         ; (env1, new_evs) <- zonkEvBndrsX env0 evs
         ; (env2, new_binds) <- zonkTcEvBinds env1 binds
-        ; (env', new_args) <- zonkConStuff env2 args
-        ; return (env', p { pat_ty = new_ty,
+        ; (env3, new_wrapper) <- zonkCoFn env2 wrapper
+        ; (env', new_args) <- zonkConStuff env3 args
+        ; return (env', p { pat_arg_tys = new_tys,
                             pat_tvs = new_tyvars,
                             pat_dicts = new_evs,
                             pat_binds = new_binds,
-                            pat_args = new_args }) }
+                            pat_args = new_args,
+                            pat_wrap = new_wrapper}) }
 
 zonk_pat env (LitPat lit) = return (env, LitPat lit)
 
@@ -1442,22 +1480,24 @@ zonkTvCollecting :: TyVarSet -> TcRef TyVarSet -> UnboundTyVarZonker
 -- Works on both types and kinds
 zonkTvCollecting kind_vars unbound_tv_set tv
   = do { poly_kinds <- xoptM Opt_PolyKinds
-       ; if tv `elemVarSet` kind_vars && not poly_kinds then defaultKindVarToStar tv
-         else do
-       ; tv' <- zonkQuantifiedTyCoVar tv
-       ; tv_set <- readMutVar unbound_tv_set
-       ; writeMutVar unbound_tv_set (extendVarSet tv_set tv')
-       ; return (mkTyCoVarTy tv') } 
+       ; if tv `elemVarSet` kind_vars && not poly_kinds then defaultKindVar tv else do
+       { ty_or_tv <- zonkQuantifiedTyCoVarOrType tv
+       ; case ty_or_tv of
+           Right ty -> return ty
+           Left tv' -> do
+             { tv_set <- readMutVar unbound_tv_set
+             ; writeMutVar unbound_tv_set (extendVarSet tv_set tv')
+             ; return (mkTyCoVarTy tv') } } }
 
 zonkTypeZapping :: UnboundTyVarZonker
 -- This variant is used for everything except the LHS of rules
 -- It zaps unbound type variables to (), or some other arbitrary type
 -- Works on both types and kinds
 zonkTypeZapping tv
-  = do { let ty = anyTypeOfKind (defaultKind (tyVarKind tv))
+  = do { let ty | isLevityVar tv = liftedDataConTy
+                | otherwise      = anyTypeOfKind (tyVarKind tv)
        ; writeMetaTyVar tv ty
        ; return ty }
-
 
 zonkTcCoToCo :: ZonkEnv -> TcCoercion -> TcM TcCoercion
 -- NB: zonking often reveals that the coercion is an identity

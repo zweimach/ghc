@@ -15,6 +15,8 @@ The "tc" prefix is for "TypeChecker", because the type checker
 is the principal client.
 
 \begin{code}
+{-# LANGUAGE CPP #-}
+
 module TcType (
   --------------------------------
   -- Types
@@ -105,9 +107,8 @@ module TcType (
   -- Rexported from Kind
   Kind, typeKind,
   unliftedTypeKind, liftedTypeKind,
-  openTypeKind, constraintKind, mkArrowKind, mkArrowKinds,
-  isLiftedTypeKind, isUnliftedTypeKind, isSubOpenTypeKind,
-  tcIsSubKind, defaultKind,
+  constraintKind, mkArrowKind, mkArrowKinds,
+  isLiftedTypeKind, isUnliftedTypeKind, classifiesTypeWithValues,
 
   --------------------------------
   -- Rexported from Type
@@ -123,7 +124,7 @@ module TcType (
   mkClassPred,
   isDictLikeTy,
   tcSplitDFunTy, tcSplitDFunHead,
-  mkEqPred,
+  mkEqPred, isLevityVar, isSortPolymorphic, isSortPolymorphic_maybe,
 
   -- Type substitutions
   TCvSubst(..),         -- Representation visible to a few friends
@@ -252,34 +253,23 @@ checking.  It's attached to mutable type variables only.
 It's knot-tied back to Var.lhs.  There is no reason in principle
 why Var.lhs shouldn't actually have the definition, but it "belongs" here.
 
-
 Note [Signature skolems]
 ~~~~~~~~~~~~~~~~~~~~~~~~
 Consider this
 
-  x :: [a]
-  y :: b
-  (x,y,z) = ([y,z], z, head x)
+  f :: forall a. [a] -> Int
+  f (x::b : xs) = 3
 
-Here, x and y have type sigs, which go into the environment.  We used to
-instantiate their types with skolem constants, and push those types into
-the RHS, so we'd typecheck the RHS with type
-        ( [a*], b*, c )
-where a*, b* are skolem constants, and c is an ordinary meta type varible.
+Here 'b' is a lexically scoped type variable, but it turns out to be
+the same as the skolem 'a'.  So we have a special kind of skolem
+constant, SigTv, which can unify with other SigTvs. They are used
+*only* for pattern type signatures.
 
-The trouble is that the occurrences of z in the RHS force a* and b* to
-be the *same*, so we can't make them into skolem constants that don't unify
-with each other.  Alas.
-
-One solution would be insist that in the above defn the programmer uses
-the same type variable in both type signatures.  But that takes explanation.
-
-The alternative (currently implemented) is to have a special kind of skolem
-constant, SigTv, which can unify with other SigTvs.  These are *not* treated
-as rigid for the purposes of GADTs.  And they are used *only* for pattern
-bindings and mutually recursive function bindings.  See the function
-TcBinds.tcInstSig, and its use_skols parameter.
-
+Similarly consider
+  data T (a:k1) = MkT (S a)
+  data S (b:k2) = MkS (T b)
+When doing kind inference on {S,T} we don't want *skolems* for k1,k2,
+because they end up unifying; we want those SigTvs again.
 
 \begin{code}
 -- A TyVarDetails is inside a TyVar
@@ -496,7 +486,7 @@ pprTcTyVarDetails (MetaTv { mtv_info = info, mtv_untch = untch })
 pprUserTypeCtxt :: UserTypeCtxt -> SDoc
 pprUserTypeCtxt (InfSigCtxt n)    = ptext (sLit "the inferred type for") <+> quotes (ppr n)
 pprUserTypeCtxt (FunSigCtxt n)    = ptext (sLit "the type signature for") <+> quotes (ppr n)
-pprUserTypeCtxt (RuleSigCtxt n)    = ptext (sLit "a RULE for") <+> quotes (ppr n)
+pprUserTypeCtxt (RuleSigCtxt n)   = ptext (sLit "a RULE for") <+> quotes (ppr n)
 pprUserTypeCtxt ExprSigCtxt       = ptext (sLit "an expression type signature")
 pprUserTypeCtxt (ConArgCtxt c)    = ptext (sLit "the type of the constructor") <+> quotes (ppr c)
 pprUserTypeCtxt (TySynCtxt c)     = ptext (sLit "the RHS of the type synonym") <+> quotes (ppr c)
@@ -837,7 +827,7 @@ mkTcEqPred :: TcType -> TcType -> Type
 mkTcEqPred ty1 ty2
   = mkTyConApp eqTyCon [k, ty1, ty2]
   where
-    k = defaultKind (typeKind ty1)
+    k = typeKind ty1
 \end{code}
 
 @isTauTy@ tests to see if a type is "simple".  It should not be called on a boxy type.
@@ -1062,7 +1052,7 @@ tcGetTyVar :: String -> Type -> TyVar
 tcGetTyVar msg ty = expectJust msg (tcGetTyVar_maybe ty)
 
 tcIsTyVarTy :: Type -> Bool
-tcIsTyVarTy ty = maybeToBool (tcGetTyVar_maybe ty)
+tcIsTyVarTy ty = isJust (tcGetTyVar_maybe ty)
 
 -----------------------
 tcSplitDFunTy :: Type -> ([TyCoVar], [Type], Class, [Type])
@@ -1089,7 +1079,7 @@ tcInstHeadTyNotSynonym :: Type -> Bool
 -- are transparent, so we need a special function here
 tcInstHeadTyNotSynonym ty
   = case ty of
-        TyConApp tc _ -> not (isSynTyCon tc)
+        TyConApp tc _ -> not (isTypeSynonymTyCon tc)
         _ -> True
 
 tcInstHeadTyAppAllTyVars :: Type -> Bool
@@ -1109,7 +1099,7 @@ tcInstHeadTyAppAllTyVars ty
         -- and that each is distinct
     ok tys = equalLength tvs tys && hasNoDups tvs
            where
-             tvs = mapCatMaybes get_tv tys
+             tvs = mapMaybe get_tv tys
 
     get_tv (TyVarTy tv)  = Just tv      -- through synonyms
     get_tv _             = Nothing
@@ -1356,9 +1346,6 @@ occurCheckExpand dflags tv ty
           MetaTv { mtv_info = PolyTv } -> True
           MetaTv { mtv_info = SigTv }  -> False
           MetaTv { mtv_info = TauTv }  -> xopt Opt_ImpredicativeTypes dflags
-                                       || isOpenTypeKind (tyVarKind tv)
-                                          -- Note [OpenTypeKind accepts foralls]
-                                          -- in TcUnify
           _other                       -> True
           -- We can have non-meta tyvars in given constraints
 

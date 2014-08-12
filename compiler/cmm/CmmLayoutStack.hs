@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, GADTs #-}
+{-# LANGUAGE CPP, RecordWildCards, GADTs #-}
 module CmmLayoutStack (
        cmmLayoutStack, setInfoTableStackMap
   ) where
@@ -35,13 +35,95 @@ import Control.Monad (liftM)
 
 #include "HsVersions.h"
 
+{- Note [Stack Layout]
 
-data StackSlot = Occupied | Empty
-     -- Occupied: a return address or part of an update frame
+The job of this pass is to
 
-instance Outputable StackSlot where
-  ppr Occupied = ptext (sLit "XXX")
-  ppr Empty    = ptext (sLit "---")
+ - replace references to abstract stack Areas with fixed offsets from Sp.
+
+ - replace the CmmHighStackMark constant used in the stack check with
+   the maximum stack usage of the proc.
+
+ - save any variables that are live across a call, and reload them as
+   necessary.
+
+Before stack allocation, local variables remain live across native
+calls (CmmCall{ cmm_cont = Just _ }), and after stack allocation local
+variables are clobbered by native calls.
+
+We want to do stack allocation so that as far as possible
+ - stack use is minimized, and
+ - unnecessary stack saves and loads are avoided.
+
+The algorithm we use is a variant of linear-scan register allocation,
+where the stack is our register file.
+
+ - First, we do a liveness analysis, which annotates every block with
+   the variables live on entry to the block.
+
+ - We traverse blocks in reverse postorder DFS; that is, we visit at
+   least one predecessor of a block before the block itself.  The
+   stack layout flowing from the predecessor of the block will
+   determine the stack layout on entry to the block.
+
+ - We maintain a data structure
+
+     Map Label StackMap
+
+   which describes the contents of the stack and the stack pointer on
+   entry to each block that is a successor of a block that we have
+   visited.
+
+ - For each block we visit:
+
+    - Look up the StackMap for this block.
+
+    - If this block is a proc point (or a call continuation, if we
+      aren't splitting proc points), emit instructions to reload all
+      the live variables from the stack, according to the StackMap.
+
+    - Walk forwards through the instructions:
+      - At an assignment  x = Sp[loc]
+        - Record the fact that Sp[loc] contains x, so that we won't
+          need to save x if it ever needs to be spilled.
+      - At an assignment  x = E
+        - If x was previously on the stack, it isn't any more
+      - At the last node, if it is a call or a jump to a proc point
+        - Lay out the stack frame for the call (see setupStackFrame)
+        - emit instructions to save all the live variables
+        - Remember the StackMaps for all the successors
+        - emit an instruction to adjust Sp
+      - If the last node is a branch, then the current StackMap is the
+        StackMap for the successors.
+
+    - Manifest Sp: replace references to stack areas in this block
+      with real Sp offsets. We cannot do this until we have laid out
+      the stack area for the successors above.
+
+      In this phase we also eliminate redundant stores to the stack;
+      see elimStackStores.
+
+  - There is one important gotcha: sometimes we'll encounter a control
+    transfer to a block that we've already processed (a join point),
+    and in that case we might need to rearrange the stack to match
+    what the block is expecting. (exactly the same as in linear-scan
+    register allocation, except here we have the luxury of an infinite
+    supply of temporary variables).
+
+  - Finally, we update the magic CmmHighStackMark constant with the
+    stack usage of the function, and eliminate the whole stack check
+    if there was no stack use. (in fact this is done as part of the
+    main traversal, by feeding the high-water-mark output back in as
+    an input. I hate cyclic programming, but it's just too convenient
+    sometimes.)
+
+There are plenty of tricky details: update frames, proc points, return
+addresses, foreign calls, and some ad-hoc optimisations that are
+convenient to do here and effective in common cases.  Comments in the
+code below explain these.
+
+-}
+
 
 -- All stack locations are expressed as positive byte offsets from the
 -- "base", which is defined to be the address above the return address
@@ -107,16 +189,10 @@ cmmLayoutStack :: DynFlags -> ProcPointSet -> ByteOff -> CmmGraph
 cmmLayoutStack dflags procpoints entry_args
                graph0@(CmmGraph { g_entry = entry })
   = do
-    -- pprTrace "cmmLayoutStack" (ppr entry_args) $ return ()
-
-    -- We need liveness info.  We could do removeDeadAssignments at
-    -- the same time, but it buys nothing over doing cmmSink later,
-    -- and costs a lot more than just cmmLocalLiveness.
-    -- (graph, liveness) <- removeDeadAssignments graph0
+    -- We need liveness info. Dead assignments are removed later
+    -- by the sinking pass.
     let (graph, liveness) = (graph0, cmmLocalLiveness dflags graph0)
-
-    -- pprTrace "liveness" (ppr liveness) $ return ()
-    let blocks = postorderDfs graph
+        blocks = postorderDfs graph
 
     (final_stackmaps, _final_high_sp, new_blocks) <-
           mfix $ \ ~(rec_stackmaps, rec_high_sp, _new_blocks) ->
@@ -124,10 +200,7 @@ cmmLayoutStack dflags procpoints entry_args
                    rec_stackmaps rec_high_sp blocks
 
     new_blocks' <- mapM (lowerSafeForeignCall dflags) new_blocks
-
-    -- pprTrace ("Sp HWM") (ppr _final_high_sp) $ return ()
     return (ofBlockList entry new_blocks', final_stackmaps)
-
 
 
 layout :: DynFlags
@@ -170,8 +243,6 @@ layout dflags procpoints liveness entry entry_args final_stackmaps final_sp_high
                      (pprPanic "no stack map for" (ppr entry_lbl))
                      entry_lbl acc_stackmaps
 
-       -- pprTrace "layout" (ppr entry_lbl <+> ppr stack0) $ return ()
-
        -- (a) Update the stack map to include the effects of
        --     assignments in this block
        let stack1 = foldBlockNodesF (procMiddle acc_stackmaps) middle0 stack0
@@ -190,8 +261,6 @@ layout dflags procpoints liveness entry entry_args final_stackmaps final_sp_high
        (middle2, sp_off, last1, fixup_blocks, out)
            <- handleLastNode dflags procpoints liveness cont_info
                              acc_stackmaps stack1 middle0 last0
-
-       -- pprTrace "layout(out)" (ppr out) $ return ()
 
        -- (d) Manifest Sp: run over the nodes in the block and replace
        --     CmmStackSlot with CmmLoad from Sp with a concrete offset.
@@ -432,11 +501,8 @@ handleLastNode dflags procpoints liveness cont_info stackmaps
         = do
              let cont_args = mapFindWithDefault 0 l cont_info
                  (stack2, assigs) =
-                      --pprTrace "first visit to proc point"
-                      --             (ppr l <+> ppr stack1) $
                       setupStackFrame dflags l liveness (sm_ret_off stack0)
-                                                       cont_args stack0
-             --
+                                                        cont_args stack0
              (tmp_lbl, block) <- makeFixupBlock dflags sp0 l stack2 assigs
              return (l, tmp_lbl, stack2, block)
 
@@ -600,8 +666,6 @@ allocate :: DynFlags -> ByteOff -> LocalRegSet -> StackMap
 allocate dflags ret_off live stackmap@StackMap{ sm_sp = sp0
                                               , sm_regs = regs0 }
  =
-  -- pprTrace "allocate" (ppr live $$ ppr stackmap) $
-
    -- we only have to save regs that are not already in a slot
    let to_save = filter (not . (`elemUFM` regs0)) (Set.elems live)
        regs1   = filterUFM (\(r,_) -> elemRegSet r live) regs0
@@ -841,8 +905,7 @@ elimStackStores stackmap stackmaps area_off nodes
          CmmStore (CmmStackSlot area m) (CmmReg (CmmLocal r))
             | Just (_,off) <- lookupUFM (sm_regs stackmap) r
             , area_off area + m == off
-            -> -- pprTrace "eliminated a node!" (ppr r) $
-               go stackmap ns
+            -> go stackmap ns
          _otherwise
             -> n : go (procMiddle stackmaps n stackmap) ns
 
@@ -995,6 +1058,13 @@ callResumeThread new_base id =
 
 plusW :: DynFlags -> ByteOff -> WordOff -> ByteOff
 plusW dflags b w = b + w * wORD_SIZE dflags
+
+data StackSlot = Occupied | Empty
+     -- Occupied: a return address or part of an update frame
+
+instance Outputable StackSlot where
+  ppr Occupied = ptext (sLit "XXX")
+  ppr Empty    = ptext (sLit "---")
 
 dropEmpty :: WordOff -> [StackSlot] -> Maybe [StackSlot]
 dropEmpty 0 ss           = Just ss

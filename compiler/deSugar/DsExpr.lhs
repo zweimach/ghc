@@ -6,6 +6,8 @@
 Desugaring exporessions.
 
 \begin{code}
+{-# LANGUAGE CPP #-}
+
 module DsExpr ( dsExpr, dsLExpr, dsLocalBinds, dsValBinds, dsLit ) where
 
 #include "HsVersions.h"
@@ -47,6 +49,7 @@ import Id
 import Module
 import VarSet
 import VarEnv
+import ConLike
 import DataCon
 import TysWiredIn
 import BasicTypes
@@ -129,11 +132,11 @@ dsStrictBind :: HsBind Id -> CoreExpr -> DsM CoreExpr
 dsStrictBind (AbsBinds { abs_tvs = [], abs_ev_vars = []
                , abs_exports = exports
                , abs_ev_binds = ev_binds
-               , abs_binds = binds }) body
+               , abs_binds = lbinds }) body
   = do { let body1 = foldr bind_export body exports
              bind_export export b = bindNonRec (abe_poly export) (Var (abe_mono export)) b
-       ; body2 <- foldlBagM (\body bind -> dsStrictBind (unLoc bind) body) 
-                            body1 binds 
+       ; body2 <- foldlBagM (\body lbind -> dsStrictBind (unLoc lbind) body)
+                            body1 lbinds 
        ; ds_binds <- dsTcEvBinds ev_binds
        ; return (mkCoreLets ds_binds body2) }
 
@@ -162,11 +165,11 @@ dsStrictBind bind body = pprPanic "dsLet: unlifted" (ppr bind $$ ppr body)
 
 ----------------------
 strictMatchOnly :: HsBind Id -> Bool
-strictMatchOnly (AbsBinds { abs_binds = binds })
-  = anyBag (strictMatchOnly . unLoc) binds
-strictMatchOnly (PatBind { pat_lhs = lpat, pat_rhs_ty = ty })
-  =  isUnLiftedType ty 
-  || isBangLPat lpat   
+strictMatchOnly (AbsBinds { abs_binds = lbinds })
+  = anyBag (strictMatchOnly . unLoc) lbinds
+strictMatchOnly (PatBind { pat_lhs = lpat, pat_rhs_ty = rhs_ty })
+  =  isUnLiftedType rhs_ty
+  || isStrictLPat lpat
   || any (isUnLiftedType . idType) (collectPatBinders lpat)
 strictMatchOnly (FunBind { fun_id = L _ id })
   = isUnLiftedType (idType id)
@@ -289,9 +292,8 @@ dsExpr (ExplicitTuple tup_args boxity)
        ; (lam_vars, args) <- foldM go ([], []) (reverse tup_args)
                 -- The reverse is because foldM goes left-to-right
 
-       ; return $ mkCoreLams lam_vars $ 
-                  mkConApp (tupleCon (boxityNormalTupleSort boxity) (length tup_args))
-                           (map (Type . exprType) args ++ args) }
+       ; return $ mkCoreLams lam_vars $
+                  mkCoreTupBoxity boxity args }
 
 dsExpr (HsSCC cc expr@(L loc _)) = do
     mod_name <- getModule
@@ -487,7 +489,7 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
         -- constructor aguments.
         ; alts <- mapM (mk_alt upd_fld_env) cons_to_upd
         ; ([discrim_var], matching_code) 
-                <- matchWrapper RecUpd (MG { mg_alts = alts, mg_arg_tys = [in_ty], mg_res_ty = out_ty })
+                <- matchWrapper RecUpd (MG { mg_alts = alts, mg_arg_tys = [in_ty], mg_res_ty = out_ty, mg_origin = Generated })
 
         ; return (add_field_binds field_binds' $
                   bindNonRec discrim_var record_expr' matching_code) }
@@ -543,11 +545,13 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
                  wrap_subst = mkVarEnv [ (tv, mkTcSymCo (mkTcCoVarCo eq_var))
                                        | ((tv,_),eq_var) <- eq_spec `zip` eqs_vars ]
 
-                 pat = noLoc $ ConPatOut { pat_con = noLoc con, pat_tvs = ex_tvs
+                 pat = noLoc $ ConPatOut { pat_con = noLoc (RealDataCon con)
+                                         , pat_tvs = ex_tvs
                                          , pat_dicts = eqs_vars ++ theta_vars
                                          , pat_binds = emptyTcEvBinds
                                          , pat_args = PrefixCon $ map nlVarPat arg_ids
-                                         , pat_ty = in_ty }
+                                         , pat_arg_tys = in_inst_tys
+                                         , pat_wrap = idHsWrapper }
            ; let wrapped_rhs | null eq_spec = rhs
                              | otherwise    = mkLHsWrap (mkWpCast (mkTcSubCo wrap_co)) rhs
            ; return (mkSimpleMatch [pat] wrapped_rhs) }
@@ -787,7 +791,8 @@ dsDo stmts
         rets         = map noLoc rec_rets
         mfix_app     = nlHsApp (noLoc mfix_op) mfix_arg
         mfix_arg     = noLoc $ HsLam (MG { mg_alts = [mkSimpleMatch [mfix_pat] body]
-                                         , mg_arg_tys = [tup_ty], mg_res_ty = body_ty })
+                                         , mg_arg_tys = [tup_ty], mg_res_ty = body_ty
+                                         , mg_origin = Generated })
         mfix_pat     = noLoc $ LazyPat $ mkBigLHsPatTup rec_tup_pats
         body         = noLoc $ HsDo DoExpr (rec_stmts ++ [ret_stmt]) body_ty
         ret_app      = nlHsApp (noLoc return_op) (mkBigLHsTup rets)

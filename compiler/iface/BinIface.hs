@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 --
 --  (c) The University of Glasgow 2002-2006
 --
@@ -20,6 +22,7 @@ module BinIface (
 
 import TcRnMonad
 import TyCon
+import ConLike
 import DataCon    (dataConName, dataConWorkId, dataConTyCon)
 import PrelInfo   (wiredInThings, basicKnownKeyNames)
 import Id         (idName, isDataConWorkId_maybe)
@@ -257,7 +260,7 @@ getSymbolTable bh ncu = do
                 mapAccumR (fromOnDiskName arr) namecache od_names
         in (namecache', arr)
 
-type OnDiskName = (PackageId, ModuleName, OccName)
+type OnDiskName = (PackageKey, ModuleName, OccName)
 
 fromOnDiskName :: Array Int Name -> NameCache -> OnDiskName -> (NameCache, Name)
 fromOnDiskName _ nc (pid, mod_name, occ) =
@@ -274,7 +277,7 @@ fromOnDiskName _ nc (pid, mod_name, occ) =
 serialiseName :: BinHandle -> Name -> UniqFM (Int,Name) -> IO ()
 serialiseName bh name _ = do
     let mod = ASSERT2( isExternalName name, ppr name ) nameModule name
-    put_ bh (modulePackageId mod, moduleName mod, nameOccName name)
+    put_ bh (modulePackageKey mod, moduleName mod, nameOccName name)
 
 
 -- Note [Symbol table representation of names]
@@ -318,7 +321,7 @@ putName _dict BinSymbolTable{
   = case wiredInNameTyThing_maybe name of
      Just (ATyCon tc)
        | isTupleTyCon tc             -> putTupleName_ bh tc 0
-     Just (ADataCon dc)
+     Just (AConLike (RealDataCon dc))
        | let tc = dataConTyCon dc, isTupleTyCon tc -> putTupleName_ bh tc 1
      Just (AnId x)
        | Just dc <- isDataConWorkId_maybe x, let tc = dataConTyCon dc, isTupleTyCon tc -> putTupleName_ bh tc 2

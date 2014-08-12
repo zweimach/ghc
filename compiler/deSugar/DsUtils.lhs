@@ -8,7 +8,8 @@ Utilities for desugaring
 This module exports some utility functions of no great interest.
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
+{-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
@@ -20,13 +21,13 @@ module DsUtils (
 	EquationInfo(..), 
 	firstPat, shiftEqns,
 
-	MatchResult(..), CanItFail(..), 
+	MatchResult(..), CanItFail(..), CaseAlt(..),
 	cantFailMatchResult, alwaysFailMatchResult,
 	extractMatchResult, combineMatchResults, 
 	adjustMatchResult,  adjustMatchResultDs,
 	mkCoLetMatchResult, mkViewMatchResult, mkGuardedMatchResult, 
 	matchCanFail, mkEvalMatchResult,
-	mkCoPrimCaseMatchResult, mkCoAlgCaseMatchResult,
+	mkCoPrimCaseMatchResult, mkCoAlgCaseMatchResult, mkCoSynCaseMatchResult,
 	wrapBind, wrapBinds,
 
 	mkErrorAppDs, mkCoreAppDs, mkCoreAppsDs,
@@ -52,6 +53,7 @@ import TcHsSyn
 import TcType( tcSplitTyConApp )
 import CoreSyn
 import DsMonad
+import {-# SOURCE #-} DsExpr ( dsLExpr )
 
 import CoreUtils
 import MkCore
@@ -59,9 +61,10 @@ import MkId
 import Id
 import Literal
 import TyCon
+import ConLike
 import DataCon
+import PatSyn
 import Type
-import Coercion
 import TysPrim
 import TysWiredIn
 import BasicTypes
@@ -74,6 +77,8 @@ import SrcLoc
 import Util
 import DynFlags
 import FastString
+
+import TcEvidence
 
 import Control.Monad    ( zipWithM )
 \end{code}
@@ -272,72 +277,43 @@ mkCoPrimCaseMatchResult var ty match_alts
          do body <- body_fn fail
             return (LitAlt lit, [], body)
 
+data CaseAlt a = MkCaseAlt{ alt_pat :: a,
+                            alt_bndrs :: [CoreBndr],
+                            alt_wrapper :: HsWrapper,
+                            alt_result :: MatchResult }
 
 mkCoAlgCaseMatchResult 
   :: DynFlags
-  -> Id					   -- Scrutinee
-  -> Type                                  -- Type of exp
-  -> [(DataCon, [CoreBndr], MatchResult)]  -- Alternatives (bndrs *include* tyvars, dicts)
+  -> Id                 -- Scrutinee
+  -> Type               -- Type of exp
+  -> [CaseAlt DataCon]  -- Alternatives (bndrs *include* tyvars, dicts)
   -> MatchResult
 mkCoAlgCaseMatchResult dflags var ty match_alts 
-  | isNewTyCon tycon		-- Newtype case; use a let
+  | isNewtype  -- Newtype case; use a let
   = ASSERT( null (tail match_alts) && null (tail arg_ids1) )
     mkCoLetMatchResult (NonRec arg_id1 newtype_rhs) match_result1
 
-  | isPArrFakeAlts match_alts	-- Sugared parallel array; use a literal case 
-  = MatchResult CanFail mk_parrCase
-
-  | otherwise			-- Datatype case; use a case
-  = MatchResult fail_flag mk_case
+  | isPArrFakeAlts match_alts
+  = MatchResult CanFail $ mkPArrCase dflags var ty (sort_alts match_alts)
+  | otherwise
+  = mkDataConCase var ty match_alts
   where
-    tycon = dataConTyCon con1
+    isNewtype = isNewTyCon (dataConTyCon (alt_pat alt1))
+
 	-- [Interesting: because of GADTs, we can't rely on the type of 
 	--  the scrutinised Id to be sufficiently refined to have a TyCon in it]
 
-	-- Stuff for newtype
-    (con1, arg_ids1, match_result1) = ASSERT( notNull match_alts ) head match_alts
-    arg_id1 	= ASSERT( notNull arg_ids1 ) head arg_ids1
-    var_ty      = idType var
+    alt1@MkCaseAlt{ alt_bndrs = arg_ids1, alt_result = match_result1 }
+      = ASSERT( notNull match_alts ) head match_alts
+    -- Stuff for newtype
+    arg_id1       = ASSERT( notNull arg_ids1 ) head arg_ids1
+    var_ty        = idType var
     (tc, ty_args) = tcSplitTyConApp var_ty	-- Don't look through newtypes
     	 	    		    		-- (not that splitTyConApp does, these days)
     newtype_rhs = unwrapNewTypeBody tc ty_args (Var var)
-		
-	-- Stuff for data types
-    data_cons      = tyConDataCons tycon
-    match_results  = [match_result | (_,_,match_result) <- match_alts]
 
-    fail_flag | exhaustive_case
-	      = foldr orFail CantFail [can_it_fail | MatchResult can_it_fail _ <- match_results]
-	      | otherwise
-	      = CanFail
-
-    sorted_alts  = sortWith get_tag match_alts
-    get_tag (con, _, _) = dataConTag con
-    mk_case fail = do alts <- mapM (mk_alt fail) sorted_alts
-                      return (mkWildCase (Var var) (idType var) ty (mk_default fail ++ alts))
-
-    mk_alt fail (con, args, MatchResult _ body_fn)
-      = do { body <- body_fn fail
-           ; case dataConBoxer con of {
-                Nothing -> return (DataAlt con, args, body) ;
-                Just (DCB boxer) -> 
-        do { us <- newUniqueSupply
-           ; let (rep_ids, binds) = initUs_ us (boxer ty_args args)
-           ; return (DataAlt con, rep_ids, mkLets binds body) } } }
-
-    mk_default fail | exhaustive_case = []
-		    | otherwise       = [(DEFAULT, [], fail)]
-
-    un_mentioned_constructors
-        = mkUniqSet data_cons `minusUniqSet` mkUniqSet [ con | (con, _, _) <- match_alts]
-    exhaustive_case = isEmptyUniqSet un_mentioned_constructors
-
-	-- Stuff for parallel arrays
-	-- 
-	--  * the following is to desugar cases over fake constructors for
-	--   parallel arrays, which are introduced by `tidy1' in the `PArrPat'
-	--   case
-	--
+        --- Stuff for parallel arrays
+        --
 	-- Concerning `isPArrFakeAlts':
 	--
 	--  * it is *not* sufficient to just check the type of the type
@@ -354,47 +330,127 @@ mkCoAlgCaseMatchResult dflags var ty match_alts
 	--	  earlier and raise a proper error message, but it can really
 	--	  only happen in `PrelPArr' anyway.
 	--
-    isPArrFakeAlts [(dcon, _, _)]      = isPArrFakeCon dcon
-    isPArrFakeAlts ((dcon, _, _):alts) = 
-      case (isPArrFakeCon dcon, isPArrFakeAlts alts) of
+
+    isPArrFakeAlts :: [CaseAlt DataCon] -> Bool
+    isPArrFakeAlts [alt] = isPArrFakeCon (alt_pat alt)
+    isPArrFakeAlts (alt:alts) =
+      case (isPArrFakeCon (alt_pat alt), isPArrFakeAlts alts) of
         (True , True ) -> True
         (False, False) -> False
         _              -> panic "DsUtils: you may not mix `[:...:]' with `PArr' patterns"
     isPArrFakeAlts [] = panic "DsUtils: unexpectedly found an empty list of PArr fake alternatives"
+
+mkCoSynCaseMatchResult :: Id -> Type -> CaseAlt PatSyn -> MatchResult
+mkCoSynCaseMatchResult var ty alt = MatchResult CanFail $ mkPatSynCase var ty alt
+
+\end{code}
+
+\begin{code}
+sort_alts :: [CaseAlt DataCon] -> [CaseAlt DataCon]
+sort_alts = sortWith (dataConTag . alt_pat)
+
+mkPatSynCase :: Id -> Type -> CaseAlt PatSyn -> CoreExpr -> DsM CoreExpr
+mkPatSynCase var ty alt fail = do
+    matcher <- dsLExpr $ mkLHsWrap wrapper $ nlHsTyApp matcher [ty]
+    let MatchResult _ mkCont = match_result
+    cont <- mkCoreLams bndrs <$> mkCont fail
+    return $ mkCoreAppsDs matcher [Var var, cont, fail]
+  where
+    MkCaseAlt{ alt_pat = psyn,
+               alt_bndrs = bndrs,
+               alt_wrapper = wrapper,
+               alt_result = match_result} = alt
+    matcher = patSynMatcher psyn
+
+mkDataConCase :: Id -> Type -> [CaseAlt DataCon] -> MatchResult
+mkDataConCase _   _  []            = panic "mkDataConCase: no alternatives"
+mkDataConCase var ty alts@(alt1:_) = MatchResult fail_flag mk_case
+  where
+    con1          = alt_pat alt1
+    tycon         = dataConTyCon con1
+    data_cons     = tyConDataCons tycon
+    match_results = map alt_result alts
+
+    sorted_alts :: [CaseAlt DataCon]
+    sorted_alts  = sort_alts alts
+
+    var_ty       = idType var
+    (_, ty_args) = tcSplitTyConApp var_ty -- Don't look through newtypes
+                                          -- (not that splitTyConApp does, these days)
+
+    mk_case :: CoreExpr -> DsM CoreExpr
+    mk_case fail = do
+        alts <- mapM (mk_alt fail) sorted_alts
+        return $ mkWildCase (Var var) (idType var) ty (mk_default fail ++ alts)
+
+    mk_alt :: CoreExpr -> CaseAlt DataCon -> DsM CoreAlt
+    mk_alt fail MkCaseAlt{ alt_pat = con,
+                           alt_bndrs = args,
+                           alt_result = MatchResult _ body_fn }
+      = do { body <- body_fn fail
+           ; case dataConBoxer con of {
+                Nothing -> return (DataAlt con, args, body) ;
+                Just (DCB boxer) ->
+        do { us <- newUniqueSupply
+           ; let (rep_ids, binds) = initUs_ us (boxer ty_args args)
+           ; return (DataAlt con, rep_ids, mkLets binds body) } } }
+
+    mk_default :: CoreExpr -> [CoreAlt]
+    mk_default fail | exhaustive_case = []
+                    | otherwise       = [(DEFAULT, [], fail)]
+
+    fail_flag :: CanItFail
+    fail_flag | exhaustive_case
+              = foldr orFail CantFail [can_it_fail | MatchResult can_it_fail _ <- match_results]
+              | otherwise
+              = CanFail
+
+    mentioned_constructors = mkUniqSet $ map alt_pat alts
+    un_mentioned_constructors
+        = mkUniqSet data_cons `minusUniqSet` mentioned_constructors
+    exhaustive_case = isEmptyUniqSet un_mentioned_constructors
+
+--- Stuff for parallel arrays
+--
+--  * the following is to desugar cases over fake constructors for
+--   parallel arrays, which are introduced by `tidy1' in the `PArrPat'
+--   case
+--
+mkPArrCase :: DynFlags -> Id -> Type -> [CaseAlt DataCon] -> CoreExpr -> DsM CoreExpr
+mkPArrCase dflags var ty sorted_alts fail = do
+    lengthP <- dsDPHBuiltin lengthPVar
+    alt <- unboxAlt
+    return (mkWildCase (len lengthP) intTy ty [alt])
+  where
+    elemTy      = case splitTyConApp (idType var) of
+        (_, [elemTy]) -> elemTy
+        _             -> panic panicMsg
+    panicMsg    = "DsUtils.mkCoAlgCaseMatchResult: not a parallel array?"
+    len lengthP = mkApps (Var lengthP) [Type elemTy, Var var]
     --
-    mk_parrCase fail = do
-      lengthP <- dsDPHBuiltin lengthPVar
-      alt <- unboxAlt
-      return (mkWildCase (len lengthP) intTy ty [alt])
+    unboxAlt = do
+        l      <- newSysLocalDs intPrimTy
+        indexP <- dsDPHBuiltin indexPVar
+        alts   <- mapM (mkAlt indexP) sorted_alts
+        return (DataAlt intDataCon, [l], mkWildCase (Var l) intPrimTy ty (dft : alts))
       where
-	elemTy      = case splitTyConApp (idType var) of
-		        (_, [elemTy]) -> elemTy
-		        _	        -> panic panicMsg
-        panicMsg    = "DsUtils.mkCoAlgCaseMatchResult: not a parallel array?"
-	len lengthP = mkApps (Var lengthP) [Type elemTy, Var var]
-	--
-	unboxAlt = do
-	  l      <- newSysLocalDs intPrimTy
-	  indexP <- dsDPHBuiltin indexPVar
-	  alts   <- mapM (mkAlt indexP) sorted_alts
-	  return (DataAlt intDataCon, [l], mkWildCase (Var l) intPrimTy ty (dft : alts))
-          where
-	    dft  = (DEFAULT, [], fail)
-	--
-	-- each alternative matches one array length (corresponding to one
-	-- fake array constructor), so the match is on a literal; each
-	-- alternative's body is extended by a local binding for each
-	-- constructor argument, which are bound to array elements starting
-	-- with the first
-	--
-	mkAlt indexP (con, args, MatchResult _ bodyFun) = do
-	  body <- bodyFun fail
-	  return (LitAlt lit, [], mkCoreLets binds body)
-	  where
-	    lit   = MachInt $ toInteger (dataConSourceArity con)
-	    binds = [NonRec arg (indexExpr i) | (i, arg) <- zip [1..] args]
-	    --
-	    indexExpr i = mkApps (Var indexP) [Type elemTy, Var var, mkIntExpr dflags i]
+        dft  = (DEFAULT, [], fail)
+
+    --
+    -- each alternative matches one array length (corresponding to one
+    -- fake array constructor), so the match is on a literal; each
+    -- alternative's body is extended by a local binding for each
+    -- constructor argument, which are bound to array elements starting
+    -- with the first
+    --
+    mkAlt indexP alt@MkCaseAlt{alt_result = MatchResult _ bodyFun} = do
+        body <- bodyFun fail
+        return (LitAlt lit, [], mkCoreLets binds body)
+      where
+        lit   = MachInt $ toInteger (dataConSourceArity (alt_pat alt))
+        binds = [NonRec arg (indexExpr i) | (i, arg) <- zip [1..] (alt_bndrs alt)]
+        --
+        indexExpr i = mkApps (Var indexP) [Type elemTy, Var var, mkIntExpr dflags i]
 \end{code}
 
 %************************************************************************
@@ -416,7 +472,7 @@ mkErrorAppDs err_id ty msg = do
         full_msg = showSDoc dflags (hcat [ppr src_loc, text "|", msg])
         core_msg = Lit (mkMachString full_msg)
         -- mkMachString returns a result of type String#
-    return (mkApps (Var err_id) [Type ty, core_msg])
+    return (mkApps (Var err_id) [Type (getLevity "mkErrorAppDs" ty), Type ty, core_msg])
 \end{code}
 
 'mkCoreAppDs' and 'mkCoreAppsDs' hand the special-case desugaring of 'seq'.
@@ -582,12 +638,13 @@ mkSelectorBinds ticks pat val_expr
         -- efficient too.
 
         -- For the error message we make one error-app, to avoid duplication.
-        -- But we need it at different types... so we use coerce for that
-       ; err_expr <- mkErrorAppDs iRREFUT_PAT_ERROR_ID  unitTy (ppr pat)
-       ; err_var <- newSysLocalDs unitTy
-       ; binds <- zipWithM (mk_bind val_var err_var) ticks' binders
-       ; return ( (val_var, val_expr) : 
-                  (err_var, err_expr) :
+        -- But we need it at different types, so we make it polymorphic:
+        --     err_var = /\a. iRREFUT_PAT_ERR a "blah blah blah"
+       ; err_app <- mkErrorAppDs iRREFUT_PAT_ERROR_ID alphaTy (ppr pat)
+       ; err_var <- newSysLocalDs (mkForAllTy alphaTyVar alphaTy)
+       ; binds   <- zipWithM (mk_bind val_var err_var) ticks' binders
+       ; return ( (val_var, val_expr) :
+                  (err_var, Lam alphaTyVar err_app) :
                   binds ) }
 
   | otherwise
@@ -609,20 +666,21 @@ mkSelectorBinds ticks pat val_expr
 
     mk_bind scrut_var err_var tick bndr_var = do
     -- (mk_bind sv err_var) generates
-    --          bv = case sv of { pat -> bv; other -> coerce (type-of-bv) err_var }
+    --          bv = case sv of { pat -> bv; other -> err_var @ type-of-bv }
     -- Remember, pat binds bv
         rhs_expr <- matchSimply (Var scrut_var) PatBindRhs pat
                                 (Var bndr_var) error_expr
         return (bndr_var, mkOptTickBox tick rhs_expr)
       where
-        error_expr = mkCast (Var err_var) co
-        co         = mkUnsafeCo Representational (exprType (Var err_var)) (idType bndr_var)
+        error_expr = Var err_var `App` Type (idType bndr_var)
 
     is_simple_lpat p = is_simple_pat (unLoc p)
 
     is_simple_pat (TuplePat ps Boxed _) = all is_triv_lpat ps
-    is_simple_pat pat@(ConPatOut{})     =  isProductTyCon (dataConTyCon (unLoc (pat_con pat)))
-                                        && all is_triv_lpat (hsConPatArgs (pat_args pat))
+    is_simple_pat pat@(ConPatOut{})     = case unLoc (pat_con pat) of
+        RealDataCon con -> isProductTyCon (dataConTyCon con)
+                           && all is_triv_lpat (hsConPatArgs (pat_args pat))
+        PatSynCon _     -> False
     is_simple_pat (VarPat _)                   = True
     is_simple_pat (ParPat p)                   = is_simple_lpat p
     is_simple_pat _                                    = False
@@ -651,8 +709,7 @@ mkLHsVarPatTup bs  = mkLHsPatTup (map nlVarPat bs)
 
 mkVanillaTuplePat :: [OutPat Id] -> Boxity -> Pat Id
 -- A vanilla tuple pattern simply gets its type from its sub-patterns
-mkVanillaTuplePat pats box 
-  = TuplePat pats box (mkTupleTy (boxityNormalTupleSort box) (map hsLPatType pats))
+mkVanillaTuplePat pats box = TuplePat pats box (map hsLPatType pats)
 
 -- The Big equivalents for the source tuple expressions
 mkBigLHsVarTup :: [Id] -> LHsExpr Id

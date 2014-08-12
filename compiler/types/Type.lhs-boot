@@ -2,13 +2,14 @@
 module Type where
 import {-# SOURCE #-} TyCoRep( Type, Kind )
 
-noParenPred :: Type -> Bool
 isPredTy :: Type -> Bool
 isCoercionTy :: Type -> Bool
 
 mkAppTy :: Type -> Type -> Type
 piResultTy :: Type -> Type -> Type
 
-eqKind :: Kind -> Kind -> Bool
 typeKind :: Type -> Kind
+eqType :: Type -> Type -> Bool
+
+coreViewOneStarKind :: Type -> Maybe Type
 \end{code}

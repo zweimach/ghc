@@ -1,5 +1,6 @@
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
+{-# LANGUAGE CPP #-}
+{-# OPTIONS_GHC -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
@@ -33,7 +34,8 @@ module MkCore (
         mkChunkified,
         
         -- * Constructing small tuples
-        mkCoreVarTup, mkCoreVarTupTy, mkCoreTup, 
+        mkCoreVarTup, mkCoreVarTupTy, mkCoreTup, mkCoreUbxTup,
+        mkCoreTupBoxity,
         
         -- * Constructing big tuples
         mkBigCoreVarTup, mkBigCoreVarTupTy,
@@ -292,11 +294,11 @@ mkStringExprFS str
 
 -- This take a ~# b (or a ~# R b) and returns a ~ b (or Coercible a b)
 mkEqBox :: Coercion -> CoreExpr
-mkEqBox co = ASSERT2( typeKind ty2 `eqKind` k, ppr co $$ ppr ty1 $$ ppr ty2 $$ ppr (typeKind ty1) $$ ppr (typeKind ty2) )
+mkEqBox co = ASSERT2( typeKind ty2 `eqType` k, ppr co $$ ppr ty1 $$ ppr ty2 $$ ppr (typeKind ty1) $$ ppr (typeKind ty2) )
              Var (dataConWorkId datacon) `mkTyApps` [k, ty1, ty2] `App` Coercion co
-  where Pair ty1 ty2 = coercionKind co
+  where (Pair ty1 ty2, role) = coercionKindRole co
         k = typeKind ty1
-        datacon = case coercionRole co of 
+        datacon = case role of
             Nominal ->          eqBoxDataCon
             Representational -> coercibleDataCon
             Phantom ->          pprPanic "mkEqBox does not support boxing phantom coercions"
@@ -379,6 +381,21 @@ mkCoreTup []  = Var unitDataConId
 mkCoreTup [c] = c
 mkCoreTup cs  = mkConApp (tupleCon BoxedTuple (length cs))
                          (map (Type . exprType) cs ++ cs)
+
+-- | Build a small unboxed tuple holding the specified expressions,
+-- with the given types. The types must be the types of the expressions.
+-- Do not include the levity specifiers; this function calculates them
+-- for you.
+mkCoreUbxTup :: [Type] -> [CoreExpr] -> CoreExpr
+mkCoreUbxTup tys exps
+  = ASSERT( tys `equalLength` exps)
+    mkConApp (tupleCon UnboxedTuple (length tys))
+             (map (Type . getLevity "mkCoreUbxTup") tys ++ map Type tys ++ exps)
+
+-- | Make a core tuple of the given boxity
+mkCoreTupBoxity :: Boxity -> [CoreExpr] -> CoreExpr
+mkCoreTupBoxity Boxed   exps = mkCoreTup exps
+mkCoreTupBoxity Unboxed exps = mkCoreUbxTup (map exprType exps) exps
 
 -- | Build a big tuple holding the specified variables
 mkBigCoreVarTup :: [Id] -> CoreExpr
@@ -617,7 +634,7 @@ mkRuntimeErrorApp
         -> CoreExpr
 
 mkRuntimeErrorApp err_id res_ty err_msg 
-  = mkApps (Var err_id) [Type res_ty, err_string]
+  = mkApps (Var err_id) [Type (getLevity "mkRuntimeErrorApp" res_ty), Type res_ty, err_string]
   where
     err_string = Lit (mkMachString err_msg)
 
@@ -704,7 +721,8 @@ mkRuntimeErrorId name = pc_bottoming_Id1 name runtimeErrorTy
 
 runtimeErrorTy :: Type
 -- The runtime error Ids take a UTF8-encoded string as argument
-runtimeErrorTy = mkInvSigmaTy [openAlphaTyVar] [] (mkFunTy addrPrimTy openAlphaTy)
+runtimeErrorTy = mkInvSigmaTy [levity1TyVar, openAlphaTyVar] []
+                              (mkFunTy addrPrimTy openAlphaTy)
 \end{code}
 
 \begin{code}
@@ -715,7 +733,8 @@ eRROR_ID :: Id
 eRROR_ID = pc_bottoming_Id1 errorName errorTy
 
 errorTy  :: Type   -- See Note [Error and friends have an "open-tyvar" forall]
-errorTy  = mkInvSigmaTy [openAlphaTyVar] [] (mkFunTys [mkListTy charTy] openAlphaTy)
+errorTy  = mkInvSigmaTy [levity1TyVar, openAlphaTyVar] []
+                        (mkFunTys [mkListTy charTy] openAlphaTy)
 
 undefinedName :: Name
 undefinedName = mkWiredInIdName gHC_ERR (fsLit "undefined") undefinedKey uNDEFINED_ID
@@ -724,20 +743,20 @@ uNDEFINED_ID :: Id
 uNDEFINED_ID = pc_bottoming_Id0 undefinedName undefinedTy
 
 undefinedTy  :: Type   -- See Note [Error and friends have an "open-tyvar" forall]
-undefinedTy  = mkInvSigmaTy [openAlphaTyVar] [] openAlphaTy
+undefinedTy  = mkInvSigmaTy [levity1TyVar, openAlphaTyVar] [] openAlphaTy
 \end{code}
 
 Note [Error and friends have an "open-tyvar" forall]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 'error' and 'undefined' have types 
-        error     :: forall (a::OpenKind). String -> a
-        undefined :: forall (a::OpenKind). a
-Notice the 'OpenKind' (manifested as openAlphaTyVar in the code). This ensures that
+        error     :: forall (v :: Levity) (a :: TYPE v). String -> a
+        undefined :: forall (v :: Levity) (a :: TYPE v). a
+Notice the sort polymophism. This ensures that
 "error" can be instantiated at 
   * unboxed as well as boxed types
   * polymorphic types
 This is OK because it never returns, so the return type is irrelevant.
-See Note [OpenTypeKind accepts foralls] in TcUnify.
+See Note [Sort-polymorphic tyvars accept foralls] in TcUnify.
 
 
 %************************************************************************

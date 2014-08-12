@@ -8,7 +8,7 @@
 Haskell. [WDP 94/11])
 
 \begin{code}
-{-# OPTIONS -fno-warn-tabs #-}
+{-# OPTIONS_GHC -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
@@ -37,6 +37,8 @@ module IdInfo (
 	ArityInfo,
 	unknownArity, 
 	arityInfo, setArityInfo, ppArityInfo, 
+
+        callArityInfo, setCallArityInfo,
 
 	-- ** Demand and strictness Info
  	strictnessInfo, setStrictnessInfo, 
@@ -214,8 +216,9 @@ data IdInfo
 
         strictnessInfo  :: StrictSig,      --  ^ A strictness signature
 
-        demandInfo      :: Demand        -- ^ ID demand information
-
+        demandInfo      :: Demand,       -- ^ ID demand information
+        callArityInfo :: !ArityInfo    -- ^ How this is called.
+                                         -- n <=> all calls have at least n arguments
     }
 
 -- | Just evaluate the 'IdInfo' to WHNF
@@ -274,6 +277,8 @@ setUnfoldingInfo info uf
 
 setArityInfo :: IdInfo -> ArityInfo -> IdInfo
 setArityInfo	  info ar  = info { arityInfo = ar  }
+setCallArityInfo :: IdInfo -> ArityInfo -> IdInfo
+setCallArityInfo info ar  = info { callArityInfo = ar  }
 setCafInfo :: IdInfo -> CafInfo -> IdInfo
 setCafInfo        info caf = info { cafInfo = caf }
 
@@ -301,7 +306,8 @@ vanillaIdInfo
 	    inlinePragInfo 	= defaultInlinePragma,
 	    occInfo		= NoOccInfo,
             demandInfo	        = topDmd,
-	    strictnessInfo      = nopSig
+	    strictnessInfo      = nopSig,
+	    callArityInfo     = unknownArity
 	   }
 
 -- | More informative 'IdInfo' we can use when we know the 'Id' has no CAF references

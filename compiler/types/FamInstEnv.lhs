@@ -5,13 +5,12 @@
 FamInstEnv: Type checked family instance declarations
 
 \begin{code}
-
-{-# LANGUAGE GADTs #-}
+{-# LANGUAGE CPP, GADTs #-}
 
 module FamInstEnv (
         FamInst(..), FamFlavor(..), famInstAxiom, famInstTyCon, famInstRHS,
         famInstsRepTyCons, famInstRepTyCon_maybe, dataFamInstRepTyCon,
-        pprFamInst, pprFamInstHdr, pprFamInsts,
+        pprFamInst, pprFamInsts,
         mkImportedFamInst,
 
         FamInstEnvs, FamInstEnv, emptyFamInstEnv, emptyFamInstEnvs,
@@ -168,28 +167,45 @@ instance Outputable FamInst where
    ppr = pprFamInst
 
 -- Prints the FamInst as a family instance declaration
+-- NB: FamInstEnv.pprFamInst is used only for internal, debug printing
+--     See pprTyThing.pprFamInst for printing for the user
 pprFamInst :: FamInst -> SDoc
 pprFamInst famInst
   = hang (pprFamInstHdr famInst)
        2 (vcat [ ifPprDebug (ptext (sLit "Coercion axiom:") <+> ppr ax)
-               , ifPprDebug (ptext (sLit "RHS:") <+> ppr (famInstRHS famInst))
-               , ptext (sLit "--") <+> pprDefinedAt (getName famInst)])
+               , ifPprDebug (ptext (sLit "RHS:") <+> ppr (famInstRHS famInst)) ])
   where
     ax = fi_axiom famInst
 
 pprFamInstHdr :: FamInst -> SDoc
 pprFamInstHdr fi@(FamInst {fi_flavor = flavor})
-  = pprTyConSort <+> pp_instance <+> pprHead
+  = pprTyConSort <+> pp_instance <+> pp_head
   where
-    (fam_tc, tys) = famInstSplitLHS fi
-
     -- For *associated* types, say "type T Int = blah"
     -- For *top level* type instances, say "type instance T Int = blah"
     pp_instance
       | isTyConAssoc fam_tc = empty
       | otherwise           = ptext (sLit "instance")
 
-    pprHead = pprTypeApp fam_tc tys
+    (fam_tc, etad_lhs_tys) = famInstSplitLHS fi
+    vanilla_pp_head = pprTypeApp fam_tc etad_lhs_tys
+
+    pp_head | DataFamilyInst rep_tc <- flavor
+            , isAlgTyCon rep_tc
+            , let extra_tvs = dropList etad_lhs_tys (tyConTyVars rep_tc)
+            , not (null extra_tvs)
+            = getPprStyle $ \ sty ->
+              if debugStyle sty
+              then vanilla_pp_head   -- With -dppr-debug just show it as-is
+              else pprTypeApp fam_tc (etad_lhs_tys ++ mkOnlyTyVarTys extra_tvs)
+                     -- Without -dppr-debug, eta-expand
+                     -- See Trac #8674
+                     -- (This is probably over the top now that we use this
+                     --  only for internal debug printing; PprTyThing.pprFamInst
+                     --  is used for user-level printing.)
+            | otherwise
+            = vanilla_pp_head
+
     pprTyConSort = case flavor of
                      SynFamilyInst        -> ptext (sLit "type")
                      DataFamilyInst tycon
@@ -200,7 +216,6 @@ pprFamInstHdr fi@(FamInst {fi_flavor = flavor})
 
 pprFamInsts :: [FamInst] -> SDoc
 pprFamInsts finsts = vcat (map pprFamInst finsts)
-
 \end{code}
 
 Note [Lazy axiom match]
@@ -428,7 +443,7 @@ only when we can be sure that 'a' is not Int.
 To achieve this, after finding a possible match within the equations, we have to
 go back to all previous equations and check that, under the
 substitution induced by the match, other branches are surely apart. (See
-[Apartness].) This is similar to what happens with class
+Note [Apartness].) This is similar to what happens with class
 instance selection, when we need to guarantee that there is only a match and
 no unifiers. The exact algorithm is different here because the the
 potentially-overlapping group is closed.
@@ -464,6 +479,7 @@ irrelevant (clause 1 of compatible) or benign (clause 2 of compatible).
 
 \begin{code}
 
+-- See Note [Compatibility]
 compatibleBranches :: CoAxBranch -> CoAxBranch -> Bool
 compatibleBranches (CoAxBranch { cab_lhs = lhs1, cab_rhs = rhs1 })
                    (CoAxBranch { cab_lhs = lhs2, cab_rhs = rhs2 })
@@ -476,6 +492,7 @@ compatibleBranches (CoAxBranch { cab_lhs = lhs1, cab_rhs = rhs1 })
 
 -- takes a CoAxiom with unknown branch incompatibilities and computes
 -- the compatibilities
+-- See Note [Storing compatibility] in CoAxiom
 computeAxiomIncomps :: CoAxiom br -> CoAxiom br
 computeAxiomIncomps ax@(CoAxiom { co_ax_branches = branches })
   = ax { co_ax_branches = go [] branches }
@@ -1029,9 +1046,9 @@ normalise_tc_app env lc role tc tys
 
   | otherwise   -- No unique matching family instance exists;
                 -- we do not do anything
-  = (Refl role ty, ty)
-  where
-    ty = mkTyConApp tc tys
+  = let (co, ntys) = normalise_tc_args env lc role tc tys in
+    (co, mkTyConApp tc ntys)
+    
 
 ---------------
 normalise_tc_args :: FamInstEnvs            -- environment with family instances

@@ -11,7 +11,7 @@ class C a b where
   c4 :: a1 -> b
 c1 :: (C a b, N b) => a -> b
 c2 :: (C a b, N b, S b) => a -> b
-c3 :: C a b => forall a1. a1 -> b
+c3 :: C a b => forall a. a -> b
 c4 :: C a b => forall a1. a1 -> b
 -- imported via Control.Monad
 class Monad m => MonadPlus (m :: * -> *) where
@@ -69,7 +69,7 @@ class C a b where
   c4 :: a1 -> b
 c1 :: (C a b, N b) => a -> b
 c2 :: (C a b, N b, S b) => a -> b
-c3 :: C a b => forall a1. a1 -> b
+c3 :: C a b => forall a. a -> b
 c4 :: C a b => forall a1. a1 -> b
 :browse! T -- with -fprint-explicit-foralls
 -- defined locally
@@ -83,29 +83,29 @@ class C a b where
   c4 :: forall a1. a1 -> b
 c1 :: forall a b. (C a b, N b) => a -> b
 c2 :: forall a b. (C a b, N b, S b) => a -> b
-c3 :: forall a b. C a b => forall a1. a1 -> b
+c3 :: forall a b. C a b => forall a. a -> b
 c4 :: forall a b. C a b => forall a1. a1 -> b
 -- test :browse! <target> relative to different contexts
 :browse! Ghci025C -- from *Ghci025C>
 -- defined locally
-g :: forall a. Num a => a -> a
-h :: forall a. Integral a => a -> a
+g :: forall t. Num t => t -> t
+h :: forall t. Integral t => t -> t
 -- imported via Ghci025D
-f :: forall a. Num a => a -> a
+f :: forall t. Num t => t -> t
 :browse! Ghci025C -- from *Ghci025B>, after :add Ghci025B
 -- imported via Ghci025C
-g :: forall a. Num a => a -> a
-h :: forall a. Integral a => a -> a
-f :: forall a. Num a => a -> a
+g :: forall t. Num t => t -> t
+h :: forall t. Integral t => t -> t
+f :: forall t. Num t => t -> t
 :browse! Ghci025C -- from *Ghci025C>, after :m *Ghci025C
 -- defined locally
-g :: forall a. Num a => a -> a
-h :: forall a. Integral a => a -> a
+g :: forall t. Num t => t -> t
+h :: forall t. Integral t => t -> t
 -- imported via Ghci025D
-f :: forall a. Num a => a -> a
+f :: forall t. Num t => t -> t
 :browse! Ghci025C -- from *Ghci025D>, after :m *Ghci025D
 -- not currently imported
-Ghci025C.g :: forall a. Num a => a -> a
-Ghci025C.h :: forall a. Integral a => a -> a
+Ghci025C.g :: forall t. Num t => t -> t
+Ghci025C.h :: forall t. Integral t => t -> t
 -- defined locally
-f :: forall a. Num a => a -> a
+f :: forall t. Num t => t -> t

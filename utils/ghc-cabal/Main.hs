@@ -12,6 +12,7 @@ import Distribution.Simple.Configure
 import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.Program
 import Distribution.Simple.Program.HcPkg
+import Distribution.Simple.Setup (ConfigFlags(configStripLibs), fromFlag, toFlag)
 import Distribution.Simple.Utils (defaultPackageDesc, writeFileAtomic, toUTF8)
 import Distribution.Simple.Build (writeAutogenFiles)
 import Distribution.Simple.Register
@@ -27,7 +28,7 @@ import Data.Maybe
 import System.IO
 import System.Directory
 import System.Environment
-import System.Exit
+import System.Exit      (exitWith, ExitCode(..))
 import System.FilePath
 
 main :: IO ()
@@ -174,8 +175,17 @@ doCopy directory distDir
             let lbi' = lbi {
                                withPrograms = progs',
                                installDirTemplates = idts,
+                               configFlags = cfg,
+                               stripLibs = fromFlag (configStripLibs cfg),
                                withSharedLib = withSharedLibs
                            }
+
+                -- This hack allows to interpret the "strip"
+                -- command-line argument being set to ':' to signify
+                -- disabled library stripping
+                cfg | strip == ":" = (configFlags lbi) { configStripLibs = toFlag False }
+                    | otherwise    = configFlags lbi
+
             f pd lbi' us flags
 
 doRegister :: FilePath -> FilePath -> FilePath -> FilePath
@@ -452,7 +462,8 @@ generate directory distdir dll0Modules config_args
                 "$(eval $(" ++ directory ++ "_PACKAGE_MAGIC))"
                 ]
       writeFile (distdir ++ "/package-data.mk") $ unlines xs
-      writeFile (distdir ++ "/haddock-prologue.txt") $
+
+      writeFileUtf8 (distdir ++ "/haddock-prologue.txt") $
           if null (description pd) then synopsis pd
                                    else description pd
       unless (null dll0Modules) $
@@ -475,3 +486,8 @@ generate directory distdir dll0Modules config_args
      mkSearchPath = intercalate [searchPathSeparator]
      boolToYesNo True = "YES"
      boolToYesNo False = "NO"
+
+     -- | Version of 'writeFile' that always uses UTF8 encoding
+     writeFileUtf8 f txt = withFile f WriteMode $ \hdl -> do
+         hSetEncoding hdl utf8
+         hPutStr hdl txt

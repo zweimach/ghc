@@ -7,14 +7,13 @@
 A ``lint'' pass to check for Core correctness
 
 \begin{code}
-
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fprof-auto #-}
 
 module CoreLint ( lintCoreBindings, lintUnfolding, lintExpr ) where
 
 #include "HsVersions.h"
 
-import Demand
 import CoreSyn
 import CoreFVs
 import CoreUtils
@@ -129,8 +128,7 @@ to the type of the binding variable.  lintBinders does this.
 
 For Ids, the type-substituted Id is added to the in_scope set (which
 itself is part of the TCvSubst we are carrying down), and when we
-find an occurence of an Id, we fetch it from the in-scope set.
-
+find an occurrence of an Id, we fetch it from the in-scope set.
 
 \begin{code}
 lintCoreBindings :: [Var] -> CoreProgram -> (Bag MsgDoc, Bag MsgDoc)
@@ -252,9 +250,13 @@ lintSingleBinding top_lvl_flag rec_flag (binder,rhs)
 
       -- Check whether arity and demand type are consistent (only if demand analysis
       -- already happened)
-       ; checkL (case dmdTy of
-                  StrictSig dmd_ty -> idArity binder >= dmdTypeDepth dmd_ty || exprIsTrivial rhs)
-           (mkArityMsg binder)
+      --
+      -- Note (Apr 2014): this is actually ok.  See Note [Demand analysis for trivial right-hand sides]
+      --                  in DmdAnal.  After eta-expansion in CorePrep the rhs is no longer trivial.
+      --       ; let dmdTy = idStrictness binder
+      --       ; checkL (case dmdTy of
+      --                  StrictSig dmd_ty -> idArity binder >= dmdTypeDepth dmd_ty || exprIsTrivial rhs)
+      --           (mkArityMsg binder)
 
        ; lintIdUnfolding binder binder_ty (idUnfolding binder) }
 
@@ -262,7 +264,6 @@ lintSingleBinding top_lvl_flag rec_flag (binder,rhs)
         -- the unfolding is a SimplifiableCoreExpr. Give up for now.
    where
     binder_ty                  = idType binder
-    dmdTy                      = idStrictness binder
     bndr_vars                  = varSetElems (idFreeVars binder)
 
     -- If you edit this function, you may need to update the GHC formalism
@@ -334,8 +335,8 @@ lintCoreExpr (Cast expr co)
 -- RAE This check fails, because of (at least) a failure to use mkCast in Specialise.specExpr
        ; co' <- applySubstCo co
        ; (_, k2, from_ty, to_ty, r) <- lintCoercion co'
-       ; lintL (isStarKind k2 || isUnliftedTypeKind k2)
-                (ptext (sLit "Target of cast not # or *:") <+> ppr co)
+       ; lintL (classifiesTypeWithValues k2)
+               (ptext (sLit "Target of cast not # or *:") <+> ppr co)
        ; lintRole co' Representational r
        ; ensureEqTys from_ty expr_ty (mkCastErr expr co' from_ty expr_ty)
        ; return to_ty }
@@ -528,7 +529,7 @@ lintTyKind tyvar arg_ty
         --      error :: forall a:*. String -> a
         -- and then apply it to both boxed and unboxed types.
   = do { arg_kind <- lintType arg_ty
-       ; unless (arg_kind `isSubKind` tyvar_kind)
+       ; unless (arg_kind `eqType` tyvar_kind)
                 (addErrL (mkKindErrMsg tyvar arg_ty $$ (text "xx" <+> ppr arg_kind))) }
   where
     tyvar_kind = tyVarKind tyvar
@@ -840,13 +841,13 @@ lint_app doc kfn kas
       = go_app kfn' ka
 
     go_app (ForAllTy (Anon kfa) kfb) (_,ka)
-      = do { unless (ka `isSubKind` kfa 
+      = do { unless (ka `eqType` kfa 
                     || (isStarKind kfa && isUnliftedTypeKind ka) -- TODO (RAE): Remove this horrible hack
                     ) (addErrL fail_msg)
            ; return kfb }
 
     go_app (ForAllTy (Named kv _vis) kfn) (ta,ka)
-      = do { unless (ka `isSubKind` tyVarKind kv) (addErrL fail_msg)
+      = do { unless (ka `eqType` tyVarKind kv) (addErrL fail_msg)
            ; return (substTyWith [kv] [ta] kfn) }
 
     go_app _ _ = failWithL fail_msg
@@ -899,6 +900,9 @@ lintCoercion co@(TyConAppCo r tc cos)
        ; lintRole co1 r r1
        ; lintRole co2 r r2
        ; return (k, k', mkFunTy s1 s2, mkFunTy t1 t2, r) }
+
+  | Just {} <- synTyConDefn_maybe tc
+  = failWithL (ptext (sLit "Synonym in TyConAppCo:") <+> ppr co)
 
   | otherwise
   = do { (k's, ks, ss, ts, rs) <- mapAndUnzip5M lintCoercionArg cos
@@ -1069,8 +1073,8 @@ lintCoercion (InstCo co arg)
           (Just (bndr1,t1), Just (bndr2,t2))
             | Just tv1 <- binderVar_maybe bndr1
             , Just tv2 <- binderVar_maybe bndr2
-            , k1' `isSubKind` tyVarKind tv1
-            , k2' `isSubKind` tyVarKind tv2
+            , k1' `eqType` tyVarKind tv1
+            , k2' `eqType` tyVarKind tv2
             -> return (k3, k4,
                        substTyWith [tv1] [s1] t1, 
                        substTyWith [tv2] [s2] t2, r) 
@@ -1107,9 +1111,9 @@ lintCoercion co@(AxiomInstCo con ind cos)
            ; lintRole arg role r
            ; let ktv_kind_l = substTy subst_l (tyVarKind ktv)
                  ktv_kind_r = substTy subst_r (tyVarKind ktv)
-           ; unless (k' `isSubKind` ktv_kind_l) 
+           ; unless (k' `eqType` ktv_kind_l) 
                     (bad_ax (ptext (sLit "check_ki1") <+> vcat [ ppr co, ppr k', ppr ktv, ppr ktv_kind_l ] ))
-           ; unless (k'' `isSubKind` ktv_kind_r)
+           ; unless (k'' `eqType` ktv_kind_r)
                     (bad_ax (ptext (sLit "check_ki2") <+> vcat [ ppr co, ppr k'', ppr ktv, ppr ktv_kind_r ] ))
            ; return (extendTCvSubst subst_l ktv s', 
                      extendTCvSubst subst_r ktv t') }
@@ -1635,6 +1639,7 @@ mkKindErrMsg tyvar arg_ty
           hang (ptext (sLit "Arg type:"))
                  4 (ppr arg_ty <+> dcolon <+> ppr (typeKind arg_ty))]
 
+{- Not needed now
 mkArityMsg :: Id -> MsgDoc
 mkArityMsg binder
   = vcat [hsep [ptext (sLit "Demand type has"),
@@ -1647,7 +1652,7 @@ mkArityMsg binder
 
          ]
            where (StrictSig dmd_ty) = idStrictness binder
-
+-}
 mkCastErr :: Outputable casted => casted -> Coercion -> Type -> Type -> MsgDoc
 mkCastErr expr co from_ty expr_ty
   = vcat [ptext (sLit "From-type of Cast differs from type of enclosed expression"),

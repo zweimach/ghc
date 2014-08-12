@@ -106,6 +106,7 @@ char *EventDesc[] = {
   [EVENT_TASK_CREATE]         = "Task create",
   [EVENT_TASK_MIGRATE]        = "Task migrate",
   [EVENT_TASK_DELETE]         = "Task delete",
+  [EVENT_HACK_BUG_T9003]      = "Empty event for bug #9003",
 };
 
 // Event type. 
@@ -198,19 +199,13 @@ static inline void postEventHeader(EventsBuf *eb, EventTypeNum type)
 {
     postEventTypeNum(eb, type);
     postTimestamp(eb);
-}    
+}
 
 static inline void postInt8(EventsBuf *eb, StgInt8 i)
 { postWord8(eb, (StgWord8)i); }
 
-static inline void postInt16(EventsBuf *eb, StgInt16 i)
-{ postWord16(eb, (StgWord16)i); }
-
 static inline void postInt32(EventsBuf *eb, StgInt32 i)
 { postWord32(eb, (StgWord32)i); }
-
-static inline void postInt64(EventsBuf *eb, StgInt64 i)
-{ postWord64(eb, (StgWord64)i); }
 
 
 void
@@ -424,6 +419,10 @@ initEventLogging(void)
         case EVENT_BLOCK_MARKER:
             eventTypes[t].size = sizeof(StgWord32) + sizeof(EventTimestamp) + 
                 sizeof(EventCapNo);
+            break;
+
+        case EVENT_HACK_BUG_T9003:
+            eventTypes[t].size = 0;
             break;
 
         default:

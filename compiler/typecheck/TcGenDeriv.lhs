@@ -11,7 +11,7 @@ This module is nominally ``subordinate'' to @TcDeriv@, which is the
 This is where we do all the grimy bindings' generation.
 
 \begin{code}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE CPP, ScopedTypeVariables #-}
 
 module TcGenDeriv (
         BagDerivStuff, DerivStuff(..),
@@ -33,7 +33,8 @@ module TcGenDeriv (
         mkCoerceClassMethEqn,
         gen_Newtype_binds,
         genAuxBinds,
-        ordOpTbl, boxConTbl
+        ordOpTbl, boxConTbl,
+        mkRdrFunBind
     ) where
 
 #include "HsVersions.h"
@@ -275,7 +276,7 @@ Several special cases:
 Note [Do not rely on compare]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 It's a bad idea to define only 'compare', and build the other binary
-comparisions on top of it; see Trac #2130, #4019.  Reason: we don't
+comparisons on top of it; see Trac #2130, #4019.  Reason: we don't
 want to laboriously make a three-way comparison, only to extract a
 binary result, something like this:
      (>) (I# x) (I# y) = case <# x y of
@@ -1219,10 +1220,10 @@ gen_old_Typeable_binds dflags loc tycon
   where
     tycon_name = tyConName tycon
     modl       = nameModule tycon_name
-    pkg        = modulePackageId modl
+    pkg        = modulePackageKey modl
 
     modl_fs    = moduleNameFS (moduleName modl)
-    pkg_fs     = packageIdFS pkg
+    pkg_fs     = packageKeyFS pkg
     name_fs    = occNameFS (nameOccName tycon_name)
 
     tycon_rep = nlHsApps oldMkTyCon_RDR
@@ -1276,10 +1277,10 @@ gen_Typeable_binds dflags loc tycon
   where
     tycon_name = tyConName tycon
     modl       = nameModule tycon_name
-    pkg        = modulePackageId modl
+    pkg        = modulePackageKey modl
 
     modl_fs    = moduleNameFS (moduleName modl)
-    pkg_fs     = packageIdFS pkg
+    pkg_fs     = packageKeyFS pkg
     name_fs    = occNameFS (nameOccName tycon_name)
 
     tycon_rep = nlHsApps mkTyCon_RDR
@@ -1602,7 +1603,7 @@ gen_Functor_binds loc tycon
   = (unitBag fmap_bind, emptyBag)
   where
     data_cons = tyConDataCons tycon
-    fmap_bind = L loc $ mkRdrFunBind (L loc fmap_RDR) eqns
+    fmap_bind = mkRdrFunBind (L loc fmap_RDR) eqns
 
     fmap_eqn con = evalState (match_for_con [f_Pat] con =<< parts) bs_RDRs
       where
@@ -1715,10 +1716,10 @@ foldDataConArgs :: FFoldType a -> DataCon -> [a]
 foldDataConArgs ft con
   = map (functorLikeTraverse tv ft) (dataConOrigArgTys con)
   where
-    tv = last (dataConUnivTyVars con)
-                    -- Argument to derive for, 'a in the above description
-                    -- The validity checks have ensured that con is
-                    -- a vanilla data constructor
+    Just tv = getTyVar_maybe (last (tyConAppArgs (dataConOrigResTy con)))
+        -- Argument to derive for, 'a in the above description
+        -- The validity and kind checks have ensured that
+        -- the Just will match and a::*
 
 -- Make a HsLam using a fresh variable from a State monad
 mkSimpleLam :: (LHsExpr id -> State [id] (LHsExpr id)) -> State [id] (LHsExpr id)
@@ -1793,13 +1794,13 @@ gen_Foldable_binds loc tycon
   where
     data_cons = tyConDataCons tycon
 
-    foldr_bind = L loc $ mkRdrFunBind (L loc foldable_foldr_RDR) eqns
+    foldr_bind = mkRdrFunBind (L loc foldable_foldr_RDR) eqns
     eqns = map foldr_eqn data_cons
     foldr_eqn con = evalState (match_foldr z_Expr [f_Pat,z_Pat] con =<< parts) bs_RDRs
       where
         parts = sequence $ foldDataConArgs ft_foldr con
 
-    foldMap_bind = L loc $ mkRdrFunBind (L loc foldMap_RDR) (map foldMap_eqn data_cons)
+    foldMap_bind = mkRdrFunBind (L loc foldMap_RDR) (map foldMap_eqn data_cons)
     foldMap_eqn con = evalState (match_foldMap [f_Pat] con =<< parts) bs_RDRs
       where
         parts = sequence $ foldDataConArgs ft_foldMap con
@@ -1868,7 +1869,7 @@ gen_Traversable_binds loc tycon
   where
     data_cons = tyConDataCons tycon
 
-    traverse_bind = L loc $ mkRdrFunBind (L loc traverse_RDR) eqns
+    traverse_bind = mkRdrFunBind (L loc traverse_RDR) eqns
     eqns = map traverse_eqn data_cons
     traverse_eqn con = evalState (match_for_con [f_Pat] con =<< parts) bs_RDRs
       where
@@ -1948,7 +1949,7 @@ gen_Newtype_binds loc cls inst_tvs cls_tys rhs_ty
     coerce_RDR = getRdrName coerceId
     mk_bind :: Id -> Pair Type -> LHsBind RdrName
     mk_bind id (Pair tau_ty user_ty)
-      = L loc $ mkRdrFunBind (L loc meth_RDR) [mkSimpleMatch [] rhs_expr]
+      = mkRdrFunBind (L loc meth_RDR) [mkSimpleMatch [] rhs_expr]
       where
         meth_RDR = getRdrName id
         rhs_expr
@@ -2085,20 +2086,21 @@ mk_FunBind :: SrcSpan -> RdrName
            -> [([LPat RdrName], LHsExpr RdrName)]
            -> LHsBind RdrName
 mk_FunBind loc fun pats_and_exprs
-  = L loc $ mkRdrFunBind (L loc fun) matches
+  = mkRdrFunBind (L loc fun) matches
   where
     matches = [mkMatch p e emptyLocalBinds | (p,e) <-pats_and_exprs]
 
-mkRdrFunBind :: Located RdrName -> [LMatch RdrName (LHsExpr RdrName)] -> HsBind RdrName
-mkRdrFunBind fun@(L _ fun_rdr) matches
- | null matches = mkFunBind fun [mkMatch [] (error_Expr str) emptyLocalBinds]
-        -- Catch-all eqn looks like
-        --     fmap = error "Void fmap"
-        -- It's needed if there no data cons at all,
-        -- which can happen with -XEmptyDataDecls
-        -- See Trac #4302
- | otherwise    = mkFunBind fun matches
+mkRdrFunBind :: Located RdrName -> [LMatch RdrName (LHsExpr RdrName)] -> LHsBind RdrName
+mkRdrFunBind fun@(L loc fun_rdr) matches = L loc (mkFunBind fun matches')
  where
+   -- Catch-all eqn looks like
+   --     fmap = error "Void fmap"
+   -- It's needed if there no data cons at all,
+   -- which can happen with -XEmptyDataDecls
+   -- See Trac #4302
+   matches' = if null matches
+              then [mkMatch [] (error_Expr str) emptyLocalBinds]
+              else matches
    str = "Void " ++ occNameString (rdrNameOcc fun_rdr)
 \end{code}
 

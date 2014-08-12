@@ -245,12 +245,12 @@ TAG_CLOSURE(StgWord tag,StgClosure * p)
 INLINE_HEADER rtsBool LOOKS_LIKE_INFO_PTR_NOT_NULL (StgWord p)
 {
     StgInfoTable *info = INFO_PTR_TO_STRUCT((StgInfoTable *)p);
-    return info->type != INVALID_OBJECT && info->type < N_CLOSURE_TYPES;
+    return (info->type != INVALID_OBJECT && info->type < N_CLOSURE_TYPES) ? rtsTrue : rtsFalse;
 }
 
 INLINE_HEADER rtsBool LOOKS_LIKE_INFO_PTR (StgWord p)
 {
-    return p && (IS_FORWARDING_PTR(p) || LOOKS_LIKE_INFO_PTR_NOT_NULL(p));
+    return (p && (IS_FORWARDING_PTR(p) || LOOKS_LIKE_INFO_PTR_NOT_NULL(p))) ? rtsTrue : rtsFalse;
 }
 
 INLINE_HEADER rtsBool LOOKS_LIKE_CLOSURE_PTR (void *p)
@@ -326,6 +326,10 @@ EXTERN_INLINE StgOffset mut_arr_ptrs_sizeW( StgMutArrPtrs* x );
 EXTERN_INLINE StgOffset mut_arr_ptrs_sizeW( StgMutArrPtrs* x )
 { return sizeofW(StgMutArrPtrs) + x->size; }
 
+EXTERN_INLINE StgOffset small_mut_arr_ptrs_sizeW( StgSmallMutArrPtrs* x );
+EXTERN_INLINE StgOffset small_mut_arr_ptrs_sizeW( StgSmallMutArrPtrs* x )
+{ return sizeofW(StgSmallMutArrPtrs) + x->ptrs; }
+
 EXTERN_INLINE StgWord stack_sizeW ( StgStack *stack );
 EXTERN_INLINE StgWord stack_sizeW ( StgStack *stack )
 { return sizeofW(StgStack) + stack->stack_size; }
@@ -334,6 +338,11 @@ EXTERN_INLINE StgWord bco_sizeW ( StgBCO *bco );
 EXTERN_INLINE StgWord bco_sizeW ( StgBCO *bco )
 { return bco->size; }
 
+/*
+ * TODO: Consider to switch return type from 'nat' to 'StgWord' #8742
+ *
+ * (Also for 'closure_sizeW' below)
+ */
 EXTERN_INLINE nat closure_sizeW_ (StgClosure *p, StgInfoTable *info);
 EXTERN_INLINE nat
 closure_sizeW_ (StgClosure *p, StgInfoTable *info)
@@ -378,6 +387,11 @@ closure_sizeW_ (StgClosure *p, StgInfoTable *info)
     case MUT_ARR_PTRS_FROZEN:
     case MUT_ARR_PTRS_FROZEN0:
 	return mut_arr_ptrs_sizeW((StgMutArrPtrs*)p);
+    case SMALL_MUT_ARR_PTRS_CLEAN:
+    case SMALL_MUT_ARR_PTRS_DIRTY:
+    case SMALL_MUT_ARR_PTRS_FROZEN:
+    case SMALL_MUT_ARR_PTRS_FROZEN0:
+	return small_mut_arr_ptrs_sizeW((StgSmallMutArrPtrs*)p);
     case TSO:
         return sizeofW(StgTSO);
     case STACK:

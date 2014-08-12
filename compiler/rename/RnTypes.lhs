@@ -5,6 +5,7 @@
 
 \begin{code}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE CPP #-}
 
 module RnTypes (
         -- Type related stuff
@@ -360,10 +361,10 @@ bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
              kvs_from_tv_bndrs = [ kv | L _ (KindedTyVar _ kind) <- tvs
                                  , let (_, kvs) = extractHsTyRdrTyVars kind
                                  , kv <- kvs ]
-             all_kvs = filterOut (\kv -> kv `elemLocalRdrEnv` rdr_env
-                                      || any ((== kv) . hsLTyVarName) tvs) $
-                       nub (kv_bndrs ++ kvs_from_tv_bndrs)
-
+             all_kvs' = nub (kv_bndrs ++ kvs_from_tv_bndrs) 
+             all_kvs  = filterOut (\kv -> kv `elemLocalRdrEnv` rdr_env
+                                       || any ((== kv) . hsLTyVarName) tvs) $
+                       
        ; poly_kind <- xoptM Opt_PolyKinds
        ; unless (poly_kind || null all_kvs)
                 (addErr (badKindBndrs doc all_kvs))

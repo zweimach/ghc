@@ -16,6 +16,8 @@ For state that is global and should be returned at the end (e.g not part
 of the stack mechanism), you should use an TcRef (= IORef) to store them.
 
 \begin{code}
+{-# LANGUAGE CPP #-}
+
 module TcRnTypes(
         TcRnIf, TcRn, TcM, RnM, IfM, IfL, IfG, -- The monad is opaque outside this module
         TcRef,
@@ -43,7 +45,7 @@ module TcRnTypes(
 
         -- Canonical constraints
         Xi, Ct(..), Cts, emptyCts, andCts, andManyCts, dropDerivedWC,
-        singleCt, listToCts, ctsElts, extendCts, extendCtsList, 
+        singleCt, listToCts, ctsElts, extendCts, extendCtsList,
         isEmptyCts, isCTyEqCan, isCFunEqCan,
         isCDictCan_Maybe, isCFunEqCan_maybe,
         isCIrredEvCan, isCNonCanonical, isWantedCt, isDerivedCt,
@@ -90,7 +92,9 @@ import TcEvidence
 import Type
 import Class    ( Class )
 import TyCon    ( TyCon )
+import ConLike  ( ConLike(..) )
 import DataCon  ( DataCon, dataConUserType, dataConOrigArgTys )
+import PatSyn   ( PatSyn, patSynType )
 import TcType
 import Annotations
 import InstEnv
@@ -143,14 +147,14 @@ type TcId        = Id
 type TcIdSet     = IdSet
 
 
-type TcRnIf a b c = IOEnv (Env a b) c
-type IfM lcl a  = TcRnIf IfGblEnv lcl a         -- Iface stuff
+type TcRnIf a b = IOEnv (Env a b)
+type IfM lcl  = TcRnIf IfGblEnv lcl         -- Iface stuff
 
-type IfG a  = IfM () a                          -- Top level
-type IfL a  = IfM IfLclEnv a                    -- Nested
-type TcRn a = TcRnIf TcGblEnv TcLclEnv a
-type RnM  a = TcRn a            -- Historical
-type TcM  a = TcRn a            -- Historical
+type IfG  = IfM ()                          -- Top level
+type IfL  = IfM IfLclEnv                    -- Nested
+type TcRn = TcRnIf TcGblEnv TcLclEnv
+type RnM  = TcRn            -- Historical
+type TcM  = TcRn            -- Historical
 \end{code}
 
 Representation of type bindings to uninstantiated meta variables used during
@@ -292,7 +296,7 @@ data TcGblEnv
           -- ^ Allows us to choose unique DFun names.
 
         -- The next fields accumulate the payload of the module
-        -- The binds, rules and foreign-decl fiels are collected
+        -- The binds, rules and foreign-decl fields are collected
         -- initially in un-zonked form and are finally zonked in tcRnSrcDecls
 
         tcg_rn_exports :: Maybe [Located (IE Name)],
@@ -332,6 +336,7 @@ data TcGblEnv
         tcg_rules     :: [LRuleDecl Id],    -- ...Rules
         tcg_fords     :: [LForeignDecl Id], -- ...Foreign import & exports
         tcg_vects     :: [LVectDecl Id],    -- ...Vectorisation declarations
+        tcg_patsyns   :: [PatSyn],          -- ...Pattern synonyms
 
         tcg_doc_hdr   :: Maybe LHsDocString, -- ^ Maybe Haddock header docs
         tcg_hpc       :: AnyHpcUsage,        -- ^ @True@ if any part of the
@@ -655,7 +660,7 @@ data PromotionErr
   | FamDataConPE     -- Data constructor for a data family
                      -- See Note [AFamDataCon: not promoting data family constructors] in TcRnDriver
 
-  | RecDataConPE     -- Data constructor in a reuursive loop
+  | RecDataConPE     -- Data constructor in a recursive loop
                      -- See Note [ARecDataCon: recusion and promoting data constructors] in TcTyClsDecls
   | NoDataKinds      -- -XDataKinds not enabled
 
@@ -780,7 +785,7 @@ data ImportAvails
           -- Used
           --
           --   (a) to help construct the usage information in the interface
-          --       file; if we import somethign we need to recompile if the
+          --       file; if we import something we need to recompile if the
           --       export version changes
           --
           --   (b) to specify what child modules to initialise
@@ -800,17 +805,17 @@ data ImportAvails
           -- compiling M might not need to consult X.hi, but X
           -- is still listed in M's dependencies.
 
-        imp_dep_pkgs :: [PackageId],
+        imp_dep_pkgs :: [PackageKey],
           -- ^ Packages needed by the module being compiled, whether directly,
           -- or via other modules in this package, or via modules imported
           -- from other packages.
 
-        imp_trust_pkgs :: [PackageId],
+        imp_trust_pkgs :: [PackageKey],
           -- ^ This is strictly a subset of imp_dep_pkgs and records the
           -- packages the current module needs to trust for Safe Haskell
           -- compilation to succeed. A package is required to be trusted if
           -- we are dependent on a trustworthy module in that package.
-          -- While perhaps making imp_dep_pkgs a tuple of (PackageId, Bool)
+          -- While perhaps making imp_dep_pkgs a tuple of (PackageKey, Bool)
           -- where True for the bool indicates the package is required to be
           -- trusted is the more logical  design, doing so complicates a lot
           -- of code not concerned with Safe Haskell.
@@ -940,8 +945,7 @@ data Ct
   | CTyEqCan {  -- tv ~ xi      (recall xi means function free)
        -- Invariant:
        --   * tv not in tvs(xi)   (occurs check)
-       --   * typeKind xi `subKind` typeKind tv
-       --       See Note [Kind orientation for CTyEqCan]
+       --   * typeKind xi `tcEqKind` typeKind tv
        --   * We prefer unification variables on the left *JUST* for efficiency
       cc_ev :: CtEvidence,    -- See Note [Ct/evidence invariant]
       cc_tyvar  :: TcTyVar,
@@ -950,8 +954,7 @@ data Ct
 
   | CFunEqCan {  -- F xis ~ xi
        -- Invariant: * isSynFamilyTyCon cc_fun
-       --            * typeKind (F xis) `subKind` typeKind xi
-       --       See Note [Kind orientation for CFunEqCan]
+       --            * typeKind (F xis) `tcEqKind` typeKind xi
       cc_ev     :: CtEvidence,  -- See Note [Ct/evidence invariant]
       cc_fun    :: TyCon,       -- A type function
       cc_tyargs :: [Xi],        -- Either under-saturated or exactly saturated
@@ -969,49 +972,6 @@ data Ct
       cc_occ :: OccName    -- The name of this hole
     }
 \end{code}
-
-Note [Kind orientation for CTyEqCan]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Given an equality  (t:* ~ s:Open), we absolutely want to re-orient it.
-We can't solve it by updating t:=s, ragardless of how touchable 't' is,
-because the kinds don't work.  Indeed we don't want to leave it with
-the orientation (t ~ s), because if that gets into the inert set we'll
-start replacing t's by s's, and that too is the wrong way round.
-
-Hence in a CTyEqCan, (t:k1 ~ xi:k2) we require that k2 is a subkind of k1.
-
-If the two have incompatible kinds, we just don't use a CTyEqCan at all.
-See Note [Equalities with incompatible kinds] in TcCanonical
-
-We can't require *equal* kinds, because
-     * wanted constraints don't necessarily have identical kinds
-               eg   alpha::? ~ Int
-     * a solved wanted constraint becomes a given
-
-Note [Kind orientation for CFunEqCan]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-For (F xis ~ rhs) we require that kind(lhs) is a subkind of kind(rhs).
-This reallly only maters when rhs is an Open type variable (since only type
-variables have Open kinds):
-   F ty ~ (a:Open)
-which can happen, say, from
-      f :: F a b
-      f = undefined   -- The a:Open comes from instantiating 'undefined'
-
-Note that the kind invariant is maintained by rewriting.
-Eg wanted1 rewrites wanted2; if both were compatible kinds before,
-   wanted2 will be afterwards.  Similarly givens.
-
-Caveat:
-  - Givens from higher-rank, such as:
-          type family T b :: * -> * -> *
-          type instance T Bool = (->)
-
-          f :: forall a. ((T a ~ (->)) => ...) -> a -> ...
-          flop = f (...) True
-     Whereas we would be able to apply the type instance, we would not be able to
-     use the given (T Bool ~ (->)) in the body of 'flop'
-
 
 Note [CIrredEvCan constraints]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1278,6 +1238,8 @@ data Implication
 
       ic_fsks  :: [TcTyVar],     -- Extra flatten-skolems introduced by
                                  -- by flattening the givens
+                                 -- See Note [Given flatten-skolems]
+
       ic_no_eqs :: Bool,         -- True  <=> ic_givens have no equalities, for sure
                                  -- False <=> ic_givens might have equalities
 
@@ -1689,7 +1651,7 @@ data SkolemInfo
   | DataSkol            -- Bound at a data type declaration
   | FamInstSkol         -- Bound at a family instance decl
   | PatSkol             -- An existential type variable bound by a pattern for
-      DataCon           -- a data constructor with an existential type.
+      ConLike           -- a data constructor with an existential type.
       (HsMatchContext Name)
              -- e.g.   data T = forall a. Eq a => MkT a
              --        f (MkT x) = ...
@@ -1734,10 +1696,18 @@ pprSkolInfo FamInstSkol     = ptext (sLit "the family instance declaration")
 pprSkolInfo BracketSkol     = ptext (sLit "a Template Haskell bracket")
 pprSkolInfo (RuleSkol name) = ptext (sLit "the RULE") <+> doubleQuotes (ftext name)
 pprSkolInfo ArrowSkol       = ptext (sLit "the arrow form")
-pprSkolInfo (PatSkol dc mc)  = sep [ ptext (sLit "a pattern with constructor")
-                                   , nest 2 $ ppr dc <+> dcolon
-                                              <+> ppr (dataConUserType dc) <> comma
-                                  , ptext (sLit "in") <+> pprMatchContext mc ]
+pprSkolInfo (PatSkol cl mc) = case cl of
+    RealDataCon dc -> sep [ ptext (sLit "a pattern with constructor")
+                          , nest 2 $ ppr dc <+> dcolon
+                            <+> pprType (dataConUserType dc) <> comma
+                            -- pprType prints forall's regardless of -fprint-explict-foralls
+                            -- which is what we want here, since we might be saying
+                            -- type variable 't' is bound by ...
+                          , ptext (sLit "in") <+> pprMatchContext mc ]
+    PatSynCon ps -> sep [ ptext (sLit "a pattern with pattern synonym")
+                        , nest 2 $ ppr ps <+> dcolon
+                          <+> pprType (patSynType ps) <> comma
+                        , ptext (sLit "in") <+> pprMatchContext mc ]
 pprSkolInfo (InferSkol ids) = sep [ ptext (sLit "the inferred type of")
                                   , vcat [ ppr name <+> dcolon <+> ppr ty
                                          | (name,ty) <- ids ]]
@@ -1841,9 +1811,9 @@ pprO (DerivOriginDC dc n)  = hsep [ ptext (sLit "the"), speakNth n,
                                     parens (ptext (sLit "type") <+> quotes (ppr ty)) ]
     where ty = dataConOrigArgTys dc !! (n-1)
 pprO (DerivOriginCoerce meth ty1 ty2)
-                           = fsep [ ptext (sLit "the coercion"), ptext (sLit "of the method")
-                                  , quotes (ppr meth), ptext (sLit "from type"), quotes (ppr ty1)
-                                  , ptext (sLit "to type"), quotes (ppr ty2) ]
+                           = sep [ ptext (sLit "the coercion of the method") <+> quotes (ppr meth)
+                                 , ptext (sLit "from type") <+> quotes (ppr ty1)
+                                 , nest 2 (ptext (sLit "to type") <+> quotes (ppr ty2)) ]
 pprO StandAloneDerivOrigin = ptext (sLit "a 'deriving' declaration")
 pprO DefaultOrigin         = ptext (sLit "a 'default' declaration")
 pprO DoOrigin              = ptext (sLit "a do statement")
@@ -1860,4 +1830,3 @@ pprO ListOrigin            = ptext (sLit "an overloaded list")
 instance Outputable CtOrigin where
   ppr = pprO
 \end{code}
-

@@ -6,6 +6,7 @@
 The @TyCon@ datatype
 
 \begin{code}
+{-# LANGUAGE CPP, DeriveDataTypeable #-}
 
 module TyCon(
         -- * Main TyCon data types
@@ -34,12 +35,11 @@ module TyCon(
         isFunTyCon,
         isPrimTyCon,
         isTupleTyCon, isUnboxedTupleTyCon, isBoxedTupleTyCon,
-        isSynTyCon, 
+        isSynTyCon, isTypeSynonymTyCon,
         isDecomposableTyCon,
         isForeignTyCon, 
         isPromotedDataCon, isPromotedDataCon_maybe, 
 
-        isInjectiveTyCon,
         isDataTyCon, isProductTyCon, isDataProductTyCon_maybe,
         isEnumerationTyCon,
         isNewTyCon, isAbstractTyCon,
@@ -295,6 +295,17 @@ it's worth noting that (~#)'s parameters are at role N. Promoted data
 constructors' type arguments are at role R. All kind arguments are at role
 N.
 
+Note [Unboxed tuple levity vars]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The contents of an unboxed tuple may be boxed or unboxed. Accordingly,
+the kind of the unboxed tuple constructor is sort-polymorphic. For example,
+
+   (#,#) :: forall (v :: Levity) (w :: Levity). TYPE v -> TYPE w -> #
+
+These extra tyvars (v and w) cause some delicate processing around tuples,
+where we used to be able to assume that the tycon arity and the
+datacon arity were the same.
+
 %************************************************************************
 %*                                                                      *
 \subsection{The data type}
@@ -426,9 +437,10 @@ data TyCon
                                         --   (may not contain bottom)
                                         --   but foreign-imported ones may be lifted
 
-        tyConExtName :: Maybe FastString   -- ^ @Just e@ for foreign-imported types,
+        tyConExtName :: Maybe FastString,  -- ^ @Just e@ for foreign-imported types,
                                            --   holds the name of the imported thing
-    }
+        tcPromoted    :: Maybe TyCon    -- ^ Holds the promoted tycon, if there is one
+  }
 
   -- | Represents promoted data constructor.
   | PromotedDataCon {         -- See Note [Promoted data constructors]
@@ -980,27 +992,30 @@ mkForeignTyCon name ext_name kind
         tc_roles     = [],
         primTyConRep = PtrRep, -- they all do
         isUnLifted   = False,
-        tyConExtName = ext_name
+        tyConExtName = ext_name,
+        tcPromoted   = Nothing
     }
 
 
 -- | Create an unlifted primitive 'TyCon', such as @Int#@
 mkPrimTyCon :: Name  -> Kind -> [Role] -> PrimRep -> TyCon
 mkPrimTyCon name kind roles rep
-  = mkPrimTyCon' name kind roles rep True
+  = mkPrimTyCon' name kind roles rep True Nothing
 
 -- | Kind constructors
-mkKindTyCon :: Name -> Kind -> TyCon
-mkKindTyCon name kind
-  = mkPrimTyCon' name kind [] VoidRep False
+mkKindTyCon :: Name -> Kind -> [Role] -> TyCon
+mkKindTyCon name kind roles
+  = tc
+  where
+    tc = mkPrimTyCon' name kind roles VoidRep False (Just tc)
 
 -- | Create a lifted primitive 'TyCon' such as @RealWorld@
 mkLiftedPrimTyCon :: Name  -> Kind -> [Role] -> PrimRep -> TyCon
 mkLiftedPrimTyCon name kind roles rep
-  = mkPrimTyCon' name kind roles rep False
+  = mkPrimTyCon' name kind roles rep False Nothing
 
-mkPrimTyCon' :: Name  -> Kind -> [Role] -> PrimRep -> Bool -> TyCon
-mkPrimTyCon' name kind roles rep is_unlifted
+mkPrimTyCon' :: Name  -> Kind -> [Role] -> PrimRep -> Bool -> Maybe TyCon -> TyCon
+mkPrimTyCon' name kind roles rep is_unlifted prom_tc
   = PrimTyCon {
         tyConName    = name,
         tyConUnique  = nameUnique name,
@@ -1009,7 +1024,8 @@ mkPrimTyCon' name kind roles rep is_unlifted
         tc_roles     = roles,
         primTyConRep = rep,
         isUnLifted   = is_unlifted,
-        tyConExtName = Nothing
+        tyConExtName = Nothing,
+        tcPromoted   = prom_tc
     }
 
 -- | Create a type synonym 'TyCon'
@@ -1164,10 +1180,16 @@ isDataProductTyCon_maybe (TupleTyCon { dataCon = con })
   = Just con
 isDataProductTyCon_maybe _ = Nothing
 
--- | Is this a 'TyCon' representing a type synonym (@type@)?
+-- | Is this a 'TyCon' representing a regular H98 type synonym (@type@)?
+isTypeSynonymTyCon :: TyCon -> Bool
+isTypeSynonymTyCon (SynTyCon { synTcRhs = SynonymTyCon {} }) = True
+isTypeSynonymTyCon _ = False
+
+-- | Is this 'TyCon' a type synonym or type family?
 isSynTyCon :: TyCon -> Bool
 isSynTyCon (SynTyCon {}) = True
 isSynTyCon _             = False
+
 
 -- As for newtypes, it is in some contexts important to distinguish between
 -- closed synonyms and synonym families, as synonym families have no unique
@@ -1176,7 +1198,14 @@ isSynTyCon _             = False
 
 isDecomposableTyCon :: TyCon -> Bool
 -- True iff we can decompose (T a b c) into ((T a b) c)
+--   I.e. is it injective?
 -- Specifically NOT true of synonyms (open and otherwise)
+-- Ultimately we may have injective associated types
+-- in which case this test will become more interesting
+--
+-- It'd be unusual to call isDecomposableTyCon on a regular H98
+-- type synonym, because you should probably have expanded it first
+-- But regardless, it's not decomposable
 isDecomposableTyCon (SynTyCon {}) = False
 isDecomposableTyCon _other        = True
 
@@ -1236,17 +1265,6 @@ isDataFamilyTyCon :: TyCon -> Bool
 isDataFamilyTyCon (AlgTyCon {algTcRhs = DataFamilyTyCon {}}) = True
 isDataFamilyTyCon _ = False
 
--- | Injective 'TyCon's can be decomposed, so that
---     T ty1 ~ T ty2  =>  ty1 ~ ty2
-isInjectiveTyCon :: TyCon -> Bool
-isInjectiveTyCon tc = not (isSynTyCon tc)
-        -- Ultimately we may have injective associated types
-        -- in which case this test will become more interesting
-        --
-        -- It'd be unusual to call isInjectiveTyCon on a regular H98
-        -- type synonym, because you should probably have expanded it first
-        -- But regardless, it's not injective!
-
 -- | Are we able to extract informationa 'TyVar' to class argument list
 -- mappping from a given 'TyCon'?
 isTyConAssoc :: TyCon -> Bool
@@ -1293,7 +1311,12 @@ tupleTyConSort tc = tyConTupleSort tc
 -- | Extract the arity of the given 'TyCon', if it is a 'TupleTyCon'.
 -- Panics otherwise
 tupleTyConArity :: TyCon -> Arity
-tupleTyConArity tc = tyConArity tc
+  -- we want the *tuple* arity, not the tycon arity. So, we must discard
+  -- the levity vars from unboxed tuples. See Note [Unboxed tuple levity vars]
+tupleTyConArity (TupleTyCon { tyConTupleSort = UnboxedTuple
+                            , tyConArity     = raw_arity }) = raw_arity `div` 2
+tupleTyConArity (TupleTyCon { tyConArity     = arity     }) = arity
+tupleTyConArity tc = pprPanic "tupleTyConArity" (ppr tc)
 
 -- | Is this a recursive 'TyCon'?
 isRecursiveTyCon :: TyCon -> Bool
@@ -1327,13 +1350,14 @@ isPromotedDataCon_maybe _ = Nothing
 -- * Family instances are /not/ implicit as they represent the instance body
 --   (similar to a @dfun@ does that for a class instance).
 isImplicitTyCon :: TyCon -> Bool
-isImplicitTyCon tycon
-  | isTyConAssoc tycon = True
-  | isSynTyCon tycon   = False
-  | isAlgTyCon tycon   = isTupleTyCon tycon
-  | otherwise          = True
-        -- 'otherwise' catches: FunTyCon, PrimTyCon,
-        -- PromotedDataCon, PomotedTypeTyCon
+isImplicitTyCon (FunTyCon {})        = True
+isImplicitTyCon (TupleTyCon {})      = True
+isImplicitTyCon (PrimTyCon {})       = True
+isImplicitTyCon (PromotedDataCon {}) = True
+isImplicitTyCon (AlgTyCon { algTcParent = AssocFamilyTyCon {} }) = True
+isImplicitTyCon (AlgTyCon {})                                    = False
+isImplicitTyCon (SynTyCon { synTcParent = AssocFamilyTyCon {} }) = True
+isImplicitTyCon (SynTyCon {})                                    = False
 
 tyConCType_maybe :: TyCon -> Maybe CType
 tyConCType_maybe tc@(AlgTyCon {}) = tyConCType tc

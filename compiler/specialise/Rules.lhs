@@ -4,6 +4,8 @@
 \section[CoreRules]{Transformation rules}
 
 \begin{code}
+{-# LANGUAGE CPP #-}
+
 -- | Functions for collecting together and applying rewrite rules to a module.
 -- The 'CoreRule' datatype itself is declared elsewhere.
 module Rules (
@@ -36,6 +38,7 @@ import CoreFVs          ( exprFreeVars, exprsFreeVars, bindFreeVars, rulesFreeVa
 import CoreUtils        ( exprType, eqExpr )
 import PprCore          ( pprRules )
 import Type             ( Type )
+import TyCoRep          ( CoercionArg(..) )
 import TcType           ( tcSplitTyConApp_maybe )
 import Coercion
 import CoreTidy         ( tidyRules )
@@ -579,6 +582,9 @@ data RuleMatchEnv
        , rv_unf :: IdUnfoldingFun
        }
 
+rvInScopeEnv :: RuleMatchEnv -> InScopeEnv
+rvInScopeEnv renv = (rnInScopeSet (rv_lcl renv), rv_unf renv)
+
 data RuleSubst = RS { rs_tv_subst :: TvSubstEnv   -- Range is the
                     , rs_cv_subst :: CvSubstEnv   --   template variables
                     , rs_id_subst :: IdSubstEnv   
@@ -641,7 +647,8 @@ match renv subst e1 (Var v2)      -- Note [Expanding variables]
         -- because of the not-inRnEnvR
 
 match renv subst e1 (Let bind e2)
-  | okToFloat (rv_lcl renv) (bindFreeVars bind)        -- See Note [Matching lets]
+  | -- pprTrace "match:Let" (vcat [ppr bind, ppr $ okToFloat (rv_lcl renv) (bindFreeVars bind)]) $
+    okToFloat (rv_lcl renv) (bindFreeVars bind)        -- See Note [Matching lets]
   = match (renv { rv_fltR = flt_subst' })
           (subst { rs_binds = rs_binds subst . Let bind'
                  , rs_bndrs = extendVarSetList (rs_bndrs subst) new_bndrs })
@@ -674,30 +681,11 @@ match renv subst (App f1 a1) (App f2 a2)
   = do  { subst' <- match renv subst f1 f2
         ; match renv subst' a1 a2 }
 
-match renv subst (Lam x1 e1) (Lam x2 e2)
-  = match renv' subst e1 e2
-  where
-    renv' = renv { rv_lcl = rnBndr2 (rv_lcl renv) x1 x2
-                 , rv_fltR = delBndr (rv_fltR renv) x2 }
-
--- This rule does eta expansion
---              (\x.M)  ~  N    iff     M  ~  N x
--- It's important that this is *after* the let rule,
--- so that      (\x.M)  ~  (let y = e in \y.N)
--- does the let thing, and then gets the lam/lam rule above
 match renv subst (Lam x1 e1) e2
-  = match renv' subst e1 (App e2 (varToCoreExpr new_x))
-  where
-    (rn_env', new_x) = rnEtaL (rv_lcl renv) x1
-    renv' = renv { rv_lcl = rn_env' }
-
--- Eta expansion the other way
---      M  ~  (\y.N)    iff   M y     ~  N
-match renv subst e1 (Lam x2 e2)
-  = match renv' subst (App e1 (varToCoreExpr new_x)) e2
-  where
-    (rn_env', new_x) = rnEtaR (rv_lcl renv) x2
-    renv' = renv { rv_lcl = rn_env' }
+  | Just (x2, e2) <- exprIsLambda_maybe (rvInScopeEnv renv) e2
+  = let renv' = renv { rv_lcl = rnBndr2 (rv_lcl renv) x1 x2
+                     , rv_fltR = delBndr (rv_fltR renv) x2 }
+    in  match renv' subst e1 e2
 
 match renv subst (Case e1 x1 ty1 alts1) (Case e2 x2 ty2 alts2)
   = do  { subst1 <- match_ty renv subst ty1 ty2
@@ -732,9 +720,32 @@ match_co renv subst co1 co2
   = do { ty2 <- isReflCo_maybe co2
        ; guard (coercionRole co1 == coercionRole co2)
        ; match_ty renv subst ty1 ty2 }
-match_co _ _ co1 _
-  = pprTrace "match_co: needs more cases" (ppr co1) Nothing
-    -- Currently just deals with CoVarCo and Refl
+match_co renv subst co1 co2
+  | Just (tc1, cos1) <- splitTyConAppCo_maybe co1
+  = case splitTyConAppCo_maybe co2 of
+      Just (tc2, cos2)
+        |  tc1 == tc2
+        -> match_co_args renv subst cos1 cos2
+      _ -> Nothing
+match_co _ _ co1 co2
+  = pprTrace "match_co: needs more cases" (ppr co1 $$ ppr co2) Nothing
+    -- Currently just deals with CoVarCo, TyConAppCo and Refl
+
+match_co_args :: RuleMatchEnv
+              -> RuleSubst
+              -> [CoercionArg]
+              -> [CoercionArg]
+              -> Maybe RuleSubst
+match_co_args renv subst (TyCoArg co1 : args1) (TyCoArg co2 : args2)
+  = do { subst' <- match_co renv subst co1 co2
+       ; match_co_args renv subst' args1 args2 }
+match_co_args renv subst (CoCoArg _ co1l co1r : args1)
+                         (CoCoArg _ co2l co2r : args2)
+  = do { subst'  <- match_co renv subst co1l co2l
+       ; subst'' <- match_co renv subst' co1r co2r
+       ; match_co_args renv subst'' args1 args2 }
+match_co_args _ subst [] [] = Just subst
+match_co_args _ _ cos1 cos2 = pprTrace "match_co_args: not same length" (ppr cos1 $$ ppr cos2) Nothing
 
 -------------
 rnMatchBndr2 :: RuleMatchEnv -> RuleSubst -> Var -> Var -> RuleMatchEnv
@@ -1002,6 +1013,7 @@ at all.
 
 That is why the 'lookupRnInScope' call in the (Var v2) case of 'match'
 is so important.
+
 
 %************************************************************************
 %*                                                                      *

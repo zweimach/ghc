@@ -4,9 +4,8 @@
 %
 
 \begin{code}
-{-# LANGUAGE DeriveDataTypeable, DeriveFunctor #-}
-
-{-# OPTIONS -fno-warn-tabs #-}
+{-# LANGUAGE CPP, DeriveDataTypeable, DeriveFunctor #-}
+{-# OPTIONS_GHC -fno-warn-tabs #-}
 -- The above warning supression flag is a temporary kludge.
 -- While working on this module you are encouraged to remove it and
 -- detab the module (please do the detabbing in a separate patch). See
@@ -18,7 +17,7 @@ module CoreSyn (
 	-- * Main data types
         Expr(..), Alt, Bind(..), AltCon(..), Arg, Tickish(..),
         CoreProgram, CoreExpr, CoreAlt, CoreBind, CoreArg, CoreBndr,
-        TaggedExpr, TaggedAlt, TaggedBind, TaggedArg, TaggedBndr(..),
+        TaggedExpr, TaggedAlt, TaggedBind, TaggedArg, TaggedBndr(..), deTagExpr,
 
         -- ** 'Expr' construction
 	mkLets, mkLams,
@@ -395,7 +394,7 @@ Here's another example:
   f :: T -> Bool
   f = \(x:t). case x of Bool {}
 Since T has no data constructors, the case alternatives are of course
-empty.  However note that 'x' is not bound to a visbily-bottom value;
+empty.  However note that 'x' is not bound to a visibly-bottom value;
 it's the *type* that tells us it's going to diverge.  Its a bit of a
 degnerate situation but we do NOT want to replace
    case x of Bool {}   -->   error Bool "Inaccessible case"
@@ -992,7 +991,7 @@ See also Note [Inlining an InlineRule] in CoreUnfold.
 Note [OccInfo in unfoldings and rules]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In unfoldings and rules, we guarantee that the template is occ-analysed,
-so that the occurence info on the binders is correct.  This is important,
+so that the occurrence info on the binders is correct.  This is important,
 because the Simplifier does not re-analyse the template when using it. If
 the occurrence info is wrong
   - We may get more simpifier iterations than necessary, because
@@ -1106,6 +1105,25 @@ instance Outputable b => OutputableBndr (TaggedBndr b) where
   pprBndr _ b = ppr b	-- Simple
   pprInfixOcc  b = ppr b
   pprPrefixOcc b = ppr b
+
+deTagExpr :: TaggedExpr t -> CoreExpr
+deTagExpr (Var v)                   = Var v
+deTagExpr (Lit l)                   = Lit l
+deTagExpr (Type ty)                 = Type ty
+deTagExpr (Coercion co)             = Coercion co
+deTagExpr (App e1 e2)               = App (deTagExpr e1) (deTagExpr e2)
+deTagExpr (Lam (TB b _) e)          = Lam b (deTagExpr e)
+deTagExpr (Let bind body)           = Let (deTagBind bind) (deTagExpr body)
+deTagExpr (Case e (TB b _) ty alts) = Case (deTagExpr e) b ty (map deTagAlt alts)
+deTagExpr (Tick t e)                = Tick t (deTagExpr e)
+deTagExpr (Cast e co)               = Cast (deTagExpr e) co
+
+deTagBind :: TaggedBind t -> CoreBind
+deTagBind (NonRec (TB b _) rhs) = NonRec b (deTagExpr rhs)
+deTagBind (Rec prs)             = Rec [(b, deTagExpr rhs) | (TB b _, rhs) <- prs]
+
+deTagAlt :: TaggedAlt t -> CoreAlt
+deTagAlt (con, bndrs, rhs) = (con, [b | TB b _ <- bndrs], deTagExpr rhs)
 \end{code}
 
 

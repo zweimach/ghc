@@ -35,12 +35,13 @@ module BasicTypes(
         compareFixity,
 
         RecFlag(..), isRec, isNonRec, boolToRecFlag,
+        Origin(..), isGenerated,
 
         RuleName,
 
         TopLevelFlag(..), isTopLevel, isNotTopLevel,
 
-        OverlapFlag(..),
+        OverlapFlag(..), OverlapMode(..), setOverlapModeMaybe,
 
         Boxity(..), isBoxed,
 
@@ -386,6 +387,10 @@ data Boxity
 isBoxed :: Boxity -> Bool
 isBoxed Boxed   = True
 isBoxed Unboxed = False
+
+instance Outputable Boxity where
+  ppr Boxed   = text "Boxed"
+  ppr Unboxed = text "Unboxed"
 \end{code}
 
 
@@ -419,6 +424,25 @@ instance Outputable RecFlag where
 
 %************************************************************************
 %*                                                                      *
+                Code origin
+%*                                                                      *
+%************************************************************************
+\begin{code}
+data Origin = FromSource
+            | Generated
+            deriving( Eq, Data, Typeable )
+
+isGenerated :: Origin -> Bool
+isGenerated Generated = True
+isGenerated FromSource = False
+
+instance Outputable Origin where
+  ppr FromSource  = ptext (sLit "FromSource")
+  ppr Generated   = ptext (sLit "Generated")
+\end{code}
+
+%************************************************************************
+%*                                                                      *
                 Instance overlap flag
 %*                                                                      *
 %************************************************************************
@@ -427,9 +451,19 @@ instance Outputable RecFlag where
 -- | The semantics allowed for overlapping instances for a particular
 -- instance. See Note [Safe Haskell isSafeOverlap] (in `InstEnv.lhs`) for a
 -- explanation of the `isSafeOverlap` field.
-data OverlapFlag
+data OverlapFlag = OverlapFlag
+  { overlapMode   :: OverlapMode
+  , isSafeOverlap :: Bool
+  } deriving (Eq, Data, Typeable)
+
+setOverlapModeMaybe :: OverlapFlag -> Maybe OverlapMode -> OverlapFlag
+setOverlapModeMaybe f Nothing  = f
+setOverlapModeMaybe f (Just m) = f { overlapMode = m }
+
+
+data OverlapMode
   -- | This instance must not overlap another
-  = NoOverlap { isSafeOverlap :: Bool }
+  = NoOverlap
 
   -- | Silently ignore this instance if you find a
   -- more specific one that matches the constraint
@@ -441,7 +475,7 @@ data OverlapFlag
   -- Since the second instance has the OverlapOk flag,
   -- the first instance will be chosen (otherwise
   -- its ambiguous which to choose)
-  | OverlapOk { isSafeOverlap :: Bool }
+  | OverlapOk
 
   -- | Silently ignore this instance if you find any other that matches the
   -- constraing you are trying to resolve, including when checking if there are
@@ -453,13 +487,16 @@ data OverlapFlag
   -- Without the Incoherent flag, we'd complain that
   -- instantiating 'b' would change which instance
   -- was chosen. See also note [Incoherent instances]
-  | Incoherent { isSafeOverlap :: Bool }
+  | Incoherent
   deriving (Eq, Data, Typeable)
 
 instance Outputable OverlapFlag where
-   ppr (NoOverlap  b) = empty <+> pprSafeOverlap b
-   ppr (OverlapOk  b) = ptext (sLit "[overlap ok]") <+> pprSafeOverlap b
-   ppr (Incoherent b) = ptext (sLit "[incoherent]") <+> pprSafeOverlap b
+   ppr flag = ppr (overlapMode flag) <+> pprSafeOverlap (isSafeOverlap flag)
+
+instance Outputable OverlapMode where
+   ppr NoOverlap  = empty
+   ppr OverlapOk  = ptext (sLit "[overlap ok]")
+   ppr Incoherent = ptext (sLit "[incoherent]")
 
 pprSafeOverlap :: Bool -> SDoc
 pprSafeOverlap True  = ptext $ sLit "[safe]"
@@ -546,7 +583,7 @@ defn of OccInfo here, safely at the bottom
 \begin{code}
 -- | Identifier occurrence information
 data OccInfo
-  = NoOccInfo           -- ^ There are many occurrences, or unknown occurences
+  = NoOccInfo           -- ^ There are many occurrences, or unknown occurrences
 
   | IAmDead             -- ^ Marks unused variables.  Sometimes useful for
                         -- lambda and case-bound variables.

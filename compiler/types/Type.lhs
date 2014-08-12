@@ -6,6 +6,7 @@
 Type - public interface
 
 \begin{code}
+{-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Main functions for manipulating types and type-related things
@@ -63,7 +64,7 @@ module Type (
         mkEqPred, mkCoerciblePred, mkPrimEqPred, mkReprPrimEqPred,
         mkHeteroPrimEqPred, mkHeteroReprPrimEqPred,
         mkClassPred,
-        noParenPred, isClassPred, isEqPred,
+        isClassPred, isEqPred,
         isIPPred, isIPPred_maybe, isIPTyCon, isIPClass,
 
         -- Deconstructing predicate types
@@ -82,27 +83,26 @@ module Type (
         funTyCon,
 
         -- ** Predicates on types
-        isTyCoVarTy,
+        isTyCoVarTy, allDistinctTyVars,
         isTyVarTy, isFunTy, isDictTy, isPredTy, isVoidTy, isCoercionTy,
         isCoercionTy_maybe, isCoercionType, isNamedForAllTy,
 
         -- (Lifting and boxity)
         isUnLiftedType, isUnboxedTupleType, isAlgType, isClosedAlgType,
-        isPrimitiveType, isStrictType,
+        isPrimitiveType, isStrictType, isLevityTy, isLevityVar, getLevity,
 
         -- * Main data types representing Kinds
-        -- $kind_subtyping
         Kind, SimpleKind, MetaKindVar,
 
         -- ** Finding the kind of a type
         typeKind,
 
         -- ** Common Kinds
-        liftedTypeKind, unliftedTypeKind, openTypeKind,
+        liftedTypeKind, unliftedTypeKind,
         constraintKind,
 
         -- ** Common Kind type constructors
-        liftedTypeKindTyCon, openTypeKindTyCon, unliftedTypeKindTyCon,
+        liftedTypeKindTyCon, unliftedTypeKindTyCon,
         constraintKindTyCon,
 
         -- * Type free variables
@@ -112,13 +112,13 @@ module Type (
 
         -- * Type comparison
         eqType, eqTypeX, eqTypes, cmpType, cmpTypes, cmpTypeX, cmpTypesX, cmpTc,
-        eqPred, eqPredX, cmpPred, eqKind, eqTyCoVarBndrs,
+        eqPred, eqPredX, cmpPred, eqTyCoVarBndrs,
 
         -- * Forcing evaluation of types
         seqType, seqTypes,
 
         -- * Other views onto Types
-        coreView, tcView,
+        coreView, coreViewOneStarKind, tcView,
 
         UnaryType, RepType(..), flattenRepType, repType,
         tyConsOfType,
@@ -149,9 +149,11 @@ module Type (
 
         -- * Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTyThingCategory, pprTyThing,
-        pprTCvBndr, pprTCvBndrs, pprForAll, pprForAllImplicit, pprSigmaType,
-        pprEqPred, pprTheta, pprThetaArrowTy, pprClassPred,
+        pprTCvBndr, pprTCvBndrs, pprForAll, pprForAllImplicit, pprUserForAll,
+        pprSigmaType,
+        pprTheta, pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprSourceTyCon,
+        TyPrec(..), maybeParen,
 
         -- * Tidying type related things up for printing
         tidyType,      tidyTypes,
@@ -182,14 +184,11 @@ import Class
 import TyCon
 import TysPrim
 import {-# SOURCE #-} TysWiredIn ( eqTyCon, coercibleTyCon, typeNatKind, typeSymbolKind )
-import PrelNames ( eqTyConKey, coercibleTyConKey, wildCardName, eqPrimTyConKey,
-                   ipClassNameKey, openTypeKindTyConKey,
-                   liftedTypeKindTyConKey )
+import PrelNames
 import CoAxiom
 import {-# SOURCE #-} Coercion
 
 -- others
-import Unique           ( hasKey )
 import BasicTypes       ( Arity, RepArity )
 import Util
 import Outputable
@@ -284,6 +283,16 @@ coreView (TyConApp tc tys) | Just (tenv, rhs, tys') <- coreExpandTyCon_maybe tc 
                -- because the function part might well return a
                -- partially-applied type constructor; indeed, usually will!
 coreView _                 = Nothing
+
+-- | Like 'coreView', but it also "expands" @Constraint@ and @BOX@ to become
+-- @TYPE Lifted@.
+coreViewOneStarKind :: Type -> Maybe Type
+coreViewOneStarKind = go Nothing
+  where
+    go _ t | Just t' <- coreView t                    = go (Just t') t'
+    go _ (TyConApp tc []) | isStarKindSynonymTyCon tc = go (Just t') t'
+      where t' = liftedTypeKind
+    go res _ = res
 
 -----------------------------------------------
 {-# INLINE tcView #-}
@@ -413,6 +422,15 @@ getTyCoVar_maybe (TyVarTy tv)                 = Just tv
 getTyCoVar_maybe (CoercionTy (CoVarCo cv))    = Just cv
 getTyCoVar_maybe _                            = Nothing
 
+allDistinctTyVars :: [KindOrType] -> Bool
+allDistinctTyVars tkvs = go emptyVarSet tkvs
+  where
+    go _      [] = True
+    go so_far (ty : tys)
+       = case getTyVar_maybe ty of
+             Nothing -> False
+             Just tv | tv `elemVarSet` so_far -> False
+                     | otherwise -> go (so_far `extendVarSet` tv) tys
 \end{code}
 
 
@@ -772,7 +790,10 @@ repType ty
       | isUnboxedTupleTyCon tc
       = if null tys
          then UnaryRep voidPrimTy -- See Note [Nullary unboxed tuple]
-         else UbxTupleRep (concatMap (flattenRepType . go rec_nts) tys)
+         else UbxTupleRep (concatMap (flattenRepType . go rec_nts) non_levity_tys)
+      where
+          -- See Note [Unboxed tuple levity vars] in TyCon
+        non_levity_tys = drop (length tys `div` 2) tys
 
     go rec_nts (CastTy ty _)
       = go rec_nts ty
@@ -956,6 +977,10 @@ dropForAlls ty | Just ty' <- coreView ty = dropForAlls ty'
 
 -- | Given a tycon and its arguments, filters out any invisible arguments
 filterInvisibles :: TyCon -> [a] -> [a]
+  -- TODO (RAE): This is wrong wrong wrong. What if a substitution would expose
+  -- more arrow types, thus changing the splitForAllTys result? If length xs
+  -- is <= length bndrs, we're OK, but we need to do substitution in the
+  -- oversaturated case.
 filterInvisibles tc xs = [ x | (x, bndr) <- zip xs bndrs
                              , isVisibleBinder bndr ]
   where
@@ -1025,7 +1050,7 @@ applyTysD doc orig_fun_ty arg_tys
   = substTyWithBinders (take n_args bndrs) arg_tys
                        (mkForAllTys (drop n_args bndrs) rho_ty)
   | otherwise           -- Too many type args
-  = ASSERT2( n_bndrs > 0, doc $$ ppr orig_fun_ty )        -- Zero case gives infnite loop!
+  = ASSERT2( n_bndrs > 0, doc $$ ppr orig_fun_ty )        -- Zero case gives infinite loop!
     applyTysD doc (substTyWithBinders bndrs (take n_bndrs arg_tys) rho_ty)
                   (drop n_bndrs arg_tys)
   where
@@ -1125,13 +1150,6 @@ partitionBindersIntoBinders = partitionWith named_or_anon
 Predicates on PredType
 
 \begin{code}
-noParenPred :: PredType -> Bool
--- A predicate that can appear without parens before a "=>"
---       C a => a -> a
---       a~b => a -> b
--- But   (?x::Int) => Int -> Int
-noParenPred p = not (isIPPred p) && isClassPred p || isEqPred p
-
 -- | Is the type suitable to classify a given/wanted in the typechecker?
 isPredTy :: Type -> Bool
   -- NB: isPredTy is used when printing types, which can happen in debug printing
@@ -1199,14 +1217,14 @@ Make PredTypes
 -- | Creates a type equality predicate
 mkEqPred :: Type -> Type -> PredType
 mkEqPred ty1 ty2
-  = WARN( not (k `eqKind` typeKind ty2), ppr ty1 $$ ppr ty2 $$ ppr k $$ ppr (typeKind ty2) )
+  = WARN( not (k `eqType` typeKind ty2), ppr ty1 $$ ppr ty2 $$ ppr k $$ ppr (typeKind ty2) )
     TyConApp eqTyCon [k, ty1, ty2]
   where
     k = typeKind ty1
 
 mkCoerciblePred :: Type -> Type -> PredType
 mkCoerciblePred ty1 ty2
-  = WARN( not (k `eqKind` typeKind ty2), ppr ty1 $$ ppr ty2 $$ ppr k $$ ppr (typeKind ty2) )
+  = WARN( not (k `eqType` typeKind ty2), ppr ty1 $$ ppr ty2 $$ ppr k $$ ppr (typeKind ty2) )
     TyConApp coercibleTyCon [k, ty1, ty2]
   where
     k = typeKind ty1
@@ -1476,6 +1494,18 @@ isUnLiftedType (ForAllTy (Named tv _) ty)
 isUnLiftedType (TyConApp tc _)      = isUnLiftedTyCon tc
 isUnLiftedType _                    = False
 
+-- | Extract the levity classifier of a type. Panics if this is not possible.
+getLevity :: String   -- ^ Printed in case of an error
+          -> Type -> Type
+getLevity err ty = go (typeKind ty)
+  where
+    go k | Just k' <- coreViewOneStarKind k = go k'
+    go k
+      | Just (tc, [arg]) <- splitTyConApp_maybe k
+      , tc `hasKey` tYPETyConKey
+      = arg
+    go k = pprPanic "getLevity" (text err $$ ppr k <+> dcolon <+> ppr (typeKind k))
+
 isUnboxedTupleType :: Type -> Bool
 isUnboxedTupleType ty = case tyConAppTyCon_maybe ty of
                            Just tc -> isUnboxedTupleTyCon tc
@@ -1548,20 +1578,15 @@ seqTypes (ty:tys) = seqType ty `seq` seqTypes tys
 
 %************************************************************************
 %*                                                                      *
-                Comparision for types
+                Comparison for types
         (We don't use instances so that we know where it happens)
 %*                                                                      *
 %************************************************************************
 
 \begin{code}
-eqKind :: Kind -> Kind -> Bool
--- Watch out for horrible hack: See Note [Comparison with OpenTypeKind]
-eqKind = eqType
-
 eqType :: Type -> Type -> Bool
 -- ^ Type equality on source types. Does not look through @newtypes@ or
 -- 'PredType's, but it does look through type synonyms.
--- Watch out for horrible hack: See Note [Comparison with OpenTypeKind]
 eqType t1 t2 = isEqual $ cmpType t1 t2
 
 eqTypeX :: RnEnv2 -> Type -> Type -> Bool
@@ -1592,7 +1617,6 @@ Now here comes the real worker
 
 \begin{code}
 cmpType :: Type -> Type -> Ordering
--- Watch out for horrible hack: See Note [Comparison with OpenTypeKind]
 cmpType t1 t2 = cmpTypeX rn_env t1 t2
   where
     rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2))
@@ -1608,8 +1632,8 @@ cmpPred p1 p2 = cmpTypeX rn_env p1 p2
     rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType p1 `unionVarSet` tyCoVarsOfType p2))
 
 cmpTypeX :: RnEnv2 -> Type -> Type -> Ordering  -- Main workhorse
-cmpTypeX env t1 t2 | Just t1' <- coreView t1 = cmpTypeX env t1' t2
-                   | Just t2' <- coreView t2 = cmpTypeX env t1 t2'
+cmpTypeX env t1 t2 | Just t1' <- coreViewOneStarKind t1 = cmpTypeX env t1' t2
+                   | Just t2' <- coreViewOneStarKind t2 = cmpTypeX env t1 t2'
 -- We expand predicate types, because in Core-land we have
 -- lots of definitions like
 --      fOrdBool :: Ord Bool
@@ -1649,34 +1673,17 @@ cmpTypesX _   []        _         = LT
 cmpTypesX _   _         []        = GT
 
 -------------
+-- | Compare two 'TyCon's. NB: This should /never/ see the "star synonyms",
+-- as recognized by Kind.isStarKindSynonymTyCon. See Note
+-- [Kind Constraint and kind *] in Kind.
 cmpTc :: TyCon -> TyCon -> Ordering
--- Here we treat * and Constraint as equal
--- See Note [Kind Constraint and kind *]
---
--- Also we treat OpenTypeKind as equal to either * or #
--- See Note [Comparison with OpenTypeKind]
 cmpTc tc1 tc2
-  | u1 == openTypeKindTyConKey, isSubOpenTypeKindKey u2 = EQ
-  | u2 == openTypeKindTyConKey, isSubOpenTypeKindKey u1 = EQ
-  | otherwise = nu1 `compare` nu2
+  = ASSERT( not (isStarKindSynonymTyCon tc1) && not (isStarKindSynonymTyCon tc2) )
+    u1 `compare` u2
   where
     u1  = tyConUnique tc1
-    nu1 = if isStarKindCon tc1 then liftedTypeKindTyConKey else u1
     u2  = tyConUnique tc2
-    nu2 = if isStarKindCon tc2 then liftedTypeKindTyConKey else u2
 \end{code}
-
-Note [Comparison with OpenTypeKind]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-In PrimOpWrappers we have things like
-   PrimOpWrappers.mkWeak# = /\ a b c. Prim.mkWeak# a b c
-where
-   Prim.mkWeak# :: forall (a:Open) b c. a -> b -> c
-                                     -> State# RealWorld -> (# State# RealWorld, Weak# b #)
-Now, eta reduction will turn the definition into
-     PrimOpWrappers.mkWeak# = Prim.mkWeak#
-which is kind-of OK, but now the types aren't really equal.  So HACK HACK
-we pretend (in Core) that Open is equal to * or #.  I hate this.
 
 Note [cmpTypeX]
 ~~~~~~~~~~~~~~~

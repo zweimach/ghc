@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 -----------------------------------------------------------------------------
 --
 -- Cmm optimisation
@@ -7,6 +9,8 @@
 -----------------------------------------------------------------------------
 
 module CmmOpt (
+        constantFoldNode,
+        constantFoldExpr,
         cmmMachOpFold,
         cmmMachOpFoldM
  ) where
@@ -23,6 +27,16 @@ import Platform
 
 import Data.Bits
 import Data.Maybe
+
+
+constantFoldNode :: DynFlags -> CmmNode e x -> CmmNode e x
+constantFoldNode dflags = mapExp (constantFoldExpr dflags)
+
+constantFoldExpr :: DynFlags -> CmmExpr -> CmmExpr
+constantFoldExpr dflags = wrapRecExp f
+  where f (CmmMachOp op args) = cmmMachOpFold dflags op args
+        f (CmmRegOff r 0) = CmmReg r
+        f e = e
 
 -- -----------------------------------------------------------------------------
 -- MachOp constant folder
