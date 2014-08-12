@@ -1,9 +1,7 @@
 
 import CmmExpr
 import FastBool
-#if !(MACHREGS_i386 || MACHREGS_x86_64 || MACHREGS_sparc || MACHREGS_powerpc)
 import Panic
-#endif
 import Reg
 
 #include "ghcautoconf.h"
@@ -272,6 +270,112 @@ import Reg
 # define f29 61
 # define f30 62
 # define f31 63
+
+#elif MACHREGS_arm
+
+-- Core ARM register set
+# define r0   0
+# define r1   1
+# define r2   2
+# define r3   3
+# define r4   4
+# define r5   5
+# define r6   6
+# define r7   7
+# define r8   8
+# define r9   9
+# define r10 10
+# define r11 11
+# define r12 12
+# define r13 13
+# define r14 14
+# define r15 15
+
+-- VFPv2
+#if !defined(arm_HOST_ARCH_PRE_ARMv6)
+# define s0  16
+# define s1  17
+# define s2  18
+# define s3  19
+# define s4  20
+# define s5  21
+# define s6  22
+# define s7  23
+# define s8  24
+# define s9  25
+# define s10 26
+# define s11 27
+# define s12 28
+# define s13 29
+# define s14 30
+# define s15 31
+# define s16 32
+# define s17 33
+# define s18 34
+# define s19 35
+# define s20 36
+# define s21 37
+# define s22 38
+# define s23 39
+# define s24 40
+# define s25 41
+# define s26 42
+# define s27 43
+# define s28 44
+# define s29 45
+# define s30 46
+# define s31 47
+
+# define d0  48
+# define d1  49
+# define d2  50
+# define d3  51
+# define d4  52
+# define d5  53
+# define d6  54
+# define d7  55
+# define d8  56
+# define d9  57
+# define d10 58
+# define d11 59
+# define d12 60
+# define d13 61
+# define d14 62
+# define d15 63
+# define d16 64
+# define d17 65
+# define d18 66
+# define d19 67
+# define d20 68
+# define d21 69
+# define d22 70
+# define d23 71
+# define d24 72
+# define d25 73
+# define d26 74
+# define d27 75
+# define d28 76
+# define d29 77
+# define d30 78
+# define d31 79
+
+# define q0  80
+# define q1  81
+# define q2  82
+# define q3  83
+# define q4  84
+# define q5  85
+# define q6  86
+# define q7  87
+# define q8  88
+# define q9  89
+# define q10 90
+# define q11 91
+# define q12 92
+# define q13 93
+# define q14 94
+# define q15 95
+#endif
 
 #endif
 
@@ -557,7 +661,7 @@ haveRegBase = False
 -- in a real machine register, otherwise returns @'Just' reg@, where
 -- reg is the machine register it is stored in.
 globalRegMaybe :: GlobalReg -> Maybe RealReg
-#if MACHREGS_i386 || MACHREGS_x86_64 || MACHREGS_sparc || MACHREGS_powerpc
+#if MACHREGS_i386 || MACHREGS_x86_64 || MACHREGS_sparc || MACHREGS_powerpc || MACHREGS_arm || MACHREGS_aarch64
 # ifdef REG_Base
 globalRegMaybe BaseReg                  = Just (RealRegSingle REG_Base)
 # endif
