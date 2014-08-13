@@ -74,7 +74,7 @@ during type inference.
 
 \begin{code}
 isConstraintKind :: Kind -> Bool
-isConstraintKindCon, isAnyKindCon, isSuperKindCon :: TyCon -> Bool
+isConstraintKindCon :: TyCon -> Bool
 
 isConstraintKindCon   tc = tyConUnique tc == constraintKindTyConKey
 

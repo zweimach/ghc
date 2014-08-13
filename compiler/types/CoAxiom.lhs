@@ -429,6 +429,13 @@ instance Typeable br => Data.Data (CoAxiom br) where
     toConstr _   = abstractConstr "CoAxiom"
     gunfold _ _  = error "gunfold"
     dataTypeOf _ = mkNoRepType "CoAxiom"
+
+instance Outputable CoAxBranch where
+  ppr (CoAxBranch { cab_loc = loc
+                  , cab_lhs = lhs
+                  , cab_rhs = rhs }) =
+    text "CoAxBranch" <+> parens (ppr loc) <> colon <+> ppr lhs <+>
+    text "=>" <+> ppr rhs
 \end{code}
 
 %************************************************************************

@@ -340,17 +340,19 @@ liftedTypeKindTyConName,
       constraintKindTyConName
    :: Name
 
-constraintKindTyCon   = mkKindTyCon constraintKindTyConName   superKind []
-tYPETyCon = mkKindTyCon tYPETyConName (FunTy levityTy superKind) [Nominal]
+constraintKindTyCon   = mkKindTyCon constraintKindTyConName   liftedTypeKind []
+tYPETyCon = mkKindTyCon tYPETyConName
+                        (ForAllTy (Anon levityTy) liftedTypeKind)
+                        [Nominal]
 
    -- See Note [TYPE]
 liftedTypeKindTyCon   = mkSynTyCon liftedTypeKindTyConName
-                                   superKind
+                                   liftedTypeKind
                                    [] []
                                    (SynonymTyCon (tYPE liftedDataConTy))
                                    NoParentTyCon
 unliftedTypeKindTyCon = mkSynTyCon unliftedTypeKindTyConName
-                                   superKind
+                                   liftedTypeKind
                                    [] []
                                    (SynonymTyCon (tYPE unliftedDataConTy))
                                    NoParentTyCon
@@ -797,7 +799,7 @@ anyTyCon = mkSynTyCon anyTyConName kind [kKiVar] [Nominal]
                       syn_rhs
                       NoParentTyCon
   where 
-    kind = mkNamedForAllTy kKiVar Invisible (mkOnlyTyVarTy kKiVar)
+    kind = ForAllTy (Named kKiVar Invisible) (mkOnlyTyVarTy kKiVar)
     syn_rhs = AbstractClosedSynFamilyTyCon
 
 anyTypeOfKind :: Kind -> Type

@@ -127,11 +127,11 @@ tcPatSynMatcher (L loc name) lpat args univ_tvs ex_tvs ev_binds prov_dicts req_d
   = do { Just res_tv <- zonkQuantifiedTyCoVar =<< newFlexiTyVar liftedTypeKind
        ; matcher_name <- newImplicitBinder name mkMatcherOcc
        ; let res_ty = mkOnlyTyVarTy res_tv
-             cont_ty = mkSigmaTy ex_tvs prov_theta $
+             cont_ty = mkInvSigmaTy ex_tvs prov_theta $
                        mkFunTys (map varType args) res_ty
 
        ; let matcher_tau = mkFunTys [pat_ty, cont_ty, res_ty] res_ty
-             matcher_sigma = mkSigmaTy (res_tv:univ_tvs) req_theta matcher_tau
+             matcher_sigma = mkInvSigmaTy (res_tv:univ_tvs) req_theta matcher_tau
              matcher_id = mkExportedLocalId VanillaId matcher_name matcher_sigma
 
        ; traceTc "tcPatSynMatcher" (ppr name $$ ppr (idType matcher_id))
@@ -222,7 +222,7 @@ tc_pat_syn_wrapper_from_expr (L loc name) lexpr args univ_tvs ex_tvs theta pat_t
              pat_ty' = substTy subst pat_ty
              args' = map (\arg -> setVarType arg $ substTy subst (varType arg)) args
              wrapper_tau = mkFunTys (map varType args') pat_ty'
-             wrapper_sigma = mkSigmaTy wrapper_tvs wrapper_theta wrapper_tau
+             wrapper_sigma = mkInvSigmaTy wrapper_tvs wrapper_theta wrapper_tau
 
        ; wrapper_name <- newImplicitBinder name mkDataConWrapperOcc
        ; let wrapper_lname = L loc wrapper_name
@@ -339,7 +339,7 @@ tcPatToExpr lhsVars = go
     go1   (LitPat lit)             = return $ HsLit lit
     go1   (NPat n Nothing _)       = return $ HsOverLit n
     go1   (NPat n (Just neg) _)    = return $ noLoc neg `HsApp` noLoc (HsOverLit n)
-    go1   (SigPatIn pat (HsWB ty _ _))
+    go1   (SigPatIn pat (HsWB ty _))
       = do { expr <- go pat
            ; return $ ExprWithTySig expr ty }
     go1   (ConPatOut{})            = panic "ConPatOut in output of renamer"

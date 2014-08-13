@@ -1308,9 +1308,11 @@ mkAmbigMsg ct
   | null ambig_tkvs = (False, empty)
   | otherwise       = (True,  msg)
   where
-    ambig_tkv_set = filterVarSet isAmbiguousTyVar (tyCoVarsOfCt ct)
+    tkv_set       = tyCoVarsOfCt ct
+    ambig_tkv_set = filterVarSet isAmbiguousTyVar tkv_set
+    dep_tkv_set   = tyCoVarsOfTypes (map tyVarKind (varSetElems tkv_set))
     ambig_tkvs    = varSetElems ambig_tkv_set
-    (ambig_kvs, ambig_tvs) = partition isKindVar ambig_tkvs
+    (ambig_kvs, ambig_tvs) = partition (`elemVarSet` dep_tkv_set) ambig_tkvs
 
     msg | any isRuntimeUnkSkol ambig_tkvs  -- See Note [Runtime skolems]
         =  vcat [ ptext (sLit "Cannot resolve unknown runtime type") <> plural ambig_tvs

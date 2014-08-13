@@ -1582,12 +1582,12 @@ tyConToIfaceDecl env tycon
                   ifTyVars  = if_tc_tyvars,
                   ifRoles   = tyConRoles tycon,
                   ifSynRhs  = to_ifsyn_rhs syn_rhs,
-                  ifSynKind = tidyToIfaceType tc_env1 (tyConKind tycon) })
+                  ifSynKind = if_kind })
 
   | isAlgTyCon tycon
   = ( tc_env1
     , IfaceData { ifName    = getOccName tycon,
-                  ifKind    = tidyToIfaceType env1 (tyConKind tycon),
+                  ifKind    = if_kind,
                   ifCType   = tyConCType tycon,
                   ifTyVars  = if_tc_tyvars,
                   ifRoles   = tyConRoles tycon,
@@ -1608,15 +1608,16 @@ tyConToIfaceDecl env tycon
                   ifCType      = Nothing,
                   ifTyVars     = funAndPrimTyVars,
                   ifRoles      = tyConRoles tycon,
+                  ifKind       = if_kind,
                   ifCtxt       = [],
                   ifCons       = IfDataTyCon [],
                   ifRec        = boolToRecFlag False,
                   ifGadtSyntax = False,
-                  ifPromotable = False,
                   ifParent     = IfNoParent })
   where
     (tc_env1, tc_tyvars) = tidyTyClTyCoVarBndrs env (tyConTyVars tycon)
     if_tc_tyvars = toIfaceTvBndrs tc_tyvars
+    if_kind = tidyToIfaceType tc_env1 (tyConKind tycon)
 
     funAndPrimTyVars = toIfaceTvBndrs $ take (tyConArity tycon) alphaTyVars
 

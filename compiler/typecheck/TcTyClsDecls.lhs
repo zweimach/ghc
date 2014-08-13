@@ -504,10 +504,9 @@ kcTyClDecl (ForeignType {}) = return ()
 -- closed type families look at their equations, but other families don't
 -- do anything here
 kcTyClDecl (FamDecl (FamilyDecl { fdLName  = L _ fam_tc_name
-                                , fdTyVars = hs_tvs
                                 , fdInfo   = ClosedTypeFamily eqns }))
   = do { tc_kind <- kcLookupKind fam_tc_name
-       ; let fam_tc_shape = ( fam_tc_name, length (hsQTvBndrs hs_tvs), tc_kind)
+       ; let fam_tc_shape = ( fam_tc_name, tc_kind )
        ; mapM_ (kcTyFamInstEqn fam_tc_shape) eqns }
 kcTyClDecl (FamDecl {})    = return ()
 
@@ -704,7 +703,7 @@ tcFamDecl1 parent
 
          -- Process the equations, creating CoAxBranches
        ; tc_kind <- kcLookupKind tc_name
-       ; let fam_tc_shape = (tc_name, length (hsQTvBndrs tvs), tc_kind) 
+       ; let fam_tc_shape = (tc_name, tc_kind) 
      
        ; branches <- mapM (tcTyFamInstEqn fam_tc_shape) eqns
 
@@ -883,13 +882,9 @@ tcDefaultAssocDecl fam_tc [L loc (TyFamEqn { tfe_tycon = L _ tc_name
                                            , tfe_rhs = rhs })]
   = setSrcSpan loc $
     tcAddFamInstCtxt (ptext (sLit "default type instance")) tc_name $
-    tcTyClTyVars tc_name hs_tvs $ \ tvs rhs_kind ->
+    tcTyClTyVars tc_name hs_tvs $ \ tvs _full_kind rhs_kind ->
     do { traceTc "tcDefaultAssocDecl" (ppr tc_name)
        ; checkTc (isSynFamilyTyCon fam_tc) (wrongKindOfFamily fam_tc)
-       ; let (fam_name, fam_pat_arity, _) = famTyConShape fam_tc
-       ; ASSERT( fam_name == tc_name )
-         checkTc (length (hsQTvBndrs hs_tvs) == fam_pat_arity)
-                 (wrongNumberOfParmsErr fam_pat_arity)
        ; rhs_ty <- tcCheckLHsType rhs rhs_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
        ; let fam_tc_tvs = tyConTyVars fam_tc
@@ -1027,7 +1022,7 @@ tc_fam_ty_pats (name, kind)
                    do { kind_checker res_kind
                       ; tcHsTelescope (quotes (ppr name)) arg_pats arg_bndrs }
 
-       ; return (fam_arg_kinds', typats, res_kind) }
+       ; return (fam_arg_kinds, typats, res_kind) }
 
 -- See Note [tc_fam_ty_pats vs tcFamTyPats]
 tcFamTyPats :: FamTyConShape
@@ -1791,9 +1786,9 @@ checkValidRoleAnnots role_annots thing
         where
           name                   = tyConName tc
 
-     -- Role annotations are given only on *explicit* variables, but a tycon stores
-     -- roles for all variables. So, we drop the implicit roles (which are all
-     -- Nominal, anyway).
+     -- Role annotations are given only on *explicit* variables,
+     -- but a tycon stores
+     -- roles for all variables. So, we drop the implicit roles.
           tyvars                 = tyConTyVars tc
           roles                  = tyConRoles tc
           (exp_roles, exp_vars)  = unzip $ filterInvisibles tc $ zip roles tyvars
@@ -1815,7 +1810,7 @@ checkValidRoleAnnots role_annots thing
                 ; incoherent_roles_ok <- xoptM Opt_IncoherentInstances
                 ; checkTc (  incoherent_roles_ok
                           || (not $ isClassTyCon tc)
-                          || (all (== Nominal) type_roles))
+                          || (all (== Nominal) exp_roles))
                           incoherentRoles
                   
                 ; lint <- goptM Opt_DoCoreLinting

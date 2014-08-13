@@ -18,11 +18,10 @@ import TcMType as TcM
 import TcType
 import TcSMonad as TcS
 import TcInteract
-import Kind     ( isKind )
 import Inst
 import FunDeps  ( growThetaTyCoVars )
-import Type     ( classifyPredType, PredTree(..), getClassPredTys_maybe )
-import Class    ( Class )
+import Type
+import Class    ( Class, classTyCon )
 import Var
 import TysWiredIn ( liftedDataConTy )
 import Unique
@@ -1359,8 +1358,7 @@ findDefaultableGroups (default_tys, (ovl_strings, extended_defaults)) wanteds
         -- which may look like (Typeable * (a:*))   (Trac #8931)
     find_unary cc
         | Just (cls,tys)   <- getClassPredTys_maybe (ctPred cc)
-        , Just (kinds, ty) <- snocView tys
-        , all isKind kinds
+        , [ty] <- filterInvisibles (classTyCon cls) tys
         , Just tv <- tcGetTyVar_maybe ty
         , isMetaTyVar tv  -- We might have runtime-skolems in GHCi, and
                           -- we definitely don't want to try to assign to those!

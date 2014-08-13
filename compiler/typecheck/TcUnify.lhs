@@ -1149,7 +1149,7 @@ uUnfilledKVar kv1 ds1 non_var_k2
       MetaTv { mtv_info = SigTv }
         -> return False
       MetaTv { mtv_ref = ref1 }
-        -> do { k2a <- zonkTcKind non_var_k2
+        -> do { k2a <- zonkTcType non_var_k2
               ; dflags <- getDynFlags
               ; case occurCheckExpand dflags kv1 k2a of
                    OC_OK k2b -> do { writeMetaTyVarRef kv1 ref1 k2b; return True }

@@ -641,7 +641,7 @@ mkSelectorBinds ticks pat val_expr
         -- But we need it at different types, so we make it polymorphic:
         --     err_var = /\a. iRREFUT_PAT_ERR a "blah blah blah"
        ; err_app <- mkErrorAppDs iRREFUT_PAT_ERROR_ID alphaTy (ppr pat)
-       ; err_var <- newSysLocalDs (mkForAllTy alphaTyVar alphaTy)
+       ; err_var <- newSysLocalDs (mkInvForAllTys [alphaTyVar] alphaTy)
        ; binds   <- zipWithM (mk_bind val_var err_var) ticks' binders
        ; return ( (val_var, val_expr) :
                   (err_var, Lam alphaTyVar err_app) :

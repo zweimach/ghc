@@ -47,6 +47,7 @@ import ListSetOps
 import SrcLoc
 import Outputable
 import FastString
+import BasicTypes
 
 import Control.Monad
 import Data.Maybe

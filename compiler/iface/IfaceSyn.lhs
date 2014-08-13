@@ -672,13 +672,14 @@ pprIfaceDecl ss (IfaceData { ifName = tycon, ifCType = ctype,
     pp_cons    = ppr_trim (map show_con cons) :: [SDoc]
 
     pp_lhs = case parent of
-               IfNoParent -> pprIfaceDeclHead context ss tycon tc_tyvars
+               IfNoParent -> pprIfaceDeclHead context ss tycon kind tc_tyvars
                _          -> ptext (sLit "instance") <+> pprIfaceTyConParent parent
 
     pp_roles
       | is_data_instance = empty
-      | otherwise        = pprRoles (== Representational) (pprPrefixIfDeclBndr ss tycon) 
-                                    tc_tyvars roles
+      | otherwise        = pprRoles (== Representational)
+                                    (pprPrefixIfDeclBndr ss tycon) 
+                                    tc_bndrs roles
             -- Don't display roles for data family instances (yet)
             -- See discussion on Trac #8672.
 
@@ -706,7 +707,9 @@ pprIfaceDecl ss (IfaceData { ifName = tycon, ifCType = ctype,
     ppr_tc_app gadt_subst dflags
        = pprPrefixIfDeclBndr ss tycon
          <+> sep [ pprParendIfaceType (substIfaceTyVar gadt_subst tv)
-                 | (tv,_kind) <- stripIfaceKInvisVars dflags tc_tyvars ]
+                 | (tv,_kind)
+                     <- suppressIfaceInvisibles dflags tc_bndrs tc_tyvars ]
+    (tc_bndrs, _, _) = splitIfaceSigmaTy kind
 
     pp_nd = case condecls of
               IfAbstractTyCon d -> ptext (sLit "abstract") <> ppShowIface ss (parens (ppr d))
@@ -720,12 +723,14 @@ pprIfaceDecl ss (IfaceData { ifName = tycon, ifCType = ctype,
 pprIfaceDecl ss (IfaceClass { ifATs = ats, ifSigs = sigs, ifRec = isrec
                             , ifCtxt   = context, ifName  = clas
                             , ifTyVars = tyvars,  ifRoles = roles
-                            , ifFDs    = fds })
-  = vcat [ pprRoles (== Nominal) (pprPrefixIfDeclBndr ss clas) tyvars roles
-         , ptext (sLit "class") <+> pprIfaceDeclHead context ss clas tyvars
+                            , ifFDs    = fds, ifKind = kind })
+  = vcat [ pprRoles (== Nominal) (pprPrefixIfDeclBndr ss clas) bndrs roles
+         , ptext (sLit "class") <+> pprIfaceDeclHead context ss clas kind tyvars
                                 <+> pprFundeps fds <+> pp_where
          , nest 2 (vcat [vcat asocs, vcat dsigs, pprec])]
     where
+      (bndrs, _, _) = splitIfaceSigmaTy kind
+      
       pp_where = ppShowRhs ss $ ppUnless (null sigs && null ats) (ptext (sLit "where"))
 
       asocs = ppr_trim $ map maybeShowAssoc ats
@@ -742,17 +747,18 @@ pprIfaceDecl ss (IfaceClass { ifATs = ats, ifSigs = sigs, ifRec = isrec
         | showSub ss sg = Just $  pprIfaceClassOp ss sg
         | otherwise     = Nothing
 
-pprIfaceDecl ss (IfaceSyn { ifName   = tc
-                          , ifTyVars = tv
-                          , ifSynRhs = IfaceSynonymTyCon mono_ty })
-  = hang (ptext (sLit "type") <+> pprIfaceDeclHead [] ss tc tv <+> equals)
+pprIfaceDecl ss (IfaceSyn { ifName    = tc
+                          , ifTyVars  = tv
+                          , ifSynRhs  = IfaceSynonymTyCon mono_ty
+                          , ifSynKind = kind })
+  = hang (ptext (sLit "type") <+> pprIfaceDeclHead [] ss tc kind tv <+> equals)
        2 (sep [pprIfaceForAll tvs, pprIfaceContextArr theta, ppr tau])
   where
     (tvs, theta, tau) = splitIfaceSigmaTy mono_ty
 
 pprIfaceDecl ss (IfaceSyn { ifName = tycon, ifTyVars = tyvars
                           , ifSynRhs = rhs, ifSynKind = kind })
-  = vcat [ hang (text "type family" <+> pprIfaceDeclHead [] ss tycon tyvars)
+  = vcat [ hang (text "type family" <+> pprIfaceDeclHead [] ss tycon kind tyvars)
               2 (text "Kind:" <+> ppr kind <+> ppShowRhs ss (pp_rhs rhs))
          , ppShowRhs ss (nest 2 (pp_branches rhs)) ]
   where
@@ -809,10 +815,11 @@ pprCType (Just cType) = ptext (sLit "C type:") <+> ppr cType
 
 -- if, for each role, suppress_if role is True, then suppress the role
 -- output
-pprRoles :: (Role -> Bool) -> SDoc -> [IfaceTvBndr] -> [Role] -> SDoc
-pprRoles suppress_if tyCon tyvars roles
+pprRoles :: (Role -> Bool) -> SDoc -> [IfaceForAllBndr]
+         -> [Role] -> SDoc
+pprRoles suppress_if tyCon bndrs roles
   = sdocWithDynFlags $ \dflags ->
-      let froles = suppressIfaceKinds dflags tyvars roles
+      let froles = suppressIfaceInvisibles dflags bndrs roles
       in ppUnless (all suppress_if roles || null froles) $
          ptext (sLit "type role") <+> tyCon <+> hsep (map ppr froles)
 
@@ -853,15 +860,19 @@ pprIfaceTyConParent IfNoParent
   = empty
 pprIfaceTyConParent (IfDataInstance _ tc tys)
   = sdocWithDynFlags $ \dflags ->
-    let ftys = stripKindArgs dflags tys
+    let ftys = stripInvisArgs dflags tys
     in pprIfaceTypeApp tc ftys
 
-pprIfaceDeclHead :: IfaceContext -> ShowSub -> OccName -> [IfaceTvBndr] -> SDoc
-pprIfaceDeclHead context ss tc_occ tv_bndrs
+pprIfaceDeclHead :: IfaceContext -> ShowSub -> OccName
+                 -> IfaceType   -- of the tycon, for invisible-suppression
+                 -> [IfaceTvBndr] -> SDoc
+pprIfaceDeclHead context ss tc_occ kind tyvars
   = sdocWithDynFlags $ \ dflags ->
     sep [ pprIfaceContextArr context
         , pprPrefixIfDeclBndr ss tc_occ
-          <+> pprIfaceTvBndrs (stripIfaceInvisVars dflags tv_bndrs) ]
+          <+> pprIfaceTvBndrs (suppressIfaceInvisibles dflags bndrs tyvars) ]
+  where
+    (bndrs, _, _) = splitIfaceSigmaTy kind
 
 isVanillaIfaceConDecl :: IfaceConDecl -> Bool
 isVanillaIfaceConDecl (IfCon { ifConExTvs  = ex_tvs

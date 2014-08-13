@@ -325,7 +325,7 @@ opt_co4 env sym rep r (AxiomInstCo con ind cos)
 -- better.
 opt_co4 env sym _ r (PhantomCo h t1 t2)
   = ASSERT( r == Phantom )
-    PhantomCo (opt_co env sym Nothing h) a' b'
+    PhantomCo (opt_co4 env sym False Representational h) a' b'
   where
     (a, b) = if sym then (t2, t1) else (t1, t2)
     a' = optType env a
@@ -435,8 +435,8 @@ opt_co4 env sym rep r (CoherenceCo co1 co2)
   | otherwise
   = wrapSym sym $ CoherenceCo (opt_co4_wrap env False rep r co1) co2'
   where output_role = chooseRole rep r
-        co1' = opt_co4_wrap env sym   rep   r       co1
-        co2' = opt_co4_wrap env False False Nominal co2
+        co1' = opt_co4_wrap env sym   rep   r                co1
+        co2' = opt_co4_wrap env False False Representational co2
         in_scope = getTCvInScope env
 
 opt_co4 env sym _rep r (KindCo co)
@@ -493,10 +493,12 @@ opt_phantom :: TCvSubst -> SymFlag -> Coercion -> NormalCo
   -- TODO (RAE): This is terrible. Write properly.
 opt_phantom env sym co
   = if sym
-    then mkPhantomCo (mkKindCo (mkSymCo co)) ty2 ty1
-    else mkPhantomCo (mkKindCo co) ty1 ty2
+    then mkPhantomCo (mkKindCo (mkSymCo (substCo env co))) ty2' ty1'
+    else mkPhantomCo (mkKindCo (substCo env co)) ty1' ty2'
   where
     Pair ty1 ty2 = coercionKind co
+    ty1' = substTy env ty1
+    ty2' = substTy env ty2
 
 opt_unsafe :: TCvSubst -> Role -> Type -> Type -> Coercion
 opt_unsafe env role oty1 oty2
@@ -566,7 +568,8 @@ opt_nth_co env sym rep r = go []
       | Just (tc, args) <- splitTyConApp_maybe ty
       = Just (Refl (nthRole r1 tc n) (args `getNth` n))
       | n == 0
-      , Just (tv, _) <- splitForAllTy_maybe ty
+      , Just (bndr, _) <- splitForAllTy_maybe ty
+      , Just tv        <- binderVar_maybe bndr
       = Just (Refl r1 (tyVarKind tv))
     push_nth n (TyConAppCo _ _ cos)
       = Just (stripTyCoArg $ cos `getNth` n)
@@ -821,7 +824,7 @@ opt_trans_rule is co1 co2
 
       _ -> Nothing
     where role   = coercionRole r1  -- must be the same as r2
-          to_rep = maybeSubCo2 Representational role
+          to_rep = downgradeRole Representational role
 
 -- Push transitivity inside axioms
 opt_trans_rule is co1 co2

@@ -49,7 +49,6 @@ module Coercion (
         splitAppCo_maybe,
         splitForAllCo_maybe,
         splitForAllCo_Ty_maybe, splitForAllCo_Co_maybe,
-        unSubCo_maybe,
 
         nthRole, tyConRolesX, nextRole, setNominalRole_maybe,
 
@@ -292,7 +291,7 @@ pprCoAxBranch :: TyCon -> CoAxBranch -> SDoc
 pprCoAxBranch fam_tc (CoAxBranch { cab_tvs = tvs
                                  , cab_lhs = lhs
                                  , cab_rhs = rhs })
-  = hang (pprUserForAll tvs)
+  = hang (pprUserForAllImplicit tvs)
        2 (hang (pprTypeApp fam_tc lhs) 2 (equals <+> (ppr rhs)))
 
 pprCoAxBranchHdr :: CoAxiom br -> BranchIndex -> SDoc
@@ -1157,7 +1156,7 @@ instCoercion :: Coercion  -- ^ must be representational
              -> Maybe Coercion
 instCoercion g w
   | isNamedForAllTy ty1 && isNamedForAllTy ty2
-  , Just w' <- unSubCoArg_maybe w
+  , Just w' <- setNominalRoleArg_maybe w
   = Just $ mkInstCo g w'
   | isFunTy ty1 && isFunTy ty2
   = Just $ mkNthCo 1 g -- extract result type, which is the 2nd argument to (->)
@@ -1222,8 +1221,8 @@ mkCoCast c g
     Just (_, args) = splitTyConAppCo_maybe g
     n_args = length args
     co_list = decomposeCo n_args g
-    TyCoArg g1 = co_list !! (n_args - 2)
-    TyCoArg g2 = co_list !! (n_args - 1)
+    TyCoArg g1 = co_list `getNth` (n_args - 2)
+    TyCoArg g2 = co_list `getNth` (n_args - 1)
 \end{code}
 
 %************************************************************************
@@ -1703,7 +1702,7 @@ liftCoSubstVarBndrCallback fun homo r lc@(LC in_scope cenv) old_var
               -- cv_eta is like eta, but its role matches cv1/2
             cv_eta = case (coVarRole cv1, r) of
                        (r1, r2) | r1 == r2       -> eta
-                                | r2 `ltRole` r1 -> maybeSubCo2 r1 r2 eta
+                                | r2 `ltRole` r1 -> downgradeRole r1 r2 eta
                                 | otherwise      -> fun lc r1 (tyVarKind old_var)
             lifted_r = if homo
                        then mkNthCo 2 cv_eta
@@ -1858,7 +1857,7 @@ coercionKind co = go co
       | Just args1 <- tyConAppArgs_maybe ty1
       , Just args2 <- tyConAppArgs_maybe ty2
       = ASSERT( d < length args1 && d < length args2 )
-        (!! d) <$> Pair args1 args2
+        (`getNth` d) <$> Pair args1 args2
      
       | d == 0
       , Just (bndr1, _) <- splitForAllTy_maybe ty1
@@ -1908,7 +1907,7 @@ coercionKindRole = go
         (mkAppTy <$> tys1 <*> coercionArgKind co2, r1)
     go (ForAllCo cobndr co)
       = let (tys, r) = go co in
-        (mkForAllTy <$> coBndrKind cobndr <*> tys, r)
+        (mkNamedForAllTy <$> coBndrKind cobndr <*> pure Invisible <*> tys, r)
     go (CoVarCo cv) = (toPair $ coVarTypes cv, coVarRole cv)
     go co@(AxiomInstCo ax _ _) = (coercionKind co, coAxiomRole ax)
     go (PhantomCo _ ty1 ty2) = (Pair ty1 ty2, Phantom)
@@ -1919,6 +1918,7 @@ coercionKindRole = go
         (Pair (pFst tys1) (pSnd $ coercionKind co2), r)
     go (NthCo d co)
       | Just (bndr1, _) <- splitForAllTy_maybe ty1
+      , isNamedBinder bndr1   -- don't split (->)!
       = ASSERT( d == 0 )
         let (bndr2, _) = splitForAllTy ty2 in
         (binderType <$> Pair bndr1 bndr2, r)

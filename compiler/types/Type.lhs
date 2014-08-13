@@ -194,6 +194,7 @@ import Util
 import Outputable
 import FastString
 import Pair
+import ListSetOps
 
 import Data.List        ( partition, sortBy )
 import Maybes           ( orElse )
@@ -643,7 +644,7 @@ tyConAppArgN :: Int -> Type -> Type
 -- Executing Nth
 tyConAppArgN n ty
   = case tyConAppArgs_maybe ty of
-      Just tys -> ASSERT2( n < length tys, ppr n <+> ppr tys ) tys !! n
+      Just tys -> ASSERT2( n < length tys, ppr n <+> ppr tys ) tys `getNth` n
       Nothing  -> pprPanic "tyConAppArgN" (ppr n <+> ppr ty)
 
 -- | Attempts to tease a type apart into a type constructor and the application

@@ -363,7 +363,8 @@ bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
                                  , kv <- kvs ]
              all_kvs' = nub (kv_bndrs ++ kvs_from_tv_bndrs) 
              all_kvs  = filterOut (\kv -> kv `elemLocalRdrEnv` rdr_env
-                                       || any ((== kv) . hsLTyVarName) tvs) $
+                                       || any ((== kv) . hsLTyVarName) tvs)
+                                  all_kvs'
                        
        ; poly_kind <- xoptM Opt_PolyKinds
        ; unless (poly_kind || null all_kvs)

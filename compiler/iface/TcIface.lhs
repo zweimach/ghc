@@ -69,6 +69,7 @@ import DynFlags
 import Util
 import FastString
 import BasicTypes   ( TupleSort(..) )
+import ListSetOps
 
 import Control.Monad
 import qualified Data.Map as Map
@@ -633,7 +634,7 @@ tc_ax_branch prev_branches
                           , cab_lhs     = tc_lhs
                           , cab_roles   = roles
                           , cab_rhs     = tc_rhs
-                          , cab_incomps = map (prev_branches !!) incomps }
+                          , cab_incomps = map (prev_branches `getNth`) incomps }
     ; return (prev_branches ++ [br]) }
 
 tcIfaceDataCons :: Name -> TyCon -> [TyCoVar] -> IfaceConDecls -> IfL AlgTyConRhs
@@ -969,8 +970,8 @@ tcIfaceType = go
     go (IfaceTyVar n)         = TyVarTy <$> tcIfaceTyVar n
     go (IfaceAppTy t1 t2)     = AppTy <$> go t1 <*> go t2
     go (IfaceLitTy l)         = LitTy <$> tcIfaceTyLit l
-    go (IfaceFunTy t1 t2)     = FunTy <$> go t1 <*> go t2
-    go (IfaceDFunTy t1 t2)    = FunTy <$> go t1 <*> go t2
+    go (IfaceFunTy t1 t2)     = ForAllTy <$> (Anon <$> go t1) <*> go t2
+    go (IfaceDFunTy t1 t2)    = ForAllTy <$> (Anon <$> go t1) <*> go t2
     go (IfaceTyConApp tc tks)
       = do { tc' <- tcIfaceTyCon tc
            ; tks' <- mapM go (tcArgsIfaceTypes tks)
@@ -979,6 +980,9 @@ tcIfaceType = go
       = bindIfaceBndrTy bndr $ \ tv' vis -> mkNamedForAllTy tv' vis <$> go t
     go (IfaceCastTy ty co)   = CastTy <$> go ty <*> tcIfaceCo co
     go (IfaceCoercionTy co)  = CoercionTy <$> tcIfaceCo co
+
+tcIfaceTcArgs :: IfaceTcArgs -> IfL [Type]
+tcIfaceTcArgs = mapM tcIfaceType . tcArgsIfaceTypes
 
 -----------------------------------------
 tcIfaceCtxt :: IfaceContext -> IfL ThetaType
@@ -1395,11 +1399,10 @@ tcIfaceGlobal name
 tcIfaceTyCon :: IfaceTyCon -> IfL TyCon
 tcIfaceTyCon (IfaceTc name)
   = do { thing <- tcIfaceGlobal name
-       ; case thing of    -- A "type constructor" can be a promoted data constructor
-                          --           c.f. Trac #5881
-           ATyCon tc    -> return tc
-           ADataCon dc  -> return (promoteDataCon dc)
-           _ -> pprPanic "tcIfaceTyCon" (ppr name $$ ppr thing) }
+       ; return $ tyThingTyCon thing }
+tcIfaceTyCon (IfacePromotedDataCon name)
+  = do { thing <- tcIfaceGlobal name
+       ; return $ promoteDataCon $ tyThingDataCon thing }
 
 tcIfaceCoAxiom :: Name -> IfL (CoAxiom Branched)
 tcIfaceCoAxiom name = do { thing <- tcIfaceGlobal name
@@ -1451,7 +1454,7 @@ bindIfaceBndrTy (IfaceTv tv vis) thing_inside
   = bindIfaceTyVar tv $ \tv' -> thing_inside tv' vis
 bindIfaceBndrTy (IfaceCv cv)     thing_inside
   = bindIfaceId cv $ \cv' -> thing_inside cv' Invisible
-bindIfaceBndrTy bndr           = pprPanic "bindIfaceBndrTy" (ppr bndr)
+bindIfaceBndrTy bndr _         = pprPanic "bindIfaceBndrTy" (ppr bndr)
 
 bindIfaceBndrCo :: IfaceForAllBndr -> (ForAllCoBndr -> IfL a) -> IfL a
 bindIfaceBndrCo (IfaceTv tv _) thing_inside

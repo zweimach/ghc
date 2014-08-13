@@ -13,7 +13,7 @@ module IfaceType (
         IfaceType(..), IfacePredType, IfaceKind, IfaceTyCon(..), IfaceCoercion(..),
         IfaceTyLit(..), IfaceTcArgs(..),
         IfaceContext, IfaceBndr(..), IfaceTvBndr, IfaceIdBndr,
-        IfaceForAllBndr(..),
+        IfaceForAllBndr(..), VisibilityFlag(..),
 
         -- Conversion from Type -> IfaceType
         toIfaceType, toIfaceTypes, toIfaceKind, toIfaceTyVar,
@@ -35,9 +35,9 @@ module IfaceType (
         pprIfaceCoercion, pprParendIfaceCoercion,
         splitIfaceSigmaTy, pprIfaceTypeApp, pprUserIfaceForAll,
 
-        suppressIfaceKinds,
+        suppressIfaceInvisibles,
         stripIfaceInvisVars,
-        stripKindArgs,
+        stripInvisArgs,
         substIfaceType, substIfaceTyVar, substIfaceTcArgs, mkIfaceTySubst
     ) where
 
@@ -48,7 +48,6 @@ import DataCon ( dataConTyCon )
 import TcType
 import DynFlags
 import TyCoRep
-import Kind
 import Unique( hasKey )
 import Util ( filterOut, lengthIs, zipWithEqual )
 import TyCon hiding ( pprPromotionQuote )
@@ -65,6 +64,7 @@ import Binary
 import Outputable
 import FastString
 import UniqSet
+import VarEnv
 \end{code}
 
 %************************************************************************
@@ -265,7 +265,10 @@ ifTyVarsOfCoercion = go
         go co `delListFromUniqSet` bound `unionUniqSets` free
     go (IfaceCoVarCo cv)          = unitUniqSet cv
     go (IfaceAxiomInstCo _ _ cos) = ifTyVarsOfCoercions cos
-    go (IfaceUnivCo _ ty1 ty2)
+    go (IfacePhantomCo h ty1 ty2) = go h `unionUniqSets`
+                                    ifTyVarsOfType ty1 `unionUniqSets`
+                                    ifTyVarsOfType ty2
+    go (IfaceUnsafeCo _ ty1 ty2)
       = ifTyVarsOfType ty1 `unionUniqSets` ifTyVarsOfType ty2
     go (IfaceSymCo co)            = go co
     go (IfaceTransCo c1 c2)       = go c1 `unionUniqSets` go c2
@@ -350,7 +353,7 @@ toIfaceTcArgs tc ty_args
   where
     in_scope = mkInScopeSet (tyCoVarsOfTypes ty_args)
     
-    go env _                   []     = ITC_Nil
+    go _   _                   []     = ITC_Nil
     go env (ForAllTy bndr res) (t:ts)
       | isVisibleBinder bndr = ITC_Vis   t' ts'
       | otherwise            = ITC_Invis t' ts'
@@ -361,7 +364,7 @@ toIfaceTcArgs tc ty_args
     go env (TyVarTy tv) ts
       | Just ki <- lookupVar env tv = go env ki ts
     go env kind (t:ts) = WARN( True, ppr tc $$ ppr (tyConKind tc) $$ ppr ty_args )
-                         ITC_Vis (toIfaceType t) (go kind ts) -- Ill-kinded
+                         ITC_Vis (toIfaceType t) (go env kind ts) -- Ill-kinded
 
 tcArgsIfaceTypes :: IfaceTcArgs -> [IfaceType]
 tcArgsIfaceTypes ITC_Nil = []
@@ -604,7 +607,7 @@ pprTyTcApp ctxt_prec tc tys dflags
   | otherwise
   = ppr_iface_tc_app ppr_ty ctxt_prec tc tys_wo_kinds
   where
-    tys_wo_kinds = tcArgsIfaceTypes $ stripKindArgs dflags tys
+    tys_wo_kinds = tcArgsIfaceTypes $ stripInvisArgs dflags tys
 
 pprIfaceCoTcApp :: TyPrec -> IfaceTyCon -> [IfaceCoercion] -> SDoc
 pprIfaceCoTcApp ctxt_prec tc tys = ppr_iface_tc_app ppr_co ctxt_prec tc tys
@@ -1089,9 +1092,9 @@ toIfaceType :: Type -> IfaceType
 toIfaceType (TyVarTy tv)        = IfaceTyVar (toIfaceTyVar tv)
 toIfaceType (AppTy t1 t2)       = IfaceAppTy (toIfaceType t1) (toIfaceType t2)
 toIfaceType (ForAllTy (Anon t1) t2)
-  | isPredTy ty = IfaceDFunTy (toIfaceType t1) (toIfaceType t2)
+  | isPredTy t1 = IfaceDFunTy (toIfaceType t1) (toIfaceType t2)
   | otherwise   = IfaceFunTy  (toIfaceType t1) (toIfaceType t2)
-toIfaceType (TyConApp tc tys)   = IfaceTyConApp (toIfaceTyCon tc) (toIfaceTcArgs tys)
+toIfaceType (TyConApp tc tys)   = IfaceTyConApp (toIfaceTyCon tc) (toIfaceTcArgs tc tys)
 toIfaceType (LitTy n)           = IfaceLitTy (toIfaceTyLit n)
 toIfaceType (ForAllTy (Named tv vis) t)
   = IfaceForAllTy (varToIfaceForAllBndr tv vis) (toIfaceType t)
@@ -1104,9 +1107,9 @@ toIfaceTyVar = occNameFS . getOccName
 toIfaceCoVar :: CoVar -> FastString
 toIfaceCoVar = occNameFS . getOccName
 
-varToIfaceForAllBndr :: TyCoVar -> IfaceForAllBndr
-varToIfaceForAllBndr v
-  | isTyVar v = IfaceTv (toIfaceTvBndr v)
+varToIfaceForAllBndr :: TyCoVar -> VisibilityFlag -> IfaceForAllBndr
+varToIfaceForAllBndr v vis
+  | isTyVar v = IfaceTv (toIfaceTvBndr v) vis
   | otherwise = IfaceCv (toIfaceIdBndr v)
 
 ----------------

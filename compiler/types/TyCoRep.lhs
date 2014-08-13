@@ -47,6 +47,7 @@ module TyCoRep (
         pprType, pprParendType, pprTypeApp, pprTCvBndr, pprTCvBndrs,
         pprTyThing, pprTyThingCategory, pprSigmaType,
         pprTheta, pprForAll, pprForAllImplicit, pprUserForAll,
+        pprUserForAllImplicit,
         pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprTyLit, suppressImplicits,
         TyPrec(..), maybeParen, pprTcApp,
@@ -2041,10 +2042,10 @@ ppr_sigma_type :: Bool -> Type -> SDoc
 -- Bool <=> Show the foralls unconditionally
 ppr_sigma_type show_foralls_unconditionally ty
   = sep [ if   show_foralls_unconditionally
-          then pprForAll tvs
-          else pprUserForAll tvs
+          then pprForAll bndrs
+          else pprUserForAll bndrs
         , pprThetaArrowTy ctxt
-        , pprType tau ]
+        , pprArrowChain TopPrec (ppr_fun_tail tau) ]
   where
     (bndrs, rho) = split1 [] ty
     (ctxt, tau)  = split2 [] rho
@@ -2063,14 +2064,18 @@ ppr_sigma_type show_foralls_unconditionally ty
 pprSigmaType :: Type -> SDoc
 pprSigmaType ty = ppr_sigma_type False ty
 
-pprUserForAll :: [TyVar] -> SDoc
+pprUserForAll :: [Binder] -> SDoc
 -- Print a user-level forall; see Note [When to print foralls]
-pprUserForAll tvs
+pprUserForAll bndrs
   = sdocWithDynFlags $ \dflags ->
-    ppWhen (any tv_has_kind_var tvs || gopt Opt_PrintExplicitForalls dflags) $
-    pprForAll tvs
+    ppWhen (any bndr_has_kind_var bndrs || gopt Opt_PrintExplicitForalls dflags) $
+    pprForAll bndrs
   where
-    tv_has_kind_var tv = not (isEmptyVarSet (tyVarsOnlyOfType (tyVarKind tv)))
+    bndr_has_kind_var bndr
+      = not (isEmptyVarSet (tyVarsOnlyOfType (binderType bndr)))
+
+pprUserForAllImplicit :: [TyCoVar] -> SDoc
+pprUserForAllImplicit tvs = pprUserForAll (zipWith Named tvs (repeat Invisible))
 
 pprForAllImplicit :: [TyCoVar] -> SDoc
 pprForAllImplicit tvs = pprForAll (zipWith Named tvs (repeat Invisible))
@@ -2116,6 +2121,10 @@ instance Outputable Binder where
   ppr (Named v Visible)   = ppr v
   ppr (Named v Invisible) = braces (ppr v)
   ppr (Anon ty)       = text "[anon]" <+> ppr ty
+
+instance Outputable VisibilityFlag where
+  ppr Visible   = text "[vis]"
+  ppr Invisible = text "[invis]"
 
 -----------------
 instance Outputable Coercion where -- defined here to avoid orphans

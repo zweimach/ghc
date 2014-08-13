@@ -156,7 +156,7 @@ pprTypeForUser :: Type -> SDoc
 -- Then we want to display
 --      (C a, Ord b) => stuff
 pprTypeForUser ty
-  = pprSigmaType (mkSigmaTy tvs ctxt tau)
+  = pprSigmaType (mkInvSigmaTy tvs ctxt tau)
   where
     (tvs, ctxt, tau) = tcSplitSigmaTy tidy_ty
     (_, tidy_ty)     = tidyOpenType emptyTidyEnv ty

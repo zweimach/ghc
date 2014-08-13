@@ -11,7 +11,7 @@
 --     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
 -- for details
 
-{-# LANGUAGE RankNTypes, TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables, RankNTypes, TypeFamilies #-}
 module TrieMap(
    CoreMap, emptyCoreMap, extendCoreMap, lookupCoreMap, foldCoreMap,
    TypeMap, emptyTypeMap, extendTypeMap, lookupTypeMap, foldTypeMap, 

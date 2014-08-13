@@ -19,10 +19,10 @@ module TysWiredIn (
         promotedFalseDataCon, promotedTrueDataCon,
 
         -- * Ordering
+        orderingTyCon,
         ltDataCon, ltDataConId,
         eqDataCon, eqDataConId,
         gtDataCon, gtDataConId,
-        promotedOrderingTyCon,
         promotedLTDataCon, promotedEQDataCon, promotedGTDataCon,
 
         -- * Char
@@ -472,7 +472,7 @@ mk_tuple sort arity = (tycon, tuple_con)
                 mk_open_tv n ltv
                   = (tyVarList (tYPE (mkOnlyTyVarTy ltv))) !! n
             in
-            ( mkForAllTys lev_tvs $
+            ( mkInvForAllTys lev_tvs $
               mkFunTys (map tyVarKind open_tvs) $
               unliftedTypeKind
             , arity * 2
@@ -575,7 +575,7 @@ levityTy :: Type
 levityTy = mkTyConTy levityTyCon
 
 levityTyCon :: TyCon
-levityTyCon = pcTyCon True NonRecursive True levityTyConName
+levityTyCon = pcTyCon True NonRecursive levityTyConName
                       Nothing [] [liftedDataCon, unliftedDataCon]
 
 liftedDataCon, unliftedDataCon :: DataCon
@@ -934,12 +934,10 @@ promotedFalseDataCon  = promoteDataCon falseDataCon
 Promoted Ordering
 
 \begin{code}
-promotedOrderingTyCon
-  , promotedLTDataCon
+promotedLTDataCon
   , promotedEQDataCon
   , promotedGTDataCon
   :: TyCon
-promotedOrderingTyCon = promoteTyCon orderingTyCon
 promotedLTDataCon     = promoteDataCon ltDataCon
 promotedEQDataCon     = promoteDataCon eqDataCon
 promotedGTDataCon     = promoteDataCon gtDataCon

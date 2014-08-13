@@ -11,7 +11,6 @@ module TcCanonical(
 import TcRnTypes
 import TcType
 import Type
-import Kind
 import TcEvidence
 import Class
 import TyCon

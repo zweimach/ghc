@@ -38,6 +38,7 @@ import Util
 import Outputable
 import DynFlags
 import FastString
+import ListSetOps
 \end{code}
 
 
@@ -542,7 +543,7 @@ deepSplitCprType_maybe fam_envs con_tag ty
   , let cons = tyConDataCons tc
   , cons `lengthAtLeast` con_tag -- This might not be true if we import the
                                  -- type constructor via a .hs-bool file (#8743)
-  , let con  = cons !! (con_tag - fIRST_TAG)
+  , let con  = cons `getNth` (con_tag - fIRST_TAG)
   = Just (con, tc_args, dataConInstArgTys con tc_args, co)
 deepSplitCprType_maybe _ _ _ = Nothing
 

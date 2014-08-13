@@ -175,7 +175,7 @@ findScopedTyVars hs_ty sig_ty inst_tvs
         tv_name = tyVarName sig_tv
 
     scoped_names = mkNameSet (hsExplicitTvs hs_ty)
-    (sig_tvs,_)  = tcSplitForAllTys sig_ty
+    (sig_tvs,_)  = tcSplitNamedForAllTys sig_ty
 
 instance Outputable TcSigInfo where
     ppr (TcSigInfo { sig_id = id, sig_tvs = tyvars, sig_theta = theta, sig_tau = tau})

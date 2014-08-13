@@ -172,7 +172,7 @@ pprInstanceHdr (ClsInst { is_flag = flag, is_dfun = dfun })
         theta_to_print = drop (dfunNSilent dfun) theta
           -- See Note [Silent superclass arguments] in TcInstDcls
         ty_to_print | debugStyle sty = dfun_ty
-                    | otherwise      = mkSigmaTy tvs theta_to_print res_ty
+                    | otherwise      = mkInvSigmaTy tvs theta_to_print res_ty
     in ptext (sLit "instance") <+> ppr flag <+> pprSigmaType ty_to_print
 
 pprInstances :: [ClsInst] -> SDoc

@@ -1809,7 +1809,7 @@ pprO DerivOrigin           = ptext (sLit "the 'deriving' clause of a data type d
 pprO (DerivOriginDC dc n)  = hsep [ ptext (sLit "the"), speakNth n,
                                     ptext (sLit "field of"), quotes (ppr dc),
                                     parens (ptext (sLit "type") <+> quotes (ppr ty)) ]
-    where ty = dataConOrigArgTys dc !! (n-1)
+    where ty = dataConOrigArgTys dc `getNth` (n-1)
 pprO (DerivOriginCoerce meth ty1 ty2)
                            = sep [ ptext (sLit "the coercion of the method") <+> quotes (ppr meth)
                                  , ptext (sLit "from type") <+> quotes (ppr ty1)

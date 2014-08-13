@@ -686,20 +686,22 @@ deriveStandalone (L loc (DerivDecl deriv_ty overlap_mode))
              -- So all the tc_args should be distinct kind variables
       | null theta
       , allDistinctTyVars tc_args
-      , all is_kind_var tc_args
+      , only_dependent_args tc tc_args
       = return ()
 
       | otherwise
       = do { polykinds <- xoptM Opt_PolyKinds
            ; failWith (mk_msg polykinds theta tc tc_args) }
 
-    is_kind_var tc_arg = case tcGetTyVar_maybe tc_arg of
-                           Just v  -> isKindVar v
-                           Nothing -> False
+    only_dependent_args tc tc_args = length tc_args <= length dep_bndrs
+      where
+        (all_bndrs, _)      = tcSplitForAllTys (tyConKind tc)
+        dep_bndrs           = takeWhile isNamedBinder all_bndrs
 
     mk_msg polykinds theta tc tc_args
       | not polykinds
-      , all isKind tc_args   -- Non-empty, all kinds, at least one not a kind variable
+      , only_dependent_args tc tc_args
+           -- Non-empty, all kinds, at least one not a kind variable
       , null theta
       = hang (ptext (sLit "To make a Typeable instance of poly-kinded")
                <+> quotes (ppr tc) <> comma)
@@ -741,8 +743,8 @@ deriveTyData is_instance tvs tc tc_args (L loc deriv_pred)
           let (arg_kinds, _)  = splitFunTys cls_arg_kind
               n_args_to_drop  = length arg_kinds
               n_args_to_keep  = tyConArity tc - n_args_to_drop
-              args_to_drop    = drop n_args_to_keep tc_args
-              tc_args_to_keep = take n_args_to_keep tc_args
+              (tc_args_to_keep, args_to_drop)
+                              = splitAt n_args_to_keep tc_args
               inst_ty_kind    = typeKind (mkTyConApp tc tc_args_to_keep)
               dropped_tvs     = tyCoVarsOfTypes args_to_drop
 
@@ -751,13 +753,14 @@ deriveTyData is_instance tvs tc tc_args (L loc deriv_pred)
               -- We are assuming the tycon tyvars and the class tyvars are distinct
               mb_match        = tcUnifyTy inst_ty_kind cls_arg_kind
               Just kind_subst = mb_match
-              (univ_kvs, univ_tvs) = partition isKindVar $ varSetElems $
-                                     mkVarSet deriv_tvs `unionVarSet`
-                                     tyCoVarsOfTypes tc_args_to_keep
-              univ_kvs'           = filter (`notElemTCvSubst` kind_subst) univ_kvs
-              (subst', univ_tvs') = mapAccumL substTyVarBndr kind_subst univ_tvs
-              final_tc_args       = substTys subst' tc_args_to_keep
-              final_cls_tys       = substTys subst' cls_tys
+              all_tkvs        = varSetElemsWellScoped $
+                                mkVarSet deriv_tvs `unionVarSet`
+                                tyCoVarsOfTypes tc_args_to_keep
+              unmapped_tkvs   = filter (`notElemTCvSubst` kind_subst) all_tkvs
+              (subst, tkvs)   = mapAccumL substTyCoVarBndr
+                                          kind_subst unmapped_tkvs
+              final_tc_args   = substTys subst tc_args_to_keep
+              final_cls_tys   = substTys subst cls_tys
 
         ; traceTc "derivTyData1" (vcat [ pprTCvBndrs tvs, ppr tc, ppr tc_args, ppr deriv_pred
                                        , pprTCvBndrs (varSetElems $ tyCoVarsOfTypes tc_args)
@@ -769,10 +772,10 @@ deriveTyData is_instance tvs tc tc_args (L loc deriv_pred)
         ; checkTc (n_args_to_keep >= 0 && isJust mb_match)
                   (derivingKindErr tc cls cls_tys cls_arg_kind)
 
-        ; traceTc "derivTyData2" (vcat [ ppr univ_tvs ])
+        ; traceTc "derivTyData2" (vcat [ ppr tkvs ])
 
         ; checkTc (allDistinctTyVars args_to_drop &&              -- (a) and (b)
-                   not (any (`elemVarSet` dropped_tvs) univ_tvs)) -- (c)
+                   not (any (`elemVarSet` dropped_tvs) tkvs))     -- (c)
                   (derivingEtaErr cls final_cls_tys (mkTyConApp tc final_tc_args))
                 -- Check that
                 --  (a) The args to drop are all type variables; eg reject:
@@ -785,7 +788,7 @@ deriveTyData is_instance tvs tc tc_args (L loc deriv_pred)
                 --              newtype T a s = ... deriving( ST s )
                 --              newtype K a a = ... deriving( Monad )
 
-        ; spec <- mkEqnHelp Nothing (univ_kvs' ++ univ_tvs')
+        ; spec <- mkEqnHelp Nothing tkvs
                             cls final_cls_tys tc final_tc_args Nothing 
         ; return [spec] } }
 

@@ -78,6 +78,7 @@ import PrelNames
 
 import Data.Maybe
 import Control.Monad
+import Data.List
 \end{code}
 
 
@@ -628,7 +629,7 @@ finish_tuple hs_ty tup_sort tau_tys exp_kind
                  BoxedTuple      -> tau_tys
                  ConstraintTuple -> tau_tys
        ; checkWiredInTyCon tycon
-       ; checkExpectedKind hs_ty (mkTyConApp tycon tau_tys) res_kind exp_kind }
+       ; checkExpectedKind hs_ty (mkTyConApp tycon arg_tys) res_kind exp_kind }
   where
     tycon = tupleTyCon tup_sort (length tau_tys)
     res_kind = case tup_sort of
@@ -1184,7 +1185,7 @@ kcHsTyVarBndrs strat (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) th
                                     `unionVarSet` tyCoVarsOfType k )
                    Nothing -> ( mkAnonBinder k
                               , fvs `unionVarSet` tyCoVarsOfType k )
-                          
+
            ; return ( mkForAllTy bndr res_kind, fvs', stuff ) }
 
     kc_hs_tv :: HsTyVarBndr Name -> TcM (Name, TcKind)

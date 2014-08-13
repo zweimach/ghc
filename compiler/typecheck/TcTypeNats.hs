@@ -307,7 +307,7 @@ isBoolLitTy tc =
          | otherwise                   -> Nothing
 
 orderingKind :: Kind
-orderingKind = mkTyConApp promotedOrderingTyCon []
+orderingKind = mkTyConApp orderingTyCon []
 
 ordering :: Ordering -> Type
 ordering o =
