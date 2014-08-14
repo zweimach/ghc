@@ -122,7 +122,8 @@ pprLlvmCmmDecl count (CmmProc mb_info entry_lbl live (ListGraph blks))
                                 (funcAlign funcDecl')
                                 Alias
            alias = LMGlobal funVar
-                            (Just $ LMBitc (LMStaticPointer defVar) (LMPointer $ LMInt 8))
+                            (Just $ LMBitc (LMStaticPointer defVar)
+                                           (LMPointer $ LMInt 8))
 
        return (ppLlvmGlobal alias $+$ idoc $+$ ppLlvmFunction fun', ivar)
 
