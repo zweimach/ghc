@@ -825,7 +825,8 @@ mkTcEqPred :: TcType -> TcType -> Type
 -- But this is horribly delicate: what about type variables
 -- that turn out to be bound to Int#?
 mkTcEqPred ty1 ty2
-  = mkTyConApp eqTyCon [k, ty1, ty2]
+  = ASSERT( k `tcEqType` typeKind ty2)
+    mkTyConApp eqTyCon [k, ty1, ty2]
   where
     k = typeKind ty1
 \end{code}

@@ -152,6 +152,7 @@ primTyCons
     , unliftedTypeKindTyCon
     , tYPETyCon
     , constraintKindTyCon
+    , castTyCon
 
 #include "primop-vector-tycons.hs-incl"
     ]
@@ -333,11 +334,11 @@ above "sort-polymorphic".
 \begin{code}
 liftedTypeKindTyCon,
       tYPETyCon, unliftedTypeKindTyCon,
-      constraintKindTyCon
+      constraintKindTyCon, castTyCon
    :: TyCon
 liftedTypeKindTyConName,
       tYPETyConName, unliftedTypeKindTyConName,
-      constraintKindTyConName
+      constraintKindTyConName, castTyConName
    :: Name
 
 constraintKindTyCon   = mkKindTyCon constraintKindTyConName   liftedTypeKind []
@@ -357,6 +358,26 @@ unliftedTypeKindTyCon = mkSynTyCon unliftedTypeKindTyConName
                                    (SynonymTyCon (tYPE unliftedDataConTy))
                                    NoParentTyCon
 
+castTyCon = mkSynTyCon castTyConName
+                       cast_kind
+                       [k1, k2] [Nominal, Nominal]
+                       (ClosedSynFamilyTyCon cast_axiom)
+                       NoParentTyCon
+  where
+    k1:k2:_ = tyVarList liftedTypeKind
+    k1ty    = mkOnlyTyVarTy k1
+    k2ty    = mkOnlyTyVarTy k2
+    cast_kind = mkInvForAllTys [k1, k2] $
+                mkFunTy k1ty $
+                mkFunTy (mkEqPred k1ty k2ty) $
+                mkOnlyTyVarTy k2
+    _:_:t:_ = tyVarList (mkOnlyTyVarTy k1)
+    tty     = mkOnlyTyVarTy t
+    g = mkFreshCoVar (emptyInScopeSet `extendInScopeSetList` [k1,k2,t])
+                     k1ty k2ty
+    cast_branch = mkCoAxBranch [k1,k2,t,g]
+                               [k1ty, k2ty, tty, (mkTyConApp eq
+
 --------------------------
 -- ... and now their names
 
@@ -366,6 +387,7 @@ liftedTypeKindTyConName   = mkPrimTyConName (fsLit "*") liftedTypeKindTyConKey l
 tYPETyConName             = mkPrimTyConName (fsLit "TYPE") tYPETyConKey tYPETyCon
 unliftedTypeKindTyConName = mkPrimTyConName (fsLit "#") unliftedTypeKindTyConKey unliftedTypeKindTyCon
 constraintKindTyConName   = mkPrimTyConName (fsLit "Constraint") constraintKindTyConKey constraintKindTyCon
+castTyConName             = mkPrimTyConName (fsLit "Cast") castTyConKey castTyCon
 
 mkPrimTyConName :: FastString -> Unique -> TyCon -> Name
 mkPrimTyConName occ key tycon = mkWiredInName gHC_PRIM (mkTcOccFS occ) 
