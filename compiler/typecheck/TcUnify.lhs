@@ -481,30 +481,14 @@ non-exported generic functions.
 unifyType :: TcTauType -> TcTauType -> TcM TcCoercion
 -- Actual and expected types
 -- Returns a coercion : ty1 ~ ty2
-unifyType ty1 ty2
-  = do { (co, _kindco) <- unifyHeteroType ty1 ty2
-       ; ASSERT( isTcReflCo _kindco )
-         return co }
+unifyType ty1 ty2 = uType origin ty1 ty2
+  where
+    origin = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2 }
 
 ---------------
 unifyPred :: PredType -> PredType -> TcM TcCoercion
 -- Actual and expected types
 unifyPred = unifyType
-
----------------
--- | Unify two types, possibly of differing kinds.
--- If @(co1, co2) <- unifyHeteroType t1 t2@, then
---
--- > t1 :: k1
--- > t2 :: k2
--- > co2 :: k1 ~ k2
--- > co1 :: (t1 |> co2) ~ t2
---
--- Note that both returned coercions are homogeneous, like /all/ 'TcCoercion's
-unifyHeteroType :: TcTauType -> TcTauType -> TcM (TcCoercion, TcKindCoercion)
-unifyHeteroType ty1 ty2 = uType origin ty1 ty2
-  where
-    origin = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2 }
 
 ---------------
 unifyTheta :: TcThetaType -> TcThetaType -> TcM [TcCoercion]
@@ -546,16 +530,13 @@ uType, uType_defer
   :: CtOrigin
   -> TcType    -- ty1 is the *actual* type
   -> TcType    -- ty2 is the *expected* type
-  -> TcM (TcCoercion, TcKindCoercion)
+  -> TcM TcCoercion
 
 --------------
 -- It is always safe to defer unification to the main constraint solver
 -- See Note [Deferred unification]
 uType_defer origin ty1 ty2
-  = do { let k1 = typeKind ty1
-             k2 = typeKind ty2
-       ; kind_eqv <- newEq k1 k2
-       ; eqv <- newEq ty1 ty2
+  = do { eqv <- newEq ty1 ty2
        ; loc <- getCtLoc origin
        ; emitFlat $ mkNonCanonical $
              CtWanted { ctev_evar = eqv

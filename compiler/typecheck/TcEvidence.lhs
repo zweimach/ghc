@@ -135,9 +135,6 @@ data TcCoercion
   | TcLetCo TcEvBinds TcCoercion
   deriving (Data.Data, Data.Typeable)
 
--- | Used to talk about coercions between kinds.
-type TcKindCoercion = TcCoercion
-
 isEqVar :: Var -> Bool 
 -- Is lifted coercion variable (only!)
 isEqVar v = case tyConAppTyCon_maybe (varType v) of
