@@ -39,7 +39,7 @@ module TysPrim(
         mkArrowKind, mkArrowKinds,
 
         funTyCon, funTyConName,
-        primTyCons,
+        primTyCons, primAxioms,
 
 	charPrimTyCon, 		charPrimTy,
 	intPrimTyCon,		intPrimTy,
@@ -156,6 +156,9 @@ primTyCons
 
 #include "primop-vector-tycons.hs-incl"
     ]
+
+primAxioms :: [CoAxiom Branched]
+primAxioms = [castAxiom]
 
 mkPrimTc :: FastString -> Unique -> TyCon -> Name
 mkPrimTc fs unique tycon
@@ -338,7 +341,7 @@ liftedTypeKindTyCon,
    :: TyCon
 liftedTypeKindTyConName,
       tYPETyConName, unliftedTypeKindTyConName,
-      constraintKindTyConName, castTyConName
+      constraintKindTyConName, castTyConName, castAxiomName
    :: Name
 
 constraintKindTyCon   = mkKindTyCon constraintKindTyConName   liftedTypeKind []
@@ -358,10 +361,12 @@ unliftedTypeKindTyCon = mkSynTyCon unliftedTypeKindTyConName
                                    (SynonymTyCon (tYPE unliftedDataConTy))
                                    NoParentTyCon
 
+-- type family Cast (t :: k1) (g :: k1 ~ k2) where
+--   Cast t (Eq# co) = t |> co
 castTyCon = mkSynTyCon castTyConName
                        cast_kind
                        [k1, k2] [Nominal, Nominal]
-                       (ClosedSynFamilyTyCon cast_axiom)
+                       (ClosedSynFamilyTyCon castAxiom)
                        NoParentTyCon
   where
     k1:k2:_ = tyVarList liftedTypeKind
@@ -371,12 +376,23 @@ castTyCon = mkSynTyCon castTyConName
                 mkFunTy k1ty $
                 mkFunTy (mkEqPred k1ty k2ty) $
                 mkOnlyTyVarTy k2
-    _:_:t:_ = tyVarList (mkOnlyTyVarTy k1)
+
+castAxiom :: CoAxiom Branched
+castAxiom = mkBranchedCoAxiom castAxiomName castTyCon [cast_branch]
+  where
+    k1:k2:_ = tyVarList liftedTypeKind
+    k1ty    = mkOnlyTyVarTy k1
+    k2ty    = mkOnlyTyVarTy k2
+    _:_:t:_ = tyVarList k1ty
     tty     = mkOnlyTyVarTy t
-    g = mkFreshCoVar (emptyInScopeSet `extendInScopeSetList` [k1,k2,t])
-                     k1ty k2ty
-    cast_branch = mkCoAxBranch [k1,k2,t,g]
-                               [k1ty, k2ty, tty, (mkTyConApp eq
+    c       = mkFreshCoVar (emptyInScopeSet `extendInScopeSetList` [k1,k2,t])
+                           k1ty k2ty
+    cco     = mkCoVarCo c
+    cast_branch = mkCoAxBranch [k1,k2,t,c]
+                               [k1ty, k2ty, tty, mkTyConApp (promoteDataCon eqBoxDataCon)
+                                                            [mkCoercionTy cco]]
+                               (mkCastTy tty cco)
+                               noSrcLoc
 
 --------------------------
 -- ... and now their names
@@ -388,6 +404,11 @@ tYPETyConName             = mkPrimTyConName (fsLit "TYPE") tYPETyConKey tYPETyCo
 unliftedTypeKindTyConName = mkPrimTyConName (fsLit "#") unliftedTypeKindTyConKey unliftedTypeKindTyCon
 constraintKindTyConName   = mkPrimTyConName (fsLit "Constraint") constraintKindTyConKey constraintKindTyCon
 castTyConName             = mkPrimTyConName (fsLit "Cast") castTyConKey castTyCon
+castAxiomName             = mkWiredInName gHC_PRIM
+                                          (mkTcOccFS (fsLit "axCast"))
+                                          castAxiomKey
+                                          (ACoAxiom castAxiom)
+                                          BuiltInSyntax
 
 mkPrimTyConName :: FastString -> Unique -> TyCon -> Name
 mkPrimTyConName occ key tycon = mkWiredInName gHC_PRIM (mkTcOccFS occ) 

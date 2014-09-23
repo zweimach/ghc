@@ -1418,13 +1418,15 @@ eitherTyConKey :: Unique
 eitherTyConKey                          = mkPreludeTyConUnique 84
 
 -- Kind constructors
-liftedTypeKindTyConKey, tYPETyConKey,
-  unliftedTypeKindTyConKey, constraintKindTyConKey, levityTyConKey :: Unique
+liftedTypeKindTyConKey, tYPETyConKey, unliftedTypeKindTyConKey,
+  constraintKindTyConKey, levityTyConKey, castTyConKey :: Unique
 liftedTypeKindTyConKey                  = mkPreludeTyConUnique 87
 tYPETyConKey                            = mkPreludeTyConUnique 88
 unliftedTypeKindTyConKey                = mkPreludeTyConUnique 89
 levityTyConKey                          = mkPreludeTyConUnique 90
 constraintKindTyConKey                  = mkPreludeTyConUnique 92
+
+castTyConKey                            = mkPreludeTyConUnique 93
 
 pluginTyConKey :: Unique
 pluginTyConKey                          = mkPreludeTyConUnique 102
@@ -1830,6 +1832,19 @@ proxyHashKey = mkPreludeMiscIdUnique 502
 ---------------- Template Haskell -------------------
 --      USES IdUniques 200-499
 -----------------------------------------------------
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+\subsubsection[Uniques-prelude-axioms]{@Uniques@ for wired-in @Axioms@}
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+
+castAxiomKey :: Unique
+castAxiomKey = mkAxiomUnique 1
+
 \end{code}
 
 %************************************************************************
