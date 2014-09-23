@@ -814,19 +814,12 @@ mkPhiTy theta ty = foldr mkFunTy ty theta
 
 mkTcEqPred :: TcType -> TcType -> Type
 -- During type checking we build equalities between
--- type variables with OpenKind or ArgKind.  Ultimately
--- they will all settle, but we want the equality predicate
--- itself to have kind '*'.  I think.
---
--- But for now we call mkTyConApp, not mkEqPred, because the invariants
--- of the latter might not be satisfied during type checking.
--- Notably when we form an equalty   (a : OpenKind) ~ (Int : *)
---
--- But this is horribly delicate: what about type variables
--- that turn out to be bound to Int#?
+-- types of differing kinds. This all gets sorted out when
+-- we desugar to Core (which allows heterogeneous equality
+-- anyway), but we must be careful *not* to check that the
+-- two types have the same kind here!
 mkTcEqPred ty1 ty2
-  = ASSERT( k `tcEqType` typeKind ty2)
-    mkTyConApp eqTyCon [k, ty1, ty2]
+  = mkTyConApp eqTyCon [k, ty1, ty2]
   where
     k = typeKind ty1
 \end{code}
