@@ -2,25 +2,26 @@
 {-# LANGUAGE RankNTypes, ScopedTypeVariables, PolyKinds #-}
 {-# LANGUAGE StandaloneDeriving, AutoDeriveTypeable, TypeOperators,
              GADTs #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Data.Data
 -- Copyright   :  (c) The University of Glasgow, CWI 2001--2004
 -- License     :  BSD-style (see the file libraries/base/LICENSE)
--- 
+--
 -- Maintainer  :  libraries@haskell.org
 -- Stability   :  experimental
 -- Portability :  non-portable (local universal quantification)
 --
--- \"Scrap your boilerplate\" --- Generic programming in Haskell.
--- See <http://www.cs.vu.nl/boilerplate/>. This module provides
--- the 'Data' class with its primitives for generic programming, along
--- with instances for many datatypes. It corresponds to a merge between
--- the previous "Data.Generics.Basics" and almost all of 
--- "Data.Generics.Instances". The instances that are not present
--- in this module were moved to the @Data.Generics.Instances@ module
--- in the @syb@ package.
+-- \"Scrap your boilerplate\" --- Generic programming in Haskell.  See
+-- <http://www.haskell.org/haskellwiki/Research_papers/Generics#Scrap_your_boilerplate.21>.
+-- This module provides the 'Data' class with its primitives for
+-- generic programming, along with instances for many datatypes. It
+-- corresponds to a merge between the previous "Data.Generics.Basics"
+-- and almost all of "Data.Generics.Instances". The instances that are
+-- not present in this module were moved to the
+-- @Data.Generics.Instances@ module in the @syb@ package.
 --
 -- For more information, please visit the new
 -- SYB wiki: <http://www.cs.uu.nl/wiki/bin/view/GenericProgramming/SYB>.
@@ -106,19 +107,24 @@ module Data.Data (
 
 ------------------------------------------------------------------------------
 
-import Prelude -- necessary to get dependencies right
-
-import Data.Typeable
+import Data.Either
+import Data.Eq
 import Data.Maybe
+import Data.Ord
+import Data.Typeable
 import Data.Version( Version(..) )
-import Control.Monad
+import GHC.Base
+import GHC.List
+import GHC.Num
+import GHC.Read
+import GHC.Show
+import Text.Read( reads )
 
 -- Imports for the instances
 import Data.Int              -- So we can give Data instance for Int8, ...
 import Data.Type.Coercion
-import Data.Coerce
 import Data.Word             -- So we can give Data instance for Word8, ...
-import GHC.Real( Ratio(..) ) -- So we can give Data instance for Ratio
+import GHC.Real              -- So we can give Data instance for Ratio
 --import GHC.IOBase            -- So we can give Data instance for IO, Handle
 import GHC.Ptr               -- So we can give Data instance for Ptr
 import GHC.ForeignPtr        -- So we can give Data instance for ForeignPtr

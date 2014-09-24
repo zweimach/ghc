@@ -41,7 +41,7 @@ module Type (
         splitNamedForAllTys, splitNamedForAllTysB,
         mkPiType, mkPiTypes, mkPiTypesNoTv, mkPiTypesPreferFunTy,
         piResultTy, piResultTys,
-        applyTy, applyTys, applyTysD, isForAllTy, dropForAlls,
+        applyTy, applyTys, applyTysD, applyTysX, isForAllTy, dropForAlls,
 
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
@@ -606,7 +606,7 @@ funArgTy ty                         = pprPanic "funArgTy" (ppr ty)
                                 ~~~~~~~~
 
 \begin{code}
--- | A key function: builds a 'TyConApp' or 'FunTy' as apppropriate to
+-- | A key function: builds a 'TyConApp' or 'FunTy' as appropriate to
 -- its arguments.  Applies its arguments to the constructor from left to right.
 mkTyConApp :: TyCon -> [Type] -> Type
 mkTyConApp tycon tys
@@ -668,11 +668,10 @@ newTyConInstRhs :: TyCon -> [Type] -> Type
 -- arguments, using an eta-reduced version of the @newtype@ if possible.
 -- This requires tys to have at least @newTyConInstArity tycon@ elements.
 newTyConInstRhs tycon tys
-    = ASSERT2( equalLength tvs tys1, ppr tycon $$ ppr tys $$ ppr tvs )
-      mkAppTys (substTyWith tvs tys1 ty) tys2
+    = ASSERT2( tvs `leLength` tys, ppr tycon $$ ppr tys $$ ppr tvs )
+      applyTysX tvs rhs tys
   where
-    (tvs, ty)    = newTyConEtadRhs tycon
-    (tys1, tys2) = splitAtList tvs tys
+    (tvs, rhs) = newTyConEtadRhs tycon
 \end{code}
 
 ---------------------------------------------------------------------
@@ -1051,13 +1050,22 @@ applyTysD doc orig_fun_ty arg_tys
   = substTyWithBinders (take n_args bndrs) arg_tys
                        (mkForAllTys (drop n_args bndrs) rho_ty)
   | otherwise           -- Too many type args
-  = ASSERT2( n_bndrs > 0, doc $$ ppr orig_fun_ty )        -- Zero case gives infinite loop!
+  = ASSERT2( n_bndrs > 0, doc $$ ppr orig_fun_ty $$ ppr arg_tys )       -- Zero case gives infinite loop!
     applyTysD doc (substTyWithBinders bndrs (take n_bndrs arg_tys) rho_ty)
                   (drop n_bndrs arg_tys)
   where
     (bndrs, rho_ty) = splitForAllTys orig_fun_ty
     n_bndrs = length bndrs
-    n_args = length arg_tys
+    n_args  = length arg_tys
+
+applyTysX :: [TyVar] -> Type -> [Type] -> Type
+-- applyTyxX beta-reduces (/\tvs. body_ty) arg_tys
+applyTysX tvs body_ty arg_tys
+  = ASSERT2( length arg_tys >= n_tvs, ppr tvs $$ ppr body_ty $$ ppr arg_tys )
+    mkAppTys (substTyWith tvs (take n_tvs arg_tys) body_ty)
+             (drop n_tvs arg_tys)
+  where
+    n_tvs = length tvs
 \end{code}
 
 

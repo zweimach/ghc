@@ -48,7 +48,9 @@ import Util             ( mapSnd )
 
 import Control.Monad
 import Data.List( partition, sortBy )
+#if __GLASGOW_HASKELL__ < 709
 import Data.Traversable (traverse)
+#endif
 import Maybes( orElse, mapMaybe )
 \end{code}
 
@@ -515,7 +517,8 @@ rnFamInstDecl :: HsDocContext
               -> [LHsType RdrName]
               -> rhs
               -> (HsDocContext -> rhs -> RnM (rhs', FreeVars))
-              -> RnM (Located Name, HsWithBndrs [LHsType Name], rhs', FreeVars)
+              -> RnM (Located Name, HsWithBndrs Name [LHsType Name], rhs',
+                      FreeVars)
 rnFamInstDecl doc mb_cls tycon pats payload rnPayload
   = do { tycon'   <- lookupFamInstName (fmap fst mb_cls) tycon
        ; let loc = case pats of
@@ -1283,8 +1286,13 @@ rnConDecl decl@(ConDecl { con_name = name, con_qvars = tvs
 
          -- With an Explicit forall, check for unused binders
          -- With Implicit, find the mentioned ones, and use them as binders
+         -- With Qualified, do the same as with Implicit, but give a warning
+         --   See Note [Context quantification]
         ; new_tvs <- case expl of
                        Implicit -> return (mkHsQTvs (userHsTyVarBndrs loc free_tvs))
+                       Qualified -> do { warnContextQuantification (docOfHsDocContext doc)
+                                                                   (userHsTyVarBndrs loc free_tvs)
+                                       ; return (mkHsQTvs (userHsTyVarBndrs loc free_tvs)) }
                        Explicit -> do { warnUnusedForAlls (docOfHsDocContext doc) tvs free_tvs
                                       ; return tvs }
 
@@ -1468,10 +1476,10 @@ add gp loc (SpliceD splice@(SpliceDecl _ flag)) ds
   = do { -- We've found a top-level splice.  If it is an *implicit* one
          -- (i.e. a naked top level expression)
          case flag of
-           Explicit -> return ()
-           Implicit -> do { th_on <- xoptM Opt_TemplateHaskell
-                          ; unless th_on $ setSrcSpan loc $
-                            failWith badImplicitSplice }
+           ExplicitSplice -> return ()
+           ImplicitSplice -> do { th_on <- xoptM Opt_TemplateHaskell
+                                ; unless th_on $ setSrcSpan loc $
+                                  failWith badImplicitSplice }
 
        ; return (gp, Just (splice, ds)) }
   where

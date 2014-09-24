@@ -1366,7 +1366,7 @@ findDefaultableGroups (default_tys, (ovl_strings, extended_defaults)) wanteds
     find_unary cc = Right cc  -- Non unary or non dictionary
 
     bad_tvs :: TcTyCoVarSet  -- TyVars mentioned by non-unaries
-    bad_tvs = foldr (unionVarSet . tyCoVarsOfCt) emptyVarSet non_unaries
+    bad_tvs = mapUnionVarSet tyCoVarsOfCt non_unaries
 
     cmp_tv (_,_,tv1) (_,_,tv2) = tv1 `compare` tv2
 

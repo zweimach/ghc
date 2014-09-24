@@ -7,15 +7,18 @@
 {-# LANGUAGE CPP #-}
 
 module ErrUtils (
+        MsgDoc, 
+        Validity(..), andValid, allValid, isValid, getInvalids,
+
         ErrMsg, WarnMsg, Severity(..),
         Messages, ErrorMessages, WarningMessages,
         errMsgSpan, errMsgContext, errMsgShortDoc, errMsgExtraInfo,
-        MsgDoc, mkLocMessage, pprMessageBag, pprErrMsgBag, pprErrMsgBagWithLoc,
+        mkLocMessage, pprMessageBag, pprErrMsgBag, pprErrMsgBagWithLoc,
         pprLocErrMsg, makeIntoWarning,
-        
+
         errorsFound, emptyMessages, isEmptyMessages,
         mkErrMsg, mkPlainErrMsg, mkLongErrMsg, mkWarnMsg, mkPlainWarnMsg,
-        printBagOfErrors, 
+        printBagOfErrors,
         warnIsErrorMsg, mkLongWarnMsg,
 
         ghcExit,
@@ -46,15 +49,42 @@ import DynFlags
 
 import System.Directory
 import System.Exit      ( ExitCode(..), exitWith )
-import System.FilePath
+import System.FilePath  ( takeDirectory, (</>) )
 import Data.List
 import qualified Data.Set as Set
 import Data.IORef
 import Data.Ord
 import Data.Time
+#if __GLASGOW_HASKELL__ >= 709
+import Control.Monad hiding (empty)
+#else
 import Control.Monad
+#endif
 import Control.Monad.IO.Class
 import System.IO
+
+-------------------------
+type MsgDoc  = SDoc
+
+-------------------------
+data Validity
+  = IsValid            -- Everything is fine
+  | NotValid MsgDoc    -- A problem, and some indication of why
+
+isValid :: Validity -> Bool
+isValid IsValid       = True
+isValid (NotValid {}) = False
+
+andValid :: Validity -> Validity -> Validity
+andValid IsValid v = v
+andValid v _       = v
+
+allValid :: [Validity] -> Validity   -- If they aren't all valid, return the first
+allValid []       = IsValid
+allValid (v : vs) = v `andValid` allValid vs
+
+getInvalids :: [Validity] -> [MsgDoc]
+getInvalids vs = [d | NotValid d <- vs]
 
 -- -----------------------------------------------------------------------------
 -- Basic error messages: just render a message with a source location.
@@ -74,7 +104,6 @@ data ErrMsg = ErrMsg {
         -- The SrcSpan is used for sorting errors into line-number order
 
 type WarnMsg = ErrMsg
-type MsgDoc = SDoc
 
 data Severity
   = SevOutput

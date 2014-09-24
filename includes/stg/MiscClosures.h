@@ -341,12 +341,15 @@ RTS_FUN_DECL(StgReturn);
 
 RTS_FUN_DECL(stg_decodeFloatzuIntzh);
 RTS_FUN_DECL(stg_decodeDoublezu2Intzh);
+RTS_FUN_DECL(stg_decodeDoublezuInt64zh);
 
 RTS_FUN_DECL(stg_unsafeThawArrayzh);
 RTS_FUN_DECL(stg_casArrayzh);
 RTS_FUN_DECL(stg_newByteArrayzh);
 RTS_FUN_DECL(stg_newPinnedByteArrayzh);
 RTS_FUN_DECL(stg_newAlignedPinnedByteArrayzh);
+RTS_FUN_DECL(stg_shrinkMutableByteArrayzh);
+RTS_FUN_DECL(stg_resizzeMutableByteArrayzh);
 RTS_FUN_DECL(stg_casIntArrayzh);
 RTS_FUN_DECL(stg_newArrayzh);
 RTS_FUN_DECL(stg_newArrayArrayzh);

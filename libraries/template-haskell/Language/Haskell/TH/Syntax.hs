@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveDataTypeable, MagicHash, PolymorphicComponents, RoleAnnotations, UnboxedTuples #-}
+{-# LANGUAGE CPP, DeriveDataTypeable, MagicHash, PolymorphicComponents, RoleAnnotations, UnboxedTuples #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -19,7 +19,9 @@ module Language.Haskell.TH.Syntax where
 import GHC.Exts
 import Data.Data (Data(..), Typeable, mkConstr, mkDataType, constrIndex)
 import qualified Data.Data as Data
+#if __GLASGOW_HASKELL__ < 709
 import Control.Applicative( Applicative(..) )
+#endif
 import Data.IORef
 import System.IO.Unsafe	( unsafePerformIO )
 import Control.Monad (liftM)
@@ -510,8 +512,8 @@ trueName  = mkNameG DataName "ghc-prim" "GHC.Types" "True"
 falseName = mkNameG DataName "ghc-prim" "GHC.Types" "False"
 
 nothingName, justName :: Name
-nothingName = mkNameG DataName "base" "Data.Maybe" "Nothing"
-justName    = mkNameG DataName "base" "Data.Maybe" "Just"
+nothingName = mkNameG DataName "base" "GHC.Base" "Nothing"
+justName    = mkNameG DataName "base" "GHC.Base" "Just"
 
 leftName, rightName :: Name
 leftName  = mkNameG DataName "base" "Data.Either" "Left"

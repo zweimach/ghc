@@ -28,7 +28,7 @@ import Name
 import RdrName ( GlobalRdrEnv, lookupGRE_Name, mkRdrQual, is_as,
                  is_decl, Provenance(Imported), gre_prov )
 import FunDeps
-import FamInstEnv ( FamInstEnvs, instNewTyConTF_maybe )
+import FamInst
 
 import TcEvidence
 import Outputable
@@ -753,12 +753,16 @@ kickOutRewritable :: CtEvidence   -- Flavour of the equality that is
                   -> InertCans
                   -> TcS (Int, InertCans)
 kickOutRewritable new_ev new_tv
-                  (IC { inert_eqs = tv_eqs
-                      , inert_dicts  = dictmap
-                      , inert_funeqs = funeqmap
-                      , inert_irreds = irreds
-                      , inert_insols = insols
-                      , inert_no_eqs = no_eqs })
+                  inert_cans@(IC { inert_eqs = tv_eqs
+                                 , inert_dicts  = dictmap
+                                 , inert_funeqs = funeqmap
+                                 , inert_irreds = irreds
+                                 , inert_insols = insols
+                                 , inert_no_eqs = no_eqs })
+  | new_tv `elemVarEnv` tv_eqs   -- Fast path: there is at least one equality for tv
+                                 -- so kick-out will do nothing
+  = return (0, inert_cans)
+  | otherwise
   = do { traceTcS "kickOutRewritable" $
             vcat [ text "tv = " <+> ppr new_tv
                  , ptext (sLit "Kicked out =") <+> ppr kicked_out]
@@ -1810,29 +1814,27 @@ matchClassInst _ clas [ ty ] _
      String    -> SSymbol n
      SSymbol n -> KnownSymbol n
   -}
-  makeDict evLit =
-    case unwrapNewTyCon_maybe (classTyCon clas) of
-      Just (_,_, axDict)
-        | [ meth ]   <- classMethods clas
-        , Just tcRep <- tyConAppTyCon_maybe -- SNat
+  makeDict evLit
+    | Just (_, co_dict) <- tcInstNewTyCon_maybe (classTyCon clas) [ty]
+    , [ meth ]   <- classMethods clas
+    , Just tcRep <- tyConAppTyCon_maybe -- SNat
                       $ funResultTy         -- SNat n
                       $ dropForAlls         -- KnownNat n => SNat n
                       $ idType meth         -- forall n. KnownNat n => SNat n
-        , Just (_,_,axRep) <- unwrapNewTyCon_maybe tcRep
-        -> return $
-           let co1 = mkTcSymCo $ mkTcUnbranchedAxInstCo Representational axRep  [ty]
-               co2 = mkTcSymCo $ mkTcUnbranchedAxInstCo Representational axDict [ty]
-           in GenInst [] $ mkEvCast (EvLit evLit) (mkTcTransCo co1 co2)
+    , Just (_, co_rep) <- tcInstNewTyCon_maybe tcRep [ty]
+    = return (GenInst [] $ mkEvCast (EvLit evLit) (mkTcTransCo co_dict co_rep))
 
-      _ -> panicTcS (text "Unexpected evidence for" <+> ppr (className clas)
+    | otherwise
+    = panicTcS (text "Unexpected evidence for" <+> ppr (className clas)
                      $$ vcat (map (ppr . idType) (classMethods clas)))
 
 matchClassInst _ clas [ _k, ty1, ty2 ] loc
-  | clas == coercibleClass =  do
-      traceTcS "matchClassInst for" $ quotes (pprClassPred clas [ty1,ty2]) <+> text "at depth" <+> ppr (ctLocDepth loc)
-      ev <- getCoercibleInst loc ty1 ty2
-      traceTcS "matchClassInst returned" $ ppr ev
-      return ev
+  | clas == coercibleClass
+  = do { traceTcS "matchClassInst for" $
+         quotes (pprClassPred clas [ty1,ty2]) <+> text "at depth" <+> ppr (ctLocDepth loc)
+       ; ev <- getCoercibleInst loc ty1 ty2
+       ; traceTcS "matchClassInst returned" $ ppr ev
+       ; return ev }
 
 matchClassInst inerts clas tys loc
    = do { dflags <- getDynFlags
@@ -1917,11 +1919,11 @@ matchClassInst inerts clas tys loc
 -- See Note [Coercible Instances]
 -- Changes to this logic should likely be reflected in coercible_msg in TcErrors.
 getCoercibleInst :: CtLoc -> TcType -> TcType -> TcS LookupInstResult
-getCoercibleInst loc ty1 ty2 = do
-      -- Get some global stuff in scope, for nice pattern-guard based code in `go`
-      rdr_env <- getGlobalRdrEnvTcS
-      famenv <- getFamInstEnvs
-      go famenv rdr_env
+getCoercibleInst loc ty1 ty2
+  = do { -- Get some global stuff in scope, for nice pattern-guard based code in `go`
+         rdr_env <- getGlobalRdrEnvTcS
+       ; famenv <- getFamInstEnvs
+       ; go famenv rdr_env }
   where
   go :: FamInstEnvs -> GlobalRdrEnv -> TcS LookupInstResult
   go famenv rdr_env
@@ -1929,33 +1931,41 @@ getCoercibleInst loc ty1 ty2 = do
 
     -- Coercible a a                             (see case 1 in [Coercible Instances])
     | ty1 `tcEqType` ty2
-    = do return $ GenInst []
-                $ EvCoercion (TcRefl Representational ty1)
+    = return $ GenInst []
+             $ EvCoercion (TcRefl Representational ty1)
 
     -- Coercible (forall a. ty) (forall a. ty')  (see case 2 in [Coercible Instances])
     | tcIsNamedForAllTy ty1
     , tcIsNamedForAllTy ty2
     , let (bndrs1,body1) = tcSplitNamedForAllTysB ty1
-          (bndrs2,body2) = tcSplitNamedForAllTysB ty2
+          (bndr2,body2) = tcSplitNamedForAllTysB ty2
     , equalLength bndrs1 bndrs2
     , map binderVisibility bndrs1 == map binderVisibility bndrs2
-    = do
-       ev_term <- deferTcSForAllEq Representational loc (bndrs1,body1) (bndrs2,body2)
-       return $ GenInst [] ev_term
+    = do { ev_term <- deferTcSForAllEq Representational loc (bndrs1,body1) (bndrs2,body2)
+         ; return $ GenInst [] ev_term }
 
-    -- Coercible NT a                            (see case 4 in [Coercible Instances])
-    | Just (tc,tyArgs) <- splitTyConApp_maybe ty1,
-      Just (concTy, ntCo) <- instNewTyConTF_maybe famenv tc tyArgs,
-      dataConsInScope rdr_env tc -- Do not look at all tyConsOfTyCon
-    = do markDataConsAsUsed rdr_env tc
-         ct_ev <- requestCoercible loc concTy ty2
-         local_var <- mkSysLocalM (fsLit "coev") $ mkCoerciblePred concTy ty2
-         let binds = EvBinds (unitBag (EvBind local_var (getEvTerm ct_ev)))
-             tcCo = TcLetCo binds $
-                            coercionToTcCoercion ntCo `mkTcTransCo` mkTcCoVarCo local_var
-         return $ GenInst (freshGoals [ct_ev]) (EvCoercion tcCo)
+    -- Coercible NT a                            (see case 3 in [Coercible Instances])
+    | Just (rep_tc, concTy, ntCo) <- tcInstNewTyConTF_maybe famenv ty1
+    , dataConsInScope rdr_env rep_tc -- Do not look at all tyConsOfTyCon
+    = do { markDataConsAsUsed rdr_env rep_tc
+         ; ct_ev <- requestCoercible loc concTy ty2
+         ; local_var <- mkSysLocalM (fsLit "coev") $ mkCoerciblePred concTy ty2
+         ; let binds = EvBinds (unitBag (EvBind local_var (getEvTerm ct_ev)))
+               tcCo = TcLetCo binds (ntCo `mkTcTransCo` mkTcCoVarCo local_var)
+         ; return $ GenInst (freshGoals [ct_ev]) (EvCoercion tcCo) }
 
-    -- Coercible (D ty1 ty2) (D ty1' ty2')       (see case 2 in [Coercible Instances])
+    -- Coercible a NT                            (see case 3 in [Coercible Instances])
+    | Just (rep_tc, concTy, ntCo) <- tcInstNewTyConTF_maybe famenv ty2
+    , dataConsInScope rdr_env rep_tc -- Do not look at all tyConsOfTyCon
+    = do { markDataConsAsUsed rdr_env rep_tc
+         ; ct_ev <- requestCoercible loc ty1 concTy
+         ; local_var <- mkSysLocalM (fsLit "coev") $ mkCoerciblePred ty1 concTy
+         ; let binds = EvBinds (unitBag (EvBind local_var (getEvTerm ct_ev)))
+               tcCo = TcLetCo binds $
+                         mkTcCoVarCo local_var `mkTcTransCo` mkTcSymCo ntCo
+         ; return $ GenInst (freshGoals [ct_ev]) (EvCoercion tcCo) }
+
+    -- Coercible (D ty1 ty2) (D ty1' ty2')       (see case 4 in [Coercible Instances])
     | Just (tc1,tyArgs1) <- splitTyConApp_maybe ty1,
       Just (tc2,tyArgs2) <- splitTyConApp_maybe ty2,
       tc1 == tc2,
@@ -1985,18 +1995,6 @@ getCoercibleInst loc ty1 ty2 = do
              binds = EvBinds (listToBag (catMaybes arg_binds))
              tcCo = TcLetCo binds (mkTcTyConAppCo Representational tc1 arg_cos)
          return $ GenInst (catMaybes arg_new) (EvCoercion tcCo)
-
-    -- Coercible a NT                            (see case 3 in [Coercible Instances])
-    | Just (tc,tyArgs) <- splitTyConApp_maybe ty2,
-      Just (concTy, ntCo) <- instNewTyConTF_maybe famenv tc tyArgs,
-      dataConsInScope rdr_env tc -- Do not look at all tyConsOfTyCon
-    = do markDataConsAsUsed rdr_env tc
-         ct_ev <- requestCoercible loc ty1 concTy
-         local_var <- mkSysLocalM (fsLit "coev") $ mkCoerciblePred ty1 concTy
-         let binds = EvBinds (unitBag (EvBind local_var (getEvTerm ct_ev)))
-             tcCo = TcLetCo binds $
-                            mkTcCoVarCo local_var `mkTcTransCo` mkTcSymCo (coercionToTcCoercion ntCo)
-         return $ GenInst (freshGoals [ct_ev]) (EvCoercion tcCo)
 
     -- Cannot solve this one
     | otherwise

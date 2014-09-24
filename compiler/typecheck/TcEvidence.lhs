@@ -28,14 +28,12 @@ module TcEvidence (
   mkTcAxiomRuleCo, mkTcCoherenceCo,
   tcCoercionKind, coVarsOfTcCo, isEqVar, mkTcCoVarCo, 
   isTcReflCo, getTcCoVar_maybe,
-  tcCoercionRole, eqVarRole,
-  coercionToTcCoercion
+  tcCoercionRole, eqVarRole
   ) where
 #include "HsVersions.h"
 
 import Var
 import Coercion( getCoVar_maybe, nthRole, eqCoercion )
-import qualified TyCoRep as C
 import PprCore ()   -- Instance OutputableBndr TyVar
 import TyCoRep  -- Knows type representation
 import TcType
@@ -51,7 +49,9 @@ import Util
 import Bag
 import Pair
 import Control.Applicative
+#if __GLASGOW_HASKELL__ < 709
 import Data.Traversable (traverse, sequenceA)
+#endif
 import qualified Data.Data as Data 
 import Outputable
 import FastString
@@ -97,8 +97,7 @@ Why does TcAxiomInstCo take a list of TcCoercions? Because AxiomInstCo does,
 of course! Generally, we think of axioms as being applied to a list of types.
 The only reason for coercions in AxiomInstCo is to allow for coercion
 optimization -- see Note [Coercion axioms applied to coercions] in TyCoRep.
-The reason, in turn, TcAxiomInstCo has to take TcCoercions is to be able to
-write coercionToTcCoercion. But, of course, we don't want to fiddle with
+But, of course, we don't want to fiddle with
 CoCoArgs in the type-checker, so we ensure that all CoCoArgs are actually
 reflexive and then we can proceed.
 
@@ -338,13 +337,13 @@ coVarsOfTcCo tc_co
   = go tc_co
   where
     go (TcRefl _ t)              = coVarsOfType t
-    go (TcTyConAppCo _ _ cos)    = foldr (unionVarSet . go) emptyVarSet cos
+    go (TcTyConAppCo _ _ cos)    = mapUnionVarSet go cos
     go (TcAppCo co1 co2)         = go co1 `unionVarSet` go co2
     go (TcCastCo co1 co2)        = go co1 `unionVarSet` go co2
     go (TcCoherenceCo co g)      = go co `unionVarSet` coVarsOfCo g
     go (TcForAllCo _ co)         = go co
     go (TcCoVarCo v)             = unitVarSet v
-    go (TcAxiomInstCo _ _ cos)   = foldr (unionVarSet . go) emptyVarSet cos
+    go (TcAxiomInstCo _ _ cos)   = mapUnionVarSet go cos
     go (TcPhantomCo t1 t2)       = coVarsOfType t1 `unionVarSet` coVarsOfType t2
     go (TcSymCo co)              = go co
     go (TcTransCo co1 co2)       = go co1 `unionVarSet` go co2
@@ -355,7 +354,7 @@ coVarsOfTcCo tc_co
                                    `minusVarSet` get_bndrs bs
     go (TcLetCo {}) = emptyVarSet    -- Harumph. This does legitimately happen in the call
                                      -- to evVarsOfTerm in the DEBUG check of setEvBind
-    go (TcAxiomRuleCo _ _ cos)   = foldr (unionVarSet . go) emptyVarSet cos
+    go (TcAxiomRuleCo _ _ cos)   = mapUnionVarSet go cos
 
 
     -- We expect only coercion bindings, so use evTermCoercion 
@@ -450,29 +449,6 @@ ppr_forall_co p ty
     split1 tvs (TcForAllCo tv ty) = split1 (tv:tvs) ty
     split1 tvs ty                 = (reverse tvs, ty)
 \end{code}
-
-Conversion from Coercion to TcCoercion
-(at the moment, this is only needed to convert the result of
-instNewTyConTF_maybe, so all unused cases are panics for now).
-
-\begin{code}
-coercionToTcCoercion :: C.Coercion -> TcCoercion
-coercionToTcCoercion = go
-  where
-    go (C.Refl r t)                = TcRefl r t
-    go (C.TransCo c1 c2)           = TcTransCo (go c1) (go c2)
-    go (C.AxiomInstCo coa ind cos) = TcAxiomInstCo coa ind (map go_arg cos)
-    go (C.SubCo c)                 = TcSubCo (go c)
-    go (C.AppCo c1 (TyCoArg c2))   = TcAppCo (go c1) (go c2)
-    go co                          = pprPanic "coercionToTcCoercion" (ppr co)
-      -- TODO (RAE): Fix!
-
-    go_arg (C.TyCoArg co) = go co
-      -- See Note [TcAxiomInstCo takes TcCoercions]
-    go_arg (C.CoCoArg r co1 co2) = ASSERT( co1 `eqCoercion` co2 )
-                                   TcRefl r (CoercionTy co1)
-\end{code}
-
 
 %************************************************************************
 %*                                                                      *
@@ -803,7 +779,7 @@ evVarsOfTerm (EvLit _)            = emptyVarSet
 evVarsOfTerm (EvUnbox v)          = evVarsOfTerm v
 
 evVarsOfTerms :: [EvTerm] -> VarSet
-evVarsOfTerms = foldr (unionVarSet . evVarsOfTerm) emptyVarSet 
+evVarsOfTerms = mapUnionVarSet evVarsOfTerm
 \end{code}
 
 

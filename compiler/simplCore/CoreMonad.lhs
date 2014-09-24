@@ -274,7 +274,7 @@ interactiveInScope hsc_env
     te1    = mkTypeEnvWithImplicits (ic_tythings ictxt)
     te     = extendTypeEnvWithIds te1 (map instanceDFunId cls_insts)
     ids    = typeEnvIds te
-    tyvars = foldr (unionVarSet . tyCoVarsOfType . idType) emptyVarSet ids
+    tyvars = mapUnionVarSet (tyCoVarsOfType . idType) ids
               -- Why the type variables?  How can the top level envt have free tyvars?
               -- I think it's because of the GHCi debugger, which can bind variables
               --   f :: [t] -> [t]
@@ -376,7 +376,7 @@ instance Outputable CoreToDo where
 pprPassDetails :: CoreToDo -> SDoc
 pprPassDetails (CoreDoSimplify n md) = vcat [ ptext (sLit "Max iterations =") <+> int n 
                                             , ppr md ]
-pprPassDetails _ = empty
+pprPassDetails _ = Outputable.empty
 \end{code}
 
 \begin{code}
@@ -418,8 +418,10 @@ data FloatOutSwitches = FloatOutSwitches {
 
   floatOutConstants :: Bool,       -- ^ True <=> float constants to top level,
                                    --            even if they do not escape a lambda
-  floatOutPartialApplications :: Bool -- ^ True <=> float out partial applications
-                                            --            based on arity information.
+  floatOutOverSatApps :: Bool      -- ^ True <=> float out over-saturated applications
+                                   --            based on arity information.
+                                   -- See Note [Floating over-saturated applications]
+                                   -- in SetLevels
   }
 instance Outputable FloatOutSwitches where
     ppr = pprFloatOutSwitches
@@ -430,7 +432,7 @@ pprFloatOutSwitches sw
      sep $ punctuate comma $ 
      [ ptext (sLit "Lam =")    <+> ppr (floatOutLambdas sw)
      , ptext (sLit "Consts =") <+> ppr (floatOutConstants sw)
-     , ptext (sLit "PAPs =")   <+> ppr (floatOutPartialApplications sw) ])
+     , ptext (sLit "OverSatApps =")   <+> ppr (floatOutOverSatApps sw) ])
 
 -- The core-to-core pass ordering is derived from the DynFlags:
 runWhen :: Bool -> CoreToDo -> CoreToDo
@@ -631,7 +633,7 @@ pprSimplCount (SimplCount { ticks = tks, details = dts, log1 = l1, log2 = l2 })
 		vcat [blankLine,
 		      ptext (sLit "Log (most recent first)"),
 		      nest 4 (vcat (map ppr l1) $$ vcat (map ppr l2))]
-	  else empty
+	  else Outputable.empty
     ]
 
 pprTickCounts :: Map Tick Int -> SDoc
@@ -732,7 +734,7 @@ pprTickCts (PreInlineUnconditionally v)	= ppr v
 pprTickCts (PostInlineUnconditionally v)= ppr v
 pprTickCts (UnfoldingDone v)		= ppr v
 pprTickCts (RuleFired v)		= ppr v
-pprTickCts LetFloatFromLet		= empty
+pprTickCts LetFloatFromLet		= Outputable.empty
 pprTickCts (EtaExpansion v)		= ppr v
 pprTickCts (EtaReduction v)		= ppr v
 pprTickCts (BetaReduction v)		= ppr v
@@ -743,7 +745,7 @@ pprTickCts (AltMerge v)			= ppr v
 pprTickCts (CaseElim v)			= ppr v
 pprTickCts (CaseIdentity v)		= ppr v
 pprTickCts (FillInCaseDefault v)	= ppr v
-pprTickCts _    			= empty
+pprTickCts _    			= Outputable.empty
 
 cmpTick :: Tick -> Tick -> Ordering
 cmpTick a b = case (tickToTag a `compare` tickToTag b) of

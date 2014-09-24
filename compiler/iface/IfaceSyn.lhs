@@ -609,10 +609,10 @@ showAll = ShowSub { ss_how_much = ShowIface, ss_ppr_bndr = ppr }
 
 ppShowIface :: ShowSub -> SDoc -> SDoc
 ppShowIface (ShowSub { ss_how_much = ShowIface }) doc = doc
-ppShowIface _                                     _   = empty
+ppShowIface _                                     _   = Outputable.empty
 
 ppShowRhs :: ShowSub -> SDoc -> SDoc
-ppShowRhs (ShowSub { ss_how_much = ShowHeader }) _   = empty
+ppShowRhs (ShowSub { ss_how_much = ShowHeader }) _   = Outputable.empty
 ppShowRhs _                                      doc = doc
 
 showSub :: HasOccName n => ShowSub -> n -> Bool
@@ -683,7 +683,7 @@ pprIfaceDecl ss (IfaceData { ifName = tycon, ifCType = ctype,
             -- Don't display roles for data family instances (yet)
             -- See discussion on Trac #8672.
 
-    add_bars []     = empty
+    add_bars []     = Outputable.empty
     add_bars (c:cs) = sep ((equals <+> c) : map (char '|' <+>) cs)
 
     ok_con dc = showSub ss dc || any (showSub ss) (ifConFields dc)
@@ -718,7 +718,6 @@ pprIfaceDecl ss (IfaceData { ifName = tycon, ifCType = ctype,
               IfNewTyCon _      -> ptext (sLit "newtype")
 
     pp_extra = vcat [pprCType ctype, pprRec isrec, text "Kind:" <+> ppr kind]
-
 
 pprIfaceDecl ss (IfaceClass { ifATs = ats, ifSigs = sigs, ifRec = isrec
                             , ifCtxt   = context, ifName  = clas
@@ -771,7 +770,7 @@ pprIfaceDecl ss (IfaceSyn { ifName = tycon, ifTyVars = tyvars
     pp_branches (IfaceClosedSynFamilyTyCon ax brs)
       = vcat (map (pprAxBranch (pprPrefixIfDeclBndr ss tycon)) brs)
         $$ ppShowIface ss (ptext (sLit "axiom") <+> ppr ax)
-    pp_branches _ = empty
+    pp_branches _ = Outputable.empty
 
 pprIfaceDecl _ (IfacePatSyn { ifName = name, ifPatWrapper = wrapper,
                               ifPatIsInfix = is_infix,
@@ -810,7 +809,7 @@ pprIfaceDecl _ (IfaceAxiom { ifName = name, ifTyCon = tycon
 
 
 pprCType :: Maybe CType -> SDoc
-pprCType Nothing      = empty
+pprCType Nothing      = Outputable.empty
 pprCType (Just cType) = ptext (sLit "C type:") <+> ppr cType
 
 -- if, for each role, suppress_if role is True, then suppress the role
@@ -824,7 +823,7 @@ pprRoles suppress_if tyCon bndrs roles
          ptext (sLit "type role") <+> tyCon <+> hsep (map ppr froles)
 
 pprRec :: RecFlag -> SDoc
-pprRec NonRecursive = empty
+pprRec NonRecursive = Outputable.empty
 pprRec Recursive    = ptext (sLit "RecFlag: Recursive")
 
 pprInfixIfDeclBndr, pprPrefixIfDeclBndr :: ShowSub -> OccName -> SDoc
@@ -848,7 +847,7 @@ pprIfaceAT :: ShowSub -> IfaceAT -> SDoc
 pprIfaceAT ss (IfaceAT d mb_def)
   = vcat [ pprIfaceDecl ss d
          , case mb_def of
-              Nothing  -> empty
+              Nothing  -> Outputable.empty
               Just rhs -> nest 2 $
                           ptext (sLit "Default:") <+> ppr rhs ]
 
@@ -857,7 +856,7 @@ instance Outputable IfaceTyConParent where
 
 pprIfaceTyConParent :: IfaceTyConParent -> SDoc
 pprIfaceTyConParent IfNoParent
-  = empty
+  = Outputable.empty
 pprIfaceTyConParent (IfDataInstance _ tc tys)
   = sdocWithDynFlags $ \dflags ->
     let ftys = stripInvisArgs dflags tys
@@ -1086,13 +1085,15 @@ instance Outputable IfaceConAlt where
 
 ------------------
 instance Outputable IfaceIdDetails where
-  ppr IfVanillaId       = empty
+  ppr IfVanillaId       = Outputable.empty
   ppr (IfRecSelId tc b) = ptext (sLit "RecSel") <+> ppr tc
-                          <+> if b then ptext (sLit "<naughty>") else empty
+                          <+> if b
+                                then ptext (sLit "<naughty>")
+                                else Outputable.empty
   ppr (IfDFunId ns)     = ptext (sLit "DFunId") <> brackets (int ns)
 
 instance Outputable IfaceIdInfo where
-  ppr NoInfo       = empty
+  ppr NoInfo       = Outputable.empty
   ppr (HasInfo is) = ptext (sLit "{-") <+> pprWithCommas ppr is
                      <+> ptext (sLit "-}")
 
@@ -1107,7 +1108,9 @@ instance Outputable IfaceInfoItem where
 
 instance Outputable IfaceUnfolding where
   ppr (IfCompulsory e)     = ptext (sLit "<compulsory>") <+> parens (ppr e)
-  ppr (IfCoreUnfold s e)   = (if s then ptext (sLit "<stable>") else empty)
+  ppr (IfCoreUnfold s e)   = (if s
+                                then ptext (sLit "<stable>")
+                                else Outputable.empty)
                               <+> parens (ppr e)
   ppr (IfInlineRule a uok bok e) = sep [ptext (sLit "InlineRule")
                                             <+> ppr (a,uok,bok),
@@ -1554,7 +1557,7 @@ instance Binary IfaceSynTyConRhs where
     put_ bh IfaceAbstractClosedSynFamilyTyCon = putByte bh 2
     put_ bh (IfaceSynonymTyCon ty)            = putByte bh 3 >> put_ bh ty
     put_ _ IfaceBuiltInSynFamTyCon
-        = pprPanic "Cannot serialize IfaceBuiltInSynFamTyCon, used for pretty-printing only" empty
+        = pprPanic "Cannot serialize IfaceBuiltInSynFamTyCon, used for pretty-printing only" Outputable.empty
 
     get bh = do { h <- getByte bh
                 ; case h of

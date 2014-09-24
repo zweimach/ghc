@@ -492,6 +492,51 @@ readCreateProcess proc = do
 
     return (ex, output)
 
+readProcessEnvWithExitCode
+    :: String -- ^ program path
+    -> [String] -- ^ program args
+    -> [(String, String)] -- ^ environment to override
+    -> IO (ExitCode, String, String) -- ^ (exit_code, stdout, stderr)
+readProcessEnvWithExitCode prog args env_update = do
+    current_env <- getEnvironment
+    let new_env = env_update ++ [ (k, v)
+                                | let overriden_keys = map fst env_update
+                                , (k, v) <- current_env
+                                , k `notElem` overriden_keys
+                                ]
+        p       = proc prog args
+
+    (_stdin, Just stdoh, Just stdeh, pid) <-
+        createProcess p{ std_out = CreatePipe
+                       , std_err = CreatePipe
+                       , env     = Just new_env
+                       }
+
+    outMVar <- newEmptyMVar
+    errMVar <- newEmptyMVar
+
+    _ <- forkIO $ do
+        stdo <- hGetContents stdoh
+        _ <- evaluate (length stdo)
+        putMVar outMVar stdo
+
+    _ <- forkIO $ do
+        stde <- hGetContents stdeh
+        _ <- evaluate (length stde)
+        putMVar errMVar stde
+
+    out <- takeMVar outMVar
+    hClose stdoh
+    err <- takeMVar errMVar
+    hClose stdeh
+
+    ex <- waitForProcess pid
+
+    return (ex, out, err)
+
+-- Don't let gcc localize version info string, #8825
+en_locale_env :: [(String, String)]
+en_locale_env = [("LANGUAGE", "en")]
 
 -- If the -B<dir> option is set, add <dir> to PATH.  This works around
 -- a bug in gcc on Windows Vista where it can't find its auxiliary
@@ -746,8 +791,9 @@ getLinkerInfo' dflags = do
                _ -> do
                  -- In practice, we use the compiler as the linker here. Pass
                  -- -Wl,--version to get linker version info.
-                 (exitc, stdo, stde) <- readProcessWithExitCode pgm
-                                        ["-Wl,--version"] ""
+                 (exitc, stdo, stde) <- readProcessEnvWithExitCode pgm
+                                        ["-Wl,--version"]
+                                        en_locale_env
                  -- Split the output by lines to make certain kinds
                  -- of processing easier. In particular, 'clang' and 'gcc'
                  -- have slightly different outputs for '-Wl,--version', but
@@ -802,17 +848,18 @@ getCompilerInfo' dflags = do
 
   -- Process the executable call
   info <- catchIO (do
-                (exitc, stdo, stde) <- readProcessWithExitCode pgm ["-v"] ""
+                (exitc, stdo, stde) <-
+                    readProcessEnvWithExitCode pgm ["-v"] en_locale_env
                 -- Split the output by lines to make certain kinds
                 -- of processing easier.
                 parseCompilerInfo (lines stdo) (lines stde) exitc
             )
             (\err -> do
                 debugTraceMsg dflags 2
-                    (text "Error (figuring out compiler information):" <+>
+                    (text "Error (figuring out C compiler information):" <+>
                      text (show err))
                 errorMsg dflags $ hang (text "Warning:") 9 $
-                  text "Couldn't figure out linker information!" $$
+                  text "Couldn't figure out C compiler information!" $$
                   text "Make sure you're using GNU gcc, or clang"
                 return UnknownCC)
   return info
@@ -825,7 +872,57 @@ runLink dflags args = do
       args1     = map Option (getOpts dflags opt_l)
       args2     = args0 ++ args1 ++ args ++ linkargs
   mb_env <- getGccEnv args2
-  runSomethingFiltered dflags id "Linker" p args2 mb_env
+  runSomethingFiltered dflags ld_filter "Linker" p args2 mb_env
+  where
+    ld_filter = case (platformOS (targetPlatform dflags)) of
+                  OSSolaris2 -> sunos_ld_filter
+                  _ -> id
+{-
+  SunOS/Solaris ld emits harmless warning messages about unresolved
+  symbols in case of compiling into shared library when we do not
+  link against all the required libs. That is the case of GHC which
+  does not link against RTS library explicitly in order to be able to
+  choose the library later based on binary application linking
+  parameters. The warnings look like:
+
+Undefined                       first referenced
+ symbol                             in file
+stg_ap_n_fast                       ./T2386_Lib.o
+stg_upd_frame_info                  ./T2386_Lib.o
+templatezmhaskell_LanguageziHaskellziTHziLib_litE_closure ./T2386_Lib.o
+templatezmhaskell_LanguageziHaskellziTHziLib_appE_closure ./T2386_Lib.o
+templatezmhaskell_LanguageziHaskellziTHziLib_conE_closure ./T2386_Lib.o
+templatezmhaskell_LanguageziHaskellziTHziSyntax_mkNameGzud_closure ./T2386_Lib.o
+newCAF                              ./T2386_Lib.o
+stg_bh_upd_frame_info               ./T2386_Lib.o
+stg_ap_ppp_fast                     ./T2386_Lib.o
+templatezmhaskell_LanguageziHaskellziTHziLib_stringL_closure ./T2386_Lib.o
+stg_ap_p_fast                       ./T2386_Lib.o
+stg_ap_pp_fast                      ./T2386_Lib.o
+ld: warning: symbol referencing errors
+
+  this is actually coming from T2386 testcase. The emitting of those
+  warnings is also a reason why so many TH testcases fail on Solaris.
+
+  Following filter code is SunOS/Solaris linker specific and should
+  filter out only linker warnings. Please note that the logic is a
+  little bit more complex due to the simple reason that we need to preserve
+  any other linker emitted messages. If there are any. Simply speaking
+  if we see "Undefined" and later "ld: warning:..." then we omit all
+  text between (including) the marks. Otherwise we copy the whole output.
+-}
+    sunos_ld_filter :: String -> String
+    sunos_ld_filter = unlines . sunos_ld_filter' . lines
+    sunos_ld_filter' x = if (undefined_found x && ld_warning_found x)
+                         then (ld_prefix x) ++ (ld_postfix x)
+                         else x
+    breakStartsWith x y = break (isPrefixOf x) y
+    ld_prefix = fst . breakStartsWith "Undefined"
+    undefined_found = not . null . snd . breakStartsWith "Undefined"
+    ld_warn_break = breakStartsWith "ld: warning: symbol referencing errors"
+    ld_postfix = tail . snd . ld_warn_break
+    ld_warning_found = not . null . snd . ld_warn_break
+
 
 runLibtool :: DynFlags -> [Option] -> IO ()
 runLibtool dflags args = do
@@ -902,7 +999,8 @@ readElfSection _dflags section exe = do
      prog = "readelf"
      args = [Option "-p", Option section, FileOption "" exe]
   --
-  r <- readProcessWithExitCode prog (filter notNull (map showOpt args)) ""
+  r <- readProcessEnvWithExitCode prog (filter notNull (map showOpt args))
+                                  en_locale_env
   case r of
     (ExitSuccess, out, _err) -> return (doFilter (lines out))
     _ -> return Nothing

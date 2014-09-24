@@ -13,7 +13,7 @@
 -- /Since: 4.5.0.0/
 -----------------------------------------------------------------------------
 
-{-# LANGUAGE UnboxedTuples, MagicHash #-}
+{-# LANGUAGE UnboxedTuples, MagicHash, NoImplicitPrelude #-}
 module GHC.Stack (
     -- * Call stack
     currentCallStack,
@@ -43,6 +43,7 @@ import GHC.Ptr
 import GHC.Foreign as GHC
 import GHC.IO.Encoding
 import GHC.Exception
+import GHC.List ( concatMap, null, reverse )
 
 #define PROFILING
 #include "Rts.h"

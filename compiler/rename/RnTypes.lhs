@@ -16,9 +16,10 @@ module RnTypes (
 
         -- Precence related stuff
         mkOpAppRn, mkNegAppRn, mkOpFormRn, mkConOpPatRn,
-        checkPrecMatch, checkSectionPrec, warnUnusedForAlls,
+        checkPrecMatch, checkSectionPrec,
 
         -- Binding related stuff
+        warnContextQuantification, warnUnusedForAlls,
         bindSigTyVarsFV, bindHsTyVars, rnHsBndrSig,
         extractHsTyRdrTyVars, extractHsTysRdrTyVars,
         extractRdrKindSigVars, extractDataDefnKindVars, filterInScope
@@ -85,6 +86,25 @@ badInstTy ty = ptext (sLit "Malformed instance:") <+> ppr ty
 rnHsType is here because we call it from loadInstDecl, and I didn't
 want a gratuitous knot.
 
+Note [Context quantification]
+-----------------------------
+Variables in type signatures are implicitly quantified
+when (1) they are in a type signature not beginning
+with "forall" or (2) in any qualified type T => R.
+We are phasing out (2) since it leads to inconsistencies
+(Trac #4426):
+
+data A = A (a -> a)           is an error
+data A = A (Eq a => a -> a)   binds "a"
+data A = A (Eq a => a -> b)   binds "a" and "b"
+data A = A (() => a -> b)     binds "a" and "b"
+f :: forall a. a -> b         is an error
+f :: forall a. () => a -> b   is an error
+f :: forall a. a -> (() => b) binds "a" and "b"
+
+The -fwarn-context-quantification flag warns about
+this situation. See rnHsTyKi for case HsForAllTy Qualified.
+
 \begin{code}
 rnLHsTyKi  :: Bool --  True <=> renaming a type, False <=> a kind
            -> HsDocContext -> LHsType RdrName -> RnM (LHsType Name, FreeVars)
@@ -135,6 +155,20 @@ rnHsTyKi isType doc (HsForAllTy Implicit _ lctxt@(L _ ctxt) ty)
            --   class C a where { op :: a -> a }
         tyvar_bndrs = userHsTyVarBndrs loc forall_tvs
 
+    rnForAll doc Implicit forall_kvs (mkHsQTvs tyvar_bndrs) lctxt ty
+
+rnHsTyKi isType doc fulltype@(HsForAllTy Qualified _ lctxt@(L _ ctxt) ty)
+  = ASSERT( isType ) do
+    rdr_env <- getLocalRdrEnv
+    loc <- getSrcSpanM
+    let
+        (forall_kvs, forall_tvs) = filterInScope rdr_env $
+                                   extractHsTysRdrTyVars (ty:ctxt)
+        tyvar_bndrs = userHsTyVarBndrs loc forall_tvs
+        in_type_doc = ptext (sLit "In the type") <+> quotes (ppr fulltype)
+
+    -- See Note [Context quantification]
+    warnContextQuantification (in_type_doc $$ docOfHsDocContext doc) tyvar_bndrs
     rnForAll doc Implicit forall_kvs (mkHsQTvs tyvar_bndrs) lctxt ty
 
 rnHsTyKi isType doc ty@(HsForAllTy Explicit forall_tyvars lctxt@(L _ ctxt) tau)
@@ -413,8 +447,8 @@ newTyVarNameRn mb_assoc rdr_env loc rdr
 
 --------------------------------
 rnHsBndrSig :: HsDocContext
-            -> HsWithBndrs (LHsType RdrName)
-            -> (HsWithBndrs (LHsType Name) -> RnM (a, FreeVars))
+            -> HsWithBndrs RdrName (LHsType RdrName)
+            -> (HsWithBndrs Name (LHsType Name) -> RnM (a, FreeVars))
             -> RnM (a, FreeVars)
 rnHsBndrSig doc (HsWB { hswb_cts = ty@(L loc _) }) thing_inside
   = do { sig_ok <- xoptM Opt_ScopedTypeVariables
@@ -663,7 +697,8 @@ mkOpFormRn a1@(L loc (HsCmdTop (L _ (HsCmdArrForm op1 (Just fix1) [a11,a12])) _ 
   | associate_right
   = do new_c <- mkOpFormRn a12 op2 fix2 a2
        return (HsCmdArrForm op1 (Just fix1)
-                  [a11, L loc (HsCmdTop (L loc new_c) placeHolderType placeHolderType [])])
+               [a11, L loc (HsCmdTop (L loc new_c)
+               placeHolderType placeHolderType [])])
         -- TODO: locs are wrong
   where
     (nofix_error, associate_right) = compareFixity fix1 fix2
@@ -808,6 +843,19 @@ warnUnusedForAlls in_doc bound mentioned_rdrs
     add_warn (L loc tv)
       = addWarnAt loc $
         vcat [ ptext (sLit "Unused quantified type variable") <+> quotes (ppr tv)
+             , in_doc ]
+
+warnContextQuantification :: SDoc -> [LHsTyVarBndr RdrName] -> TcM ()
+warnContextQuantification in_doc tvs
+  = whenWOptM Opt_WarnContextQuantification $
+    mapM_ add_warn tvs
+  where
+    add_warn (L loc tv)
+      = addWarnAt loc $
+        vcat [ ptext (sLit "Variable") <+> quotes (ppr tv) <+>
+               ptext (sLit "is implicitly quantified due to a context") $$
+               ptext (sLit "Use explicit forall syntax instead.") $$
+               ptext (sLit "This will become an error in GHC 7.12.")
              , in_doc ]
 
 opTyErr :: RdrName -> HsType RdrName -> SDoc

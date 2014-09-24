@@ -6,7 +6,7 @@
  *
  * Documentation on the architecture of the Garbage Collector can be
  * found in the online commentary:
- * 
+ *
  *   http://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Storage/GC
  *
  * --------------------------------------------------------------------------*/
@@ -54,11 +54,11 @@ recordMutableGen_GC (StgClosure *p, nat gen_no)
 
     bd = gct->mut_lists[gen_no];
     if (bd->free >= bd->start + BLOCK_SIZE_W) {
-	bdescr *new_bd;
-	new_bd = allocBlock_sync();
-	new_bd->link = bd;
-	bd = new_bd;
-	gct->mut_lists[gen_no] = bd;
+        bdescr *new_bd;
+        new_bd = allocBlock_sync();
+        new_bd->link = bd;
+        bd = new_bd;
+        gct->mut_lists[gen_no] = bd;
     }
     *bd->free++ = (StgWord)p;
 }
@@ -66,3 +66,11 @@ recordMutableGen_GC (StgClosure *p, nat gen_no)
 #include "EndPrivate.h"
 
 #endif /* SM_GCUTILS_H */
+
+// Local Variables:
+// mode: C
+// fill-column: 80
+// indent-tabs-mode: nil
+// c-basic-offset: 4
+// buffer-file-coding-system: utf-8-unix
+// End:

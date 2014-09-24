@@ -16,7 +16,7 @@ module TcBinds ( tcLocalBinds, tcTopBinds, tcRecSelBinds,
 
 import {-# SOURCE #-} TcMatches ( tcGRHSsPat, tcMatchesFun )
 import {-# SOURCE #-} TcExpr  ( tcMonoExpr )
-import {-# SOURCE #-} TcPatSyn ( tcPatSynDecl )
+import {-# SOURCE #-} TcPatSyn ( tcPatSynDecl, tcPatSynWrapper )
 
 import DynFlags
 import HsSyn
@@ -315,16 +315,21 @@ tcValBinds top_lvl binds sigs thing_inside
                 -- Extend the envt right away with all 
                 -- the Ids declared with type signatures
                 -- Use tcExtendIdEnv2 to avoid extending the TcIdBinder stack
-        ; tcExtendIdEnv2 [(idName id, id) | id <- poly_ids] $
-            tcBindGroups top_lvl sig_fn prag_fn
-                         binds thing_inside }
+        ; tcExtendIdEnv2 [(idName id, id) | id <- poly_ids] $ do
+            { (binds', (extra_binds', thing)) <- tcBindGroups top_lvl sig_fn prag_fn binds $ do
+                   { thing <- thing_inside
+                     -- See Note [Pattern synonym wrappers don't yield dependencies]
+                   ; patsyn_wrappers <- mapM tcPatSynWrapper patsyns
+                   ; let extra_binds = [ (NonRecursive, wrapper) | wrapper <- patsyn_wrappers ]
+                   ; return (extra_binds, thing) }
+             ; return (binds' ++ extra_binds', thing) }}
   where
+    patsyns
+      = [psb | (_, lbinds) <- binds, L _ (PatSynBind psb) <- bagToList lbinds]
     patsyn_placeholder_kinds -- See Note [Placeholder PatSyn kinds]
-       = [ (name, placeholder_patsyn_tything)
-         | (_, lbinds) <- binds
-         , L _ (PatSynBind{ patsyn_id = L _ name }) <- bagToList lbinds ]
+      = [(name, placeholder_patsyn_tything)| PSB{ psb_id = L _ name } <- patsyns ]
     placeholder_patsyn_tything
-       = AGlobal $ AConLike $ PatSynCon $ panic "fakePatSynCon"
+      = AGlobal $ AConLike $ PatSynCon $ panic "fakePatSynCon"
 
 ------------------------
 tcBindGroups :: TopLevelFlag -> TcSigFun -> PragFun
@@ -413,9 +418,8 @@ tc_single :: forall thing.
             TopLevelFlag -> TcSigFun -> PragFun
           -> LHsBind Name -> TcM thing
           -> TcM (LHsBinds TcId, thing)
-tc_single _top_lvl _sig_fn _prag_fn (L _ ps@PatSynBind{}) thing_inside
-  = do { (pat_syn, aux_binds) <-
-              tcPatSynDecl (patsyn_id ps) (patsyn_args ps) (patsyn_def ps) (patsyn_dir ps)
+tc_single _top_lvl _sig_fn _prag_fn (L _ (PatSynBind psb)) thing_inside
+  = do { (pat_syn, aux_binds) <- tcPatSynDecl psb
 
        ; let tything = AConLike (PatSynCon pat_syn)
              implicit_ids = (patSynMatcher pat_syn) :
@@ -457,7 +461,7 @@ mkEdges sig_fn binds
 bindersOfHsBind :: HsBind Name -> [Name]
 bindersOfHsBind (PatBind { pat_lhs = pat })           = collectPatBinders pat
 bindersOfHsBind (FunBind { fun_id = L _ f })          = [f]
-bindersOfHsBind (PatSynBind { patsyn_id = L _ psyn }) = [psyn]
+bindersOfHsBind (PatSynBind PSB{ psb_id = L _ psyn }) = [psyn]
 bindersOfHsBind (AbsBinds {})                         = panic "bindersOfHsBind AbsBinds"
 bindersOfHsBind (VarBind {})                          = panic "bindersOfHsBind VarBind"
 
@@ -484,7 +488,7 @@ tcPolyBinds top_lvl sig_fn prag_fn rec_group rec_tc bind_list
     recoverM (recoveryCode binder_names sig_fn) $ do 
         -- Set up main recover; take advantage of any type sigs
 
-    { traceTc "------------------------------------------------" empty
+    { traceTc "------------------------------------------------" Outputable.empty
     ; traceTc "Bindings for {" (ppr binder_names)
     ; dflags   <- getDynFlags
     ; type_env <- getLclTypeEnv
@@ -834,7 +838,7 @@ tcSpec _ prag = pprPanic "tcSpec" (ppr prag)
 
 --------------
 tcImpPrags :: [LSig Name] -> TcM [LTcSpecPrag]
--- SPECIALISE pragamas for imported things
+-- SPECIALISE pragmas for imported things
 tcImpPrags prags
   = do { this_mod <- getModule
        ; dflags <- getDynFlags
@@ -1164,7 +1168,8 @@ tcRhs (TcFunBind (_,_,mono_id) loc inf matches)
         ; return (FunBind { fun_id = L loc mono_id, fun_infix = inf
                           , fun_matches = matches'
                           , fun_co_fn = co_fn 
-                          , bind_fvs = placeHolderNames, fun_tick = Nothing }) }
+                          , bind_fvs = placeHolderNamesTc
+                          , fun_tick = Nothing }) }
 
 tcRhs (TcPatBind infos pat' grhss pat_ty)
   = tcExtendIdBndrs [ TcIdBndr mono_id NotTopLevel | (_,_,mono_id) <- infos ] $
@@ -1173,7 +1178,7 @@ tcRhs (TcPatBind infos pat' grhss pat_ty)
         ; grhss' <- addErrCtxt (patMonoBindsCtxt pat' grhss) $
                     tcGRHSsPat grhss pat_ty
         ; return (PatBind { pat_lhs = pat', pat_rhs = grhss', pat_rhs_ty = pat_ty 
-                          , bind_fvs = placeHolderNames
+                          , bind_fvs = placeHolderNamesTc
                           , pat_ticks = (Nothing,[]) }) }
 
 
@@ -1449,8 +1454,12 @@ checkStrictBinds top_lvl rec_group orig_binds tc_binds poly_ids
     any_strict_pat     = any (isStrictHsBind   . unLoc) orig_binds
     any_pat_looks_lazy = any (looksLazyPatBind . unLoc) orig_binds
 
-    is_unlifted id = case tcSplitNamedForAllTys (idType id) of
+    is_unlifted id = case tcSplitSigmaTy (idType id) of
                        (_, rho) -> isUnLiftedType rho
+          -- For the is_unlifted check, we need to look inside polymorphism
+          -- and overloading.  E.g.  x = (# 1, True #)
+          -- would get type forall a. Num a => (# a, Bool #)
+          -- and we want to reject that.  See Trac #9140
 
     is_monomorphic (L _ (AbsBinds { abs_tvs = tvs, abs_ev_vars = evs }))
                      = null tvs && null evs

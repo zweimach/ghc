@@ -86,7 +86,7 @@ module TcSMonad (
 
     getDefaultInfo, getDynFlags, getGlobalRdrEnvTcS,
 
-    matchFam, matchOpenFam,
+    matchFam, 
     checkWellStagedDFun,
     pprEq                                    -- Smaller utils, re-exported from TcM
                                              -- TODO (DV): these are only really used in the
@@ -122,6 +122,7 @@ import Name
 import RdrName (RdrName, GlobalRdrEnv)
 import RnEnv (addUsedRdrNames)
 import Var
+import VarSet
 import VarEnv
 import Outputable
 import Bag
@@ -145,7 +146,6 @@ import Data.IORef
 import Data.List( partition )
 
 #ifdef DEBUG
-import VarSet
 import Digraph
 #endif
 \end{code}
@@ -1281,8 +1281,7 @@ getUntouchables = wrapTcS TcM.getUntouchables
 getGivenInfo :: TcS a -> TcS (Bool, [TcTyVar], a)
 -- See Note [inert_fsks and inert_no_eqs]
 getGivenInfo thing_inside
-  = do {
-       ; updInertTcS reset_vars  -- Set inert_fsks and inert_no_eqs to initial values
+  = do { updInertTcS reset_vars  -- Set inert_fsks and inert_no_eqs to initial values
        ; res <- thing_inside     -- Run thing_inside
        ; is  <- getTcSInerts     -- Get new values of inert_fsks and inert_no_eqs
        ; return (inert_no_eqs (inert_cans is), inert_fsks is, res) }
@@ -1683,7 +1682,7 @@ But that superclass selector can't (yet) appear in a coercion
 See Note [Coercion evidence terms] in TcEvidence.
 
 \begin{code}
-xCtEvidence :: CtEvidence            -- Original flavor
+xCtEvidence :: CtEvidence            -- Original evidence
             -> XEvTerm               -- Instructions about how to manipulate evidence
             -> TcS [CtEvidence]
 
@@ -1824,20 +1823,21 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
   where
     new_pred = mkTcEqPred nlhs nrhs
 
-maybeSym :: SwapFlag -> TcCoercion -> TcCoercion 
+maybeSym :: SwapFlag -> TcCoercion -> TcCoercion
 maybeSym IsSwapped  co = mkTcSymCo co
 maybeSym NotSwapped co = co
-
-
-matchOpenFam :: TyCon -> [Type] -> TcS (Maybe FamInstMatch)
-matchOpenFam tycon args = wrapTcS $ tcLookupFamInst tycon args
 
 matchFam :: TyCon -> [Type] -> TcS (Maybe (TcCoercion, TcType))
 -- Given (F tys) return (ty, co), where co :: F tys ~ ty
 matchFam tycon args
   | isOpenSynFamilyTyCon tycon
-  = do { maybe_match <- matchOpenFam tycon args
-       ; case maybe_match of
+  = do { fam_envs <- getFamInstEnvs
+       ; let mb_match = tcLookupFamInst fam_envs tycon args
+       ; traceTcS "lookupFamInst" $
+                  vcat [ ppr tycon <+> ppr args
+                       , pprTvBndrs (varSetElems (tyVarsOfTypes args))
+                       , ppr mb_match ]
+       ; case mb_match of
            Nothing -> return Nothing
            Just (FamInstMatch { fim_instance = famInst
                               , fim_tys      = inst_tys })

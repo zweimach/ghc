@@ -1,3 +1,4 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE Trustworthy #-}
 
 -----------------------------------------------------------------------------
@@ -22,8 +23,7 @@ module Data.Functor
       void,
     ) where
 
-import Control.Monad
-import GHC.Base (Functor(..))
+import GHC.Base ( Functor(..), const, flip )
 
 infixl 4 <$>
 
@@ -39,3 +39,7 @@ infixl 4 $>
 ($>) :: Functor f => f a -> b -> f b
 ($>) = flip (<$)
 
+-- | @'void' value@ discards or ignores the result of evaluation, such as the
+-- return value of an 'IO' action.
+void :: Functor f => f a -> f ()
+void = fmap (const ())

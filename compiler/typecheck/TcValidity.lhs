@@ -298,7 +298,7 @@ check_type ctxt rank (AppTy ty1 ty2)
         ; check_arg_type ctxt rank ty2 }
 
 check_type ctxt rank ty@(TyConApp tc tys)
-  | isTypeSynonymTyCon tc  = check_syn_tc_app ctxt rank ty tc tys
+  | isSynTyCon tc          = check_syn_tc_app ctxt rank ty tc tys
   | isUnboxedTupleTyCon tc = check_ubx_tuple  ctxt      ty    tys
   | otherwise              = mapM_ (check_arg_type ctxt rank) tys
 
@@ -312,6 +312,9 @@ check_type _ _ ty = pprPanic "check_type" (ppr ty)
 ----------------------------------------
 check_syn_tc_app :: UserTypeCtxt -> Rank -> KindOrType 
                  -> TyCon -> [KindOrType] -> TcM ()
+-- Used for type synonyms and type synonym families,
+-- which must be saturated, 
+-- but not data families, which need not be saturated
 check_syn_tc_app ctxt rank ty tc tys
   | tc_arity <= n_args   -- Saturated
        -- Check that the synonym has enough args
@@ -336,8 +339,10 @@ check_syn_tc_app ctxt rank ty tc tys
   = mapM_ check_arg tys
 
   | otherwise
-  = failWithTc (arityErr "Type synonym" (tyConName tc) tc_arity n_args)
+  = failWithTc (arityErr flavour (tyConName tc) tc_arity n_args)
   where
+    flavour | isSynFamilyTyCon tc = "Type family" 
+            | otherwise           = "Type synonym"
     n_args = length tys
     tc_arity  = tyConArity tc
     check_arg | isSynFamilyTyCon tc = check_arg_type  ctxt rank
@@ -404,7 +409,7 @@ forAllTyErr rank ty
     suggestion = case rank of
                    LimitedRank {} -> ptext (sLit "Perhaps you intended to use RankNTypes or Rank2Types")
                    MonoType d     -> d
-                   _              -> empty      -- Polytype is always illegal
+                   _              -> Outputable.empty -- Polytype is always illegal
 
 unliftedArgErr, ubxArgTyErr :: Type -> SDoc
 unliftedArgErr  ty = sep [ptext (sLit "Illegal unlifted type:"), ppr ty]
@@ -887,8 +892,8 @@ checkValidInstance ctxt hs_type ty
           else checkInstTermination inst_tys theta
 
         ; case (checkInstCoverage undecidable_ok clas theta inst_tys) of
-            Nothing  -> return ()   -- Check succeeded
-            Just msg -> addErrTc (instTypeErr clas inst_tys msg)
+            IsValid  -> return ()   -- Check succeeded
+            NotValid msg -> addErrTc (instTypeErr clas inst_tys msg)
                   
         ; return (tvs, theta, clas, inst_tys) } 
 

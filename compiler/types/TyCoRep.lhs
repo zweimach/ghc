@@ -1028,7 +1028,7 @@ tyVarsOnlyOfType (CastTy ty co)      = tyVarsOnlyOfType ty `unionVarSet` tyVarsO
 tyVarsOnlyOfType (CoercionTy co)     = tyVarsOnlyOfCo co
 
 tyVarsOnlyOfTypes :: [Type] -> TyVarSet
-tyVarsOnlyOfTypes tys = foldr (unionVarSet . tyVarsOnlyOfType) emptyVarSet tys
+tyVarsOnlyOfTypes tys = mapUnionVarSet tyVarsOnlyOfType tys
 
 tyVarsOnlyOfCo :: Coercion -> TyCoVarSet
 -- Extracts type and coercion variables from a coercion
@@ -1053,14 +1053,14 @@ tyVarsOnlyOfCo (SubCo co)          = tyVarsOnlyOfCo co
 tyVarsOnlyOfCo (AxiomRuleCo _ ts cs) = tyVarsOnlyOfTypes ts `unionVarSet` tyVarsOnlyOfCos cs 
 
 tyVarsOnlyOfCos :: [Coercion] -> TyCoVarSet
-tyVarsOnlyOfCos cos = foldr (unionVarSet . tyVarsOnlyOfCo) emptyVarSet cos
+tyVarsOnlyOfCos cos = mapUnionVarSet tyVarsOnlyOfCo cos
 
 tyVarsOnlyOfCoArg :: CoercionArg -> TyCoVarSet
 tyVarsOnlyOfCoArg (TyCoArg co)      = tyVarsOnlyOfCo co
 tyVarsOnlyOfCoArg (CoCoArg _ c1 c2) = tyVarsOnlyOfCo c1 `unionVarSet` tyVarsOnlyOfCo c2
 
 tyVarsOnlyOfCoArgs :: [CoercionArg] -> TyCoVarSet
-tyVarsOnlyOfCoArgs args = foldr (unionVarSet . tyVarsOnlyOfCoArg) emptyVarSet args
+tyVarsOnlyOfCoArgs args = mapUnionVarSet tyVarsOnlyOfCoArg args
 
 tyCoVarsOfType :: Type -> TyCoVarSet
 -- ^ NB: for type synonyms tyCoVarsOfType does /not/ expand the synonym
@@ -1078,7 +1078,7 @@ tyCoVarsOfType (CastTy ty co)      = tyCoVarsOfType ty `unionVarSet` tyCoVarsOfC
 tyCoVarsOfType (CoercionTy co)     = tyCoVarsOfCo co
 
 tyCoVarsOfTypes :: [Type] -> TyCoVarSet
-tyCoVarsOfTypes tys = foldr (unionVarSet . tyCoVarsOfType) emptyVarSet tys
+tyCoVarsOfTypes tys = mapUnionVarSet tyCoVarsOfType tys
 
 tyCoVarsOfCo :: Coercion -> TyCoVarSet
 -- Extracts type and coercion variables from a coercion
@@ -1104,14 +1104,14 @@ tyCoVarsOfCo (SubCo co)          = tyCoVarsOfCo co
 tyCoVarsOfCo (AxiomRuleCo _ ts cs) = tyCoVarsOfTypes ts `unionVarSet` tyCoVarsOfCos cs
 
 tyCoVarsOfCos :: [Coercion] -> TyCoVarSet
-tyCoVarsOfCos cos = foldr (unionVarSet . tyCoVarsOfCo) emptyVarSet cos
+tyCoVarsOfCos cos = mapUnionVarSet tyCoVarsOfCo cos
 
 tyCoVarsOfCoArg :: CoercionArg -> TyCoVarSet
 tyCoVarsOfCoArg (TyCoArg co)      = tyCoVarsOfCo co
 tyCoVarsOfCoArg (CoCoArg _ c1 c2) = tyCoVarsOfCo c1 `unionVarSet` tyCoVarsOfCo c2
 
 tyCoVarsOfCoArgs :: [CoercionArg] -> TyCoVarSet
-tyCoVarsOfCoArgs args = foldr (unionVarSet . tyCoVarsOfCoArg) emptyVarSet args
+tyCoVarsOfCoArgs args = mapUnionVarSet tyCoVarsOfCoArg args
 
 coVarsOfType :: Type -> CoVarSet
 coVarsOfType (TyVarTy _)         = emptyVarSet
@@ -1125,7 +1125,7 @@ coVarsOfType (CastTy ty co)      = coVarsOfType ty `unionVarSet` coVarsOfCo co
 coVarsOfType (CoercionTy co)     = coVarsOfCo co
 
 coVarsOfTypes :: [Type] -> TyCoVarSet
-coVarsOfTypes tys = foldr (unionVarSet . coVarsOfType) emptyVarSet tys
+coVarsOfTypes tys = mapUnionVarSet coVarsOfType tys
 
 coVarsOfCo :: Coercion -> CoVarSet
 -- Extract *coercion* variables only.  Tiresome to repeat the code, but easy.
@@ -1150,14 +1150,14 @@ coVarsOfCo (SubCo co)          = coVarsOfCo co
 coVarsOfCo (AxiomRuleCo _ ts cs) = coVarsOfTypes ts `unionVarSet` coVarsOfCos cs
 
 coVarsOfCos :: [Coercion] -> CoVarSet
-coVarsOfCos cos = foldr (unionVarSet . coVarsOfCo) emptyVarSet cos
+coVarsOfCos cos = mapUnionVarSet coVarsOfCo cos
 
 coVarsOfCoArg :: CoercionArg -> CoVarSet
 coVarsOfCoArg (TyCoArg co)      = coVarsOfCo co
 coVarsOfCoArg (CoCoArg _ c1 c2) = coVarsOfCos [c1, c2]
 
 coVarsOfCoArgs :: [CoercionArg] -> CoVarSet
-coVarsOfCoArgs args = foldr (unionVarSet . coVarsOfCoArg) emptyVarSet args
+coVarsOfCoArgs args = mapUnionVarSet coVarsOfCoArg args
 
 closeOverKinds :: TyCoVarSet -> TyCoVarSet
 -- Add the kind variables free in the kinds

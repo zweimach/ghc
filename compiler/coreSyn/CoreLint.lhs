@@ -224,7 +224,8 @@ lintSingleBinding top_lvl_flag rec_flag (binder,rhs)
        ; binder_ty <- applySubstTy binder_ty
        ; ensureEqTys binder_ty ty (mkRhsMsg binder (ptext (sLit "RHS")) ty)
 
-        -- Check (not isUnLiftedType) (also checks for bogus unboxed tuples)
+        -- Check the let/app invariant
+        -- See Note [CoreSyn let/app invariant] in CoreSyn
        ; checkL (not (isUnLiftedType binder_ty)
             || (isNonRec rec_flag && exprOkForSpeculation rhs))
            (mkRhsPrimMsg binder rhs)
@@ -237,6 +238,7 @@ lintSingleBinding top_lvl_flag rec_flag (binder,rhs)
         -- Check that if the binder is local, it is not marked as exported
        ; checkL (not (isExportedId binder) || isTopLevel top_lvl_flag)
            (mkNonTopExportedMsg binder)
+
         -- Check that if the binder is local, it does not have an external name
        ; checkL (not (isExternalName (Var.varName binder)) || isTopLevel top_lvl_flag)
            (mkNonTopExternalNameMsg binder)
@@ -455,6 +457,8 @@ lintCoreArg fun_ty (Coercion arg_co)
 
 lintCoreArg fun_ty arg
   = do { arg_ty <- lintCoreExpr arg
+       ; checkL (not (isUnLiftedType arg_ty) || exprOkForSpeculation arg)
+                (mkLetAppMsg arg)
        ; lintValApp arg fun_ty arg_ty }
 
 -----------------
@@ -738,12 +742,19 @@ lintType ty@(AppTy t1 t2)
        ; lint_ty_app ty k1 [(t2,k2)] }
 
 lintType ty@(TyConApp tc tys)
-  | not (isUnLiftedTyCon tc) || tys `lengthIs` tyConArity tc
-       -- Check that primitive types are saturated
+  | Just ty' <- coreView ty
+  = lintType ty'   -- Expand type synonyms, so that we do not bogusly complain
+                   --  about un-saturated type synonyms
+                   -- 
+
+  | isUnLiftedTyCon tc || isSynTyCon tc
+       -- Also type synonyms and type families
+  , length tys < tyConArity tc
+  = failWithL (hang (ptext (sLit "Un-saturated type application")) 2 (ppr ty))
+
+  | otherwise
   = do { ks <- mapM lintType tys
        ; lint_ty_app ty (tyConKind tc) (tys `zip` ks) }
-  | otherwise
-  = failWithL (hang (ptext (sLit "Malformed type:")) 2 (ppr ty))
 
 -- arrows can related *unlifted* kinds, so this has to be separate from
 -- a dependent forall.
@@ -1478,7 +1489,7 @@ dumpLoc (CasePat (con, args, _))
 dumpLoc (ImportedUnfolding locn)
   = (locn, brackets (ptext (sLit "in an imported unfolding")))
 dumpLoc TopLevelBindings
-  = (noSrcLoc, empty)
+  = (noSrcLoc, Outputable.empty)
 dumpLoc (InType ty)
   = (noSrcLoc, text "In the type" <+> quotes (ppr ty))
 dumpLoc (InCo co)
@@ -1608,6 +1619,11 @@ mkRhsMsg binder what ty
             ppr binder],
      hsep [ptext (sLit "Binder's type:"), ppr (idType binder)],
      hsep [ptext (sLit "Rhs type:"), ppr ty]]
+
+mkLetAppMsg :: CoreExpr -> MsgDoc
+mkLetAppMsg e
+  = hang (ptext (sLit "This argument does not satisfy the let/app invariant:"))
+       2 (ppr e)
 
 mkRhsPrimMsg :: Id -> CoreExpr -> MsgDoc
 mkRhsPrimMsg binder _rhs

@@ -5,6 +5,7 @@ Functions over HsSyn specialised to RdrName.
 
 \begin{code}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module RdrHsSyn (
         mkHsOpApp,
@@ -17,6 +18,7 @@ module RdrHsSyn (
         mkTyFamInst, 
         mkFamDecl, 
         splitCon, mkInlinePragma,
+        splitPatSyn, toPatSynMatchGroup,
         mkRecConstrOrUpdate, -- HsExp -> [HsFieldUpdate] -> P HsExp
         mkTyLit,
         mkTyClD, mkInstD,
@@ -85,7 +87,12 @@ import Maybes
 import Util
 
 import Control.Applicative ((<$>))
+#if __GLASGOW_HASKELL__ >= 709
+import Control.Monad hiding (empty, many)
+#else
 import Control.Monad
+#endif
+
 import Text.ParserCombinators.ReadP as ReadP
 import Data.Char
 
@@ -249,8 +256,8 @@ mkSpliceDecl :: LHsExpr RdrName -> HsDecl RdrName
 mkSpliceDecl lexpr@(L loc expr)
   | HsQuasiQuoteE qq <- expr          = QuasiQuoteD qq
   | HsSpliceE is_typed splice <- expr = ASSERT( not is_typed )
-                                        SpliceD (SpliceDecl (L loc splice) Explicit)
-  | otherwise                         = SpliceD (SpliceDecl (L loc splice) Implicit)
+                                        SpliceD (SpliceDecl (L loc splice) ExplicitSplice)
+  | otherwise                         = SpliceD (SpliceDecl (L loc splice) ImplicitSplice)
   where
     splice = mkHsSplice lexpr
 
@@ -427,6 +434,56 @@ splitCon ty
 
    mk_rest [L _ (HsRecTy flds)] = RecCon flds
    mk_rest ts                   = PrefixCon ts
+
+splitPatSyn :: LPat RdrName
+      -> P (Located RdrName, HsPatSynDetails (Located RdrName))
+splitPatSyn (L _ (ParPat pat)) = splitPatSyn pat
+splitPatSyn pat@(L loc (ConPatIn con details)) = do
+    details' <- case details of
+        PrefixCon pats     -> liftM PrefixPatSyn (mapM patVar pats)
+        InfixCon pat1 pat2 -> liftM2 InfixPatSyn (patVar pat1) (patVar pat2)
+        RecCon{}           -> recordPatSynErr loc pat
+    return (con, details')
+  where
+    patVar :: LPat RdrName -> P (Located RdrName)
+    patVar (L loc (VarPat v))   = return $ L loc v
+    patVar (L _   (ParPat pat)) = patVar pat
+    patVar (L loc pat)          = parseErrorSDoc loc $
+                                  text "Pattern synonym arguments must be variable names:" $$
+                                  ppr pat
+splitPatSyn pat@(L loc _) = parseErrorSDoc loc $
+                            text "invalid pattern synonym declaration:" $$ ppr pat
+
+recordPatSynErr :: SrcSpan -> LPat RdrName -> P a
+recordPatSynErr loc pat =
+    parseErrorSDoc loc $
+    text "record syntax not supported for pattern synonym declarations:" $$
+    ppr pat
+
+toPatSynMatchGroup :: Located RdrName -> Located (OrdList (LHsDecl RdrName)) -> P (MatchGroup RdrName (LHsExpr RdrName))
+toPatSynMatchGroup (L _ patsyn_name) (L _ decls) =
+    do { matches <- mapM fromDecl (fromOL decls)
+       ; return $ mkMatchGroup FromSource matches }
+  where
+    fromDecl (L loc decl@(ValD (PatBind pat@(L _ (ConPatIn (L _ name) details)) rhs _ _ _))) =
+        do { unless (name == patsyn_name) $
+               wrongNameBindingErr loc decl
+           ; match <- case details of
+               PrefixCon pats -> return $ Match pats Nothing rhs
+               InfixCon pat1 pat2 -> return $ Match [pat1, pat2] Nothing rhs
+               RecCon{} -> recordPatSynErr loc pat
+           ; return $ L loc match }
+    fromDecl (L loc decl) = extraDeclErr loc decl
+
+    extraDeclErr loc decl =
+        parseErrorSDoc loc $
+        text "pattern synonym 'where' clause must contain a single binding:" $$
+        ppr decl
+
+    wrongNameBindingErr loc decl =
+        parseErrorSDoc loc $
+        text "pattern synonym 'where' clause must bind the pattern synonym's name" <+>
+        quotes (ppr patsyn_name) $$ ppr decl
 
 mkDeprecatedGadtRecordDecl :: SrcSpan
                            -> Located RdrName
@@ -669,7 +726,8 @@ checkAPat msg loc e0 = do
    ELazyPat e         -> checkLPat msg e >>= (return . LazyPat)
    EAsPat n e         -> checkLPat msg e >>= (return . AsPat n)
    -- view pattern is well-formed if the pattern is
-   EViewPat expr patE -> checkLPat msg patE >>= (return . (\p -> ViewPat expr p placeHolderType))
+   EViewPat expr patE -> checkLPat msg patE >>=
+                            (return . (\p -> ViewPat expr p placeHolderType))
    ExprWithTySig e t  -> do e <- checkLPat msg e
                             -- Pattern signatures are parsed as sigtypes,
                             -- but they aren't explicit forall points.  Hence
@@ -766,7 +824,8 @@ checkFunBind msg lhs_loc fun is_infix pats opt_sig (L rhs_span grhss)
         -- The span of the match covers the entire equation.
         -- That isn't quite right, but it'll do for now.
 
-makeFunBind :: Located id -> Bool -> [LMatch id (LHsExpr id)] -> HsBind id
+makeFunBind :: Located RdrName -> Bool -> [LMatch RdrName (LHsExpr RdrName)]
+            -> HsBind RdrName
 -- Like HsUtils.mkFunBind, but we need to be able to set the fixity too
 makeFunBind fn is_infix ms
   = FunBind { fun_id = fn, fun_infix = is_infix, fun_matches = mkMatchGroup FromSource ms,
@@ -944,13 +1003,13 @@ checkCmd _ (HsLet lb e) =
 checkCmd _ (HsDo DoExpr stmts ty) = 
     mapM checkCmdLStmt stmts >>= (\ss -> return $ HsCmdDo ss ty)
 
-checkCmd _ (OpApp eLeft op fixity eRight) = do
+checkCmd _ (OpApp eLeft op _fixity eRight) = do
     -- OpApp becomes a HsCmdArrForm with a (Just fixity) in it
     c1 <- checkCommand eLeft
     c2 <- checkCommand eRight
     let arg1 = L (getLoc c1) $ HsCmdTop c1 placeHolderType placeHolderType []
         arg2 = L (getLoc c2) $ HsCmdTop c2 placeHolderType placeHolderType []
-    return $ HsCmdArrForm op (Just fixity) [arg1, arg2]
+    return $ HsCmdArrForm op Nothing [arg1, arg2]
 
 checkCmd l e = cmdFail l e
 
@@ -1013,11 +1072,11 @@ mkRecConstrOrUpdate
         -> ([HsRecField RdrName (LHsExpr RdrName)], Bool)
         -> P (HsExpr RdrName)
 
-mkRecConstrOrUpdate (L l (HsVar c)) _ (fs,dd) | isRdrDataCon c
+mkRecConstrOrUpdate (L l (HsVar c)) _ (fs,dd) 
+  | isRdrDataCon c
   = return (RecordCon (L l c) noPostTcExpr (mk_rec_fields fs dd))
-mkRecConstrOrUpdate exp loc (fs,dd)
-  | null fs   = parseErrorSDoc loc (text "Empty record update of:" <+> ppr exp)
-  | otherwise = return (RecordUpd exp (mk_rec_fields fs dd) [] [] [])
+mkRecConstrOrUpdate exp _ (fs,dd)
+  = return (RecordUpd exp (mk_rec_fields fs dd) [] [] [])
 
 mk_rec_fields :: [HsRecField id arg] -> Bool -> HsRecFields id arg
 mk_rec_fields fs False = HsRecFields { rec_flds = fs, rec_dotdot = Nothing }

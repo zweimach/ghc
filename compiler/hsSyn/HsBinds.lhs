@@ -8,6 +8,12 @@ Datatype for: @BindGroup@, @Bind@, @Sig@, @Bind@.
 
 \begin{code}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE UndecidableInstances #-} -- Note [Pass sensitive types]
+                                      -- in module PlaceHolder
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE CPP #-}
 
 module HsBinds where
 
@@ -16,7 +22,7 @@ import {-# SOURCE #-} HsExpr ( pprExpr, LHsExpr,
                                GRHSs, pprPatBind )
 import {-# SOURCE #-} HsPat  ( LPat )
 
-import HsLit
+import PlaceHolder ( PostTc,PostRn,DataId )
 import HsTypes
 import PprCore ()
 import CoreSyn
@@ -35,10 +41,14 @@ import BooleanFormula (BooleanFormula)
 import Data.Data hiding ( Fixity )
 import Data.List
 import Data.Ord
+#if __GLASGOW_HASKELL__ < 709
 import Data.Foldable ( Foldable(..) )
 import Data.Traversable ( Traversable(..) )
 import Data.Monoid ( mappend )
-import Control.Applicative ( (<$>), (<*>) )
+import Control.Applicative hiding (empty)
+#else
+import Control.Applicative ((<$>))
+#endif
 \end{code}
 
 %************************************************************************
@@ -60,11 +70,13 @@ type HsLocalBinds id = HsLocalBindsLR id id
 
 -- | Bindings in a 'let' expression
 -- or a 'where' clause
-data HsLocalBindsLR idL idR    
+data HsLocalBindsLR idL idR
   = HsValBinds (HsValBindsLR idL idR)
   | HsIPBinds  (HsIPBinds idR)
   | EmptyLocalBinds
-  deriving (Data, Typeable)
+  deriving (Typeable)
+deriving instance (DataId idL, DataId idR)
+  => Data (HsLocalBindsLR idL idR)
 
 type HsValBinds id = HsValBindsLR id id
 
@@ -83,7 +95,9 @@ data HsValBindsLR idL idR
   | ValBindsOut            
         [(RecFlag, LHsBinds idL)]       
         [LSig Name]
-  deriving (Data, Typeable)
+  deriving (Typeable)
+deriving instance (DataId idL, DataId idR)
+  => Data (HsValBindsLR idL idR)
 
 type LHsBind  id = LHsBindLR  id id
 type LHsBinds id = LHsBindsLR id id
@@ -124,7 +138,8 @@ data HsBindLR idL idR
                                 -- type         Int -> forall a'. a' -> a'
                                 -- Notice that the coercion captures the free a'.
 
-        bind_fvs :: NameSet,    -- ^ After the renamer, this contains the locally-bound
+        bind_fvs :: PostRn idL NameSet, -- ^ After the renamer, this contains
+                                --  the locally-bound
                                 -- free variables of this defn.
                                 -- See Note [Bind free vars]
 
@@ -134,11 +149,11 @@ data HsBindLR idL idR
 
   -- | The pattern is never a simple variable;
   -- That case is done by FunBind
-  | PatBind {   
+  | PatBind {
         pat_lhs    :: LPat idL,
         pat_rhs    :: GRHSs idR (LHsExpr idR),
-        pat_rhs_ty :: PostTcType,       -- ^ Type of the GRHSs
-        bind_fvs   :: NameSet,          -- ^ See Note [Bind free vars]
+        pat_rhs_ty :: PostTc idR Type,      -- ^ Type of the GRHSs
+        bind_fvs   :: PostRn idL NameSet, -- ^ See Note [Bind free vars]
         pat_ticks  :: (Maybe (Tickish Id), [Maybe (Tickish Id)])
                -- ^ Tick to put on the rhs, if any, and ticks to put on
                -- the bound variables.
@@ -166,15 +181,12 @@ data HsBindLR idL idR
         abs_binds    :: LHsBinds idL   -- ^ Typechecked user bindings
     }
 
-  | PatSynBind {
-        patsyn_id   :: Located idL,                   -- ^ Name of the pattern synonym
-        bind_fvs    :: NameSet,                       -- ^ See Note [Bind free vars]
-        patsyn_args :: HsPatSynDetails (Located idR), -- ^ Formal parameter names
-        patsyn_def  :: LPat idR,                      -- ^ Right-hand side
-        patsyn_dir  :: HsPatSynDir idR                -- ^ Directionality
-    }
+  | PatSynBind (PatSynBind idL idR)
 
-  deriving (Data, Typeable)
+  deriving (Typeable)
+deriving instance (DataId idL, DataId idR)
+  => Data (HsBindLR idL idR)
+
         -- Consider (AbsBinds tvs ds [(ftvs, poly_f, mono_f) binds]
         --
         -- Creates bindings for (polymorphic, overloaded) poly_f
@@ -195,9 +207,16 @@ data ABExport id
         , abe_prags :: TcSpecPrags  -- ^ SPECIALISE pragmas
   } deriving (Data, Typeable)
 
--- | Used for the NameSet in FunBind and PatBind prior to the renamer
-placeHolderNames :: NameSet
-placeHolderNames = panic "placeHolderNames"
+data PatSynBind idL idR
+  = PSB { psb_id   :: Located idL,             -- ^ Name of the pattern synonym
+          psb_fvs  :: PostRn idR NameSet,      -- ^ See Note [Bind free vars]
+          psb_args :: HsPatSynDetails (Located idR), -- ^ Formal parameter names
+          psb_def  :: LPat idR,                      -- ^ Right-hand side
+          psb_dir  :: HsPatSynDir idR                -- ^ Directionality
+  } deriving (Typeable)
+deriving instance (DataId idL, DataId idR )
+  => Data (PatSynBind idL idR)
+
 \end{code}
 
 Note [AbsBinds]
@@ -437,20 +456,7 @@ ppr_monobind (FunBind { fun_id = fun, fun_infix = inf,
     $$  ifPprDebug (pprBndr LetBind (unLoc fun))
     $$  pprFunBind (unLoc fun) inf matches
     $$  ifPprDebug (ppr wrap)
-ppr_monobind (PatSynBind{ patsyn_id = L _ psyn, patsyn_args = details,
-                          patsyn_def = pat, patsyn_dir = dir })
-  = ppr_lhs <+> ppr_rhs
-      where
-        ppr_lhs = ptext (sLit "pattern") <+> ppr_details details
-        ppr_simple syntax = syntax <+> ppr pat
-
-        ppr_details (InfixPatSyn v1 v2) = hsep [ppr v1, pprInfixOcc psyn, ppr v2]
-        ppr_details (PrefixPatSyn vs)   = hsep (pprPrefixOcc psyn : map ppr vs)
-
-        ppr_rhs = case dir of
-            Unidirectional         -> ppr_simple (ptext (sLit "<-"))
-            ImplicitBidirectional  -> ppr_simple equals
-
+ppr_monobind (PatSynBind psb) = ppr psb
 ppr_monobind (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dictvars
                        , abs_exports = exports, abs_binds = val_binds
                        , abs_ev_binds = ev_binds })
@@ -467,6 +473,23 @@ instance (OutputableBndr id) => Outputable (ABExport id) where
     = vcat [ ppr gbl <+> ptext (sLit "<=") <+> ppr lcl
            , nest 2 (pprTcSpecPrags prags)
            , nest 2 (ppr wrap)]
+
+instance (OutputableBndr idL, OutputableBndr idR) => Outputable (PatSynBind idL idR) where
+  ppr (PSB{ psb_id = L _ psyn, psb_args = details, psb_def = pat, psb_dir = dir })
+      = ppr_lhs <+> ppr_rhs
+    where
+      ppr_lhs = ptext (sLit "pattern") <+> ppr_details
+      ppr_simple syntax = syntax <+> ppr pat
+
+      (is_infix, ppr_details) = case details of
+          InfixPatSyn v1 v2 -> (True, hsep [ppr v1, pprInfixOcc psyn, ppr v2])
+          PrefixPatSyn vs   -> (False, hsep (pprPrefixOcc psyn : map ppr vs))
+
+      ppr_rhs = case dir of
+          Unidirectional           -> ppr_simple (ptext (sLit "<-"))
+          ImplicitBidirectional    -> ppr_simple equals
+          ExplicitBidirectional mg -> ppr_simple (ptext (sLit "<-")) <+> ptext (sLit "where") $$
+                                      (nest 2 $ pprFunBind psyn is_infix mg)
 \end{code}
 
 
@@ -494,7 +517,8 @@ data HsIPBinds id
         [LIPBind id]
         TcEvBinds       -- Only in typechecker output; binds
                         -- uses of the implicit parameters
-  deriving (Data, Typeable)
+  deriving (Typeable)
+deriving instance (DataId id) => Data (HsIPBinds id)
 
 isEmptyIPBinds :: HsIPBinds id -> Bool
 isEmptyIPBinds (IPBinds is ds) = null is && isEmptyTcEvBinds ds
@@ -508,7 +532,8 @@ that way until after type-checking when they are replaced with
 evidene for the implicit parameter. -}
 data IPBind id
   = IPBind (Either HsIPName id) (LHsExpr id)
-  deriving (Data, Typeable)
+  deriving (Typeable)
+deriving instance (DataId name) => Data (IPBind name)
 
 instance (OutputableBndr id) => Outputable (HsIPBinds id) where
   ppr (IPBinds bs ds) = pprDeeperList vcat (map ppr bs)
@@ -537,7 +562,7 @@ serves for both.
 type LSig name = Located (Sig name)
 
 -- | Signatures and pragmas
-data Sig name   
+data Sig name
   =   -- | An ordinary type signature
       -- @f :: Num a => a -> a@
     TypeSig [Located name] (LHsType name)
@@ -599,7 +624,8 @@ data Sig name
         -- > {-# MINIMAL a | (b, c | (d | e)) #-}
   | MinimalSig (BooleanFormula (Located name))
 
-  deriving (Data, Typeable)
+  deriving (Typeable)
+deriving instance (DataId name) => Data (Sig name)
 
 
 type LFixitySig name = Located (FixitySig name)
@@ -785,10 +811,10 @@ instance Traversable HsPatSynDetails where
     traverse f (InfixPatSyn left right) = InfixPatSyn <$> f left <*> f right
     traverse f (PrefixPatSyn args) = PrefixPatSyn <$> traverse f args
 
-data HsPatSynDirLR idL idR
+data HsPatSynDir id
   = Unidirectional
   | ImplicitBidirectional
-  deriving (Data, Typeable)
-
-type HsPatSynDir id = HsPatSynDirLR id id
+  | ExplicitBidirectional (MatchGroup id (LHsExpr id))
+  deriving (Typeable)
+deriving instance (DataId id) => Data (HsPatSynDir id)
 \end{code}

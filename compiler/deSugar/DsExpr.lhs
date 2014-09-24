@@ -425,7 +425,7 @@ dsExpr (RecordCon (L _ data_con_id) con_expr rbinds) = do
               (rhs:rhss) -> ASSERT( null rhss )
                             dsLExpr rhs
               []         -> mkErrorAppDs rEC_CON_ERROR_ID arg_ty (ppr lbl)
-        unlabelled_bottom arg_ty = mkErrorAppDs rEC_CON_ERROR_ID arg_ty empty
+        unlabelled_bottom arg_ty = mkErrorAppDs rEC_CON_ERROR_ID arg_ty Outputable.empty
 
         labels = dataConFieldLabels (idDataCon data_con_id)
         -- The data_con_id is guaranteed to be the wrapper id of the constructor
@@ -434,7 +434,7 @@ dsExpr (RecordCon (L _ data_con_id) con_expr rbinds) = do
                 then mapM unlabelled_bottom arg_tys
                 else mapM mk_arg (zipEqual "dsExpr:RecordCon" arg_tys labels)
     
-    return (mkApps con_expr' con_args)
+    return (mkCoreApps con_expr' con_args)
 \end{code}
 
 Record update is a little harder. Suppose we have the decl:
@@ -676,7 +676,8 @@ makes all list literals be generated via the simple route.
 
 
 \begin{code}
-dsExplicitList :: PostTcType -> Maybe (SyntaxExpr Id) -> [LHsExpr Id] -> DsM CoreExpr
+dsExplicitList :: PostTc Id Type -> Maybe (SyntaxExpr Id) -> [LHsExpr Id]
+               -> DsM CoreExpr
 -- See Note [Desugaring explicit lists]
 dsExplicitList elt_ty Nothing xs
   = do { dflags <- getDynFlags

@@ -46,12 +46,9 @@ module Binary
    lazyGet,
    lazyPut,
 
-#ifdef __GLASGOW_HASKELL__
-   -- GHC only:
    ByteArray(..),
    getByteArray,
    putByteArray,
-#endif
 
    UserData(..), getUserData, setUserData,
    newReadState, newWriteState,
@@ -461,7 +458,6 @@ instance Binary DiffTime where
     get bh = do r <- get bh
                 return $ fromRational r
 
-#if defined(__GLASGOW_HASKELL__) || 1
 --to quote binary-0.3 on this code idea,
 --
 -- TODO  This instance is not architecture portable.  GMP stores numbers as
@@ -553,7 +549,6 @@ indexByteArray a# n# = W8# (indexWord8Array# a# n#)
 instance (Integral a, Binary a) => Binary (Ratio a) where
     put_ bh (a :% b) = do put_ bh a; put_ bh b
     get bh = do a <- get bh; b <- get bh; return (a :% b)
-#endif
 
 instance Binary (Bin a) where
   put_ bh (BinPtr i) = put_ bh (fromIntegral i :: Int32)
@@ -681,7 +676,7 @@ putFS bh fs = putBS bh $ fastStringToByteString fs
 
 getFS :: BinHandle -> IO FastString
 getFS bh = do bs <- getBS bh
-              mkFastStringByteString bs
+              return $! mkFastStringByteString bs
 
 putBS :: BinHandle -> ByteString -> IO ()
 putBS bh bs =
@@ -834,15 +829,19 @@ instance Binary RecFlag where
               _ -> do return NonRecursive
 
 instance Binary OverlapMode where
-    put_ bh NoOverlap   = putByte bh 0
-    put_ bh OverlapOk   = putByte bh 1
-    put_ bh Incoherent  = putByte bh 2
+    put_ bh NoOverlap     = putByte bh 0
+    put_ bh Overlaps      = putByte bh 1
+    put_ bh Incoherent    = putByte bh 2
+    put_ bh Overlapping   = putByte bh 3
+    put_ bh Overlappable  = putByte bh 4
     get bh = do
         h <- getByte bh
         case h of
             0 -> return NoOverlap
-            1 -> return OverlapOk
+            1 -> return Overlaps
             2 -> return Incoherent
+            3 -> return Overlapping
+            4 -> return Overlappable
             _ -> panic ("get OverlapMode" ++ show h)
 
 

@@ -40,6 +40,7 @@ import UniqSet
 import Data.List
 import Util
 import ListSetOps       ( removeDups )
+import ErrUtils
 import Outputable
 import SrcLoc
 import FastString
@@ -206,9 +207,10 @@ rnExpr (HsLam matches)
   = do { (matches', fvMatch) <- rnMatchGroup LambdaExpr rnLExpr matches
        ; return (HsLam matches', fvMatch) }
 
-rnExpr (HsLamCase arg matches)
+rnExpr (HsLamCase _arg matches)
   = do { (matches', fvs_ms) <- rnMatchGroup CaseAlt rnLExpr matches
-       ; return (HsLamCase arg matches', fvs_ms) }
+       -- ; return (HsLamCase arg matches', fvs_ms) }
+       ; return (HsLamCase placeHolderType matches', fvs_ms) }
 
 rnExpr (HsCase expr matches)
   = do { (new_expr, e_fvs) <- rnLExpr expr
@@ -230,7 +232,8 @@ rnExpr (ExplicitList _ _  exps)
         ; if opt_OverloadedLists
            then do {
             ; (from_list_n_name, fvs') <- lookupSyntaxName fromListNName
-            ; return (ExplicitList placeHolderType (Just from_list_n_name) exps', fvs `plusFV` fvs') }
+            ; return (ExplicitList placeHolderType (Just from_list_n_name) exps'
+                     , fvs `plusFV` fvs') }
            else
             return  (ExplicitList placeHolderType Nothing exps', fvs) }
 
@@ -272,9 +275,10 @@ rnExpr (HsIf _ p b1 b2)
        ; (mb_ite, fvITE) <- lookupIfThenElse
        ; return (HsIf mb_ite p' b1' b2', plusFVs [fvITE, fvP, fvB1, fvB2]) }
 
-rnExpr (HsMultiIf ty alts)
+rnExpr (HsMultiIf _ty alts)
   = do { (alts', fvs) <- mapFvRn (rnGRHS IfAlt rnLExpr) alts
-       ; return (HsMultiIf ty alts', fvs) }
+       -- ; return (HsMultiIf ty alts', fvs) }
+       ; return (HsMultiIf placeHolderType alts', fvs) }
 
 rnExpr (HsType a)
   = do { (t, fvT) <- rnLHsType HsTypeCtx a
@@ -369,7 +373,7 @@ rnSection other = pprPanic "rnSection" (ppr other)
 rnHsRecBinds :: HsRecFieldContext -> HsRecordBinds RdrName
              -> RnM (HsRecordBinds Name, FreeVars)
 rnHsRecBinds ctxt rec_binds@(HsRecFields { rec_dotdot = dd })
-  = do { (flds, fvs) <- rnHsRecFields1 ctxt HsVar rec_binds
+  = do { (flds, fvs) <- rnHsRecFields ctxt HsVar rec_binds
        ; (flds', fvss) <- mapAndUnzipM rn_field flds
        ; return (HsRecFields { rec_flds = flds', rec_dotdot = dd },
                  fvs `plusFV` plusFVs fvss) }
@@ -403,7 +407,8 @@ rnCmdTop = wrapLocFstM rnCmdTop'
         -- Generate the rebindable syntax for the monad
         ; (cmd_names', cmd_fvs) <- lookupSyntaxNames cmd_names
 
-        ; return (HsCmdTop cmd' placeHolderType placeHolderType (cmd_names `zip` cmd_names'),
+        ; return (HsCmdTop cmd' placeHolderType placeHolderType
+                  (cmd_names `zip` cmd_names'),
                   fvCmd `plusFV` cmd_fvs) }
 
 rnLCmd :: LHsCmd RdrName -> RnM (LHsCmd Name, FreeVars)
@@ -676,9 +681,9 @@ rnStmt ctxt rnBody (L _ (RecStmt { recS_stmts = rec_stmts })) thing_inside
   = do  { (return_op, fvs1)  <- lookupStmtName ctxt returnMName
         ; (mfix_op,   fvs2)  <- lookupStmtName ctxt mfixName
         ; (bind_op,   fvs3)  <- lookupStmtName ctxt bindMName
-        ; let empty_rec_stmt = emptyRecStmt { recS_ret_fn  = return_op
-                                            , recS_mfix_fn = mfix_op
-                                            , recS_bind_fn = bind_op }
+        ; let empty_rec_stmt = emptyRecStmtName { recS_ret_fn  = return_op
+                                                , recS_mfix_fn = mfix_op
+                                                , recS_bind_fn = bind_op }
 
         -- Step1: Bring all the binders of the mdo into scope
         -- (Remember that this also removes the binders from the
@@ -1225,8 +1230,8 @@ checkStmt :: HsStmtContext Name
 checkStmt ctxt (L _ stmt)
   = do { dflags <- getDynFlags
        ; case okStmt dflags ctxt stmt of
-           Nothing    -> return ()
-           Just extra -> addErr (msg $$ extra) }
+           IsValid        -> return ()
+           NotValid extra -> addErr (msg $$ extra) }
   where
    msg = sep [ ptext (sLit "Unexpected") <+> pprStmtCat stmt <+> ptext (sLit "statement")
              , ptext (sLit "in") <+> pprAStmtContext ctxt ]
@@ -1241,13 +1246,12 @@ pprStmtCat (RecStmt {})       = ptext (sLit "rec")
 pprStmtCat (ParStmt {})       = ptext (sLit "parallel")
 
 ------------
-isOK, notOK :: Maybe SDoc
-isOK  = Nothing
-notOK = Just empty
+emptyInvalid :: Validity  -- Payload is the empty document
+emptyInvalid = NotValid Outputable.empty
 
 okStmt, okDoStmt, okCompStmt, okParStmt, okPArrStmt
    :: DynFlags -> HsStmtContext Name
-   -> Stmt RdrName (Located (body RdrName)) -> Maybe SDoc
+   -> Stmt RdrName (Located (body RdrName)) -> Validity
 -- Return Nothing if OK, (Just extra) if not ok
 -- The "extra" is an SDoc that is appended to an generic error message
 
@@ -1265,59 +1269,59 @@ okStmt dflags ctxt stmt
       TransStmtCtxt ctxt -> okStmt dflags ctxt stmt
 
 -------------
-okPatGuardStmt :: Stmt RdrName (Located (body RdrName)) -> Maybe SDoc
+okPatGuardStmt :: Stmt RdrName (Located (body RdrName)) -> Validity
 okPatGuardStmt stmt
   = case stmt of
-      BodyStmt {} -> isOK
-      BindStmt {} -> isOK
-      LetStmt {}  -> isOK
-      _           -> notOK
+      BodyStmt {} -> IsValid
+      BindStmt {} -> IsValid
+      LetStmt {}  -> IsValid
+      _           -> emptyInvalid
 
 -------------
 okParStmt dflags ctxt stmt
   = case stmt of
-      LetStmt (HsIPBinds {}) -> notOK
+      LetStmt (HsIPBinds {}) -> emptyInvalid
       _                      -> okStmt dflags ctxt stmt
 
 ----------------
 okDoStmt dflags ctxt stmt
   = case stmt of
        RecStmt {}
-         | Opt_RecursiveDo `xopt` dflags -> isOK
-         | ArrowExpr <- ctxt -> isOK    -- Arrows allows 'rec'
-         | otherwise         -> Just (ptext (sLit "Use RecursiveDo"))
-       BindStmt {} -> isOK
-       LetStmt {}  -> isOK
-       BodyStmt {} -> isOK
-       _           -> notOK
+         | Opt_RecursiveDo `xopt` dflags -> IsValid
+         | ArrowExpr <- ctxt -> IsValid    -- Arrows allows 'rec'
+         | otherwise         -> NotValid (ptext (sLit "Use RecursiveDo"))
+       BindStmt {} -> IsValid
+       LetStmt {}  -> IsValid
+       BodyStmt {} -> IsValid
+       _           -> emptyInvalid
 
 ----------------
 okCompStmt dflags _ stmt
   = case stmt of
-       BindStmt {} -> isOK
-       LetStmt {}  -> isOK
-       BodyStmt {} -> isOK
+       BindStmt {} -> IsValid
+       LetStmt {}  -> IsValid
+       BodyStmt {} -> IsValid
        ParStmt {}
-         | Opt_ParallelListComp `xopt` dflags -> isOK
-         | otherwise -> Just (ptext (sLit "Use ParallelListComp"))
+         | Opt_ParallelListComp `xopt` dflags -> IsValid
+         | otherwise -> NotValid (ptext (sLit "Use ParallelListComp"))
        TransStmt {}
-         | Opt_TransformListComp `xopt` dflags -> isOK
-         | otherwise -> Just (ptext (sLit "Use TransformListComp"))
-       RecStmt {}  -> notOK
-       LastStmt {} -> notOK  -- Should not happen (dealt with by checkLastStmt)
+         | Opt_TransformListComp `xopt` dflags -> IsValid
+         | otherwise -> NotValid (ptext (sLit "Use TransformListComp"))
+       RecStmt {}  -> emptyInvalid
+       LastStmt {} -> emptyInvalid  -- Should not happen (dealt with by checkLastStmt)
 
 ----------------
 okPArrStmt dflags _ stmt
   = case stmt of
-       BindStmt {} -> isOK
-       LetStmt {}  -> isOK
-       BodyStmt {} -> isOK
+       BindStmt {} -> IsValid
+       LetStmt {}  -> IsValid
+       BodyStmt {} -> IsValid
        ParStmt {}
-         | Opt_ParallelListComp `xopt` dflags -> isOK
-         | otherwise -> Just (ptext (sLit "Use ParallelListComp"))
-       TransStmt {} -> notOK
-       RecStmt {}   -> notOK
-       LastStmt {}  -> notOK  -- Should not happen (dealt with by checkLastStmt)
+         | Opt_ParallelListComp `xopt` dflags -> IsValid
+         | otherwise -> NotValid (ptext (sLit "Use ParallelListComp"))
+       TransStmt {} -> emptyInvalid
+       RecStmt {}   -> emptyInvalid
+       LastStmt {}  -> emptyInvalid  -- Should not happen (dealt with by checkLastStmt)
 
 ---------
 checkTupleSection :: [HsTupArg RdrName] -> RnM ()

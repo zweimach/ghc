@@ -7,6 +7,13 @@ HsTypes: Abstract syntax: user-defined types
 
 \begin{code}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE UndecidableInstances #-} -- Note [Pass sensitive types]
+                                      -- in module PlaceHolder
+{-# LANGUAGE ConstraintKinds #-}
 
 module HsTypes (
         HsType(..), LHsType, HsKind, LHsKind,
@@ -25,7 +32,8 @@ module HsTypes (
         ConDeclField(..), pprConDeclFields,
         
         mkHsQTvs, hsQTvExplicit,
-        mkExplicitHsForAllTy, mkImplicitHsForAllTy, hsExplicitTvs,
+        mkExplicitHsForAllTy, mkImplicitHsForAllTy, mkQualifiedHsForAllTy,
+        hsExplicitTvs,
         hsTyVarName, mkHsWithBndrs, hsLKiTyVarNames,
         hsLTyVarName, hsLTyVarLocName, hsLTyVarLocNames,
         splitLHsInstDeclTy_maybe,
@@ -39,7 +47,7 @@ module HsTypes (
 
 import {-# SOURCE #-} HsExpr ( HsSplice, pprUntypedSplice )
 
-import HsLit
+import PlaceHolder ( PostTc,PostRn,DataId,PlaceHolder(..) )
 
 import Name( Name )
 import RdrName( RdrName )
@@ -53,7 +61,7 @@ import StaticFlags
 import Outputable
 import FastString
 
-import Data.Data
+import Data.Data hiding ( Fixity )
 \end{code}
 
 
@@ -135,7 +143,8 @@ data LHsTyVarBndrs name
            , hsq_explicit :: [LHsTyVarBndr name]  -- explicit variables
              -- See Note [HsForAllTy tyvar binders]
     }
-  deriving( Data, Typeable )
+  deriving( Typeable )
+deriving instance (DataId name) => Data (LHsTyVarBndrs name)
 
 mkHsQTvs :: [LHsTyVarBndr name] -> LHsTyVarBndrs name
 -- Usually, this will be called at RdrName, but sometimes we
@@ -150,14 +159,14 @@ emptyHsQTvs =  HsQTvs { hsq_implicit = [], hsq_explicit = [] }
 hsQTvExplicit :: LHsTyVarBndrs name -> [LHsTyVarBndr name]
 hsQTvExplicit = hsq_explicit
 
-data HsWithBndrs thing
-  = HsWB { hswb_cts  :: thing        -- Main payload (type or list of types)
-         , hswb_vars :: [Name]       -- Kind and type vars
+data HsWithBndrs name thing
+  = HsWB { hswb_cts  :: thing                 -- Main payload (type or list of types)
+         , hswb_vars :: PostRn name [Name]    -- Kind and type vars
     }                  
   deriving (Data, Typeable)
 
-mkHsWithBndrs :: thing -> HsWithBndrs thing
-mkHsWithBndrs x = HsWB { hswb_cts = x, hswb_vars = panic "mkHsTyWithBndrs:vars" }
+mkHsWithBndrs :: thing -> HsWithBndrs RdrName thing
+mkHsWithBndrs x = HsWB { hswb_cts = x, hswb_vars = PlaceHolder }
 
 -- | These names are used early on to store the names of implicit
 -- parameters.  They completely disappear after type-checking.
@@ -182,7 +191,17 @@ data HsTyVarBndr name
   | KindedTyVar
          name
          (LHsKind name)  -- The user-supplied kind signature
-  deriving (Data, Typeable)
+  deriving (Typeable)
+deriving instance (DataId name) => Data (HsTyVarBndr name)
+
+-- | Does this 'HsTyVarBndr' come with an explicit kind annotation?
+isHsKindedTyVar :: HsTyVarBndr name -> Bool
+isHsKindedTyVar (UserTyVar {})   = False
+isHsKindedTyVar (KindedTyVar {}) = True
+
+-- | Do all type variables in this 'LHsTyVarBndr' come with kind annotations?
+hsTvbAllKinded :: LHsTyVarBndrs name -> Bool
+hsTvbAllKinded = all (isHsKindedTyVar . unLoc) . hsQTvBndrs
 
 data HsType name
   = HsForAllTy  HsExplicitFlag          -- Renamer leaves this flag unchanged, to record the way
@@ -226,7 +245,7 @@ data HsType name
   | HsQuasiQuoteTy      (HsQuasiQuote name)
 
   | HsSpliceTy          (HsSplice name) 
-                        PostTcKind
+                        (PostTc name Kind)
 
   | HsDocTy             (LHsType name) LHsDocString -- A documented type
 
@@ -236,16 +255,17 @@ data HsType name
   | HsCoreTy Type       -- An escape hatch for tunnelling a *closed* 
                         -- Core Type through HsSyn.  
 
-  | HsExplicitListTy     -- A promoted explicit list
-        PostTcKind       -- See Note [Promoted lists and tuples]
+  | HsExplicitListTy       -- A promoted explicit list
+        (PostTc name Kind) -- See Note [Promoted lists and tuples]
         [LHsType name]   
                          
-  | HsExplicitTupleTy    -- A promoted explicit tuple
-        [PostTcKind]     -- See Note [Promoted lists and tuples]
+  | HsExplicitTupleTy      -- A promoted explicit tuple
+        [PostTc name Kind] -- See Note [Promoted lists and tuples]
         [LHsType name]   
 
   | HsTyLit HsTyLit      -- A promoted numeric literal.
-  deriving (Data, Typeable)
+  deriving (Typeable)
+deriving instance (DataId name) => Data (HsType name)
 
 data HsTyLit
   = HsNumTy Integer
@@ -266,7 +286,14 @@ After renaming
   * Implicit => the *type* variables free in the type
     Explicit => the variables the user wrote (renamed)
 
-The kind variables bound in the hsq_implcit field come both
+Qualified currently behaves exactly as Implicit,
+but it is deprecated to use it for implicit quantification.
+In this case, GHC 7.10 gives a warning; see
+Note [Context quantification] and Trac #4426.
+In GHC 7.12, Qualified will no longer bind variables
+and this will become an error.
+
+The kind variables bound in the hsq_implicit field come both
   a) from the kind signatures on the kind vars (eg k1)
   b) from the scope of the forall (eg k2)
 Example:   f :: forall (a::k1) b. T a (b::k2)
@@ -351,13 +378,14 @@ data HsTupleSort = HsUnboxedTuple
                  | HsBoxedOrConstraintTuple
                  deriving (Data, Typeable)
 
-data HsExplicitFlag = Explicit | Implicit deriving (Data, Typeable)
+data HsExplicitFlag = Qualified | Implicit | Explicit deriving (Data, Typeable)
 
 data ConDeclField name  -- Record fields have Haddoc docs on them
   = ConDeclField { cd_fld_name :: Located name,
                    cd_fld_type :: LBangType name, 
                    cd_fld_doc  :: Maybe LHsDocString }
-  deriving (Data, Typeable)
+  deriving (Typeable)
+deriving instance (DataId name) => Data (ConDeclField name)
 
 -----------------------
 -- Combine adjacent for-alls. 
@@ -369,10 +397,12 @@ data ConDeclField name  -- Record fields have Haddoc docs on them
 --
 -- A valid type must have one for-all at the top of the type, or of the fn arg types
 
-mkImplicitHsForAllTy ::                           LHsContext RdrName -> LHsType RdrName -> HsType RdrName
-mkExplicitHsForAllTy :: [LHsTyVarBndr RdrName] -> LHsContext RdrName -> LHsType RdrName -> HsType RdrName
-mkImplicitHsForAllTy     ctxt ty = mkHsForAllTy Implicit []  ctxt ty
-mkExplicitHsForAllTy tvs ctxt ty = mkHsForAllTy Explicit tvs ctxt ty
+mkImplicitHsForAllTy  ::                           LHsContext RdrName -> LHsType RdrName -> HsType RdrName
+mkExplicitHsForAllTy  :: [LHsTyVarBndr RdrName] -> LHsContext RdrName -> LHsType RdrName -> HsType RdrName
+mkQualifiedHsForAllTy ::                           LHsContext RdrName -> LHsType RdrName -> HsType RdrName
+mkImplicitHsForAllTy      ctxt ty = mkHsForAllTy Implicit  []  ctxt ty
+mkExplicitHsForAllTy  tvs ctxt ty = mkHsForAllTy Explicit  tvs ctxt ty
+mkQualifiedHsForAllTy     ctxt ty = mkHsForAllTy Qualified []  ctxt ty
 
 mkHsForAllTy :: HsExplicitFlag -> [LHsTyVarBndr RdrName] -> LHsContext RdrName -> LHsType RdrName -> HsType RdrName
 -- Smart constructor for HsForAllTy
@@ -391,8 +421,10 @@ mk_forall_ty exp  tvs  ty                                    = HsForAllTy exp (m
         --      so that (forall. ty) isn't implicitly quantified
 
 plus :: HsExplicitFlag -> HsExplicitFlag -> HsExplicitFlag
-Implicit `plus` Implicit = Implicit
-_        `plus` _        = Explicit
+Qualified `plus` Qualified = Qualified
+Explicit  `plus` _         = Explicit
+_         `plus` Explicit  = Explicit
+_         `plus` _         = Implicit
 
 hsExplicitTvs :: LHsType Name -> [Name]
 -- The explicitly-given forall'd type variables of a HsType
@@ -542,7 +574,7 @@ instance (OutputableBndr name) => Outputable (HsTyVarBndr name) where
     ppr (UserTyVar n)     = ppr n
     ppr (KindedTyVar n k) = parens $ hsep [ppr n, dcolon, ppr k]
 
-instance (Outputable thing) => Outputable (HsWithBndrs thing) where
+instance (Outputable thing) => Outputable (HsWithBndrs name thing) where
     ppr (HsWB { hswb_cts = ty }) = ppr ty
 
 pprHsForAll :: OutputableBndr name => HsExplicitFlag -> LHsTyVarBndrs name ->  LHsContext name -> SDoc
@@ -552,7 +584,7 @@ pprHsForAll exp qtvs cxt
   where
     show_forall =  opt_PprStyle_Debug
                 || (not (null (hsQTvExplicit qtvs)) && is_explicit)
-    is_explicit = case exp of {Explicit -> True; Implicit -> False}
+    is_explicit = case exp of {Explicit -> True; Implicit -> False; Qualified -> False}
     forall_part = forAllLit <+> ppr qtvs <> dot
 
 pprHsContext :: (OutputableBndr name) => HsContext name -> SDoc

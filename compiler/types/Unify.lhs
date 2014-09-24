@@ -46,7 +46,9 @@ import FastString
 import Unique
 
 import Control.Monad
+#if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..), Alternative(..))
+#endif
 \end{code}
 
 
@@ -760,6 +762,26 @@ to unify two coercions can yield surelyApart if and only if the types
 coerced between are surelyApart. Otherwise, two coercions either unify or
 are maybeApart.
 
+Note [Lists of different lengths are MaybeApart]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+It is unusual to call tcUnifyTys or tcUnifyTysFG with lists of different
+lengths. The place where we know this can happen is from compatibleBranches in
+FamInstEnv, when checking data family instances. Data family instances may be
+eta-reduced; see Note [Eta reduction for data family axioms] in TcInstDcls.
+
+We wish to say that
+
+  D :: * -> * -> *
+  axDF1 :: D Int ~ DFInst1
+  axDF2 :: D Int Bool ~ DFInst2
+
+overlap. If we conclude that lists of different lengths are SurelyApart, then
+it will look like these do *not* overlap, causing disaster. See Trac #9371.
+
+In usages of tcUnifyTys outside of family instances, we always use tcUnifyTys,
+which can't tell the difference between MaybeApart and SurelyApart, so those
+usages won't notice this design choice.
+
 \begin{code}
 tcUnifyTy :: Type -> Type       -- All tyvars are bindable
 	  -> Maybe TCvSubst	-- A regular one-shot (idempotent) substitution
@@ -1169,7 +1191,7 @@ unifyList orig_xs orig_ys
     go []     []     = return ()
     go (x:xs) (y:ys) = do { unify x y
                           ; go xs ys }
-    go _ _ = surelyApart
+    go _ _ = maybeApart subst  -- See Note [Lists of different lengths are MaybeApart]
 
 ---------------------------------
 uVar :: TyOrCo tyco

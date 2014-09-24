@@ -610,8 +610,8 @@ bindLocalsAtBreakpoint hsc_env apStack (Just info) = do
 
        (ids, offsets) = unzip pointers
 
-       free_tvs = foldr (unionVarSet . tyCoVarsOfType . idType)
-                        (tyCoVarsOfType result_ty) ids
+       free_tvs = mapUnionVarSet (tyCoVarsOfType . idType) ids
+                  `unionVarSet` tyCoVarsOfType result_ty
 
    -- It might be that getIdValFromApStack fails, because the AP_STACK
    -- has been accidentally evaluated, or something else has gone wrong.

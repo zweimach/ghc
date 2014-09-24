@@ -23,11 +23,10 @@ module FamInstEnv (
 
         FamInstMatch(..),
         lookupFamInstEnv, lookupFamInstEnvConflicts,
-
-        isDominatedBy,
+        chooseBranch, isDominatedBy,
 
         -- Normalisation
-        instNewTyConTF_maybe, chooseBranch, topNormaliseType, topNormaliseType_maybe,
+        topNormaliseType, topNormaliseType_maybe,
         normaliseType, normaliseTcApp,
 
         -- Flattening
@@ -46,7 +45,6 @@ import Coercion
 import CoAxiom
 import VarSet
 import VarEnv
-import Module( isInteractiveModule )
 import Name
 import PrelNames ( eqPrimTyConKey )
 import UniqFM
@@ -382,23 +380,21 @@ identicalFamInst :: FamInst -> FamInst -> Bool
 -- Same LHS, *and* both instances are on the interactive command line
 -- Used for overriding in GHCi
 identicalFamInst (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
-  =  isInteractiveModule (nameModule (coAxiomName ax1))
-  && isInteractiveModule (nameModule (coAxiomName ax2))
-  && coAxiomTyCon ax1 == coAxiomTyCon ax2
+  =  coAxiomTyCon ax1 == coAxiomTyCon ax2
   && brListLength brs1 == brListLength brs2
-  && and (brListZipWith identical_ax_branch brs1 brs2)
-  where brs1 = coAxiomBranches ax1
-        brs2 = coAxiomBranches ax2
-        identical_ax_branch br1 br2
-          = length tvs1 == length tvs2
-            && length lhs1 == length lhs2
-            && and (zipWith (eqTypeX rn_env) lhs1 lhs2)
-          where
-            tvs1 = coAxBranchTyCoVars br1
-            tvs2 = coAxBranchTyCoVars br2
-            lhs1 = coAxBranchLHS br1
-            lhs2 = coAxBranchLHS br2
-            rn_env = rnBndrs2 (mkRnEnv2 emptyInScopeSet) tvs1 tvs2
+  && and (brListZipWith identical_branch brs1 brs2)
+  where
+    brs1 = coAxiomBranches ax1
+    brs2 = coAxiomBranches ax2
+
+    identical_branch br1 br2
+      =  isJust (tcMatchTys tvs1 lhs1 lhs2)
+      && isJust (tcMatchTys tvs2 lhs2 lhs1)
+      where
+        tvs1 = mkVarSet (coAxBranchTyCoVars br1)
+        tvs2 = mkVarSet (coAxBranchTyCoVars br2)
+        lhs1 = coAxBranchLHS br1
+        lhs2 = coAxBranchLHS br2
 \end{code}
 
 %************************************************************************
@@ -645,7 +641,7 @@ lookupFamInstEnvConflicts envs fam_inst@(FamInst { fi_axiom = new_axiom })
                   (ppr tpl_tvs <+> ppr tpl_tys) )
                 -- Unification will break badly if the variables overlap
                 -- They shouldn't because we allocate separate uniques for them
-         if compatibleBranches (coAxiomSingleBranch old_axiom) (new_branch)
+         if compatibleBranches (coAxiomSingleBranch old_axiom) new_branch
            then Nothing
            else Just noSubst
       -- Note [Family instance overlap conflicts]
@@ -673,7 +669,7 @@ Note [Family instance overlap conflicts]
 -- Might be a one-way match or a unifier
 type MatchFun =  FamInst                -- The FamInst template
               -> TyVarSet -> [Type]     --   fi_tvs, fi_tys of that FamInst
-              -> [Type]                         -- Target to match against
+              -> [Type]                 -- Target to match against
               -> Maybe TCvSubst
 
 lookup_fam_inst_env'          -- The worker, local to this module
@@ -733,9 +729,9 @@ lookup_fam_inst_env           -- The worker, local to this module
 
 -- Precondition: the tycon is saturated (or over-saturated)
 
-lookup_fam_inst_env match_fun (pkg_ie, home_ie) fam tys =
-    lookup_fam_inst_env' match_fun home_ie fam tys ++
-    lookup_fam_inst_env' match_fun pkg_ie  fam tys
+lookup_fam_inst_env match_fun (pkg_ie, home_ie) fam tys
+  =  lookup_fam_inst_env' match_fun home_ie fam tys
+  ++ lookup_fam_inst_env' match_fun pkg_ie  fam tys
 
 \end{code}
 
@@ -751,16 +747,18 @@ which you can't do in Haskell!):
 
 Then looking up (F (Int,Bool) Char) will return a FamInstMatch
      (FPair, [Int,Bool,Char])
-
 The "extra" type argument [Char] just stays on the end.
 
-Because of eta-reduction of data family instances (see
-Note [Eta reduction for data family axioms] in TcInstDecls), we must
-handle data families and type families separately here. All instances
-of a type family must have the same arity, so we can precompute the split
-between the match_tys and the overflow tys. This is done in pre_rough_split_tys.
-For data instances, though, we need to re-split for each instance, because
-the breakdown might be different.
+We handle data families and type families separately here:
+
+ * For type families, all instances of a type family must have the
+   same arity, so we can precompute the split between the match_tys
+   and the overflow tys. This is done in pre_rough_split_tys.
+
+ * For data family instances, though, we need to re-split for each
+   instance, because the breakdown might be different for each
+   instance.  Why?  Because of eta reduction; see Note [Eta reduction
+   for data family axioms]
 
 \begin{code}
 
@@ -874,7 +872,6 @@ findBranch (CoAxBranch { cab_tvs = tpl_tvs, cab_lhs = tpl_lhs, cab_incomps = inc
 
 -- fail if no branches left
 findBranch [] _ _ = Nothing
-
 \end{code}
 
 
@@ -1048,7 +1045,7 @@ normalise_tc_app env lc role tc tys
                 -- we do not do anything
   = let (co, ntys) = normalise_tc_args env lc role tc tys in
     (co, mkTyConApp tc ntys)
-    
+
 
 ---------------
 normalise_tc_args :: FamInstEnvs            -- environment with family instances

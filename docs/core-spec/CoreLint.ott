@@ -297,7 +297,7 @@ G |-co g @ w : (t1[z1_k1 |-> s1]) k3~R k4 (t2[z2_k2 |-> s2])
 
 C = T_R0 </ axBranchkk // kk />
 0 <= ind < length </ axBranchkk // kk />
-forall </ ni_Ri // i />. (</ s1j // j /> ~> t1) = (</ axBranchkk // kk />)[ind]
+forall </ ni_^^Ri // i />. (</ s1j // j /> ~> t1) = (</ axBranchkk // kk />)[ind]
 G |-axk [ </ ni_Ri // i /> |-> </ wi // i /> ] ~> (subst1, subst2)
 </ s2j = subst1(s1j) // j />
 no_conflict(C, </ s2j // j />, ind, ind-1)

@@ -273,9 +273,7 @@ pcNonRecDataTyCon = pcTyCon False NonRecursive
 -- Representational role, and that there is no kind polymorphism.
 pcTyCon :: Bool -> RecFlag -> Name -> Maybe CType -> [TyVar] -> [DataCon] -> TyCon
 pcTyCon is_enum is_rec name cType tyvars cons
-  = tycon
-  where
-    tycon = mkAlgTyCon name
+  = mkAlgTyCon name
                 (mkFunTys (map tyVarKind tyvars) liftedTypeKind)
                 tyvars
                 (map (const Representational) tyvars)

@@ -68,7 +68,6 @@ import GHC.Num
 import GHC.Real
 import Data.Maybe
 import Data.Typeable
-import Control.Monad
 
 -- ---------------------------------------------------------------------------
 -- Closing a handle
