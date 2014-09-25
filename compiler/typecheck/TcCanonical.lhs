@@ -549,7 +549,7 @@ flatten _f ctxt ty@(ForAllTy (Named {}) _)
 
 flatten f ctxt (CastTy ty g)
   = do { (xi, co) <- flatten f ctxt ty
-       ; return (mkCastTy xi g, mkTcCoherenceCo co g) }
+       ; return (mkCastTy xi g, tcCastCoercionKind co g g) }
 flatten _ _ ty@(CoercionTy {}) = return (ty, mkTcNomReflCo ty)
 \end{code}
 

@@ -1006,7 +1006,7 @@ tc_fam_ty_pats (name, kind)
   = do { let (fam_inv_tkvs, fam_body) = splitForAllTysInvisible kind
 
          -- Instantiate with meta kind vars
-       ; (_, fam_arg_kinds, inv_subst) <- tcInstTyCoVars PatOrigin fam_inv_tkvs
+       ; (_, fam_arg_kinds, inv_subst) <- tcInstTyVars PatOrigin fam_inv_tkvs
        ; let fam_body' = substTy inv_subst fam_body
              (exp_bndrs, bare_kind) = splitForAllTys fam_body'
              (arg_bndrs, leftover_bndrs) = splitAtList arg_pats exp_bndrs
@@ -1295,75 +1295,9 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
 
                 -- /Lazily/ figure out the univ_tvs etc
                 -- Each univ_tv is either a dc_tv or a tmpl_tv
-    
-    (univ_tvs, raw_eq_cvs, kind_subst)
-      = initUs_ us $
-        choose [] [] empty_subst empty_subst empty_lc tmpl_tvs
-    in_scope = mkInScopeSet (mkVarSet tmpl_tvs `unionVarSet` mkVarSet dc_tvs)
-    empty_subst = mkEmptyTCvSubst in_scope
-    empty_lc    = emptyLiftingContext in_scope
-                                          
-    choose :: [TyVar]           -- accumulator of univ tvs, reversed
-           -> [CoVar]           -- accumulator of GADT equality covars, reversed
-           -> TCvSubst          -- template substutition
-                                -- Note [Substitution in template variables kinds]
-           -> TCvSubst          -- res. substitution
-           -> LiftingContext    -- mapping from un-substed kinds to coercions
-                                -- Note [Substitution in template variables kinds]
-                                -- TODO (RAE): Rewrite Note.
-           -> [TyVar]           -- template tvs (the univ tvs passed in)
-           -> UniqSM ( [TyVar]  -- the univ_tvs
-                     , [CoVar]  -- the covars witnessing GADT equalities
-                     , TCvSubst )  -- a substitution to fix kinds in ex_tvs
-           
-    choose univs eqs _     r_sub _  []
-      = return (reverse univs, reverse eqs, r_sub)
-    choose univs eqs t_sub r_sub lc (t_tv:t_tvs)
-      | Just r_ty <- lookupVar subst t_tv
-      = case tcGetTyVar_maybe r_ty of
-          Just r_tv
-            |  not (r_tv `elem` univs)
-            -> -- simple variable substitution. we should continue to subst.
-               choose (r_tv':univs) eqs
-                      (extendTCvSubst t_sub t_tv r_ty')
-                      (extendTCvSubst r_sub r_tv (fix_kind r_ty'))
-                      lc t_tvs
-            where
-              -- See Note [Substitution in template variables kinds]
-              r_tv' = setTyVarKind r_tv (substTy t_sub (tyVarKind t_tv))
-              r_ty' = mkOnlyTyVarTy r_tv'
-              fix_kind ty = mkCastTy ty $
-                            liftCoSubst Representational lc (typeKind ty)
-
-               -- not a simple substitution. make an equality predicate
-               -- and extend the lifting context
-               -- See Note [Substitution in template variables kinds]
-                            -- TODO (RAE): Update note!
-          _ -> do { cv <- fresh_co_var (mkOnlyTyVarTy t_tv') casted_r_ty
-                  ; let lc1  = extendLiftingContextIS lc  cv
-                        lc2  = extendLiftingContext   lc1 t_tv' (mkCoVarCo cv)
-                        t_sub' = extendTCvInScope t_sub cv
-                        r_sub' = extendTCvInScope r_sub cv
-                  ; choose (t_tv':univs) (cv:eqs)
-                           (extendTCvSubst t_sub' t_tv (mkOnlyTyVarTy t_tv'))
-                           r_sub' lc2 t_tvs }
-            where t_tv' = updateTyVarKind (substTy t_sub) t_tv
-                  casted_r_ty = mkCastTy r_ty $
-                                mkSymCo $
-                                liftCoSubst Representational lc (tyVarKind t_tv')
-
-      | otherwise
-      = pprPanic "rejigConRes" (ppr res_ty)
-
-      -- creates a fresh gadt covar, with a Nominal role
-    fresh_co_var :: Type -> Type -> UniqSM CoVar
-    fresh_co_var t1 t2
-      = do { u <- getUniqueM
-           ; let name = mkSystemVarName u (fsLit "gadt")
-           ; return $ mkCoVar name (mkCoercionType Nominal t1 t2) }
-
+    (univ_tvs, raw_eq_cvs, kind_subst) = initUs_ us $
+                                         mkGADTVars tmpl_tvs dc_tvs subst
     raw_ex_tvs = dc_tvs `minusList` univ_tvs
-      -- See Note [Substitution in template variables kinds]
     (_, substed_ex_tvs) = mapAccumL substTyVarBndr kind_subst raw_ex_tvs
 
     sorted_tcvs = varSetElemsWellScoped $ mkVarSet (substed_ex_tvs ++ raw_eq_cvs)

@@ -25,7 +25,8 @@ module TcEvidence (
   mkTcTyConAppCo, mkTcAppCo, mkTcAppCos, mkTcFunCo,
   mkTcAxInstCo, mkTcUnbranchedAxInstCo, mkTcForAllCo, mkTcForAllCos, 
   mkTcSymCo, mkTcTransCo, mkTcNthCo, mkTcLRCo, mkTcSubCo,
-  mkTcAxiomRuleCo, mkTcCoherenceCo,
+  mkTcAxiomRuleCo, mkTcCoherenceLeftCo, mkTcCoherenceRightCo,
+  castTcCoercionKind,
   tcCoercionKind, coVarsOfTcCo, isEqVar, mkTcCoVarCo, 
   isTcReflCo, getTcCoVar_maybe,
   tcCoercionRole, eqVarRole
@@ -91,6 +92,13 @@ differences
      - TcSubCo is not applied as deep as done with mkSubCo
     Reason: they'll get established when we desugar to Coercion
 
+A quite-subtle point is that TcCoercions can be heterogeneous -- that is,
+the kinds coerced between might be different! What's unusual here is that
+the kind of a TcCoercion is classified by (~), which is homogeneous. This
+doesn't pose a problem in practice -- we never lint TcCoercions -- but is
+a bit strange. I (Richard E.) didn't see a better way of organizing the
+whole thing, while still making (~) homogeneous in user code.
+
 Note [TcAxiomInstCo takes TcCoercions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Why does TcAxiomInstCo take a list of TcCoercions? Because AxiomInstCo does,
@@ -100,16 +108,6 @@ optimization -- see Note [Coercion axioms applied to coercions] in TyCoRep.
 But, of course, we don't want to fiddle with
 CoCoArgs in the type-checker, so we ensure that all CoCoArgs are actually
 reflexive and then we can proceed.
-
-Note [TcCoherenceCo]
-~~~~~~~~~~~~~~~~~~~~
-We sometimes need to process casted types t = (s |> co). In particular, we
-need to be able to flatten these beasts, which produces a flattened t'
-and a TcCoercion (g :: t' ~ t). What should g look like? We don't need
-to flatten the original co (what would be the point?), so really we need
-(g :: (s' |> co) ~ (s |> co)). This is precisely what the TcCoherenceCo
-form proves, when its TcCoercion argument is (g :: s' ~ s). Note that the
-second coercion is a proper (representational) core Coercion!
 
 \begin{code}
 data TcCoercion 
@@ -130,7 +128,7 @@ data TcCoercion
   | TcLRCo LeftOrRight TcCoercion
   | TcSubCo TcCoercion
   | TcCastCo TcCoercion TcCoercion     -- co1 |> co2
-  | TcCoherenceCo TcCoercion Coercion  -- See Note [TcCoherenceCo]
+  | TcCoherenceCo TcCoercion Coercion
   | TcLetCo TcEvBinds TcCoercion
   deriving (Data.Data, Data.Typeable)
 
@@ -261,9 +259,21 @@ mkTcCoVarCo ipv = TcCoVarCo ipv
   -- evidence variables as it goes.  In any case, the optimisation
   -- will be done in the later zonking phase
 
-mkTcCoherenceCo :: TcCoercion -> Coercion -> TcCoercion
-mkTcCoherenceCo (TcRefl r ty) g = TcRefl r (mkCastTy ty g)
-mkTcCoherenceCo co            g = TcCoherenceCo co g
+-- | Cast the left type in a coercion. The second coercion must be
+-- Representational.
+mkTcCoherenceLeftCo :: TcCoercion -> Coercion -> TcCoercion
+mkTcCoherenceLeftCo co g = TcCoherenceCo co g
+
+-- | Cast the right type in a coercion. The second coercion must be
+-- Representational.
+mkTcCoherenceRightCo :: TcCoercion -> Coercion -> TcCoercion
+mkTcCoherenceRightCo c1 c2 = mkTcSymCo (mkTcCoherenceLeftCo (mkTcSymCo c1) c2)
+
+-- | Cast both types in a coercion. The second and third coercions must be
+-- Representational.
+castTcCoercionKind :: TcCoercion -> Coercion -> Coercion -> TcCoercion
+castTcCoercionKind g h1 h2
+  = g `mkTcCoherenceLeftCo` h1 `mkTcCoherenceRightCo` h2
 \end{code}
 
 \begin{code}
@@ -274,7 +284,7 @@ tcCoercionKind co = go co
     go (TcLetCo _ co)         = go co
     go (TcCastCo _ co)        = case getEqPredTys (pSnd (go co)) of
                                    (ty1,ty2) -> Pair ty1 ty2
-    go (TcCoherenceCo co g)   = (`mkCastTy` g) <$> go co
+    go (TcCoherenceCo co g)   = pLiftFst (`mkCastTy` g) (go co)
     go (TcTyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map go cos)
     go (TcAppCo co1 co2)      = mkAppTy <$> go co1 <*> go co2
     go (TcForAllCo tv co)     = mkNamedForAllTy tv Invisible <$> go co
@@ -456,20 +466,6 @@ ppr_forall_co p ty
 %*                                                                      *
 %************************************************************************
 
-Note [Wrapping coercions embedded in types]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When instantiating quantified type variables in tcInstTyCoVars (and friends),
-there is the possibility of hitting a quantified coercion variable, now that
-ForAllTy can quantify over coercions along with types. tcInstTyCoVars makes
-a new meta type variable for type variables. What to do for coercions? We make
-an evidence variable (an Id) and emit a wanted constraint to solve for an
-appropriate coercion to supply for the evidence. But, the type that is being
-instantiated expects an *unboxed* coercion -- it is impossible to quantify
-over a boxed coercion within a type. So, when creating the HsWrapper to supply
-instantiated type/coercion variables, we must use the EvUnbox constructor for
-EvTerm, which will desugar to an unboxing operation using case analysis. See
-also [Coercion variables in tcInstTyCoVarX] in TcMType.
-
 \begin{code}
 data HsWrapper
   = WpHole                      -- The identity coercion
@@ -508,21 +504,8 @@ mkWpCast :: TcCoercion -> HsWrapper
 mkWpCast co = ASSERT2(tcCoercionRole co == Representational, ppr co)
               WpCast co
 
--- See Note [Wrapping coercions embedded in types]
 mkWpTyApps :: [Type] -> HsWrapper
-mkWpTyApps tys = mk_co_app_fn mk_ty_app tys
-  where
-    mk_ty_app :: Type -> HsWrapper
-    mk_ty_app ty
-      | Just co <- isCoercionTy_maybe ty
-      , Just cv <- getCoVar_maybe co
-      = WpEvApp $ EvUnbox $ EvId cv
-
-      | isCoercionTy ty
-      = pprPanic "mkWpTyApps" (ppr ty)
-
-      | otherwise
-      = WpTyApp ty
+mkWpTyApps tys = mk_co_app_fn WpTyApp tys
 
 mkWpEvApps :: [EvTerm] -> HsWrapper
 mkWpEvApps args = mk_co_app_fn WpEvApp args
@@ -633,11 +616,6 @@ data EvTerm
 
   | EvLit EvLit       -- Dictionary for KnownNat and KnownSymbol classes.
                       -- Note [KnownNat & KnownSymbol and EvLit]
-
-  | EvUnbox EvTerm               -- Used when we need to desugar to an *unboxed*
-                                 -- coercion. Always Nominal.
-                                 -- See Note [Wrapping coercions embedded in types]
-                                 
 
   deriving( Data.Data, Data.Typeable)
 
@@ -776,7 +754,6 @@ evVarsOfTerm (EvCast tm co)       = evVarsOfTerm tm `unionVarSet` coVarsOfTcCo c
 evVarsOfTerm (EvTupleMk evs)      = evVarsOfTerms evs
 evVarsOfTerm (EvDelayedError _ _) = emptyVarSet
 evVarsOfTerm (EvLit _)            = emptyVarSet
-evVarsOfTerm (EvUnbox v)          = evVarsOfTerm v
 
 evVarsOfTerms :: [EvTerm] -> VarSet
 evVarsOfTerms = mapUnionVarSet evVarsOfTerm
@@ -841,7 +818,6 @@ instance Outputable EvTerm where
   ppr (EvLit l)          = ppr l
   ppr (EvDelayedError ty msg) =     ptext (sLit "error") 
                                 <+> sep [ char '@' <> ppr ty, ppr msg ]
-  ppr (EvUnbox v)        = ptext (sLit "unbox") <+> ppr v
 
 instance Outputable EvLit where
   ppr (EvNum n) = integer n

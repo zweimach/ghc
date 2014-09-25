@@ -889,18 +889,6 @@ dsEvTerm (EvLit l) =
     EvNum n -> mkIntegerExpr n
     EvStr s -> mkStringExprFS s
 
-dsEvTerm (EvUnbox evtm)
-  = do { tm <- dsEvTerm evtm  -- tm should be a boxed coercion
-       ; u <- newUnique
-       ; let boxed_type = exprType tm
-             (_boxed_eq, [k1, k2, t1, t2]) = splitTyConApp boxed_type
-             unboxed_type = mkHeteroCoercionType Nominal k1 k2 t1 t2
-             name = mkSystemVarName u (mkFastString "cv")
-             cv = mkCoVar name unboxed_type
-             wildcard = mkLocalId wildCardName boxed_type
-       ; return $ Case tm wildcard unboxed_type
-                    [(DataAlt eqBoxDataCon, [cv], Var cv)] }
-
 ---------------------------------------
 dsTcCoercion :: TcCoercion -> (Coercion -> CoreExpr) -> DsM CoreExpr
 -- This is the crucial function that moves 
@@ -964,7 +952,7 @@ ds_tc_coercion subst tc_co
     go (TcSubCo co)             = mkSubCo (go co)
     go (TcLetCo bs co)          = ds_tc_coercion (ds_co_binds bs) co
     go (TcCastCo co1 co2)       = mkCoCast (go co1) (go co2)
-    go (TcCoherenceCo tco1 co2) = castCoercionKind (go tco1) co2 co2
+    go (TcCoherenceCo tco1 co2) = mkCoherenceCo (go tco1) co2
     go (TcCoVarCo v)            = ds_ev_id subst v
     go (TcAxiomRuleCo co ts cs) = mkAxiomRuleCo co (map (Type.substTy subst) ts) (map go cs)
 

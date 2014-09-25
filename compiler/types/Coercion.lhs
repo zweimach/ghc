@@ -97,7 +97,7 @@ module Coercion (
         tidyCo, tidyCos,
 
         -- * Other
-        applyCo, promoteCoercion
+        applyCo, promoteCoercion, mkGADTVars
        ) where 
 
 #include "HsVersions.h"
@@ -2001,3 +2001,219 @@ applyCo (ForAllTy (Anon _)     ty) _  = ty
 applyCo _                          _  = panic "applyCo"
 \end{code}
 
+%************************************************************************
+%*                                                                      *
+             GADT return types
+%*                                                                      *
+%************************************************************************
+
+Note [mkGADTVars]
+~~~~~~~~~~~~~~~~~
+
+Running example:
+
+data T (k1 :: *) (k2 :: *) (a :: k2) (b :: k2) where
+  MkT :: T x1 * (Proxy (y :: x1), z) z
+
+We need the rejigged type to be
+
+  MkT :: forall (x1 :: *) (k2 :: *) (a :: k2) (z :: k2).
+         forall (y :: x1) (c1 :: k2 ~# *)
+                (c2 :: a ~# ((Proxy x1 y, z |> c1) |> sym c1)).
+         T x1 k2 a z
+
+The HsTypes have already been desugared to proper Types:
+
+  T x1 * (Proxy (y :: x1), z) z
+becomes
+  [x1 :: *, y :: x1, z :: *]. T x1 * (Proxy x1 y, z) z
+
+We start off by matching (T k1 k2 a b) with (T x1 * (Proxy x1 y, z) z). We
+know this match will succeed because of the validity check (actually done
+later, but laziness saves us -- see Note [Checking GADT return types]). Thus,
+we get
+
+  subst := { k1 |-> x1, k2 |-> *, a |-> (Proxy x1 y, z), b |-> z }
+
+Now, we need to figure out what the GADT equalities should be. In this case,
+we *don't* want (k1 ~ x1) to be a GADT equality: it should just be a
+renaming. The others should be GADT equalities, but they need to be
+homogeneous so that the solver can make sense of them. We also need to make
+sure that the universally-quantified variables of the datacon match up
+with the tyvars of the tycon, as required for Core context well-formedness.
+(This last bit is why we have to rejig at all!)
+
+`choose` walks down the tycon tyvars, figuring out what to do with each one.
+It carries three substitutions:
+  - t_sub's domain is *template* or *tycon* tyvars, mapping them to variables
+    mentioned in the datacon signature.
+  - r_sub's domain is *result* tyvars, names written by the programmer in
+    the datacon signature. The final rejigged type will use these names, but
+    the subst is still needed because sometimes the kind of these variables
+    is different than what the user wrote.
+  - lc is a lifting context -- that is, a mapping from type variables to
+    coercions -- that maps from *tycon* tyvars to coercion variables witnessing
+    the relevant GADT equality.
+
+Before explaining the details of `choose`, let's just look at its operation
+on our example:
+
+  choose [] [] {} {} {} [k1, k2, a, b]
+  -->          -- first branch of `case` statement
+  choose
+    univ_tvs: [x1 :: *]
+    covars:   []
+    t_sub:    {k1 |-> x1}
+    r_sub:    {x1 |-> x1 |> <*>}
+    lc:       {}
+    t_tvs:    [k2, a, b]
+  -->          -- second branch of `case` statement
+  choose
+    univ_tvs: [k2 :: *, x1 :: *]
+    covars:   [c1 :: k2 ~# (* |> sym <*>)]
+    t_sub:    {k1 |-> x1, k2 |-> k2}
+    r_sub:    {x1 |-> x1 |> <*>}
+    lc:       {k2 |-> c1}
+    t_tvs:    [a, b]
+  -->          -- second branch of `case` statement
+  choose
+    univ_tvs: [a :: k2, k2 :: *, x1 :: *]
+    covars:   [ c2 :: a ~# ((Proxy x1 y, z) |> sym c1)
+              , c1 :: k2 ~# (* |> sym <*>) ]
+    t_sub:    {k1 |-> x1, k2 |-> k2, a |-> a}
+    r_sub:    {x1 |-> x1 |> <*>}
+    lc:       {k2 |-> c1, a |-> c2}
+    t_tvs:    [b]
+  -->          -- first branch of `case` statement
+  choose
+    univ_tvs: [z :: k2, a :: k2, k2 :: *, x1 :: *]
+    covars:   [ c2 :: a ~# ((Proxy x1 y, z |> c1) |> sym c1)
+              , c1 :: k2 ~# (* |> sym <*>) ]
+    t_sub:    {k1 |-> x1, k2 |-> k2, a |-> a, b |-> z}
+    r_sub:    {x1 |-> x1 |> <*>, z |-> z |> c1}
+    lc:       {k2 |-> c1, a |-> c2}
+    t_tvs:    []
+  -->          -- end of recursion
+  ([x1, k2, a, z], [c1, c2], {x1 |-> x1 |> <*>, z |-> z |> c1})
+
+`choose` looks up each tycon tyvar in the matching (it *must* be matched!). If
+it finds a bare result tyvar (the first branch of the `case` statement), it
+checks to make sure that the result tyvar isn't yet in the list of univ_tvs.
+If it is in that list, then we have a repeated variable in the return type,
+and we in fact need a GADT equality. Assuming no repeated variables, we wish
+to use the variable name given in the datacon signature (that is, `x1` not
+`k1` and `z` not `b`), not the tycon signature (which may have been made up by
+GHC!). So, we add a mapping from the tycon tyvar to the result tyvar to t_sub.
+But, it's essential that the kind of the result tyvar (which is now becoming a
+proper universally- quantified variable) match the tycon tyvar. Thus, the
+setTyVarKind in the definition of r_tv'. This last step is necessary in
+fixing the kind of the universally-quantified `z`.
+
+However, because later uses of the result tyvar will expect it to have
+the user-supplied kind (that is, (z :: *) instead of (z :: k2)), we also
+must extend r_sub appropriately. This work with r_sub must take into account
+that some of the covars may mention the variables in question. Thus,
+the `mapAccumR substCoVarBndr`.
+
+If we discover that a mapping in `subst` gives us a non-tyvar (the second
+branch of the `case` statement), then we have a GADT equality to create.
+We create a fresh coercion variable and extend the substitutions accordingly,
+being careful to apply the correct substitutions built up from previous
+variables.
+
+This whole algorithm is quite delicate, indeed. I (Richard E.) see two ways
+of simplifying it:
+
+1) The first branch of the `case` statement is really an optimization, used
+in order to get fewer GADT equalities. It might be possible to make a GADT
+equality for *every* univ. tyvar, even if the equality is trivial, and then
+either deal with the bigger type or somehow reduce it later.
+
+2) This algorithm strives to use the names for type variables as specified
+by the user in the datacon signature. If we always used the tycon tyvar
+names, for example, this would be simplified. This change would almost
+certainly degrade error messages a bit, though.
+
+\begin{code}
+
+-- ^ From information about a source datacon definition, extract out
+-- what the universal variables and the GADT equalities should be.
+-- Called from TcTyClsDecls.rejigConRes, but it gets so involved with
+-- lifting and coercions that it seemed to belong here.
+-- See Note [mkGADTVars].
+mkGADTVars :: [TyVar]    -- ^ The tycon vars
+           -> [TyCoVar]  -- ^ The datacon vars
+           -> TCvSubst   -- ^ The matching between the template result type
+                         -- and the actual result type
+           -> UniqSM ( [TyVar]
+                     , [CoVar]
+                     , TCvSubst ) -- ^ The univ. variables, the GADT equalities,
+                                  -- and a subst to apply to any existentials.
+mkGADTVars tmpl_tvs dc_tvs subst
+  = choose [] [] empty_subst empty_subst empty_lc tmpl_tvs
+  where
+    in_scope = mkInScopeSet (mkVarSet tmpl_tvs `unionVarSet` mkVarSet dc_tvs)
+    empty_subst = mkEmptyTCvSubst in_scope
+    empty_lc    = emptyLiftingContext in_scope
+                                          
+    choose :: [TyVar]           -- accumulator of univ tvs, reversed
+           -> [CoVar]           -- accumulator of GADT equality covars, reversed
+           -> TCvSubst          -- template substutition
+           -> TCvSubst          -- res. substitution
+           -> LiftingContext    -- mapping from un-substed kinds to coercions
+           -> [TyVar]           -- template tvs (the univ tvs passed in)
+           -> UniqSM ( [TyVar]  -- the univ_tvs
+                     , [CoVar]  -- the covars witnessing GADT equalities
+                     , TCvSubst )  -- a substitution to fix kinds in ex_tvs
+           
+    choose univs eqs _     r_sub _  []
+      = return (reverse univs, reverse eqs, r_sub)
+    choose univs eqs t_sub r_sub lc (t_tv:t_tvs)
+      | Just r_ty <- lookupVar subst t_tv
+      = case getTyVar_maybe r_ty of
+          Just r_tv
+            |  not (r_tv `elem` univs)
+            -> -- simple variable substitution. we should continue to subst.
+               choose (r_tv':univs) eqs'
+                      (extendTCvSubst t_sub t_tv r_ty')
+                      (composeTCvSubst r_sub2 r_sub)
+                      lc t_tvs
+            where
+              r_tv' = setTyVarKind r_tv (substTy t_sub (tyVarKind t_tv))
+              r_ty' = mkOnlyTyVarTy r_tv'
+                -- fixed r_ty' has the same kind as r_tv
+              fixed_r_ty' = mkCastTy r_ty' $
+                            liftCoSubst Representational lc (typeKind r_ty')
+              r_tv_subst = extendTCvSubst empty_subst r_tv fixed_r_ty'
+
+                -- use mapAccumR not mapAccumL: eqs is *reversed*
+              (r_sub2, eqs') = mapAccumR substCoVarBndr r_tv_subst eqs
+
+
+               -- not a simple substitution. make an equality predicate
+               -- and extend the lifting context
+          _ -> do { cv <- fresh_co_var (mkOnlyTyVarTy t_tv') casted_r_ty
+                  ; let lc1  = extendLiftingContextIS lc  cv
+                        lc2  = extendLiftingContext   lc1 t_tv' (mkCoVarCo cv)
+                        t_sub' = extendTCvInScope t_sub cv
+                        r_sub' = extendTCvInScope r_sub cv
+                  ; choose (t_tv':univs) (cv:eqs)
+                           (extendTCvSubst t_sub' t_tv (mkOnlyTyVarTy t_tv'))
+                           r_sub' lc2 t_tvs }
+            where t_tv' = updateTyVarKind (substTy t_sub) t_tv
+                  casted_r_ty = mkCastTy r_ty $
+                                mkSymCo $
+                                liftCoSubst Representational lc (tyVarKind t_tv')
+
+      | otherwise
+      = pprPanic "mkGADTVars" (ppr tmpl_tvs $$ ppr subst)
+
+      -- creates a fresh gadt covar, with a Nominal role
+    fresh_co_var :: Type -> Type -> UniqSM CoVar
+    fresh_co_var t1 t2
+      = do { u <- getUniqueM
+           ; let name = mkSystemVarName u (fsLit "gadt")
+           ; return $ mkCoVar name (mkCoercionType Nominal t1 t2) }
+
+
+\end{code}

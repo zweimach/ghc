@@ -245,7 +245,7 @@ matchExpectedTyConApp tc orig_ty
     -- because that'll make types that are utterly ill-kinded.
     -- This happened in Trac #7368
     defer = ASSERT2( classifiesTypeWithValues res_kind, ppr tc )
-            do { (_, kappa_tys, k_subst) <- tcInstTyCoVars (OccurrenceOf (tyConName tc)) kvs
+            do { (_, kappa_tys, k_subst) <- tcInstTyVars kvs
                ; let arg_kinds' = substTys k_subst arg_kinds
                ; tau_tys <- mapM newFlexiTyVarTy arg_kinds'
                ; co <- unifyType (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
@@ -518,11 +518,7 @@ unifyTypeList (ty1:tys@(ty2:_)) = do { _ <- unifyType ty1 ty2
 %*                                                                      *
 %************************************************************************
 
-uType is the heart of the unifier.  Each arg occurs twice, because
-we want to report errors in terms of synomyms if possible.  The first of
-the pair is used in error messages only; it is always the same as the
-second, except that if the first is a synonym then the second may be a
-de-synonym'd version.  This way we get better error messages.
+uType is the heart of the unifier.
 
 \begin{code}
 ------------
@@ -555,7 +551,6 @@ uType_defer origin ty1 ty2
        ; return (mkTcCoVarCo eqv) }
 
 --------------
--- unify_np (short for "no push" on the origin stack) does the work
 uType origin orig_ty1 orig_ty2
   = do { untch <- getUntouchables
        ; traceTc "u_tys " $ vcat 
@@ -598,7 +593,15 @@ uType origin orig_ty1 orig_ty2
     go ty1 ty2
       | Just ty1' <- tcView ty1 = go ty1' ty2
       | Just ty2' <- tcView ty2 = go ty1  ty2'
-      	     
+
+    go (CastTy t1 co1) t2
+      = do { co_tys <- go t1 t2
+           ; return (mkTcCoherenceLeftCo co_tys co1) }
+
+    go t1 (CastTy t2 co2)
+      = do { co_tys <- go t1 t2
+           ; return (mkTcCoherenceRightCo co_tys co2) }
+                                  
         -- Functions (or predicate functions) just check the two parts
     go (ForAllTy (Anon fun1) arg1) (ForAllTy (Anon fun2) arg2)
       = do { co_l <- uType origin fun1 fun2
@@ -637,12 +640,6 @@ uType origin orig_ty1 orig_ty2
       | Just (ts1', t1') <- snocView ts1
       = ASSERT( isDecomposableTyCon tc1 ) 
         go_app (TyConApp tc1 ts1') t1' s2 t2 
-
-     -- TODO (RAE): This is woefully inadequate.
-    go (CastTy t1 co1) (CastTy t2 co2)
-      | coercionType co1 `eqType` coercionType co2
-      = do { co_tys <- go t1 t2
-           ; return (mkTcCoherenceCo co_tys co1) }
 
     go ty1 ty2
       | tcIsNamedForAllTy ty1 || tcIsNamedForAllTy ty2 
