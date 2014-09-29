@@ -1357,7 +1357,9 @@ getEqPredTys :: PredType -> (Type, Type)
 getEqPredTys ty
   = case splitTyConApp_maybe ty of
       Just (tc, (_ : ty1 : ty2 : tys)) ->
-        ASSERT( null tys && (tc `hasKey` eqTyConKey || tc `hasKey` coercibleTyConKey) )
+        ASSERT( null tys && (tc `hasKey` eqPrimTyConKey ||
+                             tc `hasKey` eqTyConKey ||
+                             tc `hasKey` coercibleTyConKey) )
         (ty1, ty2)
       _ -> pprPanic "getEqPredTys" (ppr ty)
 
@@ -1365,7 +1367,8 @@ getEqPredTys_maybe :: PredType -> Maybe (Role, Type, Type)
 getEqPredTys_maybe ty
   = case splitTyConApp_maybe ty of
       Just (tc, [_, ty1, ty2])
-        | tc `hasKey` eqTyConKey -> Just (Nominal, ty1, ty2)
+        | tc `hasKey` eqTyConKey
+       || tc `hasKey` eqPrimTyConKey    -> Just (Nominal, ty1, ty2)
         | tc `hasKey` coercibleTyConKey -> Just (Representational, ty1, ty2)
       _ -> Nothing
 

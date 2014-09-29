@@ -911,19 +911,26 @@ dsTcCoercion co thing_inside
        ; return (foldr (wrap_in_case result_ty) result_expr eqvs_covs) }
   where
     mk_co_var :: Id -> Unique -> (Id, Id)
-    mk_co_var eqv uniq = (eqv, mkUserLocal occ uniq ty loc)
-       where
+    mk_co_var eqv uniq
+      | isEqPredLifted pred = (eqv, mkUserLocal occ uniq ty loc)
+      | otherwise           = (eqv, eqv)
+      where
          eq_nm = idName eqv
-         occ = nameOccName eq_nm
-         loc = nameSrcSpan eq_nm
-         ty  = mkCoercionType (getEqPredRole (evVarPred eqv)) ty1 ty2
-         (ty1, ty2) = getEqPredTys (evVarPred eqv)
+         occ   = nameOccName eq_nm
+         loc   = nameSrcSpan eq_nm
+         pred  = evVarPred eqv
+         ty    = mkCoercionType (getEqPredRole pred) ty1 ty2
+         (ty1, ty2) = getEqPredTys pred
 
     wrap_in_case result_ty (eqv, cov) body
+      | isEqPredLifted eqv
       = case getEqPredRole (evVarPred eqv) of
          Nominal          -> Case (Var eqv) eqv result_ty [(DataAlt eqBoxDataCon, [cov], body)]
          Representational -> Case (Var eqv) eqv result_ty [(DataAlt coercibleDataCon, [cov], body)]
          Phantom          -> panic "wrap_in_case/phantom"
+
+      | otherwise   -- it's already unlifted. No need to unbox!
+      = body
 
 ds_tc_coercion :: TCvSubst -> TcCoercion -> Coercion
 -- If the incoming TcCoercion if of type (a ~ b)   (resp.  Coercible a b)
