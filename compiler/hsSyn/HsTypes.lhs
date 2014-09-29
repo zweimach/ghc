@@ -31,7 +31,7 @@ module HsTypes (
 
         ConDeclField(..), pprConDeclFields,
         
-        mkHsQTvs, hsQTvExplicit,
+        mkHsQTvs, hsQTvExplicit, isHsKindedTyVar, hsTvbAllKinded,
         mkExplicitHsForAllTy, mkImplicitHsForAllTy, mkQualifiedHsForAllTy,
         hsExplicitTvs,
         hsTyVarName, mkHsWithBndrs, hsLKiTyVarNames,
@@ -163,7 +163,8 @@ data HsWithBndrs name thing
   = HsWB { hswb_cts  :: thing                 -- Main payload (type or list of types)
          , hswb_vars :: PostRn name [Name]    -- Kind and type vars
     }                  
-  deriving (Data, Typeable)
+  deriving (Typeable)
+deriving instance (DataId name, Data thing) => Data (HsWithBndrs name thing)
 
 mkHsWithBndrs :: thing -> HsWithBndrs RdrName thing
 mkHsWithBndrs x = HsWB { hswb_cts = x, hswb_vars = PlaceHolder }
@@ -201,7 +202,7 @@ isHsKindedTyVar (KindedTyVar {}) = True
 
 -- | Do all type variables in this 'LHsTyVarBndr' come with kind annotations?
 hsTvbAllKinded :: LHsTyVarBndrs name -> Bool
-hsTvbAllKinded = all (isHsKindedTyVar . unLoc) . hsQTvBndrs
+hsTvbAllKinded = all (isHsKindedTyVar . unLoc) . hsQTvExplicit
 
 data HsType name
   = HsForAllTy  HsExplicitFlag          -- Renamer leaves this flag unchanged, to record the way

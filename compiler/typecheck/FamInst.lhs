@@ -24,7 +24,7 @@ import Coercion( pprCoAxBranchHdr )
 import TcEvidence
 import LoadIface
 import Type ( applyTysX )
-import TyCoRep
+import TcType
 import TcRnMonad
 import TyCon
 import CoAxiom

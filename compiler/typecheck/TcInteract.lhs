@@ -1938,7 +1938,7 @@ getCoercibleInst loc ty1 ty2
     | tcIsNamedForAllTy ty1
     , tcIsNamedForAllTy ty2
     , let (bndrs1,body1) = tcSplitNamedForAllTysB ty1
-          (bndr2,body2) = tcSplitNamedForAllTysB ty2
+          (bndrs2,body2) = tcSplitNamedForAllTysB ty2
     , equalLength bndrs1 bndrs2
     , map binderVisibility bndrs1 == map binderVisibility bndrs2
     = do { ev_term <- deferTcSForAllEq Representational loc (bndrs1,body1) (bndrs2,body2)

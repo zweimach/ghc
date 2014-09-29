@@ -1455,7 +1455,7 @@ checkStrictBinds top_lvl rec_group orig_binds tc_binds poly_ids
     any_pat_looks_lazy = any (looksLazyPatBind . unLoc) orig_binds
 
     is_unlifted id = case tcSplitSigmaTy (idType id) of
-                       (_, rho) -> isUnLiftedType rho
+                       (_, _, rho) -> isUnLiftedType rho
           -- For the is_unlifted check, we need to look inside polymorphism
           -- and overloading.  E.g.  x = (# 1, True #)
           -- would get type forall a. Num a => (# a, Bool #)

@@ -1191,7 +1191,7 @@ unifyList orig_xs orig_ys
     go []     []     = return ()
     go (x:xs) (y:ys) = do { unify x y
                           ; go xs ys }
-    go _ _ = maybeApart subst  -- See Note [Lists of different lengths are MaybeApart]
+    go _ _ = maybeApart  -- See Note [Lists of different lengths are MaybeApart]
 
 ---------------------------------
 uVar :: TyOrCo tyco

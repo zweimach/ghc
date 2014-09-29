@@ -52,7 +52,6 @@ import TcType
 import Type
 import Coercion hiding (substCo)
 import TysWiredIn ( eqBoxDataCon, coercibleDataCon, tupleCon )
-import PrelNames  ( wildCardName )
 import Id
 import Class
 import DataCon	( dataConWorkId )
@@ -923,7 +922,7 @@ dsTcCoercion co thing_inside
          (ty1, ty2) = getEqPredTys pred
 
     wrap_in_case result_ty (eqv, cov) body
-      | isEqPredLifted eqv
+      | isEqPredLifted (evVarPred eqv)
       = case getEqPredRole (evVarPred eqv) of
          Nominal          -> Case (Var eqv) eqv result_ty [(DataAlt eqBoxDataCon, [cov], body)]
          Representational -> Case (Var eqv) eqv result_ty [(DataAlt coercibleDataCon, [cov], body)]

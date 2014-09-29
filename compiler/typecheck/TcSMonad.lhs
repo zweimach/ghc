@@ -1835,7 +1835,7 @@ matchFam tycon args
        ; let mb_match = tcLookupFamInst fam_envs tycon args
        ; traceTcS "lookupFamInst" $
                   vcat [ ppr tycon <+> ppr args
-                       , pprTvBndrs (varSetElems (tyVarsOfTypes args))
+                       , pprTCvBndrs (varSetElems (tyCoVarsOfTypes args))
                        , ppr mb_match ]
        ; case mb_match of
            Nothing -> return Nothing

@@ -44,7 +44,6 @@ import TcMType
 import TcRnMonad
 import TcType
 import Type
-import Coercion ( coercionType )
 import TcEvidence
 import Name ( isSystemName )
 import Inst

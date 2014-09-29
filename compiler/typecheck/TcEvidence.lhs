@@ -35,7 +35,7 @@ module TcEvidence (
 #include "HsVersions.h"
 
 import Var
-import Coercion( getCoVar_maybe, nthRole, eqCoercion )
+import Coercion( getCoVar_maybe, nthRole )
 import PprCore ()   -- Instance OutputableBndr TyVar
 import TyCoRep  -- Knows type representation
 import TcType
@@ -511,7 +511,7 @@ mkWpTyEvApps :: [Type] -> HsWrapper
 mkWpTyEvApps tys = mk_co_app_fn wp_ty_or_ev_app tys
   where wp_ty_or_ev_app ty
           | Just co <- isCoercionTy_maybe ty
-          , Just cv <- isCoVar_maybe co
+          , Just cv <- getCoVar_maybe co
           = WpEvApp (EvId cv)
 
           | otherwise

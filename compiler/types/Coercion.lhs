@@ -114,6 +114,7 @@ import Util
 import BasicTypes
 import Outputable
 import Unique
+import UniqSupply
 import Pair
 import SrcLoc
 import PrelNames        ( funTyConKey, eqPrimTyConKey, eqReprPrimTyConKey
@@ -128,6 +129,7 @@ import Control.Monad (foldM)
 import Data.Maybe (isJust)
 import FastString
 import Control.Arrow ( first )
+import Data.List ( mapAccumR )
 \end{code}
 
 %************************************************************************

@@ -70,7 +70,7 @@ module Type (
         -- Deconstructing predicate types
         PredTree(..), classifyPredType,
         getClassPredTys, getClassPredTys_maybe,
-        getEqPredTys, getEqPredTys_maybe, getEqPredRole,
+        getEqPredTys, getEqPredTys_maybe, getEqPredRole, isEqPredLifted,
 
         -- ** Binders
         mkNamedBinder, mkAnonBinder, isNamedBinder, isAnonBinder,
@@ -1356,29 +1356,38 @@ getClassPredTys_maybe ty = case splitTyConApp_maybe ty of
 getEqPredTys :: PredType -> (Type, Type)
 getEqPredTys ty
   = case splitTyConApp_maybe ty of
-      Just (tc, (_ : ty1 : ty2 : tys)) ->
-        ASSERT( null tys && (tc `hasKey` eqPrimTyConKey ||
-                             tc `hasKey` eqTyConKey ||
-                             tc `hasKey` coercibleTyConKey) )
-        (ty1, ty2)
+      Just (tc, [_, ty1, ty2])
+        |  tc `hasKey` eqTyConKey
+        || tc `hasKey` coercibleTyConKey -> (ty1, ty2)
+      Just (tc, [_, _, ty1, ty2])
+        | tc `hasKey` eqPrimTyConKey -> (ty1, ty2)
       _ -> pprPanic "getEqPredTys" (ppr ty)
 
 getEqPredTys_maybe :: PredType -> Maybe (Role, Type, Type)
 getEqPredTys_maybe ty
   = case splitTyConApp_maybe ty of
       Just (tc, [_, ty1, ty2])
-        | tc `hasKey` eqTyConKey
-       || tc `hasKey` eqPrimTyConKey    -> Just (Nominal, ty1, ty2)
+        | tc `hasKey` eqTyConKey        -> Just (Nominal, ty1, ty2)
         | tc `hasKey` coercibleTyConKey -> Just (Representational, ty1, ty2)
+      Just (tc, [_, _, ty1, ty2])
+        | tc `hasKey` eqPrimTyConKey    -> Just (Nominal, ty1, ty2)
       _ -> Nothing
 
 getEqPredRole :: PredType -> Role
 getEqPredRole ty
   = case splitTyConApp_maybe ty of
-      Just (tc, [_, _, _])
+      Just (tc, _)
         | tc `hasKey` eqTyConKey -> Nominal
+        | tc `hasKey` eqPrimTyConKey -> Nominal
         | tc `hasKey` coercibleTyConKey -> Representational
       _ -> pprPanic "getEqPredRole" (ppr ty)
+
+-- | Assuming the type provided is an EqPred, is it lifted?
+isEqPredLifted :: PredType -> Bool
+isEqPredLifted ty
+  = case splitTyConApp_maybe ty of
+      Just (tc, _) -> not (tc `hasKey` eqPrimTyConKey)
+      _ -> pprPanic "isEqPredLifted" (ppr ty)
 
 \end{code}
 

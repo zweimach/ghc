@@ -62,8 +62,8 @@ module TyCoRep (
 
         -- Substitutions
         TCvSubst(..), TvSubstEnv, CvSubstEnv,
-        emptyTvSubstEnv, emptyCvSubstEnv, composeTCvSubstEnv, emptyTCvSubst,
-        mkEmptyTCvSubst, isEmptyTCvSubst, mkTCvSubst, getTvSubstEnv,
+        emptyTvSubstEnv, emptyCvSubstEnv, composeTCvSubstEnv, composeTCvSubst,
+        emptyTCvSubst, mkEmptyTCvSubst, isEmptyTCvSubst, mkTCvSubst, getTvSubstEnv,
         getCvSubstEnv, getTCvInScope, isInScope, notElemTCvSubst,
         setTvSubstEnv, setCvSubstEnv, zapTCvSubst,
         extendTCvInScope, extendTCvInScopeList,
@@ -1345,6 +1345,15 @@ composeTCvSubstEnv in_scope (tenv1, cenv1) (tenv2, cenv2)
         --  *left* argument to plusVarEnv, because the right arg wins
   where
     subst1 = TCvSubst in_scope tenv1 cenv1
+
+-- | Composes two substitutions, applying the second one provided first,
+-- like in function composition.
+composeTCvSubst :: TCvSubst -> TCvSubst -> TCvSubst
+composeTCvSubst (TCvSubst is1 tenv1 cenv1) (TCvSubst is2 tenv2 cenv2)
+  = TCvSubst is3 tenv3 cenv3
+  where
+    is3 = is1 `unionInScope` is2
+    (tenv3, cenv3) = composeTCvSubstEnv is3 (tenv1, cenv1) (tenv2, cenv2)
 
 emptyTCvSubst :: TCvSubst
 emptyTCvSubst = TCvSubst emptyInScopeSet emptyTvSubstEnv emptyCvSubstEnv
