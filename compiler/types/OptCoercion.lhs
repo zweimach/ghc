@@ -18,7 +18,7 @@ import CoAxiom
 import Var
 import VarSet
 import VarEnv
-import StaticFlags	( opt_NoOptCoercion )
+import StaticFlags      ( opt_NoOptCoercion )
 import Outputable
 import FamInstEnv ( flattenTys )
 import Pair
@@ -33,7 +33,7 @@ import Control.Monad   ( zipWithM )
 
 %************************************************************************
 %*                                                                      *
-                 Optimising coercions									
+                 Optimising coercions                                                                   
 %*                                                                      *
 %************************************************************************
 
@@ -888,7 +888,7 @@ opt_trans_rule is co1 co2
   , (coercionType lh) `eqType` (coercionType rh)
   = opt_trans_rule is lco rco
 
-opt_trans_rule _ co1 co2	-- Identity rule
+opt_trans_rule _ co1 co2        -- Identity rule
   | (Pair ty1 _, r) <- coercionKindRole co1
   , Pair _ ty2 <- coercionKind co2
   , ty1 `eqType` ty2
@@ -1062,7 +1062,7 @@ isCohRight_maybe _                             = Nothing
 compatible_co :: Coercion -> Coercion -> Bool
 -- Check whether (co1 . co2) will be well-kinded
 compatible_co co1 co2
-  = x1 `eqType` x2		
+  = x1 `eqType` x2              
   where
     Pair _ x1 = coercionKind co1
     Pair x2 _ = coercionKind co2

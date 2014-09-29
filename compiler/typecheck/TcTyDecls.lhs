@@ -141,7 +141,7 @@ and then *their* superclasses, and so on.  This set must be finite!
 It is OK for superclasses to be type synonyms for other classes, so
 must "look through" type synonyms. Eg
      type X a = C [a]
-     class X a => C a	-- No!  Recursive superclass!
+     class X a => C a   -- No!  Recursive superclass!
 
 We want definitions such as:
 
@@ -401,12 +401,12 @@ calcRecFlags boot_details is_boot mrole_env tyclss
 
     (new_tycons, prod_tycons) = partition isNewTyCon single_con_tycons
         -- NB: we do *not* call isProductTyCon because that checks
-	--     for vanilla-ness of data constructors; and that depends
-	--     on empty existential type variables; and that is figured
-	--     out by tcResultType; which uses tcMatchTy; which uses
-	--     coreView; which calls coreExpandTyCon_maybe; which uses
-	--     the recursiveness of the TyCon.  Result... a black hole.
-	-- YUK YUK YUK
+        --     for vanilla-ness of data constructors; and that depends
+        --     on empty existential type variables; and that is figured
+        --     out by tcResultType; which uses tcMatchTy; which uses
+        --     coreView; which calls coreExpandTyCon_maybe; which uses
+        --     the recursiveness of the TyCon.  Result... a black hole.
+        -- YUK YUK YUK
 
         --------------- Newtypes ----------------------
     nt_loop_breakers = mkNameSet (findLoopBreakers nt_edges)

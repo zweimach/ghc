@@ -55,32 +55,32 @@ amount of simplification, so simplifyRuleLhs just sets the flag
 appropriately.
 
 Example.  Consider the following left-hand side of a rule
-	f (x == y) (y > z) = ...
+        f (x == y) (y > z) = ...
 If we typecheck this expression we get constraints
-	d1 :: Ord a, d2 :: Eq a
+        d1 :: Ord a, d2 :: Eq a
 We do NOT want to "simplify" to the LHS
-	forall x::a, y::a, z::a, d1::Ord a.
-	  f ((==) (eqFromOrd d1) x y) ((>) d1 y z) = ...
-Instead we want	
-	forall x::a, y::a, z::a, d1::Ord a, d2::Eq a.
-	  f ((==) d2 x y) ((>) d1 y z) = ...
+        forall x::a, y::a, z::a, d1::Ord a.
+          f ((==) (eqFromOrd d1) x y) ((>) d1 y z) = ...
+Instead we want 
+        forall x::a, y::a, z::a, d1::Ord a, d2::Eq a.
+          f ((==) d2 x y) ((>) d1 y z) = ...
 
 Here is another example:
-	fromIntegral :: (Integral a, Num b) => a -> b
-	{-# RULES "foo"  fromIntegral = id :: Int -> Int #-}
+        fromIntegral :: (Integral a, Num b) => a -> b
+        {-# RULES "foo"  fromIntegral = id :: Int -> Int #-}
 In the rule, a=b=Int, and Num Int is a superclass of Integral Int. But
 we *dont* want to get
-	forall dIntegralInt.
-	   fromIntegral Int Int dIntegralInt (scsel dIntegralInt) = id Int
+        forall dIntegralInt.
+           fromIntegral Int Int dIntegralInt (scsel dIntegralInt) = id Int
 because the scsel will mess up RULE matching.  Instead we want
-	forall dIntegralInt, dNumInt.
-	  fromIntegral Int Int dIntegralInt dNumInt = id Int
+        forall dIntegralInt, dNumInt.
+          fromIntegral Int Int dIntegralInt dNumInt = id Int
 
 Even if we have 
-	g (x == y) (y == z) = ..
+        g (x == y) (y == z) = ..
 where the two dictionaries are *identical*, we do NOT WANT
-	forall x::a, y::a, z::a, d1::Eq a
-	  f ((==) d1 x y) ((>) d1 y z) = ...
+        forall x::a, y::a, z::a, d1::Eq a
+          f ((==) d1 x y) ((>) d1 y z) = ...
 because that will only match if the dict args are (visibly) equal.
 Instead we want to quantify over the dictionaries separately.
 
@@ -89,7 +89,7 @@ all dicts unchanged, with absolutely no sharing.
 
 Also note that we can't solve the LHS constraints in isolation:
 Example   foo :: Ord a => a -> a
-	  foo_spec :: Int -> Int
+          foo_spec :: Int -> Int
           {-# RULE "foo"  foo = foo_spec #-}
 Here, it's the RHS that fixes the type variable
 
@@ -124,10 +124,10 @@ tcRules decls = mapM (wrapLocM tcRule) decls
 
 tcRule :: RuleDecl Name -> TcM (RuleDecl TcId)
 tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
-  = addErrCtxt (ruleCtxt name)	$
+  = addErrCtxt (ruleCtxt name)  $
     do { traceTc "---- Rule ------" (ppr name)
 
-    	-- Note [Typechecking rules]
+        -- Note [Typechecking rules]
        ; vars <- tcRuleBndrs hs_bndrs
        ; let (id_bndrs, tv_bndrs) = partition isId vars
        ; (lhs', lhs_wanted, rhs', rhs_wanted, rule_ty)
@@ -139,17 +139,17 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
 
        ; (lhs_evs, other_lhs_wanted) <- simplifyRule name lhs_wanted rhs_wanted
 
-	-- Now figure out what to quantify over
-	-- c.f. TcSimplify.simplifyInfer
-	-- We quantify over any tyvars free in *either* the rule
-	--  *or* the bound variables.  The latter is important.  Consider
-	--	ss (x,(y,z)) = (x,z)
-	--	RULE:  forall v. fst (ss v) = fst v
-	-- The type of the rhs of the rule is just a, but v::(a,(b,c))
-	--
-	-- We also need to get the completely-uconstrained tyvars of
-	-- the LHS, lest they otherwise get defaulted to Any; but we do that
-	-- during zonking (see TcHsSyn.zonkRule)
+        -- Now figure out what to quantify over
+        -- c.f. TcSimplify.simplifyInfer
+        -- We quantify over any tyvars free in *either* the rule
+        --  *or* the bound variables.  The latter is important.  Consider
+        --      ss (x,(y,z)) = (x,z)
+        --      RULE:  forall v. fst (ss v) = fst v
+        -- The type of the rhs of the rule is just a, but v::(a,(b,c))
+        --
+        -- We also need to get the completely-uconstrained tyvars of
+        -- the LHS, lest they otherwise get defaulted to Any; but we do that
+        -- during zonking (see TcHsSyn.zonkRule)
 
        ; let tpl_ids    = lhs_evs ++ id_bndrs
              forall_tvs = tyCoVarsOfTypes (rule_ty : map idType tpl_ids)
@@ -193,23 +193,23 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                                   , ic_env    = lcl_env } 
 
        ; return (HsRule name act
-		    (map (RuleBndr . noLoc) (qtkvs ++ tpl_ids))
-		    (mkHsDictLet (TcEvBinds lhs_binds_var) lhs') fv_lhs
-		    (mkHsDictLet (TcEvBinds rhs_binds_var) rhs') fv_rhs) }
+                    (map (RuleBndr . noLoc) (qtkvs ++ tpl_ids))
+                    (mkHsDictLet (TcEvBinds lhs_binds_var) lhs') fv_lhs
+                    (mkHsDictLet (TcEvBinds rhs_binds_var) rhs') fv_rhs) }
 
 tcRuleBndrs :: [RuleBndr Name] -> TcM [Var]
 tcRuleBndrs [] 
   = return []
 tcRuleBndrs (RuleBndr (L _ name) : rule_bndrs)
-  = do 	{ ty <- newOpenFlexiTyVarTy
+  = do  { ty <- newOpenFlexiTyVarTy
         ; vars <- tcRuleBndrs rule_bndrs
-	; return (mkLocalId name ty : vars) }
+        ; return (mkLocalId name ty : vars) }
 tcRuleBndrs (RuleBndrSig (L _ name) rn_ty : rule_bndrs)
---  e.g 	x :: a->a
+--  e.g         x :: a->a
 --  The tyvar 'a' is brought into scope first, just as if you'd written
---		a::*, x :: a->a
-  = do	{ let ctxt = RuleSigCtxt name
-	; (id_ty, tv_prs) <- tcHsPatSigType ctxt rn_ty
+--              a::*, x :: a->a
+  = do  { let ctxt = RuleSigCtxt name
+        ; (id_ty, tv_prs) <- tcHsPatSigType ctxt rn_ty
         ; let id  = mkLocalId name id_ty
               tvs = map snd tv_prs   
                     -- tcHsPatSigType returns (Name,TyVar) pairs
@@ -217,12 +217,12 @@ tcRuleBndrs (RuleBndrSig (L _ name) rn_ty : rule_bndrs)
                     -- cloned, so we get (n, tv-with-name-n) pairs
                     -- See Note [Pattern signature binders] in TcHsType
 
-	      -- The type variables scope over subsequent bindings; yuk
+              -- The type variables scope over subsequent bindings; yuk
         ; vars <- tcExtendTyVarEnv tvs $ 
                   tcRuleBndrs rule_bndrs 
-	; return (tvs ++ id : vars) }
+        ; return (tvs ++ id : vars) }
 
 ruleCtxt :: FastString -> SDoc
 ruleCtxt name = ptext (sLit "When checking the transformation rule") <+> 
-		doubleQuotes (ftext name)
+                doubleQuotes (ftext name)
 \end{code}

@@ -107,17 +107,17 @@ data IfaceDecl
                 ifSynKind :: IfaceKind,         -- Kind of the *tycon*
                 ifSynRhs  :: IfaceSynTyConRhs }
 
-  | IfaceClass { ifCtxt    :: IfaceContext,          	-- Context...
-                 ifName    :: IfaceTopBndr,          	-- Name of the class TyCon
-                 ifTyVars  :: [IfaceTvBndr],         	-- Type variables
-                 ifRoles   :: [Role],                	-- Roles
+  | IfaceClass { ifCtxt    :: IfaceContext,             -- Context...
+                 ifName    :: IfaceTopBndr,             -- Name of the class TyCon
+                 ifTyVars  :: [IfaceTvBndr],            -- Type variables
+                 ifRoles   :: [Role],                   -- Roles
                  ifKind    :: IfaceType,                -- Kind of TyCon
-                 ifFDs     :: [FunDep FastString],   	-- Functional dependencies
+                 ifFDs     :: [FunDep FastString],      -- Functional dependencies
                  ifATs     :: [IfaceAT],                -- Associated type families
                  ifSigs    :: [IfaceClassOp],           -- Method signatures
                  ifMinDef  :: BooleanFormula IfLclName, -- Minimal complete definition
-                 ifRec     :: RecFlag           	-- Is newtype/datatype associated
-                                                	--   with the class recursive?
+                 ifRec     :: RecFlag                   -- Is newtype/datatype associated
+                                                        --   with the class recursive?
     }
 
   | IfaceAxiom { ifName       :: IfaceTopBndr,        -- Axiom name
@@ -486,12 +486,12 @@ data IfaceExpr
   | IfaceExt    IfExtName
   | IfaceType   IfaceType
   | IfaceCo     IfaceCoercion
-  | IfaceTuple 	TupleSort [IfaceExpr]	-- Saturated; type arguments omitted
-  | IfaceLam 	IfaceBndr IfaceExpr
-  | IfaceApp 	IfaceExpr IfaceExpr
-  | IfaceCase	IfaceExpr IfLclName [IfaceAlt]
+  | IfaceTuple          TupleSort [IfaceExpr]   -- Saturated; type arguments omitted
+  | IfaceLam    IfaceBndr IfaceExpr
+  | IfaceApp    IfaceExpr IfaceExpr
+  | IfaceCase   IfaceExpr IfLclName [IfaceAlt]
   | IfaceECase  IfaceExpr IfaceType     -- See Note [Empty case alternatives]
-  | IfaceLet	IfaceBinding  IfaceExpr
+  | IfaceLet    IfaceBinding  IfaceExpr
   | IfaceCast   IfaceExpr IfaceCoercion
   | IfaceLit    Literal
   | IfaceFCall  ForeignCall IfaceType
@@ -1016,15 +1016,15 @@ pprIfaceExpr add_par (IfaceECase scrut ty)
 
 pprIfaceExpr add_par (IfaceCase scrut bndr [(con, bs, rhs)])
   = add_par (sep [ptext (sLit "case") 
-			<+> pprIfaceExpr noParens scrut <+> ptext (sLit "of") 
-			<+> ppr bndr <+> char '{' <+> ppr_con_bs con bs <+> arrow,
-  		  pprIfaceExpr noParens rhs <+> char '}'])
+                        <+> pprIfaceExpr noParens scrut <+> ptext (sLit "of") 
+                        <+> ppr bndr <+> char '{' <+> ppr_con_bs con bs <+> arrow,
+                  pprIfaceExpr noParens rhs <+> char '}'])
 
 pprIfaceExpr add_par (IfaceCase scrut bndr alts)
   = add_par (sep [ptext (sLit "case") 
-		 	<+> pprIfaceExpr noParens scrut <+> ptext (sLit "of") 
-			<+> ppr bndr <+> char '{',
-  		  nest 2 (sep (map ppr_alt alts)) <+> char '}'])
+                        <+> pprIfaceExpr noParens scrut <+> ptext (sLit "of") 
+                        <+> ppr bndr <+> char '{',
+                  nest 2 (sep (map ppr_alt alts)) <+> char '}'])
 
 pprIfaceExpr _       (IfaceCast expr co)
   = sep [pprParendIfaceExpr expr,

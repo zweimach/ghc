@@ -64,11 +64,11 @@ import Name( Name )
 import CoreSyn
 import PprCore
 import CoreUtils
-import CoreLint		( lintCoreBindings, lintExpr )
+import CoreLint         ( lintCoreBindings, lintExpr )
 import HscTypes
 import Module
 import DynFlags
-import StaticFlags	
+import StaticFlags      
 import Rules            ( RuleBase )
 import BasicTypes       ( CompilerPhase(..) )
 import Annotations
@@ -94,7 +94,7 @@ import UniqFM       ( UniqFM, mapUFM, filterUFM )
 import MonadUtils
 
 import Util ( split )
-import ListSetOps	( runs )
+import ListSetOps       ( runs )
 import Data.List
 import Data.Ord
 import Data.Dynamic
@@ -122,9 +122,9 @@ restoreLinkerGlobals () = return ()
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
                        Debug output
-%*									*
+%*                                                                      *
 %************************************************************************
 
 These functions are not CoreM monad stuff, but they probably ought to
@@ -151,10 +151,10 @@ dumpIfSet dflags dump_me pass extra_info doc
   = Err.dumpIfSet dflags dump_me (showSDoc dflags (ppr pass <+> extra_info)) doc
 
 dumpPassResult :: DynFlags 
-               -> Maybe DumpFlag		-- Just df => show details in a file whose
-	       	  			--            name is specified by df
-               -> SDoc 			-- Header
-               -> SDoc 			-- Extra info to appear after header
+               -> Maybe DumpFlag                -- Just df => show details in a file whose
+                                        --            name is specified by df
+               -> SDoc                  -- Header
+               -> SDoc                  -- Extra info to appear after header
                -> CoreProgram -> [CoreRule] 
                -> IO ()
 dumpPassResult dflags mb_flag hdr extra_info binds rules
@@ -164,13 +164,13 @@ dumpPassResult dflags mb_flag hdr extra_info binds rules
   | otherwise
   = Err.debugTraceMsg dflags 2 size_doc
           -- Report result size 
-	  -- This has the side effect of forcing the intermediate to be evaluated
+          -- This has the side effect of forcing the intermediate to be evaluated
 
   where
     size_doc = sep [text "Result size of" <+> hdr, nest 2 (equals <+> ppr (coreBindsStats binds))]
 
     dump_doc  = vcat [ nest 2 extra_info
-		     , size_doc
+                     , size_doc
                      , blankLine
                      , pprCoreBindings binds 
                      , ppUnless (null rules) pp_rules ]
@@ -203,10 +203,10 @@ displayLintResults dflags pass warns errs binds
 
   | not (isEmptyBag warns)
   , not (case pass of { CoreDesugar -> True; _ -> False })
-    	-- Suppress warnings after desugaring pass because some
-	-- are legitimate. Notably, the desugarer generates instance
-	-- methods with INLINE pragmas that form a mutually recursive
-	-- group.  Only afer a round of simplification are they unravelled.
+        -- Suppress warnings after desugaring pass because some
+        -- are legitimate. Notably, the desugarer generates instance
+        -- methods with INLINE pragmas that form a mutually recursive
+        -- group.  Only afer a round of simplification are they unravelled.
   , not opt_NoDebugOutput
   , showLintWarnings pass
   = log_action dflags dflags Err.SevDump noSrcSpan defaultDumpStyle
@@ -277,10 +277,10 @@ interactiveInScope hsc_env
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
               The CoreToDo type and related types
-	  Abstraction of core-to-core passes to run.
-%*									*
+          Abstraction of core-to-core passes to run.
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -326,9 +326,9 @@ coreDumpFlag (CoreDoPluginPass {})    = Just Opt_D_dump_core_pipeline
 coreDumpFlag CoreDoFloatInwards       = Just Opt_D_verbose_core2core
 coreDumpFlag (CoreDoFloatOutwards {}) = Just Opt_D_verbose_core2core
 coreDumpFlag CoreLiberateCase         = Just Opt_D_verbose_core2core
-coreDumpFlag CoreDoStaticArgs 	      = Just Opt_D_verbose_core2core
-coreDumpFlag CoreDoCallArity 	      = Just Opt_D_dump_call_arity
-coreDumpFlag CoreDoStrictness 	      = Just Opt_D_dump_stranal
+coreDumpFlag CoreDoStaticArgs         = Just Opt_D_verbose_core2core
+coreDumpFlag CoreDoCallArity          = Just Opt_D_dump_call_arity
+coreDumpFlag CoreDoStrictness         = Just Opt_D_dump_stranal
 coreDumpFlag CoreDoWorkerWrapper      = Just Opt_D_dump_worker_wrapper
 coreDumpFlag CoreDoSpecialising       = Just Opt_D_dump_spec
 coreDumpFlag CoreDoSpecConstr         = Just Opt_D_dump_spec
@@ -350,9 +350,9 @@ instance Outputable CoreToDo where
   ppr CoreDoFloatInwards       = ptext (sLit "Float inwards")
   ppr (CoreDoFloatOutwards f)  = ptext (sLit "Float out") <> parens (ppr f)
   ppr CoreLiberateCase         = ptext (sLit "Liberate case")
-  ppr CoreDoStaticArgs 	       = ptext (sLit "Static argument")
-  ppr CoreDoCallArity	       = ptext (sLit "Called arity analysis")
-  ppr CoreDoStrictness 	       = ptext (sLit "Demand analysis")
+  ppr CoreDoStaticArgs         = ptext (sLit "Static argument")
+  ppr CoreDoCallArity          = ptext (sLit "Called arity analysis")
+  ppr CoreDoStrictness         = ptext (sLit "Demand analysis")
   ppr CoreDoWorkerWrapper      = ptext (sLit "Worker Wrapper binds")
   ppr CoreDoSpecialising       = ptext (sLit "Specialise")
   ppr CoreDoSpecConstr         = ptext (sLit "SpecConstr")
@@ -361,7 +361,7 @@ instance Outputable CoreToDo where
   ppr CoreDesugar              = ptext (sLit "Desugar (before optimization)")
   ppr CoreDesugarOpt           = ptext (sLit "Desugar (after optimization)")
   ppr CoreTidy                 = ptext (sLit "Tidy Core")
-  ppr CorePrep 		       = ptext (sLit "CorePrep")
+  ppr CorePrep                 = ptext (sLit "CorePrep")
   ppr CoreDoPrintCore          = ptext (sLit "Print core")
   ppr (CoreDoRuleCheck {})     = ptext (sLit "Rule check")
   ppr CoreDoNothing            = ptext (sLit "CoreDoNothing")
@@ -395,7 +395,7 @@ instance Outputable SimplifierMode where
              , pp_flag r   (sLit "rules") <> comma
              , pp_flag eta (sLit "eta-expand") <> comma
              , pp_flag cc  (sLit "case-of-case") ])
-	 where
+         where
            pp_flag f s = ppUnless f (ptext (sLit "no")) <+> ptext s
 \end{code}
 
@@ -405,7 +405,7 @@ data FloatOutSwitches = FloatOutSwitches {
   floatOutLambdas   :: Maybe Int,  -- ^ Just n <=> float lambdas to top level, if
                                    -- doing so will abstract over n or fewer 
                                    -- value variables
-				   -- Nothing <=> float all lambdas to top level,
+                                   -- Nothing <=> float all lambdas to top level,
                                    --             regardless of how many free variables
                                    -- Just 0 is the vanilla case: float a lambda
                                    --    iff it has no free vars
@@ -485,9 +485,9 @@ to switch off those rules until after floating.
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
              Types for Plugins
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -526,19 +526,19 @@ bindsOnlyPass pass guts
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
              Counting and logging
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
 verboseSimplStats :: Bool
-verboseSimplStats = opt_PprStyle_Debug		-- For now, anyway
+verboseSimplStats = opt_PprStyle_Debug          -- For now, anyway
 
-zeroSimplCount	   :: DynFlags -> SimplCount
+zeroSimplCount     :: DynFlags -> SimplCount
 isZeroSimplCount   :: SimplCount -> Bool
 hasDetailedCounts  :: SimplCount -> Bool
-pprSimplCount	   :: SimplCount -> SDoc
+pprSimplCount      :: SimplCount -> SDoc
 doSimplTick        :: DynFlags -> Tick -> SimplCount -> SimplCount
 doFreeSimplTick    ::             Tick -> SimplCount -> SimplCount
 plusSimplCount     :: SimplCount -> SimplCount -> SimplCount
@@ -546,18 +546,18 @@ plusSimplCount     :: SimplCount -> SimplCount -> SimplCount
 
 \begin{code}
 data SimplCount 
-   = VerySimplCount !Int	-- Used when don't want detailed stats
+   = VerySimplCount !Int        -- Used when don't want detailed stats
 
-   | SimplCount	{
-	ticks   :: !Int,	-- Total ticks
-	details :: !TickCounts,	-- How many of each type
+   | SimplCount {
+        ticks   :: !Int,        -- Total ticks
+        details :: !TickCounts, -- How many of each type
 
-	n_log	:: !Int,	-- N
-	log1	:: [Tick],	-- Last N events; <= opt_HistorySize, 
-		   		--   most recent first
-	log2	:: [Tick]	-- Last opt_HistorySize events before that
-		   		-- Having log1, log2 lets us accumulate the
-				-- recent history reasonably efficiently
+        n_log   :: !Int,        -- N
+        log1    :: [Tick],      -- Last N events; <= opt_HistorySize, 
+                                --   most recent first
+        log2    :: [Tick]       -- Last opt_HistorySize events before that
+                                -- Having log1, log2 lets us accumulate the
+                                -- recent history reasonably efficiently
      }
 
 type TickCounts = Map Tick Int
@@ -567,15 +567,15 @@ simplCountN (VerySimplCount n)         = n
 simplCountN (SimplCount { ticks = n }) = n
 
 zeroSimplCount dflags
-		-- This is where we decide whether to do
-		-- the VerySimpl version or the full-stats version
+                -- This is where we decide whether to do
+                -- the VerySimpl version or the full-stats version
   | dopt Opt_D_dump_simpl_stats dflags
   = SimplCount {ticks = 0, details = Map.empty,
                 n_log = 0, log1 = [], log2 = []}
   | otherwise
   = VerySimplCount 0
 
-isZeroSimplCount (VerySimplCount n)    	    = n==0
+isZeroSimplCount (VerySimplCount n)         = n==0
 isZeroSimplCount (SimplCount { ticks = n }) = n==0
 
 hasDetailedCounts (VerySimplCount {}) = False
@@ -599,20 +599,20 @@ doSimplTick _ _ (VerySimplCount n) = VerySimplCount (n+1)
 -- be pretty strict here!
 addTick :: TickCounts -> Tick -> TickCounts
 addTick fm tick = case Map.lookup tick fm of
-			Nothing -> Map.insert tick 1 fm
-			Just n  -> n1 `seq` Map.insert tick n1 fm
-				where
-				   n1 = n+1
+                        Nothing -> Map.insert tick 1 fm
+                        Just n  -> n1 `seq` Map.insert tick n1 fm
+                                where
+                                   n1 = n+1
 
 
 plusSimplCount sc1@(SimplCount { ticks = tks1, details = dts1 })
-	       sc2@(SimplCount { ticks = tks2, details = dts2 })
+               sc2@(SimplCount { ticks = tks2, details = dts2 })
   = log_base { ticks = tks1 + tks2, details = Map.unionWith (+) dts1 dts2 }
   where
-	-- A hackish way of getting recent log info
-    log_base | null (log1 sc2) = sc1	-- Nothing at all in sc2
-	     | null (log2 sc2) = sc2 { log2 = log1 sc1 }
-	     | otherwise       = sc2
+        -- A hackish way of getting recent log info
+    log_base | null (log1 sc2) = sc1    -- Nothing at all in sc2
+             | null (log2 sc2) = sc2 { log2 = log1 sc1 }
+             | otherwise       = sc2
 
 plusSimplCount (VerySimplCount n) (VerySimplCount m) = VerySimplCount (n+m)
 plusSimplCount _                  _                  = panic "plusSimplCount"
@@ -621,21 +621,21 @@ plusSimplCount _                  _                  = panic "plusSimplCount"
 pprSimplCount (VerySimplCount n) = ptext (sLit "Total ticks:") <+> int n
 pprSimplCount (SimplCount { ticks = tks, details = dts, log1 = l1, log2 = l2 })
   = vcat [ptext (sLit "Total ticks:    ") <+> int tks,
-	  blankLine,
-	  pprTickCounts dts,
-	  if verboseSimplStats then
-		vcat [blankLine,
-		      ptext (sLit "Log (most recent first)"),
-		      nest 4 (vcat (map ppr l1) $$ vcat (map ppr l2))]
-	  else Outputable.empty
+          blankLine,
+          pprTickCounts dts,
+          if verboseSimplStats then
+                vcat [blankLine,
+                      ptext (sLit "Log (most recent first)"),
+                      nest 4 (vcat (map ppr l1) $$ vcat (map ppr l2))]
+          else Outputable.empty
     ]
 
 pprTickCounts :: Map Tick Int -> SDoc
 pprTickCounts counts
   = vcat (map pprTickGroup groups)
   where
-    groups :: [[(Tick,Int)]]	-- Each group shares a comon tag
-    	      			-- toList returns common tags adjacent
+    groups :: [[(Tick,Int)]]    -- Each group shares a comon tag
+                                -- toList returns common tags adjacent
     groups = runs same_tag (Map.toList counts)
     same_tag (tick1,_) (tick2,_) = tickToTag tick1 == tickToTag tick2
 
@@ -651,28 +651,28 @@ pprTickGroup [] = panic "pprTickGroup"
 
 \begin{code}
 data Tick
-  = PreInlineUnconditionally	Id
-  | PostInlineUnconditionally	Id
+  = PreInlineUnconditionally    Id
+  | PostInlineUnconditionally   Id
 
-  | UnfoldingDone    		Id
-  | RuleFired			FastString	-- Rule name
+  | UnfoldingDone               Id
+  | RuleFired                   FastString      -- Rule name
 
   | LetFloatFromLet
-  | EtaExpansion		Id	-- LHS binder
-  | EtaReduction		Id	-- Binder on outer lambda
-  | BetaReduction		Id	-- Lambda binder
+  | EtaExpansion                Id      -- LHS binder
+  | EtaReduction                Id      -- Binder on outer lambda
+  | BetaReduction               Id      -- Lambda binder
 
 
-  | CaseOfCase			Id	-- Bndr on *inner* case
-  | KnownBranch			Id	-- Case binder
-  | CaseMerge			Id	-- Binder on outer case
-  | AltMerge			Id	-- Case binder
-  | CaseElim			Id	-- Case binder
-  | CaseIdentity		Id	-- Case binder
-  | FillInCaseDefault		Id	-- Case binder
+  | CaseOfCase                  Id      -- Bndr on *inner* case
+  | KnownBranch                 Id      -- Case binder
+  | CaseMerge                   Id      -- Binder on outer case
+  | AltMerge                    Id      -- Case binder
+  | CaseElim                    Id      -- Case binder
+  | CaseIdentity                Id      -- Case binder
+  | FillInCaseDefault           Id      -- Case binder
 
-  | BottomFound		
-  | SimplifierDone		-- Ticked at each iteration of the simplifier
+  | BottomFound         
+  | SimplifierDone              -- Ticked at each iteration of the simplifier
 
 instance Outputable Tick where
   ppr tick = text (tickString tick) <+> pprTickCts tick
@@ -686,90 +686,90 @@ instance Ord Tick where
   compare = cmpTick
 
 tickToTag :: Tick -> Int
-tickToTag (PreInlineUnconditionally _)	= 0
-tickToTag (PostInlineUnconditionally _)	= 1
-tickToTag (UnfoldingDone _)		= 2
-tickToTag (RuleFired _)			= 3
-tickToTag LetFloatFromLet		= 4
-tickToTag (EtaExpansion _)		= 5
-tickToTag (EtaReduction _)		= 6
-tickToTag (BetaReduction _)		= 7
-tickToTag (CaseOfCase _)		= 8
-tickToTag (KnownBranch _)		= 9
-tickToTag (CaseMerge _)			= 10
-tickToTag (CaseElim _)			= 11
-tickToTag (CaseIdentity _)		= 12
-tickToTag (FillInCaseDefault _)		= 13
-tickToTag BottomFound			= 14
-tickToTag SimplifierDone		= 16
-tickToTag (AltMerge _)			= 17
+tickToTag (PreInlineUnconditionally _)  = 0
+tickToTag (PostInlineUnconditionally _) = 1
+tickToTag (UnfoldingDone _)             = 2
+tickToTag (RuleFired _)                 = 3
+tickToTag LetFloatFromLet               = 4
+tickToTag (EtaExpansion _)              = 5
+tickToTag (EtaReduction _)              = 6
+tickToTag (BetaReduction _)             = 7
+tickToTag (CaseOfCase _)                = 8
+tickToTag (KnownBranch _)               = 9
+tickToTag (CaseMerge _)                 = 10
+tickToTag (CaseElim _)                  = 11
+tickToTag (CaseIdentity _)              = 12
+tickToTag (FillInCaseDefault _)         = 13
+tickToTag BottomFound                   = 14
+tickToTag SimplifierDone                = 16
+tickToTag (AltMerge _)                  = 17
 
 tickString :: Tick -> String
-tickString (PreInlineUnconditionally _)	= "PreInlineUnconditionally"
+tickString (PreInlineUnconditionally _) = "PreInlineUnconditionally"
 tickString (PostInlineUnconditionally _)= "PostInlineUnconditionally"
-tickString (UnfoldingDone _)		= "UnfoldingDone"
-tickString (RuleFired _)		= "RuleFired"
-tickString LetFloatFromLet		= "LetFloatFromLet"
-tickString (EtaExpansion _)		= "EtaExpansion"
-tickString (EtaReduction _)		= "EtaReduction"
-tickString (BetaReduction _)		= "BetaReduction"
-tickString (CaseOfCase _)		= "CaseOfCase"
-tickString (KnownBranch _)		= "KnownBranch"
-tickString (CaseMerge _)		= "CaseMerge"
-tickString (AltMerge _)			= "AltMerge"
-tickString (CaseElim _)			= "CaseElim"
-tickString (CaseIdentity _)		= "CaseIdentity"
-tickString (FillInCaseDefault _)	= "FillInCaseDefault"
-tickString BottomFound			= "BottomFound"
-tickString SimplifierDone		= "SimplifierDone"
+tickString (UnfoldingDone _)            = "UnfoldingDone"
+tickString (RuleFired _)                = "RuleFired"
+tickString LetFloatFromLet              = "LetFloatFromLet"
+tickString (EtaExpansion _)             = "EtaExpansion"
+tickString (EtaReduction _)             = "EtaReduction"
+tickString (BetaReduction _)            = "BetaReduction"
+tickString (CaseOfCase _)               = "CaseOfCase"
+tickString (KnownBranch _)              = "KnownBranch"
+tickString (CaseMerge _)                = "CaseMerge"
+tickString (AltMerge _)                 = "AltMerge"
+tickString (CaseElim _)                 = "CaseElim"
+tickString (CaseIdentity _)             = "CaseIdentity"
+tickString (FillInCaseDefault _)        = "FillInCaseDefault"
+tickString BottomFound                  = "BottomFound"
+tickString SimplifierDone               = "SimplifierDone"
 
 pprTickCts :: Tick -> SDoc
-pprTickCts (PreInlineUnconditionally v)	= ppr v
+pprTickCts (PreInlineUnconditionally v) = ppr v
 pprTickCts (PostInlineUnconditionally v)= ppr v
-pprTickCts (UnfoldingDone v)		= ppr v
-pprTickCts (RuleFired v)		= ppr v
-pprTickCts LetFloatFromLet		= Outputable.empty
-pprTickCts (EtaExpansion v)		= ppr v
-pprTickCts (EtaReduction v)		= ppr v
-pprTickCts (BetaReduction v)		= ppr v
-pprTickCts (CaseOfCase v)		= ppr v
-pprTickCts (KnownBranch v)		= ppr v
-pprTickCts (CaseMerge v)		= ppr v
-pprTickCts (AltMerge v)			= ppr v
-pprTickCts (CaseElim v)			= ppr v
-pprTickCts (CaseIdentity v)		= ppr v
-pprTickCts (FillInCaseDefault v)	= ppr v
-pprTickCts _    			= Outputable.empty
+pprTickCts (UnfoldingDone v)            = ppr v
+pprTickCts (RuleFired v)                = ppr v
+pprTickCts LetFloatFromLet              = Outputable.empty
+pprTickCts (EtaExpansion v)             = ppr v
+pprTickCts (EtaReduction v)             = ppr v
+pprTickCts (BetaReduction v)            = ppr v
+pprTickCts (CaseOfCase v)               = ppr v
+pprTickCts (KnownBranch v)              = ppr v
+pprTickCts (CaseMerge v)                = ppr v
+pprTickCts (AltMerge v)                 = ppr v
+pprTickCts (CaseElim v)                 = ppr v
+pprTickCts (CaseIdentity v)             = ppr v
+pprTickCts (FillInCaseDefault v)        = ppr v
+pprTickCts _                            = Outputable.empty
 
 cmpTick :: Tick -> Tick -> Ordering
 cmpTick a b = case (tickToTag a `compare` tickToTag b) of
-		GT -> GT
-		EQ -> cmpEqTick a b
-		LT -> LT
+                GT -> GT
+                EQ -> cmpEqTick a b
+                LT -> LT
 
 cmpEqTick :: Tick -> Tick -> Ordering
-cmpEqTick (PreInlineUnconditionally a)	(PreInlineUnconditionally b)	= a `compare` b
-cmpEqTick (PostInlineUnconditionally a)	(PostInlineUnconditionally b)	= a `compare` b
-cmpEqTick (UnfoldingDone a)		(UnfoldingDone b)		= a `compare` b
-cmpEqTick (RuleFired a)			(RuleFired b)			= a `compare` b
-cmpEqTick (EtaExpansion a)		(EtaExpansion b)		= a `compare` b
-cmpEqTick (EtaReduction a)		(EtaReduction b)		= a `compare` b
-cmpEqTick (BetaReduction a)		(BetaReduction b)		= a `compare` b
-cmpEqTick (CaseOfCase a)		(CaseOfCase b)			= a `compare` b
-cmpEqTick (KnownBranch a)		(KnownBranch b)			= a `compare` b
-cmpEqTick (CaseMerge a)			(CaseMerge b)			= a `compare` b
-cmpEqTick (AltMerge a)			(AltMerge b)			= a `compare` b
-cmpEqTick (CaseElim a)			(CaseElim b)			= a `compare` b
-cmpEqTick (CaseIdentity a)		(CaseIdentity b)		= a `compare` b
-cmpEqTick (FillInCaseDefault a)		(FillInCaseDefault b)		= a `compare` b
-cmpEqTick _     			_     				= EQ
+cmpEqTick (PreInlineUnconditionally a)  (PreInlineUnconditionally b)    = a `compare` b
+cmpEqTick (PostInlineUnconditionally a) (PostInlineUnconditionally b)   = a `compare` b
+cmpEqTick (UnfoldingDone a)             (UnfoldingDone b)               = a `compare` b
+cmpEqTick (RuleFired a)                 (RuleFired b)                   = a `compare` b
+cmpEqTick (EtaExpansion a)              (EtaExpansion b)                = a `compare` b
+cmpEqTick (EtaReduction a)              (EtaReduction b)                = a `compare` b
+cmpEqTick (BetaReduction a)             (BetaReduction b)               = a `compare` b
+cmpEqTick (CaseOfCase a)                (CaseOfCase b)                  = a `compare` b
+cmpEqTick (KnownBranch a)               (KnownBranch b)                 = a `compare` b
+cmpEqTick (CaseMerge a)                 (CaseMerge b)                   = a `compare` b
+cmpEqTick (AltMerge a)                  (AltMerge b)                    = a `compare` b
+cmpEqTick (CaseElim a)                  (CaseElim b)                    = a `compare` b
+cmpEqTick (CaseIdentity a)              (CaseIdentity b)                = a `compare` b
+cmpEqTick (FillInCaseDefault a)         (FillInCaseDefault b)           = a `compare` b
+cmpEqTick _                             _                               = EQ
 \end{code}
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
              Monad and carried data structure definitions
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -877,9 +877,9 @@ runCoreM hsc_env rule_base us mod m = do
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
              Core combinators, not exported
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -922,9 +922,9 @@ liftIOWithCount what = liftIO what >>= (\(count, x) -> addSimplCount count >> re
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
              Reader, writer and state accessors
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -960,9 +960,9 @@ getPackageFamInstEnv = do
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
              Initializing globals
-%*									*
+%*                                                                      *
 %************************************************************************
 
 This is a rather annoying function. When a plugin is loaded, it currently
@@ -1014,9 +1014,9 @@ reinitializeGlobals = do
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
              Dealing with annotations
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -1061,9 +1061,9 @@ for every module in the HTP. In the end, it's probably not worth it as long as
 we aren't using annotations heavily.
 
 %************************************************************************
-%*									*
+%*                                                                      *
                 Direct screen output
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -1112,9 +1112,9 @@ dumpIfSet_dyn flag str = msg (\dflags -> Err.dumpIfSet_dyn dflags flag str)
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
                Finding TyThings
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -1125,9 +1125,9 @@ instance MonadThings CoreM where
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
                Template Haskell interoperability
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}

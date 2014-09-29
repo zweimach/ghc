@@ -784,14 +784,14 @@ usages won't notice this design choice.
 
 \begin{code}
 tcUnifyTy :: Type -> Type       -- All tyvars are bindable
-	  -> Maybe TCvSubst	-- A regular one-shot (idempotent) substitution
+          -> Maybe TCvSubst     -- A regular one-shot (idempotent) substitution
 -- Simple unification of two types; all type variables are bindable
 tcUnifyTy t1 t2 = tcUnifyTys (const BindMe) [t1] [t2]
 
 -----------------
 tcUnifyTys :: (TyCoVar -> BindFlag)
-	   -> [Type] -> [Type]
-	   -> Maybe TCvSubst	-- A regular one-shot (idempotent) substitution
+           -> [Type] -> [Type]
+           -> Maybe TCvSubst    -- A regular one-shot (idempotent) substitution
 -- The two types may have common type variables, and indeed do so in the
 -- second call to tcUnifyTys in FunDeps.checkClsFD
 tcUnifyTys bind_fn tys1 tys2

@@ -85,8 +85,8 @@ module TysPrim(
 
 import {-# SOURCE #-} TysWiredIn ( levityTy, liftedDataConTy, unliftedDataConTy )
 
-import Var		( TyVar, KindVar, mkTyVar )
-import Name		( Name, BuiltInSyntax(..), mkInternalName, mkWiredInName )
+import Var              ( TyVar, KindVar, mkTyVar )
+import Name             ( Name, BuiltInSyntax(..), mkInternalName, mkWiredInName )
 import OccName          ( mkTyVarOccFS, mkTcOccFS )
 import TyCon
 import SrcLoc

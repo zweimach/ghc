@@ -46,9 +46,9 @@ import Data.List        ( partition, mapAccumL, zip4, nub )
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
 \section{Errors and contexts}
-%*									*
+%*                                                                      *
 %************************************************************************
 
 ToDo: for these error messages, should we note the location as coming
@@ -141,7 +141,7 @@ report_unsolved mb_binds_var defer wanted
 
 data ReportErrCtxt 
     = CEC { cec_encl :: [Implication]  -- Enclosing implications
-                	       	       --   (innermost first)
+                                       --   (innermost first)
                                        -- ic_skols and givens are tidied, rest are not
           , cec_tidy  :: TidyEnv
           , cec_binds :: Maybe EvBindsVar 
@@ -562,9 +562,9 @@ mkIPErr ctxt cts
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
                 Equality errors
-%*									*
+%*                                                                      *
 %************************************************************************
 
 Note [Inaccessible code]
@@ -678,7 +678,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   -- So tv is a meta tyvar (or started that way before we 
   -- generalised it).  So presumably it is an *untouchable* 
   -- meta tyvar or a SigTv, else it'd have been unified
-  | not (k2 `tcEqKind` k1)   	 -- Kind error
+  | not (k2 `tcEqKind` k1)       -- Kind error
   = mkErrorMsg ctxt ct $ (kindErrorMsg (mkTyCoVarTy tv1) ty2 $$ extra)
 
   | OC_Occurs <- occ_check_expand
@@ -746,8 +746,8 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
         -- Not an occurs check, because F is a type function.
   where         
     occ_check_expand = occurCheckExpand dflags tv1 ty2
-    k1 	= tyVarKind tv1
-    k2 	= typeKind ty2
+    k1  = tyVarKind tv1
+    k2  = typeKind ty2
     ty1 = mkTyCoVarTy tv1
 
 mkEqInfoMsg :: Ct -> TcType -> TcType -> SDoc
@@ -866,7 +866,7 @@ kindErrorMsg ty1 ty2
     k2 = typeKind ty2
 
 --------------------
-misMatchMsg :: Maybe SwapFlag -> TcType -> TcType -> SDoc	   -- Types are already tidy
+misMatchMsg :: Maybe SwapFlag -> TcType -> TcType -> SDoc          -- Types are already tidy
 -- If oriented then ty1 is actual, ty2 is expected
 misMatchMsg oriented ty1 ty2
   | Just IsSwapped <- oriented
@@ -973,9 +973,9 @@ Warn of loopy local equalities that were dropped.
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
                  Type-class errors
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -1057,7 +1057,7 @@ mk_dict_err fam_envs ctxt (ct, (matches, unifiers, safe_haskell))
         hang (if isSingleton unifiers 
               then ptext (sLit "Note: there is a potential instance available:")
               else ptext (sLit "Note: there are several potential instances:"))
-    	   2 (ppr_insts unifiers)
+           2 (ppr_insts unifiers)
 
     -- Report "potential instances" only when the constraint arises
     -- directly from the user's use of an overloaded function
@@ -1069,7 +1069,7 @@ mk_dict_err fam_envs ctxt (ct, (matches, unifiers, safe_haskell))
       , (orig:origs) <- mapMaybe get_good_orig (cec_encl ctxt)
       = [sep [ ptext (sLit "add") <+> pprParendType pred
                <+> ptext (sLit "to the context of")
-	     , nest 2 $ ppr_skol orig $$ 
+             , nest 2 $ ppr_skol orig $$ 
                         vcat [ ptext (sLit "or") <+> ppr_skol orig 
                              | orig <- origs ] ] ]
       | otherwise = []
@@ -1077,7 +1077,7 @@ mk_dict_err fam_envs ctxt (ct, (matches, unifiers, safe_haskell))
     ppr_skol (PatSkol dc _) = ptext (sLit "the data constructor") <+> quotes (ppr dc)
     ppr_skol skol_info      = ppr skol_info
 
-	-- Do not suggest adding constraints to an *inferred* type signature!
+        -- Do not suggest adding constraints to an *inferred* type signature!
     get_good_orig ic = case ic_info ic of 
                          SigSkol (InfSigCtxt {}) _ -> Nothing
                          origin                    -> Just origin
@@ -1105,15 +1105,15 @@ mk_dict_err fam_envs ctxt (ct, (matches, unifiers, safe_haskell))
     -- Normal overlap error
     overlap_msg
       = ASSERT( not (null matches) )
-        vcat [	addArising orig (ptext (sLit "Overlapping instances for") 
-				<+> pprType (mkClassPred clas tys))
+        vcat [  addArising orig (ptext (sLit "Overlapping instances for") 
+                                <+> pprType (mkClassPred clas tys))
 
              ,  ppUnless (null matching_givens) $
                   sep [ptext (sLit "Matching givens (or their superclasses):") 
                       , nest 2 (vcat matching_givens)]
 
-    	     ,	sep [ptext (sLit "Matching instances:"),
-    		     nest 2 (vcat [pprInstances ispecs, pprInstances unifiers])]
+             ,  sep [ptext (sLit "Matching instances:"),
+                     nest 2 (vcat [pprInstances ispecs, pprInstances unifiers])]
 
              ,  ppWhen (null matching_givens && isSingleton matches && null unifiers) $
                 -- Intuitively, some given matched the wanted in their
@@ -1125,12 +1125,12 @@ mk_dict_err fam_envs ctxt (ct, (matches, unifiers, safe_haskell))
                   sep [ ptext (sLit "There exists a (perhaps superclass) match:") 
                       , nest 2 (vcat (pp_givens givens))]
 
-	     ,	ppWhen (isSingleton matches) $
-		parens (vcat [ ptext (sLit "The choice depends on the instantiation of") <+>
-	    		          quotes (pprWithCommas ppr (varSetElems (tyCoVarsOfTypes tys)))
-			     , ppWhen (null (matching_givens)) $
+             ,  ppWhen (isSingleton matches) $
+                parens (vcat [ ptext (sLit "The choice depends on the instantiation of") <+>
+                                  quotes (pprWithCommas ppr (varSetElems (tyCoVarsOfTypes tys)))
+                             , ppWhen (null (matching_givens)) $
                                vcat [ ptext (sLit "To pick the first instance above, use IncoherentInstances")
-			            , ptext (sLit "when compiling the other instance declarations")]
+                                    , ptext (sLit "when compiling the other instance declarations")]
                         ])]
         where
             ispecs = [ispec | (ispec, _) <- matches]
@@ -1409,8 +1409,8 @@ relevantBindings want_filtering ctxt ct
             ; traceTc "relevantBindings 1" (ppr id <+> dcolon <+> ppr tidy_ty)
             ; let id_tvs = tyCoVarsOfType tidy_ty
                   doc = sep [ pprPrefixOcc id <+> dcolon <+> ppr tidy_ty
-		            , nest 2 (parens (ptext (sLit "bound at")
-			    	 <+> ppr (getSrcLoc id)))]
+                            , nest 2 (parens (ptext (sLit "bound at")
+                                 <+> ppr (getSrcLoc id)))]
                   new_seen = tvs_seen `unionVarSet` id_tvs
 
             ; if (want_filtering && id_tvs `disjointVarSet` ct_tvs)
@@ -1453,10 +1453,10 @@ arising from *runtime* skolems in the debugger.  These
 are created by in RtClosureInspect.zonkRTTIType.  
 
 %************************************************************************
-%*									*
+%*                                                                      *
                  Error from the canonicaliser
-	 These ones are called *during* constraint simplification
-%*									*
+         These ones are called *during* constraint simplification
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -1481,9 +1481,9 @@ solverDepthErrorTcS cnt ev
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
                  Tidying
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}

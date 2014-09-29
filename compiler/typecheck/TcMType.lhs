@@ -17,8 +17,8 @@ module TcMType (
   --------------------------------
   -- Creating new mutable type variables
   newFlexiTyVar,
-  newFlexiTyVarTy,		-- Kind -> TcM TcType
-  newFlexiTyVarTys,		-- Int -> Kind -> TcM [TcType]
+  newFlexiTyVarTy,              -- Kind -> TcM TcType
+  newFlexiTyVarTys,             -- Int -> Kind -> TcM [TcType]
   newPolyFlexiTyVarTy,
   newOpenFlexiTyVarTy,
   newMetaKindVar, newMetaKindVars,
@@ -91,24 +91,24 @@ import Data.List        ( mapAccumL, partition )
 
 
 %************************************************************************
-%*									*
-	Kind variables
-%*									*
+%*                                                                      *
+        Kind variables
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
 mkKindName :: Unique -> Name
 mkKindName unique = mkSystemName unique kind_var_occ
 
-kind_var_occ :: OccName	-- Just one for all MetaKindVars
-			-- They may be jiggled by tidying
+kind_var_occ :: OccName -- Just one for all MetaKindVars
+                        -- They may be jiggled by tidying
 kind_var_occ = mkOccName tvName "k"
 
 newMetaKindVar :: TcM TcKind
 newMetaKindVar = do { uniq <- newUnique
-		    ; details <- newMetaDetails TauTv
+                    ; details <- newMetaDetails TauTv
                     ; let kv = mkTcTyVar (mkKindName uniq) liftedTypeKind details
-		    ; return (mkOnlyTyVarTy kv) }
+                    ; return (mkOnlyTyVarTy kv) }
 
 newMetaKindVars :: Int -> TcM [TcKind]
 newMetaKindVars n = mapM (\ _ -> newMetaKindVar) (nOfThem n ())
@@ -116,9 +116,9 @@ newMetaKindVars n = mapM (\ _ -> newMetaKindVar) (nOfThem n ())
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
      Evidence variables; range over constraints we can abstract over
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -177,27 +177,27 @@ newFlatWanteds orig = mapM (newFlatWanted orig)
 \end{code}
 
 %************************************************************************
-%*									*
-	SkolemTvs (immutable)
-%*									*
+%*                                                                      *
+        SkolemTvs (immutable)
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
 tcInstType :: ([TyCoVar] -> TcM (TCvSubst, [TcTyCoVar])) -- How to instantiate the type variables
-	   -> TcType 					 -- Type to instantiate
-	   -> TcM ([TcTyCoVar], TcThetaType, TcType)	 -- Result
-		-- (type vars (excl coercion vars), preds (incl equalities), rho)
+           -> TcType                                     -- Type to instantiate
+           -> TcM ([TcTyCoVar], TcThetaType, TcType)     -- Result
+                -- (type vars (excl coercion vars), preds (incl equalities), rho)
 tcInstType inst_tyvars ty
   = case tcSplitNamedForAllTys ty of
-	([],    rho) -> let	-- There may be overloading despite no type variables;
-				-- 	(?x :: Int) => Int -> Int
-			        (theta, tau) = tcSplitPhiTy rho
-			    in
-			    return ([], theta, tau)
+        ([],    rho) -> let     -- There may be overloading despite no type variables;
+                                --      (?x :: Int) => Int -> Int
+                                (theta, tau) = tcSplitPhiTy rho
+                            in
+                            return ([], theta, tau)
 
-	(tyvars, rho) -> do { (subst, tyvars') <- inst_tyvars tyvars
-                 	    ; let (theta, tau) = tcSplitPhiTy (substTy subst rho)
-			    ; return (tyvars', theta, tau) }
+        (tyvars, rho) -> do { (subst, tyvars') <- inst_tyvars tyvars
+                            ; let (theta, tau) = tcSplitPhiTy (substTy subst rho)
+                            ; return (tyvars', theta, tau) }
 
 tcSkolDFunType :: Type -> TcM ([TcTyVar], TcThetaType, TcType)
 -- Instantiate a type signature with skolem constants, but 
@@ -312,28 +312,28 @@ instead of the buggous
 
 
 %************************************************************************
-%*									*
-	MetaTvs (meta type variables; mutable)
-%*									*
+%*                                                                      *
+        MetaTvs (meta type variables; mutable)
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
 newMetaTyVar :: MetaInfo -> Kind -> TcM TcTyVar
 -- Make a new meta tyvar out of thin air
 newMetaTyVar meta_info kind
-  = do	{ uniq <- newUnique
+  = do  { uniq <- newUnique
         ; let name = mkTcTyVarName uniq s
               s = case meta_info of
                         PolyTv -> fsLit "s"
                         TauTv  -> fsLit "t"
                         SigTv  -> fsLit "a"
         ; details <- newMetaDetails meta_info
-	; return (mkTcTyVar name kind details) }
+        ; return (mkTcTyVar name kind details) }
 
 cloneMetaTyVar :: TcTyVar -> TcM TcTyVar
 cloneMetaTyVar tv
   = ASSERT( isTcTyVar tv )
-    do	{ uniq <- newUnique
+    do  { uniq <- newUnique
         ; ref  <- newMutVar Flexi
         ; let name'    = setNameUnique (tyVarName tv) uniq
               details' = case tcTyVarDetails tv of 
@@ -349,15 +349,15 @@ mkTcTyVarName uniq str = mkSysTvName uniq str
 -- Works for both type and kind variables
 readMetaTyVar :: TyVar -> TcM MetaDetails
 readMetaTyVar tyvar = ASSERT2( isMetaTyVar tyvar, ppr tyvar )
-		      readMutVar (metaTvRef tyvar)
+                      readMutVar (metaTvRef tyvar)
 
 isFilledMetaTyVar :: TyVar -> TcM Bool
 -- True of a filled-in (Indirect) meta type variable
 isFilledMetaTyVar tv
   | not (isTcTyVar tv) = return False
   | MetaTv { mtv_ref = ref } <- tcTyVarDetails tv
-  = do 	{ details <- readMutVar ref
-	; return (isIndirect details) }
+  = do  { details <- readMutVar ref
+        ; return (isIndirect details) }
   | otherwise = return False
 
 isFlexiMetaTyVar :: TyVar -> TcM Bool
@@ -365,8 +365,8 @@ isFlexiMetaTyVar :: TyVar -> TcM Bool
 isFlexiMetaTyVar tv
   | not (isTcTyVar tv) = return False
   | MetaTv { mtv_ref = ref } <- tcTyVarDetails tv
-  = do 	{ details <- readMutVar ref
-	; return (isFlexi details) }
+  = do  { details <- readMutVar ref
+        ; return (isFlexi details) }
   | otherwise = return False
 
 --------------------
@@ -429,9 +429,9 @@ writeMetaTyVarRef tyvar ref ty
 
 
 %************************************************************************
-%*									*
-	MetaTvs: TauTvs
-%*									*
+%*                                                                      *
+        MetaTvs: TauTvs
+%*                                                                      *
 %************************************************************************
 
 Note [Sort-polymorphic tyvars accept foralls]
@@ -534,9 +534,9 @@ tcInstTyCoVarX origin subst tyvar
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
              Quantification
-%*									*
+%*                                                                      *
 %************************************************************************
 
 Note [quantifyTyCoVars]
@@ -644,8 +644,8 @@ zonkQuantifiedTyCoVarOrType tv
     case tcTyVarDetails tv of
       SkolemTv {} -> do { kind <- zonkTcType (tyVarKind tv)
                         ; return $ Left $ setTyVarKind tv kind }
-	-- It might be a skolem type variable, 
-	-- for example from a user type signature
+        -- It might be a skolem type variable, 
+        -- for example from a user type signature
 
       MetaTv { mtv_ref = ref } ->
           do when debugIsOn $ do
@@ -729,28 +729,28 @@ simplifier knows how to deal with.
 Note [Silly Type Synonyms]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 Consider this:
-	type C u a = u	-- Note 'a' unused
+        type C u a = u  -- Note 'a' unused
 
-	foo :: (forall a. C u a -> C u a) -> u
-	foo x = ...
+        foo :: (forall a. C u a -> C u a) -> u
+        foo x = ...
 
-	bar :: Num u => u
-	bar = foo (\t -> t + t)
+        bar :: Num u => u
+        bar = foo (\t -> t + t)
 
 * From the (\t -> t+t) we get type  {Num d} =>  d -> d
   where d is fresh.
 
 * Now unify with type of foo's arg, and we get:
-	{Num (C d a)} =>  C d a -> C d a
+        {Num (C d a)} =>  C d a -> C d a
   where a is fresh.
 
 * Now abstract over the 'a', but float out the Num (C d a) constraint
   because it does not 'really' mention a.  (see exactTyVarsOfType)
   The arg to foo becomes
-	\/\a -> \t -> t+t
+        \/\a -> \t -> t+t
 
 * So we get a dict binding for Num (C d a), which is zonked to give
-	a = ()
+        a = ()
   [Note Sept 04: now that we are zonking quantified type variables
   on construction, the 'a' will be frozen as a regular tyvar on
   quantification, so the floated dict will still have type (C d a).
@@ -762,9 +762,9 @@ All very silly.   I think its harmless to ignore the problem.  We'll end up with
 a \/\a in the final result but all the occurrences of a will be zonked to ()
 
 %************************************************************************
-%*									*
+%*                                                                      *
               Zonking
-%*									*
+%*                                                                      *
 %************************************************************************
 
 @tcGetGlobalTyVars@ returns a fully-zonked set of tyvars free in the environment.
@@ -983,11 +983,11 @@ zonkSkolemInfo skol_info = return skol_info
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
 \subsection{Zonking -- the main work-horses: zonkTcType, zonkTcTyVar}
-%*									*
-%*		For internal use only!					*
-%*									*
+%*                                                                      *
+%*              For internal use only!                                  *
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -999,7 +999,7 @@ zonkId id
 
 -- For unbound, mutable tyvars, zonkType uses the function given to it
 -- For tyvars bound at a for-all, zonkType zonks them to an immutable
---	type variable and zonks the kind too
+--      type variable and zonks the kind too
 zonkTcType :: TcType -> TcM TcType
 zonkTcType ty
   = go ty
@@ -1029,10 +1029,10 @@ zonkTcType ty
     go (CoercionTy co)   = do co' <- go_co co
                               return (CoercionTy co')
 
-	-- The two interesting cases!
+        -- The two interesting cases!
     go (TyVarTy tyvar) | isTcTyVar tyvar = zonkTcTyCoVar tyvar
-		       | otherwise	 = TyVarTy <$> updateTyVarKindM go tyvar
-		-- Ordinary (non Tc) tyvars occur inside quantified types
+                       | otherwise       = TyVarTy <$> updateTyVarKindM go tyvar
+                -- Ordinary (non Tc) tyvars occur inside quantified types
 
     go (ForAllTy (Named tv vis) ty)
                             = do { tv' <- zonkTcTyCoVarBndr tv
@@ -1105,8 +1105,8 @@ zonkTcTyCoVar tv
       MetaTv { mtv_ref = ref }
          -> do { cts <- readMutVar ref
                ; case cts of
-	            Flexi       -> zonk_kind_and_return
-	            Indirect ty -> zonkTcType ty }
+                    Flexi       -> zonk_kind_and_return
+                    Indirect ty -> zonkTcType ty }
 
   | otherwise -- coercion variable
   = zonk_kind_and_return

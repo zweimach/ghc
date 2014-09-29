@@ -9,24 +9,24 @@ The @Class@ datatype
 {-# LANGUAGE CPP, DeriveDataTypeable #-}
 
 module Class (
-	Class,
+        Class,
         ClassOpItem, DefMeth (..),
         ClassATItem(..),
         ClassMinimalDef,
-	defMethSpecOfDefMeth,
+        defMethSpecOfDefMeth,
 
-	FunDep,	pprFundeps, pprFunDep,
+        FunDep, pprFundeps, pprFunDep,
 
-	mkClass, classTyVars, classArity, 
-	classKey, className, classATs, classATItems, classTyCon, classMethods,
-	classOpItems, classBigSig, classExtraBigSig, classTvsFds, classSCTheta,
+        mkClass, classTyVars, classArity, 
+        classKey, className, classATs, classATItems, classTyCon, classMethods,
+        classOpItems, classBigSig, classExtraBigSig, classTvsFds, classSCTheta,
         classAllSelIds, classSCSelId, classMinimalDef
     ) where
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} TyCon	( TyCon, tyConName, tyConUnique )
-import {-# SOURCE #-} TyCoRep	( Type, PredType )
+import {-# SOURCE #-} TyCon     ( TyCon, tyConName, tyConUnique )
+import {-# SOURCE #-} TyCoRep   ( Type, PredType )
 import Var
 import Name
 import BasicTypes
@@ -41,9 +41,9 @@ import qualified Data.Data as Data
 \end{code}
 
 %************************************************************************
-%*									*
+%*                                                                      *
 \subsection[Class-basic]{@Class@: basic definition}
-%*									*
+%*                                                                      *
 %************************************************************************
 
 A @Class@ corresponds to a Greek kappa in the static semantics:
@@ -51,46 +51,46 @@ A @Class@ corresponds to a Greek kappa in the static semantics:
 \begin{code}
 data Class
   = Class {
-	classTyCon :: TyCon,	-- The data type constructor for
-				-- dictionaries of this class
+        classTyCon :: TyCon,    -- The data type constructor for
+                                -- dictionaries of this class
                                 -- See Note [ATyCon for classes] in TyCoRep
 
-	className :: Name,              -- Just the cached name of the TyCon
-	classKey  :: Unique,		-- Cached unique of TyCon
-	
-	classTyVars  :: [TyVar],	-- The class kind and type variables;
-		     			-- identical to those of the TyCon
+        className :: Name,              -- Just the cached name of the TyCon
+        classKey  :: Unique,            -- Cached unique of TyCon
+        
+        classTyVars  :: [TyVar],        -- The class kind and type variables;
+                                        -- identical to those of the TyCon
 
-	classFunDeps :: [FunDep TyCoVar],  -- The functional dependencies
+        classFunDeps :: [FunDep TyCoVar],  -- The functional dependencies
 
-	-- Superclasses: eg: (F a ~ b, F b ~ G a, Eq a, Show b)
+        -- Superclasses: eg: (F a ~ b, F b ~ G a, Eq a, Show b)
         -- We need value-level selectors for both the dictionary 
-	-- superclasses and the equality superclasses
-	classSCTheta :: [PredType],	-- Immediate superclasses, 
-	classSCSels  :: [Id],		-- Selector functions to extract the
-		     			--   superclasses from a 
-					--   dictionary of this class
-	-- Associated types
-        classATStuff :: [ClassATItem],	-- Associated type families
+        -- superclasses and the equality superclasses
+        classSCTheta :: [PredType],     -- Immediate superclasses, 
+        classSCSels  :: [Id],           -- Selector functions to extract the
+                                        --   superclasses from a 
+                                        --   dictionary of this class
+        -- Associated types
+        classATStuff :: [ClassATItem],  -- Associated type families
 
         -- Class operations (methods, not superclasses)
-	classOpStuff :: [ClassOpItem],	-- Ordered by tag
+        classOpStuff :: [ClassOpItem],  -- Ordered by tag
 
-	-- Minimal complete definition
-	classMinimalDef :: ClassMinimalDef
+        -- Minimal complete definition
+        classMinimalDef :: ClassMinimalDef
      }
   deriving Typeable
 
 type FunDep a = ([a],[a])  --  e.g. class C a b c | a b -> c, a c -> b where...
-			   --  Here fun-deps are [([a,b],[c]), ([a,c],[b])]
+                           --  Here fun-deps are [([a,b],[c]), ([a,c],[b])]
 
 type ClassOpItem = (Id, DefMeth)
         -- Selector function; contains unfolding
-	-- Default-method info
+        -- Default-method info
 
-data DefMeth = NoDefMeth 		-- No default method
-	     | DefMeth Name  		-- A polymorphic default method
-	     | GenDefMeth Name 		-- A generic default method
+data DefMeth = NoDefMeth                -- No default method
+             | DefMeth Name             -- A polymorphic default method
+             | GenDefMeth Name          -- A generic default method
              deriving Eq
 
 data ClassATItem
@@ -105,9 +105,9 @@ type ClassMinimalDef = BooleanFormula Name -- Required methods
 defMethSpecOfDefMeth :: DefMeth -> DefMethSpec
 defMethSpecOfDefMeth meth
  = case meth of
-	NoDefMeth	-> NoDM
-	DefMeth _	-> VanillaDM
-	GenDefMeth _	-> GenericDM
+        NoDefMeth       -> NoDM
+        DefMeth _       -> VanillaDM
+        GenDefMeth _    -> GenericDM
 \end{code}
 
 Note [Associated type defaults]
@@ -187,9 +187,9 @@ Having the same variables for class and tycon is also used in checkValidRoles
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
 \subsection[Class-selectors]{@Class@: simple selectors}
-%*									*
+%*                                                                      *
 %************************************************************************
 
 The rest of these functions are just simple selectors.
@@ -197,7 +197,7 @@ The rest of these functions are just simple selectors.
 \begin{code}
 classArity :: Class -> Arity
 classArity clas = length (classTyVars clas)
-	-- Could memoise this
+        -- Could memoise this
 
 classAllSelIds :: Class -> [Id]
 -- Both superclass-dictionary and method selectors
@@ -232,21 +232,21 @@ classTvsFds c
 
 classBigSig :: Class -> ([TyCoVar], [PredType], [Id], [ClassOpItem])
 classBigSig (Class {classTyVars = tyvars, classSCTheta = sc_theta, 
-	 	    classSCSels = sc_sels, classOpStuff = op_stuff})
+                    classSCSels = sc_sels, classOpStuff = op_stuff})
   = (tyvars, sc_theta, sc_sels, op_stuff)
 
 classExtraBigSig :: Class -> ([TyCoVar], [FunDep TyCoVar], [PredType], [Id], [ClassATItem], [ClassOpItem])
 classExtraBigSig (Class {classTyVars = tyvars, classFunDeps = fundeps,
-			 classSCTheta = sc_theta, classSCSels = sc_sels,
-			 classATStuff = ats, classOpStuff = op_stuff})
+                         classSCTheta = sc_theta, classSCSels = sc_sels,
+                         classATStuff = ats, classOpStuff = op_stuff})
   = (tyvars, fundeps, sc_theta, sc_sels, ats, op_stuff)
 \end{code}
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
 \subsection[Class-instances]{Instance declarations for @Class@}
-%*									*
+%*                                                                      *
 %************************************************************************
 
 We compare @Classes@ by their keys (which include @Uniques@).

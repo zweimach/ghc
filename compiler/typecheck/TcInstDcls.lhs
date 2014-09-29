@@ -554,8 +554,8 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
             do defaultOverlapFlag <- getOverlapFlag
                return $ setOverlapModeMaybe defaultOverlapFlag overlap_mode
         ; (subst, tyvars') <- tcInstSkolTyCoVars tyvars
-        ; let dfun  	= mkDictFunId dfun_name tyvars theta clas inst_tys
-              ispec 	= mkLocalInstance dfun overlap_flag tyvars' clas (substTys subst inst_tys)
+        ; let dfun      = mkDictFunId dfun_name tyvars theta clas inst_tys
+              ispec     = mkLocalInstance dfun overlap_flag tyvars' clas (substTys subst inst_tys)
                             -- Be sure to freshen those type variables, 
                             -- so they are sure not to appear in any lookup
               inst_info = InstInfo { iSpec  = ispec
@@ -1353,13 +1353,13 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
 
 mkGenericDefMethBind :: Class -> [Type] -> Id -> Name -> TcM (LHsBind Name)
 mkGenericDefMethBind clas inst_tys sel_id dm_name
-  = 	-- A generic default method
-    	-- If the method is defined generically, we only have to call the
+  =     -- A generic default method
+        -- If the method is defined generically, we only have to call the
         -- dm_name.
-    do	{ dflags <- getDynFlags
-	; liftIO (dumpIfSet_dyn dflags Opt_D_dump_deriv "Filling in method body"
-		   (vcat [ppr clas <+> ppr inst_tys,
-			  nest 2 (ppr sel_id <+> equals <+> ppr rhs)]))
+    do  { dflags <- getDynFlags
+        ; liftIO (dumpIfSet_dyn dflags Opt_D_dump_deriv "Filling in method body"
+                   (vcat [ppr clas <+> ppr inst_tys,
+                          nest 2 (ppr sel_id <+> equals <+> ppr rhs)]))
 
         ; return (noLoc $ mkTopFunBind Generated (noLoc (idName sel_id))
                                        [mkSimpleMatch [] rhs]) }

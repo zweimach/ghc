@@ -46,13 +46,13 @@ numbered on the fly.
 
 %************************************************************************
 %*                                                                      *
-		   The TrieMap class
+                   The TrieMap class
 %*                                                                      *
 %************************************************************************
 
 \begin{code}
 type XT a = Maybe a -> Maybe a  -- How to alter a non-existent elt (Nothing)
-				--               or an existing elt (Just)
+                                --               or an existing elt (Just)
 
 class TrieMap m where
    type Key m :: *
@@ -99,7 +99,7 @@ deMaybe (Just m) = m
 
 %************************************************************************
 %*                                                                      *
-		   IntMaps
+                   IntMaps
 %*                                                                      *
 %************************************************************************
 
@@ -135,7 +135,7 @@ instance TrieMap UniqFM where
 
 %************************************************************************
 %*                                                                      *
-		   Lists
+                   Lists
 %*                                                                      *
 %************************************************************************
 
@@ -158,18 +158,18 @@ mapMb f (MM { mm_nothing = mn, mm_just = mj })
   = MM { mm_nothing = fmap f mn, mm_just = mapTM f mj }
 
 lkMaybe :: TrieMap m => (forall b. k -> m b -> Maybe b)
-	-> Maybe k -> MaybeMap m a -> Maybe a
+        -> Maybe k -> MaybeMap m a -> Maybe a
 lkMaybe _  Nothing  = mm_nothing
 lkMaybe lk (Just x) = mm_just >.> lk x
 
 xtMaybe :: TrieMap m => (forall b. k -> XT b -> m b -> m b)
-	-> Maybe k -> XT a -> MaybeMap m a -> MaybeMap m a
+        -> Maybe k -> XT a -> MaybeMap m a -> MaybeMap m a
 xtMaybe _  Nothing  f m = m { mm_nothing  = f (mm_nothing m) }
 xtMaybe tr (Just x) f m = m { mm_just = mm_just m |> tr x f }
 
 fdMaybe :: TrieMap m => (a -> b -> b) -> MaybeMap m a -> b -> b
 fdMaybe k m = foldMaybe k (mm_nothing m)
-	    . foldTM k (mm_just m)
+            . foldTM k (mm_just m)
 
 --------------------
 data ListMap m a
@@ -189,19 +189,19 @@ mapList f (LM { lm_nil = mnil, lm_cons = mcons })
   = LM { lm_nil = fmap f mnil, lm_cons = mapTM (mapTM f) mcons }
 
 lkList :: TrieMap m => (forall b. k -> m b -> Maybe b)
-	-> [k] -> ListMap m a -> Maybe a
+        -> [k] -> ListMap m a -> Maybe a
 lkList _  []     = lm_nil
 lkList lk (x:xs) = lm_cons >.> lk x >=> lkList lk xs
 
 xtList :: TrieMap m => (forall b. k -> XT b -> m b -> m b)
-	-> [k] -> XT a -> ListMap m a -> ListMap m a
+        -> [k] -> XT a -> ListMap m a -> ListMap m a
 xtList _  []     f m = m { lm_nil  = f (lm_nil m) }
 xtList tr (x:xs) f m = m { lm_cons = lm_cons m |> tr x |>> xtList tr xs f }
 
 fdList :: forall m a b. TrieMap m
        => (a -> b -> b) -> ListMap m a -> b -> b
 fdList k m = foldMaybe k          (lm_nil m)
-	   . foldTM    (fdList k) (lm_cons m)
+           . foldTM    (fdList k) (lm_cons m)
 
 foldMaybe :: (a -> b -> b) -> Maybe a -> b -> b
 foldMaybe _ Nothing  b = b
@@ -211,7 +211,7 @@ foldMaybe k (Just a) b = k a b
 
 %************************************************************************
 %*                                                                      *
-		   Basic maps
+                   Basic maps
 %*                                                                      *
 %************************************************************************
 
@@ -237,7 +237,7 @@ xtLit = alterTM
 
 %************************************************************************
 %*                                                                      *
-		   CoreMap
+                   CoreMap
 %*                                                                      *
 %************************************************************************
 
@@ -261,7 +261,7 @@ Note [Empty case alternatives]
 
 * For a key (Case e b ty []) we MUST look at the return type 'ty', because
   otherwise (Case (error () "urk") _ Int  []) would compare equal to
-	    (Case (error () "urk") _ Bool [])
+            (Case (error () "urk") _ Bool [])
   which is utterly wrong (Trac #6097)
 
 We could compare the return type regardless, but the wildly common case
@@ -290,11 +290,11 @@ data CoreMap a
 
 wrapEmptyCM :: CoreMap a
 wrapEmptyCM = CM { cm_var = emptyTM, cm_lit = emptyLiteralMap
-		 , cm_co = emptyTM, cm_type = emptyTM
-		 , cm_cast = emptyTM, cm_app = emptyTM
-		 , cm_lam = emptyTM, cm_letn = emptyTM
-		 , cm_letr = emptyTM, cm_case = emptyTM
-		 , cm_ecase = emptyTM, cm_tick = emptyTM }
+                 , cm_co = emptyTM, cm_type = emptyTM
+                 , cm_cast = emptyTM, cm_app = emptyTM
+                 , cm_lam = emptyTM, cm_letn = emptyTM
+                 , cm_letr = emptyTM, cm_case = emptyTM
+                 , cm_ecase = emptyTM, cm_tick = emptyTM }
 
 instance TrieMap CoreMap where
    type Key CoreMap = CoreExpr
@@ -308,11 +308,11 @@ instance TrieMap CoreMap where
 mapE :: (a->b) -> CoreMap a -> CoreMap b
 mapE _ EmptyCM = EmptyCM
 mapE f (CM { cm_var = cvar, cm_lit = clit
-	   , cm_co = cco, cm_type = ctype
-	   , cm_cast = ccast , cm_app = capp
-	   , cm_lam = clam, cm_letn = cletn
-	   , cm_letr = cletr, cm_case = ccase
-	   , cm_ecase = cecase, cm_tick = ctick })
+           , cm_co = cco, cm_type = ctype
+           , cm_cast = ccast , cm_app = capp
+           , cm_lam = clam, cm_letn = cletn
+           , cm_letr = cletr, cm_case = ccase
+           , cm_ecase = cecase, cm_tick = ctick })
   = CM { cm_var = mapTM f cvar, cm_lit = mapTM f clit
        , cm_co = mapTM f cco, cm_type = mapTM f ctype
        , cm_cast = mapTM (mapTM f) ccast, cm_app = mapTM (mapTM f) capp
@@ -368,16 +368,16 @@ lkE env expr cm
     go (App e1 e2)          = cm_app  >.> lkE env e2 >=> lkE env e1
     go (Lam v e)            = cm_lam  >.> lkE (extendCME env v) e >=> lkBndr env v
     go (Let (NonRec b r) e) = cm_letn >.> lkE env r
-			      >=> lkE (extendCME env b) e >=> lkBndr env b
+                              >=> lkE (extendCME env b) e >=> lkBndr env b
     go (Let (Rec prs) e)    = let (bndrs,rhss) = unzip prs
-				  env1 = extendCMEs env bndrs
-			      in cm_letr
-				 >.> lkList (lkE env1) rhss >=> lkE env1 e
-				 >=> lkList (lkBndr env1) bndrs
+                                  env1 = extendCMEs env bndrs
+                              in cm_letr
+                                 >.> lkList (lkE env1) rhss >=> lkE env1 e
+                                 >=> lkList (lkBndr env1) bndrs
     go (Case e b ty as)     -- See Note [Empty case alternatives]
-	       | null as    = cm_ecase >.> lkE env e >=> lkT env ty
-	       | otherwise  = cm_case >.> lkE env e
-			      >=> lkList (lkA (extendCME env b)) as
+               | null as    = cm_ecase >.> lkE env e >=> lkT env ty
+               | otherwise  = cm_case >.> lkE env e
+                              >=> lkList (lkA (extendCME env b)) as
 
 xtE :: CmEnv -> CoreExpr -> XT a -> CoreMap a -> CoreMap a
 xtE env e              f EmptyCM = xtE env e f wrapEmptyCM
@@ -386,25 +386,25 @@ xtE env (Type t)             f m = m { cm_type = cm_type m |> xtT env t f }
 xtE env (Coercion c)         f m = m { cm_co   = cm_co m   |> xtC env c f }
 xtE _   (Lit l)              f m = m { cm_lit  = cm_lit m  |> xtLit l f }
 xtE env (Cast e c)           f m = m { cm_cast = cm_cast m |> xtE env e |>>
-						 xtC env c f }
+                                                 xtC env c f }
 xtE env (Tick t e)           f m = m { cm_tick = cm_tick m |> xtE env e |>> xtTickish t f }
 xtE env (App e1 e2)          f m = m { cm_app = cm_app m |> xtE env e2 |>> xtE env e1 f }
 xtE env (Lam v e)            f m = m { cm_lam = cm_lam m |> xtE (extendCME env v) e
-						 |>> xtBndr env v f }
+                                                 |>> xtBndr env v f }
 xtE env (Let (NonRec b r) e) f m = m { cm_letn = cm_letn m
-						 |> xtE (extendCME env b) e
-						 |>> xtE env r |>> xtBndr env b f }
+                                                 |> xtE (extendCME env b) e
+                                                 |>> xtE env r |>> xtBndr env b f }
 xtE env (Let (Rec prs) e)    f m = m { cm_letr = let (bndrs,rhss) = unzip prs
-						     env1 = extendCMEs env bndrs
-						 in cm_letr m
-						    |>  xtList (xtE env1) rhss
-						    |>> xtE env1 e
-						    |>> xtList (xtBndr env1) bndrs f }
+                                                     env1 = extendCMEs env bndrs
+                                                 in cm_letr m
+                                                    |>  xtList (xtE env1) rhss
+                                                    |>> xtE env1 e
+                                                    |>> xtList (xtBndr env1) bndrs f }
 xtE env (Case e b ty as)     f m
-		     | null as   = m { cm_ecase = cm_ecase m |> xtE env e |>> xtT env ty f }
-		     | otherwise = m { cm_case = cm_case m |> xtE env e
-						 |>> let env1 = extendCME env b
-						     in xtList (xtA env1) as f }
+                     | null as   = m { cm_ecase = cm_ecase m |> xtE env e |>> xtT env ty f }
+                     | otherwise = m { cm_case = cm_case m |> xtE env e
+                                                 |>> let env1 = extendCME env b
+                                                     in xtList (xtA env1) as f }
 
 type TickishMap a = Map.Map (Tickish Id) a
 lkTickish :: Tickish Id -> TickishMap a -> Maybe a
@@ -422,8 +422,8 @@ data AltMap a   -- A single alternative
 instance TrieMap AltMap where
    type Key AltMap = CoreAlt
    emptyTM  = AM { am_deflt = emptyTM
-		 , am_data = emptyNameEnv
-		 , am_lit  = emptyLiteralMap }
+                 , am_data = emptyNameEnv
+                 , am_lit  = emptyLiteralMap }
    lookupTM = lkA emptyCME
    alterTM  = xtA emptyCME
    foldTM   = fdA
@@ -444,17 +444,17 @@ xtA :: CmEnv -> CoreAlt -> XT a -> AltMap a -> AltMap a
 xtA env (DEFAULT, _, rhs)    f m = m { am_deflt = am_deflt m |> xtE env rhs f }
 xtA env (LitAlt l, _, rhs)   f m = m { am_lit   = am_lit m   |> xtLit l |>> xtE env rhs f }
 xtA env (DataAlt d, bs, rhs) f m = m { am_data  = am_data m  |> xtNamed d
-							     |>> xtE (extendCMEs env bs) rhs f }
+                                                             |>> xtE (extendCMEs env bs) rhs f }
 
 fdA :: (a -> b -> b) -> AltMap a -> b -> b
 fdA k m = foldTM k (am_deflt m)
-	. foldTM (foldTM k) (am_data m)
-	. foldTM (foldTM k) (am_lit m)
+        . foldTM (foldTM k) (am_data m)
+        . foldTM (foldTM k) (am_lit m)
 \end{code}
 
 %************************************************************************
 %*                                                                      *
-		   Coercions
+                   Coercions
 %*                                                                      *
 %************************************************************************
 
@@ -482,25 +482,25 @@ data CoercionMap a
        , km_kind   :: CoercionMap a
        , km_sub    :: CoercionMap a
        , km_axiom_rule :: Map.Map FastString
-				  (ListMap TypeMap (ListMap CoercionMap a))
+                                  (ListMap TypeMap (ListMap CoercionMap a))
        }
 
 data CoercionArgMap a
   = EmptyKAM
   | KAM { kam_tyco :: CoercionMap a
-	, kam_coco :: RoleMap (CoercionMap (CoercionMap a))
-	}
+        , kam_coco :: RoleMap (CoercionMap (CoercionMap a))
+        }
 
 wrapEmptyKM :: CoercionMap a
 wrapEmptyKM = KM { km_refl = emptyTM, km_tc_app = emptyTM
-		 , km_app = emptyTM, km_fa_tho = emptyTM, km_fa_the = emptyTM
-		 , km_fa_cho = emptyTM, km_fa_che = emptyTM
-		 , km_var = emptyTM, km_axiom = emptyNameEnv
-		 , km_phant = emptyTM
-		 , km_unsafe = emptyTM, km_sym = emptyTM, km_trans = emptyTM
-		 , km_nth = emptyTM, km_left = emptyTM, km_right = emptyTM
-		 , km_inst = emptyTM, km_coh = emptyTM, km_kind = emptyTM
-		 , km_sub = emptyTM, km_axiom_rule = emptyTM }
+                 , km_app = emptyTM, km_fa_tho = emptyTM, km_fa_the = emptyTM
+                 , km_fa_cho = emptyTM, km_fa_che = emptyTM
+                 , km_var = emptyTM, km_axiom = emptyNameEnv
+                 , km_phant = emptyTM
+                 , km_unsafe = emptyTM, km_sym = emptyTM, km_trans = emptyTM
+                 , km_nth = emptyTM, km_left = emptyTM, km_right = emptyTM
+                 , km_inst = emptyTM, km_coh = emptyTM, km_kind = emptyTM
+                 , km_sub = emptyTM, km_axiom_rule = emptyTM }
 
 wrapEmptyKAM :: CoercionArgMap a
 wrapEmptyKAM = KAM { kam_tyco = emptyTM, kam_coco = emptyTM }
@@ -524,15 +524,15 @@ instance TrieMap CoercionArgMap where
 mapC :: (a->b) -> CoercionMap a -> CoercionMap b
 mapC _ EmptyKM = EmptyKM
 mapC f (KM { km_refl = krefl, km_tc_app = ktc
-	   , km_app = kapp, km_fa_tho = kfatho, km_fa_the = kfathe
-	   , km_fa_cho = kfacho, km_fa_che = kfache
-	   , km_var = kvar, km_axiom = kax
-	   , km_phant = kphant
-	   , km_unsafe = kunsafe, km_sym = ksym, km_trans = ktrans
-	   , km_nth = knth, km_left = kml, km_right = kmr
-	   , km_inst = kinst, km_coh = kco, km_kind = kkind
-	   , km_sub = ksub, km_axiom_rule = kaxr
-	   })
+           , km_app = kapp, km_fa_tho = kfatho, km_fa_the = kfathe
+           , km_fa_cho = kfacho, km_fa_che = kfache
+           , km_var = kvar, km_axiom = kax
+           , km_phant = kphant
+           , km_unsafe = kunsafe, km_sym = ksym, km_trans = ktrans
+           , km_nth = knth, km_left = kml, km_right = kmr
+           , km_inst = kinst, km_coh = kco, km_kind = kkind
+           , km_sub = ksub, km_axiom_rule = kaxr
+           })
   = KM { km_refl   = mapTM (mapTM f) krefl
        , km_tc_app = mapTM (mapNameEnv (mapTM f)) ktc
        , km_app    = mapTM (mapTM f) kapp
@@ -559,7 +559,7 @@ mapCA :: (a->b) -> CoercionArgMap a -> CoercionArgMap b
 mapCA _ EmptyKAM = EmptyKAM
 mapCA f (KAM { kam_tyco = kty, kam_coco = kco })
    = KAM { kam_tyco = mapTM f kty
-	 , kam_coco = mapTM (mapTM (mapTM f)) kco }
+         , kam_coco = mapTM (mapTM (mapTM f)) kco }
 
 lkC :: CmEnv -> Coercion -> CoercionMap a -> Maybe a
 lkC env co m
@@ -575,21 +575,21 @@ lkC env co m
     go (UnsafeCo r t1 t2)      = km_unsafe >.> lookupTM r >=> lkT env t1 >=> lkT env t2
     go (InstCo c t)            = km_inst   >.> lkC env c  >=> lkCA env t
     go (ForAllCo (TyHomo tv) co)
-			       = km_fa_tho
-			       >.> lkC (extendCME env tv) co
-			       >=> lkBndr env tv
+                               = km_fa_tho
+                               >.> lkC (extendCME env tv) co
+                               >=> lkBndr env tv
     go (ForAllCo (TyHetero h a b c) co)
-			       = km_fa_the
-			       >.> lkC (extendCME (extendCME (extendCME env a) b) c) co
-			       >=> lkC env h >=> lkBndr env a >=> lkBndr env b
-			       >=> lkBndr (extendCME (extendCME env b) a) c
+                               = km_fa_the
+                               >.> lkC (extendCME (extendCME (extendCME env a) b) c) co
+                               >=> lkC env h >=> lkBndr env a >=> lkBndr env b
+                               >=> lkBndr (extendCME (extendCME env b) a) c
     go (ForAllCo (CoHomo cv) co)
-			       = km_fa_cho >.> lkC (extendCME env cv) co
-			       >=> lkBndr env cv
+                               = km_fa_cho >.> lkC (extendCME env cv) co
+                               >=> lkBndr env cv
     go (ForAllCo (CoHetero h cv1 cv2) co)
-			       = km_fa_che
-			       >.> lkC (extendCME (extendCME env cv1) cv2) co
-			       >=> lkC env h >=> lkBndr env cv1 >=> lkBndr env cv2
+                               = km_fa_che
+                               >.> lkC (extendCME (extendCME env cv1) cv2) co
+                               >=> lkC env h >=> lkBndr env cv1 >=> lkBndr env cv2
     go (CoVarCo v)             = km_var    >.> lkVar env v
     go (SymCo c)               = km_sym    >.> lkC env c
     go (NthCo n c)             = km_nth    >.> lookupTM n >=> lkC env c
@@ -599,9 +599,9 @@ lkC env co m
     go (KindCo c)              = km_kind   >.> lkC env c
     go (SubCo c)               = km_sub    >.> lkC env c
     go (AxiomRuleCo co ts cs)  = km_axiom_rule >.>
-				    lookupTM (coaxrName co) >=>
-				    lkList (lkT env) ts >=>
-				    lkList (lkC env) cs
+                                    lookupTM (coaxrName co) >=>
+                                    lkList (lkT env) ts >=>
+                                    lkList (lkC env) cs
 
 lkCA :: CmEnv -> CoercionArg -> CoercionArgMap a -> Maybe a
 lkCA env arg m
@@ -625,13 +625,13 @@ xtC env (ForAllCo (TyHomo tv) co) f m
   = m { km_fa_tho = km_fa_tho m |> xtC (extendCME env tv) co |>> xtBndr env tv f }
 xtC env (ForAllCo (TyHetero h a b c) co) f m
   = m { km_fa_the = km_fa_the m |> xtC (extendCME (extendCME (extendCME env a) b) c) co                             |>> xtC env h |>> xtBndr env a |>> xtBndr env b
-				|>> xtBndr (extendCME (extendCME env a) b) c f }
+                                |>> xtBndr (extendCME (extendCME env a) b) c f }
 xtC env (ForAllCo (CoHomo cv) co) f m
  = m { km_fa_cho = km_fa_cho m |> xtC (extendCME env cv) co |>> xtBndr env cv f }
 xtC env (ForAllCo (CoHetero h cv1 cv2) co) f m
  = m { km_fa_che = km_fa_che m |> xtC (extendCME (extendCME env cv1) cv2) co
-			       |>> xtC env h
-			       |>> xtBndr env cv1 |>> xtBndr env cv2 f }
+                               |>> xtC env h
+                               |>> xtBndr env cv1 |>> xtBndr env cv2 f }
 xtC env (CoVarCo v)             f m = m { km_var    = km_var m |> xtVar env  v f }
 xtC env (SymCo c)               f m = m { km_sym    = km_sym m |> xtC env    c f }
 xtC env (NthCo n c)             f m = m { km_nth    = km_nth m |> xtInt n |>> xtC env c f }
@@ -641,9 +641,9 @@ xtC env (CoherenceCo c1 c2)     f m = m { km_coh    = km_coh m |> xtC env c1 |>>
 xtC env (KindCo c)              f m = m { km_kind   = km_kind m |> xtC env c f }
 xtC env (SubCo c)               f m = m { km_sub    = km_sub m |> xtC env c f }
 xtC env (AxiomRuleCo co ts cs)  f m = m { km_axiom_rule = km_axiom_rule m
-							|>  alterTM (coaxrName co)
-							|>> xtList (xtT env) ts
-							|>> xtList (xtC env) cs f}
+                                                        |>  alterTM (coaxrName co)
+                                                        |>> xtList (xtT env) ts
+                                                        |>> xtList (xtC env) cs f}
 
 xtCA :: CmEnv -> CoercionArg -> XT a -> CoercionArgMap a -> CoercionArgMap a
 xtCA env co f EmptyKAM = xtCA env co f wrapEmptyKAM
@@ -653,30 +653,30 @@ xtCA env (CoCoArg r c1 c2) f m = m { kam_coco = kam_coco m |> xtR r |>> xtC env 
 fdC :: (a -> b -> b) -> CoercionMap a -> b -> b
 fdC _ EmptyKM = \z -> z
 fdC k m = foldTM (foldTM k) (km_refl m)
-	. foldTM (foldTM (foldTM k)) (km_tc_app m)
-	. foldTM (foldTM k) (km_app m)
-	. foldTM (foldTM k) (km_fa_tho m)
-	. foldTM (foldTM (foldTM (foldTM (foldTM k)))) (km_fa_the m)
-	. foldTM (foldTM k) (km_fa_cho m)
-	. foldTM (foldTM (foldTM (foldTM k))) (km_fa_che m)
-	. foldTM k (km_var m)
-	. foldTM (foldTM (foldTM k)) (km_axiom m)
-	. foldTM (foldTM (foldTM k)) (km_unsafe m)
-	. foldTM k (km_sym m)
-	. foldTM (foldTM k) (km_trans m)
-	. foldTM (foldTM k) (km_nth m)
-	. foldTM k          (km_left m)
-	. foldTM k          (km_right m)
-	. foldTM (foldTM k) (km_inst m)
-	. foldTM (foldTM k) (km_coh m)
-	. foldTM k          (km_kind m)
-	. foldTM k          (km_sub m)
-	. foldTM (foldTM (foldTM k)) (km_axiom_rule m)
+        . foldTM (foldTM (foldTM k)) (km_tc_app m)
+        . foldTM (foldTM k) (km_app m)
+        . foldTM (foldTM k) (km_fa_tho m)
+        . foldTM (foldTM (foldTM (foldTM (foldTM k)))) (km_fa_the m)
+        . foldTM (foldTM k) (km_fa_cho m)
+        . foldTM (foldTM (foldTM (foldTM k))) (km_fa_che m)
+        . foldTM k (km_var m)
+        . foldTM (foldTM (foldTM k)) (km_axiom m)
+        . foldTM (foldTM (foldTM k)) (km_unsafe m)
+        . foldTM k (km_sym m)
+        . foldTM (foldTM k) (km_trans m)
+        . foldTM (foldTM k) (km_nth m)
+        . foldTM k          (km_left m)
+        . foldTM k          (km_right m)
+        . foldTM (foldTM k) (km_inst m)
+        . foldTM (foldTM k) (km_coh m)
+        . foldTM k          (km_kind m)
+        . foldTM k          (km_sub m)
+        . foldTM (foldTM (foldTM k)) (km_axiom_rule m)
 
 fdCA :: (a -> b -> b) -> CoercionArgMap a -> b -> b
 fdCA _ EmptyKAM = \z -> z
 fdCA k m = foldTM k                   (kam_tyco m)
-	 . foldTM (foldTM (foldTM k)) (kam_coco m)
+         . foldTM (foldTM (foldTM k)) (kam_coco m)
 
 \end{code}
 
@@ -705,8 +705,8 @@ xtR Phantom          f = RM . third3 f . unRM
 fdR :: forall a b. (a -> b -> b) -> RoleMap a -> b -> b
 fdR f (RM (a, b, c)) z = maybe_f a $ maybe_f b $ maybe_f c z
   where maybe_f :: Maybe a -> b -> b
-	maybe_f Nothing z  = z
-	maybe_f (Just x) z = f x z
+        maybe_f Nothing z  = z
+        maybe_f (Just x) z = f x z
 
 mapR :: (a -> b) -> RoleMap a -> RoleMap b
 mapR f (RM (a, b, c)) = RM $ (fmap f a, fmap f b, fmap f c)
@@ -717,7 +717,7 @@ mapR f (RM (a, b, c)) = RM $ (fmap f a, fmap f b, fmap f c)
 
 %************************************************************************
 %*                                                                      *
-		   Types
+                   Types
 %*                                                                      *
 %************************************************************************
 
@@ -761,13 +761,13 @@ extendTypeMap m t v = xtT emptyCME t (\_ -> Just v) m
 
 wrapEmptyTypeMap :: TypeMap a
 wrapEmptyTypeMap = TM { tm_var    = emptyTM
-		      , tm_app    = emptyTM
-		      , tm_fun    = emptyTM
-		      , tm_tc_app = emptyNameEnv
-		      , tm_forall = EmptyTM
-		      , tm_tylit  = emptyTyLitMap
-		      , tm_cast   = EmptyTM
-		      , tm_coerce = EmptyKM }
+                      , tm_app    = emptyTM
+                      , tm_fun    = emptyTM
+                      , tm_tc_app = emptyNameEnv
+                      , tm_forall = EmptyTM
+                      , tm_tylit  = emptyTyLitMap
+                      , tm_cast   = EmptyTM
+                      , tm_coerce = EmptyKM }
 
 instance TrieMap TypeMap where
    type Key TypeMap = Type
@@ -780,8 +780,8 @@ instance TrieMap TypeMap where
 mapT :: (a->b) -> TypeMap a -> TypeMap b
 mapT _ EmptyTM = EmptyTM
 mapT f (TM { tm_var  = tvar, tm_app = tapp, tm_fun = tfun
-	   , tm_tc_app = ttcapp, tm_forall = tforall, tm_tylit = tlit
-	   , tm_cast = tcast, tm_coerce = tco })
+           , tm_tc_app = ttcapp, tm_forall = tforall, tm_tylit = tlit
+           , tm_cast = tcast, tm_coerce = tco })
   = TM { tm_var    = mapTM f tvar
        , tm_app    = mapTM (mapTM f) tapp
        , tm_fun    = mapTM (mapTM f) tfun
@@ -805,16 +805,16 @@ lkT env ty m
     go (LitTy l)            = tm_tylit  >.> lkTyLit l
     go (ForAllTy bndr ty)   = tm_forall >.> lkT env' ty >=> lkB env bndr
       where env'
-	      | Just tv <- binderVar_maybe bndr = extendCME env tv
-	      | otherwise                       = env
+              | Just tv <- binderVar_maybe bndr = extendCME env tv
+              | otherwise                       = env
     go (CastTy ty co)       = tm_cast   >.> lkT env ty >=> lkC env co
     go (CoercionTy co)      = tm_coerce >.> lkC env co
 
 {-
 lkT_mod :: CmEnv
-	-> TyVarEnv Type -- TvSubstEnv
-	-> Type
-	-> TypeMap b -> Maybe b
+        -> TyVarEnv Type -- TvSubstEnv
+        -> Type
+        -> TypeMap b -> Maybe b
 lkT_mod env s ty m
   | EmptyTM <- m = Nothing
   | Just ty' <- coreView ty
@@ -826,9 +826,9 @@ lkT_mod env s ty m
   where
      -- Hopefully intersects is much smaller than traversing the whole vm_fvar
     intersects = eltsUFM $
-		 intersectUFM_C (,) s (vm_fvar $ tm_var m)
+                 intersectUFM_C (,) s (vm_fvar $ tm_var m)
     candidates = [ (u,ct) | (u,ct) <- intersects
-			  , Type.substTy (niFixTvSubst s) u `eqType` ty ]
+                          , Type.substTy (niFixTvSubst s) u `eqType` ty ]
 
     go env _s (TyVarTy v)      = tm_var    >.> lkVar env v
     go env s (AppTy t1 t2)     = tm_app    >.> lkT_mod env s t1 >=> lkT_mod env s t2
@@ -839,9 +839,9 @@ lkT_mod env s ty m
     {- DV TODO: Add proper lookup for ForAll -}
 
 lookupTypeMap_mod :: TyVarEnv a -- A substitution to be applied to the /keys/ of type map
-		  -> (a -> Type)
-		  -> Type
-		  -> TypeMap b -> Maybe b
+                  -> (a -> Type)
+                  -> Type
+                  -> TypeMap b -> Maybe b
 lookupTypeMap_mod s f = lkT_mod emptyCME (mapVarEnv f s)
 -}
 
@@ -854,11 +854,11 @@ xtT env ty f m
 xtT env (TyVarTy v)       f  m     = m { tm_var    = tm_var m |> xtVar env v f }
 xtT env (AppTy t1 t2)     f  m     = m { tm_app    = tm_app m |> xtT env t1 |>> xtT env t2 f }
 xtT env (ForAllTy bndr ty) f m     = m { tm_forall = tm_forall m
-						 |> xtT env' ty
-						 |>> xtB env bndr f }
+                                                 |> xtT env' ty
+                                                 |>> xtB env bndr f }
   where env'
-	  | Just tv <- binderVar_maybe bndr = extendCME env tv
-	  | otherwise                       = env
+          | Just tv <- binderVar_maybe bndr = extendCME env tv
+          | otherwise                       = env
 xtT env (TyConApp tc tys) f  m     = m { tm_tc_app = tm_tc_app m |> xtNamed tc
                                                  |>> xtList (xtT env) tys f }
 xtT _   (LitTy l)         f  m     = m { tm_tylit  = tm_tylit m |> xtTyLit l f }
@@ -904,7 +904,7 @@ instance TrieMap BinderMap where
 
 mapB :: (a->b) -> BinderMap a -> BinderMap b
 mapB f (BM { bm_named_vis = n_vis, bm_named_invis = n_invis,
-	     bm_anon = anon })
+             bm_anon = anon })
   = BM { bm_named_vis   = mapTM f n_vis
        , bm_named_invis = mapTM f n_invis
        , bm_anon        = mapTM f anon
@@ -916,8 +916,8 @@ lkB env = go
     go bndr
       | Just v <- binderVar_maybe bndr
       = case binderVisibility bndr of
-	  Visible   -> bm_named_vis   >.> lkVar env v
-	  Invisible -> bm_named_invis >.> lkVar env v
+          Visible   -> bm_named_vis   >.> lkVar env v
+          Invisible -> bm_named_invis >.> lkVar env v
       | otherwise
       = bm_anon >.> lkT env (binderType bndr)
 
@@ -932,13 +932,13 @@ xtB env bndr f m
 
 fdB :: (a -> b -> b) -> BinderMap a -> b -> b
 fdB k m = foldTM k (bm_named_vis m)
-	. foldTM k (bm_named_invis m)
-	. foldTM k (bm_anon m)
+        . foldTM k (bm_named_invis m)
+        . foldTM k (bm_anon m)
 
 ------------------------
 data TyLitMap a = TLM { tlm_number :: Map.Map Integer a
-		      , tlm_string :: Map.Map FastString a
-		      }
+                      , tlm_string :: Map.Map FastString a
+                      }
 
 instance TrieMap TyLitMap where
    type Key TyLitMap = TyLit
@@ -969,13 +969,13 @@ xtTyLit l f m =
 
 foldTyLit :: (a -> b -> b) -> TyLitMap a -> b -> b
 foldTyLit l m = flip (Map.fold l) (tlm_string m)
-	      . flip (Map.fold l) (tlm_number m)
+              . flip (Map.fold l) (tlm_number m)
 \end{code}
 
 
 %************************************************************************
 %*                                                                      *
-		   Variables
+                   Variables
 %*                                                                      *
 %************************************************************************
 
@@ -984,7 +984,7 @@ type BoundVar = Int  -- Bound variables are deBruijn numbered
 type BoundVarMap a = IntMap.IntMap a
 
 data CmEnv = CME { cme_next :: BoundVar
-		 , cme_env  :: VarEnv BoundVar }
+                 , cme_env  :: VarEnv BoundVar }
 
 emptyCME :: CmEnv
 emptyCME = CME { cme_next = 0, cme_env = emptyVarEnv }
@@ -1010,7 +1010,7 @@ xtBndr env v f = xtT env (varType v) f
 
 --------- Variable occurrence -------------
 data VarMap a = VM { vm_bvar   :: BoundVarMap a  -- Bound variable
-		   , vm_fvar   :: VarEnv a }      -- Free variable
+                   , vm_fvar   :: VarEnv a }      -- Free variable
 
 instance TrieMap VarMap where
    type Key VarMap = Var
@@ -1036,7 +1036,7 @@ xtVar env v f m
 
 fdVar :: (a -> b -> b) -> VarMap a -> b -> b
 fdVar k m = foldTM k (vm_bvar m)
-	  . foldTM k (vm_fvar m)
+          . foldTM k (vm_fvar m)
 
 lkFreeVar :: Var -> VarEnv a -> Maybe a
 lkFreeVar var env = lookupVarEnv env var

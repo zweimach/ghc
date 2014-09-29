@@ -62,9 +62,9 @@ import Data.List( mapAccumL )
 
 
 %************************************************************************
-%*									*
-		Emitting constraints
-%*									*
+%*                                                                      *
+                Emitting constraints
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -88,10 +88,10 @@ newMethodFromName :: CtOrigin -> Name -> TcRhoType -> TcM (HsExpr TcId)
 
 newMethodFromName origin name inst_ty
   = do { id <- tcLookupId name
- 	      -- Use tcLookupId not tcLookupGlobalId; the method is almost
-	      -- always a class op, but with -XRebindableSyntax GHC is
-	      -- meant to find whatever thing is in scope, and that may
-	      -- be an ordinary function. 
+              -- Use tcLookupId not tcLookupGlobalId; the method is almost
+              -- always a class op, but with -XRebindableSyntax GHC is
+              -- meant to find whatever thing is in scope, and that may
+              -- be an ordinary function. 
 
        ; let ty = applyTy (idType id) inst_ty
              (theta, _caller_knows_this) = tcSplitPhiTy ty
@@ -103,9 +103,9 @@ newMethodFromName origin name inst_ty
 
 
 %************************************************************************
-%*									*
-	Deep instantiation and skolemisation
-%*									*
+%*                                                                      *
+        Deep instantiation and skolemisation
+%*                                                                      *
 %************************************************************************
 
 Note [Deep skolemisation]
@@ -186,23 +186,23 @@ deeplyInstantiate orig ty
 
 
 %************************************************************************
-%*									*
+%*                                                                      *
             Instantiating a call
-%*									*
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
 ----------------
 instCall :: CtOrigin -> [TcType] -> TcThetaType -> TcM HsWrapper
 -- Instantiate the constraints of a call
---	(instCall o tys theta)
+--      (instCall o tys theta)
 -- (a) Makes fresh dictionaries as necessary for the constraints (theta)
 -- (b) Throws these dictionaries into the LIE
 -- (c) Returns an HsWrapper ([.] tys dicts)
 
 instCall orig tys theta 
-  = do	{ dict_app <- instCallConstraints orig theta
-	; return (dict_app <.> mkWpTyEvApps tys) }
+  = do  { dict_app <- instCallConstraints orig theta
+        ; return (dict_app <.> mkWpTyEvApps tys) }
 
 ----------------
 instCallConstraints :: CtOrigin -> TcThetaType -> TcM HsWrapper
@@ -223,21 +223,21 @@ instCallConstraints orig preds
            ; return (EvCoercion co) }
      | otherwise
      = do { ev_var <- emitWanted orig pred
-     	  ; return (EvId ev_var) }
+          ; return (EvId ev_var) }
 
 ----------------
 instStupidTheta :: CtOrigin -> TcThetaType -> TcM ()
 -- Similar to instCall, but only emit the constraints in the LIE
 -- Used exclusively for the 'stupid theta' of a data constructor
 instStupidTheta orig theta
-  = do	{ _co <- instCallConstraints orig theta -- Discard the coercion
-	; return () }
+  = do  { _co <- instCallConstraints orig theta -- Discard the coercion
+        ; return () }
 \end{code}
 
 %************************************************************************
-%*									*
-		Literals
-%*									*
+%*                                                                      *
+                Literals
+%*                                                                      *
 %************************************************************************
 
 In newOverloadedLit we convert directly to an Int or Integer if we
@@ -261,38 +261,38 @@ newOverloadedLit' :: DynFlags
                   -> TcM (HsOverLit TcId)
 newOverloadedLit' dflags orig
   lit@(OverLit { ol_val = val, ol_rebindable = rebindable
-	       , ol_witness = meth_name }) res_ty
+               , ol_witness = meth_name }) res_ty
 
   | not rebindable
   , Just expr <- shortCutLit dflags val res_ty 
-	-- Do not generate a LitInst for rebindable syntax.  
-	-- Reason: If we do, tcSimplify will call lookupInst, which
-	--	   will call tcSyntaxName, which does unification, 
-	--	   which tcSimplify doesn't like
+        -- Do not generate a LitInst for rebindable syntax.  
+        -- Reason: If we do, tcSimplify will call lookupInst, which
+        --         will call tcSyntaxName, which does unification, 
+        --         which tcSimplify doesn't like
   = return (lit { ol_witness = expr, ol_type = res_ty
                 , ol_rebindable = rebindable })
 
   | otherwise
-  = do	{ hs_lit <- mkOverLit val
-	; let lit_ty = hsLitType hs_lit
-	; fi' <- tcSyntaxOp orig meth_name (mkFunTy lit_ty res_ty)
-	 	-- Overloaded literals must have liftedTypeKind, because
-	 	-- we're instantiating an overloaded function here,
-	 	-- whereas res_ty might be openTypeKind. This was a bug in 6.2.2
-		-- However this'll be picked up by tcSyntaxOp if necessary
-	; let witness = HsApp (noLoc fi') (noLoc (HsLit hs_lit))
-	; return (lit { ol_witness = witness, ol_type = res_ty
+  = do  { hs_lit <- mkOverLit val
+        ; let lit_ty = hsLitType hs_lit
+        ; fi' <- tcSyntaxOp orig meth_name (mkFunTy lit_ty res_ty)
+                -- Overloaded literals must have liftedTypeKind, because
+                -- we're instantiating an overloaded function here,
+                -- whereas res_ty might be openTypeKind. This was a bug in 6.2.2
+                -- However this'll be picked up by tcSyntaxOp if necessary
+        ; let witness = HsApp (noLoc fi') (noLoc (HsLit hs_lit))
+        ; return (lit { ol_witness = witness, ol_type = res_ty
                       , ol_rebindable = rebindable }) }
 
 ------------
 mkOverLit :: OverLitVal -> TcM HsLit
 mkOverLit (HsIntegral i) 
-  = do	{ integer_ty <- tcMetaTy integerTyConName
-	; return (HsInteger i integer_ty) }
+  = do  { integer_ty <- tcMetaTy integerTyConName
+        ; return (HsInteger i integer_ty) }
 
 mkOverLit (HsFractional r)
-  = do	{ rat_ty <- tcMetaTy rationalTyConName
-	; return (HsRat r rat_ty) }
+  = do  { rat_ty <- tcMetaTy rationalTyConName
+        ; return (HsRat r rat_ty) }
 
 mkOverLit (HsIsString s) = return (HsString s)
 \end{code}
@@ -301,11 +301,11 @@ mkOverLit (HsIsString s) = return (HsString s)
 
 
 %************************************************************************
-%*									*
-		Re-mappable syntax
+%*                                                                      *
+                Re-mappable syntax
     
      Used only for arrow syntax -- find a way to nuke this
-%*									*
+%*                                                                      *
 %************************************************************************
 
 Suppose we are doing the -XRebindableSyntax thing, and we encounter
@@ -318,10 +318,10 @@ this:
 
 So the idea is to generate a local binding for (>>), thus:
 
-	let then72 :: forall a b. m a -> m b -> m b
-	    then72 = ...something involving the user's (>>)...
-	in
-	...the do-expression...
+        let then72 :: forall a b. m a -> m b -> m b
+            then72 = ...something involving the user's (>>)...
+        in
+        ...the do-expression...
 
 Now the do-expression can proceed using then72, which has exactly
 the expected type.
@@ -332,9 +332,9 @@ just use the expression inline.
 
 \begin{code}
 tcSyntaxName :: CtOrigin
-	     -> TcType			-- Type to instantiate it at
-	     -> (Name, HsExpr Name)	-- (Standard name, user name)
-	     -> TcM (Name, HsExpr TcId)	-- (Standard name, suitable expression)
+             -> TcType                  -- Type to instantiate it at
+             -> (Name, HsExpr Name)     -- (Standard name, user name)
+             -> TcM (Name, HsExpr TcId) -- (Standard name, suitable expression)
 -- USED ONLY FOR CmdTop (sigh) ***
 -- See Note [CmdSyntaxTable] in HsExpr
 
@@ -345,18 +345,18 @@ tcSyntaxName orig ty (std_nm, HsVar user_nm)
 
 tcSyntaxName orig ty (std_nm, user_nm_expr) = do
     std_id <- tcLookupId std_nm
-    let	
-	-- C.f. newMethodAtLoc
-	([tv], _, tau) = tcSplitSigmaTy (idType std_id)
- 	sigma1	       = substTyWith [tv] [ty] tau
-	-- Actually, the "tau-type" might be a sigma-type in the
-	-- case of locally-polymorphic methods.
+    let 
+        -- C.f. newMethodAtLoc
+        ([tv], _, tau) = tcSplitSigmaTy (idType std_id)
+        sigma1         = substTyWith [tv] [ty] tau
+        -- Actually, the "tau-type" might be a sigma-type in the
+        -- case of locally-polymorphic methods.
 
     addErrCtxtM (syntaxNameCtxt user_nm_expr orig sigma1) $ do
 
-	-- Check that the user-supplied thing has the
-	-- same type as the standard one.  
-	-- Tiresome jiggling because tcCheckSigma takes a located expression
+        -- Check that the user-supplied thing has the
+        -- same type as the standard one.  
+        -- Tiresome jiggling because tcCheckSigma takes a located expression
      span <- getSrcSpanM
      expr <- tcPolyExpr (L span user_nm_expr) sigma1
      return (std_nm, unLoc expr)
@@ -366,18 +366,18 @@ syntaxNameCtxt :: HsExpr Name -> CtOrigin -> Type -> TidyEnv
 syntaxNameCtxt name orig ty tidy_env
   = do { inst_loc <- getCtLoc orig
        ; let msg = vcat [ ptext (sLit "When checking that") <+> quotes (ppr name)
-			  <+> ptext (sLit "(needed by a syntactic construct)")
-		        , nest 2 (ptext (sLit "has the required type:")
+                          <+> ptext (sLit "(needed by a syntactic construct)")
+                        , nest 2 (ptext (sLit "has the required type:")
                                   <+> ppr (tidyType tidy_env ty))
-		        , nest 2 (pprArisingAt inst_loc) ]
+                        , nest 2 (pprArisingAt inst_loc) ]
        ; return (tidy_env, msg) }
 \end{code}
 
 
 %************************************************************************
-%*									*
-		Instances
-%*									*
+%*                                                                      *
+                Instances
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -398,7 +398,7 @@ tcGetInstEnvs :: TcM (InstEnv, InstEnv)
 -- Gets both the external-package inst-env
 -- and the home-pkg inst env (includes module being compiled)
 tcGetInstEnvs = do { eps <- getEps; env <- getGblEnv;
-		     return (eps_inst_env eps, tcg_inst_env env) }
+                     return (eps_inst_env eps, tcg_inst_env env) }
 
 tcGetInsts :: TcM [ClsInst]
 -- Gets the local class instances.
@@ -413,7 +413,7 @@ tcExtendLocalInstEnv dfuns thing_inside
                                           (tcg_inst_env env, tcg_insts env)
                                           dfuns
       ; let env' = env { tcg_insts    = cls_insts'
-		       , tcg_inst_env = inst_env' }
+                       , tcg_inst_env = inst_env' }
       ; setGblEnv env' thing_inside }
 
 addLocalInst :: (InstEnv, [ClsInst]) -> ClsInst -> TcM (InstEnv, [ClsInst])
@@ -459,7 +459,7 @@ traceDFuns ispecs
   where
     pp ispec = hang (ppr (instanceDFunId ispec) <+> colon)
                   2 (ppr ispec)
-	-- Print the dfun name itself too
+        -- Print the dfun name itself too
 
 funDepErr :: ClsInst -> [ClsInst] -> TcRn ()
 funDepErr ispec ispecs
@@ -469,7 +469,7 @@ funDepErr ispec ispecs
 dupInstErr :: ClsInst -> ClsInst -> TcRn ()
 dupInstErr ispec dup_ispec
   = addClsInstsErr (ptext (sLit "Duplicate instance declarations:"))
-	            [ispec, dup_ispec]
+                    [ispec, dup_ispec]
 
 addClsInstsErr :: SDoc -> [ClsInst] -> TcRn ()
 addClsInstsErr herald ispecs
@@ -483,9 +483,9 @@ addClsInstsErr herald ispecs
 \end{code}
 
 %************************************************************************
-%*									*
-	Simple functions over evidence variables
-%*									*
+%*                                                                      *
+        Simple functions over evidence variables
+%*                                                                      *
 %************************************************************************
 
 \begin{code}
@@ -494,7 +494,7 @@ tyCoVarsOfCt :: Ct -> TcTyVarSet
 -- NB: the 
 tyCoVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })    = extendVarSet (tyCoVarsOfType xi) tv
 tyCoVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_rhs = xi }) = tyCoVarsOfTypes (xi:tys)
-tyCoVarsOfCt (CDictCan { cc_tyargs = tys }) 	          = tyCoVarsOfTypes tys
+tyCoVarsOfCt (CDictCan { cc_tyargs = tys })               = tyCoVarsOfTypes tys
 tyCoVarsOfCt (CIrredEvCan { cc_ev = ev })                 = tyCoVarsOfType (ctEvPred ev)
 tyCoVarsOfCt (CHoleCan { cc_ev = ev })                    = tyCoVarsOfType (ctEvPred ev)
 tyCoVarsOfCt (CNonCanonical { cc_ev = ev })               = tyCoVarsOfType (ctEvPred ev)

@@ -29,9 +29,9 @@ import TyCon
 import Type
 import FamInstEnv
 import Util
-import Maybes		( isJust )
+import Maybes           ( isJust )
 import TysWiredIn
-import TysPrim		( realWorldStatePrimTy )
+import TysPrim          ( realWorldStatePrimTy )
 import ErrUtils         ( dumpIfSet_dyn )
 import Name             ( getName, stableNameCmp )
 import Data.Function    ( on )
@@ -345,25 +345,25 @@ dmdAnalAlt env dmd (con,bndrs,rhs)
 
         -- Note [IO hack in the demand analyser]
         --
-	-- There's a hack here for I/O operations.  Consider
-	-- 	case foo x s of { (# s, r #) -> y }
-	-- Is this strict in 'y'.  Normally yes, but what if 'foo' is an I/O
-	-- operation that simply terminates the program (not in an erroneous way)?
-	-- In that case we should not evaluate y before the call to 'foo'.
-	-- Hackish solution: spot the IO-like situation and add a virtual branch,
-	-- as if we had
-	-- 	case foo x s of 
-	--	   (# s, r #) -> y 
-	--	   other      -> return ()
-	-- So the 'y' isn't necessarily going to be evaluated
-	--
-	-- A more complete example (Trac #148, #1592) where this shows up is:
-	--	do { let len = <expensive> ;
-	--	   ; when (...) (exitWith ExitSuccess)
-	--	   ; print len }
+        -- There's a hack here for I/O operations.  Consider
+        --      case foo x s of { (# s, r #) -> y }
+        -- Is this strict in 'y'.  Normally yes, but what if 'foo' is an I/O
+        -- operation that simply terminates the program (not in an erroneous way)?
+        -- In that case we should not evaluate y before the call to 'foo'.
+        -- Hackish solution: spot the IO-like situation and add a virtual branch,
+        -- as if we had
+        --      case foo x s of 
+        --         (# s, r #) -> y 
+        --         other      -> return ()
+        -- So the 'y' isn't necessarily going to be evaluated
+        --
+        -- A more complete example (Trac #148, #1592) where this shows up is:
+        --      do { let len = <expensive> ;
+        --         ; when (...) (exitWith ExitSuccess)
+        --         ; print len }
 
-	io_hack_reqd = con == DataAlt (tupleCon UnboxedTuple 2) &&
-		       idType (head bndrs) `eqType` realWorldStatePrimTy
+        io_hack_reqd = con == DataAlt (tupleCon UnboxedTuple 2) &&
+                       idType (head bndrs) `eqType` realWorldStatePrimTy
     in  
     (final_alt_ty, (con, bndrs', rhs'))
 \end{code}

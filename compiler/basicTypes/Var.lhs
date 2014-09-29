@@ -51,11 +51,11 @@ module Var (
         -- ** Predicates
         isId, isTKVar, isTyVar, isTcTyVar, isTcTyCoVar,
         isLocalVar, isLocalId, isCoVar,
-	isGlobalId, isExportedId,
-	mustHaveLocalBinding,
+        isGlobalId, isExportedId,
+        mustHaveLocalBinding,
 
-	-- ** Constructing 'TyVar's
-	mkTyVar, mkTcTyVar,
+        -- ** Constructing 'TyVar's
+        mkTyVar, mkTcTyVar,
 
         -- ** Taking 'TyVar's apart
         tyVarName, tyVarKind, tcTyVarDetails, setTcTyVarDetails,
@@ -68,9 +68,9 @@ module Var (
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-}	TyCoRep( Type, Kind )
-import {-# SOURCE #-}	TcType( TcTyVarDetails, pprTcTyVarDetails )
-import {-# SOURCE #-}	IdInfo( IdDetails, IdInfo, coVarDetails, isCoVarDetails, vanillaIdInfo, pprIdDetails )
+import {-# SOURCE #-}   TyCoRep( Type, Kind )
+import {-# SOURCE #-}   TcType( TcTyVarDetails, pprTcTyVarDetails )
+import {-# SOURCE #-}   IdInfo( IdDetails, IdInfo, coVarDetails, isCoVarDetails, vanillaIdInfo, pprIdDetails )
 
 import Name hiding (varName)
 import Unique
@@ -109,7 +109,7 @@ type DictId = EvId      -- A dictionary variable
 type IpId   = EvId      -- A term-level implicit parameter
 type EqVar  = EvId      -- Boxed equality evidence
 
-type CoVar = Id		-- See Note [Evidence: EvIds and CoVars]
+type CoVar = Id         -- See Note [Evidence: EvIds and CoVars]
 
 type TyCoVar = Id       -- Type, kind, *or* coercion variable
 \end{code}
@@ -163,13 +163,13 @@ data Var
         varType    :: Kind           -- ^ The type or kind of the 'Var' in question
  }
 
-  | TcTyVar { 				-- Used only during type inference
-					-- Used for kind variables during 
-					-- inference, as well
-	varName        :: !Name,
-	realUnique     :: FastInt,
-	varType        :: Kind,
-	tc_tv_details  :: TcTyVarDetails
+  | TcTyVar {                           -- Used only during type inference
+                                        -- Used for kind variables during 
+                                        -- inference, as well
+        varName        :: !Name,
+        realUnique     :: FastInt,
+        varType        :: Kind,
+        tc_tv_details  :: TcTyVarDetails
   }
 
   | Id {
@@ -186,8 +186,8 @@ data IdScope    -- See Note [GlobalId/LocalId]
   | LocalId ExportFlag
 
 data ExportFlag 
-  = NotExported	-- ^ Not exported: may be discarded as dead code.
-  | Exported	-- ^ Exported: kept alive
+  = NotExported -- ^ Not exported: may be discarded as dead code.
+  | Exported    -- ^ Exported: kept alive
 
 \end{code}
 
