@@ -208,7 +208,7 @@ instCall :: CtOrigin -> [TcType] -> TcThetaType -> TcM HsWrapper
 
 instCall orig tys theta 
   = do	{ dict_app <- instCallConstraints orig theta
-	; return (dict_app <.> mkWpTyApps tys) }
+	; return (dict_app <.> mkWpTyEvApps tys) }
 
 ----------------
 instCallConstraints :: CtOrigin -> TcThetaType -> TcM HsWrapper

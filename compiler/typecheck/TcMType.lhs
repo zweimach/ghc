@@ -440,19 +440,6 @@ writeMetaTyVarRef tyvar ref ty
 %*									*
 %************************************************************************
 
-Note [Coercion variables in tcInstTyCoVarX]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-What do we do when we need to instantiate a coercion variable that a type
-is quantified over? We create a new EvVar and emit a constraint so that
-the EvVar is given the appropratie evidence after constraint solving. The
-wrinkle here is that a type can be quantified over only *unboxed* coercions,
-and the constraint solver works only with *boxed* coercions. So, what to do?
-Our emitted wanted constraint uses a boxed coercion, but we must be careful
-to unbox the coercion before passing it to any coercion-quantified type. This
-is done by using an EvUnbox EvTerm in an HsWrapper. The mkWpTyApps function
-used in instCall (frequently called soon after tcInstTyCoVars) does this
-correctly. See also [Wrapping coercions embedded in types] in TcEvidence.
-
 Note [Sort-polymorphic tyvars accept foralls]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Here is a common paradigm:
@@ -543,10 +530,8 @@ tcInstTyCoVarX origin subst tyvar
          -- and unification might result in a TcCoercion that's not a CoVar
          -- See Note [Coercion variables in tcInstTyCoVarX]
        ; loc <- getCtLoc origin
-       ; let (ty1, ty2) = coVarTypes new_cv
-             ctev = CtWanted { ctev_evar = new_cv
-                             , ctev_pred = mkTcEqPred ty1 ty2
-                                            -- TODO (RAE): the use of mkTcEqPred, as opposed to the (~#) former, is highly suspect
+       ; let ctev = CtWanted { ctev_evar = new_cv
+                             , ctev_pred = varType new_cv
                              , ctev_loc  = loc }
        ; emitFlat $ mkNonCanonical ctev
        ; return (extendTCvSubst subst tyvar (mkTyCoVarTy new_cv), new_cv) }

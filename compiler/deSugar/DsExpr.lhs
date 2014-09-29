@@ -529,7 +529,7 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
                  inst_con = noLoc $ HsWrap wrap (HsVar (dataConWrapId con))
                         -- Reconstruct with the WrapId so that unpacking happens
                  wrap = mkWpEvVarApps theta_vars            <.>
-                        mkWpTyApps    (mkTyCoVarTys ex_tvs) <.>
+                        mkWpTyEvApps  (mkTyCoVarTys ex_tvs) <.>
                         mkWpTyApps [ty | (tv, ty) <- univ_tvs `zip` out_inst_tys
                                        , not (tv `elemVarEnv` wrap_subst) ]
                  rhs = foldl (\a b -> nlHsApp a b) inst_con val_args

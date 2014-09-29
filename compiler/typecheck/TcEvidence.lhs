@@ -9,7 +9,8 @@ module TcEvidence (
 
   -- HsWrapper
   HsWrapper(..), 
-  (<.>), mkWpTyApps, mkWpEvApps, mkWpEvVarApps, mkWpTyLams, mkWpLams, mkWpLet, mkWpCast,
+  (<.>), mkWpTyEvApps,
+  mkWpTyApps, mkWpEvApps, mkWpEvVarApps, mkWpTyLams, mkWpLams, mkWpLet, mkWpCast,
   idHsWrapper, isIdHsWrapper, pprHsWrapper,
 
   -- Evidence bindings
@@ -466,20 +467,6 @@ ppr_forall_co p ty
 %*                                                                      *
 %************************************************************************
 
-Note [Wrapping coercions embedded in types]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When instantiating quantified type variables in tcInstTyCoVars (and friends),
-there is the possibility of hitting a quantified coercion variable, now that
-ForAllTy can quantify over coercions along with types. tcInstTyCoVars makes
-a new meta type variable for type variables. What to do for coercions? We make
-an evidence variable (an Id) and emit a wanted constraint to solve for an
-appropriate coercion to supply for the evidence. But, the type that is being
-instantiated expects an *unboxed* coercion -- it is impossible to quantify
-over a boxed coercion within a type. So, when creating the HsWrapper to supply
-instantiated type/coercion variables, we must use the EvUnbox constructor for
-EvTerm, which will desugar to an unboxing operation using case analysis. See
-also [Coercion variables in tcInstTyCoVarX] in TcMType.
-
 \begin{code}
 data HsWrapper
   = WpHole                      -- The identity coercion
@@ -517,6 +504,18 @@ c1 <.> c2    = c1 `WpCompose` c2
 mkWpCast :: TcCoercion -> HsWrapper
 mkWpCast co = ASSERT2(tcCoercionRole co == Representational, ppr co)
               WpCast co
+
+-- | Make a wrapper from the list of types returned by a tcInstTyCoVars. This
+-- list of types contains only type and coercion variables.
+mkWpTyEvApps :: [Type] -> HsWrapper
+mkWpTyEvApps tys = mk_co_app_fn wp_ty_or_ev_app tys
+  where wp_ty_or_ev_app ty
+          | Just co <- isCoercionTy_maybe ty
+          , Just cv <- isCoVar_maybe co
+          = WpEvApp (EvId cv)
+
+          | otherwise
+          = WpTyApp ty
 
 mkWpTyApps :: [Type] -> HsWrapper
 mkWpTyApps tys = mk_co_app_fn WpTyApp tys
