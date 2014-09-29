@@ -1387,7 +1387,7 @@ relevantBindings want_filtering ctxt ct
     -- For *kind* errors, report the relevant bindings of the
     -- enclosing *type* equality, becuase that's more useful for the programmer
     extra_tvs = case ctLocOrigin loc of
-                  KindEqOrigin t1 t2 _ -> tyVarsOfTypes [t1,t2]
+                  KindEqOrigin t1 t2 _ -> tyCoVarsOfTypes [t1,t2]
                   _                    -> emptyVarSet
 
     run_out :: Maybe Int -> Bool
