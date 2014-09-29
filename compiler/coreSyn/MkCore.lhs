@@ -226,19 +226,19 @@ mkCoreLams = mkLams
 \begin{code}
 -- | Create a 'CoreExpr' which will evaluate to the given @Int@
 mkIntExpr :: DynFlags -> Integer -> CoreExpr        -- Result = I# i :: Int
-mkIntExpr dflags i = mkConApp intDataCon  [mkIntLit dflags i]
+mkIntExpr dflags i = mkCoreConApps intDataCon  [mkIntLit dflags i]
 
 -- | Create a 'CoreExpr' which will evaluate to the given @Int@
 mkIntExprInt :: DynFlags -> Int -> CoreExpr         -- Result = I# i :: Int
-mkIntExprInt dflags i = mkConApp intDataCon  [mkIntLitInt dflags i]
+mkIntExprInt dflags i = mkCoreConApps intDataCon  [mkIntLitInt dflags i]
 
 -- | Create a 'CoreExpr' which will evaluate to the a @Word@ with the given value
 mkWordExpr :: DynFlags -> Integer -> CoreExpr
-mkWordExpr dflags w = mkConApp wordDataCon [mkWordLit dflags w]
+mkWordExpr dflags w = mkCoreConApps wordDataCon [mkWordLit dflags w]
 
 -- | Create a 'CoreExpr' which will evaluate to the given @Word@
 mkWordExprWord :: DynFlags -> Word -> CoreExpr
-mkWordExprWord dflags w = mkConApp wordDataCon [mkWordLitWord dflags w]
+mkWordExprWord dflags w = mkCoreConApps wordDataCon [mkWordLitWord dflags w]
 
 -- | Create a 'CoreExpr' which will evaluate to the given @Integer@
 mkIntegerExpr  :: MonadThings m => Integer -> m CoreExpr  -- Result :: Integer
@@ -247,16 +247,16 @@ mkIntegerExpr i = do t <- lookupTyCon integerTyConName
 
 -- | Create a 'CoreExpr' which will evaluate to the given @Float@
 mkFloatExpr :: Float -> CoreExpr
-mkFloatExpr f = mkConApp floatDataCon [mkFloatLitFloat f]
+mkFloatExpr f = mkCoreConApps floatDataCon [mkFloatLitFloat f]
 
 -- | Create a 'CoreExpr' which will evaluate to the given @Double@
 mkDoubleExpr :: Double -> CoreExpr
-mkDoubleExpr d = mkConApp doubleDataCon [mkDoubleLitDouble d]
+mkDoubleExpr d = mkCoreConApps doubleDataCon [mkDoubleLitDouble d]
 
 
 -- | Create a 'CoreExpr' which will evaluate to the given @Char@
 mkCharExpr     :: Char             -> CoreExpr      -- Result = C# c :: Int
-mkCharExpr c = mkConApp charDataCon [mkCharLit c]
+mkCharExpr c = mkCoreConApps charDataCon [mkCharLit c]
 
 -- | Create a 'CoreExpr' which will evaluate to the given @String@
 mkStringExpr   :: MonadThings m => String     -> m CoreExpr  -- Result :: String
@@ -371,7 +371,7 @@ mkCoreVarTupTy ids = mkBoxedTupleTy (map idType ids)
 mkCoreTup :: [CoreExpr] -> CoreExpr
 mkCoreTup []  = Var unitDataConId
 mkCoreTup [c] = c
-mkCoreTup cs  = mkConApp (tupleCon BoxedTuple (length cs))
+mkCoreTup cs  = mkCoreConApps (tupleCon BoxedTuple (length cs))
                          (map (Type . exprType) cs ++ cs)
 
 -- | Build a small unboxed tuple holding the specified expressions,
@@ -381,7 +381,7 @@ mkCoreTup cs  = mkConApp (tupleCon BoxedTuple (length cs))
 mkCoreUbxTup :: [Type] -> [CoreExpr] -> CoreExpr
 mkCoreUbxTup tys exps
   = ASSERT( tys `equalLength` exps)
-    mkConApp (tupleCon UnboxedTuple (length tys))
+    mkCoreConApps (tupleCon UnboxedTuple (length tys))
              (map (Type . getLevity "mkCoreUbxTup") tys ++ map Type tys ++ exps)
 
 -- | Make a core tuple of the given boxity
@@ -566,11 +566,11 @@ interact well with rules.
 \begin{code}
 -- | Makes a list @[]@ for lists of the specified type
 mkNilExpr :: Type -> CoreExpr
-mkNilExpr ty = mkConApp nilDataCon [Type ty]
+mkNilExpr ty = mkCoreConApps nilDataCon [Type ty]
 
 -- | Makes a list @(:)@ for lists of the specified type
 mkConsExpr :: Type -> CoreExpr -> CoreExpr -> CoreExpr
-mkConsExpr ty hd tl = mkConApp consDataCon [Type ty, hd, tl]
+mkConsExpr ty hd tl = mkCoreConApps consDataCon [Type ty, hd, tl]
 
 -- | Make a list containing the given expressions, where the list has the given type
 mkListExpr :: Type -> [CoreExpr] -> CoreExpr
