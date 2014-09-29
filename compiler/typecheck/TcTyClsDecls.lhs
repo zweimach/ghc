@@ -1006,7 +1006,7 @@ tc_fam_ty_pats (name, kind)
   = do { let (fam_inv_tkvs, fam_body) = splitForAllTysInvisible kind
 
          -- Instantiate with meta kind vars
-       ; (_, fam_arg_kinds, inv_subst) <- tcInstTyVars PatOrigin fam_inv_tkvs
+       ; (_, fam_arg_kinds, inv_subst) <- tcInstTyCoVars PatOrigin fam_inv_tkvs
        ; let fam_body' = substTy inv_subst fam_body
              (exp_bndrs, bare_kind) = splitForAllTys fam_body'
              (arg_bndrs, leftover_bndrs) = splitAtList arg_pats exp_bndrs

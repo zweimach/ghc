@@ -42,7 +42,7 @@ module TcMType (
 
   --------------------------------
   -- Instantiation
-  tcInstTyVars, newSigTyVar,
+  tcInstTyCoVars, newSigTyVar,
   tcInstType,
   tcInstSkolTyCoVars, tcInstSkolTyCoVarsLoc, tcInstSuperSkolTyCoVarsX,
   tcInstSigTyCoVarsLoc, tcInstSigTyCoVars,
@@ -440,6 +440,19 @@ writeMetaTyVarRef tyvar ref ty
 %*									*
 %************************************************************************
 
+Note [Coercion variables in tcInstTyCoVarX]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+What do we do when we need to instantiate a coercion variable that a type
+is quantified over? We create a new EvVar and emit a constraint so that
+the EvVar is given the appropratie evidence after constraint solving. The
+wrinkle here is that a type can be quantified over only *unboxed* coercions,
+and the constraint solver works only with *boxed* coercions. So, what to do?
+Our emitted wanted constraint uses a boxed coercion, but we must be careful
+to unbox the coercion before passing it to any coercion-quantified type. This
+is done by using an EvUnbox EvTerm in an HsWrapper. The mkWpTyApps function
+used in instCall (frequently called soon after tcInstTyCoVars) does this
+correctly. See also [Wrapping coercions embedded in types] in TcEvidence.
+
 Note [Sort-polymorphic tyvars accept foralls]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Here is a common paradigm:
@@ -492,31 +505,29 @@ newOpenFlexiTyVarTy
   = do { lev <- newFlexiTyVarTy levityTy
        ; newFlexiTyVarTy (tYPE lev) }
 
-tcInstTyVars :: [TyVar] -> TcM ([TcTyVar], [TcType], TCvSubst)
+tcInstTyCoVars :: CtOrigin -> [TyCoVar] -> TcM ([TcTyCoVar], [TcType], TCvSubst)
 -- Instantiate with META type variables
--- Note that this works for a sequence of kind and type variables
+-- Note that this works for a sequence of kind, type, and coercion variables
 -- variables.  Eg    [ (k:*), (a:k->k) ]
 --             Gives [ (k7:*), (a8:k7->k7) ]
--- No coercion variables here!
--- See Note [Never need to instantiate coercion variables]
-tcInstTyVars = tcInstTyVarsX emptyTCvSubst
+tcInstTyCoVars = tcInstTyCoVarsX emptyTCvSubst
     -- emptyTCvSubst has an empty in-scope set, but that's fine here
     -- Since the tyvars are freshly made, they cannot possibly be
     -- captured by any existing for-alls.
 
-tcInstTyVarsX :: TCvSubst -> [TyVar]
-              -> TcM ([TcTyVar], [TcType], TCvSubst)
+tcInstTyCoVarsX :: TCvSubst -> CtOrigin -> [TyCoVar]
+                -> TcM ([TcTyCoVar], [TcType], TCvSubst)
 -- The "X" part is because of extending the substitution
-tcInstTyVarsX subst tyvars =
-  do { (subst', tyvars') <- mapAccumLM tcInstTyVarX subst tyvars
-     ; return (tyvars', mkOnlyTyVarTys tyvars', subst') }
+tcInstTyCoVarsX subst origin tyvars =
+  do { (subst', tyvars') <- mapAccumLM (tcInstTyCoVarX origin) subst tyvars
+     ; return (tyvars', mkTyCoVarTys tyvars', subst') }
 
-tcInstTyVarX :: TCvSubst -> TyVar -> TcM (TCvSubst, TcTyVar)
+tcInstTyCoVarX :: CtOrigin -> TCvSubst -> TyCoVar -> TcM (TCvSubst, TcTyCoVar)
 -- Make a new unification variable tyvar whose Name and Kind come from
 -- an existing TyVar. We substitute kind variables in the kind.
-tcInstTyVarX subst tyvar
-  = ASSERT( isTyVar tyvar )
-    do  { uniq <- newUnique
+tcInstTyCoVarX origin subst tyvar
+  | isTyVar tyvar
+  = do  { uniq <- newUnique
                -- See Note [
         ; let info = if isSortPolymorphic (tyVarKind tyvar)
                      then PolyTv
@@ -526,6 +537,19 @@ tcInstTyVarX subst tyvar
               kind   = substTy subst (tyVarKind tyvar)
               new_tv = mkTcTyVar name kind details
         ; return (extendTCvSubst subst tyvar (mkOnlyTyVarTy new_tv), new_tv) }
+  | otherwise
+  = do { new_cv <- newEvVar (substTy subst (varType tyvar))
+         -- can't call unifyType, because we need to return a CoVar,
+         -- and unification might result in a TcCoercion that's not a CoVar
+         -- See Note [Coercion variables in tcInstTyCoVarX]
+       ; loc <- getCtLoc origin
+       ; let (ty1, ty2) = coVarTypes new_cv
+             ctev = CtWanted { ctev_evar = new_cv
+                             , ctev_pred = mkTcEqPred ty1 ty2
+                                            -- TODO (RAE): the use of mkTcEqPred, as opposed to the (~#) former, is highly suspect
+                             , ctev_loc  = loc }
+       ; emitFlat $ mkNonCanonical ctev
+       ; return (extendTCvSubst subst tyvar (mkTyCoVarTy new_cv), new_cv) }
 
 \end{code}
 

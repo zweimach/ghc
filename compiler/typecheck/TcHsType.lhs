@@ -1718,7 +1718,7 @@ checkExpectedKind hs_ty ty act_kind (EK exp_kind ek_ctxt)
         in
         if num_to_inst <= 0 then return (ty, act_ki)
         else
-        do { (_, args, subst) <- tcInstTyVars AppOrigin inst_tvs
+        do { (_, args, subst) <- tcInstTyCoVars AppOrigin inst_tvs
            ; traceTc "instantiating implicit dependent vars:"
                (vcat $ zipWith (\tv arg -> ppr tv <+> text ":=" <+> ppr arg)
                                inst_tvs args)

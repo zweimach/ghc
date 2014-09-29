@@ -599,10 +599,11 @@ newVar = liftTcM . newFlexiTyVarTy
 newOpenVar :: TR TcType
 newOpenVar = liftTcM newOpenFlexiTyVarTy
 
-instTyVars :: [TyVar] -> TR ([TcTyVar], [TcType], TCvSubst)
+instTyCoVars :: [TyCoVar] -> TR ([TcTyCoVar], [TcType], TCvSubst)
 -- Instantiate fresh mutable type variables from some TyVars
 -- This function preserves the print-name, which helps error messages
-instTyVars = liftTcM . tcInstTyVars
+instTyCoVars = let origin = panic "No origin for instTyCoVars in GHCi" in
+               liftTcM . (tcInstTyCoVars origin)
 
 type RttiInstantiation = [(TcTyCoVar, TyVar)]
    -- Associates the typechecker-world meta type variables
@@ -616,7 +617,7 @@ type RttiInstantiation = [(TcTyCoVar, TyVar)]
 --   mapping from new (instantiated) -to- old (skolem) type variables
 instScheme :: QuantifiedType -> TR (TcType, RttiInstantiation)
 instScheme (tvs, ty)
-  = liftTcM $ do { (tvs', _, subst) <- instTyVars tvs
+  = liftTcM $ do { (tvs', _, subst) <- instTyCoVars tvs
                  ; let rtti_inst = [(tv',tv) | (tv',tv) <- tvs' `zip` tvs]
                  ; return (substTy subst ty, rtti_inst) }
 
@@ -954,7 +955,7 @@ getDataConArgTys dc con_app_ty
   = do { let UnaryRep rep_con_app_ty = repType con_app_ty
        ; traceTR (text "getDataConArgTys 1" <+> (ppr con_app_ty $$ ppr rep_con_app_ty
                    $$ ppr (tcSplitTyConApp_maybe rep_con_app_ty)))
-       ; (_, _, subst) <- instTyVars (univ_tvs ++ ex_tvs)
+       ; (_, _, subst) <- instTyCoVars (univ_tvs ++ ex_tvs)
        ; addConstraint rep_con_app_ty (substTy subst (dataConOrigResTy dc))
               -- See Note [Constructor arg types]
        ; let con_arg_tys = substTys subst (dataConRepArgTys dc)
@@ -1187,7 +1188,7 @@ congruenceNewtypes lhs rhs = go lhs rhs >>= \rhs' -> return (lhs,rhs')
             | otherwise = do
                traceTR (text "(Upgrade) upgraded " <> ppr ty <>
                         text " in presence of newtype evidence " <> ppr new_tycon)
-               (_, vars, _) <- instTyVars (tyConTyVars new_tycon)
+               (_, vars, _) <- instTyCoVars (tyConTyVars new_tycon)
                let ty' = mkTyConApp new_tycon vars
                    UnaryRep rep_ty = repType ty'
                _ <- liftTcM (unifyType ty rep_ty)
