@@ -13,12 +13,6 @@ have a standard form, namely:
 
 \begin{code}
 {-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
 
 module MkId (
         mkDictFunId, mkDictFunTy, mkDictSelId, mkDictSelRhs,
@@ -573,7 +567,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
 
 -------------------------
 newLocal :: Type -> UniqSM Var
-newLocal ty = do { uniq <- getUniqueUs 
+newLocal ty = do { uniq <- getUniqueM
                  ; return (mkSysLocal (fsLit "dt") uniq ty) }
 
 -------------------------

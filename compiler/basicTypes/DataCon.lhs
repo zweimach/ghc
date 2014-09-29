@@ -6,12 +6,6 @@
 
 \begin{code}
 {-# LANGUAGE CPP, DeriveDataTypeable #-}
-{-# OPTIONS_GHC -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
 
 module DataCon (
         -- * Main data types
@@ -1085,7 +1079,7 @@ splitDataProductType_maybe
 		  DataCon,		-- The data constructor
 		  [Type])		-- Its /representation/ arg types
 
-	-- Rejecing existentials is conservative.  Maybe some things
+        -- Rejecting existentials is conservative.  Maybe some things
 	-- could be made to work with them, but I'm not going to sweat
 	-- it through till someone finds it's important.
 

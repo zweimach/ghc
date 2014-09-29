@@ -20,7 +20,6 @@ module Control.Monad
 
       Functor(fmap)
     , Monad((>>=), (>>), return, fail)
-    , Alternative(empty, (<|>), some, many)
     , MonadPlus(mzero, mplus)
     -- * Functions
 
@@ -86,11 +85,11 @@ import GHC.List ( zipWith, unzip, replicate )
 -- -----------------------------------------------------------------------------
 -- Functions mandated by the Prelude
 
--- | @'guard' b@ is @'return' ()@ if @b@ is 'True',
--- and 'mzero' if @b@ is 'False'.
-guard           :: (MonadPlus m) => Bool -> m ()
-guard True      =  return ()
-guard False     =  mzero
+-- | @'guard' b@ is @'pure' ()@ if @b@ is 'True',
+-- and 'empty' if @b@ is 'False'.
+guard           :: (Alternative f) => Bool -> f ()
+guard True      =  pure ()
+guard False     =  empty
 
 -- | This generalizes the list-based 'filter' function.
 
@@ -146,7 +145,7 @@ function' are not commutative.
 
 >       foldM f a1 [x1, x2, ..., xm]
 
-==  
+==
 
 >       do
 >         a2 <- f a1 x1
@@ -187,11 +186,11 @@ replicateM_       :: (Monad m) => Int -> m a -> m ()
 replicateM_ n x   = sequence_ (replicate n x)
 
 -- | The reverse of 'when'.
-unless            :: (Monad m) => Bool -> m () -> m ()
+unless            :: (Applicative f) => Bool -> f () -> f ()
 {-# INLINEABLE unless #-}
 {-# SPECIALISE unless :: Bool -> IO () -> IO () #-}
 {-# SPECIALISE unless :: Bool -> Maybe () -> Maybe () #-}
-unless p s        =  if p then return () else s
+unless p s        =  if p then pure () else s
 
 infixl 4 <$!>
 
@@ -223,23 +222,23 @@ mfilter p ma = do
 
 {- $naming
 
-The functions in this library use the following naming conventions: 
+The functions in this library use the following naming conventions:
 
 * A postfix \'@M@\' always stands for a function in the Kleisli category:
   The monad type constructor @m@ is added to function results
-  (modulo currying) and nowhere else.  So, for example, 
+  (modulo currying) and nowhere else.  So, for example,
 
 >  filter  ::              (a ->   Bool) -> [a] ->   [a]
 >  filterM :: (Monad m) => (a -> m Bool) -> [a] -> m [a]
 
 * A postfix \'@_@\' changes the result type from @(m a)@ to @(m ())@.
-  Thus, for example: 
+  Thus, for example:
 
->  sequence  :: Monad m => [m a] -> m [a] 
->  sequence_ :: Monad m => [m a] -> m () 
+>  sequence  :: Monad m => [m a] -> m [a]
+>  sequence_ :: Monad m => [m a] -> m ()
 
 * A prefix \'@m@\' generalizes an existing function to a monadic form.
-  Thus, for example: 
+  Thus, for example:
 
 >  sum  :: Num a       => [a]   -> a
 >  msum :: MonadPlus m => [m a] -> m a

@@ -7,12 +7,6 @@ Type subsumption and unification
 
 \begin{code}
 {-# LANGUAGE CPP #-}
-{-# OPTIONS_GHC -fno-warn-tabs #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and
--- detab the module (please do the detabbing in a separate patch). See
---     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#TabsvsSpaces
--- for details
 
 module TcUnify (
   -- Full-blown subsumption
@@ -545,7 +539,7 @@ uType_defer origin ty1 ty2
             { ctxt <- getErrCtxt
             ; doc <- mkErrInfo emptyTidyEnv ctxt
             ; traceTc "utype_defer" (vcat [ppr eqv, ppr ty1,
-                                           ppr ty2, ppr origin, doc])
+                                           ppr ty2, pprCtOrigin origin, doc])
             }
        ; return (mkTcCoVarCo eqv) }
 
@@ -555,7 +549,7 @@ uType origin orig_ty1 orig_ty2
        ; traceTc "u_tys " $ vcat 
               [ text "untch" <+> ppr untch
               , sep [ ppr orig_ty1, text "~", ppr orig_ty2]
-              , ppr origin]
+              , pprCtOrigin origin]
        ; co <- go orig_ty1 orig_ty2
        ; if isTcReflCo co
             then traceTc "u_tys yields no coercion" Outputable.empty
@@ -1076,9 +1070,9 @@ We must use the careful function lookupTcTyVar to see if a kind
 variable is filled or unifiable.  It checks for touchablity, and kind
 variables can certainly be untouchable --- for example the variable
 might be bound outside an enclosing existental pattern match that
-binds an inner kind variable, which we don't want ot escape outside.
+binds an inner kind variable, which we don't want to escape outside.
 
-This, or something closely related, was teh cause of Trac #8985.
+This, or something closely related, was the cause of Trac #8985.
 
 Note [Unifying kind variables]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
