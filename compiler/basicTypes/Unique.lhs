@@ -45,7 +45,7 @@ module Unique (
         mkTupleTyConUnique, mkTupleDataConUnique,
         mkPreludeMiscIdUnique, mkPreludeDataConUnique,
         mkPreludeTyConUnique, mkPreludeClassUnique,
-        mkPArrDataConUnique, mkCoVarUnique, mkAxiomUnique,
+        mkPArrDataConUnique, mkCoVarUnique,
 
     mkVarOccUnique, mkDataOccUnique, mkTvOccUnique, mkTcOccUnique,
         mkRegSingleUnique, mkRegPairUnique, mkRegClassUnique, mkRegSubUnique,
@@ -300,7 +300,6 @@ mkPrimOpIdUnique       :: Int -> Unique
 mkPreludeMiscIdUnique  :: Int -> Unique
 mkPArrDataConUnique    :: Int -> Unique
 mkCoVarUnique          :: Int -> Unique
-mkAxiomUnique          :: Int -> Unique
 
 mkAlphaTyVarUnique i            = mkUnique '1' i
 mkCoVarUnique i                 = mkUnique 'g' i
@@ -315,8 +314,6 @@ mkPreludeTyConUnique i          = mkUnique '3' (3*i)
 mkTupleTyConUnique BoxedTuple   a       = mkUnique '4' (3*a)
 mkTupleTyConUnique UnboxedTuple a       = mkUnique '5' (3*a)
 mkTupleTyConUnique ConstraintTuple a    = mkUnique 'k' (3*a)
-
-mkAxiomUnique i = mkUnique 'x' i
 
 -- Data constructor keys occupy *two* slots.  The first is used for the
 -- data constructor itself and its wrapper function (the function that

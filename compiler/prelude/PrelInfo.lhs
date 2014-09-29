@@ -75,7 +75,6 @@ wiredInThings
   = concat
     [           -- Wired in TyCons and their implicit Ids
           tycon_things
-        , map ACoAxiom primAxioms
         , concatMap implicitTyThings tycon_things
 
                 -- Wired in Ids
