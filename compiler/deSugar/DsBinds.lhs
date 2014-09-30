@@ -903,6 +903,7 @@ dsTcCoercion co thing_inside
 
        ; return (foldr (wrap_in_case result_ty) result_expr eqvs_covs) }
   where
+      -- See Note [TcCoercion kinds] in TcEvidence
     mk_co_var :: Id -> Unique -> (Id, Id)
     mk_co_var eqv uniq
       | isEqPredLifted pred = (eqv, mkUserLocal occ uniq ty loc)
@@ -915,6 +916,7 @@ dsTcCoercion co thing_inside
          ty    = mkCoercionType (getEqPredRole pred) ty1 ty2
          (ty1, ty2) = getEqPredTys pred
 
+      -- See Note [TcCoercion kinds] in TcEvidence
     wrap_in_case result_ty (eqv, cov) body
       | isEqPredLifted (evVarPred eqv)
       = case getEqPredRole (evVarPred eqv) of
@@ -944,7 +946,7 @@ ds_tc_coercion subst tc_co
                                 (subst', cobndr') = substForAllCoBndr subst cobndr
     go (TcAxiomInstCo ax ind cos)
                                 = mkAxiomInstCo ax ind (map go_arg cos)
-    go (TcPhantomCo ty1 ty2)    = mkHomoPhantomCo ty1 ty2
+    go (TcPhantomCo h ty1 ty2)  = mkPhantomCo (go h) ty1 ty2
     go (TcSymCo co)             = mkSymCo (go co)
     go (TcTransCo co1 co2)      = mkTransCo (go co1) (go co2)
     go (TcNthCo n co)           = mkNthCo n (go co)
@@ -953,6 +955,7 @@ ds_tc_coercion subst tc_co
     go (TcLetCo bs co)          = ds_tc_coercion (ds_co_binds bs) co
     go (TcCastCo co1 co2)       = mkCoCast (go co1) (go co2)
     go (TcCoherenceCo tco1 co2) = mkCoherenceCo (go tco1) co2
+    go (TcKindCo co)            = mkKindCo (go co)
     go (TcCoVarCo v)            = ds_ev_id subst v
     go (TcAxiomRuleCo co ts cs) = mkAxiomRuleCo co (map (Type.substTy subst) ts) (map go cs)
 

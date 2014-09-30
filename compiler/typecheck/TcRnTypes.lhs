@@ -70,7 +70,7 @@ module TcRnTypes(
         SkolemInfo(..),
 
         CtEvidence(..),
-        mkGivenLoc,
+        mkGivenLoc, mkKindLoc,
         isWanted, isGiven, isDerived,
         canRewrite, canRewriteOrSame,
 
@@ -965,7 +965,7 @@ data Ct
                                 --    we should have decomposed)
     }
 
-  | CNonCanonical {        -- See Note [NonCanonical Semantics]
+  | CNonCanonical {        -- See Note [NonCanonical Semantics] in TcSMonad
       cc_ev  :: CtEvidence
     }
 
@@ -1587,6 +1587,9 @@ mkGivenLoc :: SkolemInfo -> TcLclEnv -> CtLoc
 mkGivenLoc skol_info env = CtLoc { ctl_origin = GivenOrigin skol_info
                                  , ctl_env = env
                                  , ctl_depth = initialSubGoalDepth }
+
+mkKindLoc :: TcType -> TcType -> CtLoc -> CtLoc
+mkKindLoc s1 s2 loc = setCtLocOrigin loc (KindEqOrigin s1 s2 (ctLocOrigin loc))
 
 ctLocEnv :: CtLoc -> TcLclEnv
 ctLocEnv = ctl_env

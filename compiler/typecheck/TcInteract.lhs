@@ -2000,11 +2000,24 @@ getCoercibleInst loc ty1 ty2
                             , Just (EvBind local_var (getEvTerm ct_ev))
                             , mkTcCoVarCo local_var
                             )
-                     Phantom -> do
-                          return
-                            ( Nothing
-                            , Nothing
-                            , TcPhantomCo ta1 ta2)
+                     Phantom
+                       | ka1 `eqType` ka2
+                       -> return ( Nothing
+                                 , Nothing
+                                 , TcPhantomCo (mkTcReflCo Representational ka1)
+                                               ta1 ta2)
+                       | otherwise
+                       -> do ct_ev <- requestCoercible (mkKindLoc ta1 ta2 loc) ka1 ka2
+                             return
+                               ( freshGoal ct_ev
+                               , Nothing
+                               , TcPhantomCo (evTermCoercion $ getEvTerm ct_ev)
+                                             ta1 ta2 )
+
+                       where
+                         ka1 = typeKind ta1
+                         ka2 = typeKind ka2
+
          let (arg_new, arg_binds, arg_cos) = unzip3 arg_stuff
              binds = EvBinds (listToBag (catMaybes arg_binds))
              tcCo = TcLetCo binds (mkTcTyConAppCo Representational tc1 arg_cos)

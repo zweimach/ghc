@@ -1528,9 +1528,12 @@ zonkTcCoToCo env co
     go (TcCoherenceCo co g)   = do { co' <- go co
                                    ; g' <- zonkCoToCo env g
                                    ; return (TcCoherenceCo co' g') }
-    go (TcPhantomCo ty1 ty2)  = do { ty1' <- zonkTcTypeToType env ty1
+    go (TcKindCo co)          = do { co' <- go co
+                                   ; return (TcKindCo co') }
+    go (TcPhantomCo h ty1 ty2)= do { h'   <- go h
+                                   ; ty1' <- zonkTcTypeToType env ty1
                                    ; ty2' <- zonkTcTypeToType env ty2
-                                   ; return (TcPhantomCo ty1' ty2') }
+                                   ; return (TcPhantomCo h' ty1' ty2') }
     go (TcSymCo co)           = do { co' <- go co; return (mkTcSymCo co') }
     go (TcNthCo n co)         = do { co' <- go co; return (mkTcNthCo n co') }
     go (TcLRCo lr co)         = do { co' <- go co; return (mkTcLRCo lr co') }

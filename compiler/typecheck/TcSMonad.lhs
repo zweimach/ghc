@@ -49,7 +49,7 @@ module TcSMonad (
     maybeSym,
 
     newWantedEvVar, newWantedEvVarNC, newWantedEvVarNonrec, newDerived,
-    instDFunConstraints,
+    instDFunConstraints, newGivenEvVar, newGivenEvVarId,
 
        -- Creation of evidence variables
     setWantedTyBind, reportUnifications,
@@ -1595,9 +1595,15 @@ newGivenEvVar :: CtLoc -> (TcPredType, EvTerm) -> TcS CtEvidence
 -- immediately bind it to the given term
 -- and return its CtEvidence
 newGivenEvVar loc (pred, rhs)
+  = do { new_ev <- newGivenEvVarId pred rhs
+       ; return (CtGiven { ctev_pred = pred, ctev_evtm = EvId new_ev, ctev_loc = loc }) }
+
+-- | Like 'newGivenEvVar', but just returns the variable, not the created 'CtEvidence'
+newGivenEvVarId :: TcPredType -> EvTerm -> TcS EvVar
+newGivenEvVarId pred rhs
   = do { new_ev <- wrapTcS $ TcM.newEvVar pred
        ; setEvBind new_ev rhs
-       ; return (CtGiven { ctev_pred = pred, ctev_evtm = EvId new_ev, ctev_loc = loc }) }
+       ; return new_ev }
 
 newWantedEvVarNC :: CtLoc -> TcPredType -> TcS CtEvidence
 -- Don't look up in the solved/inerts; we know it's not there
@@ -1640,11 +1646,12 @@ newDerived loc pty
 
 instDFunConstraints :: CtLoc -> TcThetaType -> TcS [MaybeNew]
 instDFunConstraints loc = mapM (newWantedEvVar loc)
+
 \end{code}
 
 
-Note [xCFlavor]
-~~~~~~~~~~~~~~~
+Note [xCtEvidence]
+~~~~~~~~~~~~~~~~~~
 A call might look like this:
 
     xCtEvidence ev evidence-transformer
@@ -1682,6 +1689,7 @@ But that superclass selector can't (yet) appear in a coercion
 See Note [Coercion evidence terms] in TcEvidence.
 
 \begin{code}
+-- See Note [xCtEvidence]
 xCtEvidence :: CtEvidence            -- Original evidence
             -> XEvTerm               -- Instructions about how to manipulate evidence
             -> TcS [CtEvidence]

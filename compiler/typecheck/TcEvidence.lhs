@@ -27,7 +27,7 @@ module TcEvidence (
   mkTcAxInstCo, mkTcUnbranchedAxInstCo, mkTcForAllCo, mkTcForAllCos, 
   mkTcSymCo, mkTcTransCo, mkTcNthCo, mkTcLRCo, mkTcSubCo,
   mkTcAxiomRuleCo, mkTcCoherenceLeftCo, mkTcCoherenceRightCo,
-  castTcCoercionKind,
+  castTcCoercionKind, mkTcKindCo,
   tcCoercionKind, coVarsOfTcCo, isEqVar, mkTcCoVarCo, 
   isTcReflCo, getTcCoVar_maybe,
   tcCoercionRole, eqVarRole
@@ -73,17 +73,11 @@ boxed type (a ~ b). After we are done with typechecking the
 desugarer finds the free variables, unboxes them, and creates a
 resulting real Coercion with kosher free variables.
 
-We can use most of the Coercion "smart constructors" to build TcCoercions.
-However, mkCoVarCo will not work! The equivalent is mkTcCoVarCo.
-
 The data type is similar to Coercion.Coercion, with the following
 differences
   * Most important, TcLetCo adds let-bindings for coercions.
     This is what lets us unify two for-all types and generate
     equality constraints underneath
-
-  * The kind of a TcCoercion is  t1 ~  t2  (resp. Coercible t1 t2)
-             of a Coercion   is  t1 ~# t2  (resp. t1 ~#R t2)
 
   * UnsafeCo aren't required, but we do have TcPhantomCo
 
@@ -93,12 +87,25 @@ differences
      - TcSubCo is not applied as deep as done with mkSubCo
     Reason: they'll get established when we desugar to Coercion
 
-A quite-subtle point is that TcCoercions can be heterogeneous -- that is,
-the kinds coerced between might be different! What's unusual here is that
-the kind of a TcCoercion is classified by (~), which is homogeneous. This
-doesn't pose a problem in practice -- we never lint TcCoercions -- but is
-a bit strange. I (Richard E.) didn't see a better way of organizing the
-whole thing, while still making (~) homogeneous in user code.
+See also Note [TcCoercion kinds]
+
+Note [TcCoercion kinds]
+~~~~~~~~~~~~~~~~~~~~~~~
+TcCoercions can be classified either by (t1 ~ t2) OR by (t1 ~# t2).
+This is a direct consequence of the fact that both (~) and (~#) are considered
+pred-types by classifyPredType. This is all necessary so that the solver can
+work with both lifted equality and unlifted equality, which in turn is
+necessary because lifted equality can't be used in types.
+
+The way this works out is that the desugarer checks the type of any coercion
+variables used in a TcCoercion. Any lifted equality variables get unboxed;
+any unlifted ones are left alone. See dsTcCoercion.
+
+Then, because equality should always be lifted in terms, dsEvTerm calls
+mkEqBox appropriately. On the other hand, because equality should always
+be unlifted in types, no extra processing is done there.
+
+tcCoercionKind returns a (Pair Type), so it's not affected by this ambiguity.
 
 Note [TcAxiomInstCo takes TcCoercions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -122,7 +129,7 @@ data TcCoercion
   -- This is number of types and coercions are expected to match to CoAxiomRule
   -- (i.e., the CoAxiomRules are always fully saturated)
   | TcAxiomRuleCo CoAxiomRule [TcType] [TcCoercion]
-  | TcPhantomCo TcType TcType
+  | TcPhantomCo TcCoercion TcType TcType
   | TcSymCo TcCoercion
   | TcTransCo TcCoercion TcCoercion
   | TcNthCo Int TcCoercion
@@ -130,6 +137,7 @@ data TcCoercion
   | TcSubCo TcCoercion
   | TcCastCo TcCoercion TcCoercion     -- co1 |> co2
   | TcCoherenceCo TcCoercion Coercion
+  | TcKindCo TcCoercion
   | TcLetCo TcEvBinds TcCoercion
   deriving (Data.Data, Data.Typeable)
 
@@ -275,6 +283,9 @@ mkTcCoherenceRightCo c1 c2 = mkTcSymCo (mkTcCoherenceLeftCo (mkTcSymCo c1) c2)
 castTcCoercionKind :: TcCoercion -> Coercion -> Coercion -> TcCoercion
 castTcCoercionKind g h1 h2
   = g `mkTcCoherenceLeftCo` h1 `mkTcCoherenceRightCo` h2
+
+mkTcKindCo :: TcCoercion -> TcCoercion
+mkTcKindCo = TcKindCo
 \end{code}
 
 \begin{code}
@@ -286,6 +297,7 @@ tcCoercionKind co = go co
     go (TcCastCo _ co)        = case getEqPredTys (pSnd (go co)) of
                                    (ty1,ty2) -> Pair ty1 ty2
     go (TcCoherenceCo co g)   = pLiftFst (`mkCastTy` g) (go co)
+    go (TcKindCo co)          = typeKind <$> go co
     go (TcTyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map go cos)
     go (TcAppCo co1 co2)      = mkAppTy <$> go co1 <*> go co2
     go (TcForAllCo tv co)     = mkNamedForAllTy tv Invisible <$> go co
@@ -298,7 +310,7 @@ tcCoercionKind co = go co
         in ASSERT( cos `equalLength` tvs )
            Pair (substTyWith tvs tys1 (coAxNthLHS ax ind))
                 (substTyWith tvs tys2 (coAxBranchRHS branch))
-    go (TcPhantomCo ty1 ty2)  = Pair ty1 ty2
+    go (TcPhantomCo _ ty1 ty2)= Pair ty1 ty2
     go (TcSymCo co)           = swap (go co)
     go (TcTransCo co1 co2)    = Pair (pFst (go co1)) (pSnd (go co2))
     go (TcNthCo d co)         = tyConAppArgN d <$> go co
@@ -328,7 +340,7 @@ tcCoercionRole = go
     go (TcForAllCo _ co)      = go co
     go (TcCoVarCo cv)         = eqVarRole cv
     go (TcAxiomInstCo ax _ _) = coAxiomRole ax
-    go (TcPhantomCo _ _)      = Phantom
+    go (TcPhantomCo _ _ _)    = Phantom
     go (TcSymCo co)           = go co
     go (TcTransCo co1 _)      = go co1 -- same as go co2
     go (TcNthCo n co)         = let Pair ty1 _ = tcCoercionKind co
@@ -339,6 +351,7 @@ tcCoercionRole = go
     go (TcAxiomRuleCo c _ _)  = coaxrRole c
     go (TcCastCo c _)         = go c
     go (TcCoherenceCo co _)   = go co
+    go (TcKindCo _)           = Representational
     go (TcLetCo _ c)          = go c
 
 
@@ -352,10 +365,12 @@ coVarsOfTcCo tc_co
     go (TcAppCo co1 co2)         = go co1 `unionVarSet` go co2
     go (TcCastCo co1 co2)        = go co1 `unionVarSet` go co2
     go (TcCoherenceCo co g)      = go co `unionVarSet` coVarsOfCo g
+    go (TcKindCo co)             = go co
     go (TcForAllCo _ co)         = go co
     go (TcCoVarCo v)             = unitVarSet v
     go (TcAxiomInstCo _ _ cos)   = mapUnionVarSet go cos
-    go (TcPhantomCo t1 t2)       = coVarsOfType t1 `unionVarSet` coVarsOfType t2
+    go (TcPhantomCo h t1 t2)     = go h `unionVarSet`
+                                   coVarsOfType t1 `unionVarSet` coVarsOfType t2
     go (TcSymCo co)              = go co
     go (TcTransCo co1 co2)       = go co1 `unionVarSet` go co2
     go (TcNthCo _ co)            = go co
@@ -402,6 +417,8 @@ ppr_co p (TcCastCo co1 co2)      = maybeParen p FunPrec $
                                    ppr_co FunPrec co1 <+> ptext (sLit "|>") <+> ppr_co FunPrec co2
 ppr_co p (TcCoherenceCo co g)    = maybeParen p FunPrec $
                                    ppr_co FunPrec co <+> text "|>>" <+> ppr g
+ppr_co p (TcKindCo co)           = maybeParen p FunPrec $
+                                   text "kind" <+> ppr_co FunPrec co
 ppr_co p co@(TcForAllCo {})      = ppr_forall_co p co
                      
 ppr_co _ (TcCoVarCo cv)          = parenSymOcc (getOccName cv) (ppr cv)
@@ -413,7 +430,7 @@ ppr_co p (TcTransCo co1 co2) = maybeParen p FunPrec $
                                ppr_co FunPrec co1
                                <+> ptext (sLit ";")
                                <+> ppr_co FunPrec co2
-ppr_co p (TcPhantomCo t1 t2)  = pprPrefixApp p (ptext (sLit "PhantomCo")) [pprParendType t1, pprParendType t2]
+ppr_co p (TcPhantomCo _ t1 t2)= pprPrefixApp p (ptext (sLit "PhantomCo")) [pprParendType t1, pprParendType t2]
 ppr_co p (TcSymCo co)         = pprPrefixApp p (ptext (sLit "Sym")) [pprParendTcCo co]
 ppr_co p (TcNthCo n co)       = pprPrefixApp p (ptext (sLit "Nth:") <+> int n) [pprParendTcCo co]
 ppr_co p (TcLRCo lr co)       = pprPrefixApp p (ppr lr) [pprParendTcCo co]
