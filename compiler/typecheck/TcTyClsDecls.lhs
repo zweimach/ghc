@@ -421,9 +421,7 @@ getFamDeclInitialKind decl@(FamilyDecl { fdLName = L _ name
            kcHsTyVarBndrs (famDeclHasCusk decl) ktvs $
            do { res_k <- case ksig of
                            Just k  -> tcLHsKind k
-                           Nothing
-                             | famDeclHasCusk decl -> return liftedTypeKind
-                             | otherwise           -> newMetaKindVar
+                           Nothing -> newMetaKindVar
               ; return (res_k, ()) }
        ; return [ (name, AThing fam_kind) ] }
 
@@ -607,15 +605,33 @@ tcTyClDecl1 parent _rec_info (FamDecl { tcdFam = fd })
 tcTyClDecl1 _parent rec_info
             (SynDecl { tcdLName = L _ tc_name, tcdTyVars = tvs, tcdRhs = rhs })
   = ASSERT( isNoParent _parent )
-    tcTyClTyVars tc_name tvs $ \ tvs' full_kind res_kind ->
+    tcTyClTyVars tc_name Nothing tvs $ \ tvs' full_kind res_kind ->
     tcTySynRhs rec_info tc_name tvs' full_kind res_kind rhs
 
   -- "data/newtype" declaration
 tcTyClDecl1 _parent rec_info
             (DataDecl { tcdLName = L _ tc_name, tcdTyVars = tvs, tcdDataDefn = defn })
   = ASSERT( isNoParent _parent )
-    tcTyClTyVars tc_name tvs $ \ tvs' tycon_kind res_kind ->
+    tcTyClTyVars tc_name m_n_declared tvs $ \ tvs' tycon_kind res_kind ->
     tcDataDefn rec_info tc_name tvs' tycon_kind res_kind defn
+  where
+    -- this is terrible. But, before we can properly bring the variables in tvs
+    -- into scope, we need to know how they line up to the already-inferred
+    -- kind of the tycon. This seems like the only way.
+    -- TODO (RAE): This is too terrible. Find a better way.
+    m_n_declared
+      | HsDataDefn { dd_kindSig = Just ksig } <- defn
+      = Just (length (hsQTvExplicit tvs) + count_bndrs (unLoc ksig))
+      | otherwise
+      = Nothing
+
+    count_bndrs (HsForAllTy _ local_tvbs _ ty)
+         -- can't be any implicit tyvars here!
+      = length (hsQTvExplicit local_tvbs) + count_bndrs (unLoc ty)
+    count_bndrs (HsFunTy _ ty)   = 1 + count_bndrs (unLoc ty)
+    count_bndrs (HsKindSig ty _) = count_bndrs (unLoc ty)
+    count_bndrs (HsParTy ty)     = count_bndrs (unLoc ty)
+    count_bndrs _                = 0
 
 tcTyClDecl1 _parent rec_info
             (ClassDecl { tcdLName = L _ class_name, tcdTyVars = tvs
@@ -624,7 +640,7 @@ tcTyClDecl1 _parent rec_info
             , tcdATs = ats, tcdATDefs = at_defs })
   = ASSERT( isNoParent _parent )
     do { (clas, tvs', gen_dm_env) <- fixM $ \ ~(clas,_,_) ->
-            tcTyClTyVars class_name tvs $ \ tvs' full_kind res_kind ->
+            tcTyClTyVars class_name Nothing tvs $ \ tvs' full_kind res_kind ->
             do { MASSERT( isConstraintKind res_kind )
                  -- This little knot is just so we can get
                  -- hold of the name of the class TyCon, which we
@@ -681,7 +697,7 @@ tcTyClDecl1 _ _
 tcFamDecl1 :: TyConParent -> FamilyDecl Name -> TcM [TyThing]
 tcFamDecl1 parent
             (FamilyDecl {fdInfo = OpenTypeFamily, fdLName = L _ tc_name, fdTyVars = tvs})
-  = tcTyClTyVars tc_name tvs $ \ tvs' full_kind _res_kind -> do
+  = tcTyClTyVars tc_name Nothing tvs $ \ tvs' full_kind _res_kind -> do
   { traceTc "open type family:" (ppr tc_name)
   ; checkFamFlag tc_name
   ; let roles = map (const Nominal) tvs'
@@ -696,7 +712,8 @@ tcFamDecl1 parent
 -- Note: eqns might be empty, in a hs-boot file!
   = do { traceTc "closed type family:" (ppr tc_name)
          -- the variables in the header have no scope:
-       ; (tvs', kind) <- tcTyClTyVars tc_name tvs $ \ tvs' full_kind _res_kind ->
+       ; (tvs', kind) <- tcTyClTyVars tc_name Nothing tvs $
+                         \ tvs' full_kind _res_kind ->
                          return (tvs', full_kind)
 
        ; checkFamFlag tc_name -- make sure we have -XTypeFamilies
@@ -741,7 +758,7 @@ tcFamDecl1 parent
 
 tcFamDecl1 parent
            (FamilyDecl {fdInfo = DataFamily, fdLName = L _ tc_name, fdTyVars = tvs})
-  = tcTyClTyVars tc_name tvs $ \ tvs' tycon_kind res_kind -> do
+  = tcTyClTyVars tc_name Nothing tvs $ \ tvs' tycon_kind res_kind -> do
   { traceTc "data family:" (ppr tc_name)
   ; checkFamFlag tc_name
   ; extra_tvs <- tcDataKindSig res_kind
@@ -882,7 +899,7 @@ tcDefaultAssocDecl fam_tc [L loc (TyFamEqn { tfe_tycon = L _ tc_name
                                            , tfe_rhs = rhs })]
   = setSrcSpan loc $
     tcAddFamInstCtxt (ptext (sLit "default type instance")) tc_name $
-    tcTyClTyVars tc_name hs_tvs $ \ tvs _full_kind rhs_kind ->
+    tcTyClTyVars tc_name Nothing hs_tvs $ \ tvs _full_kind rhs_kind ->
     do { traceTc "tcDefaultAssocDecl" (ppr tc_name)
        ; checkTc (isSynFamilyTyCon fam_tc) (wrongKindOfFamily fam_tc)
        ; rhs_ty <- tcCheckLHsType rhs rhs_kind
