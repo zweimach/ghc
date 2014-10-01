@@ -686,12 +686,13 @@ irClass tc_name cls
 irDataCon :: Name -> DataCon -> RoleM ()
 irDataCon tc_name datacon
 -- TODO (RAE): We probably need to look in, say, ex_tv kinds when doing role
--- inference.
+-- inference. This includes the _dep_eq_spec
   = addRoleInferenceInfo tc_name univ_tvs $
     mapM_ (irType ex_var_set) (eqSpecPreds eq_spec ++ theta ++ arg_tys)
       -- See Note [Role-checking data constructor arguments] 
   where
-    (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty) = dataConFullSig datacon
+    (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, arg_tys, _res_ty)
+      = dataConFullSig datacon
     ex_var_set = mkVarSet ex_tvs
 
 irType :: VarSet -> Type -> RoleM ()

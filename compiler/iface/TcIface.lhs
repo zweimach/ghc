@@ -677,7 +677,8 @@ tcIfaceDataCons tycon_name tycon tc_tyvars if_cons
 
         -- Remember, tycon is the representation tycon
         ; let orig_res_ty = mkFamilyTyConApp tycon
-                                (substTyCoVars (mkTopTCvSubst eq_spec) tc_tyvars)
+                                (substTyCoVars (mkTopTCvSubst (map eqSpecPair eq_spec))
+                                               tc_tyvars)
 
         ; con <- buildDataCon (pprPanic "tcIfaceDataCons: FamInstEnvs" (ppr name))
                        name is_infix
@@ -695,13 +696,13 @@ tcIfaceDataCons tycon_name tycon tc_tyvars if_cons
     tc_strict (IfUnpackCo if_co) = do { co <- tcIfaceCo if_co
                                       ; return (HsUnpack (Just co)) }
 
-tcIfaceEqSpec :: IfaceEqSpec -> IfL [(TyVar, Type)]
+tcIfaceEqSpec :: IfaceEqSpec -> IfL [EqSpec]
 tcIfaceEqSpec spec
   = mapM do_item spec
   where
     do_item (occ, if_ty) = do { tv <- tcIfaceTyVar occ
                               ; ty <- tcIfaceType if_ty
-                              ; return (tv,ty) }
+                              ; return (mkEqSpec tv ty) }
 \end{code}
 
 Note [Synonym kind loop]

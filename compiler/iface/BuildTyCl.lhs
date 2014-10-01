@@ -57,7 +57,8 @@ mkDataTyConRhs cons
     }
   where
     is_enum_con con
-       | (_univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res) <- dataConFullSig con
+       | (_univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, arg_tys, _res)
+           <- dataConFullSig con
        = null ex_tvs && null eq_spec && null theta && null arg_tys
 
 
@@ -112,7 +113,7 @@ buildDataCon :: FamInstEnvs
             -> [HsBang] 
             -> [Name]                   -- Field labels
             -> [TyVar] -> [TyCoVar]     -- Univ and ext 
-            -> [(TyVar,Type)]           -- Equality spec
+            -> [EqSpec]                 -- Equality spec
             -> ThetaType                -- Does not include the "stupid theta"
                                         -- or the GADT equalities
             -> [Type] -> Type           -- Argument and result types

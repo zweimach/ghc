@@ -34,7 +34,7 @@ import HsSyn
 -- NB: The desugarer, which straddles the source and Core worlds, sometimes
 --     needs to see source types
 import TcType
-import Coercion ( Role(..) )
+import Coercion ( Role(..), isCoVar )
 import TcEvidence
 import TcRnMonad
 import Type
@@ -514,11 +514,12 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
     out_ty    = mkFamilyTyConApp tycon out_inst_tys
 
     mk_alt upd_fld_env con
-      = do { let (univ_tvs, ex_tvs, eq_spec, 
+      = do { let (univ_tvs, ex_tvs, dep_eq_spec, eq_spec, 
                   theta, arg_tys, _) = dataConFullSig con
                  subst = mkTopTCvSubst (univ_tvs `zip` in_inst_tys)
 
                 -- I'm not bothering to clone the ex_tvs
+           ; let dep_eqs_vars = filter isCoVar ex_tvs
            ; eqs_vars   <- mapM newPredVarDs (substTheta subst (eqSpecPreds eq_spec))
            ; theta_vars <- mapM newPredVarDs (substTheta subst theta)
            ; arg_ids    <- newSysLocalsDs (substTys subst arg_tys)
@@ -543,7 +544,10 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
                                         Just co' -> co'
                                         Nothing  -> mkTcReflCo Nominal ty
                  wrap_subst = mkVarEnv [ (tv, mkTcSymCo (mkTcCoVarCo eq_var))
-                                       | ((tv,_),eq_var) <- eq_spec `zip` eqs_vars ]
+                                       | (tv,eq_var) <-
+                                            (map eqSpecTyVar
+                                                 (dep_eq_spec ++ eq_spec))
+                                            `zip` (dep_eqs_vars ++ eqs_vars) ]
 
                  pat = noLoc $ ConPatOut { pat_con = noLoc (RealDataCon con)
                                          , pat_tvs = ex_tvs
@@ -552,8 +556,10 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
                                          , pat_args = PrefixCon $ map nlVarPat arg_ids
                                          , pat_arg_tys = in_inst_tys
                                          , pat_wrap = idHsWrapper }
-           ; let wrapped_rhs | null eq_spec = rhs
-                             | otherwise    = mkLHsWrap (mkWpCast (mkTcSubCo wrap_co)) rhs
+           ; let wrapped_rhs | null eq_spec && null dep_eq_spec
+                             = rhs
+                             | otherwise
+                             = mkLHsWrap (mkWpCast (mkTcSubCo wrap_co)) rhs
            ; return (mkSimpleMatch [pat] wrapped_rhs) }
 
 \end{code}

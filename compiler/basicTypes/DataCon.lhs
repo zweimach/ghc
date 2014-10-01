@@ -12,6 +12,9 @@ module DataCon (
         DataCon, DataConRep(..), HsBang(..), StrictnessMark(..),
         ConTag,
 
+        -- ** Equality specs
+        EqSpec, mkEqSpec, eqSpecTyVar, eqSpecPair, eqSpecPreds,
+
         -- ** Type construction
         mkDataCon, fIRST_TAG,
 
@@ -20,7 +23,7 @@ module DataCon (
         dataConName, dataConIdentity, dataConTag, dataConTyCon,
         dataConOrigTyCon, dataConUserType, dataConWrapperType,
         dataConUnivTyVars, dataConExTyCoVars, dataConAllTyCoVars,
-        dataConEqSpec, eqSpecPreds, dataConTheta,
+        dataConEqSpec, dataConTheta,
         dataConStupidTheta,
         dataConInstArgTys, dataConOrigArgTys, dataConOrigResTy,
         dataConInstOrigArgTys, dataConRepArgTys,
@@ -460,8 +463,28 @@ data StrictnessMark = MarkedStrict | NotMarkedStrict
 
 -- | An 'EqSpec' is a tyvar/type pair representing an equality made in
 -- rejigging a GADT constructor
-type EqSpec = (TyVar, Type)
+data EqSpec = EqSpec TyVar
+                     Type
+                     Boxity
 
+-- | Make a non-dependent 'EqSpec'
+mkEqSpec :: TyVar -> Type -> EqSpec
+mkEqSpec tv ty = EqSpec tv ty Boxed
+
+eqSpecTyVar :: EqSpec -> TyVar
+eqSpecTyVar (EqSpec tv _ _) = tv
+
+eqSpecPair :: EqSpec -> (TyVar, Type)
+eqSpecPair (EqSpec tv ty _) = (tv, ty)
+
+eqSpecPreds :: [EqSpec] -> ThetaType
+eqSpecPreds spec = [ mk_pred (mkTyCoVarTy tv) ty
+                   | EqSpec tv ty boxity <- spec
+                   , let mk_pred | isBoxed boxity = mkEqPred
+                                 | otherwise      = mkPrimEqPred ]
+
+instance Outputable EqSpec where
+  ppr (EqSpec tv ty boxity) = ppr (tv, ty, boxity)
 \end{code}
 
 Note [Data con representation]
@@ -657,9 +680,6 @@ mkDataCon name declared_infix
     roles = map (\tv -> if isTyVar tv then Nominal else Phantom)
                 (univ_tvs ++ ex_tvs) ++
             map (const Representational) orig_arg_tys
-
-eqSpecPreds :: [EqSpec] -> ThetaType
-eqSpecPreds spec = [ mkEqPred (mkTyCoVarTy tv) ty | (tv,ty) <- spec ]
 \end{code}
 
 Note [Unpack equality predicates]
@@ -723,12 +743,12 @@ dataConEqSpec con@(MkData { dcEqSpec     = eq_spec
                           , dcOtherTheta = theta })
   = dataConKindEqSpec con
     ++ eq_spec ++
-    [ (tv, ty)
+    [ spec
     | Just (tc, [_k, ty1, ty2]) <- map splitTyConApp_maybe theta
     , tc `hasKey` eqTyConKey
-    , (tv, ty) <- case (getTyVar_maybe ty1, getTyVar_maybe ty2) of
-                    (Just tv1, _) -> return (tv1, ty2)
-                    (_, Just tv2) -> return (tv2, ty1)
+    , spec <- case (getTyVar_maybe ty1, getTyVar_maybe ty2) of
+                    (Just tv1, _) -> [mkEqSpec tv1 ty2]
+                    (_, Just tv2) -> [mkEqSpec tv2 ty1]
                     _             -> []
     ]
 
@@ -736,18 +756,18 @@ dataConEqSpec con@(MkData { dcEqSpec     = eq_spec
 -- from the existential variables.
 dataConKindEqSpec :: DataCon -> [EqSpec]
 dataConKindEqSpec (MkData { dcExTyCoVars = ex_tcvs })
-  = [ (tv, ty)
+  = [ EqSpec tv ty Unboxed
     | cv <- ex_tcvs
     , isCoVar cv
     , let (ty1, ty) = coVarTypes cv
-          tv        = getTyVar "dataConEqSpec" ty1
+          tv        = getTyVar "dataConKindEqSpec" ty1
     ]
 
--- | The *full* constraints on the constructor type. Does not include
--- dependent GADT equalities.
+-- | The *full* constraints on the constructor type, including dependent
+-- GADT equalities.
 dataConTheta :: DataCon -> ThetaType
-dataConTheta (MkData { dcEqSpec = eq_spec, dcOtherTheta = theta })
-  = eqSpecPreds eq_spec ++ theta
+dataConTheta con@(MkData { dcEqSpec = eq_spec, dcOtherTheta = theta })
+  = eqSpecPreds (dataConKindEqSpec con ++ eq_spec) ++ theta
 
 -- | Get the Id of the 'DataCon' worker: a function that is the "actual"
 -- constructor and has no top level binding in the program. The type may
@@ -842,16 +862,16 @@ dataConBoxer _ = Nothing
 -- 1) The result of 'dataConAllTyCoVars',
 --
 -- 2) All the 'ThetaType's relating to the 'DataCon' (coercion, dictionary, implicit
---    parameter - whatever)
+--    parameter - whatever), including dependent GADT equalities. Dependent GADT
+--    equalities are *also* listed in return value (1), so be careful!
 --
 -- 3) The type arguments to the constructor
 --
 -- 4) The /original/ result type of the 'DataCon'
 dataConSig :: DataCon -> ([TyCoVar], ThetaType, [Type], Type)
-dataConSig (MkData {dcUnivTyVars = univ_tvs, dcExTyCoVars = ex_tvs,
-                    dcEqSpec = eq_spec, dcOtherTheta  = theta,
-                    dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
-  = (univ_tvs ++ ex_tvs, eqSpecPreds eq_spec ++ theta, arg_tys, res_ty)
+dataConSig con@(MkData {dcUnivTyVars = univ_tvs, dcExTyCoVars = ex_tvs,
+                        dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
+  = (univ_tvs ++ ex_tvs, dataConTheta con, arg_tys, res_ty)
 
 -- | The \"full signature\" of the 'DataCon' returns, in order:
 --
@@ -859,20 +879,22 @@ dataConSig (MkData {dcUnivTyVars = univ_tvs, dcExTyCoVars = ex_tvs,
 --
 -- 2) The result of 'dataConExTyCoVars'
 --
--- 3) The non-dependent GADT equalities
+-- 3) The dependent GADT equalities (which are a subset of return value (2))
 --
--- 4) The result of 'dataConDictTheta'
+-- 4) The non-dependent GADT equalities
 --
--- 5) The original argument types to the 'DataCon' (i.e. before
+-- 5) The result of 'dataConDictTheta'
+--
+-- 6) The original argument types to the 'DataCon' (i.e. before
 --    any change of the representation of the type)
 --
--- 6) The original result type of the 'DataCon'
+-- 7) The original result type of the 'DataCon'
 dataConFullSig :: DataCon
-               -> ([TyVar], [TyCoVar], [EqSpec], ThetaType, [Type], Type)
-dataConFullSig (MkData {dcUnivTyVars = univ_tvs, dcExTyCoVars = ex_tvs,
-                        dcEqSpec = eq_spec, dcOtherTheta = theta,
-                        dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
-  = (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, res_ty)
+               -> ([TyVar], [TyCoVar], [EqSpec], [EqSpec], ThetaType, [Type], Type)
+dataConFullSig con@(MkData {dcUnivTyVars = univ_tvs, dcExTyCoVars = ex_tvs,
+                            dcEqSpec = eq_spec, dcOtherTheta = theta,
+                            dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
+  = (univ_tvs, ex_tvs, dataConKindEqSpec con, eq_spec, theta, arg_tys, res_ty)
 
 dataConOrigResTy :: DataCon -> Type
 dataConOrigResTy dc = dcOrigResTy dc
@@ -903,7 +925,7 @@ dataConUserType con@(MkData { dcUnivTyVars = univ_tvs,
                               dcOtherTheta = theta, dcOrigArgTys = arg_tys,
                               dcOrigResTy = res_ty })
   = let full_eq_spec = dataConKindEqSpec con ++ eq_spec in
-    mkInvForAllTys ((univ_tvs `minusList` map fst full_eq_spec) ++
+    mkInvForAllTys ((univ_tvs `minusList` map eqSpecTyVar full_eq_spec) ++
                     (filter isTyVar ex_tvs)) $
     mkFunTys theta $
     mkFunTys arg_tys $
@@ -1029,7 +1051,7 @@ dataConCannotMatch tys con
   | otherwise
   = typesCantMatch [( Type.substTy subst (mkOnlyTyVarTy tv1)
                     , Type.substTy subst ty2)
-                   | (tv1, ty2) <- eq_spec ]
+                   | EqSpec tv1 ty2 _ <- eq_spec ]
   where
     dc_tvs  = dataConUnivTyVars con
     eq_spec = dataConEqSpec con

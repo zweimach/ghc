@@ -116,10 +116,14 @@ data Pat id
                                         --   Use (conLikeResTy pat_con pat_arg_tys) to get 
                                         --   the type of the pattern
 
-        pat_tvs   :: [TyCoVar],         -- Existentially bound type variables (tyvars only)
+        pat_tvs   :: [TyCoVar],         -- Existentially bound type variables
         pat_dicts :: [EvVar],           -- Ditto *coercion variables* and *dictionaries*
                                         -- One reason for putting coercion variable here, I think,
                                         --      is to ensure their kinds are zonked
+        
+                                        -- Do *not* include dependent equalities;
+                                        -- those are in pat_tvs
+        
         pat_binds :: TcEvBinds,         -- Bindings involving those dictionaries
         pat_args  :: HsConPatDetails id,
         pat_wrap  :: HsWrapper          -- Extra wrapper to pass to the matcher

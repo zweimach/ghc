@@ -713,7 +713,7 @@ tcDataConPat :: PatEnv -> Located Name -> DataCon
 tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
   = do  { let tycon = dataConTyCon data_con
                   -- For data families this is the representation tycon
-              (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _)
+              (univ_tvs, ex_tvs, dep_eq_spec, eq_spec, theta, arg_tys, _)
                 = dataConFullSig data_con
               header = L con_span (RealDataCon data_con)
 
@@ -736,9 +736,11 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
 
               arg_tys' = substTys tenv arg_tys
 
-        ; traceTc "tcConPat" (vcat [ ppr con_name, ppr univ_tvs, ppr ex_tvs, ppr eq_spec
+        ; traceTc "tcConPat" (vcat [ ppr con_name, ppr univ_tvs, ppr ex_tvs
+                                   , ppr dep_eq_spec, ppr eq_spec
                                    , ppr ex_tvs', ppr ctxt_res_tys, ppr arg_tys'
                                    , ppr arg_pats ])
+             -- the conditions below imply (null dep_eq_spec)
         ; if null ex_tvs && null eq_spec && null theta
           then do { -- The common case; no class bindings etc 
                     -- (see Note [Arrows and patterns])
@@ -755,10 +757,11 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
 
           else do   -- The general case, with existential, 
                     -- and local equality constraints
-        { let theta'   = substTheta tenv (eqSpecPreds eq_spec ++ theta)
+        { let dep_theta  = substTheta tenv (eqSpecPreds dep_eq_spec)
+              theta'     = substTheta tenv (eqSpecPreds eq_spec ++ theta)
                            -- order is *important* as we generate the list of
                            -- dictionary binders from theta'
-              no_equalities = not (any isEqPred theta')
+              no_equalities = not (any isEqPred (dep_theta ++ theta'))
               skol_info = case pe_ctxt penv of
                             LamPat mc -> PatSkol (RealDataCon data_con) mc
                             LetPat {} -> UnkSkol -- Doesn't matter
@@ -771,9 +774,10 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
                   -- should require the GADT language flag.  
                   -- Re TypeFamilies see also #7156 
 
-        ; given <- newEvVars theta'
+        ; dep_given <- newEvVars dep_theta
+        ; given     <- newEvVars theta'
         ; (ev_binds, (arg_pats', res))
-             <- checkConstraints skol_info ex_tvs' given $
+             <- checkConstraints skol_info ex_tvs' (dep_given ++ given) $
                 tcConArgs (RealDataCon data_con) arg_tys' arg_pats penv thing_inside
 
         ; let res_pat = ConPatOut { pat_con   = header,

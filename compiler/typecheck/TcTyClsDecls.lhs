@@ -1282,7 +1282,7 @@ rejigConRes :: UniqSupply         -- needed for fresh covars
             -> ResType Type
             -> ([TyCoVar],             -- Universal
                 [TyCoVar],                -- Existential (distinct OccNames from univs)
-                [(TyCoVar,Type)],        -- Equality predicates
+                [EqSpec],      -- Equality predicates
                 Type)          -- Typechecked return type
         -- We don't check that the TyCon given in the ResTy is
         -- the same as the parent tycon, because checkValidDataCon will do it
@@ -1622,7 +1622,7 @@ checkNewDataCon con
   = do  { checkTc (isSingleton arg_tys) (newtypeFieldErr con (length arg_tys))
                 -- One argument
 
-        ; check_con (null eq_spec) $
+        ; check_con (null eq_spec && null dep_eq_spec) $
           ptext (sLit "A newtype constructor must have a return type of form T a1 ... an")
                 -- Return type is (T a b c)
 
@@ -1632,15 +1632,14 @@ checkNewDataCon con
         ; check_con (null ex_tvs) $
           ptext (sLit "A newtype constructor cannot have existential type variables")
                 -- No existentials
-            -- TODO (RAE): This error message might be bogus if all we have
-            -- is a *dependent* GADT equality. But is that possible??
 
         ; checkTc (not (any isBanged (dataConStrictMarks con)))
                   (newtypeStrictError con)
                 -- No strictness
     }
   where
-    (_univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty) = dataConFullSig con
+    (_univ_tvs, ex_tvs, dep_eq_spec, eq_spec, theta, arg_tys, _res_ty)
+      = dataConFullSig con
     check_con what msg 
        = checkTc what (msg $$ ppr con <+> dcolon <+> ppr (dataConUserType con))
 
@@ -1812,7 +1811,8 @@ checkValidRoles tc
                     eqSpecPreds eq_spec ++ theta ++ arg_tys }
                     -- See Note [Role-checking data constructor arguments] in TcTyDecls
       where
-        (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty) = dataConFullSig datacon
+        (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, arg_tys, _res_ty)
+          = dataConFullSig datacon
         univ_roles = zipVarEnv univ_tvs (tyConRoles tc)
               -- zipVarEnv uses zipEqual, but we don't want that for ex_tvs
         ex_roles   = mkVarEnv (map mk_ex_role ex_tvs)
@@ -1979,7 +1979,8 @@ mkRecSelBind (tycon, sel_name)
         --                 A :: { fld :: Int } -> T Int Bool
         --                 B :: { fld :: Int } -> T Int Char
     dealt_with con = con `elem` cons_w_field || dataConCannotMatch inst_tys con
-    inst_tys = substTyCoVars (mkTopTCvSubst (dataConEqSpec con1)) (dataConUnivTyVars con1)
+    inst_tys = substTyCoVars (mkTopTCvSubst (map eqSpecPair (dataConEqSpec con1)))
+                             (dataConUnivTyVars con1)
 
     unit_rhs = mkLHsTupleExpr []
     msg_lit = HsStringPrim $ unsafeMkByteString $

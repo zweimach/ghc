@@ -1268,10 +1268,11 @@ reifyDataCon tys dc
   -- TODO (RAE): Fix this. It needs to be aware of a telescope of coercions
   -- and existential variables. Probably would be best just to enhance TH
   -- to deal with real GADT syntax.
-  = do { let (tvs, theta, arg_tys, _) = dataConSig dc
-             subst             = mkTopTCvSubst (tvs `zip` tys)   -- Dicard ex_tvs
-             (subst', ex_tvs') = mapAccumL substTyCoVarBndr subst (dropList tys tvs)
-             theta'   = substTheta subst' theta
+  = do { let (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, arg_tys, _)
+               = dataConFullSig dc
+             subst             = mkTopTCvSubst (univ_tvs `zip` tys)   -- Dicard ex_tvs
+             (subst', ex_tvs') = mapAccumL substTyCoVarBndr subst ex_tvs
+             theta'   = substTheta subst' (eqSpecPreds eq_spec ++ theta)
              arg_tys' = substTys subst' arg_tys
              stricts  = map reifyStrict (dataConStrictMarks dc)
              fields   = dataConFieldLabels dc

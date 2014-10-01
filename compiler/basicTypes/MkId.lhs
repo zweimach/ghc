@@ -515,7 +515,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
                      , dcr_bangs   = dropList ev_tys wrap_bangs }) }
 
   where
-    (univ_tvs, ex_tvs, eq_spec, theta, orig_arg_tys, _orig_res_ty)
+    (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, orig_arg_tys, _orig_res_ty)
       = dataConFullSig data_con
     all_tvs      = univ_tvs ++ ex_tvs
     tycon        = dataConTyCon data_con       -- The representation TyCon (not family)
