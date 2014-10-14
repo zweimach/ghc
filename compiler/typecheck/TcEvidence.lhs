@@ -502,6 +502,7 @@ data HsWrapper
         -- (both dictionaries and coercions)
   | WpEvLam EvVar               -- \d. []       the 'd' is an evidence variable
   | WpEvApp EvTerm              -- [] d         the 'd' is evidence for a constraint
+  | WpEvPrimApp TcCoercion      -- [] @~ d      the 'd' will be an *unboxed* coercion
 
         -- Kind and Type abstraction and application
   | WpTyLam TyVar       -- \a. []  the 'a' is a type/kind variable (not coercion var)
@@ -529,7 +530,7 @@ mkWpTyEvApps tys = mk_co_app_fn wp_ty_or_ev_app tys
   where wp_ty_or_ev_app ty
           | Just co <- isCoercionTy_maybe ty
           , Just cv <- getCoVar_maybe co
-          = WpEvApp (EvId cv)
+          = WpEvPrimApp (TcCoVarCo cv)
 
           | otherwise
           = WpTyApp ty
@@ -537,11 +538,15 @@ mkWpTyEvApps tys = mk_co_app_fn wp_ty_or_ev_app tys
 mkWpTyApps :: [Type] -> HsWrapper
 mkWpTyApps tys = mk_co_app_fn WpTyApp tys
 
-mkWpEvApps :: [EvTerm] -> HsWrapper
-mkWpEvApps args = mk_co_app_fn WpEvApp args
+mkWpEvApps :: [Boxity] -> [EvTerm] -> HsWrapper
+mkWpEvApps boxities args = mk_co_app_fn wp_ev_app (zip boxities args)
+
+wp_ev_app :: (Boxity, EvTerm) -> HsWrapper
+wp_ev_app (Boxed,   evterm) = WpEvApp evterm
+wp_ev_app (Unboxed, evterm) = WpEvPrimApp (evTermCoercion evtern)
 
 mkWpEvVarApps :: [EvVar] -> HsWrapper
-mkWpEvVarApps vs = mkWpEvApps (map EvId vs)
+mkWpEvVarApps vs = mkWpEvApps bs (map EvId vs)
 
 mkWpTyLams :: [TyVar] -> HsWrapper
 mkWpTyLams ids = mk_co_lam_fn WpTyLam ids
@@ -809,15 +814,16 @@ pprHsWrapper doc wrap
     help :: (Bool -> SDoc) -> HsWrapper -> Bool -> SDoc
     -- True  <=> appears in function application position
     -- False <=> appears as body of let or lambda
-    help it WpHole             = it
-    help it (WpCompose f1 f2)  = help (help it f2) f1
-    help it (WpCast co)   = add_parens $ sep [it False, nest 2 (ptext (sLit "|>")
+    help it WpHole            = it
+    help it (WpCompose f1 f2) = help (help it f2) f1
+    help it (WpCast co)       = add_parens $ sep [it False, nest 2 (ptext (sLit "|>")
                                               <+> pprParendTcCo co)]
-    help it (WpEvApp id)  = no_parens  $ sep [it True, nest 2 (ppr id)]
-    help it (WpTyApp ty)  = no_parens  $ sep [it True, ptext (sLit "@") <+> pprParendType ty]
-    help it (WpEvLam id)  = add_parens $ sep [ ptext (sLit "\\") <> pp_bndr id, it False]
-    help it (WpTyLam tv)  = add_parens $ sep [ptext (sLit "/\\") <> pp_bndr tv, it False]
-    help it (WpLet binds) = add_parens $ sep [ptext (sLit "let") <+> braces (ppr binds), it False]
+    help it (WpEvApp id)      = no_parens  $ sep [it True, nest 2 (ppr id)]
+    help it (WpEvPrimApp co)  = no_parens  $ sep [it True, text "@~" <+> nest 2 (ppr co)]
+    help it (WpTyApp ty)      = no_parens  $ sep [it True, ptext (sLit "@") <+> pprParendType ty]
+    help it (WpEvLam id)      = add_parens $ sep [ ptext (sLit "\\") <> pp_bndr id, it False]
+    help it (WpTyLam tv)      = add_parens $ sep [ptext (sLit "/\\") <> pp_bndr tv, it False]
+    help it (WpLet binds)     = add_parens $ sep [ptext (sLit "let") <+> braces (ppr binds), it False]
 
     pp_bndr v = pprBndr LambdaBind v <> dot
 

@@ -850,6 +850,9 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
        ; dfun_ev_vars <- newEvVars dfun_theta
 
        ; (sc_binds, sc_ev_vars) <- tcSuperClasses dfun_id inst_tyvars dfun_ev_vars sc_theta'
+       ; let sc_ev_boxities = map get_boxity sc_ev_vars
+             get_boxity evar | isUnLiftedType (varType evar) = Unboxed
+                             | otherwise                     = Boxed
 
        -- Deal with 'SPECIALISE instance' pragmas
        -- See Note [SPECIALISE instance pragmas]
@@ -882,7 +885,8 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
                      --    con_app_args = MkD ty1 ty2 sc1 sc2 op1 op2
              con_app_tys  = wrapId (mkWpTyApps inst_tys)
                                    (dataConWrapId dict_constr)
-             con_app_scs  = mkHsWrap (mkWpEvApps (map EvId sc_ev_vars)) con_app_tys
+             con_app_scs  = mkHsWrap (mkWpEvVarApps sc_ev_boxities sc_ev_vars)
+                                     con_app_tys
              con_app_args = foldl app_to_meth con_app_scs meth_ids
 
              app_to_meth :: HsExpr Id -> Id -> HsExpr Id

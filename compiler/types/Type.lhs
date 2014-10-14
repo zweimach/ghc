@@ -1363,14 +1363,14 @@ getEqPredTys ty
         | tc `hasKey` eqPrimTyConKey -> (ty1, ty2)
       _ -> pprPanic "getEqPredTys" (ppr ty)
 
-getEqPredTys_maybe :: PredType -> Maybe (Role, Type, Type)
+getEqPredTys_maybe :: PredType -> Maybe (Boxity, Role, Type, Type)
 getEqPredTys_maybe ty
   = case splitTyConApp_maybe ty of
       Just (tc, [_, ty1, ty2])
-        | tc `hasKey` eqTyConKey        -> Just (Nominal, ty1, ty2)
-        | tc `hasKey` coercibleTyConKey -> Just (Representational, ty1, ty2)
+        | tc `hasKey` eqTyConKey        -> Just (Boxed, Nominal, ty1, ty2)
+        | tc `hasKey` coercibleTyConKey -> Just (Boxed, Representational, ty1, ty2)
       Just (tc, [_, _, ty1, ty2])
-        | tc `hasKey` eqPrimTyConKey    -> Just (Nominal, ty1, ty2)
+        | tc `hasKey` eqPrimTyConKey    -> Just (Unboxed, Nominal, ty1, ty2)
       _ -> Nothing
 
 getEqPredRole :: PredType -> Role

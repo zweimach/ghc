@@ -989,6 +989,7 @@ viewLExprEq (e1,_) (e2,_) = lexp e1 e2
     wrap (WpCompose w1 w2) (WpCompose w1' w2') = wrap w1 w1' && wrap w2 w2'
     wrap (WpCast co)       (WpCast co')        = co `eq_co` co'
     wrap (WpEvApp et1)     (WpEvApp et2)       = et1 `ev_term` et2
+    wrap (WpEvPrimApp co1) (WpEvPrimApp co2)   = co1 `eq_co` co2
     wrap (WpTyApp t)       (WpTyApp t')        = eqType t t'
     -- Enhancement: could implement equality for more wrappers
     --   if it seems useful (lams and lets)
@@ -1010,6 +1011,7 @@ viewLExprEq (e1,_) (e2,_) = lexp e1 e2
     ---------
     eq_co :: TcCoercion -> TcCoercion -> Bool
     -- Just some simple cases (should the r1 == r2 rather be an ASSERT?)
+    -- TODO (RAE): Shouldn't this just check the types??
     eq_co (TcRefl r1 t1)             (TcRefl r2 t2)             = r1 == r2 && eqType t1 t2
     eq_co (TcCoVarCo v1)             (TcCoVarCo v2)             = v1==v2
     eq_co (TcSymCo co1)              (TcSymCo co2)              = co1 `eq_co` co2

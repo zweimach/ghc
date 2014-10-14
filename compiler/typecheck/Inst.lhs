@@ -213,17 +213,17 @@ instCallConstraints orig preds
   | null preds 
   = return idHsWrapper
   | otherwise
-  = do { evs <- mapM go preds
+  = do { (boxities, evs) <- mapAndUnzipM go preds
        ; traceTc "instCallConstraints" (ppr evs)
-       ; return (mkWpEvApps evs) }
+       ; return (mkWpEvApps boxities evs) }
   where
     go pred 
-     | Just (Nominal, ty1, ty2) <- getEqPredTys_maybe pred -- Try short-cut
+     | Just (boxity, Nominal, ty1, ty2) <- getEqPredTys_maybe pred -- Try short-cut
      = do  { co <- unifyType ty1 ty2
-           ; return (EvCoercion co) }
+           ; return (boxity, EvCoercion co) }
      | otherwise
      = do { ev_var <- emitWanted orig pred
-          ; return (EvId ev_var) }
+          ; return (Boxed, EvId ev_var) }
 
 ----------------
 instStupidTheta :: CtOrigin -> TcThetaType -> TcM ()

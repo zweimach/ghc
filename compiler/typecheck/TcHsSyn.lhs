@@ -835,6 +835,8 @@ zonkCoFn env (WpEvLam ev)   = do { (env', ev') <- zonkEvBndrX env ev
                                  ; return (env', WpEvLam ev') }
 zonkCoFn env (WpEvApp arg)  = do { arg' <- zonkEvTerm env arg
                                  ; return (env, WpEvApp arg') }
+zonkCoFn env (WpEvPrimApp co) = do { co' <- zonkTcCoToCo env co
+                                   ; return (env, WpEvPrimApp co') }
 zonkCoFn env (WpTyLam tv)   = ASSERT( isImmutableTyVar tv )
                               do { (env', tv') <- zonkTyCoBndrX env tv
                                  ; return (env', WpTyLam tv') }
