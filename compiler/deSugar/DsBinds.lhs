@@ -806,7 +806,7 @@ dsHsWrapper (WpCast co)       e = ASSERT(tcCoercionRole co == Representational)
 dsHsWrapper (WpEvLam ev)      e = return $ Lam ev e 
 dsHsWrapper (WpTyLam tv)      e = return $ Lam tv e 
 dsHsWrapper (WpEvApp evtrm)   e = liftM (App e) (dsEvTerm evtrm)
-dsHsWrapper (WpEvPrimApp co)  e = ...
+dsHsWrapper (WpEvPrimApp co)  e = dsTcCoercion co (App e . Coercion)
 
 --------------------------------------
 dsTcEvBinds :: TcEvBinds -> DsM [CoreBind]

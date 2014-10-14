@@ -48,6 +48,7 @@ import VarSet
 import Name
 
 import Util
+import BasicTypes ( Boxity(..), isBoxed )
 import Bag
 import Pair
 import Control.Applicative
@@ -539,14 +540,15 @@ mkWpTyApps :: [Type] -> HsWrapper
 mkWpTyApps tys = mk_co_app_fn WpTyApp tys
 
 mkWpEvApps :: [Boxity] -> [EvTerm] -> HsWrapper
-mkWpEvApps boxities args = mk_co_app_fn wp_ev_app (zip boxities args)
+mkWpEvApps boxities args = mk_co_app_fn wp_ev_app (zip (map isBoxed boxities) args)
 
-wp_ev_app :: (Boxity, EvTerm) -> HsWrapper
-wp_ev_app (Boxed,   evterm) = WpEvApp evterm
-wp_ev_app (Unboxed, evterm) = WpEvPrimApp (evTermCoercion evtern)
+wp_ev_app :: (Bool, EvTerm) -> HsWrapper
+wp_ev_app (True,  evterm) = WpEvApp evterm
+wp_ev_app (False, evterm) = WpEvPrimApp (evTermCoercion evterm)
 
 mkWpEvVarApps :: [EvVar] -> HsWrapper
-mkWpEvVarApps vs = mkWpEvApps bs (map EvId vs)
+mkWpEvVarApps vs = mk_co_app_fn wp_ev_app (zip (map (not . isUnLiftedType . varType) vs)
+                                               (map EvId vs))
 
 mkWpTyLams :: [TyVar] -> HsWrapper
 mkWpTyLams ids = mk_co_lam_fn WpTyLam ids

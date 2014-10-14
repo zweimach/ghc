@@ -54,6 +54,7 @@ import SrcLoc
 import DynFlags
 import Bag
 import Util
+import BasicTypes ( Boxity(..) )
 import Outputable
 import Control.Monad( unless )
 import Data.List( mapAccumL )

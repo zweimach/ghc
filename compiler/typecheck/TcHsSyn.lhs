@@ -1286,7 +1286,7 @@ zonkEvBind env (EvBind var term)
          -- This has a very big effect on some programs (eg Trac #5030)
        ; let ty' = idType var'
        ; case getEqPredTys_maybe ty' of
-           Just (r, ty1, ty2) | ty1 `eqType` ty2
+           Just (_, r, ty1, ty2) | ty1 `eqType` ty2
                   -> return (EvBind var' (EvCoercion (mkTcReflCo r ty1)))
            _other -> do { term' <- zonkEvTerm env term
                         ; return (EvBind var' term') } }

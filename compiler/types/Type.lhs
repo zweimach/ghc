@@ -189,7 +189,7 @@ import CoAxiom
 import {-# SOURCE #-} Coercion
 
 -- others
-import BasicTypes       ( Arity, RepArity )
+import BasicTypes       ( Arity, RepArity, Boxity(..) )
 import Util
 import Outputable
 import FastString
