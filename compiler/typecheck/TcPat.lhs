@@ -757,11 +757,10 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
 
           else do   -- The general case, with existential, 
                     -- and local equality constraints
-        { let dep_theta  = substTheta tenv (eqSpecPreds dep_eq_spec)
-              theta'     = substTheta tenv (eqSpecPreds eq_spec ++ theta)
+        { let theta'     = substTheta tenv (eqSpecPreds eq_spec ++ theta)
                            -- order is *important* as we generate the list of
                            -- dictionary binders from theta'
-              no_equalities = not (any isEqPred (dep_theta ++ theta'))
+              no_equalities = null dep_eq_spec && not (any isEqPred theta')
               skol_info = case pe_ctxt penv of
                             LamPat mc -> PatSkol (RealDataCon data_con) mc
                             LetPat {} -> UnkSkol -- Doesn't matter
@@ -774,8 +773,8 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
                   -- should require the GADT language flag.  
                   -- Re TypeFamilies see also #7156 
 
-        ; dep_given <- newEvVars dep_theta
-        ; given     <- newEvVars theta'
+        ; let dep_given = filter (isPredTy . tyVarKind) ex_tvs'
+        ; given <- newEvVars theta'
         ; (ev_binds, (arg_pats', res))
              <- checkConstraints skol_info ex_tvs' (dep_given ++ given) $
                 tcConArgs (RealDataCon data_con) arg_tys' arg_pats penv thing_inside
