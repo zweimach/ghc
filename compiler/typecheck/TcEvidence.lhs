@@ -531,10 +531,12 @@ mkWpTyEvApps tys = mk_co_app_fn wp_ty_or_ev_app tys
   where wp_ty_or_ev_app ty
           | Just co <- isCoercionTy_maybe ty
           , Just cv <- getCoVar_maybe co
-          = WpEvPrimApp (TcCoVarCo cv)
+          = pprTrace "RAE1 WpEvPrimApp" (ppr cv) $
+            WpEvPrimApp (TcCoVarCo cv)
 
           | otherwise
-          = WpTyApp ty
+          = pprTrace "RAE2 WpTyApp" (ppr ty) $
+            WpTyApp ty
 
 mkWpTyApps :: [Type] -> HsWrapper
 mkWpTyApps tys = mk_co_app_fn WpTyApp tys

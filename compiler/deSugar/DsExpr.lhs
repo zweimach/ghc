@@ -201,6 +201,7 @@ dsExpr (HsWrap co_fn e)
        ; wrapped_e <- dsHsWrapper co_fn e'
        ; dflags <- getDynFlags
        ; warnAboutIdentities dflags e' (exprType wrapped_e)
+       ; pprTrace "RAE3 dsExpr HsWrap" (vcat [ppr e, ppr co_fn, ppr e', ppr wrapped_e]) $ return ()
        ; return wrapped_e }
 
 dsExpr (NegApp expr neg_expr) 
