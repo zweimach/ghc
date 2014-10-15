@@ -2142,7 +2142,7 @@ certainly degrade error messages a bit, though.
 -- what the universal variables and the GADT equalities should be.
 -- Called from TcTyClsDecls.rejigConRes, but it gets so involved with
 -- lifting and coercions that it seemed to belong here.
--- See Note [mkGADTVars].
+-- See Note [mkGADTVars].   TODO (RAE): Update note to remove LCs
 mkGADTVars :: [TyVar]    -- ^ The tycon vars
            -> [TyCoVar]  -- ^ The datacon vars
            -> TCvSubst   -- ^ The matching between the template result type
@@ -2152,25 +2152,23 @@ mkGADTVars :: [TyVar]    -- ^ The tycon vars
                      , TCvSubst ) -- ^ The univ. variables, the GADT equalities,
                                   -- and a subst to apply to any existentials.
 mkGADTVars tmpl_tvs dc_tvs subst
-  = choose [] [] empty_subst empty_subst empty_lc tmpl_tvs
+  = choose [] [] empty_subst empty_subst tmpl_tvs
   where
     in_scope = mkInScopeSet (mkVarSet tmpl_tvs `unionVarSet` mkVarSet dc_tvs)
     empty_subst = mkEmptyTCvSubst in_scope
-    empty_lc    = emptyLiftingContext in_scope
                                           
     choose :: [TyVar]           -- accumulator of univ tvs, reversed
            -> [CoVar]           -- accumulator of GADT equality covars, reversed
            -> TCvSubst          -- template substutition
            -> TCvSubst          -- res. substitution
-           -> LiftingContext    -- mapping from un-substed kinds to coercions
            -> [TyVar]           -- template tvs (the univ tvs passed in)
            -> UniqSM ( [TyVar]  -- the univ_tvs
                      , [CoVar]  -- the covars witnessing GADT equalities
                      , TCvSubst )  -- a substitution to fix kinds in ex_tvs
            
-    choose univs eqs _     r_sub _  []
+    choose univs eqs _     r_sub []
       = return (reverse univs, reverse eqs, r_sub)
-    choose univs eqs t_sub r_sub lc (t_tv:t_tvs)
+    choose univs eqs t_sub r_sub (t_tv:t_tvs)
       | Just r_ty <- lookupVar subst t_tv
       = case getTyVar_maybe r_ty of
           Just r_tv
@@ -2179,14 +2177,12 @@ mkGADTVars tmpl_tvs dc_tvs subst
                choose (r_tv':univs) eqs'
                       (extendTCvSubst t_sub t_tv r_ty')
                       (composeTCvSubst r_sub2 r_sub)
-                      lc t_tvs
+                      t_tvs
             where
               r_tv' = setTyVarKind r_tv (substTy t_sub (tyVarKind t_tv))
               r_ty' = mkOnlyTyVarTy r_tv'
                 -- fixed r_ty' has the same kind as r_tv
-              fixed_r_ty' = mkCastTy r_ty' $
-                            liftCoSubst Representational lc (typeKind r_ty')
-              r_tv_subst = extendTCvSubst empty_subst r_tv fixed_r_ty'
+              r_tv_subst = extendTCvSubst empty_subst r_tv r_ty'
 
                 -- use mapAccumR not mapAccumL: eqs is *reversed*
               (r_sub2, eqs') = mapAccumR substCoVarBndr r_tv_subst eqs
@@ -2194,18 +2190,13 @@ mkGADTVars tmpl_tvs dc_tvs subst
 
                -- not a simple substitution. make an equality predicate
                -- and extend the lifting context
-          _ -> do { cv <- fresh_co_var (mkOnlyTyVarTy t_tv') casted_r_ty
-                  ; let lc1  = extendLiftingContextIS lc  cv
-                        lc2  = extendLiftingContext   lc1 t_tv' (mkCoVarCo cv)
-                        t_sub' = extendTCvInScope t_sub cv
+          _ -> do { cv <- fresh_co_var (mkOnlyTyVarTy t_tv') r_ty
+                  ; let t_sub' = extendTCvInScope t_sub cv
                         r_sub' = extendTCvInScope r_sub cv
                   ; choose (t_tv':univs) (cv:eqs)
                            (extendTCvSubst t_sub' t_tv (mkOnlyTyVarTy t_tv'))
-                           r_sub' lc2 t_tvs }
+                           r_sub' t_tvs }
             where t_tv' = updateTyVarKind (substTy t_sub) t_tv
-                  casted_r_ty = mkCastTy r_ty $
-                                mkSymCo $
-                                liftCoSubst Representational lc (tyVarKind t_tv')
 
       | otherwise
       = pprPanic "mkGADTVars" (ppr tmpl_tvs $$ ppr subst)
