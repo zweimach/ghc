@@ -322,8 +322,7 @@ tcValBinds top_lvl binds sigs thing_inside
                    ; patsyn_wrappers <- mapM tcPatSynWrapper patsyns
                    ; let extra_binds = [ (NonRecursive, wrapper) | wrapper <- patsyn_wrappers ]
                    ; return (extra_binds, thing) }
-             ; traceTc "RAE4 tcValBinds" (ppr binds')
-             ; return (binds' ++ extra_binds', thing) }}
+            ; return (binds' ++ extra_binds', thing) }}
   where
     patsyns
       = [psb | (_, lbinds) <- binds, L _ (PatSynBind psb) <- bagToList lbinds]

@@ -816,10 +816,13 @@ dsTcEvBinds (EvBinds bs)   = dsEvBinds bs
 dsEvBinds :: Bag EvBind -> DsM [CoreBind]
 dsEvBinds bs = mapM ds_scc (sccEvBinds bs)
   where
-    ds_scc (AcyclicSCC (EvBind v r)) = liftM (NonRec v) (dsEvTerm r)
+    ds_scc (AcyclicSCC (EvBind v r)) = liftM (NonRec v) (ds_ev_term v r)
     ds_scc (CyclicSCC bs)            = liftM Rec (mapM ds_pair bs)
 
-    ds_pair (EvBind v r) = liftM ((,) v) (dsEvTerm r)
+    ds_pair (EvBind v r) = liftM ((,) v) (ds_ev_term v r)
+
+    ds_ev_term v r | isCoercionType (varType v) = dsEvTermUnlifted r
+                   | otherwise                  = dsEvTerm r
 
 sccEvBinds :: Bag EvBind -> [SCC EvBind]
 sccEvBinds bs = stronglyConnCompFromEdgedVertices edges
@@ -882,6 +885,10 @@ dsEvTerm (EvLit l) =
   case l of
     EvNum n -> mkIntegerExpr n
     EvStr s -> mkStringExprFS s
+
+-- | Use this variant when the term is meant to be an unlifted equality
+dsEvTermUnlifted :: EvTerm -> DsM CoreExpr
+dsEvTermUnlifted evterm = dsTcCoercion (evTermCoercion evterm) Coercion
 
 ---------------------------------------
 dsTcCoercion :: TcCoercion -> (Coercion -> CoreExpr) -> DsM CoreExpr
