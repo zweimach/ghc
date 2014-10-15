@@ -1199,12 +1199,14 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
                       ResTyH98     -> return ResTyH98
                       ResTyGADT ty -> ResTyGADT <$> zonkTcTypeToType ze ty
        ; us <- newUniqueSupply
-       ; let (univ_tvs, ex_tvs, eq_preds, res_ty') = rejigConRes us tmpl_tvs res_tmpl qtkvs res_ty
+       ; let (univ_tvs, ex_tvs, eq_preds, res_ty', arg_subst)
+               = rejigConRes us tmpl_tvs res_tmpl qtkvs res_ty
 
        ; fam_envs <- tcGetFamInstEnvs
        ; buildDataCon fam_envs (unLoc name) is_infix
                       stricts field_lbls
-                      univ_tvs ex_tvs eq_preds ctxt arg_tys
+                      univ_tvs ex_tvs eq_preds ctxt
+                      (substTys arg_subst arg_tys)
                       res_ty' rep_tycon
                 -- NB:  we put data_tc, the type constructor gotten from the
                 --      constructor type signature into the data constructor;
@@ -1283,12 +1285,13 @@ rejigConRes :: UniqSupply         -- needed for fresh covars
             -> ([TyCoVar],             -- Universal
                 [TyCoVar],                -- Existential (distinct OccNames from univs)
                 [EqSpec],      -- Equality predicates
-                Type)          -- Typechecked return type
+                Type,          -- Typechecked return type
+                TCvSubst)      -- Substitution to apply to argument types
         -- We don't check that the TyCon given in the ResTy is
         -- the same as the parent tycon, because checkValidDataCon will do it
 
 rejigConRes _us tmpl_tvs res_ty dc_tvs ResTyH98
-  = (tmpl_tvs, dc_tvs, [], res_ty)
+  = (tmpl_tvs, dc_tvs, [], res_ty, emptyTCvSubst)
         -- In H98 syntax the dc_tvs are the existential ones
         --      data T a b c = forall d e. MkT ...
         -- The {a,b,c} are tc_tvs, and {d,e} are dc_tvs
@@ -1303,7 +1306,8 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
         --          z
         -- Existentials are the leftover type vars: [x,y]
         -- So we return ([a,b,z], [x,y], [a~(x,y),b~z], T [(x,y)] z z)
-  = (univ_tvs, sorted_tcvs, [], res_ty)  -- TODO (RAE): split sorted_tcvs
+  = (univ_tvs, sorted_tcvs, [], res_ty, arg_subst)
+    -- TODO (RAE): split sorted_tcvs
   where
     Just subst = tcMatchTy (mkVarSet tmpl_tvs) res_tmpl res_ty
                 -- This 'Just' pattern is sure to match, because if not
@@ -1315,7 +1319,7 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
     (univ_tvs, raw_eq_cvs, kind_subst) = initUs_ us $
                                          mkGADTVars tmpl_tvs dc_tvs subst
     raw_ex_tvs = dc_tvs `minusList` univ_tvs
-    (_, substed_ex_tvs) = mapAccumL substTyVarBndr kind_subst raw_ex_tvs
+    (arg_subst, substed_ex_tvs) = mapAccumL substTyVarBndr kind_subst raw_ex_tvs
 
     sorted_tcvs = varSetElemsWellScoped $ mkVarSet (substed_ex_tvs ++ raw_eq_cvs)
 
