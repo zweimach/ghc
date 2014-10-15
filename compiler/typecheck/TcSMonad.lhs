@@ -1484,14 +1484,14 @@ newFlattenSkolem ev fam_ty
        ; updInertTcS $ \ is -> is { inert_fsks = tv : inert_fsks is }
 
        ; let rhs_ty = mkTyCoVarTy tv
-             ctev = CtGiven { ctev_pred = mkTcEqPred fam_ty rhs_ty
+             ctev = CtGiven { ctev_pred = mkTcEqPredLikeEv ev fam_ty rhs_ty
                             , ctev_evtm = EvCoercion (mkTcNomReflCo fam_ty)
                             , ctev_loc =  (ctev_loc ev) { ctl_origin = FlatSkolOrigin } }
        ; return (ctev, rhs_ty) }
 
   | otherwise  -- Wanted or Derived: make new unification variable
   = do { rhs_ty <- newFlexiTcSTy (typeKind fam_ty)
-       ; ctev <- newWantedEvVarNC (ctev_loc ev) (mkTcEqPred fam_ty rhs_ty)
+       ; ctev <- newWantedEvVarNC (ctev_loc ev) (mkTcEqPredLikeEv ev fam_ty rhs_ty)
                           -- NC (no-cache) version because we've already
                           -- looked in the solved goals and inerts (lookupFlatEqn)
        ; return (ctev, rhs_ty) }
@@ -1829,7 +1829,7 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
   | otherwise
   = panic "rewriteEvidence"
   where
-    new_pred = mkTcEqPred nlhs nrhs
+    new_pred = mkTcEqPredLikeEv old_ev nlhs nrhs
 
 maybeSym :: SwapFlag -> TcCoercion -> TcCoercion
 maybeSym IsSwapped  co = mkTcSymCo co
@@ -1886,7 +1886,8 @@ deferTcSForAllEq role loc (bndrs1,body1) (bndrs2,body2)
             phi2 = Type.substTy (zipTopTCvSubst tvs2 tys) body2
             skol_info = UnifyForAllSkol skol_tvs phi1
         ; mev <- newWantedEvVar loc $ case role of
-                Nominal ->          mkTcEqPred      phi1 phi2
+                Nominal ->          mkPrimEqPred    phi1 phi2
+                              -- TODO (RAE): get the boxity right!
                 Representational -> mkCoerciblePred phi1 phi2
                 Phantom ->          panic "deferTcSForAllEq Phantom"
         ; coe_inside <- case mev of

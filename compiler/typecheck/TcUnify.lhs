@@ -529,7 +529,8 @@ uType_defer origin ty1 ty2
        ; loc <- getCtLoc origin
        ; emitFlat $ mkNonCanonical $
              CtWanted { ctev_evar = eqv
-                      , ctev_pred = mkTcEqPred ty1 ty2
+                      , ctev_pred = mkPrimEqPred ty1 ty2
+                             -- TODO (RAE): Get the boxity right!
                       , ctev_loc = loc }
 
        -- Error trace only

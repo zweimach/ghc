@@ -50,7 +50,7 @@ module TcRnTypes(
         isCDictCan_Maybe, isCFunEqCan_maybe,
         isCIrredEvCan, isCNonCanonical, isWantedCt, isDerivedCt,
         isGivenCt, isHoleCt,
-        ctEvidence, ctLoc, ctPred,
+        ctEvidence, ctLoc, ctPred, mkTcEqPredLikeEv,
         mkNonCanonical, mkNonCanonicalCt,
         ctEvPred, ctEvTerm, ctEvId, ctEvCheckDepth,
 
@@ -1021,6 +1021,13 @@ ctLoc = ctev_loc . cc_ev
 ctPred :: Ct -> PredType
 -- See Note [Ct/evidence invariant]
 ctPred ct = ctEvPred (cc_ev ct)
+
+-- | Makes a new equality predicate with the same boxity as the given
+-- evidence.
+mkTcEqPredLikeEv :: CtEvidence -> TcType -> TcType -> TcType
+mkTcEqPredLikeEv ev
+  | isUnLiftedType (ctEvPred ev) = mkPrimEqPred
+  | otherwise                    = mkTcEqPred
 
 dropDerivedWC :: WantedConstraints -> WantedConstraints
 -- See Note [Dropping derived constraints]

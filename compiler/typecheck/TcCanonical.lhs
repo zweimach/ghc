@@ -910,7 +910,9 @@ can_eq_flat_app ev swapped s1 t1 ps_ty1 ty2 ps_ty2
                  xevdecomp x = let xco = evTermCoercion x
                                in [ EvCoercion (mkTcLRCo CLeft xco)
                                   , EvCoercion (mkTcLRCo CRight xco)]
-           ; ctevs <- xCtEvidence ev (XEvTerm [mkTcEqPred s1 s2, mkTcEqPred t1 t2] xevcomp xevdecomp)
+           ; ctevs <- xCtEvidence ev (XEvTerm [ mkTcEqPredLikeEv ev s1 s2
+                                              , mkTcEqPredLikeEv ev t1 t2]
+                                              xevcomp xevdecomp)
            ; canEvVarsCreated ctevs }
 
 -----------------------
@@ -921,7 +923,8 @@ canEqCast :: CtEvidence
           -> TcType -> TcType     -- RHS (res. LHS), both normal and pretty
           -> TcS StopOrContinue
 canEqCast ev swapped ty1 co1 _ty2 ps_ty2
-  = do { let xpreds                = [unSwap swapped mkTcEqPred ty1 ps_ty2]
+  = do { let xpreds                = [unSwap swapped (mkTcEqPredLikeEv ev)
+                                                     ty1 ps_ty2]
              xcomp ~[uncasted_evt] = EvCoercion $
                                      mk_coherence_co swapped
                                                      (evTermCoercion uncasted_evt)
@@ -962,7 +965,7 @@ canDecomposableTyConAppOK :: CtEvidence
 canDecomposableTyConAppOK ev tc1 tys1 tys2
   = do { let xcomp xs  = EvCoercion (mkTcTyConAppCo Nominal tc1 (map evTermCoercion xs))
              xdecomp x = zipWith (\_ i -> EvCoercion $ mkTcNthCo i (evTermCoercion x)) tys1 [0..]
-             xev = XEvTerm (zipWith mkTcEqPred tys1 tys2) xcomp xdecomp
+             xev = XEvTerm (zipWith (mkTcEqPredLikeEv ev) tys1 tys2) xcomp xdecomp
        ; ctevs <- xCtEvidence ev xev
        ; canEvVarsCreated ctevs }
 
@@ -1306,7 +1309,7 @@ homogeniseRhsKind (Just ev) lhs rhs build_ct
              rhs'    = mkCastTy rhs homo_co
        ; emitWorkNC [kind_ev]
        ; type_ev <- newGivenEvVar loc
-                      ( mkTcEqPred lhs rhs'
+                      ( mkTcEqPredLikeEv ev lhs rhs'
                       , EvCoercion $
                         mkTcCoherenceRightCo (evTermCoercion tm) homo_co )
           -- type_ev :: (lhs :: k1) ~ ((rhs |> sym kind_ev_id) :: k1)
@@ -1325,7 +1328,7 @@ homogeniseRhsKind (Just ev) lhs rhs build_ct
        ; let homo_co = mkSymCo $ mkCoVarCo kind_ev_id
            -- homo_co :: k2 ~ k1
              rhs'    = mkCastTy rhs homo_co
-       ; mb_type_ev <- newWantedEvVar loc (mkTcEqPred lhs rhs')
+       ; mb_type_ev <- newWantedEvVar loc (mkTcEqPredLikeEv ev lhs rhs')
        ; emitWorkNC $ freshGoals [mb_kind_ev]
        ; let type_evt = getEvTerm mb_type_ev
        ; setEvBind evar (EvCoercion $

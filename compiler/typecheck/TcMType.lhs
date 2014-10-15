@@ -141,7 +141,8 @@ newEvVar ty = do { name <- newSysName (predTypeOccName ty)
 newEq :: TcType -> TcType -> TcM EvVar
 newEq ty1 ty2
   = do { name <- newSysName (mkVarOccFS (fsLit "cobox"))
-       ; return (mkLocalId name (mkTcEqPred ty1 ty2)) }
+       ; return (mkLocalId name (mkPrimEqPred ty1 ty2)) }
+           -- TODO (RAE): Get the boxity right!
 
 newDict :: Class -> [TcType] -> TcM DictId
 newDict cls tys 

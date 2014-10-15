@@ -576,7 +576,8 @@ solveFunEq from_this xi1 solve_this xi2
   where
     from_this_co = evTermCoercion $ ctEvTerm from_this
 
-    xev = XEvTerm [mkTcEqPred xi2 xi1] xcomp xdecomp
+    xev = XEvTerm [mkTcEqPredLikeEv from_this xi2 xi1] xcomp xdecomp
+       -- TODO (RAE): Why from_this and not to_this in the LikeEv??
 
     -- xcomp : [(xi2 ~ xi1)] -> (F tys ~ xi2)
     xcomp [x] = EvCoercion (from_this_co `mkTcTransCo` mk_sym_co x)
@@ -1550,7 +1551,7 @@ doTopReactFunEq _ct fl fun_tc args xi
         xdecomp x = [EvCoercion (mkTcSymCo co `mkTcTransCo` evTermCoercion x)]
         xcomp [x] = EvCoercion (co `mkTcTransCo` evTermCoercion x)
         xcomp _   = panic "No more goals!"
-        xev = XEvTerm [mkTcEqPred rhs_ty xi] xcomp xdecomp
+        xev = XEvTerm [mkTcEqPredLikeEv fl rhs_ty xi] xcomp xdecomp
 \end{code}
 
 Note [Cached solved FunEqs]
