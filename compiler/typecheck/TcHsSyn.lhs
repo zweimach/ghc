@@ -1542,7 +1542,9 @@ zonkTcCoToCo env co
     go (TcTransCo co1 co2)    = do { co1' <- go co1; co2' <- go co2
                                    ; return (mkTcTransCo co1' co2') }
     go (TcForAllCo tv co)     = ASSERT( isImmutableTyVar tv || isCoVar tv )
-                                do { co' <- go co; return (mkTcForAllCo tv co') }
+                                do { tv' <- updateTyVarKindM (zonkTcTypeToType env) tv
+                                   ; co' <- go co
+                                   ; return (mkTcForAllCo tv' co') }
     go (TcSubCo co)           = do { co' <- go co; return (mkTcSubCo co') }
     go (TcAxiomRuleCo co ts cs) = do { ts' <- zonkTcTypeToTypes env ts
                                      ; cs' <- mapM go cs

@@ -568,12 +568,14 @@ uType origin orig_ty1 orig_ty2
     go (TyVarTy tv1) ty2 
       = do { lookup_res <- lookupTcTyVar tv1
            ; case lookup_res of
-               Filled ty1   -> go ty1 ty2
+               Filled ty1   -> do { traceTc "found filled tyvar" (ppr tv1 <+> text ":->" <+> ppr ty1)
+                                  ; go ty1 ty2 }
                Unfilled ds1 -> uUnfilledVar origin NotSwapped tv1 ds1 ty2 }
     go ty1 (TyVarTy tv2) 
       = do { lookup_res <- lookupTcTyVar tv2
            ; case lookup_res of
-               Filled ty2   -> go ty1 ty2
+               Filled ty2   -> do { traceTc "found filled tyvar" (ppr tv2 <+> text ":->" <+> ppr ty2)
+                                  ; go ty1 ty2 }
                Unfilled ds2 -> uUnfilledVar origin IsSwapped tv2 ds2 ty1 }
 
         -- See Note [Expanding synonyms during unification]
@@ -806,11 +808,13 @@ uUnfilledVars :: CtOrigin
 --           Neither is filled in yet
 
 uUnfilledVars origin swapped tv1 details1 tv2 details2
-  = do { traceTc "uUnfilledVars" (    text "trying to unify" <+> ppr k1
+  = do { traceTc "uUnfilledVars for" (ppr tv1 <+> text "and" <+> ppr tv2)
+       ; traceTc "uUnfilledVars" (    text "trying to unify" <+> ppr k1
                                   <+> text "with"            <+> ppr k2)
        ; eq_k <- unifyKind k1 k2
        ; case eq_k of {
-           False -> unSwap swapped (uType_defer origin) (mkTyCoVarTy tv1) ty2 ;
+           False -> do { traceTc "deferring because of kind inequality" empty
+                       ; unSwap swapped (uType_defer origin) (mkTyCoVarTy tv1) ty2 } ;
            True  -> 
 
          case (details1, details2) of
@@ -823,7 +827,9 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
 
            -- Can't do it in-place, so defer
            -- This happens for skolems of all sorts
-         ; _ -> unSwap swapped (uType_defer origin) ty1 ty2 } } }
+         ; _ -> do { traceTc "deferring because I can't find a meta-tyvar:"
+                       (pprTcTyVarDetails details1 <+> pprTcTyVarDetails details2)
+                   ; unSwap swapped (uType_defer origin) ty1 ty2 } } } }
   where
     k1  = tyVarKind tv1
     k2  = tyVarKind tv2
