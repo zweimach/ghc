@@ -847,8 +847,10 @@ dsEvTerm (EvCast tm co)
 dsEvTerm (EvDFunApp df tys tms) = do { tms' <- mapM dsEvTerm tms
                                      ; return (Var df `mkTyApps` tys `mkApps` tms') }
 
-dsEvTerm (EvCoercion (TcCoVarCo v)) = return (Var v)  -- See Note [Simple coercions]
-dsEvTerm (EvCoercion co)            = dsTcCoercion co mkEqBox
+dsEvTerm (EvCoercion (TcCoVarCo v))
+  | not (isCoercionType (tyVarKind v)) = return (Var v)  -- See Note [Simple coercions]
+   -- TODO (RAE): This check is "ew".
+dsEvTerm (EvCoercion co)               = dsTcCoercion co mkEqBox
 
 dsEvTerm (EvTupleSel v n)
    = do { tm' <- dsEvTerm v
