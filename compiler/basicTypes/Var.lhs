@@ -40,7 +40,7 @@ module Var (
         varName, varUnique, varType,
 
         -- ** Modifying 'Var's
-        setVarName, setVarUnique, setVarType,
+        setVarName, setVarUnique, setVarType, updateVarType,
 
         -- ** Constructing, taking apart, modifying 'Id's
         mkGlobalVar, mkLocalVar, mkExportedLocalVar, mkCoVar,
@@ -267,6 +267,9 @@ setVarName var new_name
 
 setVarType :: Id -> Type -> Id
 setVarType id ty = id { varType = ty }
+
+updateVarType :: (Type -> Type) -> Id -> Id
+updateVarType f id = id { varType = f (varType id) }
 \end{code}
 
 

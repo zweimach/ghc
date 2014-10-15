@@ -1321,7 +1321,11 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
     raw_ex_tvs = dc_tvs `minusList` univ_tvs
     (arg_subst, substed_ex_tvs) = mapAccumL substTyVarBndr kind_subst raw_ex_tvs
 
-    sorted_tcvs = varSetElemsWellScoped $ mkVarSet (substed_ex_tvs ++ raw_eq_cvs)
+       -- don't use substCoVarBndr because we don't want fresh uniques!
+       -- substed_ex_tvs and raw_eq_cvs may dependent on one another
+    substed_eq_cvs = map (updateVarType (substTy arg_subst)) raw_eq_cvs
+
+    sorted_tcvs = varSetElemsWellScoped $ mkVarSet (substed_ex_tvs ++ substed_eq_cvs)
 
 {- TODO (RAE): Restore this behavior, or some semblance of it.
       -- Remove a suffix of covars: these can be converted to lifted,
