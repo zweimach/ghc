@@ -524,6 +524,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
     orig_bangs   = map mk_pred_strict_mark ev_tys ++ dataConStrictMarks data_con
     wrap_ty      = dataConWrapperType data_con
     wrap_arity   = count isId ex_tvs + length wrap_arg_tys
+      -- TODO (RAE): should we include the exst'l covars in wrap_arity?
 
     (wrap_bangs, rep_tys_w_strs, wrappers)
        = unzip3 (zipWith (dataConArgRep dflags fam_envs) wrap_arg_tys orig_bangs)

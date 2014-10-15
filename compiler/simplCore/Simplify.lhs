@@ -2139,14 +2139,14 @@ simplAlt env scrut' _ case_bndr' cont' (DataAlt con, vs, rhs)
         where
           go [] [] = []
           go (v:vs') strs | isTyVar v = v : go vs' strs
+          go (v:vs') strs | isCoVar v = eval v : go vs' strs
           go (v:vs') (str:strs)
-            | isMarkedStrict str = evald_v  : go vs' strs
-            | otherwise          = zapped_v : go vs' strs
-            where
-              zapped_v = zapIdOccInfo v   -- See Note [Case alternative occ info]
-              evald_v  = zapped_v `setIdUnfolding` evaldUnfolding
+            | isMarkedStrict str = eval v : go vs' strs
+            | otherwise          = zap v  : go vs' strs
           go _ _ = pprPanic "cat_evals" (ppr con $$ ppr vs $$ ppr the_strs)
 
+          zap v  = zapIdOccInfo v   -- See Note [Case alternative occ info]
+          eval v = zap v `setIdUnfolding` evaldUnfolding
 
 addAltUnfoldings :: SimplEnv -> Maybe OutExpr -> OutId -> OutExpr -> SimplM SimplEnv
 addAltUnfoldings env scrut case_bndr con_app
