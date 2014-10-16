@@ -386,11 +386,9 @@ tcGen ctxt expected_ty thing_inside
         ; when debugIsOn $
               traceTc "tcGen" $ vcat [
                 text "expected_ty" <+> ppr expected_ty,
-                text "inst ty" <+>
-                  let ppr_tv tv = parens (ppr tv <+> dcolon <+>
-                                          ppr (tyVarKind tv)) in
-                  brackets (pprWithCommas ppr_tv tvs'),
-                ppr rho' ]
+                text "inst tyvars" <+> ppr tvs',
+                text "given"       <+> ppr given,
+                text "inst type"   <+> ppr rho' ]
 
         -- Generally we must check that the "forall_tvs" havn't been constrained
         -- The interesting bit here is that we must include the free variables

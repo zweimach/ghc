@@ -5,7 +5,8 @@
 \section{@Vars@: Variables}
 
 \begin{code}
-{-# LANGUAGE CPP, DeriveDataTypeable #-}
+{-# LANGUAGE CPP, DeriveDataTypeable, MultiWayIf #-}
+-- TODO (RAE): Remove MultiWayIf
 -- |
 -- #name_types#
 -- GHC uses several kinds of name internally:
@@ -75,6 +76,7 @@ import {-# SOURCE #-}   IdInfo( IdDetails, IdInfo, coVarDetails, isCoVarDetails,
 import Name hiding (varName)
 import Unique
 import Util
+import DynFlags
 import FastTypes
 import FastString
 import Outputable
@@ -210,11 +212,26 @@ After CoreTidy, top-level LocalIds are turned into GlobalIds
 
 \begin{code}
 instance Outputable Var where
+  ppr var = sdocWithDynFlags $ \dflags ->
+            getPprStyle $ \ppr_style ->
+            if |  debugStyle ppr_style && (not (gopt Opt_SuppressVarKinds dflags))
+                 -> parens (ppr (varName var) <+> brackets (ppr_debug var) <+>
+                          dcolon <+> ppr (tyVarKind var))
+               |  debugStyle ppr_style
+                 -> ppr (varName var) <+> brackets (ppr_debug var)
+               |  otherwise
+                 -> ppr (varName var)   
+
+{-  
   ppr var = ppr (varName var) <+> ifPprDebug (brackets (ppr_debug var))
 -- Printing the type on every occurrence is too much!
---            <+> if (not (gopt Opt_SuppressVarKinds dflags))
---                then ifPprDebug (text "::" <+> ppr (tyVarKind var) <+> text ")")
---                else empty
+-- TODO (RAE): comment these next few lines out, which is the way
+-- I found it.
+            <+> (sdocWithDynFlags $ \dflags ->
+                if (not (gopt Opt_SuppressVarKinds dflags))
+                then ifPprDebug (text "::" <+> ppr (tyVarKind var) <+> text ")")
+                else empty)
+-}
 
 ppr_debug :: Var -> SDoc
 ppr_debug (TyVar {})           = ptext (sLit "tv")

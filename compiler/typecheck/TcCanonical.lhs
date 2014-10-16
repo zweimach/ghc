@@ -708,8 +708,13 @@ flattenTyVarFinal f ctxt tv
   = -- Done, but make sure the kind is zonked
     do { traceTcS "flattenTyVarFinal" (ppr tv)
        ; let knd = tyVarKind tv
-       ; (new_knd, _kind_co) <- flatten0 f ctxt knd
-       ; return (Left (setVarType tv new_knd)) }
+       ; (new_knd, kind_co) <- flatten0 f ctxt knd
+       ; if isTcReflCo kind_co
+         then return (Left (setVarType tv new_knd))
+         else return (Left tv) }
+          -- if kind_co isn't Refl, then the kind really changed;
+          -- not much we can do
+          -- TODO (RAE): This makes me nervous.
 \end{code}
 
 Note [Non-idempotent inert substitution]
