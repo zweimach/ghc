@@ -711,7 +711,9 @@ flattenTyVarFinal f ctxt tv
        ; (new_knd, kind_co) <- flatten0 f ctxt knd
        ; if isTcReflCo kind_co
          then return (Left (setVarType tv new_knd))
-         else return (Left tv) }
+         else do { traceTcS "flattenTyVarFinal abandoning hetero flattening"
+                            (ppr new_knd $$ ppr kind_co)
+                 ; return (Left tv) } }
           -- if kind_co isn't Refl, then the kind really changed;
           -- not much we can do
           -- TODO (RAE): This makes me nervous.
@@ -867,7 +869,8 @@ can_eq_nc' ev ty1 ps_ty1 (AppTy s2 t2) ps_ty2
 
 -- Everything else is a definite type error, eg LitTy ~ TyConApp
 can_eq_nc' ev _ ps_ty1 _ ps_ty2
-  = canEqFailure ev ps_ty1 ps_ty2
+  = do { traceTcS "can_eq_nc' catch-all case" (ppr ps_ty1 $$ ppr ps_ty2)
+       ; canEqFailure ev ps_ty1 ps_ty2 }
 
 ------------
 can_eq_app, can_eq_flat_app
@@ -1251,17 +1254,13 @@ canEqTyVarTyVar ev swapped tv1 tv2 co2
        ; return Stop }  
 
   | reorient_me  -- See note [Canonical ordering for equality constraints].
-                 -- True => the kinds are compatible, 
-                 --         so no need for further sub-kind check
                  -- If swapped = NotSwapped, then
                  --     rw_orhs = tv1, rw_olhs = orhs
                  --     rw_nlhs = tv2, rw_nrhs = xi1
   = do { mb <- rewriteEqEvidence ev (flipSwap swapped)  xi2 xi1
                                  co2 (mkTcNomReflCo xi1)
-       ; case mb of
-           Nothing     -> return Stop
-           Just new_ev -> continueWith (CTyEqCan { cc_ev = new_ev
-                                                 , cc_tyvar  = tv2, cc_rhs = xi1 }) }
+       ; homogeniseRhsKind mb xi2 xi1 $ \new_ev xi1' ->
+         CTyEqCan { cc_ev = new_ev, cc_tyvar = tv2, cc_rhs = xi1' } }
 
   | otherwise
   = do { mb <- rewriteEqEvidence ev swapped xi1 xi2 
@@ -1269,14 +1268,10 @@ canEqTyVarTyVar ev swapped tv1 tv2 co2
        ; homogeniseRhsKind mb xi1 xi2 $ \new_ev xi2' ->
          CTyEqCan { cc_ev = new_ev, cc_tyvar = tv1, cc_rhs = xi2' } }
   where
-    reorient_me 
-      | k1 `tcEqKind` k2    = tv2 `better_than` tv1
-      | otherwise           = False -- in TcRnTypes
+    reorient_me = tv2 `better_than` tv1
 
-    xi1 = mkTyCoVarTy tv1
-    xi2 = mkTyCoVarTy tv2
-    k1  = tyVarKind tv1
-    k2  = tyVarKind tv2
+    xi1 = mkOnlyTyVarTy tv1
+    xi2 = mkOnlyTyVarTy tv2
 
     tv2 `better_than` tv1
       | isMetaTyVar tv1     = False   -- Never swap a meta-tyvar
