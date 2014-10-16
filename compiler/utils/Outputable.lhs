@@ -241,6 +241,12 @@ mkUserStyle :: PrintUnqualified -> Depth -> PprStyle
 mkUserStyle unqual depth
    | opt_PprStyle_Debug = PprDebug
    | otherwise          = PprUser unqual depth
+
+instance Outputable PprStyle where
+  ppr (PprUser {})  = text "user-style"
+  ppr (PprCode {})  = text "code-style"
+  ppr (PprDump {})  = text "dump-style"
+  ppr (PprDebug {}) = text "debug-style"
 \end{code}
 
 Orthogonal to the above printing styles are (possibly) some
