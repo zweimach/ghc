@@ -1197,10 +1197,16 @@ canEqTyVar ev swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
                                       Nothing     -> return Stop
                                       Just new_ev -> can_eq_nc new_ev ty1 ty1 ty2 ps_ty2 }
 
-           Left tv1' -> do { (xi2, co2) <- flatten0 FMFullFlatten ev ps_ty2 -- co2 :: xi2 ~ ps_ty2
-                                           -- Use ps_ty2 to preserve type synonyms if poss
-                           ; dflags <- getDynFlags
-                           ; canEqTyVar2 dflags ev swapped tv1' xi2 co2 } }
+           Left tv1' ->
+             do { (xi2, co2) <- flatten0 FMFullFlatten ev ps_ty2 -- co2 :: xi2 ~ ps_ty2                                           -- Use ps_ty2 to preserve type synonyms if poss
+
+                ; case splitCastTy_maybe xi2 of
+                    Nothing ->
+                      do { dflags <- getDynFlags
+                         ; canEqTyVar2 dflags ev swapped tv1' xi2 co2 }
+                    Just (xi2_inner, xi2_co) ->
+                      canEqCast ev (flipSwap swapped) xi2_inner xi2_co ty1 ty1
+                      where ty1 = mkOnlyTyVarTy tv1 } }
 
 canEqTyVar2 :: DynFlags
             -> CtEvidence   -- olhs ~ orhs (or, if swapped, orhs ~ olhs)
@@ -1215,7 +1221,8 @@ canEqTyVar2 :: DynFlags
 
 canEqTyVar2 dflags ev swapped tv1 xi2 co2
   | Just tv2 <- getTyVar_maybe xi2
-  = canEqTyVarTyVar ev swapped tv1 tv2 co2
+  = do { traceTcS "canEqTyVarTyVar from canEqTyVar2" (ppr tv1 $$ ppr tv2)
+       ; canEqTyVarTyVar ev swapped tv1 tv2 co2 }
 
   | OC_OK xi2' <- occurCheckExpand dflags tv1 xi2  -- No occurs check
   = do { mb <- rewriteEqEvidence ev swapped xi1 xi2' co1 co2
@@ -1227,7 +1234,8 @@ canEqTyVar2 dflags ev swapped tv1 xi2 co2
          CTyEqCan { cc_ev = new_ev, cc_tyvar = tv1, cc_rhs = xi2'' } }
 
   | otherwise  -- Occurs check error
-  = do { mb <- rewriteEqEvidence ev swapped xi1 xi2 co1 co2
+  = do { traceTcS "canEqTyVar2 occurs check error" (ppr tv1 $$ ppr xi2)
+       ; mb <- rewriteEqEvidence ev swapped xi1 xi2 co1 co2
        ; case mb of
            Nothing     -> return ()
            Just new_ev -> emitInsoluble (mkNonCanonical new_ev)
