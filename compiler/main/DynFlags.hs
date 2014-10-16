@@ -51,7 +51,7 @@ module DynFlags (
         dynFlagDependencies,
         tablesNextToCode, mkTablesNextToCode,
 
-        printOutputForUser, printInfoForUser,
+        printOutputForUser, printInfoForUser, printInfoDump,
 
         Way(..), mkBuildTag, wayRTSOnly, addWay', updateWays,
         wayGeneralFlags, wayUnsetGeneralFlags,
@@ -1551,6 +1551,10 @@ printInfoForUser = printSevForUser SevInfo
 printSevForUser :: Severity -> DynFlags -> PrintUnqualified -> SDoc -> IO ()
 printSevForUser sev dflags unqual doc
     = log_action dflags dflags sev noSrcSpan (mkUserStyle unqual AllTheWay) doc
+
+printInfoDump :: DynFlags -> SDoc -> IO ()
+printInfoDump dflags doc
+    = log_action dflags dflags SevInfo noSrcSpan defaultDumpStyle doc
 
 {-
 Note [Verbosity levels]
