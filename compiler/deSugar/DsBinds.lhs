@@ -821,7 +821,7 @@ dsEvBinds bs = mapM ds_scc (sccEvBinds bs)
 
     ds_pair (EvBind v r) = liftM ((,) v) (ds_ev_term v r)
 
-    ds_ev_term v r | isCoercionType (varType v) = dsEvTermUnlifted r
+    ds_ev_term v r | isUnLiftedType (varType v) = dsEvTermUnlifted r
                    | otherwise                  = dsEvTerm r
 
 sccEvBinds :: Bag EvBind -> [SCC EvBind]

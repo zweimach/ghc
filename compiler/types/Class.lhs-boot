@@ -1,0 +1,5 @@
+\begin{code}
+module Class where
+
+data Class
+\end{code}
