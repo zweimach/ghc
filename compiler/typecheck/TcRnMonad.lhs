@@ -500,8 +500,7 @@ traceOptTcRn flag doc = whenDOptM flag $ do
                         ; dumpTcRn real_doc }
 
 dumpTcRn :: SDoc -> TcRn ()
-dumpTcRn doc = do { rdr_env <- getGlobalRdrEnv
-                  ; dflags <- getDynFlags
+dumpTcRn doc = do { dflags <- getDynFlags
                   ; liftIO (printInfoDump dflags doc) }
 
 debugDumpTcRn :: SDoc -> TcRn ()
