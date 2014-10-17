@@ -101,6 +101,8 @@ data Backend = forall a. Backend {
                   -> Event    -- new events to watch for ('mempty' to delete)
                   -> IO Bool
 
+    -- | Register interest in new events on a given file descriptor, set
+    -- to be deactivated after the first event.
     , _beModifyFdOnce :: a
                          -> Fd    -- file descriptor
                          -> Event -- new events to watch
