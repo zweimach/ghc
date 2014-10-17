@@ -16,6 +16,12 @@ module GHC.Event.Internal
     , evtWrite
     , evtClose
     , eventIs
+    -- * Lifetimes
+    , Lifetime(..)
+    , EventLifetime
+    , eventLifetime
+    , elLifetime
+    , elEvent
     -- * Timeout type
     , Timeout(..)
     -- * Helpers
@@ -76,6 +82,43 @@ evtCombine (Event a) (Event b) = Event (a .|. b)
 evtConcat :: [Event] -> Event
 evtConcat = foldl' evtCombine evtNothing
 {-# INLINE evtConcat #-}
+
+-- | The lifetime of a registration.
+data Lifetime = OneShot | MultiShot
+              deriving (Show, Eq)
+
+-- | The longer of two lifetimes.
+elSupremum :: Lifetime -> Lifetime -> Lifetime
+elSupremum OneShot OneShot = OneShot
+elSupremum _       _       = MultiShot
+{-# INLINE elSupremum #-}
+
+instance Monoid Lifetime where
+    mempty = OneShot
+    mappend = elSupremum
+
+-- | A pair of an event and lifetime
+newtype EventLifetime = EL Int
+                      deriving (Show, Eq)
+
+instance Monoid EventLifetime where
+    mempty = EL 0
+    EL a `mappend` EL b = EL (a .|. b)
+
+eventLifetime :: Event -> Lifetime -> EventLifetime
+eventLifetime (Event e) l = EL (e .|. go l)
+  where
+    go OneShot   = 0
+    go MultiShot = 8
+{-# INLINE eventLifetime #-}
+
+elLifetime :: EventLifetime -> Lifetime
+elLifetime (EL x) = if x .&. 8 == 0 then OneShot else MultiShot
+{-# INLINE elLifetime #-}
+
+elEvent :: EventLifetime -> Event
+elEvent (EL x) = Event (x .&. 0x7)
+{-# INLINE elEvent #-}
 
 -- | A type alias for timeouts, specified in seconds.
 data Timeout = Timeout {-# UNPACK #-} !Double

@@ -263,7 +263,7 @@ startIOManagerThread :: IOArray Int (Maybe (ThreadId, EventManager))
                         -> IO ()
 startIOManagerThread eventManagerArray i = do
   let create = do
-        !mgr <- new True
+        !mgr <- new
         !t <- forkOn i $ do
                 c_setIOManagerControlFd
                   (fromIntegral i)
