@@ -1357,6 +1357,18 @@ use Refl on the right, ignoring the actual coercion on the RHS.
 This can have a very big effect, because the constraint solver sometimes does go
 to a lot of effort to prove Refl!  (Eg when solving  10+3 = 10+3; cf Trac #5030)
 
+Note [Small optimization in zonking]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+This optimization is bogus when there are Ids within types. This is because
+zonking is sometimes run from within knots (search for fixM in this file)
+and ids in the ZonkEnv are knot-tied. So, writing to meta-tyvars succeeds, but
+the next time the tyvar is encountered, the zonked type is read back, and zonking
+hangs.
+
+A way to proceed is to add a Bool to the Indirect constructor saying whether or
+not the contained type is zonked. Then, after the type is zonked, don't zonk again,
+and you're safe.
+
 \begin{code}
 zonkTyVarOcc :: ZonkEnv -> TyVar -> TcM TcType
 zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar tv_env _) tv
@@ -1374,7 +1386,10 @@ zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar tv_env _) tv
                       Indirect ty -> do { zty <- zonkTcTypeToType env ty
                                         -- Small optimisation: shortern-out indirect steps
                                         -- so that the old type may be more easily collected.
-                                        ; writeMutVar ref (Indirect zty)
+                                          -- TODO (RAE): Perhaps re-enable this optimization,
+                                          -- but see Note [Small optimization in zonking]
+                                          -- first.
+                                        ; -- writeMutVar ref (Indirect zty)
                                         ; return zty } }
   | otherwise
   = lookup_in_env
