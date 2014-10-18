@@ -1284,12 +1284,17 @@ zonkEvBind env (EvBind var term)
          -- Optimise the common case of Refl coercions
          -- See Note [Optimise coercion zonking]
          -- This has a very big effect on some programs (eg Trac #5030)
+         -- TODO (RAE): Restore this optimization. It fails because it inspects
+         -- a zonked type, which is a bad idea inside a knot. See also Note
+         -- [Small optimization in zonking]
+{-         
        ; let ty' = idType var'
        ; case getEqPredTys_maybe ty' of
            Just (_, r, ty1, ty2) | ty1 `eqType` ty2
                   -> return (EvBind var' (EvCoercion (mkTcReflCo r ty1)))
-           _other -> do { term' <- zonkEvTerm env term
-                        ; return (EvBind var' term') } }
+           _other -> do  -}
+       ; term' <- zonkEvTerm env term
+       ; return (EvBind var' term') }
 \end{code}
 
 %************************************************************************
@@ -1342,7 +1347,7 @@ The type of Phantom is (forall (k : *). forall (a : k). Int). Both `a` and
 `k` are unbound variables. We want to zonk this to
 (forall (k : Any *). forall (a : Any (Any *)). Int).
 
-Note [Optimise coercion zonkind]
+Note [Optimise coercion zonking]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 When optimising evidence binds we may come across situations where
 a coercion looks like
