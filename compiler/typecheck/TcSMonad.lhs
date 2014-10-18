@@ -82,7 +82,7 @@ module TcSMonad (
     cloneMetaTyVar,
 
     Untouchables, isTouchableMetaTyVarTcS, isFilledMetaTyVar_maybe,
-    zonkTyCoVarsAndFV,
+    zonkTyCoVarsAndFV, zonkCo,
 
     getDefaultInfo, getDynFlags, getGlobalRdrEnvTcS,
 
@@ -112,6 +112,7 @@ import Kind
 import TcType
 import DynFlags
 import Type
+import Coercion ( Coercion )
 import CoAxiom(sfMatchFam)
 
 import TcEvidence
@@ -1412,6 +1413,9 @@ isFilledMetaTyVar_maybe tv
 
 zonkTyCoVarsAndFV :: TcTyVarSet -> TcS TcTyVarSet
 zonkTyCoVarsAndFV tvs = wrapTcS (TcM.zonkTyCoVarsAndFV tvs)
+
+zonkCo :: Coercion -> TcS Coercion
+zonkCo = wrapTcS . TcM.zonkCo
 \end{code}
 
 Note [Do not add duplicate derived insolubles]

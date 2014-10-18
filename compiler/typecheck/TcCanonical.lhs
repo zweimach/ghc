@@ -550,7 +550,10 @@ flatten _f ctxt ty@(ForAllTy (Named {}) _)
 
 flatten f ctxt (CastTy ty g)
   = do { (xi, co) <- flatten f ctxt ty
-       ; return (mkCastTy xi g, castTcCoercionKind co g g) }
+       ; g' <- zonkCo g   -- this is necessary because we use typeKind sometimes,
+                          -- and if a coercion has an unzonked kind, the typeKind
+                          -- panics in piResultTy
+       ; return (mkCastTy xi g', castTcCoercionKind co g' g') }
 flatten _ _ ty@(CoercionTy {}) = return (ty, mkTcNomReflCo ty)
 \end{code}
 

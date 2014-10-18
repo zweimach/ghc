@@ -50,7 +50,7 @@ module TcMType (
   zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, zonkTcTypeAndFV,
   zonkQuantifiedTyCoVar, zonkQuantifiedTyCoVarOrType, quantifyTyCoVars,
   quantifyTyCoVars', defaultKindVar,
-  zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, 
+  zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, zonkCo,
 
   zonkEvVar, zonkWC, zonkId, zonkCt, zonkCts, zonkSkolemInfo, zonkFlats,
 
@@ -1024,10 +1024,10 @@ zonkTcType ty
                 -- See Note [Zonking inside the knot] in TcHsType
 
     go (CastTy ty co)    = do ty' <- go ty
-                              co' <- go_co co
+                              co' <- zonkCo co
                               return (CastTy ty' co')
 
-    go (CoercionTy co)   = do co' <- go_co co
+    go (CoercionTy co)   = do co' <- zonkCo co
                               return (CoercionTy co')
 
         -- The two interesting cases!
@@ -1040,13 +1040,18 @@ zonkTcType ty
                                  ; ty' <- go ty
                                  ; return (ForAllTy (Named tv' vis) ty') }
 
-    go_co (Refl r ty)               = Refl r <$> go ty
+-- | "Zonk" a coercion -- really, just zonk any types in the coercion
+zonkCo :: Coercion -> TcM Coercion
+zonkCo = go_co
+  where
+    go_co (Refl r ty)               = Refl r <$> zonkTcType ty
     go_co (TyConAppCo r tc args)    = TyConAppCo r tc <$> mapM go_arg args
     go_co (AppCo co arg)            = AppCo <$> go_co co <*> go_arg arg
     go_co (CoVarCo cv)              = CoVarCo <$> zonkTyCoVarKind cv
     go_co (AxiomInstCo ax ind args) = AxiomInstCo ax ind <$> mapM go_arg args
-    go_co (PhantomCo h ty1 ty2)     = PhantomCo <$> go_co h <*> go ty1 <*> go ty2
-    go_co (UnsafeCo r ty1 ty2)      = UnsafeCo r <$> go ty1 <*> go ty2
+    go_co (PhantomCo h ty1 ty2)     = PhantomCo <$> go_co h <*> zonkTcType ty1
+                                                            <*> zonkTcType ty2
+    go_co (UnsafeCo r ty1 ty2)      = UnsafeCo r <$> zonkTcType ty1 <*> zonkTcType ty2
     go_co (SymCo co)                = SymCo <$> go_co co
     go_co (TransCo co1 co2)         = TransCo <$> go_co co1 <*> go_co co2
     go_co (NthCo n co)              = NthCo n <$> go_co co
@@ -1055,7 +1060,7 @@ zonkTcType ty
     go_co (CoherenceCo co1 co2)     = CoherenceCo <$> go_co co1 <*> go_co co2
     go_co (KindCo co)               = KindCo <$> go_co co
     go_co (SubCo co)                = SubCo <$> go_co co
-    go_co (AxiomRuleCo ax ts cs)    = AxiomRuleCo ax <$> mapM go ts <*> mapM go_co cs
+    go_co (AxiomRuleCo ax ts cs)    = AxiomRuleCo ax <$> mapM zonkTcType ts <*> mapM go_co cs
 
     go_co (ForAllCo cobndr co)
       | Just v <- getHomoVar_maybe cobndr
