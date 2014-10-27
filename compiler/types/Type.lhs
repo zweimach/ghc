@@ -183,8 +183,7 @@ import NameEnv
 import Class
 import TyCon
 import TysPrim
-import {-# SOURCE #-} TysWiredIn ( eqTyCon, coercibleTyCon,
-                                   coercibleClass, typeNatKind, typeSymbolKind )
+import {-# SOURCE #-} TysWiredIn ( eqTyCon, coercibleTyCon, typeNatKind, typeSymbolKind )
 import PrelNames
 import CoAxiom
 import {-# SOURCE #-} Coercion
@@ -1179,7 +1178,7 @@ isPredTy ty = go ty []
     go :: Type -> [KindOrType] -> Bool
     go (AppTy ty1 ty2)   args = go ty1 (ty2 : args)
     go (TyConApp tc tys) args
-      | tc `hasKey` eqPrimTyConKey || tc `hasKey` eqReprPrimTyConKey
+      | tc `hasKey` eqPrimTyConKey
       , [_,_,_,_] <- all_args
       = True
 
@@ -1336,11 +1335,6 @@ classifyPredType :: PredType -> PredTree
 classifyPredType ev_ty = case splitTyConApp_maybe ev_ty of
     Just (tc, tys) | Just clas <- tyConClass_maybe tc
                    -> ClassPred clas tys
-    Just (tc, tys) | tc `hasKey` eqReprPrimTyConKey
-                   , [_,_,_,_] <- tys
-                   -> ClassPred coercibleClass (tail tys)
-                      -- TODO (RAE): This is truly awful.
-                      -- Also, fix getClassPredTys_maybe
     Just (tc, tys) | tc `hasKey` eqTyConKey
                    , let [_, ty1, ty2] = tys
                    -> EqPred ty1 ty2
@@ -1361,10 +1355,6 @@ getClassPredTys ty = case getClassPredTys_maybe ty of
 getClassPredTys_maybe :: PredType -> Maybe (Class, [Type])
 getClassPredTys_maybe ty = case splitTyConApp_maybe ty of
         Just (tc, tys) | Just clas <- tyConClass_maybe tc -> Just (clas, tys)
-                       | tc `hasKey` eqReprPrimTyConKey
-                       , [_,_,_,_] <- tys
-                      -> Just (coercibleClass, tys)
-                          -- TODO (RAE): Still awful.
         _ -> Nothing
 
 getEqPredTys :: PredType -> (Type, Type)
@@ -1374,19 +1364,17 @@ getEqPredTys ty
         |  tc `hasKey` eqTyConKey
         || tc `hasKey` coercibleTyConKey -> (ty1, ty2)
       Just (tc, [_, _, ty1, ty2])
-        |  tc `hasKey` eqPrimTyConKey
-        || tc `hasKey` eqReprPrimTyConKey -> (ty1, ty2)
+        | tc `hasKey` eqPrimTyConKey -> (ty1, ty2)
       _ -> pprPanic "getEqPredTys" (ppr ty)
 
 getEqPredTys_maybe :: PredType -> Maybe (Boxity, Role, Type, Type)
 getEqPredTys_maybe ty
   = case splitTyConApp_maybe ty of
       Just (tc, [_, ty1, ty2])
-        | tc `hasKey` eqTyConKey         -> Just (Boxed, Nominal, ty1, ty2)
-        | tc `hasKey` coercibleTyConKey  -> Just (Boxed, Representational, ty1, ty2)
+        | tc `hasKey` eqTyConKey        -> Just (Boxed, Nominal, ty1, ty2)
+        | tc `hasKey` coercibleTyConKey -> Just (Boxed, Representational, ty1, ty2)
       Just (tc, [_, _, ty1, ty2])
-        | tc `hasKey` eqPrimTyConKey     -> Just (Unboxed, Nominal, ty1, ty2)
-        | tc `hasKey` eqReprPrimTyConKey -> Just (Unboxed, Representational, ty1, ty2)
+        | tc `hasKey` eqPrimTyConKey    -> Just (Unboxed, Nominal, ty1, ty2)
       _ -> Nothing
 
 getEqPredRole :: PredType -> Role
@@ -1396,14 +1384,13 @@ getEqPredRole ty
         | tc `hasKey` eqTyConKey -> Nominal
         | tc `hasKey` eqPrimTyConKey -> Nominal
         | tc `hasKey` coercibleTyConKey -> Representational
-        | tc `hasKey` eqReprPrimTyConKey -> Representational
       _ -> pprPanic "getEqPredRole" (ppr ty)
 
 -- | Assuming the type provided is an EqPred, is it lifted?
 isEqPredLifted :: PredType -> Bool
 isEqPredLifted ty
   = case splitTyConApp_maybe ty of
-      Just (tc, _) -> not (isUnLiftedTyCon tc)
+      Just (tc, _) -> not (tc `hasKey` eqPrimTyConKey)
       _ -> pprPanic "isEqPredLifted" (ppr ty)
 
 \end{code}
