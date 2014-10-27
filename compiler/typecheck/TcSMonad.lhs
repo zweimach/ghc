@@ -49,7 +49,7 @@ module TcSMonad (
     maybeSym,
 
     newWantedEvVar, newWantedEvVarNC, newWantedEvVarNonrec, newDerived,
-    instDFunConstraints, newGivenEvVar, newGivenEvVarId,
+    instDFunConstraints, newGivenEvVar, newBoundEvVarId,
 
        -- Creation of evidence variables
     setWantedTyBind, reportUnifications,
@@ -1599,12 +1599,13 @@ newGivenEvVar :: CtLoc -> (TcPredType, EvTerm) -> TcS CtEvidence
 -- immediately bind it to the given term
 -- and return its CtEvidence
 newGivenEvVar loc (pred, rhs)
-  = do { new_ev <- newGivenEvVarId pred rhs
+  = do { new_ev <- newBoundEvVarId pred rhs
        ; return (CtGiven { ctev_pred = pred, ctev_evtm = EvId new_ev, ctev_loc = loc }) }
 
--- | Like 'newGivenEvVar', but just returns the variable, not the created 'CtEvidence'
-newGivenEvVarId :: TcPredType -> EvTerm -> TcS EvVar
-newGivenEvVarId pred rhs
+-- | Make a new 'Id' of the given type, bound (in the monad's EvBinds) to the
+-- given term
+newBoundEvVarId :: TcPredType -> EvTerm -> TcS EvVar
+newBoundEvVarId pred rhs
   = do { new_ev <- wrapTcS $ TcM.newEvVar pred
        ; setEvBind new_ev rhs
        ; return new_ev }

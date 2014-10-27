@@ -15,7 +15,7 @@ import TcEvidence
 import Class
 import TyCon
 import TyCoRep
-import Coercion  ( mkSymCo, mkCoVarCo )
+import Coercion  ( mkSubCo, mkSymCo, mkCoVarCo )
 import Var
 import VarEnv
 import OccName( OccName )
@@ -1309,7 +1309,8 @@ homogeniseRhsKind (Just ev) lhs rhs build_ct
 
   | CtGiven { ctev_evtm = tm } <- ev
     -- tm :: (lhs :: k1) ~ (rhs :: k2)
-  = do { kind_ev_id <- newGivenEvVarId kind_pty
+    -- mkTcKindCo gives an R coercion, so use kind_pty_rep                                  
+  = do { kind_ev_id <- newBoundEvVarId kind_pty_rep  
                                        (EvCoercion $
                                         mkTcKindCo $ evTermCoercion tm)
            -- kind_ev_id :: (k1 :: *) ~# (k2 :: *)
@@ -1328,15 +1329,16 @@ homogeniseRhsKind (Just ev) lhs rhs build_ct
 
   | CtWanted { ctev_evar = evar } <- ev
     -- evar :: (lhs :: k1) ~ (rhs :: k2)
-  = do { mb_kind_ev <- newWantedEvVar kind_loc kind_pty
+    -- use the nominally-roled type for wanteds, because the equality solver
+    -- is more robust for nominal equality, and we don't have `coerce` in types yet
+    -- TODO (RAE): Does this need a Note?
+  = do { mb_kind_ev <- newWantedEvVar kind_loc kind_pty_nom
        ; let kind_evt = getEvTerm mb_kind_ev
-       ; kind_ev_id <- newGivenEvVarId kind_pty kind_evt
-           -- newGivenEvVarId doesn't actually create a CtGiven:
-           -- it just creates an Id of the right type and with the given value
+       ; kind_ev_id <- newBoundEvVarId kind_pty_nom kind_evt
            -- necessary because we need to build a Coercion, not a TcCoercion
            -- this is dirtier than I'd like
            -- See Note [TcCoercion kinds] in TcEvidence
-       ; let homo_co = mkSymCo $ mkCoVarCo kind_ev_id
+       ; let homo_co = mkSubCo $ mkSymCo $ mkCoVarCo kind_ev_id
            -- homo_co :: k2 ~ k1
              rhs'    = mkCastTy rhs homo_co
        ; mb_type_ev <- newWantedEvVar loc (mkTcEqPredLikeEv ev lhs rhs')
@@ -1344,13 +1346,15 @@ homogeniseRhsKind (Just ev) lhs rhs build_ct
        ; let type_evt = getEvTerm mb_type_ev
        ; setEvBind evar (EvCoercion $
                          mkTcCoherenceRightCo (evTermCoercion type_evt)
-                                              (mkCoVarCo kind_ev_id))
+                                              (mkSubCo $
+                                               mkCoVarCo kind_ev_id))
        ; case mb_type_ev of
            Fresh type_ev -> continueWith (build_ct type_ev rhs')
            _             -> return Stop }
 
   | otherwise   -- CtDerived {} <- ev
-  = do { mb_ctev <- newDerived kind_loc kind_pty
+    -- TODO (RAE): change to rep when we have type-level `coerce`
+  = do { mb_ctev <- newDerived kind_loc kind_pty_nom 
        ; emitWorkNC $ catMaybes [mb_ctev]
        ; return Stop }  -- we don't have a name for the kind-level CtDerived,
                         -- so we can't homogenise. Oh well.
@@ -1359,7 +1363,8 @@ homogeniseRhsKind (Just ev) lhs rhs build_ct
     k1 = typeKind lhs
     k2 = typeKind rhs
 
-    kind_pty = mkHeteroReprPrimEqPred liftedTypeKind liftedTypeKind k1 k2
+    kind_pty_rep = mkHeteroReprPrimEqPred liftedTypeKind liftedTypeKind k1 k2
+    kind_pty_nom = mkHeteroPrimEqPred     liftedTypeKind liftedTypeKind k1 k2
     kind_loc = mkKindLoc lhs rhs loc
 
     loc = ctev_loc ev
