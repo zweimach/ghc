@@ -131,7 +131,10 @@ Is there a better design?
 
 - Loosened some roles. For example, the role on the eta coercion in the
 hetero forall coercions is now parametric, not N. And, the role on the
-type-cast coercion is R, not N.
+type-cast coercion is R, not N. See also email *to* SCW (with no written response)
+on 7/14/14. The end of the discussion was to go with that email's Coherence1
+rule, which doesn't cause problems (other than some discomfort, as outlined
+in the email.)
 
 - The kind-role rejiggering. But, I think this is resolved now, and I'm happy
   with it.
@@ -252,6 +255,13 @@ Notes:
    sensible?
    A: NO!! Instead, just use Cast operator, as per Skype conversation with SCW
       on July 30.
+   --> UPDATE: The Cast operator doesn't compose, because we won't be able to
+               build composite coercions in types. We could define T.F.s for
+               the different coercion constructors, but this won't work for
+               forall. And it's a bit icky.
+   Plan of record: Have solver deal with both lifted and unlifted equality. This
+   is actually not too difficult. We just need to take some care in desugaring.
+   But I'm not *very* happy with it.
 
 ----------------------------------------
 Stuff for implementing Π:
