@@ -936,6 +936,8 @@ canEqCast :: CtEvidence
 canEqCast ev swapped ty1 co1 _ty2 ps_ty2
   = do { let xpreds                = [unSwap swapped (mkTcEqPredLikeEv ev)
                                                      ty1 ps_ty2]
+
+             -- uncasted_evt :: ty1 ~ ty2; result :: (ty1 |> co) ~ ty2
              xcomp ~[uncasted_evt] = EvCoercion $
                                      mk_coherence_co swapped
                                                      (evTermCoercion uncasted_evt)
