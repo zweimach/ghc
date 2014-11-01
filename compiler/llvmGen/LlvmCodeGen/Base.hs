@@ -475,19 +475,25 @@ generateExternDecls = do
 -- | Here we take a global variable definition, rename it with a
 -- @$def@ suffix, and generate the appropriate alias.
 aliasify :: LMGlobal -> LlvmM [LMGlobal]
-aliasify (LMGlobal var val) =
+aliasify (LMGlobal var val) = do
     let i8Ptr = LMPointer (LMInt 8)
         LMGlobalVar lbl ty link sect align const = var
 
         defLbl = lbl `appendFS` fsLit "$def"
-        defVar = LMGlobalVar defLbl ty link sect align const
+        defVar = LMGlobalVar defLbl ty Internal sect align const
 
         defPtrVar = LMGlobalVar defLbl (LMPointer ty) link Nothing Nothing const
         aliasVar = LMGlobalVar lbl (LMPointer i8Ptr) link Nothing Nothing Alias
         aliasVal = LMBitc (LMStaticPointer defPtrVar) i8Ptr
-    in return [ LMGlobal defVar val
-              , LMGlobal aliasVar (Just aliasVal)
-              ]
+
+    -- we need to mark the $def symbols as used so LLVM doesn't forget which
+    -- section they need to go in. This will vanish once we switch away from
+    -- mangling sections for TNTC.
+    markUsedVar defVar
+
+    return [ LMGlobal defVar val
+           , LMGlobal aliasVar (Just aliasVal)
+           ]
 
 -- Note [Llvm Forward References]
 --
