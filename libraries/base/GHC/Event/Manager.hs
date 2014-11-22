@@ -479,12 +479,15 @@ onFdEvent mgr fd evs
           -- either we previously registered for one shot or the
           -- events of interest have changed, we must re-arm
           _ -> do
-            _ <- case I.elLifetime savedEls of
+            case I.elLifetime savedEls of
               OneShot | haveOneShot ->
-                I.modifyFdOnce (emBackend mgr) fd (I.elEvent savedEls)
+                -- if there are no saved events there is no need to re-arm
+                unless (OneShot == I.elLifetime (eventsOf triggered)
+                        && mempty == savedEls) $
+                  void $ I.modifyFdOnce (emBackend mgr) fd (I.elEvent savedEls)
               _ ->
-                I.modifyFd (emBackend mgr) fd
-                           (I.elEvent allEls) (I.elEvent savedEls)
+                void $ I.modifyFd (emBackend mgr) fd
+                                  (I.elEvent allEls) (I.elEvent savedEls)
             return ()
 
         return triggered
@@ -492,3 +495,6 @@ onFdEvent mgr fd evs
 nullToNothing :: [a] -> Maybe [a]
 nullToNothing []       = Nothing
 nullToNothing xs@(_:_) = Just xs
+
+unless :: Monad m => Bool -> m () -> m ()
+unless p = when (not p)
