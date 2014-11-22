@@ -318,8 +318,11 @@ registerFd_ mgr@(EventManager{..}) cb fd evs lt = do
       !fdd = FdData reg el cb
   (modify,ok) <- withMVar (callbackTableVar mgr fd) $ \tbl -> do
     oldFdd <- IT.insertWith (++) fd' [fdd] tbl
-    let el' :: EventLifetime
-        el' = maybe el (mappend el . eventsOf) oldFdd
+    let prevEvs :: EventLifetime
+        prevEvs = maybe mempty eventsOf oldFdd
+
+        el' :: EventLifetime
+        el' = prevEvs `mappend` el
     case I.elLifetime el' of
       -- All registrations want one-shot semantics and this is supported
       OneShot | haveOneShot -> do
@@ -330,15 +333,11 @@ registerFd_ mgr@(EventManager{..}) cb fd evs lt = do
 
       -- We don't want or don't support one-shot semantics
       _ -> do
-        let oldEvs, newEvs :: Event
-            (oldEvs, newEvs) =
-              case oldFdd of
-                Nothing   -> (mempty, I.elEvent el')
-                Just prev -> ( I.elEvent $ eventsOf prev
-                             , evs `mappend` I.elEvent (eventsOf prev))
-            modify = oldEvs /= newEvs
+        let modify = prevEvs /= el'
         ok <- if modify
-              then I.modifyFd emBackend fd oldEvs newEvs
+              then let newEvs = I.elEvent el'
+                       oldEvs = I.elEvent prevEvs
+                   in I.modifyFd emBackend fd oldEvs newEvs
               else return True
         if ok
           then return (modify, True)

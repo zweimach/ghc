@@ -98,6 +98,9 @@ instance Monoid Lifetime where
     mappend = elSupremum
 
 -- | A pair of an event and lifetime
+--
+-- Here we encode the event in the bottom three bits and the lifetime
+-- in the fourth bit.
 newtype EventLifetime = EL Int
                       deriving (Show, Eq)
 
@@ -106,10 +109,10 @@ instance Monoid EventLifetime where
     EL a `mappend` EL b = EL (a .|. b)
 
 eventLifetime :: Event -> Lifetime -> EventLifetime
-eventLifetime (Event e) l = EL (e .|. go l)
+eventLifetime (Event e) l = EL (e .|. lifetimeBit l)
   where
-    go OneShot   = 0
-    go MultiShot = 8
+    lifetimeBit OneShot   = 0
+    lifetimeBit MultiShot = 8
 {-# INLINE eventLifetime #-}
 
 elLifetime :: EventLifetime -> Lifetime
