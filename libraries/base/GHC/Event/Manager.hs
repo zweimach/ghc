@@ -48,7 +48,6 @@ module GHC.Event.Manager
     , IOCallback
     , FdKey(keyFd)
     , FdData
-    , registerFd_
     , registerFd
     , unregisterFd_
     , unregisterFd
