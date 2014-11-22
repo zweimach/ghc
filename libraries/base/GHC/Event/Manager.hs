@@ -11,7 +11,7 @@
 -- |
 -- The event manager supports event notification on fds. Each fd may
 -- have multiple callbacks registered, each listening for a different
--- set of events. Registrations may be set of automatically deactivated after
+-- set of events. Registrations may be automatically deactivated after
 -- the occurrence of an event ("one-shot mode") or active until
 -- explicitly unregistered.
 --
