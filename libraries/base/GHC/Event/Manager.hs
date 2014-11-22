@@ -50,7 +50,6 @@ module GHC.Event.Manager
     , FdData
     , registerFd_
     , registerFd
-    , registerFd'
     , unregisterFd_
     , unregisterFd
     , closeFd
@@ -348,23 +347,16 @@ registerFd_ mgr@(EventManager{..}) cb fd evs lt = do
   return (reg,modify)
 {-# INLINE registerFd_ #-}
 
--- | @registerFd mgr cb fd evs@ registers interest in the events @evs@
--- on the file descriptor @fd@.  @cb@ is called for each event that
--- occurs.  Returns a cookie that can be handed to 'unregisterFd'.
-registerFd :: EventManager -> IOCallback -> Fd -> Event -> IO FdKey
-registerFd mgr cb fd evs = registerFd' mgr cb fd evs OneShot
-{-# INLINE registerFd #-}
-
--- | @registerFd' mgr cb fd evs lt@ registers interest in the events @evs@
+-- | @registerFd mgr cb fd evs lt@ registers interest in the events @evs@
 -- on the file descriptor @fd@ for lifetime @lt@. @cb@ is called for
 -- each event that occurs.  Returns a cookie that can be handed to
 -- 'unregisterFd'.
-registerFd' :: EventManager -> IOCallback -> Fd -> Event -> Lifetime -> IO FdKey
-registerFd' mgr cb fd evs lt = do
+registerFd :: EventManager -> IOCallback -> Fd -> Event -> Lifetime -> IO FdKey
+registerFd mgr cb fd evs lt = do
   (r, wake) <- registerFd_ mgr cb fd evs lt
   when wake $ wakeManager mgr
   return r
-{-# INLINE registerFd' #-}
+{-# INLINE registerFd #-}
 
 {-
     Building GHC with parallel IO manager on Mac freezes when
