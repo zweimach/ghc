@@ -1,5 +1,7 @@
 stack:
 
+- examine Derived case of homogeniseRhsKind. I think we can do better.
+
 - examine extractDataDefnKindVars. Why use FreeKiTyVars? Should just be one pile, I think.
 
 - make sure that TypeRep :: k -> * works.   k should probably be levity-polymorphic. argh.

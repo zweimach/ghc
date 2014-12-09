@@ -1355,6 +1355,8 @@ homogeniseRhsKind (Just ev) lhs rhs build_ct
        ; emitWorkNC $ catMaybes [mb_ctev]
        ; return Stop }  -- we don't have a name for the kind-level CtDerived,
                         -- so we can't homogenise. Oh well.
+                        -- TODO (RAE): Shouldn't we just continue with an
+                        -- irredpred??
 
   where
     k1 = typeKind lhs
