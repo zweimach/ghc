@@ -702,7 +702,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
 
               mk_inst_ty :: TCvSubst -> (TyVar, TcType) -> TcM (TCvSubst, TcType)
               -- Deals with instantiation of kind variables
-              --   c.f. TcMType.tcInstTyCoVarsX
+              --   c.f. TcMType.tcInstTyCoVars
               mk_inst_ty subst (tv, result_inst_ty)
                 | is_fixed_tv tv   -- Same as result type
                 = return (extendTCvSubst subst tv result_inst_ty, result_inst_ty)
@@ -710,7 +710,8 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
                 = do { new_ty <- newFlexiTyVarTy (TcType.substTy subst (tyVarKind tv))
                      ; return (extendTCvSubst subst tv new_ty, new_ty) }
 
-        ; (_, result_inst_tys, result_subst) <- tcInstTyCoVars RecordUpdOrigin con1_tvs
+        ; (result_subst, con1_tvs') <- tcInstTyCoVars RecordUpdOrigin con1_tvs
+        ; let result_inst_tys = mkTyVarTys con1_tvs'
 
         ; (scrut_subst, scrut_inst_tys) <- mapAccumLM mk_inst_ty emptyTCvSubst
                                                       (con1_tvs `zip` result_inst_tys)
@@ -738,7 +739,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
         -- Phew!
         ; return $ mkHsWrapCo co_res $
           RecordUpd (mkLHsWrap scrut_co record_expr') rbinds'
-                                   relevant_cons scrut_inst_tys result_inst_tys  }
+                    relevant_cons scrut_inst_tys result_inst_tys  }
   where
     upd_fld_names = hsRecFields rbinds
 
@@ -1114,11 +1115,12 @@ instantiateOuter orig id
   = return (HsVar id, tau)
 
   | otherwise
-  = do { (_, tys, subst) <- tcInstTyCoVars orig tvs
-       ; doStupidChecks id tys
-       ; let theta' = substTheta subst theta
-       ; traceTc "Instantiating" (ppr id <+> text "with" <+> (ppr tys $$ ppr theta'))
-       ; wrap <- instCall orig tys theta'
+  = do { (subst, tvs') <- tcInstTyVars orig tvs
+       ; let tys'   = mkTyVarTys tvs'
+             theta' = substTheta subst theta
+       ; doStupidChecks id tys'
+       ; traceTc "Instantiating" (ppr id <+> text "with" <+> (ppr tys' $$ ppr theta'))
+       ; wrap <- instCall orig tys' theta'
        ; return (mkHsWrap wrap (HsVar id), TcType.substTy subst tau) }
   where
     -- TODO (RAE): This very clearly cares about visibility!

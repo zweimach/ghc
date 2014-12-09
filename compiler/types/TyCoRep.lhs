@@ -377,6 +377,7 @@ infixr 3 `mkFunTy`      -- Associates to the right
 mkFunTy :: Type -> Type -> Type
 mkFunTy arg res = ForAllTy (Anon arg) res
 
+-- | Does this type classify a core Coercion?
 isCoercionType :: Type -> Bool
 isCoercionType (TyConApp tc tys)
   | (tc `hasKey` eqPrimTyConKey) || (tc `hasKey` eqReprPrimTyConKey)
@@ -1979,7 +1980,10 @@ pprTheta theta  = parens (sep (punctuate comma (map (ppr_type TopPrec) theta)))
 
 pprThetaArrowTy :: ThetaType -> SDoc
 pprThetaArrowTy []     = empty
-pprThetaArrowTy [pred] = ppr_type FunPrec pred <+> darrow
+pprThetaArrowTy [pred] = ppr_type TyOpPrec pred <+> darrow
+                         -- TyOpPrec:  Num a     => a -> a  does not need parens
+                         --      bug   (a :~: b) => a -> b  currently does
+                         -- Trac # 9658
 pprThetaArrowTy preds  = parens (fsep (punctuate comma (map (ppr_type TopPrec) preds)))
                             <+> darrow
     -- Notice 'fsep' here rather that 'sep', so that

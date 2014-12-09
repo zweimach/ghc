@@ -479,9 +479,11 @@ tc_hs_type hs_ty@(HsPArrTy elt_ty) exp_kind
 tc_hs_type hs_ty@(HsTupleTy HsBoxedOrConstraintTuple hs_tys) exp_kind@(EK exp_k _ctxt)
      -- (NB: not zonking before looking at exp_k, to avoid left-right bias)
   | Just tup_sort <- tupKindSort_maybe exp_k
-  = tc_tuple hs_ty tup_sort hs_tys exp_kind
+  = traceTc "tc_hs_type tuple" (ppr hs_tys) >>
+    tc_tuple hs_ty tup_sort hs_tys exp_kind
   | otherwise
-  = do { (tys, kinds) <- mapAndUnzipM tc_infer_lhs_type hs_tys
+  = do { traceTc "tc_hs_type tuple 2" (ppr hs_tys) 
+       ; (tys, kinds) <- mapAndUnzipM tc_infer_lhs_type hs_tys
        ; kinds <- mapM zonkTcType kinds
            -- Infer each arg type separately, because errors can be
            -- confusing if we give them a shared kind.  Eg Trac #7410
@@ -615,7 +617,8 @@ tc_tuple hs_ty tup_sort tys exp_kind
 
 finish_tuple :: HsType Name -> TupleSort -> [TcType] -> ExpKind -> TcM TcType
 finish_tuple hs_ty tup_sort tau_tys exp_kind
-  = do { tau_tys' <- zonkTcTypes tau_tys  -- necessary so that the getLevity works
+  = do { traceTc "finish_tuple" (ppr res_kind $$ ppr exp_kind $$ ppr exp_kind)
+       ; tau_tys' <- zonkTcTypes tau_tys  -- necessary so that the getLevity works
        ; let arg_tys  = case tup_sort of
                    -- See also Note [Unboxed tuple levity vars] in TyCon
                  UnboxedTuple    -> map (getLevity "finish_tuple") tau_tys' ++ tau_tys'

@@ -12,7 +12,8 @@ module IfaceType (
 
         IfaceType(..), IfacePredType, IfaceKind, IfaceTyCon(..), IfaceCoercion(..),
         IfaceTyLit(..), IfaceTcArgs(..),
-        IfaceContext, IfaceBndr(..), IfaceTvBndr, IfaceIdBndr,
+        IfaceContext, IfaceBndr(..), IfaceOneShot(..), IfaceLamBndr,
+        IfaceTvBndr, IfaceIdBndr,
         IfaceForAllBndr(..), VisibilityFlag(..),
 
         -- Conversion from Type -> IfaceType
@@ -29,7 +30,7 @@ module IfaceType (
 
         -- Printing
         pprIfaceType, pprParendIfaceType, pprIfaceContext, pprIfaceContextArr,
-        pprIfaceIdBndr, pprIfaceTvBndr, pprIfaceTvBndrs,
+        pprIfaceIdBndr, pprIfaceLamBndr, pprIfaceTvBndr, pprIfaceTvBndrs,
         pprIfaceBndrs, pprIfaceTcArgs, pprParendIfaceTcArgs,
         pprIfaceForAllPart, pprIfaceForAll, pprIfaceSigmaType,
         pprIfaceCoercion, pprParendIfaceCoercion,
@@ -85,6 +86,13 @@ data IfaceBndr          -- Local (non-top-level) binders
 
 type IfaceIdBndr  = (IfLclName, IfaceType)
 type IfaceTvBndr  = (IfLclName, IfaceKind)
+
+data IfaceOneShot    -- see Note [Preserve OneShotInfo]
+  = IfaceNoOneShot
+  | IfaceOneShot
+
+type IfaceLamBndr
+  = (IfaceBndr, IfaceOneShot)
 
 \end{code}
 
@@ -163,6 +171,7 @@ data IfaceCoercion     -- represents Coercions and CoercionArgs
   | IfaceSubCo       IfaceCoercion
   | IfaceAxiomRuleCo IfLclName [IfaceType] [IfaceCoercion]
   | IfaceCoCoArg     Role IfaceCoercion IfaceCoercion
+
 \end{code}
 
 %************************************************************************
@@ -415,6 +424,10 @@ instance Outputable IfaceBndr where
 pprIfaceBndrs :: [IfaceBndr] -> SDoc
 pprIfaceBndrs bs = sep (map ppr bs)
 
+pprIfaceLamBndr :: IfaceLamBndr -> SDoc
+pprIfaceLamBndr (b, IfaceNoOneShot) = ppr b
+pprIfaceLamBndr (b, IfaceOneShot)   = ppr b <> text "[OneShot]"
+
 pprIfaceIdBndr :: (IfLclName, IfaceType) -> SDoc
 pprIfaceIdBndr (name, ty) = hsep [ppr name, dcolon, ppr ty]
 
@@ -444,6 +457,17 @@ instance Binary IfaceBndr where
                       return (IfaceIdBndr aa)
               _ -> do ab <- get bh
                       return (IfaceTvBndr ab)
+
+instance Binary IfaceOneShot where
+    put_ bh IfaceNoOneShot = do
+            putByte bh 0
+    put_ bh IfaceOneShot = do
+            putByte bh 1
+    get bh = do
+            h <- getByte bh
+            case h of
+              0 -> do return IfaceNoOneShot
+              _ -> do return IfaceOneShot
 \end{code}
 
 ----------------------------- Printing IfaceType ------------------------------------

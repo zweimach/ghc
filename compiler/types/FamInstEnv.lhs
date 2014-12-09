@@ -362,7 +362,8 @@ extendFamInstEnvList :: FamInstEnv -> [FamInst] -> FamInstEnv
 extendFamInstEnvList inst_env fis = foldl extendFamInstEnv inst_env fis
 
 extendFamInstEnv :: FamInstEnv -> FamInst -> FamInstEnv
-extendFamInstEnv inst_env ins_item@(FamInst {fi_fam = cls_nm})
+extendFamInstEnv inst_env
+                 ins_item@(FamInst {fi_fam = cls_nm})
   = addToUFM_C add inst_env cls_nm (FamIE [ins_item])
   where
     add (FamIE items) _ = FamIE (ins_item:items)
@@ -758,7 +759,7 @@ We handle data families and type families separately here:
  * For data family instances, though, we need to re-split for each
    instance, because the breakdown might be different for each
    instance.  Why?  Because of eta reduction; see Note [Eta reduction
-   for data family axioms]
+   for data family axioms] in TcInstDcls.
 
 \begin{code}
 
@@ -790,12 +791,18 @@ The lookupFamInstEnv function does a nice job for *open* type families,
 but we also need to handle closed ones when normalising a type:
 
 \begin{code}
-reduceTyFamApp_maybe :: FamInstEnvs -> Role -> TyCon -> [Type] -> Maybe (Coercion, Type)
+reduceTyFamApp_maybe :: FamInstEnvs
+                     -> Role              -- Desired role of result coercion
+                     -> TyCon -> [Type]
+                     -> Maybe (Coercion, Type)
 -- Attempt to do a *one-step* reduction of a type-family application
+--    but *not* newtypes
+-- Works on type-synonym families always; data-families only if
+--     the role we seek is representational
 -- It first normalises the type arguments, wrt functions but *not* newtypes,
--- to be sure that nested calls like
---    F (G Int)
--- are correctly reduced
+--    to be sure that nested calls like
+--       F (G Int)
+--    are correctly reduced
 --
 -- The TyCon can be oversaturated.
 -- Works on both open and closed families
@@ -811,7 +818,16 @@ reduceTyFamApp_maybe env role tc tys
 reduce_ty_fam_app_maybe :: FamInstEnvs -> LiftingContext -> Role
                         -> TyCon -> [Type] -> Maybe (Coercion, Type)
 reduce_ty_fam_app_maybe envs lc role tc tys
-  | isOpenFamilyTyCon tc
+  | Phantom <- role
+  = Nothing
+
+  | case role of
+      Representational -> isOpenFamilyTyCon    tc
+      _                -> isOpenSynFamilyTyCon tc
+       -- If we seek a representational coercion
+       -- (e.g. the call in topNormaliseType_maybe) then we can
+       -- unwrap data families as well as type-synonym families;
+       -- otherwise only type-synonym families
   , [FamInstMatch { fim_instance = fam_inst
                   , fim_tys =      inst_tys }] <- lookupFamInstEnv envs tc ntys
   = let ax     = famInstAxiom fam_inst
@@ -1025,6 +1041,7 @@ topNormaliseType_maybe env ty
 
 ---------------
 normaliseTcApp :: FamInstEnvs -> Role -> TyCon -> [Type] -> (Coercion, Type)
+-- See comments on normaliseType for the arguments of this function
 normaliseTcApp env role tc tys
   = normalise_tc_app env lc role tc tys
   where
@@ -1035,11 +1052,16 @@ normaliseTcApp env role tc tys
 normalise_tc_app :: FamInstEnvs -> LiftingContext -> Role
                  -> TyCon -> [Type] -> (Coercion, Type)
 normalise_tc_app env lc role tc tys
+  | isTypeSynonymTyCon tc
+  , (co1, ntys) <- normalise_tc_args env lc role tc tys
+  , Just (tenv, rhs, ntys') <- tcExpandTyCon_maybe tc ntys
+  , (co2, ninst_rhs) <- normalise_type env lc role (substTy (mkTopTCvSubst tenv) rhs)
+  = if isReflCo co2 then (co1,                 mkTyConApp tc ntys)
+                    else (co1 `mkTransCo` co2, mkAppTys ninst_rhs ntys')
+
   | Just (first_co, ty') <- reduce_ty_fam_app_maybe env lc role tc tys
-  = let    -- A reduction is possible
-        (rest_co,nty) = normalise_type env lc role ty'
-    in
-    (first_co `mkTransCo` rest_co, nty)
+  , (rest_co,nty) <- normalise_type env lc role ty'
+  = (first_co `mkTransCo` rest_co, nty)
 
   | otherwise   -- No unique matching family instance exists;
                 -- we do not do anything
@@ -1075,15 +1097,16 @@ normalise_type :: FamInstEnvs            -- environment with family instances
                -> (Coercion, Type)       -- (coercion,new type), where
                                         -- co :: old-type ~ new_type
 -- Normalise the input type, by eliminating *all* type-function redexes
+-- but *not* newtypes (which are visible to the programmer)
 -- Returns with Refl if nothing happens
 -- Does nothing to newtypes
 -- The returned coercion *must* be *homogeneous*
 -- See Note [Normalising types]
+-- Try to not to disturb type syonyms if possible
 
 normalise_type env lc
   = go
   where
-    go r ty | Just ty' <- coreView ty = go r ty'
     go r (TyConApp tc tys) = normalise_tc_app env lc r tc tys
     go r ty@(LitTy {})     = (mkReflCo r ty, ty)
     go r (AppTy ty1 ty2)
@@ -1131,7 +1154,6 @@ normalise_tycovar_bndr env lc1 r1
     r1 lc1
   -- the True there means that we want homogeneous coercions
   -- See Note [Homogenizing TyHetero substs] in Coercion
-
 \end{code}
 
 %************************************************************************

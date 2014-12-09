@@ -522,7 +522,7 @@ mkSubCo: Requires a nominal input coercion and always produces a
 representational output. This is used when you (the programmer) are sure you
 know exactly that role you have and what you want.
 
-setRole_maybe: This function takes both the input role and the output role
+downgradeRole_maybe: This function takes both the input role and the output role
 as parameters. (The *output* role comes first!) It can only *downgrade* a
 role -- that is, change it from N to R or P, or from R to P. This one-way
 behavior is why there is the "_maybe". If an upgrade is requested, this
@@ -531,10 +531,10 @@ coercion, but you're not sure (as you're writing the code) of which roles are
 involved.
 
 This function could have been written using coercionRole to ascertain the role
-of the input. But, that function is recursive, and the caller of setRole_maybe
+of the input. But, that function is recursive, and the caller of downgradeRole_maybe
 often knows the input role. So, this is more efficient.
 
-downgradeRole: This is just like setRole_maybe, but it panics if the
+downgradeRole: This is just like downgradeRole_maybe, but it panics if the
 conversion isn't a downgrade.
 
 setNominalRole_maybe: This is the only function that can *upgrade* a coercion.
@@ -559,7 +559,7 @@ GHC API, as he was decomposing Core casts. The Core casts use representational
 coercions, as they must, but his use case required nominal coercions (he was
 building a GADT). So, that's why this function is exported from this module.
 
-One might ask: shouldn't setRole_maybe just use setNominalRole_maybe as
+One might ask: shouldn't downgradeRole_maybe just use setNominalRole_maybe as
 appropriate? I (Richard E.) have decided not to do this, because upgrading a
 role is bizarre and a caller should have to ask for this behavior explicitly.
 
@@ -868,29 +868,29 @@ mkSubCo co = ASSERT2( coercionRole co == Nominal, ppr co <+> ppr (coercionRole c
              SubCo co
 
 -- | Changes a role, but only a downgrade. See Note [Role twiddling functions]
-setRole_maybe :: Role   -- ^ desired role
-              -> Role   -- ^ current role
-              -> Coercion -> Maybe Coercion
-setRole_maybe Representational Nominal = Just . mkSubCo
-setRole_maybe Nominal Representational = const Nothing
-setRole_maybe Phantom Phantom          = Just
-setRole_maybe Phantom _                = Just . toPhantomCo
-setRole_maybe _ Phantom                = const Nothing
-setRole_maybe _ _                      = Just
+downgradeRole_maybe :: Role   -- ^ desired role
+                    -> Role   -- ^ current role
+                    -> Coercion -> Maybe Coercion
+downgradeRole_maybe Representational Nominal co = Just (mkSubCo co)
+downgradeRole_maybe Nominal Representational _  = Nothing
+downgradeRole_maybe Phantom Phantom          co = Just co
+downgradeRole_maybe Phantom _                co = Just (mkPhantomCo co)
+downgradeRole_maybe _ Phantom                _  = Nothing
+downgradeRole_maybe _ _                      co = Just co
 
--- | Like 'setRole_maybe', but panics if the change isn't a downgrade.
+-- | Like 'downgradeRole_maybe', but panics if the change isn't a downgrade.
 -- See Note [Role twiddling functions]
 downgradeRole :: Role  -- desired role
               -> Role  -- current role
               -> Coercion -> Coercion
 downgradeRole r1 r2 co
-  = case setRole_maybe r1 r2 co of
+  = case downgradeRole_maybe r1 r2 co of
       Just co' -> co'
       Nothing  -> pprPanic "downgradeRole" (ppr co)
 
--- | Like 'setRole_maybe', but for 'CoercionArg's
+-- | Like 'downgradeRole_maybe', but for 'CoercionArg's
 setRoleArg_maybe :: Role -> Role -> CoercionArg -> Maybe CoercionArg
-setRoleArg_maybe r1 r2 (TyCoArg co) = fmap TyCoArg (setRole_maybe r1 r2 co)
+setRoleArg_maybe r1 r2 (TyCoArg co) = fmap TyCoArg (downgradeRole_maybe r1 r2 co)
 setRoleArg_maybe r  _  (CoCoArg _ co1 co2) = Just $ CoCoArg r co1 co2
 
 -- | Like 'downgradeRole', but for 'CoercionArg's
@@ -1008,8 +1008,9 @@ nthRole Phantom _ _ = Phantom
 nthRole Representational tc n
   = (tyConRolesX Representational tc) `getNth` n
 
--- is one role "less" than another?
 ltRole :: Role -> Role -> Bool
+-- Is one role "less" than another?
+--     Nominal < Representational < Phantom
 ltRole Phantom          _       = False
 ltRole Representational Phantom = True
 ltRole Representational _       = False
@@ -1648,7 +1649,7 @@ liftCoSubstTyVar (LC _ cenv) r tv
   = do { TyCoArg co <- lookupVarEnv cenv tv
        ; let co_role = coercionRole co   -- could theoretically take this as
                                          -- a parameter, but painful
-       ; setRole_maybe r co_role co } -- see Note [liftCoSubstTyVar]
+       ; downgradeRole_maybe r co_role co } -- see Note [liftCoSubstTyVar]
 
 liftCoSubstTyCoVar :: LiftingContext -> Role -> TyCoVar -> Maybe CoercionArg
 liftCoSubstTyCoVar (LC _ env) r v

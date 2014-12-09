@@ -25,7 +25,6 @@ module TyCon(
         mkLiftedPrimTyCon,
         mkTupleTyCon,
         mkSynTyCon,
-        mkForeignTyCon,
         mkPromotedDataCon,
         mkPromotedTyCon,
 
@@ -37,7 +36,6 @@ module TyCon(
         isTupleTyCon, isUnboxedTupleTyCon, isBoxedTupleTyCon,
         isSynTyCon, isTypeSynonymTyCon,
         isDecomposableTyCon,
-        isForeignTyCon, 
         isPromotedDataCon, isPromotedDataCon_maybe, 
 
         isDataTyCon, isProductTyCon, isDataProductTyCon_maybe,
@@ -69,7 +67,6 @@ module TyCon(
         tyConTuple_maybe, tyConClass_maybe,
         tyConFamInst_maybe, tyConFamInstSig_maybe, tyConFamilyCoercion_maybe,
         synTyConDefn_maybe, synTyConRhs_maybe, 
-        tyConExtName,           -- External name for foreign types
         algTyConRhs,
         newTyConRhs, newTyConEtadArity, newTyConEtadRhs, 
         unwrapNewTyCon_maybe, unwrapNewTyConEtad_maybe,
@@ -107,7 +104,6 @@ import CoAxiom
 import PrelNames
 import Maybes
 import Outputable
-import FastString
 import Constants
 import Util
 import qualified Data.Data as Data
@@ -437,13 +433,11 @@ data TyCon
                                         --   holds that information.
                                         -- Only relevant if tc_kind = *
 
-        isUnLifted   :: Bool,           -- ^ Most primitive tycons are unlifted
+        isUnLifted   :: Bool            -- ^ Most primitive tycons are unlifted
                                         --   (may not contain bottom)
-                                        --   but foreign-imported ones may be lifted
-
-        tyConExtName :: Maybe FastString   -- ^ @Just e@ for foreign-imported types,
-                                           --   holds the name of the imported thing
-  }
+                                        --   but other are lifted,
+                                        --   e.g. @RealWorld@
+    }
 
   -- | Represents promoted data constructor.
   | PromotedDataCon {         -- See Note [Promoted data constructors]
@@ -981,27 +975,6 @@ mkTupleTyCon name kind arity tyvars con sort
         dataCon = con
     }
 
--- ^ Foreign-imported (.NET) type constructors are represented
--- as primitive, but /lifted/, 'TyCons' for now. They are lifted
--- because the Haskell type @T@ representing the (foreign) .NET
--- type @T@ is actually implemented (in ILX) as a @thunk<T>@
-mkForeignTyCon :: Name
-               -> Maybe FastString -- ^ Name of the foreign imported thing, maybe
-               -> Kind
-               -> TyCon
-mkForeignTyCon name ext_name kind
-  = PrimTyCon {
-        tyConName    = name,
-        tyConUnique  = nameUnique name,
-        tc_kind    = kind,
-        tyConArity   = 0,
-        tc_roles     = [],
-        primTyConRep = PtrRep, -- they all do
-        isUnLifted   = False,
-        tyConExtName = ext_name
-    }
-
-
 -- | Create an unlifted primitive 'TyCon', such as @Int#@
 mkPrimTyCon :: Name  -> Kind -> [Role] -> PrimRep -> TyCon
 mkPrimTyCon name kind roles rep
@@ -1028,8 +1001,7 @@ mkPrimTyCon' name kind roles rep is_unlifted
         tyConArity   = length roles,
         tc_roles     = roles,
         primTyConRep = rep,
-        isUnLifted   = is_unlifted,
-        tyConExtName = Nothing
+        isUnLifted   = is_unlifted
     }
 
 -- | Create a type synonym 'TyCon'
@@ -1332,11 +1304,6 @@ tupleTyConArity tc = pprPanic "tupleTyConArity" (ppr tc)
 isRecursiveTyCon :: TyCon -> Bool
 isRecursiveTyCon (AlgTyCon {algTcRec = Recursive}) = True
 isRecursiveTyCon _                                 = False
-
--- | Is this the 'TyCon' of a foreign-imported type constructor?
-isForeignTyCon :: TyCon -> Bool
-isForeignTyCon (PrimTyCon {tyConExtName = Just _}) = True
-isForeignTyCon _                                   = False
 
 -- | Is this a PromotedDataCon?
 isPromotedDataCon :: TyCon -> Bool

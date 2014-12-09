@@ -69,9 +69,27 @@
   * Generalise `Control.Monad.{when,unless,guard}` from `Monad` to
     `Applicative` and from `MonadPlus` to `Alternative` respectively.
 
+  * Generalise `Control.Monad.{foldM,foldM_}` to `Foldable`
+
   * New module `Data.OldList` containing only list-specialised versions of
     the functions from `Data.List` (in other words, `Data.OldList` corresponds
     to `base-4.7.0.1`'s `Data.List`)
+
+  * `foldr2` (together with `zip` and `zipWith`) is made a bit stricter in the
+    second argument, so that the fusion RULES for it do not change the
+    semantics. (#9596)
+
+  * `scanr`, `mapAccumL` and `filterM` now take part in list fusion (#9355,
+    #9502, #9546)
+
+  * Remove deprecated `Data.OldTypeable` (#9639)
+
+  * New module `Data.Bifunctor` providing the `Bifunctor(bimap,first,second)`
+    class (previously defined in `bifunctors` package) (#9682)
+
+  * Update Unicode class definitions to Unicode version 7.0
+
+  * Add `Alt`, an `Alternative` wrapper, to `Data.Monoid`. (#9759)
 
 ## 4.7.0.1  *Jul 2014*
 
