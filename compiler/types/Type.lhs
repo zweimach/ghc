@@ -1384,6 +1384,7 @@ getEqPredRole ty
         | tc `hasKey` eqTyConKey -> Nominal
         | tc `hasKey` eqPrimTyConKey -> Nominal
         | tc `hasKey` coercibleTyConKey -> Representational
+        | tc `hasKey` eqReprPrimTyConKey -> Representational  -- TODO (RAE): Remove?
       _ -> pprPanic "getEqPredRole" (ppr ty)
 
 -- | Assuming the type provided is an EqPred, is it lifted?

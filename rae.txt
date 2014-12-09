@@ -55,6 +55,8 @@ fix:
     anything interesting to the right of a :: in a GADT-style data def'n. There's got
     to be a better way! (Worse, it will just do the wrong thing if someone tries to
     put something sneaky there.)
+  - add CoreLint checks for levity polymorphism used the right way. But, what exactly
+    is the right way??
   - shouldn't we *always* want closeOverKinds???
   - homogeniseRhsKind should probably request representational coercions:
       Say we had [W]: (t :: k1) ~ (s :: k2). This was homogenized to
@@ -264,6 +266,9 @@ Notes:
    Plan of record: Have solver deal with both lifted and unlifted equality. This
    is actually not too difficult. We just need to take some care in desugaring.
    But I'm not *very* happy with it.
+
+BUGS:
+#9017
 
 ----------------------------------------
 Stuff for implementing Π:

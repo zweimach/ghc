@@ -1215,14 +1215,13 @@ mkPiCo r v co | isTyVar v = mkForAllCo_TyHomo v co
 -- mkCoCast (c :: s1 ~# t1) (g :: (s1 ~# s2) ~# (t1 ~# t2)) :: s2 ~# t2
 -- The first coercion *must* be Nominal.
 mkCoCast :: Coercion -> Coercion -> Coercion
--- (mkCoCast (c :: s1 ~# t1) (g :: (s1 ~# t1) ~# (s2 ~# t2)
 mkCoCast c g
   = mkSymCo g1 `mkTransCo` c `mkTransCo` g2
   where
        -- g  :: (s1 ~# s2) ~# (t1 ~#  t2)
        -- g1 :: s1 ~# t1
        -- g2 :: s2 ~# t2
-    Just (_, args) = splitTyConAppCo_maybe g
+    (_, args) = splitTyConApp (pFst $ coercionKind g)
     n_args = length args
     co_list = decomposeCo n_args g
     TyCoArg g1 = co_list `getNth` (n_args - 2)
