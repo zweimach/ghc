@@ -238,8 +238,9 @@ matchExpectedTyConApp tc orig_ty
     -- because that'll make types that are utterly ill-kinded.
     -- This happened in Trac #7368
     defer = ASSERT2( classifiesTypeWithValues res_kind, ppr tc )
-            do { (_, kappa_tys, k_subst) <- tcInstTyCoVars (OccurrenceOf (tyConName tc)) kvs
+            do { (k_subst, kvs') <- tcInstTyCoVars (OccurrenceOf (tyConName tc)) kvs
                ; let arg_kinds' = substTys k_subst arg_kinds
+                     kappa_tys  = mkOnlyTyVarTys kvs'
                ; tau_tys <- mapM newFlexiTyVarTy arg_kinds'
                ; co <- unifyType (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
                ; return (co, kappa_tys ++ tau_tys) }

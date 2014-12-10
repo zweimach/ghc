@@ -176,10 +176,10 @@ deeplyInstantiate :: CtOrigin -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 
 deeplyInstantiate orig ty
   | Just (arg_tys, tvs, theta, rho) <- tcDeepSplitSigmaTy_maybe ty
-  = do { (subst, tvs') <- tcInstTyCoVars tvs
+  = do { (subst, tvs') <- tcInstTyCoVars orig tvs
        ; ids1  <- newSysLocalIds (fsLit "di") (substTys subst arg_tys)
        ; let theta' = substTheta subst theta
-       ; wrap1 <- instCall orig (mkTyVarTys tvs') theta'
+       ; wrap1 <- instCall orig (mkTyCoVarTys tvs') theta'
        ; traceTc "Instantiating (deply)" (vcat [ ppr ty
                                                , text "with" <+> ppr tvs'
                                                , text "args:" <+> ppr ids1
@@ -418,7 +418,7 @@ tcGetInsts = fmap tcg_insts getGblEnv
 newClsInst :: Maybe OverlapMode -> Name -> [TyVar] -> ThetaType
            -> Class -> [Type] -> TcM ClsInst
 newClsInst overlap_mode dfun_name tvs theta clas tys
-  = do { (subst, tvs') <- freshenTyVarBndrs tvs
+  = do { (subst, tvs') <- freshenTyCoVarBndrs tvs
              -- Be sure to freshen those type variables,
              -- so they are sure not to appear in any lookup
        ; let tys'   = substTys subst tys

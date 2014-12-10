@@ -43,7 +43,7 @@ module TcMType (
   tcInstSkolType,
   tcSkolDFunType, tcSuperSkolTyCoVars,
 
-  instSkolTyVars, freshenTyVarBndrs,
+  instSkolTyCoVars, freshenTyCoVarBndrs,
 
   --------------------------------
   -- Zonking
@@ -225,7 +225,7 @@ tcSuperSkolTyCoVar subst tv
 -- Wrappers
 -- we need to be able to do this from outside the TcM monad:
 tcInstSkolTyCoVarsLoc :: SrcSpan -> [TyCoVar] -> TcRnIf gbl lcl (TCvSubst, [TcTyCoVar])
-tcInstSkolTyCoVarsLoc loc = mapAccumLM (tcInstSkolTyCoVar loc False) (mkTopTCvSubst [])
+tcInstSkolTyCoVarsLoc loc = instSkolTyCoVars (mkTcSkolTyCoVar loc False)
 
 tcInstSkolTyCoVars :: [TyCoVar] -> TcM (TCvSubst, [TcTyCoVar])
 tcInstSkolTyCoVars = tcInstSkolTyCoVars' False emptyTCvSubst
@@ -277,13 +277,15 @@ tcInstSkolType :: TcType -> TcM ([TcTyCoVar], TcThetaType, TcType)
 tcInstSkolType ty = tcInstType tcInstSkolTyCoVars ty
 
 ------------------
-freshenTyVarBndrs :: [TyVar] -> TcRnIf gbl lcl (TvSubst, [TyVar])
+freshenTyCoVarBndrs :: [TyCoVar] -> TcRnIf gbl lcl (TCvSubst, [TyCoVar])
 -- ^ Give fresh uniques to a bunch of TyVars, but they stay
 --   as TyVars, rather than becoming TcTyVars
 -- Used in FamInst.newFamInst, and Inst.newClsInst
-freshenTyVarBndrs = instSkolTyVars mk_tv
+freshenTyCoVarBndrs = instSkolTyCoVars mk_tcv
   where
-    mk_tv uniq old_name kind = mkTyVar (setNameUnique old_name uniq) kind
+    mk_tcv uniq old_name kind
+      | isCoercionType kind = mkCoVar (setNameUnique old_name uniq) kind
+      | otherwise           = mkTyVar (setNameUnique old_name uniq) kind
 
 ------------------
 instSkolTyCoVars :: (Unique -> Name -> Kind -> TyCoVar)
@@ -292,7 +294,7 @@ instSkolTyCoVars mk_tcv = instSkolTyCoVarsX mk_tcv emptyTCvSubst
 
 instSkolTyCoVarsX :: (Unique -> Name -> Kind -> TyCoVar)
                   -> TCvSubst -> [TyCoVar] -> TcRnIf gbl lcl (TCvSubst, [TyCoVar])
-instSkolTyCoVarsX mk_ctv = mapAccumLM (instSkolTyCoVarX mk_tcv)
+instSkolTyCoVarsX mk_tcv = mapAccumLM (instSkolTyCoVarX mk_tcv)
 
 instSkolTyCoVarX :: (Unique -> Name -> Kind -> TyCoVar)
                  -> TCvSubst -> TyCoVar -> TcRnIf gbl lcl (TCvSubst, TyCoVar)
@@ -301,8 +303,8 @@ instSkolTyCoVarX mk_tcv subst tycovar
         ; let new_tv = mk_tcv uniq old_name kind
         ; return (extendTCvSubst subst tycovar (mkTyCoVarTy new_tv), new_tv) }
   where
-    old_name = tyVarName tyvar
-    kind     = substTy subst (tyVarKind tyvar)
+    old_name = tyVarName tycovar
+    kind     = substTy subst (tyVarKind tycovar)
 \end{code}
 
 Note [Kind substitution when instantiating]
@@ -516,7 +518,7 @@ tcInstTyCoVars :: CtOrigin -> [TyCoVar] -> TcM (TCvSubst, [TcTyCoVar])
 -- Note that this works for a sequence of kind, type, and coercion variables
 -- variables.  Eg    [ (k:*), (a:k->k) ]
 --             Gives [ (k7:*), (a8:k7->k7) ]
-tcInstTyCoVars = mapAccumLM tcInstTyCoVarX emptyTCvSubst
+tcInstTyCoVars orig = mapAccumLM (tcInstTyCoVarX orig) emptyTCvSubst
     -- emptyTCvSubst has an empty in-scope set, but that's fine here
     -- Since the tyvars are freshly made, they cannot possibly be
     -- captured by any existing for-alls.
@@ -527,7 +529,7 @@ tcInstTyCoVarX :: CtOrigin -> TCvSubst -> TyCoVar -> TcM (TCvSubst, TcTyCoVar)
 tcInstTyCoVarX origin subst tyvar
   | isTyVar tyvar
   = do  { uniq <- newUnique
-               -- See Note [
+               -- See Note [    -- TODO (RAE): Finish this line of comment!
         ; let info = if isSortPolymorphic (tyVarKind tyvar)
                      then PolyTv
                      else TauTv

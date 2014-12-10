@@ -301,7 +301,7 @@ simplifyInfer rhs_untch apply_mr name_taus wanteds
 
        ; ev_binds_var <- TcM.newTcEvBinds
        ; wanted_transformed_incl_derivs <- setUntouchables rhs_untch $
-                                           runTcSWithEvBinds ev_binds_var (solveWanteds wanteds)
+                                           runTcSWithEvBinds ev_binds_var (solve_wanteds wanteds)
        ; wanted_transformed_incl_derivs <- zonkWC wanted_transformed_incl_derivs
 
               -- Step 4) Candidates for quantification are an approximation of wanted_transformed

@@ -1219,7 +1219,7 @@ usefulContext :: ReportErrCtxt -> TcPredType -> [SkolemInfo]
 usefulContext ctxt pred
   = go (cec_encl ctxt)
   where
-    pred_tvs = tyVarsOfType pred
+    pred_tvs = tyCoVarsOfType pred
     go [] = []
     go (ic : ics)
        = case ic_info ic of

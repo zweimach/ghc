@@ -1119,7 +1119,7 @@ oneShotId = pcMiscPrelId oneShotName ty info
   where
     info = noCafIdInfo `setInlinePragInfo` alwaysInlinePragma
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
-    ty  = mkForAllTys [alphaTyVar, betaTyVar] (mkFunTy fun_ty fun_ty)
+    ty  = mkInvForAllTys [alphaTyVar, betaTyVar] (mkFunTy fun_ty fun_ty)
     fun_ty = mkFunTy alphaTy betaTy
     [body, x] = mkTemplateLocals [fun_ty, alphaTy]
     x' = setOneShotLambda x

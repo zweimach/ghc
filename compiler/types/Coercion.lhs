@@ -874,7 +874,7 @@ downgradeRole_maybe :: Role   -- ^ desired role
 downgradeRole_maybe Representational Nominal co = Just (mkSubCo co)
 downgradeRole_maybe Nominal Representational _  = Nothing
 downgradeRole_maybe Phantom Phantom          co = Just co
-downgradeRole_maybe Phantom _                co = Just (mkPhantomCo co)
+downgradeRole_maybe Phantom _                co = Just (toPhantomCo co)
 downgradeRole_maybe _ Phantom                _  = Nothing
 downgradeRole_maybe _ _                      co = Just co
 
