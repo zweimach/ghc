@@ -482,7 +482,7 @@ aliasify (LMGlobal var val) = do
         LMGlobalVar lbl ty link sect align const = var
 
         defLbl = lbl `appendFS` fsLit "$def"
-        defVar = LMGlobalVar defLbl ty Internal sect align const
+        defVar = LMGlobalVar defLbl ty ExternallyVisible sect align const
 
         defPtrVar = LMGlobalVar defLbl (LMPointer ty) link Nothing Nothing const
         aliasVar = LMGlobalVar lbl (LMPointer i8Ptr) link Nothing Nothing Alias
