@@ -580,13 +580,12 @@ addClsInstsErr herald ispecs
 \begin{code}
 ---------------- Getting free tyvars -------------------------
 tyCoVarsOfCt :: Ct -> TcTyVarSet
--- NB: the 
-tyCoVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })    = extendVarSet (tyCoVarsOfType xi) tv
-tyCoVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_rhs = xi }) = tyCoVarsOfTypes (xi:tys)
-tyCoVarsOfCt (CDictCan { cc_tyargs = tys })               = tyCoVarsOfTypes tys
-tyCoVarsOfCt (CIrredEvCan { cc_ev = ev })                 = tyCoVarsOfType (ctEvPred ev)
-tyCoVarsOfCt (CHoleCan { cc_ev = ev })                    = tyCoVarsOfType (ctEvPred ev)
-tyCoVarsOfCt (CNonCanonical { cc_ev = ev })               = tyCoVarsOfType (ctEvPred ev)
+tyCoVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })     = extendVarSet (tyCoVarsOfType xi) tv
+tyCoVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_fsk = fsk }) = extendVarSet (tyCoVarsOfTypes tys) fsk
+tyCoVarsOfCt (CDictCan { cc_tyargs = tys })                = tyCoVarsOfTypes tys
+tyCoVarsOfCt (CIrredEvCan { cc_ev = ev })                  = tyCoVarsOfType (ctEvPred ev)
+tyCoVarsOfCt (CHoleCan { cc_ev = ev })                     = tyCoVarsOfType (ctEvPred ev)
+tyCoVarsOfCt (CNonCanonical { cc_ev = ev })                = tyCoVarsOfType (ctEvPred ev)
 
 tyCoVarsOfCts :: Cts -> TcTyVarSet
 tyCoVarsOfCts = foldrBag (unionVarSet . tyCoVarsOfCt) emptyVarSet
@@ -600,10 +599,10 @@ tyCoVarsOfWC (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
 
 tyCoVarsOfImplic :: Implication -> TyCoVarSet
 -- Only called on *zonked* things, hence no need to worry about flatten-skolems
-tyCoVarsOfImplic (Implic { ic_skols = skols, ic_fsks = fsks
-                             , ic_given = givens, ic_wanted = wanted })
+tyCoVarsOfImplic (Implic { ic_skols = skols
+                         , ic_given = givens, ic_wanted = wanted })
   = (tyCoVarsOfWC wanted `unionVarSet` tyCoVarsOfTypes (map evVarPred givens))
-    `delVarSetList` skols `delVarSetList` fsks
+    `delVarSetList` skols
 
 tyCoVarsOfBag :: (a -> TyVarSet) -> Bag a -> TyVarSet
 tyCoVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet

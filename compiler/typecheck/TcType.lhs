@@ -24,7 +24,8 @@ module TcType (
   TcTyVar, TcTyVarSet, TcTyCoVarSet, TcKind, TcCoVar, TcTyCoVar,
 
   -- Untouchables
-  Untouchables(..), noUntouchables, pushUntouchables, isTouchable,
+  Untouchables(..), noUntouchables, pushUntouchables, 
+  strictlyDeeperThan, sameDepthAs, fskUntouchables,
 
   --------------------------------
   -- MetaDetails
@@ -33,11 +34,13 @@ module TcType (
   MetaDetails(Flexi, Indirect), MetaInfo(..),
   isImmutableTyVar, isSkolemTyVar, isSkolemTyCoVar,
   isMetaTyVar,  isMetaTyVarTy, isTyVarTy,
-  isSigTyVar, isOverlappableTyVar,  isTyConableTyVar, isFlatSkolTyVar,
+  isSigTyVar, isOverlappableTyVar,  isTyConableTyVar, 
+  isFskTyVar, isFmvTyVar, isFlattenTyVar, 
   isAmbiguousTyVar, metaTvRef, metaTyVarInfo,
   isFlexi, isIndirect, isRuntimeUnkSkol,
-  metaTyVarUntouchables, setMetaTyVarUntouchables,
-  isTouchableMetaTyVar, isFloatedTouchableMetaTyVar,
+  metaTyVarUntouchables, setMetaTyVarUntouchables, metaTyVarUntouchables_maybe,
+  isTouchableMetaTyVar, isTouchableOrFmv,
+  isFloatedTouchableMetaTyVar,
 
   --------------------------------
   -- Builders
@@ -280,16 +283,12 @@ data TcTyVarDetails
                   --          when looking up instances
                   -- See Note [Binding when looking up instances] in InstEnv
 
+  | FlatSkol      -- A flatten-skolem.  It stands for the TcType, and zonking
+       TcType     -- will replace it by that type.
+                  -- See Note [The flattening story] in TcFlatten
+
   | RuntimeUnk    -- Stands for an as-yet-unknown type in the GHCi
                   -- interactive context
-
-  | FlatSkol TcType
-           -- The "skolem" obtained by flattening during
-           -- constraint simplification
-
-           -- In comments we will use the notation alpha[flat = ty]
-           -- to represent a flattening skolem variable alpha
-           -- identified with type ty.
 
   | MetaTv { mtv_info  :: MetaInfo
            , mtv_ref   :: IORef MetaDetails
@@ -322,6 +321,10 @@ data MetaInfo
                    --      see Note [Signature skolems]
                    --      The MetaDetails, if filled in, will
                    --      always be another SigTv or a SkolemTv
+
+   | FlatMetaTv    -- A flatten meta-tyvar
+                   -- It is a meta-tyvar, but it is always untouchable, with level 0
+                   -- See Note [The flattening story] in TcFlatten
 
 -------------------------------------
 -- UserTypeCtxt describes the origin of the polymorphic type
@@ -426,30 +429,34 @@ The same idea of only unifying touchables solves another problem.
 Suppose we had
    (F Int ~ uf[0])  /\  [1](forall a. C a => F Int ~ beta[1])
 In this example, beta is touchable inside the implication. The
-first solveInteract step leaves 'uf' un-unified. Then we move inside
+first solveFlatWanteds step leaves 'uf' un-unified. Then we move inside
 the implication where a new constraint
        uf  ~  beta
 emerges. If we (wrongly) spontaneously solved it to get uf := beta,
 the whole implication disappears but when we pop out again we are left with
-(F Int ~ uf) which will be unified by our final solveCTyFunEqs stage and
+(F Int ~ uf) which will be unified by our final zonking stage and
 uf will get unified *once more* to (F Int).
 
 \begin{code}
-newtype Untouchables = Untouchables Int
+newtype Untouchables = Untouchables Int deriving( Eq )
   -- See Note [Untouchable type variables] for what this Int is
 
+fskUntouchables :: Untouchables
+fskUntouchables = Untouchables 0  -- 0 = Outside the outermost level: 
+                                  --     flatten skolems
+
 noUntouchables :: Untouchables
-noUntouchables = Untouchables 0   -- 0 = outermost level
+noUntouchables = Untouchables 1   -- 1 = outermost level
 
 pushUntouchables :: Untouchables -> Untouchables
 pushUntouchables (Untouchables us) = Untouchables (us+1)
 
-isFloatedTouchable :: Untouchables -> Untouchables -> Bool
-isFloatedTouchable (Untouchables ctxt_untch) (Untouchables tv_untch)
-  = ctxt_untch < tv_untch
+strictlyDeeperThan :: Untouchables -> Untouchables -> Bool
+strictlyDeeperThan (Untouchables tv_untch) (Untouchables ctxt_untch)
+  = tv_untch > ctxt_untch
 
-isTouchable :: Untouchables -> Untouchables -> Bool
-isTouchable (Untouchables ctxt_untch) (Untouchables tv_untch)
+sameDepthAs :: Untouchables -> Untouchables -> Bool
+sameDepthAs (Untouchables ctxt_untch) (Untouchables tv_untch)
   = ctxt_untch == tv_untch   -- NB: invariant ctxt_untch >= tv_untch
                              --     So <= would be equivalent
 
@@ -477,12 +484,13 @@ pprTcTyVarDetails (SkolemTv False) = ptext (sLit "sk")
 pprTcTyVarDetails (RuntimeUnk {})  = ptext (sLit "rt")
 pprTcTyVarDetails (FlatSkol {})    = ptext (sLit "fsk")
 pprTcTyVarDetails (MetaTv { mtv_info = info, mtv_untch = untch })
-  = pp_info <> brackets (ppr untch)
+  = pp_info <> colon <> ppr untch
   where
     pp_info = case info of
-                PolyTv -> ptext (sLit "poly")
-                TauTv  -> ptext (sLit "tau")
-                SigTv  -> ptext (sLit "sig")
+                PolyTv     -> ptext (sLit "poly")
+                TauTv      -> ptext (sLit "tau")
+                SigTv      -> ptext (sLit "sig")
+                FlatMetaTv -> ptext (sLit "fuv")
 
 pprUserTypeCtxt :: UserTypeCtxt -> SDoc
 pprUserTypeCtxt (InfSigCtxt n)    = ptext (sLit "the inferred type for") <+> quotes (ppr n)
@@ -655,6 +663,18 @@ exactTyCoVarsOfTypes tys = mapUnionVarSet exactTyCoVarsOfType tys
 %************************************************************************
 
 \begin{code}
+isTouchableOrFmv :: Untouchables -> TcTyVar -> Bool
+isTouchableOrFmv ctxt_untch tv
+  = ASSERT2( isTcTyVar tv, ppr tv )
+    case tcTyVarDetails tv of
+      MetaTv { mtv_untch = tv_untch, mtv_info = info }
+        -> ASSERT2( checkTouchableInvariant ctxt_untch tv_untch,
+                    ppr tv $$ ppr tv_untch $$ ppr ctxt_untch )
+           case info of
+             FlatMetaTv -> True
+             _          -> tv_untch `sameDepthAs` ctxt_untch
+      _          -> False
+
 isTouchableMetaTyVar :: Untouchables -> TcTyVar -> Bool
 isTouchableMetaTyVar ctxt_untch tv
   | isTyVar tv
@@ -663,7 +683,7 @@ isTouchableMetaTyVar ctxt_untch tv
       MetaTv { mtv_untch = tv_untch }
         -> ASSERT2( checkTouchableInvariant ctxt_untch tv_untch,
                     ppr tv $$ ppr tv_untch $$ ppr ctxt_untch )
-           isTouchable ctxt_untch tv_untch
+           tv_untch `sameDepthAs` ctxt_untch
       _ -> False
   | otherwise = False
 
@@ -672,7 +692,7 @@ isFloatedTouchableMetaTyVar ctxt_untch tv
   | isTyVar tv
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of
-      MetaTv { mtv_untch = tv_untch } -> isFloatedTouchable ctxt_untch tv_untch
+      MetaTv { mtv_untch = tv_untch } -> tv_untch `strictlyDeeperThan` ctxt_untch
       _ -> False
   | otherwise = False
 
@@ -682,7 +702,8 @@ isImmutableTyVar tv
   | otherwise    = True
 
 isTyConableTyVar, isSkolemTyVar, isSkolemTyCoVar, isOverlappableTyVar,
-  isMetaTyVar, isAmbiguousTyVar, isFlatSkolTyVar :: TcTyVar -> Bool
+  isMetaTyVar, isAmbiguousTyVar, 
+  isFmvTyVar, isFskTyVar, isFlattenTyVar :: TcTyVar -> Bool
 
 isTyConableTyVar tv
         -- True of a meta-type variable that can be filled in
@@ -695,7 +716,22 @@ isTyConableTyVar tv
         _                           -> True
   | otherwise = True
 
-isFlatSkolTyVar tv
+isFmvTyVar tv
+  = ASSERT2( isTcTyVar tv, ppr tv )
+    case tcTyVarDetails tv of
+        MetaTv { mtv_info = FlatMetaTv } -> True
+        _                                -> False
+
+-- | True of both given and wanted flatten-skolems (fak and usk)
+isFlattenTyVar tv
+  = ASSERT2( isTcTyVar tv, ppr tv )
+    case tcTyVarDetails tv of
+        FlatSkol {}                      -> True
+        MetaTv { mtv_info = FlatMetaTv } -> True
+        _                                -> False
+
+-- | True of FlatSkol skolems only
+isFskTyVar tv
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of
         FlatSkol {} -> True
@@ -704,10 +740,8 @@ isFlatSkolTyVar tv
 isSkolemTyVar tv
   = ASSERT2( isTcTyVar tv, ppr tv )
     case tcTyVarDetails tv of
-        SkolemTv {}   -> True
-        FlatSkol {}   -> True
-        RuntimeUnk {} -> True
-        MetaTv {}     -> False
+        MetaTv {} -> False
+        _other    -> True
 
 isSkolemTyCoVar tv
   = isCoVar tv || isSkolemTyVar tv
@@ -759,6 +793,13 @@ metaTyVarUntouchables tv
     case tcTyVarDetails tv of
       MetaTv { mtv_untch = untch } -> untch
       _ -> pprPanic "metaTyVarUntouchables" (ppr tv)
+
+metaTyVarUntouchables_maybe :: TcTyVar -> Maybe Untouchables
+metaTyVarUntouchables_maybe tv
+  = ASSERT( isTcTyVar tv )
+    case tcTyVarDetails tv of
+      MetaTv { mtv_untch = untch } -> Just untch
+      _                            -> Nothing
 
 setMetaTyVarUntouchables :: TcTyVar -> Untouchables -> TcTyVar
 setMetaTyVarUntouchables tv untch
