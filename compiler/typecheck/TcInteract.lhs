@@ -43,6 +43,7 @@ import Data.List( partition )
 
 import VarEnv
 
+import Data.Maybe ( catMaybes )
 import Control.Monad( when, unless, forM )
 import Pair (Pair(..))
 import Unique( hasKey )
@@ -566,7 +567,7 @@ lookupFlattenTyVar :: TyVarEnv EqualCtList -> TcTyVar -> TcType
 lookupFlattenTyVar inert_eqs ftv 
   = case lookupVarEnv inert_eqs ftv of
       Just (CTyEqCan { cc_rhs = rhs } : _) -> rhs
-      _                                    -> mkTyVarTy ftv
+      _                                    -> mkOnlyTyVarTy ftv
 
 reactFunEq :: CtEvidence -> TcTyVar    -- From this  :: F tys ~ fsk1
            -> CtEvidence -> TcTyVar    -- Solve this :: F tys ~ fsk2
@@ -575,14 +576,14 @@ reactFunEq from_this fsk1 (CtGiven { ctev_evtm = tm, ctev_loc = loc }) fsk2
   = do { let fsk_eq_co = mkTcSymCo (evTermCoercion tm)
                          `mkTcTransCo` ctEvCoercion from_this
                          -- :: fsk2 ~ fsk1
-             fsk_eq_pred = mkTcEqPredLikeEv from_this (mkTyVarTy fsk2) (mkTyVarTy fsk1)
+             fsk_eq_pred = mkTcEqPredLikeEv from_this (mkOnlyTyVarTy fsk2) (mkOnlyTyVarTy fsk1)
                -- TODO (RAE): Why from_this and not to_this in the LikeEv??
 
        ; new_ev <- newGivenEvVar loc (fsk_eq_pred, EvCoercion fsk_eq_co)
        ; emitWorkNC [new_ev] }
 
 reactFunEq from_this fuv1 (CtWanted { ctev_evar = evar }) fuv2
-  = dischargeFmv evar fuv2 (ctEvCoercion from_this) (mkTyVarTy fuv1)
+  = dischargeFmv evar fuv2 (ctEvCoercion from_this) (mkOnlyTyVarTy fuv1)
 
 reactFunEq _ _ solve_this@(CtDerived {}) _
   = pprPanic "reactFunEq" (ppr solve_this)
@@ -1461,12 +1462,12 @@ doTopReactFunEq work_item@(CFunEqCan { cc_ev = old_ev, cc_fun = fam_tc
     | isGiven old_ev  -- Not shortcut
     -> do { let final_co = mkTcSymCo (ctEvCoercion old_ev) `mkTcTransCo` ax_co
                 -- final_co :: fsk ~ rhs_ty
-          ; new_ev <- newGivenEvVar deeper_loc (mkTcEqPred (mkTyVarTy fsk) rhs_ty,
+          ; new_ev <- newGivenEvVar deeper_loc (mkTcEqPred (mkOnlyTyVarTy fsk) rhs_ty,
                                                 EvCoercion final_co)
           ; emitWorkNC [new_ev]   -- Non-cannonical; that will mean we flatten rhs_ty
           ; stopWith old_ev "Fun/Top (given)" }
 
-    | not (fsk `elemVarSet` tyVarsOfType rhs_ty)
+    | not (fsk `elemVarSet` tyCoVarsOfType rhs_ty)
     -> do { dischargeFmv (ctEvId old_ev) fsk ax_co rhs_ty
           ; traceTcS "doTopReactFunEq" $
             vcat [ text "old_ev:" <+> ppr old_ev
@@ -1515,7 +1516,7 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
                -- G cos ; sym ax_co ; old_ev :: G xis ~ fsk
 
        ; new_ev <- newGivenEvVar deeper_loc
-                         ( mkTcEqPred (mkTyConApp fam_tc xis) (mkTyVarTy fsk)
+                         ( mkTcEqPred (mkTyConApp fam_tc xis) (mkOnlyTyVarTy fsk)
                          , EvCoercion (mkTcTyConAppCo Nominal fam_tc cos
                                         `mkTcTransCo` mkTcSymCo ax_co
                                         `mkTcTransCo` ctEvCoercion old_ev) )
@@ -1533,7 +1534,7 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
                -- new_ev :: G xis ~ fsk
                -- old_ev :: F args ~ fsk := ax_co ; sym (G cos) ; new_ev
 
-       ; new_ev <- newWantedEvVarNC loc (mkTcEqPred (mkTyConApp fam_tc xis) (mkTyVarTy fsk))
+       ; new_ev <- newWantedEvVarNC loc (mkTcEqPred (mkTyConApp fam_tc xis) (mkOnlyTyVarTy fsk))
        ; setEvBind (ctEvId old_ev)
                    (EvCoercion (ax_co `mkTcTransCo` mkTcSymCo (mkTcTyConAppCo Nominal fam_tc cos)
                                       `mkTcTransCo` ctEvCoercion new_ev))
@@ -1555,12 +1556,11 @@ dischargeFmv :: EvVar -> TcTyVar -> TcCoercion -> TcType -> TcS ()
 --      set x := co
 --      kick out any inert things that are now rewritable
 dischargeFmv evar fmv co xi
-  = ASSERT2( not (fmv `elemVarSet` tyVarsOfType xi), ppr evar $$ ppr fmv $$ ppr xi )
+  = ASSERT2( not (fmv `elemVarSet` tyCoVarsOfType xi), ppr evar $$ ppr fmv $$ ppr xi )
     do { setWantedTyBind fmv xi
        ; setEvBind evar (EvCoercion co)
        ; n_kicked <- kickOutRewritable givenFlavour fmv
        ; traceTcS "dischargeFuv" (ppr fmv <+> equals <+> ppr xi $$ ppr_kicked n_kicked) }
->>>>>>> 5770029
 \end{code}
 
 Note [Cached solved FunEqs]
@@ -1974,11 +1974,11 @@ getCoercibleInst loc ty1 ty2
     | Just (rep_tc, concTy, ntCo) <- tcInstNewTyConTF_maybe famenv ty1
     , dataConsInScope rdr_env rep_tc -- Do not look at all tyConsOfTyCon
     = do { markDataConsAsUsed rdr_env rep_tc
-         ; (ct_ev, _) <- requestCoercible loc concTy ty2
+         ; (ct_ev, f) <- requestCoercible loc concTy ty2
          ; local_var <- mkSysLocalM (fsLit "coev") $ mkCoerciblePred concTy ty2
          ; let binds = EvBinds (unitBag (EvBind local_var (ctEvTerm ct_ev)))
                tcCo = TcLetCo binds (ntCo `mkTcTransCo` mkTcCoVarCo local_var)
-         ; return $ GenInst (freshGoals [ct_ev]) (EvCoercion tcCo) }
+         ; return $ GenInst (freshGoals [(ct_ev, f)]) (EvCoercion tcCo) }
 
     -- Coercible a NT                            (see case 3 in [Coercible Instances])
     | Just (rep_tc, concTy, ntCo) <- tcInstNewTyConTF_maybe famenv ty2
@@ -2000,7 +2000,7 @@ getCoercibleInst loc ty1 ty2
          arg_stuff <- forM (zip3 (tyConRoles tc1) tyArgs1 tyArgs2) $ \(r,ta1,ta2) ->
            case r of Nominal -> do
                           return
-                            ( Nothing
+                            ( []
                             , Nothing
                             , mkTcNomReflCo ta1 {- == ta2, due to nominalArgsAgree -}
                             )
@@ -2014,14 +2014,14 @@ getCoercibleInst loc ty1 ty2
                             )
                      Phantom
                        | ka1 `eqType` ka2
-                       -> return ( Nothing
+                       -> return ( []
                                  , Nothing
                                  , TcPhantomCo (mkTcReflCo Representational ka1)
                                                ta1 ta2)
                        | otherwise
                        -> do (ct_ev, f) <- requestCoercible (mkKindLoc ta1 ta2 loc) ka1 ka2
                              return
-                               ( freshGoal [(ct_ev, f)]
+                               ( freshGoals [(ct_ev, f)]
                                , Nothing
                                , TcPhantomCo (evTermCoercion $ ctEvTerm ct_ev)
                                              ta1 ta2 )
@@ -2033,7 +2033,7 @@ getCoercibleInst loc ty1 ty2
          let (arg_new, arg_binds, arg_cos) = unzip3 arg_stuff
              binds = EvBinds (listToBag (catMaybes arg_binds))
              tcCo = TcLetCo binds (mkTcTyConAppCo Representational tc1 arg_cos)
-         return $ GenInst (catMaybes arg_new) (EvCoercion tcCo)
+         return $ GenInst (concat arg_new) (EvCoercion tcCo)
 
     -- Cannot solve this one
     | otherwise

@@ -826,7 +826,7 @@ tcPatSynPat penv (L con_span _) pat_syn pat_ty arg_pats thing_inside
                             LamPat mc -> PatSkol (PatSynCon pat_syn) mc
                             LetPat {} -> UnkSkol -- Doesn't matter
 
-        ; req_wrap <- instCall PatOrigin (mkTyVarTys univ_tvs') req_theta'
+        ; req_wrap <- instCall PatOrigin (mkOnlyTyVarTys univ_tvs') req_theta'
         ; traceTc "instCall" (ppr req_wrap)
 
         ; traceTc "checkConstraints {" Outputable.empty
@@ -858,7 +858,7 @@ matchExpectedPatTy inner_match pat_ty
 
   | otherwise
   = do { (subst, tvs') <- tcInstTyCoVars PatOrigin tvs
-       ; wrap1 <- instCall PatOrigin (mkTyVarTys tvs') (substTheta subst theta)
+       ; wrap1 <- instCall PatOrigin (mkTyCoVarTys tvs') (substTheta subst theta)
        ; (wrap2, arg_tys) <- matchExpectedPatTy inner_match (TcType.substTy subst tau)
        ; return (wrap2 <.> wrap1, arg_tys) }
   where
@@ -887,7 +887,7 @@ matchExpectedConTy data_tc pat_ty
        ; co1 <- unifyType (mkTyConApp fam_tc (substTys subst fam_args)) pat_ty
              -- co1 : T (ty1,ty2) ~ pat_ty
 
-       ; let tys' = mkTyVarTys tvs'
+       ; let tys' = mkOnlyTyVarTys tvs'
              co2 = mkTcUnbranchedAxInstCo Nominal co_tc tys'
              -- co2 : T (ty1,ty2) ~ T7 ty1 ty2
 

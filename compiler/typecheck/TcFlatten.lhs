@@ -15,8 +15,7 @@ import TcType
 import Type
 import TcEvidence
 import TyCon
-import TypeRep
-import Kind( isSubKind )
+import TyCoRep
 import Var
 import VarEnv
 import Outputable
@@ -658,13 +657,14 @@ flatten fmode ty@(ForAllTy (Named {}) _)
                          -- See Note [Flattening under a forall]
        ; return (mkForAllTys bndrs rho', foldr mkTcForAllCo co tvs) }
 
-flatten f ctxt (CastTy ty g)
-  = do { (xi, co) <- flatten f ctxt ty
+flatten fmode (CastTy ty g)
+  = do { (xi, co) <- flatten fmode ty
        ; g' <- zonkCo g   -- this is necessary because we use typeKind sometime
                           -- and if a coercion has an unzonked kind, the typeKi
                           -- panics in piResultTy
        ; return (mkCastTy xi g', castTcCoercionKind co g' g') }
-flatten _ _ ty@(CoercionTy {}) = return (ty, mkTcNomReflCo ty)
+    
+flatten _ ty@(CoercionTy {}) = return (ty, mkTcNomReflCo ty)
 
 flattenTyConApp :: FlattenEnv -> TyCon -> [TcType] -> TcS (Xi, TcCoercion)
 flattenTyConApp fmode tc tys
@@ -742,7 +742,7 @@ flattenExactFamApp fmode tc tys
                                    , mkTcTyConAppCo Nominal tc cos ) }
 
        FM_Avoid tv flat_top -> do { (xis, cos) <- flattenMany fmode tys
-                                  ; if flat_top || tv `elemVarSet` tyVarsOfTypes xis
+                                  ; if flat_top || tv `elemVarSet` tyCoVarsOfTypes xis
                                     then flattenExactFamApp_fully fmode tc tys
                                     else return ( mkTyConApp tc xis
                                                 , mkTcTyConAppCo Nominal tc cos ) }
@@ -780,7 +780,7 @@ flattenExactFamApp_fully fmode tc tys
                    ; updWorkListTcS (extendWorkListFunEq ct)
 
                    ; traceTcS "flatten/flat-cache miss" $ (ppr fam_ty $$ ppr fsk $$ ppr ev)
-                   ; return (mkTyVarTy fsk, mkTcSymCo (ctEvCoercion ev) `mkTcTransCo` ret_co) } }
+                   ; return (mkOnlyTyVarTy fsk, mkTcSymCo (ctEvCoercion ev) `mkTcTransCo` ret_co) } }
 \end{code}
 
 %************************************************************************
@@ -857,7 +857,7 @@ flattenTyVarOuter ctxt_ev tv
 flattenTyVarFinal ctxt_ev tv
   = -- Done, but make sure the kind is zonked
     do { let kind = tyVarKind tv
-       ; (new_kind, kind_co) <- flatten fmode kind
+       ; (new_kind, kind_co) <- flatten (FE { fe_ev = ctxt_ev, fe_mode = FM_SubstOnly }) kind
        ; if isTcReflCo kind_co
          then return (Left (setVarType tv new_kind))
          else do { traceTcS "flattenTyVarFinal abandoning hetero flattening"
@@ -867,7 +867,9 @@ flattenTyVarFinal ctxt_ev tv
           -- if kind_co isn't Refl, then the kind really changed;
           -- not much we can do. Can't current cast types by TcCoercions!
           -- TODO (RAE): Fix, either by adding TcCastTy to Type or inventing TcType
-          -- for realsies.
+          -- for realsies. Or, bind a new variable to the TcCoercion and use it
+          -- in a CoVarCo. Dirty, but should work. See "dirtier than I'd like"
+          -- in TcCanonical
 \end{code}
 
 Note [Applying the inert substitution]
@@ -1090,7 +1092,7 @@ unflatten tv_eqs funeqs
       | isFmvTyVar tv
       = do { lhs_elim <- tryFill dflags tv rhs ev
            ; if lhs_elim then return rest else
-        do { rhs_elim <- try_fill dflags untch ev rhs (mkTyVarTy tv)
+        do { rhs_elim <- try_fill dflags untch ev rhs (mkOnlyTyVarTy tv)
            ; if rhs_elim then return rest else
              return (ct `consCts` rest) } }
 
@@ -1103,7 +1105,7 @@ unflatten tv_eqs funeqs
     finalise_eq :: Ct -> Cts -> TcS Cts
     finalise_eq (CTyEqCan { cc_ev = ev, cc_tyvar = tv, cc_rhs = rhs }) rest
       | isFmvTyVar tv
-      = do { ty1 <- zonkTcTyVar tv
+      = do { ty1 <- zonkTcTyCoVar tv
            ; ty2 <- zonkTcType rhs
            ; let is_refl = ty1 `tcEqType` ty2
            ; if is_refl then do { when (isWanted ev) $

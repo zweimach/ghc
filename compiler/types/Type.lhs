@@ -1178,7 +1178,7 @@ isPredTy ty = go ty []
     go :: Type -> [KindOrType] -> Bool
     go (AppTy ty1 ty2)   args = go ty1 (ty2 : args)
     go (TyConApp tc tys) args
-      | tc `hasKey` eqPrimTyConKey
+      | tc `hasKey` eqPrimTyConKey || tc `hasKey` eqReprPrimTyConKey
       , [_,_,_,_] <- all_args
       = True
 

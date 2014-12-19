@@ -28,7 +28,7 @@ import TcRnMonad
 import TcEnv
 import TcValidity
 import TcHsSyn
-import TcSimplify( growThetaTyVars )
+import TcSimplify( growThetaTyCoVars )
 import TcBinds( tcRecSelBinds )
 import TcTyDecls
 import TcClassDcl
@@ -1011,11 +1011,12 @@ tc_fam_ty_pats (name, kind)
   = do { let (fam_inv_tkvs, fam_body) = splitForAllTysInvisible kind
 
          -- Instantiate with meta kind vars
-       ; (_, fam_arg_kinds, inv_subst) <- tcInstTyCoVars PatOrigin fam_inv_tkvs
-       ; let fam_body' = substTy inv_subst fam_body
+       ; (inv_subst, fam_arg_kvs) <- tcInstTyCoVars PatOrigin fam_inv_tkvs
+       ; let fam_arg_kinds          = mkOnlyTyVarTys fam_arg_kvs
+             fam_body'              = substTy inv_subst fam_body
              (exp_bndrs, bare_kind) = splitForAllTys fam_body'
              (arg_bndrs, leftover_bndrs) = splitAtList arg_pats exp_bndrs
-             res_kind = mkForAllTys leftover_bndrs bare_kind
+             res_kind               = mkForAllTys leftover_bndrs bare_kind
 
        ; loc <- getSrcSpanM
        ; let hs_tvs = mkHsQTvs (userHsTyVarBndrs loc vars)

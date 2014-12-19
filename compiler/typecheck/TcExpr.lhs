@@ -670,7 +670,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
               con1 = ASSERT( not (null relevant_cons) ) head relevant_cons
               (con1_tvs, _, _, _, _, con1_arg_tys, _) = dataConFullSig con1
               con1_flds = dataConFieldLabels con1
-              con1_res_ty = mkFamilyTyConApp tycon (mkTyCoVarTys con1_tvs)
+              con1_res_ty = mkFamilyTyConApp tycon (mkOnlyTyVarTys con1_tvs)
 
         -- Step 2
         -- Check that at least one constructor has all the named fields
@@ -711,7 +711,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
                      ; return (extendTCvSubst subst tv new_ty, new_ty) }
 
         ; (result_subst, con1_tvs') <- tcInstTyCoVars RecordUpdOrigin con1_tvs
-        ; let result_inst_tys = mkTyVarTys con1_tvs'
+        ; let result_inst_tys = mkOnlyTyVarTys con1_tvs'
 
         ; (scrut_subst, scrut_inst_tys) <- mapAccumLM mk_inst_ty emptyTCvSubst
                                                       (con1_tvs `zip` result_inst_tys)
@@ -1115,8 +1115,8 @@ instantiateOuter orig id
   = return (HsVar id, tau)
 
   | otherwise
-  = do { (subst, tvs') <- tcInstTyVars orig tvs
-       ; let tys'   = mkTyVarTys tvs'
+  = do { (subst, tvs') <- tcInstTyCoVars orig tvs
+       ; let tys'   = mkTyCoVarTys tvs'
              theta' = substTheta subst theta
        ; doStupidChecks id tys'
        ; traceTc "Instantiating" (ppr id <+> text "with" <+> (ppr tys' $$ ppr theta'))

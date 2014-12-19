@@ -87,7 +87,7 @@ module TcSMonad (
 
     Untouchables, isTouchableMetaTyVarTcS,
     isFilledMetaTyVar_maybe, isFilledMetaTyVar,
-    zonkTyCoVarsAndFV, zonkTcType, zonkTcTyVar, zonkCo, zonkFlats,
+    zonkTyCoVarsAndFV, zonkTcType, zonkTcTyCoVar, zonkCo, zonkFlats,
 
     getDefaultInfo, getDynFlags, getGlobalRdrEnvTcS,
 
@@ -1349,8 +1349,8 @@ isFilledMetaTyVar_maybe tv
 isFilledMetaTyVar :: TcTyVar -> TcS Bool
 isFilledMetaTyVar tv = wrapTcS (TcM.isFilledMetaTyVar tv)
 
-zonkTyCoVarsAndFV :: TcTyVarSet -> TcS TcTyVarSet
-zonkTyCoVarsAndFV tvs = wrapTcS (TcM.zonkTyVarsAndFV tvs)
+zonkTyCoVarsAndFV :: TcTyCoVarSet -> TcS TcTyCoVarSet
+zonkTyCoVarsAndFV tvs = wrapTcS (TcM.zonkTyCoVarsAndFV tvs)
 
 zonkCo :: Coercion -> TcS Coercion
 zonkCo = wrapTcS . TcM.zonkCo
@@ -1358,8 +1358,8 @@ zonkCo = wrapTcS . TcM.zonkCo
 zonkTcType :: TcType -> TcS TcType
 zonkTcType ty = wrapTcS (TcM.zonkTcType ty)
 
-zonkTcTyVar :: TcTyVar -> TcS TcType
-zonkTcTyVar tv = wrapTcS (TcM.zonkTcTyVar tv)
+zonkTcTyCoVar :: TcTyCoVar -> TcS TcType
+zonkTcTyCoVar tv = wrapTcS (TcM.zonkTcTyCoVar tv)
 
 zonkFlats :: Cts -> TcS Cts
 zonkFlats cts = wrapTcS (TcM.zonkFlats cts)
@@ -1441,14 +1441,13 @@ newFlattenSkolem ctxt_ev fam_ty
                                            , mtv_untch = fskUntouchables }
                           name = TcM.mkTcTyVarName uniq (fsLit "s")
                     ; return (mkTcTyVar name (typeKind fam_ty) details) }
-       ; ev <- newWantedEvVarNC loc (mkTcEqPredLikeEv ctxt_ev fam_ty (mkTyVarTy fuv))
+       ; ev <- newWantedEvVarNC loc (mkTcEqPredLikeEv ctxt_ev fam_ty (mkOnlyTyVarTy fuv))
        ; return (ev, fuv) }
   where
     loc = ctEvLoc ctxt_ev
 
 extendFlatCache :: TyCon -> [Type] -> (TcCoercion, TcTyVar) -> TcS ()
 extendFlatCache tc xi_args (co, fsk)
->>>>>>> 5770029
   = do { dflags <- getDynFlags
        ; when (gopt Opt_FlatCache dflags) $
          updInertTcS $ \ is@(IS { inert_flat_cache = fc }) ->
@@ -1492,7 +1491,7 @@ demoteUnfilledFmv fmv
                    do { tv_ty <- TcM.newFlexiTyVarTy (tyVarKind fmv)
                       ; TcM.writeMetaTyVar fmv tv_ty } }
 
-instFlexiTcS :: [TKVar] -> TcS (TvSubst, [TcType])
+instFlexiTcS :: [TKVar] -> TcS (TCvSubst, [TcType])
 instFlexiTcS tvs = wrapTcS (mapAccumLM inst_one emptyTCvSubst tvs)
   where
      inst_one subst tv

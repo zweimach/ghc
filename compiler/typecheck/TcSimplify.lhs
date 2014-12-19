@@ -3,7 +3,7 @@
 
 module TcSimplify(
        simplifyInfer, 
-       quantifyPred, growThetaTyVars,
+       quantifyPred, growThetaTyCoVars,
        simplifyAmbiguityCheck,
        simplifyDefault,
        simplifyRule, simplifyTop, simplifyInteractive,
@@ -301,7 +301,7 @@ simplifyInfer rhs_untch apply_mr name_taus wanteds
 
        ; ev_binds_var <- TcM.newTcEvBinds
        ; wanted_transformed_incl_derivs <- setUntouchables rhs_untch $
-                                           runTcSWithEvBinds ev_binds_var (solve_wanteds wanteds)
+                                           runTcSWithEvBinds ev_binds_var (solveWanteds wanteds)
        ; wanted_transformed_incl_derivs <- zonkWC wanted_transformed_incl_derivs
 
               -- Step 4) Candidates for quantification are an approximation of wanted_transformed
@@ -345,7 +345,7 @@ simplifyInfer rhs_untch apply_mr name_taus wanteds
        -- NB: quant_pred_candidates is already the fixpoint of any
        --     unifications that may have happened
 
-       ; zonked_tau_tvs <- TcM.zonkTyVarsAndFV (tyVarsOfTypes (map snd name_taus))
+       ; zonked_tau_tvs <- TcM.zonkTyCoVarsAndFV (tyCoVarsOfTypes (map snd name_taus))
        ; (mono_tvs, qtvs, bound, mr_bites) <- decideQuantification apply_mr quant_pred_candidates zonked_tau_tvs
 
        ; outer_untch <- TcRnMonad.getUntouchables
@@ -418,7 +418,7 @@ and the quantified constraints are empty.
 \begin{code}
 decideQuantification :: Bool -> [PredType] -> TcTyCoVarSet
                      -> TcM ( TcTyCoVarSet      -- Do not quantify over these
-                            , [TcTyVCoar]       -- Do quantify over these
+                            , [TcTyCoVar]       -- Do quantify over these
                             , [PredType]        -- and these
                             , Bool )            -- Did the MR bite?
 -- See Note [Deciding quantification]
@@ -458,7 +458,7 @@ quantifyPred qtvs pred
     quant_fun ty
       = case tcSplitTyConApp_maybe ty of
           Just (tc, tys) | isSynFamilyTyCon tc
-                         -> tyVarsOfTypes tys `intersectsVarSet` qtvs
+                         -> tyCoVarsOfTypes tys `intersectsVarSet` qtvs
           _ -> False
 
 ------------------
@@ -1419,7 +1419,7 @@ disambigGroup []  _grp
 disambigGroup (default_ty:default_tys) group
   = do { traceTcS "disambigGroup {" (ppr group $$ ppr default_ty)
        ; fake_ev_binds_var <- TcS.newTcEvBinds
-       ; given_ev_var      <- TcS.newEvVar (mkTcEqPred (mkTyVarTy the_tv) default_ty)
+       ; given_ev_var      <- TcS.newEvVar (mkTcEqPred (mkOnlyTyVarTy the_tv) default_ty)
        ; untch             <- TcS.getUntouchables
        ; success <- nestImplicTcS fake_ev_binds_var (pushUntouchables untch) $
                     do { solveFlatGivens loc [given_ev_var]

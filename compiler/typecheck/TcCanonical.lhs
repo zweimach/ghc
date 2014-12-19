@@ -23,6 +23,7 @@ import Control.Monad    ( when )
 import DynFlags( DynFlags )
 import VarSet
 
+import Data.Maybe ( maybeToList )
 import Util
 import BasicTypes
 \end{code}
@@ -548,7 +549,7 @@ canEqCast :: CtEvidence
           -> SwapFlag
           -> TcType -> Coercion   -- LHS (res. RHS), the casted type
           -> TcType -> TcType     -- RHS (res. LHS), both normal and pretty
-          -> TcS StopOrContinue
+          -> TcS (StopOrContinue Ct)
 canEqCast ev swapped ty1 co1 _ty2 ps_ty2
   = do { let xpreds                = [unSwap swapped (mkTcEqPredLikeEv ev)
                                                      ty1 ps_ty2]
@@ -566,8 +567,8 @@ canEqCast ev swapped ty1 co1 _ty2 ps_ty2
                               evTermCoercion casted_evt `mkTcTransCo`
                               mkTcCoherenceLeftCo (mkTcReflCo role ty1) co1]
              xev = XEvTerm xpreds xcomp xdecomp
-       ; ctevs <- xCtEvidence ev xev
-       ; canEvVarsCreated ctevs }
+       ; xCtEvidence ev xev
+       ; stopWith ev "Decomposed Cast" }
   where
     mk_coherence_co NotSwapped = mkTcCoherenceLeftCo
     mk_coherence_co IsSwapped  = mkTcCoherenceRightCo
@@ -686,7 +687,7 @@ canCFunEqCan ev fn tys fsk
        ; let lhs_co  = mkTcTyConAppCo Nominal fn cos
                         -- :: F tys' ~ F tys
              new_lhs = mkTyConApp fn tys'
-             fsk_ty  = mkTyVarTy fsk
+             fsk_ty  = mkOnlyTyVarTy fsk
        ; mb_ev <- rewriteEqEvidence ev NotSwapped new_lhs fsk_ty
                                     lhs_co (mkTcNomReflCo fsk_ty)
        ; case mb_ev of {
@@ -839,17 +840,17 @@ canEqTyVarTyVar ev swapped tv1 tv2 co2
       || (isSystemName (Var.varName tv2) && not (isSystemName (Var.varName tv1)))
 
 -- See Note [Equalities with incompatible kinds]
-homogeniseRhsKind :: Maybe CtEvidence    -- ^ Output from 'rewriteEqEvidence';
-                                         -- the evidence to homogenise, if any
+homogeniseRhsKind :: StopOrContinue CtEvidence -- ^ Output from 'rewriteEqEvidence';
+                                               -- the evidence to homogenise, if any
                   -> TcType              -- ^ original LHS
                   -> Xi                  -- ^ original RHS
                   -> (CtEvidence -> Xi -> Ct)
                            -- ^ how to build the homogenised constraint;
                            -- the 'Xi' is the new RHS
-                  -> TcS StopOrContinue
+                  -> TcS (StopOrContinue Ct)
   -- the constraint is in the inert set already. move on.
-homogeniseRhsKind Nothing   _   _   _        = return Stop
-homogeniseRhsKind (Just ev) lhs rhs build_ct
+homogeniseRhsKind (Stop ev doc)     _   _   _        = return $ Stop ev doc
+homogeniseRhsKind (ContinueWith ev) lhs rhs build_ct
   | k1 `eqType` k2
   = continueWith (build_ct ev rhs)
 
@@ -874,32 +875,33 @@ homogeniseRhsKind (Just ev) lhs rhs build_ct
 
   | CtWanted { ctev_evar = evar } <- ev
     -- evar :: (lhs :: k1) ~ (rhs :: k2)
-  = do { mb_kind_ev <- newWantedEvVar kind_loc kind_pty
-       ; let kind_evt = getEvTerm mb_kind_ev
+  = do { kind_ev <- newWantedEvVar kind_loc kind_pty
+       ; emitWorkNC $ freshGoals [kind_ev]
+       ; let kind_evt = ctEvTerm $ fst kind_ev
        ; kind_ev_id <- newBoundEvVarId kind_pty kind_evt
            -- this just creates an Id of the right type and with the given value
            -- necessary because we need to build a Coercion, not a TcCoercion
            -- this is dirtier than I'd like
            -- See Note [TcCoercion kinds] in TcEvidence
-       ; let homo_co = mkSymCo $ mkCoVarCo kind_ev_id
+       ; let homo_co   = mkSymCo $ mkCoVarCo kind_ev_id
            -- homo_co :: k2 ~ k1
-             rhs'    = mkCastTy rhs homo_co
-       ; mb_type_ev <- newWantedEvVar loc (mkTcEqPredLikeEv ev lhs rhs')
-       ; emitWorkNC $ freshGoals [mb_kind_ev]
-       ; let type_evt = getEvTerm mb_type_ev
+             rhs'      = mkCastTy rhs homo_co
+             homo_pred = mkTcEqPredLikeEv ev lhs rhs'
+       ; (type_ev, freshness) <- newWantedEvVar loc homo_pred
+       ; let type_evt = ctEvTerm type_ev
        ; setEvBind evar (EvCoercion $
                          mkTcCoherenceRightCo (evTermCoercion type_evt)
                                               (mkCoVarCo kind_ev_id))
-       ; case mb_type_ev of
-           Fresh type_ev -> continueWith (build_ct type_ev rhs')
-           _             -> return Stop }
+       ; case freshness of
+           Fresh  -> continueWith (build_ct type_ev rhs')
+           Cached -> stopWith ev  "cached homogenized equality" }
 
   | otherwise   -- CtDerived {} <- ev
   = do { mb_ctev <- newDerived kind_loc kind_pty
-       ; emitWorkNC $ catMaybes [mb_ctev]
-       ; return Stop }  -- we don't have a name for the kind-level CtDerived,
-                        -- so we can't homogenise. Oh well.
-                        -- TODO (RAE): We should continue with an IrredPred
+       ; emitWorkNC $ maybeToList mb_ctev
+       ; continueWith (CIrredEvCan { cc_ev = ev }) }
+           -- we don't have a name for the kind-level CtDerived,
+           -- so we can't homogenise. Oh well.
   where
     k1 = typeKind lhs
     k2 = typeKind rhs
