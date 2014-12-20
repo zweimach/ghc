@@ -14,6 +14,7 @@ Datatype for: @BindGroup@, @Bind@, @Sig@, @Bind@.
                                       -- in module PlaceHolder
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE BangPatterns #-}
 
 module HsBinds where
 
@@ -41,8 +42,8 @@ import BooleanFormula (BooleanFormula)
 import Data.Data hiding ( Fixity )
 import Data.List
 import Data.Ord
-#if __GLASGOW_HASKELL__ < 709
 import Data.Foldable ( Foldable(..) )
+#if __GLASGOW_HASKELL__ < 709
 import Data.Traversable ( Traversable(..) )
 import Data.Monoid ( mappend )
 import Control.Applicative hiding (empty)
@@ -118,6 +119,13 @@ data HsBindLR idL idR
     -- But note that the form                 @f :: a->a = ...@
     -- parses as a pattern binding, just like
     --                                        @(f :: a -> a) = ... @
+    --
+    --  'ApiAnnotation.AnnKeywordId's
+    --
+    --  - 'ApiAnnotation.AnnFunId', attached to each element of fun_matches
+    --
+    --  - 'ApiAnnotation.AnnEqual','ApiAnnotation.AnnWhere',
+    --    'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose',
     FunBind {
 
         fun_id :: Located idL,
@@ -128,10 +136,12 @@ data HsBindLR idL idR
 
         fun_co_fn :: HsWrapper, -- ^ Coercion from the type of the MatchGroup to the type of
                                 -- the Id.  Example:
+                                --
                                 -- @
                                 --      f :: Int -> forall a. a -> a
                                 --      f x y = y
                                 -- @
+                                --
                                 -- Then the MatchGroup will have type (Int -> a' -> a')
                                 -- (with a free type variable a').  The coercion will take
                                 -- a CoreExpr of this type and convert it to a CoreExpr of
@@ -149,6 +159,10 @@ data HsBindLR idL idR
 
   -- | The pattern is never a simple variable;
   -- That case is done by FunBind
+  --
+  --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnBang',
+  --       'ApiAnnotation.AnnEqual','ApiAnnotation.AnnWhere',
+  --       'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose',
   | PatBind {
         pat_lhs    :: LPat idL,
         pat_rhs    :: GRHSs idR (LHsExpr idR),
@@ -182,6 +196,9 @@ data HsBindLR idL idR
     }
 
   | PatSynBind (PatSynBind idL idR)
+        -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnPattern',
+        --           'ApiAnnotation.AnnLarrow','ApiAnnotation.AnnWhere'
+        --           'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose'
 
   deriving (Typeable)
 deriving instance (DataId idL, DataId idR)
@@ -407,7 +424,7 @@ plusHsValBinds _ _
 getTypeSigNames :: HsValBinds a -> NameSet
 -- Get the names that have a user type sig
 getTypeSigNames (ValBindsOut _ sigs)
-  = mkNameSet [unLoc n | L _ (TypeSig names _) <- sigs, n <- names]
+  = mkNameSet [unLoc n | L _ (TypeSig names _ _) <- sigs, n <- names]
 getTypeSigNames _
   = panic "HsBinds.getTypeSigNames"
 \end{code}
@@ -524,12 +541,16 @@ isEmptyIPBinds :: HsIPBinds id -> Bool
 isEmptyIPBinds (IPBinds is ds) = null is && isEmptyTcEvBinds ds
 
 type LIPBind id = Located (IPBind id)
+-- ^ May have 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnSemi' when in a
+--   list
 
 -- | Implicit parameter bindings.
+--
+-- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnEqual'
 {- These bindings start off as (Left "x") in the parser and stay
 that way until after type-checking when they are replaced with
 (Right d), where "d" is the name of the dictionary holding the
-evidene for the implicit parameter. -}
+evidence for the implicit parameter. -}
 data IPBind id
   = IPBind (Either HsIPName id) (LHsExpr id)
   deriving (Typeable)
@@ -564,21 +585,40 @@ type LSig name = Located (Sig name)
 -- | Signatures and pragmas
 data Sig name
   =   -- | An ordinary type signature
-      -- @f :: Num a => a -> a@
-    TypeSig [Located name] (LHsType name)
+      --
+      -- > f :: Num a => a -> a
+      --
+      -- After renaming, this list of Names contains the named and unnamed
+      -- wildcards brought into scope by this signature. For a signature
+      -- @_ -> _a -> Bool@, the renamer will give the unnamed wildcard @_@
+      -- a freshly generated name, e.g. @_w@. @_w@ and the named wildcard @_a@
+      -- are then both replaced with fresh meta vars in the type. Their names
+      -- are stored in the type signature that brought them into scope, in
+      -- this third field to be more specific.
+      --
+      --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDcolon',
+      --          'ApiAnnotation.AnnComma'
+    TypeSig [Located name] (LHsType name) (PostRn name [Name])
 
       -- | A pattern synonym type signature
-      -- @pattern (Eq b) => P a b :: (Num a) => T a
+      --
+      -- > pattern Single :: () => (Show a) => a -> [a]
+      --
+      --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnPattern',
+      --           'ApiAnnotation.AnnDcolon','ApiAnnotation.AnnForall'
+      --           'ApiAnnotation.AnnDot','ApiAnnotation.AnnDarrow'
   | PatSynSig (Located name)
-              (HsPatSynDetails (LHsType name))
-              (LHsType name)    -- Type
+              (HsExplicitFlag, LHsTyVarBndrs name)
               (LHsContext name) -- Provided context
-              (LHsContext name) -- Required contex
+              (LHsContext name) -- Required context
+              (LHsType name)
 
         -- | A type signature for a default method inside a class
         --
         -- > default eq :: (Representable0 a, GEq (Rep0 a)) => a -> a -> Bool
         --
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDefault',
+        --           'ApiAnnotation.AnnDcolon'
   | GenericSig [Located name] (LHsType name)
 
         -- | A type signature in generated code, notably the code
@@ -590,14 +630,21 @@ data Sig name
 
         -- | An ordinary fixity declaration
         --
-        -- >     infixl *** 8
+        -- >     infixl 8 ***
         --
+        --
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnInfix',
+        --           'ApiAnnotation.AnnVal'
   | FixSig (FixitySig name)
 
         -- | An inline pragma
         --
         -- > {#- INLINE f #-}
         --
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+        --       'ApiAnnotation.AnnClose','ApiAnnotation.AnnOpen',
+        --       'ApiAnnotation.AnnVal','ApiAnnotation.AnnTilde',
+        --       'ApiAnnotation.AnnClose'
   | InlineSig   (Located name)  -- Function name
                 InlinePragma    -- Never defaultInlinePragma
 
@@ -605,8 +652,12 @@ data Sig name
         --
         -- > {-# SPECIALISE f :: Int -> Int #-}
         --
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+        --      'ApiAnnotation.AnnOpen','ApiAnnotation.AnnTilde',
+        --      'ApiAnnotation.AnnVal','ApiAnnotation.AnnClose',
+        --      'ApiAnnotation.AnnDcolon','ApiAnnotation.AnnClose',
   | SpecSig     (Located name)  -- Specialise a function or datatype  ...
-                (LHsType name)  -- ... to these types
+                [LHsType name]  -- ... to these types
                 InlinePragma    -- The pragma on SPECIALISE_INLINE form.
                                 -- If it's just defaultInlinePragma, then we said
                                 --    SPECIALISE, not SPECIALISE_INLINE
@@ -617,11 +668,18 @@ data Sig name
         --
         -- (Class tys); should be a specialisation of the
         -- current instance declaration
+        --
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+        --      'ApiAnnotation.AnnInstance','ApiAnnotation.AnnClose'
   | SpecInstSig (LHsType name)
 
         -- | A minimal complete definition pragma
         --
         -- > {-# MINIMAL a | (b, c | (d | e)) #-}
+        --
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+        --      'ApiAnnotation.AnnVbar','ApiAnnotation.AnnComma',
+        --      'ApiAnnotation.AnnClose'
   | MinimalSig (BooleanFormula (Located name))
 
   deriving (Typeable)
@@ -629,7 +687,7 @@ deriving instance (DataId name) => Data (Sig name)
 
 
 type LFixitySig name = Located (FixitySig name)
-data FixitySig name = FixitySig (Located name) Fixity
+data FixitySig name = FixitySig [Located name] Fixity
   deriving (Data, Typeable)
 
 -- | TsSpecPrags conveys pragmas from the type checker to the desugarer
@@ -722,45 +780,37 @@ instance (OutputableBndr name) => Outputable (Sig name) where
     ppr sig = ppr_sig sig
 
 ppr_sig :: OutputableBndr name => Sig name -> SDoc
-ppr_sig (TypeSig vars ty)         = pprVarSig (map unLoc vars) (ppr ty)
+ppr_sig (TypeSig vars ty _wcs)    = pprVarSig (map unLoc vars) (ppr ty)
 ppr_sig (GenericSig vars ty)      = ptext (sLit "default") <+> pprVarSig (map unLoc vars) (ppr ty)
 ppr_sig (IdSig id)                = pprVarSig [id] (ppr (varType id))
 ppr_sig (FixSig fix_sig)          = ppr fix_sig
-ppr_sig (SpecSig var ty inl)      = pragBrackets (pprSpec (unLoc var) (ppr ty) inl)
+ppr_sig (SpecSig var ty inl)
+  = pragBrackets (pprSpec (unLoc var) (interpp'SP ty) inl)
 ppr_sig (InlineSig var inl)       = pragBrackets (ppr inl <+> pprPrefixOcc (unLoc var))
 ppr_sig (SpecInstSig ty)          = pragBrackets (ptext (sLit "SPECIALIZE instance") <+> ppr ty)
 ppr_sig (MinimalSig bf)           = pragBrackets (pprMinimalSig bf)
-ppr_sig (PatSynSig name arg_tys ty prov req)
-  = pprPatSynSig (unLoc name) False args (ppr ty) (pprCtx prov) (pprCtx req)
+ppr_sig (PatSynSig name (flag, qtvs) (L _ prov) (L _ req) ty)
+  = pprPatSynSig (unLoc name) False -- TODO: is_bindir
+                 (pprHsForAll flag qtvs (noLoc []))
+                 (pprHsContextMaybe prov) (pprHsContextMaybe req)
+                 (ppr ty)
+
+pprPatSynSig :: (OutputableBndr name)
+             => name -> Bool -> SDoc -> Maybe SDoc -> Maybe SDoc -> SDoc -> SDoc
+pprPatSynSig ident _is_bidir tvs prov req ty
+  = ptext (sLit "pattern") <+> pprPrefixOcc ident <+> dcolon <+>
+    tvs <+> context <+> ty
   where
-    args = fmap ppr arg_tys
-
-    pprCtx lctx = case unLoc lctx of
-        [] -> Nothing
-        ctx -> Just (pprHsContextNoArrow ctx)
-
-pprPatSynSig :: (OutputableBndr a)
-             => a -> Bool -> HsPatSynDetails SDoc -> SDoc -> Maybe SDoc -> Maybe SDoc -> SDoc
-pprPatSynSig ident is_bidir args rhs_ty prov_theta req_theta
-  = sep [ ptext (sLit "pattern")
-        , thetaOpt prov_theta, name_and_args
-        , colon
-        , thetaOpt req_theta, rhs_ty
-        ]
-  where
-    name_and_args = case args of
-        PrefixPatSyn arg_tys ->
-            pprPrefixOcc ident <+> sep arg_tys
-        InfixPatSyn left_ty right_ty ->
-            left_ty <+> pprInfixOcc ident <+> right_ty
-
-    -- TODO: support explicit foralls
-    thetaOpt = maybe empty (<+> darrow)
-
-    colon = if is_bidir then dcolon else dcolon -- TODO
+    context = case (prov, req) of
+        (Nothing, Nothing)    -> empty
+        (Nothing, Just req)   -> parens empty <+> darrow <+> req <+> darrow
+        (Just prov, Nothing)  -> prov <+> darrow
+        (Just prov, Just req) -> prov <+> darrow <+> req <+> darrow
 
 instance OutputableBndr name => Outputable (FixitySig name) where
-  ppr (FixitySig name fixity) = sep [ppr fixity, pprInfixOcc (unLoc name)]
+  ppr (FixitySig names fixity) = sep [ppr fixity, pprops]
+    where
+      pprops = hsep $ punctuate comma (map (pprInfixOcc . unLoc) names)
 
 pragBrackets :: SDoc -> SDoc
 pragBrackets doc = ptext (sLit "{-#") <+> doc <+> ptext (sLit "#-}")
@@ -806,6 +856,24 @@ instance Functor HsPatSynDetails where
 instance Foldable HsPatSynDetails where
     foldMap f (InfixPatSyn left right) = f left `mappend` f right
     foldMap f (PrefixPatSyn args) = foldMap f args
+
+    foldl1 f (InfixPatSyn left right) = left `f` right
+    foldl1 f (PrefixPatSyn args) = Data.List.foldl1 f args
+
+    foldr1 f (InfixPatSyn left right) = left `f` right
+    foldr1 f (PrefixPatSyn args) = Data.List.foldr1 f args
+
+-- TODO: After a few more versions, we should probably use these.
+#if __GLASGOW_HASKELL__ >= 709
+    length (InfixPatSyn _ _) = 2
+    length (PrefixPatSyn args) = Data.List.length args
+
+    null (InfixPatSyn _ _) = False
+    null (PrefixPatSyn args) = Data.List.null args
+
+    toList (InfixPatSyn left right) = [left, right]
+    toList (PrefixPatSyn args) = args
+#endif
 
 instance Traversable HsPatSynDetails where
     traverse f (InfixPatSyn left right) = InfixPatSyn <$> f left <*> f right

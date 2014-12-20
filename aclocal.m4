@@ -25,7 +25,7 @@ AC_DEFUN([GHC_SELECT_FILE_EXTENSIONS],
     x86_64-apple-darwin)
         $3='.dylib'
         ;;
-    arm-apple-darwin10|i386-apple-darwin11)
+    arm-apple-darwin10|i386-apple-darwin11|aarch64-apple-darwin14)
         $2='.a'
         $3='.dylib'
         ;;
@@ -1581,11 +1581,29 @@ if test "$RELEASE" = "NO"; then
         dnl less likely to go wrong.
         PACKAGE_VERSION=${PACKAGE_VERSION}.`date +%Y%m%d`
     fi
+
+    AC_MSG_CHECKING([for GHC Git commit id])
+    if test -d .git; then
+        git_commit_id=`git rev-parse HEAD`
+        if test -n "$git_commit_id" 2>&1 >/dev/null; then true; else
+            AC_MSG_ERROR([failed to detect revision: check that git is in your path])
+        fi
+        PACKAGE_GIT_COMMIT_ID=$git_commit_id
+        AC_MSG_RESULT(inferred $PACKAGE_GIT_COMMIT_ID)
+    elif test -f GIT_COMMIT_ID; then
+        PACKAGE_GIT_COMMIT_ID=`cat GIT_COMMIT_ID`
+        AC_MSG_RESULT(given $PACKAGE_GIT_COMMIT_ID)
+    else
+        AC_MSG_WARN([cannot determine snapshot revision: no .git directory and no 'GIT_COMMIT_ID' file])
+        PACKAGE_GIT_COMMIT_ID="0000000000000000000000000000000000000000"
+    fi
+
 fi
 
 # Some renamings
 AC_SUBST([ProjectName], [$PACKAGE_NAME])
 AC_SUBST([ProjectVersion], [$PACKAGE_VERSION])
+AC_SUBST([ProjectGitCommitId], [$PACKAGE_GIT_COMMIT_ID])
 
 # Split PACKAGE_VERSION into (possibly empty) parts
 VERSION_MAJOR=`echo $PACKAGE_VERSION | sed 's/^\(@<:@^.@:>@*\)\(\.\{0,1\}\(.*\)\)$/\1'/`
@@ -1960,7 +1978,7 @@ AC_DEFUN([GHC_CONVERT_VENDOR],[
 # converts os from gnu to ghc naming, and assigns the result to $target_var
 AC_DEFUN([GHC_CONVERT_OS],[
 case "$1-$2" in
-  darwin10-arm|darwin11-i386)
+  darwin10-arm|darwin11-i386|darwin14-aarch64)
     $3="ios"
     ;;
   *)
@@ -2062,7 +2080,7 @@ AC_DEFUN([FIND_LLVM_PROG],[
                 if test "$windows" = YES; then
                     $1=`${FindCmd} "${p}" -type f -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' -or -type l -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' | ${SortCmd} -n | tail -1`
                 else
-                    $1=`${FindCmd} "${p}" -type f -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' -or -type l -perm +111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' | ${SortCmd} -n | tail -1`
+                    $1=`${FindCmd} "${p}" -type f -perm \111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' -or -type l -perm \111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' | ${SortCmd} -n | tail -1`
                 fi
                 if test -n "$$1"; then
                     break

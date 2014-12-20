@@ -14,7 +14,7 @@ module ErrUtils (
         Messages, ErrorMessages, WarningMessages,
         errMsgSpan, errMsgContext, errMsgShortDoc, errMsgExtraInfo,
         mkLocMessage, pprMessageBag, pprErrMsgBag, pprErrMsgBagWithLoc,
-        pprLocErrMsg, makeIntoWarning,
+        pprLocErrMsg, makeIntoWarning, isWarning,
 
         errorsFound, emptyMessages, isEmptyMessages,
         mkErrMsg, mkPlainErrMsg, mkLongErrMsg, mkWarnMsg, mkPlainWarnMsg,
@@ -23,7 +23,7 @@ module ErrUtils (
 
         ghcExit,
         doIfSet, doIfSet_dyn,
-        dumpIfSet, dumpIfSet_dyn,
+        dumpIfSet, dumpIfSet_dyn, dumpIfSet_dyn_printer,
         mkDumpDoc, dumpSDoc,
 
         --  * Messages during compilation
@@ -137,6 +137,10 @@ mkLocMessage severity locn msg
 makeIntoWarning :: ErrMsg -> ErrMsg
 makeIntoWarning err = err { errMsgSeverity = SevWarning }
 
+isWarning :: ErrMsg -> Bool
+isWarning err
+  | SevWarning <- errMsgSeverity err = True
+  | otherwise                        = False
 -- -----------------------------------------------------------------------------
 -- Collecting up messages for later ordering and printing.
 
@@ -235,12 +239,23 @@ dumpIfSet dflags flag hdr doc
   | not flag   = return ()
   | otherwise  = log_action dflags dflags SevDump noSrcSpan defaultDumpStyle (mkDumpDoc hdr doc)
 
+-- | a wrapper around 'dumpSDoc'.
+-- First check whether the dump flag is set
+-- Do nothing if it is unset
 dumpIfSet_dyn :: DynFlags -> DumpFlag -> String -> SDoc -> IO ()
 dumpIfSet_dyn dflags flag hdr doc
-  | dopt flag dflags
-  = dumpSDoc dflags alwaysQualify flag hdr doc
-  | otherwise
-  = return ()
+  = when (dopt flag dflags) $ dumpSDoc dflags alwaysQualify flag hdr doc
+
+-- | a wrapper around 'dumpSDoc'.
+-- First check whether the dump flag is set
+-- Do nothing if it is unset
+--
+-- Unlike 'dumpIfSet_dyn',
+-- has a printer argument but no header argument
+dumpIfSet_dyn_printer :: PrintUnqualified
+                      -> DynFlags -> DumpFlag -> SDoc -> IO ()
+dumpIfSet_dyn_printer printer dflags flag doc
+  = when (dopt flag dflags) $ dumpSDoc dflags printer flag "" doc
 
 mkDumpDoc :: String -> SDoc -> SDoc
 mkDumpDoc hdr doc
@@ -258,6 +273,9 @@ mkDumpDoc hdr doc
 --
 -- When hdr is empty, we print in a more compact format (no separators and
 -- blank lines)
+--
+-- The DumpFlag is used only to choose the filename to use if --dump-to-file is
+-- used; it is not used to decide whether to dump the output
 dumpSDoc :: DynFlags -> PrintUnqualified -> DumpFlag -> String -> SDoc -> IO ()
 dumpSDoc dflags print_unqual flag hdr doc
  = do let mFile = chooseDumpFile dflags flag

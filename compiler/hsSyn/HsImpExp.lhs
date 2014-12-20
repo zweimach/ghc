@@ -30,19 +30,40 @@ import Data.Data
 One per \tr{import} declaration in a module.
 \begin{code}
 type LImportDecl name = Located (ImportDecl name)
+        -- ^ When in a list this may have
+        --
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnSemi'
+        --
 
 -- | A single Haskell @import@ declaration.
 data ImportDecl name
   = ImportDecl {
       ideclName      :: Located ModuleName, -- ^ Module name.
-      ideclPkgQual   :: Maybe FastString,   -- ^ Package qualifier.
-      ideclSource    :: Bool,               -- ^ True <=> {-# SOURCE #-} import
+      ideclPkgQual   :: Maybe FastString,  -- ^ Package qualifier.
+      ideclSource    :: Bool,              -- ^ True <=> {-\# SOURCE \#-} import
       ideclSafe      :: Bool,               -- ^ True => safe import
       ideclQualified :: Bool,               -- ^ True => qualified
       ideclImplicit  :: Bool,               -- ^ True => implicit import (of Prelude)
       ideclAs        :: Maybe ModuleName,   -- ^ as Module
-      ideclHiding    :: Maybe (Bool, [LIE name]) -- ^ (True => hiding, names)
-    } deriving (Data, Typeable)
+      ideclHiding    :: Maybe (Bool, Located [LIE name])
+                                            -- ^ (True => hiding, names)
+    }
+     -- ^
+     --  'ApiAnnotation.AnnKeywordId's
+     --
+     --  - 'ApiAnnotation.AnnImport'
+     --
+     --  - 'ApiAnnotation.AnnOpen', 'ApiAnnotation.AnnClose' for ideclSource
+     --
+     --  - 'ApiAnnotation.AnnSafe','ApiAnnotation.AnnQualified',
+     --    'ApiAnnotation.AnnPackageName','ApiAnnotation.AnnAs',
+     --    'ApiAnnotation.AnnVal'
+     --
+     --  - 'ApiAnnotation.AnnHiding','ApiAnnotation.AnnOpen',
+     --    'ApiAnnotation.AnnClose' attached
+     --     to location in ideclHiding
+
+       deriving (Data, Typeable)
 
 simpleImportDecl :: ModuleName -> ImportDecl name
 simpleImportDecl mn = ImportDecl {
@@ -86,8 +107,8 @@ instance (OutputableBndr name, HasOccName name) => Outputable (ImportDecl name) 
         ppr_imp False = empty
 
         pp_spec Nothing             = empty
-        pp_spec (Just (False, ies)) = ppr_ies ies
-        pp_spec (Just (True,  ies)) = ptext (sLit "hiding") <+> ppr_ies ies
+        pp_spec (Just (False, (L _ ies))) = ppr_ies ies
+        pp_spec (Just (True, (L _ ies))) = ptext (sLit "hiding") <+> ppr_ies ies
 
         ppr_ies []  = ptext (sLit "()")
         ppr_ies ies = char '(' <+> interpp'SP ies <+> char ')'
@@ -101,14 +122,34 @@ instance (OutputableBndr name, HasOccName name) => Outputable (ImportDecl name) 
 
 \begin{code}
 type LIE name = Located (IE name)
+        -- ^ When in a list this may have
+        --
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnComma'
+        --
 
 -- | Imported or exported entity.
 data IE name
-  = IEVar               name
-  | IEThingAbs          name             -- ^ Class/Type (can't tell)
-  | IEThingAll          name             -- ^ Class/Type plus all methods/constructors
-  | IEThingWith         name [name]      -- ^ Class/Type plus some methods/constructors
-  | IEModuleContents    ModuleName       -- ^ (Export Only)
+  = IEVar       (Located name)
+        -- ^ - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnPattern',
+        --             'ApiAnnotation.AnnType'
+  | IEThingAbs           name      -- ^ Class/Type (can't tell)
+        --  - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnPattern',
+        --             'ApiAnnotation.AnnType','ApiAnnotation.AnnVal'
+  | IEThingAll  (Located name)     -- ^ Class/Type plus all methods/constructors
+        --
+        -- - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnOpen',
+        --       'ApiAnnotation.AnnDotdot','ApiAnnotation.AnnClose',
+        --                                 'ApiAnnotation.AnnType'
+
+  | IEThingWith (Located name) [Located name]
+                 -- ^ Class/Type plus some methods/constructors
+        -- - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnOpen',
+        --                                   'ApiAnnotation.AnnClose',
+        --                                   'ApiAnnotation.AnnComma',
+        --                                   'ApiAnnotation.AnnType'
+  | IEModuleContents  (Located ModuleName) -- ^ (Export Only)
+        --
+        -- - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnModule'
   | IEGroup             Int HsDocString  -- ^ Doc section heading
   | IEDoc               HsDocString      -- ^ Some documentation
   | IEDocNamed          String           -- ^ Reference to named doc
@@ -117,21 +158,21 @@ data IE name
 
 \begin{code}
 ieName :: IE name -> name
-ieName (IEVar n)         = n
-ieName (IEThingAbs  n)   = n
-ieName (IEThingWith n _) = n
-ieName (IEThingAll  n)   = n
+ieName (IEVar (L _ n))         = n
+ieName (IEThingAbs  n)         = n
+ieName (IEThingWith (L _ n) _) = n
+ieName (IEThingAll  (L _ n))   = n
 ieName _ = panic "ieName failed pattern match!"
 
 ieNames :: IE a -> [a]
-ieNames (IEVar            n   ) = [n]
-ieNames (IEThingAbs       n   ) = [n]
-ieNames (IEThingAll       n   ) = [n]
-ieNames (IEThingWith      n ns) = n : ns
-ieNames (IEModuleContents _   ) = []
-ieNames (IEGroup          _ _ ) = []
-ieNames (IEDoc            _   ) = []
-ieNames (IEDocNamed       _   ) = []
+ieNames (IEVar       (L _ n)   ) = [n]
+ieNames (IEThingAbs       n    ) = [n]
+ieNames (IEThingAll  (L _ n)   ) = [n]
+ieNames (IEThingWith (L _ n) ns) = n : map unLoc ns
+ieNames (IEModuleContents _    ) = []
+ieNames (IEGroup          _ _  ) = []
+ieNames (IEDoc            _    ) = []
+ieNames (IEDocNamed       _    ) = []
 \end{code}
 
 \begin{code}
@@ -144,16 +185,15 @@ pprImpExp name = type_pref <+> pprPrefixOcc name
               | otherwise                   = empty
 
 instance (HasOccName name, OutputableBndr name) => Outputable (IE name) where
-    ppr (IEVar          var)    = pprPrefixOcc var
+    ppr (IEVar          var)    = pprPrefixOcc (unLoc var)
     ppr (IEThingAbs     thing)  = pprImpExp thing
-    ppr (IEThingAll     thing)  = hcat [pprImpExp thing, text "(..)"]
+    ppr (IEThingAll      thing) = hcat [pprImpExp (unLoc thing), text "(..)"]
     ppr (IEThingWith thing withs)
-        = pprImpExp thing <> parens (fsep (punctuate comma (map pprImpExp withs)))
+        = pprImpExp (unLoc thing) <> parens (fsep (punctuate comma
+                                            (map pprImpExp $ map unLoc withs)))
     ppr (IEModuleContents mod')
         = ptext (sLit "module") <+> ppr mod'
     ppr (IEGroup n _)           = text ("<IEGroup: " ++ (show n) ++ ">")
     ppr (IEDoc doc)             = ppr doc
     ppr (IEDocNamed string)     = text ("<IEDocNamed: " ++ string ++ ">")
 \end{code}
-
-

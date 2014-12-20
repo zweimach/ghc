@@ -103,29 +103,30 @@ conLikeResTy (RealDataCon con) tys = mkTyConApp (dataConTyCon con) tys
 conLikeResTy (PatSynCon ps)    tys = patSynInstResTy ps tys
 
 hsLitType :: HsLit -> TcType
-hsLitType (HsChar _)       = charTy
-hsLitType (HsCharPrim _)   = charPrimTy
-hsLitType (HsString _)     = stringTy
-hsLitType (HsStringPrim _) = addrPrimTy
-hsLitType (HsInt _)        = intTy
-hsLitType (HsIntPrim _)    = intPrimTy
-hsLitType (HsWordPrim _)   = wordPrimTy
-hsLitType (HsInt64Prim _)  = int64PrimTy
-hsLitType (HsWord64Prim _) = word64PrimTy
-hsLitType (HsInteger _ ty) = ty
-hsLitType (HsRat _ ty)     = ty
-hsLitType (HsFloatPrim _)  = floatPrimTy
-hsLitType (HsDoublePrim _) = doublePrimTy
+hsLitType (HsChar _ _)       = charTy
+hsLitType (HsCharPrim _ _)   = charPrimTy
+hsLitType (HsString _ _)     = stringTy
+hsLitType (HsStringPrim _ _) = addrPrimTy
+hsLitType (HsInt _ _)        = intTy
+hsLitType (HsIntPrim _ _)    = intPrimTy
+hsLitType (HsWordPrim _ _)   = wordPrimTy
+hsLitType (HsInt64Prim _ _)  = int64PrimTy
+hsLitType (HsWord64Prim _ _) = word64PrimTy
+hsLitType (HsInteger _ _ ty) = ty
+hsLitType (HsRat _ ty)       = ty
+hsLitType (HsFloatPrim _)    = floatPrimTy
+hsLitType (HsDoublePrim _)   = doublePrimTy
 \end{code}
 
 Overloaded literals. Here mainly because it uses isIntTy etc
 
 \begin{code}
 shortCutLit :: DynFlags -> OverLitVal -> TcType -> Maybe (HsExpr TcId)
-shortCutLit dflags (HsIntegral i) ty
-  | isIntTy ty  && inIntRange  dflags i = Just (HsLit (HsInt i))
-  | isWordTy ty && inWordRange dflags i = Just (mkLit wordDataCon (HsWordPrim i))
-  | isIntegerTy ty = Just (HsLit (HsInteger i ty))
+shortCutLit dflags (HsIntegral src i) ty
+  | isIntTy ty  && inIntRange  dflags i = Just (HsLit (HsInt src i))
+  | isWordTy ty && inWordRange dflags i
+                                   = Just (mkLit wordDataCon (HsWordPrim src i))
+  | isIntegerTy ty = Just (HsLit (HsInteger src i ty))
   | otherwise = shortCutLit dflags (HsFractional (integralFractionalLit i)) ty
         -- The 'otherwise' case is important
         -- Consider (3 :: Float).  Syntactically it looks like an IntLit,
@@ -138,8 +139,8 @@ shortCutLit _ (HsFractional f) ty
   | isDoubleTy ty = Just (mkLit doubleDataCon (HsDoublePrim f))
   | otherwise     = Nothing
 
-shortCutLit _ (HsIsString s) ty
-  | isStringTy ty = Just (HsLit (HsString s))
+shortCutLit _ (HsIsString src s) ty
+  | isStringTy ty = Just (HsLit (HsString src s))
   | otherwise     = Nothing
 
 mkLit :: DataCon -> HsLit -> HsExpr Id
@@ -305,7 +306,7 @@ zonkTopLExpr :: LHsExpr TcId -> TcM (LHsExpr Id)
 zonkTopLExpr e = zonkLExpr emptyZonkEnv e
 
 zonkTopDecls :: Bag EvBind
-             -> LHsBinds TcId -> NameSet
+             -> LHsBinds TcId -> Bag OccName -> NameSet
              -> [LRuleDecl TcId] -> [LVectDecl TcId] -> [LTcSpecPrag] -> [LForeignDecl TcId]
              -> TcM ([Id],
                      Bag EvBind,
@@ -314,14 +315,17 @@ zonkTopDecls :: Bag EvBind
                      [LTcSpecPrag],
                      [LRuleDecl    Id],
                      [LVectDecl    Id])
-zonkTopDecls ev_binds binds sig_ns rules vects imp_specs fords
+zonkTopDecls ev_binds binds exports sig_ns rules vects imp_specs fords
   = do  { (env1, ev_binds') <- zonkEvBinds emptyZonkEnv ev_binds
 
          -- Warn about missing signatures
          -- Do this only when we we have a type to offer
         ; warn_missing_sigs <- woptM Opt_WarnMissingSigs
-        ; let sig_warn | warn_missing_sigs = topSigWarn sig_ns
-                       | otherwise         = noSigWarn
+        ; warn_only_exported <- woptM Opt_WarnMissingExportedSigs
+        ; let sig_warn
+                | warn_only_exported = topSigWarnIfExported exports sig_ns
+                | warn_missing_sigs  = topSigWarn sig_ns
+                | otherwise          = noSigWarn
 
         ; (env2, binds') <- zonkRecMonoBinds env1 sig_warn binds
                         -- Top level is implicitly recursive
@@ -381,6 +385,17 @@ type SigWarn = Bool -> [Id] -> TcM ()
 
 noSigWarn :: SigWarn
 noSigWarn _ _ = return ()
+
+topSigWarnIfExported :: Bag OccName -> NameSet -> SigWarn
+topSigWarnIfExported exported sig_ns _ ids
+  = mapM_ (topSigWarnIdIfExported exported sig_ns) ids
+
+topSigWarnIdIfExported :: Bag OccName -> NameSet -> Id -> TcM ()
+topSigWarnIdIfExported exported sig_ns id
+  | getOccName id `elemBag` exported
+  = topSigWarnId sig_ns id
+  | otherwise
+  = return ()
 
 topSigWarn :: NameSet -> SigWarn
 topSigWarn sig_ns _ ids = mapM_ (topSigWarnId sig_ns) ids
@@ -607,8 +622,8 @@ zonkExpr env (HsTcBracketOut body bs)
   = do bs' <- mapM zonk_b bs
        return (HsTcBracketOut body bs')
   where
-    zonk_b (n, e) = do e' <- zonkLExpr env e
-                       return (n, e')
+    zonk_b (PendSplice n e) = do e' <- zonkLExpr env e
+                                 return (PendSplice n e')
 
 zonkExpr _ (HsSpliceE t s) = WARN( True, ppr s ) -- Should not happen
                              return (HsSpliceE t s)
@@ -642,8 +657,10 @@ zonkExpr env (ExplicitTuple tup_args boxed)
   = do { new_tup_args <- mapM zonk_tup_arg tup_args
        ; return (ExplicitTuple new_tup_args boxed) }
   where
-    zonk_tup_arg (Present e) = do { e' <- zonkLExpr env e; return (Present e') }
-    zonk_tup_arg (Missing t) = do { t' <- zonkTcTypeToType env t; return (Missing t') }
+    zonk_tup_arg (L l (Present e)) = do { e' <- zonkLExpr env e
+                                        ; return (L l (Present e')) }
+    zonk_tup_arg (L l (Missing t)) = do { t' <- zonkTcTypeToType env t
+                                        ; return (L l (Missing t')) }
 
 zonkExpr env (HsCase expr ms)
   = do new_expr <- zonkLExpr env expr
@@ -706,7 +723,7 @@ zonkExpr env (ExprWithTySigOut e ty)
   = do { e' <- zonkLExpr env e
        ; return (ExprWithTySigOut e' ty) }
 
-zonkExpr _ (ExprWithTySig _ _) = panic "zonkExpr env:ExprWithTySig"
+zonkExpr _ (ExprWithTySig _ _ _) = panic "zonkExpr env:ExprWithTySig"
 
 zonkExpr env (ArithSeq expr wit info)
   = do new_expr <- zonkExpr env expr
@@ -829,6 +846,11 @@ zonkCoFn env WpHole   = return (env, WpHole)
 zonkCoFn env (WpCompose c1 c2) = do { (env1, c1') <- zonkCoFn env c1
                                     ; (env2, c2') <- zonkCoFn env1 c2
                                     ; return (env2, WpCompose c1' c2') }
+zonkCoFn env (WpFun c1 c2 t1 t2) = do { (env1, c1') <- zonkCoFn env c1
+                                      ; (env2, c2') <- zonkCoFn env1 c2
+                                      ; t1'         <- zonkTcTypeToType env2 t1
+                                      ; t2'         <- zonkTcTypeToType env2 t2
+                                      ; return (env2, WpFun c1' c2' t1' t2') }
 zonkCoFn env (WpCast co) = do { co' <- zonkTcCoToCo env co
                               ; return (env, WpCast co') }
 zonkCoFn env (WpEvLam ev)   = do { (env', ev') <- zonkEvBndrX env ev
@@ -973,10 +995,11 @@ zonkRecFields env (HsRecFields flds dd)
   = do  { flds' <- mapM zonk_rbind flds
         ; return (HsRecFields flds' dd) }
   where
-    zonk_rbind fld
+    zonk_rbind (L l fld)
       = do { new_id   <- wrapLocM (zonkIdBndr env) (hsRecFieldId fld)
            ; new_expr <- zonkLExpr env (hsRecFieldArg fld)
-           ; return (fld { hsRecFieldId = new_id, hsRecFieldArg = new_expr }) }
+           ; return (L l (fld { hsRecFieldId = new_id
+                              , hsRecFieldArg = new_expr })) }
 
 -------------------------------------------------------------------------
 mapIPNameTc :: (a -> TcM b) -> Either HsIPName a -> TcM (Either HsIPName b)
@@ -1116,8 +1139,9 @@ zonkConStuff env (InfixCon p1 p2)
         ; return (env', InfixCon p1' p2') }
 
 zonkConStuff env (RecCon (HsRecFields rpats dd))
-  = do  { (env', pats') <- zonkPats env (map hsRecFieldArg rpats)
-        ; let rpats' = zipWith (\rp p' -> rp { hsRecFieldArg = p' }) rpats pats'
+  = do  { (env', pats') <- zonkPats env (map (hsRecFieldArg . unLoc) rpats)
+        ; let rpats' = zipWith (\(L l rp) p' -> L l (rp { hsRecFieldArg = p' }))
+                               rpats pats'
         ; return (env', RecCon (HsRecFields rpats' dd)) }
         -- Field selectors have declared types; hence no zonking
 
@@ -1165,18 +1189,18 @@ zonkRule env (HsRule name act (vars{-::[RuleBndr TcId]-}) lhs fv_lhs rhs fv_rhs)
 
        ; unbound_tkvs <- readMutVar unbound_tkv_set
 
-       ; let final_bndrs :: [RuleBndr Var]
-             final_bndrs = map (RuleBndr . noLoc)
+       ; let final_bndrs :: [LRuleBndr Var]
+             final_bndrs = map (noLoc . RuleBndr . noLoc)
                                (varSetElemsWellScoped unbound_tkvs)
                            ++ new_bndrs
 
        ; return $
          HsRule name act final_bndrs new_lhs fv_lhs new_rhs fv_rhs }
   where
-   zonk_bndr env (RuleBndr (L loc v))
+   zonk_bndr env (L l (RuleBndr (L loc v)))
       = do { (env', v') <- zonk_it env v
-           ; return (env', RuleBndr (L loc v')) }
-   zonk_bndr _ (RuleBndrSig {}) = panic "zonk_bndr RuleBndrSig"
+           ; return (env', L l (RuleBndr (L loc v'))) }
+   zonk_bndr _ (L _ (RuleBndrSig {})) = panic "zonk_bndr RuleBndrSig"
 
    zonk_it env v
      | isId v     = do { v' <- zonkIdBndr env v

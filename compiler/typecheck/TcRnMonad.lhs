@@ -132,6 +132,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                 tcg_inst_env       = emptyInstEnv,
                 tcg_fam_inst_env   = emptyFamInstEnv,
                 tcg_ann_env        = emptyAnnEnv,
+                tcg_visible_orphan_mods = mkModuleSet [mod],
                 tcg_th_used        = th_var,
                 tcg_th_splice_used = th_splice_var,
                 tcg_exports        = [],
@@ -162,7 +163,8 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                 tcg_hpc            = False,
                 tcg_main           = Nothing,
                 tcg_safeInfer      = infer_var,
-                tcg_dependent_files = dependent_files_var
+                tcg_dependent_files = dependent_files_var,
+                tcg_tc_plugins     = []
              } ;
              lcl_env = TcLclEnv {
                 tcl_errs       = errs_var,
@@ -430,6 +432,11 @@ newSysName occ
   = do { uniq <- newUnique
        ; return (mkSystemName uniq occ) }
 
+newSysLocalId :: FastString -> TcType -> TcRnIf gbl lcl TcId
+newSysLocalId fs ty
+  = do  { u <- newUnique
+        ; return (mkSysLocal fs u ty) }
+
 newSysLocalIds :: FastString -> [TcType] -> TcRnIf gbl lcl [TcId]
 newSysLocalIds fs tys
   = do  { us <- newUniqueSupply
@@ -469,61 +476,87 @@ updTcRef = updMutVar
 
 \begin{code}
 traceTc :: String -> SDoc -> TcRn ()
-traceTc = traceTcN 1
+traceTc herald doc = traceTcN 1 (hang (text herald) 2 doc)
 
-traceTcN :: Int -> String -> SDoc -> TcRn ()
-traceTcN level herald doc
-    = do dflags <- getDynFlags
-         when (level <= traceLevel dflags) $
-             traceOptTcRn Opt_D_dump_tc_trace $ hang (text herald) 2 doc
+-- | Typechecker trace
+traceTcN :: Int -> SDoc -> TcRn ()
+traceTcN level doc
+    = do { dflags <- getDynFlags
+         ; when (level <= traceLevel dflags) $
+           traceOptTcRn Opt_D_dump_tc_trace doc }
 
-traceRn, traceSplice :: SDoc -> TcRn ()
-traceRn      = traceOptTcRn Opt_D_dump_rn_trace
-traceSplice  = traceOptTcRn Opt_D_dump_splices
+traceRn :: SDoc -> TcRn ()
+traceRn doc = traceOptTcRn Opt_D_dump_rn_trace doc
 
+traceSplice :: SDoc -> TcRn ()
+traceSplice doc = traceOptTcRn Opt_D_dump_splices doc
+
+-- | Output a doc if the given 'DumpFlag' is set.
+--
+-- By default this logs to stdout
+-- However, if the `-ddump-to-file` flag is set,
+-- then this will dump output to a file
+--
+-- Just a wrapper for 'dumpSDoc'
+traceOptTcRn :: DumpFlag -> SDoc -> TcRn ()
+traceOptTcRn flag doc
+  = do { dflags <- getDynFlags
+       ; when (dopt flag dflags) (traceTcRn flag doc)
+    }
+
+traceTcRn :: DumpFlag -> SDoc -> TcRn ()
+-- ^ Unconditionally dump some trace output
+--
+-- The DumpFlag is used only to set the output filename
+-- for --dump-to-file, not to decide whether or not to output
+-- That part is done by the caller
+traceTcRn flag doc
+  = do { real_doc <- prettyDoc doc
+       ; dflags   <- getDynFlags
+       ; printer  <- getPrintUnqualified dflags
+       ; liftIO $ dumpSDoc dflags printer flag "" real_doc  }
+  where
+    -- Add current location if opt_PprStyle_Debug
+    prettyDoc :: SDoc -> TcRn SDoc
+    prettyDoc doc = if opt_PprStyle_Debug
+       then do { loc  <- getSrcSpanM; return $ mkLocMessage SevOutput loc doc }
+       else return doc -- The full location is usually way too much
+
+
+getPrintUnqualified :: DynFlags -> TcRn PrintUnqualified
+getPrintUnqualified dflags
+  = do { rdr_env <- getGlobalRdrEnv
+       ; return $ mkPrintUnqualified dflags rdr_env }
+
+-- | Like logInfoTcRn, but for user consumption
+printForUserTcRn :: SDoc -> TcRn ()
+printForUserTcRn doc
+  = do { dflags <- getDynFlags
+       ; printer <- getPrintUnqualified dflags
+       ; liftIO (printInfoForUser dflags printer doc) }
+
+-- | Typechecker debug
+debugDumpTcRn :: SDoc -> TcRn ()
+debugDumpTcRn doc = unless opt_NoDebugOutput $
+                    traceOptTcRn Opt_D_dump_tc doc
+\end{code}
+
+traceIf and traceHiDiffs work in the TcRnIf monad, where no RdrEnv is
+available.  Alas, they behave inconsistently with the other stuff;
+e.g. are unaffected by -dump-to-file.
+
+\begin{code}
 traceIf, traceHiDiffs :: SDoc -> TcRnIf m n ()
 traceIf      = traceOptIf Opt_D_dump_if_trace
 traceHiDiffs = traceOptIf Opt_D_dump_hi_diffs
 
 
 traceOptIf :: DumpFlag -> SDoc -> TcRnIf m n ()
-traceOptIf flag doc 
+traceOptIf flag doc
   = whenDOptM flag $    -- No RdrEnv available, so qualify everything
     do { dflags <- getDynFlags
        ; liftIO (putMsg dflags doc) }
-
-traceOptTcRn :: DumpFlag -> SDoc -> TcRn ()
--- Output the message, with current location if opt_PprStyle_Debug
-traceOptTcRn flag doc 
-  = whenDOptM flag $
-    do { loc  <- getSrcSpanM
-       ; let real_doc
-               | opt_PprStyle_Debug = mkLocMessage SevInfo loc doc
-               | otherwise = doc   -- The full location is
-                                   -- usually way too much
-       ; dumpTcRn real_doc }
-
-dumpTcRn :: SDoc -> TcRn ()
-dumpTcRn doc
-  = do { dflags <- getDynFlags
-       ; rdr_env <- getGlobalRdrEnv
-       ; liftIO (logInfo dflags (mkDumpStyle (mkPrintUnqualified dflags rdr_env)) doc) }
-
-printForUserTcRn :: SDoc -> TcRn ()
--- Like dumpTcRn, but for user consumption
-printForUserTcRn doc
-  = do { dflags <- getDynFlags
-       ; rdr_env <- getGlobalRdrEnv
-       ; liftIO (printInfoForUser dflags (mkPrintUnqualified dflags rdr_env) doc) }
-
-debugDumpTcRn :: SDoc -> TcRn ()
-debugDumpTcRn doc | opt_NoDebugOutput = return ()
-                  | otherwise         = dumpTcRn doc
-
-dumpOptTcRn :: DumpFlag -> SDoc -> TcRn ()
-dumpOptTcRn flag doc = whenDOptM flag (dumpTcRn doc)
 \end{code}
-
 
 %************************************************************************
 %*                                                                      *
@@ -684,9 +717,9 @@ discardWarnings thing_inside
 \begin{code}
 mkLongErrAt :: SrcSpan -> MsgDoc -> MsgDoc -> TcRn ErrMsg
 mkLongErrAt loc msg extra
-  = do { rdr_env <- getGlobalRdrEnv ;
-         dflags <- getDynFlags ;
-         return $ mkLongErrMsg dflags loc (mkPrintUnqualified dflags rdr_env) msg extra }
+  = do { dflags <- getDynFlags ;
+         printer <- getPrintUnqualified dflags ;
+         return $ mkLongErrMsg dflags loc printer msg extra }
 
 addLongErrAt :: SrcSpan -> MsgDoc -> MsgDoc -> TcRn ()
 addLongErrAt loc msg extra = mkLongErrAt loc msg extra >>= reportError
@@ -987,9 +1020,9 @@ add_warn msg extra_info
 
 add_warn_at :: SrcSpan -> MsgDoc -> MsgDoc -> TcRn ()
 add_warn_at loc msg extra_info
-  = do { rdr_env <- getGlobalRdrEnv ;
-         dflags <- getDynFlags ;
-         let { warn = mkLongWarnMsg dflags loc (mkPrintUnqualified dflags rdr_env)
+  = do { dflags <- getDynFlags ;
+         printer <- getPrintUnqualified dflags ;
+         let { warn = mkLongWarnMsg dflags loc printer
                                     msg extra_info } ;
          reportWarning warn }
 
@@ -1131,6 +1164,13 @@ captureUntouchables thing_inside
                 thing_inside
        ; return (res, untch') }
 
+pushUntouchablesM :: TcM a -> TcM a
+pushUntouchablesM thing_inside
+  = do { env <- getLclEnv
+       ; let untch' = pushUntouchables (tcl_untch env)
+       ; setLclEnv (env { tcl_untch = untch' })
+                   thing_inside }
+
 getUntouchables :: TcM Untouchables
 getUntouchables = do { env <- getLclEnv
                      ; return (tcl_untch env) }
@@ -1162,6 +1202,18 @@ traceTcConstraints msg
        ; lie     <- readTcRef lie_var
        ; traceTc (msg ++ ": LIE:") (ppr lie)
        }
+
+emitWildcardHoleConstraints :: [(Name, TcTyVar)] -> TcM ()
+emitWildcardHoleConstraints wcs
+  = do { ctLoc <- getCtLoc HoleOrigin
+       ; forM_ wcs $ \(name, tv) -> do {
+       ; let ctLoc' = setCtLocSpan ctLoc (nameSrcSpan name)
+             ty     = mkTyVarTy tv
+             ev     = mkLocalId name ty
+             can    = CHoleCan { cc_ev   = CtWanted ty ev ctLoc'
+                               , cc_occ  = occName name
+                               , cc_hole = TypeHole }
+       ; emitInsoluble can } }
 \end{code}
 
 
@@ -1182,7 +1234,7 @@ keepAlive :: Name -> TcRn ()     -- Record the name in the keep-alive set
 keepAlive name
   = do { env <- getGblEnv
        ; traceRn (ptext (sLit "keep alive") <+> ppr name)
-       ; updTcRef (tcg_keep env) (`addOneToNameSet` name) }
+       ; updTcRef (tcg_keep env) (`extendNameSet` name) }
 
 getStage :: TcM ThStage
 getStage = do { env <- getLclEnv; return (tcl_th_ctxt env) }
@@ -1250,10 +1302,15 @@ mkIfLclEnv mod loc = IfLclEnv { if_mod     = mod,
                                 if_tv_env  = emptyUFM,
                                 if_id_env  = emptyUFM }
 
+-- | Run an 'IfG' (top-level interface monad) computation inside an existing
+-- 'TcRn' (typecheck-renaming monad) computation by initializing an 'IfGblEnv'
+-- based on 'TcGblEnv'.
 initIfaceTcRn :: IfG a -> TcRn a
 initIfaceTcRn thing_inside
   = do  { tcg_env <- getGblEnv
-        ; let { if_env = IfGblEnv { if_rec_types = Just (tcg_mod tcg_env, get_type_env) }
+        ; let { if_env = IfGblEnv {
+                            if_rec_types = Just (tcg_mod tcg_env, get_type_env)
+                         }
               ; get_type_env = readTcRef (tcg_type_env_var tcg_env) }
         ; setEnvs (if_env, ()) thing_inside }
 
@@ -1273,7 +1330,9 @@ initIfaceTc :: ModIface
 -- No type envt from the current module, but we do know the module dependencies
 initIfaceTc iface do_this
  = do   { tc_env_var <- newTcRef emptyTypeEnv
-        ; let { gbl_env = IfGblEnv { if_rec_types = Just (mod, readTcRef tc_env_var) } ;
+        ; let { gbl_env = IfGblEnv {
+                            if_rec_types = Just (mod, readTcRef tc_env_var)
+                          } ;
               ; if_lenv = mkIfLclEnv mod doc
            }
         ; setEnvs (gbl_env, if_lenv) (do_this tc_env_var)

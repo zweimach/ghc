@@ -19,7 +19,7 @@ module TcValidity (
 #include "HsVersions.h"
 
 -- friends:
-import TcUnify    ( tcSubType )
+import TcUnify    ( tcSubType_NC )
 import TcSimplify ( simplifyAmbiguityCheck )
 import TyCoRep
 import TcType
@@ -91,18 +91,17 @@ checkAmbiguity ctxt ty
          -- tyvars are skolemised, we can safely use tcSimplifyTop
        ; (_wrap, wanted) <- addErrCtxtM (mk_msg ty') $
                             captureConstraints $
-                            tcSubType (AmbigOrigin ctxt) ctxt ty' ty'
+                            tcSubType_NC ctxt ty' ty'
        ; simplifyAmbiguityCheck ty wanted
 
        ; traceTc "Done ambiguity check for" (ppr ty) }
  where
    mk_msg ty tidy_env
      = do { allow_ambiguous <- xoptM Opt_AllowAmbiguousTypes
-          ; return (tidy_env', msg $$ ppWhen (not allow_ambiguous) ambig_msg) }
+          ; (tidy_env', tidy_ty) <- zonkTidyTcType tidy_env ty
+          ; return (tidy_env', mk_msg tidy_ty $$ ppWhen (not allow_ambiguous) ambig_msg) }
      where
-       (tidy_env', tidy_ty) = tidyOpenType tidy_env ty
-       msg = hang (ptext (sLit "In the ambiguity check for:"))
-                2 (ppr tidy_ty)
+       mk_msg ty = pprSigCtxt ctxt (ptext (sLit "the ambiguity check for")) (ppr ty)
        ambig_msg = ptext (sLit "To defer the ambiguity check to use sites, enable AllowAmbiguousTypes")
 \end{code}
 
@@ -162,8 +161,7 @@ checkValidType ctxt ty
                = case ctxt of
                  DefaultDeclCtxt-> MustBeMonoType
                  ResSigCtxt     -> MustBeMonoType
-                 LamPatSigCtxt  -> rank0
-                 BindPatSigCtxt -> rank0
+                 PatSigCtxt     -> rank0
                  RuleSigCtxt _  -> rank1
                  TySynCtxt _    -> rank0
 
@@ -183,10 +181,11 @@ checkValidType ctxt ty
         -- Check the internal validity of the type itself
        ; check_type ctxt rank ty
 
-        -- Check that the thing has kind Type, and is lifted if necessary
-        -- Do this second, because we can't usefully take the kind of an 
-        -- ill-formed type such as (a~Int)
+        -- Check that the thing has kind Type, and is lifted if necessary.
+        -- Do this *after* check_type, because we can't usefully take
+        -- the kind of an ill-formed type such as (a~Int)
        ; check_kind ctxt ty
+
        ; traceTc "checkValidType done" (ppr ty <+> text "::" <+> ppr (typeKind ty)) }
 
 checkValidMonoType :: Type -> TcM ()
@@ -197,10 +196,14 @@ check_kind :: UserTypeCtxt -> TcType -> TcM ()
 -- Check that the type's kind is acceptable for the context
 check_kind ctxt ty
   | TySynCtxt {} <- ctxt
+  , returnsConstraintKind actual_kind
   = do { ck <- xoptM Opt_ConstraintKinds
-       ; unless ck $
-         checkTc (not (returnsConstraintKind actual_kind)) 
-                 (constraintSynErr actual_kind) }
+       ; if ck
+         then  when (isConstraintKind actual_kind)
+                    (do { dflags <- getDynFlags
+                        ; check_pred_ty dflags ctxt ty })
+         else addErrTc (constraintSynErr actual_kind) }
+
   | otherwise
   = case expectedKindInCtxt ctxt of
       TheKind k -> checkTc (tcEqType actual_kind k)               (kindErr actual_kind)
@@ -298,7 +301,8 @@ check_type ctxt rank (AppTy ty1 ty2)
         ; check_arg_type ctxt rank ty2 }
 
 check_type ctxt rank ty@(TyConApp tc tys)
-  | isSynTyCon tc          = check_syn_tc_app ctxt rank ty tc tys
+  | isTypeSynonymTyCon tc || isTypeFamilyTyCon tc
+  = check_syn_tc_app ctxt rank ty tc tys
   | isUnboxedTupleTyCon tc = check_ubx_tuple  ctxt      ty    tys
   | otherwise              = mapM_ (check_arg_type ctxt rank) tys
 
@@ -310,7 +314,7 @@ check_type ctxt rank (CastTy ty _) = check_type ctxt rank ty
 check_type _ _ ty = pprPanic "check_type" (ppr ty)
 
 ----------------------------------------
-check_syn_tc_app :: UserTypeCtxt -> Rank -> KindOrType 
+check_syn_tc_app :: UserTypeCtxt -> Rank -> KindOrType
                  -> TyCon -> [KindOrType] -> TcM ()
 -- Used for type synonyms and type synonym families,
 -- which must be saturated, 
@@ -325,7 +329,7 @@ check_syn_tc_app ctxt rank ty tc tys
        --      f :: Foo a b -> ...
   = do  { -- See Note [Liberal type synonyms]
         ; liberal <- xoptM Opt_LiberalTypeSynonyms
-        ; if not liberal || isSynFamilyTyCon tc then
+        ; if not liberal || isTypeFamilyTyCon tc then
                 -- For H98 and synonym families, do check the type args
                 mapM_ check_arg tys
 
@@ -341,12 +345,12 @@ check_syn_tc_app ctxt rank ty tc tys
   | otherwise
   = failWithTc (arityErr flavour (tyConName tc) tc_arity n_args)
   where
-    flavour | isSynFamilyTyCon tc = "Type family" 
-            | otherwise           = "Type synonym"
+    flavour | isTypeFamilyTyCon tc = "Type family"
+            | otherwise            = "Type synonym"
     n_args = length tys
     tc_arity  = tyConArity tc
-    check_arg | isSynFamilyTyCon tc = check_arg_type  ctxt rank
-              | otherwise           = check_mono_type ctxt synArgMonoType
+    check_arg | isTypeFamilyTyCon tc = check_arg_type  ctxt rank
+              | otherwise            = check_mono_type ctxt synArgMonoType
          
 ----------------------------------------
 check_ubx_tuple :: UserTypeCtxt -> KindOrType 
@@ -486,16 +490,26 @@ check_valid_theta ctxt theta
 -------------------------
 check_pred_ty :: DynFlags -> UserTypeCtxt -> PredType -> TcM ()
 -- Check the validity of a predicate in a signature
--- We look through any type synonyms; any constraint kinded
+-- Do not look through any type synonyms; any constraint kinded
 -- type synonyms have been checked at their definition site
+-- C.f. Trac #9838
 
 check_pred_ty dflags ctxt pred
+  = do { checkValidMonoType pred
+       ; check_pred_help False dflags ctxt pred }
+
+check_pred_help :: Bool    -- True <=> under a type synonym
+                -> DynFlags -> UserTypeCtxt
+                -> PredType -> TcM ()
+check_pred_help under_syn dflags ctxt pred
+  | Just pred' <- coreView pred
+  = check_pred_help True dflags ctxt pred'
+  | otherwise
   = case classifyPredType pred of
       ClassPred cls tys -> check_class_pred dflags ctxt pred cls tys
-      EqPred ty1 ty2    -> check_eq_pred    dflags ctxt pred ty1 ty2
-      TuplePred tys     -> check_tuple_pred dflags ctxt pred tys
-      IrredPred _       -> check_irred_pred dflags ctxt pred
-
+      EqPred {}         -> check_eq_pred    dflags pred
+      TuplePred tys     -> check_tuple_pred under_syn dflags ctxt pred tys
+      IrredPred _       -> check_irred_pred under_syn dflags ctxt pred
 
 check_class_pred :: DynFlags -> UserTypeCtxt -> PredType -> Class -> [TcType] -> TcM ()
 check_class_pred dflags ctxt pred cls tys
@@ -506,7 +520,6 @@ check_class_pred dflags ctxt pred cls tys
                  (badIPPred pred)
 
                 -- Check the form of the argument types
-       ; mapM_ checkValidMonoType tys
        ; checkTc (check_class_pred_tys dflags ctxt cls tys)
                  (predTyVarErr (mkClassPred cls tys) $$ how_to_allow)
        }
@@ -517,62 +530,66 @@ check_class_pred dflags ctxt pred cls tys
     arity_err  = arityErr "Class" class_name arity n_tys
     how_to_allow = parens (ptext (sLit "Use FlexibleContexts to permit this"))
 
-okIPCtxt :: UserTypeCtxt -> Bool
-  -- See Note [Implicit parameters in instance decls]
-okIPCtxt (ClassSCCtxt {})  = False
-okIPCtxt (InstDeclCtxt {}) = False
-okIPCtxt (SpecInstCtxt {}) = False
-okIPCtxt _                 = True
+check_eq_pred :: DynFlags -> PredType -> TcM ()
+check_eq_pred dflags pred
+  =       -- Equational constraints are valid in all contexts if type
+          -- families are permitted
+    checkTc (xopt Opt_TypeFamilies dflags || xopt Opt_GADTs dflags)
+            (eqPredTyErr pred)
 
-badIPPred :: PredType -> SDoc
-badIPPred pred = ptext (sLit "Illegal implicit parameter") <+> quotes (ppr pred)
-
-
-check_eq_pred :: DynFlags -> UserTypeCtxt -> PredType -> TcType -> TcType -> TcM ()
-check_eq_pred dflags _ctxt pred ty1 ty2
-  = do {        -- Equational constraints are valid in all contexts if type
-                -- families are permitted
-       ; checkTc (xopt Opt_TypeFamilies dflags || xopt Opt_GADTs dflags) 
-                 (eqPredTyErr pred)
-
-                -- Check the form of the argument types
-       ; checkValidMonoType ty1
-       ; checkValidMonoType ty2
-       }
-
-check_tuple_pred :: DynFlags -> UserTypeCtxt -> PredType -> [PredType] -> TcM ()
-check_tuple_pred dflags ctxt pred ts
-  = do { checkTc (xopt Opt_ConstraintKinds dflags)
+check_tuple_pred :: Bool -> DynFlags -> UserTypeCtxt -> PredType -> [PredType] -> TcM ()
+check_tuple_pred under_syn dflags ctxt pred ts
+  = do {   -- See Note [ConstraintKinds in predicates]
+         checkTc (under_syn || xopt Opt_ConstraintKinds dflags)
                  (predTupleErr pred)
-       ; mapM_ (check_pred_ty dflags ctxt) ts }
-    -- This case will not normally be executed because 
-    -- without -XConstraintKinds tuple types are only kind-checked as *
+       ; mapM_ (check_pred_help under_syn dflags ctxt) ts }
+    -- This case will not normally be executed because without
+    -- -XConstraintKinds tuple types are only kind-checked as *
 
-check_irred_pred :: DynFlags -> UserTypeCtxt -> PredType -> TcM ()
-check_irred_pred dflags ctxt pred
+check_irred_pred :: Bool -> DynFlags -> UserTypeCtxt -> PredType -> TcM ()
+check_irred_pred under_syn dflags ctxt pred
     -- The predicate looks like (X t1 t2) or (x t1 t2) :: Constraint
-    -- But X is not a synonym; that's been expanded already
-    --
-    -- Allowing irreducible predicates in class superclasses is somewhat dangerous
-    -- because we can write:
-    --
-    --  type family Fooish x :: * -> Constraint
-    --  type instance Fooish () = Foo
-    --  class Fooish () a => Foo a where
-    --
-    -- This will cause the constraint simplifier to loop because every time we canonicalise a
-    -- (Foo a) class constraint we add a (Fooish () a) constraint which will be immediately
-    -- solved to add+canonicalise another (Foo a) constraint.
-    --
-    -- It is equally dangerous to allow them in instance heads because in that case the
-    -- Paterson conditions may not detect duplication of a type variable or size change.
-  = do { checkValidMonoType pred
-       ; checkTc (xopt Opt_ConstraintKinds dflags)
-                 (predIrredErr pred)
-       ; unless (xopt Opt_UndecidableInstances dflags) $
-                 -- Make sure it is OK to have an irred pred in this context
-         checkTc (case ctxt of ClassSCCtxt _ -> False; InstDeclCtxt -> False; _ -> True)
+    -- where X is a type function
+  = do { -- If it looks like (x t1 t2), require ConstraintKinds
+         --   see Note [ConstraintKinds in predicates]
+         -- But (X t1 t2) is always ok because we just require ConstraintKinds
+         -- at the definition site (Trac #9838)
+        checkTc (under_syn || xopt Opt_ConstraintKinds dflags || not (tyvar_head pred))
+                (predIrredErr pred)
+
+         -- Make sure it is OK to have an irred pred in this context
+         -- See Note [Irreducible predicates in superclasses]
+       ; checkTc (xopt Opt_UndecidableInstances dflags || not (dodgy_superclass ctxt))
                  (predIrredBadCtxtErr pred) }
+  where
+    dodgy_superclass ctxt
+       = case ctxt of { ClassSCCtxt _ -> True; InstDeclCtxt -> True; _ -> False }
+
+{- Note [ConstraintKinds in predicates]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Don't check for -XConstraintKinds under a type synonym, because that
+was done at the type synonym definition site; see Trac #9838
+e.g.   module A where
+          type C a = (Eq a, Ix a)   -- Needs -XConstraintKinds
+       module B where
+          import A
+          f :: C a => a -> a        -- Does *not* need -XConstraintKinds
+
+Note [Irreducible predicates in superclasses]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Allowing irreducible predicates in class superclasses is somewhat dangerous
+because we can write:
+
+ type family Fooish x :: * -> Constraint
+ type instance Fooish () = Foo
+ class Fooish () a => Foo a where
+
+This will cause the constraint simplifier to loop because every time we canonicalise a
+(Foo a) class constraint we add a (Fooish () a) constraint which will be immediately
+solved to add+canonicalise another (Foo a) constraint.
+
+It is equally dangerous to allow them in instance heads because in that case the
+Paterson conditions may not detect duplication of a type variable or size change. -}
 
 -------------------------
 check_class_pred_tys :: DynFlags -> UserTypeCtxt -> Class -> [KindOrType] -> Bool
@@ -598,6 +615,17 @@ tyvar_head ty                   -- Haskell 98 allows predicates of form
   = case tcSplitAppTy_maybe ty of
         Just (ty, _) -> tyvar_head ty
         Nothing      -> False
+
+-------------------------
+okIPCtxt :: UserTypeCtxt -> Bool
+  -- See Note [Implicit parameters in instance decls]
+okIPCtxt (ClassSCCtxt {})  = False
+okIPCtxt (InstDeclCtxt {}) = False
+okIPCtxt (SpecInstCtxt {}) = False
+okIPCtxt _                 = True
+
+badIPPred :: PredType -> SDoc
+badIPPred pred = ptext (sLit "Illegal implicit parameter") <+> quotes (ppr pred)
 \end{code}
 
 Note [Kind polymorphic type classes]
@@ -728,16 +756,16 @@ eqPredTyErr  pred = ptext (sLit "Illegal equational constraint") <+> pprType pre
 predTyVarErr pred  = hang (ptext (sLit "Non type-variable argument"))
                         2 (ptext (sLit "in the constraint:") <+> pprType pred)
 predTupleErr pred  = hang (ptext (sLit "Illegal tuple constraint:") <+> pprType pred)
-                        2 (parens (ptext (sLit "Use ConstraintKinds to permit this")))
+                        2 (parens constraintKindsMsg)
 predIrredErr pred  = hang (ptext (sLit "Illegal constraint:") <+> pprType pred)
-                        2 (parens (ptext (sLit "Use ConstraintKinds to permit this")))
+                        2 (parens constraintKindsMsg)
 predIrredBadCtxtErr pred = hang (ptext (sLit "Illegal constraint") <+> quotes (pprType pred)
                                  <+> ptext (sLit "in a superclass/instance context")) 
-                               2 (parens (ptext (sLit "Use UndecidableInstances to permit this")))
+                               2 (parens undecidableMsg)
 
 constraintSynErr :: Type -> SDoc
 constraintSynErr kind = hang (ptext (sLit "Illegal constraint synonym of kind:") <+> quotes (ppr kind))
-                           2 (parens (ptext (sLit "Use ConstraintKinds to permit this")))
+                           2 (parens constraintKindsMsg)
 
 dupPredWarn :: [[PredType]] -> SDoc
 dupPredWarn dups   = ptext (sLit "Duplicate constraint(s):") <+> pprWithCommas pprType (map head dups)
@@ -904,8 +932,8 @@ checkValidInstance ctxt hs_type ty
 
         -- The location of the "head" of the instance
     head_loc = case hs_type of
-                 L _ (HsForAllTy _ _ _ (L loc _)) -> loc
-                 L loc _                          -> loc
+                 L _ (HsForAllTy _ _ _ _ (L loc _)) -> loc
+                 L loc _                            -> loc
 \end{code}
 
 Note [Paterson conditions]
@@ -966,9 +994,10 @@ nomoreMsg tvs
                                   else ptext (sLit "occur"))
           <+> ptext (sLit "more often than in the instance head") ]
 
-smallerMsg, undecidableMsg :: SDoc
-smallerMsg = ptext (sLit "Constraint is no smaller than the instance head")
-undecidableMsg = ptext (sLit "Use UndecidableInstances to permit this")
+smallerMsg, undecidableMsg, constraintKindsMsg :: SDoc
+smallerMsg         = ptext (sLit "Constraint is no smaller than the instance head")
+undecidableMsg     = ptext (sLit "Use UndecidableInstances to permit this")
+constraintKindsMsg = ptext (sLit "Use ConstraintKinds to permit this")
 \end{code}
 
 

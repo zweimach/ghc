@@ -115,7 +115,7 @@ synTyConsOfType ty
 
 \begin{code}
 mkSynEdges :: [LTyClDecl Name] -> [(LTyClDecl Name, Name, [Name])]
-mkSynEdges syn_decls = [ (ldecl, name, nameSetToList fvs)
+mkSynEdges syn_decls = [ (ldecl, name, nameSetElems fvs)
                        | ldecl@(L _ (SynDecl { tcdLName = L _ name
                                              , tcdFVs = fvs })) <- syn_decls ]
 
@@ -377,8 +377,8 @@ calcRecFlags boot_details is_boot mrole_env tyclss
              | otherwise                 = NonRecursive
 
     boot_name_set = availsToNameSet (md_exports boot_details)
-    rec_names = boot_name_set     `unionNameSets`
-                nt_loop_breakers  `unionNameSets`
+    rec_names = boot_name_set     `unionNameSet`
+                nt_loop_breakers  `unionNameSet`
                 prod_loop_breakers
 
 
@@ -416,14 +416,11 @@ calcRecFlags boot_details is_boot mrole_env tyclss
     nt_edges = [(t, mk_nt_edges t) | t <- new_tycons]
 
     mk_nt_edges nt      -- Invariant: nt is a newtype
-        = concatMap (mk_nt_edges1 nt) (tyConsOfType (new_tc_rhs nt))
-                        -- tcTyConsOfType looks through synonyms
-
-    mk_nt_edges1 _ tc
-        | tc `elem` new_tycons = [tc]           -- Loop
-                -- At this point we know that either it's a local *data* type,
-                -- or it's imported.  Either way, it can't form part of a newtype cycle
-        | otherwise = []
+        = [ tc | tc <- nameEnvElts (tyConsOfType (new_tc_rhs nt))
+                        -- tyConsOfType looks through synonyms
+               , tc `elem` new_tycons ]
+           -- If not (tc `elem` new_tycons) we know that either it's a local *data* type,
+           -- or it's imported.  Either way, it can't form part of a newtype cycle
 
         --------------- Product types ----------------------
     prod_loop_breakers = mkNameSet (findLoopBreakers prod_edges)
@@ -433,7 +430,7 @@ calcRecFlags boot_details is_boot mrole_env tyclss
     mk_prod_edges tc    -- Invariant: tc is a product tycon
         = concatMap (mk_prod_edges1 tc) (dataConOrigArgTys (head (tyConDataCons tc)))
 
-    mk_prod_edges1 ptc ty = concatMap (mk_prod_edges2 ptc) (tyConsOfType ty)
+    mk_prod_edges1 ptc ty = concatMap (mk_prod_edges2 ptc) (nameEnvElts (tyConsOfType ty))
 
     mk_prod_edges2 ptc tc
         | tc `elem` prod_tycons   = [tc]                -- Local product
@@ -659,7 +656,7 @@ irTyCon tc
          mapM_ (irType emptyVarSet) (tyConStupidTheta tc)  -- See #8958
        ; mapM_ (irDataCon tc_name) (visibleDataCons $ algTyConRhs tc) }}
 
-  | Just (SynonymTyCon ty) <- synTyConRhs_maybe tc
+  | Just ty <- synTyConRhs_maybe tc
   = addRoleInferenceInfo tc_name (tyConTyVars tc) $
     irType emptyVarSet ty
 

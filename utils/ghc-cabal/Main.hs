@@ -21,6 +21,7 @@ import Distribution.Verbosity
 import qualified Distribution.InstalledPackageInfo as Installed
 import qualified Distribution.Simple.PackageIndex as PackageIndex
 
+import Control.Exception (bracket)
 import Control.Monad
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.List
@@ -70,14 +71,10 @@ die :: [String] -> IO a
 die errs = do mapM_ (hPutStrLn stderr) errs
               exitWith (ExitFailure 1)
 
--- XXX Should use bracket
 withCurrentDirectory :: FilePath -> IO a -> IO a
 withCurrentDirectory directory io
- = do curDirectory <- getCurrentDirectory
-      setCurrentDirectory directory
-      r <- io
-      setCurrentDirectory curDirectory
-      return r
+ = bracket (getCurrentDirectory) (setCurrentDirectory)
+           (const (setCurrentDirectory directory >> io))
 
 -- We need to use the autoconfUserHooks, as the packages that use
 -- configure can create a .buildinfo file, and we need any info that
@@ -421,11 +418,15 @@ generate directory distdir dll0Modules config_args
           transitiveDepNames = map (display . packageName) transitive_dep_ids
 
           libraryDirs = forDeps Installed.libraryDirs
+          -- temporary hack to support two in-tree versions of `integer-gmp`
+          isIntegerGmp2 = any ("integer-gmp2" `isInfixOf`) libraryDirs
           -- The mkLibraryRelDir function is a bit of a hack.
           -- Ideally it should be handled in the makefiles instead.
           mkLibraryRelDir "rts"   = "rts/dist/build"
           mkLibraryRelDir "ghc"   = "compiler/stage2/build"
           mkLibraryRelDir "Cabal" = "libraries/Cabal/Cabal/dist-install/build"
+          mkLibraryRelDir "integer-gmp"
+                  | isIntegerGmp2 = mkLibraryRelDir "integer-gmp2"
           mkLibraryRelDir l       = "libraries/" ++ l ++ "/dist-install/build"
           libraryRelDirs = map mkLibraryRelDir transitiveDepNames
       wrappedIncludeDirs <- wrap $ forDeps Installed.includeDirs

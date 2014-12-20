@@ -113,7 +113,7 @@ tcClassSigs clas sigs def_methods
        ; traceTc "tcClassSigs 2" (ppr clas)
        ; return (op_info, gen_dm_env) }
   where
-    vanilla_sigs = [L loc (nm,ty) | L loc (TypeSig    nm ty) <- sigs]
+    vanilla_sigs = [L loc (nm,ty) | L loc (TypeSig    nm ty _) <- sigs]
     gen_sigs     = [L loc (nm,ty) | L loc (GenericSig nm ty) <- sigs]
     dm_bind_names :: [Name]     -- These ones have a value binding in the class decl
     dm_bind_names = [op | L _ (FunBind {fun_id = L _ op}) <- bagToList def_methods]
@@ -219,7 +219,7 @@ tcDefMeth clas tyvars this_dict binds_in hs_sig_fn prag_fn (sel_id, dm_info)
                  hs_ty       = lookupHsSig hs_sig_fn sel_name 
                                `orElse` pprPanic "tc_dm" (ppr sel_name)
 
-           ; local_dm_sig <- instTcTySig hs_ty local_dm_ty local_dm_name
+           ; local_dm_sig <- instTcTySig hs_ty local_dm_ty Nothing [] local_dm_name
            ; warnTc (not (null spec_prags))
                     (ptext (sLit "Ignoring SPECIALISE pragmas on default method") 
                      <+> quotes (ppr sel_name))
@@ -238,7 +238,9 @@ tcInstanceMethodBody :: SkolemInfo -> [TcTyCoVar] -> [EvVar]
 tcInstanceMethodBody skol_info tyvars dfun_ev_vars
                      meth_id local_meth_sig
                      specs (L loc bind)
-  = do  { let local_meth_id = sig_id local_meth_sig
+  = do  { let local_meth_id = case local_meth_sig of
+                  TcSigInfo{ sig_id = meth_id } -> meth_id
+                  _ -> pprPanic "tcInstanceMethodBody" (ppr local_meth_sig)
               lm_bind = L loc (bind { fun_id = L loc (idName local_meth_id) })
                              -- Substitute the local_meth_name for the binder
                              -- NB: the binding is always a FunBind
@@ -311,8 +313,8 @@ emptyHsSigs :: HsSigFun
 emptyHsSigs = emptyNameEnv
 
 mkHsSigFun :: [LSig Name] -> HsSigFun
-mkHsSigFun sigs = mkNameEnv [(n, hs_ty) 
-                            | L _ (TypeSig ns hs_ty) <- sigs
+mkHsSigFun sigs = mkNameEnv [(n, hs_ty)
+                            | L _ (TypeSig ns hs_ty _) <- sigs
                             , L _ n <- ns ]
 
 lookupHsSig :: HsSigFun -> Name -> Maybe (LHsType Name)

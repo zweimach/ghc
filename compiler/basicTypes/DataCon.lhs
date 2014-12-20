@@ -36,8 +36,6 @@ module DataCon (
 
         splitDataProductType_maybe,
 
-        tyConsOfTyCon,
-
         -- ** Predicates on DataCons
         isNullarySrcDataCon, isNullaryRepDataCon, isTupleDataCon, isUnboxedTupleCon,
         isVanillaDataCon, classDataCon, dataConCannotMatch,
@@ -64,7 +62,6 @@ import Util
 import BasicTypes
 import FastString
 import Module
-import NameEnv
 
 import qualified Data.Data as Data
 import qualified Data.Typeable
@@ -245,6 +242,9 @@ Note that (Foo a) might not be an instance of Ord.
 
 \begin{code}
 -- | A data constructor
+--
+-- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+--             'ApiAnnotation.AnnClose','ApiAnnotation.AnnComma'
 data DataCon
   = MkData {
         dcName    :: Name,      -- This is the name of the *source data con*
@@ -1111,15 +1111,4 @@ splitDataProductType_maybe ty
   = Just (tycon, ty_args, con, dataConInstArgTys con ty_args)
   | otherwise
   = Nothing
-
--- | All type constructors used in the definition of this type constructor,
---   recursively. This is used to find out all the type constructors whose data
---   constructors need to be in scope to be allowed to safely coerce under this
---   type constructor in Safe Haskell mode.
-tyConsOfTyCon :: TyCon -> [TyCon]
-tyConsOfTyCon tc = nameEnvElts (add tc emptyNameEnv)
-  where
-     go env tc = foldr add env (tyConDataCons tc >>= dataConOrigArgTys >>= tyConsOfType)
-     add tc env | tyConName tc `elemNameEnv` env = env
-                | otherwise = go (extendNameEnv env (tyConName tc) tc) tc
 \end{code}

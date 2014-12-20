@@ -17,7 +17,8 @@ This is where we do all the grimy bindings' generation.
 module TcGenDeriv (
         BagDerivStuff, DerivStuff(..),
 
-        genDerivedBinds, 
+        canDeriveAnyClass,
+        genDerivedBinds,
         FFoldType(..), functorLikeTraverse,
         deepSubtypesContaining, foldDataConArgs,
         mkCoerceClassMethEqn,
@@ -36,7 +37,6 @@ import DataCon
 import Name
 
 import DynFlags
-import HscTypes
 import PrelInfo
 import FamInstEnv( FamInst )
 import MkCore ( eRROR_ID )
@@ -59,14 +59,16 @@ import Util
 import Var
 import MonadUtils
 import Outputable
+import Lexeme
 import FastString
 import Pair
 import Bag
 import Fingerprint
 import TcEnv (InstInfo)
 
-import ListSetOps( assocMaybe )
-import Data.List ( partition, intersperse )
+import ListSetOps ( assocMaybe )
+import Data.List  ( partition, intersperse )
+import Data.Maybe ( isNothing )
 \end{code}
 
 \begin{code}
@@ -99,14 +101,19 @@ data DerivStuff     -- Please add this auxiliary stuff
 %************************************************************************
 
 \begin{code}
-genDerivedBinds :: DynFlags -> FixityEnv -> Class -> SrcSpan -> TyCon
+genDerivedBinds :: DynFlags -> (Name -> Fixity) -> Class -> SrcSpan -> TyCon
                 -> (LHsBinds RdrName, BagDerivStuff)
 genDerivedBinds dflags fix_env clas loc tycon
   | Just gen_fn <- assocMaybe gen_list (getUnique clas)
   = gen_fn loc tycon
 
   | otherwise
-  = pprPanic "genDerivStuff: bad derived class" (ppr clas)
+  -- Deriving any class simply means giving an empty instance, so no
+  -- bindings have to be generated.
+  = ASSERT2( isNothing (canDeriveAnyClass dflags tycon clas)
+           , ppr "genDerivStuff: bad derived class" <+> ppr clas )
+    (emptyBag, emptyBag)
+
   where
     gen_list :: [(Unique, SrcSpan -> TyCon -> (LHsBinds RdrName, BagDerivStuff))]
     gen_list = [ (eqClassKey,          gen_Eq_binds)
@@ -121,6 +128,20 @@ genDerivedBinds dflags fix_env clas loc tycon
                , (functorClassKey,     gen_Functor_binds)
                , (foldableClassKey,    gen_Foldable_binds)
                , (traversableClassKey, gen_Traversable_binds) ]
+
+
+-- Nothing: we can (try to) derive it via Generics
+-- Just s:  we can't, reason s
+canDeriveAnyClass :: DynFlags -> TyCon -> Class -> Maybe SDoc
+canDeriveAnyClass dflags _tycon clas =
+  let b `orElse` s = if b then Nothing else Just (ptext (sLit s))
+      Just m  <> _ = Just m
+      Nothing <> n = n
+  -- We can derive a given class for a given tycon via Generics iff
+  in  -- 1) The class is not a "standard" class (like Show, Functor, etc.)
+        (not (getUnique clas `elem` standardClassKeys) `orElse` "")
+      -- 2) Opt_DeriveAnyClass is on
+     <> (xopt Opt_DeriveAnyClass dflags `orElse` "Try enabling DeriveAnyClass")
 \end{code}
 
 %************************************************************************
@@ -445,7 +466,7 @@ gen_Ord_binds loc tycon
                                  , mkSimpleHsAlt nlWildPat (gtResult op) ]
       where
         tag     = get_tag data_con
-        tag_lit = noLoc (HsLit (HsIntPrim (toInteger tag)))
+        tag_lit = noLoc (HsLit (HsIntPrim "" (toInteger tag)))
 
     mkInnerEqAlt :: OrdOp -> DataCon -> LMatch RdrName (LHsExpr RdrName)
     -- First argument 'a' known to be built with K
@@ -608,7 +629,7 @@ gen_Enum_binds loc tycon
              (illegal_Expr "pred" occ_nm "tried to take `pred' of first tag in enumeration")
              (nlHsApp (nlHsVar (tag2con_RDR tycon))
                            (nlHsApps plus_RDR [nlHsVarApps intDataCon_RDR [ah_RDR],
-                                               nlHsLit (HsInt (-1))]))
+                                               nlHsLit (HsInt "-1" (-1))]))
 
     to_enum
       = mk_easy_FunBind loc toEnum_RDR [a_Pat] $
@@ -929,7 +950,7 @@ These instances are also useful for Read (Either Int Emp), where
 we want to be able to parse (Left 3) just fine.
 
 \begin{code}
-gen_Read_binds :: FixityEnv -> SrcSpan -> TyCon -> (LHsBinds RdrName, BagDerivStuff)
+gen_Read_binds :: (Name -> Fixity) -> SrcSpan -> TyCon -> (LHsBinds RdrName, BagDerivStuff)
 
 gen_Read_binds get_fixity loc tycon
   = (listToBag [read_prec, default_readlist, default_readlistprec], emptyBag)
@@ -1098,7 +1119,7 @@ Example
                     -- the most tightly-binding operator
 
 \begin{code}
-gen_Show_binds :: FixityEnv -> SrcSpan -> TyCon -> (LHsBinds RdrName, BagDerivStuff)
+gen_Show_binds :: (Name -> Fixity) -> SrcSpan -> TyCon -> (LHsBinds RdrName, BagDerivStuff)
 
 gen_Show_binds get_fixity loc tycon
   = (listToBag [shows_prec, show_list], emptyBag)
@@ -1116,7 +1137,8 @@ gen_Show_binds get_fixity loc tycon
          ([nlWildPat, con_pat], mk_showString_app op_con_str)
       | otherwise   =
          ([a_Pat, con_pat],
-          showParen_Expr (nlHsPar (genOpApp a_Expr ge_RDR (nlHsLit (HsInt con_prec_plus_one))))
+          showParen_Expr (nlHsPar (genOpApp a_Expr ge_RDR
+                                        (nlHsLit (HsInt "" con_prec_plus_one))))
                          (nlHsPar (nested_compose_Expr show_thingies)))
         where
              data_con_RDR  = getRdrName data_con
@@ -1166,8 +1188,9 @@ gen_Show_binds get_fixity loc tycon
                 -- Generates (showsPrec p x) for argument x, but it also boxes
                 -- the argument first if necessary.  Note that this prints unboxed
                 -- things without any '#' decorations; could change that if need be
-             show_arg b arg_ty = nlHsApps showsPrec_RDR [nlHsLit (HsInt arg_prec),
-                                                         box_if_necy "Show" tycon (nlHsVar b) arg_ty]
+             show_arg b arg_ty = nlHsApps showsPrec_RDR
+                                    [nlHsLit (HsInt "" arg_prec),
+                                    box_if_necy "Show" tycon (nlHsVar b) arg_ty]
 
                 -- Fixity stuff
              is_infix = dataConIsInfix data_con
@@ -1192,7 +1215,7 @@ mk_showString_app str = nlHsApp (nlHsVar showString_RDR) (nlHsLit (mkHsString st
 \end{code}
 
 \begin{code}
-getPrec :: Bool -> FixityEnv -> Name -> Integer
+getPrec :: Bool -> (Name -> Fixity) -> Name -> Integer
 getPrec is_infix get_fixity nm
   | not is_infix   = appPrecedence
   | otherwise      = getPrecedence get_fixity nm
@@ -1202,9 +1225,9 @@ appPrecedence = fromIntegral maxPrecedence + 1
   -- One more than the precedence of the most
   -- tightly-binding operator
 
-getPrecedence :: FixityEnv -> Name -> Integer
+getPrecedence :: (Name -> Fixity) -> Name -> Integer
 getPrecedence get_fixity nm
-   = case lookupFixity get_fixity nm of
+   = case get_fixity nm of
         Fixity x _assoc -> fromIntegral x
           -- NB: the Report says that associativity is not taken
           --     into account for either Read or Show; hence we
@@ -1231,7 +1254,7 @@ we generate
 We are passed the Typeable2 class as well as T
 
 \begin{code}
-gen_Typeable_binds :: DynFlags -> SrcSpan -> TyCon 
+gen_Typeable_binds :: DynFlags -> SrcSpan -> TyCon
                    -> (LHsBinds RdrName, BagDerivStuff)
 gen_Typeable_binds dflags loc tycon
   = ( unitBag $ mk_easy_FunBind loc typeRep_RDR [nlWildPat]
@@ -1249,16 +1272,16 @@ gen_Typeable_binds dflags loc tycon
     tycon_rep = nlHsApps mkTyCon_RDR
                     (map nlHsLit [int64 high,
                                   int64 low,
-                                  HsString pkg_fs,
-                                  HsString modl_fs,
-                                  HsString name_fs])
+                                  HsString "" pkg_fs,
+                                  HsString "" modl_fs,
+                                  HsString "" name_fs])
 
     hashThis = unwords $ map unpackFS [pkg_fs, modl_fs, name_fs]
     Fingerprint high low = fingerprintString hashThis
 
     int64
-      | wORD_SIZE dflags == 4 = HsWord64Prim . fromIntegral
-      | otherwise             = HsWordPrim . fromIntegral
+      | wORD_SIZE dflags == 4 = HsWord64Prim "" . fromIntegral
+      | otherwise             = HsWordPrim "" . fromIntegral
 \end{code}
 
 
@@ -1318,7 +1341,7 @@ gen_Data_binds dflags loc tycon
     genDataTyCon :: (LHsBind RdrName, LSig RdrName)
     genDataTyCon        --  $dT
       = (mkHsVarBind loc rdr_name rhs,
-         L loc (TypeSig [L loc rdr_name] sig_ty))
+         L loc (TypeSig [L loc rdr_name] sig_ty PlaceHolder))
       where
         rdr_name = mk_data_type_name tycon
         sig_ty   = nlHsTyVar dataType_RDR
@@ -1330,7 +1353,7 @@ gen_Data_binds dflags loc tycon
     genDataDataCon :: DataCon -> (LHsBind RdrName, LSig RdrName)
     genDataDataCon dc       --  $cT1 etc
       = (mkHsVarBind loc rdr_name rhs,
-         L loc (TypeSig [L loc rdr_name] sig_ty))
+         L loc (TypeSig [L loc rdr_name] sig_ty PlaceHolder))
       where
         rdr_name = mk_constr_name dc
         sig_ty   = nlHsTyVar constr_RDR
@@ -1381,7 +1404,8 @@ gen_Data_binds dflags loc tycon
     mk_unfold_pat dc    -- Last one is a wild-pat, to avoid
                         -- redundant test, and annoying warning
       | tag-fIRST_TAG == n_cons-1 = nlWildPat   -- Last constructor
-      | otherwise = nlConPat intDataCon_RDR [nlLitPat (HsIntPrim (toInteger tag))]
+      | otherwise = nlConPat intDataCon_RDR
+                             [nlLitPat (HsIntPrim "" (toInteger tag))]
       where
         tag = dataConTag dc
 
@@ -1927,7 +1951,8 @@ gen_Newtype_binds loc cls inst_tvs cls_tys rhs_ty
         -- variables refer to the ones bound in the user_ty
         (_, _, tau_ty')  = tcSplitSigmaTy tau_ty
 
-    nlExprWithTySig e s = noLoc (ExprWithTySig e s)
+    nlExprWithTySig :: LHsExpr RdrName -> LHsType RdrName -> LHsExpr RdrName
+    nlExprWithTySig e s = noLoc (ExprWithTySig e s PlaceHolder)
 \end{code}
 
 %************************************************************************
@@ -1951,7 +1976,7 @@ fiddling around.
 genAuxBindSpec :: SrcSpan -> AuxBindSpec -> (LHsBind RdrName, LSig RdrName)
 genAuxBindSpec loc (DerivCon2Tag tycon)
   = (mk_FunBind loc rdr_name eqns,
-     L loc (TypeSig [L loc rdr_name] (L loc sig_ty)))
+     L loc (TypeSig [L loc rdr_name] (L loc sig_ty) PlaceHolder))
   where
     rdr_name = con2tag_RDR tycon
 
@@ -1971,13 +1996,14 @@ genAuxBindSpec loc (DerivCon2Tag tycon)
 
     mk_eqn :: DataCon -> ([LPat RdrName], LHsExpr RdrName)
     mk_eqn con = ([nlWildConPat con],
-                  nlHsLit (HsIntPrim (toInteger ((dataConTag con) - fIRST_TAG))))
+                  nlHsLit (HsIntPrim ""
+                                    (toInteger ((dataConTag con) - fIRST_TAG))))
 
 genAuxBindSpec loc (DerivTag2Con tycon)
   = (mk_FunBind loc rdr_name
         [([nlConVarPat intDataCon_RDR [a_RDR]],
            nlHsApp (nlHsVar tagToEnum_RDR) a_Expr)],
-     L loc (TypeSig [L loc rdr_name] (L loc sig_ty)))
+     L loc (TypeSig [L loc rdr_name] (L loc sig_ty) PlaceHolder))
   where
     sig_ty = HsCoreTy $ mkForAllTys (tyConBinders tycon) $
              intTy `mkFunTy` mkParentType tycon
@@ -1986,11 +2012,11 @@ genAuxBindSpec loc (DerivTag2Con tycon)
 
 genAuxBindSpec loc (DerivMaxTag tycon)
   = (mkHsVarBind loc rdr_name rhs,
-     L loc (TypeSig [L loc rdr_name] (L loc sig_ty)))
+     L loc (TypeSig [L loc rdr_name] (L loc sig_ty) PlaceHolder))
   where
     rdr_name = maxtag_RDR tycon
     sig_ty = HsCoreTy intTy
-    rhs = nlHsApp (nlHsVar intDataCon_RDR) (nlHsLit (HsIntPrim max_tag))
+    rhs = nlHsApp (nlHsVar intDataCon_RDR) (nlHsLit (HsIntPrim "" max_tag))
     max_tag =  case (tyConDataCons tycon) of
                  data_cons -> toInteger ((length data_cons) - fIRST_TAG)
 

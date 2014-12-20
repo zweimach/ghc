@@ -309,9 +309,21 @@ lookupTopBndrRn_maybe rdr_name
 
 
 -----------------------------------------------
+-- | Lookup an @Exact@ @RdrName@. See Note [Looking up Exact RdrNames].
+-- This adds an error if the name cannot be found.
 lookupExactOcc :: Name -> RnM Name
--- See Note [Looking up Exact RdrNames]
 lookupExactOcc name
+  = do { result <- lookupExactOcc_either name
+       ; case result of
+           Left err -> do { addErr err
+                          ; return name }
+           Right name' -> return name' }
+
+-- | Lookup an @Exact@ @RdrName@. See Note [Looking up Exact RdrNames].
+-- This never adds an error, but it may return one.
+lookupExactOcc_either :: Name -> RnM (Either MsgDoc Name)
+-- See Note [Looking up Exact RdrNames]
+lookupExactOcc_either name
   | Just thing <- wiredInNameTyThing_maybe name
   , Just tycon <- case thing of
                     ATyCon tc                 -> Just tc
@@ -319,10 +331,10 @@ lookupExactOcc name
                     _                         -> Nothing
   , isTupleTyCon tycon
   = do { checkTupSize (tyConArity tycon)
-       ; return name }
+       ; return (Right name) }
 
   | isExternalName name
-  = return name
+  = return (Right name)
 
   | otherwise
   = do { env <- getGlobalRdrEnv
@@ -337,23 +349,23 @@ lookupExactOcc name
        ; case gres of
            []    -> -- See Note [Splicing Exact names]
                     do { lcl_env <- getLocalRdrEnv
-                       ; unless (name `inLocalRdrEnvScope` lcl_env) $
+                       ; if name `inLocalRdrEnvScope` lcl_env
+                         then return (Right name)
+                         else
 #ifdef GHCI
                          do { th_topnames_var <- fmap tcg_th_topnames getGblEnv
                             ; th_topnames <- readTcRef th_topnames_var
-                            ; unless (name `elemNameSet` th_topnames)
-                                     (addErr exact_nm_err)
+                            ; if name `elemNameSet` th_topnames
+                              then return (Right name)
+                              else return (Left exact_nm_err)
                             }
 #else /* !GHCI */
-                         addErr exact_nm_err
+                         return (Left exact_nm_err)
 #endif /* !GHCI */
-                       ; return name
                        }
 
-           [gre]   -> return (gre_name gre)
-           (gre:_) -> do {addErr dup_nm_err
-                         ; return (gre_name gre)
-                         }
+           [gre]   -> return (Right (gre_name gre))
+           _       -> return (Left dup_nm_err)
            -- We can get more than one GRE here, if there are multiple 
            -- bindings for the same name. Sometimes they are caught later
            -- by findLocalDupsRdrEnv, like in this example (Trac #8932):
@@ -945,12 +957,13 @@ lookupQualifiedNameGHCi dflags is_ghci rdr_name
     -- and respect hiddenness of modules/packages, hence loadSrcInterface.
     do { res <- loadSrcInterface_maybe doc mod False Nothing
        ; case res of
-           Succeeded iface
+           Succeeded ifaces
              | (n:ns) <- [ name
-                         | avail <- mi_exports iface
+                         | iface <- ifaces
+                         , avail <- mi_exports iface
                          , name  <- availNames avail
                          , nameOccName name == occ ]
-             -> ASSERT(null ns) return (Just n)
+             -> ASSERT(all (==n) ns) return (Just n)
 
            _ -> -- Either we couldn't load the interface, or
                 -- we could but we didn't find the name in it
@@ -1034,10 +1047,11 @@ lookupBindGroupOcc :: HsSigCtxt
 -- See Note [Looking up signature names]
 lookupBindGroupOcc ctxt what rdr_name
   | Just n <- isExact_maybe rdr_name
-  = do { n' <- lookupExactOcc n
-       ; return (Right n') }  -- Maybe we should check the side conditions
-                              -- but it's a pain, and Exact things only show
-                              -- up when you know what you are doing
+  = lookupExactOcc_either n   -- allow for the possibility of missing Exacts;
+                              -- see Note [dataTcOccs and Exact Names]
+      -- Maybe we should check the side conditions
+      -- but it's a pain, and Exact things only show
+      -- up when you know what you are doing
 
   | Just (rdr_mod, rdr_occ) <- isOrig_maybe rdr_name
   = do { n' <- lookupOrig rdr_mod rdr_occ
@@ -1114,10 +1128,8 @@ lookupLocalTcNames ctxt what rdr_name
 dataTcOccs :: RdrName -> [RdrName]
 -- Return both the given name and the same name promoted to the TcClsName
 -- namespace.  This is useful when we aren't sure which we are looking at.
+-- See also Note [dataTcOccs and Exact Names]
 dataTcOccs rdr_name
-  | Just n <- isExact_maybe rdr_name
-  , not (isBuiltInSyntax n)   -- See Note [dataTcOccs and Exact Names]
-  = [rdr_name]
   | isDataOcc occ || isVarOcc occ
   = [rdr_name, rdr_name_tc]
   | otherwise
@@ -1130,8 +1142,12 @@ dataTcOccs rdr_name
 Note [dataTcOccs and Exact Names]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Exact RdrNames can occur in code generated by Template Haskell, and generally
-those references are, well, exact, so it's wrong to return the TyClsName too.
-But there is an awkward exception for built-in syntax. Example in GHCi
+those references are, well, exact. However, the TH `Name` type isn't expressive
+enough to always track the correct namespace information, so we sometimes get
+the right Unique but wrong namespace. Thus, we still have to do the double-lookup
+for Exact RdrNames.
+
+There is also an awkward situation for built-in syntax. Example in GHCi
    :info []
 This parses as the Exact RdrName for nilDataCon, but we also want
 the list type constructor.
@@ -1840,7 +1856,7 @@ data HsDocContext
   | TyDataCtx (Located RdrName)
   | TySynCtx (Located RdrName)
   | TyFamilyCtx (Located RdrName)
-  | ConDeclCtx (Located RdrName)
+  | ConDeclCtx [Located RdrName]
   | ClassDeclCtx (Located RdrName)
   | ExprWithTySigCtx
   | TypBrCtx
@@ -1863,7 +1879,12 @@ docOfHsDocContext (RuleCtx name) = text "In the transformation rule" <+> ftext n
 docOfHsDocContext (TyDataCtx tycon) = text "In the data type declaration for" <+> quotes (ppr tycon)
 docOfHsDocContext (TySynCtx name) = text "In the declaration for type synonym" <+> quotes (ppr name)
 docOfHsDocContext (TyFamilyCtx name) = text "In the declaration for type family" <+> quotes (ppr name)
-docOfHsDocContext (ConDeclCtx name) = text "In the definition of data constructor" <+> quotes (ppr name)
+
+docOfHsDocContext (ConDeclCtx [name])
+   = text "In the definition of data constructor" <+> quotes (ppr name)
+docOfHsDocContext (ConDeclCtx names)
+   = text "In the definition of data constructors" <+> interpp'SP names
+
 docOfHsDocContext (ClassDeclCtx name) = text "In the declaration for class"     <+> ppr name
 docOfHsDocContext ExprWithTySigCtx = text "In an expression type signature"
 docOfHsDocContext TypBrCtx = ptext (sLit "In a Template-Haskell quoted type")

@@ -440,6 +440,8 @@ mode001:
 	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --help --version        | sed '2,$$d'
 	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --interactive --version | sed "s/, version.*//"
 	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --version --interactive | sed "s/, version.*//"
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --interactive --show-options | grep -- --interactive | sed '2,$$d'
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --show-options --interactive | grep -- --interactive | sed '2,$$d'
 
 # Test for building DLLs with ghc -shared, see #2745
 shared001:
@@ -566,6 +568,11 @@ T703:
 	[ ! -d T703 ]
 	"$(TEST_HC)" $(TEST_HC_OPTS) --make T703.hs -v0
 	! readelf -W -l T703 2>/dev/null | grep 'GNU_STACK' | grep -q 'RWE'
+
+.PHONY: T2182
+T2182:
+	! "$(TEST_HC)" $(TEST_HC_OPTS) --make T2182_A.hs T2182.hs -v0
+	! "$(TEST_HC)" $(TEST_HC_OPTS) --make T2182.hs T2182_A.hs -v0
 
 .PHONY: write_interface_oneshot
 write_interface_oneshot:

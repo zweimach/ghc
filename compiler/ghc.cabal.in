@@ -161,6 +161,7 @@ Library
         Hooks
         Id
         IdInfo
+        Lexeme
         Literal
         Llvm
         Llvm.AbsSyn
@@ -219,6 +220,7 @@ Library
         Bitmap
         CodeGen.Platform
         CodeGen.Platform.ARM
+        CodeGen.Platform.ARM64
         CodeGen.Platform.NoRegs
         CodeGen.Platform.PPC
         CodeGen.Platform.PPC_Darwin
@@ -317,6 +319,8 @@ Library
         PackageConfig
         Packages
         PlatformConstants
+        Plugins
+        TcPluginM
         PprTyThing
         StaticFlags
         SysTools
@@ -327,6 +331,7 @@ Library
         OptCoercion
         Parser
         RdrHsSyn
+        ApiAnnotation
         ForeignCall
         PrelInfo
         PrelNames

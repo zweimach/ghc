@@ -63,9 +63,31 @@ test('UnsafeInfered12', normal, compile_fail, [''])
 test('UnsafeInfered13', normal, compile_fail, [''])
 test('UnsafeInfered14', normal, compile_fail, [''])
 test('UnsafeInfered15', normal, compile_fail, [''])
+test('UnsafeInfered16', normal, compile_fail, [''])
+test('UnsafeInfered17', normal, compile_fail, [''])
+test('UnsafeInfered18', normal, compile, [''])
+test('UnsafeInfered19', normal, compile_fail, [''])
 
 # Mixed tests
 test('Mixed01', normal, compile_fail, [''])
 test('Mixed02', normal, compile_fail, [''])
 test('Mixed03', normal, compile_fail, [''])
+
+# Trustworthy Safe modules
+test('TrustworthySafe01', normal, compile, [''])
+test('TrustworthySafe02', normal, compile, [''])
+test('TrustworthySafe03', normal, compile, [''])
+test('TrustworthySafe04', normal, compile, [''])
+
+# Check -fwarn-unsafe works
+test('UnsafeWarn01', normal, compile, [''])
+test('UnsafeWarn02', normal, compile, [''])
+test('UnsafeWarn03', normal, compile, [''])
+test('UnsafeWarn04', normal, compile, [''])
+test('UnsafeWarn05', normal, compile, [''])
+test('UnsafeWarn06', normal, compile, [''])
+test('UnsafeWarn07', normal, compile, [''])
+
+# Chck -fwa-safe works
+test('SafeWarn01', normal, compile, [''])
 

@@ -12,6 +12,8 @@
 {-# LANGUAGE UndecidableInstances #-} -- Note [Pass sensitive types]
                                       -- in module PlaceHolder
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Abstract syntax of global declarations.
 --
@@ -42,7 +44,7 @@ module HsDecls (
   -- ** Standalone deriving declarations
   DerivDecl(..), LDerivDecl,
   -- ** @RULE@ declarations
-  RuleDecl(..), LRuleDecl, RuleBndr(..),
+  RuleDecl(..), LRuleDecl, RuleBndr(..),LRuleBndr,
   collectRuleBndrSigTys,
   -- ** @VECTORISE@ declarations
   VectDecl(..), LVectDecl,
@@ -115,6 +117,10 @@ import Data.Maybe
 
 \begin{code}
 type LHsDecl id = Located (HsDecl id)
+        -- ^ When in a list this may have
+        --
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnSemi'
+        --
 
 -- | A Haskell Declaration
 data HsDecl id
@@ -457,9 +463,19 @@ type LTyClDecl name = Located (TyClDecl name)
 -- | A type or class declaration.
 data TyClDecl name
   = -- | @type/data family T :: *->*@
+    --
+    --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnType',
+    --             'ApiAnnotation.AnnData',
+    --             'ApiAnnotation.AnnFamily','ApiAnnotation.AnnWhere',
+    --             'ApiAnnotation.AnnOpen','ApiAnnotation.AnnDcolon',
+    --             'ApiAnnotation.AnnClose'
+
     FamDecl { tcdFam :: FamilyDecl name }
 
   | -- | @type@ declaration
+    --
+    --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnType',
+    --             'ApiAnnotation.AnnEqual',
     SynDecl { tcdLName  :: Located name            -- ^ Type constructor
             , tcdTyVars :: LHsTyVarBndrs name      -- ^ Type variables; for an associated type
                                                   --   these include outer binders
@@ -467,6 +483,11 @@ data TyClDecl name
             , tcdFVs    :: PostRn name NameSet }
 
   | -- | @data@ declaration
+    --
+    --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnData',
+    --              'ApiAnnotation.AnnFamily',
+    --              'ApiAnnotation.AnnNewType',
+    --              'ApiAnnotation.AnnNewType','ApiAnnotation.AnnWhere'
     DataDecl { tcdLName    :: Located name        -- ^ Type constructor
              , tcdTyVars   :: LHsTyVarBndrs name  -- ^ Type variables; for an assoicated type
                                                   --   these include outer binders
@@ -489,6 +510,12 @@ data TyClDecl name
                 tcdDocs    :: [LDocDecl],               -- ^ Haddock docs
                 tcdFVs     :: PostRn name NameSet
     }
+        -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnClass',
+        --           'ApiAnnotation.AnnWhere','ApiAnnotation.AnnOpen',
+        --           'ApiAnnotation.AnnClose'
+        --   - The tcdFDs will have 'ApiAnnotation.AnnVbar',
+        --                          'ApiAnnotation.AnnComma'
+        --                          'ApiAnnotation.AnnRarrow'
 
   deriving (Typeable)
 deriving instance (DataId id) => Data (TyClDecl id)
@@ -770,7 +797,7 @@ data HsDataDefn name   -- The payload of a data type defn
     -- @
     HsDataDefn { dd_ND     :: NewOrData,
                  dd_ctxt   :: LHsContext name,           -- ^ Context
-                 dd_cType  :: Maybe CType,
+                 dd_cType  :: Maybe (Located CType),
                  dd_kindSig:: Maybe (LHsKind name),
                      -- ^ Optional kind signature.
                      --
@@ -787,7 +814,7 @@ data HsDataDefn name   -- The payload of a data type defn
                      -- For @data T a where { T1 :: T a }@
                      --   the 'LConDecls' all have 'ResTyGADT'.
 
-                 dd_derivs :: Maybe [LHsType name]
+                 dd_derivs :: Maybe (Located [LHsType name])
                      -- ^ Derivings; @Nothing@ => not specified,
                      --              @Just []@ => derive exactly what is asked
                      --
@@ -797,7 +824,11 @@ data HsDataDefn name   -- The payload of a data type defn
                      -- @
                      -- Typically the foralls and ty args are empty, but they
                      -- are non-empty for the newtype-deriving case
-    }
+                     --
+                     --  - 'ApiAnnotation.AnnKeywordId' :
+                     --       'ApiAnnotation.AnnDeriving',
+                     --       'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose'
+   }
     deriving( Typeable )
 deriving instance (DataId id) => Data (HsDataDefn id)
 
@@ -807,25 +838,37 @@ data NewOrData
   deriving( Eq, Data, Typeable )                -- Needed because Demand derives Eq
 
 type LConDecl name = Located (ConDecl name)
+      -- ^ May have 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnSemi' when
+      --   in a GADT constructor list
 
+-- |
+--
+-- @
 -- data T b = forall a. Eq a => MkT a b
 --   MkT :: forall b a. Eq a => MkT a b
-
+--
 -- data T b where
 --      MkT1 :: Int -> T Int
-
+--
 -- data T = Int `MkT` Int
 --        | MkT2
-
+--
 -- data T a where
 --      Int `MkT` Int :: T Int
-
+-- @
+--
+-- - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnOpen',
+--            'ApiAnnotation.AnnDotdot','ApiAnnotation.AnnCLose',
+--            'ApiAnnotation.AnnEqual','ApiAnnotation.AnnVbar',
+--            'ApiAnnotation.AnnDarrow','ApiAnnotation.AnnDarrow',
+--            'ApiAnnotation.AnnForall','ApiAnnotation.AnnDot'
 data ConDecl name
   = ConDecl
-    { con_name      :: Located name
-        -- ^ Constructor name.  This is used for the DataCon itself, and for
+    { con_names     :: [Located name]
+        -- ^ Constructor names.  This is used for the DataCon itself, and for
         -- the user-callable wrapper Id.
-
+        -- It is a list to deal with GADT constructors of the form
+        --   T1, T2, T3 :: <payload>
     , con_explicit  :: HsExplicitFlag
         -- ^ Is there an user-written forall? (cf. 'HsTypes.HsForAllTy')
 
@@ -860,12 +903,12 @@ data ConDecl name
     } deriving (Typeable)
 deriving instance (DataId name) => Data (ConDecl name)
 
-type HsConDeclDetails name = HsConDetails (LBangType name) [ConDeclField name]
+type HsConDeclDetails name = HsConDetails (LBangType name) [LConDeclField name]
 
 hsConDeclArgTys :: HsConDeclDetails name -> [LBangType name]
 hsConDeclArgTys (PrefixCon tys)    = tys
 hsConDeclArgTys (InfixCon ty1 ty2) = [ty1,ty2]
-hsConDeclArgTys (RecCon flds)      = map cd_fld_type flds
+hsConDeclArgTys (RecCon flds)      = map (cd_fld_type . unLoc) flds
 
 data ResType ty
    = ResTyH98           -- Constructor was declared using Haskell 98 syntax
@@ -899,8 +942,9 @@ pp_data_defn pp_hdr (HsDataDefn { dd_ND = new_or_data, dd_ctxt = L _ context
                Nothing   -> empty
                Just kind -> dcolon <+> ppr kind
     pp_derivings = case derivings of
-                     Nothing -> empty
-                     Just ds -> hsep [ptext (sLit "deriving"), parens (interpp'SP ds)]
+                     Nothing       -> empty
+                     Just (L _ ds) -> hsep [ptext (sLit "deriving"),
+                                            parens (interpp'SP ds)]
 
 instance OutputableBndr name => Outputable (HsDataDefn name) where
    ppr d = pp_data_defn (\_ -> ptext (sLit "Naked HsDataDefn")) d
@@ -919,32 +963,48 @@ instance (OutputableBndr name) => Outputable (ConDecl name) where
     ppr = pprConDecl
 
 pprConDecl :: OutputableBndr name => ConDecl name -> SDoc
-pprConDecl (ConDecl { con_name = con, con_explicit = expl, con_qvars = tvs
+pprConDecl (ConDecl { con_names = cons, con_explicit = expl, con_qvars = tvs
                     , con_cxt = cxt, con_details = details
                     , con_res = ResTyH98, con_doc = doc })
   = sep [ppr_mbDoc doc, pprHsForAll expl tvs cxt, ppr_details details]
   where
-    ppr_details (InfixCon t1 t2) = hsep [ppr t1, pprInfixOcc (unLoc con), ppr t2]
-    ppr_details (PrefixCon tys)  = hsep (pprPrefixOcc (unLoc con) : map (pprParendHsType . unLoc) tys)
-    ppr_details (RecCon fields)  = ppr con <+> pprConDeclFields fields
+    ppr_details (InfixCon t1 t2) = hsep [ppr t1, pprInfixOcc cons, ppr t2]
+    ppr_details (PrefixCon tys)  = hsep (pprPrefixOcc cons
+                                   : map (pprParendHsType . unLoc) tys)
+    ppr_details (RecCon fields)  = ppr_con_names cons
+                                 <+> pprConDeclFields fields
 
-pprConDecl (ConDecl { con_name = con, con_explicit = expl, con_qvars = tvs
+pprConDecl (ConDecl { con_names = cons, con_explicit = expl, con_qvars = tvs
                     , con_cxt = cxt, con_details = PrefixCon arg_tys
                     , con_res = ResTyGADT res_ty })
-  = ppr con <+> dcolon <+>
+  = ppr_con_names cons <+> dcolon <+>
     sep [pprHsForAll expl tvs cxt, ppr (foldr mk_fun_ty res_ty arg_tys)]
   where
     mk_fun_ty a b = noLoc (HsFunTy a b)
 
-pprConDecl (ConDecl { con_name = con, con_explicit = expl, con_qvars = tvs
+pprConDecl (ConDecl { con_names = cons, con_explicit = expl, con_qvars = tvs
                     , con_cxt = cxt, con_details = RecCon fields, con_res = ResTyGADT res_ty })
-  = sep [ppr con <+> dcolon <+> pprHsForAll expl tvs cxt,
+  = sep [ppr_con_names cons <+> dcolon <+> pprHsForAll expl tvs cxt,
          pprConDeclFields fields <+> arrow <+> ppr res_ty]
 
 pprConDecl decl@(ConDecl { con_details = InfixCon ty1 ty2, con_res = ResTyGADT {} })
   = pprConDecl (decl { con_details = PrefixCon [ty1,ty2] })
         -- In GADT syntax we don't allow infix constructors
-        -- but the renamer puts them in this form (Note [Infix GADT constructors] in RnSource)
+        -- so if we ever trip over one (albeit I can't see how that
+        -- can happen) print it like a prefix one
+
+ppr_con_names :: (OutputableBndr name) => [Located name] -> SDoc
+ppr_con_names [x] = ppr x
+ppr_con_names xs  = interpp'SP xs
+
+instance (Outputable name) => OutputableBndr [Located name] where
+  pprBndr _bs xs = cat $ punctuate comma (map ppr xs)
+
+  pprPrefixOcc [x] = ppr x
+  pprPrefixOcc xs  = cat $ punctuate comma (map ppr xs)
+
+  pprInfixOcc [x] = ppr x
+  pprInfixOcc xs  = cat $ punctuate comma (map ppr xs)
 \end{code}
 
 %************************************************************************
@@ -973,6 +1033,8 @@ It is parameterised over its tfe_pats field:
 \begin{code}
 ----------------- Type synonym family instances -------------
 type LTyFamInstEqn  name = Located (TyFamInstEqn  name)
+  -- ^ May have 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnSemi'
+  --   when in a list
 type LTyFamDefltEqn name = Located (TyFamDefltEqn name)
 
 type HsTyPats name = HsWithBndrs name [LHsType name]
@@ -990,6 +1052,8 @@ data TyFamEqn name pats
        { tfe_tycon :: Located name
        , tfe_pats  :: pats
        , tfe_rhs   :: LHsType name }
+    -- ^
+    --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnEqual'
   deriving( Typeable )
 deriving instance (DataId name, Data pats) => Data (TyFamEqn name pats)
 
@@ -998,6 +1062,9 @@ data TyFamInstDecl name
   = TyFamInstDecl
        { tfid_eqn  :: LTyFamInstEqn name
        , tfid_fvs  :: PostRn name NameSet }
+    -- ^
+    --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnType',
+    --           'ApiAnnotation.AnnInstance',
   deriving( Typeable )
 deriving instance (DataId name) => Data (TyFamInstDecl name)
 
@@ -1009,8 +1076,13 @@ data DataFamInstDecl name
        { dfid_tycon :: Located name
        , dfid_pats  :: HsTyPats name      -- LHS
        , dfid_defn  :: HsDataDefn  name   -- RHS
-       , dfid_fvs   :: PostRn name NameSet } -- Rree vars for
-                                               -- dependency analysis
+       , dfid_fvs   :: PostRn name NameSet } -- Free vars for
+                                             -- dependency analysis
+    -- ^
+    --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnData',
+    --           'ApiAnnotation.AnnNewType','ApiAnnotation.AnnInstance',
+    --           'ApiAnnotation.AnnWhere','ApiAnnotation.AnnOpen',
+    --           'ApiAnnotation.AnnClose'
   deriving( Typeable )
 deriving instance (DataId name) => Data (DataFamInstDecl name)
 
@@ -1027,8 +1099,16 @@ data ClsInstDecl name
       , cid_sigs          :: [LSig name]             -- User-supplied pragmatic info
       , cid_tyfam_insts   :: [LTyFamInstDecl name]   -- Type family instances
       , cid_datafam_insts :: [LDataFamInstDecl name] -- Data family instances
-      , cid_overlap_mode :: Maybe OverlapMode
+      , cid_overlap_mode  :: Maybe (Located OverlapMode)
+         -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+         --                                    'ApiAnnotation.AnnClose',
+
       }
+    -- ^
+    --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnInstance',
+    --           'ApiAnnotation.AnnWhere',
+    --           'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose',
+    --
   deriving (Typeable)
 deriving instance (DataId id) => Data (ClsInstDecl id)
 
@@ -1123,15 +1203,15 @@ instance (OutputableBndr name) => Outputable (ClsInstDecl name) where
         top_matter = ptext (sLit "instance") <+> ppOverlapPragma mbOverlap
                                              <+> ppr inst_ty
 
-ppOverlapPragma :: Maybe OverlapMode -> SDoc
+ppOverlapPragma :: Maybe (Located OverlapMode) -> SDoc
 ppOverlapPragma mb =
   case mb of
     Nothing           -> empty
-    Just NoOverlap    -> ptext (sLit "{-# NO_OVERLAP #-}")
-    Just Overlappable -> ptext (sLit "{-# OVERLAPPABLE #-}")
-    Just Overlapping  -> ptext (sLit "{-# OVERLAPPING #-}")
-    Just Overlaps     -> ptext (sLit "{-# OVERLAPS #-}")
-    Just Incoherent   -> ptext (sLit "{-# INCOHERENT #-}")
+    Just (L _ NoOverlap)    -> ptext (sLit "{-# NO_OVERLAP #-}")
+    Just (L _ Overlappable) -> ptext (sLit "{-# OVERLAPPABLE #-}")
+    Just (L _ Overlapping)  -> ptext (sLit "{-# OVERLAPPING #-}")
+    Just (L _ Overlaps)     -> ptext (sLit "{-# OVERLAPS #-}")
+    Just (L _ Incoherent)   -> ptext (sLit "{-# INCOHERENT #-}")
 
 
 
@@ -1162,9 +1242,14 @@ instDeclDataFamInsts inst_decls
 \begin{code}
 type LDerivDecl name = Located (DerivDecl name)
 
-data DerivDecl name = DerivDecl { deriv_type :: LHsType name
-                                , deriv_overlap_mode :: Maybe OverlapMode
-                                }
+data DerivDecl name = DerivDecl
+        { deriv_type :: LHsType name
+        , deriv_overlap_mode :: Maybe (Located OverlapMode)
+         -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+         --                                    'ApiAnnotation.AnnClose',
+         --                                    'ApiAnnotation.AnnDeriving',
+         --                                    'ApiAnnotation.AnnInstance',
+        }
   deriving (Typeable)
 deriving instance (DataId name) => Data (DerivDecl name)
 
@@ -1188,6 +1273,9 @@ type LDefaultDecl name = Located (DefaultDecl name)
 
 data DefaultDecl name
   = DefaultDecl [LHsType name]
+        -- ^ - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnDefault',
+        --          'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose'
+
   deriving (Typeable)
 deriving instance (DataId name) => Data (DefaultDecl name)
 
@@ -1223,6 +1311,10 @@ data ForeignDecl name
                   (LHsType name) -- sig_ty
                   (PostTc name Coercion)  -- sig_ty ~ rep_ty
                   ForeignExport
+        -- ^
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnForeign',
+        --           'ApiAnnotation.AnnImport','ApiAnnotation.AnnExport',
+        --           'ApiAnnotation.AnnDcolon'
   deriving (Typeable)
 deriving instance (DataId name) => Data (ForeignDecl name)
 {-
@@ -1257,10 +1349,12 @@ data ForeignImport = -- import of a C entity
                      --
                      --  * `Safety' is irrelevant for `CLabel' and `CWrapper'
                      --
-                     CImport  CCallConv       -- ccall or stdcall
-                              Safety          -- interruptible, safe or unsafe
+                     CImport  (Located CCallConv) -- ccall or stdcall
+                              (Located Safety)  -- interruptible, safe or unsafe
                               (Maybe Header)  -- name of C header
                               CImportSpec     -- details of the C entity
+                              (Located FastString) -- original source text for
+                                                   -- the C entity
   deriving (Data, Typeable)
 
 -- details of an external C entity
@@ -1274,7 +1368,10 @@ data CImportSpec = CLabel    CLabelString     -- import address of a C label
 -- specification of an externally exported entity in dependence on the calling
 -- convention
 --
-data ForeignExport = CExport  CExportSpec    -- contains the calling convention
+data ForeignExport = CExport  (Located CExportSpec) -- contains the calling
+                                                    -- convention
+                              (Located FastString)  -- original source text for
+                                                    -- the C entity
   deriving (Data, Typeable)
 
 -- pretty printing of foreign declarations
@@ -1289,7 +1386,7 @@ instance OutputableBndr name => Outputable (ForeignDecl name) where
        2 (dcolon <+> ppr ty)
 
 instance Outputable ForeignImport where
-  ppr (CImport  cconv safety mHeader spec) =
+  ppr (CImport  cconv safety mHeader spec _) =
     ppr cconv <+> ppr safety <+>
     char '"' <> pprCEntity spec <> char '"'
     where
@@ -1309,7 +1406,7 @@ instance Outputable ForeignImport where
       pprCEntity (CWrapper) = ptext (sLit "wrapper")
 
 instance Outputable ForeignExport where
-  ppr (CExport  (CExportStatic lbl cconv)) =
+  ppr (CExport  (L _ (CExportStatic lbl cconv)) _) =
     ppr cconv <+> char '"' <> ppr lbl <> char '"'
 \end{code}
 
@@ -1325,19 +1422,29 @@ type LRuleDecl name = Located (RuleDecl name)
 
 data RuleDecl name
   = HsRule                      -- Source rule
-        RuleName                -- Rule name
+        (Located RuleName)      -- Rule name
         Activation
-        [RuleBndr name]         -- Forall'd vars; after typechecking this includes tyvars
+        [LRuleBndr name]        -- Forall'd vars; after typechecking this
+                                --   includes tyvars
         (Located (HsExpr name)) -- LHS
-        (PostRn name NameSet)        -- Free-vars from the LHS
+        (PostRn name NameSet)   -- Free-vars from the LHS
         (Located (HsExpr name)) -- RHS
-        (PostRn name NameSet)        -- Free-vars from the RHS
+        (PostRn name NameSet)   -- Free-vars from the RHS
+        -- ^
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnEqual',
+        --           'ApiAnnotation.AnnOpen','ApiAnnotation.AnnVal',
+        --           'ApiAnnotation.AnnClose','ApiAnnotation.AnnTilde',
+        --           'ApiAnnotation.AnnForall','ApiAnnotation.AnnDot',
   deriving (Typeable)
 deriving instance (DataId name) => Data (RuleDecl name)
 
+type LRuleBndr name = Located (RuleBndr name)
 data RuleBndr name
   = RuleBndr (Located name)
   | RuleBndrSig (Located name) (HsWithBndrs name (LHsType name))
+        -- ^
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+        --     'ApiAnnotation.AnnDcolon','ApiAnnotation.AnnClose'
   deriving (Typeable)
 deriving instance (DataId name) => Data (RuleBndr name)
 
@@ -1346,7 +1453,8 @@ collectRuleBndrSigTys bndrs = [ty | RuleBndrSig _ ty <- bndrs]
 
 instance OutputableBndr name => Outputable (RuleDecl name) where
   ppr (HsRule name act ns lhs _fv_lhs rhs _fv_rhs)
-        = sep [text "{-# RULES" <+> doubleQuotes (ftext name) <+> ppr act,
+        = sep [text "{-# RULES" <+> doubleQuotes (ftext $ unLoc name)
+                                <+> ppr act,
                nest 4 (pp_forall <+> pprExpr (unLoc lhs)),
                nest 4 (equals <+> pprExpr (unLoc rhs) <+> text "#-}") ]
         where
@@ -1381,18 +1489,27 @@ data VectDecl name
   = HsVect
       (Located name)
       (LHsExpr name)
+        -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+        --           'ApiAnnotation.AnnEqual','ApiAnnotation.AnnClose'
   | HsNoVect
       (Located name)
+        -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+        --                                    'ApiAnnotation.AnnClose'
   | HsVectTypeIn                -- pre type-checking
       Bool                      -- 'TRUE' => SCALAR declaration
       (Located name)
       (Maybe (Located name))    -- 'Nothing' => no right-hand side
+        -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+        --           'ApiAnnotation.AnnType','ApiAnnotation.AnnClose',
+        --           'ApiAnnotation.AnnEqual'
   | HsVectTypeOut               -- post type-checking
       Bool                      -- 'TRUE' => SCALAR declaration
       TyCon
       (Maybe TyCon)             -- 'Nothing' => no right-hand side
   | HsVectClassIn               -- pre type-checking
       (Located name)
+        -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+        --           'ApiAnnotation.AnnClass','ApiAnnotation.AnnClose',
   | HsVectClassOut              -- post type-checking
       Class
   | HsVectInstIn                -- pre type-checking (always SCALAR)  !!!FIXME: should be superfluous now
@@ -1508,6 +1625,10 @@ instance OutputableBndr name => Outputable (WarnDecl name) where
 type LAnnDecl name = Located (AnnDecl name)
 
 data AnnDecl name = HsAnnotation (AnnProvenance name) (Located (HsExpr name))
+      -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+      --           'ApiAnnotation.AnnType'
+      --           'ApiAnnotation.AnnModule'
+      --           'ApiAnnotation.AnnClose'
   deriving (Typeable)
 deriving instance (DataId name) => Data (AnnDecl name)
 
@@ -1546,6 +1667,8 @@ type LRoleAnnotDecl name = Located (RoleAnnotDecl name)
 data RoleAnnotDecl name
   = RoleAnnotDecl (Located name)         -- type constructor
                   [Located (Maybe Role)] -- optional annotations
+      -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnType',
+      --           'ApiAnnotation.AnnRole'
   deriving (Data, Typeable)
 
 instance OutputableBndr name => Outputable (RoleAnnotDecl name) where

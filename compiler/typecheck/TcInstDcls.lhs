@@ -433,8 +433,7 @@ tcInstDecls1 tycl_decls inst_decls deriv_decls
               -- (deriving can't be used there)
       && not (isHsBootOrSig (tcg_src env))
 
-    overlapCheck ty = overlapMode (is_flag $ iSpec ty) `elem`
-                        [Overlappable, Overlapping, Overlaps]
+    overlapCheck ty = overlapMode (is_flag $ iSpec ty) /= NoOverlap
     genInstCheck ty = is_cls_nm (iSpec ty) `elem` genericClassNames
     genInstErr i = hang (ptext (sLit $ "Generic instances can only be "
                             ++ "derived in Safe Haskell.") $+$ 
@@ -528,15 +527,15 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
                            
         -- Next, process any associated types.
         ; traceTc "tcLocalInstDecl" (ppr poly_ty)
-        ; tyfam_insts0 <- tcExtendTyVarEnv tyvars $
-                          mapAndRecoverM (tcAssocTyDecl clas mini_env) ats
+        ; tyfam_insts0  <- tcExtendTyVarEnv tyvars $
+                           mapAndRecoverM (tcTyFamInstDecl mb_info) ats
         ; datafam_insts <- tcExtendTyVarEnv tyvars $
                            mapAndRecoverM (tcDataFamInstDecl mb_info) adts
 
         -- Check for missing associated types and build them
         -- from their defaults (if available)
         ; let defined_ats = mkNameSet (map (tyFamInstDeclName . unLoc) ats)
-                            `unionNameSets` 
+                            `unionNameSet`
                             mkNameSet (map (unLoc . dfid_tycon . unLoc) adts)
         ; tyfam_insts1 <- mapM (tcATDefault mini_subst defined_ats) 
                                (classATItems clas)
@@ -546,7 +545,8 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
         ; dfun_name <- newDFunName clas inst_tys (getLoc poly_ty)
                 -- Dfun location is that of instance *header*
 
-        ; ispec <- newClsInst overlap_mode dfun_name tyvars theta clas inst_tys
+        ; ispec <- newClsInst (fmap unLoc overlap_mode) dfun_name tyvars theta
+                              clas inst_tys
         ; let inst_info = InstInfo { iSpec  = ispec
                                    , iBinds = InstBindings
                                      { ib_binds = binds
@@ -597,16 +597,6 @@ tcATDefault inst_subst defined_ats (ATI fam_tc defs)
       = (extendTCvSubst subst tc_tv ty', ty')
       where
         ty' = mkOnlyTyVarTy (updateTyVarKind (substTy subst) tc_tv)
-                           
-
---------------
-tcAssocTyDecl :: Class                   -- Class of associated type
-              -> VarEnv Type             -- Instantiation of class TyVars
-              -> LTyFamInstDecl Name     
-              -> TcM (FamInst)
-tcAssocTyDecl clas mini_env ldecl
-  = do { fam_inst <- tcTyFamInstDecl (Just (clas, mini_env)) ldecl
-       ; return fam_inst }
 \end{code}
 
 %************************************************************************
@@ -652,8 +642,8 @@ tcTyFamInstDecl mb_clsinfo (L loc decl@(TyFamInstDecl { tfid_eqn = eqn }))
 
          -- (0) Check it's an open type family
        ; checkTc (isFamilyTyCon fam_tc)        (notFamily fam_tc)
-       ; checkTc (isSynFamilyTyCon fam_tc)     (wrongKindOfFamily fam_tc)
-       ; checkTc (isOpenSynFamilyTyCon fam_tc) (notOpenFamily fam_tc)
+       ; checkTc (isTypeFamilyTyCon fam_tc)    (wrongKindOfFamily fam_tc)
+       ; checkTc (isOpenTypeFamilyTyCon fam_tc) (notOpenFamily fam_tc)
 
          -- (1) do the work of verifying the synonym group
        ; co_ax_branch <- tcTyFamInstEqn (famTyConShape fam_tc) eqn
@@ -709,7 +699,7 @@ tcDataFamInstDecl mb_clsinfo
 
        ; (rep_tc, fam_inst) <- fixM $ \ ~(rec_rep_tc, _) ->
            do { data_cons <- tcConDecls new_or_data rec_rep_tc
-                                       (tvs', orig_res_ty) cons
+                                        (tvs', orig_res_ty) cons
               ; tc_rhs <- case new_or_data of
                      DataType -> return (mkDataTyConRhs data_cons)
                      NewType  -> ASSERT( not (null data_cons) )
@@ -722,7 +712,7 @@ tcDataFamInstDecl mb_clsinfo
                     roles    = map (const Nominal) tvs'
                     kind     = mkPiTypesPreferFunTy tvs' liftedTypeKind
                     rep_tc   = mkAlgTyCon rep_tc_name kind
-                                          tvs' roles cType stupid_theta tc_rhs 
+                                          tvs' roles (fmap unLoc cType) stupid_theta tc_rhs 
                                           parent Recursive gadt_syntax 
                  -- We always assume that indexed types are recursive.  Why?
                  -- (1) Due to their open nature, we can never be sure that a
@@ -938,7 +928,7 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
         ; local_meth_sig <- case lookupHsSig sig_fn sel_name of
             Just hs_ty  -- There is a signature in the instance declaration
                -> do { sig_ty <- check_inst_sig hs_ty
-                     ; instTcTySig hs_ty sig_ty local_meth_name }
+                     ; instTcTySig hs_ty sig_ty Nothing [] local_meth_name }
 
             Nothing     -- No type signature
                -> do { loc <- getSrcSpanM
@@ -1012,22 +1002,27 @@ superclass is bottom when it should not be.
 
 Consider the following (extreme) situation:
         class C a => D a where ...
-        instance D [a] => D [a] where ...
+        instance D [a] => D [a] where ...   (dfunD)
+        instance C [a] => C [a] where ...   (dfunC)
 Although this looks wrong (assume D [a] to prove D [a]), it is only a
 more extreme case of what happens with recursive dictionaries, and it
 can, just about, make sense because the methods do some work before
 recursing.
 
-To implement the dfun we must generate code for the superclass C [a],
+To implement the dfunD we must generate code for the superclass C [a],
 which we had better not get by superclass selection from the supplied
 argument:
-       dfun :: forall a. D [a] -> D [a]
-       dfun = \d::D [a] -> MkD (scsel d) ..
+       dfunD :: forall a. D [a] -> D [a]
+       dfunD = \d::D [a] -> MkD (scsel d) ..
 
 Otherwise if we later encounter a situation where
 we have a [Wanted] dw::D [a] we might solve it thus:
-     dw := dfun dw
+     dw := dfunD dw
 Which is all fine except that now ** the superclass C is bottom **!
+
+The instance we want is:
+       dfunD :: forall a. D [a] -> D [a]
+       dfunD = \d::D [a] -> MkD (dfunC (scsel d)) ...
 
       THE SOLUTION
 
@@ -1139,12 +1134,10 @@ Note that
 tcSpecInst :: Id -> Sig Name -> TcM TcSpecPrag
 tcSpecInst dfun_id prag@(SpecInstSig hs_ty)
   = addErrCtxt (spec_ctxt prag) $
-    do  { let name = idName dfun_id
-        ; (tyvars, theta, clas, tys) <- tcHsInstHead SpecInstCtxt hs_ty
+    do  { (tyvars, theta, clas, tys) <- tcHsInstHead SpecInstCtxt hs_ty
         ; let (_, spec_dfun_ty) = mkDictFunTy tyvars theta clas tys
 
-        ; co_fn <- tcSubType (SpecPragOrigin name) SpecInstCtxt
-                             (idType dfun_id) spec_dfun_ty
+        ; co_fn <- tcSubType SpecInstCtxt (idType dfun_id) spec_dfun_ty
         ; return (SpecPrag dfun_id co_fn defaultInlinePragma) }
   where
     spec_ctxt prag = hang (ptext (sLit "In the SPECIALISE pragma")) 2 (ppr prag)
@@ -1243,7 +1236,8 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                                 [ getLevity "tcInstanceMethods.tc_default" meth_tau
                                 , meth_tau])
                               nO_METHOD_BINDING_ERROR_ID
-        error_msg dflags = L inst_loc (HsLit (HsStringPrim (unsafeMkByteString (error_string dflags))))
+        error_msg dflags = L inst_loc (HsLit (HsStringPrim ""
+                                              (unsafeMkByteString (error_string dflags))))
         meth_tau     = funResultTy (applyTys (idType sel_id) inst_tys)
         error_string dflags = showSDoc dflags (hcat [ppr inst_loc, text "|", ppr sel_id ])
         lam_wrapper  = mkWpTyLams tyvars <.> mkWpLams dfun_ev_vars
@@ -1486,8 +1480,8 @@ Note carefully:
 instDeclCtxt1 :: LHsType Name -> SDoc
 instDeclCtxt1 hs_inst_ty
   = inst_decl_ctxt (case unLoc hs_inst_ty of
-                        HsForAllTy _ _ _ (L _ ty') -> ppr ty'
-                        _                          -> ppr hs_inst_ty)     -- Don't expect this
+                        HsForAllTy _ _ _ _ (L _ ty') -> ppr ty'
+                        _                            -> ppr hs_inst_ty)     -- Don't expect this
 instDeclCtxt2 :: Type -> SDoc
 instDeclCtxt2 dfun_ty
   = inst_decl_ctxt (ppr (mkClassPred cls tys))

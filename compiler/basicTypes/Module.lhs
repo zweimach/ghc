@@ -72,7 +72,7 @@ module Module
         ModuleNameEnv,
 
         -- * Sets of Modules
-        ModuleSet,
+        ModuleSet, VisibleOrphanModules,
         emptyModuleSet, mkModuleSet, moduleSetElts, extendModuleSet, elemModuleSet
     ) where
 
@@ -380,7 +380,12 @@ integerPackageKey, primPackageKey,
   thPackageKey, dphSeqPackageKey, dphParPackageKey,
   mainPackageKey, thisGhcPackageKey, interactivePackageKey  :: PackageKey
 primPackageKey        = fsToPackageKey (fsLit "ghc-prim")
-integerPackageKey     = fsToPackageKey (fsLit cIntegerLibrary)
+integerPackageKey     = fsToPackageKey (fsLit n)
+  where
+    n = case cIntegerLibraryType of
+        IntegerGMP    -> "integer-gmp"
+        IntegerGMP2   -> "integer-gmp"
+        IntegerSimple -> "integer-simple"
 basePackageKey        = fsToPackageKey (fsLit "base")
 rtsPackageKey         = fsToPackageKey (fsLit "rts")
 thPackageKey          = fsToPackageKey (fsLit "template-haskell")
@@ -506,5 +511,10 @@ UniqFM.
 \begin{code}
 -- | A map keyed off of 'ModuleName's (actually, their 'Unique's)
 type ModuleNameEnv elt = UniqFM elt
+
+-- | Set of visible orphan modules, according to what modules have been directly
+-- imported.  This is based off of the dep_orphs field, which records
+-- transitively reachable orphan modules (modules that define orphan instances).
+type VisibleOrphanModules = ModuleSet
 \end{code}
 

@@ -19,13 +19,13 @@ module TcMType (
   newFlexiTyVar,
   newFlexiTyVarTy,              -- Kind -> TcM TcType
   newFlexiTyVarTys,             -- Int -> Kind -> TcM [TcType]
-  newPolyFlexiTyVarTy,
   newOpenFlexiTyVarTy,
+  newReturnTyVar,
   newMetaKindVar, newMetaKindVars,
   mkTcTyVarName, cloneMetaTyVar, 
 
   newMetaTyVar, readMetaTyVar, writeMetaTyVar, writeMetaTyVarRef,
-  newMetaDetails, isFilledMetaTyVar, isFlexiMetaTyVar,
+  newMetaDetails, isFilledMetaTyVar, isUnfilledMetaTyVar,
 
   --------------------------------
   -- Creating new evidence variables
@@ -46,8 +46,9 @@ module TcMType (
   instSkolTyCoVars, freshenTyCoVarBndrs,
 
   --------------------------------
-  -- Zonking
-  zonkTcPredType, 
+  -- Zonking and tidying
+  zonkTcPredType, zonkTidyTcType, zonkTidyOrigin,
+  tidyEvVar, tidyCt, tidySkolemInfo,
   skolemiseUnboundMetaTyVar,
   zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, zonkTcTypeAndFV,
   zonkQuantifiedTyCoVar, zonkQuantifiedTyCoVarOrType, quantifyTyCoVars,
@@ -56,7 +57,11 @@ module TcMType (
 
   zonkEvVar, zonkWC, zonkFlats, zonkId, zonkCt, zonkSkolemInfo,
 
-  tcGetGlobalTyVars, 
+  tcGetGlobalTyVars,
+
+  --------------------------------
+  -- (Named) Wildcards
+  newWildcardVar, newWildcardVarMetaKind
   ) where
 
 #include "HsVersions.h"
@@ -68,6 +73,7 @@ import Type
 import Coercion
 import Class
 import Var
+import VarEnv
 
 -- others:
 import TcRnMonad        -- TcType, amongst others
@@ -106,7 +112,7 @@ kind_var_occ = mkOccName tvName "k"
 
 newMetaKindVar :: TcM TcKind
 newMetaKindVar = do { uniq <- newUnique
-                    ; details <- newMetaDetails TauTv
+                    ; details <- newMetaDetails (TauTv False)
                     ; let kv = mkTcTyVar (mkKindName uniq) liftedTypeKind details
                     ; return (mkOnlyTyVarTy kv) }
 
@@ -334,12 +340,19 @@ newMetaTyVar meta_info kind
   = do  { uniq <- newUnique
         ; let name = mkTcTyVarName uniq s
               s = case meta_info of
-                        PolyTv     -> fsLit "s"
-                        TauTv      -> fsLit "t"
-                        FlatMetaTv -> fsLit "fmv"
-                        SigTv      -> fsLit "a"
+                        ReturnTv    -> fsLit "r"
+                        TauTv True  -> fsLit "w"
+                        TauTv False -> fsLit "t"
+                        FlatMetaTv  -> fsLit "fmv"
+                        SigTv       -> fsLit "a"
         ; details <- newMetaDetails meta_info
         ; return (mkTcTyVar name kind details) }
+
+newNamedMetaTyVar :: Name -> MetaInfo -> Kind -> TcM TcTyVar
+-- Make a new meta tyvar out of thin air
+newNamedMetaTyVar name meta_info kind
+  = do { details <- newMetaDetails meta_info
+       ; return (mkTcTyVar name kind details) }
 
 newSigTyVar :: Name -> Kind -> TcM TcTyVar
 newSigTyVar name kind
@@ -386,9 +399,9 @@ isFilledMetaTyVar tv
         ; return (isIndirect details) }
   | otherwise = return False
 
-isFlexiMetaTyVar :: TyVar -> TcM Bool
+isUnfilledMetaTyVar :: TyVar -> TcM Bool
 -- True of a un-filled-in (Flexi) meta type variable
-isFlexiMetaTyVar tv
+isUnfilledMetaTyVar tv
   | not (isTcTyVar tv) = return False
   | MetaTv { mtv_ref = ref } <- tcTyVarDetails tv
   = do  { details <- readMutVar ref
@@ -492,7 +505,7 @@ that can't ever appear in user code, so we're safe!
 
 \begin{code}
 newFlexiTyVar :: Kind -> TcM TcTyVar
-newFlexiTyVar kind = newMetaTyVar TauTv kind
+newFlexiTyVar kind = newMetaTyVar (TauTv False) kind
 
 newFlexiTyVarTy  :: Kind -> TcM TcType
 newFlexiTyVarTy kind = do
@@ -502,9 +515,8 @@ newFlexiTyVarTy kind = do
 newFlexiTyVarTys :: Int -> Kind -> TcM [TcType]
 newFlexiTyVarTys n kind = mapM newFlexiTyVarTy (nOfThem n kind)
 
-newPolyFlexiTyVarTy :: TcM TcType
-newPolyFlexiTyVarTy = do { tv <- newMetaTyVar PolyTv liftedTypeKind
-                         ; return (TyVarTy tv) }
+newReturnTyVar :: Kind -> TcM TcTyVar
+newReturnTyVar kind = newMetaTyVar ReturnTv kind
 
 -- | Create a tyvar that can be a lifted or unlifted type.
 newOpenFlexiTyVarTy :: TcM TcType
@@ -529,9 +541,11 @@ tcInstTyCoVarX origin subst tyvar
   | isTyVar tyvar
   = do  { uniq <- newUnique
                -- See Note [    -- TODO (RAE): Finish this line of comment!
+               -- TODO (RAE): See Note [OpenTypeKind accepts foralls] in TcType,
+               -- but then delete that note
         ; let info = if isSortPolymorphic (tyVarKind tyvar)
-                     then PolyTv
-                     else TauTv
+                     then ReturnTv
+                     else TauTv False
         ; details <- newMetaDetails info
         ; let name   = mkSystemName uniq (getOccName tyvar)
               kind   = substTy subst (tyVarKind tyvar)
@@ -706,13 +720,23 @@ skolemiseUnboundMetaTyVar tv details
     do  { span <- getSrcSpanM    -- Get the location from "here"
                                  -- ie where we are generalising
         ; uniq <- newUnique      -- Remove it from TcMetaTyVar unique land
-        ; kind <- zonkTcType (tyVarKind tv)
-        ; let final_name = mkInternalName uniq (getOccName tv) span
+        ; kind <- zonkTcKind (tyVarKind tv)
+        ; let tv_name = getOccName tv
+              new_tv_name = if isWildcardVar tv
+                            then generaliseWildcardVarName tv_name
+                            else tv_name
+              final_name = mkInternalName uniq new_tv_name span
               final_tv   = mkTcTyVar final_name kind details
 
         ; traceTc "Skolemising" (ppr tv <+> ptext (sLit ":=") <+> ppr final_tv)
         ; writeMetaTyVar tv (mkTyCoVarTy final_tv)
         ; return final_tv }
+  where
+    -- If a wildcard type called _a is generalised, we rename it to tw_a
+    generaliseWildcardVarName :: OccName -> OccName
+    generaliseWildcardVarName name | startsWithUnderscore name
+      = mkOccNameFS (occNameSpace name) (appendFS (fsLit "w") (occNameFS name))
+    generaliseWildcardVarName name = name
 \end{code}
 
 Note [Zonking to Skolem]
@@ -1058,4 +1082,118 @@ zonkTcTyCoVar tv
     zonk_kind_and_return = do { z_tv <- zonkTyCoVarKind tv
                               ; return (mkTyCoVarTy z_tv) }
 
+\end{code}
+
+%************************************************************************
+%*                                                                      *
+                 Tidying
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+zonkTidyTcType :: TidyEnv -> TcType -> TcM (TidyEnv, TcType)
+zonkTidyTcType env ty = do { ty' <- zonkTcType ty
+                           ; return (tidyOpenType env ty') }
+
+zonkTidyOrigin :: TidyEnv -> CtOrigin -> TcM (TidyEnv, CtOrigin)
+zonkTidyOrigin env (GivenOrigin skol_info)
+  = do { skol_info1 <- zonkSkolemInfo skol_info
+       ; let (env1, skol_info2) = tidySkolemInfo env skol_info1
+       ; return (env1, GivenOrigin skol_info2) }
+zonkTidyOrigin env (TypeEqOrigin { uo_actual = act, uo_expected = exp })
+  = do { (env1, act') <- zonkTidyTcType env  act
+       ; (env2, exp') <- zonkTidyTcType env1 exp
+       ; return ( env2, TypeEqOrigin { uo_actual = act', uo_expected = exp' }) }
+zonkTidyOrigin env (KindEqOrigin ty1 ty2 orig)
+  = do { (env1, ty1') <- zonkTidyTcType env  ty1
+       ; (env2, ty2') <- zonkTidyTcType env1 ty2
+       ; (env3, orig') <- zonkTidyOrigin env2 orig
+       ; return (env3, KindEqOrigin ty1' ty2' orig') }
+zonkTidyOrigin env (FunDepOrigin1 p1 l1 p2 l2)
+  = do { (env1, p1') <- zonkTidyTcType env  p1
+       ; (env2, p2') <- zonkTidyTcType env1 p2
+       ; return (env2, FunDepOrigin1 p1' l1 p2' l2) }
+zonkTidyOrigin env (FunDepOrigin2 p1 o1 p2 l2)
+  = do { (env1, p1') <- zonkTidyTcType env  p1
+       ; (env2, p2') <- zonkTidyTcType env1 p2
+       ; (env3, o1') <- zonkTidyOrigin env2 o1
+       ; return (env3, FunDepOrigin2 p1' o1' p2' l2) }
+zonkTidyOrigin env orig = return (env, orig)
+
+----------------
+tidyCt :: TidyEnv -> Ct -> Ct
+-- Used only in error reporting
+-- Also converts it to non-canonical
+tidyCt env ct
+  = case ct of
+     CHoleCan { cc_ev = ev }
+       -> ct { cc_ev = tidy_ev env ev }
+     _ -> mkNonCanonical (tidy_ev env (ctEvidence ct))
+  where
+    tidy_ev :: TidyEnv -> CtEvidence -> CtEvidence
+     -- NB: we do not tidy the ctev_evtm/var field because we don't
+     --     show it in error messages
+    tidy_ev env ctev@(CtGiven { ctev_pred = pred })
+      = ctev { ctev_pred = tidyType env pred }
+    tidy_ev env ctev@(CtWanted { ctev_pred = pred })
+      = ctev { ctev_pred = tidyType env pred }
+    tidy_ev env ctev@(CtDerived { ctev_pred = pred })
+      = ctev { ctev_pred = tidyType env pred }
+
+----------------
+tidyEvVar :: TidyEnv -> EvVar -> EvVar
+tidyEvVar env var = setVarType var (tidyType env (varType var))
+
+----------------
+tidySkolemInfo :: TidyEnv -> SkolemInfo -> (TidyEnv, SkolemInfo)
+tidySkolemInfo env (SigSkol cx ty)
+  = (env', SigSkol cx ty')
+  where
+    (env', ty') = tidyOpenType env ty
+
+tidySkolemInfo env (InferSkol ids)
+  = (env', InferSkol ids')
+  where
+    (env', ids') = mapAccumL do_one env ids
+    do_one env (name, ty) = (env', (name, ty'))
+       where
+         (env', ty') = tidyOpenType env ty
+
+tidySkolemInfo env (UnifyForAllSkol skol_tvs ty)
+  = (env1, UnifyForAllSkol skol_tvs' ty')
+  where
+    env1 = tidyFreeTyVars env (tyCoVarsOfType ty `delVarSetList` skol_tvs)
+    (env2, skol_tvs') = tidyTyCoVarBndrs env1 skol_tvs
+    ty'               = tidyType env2 ty
+
+tidySkolemInfo env info = (env, info)
+\end{code}
+%************************************************************************
+%*                                                                      *
+        (Named) Wildcards
+%*                                                                      *
+%************************************************************************
+
+\begin{code}
+
+
+-- | Create a new meta var with the given kind. This meta var should be used
+-- to replace a wildcard in a type. Such a wildcard meta var can be
+-- distinguished from other meta vars with the 'isWildcardVar' function.
+newWildcardVar :: Name -> Kind -> TcM TcTyVar
+newWildcardVar name kind = newNamedMetaTyVar name (TauTv True) kind
+
+-- | Create a new meta var (which can unify with a type of any kind). This
+-- meta var should be used to replace a wildcard in a type. Such a wildcard
+-- meta var can be distinguished from other meta vars with the 'isWildcardVar'
+-- function.
+newWildcardVarMetaKind :: Name -> TcM TcTyVar
+newWildcardVarMetaKind name = do kind <- newMetaKindVar
+                                 newWildcardVar name kind
+
+-- | Return 'True' if the argument is a meta var created for a wildcard (by
+-- 'newWildcardVar' or 'newWildcardVarMetaKind').
+isWildcardVar :: TcTyVar -> Bool
+isWildcardVar tv | isTcTyVar tv, MetaTv (TauTv True) _ _ <- tcTyVarDetails tv = True
+isWildcardVar _ = False
 \end{code}

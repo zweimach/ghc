@@ -166,16 +166,17 @@ untidy_con :: HsConPatDetails Name -> HsConPatDetails Name
 untidy_con (PrefixCon pats) = PrefixCon (map untidy_pars pats)
 untidy_con (InfixCon p1 p2) = InfixCon  (untidy_pars p1) (untidy_pars p2)
 untidy_con (RecCon (HsRecFields flds dd))
-  = RecCon (HsRecFields [ fld { hsRecFieldArg = untidy_pars (hsRecFieldArg fld) }
-                        | fld <- flds ] dd)
+  = RecCon (HsRecFields [ L l (fld { hsRecFieldArg
+                                            = untidy_pars (hsRecFieldArg fld) })
+                        | L l fld <- flds ] dd)
 
 pars :: NeedPars -> WarningPat -> Pat Name
 pars True p = ParPat p
 pars _    p = unLoc p
 
 untidy_lit :: HsLit -> HsLit
-untidy_lit (HsCharPrim c) = HsChar c
-untidy_lit lit            = lit
+untidy_lit (HsCharPrim src c) = HsChar src c
+untidy_lit lit                = lit
 \end{code}
 
 This equation is the same that check, the only difference is that the
@@ -458,9 +459,12 @@ get_lit :: Pat id -> Maybe HsLit
 -- It doesn't matter which one, because they will only be compared
 -- with other HsLits gotten in the same way
 get_lit (LitPat lit)                                      = Just lit
-get_lit (NPat (OverLit { ol_val = HsIntegral i})    mb _) = Just (HsIntPrim   (mb_neg negate              mb i))
-get_lit (NPat (OverLit { ol_val = HsFractional f }) mb _) = Just (HsFloatPrim (mb_neg negateFractionalLit mb f))
-get_lit (NPat (OverLit { ol_val = HsIsString s })   _  _) = Just (HsStringPrim (fastStringToByteString s))
+get_lit (NPat (OverLit { ol_val = HsIntegral src i})    mb _)
+                        = Just (HsIntPrim src (mb_neg negate              mb i))
+get_lit (NPat (OverLit { ol_val = HsFractional f }) mb _)
+                        = Just (HsFloatPrim (mb_neg negateFractionalLit mb f))
+get_lit (NPat (OverLit { ol_val = HsIsString src s })   _  _)
+                        = Just (HsStringPrim src (fastStringToByteString s))
 get_lit _                                                 = Nothing
 
 mb_neg :: (a -> a) -> Maybe b -> a -> a
@@ -742,8 +746,9 @@ tidy_lit_pat :: HsLit -> Pat Id
 -- Unpack string patterns fully, so we can see when they
 -- overlap with each other, or even explicit lists of Chars.
 tidy_lit_pat lit
-  | HsString s <- lit
-  = unLoc $ foldr (\c pat -> mkPrefixConPat consDataCon [mkCharLitPat c, pat] [charTy])
+  | HsString src s <- lit
+  = unLoc $ foldr (\c pat -> mkPrefixConPat consDataCon
+                                             [mkCharLitPat src c, pat] [charTy])
                   (mkPrefixConPat nilDataCon [] [charTy]) (unpackFS s)
   | otherwise
   = tidyLitPat lit
@@ -765,7 +770,8 @@ tidy_con con (RecCon (HsRecFields fs _))
     field_pats = case con of
         RealDataCon dc -> map (\ f -> (f, nlWildPatId)) (dataConFieldLabels dc)
         PatSynCon{}    -> panic "Check.tidy_con: pattern synonym with record syntax"
-    all_pats = foldr (\(HsRecField id p _) acc -> insertNm (getName (unLoc id)) p acc)
+    all_pats = foldr (\(L _ (HsRecField id p _)) acc
+                                         -> insertNm (getName (unLoc id)) p acc)
                      field_pats fs
 
     insertNm nm p [] = [(nm,p)]

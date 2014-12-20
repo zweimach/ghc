@@ -11,6 +11,10 @@ module Packages (
         -- * Reading the package config, and processing cmdline args
         PackageState(preloadPackages),
         initPackages,
+        readPackageConfigs,
+        getPackageConfRefs,
+        resolvePackageConfig,
+        readPackageConfig,
 
         -- * Querying the package config
         lookupPackage,
@@ -35,7 +39,6 @@ module Packages (
 
         collectIncludeDirs, collectLibraryPaths, collectLinkOpts,
         packageHsLibs,
-        ModuleExport(..),
 
         -- * Utils
         packageKeyPackageIdString,
@@ -211,17 +214,6 @@ originEmpty :: ModuleOrigin -> Bool
 originEmpty (ModOrigin Nothing [] [] False) = True
 originEmpty _ = False
 
--- | When we do a plain lookup (e.g. for an import), initially, all we want
--- to know is if we can find it or not (and if we do and it's a reexport,
--- what the real name is).  If the find fails, we'll want to investigate more
--- to give a good error message.
-data SimpleModuleConf =
-    SModConf Module PackageConfig ModuleOrigin
-  | SModConfAmbiguous
-
--- | 'UniqFM' map from 'ModuleName'
-type ModuleNameMap = UniqFM
-
 -- | 'UniqFM' map from 'PackageKey'
 type PackageKeyMap = UniqFM
 
@@ -252,10 +244,6 @@ data PackageState = PackageState {
   -- should be in reverse dependency order; that is, a package
   -- is always mentioned before the packages it depends on.
   preloadPackages      :: [PackageKey],
-
-  -- | This is a simplified map from 'ModuleName' to original 'Module' and
-  -- package configuration providing it.
-  moduleToPkgConf       :: ModuleNameMap SimpleModuleConf,
 
   -- | This is a full map from 'ModuleName' to all modules which may possibly
   -- be providing it.  These providers may be hidden (but we'll still want
@@ -344,27 +332,27 @@ initPackages dflags = do
 
 readPackageConfigs :: DynFlags -> IO [PackageConfig]
 readPackageConfigs dflags = do
+  conf_refs <- getPackageConfRefs dflags
+  confs     <- liftM catMaybes $ mapM (resolvePackageConfig dflags) conf_refs
+  liftM concat $ mapM (readPackageConfig dflags) confs
+
+getPackageConfRefs :: DynFlags -> IO [PkgConfRef]
+getPackageConfRefs dflags = do
   let system_conf_refs = [UserPkgConf, GlobalPkgConf]
 
   e_pkg_path <- tryIO (getEnv "GHC_PACKAGE_PATH")
   let base_conf_refs = case e_pkg_path of
         Left _ -> system_conf_refs
         Right path
-         | null (last cs)
-         -> map PkgConfFile (init cs) ++ system_conf_refs
+         | not (null path) && isSearchPathSeparator (last path)
+         -> map PkgConfFile (splitSearchPath (init path)) ++ system_conf_refs
          | otherwise
-         -> map PkgConfFile cs
-         where cs = parseSearchPath path
-         -- if the path ends in a separator (eg. "/foo/bar:")
-         -- then we tack on the system paths.
+         -> map PkgConfFile (splitSearchPath path)
 
-  let conf_refs = reverse (extraPkgConfs dflags base_conf_refs)
+  return $ reverse (extraPkgConfs dflags base_conf_refs)
   -- later packages shadow earlier ones.  extraPkgConfs
   -- is in the opposite order to the flags on the
   -- command line.
-  confs <- liftM catMaybes $ mapM (resolvePackageConfig dflags) conf_refs
-
-  liftM concat $ mapM (readPackageConfig dflags) confs
 
 resolvePackageConfig :: DynFlags -> PkgConfRef -> IO (Maybe FilePath)
 resolvePackageConfig dflags GlobalPkgConf = return $ Just (systemPackageConfig dflags)
@@ -493,26 +481,19 @@ applyPackageFlag
 
 applyPackageFlag dflags unusable (pkgs, vm) flag =
   case flag of
-    ExposePackage arg m_rns ->
+    ExposePackage arg (ModRenaming b rns) ->
        case selectPackages (matching arg) pkgs unusable of
          Left ps         -> packageFlagErr dflags flag ps
          Right (p:_,_) -> return (pkgs, vm')
           where
            n = fsPackageName p
-           vm' = addToUFM_C edit vm_cleared (calcKey p)
-                              (case m_rns of
-                                   Nothing   -> (True, [], n)
-                                   Just rns' -> (False, map convRn rns', n))
+           vm' = addToUFM_C edit vm_cleared (calcKey p) (b, map convRn rns, n)
            edit (b, rns, n) (b', rns', _) = (b || b', rns ++ rns', n)
            convRn (a,b) = (mkModuleName a, mkModuleName b)
            -- ToDo: ATM, -hide-all-packages implicitly triggers change in
            -- behavior, maybe eventually make it toggleable with a separate
            -- flag
            vm_cleared | gopt Opt_HideAllPackages dflags = vm
-                      -- NB: -package foo-0.1 (Foo as Foo1) does NOT hide
-                      -- other versions of foo. Presence of renaming means
-                      -- user probably wanted both.
-                      | Just _ <- m_rns = vm
                       | otherwise = filterUFM_Directly
                             (\k (_,_,n') -> k == getUnique (calcKey p)
                                                 || n /= n') vm
@@ -610,9 +591,10 @@ pprFlag flag = case flag of
                      PackageArg    p -> text "-package " <> text p
                      PackageIdArg  p -> text "-package-id " <> text p
                      PackageKeyArg p -> text "-package-key " <> text p
-        ppr_rns Nothing = Outputable.empty
-        ppr_rns (Just rns) = char '(' <> hsep (punctuate comma (map ppr_rn rns))
-                                      <> char ')'
+        ppr_rns (ModRenaming True []) = Outputable.empty
+        ppr_rns (ModRenaming b rns) =
+            if b then text "with" else Outputable.empty <+>
+            char '(' <> hsep (punctuate comma (map ppr_rn rns)) <> char ')'
         ppr_rn (orig, new) | orig == new = text orig
                            | otherwise = text orig <+> text "as" <+> text new
 
@@ -997,7 +979,6 @@ mkPackageState dflags pkgs0 preload0 this_package = do
   let pstate = PackageState{
     preloadPackages     = dep_preload,
     pkgIdMap            = pkg_db,
-    moduleToPkgConf     = mkModuleToPkgConf dflags pkg_db ipid_map vis_map,
     moduleToPkgConfAll  = mkModuleToPkgConfAll dflags pkg_db ipid_map vis_map,
     installedPackageIdMap = ipid_map
     }
@@ -1007,38 +988,34 @@ mkPackageState dflags pkgs0 preload0 this_package = do
 -- -----------------------------------------------------------------------------
 -- | Makes the mapping from module to package info
 
--- | This function is generic; we instantiate it
-mkModuleToPkgConfGeneric
-  :: forall m e.
-     -- Empty map, e.g. the initial state of the output
-     m e
-     -- How to create an entry in the map based on the calculated information
-  -> (PackageKey -> ModuleName -> PackageConfig -> ModuleOrigin -> e)
-     -- How to override the origin of an entry (used for renaming)
-  -> (e -> ModuleOrigin -> e)
-     -- How to incorporate a list of entries into the map
-  -> (m e -> [(ModuleName, e)] -> m e)
-  -- The proper arguments
-  -> DynFlags
+mkModuleToPkgConfAll
+  :: DynFlags
   -> PackageConfigMap
   -> InstalledPackageIdMap
   -> VisibilityMap
-  -> m e
-mkModuleToPkgConfGeneric emptyMap sing setOrigins addListTo
-                         dflags pkg_db ipid_map vis_map =
+  -> ModuleToPkgConfAll
+mkModuleToPkgConfAll dflags pkg_db ipid_map vis_map =
     foldl' extend_modmap emptyMap (eltsUFM pkg_db)
  where
+  emptyMap = Map.empty
+  sing pk m _ = Map.singleton (mkModule pk m)
+  addListTo = foldl' merge
+  merge m (k, v) = Map.insertWith (Map.unionWith mappend) k v m
+  setOrigins m os = fmap (const os) m
   extend_modmap modmap pkg = addListTo modmap theBindings
    where
-    theBindings :: [(ModuleName, e)]
+    theBindings :: [(ModuleName, Map Module ModuleOrigin)]
     theBindings | Just (b,rns,_) <- lookupUFM vis_map (packageConfigId pkg)
                               = newBindings b rns
                 | otherwise   = newBindings False []
 
-    newBindings :: Bool -> [(ModuleName, ModuleName)] -> [(ModuleName, e)]
+    newBindings :: Bool
+                -> [(ModuleName, ModuleName)]
+                -> [(ModuleName, Map Module ModuleOrigin)]
     newBindings e rns  = es e ++ hiddens ++ map rnBinding rns
 
-    rnBinding :: (ModuleName, ModuleName) -> (ModuleName, e)
+    rnBinding :: (ModuleName, ModuleName)
+              -> (ModuleName, Map Module ModuleOrigin)
     rnBinding (orig, new) = (new, setOrigins origEntry fromFlag)
      where origEntry = case lookupUFM esmap orig of
             Just r -> r
@@ -1046,19 +1023,20 @@ mkModuleToPkgConfGeneric emptyMap sing setOrigins addListTo
                         (text "package flag: could not find module name" <+>
                             ppr orig <+> text "in package" <+> ppr pk)))
 
-    es :: Bool -> [(ModuleName, e)]
-    es e =
-     [(m, sing pk  m  pkg  (fromExposedModules e)) | m <- exposed_mods] ++
-     [(m, sing pk' m' pkg' (fromReexportedModules e pkg))
-     | ModuleExport {
-         exportModuleName         = m,
-         exportOriginalPackageId  = ipid',
-         exportOriginalModuleName = m'
-       } <- reexported_mods
-     , let pk' = expectJust "mkModuleToPkgConf" (Map.lookup ipid' ipid_map)
-           pkg' = pkg_lookup pk' ]
+    es :: Bool -> [(ModuleName, Map Module ModuleOrigin)]
+    es e = do
+     -- TODO: signature support
+     ExposedModule m exposedReexport _exposedSignature <- exposed_mods
+     let (pk', m', pkg', origin') =
+          case exposedReexport of
+           Nothing -> (pk, m, pkg, fromExposedModules e)
+           Just (OriginalModule ipid' m') ->
+            let pk' = expectJust "mkModuleToPkgConf" (Map.lookup ipid' ipid_map)
+                pkg' = pkg_lookup pk'
+            in (pk', m', pkg', fromReexportedModules e pkg')
+     return (m, sing pk' m' pkg' origin')
 
-    esmap :: UniqFM e
+    esmap :: UniqFM (Map Module ModuleOrigin)
     esmap = listToUFM (es False) -- parameter here doesn't matter, orig will
                                  -- be overwritten
 
@@ -1068,47 +1046,7 @@ mkModuleToPkgConfGeneric emptyMap sing setOrigins addListTo
     pkg_lookup = expectJust "mkModuleToPkgConf" . lookupPackage' pkg_db
 
     exposed_mods = exposedModules pkg
-    reexported_mods = reexportedModules pkg
     hidden_mods = hiddenModules pkg
-
--- | This is a quick and efficient module map, which only contains an entry
--- if it is specified unambiguously.
-mkModuleToPkgConf
-  :: DynFlags
-  -> PackageConfigMap
-  -> InstalledPackageIdMap
-  -> VisibilityMap
-  -> ModuleNameMap SimpleModuleConf
-mkModuleToPkgConf =
-  mkModuleToPkgConfGeneric emptyMap sing setOrigins addListTo
-    where emptyMap = emptyUFM
-          sing pk m pkg = SModConf (mkModule pk m) pkg
-          -- NB: don't put hidden entries in the map, they're not valid!
-          addListTo m xs = addListToUFM_C merge m (filter isVisible xs)
-          isVisible (_, SModConf _ _ o) = originVisible o
-          isVisible (_, SModConfAmbiguous) = False
-          merge (SModConf m pkg o) (SModConf m' _ o')
-              | m == m' = SModConf m pkg (o `mappend` o')
-              | otherwise = SModConfAmbiguous
-          merge _ _ = SModConfAmbiguous
-          setOrigins (SModConf m pkg _) os = SModConf m pkg os
-          setOrigins SModConfAmbiguous _ = SModConfAmbiguous
-
--- | This is a slow and complete map, which includes information about
--- everything, including hidden modules
-mkModuleToPkgConfAll
-  :: DynFlags
-  -> PackageConfigMap
-  -> InstalledPackageIdMap
-  -> VisibilityMap
-  -> ModuleToPkgConfAll
-mkModuleToPkgConfAll =
-  mkModuleToPkgConfGeneric emptyMap sing setOrigins addListTo
-    where emptyMap = Map.empty
-          sing pk m _ = Map.singleton (mkModule pk m)
-          addListTo = foldl' merge
-          merge m (k, v) = Map.insertWith (Map.unionWith mappend) k v m
-          setOrigins m os = fmap (const os) m
 
 -- -----------------------------------------------------------------------------
 -- Extracting information from the packages in scope
@@ -1241,17 +1179,11 @@ lookupModuleWithSuggestions :: DynFlags
                             -> Maybe FastString
                             -> LookupResult
 lookupModuleWithSuggestions dflags m mb_pn
-  = case lookupUFM (moduleToPkgConf pkg_state) m of
-     Just (SModConf m pkg o) | matches mb_pn pkg o ->
-        ASSERT( originVisible o ) LookupFound m pkg
-     _ -> case Map.lookup m (moduleToPkgConfAll pkg_state) of
+  = case Map.lookup m (moduleToPkgConfAll pkg_state) of
         Nothing -> LookupNotFound suggestions
         Just xs ->
           case foldl' classify ([],[],[]) (Map.toList xs) of
             ([], [], []) -> LookupNotFound suggestions
-            -- NB: Yes, we have to check this case too, since package qualified
-            -- imports could cause the main lookup to fail due to ambiguity,
-            -- but the second lookup to succeed.
             (_, _, [(m, _)])             -> LookupFound m (mod_pkg m)
             (_, _, exposed@(_:_))        -> LookupMultiple exposed
             (hidden_pkg, hidden_mod, []) -> LookupHidden hidden_pkg hidden_mod
@@ -1268,9 +1200,6 @@ lookupModuleWithSuggestions dflags m mb_pn
     pkg_lookup = expectJust "lookupModuleWithSuggestions" . lookupPackage dflags
     pkg_state = pkgState dflags
     mod_pkg = pkg_lookup . modulePackageKey
-
-    matches Nothing _ _ = True -- shortcut for efficiency
-    matches mb_pn pkg o = originVisible (filterOrigin mb_pn pkg o)
 
     -- Filters out origins which are not associated with the given package
     -- qualifier.  No-op if there is no package qualifier.  Test if this

@@ -69,7 +69,11 @@ import qualified Data.Sequence as Seq
 import Data.Monoid (mappend)
 #endif
 import Data.Sequence (viewl, ViewL(..))
+#if __GLASGOW_HASKELL__ >= 709
+import Foreign
+#else
 import Foreign.Safe
+#endif
 import System.IO.Unsafe
 
 ---------------------------------------------
@@ -573,6 +577,7 @@ runTR_maybe hsc_env thing_inside
                                 thing_inside
        ; return res }
 
+-- | Term Reconstruction trace
 traceTR :: SDoc -> TR ()
 traceTR = liftTcM . traceOptTcRn Opt_D_dump_rtti
 

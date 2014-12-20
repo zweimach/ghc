@@ -1,6 +1,6 @@
 stack:
 
-- examine Derived case of homogeniseRhsKind. I think we can do better.
+- do we need WpEvPrimApp?
 
 - examine extractDataDefnKindVars. Why use FreeKiTyVars? Should just be one pile, I think.
 

@@ -481,6 +481,10 @@ run_thread:
     // happened.  So find the new location:
     t = cap->r.rCurrentTSO;
 
+    // cap->r.rCurrentTSO is charged for calls to allocate(), so we
+    // don't want it set when not running a Haskell thread.
+    cap->r.rCurrentTSO = NULL;
+
     // And save the current errno in this thread.
     // XXX: possibly bogus for SMP because this thread might already
     // be running again, see code below.
@@ -1078,6 +1082,21 @@ schedulePostRunThread (Capability *cap, StgTSO *t)
         }
     }
 
+    //
+    // If the current thread's allocation limit has run out, send it
+    // the AllocationLimitExceeded exception.
+
+    if (t->alloc_limit < 0 && (t->flags & TSO_ALLOC_LIMIT)) {
+        // Use a throwToSelf rather than a throwToSingleThreaded, because
+        // it correctly handles the case where the thread is currently
+        // inside mask.  Also the thread might be blocked (e.g. on an
+        // MVar), and throwToSingleThreaded doesn't unblock it
+        // correctly in that case.
+        throwToSelf(cap, t, allocationLimitExceeded_closure);
+        t->alloc_limit = (StgInt64)RtsFlags.GcFlags.allocLimitGrace
+            * BLOCK_SIZE;
+    }
+
   /* some statistics gathering in the parallel case */
 }
 
@@ -1106,21 +1125,16 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 
         // don't do this if the nursery is (nearly) full, we'll GC first.
         if (cap->r.rCurrentNursery->link != NULL ||
-            cap->r.rNursery->n_blocks == 1) {  // paranoia to prevent infinite loop
-                                               // if the nursery has only one block.
+            cap->r.rNursery->n_blocks == 1) {  // paranoia to prevent
+                                               // infinite loop if the
+                                               // nursery has only one
+                                               // block.
 
             bd = allocGroup_lock(blocks);
             cap->r.rNursery->n_blocks += blocks;
 
-            // link the new group into the list
-            bd->link = cap->r.rCurrentNursery;
-            bd->u.back = cap->r.rCurrentNursery->u.back;
-            if (cap->r.rCurrentNursery->u.back != NULL) {
-                cap->r.rCurrentNursery->u.back->link = bd;
-            } else {
-                cap->r.rNursery->blocks = bd;
-            }
-            cap->r.rCurrentNursery->u.back = bd;
+            // link the new group after CurrentNursery
+            dbl_link_insert_after(bd, cap->r.rCurrentNursery);
 
             // initialise it as a nursery block.  We initialise the
             // step, gen_no, and flags field of *every* sub-block in
@@ -1143,6 +1157,7 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
             IF_DEBUG(sanity, checkNurserySanity(cap->r.rNursery));
 
             // now update the nursery to point to the new block
+            finishedNurseryBlock(cap, cap->r.rCurrentNursery);
             cap->r.rCurrentNursery = bd;
 
             // we might be unlucky and have another thread get on the
@@ -1152,6 +1167,12 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
             pushOnRunQueue(cap,t);
             return rtsFalse;  /* not actually GC'ing */
         }
+    }
+
+    if (getNewNursery(cap)) {
+        debugTrace(DEBUG_sched, "thread %ld got a new nursery", t->id);
+        pushOnRunQueue(cap,t);
+        return rtsFalse;
     }
 
     if (cap->r.rHpLim == NULL || cap->context_switch) {
@@ -2213,6 +2234,9 @@ suspendThread (StgRegTable *reg, rtsBool interruptible)
   // Hand back capability
   task->incall->suspended_tso = tso;
   task->incall->suspended_cap = cap;
+
+  // Otherwise allocate() will write to invalid memory.
+  cap->r.rCurrentTSO = NULL;
 
   ACQUIRE_LOCK(&cap->lock);
 

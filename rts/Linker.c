@@ -155,6 +155,10 @@ ObjectCode *objects = NULL;     /* initially empty */
    to be actually freed via checkUnload() */
 ObjectCode *unloaded_objects = NULL; /* initially empty */
 
+#ifdef THREADED_RTS
+Mutex linker_mutex;
+#endif
+
 /* Type of the initializer */
 typedef void (*init_t) (int argc, char **argv, char **env);
 
@@ -1264,6 +1268,10 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(rtsSupportsBoundThreads)                            \
       SymI_HasProto(rts_isProfiled)                                     \
       SymI_HasProto(rts_isDynamic)                                      \
+      SymI_HasProto(rts_getThreadAllocationCounter)                     \
+      SymI_HasProto(rts_setThreadAllocationCounter)                     \
+      SymI_HasProto(rts_enableThreadAllocationLimit)                    \
+      SymI_HasProto(rts_disableThreadAllocationLimit)                   \
       SymI_HasProto(setProgArgv)                                        \
       SymI_HasProto(startupHaskell)                                     \
       SymI_HasProto(shutdownHaskell)                                    \
@@ -1635,6 +1643,7 @@ initLinker_ (int retain_cafs)
 
 #if defined(THREADED_RTS) && (defined(OBJFORMAT_ELF) || defined(OBJFORMAT_MACHO))
     initMutex(&dl_mutex);
+    initMutex(&linker_mutex);
 #endif
     symhash = allocStrHashTable();
 
@@ -1724,6 +1733,9 @@ exitLinker( void ) {
    if (linker_init_done == 1) {
        freeHashTable(symhash, free);
    }
+#ifdef THREADED_RTS
+   closeMutex(&linker_mutex);
+#endif
 }
 
 /* -----------------------------------------------------------------------------
@@ -1827,7 +1839,7 @@ internal_dlopen(const char *dll_name)
    // (see POSIX also)
 
    ACQUIRE_LOCK(&dl_mutex);
-   hdl = dlopen(dll_name, RTLD_LAZY | RTLD_GLOBAL);
+   hdl = dlopen(dll_name, RTLD_LAZY|RTLD_LOCAL); /* see Note [RTLD_LOCAL] */
 
    errmsg = NULL;
    if (hdl == NULL) {
@@ -1837,11 +1849,12 @@ internal_dlopen(const char *dll_name)
       errmsg_copy = stgMallocBytes(strlen(errmsg)+1, "addDLL");
       strcpy(errmsg_copy, errmsg);
       errmsg = errmsg_copy;
+   } else {
+      o_so = stgMallocBytes(sizeof(OpenedSO), "addDLL");
+      o_so->handle = hdl;
+      o_so->next   = openedSOs;
+      openedSOs    = o_so;
    }
-   o_so = stgMallocBytes(sizeof(OpenedSO), "addDLL");
-   o_so->handle = hdl;
-   o_so->next   = openedSOs;
-   openedSOs    = o_so;
 
    RELEASE_LOCK(&dl_mutex);
    //--------------- End critical section -------------------
@@ -1849,14 +1862,39 @@ internal_dlopen(const char *dll_name)
    return errmsg;
 }
 
+/*
+  Note [RTLD_LOCAL]
+
+  In GHCi we want to be able to override previous .so's with newly
+  loaded .so's when we recompile something.  This further implies that
+  when we look up a symbol in internal_dlsym() we have to iterate
+  through the loaded libraries (in order from most recently loaded to
+  oldest) looking up the symbol in each one until we find it.
+
+  However, this can cause problems for some symbols that are copied
+  by the linker into the executable image at runtime - see #8935 for a
+  lengthy discussion.  To solve that problem we need to look up
+  symbols in the main executable *first*, before attempting to look
+  them up in the loaded .so's.  But in order to make that work, we
+  have to always call dlopen with RTLD_LOCAL, so that the loaded
+  libraries don't populate the global symbol table.
+*/
+
 static void *
-internal_dlsym(void *hdl, const char *symbol) {
+internal_dlsym(const char *symbol) {
     OpenedSO* o_so;
     void *v;
 
     // We acquire dl_mutex as concurrent dl* calls may alter dlerror
     ACQUIRE_LOCK(&dl_mutex);
     dlerror();
+    // look in program first
+    v = dlsym(dl_prog_handle, symbol);
+    if (dlerror() == NULL) {
+        RELEASE_LOCK(&dl_mutex);
+        return v;
+    }
+
     for (o_so = openedSOs; o_so != NULL; o_so = o_so->next) {
         v = dlsym(o_so->handle, symbol);
         if (dlerror() == NULL) {
@@ -1864,7 +1902,6 @@ internal_dlsym(void *hdl, const char *symbol) {
             return v;
         }
     }
-    v = dlsym(hdl, symbol);
     RELEASE_LOCK(&dl_mutex);
     return v;
 }
@@ -1884,8 +1921,6 @@ addDLL( pathchar *dll_name )
 #define MAXLINE 1000
    char line[MAXLINE];
    int result;
-
-   initLinker();
 
    IF_DEBUG(linker, debugBelch("addDLL: dll_name = '%s'\n", dll_name));
    errmsg = internal_dlopen(dll_name);
@@ -1947,8 +1982,6 @@ addDLL( pathchar *dll_name )
    pathchar*      buf;
    OpenedDLL* o_dll;
    HINSTANCE  instance;
-
-   initLinker();
 
    /* debugBelch("\naddDLL; dll_name = `%s'\n", dll_name); */
 
@@ -2018,18 +2051,17 @@ HsInt insertSymbol(pathchar* obj_name, char* key, void* data)
 /* -----------------------------------------------------------------------------
  * lookup a symbol in the hash table
  */
-void *
-lookupSymbol( char *lbl )
+static void* lookupSymbol_ (char *lbl)
 {
     void *val;
     IF_DEBUG(linker, debugBelch("lookupSymbol: looking up %s\n", lbl));
-    initLinker() ;
+
     ASSERT(symhash != NULL);
 
     if (!ghciLookupSymbolTable(symhash, lbl, &val)) {
         IF_DEBUG(linker, debugBelch("lookupSymbol: symbol not found\n"));
 #       if defined(OBJFORMAT_ELF)
-        return internal_dlsym(dl_prog_handle, lbl);
+        return internal_dlsym(lbl);
 #       elif defined(OBJFORMAT_MACHO)
 #       if HAVE_DLFCN_H
         /* On OS X 10.3 and later, we use dlsym instead of the old legacy
@@ -2043,7 +2075,7 @@ lookupSymbol( char *lbl )
         */
         IF_DEBUG(linker, debugBelch("lookupSymbol: looking up %s with dlsym\n", lbl));
         ASSERT(lbl[0] == '_');
-        return internal_dlsym(dl_prog_handle, lbl + 1);
+        return internal_dlsym(lbl + 1);
 #       else
         if (NSIsSymbolNameDefined(lbl)) {
             NSSymbol symbol = NSLookupAndBindSymbol(lbl);
@@ -2056,14 +2088,15 @@ lookupSymbol( char *lbl )
         void* sym;
 
         sym = lookupSymbolInDLLs((unsigned char*)lbl);
-        if (sym != NULL) { return sym; };
+        if (sym != NULL) {
+            return sym;
+        };
 
         // Also try looking up the symbol without the @N suffix.  Some
         // DLLs have the suffixes on their symbols, some don't.
         zapTrailingAtSign ( (unsigned char*)lbl );
         sym = lookupSymbolInDLLs((unsigned char*)lbl);
-        if (sym != NULL) { return sym; };
-        return NULL;
+        return sym; // might be NULL if not found
 
 #       else
         ASSERT(2+2 == 5);
@@ -2073,6 +2106,14 @@ lookupSymbol( char *lbl )
         IF_DEBUG(linker, debugBelch("lookupSymbol: value of %s is %p\n", lbl, val));
         return val;
     }
+}
+
+void* lookupSymbol( char *lbl )
+{
+    ACQUIRE_LOCK(&linker_mutex);
+    char *r = lookupSymbol_(lbl);
+    RELEASE_LOCK(&linker_mutex);
+    return r;
 }
 
 /* -----------------------------------------------------------------------------
@@ -2120,8 +2161,6 @@ void ghci_enquire ( char* addr )
    char* a;
    const int DELTA = 64;
    ObjectCode* oc;
-
-   initLinker();
 
    for (oc = objects; oc; oc = oc->next) {
       for (i = 0; i < oc->n_symbols; i++) {
@@ -2241,19 +2280,44 @@ mmap_again:
 }
 #endif // USE_MMAP
 
+/*
+ * Remove symbols from the symbol table, and free oc->symbols.
+ * This operation is idempotent.
+ */
 static void removeOcSymbols (ObjectCode *oc)
 {
     if (oc->symbols == NULL) return;
 
-    /* Remove all the mappings for the symbols within this object..
-     */
+    // Remove all the mappings for the symbols within this object..
     int i;
     for (i = 0; i < oc->n_symbols; i++) {
         if (oc->symbols[i] != NULL) {
             ghciRemoveSymbolTable(symhash, oc->symbols[i], oc);
         }
     }
+
+    stgFree(oc->symbols);
+    oc->symbols = NULL;
 }
+
+/*
+ * Release StablePtrs and free oc->stable_ptrs.
+ * This operation is idempotent.
+ */
+static void freeOcStablePtrs (ObjectCode *oc)
+{
+    // Release any StablePtrs that were created when this
+    // object module was initialized.
+    ForeignExportStablePtr *fe_ptr, *next;
+
+    for (fe_ptr = oc->stable_ptrs; fe_ptr != NULL; fe_ptr = next) {
+        next = fe_ptr->next;
+        freeStablePtr(fe_ptr->stable_ptr);
+        stgFree(fe_ptr);
+    }
+    oc->stable_ptrs = NULL;
+}
+
 
 /*
  * freeObjectCode() releases all the pieces of an ObjectCode.  It is called by
@@ -2405,8 +2469,7 @@ isAlreadyLoaded( pathchar *path )
     return 0; /* not loaded yet */
 }
 
-HsInt
-loadArchive( pathchar *path )
+static HsInt loadArchive_ (pathchar *path)
 {
     ObjectCode* oc;
     char *image;
@@ -2446,8 +2509,6 @@ loadArchive( pathchar *path )
     /* TODO: don't call barf() on error, instead return an error code, freeing
      * all resources correctly.  This function is pretty complex, so it needs
      * to be refactored to make this practical. */
-
-    initLinker();
 
     IF_DEBUG(linker, debugBelch("loadArchive: start\n"));
     IF_DEBUG(linker, debugBelch("loadArchive: Loading archive `%" PATH_FMT" '\n", path));
@@ -2873,13 +2934,20 @@ loadArchive( pathchar *path )
     return 1;
 }
 
+HsInt loadArchive (pathchar *path)
+{
+   ACQUIRE_LOCK(&linker_mutex);
+   HsInt r = loadArchive_(path);
+   RELEASE_LOCK(&linker_mutex);
+   return r;
+}
+
 /* -----------------------------------------------------------------------------
  * Load an obj (populate the global symbol table, but don't resolve yet)
  *
  * Returns: 1 if ok, 0 on error.
  */
-HsInt
-loadObj( pathchar *path )
+static HsInt loadObj_ (pathchar *path)
 {
    ObjectCode* oc;
    char *image;
@@ -2895,8 +2963,6 @@ loadObj( pathchar *path )
 #  endif
 #endif
    IF_DEBUG(linker, debugBelch("loadObj %" PATH_FMT "\n", path));
-
-   initLinker();
 
    /* debugBelch("loadObj %s\n", path ); */
 
@@ -2934,7 +3000,9 @@ loadObj( pathchar *path )
 
    image = mmapForLinker(fileSize, 0, fd);
    close(fd);
-   if (image == NULL) return 0;
+   if (image == NULL) {
+       return 0;
+   }
 
 #else /* !USE_MMAP */
    /* load the image into memory */
@@ -2997,6 +3065,7 @@ loadObj( pathchar *path )
    if (! loadOc(oc)) {
        // failed; free everything we've allocated
        removeOcSymbols(oc);
+       // no need to freeOcStablePtrs, they aren't created until resolveObjs()
        freeObjectCode(oc);
        return 0;
    }
@@ -3004,6 +3073,14 @@ loadObj( pathchar *path )
    oc->next = objects;
    objects = oc;
    return 1;
+}
+
+HsInt loadObj (pathchar *path)
+{
+   ACQUIRE_LOCK(&linker_mutex);
+   HsInt r = loadObj_(path);
+   RELEASE_LOCK(&linker_mutex);
+   return r;
 }
 
 static HsInt
@@ -3070,14 +3147,12 @@ loadOc( ObjectCode* oc ) {
  *
  * Returns: 1 if ok, 0 on error.
  */
-HsInt
-resolveObjs( void )
+static HsInt resolveObjs_ (void)
 {
     ObjectCode *oc;
     int r;
 
     IF_DEBUG(linker, debugBelch("resolveObjs: start\n"));
-    initLinker();
 
     for (oc = objects; oc; oc = oc->next) {
         if (oc->status != OBJECT_RESOLVED) {
@@ -3115,19 +3190,24 @@ resolveObjs( void )
     return 1;
 }
 
+HsInt resolveObjs (void)
+{
+    ACQUIRE_LOCK(&linker_mutex);
+    HsInt r = resolveObjs_();
+    RELEASE_LOCK(&linker_mutex);
+    return r;
+}
+
 /* -----------------------------------------------------------------------------
  * delete an object from the pool
  */
-HsInt
-unloadObj( pathchar *path )
+static HsInt unloadObj_ (pathchar *path, rtsBool just_purge)
 {
     ObjectCode *oc, *prev, *next;
     HsBool unloadedAnyObj = HS_BOOL_FALSE;
 
     ASSERT(symhash != NULL);
     ASSERT(objects != NULL);
-
-    initLinker();
 
     IF_DEBUG(linker, debugBelch("unloadObj: %" PATH_FMT "\n", path));
 
@@ -3137,29 +3217,23 @@ unloadObj( pathchar *path )
 
         if (!pathcmp(oc->fileName,path)) {
 
+            // these are both idempotent, so in just_purge mode we can
+            // later call unloadObj() to really unload the object.
             removeOcSymbols(oc);
+            freeOcStablePtrs(oc);
 
-            if (prev == NULL) {
-                objects = oc->next;
-            } else {
-                prev->next = oc->next;
-            }
-            oc->next = unloaded_objects;
-            unloaded_objects = oc;
-
-            // Release any StablePtrs that were created when this
-            // object module was initialized.
-            {
-                ForeignExportStablePtr *fe_ptr, *next;
-
-                for (fe_ptr = oc->stable_ptrs; fe_ptr != NULL; fe_ptr = next) {
-                    next = fe_ptr->next;
-                    freeStablePtr(fe_ptr->stable_ptr);
-                    stgFree(fe_ptr);
+            if (!just_purge) {
+                if (prev == NULL) {
+                    objects = oc->next;
+                } else {
+                    prev->next = oc->next;
                 }
+                oc->next = unloaded_objects;
+                unloaded_objects = oc;
+                oc->status = OBJECT_UNLOADED;
+            } else {
+                prev = oc;
             }
-
-            oc->status = OBJECT_UNLOADED;
 
             /* This could be a member of an archive so continue
              * unloading other members. */
@@ -3176,6 +3250,22 @@ unloadObj( pathchar *path )
         errorBelch("unloadObj: can't find `%" PATH_FMT "' to unload", path);
         return 0;
     }
+}
+
+HsInt unloadObj (pathchar *path)
+{
+    ACQUIRE_LOCK(&linker_mutex);
+    HsInt r = unloadObj_(path, rtsFalse);
+    RELEASE_LOCK(&linker_mutex);
+    return r;
+}
+
+HsInt purgeObj (pathchar *path)
+{
+    ACQUIRE_LOCK(&linker_mutex);
+    HsInt r = unloadObj_(path, rtsTrue);
+    RELEASE_LOCK(&linker_mutex);
+    return r;
 }
 
 /* -----------------------------------------------------------------------------
@@ -4569,7 +4659,7 @@ ocResolve_PEi386 ( ObjectCode* oc )
               + ((size_t)(sym->Value));
          } else {
             copyName ( sym->Name, strtab, symbol, 1000-1 );
-            S = (size_t) lookupSymbol( (char*)symbol );
+            S = (size_t) lookupSymbol_( (char*)symbol );
             if ((void*)S != NULL) goto foundit;
             errorBelch("%" PATH_FMT ": unknown symbol `%s'", oc->fileName, symbol);
             return 0;
@@ -5431,7 +5521,7 @@ do_Elf_Rel_relocations ( ObjectCode* oc, char* ehdrC,
 
          } else {
             symbol = strtab + sym.st_name;
-            S_tmp = lookupSymbol( symbol );
+            S_tmp = lookupSymbol_( symbol );
             if (S_tmp == NULL) return 0;
             S = (Elf_Addr)S_tmp;
          }
@@ -5742,7 +5832,7 @@ do_Elf_Rela_relocations ( ObjectCode* oc, char* ehdrC,
          } else {
             /* No, so look up the name in our global table. */
             symbol = strtab + sym.st_name;
-            S_tmp = lookupSymbol( symbol );
+            S_tmp = lookupSymbol_( symbol );
             S = (Elf_Addr)S_tmp;
 
 #ifdef ELF_FUNCTION_DESC
@@ -6291,7 +6381,7 @@ resolveImports(
             addr = (void*) (symbol->n_value);
             IF_DEBUG(linker, debugBelch("resolveImports: undefined external %s has value %p\n", nm, addr));
         } else {
-            addr = lookupSymbol(nm);
+            addr = lookupSymbol_(nm);
             IF_DEBUG(linker, debugBelch("resolveImports: looking up %s, %p\n", nm, addr));
         }
 
@@ -6447,7 +6537,7 @@ relocateSection(
                     // symtab, or it is undefined, meaning dlsym must be used
                     // to resolve it.
 
-                    addr = lookupSymbol(nm);
+                    addr = lookupSymbol_(nm);
                     IF_DEBUG(linker, debugBelch("relocateSection: looked up %s, "
                                                 "external X86_64_RELOC_GOT or X86_64_RELOC_GOT_LOAD\n", nm));
                     IF_DEBUG(linker, debugBelch("               : addr = %p\n", addr));
@@ -6499,7 +6589,7 @@ relocateSection(
                 IF_DEBUG(linker, debugBelch("relocateSection, defined external symbol %s, relocated address %p\n", nm, (void *)value));
             }
             else {
-                addr = lookupSymbol(nm);
+                addr = lookupSymbol_(nm);
                 if (addr == NULL)
                 {
                      errorBelch("\nlookupSymbol failed in relocateSection (relocate external)\n"
@@ -6802,7 +6892,7 @@ relocateSection(
                 else {
                     struct nlist *symbol = &nlist[reloc->r_symbolnum];
                     char *nm = image + symLC->stroff + symbol->n_un.n_strx;
-                    void *symbolAddress = lookupSymbol(nm);
+                    void *symbolAddress = lookupSymbol_(nm);
 
                     if (!symbolAddress) {
                         errorBelch("\nunknown symbol `%s'", nm);
@@ -7029,7 +7119,7 @@ ocGetNames_MachO(ObjectCode* oc)
                 if(nlist[i].n_type & N_EXT)
                 {
                     char *nm = image + symLC->stroff + nlist[i].n_un.n_strx;
-                    if ((nlist[i].n_desc & N_WEAK_DEF) && lookupSymbol(nm)) {
+                    if ((nlist[i].n_desc & N_WEAK_DEF) && lookupSymbol_(nm)) {
                         // weak definition, and we already have a definition
                         IF_DEBUG(linker, debugBelch("    weak: %s\n", nm));
                     }

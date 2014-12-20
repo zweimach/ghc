@@ -167,22 +167,24 @@ test('T3294',
 test('T4801',
      [ # expect_broken(5224),
        # temporarily unbroken (#5227)
-      compiler_stats_num_field('peak_megabytes_allocated',# Note [residency]
-          [(platform('x86_64-apple-darwin'), 70, 1),
-                           # expected value: 58 (amd64/OS X)
-                           # 13/01/2014 - 70
-           (wordsize(32), 30, 20),
-           (wordsize(64), 48, 20)]),
-            # prev:       50 (amd64/Linux)
-            # 19/10/2012: 64 (amd64/Linux)
-            #                (^ REASON UNKNOWN!)
-            # 12/11/2012: 49 (amd64/Linux)
-            #                (^ REASON UNKNOWN!)
-            # 28/8/13:    60 (amd64/Linux)
-            #                (^ REASON UNKNOWN!)
-            # 2014-09-10: 55 post-AMP-cleanup
-            # 2014-10-08: 62 (jumps between 55 and 71 observed -- GC tipping point?)
-            # 2014-10-13: 48 stricter seqDmdType
+###################################
+# deactivated for now, as this metric became too volatile recently
+#      compiler_stats_num_field('peak_megabytes_allocated',# Note [residency]
+#          [(platform('x86_64-apple-darwin'), 70, 1),
+#                           # expected value: 58 (amd64/OS X)
+#                           # 13/01/2014 - 70
+#           (wordsize(32), 30, 20),
+#           (wordsize(64), 48, 20)]),
+#            # prev:       50 (amd64/Linux)
+#            # 19/10/2012: 64 (amd64/Linux)
+#            #                (^ REASON UNKNOWN!)
+#            # 12/11/2012: 49 (amd64/Linux)
+#            #                (^ REASON UNKNOWN!)
+#            # 28/8/13:    60 (amd64/Linux)
+#            #                (^ REASON UNKNOWN!)
+#            # 2014-09-10: 55 post-AMP-cleanup
+#            # 2014-10-08: 62 (jumps between 55 and 71 observed -- GC tipping point?)
+#            # 2014-10-13: 48 stricter seqDmdType
 
       compiler_stats_num_field('bytes allocated',
           [(platform('x86_64-apple-darwin'), 464872776, 5),
@@ -200,7 +202,7 @@ test('T4801',
             # 2014-10-08: 382056344 (amd64/Linux) stricter foldr2 488e95b
 
 ###################################
-# deactivated for now, as this metric became to volatile recently
+# deactivated for now, as this metric became too volatile recently
 #
 #     compiler_stats_num_field('max_bytes_used',
 #         [(platform('x86_64-apple-darwin'), 25145320, 5),
@@ -333,11 +335,12 @@ test('T5631',
           [(wordsize(32), 346389856, 10),
         # expected value: 392904228 (x86/Linux)
         # 2014-04-04:     346389856 (x86 Windows, 64 bit machine)
-           (wordsize(64), 739704712, 5)]),
+           (wordsize(64), 776121120, 5)]),
         # expected value: 774595008 (amd64/Linux):
         # expected value: 735486328 (amd64/Linux) 2012/12/12:
         # expected value: 690742040 (amd64/Linux) Call Arity improvements
         # 2014-09-09:     739704712 (amd64/Linux) AMP changes
+        # 2014-11-04:     776121120 (amd64/Linux) new-flatten-skolems
        only_ways(['normal'])
       ],
      compile,
@@ -391,14 +394,14 @@ test('T5321Fun',
              # 2012-10-08: 344416344 x86/Linux
              #  (increase due to new codegen)
              # 2014-09-03: 299656164     (specialisation and inlining)
-            (wordsize(64), 601629032, 10)])
+            (wordsize(64), 541287000, 10)])
              # prev:       585521080
              # 29/08/2012: 713385808     #  (increase due to new codegen)
              # 15/05/2013: 628341952     #  (reason for decrease unknown)
              # 24/06/2013: 694019152     #  (reason for re-increase unknown)
              # 12/05/2014: 614409344     #  (specialisation and inlining changes)
              # 10/09/2014: 601629032     #  post-AMP-cleanp
-
+             # 06/11/2014: 541287000     #  Simon's flat-skol changes to the constraint solver
       ],
       compile,[''])
 
@@ -455,7 +458,7 @@ test('T5837',
              # 40000000 (x86/Linux)
              # 2013-11-13: 45520936 (x86/Windows, 64bit machine)
              # 2041-09-03: 37096484 (Windows laptop, w/w for INLINABLE things
-           (wordsize(64), 651924880, 10)])
+           (wordsize(64), 271028976, 10)])
              # sample: 3926235424 (amd64/Linux, 15/2/2012)
              # 2012-10-02 81879216
              # 2012-09-20 87254264 amd64/Linux
@@ -464,7 +467,7 @@ test('T5837',
              #                                  for constraints solving
              # 2014-08-29 73639840 amd64/Linux, w/w for INLINABLE things
              # 2014-10-08 73639840 amd64/Linux, Burning Bridges and other small changes
-             # 2014-11-02 651924880      Linux, Accept big regression;
+             # 2014-11-06 271028976       Linux, Accept big regression;
              #   See Note [An alternative story for the inert substitution] in TcFlatten
       ],
       compile_fail,['-ftype-function-depth=50'])
@@ -495,10 +498,11 @@ test('T9020',
           [(wordsize(32), 343005716, 10),
            # Original:    381360728
            # 2014-07-31:  343005716 (Windows) (general round of updates)
-           (wordsize(64), 785871680, 10)])
+           (wordsize(64), 680162056, 10)])
            # prev:        795469104
            # 2014-07-17:  728263536 (general round of updates)
            # 2014-09-10:  785871680 post-AMP-cleanup
+           # 2014-11-03:  680162056 Further Applicative and Monad adjustments
       ],
       compile,[''])
 

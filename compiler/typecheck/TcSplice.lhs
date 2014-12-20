@@ -91,6 +91,7 @@ import BasicTypes hiding( SuccessFlag(..) )
 import Maybes( MaybeErr(..) )
 import DynFlags
 import Panic
+import Lexeme
 import FastString
 import Outputable
 import Control.Monad    ( when )
@@ -248,7 +249,11 @@ Note [Template Haskell state diagram]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Here are the ThStages, s, their corresponding level numbers
 (the result of (thLevel s)), and their state transitions.
+The top level of the program is stage Comp:
 
+     Start here
+         |
+         V
       -----------     $      ------------   $
       |  Comp   | ---------> |  Splice  | -----|
       |   1     |            |    0     | <----|
@@ -378,16 +383,16 @@ tcBrackTy (TExpBr _)  = panic "tcUntypedBracket: Unexpected TExpBr"
 
 ---------------
 tcPendingSplice :: PendingRnSplice -> TcM PendingTcSplice
-tcPendingSplice (PendingRnExpSplice (HsSplice n expr))
+tcPendingSplice (PendingRnExpSplice (PendSplice n expr))
   = do { res_ty <- tcMetaTy expQTyConName
        ; tc_pending_splice n expr res_ty }
-tcPendingSplice (PendingRnPatSplice (HsSplice n expr))
+tcPendingSplice (PendingRnPatSplice (PendSplice n expr))
   = do { res_ty <- tcMetaTy patQTyConName
        ; tc_pending_splice n expr res_ty }
-tcPendingSplice (PendingRnTypeSplice (HsSplice n expr))
+tcPendingSplice (PendingRnTypeSplice (PendSplice n expr))
   = do { res_ty <- tcMetaTy typeQTyConName
        ; tc_pending_splice n expr res_ty }
-tcPendingSplice (PendingRnDeclSplice (HsSplice n expr))
+tcPendingSplice (PendingRnDeclSplice (PendSplice n expr))
   = do { res_ty <- tcMetaTy decsQTyConName
        ; tc_pending_splice n expr res_ty }
 
@@ -400,7 +405,7 @@ tcPendingSplice (PendingRnCrossStageSplice n)
 tc_pending_splice :: Name -> LHsExpr Name -> TcRhoType -> TcM PendingTcSplice
 tc_pending_splice splice_name expr res_ty
   = do { expr' <- tcMonoExpr expr res_ty
-       ; return (splice_name, expr') }
+       ; return (PendSplice splice_name expr') }
 
 ---------------
 -- Takes a type tau and returns the type Q (TExp tau)
@@ -440,7 +445,7 @@ tcNestedSplice pop_stage (TcPending ps_var lie_var) splice_name expr res_ty
        ; untypeq <- tcLookupId unTypeQName
        ; let expr'' = mkHsApp (nlHsTyApp untypeq [res_ty]) expr'
        ; ps <- readMutVar ps_var
-       ; writeMutVar ps_var ((splice_name, expr'') : ps)
+       ; writeMutVar ps_var (PendSplice splice_name expr'' : ps)
 
        -- The returned expression is ignored; it's in the pending splices
        ; return (panic "tcSpliceExpr") }
@@ -643,7 +648,7 @@ runQuasiQuote (HsQuasiQuote quoter q_span quote) quote_selector meta_ty meta_ops
 
           -- Build the expression
         ; let quoterExpr = L q_span $! HsVar $! quoter''
-        ; let quoteExpr = L q_span $! HsLit $! HsString quote'
+        ; let quoteExpr = L q_span $! HsLit $! HsString "" quote'
         ; let expr = L q_span $
                      HsApp (L q_span $
                             HsApp (L q_span (HsVar quote_selector)) quoterExpr) quoteExpr
@@ -939,7 +944,7 @@ instance TH.Quasi (IOEnv (Env TcGblEnv TcLclEnv)) where
       bindName :: RdrName -> TcM ()
       bindName (Exact n)
         = do { th_topnames_var <- fmap tcg_th_topnames getGblEnv
-             ; updTcRef th_topnames_var (\ns -> addOneToNameSet ns n)
+             ; updTcRef th_topnames_var (\ns -> extendNameSet ns n)
              }
 
       bindName name =
@@ -1308,15 +1313,22 @@ reifyClass cls
   = do  { cxt <- reifyCxt theta
         ; inst_envs <- tcGetInstEnvs
         ; insts <- reifyClassInstances cls (InstEnv.classInstances inst_envs cls)
-        ; ops <- mapM reify_op op_stuff
+        ; ops <- concatMapM reify_op op_stuff
         ; tvs' <- reifyTyCoVars tvs (Just $ classTyCon cls)
         ; let dec = TH.ClassD cxt (reifyName cls) tvs' fds' ops
         ; return (TH.ClassI dec insts ) }
   where
     (tvs, fds, theta, _, _, op_stuff) = classExtraBigSig cls
     fds' = map reifyFunDep fds
-    reify_op (op, _) = do { ty <- reifyType (idType op)
-                          ; return (TH.SigD (reifyName op) ty) }
+    reify_op (op, def_meth)
+      = do { ty <- reifyType (idType op)
+           ; let nm' = reifyName op
+           ; case def_meth of
+                GenDefMeth gdm_nm ->
+                  do { gdm_id <- tcLookupId gdm_nm
+                     ; gdm_ty <- reifyType (idType gdm_id)
+                     ; return [TH.SigD nm' ty, TH.DefaultSigD nm' gdm_ty] }
+                _ -> return [TH.SigD nm' ty] }
 
 ------------------------------
 -- | Annotate (with TH.SigT) a type if the first parameter is True
@@ -1476,7 +1488,7 @@ reifyFunDep (xs, ys) = TH.FunDep (map reifyName xs) (map reifyName ys)
 
 reifyFamFlavour :: TyCon -> TcM (Either TH.FamFlavour [TH.TySynEqn])
 reifyFamFlavour tc
-  | isOpenSynFamilyTyCon tc = return $ Left TH.TypeFam
+  | isOpenTypeFamilyTyCon tc = return $ Left TH.TypeFam
   | isDataFamilyTyCon    tc = return $ Left TH.DataFam
 
     -- this doesn't really handle abstract closed families, but let's not worry

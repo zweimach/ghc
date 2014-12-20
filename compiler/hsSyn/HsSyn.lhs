@@ -63,7 +63,7 @@ data HsModule name
       hsmodName :: Maybe (Located ModuleName),
         -- ^ @Nothing@: \"module X where\" is omitted (in which case the next
         --     field is Nothing too)
-      hsmodExports :: Maybe [LIE name],
+      hsmodExports :: Maybe (Located [LIE name]),
         -- ^ Export list
         --
         --  - @Nothing@: export list omitted, so export everything
@@ -72,17 +72,38 @@ data HsModule name
         --
         --  - @Just [...]@: as you would expect...
         --
+        --
+        --  - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnOpen'
+        --                                   ,'ApiAnnotation.AnnClose'
+        --
       hsmodImports :: [LImportDecl name],
         -- ^ We snaffle interesting stuff out of the imported interfaces early
         -- on, adding that info to TyDecls/etc; so this list is often empty,
         -- downstream.
       hsmodDecls :: [LHsDecl name],
         -- ^ Type, class, value, and interface signature decls
-      hsmodDeprecMessage :: Maybe WarningTxt,
+      hsmodDeprecMessage :: Maybe (Located WarningTxt),
         -- ^ reason\/explanation for warning/deprecation of this module
+        --
+        --  - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnOpen'
+        --                                   ,'ApiAnnotation.AnnClose'
+        --
       hsmodHaddockModHeader :: Maybe LHsDocString
         -- ^ Haddock module info and description, unparsed
-   } deriving (Typeable)
+        --
+        --  - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnOpen'
+        --                                   ,'ApiAnnotation.AnnClose'
+        --
+   }
+     -- ^ 'ApiAnnotation.AnnKeywordId's
+     --
+     --  - 'ApiAnnotation.AnnModule','ApiAnnotation.AnnWhere'
+     --
+     --  - 'ApiAnnotation.AnnOpen','ApiAnnotation.AnnSemi',
+     --    'ApiAnnotation.AnnClose' for explicit braces and semi around
+     --    hsmodImports,hsmodDecls if this style is used.
+     --
+      deriving (Typeable)
 deriving instance (DataId name) => Data (HsModule name)
 \end{code}
 
@@ -92,7 +113,8 @@ instance (OutputableBndr name, HasOccName name)
         => Outputable (HsModule name) where
 
     ppr (HsModule Nothing _ imports decls _ mbDoc)
-      = pp_mb mbDoc $$ pp_nonnull imports $$ pp_nonnull decls
+      = pp_mb mbDoc $$ pp_nonnull imports
+                    $$ pp_nonnull decls
 
     ppr (HsModule (Just name) exports imports decls deprec mbDoc)
       = vcat [
@@ -101,7 +123,7 @@ instance (OutputableBndr name, HasOccName name)
               Nothing -> pp_header (ptext (sLit "where"))
               Just es -> vcat [
                            pp_header lparen,
-                           nest 8 (fsep (punctuate comma (map ppr es))),
+                           nest 8 (fsep (punctuate comma (map ppr (unLoc es)))),
                            nest 4 (ptext (sLit ") where"))
                           ],
             pp_nonnull imports,

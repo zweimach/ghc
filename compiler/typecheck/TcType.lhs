@@ -29,7 +29,7 @@ module TcType (
 
   --------------------------------
   -- MetaDetails
-  UserTypeCtxt(..), pprUserTypeCtxt,
+  UserTypeCtxt(..), pprUserTypeCtxt, pprSigCtxt,
   TcTyVarDetails(..), pprTcTyVarDetails, vanillaSkolemTv, superSkolemTv,
   MetaDetails(Flexi, Indirect), MetaInfo(..),
   isImmutableTyVar, isSkolemTyVar, isSkolemTyCoVar,
@@ -41,6 +41,7 @@ module TcType (
   metaTyVarUntouchables, setMetaTyVarUntouchables, metaTyVarUntouchables_maybe,
   isTouchableMetaTyVar, isTouchableOrFmv,
   isFloatedTouchableMetaTyVar,
+  canUnifyWithPolyType,
 
   --------------------------------
   -- Builders
@@ -65,11 +66,10 @@ module TcType (
   -- Again, newtypes are opaque
   eqType, eqTypes, eqPred, cmpType, cmpTypes, cmpPred, eqTypeX,
   pickyEqType, tcEqType, tcEqKind,
-  isSigmaTy, isOverloadedTy,
+  isSigmaTy, isRhoTy, isOverloadedTy,
   isDoubleTy, isFloatTy, isIntTy, isWordTy, isStringTy,
   isIntegerTy, isBoolTy, isUnitTy, isCharTy,
   isTauTy, isTauTyCon, tcIsTyVarTy, tcIsForAllTy,
-  isSynFamilyTyConApp,
   isPredTy, isTyVarClassPred,
 
   ---------------------------------
@@ -238,12 +238,20 @@ type TcTyCoVar = Var    -- Either a TcTyVar or a CoVar
 type TcPredType     = PredType
 type TcThetaType    = ThetaType
 type TcSigmaType    = TcType
-type TcRhoType      = TcType
+type TcRhoType      = TcType  -- Note [TcRhoType]
 type TcTauType      = TcType
 type TcKind         = Kind
 type TcTyVarSet     = TyVarSet
 type TcTyCoVarSet   = TyCoVarSet
 \end{code}
+
+Note [TcRhoType]
+~~~~~~~~~~~~~~~~
+A TcRhoType has no foralls or contexts at the top, or to the right of an arrow
+  YES    (forall a. a->a) -> Int
+  NO     forall a. a ->  Int
+  NO     Eq a => a -> a
+  NO     Int -> forall a. a -> Int
 
 
 %************************************************************************
@@ -274,6 +282,35 @@ Similarly consider
   data S (b:k2) = MkS (T b)
 When doing kind inference on {S,T} we don't want *skolems* for k1,k2,
 because they end up unifying; we want those SigTvs again.
+
+Note [ReturnTv]
+~~~~~~~~~~~~~~~
+We sometimes want to convert a checking algorithm into an inference
+algorithm. An easy way to do this is to "check" that a term has a
+metavariable as a type. But, we must be careful to allow that metavariable
+to unify with *anything*. (Well, anything that doesn't fail an occurs-check.)
+This is what ReturnTv means.
+
+For example, if we have
+
+  (undefined :: (forall a. TF1 a ~ TF2 a => a)) x
+
+we'll call (tcInfer . tcExpr) on the function expression. tcInfer will
+create a ReturnTv to represent the expression's type. We really need this
+ReturnTv to become set to (forall a. TF1 a ~ TF2 a => a) despite the fact
+that this type mentions type families and is a polytype.
+
+However, we must also be careful to make sure that the ReturnTvs really
+always do get unified with something -- we don't want these floating
+around in the solver. So, we check after running the checker to make
+sure the ReturnTv is filled. If it's not, we set it to a TauTv.
+
+We can't ASSERT that no ReturnTvs hit the solver, because they
+can if there's, say, a kind error that stops checkTauTvUpdate from
+working. This happens in test case typecheck/should_fail/T5570, for
+example.
+
+See also the commentary on #9404.
 
 \begin{code}
 -- A TyVarDetails is inside a TyVar
@@ -309,11 +346,15 @@ instance Outputable MetaDetails where
   ppr (Indirect ty) = ptext (sLit "Indirect") <+> ppr ty
 
 data MetaInfo
-   = TauTv         -- This MetaTv is an ordinary unification variable
+   = TauTv Bool    -- This MetaTv is an ordinary unification variable
                    -- A TauTv is always filled in with a tau-type, which
-                   -- never contains any ForAlls
+                   -- never contains any ForAlls.
+                   -- The boolean is true when the meta var originates
+                   -- from a wildcard.
 
-   | PolyTv        -- Like TauTv, but can unify with a sigma-type
+   | ReturnTv      -- Can unify with *anything*. Used to convert a
+                   -- type "checking" algorithm into a type inference algorithm.
+                   -- See Note [ReturnTv]
 
    | SigTv         -- A variant of TauTv, except that it should not be
                    -- unified with a type, only with a type variable
@@ -337,10 +378,9 @@ data UserTypeCtxt
   | ExprSigCtxt         -- Expression type signature
   | ConArgCtxt Name     -- Data constructor argument
   | TySynCtxt Name      -- RHS of a type synonym decl
-  | LamPatSigCtxt               -- Type sig in lambda pattern
-                        --      f (x::t) = ...
-  | BindPatSigCtxt      -- Type sig in pattern binding pattern
-                        --      (x::t, y) = e
+  | PatSigCtxt          -- Type sig in pattern
+                        --   eg  f (x::t) = ...
+                        --   or  (x::t, y) = e
   | RuleSigCtxt Name    -- LHS of a RULE forall
                         --    RULE "foo" forall (x :: a -> a). f (Just x) = ...
   | ResSigCtxt          -- Result type sig
@@ -487,10 +527,11 @@ pprTcTyVarDetails (MetaTv { mtv_info = info, mtv_untch = untch })
   = pp_info <> colon <> ppr untch
   where
     pp_info = case info of
-                PolyTv     -> ptext (sLit "poly")
-                TauTv      -> ptext (sLit "tau")
-                SigTv      -> ptext (sLit "sig")
-                FlatMetaTv -> ptext (sLit "fuv")
+                ReturnTv    -> ptext (sLit "ret")
+                TauTv True  -> ptext (sLit "tau")
+                TauTv False -> ptext (sLit "twc")
+                SigTv       -> ptext (sLit "sig")
+                FlatMetaTv  -> ptext (sLit "fuv")
 
 pprUserTypeCtxt :: UserTypeCtxt -> SDoc
 pprUserTypeCtxt (InfSigCtxt n)    = ptext (sLit "the inferred type for") <+> quotes (ppr n)
@@ -500,8 +541,7 @@ pprUserTypeCtxt ExprSigCtxt       = ptext (sLit "an expression type signature")
 pprUserTypeCtxt (ConArgCtxt c)    = ptext (sLit "the type of the constructor") <+> quotes (ppr c)
 pprUserTypeCtxt (TySynCtxt c)     = ptext (sLit "the RHS of the type synonym") <+> quotes (ppr c)
 pprUserTypeCtxt ThBrackCtxt       = ptext (sLit "a Template Haskell quotation [t|...|]")
-pprUserTypeCtxt LamPatSigCtxt     = ptext (sLit "a pattern type signature")
-pprUserTypeCtxt BindPatSigCtxt    = ptext (sLit "a pattern type signature")
+pprUserTypeCtxt PatSigCtxt        = ptext (sLit "a pattern type signature")
 pprUserTypeCtxt ResSigCtxt        = ptext (sLit "a result type signature")
 pprUserTypeCtxt (ForSigCtxt n)    = ptext (sLit "the foreign declaration for") <+> quotes (ppr n)
 pprUserTypeCtxt DefaultDeclCtxt   = ptext (sLit "a type in a `default' declaration")
@@ -512,6 +552,22 @@ pprUserTypeCtxt GhciCtxt          = ptext (sLit "a type in a GHCi command")
 pprUserTypeCtxt (ClassSCCtxt c)   = ptext (sLit "the super-classes of class") <+> quotes (ppr c)
 pprUserTypeCtxt SigmaCtxt         = ptext (sLit "the context of a polymorphic type")
 pprUserTypeCtxt (DataTyCtxt tc)   = ptext (sLit "the context of the data type declaration for") <+> quotes (ppr tc)
+
+pprSigCtxt :: UserTypeCtxt -> SDoc -> SDoc -> SDoc
+-- (pprSigCtxt ctxt <extra> <type>)
+-- prints    In <extra> the type signature for 'f':
+--              f :: <type>
+-- The <extra> is either empty or "the ambiguity check for"
+pprSigCtxt ctxt extra pp_ty
+  = sep [ ptext (sLit "In") <+> extra <+> pprUserTypeCtxt ctxt <> colon
+        , nest 2 (pp_sig ctxt) ]
+  where
+    pp_sig (FunSigCtxt n)  = pp_n_colon n
+    pp_sig (ConArgCtxt n)  = pp_n_colon n
+    pp_sig (ForSigCtxt n)  = pp_n_colon n
+    pp_sig _               = pp_ty
+
+    pp_n_colon n = pprPrefixOcc n <+> dcolon <+> pp_ty
 \end{code}
 
 
@@ -531,7 +587,7 @@ tcTyFamInsts ty
   | Just exp_ty <- tcView ty    = tcTyFamInsts exp_ty
 tcTyFamInsts (TyVarTy _)        = []
 tcTyFamInsts (TyConApp tc tys)
-  | isSynFamilyTyCon tc         = [(tc, tys)]
+  | isTypeFamilyTyCon tc        = [(tc, tys)]
   | otherwise                   = concat (map tcTyFamInsts tys)
 tcTyFamInsts (LitTy {})         = []
 tcTyFamInsts (ForAllTy bndr ty) = tcTyFamInsts (binderType bndr)
@@ -1360,7 +1416,7 @@ occurCheckExpand :: DynFlags -> TcTyVar -> Type -> OccCheckResult Type
 -- Check whether
 --   a) the given variable occurs in the given type.
 --   b) there is a forall in the type (unless we have -XImpredicativeTypes
---                                     or it's a PolyTv
+--                                     or it's a ReturnTv
 --   c) if it's a SigTv, ty should be a tyvar
 --
 -- We may have needed to do some type synonym unfolding in order to
@@ -1377,13 +1433,7 @@ occurCheckExpand dflags tv ty
   where
     details = ASSERT2( isTcTyVar tv, ppr tv ) tcTyVarDetails tv
 
-    impredicative
-      = case details of
-          MetaTv { mtv_info = PolyTv } -> True
-          MetaTv { mtv_info = SigTv }  -> False
-          MetaTv { mtv_info = TauTv }  -> xopt Opt_ImpredicativeTypes dflags
-          _other                       -> True
-          -- We can have non-meta tyvars in given constraints
+    impredicative = canUnifyWithPolyType dflags details
 
     -- Check 'ty' is a tyvar, or can be expanded into one
     go_sig_tv ty@(TyVarTy {})            = OC_OK ty
@@ -1529,7 +1579,33 @@ occurCheckExpand dflags tv ty
     go_arg (CoCoArg r co1 co2)      = do { co1' <- go_co co1
                                          ; co2' <- go_co co2
                                          ; return (CoCoArg r co1' co2') }
+
+canUnifyWithPolyType :: DynFlags -> TcTyVarDetails -> Bool
+canUnifyWithPolyType dflags details
+  = case details of
+      MetaTv { mtv_info = ReturnTv } -> True      -- See Note [ReturnTv]
+      MetaTv { mtv_info = SigTv }    -> False
+      MetaTv { mtv_info = TauTv _ }  -> xopt Opt_ImpredicativeTypes dflags
+      _other                         -> True
+          -- We can have non-meta tyvars in given constraints
 \end{code}
+
+Note [OpenTypeKind accepts foralls]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Here is a common paradigm:
+   foo :: (forall a. a -> a) -> Int
+   foo = error "urk"
+To make this work we need to instantiate 'error' with a polytype.
+A similar case is
+   bar :: Bool -> (forall a. a->a) -> Int
+   bar True = \x. (x 3)
+   bar False = error "urk"
+Here we need to instantiate 'error' with a polytype.
+
+But 'error' has an OpenTypeKind type variable, precisely so that
+we can instantiate it with Int#.  So we also allow such type variables
+to be instantiate with foralls.  It's a bit of a hack, but seems
+straightforward.
 
 %************************************************************************
 %*                                                                      *
@@ -1602,16 +1678,22 @@ immSuperClasses cls tys
 %*                                                                      *
 %************************************************************************
 
-isSigmaTy returns true of any qualified type.  It doesn't *necessarily* have
-any foralls.  E.g.
-        f :: (?x::Int) => Int -> Int
 
 \begin{code}
-isSigmaTy :: Type -> Bool
+isSigmaTy :: TcType -> Bool
+-- isSigmaTy returns true of any qualified type.  It doesn't
+-- *necessarily* have any foralls.  E.g
+--        f :: (?x::Int) => Int -> Int
 isSigmaTy ty | Just ty' <- tcView ty = isSigmaTy ty'
 isSigmaTy (ForAllTy (Named {}) _) = True
 isSigmaTy (ForAllTy (Anon a) _)   = isPredTy a
 isSigmaTy _                       = False
+
+isRhoTy :: TcType -> Bool   -- True of TcRhoTypes; see Note [TcRhoType]
+isRhoTy ty | Just ty' <- tcView ty = isRhoTy ty'
+isRhoTy (ForAllTy {}) = False
+isRhoTy (FunTy a r)   = not (isPredTy a) && isRhoTy r
+isRhoTy _             = True
 
 isOverloadedTy :: Type -> Bool
 -- Yes for a type of a function that might require evidence-passing
@@ -1648,17 +1730,6 @@ is_tc uniq ty = case tcSplitTyConApp_maybe ty of
                         Nothing      -> False
 \end{code}
 
-\begin{code}
--- NB: Currently used in places where we have already expanded type synonyms;
---     hence no 'coreView'.  This could, however, be changed without breaking
---     any code.
-isSynFamilyTyConApp :: TcTauType -> Bool
-isSynFamilyTyConApp (TyConApp tc tys) = isSynFamilyTyCon tc &&
-                                      length tys == tyConArity tc
-isSynFamilyTyConApp _other            = False
-\end{code}
-
-
 %************************************************************************
 %*                                                                      *
 \subsection{Misc}
@@ -1677,7 +1748,7 @@ end of the compiler.
 
 \begin{code}
 orphNamesOfTyCon :: TyCon -> NameSet
-orphNamesOfTyCon tycon = unitNameSet (getName tycon) `unionNameSets` case tyConClass_maybe tycon of
+orphNamesOfTyCon tycon = unitNameSet (getName tycon) `unionNameSet` case tyConClass_maybe tycon of
     Nothing  -> emptyNameSet
     Just cls -> unitNameSet (getName cls)
 
@@ -1687,16 +1758,16 @@ orphNamesOfType ty | Just ty' <- tcView ty = orphNamesOfType ty'
 orphNamesOfType (TyVarTy _)          = emptyNameSet
 orphNamesOfType (LitTy {})           = emptyNameSet
 orphNamesOfType (TyConApp tycon tys) = orphNamesOfTyCon tycon
-                                       `unionNameSets` orphNamesOfTypes tys
+                                       `unionNameSet` orphNamesOfTypes tys
 orphNamesOfType (ForAllTy bndr res)  = orphNamesOfTyCon funTyCon   -- NB!  See Trac #8535
-                                       `unionNameSets` orphNamesOfType (binderType bndr)
-                                       `unionNameSets` orphNamesOfType res
-orphNamesOfType (AppTy fun arg)      = orphNamesOfType fun `unionNameSets` orphNamesOfType arg
-orphNamesOfType (CastTy ty co)       = orphNamesOfType ty `unionNameSets` orphNamesOfCo co
+                                       `unionNameSet` orphNamesOfType (binderType bndr)
+                                       `unionNameSet` orphNamesOfType res
+orphNamesOfType (AppTy fun arg)      = orphNamesOfType fun `unionNameSet` orphNamesOfType arg
+orphNamesOfType (CastTy ty co)       = orphNamesOfType ty `unionNameSet` orphNamesOfCo co
 orphNamesOfType (CoercionTy co)      = orphNamesOfCo co
 
 orphNamesOfThings :: (a -> NameSet) -> [a] -> NameSet
-orphNamesOfThings f = foldr (unionNameSets . f) emptyNameSet
+orphNamesOfThings f = foldr (unionNameSet . f) emptyNameSet
 
 orphNamesOfTypes :: [Type] -> NameSet
 orphNamesOfTypes = orphNamesOfThings orphNamesOfType
@@ -1714,26 +1785,26 @@ orphNamesOfDFunHead dfun_ty
 
 orphNamesOfCo :: Coercion -> NameSet
 orphNamesOfCo (Refl _ ty)           = orphNamesOfType ty
-orphNamesOfCo (TyConAppCo _ tc cos) = unitNameSet (getName tc) `unionNameSets` orphNamesOfCoArgs cos
-orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSets` orphNamesOfCoArg co2
+orphNamesOfCo (TyConAppCo _ tc cos) = unitNameSet (getName tc) `unionNameSet` orphNamesOfCoArgs cos
+orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSet` orphNamesOfCoArg co2
 orphNamesOfCo (ForAllCo cobndr co)
   | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
   = orphNamesOfCo h `unionNameSets` orphNamesOfCo co
   | otherwise
   = orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
-orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSets` orphNamesOfCoArgs cos
-orphNamesOfCo (PhantomCo h t1 t2)   = orphNamesOfCo h `unionNameSets` orphNamesOfType t1 `unionNameSets` orphNamesOfType t2
-orphNamesOfCo (UnsafeCo _ ty1 ty2)  = orphNamesOfType ty1 `unionNameSets` orphNamesOfType ty2
+orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSet` orphNamesOfCoArgs cos
+orphNamesOfCo (PhantomCo h t1 t2)   = orphNamesOfCo h `unionNameSet` orphNamesOfType t1 `unionNameSet` orphNamesOfType t2
+orphNamesOfCo (UnsafeCo _ ty1 ty2)  = orphNamesOfType ty1 `unionNameSet` orphNamesOfType ty2
 orphNamesOfCo (SymCo co)            = orphNamesOfCo co
-orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
+orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (NthCo _ co)          = orphNamesOfCo co
 orphNamesOfCo (LRCo  _ co)          = orphNamesOfCo co
-orphNamesOfCo (InstCo co arg)       = orphNamesOfCo co `unionNameSets` orphNamesOfCoArg arg
-orphNamesOfCo (CoherenceCo co1 co2) = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
+orphNamesOfCo (InstCo co arg)       = orphNamesOfCo co `unionNameSet` orphNamesOfCoArg arg
+orphNamesOfCo (CoherenceCo co1 co2) = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (KindCo co)           = orphNamesOfCo co
 orphNamesOfCo (SubCo co)            = orphNamesOfCo co
-orphNamesOfCo (AxiomRuleCo _ ts cs) = orphNamesOfTypes ts `unionNameSets`
+orphNamesOfCo (AxiomRuleCo _ ts cs) = orphNamesOfTypes ts `unionNameSet`
                                       orphNamesOfCos cs
 
 orphNamesOfCos :: [Coercion] -> NameSet
@@ -1748,14 +1819,14 @@ orphNamesOfCoArgs = orphNamesOfThings orphNamesOfCoArg
 
 orphNamesOfCoCon :: CoAxiom br -> NameSet
 orphNamesOfCoCon (CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
-  = orphNamesOfTyCon tc `unionNameSets` orphNamesOfCoAxBranches branches
+  = orphNamesOfTyCon tc `unionNameSet` orphNamesOfCoAxBranches branches
 
 orphNamesOfCoAxBranches :: BranchList CoAxBranch br -> NameSet
-orphNamesOfCoAxBranches = brListFoldr (unionNameSets . orphNamesOfCoAxBranch) emptyNameSet
+orphNamesOfCoAxBranches = brListFoldr (unionNameSet . orphNamesOfCoAxBranch) emptyNameSet
 
 orphNamesOfCoAxBranch :: CoAxBranch -> NameSet
 orphNamesOfCoAxBranch (CoAxBranch { cab_lhs = lhs, cab_rhs = rhs })
-  = orphNamesOfTypes lhs `unionNameSets` orphNamesOfType rhs
+  = orphNamesOfTypes lhs `unionNameSet` orphNamesOfType rhs
 \end{code}
 
 

@@ -54,7 +54,7 @@ rnSpliceType e _ = failTH e "Template Haskell type splice"
 rnSpliceExpr :: Bool -> HsSplice RdrName -> RnM (HsExpr Name, FreeVars)
 rnSpliceExpr _ e = failTH e "Template Haskell splice"
 
-rnSplicePat :: HsSplice RdrName -> RnM (Pat Name, FreeVars)
+rnSplicePat :: HsSplice RdrName -> RnM (Either (Pat RdrName) (Pat Name), FreeVars)
 rnSplicePat e = failTH e "Template Haskell pattern splice"
 
 rnSpliceDecl :: SpliceDecl RdrName -> RnM (SpliceDecl Name, FreeVars)
@@ -68,19 +68,21 @@ rnSpliceDecl e = failTH e "Template Haskell declaration splice"
 %*                                                      *
 %*********************************************************
 
-Note [Splices]
-~~~~~~~~~~~~~~
-Consider
+Note [Free variables of typed splices]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider renaming this:
         f = ...
         h = ...$(thing "f")...
 
-The splice can expand into literally anything, so when we do dependency
-analysis we must assume that it might mention 'f'.  So we simply treat
-all locally-defined names as mentioned by any splice.  This is terribly
-brutal, but I don't see what else to do.  For example, it'll mean
-that every locally-defined thing will appear to be used, so no unused-binding
-warnings.  But if we miss the dependency, then we might typecheck 'h' before 'f',
-and that will crash the type checker because 'f' isn't in scope.
+where the splice is a *typed* splice.  The splice can expand into
+literally anything, so when we do dependency analysis we must assume
+that it might mention 'f'.  So we simply treat all locally-defined
+names as mentioned by any splice.  This is terribly brutal, but I
+don't see what else to do.  For example, it'll mean that every
+locally-defined thing will appear to be used, so no unused-binding
+warnings.  But if we miss the dependency, then we might typecheck 'h'
+before 'f', and that will crash the type checker because 'f' isn't in
+scope.
 
 Currently, I'm not treating a splice as also mentioning every import,
 which is a bit inconsistent -- but there are a lot of them.  We might
@@ -130,13 +132,12 @@ rnSpliceGen is_typed_splice run_splice pend_splice splice@(HsSplice _ expr)
 ---------------------
 rnSplice :: HsSplice RdrName -> RnM (HsSplice Name, FreeVars)
 -- Not exported...used for all
-rnSplice (HsSplice n expr)
+rnSplice (HsSplice splice_name expr)
   = do  { checkTH expr "Template Haskell splice"
         ; loc  <- getSrcSpanM
-        ; n' <- newLocalBndrRn (L loc n)
+        ; n' <- newLocalBndrRn (L loc splice_name)
         ; (expr', fvs) <- rnLExpr expr
         ; return (HsSplice n' expr', fvs) }
-
 
 ---------------------
 rnSpliceExpr :: Bool -> HsSplice RdrName -> RnM (HsExpr Name, FreeVars)
@@ -144,14 +145,14 @@ rnSpliceExpr is_typed splice
   = rnSpliceGen is_typed run_expr_splice pend_expr_splice splice
   where
     pend_expr_splice :: HsSplice Name -> (PendingRnSplice, HsExpr Name)
-    pend_expr_splice rn_splice
-        = (PendingRnExpSplice rn_splice, HsSpliceE is_typed rn_splice)
+    pend_expr_splice rn_splice@(HsSplice n e)
+        = (PendingRnExpSplice (PendSplice n e), HsSpliceE is_typed rn_splice)
 
     run_expr_splice :: HsSplice Name -> RnM (HsExpr Name, FreeVars)
     run_expr_splice rn_splice@(HsSplice _ expr')
       | is_typed   -- Run it later, in the type checker
       = do {  -- Ugh!  See Note [Splices] above
-              lcl_rdr <- getLocalRdrEnv
+             lcl_rdr <- getLocalRdrEnv
            ; gbl_rdr <- getGlobalRdrEnv
            ; let gbl_names = mkNameSet [gre_name gre | gre <- globalRdrEnvElts gbl_rdr
                                                      , isLocalGRE gre]
@@ -161,7 +162,7 @@ rnSpliceExpr is_typed splice
 
       | otherwise  -- Run it here
       = do { expr <- getHooked runRnSpliceHook return >>= ($ expr')
-      
+
              -- The splice must have type ExpQ
            ; meta_exp_ty <- tcMetaTy expQTyConName
 
@@ -183,12 +184,12 @@ rnSpliceType :: HsSplice RdrName -> PostTc Name Kind
 rnSpliceType splice k
   = rnSpliceGen False run_type_splice pend_type_splice splice
   where
-    pend_type_splice rn_splice
-       = (PendingRnTypeSplice rn_splice, HsSpliceTy rn_splice k)
+    pend_type_splice rn_splice@(HsSplice n e)
+       = (PendingRnTypeSplice (PendSplice n e), HsSpliceTy rn_splice k)
 
-    run_type_splice (HsSplice _ expr') 
+    run_type_splice (HsSplice _ expr')
        = do { expr <- getHooked runRnSpliceHook return >>= ($ expr')
-              
+
             ; meta_exp_ty <- tcMetaTy typeQTyConName
 
               -- Typecheck the expression
@@ -205,17 +206,44 @@ rnSpliceType splice k
                                   }
             ; return (unLoc hs_ty3, fvs) }
 
-----------------------
-rnSplicePat :: HsSplice RdrName -> RnM (Pat Name, FreeVars)
+\end{code}
+
+Note [rnSplicePat]
+~~~~~~~~~~~~~~~~~~
+Renaming a pattern splice is a bit tricky, because we need the variables
+bound in the pattern to be in scope in the RHS of the pattern. This scope
+management is effectively done by using continuation-passing style in
+RnPat, through the CpsRn monad. We don't wish to be in that monad here
+(it would create import cycles and generally conflict with renaming other
+splices), so we really want to return a (Pat RdrName) -- the result of
+running the splice -- which can then be further renamed in RnPat, in
+the CpsRn monad.
+
+The problem is that if we're renaming a splice within a bracket, we
+*don't* want to run the splice now. We really do just want to rename
+it to an HsSplice Name. Of course, then we can't know what variables
+are bound within the splice, so pattern splices within brackets aren't
+all that useful.
+
+In any case, when we're done in rnSplicePat, we'll either have a
+Pat RdrName (the result of running a top-level splice) or a Pat Name
+(the renamed nested splice). Thus, the awkward return type of
+rnSplicePat.
+
+\begin{code}
+
+-- | Rename a splice pattern. See Note [rnSplicePat]
+rnSplicePat :: HsSplice RdrName -> RnM ( Either (Pat RdrName) (Pat Name)
+                                       , FreeVars)
 rnSplicePat splice
   = rnSpliceGen False run_pat_splice pend_pat_splice splice
   where
-    pend_pat_splice rn_splice
-      = (PendingRnPatSplice rn_splice, SplicePat rn_splice)
+    pend_pat_splice rn_splice@(HsSplice n e)
+      = (PendingRnPatSplice (PendSplice n e), Right $ SplicePat rn_splice)
 
     run_pat_splice (HsSplice _ expr')
       = do { expr <- getHooked runRnSpliceHook return >>= ($ expr')
-      
+
            ; meta_exp_ty <- tcMetaTy patQTyConName
 
              -- Typecheck the expression
@@ -226,18 +254,15 @@ rnSplicePat splice
            ; pat <- runMetaP zonked_q_expr
            ; showSplice "pattern" expr (ppr pat)
 
-           ; (pat', fvs) <- checkNoErrs $
-                            rnPat ThPatSplice pat $ \pat' -> return (pat', emptyFVs)
-
-           ; return (unLoc pat', fvs) }
+           ; return (Left $ unLoc pat, emptyFVs) }
 
 ----------------------
 rnSpliceDecl :: SpliceDecl RdrName -> RnM (SpliceDecl Name, FreeVars)
 rnSpliceDecl (SpliceDecl (L loc splice) flg)
   = rnSpliceGen False run_decl_splice pend_decl_splice splice
   where
-    pend_decl_splice rn_splice
-       = (PendingRnDeclSplice rn_splice, SpliceDecl(L loc rn_splice) flg)
+    pend_decl_splice rn_splice@(HsSplice n e)
+       = (PendingRnDeclSplice (PendSplice n e), SpliceDecl(L loc rn_splice) flg)
 
     run_decl_splice rn_splice = pprPanic "rnSpliceDecl" (ppr rn_splice)
 \end{code}

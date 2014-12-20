@@ -137,7 +137,7 @@ tcHsSigType, tcHsSigTypeNC :: UserTypeCtxt -> LHsType Name -> TcM Type
   --     HsForAllTy in hs_ty occur *first* in the returned type.
   --     See Note [Scoped] with TcSigInfo
 tcHsSigType ctxt hs_ty
-  = addErrCtxt (pprHsSigCtxt ctxt hs_ty) $
+  = addErrCtxt (pprSigCtxt ctxt empty (ppr hs_ty)) $
     tcHsSigTypeNC ctxt hs_ty
 
 tcHsSigTypeNC ctxt (L loc hs_ty)
@@ -171,8 +171,8 @@ tcHsInstHead user_ctxt lhs_ty@(L loc hs_ty)
        ; checkValidInstance user_ctxt lhs_ty inst_ty }
 
 tc_inst_head :: HsType Name -> TcM TcType
-tc_inst_head (HsForAllTy _ hs_tvs hs_ctxt hs_ty)
-  = tcHsTyVarBndrs hs_tvs $ \ tvs -> 
+tc_inst_head (HsForAllTy _ _ hs_tvs hs_ctxt hs_ty)
+  = tcHsTyVarBndrs hs_tvs $ \ tvs ->
     do { ctxt <- tcHsContext hs_ctxt
        ; ty   <- tc_lhs_type hs_ty ekConstraint    -- Body for forall has kind Constraint
                   -- TODO (RAE): This will be changed with "forall ->" syntax
@@ -441,7 +441,7 @@ tc_hs_type hs_ty@(HsOpTy ty1 (L _ op) ty2) exp_kind
   = tc_fun_type hs_ty ty1 ty2 exp_kind
 
 --------- Foralls
-tc_hs_type hs_ty@(HsForAllTy _ hs_tvs context ty) exp_kind@(EK exp_k _)
+tc_hs_type hs_ty@(HsForAllTy _ _ hs_tvs context ty) exp_kind@(EK exp_k _)
   | isConstraintKind exp_k
   = failWithTc (hang (ptext (sLit "Illegal constraint:")) 2 (ppr hs_ty))
 
@@ -591,6 +591,15 @@ tc_infer_hs_type_ek :: HsType Name -> ExpKind -> TcM TcType
 tc_infer_hs_type_ek ty ek
   = do { (ty', k) <- tc_infer_hs_type ty
        ; checkExpectedKind ty ty' k ek }
+
+
+tc_hs_type HsWildcardTy _ = panic "tc_hs_type HsWildcardTy"
+-- unnamed wildcards should have been replaced by named wildcards
+
+tc_hs_type hs_ty@(HsNamedWildcardTy name) exp_kind
+  = do { (ty, k) <- tcTyVar name
+       ; checkExpectedKind hs_ty k exp_kind
+       ; return ty }
 
 ---------------------------
 tupKindSort_maybe :: TcKind -> Maybe TupleSort
@@ -1402,23 +1411,28 @@ Historical note:
 \begin{code}
 tcHsPatSigType :: UserTypeCtxt
                -> HsWithBndrs Name (LHsType Name) -- The type signature
-              -> TcM ( Type                       -- The signature
-                      , [(Name, TcTyVar)] )   -- The new bit of type environment, binding
+               -> TcM ( Type                      -- The signature
+                      , [(Name, TcTyVar)]     -- The new bit of type environment, binding
                                               -- the scoped type variables
+                      , [(Name, TcTyVar)] )   -- The wildcards
 -- Used for type-checking type signatures in
 -- (a) patterns           e.g  f (x::Int) = e
 -- (b) result signatures  e.g. g x :: Int = e
 -- (c) RULE forall bndrs  e.g. forall (x::Int). f x = x
 
-tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_vars = sig_vars })
-  = addErrCtxt (pprHsSigCtxt ctxt hs_ty) $
+tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_vars = sig_vars
+                          , hswb_wcs = sig_wcs })
+  = addErrCtxt (pprSigCtxt ctxt empty (ppr hs_ty)) $
     do  { vars <- mapM new_tv sig_vars
-        ; let ktv_binds = (sig_vars `zip` vars)
-        ; sig_ty <- tcExtendTyVarEnv2 ktv_binds $
+        ; nwc_tvs <- mapM newWildcardVarMetaKind sig_wcs
+        ; let nwc_binds = sig_wcs `zip` nwc_tvs
+              ktv_binds = (sig_vars `zip` vars)
+        ; sig_ty <- tcExtendTyVarEnv2 (ktv_binds ++ nwc_binds) $
                     tcHsLiftedType hs_ty
         ; sig_ty <- zonkSigType sig_ty
-        ; checkValidType ctxt sig_ty 
-        ; return (sig_ty, ktv_binds) }
+        ; checkValidType ctxt sig_ty
+        ; emitWildcardHoleConstraints (zip sig_wcs nwc_tvs)
+        ; return (sig_ty, ktv_binds, nwc_binds) }
   where
     new_tv name = do { kind <- newMetaKindVar
                      ; new_tkv name kind }
@@ -1428,34 +1442,33 @@ tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_vars = sig_vars })
           RuleSigCtxt {} -> return $ new_skolem_tv name kind
           _              -> newSigTyVar name kind -- See Note [Unifying SigTvs]
 
-tcPatSig :: UserTypeCtxt
+tcPatSig :: Bool                    -- True <=> pattern binding
          -> HsWithBndrs Name (LHsType Name)
          -> TcSigmaType
          -> TcM (TcType,            -- The type to use for "inside" the signature
                  [(Name, TcTyVar)], -- The new bit of type environment, binding
                                     -- the scoped type variables
+                 [(Name, TcTyVar)], -- The wildcards
                  HsWrapper)         -- Coercion due to unification with actual ty
                                     -- Of shape:  res_ty ~ sig_ty
-tcPatSig ctxt sig res_ty
-  = do  { (sig_ty, sig_tvs) <- tcHsPatSigType ctxt sig
-        -- sig_tvs are the type variables free in 'sig', 
+tcPatSig in_pat_bind sig res_ty
+  = do  { (sig_ty, sig_tvs, sig_nwcs) <- tcHsPatSigType PatSigCtxt sig
+        -- sig_tvs are the type variables free in 'sig',
         -- and not already in scope. These are the ones
         -- that should be brought into scope
 
         ; if null sig_tvs then do {
                 -- Just do the subsumption check and return
-                  wrap <- tcSubType PatSigOrigin ctxt res_ty sig_ty
-                ; return (sig_ty, [], wrap)
+                  wrap <- addErrCtxtM (mk_msg sig_ty) $
+                          tcSubType_NC PatSigCtxt res_ty sig_ty
+                ; return (sig_ty, [], sig_nwcs, wrap)
         } else do
                 -- Type signature binds at least one scoped type variable
         
                 -- A pattern binding cannot bind scoped type variables
                 -- It is more convenient to make the test here
                 -- than in the renamer
-        { let in_pat_bind = case ctxt of
-                                BindPatSigCtxt -> True
-                                _              -> False
-        ; when in_pat_bind (addErr (patBindSigErr sig_tvs))
+        { when in_pat_bind (addErr (patBindSigErr sig_tvs))
 
                 -- Check that all newly-in-scope tyvars are in fact
                 -- constrained by the pattern.  This catches tiresome
@@ -1469,11 +1482,21 @@ tcPatSig ctxt sig res_ty
         ; checkTc (null bad_tvs) (badPatSigTvs sig_ty bad_tvs)
 
         -- Now do a subsumption check of the pattern signature against res_ty
-        ; wrap <- tcSubType PatSigOrigin ctxt res_ty sig_ty
+        ; wrap <- addErrCtxtM (mk_msg sig_ty) $
+                  tcSubType_NC PatSigCtxt res_ty sig_ty
 
         -- Phew!
-        ; return (sig_ty, sig_tvs, wrap)
+        ; return (sig_ty, sig_tvs, sig_nwcs, wrap)
         } }
+  where
+    mk_msg sig_ty tidy_env
+       = do { (tidy_env, sig_ty) <- zonkTidyTcType tidy_env sig_ty
+            ; (tidy_env, res_ty) <- zonkTidyTcType tidy_env res_ty
+            ; let msg = vcat [ hang (ptext (sLit "When checking that the pattern signature:"))
+                                  4 (ppr sig_ty)
+                             , nest 2 (hang (ptext (sLit "fits the type of its context:"))
+                                          2 (ppr res_ty)) ]
+            ; return (tidy_env, msg) }
 
 patBindSigErr :: [(Name, TcTyVar)] -> SDoc
 patBindSigErr sig_tvs 
@@ -1739,17 +1762,6 @@ promotionErr name err
 %************************************************************************
 
 \begin{code}
-pprHsSigCtxt :: UserTypeCtxt -> LHsType Name -> SDoc
-pprHsSigCtxt ctxt hs_ty = sep [ ptext (sLit "In") <+> pprUserTypeCtxt ctxt <> colon, 
-                                 nest 2 (pp_sig ctxt) ]
-  where
-    pp_sig (FunSigCtxt n)  = pp_n_colon n
-    pp_sig (ConArgCtxt n)  = pp_n_colon n
-    pp_sig (ForSigCtxt n)  = pp_n_colon n
-    pp_sig _               = ppr (unLoc hs_ty)
-
-    pp_n_colon n = pprPrefixOcc n <+> dcolon <+> ppr (unLoc hs_ty)
-
 badPatSigTvs :: TcType -> [TyVar] -> SDoc
 badPatSigTvs sig_ty bad_tvs
   = vcat [ fsep [ptext (sLit "The type variable") <> plural bad_tvs, 

@@ -788,12 +788,11 @@ anyTy :: Type
 anyTy = mkTyConTy anyTyCon
 
 anyTyCon :: TyCon
-anyTyCon = mkSynTyCon anyTyConName kind [kKiVar] [Nominal]
-                      syn_rhs
-                      NoParentTyCon
+anyTyCon = mkFamilyTyCon anyTyConName kind [kKiVar]
+                         AbstractClosedSynFamilyTyCon
+                         NoParentTyCon
   where
     kind = ForAllTy (Named kKiVar Invisible) (mkOnlyTyVarTy kKiVar)
-    syn_rhs = AbstractClosedSynFamilyTyCon
 
 anyTypeOfKind :: Kind -> Type
 anyTypeOfKind kind = TyConApp anyTyCon [kind]

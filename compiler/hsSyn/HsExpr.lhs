@@ -52,6 +52,8 @@ import Data.Data hiding (Fixity)
 -- * Expressions proper
 
 type LHsExpr id = Located (HsExpr id)
+  -- ^ May have 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnComma' when
+  --   in a list
 
 -------------------------
 -- | PostTcExpr is an evidence expression attached to the syntax tree by the
@@ -62,7 +64,7 @@ type PostTcExpr  = HsExpr Id
 type PostTcTable = [(Name, PostTcExpr)]
 
 noPostTcExpr :: PostTcExpr
-noPostTcExpr = HsLit (HsString (fsLit "noPostTcExpr"))
+noPostTcExpr = HsLit (HsString "" (fsLit "noPostTcExpr"))
 
 noPostTcTable :: PostTcTable
 noPostTcTable = []
@@ -79,7 +81,7 @@ type SyntaxExpr id = HsExpr id
 
 noSyntaxExpr :: SyntaxExpr id -- Before renaming, and sometimes after,
                               -- (if the syntax slot makes no sense)
-noSyntaxExpr = HsLit (HsString (fsLit "noSyntaxExpr"))
+noSyntaxExpr = HsLit (HsString "" (fsLit "noSyntaxExpr"))
 
 
 type CmdSyntaxTable id = [(Name, SyntaxExpr id)]
@@ -132,9 +134,15 @@ data HsExpr id
   | HsLit     HsLit                     -- ^ Simple (non-overloaded) literals
 
   | HsLam     (MatchGroup id (LHsExpr id)) -- ^ Lambda abstraction. Currently always a single match
+       --
+       -- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnLam',
+       --       'ApiAnnotation.AnnRarrow',
 
   | HsLamCase (PostTc id Type) (MatchGroup id (LHsExpr id)) -- ^ Lambda-case
-
+       --
+       -- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnLam',
+       --           'ApiAnnotation.AnnCase','ApiAnnotation.AnnOpen',
+       --           'ApiAnnotation.AnnClose'
   | HsApp     (LHsExpr id) (LHsExpr id) -- ^ Application
 
   -- | Operator applications:
@@ -149,10 +157,18 @@ data HsExpr id
                 (LHsExpr id)    -- right operand
 
   -- | Negation operator. Contains the negated expression and the name
-  -- of 'negate'              
-  | NegApp      (LHsExpr id) 
-                (SyntaxExpr id) 
+  -- of 'negate'
+  --
+  --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnMinus'
+  | NegApp      (LHsExpr id)
+                (SyntaxExpr id)
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --             'ApiAnnotation.AnnClose'
+  --   - Note: if 'ApiAnnotation.AnnVal' is present this is actually an
+  --           inactive 'HsSCC'
+  --   - Note: if multiple 'ApiAnnotation.AnnVal' are
+  --            present this is actually an inactive 'HsTickPragma'
   | HsPar       (LHsExpr id)    -- ^ Parenthesised expr; see Note [Parens in HsSyn]
 
   | SectionL    (LHsExpr id)    -- operand; see Note [Sections in HsSyn]
@@ -161,13 +177,23 @@ data HsExpr id
                 (LHsExpr id)    -- operand
 
   -- | Used for explicit tuples and sections thereof
-  | ExplicitTuple               
-        [HsTupArg id]
+  --
+  --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --         'ApiAnnotation.AnnClose'
+  | ExplicitTuple
+        [LHsTupArg id]
         Boxity
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnCase',
+  --       'ApiAnnotation.AnnOf','ApiAnnotation.AnnOpen',
+  --       'ApiAnnotation.AnnClose'
   | HsCase      (LHsExpr id)
                 (MatchGroup id (LHsExpr id))
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnIf',
+  --       'ApiAnnotation.AnnSemi',
+  --       'ApiAnnotation.AnnThen','ApiAnnotation.AnnSemi2',
+  --       'ApiAnnotation.AnnElse',
   | HsIf        (Maybe (SyntaxExpr id)) -- cond function
                                         -- Nothing => use the built-in 'if'
                                         -- See Note [Rebindable if]
@@ -176,12 +202,23 @@ data HsExpr id
                 (LHsExpr id)    --  else part
 
   -- | Multi-way if
+  --
+  -- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnIf'
+  --       'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose',
   | HsMultiIf   (PostTc id Type) [LGRHS id (LHsExpr id)]
 
   -- | let(rec)
-  | HsLet       (HsLocalBinds id) 
+  --
+  -- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnLet',
+  --       'ApiAnnotation.AnnIn','ApiAnnotation.AnnOpen',
+  --       'ApiAnnotation.AnnClose'
+  | HsLet       (HsLocalBinds id)
                 (LHsExpr  id)
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDo',
+  --             'ApiAnnotation.AnnOpen', 'ApiAnnotation.AnnSemi',
+  --             'ApiAnnotation.AnnVbar',
+  --             'ApiAnnotation.AnnClose'
   | HsDo        (HsStmtContext Name) -- The parameterisation is unimportant
                                      -- because in this context we never use
                                      -- the PatGuard or ParStmt variant
@@ -189,23 +226,37 @@ data HsExpr id
                 (PostTc id Type)     -- Type of the whole expression
 
   -- | Syntactic list: [a,b,c,...]
+  --
+  --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --              'ApiAnnotation.AnnClose'
   | ExplicitList
                 (PostTc id Type)        -- Gives type of components of list
                 (Maybe (SyntaxExpr id)) -- For OverloadedLists, the fromListN witness
                 [LHsExpr id]
 
   -- | Syntactic parallel array: [:e1, ..., en:]
+  --
+  --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --              'ApiAnnotation.AnnDotdot','ApiAnnotation.AnnComma',
+  --              'ApiAnnotation.AnnVbar'
+  --              'ApiAnnotation.AnnClose'
   | ExplicitPArr
                 (PostTc id Type)   -- type of elements of the parallel array
                 [LHsExpr id]
 
   -- | Record construction
+  --
+  --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --         'ApiAnnotation.AnnDotdot','ApiAnnotation.AnnClose'
   | RecordCon   (Located id)       -- The constructor.  After type checking
                                    -- it's the dataConWrapId of the constructor
                 PostTcExpr         -- Data con Id applied to type args
                 (HsRecordBinds id)
 
   -- | Record update
+  --
+  --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --         'ApiAnnotation.AnnDotdot','ApiAnnotation.AnnClose'
   | RecordUpd   (LHsExpr id)
                 (HsRecordBinds id)
 --              (HsMatchGroup Id)  -- Filled in by the type checker to be
@@ -218,10 +269,16 @@ data HsExpr id
   -- For a type family, the arg types are of the *instance* tycon,
   -- not the family tycon
 
-  -- | Expression with an explicit type signature. @e :: type@  
-  | ExprWithTySig                       
+  -- | Expression with an explicit type signature. @e :: type@
+  --
+  --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDcolon'
+  | ExprWithTySig
                 (LHsExpr id)
                 (LHsType id)
+                (PostRn id [Name])      -- After renaming, the list of Names
+                                        -- contains the named and unnamed
+                                        -- wildcards brought in scope by the
+                                        -- signature
 
   | ExprWithTySigOut                    -- TRANSLATION
                 (LHsExpr id)
@@ -229,7 +286,11 @@ data HsExpr id
                                         -- round-tripping purposes
 
   -- | Arithmetic sequence
-  | ArithSeq                            
+  --
+  --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --              'ApiAnnotation.AnnDotdot','ApiAnnotation.AnnComma',
+  --              'ApiAnnotation.AnnClose'
+  | ArithSeq
                 PostTcExpr
                 (Maybe (SyntaxExpr id))   -- For OverloadedLists, the fromList witness
                 (ArithSeqInfo id)
@@ -239,15 +300,22 @@ data HsExpr id
                 PostTcExpr              -- [:e1..e2:] or [:e1, e2..e3:]
                 (ArithSeqInfo id)
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --             'ApiAnnotation.AnnVal', 'ApiAnnotation.AnnClose'
   | HsSCC       FastString              -- "set cost centre" SCC pragma
                 (LHsExpr id)            -- expr whose cost is to be measured
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --             'ApiAnnotation.AnnVal', 'ApiAnnotation.AnnClose'
   | HsCoreAnn   FastString              -- hdaume: core annotation
                 (LHsExpr id)
 
   -----------------------------------------------------------
   -- MetaHaskell Extensions
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --         'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose',
+  --         'ApiAnnotation.AnnClose'
   | HsBracket    (HsBracket id)
 
     -- See Note [Pending Splices]
@@ -262,6 +330,8 @@ data HsExpr id
       [PendingTcSplice]    -- _typechecked_ splices to be
                            -- pasted back in by the desugarer
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --         'ApiAnnotation.AnnClose'
   | HsSpliceE    Bool                   -- True <=> typed splice
                  (HsSplice id)          -- False <=> untyped
 
@@ -272,6 +342,9 @@ data HsExpr id
   -- Arrow notation extension
 
   -- | @proc@ notation for Arrows
+  --
+  --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnProc',
+  --          'ApiAnnotation.AnnRarrow'
   | HsProc      (LPat id)               -- arrow abstraction, proc
                 (LHsCmdTop id)          -- body of the abstraction
                                         -- always has an empty stack
@@ -280,6 +353,10 @@ data HsExpr id
   -- The following are commands, not expressions proper
   -- They are only used in the parsing stage and are removed
   --    immediately in parser.RdrHsSyn.checkCommand
+
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.Annlarrowtail',
+  --          'ApiAnnotation.Annrarrowtail','ApiAnnotation.AnnLarrowtail',
+  --          'ApiAnnotation.AnnRarrowtail'
   | HsArrApp             -- Arrow tail, or arrow application (f -< arg)
         (LHsExpr id)     -- arrow expression, f
         (LHsExpr id)     -- input expression, arg
@@ -289,6 +366,8 @@ data HsExpr id
         Bool             -- True => right-to-left (f -< arg)
                          -- False => left-to-right (arg >- f)
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --         'ApiAnnotation.AnnClose'
   | HsArrForm            -- Command formation,  (| e cmd1 .. cmdn |)
         (LHsExpr id)     -- the operator
                          -- after type-checking, a type abstraction to be
@@ -309,6 +388,14 @@ data HsExpr id
      Int                                -- module-local tick number for False
      (LHsExpr id)                       -- sub-expression
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+  --       'ApiAnnotation.AnnOpen',
+  --       'ApiAnnotation.AnnVal','ApiAnnotation.AnnVal2',
+  --       'ApiAnnotation.AnnColon','ApiAnnotation.AnnVal3',
+  --       'ApiAnnotation.AnnMinus',
+  --       'ApiAnnotation.AnnVal4','ApiAnnotation.AnnColon2',
+  --       'ApiAnnotation.AnnVal5',
+  --       'ApiAnnotation.AnnClose'
   | HsTickPragma                        -- A pragma introduced tick
      (FastString,(Int,Int),(Int,Int))   -- external span for this tick
      (LHsExpr id)
@@ -319,12 +406,15 @@ data HsExpr id
 
   | EWildPat                 -- wildcard
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnAt'
   | EAsPat      (Located id) -- as pattern
                 (LHsExpr id)
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnRarrow'
   | EViewPat    (LHsExpr id) -- view pattern
                 (LHsExpr id)
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnTilde'
   | ELazyPat    (LHsExpr id) -- ~ pattern
 
   | HsType      (LHsType id) -- Explicit type argument; e.g  f {| Int |} x y
@@ -339,67 +429,20 @@ data HsExpr id
 deriving instance (DataId id) => Data (HsExpr id)
 
 -- | HsTupArg is used for tuple sections
---  (,a,) is represented by  ExplicitTuple [Mising ty1, Present a, Missing ty3]
+--  (,a,) is represented by  ExplicitTuple [Missing ty1, Present a, Missing ty3]
 --  Which in turn stands for (\x:ty1 \y:ty2. (x,a,y))
+type LHsTupArg id = Located (HsTupArg id)
+-- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnComma'
 data HsTupArg id
   = Present (LHsExpr id)     -- ^ The argument
   | Missing (PostTc id Type) -- ^ The argument is missing, but this is its type
   deriving (Typeable)
 deriving instance (DataId id) => Data (HsTupArg id)
 
-tupArgPresent :: HsTupArg id -> Bool
-tupArgPresent (Present {}) = True
-tupArgPresent (Missing {}) = False
-
--- See Note [Pending Splices]
-data PendingRnSplice
-  = PendingRnExpSplice        (HsSplice Name)
-  | PendingRnPatSplice        (HsSplice Name)
-  | PendingRnTypeSplice       (HsSplice Name)
-  | PendingRnDeclSplice       (HsSplice Name)
-  | PendingRnCrossStageSplice Name
-  deriving (Data, Typeable)
-
-type PendingTcSplice = (Name, LHsExpr Id)
+tupArgPresent :: LHsTupArg id -> Bool
+tupArgPresent (L _ (Present {})) = True
+tupArgPresent (L _ (Missing {})) = False
 \end{code}
-
-Note [Pending Splices]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Now that untyped brackets are not type checked, we need a mechanism to ensure
-that splices contained in untyped brackets *are* type checked. Therefore the
-renamer now renames every HsBracket into a HsRnBracketOut, which contains the
-splices that need to be type checked. There are four varieties of pending
-splices generated by the renamer:
-
- * Pending expression splices (PendingRnExpSplice), e.g.,
-
-   [|$(f x) + 2|]
-
- * Pending pattern splices (PendingRnPatSplice), e.g.,
-
-   [|\ $(f x) -> x|]
-
- * Pending type splices (PendingRnTypeSplice), e.g.,
-
-   [|f :: $(g x)|]
-
- * Pending cross-stage splices (PendingRnCrossStageSplice), e.g.,
-
-   \x -> [| x |]
-
-There is a fifth variety of pending splice, which is generated by the type
-checker:
-
-  * Pending *typed* expression splices, (PendingTcSplice), e.g.,
-
-    [||1 + $$(f 2)||]
-
-It would be possible to eliminate HsRnBracketOut and use HsBracketOut for the
-output of the renamer. However, when pretty printing the output of the renamer,
-e.g., in a type error message, we *do not* want to print out the pending
-splices. In contrast, when pretty printing the output of the type checker, we
-*do* want to print the pending splices. So splitting them up seems to make
-sense, although I hate to add another constructor to HsExpr.
 
 Note [Parens in HsSyn]
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -526,7 +569,8 @@ ppr_expr (SectionR op expr)
     pp_infixly v = sep [pprInfixOcc v, pp_expr]
 
 ppr_expr (ExplicitTuple exprs boxity)
-  = tupleParens (boxityNormalTupleSort boxity) (fcat (ppr_tup_args exprs))
+  = tupleParens (boxityNormalTupleSort boxity)
+                (fcat (ppr_tup_args $ map unLoc exprs))
   where
     ppr_tup_args []               = []
     ppr_tup_args (Present e : es) = (ppr_lexpr e <> punc es) : ppr_tup_args es
@@ -583,7 +627,7 @@ ppr_expr (RecordCon con_id _ rbinds)
 ppr_expr (RecordUpd aexp rbinds _ _ _)
   = hang (pprParendExpr aexp) 2 (ppr rbinds)
 
-ppr_expr (ExprWithTySig expr sig)
+ppr_expr (ExprWithTySig expr sig _)
   = hang (nest 2 (ppr_lexpr expr) <+> dcolon)
          4 (ppr sig)
 ppr_expr (ExprWithTySigOut expr sig)
@@ -925,7 +969,8 @@ data MatchGroup id body
 deriving instance (Data body,DataId id) => Data (MatchGroup id body)
 
 type LMatch id body = Located (Match id body)
-
+-- ^ May have 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnSemi' when in a
+--   list
 data Match id body
   = Match
         [LPat id]               -- The patterns
@@ -949,6 +994,11 @@ hsLMatchPats :: LMatch id body -> [LPat id]
 hsLMatchPats (L _ (Match pats _ _)) = pats
 
 -- | GRHSs are used both for pattern bindings and for Matches
+--
+--  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnVbar',
+--        'ApiAnnotation.AnnEqual','ApiAnnotation.AnnWhere',
+--        'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose'
+--        'ApiAnnotation.AnnRarrow','ApiAnnotation.AnnSemi'
 data GRHSs id body
   = GRHSs {
       grhssGRHSs :: [LGRHS id body],       -- ^ Guarded RHSs
@@ -1063,6 +1113,11 @@ type GhciStmt   id = Stmt  id (LHsExpr id)
 
 -- The SyntaxExprs in here are used *only* for do-notation and monad
 -- comprehensions, which have rebindable syntax. Otherwise they are unused.
+-- | API Annotations when in qualifier lists or guards
+--  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnVbar',
+--         'ApiAnnotation.AnnComma','ApiAnnotation.AnnThen',
+--         'ApiAnnotation.AnnBy','ApiAnnotation.AnnBy',
+--         'ApiAnnotation.AnnGroup','ApiAnnotation.AnnUsing'
 data StmtLR idL idR body -- body should always be (LHs**** idR)
   = LastStmt  -- Always the last Stmt in ListComp, MonadComp, PArrComp,
               -- and (after the renamer) DoExpr, MDoExpr
@@ -1072,6 +1127,7 @@ data StmtLR idL idR body -- body should always be (LHs**** idR)
                                   -- For ListComp, PArrComp, we use the baked-in 'return'
                                   -- For DoExpr, MDoExpr, we don't appply a 'return' at all
                                   -- See Note [Monad Comprehensions]
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnLarrow'
   | BindStmt (LPat idL)
              body
              (SyntaxExpr idR) -- The (>>=) operator; see Note [The type of bind]
@@ -1085,6 +1141,7 @@ data StmtLR idL idR body -- body should always be (LHs**** idR)
                                -- See notes [Monad Comprehensions]
              (PostTc idR Type) -- Element type of the RHS (used for arrows)
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnLet'
   | LetStmt  (HsLocalBindsLR idL idR)
 
   -- ParStmts only occur in a list/monad comprehension
@@ -1114,6 +1171,7 @@ data StmtLR idL idR body -- body should always be (LHs**** idR)
     }                                 -- See Note [Monad Comprehensions]
 
   -- Recursive statement (see Note [How RecStmt works] below)
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnRec'
   | RecStmt
      { recS_stmts :: [LStmtLR idL idR body]
 
@@ -1387,14 +1445,97 @@ pprQuals quals = interpp'SP quals
 %************************************************************************
 
 \begin{code}
-data HsSplice id  = HsSplice            --  $z  or $(f 4)
-                        id              -- The id is just a unique name to
-                        (LHsExpr id)    -- identify this splice point
-  deriving (Typeable)
-deriving instance (DataId id) => Data (HsSplice id)
+data HsSplice id
+   = HsSplice            --  $z  or $(f 4)
+        id               -- A unique name to identify this splice point
+        (LHsExpr id)     -- See Note [Pending Splices]
+  deriving (Typeable )
 
+-- See Note [Pending Splices]
+data PendingSplice id
+  = PendSplice Name (LHsExpr id)
+  deriving( Typeable )
+        -- It'd be convenient to re-use HsSplice, but the splice-name
+        -- really is a Name, never an Id.  Using (PostRn id Name) is
+        -- nearly OK, but annoyingly we can't pretty-print it.
+
+data PendingRnSplice
+  = PendingRnExpSplice        (PendingSplice Name)
+  | PendingRnPatSplice        (PendingSplice Name)
+  | PendingRnTypeSplice       (PendingSplice Name)
+  | PendingRnDeclSplice       (PendingSplice Name)
+  | PendingRnCrossStageSplice Name
+  deriving (Data, Typeable)
+
+type PendingTcSplice = PendingSplice Id
+
+deriving instance (DataId id) => Data (HsSplice id)
+deriving instance (DataId id) => Data (PendingSplice id)
+\end{code}
+
+Note [Pending Splices]
+~~~~~~~~~~~~~~~~~~~~~~
+When we rename an untyped bracket, we name and lift out all the nested
+splices, so that when the typechecker hits the bracket, it can
+typecheck those nested splices without having to walk over the untyped
+bracket code.  So for example
+    [| f $(g x) |]
+looks like
+
+    HsBracket (HsApp (HsVar "f") (HsSpliceE _ (g x)))
+
+which the renamer rewrites to
+
+    HsRnBracketOut (HsApp (HsVar f) (HsSpliceE sn (g x)))
+                   [PendingRnExpSplice (HsSplice sn (g x))]
+
+* The 'sn' is the Name of the splice point.
+
+* The PendingRnExpSplice gives the splice that splice-point name maps to;
+  and the typechecker can now conveniently find these sub-expressions
+
+* The other copy of the splice, in the second argument of HsSpliceE
+                                in the renamed first arg of HsRnBracketOut
+  is used only for pretty printing
+
+There are four varieties of pending splices generated by the renamer:
+
+ * Pending expression splices (PendingRnExpSplice), e.g.,
+
+   [|$(f x) + 2|]
+
+ * Pending pattern splices (PendingRnPatSplice), e.g.,
+
+   [|\ $(f x) -> x|]
+
+ * Pending type splices (PendingRnTypeSplice), e.g.,
+
+   [|f :: $(g x)|]
+
+ * Pending cross-stage splices (PendingRnCrossStageSplice), e.g.,
+
+   \x -> [| x |]
+
+There is a fifth variety of pending splice, which is generated by the type
+checker:
+
+  * Pending *typed* expression splices, (PendingTcSplice), e.g.,
+
+    [||1 + $$(f 2)||]
+
+It would be possible to eliminate HsRnBracketOut and use HsBracketOut for the
+output of the renamer. However, when pretty printing the output of the renamer,
+e.g., in a type error message, we *do not* want to print out the pending
+splices. In contrast, when pretty printing the output of the type checker, we
+*do* want to print the pending splices. So splitting them up seems to make
+sense, although I hate to add another constructor to HsExpr.
+
+\begin{code}
 instance OutputableBndr id => Outputable (HsSplice id) where
   ppr (HsSplice n e) = angleBrackets (ppr n <> comma <+> ppr e)
+
+instance OutputableBndr id => Outputable (PendingSplice id) where
+  ppr (PendSplice n e) = angleBrackets (ppr n <> comma <+> ppr e)
 
 pprUntypedSplice :: OutputableBndr id => HsSplice id -> SDoc
 pprUntypedSplice = pprSplice False

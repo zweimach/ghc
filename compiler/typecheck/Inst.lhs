@@ -22,9 +22,7 @@ module Inst (
 
        -- Simple functions over evidence variables
        tyCoVarsOfWC,
-       tyCoVarsOfCt, tyCoVarsOfCts, 
-
-       tidyEvVar, tidyCt, tidySkolemInfo
+       tyCoVarsOfCt, tyCoVarsOfCts
     ) where
 
 #include "HsVersions.h"
@@ -49,7 +47,7 @@ import Class( Class )
 import MkId( mkDictFunId )
 import Id
 import Name
-import Var      ( EvVar, varType, setVarType, isCoVar )
+import Var      ( EvVar, isCoVar )
 import VarEnv
 import VarSet
 import PrelNames
@@ -60,7 +58,6 @@ import Util
 import BasicTypes ( Boxity(..) )
 import Outputable
 import Control.Monad( unless )
-import Data.List( mapAccumL )
 import Data.Maybe( isJust )
 \end{code}
 
@@ -175,15 +172,17 @@ deeplyInstantiate :: CtOrigin -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 -- then  wrap e :: rho
 
 deeplyInstantiate orig ty
+    -- TODO (RAE): This should vare more about visibility, I think while merging
   | Just (arg_tys, tvs, theta, rho) <- tcDeepSplitSigmaTy_maybe ty
   = do { (subst, tvs') <- tcInstTyCoVars orig tvs
        ; ids1  <- newSysLocalIds (fsLit "di") (substTys subst arg_tys)
        ; let theta' = substTheta subst theta
        ; wrap1 <- instCall orig (mkTyCoVarTys tvs') theta'
-       ; traceTc "Instantiating (deply)" (vcat [ ppr ty
-                                               , text "with" <+> ppr tvs'
-                                               , text "args:" <+> ppr ids1
-                                               , text "theta:" <+>  ppr theta' ])
+       ; traceTc "Instantiating (deeply)" (vcat [ text "origin" <+> pprCtOrigin orig
+                                                , text "type" <+> ppr ty
+                                                , text "with" <+> ppr tvs'
+                                                , text "args:" <+> ppr ids1
+                                                , text "theta:" <+>  ppr theta' ])
        ; (wrap2, rho2) <- deeplyInstantiate orig (substTy subst rho)
        ; return (mkWpLams ids1 
                     <.> wrap2
@@ -296,15 +295,15 @@ newOverloadedLit' dflags orig
 
 ------------
 mkOverLit :: OverLitVal -> TcM HsLit
-mkOverLit (HsIntegral i) 
+mkOverLit (HsIntegral src i)
   = do  { integer_ty <- tcMetaTy integerTyConName
-        ; return (HsInteger i integer_ty) }
+        ; return (HsInteger src i integer_ty) }
 
 mkOverLit (HsFractional r)
   = do  { rat_ty <- tcMetaTy rationalTyConName
         ; return (HsRat r rat_ty) }
 
-mkOverLit (HsIsString s) = return (HsString s)
+mkOverLit (HsIsString src s) = return (HsString src s)
 \end{code}
 
 
@@ -405,11 +404,14 @@ getOverlapFlag overlap_mode
               final_oflag = setOverlapModeMaybe default_oflag overlap_mode
         ; return final_oflag }
 
-tcGetInstEnvs :: TcM (InstEnv, InstEnv)
+tcGetInstEnvs :: TcM InstEnvs
 -- Gets both the external-package inst-env
 -- and the home-pkg inst env (includes module being compiled)
-tcGetInstEnvs = do { eps <- getEps; env <- getGblEnv;
-                     return (eps_inst_env eps, tcg_inst_env env) }
+tcGetInstEnvs = do { eps <- getEps
+                   ; env <- getGblEnv
+                   ; return (InstEnvs (eps_inst_env eps)
+                                      (tcg_inst_env env)
+                                      (tcg_visible_orphan_mods env))}
 
 tcGetInsts :: TcM [ClsInst]
 -- Gets the local class instances.
@@ -474,7 +476,9 @@ addLocalInst (home_ie, my_insts) ispec
                global_ie
                     | isJust (tcg_sig_of tcg_env) = emptyInstEnv
                     | otherwise = eps_inst_env eps
-               inst_envs       = (global_ie, home_ie')
+               inst_envs       = InstEnvs global_ie
+                                          home_ie'
+                                          (tcg_visible_orphan_mods tcg_env)
                (matches, _, _) = lookupInstEnv inst_envs cls tys
                dups            = filter (identicalInstHead ispec) (map fst matches)
 
@@ -606,51 +610,4 @@ tyCoVarsOfImplic (Implic { ic_skols = skols
 
 tyCoVarsOfBag :: (a -> TyVarSet) -> Bag a -> TyVarSet
 tyCoVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet
-
----------------- Tidying -------------------------
-
-tidyCt :: TidyEnv -> Ct -> Ct
--- Used only in error reporting
--- Also converts it to non-canonical
-tidyCt env ct 
-  = case ct of
-     CHoleCan { cc_ev = ev }
-       -> ct { cc_ev = tidy_ev env ev }
-     _ -> mkNonCanonical (tidy_ev env (ctEvidence ct))
-  where 
-    tidy_ev :: TidyEnv -> CtEvidence -> CtEvidence
-     -- NB: we do not tidy the ctev_evtm/var field because we don't 
-     --     show it in error messages
-    tidy_ev env ctev@(CtGiven { ctev_pred = pred })
-      = ctev { ctev_pred = tidyType env pred }
-    tidy_ev env ctev@(CtWanted { ctev_pred = pred })
-      = ctev { ctev_pred = tidyType env pred }
-    tidy_ev env ctev@(CtDerived { ctev_pred = pred })
-      = ctev { ctev_pred = tidyType env pred }
-
-tidyEvVar :: TidyEnv -> EvVar -> EvVar
-tidyEvVar env var = setVarType var (tidyType env (varType var))
-
-tidySkolemInfo :: TidyEnv -> SkolemInfo -> (TidyEnv, SkolemInfo)
-tidySkolemInfo env (SigSkol cx ty) 
-  = (env', SigSkol cx ty')
-  where
-    (env', ty') = tidyOpenType env ty
-
-tidySkolemInfo env (InferSkol ids) 
-  = (env', InferSkol ids')
-  where
-    (env', ids') = mapAccumL do_one env ids
-    do_one env (name, ty) = (env', (name, ty'))
-       where
-         (env', ty') = tidyOpenType env ty
-
-tidySkolemInfo env (UnifyForAllSkol skol_tvs ty) 
-  = (env1, UnifyForAllSkol skol_tvs' ty')
-  where
-    env1 = tidyFreeTyCoVars env (tyCoVarsOfType ty `delVarSetList` skol_tvs)
-    (env2, skol_tvs') = tidyTyCoVarBndrs env1 skol_tvs
-    ty'               = tidyType env2 ty
-
-tidySkolemInfo env info = (env, info)
 \end{code}

@@ -108,6 +108,7 @@ void initRtsFlagsDefaults(void)
     RtsFlags.GcFlags.stkChunkBufferSize = (1 * 1024) / sizeof(W_);
 
     RtsFlags.GcFlags.minAllocAreaSize   = (512 * 1024)        / BLOCK_SIZE;
+    RtsFlags.GcFlags.nurseryChunkSize   = 0;
     RtsFlags.GcFlags.minOldGenSize      = (1024 * 1024)       / BLOCK_SIZE;
     RtsFlags.GcFlags.maxHeapSize        = 0;    /* off by default */
     RtsFlags.GcFlags.heapSizeSuggestion = 0;    /* none */
@@ -137,6 +138,7 @@ void initRtsFlagsDefaults(void)
 #else
     RtsFlags.GcFlags.heapBase           = 0;   /* means don't care */
 #endif
+    RtsFlags.GcFlags.allocLimitGrace    = (100*1024) / BLOCK_SIZE;
 
 #ifdef DEBUG
     RtsFlags.DebugFlags.scheduler       = rtsFalse;
@@ -403,6 +405,8 @@ usage_text[] = {
 "            +PAPI_EVENT   - collect papi preset event PAPI_EVENT",
 "            #NATIVE_EVENT - collect native event NATIVE_EVENT (in hex)",
 #endif
+"  -xq       The allocation limit given to a thread after it receives",
+"            an AllocationLimitExceeded exception. (default: 100k)",
 "",
 "RTS options may also be specified using the GHCRTS environment variable.",
 "",
@@ -732,8 +736,16 @@ error = rtsTrue;
                   break;
               case 'A':
                   OPTION_UNSAFE;
+                  // minimum two blocks in the nursery, so that we have one to
+                  // grab for allocate().
                   RtsFlags.GcFlags.minAllocAreaSize
-                      = decodeSize(rts_argv[arg], 2, BLOCK_SIZE, HS_INT_MAX)
+                      = decodeSize(rts_argv[arg], 2, 2*BLOCK_SIZE, HS_INT_MAX)
+                           / BLOCK_SIZE;
+                  break;
+            case 'n':
+                  OPTION_UNSAFE;
+                  RtsFlags.GcFlags.nurseryChunkSize
+                      = decodeSize(rts_argv[arg], 2, 2*BLOCK_SIZE, HS_INT_MAX)
                            / BLOCK_SIZE;
                   break;
 
@@ -1360,6 +1372,13 @@ error = rtsTrue;
                     break;
 
                   /* The option prefix '-xx' is reserved for future extension.  KSW 1999-11. */
+
+                case 'q':
+                  OPTION_UNSAFE;
+                  RtsFlags.GcFlags.allocLimitGrace
+                      = decodeSize(rts_argv[arg], 3, BLOCK_SIZE, HS_INT_MAX)
+                          / BLOCK_SIZE;
+                  break;
 
                   default:
                     OPTION_SAFE;

@@ -60,7 +60,7 @@ module HscTypes (
 
         -- * Interfaces
         ModIface(..), mkIfaceWarnCache, mkIfaceHashCache, mkIfaceFixCache,
-        emptyIfaceWarnCache, 
+        emptyIfaceWarnCache,
 
         -- * Fixity
         FixityEnv, FixItem(..), lookupFixity, emptyFixityEnv,
@@ -75,7 +75,7 @@ module HscTypes (
         TypeEnv, lookupType, lookupTypeHscEnv, mkTypeEnv, emptyTypeEnv,
         typeEnvFromEntities, mkTypeEnvWithImplicits,
         extendTypeEnv, extendTypeEnvList,
-        extendTypeEnvWithIds, 
+        extendTypeEnvWithIds,
         lookupTypeEnv,
         typeEnvElts, typeEnvTyCons, typeEnvIds, typeEnvPatSyns,
         typeEnvDataCons, typeEnvCoAxioms, typeEnvClasses,
@@ -145,6 +145,7 @@ import Id
 import IdInfo           ( IdDetails(..) )
 import Type
 
+import ApiAnnotation    ( ApiAnns )
 import Annotations      ( Annotation, AnnEnv, mkAnnEnv, plusAnnEnv )
 import Class
 import TyCon
@@ -1109,7 +1110,7 @@ appendStubC (ForeignStubs h c) c_code = ForeignStubs h (c $$ c_code)
 
 Note [The interactive package]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Type, class, and value declarations at the command prompt are treated 
+Type, class, and value declarations at the command prompt are treated
 as if they were defined in modules
    interactive:Ghci1
    interactive:Ghci2
@@ -1153,8 +1154,8 @@ The details are a bit tricky though:
  * So how do we arrange that declarations at the command prompt get
    to be in the 'interactive' package?  Simply by setting the tcg_mod
    field of the TcGblEnv to "interactive:Ghci1".  This is done by the
-   call to initTc in initTcInteractive, initTcForLookup, which in 
-   turn get the module from it 'icInteractiveModule' field of the 
+   call to initTc in initTcInteractive, initTcForLookup, which in
+   turn get the module from it 'icInteractiveModule' field of the
    interactive context.
 
    The 'thisPackage' field stays as 'main' (or whatever -this-package-key says.
@@ -1192,7 +1193,7 @@ The Ids bound by previous Stmts in GHCi are currently
 
 However note that TyCons, Classes, and even Ids bound by other top-level
 declarations in GHCi (eg foreign import, record selectors) currently get
-External Names, with Ghci9 (or 8, or 7, etc) as the module name. 
+External Names, with Ghci9 (or 8, or 7, etc) as the module name.
 
 
 Note [ic_tythings]
@@ -1201,7 +1202,7 @@ The ic_tythings field contains
   * The TyThings declared by the user at the command prompt
     (eg Ids, TyCons, Classes)
 
-  * The user-visible Ids that arise from such things, which 
+  * The user-visible Ids that arise from such things, which
     *don't* come from 'implicitTyThings', notably:
        - record selectors
        - class ops
@@ -1312,7 +1313,7 @@ emptyInteractiveContext dflags
        ic_cwd        = Nothing }
 
 icInteractiveModule :: InteractiveContext -> Module
-icInteractiveModule (InteractiveContext { ic_mod_index = index }) 
+icInteractiveModule (InteractiveContext { ic_mod_index = index })
   = mkInteractiveModule index
 
 -- | This function returns the list of visible TyThings (useful for
@@ -1493,7 +1494,7 @@ mkQualModule dflags mod
 -- with a package key if the package ID would be ambiguous.
 mkQualPackage :: DynFlags -> QueryQualifyPackage
 mkQualPackage dflags pkg_key
-     | pkg_key == mainPackageKey
+     | pkg_key == mainPackageKey || pkg_key == interactivePackageKey
         -- Skip the lookup if it's main, since it won't be in the package
         -- database!
      = False
@@ -1573,7 +1574,7 @@ implicitConLikeThings (RealDataCon dc)
 implicitConLikeThings (PatSynCon {})
   = []  -- Pattern synonyms have no implicit Ids; the wrapper and matcher
         -- are not "implicit"; they are simply new top-level bindings,
-        -- and they have their own declaration in an interface fiel
+        -- and they have their own declaration in an interface file
 
 implicitClassThings :: Class -> [TyThing]
 implicitClassThings cl
@@ -1970,9 +1971,13 @@ data Dependencies
                         -- (Safe Haskell). See Note [RnNames . Tracking Trust Transitively]
 
          , dep_orphs  :: [Module]
-                        -- ^ Orphan modules (whether home or external pkg),
-                        -- *not* including family instance orphans as they
-                        -- are anyway included in 'dep_finsts'
+                        -- ^ Transitive closure of orphan modules (whether
+                        -- home or external pkg).
+                        --
+                        -- (Possible optimization: don't include family
+                        -- instance orphans as they are anyway included in
+                        -- 'dep_finsts'.  But then be careful about code
+                        -- which relies on dep_orphs having the complete list!)
 
          , dep_finsts :: [Module]
                         -- ^ Modules that contain family instances (whether the
@@ -2493,7 +2498,7 @@ plusVectInfo vi1 vi2 =
            (vectInfoTyCon          vi1 `plusNameEnv`   vectInfoTyCon          vi2)
            (vectInfoDataCon        vi1 `plusNameEnv`   vectInfoDataCon        vi2)
            (vectInfoParallelVars   vi1 `unionVarSet`   vectInfoParallelVars   vi2)
-           (vectInfoParallelTyCons vi1 `unionNameSets` vectInfoParallelTyCons vi2)
+           (vectInfoParallelTyCons vi1 `unionNameSet` vectInfoParallelTyCons vi2)
 
 concatVectInfo :: [VectInfo] -> VectInfo
 concatVectInfo = foldr plusVectInfo noVectInfo
@@ -2513,6 +2518,16 @@ instance Outputable VectInfo where
              , ptext (sLit "parallel vars   :") <+> ppr (vectInfoParallelVars   info)
              , ptext (sLit "parallel tycons :") <+> ppr (vectInfoParallelTyCons info)
              ]
+
+instance Outputable IfaceVectInfo where
+  ppr info = vcat
+             [ ptext (sLit "variables       :") <+> ppr (ifaceVectInfoVar            info)
+             , ptext (sLit "tycons          :") <+> ppr (ifaceVectInfoTyCon          info)
+             , ptext (sLit "tycons reuse    :") <+> ppr (ifaceVectInfoTyConReuse     info)
+             , ptext (sLit "parallel vars   :") <+> ppr (ifaceVectInfoParallelVars   info)
+             , ptext (sLit "parallel tycons :") <+> ppr (ifaceVectInfoParallelTyCons info)
+             ]
+
 
 instance Binary IfaceVectInfo where
     put_ bh (IfaceVectInfo a1 a2 a3 a4 a5) = do
@@ -2594,12 +2609,14 @@ instance Binary IfaceTrustInfo where
 \begin{code}
 data HsParsedModule = HsParsedModule {
     hpm_module    :: Located (HsModule RdrName),
-    hpm_src_files :: [FilePath]
+    hpm_src_files :: [FilePath],
        -- ^ extra source files (e.g. from #includes).  The lexer collects
        -- these from '# <file> <line>' pragmas, which the C preprocessor
        -- leaves behind.  These files and their timestamps are stored in
        -- the .hi file, so that we can force recompilation if any of
        -- them change (#3589)
+    hpm_annotations :: ApiAnns
+    -- See note [Api annotations] in ApiAnnotation.hs
   }
 \end{code}
 

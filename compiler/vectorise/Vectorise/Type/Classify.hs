@@ -21,7 +21,7 @@ where
 import NameSet
 import UniqSet
 import UniqFM
-import DataCon hiding (tyConsOfTyCon)
+import DataCon
 import TyCon
 import TyCoRep
 import qualified Type
@@ -70,7 +70,7 @@ classifyTyCons convStatus parTyCons tcs = classify [] [] [] [] convStatus parTyC
         tcs_par | any ((`elemNameSet` parTyCons) . tyConName) . eltsUFM $ refs = tcs
                 | otherwise                                                    = []
 
-        pts' = pts `addListToNameSet` map tyConName tcs_par
+        pts' = pts `extendNameSetList` map tyConName tcs_par
 
         can_convert  = (isNullUFM (filterUniqSet ((`elemNameSet` pts) . tyConName) (refs `minusUFM` cs)) 
                         && all convertable tcs)

@@ -18,6 +18,7 @@ import TyCon
 import TyCoRep
 import Var
 import VarEnv
+import NameEnv
 import Outputable
 import VarSet
 import TcSMonad as TcS
@@ -570,7 +571,8 @@ data FlattenEnv
 data FlattenMode  -- Postcondition for all three: inert wrt the type substitution
   = FM_FlattenAll          -- Postcondition: function-free
 
-  | FM_Avoid TcTyVar Bool  -- Postcondition:
+  | FM_Avoid TcTyVar Bool  -- See Note [Lazy flattening]
+                           -- Postcondition:
                            --  * tyvar is only mentioned in result under a rigid path
                            --    e.g.   [a] is ok, but F a won't happen
                            --  * If flat_top is True, top level is not a function application
@@ -578,6 +580,32 @@ data FlattenMode  -- Postcondition for all three: inert wrt the type substitutio
 
   | FM_SubstOnly           -- See Note [Flattening under a forall]
 \end{code}
+
+Note [Lazy flattening]
+~~~~~~~~~~~~~~~~~~~~~~
+The idea of FM_Avoid mode is to flatten less aggressively.  If we have
+       a ~ [F Int]
+there seems to be no great merit in lifting out (F Int).  But if it was
+       a ~ [G a Int]
+then we *do* want to lift it out, in case (G a Int) reduces to Bool, say,
+which gets rid of the occurs-check problem.  (For the flat_top Bool, see
+comments above and at call sites.)
+
+HOWEVER, the lazy flattening actually seems to make type inference go
+*slower*, not faster.  perf/compiler/T3064 is a case in point; it gets
+*dramatically* worse with FM_Avoid.  I think it may be because
+floating the types out means we normalise them, and that often makes
+them smaller and perhaps allows more re-use of previously solved
+goals.  But to be honest I'm not absolutely certain, so I am leaving
+FM_Avoid in the code base.  What I'm removing is the unique place
+where it is *used*, namely in TcCanonical.canEqTyVar.
+
+See also Note [Conservative unification check] in TcUnify, which gives
+other examples where lazy flattening caused problems.
+
+Bottom line: FM_Avoid is unused for now (Nov 14).
+Note: T5321Fun got faster when I disabled FM_Avoid
+      T5837 did too, but it's pathalogical anyway
 
 \begin{code}
 -- Flatten a bunch of types all at once.
@@ -620,7 +648,7 @@ flatten fmode (TyConApp tc tys)
   | Just (tenv, rhs, tys') <- tcExpandTyCon_maybe tc tys
   , let expanded_ty = mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys'
   = case fe_mode fmode of
-      FM_FlattenAll | any isSynFamilyTyCon (tyConsOfType rhs)
+      FM_FlattenAll | anyNameEnv isTypeFamilyTyCon (tyConsOfType rhs)
                    -> flatten fmode expanded_ty
                     | otherwise
                    -> flattenTyConApp fmode tc tys
@@ -629,18 +657,19 @@ flatten fmode (TyConApp tc tys)
   -- Otherwise, it's a type function application, and we have to
   -- flatten it away as well, and generate a new given equality constraint
   -- between the application and a newly generated flattening skolem variable.
-  | isSynFamilyTyCon tc
+  | isTypeFamilyTyCon tc
   = flattenFamApp fmode tc tys
 
   -- For * a normal data type application
   --     * data family application
   -- we just recursively flatten the arguments.
-  | otherwise  -- Switch off the flat_top bit in FM_Avoid
-  , let fmode' = case fmode of
-                   FE { fe_mode = FM_Avoid tv _ }
-                     -> fmode { fe_mode = FM_Avoid tv False }
-                   _ -> fmode
-  = flattenTyConApp fmode' tc tys
+  | otherwise
+-- FM_Avoid stuff commented out; see Note [Lazy flattening]
+--  , let fmode' = case fmode of  -- Switch off the flat_top bit in FM_Avoid
+--                   FE { fe_mode = FM_Avoid tv _ }
+--                     -> fmode { fe_mode = FM_Avoid tv False }
+--                   _ -> fmode
+  = flattenTyConApp fmode tc tys
 
 flatten fmode (ForAllTy (Anon ty1) ty2)
   = do { (xi1,co1) <- flatten fmode ty1
@@ -737,6 +766,8 @@ flattenFamApp fmode tc tys  -- Can be over-saturated
 
 flattenExactFamApp fmode tc tys
   = case fe_mode fmode of
+       FM_FlattenAll -> flattenExactFamApp_fully fmode tc tys
+
        FM_SubstOnly -> do { (xis, cos) <- flattenMany fmode tys
                           ; return ( mkTyConApp tc xis
                                    , mkTcTyConAppCo Nominal tc cos ) }
@@ -746,7 +777,6 @@ flattenExactFamApp fmode tc tys
                                     then flattenExactFamApp_fully fmode tc tys
                                     else return ( mkTyConApp tc xis
                                                 , mkTcTyConAppCo Nominal tc cos ) }
-       FM_FlattenAll -> flattenExactFamApp_fully fmode tc tys
 
 flattenExactFamApp_fully fmode tc tys
   = do { (xis, cos) <- flattenMany (fmode { fe_mode = FM_FlattenAll })tys
@@ -792,9 +822,10 @@ flattenExactFamApp_fully fmode tc tys
 \begin{code}
 flattenTyVar :: FlattenEnv -> TcTyVar -> TcS (Xi, TcCoercion)
 -- "Flattening" a type variable means to apply the substitution to it
--- The substitution is actually the union of the substitution in the TyBinds
--- for the unification variables that have been unified already with the inert
--- equalities, see Note [Spontaneously solved in TyBinds] in TcInteract.
+-- The substitution is actually the union of 
+--     * the unifications that have taken place (either before the 
+--       solver started, or in TcInteract.solveByUnification)
+--     * the CTyEqCans held in the inert set
 --
 -- Postcondition: co : xi ~ tv
 flattenTyVar fmode tv
@@ -913,6 +944,9 @@ In effect they become Givens, implemented via the side-effected substitution.
 
 Note [An alternative story for the inert substitution]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+(This entire note is just background, left here in case we ever want
+ to return the the previousl state of affairs)
+
 We used (GHC 7.8) to have this story for the inert substitution inert_eqs
 
  * 'a' is not in fvs(ty)
@@ -1000,8 +1034,8 @@ Note [eqCanRewrite]
 tv ~ ty) can be used to rewrite ct2.
 
 The EqCanRewrite Property:
-  * For any a,b in {G,W,D}  if   a canRewrite b
-                            then a canRewrite a
+  * For any a,b in {G,W,D}  if   a eqCanRewrite b
+                            then a eqCanRewrite a
   This is what guarantees that canonicalisation will terminate.
   See Note [Applying the inert substitution]
 

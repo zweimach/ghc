@@ -43,6 +43,7 @@
 {
 -- XXX The above flags turn off warnings in the generated code:
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# OPTIONS_GHC -fno-warn-unused-matches #-}
 {-# OPTIONS_GHC -fno-warn-unused-binds #-}
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
@@ -55,7 +56,7 @@
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 
 module Lexer (
-   Token(..), lexer, pragState, mkPState, PState(..),
+   Token(..), SourceText, lexer, pragState, mkPState, PState(..),
    P(..), ParseResult(..), getSrcLoc,
    getPState, getDynFlags, withThisPackage,
    failLocMsgP, failSpanMsgP, srcParseFail,
@@ -71,39 +72,59 @@ module Lexer (
    patternSynonymsEnabled,
    sccProfilingOn, hpcEnabled,
    addWarning,
-   lexTokenStream
+   lexTokenStream,
+   addAnnotation
   ) where
 
-import Bag
-import ErrUtils
-import Outputable
-import StringBuffer
-import FastString
-import SrcLoc
-import UniqFM
-import DynFlags
-import Module
-import Ctype
-import BasicTypes       ( InlineSpec(..), RuleMatchInfo(..), FractionalLit(..) )
-import Util             ( readRational )
-
+-- base
 import Control.Applicative
 import Control.Monad
 import Data.Bits
-import Data.ByteString (ByteString)
 import Data.Char
 import Data.List
 import Data.Maybe
-import Data.Map (Map)
-import qualified Data.Map as Map
 import Data.Ratio
 import Data.Word
-}
 
+-- bytestring
+import Data.ByteString (ByteString)
+
+-- containers
+import Data.Map (Map)
+import qualified Data.Map as Map
+
+-- data/typeable
+import Data.Data
+import Data.Typeable
+
+-- compiler/utils
+import Bag
+import Outputable
+import StringBuffer
+import FastString
+import UniqFM
+import Util             ( readRational )
+
+-- compiler/main
+import ErrUtils
+import DynFlags
+
+-- compiler/basicTypes
+import SrcLoc
+import Module
+import BasicTypes       ( InlineSpec(..), RuleMatchInfo(..), FractionalLit(..) )
+
+-- compiler/parser
+import Ctype
+
+import ApiAnnotation
+}
 
 -- -----------------------------------------------------------------------------
 -- Alex "Character set macros"
 
+-- NB: The logic behind these definitions is also reflected in basicTypes/Lexeme.hs
+-- Any changes here should likely be reflected there.
 $unispace    = \x05 -- Trick Alex into handling Unicode. See alexGetByte.
 $nl          = [\n\r\f]
 $whitechar   = [$nl\v\ $unispace]
@@ -485,6 +506,9 @@ $tab+         { warn Opt_WarnTabs (text "Tab character") }
 -- Alex "Haskell code fragment bottom"
 
 {
+
+type SourceText = String -- Note [literal source text] in HsLit
+
 -- -----------------------------------------------------------------------------
 -- The token type
 
@@ -615,15 +639,15 @@ data Token
 
   | ITdupipvarid   FastString   -- GHC extension: implicit param: ?x
 
-  | ITchar       Char
-  | ITstring     FastString
-  | ITinteger    Integer
+  | ITchar       SourceText Char        -- Note [literal source text] in HsLit
+  | ITstring     SourceText FastString  -- Note [literal source text] in HsLit
+  | ITinteger    SourceText Integer     -- Note [literal source text] in HsLit
   | ITrational   FractionalLit
 
-  | ITprimchar   Char
-  | ITprimstring ByteString
-  | ITprimint    Integer
-  | ITprimword   Integer
+  | ITprimchar   SourceText Char        -- Note [literal source text] in HsLit
+  | ITprimstring SourceText ByteString  -- Note [literal source text] in HsLit
+  | ITprimint    SourceText Integer     -- Note [literal source text] in HsLit
+  | ITprimword   SourceText Integer     -- Note [literal source text] in HsLit
   | ITprimfloat  FractionalLit
   | ITprimdouble FractionalLit
 
@@ -673,6 +697,9 @@ data Token
   | ITblockComment    String     -- comment in {- -}
 
   deriving Show
+
+instance Outputable Token where
+  ppr x = text (show x)
 
 -- the bitmap provided as the third component indicates whether the
 -- corresponding extension keyword is valid under the extension options
@@ -939,15 +966,16 @@ lineCommentToken span buf len = do
   using regular expressions.
 -}
 nested_comment :: P (RealLocated Token) -> Action
-nested_comment cont span _str _len = do
+nested_comment cont span buf len = do
   input <- getInput
-  go "" (1::Int) input
+  go (reverse $ drop 2 $ lexemeToString buf len) (1::Int) input
   where
-    go commentAcc 0 input = do setInput input
-                               b <- extension rawTokenStreamEnabled
-                               if b
-                                 then docCommentEnd input commentAcc ITblockComment _str span
-                                 else cont
+    go commentAcc 0 input = do
+      setInput input
+      b <- extension rawTokenStreamEnabled
+      if b
+        then docCommentEnd input commentAcc ITblockComment buf span
+        else cont
     go commentAcc n input = case alexGetChar' input of
       Nothing -> errBrace input span
       Just ('-',input) -> case alexGetChar' input of
@@ -1132,13 +1160,14 @@ sym con span buf len =
     !fs = lexemeToFastString buf len
 
 -- Variations on the integral numeric literal.
-tok_integral :: (Integer -> Token)
+tok_integral :: (String -> Integer -> Token)
              -> (Integer -> Integer)
              -> Int -> Int
              -> (Integer, (Char -> Int))
              -> Action
 tok_integral itint transint transbuf translen (radix,char_to_int) span buf len
- = return $ L span $ itint $! transint $ parseUnsignedInteger
+ = return $ L span $ itint (lexemeToString buf len)
+       $! transint $ parseUnsignedInteger
        (offsetBytes transbuf buf) (subtract translen len) radix char_to_int
 
 -- some conveniences for use with tok_integral
@@ -1320,10 +1349,16 @@ lex_string_prag mkTok span _buf _len
 -- This stuff is horrible.  I hates it.
 
 lex_string_tok :: Action
-lex_string_tok span _buf _len = do
+lex_string_tok span buf _len = do
   tok <- lex_string ""
   end <- getSrcLoc
-  return (L (mkRealSrcSpan (realSrcSpanStart span) end) tok)
+  (AI end bufEnd) <- getInput
+  let
+    tok' = case tok of
+            ITprimstring _ bs -> ITprimstring src bs
+            ITstring _ s -> ITstring src s
+    src = lexemeToString buf (cur bufEnd - cur buf)
+  return (L (mkRealSrcSpan (realSrcSpanStart span) end) tok')
 
 lex_string :: String -> P Token
 lex_string s = do
@@ -1343,11 +1378,11 @@ lex_string s = do
                    if any (> '\xFF') s
                     then failMsgP "primitive string literal must contain only characters <= \'\\xFF\'"
                     else let bs = unsafeMkByteString (reverse s)
-                         in return (ITprimstring bs)
+                         in return (ITprimstring "" bs)
               _other ->
-                return (ITstring (mkFastString (reverse s)))
+                return (ITstring "" (mkFastString (reverse s)))
           else
-                return (ITstring (mkFastString (reverse s)))
+                return (ITstring "" (mkFastString (reverse s)))
 
     Just ('\\',i)
         | Just ('&',i) <- next -> do
@@ -1381,7 +1416,7 @@ lex_char_tok :: Action
 -- but WITHOUT CONSUMING the x or T part  (the parser does that).
 -- So we have to do two characters of lookahead: when we see 'x we need to
 -- see if there's a trailing quote
-lex_char_tok span _buf _len = do        -- We've seen '
+lex_char_tok span buf _len = do        -- We've seen '
    i1 <- getInput       -- Look ahead to first character
    let loc = realSrcSpanStart span
    case alexGetChar' i1 of
@@ -1396,7 +1431,7 @@ lex_char_tok span _buf _len = do        -- We've seen '
                   lit_ch <- lex_escape
                   i3 <- getInput
                   mc <- getCharOrFail i3 -- Trailing quote
-                  if mc == '\'' then finish_char_tok loc lit_ch
+                  if mc == '\'' then finish_char_tok buf loc lit_ch
                                 else lit_error i3
 
         Just (c, i2@(AI _end2 _))
@@ -1408,27 +1443,28 @@ lex_char_tok span _buf _len = do        -- We've seen '
            case alexGetChar' i2 of      -- Look ahead one more character
                 Just ('\'', i3) -> do   -- We've seen 'x'
                         setInput i3
-                        finish_char_tok loc c
+                        finish_char_tok buf loc c
                 _other -> do            -- We've seen 'x not followed by quote
                                         -- (including the possibility of EOF)
                                         -- If TH is on, just parse the quote only
                         let (AI end _) = i1
                         return (L (mkRealSrcSpan loc end) ITsimpleQuote)
 
-finish_char_tok :: RealSrcLoc -> Char -> P (RealLocated Token)
-finish_char_tok loc ch  -- We've already seen the closing quote
+finish_char_tok :: StringBuffer -> RealSrcLoc -> Char -> P (RealLocated Token)
+finish_char_tok buf loc ch  -- We've already seen the closing quote
                         -- Just need to check for trailing #
   = do  magicHash <- extension magicHashEnabled
-        i@(AI end _) <- getInput
+        i@(AI end bufEnd) <- getInput
+        let src = lexemeToString buf (cur bufEnd - cur buf)
         if magicHash then do
                 case alexGetChar' i of
                         Just ('#',i@(AI end _)) -> do
-                                setInput i
-                                return (L (mkRealSrcSpan loc end) (ITprimchar ch))
+                          setInput i
+                          return (L (mkRealSrcSpan loc end) (ITprimchar src ch))
                         _other ->
-                                return (L (mkRealSrcSpan loc end) (ITchar ch))
+                          return (L (mkRealSrcSpan loc end) (ITchar src ch))
             else do
-                   return (L (mkRealSrcSpan loc end) (ITchar ch))
+                   return (L (mkRealSrcSpan loc end) (ITchar src ch))
 
 isAny :: Char -> Bool
 isAny c | c > '\x7f' = isPrint c
@@ -1662,7 +1698,15 @@ data PState = PState {
         alr_expecting_ocurly :: Maybe ALRLayout,
         -- Have we just had the '}' for a let block? If so, than an 'in'
         -- token doesn't need to close anything:
-        alr_justClosedExplicitLetBlock :: Bool
+        alr_justClosedExplicitLetBlock :: Bool,
+
+        -- The next three are used to implement Annotations giving the
+        -- locations of 'noise' tokens in the source, so that users of
+        -- the GHC API can do source to source conversions.
+        -- See note [Api annotations] in ApiAnnotation.hs
+        annotations :: [(ApiAnnKey,[SrcSpan])],
+        comment_q :: [Located AnnotationComment],
+        annotations_comments :: [(SrcSpan,[Located AnnotationComment])]
      }
         -- last_loc and last_len are used when generating error messages,
         -- and in pushCurrentContext only.  Sigh, if only Happy passed the
@@ -1791,6 +1835,10 @@ alexGetByte (AI loc s)
           -- character is encountered we output these values
           -- with the actual character value hidden in the state.
           | otherwise =
+                -- NB: The logic behind these definitions is also reflected
+                -- in basicTypes/Lexeme.hs
+                -- Any changes here should likely be reflected there.
+
                 case generalCategory c of
                   UppercaseLetter       -> upper
                   LowercaseLetter       -> lower
@@ -2040,7 +2088,10 @@ mkPState flags buf loc =
       alr_last_loc = alrInitialLoc (fsLit "<no file>"),
       alr_context = [],
       alr_expecting_ocurly = Nothing,
-      alr_justClosedExplicitLetBlock = False
+      alr_justClosedExplicitLetBlock = False,
+      annotations = [],
+      comment_q = [],
+      annotations_comments = []
     }
     where
       bitmap =     FfiBit                      `setBitIf` xopt Opt_ForeignFunctionInterface flags
@@ -2133,6 +2184,8 @@ srcParseErr dflags buf len
          else ptext (sLit "parse error on input") <+> quotes (text token)
               $$ ppWhen (not th_enabled && token == "$") -- #7396
                         (text "Perhaps you intended to use TemplateHaskell")
+              $$ ppWhen (token == "<-")
+                        (text "Perhaps this statement should be within a 'do' block?")
   where token = lexemeToString (offsetBytes (-len) buf) len
         th_enabled = xopt Opt_TemplateHaskell dflags
 
@@ -2156,13 +2209,24 @@ lexError str = do
 -- This is the top-level function: called from the parser each time a
 -- new token is to be read from the input.
 
-lexer :: (Located Token -> P a) -> P a
-lexer cont = do
+lexer :: Bool -> (Located Token -> P a) -> P a
+lexer queueComments cont = do
   alr <- extension alternativeLayoutRule
   let lexTokenFun = if alr then lexTokenAlr else lexToken
   (L span tok) <- lexTokenFun
   --trace ("token: " ++ show tok) $ do
-  cont (L (RealSrcSpan span) tok)
+
+  case tok of
+    ITeof -> addAnnotationOnly noSrcSpan AnnEofPos (RealSrcSpan span)
+    _ -> return ()
+
+  if (queueComments && isDocComment tok)
+    then queueComment (L (RealSrcSpan span) tok)
+    else return ()
+
+  if (queueComments && isComment tok)
+    then queueComment (L (RealSrcSpan span) tok) >> lexer queueComments cont
+    else cont (L (RealSrcSpan span) tok)
 
 lexTokenAlr :: P (RealLocated Token)
 lexTokenAlr = do mPending <- popPendingImplicitToken
@@ -2427,7 +2491,7 @@ lexTokenStream buf loc dflags = unP go initState
     where dflags' = gopt_set (gopt_unset dflags Opt_Haddock) Opt_KeepRawTokenStream
           initState = mkPState dflags' buf loc
           go = do
-            ltok <- lexer return
+            ltok <- lexer False return
             case ltok of
               L _ ITeof -> return []
               _ -> liftM (ltok:) go
@@ -2503,4 +2567,71 @@ clean_pragma prag = canon_ws (map toLower (unprefix prag))
                                               "constructorlike" -> "conlike"
                                               _ -> prag'
                           canon_ws s = unwords (map canonical (words s))
+
+
+
+{-
+%************************************************************************
+%*                                                                      *
+        Helper functions for generating annotations in the parser
+%*                                                                      *
+%************************************************************************
+-}
+
+addAnnotation :: SrcSpan -> AnnKeywordId -> SrcSpan -> P ()
+addAnnotation l a v = do
+  addAnnotationOnly l a v
+  allocateComments l
+
+addAnnotationOnly :: SrcSpan -> AnnKeywordId -> SrcSpan -> P ()
+addAnnotationOnly l a v = P $ \s -> POk s {
+  annotations = ((l,a), [v]) : annotations s
+  } ()
+
+queueComment :: Located Token -> P()
+queueComment c = P $ \s -> POk s {
+  comment_q = commentToAnnotation c : comment_q s
+  } ()
+
+-- | Go through the @comment_q@ in @PState@ and remove all comments
+-- that belong within the given span
+allocateComments :: SrcSpan -> P ()
+allocateComments ss = P $ \s ->
+  let
+    (before,rest)  = break (\(L l _) -> isSubspanOf l ss) (comment_q s)
+    (middle,after) = break (\(L l _) -> not (isSubspanOf l ss)) rest
+    comment_q' = before ++ after
+    newAnns = if null middle then []
+                             else [(ss,middle)]
+  in
+    POk s {
+       comment_q = comment_q'
+     , annotations_comments = newAnns ++ (annotations_comments s)
+     } ()
+
+commentToAnnotation :: Located Token -> Located AnnotationComment
+commentToAnnotation (L l (ITdocCommentNext s))  = L l (AnnDocCommentNext s)
+commentToAnnotation (L l (ITdocCommentPrev s))  = L l (AnnDocCommentPrev s)
+commentToAnnotation (L l (ITdocCommentNamed s)) = L l (AnnDocCommentNamed s)
+commentToAnnotation (L l (ITdocSection n s))    = L l (AnnDocSection n s)
+commentToAnnotation (L l (ITdocOptions s))      = L l (AnnDocOptions s)
+commentToAnnotation (L l (ITdocOptionsOld s))   = L l (AnnDocOptionsOld s)
+commentToAnnotation (L l (ITlineComment s))     = L l (AnnLineComment s)
+commentToAnnotation (L l (ITblockComment s))    = L l (AnnBlockComment s)
+
+-- ---------------------------------------------------------------------
+
+isComment :: Token -> Bool
+isComment (ITlineComment     _)   = True
+isComment (ITblockComment    _)   = True
+isComment _ = False
+
+isDocComment :: Token -> Bool
+isDocComment (ITdocCommentNext  _)   = True
+isDocComment (ITdocCommentPrev  _)   = True
+isDocComment (ITdocCommentNamed _)   = True
+isDocComment (ITdocSection      _ _) = True
+isDocComment (ITdocOptions      _)   = True
+isDocComment (ITdocOptionsOld   _)   = True
+isDocComment _ = False
 }

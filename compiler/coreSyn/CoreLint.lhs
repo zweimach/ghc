@@ -745,9 +745,8 @@ lintType ty@(TyConApp tc tys)
   | Just ty' <- coreView ty
   = lintType ty'   -- Expand type synonyms, so that we do not bogusly complain
                    --  about un-saturated type synonyms
-                   -- 
 
-  | isUnLiftedTyCon tc || isSynTyCon tc
+  | isUnLiftedTyCon tc || isTypeSynonymTyCon tc || isTypeFamilyTyCon tc
        -- Also type synonyms and type families
   , length tys < tyConArity tc
   = failWithL (hang (ptext (sLit "Un-saturated type application")) 2 (ppr ty))

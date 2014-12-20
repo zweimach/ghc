@@ -17,6 +17,7 @@ HsTypes: Abstract syntax: user-defined types
 
 module HsTypes (
         HsType(..), LHsType, HsKind, LHsKind,
+        HsTyOp,LHsTyOp,
         HsTyVarBndr(..), LHsTyVarBndr, 
         LHsTyVarBndrs(..),
         HsWithBndrs(..),
@@ -29,7 +30,7 @@ module HsTypes (
         LBangType, BangType, HsBang(..), 
         getBangType, getBangStrictness, 
 
-        ConDeclField(..), pprConDeclFields,
+        ConDeclField(..), LConDeclField, pprConDeclFields,
         
         mkHsQTvs, hsQTvExplicit, isHsKindedTyVar, hsTvbAllKinded,
         mkExplicitHsForAllTy, mkImplicitHsForAllTy, mkQualifiedHsForAllTy,
@@ -40,9 +41,11 @@ module HsTypes (
         splitHsClassTy_maybe, splitLHsClassTy_maybe,
         splitHsFunType,
         splitHsAppTys, hsTyGetAppHead_maybe, mkHsAppTys, mkHsOpTy,
+        isWildcardTy, isNamedWildcardTy,
 
         -- Printing
-        pprParendHsType, pprHsForAll, pprHsContext, pprHsContextNoArrow, 
+        pprParendHsType, pprHsForAll, pprHsForAllExtra,
+        pprHsContext, pprHsContextNoArrow, pprHsContextMaybe
     ) where
 
 import {-# SOURCE #-} HsExpr ( HsSplice, pprUntypedSplice )
@@ -60,8 +63,10 @@ import SrcLoc
 import StaticFlags
 import Outputable
 import FastString
+import Maybes( isJust )
 
 import Data.Data hiding ( Fixity )
+import Data.Maybe ( fromMaybe )
 \end{code}
 
 
@@ -133,6 +138,8 @@ type LHsContext name = Located (HsContext name)
 type HsContext name = [LHsType name]
 
 type LHsType name = Located (HsType name)
+      -- ^ May have 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnComma' when
+      --   in a list
 type HsKind name = HsType name
 type LHsKind name = Located (HsKind name)
 
@@ -162,12 +169,15 @@ hsQTvExplicit = hsq_explicit
 data HsWithBndrs name thing
   = HsWB { hswb_cts  :: thing                 -- Main payload (type or list of types)
          , hswb_vars :: PostRn name [Name]    -- Kind and type vars
+         , hswb_wcs  :: PostRn name [Name]    -- Wildcards
     }                  
   deriving (Typeable)
 deriving instance (DataId name, Data thing) => Data (HsWithBndrs name thing)
 
 mkHsWithBndrs :: thing -> HsWithBndrs RdrName thing
-mkHsWithBndrs x = HsWB { hswb_cts = x, hswb_vars = PlaceHolder }
+mkHsWithBndrs x = HsWB { hswb_cts  = x
+                       , hswb_vars = PlaceHolder
+                       , hswb_wcs  = PlaceHolder }
 
 -- | These names are used early on to store the names of implicit
 -- parameters.  They completely disappear after type-checking.
@@ -192,6 +202,9 @@ data HsTyVarBndr name
   | KindedTyVar
          name
          (LHsKind name)  -- The user-supplied kind signature
+        -- ^
+        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+        --          'ApiAnnotation.AnnDcolon', 'ApiAnnotation.AnnClose'
   deriving (Typeable)
 deriving instance (DataId name) => Data (HsTyVarBndr name)
 
@@ -204,14 +217,25 @@ isHsKindedTyVar (KindedTyVar {}) = True
 hsTvbAllKinded :: LHsTyVarBndrs name -> Bool
 hsTvbAllKinded = all (isHsKindedTyVar . unLoc) . hsQTvExplicit
 
+-- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDcolon',
+--            'ApiAnnotation.AnnTilde','ApiAnnotation.AnnRarrow',
+--            'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose',
+--            'ApiAnnotation.AnnComma'
 data HsType name
   = HsForAllTy  HsExplicitFlag          -- Renamer leaves this flag unchanged, to record the way
                                         -- the user wrote it originally, so that the printer can
                                         -- print it as the user wrote it
-                (LHsTyVarBndrs name) 
+                (Maybe SrcSpan)         -- Indicates whether extra constraints may be inferred.
+                                        -- When Nothing, no, otherwise the location of the extra-
+                                        -- constraints wildcard is stored. For instance, for the
+                                        -- signature (Eq a, _) => a -> a -> Bool, this field would
+                                        -- be something like (Just 1:8), with 1:8 being line 1,
+                                        -- column 8.
+                (LHsTyVarBndrs name)
                 (LHsContext name)
                 (LHsType name)
-
+      -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnForall',
+      --         'ApiAnnotation.AnnDot','ApiAnnotation.AnnDarrow'
   | HsTyVar             name            -- Type variable, type constructor, or data constructor
                                         -- see Note [Promotions (HsTyVar)]
 
@@ -220,6 +244,7 @@ data HsType name
 
   | HsFunTy             (LHsType name)   -- function type
                         (LHsType name)
+      -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnRarrow',
 
   | HsListTy            (LHsType name)  -- Element type
 
@@ -251,20 +276,24 @@ data HsType name
   | HsDocTy             (LHsType name) LHsDocString -- A documented type
 
   | HsBangTy    HsBang (LHsType name)   -- Bang-style type annotations 
-  | HsRecTy [ConDeclField name]         -- Only in data type declarations
+  | HsRecTy     [LConDeclField name]    -- Only in data type declarations
 
   | HsCoreTy Type       -- An escape hatch for tunnelling a *closed* 
                         -- Core Type through HsSyn.  
 
   | HsExplicitListTy       -- A promoted explicit list
         (PostTc name Kind) -- See Note [Promoted lists and tuples]
-        [LHsType name]   
-                         
+        [LHsType name]
+
   | HsExplicitTupleTy      -- A promoted explicit tuple
         [PostTc name Kind] -- See Note [Promoted lists and tuples]
-        [LHsType name]   
+        [LHsType name]
 
   | HsTyLit HsTyLit      -- A promoted numeric literal.
+
+  | HsWildcardTy           -- A type wildcard
+
+  | HsNamedWildcardTy name -- A named wildcard
   deriving (Typeable)
 deriving instance (DataId name) => Data (HsType name)
 
@@ -381,10 +410,14 @@ data HsTupleSort = HsUnboxedTuple
 
 data HsExplicitFlag = Qualified | Implicit | Explicit deriving (Data, Typeable)
 
+type LConDeclField name = Located (ConDeclField name)
+      -- ^ May have 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnComma' when
+      --   in a list
 data ConDeclField name  -- Record fields have Haddoc docs on them
-  = ConDeclField { cd_fld_name :: Located name,
-                   cd_fld_type :: LBangType name, 
-                   cd_fld_doc  :: Maybe LHsDocString }
+  = ConDeclField { cd_fld_names :: [Located name],
+                   cd_fld_type  :: LBangType name,
+                   cd_fld_doc   :: Maybe LHsDocString }
+      -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDcolon'
   deriving (Typeable)
 deriving instance (DataId name) => Data (ConDeclField name)
 
@@ -408,13 +441,23 @@ mkQualifiedHsForAllTy     ctxt ty = mkHsForAllTy Qualified []  ctxt ty
 mkHsForAllTy :: HsExplicitFlag -> [LHsTyVarBndr RdrName] -> LHsContext RdrName -> LHsType RdrName -> HsType RdrName
 -- Smart constructor for HsForAllTy
 mkHsForAllTy exp tvs (L _ []) ty = mk_forall_ty exp tvs ty
-mkHsForAllTy exp tvs ctxt     ty = HsForAllTy exp (mkHsQTvs tvs) ctxt ty
+mkHsForAllTy exp tvs ctxt     ty = HsForAllTy exp extra (mkHsQTvs tvs) cleanCtxt ty
+  where -- Separate the extra-constraints wildcard when present
+        (cleanCtxt, extra)
+          | (L l HsWildcardTy) <- ignoreParens (last (unLoc ctxt)) = (init `fmap` ctxt, Just l)
+          | otherwise = (ctxt, Nothing)
+        ignoreParens (L _ (HsParTy ty)) = ty
+        ignoreParens ty                 = ty
+
 
 -- mk_forall_ty makes a pure for-all type (no context)
 mk_forall_ty :: HsExplicitFlag -> [LHsTyVarBndr RdrName] -> LHsType RdrName -> HsType RdrName
-mk_forall_ty exp  tvs  (L _ (HsParTy ty))                    = mk_forall_ty exp tvs ty
-mk_forall_ty exp1 tvs1 (L _ (HsForAllTy exp2 qtvs2 ctxt ty)) = mkHsForAllTy (exp1 `plus` exp2) (tvs1 ++ hsq_explicit qtvs2) ctxt ty
-mk_forall_ty exp  tvs  ty                                    = HsForAllTy exp (mkHsQTvs tvs) (noLoc []) ty
+mk_forall_ty exp1 tvs1 (L _ (HsForAllTy exp2 extra qtvs2 ctxt ty))
+  = addExtra $ mkHsForAllTy (exp1 `plus` exp2) (tvs1 ++ hsq_explicit qtvs2) ctxt ty
+  where addExtra (HsForAllTy exp _ qtvs ctxt ty) = HsForAllTy exp extra qtvs ctxt ty
+        addExtra ty = ty -- Impossible, as mkHsForAllTy always returns a HsForAllTy
+mk_forall_ty exp  tvs  (L _ (HsParTy ty)) = mk_forall_ty exp tvs ty
+mk_forall_ty exp  tvs  ty                 = HsForAllTy exp Nothing (mkHsQTvs tvs) (noLoc []) ty
         -- Even if tvs is empty, we still make a HsForAll!
         -- In the Implicit case, this signals the place to do implicit quantification
         -- In the Explicit case, it prevents implicit quantification    
@@ -429,8 +472,8 @@ _         `plus` _         = Implicit
 
 hsExplicitTvs :: LHsType Name -> [Name]
 -- The explicitly-given forall'd type variables of a HsType
-hsExplicitTvs (L _ (HsForAllTy Explicit tvs _ _)) = hsLKiTyVarNames tvs
-hsExplicitTvs _                                   = []
+hsExplicitTvs (L _ (HsForAllTy Explicit _ tvs _ _)) = hsLKiTyVarNames tvs
+hsExplicitTvs _                                     = []
 
 ---------------------
 hsTyVarName :: HsTyVarBndr name -> name
@@ -450,6 +493,15 @@ hsLTyVarLocName = fmap hsTyVarName
 
 hsLTyVarLocNames :: LHsTyVarBndrs name -> [Located name]
 hsLTyVarLocNames qtvs = map hsLTyVarLocName (hsQTvExplicit qtvs)
+
+---------------------
+isWildcardTy :: HsType a -> Bool
+isWildcardTy HsWildcardTy = True
+isWildcardTy _ = False
+
+isNamedWildcardTy :: HsType a -> Bool
+isNamedWildcardTy (HsNamedWildcardTy _) = True
+isNamedWildcardTy _ = False
 \end{code}
 
 
@@ -496,9 +548,9 @@ splitLHsForAllTy
     -> (LHsTyVarBndrs name, HsContext name, LHsType name)
 splitLHsForAllTy poly_ty
   = case unLoc poly_ty of
-        HsParTy ty              -> splitLHsForAllTy ty
-        HsForAllTy _ tvs cxt ty -> (tvs, unLoc cxt, ty)
-        _                       -> (emptyHsQTvs, [], poly_ty)
+        HsParTy ty                -> splitLHsForAllTy ty
+        HsForAllTy _ _ tvs cxt ty -> (tvs, unLoc cxt, ty)
+        _                         -> (emptyHsQTvs, [], poly_ty)
         -- The type vars should have been computed by now, even if they were implicit
 
 splitHsClassTy_maybe :: HsType name -> Maybe (name, [LHsType name])
@@ -578,31 +630,55 @@ instance (OutputableBndr name) => Outputable (HsTyVarBndr name) where
 instance (Outputable thing) => Outputable (HsWithBndrs name thing) where
     ppr (HsWB { hswb_cts = ty }) = ppr ty
 
-pprHsForAll :: OutputableBndr name => HsExplicitFlag -> LHsTyVarBndrs name ->  LHsContext name -> SDoc
-pprHsForAll exp qtvs cxt 
-  | show_forall = forall_part <+> pprHsContext (unLoc cxt)
-  | otherwise   = pprHsContext (unLoc cxt)
+pprHsForAll :: OutputableBndr name => HsExplicitFlag -> LHsTyVarBndrs name -> LHsContext name -> SDoc
+pprHsForAll exp = pprHsForAllExtra exp Nothing
+
+-- | Version of 'pprHsForAll' that can also print an extra-constraints
+-- wildcard, e.g. @_ => a -> Bool@ or @(Show a, _) => a -> String@. This
+-- underscore will be printed when the 'Maybe SrcSpan' argument is a 'Just'
+-- containing the location of the extra-constraints wildcard. A special
+-- function for this is needed, as the extra-constraints wildcard is removed
+-- from the actual context and type, and stored in a separate field, thus just
+-- printing the type will not print the extra-constraints wildcard.
+pprHsForAllExtra :: OutputableBndr name => HsExplicitFlag -> Maybe SrcSpan -> LHsTyVarBndrs name -> LHsContext name -> SDoc
+pprHsForAllExtra exp extra qtvs cxt
+  | show_forall = forall_part <+> pprHsContextExtra show_extra (unLoc cxt)
+  | otherwise   = pprHsContextExtra show_extra (unLoc cxt)
   where
+    show_extra  = isJust extra
     show_forall =  opt_PprStyle_Debug
                 || (not (null (hsQTvExplicit qtvs)) && is_explicit)
     is_explicit = case exp of {Explicit -> True; Implicit -> False; Qualified -> False}
     forall_part = forAllLit <+> ppr qtvs <> dot
 
 pprHsContext :: (OutputableBndr name) => HsContext name -> SDoc
-pprHsContext []  = empty
-pprHsContext cxt = pprHsContextNoArrow cxt <+> darrow
+pprHsContext = maybe empty (<+> darrow) . pprHsContextMaybe
 
 pprHsContextNoArrow :: (OutputableBndr name) => HsContext name -> SDoc
-pprHsContextNoArrow []         = empty
-pprHsContextNoArrow [L _ pred] = ppr_mono_ty FunPrec pred
-pprHsContextNoArrow cxt        = parens (interpp'SP cxt)
+pprHsContextNoArrow = fromMaybe empty . pprHsContextMaybe
 
-pprConDeclFields :: OutputableBndr name => [ConDeclField name] -> SDoc
+pprHsContextMaybe :: (OutputableBndr name) => HsContext name -> Maybe SDoc
+pprHsContextMaybe []         = Nothing
+pprHsContextMaybe [L _ pred] = Just $ ppr_mono_ty FunPrec pred
+pprHsContextMaybe cxt        = Just $ parens (interpp'SP cxt)
+
+-- True <=> print an extra-constraints wildcard, e.g. @(Show a, _) =>@
+pprHsContextExtra :: (OutputableBndr name) => Bool -> HsContext name -> SDoc
+pprHsContextExtra False = pprHsContext
+pprHsContextExtra True
+  = \ctxt -> case ctxt of
+               [] -> char '_' <+> darrow
+               _  -> parens (sep (punctuate comma ctxt')) <+> darrow
+                 where ctxt' = map ppr ctxt ++ [char '_']
+
+pprConDeclFields :: OutputableBndr name => [LConDeclField name] -> SDoc
 pprConDeclFields fields = braces (sep (punctuate comma (map ppr_fld fields)))
   where
-    ppr_fld (ConDeclField { cd_fld_name = n, cd_fld_type = ty, 
-                            cd_fld_doc = doc })
-        = ppr n <+> dcolon <+> ppr ty <+> ppr_mbDoc doc
+    ppr_fld (L _ (ConDeclField { cd_fld_names = ns, cd_fld_type = ty,
+                                 cd_fld_doc = doc }))
+        = ppr_names ns <+> dcolon <+> ppr ty <+> ppr_mbDoc doc
+    ppr_names [n] = ppr n
+    ppr_names ns = sep (punctuate comma (map ppr ns))
 \end{code}
 
 Note [Printing KindedTyVars]
@@ -636,9 +712,9 @@ ppr_mono_lty :: (OutputableBndr name) => TyPrec -> LHsType name -> SDoc
 ppr_mono_lty ctxt_prec ty = ppr_mono_ty ctxt_prec (unLoc ty)
 
 ppr_mono_ty :: (OutputableBndr name) => TyPrec -> HsType name -> SDoc
-ppr_mono_ty ctxt_prec (HsForAllTy exp tvs ctxt ty)
+ppr_mono_ty ctxt_prec (HsForAllTy exp extra tvs ctxt ty)
   = maybeParen ctxt_prec FunPrec $
-    sep [pprHsForAll exp tvs ctxt, ppr_mono_lty TopPrec ty]
+    sep [pprHsForAllExtra exp extra tvs ctxt, ppr_mono_lty TopPrec ty]
 
 ppr_mono_ty _    (HsBangTy b ty)     = ppr b <> ppr_mono_lty TyConPrec ty
 ppr_mono_ty _    (HsQuasiQuoteTy qq) = ppr qq
@@ -658,6 +734,8 @@ ppr_mono_ty _    (HsCoreTy ty)       = ppr ty
 ppr_mono_ty _    (HsExplicitListTy _ tys) = quote $ brackets (interpp'SP tys)
 ppr_mono_ty _    (HsExplicitTupleTy _ tys) = quote $ parens (interpp'SP tys)
 ppr_mono_ty _    (HsTyLit t)         = ppr_tylit t
+ppr_mono_ty _    HsWildcardTy        = char '_'
+ppr_mono_ty _    (HsNamedWildcardTy name) = ppr name
 
 ppr_mono_ty ctxt_prec (HsEqTy ty1 ty2)
   = maybeParen ctxt_prec TyOpPrec $

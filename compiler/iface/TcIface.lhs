@@ -38,7 +38,7 @@ import CoreSyn
 import CoreUtils
 import CoreUnfold
 import CoreLint
-import MkCore                       ( castBottomExpr )
+import MkCore
 import Id
 import MkId
 import IdInfo
@@ -182,9 +182,9 @@ We need to make sure that we have at least *read* the interface files
 for any module with an instance decl or RULE that we might want.
 
 * If the instance decl is an orphan, we have a whole separate mechanism
-  (loadOprhanModules)
+  (loadOrphanModules)
 
-* If the instance decl not an orphan, then the act of looking at the
+* If the instance decl is not an orphan, then the act of looking at the
   TyCon or Class will force in the defining module for the
   TyCon/Class, and hence the instance decl
 
@@ -486,28 +486,41 @@ tc_iface_decl parent _ (IfaceData {ifName = occ_name,
            ; lhs_tys <- tcIfaceTcArgs arg_tys
            ; return (FamInstTyCon ax_unbr fam_tc lhs_tys) }
 
-tc_iface_decl parent _ (IfaceSyn {ifName = occ_name, ifTyVars = tv_bndrs,
-                                  ifRoles = roles,
-                                  ifSynRhs = mb_rhs_ty,
-                                  ifSynKind = kind })
+tc_iface_decl _ _ (IfaceSynonym {ifName = occ_name, ifTyVars = tv_bndrs,
+                                      ifRoles = roles,
+                                      ifSynRhs = rhs_ty,
+                                      ifSynKind = kind })
    = bindIfaceTyVars_AT tv_bndrs $ \ tyvars -> do
      { tc_name  <- lookupIfaceTop occ_name
      ; kind     <- tcIfaceType kind     -- Note [Synonym kind loop]
      ; rhs      <- forkM (mk_doc tc_name) $
-                   tc_syn_rhs mb_rhs_ty
-     ; let tycon = mkSynTyCon tc_name kind tyvars roles rhs parent
+                   tcIfaceType rhs_ty
+     ; let tycon = mkSynonymTyCon tc_name kind tyvars roles rhs
      ; return (ATyCon tycon) }
    where
-     mk_doc n = ptext (sLit "Type syonym") <+> ppr n
-     tc_syn_rhs IfaceOpenSynFamilyTyCon   = return OpenSynFamilyTyCon
-     tc_syn_rhs (IfaceClosedSynFamilyTyCon ax_name _)
+     mk_doc n = ptext (sLit "Type synonym") <+> ppr n
+
+tc_iface_decl parent _ (IfaceFamily {ifName = occ_name, ifTyVars = tv_bndrs,
+                                     ifFamFlav = fam_flav,
+                                     ifFamKind = kind })
+   = bindIfaceTyVars_AT tv_bndrs $ \ tyvars -> do
+     { tc_name  <- lookupIfaceTop occ_name
+     ; kind     <- tcIfaceKind kind        -- Note [Synonym kind loop]
+     ; rhs      <- forkM (mk_doc tc_name) $
+                   tc_fam_flav fam_flav
+     ; let tycon = mkFamilyTyCon tc_name kind tyvars rhs parent
+     ; return (ATyCon tycon) }
+   where
+     mk_doc n = ptext (sLit "Type synonym") <+> ppr n
+     tc_fam_flav IfaceOpenSynFamilyTyCon   = return OpenSynFamilyTyCon
+     tc_fam_flav (IfaceClosedSynFamilyTyCon ax_name _)
        = do { ax <- tcIfaceCoAxiom ax_name
             ; return (ClosedSynFamilyTyCon ax) }
-     tc_syn_rhs IfaceAbstractClosedSynFamilyTyCon = return AbstractClosedSynFamilyTyCon
-     tc_syn_rhs (IfaceSynonymTyCon ty)    = do { rhs_ty <- tcIfaceType ty
-                                               ; return (SynonymTyCon rhs_ty) }
-     tc_syn_rhs IfaceBuiltInSynFamTyCon   = pprPanic "tc_iface_decl"
-                                               (ptext (sLit "IfaceBuiltInSynFamTyCon in interface file"))
+     tc_fam_flav IfaceAbstractClosedSynFamilyTyCon
+         = return AbstractClosedSynFamilyTyCon
+     tc_fam_flav IfaceBuiltInSynFamTyCon
+         = pprPanic "tc_iface_decl"
+                    (text "IfaceBuiltInSynFamTyCon in interface file")
 
 tc_iface_decl _parent ignore_prags
             (IfaceClass {ifCtxt = rdr_ctxt, ifName = tc_occ,
@@ -585,8 +598,8 @@ tc_iface_decl _ _ (IfaceAxiom { ifName = ax_occ, ifTyCon = tc
        ; return (ACoAxiom axiom) }
 
 tc_iface_decl _ _ (IfacePatSyn{ ifName = occ_name
-                              , ifPatMatcher = matcher_name
-                              , ifPatWrapper = wrapper_name
+                              , ifPatMatcher = if_matcher
+                              , ifPatBuilder = if_builder
                               , ifPatIsInfix = is_infix
                               , ifPatUnivTvs = univ_tvs
                               , ifPatExTvs = ex_tvs
@@ -596,11 +609,8 @@ tc_iface_decl _ _ (IfacePatSyn{ ifName = occ_name
                               , ifPatTy = pat_ty })
   = do { name <- lookupIfaceTop occ_name
        ; traceIf (ptext (sLit "tc_iface_decl") <+> ppr name)
-       ; matcher <- tcExt "Matcher" matcher_name
-       ; wrapper <- case wrapper_name of
-                        Nothing -> return Nothing
-                        Just wn -> do { wid <- tcExt "Wrapper" wn
-                                      ; return (Just wid) }
+       ; matcher <- tc_pr if_matcher
+       ; builder <- fmapMaybeM tc_pr if_builder
        ; bindIfaceTvBndrs univ_tvs $ \univ_tvs -> do
        { bindIfaceTvBndrs ex_tvs $ \ex_tvs -> do
        { patsyn <- forkM (mk_doc name) $
@@ -608,12 +618,15 @@ tc_iface_decl _ _ (IfacePatSyn{ ifName = occ_name
                 ; req_theta  <- tcIfaceCtxt req_ctxt
                 ; pat_ty     <- tcIfaceType pat_ty
                 ; arg_tys    <- mapM tcIfaceType args
-                ; return $ buildPatSyn name is_infix matcher wrapper
-                                       arg_tys univ_tvs ex_tvs prov_theta req_theta pat_ty }
+                ; return $ buildPatSyn name is_infix matcher builder
+                                       (univ_tvs, req_theta) (ex_tvs, prov_theta)
+                                       arg_tys pat_ty }
        ; return $ AConLike . PatSynCon $ patsyn }}}
   where
      mk_doc n = ptext (sLit "Pattern synonym") <+> ppr n
-     tcExt s name = forkM (ptext (sLit s) <+> ppr name) $ tcIfaceExtId name
+     tc_pr :: (IfExtName, Bool) -> IfL (Id, Bool)
+     tc_pr (nm, b) = do { id <- forkM (ppr nm) (tcIfaceExtId nm)
+                        ; return (id, b) }
 
 tc_ax_branches :: [IfaceAxBranch] -> IfL [CoAxBranch]
 tc_ax_branches if_branches = foldlM tc_ax_branch [] if_branches
@@ -727,11 +740,12 @@ look at it.
 \begin{code}
 tcIfaceInst :: IfaceClsInst -> IfL ClsInst
 tcIfaceInst (IfaceClsInst { ifDFun = dfun_occ, ifOFlag = oflag
-                          , ifInstCls = cls, ifInstTys = mb_tcs })
+                          , ifInstCls = cls, ifInstTys = mb_tcs
+                          , ifInstOrph = orph })
   = do { dfun <- forkM (ptext (sLit "Dict fun") <+> ppr dfun_occ) $
                  tcIfaceExtId dfun_occ
        ; let mb_tcs' = map (fmap ifaceTyConName) mb_tcs
-       ; return (mkImportedInstance cls mb_tcs' dfun oflag) }
+       ; return (mkImportedInstance cls mb_tcs' dfun oflag orph) }
 
 tcIfaceFamInst :: IfaceFamInst -> IfL FamInst
 tcIfaceFamInst (IfaceFamInst { ifFamInstFam = fam, ifFamInstTys = mb_tcs

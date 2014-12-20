@@ -83,7 +83,11 @@ import Data.Dynamic
 import Data.Either
 import Data.List (find)
 import Control.Monad
+#if __GLASGOW_HASKELL__ >= 709
+import Foreign
+#else
 import Foreign.Safe
+#endif
 import Foreign.C
 import GHC.Exts
 import Data.Array
@@ -908,7 +912,7 @@ getInfo allInfo name
     plausible rdr_env names
           -- Dfun involving only names that are in ic_rn_glb_env
         = allInfo
-       || all ok (nameSetToList names)
+       || all ok (nameSetElems names)
         where   -- A name is ok if it's in the rdr_env,
                 -- whether qualified or not
           ok n | n == name         = True       -- The one we looked for in the first place!

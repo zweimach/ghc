@@ -203,6 +203,9 @@ matchNameMaker ctxt = LamMk report_unused
     -- i.e. when you type 'x <- e' at the GHCi prompt
     report_unused = case ctxt of
                       StmtCtxt GhciStmtCtxt -> False
+                      -- also, don't warn in pattern quotes, as there
+                      -- is no RHS where the variables can be used!
+                      ThPatQuote            -> False
                       _                     -> True
 
 rnHsSigCps :: HsWithBndrs RdrName (LHsType RdrName)
@@ -371,10 +374,11 @@ rnPatAndThen mk (SigPatIn pat sig)
        ; return (SigPatIn pat' sig') }
        
 rnPatAndThen mk (LitPat lit)
-  | HsString s <- lit
+  | HsString src s <- lit
   = do { ovlStr <- liftCps (xoptM Opt_OverloadedStrings)
        ; if ovlStr 
-         then rnPatAndThen mk (mkNPat (mkHsIsString s placeHolderType) Nothing)
+         then rnPatAndThen mk (mkNPat (mkHsIsString src s placeHolderType)
+                                      Nothing)
          else normal_lit }
   | otherwise = normal_lit
   where
@@ -440,10 +444,12 @@ rnPatAndThen mk (TuplePat pats boxed _)
        ; pats' <- rnLPatsAndThen mk pats
        ; return (TuplePat pats' boxed []) }
 
-rnPatAndThen _ (SplicePat splice)
-  = do { -- XXX How to deal with free variables?
-       ; (pat, _) <- liftCps $ rnSplicePat splice
-       ; return pat }
+rnPatAndThen mk (SplicePat splice)
+  = do { eith <- liftCpsFV $ rnSplicePat splice
+       ; case eith of   -- See Note [rnSplicePat] in RnSplice
+           Left not_yet_renamed -> rnPatAndThen mk not_yet_renamed
+           Right already_renamed -> return already_renamed } 
+    
 rnPatAndThen mk (QuasiQuotePat qq)
   = do { pat <- liftCps $ runQuasiQuotePat qq
          -- Wrap the result of the quasi-quoter in parens so that we don't
@@ -486,9 +492,9 @@ rnHsRecPatsAndThen mk (L _ con) hs_rec_fields@(HsRecFields { rec_dotdot = dd })
        ; flds' <- mapM rn_field (flds `zip` [1..])
        ; return (HsRecFields { rec_flds = flds', rec_dotdot = dd }) }
   where 
-    rn_field (fld, n') = do { arg' <- rnLPatAndThen (nested_mk dd mk n') 
-                                                    (hsRecFieldArg fld)
-                            ; return (fld { hsRecFieldArg = arg' }) }
+    rn_field (L l fld, n') = do { arg' <- rnLPatAndThen (nested_mk dd mk n')
+                                                        (hsRecFieldArg fld)
+                                ; return (L l (fld { hsRecFieldArg = arg' })) }
 
         -- Suppress unused-match reporting for fields introduced by ".."
     nested_mk Nothing  mk                    _  = mk
@@ -514,9 +520,9 @@ rnHsRecFields
        HsRecFieldContext
     -> (RdrName -> arg) -- When punning, use this to build a new field
     -> HsRecFields RdrName (Located arg)
-    -> RnM ([HsRecField Name (Located arg)], FreeVars)
+    -> RnM ([LHsRecField Name (Located arg)], FreeVars)
 
--- This supprisingly complicated pass
+-- This surprisingly complicated pass
 --   a) looks up the field name (possibly using disambiguation)
 --   b) fills in puns and dot-dot stuff
 -- When we we've finished, we've renamed the LHS, but not the RHS,
@@ -555,28 +561,28 @@ rnHsRecFields ctxt mk_arg (HsRecFields { rec_flds = flds, rec_dotdot = dotdot })
             Nothing  -> ptext (sLit "constructor field name")
             Just con -> ptext (sLit "field of constructor") <+> quotes (ppr con)
 
-    rn_fld pun_ok parent (HsRecField { hsRecFieldId = fld
-                                     , hsRecFieldArg = arg
-                                     , hsRecPun = pun })
+    rn_fld pun_ok parent (L l (HsRecField { hsRecFieldId = fld
+                                          , hsRecFieldArg = arg
+                                          , hsRecPun = pun }))
       = do { fld'@(L loc fld_nm) <- wrapLocM (lookupSubBndrOcc True parent doc) fld
            ; arg' <- if pun 
                      then do { checkErr pun_ok (badPun fld)
                              ; return (L loc (mk_arg (mkRdrUnqual (nameOccName fld_nm)))) }
                      else return arg
-           ; return (HsRecField { hsRecFieldId = fld'
-                                , hsRecFieldArg = arg'
-                                , hsRecPun = pun }) }
+           ; return (L l (HsRecField { hsRecFieldId = fld'
+                                     , hsRecFieldArg = arg'
+                                     , hsRecPun = pun })) }
 
     rn_dotdot :: Maybe Int      -- See Note [DotDot fields] in HsPat
               -> Maybe Name     -- The constructor (Nothing for an update
                                 --    or out of scope constructor)
-              -> [HsRecField Name (Located arg)]   -- Explicit fields
-              -> RnM [HsRecField Name (Located arg)]   -- Filled in .. fields
+              -> [LHsRecField Name (Located arg)] -- Explicit fields
+              -> RnM [LHsRecField Name (Located arg)]   -- Filled in .. fields
     rn_dotdot Nothing _mb_con _flds     -- No ".." at all
       = return []
     rn_dotdot (Just {}) Nothing _flds   -- ".." on record update
       = do { case ctxt of
-                HsRecFieldUpd -> addErr badDotDot
+                HsRecFieldUpd -> addErr badDotDotUpd
                 _             -> return ()
            ; return [] }
     rn_dotdot (Just n) (Just con) flds -- ".." on record construction / pat match
@@ -586,6 +592,7 @@ rnHsRecFields ctxt mk_arg (HsRecFields { rec_flds = flds, rec_dotdot = dotdot })
            ; checkErr dd_flag (needFlagDotDot ctxt)
            ; (rdr_env, lcl_env) <- getRdrEnvs
            ; con_fields <- lookupConstructorFields con
+           ; when (null con_fields) (addErr (badDotDotCon con))
            ; let present_flds = getFieldIds flds
                  parent_tc = find_tycon rdr_env con
 
@@ -613,10 +620,10 @@ rnHsRecFields ctxt mk_arg (HsRecFields { rec_flds = flds, rec_dotdot = dotdot })
                                     _other           -> True ] 
 
            ; addUsedRdrNames (map greRdrName dot_dot_gres)
-           ; return [ HsRecField
+           ; return [ L loc (HsRecField
                         { hsRecFieldId  = L loc fld
                         , hsRecFieldArg = L loc (mk_arg arg_rdr)
-                        , hsRecPun      = False }
+                        , hsRecPun      = False })
                     | gre <- dot_dot_gres
                     , let fld     = gre_name gre
                           arg_rdr = mkRdrUnqual (nameOccName fld) ] }
@@ -648,15 +655,20 @@ rnHsRecFields ctxt mk_arg (HsRecFields { rec_flds = flds, rec_dotdot = dotdot })
         -- Each list in dup_fields is non-empty
     (_, dup_flds) = removeDups compare (getFieldIds flds)
 
-getFieldIds :: [HsRecField id arg] -> [id]
-getFieldIds flds = map (unLoc . hsRecFieldId) flds
+getFieldIds :: [LHsRecField id arg] -> [id]
+getFieldIds flds = map (unLoc . hsRecFieldId . unLoc) flds
 
 needFlagDotDot :: HsRecFieldContext -> SDoc
 needFlagDotDot ctxt = vcat [ptext (sLit "Illegal `..' in record") <+> pprRFC ctxt,
                             ptext (sLit "Use RecordWildCards to permit this")]
 
-badDotDot :: SDoc
-badDotDot = ptext (sLit "You cannot use `..' in a record update")
+badDotDotCon :: Name -> SDoc
+badDotDotCon con
+  = vcat [ ptext (sLit "Illegal `..' notation for constructor") <+> quotes (ppr con)
+         , nest 2 (ptext (sLit "The constructor has no labelled fields")) ]
+
+badDotDotUpd :: SDoc
+badDotDotUpd = ptext (sLit "You cannot use `..' in a record update")
 
 emptyUpdateErr :: SDoc
 emptyUpdateErr = ptext (sLit "Empty record update")
@@ -690,14 +702,14 @@ are made available.
 
 \begin{code}
 rnLit :: HsLit -> RnM ()
-rnLit (HsChar c) = checkErr (inCharRange c) (bogusCharError c)
+rnLit (HsChar _ c) = checkErr (inCharRange c) (bogusCharError c)
 rnLit _ = return ()
 
 -- Turn a Fractional-looking literal which happens to be an integer into an
 -- Integer-looking literal.
 generalizeOverLitVal :: OverLitVal -> OverLitVal
-generalizeOverLitVal (HsFractional (FL {fl_value=val}))
-    | denominator val == 1 = HsIntegral (numerator val)
+generalizeOverLitVal (HsFractional (FL {fl_text=src,fl_value=val}))
+    | denominator val == 1 = HsIntegral src (numerator val)
 generalizeOverLitVal lit = lit
 
 rnOverLit :: HsOverLit t -> RnM (HsOverLit Name, FreeVars)

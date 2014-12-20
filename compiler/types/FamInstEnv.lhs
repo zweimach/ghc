@@ -354,7 +354,7 @@ familyInstances (pkg_fie, home_fie) fam
 orphNamesOfFamInst :: FamInst -> NameSet
 orphNamesOfFamInst fam_inst
   = orphNamesOfTypes (concat (brListMap cab_lhs (coAxiomBranches axiom)))
-    `addOneToNameSet` getName (coAxiomTyCon axiom)
+    `extendNameSet` getName (coAxiomTyCon axiom)
   where
     axiom = fi_axiom fam_inst
 
@@ -710,7 +710,7 @@ lookup_fam_inst_env' match_fun ie fam match_tys
     -- Deal with over-saturation
     -- See Note [Over-saturated matches]
     split_tys tpl_tys
-      | isSynFamilyTyCon fam
+      | isTypeFamilyTyCon fam
       = pre_rough_split_tys
 
       | otherwise
@@ -822,8 +822,8 @@ reduce_ty_fam_app_maybe envs lc role tc tys
   = Nothing
 
   | case role of
-      Representational -> isOpenFamilyTyCon    tc
-      _                -> isOpenSynFamilyTyCon tc
+      Representational -> isOpenFamilyTyCon     tc
+      _                -> isOpenTypeFamilyTyCon tc
        -- If we seek a representational coercion
        -- (e.g. the call in topNormaliseType_maybe) then we can
        -- unwrap data families as well as type-synonym families;

@@ -20,7 +20,7 @@ module TcRnDriver (
         tcRnLookupName,
         tcRnGetInfo,
         tcRnModule, tcRnModuleTcRnM,
-        tcTopSrcDecls
+        tcTopSrcDecls,
     ) where
 
 #ifdef GHCI
@@ -93,6 +93,8 @@ import RnExpr
 import MkId
 import TidyPgm    ( globaliseAndTidyId )
 import TysWiredIn ( unitTy, mkListTy )
+import DynamicLoading ( loadPlugins )
+import Plugins ( tcPlugin )
 #endif
 import TidyPgm    ( mkBootModDetailsTc )
 
@@ -134,8 +136,11 @@ tcRnModule hsc_env hsc_src save_rn_syntax
                     Just (L mod_loc mod)  -- The normal case
                         -> (mkModule this_pkg mod, mod_loc) } ;
 
-      ; initTc hsc_env hsc_src save_rn_syntax this_mod $
-        tcRnModuleTcRnM hsc_env hsc_src parsedModule pair }
+      ; res <- initTc hsc_env hsc_src save_rn_syntax this_mod $
+               withTcPlugins hsc_env $
+        tcRnModuleTcRnM hsc_env hsc_src parsedModule pair
+      ; return res
+      }
 
 -- To be called at the beginning of renaming hsig files.
 -- If we're processing a signature, load up the RdrEnv
@@ -232,10 +237,7 @@ checkHsigIface' gr
         ; r <- tcLookupImported_maybe name
         ; case r of
             Failed err -> addErr err
-            Succeeded real_thing ->
-              when (not (checkBootDecl sig_thing real_thing))
-               $ addErrAt (nameSrcSpan (getName sig_thing))
-                          (bootMisMatch False real_thing sig_thing)
+            Succeeded real_thing -> checkBootDeclM False sig_thing real_thing
         }}
       where
         name          = availName sig_avail
@@ -291,11 +293,11 @@ tcRnModuleTcRnM hsc_env hsc_src
           -- If the whole module is warned about or deprecated 
           -- (via mod_deprec) record that in tcg_warns. If we do thereby add
           -- a WarnAll, it will override any subseqent depracations added to tcg_warns
-        let { tcg_env1 = case mod_deprec of 
-                         Just txt -> tcg_env { tcg_warns = WarnAll txt } 
-                         Nothing  -> tcg_env 
+        let { tcg_env1 = case mod_deprec of
+                         Just (L _ txt) -> tcg_env { tcg_warns = WarnAll txt }
+                         Nothing        -> tcg_env
             } ;
- 
+
         setGblEnv tcg_env1 $ do {
 
                 -- Load the hi-boot interface for this module, if any
@@ -308,13 +310,19 @@ tcRnModuleTcRnM hsc_env hsc_src
                 -- look for a hi-boot file
         boot_iface <- tcHiBootIface hsc_src this_mod ;
 
+        let { exports_occs =
+                 maybe emptyBag
+                       (listToBag . map (rdrNameOcc . ieName . unLoc) . unLoc)
+                       export_ies
+            } ;
+
                 -- Rename and type check the declarations
         traceRn (text "rn1a") ;
         tcg_env <- if isHsBootOrSig hsc_src then
                         tcRnHsBootDecls hsc_src local_decls
                    else
                         {-# SCC "tcRnSrcDecls" #-}
-                        tcRnSrcDecls boot_iface local_decls ;
+                        tcRnSrcDecls boot_iface exports_occs local_decls ;
         setGblEnv tcg_env               $ do {
 
                 -- Process the export list
@@ -411,6 +419,9 @@ tcRnImports hsc_env import_decls
               tcg_rdr_env      = tcg_rdr_env gbl `plusGlobalRdrEnv` rdr_env,
               tcg_imports      = tcg_imports gbl `plusImportAvails` imports,
               tcg_rn_imports   = rn_imports,
+              tcg_visible_orphan_mods = foldl extendModuleSet
+                                              (tcg_visible_orphan_mods gbl)
+                                              (imp_orphs imports),
               tcg_inst_env     = extendInstEnvList (tcg_inst_env gbl) home_insts,
               tcg_fam_inst_env = extendFamInstEnvList (tcg_fam_inst_env gbl)
                                                       home_fam_insts,
@@ -448,10 +459,10 @@ tcRnImports hsc_env import_decls
 %************************************************************************
 
 \begin{code}
-tcRnSrcDecls :: ModDetails -> [LHsDecl RdrName] -> TcM TcGblEnv
+tcRnSrcDecls :: ModDetails -> Bag OccName -> [LHsDecl RdrName] -> TcM TcGblEnv
         -- Returns the variables free in the decls
         -- Reason: solely to report unused imports and bindings
-tcRnSrcDecls boot_iface decls
+tcRnSrcDecls boot_iface exports decls
  = do {         -- Do all the declarations
         ((tcg_env, tcl_env), lie) <- captureConstraints $ tc_rn_src_decls boot_iface decls ;
       ; traceTc "Tc8" empty ;
@@ -495,7 +506,8 @@ tcRnSrcDecls boot_iface decls
 
         (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
             <- {-# SCC "zonkTopDecls" #-}
-               zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords ;
+               zonkTopDecls all_ev_binds binds exports sig_ns rules vects
+                            imp_specs fords ;
 
         let { final_type_env = extendTypeEnvWithIds type_env bind_ids
             ; tcg_env' = tcg_env { tcg_binds    = binds',
@@ -761,9 +773,7 @@ checkHiBootIface'
         -- then compare the definitions
       | Just real_thing <- lookupTypeEnv local_type_env name,
         Just boot_thing <- mb_boot_thing
-      = when (not (checkBootDecl boot_thing real_thing))
-            $ addErrAt (nameSrcSpan (getName boot_thing))
-                       (bootMisMatch True real_thing boot_thing)
+      = checkBootDeclM True boot_thing real_thing
 
       | otherwise
       = addErrTc (missingBootThing True name "defined in")
@@ -804,11 +814,25 @@ checkHiBootIface'
 --
 -- See rnfail055 for a good test of this stuff.
 
-checkBootDecl :: TyThing -> TyThing -> Bool
+-- | Compares two things for equivalence between boot-file and normal code,
+-- reporting an error if they don't match up.
+checkBootDeclM :: Bool  -- ^ True <=> an hs-boot file (could also be a sig)
+               -> TyThing -> TyThing -> TcM ()
+checkBootDeclM is_boot boot_thing real_thing
+  = whenIsJust (checkBootDecl boot_thing real_thing) $ \ err ->
+    addErrAt (nameSrcSpan (getName boot_thing))
+             (bootMisMatch is_boot err real_thing boot_thing)
+
+-- | Compares the two things for equivalence between boot-file and normal
+-- code. Returns @Nothing@ on success or @Just "some helpful info for user"@
+-- failure. If the difference will be apparent to the user, @Just empty@ is
+-- perfectly suitable.
+checkBootDecl :: TyThing -> TyThing -> Maybe SDoc
 
 checkBootDecl (AnId id1) (AnId id2)
   = ASSERT(id1 == id2)
-    (idType id1 `eqType` idType id2)
+    check (idType id1 `eqType` idType id2)
+          (text "The two types are different")
 
 checkBootDecl (ATyCon tc1) (ATyCon tc2)
   = checkBootTyCon tc1 tc2
@@ -816,13 +840,52 @@ checkBootDecl (ATyCon tc1) (ATyCon tc2)
 checkBootDecl (AConLike (RealDataCon dc1)) (AConLike (RealDataCon _))
   = pprPanic "checkBootDecl" (ppr dc1)
 
-checkBootDecl _ _ = False -- probably shouldn't happen
+checkBootDecl _ _ = Just empty -- probably shouldn't happen
+
+-- | Combines two potential error messages
+andThenCheck :: Maybe SDoc -> Maybe SDoc -> Maybe SDoc
+Nothing `andThenCheck` msg     = msg
+msg     `andThenCheck` Nothing = msg
+Just d1 `andThenCheck` Just d2 = Just (d1 $$ d2)
+infixr 0 `andThenCheck`
+
+-- | If the test in the first parameter is True, succeed with @Nothing@;
+-- otherwise, return the provided check
+checkUnless :: Bool -> Maybe SDoc -> Maybe SDoc
+checkUnless True  _ = Nothing
+checkUnless False k = k
+
+-- | Run the check provided for every pair of elements in the lists.
+-- The provided SDoc should name the element type, in the plural.
+checkListBy :: (a -> a -> Maybe SDoc) -> [a] -> [a] -> SDoc
+            -> Maybe SDoc
+checkListBy check_fun as bs whats = go [] as bs
+  where
+    herald = text "The" <+> whats <+> text "do not match"
+    
+    go []   [] [] = Nothing
+    go docs [] [] = Just (hang (herald <> colon) 2 (vcat $ reverse docs))
+    go docs (x:xs) (y:ys) = case check_fun x y of
+      Just doc -> go (doc:docs) xs ys
+      Nothing  -> go docs       xs ys
+    go _    _  _ = Just (hang (herald <> colon)
+                            2 (text "There are different numbers of" <+> whats))
+
+-- | If the test in the first parameter is True, succeed with @Nothing@;
+-- otherwise, fail with the given SDoc.
+check :: Bool -> SDoc -> Maybe SDoc
+check True  _   = Nothing
+check False doc = Just doc
+
+-- | A more perspicuous name for @Nothing@, for @checkBootDecl@ and friends.
+checkSuccess :: Maybe SDoc
+checkSuccess = Nothing
 
 ----------------
-checkBootTyCon :: TyCon -> TyCon -> Bool
+checkBootTyCon :: TyCon -> TyCon -> Maybe SDoc
 checkBootTyCon tc1 tc2
   | not (eqType (tyConKind tc1) (tyConKind tc2))
-  = False       -- First off, check the kind
+  = Just $ text "The types have different kinds"    -- First off, check the kind
 
   | Just c1 <- tyConClass_maybe tc1
   , Just c2 <- tyConClass_maybe tc2
@@ -833,18 +896,29 @@ checkBootTyCon tc1 tc2
   , Just env <- eqTyCoVarBndrs emptyRnEnv2 clas_tvs1 clas_tvs2
   = let
        eqSig (id1, def_meth1) (id2, def_meth2)
-         = idName id1 == idName id2 &&
-           eqTypeX env op_ty1 op_ty2 &&
-           def_meth1 == def_meth2
+         = check (name1 == name2)
+                 (text "The names" <+> pname1 <+> text "and" <+> pname2 <+>
+                  text "are different") `andThenCheck`
+           check (eqTypeX env op_ty1 op_ty2)
+                 (text "The types of" <+> pname1 <+>
+                  text "are different") `andThenCheck`
+           check (def_meth1 == def_meth2)
+                 (text "The default methods associated with" <+> pname1 <+>
+                  text "are different")
          where
+          name1 = idName id1
+          name2 = idName id2
+          pname1 = quotes (ppr name1)
+          pname2 = quotes (ppr name2)
           (_, rho_ty1) = splitNamedForAllTys (idType id1)
           op_ty1 = funResultTy rho_ty1
           (_, rho_ty2) = splitNamedForAllTys (idType id2)
           op_ty2 = funResultTy rho_ty2
 
        eqAT (ATI tc1 def_ats1) (ATI tc2 def_ats2)
-         = checkBootTyCon tc1 tc2 &&
-           eqATDef def_ats1 def_ats2
+         = checkBootTyCon tc1 tc2 `andThenCheck`
+           check (eqATDef def_ats1 def_ats2)
+                 (text "The associated type defaults differ")
 
        -- Ignore the location of the defaults
        eqATDef Nothing    Nothing    = True
@@ -855,60 +929,90 @@ checkBootTyCon tc1 tc2
          eqListBy (eqTypeX env) (mkTyCoVarTys as1) (mkTyCoVarTys as2) &&
          eqListBy (eqTypeX env) (mkTyCoVarTys bs1) (mkTyCoVarTys bs2)
     in
-       roles1 == roles2 &&
-             -- Checks kind of class
-       eqListBy eqFD clas_fds1 clas_fds2 &&
-       (null sc_theta1 && null op_stuff1 && null ats1
-        ||   -- Above tests for an "abstract" class
-        eqListBy (eqPredX env) sc_theta1 sc_theta2 &&
-        eqListBy eqSig op_stuff1 op_stuff2 &&
-        eqListBy eqAT ats1 ats2)
+    check (roles1 == roles2) roles_msg `andThenCheck`
+          -- Checks kind of class
+    check (eqListBy eqFD clas_fds1 clas_fds2)
+          (text "The functional dependencies do not match") `andThenCheck`
+    checkUnless (null sc_theta1 && null op_stuff1 && null ats1) $
+                     -- Above tests for an "abstract" class
+    check (eqListBy (eqPredX env) sc_theta1 sc_theta2)
+          (text "The class constraints do not match") `andThenCheck`
+    checkListBy eqSig op_stuff1 op_stuff2 (text "methods") `andThenCheck`
+    checkListBy eqAT ats1 ats2 (text "associated types")
 
   | Just syn_rhs1 <- synTyConRhs_maybe tc1
   , Just syn_rhs2 <- synTyConRhs_maybe tc2
   , Just env <- eqTyCoVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
   = ASSERT(tc1 == tc2)
-    let eqSynRhs OpenSynFamilyTyCon OpenSynFamilyTyCon = True
-        eqSynRhs AbstractClosedSynFamilyTyCon (ClosedSynFamilyTyCon {}) = True
-        eqSynRhs (ClosedSynFamilyTyCon {}) AbstractClosedSynFamilyTyCon = True
-        eqSynRhs (ClosedSynFamilyTyCon ax1) (ClosedSynFamilyTyCon ax2)
+    check (roles1 == roles2) roles_msg `andThenCheck`
+    check (eqTypeX env syn_rhs1 syn_rhs2) empty   -- nothing interesting to say
+
+  | Just fam_flav1 <- famTyConFlav_maybe tc1
+  , Just fam_flav2 <- famTyConFlav_maybe tc2
+  = ASSERT(tc1 == tc2)
+    let eqFamFlav OpenSynFamilyTyCon OpenSynFamilyTyCon = True
+        eqFamFlav AbstractClosedSynFamilyTyCon (ClosedSynFamilyTyCon {}) = True
+        eqFamFlav (ClosedSynFamilyTyCon {}) AbstractClosedSynFamilyTyCon = True
+        eqFamFlav (ClosedSynFamilyTyCon ax1) (ClosedSynFamilyTyCon ax2)
             = eqClosedFamilyAx ax1 ax2
-        eqSynRhs (SynonymTyCon t1) (SynonymTyCon t2)
-            = eqTypeX env t1 t2
-        eqSynRhs (BuiltInSynFamTyCon _) (BuiltInSynFamTyCon _) = tc1 == tc2
-        eqSynRhs _ _ = False
+        eqFamFlav (BuiltInSynFamTyCon _) (BuiltInSynFamTyCon _) = tc1 == tc2
+        eqFamFlav _ _ = False
     in
-    roles1 == roles2 &&
-    eqSynRhs syn_rhs1 syn_rhs2
+    check (roles1 == roles2) roles_msg `andThenCheck`
+    check (eqFamFlav fam_flav1 fam_flav2) empty   -- nothing interesting to say
 
   | isAlgTyCon tc1 && isAlgTyCon tc2
   , Just env <- eqTyCoVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
   = ASSERT(tc1 == tc2)
-    roles1 == roles2 &&
-    eqListBy (eqPredX env) (tyConStupidTheta tc1) (tyConStupidTheta tc2) &&
-    eqAlgRhs (algTyConRhs tc1) (algTyConRhs tc2)
+    check (roles1 == roles2) roles_msg `andThenCheck`
+    check (eqListBy (eqPredX env)
+                     (tyConStupidTheta tc1) (tyConStupidTheta tc2))
+          (text "The datatype contexts do not match") `andThenCheck`
+    eqAlgRhs tc1 (algTyConRhs tc1) (algTyConRhs tc2)
 
-  | otherwise = False
+  | otherwise = Just empty   -- two very different types -- should be obvious
   where
     roles1 = tyConRoles tc1
     roles2 = tyConRoles tc2
+    roles_msg = text "The roles do not match." <+>
+                (text "Roles default to" <+>
+                 quotes (text "representational") <+> text "in boot files")
 
-    eqAlgRhs (AbstractTyCon dis1) rhs2
-      | dis1      = isDistinctAlgRhs rhs2   --Check compatibility
-      | otherwise = True
-    eqAlgRhs DataFamilyTyCon{} DataFamilyTyCon{} = True
-    eqAlgRhs tc1@DataTyCon{} tc2@DataTyCon{} =
-        eqListBy eqCon (data_cons tc1) (data_cons tc2)
-    eqAlgRhs tc1@NewTyCon{} tc2@NewTyCon{} =
+    eqAlgRhs tc (AbstractTyCon dis1) rhs2
+      | dis1      = check (isDistinctAlgRhs rhs2)   --Check compatibility
+                          (text "The natures of the declarations for" <+>
+                           quotes (ppr tc) <+> text "are different")
+      | otherwise = checkSuccess
+    eqAlgRhs _  DataFamilyTyCon{} DataFamilyTyCon{} = checkSuccess
+    eqAlgRhs _  tc1@DataTyCon{} tc2@DataTyCon{} =
+        checkListBy eqCon (data_cons tc1) (data_cons tc2) (text "constructors")
+    eqAlgRhs _  tc1@NewTyCon{} tc2@NewTyCon{} =
         eqCon (data_con tc1) (data_con tc2)
-    eqAlgRhs _ _ = False
+    eqAlgRhs _ _ _ = Just (text "Cannot match a" <+> quotes (text "data") <+>
+                           text "definition with a" <+> quotes (text "newtype") <+>
+                           text "definition")
 
     eqCon c1 c2
-      =  dataConName c1 == dataConName c2
-      && dataConIsInfix c1 == dataConIsInfix c2
-      && eqListBy eqHsBang (dataConStrictMarks c1) (dataConStrictMarks c2)
-      && dataConFieldLabels c1 == dataConFieldLabels c2
-      && eqType (dataConUserType c1) (dataConUserType c2)
+      =  check (name1 == name2)
+               (text "The names" <+> pname1 <+> text "and" <+> pname2 <+>
+                text "differ") `andThenCheck`
+         check (dataConIsInfix c1 == dataConIsInfix c2)
+               (text "The fixities of" <+> pname1 <+>
+                text "differ") `andThenCheck`
+         check (eqListBy eqHsBang
+                         (dataConStrictMarks c1) (dataConStrictMarks c2))
+               (text "The strictness annotations for" <+> pname1 <+>
+                text "differ") `andThenCheck`
+         check (dataConFieldLabels c1 == dataConFieldLabels c2)
+               (text "The record label lists for" <+> pname1 <+>
+                text "differ") `andThenCheck`
+         check (eqType (dataConUserType c1) (dataConUserType c2))
+               (text "The types for" <+> pname1 <+> text "differ")
+      where
+        name1 = dataConName c1
+        name2 = dataConName c2
+        pname1 = quotes (ppr name1)
+        pname2 = quotes (ppr name2)
 
     eqClosedFamilyAx (CoAxiom { co_ax_branches = branches1 })
                      (CoAxiom { co_ax_branches = branches2 })
@@ -934,8 +1038,8 @@ missingBootThing is_boot name what
               <+> ptext (sLit "file, but not")
               <+> text what <+> ptext (sLit "the module")
 
-bootMisMatch :: Bool -> TyThing -> TyThing -> SDoc
-bootMisMatch is_boot real_thing boot_thing
+bootMisMatch :: Bool -> SDoc -> TyThing -> TyThing -> SDoc
+bootMisMatch is_boot extra_info real_thing boot_thing
   = vcat [ppr real_thing <+>
           ptext (sLit "has conflicting definitions in the module"),
           ptext (sLit "and its") <+>
@@ -945,7 +1049,8 @@ bootMisMatch is_boot real_thing boot_thing
           (if is_boot
             then ptext (sLit "Boot file:  ")
             else ptext (sLit "Hsig file: "))
-            <+> PprTyThing.pprTyThing boot_thing]
+            <+> PprTyThing.pprTyThing boot_thing,
+          extra_info]
 
 instMisMatch :: Bool -> ClsInst -> SDoc
 instMisMatch is_boot inst
@@ -1088,7 +1193,7 @@ tcTopSrcDecls boot_details
                 -- Extend the GblEnv with the (as yet un-zonked)
                 -- bindings, rules, foreign decls
             ; tcg_env' = tcg_env { tcg_binds   = tcg_binds tcg_env `unionBags` all_binds
-                                 , tcg_sigs    = tcg_sigs tcg_env `unionNameSets` sig_names
+                                 , tcg_sigs    = tcg_sigs tcg_env `unionNameSet` sig_names
                                  , tcg_rules   = tcg_rules tcg_env ++ rules
                                  , tcg_vects   = tcg_vects tcg_env ++ vects
                                  , tcg_anns    = tcg_anns tcg_env ++ annotations
@@ -1140,8 +1245,8 @@ tcTyClsInstDecls boot_details tycl_decls inst_decls deriv_decls
       = concatMap (get_fi_cons . unLoc) fids
 
     get_fi_cons :: DataFamInstDecl Name -> [Name]
-    get_fi_cons (DataFamInstDecl { dfid_defn = HsDataDefn { dd_cons = cons } }) 
-      = map (unLoc . con_name . unLoc) cons
+    get_fi_cons (DataFamInstDecl { dfid_defn = HsDataDefn { dd_cons = cons } })
+      = map unLoc $ concatMap (con_names . unLoc) cons
 \end{code}
 
 Note [AFamDataCon: not promoting data family constructors]
@@ -1294,7 +1399,7 @@ runTcInteractive :: HscEnv -> TcRn a -> IO (Messages, Maybe a)
 -- Initialise the tcg_inst_env with instances from all home modules.
 -- This mimics the more selective call to hptInstances in tcRnImports
 runTcInteractive hsc_env thing_inside
-  = initTcInteractive hsc_env $
+  = initTcInteractive hsc_env $ withTcPlugins hsc_env $
     do { traceTc "setInteractiveContext" $
             vcat [ text "ic_tythings:" <+> vcat (map ppr (ic_tythings icxt))
                  , text "ic_insts:" <+> vcat (map (pprBndr LetBind . instanceDFunId) ic_insts)
@@ -1302,6 +1407,14 @@ runTcInteractive hsc_env thing_inside
                       vcat (map ppr [ local_gres | gres <- occEnvElts (ic_rn_gbl_env icxt)
                                                  , let local_gres = filter isLocalGRE gres
                                                  , not (null local_gres) ]) ]
+       ; let getOrphans m = fmap (concatMap (\iface -> mi_module iface
+                                                 : dep_orphs (mi_deps iface)))
+                                 (loadSrcInterface (text "runTcInteractive") m
+                                                   False Nothing)
+       ; ic_visible_mods <- fmap concat . forM (ic_imports icxt) $ \i ->
+            case i of
+                IIModule n -> getOrphans n
+                IIDecl i -> getOrphans (unLoc (ideclName i))
        ; gbl_env <- getGblEnv
        ; let gbl_env' = gbl_env {
                            tcg_rdr_env      = ic_rn_gbl_env icxt
@@ -1320,7 +1433,13 @@ runTcInteractive hsc_env thing_inside
                               -- setting tcg_field_env is necessary
                               -- to make RecordWildCards work (test: ghci049)
                          , tcg_fix_env      = ic_fix_env icxt
-                         , tcg_default      = ic_default icxt }
+                         , tcg_default      = ic_default icxt
+                         , tcg_visible_orphan_mods = mkModuleSet ic_visible_mods
+                              -- I guess there's a risk ic_imports will be
+                              -- desynchronized with the true RdrEnv; probably
+                              -- should insert some ASSERTs somehow.
+                              -- TODO: Cache this
+                         }
 
        ; setGblEnv gbl_env' $
          tcExtendGhciIdEnv ty_things $   -- See Note [Initialising the type environment for GHCi]
@@ -1385,7 +1504,7 @@ tcRnStmt hsc_env rdr_stmt
 
 -------------------------------------------------- -}
 
-    dumpOptTcRn Opt_D_dump_tc
+    traceOptTcRn Opt_D_dump_tc
         (vcat [text "Bound Ids" <+> pprWithCommas ppr global_ids,
                text "Typechecked expr" <+> ppr zonked_expr]) ;
 
@@ -1433,7 +1552,7 @@ runPlans [p]    = p
 runPlans (p:ps) = tryTcLIE_ (runPlans ps) p
 
 -- | Typecheck (and 'lift') a stmt entered by the user in GHCi into the
--- GHCi 'environemnt'.
+-- GHCi 'environment'.
 --
 -- By 'lift' and 'environment we mean that the code is changed to
 -- execute properly in an IO monad. See Note [Interactively-bound Ids
@@ -1599,12 +1718,12 @@ getGhciStepIO = do
         ioM    = nlHsAppTy (nlHsTyVar ioTyConName) (nlHsTyVar a_tv)
 
         stepTy :: LHsType Name    -- Renamed, so needs all binders in place
-        stepTy = noLoc $ HsForAllTy Implicit
+        stepTy = noLoc $ HsForAllTy Implicit Nothing
                             (HsQTvs { hsq_explicit = [noLoc (UserTyVar a_tv)]
                                     , hsq_implicit = [] })
                             (noLoc [])
                             (nlHsFunTy ghciM ioM)
-        step   = noLoc $ ExprWithTySig (nlHsVar ghciStepIoMName) stepTy
+        step   = noLoc $ ExprWithTySig (nlHsVar ghciStepIoMName) stepTy []
     return step
 
 isGHCiMonad :: HscEnv -> String -> IO (Messages, Maybe Name)
@@ -1744,7 +1863,8 @@ tcRnDeclsi hsc_env local_decls =
         all_ev_binds = cur_ev_binds `unionBags` new_ev_binds
 
     (bind_ids, ev_binds', binds', fords', imp_specs', rules', vects')
-        <- zonkTopDecls all_ev_binds binds sig_ns rules vects imp_specs fords
+        <- zonkTopDecls all_ev_binds binds emptyBag sig_ns rules vects
+                        imp_specs fords
 
     let --global_ids = map globaliseAndTidyId bind_ids
         final_type_env = extendTypeEnvWithIds type_env bind_ids --global_ids
@@ -1856,7 +1976,7 @@ tcRnGetInfo hsc_env name
 
 lookupInsts :: TyThing -> TcM ([ClsInst],[FamInst])
 lookupInsts (ATyCon tc)
-  = do  { (pkg_ie, home_ie) <- tcGetInstEnvs
+  = do  { InstEnvs pkg_ie home_ie vis_mods <- tcGetInstEnvs
         ; (pkg_fie, home_fie) <- tcGetFamInstEnvs
                 -- Load all instances for all classes that are
                 -- in the type environment (which are all the ones
@@ -1867,6 +1987,7 @@ lookupInsts (ATyCon tc)
         ; let cls_insts =
                  [ ispec        -- Search all
                  | ispec <- instEnvElts home_ie ++ instEnvElts pkg_ie
+                 , instIsVisible vis_mods ispec
                  , tc_name `elemNameSet` orphNamesOfClsInst ispec ]
         ; let fam_insts =
                  [ fispec
@@ -1910,7 +2031,7 @@ loadUnqualIfaces hsc_env ictxt
 \begin{code}
 rnDump :: SDoc -> TcRn ()
 -- Dump, with a banner, if -ddump-rn
-rnDump doc = do { dumpOptTcRn Opt_D_dump_rn (mkDumpDoc "Renamer" doc) }
+rnDump doc = do { traceOptTcRn Opt_D_dump_rn (mkDumpDoc "Renamer" doc) }
 
 tcDump :: TcGblEnv -> TcRn ()
 tcDump env
@@ -1921,7 +2042,7 @@ tcDump env
              (printForUserTcRn short_dump) ;
 
         -- Dump bindings if -ddump-tc
-        dumpOptTcRn Opt_D_dump_tc (mkDumpDoc "Typechecker" full_dump)
+        traceOptTcRn Opt_D_dump_tc (mkDumpDoc "Typechecker" full_dump)
    }
   where
     short_dump = pprTcGblEnv env
@@ -2005,4 +2126,39 @@ ppr_tydecls tycons
   = vcat (map ppr_tycon (sortBy (comparing getOccName) tycons))
   where
     ppr_tycon tycon = vcat [ ppr (tyThingToIfaceDecl (ATyCon tycon)) ]
+\end{code}
+
+
+********************************************************************************
+
+Type Checker Plugins
+
+********************************************************************************
+
+
+\begin{code}
+withTcPlugins :: HscEnv -> TcM a -> TcM a
+withTcPlugins hsc_env m =
+  do plugins <- liftIO (loadTcPlugins hsc_env)
+     case plugins of
+       [] -> m  -- Common fast case
+       _  -> do (solvers,stops) <- unzip `fmap` mapM startPlugin plugins
+                res <- updGblEnv (\e -> e { tcg_tc_plugins = solvers }) m
+                mapM_ runTcPluginM stops
+                return res
+  where
+  startPlugin (TcPlugin start solve stop) =
+    do s <- runTcPluginM start
+       return (solve s, stop s)
+
+loadTcPlugins :: HscEnv -> IO [TcPlugin]
+#ifndef GHCI
+loadTcPlugins _ = return []
+#else
+loadTcPlugins hsc_env =
+ do named_plugins <- loadPlugins hsc_env
+    return $ catMaybes $ map load_plugin named_plugins
+  where
+    load_plugin (_, plug, opts) = tcPlugin plug opts
+#endif
 \end{code}

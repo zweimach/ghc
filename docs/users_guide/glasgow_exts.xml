@@ -3,7 +3,7 @@
 <indexterm><primary>language, GHC</primary></indexterm>
 <indexterm><primary>extensions, GHC</primary></indexterm>
 As with all known Haskell systems, GHC implements some extensions to
-the language.  They can all be enabled or disabled by commandline flags
+the language.  They can all be enabled or disabled by command line flags
 or language pragmas. By default GHC understands the most recent Haskell
 version it supports, plus a handful of extensions.
 </para>
@@ -456,10 +456,10 @@ Indeed, the bindings can even be recursive.
       </para>
 
       <para>
-      This can make a difference when the positive and negative range of 
-      a numeric data type don't match up.  For example, 
+      This can make a difference when the positive and negative range of
+      a numeric data type don't match up.  For example,
       in 8-bit arithmetic -128 is representable, but +128 is not.
-      So <literal>negate (fromInteger 128)</literal> will elicit an 
+      So <literal>negate (fromInteger 128)</literal> will elicit an
       unexpected integer-literal-overflow message.
       </para>
    </sect2>
@@ -877,8 +877,8 @@ y)</literal> will not be coalesced.
 
 <para>
 Pattern synonyms are enabled by the flag
-<literal>-XPatternSynonyms</literal>, which is required for both
-defining them <emphasis>and</emphasis> using them.  More information
+<literal>-XPatternSynonyms</literal>, which is required for defining
+them, but <emphasis>not</emphasis> for using them.  More information
 and examples of view patterns can be found on the <ulink
 url="http://ghc.haskell.org/trac/ghc/wiki/PatternSynonyms">Wiki
 page</ulink>.
@@ -998,7 +998,7 @@ synonym using the following syntax:
 
 <para>
 The syntax and semantics of pattern synonyms are elaborated in the
-following subsections.  
+following subsections.
 See the <ulink
 url="http://ghc.haskell.org/trac/ghc/wiki/PatternSynonyms">Wiki
 page</ulink> for more details.
@@ -1081,7 +1081,7 @@ would bring into scope the data constructor <literal>Just</literal> from the
   it is assigned a <emphasis>pattern type</emphasis> of the form
 </para>
 <programlisting>
-  pattern CProv => P t1 t2 ... tN :: CReq => t
+  pattern P :: CProv => CReq => t1 -> t2 -> ... -> tN -> t
 </programlisting>
 <para>
   where <replaceable>CProv</replaceable> and
@@ -1114,7 +1114,7 @@ pattern ExNumPat x = MkT 42 x
 </programlisting>
 
 <para>
-the pattern type of <literal>ExNumPat</literal> is
+the inferred pattern type of <literal>ExNumPat</literal> is
 </para>
 
 <programlisting>
@@ -1145,6 +1145,17 @@ pattern (Show b) => ExNumPat b :: (Num a, Eq a) => T a
   ExNumPat :: (Show b, Num a, Eq a) => b -> T t
 </programlisting>
 </sect3>
+
+<para>
+  Pattern synonyms can also be given a type signature in the source
+  program, e.g.:
+</para>
+
+<programlisting>
+  -- Inferred type would be 'a -> [a]'
+  pattern SinglePair :: (a, a) -> [(a, a)]
+  pattern SinglePair x = [x]
+</programlisting>
 
 <sect3><title>Matching of pattern synonyms</title>
 
@@ -2326,7 +2337,7 @@ More details:
 <itemizedlist>
 <listitem><para>
 Record wildcards in patterns can be mixed with other patterns, including puns
-(<xref linkend="record-puns"/>); for example, in a pattern <literal>C {a
+(<xref linkend="record-puns"/>); for example, in a pattern <literal>(C {a
 = 1, b, ..})</literal>.  Additionally, record wildcards can be used
 wherever record patterns occur, including in <literal>let</literal>
 bindings and at the top-level.  For example, the top-level binding
@@ -2392,6 +2403,18 @@ omitting <literal>b</literal> since the record field is not in scope,
 and omitting <literal>c</literal> since the variable <literal>c</literal>
 is not in scope (apart from the binding of the
 record selector <literal>c</literal>, of course).
+</para></listitem>
+
+<listitem><para>
+Record wildcards cannot be used (a) in a record update construct, and (b) for data
+constructors that are not declared with record fields.  For example:
+<programlisting>
+f x = x { v=True, .. }   -- Illegal (a)
+
+data T = MkT Int Bool
+g = MkT { .. }           -- Illegal (b)
+h (MkT { .. }) = True    -- Illegal (b)
+</programlisting>
 </para></listitem>
 </itemizedlist>
 </para>
@@ -2522,10 +2545,10 @@ import safe qualified Network.Socket as NS
 <sect3 id="explicit-namespaces">
 <title>Explicit namespaces in import/export</title>
 
-<para> In an import or export list, such as 
+<para> In an import or export list, such as
 <programlisting>
   module M( f, (++) ) where ...
-    import N( f, (++) ) 
+    import N( f, (++) )
     ...
 </programlisting>
 the entities <literal>f</literal> and <literal>(++)</literal> are <emphasis>values</emphasis>.
@@ -2534,12 +2557,12 @@ to declare <literal>(++)</literal> as a <emphasis>type constructor</emphasis>.  
 case, how would you export or import it?
 </para>
 <para>
-The <option>-XExplicitNamespaces</option> extension allows you to prefix the name of 
-a type constructor in an import or export list with "<literal>type</literal>" to 
+The <option>-XExplicitNamespaces</option> extension allows you to prefix the name of
+a type constructor in an import or export list with "<literal>type</literal>" to
 disambiguate this case, thus:
 <programlisting>
   module M( f, type (++) ) where ...
-    import N( f, type (++) ) 
+    import N( f, type (++) )
     ...
   module N( f, type (++) ) where
     data family a ++ b = L a | R b
@@ -2843,11 +2866,11 @@ allow you to write them infix.
 The language <option>-XTypeOperators</option> changes this behaviour:
 <itemizedlist>
 <listitem><para>
-Operator symbols become type <emphasis>constructors</emphasis> rather than 
+Operator symbols become type <emphasis>constructors</emphasis> rather than
 type <emphasis>variables</emphasis>.
 </para></listitem>
 <listitem><para>
-Operator symbols in types can be written infix, both in definitions and uses. 
+Operator symbols in types can be written infix, both in definitions and uses.
 for example:
 <programlisting>
 data a + b = Plus a b
@@ -2856,8 +2879,8 @@ type Foo = Int + Bool
 </para></listitem>
 <listitem><para>
 There is now some potential ambiguity in import and export lists; for example
-if you write <literal>import M( (+) )</literal> do you mean the 
-<emphasis>function</emphasis> <literal>(+)</literal> or the 
+if you write <literal>import M( (+) )</literal> do you mean the
+<emphasis>function</emphasis> <literal>(+)</literal> or the
 <emphasis>type constructor</emphasis> <literal>(+)</literal>?
 The default is the former, but with <option>-XExplicitNamespaces</option> (which is implied
 by <option>-XExplicitTypeOperators</option>) GHC allows you to specify the latter
@@ -3713,7 +3736,7 @@ These and many other examples are given in papers by Hongwei Xi, and
 Tim Sheard. There is a longer introduction
 <ulink url="http://www.haskell.org/haskellwiki/GADT">on the wiki</ulink>,
 and Ralf Hinze's
-<ulink url="http://www.informatik.uni-bonn.de/~ralf/publications/With.pdf">Fun with phantom types</ulink> also has a number of examples. Note that papers
+<ulink url="http://www.cs.ox.ac.uk/ralf.hinze/publications/With.pdf">Fun with phantom types</ulink> also has a number of examples. Note that papers
 may use different notation to that implemented in GHC.
 </para>
 <para>
@@ -3962,7 +3985,7 @@ defined in <literal>GHC.Base</literal>.
 
 <listitem><para> With <option>-XDeriveDataTypeable</option>, you can derive instances of
 the class <literal>Data</literal>,
-defined in <literal>Data.Data</literal>.  See <xref linkend="deriving-typeable"/> for 
+defined in <literal>Data.Data</literal>.  See <xref linkend="deriving-typeable"/> for
 deriving <literal>Typeable</literal>.
 </para></listitem>
 
@@ -3974,7 +3997,7 @@ defined in <literal>Data.Foldable</literal>.
 <listitem><para> With <option>-XDeriveTraversable</option>, you can derive instances of
 the class <literal>Traversable</literal>,
 defined in <literal>Data.Traversable</literal>. Since the <literal>Traversable</literal>
-instance dictates the instances of <literal>Functor</literal> and 
+instance dictates the instances of <literal>Functor</literal> and
 <literal>Foldable</literal>, you'll probably want to derive them too, so
 <option>-XDeriveTraversable</option> implies
 <option>-XDeriveFunctor</option> and <option>-XDeriveFoldable</option>.
@@ -4006,9 +4029,9 @@ programmer cannot subert the type system by writing bogus instances.
 </para></listitem>
 
 <listitem><para>
-With <option>-XDeriveDataTypeable</option> 
+With <option>-XDeriveDataTypeable</option>
 GHC allows you to derive instances of <literal>Typeable</literal> for data types or newtypes,
-using a <literal>deriving</literal> clause, or using 
+using a <literal>deriving</literal> clause, or using
 a standalone deriving declaration (<xref linkend="stand-alone-deriving"/>).
 </para></listitem>
 
@@ -4033,7 +4056,7 @@ a <literal>Typeable</literal> instance for a type class.
 
 <listitem><para>
 The flag <option>-XAutoDeriveTypeable</option> triggers the generation
-of derived <literal>Typeable</literal> instances for every datatype, data family, 
+of derived <literal>Typeable</literal> instances for every datatype, data family,
 and type class declaration in the module it is used, unless a manually-specified one is
 already provided.
 This flag implies <option>-XDeriveDataTypeable</option>.
@@ -4174,7 +4197,7 @@ A derived instance is derived only for declarations of these forms (after expans
 where
  <itemizedlist>
 <listitem><para>
-<literal>v1..vn</literal> are type variables, and <literal>t</literal>, 
+<literal>v1..vn</literal> are type variables, and <literal>t</literal>,
 <literal>s1..sk</literal>, <literal>t1..tj</literal> are types.
 </para></listitem>
 <listitem><para>
@@ -4252,6 +4275,25 @@ the standard method is used or the one described here.)
 </para>
 </sect3>
 </sect2>
+
+<sect2 id="derive-any-class">
+<title>Deriving any other class</title>
+
+<para>
+With <option>-XDeriveAnyClass</option> you can derive any other class. The
+compiler will simply generate an empty instance. The instance context will be
+generated according to the same rules used when deriving <literal>Eq</literal>.
+This is mostly useful in classes whose <link linkend="minimal-pragma">minimal
+set</link> is empty, and especially when writing
+<link linkend="generic-programming">generic functions</link>.
+
+In case you try to derive some class on a newtype, and
+<option>-XGeneralizedNewtypeDeriving</option> is also on,
+<option>-XDeriveAnyClass</option> takes precedence.
+</para>
+
+</sect2>
+
 </sect1>
 
 
@@ -5133,7 +5175,7 @@ These rules make it possible for a library author to design a library that relie
 overlapping instances without the client having to know.
 </para>
 <para>
-Errors are reported <emphasis>lazily</emphasis> (when attempting to solve a constraint), rather than <emphasis>eagerly</emphasis> 
+Errors are reported <emphasis>lazily</emphasis> (when attempting to solve a constraint), rather than <emphasis>eagerly</emphasis>
 (when the instances themselves are defined).  Consider, for example
 <programlisting>
   instance C Int  b where ..
@@ -6117,7 +6159,7 @@ instance Eq (Elem [e]) => Collects [e] where
 </para></listitem>
 <listitem><para>
      The instance for an associated type can be omitted in class instances.  In that case,
-     unless there is a default instance (see <xref linkend="assoc-decl-defs"/>), 
+     unless there is a default instance (see <xref linkend="assoc-decl-defs"/>),
      the corresponding instance type is not inhabited;
 	i.e., only diverging expressions, such
 	as <literal>undefined</literal>, can assume the type.
@@ -7224,13 +7266,13 @@ restriction on class declarations (<xref linkend="superclass-rules"/>) and insta
 
 <para>
 Each user-written type signature is subjected to an
-<emphasis>ambiguity check</emphasis>.  
+<emphasis>ambiguity check</emphasis>.
 The ambiguity check rejects functions that can never be called; for example:
 <programlisting>
    f :: C a => Int
 </programlisting>
 The idea is there can be no legal calls to <literal>f</literal> because every call will
-give rise to an ambiguous constraint.  
+give rise to an ambiguous constraint.
 Indeed, the <emphasis>only</emphasis> purpose of the
 ambiguity check is to report functions that cannot possibly be called.
 We could soundly omit the
@@ -7242,7 +7284,7 @@ delaying ambiguity errors to call sites.  Indeed, the language extension
 Ambiguity can be subtle.  Consider this example which uses functional dependencies:
 <programlisting>
    class D a b | a -> b where ..
-   h :: D Int b => Int 
+   h :: D Int b => Int
 </programlisting>
 The <literal>Int</literal> may well fix <literal>b</literal> at the call site, so that signature should
 not be rejected.  Moreover, the dependencies might be hidden. Consider
@@ -7257,12 +7299,12 @@ Here <literal>h</literal>'s type looks ambiguous in <literal>b</literal>, but he
    ...(h [True])...
 </programlisting>
 That gives rise to a <literal>(X [Bool] beta)</literal> constraint, and using the
-instance means we need <literal>(D Bool beta)</literal> and that 
+instance means we need <literal>(D Bool beta)</literal> and that
 fixes <literal>beta</literal> via <literal>D</literal>'s
 fundep!
 </para>
 <para>
-Behind all these special cases there is a simple guiding principle. 
+Behind all these special cases there is a simple guiding principle.
 Consider
 <programlisting>
   f :: <replaceable>type</replaceable>
@@ -7272,7 +7314,7 @@ Consider
   g = f
 </programlisting>
 You would think that the definition of <literal>g</literal> would surely typecheck!
-After all <literal>f</literal> has exactly the same type, and <literal>g=f</literal>. 
+After all <literal>f</literal> has exactly the same type, and <literal>g=f</literal>.
 But in fact <literal>f</literal>'s type
 is instantiated and the instantiated constraints are solved against
 the constraints bound by <literal>g</literal>'s signature.  So, in the case an ambiguous type, solving will fail.
@@ -7326,7 +7368,7 @@ GHC used to impose some more restrictive and less principled conditions
 on type signatures. For type type
 <literal>forall tv1..tvn (c1, ...,cn) => type</literal>
 GHC used to require (a) that each universally quantified type variable
-<literal>tvi</literal> must be "reachable" from <literal>type</literal>, 
+<literal>tvi</literal> must be "reachable" from <literal>type</literal>,
 and (b) that every constraint <literal>ci</literal> mentions at least one of the
 universally quantified type variables <literal>tvi</literal>.
 These ad-hoc restrictions are completely subsumed by the new ambiguity check.
@@ -8339,9 +8381,9 @@ using the following rules:
 
   <listitem><para>
   A binding group is <emphasis>fully generalised</emphasis> if and only if
-    <itemizedlist> 
+    <itemizedlist>
     <listitem><para>each of its free variables is either imported or closed, and</para></listitem>
-    <listitem><para>the binding is not affected by the monomorphism restriction 
+    <listitem><para>the binding is not affected by the monomorphism restriction
         (<ulink url="http://www.haskell.org/onlinereport/decls.html#sect4.5.5">Haskell Report, Section 4.5.5</ulink>)</para></listitem>
     </itemizedlist>
   </para></listitem>
@@ -8381,31 +8423,37 @@ with <option>-XNoMonoLocalBinds</option> but type inference becomes less predica
 <sect1 id="typed-holes">
 <title>Typed Holes</title>
 
-<para>Typed hole support is enabled with the option
-<option>-fwarn-typed-holes</option>, which is enabled by default.</para>
-
 <para>
-This option allows special placeholders, written with a leading underscore (e.g. "<literal>_</literal>",
-"<literal>_foo</literal>", "<literal>_bar</literal>"), to be used as an expression.
-During compilation these holes will generate an error message describing what type is expected there,
-information about the origin of any free type variables, and a list of local bindings
-that might help fill the hole with actual code.
+Typed holes are a feature of GHC that allows special placeholders written with
+a leading underscore (e.g., "<literal>_</literal>", "<literal>_foo</literal>",
+"<literal>_bar</literal>"), to be used as expressions. During compilation these
+holes will generate an error message that describes which type is expected at
+the hole's location, information about the origin of any free type variables,
+and a list of local bindings that might help fill the hole with actual code.
+Typed holes are always enabled in GHC.
 </para>
 
 <para>
-The goal of the typed holes warning is not to change the type system, but to help with writing Haskell
-code. Typed holes can be used to obtain extra information from the type checker, which might otherwise be hard
-to get.
-Normally, using GHCi, users can inspect the (inferred) type signatures of all top-level bindings.
-However, this method is less convenient with terms which are not defined on top-level or
-inside complex expressions. Holes allow to check the type of the term you're about to write.
+The goal of typed holes is to help with writing Haskell code rather than to
+change the type system. Typed holes can be used to obtain extra information
+from the type checker, which might otherwise be hard to get. Normally, using
+GHCi, users can inspect the (inferred) type signatures of all top-level
+bindings. However, this method is less convenient with terms that are not
+defined on top-level or inside complex expressions. Holes allow the user to
+check the type of the term they are about to write.
 </para>
 
 <para>
-Holes work together well with <link linkend="defer-type-errors">deferring type errors to runtime</link>:
-with <literal>-fdefer-type-errors</literal>, the error from a hole is also deferred, effctively making the hole
-typecheck just like <literal>undefined</literal>, but with the added benefit that it will show its warning message
-if it gets evaluated. This way, other parts of the code can still be executed and tested.
+To run and test a piece of code containing holes, use the
+<literal>-fdefer-typed-holes</literal> flag. This flag defers errors
+produced by typed holes and converts them into warnings. The result is that
+typed hole errors are converted into warnings (controlled by
+<literal>-fwarn-typed-holes</literal>). The result is that a hole will behave
+like <literal>undefined</literal>, but with the added benefits that it shows a
+warning at compile time and will show another warning message if it gets
+evaluated. This behaviour follows that of the
+<literal>-fdefer-type-errors</literal> option, which implies
+<literal>-fdefer-typed-holes</literal>. See <xref linkend="defer-type-errors"/>.
 </para>
 
 <para>
@@ -8482,6 +8530,293 @@ This ensures that an unbound identifier is never reported with a too polymorphic
 </para>
 
 </sect1>
+<!-- ==================== Partial Type Signatures =================  -->
+
+<sect1 id="partial-type-signatures">
+<title>Partial Type Signatures</title>
+
+<para>
+A partial type signature is a type signature containing special placeholders
+written with a leading underscore (e.g., "<literal>_</literal>",
+"<literal>_foo</literal>", "<literal>_bar</literal>") called
+<emphasis>wildcards</emphasis>. Partial type signatures are to type signatures
+what <xref linkend="typed-holes"/> are to expressions. During compilation these
+wildcards or holes will generate an error message that describes which type
+was inferred at the hole's location, and information about the origin of any
+free type variables. GHC reports such error messages by default.</para>
+
+<para>
+Unlike <xref linkend="typed-holes"/>, which make the program incomplete and
+will generate errors when they are evaluated, this needn't be the case for
+holes in type signatures. The type checker is capable (in most cases) of
+type-checking a binding with or without a type signature. A partial type
+signature bridges the gap between the two extremes, the programmer can choose
+which parts of a type to annotate and which to leave over to the type-checker
+to infer.
+</para>
+
+<para>
+By default, the type-checker will report an error message for each hole in a
+partial type signature, informing the programmer of the inferred type. When
+the <option>-XPartialTypeSignatures</option> flag is enabled, the type-checker
+will accept the inferred type for each hole, generating warnings instead of
+errors. Additionally, these warnings can be silenced with the
+<option>-fno-warn-partial-type-signatures</option> flag.
+</para>
+
+<sect2 id="pts-syntax">
+<title>Syntax</title>
+
+<para>
+A (partial) type signature has the following form: <literal>forall a b .. .
+(C1, C2, ..) => tau</literal>. It consists of three parts:
+</para>
+
+<itemizedlist>
+    <listitem>The type variables: <literal>a b ..</literal></listitem>
+    <listitem>The constraints: <literal>(C1, C2, ..)</literal></listitem>
+    <listitem>The (mono)type: <literal>tau</literal></listitem>
+</itemizedlist>
+
+<para>
+We distinguish three kinds of wildcards.
+</para>
+
+<sect3 id="type-wildcards">
+<title>Type Wildcards</title>
+<para>
+Wildcards occurring within the monotype (tau) part of the type signature are
+<emphasis>type wildcards</emphasis> ("type" is often omitted as this is the
+default kind of wildcard). Type wildcards can be instantiated to any monotype
+like <literal>Bool</literal> or <literal>Maybe [Bool]</literal>, including
+functions and higher-kinded types like <literal>(Int -> Bool)</literal> or
+<literal>Maybe</literal>.
+</para>
+<programlisting>
+not' :: Bool -> _
+not' x = not x
+-- Inferred: Bool -> Bool
+
+maybools :: _
+maybools = Just [True]
+-- Inferred: Maybe [Bool]
+
+just1 :: _ Int
+just1 = Just 1
+-- Inferred: Maybe Int
+
+filterInt :: _ -> _ -> [Int]
+filterInt = filter -- has type forall a. (a -> Bool) -> [a] -> [a]
+-- Inferred: (Int -> Bool) -> [Int] -> [Int]
+</programlisting>
+
+<para>
+For instance, the first wildcard in the type signature <literal>not'</literal>
+would produce the following error message:
+</para>
+<programlisting>
+Test.hs:4:17:
+    Found hole &lsquo;_&rsquo; with type: Bool
+    To use the inferred type, enable PartialTypeSignatures
+    In the type signature for &lsquo;not'&rsquo;: Bool -> _
+</programlisting>
+
+<para>
+When a wildcard is not instantiated to a monotype, it will be generalised
+over, i.e. replaced by a fresh type variable (of which the name will often
+start with <literal>w_</literal>), e.g.
+</para>
+<programlisting>
+foo :: _ -> _
+foo x = x
+-- Inferred: forall w_. w_ -> w_
+
+filter' :: _
+filter' = filter -- has type forall a. (a -> Bool) -> [a] -> [a]
+-- Inferred: (a -> Bool) -> [a] -> [a]
+</programlisting>
+</sect3>
+
+<sect3 id="named-wildcards">
+<title>Named Wildcards</title>
+<para>
+Type wildcards can also be named by giving the underscore an identifier as
+suffix, i.e. <literal>_a</literal>. These are called <emphasis>named
+wildcards</emphasis>. All occurrences of the same named wildcard within one
+type signature will unify to the same type. For example:
+</para>
+<programlisting>
+f :: _x -> _x
+f ('c', y) = ('d', error "Urk")
+-- Inferred: forall t. (Char, t) -> (Char, t)
+</programlisting>
+
+<para>
+The named wildcard forces the argument and result types to be the same.
+Lacking a signature, GHC would have inferred <literal>forall a b. (Char, a) ->
+(Char, b)</literal>. A named wildcard can be mentioned in constraints,
+provided it also occurs in the monotype part of the type signature to make
+sure that it unifies with something:
+</para>
+
+<programlisting>
+somethingShowable :: Show _x => _x -> _
+somethingShowable x = show x
+-- Inferred type: Show w_x => w_x -> String
+
+somethingShowable' :: Show _x => _x -> _
+somethingShowable' x = show (not x)
+-- Inferred type: Bool -> String
+</programlisting>
+
+<para>
+Besides an extra-constraints wildcard (see <xref
+linkend="extra-constraints-wildcard"/>), only named wildcards can occur in the
+constraints, e.g. the <literal>_x</literal> in <literal>Show _x</literal>.
+</para>
+
+<para>
+Named wildcards <emphasis>should not be confused with type
+variables</emphasis>. Even though syntactically similar, named wildcards can
+unify with monotypes as well as be generalised over (and behave as type
+variables).</para>
+
+<para>
+In the first example above, <literal>_x</literal> is generalised over (and is
+effectively replaced by a fresh type variable <literal>w_x</literal>). In the
+second example, <literal>_x</literal> is unified with the
+<literal>Bool</literal> type, and as <literal>Bool</literal> implements the
+<literal>Show</literal> type class, the constraint <literal>Show
+Bool</literal> can be simplified away.
+</para>
+
+<para>
+By default, GHC (as the Haskell 2010 standard prescribes) parses identifiers
+starting with an underscore in a type as type variables. To treat them as
+named wildcards, the <option>-XNamedWildcards</option> flag should be enabled.
+The example below demonstrated the effect.
+</para>
+
+<programlisting>
+foo :: _a -> _a
+foo _ = False
+</programlisting>
+
+<para>
+Compiling this program without enabling <option>-XNamedWildcards</option>
+produces the following error message complaining about the type variable
+<literal>_a</literal> no matching the actual type <literal>Bool</literal>.
+</para>
+
+<programlisting>
+Test.hs:5:9:
+    Couldn't match expected type &lsquo;_a&rsquo; with actual type &lsquo;Bool&rsquo;
+      &lsquo;_a&rsquo; is a rigid type variable bound by
+           the type signature for foo :: _a -> _a at Test.hs:4:8
+    Relevant bindings include foo :: _a -> _a (bound at Test.hs:4:1)
+    In the expression: False
+    In an equation for &lsquo;foo&rsquo;: foo _ = False
+</programlisting>
+
+<para>
+Compiling this program with <option>-XNamedWildcards</option> enabled produces
+the following error message reporting the inferred type of the named wildcard
+<literal>_a</literal>.
+</para>
+
+<programlisting>
+Test.hs:4:8: Warning:
+    Found hole &lsquo;_a&rsquo; with type: Bool
+    In the type signature for &lsquo;foo&rsquo;: _a -> _a
+</programlisting>
+</sect3>
+
+<sect3 id="extra-constraints-wildcard">
+<title>Extra-Constraints Wildcard</title>
+
+<para>
+The third kind of wildcard is the <emphasis>extra-constraints
+wildcard</emphasis>. The presence of an extra-constraints wildcard indicates
+that an arbitrary number of extra constraints may be inferred during type
+checking and will be added to the type signature. In the example below, the
+extra-constraints wildcard is used to infer three extra constraints.
+</para>
+
+<programlisting>
+arbitCs :: _ => a -> String
+arbitCs x = show (succ x) ++ show (x == x)
+-- Inferred:
+--   forall a. (Enum a, Eq a, Show a) => a -> String
+-- Error:
+Test.hs:5:12:
+    Found hole &lsquo;_&rsquo; with inferred constraints: (Enum a, Eq a, Show a)
+    To use the inferred type, enable PartialTypeSignatures
+    In the type signature for &lsquo;arbitCs&rsquo;: _ => a -> String
+</programlisting>
+
+<para>
+An extra-constraints wildcard shouldn't prevent the programmer from already
+listing the constraints he knows or wants to annotate, e.g.
+</para>
+
+<programlisting>
+-- Also a correct partial type signature:
+arbitCs' :: (Enum a, _) => a -> String
+arbitCs' x = arbitCs x
+-- Inferred:
+--   forall a. (Enum a, Show a, Eq a) => a -> String
+-- Error:
+Test.hs:9:22:
+    Found hole &lsquo;_&rsquo; with inferred constraints: (Eq a, Show a)
+    To use the inferred type, enable PartialTypeSignatures
+    In the type signature for &lsquo;arbitCs'&rsquo;: (Enum a, _) => a -> String
+</programlisting>
+
+<para>
+An extra-constraints wildcard can also lead to zero extra constraints to be
+inferred, e.g.
+</para>
+
+<programlisting>
+noCs :: _ => String
+noCs = "noCs"
+-- Inferred: String
+-- Error:
+Test.hs:13:9:
+    Found hole &lsquo;_&rsquo; with inferred constraints: ()
+    To use the inferred type, enable PartialTypeSignatures
+    In the type signature for &lsquo;noCs&rsquo;: _ => String
+</programlisting>
+
+<para>
+As a single extra-constraints wildcard is enough to infer any number of
+constraints, only one is allowed in a type signature and it should come last
+in the list of constraints.
+</para>
+
+<para>
+Extra-constraints wildcards cannot be named.
+</para>
+
+</sect3>
+</sect2>
+
+<sect2 id="pts-where">
+<title>Where can they occur?</title>
+
+<para>
+Partial type signatures are allowed for bindings, pattern and expression signatures.
+In all other contexts, e.g. type class or type family declarations, they are disallowed.
+In the following example a wildcard is used in each of the three possible contexts.
+</para>
+<programlisting>
+{-# LANGUAGE ScopedTypeVariables #-}
+foo :: _
+foo (x :: _) = (x :: _)
+-- Inferred: forall w_. w_ -> w_
+</programlisting>
+</sect2>
+</sect1>
 <!-- ==================== Deferring type errors =================  -->
 
 <sect1 id="defer-type-errors">
@@ -8514,6 +8849,15 @@ main = print "b"
     The flag <literal>-fdefer-type-errors</literal> controls whether type
     errors are deferred to runtime. Type errors will still be emitted as
     warnings, but will not prevent compilation.
+  </para>
+  <para>
+    This flag implies the <literal>-fdefer-typed-holes</literal> flag,
+    which enables this behaviour for <link linkend="typed-holes">typed holes
+    </link>. Should you so wish, it is possible to enable
+    <literal>-fdefer-type-errors</literal> without enabling
+    <literal>-fdefer-typed-holes</literal>, by explicitly specifying
+    <literal>-fno-defer-typed-holes</literal> on the commandline after the
+    <literal>-fdefer-type-errors</literal> flag.
   </para>
   <para>
     At runtime, whenever a term containing a type error would need to be
@@ -8740,28 +9084,57 @@ h z = z-1
 </programlisting>
             This abbreviation makes top-level declaration slices quieter and less intimidating.
 	    </para></listitem>
-	    
+
 	    <listitem>
 	      <para>
-		Binders are lexically scoped. For example, consider the
-		following code, where a value <literal>g</literal> of type
-		<literal>Bool -> Q Pat</literal> is in scope, having been
-		imported from another module
-<programlisting>
-y :: Int
-y = 7
+		Outermost pattern splices may bind variables. By "outermost" here, we refer to
+		a pattern splice that occurs outside of any quotation brackets. For example,
 
-f :: Int -> Int -> Int
-f n = \ $(g True) -> y+n
+<programlisting>
+mkPat :: Bool -> Q Pat
+mkPat True  = [p| (x, y) |]
+mkPat False = [p| (y, x) |]
+
+-- in another module:
+foo :: (Char, String) -> String
+foo $(mkPat True) = x : y
+
+bar :: (String, Char) -> String
+bar $(mkPat False) = x : y
 </programlisting>
-                The <literal>y</literal> in the right-hand side of
-                <literal>f</literal> refers to the top-level <literal>y =
-                7</literal>, even if the pattern splice <literal>$(g
-                n)</literal> also generates a binder <literal>y</literal>.
+	      </para>
+	    </listitem>
+
+
+	    <listitem>
+	      <para>
+		Nested pattern splices do <emphasis>not</emphasis> bind variables.
+		By "nested" here, we refer to a pattern splice occurring within a
+		quotation bracket. Continuing the example from the last bullet:
+
+<programlisting>
+baz :: Bool -> Q Exp
+baz b = [| quux $(mkPat b) = x + y |]
+</programlisting>
+
+                would fail with <literal>x</literal> and <literal>y</literal>
+		being out of scope.
 	      </para>
 
 	      <para>
-		Note that a pattern quasiquoter <emphasis>may</emphasis>
+		The difference in treatment of outermost and nested pattern splices is
+		because outermost splices are run at compile time. GHC can then use
+		the result of running the splice when analyzing the expressions within
+		the pattern's scope. Nested splices, on the other hand, are <emphasis>not</emphasis>
+		run at compile time; they are run when the bracket is spliced in, sometime later.
+		Since nested pattern splices may refer to local variables, there is no way for GHC
+		to know, at splice compile time, what variables are bound, so it binds none.
+	      </para>
+	    </listitem>
+
+	    <listitem>
+	      <para>
+		A pattern quasiquoter <emphasis>may</emphasis>
 		generate binders that scope over the right-hand side of a
 		definition because these binders are in scope lexically. For
 		example, given a quasiquoter <literal>haskell</literal> that
@@ -9007,7 +9380,7 @@ The basic idea is to compile the program twice:</para>
 <para>Quasi-quotation allows patterns and expressions to be written using
 programmer-defined concrete syntax; the motivation behind the extension and
 several examples are documented in
-"<ulink url="http://www.eecs.harvard.edu/~mainland/ghc-quasiquoting/">Why It's
+"<ulink url="http://www.cs.tufts.edu/comp/150FP/archive/geoff-mainland/quasiquoting.pdf">Why It's
 Nice to be Quoted: Quasiquoting for Haskell</ulink>" (Proc Haskell Workshop
 2007). The example below shows how to write a quasiquoter for a simple
 expression language.</para>
@@ -9213,7 +9586,7 @@ Palgrave, 2003.
 
 <listitem>
 <para>
-&ldquo;<ulink url="http://www.cs.chalmers.se/~rjmh/afp-arrows.pdf">Programming with Arrows</ulink>&rdquo;,
+&ldquo;<ulink url="http://www.cse.chalmers.se/~rjmh/afp-arrows.pdf">Programming with Arrows</ulink>&rdquo;,
 John Hughes, in <citetitle>5th International Summer School on
 Advanced Functional Programming</citetitle>,
 <citetitle>Lecture Notes in Computer Science</citetitle> vol. 3622,
@@ -10180,11 +10553,11 @@ mindef ::= name
       A comma denotes conjunction, i.e. both sides are required.
       Conjunction binds stronger than disjunction.</para>
       <para>
-      If no MINIMAL pragma is given in the class declaration, it is just as if 
+      If no MINIMAL pragma is given in the class declaration, it is just as if
       a pragma <literal>{-# MINIMAL op1, op2, ..., opn #-}</literal> was given, where
-      the <literal>opi</literal> are the methods 
-      (a) that lack a default method in the class declaration, and 
-      (b) whose name that does not start with an underscore  
+      the <literal>opi</literal> are the methods
+      (a) that lack a default method in the class declaration, and
+      (b) whose name that does not start with an underscore
       (c.f. <option>-fwarn-missing-methods</option>, <xref linkend="options-sanity"/>).
       </para>
       <para>This warning can be turned off with the flag <option>-fno-warn-missing-methods</option>.</para>
@@ -11558,8 +11931,9 @@ general <link linkend="generic-programming">support for generic programming</lin
 
 <para>
 Using a combination of <option>-XDeriveGeneric</option>
-(<xref linkend="deriving-typeable"/>) and
+(<xref linkend="deriving-typeable"/>),
 <option>-XDefaultSignatures</option> (<xref linkend="class-default-signatures"/>),
+and <option>-XDeriveAnyClass</option> (<xref linkend="derive-any-class"/>),
 you can easily do datatype-generic
 programming using the <literal>GHC.Generics</literal> framework. This section
 gives a very brief overview of how to do it.
@@ -11734,6 +12108,10 @@ instance (Serialize a) => Serialize (UserTree a)
 
 The default method for <literal>put</literal> is then used, corresponding to the
 generic implementation of serialization.
+
+If you are using <option>-XDeriveAnyClass</option>, the same instance is
+generated by simply attaching a <literal>deriving Serialize</literal> clause
+to the <literal>UserTree</literal> datatype declaration.
 
 For more examples of generic functions please refer to the
 <ulink url="http://hackage.haskell.org/package/generic-deriving">generic-deriving</ulink>

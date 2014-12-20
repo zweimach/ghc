@@ -349,6 +349,7 @@ wanteds = concat
           ,structField C    "Capability" "context_switch"
           ,structField C    "Capability" "interrupt"
           ,structField C    "Capability" "sparks"
+          ,structField C    "Capability" "total_allocated"
           ,structField C    "Capability" "weak_ptr_list_hd"
           ,structField C    "Capability" "weak_ptr_list_tl"
 
@@ -413,6 +414,7 @@ wanteds = concat
           ,closureField  C    "StgTSO"      "flags"
           ,closureField  C    "StgTSO"      "dirty"
           ,closureField  C    "StgTSO"      "bq"
+          ,closureField  Both "StgTSO"      "alloc_limit"
           ,closureField_ Both "StgTSO_cccs" "StgTSO" "prof.cccs"
           ,closureField  Both "StgTSO"      "stackobj"
 

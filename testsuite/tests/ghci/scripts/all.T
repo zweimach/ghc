@@ -99,6 +99,8 @@ test('T1914',
      ghci_script,
      ['T1914.script'])
 
+test('T2182ghci', normal, ghci_script, ['T2182ghci.script'])
+test('T2182ghci2', [extra_hc_opts("-XNoImplicitPrelude")], ghci_script, ['T2182ghci2.script'])
 test('T2976', normal, ghci_script, ['T2976.script'])
 test('T2816', normal, ghci_script, ['T2816.script'])
 test('T789', normal, ghci_script, ['T789.script'])
@@ -190,3 +192,4 @@ test('T9181', normal, ghci_script, ['T9181.script'])
 test('T9086b', normal, ghci_script, ['T9086b.script'])
 test('T9140', combined_output, ghci_script, ['T9140.script'])
 test('T9658', normal, ghci_script, ['T9658.script'])
+test('T9293', normal, ghci_script_without_flag('-fno-warn-tabs'), ['T9293.script'])

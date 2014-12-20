@@ -152,8 +152,8 @@ canonicalize (CFunEqCan { cc_ev = ev
 
 canonicalize (CIrredEvCan { cc_ev = ev })
   = canIrred ev
-canonicalize (CHoleCan { cc_ev = ev, cc_occ = occ })
-  = canHole ev occ
+canonicalize (CHoleCan { cc_ev = ev, cc_occ = occ, cc_hole = hole })
+  = canHole ev occ hole
 
 canEvNC :: CtEvidence -> TcS (StopOrContinue Ct)
 -- Called only for non-canonical EvVars
@@ -358,14 +358,16 @@ canIrred old_ev
            _                 -> continueWith $
                                 CIrredEvCan { cc_ev = new_ev } } } }
 
-canHole :: CtEvidence -> OccName -> TcS (StopOrContinue Ct)
-canHole ev occ
+canHole :: CtEvidence -> OccName -> HoleSort -> TcS (StopOrContinue Ct)
+canHole ev occ hole_sort
   = do { let ty    = ctEvPred ev
              fmode = FE { fe_ev = ev, fe_mode = FM_SubstOnly }
        ; (xi,co) <- flatten fmode ty -- co :: xi ~ ty
        ; mb <- rewriteEvidence ev xi co
        ; case mb of
-           ContinueWith new_ev -> do { emitInsoluble (CHoleCan { cc_ev = new_ev, cc_occ = occ })
+           ContinueWith new_ev -> do { emitInsoluble (CHoleCan { cc_ev = new_ev
+                                                               , cc_occ = occ
+                                                               , cc_hole = hole_sort })
                                      ; stopWith new_ev "Emit insoluble hole" }
            Stop ev s -> return (Stop ev s) } -- Found a cached copy; won't happen
 \end{code}
@@ -400,9 +402,9 @@ can_eq_nc' ev ty1 ps_ty1 ty2 ps_ty2
 -- so that  tv ~ F ty gets flattened
 -- Otherwise  F a ~ F a  might not get solved!
 can_eq_nc' ev (TyConApp fn1 tys1) _ ty2 ps_ty2
-  | isSynFamilyTyCon fn1 = can_eq_fam_nc ev NotSwapped fn1 tys1 ty2 ps_ty2
+  | isTypeFamilyTyCon fn1 = can_eq_fam_nc ev NotSwapped fn1 tys1 ty2 ps_ty2
 can_eq_nc' ev ty1 ps_ty1 (TyConApp fn2 tys2) _
-  | isSynFamilyTyCon fn2 = can_eq_fam_nc ev IsSwapped fn2 tys2 ty1 ps_ty1
+  | isTypeFamilyTyCon fn2 = can_eq_fam_nc ev IsSwapped fn2 tys2 ty1 ps_ty1
 
 -- First, get rid of casts
 can_eq_nc' ev (CastTy ty1 co1) _ ty2 ps_ty2
@@ -717,18 +719,20 @@ canEqTyVar ev swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
                                Stop ev s           -> return (Stop ev s)
                                ContinueWith new_ev -> can_eq_nc new_ev ty1 ty1 ty2 ps_ty2 }
 
-           Left tv1' ->
-             do { let fmode = FE { fe_ev = ev, fe_mode = FM_Avoid tv1' True }
-                ; (xi2, co2) <- flatten fmode ps_ty2 -- co2 :: xi2 ~ ps_ty2
-                                  -- Use ps_ty2 to preserve type synonyms if poss
-
-                ; case splitCastTy_maybe xi2 of
-                    Nothing ->
-                      do { dflags <- getDynFlags
-                         ; canEqTyVar2 dflags ev swapped tv1' xi2 co2 }
-                    Just (xi2_inner, xi2_co) ->
-                      canEqCast ev (flipSwap swapped) xi2_inner xi2_co ty1 ty1
-                      where ty1 = mkOnlyTyVarTy tv1 } }
+           Left tv1' -> do { -- FM_Avoid commented out: see Note [Lazy flattening] in TcFlatten
+                             -- let fmode = FE { fe_ev = ev, fe_mode = FM_Avoid tv1' True }
+                                 -- Flatten the RHS less vigorously, to avoid gratuitous flattening
+                                 -- True <=> xi2 should not itself be a type-function application
+                             let fmode = FE { fe_ev = ev, fe_mode = FM_FlattenAll }
+                           ; (xi2, co2) <- flatten fmode ps_ty2 -- co2 :: xi2 ~ ps_ty2
+                                           -- Use ps_ty2 to preserve type synonyms if poss
+                           ; case splitCastTy_maybe xi2 of
+                               Nothing ->
+                                 do { dflags <- getDynFlags
+                                    ; canEqTyVar2 dflags ev swapped tv1' xi2 co2 }
+                               Just (xi2_inner, xi2_co) ->
+                                 canEqCast ev (flipSwap swapped) xi2_inner xi2_co ty1 ty1
+                                 where ty1 = mkOnlyTyVarTy tv1 } }
 
 canEqTyVar2 :: DynFlags
             -> CtEvidence   -- olhs ~ orhs (or, if swapped, orhs ~ olhs)

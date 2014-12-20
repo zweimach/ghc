@@ -81,7 +81,11 @@ import Data.Maybe
 import Exception hiding (catch)
 
 import Foreign.C
+#if __GLASGOW_HASKELL__ >= 709
+import Foreign
+#else
 import Foreign.Safe
+#endif
 
 import System.Directory
 import System.Environment
@@ -275,8 +279,8 @@ defFullHelpText =
   "   :list                       show the source code around current breakpoint\n" ++
   "   :list <identifier>          show the source code for <identifier>\n" ++
   "   :list [<module>] <line>     show the source code around line number <line>\n" ++
-  "   :print [<name> ...]         prints a value without forcing its computation\n" ++
-  "   :sprint [<name> ...]        simplifed version of :print\n" ++
+  "   :print [<name> ...]         show a value without forcing its computation\n" ++
+  "   :sprint [<name> ...]        simplified version of :print\n" ++
   "   :step                       single-step after stopping at a breakpoint\n"++
   "   :step <expr>                single-step into <expr>\n"++
   "   :steplocal                  single-step within the current top-level binding\n"++
@@ -864,7 +868,7 @@ checkInputForLayout stmt getStmt = do
              eof <- Lexer.nextIsEOF
              if eof
                then Lexer.activeContext
-               else Lexer.lexer return >> goToEnd
+               else Lexer.lexer False return >> goToEnd
 
 enqueueCommands :: [String] -> GHCi ()
 enqueueCommands cmds = do
@@ -1469,7 +1473,10 @@ setContextKeepingPackageModules keep_ctx trans_ctx = do
                    transient_ctx  = filterSubsumed new_rem_ctx trans_ctx }
   setGHCContextFromGHCiState
 
-
+-- | Filters a list of 'InteractiveImport', clearing out any home package
+-- imports so only imports from external packages are preserved.  ('IIModule'
+-- counts as a home package import, because we are only able to bring a
+-- full top-level into scope when the source is available.)
 keepPackageImports :: [InteractiveImport] -> GHCi [InteractiveImport]
 keepPackageImports = filterM is_pkg_import
   where
@@ -1945,9 +1952,10 @@ iiSubsumes (IIDecl d1) (IIDecl d2)      -- A bit crude
      && (not (ideclQualified d1) || ideclQualified d2)
      && (ideclHiding d1 `hidingSubsumes` ideclHiding d2)
   where
-     _                `hidingSubsumes` Just (False,[]) = True
-     Just (False, xs) `hidingSubsumes` Just (False,ys) = all (`elem` xs) ys
-     h1               `hidingSubsumes` h2              = h1 == h2
+     _                    `hidingSubsumes` Just (False,L _ []) = True
+     Just (False, L _ xs) `hidingSubsumes` Just (False,L _ ys)
+                                                           = all (`elem` xs) ys
+     h1                   `hidingSubsumes` h2              = h1 == h2
 iiSubsumes _ _ = False
 
 
@@ -2017,11 +2025,13 @@ showDynFlags show_all dflags = do
      text "warning settings:" $$
          nest 2 (vcat (map (setting wopt) DynFlags.fWarningFlags))
   where
-        setting test (str, f, _)
+        setting test flag
           | quiet     = empty
-          | is_on     = fstr str
-          | otherwise = fnostr str
-          where is_on = test f dflags
+          | is_on     = fstr name
+          | otherwise = fnostr name
+          where name = flagSpecName flag
+                f = flagSpecFlag flag
+                is_on = test f dflags
                 quiet = not show_all && test f default_dflags == is_on
 
         default_dflags = defaultDynFlags (settings dflags)
@@ -2029,7 +2039,7 @@ showDynFlags show_all dflags = do
         fstr   str = text "-f"    <> text str
         fnostr str = text "-fno-" <> text str
 
-        (ghciFlags,others)  = partition (\(_, f, _) -> f `elem` flgs)
+        (ghciFlags,others)  = partition (\f -> flagSpecFlag f `elem` flgs)
                                         DynFlags.fFlags
         flgs = [ Opt_PrintExplicitForalls
                , Opt_PrintExplicitKinds
@@ -2178,6 +2188,7 @@ unsetOptions str
            ]
 
          no_flag ('-':'f':rest) = return ("-fno-" ++ rest)
+         no_flag ('-':'X':rest) = return ("-XNo" ++ rest)
          no_flag f = throwGhcException (ProgramError ("don't know how to reverse " ++ f))
 
      in if (not (null rest3))
@@ -2378,11 +2389,13 @@ showLanguages' show_all dflags =
           nest 2 (vcat (map (setting xopt) DynFlags.xFlags))
      ]
   where
-   setting test (str, f, _)
+   setting test flag
           | quiet     = empty
-          | is_on     = text "-X" <> text str
-          | otherwise = text "-XNo" <> text str
-          where is_on = test f dflags
+          | is_on     = text "-X" <> text name
+          | otherwise = text "-XNo" <> text name
+          where name = flagSpecName flag
+                f = flagSpecFlag flag
+                is_on = test f dflags
                 quiet = not show_all && test f default_dflags == is_on
 
    default_dflags =

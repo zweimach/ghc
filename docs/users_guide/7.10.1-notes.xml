@@ -81,12 +81,79 @@
                     <option>-XTypeFamilies</option>, <option>-XGADTs</option> or
                     <option>-XFlexibleContexts</option>).
                 </para>
+           </listitem>
+           <listitem>
                 <para>
                     <option>-fwarn-tabs</option> warning flag is turned on by
                     default with this release of GHC. It can be suppressed
                     either by using <literal>GHC_OPTIONS</literal> pragma or by
                     specifying <option>-fno-warn-tabs</option> flag.
                 </para>
+           </listitem>
+           <listitem>
+                <para>
+                    A new warning flag, <option>-fwarn-trustworthy-safe</option>
+                    has been added and is turned on with
+                    <option>-Wall</option>. It warns when a module that is
+                    compiled with <option>-XTrustworthy</option> is actually
+                    infered as an <option>-XSafe</option> module. This lets the
+                    module author know that they can tighten their Safe Haskell
+                    bounds if desired.
+                </para>
+           </listitem>
+           <listitem>
+                <para>
+                    The <option>-fwarn-safe</option> and
+                    <option>-fwarn-unsafe</option> that warn if a module was
+                    infered as Safe or Unsafe have been improved to work with
+                    all Safe Haskell module types. Previously, they only worked
+                    for unmarked modules where the compiler was infering the
+                    modules Safe Haskell type. They now work even for modules
+                    marked as <option>-XTrustworthy</option> or
+                    <option>-XUnsafe</option>. This is useful either to have
+                    GHC check your assumptions, or to generate a list of
+                    reasons easily why a module is regarded as Unsafe.
+                </para>
+                <para>
+                    For many use cases, the new
+                    <option>-fwarn-trustworthy-safe</option> flag is better
+                    suited than either of these two.
+                </para>
+           </listitem>
+           <listitem>
+             <para>
+               <option>-ddump-simpl-phases</option> and
+               <option>-ddump-core-pipeline</option> flags have been removed.
+             </para>
+           </listitem>
+           <listitem>
+                <para>
+                    Many more options have learned to respect the <option>-ddump-to-file</option>.
+                    For example you can use <option>-ddump-to-file</option> with <option>-ddump-splices</option>
+                    to produce a <option>.dump-splices file</option>
+                    for each file that uses Template Haskell.
+                    This should be much easier to understand on a larger project
+                    than having everything being dumped to stdout.
+                </para>
+           </listitem>
+           <listitem>
+             <para>
+               Compiler plugins (with the <option>-fplugin</option>
+               flag) may now modify the behaviour of the constraint
+               solver, to add new functionality to GHC's
+               typechecker. See <xref linkend="typechecker-plugins"/>
+               for more details.
+             </para>
+           </listitem>
+           <listitem>
+             <para>
+               A new warning flag, <option>-fwarn-missing-exported-sigs</option>
+               has been added. The behavior is similar to
+               <option>-fwarn-missing-signatures</option> but GHC will only
+               flag exported values. This flag takes precedence over
+               <option>-fwarn-missing-signatures</option> so it can be used
+               in conjunction with <option>-Wall</option>.
+             </para>
            </listitem>
        </itemizedlist>
     </sect3>
@@ -120,6 +187,10 @@
                </para>
 
                <para>
+                 Pattern splices now work.
+               </para>
+
+               <para>
                  <literal>reifyInstances</literal> now treats unbound type
                  variables as univerally quantified, allowing lookup of, say,
                  the instance for <literal>Eq [a]</literal>.
@@ -138,6 +209,31 @@
                  Various features unsupported in quotations were previously
                  silently ignored. These now cause errors.
                </para>
+
+                <para>
+                    <literal>Lift</literal> instances were added for
+                    <literal>()</literal> and <literal>Ratio</literal>.
+               </para>
+
+               <para>
+                 All Template Haskell datatypes now have
+                 <literal>Generic</literal> instances.
+               </para>
+
+               <para>
+                 Two new declaration forms are now supported:
+                 standalone-deriving declarations and generic method
+                 signatures (written using <literal>default</literal> in
+                 a class). This means an expansion to the <literal>Dec</literal>
+                 type.
+               </para>
+
+               <para>
+                 Template Haskell is now more pedantic about splicing in
+                 bogus variable names, like those containing whitespace. If you
+                 use bogus names in your Template Haskell code, this may break
+                 your program.
+               </para>
            </listitem>
        </itemizedlist>
     </sect3>
@@ -147,7 +243,11 @@
         <itemizedlist>
             <listitem>
                 <para>
-                    TODO FIXME
+                    The linker API is now thread-safe.  The main
+                    user-facing impact of this change is that you must
+                    now call <literal>initLinker</literal> before
+                    calling <literal>loadObj</literal> or any of the
+                    other linker APIs.
                </para>
            </listitem>
        </itemizedlist>

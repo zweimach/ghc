@@ -10,8 +10,9 @@ Type subsumption and unification
 
 module TcUnify (
   -- Full-blown subsumption
-  tcWrapResult, tcSubType, tcGen, 
-  checkConstraints, newImplication, 
+  tcWrapResult, tcGen,
+  tcSubType, tcSubType_NC, tcSubTypeDS, tcSubTypeDS_NC,
+  checkConstraints, newImplication,
 
   -- Various unifications
   unifyType, unifyTypeList, unifyTheta, 
@@ -45,6 +46,7 @@ import TyCon
 import TysWiredIn
 import Var
 import VarEnv
+import VarSet
 import ErrUtils
 import DynFlags
 import BasicTypes
@@ -158,11 +160,10 @@ matchExpectedFunTys herald arity orig_ty
 
     ------------
     mk_ctxt :: TidyEnv -> TcM (TidyEnv, MsgDoc)
-    mk_ctxt env = do { orig_ty1 <- zonkTcType orig_ty
-                     ; let (env', orig_ty2) = tidyOpenType env orig_ty1
-                           (args, _) = tcSplitFunTys orig_ty2
+    mk_ctxt env = do { (env', orig_ty) <- zonkTidyTcType env orig_ty
+                     ; let (args, _) = tcSplitFunTys orig_ty
                            n_actual = length args
-                     ; return (env', mk_msg orig_ty2 n_actual) }
+                     ; return (env', mk_msg orig_ty n_actual) }
 
     mk_msg ty n_args
       = herald <+> speakNOf arity (ptext (sLit "argument")) <> comma $$ 
@@ -196,7 +197,7 @@ matchExpectedPArrTy exp_ty
   = do { (co, [elt_ty]) <- matchExpectedTyConApp parrTyCon exp_ty
        ; return (co, elt_ty) }
 
-----------------------
+---------------------
 matchExpectedTyConApp :: TyCon                -- T :: forall kv1 ... kvm. k1 -> ... -> kn -> *
                       -> TcRhoType            -- orig_ty
                       -> TcM (TcCoercion,     -- T k1 k2 k3 a b c ~ orig_ty
@@ -292,65 +293,175 @@ matchExpectedAppTy orig_ty
 %*                                                                      *
 %************************************************************************
 
-All the tcSub calls have the form
-                tcSub actual_ty expected_ty
+Note [Subsumption checking: tcSubType]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+All the tcSubType calls have the form
+                tcSubType actual_ty expected_ty
 which checks
                 actual_ty <= expected_ty
 
 That is, that a value of type actual_ty is acceptable in
-a place expecting a value of type expected_ty.
+a place expecting a value of type expected_ty.  I.e. that
+
+    actual ty   is more polymorphic than   expected_ty
 
 It returns a coercion function
         co_fn :: actual_ty ~ expected_ty
 which takes an HsExpr of type actual_ty into one of type
 expected_ty.
 
-\begin{code}
-tcSubType :: CtOrigin -> UserTypeCtxt -> TcSigmaType -> TcSigmaType -> TcM HsWrapper
--- Check that ty_actual is more polymorphic than ty_expected
--- Both arguments might be polytypes, so we must instantiate and skolemise
--- Returns a wrapper of shape   ty_actual ~ ty_expected
-tcSubType origin ctxt ty_actual ty_expected
-  | isSigmaTy ty_actual
-  = do { (sk_wrap, inst_wrap) 
-            <- tcGen ctxt ty_expected $ \ _ sk_rho -> do
-            { (in_wrap, in_rho) <- deeplyInstantiate origin ty_actual
-            ; cow <- unify in_rho sk_rho
-            ; return (coToHsWrapper cow <.> in_wrap) }
-       ; return (sk_wrap <.> inst_wrap) }
+There are a number of wrinkles (below).
 
-  | otherwise   -- Urgh!  It seems deeply weird to have equality
-                -- when actual is not a polytype, and it makes a big 
-                -- difference e.g. tcfail104
-  = do { cow <- unify ty_actual ty_expected
-       ; return (coToHsWrapper cow) }
+Notice that Wrinkle 1 and 2 both require eta-expansion, which technically
+may increase termination.  We just put up with this, in exchange for getting
+more predicatble type inference.
+
+Wrinkle 1: Note [Deep skolemisation]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We want   (forall a. Int -> a -> a)  <=  (Int -> forall a. a->a)
+(see section 4.6 of "Practical type inference for higher rank types")
+So we must deeply-skolemise the RHS before we instantiate the LHS.
+
+That is why tc_sub_type starts with a call to tcGen (which does the
+deep skolemisation), and then calls the DS variant (which assumes
+that expected_ty is deeply skolemised)
+
+Wrinkle 2: Note [Co/contra-variance of subsumption checking]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider  g :: (Int -> Int) -> Int
+  f1 :: (forall a. a -> a) -> Int
+  f1 = g
+
+  f2 :: (forall a. a -> a) -> Int
+  f2 x = g x
+f2 will typecheck, and it would be odd/fragile if f1 did not.
+But f1 will only typecheck if we have that
+    (Int->Int) -> Int  <=  (forall a. a->a) -> Int
+And that is only true if we do the full co/contravariant thing
+in the subsumption check.  That happens in the FunTy case of
+tc_sub_type_ds, and is the sole reason for the WpFun form of
+HsWrapper.
+
+Another powerful reason for doing this co/contra stuff is visible
+in Trac #9569, involving instantiation of constraint variables,
+and again involving eta-expansion.
+
+Wrinkle 3: Note [Higher rank types]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider tc150:
+  f y = \ (x::forall a. a->a). blah
+The following happens:
+* We will infer the type of the RHS, ie with a res_ty = alpha.
+* Then the lambda will split  alpha := beta -> gamma.
+* And then we'll check tcSubType IsSwapped beta (forall a. a->a)
+
+So it's important that we unify beta := forall a. a->a, rather than
+skolemising the type.
+
+
+\begin{code}
+tcSubType :: UserTypeCtxt -> TcSigmaType -> TcSigmaType -> TcM HsWrapper
+-- Checks that actual <= expected
+-- Returns HsWrapper :: actual ~ expected
+tcSubType ctxt ty_actual ty_expected
+  = addSubTypeCtxt ty_actual ty_expected $
+    tcSubType_NC ctxt ty_actual ty_expected
+
+tcSubTypeDS :: UserTypeCtxt -> TcSigmaType -> TcRhoType -> TcM HsWrapper
+-- Just like tcSubType, but with the additional precondition that
+-- ty_expected is deeply skolemised (hence "DS")
+tcSubTypeDS ctxt ty_actual ty_expected
+  = addSubTypeCtxt ty_actual ty_expected $
+    tcSubTypeDS_NC ctxt ty_actual ty_expected
+
+
+addSubTypeCtxt :: TcType -> TcType -> TcM a -> TcM a
+addSubTypeCtxt ty_actual ty_expected thing_inside
+ | isRhoTy ty_actual     -- If there is no polymorphism involved, the
+ , isRhoTy ty_expected   -- TypeEqOrigin stuff (added by the _NC functions)
+ = thing_inside          -- gives enough context by itself
+ | otherwise
+ = addErrCtxtM mk_msg thing_inside
   where
-    -- In the case of patterns we call tcSubType with (expected, actual)
-    -- rather than (actual, expected).   To get error messages the 
-    -- right way round we have to fiddle with the origin
-    unify ty1 ty2 = uType u_origin ty1 ty2
-      where
-         u_origin = case origin of 
-                      PatSigOrigin -> TypeEqOrigin { uo_actual = ty2, uo_expected = ty1 }
-                      _other       -> TypeEqOrigin { uo_actual = ty1, uo_expected = ty2 }
-  
-tcInfer :: (TcType -> TcM a) -> TcM (a, TcType)
-tcInfer tc_infer = do { ty  <- newOpenFlexiTyVarTy
-                      ; res <- tc_infer ty
-                      ; return (res, ty) }
+    mk_msg tidy_env
+      = do { (tidy_env, ty_actual)   <- zonkTidyTcType tidy_env ty_actual
+           ; (tidy_env, ty_expected) <- zonkTidyTcType tidy_env ty_expected
+           ; let msg = vcat [ hang (ptext (sLit "When checking that:"))
+                                 4 (ppr ty_actual)
+                            , nest 2 (hang (ptext (sLit "is more polymorphic than:"))
+                                         2 (ppr ty_expected)) ]
+           ; return (tidy_env, msg) }
+
+---------------
+-- The "_NC" variants do not add a typechecker-error context;
+-- the caller is assumed to do that
+
+tcSubType_NC :: UserTypeCtxt -> TcSigmaType -> TcSigmaType -> TcM HsWrapper
+tcSubType_NC ctxt ty_actual ty_expected
+  = do { traceTc "tcSubType_NC" (vcat [pprUserTypeCtxt ctxt, ppr ty_actual, ppr ty_expected])
+       ; tc_sub_type origin ctxt ty_actual ty_expected }
+  where
+    origin = TypeEqOrigin { uo_actual = ty_actual, uo_expected = ty_expected }
+
+tcSubTypeDS_NC :: UserTypeCtxt -> TcSigmaType -> TcRhoType -> TcM HsWrapper
+tcSubTypeDS_NC ctxt ty_actual ty_expected
+  = do { traceTc "tcSubTypeDS_NC" (vcat [pprUserTypeCtxt ctxt, ppr ty_actual, ppr ty_expected])
+       ; tc_sub_type_ds origin ctxt ty_actual ty_expected }
+  where
+    origin = TypeEqOrigin { uo_actual = ty_actual, uo_expected = ty_expected }
+
+---------------
+tc_sub_type :: CtOrigin -> UserTypeCtxt -> TcSigmaType -> TcSigmaType -> TcM HsWrapper
+tc_sub_type origin ctxt ty_actual ty_expected
+  | isTyVarTy ty_actual  -- See Note [Higher rank types]
+  = do { cow <- uType origin ty_actual ty_expected
+       ; return (coToHsWrapper cow) }
+
+  | otherwise  -- See Note [Deep skolemisation]
+  = do { (sk_wrap, inner_wrap) <- tcGen ctxt ty_expected $ \ _ sk_rho ->
+                                  tc_sub_type_ds origin ctxt ty_actual sk_rho
+       ; return (sk_wrap <.> inner_wrap) }
+
+---------------
+tc_sub_type_ds :: CtOrigin -> UserTypeCtxt -> TcSigmaType -> TcRhoType -> TcM HsWrapper
+-- Just like tcSubType, but with the additional precondition that
+-- ty_expected is deeply skolemised
+tc_sub_type_ds origin ctxt ty_actual ty_expected
+  | Just (act_arg, act_res) <- tcSplitFunTy_maybe ty_actual
+  , Just (exp_arg, exp_res) <- tcSplitFunTy_maybe ty_expected
+  = -- See Note [Co/contra-variance of subsumption checking]
+    do { res_wrap <- tc_sub_type_ds origin ctxt act_res exp_res
+       ; arg_wrap <- tc_sub_type    origin ctxt exp_arg act_arg
+       ; return (mkWpFun arg_wrap res_wrap exp_arg exp_res) }
+           -- arg_wrap :: exp_arg ~ act_arg
+           -- res_wrap :: act-res ~ exp_res
+
+  | (tvs, theta, in_rho) <- tcSplitSigmaTy ty_actual
+  , not (null tvs && null theta)
+  = do { (subst, tvs') <- tcInstTyVars tvs
+       ; let tys'    = mkTyVarTys tvs'
+             theta'  = substTheta subst theta
+             in_rho' = substTy subst in_rho
+       ; in_wrap   <- instCall origin tys' theta'
+       ; body_wrap <- tcSubTypeDS_NC ctxt in_rho' ty_expected
+       ; return (body_wrap <.> in_wrap) }
+
+  | otherwise   -- Revert to unification
+  = do { cow <- uType origin ty_actual ty_expected
+       ; return (coToHsWrapper cow) }
 
 -----------------
 tcWrapResult :: HsExpr TcId -> TcRhoType -> TcRhoType -> TcM (HsExpr TcId)
 tcWrapResult expr actual_ty res_ty
-  = do { cow <- unifyType actual_ty res_ty
+  = do { cow <- tcSubTypeDS GenSigCtxt actual_ty res_ty
                 -- Both types are deeply skolemised
-       ; return (mkHsWrapCo cow expr) }
+       ; return (mkHsWrap cow expr) }
 
 -----------------------------------
 wrapFunResCoercion
-        :: [TcType]     -- Type of args
-        -> HsWrapper    -- HsExpr a -> HsExpr b
-        -> TcM HsWrapper        -- HsExpr (arg_tys -> a) -> HsExpr (arg_tys -> b)
+        :: [TcType]        -- Type of args
+        -> HsWrapper       -- HsExpr a -> HsExpr b
+        -> TcM HsWrapper   -- HsExpr (arg_tys -> a) -> HsExpr (arg_tys -> b)
 wrapFunResCoercion arg_tys co_fn_res
   | isIdHsWrapper co_fn_res
   = return idHsWrapper
@@ -359,8 +470,24 @@ wrapFunResCoercion arg_tys co_fn_res
   | otherwise
   = do  { arg_ids <- newSysLocalIds (fsLit "sub") arg_tys
         ; return (mkWpLams arg_ids <.> co_fn_res <.> mkWpEvVarApps arg_ids) }
-\end{code}
 
+-----------------------------------
+-- | Infer a type using a type "checking" function by passing in a ReturnTv,
+-- which can unify with *anything*. See also Note [ReturnTv] in TcType
+tcInfer :: (TcType -> TcM a) -> TcM (a, TcType)
+tcInfer tc_check
+  = do { ret_tv  <- newReturnTyVar openTypeKind
+       ; res <- tc_check (mkTyVarTy ret_tv)
+       ; details <- readMetaTyVar ret_tv
+       ; res_ty <- case details of
+            Indirect ty -> return ty
+            Flexi ->    -- Checking was uninformative
+                     do { traceTc "Defaulting un-filled ReturnTv to a TauTv" (ppr ret_tv)
+                        ; tau_ty <- newFlexiTyVarTy openTypeKind
+                        ; writeMetaTyVar ret_tv tau_ty
+                        ; return tau_ty }
+       ; return (res, res_ty) }
+\end{code}
 
 
 %************************************************************************
@@ -609,9 +736,9 @@ uType origin orig_ty1 orig_ty2
         -- Always defer if a type synonym family (type function)
         -- is involved.  (Data families behave rigidly.)
     go ty1@(TyConApp tc1 _) ty2
-      | isSynFamilyTyCon tc1 = uType_defer origin ty1 ty2   
+      | isTypeFamilyTyCon tc1 = uType_defer origin ty1 ty2
     go ty1 ty2@(TyConApp tc2 _)
-      | isSynFamilyTyCon tc2 = uType_defer origin ty1 ty2   
+      | isTypeFamilyTyCon tc2 = uType_defer origin ty1 ty2
 
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       -- See Note [Mismatched type lists and application decomposition]
@@ -639,11 +766,8 @@ uType origin orig_ty1 orig_ty2
       = ASSERT( isDecomposableTyCon tc1 ) 
         go_app (TyConApp tc1 ts1') t1' s2 t2 
 
-    go ty1 ty2
-      | tcIsNamedForAllTy ty1 || tcIsNamedForAllTy ty2 
-      = unifySigmaTy origin ty1 ty2
-
         -- Anything else fails
+        -- E.g. unifying for-all types, which is relative unusual
     go ty1 ty2 = uType_defer origin ty1 ty2 -- failWithMisMatch origin
 
     ------------------
@@ -651,29 +775,6 @@ uType origin orig_ty1 orig_ty2
       = do { co_s <- uType origin s1 s2  -- See Note [Unifying AppTy]
            ; co_t <- uType origin t1 t2        
            ; return $ mkTcAppCo co_s co_t }
-
-unifySigmaTy :: CtOrigin -> TcType -> TcType -> TcM TcCoercion
-unifySigmaTy origin ty1 ty2
-  = do { let (bndrs1, body1) = tcSplitNamedForAllTysB ty1
-             (bndrs2, body2) = tcSplitNamedForAllTysB ty2
-
-       ; defer_or_continue (not (equalLength bndrs1 bndrs2) || not (map binderVisibility bndrs1 == map binderVisibility bndrs2)) $ do {
-         let tvs1 = map (binderVar "unifySigmaTy1") bndrs1
-             tvs2 = map (binderVar "unifySigmaTy2") bndrs2
-       ; (subst1, skol_tvs) <- tcInstSkolTyCoVars tvs1
-                  -- Get location from monad, not from tvs1
-       ; let tys      = mkTyCoVarTys skol_tvs
-             phi1     = Type.substTy subst1                    body1
-             phi2     = Type.substTy (zipTopTCvSubst tvs2 tys) body2
-             skol_info = UnifyForAllSkol skol_tvs phi1
-
-       ; (ev_binds, co) <- checkConstraints skol_info skol_tvs [] $
-                           uType origin phi1 phi2
-
-       ; return (foldr mkTcForAllCo (TcLetCo ev_binds co) skol_tvs) } }
-  where
-    defer_or_continue True  _ = uType_defer origin ty1 ty2
-    defer_or_continue False m = m
 \end{code}
 
 Note [Care with type applications]
@@ -850,7 +951,7 @@ nicer_to_update_tv1 tv1 _     _     = isSystemName (Var.varName tv1)
 ----------------
 checkTauTvUpdate :: DynFlags -> TcTyVar -> TcType -> TcM (Maybe TcType)
 --    (checkTauTvUpdate tv ty)
--- We are about to update the TauTv/PolyTv tv with ty.
+-- We are about to update the TauTv/ReturnTv tv with ty.
 -- Check (a) that tv doesn't occur in ty (occurs check)
 --       (b) that kind(ty) is a sub-kind of kind(tv)
 -- 
@@ -878,6 +979,9 @@ checkTauTvUpdate dflags tv ty
        ; eq_k <- unifyKind (tyVarKind tv) (typeKind ty1)
        ; case eq_k of
            False           -> return Nothing
+           _  | is_return_tv -> if tv `elemVarSet` tyCoVarsOfType ty
+                                then return Nothing -- TODO (RAE): use occurCheckExpand?
+                                else return (Just ty1)
            _  | defer_me ty1   -- Quick test
               -> -- Failed quick test so try harder
                  case occurCheckExpand dflags tv ty1 of 
@@ -885,11 +989,11 @@ checkTauTvUpdate dflags tv ty
                              | otherwise    -> return (Just ty2)
                    _ -> return Nothing
               | otherwise   -> return (Just ty1) }
-  where 
-    info = ASSERT2( isMetaTyVar tv, ppr tv ) metaTyVarInfo tv
-
-    impredicative = xopt Opt_ImpredicativeTypes dflags
-                 || case info of { PolyTv -> True;  _ -> False }
+  where
+    details = ASSERT2( isMetaTyVar tv, ppr tv ) tcTyVarDetails tv
+    info         = mtv_info details
+    is_return_tv = case info of { ReturnTv -> True; _ -> False }
+    impredicative = canUnifyWithPolyType dflags details
 
     defer_me :: TcType -> Bool
     -- Checks for (a) occurrence of tv
@@ -897,7 +1001,7 @@ checkTauTvUpdate dflags tv ty
     -- See Note [Conservative unification check]
     defer_me (LitTy {})        = False
     defer_me (TyVarTy tv')     = tv == tv'
-    defer_me (TyConApp tc tys) = isSynFamilyTyCon tc || any defer_me tys
+    defer_me (TyConApp tc tys) = isTypeFamilyTyCon tc || any defer_me tys
     defer_me (ForAllTy bndr t) = defer_me (binderType bndr) || defer_me t
                                  || (isNamedBinder bndr && not impredicative)
     defer_me (AppTy fun arg)   = defer_me fun || defer_me arg

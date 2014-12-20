@@ -157,9 +157,9 @@ if [ $no_clean -eq 0 ]; then
     fi
 
     if [ $use_dph -eq 1 ]; then
-        /usr/bin/perl -w boot --validate --required-tag=dph
+        perl -w boot --validate --required-tag=dph
     else
-        /usr/bin/perl -w boot --validate
+        perl -w boot --validate
     fi
     ./configure --prefix="$INSTDIR" $config_args
 fi
@@ -257,6 +257,7 @@ if
     grep '\<0 caused framework failures' testlog >/dev/null 2>/dev/null &&
     grep '\<0 unexpected passes' testlog >/dev/null 2>/dev/null &&
     grep '\<0 unexpected failures' testlog >/dev/null 2>/dev/null &&
+    grep '\<0 unexpected stat failures' testlog >/dev/null 2>/dev/null &&
     ! grep 'Some files are written by multiple tests' testlog >/dev/null 2>/dev/null ; then
     if [ $testsuite_only -eq 0 ] && [ $no_clean -eq 0 ]
     then
@@ -298,4 +299,3 @@ Please fix them before pushing/sending patches.
 EOF
     exit 1
 fi
-

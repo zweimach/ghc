@@ -741,7 +741,10 @@ getLinkerInfo' :: DynFlags -> IO LinkerInfo
 getLinkerInfo' dflags = do
   let platform = targetPlatform dflags
       os = platformOS platform
-      (pgm,_) = pgm_l dflags
+      (pgm,args0) = pgm_l dflags
+      args1     = map Option (getOpts dflags opt_l)
+      args2     = args0 ++ args1
+      args3     = filter notNull (map showOpt args2)
 
       -- Try to grab the info from the process output.
       parseLinkerInfo stdo _stde _exitc
@@ -792,7 +795,7 @@ getLinkerInfo' dflags = do
                  -- In practice, we use the compiler as the linker here. Pass
                  -- -Wl,--version to get linker version info.
                  (exitc, stdo, stde) <- readProcessEnvWithExitCode pgm
-                                        ["-Wl,--version"]
+                                        (["-Wl,--version"] ++ args3)
                                         en_locale_env
                  -- Split the output by lines to make certain kinds
                  -- of processing easier. In particular, 'clang' and 'gcc'
@@ -1465,6 +1468,7 @@ linkDynLib dflags0 o_files dep_packages
                         in  package_hs_libs ++ extra_libs ++ other_flags
 
         -- probably _stub.o files
+        -- and last temporary shared object file
     let extra_ld_inputs = ldInputs dflags
 
     case os of
@@ -1582,8 +1586,8 @@ linkDynLib dflags0 o_files dep_packages
                     -- Set the library soname. We use -h rather than -soname as
                     -- Solaris 10 doesn't support the latter:
                  ++ [ Option ("-Wl,-h," ++ takeFileName output_fn) ]
-                 ++ map Option lib_path_opts
                  ++ extra_ld_inputs
+                 ++ map Option lib_path_opts
                  ++ map Option pkg_lib_path_opts
                  ++ map Option pkg_link_opts
               )

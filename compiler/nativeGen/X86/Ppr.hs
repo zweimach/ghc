@@ -78,12 +78,7 @@ pprNatCmmDecl proc@(CmmProc top_info lbl _ (ListGraph blocks)) =
          -- elimination, it might be the target of a goto.
             (if platformHasSubsectionsViaSymbols platform
              then
-             -- If we are using the .subsections_via_symbols directive
-             -- (available on recent versions of Darwin),
-             -- we have to make sure that there is some kind of reference
-             -- from the entry code to a label on the _top_ of of the info table,
-             -- so that the linker will not think it is unreferenced and dead-strip
-             -- it. That's why the label is called a DeadStripPreventer (_dsp).
+             -- See Note [Subsections Via Symbols]
                       text "\t.long "
                   <+> ppr info_lbl
                   <+> char '-'
@@ -570,11 +565,10 @@ pprInstr (ADD size (OpImm (ImmInt (-1))) dst)
   = pprSizeOp (sLit "dec") size dst
 pprInstr (ADD size (OpImm (ImmInt 1)) dst)
   = pprSizeOp (sLit "inc") size dst
-pprInstr (ADD size src dst)
-  = pprSizeOpOp (sLit "add") size src dst
-pprInstr (ADC size src dst)
-  = pprSizeOpOp (sLit "adc") size src dst
+pprInstr (ADD size src dst) = pprSizeOpOp (sLit "add") size src dst
+pprInstr (ADC size src dst) = pprSizeOpOp (sLit "adc") size src dst
 pprInstr (SUB size src dst) = pprSizeOpOp (sLit "sub") size src dst
+pprInstr (SBB size src dst) = pprSizeOpOp (sLit "sbb") size src dst
 pprInstr (IMUL size op1 op2) = pprSizeOpOp (sLit "imul") size op1 op2
 
 pprInstr (ADD_CC size src dst)

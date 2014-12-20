@@ -53,8 +53,10 @@ compiler/stage%/build/Config.hs : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	@echo                                                               >> $@
 	@echo '#include "ghc_boot_platform.h"'                              >> $@
 	@echo                                                               >> $@
-	@echo 'data IntegerLibrary = IntegerGMP | IntegerSimple'            >> $@
-	@echo '    deriving Eq'                                             >> $@
+	@echo 'data IntegerLibrary = IntegerGMP'                            >> $@
+	@echo '                    | IntegerGMP2'                           >> $@
+	@echo '                    | IntegerSimple'                         >> $@
+	@echo '                    deriving Eq'                             >> $@
 	@echo                                                               >> $@
 	@echo 'cBuildPlatformString :: String'                              >> $@
 	@echo 'cBuildPlatformString = BuildPlatform_NAME'                   >> $@
@@ -65,6 +67,8 @@ compiler/stage%/build/Config.hs : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	@echo                                                               >> $@
 	@echo 'cProjectName          :: String'                             >> $@
 	@echo 'cProjectName          = "$(ProjectName)"'                    >> $@
+	@echo 'cProjectGitCommitId   :: String'				    >> $@
+	@echo 'cProjectGitCommitId   = "$(ProjectGitCommitId)"'		    >> $@
 	@echo 'cProjectVersion       :: String'                             >> $@
 	@echo 'cProjectVersion       = "$(ProjectVersion)"'                 >> $@
 	@echo 'cProjectVersionInt    :: String'                             >> $@
@@ -84,6 +88,8 @@ compiler/stage%/build/Config.hs : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	@echo 'cIntegerLibraryType   :: IntegerLibrary'                     >> $@
 ifeq "$(INTEGER_LIBRARY)" "integer-gmp"
 	@echo 'cIntegerLibraryType   = IntegerGMP'                          >> $@
+else ifeq "$(INTEGER_LIBRARY)" "integer-gmp2"
+	@echo 'cIntegerLibraryType   = IntegerGMP2'                         >> $@
 else ifeq "$(INTEGER_LIBRARY)" "integer-simple"
 	@echo 'cIntegerLibraryType   = IntegerSimple'                       >> $@
 else ifneq "$(CLEANING)" "YES"
@@ -263,10 +269,10 @@ compiler_CPP_OPTS += ${GhcCppOpts}
 define preprocessCompilerFiles
 # $0 = stage
 compiler/stage$1/build/Parser.y: compiler/parser/Parser.y.pp
-	$$(CPP) -P $$(compiler_CPP_OPTS) -x c $$< | grep -v '^#pragma GCC' > $$@
+	$$(CPP) $$(RAWCPP_FLAGS) -P $$(compiler_CPP_OPTS) -x c $$< | grep -v '^#pragma GCC' > $$@
 
 compiler/stage$1/build/primops.txt: compiler/prelude/primops.txt.pp compiler/stage$1/$$(PLATFORM_H)
-	$$(CPP) -P $$(compiler_CPP_OPTS) -Icompiler/stage$1 -x c $$< | grep -v '^#pragma GCC' > $$@
+	$$(CPP) $$(RAWCPP_FLAGS) -P $$(compiler_CPP_OPTS) -Icompiler/stage$1 -x c $$< | grep -v '^#pragma GCC' > $$@
 
 compiler/stage$1/build/primop-data-decl.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
 	"$$(genprimopcode_INPLACE)" --data-decl          < $$< > $$@
@@ -466,6 +472,7 @@ compiler_stage3_SplitObjs = NO
 compiler_stage2_dll0_START_MODULE = DynFlags
 compiler_stage2_dll0_MODULES = \
 	Annotations \
+	ApiAnnotation \
 	Avail \
 	Bag \
 	BasicTypes \
@@ -492,6 +499,7 @@ compiler_stage2_dll0_MODULES = \
 	CoreUnfold \
 	CoreUtils \
 	CostCentre \
+	Ctype \
 	DataCon \
 	Demand \
 	Digraph \
@@ -532,6 +540,8 @@ compiler_stage2_dll0_MODULES = \
 	IfaceType \
 	InstEnv \
 	Kind \
+	Lexeme \
+	Lexer \
 	ListSetOps \
 	Literal \
 	LoadIface \
@@ -609,6 +619,7 @@ compiler_stage2_dll0_MODULES += \
 	CmmUtils \
 	CodeGen.Platform \
 	CodeGen.Platform.ARM \
+	CodeGen.Platform.ARM64 \
 	CodeGen.Platform.NoRegs \
 	CodeGen.Platform.PPC \
 	CodeGen.Platform.PPC_Darwin \

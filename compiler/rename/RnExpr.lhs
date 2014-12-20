@@ -79,23 +79,16 @@ rnExpr :: HsExpr RdrName -> RnM (HsExpr Name, FreeVars)
 finishHsVar :: Name -> RnM (HsExpr Name, FreeVars)
 -- Separated from rnExpr because it's also used
 -- when renaming infix expressions
--- See Note [Adding the implicit parameter to 'assert']
 finishHsVar name
  = do { this_mod <- getModule
       ; when (nameIsLocalOrFrom this_mod name) $
         checkThLocalName name
-
-      ; ignore_asserts <- goptM Opt_IgnoreAsserts
-      ; if ignore_asserts || not (name `hasKey` assertIdKey)
-        then return (HsVar name, unitFV name)
-        else do { e <- mkAssertErrorExpr
-                ; return (e, unitFV name) } }
+      ; return (HsVar name, unitFV name) }
 
 rnExpr (HsVar v)
   = do { mb_name <- lookupOccRn_maybe v
        ; case mb_name of {
-           Nothing -> do { opt_TypeHoles <- woptM Opt_WarnTypedHoles
-                         ; if opt_TypeHoles && startsWithUnderscore (rdrNameOcc v)
+           Nothing -> do { if startsWithUnderscore (rdrNameOcc v)
                            then return (HsUnboundVar v, emptyFVs)
                            else do { n <- reportUnboundName v; finishHsVar n } } ;
            Just name
@@ -109,10 +102,10 @@ rnExpr (HsVar v)
 rnExpr (HsIPVar v)
   = return (HsIPVar v, emptyFVs)
 
-rnExpr (HsLit lit@(HsString s))
+rnExpr (HsLit lit@(HsString src s))
   = do { opt_OverloadedStrings <- xoptM Opt_OverloadedStrings
        ; if opt_OverloadedStrings then
-            rnExpr (HsOverLit (mkHsIsString s placeHolderType))
+            rnExpr (HsOverLit (mkHsIsString src s placeHolderType))
          else do {
             ; rnLit lit
             ; return (HsLit lit, emptyFVs) } }
@@ -247,8 +240,10 @@ rnExpr (ExplicitTuple tup_args boxity)
        ; (tup_args', fvs) <- mapAndUnzipM rnTupArg tup_args
        ; return (ExplicitTuple tup_args' boxity, plusFVs fvs) }
   where
-    rnTupArg (Present e) = do { (e',fvs) <- rnLExpr e; return (Present e', fvs) }
-    rnTupArg (Missing _) = return (Missing placeHolderType, emptyFVs)
+    rnTupArg (L l (Present e)) = do { (e',fvs) <- rnLExpr e
+                                    ; return (L l (Present e'), fvs) }
+    rnTupArg (L l (Missing _)) = return (L l (Missing placeHolderType)
+                                        , emptyFVs)
 
 rnExpr (RecordCon con_id _ rbinds)
   = do  { conname <- lookupLocatedOccRn con_id
@@ -262,11 +257,13 @@ rnExpr (RecordUpd expr rbinds _ _ _)
         ; return (RecordUpd expr' rbinds' [] [] [],
                   fvExpr `plusFV` fvRbinds) }
 
-rnExpr (ExprWithTySig expr pty)
-  = do  { (pty', fvTy) <- rnLHsType ExprWithTySigCtx pty
-        ; (expr', fvExpr) <- bindSigTyVarsFV (hsExplicitTvs pty') $
+rnExpr (ExprWithTySig expr pty PlaceHolder)
+  = do  { (wcs, pty') <- extractWildcards pty
+        ; bindLocatedLocalsFV wcs $ \wcs_new -> do {
+          (pty'', fvTy) <- rnLHsType ExprWithTySigCtx pty'
+        ; (expr', fvExpr) <- bindSigTyVarsFV (hsExplicitTvs pty'') $
                              rnLExpr expr
-        ; return (ExprWithTySig expr' pty', fvExpr `plusFV` fvTy) }
+        ; return (ExprWithTySig expr' pty'' wcs_new, fvExpr `plusFV` fvTy) } }
 
 rnExpr (HsIf _ p b1 b2)
   = do { (p', fvP) <- rnLExpr p
@@ -304,11 +301,7 @@ Since all the symbols are reservedops we can simply reject them.
 We return a (bogus) EWildPat in each case.
 
 \begin{code}
-rnExpr e@EWildPat      = do { holes <- woptM Opt_WarnTypedHoles
-                            ; if holes
-                                then return (hsHoleExpr, emptyFVs)
-                                else patSynErr e
-                            }
+rnExpr EWildPat        = return (hsHoleExpr, emptyFVs)
 rnExpr e@(EAsPat {})   = patSynErr e
 rnExpr e@(EViewPat {}) = patSynErr e
 rnExpr e@(ELazyPat {}) = patSynErr e
@@ -378,8 +371,8 @@ rnHsRecBinds ctxt rec_binds@(HsRecFields { rec_dotdot = dd })
        ; return (HsRecFields { rec_flds = flds', rec_dotdot = dd },
                  fvs `plusFV` plusFVs fvss) }
   where
-    rn_field fld = do { (arg', fvs) <- rnLExpr (hsRecFieldArg fld)
-                      ; return (fld { hsRecFieldArg = arg' }, fvs) }
+    rn_field (L l fld) = do { (arg', fvs) <- rnLExpr (hsRecFieldArg fld)
+                            ; return (L l (fld { hsRecFieldArg = arg' }), fvs) }
 \end{code}
 
 
@@ -403,7 +396,7 @@ rnCmdTop = wrapLocFstM rnCmdTop'
   rnCmdTop' (HsCmdTop cmd _ _ _)
    = do { (cmd', fvCmd) <- rnLCmd cmd
         ; let cmd_names = [arrAName, composeAName, firstAName] ++
-                          nameSetToList (methodNamesCmd (unLoc cmd'))
+                          nameSetElems (methodNamesCmd (unLoc cmd'))
         -- Generate the rebindable syntax for the monad
         ; (cmd_names', cmd_fvs) <- lookupSyntaxNames cmd_names
 
@@ -695,7 +688,7 @@ rnStmt ctxt rnBody (L _ (RecStmt { recS_stmts = rec_stmts })) thing_inside
         -- (This set may not be empty, because we're in a recursive
         -- context.)
         ; rnRecStmtsAndThen rnBody rec_stmts   $ \ segs -> do
-        { let bndrs = nameSetToList $ foldr (unionNameSets . (\(ds,_,_,_) -> ds))
+        { let bndrs = nameSetElems $ foldr (unionNameSet . (\(ds,_,_,_) -> ds))
                                             emptyNameSet segs
         ; (thing, fvs_later) <- thing_inside bndrs
         ; let (rec_stmts', fvs) = segmentRecStmts ctxt empty_rec_stmt segs fvs_later
@@ -859,7 +852,7 @@ rnRecStmtsAndThen rnBody s cont
           -- (C) do the right-hand-sides and thing-inside
         { segs <- rn_rec_stmts rnBody bound_names new_lhs_and_fv
         ; (res, fvs) <- cont segs
-        ; warnUnusedLocalBinds bound_names (fvs `unionNameSets` implicit_uses)
+        ; warnUnusedLocalBinds bound_names (fvs `unionNameSet` implicit_uses)
         ; return (res, fvs) }}
 
 -- get all the fixity decls in any Let stmt
@@ -1010,8 +1003,8 @@ segmentRecStmts ctxt empty_rec_stmt segs fvs_later
   | otherwise
   = ([ L (getLoc (head ss)) $
        empty_rec_stmt { recS_stmts = ss
-                      , recS_later_ids = nameSetToList (defs `intersectNameSet` fvs_later)
-                      , recS_rec_ids   = nameSetToList (defs `intersectNameSet` uses) }]
+                      , recS_later_ids = nameSetElems (defs `intersectNameSet` fvs_later)
+                      , recS_rec_ids   = nameSetElems (defs `intersectNameSet` uses) }]
     , uses `plusFV` fvs_later)
 
   where
@@ -1043,8 +1036,8 @@ addFwdRefs segs
         = (new_seg : segs, all_defs)
         where
           new_seg = (defs, uses, new_fwds, stmts)
-          all_defs = later_defs `unionNameSets` defs
-          new_fwds = fwds `unionNameSets` (uses `intersectNameSet` later_defs)
+          all_defs = later_defs `unionNameSet` defs
+          new_fwds = fwds `unionNameSet` (uses `intersectNameSet` later_defs)
                 -- Add the downstream fwd refs here
 \end{code}
 
@@ -1134,42 +1127,12 @@ segsToStmts empty_rec_stmt ((defs, uses, fwds, ss) : segs) fvs_later
     new_stmt | non_rec   = head ss
              | otherwise = L (getLoc (head ss)) rec_stmt
     rec_stmt = empty_rec_stmt { recS_stmts     = ss
-                              , recS_later_ids = nameSetToList used_later
-                              , recS_rec_ids   = nameSetToList fwds }
+                              , recS_later_ids = nameSetElems used_later
+                              , recS_rec_ids   = nameSetElems fwds }
     non_rec    = isSingleton ss && isEmptyNameSet fwds
     used_later = defs `intersectNameSet` later_uses
                                 -- The ones needed after the RecStmt
 \end{code}
-
-%************************************************************************
-%*                                                                      *
-\subsubsection{Assertion utils}
-%*                                                                      *
-%************************************************************************
-
-\begin{code}
-srcSpanPrimLit :: DynFlags -> SrcSpan -> HsExpr Name
-srcSpanPrimLit dflags span
-    = HsLit (HsStringPrim (unsafeMkByteString (showSDocOneLine dflags (ppr span))))
-
-mkAssertErrorExpr :: RnM (HsExpr Name)
--- Return an expression for (assertError "Foo.hs:27")
-mkAssertErrorExpr
-  = do sloc <- getSrcSpanM
-       dflags <- getDynFlags
-       return (HsApp (L sloc (HsVar assertErrorName))
-                     (L sloc (srcSpanPrimLit dflags sloc)))
-\end{code}
-
-Note [Adding the implicit parameter to 'assert']
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The renamer transforms (assert e1 e2) to (assert "Foo.hs:27" e1 e2).
-By doing this in the renamer we allow the typechecker to just see the
-expanded application and do the right thing. But it's not really
-the Right Thing because there's no way to "undo" if you want to see
-the original source code.  We'll have fix this in due course, when
-we care more about being able to reconstruct the exact original
-program.
 
 %************************************************************************
 %*                                                                      *
@@ -1324,7 +1287,7 @@ okPArrStmt dflags _ stmt
        LastStmt {}  -> emptyInvalid  -- Should not happen (dealt with by checkLastStmt)
 
 ---------
-checkTupleSection :: [HsTupArg RdrName] -> RnM ()
+checkTupleSection :: [LHsTupArg RdrName] -> RnM ()
 checkTupleSection args
   = do  { tuple_section <- xoptM Opt_TupleSections
         ; checkErr (all tupArgPresent args || tuple_section) msg }

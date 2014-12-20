@@ -65,6 +65,9 @@ moduleLayout = sdocWithPlatform $ \platform ->
     Platform { platformArch = ArchX86, platformOS = OSiOS } ->
         text "target datalayout = \"e-p:32:32:32-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:32:64-f32:32:32-f64:32:64-v64:64:64-v128:128:128-a0:0:64-f80:128:128-n8:16:32\""
         $+$ text "target triple = \"i386-apple-darwin11\""
+    Platform { platformArch = ArchARM64, platformOS = OSiOS } ->
+        text "target datalayout = \"e-p:64:64:64-i1:8:8-i8:8:8-i16:16:16-i32:32:32-i64:64:64-f32:32:32-f64:64:64-v64:64:64-v128:128:128-a0:0:64-n32:64-S128\""
+        $+$ text "target triple = \"arm64-apple-ios7.0.0\""
     _ ->
         -- FIX: Other targets
         empty
@@ -104,8 +107,28 @@ pprLlvmCmmDecl count (CmmProc mb_info entry_lbl live (ListGraph blks))
                                 LlvmBlock (getUnique id) stmts) blks
 
        fun <- mkLlvmFunc live lbl' link  sec' lmblocks
+       let name = decName $ funcDecl fun
+           defName = name `appendFS` fsLit "$def"
+           funcDecl' = (funcDecl fun) { decName = defName }
+           fun' = fun { funcDecl = funcDecl' }
+           funTy = LMFunction funcDecl'
+           funVar = LMGlobalVar name
+                                (LMPointer funTy)
+                                link
+                                Nothing
+                                Nothing
+                                Alias
+           defVar = LMGlobalVar defName
+                                (LMPointer funTy)
+                                (funcLinkage funcDecl')
+                                (funcSect fun)
+                                (funcAlign funcDecl')
+                                Alias
+           alias = LMGlobal funVar
+                            (Just $ LMBitc (LMStaticPointer defVar)
+                                           (LMPointer $ LMInt 8))
 
-       return (idoc $+$ ppLlvmFunction fun, ivar)
+       return (ppLlvmGlobal alias $+$ idoc $+$ ppLlvmFunction fun', ivar)
 
 
 -- | Pretty print CmmStatic
@@ -114,20 +137,30 @@ pprInfoTable count info_lbl stat
   = do (ldata, ltypes) <- genLlvmData (Text, stat)
 
        dflags <- getDynFlags
-       let setSection (LMGlobal (LMGlobalVar _ ty l _ _ c) d) = do
+       platform <- getLlvmPlatform
+       let setSection :: LMGlobal -> LlvmM (LMGlobal, [LlvmVar])
+           setSection (LMGlobal (LMGlobalVar _ ty l _ _ c) d) = do
              lbl <- strCLabel_llvm info_lbl
              let sec = mkLayoutSection count
                  ilabel = lbl `appendFS` fsLit iTableSuf
                  gv = LMGlobalVar ilabel ty l sec (llvmInfAlign dflags) c
-                 v = if l == Internal then [gv] else []
+                 -- See Note [Subsections Via Symbols]
+                 v = if (platformHasSubsectionsViaSymbols platform
+                         && l == ExternallyVisible)
+                        || l == Internal
+                     then [gv]
+                     else []
              funInsert ilabel ty
              return (LMGlobal gv d, v)
            setSection v = return (v,[])
 
-       (ldata', llvmUsed) <- setSection (last ldata)
-       if length ldata /= 1
-          then Outputable.panic "LlvmCodeGen.Ppr: invalid info table!"
-          else return (pprLlvmData ([ldata'], ltypes), llvmUsed)
+       (ldata', llvmUsed) <- unzip `fmap` mapM setSection ldata
+       ldata'' <- mapM aliasify ldata'
+       let modUsedLabel (LMGlobalVar name ty link sect align const) =
+             LMGlobalVar (name `appendFS` fsLit "$def") ty link sect align const
+           modUsedLabel v = v
+           llvmUsed' = map modUsedLabel $ concat llvmUsed
+       return (pprLlvmData (concat ldata'', ltypes), llvmUsed')
 
 
 -- | We generate labels for info tables by converting them to the same label

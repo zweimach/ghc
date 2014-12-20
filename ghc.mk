@@ -359,7 +359,7 @@ endif
 # Packages to build
 # The lists of packages that we *actually* going to build in each stage:
 #
-#  $(PACKAGES_STAGE0) 
+#  $(PACKAGES_STAGE0)
 #  $(PACKAGES_STAGE1)
 #  $(PACKAGES_STAGE2)
 #
@@ -398,7 +398,6 @@ PACKAGES_STAGE1 += array
 PACKAGES_STAGE1 += deepseq
 PACKAGES_STAGE1 += bytestring
 PACKAGES_STAGE1 += containers
-PACKAGES_STAGE1 += old-locale
 
 ifeq "$(Windows_Host)" "YES"
 PACKAGES_STAGE1 += Win32
@@ -419,13 +418,10 @@ PACKAGES_STAGE1 += bin-package-db
 PACKAGES_STAGE1 += hoopl
 PACKAGES_STAGE1 += transformers
 
-ifneq "$(CrossCompiling)" "YES"
-PACKAGES_STAGE2 += old-time
-PACKAGES_STAGE2 += haskell98
-PACKAGES_STAGE2 += haskell2010
+ifeq "$(HADDOCK_DOCS)" "YES"
+PACKAGES_STAGE1 += xhtml
 endif
 
-PACKAGES_STAGE1 += xhtml
 ifeq "$(Windows_Target)" "NO"
 ifneq "$(TargetOS_CPP)" "ios"
 PACKAGES_STAGE1 += terminfo
@@ -590,7 +586,9 @@ libraries/ghc-prim_dist-install_EXTRA_HADDOCK_SRCS = libraries/ghc-prim/dist-ins
 
 ifneq "$(CLEANING)" "YES"
 ifeq "$(INTEGER_LIBRARY)" "integer-gmp"
-libraries/base_dist-install_CONFIGURE_OPTS += --flags=-integer-simple
+libraries/base_dist-install_CONFIGURE_OPTS += --flags=integer-gmp
+else ifeq "$(INTEGER_LIBRARY)" "integer-gmp2"
+libraries/base_dist-install_CONFIGURE_OPTS += --flags=integer-gmp2
 else ifeq "$(INTEGER_LIBRARY)" "integer-simple"
 libraries/base_dist-install_CONFIGURE_OPTS += --flags=integer-simple
 else
@@ -630,7 +628,7 @@ BUILD_DIRS += includes
 BUILD_DIRS += rts
 
 ifneq "$(BINDIST)" "YES"
-BUILD_DIRS += bindisttest 
+BUILD_DIRS += bindisttest
 BUILD_DIRS += utils/genapply
 endif
 
@@ -657,8 +655,17 @@ BUILD_DIRS += libraries/integer-gmp/gmp
 BUILD_DIRS += libraries/integer-gmp/mkGmpDerivedConstants
 endif
 
+ifeq "$(INTEGER_LIBRARY)" "integer-gmp2"
+BUILD_DIRS += libraries/integer-gmp2/gmp
+else ifneq "$(findstring clean,$(MAKECMDGOALS))" ""
+BUILD_DIRS += libraries/integer-gmp2/gmp
+endif
+
+ifeq "$(HADDOCK_DOCS)" "YES"
 BUILD_DIRS += utils/haddock
 BUILD_DIRS += utils/haddock/doc
+endif
+
 BUILD_DIRS += compiler
 BUILD_DIRS += utils/hsc2hs
 BUILD_DIRS += utils/ghc-pkg
@@ -696,10 +703,10 @@ stage1_libs : $(ALL_STAGE1_LIBS)
 
 # ----------------------------------------------
 # Per-package compiler flags
-# 
-# If you want to add per-package compiler flags, this 
+#
+# If you want to add per-package compiler flags, this
 # is the place to do it.  Do it like this for package <pkg>
-#   
+#
 #   libraries/<pkg>_dist-boot_HC_OPTS += -Wwarn
 #   libraries/<pkg>_dist-install_HC_OPTS += -Wwarn
 
@@ -1102,13 +1109,30 @@ SRC_DIST_GHC_DIRS = mk rules docs distrib bindisttest libffi includes \
 SRC_DIST_GHC_FILES += \
     configure.ac config.guess config.sub configure \
     aclocal.m4 README ANNOUNCE HACKING LICENSE Makefile install-sh \
-    settings.in VERSION \
+    settings.in VERSION GIT_COMMIT_ID \
     boot packages ghc.mk
 
-VERSION :
-	echo $(ProjectVersion) >VERSION
+.PHONY: VERSION
+VERSION:
+	@if test -f $@ && test "`cat $@`" = "$(ProjectVersion)"; \
+	then echo "$@ needs no update"; \
+	else echo "update $@ ($(ProjectVersion))"; echo "$(ProjectVersion)" > $@; fi
 
-sdist : VERSION
+.PHONY: GIT_COMMIT_ID
+GIT_COMMIT_ID:
+	@if test -d .git && test "`git rev-parse HEAD`" != "$(ProjectGitCommitId)"; then \
+	   echo "******************************************************************************"; \
+	   echo "Stale ProjectGitCommitId (=$(ProjectGitCommitId)) detected!"; \
+           echo "'git rev-parse HEAD' says: `git rev-parse HEAD`"; \
+	   echo "Please re-run './configure' before creating source-distribution"; \
+	   echo "******************************************************************************"; \
+	   exit 1; \
+	fi
+	@if test -f $@ && test "`cat $@`" = "$(ProjectGitCommitId)"; \
+	then echo "$@ needs no update"; \
+	else echo "update $@ ($(ProjectGitCommitId))"; echo -n "$(ProjectGitCommitId)" > $@; fi
+
+sdist-ghc-prep : VERSION GIT_COMMIT_ID
 
 # Use:
 #     $(call sdist_ghc_file,compiler,stage2,cmm,Foo/Bar,CmmLex,x)
@@ -1140,7 +1164,7 @@ sdist-ghc-prep :
 	$(call sdist_ghc_file,compiler,stage2,cmm,,CmmLex,x)
 	$(call sdist_ghc_file,compiler,stage2,cmm,,CmmParse,y)
 	$(call sdist_ghc_file,compiler,stage2,parser,,Lexer,x)
-	$(call sdist_ghc_file,compiler,stage2,parser,,Parser,y.pp)
+	$(call sdist_ghc_file,compiler,stage2,parser,,Parser,y)
 	$(call sdist_ghc_file,utils/hpc,dist-install,,,HpcParser,y)
 	$(call sdist_ghc_file,utils/genprimopcode,dist,,,Lexer,x)
 	$(call sdist_ghc_file,utils/genprimopcode,dist,,,Parser,y)
@@ -1212,6 +1236,7 @@ sdist_%:
 CLEAN_FILES += libraries/bootstrapping.conf
 CLEAN_FILES += libraries/integer-gmp/cbits/GmpDerivedConstants.h
 CLEAN_FILES += libraries/integer-gmp/include/HsIntegerGmp.h
+CLEAN_FILES += libraries/integer-gmp2/include/HsIntegerGmp.h
 CLEAN_FILES += libraries/base/include/EventConfig.h
 CLEAN_FILES += mk/config.mk.old
 CLEAN_FILES += mk/project.mk.old
@@ -1225,7 +1250,6 @@ CLEAN_FILES += includes/ghcautoconf.h
 CLEAN_FILES += includes/ghcplatform.h
 CLEAN_FILES += includes/ghcversion.h
 CLEAN_FILES += utils/ghc-pkg/Version.hs
-CLEAN_FILES += compiler/parser/Parser.y
 CLEAN_FILES += compiler/prelude/primops.txt
 CLEAN_FILES += $(wildcard compiler/primop*incl)
 
@@ -1310,7 +1334,6 @@ distclean : clean
 	$(call removeFiles,libraries/process/include/HsProcessConfig.h)
 	$(call removeFiles,libraries/unix/include/HsUnixConfig.h)
 	$(call removeFiles,libraries/time/include/HsTimeConfig.h)
-	$(call removeFiles,libraries/old-time/include/HsTimeConfig.h)
 
 # The library configure scripts also like creating autom4te.cache
 # directories, so clean them all up.
@@ -1339,7 +1362,6 @@ maintainer-clean : distclean
 	$(call removeFiles,libraries/process/include/HsProcessConfig.h.in)
 	$(call removeFiles,libraries/unix/include/HsUnixConfig.h.in)
 	$(call removeFiles,libraries/time/include/HsTimeConfig.h.in)
-	$(call removeFiles,libraries/old-time/include/HsTimeConfig.h.in)
 
 .PHONY: all_libraries
 

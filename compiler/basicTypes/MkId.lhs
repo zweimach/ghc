@@ -360,7 +360,7 @@ dictSelRule val_index n_ty_args _ id_unf _ args
 
 %************************************************************************
 %*                                                                      *
-        Boxing and unboxing
+        Data constructors
 %*                                                                      *
 %************************************************************************
 
@@ -705,7 +705,7 @@ isUnpackableType fam_envs ty
       =  not (tc_name `elemNameSet` tcs)
       && case tyConSingleAlgDataCon_maybe tc of
             Just con | isVanillaDataCon con
-                    -> ok_con_args (tcs `addOneToNameSet` getName tc) con
+                    -> ok_con_args (tcs `extendNameSet` getName tc) con
             _ -> True
       | otherwise 
       = True
@@ -1140,18 +1140,15 @@ coerceId = pcMiscPrelId coerceName ty info
   where
     info = noCafIdInfo `setInlinePragInfo` alwaysInlinePragma
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
-    kv = kKiVar
-    k = mkOnlyTyVarTy kv
-    a:b:_ = tyVarList k
-    [aTy,bTy] = map mkOnlyTyVarTy [a,b]
-    eqRTy     = mkTyConApp coercibleTyCon  [k, aTy, bTy]
-    eqRPrimTy = mkTyConApp eqReprPrimTyCon [k, k, aTy, bTy]
-    ty        = mkInvForAllTys [kv, a, b] (mkFunTys [eqRTy, aTy] bTy)
+    eqRTy     = mkTyConApp coercibleTyCon  [liftedTypeKind, alphaTy, betaTy]
+    eqRPrimTy = mkTyConApp eqReprPrimTyCon [liftedTypeKind, alphaTy, betaTy]
+    ty        = mkInvForAllTys [alphaTyVar, betaTyVar] $
+                mkFunTys [eqRTy, alphaTy] betaTy
 
-    [eqR,x,eq] = mkTemplateLocals [eqRTy, aTy,eqRPrimTy]
-    rhs = mkLams [kv,a,b,eqR,x] $
-          mkWildCase (Var eqR) eqRTy bTy $
-          [(DataAlt coercibleDataCon, [eq], Cast (Var x) (mkCoVarCo eq))]
+    [eqR,x,eq] = mkTemplateLocals [eqRTy, alphaTy, eqRPrimTy]
+    rhs = mkLams [alphaTyVar, betaTyVar, eqR, x] $
+          mkWildCase (Var eqR) eqRTy betaTy $
+          [(DataAlt coercibleDataCon, [eq], Cast (Var x) (CoVarCo eq))]
 \end{code}
 
 Note [dollarId magic]
