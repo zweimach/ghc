@@ -1019,7 +1019,7 @@ substTyCoVarBndr2 env tv1 tv2
     
 zapTCvSubstEnv2 :: TCvSubst -> TCvSubst -> TCvSubst
 zapTCvSubstEnv2 env1 env2 = mkTCvSubst (is1 `unionInScope` is2)
-                                       emptyTvSubstEnv emptyCvSubstEnv
+                                       (emptyTvSubstEnv, emptyCvSubstEnv)
   where is1 = getTCvInScope env1
         is2 = getTCvInScope env2
 

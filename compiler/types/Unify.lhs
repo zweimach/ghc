@@ -876,7 +876,7 @@ niFixTCvSubst tenv cenv = f tenv cenv
           range_tvs     = foldVarEnv (unionVarSet . tyCoVarsOfType) emptyVarSet tenv
           range_cvs     = foldVarEnv (unionVarSet . tyCoVarsOfCo) emptyVarSet cenv
           all_range_tvs = closeOverKinds (range_tvs `unionVarSet` range_cvs)
-          subst         = mkTCvSubst (mkInScopeSet all_range_tvs) tenv cenv
+          subst         = mkTCvSubst (mkInScopeSet all_range_tvs) (tenv, cenv)
 
              -- env' extends env by replacing any free type with 
              -- that same tyvar with a substituted kind
@@ -885,7 +885,7 @@ niFixTCvSubst tenv cenv = f tenv cenv
                                                         substTy subst $ tyVarKind rtv)
                                                 | rtv <- varSetElems range_tvs
                                                 , not (in_domain rtv) ]
-          subst'        = mkTCvSubst (mkInScopeSet all_range_tvs) tenv' cenv
+          subst'        = mkTCvSubst (mkInScopeSet all_range_tvs) (tenv', cenv)
 
 niSubstTvSet :: TvSubstEnv -> CvSubstEnv -> TyCoVarSet -> TyCoVarSet
 -- Apply the non-idempotent substitution to a set of type variables,

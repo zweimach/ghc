@@ -505,7 +505,7 @@ tc_iface_decl parent _ (IfaceFamily {ifName = occ_name, ifTyVars = tv_bndrs,
                                      ifFamKind = kind })
    = bindIfaceTyVars_AT tv_bndrs $ \ tyvars -> do
      { tc_name  <- lookupIfaceTop occ_name
-     ; kind     <- tcIfaceKind kind        -- Note [Synonym kind loop]
+     ; kind     <- tcIfaceType kind        -- Note [Synonym kind loop]
      ; rhs      <- forkM (mk_doc tc_name) $
                    tc_fam_flav fam_flav
      ; let tycon = mkFamilyTyCon tc_name kind tyvars rhs parent

@@ -9,13 +9,7 @@
 module IfaceSyn (
         module IfaceType,
 
-<<<<<<< HEAD
-        IfaceDecl(..), IfaceSynTyConRhs(..), IfaceClassOp(..), IfaceAT(..), 
-||||||| merged common ancestors
-        IfaceDecl(..), IfaceSynTyConRhs(..), IfaceClassOp(..), IfaceAT(..),
-=======
         IfaceDecl(..), IfaceFamTyConFlav(..), IfaceClassOp(..), IfaceAT(..),
->>>>>>> 0511c0a
         IfaceConDecl(..), IfaceConDecls(..), IfaceEqSpec,
         IfaceExpr(..), IfaceAlt, IfaceLetBndr(..),
         IfaceBinding(..), IfaceConAlt(..),
@@ -145,6 +139,8 @@ data IfaceDecl
                   -- Everything below is redundant,
                   -- but needed to implement pprIfaceDecl
                   ifPatUnivTvs    :: [IfaceTvBndr],
+                    -- TODO (RAE): This next line is almost surely wrong,
+                    -- because existentials can be ids now!
                   ifPatExTvs      :: [IfaceTvBndr],
                   ifPatProvCtxt   :: IfaceContext,
                   ifPatReqCtxt    :: IfaceContext,
@@ -567,7 +563,7 @@ pprAxBranch pp_tc (IfaceAxBranch { ifaxbTyCoVars = tvs
                                  , ifaxbLHS = pat_tys
                                  , ifaxbRHS = rhs
                                  , ifaxbIncomps = incomps })
-  = hang (pprUserIfaceForAll (map to_forall_bndr tvs))
+  = hang (pprUserIfaceForAll (map bndr_to_forall_bndr tvs))
        2 (hang pp_lhs 2 (equals <+> ppr rhs))
     $+$
     nest 2 maybe_incomps
@@ -747,30 +743,18 @@ pprIfaceDecl ss (IfaceClass { ifATs = ats, ifSigs = sigs, ifRec = isrec
         | showSub ss sg = Just $  pprIfaceClassOp ss sg
         | otherwise     = Nothing
 
-<<<<<<< HEAD
-pprIfaceDecl ss (IfaceSyn { ifName    = tc
-                          , ifTyVars  = tv
-                          , ifSynRhs  = IfaceSynonymTyCon mono_ty
-                          , ifSynKind = kind })
+pprIfaceDecl ss (IfaceSynonym { ifName    = tc
+                              , ifTyVars  = tv
+                              , ifSynRhs  = mono_ty
+                              , ifSynKind = kind})
   = hang (ptext (sLit "type") <+> pprIfaceDeclHead [] ss tc kind tv <+> equals)
-||||||| merged common ancestors
-pprIfaceDecl ss (IfaceSyn { ifName   = tc
-                          , ifTyVars = tv
-                          , ifSynRhs = IfaceSynonymTyCon mono_ty })
-  = hang (ptext (sLit "type") <+> pprIfaceDeclHead [] ss tc tv <+> equals)
-=======
-pprIfaceDecl ss (IfaceSynonym { ifName   = tc
-                              , ifTyVars = tv
-                              , ifSynRhs = mono_ty })
-  = hang (ptext (sLit "type") <+> pprIfaceDeclHead [] ss tc tv <+> equals)
->>>>>>> 0511c0a
        2 (sep [pprIfaceForAll tvs, pprIfaceContextArr theta, ppr tau])
   where
     (tvs, theta, tau) = splitIfaceSigmaTy mono_ty
 
 pprIfaceDecl ss (IfaceFamily { ifName = tycon, ifTyVars = tyvars
                              , ifFamFlav = rhs, ifFamKind = kind })
-  = vcat [ hang (text "type family" <+> pprIfaceDeclHead [] ss tycon tyvars)
+  = vcat [ hang (text "type family" <+> pprIfaceDeclHead [] ss tycon kind tyvars)
               2 (text "Kind:" <+> ppr kind <+> ppShowRhs ss (pp_rhs rhs))
          , ppShowRhs ss (nest 2 (pp_branches rhs)) ]
   where
@@ -791,7 +775,7 @@ pprIfaceDecl _ (IfacePatSyn { ifName = name, ifPatBuilder = builder,
                               ifPatArgs = arg_tys,
                               ifPatTy = pat_ty} )
   = pprPatSynSig name is_bidirectional
-                 (pprUserIfaceForAll tvs)
+                 (pprUserIfaceForAll (map tv_to_forall_bndr tvs))
                  (pprIfaceContextMaybe prov_ctxt)
                  (pprIfaceContextMaybe req_ctxt)
                  (pprIfaceType ty)
@@ -900,8 +884,8 @@ pprIfaceConDecl ss gadt_style mk_user_con_res_ty
     pp_prefix_con = pprPrefixIfDeclBndr ss name
 
     (univ_tvs, pp_res_ty) = mk_user_con_res_ty eq_spec
-    ppr_ty = pprIfaceForAllPart (map (`IfaceTv` Invisible) univ_tvs ++
-                                 map to_forall_bndr ex_tvs)
+    ppr_ty = pprIfaceForAllPart (map tv_to_forall_bndr univ_tvs ++
+                                 map bndr_to_forall_bndr ex_tvs)
                                 ctxt pp_tau
 
         -- A bit gruesome this, but we can't form the full con_tau, and ppr it,
@@ -958,9 +942,12 @@ ppr_rough :: Maybe IfaceTyCon -> SDoc
 ppr_rough Nothing   = dot
 ppr_rough (Just tc) = ppr tc
 
-to_forall_bndr :: IfaceBndr -> IfaceForAllBndr
-to_forall_bndr (IfaceIdBndr cv) = IfaceCv cv
-to_forall_bndr (IfaceTvBndr tv) = IfaceTv tv Invisible
+bndr_to_forall_bndr :: IfaceBndr -> IfaceForAllBndr
+bndr_to_forall_bndr (IfaceIdBndr cv) = IfaceCv cv
+bndr_to_forall_bndr (IfaceTvBndr tv) = IfaceTv tv Invisible
+
+tv_to_forall_bndr :: IfaceTvBndr -> IfaceForAllBndr
+tv_to_forall_bndr tv = IfaceTv tv Invisible
 \end{code}
 
 Note [Result type of a data family GADT]

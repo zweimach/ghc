@@ -1366,8 +1366,8 @@ isEmptyTCvSubst :: TCvSubst -> Bool
          -- See Note [Extending the TvSubstEnv]
 isEmptyTCvSubst (TCvSubst _ tenv cenv) = isEmptyVarEnv tenv && isEmptyVarEnv cenv
 
-mkTCvSubst :: InScopeSet -> TvSubstEnv -> CvSubstEnv -> TCvSubst
-mkTCvSubst = TCvSubst
+mkTCvSubst :: InScopeSet -> (TvSubstEnv, CvSubstEnv) -> TCvSubst
+mkTCvSubst in_scope (tenv, cenv) = TCvSubst in_scope tenv cenv
 
 getTvSubstEnv :: TCvSubst -> TvSubstEnv
 getTvSubstEnv (TCvSubst _ env _) = env

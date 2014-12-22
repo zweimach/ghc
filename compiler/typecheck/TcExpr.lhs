@@ -398,7 +398,7 @@ tcExpr (ExplicitTuple tup_args boxity) res_ty
            { Boxed   -> newFlexiTyVarTys arity liftedTypeKind
            ; Unboxed -> replicateM arity newOpenFlexiTyVarTy }
        ; let actual_res_ty
-                 = mkFunTys [ty | (ty, Missing _) <- arg_tys `zip` tup_args]
+                 = mkFunTys [ty | (ty, (L _ (Missing _))) <- arg_tys `zip` tup_args]
                             (mkTupleTy (boxityNormalTupleSort boxity) arg_tys)
 
        ; coi <- unifyType actual_res_ty res_ty
@@ -1115,8 +1115,8 @@ tc_infer_id orig id_name
        --   * No need to deeply instantiate because type has all foralls at top
        = do { let wrap_id           = dataConWrapId con
                   (tvs, theta, rho) = tcSplitSigmaTy (idType wrap_id)
-            ; (subst, tvs') <- tcInstTyVars tvs
-            ; let tys'   = mkTyVarTys tvs'
+            ; (subst, tvs') <- tcInstTyCoVars orig tvs
+            ; let tys'   = mkTyCoVarTys tvs'
                   theta' = substTheta subst theta
                   rho'   = substTy subst rho
             ; wrap <- instCall orig tys' theta'

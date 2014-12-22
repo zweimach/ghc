@@ -21,6 +21,7 @@ module TcMType (
   newFlexiTyVarTys,             -- Int -> Kind -> TcM [TcType]
   newOpenFlexiTyVarTy,
   newReturnTyVar,
+  newOpenReturnTyVar,
   newMetaKindVar, newMetaKindVars,
   mkTcTyVarName, cloneMetaTyVar, 
 
@@ -73,7 +74,6 @@ import Type
 import Coercion
 import Class
 import Var
-import VarEnv
 
 -- others:
 import TcRnMonad        -- TcType, amongst others
@@ -524,6 +524,14 @@ newOpenFlexiTyVarTy
   = do { lev <- newFlexiTyVarTy levityTy
        ; newFlexiTyVarTy (tYPE lev) }
 
+-- | Create a *return* tyvar that can be a lifted or unlifted type.
+newOpenReturnTyVar :: TcM (TcTyVar, TcKind)
+newOpenReturnTyVar
+  = do { lev <- newFlexiTyVarTy levityTy  -- this doesn't need ReturnTv
+       ; let k = tYPE lev
+       ; tv <- newReturnTyVar k
+       ; return (tv, k) }
+
 tcInstTyCoVars :: CtOrigin -> [TyCoVar] -> TcM (TCvSubst, [TcTyCoVar])
 -- Instantiate with META type variables
 -- Note that this works for a sequence of kind, type, and coercion variables
@@ -720,7 +728,7 @@ skolemiseUnboundMetaTyVar tv details
     do  { span <- getSrcSpanM    -- Get the location from "here"
                                  -- ie where we are generalising
         ; uniq <- newUnique      -- Remove it from TcMetaTyVar unique land
-        ; kind <- zonkTcKind (tyVarKind tv)
+        ; kind <- zonkTcType (tyVarKind tv)
         ; let tv_name = getOccName tv
               new_tv_name = if isWildcardVar tv
                             then generaliseWildcardVarName tv_name
@@ -1162,7 +1170,7 @@ tidySkolemInfo env (InferSkol ids)
 tidySkolemInfo env (UnifyForAllSkol skol_tvs ty)
   = (env1, UnifyForAllSkol skol_tvs' ty')
   where
-    env1 = tidyFreeTyVars env (tyCoVarsOfType ty `delVarSetList` skol_tvs)
+    env1 = tidyFreeTyCoVars env (tyCoVarsOfType ty `delVarSetList` skol_tvs)
     (env2, skol_tvs') = tidyTyCoVarBndrs env1 skol_tvs
     ty'               = tidyType env2 ty
 

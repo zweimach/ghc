@@ -141,6 +141,8 @@ data TcSigInfo
   = TcSigInfo {
         sig_id     :: TcId,         --  *Polymorphic* binder for this value...
 
+          -- TODO (RAE): Understand this better. I have a nagging feeling we
+          -- need visibility information around here.
         sig_tvs    :: [(Maybe Name, TcTyCoVar)],    
                            -- Instantiated type and kind variables
                            -- Just n <=> this skolem is lexically in scope with name n
@@ -172,7 +174,7 @@ data TcPatSynInfo
   = TPSI {
         patsig_name  :: Name,
         patsig_tau   :: TcSigmaType,
-        patsig_ex    :: [TcTyVar],
+        patsig_ex    :: [TcTyVar],   -- TODO (RAE): allow covars here?
         patsig_prov  :: TcThetaType,
         patsig_univ  :: [TcTyVar],
         patsig_req   :: TcThetaType

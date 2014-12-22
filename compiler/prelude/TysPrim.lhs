@@ -339,16 +339,14 @@ tYPETyCon = mkKindTyCon tYPETyConName
                         [Nominal]
 
    -- See Note [TYPE]
-liftedTypeKindTyCon   = mkSynTyCon liftedTypeKindTyConName
-                                   liftedTypeKind
-                                   [] []
-                                   (SynonymTyCon (tYPE liftedDataConTy))
-                                   NoParentTyCon
-unliftedTypeKindTyCon = mkSynTyCon unliftedTypeKindTyConName
-                                   liftedTypeKind
-                                   [] []
-                                   (SynonymTyCon (tYPE unliftedDataConTy))
-                                   NoParentTyCon
+liftedTypeKindTyCon   = mkSynonymTyCon liftedTypeKindTyConName
+                                       liftedTypeKind
+                                       [] []
+                                       (tYPE liftedDataConTy)
+unliftedTypeKindTyCon = mkSynonymTyCon unliftedTypeKindTyConName
+                                       liftedTypeKind
+                                       [] []
+                                       (tYPE unliftedDataConTy)
 
 --------------------------
 -- ... and now their names

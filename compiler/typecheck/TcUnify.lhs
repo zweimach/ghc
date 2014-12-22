@@ -436,10 +436,11 @@ tc_sub_type_ds origin ctxt ty_actual ty_expected
            -- arg_wrap :: exp_arg ~ act_arg
            -- res_wrap :: act-res ~ exp_res
 
+     -- TODO (RAE): Does this work with contravariance in forall types?
   | (tvs, theta, in_rho) <- tcSplitSigmaTy ty_actual
   , not (null tvs && null theta)
-  = do { (subst, tvs') <- tcInstTyVars tvs
-       ; let tys'    = mkTyVarTys tvs'
+  = do { (subst, tvs') <- tcInstTyCoVars origin tvs
+       ; let tys'    = mkTyCoVarTys tvs'
              theta'  = substTheta subst theta
              in_rho' = substTy subst in_rho
        ; in_wrap   <- instCall origin tys' theta'
@@ -476,14 +477,14 @@ wrapFunResCoercion arg_tys co_fn_res
 -- which can unify with *anything*. See also Note [ReturnTv] in TcType
 tcInfer :: (TcType -> TcM a) -> TcM (a, TcType)
 tcInfer tc_check
-  = do { ret_tv  <- newReturnTyVar openTypeKind
-       ; res <- tc_check (mkTyVarTy ret_tv)
+  = do { (ret_tv, ret_kind) <- newOpenReturnTyVar
+       ; res <- tc_check (mkOnlyTyVarTy ret_tv)
        ; details <- readMetaTyVar ret_tv
        ; res_ty <- case details of
             Indirect ty -> return ty
             Flexi ->    -- Checking was uninformative
                      do { traceTc "Defaulting un-filled ReturnTv to a TauTv" (ppr ret_tv)
-                        ; tau_ty <- newFlexiTyVarTy openTypeKind
+                        ; tau_ty <- newFlexiTyVarTy ret_kind
                         ; writeMetaTyVar ret_tv tau_ty
                         ; return tau_ty }
        ; return (res, res_ty) }
@@ -1008,27 +1009,10 @@ checkTauTvUpdate dflags tv ty
     defer_me (CastTy ty co)    = defer_me ty || defer_me_co co
     defer_me (CoercionTy co)   = defer_me_co co
 
-    defer_me_co (Refl _ ty)          = defer_me ty
-    defer_me_co (TyConAppCo _ tc args)= isSynFamilyTyCon tc
-                                       || any defer_me_arg args
-    defer_me_co (AppCo co arg)       = defer_me_co co || defer_me_arg arg
-    defer_me_co (ForAllCo _ co)      = not impredicative || defer_me_co co
-    defer_me_co (CoVarCo _)          = False
-    defer_me_co (AxiomInstCo _ _ as) = any defer_me_arg as
-    defer_me_co (PhantomCo h t1 t2)  = defer_me_co h || defer_me t1 || defer_me t2
-    defer_me_co (UnsafeCo _ ty1 ty2) = defer_me ty1 || defer_me ty2
-    defer_me_co (SymCo co)           = defer_me_co co
-    defer_me_co (TransCo co1 co2)    = defer_me_co co1 || defer_me_co co2
-    defer_me_co (NthCo _ co)         = defer_me_co co
-    defer_me_co (LRCo _ co)          = defer_me_co co
-    defer_me_co (InstCo co arg)      = defer_me_co co || defer_me_arg arg
-    defer_me_co (CoherenceCo c1 c2)  = defer_me_co c1 || defer_me_co c2
-    defer_me_co (KindCo co)          = defer_me_co co
-    defer_me_co (SubCo co)           = defer_me_co co
-    defer_me_co (AxiomRuleCo _ ts cs)= any defer_me ts || any defer_me_co cs
+      -- We don't really care if there are type families in a coercion,
+      -- but we still can't have an occurs-check failure
+    defer_me_co co = tv `elemVarSet` tyCoVarsOfCo co
 
-    defer_me_arg (TyCoArg co)        = defer_me_co co
-    defer_me_arg (CoCoArg _ co1 co2) = defer_me_co co1 || defer_me_co co2
 \end{code}
 
 Note [Conservative unification check]

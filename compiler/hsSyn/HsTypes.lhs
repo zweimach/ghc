@@ -17,7 +17,6 @@ HsTypes: Abstract syntax: user-defined types
 
 module HsTypes (
         HsType(..), LHsType, HsKind, LHsKind,
-        HsTyOp,LHsTyOp,
         HsTyVarBndr(..), LHsTyVarBndr, 
         LHsTyVarBndrs(..),
         HsWithBndrs(..),

@@ -17,6 +17,7 @@ import TcRnMonad
 import TcEnv
 import TcMType
 import TysPrim
+import TysWiredIn  ( levityTy )
 import Name
 import SrcLoc
 import PatSyn
@@ -96,7 +97,7 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
        ; traceTc "tcInferPatSynDecl }" $ ppr name
        ; tc_patsyn_finish lname dir is_infix lpat'
                           (univ_tvs, req_theta, ev_binds, req_dicts)
-                          (ex_tvs, map mkTyVarTy ex_tvs, prov_theta, emptyTcEvBinds, prov_dicts)
+                          (ex_tvs, map mkTyCoVarTy ex_tvs, prov_theta, emptyTcEvBinds, prov_dicts)
                           (zip args $ repeat idHsWrapper)
                           pat_ty }
 
@@ -141,9 +142,9 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
            checkConstraints skol_info univ_tvs req_dicts $
            tcPat PatSyn lpat pat_ty $ do
            { ex_sigtvs <- mapM (\tv -> newSigTyVar (getName tv) (tyVarKind tv)) ex_tvs
-           ; let subst = mkTvSubst (mkInScopeSet (zipVarEnv ex_sigtvs ex_sigtvs)) $
-                         zipTyEnv ex_tvs (map mkTyVarTy ex_sigtvs)
-           ; let ex_tys = substTys subst $ map mkTyVarTy ex_tvs
+           ; let subst = mkTCvSubst (mkInScopeSet (zipVarEnv ex_sigtvs ex_sigtvs)) $
+                         zipTyCoEnv ex_tvs (map mkTyCoVarTy ex_sigtvs)
+           ; let ex_tys = substTys subst $ map mkTyCoVarTy ex_tvs
                  prov_theta' = substTheta subst prov_theta
            ; wrapped_args <- forM (zipEqual "tcCheckPatSynDecl" arg_names arg_tys) $ \(arg_name, arg_ty) -> do
                { arg <- tcLookupId arg_name
@@ -258,7 +259,7 @@ tcPatSynMatcher (L loc name) lpat
        ; fail         <- newSysLocalId (fsLit "fail")  fail_ty
 
        ; let matcher_tau   = mkFunTys [pat_ty, cont_ty, fail_ty] res_ty
-             matcher_sigma = mkSigmaTy (res_tv:univ_tvs) req_theta matcher_tau
+             matcher_sigma = mkInvSigmaTy (res_tv:univ_tvs) req_theta matcher_tau
              matcher_id    = mkVanillaGlobal matcher_name matcher_sigma
 
              cont_dicts = map nlHsVar prov_dicts
@@ -331,7 +332,7 @@ mkPatSynBuilderId dir  (L _ name) qtvs theta arg_tys pat_ty
   = return Nothing
   | otherwise
   = do { builder_name <- newImplicitBinder name mkDataConWorkerOcc
-       ; let builder_sigma = mkSigmaTy qtvs theta (mkFunTys builder_arg_tys pat_ty)
+       ; let builder_sigma = mkInvSigmaTy qtvs theta (mkFunTys builder_arg_tys pat_ty)
              builder_id    = mkVanillaGlobal builder_name builder_sigma
        ; return (Just (builder_id, need_dummy_arg)) }
   where

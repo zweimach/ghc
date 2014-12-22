@@ -746,7 +746,7 @@ addBndrRules env in_id out_id
 \begin{code}
 getTCvSubst :: SimplEnv -> TCvSubst
 getTCvSubst (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv_env })
-  = mkTCvSubst in_scope tv_env cv_env
+  = mkTCvSubst in_scope (tv_env, cv_env)
 
 substTy :: SimplEnv -> Type -> Type
 substTy env ty = Type.substTy (getTCvSubst env) ty

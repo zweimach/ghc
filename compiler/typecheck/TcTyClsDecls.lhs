@@ -619,7 +619,7 @@ tcTyClDecl1 _parent rec_info
       | otherwise
       = Nothing
 
-    count_bndrs (HsForAllTy _ local_tvbs _ ty)
+    count_bndrs (HsForAllTy _ _ local_tvbs _ ty)
          -- can't be any implicit tyvars here!
       = length (hsQTvExplicit local_tvbs) + count_bndrs (unLoc ty)
     count_bndrs (HsFunTy _ ty)   = 1 + count_bndrs (unLoc ty)
@@ -780,7 +780,7 @@ tcDataDefn rec_info tc_name tvs tycon_kind res_kind
                      , dd_ctxt = ctxt, dd_kindSig = mb_ksig
                      , dd_cons = cons' })
  = let cons = cons' -- AZ List monad coming
-   in do { extra_tvs <- tcDataKindSig kind
+   in do { extra_tvs <- tcDataKindSig res_kind
        ; let final_tvs  = tvs `chkAppend` extra_tvs
              roles      = rti_roles rec_info tc_name
        ; stupid_tc_theta <- tcHsContext ctxt

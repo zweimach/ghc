@@ -1141,14 +1141,16 @@ coerceId = pcMiscPrelId coerceName ty info
     info = noCafIdInfo `setInlinePragInfo` alwaysInlinePragma
                        `setUnfoldingInfo`  mkCompulsoryUnfolding rhs
     eqRTy     = mkTyConApp coercibleTyCon  [liftedTypeKind, alphaTy, betaTy]
-    eqRPrimTy = mkTyConApp eqReprPrimTyCon [liftedTypeKind, alphaTy, betaTy]
+    eqRPrimTy = mkTyConApp eqReprPrimTyCon [ liftedTypeKind
+                                           , liftedTypeKind
+                                           , alphaTy, betaTy ]
     ty        = mkInvForAllTys [alphaTyVar, betaTyVar] $
                 mkFunTys [eqRTy, alphaTy] betaTy
 
     [eqR,x,eq] = mkTemplateLocals [eqRTy, alphaTy, eqRPrimTy]
     rhs = mkLams [alphaTyVar, betaTyVar, eqR, x] $
           mkWildCase (Var eqR) eqRTy betaTy $
-          [(DataAlt coercibleDataCon, [eq], Cast (Var x) (CoVarCo eq))]
+          [(DataAlt coercibleDataCon, [eq], Cast (Var x) (mkCoVarCo eq))]
 \end{code}
 
 Note [dollarId magic]

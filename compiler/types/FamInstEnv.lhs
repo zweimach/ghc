@@ -1184,8 +1184,8 @@ emptyFlattenEnv :: InScopeSet -> FlattenEnv
 emptyFlattenEnv in_scope
   = FlattenEnv { fe_type_map = emptyTypeMap
                , fe_in_scope = in_scope
-               , fe_subst    = mkTCvSubst in_scope emptyTvSubstEnv
-                                                   emptyCvSubstEnv }
+               , fe_subst    = mkTCvSubst in_scope ( emptyTvSubstEnv
+                                                   , emptyCvSubstEnv ) }
 
 -- See Note [Flattening]
 flattenTys :: InScopeSet -> [Type] -> [Type]

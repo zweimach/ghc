@@ -586,20 +586,19 @@ tc_hs_type ty@(HsOpTy {})    ek = tc_infer_hs_type_ek ty ek
 tc_hs_type ty@(HsKindSig {}) ek = tc_infer_hs_type_ek ty ek
 tc_hs_type ty@(HsCoreTy {})  ek = tc_infer_hs_type_ek ty ek
 
--- | Call 'tc_infer_hs_type' and check its result against an expected kind.
-tc_infer_hs_type_ek :: HsType Name -> ExpKind -> TcM TcType
-tc_infer_hs_type_ek ty ek
-  = do { (ty', k) <- tc_infer_hs_type ty
-       ; checkExpectedKind ty ty' k ek }
-
-
 tc_hs_type HsWildcardTy _ = panic "tc_hs_type HsWildcardTy"
 -- unnamed wildcards should have been replaced by named wildcards
 
 tc_hs_type hs_ty@(HsNamedWildcardTy name) exp_kind
   = do { (ty, k) <- tcTyVar name
-       ; checkExpectedKind hs_ty k exp_kind
-       ; return ty }
+       ; checkExpectedKind hs_ty ty k exp_kind }
+
+---------------------------
+-- | Call 'tc_infer_hs_type' and check its result against an expected kind.
+tc_infer_hs_type_ek :: HsType Name -> ExpKind -> TcM TcType
+tc_infer_hs_type_ek ty ek
+  = do { (ty', k) <- tc_infer_hs_type ty
+       ; checkExpectedKind ty ty' k ek }
 
 ---------------------------
 tupKindSort_maybe :: TcKind -> Maybe TupleSort

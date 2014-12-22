@@ -119,6 +119,6 @@ tyConsOfTypes = unionManyUniqSets . map tyConsOfType
 -- |Collect the set of TyCons that occur in this type.
 --
 tyConsOfType :: Type -> UniqSet TyCon
-tyConsOfType ty = filterUniqSet not_tuple_or_unlifted $ mkUniqSet (Type.tyConsOfType ty)
+tyConsOfType ty = filterUniqSet not_tuple_or_unlifted $ Type.tyConsOfType ty
   where not_tuple_or_unlifted tc = not (isUnLiftedTyCon tc || isTupleTyCon tc)
 

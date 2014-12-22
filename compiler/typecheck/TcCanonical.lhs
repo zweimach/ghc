@@ -23,7 +23,6 @@ import Control.Monad    ( when )
 import DynFlags( DynFlags )
 import VarSet
 
-import Data.Maybe ( maybeToList )
 import Util
 import BasicTypes
 \end{code}
@@ -901,8 +900,7 @@ homogeniseRhsKind (ContinueWith ev) lhs rhs build_ct
            Cached -> stopWith ev  "cached homogenized equality" }
 
   | otherwise   -- CtDerived {} <- ev
-  = do { mb_ctev <- newDerived kind_loc kind_pty
-       ; emitWorkNC $ maybeToList mb_ctev
+  = do { emitNewDerived kind_loc kind_pty
        ; continueWith (CIrredEvCan { cc_ev = ev }) }
            -- we don't have a name for the kind-level CtDerived,
            -- so we can't homogenise. Oh well.

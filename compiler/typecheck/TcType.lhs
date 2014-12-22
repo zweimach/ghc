@@ -179,7 +179,6 @@ import Maybes
 import ListSetOps
 import Outputable
 import FastString
-import Pair
 import ErrUtils( Validity(..), isValid )
 
 import Data.IORef
@@ -573,8 +572,6 @@ pprSigCtxt ctxt extra pp_ty
 
 %************************************************************************
 %*                  *
-
-
     Finding type family instances
 %*                  *
 %************************************************************************
@@ -593,42 +590,9 @@ tcTyFamInsts (LitTy {})         = []
 tcTyFamInsts (ForAllTy bndr ty) = tcTyFamInsts (binderType bndr)
                                   ++ tcTyFamInsts ty
 tcTyFamInsts (AppTy ty1 ty2)    = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
-tcTyFamInsts (CastTy ty co)     = tcTyFamInsts ty ++ tcTyFamInstsCo co
-tcTyFamInsts (CoercionTy co)    = tcTyFamInstsCo co
-
-tcTyFamInstsCo :: Coercion -> [(TyCon, [Type])]
-tcTyFamInstsCo = go
-  where
-    go (Refl _ ty)           = tcTyFamInsts ty
-    go co@(TyConAppCo _ tc args)
-      | isSynFamilyTyCon tc  = let Pair tyl tyr = coercionKind co
-                                   (_tc1, tysl) = splitTyConApp tyl
-                                   (_tc2, tysr) = splitTyConApp tyr in
-                               ASSERT( tc == _tc1 && tc == _tc2 )
-                               [(tc, tysl), (tc, tysr)]
-      | otherwise            = concatMap go_arg args
-    go (AppCo co arg)        = go co ++ go_arg arg
-    go (ForAllCo cobndr co)
-      | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
-                             = go h ++ go co
-      | otherwise            = go co
-    go (CoVarCo _)           = []
-    go (AxiomInstCo _ _ cos) = concatMap go_arg cos
-    go (PhantomCo h ty1 ty2) = go h ++ tcTyFamInsts ty1 ++ tcTyFamInsts ty2
-    go (UnsafeCo _ ty1 ty2)  = tcTyFamInsts ty1 ++ tcTyFamInsts ty2
-    go (SymCo co)            = go co
-    go (TransCo co1 co2)     = go co1 ++ go co2
-    go (NthCo _ co)          = go co
-    go (LRCo _ co)           = go co
-    go (InstCo co arg)       = go co ++ go_arg arg
-    go (CoherenceCo co1 co2) = go co1 ++ go co2
-    go (KindCo co)           = go co
-    go (SubCo co)            = go co
-    go (AxiomRuleCo _ ts cs) = concatMap tcTyFamInsts ts ++ concatMap go cs
-
-    go_arg (TyCoArg co)        = go co
-    go_arg (CoCoArg _ co1 co2) = go co1 ++ go co2
-
+tcTyFamInsts (CastTy ty _)      = tcTyFamInsts ty
+tcTyFamInsts (CoercionTy _)     = []  -- don't count tyfams in coercions,
+                                      -- as they never get normalized, anyway
 \end{code}
 
 %************************************************************************
@@ -1691,9 +1655,9 @@ isSigmaTy _                       = False
 
 isRhoTy :: TcType -> Bool   -- True of TcRhoTypes; see Note [TcRhoType]
 isRhoTy ty | Just ty' <- tcView ty = isRhoTy ty'
-isRhoTy (ForAllTy {}) = False
-isRhoTy (FunTy a r)   = not (isPredTy a) && isRhoTy r
-isRhoTy _             = True
+isRhoTy (ForAllTy (Named {}) _) = False
+isRhoTy (ForAllTy (Anon a) r)   = not (isPredTy a) && isRhoTy r
+isRhoTy _                       = True
 
 isOverloadedTy :: Type -> Bool
 -- Yes for a type of a function that might require evidence-passing
@@ -1789,7 +1753,7 @@ orphNamesOfCo (TyConAppCo _ tc cos) = unitNameSet (getName tc) `unionNameSet` or
 orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSet` orphNamesOfCoArg co2
 orphNamesOfCo (ForAllCo cobndr co)
   | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
-  = orphNamesOfCo h `unionNameSets` orphNamesOfCo co
+  = orphNamesOfCo h `unionNameSet` orphNamesOfCo co
   | otherwise
   = orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
@@ -1812,7 +1776,7 @@ orphNamesOfCos = orphNamesOfThings orphNamesOfCo
 
 orphNamesOfCoArg :: CoercionArg -> NameSet
 orphNamesOfCoArg (TyCoArg co)        = orphNamesOfCo co
-orphNamesOfCoArg (CoCoArg _ co1 co2) = orphNamesOfCo co1 `unionNameSets` orphNamesOfCo co2
+orphNamesOfCoArg (CoCoArg _ co1 co2) = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 
 orphNamesOfCoArgs :: [CoercionArg] -> NameSet
 orphNamesOfCoArgs = orphNamesOfThings orphNamesOfCoArg

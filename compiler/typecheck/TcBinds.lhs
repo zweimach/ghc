@@ -1393,10 +1393,10 @@ tcTySig (L loc (PatSynSig (L _ name) (_, qtvs) prov req ty))
        ; req' <- tcHsContext req
        ; prov' <- tcHsContext prov
 
-       ; qtvs' <- mapM zonkQuantifiedTyVar qtvs'
+       ; qtvs' <- mapMaybeM zonkQuantifiedTyCoVar qtvs'
 
        ; let (_, pat_ty) = tcSplitFunTys ty'
-             univ_set = tyVarsOfType pat_ty
+             univ_set = tyCoVarsOfType pat_ty
              (univ_tvs, ex_tvs) = partition (`elemVarSet` univ_set) qtvs'
 
        ; traceTc "tcTySig }" $ ppr (ex_tvs, prov') $$ ppr (univ_tvs, req') $$ ppr ty'
@@ -1632,6 +1632,7 @@ typeSigCtxt name (TcSigInfo { sig_id = _id, sig_tvs = tvs
                             , sig_extra_cts = extra_cts })
   = sep [ text "In" <+> pprUserTypeCtxt (FunSigCtxt name) <> colon
         , nest 2 (pprSigmaTypeExtraCts (isJust extra_cts)
-                  (mkSigmaTy (map snd tvs) theta tau)) ]
+                    -- TODO (RAE): Should these always be invisible?
+                  (mkInvSigmaTy (map snd tvs) theta tau)) ]
 
 \end{code}

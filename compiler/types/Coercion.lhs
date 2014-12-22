@@ -1742,7 +1742,7 @@ liftEnvSubstRight = liftEnvSubst pSnd
 
 liftEnvSubst :: (forall a. Pair a -> a) -> InScopeSet -> LiftCoEnv -> TCvSubst
 liftEnvSubst fn in_scope lc_env
-  = mkTCvSubst in_scope tenv cenv
+  = mkTCvSubst in_scope (tenv, cenv)
   where
     (tenv0, cenv0) = partitionVarEnv isTyCoArg lc_env
     tenv           = mapVarEnv (fn . coercionKind . stripTyCoArg) tenv0

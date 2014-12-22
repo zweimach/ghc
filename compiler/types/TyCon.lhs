@@ -27,7 +27,6 @@ module TyCon(
         mkSynonymTyCon,
         mkFamilyTyCon,
         mkPromotedDataCon,
-        mkPromotedTyCon,
 
         -- ** Predicates on TyCons
         isAlgTyCon,

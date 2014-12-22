@@ -522,7 +522,7 @@ tcClsInstDecl (L loc (ClsInstDecl { cid_poly_ty = poly_ty, cid_binds = binds
         ; (tyvars, theta, clas, inst_tys) <- tcHsInstHead InstDeclCtxt poly_ty
         ; let mini_env   = mkVarEnv (classTyVars clas `zip` inst_tys)
               mini_subst = mkTCvSubst (mkInScopeSet (mkVarSet tyvars))
-                                      mini_env emptyCvSubstEnv
+                                      (mini_env, emptyCvSubstEnv)
               mb_info    = Just (clas, mini_env)
                            
         -- Next, process any associated types.

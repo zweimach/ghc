@@ -189,8 +189,7 @@ checkValidType ctxt ty
        ; traceTc "checkValidType done" (ppr ty <+> text "::" <+> ppr (typeKind ty)) }
 
 checkValidMonoType :: Type -> TcM ()
-checkValidMonoType ty = check_mono_type SigmaCtxt MustBeMonoType ty
-
+checkValidMonoType ty = check_type SigmaCtxt MustBeMonoType ty
 
 check_kind :: UserTypeCtxt -> TcType -> TcM ()
 -- Check that the type's kind is acceptable for the context
@@ -263,12 +262,10 @@ forAllAllowed (LimitedRank forall_ok _) = forall_ok
 forAllAllowed _                         = False
 
 ----------------------------------------
-check_mono_type :: UserTypeCtxt -> Rank
-                -> KindOrType -> TcM () -- No foralls anywhere
-                                        -- No unlifted types of any kind
-check_mono_type ctxt rank ty
-  = do { check_type ctxt rank ty
-       ; checkTc (not (isUnLiftedType ty)) (unliftedArgErr ty) }
+-- | Fail with error message if the type is unlifted
+check_lifted :: Type -> TcM ()
+check_lifted ty
+  = checkTc (not (isUnLiftedType ty)) (unliftedArgErr ty)
 
 check_type :: UserTypeCtxt -> Rank -> Type -> TcM ()
 -- The args say what the *type context* requires, independent
@@ -350,7 +347,7 @@ check_syn_tc_app ctxt rank ty tc tys
     n_args = length tys
     tc_arity  = tyConArity tc
     check_arg | isTypeFamilyTyCon tc = check_arg_type  ctxt rank
-              | otherwise            = check_mono_type ctxt synArgMonoType
+              | otherwise            = check_type      ctxt synArgMonoType
          
 ----------------------------------------
 check_ubx_tuple :: UserTypeCtxt -> KindOrType 
@@ -398,7 +395,7 @@ check_arg_type ctxt rank ty
                         -- and so that if it Must be a monotype, we check that it is!
 
         ; check_type ctxt rank' ty
-        ; checkTc (not (isUnLiftedType ty)) (unliftedArgErr ty) }
+        ; check_lifted ty }
              -- NB the isUnLiftedType test also checks for 
              --    T State#
              -- where there is an illegal partial application of State# (which has
@@ -829,6 +826,10 @@ checkValidInstHead ctxt clas cls_args
         --      E.g.  instance C (forall a. a->a) is rejected
         -- One could imagine generalising that, but I'm not sure
         -- what all the consequences might be
+
+         -- We can't have unlifted type arguments.
+         -- check_arg_type is redundant with checkValidMonoType
+       ; mapM_ check_lifted ty_args
        }
 
   where
@@ -1161,7 +1162,9 @@ checkValidTyFamInst mb_clsinfo fam_tc
          --             type instance F Int              = Int#
          -- See Trac #9357
        ; mapM_ checkValidMonoType typats
+       ; mapM_ check_lifted typats
        ; checkValidMonoType rhs
+       ; check_lifted rhs
 
          -- We have a decidable instance unless otherwise permitted
        ; undecidable_ok <- xoptM Opt_UndecidableInstances

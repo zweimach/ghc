@@ -1213,15 +1213,15 @@ zonkRule env (HsRule name act (vars{-::[RuleBndr TcId]-}) lhs fv_lhs rhs fv_rhs)
 
      -- returns the set of type variables mentioned in the kind of another
      -- type. This is used only when -XPolyKinds is not set.
-   identify_kind_vars :: [RuleBndr TcId] -> TyVarSet
+   identify_kind_vars :: [LRuleBndr TcId] -> TyVarSet
    identify_kind_vars rule_bndrs
      = let vars = map strip_rulebndr rule_bndrs in
        unionVarSets (map (\v -> if isTyVar v
                                 then tyCoVarsOfType (tyVarKind v)
                                 else emptyVarSet) vars)
 
-   strip_rulebndr (RuleBndr (L _ v)) = v
-   strip_rulebndr (RuleBndrSig {})   = panic "strip_rulebndr zonkRule"
+   strip_rulebndr (L _ (RuleBndr (L _ v))) = v
+   strip_rulebndr (L _ (RuleBndrSig {}))   = panic "strip_rulebndr zonkRule"
 \end{code}
 
 \begin{code}

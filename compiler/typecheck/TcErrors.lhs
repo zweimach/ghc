@@ -1163,9 +1163,11 @@ mk_dict_err fam_envs ctxt (ct, (matches, unifiers, safe_haskell))
     type_has_arrow (TyVarTy _)      = False
     type_has_arrow (AppTy t1 t2)    = type_has_arrow t1 || type_has_arrow t2
     type_has_arrow (TyConApp _ ts)  = or $ map type_has_arrow ts
-    type_has_arrow (FunTy _ _)      = True
-    type_has_arrow (ForAllTy _ t)   = type_has_arrow t
+    type_has_arrow (ForAllTy (Anon _) _)   = True
+    type_has_arrow (ForAllTy (Named {}) t) = type_has_arrow t
     type_has_arrow (LitTy _)        = False
+    type_has_arrow (CastTy t _)     = type_has_arrow t
+    type_has_arrow (CoercionTy _)   = False
 
     drv_fixes = case orig of
                    DerivOrigin      -> [drv_fix]

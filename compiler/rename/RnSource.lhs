@@ -546,9 +546,10 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
                     ; let bad_tvs = case mb_cls of
                                       Nothing           -> []
                                       Just (_,cls_tkvs) -> filter is_bad cls_tkvs
+                          var_name_set = mkNameSet var_names
 
                           is_bad cls_tkv = cls_tkv `elemNameSet` rhs_fvs
-                                        && not (cls_tkv `elemNameSet` var_names)
+                                        && not (cls_tkv `elemNameSet` var_name_set)
 
                     ; unless (null bad_tvs) (badAssocRhs bad_tvs)
                     ; return ((pats', payload'), rhs_fvs `plusFV` pat_fvs) }
@@ -556,7 +557,7 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
 
        ; let all_fvs = fvs `addOneFV` unLoc tycon'
        ; return (tycon',
-                 HsWB { hswb_cts = pats', hswb_vars = var_names,
+                 HsWB { hswb_cts = pats', hswb_vars = var_names
                       , hswb_wcs = [] },
                  payload',
                  all_fvs) }
