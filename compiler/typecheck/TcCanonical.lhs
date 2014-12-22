@@ -863,11 +863,13 @@ homogeniseRhsKind (ContinueWith ev) lhs rhs build_ct
                                        (EvCoercion $
                                         mkTcKindCo $ evTermCoercion tm)
            -- kind_ev_id :: (k1 :: *) ~# (k2 :: *)
-       ; let kind_ev = CtGiven { ctev_pred = varType kind_ev_id
+       ; let kind_ev = CtGiven { ctev_pred = kind_pty
                                , ctev_evtm = EvId kind_ev_id
                                , ctev_loc  = kind_loc }
              homo_co = mkSymCo $ mkCoVarCo kind_ev_id
              rhs'    = mkCastTy rhs homo_co
+       ; traceTcS "Hetero equality gives rise to given kind equality"
+           (ppr kind_ev_id <+> dcolon <+> ppr kind_pty)
        ; emitWorkNC [kind_ev]
        ; type_ev <- newGivenEvVar loc
                       ( mkTcEqPredLikeEv ev lhs rhs'
@@ -879,6 +881,8 @@ homogeniseRhsKind (ContinueWith ev) lhs rhs build_ct
   | CtWanted { ctev_evar = evar } <- ev
     -- evar :: (lhs :: k1) ~ (rhs :: k2)
   = do { kind_ev <- newWantedEvVar kind_loc kind_pty
+       ; traceTcS "Hetero equality gives rise to wanted kind equality"
+           (ppr (fst kind_ev))
        ; emitWorkNC $ freshGoals [kind_ev]
        ; let kind_evt = ctEvTerm $ fst kind_ev
        ; kind_ev_id <- newBoundEvVarId kind_pty kind_evt
