@@ -273,6 +273,7 @@ data TcGblEnv
           -- ^ The set of orphan modules which transitively reachable from
           -- direct imports.  We use this to figure out if an orphan instance
           -- in the global InstEnv should be considered visible.
+          -- See Note [Instance lookup and orphan instances] in InstEnv
 
                 -- Now a bunch of things about this module that are simply
                 -- accumulated, but never consulted until the end.
@@ -540,7 +541,7 @@ data TcLclEnv           -- Changes as we move inside an expression
   = TcLclEnv {
         tcl_loc        :: SrcSpan,         -- Source span
         tcl_ctxt       :: [ErrCtxt],       -- Error context, innermost on top
-        tcl_untch      :: Untouchables,    -- Birthplace for new unification variables
+        tcl_tclvl      :: TcLevel,    -- Birthplace for new unification variables
 
         tcl_th_ctxt    :: ThStage,         -- Template Haskell context
         tcl_th_bndrs   :: ThBindEnv,       -- Binding level of in-scope Names
@@ -1352,7 +1353,7 @@ ppr_bag doc bag
 \begin{code}
 data Implication
   = Implic {
-      ic_untch :: Untouchables, -- Untouchables: unification variables
+      ic_tclvl :: TcLevel, -- TcLevel: unification variables
                                 -- free in the environment
 
       ic_skols  :: [TcTyCoVar],  -- Introduced skolems
@@ -1378,12 +1379,12 @@ data Implication
     }
 
 instance Outputable Implication where
-  ppr (Implic { ic_untch = untch, ic_skols = skols
+  ppr (Implic { ic_tclvl = tclvl, ic_skols = skols
               , ic_given = given, ic_no_eqs = no_eqs
               , ic_wanted = wanted, ic_insol = insol
               , ic_binds = binds, ic_info = info })
    = hang (ptext (sLit "Implic") <+> lbrace)
-        2 (sep [ ptext (sLit "Untouchables =") <+> ppr untch
+        2 (sep [ ptext (sLit "TcLevel =") <+> ppr tclvl
                , ptext (sLit "Skolems =") <+> pprTCvBndrs skols
                , ptext (sLit "No-eqs =") <+> ppr no_eqs
                , ptext (sLit "Insol =") <+> ppr insol
@@ -1671,12 +1672,12 @@ data CtLoc = CtLoc { ctl_origin :: CtOrigin
   --    source location:  tcl_loc   :: SrcSpan
   --    context:          tcl_ctxt  :: [ErrCtxt]
   --    binder stack:     tcl_bndrs :: [TcIdBinders]
-  --    level:            tcl_untch :: Untouchables
+  --    level:            tcl_tclvl :: TcLevel
 
-mkGivenLoc :: Untouchables -> SkolemInfo -> TcLclEnv -> CtLoc
-mkGivenLoc untch skol_info env 
+mkGivenLoc :: TcLevel -> SkolemInfo -> TcLclEnv -> CtLoc
+mkGivenLoc tclvl skol_info env 
   = CtLoc { ctl_origin = GivenOrigin skol_info
-          , ctl_env    = env { tcl_untch = untch }
+          , ctl_env    = env { tcl_tclvl = tclvl }
           , ctl_depth  = initialSubGoalDepth }
 
 mkKindLoc :: TcType -> TcType -> CtLoc -> CtLoc
