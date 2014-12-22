@@ -1,4 +1,3 @@
-\begin{code}
 module TyCoRep where
 
 import Outputable (Outputable)
@@ -15,5 +14,4 @@ type PredType = Type
 type Kind = Type
 
 instance Outputable Type
-\end{code}
 

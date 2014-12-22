@@ -1,11 +1,8 @@
-%
-% (c) The University of Glasgow 2006
-% (c) The GRASP/AQUA Project, Glasgow University, 1998
-%
+-- (c) The University of Glasgow 2006
+-- (c) The GRASP/AQUA Project, Glasgow University, 1998
+--
+-- Type - public interface
 
-Type - public interface
-
-\begin{code}
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
@@ -201,9 +198,6 @@ import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
 
-\end{code}
-
-\begin{code}
 -- $type_classification
 -- #type_classification#
 --
@@ -258,15 +252,15 @@ import Control.Monad    ( guard )
 -- this module will automatically convert a source into a representation type
 -- if they are spotted, to the best of it's abilities. If you don't want this
 -- to happen, use the equivalent functions from the "TcType" module.
-\end{code}
 
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
                 Type representation
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
+-}
 
-\begin{code}
 {-# INLINE coreView #-}
 coreView :: Type -> Maybe Type
 -- ^ In Core, we \"look through\" non-recursive newtypes and 'PredTypes': this
@@ -378,20 +372,20 @@ expandTypeSynonyms ty
       -- handle coercion optimization (which sometimes swaps the
       -- order of a coercion)
     go_cobndr = substForAllCoBndrCallback False go (const go_co)
-\end{code}
 
-
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
 \subsection{Constructor-specific functions}
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
 
 
 ---------------------------------------------------------------------
                                 TyVarTy
                                 ~~~~~~~
-\begin{code}
+-}
+
 -- | Attempts to obtain the type variable underlying a 'Type', and panics with the
 -- given message if this is not a type variable type. See also 'getTyVar_maybe'
 getTyVar :: String -> Type -> TyVar
@@ -432,17 +426,16 @@ allDistinctTyVars tkvs = go emptyVarSet tkvs
              Nothing -> False
              Just tv | tv `elemVarSet` so_far -> False
                      | otherwise -> go (so_far `extendVarSet` tv) tys
-\end{code}
 
-
+{-
 ---------------------------------------------------------------------
                                 AppTy
                                 ~~~~~
 We need to be pretty careful with AppTy to make sure we obey the
 invariant that a TyConApp is always visibly so.  mkAppTy maintains the
 invariant: use it.
+-}
 
-\begin{code}
 -- | Applies a type to another, as in e.g. @k a@
 mkAppTy :: Type -> Type -> Type
 mkAppTy (TyConApp tc tys) ty2 = mkTyConApp tc (tys ++ [ty2])
@@ -510,13 +503,11 @@ splitAppTys ty = split ty ty []
                                                (TyConApp funTyCon [], [ty1,ty2])
     split orig_ty _                     args = (orig_ty, args)
 
-\end{code}
-
-
+{-
                       LitTy
                       ~~~~~
+-}
 
-\begin{code}
 mkNumLitTy :: Integer -> Type
 mkNumLitTy n = LitTy (NumTyLit n)
 
@@ -535,16 +526,14 @@ isStrLitTy ty | Just ty1 <- tcView ty = isStrLitTy ty1
 isStrLitTy (LitTy (StrTyLit s)) = Just s
 isStrLitTy _                    = Nothing
 
-\end{code}
-
-
+{-
 ---------------------------------------------------------------------
                                 FunTy
                                 ~~~~~
 
 Function types are represented with (ForAllTy (Anon ...) ...)
+-}
 
-\begin{code}
 mkFunTys :: [Type] -> Type -> Type
 mkFunTys tys ty = foldr mkFunTy ty tys
 
@@ -599,13 +588,13 @@ funArgTy :: Type -> Type
 funArgTy ty | Just ty' <- coreView ty = funArgTy ty'
 funArgTy (ForAllTy (Anon arg) _res) = arg
 funArgTy ty                         = pprPanic "funArgTy" (ppr ty)
-\end{code}
 
+{-
 ---------------------------------------------------------------------
                                 TyConApp
                                 ~~~~~~~~
+-}
 
-\begin{code}
 -- | A key function: builds a 'TyConApp' or 'FunTy' as appropriate to
 -- its arguments.  Applies its arguments to the constructor from left to right.
 mkTyConApp :: TyCon -> [Type] -> Type
@@ -672,15 +661,16 @@ newTyConInstRhs tycon tys
       applyTysX tvs rhs tys
   where
     (tvs, rhs) = newTyConEtadRhs tycon
-\end{code}
 
+{-
 ---------------------------------------------------------------------
                            CastTy
                            ~~~~~~
 A casted type has its *kind* casted into something new.
 
 Why not ignore Refl coercions? See Note [Optimising Refl] in OptCoercion.
-\begin{code}
+-}
+
 -- | Make a `CastTy`. The Coercion must be representational.
 mkCastTy :: Type -> Coercion -> Type
 mkCastTy = CastTy
@@ -688,15 +678,15 @@ mkCastTy = CastTy
 splitCastTy_maybe :: Type -> Maybe (Type, Coercion)
 splitCastTy_maybe (CastTy ty co) = Just (ty, co)
 splitCastTy_maybe _              = Nothing
-\end{code}
 
+{-
 --------------------------------------------------------------------
                             CoercionTy
                             ~~~~~~~~~~
 CoercionTy allows us to inject coercions into types. A CoercionTy
 should appear only in the right-hand side of an application.
+-}
 
-\begin{code}
 mkCoercionTy :: Coercion -> Type
 mkCoercionTy = CoercionTy
 
@@ -711,8 +701,8 @@ isCoercionTy_maybe _               = Nothing
 stripCoercionTy :: Type -> Coercion
 stripCoercionTy (CoercionTy co) = co
 stripCoercionTy ty              = pprPanic "stripCoercionTy" (ppr ty)
-\end{code}
 
+{-
 ---------------------------------------------------------------------
                                 SynTy
                                 ~~~~~
@@ -745,8 +735,8 @@ less than the Arity (as it would otherwise be for a function type like
 As a result, ReprArity is always strictly positive if Arity is. This
 is important because it allows us to distinguish at runtime between a
 thunk and a function takes a nullary unboxed tuple as an argument!
+-}
 
-\begin{code}
 type UnaryType = Type
 
 data RepType = UbxTupleRep [UnaryType] -- INVARIANT: never an empty list (see Note [Nullary unboxed tuple])
@@ -834,8 +824,8 @@ isVoidTy :: Type -> Bool
 isVoidTy ty = case repType ty of
                 UnaryRep (TyConApp tc _) -> isVoidRep (tyConPrimRep tc)
                 _                        -> False
-\end{code}
 
+{-
 Note [AppTy rep]
 ~~~~~~~~~~~~~~~~
 Types of the form 'f a' must be of kind *, not #, so we are guaranteed
@@ -846,8 +836,8 @@ in TyCoRep.
 ---------------------------------------------------------------------
                                 ForAllTy
                                 ~~~~~~~~
+-}
 
-\begin{code}
 mkForAllTy :: Binder -> Type -> Type
 mkForAllTy = ForAllTy 
 
@@ -1005,12 +995,11 @@ splitForAllTysInvisible ty = split ty ty []
 tyConBinders :: TyCon -> [Binder]
 tyConBinders = fst . splitForAllTys . tyConKind
 
-\end{code}
-
+{-
 applyTy, applyTys
 ~~~~~~~~~~~~~~~~~
+-}
 
-\begin{code}
 -- | Instantiate a named forall type with one or more type arguments.
 -- Used when we have a polymorphic function applied to type args:
 --
@@ -1070,16 +1059,14 @@ applyTysX tvs body_ty arg_tys
              (drop n_tvs arg_tys)
   where
     n_tvs = length tvs
-\end{code}
 
-
+{-
 %************************************************************************
 %*                                                                      *
    Binders
 %*                                                                      *
 %************************************************************************
-
-\begin{code}
+-}
 
 -- | Make a named binder
 mkNamedBinder :: Var -> VisibilityFlag -> Binder
@@ -1152,17 +1139,16 @@ partitionBindersIntoBinders = partitionWith named_or_anon
   where
     named_or_anon bndr = caseBinder bndr (\_ -> Left bndr) Right
 
-\end{code}
-
+{-
 %************************************************************************
 %*                                                                      *
                          Pred
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
 
 Predicates on PredType
+-}
 
-\begin{code}
 -- | Is the type suitable to classify a given/wanted in the typechecker?
 isPredTy :: Type -> Bool
   -- NB: isPredTy is used when printing types, which can happen in debug printing
@@ -1221,12 +1207,13 @@ isIPPred_maybe ty =
      guard (isIPTyCon tc)
      x <- isStrLitTy t1
      return (x,t2)
-\end{code}
 
+{-
 Make PredTypes
 
 --------------------- Equality types ---------------------------------
-\begin{code}
+-}
+
 -- | Creates a type equality predicate
 mkEqPred :: Type -> Type -> PredType
 mkEqPred ty1 ty2
@@ -1274,10 +1261,9 @@ mkReprPrimEqPred ty1  ty2
   where
     k1 = typeKind ty1
     k2 = typeKind ty2
-\end{code}
 
---------------------- Dictionary types ---------------------------------
-\begin{code}
+-- --------------------- Dictionary types ---------------------------------
+
 mkClassPred :: Class -> [Type] -> PredType
 mkClassPred clas tys = TyConApp (classTyCon clas) tys
 
@@ -1291,8 +1277,8 @@ isDictLikeTy ty = case splitTyConApp_maybe ty of
         Just (tc, tys) | isClassTyCon tc -> True
                        | isTupleTyCon tc -> all isDictLikeTy tys
         _other                           -> False
-\end{code}
 
+{-
 Note [Dictionary-like types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Being "dictionary-like" means either a dictionary type or a tuple thereof.
@@ -1324,8 +1310,8 @@ constraints build tuples.
 
 
 Decomposing PredType
+-}
 
-\begin{code}
 data PredTree = ClassPred Class [Type]
               | EqPred Type Type
               | TuplePred [PredType]
@@ -1344,9 +1330,7 @@ classifyPredType ev_ty = case splitTyConApp_maybe ev_ty of
     Just (tc, tys) | isTupleTyCon tc
                    -> TuplePred tys
     _ -> IrredPred ev_ty
-\end{code}
 
-\begin{code}
 getClassPredTys :: PredType -> (Class, [Type])
 getClassPredTys ty = case getClassPredTys_maybe ty of
         Just (clas, tys) -> (clas, tys)
@@ -1394,15 +1378,14 @@ isEqPredLifted ty
       Just (tc, _) -> not (tc `hasKey` eqPrimTyConKey)
       _ -> pprPanic "isEqPredLifted" (ppr ty)
 
-\end{code}
-
+{-
 %************************************************************************
 %*                                                                      *
                    Size
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
+-}
 
-\begin{code}
 typeSize :: Type -> Int
 typeSize (LitTy {})       = 1
 typeSize (TyVarTy {})     = 1
@@ -1449,16 +1432,14 @@ varSetElemsWellScoped set
       = (isId v1 `compare` isId v2) `thenCmp` (v1 `compare` v2)
           -- NB: True > False!
 
-\end{code}
-
-
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
 \subsection{Type families}
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
+-}
 
-\begin{code}
 mkFamilyTyConApp :: TyCon -> [Type] -> Type
 -- ^ Given a family instance TyCon and its arg types, return the
 -- corresponding family type.  E.g:
@@ -1496,15 +1477,15 @@ pprSourceTyCon tycon
   = ppr $ fam_tc `TyConApp` tys        -- can't be FunTyCon
   | otherwise
   = ppr tycon
-\end{code}
 
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
 \subsection{Liftedness}
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
+-}
 
-\begin{code}
 -- | See "Type#type_classification" for what an unlifted type is
 isUnLiftedType :: Type -> Bool
         -- isUnLiftedType returns True for forall'd unlifted types:
@@ -1557,34 +1538,29 @@ isClosedAlgType ty
       Just (tc, ty_args) | isAlgTyCon tc && not (isFamilyTyCon tc)
              -> ASSERT2( ty_args `lengthIs` tyConArity tc, ppr ty ) True
       _other -> False
-\end{code}
 
-\begin{code}
 -- | Computes whether an argument (or let right hand side) should
 -- be computed strictly or lazily, based only on its type.
 -- Currently, it's just 'isUnLiftedType'.
 
 isStrictType :: Type -> Bool
 isStrictType = isUnLiftedType
-\end{code}
 
-\begin{code}
 isPrimitiveType :: Type -> Bool
 -- ^ Returns true of types that are opaque to Haskell.
 isPrimitiveType ty = case splitTyConApp_maybe ty of
                         Just (tc, ty_args) -> ASSERT( ty_args `lengthIs` tyConArity tc )
                                               isPrimTyCon tc
                         _                  -> False
-\end{code}
 
-
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
 \subsection{Sequencing on types}
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
+-}
 
-\begin{code}
 seqType :: Type -> ()
 seqType (LitTy n)            = n `seq` ()
 seqType (TyVarTy tv)         = tv `seq` ()
@@ -1597,17 +1573,16 @@ seqType (CoercionTy co)      = seqCo co
 seqTypes :: [Type] -> ()
 seqTypes []       = ()
 seqTypes (ty:tys) = seqType ty `seq` seqTypes tys
-\end{code}
 
-
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
                 Comparison for types
         (We don't use instances so that we know where it happens)
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
+-}
 
-\begin{code}
 eqType :: Type -> Type -> Bool
 -- ^ Type equality on source types. Does not look through @newtypes@ or
 -- 'PredType's, but it does look through type synonyms.
@@ -1638,11 +1613,9 @@ eqTyCoVarBndrs env (tv1:tvs1) (tv2:tvs2)
  | eqTypeX env (tyVarKind tv1) (tyVarKind tv2)
  = eqTyCoVarBndrs (rnBndr2 env tv1 tv2) tvs1 tvs2
 eqTyCoVarBndrs _ _ _= Nothing
-\end{code}
 
-Now here comes the real worker
+-- Now here comes the real worker
 
-\begin{code}
 cmpType :: Type -> Type -> Ordering
 cmpType t1 t2 = cmpTypeX rn_env t1 t2
   where
@@ -1710,8 +1683,8 @@ cmpTc tc1 tc2
   where
     u1  = tyConUnique tc1
     u2  = tyConUnique tc2
-\end{code}
 
+{-
 Note [cmpTypeX]
 ~~~~~~~~~~~~~~~
 
@@ -1743,22 +1716,22 @@ Kinds
 
 For the description of subkinding in GHC, see
   http://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/TypeType#Kinds
+-}
 
-\begin{code}
 type MetaKindVar = TyVar  -- invariant: MetaKindVar will always be a
                           -- TcTyVar with details MetaTv (TauTv ...) ...
 -- meta kind var constructors and functions are in TcType
 
 type SimpleKind = Kind
-\end{code}
 
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
         The kind of a type
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
+-}
 
-\begin{code}
 typeKind :: Type -> Kind
 typeKind (TyConApp tc tys)     = piResultTys (tyConKind tc) tys
 typeKind (AppTy fun arg)       = piResultTy (typeKind fun) arg
@@ -1774,8 +1747,8 @@ typeLiteralKind l =
   case l of
     NumTyLit _ -> typeNatKind
     StrTyLit _ -> typeSymbolKind
-\end{code}
 
+{-
 Kind inference
 ~~~~~~~~~~~~~~
 During kind inference, a kind variable unifies only with
@@ -1807,8 +1780,7 @@ less-informative one to the more informative one.  Neat, eh?
 %*                                                                      *
 %************************************************************************
 
-
-\begin{code}
+-}
 -- | All type constructors occurring in the type; looking through type
 --   synonyms, but not newtypes.
 --  When it finds a Class, it returns the class TyCon.
@@ -1867,4 +1839,3 @@ tyConsOfType ty
 synTyConResKind :: TyCon -> Kind
 synTyConResKind tycon = piResultTys (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
 
-\end{code}

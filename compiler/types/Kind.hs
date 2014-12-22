@@ -1,8 +1,5 @@
-%
-% (c) The University of Glasgow 2006-2012
-%
+-- (c) The University of Glasgow 2006-2012
 
-\begin{code}
 {-# LANGUAGE CPP #-}
 module Kind (
         -- * Main data type
@@ -40,13 +37,13 @@ import TyCon
 import Var
 import PrelNames
 import Data.Maybe
-\end{code}
 
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
         Functions over Kinds
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
 
 Note [Kind Constraint and kind *]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -71,8 +68,8 @@ See Trac #7451.
 Bottom line: although '*' and 'Constraint' are distinct TyCons, with
 distinct uniques, they are treated as equal at all times except
 during type inference.
+-}
 
-\begin{code}
 isConstraintKind :: Kind -> Bool
 isConstraintKindCon :: TyCon -> Bool
 
@@ -139,4 +136,3 @@ isStarKind _ = False
 isStarKindSynonymTyCon :: TyCon -> Bool
 isStarKindSynonymTyCon tc = tc `hasKey` constraintKindTyConKey
 
-\end{code}

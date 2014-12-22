@@ -1,8 +1,7 @@
-%
-% (c) The University of Glasgow 2006
-%
+{-
+(c) The University of Glasgow 2006
+-}
 
-\begin{code}
 {-# LANGUAGE RankNTypes, CPP, DeriveDataTypeable #-}
 
 -- | Module for (a) type kinds and (b) type coercions, 
@@ -130,8 +129,8 @@ import Data.Maybe (isJust)
 import FastString
 import Control.Arrow ( first )
 import Data.List ( mapAccumR )
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
      -- The coercion arguments always *precisely* saturate 
@@ -142,8 +141,8 @@ import Data.List ( mapAccumR )
 \subsection{Coercion variables}
 %*                                                                      *
 %************************************************************************
+-}
 
-\begin{code}
 coVarName :: CoVar -> Name
 coVarName = varName
 
@@ -176,8 +175,8 @@ coercionSize (AxiomRuleCo _ ts cs) = 1 + sum (map typeSize ts)
 coercionArgSize :: CoercionArg -> Int
 coercionArgSize (TyCoArg co)       = coercionSize co
 coercionArgSize (CoCoArg _ c1 c2)  = coercionSize c1 + coercionSize c2
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
                    Pretty-printing coercions
@@ -189,8 +188,8 @@ function is defined to use this.  @pprParendCo@ is the same, except it
 puts parens around the type, except for the atomic cases.
 @pprParendCo@ works just by setting the initial context precedence
 very high.
+-}
 
-\begin{code}
 -- Outputable instances are in TyCoRep, to avoid orphans
 
 pprCo, pprParendCo :: Coercion -> SDoc
@@ -283,9 +282,7 @@ ppr_forall_co _ _ = panic "ppr_forall_co"
 
 pprCoBndr :: ForAllCoBndr -> SDoc
 pprCoBndr cobndr = pprForAllImplicit (coBndrVars cobndr)
-\end{code}
 
-\begin{code}
 pprCoAxiom :: CoAxiom br -> SDoc
 pprCoAxiom ax@(CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
   = hang (ptext (sLit "axiom") <+> ppr ax <+> dcolon)
@@ -311,15 +308,15 @@ pprCoAxBranchHdr ax@(CoAxiom { co_ax_tc = fam_tc, co_ax_name = name }) index
           | otherwise
           = ptext (sLit "in") <+>
               quotes (ppr (nameModule name))
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
         Destructing coercions           
 %*                                                                      *
 %************************************************************************
+-}
 
-\begin{code}
 -- | This breaks a 'Coercion' with type @T A B C ~ T D E F@ into
 -- a list of 'Coercion's of kinds @A ~ D@, @B ~ E@ and @E ~ F@. Hence:
 --
@@ -453,8 +450,8 @@ isReflLike_maybe _ = Nothing
 
 isReflLike :: CoercionArg -> Bool
 isReflLike = isJust . isReflLike_maybe
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
             Building coercions
@@ -562,8 +559,8 @@ building a GADT). So, that's why this function is exported from this module.
 One might ask: shouldn't downgradeRole_maybe just use setNominalRole_maybe as
 appropriate? I (Richard E.) have decided not to do this, because upgrading a
 role is bizarre and a caller should have to ask for this behavior explicitly.
+-}
 
-\begin{code}
 mkReflCo :: Role -> Type -> Coercion
 mkReflCo r ty
   = ASSERT( not $ isCoercionTy ty )
@@ -903,15 +900,15 @@ downgradeRoleArg r1 r2 arg
 
 mkAxiomRuleCo :: CoAxiomRule -> [Type] -> [Coercion] -> Coercion
 mkAxiomRuleCo = AxiomRuleCo
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
    Roles
 %*                                                                      *
 %************************************************************************
+-}
 
-\begin{code}
 -- | Converts a coercion to be nominal, if possible.
 -- See Note [Role twiddling functions]
 setNominalRole_maybe :: Coercion -> Maybe Coercion
@@ -1023,15 +1020,14 @@ nextRole :: Coercion -> Role
 nextRole (Refl r (TyConApp tc tys)) = head $ dropList tys (tyConRolesX r tc)
 nextRole (TyConAppCo r tc cos)      = head $ dropList cos (tyConRolesX r tc)
 nextRole _                          = Nominal
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
    ForAllCoBndr
 %*                                                                      *
 %************************************************************************
-
-\begin{code}
+-}
 
 -- | Makes homogeneous ForAllCoBndr, choosing between TyHomo and CoHomo
 -- based on the nature of the TyCoVar
@@ -1227,15 +1223,15 @@ mkCoCast c g
     co_list = decomposeCo n_args g
     TyCoArg g1 = co_list `getNth` (n_args - 2)
     TyCoArg g2 = co_list `getNth` (n_args - 1)
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
    CoercionArgs
 %*                                                                      *
 %************************************************************************
+-}
 
-\begin{code}
 mkTyCoArg :: Coercion -> CoercionArg
 mkTyCoArg = TyCoArg
 
@@ -1264,15 +1260,15 @@ mkCoArgForVar :: TyCoVar -> CoercionArg
 mkCoArgForVar v
   | isTyVar v = TyCoArg $ mkReflCo Nominal $ mkOnlyTyVarTy v
   | otherwise = CoCoArg Nominal (mkCoVarCo v) (mkCoVarCo v)
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
             Newtypes
 %*                                                                      *
 %************************************************************************
+-}
 
-\begin{code}
 -- | If @co :: T ts ~ rep_ty@ then:
 --
 -- > instNewTyCon_maybe T ts = Just (rep_ty, co)
@@ -1326,14 +1322,13 @@ topNormaliseNewType_maybe ty
        | otherwise              -- No progress
        = Nothing
 
-\end{code}
+{-
 %************************************************************************
 %*                                                                      *
                    Comparison of coercions
 %*                                                                      *
 %************************************************************************
-
-\begin{code}
+-}
 
 -- | Syntactic equality of coercions
 eqCoercion :: Coercion -> Coercion -> Bool
@@ -1468,8 +1463,8 @@ cmpCoBndrX _ cobndr1 cobndr2
 rnCoBndr2 :: RnEnv2 -> ForAllCoBndr -> ForAllCoBndr -> RnEnv2
 rnCoBndr2 env cobndr1 cobndr2
   = foldl2 rnBndr2 env (coBndrVars cobndr1) (coBndrVars cobndr2)
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
                    "Lifting" substitution
@@ -1503,8 +1498,8 @@ thus giving *coercion*.  This is what liftCoSubst does.
 In the presence of kind coercions, this is a bit
 of a hairy operation. So, we refer you to the paper introducing kind coercions,
 available at www.cis.upenn.edu/~sweirich/papers/fckinds-extended.pdf
+-}
 
-\begin{code}
 -- ----------------------------------------------------
 -- See Note [Lifting coercions over types: liftCoSubst]
 -- ----------------------------------------------------
@@ -1627,8 +1622,7 @@ ty_co_subst lc@(LC _ env) role ty
                                   (substTy (lcSubstLeft  lc) ty)
                                   (substTy (lcSubstRight lc) ty)
 
-\end{code}
-
+{-
 Note [liftCoSubstTyVar]
 ~~~~~~~~~~~~~~~~~~~~~~~
 This function can fail (i.e., return Nothing) for two separate reasons:
@@ -1641,8 +1635,7 @@ lemma guarantees that the roles work out. If we fail for reason 2) in this
 case, we really should panic -- something is deeply wrong. But, in matchAxiom,
 failing for reason 2) is fine. matchAxiom is trying to find a set of coercions
 that match, but it may fail, and this is healthy behavior.
-
-\begin{code}
+-}
 
 liftCoSubstTyVar :: LiftingContext -> Role -> TyVar -> Maybe Coercion
 liftCoSubstTyVar (LC _ cenv) r tv
@@ -1759,15 +1752,14 @@ liftSimply r (CoercionTy co)
     CoCoArg r (mkReflCo Nominal t1) (mkReflCo Nominal t2)
 liftSimply r ty = TyCoArg $ mkReflCo r ty
 
-\end{code}
-
+{-
 %************************************************************************
 %*                                                                      *
             Sequencing on coercions
 %*                                                                      *
 %************************************************************************
+-}
 
-\begin{code}
 seqCo :: Coercion -> ()
 seqCo (Refl r ty)           = r `seq` seqType ty
 seqCo (TyConAppCo r tc cos) = r `seq` tc `seq` seqCoArgs cos
@@ -1804,9 +1796,8 @@ seqCoBndr (TyHomo tv) = tv `seq` ()
 seqCoBndr (TyHetero h tv1 tv2 cv) = seqCo h `seq` tv1 `seq` tv2 `seq` cv `seq` ()
 seqCoBndr (CoHomo cv) = cv `seq` ()
 seqCoBndr (CoHetero h cv1 cv2) = seqCo h `seq` cv1 `seq` cv2 `seq` ()
-\end{code}
 
-
+{-
 %************************************************************************
 %*                                                                      *
              The kind of a type, and of a coercion
@@ -1825,8 +1816,8 @@ sub-tree again.  This was part of the problem in Trac #9233.
 Solution: compute both together; hence coercionKindRole.  We keep a
 separate coercionKind function because it's a bit more efficient if
 the kind is all you want.
+-}
 
-\begin{code}
 coercionType :: Coercion -> Type
 coercionType co = case coercionKindRole co of
   (Pair ty1 ty2, r) -> mkCoercionType r ty1 ty2
@@ -1976,8 +1967,8 @@ coBndrKind (TyHomo tv)            = pure tv
 coBndrKind (TyHetero _ tv1 tv2 _) = Pair tv1 tv2
 coBndrKind (CoHomo cv)            = pure cv
 coBndrKind (CoHetero _ cv1 cv2)   = Pair cv1 cv2
-\end{code}
 
+{-
 Note [Nested InstCos]
 ~~~~~~~~~~~~~~~~~~~~~
 In Trac #5631 we found that 70% of the entire compilation time was
@@ -1992,17 +1983,16 @@ But this is a *quadratic* algorithm, and the blew up Trac #5631.
 So it's very important to do the substitution simultaneously.
 
 cf Type.applyTys (which in fact we call here)
+-}
 
-
-\begin{code}
 applyCo :: Type -> Coercion -> Type
 -- Gives the type of (e co) where e :: (a~b) => ty
 applyCo ty co | Just ty' <- coreView ty = applyCo ty' co
 applyCo (ForAllTy (Named cv _) ty) co = substTyWith [cv] [CoercionTy co] ty
 applyCo (ForAllTy (Anon _)     ty) _  = ty
 applyCo _                          _  = panic "applyCo"
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
              GADT return types
@@ -2135,8 +2125,7 @@ either deal with the bigger type or somehow reduce it later.
 by the user in the datacon signature. If we always used the tycon tyvar
 names, for example, this would be simplified. This change would almost
 certainly degrade error messages a bit, though.
-
-\begin{code}
+-}
 
 -- ^ From information about a source datacon definition, extract out
 -- what the universal variables and the GADT equalities should be.
@@ -2208,5 +2197,3 @@ mkGADTVars tmpl_tvs dc_tvs subst
            ; let name = mkSystemVarName u (fsLit "gadt")
            ; return $ mkCoVar name (mkCoercionType Nominal t1 t2) }
 
-
-\end{code}

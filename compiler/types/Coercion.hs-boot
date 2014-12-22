@@ -1,5 +1,3 @@
-\begin{code}
-
 module Coercion where
 
 import {-# SOURCE #-} TyCoRep
@@ -53,4 +51,4 @@ pprCo :: Coercion -> SDoc
 pprCoBndr :: ForAllCoBndr -> SDoc
 pprCoArg :: CoercionArg -> SDoc
 
-\end{code}
+

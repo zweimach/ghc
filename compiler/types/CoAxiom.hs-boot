@@ -1,4 +1,3 @@
-\begin{code}
 
 {-# LANGUAGE KindSignatures, CPP #-}
 #if __GLASGOW_HASKELL__ >= 707
@@ -19,4 +18,3 @@ data Branched
 
 data Role
 
-\end{code}

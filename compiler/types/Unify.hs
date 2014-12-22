@@ -1,8 +1,5 @@
-%
-% (c) The University of Glasgow 2006
-%
+-- (c) The University of Glasgow 2006
 
-\begin{code}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE CPP #-}
 
@@ -49,14 +46,13 @@ import Control.Monad
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..), Alternative(..))
 #endif
-\end{code}
 
-
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
                 Matching
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
 
 
 Matching is much tricker than you might think.
@@ -79,9 +75,8 @@ Matching is much tricker than you might think.
    where x is the template type variable.  Then we do not want to
    bind x to a/b!  This is a kind of occurs check.
    The necessary locals accumulate in the RnEnv2.
+-}
 
-
-\begin{code}
 -- avoid rewriting boilerplate by overloading:
 class Unifiable t where
   match :: MatchEnv -> TvSubstEnv -> CvSubstEnv
@@ -205,11 +200,9 @@ ruleMatchCoX :: MatchEnv -> TvSubstEnv -> CvSubstEnv
 ruleMatchCoX = match
 
 -- Rename for export
-\end{code}
 
-Now the internals of matching
+-- Now the internals of matching
 
-\begin{code}
 match_ty :: MatchEnv    -- For the most part this is pushed downwards
       -> TvSubstEnv     -- Substitution so far:
                         --   Domain is subset of template tyvars
@@ -286,8 +279,7 @@ match_kind menv tsubst csubst k1 k2
   | otherwise
   = match menv tsubst csubst k1 k2
 
-\end{code}
-
+{-
 Note [Unifying with Refl]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Because of Refl invariant #2 (see Note [Refl invariant]), any reflexive
@@ -323,8 +315,7 @@ during substitution. This isn't that hard to do, but we still must be careful
 about it. For example, mkUnsafeCo sometimes produces a TyConAppCo, *not* an
 UnsafeCo. So, we must allow for the possibility that an UnsafeCo will become
 a TyConAppCo after substitution, and check for this case in matching.
-
-\begin{code}
+-}
 
 --------------
 -- See Note [Coercion optimizations and match_co]
@@ -534,15 +525,13 @@ match_list menv tenv cenv (a:as) (b:bs) = do { (tenv', cenv') <- match menv tenv
                                              ; match_list menv tenv' cenv' as bs }
 match_list _    _    _    _      _      = Nothing
 
-\end{code}
-
+{-
 %************************************************************************
 %*                                                                      *
         Matching monad
 %*                                                                      *
 %************************************************************************
-
-\begin{code}
+-}
 
 newtype MatchM a = MM { unMM :: MatchEnv -> TvSubstEnv -> CvSubstEnv
                              -> Maybe ((TvSubstEnv, CvSubstEnv), a) }
@@ -576,13 +565,12 @@ _withRnEnv :: RnEnv2 -> MatchM a -> MatchM a
 _withRnEnv rn_env mm = MM $ \menv tsubst csubst
                            -> unMM mm (menv { me_env = rn_env }) tsubst csubst
 
-\end{code}
-
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
                 GADTs
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
 
 Note [Pruning dead case alternatives]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -648,8 +636,8 @@ drop more and more dead code.
 For now we implement a very simple test: type variables match
 anything, type functions (incl newtypes) match anything, and only
 distinct data types fail to match.  We can elaborate later.
+-}
 
-\begin{code}
 typesCantMatch :: [(Type,Type)] -> Bool
 typesCantMatch prs = any (\(s,t) -> cant_match s t) prs
   where
@@ -684,14 +672,13 @@ typesCantMatch prs = any (\(s,t) -> cant_match s t) prs
 --      foralls
 --      look through newtypes
 --      take account of tyvar bindings (EQ example above)
-\end{code}
 
-
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
              Unification
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
 
 Note [Fine-grained unification]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -781,8 +768,8 @@ it will look like these do *not* overlap, causing disaster. See Trac #9371.
 In usages of tcUnifyTys outside of family instances, we always use tcUnifyTys,
 which can't tell the difference between MaybeApart and SurelyApart, so those
 usages won't notice this design choice.
+-}
 
-\begin{code}
 tcUnifyTy :: Type -> Type       -- All tyvars are bindable
           -> Maybe TCvSubst     -- A regular one-shot (idempotent) substitution
 -- Simple unification of two types; all type variables are bindable
@@ -822,14 +809,12 @@ tcUnifyTysFG bind_fn tys1 tys2
   where
     vars = tyCoVarsOfTypes tys1 `unionVarSet` tyCoVarsOfTypes tys2
 
-\end{code}
-
-
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
                 Non-idempotent substitution
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
 
 Note [Non-idempotent substitution]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -857,8 +842,8 @@ This happened, for example, in Trac #9106.
 
 This is the reason for extending env with [f:k -> f:*], in the
 definition of env' in niFixTvSubst
+-}
 
-\begin{code}
 niFixTCvSubst :: TvSubstEnv -> CvSubstEnv -> TCvSubst
 -- Find the idempotent fixed point of the non-idempotent substitution
 -- See Note [Finding the substitution fixpoint]
@@ -903,13 +888,13 @@ niSubstTvSet tsubst csubst tvs
       = case lookupVarEnv csubst tv of
                Nothing -> unitVarSet tv
                Just co -> niSubstTvSet tsubst csubst (tyCoVarsOfCo co)
-\end{code}
 
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
                 The workhorse
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
 
 Note [unify_co SymCo case]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -960,8 +945,8 @@ cast operation? Clearly, these types do not unify, but they might or might not b
 apart. So, we try to unify t1 and t2. If this fails, we fail for the same reason.
 If this succeeds, we fail with MaybeApart. Once again, the types aren't apart, but
 we can't say NotApart when the types don't unify.
+-}
 
-\begin{code}
 unify_ty :: Type -> Type   -- Types to be unified
          -> UM ()
 -- We do not require the incoming substitution to be idempotent,
@@ -1275,15 +1260,14 @@ bindTv tv ty    -- ty is not a variable
             Skolem -> maybeApart  -- See Note [Unification with skolems]
             BindMe -> extendEnv tv ty
         }
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
                 TyOrCo class
 %*                                                                      *
 %************************************************************************
-
-\begin{code}
+-}
 
 class Unifiable tyco => TyOrCo tyco where
   getSubstEnv   :: UM (VarEnv tyco)
@@ -1312,30 +1296,28 @@ instance TyOrCo Coercion where
   getKind         = coercionType -- not coercionKind!
   mustUnifyKind _ = False -- done in unify_co, don't need in unify_co'
 
-\end{code}
-
+{-
 %************************************************************************
 %*                                                                      *
                 Binding decisions
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
+-}
 
-\begin{code}
 data BindFlag 
   = BindMe      -- A regular type variable
 
   | Skolem      -- This type variable is a skolem constant
                 -- Don't bind it; it only matches itself
-\end{code}
 
-
-%************************************************************************
-%*                                                                      *
+{-
+************************************************************************
+*                                                                      *
                 Unification monad
-%*                                                                      *
-%************************************************************************
+*                                                                      *
+************************************************************************
+-}
 
-\begin{code}
 newtype UM a = UM { unUM :: (TyVar -> BindFlag) -- the user-supplied BingFlag function
                          -> RnEnv2              -- the renaming env for local variables
                          -> TyCoVarSet          -- set of all local variables
@@ -1466,8 +1448,8 @@ maybeApart = UM (\_ _ _ tsubst csubst -> MaybeApart ((tsubst, csubst), ()))
 
 surelyApart :: UM a
 surelyApart = UM (\_ _ _ _ _ -> SurelyApart)
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
             Matching a (lifted) type against a coercion
@@ -1538,8 +1520,8 @@ Note [Don't optimize mkCoherenceCo]. So, we use the function opt_coh to
 implement that optimization in exactly the special case that we need to
 cancel out all the coercions. It's a little fiddly, but because there can
 be many equivalent coercions, I don't see an easier way.
+-}
 
-\begin{code}
 zipLiftCoEnv :: RnEnv2 -> LiftCoEnv
              -> TCvSubst -> TCvSubst -> Maybe LiftCoEnv
 zipLiftCoEnv rn_env lc_env
@@ -1780,4 +1762,4 @@ pushRefl (Refl r (ForAllTy (Named tv _) ty))
   | otherwise                     = Just (ForAllCo (CoHomo tv) (Refl r ty))
 pushRefl (Refl r (CastTy ty co))  = Just (castCoercionKind (Refl r ty) co co)
 pushRefl _                        = Nothing
-\end{code}
+

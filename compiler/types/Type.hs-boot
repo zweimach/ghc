@@ -1,4 +1,3 @@
-\begin{code}
 module Type where
 import {-# SOURCE #-} TyCoRep( Type, Kind )
 
@@ -12,4 +11,3 @@ typeKind :: Type -> Kind
 eqType :: Type -> Type -> Bool
 
 coreViewOneStarKind :: Type -> Maybe Type
-\end{code}

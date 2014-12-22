@@ -1,7 +1,6 @@
-%
-% (c) The University of Glasgow 2006
-% (c) The GRASP/AQUA Project, Glasgow University, 1998
-%
+{-
+(c) The University of Glasgow 2006
+(c) The GRASP/AQUA Project, Glasgow University, 1998
 \section[TyCoRep]{Type and Coercion - friends' interface}
 
 Note [The Type-related module hierarchy]
@@ -14,8 +13,8 @@ Note [The Type-related module hierarchy]
   Kind     imports TysPrim ( mainly for primitive kinds )
   Type     imports Kind
   Coercion imports Type
+-}
 
-\begin{code}
 -- We expose the relevant stuff from this module via the Type module
 {-# OPTIONS_HADDOCK hide #-}
 {-# LANGUAGE CPP, DeriveDataTypeable, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
@@ -123,17 +122,15 @@ import Util
 -- libraries
 import qualified Data.Data        as Data hiding ( TyCon )
 import Data.List
-\end{code}
 
-
+{-
 %************************************************************************
 %*                                                                      *
 \subsection{The data type}
 %*                                                                      *
 %************************************************************************
+-}
 
-
-\begin{code}
 -- | The key representation of types within the compiler
 
 -- If you edit this type, you may need to update the GHC formalism
@@ -221,8 +218,7 @@ type KindOrType = Type -- See Note [Arguments to type constructors]
 -- | The key type representing kinds in the compiler.
 type Kind = Type
 
-\end{code}
-
+{-
 Note [The kind invariant]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 The kinds
@@ -305,8 +301,8 @@ So, to summarize:
 
 -------------------------------------
                 Note [PredTy]
+-}
 
-\begin{code}
 -- | A type of the form @p@ of kind @Constraint@ represents a value whose type is
 -- the Haskell predicate @p@, where a predicate is what occurs before
 -- the @=>@ in a Haskell type.
@@ -331,8 +327,8 @@ type PredType = Type
 
 -- | A collection of 'PredType's
 type ThetaType = [PredType]
-\end{code}
 
+{-
 (We don't support TREX records yet, but the setup is designed
 to expand to allow them.)
 
@@ -353,8 +349,8 @@ represented by evidence of type p.
 
 These functions are here so that they can be used by TysPrim,
 which in turn is imported by Type
+-}
 
-\begin{code}
 -- named with "Only" to prevent naive use of mkTyVarTy
 mkOnlyTyVarTy  :: TyVar   -> Type
 mkOnlyTyVarTy v = ASSERT( isTyVar v ) TyVarTy v
@@ -407,11 +403,11 @@ isVisibleBinder = not . isInvisibleBinder
 -- | Create the plain type constructor type which has been applied to no type arguments at all.
 mkTyConTy :: TyCon -> Type
 mkTyConTy tycon = TyConApp tycon []
-\end{code}
 
+{-
 Some basic functions, put here to break loops eg with the pretty printer
+-}
 
-\begin{code}
 isLiftedTypeKind :: Kind -> Bool
 isLiftedTypeKind (TyConApp tc []) = tc `hasKey` liftedTypeKindTyConKey
 isLiftedTypeKind (TyConApp tc [TyConApp lev []])
@@ -433,15 +429,14 @@ isLevityTy _                = False
 isLevityVar :: TyVar -> Bool
 isLevityVar = isLevityTy . tyVarKind
 
-\end{code}
-
+{-
 %************************************************************************
 %*                                                                      *
             Coercions
 %*                                                                      *
 %************************************************************************
+-}
 
-\begin{code}
 -- | A 'Coercion' is concrete evidence of the equality/convertibility
 -- of two types.
 
@@ -615,9 +610,8 @@ instance Binary LeftOrRight where
 pickLR :: LeftOrRight -> (a,a) -> a
 pickLR CLeft  (l,_) = l
 pickLR CRight (_,r) = r
-\end{code}
 
-
+{-
 Note [Refl invariant]
 ~~~~~~~~~~~~~~~~~~~~~
 Invariant 1:
@@ -1011,8 +1005,8 @@ in nominal ways. If not, having w be representational is OK.
                  Free variables of types and coercions
 %*                                                                      *
 %************************************************************************
+-}
 
-\begin{code}
 tyVarsOnlyOfType :: Type -> TyVarSet
 -- ^ NB: for type synonyms tyVarsOnlyOfType does /not/ expand the synonym
 -- tyVarsOnlyOfType returns only the free variables of a type
@@ -1166,8 +1160,8 @@ closeOverKinds :: TyCoVarSet -> TyCoVarSet
 closeOverKinds tvs
   = foldVarSet (\tv ktvs -> closeOverKinds (tyCoVarsOfType (tyVarKind tv))
                             `unionVarSet` ktvs) tvs tvs
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
                         TyThing
@@ -1185,8 +1179,8 @@ as ATyCon.  You can tell the difference, and get to the class, with
    isClassTyCon :: TyCon -> Bool
    tyConClass_maybe :: TyCon -> Maybe Class
 The Class and its associated TyCon have the same Name.
+-}
 
-\begin{code}
 -- | A typecheckable-thing, essentially anything that has a name
 data TyThing
   = AnId     Id
@@ -1217,18 +1211,15 @@ instance NamedThing TyThing where       -- Can't put this with the type
   getName (ACoAxiom cc) = getName cc
   getName (AConLike cl) = getName cl
 
-
-\end{code}
-
-
+{-
 %************************************************************************
 %*                                                                      *
                         Substitutions
       Data type defined here to avoid unnecessary mutual recursion
 %*                                                                      *
 %************************************************************************
+-}
 
-\begin{code}
 -- | Type & coercion substitution
 --
 -- #tcvsubst_invariant#
@@ -1262,8 +1253,7 @@ type TvSubstEnv = TyVarEnv Type
 -- | A substitution of 'Coercion's for 'CoVar's
 type CvSubstEnv = CoVarEnv Coercion
 
-\end{code}
-
+{-
 Note [Apply Once]
 ~~~~~~~~~~~~~~~~~
 We use TCvSubsts to instantiate things, and we might instantiate
@@ -1321,8 +1311,7 @@ Note that the TvSubstEnv should *never* map a CoVar (built with the Id
 constructor) and the CvSubstEnv should *never* map a TyVar. Furthermore,
 the range of the TvSubstEnv should *never* include a type headed with
 CoercionTy.
-
-\begin{code}
+-}
 
 emptyTvSubstEnv :: TvSubstEnv
 emptyTvSubstEnv = emptyVarEnv
@@ -1547,8 +1536,8 @@ instance Outputable TCvSubst where
                       nest 2 (ptext (sLit "In scope:") <+> ppr ins),
                       nest 2 (ptext (sLit "Type env:") <+> ppr tenv),
                       nest 2 (ptext (sLit "Co env:") <+> ppr cenv) ]
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
                 Performing type or kind substitutions
@@ -1606,8 +1595,8 @@ and substCoVarBndrCallback.
 The rule for CoHetero is similar, but there is no coercion variable analogous
 to cv, so it's much simpler. Similarly, the TyHomo and CoHomo cases are
 straightforward once you understand the rule above.
+-}
 
-\begin{code}
 -- | Create a substitution from tyvars to types, but later types may depend
 -- on earlier ones. Return the substed types and the built substitution.
 substTelescope :: [TyCoVar] -> [Type] -> ([Type], TCvSubst)
@@ -1914,8 +1903,8 @@ cloneTyVarBndr (TCvSubst in_scope tv_env cv_env) tv uniq
   where
     tv' = setVarUnique tv uniq  -- Simply set the unique; the kind
                                 -- has no type variables to worry about
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
                    Pretty-printing types
@@ -1943,8 +1932,8 @@ meaning          (a :+: (T b)) -> c
 Maybe operator applications should bind a bit less tightly?
 
 Anyway, that's the current story, and it is used consistently for Type and HsType
+-}
 
-\begin{code}
 data TyPrec   -- See Note [Prededence in types]
   = TopPrec         -- No parens
   | FunPrec         -- Function args; no parens for tycon apps
@@ -2161,8 +2150,7 @@ instance Outputable LeftOrRight where
   ppr CLeft    = ptext (sLit "Left")
   ppr CRight   = ptext (sLit "Right")
 
-\end{code}
-
+{-
 Note [When to print foralls]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Mostly we want to print top-level foralls when (and only when) the user specifies
@@ -2198,8 +2186,8 @@ remember to parenthesise the operator, thus
    (~>) a b -> b
 
 See Trac #2766.
+-}
 
-\begin{code}
 pprTypeApp :: TyCon -> [Type] -> SDoc
 pprTypeApp tc tys = pprTyTcApp TopPrec tc tys
         -- We have to use ppr on the TyCon (not its name)
@@ -2332,15 +2320,14 @@ pprArrowChain :: TyPrec -> [SDoc] -> SDoc
 pprArrowChain _ []         = empty
 pprArrowChain p (arg:args) = maybeParen p FunPrec $
                              sep [arg, sep (map (arrow <+>) args)]
-\end{code}
 
+{-
 %************************************************************************
 %*                                                                      *
 \subsection{TidyType}
 %*                                                                      *
 %************************************************************************
-
-\begin{code}
+-}
 
 -- | This tidies up a type for printing in an error message, or in
 -- an interface file.
@@ -2501,4 +2488,3 @@ tidyCo env@(_, subst) co
 tidyCos :: TidyEnv -> [Coercion] -> [Coercion]
 tidyCos env = map (tidyCo env)
 
-\end{code}
