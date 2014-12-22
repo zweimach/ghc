@@ -933,7 +933,7 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
                   do { inst_sigs <- xoptM Opt_InstanceSigs
                      ; checkTc inst_sigs (misplacedInstSig sel_name lhs_ty)
                      ; sig_ty  <- tcHsSigType (FunSigCtxt sel_name) lhs_ty
-                     ; let poly_sig_ty = mkSigmaTy tyvars theta sig_ty
+                     ; let poly_sig_ty = mkInvSigmaTy tyvars theta sig_ty
                      ; tc_sig  <- instTcTySig lhs_ty sig_ty Nothing [] local_meth_name
                      ; hs_wrap <- addErrCtxtM (methSigCtxt sel_name poly_sig_ty poly_meth_ty) $
                                   tcSubType (FunSigCtxt sel_name) poly_sig_ty poly_meth_ty
