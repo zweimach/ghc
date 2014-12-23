@@ -96,15 +96,13 @@ data IfaceOneShot    -- see Note [Preserve OneShotInfo]
 type IfaceLamBndr
   = (IfaceBndr, IfaceOneShot)
 
-\end{code}
-
+{-
 %************************************************************************
 %*                                                                      *
                 IfaceType
 %*                                                                      *
 %************************************************************************
-
-\begin{code}
+-}
 
 -------------------------------
 type IfaceKind     = IfaceType

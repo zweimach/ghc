@@ -1179,16 +1179,15 @@ lintCoercionArg (CoCoArg r co1 co2)
        ; return ( phi_to_ty phi1, phi_to_ty phi2
                 , CoercionTy co1, CoercionTy co2, r) }
   where phi_to_ty (a,b,c,d,e) = mkHeteroCoercionType e a b c d
-\end{code}
 
+{-
 Note [FreeIn...]
 ~~~~~~~~~~~~~~~~~~~~~
 The proof of consistency of the type system depends on a freeness condition
 in the premises of ForAllCo (CoHetero ...). This condition states that the coercion
 variables quantified over do not appear in the erased form of coercion
 in the quantification. See http://www.cis.upenn.edu/~sweirich/papers/nokinds-extended.pdf
-
-\begin{code}
+-}
 
 freeInCoercion :: CoVar -> Coercion -> Bool
 freeInCoercion v (Refl _ t)                = freeInType v t
