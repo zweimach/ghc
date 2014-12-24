@@ -322,9 +322,9 @@ opt_co4 env sym _ r (PhantomCo h t1 t2)
     a' = optType env a
     b' = optType env b
 
-opt_co4 env sym rep r (UnsafeCo _r oty1 oty2)
+opt_co4 env sym rep r (UnsafeCo s _r oty1 oty2)
   = ASSERT( r == _r )
-    opt_unsafe env (chooseRole rep r) (optType env a) (optType env b)
+    opt_unsafe env s (chooseRole rep r) (optType env a) (optType env b)
   where
     (a,b) = if sym then (oty2,oty1) else (oty1,oty2)
 
@@ -403,19 +403,19 @@ opt_co4 env sym rep r (InstCo co1 arg)
 
 -- TODO (RAE): Should this interact with PhantomCo?
 opt_co4 env sym rep r (CoherenceCo co1 co2)
-  | UnsafeCo _r tyl1 tyr1 <- co1
+  | UnsafeCo s _r tyl1 tyr1 <- co1
   = ASSERT( r == _r )
-    opt_co4_wrap env sym False output_role (mkUnsafeCo output_role
+    opt_co4_wrap env sym False output_role (mkUnsafeCo s output_role
                                                 (mkCastTy tyl1 co2) tyr1)
   | TransCo col1 cor1 <- co1
   = opt_co4_wrap env sym rep r (mkTransCo (mkCoherenceCo col1 co2) cor1)
   | CoherenceCo col1 cor1 <- co1
   = opt_co4_wrap env sym rep r (mkCoherenceCo col1 (mkTransCo cor1 co2))
 
-  | UnsafeCo r_out tyl1' tyr1' <- co1'
+  | UnsafeCo s r_out tyl1' tyr1' <- co1'
   = ASSERT( output_role == r_out )
-    if sym then mkUnsafeCo r_out tyl1' (mkCastTy tyr1' co2')
-           else mkUnsafeCo r_out (mkCastTy tyl1' co2') tyr1'
+    if sym then mkUnsafeCo s r_out tyl1' (mkCastTy tyr1' co2')
+           else mkUnsafeCo s r_out (mkCastTy tyl1' co2') tyr1'
   | TransCo col1' cor1' <- co1'
   = if sym then opt_trans in_scope col1'
                   (optCoercion (zapTCvSubst env) (mkCoherenceRightCo cor1' co2'))
@@ -491,12 +491,12 @@ opt_phantom env sym co
     ty1' = substTy env ty1
     ty2' = substTy env ty2
 
-opt_unsafe :: TCvSubst -> Role -> Type -> Type -> Coercion
-opt_unsafe env role oty1 oty2
+opt_unsafe :: TCvSubst -> FastString -> Role -> Type -> Type -> Coercion
+opt_unsafe env prov role oty1 oty2
   | Just (tc1, tys1) <- splitTyConApp_maybe oty1
   , Just (tc2, tys2) <- splitTyConApp_maybe oty2
   , tc1 == tc2
-  = mkTyConAppCo role tc1 (zipWith3 (opt_unsafe_arg env) (tyConRolesX role tc1) tys1 tys2)
+  = mkTyConAppCo role tc1 (zipWith3 (opt_unsafe_arg env prov) (tyConRolesX role tc1) tys1 tys2)
 
   | Just (l1, r1) <- splitAppTy_maybe oty1
   , Just (l2, r2) <- splitAppTy_maybe oty2
@@ -517,7 +517,7 @@ opt_unsafe env role oty1 oty2
          let ty1' = optType env1 ty1
              ty2' = optType env2 ty2 in
          mkForAllCo (mkHomoCoBndr tv')
-                    (opt_unsafe (zapTCvSubstEnv2 env1 env2) role ty1' ty2') }
+                    (opt_unsafe (zapTCvSubstEnv2 env1 env2) prov role ty1' ty2') }
     else let eta = opt_unsafe env role k1 k2
              cobndr
                | isTyVar tv1 = let c = mkFreshCoVar (getTCvInScope env)
@@ -526,18 +526,18 @@ opt_unsafe env role oty1 oty2
                                mkTyHeteroCoBndr eta tv1 tv2 c
                | otherwise   = mkCoHeteroCoBndr eta tv1 tv2
          in
-         mkForAllCo cobndr (opt_unsafe env role ty1 ty2)
+         mkForAllCo cobndr (opt_unsafe env prov role ty1 ty2)
 
   | otherwise
-  = mkUnsafeCo role oty1 oty2
+  = mkUnsafeCo prov role oty1 oty2
 
-opt_unsafe_arg :: TCvSubst -> Role -> Type -> Type -> CoercionArg
-opt_unsafe_arg env role oty1 oty2
+opt_unsafe_arg :: TCvSubst -> FastString -> Role -> Type -> Type -> CoercionArg
+opt_unsafe_arg env prov role oty1 oty2
   | Just co1 <- isCoercionTy_maybe oty1
   , Just co2 <- isCoercionTy_maybe oty2
   = CoCoArg role (opt_co1 env False co1) (opt_co1 env False co2)
   | otherwise
-  = TyCoArg $ opt_unsafe env role oty1 oty2
+  = TyCoArg $ opt_unsafe env prov role oty1 oty2
 
 -------------
 -- NthCo must be handled separately, because it's the one case where we can't

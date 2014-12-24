@@ -498,10 +498,11 @@ check_pred_help under_syn dflags ctxt pred
   = check_pred_help True dflags ctxt pred'
   | otherwise
   = case classifyPredType pred of
-      ClassPred cls tys -> check_class_pred dflags ctxt pred cls tys
-      EqPred {}         -> check_eq_pred    dflags pred
-      TuplePred tys     -> check_tuple_pred under_syn dflags ctxt pred tys
-      IrredPred _       -> check_irred_pred under_syn dflags ctxt pred
+      ClassPred cls tys     -> check_class_pred dflags ctxt pred cls tys
+      EqPred NomEq _ _      -> check_eq_pred    dflags pred
+      EqPred ReprEq ty1 ty2 -> check_repr_eq_pred dflags ctxt pred ty1 ty2
+      TuplePred tys         -> check_tuple_pred under_syn dflags ctxt pred tys
+      IrredPred _           -> check_irred_pred under_syn dflags ctxt pred
 
 check_class_pred :: DynFlags -> UserTypeCtxt -> PredType -> Class -> [TcType] -> TcM ()
 check_class_pred dflags ctxt pred cls tys
@@ -512,26 +513,31 @@ check_class_pred dflags ctxt pred cls tys
                  (badIPPred pred)
 
                 -- Check the form of the argument types
-       ; checkTc (check_class_pred_tys dflags ctxt cls tys)
-                 (predTyVarErr (mkClassPred cls tys) $$ how_to_allow)
+       ; check_class_pred_tys dflags ctxt pred tys
        }
   where
     class_name = className cls
     arity      = classArity cls
     n_tys      = length tys
     arity_err  = arityErr "Class" class_name arity n_tys
-    how_to_allow = parens (ptext (sLit "Use FlexibleContexts to permit this"))
 
 check_eq_pred :: DynFlags -> PredType -> TcM ()
 check_eq_pred dflags pred
-  =       -- Equational constraints are valid in all contexts if type
-          -- families are permitted
+  =         -- Equational constraints are valid in all contexts if type
+            -- families are permitted
     checkTc (xopt Opt_TypeFamilies dflags || xopt Opt_GADTs dflags)
             (eqPredTyErr pred)
 
+check_repr_eq_pred :: DynFlags -> UserTypeCtxt -> PredType
+                   -> TcType -> TcType -> TcM ()
+check_repr_eq_pred dflags ctxt pred ty1 ty2
+  = check_class_pred_tys dflags ctxt pred tys
+  where
+    tys = [ty1, ty2]
+
 check_tuple_pred :: Bool -> DynFlags -> UserTypeCtxt -> PredType -> [PredType] -> TcM ()
 check_tuple_pred under_syn dflags ctxt pred ts
-  = do {   -- See Note [ConstraintKinds in predicates]
+  = do { -- See Note [ConstraintKinds in predicates]
          checkTc (under_syn || xopt Opt_ConstraintKinds dflags)
                  (predTupleErr pred)
        ; mapM_ (check_pred_help under_syn dflags ctxt) ts }
@@ -584,20 +590,23 @@ It is equally dangerous to allow them in instance heads because in that case the
 Paterson conditions may not detect duplication of a type variable or size change. -}
 
 -------------------------
-check_class_pred_tys :: DynFlags -> UserTypeCtxt -> Class -> [KindOrType] -> Bool
-check_class_pred_tys dflags ctxt cls kts
-  = case ctxt of
+check_class_pred_tys :: DynFlags -> UserTypeCtxt
+                     -> PredType -> [KindOrType] -> TcM ()
+check_class_pred_tys dflags ctxt pred kts
+  = checkTc pred_ok (predTyVarErr pred $$ how_to_allow)
+  where
+    tys = filterInvisibles (tyConAppTyCon pred) kts
+        -- see Note [Kind polymorphic type classes]
+    flexible_contexts = xopt Opt_FlexibleContexts dflags
+    undecidable_ok = xopt Opt_UndecidableInstances dflags
+
+    pred_ok = case ctxt of
         SpecInstCtxt -> True    -- {-# SPECIALISE instance Eq (T Int) #-} is fine
         InstDeclCtxt -> flexible_contexts || undecidable_ok || all tcIsTyVarTy tys
                                 -- Further checks on head and theta in
                                 -- checkInstTermination
         _             -> flexible_contexts || all tyvar_head tys
-  where
-    tys = filterInvisibles (classTyCon cls) kts
-      -- see Note [Kind polymorphic type classes]
-          
-    flexible_contexts = xopt Opt_FlexibleContexts dflags
-    undecidable_ok = xopt Opt_UndecidableInstances dflags
+    how_to_allow = parens (ptext (sLit "Use FlexibleContexts to permit this"))
 
 -------------------------
 tyvar_head :: Type -> Bool
@@ -860,7 +869,7 @@ instTypeErr cls tys msg
 
 {-
 validDeivPred checks for OK 'deriving' context.  See Note [Exotic
-derived instance contexts] in TcSimplify.  However the predicate is
+derived instance contexts] in TcDeriv.  However the predicate is
 here because it uses sizeTypes, fvTypes.
 
 Also check for a bizarre corner case, when the derived instance decl
@@ -875,13 +884,15 @@ not converge.  See Trac #5287.
 validDerivPred :: TyCoVarSet -> PredType -> Bool
 validDerivPred tv_set pred
   = case classifyPredType pred of
-       ClassPred _ _ -> hasNoDups fvs
-                           -- use sizePred to ignore implicit args
-                      && sizePred pred == length fvs
-                      && all (`elemVarSet` tv_set) fvs
-       TuplePred ps -> all (validDerivPred tv_set) ps
-       _            -> True   -- Non-class predicates are ok
+       ClassPred _ tys       -> check_tys tys
+       TuplePred ps          -> all (validDerivPred tv_set) ps
+       EqPred {}             -> False  -- reject equality constraints
+       _                     -> True   -- Non-class predicates are ok
   where
+    check_tys tys = hasNoDups fvs
+                       -- use sizePred to ignore implicit args
+                    && sizePred pred == length fvs
+                    && all (`elemVarSet` tv_set) fvs
     fvs = fvType pred
 
 {-

@@ -1,5 +1,10 @@
 -- \section[Hooks]{Low level API hooks}
 
+-- NB: this module is SOURCE-imported by DynFlags, and should primarily
+--     refer to *types*, rather than *code*
+-- If you import too muchhere , then the revolting compiler_stage2_dll0_MODULES
+-- stuff in compiler/ghc.mk makes DynFlags link to too much stuff
+
 module Hooks ( Hooks
              , emptyHooks
              , lookupHook
@@ -13,6 +18,7 @@ module Hooks ( Hooks
              , hscCompileCoreExprHook
              , ghcPrimIfaceHook
              , runPhaseHook
+             , runMetaHook
              , linkHook
              , runQuasiQuoteHook
              , runRnSpliceHook
@@ -27,7 +33,6 @@ import HscTypes
 import HsDecls
 import HsBinds
 import HsExpr
-import {-# SOURCE #-} DsMonad
 import OrdList
 import Id
 import TcRnTypes
@@ -55,6 +60,7 @@ import Data.Maybe
 emptyHooks :: Hooks
 emptyHooks = Hooks Nothing Nothing Nothing Nothing Nothing Nothing
                    Nothing Nothing Nothing Nothing Nothing Nothing
+                   Nothing
 
 data Hooks = Hooks
   { dsForeignsHook         :: Maybe ([LForeignDecl Id] -> DsM (ForeignStubs, OrdList (Id, CoreExpr)))
@@ -65,6 +71,7 @@ data Hooks = Hooks
   , hscCompileCoreExprHook :: Maybe (HscEnv -> SrcSpan -> CoreExpr -> IO HValue)
   , ghcPrimIfaceHook       :: Maybe ModIface
   , runPhaseHook           :: Maybe (PhasePlus -> FilePath -> DynFlags -> CompPipeline (PhasePlus, FilePath))
+  , runMetaHook            :: Maybe (MetaHook TcM)
   , linkHook               :: Maybe (GhcLink -> DynFlags -> Bool -> HomePackageTable -> IO SuccessFlag)
   , runQuasiQuoteHook      :: Maybe (HsQuasiQuote Name -> RnM (HsQuasiQuote Name))
   , runRnSpliceHook        :: Maybe (LHsExpr Name -> RnM (LHsExpr Name))

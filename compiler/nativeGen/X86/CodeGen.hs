@@ -31,6 +31,7 @@ import X86.Regs
 import X86.RegInfo
 import CodeGen.Platform
 import CPrim
+import Debug            ( DebugBlock(..) )
 import Instruction
 import PIC
 import NCGMonad
@@ -47,6 +48,8 @@ import CmmUtils
 import Cmm
 import Hoopl
 import CLabel
+import CoreSyn          ( Tickish(..) )
+import SrcLoc           ( srcSpanFile, srcSpanStartLine, srcSpanStartCol )
 
 -- The rest:
 import ForeignCall      ( CCallConv(..) )
@@ -111,11 +114,20 @@ basicBlockCodeGen
                 , [NatCmmDecl (Alignment, CmmStatics) Instr])
 
 basicBlockCodeGen block = do
-  let (CmmEntry id, nodes, tail)  = blockSplit block
+  let (_, nodes, tail)  = blockSplit block
+      id = entryLabel block
       stmts = blockToList nodes
+  -- Generate location directive
+  dbg <- getDebugBlock (entryLabel block)
+  loc_instrs <- case dblSourceTick =<< dbg of
+    Just (SourceNote span name)
+      -> do fileId <- getFileId (srcSpanFile span)
+            let line = srcSpanStartLine span; col = srcSpanStartCol span
+            return $ unitOL $ LOCATION fileId line col name
+    _ -> return nilOL
   mid_instrs <- stmtsToInstrs stmts
   tail_instrs <- stmtToInstrs tail
-  let instrs = mid_instrs `appOL` tail_instrs
+  let instrs = loc_instrs `appOL` mid_instrs `appOL` tail_instrs
   -- code generation may introduce new basic block boundaries, which
   -- are indicated by the NEWBLOCK instruction.  We must split up the
   -- instruction stream into basic blocks again.  Also, we extract
@@ -144,6 +156,8 @@ stmtToInstrs stmt = do
   is32Bit <- is32BitPlatform
   case stmt of
     CmmComment s   -> return (unitOL (COMMENT s))
+    CmmTick {}     -> return nilOL
+    CmmUnwind {}   -> return nilOL
 
     CmmAssign reg src
       | isFloatType ty         -> assignReg_FltCode size reg src

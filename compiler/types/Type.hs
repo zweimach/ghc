@@ -30,7 +30,7 @@ module Type (
 
         mkTyConApp, mkTyConTy,
         tyConAppTyCon_maybe, tyConAppArgs_maybe, tyConAppTyCon, tyConAppArgs,
-        splitTyConApp_maybe, splitTyConApp, tyConAppArgN,
+        splitTyConApp_maybe, splitTyConApp, tyConAppArgN, nextRole,
 
         mkForAllTy, mkForAllTys, mkInvForAllTys, mkVisForAllTys,
         mkNamedForAllTy,
@@ -65,9 +65,10 @@ module Type (
         isIPPred, isIPPred_maybe, isIPTyCon, isIPClass,
 
         -- Deconstructing predicate types
-        PredTree(..), classifyPredType,
+        PredTree(..), EqRel(..), eqRelRole, classifyPredType,
         getClassPredTys, getClassPredTys_maybe,
         getEqPredTys, getEqPredTys_maybe, getEqPredRole, isEqPredLifted,
+        predTypeEqRel,
 
         -- ** Binders
         mkNamedBinder, mkAnonBinder, isNamedBinder, isAnonBinder,
@@ -188,6 +189,7 @@ import {-# SOURCE #-} Coercion
 -- others
 import BasicTypes       ( Arity, RepArity, Boxity(..) )
 import Util
+import ListSetOps       ( getNth )
 import Outputable
 import FastString
 import Pair
@@ -341,8 +343,8 @@ expandTypeSynonyms ty
       = mkAxiomInstCo ax ind (map (go_arg subst) args)
     go_co subst (PhantomCo h t1 t2)
       = mkPhantomCo (go_co subst h) (go subst t1) (go subst t2)
-    go_co subst (UnsafeCo r ty1 ty2)
-      = mkUnsafeCo r (go subst ty1) (go subst ty2)
+    go_co subst (UnsafeCo s r ty1 ty2)
+      = mkUnsafeCo s r (go subst ty1) (go subst ty2)
     go_co subst (SymCo co)
       = mkSymCo (go_co subst co)
     go_co subst (TransCo co1 co2)
@@ -651,6 +653,20 @@ splitTyConApp_maybe ty | Just ty' <- coreView ty = splitTyConApp_maybe ty'
 splitTyConApp_maybe (TyConApp tc tys)         = Just (tc, tys)
 splitTyConApp_maybe (ForAllTy (Anon arg) res) = Just (funTyCon, [arg,res])
 splitTyConApp_maybe _                         = Nothing
+
+-- | What is the role assigned to the next parameter of this type? Usually,
+-- this will be 'Nominal', but if the type is a 'TyConApp', we may be able to
+-- do better. The type does *not* have to be well-kinded when applied for this
+-- to work!
+nextRole :: Type -> Role
+nextRole ty
+  | Just (tc, tys) <- splitTyConApp_maybe ty
+  , let num_tys = length tys
+  , num_tys < tyConArity tc
+  = tyConRoles tc `getNth` num_tys
+
+  | otherwise
+  = Nominal
 
 newTyConInstRhs :: TyCon -> [Type] -> Type
 -- ^ Unwrap one 'layer' of newtype on a type constructor and its
@@ -1312,24 +1328,46 @@ constraints build tuples.
 Decomposing PredType
 -}
 
+-- | A choice of equality relation. This is separate from the type 'Role'
+-- because 'Phantom' does not define a (non-trivial) equality relation.
+data EqRel = NomEq | ReprEq
+  deriving (Eq, Ord)
+
+instance Outputable EqRel where
+  ppr NomEq  = text "nominal equality"
+  ppr ReprEq = text "representational equality"
+
+eqRelRole :: EqRel -> Role
+eqRelRole NomEq  = Nominal
+eqRelRole ReprEq = Representational
+
 data PredTree = ClassPred Class [Type]
-              | EqPred Type Type
+              | EqPred EqRel Type Type
               | TuplePred [PredType]
               | IrredPred PredType
 
 classifyPredType :: PredType -> PredTree
 classifyPredType ev_ty = case splitTyConApp_maybe ev_ty of
-    Just (tc, tys) | Just clas <- tyConClass_maybe tc
-                   -> ClassPred clas tys
-    Just (tc, tys) | tc `hasKey` eqTyConKey
-                   , let [_, ty1, ty2] = tys
-                   -> EqPred ty1 ty2
-    Just (tc, tys) | tc `hasKey` eqPrimTyConKey
-                   , let [_, _, ty1, ty2] = tys
-                   -> EqPred ty1 ty2
-    Just (tc, tys) | isTupleTyCon tc
-                   -> TuplePred tys
-    _ -> IrredPred ev_ty
+    Just (tc, tys)
+      | tc `hasKey` coercibleTyConKey
+      , let [_, ty1, ty2] = tys           -> EqPred ReprEq ty1 ty2
+
+      | tc `hasKey` eqReprPrimTyConKey
+      , let [_, _, ty1, ty2] = tys        -> EqPred ReprEq ty1 ty2
+
+      | tc `hasKey` eqTyConKey
+      , let [_, ty1, ty2] = tys           -> EqPred NomEq ty1 ty2
+
+      | tc `hasKey` eqPrimTyConKey
+      , let [_, _, ty1, ty2] = tys        -> EqPred NomEq ty1 ty2
+
+     -- NB: Coercible is also a class, so this check must come *after*
+     -- the Coercible check
+      | Just clas <- tyConClass_maybe tc  -> ClassPred clas tys
+
+      | isTupleTyCon tc                   -> TuplePred tys
+
+    _                                     -> IrredPred ev_ty
 
 getClassPredTys :: PredType -> (Class, [Type])
 getClassPredTys ty = case getClassPredTys_maybe ty of
@@ -1348,7 +1386,8 @@ getEqPredTys ty
         |  tc `hasKey` eqTyConKey
         || tc `hasKey` coercibleTyConKey -> (ty1, ty2)
       Just (tc, [_, _, ty1, ty2])
-        | tc `hasKey` eqPrimTyConKey -> (ty1, ty2)
+        |  tc `hasKey` eqPrimTyConKey
+        || tc `hasKey` eqReprPrimTyConKey -> (ty1, ty2)
       _ -> pprPanic "getEqPredTys" (ppr ty)
 
 getEqPredTys_maybe :: PredType -> Maybe (Boxity, Role, Type, Type)
@@ -1377,6 +1416,15 @@ isEqPredLifted ty
   = case splitTyConApp_maybe ty of
       Just (tc, _) -> not (tc `hasKey` eqPrimTyConKey)
       _ -> pprPanic "isEqPredLifted" (ppr ty)
+
+-- | Get the equality relation relevant for a pred type.
+predTypeEqRel :: PredType -> EqRel
+predTypeEqRel ty
+  | Just (tc, _) <- splitTyConApp_maybe ty
+  , tc `hasKey` coercibleTyConKey
+  = ReprEq
+  | otherwise
+  = NomEq
 
 {-
 %************************************************************************

@@ -65,7 +65,7 @@ module DynFlags (
 
         -- ** System tool settings and locations
         Settings(..),
-        targetPlatform,
+        targetPlatform, programName, projectVersion,
         ghcUsagePath, ghciUsagePath, topDir, tmpDir, rawSettings,
         extraGccViaCFlags, systemPackageConfig,
         pgm_L, pgm_P, pgm_F, pgm_c, pgm_s, pgm_a, pgm_l, pgm_dll, pgm_T,
@@ -299,6 +299,7 @@ data DumpFlag
    | Opt_D_dump_mod_map
    | Opt_D_dump_view_pattern_commoning
    | Opt_D_verbose_core2core
+   | Opt_D_dump_debug
 
    deriving (Eq, Show, Enum)
 
@@ -313,6 +314,7 @@ data GeneralFlag
    | Opt_DoStgLinting
    | Opt_DoCmmLinting
    | Opt_DoAsmLinting
+   | Opt_DoAnnotationLinting
    | Opt_NoLlvmMangler                 -- hidden flag
 
    | Opt_WarnIsError                    -- -Werror; makes warnings fatal
@@ -419,6 +421,7 @@ data GeneralFlag
    | Opt_ErrorSpans -- Include full span info in error messages,
                     -- instead of just the start position.
    | Opt_PprCaseAsLet
+   | Opt_PprShowTicks
 
    -- Suppress all coercions, them replacing with '...'
    | Opt_SuppressCoercions
@@ -454,6 +457,9 @@ data GeneralFlag
    -- safe haskell flags
    | Opt_DistrustAllPackages
    | Opt_PackageTrust
+
+   -- debugging flags
+   | Opt_Debug
 
    deriving (Eq, Show, Enum)
 
@@ -505,6 +511,7 @@ data WarningFlag =
    | Opt_WarnTypedHoles
    | Opt_WarnPartialTypeSignatures
    | Opt_WarnMissingExportedSigs
+   | Opt_WarnUntickedPromotedConstructors
    deriving (Eq, Show, Enum)
 
 data Language = Haskell98 | Haskell2010
@@ -623,7 +630,8 @@ data ExtensionFlag
    | Opt_EmptyCase
    | Opt_PatternSynonyms
    | Opt_PartialTypeSignatures
-   | Opt_NamedWildcards
+   | Opt_NamedWildCards
+   | Opt_StaticPointers
    deriving (Eq, Enum, Show)
 
 data SigOf = NotSigOf
@@ -844,7 +852,7 @@ data DynFlags = DynFlags {
   nextWrapperNum        :: IORef (ModuleEnv Int),
 
   -- | Machine dependant flags (-m<blah> stuff)
-  sseVersion            :: Maybe (Int, Int),  -- (major, minor)
+  sseVersion            :: Maybe SseVersion,
   avx                   :: Bool,
   avx2                  :: Bool,
   avx512cd              :: Bool, -- Enable AVX-512 Conflict Detection Instructions.
@@ -885,7 +893,7 @@ data ProfAuto
   | ProfAutoTop        -- ^ top-level functions annotated only
   | ProfAutoExports    -- ^ exported functions annotated only
   | ProfAutoCalls      -- ^ annotate call-sites
-  deriving (Enum)
+  deriving (Eq,Enum)
 
 data Settings = Settings {
   sTargetPlatform        :: Platform,    -- Filled in by SysTools
@@ -893,6 +901,8 @@ data Settings = Settings {
   sGhciUsagePath         :: FilePath,    -- ditto
   sTopDir                :: FilePath,
   sTmpDir                :: String,      -- no trailing '/'
+  sProgramName           :: String,
+  sProjectVersion        :: String,
   -- You shouldn't need to look things up in rawSettings directly.
   -- They should have their own fields instead.
   sRawSettings           :: [(String, String)],
@@ -933,7 +943,10 @@ data Settings = Settings {
 
 targetPlatform :: DynFlags -> Platform
 targetPlatform dflags = sTargetPlatform (settings dflags)
-
+programName :: DynFlags -> String
+programName dflags = sProgramName (settings dflags)
+projectVersion :: DynFlags -> String
+projectVersion dflags = sProjectVersion (settings dflags)
 ghcUsagePath          :: DynFlags -> FilePath
 ghcUsagePath dflags = sGhcUsagePath (settings dflags)
 ghciUsagePath         :: DynFlags -> FilePath
@@ -2493,17 +2506,23 @@ dynamic_flags = [
       (NoArg (setGeneralFlag Opt_DoCmmLinting))
   , defGhcFlag "dasm-lint"
       (NoArg (setGeneralFlag Opt_DoAsmLinting))
+  , defGhcFlag "dannot-lint"
+      (NoArg (setGeneralFlag Opt_DoAnnotationLinting))
   , defGhcFlag "dshow-passes"            (NoArg (do forceRecompile
                                                     setVerbosity $ Just 2))
   , defGhcFlag "dfaststring-stats"
       (NoArg (setGeneralFlag Opt_D_faststring_stats))
   , defGhcFlag "dno-llvm-mangler"
       (NoArg (setGeneralFlag Opt_NoLlvmMangler)) -- hidden flag
+  , defGhcFlag "ddump-debug"             (setDumpFlag Opt_D_dump_debug)
 
         ------ Machine dependant (-m<blah>) stuff ---------------------------
 
-  , defGhcFlag "msse"
-      (versionSuffix (\maj min d -> d{ sseVersion = Just (maj, min) }))
+  , defGhcFlag "msse"         (noArg (\d -> d{ sseVersion = Just SSE1 }))
+  , defGhcFlag "msse2"        (noArg (\d -> d{ sseVersion = Just SSE2 }))
+  , defGhcFlag "msse3"        (noArg (\d -> d{ sseVersion = Just SSE3 }))
+  , defGhcFlag "msse4"        (noArg (\d -> d{ sseVersion = Just SSE4 }))
+  , defGhcFlag "msse4.2"      (noArg (\d -> d{ sseVersion = Just SSE42 }))
   , defGhcFlag "mavx"         (noArg (\d -> d{ avx = True }))
   , defGhcFlag "mavx2"        (noArg (\d -> d{ avx2 = True }))
   , defGhcFlag "mavx512cd"    (noArg (\d -> d{ avx512cd = True }))
@@ -2644,6 +2663,9 @@ dynamic_flags = [
   , defFlag "fno-safe-infer"   (noArg (\d -> d { safeInfer = False  } ))
   , defGhcFlag "fPIC"          (NoArg (setGeneralFlag Opt_PIC))
   , defGhcFlag "fno-PIC"       (NoArg (unSetGeneralFlag Opt_PIC))
+
+         ------ Debugging flags ----------------------------------------------
+  , defGhcFlag "g"             (NoArg (setGeneralFlag Opt_Debug))
  ]
  ++ map (mkFlag turnOn  ""     setGeneralFlag  ) negatableFlags
  ++ map (mkFlag turnOff "no-"  unSetGeneralFlag) negatableFlags
@@ -2835,6 +2857,8 @@ fWarningFlags = [
   flagSpec "warn-unsupported-calling-conventions"
                                          Opt_WarnUnsupportedCallingConventions,
   flagSpec "warn-unsupported-llvm-version"    Opt_WarnUnsupportedLlvmVersion,
+  flagSpec "warn-unticked-promoted-constructors"
+                                         Opt_WarnUntickedPromotedConstructors,
   flagSpec "warn-unused-binds"                Opt_WarnUnusedBinds,
   flagSpec "warn-unused-do-bind"              Opt_WarnUnusedDoBind,
   flagSpec "warn-unused-imports"              Opt_WarnUnusedImports,
@@ -2854,6 +2878,7 @@ dFlags = [
 -- See Note [Supporting CLI completion]
 -- Please keep the list of flags below sorted alphabetically
   flagSpec "ppr-case-as-let"            Opt_PprCaseAsLet,
+  flagSpec "ppr-ticks"                  Opt_PprShowTicks,
   flagSpec "suppress-coercions"         Opt_SuppressCoercions,
   flagSpec "suppress-idinfo"            Opt_SuppressIdInfo,
   flagSpec "suppress-module-prefixes"   Opt_SuppressModulePrefixes,
@@ -3082,7 +3107,7 @@ xFlags = [
   flagSpec "MultiWayIf"                       Opt_MultiWayIf,
   flagSpec "NPlusKPatterns"                   Opt_NPlusKPatterns,
   flagSpec "NamedFieldPuns"                   Opt_RecordPuns,
-  flagSpec "NamedWildcards"                   Opt_NamedWildcards,
+  flagSpec "NamedWildCards"                   Opt_NamedWildCards,
   flagSpec "NegativeLiterals"                 Opt_NegativeLiterals,
   flagSpec "NondecreasingIndentation"         Opt_NondecreasingIndentation,
   flagSpec' "NullaryTypeClasses"              Opt_NullaryTypeClasses
@@ -3118,6 +3143,7 @@ xFlags = [
   flagSpec "RoleAnnotations"                  Opt_RoleAnnotations,
   flagSpec "ScopedTypeVariables"              Opt_ScopedTypeVariables,
   flagSpec "StandaloneDeriving"               Opt_StandaloneDeriving,
+  flagSpec "StaticPointers"                   Opt_StaticPointers,
   flagSpec' "TemplateHaskell"                 Opt_TemplateHaskell
                                               checkTemplateHaskellOk,
   flagSpec "TraditionalRecordSyntax"          Opt_TraditionalRecordSyntax,
@@ -3329,7 +3355,8 @@ minusWallOpts
         Opt_WarnHiShadows,
         Opt_WarnOrphans,
         Opt_WarnUnusedDoBind,
-        Opt_WarnTrustworthySafe
+        Opt_WarnTrustworthySafe,
+        Opt_WarnUntickedPromotedConstructors
       ]
 
 enableGlasgowExts :: DynP ()
@@ -3490,9 +3517,6 @@ floatSuffix fn = FloatSuffix (\n -> upd (fn n))
 optIntSuffixM :: (Maybe Int -> DynFlags -> DynP DynFlags)
               -> OptKind (CmdLineP DynFlags)
 optIntSuffixM fn = OptIntSuffix (\mi -> updM (fn mi))
-
-versionSuffix :: (Int -> Int -> DynFlags -> DynFlags) -> OptKind (CmdLineP DynFlags)
-versionSuffix fn = VersionSuffix (\maj min -> upd (fn maj min))
 
 setDumpFlag :: DumpFlag -> OptKind (CmdLineP DynFlags)
 setDumpFlag dump_flag = NoArg (setDumpFlag' dump_flag)
@@ -3895,7 +3919,7 @@ compilerInfo dflags
       -- in the settings file (as "lookup" uses the first match for the
       -- key)
     : rawSettings dflags
-   ++ [("Project version",             cProjectVersion),
+   ++ [("Project version",             projectVersion dflags),
        ("Project Git commit id",       cProjectGitCommitId),
        ("Booter version",              cBooterVersion),
        ("Stage",                       cStage),
@@ -4032,10 +4056,17 @@ setUnsafeGlobalDynFlags = writeIORef v_unsafeGlobalDynFlags
 -- check if SSE is enabled, we might have x86-64 imply the -msse2
 -- flag.
 
+data SseVersion = SSE1
+                | SSE2
+                | SSE3
+                | SSE4
+                | SSE42
+                deriving (Eq, Ord)
+
 isSseEnabled :: DynFlags -> Bool
 isSseEnabled dflags = case platformArch (targetPlatform dflags) of
     ArchX86_64 -> True
-    ArchX86    -> sseVersion dflags >= Just (1,0)
+    ArchX86    -> sseVersion dflags >= Just SSE1
     _          -> False
 
 isSse2Enabled :: DynFlags -> Bool
@@ -4046,11 +4077,11 @@ isSse2Enabled dflags = case platformArch (targetPlatform dflags) of
                   -- calling convention specifies the use of xmm regs,
                   -- and possibly other places.
                   True
-    ArchX86    -> sseVersion dflags >= Just (2,0)
+    ArchX86    -> sseVersion dflags >= Just SSE2
     _          -> False
 
 isSse4_2Enabled :: DynFlags -> Bool
-isSse4_2Enabled dflags = sseVersion dflags >= Just (4,2)
+isSse4_2Enabled dflags = sseVersion dflags >= Just SSE42
 
 isAvxEnabled :: DynFlags -> Bool
 isAvxEnabled dflags = avx dflags || avx2 dflags || avx512f dflags

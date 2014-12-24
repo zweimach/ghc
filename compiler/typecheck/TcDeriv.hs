@@ -556,7 +556,7 @@ deriveAutoTypeable auto_typeable done_specs tycl_decls
                          | spec <- done_specs
                          , className (earlyDSClass spec) == typeableClassName ]
         -- Check if an automatically generated DS for deriving Typeable should be
-        -- ommitted because the user had manually requested an instance
+        -- omitted because the user had manually requested an instance
 
     do_one cls (L _ decl)
       = do { tc <- tcLookupTyCon (tcdName decl)
@@ -1806,7 +1806,6 @@ inferInstanceContexts infer_specs
         do { theta <- simplifyDeriv the_pred tyvars deriv_rhs
                 -- checkValidInstance tyvars theta clas inst_tys
                 -- Not necessary; see Note [Exotic derived instance contexts]
-                --                in TcSimplify
 
            ; traceTc "TcDeriv" (ppr deriv_rhs $$ ppr theta)
                 -- Claim: the result instance declaration is guaranteed valid
@@ -1857,15 +1856,15 @@ simplifyDeriv pred tvs theta
              skol_set   = mkVarSet tvs_skols
              doc = ptext (sLit "deriving") <+> parens (ppr pred)
 
-       ; wanted <- mapM (\(PredOrigin t o) -> newFlatWanted o (substTy skol_subst t)) theta
+       ; wanted <- mapM (\(PredOrigin t o) -> newSimpleWanted o (substTy skol_subst t)) theta
 
        ; traceTc "simplifyDeriv" $
          vcat [ pprTCvBndrs tvs $$ ppr theta $$ ppr wanted, doc ]
        ; (residual_wanted, _ev_binds1)
-             <- solveWantedsTcM (mkFlatWC wanted)
+             <- solveWantedsTcM (mkSimpleWC wanted)
                 -- Post: residual_wanted are already zonked
 
-       ; let (good, bad) = partitionBagWith get_good (wc_flat residual_wanted)
+       ; let (good, bad) = partitionBagWith get_good (wc_simple residual_wanted)
                          -- See Note [Exotic derived instance contexts]
              get_good :: Ct -> Either PredType Ct
              get_good ct | validDerivPred skol_set p
@@ -1880,7 +1879,7 @@ simplifyDeriv pred tvs theta
        -- constraints.  They'll come up again when we typecheck the
        -- generated instance declaration
        ; defer <- goptM Opt_DeferTypeErrors
-       ; unless defer (reportAllUnsolved (residual_wanted { wc_flat = bad }))
+       ; unless defer (reportAllUnsolved (residual_wanted { wc_simple = bad }))
 
        ; let min_theta = mkMinimalBySCs (bagToList good)
        ; return (substTheta subst_skol min_theta) }

@@ -926,8 +926,11 @@ makeFunBind :: Located RdrName -> Bool -> [LMatch RdrName (LHsExpr RdrName)]
             -> HsBind RdrName
 -- Like HsUtils.mkFunBind, but we need to be able to set the fixity too
 makeFunBind fn is_infix ms
-  = FunBind { fun_id = fn, fun_infix = is_infix, fun_matches = mkMatchGroup FromSource ms,
-              fun_co_fn = idHsWrapper, bind_fvs = placeHolderNames, fun_tick = Nothing }
+  = FunBind { fun_id = fn, fun_infix = is_infix,
+              fun_matches = mkMatchGroup FromSource ms,
+              fun_co_fn = idHsWrapper,
+              bind_fvs = placeHolderNames,
+              fun_tick = [] }
 
 checkPatBind :: SDoc
              -> LHsExpr RdrName
@@ -936,7 +939,7 @@ checkPatBind :: SDoc
 checkPatBind msg lhs (L _ (_,grhss))
   = do  { lhs <- checkPattern msg lhs
         ; return (PatBind lhs grhss placeHolderType placeHolderNames
-                    (Nothing,[])) }
+                    ([],[])) }
 
 checkValSig
         :: LHsExpr RdrName

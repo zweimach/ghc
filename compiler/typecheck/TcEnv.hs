@@ -1,7 +1,7 @@
 -- (c) The University of Glasgow 2006
 
 {-# LANGUAGE CPP, FlexibleInstances #-}
-{-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}  -- instance MonadThings is necessarily an orphan
 
 module TcEnv(
         TyThing(..), TcTyThing(..), TcId,
@@ -64,7 +64,7 @@ import IfaceEnv
 import TcRnMonad
 import TcMType
 import TcType
-import TcIface
+import LoadIface
 import PrelNames
 import TysWiredIn
 import Id

@@ -45,7 +45,8 @@ module TcType (
 
   --------------------------------
   -- Builders
-  mkPhiTy, mkInvSigmaTy, mkSigmaTy, mkTcEqPred,
+  mkPhiTy, mkInvSigmaTy, mkSigmaTy,
+  mkTcEqPred, mkTcReprEqPred, mkTcEqPredRole,
 
   --------------------------------
   -- Splitters
@@ -58,7 +59,7 @@ module TcType (
   tcSplitTyConApp, tcSplitTyConApp_maybe, tcTyConAppTyCon, tcTyConAppArgs,
   tcSplitAppTy_maybe, tcSplitAppTy, tcSplitAppTys, repSplitAppTy_maybe,
   tcInstHeadTyNotSynonym, tcInstHeadTyAppAllTyVars,
-  tcGetTyVar_maybe, tcGetTyCoVar_maybe, tcGetTyVar,
+  tcGetTyVar_maybe, tcGetTyCoVar_maybe, tcGetTyVar, nextRole,
   tcSplitSigmaTy, tcDeepSplitSigmaTy_maybe,
 
   ---------------------------------
@@ -70,7 +71,7 @@ module TcType (
   isDoubleTy, isFloatTy, isIntTy, isWordTy, isStringTy,
   isIntegerTy, isBoolTy, isUnitTy, isCharTy,
   isTauTy, isTauTyCon, tcIsTyVarTy, tcIsForAllTy,
-  isPredTy, isTyVarClassPred,
+  isPredTy, isTyVarClassPred, isTyVarExposed,
 
   ---------------------------------
   -- Misc type manipulators
@@ -472,7 +473,7 @@ The same idea of only unifying touchables solves another problem.
 Suppose we had
    (F Int ~ uf[0])  /\  [1](forall a. C a => F Int ~ beta[1])
 In this example, beta is touchable inside the implication. The
-first solveFlatWanteds step leaves 'uf' un-unified. Then we move inside
+first solveSimpleWanteds step leaves 'uf' un-unified. Then we move inside
 the implication where a new constraint
        uf  ~  beta
 emerges. If we (wrongly) spontaneously solved it to get uf := beta,
@@ -527,8 +528,8 @@ pprTcTyVarDetails (MetaTv { mtv_info = info, mtv_tclvl = tclvl })
   where
     pp_info = case info of
                 ReturnTv    -> ptext (sLit "ret")
-                TauTv True  -> ptext (sLit "tau")
-                TauTv False -> ptext (sLit "twc")
+                TauTv True  -> ptext (sLit "twc")
+                TauTv False -> ptext (sLit "tau")
                 SigTv       -> ptext (sLit "sig")
                 FlatMetaTv  -> ptext (sLit "fuv")
 
@@ -882,10 +883,20 @@ mkTcEqPred ty1 ty2
   where
     k = typeKind ty1
 
-{-
-@isTauTy@ tests to see if a type is "simple".  It should not be called on a boxy type.
--}
+-- | Make a representational equality predicate
+mkTcReprEqPred :: TcType -> TcType -> Type
+mkTcReprEqPred ty1 ty2
+  = mkTyConApp coercibleTyCon [k, ty1, ty2]
+  where
+    k = typeKind ty1
 
+-- | Make an equality predicate at a given role. The role must not be Phantom.
+mkTcEqPredRole :: Role -> TcType -> TcType -> Type
+mkTcEqPredRole Nominal          = mkTcEqPred
+mkTcEqPredRole Representational = mkTcReprEqPred
+mkTcEqPredRole Phantom          = panic "mkTcEqPredRole Phantom"
+
+-- @isTauTy@ tests if a type is "simple". It should not be called on a boxy type.
 isTauTy :: Type -> Bool
 isTauTy ty | Just ty' <- tcView ty = isTauTy ty'
 isTauTy (TyVarTy _)           = True
@@ -1506,9 +1517,9 @@ occurCheckExpand dflags tv ty
                                          ; ty1' <- go ty1
                                          ; ty2' <- go ty2
                                          ; return (mkPhantomCo h' ty1' ty2') }
-    go_co (UnsafeCo r ty1 ty2)      = do { ty1' <- go ty1
+    go_co (UnsafeCo s r ty1 ty2)    = do { ty1' <- go ty1
                                          ; ty2' <- go ty2
-                                         ; return (mkUnsafeCo r ty1' ty2') }
+                                         ; return (mkUnsafeCo s r ty1' ty2') }
     go_co (SymCo co)                = do { co' <- go_co co
                                          ; return (mkSymCo co') }
     go_co (TransCo co1 co2)         = do { co1' <- go_co co1
@@ -1562,7 +1573,7 @@ Here we need to instantiate 'error' with a polytype.
 
 But 'error' has an OpenTypeKind type variable, precisely so that
 we can instantiate it with Int#.  So we also allow such type variables
-to be instantiate with foralls.  It's a bit of a hack, but seems
+to be instantiated with foralls.  It's a bit of a hack, but seems
 straightforward.
 
 ************************************************************************
@@ -1681,6 +1692,21 @@ is_tc uniq ty = case tcSplitTyConApp_maybe ty of
                         Just (tc, _) -> uniq == getUnique tc
                         Nothing      -> False
 
+-- | Does the given tyvar appear in the given type outside of any
+-- non-newtypes? Assume we're looking for @a@. Says "yes" for
+-- @a@, @N a@, @b a@, @a b@, @b (N a)@. Says "no" for
+-- @[a]@, @Maybe a@, @T a@, where @N@ is a newtype and @T@ is a datatype.
+isTyVarExposed :: TcTyVar -> TcType -> Bool
+isTyVarExposed tv (TyVarTy tv')   = tv == tv'
+isTyVarExposed tv (TyConApp tc tys)
+  | isNewTyCon tc                 = any (isTyVarExposed tv) tys
+  | otherwise                     = False
+isTyVarExposed _  (LitTy {})      = False
+isTyVarExposed _  (FunTy {})      = False
+isTyVarExposed tv (AppTy fun arg) = isTyVarExposed tv fun
+                                 || isTyVarExposed tv arg
+isTyVarExposed _  (ForAllTy {})   = False
+
 {-
 ************************************************************************
 *                                                                      *
@@ -1747,7 +1773,7 @@ orphNamesOfCo (ForAllCo cobndr co)
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
 orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSet` orphNamesOfCoArgs cos
 orphNamesOfCo (PhantomCo h t1 t2)   = orphNamesOfCo h `unionNameSet` orphNamesOfType t1 `unionNameSet` orphNamesOfType t2
-orphNamesOfCo (UnsafeCo _ ty1 ty2)  = orphNamesOfType ty1 `unionNameSet` orphNamesOfType ty2
+orphNamesOfCo (UnsafeCo _ _ ty1 ty2)= orphNamesOfType ty1 `unionNameSet` orphNamesOfType ty2
 orphNamesOfCo (SymCo co)            = orphNamesOfCo co
 orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (NthCo _ co)          = orphNamesOfCo co

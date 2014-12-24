@@ -27,6 +27,7 @@ import Outputable
 import FastString
 import Var
 import Id
+import IdInfo( IdDetails(..) )
 import TcBinds
 import BasicTypes
 import TcSimplify
@@ -259,7 +260,8 @@ tcPatSynMatcher (L loc name) lpat
 
        ; let matcher_tau   = mkFunTys [pat_ty, cont_ty, fail_ty] res_ty
              matcher_sigma = mkInvSigmaTy (res_tv:univ_tvs) req_theta matcher_tau
-             matcher_id    = mkVanillaGlobal matcher_name matcher_sigma
+             matcher_id    = mkExportedLocalId VanillaId matcher_name matcher_sigma
+                             -- See Note [Exported LocalIds] in Id
 
              cont_dicts = map nlHsVar prov_dicts
              cont' = mkLHsWrap (mkWpLet prov_ev_binds) $
@@ -300,7 +302,7 @@ tcPatSynMatcher (L loc name) lpat
                            , fun_matches = mg
                            , fun_co_fn = idHsWrapper
                            , bind_fvs = emptyNameSet
-                           , fun_tick = Nothing }
+                           , fun_tick = [] }
              matcher_bind = unitBag (noLoc bind)
 
        ; traceTc "tcPatSynMatcher" (ppr name $$ ppr (idType matcher_id))
@@ -329,9 +331,10 @@ mkPatSynBuilderId dir  (L _ name) qtvs theta arg_tys pat_ty
   | isUnidirectional dir
   = return Nothing
   | otherwise
-  = do { builder_name <- newImplicitBinder name mkDataConWorkerOcc
+  = do { builder_name <- newImplicitBinder name mkBuilderOcc
        ; let builder_sigma = mkInvSigmaTy qtvs theta (mkFunTys builder_arg_tys pat_ty)
-             builder_id    = mkVanillaGlobal builder_name builder_sigma
+             builder_id    = mkExportedLocalId VanillaId builder_name builder_sigma
+                             -- See Note [Exported LocalIds] in Id
        ; return (Just (builder_id, need_dummy_arg)) }
   where
     builder_arg_tys | need_dummy_arg = [voidPrimTy]
@@ -366,7 +369,7 @@ tcPatSynBuilderBind PSB{ psb_id = L loc name, psb_def = lpat
                             , fun_matches = mg'
                             , fun_co_fn = idHsWrapper
                             , bind_fvs = placeHolderNamesTc
-                            , fun_tick = Nothing }
+                            , fun_tick = [] }
 
              sig = TcSigInfo{ sig_id = worker_id
                             , sig_tvs = map (\tv -> (Nothing, tv)) worker_tvs

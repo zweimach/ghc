@@ -569,7 +569,7 @@ lkC env co m
     go (AppCo c1 c2)           = km_app    >.> lkC env c1 >=> lkCA env c2
     go (TransCo c1 c2)         = km_trans  >.> lkC env c1 >=> lkC env c2
     go (PhantomCo h t1 t2)     = km_phant  >.> lkC env h  >=> lkT env t1 >=> lkT env t2
-    go (UnsafeCo r t1 t2)      = km_unsafe >.> lookupTM r >=> lkT env t1 >=> lkT env t2
+    go (UnsafeCo _ r t1 t2)    = km_unsafe >.> lookupTM r >=> lkT env t1 >=> lkT env t2
     go (InstCo c t)            = km_inst   >.> lkC env c  >=> lkCA env t
     go (ForAllCo (TyHomo tv) co)
                                = km_fa_tho
@@ -616,7 +616,7 @@ xtC env (AxiomInstCo ax ind cs) f m = m { km_axiom  = km_axiom m  |> xtNamed ax 
 xtC env (AppCo c1 c2)           f m = m { km_app    = km_app m    |> xtC env c1 |>> xtCA env c2 f }
 xtC env (TransCo c1 c2)         f m = m { km_trans  = km_trans m  |> xtC env c1 |>> xtC env c2 f }
 xtC env (PhantomCo h t1 t2)     f m = m { km_phant  = km_phant m  |> xtC env h |>> xtT env t1 |>> xtT env t2 f }
-xtC env (UnsafeCo r t1 t2)      f m = m { km_unsafe = km_unsafe m |> xtR r |>> xtT env t1 |>> xtT env t2 f }
+xtC env (UnsafeCo _ r t1 t2)    f m = m { km_unsafe = km_unsafe m |> xtR r |>> xtT env t1 |>> xtT env t2 f }
 xtC env (InstCo c t)            f m = m { km_inst   = km_inst m   |> xtC env c  |>> xtCA env t  f }
 xtC env (ForAllCo (TyHomo tv) co) f m
   = m { km_fa_tho = km_fa_tho m |> xtC (extendCME env tv) co |>> xtBndr env tv f }
@@ -990,6 +990,13 @@ lookupCME :: CmEnv -> Var -> Maybe BoundVar
 lookupCME (CME { cme_env = env }) v = lookupVarEnv env v
 
 --------- Variable binders -------------
+
+-- | A 'BndrMap' is a 'TypeMap' which allows us to distinguish between
+-- binding forms whose binders have different types.  For example,
+-- if we are doing a 'TrieMap' lookup on @\(x :: Int) -> ()@, we should
+-- not pick up an entry in the 'TrieMap' for @\(x :: Bool) -> ()@:
+-- we can disambiguate this by matching on the type (or kind, if this
+-- a binder in a type) of the binder.
 type BndrMap = TypeMap
 
 lkBndr :: CmEnv -> Var -> BndrMap a -> Maybe a

@@ -1056,10 +1056,10 @@
             <entry><option>-XNoNamedFieldPuns</option></entry>
           </row>
           <row>
-            <entry><option>-XNamedWildcards</option></entry>
+            <entry><option>-XNamedWildCards</option></entry>
             <entry>Enable <link linkend="named-wildcards">named wildcards</link>.</entry>
             <entry>dynamic</entry>
-            <entry><option>-XNoNamedWildcards</option></entry>
+            <entry><option>-XNoNamedWildCards</option></entry>
           </row>
           <row>
             <entry><option>-XNegativeLiterals</option></entry>
@@ -1567,6 +1567,13 @@
             <entry>warn about uses of pragmas that GHC doesn't recognise</entry>
             <entry>dynamic</entry>
             <entry><option>-fno-warn-unrecognised-pragmas</option></entry>
+          </row>
+
+          <row>
+            <entry><option>-fwarn-unticked-promoted-constructors</option></entry>
+            <entry>warn if promoted constructors are not ticked </entry>
+            <entry>dynamic</entry>
+            <entry><option>-fno-warn-unticked-promoted-constructors</option></entry>
           </row>
 
           <row>

@@ -125,7 +125,7 @@ tcMatch tmpls ty1 ty2
     menv     = ME { me_tmpls = tmpls, me_env = mkRnEnv2 in_scope }
     in_scope = mkInScopeSet (tmpls `unionVarSet` tyCoVarsOf ty2)
         -- We're assuming that all the interesting 
-        -- tyvars in tys1 are in tmpls
+        -- tyvars in ty1 are in tmpls
 
 tcMatchTy :: TyCoVarSet -> Type -> Type -> Maybe TCvSubst
 tcMatchTy = tcMatch
@@ -203,14 +203,23 @@ ruleMatchCoX = match
 
 -- Now the internals of matching
 
+-- | Workhorse matching function.  Our goal is to find a substitution
+-- on all of the template variables (specified by @me_tmpls menv@) such
+-- that @ty1@ and @ty2@ unify.  This substitution is accumulated in @subst@.
+-- If a variable is not a template variable, we don't attempt to find a
+-- substitution for it; it must match exactly on both sides.  Furthermore,
+-- only @ty1@ can have template variables.
+--
+-- This function handles binders, see 'RnEnv2' for more details on
+-- how that works.
 match_ty :: MatchEnv    -- For the most part this is pushed downwards
-      -> TvSubstEnv     -- Substitution so far:
-                        --   Domain is subset of template tyvars
-                        --   Free vars of range is subset of 
-                        --      in-scope set of the RnEnv2
-      -> CvSubstEnv
-      -> Type -> Type   -- Template and target respectively
-      -> Maybe (TvSubstEnv, CvSubstEnv)
+         -> TvSubstEnv     -- Substitution so far:
+                           --   Domain is subset of template tyvars
+                           --   Free vars of range is subset of 
+                           --      in-scope set of the RnEnv2
+         -> CvSubstEnv
+         -> Type -> Type   -- Template and target respectively
+         -> Maybe (TvSubstEnv, CvSubstEnv)
 
 match_ty menv tsubst csubst ty1 ty2
   | Just ty1' <- coreView ty1 = match_ty menv tsubst csubst ty1' ty2
@@ -226,6 +235,10 @@ match_ty menv tsubst csubst (TyVarTy tv1) ty2
   | tv1' `elemVarSet` me_tmpls menv
   = if any (inRnEnvR rn_env) (varSetElems (tyCoVarsOfType ty2))
     then Nothing        -- Occurs check
+                        -- ezyang: Is this really an occurs check?  It seems
+                        -- to just reject matching \x. A against \x. x (maintaining
+                        -- the invariant that the free vars of the range of @subst@
+                        -- are a subset of the in-scope set in @me_env menv@.)
     else do { (tsubst1, csubst1)
                 <- match_kind menv tsubst csubst (tyVarKind tv1') (typeKind ty2)
             ; return (extendVarEnv tsubst1 tv1' ty2, csubst1) }

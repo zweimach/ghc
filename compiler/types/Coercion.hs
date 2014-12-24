@@ -41,7 +41,11 @@ module Coercion (
         mkTyCoArg, mkCoCoArg, mkCoArgForVar,
 
         -- ** Decomposition
-        instNewTyCon_maybe, topNormaliseNewType_maybe,
+        instNewTyCon_maybe,
+
+        NormaliseStepper, NormaliseStepResult(..), composeSteppers,
+        modifyStepResultCo, unwrapNewTypeStepper,
+        topNormaliseNewType_maybe, topNormaliseTypeX_maybe,
 
         decomposeCo, getCoVar_maybe,
         splitTyConAppCo_maybe,
@@ -49,7 +53,7 @@ module Coercion (
         splitForAllCo_maybe,
         splitForAllCo_Ty_maybe, splitForAllCo_Co_maybe,
 
-        nthRole, tyConRolesX, nextRole, setNominalRole_maybe,
+        nthRole, tyConRolesX, setNominalRole_maybe,
 
         pickLR,
 
@@ -120,7 +124,7 @@ import PrelNames        ( funTyConKey, eqPrimTyConKey, eqReprPrimTyConKey
                         , wildCardName )
 import ListSetOps
   
-import Control.Applicative
+import Control.Applicative hiding ( empty )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable (traverse, sequenceA)
 #endif
@@ -160,7 +164,7 @@ coercionSize (ForAllCo _ co)     = 1 + coercionSize co
 coercionSize (CoVarCo _)         = 1
 coercionSize (AxiomInstCo _ _ args) = 1 + sum (map coercionArgSize args)
 coercionSize (PhantomCo h t1 t2) = 1 + coercionSize h + typeSize t1 + typeSize t2
-coercionSize (UnsafeCo _ t1 t2)  = 1 + typeSize t1 + typeSize t2
+coercionSize (UnsafeCo _ _ t1 t2)= 1 + typeSize t1 + typeSize t2
 coercionSize (SymCo co)          = 1 + coercionSize co
 coercionSize (TransCo co1 co2)   = 1 + coercionSize co1 + coercionSize co2
 coercionSize (NthCo _ co)        = 1 + coercionSize co
@@ -223,8 +227,9 @@ ppr_co p (InstCo co arg) = maybeParen p TyConPrec $
                            pprParendCo co <> ptext (sLit "@") <> ppr_arg TopPrec arg
 
 ppr_co _ (PhantomCo h t1 t2) = angleBrackets ( ppr t1 <> comma <+> ppr t2 ) <> char '_' <> pprParendCo h
-ppr_co p (UnsafeCo r ty1 ty2) = pprPrefixApp p (ptext (sLit "UnsafeCo") <+> ppr r)
-                                           [pprParendType ty1, pprParendType ty2]
+ppr_co p (UnsafeCo s r ty1 ty2)
+  = pprPrefixApp p (ptext (sLit "UnsafeCo") <+> ftext s <+> ppr r)
+                   [pprParendType ty1, pprParendType ty2]
 ppr_co p (SymCo co)          = pprPrefixApp p (ptext (sLit "Sym")) [pprParendCo co]
 ppr_co p (NthCo n co)        = pprPrefixApp p (ptext (sLit "Nth:") <> int n) [pprParendCo co]
 ppr_co p (LRCo sel co)       = pprPrefixApp p (ppr sel) [pprParendCo co]
@@ -715,17 +720,17 @@ mkUnbranchedAxInstRHS ax = mkAxInstRHS ax 0
 --   Currently (May 14) this is used only to implement the
 --   @unsafeCoerce#@ primitive.  Optimise by pushing
 --   down through type constructors.
-mkUnsafeCo :: Role -> Type -> Type -> Coercion
-mkUnsafeCo role ty1 ty2
+mkUnsafeCo :: FastString -> Role -> Type -> Type -> Coercion
+mkUnsafeCo provenance role ty1 ty2
   | ty1 `eqType` ty2 = Refl role ty1
-  | otherwise        = UnsafeCo role ty1 ty2
+  | otherwise        = UnsafeCo provenance role ty1 ty2
 
 -- TODO (RAE): Remove this if unused.
-mkUnsafeCoArg :: Role -> Type -> Type -> CoercionArg
-mkUnsafeCoArg r (CoercionTy co1) (CoercionTy co2) = CoCoArg r co1 co2
-mkUnsafeCoArg role ty1 ty2
+mkUnsafeCoArg :: FastString -> Role -> Type -> Type -> CoercionArg
+mkUnsafeCoArg _ r (CoercionTy co1) (CoercionTy co2) = CoCoArg r co1 co2
+mkUnsafeCoArg provenance role ty1 ty2
   = ASSERT( not (isCoercionTy ty1) && not (isCoercionTy ty2) )
-    TyCoArg $ mkUnsafeCo role ty1 ty2
+    TyCoArg $ mkUnsafeCo provenance role ty1 ty2
 
 -- | Create a symmetric version of the given 'Coercion' that asserts
 --   equality between the same types but in the other "direction", so
@@ -736,9 +741,9 @@ mkSymCo :: Coercion -> Coercion
 -- of symmetry to the leaves; the optimizer will take care of that.
 -- See Note [Optimizing mkSymCo is OK]
 mkSymCo co@(Refl {})              = co
-mkSymCo    (UnsafeCo r ty1 ty2)  = UnsafeCo r ty2 ty1
-mkSymCo    (SymCo co)            = co
-mkSymCo co                       = SymCo co
+mkSymCo    (UnsafeCo s r ty1 ty2) = UnsafeCo s r ty2 ty1
+mkSymCo    (SymCo co)             = co
+mkSymCo co                        = SymCo co
 
 -- | Create a new 'Coercion' by composing the two given 'Coercion's transitively.
 mkTransCo :: Coercion -> Coercion -> Coercion
@@ -860,7 +865,7 @@ mkSubCo :: Coercion -> Coercion
 mkSubCo (Refl Nominal ty) = Refl Representational ty
 mkSubCo (TyConAppCo Nominal tc cos)
   = TyConAppCo Representational tc (applyRoles tc cos)
-mkSubCo (UnsafeCo Nominal ty1 ty2) = UnsafeCo Representational ty1 ty2
+mkSubCo (UnsafeCo s Nominal ty1 ty2) = UnsafeCo s Representational ty1 ty2
 mkSubCo co = ASSERT2( coercionRole co == Nominal, ppr co <+> ppr (coercionRole co) )
              SubCo co
 
@@ -919,7 +924,7 @@ setNominalRole_maybe (Refl _ ty) = Just $ Refl Nominal ty
 setNominalRole_maybe (TyConAppCo Representational tc cos)
   = do { cos' <- mapM setNominalRoleArg_maybe cos
        ; return $ TyConAppCo Nominal tc cos' }
-setNominalRole_maybe (UnsafeCo _ ty1 ty2) = Just $ UnsafeCo Nominal ty1 ty2
+setNominalRole_maybe (UnsafeCo s _ ty1 ty2) = Just $ UnsafeCo s Nominal ty1 ty2
 setNominalRole_maybe (SymCo co)
   = SymCo <$> setNominalRole_maybe co
 setNominalRole_maybe (TransCo co1 co2)
@@ -1013,13 +1018,6 @@ ltRole Representational Phantom = True
 ltRole Representational _       = False
 ltRole Nominal          Nominal = False
 ltRole Nominal          _       = True
-
--- if we wish to apply `co` to some other coercion, what would be its best
--- role?
-nextRole :: Coercion -> Role
-nextRole (Refl r (TyConApp tc tys)) = head $ dropList tys (tyConRolesX r tc)
-nextRole (TyConAppCo r tc cos)      = head $ dropList cos (tyConRolesX r tc)
-nextRole _                          = Nominal
 
 {-
 %************************************************************************
@@ -1116,7 +1114,8 @@ promoteCoercion (ForAllCo _ g)
 promoteCoercion g@(CoVarCo {})     = mkKindCo g
 promoteCoercion g@(AxiomInstCo {}) = mkKindCo g
 promoteCoercion (PhantomCo co _ _) = co
-promoteCoercion (UnsafeCo _ t1 t2) = mkUnsafeCo Representational (typeKind t1) (typeKind t2)
+promoteCoercion (UnsafeCo s _ t1 t2)
+  = mkUnsafeCo s Representational (typeKind t1) (typeKind t2)
 promoteCoercion (SymCo co)         = mkSymCo (promoteCoercion co)
 promoteCoercion (TransCo co1 co2)  = mkTransCo (promoteCoercion co1)
                                                (promoteCoercion co2)
@@ -1282,6 +1281,83 @@ instNewTyCon_maybe tc tys
   | otherwise
   = Nothing
 
+{-
+************************************************************************
+*                                                                      *
+         Type normalisation
+*                                                                      *
+************************************************************************
+-}
+
+-- | A function to check if we can reduce a type by one step. Used
+-- with 'topNormaliseTypeX_maybe'.
+type NormaliseStepper = RecTcChecker
+                     -> TyCon     -- tc
+                     -> [Type]    -- tys
+                     -> NormaliseStepResult
+
+-- | The result of stepping in a normalisation function.
+-- See 'topNormaliseTypeX_maybe'.
+data NormaliseStepResult
+  = NS_Done   -- ^ nothing more to do
+  | NS_Abort  -- ^ utter failure. The outer function should fail too.
+  | NS_Step RecTcChecker Type Coercion  -- ^ we stepped, yielding new bits;
+                                        -- ^ co :: old type ~ new type
+
+modifyStepResultCo :: (Coercion -> Coercion)
+                   -> NormaliseStepResult -> NormaliseStepResult
+modifyStepResultCo f (NS_Step rec_nts ty co) = NS_Step rec_nts ty (f co)
+modifyStepResultCo _ result                  = result
+
+-- | Try one stepper and then try the next, if the first doesn't make
+-- progress.
+composeSteppers :: NormaliseStepper -> NormaliseStepper
+                -> NormaliseStepper
+composeSteppers step1 step2 rec_nts tc tys
+  = case step1 rec_nts tc tys of
+      success@(NS_Step {}) -> success
+      NS_Done              -> step2 rec_nts tc tys
+      NS_Abort             -> NS_Abort
+
+-- | A 'NormaliseStepper' that unwraps newtypes, careful not to fall into
+-- a loop. If it would fall into a loop, it produces 'NS_Abort'.
+unwrapNewTypeStepper :: NormaliseStepper
+unwrapNewTypeStepper rec_nts tc tys
+  | Just (ty', co) <- instNewTyCon_maybe tc tys
+  = case checkRecTc rec_nts tc of
+      Just rec_nts' -> NS_Step rec_nts' ty' co
+      Nothing       -> NS_Abort
+
+  | otherwise
+  = NS_Done
+
+-- | A general function for normalising the top-level of a type. It continues
+-- to use the provided 'NormaliseStepper' until that function fails, and then
+-- this function returns. The roles of the coercions produced by the
+-- 'NormaliseStepper' must all be the same, which is the role returned from
+-- the call to 'topNormaliseTypeX_maybe'.
+topNormaliseTypeX_maybe :: NormaliseStepper -> Type -> Maybe (Coercion, Type)
+topNormaliseTypeX_maybe stepper
+  = go initRecTc Nothing
+  where
+    go rec_nts mb_co1 ty
+      | Just (tc, tys) <- splitTyConApp_maybe ty
+      = case stepper rec_nts tc tys of
+          NS_Step rec_nts' ty' co2
+            -> go rec_nts' (mb_co1 `trans` co2) ty'
+
+          NS_Done  -> all_done
+          NS_Abort -> Nothing
+
+      | otherwise
+      = all_done
+      where
+        all_done | Just co <- mb_co1 = Just (co, ty)
+                 | otherwise         = Nothing
+
+    Nothing    `trans` co2 = Just co2
+    (Just co1) `trans` co2 = Just (co1 `mkTransCo` co2)
+
 topNormaliseNewType_maybe :: Type -> Maybe (Coercion, Type)
 -- ^ Sometimes we want to look through a @newtype@ and get its associated coercion.
 -- This function strips off @newtype@ layers enough to reveal something that isn't
@@ -1299,28 +1375,8 @@ topNormaliseNewType_maybe :: Type -> Maybe (Coercion, Type)
 -- the type family environment. If you do have that at hand, consider to use
 -- topNormaliseType_maybe, which should be a drop-in replacement for
 -- topNormaliseNewType_maybe
-
 topNormaliseNewType_maybe ty
-  = go initRecTc Nothing ty
-  where
-    go rec_nts mb_co1 ty
-       | Just (tc, tys) <- splitTyConApp_maybe ty
-       , Just (ty', co2) <- instNewTyCon_maybe tc tys
-       , let co' = case mb_co1 of
-                      Nothing  -> co2
-                      Just co1 -> mkTransCo co1 co2
-       = case checkRecTc rec_nts tc of
-           Just rec_nts' -> go rec_nts' (Just co') ty'
-           Nothing       -> Nothing
-                  -- Return Nothing overall if we get stuck
-                  -- so that the return invariant is satisfied
-                  -- See Note [Expanding newtypes] in TyCon
-
-       | Just co1 <- mb_co1     -- Progress, but stopped on a non-newtype
-       = Just (co1, ty)
-
-       | otherwise              -- No progress
-       = Nothing
+  = topNormaliseTypeX_maybe unwrapNewTypeStepper ty
 
 {-
 %************************************************************************
@@ -1361,7 +1417,8 @@ cmpCoercionX env (AxiomInstCo ax1 ind1 args1) (AxiomInstCo ax2 ind2 args2)
     cmpCoercionArgsX env args1 args2
 cmpCoercionX env (PhantomCo h1 t1 s1)         (PhantomCo h2 t2 s2)
   = cmpCoercionX env h1 h2 `thenCmp` cmpTypeX env t1 t2 `thenCmp` cmpTypeX env s1 s2
-cmpCoercionX env (UnsafeCo r1 tyl1 tyr1)      (UnsafeCo r2 tyl2 tyr2)
+-- the provenance string is just a note, so don't use in comparisons
+cmpCoercionX env (UnsafeCo _ r1 tyl1 tyr1)    (UnsafeCo _ r2 tyl2 tyr2)
   = cmpTypeX env tyl1 tyl2 `thenCmp` cmpTypeX env tyr1 tyr2 `thenCmp` compare r1 r2
 cmpCoercionX env (SymCo co1)                  (SymCo co2)
   = cmpCoercionX env co1 co2
@@ -1768,7 +1825,7 @@ seqCo (ForAllCo cobndr co)  = seqCoBndr cobndr `seq` seqCo co
 seqCo (CoVarCo cv)          = cv `seq` ()
 seqCo (AxiomInstCo con ind cos) = con `seq` ind `seq` seqCoArgs cos
 seqCo (PhantomCo h t1 t2)   = seqCo h `seq` seqType t1 `seq` seqType t2
-seqCo (UnsafeCo r ty1 ty2)  = r `seq` seqType ty1 `seq` seqType ty2
+seqCo (UnsafeCo s r ty1 ty2)= s `seq` r `seq` seqType ty1 `seq` seqType ty2
 seqCo (SymCo co)            = seqCo co
 seqCo (TransCo co1 co2)     = seqCo co1 `seq` seqCo co2
 seqCo (NthCo _ co)          = seqCo co
@@ -1844,10 +1901,10 @@ coercionKind co = go co
                                          -- exactly saturate the axiom branch
         Pair (substTyWith tvs tys1 (mkTyConApp (coAxiomTyCon ax) lhs))
              (substTyWith tvs tys2 rhs)
-    go (PhantomCo _ t1 t2)  = Pair t1 t2
-    go (UnsafeCo _ ty1 ty2) = Pair ty1 ty2
-    go (SymCo co)           = swap $ go co
-    go (TransCo co1 co2)    = Pair (pFst $ go co1) (pSnd $ go co2)
+    go (PhantomCo _ t1 t2)    = Pair t1 t2
+    go (UnsafeCo _ _ ty1 ty2) = Pair ty1 ty2
+    go (SymCo co)             = swap $ go co
+    go (TransCo co1 co2)      = Pair (pFst $ go co1) (pSnd $ go co2)
     go g@(NthCo d co)
       | Just args1 <- tyConAppArgs_maybe ty1
       , Just args2 <- tyConAppArgs_maybe ty2
@@ -1905,8 +1962,8 @@ coercionKindRole = go
         (mkNamedForAllTy <$> coBndrKind cobndr <*> pure Invisible <*> tys, r)
     go (CoVarCo cv) = (toPair $ coVarTypes cv, coVarRole cv)
     go co@(AxiomInstCo ax _ _) = (coercionKind co, coAxiomRole ax)
-    go (PhantomCo _ ty1 ty2) = (Pair ty1 ty2, Phantom)
-    go (UnsafeCo r ty1 ty2)  = (Pair ty1 ty2, r)
+    go (PhantomCo _ ty1 ty2)   = (Pair ty1 ty2, Phantom)
+    go (UnsafeCo _ r ty1 ty2)  = (Pair ty1 ty2, r)
     go (SymCo co) = first swap $ go co
     go (TransCo co1 co2)
       = let (tys1, r) = go co1 in

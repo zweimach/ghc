@@ -48,6 +48,7 @@ import BasicTypes
 import Outputable
 import FastString
 import Module
+import SrcLoc
 import Fingerprint
 import Binary
 import BooleanFormula ( BooleanFormula )
@@ -427,6 +428,7 @@ data IfaceExpr
 data IfaceTickish
   = IfaceHpcTick Module Int                -- from HpcTick x
   | IfaceSCC     CostCentre Bool Bool      -- from ProfNote
+  | IfaceSource  RealSrcSpan String        -- from SourceNote
   -- no breakpoints: we never export these into interface files
 
 type IfaceAlt = (IfaceConAlt, [IfLclName], IfaceExpr)
@@ -986,6 +988,8 @@ pprIfaceTickish (IfaceHpcTick m ix)
   = braces (text "tick" <+> ppr m <+> ppr ix)
 pprIfaceTickish (IfaceSCC cc tick scope)
   = braces (pprCostCentreCore cc <+> ppr tick <+> ppr scope)
+pprIfaceTickish (IfaceSource src _names)
+  = braces (pprUserRealSpan True src)
 
 ------------------
 pprIfaceApp :: IfaceExpr -> [SDoc] -> SDoc
@@ -1169,7 +1173,7 @@ freeNamesIfCoercion (IfaceAxiomInstCo ax _ cos)
   = unitNameSet ax &&& fnList freeNamesIfCoercion cos
 freeNamesIfCoercion (IfacePhantomCo h t1 t2)
   = freeNamesIfCoercion h &&& freeNamesIfType t1 &&& freeNamesIfType t2
-freeNamesIfCoercion (IfaceUnsafeCo _ t1 t2)
+freeNamesIfCoercion (IfaceUnsafeCo _ _ t1 t2)
   = freeNamesIfType t1 &&& freeNamesIfType t2
 freeNamesIfCoercion (IfaceSymCo c)
   = freeNamesIfCoercion c
@@ -1818,6 +1822,14 @@ instance Binary IfaceTickish where
         put_ bh cc
         put_ bh tick
         put_ bh push
+    put_ bh (IfaceSource src name) = do
+        putByte bh 2
+        put_ bh (srcSpanFile src)
+        put_ bh (srcSpanStartLine src)
+        put_ bh (srcSpanStartCol src)
+        put_ bh (srcSpanEndLine src)
+        put_ bh (srcSpanEndCol src)
+        put_ bh name
 
     get bh = do
         h <- getByte bh
@@ -1829,6 +1841,15 @@ instance Binary IfaceTickish where
                     tick <- get bh
                     push <- get bh
                     return (IfaceSCC cc tick push)
+            2 -> do file <- get bh
+                    sl <- get bh
+                    sc <- get bh
+                    el <- get bh
+                    ec <- get bh
+                    let start = mkRealSrcLoc file sl sc
+                        end = mkRealSrcLoc file el ec
+                    name <- get bh
+                    return (IfaceSource (mkRealSrcSpan start end) name)
             _ -> panic ("get IfaceTickish " ++ show h)
 
 instance Binary IfaceConAlt where

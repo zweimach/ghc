@@ -39,7 +39,8 @@ import Rules
 import TysPrim (eqReprPrimTyCon)
 import TysWiredIn (coercibleTyCon )
 import BasicTypes       ( Activation(.. ) )
-import CoreMonad        ( endPassIO, CoreToDo(..) )
+import CoreMonad        ( CoreToDo(..) )
+import CoreLint         ( endPassIO )
 import MkCore
 import FastString
 import ErrUtils
@@ -49,6 +50,7 @@ import Coverage
 import Util
 import MonadUtils
 import OrdList
+import StaticPtrTable
 import Data.List
 import Data.IORef
 import Control.Monad( when )
@@ -91,7 +93,7 @@ deSugar hsc_env
                             tcg_tcs          = tcs,
                             tcg_insts        = insts,
                             tcg_fam_insts    = fam_insts,
-                            tcg_hpc          = other_hpc_info })
+                            tcg_hpc          = other_hpc_info})
 
   = do { let dflags = hsc_dflags hsc_env
              print_unqual = mkPrintUnqualified dflags rdr_env
@@ -101,15 +103,9 @@ deSugar hsc_env
         ; let export_set = availsToNameSet exports
               target     = hscTarget dflags
               hpcInfo    = emptyHpcInfo other_hpc_info
-              want_ticks = gopt Opt_Hpc dflags
-                        || target == HscInterpreted
-                        || (gopt Opt_SccProfilingOn dflags
-                            && case profAuto dflags of
-                                 NoProfAuto -> False
-                                 _          -> True)
 
         ; (binds_cvr, ds_hpc_info, modBreaks)
-                         <- if want_ticks && not (isHsBootOrSig hsc_src)
+                         <- if not (isHsBootOrSig hsc_src)
                               then addTicksToBinds dflags mod mod_loc export_set
                                           (typeEnvTyCons type_env) binds
                               else return (binds, hpcInfo, emptyModBreaks)
@@ -121,13 +117,20 @@ deSugar hsc_env
                           ; (ds_fords, foreign_prs) <- dsForeigns fords
                           ; ds_rules <- mapMaybeM dsRule rules
                           ; ds_vects <- mapM dsVect vects
+                          ; stBinds <- dsGetStaticBindsVar >>=
+                                           liftIO . readIORef
                           ; let hpc_init
                                   | gopt Opt_Hpc dflags = hpcInitCode mod ds_hpc_info
                                   | otherwise = empty
+                                -- Stub to insert the static entries of the
+                                -- module into the static pointer table
+                                spt_init = sptInitCode mod stBinds
                           ; return ( ds_ev_binds
                                    , foreign_prs `appOL` core_prs `appOL` spec_prs
+                                                 `appOL` toOL (map snd stBinds)
                                    , spec_rules ++ ds_rules, ds_vects
-                                   , ds_fords `appendStubC` hpc_init) }
+                                   , ds_fords `appendStubC` hpc_init
+                                              `appendStubC` spt_init) }
 
         ; case mb_res of {
            Nothing -> return (msgs, Nothing) ;

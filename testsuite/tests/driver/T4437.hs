@@ -34,10 +34,10 @@ expectedGhcOnlyExtensions = ["RelaxedLayout",
                              "AlternativeLayoutRule",
                              "AlternativeLayoutRuleTransitional",
                              "DeriveAnyClass",
-                             "JavaScriptFFI",
                              "PatternSynonyms",
                              "PartialTypeSignatures",
-                             "NamedWildcards"]
+                             "NamedWildCards",
+                             "StaticPointers"]
 
 expectedCabalOnlyExtensions :: [String]
 expectedCabalOnlyExtensions = ["Generics",

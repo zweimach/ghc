@@ -36,12 +36,16 @@ module TcRnTypes(
         TcTypeEnv, TcIdBinder(..), TcTyThing(..), PromotionErr(..),
         pprTcTyThingCategory, pprPECategory,
 
+        -- Desugaring types
+        DsM, DsLclEnv(..), DsGblEnv(..), PArrBuiltin(..),
+        DsMetaEnv, DsMetaVal(..),
+
         -- Template Haskell
         ThStage(..), PendingStuff(..), topStage, topAnnStage, topSpliceStage,
         ThLevel, impLevel, outerLevel, thLevel,
 
         -- Arrows
-        ArrowCtxt(NoArrowCtxt), newArrowScope, escapeArrowScope,
+        ArrowCtxt(..),
 
         -- Canonical constraints
         Xi, Ct(..), Cts, emptyCts, andCts, andManyCts, pprCts,
@@ -50,12 +54,13 @@ module TcRnTypes(
         isCDictCan_Maybe, isCFunEqCan_maybe,
         isCIrredEvCan, isCNonCanonical, isWantedCt, isDerivedCt,
         isGivenCt, isHoleCt, isTypedHoleCt, isPartialTypeSigCt,
-        ctEvidence, ctLoc, ctPred, mkTcEqPredLikeEv,
+        ctEvidence, ctLoc, ctPred, ctFlavour, ctEqRel, mkTcEqPredLikeEv,
         mkNonCanonical, mkNonCanonicalCt,
-        ctEvPred, ctEvLoc, ctEvTerm, ctEvCoercion, ctEvId, ctEvCheckDepth,
+        ctEvPred, ctEvLoc, ctEvEqRel,
+        ctEvTerm, ctEvCoercion, ctEvId, ctEvCheckDepth,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
-        andWC, unionsWC, addFlats, addImplics, mkFlatWC, addInsols,
+        andWC, unionsWC, addSimples, addImplics, mkSimpleWC, addInsols,
         dropDerivedWC,
 
         Implication(..),
@@ -73,10 +78,13 @@ module TcRnTypes(
         CtEvidence(..),
         mkGivenLoc, mkKindLoc,
         isWanted, isGiven, isDerived,
+        ctEvRole,
 
         -- Constraint solver plugins
         TcPlugin(..), TcPluginResult(..), TcPluginSolver,
         TcPluginM, runTcPluginM, unsafeTcPluginTcM,
+
+        CtFlavour(..), ctEvFlavour,
 
         -- Pretty printing
         pprEvVarTheta,
@@ -84,16 +92,18 @@ module TcRnTypes(
         pprArising, pprArisingAt,
 
         -- Misc other types
-        TcId, TcIdSet, TcTyVarBind(..), TcTyVarBinds, HoleSort(..)
+        TcId, TcIdSet, HoleSort(..)
 
   ) where
 
 #include "HsVersions.h"
 
 import HsSyn
+import CoreSyn
 import HscTypes
 import TcEvidence
 import Type
+import CoAxiom  ( Role )
 import Class    ( Class )
 import TyCon    ( TyCon )
 import ConLike  ( ConLike(..) )
@@ -124,6 +134,7 @@ import DynFlags
 import Outputable
 import ListSetOps
 import FastString
+import GHC.Fingerprint
 
 import Data.Set (Set)
 import Control.Monad (ap, liftM)
@@ -147,53 +158,25 @@ import qualified Language.Haskell.TH as TH
 The monad itself has to be defined here, because it is mentioned by ErrCtxt
 -}
 
--- | Type alias for 'IORef'; the convention is we'll use this for mutable
--- bits of data in 'TcGblEnv' which are updated during typechecking and
--- returned at the end.
-type TcRef a     = IORef a
--- ToDo: when should I refer to it as a 'TcId' instead of an 'Id'?
-type TcId        = Id
-type TcIdSet     = IdSet
-
-
 type TcRnIf a b = IOEnv (Env a b)
-type IfM lcl  = TcRnIf IfGblEnv lcl         -- Iface stuff
+type TcRn       = TcRnIf TcGblEnv TcLclEnv    -- Type inference
+type IfM lcl    = TcRnIf IfGblEnv lcl         -- Iface stuff
+type IfG        = IfM ()                      --    Top level
+type IfL        = IfM IfLclEnv                --    Nested
+type DsM        = TcRnIf DsGblEnv DsLclEnv    -- Desugaring
 
-type IfG  = IfM ()                          -- Top level
-type IfL  = IfM IfLclEnv                    -- Nested
-
--- | Type-checking and renaming monad: the main monad that most type-checking
--- takes place in.  The global environment is 'TcGblEnv', which tracks
--- all of the top-level type-checking information we've accumulated while
--- checking a module, while the local environment is 'TcLclEnv', which
--- tracks local information as we move inside expressions.
-type TcRn = TcRnIf TcGblEnv TcLclEnv
+-- TcRn is the type-checking and renaming monad: the main monad that
+-- most type-checking takes place in.  The global environment is
+-- 'TcGblEnv', which tracks all of the top-level type-checking
+-- information we've accumulated while checking a module, while the
+-- local environment is 'TcLclEnv', which tracks local information as
+-- we move inside expressions.
 
 -- | Historical "renaming monad" (now it's just 'TcRn').
 type RnM  = TcRn
 
 -- | Historical "type-checking monad" (now it's just 'TcRn').
 type TcM  = TcRn
-
-{-
-Representation of type bindings to uninstantiated meta variables used during
-constraint solving.
--}
-
-data TcTyVarBind = TcTyVarBind TcTyVar TcType
-
-type TcTyVarBinds = Bag TcTyVarBind
-
-instance Outputable TcTyVarBind where
-  ppr (TcTyVarBind tv ty) = ppr tv <+> text ":=" <+> ppr ty
-
-{-
-************************************************************************
-*                                                                      *
-                The main environment types
-*                                                                      *
-************************************************************************
--}
 
 -- We 'stack' these envs through the Reader like monad infastructure
 -- as we move into an expression (although the change is focused in
@@ -219,6 +202,124 @@ instance ContainsDynFlags (Env gbl lcl) where
 
 instance ContainsModule gbl => ContainsModule (Env gbl lcl) where
     extractModule env = extractModule (env_gbl env)
+
+
+{-
+************************************************************************
+*                                                                      *
+                The interface environments
+              Used when dealing with IfaceDecls
+*                                                                      *
+************************************************************************
+-}
+
+data IfGblEnv
+  = IfGblEnv {
+        -- The type environment for the module being compiled,
+        -- in case the interface refers back to it via a reference that
+        -- was originally a hi-boot file.
+        -- We need the module name so we can test when it's appropriate
+        -- to look in this env.
+        if_rec_types :: Maybe (Module, IfG TypeEnv)
+                -- Allows a read effect, so it can be in a mutable
+                -- variable; c.f. handling the external package type env
+                -- Nothing => interactive stuff, no loops possible
+    }
+
+data IfLclEnv
+  = IfLclEnv {
+        -- The module for the current IfaceDecl
+        -- So if we see   f = \x -> x
+        -- it means M.f = \x -> x, where M is the if_mod
+        if_mod :: Module,
+
+        -- The field is used only for error reporting
+        -- if (say) there's a Lint error in it
+        if_loc :: SDoc,
+                -- Where the interface came from:
+                --      .hi file, or GHCi state, or ext core
+                -- plus which bit is currently being examined
+
+        if_tv_env  :: UniqFM TyVar,     -- Nested tyvar bindings
+        if_id_env  :: UniqFM Id         -- Nested id binding
+    }
+
+{-
+************************************************************************
+*                                                                      *
+                Desugarer monad
+*                                                                      *
+************************************************************************
+
+Now the mondo monad magic (yes, @DsM@ is a silly name)---carry around
+a @UniqueSupply@ and some annotations, which
+presumably include source-file location information:
+-}
+
+-- If '-XParallelArrays' is given, the desugarer populates this table with the corresponding
+-- variables found in 'Data.Array.Parallel'.
+--
+data PArrBuiltin
+        = PArrBuiltin
+        { lengthPVar         :: Var     -- ^ lengthP
+        , replicatePVar      :: Var     -- ^ replicateP
+        , singletonPVar      :: Var     -- ^ singletonP
+        , mapPVar            :: Var     -- ^ mapP
+        , filterPVar         :: Var     -- ^ filterP
+        , zipPVar            :: Var     -- ^ zipP
+        , crossMapPVar       :: Var     -- ^ crossMapP
+        , indexPVar          :: Var     -- ^ (!:)
+        , emptyPVar          :: Var     -- ^ emptyP
+        , appPVar            :: Var     -- ^ (+:+)
+        , enumFromToPVar     :: Var     -- ^ enumFromToP
+        , enumFromThenToPVar :: Var     -- ^ enumFromThenToP
+        }
+
+data DsGblEnv
+        = DsGblEnv
+        { ds_mod          :: Module             -- For SCC profiling
+        , ds_fam_inst_env :: FamInstEnv         -- Like tcg_fam_inst_env
+        , ds_unqual  :: PrintUnqualified
+        , ds_msgs    :: IORef Messages          -- Warning messages
+        , ds_if_env  :: (IfGblEnv, IfLclEnv)    -- Used for looking up global,
+                                                -- possibly-imported things
+        , ds_dph_env :: GlobalRdrEnv            -- exported entities of 'Data.Array.Parallel.Prim'
+                                                -- iff '-fvectorise' flag was given as well as
+                                                -- exported entities of 'Data.Array.Parallel' iff
+                                                -- '-XParallelArrays' was given; otherwise, empty
+        , ds_parr_bi :: PArrBuiltin             -- desugarar names for '-XParallelArrays'
+        , ds_static_binds :: IORef [(Fingerprint, (Id,CoreExpr))]
+          -- ^ Bindings resulted from floating static forms
+        }
+
+instance ContainsModule DsGblEnv where
+    extractModule = ds_mod
+
+data DsLclEnv = DsLclEnv {
+        dsl_meta    :: DsMetaEnv,        -- Template Haskell bindings
+        dsl_loc     :: SrcSpan           -- to put in pattern-matching error msgs
+     }
+
+-- Inside [| |] brackets, the desugarer looks
+-- up variables in the DsMetaEnv
+type DsMetaEnv = NameEnv DsMetaVal
+
+data DsMetaVal
+   = DsBound Id         -- Bound by a pattern inside the [| |].
+                        -- Will be dynamically alpha renamed.
+                        -- The Id has type THSyntax.Var
+
+   | DsSplice (HsExpr Id) -- These bindings are introduced by
+                          -- the PendingSplices on a HsBracketOut
+
+
+{-
+************************************************************************
+*                                                                      *
+                Global typechecker environment
+*                                                                      *
+************************************************************************
+-}
 
 -- | 'TcGblEnv' describes the top-level of the module at the
 -- point at which the typechecker is finished work.
@@ -354,8 +455,9 @@ data TcGblEnv
 
         tcg_ev_binds  :: Bag EvBind,        -- Top-level evidence bindings
 
-        -- Things defined in this module, or (in GHCi) in the interactive package
-        --   For the latter, see Note [The interactive package] in HscTypes
+        -- Things defined in this module, or (in GHCi)
+        -- in the declarations for a single GHCi command.
+        -- For the latter, see Note [The interactive package] in HscTypes
         tcg_binds     :: LHsBinds Id,       -- Value bindings in this module
         tcg_sigs      :: NameSet,           -- ...Top-level names that *lack* a signature
         tcg_imp_specs :: [LTcSpecPrag],     -- ...SPECIALISE prags for imported Ids
@@ -381,7 +483,10 @@ data TcGblEnv
                                              -- as -XSafe (Safe Haskell)
 
         -- | A list of user-defined plugins for the constraint solver.
-        tcg_tc_plugins :: [TcPluginSolver]
+        tcg_tc_plugins :: [TcPluginSolver],
+
+        tcg_static_wc :: TcRef WantedConstraints
+          -- ^ Wanted constraints of static forms.
     }
 
 -- Note [Signature parameters in TcGblEnv and DynFlags]
@@ -473,46 +578,6 @@ We gather two sorts of usage information
 
 ************************************************************************
 *                                                                      *
-                The interface environments
-              Used when dealing with IfaceDecls
-*                                                                      *
-************************************************************************
--}
-
-data IfGblEnv
-  = IfGblEnv {
-        -- The type environment for the module being compiled,
-        -- in case the interface refers back to it via a reference that
-        -- was originally a hi-boot file.
-        -- We need the module name so we can test when it's appropriate
-        -- to look in this env.
-        if_rec_types :: Maybe (Module, IfG TypeEnv)
-                -- Allows a read effect, so it can be in a mutable
-                -- variable; c.f. handling the external package type env
-                -- Nothing => interactive stuff, no loops possible
-    }
-
-data IfLclEnv
-  = IfLclEnv {
-        -- The module for the current IfaceDecl
-        -- So if we see   f = \x -> x
-        -- it means M.f = \x -> x, where M is the if_mod
-        if_mod :: Module,
-
-        -- The field is used only for error reporting
-        -- if (say) there's a Lint error in it
-        if_loc :: SDoc,
-                -- Where the interface came from:
-                --      .hi file, or GHCi state, or ext core
-                -- plus which bit is currently being examined
-
-        if_tv_env  :: UniqFM TyVar,     -- Nested tyvar bindings
-        if_id_env  :: UniqFM Id         -- Nested id binding
-    }
-
-{-
-************************************************************************
-*                                                                      *
                 The local typechecker environment
 *                                                                      *
 ************************************************************************
@@ -538,7 +603,7 @@ data TcLclEnv           -- Changes as we move inside an expression
   = TcLclEnv {
         tcl_loc        :: SrcSpan,         -- Source span
         tcl_ctxt       :: [ErrCtxt],       -- Error context, innermost on top
-        tcl_tclvl      :: TcLevel,    -- Birthplace for new unification variables
+        tcl_tclvl      :: TcLevel,         -- Birthplace for new unification variables
 
         tcl_th_ctxt    :: ThStage,         -- Template Haskell context
         tcl_th_bndrs   :: ThBindEnv,       -- Binding level of in-scope Names
@@ -608,6 +673,14 @@ Well, we have it, because Eq a refines to Eq [b], but we can only spot that if w
 pass it inwards.
 
 -}
+
+-- | Type alias for 'IORef'; the convention is we'll use this for mutable
+-- bits of data in 'TcGblEnv' which are updated during typechecking and
+-- returned at the end.
+type TcRef a     = IORef a
+-- ToDo: when should I refer to it as a 'TcId' instead of an 'Id'?
+type TcId        = Id
+type TcIdSet     = IdSet
 
 ---------------------------
 -- Template Haskell stages and levels
@@ -688,26 +761,22 @@ recording the environment when passing a proc (using newArrowScope),
 and returning to that (using escapeArrowScope) on the left of -< and the
 head of (|..|).
 
-All this can be dealt with by the *renamer*; by the time we get to
-the *type checker* we have sorted out the scopes
+All this can be dealt with by the *renamer*. But the type checker needs
+to be involved too.  Example (arrowfail001)
+  class Foo a where foo :: a -> ()
+  data Bar = forall a. Foo a => Bar a
+  get :: Bar -> ()
+  get = proc x -> case x of Bar a -> foo -< a
+Here the call of 'foo' gives rise to a (Foo a) constraint that should not
+be captured by the pattern match on 'Bar'.  Rather it should join the
+constraints from further out.  So we must capture the constraint bag
+from further out in the ArrowCtxt that we push inwards.
 -}
 
-data ArrowCtxt
+data ArrowCtxt   -- Note [Escaping the arrow scope]
   = NoArrowCtxt
-  | ArrowCtxt (Env TcGblEnv TcLclEnv)
+  | ArrowCtxt LocalRdrEnv (TcRef WantedConstraints)
 
--- Record the current environment (outside a proc)
-newArrowScope :: TcM a -> TcM a
-newArrowScope
-  = updEnv $ \env ->
-        env { env_lcl = (env_lcl env) { tcl_arrow_ctxt = ArrowCtxt env } }
-
--- Return to the stored environment (from the enclosing proc)
-escapeArrowScope :: TcM a -> TcM a
-escapeArrowScope
-  = updEnv $ \ env -> case tcl_arrow_ctxt (env_lcl env) of
-        NoArrowCtxt -> env
-        ArrowCtxt env' -> env'
 
 ---------------------------
 -- TcTyThing
@@ -1021,7 +1090,7 @@ data Ct
   | CTyEqCan {  -- tv ~ rhs
        -- Invariants:
        --   * See Note [Applying the inert substitution] in TcFlatten
-       --   * tv not in tvs(xi)   (occurs check)
+       --   * tv not in tvs(rhs)   (occurs check)
        --   * If tv is a TauTv, then rhs has no foralls
        --       (this avoids substituting a forall for the tyvar in other types)
        --   * typeKind ty `tcEqKind` typeKind tv
@@ -1029,12 +1098,16 @@ data Ct
        --       but it has no top-level function.
        --     E.g. a ~ [F b]  is fine
        --     but  a ~ F b    is not
+       --   * If the equality is representational, rhs has no top-level newtype
+       --     See Note [No top-level newtypes on RHS of representational
+       --     equalities] in TcCanonical
        --   * If rhs is also a tv, then it is oriented to give best chance of
        --     unification happening; eg if rhs is touchable then lhs is too
       cc_ev     :: CtEvidence, -- See Note [Ct/evidence invariant]
       cc_tyvar  :: TcTyVar,
-      cc_rhs    :: TcType      -- Not necessarily function-free (hence not Xi)
+      cc_rhs    :: TcType,     -- Not necessarily function-free (hence not Xi)
                                -- See invariants above
+      cc_eq_rel :: EqRel
     }
 
   | CFunEqCan {  -- F xis ~ fsk
@@ -1118,17 +1191,31 @@ ctPred :: Ct -> PredType
 -- See Note [Ct/evidence invariant]
 ctPred ct = ctEvPred (cc_ev ct)
 
--- | Makes a new equality predicate with the same boxity as the given
+-- | Makes a new equality predicate with the same boxity and role as the given
 -- evidence.
 mkTcEqPredLikeEv :: CtEvidence -> TcType -> TcType -> TcType
 mkTcEqPredLikeEv ev
-  | isUnLiftedType (ctEvPred ev) = mkPrimEqPred
-  | otherwise                    = mkTcEqPred
+  | isUnLiftedType (ctEvPred ev)
+  = case ctEvEqRel ev of
+      NomEq  -> mkPrimEqPred
+      ReprEq -> mkReprPrimEqPred
+  | otherwise
+  = case ctEvEqRel ev of
+      NomEq -> mkTcEqPred
+      ReprEq -> mkTcReprEqPred
+
+-- | Get the flavour of the given 'Ct'
+ctFlavour :: Ct -> CtFlavour
+ctFlavour = ctEvFlavour . ctEvidence
+
+-- | Get the equality relation for the given 'Ct'
+ctEqRel :: Ct -> EqRel
+ctEqRel = ctEvEqRel . ctEvidence
 
 dropDerivedWC :: WantedConstraints -> WantedConstraints
 -- See Note [Dropping derived constraints]
-dropDerivedWC wc@(WC { wc_flat = flats })
-  = wc { wc_flat  = filterBag isWantedCt flats }
+dropDerivedWC wc@(WC { wc_simple = simples })
+  = wc { wc_simple  = filterBag isWantedCt simples }
     -- The wc_impl implications are already (recursively) filtered
 
 {-
@@ -1269,22 +1356,22 @@ v%************************************************************************
 -}
 
 data WantedConstraints
-  = WC { wc_flat  :: Cts               -- Unsolved constraints, all wanted
-       , wc_impl  :: Bag Implication
-       , wc_insol :: Cts               -- Insoluble constraints, can be
+  = WC { wc_simple :: Cts              -- Unsolved constraints, all wanted
+       , wc_impl   :: Bag Implication
+       , wc_insol  :: Cts              -- Insoluble constraints, can be
                                        -- wanted, given, or derived
                                        -- See Note [Insoluble constraints]
     }
 
 emptyWC :: WantedConstraints
-emptyWC = WC { wc_flat = emptyBag, wc_impl = emptyBag, wc_insol = emptyBag }
+emptyWC = WC { wc_simple = emptyBag, wc_impl = emptyBag, wc_insol = emptyBag }
 
-mkFlatWC :: [Ct] -> WantedConstraints
-mkFlatWC cts
-  = WC { wc_flat = listToBag cts, wc_impl = emptyBag, wc_insol = emptyBag }
+mkSimpleWC :: [Ct] -> WantedConstraints
+mkSimpleWC cts
+  = WC { wc_simple = listToBag cts, wc_impl = emptyBag, wc_insol = emptyBag }
 
 isEmptyWC :: WantedConstraints -> Bool
-isEmptyWC (WC { wc_flat = f, wc_impl = i, wc_insol = n })
+isEmptyWC (WC { wc_simple = f, wc_impl = i, wc_insol = n })
   = isEmptyBag f && isEmptyBag i && isEmptyBag n
 
 insolubleWC :: WantedConstraints -> Bool
@@ -1296,18 +1383,18 @@ insolubleWC wc = not (isEmptyBag (filterBag (not . isPartialTypeSigCt)
                || anyBag ic_insol (wc_impl wc)
 
 andWC :: WantedConstraints -> WantedConstraints -> WantedConstraints
-andWC (WC { wc_flat = f1, wc_impl = i1, wc_insol = n1 })
-      (WC { wc_flat = f2, wc_impl = i2, wc_insol = n2 })
-  = WC { wc_flat  = f1 `unionBags` f2
-       , wc_impl  = i1 `unionBags` i2
-       , wc_insol = n1 `unionBags` n2 }
+andWC (WC { wc_simple = f1, wc_impl = i1, wc_insol = n1 })
+      (WC { wc_simple = f2, wc_impl = i2, wc_insol = n2 })
+  = WC { wc_simple = f1 `unionBags` f2
+       , wc_impl   = i1 `unionBags` i2
+       , wc_insol  = n1 `unionBags` n2 }
 
 unionsWC :: [WantedConstraints] -> WantedConstraints
 unionsWC = foldr andWC emptyWC
 
-addFlats :: WantedConstraints -> Bag Ct -> WantedConstraints
-addFlats wc cts
-  = wc { wc_flat = wc_flat wc `unionBags` cts }
+addSimples :: WantedConstraints -> Bag Ct -> WantedConstraints
+addSimples wc cts
+  = wc { wc_simple = wc_simple wc `unionBags` cts }
 
 addImplics :: WantedConstraints -> Bag Implication -> WantedConstraints
 addImplics wc implic = wc { wc_impl = wc_impl wc `unionBags` implic }
@@ -1317,9 +1404,9 @@ addInsols wc cts
   = wc { wc_insol = wc_insol wc `unionBags` cts }
 
 instance Outputable WantedConstraints where
-  ppr (WC {wc_flat = f, wc_impl = i, wc_insol = n})
+  ppr (WC {wc_simple = s, wc_impl = i, wc_insol = n})
    = ptext (sLit "WC") <+> braces (vcat
-        [ ppr_bag (ptext (sLit "wc_flat")) f
+        [ ppr_bag (ptext (sLit "wc_simple")) s
         , ppr_bag (ptext (sLit "wc_insol")) n
         , ppr_bag (ptext (sLit "wc_impl")) i ])
 
@@ -1488,6 +1575,14 @@ ctEvPred = ctev_pred
 ctEvLoc :: CtEvidence -> CtLoc
 ctEvLoc = ctev_loc
 
+-- | Get the equality relation relevant for a 'CtEvidence'
+ctEvEqRel :: CtEvidence -> EqRel
+ctEvEqRel = predTypeEqRel . ctEvPred
+
+-- | Get the role relevant for a 'CtEvidence'
+ctEvRole :: CtEvidence -> Role
+ctEvRole = eqRelRole . ctEvEqRel
+
 ctEvTerm :: CtEvidence -> EvTerm
 ctEvTerm (CtGiven   { ctev_evtm = tm }) = tm
 ctEvTerm (CtWanted  { ctev_evar = ev }) = EvId ev
@@ -1523,6 +1618,31 @@ isGiven _ = False
 isDerived :: CtEvidence -> Bool
 isDerived (CtDerived {}) = True
 isDerived _              = False
+
+{-
+%************************************************************************
+%*                                                                      *
+            CtFlavour
+%*                                                                      *
+%************************************************************************
+
+Just an enum type that tracks whether a constraint is wanted, derived,
+or given, when we need to separate that info from the constraint itself.
+
+-}
+
+data CtFlavour = Given | Wanted | Derived
+  deriving Eq
+
+instance Outputable CtFlavour where
+  ppr Given   = text "[G]"
+  ppr Wanted  = text "[W]"
+  ppr Derived = text "[D]"
+
+ctEvFlavour :: CtEvidence -> CtFlavour
+ctEvFlavour (CtWanted {})  = Wanted
+ctEvFlavour (CtGiven {})   = Given
+ctEvFlavour (CtDerived {}) = Derived
 
 {-
 ************************************************************************
@@ -1823,6 +1943,7 @@ data CtOrigin
   | KindEqOrigin
       TcType TcType             -- A kind equality arising from unifying these two types
       CtOrigin                  -- originally arising from this
+  | CoercibleOrigin TcType TcType  -- a Coercible constraint
 
   | IPOccOrigin  HsIPName       -- Occurrence of an implicit parameter
 
@@ -1867,6 +1988,7 @@ data CtOrigin
   | HoleOrigin
   | UnboundOccurrenceOf RdrName
   | ListOrigin          -- An overloaded list
+  | StaticOrigin        -- A static form
 
 ctoHerald :: SDoc
 ctoHerald = ptext (sLit "arising from")
@@ -1903,8 +2025,13 @@ pprCtOrigin (DerivOriginDC dc n)
 
 pprCtOrigin (DerivOriginCoerce meth ty1 ty2)
   = hang (ctoHerald <+> ptext (sLit "the coercion of the method") <+> quotes (ppr meth))
-       2 (sep [ ptext (sLit "from type") <+> quotes (ppr ty1)
-              , ptext (sLit "  to type") <+> quotes (ppr ty2) ])
+       2 (sep [ text "from type" <+> quotes (ppr ty1)
+              , nest 2 $ text "to type" <+> quotes (ppr ty2) ])
+
+pprCtOrigin (CoercibleOrigin ty1 ty2)
+  = hang (ctoHerald <+> text "trying to show that the representations of")
+       2 (quotes (ppr ty1) <+> text "and" $$
+          quotes (ppr ty2) <+> text "are the same")
 
 pprCtOrigin simple_origin
   = ctoHerald <+> pprCtO simple_origin
@@ -1938,6 +2065,7 @@ pprCtO (TypeEqOrigin t1 t2)  = ptext (sLit "a type equality") <+> sep [ppr t1, c
 pprCtO AnnOrigin             = ptext (sLit "an annotation")
 pprCtO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
 pprCtO ListOrigin            = ptext (sLit "an overloaded list")
+pprCtO StaticOrigin          = ptext (sLit "a static form")
 pprCtO _                     = panic "pprCtOrigin"
 
 {-

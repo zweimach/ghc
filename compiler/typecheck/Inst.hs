@@ -74,8 +74,8 @@ emitWanteds origin theta = mapM (emitWanted origin) theta
 emitWanted :: CtOrigin -> TcPredType -> TcM EvVar
 emitWanted origin pred 
   = do { loc <- getCtLoc origin
-       ; ev  <- newWantedEvVar pred
-       ; emitFlat $ mkNonCanonical $
+       ; ev  <- newEvVar pred
+       ; emitSimple $ mkNonCanonical $
              CtWanted { ctev_pred = pred, ctev_evar = ev, ctev_loc = loc }
        ; return ev }
 
@@ -226,8 +226,21 @@ instCallConstraints orig preds
      = do  { co <- unifyType ty1 ty2
            ; return (boxity, EvCoercion co) }
      | otherwise
-     = do { ev_var <- emitWanted orig pred
+     = do { ev_var <- emitWanted modified_orig pred
           ; return (Boxed, EvId ev_var) }
+      where
+        -- Coercible constraints appear as normal class constraints, but
+        -- are aggressively canonicalized and manipulated during solving.
+        -- The final equality to solve may barely resemble the initial
+        -- constraint. Here, we remember the initial constraint in a
+        -- CtOrigin for better error messages. It's perhaps worthwhile
+        -- considering making this approach general, for other class
+        -- constraints, too.
+        modified_orig
+          | Just (Representational, ty1, ty2) <- getEqPredTys_maybe pred
+          = CoercibleOrigin ty1 ty2
+          | otherwise
+          = orig
 
 ----------------
 instStupidTheta :: CtOrigin -> TcThetaType -> TcM ()
@@ -442,12 +455,13 @@ addLocalInst (home_ie, my_insts) ispec
          ; isGHCi <- getIsGHCi
          ; eps    <- getEps
          ; tcg_env <- getGblEnv
-         ; let (home_ie', my_insts')
-                 | isGHCi    = ( deleteFromInstEnv home_ie ispec
-                               , filterOut (identicalInstHead ispec) my_insts)
-                 | otherwise = (home_ie, my_insts)
-               -- If there is a home-package duplicate instance,
-               -- silently delete it
+
+           -- In GHCi, we *override* any identical instances
+           -- that are also defined in the interactive context
+           -- See Note [Override identical instances in GHCi]
+         ; let home_ie'
+                 | isGHCi    = deleteFromInstEnv home_ie ispec
+                 | otherwise = home_ie
 
                (_tvs, cls, tys) = instanceHead ispec
                -- If we're compiling sig-of and there's an external duplicate
@@ -462,7 +476,7 @@ addLocalInst (home_ie, my_insts) ispec
                                           , ie_local   = home_ie'
                                           , ie_visible = tcg_visible_orphan_mods tcg_env }
                (matches, _, _) = lookupInstEnv inst_envs cls tys
-               dups            = filter (identicalInstHead ispec) (map fst matches)
+               dups            = filter (identicalClsInstHead ispec) (map fst matches)
 
              -- Check functional dependencies
          ; case checkFunDeps inst_envs ispec of
@@ -473,7 +487,7 @@ addLocalInst (home_ie, my_insts) ispec
          ; unless (null dups) $
            dupInstErr ispec (head dups)
 
-         ; return (extendInstEnv home_ie' ispec, ispec:my_insts') }
+         ; return (extendInstEnv home_ie' ispec, ispec : my_insts) }
 
 {-
 Note [Signature files and type class instances]
@@ -578,9 +592,9 @@ tyCoVarsOfCts = foldrBag (unionVarSet . tyCoVarsOfCt) emptyVarSet
 
 tyCoVarsOfWC :: WantedConstraints -> TyVarSet
 -- Only called on *zonked* things, hence no need to worry about flatten-skolems
-tyCoVarsOfWC (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
-  = tyCoVarsOfCts flat `unionVarSet`
-    tyCoVarsOfBag tyCoVarsOfImplic implic `unionVarSet`
+tyVarsOfWC (WC { wc_simple = simple, wc_impl = implic, wc_insol = insol })
+  = tyCoVarsOfCts simple `unionVarSet`
+    tyCoVarsOfBag tyVarsOfImplic implic `unionVarSet`
     tyCoVarsOfCts insol
 
 tyCoVarsOfImplic :: Implication -> TyCoVarSet

@@ -503,7 +503,8 @@ data Coercion
       -- (which always returns a representational coercion) is
       -- sensible.
     
-  | UnsafeCo Role Type Type    -- :: "e" -> _ -> _ -> e
+  | UnsafeCo FastString Role Type Type    -- :: _ -> "e" -> _ -> _ -> e
+      -- The FastString is just a note for provenance
     
   | SymCo Coercion             -- :: e -> e
   | TransCo Coercion Coercion  -- :: e -> e -> e
@@ -1086,7 +1087,7 @@ tyCoVarsOfCo (ForAllCo cobndr co)
 tyCoVarsOfCo (CoVarCo v)         = unitVarSet v
 tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCoArgs cos
 tyCoVarsOfCo (PhantomCo h t1 t2)   = tyCoVarsOfCo h `unionVarSet` tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
-tyCoVarsOfCo (UnsafeCo _ ty1 ty2)
+tyCoVarsOfCo (UnsafeCo _ _ ty1 ty2)
   = tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2
 tyCoVarsOfCo (SymCo co)          = tyCoVarsOfCo co
 tyCoVarsOfCo (TransCo co1 co2)   = tyCoVarsOfCo co1 `unionVarSet` tyCoVarsOfCo co2
@@ -1133,7 +1134,7 @@ coVarsOfCo (ForAllCo cobndr co)
 coVarsOfCo (CoVarCo v)         = unitVarSet v
 coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCoArgs args
 coVarsOfCo (PhantomCo h t1 t2) = coVarsOfCo h `unionVarSet` coVarsOfTypes [t1, t2]
-coVarsOfCo (UnsafeCo _ t1 t2)  = coVarsOfTypes [t1, t2]
+coVarsOfCo (UnsafeCo _ _ t1 t2)= coVarsOfTypes [t1, t2]
 coVarsOfCo (SymCo co)          = coVarsOfCo co
 coVarsOfCo (TransCo co1 co2)   = coVarsOfCo co1 `unionVarSet` coVarsOfCo co2
 coVarsOfCo (NthCo _ co)        = coVarsOfCo co
@@ -1754,7 +1755,7 @@ subst_co subst co
     go (CoVarCo cv)          = substCoVar subst cv
     go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go_arg cos
     go (PhantomCo h t1 t2)   = ((mkPhantomCo $! (go h)) $! (go_ty t1)) $! (go_ty t2)
-    go (UnsafeCo r ty1 ty2)  = (mkUnsafeCo r $! go_ty ty1) $! go_ty ty2
+    go (UnsafeCo s r ty1 ty2)= (mkUnsafeCo s r $! go_ty ty1) $! go_ty ty2
     go (SymCo co)            = mkSymCo $! (go co)
     go (TransCo co1 co2)     = (mkTransCo $! (go co1)) $! (go co2)
     go (NthCo d co)          = mkNthCo d $! (go co)
@@ -2452,7 +2453,7 @@ tidyCo env@(_, subst) co
     go (AxiomInstCo con ind cos) = let args = map go_arg cos
                                in  args `seqList` AxiomInstCo con ind args
     go (PhantomCo h t1 t2)   = ((PhantomCo $! go h) $! tidyType env t1) $! tidyType env t2
-    go (UnsafeCo r ty1 ty2)  = (UnsafeCo r $! tidyType env ty1) $! tidyType env ty2
+    go (UnsafeCo s r ty1 ty2)= (UnsafeCo s r $! tidyType env ty1) $! tidyType env ty2
     go (SymCo co)            = SymCo $! go co
     go (TransCo co1 co2)     = (TransCo $! go co1) $! go co2
     go (NthCo d co)          = NthCo d $! go co

@@ -2,7 +2,7 @@
 --
 -- FamInstEnv: Type checked family instance declarations
 
-{-# LANGUAGE CPP, GADTs #-}
+{-# LANGUAGE CPP, GADTs, ScopedTypeVariables #-}
 
 module FamInstEnv (
         FamInst(..), FamFlavor(..), famInstAxiom, famInstTyCon, famInstRHS,
@@ -12,7 +12,7 @@ module FamInstEnv (
 
         FamInstEnvs, FamInstEnv, emptyFamInstEnv, emptyFamInstEnvs,
         extendFamInstEnv, deleteFromFamInstEnv, extendFamInstEnvList,
-        identicalFamInst, famInstEnvElts, familyInstances, orphNamesOfFamInst,
+        identicalFamInstHead, famInstEnvElts, familyInstances, orphNamesOfFamInst,
 
         -- * CoAxioms
         mkCoAxBranch, mkBranchedCoAxiom, mkUnbranchedCoAxiom, mkSingleCoAxiom,
@@ -20,11 +20,12 @@ module FamInstEnv (
 
         FamInstMatch(..),
         lookupFamInstEnv, lookupFamInstEnvConflicts,
-        chooseBranch, isDominatedBy,
+        isDominatedBy,
 
         -- Normalisation
         topNormaliseType, topNormaliseType_maybe,
         normaliseType, normaliseTcApp,
+        reduceTyFamApp_maybe, chooseBranch,
 
         -- Flattening
         flattenTys
@@ -369,12 +370,12 @@ deleteFromFamInstEnv inst_env fam_inst@(FamInst {fi_fam = fam_nm})
  where
    adjust :: FamilyInstEnv -> FamilyInstEnv
    adjust (FamIE items)
-     = FamIE (filterOut (identicalFamInst fam_inst) items)
+     = FamIE (filterOut (identicalFamInstHead fam_inst) items)
 
-identicalFamInst :: FamInst -> FamInst -> Bool
--- Same LHS, *and* both instances are on the interactive command line
+identicalFamInstHead :: FamInst -> FamInst -> Bool
+-- ^ True when the LHSs are identical
 -- Used for overriding in GHCi
-identicalFamInst (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
+identicalFamInstHead (FamInst { fi_axiom = ax1 }) (FamInst { fi_axiom = ax2 })
   =  coAxiomTyCon ax1 == coAxiomTyCon ax2
   && brListLength brs1 == brListLength brs2
   && and (brListZipWith identical_branch brs1 brs2)
@@ -788,10 +789,9 @@ reduceTyFamApp_maybe :: FamInstEnvs
 --    but *not* newtypes
 -- Works on type-synonym families always; data-families only if
 --     the role we seek is representational
--- It first normalises the type arguments, wrt functions but *not* newtypes,
---    to be sure that nested calls like
---       F (G Int)
---    are correctly reduced
+-- It does *not* normlise the type arguments first, so this may not
+--     go as far as you want. If you want normalised type arguments,
+--     use normaliseTcArgs first.
 --
 -- The TyCon can be oversaturated.
 -- Works on both open and closed families
@@ -817,29 +817,28 @@ reduce_ty_fam_app_maybe envs lc role tc tys
        -- (e.g. the call in topNormaliseType_maybe) then we can
        -- unwrap data families as well as type-synonym families;
        -- otherwise only type-synonym families
-  , [FamInstMatch { fim_instance = fam_inst
-                  , fim_tys =      inst_tys }] <- lookupFamInstEnv envs tc ntys
+  , FamInstMatch { fim_instance = fam_inst
+                 , fim_tys =      inst_tys } : _ <- lookupFamInstEnv envs tc tys
+      -- NB: Allow multiple matches because of compatible overlap
+                                                    
   = let ax     = famInstAxiom fam_inst
         co     = mkUnbranchedAxInstCo role ax inst_tys
         ty     = pSnd (coercionKind co)
-    in Just (args_co `mkTransCo` co, ty)
+    in Just (co, ty)
 
   | Just ax <- isClosedSynFamilyTyCon_maybe tc
-  , Just (ind, inst_tys) <- chooseBranch ax ntys
+  , Just (ind, inst_tys) <- chooseBranch ax tys
   = let co     = mkAxInstCo role ax ind inst_tys
         ty     = pSnd (coercionKind co)
-    in Just (args_co `mkTransCo` co, ty)
+    in Just (co, ty)
 
   | Just ax           <- isBuiltInSynFamTyCon_maybe tc
-  , Just (coax,ts,ty) <- sfMatchFam ax ntys
+  , Just (coax,ts,ty) <- sfMatchFam ax tys
   = let co = mkAxiomRuleCo coax ts []
-    in Just (args_co `mkTransCo` co, ty)
+    in Just (co, ty)
 
   | otherwise
   = Nothing
-
-  where
-    (args_co, ntys) = normalise_tc_args envs lc role tc tys
 
 -- The axiom can be oversaturated. (Closed families only.)
 chooseBranch :: CoAxiom Branched -> [Type] -> Maybe (BranchIndex, [Type])
@@ -978,11 +977,9 @@ topNormaliseType env ty = case topNormaliseType_maybe env ty of
                             Just (_co, ty') -> ty'
                             Nothing         -> ty
 
-topNormaliseType_maybe :: FamInstEnvs
-                       -> Type
-                       -> Maybe (Coercion, Type)
+topNormaliseType_maybe :: FamInstEnvs -> Type -> Maybe (Coercion, Type)
 
--- Get rid of *outermost* (or toplevel)
+-- ^ Get rid of *outermost* (or toplevel)
 --      * type function redex
 --      * newtypes
 -- using appropriate coercions.  Specifically, if
@@ -993,38 +990,27 @@ topNormaliseType_maybe :: FamInstEnvs
 --
 -- However, ty' can be something like (Maybe (F ty)), where
 -- (F ty) is a redex.
-
+--
 -- Its a bit like Type.repType, but handles type families too
 -- The coercion returned is always an R coercion
 
 topNormaliseType_maybe env ty
-  = go initRecTc Nothing ty
+  = topNormaliseTypeX_maybe stepper ty
   where
-    go :: RecTcChecker -> Maybe Coercion -> Type -> Maybe (Coercion, Type)
-    go rec_nts mb_co1 ty
-       = case splitTyConApp_maybe ty of
-           Just (tc, tys) -> go_tc tc tys
-           Nothing        -> all_done mb_co1
-       where
-         all_done Nothing   = Nothing
-         all_done (Just co) = Just (co, ty)
-
-         go_tc tc tys
-            | Just (ty', co2) <- instNewTyCon_maybe tc tys
-            = case checkRecTc rec_nts tc of
-                Just rec_nts' -> go rec_nts' (mb_co1 `trans` co2) ty'
-                Nothing       -> Nothing  -- No progress at all!
-                                          -- cf topNormaliseNewType_maybe
-
-            | Just (co2, rhs) <- reduceTyFamApp_maybe env Representational tc tys
-            = go rec_nts (mb_co1 `trans` co2) rhs
-
-            | otherwise
-            = all_done mb_co1
-
-    Nothing    `trans` co2 = Just co2
-    (Just co1) `trans` co2 = Just (co1 `mkTransCo` co2)
-
+    stepper
+      = unwrapNewTypeStepper
+        `composeSteppers`
+        \ rec_nts tc tys ->
+        let (args_co, ntys) = normaliseTcArgs env Representational tc tys in
+          -- NB: It's OK to use normaliseTcArgs here instead of
+          -- normalise_tc_args (which takes the LiftingContext described
+          -- in Note [Normalising types]) because the reduceTyFamApp below
+          -- works only at top level. We'll never recur in this function
+          -- after reducing the kind of a bound tyvar.
+        
+        case reduceTyFamApp_maybe env Representational tc ntys of
+          Just (co, rhs) -> NS_Step rec_nts rhs (args_co `mkTransCo` co)
+          Nothing        -> NS_Done
 
 ---------------
 normaliseTcApp :: FamInstEnvs -> Role -> TyCon -> [Type] -> (Coercion, Type)
@@ -1040,23 +1026,35 @@ normalise_tc_app :: FamInstEnvs -> LiftingContext -> Role
                  -> TyCon -> [Type] -> (Coercion, Type)
 normalise_tc_app env lc role tc tys
   | isTypeSynonymTyCon tc
-  , (co1, ntys) <- normalise_tc_args env lc role tc tys
   , Just (tenv, rhs, ntys') <- tcExpandTyCon_maybe tc ntys
   , (co2, ninst_rhs) <- normalise_type env lc role (substTy (mkTopTCvSubst tenv) rhs)
-  = if isReflCo co2 then (co1,                 mkTyConApp tc ntys)
-                    else (co1 `mkTransCo` co2, mkAppTys ninst_rhs ntys')
+  = if isReflCo co2 then (args_co,                 mkTyConApp tc ntys)
+                    else (args_co `mkTransCo` co2, mkAppTys ninst_rhs ntys')
 
-  | Just (first_co, ty') <- reduce_ty_fam_app_maybe env lc role tc tys
+  | Just (first_co, ty') <- reduce_ty_fam_app_maybe env lc role tc ntys
   , (rest_co,nty) <- normalise_type env lc role ty'
-  = (first_co `mkTransCo` rest_co, nty)
+  = (args_co `mkTransCo` first_co `mkTransCo` rest_co, nty)
 
   | otherwise   -- No unique matching family instance exists;
                 -- we do not do anything
-  = let (co, ntys) = normalise_tc_args env lc role tc tys in
-    (co, mkTyConApp tc ntys)
+  = (args_co, mkTyConApp tc ntys)
 
+  where
+    (args_co, ntys) = normalise_tc_args env lc role tc tys
 
 ---------------
+-- | Normalise arguments to a tycon
+normaliseTcArgs :: FamInstEnvs          -- ^ env't with family instances
+                -> Role                 -- ^ desired role of output coercion
+                -> TyCon                -- ^ tc
+                -> [Type]               -- ^ tys
+                -> (Coercion, [Type])   -- ^ co :: tc tys ~ tc new_tys
+normaliseTcArgs env role ty
+  = normalise_tc_args env lc role ty
+  where
+    in_scope = mkInScopeSet (tyCoVarsOfType ty)
+    lc       = emptyLiftingContext in_scope
+
 normalise_tc_args :: FamInstEnvs            -- environment with family instances
                   -> LiftingContext         -- See Note [Normalising types]
                   -> Role                   -- desired role of output coercion
@@ -1082,7 +1080,7 @@ normalise_type :: FamInstEnvs            -- environment with family instances
                -> Role                   -- desired role of coercion
                -> Type                   -- old type
                -> (Coercion, Type)       -- (coercion,new type), where
-                                        -- co :: old-type ~ new_type
+                                         -- co :: old-type ~ new_type
 -- Normalise the input type, by eliminating *all* type-function redexes
 -- but *not* newtypes (which are visible to the programmer)
 -- Returns with Refl if nothing happens

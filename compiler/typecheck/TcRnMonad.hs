@@ -94,6 +94,7 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                            Nothing             -> newIORef emptyNameEnv } ;
 
         dependent_files_var <- newIORef [] ;
+        static_wc_var       <- newIORef emptyWC ;
 #ifdef GHCI
         th_topdecls_var      <- newIORef [] ;
         th_topnames_var      <- newIORef emptyNameSet ;
@@ -161,7 +162,8 @@ initTc hsc_env hsc_src keep_rn_syntax mod do_this
                 tcg_main           = Nothing,
                 tcg_safeInfer      = infer_var,
                 tcg_dependent_files = dependent_files_var,
-                tcg_tc_plugins     = []
+                tcg_tc_plugins     = [],
+                tcg_static_wc      = static_wc_var
              } ;
              lcl_env = TcLclEnv {
                 tcl_errs       = errs_var,
@@ -378,6 +380,28 @@ getEpsAndHpt = do { env <- getTopEnv; eps <- readMutVar (hsc_EPS env)
 {-
 ************************************************************************
 *                                                                      *
+                Arrow scopes
+*                                                                      *
+************************************************************************
+-}
+
+newArrowScope :: TcM a -> TcM a
+newArrowScope
+  = updLclEnv $ \env -> env { tcl_arrow_ctxt = ArrowCtxt (tcl_rdr env) (tcl_lie env) }
+
+-- Return to the stored environment (from the enclosing proc)
+escapeArrowScope :: TcM a -> TcM a
+escapeArrowScope
+  = updLclEnv $ \ env ->
+    case tcl_arrow_ctxt env of
+      NoArrowCtxt       -> env
+      ArrowCtxt rdr_env lie -> env { tcl_arrow_ctxt = NoArrowCtxt
+                                   , tcl_lie = lie
+                                   , tcl_rdr = rdr_env }
+
+{-
+************************************************************************
+*                                                                      *
                 Unique supply
 *                                                                      *
 ************************************************************************
@@ -453,7 +477,15 @@ writeTcRef :: TcRef a -> a -> TcRnIf gbl lcl ()
 writeTcRef = writeMutVar
 
 updTcRef :: TcRef a -> (a -> a) -> TcRnIf gbl lcl ()
-updTcRef = updMutVar
+-- Returns ()
+updTcRef ref fn = liftIO $ do { old <- readIORef ref
+                              ; writeIORef ref (fn old) }
+
+updTcRefX :: TcRef a -> (a -> a) -> TcRnIf gbl lcl a
+-- Returns previous value
+updTcRefX ref fn = liftIO $ do { old <- readIORef ref
+                              ; writeIORef ref (fn old)
+                              ; return old }
 
 {-
 ************************************************************************
@@ -1095,15 +1127,15 @@ emitConstraints ct
   = do { lie_var <- getConstraintVar ;
          updTcRef lie_var (`andWC` ct) }
 
-emitFlat :: Ct -> TcM ()
-emitFlat ct
+emitSimple :: Ct -> TcM ()
+emitSimple ct
   = do { lie_var <- getConstraintVar ;
-         updTcRef lie_var (`addFlats` unitBag ct) }
+         updTcRef lie_var (`addSimples` unitBag ct) }
 
-emitFlats :: Cts -> TcM ()
-emitFlats cts
+emitSimples :: Cts -> TcM ()
+emitSimples cts
   = do { lie_var <- getConstraintVar ;
-         updTcRef lie_var (`addFlats` cts) }
+         updTcRef lie_var (`addSimples` cts) }
 
 emitImplication :: Implication -> TcM ()
 emitImplication ct

@@ -46,13 +46,20 @@ module HscTypes (
 
         mkSOName, mkHsSOName, soExt,
 
+        -- * Metaprogramming
+        MetaRequest(..),
+        MetaResult, -- data constructors not exported to ensure correct response type
+        metaRequestE, metaRequestP, metaRequestT, metaRequestD, metaRequestAW,
+        MetaHook,
+
         -- * Annotations
         prepareAnnotations,
 
         -- * Interactive context
         InteractiveContext(..), emptyInteractiveContext,
         icPrintUnqual, icInScopeTTs, icExtendGblRdrEnv,
-        extendInteractiveContext, substInteractiveContext,
+        extendInteractiveContext, extendInteractiveContextWithIds,
+        substInteractiveContext,
         setInteractivePrintName, icInteractiveModule,
         InteractiveImport(..), setInteractivePackage,
         mkPrintUnqualified, pprModulePrefix,
@@ -131,7 +138,7 @@ import HsSyn
 import RdrName
 import Avail
 import Module
-import InstEnv          ( InstEnv, ClsInst )
+import InstEnv          ( InstEnv, ClsInst, identicalClsInstHead )
 import FamInstEnv
 import Rules            ( RuleBase )
 import CoreSyn          ( CoreProgram )
@@ -176,6 +183,7 @@ import Binary
 import ErrUtils
 import Platform
 import Util
+import Serialized       ( Serialized )
 
 import Control.Monad    ( guard, liftM, when, ap )
 import Data.Array       ( Array, array )
@@ -590,6 +598,47 @@ hptSomeThingsBelowUs extract include_hi_boot hsc_env deps
 
 hptObjs :: HomePackageTable -> [FilePath]
 hptObjs hpt = concat (map (maybe [] linkableObjs . hm_linkable) (eltsUFM hpt))
+
+{-
+************************************************************************
+*                                                                      *
+\subsection{Metaprogramming}
+*                                                                      *
+************************************************************************
+-}
+
+-- | The supported metaprogramming result types
+data MetaRequest
+  = MetaE  (LHsExpr RdrName   -> MetaResult)
+  | MetaP  (LPat RdrName      -> MetaResult)
+  | MetaT  (LHsType RdrName   -> MetaResult)
+  | MetaD  ([LHsDecl RdrName] -> MetaResult)
+  | MetaAW (Serialized        -> MetaResult)
+
+-- | data constructors not exported to ensure correct result type
+data MetaResult
+  = MetaResE  { unMetaResE  :: LHsExpr RdrName   }
+  | MetaResP  { unMetaResP  :: LPat RdrName      }
+  | MetaResT  { unMetaResT  :: LHsType RdrName   }
+  | MetaResD  { unMetaResD  :: [LHsDecl RdrName] }
+  | MetaResAW { unMetaResAW :: Serialized        }
+
+type MetaHook f = MetaRequest -> LHsExpr Id -> f MetaResult
+
+metaRequestE :: Functor f => MetaHook f -> LHsExpr Id -> f (LHsExpr RdrName)
+metaRequestE h = fmap unMetaResE . h (MetaE MetaResE)
+
+metaRequestP :: Functor f => MetaHook f -> LHsExpr Id -> f (LPat RdrName)
+metaRequestP h = fmap unMetaResP . h (MetaP MetaResP)
+
+metaRequestT :: Functor f => MetaHook f -> LHsExpr Id -> f (LHsType RdrName)
+metaRequestT h = fmap unMetaResT . h (MetaT MetaResT)
+
+metaRequestD :: Functor f => MetaHook f -> LHsExpr Id -> f [LHsDecl RdrName]
+metaRequestD h = fmap unMetaResD . h (MetaD MetaResD)
+
+metaRequestAW :: Functor f => MetaHook f -> LHsExpr Id -> f Serialized
+metaRequestAW h = fmap unMetaResAW . h (MetaAW MetaResAW)
 
 {-
 ************************************************************************
@@ -1160,13 +1209,22 @@ The details are a bit tricky though:
 
    The 'thisPackage' field stays as 'main' (or whatever -this-package-key says.
 
- * The main trickiness is that the type environment (tcg_type_env and
-   fixity envt (tcg_fix_env), and instances (tcg_insts, tcg_fam_insts)
-   now contains entities from all the interactive-package modules
-   (Ghci1, Ghci2, ...) together, rather than just a single module as
-   is usually the case.  So you can't use "nameIsLocalOrFrom" to
-   decide whether to look in the TcGblEnv vs the HPT/PTE.  This is a
-   change, but not a problem provided you know.
+ * The main trickiness is that the type environment (tcg_type_env) and
+   fixity envt (tcg_fix_env), now contain entities from all the
+   interactive-package modules (Ghci1, Ghci2, ...) together, rather
+   than just a single module as is usually the case.  So you can't use
+   "nameIsLocalOrFrom" to decide whether to look in the TcGblEnv vs
+   the HPT/PTE.  This is a change, but not a problem provided you
+   know.
+
+* However, the tcg_binds, tcg_sigs, tcg_insts, tcg_fam_insts, etc fields
+  of the TcGblEnv, which collect "things defined in this module", all
+  refer to stuff define in a single GHCi command, *not* all the commands
+  so far.
+
+  In contrast, tcg_inst_env, tcg_fam_inst_env, have instances from
+  all GhciN modules, which makes sense -- they are all "home package"
+  modules.
 
 
 Note [Interactively-bound Ids in GHCi]
@@ -1214,6 +1272,16 @@ It does *not* contain
   * CoAxioms (ditto)
 
 See also Note [Interactively-bound Ids in GHCi]
+
+Note [Override identical instances in GHCi]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If you declare a new instance in GHCi that is identical to a previous one,
+we simply override the previous one; we don't regard it as overlapping.
+e.g.    Prelude> data T = A | B
+        Prelude> instance Eq T where ...
+        Prelude> instance Eq T where ...   -- This one overrides
+
+It's exactly the same for type-family instances.  See Trac #7102
 -}
 
 -- | Interactive context, recording information about the state of the
@@ -1325,28 +1393,50 @@ icPrintUnqual :: DynFlags -> InteractiveContext -> PrintUnqualified
 icPrintUnqual dflags InteractiveContext{ ic_rn_gbl_env = grenv } =
     mkPrintUnqualified dflags grenv
 
--- | This function is called with new TyThings recently defined to update the
+-- | extendInteractiveContext is called with new TyThings recently defined to update the
 -- InteractiveContext to include them.  Ids are easily removed when shadowed,
 -- but Classes and TyCons are not.  Some work could be done to determine
 -- whether they are entirely shadowed, but as you could still have references
 -- to them (e.g. instances for classes or values of the type for TyCons), it's
 -- not clear whether removing them is even the appropriate behavior.
-extendInteractiveContext :: InteractiveContext -> [TyThing] -> InteractiveContext
-extendInteractiveContext ictxt new_tythings
-  | null new_tythings
-  = ictxt
-  | otherwise
+extendInteractiveContext :: InteractiveContext
+                         -> [Id] -> [TyCon]
+                         -> [ClsInst] -> [FamInst]
+                         -> Maybe [Type]
+                         -> InteractiveContext
+extendInteractiveContext ictxt ids tcs new_cls_insts new_fam_insts defaults
   = ictxt { ic_mod_index  = ic_mod_index ictxt + 1
+                            -- Always bump this; even instances should create
+                            -- a new mod_index (Trac #9426)
           , ic_tythings   = new_tythings ++ old_tythings
           , ic_rn_gbl_env = ic_rn_gbl_env ictxt `icExtendGblRdrEnv` new_tythings
-          }
+          , ic_instances  = (new_cls_insts ++ old_cls_insts, new_fam_insts ++ old_fam_insts)
+          , ic_default    = defaults }
   where
-    old_tythings = filter (not . shadowed) (ic_tythings ictxt)
+    new_tythings = map AnId ids ++ map ATyCon tcs
+    old_tythings = filterOut (shadowed_by ids) (ic_tythings ictxt)
 
-    shadowed (AnId id) = ((`elem` new_names) . nameOccName . idName) id
-    shadowed _         = False
+    -- Discard old instances that have been fully overrridden
+    -- See Note [Override identical instances in GHCi]
+    (cls_insts, fam_insts) = ic_instances ictxt
+    old_cls_insts = filterOut (\i -> any (identicalClsInstHead i) new_cls_insts) cls_insts
+    old_fam_insts = filterOut (\i -> any (identicalFamInstHead i) new_fam_insts) fam_insts
 
-    new_names = [ nameOccName (getName id) | AnId id <- new_tythings ]
+extendInteractiveContextWithIds :: InteractiveContext -> [Id] -> InteractiveContext
+extendInteractiveContextWithIds ictxt ids
+  | null ids  = ictxt
+  | otherwise = ictxt { ic_mod_index  = ic_mod_index ictxt + 1
+                      , ic_tythings   = new_tythings ++ old_tythings
+                      , ic_rn_gbl_env = ic_rn_gbl_env ictxt `icExtendGblRdrEnv` new_tythings }
+  where
+    new_tythings = map AnId ids
+    old_tythings = filterOut (shadowed_by ids) (ic_tythings ictxt)
+
+shadowed_by :: [Id] -> TyThing -> Bool
+shadowed_by ids = shadowed
+  where
+    shadowed id = getOccName id `elemOccSet` new_occs
+    new_occs = mkOccSet (map getOccName ids)
 
 setInteractivePackage :: HscEnv -> HscEnv
 -- Set the 'thisPackage' DynFlag to 'interactive'

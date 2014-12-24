@@ -39,6 +39,7 @@ import TyCoRep     -- We can see the representation of types
 import TcType
 import TcMType
 import TcEvidence
+import Coercion
 import TysPrim
 import TysWiredIn
 import Type
@@ -754,6 +755,10 @@ zonkExpr env (HsProc pat body)
         ; new_body <- zonkCmdTop env1 body
         ; return (HsProc new_pat new_body) }
 
+-- StaticPointers extension
+zonkExpr env (HsStatic expr)
+  = HsStatic <$> zonkLExpr env expr
+
 zonkExpr env (HsWrap co_fn expr)
   = do (env1, new_co_fn) <- zonkCoFn env co_fn
        new_expr <- zonkExpr env1 expr
@@ -1303,6 +1308,7 @@ zonkEvBind env (EvBind var term)
          -- [Small optimization in zonking]
 {-         
        ; let ty' = idType var'
+
        ; case getEqPredTys_maybe ty' of
            Just (_, r, ty1, ty2) | ty1 `eqType` ty2
                   -> return (EvBind var' (EvCoercion (mkTcReflCo r ty1)))
@@ -1474,8 +1480,8 @@ zonkCoToCo env co
     go (PhantomCo h t1 t2)       = mkPhantomCo <$> go h
                                                <*> zonkTcTypeToType env t1
                                                <*> zonkTcTypeToType env t2
-    go (UnsafeCo r ty1 ty2)      = mkUnsafeCo r <$> zonkTcTypeToType env ty1
-                                                <*> zonkTcTypeToType env ty2
+    go (UnsafeCo s r ty1 ty2)    = mkUnsafeCo s r <$> zonkTcTypeToType env ty1
+                                                  <*> zonkTcTypeToType env ty2
     go (SymCo co)                = mkSymCo <$> go co
     go (TransCo co1 co2)         = mkTransCo <$> go co1 <*> go co2
     go (NthCo n co)              = mkNthCo n <$> go co
@@ -1584,3 +1590,5 @@ zonkTcCoToCo env co
                                      ; cs' <- mapM go cs
                                      ; return (TcAxiomRuleCo co ts' cs')
                                      }
+    go (TcCoercion co)        = do { co' <- zonkCoToCo env co
+                                   ; return (TcCoercion co') }

@@ -12,7 +12,7 @@ Utility functions on @Core@ syntax
 module CoreUtils (
         -- * Constructing expressions
         mkCast,
-        mkTick, mkTickNoHNF, tickHNFArgs,
+        mkTick, mkTicks, mkTickNoHNF, tickHNFArgs,
         bindNonRec, needsCaseBinding,
         mkAltExpr,
 
@@ -33,14 +33,18 @@ module CoreUtils (
         CoreStats(..), coreBindsStats,
 
         -- * Equality
-        cheapEqExpr, eqExpr,
+        cheapEqExpr, cheapEqExpr', eqExpr,
+        diffExpr, diffBinds,
 
         -- * Eta reduction
         tryEtaReduce,
 
         -- * Manipulating data constructors and types
         applyTypeToArgs, applyTypeToArg,
-        dataConRepInstPat, dataConRepFSInstPat
+        dataConRepInstPat, dataConRepFSInstPat,
+
+        -- * Working with ticks
+        stripTicksTop, stripTicksTopE, stripTicksTopT, stripTicks,
     ) where
 
 #include "HsVersions.h"
@@ -70,7 +74,14 @@ import Maybes
 import Platform
 import Util
 import Pair
+import Data.Function       ( on )
 import Data.List
+import Data.Ord            ( comparing )
+import Control.Applicative
+#if __GLASGOW_HASKELL__ < 709
+import Data.Traversable    ( traverse )
+#endif
+import OrdList
 
 {-
 ************************************************************************
@@ -217,6 +228,9 @@ mkCast (Cast expr co2) co
                    , ptext (sLit "co:") <+> ppr co ]) )
     mkCast expr (mkTransCo co2 co)
 
+mkCast (Tick t expr) co
+   = Tick t (mkCast expr co)
+
 mkCast expr co
   = let Pair from_ty _to_ty = coercionKind co in
 --    if to_ty `eqType` from_ty
@@ -228,48 +242,84 @@ mkCast expr co
 -- | Wraps the given expression in the source annotation, dropping the
 -- annotation if possible.
 mkTick :: Tickish Id -> CoreExpr -> CoreExpr
+mkTick t orig_expr = mkTick' id id orig_expr
+ where
+  -- Some ticks (cost-centres) can be split in two, with the
+  -- non-counting part having laxer placement properties.
+  canSplit = tickishCanSplit t && tickishPlace (mkNoCount t) /= tickishPlace t
 
-mkTick t (Var x)
-  | isFunTy (idType x) = Tick t (Var x)
-  | otherwise
-  = if tickishCounts t
-       then if tickishScoped t && tickishCanSplit t
-               then Tick (mkNoScope t) (Var x)
-               else Tick t (Var x)
-       else Var x
+  mkTick' :: (CoreExpr -> CoreExpr) -- ^ apply after adding tick (float through)
+          -> (CoreExpr -> CoreExpr) -- ^ apply before adding tick (float with)
+          -> CoreExpr               -- ^ current expression
+          -> CoreExpr
+  mkTick' top rest expr = case expr of
 
-mkTick t (Cast e co)
-  = Cast (mkTick t e) co -- Move tick inside cast
+    -- Cost centre ticks should never be reordered relative to each
+    -- other. Therefore we can stop whenever two collide.
+    Tick t2 e
+      | ProfNote{} <- t2, ProfNote{} <- t -> top $ Tick t $ rest expr
 
-mkTick _ (Coercion co) = Coercion co
+    -- Otherwise we assume that ticks of different placements float
+    -- through each other.
+      | tickishPlace t2 /= tickishPlace t -> mkTick' (top . Tick t2) rest e
 
-mkTick t (Lit l)
-  | not (tickishCounts t) = Lit l
+    -- For annotations this is where we make sure to not introduce
+    -- redundant ticks.
+      | tickishContains t t2              -> mkTick' top rest e
+      | tickishContains t2 t              -> orig_expr
+      | otherwise                         -> mkTick' top (rest . Tick t2) e
 
-mkTick t expr@(App f arg)
-  | not (isRuntimeArg arg) = App (mkTick t f) arg
-  | isSaturatedConApp expr
-    = if not (tickishCounts t)
-         then tickHNFArgs t expr
-         else if tickishScoped t && tickishCanSplit t
-                 then Tick (mkNoScope t) (tickHNFArgs (mkNoCount t) expr)
-                 else Tick t expr
+    -- Ticks don't care about types, so we just float all ticks
+    -- through them. Note that it's not enough to check for these
+    -- cases top-level. While mkTick will never produce Core with type
+    -- expressions below ticks, such constructs can be the result of
+    -- unfoldings. We therefore make an effort to put everything into
+    -- the right place no matter what we start with.
+    Cast e co   -> mkTick' (top . flip Cast co) rest e
+    Coercion co -> Coercion co
 
-mkTick t (Lam x e)
-     -- if this is a type lambda, or the tick does not count entries,
-     -- then we can push the tick inside:
-  | not (isRuntimeVar x) || not (tickishCounts t) = Lam x (mkTick t e)
-     -- if it is both counting and scoped, we split the tick into its
-     -- two components, keep the counting tick on the outside of the lambda
-     -- and push the scoped tick inside.  The point of this is that the
-     -- counting tick can probably be floated, and the lambda may then be
-     -- in a position to be beta-reduced.
-  | tickishScoped t && tickishCanSplit t
-         = Tick (mkNoScope t) (Lam x (mkTick (mkNoCount t) e))
-     -- just a counting tick: leave it on the outside
-  | otherwise        = Tick t (Lam x e)
+    Lam x e
+      -- Always float through type lambdas. Even for non-type lambdas,
+      -- floating is allowed for all but the most strict placement rule.
+      | not (isRuntimeVar x) || tickishPlace t /= PlaceRuntime
+      -> mkTick' (top . Lam x) rest e
 
-mkTick t other = Tick t other
+      -- If it is both counting and scoped, we split the tick into its
+      -- two components, often allowing us to keep the counting tick on
+      -- the outside of the lambda and push the scoped tick inside.
+      -- The point of this is that the counting tick can probably be
+      -- floated, and the lambda may then be in a position to be
+      -- beta-reduced.
+      | canSplit
+      -> top $ Tick (mkNoScope t) $ rest $ Lam x $ mkTick (mkNoCount t) e
+
+    App f arg
+      -- Always float through type applications.
+      | not (isRuntimeArg arg)
+      -> mkTick' (top . flip App arg) rest f
+
+      -- We can also float through constructor applications, placement
+      -- permitting. Again we can split.
+      | isSaturatedConApp expr && (tickishPlace t==PlaceCostCentre || canSplit)
+      -> if tickishPlace t == PlaceCostCentre
+         then top $ rest $ tickHNFArgs t expr
+         else top $ Tick (mkNoScope t) $ rest $ tickHNFArgs (mkNoCount t) expr
+
+    Var x
+      | not (isFunTy (idType x)) && tickishPlace t == PlaceCostCentre
+      -> orig_expr
+      | canSplit
+      -> top $ Tick (mkNoScope t) $ rest expr
+
+    Lit{}
+      | tickishPlace t == PlaceCostCentre
+      -> orig_expr
+
+    -- Catch-all: Annotate where we stand
+    _any -> top $ Tick t $ rest expr
+
+mkTicks :: [Tickish Id] -> CoreExpr -> CoreExpr
+mkTicks ticks expr = foldr mkTick expr ticks
 
 isSaturatedConApp :: CoreExpr -> Bool
 isSaturatedConApp e = go e []
@@ -291,6 +341,48 @@ tickHNFArgs t e = push t e
   push t (App f (Type u)) = App (push t f) (Type u)
   push t (App f arg) = App (push t f) (mkTick t arg)
   push _t e = e
+
+-- | Strip ticks satisfying a predicate from top of an expression
+stripTicksTop :: (Tickish Id -> Bool) -> Expr b -> ([Tickish Id], Expr b)
+stripTicksTop p = go []
+  where go ts (Tick t e) | p t = go (t:ts) e
+        go ts other            = (reverse ts, other)
+
+-- | Strip ticks satisfying a predicate from top of an expression,
+-- returning the remaining expresion
+stripTicksTopE :: (Tickish Id -> Bool) -> Expr b -> Expr b
+stripTicksTopE p = go
+  where go (Tick t e) | p t = go e
+        go other            = other
+
+-- | Strip ticks satisfying a predicate from top of an expression,
+-- returning the ticks
+stripTicksTopT :: (Tickish Id -> Bool) -> Expr b -> [Tickish Id]
+stripTicksTopT p = go []
+  where go ts (Tick t e) | p t = go (t:ts) e
+        go ts _                = ts
+
+-- | Completely strip ticks satisfying a predicate from an
+-- expression. Note this is O(n) in the size of the expression!
+stripTicks :: (Tickish Id -> Bool) -> Expr b -> ([Tickish Id], Expr b)
+stripTicks p expr = (fromOL ticks, expr')
+  where (ticks, expr') = go expr
+        -- Note that  OrdList (Tickish Id) is a Monoid, which makes
+        -- ((,) (OrdList (Tickish Id))) an Applicative.
+        go (App e a)        = App <$> go e <*> go a
+        go (Lam b e)        = Lam b <$> go e
+        go (Let b e)        = Let <$> go_bs b <*> go e
+        go (Case e b t as)  = Case <$> go e <*> pure b <*> pure t
+                                   <*> traverse go_a as
+        go (Cast e c)       = Cast <$> go e <*> pure c
+        go (Tick t e)
+          | p t             = let (ts, e') = go e in (t `consOL` ts, e')
+          | otherwise       = Tick t <$> go e
+        go other            = pure other
+        go_bs (NonRec b e)  = NonRec b <$> go e
+        go_bs (Rec bs)      = Rec <$> traverse go_b bs
+        go_b (b, e)         = (,) <$> pure b <*> go e
+        go_a (c,bs,e)       = (,,) <$> pure c <*> pure bs <*> go e
 
 {-
 ************************************************************************
@@ -547,18 +639,21 @@ saturating them.
 
 Note [Tick trivial]
 ~~~~~~~~~~~~~~~~~~~
-Ticks are not trivial.  If we treat "tick<n> x" as trivial, it will be
-inlined inside lambdas and the entry count will be skewed, for
-example.  Furthermore "scc<n> x" will turn into just "x" in mkTick.
+
+Ticks are only trivial if they are pure annotations. If we treat
+"tick<n> x" as trivial, it will be inlined inside lambdas and the
+entry count will be skewed, for example.  Furthermore "scc<n> x" will
+turn into just "x" in mkTick.
 -}
 
 exprIsTrivial :: CoreExpr -> Bool
 exprIsTrivial (Var _)          = True        -- See Note [Variables are trivial]
-exprIsTrivial (Type _)        = True
+exprIsTrivial (Type _)         = True
 exprIsTrivial (Coercion _)     = True
 exprIsTrivial (Lit lit)        = litIsTrivial lit
 exprIsTrivial (App e arg)      = not (isRuntimeArg arg) && exprIsTrivial e
-exprIsTrivial (Tick _ _)       = False  -- See Note [Tick trivial]
+exprIsTrivial (Tick t e)       = not (tickishIsCode t) && exprIsTrivial e
+                                 -- See Note [Tick trivial]
 exprIsTrivial (Cast e _)       = exprIsTrivial e
 exprIsTrivial (Lam b body)     = not (isRuntimeVar b) && exprIsTrivial body
 exprIsTrivial _                = False
@@ -574,6 +669,7 @@ getIdFromTrivialExpr :: CoreExpr -> Id
 getIdFromTrivialExpr e = go e
   where go (Var v) = v
         go (App f t) | not (isRuntimeArg t) = go f
+        go (Tick t e) | not (tickishIsCode t) = go e
         go (Cast e _) = go e
         go (Lam b e) | not (isRuntimeVar b) = go e
         go e = pprPanic "getIdFromTrivialExpr" (ppr e)
@@ -773,8 +869,9 @@ exprIsCheap' good_app (Case e _ _ alts) = exprIsCheap' good_app e &&
 exprIsCheap' good_app (Tick t e)
   | tickishCounts t = False
   | otherwise       = exprIsCheap' good_app e
-     -- never duplicate ticks.  If we get this wrong, then HPC's entry
-     -- counts will be off (check test in libraries/hpc/tests/raytrace)
+     -- never duplicate counting ticks.  If we get this wrong, then
+     -- HPC's entry counts will be off (check test in
+     -- libraries/hpc/tests/raytrace)
 
 exprIsCheap' good_app (Let (NonRec _ b) e)
   = exprIsCheap' good_app b && exprIsCheap' good_app e
@@ -812,6 +909,10 @@ exprIsCheap' good_app other_expr        -- Applications and variables
                         -- Application of a function which
                         -- always gives bottom; we treat this as cheap
                         -- because it certainly doesn't need to be shared!
+
+    go (Tick t e) args
+      | not (tickishCounts t) -- don't duplicate counting ticks, see above
+      = go e args
 
     go _ _ = False
 
@@ -963,8 +1064,9 @@ expr_ok primop_ok (Case e _ _ alts)
 
 expr_ok primop_ok other_expr
   = case collectArgs other_expr of
-        (Var f, args) -> app_ok primop_ok f args
-        _             -> False
+        (expr, args) | Var f <- stripTicksTopE (not . tickishCounts) expr
+                     -> app_ok primop_ok f args
+        _            -> False
 
 -----------------------------
 app_ok :: (PrimOp -> Bool) -> Id -> [Expr b] -> Bool
@@ -1326,29 +1428,40 @@ c.f. add_evals in Simplify.simplAlt
 --
 -- See also 'exprIsBig'
 cheapEqExpr :: Expr b -> Expr b -> Bool
+cheapEqExpr = cheapEqExpr' (const False)
 
-cheapEqExpr (Var v1)   (Var v2)   = v1==v2
-cheapEqExpr (Lit lit1) (Lit lit2) = lit1 == lit2
-cheapEqExpr (Type t1) (Type t2) = t1 `eqType` t2
-cheapEqExpr (Coercion c1) (Coercion c2) = c1 `eqCoercion` c2
+-- | Cheap expression equality test, can ignore ticks by type.
+cheapEqExpr' :: (Tickish Id -> Bool) -> Expr b -> Expr b -> Bool
+cheapEqExpr' ignoreTick = go_s
+  where go_s = go `on` stripTicksTopE ignoreTick
+        go (Var v1)   (Var v2)   = v1 == v2
+        go (Lit lit1) (Lit lit2) = lit1 == lit2
+        go (Type t1)  (Type t2)  = t1 `eqType` t2
+        go (Coercion c1) (Coercion c2) = c1 `eqCoercion` c2
 
-cheapEqExpr (App f1 a1) (App f2 a2)
-  = f1 `cheapEqExpr` f2 && a1 `cheapEqExpr` a2
+        go (App f1 a1) (App f2 a2)
+          = f1 `go_s` f2 && a1 `go_s` a2
 
-cheapEqExpr (Cast e1 t1) (Cast e2 t2)
-  = e1 `cheapEqExpr` e2 && t1 `eqCoercion` t2
+        go (Cast e1 t1) (Cast e2 t2)
+          = e1 `go_s` e2 && t1 `eqCoercion` t2
 
-cheapEqExpr _ _ = False
+        go (Tick t1 e1) (Tick t2 e2)
+          = t1 == t2 && e1 `go_s` e2
+
+        go _ _ = False
+        {-# INLINE go #-}
+{-# INLINE cheapEqExpr' #-}
 
 exprIsBig :: Expr b -> Bool
 -- ^ Returns @True@ of expressions that are too big to be compared by 'cheapEqExpr'
 exprIsBig (Lit _)      = False
 exprIsBig (Var _)      = False
-exprIsBig (Type _)    = False
+exprIsBig (Type _)     = False
 exprIsBig (Coercion _) = False
 exprIsBig (Lam _ e)    = exprIsBig e
 exprIsBig (App f a)    = exprIsBig f || exprIsBig a
 exprIsBig (Cast e _)   = exprIsBig e    -- Hopefully coercions are not too big!
+exprIsBig (Tick _ e)   = exprIsBig e
 exprIsBig _            = True
 
 eqExpr :: InScopeSet -> CoreExpr -> CoreExpr -> Bool
@@ -1365,7 +1478,7 @@ eqExpr in_scope e1 e2
     go env (Coercion co1) (Coercion co2) = eqCoercionX env co1 co2
     go env (Cast e1 co1) (Cast e2 co2) = eqCoercionX env co1 co2 && go env e1 e2
     go env (App f1 a1)   (App f2 a2)   = go env f1 f2 && go env a1 a2
-    go env (Tick n1 e1)  (Tick n2 e2)  = go_tickish env n1 n2 && go env e1 e2
+    go env (Tick n1 e1)  (Tick n2 e2)  = eqTickish env n1 n2 && go env e1 e2
 
     go env (Lam b1 e1)  (Lam b2 e2)
       =  eqTypeX env (varType b1) (varType b2)   -- False for Id/TyVar combination
@@ -1376,7 +1489,8 @@ eqExpr in_scope e1 e2
       && go (rnBndr2 env v1 v2) e1 e2
 
     go env (Let (Rec ps1) e1) (Let (Rec ps2) e2)
-      = all2 (go env') rs1 rs2 && go env' e1 e2
+      = length ps1 == length ps2
+      && all2 (go env') rs1 rs2 && go env' e1 e2
       where
         (bs1,rs1) = unzip ps1
         (bs2,rs2) = unzip ps2
@@ -1394,10 +1508,152 @@ eqExpr in_scope e1 e2
     go_alt env (c1, bs1, e1) (c2, bs2, e2)
       = c1 == c2 && go (rnBndrs2 env bs1 bs2) e1 e2
 
-    -----------
-    go_tickish env (Breakpoint lid lids) (Breakpoint rid rids)
+eqTickish :: RnEnv2 -> Tickish Id -> Tickish Id -> Bool
+eqTickish env (Breakpoint lid lids) (Breakpoint rid rids)
       = lid == rid  &&  map (rnOccL env) lids == map (rnOccR env) rids
-    go_tickish _ l r = l == r
+eqTickish _ l r = l == r
+
+-- | Finds differences between core expressions, modulo alpha and
+-- renaming. Setting @top@ means that the @IdInfo@ of bindings will be
+-- checked for differences as well.
+diffExpr :: Bool -> RnEnv2 -> CoreExpr -> CoreExpr -> [SDoc]
+diffExpr _   env (Var v1)   (Var v2)   | rnOccL env v1 == rnOccR env v2 = []
+diffExpr _   _   (Lit lit1) (Lit lit2) | lit1 == lit2                   = []
+diffExpr _   env (Type t1)  (Type t2)  | eqTypeX env t1 t2              = []
+diffExpr _   env (Coercion co1) (Coercion co2)
+                                       | coreEqCoercion2 env co1 co2    = []
+diffExpr top env (Cast e1 co1)  (Cast e2 co2)
+  | coreEqCoercion2 env co1 co2            = diffExpr top env e1 e2
+diffExpr top env (Tick n1 e1)   e2
+  | not (tickishIsCode n1)                 = diffExpr top env e1 e2
+diffExpr top env e1             (Tick n2 e2)
+  | not (tickishIsCode n2)                 = diffExpr top env e1 e2
+diffExpr top env (Tick n1 e1)   (Tick n2 e2)
+  | eqTickish env n1 n2                    = diffExpr top env e1 e2
+ -- The error message of failed pattern matches will contain
+ -- generated names, which are allowed to differ.
+diffExpr _   _   (App (App (Var absent) _) _)
+                 (App (App (Var absent2) _) _)
+  | isBottomingId absent && isBottomingId absent2 = []
+diffExpr top env (App f1 a1)    (App f2 a2)
+  = diffExpr top env f1 f2 ++ diffExpr top env a1 a2
+diffExpr top env (Lam b1 e1)  (Lam b2 e2)
+  | eqTypeX env (varType b1) (varType b2)   -- False for Id/TyVar combination
+  = diffExpr top (rnBndr2 env b1 b2) e1 e2
+diffExpr top env (Let bs1 e1) (Let bs2 e2)
+  = let (ds, env') = diffBinds top env (flattenBinds [bs1]) (flattenBinds [bs2])
+    in ds ++ diffExpr top env' e1 e2
+diffExpr top env (Case e1 b1 t1 a1) (Case e2 b2 t2 a2)
+  | length a1 == length a2 && not (null a1) || eqTypeX env t1 t2
+    -- See Note [Empty case alternatives] in TrieMap
+  = diffExpr top env e1 e2 ++ concat (zipWith diffAlt a1 a2)
+  where env' = rnBndr2 env b1 b2
+        diffAlt (c1, bs1, e1) (c2, bs2, e2)
+          | c1 /= c2  = [text "alt-cons " <> ppr c1 <> text " /= " <> ppr c2]
+          | otherwise = diffExpr top (rnBndrs2 env' bs1 bs2) e1 e2
+diffExpr _  _ e1 e2
+  = [fsep [ppr e1, text "/=", ppr e2]]
+
+-- | Finds differences between core bindings, see @diffExpr@.
+--
+-- The main problem here is that while we expect the binds to have the
+-- same order in both lists, this is not guaranteed. To do this
+-- properly we'd either have to do some sort of unification or check
+-- all possible mappings, which would be seriously expensive. So
+-- instead we simply match single bindings as far as we can. This
+-- leaves us just with mutually recursive and/or mismatching bindings,
+-- which we then specuatively match by ordering them. It's by no means
+-- perfect, but gets the job done well enough.
+diffBinds :: Bool -> RnEnv2 -> [(Var, CoreExpr)] -> [(Var, CoreExpr)]
+          -> ([SDoc], RnEnv2)
+diffBinds top env binds1 = go (length binds1) env binds1
+ where go _    env []     []
+          = ([], env)
+       go fuel env binds1 binds2
+          -- No binds left to compare? Bail out early.
+          | null binds1 || null binds2
+          = (warn env binds1 binds2, env)
+          -- Iterated over all binds without finding a match? Then
+          -- try speculatively matching binders by order.
+          | fuel == 0
+          = if not $ env `inRnEnvL` fst (head binds1)
+            then let env' = uncurry (rnBndrs2 env) $ unzip $
+                            zip (sort $ map fst binds1) (sort $ map fst binds2)
+                 in go (length binds1) env' binds1 binds2
+            -- If we have already tried that, give up
+            else (warn env binds1 binds2, env)
+       go fuel env ((bndr1,expr1):binds1) binds2
+          | let matchExpr (bndr,expr) =
+                  (not top || null (diffIdInfo env bndr bndr1)) &&
+                  null (diffExpr top (rnBndr2 env bndr1 bndr) expr1 expr)
+          , (binds2l, (bndr2,_):binds2r) <- break matchExpr binds2
+          = go (length binds1) (rnBndr2 env bndr1 bndr2)
+                binds1 (binds2l ++ binds2r)
+          | otherwise -- No match, so push back (FIXME O(n^2))
+          = go (fuel-1) env (binds1++[(bndr1,expr1)]) binds2
+       go _ _ _ _ = panic "diffBinds: impossible" -- GHC isn't smart enough
+
+       -- We have tried everything, but couldn't find a good match. So
+       -- now we just return the comparison results when we pair up
+       -- the binds in a pseudo-random order.
+       warn env binds1 binds2 =
+         concatMap (uncurry (diffBind env)) (zip binds1' binds2') ++
+         unmatched "unmatched left-hand:" (drop l binds1') ++
+         unmatched "unmatched right-hand:" (drop l binds2')
+        where binds1' = sortBy (comparing fst) binds1
+              binds2' = sortBy (comparing fst) binds2
+              l = min (length binds1') (length binds2')
+       unmatched _   [] = []
+       unmatched txt bs = [text txt $$ ppr (Rec bs)]
+       diffBind env (bndr1,expr1) (bndr2,expr2)
+         | ds@(_:_) <- diffExpr top env expr1 expr2
+         = locBind "in binding" bndr1 bndr2 ds
+         | otherwise
+         = diffIdInfo env bndr1 bndr2
+
+-- | Find differences in @IdInfo@. We will especially check whether
+-- the unfoldings match, if present (see @diffUnfold@).
+diffIdInfo :: RnEnv2 -> Var -> Var -> [SDoc]
+diffIdInfo env bndr1 bndr2
+  | arityInfo info1 == arityInfo info2
+    && cafInfo info1 == cafInfo info2
+    && oneShotInfo info1 == oneShotInfo info2
+    && inlinePragInfo info1 == inlinePragInfo info2
+    && occInfo info1 == occInfo info2
+    && demandInfo info1 == demandInfo info2
+    && callArityInfo info1 == callArityInfo info2
+  = locBind "in unfolding of" bndr1 bndr2 $
+    diffUnfold env (unfoldingInfo info1) (unfoldingInfo info2)
+  | otherwise
+  = locBind "in Id info of" bndr1 bndr2
+    [fsep [pprBndr LetBind bndr1, text "/=", pprBndr LetBind bndr2]]
+  where info1 = idInfo bndr1; info2 = idInfo bndr2
+
+-- | Find differences in unfoldings. Note that we will not check for
+-- differences of @IdInfo@ in unfoldings, as this is generally
+-- redundant, and can lead to an exponential blow-up in complexity.
+diffUnfold :: RnEnv2 -> Unfolding -> Unfolding -> [SDoc]
+diffUnfold _   NoUnfolding    NoUnfolding                 = []
+diffUnfold _   (OtherCon cs1) (OtherCon cs2) | cs1 == cs2 = []
+diffUnfold env (DFunUnfolding bs1 c1 a1)
+               (DFunUnfolding bs2 c2 a2)
+  | c1 == c2 && length bs1 == length bs2
+  = concatMap (uncurry (diffExpr False env')) (zip a1 a2)
+  where env' = rnBndrs2 env bs1 bs2
+diffUnfold env (CoreUnfolding t1 _ _ v1 cl1 wf1 x1 g1)
+               (CoreUnfolding t2 _ _ v2 cl2 wf2 x2 g2)
+  | v1 == v2 && cl1 == cl2
+    && wf1 == wf2 && x1 == x2 && g1 == g2
+  = diffExpr False env t1 t2
+diffUnfold _   uf1 uf2
+  = [fsep [ppr uf1, text "/=", ppr uf2]]
+
+-- | Add location information to diff messages
+locBind :: String -> Var -> Var -> [SDoc] -> [SDoc]
+locBind loc b1 b2 diffs = map addLoc diffs
+  where addLoc d            = d $$ nest 2 (parens (text loc <+> bindLoc))
+        bindLoc | b1 == b2  = ppr b1
+                | otherwise = ppr b1 <> char '/' <> ppr b2
 
 {-
 ************************************************************************
@@ -1625,9 +1881,15 @@ tryEtaReduce bndrs body
       = Just (mkCast fun co)   -- Check for any of the binders free in the result
                                -- including the accumulated coercion
 
+    go bs (Tick t e) co
+      | tickishFloatable t
+      = fmap (Tick t) $ go bs e co
+      -- Float app ticks: \x -> Tick t (e x) ==> Tick t e
+
     go (b : bs) (App fun arg) co
-      | Just co' <- ok_arg b arg co
-      = go bs fun co'
+      | Just (co', ticks) <- ok_arg b arg co
+      = fmap (flip (foldr mkTick) ticks) $ go bs fun co'
+            -- Float arg ticks: \x -> e (Tick t x) ==> Tick t e
 
     go _ _ _  = Nothing         -- Failure!
 
@@ -1635,6 +1897,7 @@ tryEtaReduce bndrs body
     -- Note [Eta reduction conditions]
     ok_fun (App fun (Type {})) = ok_fun fun
     ok_fun (Cast fun _)        = ok_fun fun
+    ok_fun (Tick _ expr)       = ok_fun expr
     ok_fun (Var fun_id)        = ok_fun_id fun_id || all ok_lam bndrs
     ok_fun _fun                = False
 
@@ -1659,22 +1922,29 @@ tryEtaReduce bndrs body
     ok_arg :: Var              -- Of type bndr_t
            -> CoreExpr         -- Of type arg_t
            -> Coercion         -- Of kind (t1~t2)
-           -> Maybe Coercion   -- Of type (arg_t -> t1 ~  bndr_t -> t2)
+           -> Maybe (Coercion  -- Of type (arg_t -> t1 ~  bndr_t -> t2)
                                --   (and similarly for tyvars, coercion args)
+                    , [Tickish Var])
     -- See Note [Eta reduction with casted arguments]
     ok_arg bndr (Type ty) co
        | Just tv <- getTyVar_maybe ty
-       , bndr == tv  = Just (mkForAllCo_TyHomo tv co)
+       , bndr == tv  = Just (mkForAllCo_TyHomo tv co, [])
     ok_arg bndr (Coercion co1) co2
        | Just cv <- getCoVar_maybe co1
-       , bndr == cv  = Just (mkForAllCo_CoHomo cv co2)
+       , bndr == cv  = Just (mkForAllCo_CoHomo cv co2, [])
     ok_arg bndr (Var v) co
-       | bndr == v   = Just (mkFunCo Representational
-                                     (mkReflCo Representational (idType bndr)) co)
-    ok_arg bndr (Cast (Var v) co_arg) co
-       | bndr == v  = Just (mkFunCo Representational (mkSymCo co_arg) co)
+       | bndr == v   = let reflCo = mkReflCo Representational (idType bndr)
+                       in Just (mkFunCo Representational reflCo co, [])
+    ok_arg bndr (Cast e co_arg) co
+       | (ticks, Var v) <- stripTicksTop tickishFloatable e
+       , bndr == v
+       = Just (mkFunCo Representational (mkSymCo co_arg) co, ticks)
        -- The simplifier combines multiple casts into one,
        -- so we can have a simple-minded pattern match here
+    ok_arg bndr (Tick t arg) co
+       | tickishFloatable t, Just (co', ticks) <- ok_arg bndr arg co
+       = Just (co', t:ticks)
+
     ok_arg _ _ _ = Nothing
 
 {-
@@ -1711,7 +1981,12 @@ and 'execute' it rather than allocating it statically.
 -- | This function is called only on *top-level* right-hand sides.
 -- Returns @True@ if the RHS can be allocated statically in the output,
 -- with no thunks involved at all.
-rhsIsStatic :: Platform -> (Name -> Bool) -> CoreExpr -> Bool
+rhsIsStatic :: Platform
+            -> (Name -> Bool)         -- Which names are dynamic
+            -> (Integer -> CoreExpr)  -- Desugaring for integer literals (disgusting)
+                                      -- C.f. Note [Disgusting computation of CafRefs]
+                                      --      in TidyPgm
+            -> CoreExpr -> Bool
 -- It's called (i) in TidyPgm.hasCafRefs to decide if the rhs is, or
 -- refers to, CAFs; (ii) in CoreToStg to decide whether to put an
 -- update flag on it and (iii) in DsExpr to decide how to expand
@@ -1766,19 +2041,19 @@ rhsIsStatic :: Platform -> (Name -> Bool) -> CoreExpr -> Bool
 --
 --    c) don't look through unfolding of f in (f x).
 
-rhsIsStatic platform is_dynamic_name rhs = is_static False rhs
+rhsIsStatic platform is_dynamic_name cvt_integer rhs = is_static False rhs
   where
   is_static :: Bool     -- True <=> in a constructor argument; must be atomic
             -> CoreExpr -> Bool
 
-  is_static False (Lam b e)             = isRuntimeVar b || is_static False e
-  is_static in_arg (Tick n e)           = not (tickishIsCode n)
-                                            && is_static in_arg e
-  is_static in_arg (Cast e _)           = is_static in_arg e
-  is_static _      (Coercion {})        = True   -- Behaves just like a literal
-  is_static _      (Lit (LitInteger {})) = False
-  is_static _      (Lit (MachLabel {})) = False
-  is_static _      (Lit _)              = True
+  is_static False  (Lam b e)              = isRuntimeVar b || is_static False e
+  is_static in_arg (Tick n e)             = not (tickishIsCode n)
+                                              && is_static in_arg e
+  is_static in_arg (Cast e _)             = is_static in_arg e
+  is_static _      (Coercion {})          = True   -- Behaves just like a literal
+  is_static in_arg (Lit (LitInteger i _)) = is_static in_arg (cvt_integer i)
+  is_static _      (Lit (MachLabel {}))   = False
+  is_static _      (Lit _)                = True
         -- A MachLabel (foreign import "&foo") in an argument
         -- prevents a constructor application from being static.  The
         -- reason is that it might give rise to unresolvable symbols

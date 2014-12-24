@@ -88,6 +88,12 @@ import TysWiredIn       ( unitTyCon, unitDataCon, tupleTyCon, tupleCon, nilDataC
 
 {-
 -----------------------------------------------------------------------------
+14 Dec 2014
+
+Conflicts: 48 shift/reduce
+           1  reduce/reduce
+
+-----------------------------------------------------------------------------
 20 Nov 2014
 
 Conflicts: 60 shift/reduce
@@ -121,7 +127,7 @@ would think the two should never occur in the same context.
 
 Conflicts: 34 shift/reduce
            1 reduce/reduce
-q
+
 The reduce/reduce conflict is weird.  It's between tyconsym and consym, and I
 would think the two should never occur in the same context.
 
@@ -302,6 +308,7 @@ See https://ghc.haskell.org/trac/ghc/wiki/GhcAstAnnotations for some background.
  'by'       { L _ ITby }        -- for list transform extension
  'using'    { L _ ITusing }     -- for list transform extension
  'pattern'      { L _ ITpattern } -- for pattern synonyms
+ 'static'       { L _ ITstatic }  -- for static pointers extension
 
  '{-# INLINE'             { L _ (ITinline_prag _ _) }
  '{-# SPECIALISE'         { L _ ITspec_prag }
@@ -1066,12 +1073,6 @@ decl_cls  : at_decl_cls                 { sLL $1 $> (unitOL $1) }
                           ; ams (sLL $1 $> $ unitOL (sLL $1 $> $ SigD (GenericSig l ty)))
                                 [mj AnnDefault $1,mj AnnDcolon $3] } }
 
-          -- A 'default' signature used with the generic-programming extension
-          | 'default' infixexp '::' sigtypedoc
-                    {% do { (TypeSig l ty _) <- checkValSig $2 $4
-                          ; ams (sLL $1 $> $ unitOL (sLL $1 $> $ SigD (GenericSig l ty)))
-                                [mj AnnDefault $1,mj AnnDcolon $3] } }
-
 decls_cls :: { Located (OrdList (LHsDecl RdrName)) }    -- Reversed
           : decls_cls ';' decl_cls      {% addAnnotation (oll (unLoc $1)) AnnSemi (gl $2)
                                            >> return (sLL $1 $> ((unLoc $1) `appOL`
@@ -1489,6 +1490,10 @@ atype :: { LHsType RdrName }
                                                        [mo $2,mc $4] }
         | SIMPLEQUOTE var                       { sLL $1 $> $ HsTyVar $ unLoc $2 }
 
+        -- Two or more [ty, ty, ty] must be a promoted list type, just as
+        -- if you had written '[ty, ty, ty]
+        -- (One means a list type, zero means the list type constructor, 
+        -- so you have to quote those.)
         | '[' ctype ',' comma_types1 ']'  {% ams (sLL $1 $> $ HsExplicitListTy
                                                      placeHolderKind ($2 : $4))
                                                  [mo $1, mj AnnComma $3,mc $5] }
@@ -1510,11 +1515,11 @@ inst_types1 :: { [LHsType RdrName] }
         | inst_type ',' inst_types1    {% addAnnotation (gl $1) AnnComma (gl $2)
                                           >> return ($1 : $3) }
 
-comma_types0  :: { [LHsType RdrName] }
+comma_types0  :: { [LHsType RdrName] }  -- Zero or more:  ty,ty,ty
         : comma_types1                  { $1 }
         | {- empty -}                   { [] }
 
-comma_types1    :: { [LHsType RdrName] }
+comma_types1    :: { [LHsType RdrName] }  -- One or more:  ty,ty,ty
         : ctype                        { [$1] }
         | ctype  ',' comma_types1      {% addAnnotation (gl $1) AnnComma (gl $2)
                                           >> return ($1 : $3) }
@@ -1737,7 +1742,7 @@ decl_no_th :: { Located (OrdList (LHsDecl RdrName)) }
                                             PatBind pat (snd $ unLoc $3)
                                                     placeHolderType
                                                     placeHolderNames
-                                                    (Nothing,[]) } }
+                                                    ([],[]) } }
                                 -- Turn it all into an expression so that
                                 -- checkPattern can check that bangs are enabled
 
@@ -1938,33 +1943,34 @@ exp10 :: { LHsExpr RdrName }
         | fexp                         { $1 }
 
         -- parsing error messages go below here
-        | '\\' apat apats opt_asig '->'              {% parseErrorSDoc (combineLocs $1 $5) $ text
+        | '\\' apat apats opt_asig '->' error        {% parseErrorSDoc (combineLocs $1 $5) $ text
                                                         "parse error in lambda: no expression after '->'"
                                                      }
-        | '\\'                                       {% parseErrorSDoc (getLoc $1) $ text
+        | '\\' error                                 {% parseErrorSDoc (getLoc $1) $ text
                                                         "parse error: naked lambda expression '\'"
                                                      }
-        | 'let' binds 'in'                           {% parseErrorSDoc (combineLocs $1 $2) $ text
+        | 'let' binds 'in' error                     {% parseErrorSDoc (combineLocs $1 $2) $ text
                                                         "parse error in let binding: missing expression after 'in'"
                                                      }
-        | 'let' binds                                {% parseErrorSDoc (combineLocs $1 $2) $ text
+        | 'let' binds error                          {% parseErrorSDoc (combineLocs $1 $2) $ text
                                                         "parse error in let binding: missing required 'in'"
                                                      }
-        | 'let'                                      {% parseErrorSDoc (getLoc $1) $ text
+        | 'let' error                                {% parseErrorSDoc (getLoc $1) $ text
                                                         "parse error: naked let binding"
                                                      }
-        | 'if' exp optSemi 'then' exp optSemi 'else' {% hintIf (combineLocs $1 $5) "else clause empty" }
-        | 'if' exp optSemi 'then' exp optSemi        {% hintIf (combineLocs $1 $5) "missing required else clause" }
-        | 'if' exp optSemi 'then'                    {% hintIf (combineLocs $1 $2) "then clause empty" }
-        | 'if' exp optSemi                           {% hintIf (combineLocs $1 $2) "missing required then and else clauses" }
-        | 'if'                                       {% hintIf (getLoc $1) "naked if statement" }
-        | 'case' exp 'of'                            {% parseErrorSDoc (combineLocs $1 $2) $ text
+        | 'if' exp optSemi 'then' exp optSemi
+          'else' error                               {% hintIf (combineLocs $1 $5) "else clause empty" }
+        | 'if' exp optSemi 'then' exp optSemi error  {% hintIf (combineLocs $1 $5) "missing required else clause" }
+        | 'if' exp optSemi 'then' error              {% hintIf (combineLocs $1 $2) "then clause empty" }
+        | 'if' exp optSemi error                     {% hintIf (combineLocs $1 $2) "missing required then and else clauses" }
+        | 'if' error                                 {% hintIf (getLoc $1) "naked if statement" }
+        | 'case' exp 'of' error                      {% parseErrorSDoc (combineLocs $1 $2) $ text
                                                         "parse error in case statement: missing list after '->'"
                                                      }
-        | 'case' exp                                 {% parseErrorSDoc (combineLocs $1 $2) $ text
+        | 'case' exp error                           {% parseErrorSDoc (combineLocs $1 $2) $ text
                                                         "parse error in case statement: missing required 'of'"
                                                      }
-        | 'case'                                     {% parseErrorSDoc (getLoc $1) $ text
+        | 'case' error                               {% parseErrorSDoc (getLoc $1) $ text
                                                         "parse error: naked case statement"
                                                      }
 optSemi :: { ([Located a],Bool) }
@@ -1999,6 +2005,7 @@ hpc_annot :: { Located ([AddAnn],(FastString,(Int,Int),(Int,Int))) }
 
 fexp    :: { LHsExpr RdrName }
         : fexp aexp                             { sLL $1 $> $ HsApp $1 $2 }
+        | 'static' aexp                         { sLL $1 $> $ HsStatic $2 }
         | aexp                                  { $1 }
 
 aexp    :: { LHsExpr RdrName }
@@ -2053,7 +2060,10 @@ aexp2   :: { LHsExpr RdrName }
         | TH_TY_QUOTE gtycon    { sLL $1 $> $ HsBracket (VarBr False (unLoc $2)) }
         | '[|' exp '|]'       {% ams (sLL $1 $> $ HsBracket (ExpBr $2)) [mo $1,mc $3] }
         | '[||' exp '||]'     {% ams (sLL $1 $> $ HsBracket (TExpBr $2)) [mo $1,mc $3]}
-        | '[t|' ctype '|]'    {% ams (sLL $1 $> $ HsBracket (TypBr $2)) [mo $1,mc $3] }
+        | '[t|' ctype '|]'    {% checkNoPartialType
+                                   (text "in type brackets" <> colon
+                                    <+> quotes (text "[t|" <+> ppr $2 <+> text "|]")) $2 >>
+                                 ams (sLL $1 $> $ HsBracket (TypBr $2)) [mo $1,mc $3] }
         | '[p|' infixexp '|]' {% checkPattern empty $2 >>= \p ->
                                       ams (sLL $1 $> $ HsBracket (PatBr p))
                                           [mo $1,mc $3] }
@@ -2918,7 +2928,7 @@ hintExplicitForall span = do
       ]
 
 namedWildcardsEnabled :: P Bool
-namedWildcardsEnabled = liftM ((Opt_NamedWildcards `xopt`) . dflags) getPState
+namedWildcardsEnabled = liftM ((Opt_NamedWildCards `xopt`) . dflags) getPState
 
 {-
 %************************************************************************

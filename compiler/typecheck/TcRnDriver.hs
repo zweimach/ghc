@@ -464,6 +464,8 @@ tcRnSrcDecls boot_iface exports decls
       ; traceTc "Tc8" empty ;
       ; setEnvs (tcg_env, tcl_env) $
    do {
+        -- wanted constraints from static forms
+        stWC <- tcg_static_wc <$> getGblEnv >>= readTcRef ;
 
              --         Finish simplifying class constraints
              --
@@ -480,7 +482,7 @@ tcRnSrcDecls boot_iface exports decls
              --  * the local env exposes the local Ids to simplifyTop,
              --    so that we get better error messages (monomorphism restriction)
         new_ev_binds <- {-# SCC "simplifyTop" #-}
-                        simplifyTop lie ;
+                        simplifyTop (andWC stWC lie) ;
         traceTc "Tc9" empty ;
 
         failIfErrsM ;   -- Don't zonk if there have been errors
@@ -1411,8 +1413,6 @@ runTcInteractive hsc_env thing_inside
        ; let gbl_env' = gbl_env {
                            tcg_rdr_env      = ic_rn_gbl_env icxt
                          , tcg_type_env     = type_env
-                         , tcg_insts        = ic_insts
-                         , tcg_fam_insts    = ic_finsts
                          , tcg_inst_env     = extendInstEnvList
                                                (extendInstEnvList (tcg_inst_env gbl_env) ic_insts)
                                                home_insts
@@ -1669,9 +1669,12 @@ tcGhciStmts stmts
                         -- Look up the names right in the middle,
                         -- where they will all be in scope
 
+        -- wanted constraints from static forms
+        stWC <- tcg_static_wc <$> getGblEnv >>= readTcRef ;
+
         -- Simplify the context
         traceTc "TcRnDriver.tcGhciStmts: simplify ctxt" empty ;
-        const_binds <- checkNoErrs (simplifyInteractive lie) ;
+        const_binds <- checkNoErrs (simplifyInteractive (andWC stWC lie)) ;
                 -- checkNoErrs ensures that the plan fails if context redn fails
 
         traceTc "TcRnDriver.tcGhciStmts: done" empty ;
@@ -1758,7 +1761,11 @@ tcRnExpr hsc_env rdr_expr
                                                     False {- No MR for now -}
                                                     [(fresh_it, res_ty)]
                                                     lie ;
-    _ <- simplifyInteractive lie_top ;       -- Ignore the dicionary bindings
+    -- wanted constraints from static forms
+    stWC <- tcg_static_wc <$> getGblEnv >>= readTcRef ;
+
+    -- Ignore the dictionary bindings
+    _ <- simplifyInteractive (andWC stWC lie_top) ;
 
     let { all_expr_ty = mkInvForAllTys qtvs (mkPiTypes dicts res_ty) } ;
     zonkTcType all_expr_ty
@@ -1787,12 +1794,16 @@ tcRnType :: HscEnv
 tcRnType hsc_env normalise rdr_type
   = runTcInteractive hsc_env $
     setXOptM Opt_PolyKinds $   -- See Note [Kind-generalise in tcRnType]
-    do { (rn_type, _fvs) <- rnLHsType GHCiCtx rdr_type
+    do { (wcs, rdr_type') <- extractWildcards rdr_type
+       ; (rn_type, wcs)   <- bindLocatedLocalsRn wcs $ \wcs_new -> do {
+       ; (rn_type, _fvs)  <- rnLHsType GHCiCtx rdr_type'
        ; failIfErrsM
+       ; return (rn_type, wcs_new) }
 
         -- Now kind-check the type
         -- It can have any rank or kind
-       ; ty <- tcHsSigType GhciCtxt rn_type ;
+       ; nwc_tvs <- mapM newWildcardVarMetaKind wcs
+       ; ty <- tcExtendTyVarEnv nwc_tvs $ tcHsSigType GhciCtxt rn_type
 
        ; ty' <- if normalise
                 then do { fam_envs <- tcGetFamInstEnvs
@@ -1835,7 +1846,11 @@ tcRnDeclsi hsc_env local_decls =
         captureConstraints $ tc_rn_src_decls emptyModDetails local_decls
     setEnvs (tcg_env, tclcl_env) $ do
 
-    new_ev_binds <- simplifyTop lie
+    -- wanted constraints from static forms
+    stWC <- tcg_static_wc <$> getGblEnv >>= readTcRef
+
+    new_ev_binds <- simplifyTop (andWC stWC lie)
+
     failIfErrsM
     let TcGblEnv { tcg_type_env  = type_env,
                    tcg_binds     = binds,
@@ -1883,38 +1898,17 @@ getModuleInterface hsc_env mod
     loadModuleInterface (ptext (sLit "getModuleInterface")) mod
 
 tcRnLookupRdrName :: HscEnv -> RdrName -> IO (Messages, Maybe [Name])
+-- ^ Find all the Names that this RdrName could mean, in GHCi
 tcRnLookupRdrName hsc_env rdr_name
   = runTcInteractive hsc_env $
-    lookup_rdr_name rdr_name
-
-lookup_rdr_name :: RdrName -> TcM [Name]
-lookup_rdr_name rdr_name = do
-        -- If the identifier is a constructor (begins with an
-        -- upper-case letter), then we need to consider both
-        -- constructor and type class identifiers.
-    let rdr_names = dataTcOccs rdr_name
-
-        -- results :: [Either Messages Name]
-    results <- mapM (tryTcErrs . lookupOccRn) rdr_names
-
-    traceRn (text "xx" <+> vcat [ppr rdr_names, ppr (map snd results)])
-        -- The successful lookups will be (Just name)
-    let (warns_s, good_names) = unzip [ (msgs, name)
-                                      | (msgs, Just name) <- results]
-        errs_s = [msgs | (msgs, Nothing) <- results]
-
-        -- Fail if nothing good happened, else add warnings
-    if null good_names
-      then  addMessages (head errs_s) >> failM
-                -- No lookup succeeded, so
-                -- pick the first error message and report it
-                -- ToDo: If one of the errors is "could be Foo.X or Baz.X",
-                --       while the other is "X is not in scope",
-                --       we definitely want the former; but we might pick the latter
-      else      mapM_ addMessages warns_s
-                -- Add deprecation warnings
-    return good_names
-
+    do {   -- If the identifier is a constructor (begins with an
+           -- upper-case letter), then we need to consider both
+           -- constructor and type class identifiers.
+         let rdr_names = dataTcOccs rdr_name
+       ; names_s <- mapM lookupInfoOccRn rdr_names
+       ; let names = concat names_s
+       ; when (null names) (addErrTc (ptext (sLit "Not in scope:") <+> quotes (ppr rdr_name)))
+       ; return names }
 #endif
 
 tcRnLookupName :: HscEnv -> Name -> IO (Messages, Maybe TyThing)

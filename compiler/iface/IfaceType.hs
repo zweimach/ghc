@@ -160,7 +160,7 @@ data IfaceCoercion     -- represents Coercions and CoercionArgs
   | IfaceCoVarCo     IfLclName
   | IfaceAxiomInstCo IfExtName BranchIndex [IfaceCoercion]
   | IfacePhantomCo   IfaceCoercion IfaceType IfaceType
-  | IfaceUnsafeCo    Role IfaceType IfaceType
+  | IfaceUnsafeCo    FastString Role IfaceType IfaceType
   | IfaceSymCo       IfaceCoercion
   | IfaceTransCo     IfaceCoercion IfaceCoercion
   | IfaceNthCo       Int IfaceCoercion
@@ -716,9 +716,9 @@ ppr_co _         (IfaceCoVarCo covar)       = ppr covar
 ppr_co _         (IfacePhantomCo h ty1 ty2)
   = angleBrackets ( ppr ty1 <> comma <+> ppr ty2 ) <> char '_' <> pprParendIfaceCoercion h
 
-ppr_co ctxt_prec (IfaceUnsafeCo r ty1 ty2)
+ppr_co ctxt_prec (IfaceUnsafeCo s r ty1 ty2)
   = maybeParen ctxt_prec TyConPrec $
-    ptext (sLit "UnsafeCo") <+> ppr r <+>
+    ptext (sLit "UnsafeCo") <+> ftext s <+> ppr r <+>
     pprParendIfaceType ty1 <+> pprParendIfaceType ty2
 
 ppr_co ctxt_prec (IfaceInstCo co ty)
@@ -963,11 +963,12 @@ instance Binary IfaceCoercion where
           put_ bh a
           put_ bh b
           put_ bh c
-  put_ bh (IfaceUnsafeCo a b c) = do
+  put_ bh (IfaceUnsafeCo a b c d) = do
           putByte bh 9
           put_ bh a
           put_ bh b
           put_ bh c
+          put_ bh d
   put_ bh (IfaceSymCo a) = do
           putByte bh 10
           put_ bh a
@@ -1041,7 +1042,8 @@ instance Binary IfaceCoercion where
            9 -> do a <- get bh
                    b <- get bh
                    c <- get bh
-                   return $ IfaceUnsafeCo a b c
+                   d <- get bh
+                   return $ IfaceUnsafeCo a b c d
            10-> do a <- get bh
                    return $ IfaceSymCo a
            11-> do a <- get bh
@@ -1171,8 +1173,8 @@ toIfaceCoercion (AxiomInstCo con ind cos)
 toIfaceCoercion (PhantomCo h t1 t2) = IfacePhantomCo (toIfaceCoercion h)
                                                      (toIfaceType t1)
                                                      (toIfaceType t2)
-toIfaceCoercion (UnsafeCo r t1 t2)  = IfaceUnsafeCo r (toIfaceType t1)
-                                                      (toIfaceType t2)
+toIfaceCoercion (UnsafeCo s r t1 t2)= IfaceUnsafeCo s r (toIfaceType t1)
+                                                        (toIfaceType t2)
 toIfaceCoercion (SymCo co)          = IfaceSymCo (toIfaceCoercion co)
 toIfaceCoercion (TransCo co1 co2)   = IfaceTransCo (toIfaceCoercion co1)
                                                    (toIfaceCoercion co2)

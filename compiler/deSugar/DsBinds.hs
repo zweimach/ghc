@@ -971,10 +971,8 @@ ds_tc_coercion subst tc_co
   where
     go (TcRefl r ty)            = mkReflCo r (Type.substTy subst ty)
     go (TcTyConAppCo r tc cos)  = mkTyConAppCo r tc (map go_arg cos)
-    go (TcAppCo co1 co2)        = let leftCo    = go co1
-                                      rightRole = nextRole leftCo in
-                                  mkAppCoFlexible leftCo rightRole (go_arg co2)
-    go (TcForAllCo tv co)     = mkForAllCo cobndr' (ds_tc_coercion subst' co)
+    go (TcAppCo co1 co2)        = mkAppCo (go co1) (go_arg co2)
+    go (TcForAllCo tv co)       = mkForAllCo cobndr' (ds_tc_coercion subst' co)
                               where
                                 cobndr = mkHomoCoBndr tv
                                 (subst', cobndr') = substForAllCoBndr subst cobndr
@@ -992,6 +990,7 @@ ds_tc_coercion subst tc_co
     go (TcKindCo co)            = mkKindCo (go co)
     go (TcCoVarCo v)            = ds_ev_id subst v
     go (TcAxiomRuleCo co ts cs) = mkAxiomRuleCo co (map (Type.substTy subst) ts) (map go cs)
+    go (TcCoercion co)          = co
 
     go_arg tc_co              = mkTyCoArg $ go tc_co
 

@@ -259,19 +259,21 @@ test('T3064',
             # 2014-01-22: 162457940 (x86/Linux)
             # 2014-12-01: 162457940 (Windows)
 
-           (wordsize(64), 385145080, 5)]),
+           (wordsize(64), 350418600, 5)]),
             # (amd64/Linux) (28/06/2011):  73259544
             # (amd64/Linux) (07/02/2013): 224798696
             # (amd64/Linux) (02/08/2013): 236404384, increase from roles
             # (amd64/Linux) (11/09/2013): 290165632, increase from AMP warnings
             # (amd64/Linux) (22/11/2013): 308300448, GND via Coercible and counters for constraints solving
-                # (amd64/Linux) (02/12/2013): 329795912, Coercible refactor
+            # (amd64/Linux) (02/12/2013): 329795912, Coercible refactor
             # (amd64/Linux) (11/02/2014): 308422280, optimize Coercions in simpleOptExpr
             # (amd64/Linux) (23/05/2014): 324022680, unknown cause
             # (amd64/Linux) (2014-07-17): 332702112, general round of updates
             # (amd64/Linux) (2014-08-29): 313638592, w/w for INLINABLE things
             # (amd64/Linux) (09/09/2014): 407416464, AMP changes (larger interfaces, more loading)
             # (amd64/Linux) (14/09/2014): 385145080, BPP changes (more NoImplicitPrelude in base)
+            # (amd64/Linux) (10/12/2014): 363103840, improvements in constraint solver
+            # (Mac)         (18/12/2014): 350418600, improvements to flattener
 
 ###################################
 # deactivated for now, as this metric became too volatile recently
@@ -310,11 +312,14 @@ test('T4007',
 
 test('T5030',
      [compiler_stats_num_field('bytes allocated',
-          [(wordsize(32), 198573456, 10),
+          [(wordsize(32), 227205560, 10),
            # previous:    196457520
            # 2012-10-08:  259547660 (x86/Linux, new codegen)
            # 2013-11-21:  198573456 (x86 Windows, 64 bit machine)
-           (wordsize(64), 385152728, 10)]),
+           # 2014-12-10:  227205560 constraint solver got worse again; more agressive solving
+           #                        of family-applications leads to less sharing, I think
+
+           (wordsize(64), 449042120, 10)]),
              # Previously 530000000 (+/- 10%)
              # 17/1/13:   602993184  (x86_64/Linux)
              #            (new demand analyser)
@@ -327,6 +332,9 @@ test('T5030',
              # 2014-07-17 409314320  (amd64/Linux)
              # general round of updates
              # 2014-09-10 385152728  post-AMP-cleanup
+             # 2014-12-08 340969128  constraint solver perf improvements (esp kick-out)
+             # 2014-12-10 449042120  constraint solver got worse again; more agressive solving
+             #                          of family-applications leads to less sharing, I think
 
        only_ways(['normal'])
       ],
@@ -393,19 +401,22 @@ test('T783',
 test('T5321Fun',
      [ only_ways(['normal']),  # no optimisation for this one
        compiler_stats_num_field('bytes allocated',
-           [(wordsize(32), 299656164, 10),
+           [(wordsize(32), 206406188, 10),
              # prev:       300000000
              # 2012-10-08: 344416344 x86/Linux
              #  (increase due to new codegen)
              # 2014-09-03: 299656164     (specialisation and inlining)
-            (wordsize(64), 541287000, 10)])
+             # 10/12/2014: 206406188     #  Improvements in constraint solver
+            (wordsize(64), 429921312, 10)])
              # prev:       585521080
              # 29/08/2012: 713385808     #  (increase due to new codegen)
              # 15/05/2013: 628341952     #  (reason for decrease unknown)
              # 24/06/2013: 694019152     #  (reason for re-increase unknown)
              # 12/05/2014: 614409344     #  (specialisation and inlining changes)
-             # 10/09/2014: 601629032     #  post-AMP-cleanp
+             # 10/09/2014: 601629032     #  post-AMP-cleanup
              # 06/11/2014: 541287000     #  Simon's flat-skol changes to the constraint solver
+             # 10/12/2014: 408110888     #  Improvements in constraint solver
+             # 16/12/2014: 429921312     #  Flattener parameterized over roles
       ],
       compile,[''])
 
@@ -438,11 +449,13 @@ test('T5321FD',
 test('T5642',
      [ only_ways(['normal']),
        compiler_stats_num_field('bytes allocated',
-           [(wordsize(32), 753045568, 10),
+           [(wordsize(32), 641085256, 10),
                      # sample from x86/Linux
             # prev:        650000000
             # 2014-09-03:  753045568 
-            (wordsize(64), 1536924976, 10)])
+            # 2014-12-10:  641085256 Improvements in constraints solver
+
+            (wordsize(64), 1282916024, 10)])
             # prev:        1300000000
             # 2014-07-17:  1358833928 (general round of updates)
             # 2014-08-07:  1402242360 (caused by 1fc60ea)
@@ -452,19 +465,21 @@ test('T5642',
             #                          are ultimately discarded by trimAutoRules
             #                          It's a bizarre program with LOTS of data types)
             # 2014-09-10:  1536924976 post-AMP-cleanup
+            # 2014-12-10:  1282916024 Improvements in constraints solver
       ],
       compile,['-O'])
 
 test('T5837',
      [ only_ways(['normal']),
       compiler_stats_num_field('bytes allocated',
-          [(wordsize(32), 135914136, 10),
+          [(wordsize(32), 115905208, 10),
              # 40000000 (x86/Linux)
-             # 2013-11-13: 45520936  (x86/Windows, 64bit machine)
-             # 2014-09-03: 37096484  (Windows laptop, w/w for INLINABLE things
+             # 2013-11-13:  45520936 (x86/Windows, 64bit machine)
+             # 2014-09-03:  37096484 (Windows laptop, w/w for INLINABLE things
              # 2014-12-01: 135914136 (Windows laptop, regression see below)
+             # 2014-12-08  115905208  Constraint solver perf improvements (esp kick-out)
  
-           (wordsize(64), 271028976, 10)])
+           (wordsize(64), 231155640, 10)])
              # sample: 3926235424 (amd64/Linux, 15/2/2012)
              # 2012-10-02 81879216
              # 2012-09-20 87254264 amd64/Linux
@@ -475,6 +490,9 @@ test('T5837',
              # 2014-10-08 73639840 amd64/Linux, Burning Bridges and other small changes
              # 2014-11-06 271028976       Linux, Accept big regression;
              #   See Note [An alternative story for the inert substitution] in TcFlatten
+             # 2014-12-08 234790312 Constraint solver perf improvements (esp kick-out)
+             # 2014-12-16 231155640 Mac  Flattener parameterized over roles;
+             #                           some optimization
       ],
       compile_fail,['-ftype-function-depth=50'])
 
@@ -533,6 +551,52 @@ test('T9675',
        compiler_stats_num_field('bytes allocated',
           [(wordsize(64), 544489040, 10)
           # 2014-10-13    544489040
+          ,(wordsize(32), 250000000, 10)
+          ]),
+      ],
+     compile,
+     [''])
+
+test('T9872a',
+     [ only_ways(['normal']),
+       compiler_stats_num_field('bytes allocated',
+          [(wordsize(64), 2680733672, 5)
+          # 2014-12-10    5521332656    Initally created
+          # 2014-12-16    5848657456    Flattener parameterized over roles
+          # 2014-12-18    2680733672    Reduce type families even more eagerly
+          ]),
+      ],
+     compile_fail,
+     [''])
+
+test('T9872b',
+     [ only_ways(['normal']),
+       compiler_stats_num_field('bytes allocated',
+          [(wordsize(64), 3480212048, 5)
+          # 2014-12-10    6483306280    Initally created
+          # 2014-12-16    6892251912    Flattener parameterized over roles
+          # 2014-12-18    3480212048    Reduce type families even more eagerly
+          ]),
+      ],
+     compile_fail,
+     [''])
+test('T9872c',
+     [ only_ways(['normal']),
+       compiler_stats_num_field('bytes allocated',
+          [(wordsize(64), 2963554096, 5)
+          # 2014-12-10    5495850096    Initally created
+          # 2014-12-16    5842024784    Flattener parameterized over roles
+          # 2014-12-18    2963554096    Reduce type families even more eagerly
+          ]),
+      ],
+     compile_fail,
+     [''])
+test('T9872d',
+     [ only_ways(['normal']),
+       compiler_stats_num_field('bytes allocated',
+          [(wordsize(64), 739189056, 5)
+          # 2014-12-18    796071864   Initally created
+          # 2014-12-18    739189056   Reduce type families even more eagerly
           ]),
       ],
      compile,

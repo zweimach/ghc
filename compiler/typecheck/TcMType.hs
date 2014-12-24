@@ -31,9 +31,8 @@ module TcMType (
   --------------------------------
   -- Creating new evidence variables
   newEvVar, newEvVars, newEq, newDict,
-  newWantedEvVar, newWantedEvVars,
   newTcEvBinds, addTcEvBind,
-  newFlatWanted, newFlatWanteds,
+  newSimpleWanted, newSimpleWanteds,
 
   --------------------------------
   -- Instantiation
@@ -56,7 +55,7 @@ module TcMType (
   quantifyTyCoVars', defaultKindVar,
   zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, zonkCo,
 
-  zonkEvVar, zonkWC, zonkFlats, zonkId, zonkCt, zonkSkolemInfo,
+  zonkEvVar, zonkWC, zonkSimples, zonkId, zonkCt, zonkSkolemInfo,
 
   tcGetGlobalTyVars,
 
@@ -129,12 +128,6 @@ newMetaKindVars n = mapM (\ _ -> newMetaKindVar) (nOfThem n ())
 newEvVars :: TcThetaType -> TcM [EvVar]
 newEvVars theta = mapM newEvVar theta
 
-newWantedEvVar :: TcPredType -> TcM EvVar 
-newWantedEvVar = newEvVar
-
-newWantedEvVars :: TcThetaType -> TcM [EvVar] 
-newWantedEvVars theta = mapM newWantedEvVar theta 
-
 --------------
 
 newEvVar :: TcPredType -> TcRnIf gbl lcl EvVar
@@ -156,7 +149,7 @@ newDict cls tys
 predTypeOccName :: PredType -> OccName
 predTypeOccName ty = case classifyPredType ty of
     ClassPred cls _ -> mkDictOcc (getOccName cls)
-    EqPred _ _      -> mkVarOccFS (fsLit "cobox")
+    EqPred _ _ _    -> mkVarOccFS (fsLit "cobox")
     TuplePred _     -> mkVarOccFS (fsLit "tup")
     IrredPred _     -> mkVarOccFS (fsLit "irred")
 
@@ -168,17 +161,17 @@ predTypeOccName ty = case classifyPredType ty of
 *********************************************************************************
 -}
 
-newFlatWanted :: CtOrigin -> PredType -> TcM Ct
-newFlatWanted orig pty
+newSimpleWanted :: CtOrigin -> PredType -> TcM Ct
+newSimpleWanted orig pty
   = do loc <- getCtLoc orig
-       v <- newWantedEvVar pty
+       v <- newEvVar pty
        return $ mkNonCanonical $
             CtWanted { ctev_evar = v
                      , ctev_pred = pty
                      , ctev_loc = loc }
 
-newFlatWanteds :: CtOrigin -> ThetaType -> TcM [Ct]
-newFlatWanteds orig = mapM (newFlatWanted orig)
+newSimpleWanteds :: CtOrigin -> ThetaType -> TcM [Ct]
+newSimpleWanteds orig = mapM (newSimpleWanted orig)
 
 {-
 ************************************************************************
@@ -901,16 +894,16 @@ zonkWC :: WantedConstraints -> TcM WantedConstraints
 zonkWC wc = zonkWCRec wc
 
 zonkWCRec :: WantedConstraints -> TcM WantedConstraints
-zonkWCRec (WC { wc_flat = flat, wc_impl = implic, wc_insol = insol })
-  = do { flat'   <- zonkFlats flat
+zonkWCRec (WC { wc_simple = simple, wc_impl = implic, wc_insol = insol })
+  = do { simple' <- zonkSimples simple
        ; implic' <- flatMapBagM zonkImplication implic
-       ; insol'  <- zonkFlats insol
-       ; return (WC { wc_flat = flat', wc_impl = implic', wc_insol = insol' }) }
+       ; insol'  <- zonkSimples insol
+       ; return (WC { wc_simple = simple', wc_impl = implic', wc_insol = insol' }) }
 
-zonkFlats :: Cts -> TcM Cts
-zonkFlats cts = do { cts' <- mapBagM zonkCt' cts
-                   ; traceTc "zonkFlats done:" (ppr cts')
-                   ; return cts' }
+zonkSimples :: Cts -> TcM Cts
+zonkSimples cts = do { cts' <- mapBagM zonkCt' cts
+                     ; traceTc "zonkSimples done:" (ppr cts')
+                     ; return cts' }
 
 zonkCt' :: Ct -> TcM Ct
 zonkCt' ct = zonkCt ct
@@ -1107,6 +1100,10 @@ zonkTidyOrigin env (KindEqOrigin ty1 ty2 orig)
        ; (env2, ty2') <- zonkTidyTcType env1 ty2
        ; (env3, orig') <- zonkTidyOrigin env2 orig
        ; return (env3, KindEqOrigin ty1' ty2' orig') }
+zonkTidyOrigin env (CoercibleOrigin ty1 ty2)
+  = do { (env1, ty1') <- zonkTidyTcType env  ty1
+       ; (env2, ty2') <- zonkTidyTcType env1 ty2
+       ; return (env2, CoercibleOrigin ty1' ty2') }
 zonkTidyOrigin env (FunDepOrigin1 p1 l1 p2 l2)
   = do { (env1, p1') <- zonkTidyTcType env  p1
        ; (env2, p2') <- zonkTidyTcType env1 p2
