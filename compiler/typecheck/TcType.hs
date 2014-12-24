@@ -46,7 +46,7 @@ module TcType (
   --------------------------------
   -- Builders
   mkPhiTy, mkInvSigmaTy, mkSigmaTy,
-  mkTcEqPred, mkTcReprEqPred, mkTcEqPredRole,
+  mkTcEqPred, mkTcReprEqPred, mkTcEqPredBR,
 
   --------------------------------
   -- Splitters
@@ -890,11 +890,14 @@ mkTcReprEqPred ty1 ty2
   where
     k = typeKind ty1
 
--- | Make an equality predicate at a given role. The role must not be Phantom.
-mkTcEqPredRole :: Role -> TcType -> TcType -> Type
-mkTcEqPredRole Nominal          = mkTcEqPred
-mkTcEqPredRole Representational = mkTcReprEqPred
-mkTcEqPredRole Phantom          = panic "mkTcEqPredRole Phantom"
+-- | Make an equality predicate at a given boxity & role.
+-- The role must not be Phantom.
+mkTcEqPredBR :: Boxity -> Role -> TcType -> TcType -> Type
+mkTcEqPredBR Boxed   Nominal          = mkTcEqPred
+mkTcEqPredBR Boxed   Representational = mkTcReprEqPred
+mkTcEqPredBR Unboxed Nominal          = mkPrimEqPred
+mkTcEqPredBR Unboxed Representational = mkReprPrimEqPred
+mkTcEqPredBR _       Phantom          = panic "mkTcEqPredBR Phantom"
 
 -- @isTauTy@ tests if a type is "simple". It should not be called on a boxy type.
 isTauTy :: Type -> Bool

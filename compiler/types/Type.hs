@@ -67,8 +67,8 @@ module Type (
         -- Deconstructing predicate types
         PredTree(..), EqRel(..), eqRelRole, classifyPredType,
         getClassPredTys, getClassPredTys_maybe,
-        getEqPredTys, getEqPredTys_maybe, getEqPredRole, isEqPredLifted,
-        predTypeEqRel,
+        getEqPredTys, getEqPredTys_maybe, getEqPredRole,
+        isEqPredLifted, getEqPredBoxity, predTypeEqRel,
 
         -- ** Binders
         mkNamedBinder, mkAnonBinder, isNamedBinder, isAnonBinder,
@@ -1415,7 +1415,14 @@ isEqPredLifted :: PredType -> Bool
 isEqPredLifted ty
   = case splitTyConApp_maybe ty of
       Just (tc, _) -> not (tc `hasKey` eqPrimTyConKey)
+                   && not (tc `hasKey` eqReprPrimTyConKey)
       _ -> pprPanic "isEqPredLifted" (ppr ty)
+
+-- | Assuming the type provided is an EqPred, return its boxity
+getEqPredBoxity :: PredType -> Boxity
+getEqPredBoxity ty
+  | isEqPredLifted ty = Boxed
+  | otherwise         = Unboxed
 
 -- | Get the equality relation relevant for a pred type.
 predTypeEqRel :: PredType -> EqRel

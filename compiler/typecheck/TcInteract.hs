@@ -708,12 +708,13 @@ lookupFlattenTyVar inert_eqs ftv
 reactFunEq :: CtEvidence -> TcTyVar    -- From this  :: F tys ~ fsk1
            -> CtEvidence -> TcTyVar    -- Solve this :: F tys ~ fsk2
            -> TcS ()
-reactFunEq from_this fsk1 (CtGiven { ctev_evtm = tm, ctev_loc = loc }) fsk2
+reactFunEq from_this fsk1
+           solve_this@(CtGiven { ctev_evtm = tm, ctev_loc = loc }) fsk2
   = do { let fsk_eq_co = mkTcSymCo (evTermCoercion tm)
                          `mkTcTransCo` ctEvCoercion from_this
                          -- :: fsk2 ~ fsk1
-             fsk_eq_pred = mkTcEqPredLikeEv from_this (mkOnlyTyVarTy fsk2) (mkOnlyTyVarTy fsk1)
-               -- TODO (RAE): Why from_this and not to_this in the LikeEv??
+             fsk_eq_pred = mkTcEqPredLikeEv solve_this
+                             (mkOnlyTyVarTy fsk2) (mkOnlyTyVarTy fsk1)
 
        ; new_ev <- newGivenEvVar loc (fsk_eq_pred, EvCoercion fsk_eq_co)
        ; emitWorkNC [new_ev] }

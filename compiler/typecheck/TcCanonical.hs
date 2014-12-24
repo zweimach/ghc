@@ -671,20 +671,22 @@ try_decompose_nom_app ev ty1 ty2
      -- to try_decompose_nom_app to decompose a chain of AppTys
      do_decompose s1 t1 s2 t2
        | CtDerived { ctev_loc = loc } <- ev
-       = do { emitNewDerived loc (mkTcEqPredLikeEv ev t1 t2)
-            ; canEqNC ev NomEq s1 s2 }
+       = do { unifyDeriveds loc [Nominal, Nominal] [s1, t1] [s2, t2]
+            ; stopWith ev "Decomposed [D] AppTy" }
        | CtWanted { ctev_evar = evar, ctev_loc = loc } <- ev
-       = do { ev_s <- newWantedEvVarNC loc (mkTcEqPredLikeEv ev s1 s2)
+       = do { co_s <- unifyWantedLikeEv ev loc Nominal s1 s2
             ; co_t <- unifyWantedLikeEv ev loc Nominal t1 t2
-            ; let co = mkTcAppCo (ctEvCoercion ev_s) co_t
+            ; let co = mkTcAppCo co_s co_t
             ; setEvBind evar (EvCoercion co)
-            ; canEqNC ev_s NomEq s1 s2 }
+            ; stopWith ev "Decomposed [W] AppTy" }
        | CtGiven { ctev_evtm = ev_tm, ctev_loc = loc } <- ev
        = do { let co   = evTermCoercion ev_tm
                   co_s = mkTcLRCo CLeft  co
                   co_t = mkTcLRCo CRight co
-            ; evar_s <- newGivenEvVar loc (mkTcEqPredLikeEv ev s1 s2, EvCoercion co_s)
-            ; evar_t <- newGivenEvVar loc (mkTcEqPredLikeEv ev t1 t2, EvCoercion co_t)
+            ; evar_s <- newGivenEvVar loc ( mkTcEqPredLikeEv ev s1 s2
+                                          , EvCoercion co_s)
+            ; evar_t <- newGivenEvVar loc ( mkTcEqPredLikeEv ev t1 t2
+                                          , EvCoercion co_t)
             ; emitWorkNC [evar_t]
             ; canEqNC evar_s NomEq s1 s2 }
        | otherwise  -- Can't happen
@@ -778,12 +780,13 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
      CtGiven { ctev_evtm = ev_tm, ctev_loc = loc }
         -> do { let ev_co = evTermCoercion ev_tm
               ; given_evs <- newGivenEvVars loc $
-                             [ ( mkTcEqPredRoleLikeEv ev r ty1 ty2
+                             [ ( mkTcEqPredBR boxity r ty1 ty2
                                , EvCoercion (mkTcNthCo i ev_co) )
                              | (r, ty1, ty2, i) <- zip4 tc_roles tys1 tys2 [0..]
                              , r /= Phantom ]
               ; emitWorkNC given_evs }
   where
+    boxity   = getEqPredBoxity (ctEvPred ev)
     role     = eqRelRole eq_rel
     tc_roles = tyConRolesX role tc
 
@@ -1610,7 +1613,7 @@ rewriteEqEvidence old_ev eq_rel swapped nlhs nrhs lhs_co rhs_co
   | otherwise
   = panic "rewriteEvidence"
   where
-    new_pred = mkTcEqPredRoleLikeEv old_ev (eqRelRole eq_rel) nlhs nrhs
+    new_pred = mkTcEqPredLikeEv old_ev nlhs nrhs
 
       -- equality is like a type class. Bumping the depth is necessary because
       -- of recursive newtypes, where "reducing" a newtype can actually make
@@ -1631,28 +1634,31 @@ But where it succeeds in finding common structure, it just builds a coercion
 to reflect it.
 -}
 
-unifyWanted :: CtLoc -> Role -> TcType -> TcType -> TcS TcCoercion
+unifyWantedLikeEv :: CtEvidence -> CtLoc -> Role
+                  -> TcType -> TcType -> TcS TcCoercion
 -- Return coercion witnessing the equality of the two types,
 -- emitting new work equalities where necessary to achieve that
 -- Very good short-cut when the two types are equal, or nearly so
 -- See Note [unifyWanted and unifyDerived]
 -- The returned coercion's role matches the input parameter
-unifyWanted _   Phantom ty1      ty2      = return (mkTcPhantomCo ty1 ty2)
-unifyWanted loc role    orig_ty1 orig_ty2
+-- The boxity of any produced Wanteds matches the CtEvidence parameter
+unifyWantedLikeEv _  _   Phantom ty1      ty2      = return (mkTcPhantomCo ty1 ty2)
+unifyWantedLikeEv ev loc role    orig_ty1 orig_ty2
   = go orig_ty1 orig_ty2
   where
     go ty1 ty2 | Just ty1' <- tcView ty1 = go ty1' ty2
     go ty1 ty2 | Just ty2' <- tcView ty2 = go ty1 ty2'
 
     go (FunTy s1 t1) (FunTy s2 t2)
-      = do { co_s <- unifyWanted loc role s1 s2
-           ; co_t <- unifyWanted loc role t1 t2
+      = do { co_s <- unifyWantedLikeEv ev loc role s1 s2
+           ; co_t <- unifyWantedLikeEv ev loc role t1 t2
            ; return (mkTcTyConAppCo role funTyCon [co_s,co_t]) }
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       | tc1 == tc2, isDecomposableTyCon tc1, tys1 `equalLength` tys2
       , (not (isNewTyCon tc1) && not (isDataFamilyTyCon tc1)) || role == Nominal
          -- don't look under newtypes!
-      = do { cos <- zipWith3M (unifyWanted loc) (tyConRolesX role tc1) tys1 tys2
+      = do { cos <- zipWith3M (unifyWantedLikeEv ev loc)
+                              (tyConRolesX role tc1) tys1 tys2
            ; return (mkTcTyConAppCo role tc1 cos) }
     go (TyVarTy tv) ty2
       = do { mb_ty <- isFilledMetaTyVar_maybe tv
@@ -1666,10 +1672,12 @@ unifyWanted loc role    orig_ty1 orig_ty2
                 Nothing   -> bale_out }
     go _ _ = bale_out
 
-    bale_out = do { ev <- newWantedEvVarNC loc (mkTcEqPredRole role
+    bale_out = do { ev <- newWantedEvVarNC loc (mkTcEqPredBR boxity role
                                                   orig_ty1 orig_ty2)
                   ; emitWorkNC [ev]
                   ; return (ctEvCoercion ev) }
+
+    boxity = getEqPredBoxity (ctEvPred ev)
 
 unifyDeriveds :: CtLoc -> [Role] -> [TcType] -> [TcType] -> TcS ()
 -- See Note [unifyWanted and unifyDerived]
@@ -1709,7 +1717,8 @@ unify_derived loc role    orig_ty1 orig_ty2
                 Nothing   -> bale_out }
     go _ _ = bale_out
 
-    bale_out = emitNewDerived loc (mkTcEqPredRole role orig_ty1 orig_ty2)
+     -- no point in having *unboxed* deriveds.
+    bale_out = emitNewDerived loc (mkTcEqPredBR Boxed role orig_ty1 orig_ty2)
 
 maybeSym :: SwapFlag -> TcCoercion -> TcCoercion
 maybeSym IsSwapped  co = mkTcSymCo co

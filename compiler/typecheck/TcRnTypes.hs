@@ -1195,14 +1195,11 @@ ctPred ct = ctEvPred (cc_ev ct)
 -- evidence.
 mkTcEqPredLikeEv :: CtEvidence -> TcType -> TcType -> TcType
 mkTcEqPredLikeEv ev
-  | isUnLiftedType (ctEvPred ev)
-  = case ctEvEqRel ev of
-      NomEq  -> mkPrimEqPred
-      ReprEq -> mkReprPrimEqPred
-  | otherwise
-  = case ctEvEqRel ev of
-      NomEq -> mkTcEqPred
-      ReprEq -> mkTcReprEqPred
+  = case (getEqPredBoxity pred, predTypeEqRel pred) of
+      (Boxed,   NomEq)  -> mkTcEqPred
+      (Boxed,   ReprEq) -> mkTcReprEqPred
+      (Unboxed, NomEq)  -> mkPrimEqPred
+      (Unboxed, ReprEq) -> mkReprPrimEqPred
 
 -- | Get the flavour of the given 'Ct'
 ctFlavour :: Ct -> CtFlavour
