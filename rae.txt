@@ -342,3 +342,5 @@ stack:
 
   - will need to modify FloatIn.fiExpr#mk_arg_fvs to use splitPiType instead of
     splitFunTy
+  - will need to update DmdAnal.addDataConPatDmds to deal with strictness on
+    dependent ids

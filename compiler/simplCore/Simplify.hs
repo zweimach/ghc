@@ -2175,6 +2175,8 @@ simplAlt env scrut' _ case_bndr' cont' (DataAlt con, vs, rhs)
           go _ _ = pprPanic "cat_evals" (ppr con $$ ppr vs $$ ppr the_strs $$
                                          ppr (dataConRepArgTys con) $$
                                          ppr (dataConRepStrictness con))
+                                    -- NB: If this panic triggers, note that
+                                    -- NoStrictnessMark doesn't print!
 
           zap v  = zapIdOccInfo v   -- See Note [Case alternative occ info]
           eval v = zap v `setIdUnfolding` evaldUnfolding

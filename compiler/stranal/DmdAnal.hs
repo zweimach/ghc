@@ -19,6 +19,7 @@ import Demand   -- All of it
 import CoreSyn
 import Outputable
 import VarEnv
+import Var              ( isCoVar )
 import BasicTypes
 import FastString
 import Data.List
@@ -436,8 +437,15 @@ addDataConPatDmds (DataAlt con) bndrs dmd_ty
     add bndr dmd_ty = addVarDmd dmd_ty bndr seqDmd
     str_bndrs = [ b | (b,s) <- zipEqual "addDataConPatBndrs"
                                    (filter isId bndrs)
-                                   (dataConRepStrictness con)
+                                   all_strictness
                     , isMarkedStrict s ]
+
+      -- all existential covars are *also* strict
+    all_strictness = [ MarkedStrict
+                     | ex_var <- dataConExTyCoVars con
+                     , isCoVar ex_var ]
+                     ++ dataConRepStrictness con
+                     
 
 {-
 Note [Add demands for strict constructors]
