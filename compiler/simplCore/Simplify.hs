@@ -26,7 +26,7 @@ import Coercion hiding  ( substCo, substCoVar )
 import OptCoercion      ( optCoercion )
 import FamInstEnv       ( topNormaliseType_maybe )
 import DataCon          ( DataCon, dataConWorkId, dataConRepStrictness
-                        , isMarkedStrict ) --, dataConTyCon, dataConTag, fIRST_TAG )
+                        , isMarkedStrict, dataConRepArgTys ) --, dataConTyCon, dataConTag, fIRST_TAG )
 --import TyCon            ( isEnumerationTyCon ) -- temporalily commented out. See #8326
 import CoreMonad        ( Tick(..), SimplifierMode(..) )
 import CoreSyn
@@ -334,9 +334,9 @@ simplLazyBind env top_lvl is_rec bndr bndr1 rhs rhs_se
 
                 surely_not_lam (Lam {})     = False
                 surely_not_lam (Tick t e)
-                  | not (tickishFlotable t) = surely_not_lam e
+                  | not (tickishFloatable t) = surely_not_lam e
                    -- eta-reduction could float
-                surely_not_lam              = True
+                surely_not_lam _            = True
                         -- Do not do the "abstract tyyvar" thing if there's
                         -- a lambda inside, because it defeats eta-reduction
                         --    f = /\a. \x. g a x
@@ -1302,7 +1302,7 @@ simplLam env [] body cont = simplExprF env body cont
 
 simplLam env (bndr:bndrs) body (ApplyToTy { sc_arg_ty = arg_ty, sc_cont = cont })
   = do { tick (BetaReduction bndr)
-       ; simplLam (extendTvSubst env bndr arg_ty) bndrs body cont }
+       ; simplLam (extendTCvSubst env bndr arg_ty) bndrs body cont }
 
 simplLam env (bndr:bndrs) body (ApplyToVal { sc_arg = arg, sc_env = arg_se
                                            , sc_cont = cont })
@@ -2172,7 +2172,9 @@ simplAlt env scrut' _ case_bndr' cont' (DataAlt con, vs, rhs)
           go (v:vs') (str:strs)
             | isMarkedStrict str = eval v : go vs' strs
             | otherwise          = zap v  : go vs' strs
-          go _ _ = pprPanic "cat_evals" (ppr con $$ ppr vs $$ ppr the_strs)
+          go _ _ = pprPanic "cat_evals" (ppr con $$ ppr vs $$ ppr the_strs $$
+                                         ppr (dataConRepArgTys con) $$
+                                         ppr (dataConRepStrictness con))
 
           zap v  = zapIdOccInfo v   -- See Note [Case alternative occ info]
           eval v = zap v `setIdUnfolding` evaldUnfolding

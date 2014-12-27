@@ -993,8 +993,9 @@ dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
 dataConOrigArgTys :: DataCon -> [Type]
 dataConOrigArgTys dc = dcOrigArgTys dc
 
--- | Returns the arg types of the worker, including *all* evidence, after any
--- flattening has been done and without substituting for any type variables
+-- | Returns the arg types of the worker, including *all* non-dependent
+-- evidence, after any flattening has been done and without substituting for
+-- any type variables
 dataConRepArgTys :: DataCon -> [Type]
 dataConRepArgTys (MkData { dcRep = rep
                          , dcEqSpec = eq_spec

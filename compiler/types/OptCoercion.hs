@@ -503,7 +503,7 @@ opt_unsafe env prov role oty1 oty2
   , typeKind l1 `eqType` typeKind l2   -- kind(r1) == kind(r2) by consequence
   = let role' = if role == Phantom then Phantom else Nominal in
        -- role' is to comform to mkAppCo's precondition
-    mkAppCo (opt_unsafe env role l1 l2) (opt_unsafe_arg env role' r1 r2)
+    mkAppCo (opt_unsafe env prov role l1 l2) (opt_unsafe_arg env prov role' r1 r2)
 
   | Just (bndr1, ty1) <- splitForAllTy_maybe oty1
   , Just tv1          <- binderVar_maybe bndr1
@@ -518,7 +518,7 @@ opt_unsafe env prov role oty1 oty2
              ty2' = optType env2 ty2 in
          mkForAllCo (mkHomoCoBndr tv')
                     (opt_unsafe (zapTCvSubstEnv2 env1 env2) prov role ty1' ty2') }
-    else let eta = opt_unsafe env role k1 k2
+    else let eta = opt_unsafe env prov role k1 k2
              cobndr
                | isTyVar tv1 = let c = mkFreshCoVar (getTCvInScope env)
                                                     (mkOnlyTyVarTy tv1)

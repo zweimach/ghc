@@ -25,7 +25,8 @@ import CoreUtils        ( exprIsDupable, exprIsExpandable, exprType,
 import CoreFVs          ( CoreExprWithFVs, freeVars, freeVarsOf, idRuleAndUnfoldingVars )
 import Id               ( isOneShotBndr, idType )
 import Var
-import Type             ( Type, isUnLiftedType, splitFunTy, applyTy )
+import Type             ( Type, isUnLiftedType, splitFunTy, applyTy, piResultTy,
+                          mkCoercionTy )
 import VarSet
 import Util
 import UniqFM
@@ -166,6 +167,14 @@ fiExpr dflags to_drop ann_expr@(_,AnnApp {})
     mk_arg_fvs :: (Type, FreeVarSet) -> CoreExprWithFVs -> ((Type, FreeVarSet), FreeVarSet)
     mk_arg_fvs (fun_ty, extra_fvs) (_, AnnType ty)
       = ((applyTy fun_ty ty, extra_fvs), emptyVarSet)
+
+      -- noFloatIntoRhs would return True here!
+      -- This case must be separated from the general case because
+      -- fun_ty for coercions will be a dependent forall!
+    mk_arg_fvs (fun_ty, extra_fvs) (arg_fvs, AnnCoercion co)
+      = ((res_ty, extra_fvs `unionVarSet` arg_fvs), emptyVarSet)
+      where
+        res_ty = piResultTy fun_ty (mkCoercionTy co)
 
     mk_arg_fvs (fun_ty, extra_fvs) (arg_fvs, ann_arg)
       | noFloatIntoRhs ann_arg arg_ty

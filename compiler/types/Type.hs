@@ -189,7 +189,6 @@ import {-# SOURCE #-} Coercion
 -- others
 import BasicTypes       ( Arity, RepArity, Boxity(..) )
 import Util
-import ListSetOps       ( getNth )
 import Outputable
 import FastString
 import Pair
@@ -1866,7 +1865,7 @@ tyConsOfType ty
      go_co (CoVarCo {})            = emptyNameEnv
      go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_args args
      go_co (PhantomCo h t1 t2)     = go_co h `plusNameEnv` go t1 `plusNameEnv` go t2
-     go_co (UnsafeCo _ ty1 ty2)    = go ty1 `plusNameEnv` go ty2
+     go_co (UnsafeCo _ _ ty1 ty2)  = go ty1 `plusNameEnv` go ty2
      go_co (SymCo co)              = go_co co
      go_co (TransCo co1 co2)       = go_co co1 `plusNameEnv` go_co co2
      go_co (NthCo _ co)            = go_co co

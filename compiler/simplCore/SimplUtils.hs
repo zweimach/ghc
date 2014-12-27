@@ -1659,7 +1659,7 @@ combineIdenticalAlts case_bndr ((_con1,bndrs1,rhs1) : con_alts)
     cheapEqTicked e1 e2 = cheapEqExpr' tickishFloatable e1 e2
     identical_to_alt1 (_con,bndrs,rhs)
       = all isDeadBinder bndrs && rhs `cheapEqTicked` rhs1
-    tickss = map (fst . stripTicks tickishFloatable . thirdOf3) eliminated_alts
+    tickss = map (fst . stripTicks tickishFloatable . thdOf3) eliminated_alts
 
 combineIdenticalAlts _ alts = return alts
 
@@ -1756,7 +1756,7 @@ mkCase1 _dflags scrut case_bndr _ alts@((_,_,rhs1) : _)      -- Identity case
   = do { tick (CaseIdentity case_bndr)
        ; return (mkTicks ticks $ re_cast scrut rhs1) }
   where
-    ticks = concatMap (fst . stripTicks tickishFloatable . thirdOf3) (tail alts)
+    ticks = concatMap (fst . stripTicks tickishFloatable . thdOf3) (tail alts)
     identity_alt (con, args, rhs) = check_eq rhs con args
 
     check_eq (Cast rhs co) con        args

@@ -237,7 +237,7 @@ instCallConstraints orig preds
         -- considering making this approach general, for other class
         -- constraints, too.
         modified_orig
-          | Just (Representational, ty1, ty2) <- getEqPredTys_maybe pred
+          | Just (_, Representational, ty1, ty2) <- getEqPredTys_maybe pred
           = CoercibleOrigin ty1 ty2
           | otherwise
           = orig
@@ -592,9 +592,9 @@ tyCoVarsOfCts = foldrBag (unionVarSet . tyCoVarsOfCt) emptyVarSet
 
 tyCoVarsOfWC :: WantedConstraints -> TyVarSet
 -- Only called on *zonked* things, hence no need to worry about flatten-skolems
-tyVarsOfWC (WC { wc_simple = simple, wc_impl = implic, wc_insol = insol })
+tyCoVarsOfWC (WC { wc_simple = simple, wc_impl = implic, wc_insol = insol })
   = tyCoVarsOfCts simple `unionVarSet`
-    tyCoVarsOfBag tyVarsOfImplic implic `unionVarSet`
+    tyCoVarsOfBag tyCoVarsOfImplic implic `unionVarSet`
     tyCoVarsOfCts insol
 
 tyCoVarsOfImplic :: Implication -> TyCoVarSet

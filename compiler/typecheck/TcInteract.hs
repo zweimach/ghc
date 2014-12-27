@@ -24,7 +24,7 @@ import Class
 import TyCon
 import FunDeps
 import FamInst
-import Inst( tyVarsOfCt )
+import Inst( tyCoVarsOfCt )
 
 import TcEvidence
 import Outputable
@@ -38,11 +38,10 @@ import Data.List( partition, foldl', deleteFirstsBy )
 
 import VarEnv
 
-import Data.Maybe ( catMaybes )
 import Control.Monad
 import Pair (Pair(..))
 import Unique( hasKey )
-import FastString ( sLit, fsLit )
+import FastString ( sLit )
 import DynFlags
 import Util
 
@@ -1026,12 +1025,12 @@ kick_out new_flavour new_eq_rel new_tv (IC { inert_eqs      = tv_eqs
       where
         check_k2 = not (ev `eqCanRewrite` ev)
                 || not (can_rewrite ev)
-                || not (new_tv `elemVarSet` tyVarsOfType rhs_ty)
+                || not (new_tv `elemVarSet` tyCoVarsOfType rhs_ty)
 
         check_k3
           | can_rewrite ev
           = case eq_rel of
-              NomEq  -> not (rhs_ty `eqType` mkTyVarTy new_tv)
+              NomEq  -> not (rhs_ty `eqType` mkOnlyTyVarTy new_tv)
               ReprEq -> isTyVarExposed new_tv rhs_ty
 
           | otherwise

@@ -1521,9 +1521,9 @@ diffExpr _   env (Var v1)   (Var v2)   | rnOccL env v1 == rnOccR env v2 = []
 diffExpr _   _   (Lit lit1) (Lit lit2) | lit1 == lit2                   = []
 diffExpr _   env (Type t1)  (Type t2)  | eqTypeX env t1 t2              = []
 diffExpr _   env (Coercion co1) (Coercion co2)
-                                       | coreEqCoercion2 env co1 co2    = []
+                                       | eqCoercionX env co1 co2        = []
 diffExpr top env (Cast e1 co1)  (Cast e2 co2)
-  | coreEqCoercion2 env co1 co2            = diffExpr top env e1 e2
+  | eqCoercionX env co1 co2                = diffExpr top env e1 e2
 diffExpr top env (Tick n1 e1)   e2
   | not (tickishIsCode n1)                 = diffExpr top env e1 e2
 diffExpr top env e1             (Tick n2 e2)

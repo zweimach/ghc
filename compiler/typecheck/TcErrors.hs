@@ -897,7 +897,6 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
     k2     = typeKind ty2
     ty1    = mkTyCoVarTy tv1
     eq_rel = ctEqRel ct
->>>>>>> origin/master
 
 mkEqInfoMsg :: Ct -> TcType -> TcType -> SDoc
 -- Report (a) ambiguity if either side is a type function application
@@ -1034,6 +1033,7 @@ misMatchMsg oriented eq_rel ty1 ty2
           text "with" <+> repr2 <+> quotes (ppr ty2)
         , sameOccExtra ty1 ty2 ]
 
+  where
     (repr1, repr2, extra_space) = case eq_rel of
       NomEq  -> (empty, empty, 0)
       ReprEq -> (text "representation of", text "that of", 10)

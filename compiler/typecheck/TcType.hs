@@ -653,7 +653,7 @@ exactTyCoVarsOfType ty
     goCo (CoVarCo v)         = unitVarSet v
     goCo (AxiomInstCo _ _ args) = goCoArgs args
     goCo (PhantomCo h t1 t2) = goCo h `unionVarSet` go t1 `unionVarSet` go t2
-    goCo (UnsafeCo _ t1 t2)  = go t1 `unionVarSet` go t2
+    goCo (UnsafeCo _ _ t1 t2)= go t1 `unionVarSet` go t2
     goCo (SymCo co)          = goCo co
     goCo (TransCo co1 co2)   = goCo co1 `unionVarSet` goCo co2
     goCo (NthCo _ co)        = goCo co
@@ -1225,7 +1225,7 @@ tcEqType ty1 ty2
       = x1 == x2 && i1 == i2 && go_args env cos1 cos2
     go_co env (PhantomCo h1 tl1 tr1)    (PhantomCo h2 tl2 tr2)
       = go_co env h1 h2 && go env tl1 tl2 && go env tr1 tr2
-    go_co env (UnsafeCo r1 tl1 tr1)     (UnsafeCo r2 tl2 tr2)
+    go_co env (UnsafeCo _ r1 tl1 tr1)   (UnsafeCo _ r2 tl2 tr2)
       = r1 == r2 && go env tl1 tl2 && go env tr1 tr2
     go_co env (SymCo co1)               (SymCo co2) = go_co env co1 co2
     go_co env (TransCo col1 cor1)       (TransCo col2 cor2)
@@ -1311,7 +1311,7 @@ pickyEqType ty1 ty2
     go_co env (AxiomInstCo ax1 ind1 args1) (AxiomInstCo ax2 ind2 args2)
       = (ax1 == ax2) && (ind1 == ind2) && (go_args env args1 args2)
     go_co env (PhantomCo h1 t1 s1) (PhantomCo h2 t2 s2) = go_co env h1 h2 && go env t1 t2 && go env s1 s2
-    go_co env (UnsafeCo r1 s1 t1) (UnsafeCo r2 s2 t2) = r1 == r2 && go env s1 s2 && go env t1 t2
+    go_co env (UnsafeCo _ r1 s1 t1) (UnsafeCo _ r2 s2 t2) = r1 == r2 && go env s1 s2 && go env t1 t2
     go_co env (SymCo co1)      (SymCo co2)      = go_co env co1 co2
     go_co env (TransCo c1 d1)  (TransCo c2 d2)  = go_co env c1 c2 && go_co env d1 d2
     go_co env (NthCo n1 co1)   (NthCo n2 co2)   = (n1 == n2) && go_co env co1 co2
@@ -1440,7 +1440,7 @@ occurCheckExpand dflags tv ty
     fast_check_co (AxiomInstCo _ _ args) = all fast_check_co_arg args
     fast_check_co (PhantomCo h t1 t2)    = fast_check_co h && fast_check t1
                                                            && fast_check t2
-    fast_check_co (UnsafeCo _ ty1 ty2)   = fast_check ty1 && fast_check ty2
+    fast_check_co (UnsafeCo _ _ ty1 ty2) = fast_check ty1 && fast_check ty2
     fast_check_co (SymCo co)             = fast_check_co co
     fast_check_co (TransCo co1 co2)      = fast_check_co co1 && fast_check_co co2
     fast_check_co (InstCo co arg)        = fast_check_co co && fast_check_co_arg arg
@@ -1705,10 +1705,11 @@ isTyVarExposed tv (TyConApp tc tys)
   | isNewTyCon tc                 = any (isTyVarExposed tv) tys
   | otherwise                     = False
 isTyVarExposed _  (LitTy {})      = False
-isTyVarExposed _  (FunTy {})      = False
 isTyVarExposed tv (AppTy fun arg) = isTyVarExposed tv fun
                                  || isTyVarExposed tv arg
 isTyVarExposed _  (ForAllTy {})   = False
+isTyVarExposed tv (CastTy ty _)   = isTyVarExposed tv ty
+isTyVarExposed _  (CoercionTy {}) = False
 
 {-
 ************************************************************************

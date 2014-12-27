@@ -91,6 +91,7 @@ import TysPrim
 import Constants        ( mAX_TUPLE_SIZE )
 import Module           ( Module )
 import Type
+import Coercion         ( mkFreshCoVar )
 import DataCon
 import ConLike
 import Var
@@ -99,6 +100,8 @@ import Class            ( Class, mkClass )
 import TyCoRep
 import RdrName
 import Name
+import VarEnv           ( mkInScopeSet )
+import VarSet           ( mkVarSet )
 import BasicTypes       ( TupleSort(..), tupleSortBoxity,
                           Arity, RecFlag(..), Boxity(..) )
 import ForeignCall
@@ -266,9 +269,15 @@ pcTyCon is_enum is_rec name cType tyvars cons
                 False           -- Not in GADT syntax
 
 pcDataCon :: Name -> [TyVar] -> [Type] -> TyCon -> DataCon
-pcDataCon = pcDataConWithFixity False
+pcDataCon n univs = pcDataConWithFixity False n univs []  -- no ex_tvs
 
-pcDataConWithFixity :: Bool -> Name -> [TyVar] -> [Type] -> TyCon -> DataCon
+pcDataConWithFixity :: Bool      -- ^ declared infix?
+                    -> Name      -- ^ datacon name
+                    -> [TyVar]   -- ^ univ tyvars
+                    -> [TyCoVar] -- ^ ex tyvars
+                    -> [Type]    -- ^ args
+                    -> TyCon
+                    -> DataCon
 pcDataConWithFixity infx n = pcDataConWithFixity' infx n (incrUnique (nameUnique n))
 -- The Name's unique is the first of two free uniques;
 -- the first is used for the datacon itself,
@@ -277,18 +286,19 @@ pcDataConWithFixity infx n = pcDataConWithFixity' infx n (incrUnique (nameUnique
 -- To support this the mkPreludeDataConUnique function "allocates"
 -- one DataCon unique per pair of Ints.
 
-pcDataConWithFixity' :: Bool -> Name -> Unique -> [TyVar] -> [Type] -> TyCon -> DataCon
+pcDataConWithFixity' :: Bool -> Name -> Unique -> [TyVar] -> [TyCoVar]
+                     -> [Type] -> TyCon -> DataCon
 -- The Name should be in the DataName name space; it's the name
 -- of the DataCon itself.
 
-pcDataConWithFixity' declared_infix dc_name wrk_key tyvars arg_tys tycon
+pcDataConWithFixity' declared_infix dc_name wrk_key tyvars ex_tyvars arg_tys tycon
   = data_con
   where
     data_con = mkDataCon dc_name declared_infix
                 (map (const HsNoBang) arg_tys)
                 []      -- No labelled fields
                 tyvars
-                []      -- No existential type variables
+                ex_tyvars
                 []      -- No equality spec
                 []      -- No theta
                 arg_tys (mkTyConApp tycon (mkTyCoVarTys tyvars))
@@ -512,13 +522,16 @@ eqTyCon = mkAlgTyCon eqTyConName
     a:b:_ = tyVarList k
 
 eqBoxDataCon :: DataCon
-eqBoxDataCon = pcDataCon eqBoxDataConName args [arg_ty] eqTyCon
+eqBoxDataCon
+  = pcDataConWithFixity False eqBoxDataConName univ_args [ex_arg] [] eqTyCon
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
     a:b:_ = tyVarList k
-    args = [kv, a, b]
-    arg_ty = TyConApp eqPrimTyCon ([k, k] ++ mkOnlyTyVarTys [a, b])
+    a_ty = mkOnlyTyVarTy a
+    b_ty = mkOnlyTyVarTy b
+    univ_args = [kv, a, b]
+    ex_arg = mkFreshCoVar (mkInScopeSet $ mkVarSet univ_args) a_ty b_ty
 
 coercibleTyCon :: TyCon
 coercibleTyCon = mkClassTyCon
@@ -721,7 +734,7 @@ nilDataCon  = pcDataCon nilDataConName alpha_tyvar [] listTyCon
 consDataCon :: DataCon
 consDataCon = pcDataConWithFixity True {- Declared infix -}
                consDataConName
-               alpha_tyvar [alphaTy, mkTyConApp listTyCon alpha_ty] listTyCon
+               alpha_tyvar [] [alphaTy, mkTyConApp listTyCon alpha_ty] listTyCon
 -- Interesting: polymorphic recursion would help here.
 -- We can't use (mkListTy alphaTy) in the defn of consDataCon, else mkListTy
 -- gets the over-specific type (Type -> Type)

@@ -558,7 +558,7 @@ tcInstTyCoVarX origin subst tyvar
        ; let ctev = CtWanted { ctev_evar = new_cv
                              , ctev_pred = varType new_cv
                              , ctev_loc  = loc }
-       ; emitFlat $ mkNonCanonical ctev
+       ; emitSimple $ mkNonCanonical ctev
        ; return (extendTCvSubst subst tyvar (mkTyCoVarTy new_cv), new_cv) }
 
 {-
@@ -1005,7 +1005,7 @@ zonkCo = go_co
     go_co (AxiomInstCo ax ind args) = AxiomInstCo ax ind <$> mapM go_arg args
     go_co (PhantomCo h ty1 ty2)     = PhantomCo <$> go_co h <*> zonkTcType ty1
                                                             <*> zonkTcType ty2
-    go_co (UnsafeCo r ty1 ty2)      = UnsafeCo r <$> zonkTcType ty1 <*> zonkTcType ty2
+    go_co (UnsafeCo s r ty1 ty2)    = UnsafeCo s r <$> zonkTcType ty1 <*> zonkTcType ty2
     go_co (SymCo co)                = SymCo <$> go_co co
     go_co (TransCo co1 co2)         = TransCo <$> go_co co1 <*> go_co co2
     go_co (NthCo n co)              = NthCo n <$> go_co co

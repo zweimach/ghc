@@ -14,11 +14,12 @@ module FamInst (
 import HscTypes
 import FamInstEnv
 import InstEnv( roughMatchTcs )
-import Coercion    hiding ( substTy )
+import Coercion
 import TcEvidence
 import LoadIface
 import TcRnMonad
 import TyCon
+import TcType
 import CoAxiom
 import DynFlags
 import Module

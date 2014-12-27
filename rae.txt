@@ -1,4 +1,5 @@
 stack:
+  - getDataConArgTys
 
 - do we need WpEvPrimApp?
 
@@ -35,7 +36,9 @@ Current sol'n: make these things BuiltInSyntax.
 - This won't work at all with kind families. Need to invoke solver during kind-checking
   and be smarter when desugaring types.
 - extractHsTysRdrTyVars (does it need 2 return values??)
-
+- vectoriser code uses dataConRepArgTys. This value changed for Eq#, whose argument
+changed from a proper arg to an existential covar arg. Does this matter?
+(Other uses of dataConRepArgTys are OK.)
 
 fix:
   - do we need to annotate kind variables to have a proper CUSK? I think so.
@@ -122,6 +125,10 @@ removed functions:
 
 please remove:
 --------------------------------
+
+- It would seem that classes can't have (~#) superclasses. These superclasses
+would be encoded as existential variables on the datacon for the class, which
+is a Bad Thing. But, I don't think this restriction would bite in practice.
 
 - I'm becoming uncomfortable with the unlifted evbinds stuff. Too much special-
 casing throughout DsBinds. For example, see dsTcCoercion and dsEvTermUnlifted.
@@ -331,3 +338,7 @@ stack:
   - Lam takes a Binder
   - pattern arguments are Binders
   - fix TyCoRep.pprForAll: very broken right now. Also, see Outputable BinderVar.
+
+
+  - will need to modify FloatIn.fiExpr#mk_arg_fvs to use splitPiType instead of
+    splitFunTy

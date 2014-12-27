@@ -816,7 +816,7 @@ lookupFlatCache fam_tc tys
     lookup_inerts inert_funeqs
       | Just (CFunEqCan { cc_ev = ctev, cc_fsk = fsk })
            <- findFunEqs inert_funeqs fam_tc tys
-      = Just (ctEvCoercion ctev, mkTyVarTy fsk, ctEvFlavour ctev)
+      = Just (ctEvCoercion ctev, mkOnlyTyVarTy fsk, ctEvFlavour ctev)
       | otherwise = Nothing
 
     lookup_flats flat_cache = findFunEq flat_cache fam_tc tys
@@ -1533,7 +1533,8 @@ newFlattenSkolem Given loc fam_ty
                  do { uniq <- TcM.newUnique
                     ; let name = TcM.mkTcTyVarName uniq (fsLit "fsk")
                     ; return (mkTcTyVar name (typeKind fam_ty) (FlatSkol fam_ty)) }
-        ; let ev = CtGiven { ctev_pred = mkTcEqPredLikeEv ctxt_ev fam_ty (mkOnlyTyVarTy fsk)
+        ; let ev = CtGiven { ctev_pred = mkTcEqPred fam_ty (mkOnlyTyVarTy fsk)
+                                         -- TODO (RAE): Get the boxity right
                            , ctev_evtm = EvCoercion (mkTcNomReflCo fam_ty)
                            , ctev_loc  = loc }
         ; return (ev, fsk) }
@@ -1547,7 +1548,8 @@ newFlattenSkolem _ loc fam_ty  -- Make a wanted
                                            , mtv_tclvl = fskTcLevel }
                           name = TcM.mkTcTyVarName uniq (fsLit "s")
                     ; return (mkTcTyVar name (typeKind fam_ty) details) }
-       ; ev <- newWantedEvVarNC loc (mkTcEqPredLikeEv ctxt_ev fam_ty (mkOnlyTyVarTy fuv))
+       ; ev <- newWantedEvVarNC loc (mkTcEqPred fam_ty (mkOnlyTyVarTy fuv))
+                      -- TODO (RAE): Get the boxity right
        ; return (ev, fuv) }
 
 extendFlatCache :: TyCon -> [Type] -> (TcCoercion, TcType, CtFlavour) -> TcS ()

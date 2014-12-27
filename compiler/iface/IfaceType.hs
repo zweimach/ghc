@@ -275,7 +275,7 @@ ifTyVarsOfCoercion = go
     go (IfacePhantomCo h ty1 ty2) = go h `unionUniqSets`
                                     ifTyVarsOfType ty1 `unionUniqSets`
                                     ifTyVarsOfType ty2
-    go (IfaceUnsafeCo _ ty1 ty2)
+    go (IfaceUnsafeCo _ _ ty1 ty2)
       = ifTyVarsOfType ty1 `unionUniqSets` ifTyVarsOfType ty2
     go (IfaceSymCo co)            = go co
     go (IfaceTransCo c1 c2)       = go c1 `unionUniqSets` go c2

@@ -29,7 +29,7 @@ import DynFlags( DynFlags )
 import Util
 import Bag
 import FastString
-import Control.Monad( when, liftM )
+import Control.Monad( when )
 import MonadUtils ( zipWithAndUnzipM )
 import GHC.Exts ( inline )
 
@@ -791,9 +791,9 @@ flatten_one fmode (TyConApp tc tys)
 --                   _ -> fmode
   = flattenTyConApp fmode tc tys
 
-flatten fmode (ForAllTy (Anon ty1) ty2)
-  = do { (xi1,co1) <- flatten fmode ty1
-       ; (xi2,co2) <- flatten fmode ty2
+flatten_one fmode (ForAllTy (Anon ty1) ty2)
+  = do { (xi1,co1) <- flatten_one fmode ty1
+       ; (xi2,co2) <- flatten_one fmode ty2
        ; return (mkFunTy xi1 xi2, mkTcFunCo (feRole fmode) co1 co2) }
 
 flatten_one fmode ty@(ForAllTy (Named {}) _)
@@ -806,14 +806,14 @@ flatten_one fmode ty@(ForAllTy (Named {}) _)
                          -- See Note [Flattening under a forall]
        ; return (mkForAllTys bndrs rho', foldr mkTcForAllCo co tvs) }
 
-flatten fmode (CastTy ty g)
-  = do { (xi, co) <- flatten fmode ty
+flatten_one fmode (CastTy ty g)
+  = do { (xi, co) <- flatten_one fmode ty
        ; g' <- zonkCo g   -- this is necessary because we use typeKind sometime
                           -- and if a coercion has an unzonked kind, the typeKi
                           -- panics in piResultTy
        ; return (mkCastTy xi g', castTcCoercionKind co g' g') }
     
-flatten _ ty@(CoercionTy {}) = return (ty, mkTcNomReflCo ty)
+flatten_one _ ty@(CoercionTy {}) = return (ty, mkTcNomReflCo ty)
 
 flattenTyConApp :: FlattenEnv -> TyCon -> [TcType] -> TcS (Xi, TcCoercion)
 flattenTyConApp fmode tc tys

@@ -1094,14 +1094,16 @@ data Ct
        --   * If tv is a TauTv, then rhs has no foralls
        --       (this avoids substituting a forall for the tyvar in other types)
        --   * typeKind ty `tcEqKind` typeKind tv
-       --   * rhs is not necessarily function-free,
+       --   * rhs may have at most one top-level cast
+       --   * rhs (perhaps under the one cast) is not necessarily function-free,
        --       but it has no top-level function.
        --     E.g. a ~ [F b]  is fine
        --     but  a ~ F b    is not
        --   * If the equality is representational, rhs has no top-level newtype
        --     See Note [No top-level newtypes on RHS of representational
        --     equalities] in TcCanonical
-       --   * If rhs is also a tv, then it is oriented to give best chance of
+       --   * If rhs (perhaps under the cast) is also a tv, then it is oriented
+       --     to give best chance of
        --     unification happening; eg if rhs is touchable then lhs is too
       cc_ev     :: CtEvidence, -- See Note [Ct/evidence invariant]
       cc_tyvar  :: TcTyVar,
@@ -1200,6 +1202,8 @@ mkTcEqPredLikeEv ev
       (Boxed,   ReprEq) -> mkTcReprEqPred
       (Unboxed, NomEq)  -> mkPrimEqPred
       (Unboxed, ReprEq) -> mkReprPrimEqPred
+  where
+    pred = ctEvPred ev
 
 -- | Get the flavour of the given 'Ct'
 ctFlavour :: Ct -> CtFlavour

@@ -463,10 +463,10 @@ match_co menv tsubst csubst (PhantomCo h1 tyl1 tyr1) (PhantomCo h2 tyl2 tyr2)
        ; (tsubst2, csubst2) <- match_ty menv tsubst1 csubst1 tyl1 tyl2
        ; match_ty menv tsubst2 csubst2 tyr1 tyr2 }
 
-match_co menv tsubst csubst (UnsafeCo _ tyl1 tyr1) (UnsafeCo _ tyl2 tyr2)
+match_co menv tsubst csubst (UnsafeCo _ _ tyl1 tyr1) (UnsafeCo _ _ tyl2 tyr2)
   = do { (tsubst', csubst') <- match_ty menv tsubst csubst tyl1 tyl2
        ; match_ty menv tsubst' csubst' tyr1 tyr2 }
-match_co menv tsubst csubst (UnsafeCo _ lty1 rty1) co2@(TyConAppCo _ _ _)
+match_co menv tsubst csubst (UnsafeCo _ _ lty1 rty1) co2@(TyConAppCo _ _ _)
   = do { let Pair lty2 rty2 = coercionKind co2
        ; (tsubst', csubst') <- match_ty menv tsubst csubst lty1 lty2
        ; match_ty menv tsubst' csubst' rty1 rty2 }
@@ -475,8 +475,8 @@ match_co menv tsubst csubst (UnsafeCo _ lty1 rty1) co2@(TyConAppCo _ _ _)
 -- or a SymCo (UnsafeCo ...)
 match_co menv tsubst csubst (SymCo co1) (SymCo co2)
   = match_co menv tsubst csubst co1 co2
-match_co menv tsubst csubst (SymCo co1) (UnsafeCo r lty2 rty2)
-  = match_co menv tsubst csubst co1 (UnsafeCo r rty2 lty2)
+match_co menv tsubst csubst (SymCo co1) (UnsafeCo s r lty2 rty2)
+  = match_co menv tsubst csubst co1 (UnsafeCo s r rty2 lty2)
 match_co menv tsubst csubst (SymCo co1) co2
   = match_co menv tsubst csubst co1 (SymCo co2)
 
@@ -507,8 +507,8 @@ match_co menv tsubst csubst (SubCo co1) (SubCo co2)
   = match_co menv tsubst csubst co1 co2
 match_co menv tsubst csubst (SubCo co1) co2@(TyConAppCo _ _ _)
   = match_co menv tsubst csubst co1 co2
-match_co menv tsubst csubst (SubCo co1) (UnsafeCo Representational ty1 ty2)
-  = match_co menv tsubst csubst co1 (UnsafeCo Nominal ty1 ty2)
+match_co menv tsubst csubst (SubCo co1) (UnsafeCo s Representational ty1 ty2)
+  = match_co menv tsubst csubst co1 (UnsafeCo s Nominal ty1 ty2)
 
 match_co menv tsubst csubst (AxiomRuleCo ax1 ts1 cs1) (AxiomRuleCo ax2 ts2 cs2)
   | ax1 == ax2
@@ -1111,14 +1111,14 @@ unify_co' (PhantomCo h1 tyl1 tyr1) (PhantomCo h2 tyl2 tyr2)
        ; unify_ty tyl1 tyl2
        ; unify_ty tyr1 tyr2 }
 
-unify_co' (UnsafeCo _ tyl1 tyr1) (UnsafeCo _ tyl2 tyr2)
+unify_co' (UnsafeCo _ _ tyl1 tyr1) (UnsafeCo _ _ tyl2 tyr2)
   = do { unify_ty tyl1 tyl2
        ; unify_ty tyr1 tyr2 }
-unify_co' (UnsafeCo _ lty1 rty1) co2@(TyConAppCo _ _ _)
+unify_co' (UnsafeCo _ _ lty1 rty1) co2@(TyConAppCo _ _ _)
   = do { let Pair lty2 rty2 = coercionKind co2
        ; unify_ty lty1 lty2
        ; unify_ty rty1 rty2 }
-unify_co' co1@(TyConAppCo _ _ _) (UnsafeCo _ lty2 rty2)
+unify_co' co1@(TyConAppCo _ _ _) (UnsafeCo _ _ lty2 rty2)
   = do { let Pair lty1 rty1 = coercionKind co1
        ; unify_ty lty1 lty2
        ; unify_ty rty1 rty2 }
@@ -1161,10 +1161,10 @@ data SymFlag = TrySwitchingSym
 unify_co_sym :: SymFlag -> Coercion -> Coercion -> UM ()
 unify_co_sym _ (SymCo co1) (SymCo co2)
   = unify_co' co1 co2
-unify_co_sym _ (SymCo co1) (UnsafeCo r lty2 rty2)
-  = unify_co' co1 (UnsafeCo r rty2 lty2)
-unify_co_sym _ (UnsafeCo r lty1 rty1) (SymCo co2)
-  = unify_co' (UnsafeCo r rty1 lty1) co2
+unify_co_sym _ (SymCo co1) (UnsafeCo s r lty2 rty2)
+  = unify_co' co1 (UnsafeCo s r rty2 lty2)
+unify_co_sym _ (UnsafeCo s r lty1 rty1) (SymCo co2)
+  = unify_co' (UnsafeCo s r rty1 lty1) co2
 
 -- note that neither co1 nor co2 can be Refl, so we don't have to worry
 -- about missing that catchall case in unify_co'

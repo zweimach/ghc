@@ -1037,7 +1037,7 @@ tyVarsOnlyOfCo (ForAllCo cobndr co)
 tyVarsOnlyOfCo (CoVarCo _)         = emptyVarSet
 tyVarsOnlyOfCo (AxiomInstCo _ _ cos) = tyVarsOnlyOfCoArgs cos
 tyVarsOnlyOfCo (PhantomCo h t1 t2) = tyVarsOnlyOfCo h `unionVarSet` tyVarsOnlyOfType t1 `unionVarSet` tyVarsOnlyOfType t2
-tyVarsOnlyOfCo (UnsafeCo _ t1 t2)  = tyVarsOnlyOfType t1 `unionVarSet` tyVarsOnlyOfType t2
+tyVarsOnlyOfCo (UnsafeCo _ _ t1 t2)= tyVarsOnlyOfType t1 `unionVarSet` tyVarsOnlyOfType t2
 tyVarsOnlyOfCo (SymCo co)          = tyVarsOnlyOfCo co
 tyVarsOnlyOfCo (TransCo co1 co2)   = tyVarsOnlyOfCo co1 `unionVarSet` tyVarsOnlyOfCo co2
 tyVarsOnlyOfCo (NthCo _ co)        = tyVarsOnlyOfCo co

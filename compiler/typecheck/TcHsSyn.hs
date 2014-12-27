@@ -39,7 +39,6 @@ import TyCoRep     -- We can see the representation of types
 import TcType
 import TcMType
 import TcEvidence
-import Coercion
 import TysPrim
 import TysWiredIn
 import Type

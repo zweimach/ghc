@@ -437,8 +437,8 @@ dsExpr (HsStatic expr@(L loc _)) = do
                  , moduleNameFS $ moduleName $ nameModule n'
                  , occNameFS    $ nameOccName n'
                  ]
-    let tvars = varSetElems $ tyVarsOfType ty
-        speTy = mkForAllTys tvars $ mkTyConApp staticPtrTyCon [ty]
+    let tvars = varSetElems $ tyCoVarsOfType ty
+        speTy = mkInvForAllTys tvars $ mkTyConApp staticPtrTyCon [ty]
         speId = mkExportedLocalId VanillaId n' speTy
         fp@(Fingerprint w0 w1) = fingerprintName $ idName speId
         fp_core = mkConApp fingerprintDataCon
@@ -447,7 +447,7 @@ dsExpr (HsStatic expr@(L loc _)) = do
                     ]
         sp    = mkConApp staticPtrDataCon [Type ty, fp_core, info, expr_ds]
     liftIO $ modifyIORef static_binds_var ((fp, (speId, mkLams tvars sp)) :)
-    putSrcSpanDs loc $ return $ mkTyApps (Var speId) (map mkTyVarTy tvars)
+    putSrcSpanDs loc $ return $ mkTyApps (Var speId) (mkTyCoVarTys tvars)
 
   where
 

@@ -1444,7 +1444,7 @@ freeInCoercion v (ForAllCo (CoHetero h c1 c2) g)
 freeInCoercion v (CoVarCo c)               = freeInCoVar v c True
 freeInCoercion v (AxiomInstCo _ _ args)    = all (freeInCoercionArg v) args
 freeInCoercion v (PhantomCo h t1 t2)       = freeInCoercion v h && freeInType v t1 && freeInType v t2
-freeInCoercion v (UnsafeCo _ t1 t2)        = (freeInType v t1) && (freeInType v t2)
+freeInCoercion v (UnsafeCo _ _ t1 t2)      = (freeInType v t1) && (freeInType v t2)
 freeInCoercion v (SymCo g)                 = freeInCoercion v g
 freeInCoercion v (TransCo g1 g2)           = (freeInCoercion v g1) && (freeInCoercion v g2)
 freeInCoercion v (NthCo _ g)               = freeInCoercion v g

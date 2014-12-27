@@ -884,15 +884,15 @@ not converge.  See Trac #5287.
 validDerivPred :: TyCoVarSet -> PredType -> Bool
 validDerivPred tv_set pred
   = case classifyPredType pred of
-       ClassPred _ tys       -> check_tys tys
+       ClassPred _ _         -> check_tys
        TuplePred ps          -> all (validDerivPred tv_set) ps
        EqPred {}             -> False  -- reject equality constraints
        _                     -> True   -- Non-class predicates are ok
   where
-    check_tys tys = hasNoDups fvs
-                       -- use sizePred to ignore implicit args
-                    && sizePred pred == length fvs
-                    && all (`elemVarSet` tv_set) fvs
+    check_tys = hasNoDups fvs
+                  -- use sizePred to ignore implicit args
+                && sizePred pred == length fvs
+                && all (`elemVarSet` tv_set) fvs
     fvs = fvType pred
 
 {-
@@ -1303,7 +1303,7 @@ fvCo (ForAllCo cobndr co)   = (fvCo co \\ coBndrVars cobndr)
 fvCo (CoVarCo v)            = [v]
 fvCo (AxiomInstCo _ _ args) = concatMap fvCoArg args 
 fvCo (PhantomCo h t1 t2)    = fvCo h ++ fvType t1 ++ fvType t2
-fvCo (UnsafeCo _ ty1 ty2)   = fvType ty1 ++ fvType ty2
+fvCo (UnsafeCo _ _ ty1 ty2) = fvType ty1 ++ fvType ty2
 fvCo (SymCo co)             = fvCo co
 fvCo (TransCo co1 co2)      = fvCo co1 ++ fvCo co2
 fvCo (NthCo _ co)           = fvCo co

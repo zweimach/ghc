@@ -798,15 +798,7 @@ reduceTyFamApp_maybe :: FamInstEnvs
 --
 -- Always returns a *homogeneous* coercion -- type family reductions are always
 -- homogeneous
-reduceTyFamApp_maybe env role tc tys
-  = reduce_ty_fam_app_maybe env lc role tc tys
-  where
-    lc = emptyLiftingContext (mkInScopeSet (tyCoVarsOfTypes tys))
-
--- See Note [Normalising types] to learn about the LiftingContext parameter
-reduce_ty_fam_app_maybe :: FamInstEnvs -> LiftingContext -> Role
-                        -> TyCon -> [Type] -> Maybe (Coercion, Type)
-reduce_ty_fam_app_maybe envs lc role tc tys
+reduceTyFamApp_maybe envs role tc tys
   | Phantom <- role
   = Nothing
 
@@ -1031,7 +1023,7 @@ normalise_tc_app env lc role tc tys
   = if isReflCo co2 then (args_co,                 mkTyConApp tc ntys)
                     else (args_co `mkTransCo` co2, mkAppTys ninst_rhs ntys')
 
-  | Just (first_co, ty') <- reduce_ty_fam_app_maybe env lc role tc ntys
+  | Just (first_co, ty') <- reduceTyFamApp_maybe env role tc ntys
   , (rest_co,nty) <- normalise_type env lc role ty'
   = (args_co `mkTransCo` first_co `mkTransCo` rest_co, nty)
 
@@ -1049,10 +1041,10 @@ normaliseTcArgs :: FamInstEnvs          -- ^ env't with family instances
                 -> TyCon                -- ^ tc
                 -> [Type]               -- ^ tys
                 -> (Coercion, [Type])   -- ^ co :: tc tys ~ tc new_tys
-normaliseTcArgs env role ty
-  = normalise_tc_args env lc role ty
+normaliseTcArgs env role tc tys
+  = normalise_tc_args env lc role tc tys
   where
-    in_scope = mkInScopeSet (tyCoVarsOfType ty)
+    in_scope = mkInScopeSet (tyCoVarsOfTypes tys)
     lc       = emptyLiftingContext in_scope
 
 normalise_tc_args :: FamInstEnvs            -- environment with family instances
@@ -1304,7 +1296,7 @@ allTyVarsInTy = go
     go_co (CoVarCo cv)          = unitVarSet cv
     go_co (AxiomInstCo _ _ cos) = go_args cos
     go_co (PhantomCo h t1 t2)   = go_co h `unionVarSet` go t1 `unionVarSet` go t2
-    go_co (UnsafeCo _ t1 t2)    = go t1 `unionVarSet` go t2
+    go_co (UnsafeCo _ _ t1 t2)  = go t1 `unionVarSet` go t2
     go_co (SymCo co)            = go_co co
     go_co (TransCo c1 c2)       = go_co c1 `unionVarSet` go_co c2
     go_co (NthCo _ co)          = go_co co
