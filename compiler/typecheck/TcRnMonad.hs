@@ -999,11 +999,20 @@ checkTc :: Bool -> MsgDoc -> TcM ()         -- Check that the boolean is true
 checkTc True  _   = return ()
 checkTc False err = failWithTc err
 
---         Warnings have no 'M' variant, nor failure
+checkTcM :: Bool -> (TidyEnv, MsgDoc) -> TcM ()
+checkTcM True  _   = return ()
+checkTcM False err = failWithTcM err
+
+--         Warnings have no failure
 
 warnTc :: Bool -> MsgDoc -> TcM ()
 warnTc warn_if_true warn_msg
   | warn_if_true = addWarnTc warn_msg
+  | otherwise    = return ()
+
+warnTcM :: Bool -> (TidyEnv, MsgDoc) -> TcM ()
+warnTcM warn_if_true warn_msg
+  | warn_if_true = addWarnTcM warn_msg
   | otherwise    = return ()
 
 addWarnTc :: MsgDoc -> TcM ()
