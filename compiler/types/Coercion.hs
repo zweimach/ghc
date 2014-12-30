@@ -437,8 +437,8 @@ isReflCo :: Coercion -> Bool
 isReflCo (Refl {}) = True
 isReflCo _         = False
 
-isReflCo_maybe :: Coercion -> Maybe Type
-isReflCo_maybe (Refl _ ty) = Just ty
+isReflCo_maybe :: Coercion -> Maybe (Type, Role)
+isReflCo_maybe (Refl r ty) = Just (ty, r)
 isReflCo_maybe _           = Nothing
 
 -- | Returns the Refl'd type if the CoercionArg is "Refl-like".
@@ -976,8 +976,8 @@ mkHomoPhantomCo t1 t2
 -- takes any coercion and turns it into a Phantom coercion
 toPhantomCo :: Coercion -> Coercion
 toPhantomCo co
-  | Just ty <- isReflCo_maybe co    = Refl Phantom ty
-  | Pair ty1 ty2 <- coercionKind co = PhantomCo (KindCo co) ty1 ty2
+  | Just (ty, _) <- isReflCo_maybe co = Refl Phantom ty
+  | Pair ty1 ty2 <- coercionKind co   = PhantomCo (KindCo co) ty1 ty2
   -- don't optimise here... wait for OptCoercion
 
 toPhantomCoArg :: CoercionArg -> CoercionArg

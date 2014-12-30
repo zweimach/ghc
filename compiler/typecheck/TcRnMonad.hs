@@ -968,6 +968,10 @@ addErrTc :: MsgDoc -> TcM ()
 addErrTc err_msg = do { env0 <- tcInitTidyEnv
                       ; addErrTcM (env0, err_msg) }
 
+addErrTcTidy :: (TidyEnv -> MsgDoc) -> TcM ()
+addErrTcTidy err_fun = do { env0 <- tcInitTidyEnv
+                          ; addErrTcM (env0, err_fun env0) }
+
 addErrsTc :: [MsgDoc] -> TcM ()
 addErrsTc err_msgs = mapM_ addErrTc err_msgs
 
@@ -995,9 +999,19 @@ failWithTcM :: (TidyEnv, MsgDoc) -> TcM a   -- Add an error message and fail
 failWithTcM local_and_msg
   = addErrTcM local_and_msg >> failM
 
+-- | Add a tidied error message and fail
+failWithTcTidy :: (TidyEnv -> MsgDoc) -> TcM a
+failWithTcTidy err_fun
+  = addErrTcTidy err_fun >> failM
+
 checkTc :: Bool -> MsgDoc -> TcM ()         -- Check that the boolean is true
 checkTc True  _   = return ()
 checkTc False err = failWithTc err
+
+-- | Like 'checkTc', but allows the message to be tidied first.
+checkTcTidy :: Bool -> (TidyEnv -> MsgDoc) -> TcM ()
+checkTcTidy True  _   = return ()
+checkTcTidy False err = failWithTcTidy err
 
 --         Warnings have no 'M' variant, nor failure
 

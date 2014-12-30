@@ -218,7 +218,7 @@ tcLookupFamInst fam_envs tycon tys
 -- Checks for a newtype, and for being saturated
 -- Just like Coercion.instNewTyCon_maybe, but returns a TcCoercion
 tcInstNewTyCon_maybe :: TyCon -> [TcType] -> Maybe (TcType, TcCoercion)
-tcInstNewTyCon_maybe tc tys = fmap (second TcCoercion) $
+tcInstNewTyCon_maybe tc tys = fmap (second mkTcCoercion) $
                               instNewTyCon_maybe tc tys
 
 -- | Like 'tcLookupDataFamInst_maybe', but returns the arguments back if
@@ -228,7 +228,7 @@ tcLookupDataFamInst :: FamInstEnvs -> TyCon -> [TcType]
 tcLookupDataFamInst fam_inst_envs tc tc_args
   | Just (rep_tc, rep_args, co)
       <- tcLookupDataFamInst_maybe fam_inst_envs tc tc_args
-  = (rep_tc, rep_args, TcCoercion co)
+  = (rep_tc, rep_args, mkTcCoercion co)
   | otherwise
   = (tc, tc_args, mkTcRepReflCo (mkTyConApp tc tc_args))
 
@@ -265,7 +265,7 @@ tcTopNormaliseNewTypeTF_maybe :: FamInstEnvs
                               -> Maybe (TcCoercion, Type)
 tcTopNormaliseNewTypeTF_maybe faminsts rdr_env ty
 -- cf. FamInstEnv.topNormaliseType_maybe and Coercion.topNormaliseNewType_maybe
-  = fmap (first TcCoercion) $ topNormaliseTypeX_maybe stepper ty
+  = fmap (first mkTcCoercion) $ topNormaliseTypeX_maybe stepper ty
   where
     stepper
       = unwrap_newtype

@@ -47,6 +47,7 @@ module TcType (
   -- Builders
   mkPhiTy, mkInvSigmaTy, mkSigmaTy,
   mkTcEqPred, mkTcReprEqPred, mkTcEqPredBR,
+  mkNakedTyConApp, mkNakedAppTys,
 
   --------------------------------
   -- Splitters
@@ -933,6 +934,23 @@ getDFunTyKey t@(CoercionTy _)        = pprPanic "getDFunTyKey" (ppr t)
 getDFunTyLitKey :: TyLit -> OccName
 getDFunTyLitKey (NumTyLit n) = mkOccName Name.varName (show n)
 getDFunTyLitKey (StrTyLit n) = mkOccName Name.varName (show n)  -- hm
+
+---------------
+mkNakedTyConApp :: TyCon -> [Type] -> Type
+-- Builds a TyConApp 
+--   * without being strict in TyCon,
+--   * without satisfying the invariants of TyConApp
+-- A subsequent zonking will establish the invariants
+-- See Note [Zonking inside the knot] in TcHsType
+mkNakedTyConApp tc tys = TyConApp tc tys
+
+mkNakedAppTys :: Type -> [Type] -> Type
+-- See Note [Zonking inside the knot] in TcHsType
+mkNakedAppTys ty1                []   = ty1
+mkNakedAppTys (TyConApp tc tys1) tys2 = mkNakedTyConApp tc (tys1 ++ tys2)
+mkNakedAppTys ty1                tys2 = foldl AppTy ty1 tys2
+
+
 
 {-
 ************************************************************************

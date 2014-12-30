@@ -1614,7 +1614,7 @@ ty_co_match menv subst ty co
 
   -- handle Refl case:
   | tyCoVarsOfType ty `isNotInDomainOf` subst
-  , Just ty' <- isReflCo_maybe co
+  , Just (ty', _) <- isReflCo_maybe co
   , eqTypeX (me_env menv) ty ty'
   = Just subst
 

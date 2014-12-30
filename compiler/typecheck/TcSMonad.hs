@@ -1713,7 +1713,7 @@ matchFamTcM :: TyCon -> [Type] -> TcM (Maybe (TcCoercion, TcType))
 -- Given (F tys) return (ty, co), where co :: F tys ~ ty
 matchFamTcM tycon args
   = do { fam_envs <- FamInst.tcGetFamInstEnvs
-       ; return $ fmap (first TcCoercion) $
+       ; return $ fmap (first mkTcCoercion) $
          reduceTyFamApp_maybe fam_envs Nominal tycon args }
 
 {-

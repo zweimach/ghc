@@ -733,9 +733,9 @@ match_co :: RuleMatchEnv
 match_co renv subst co1 co2
   | Just cv <- getCoVar_maybe co1
   = match_var renv subst cv (Coercion co2)
-  | Just ty1 <- isReflCo_maybe co1
-  = do { ty2 <- isReflCo_maybe co2
-       ; guard (coercionRole co1 == coercionRole co2)
+  | Just (ty1, r1) <- isReflCo_maybe co1
+  = do { (ty2, r2) <- isReflCo_maybe co2
+       ; guard (r1 == r2)
        ; match_ty renv subst ty1 ty2 }
 match_co renv subst co1 co2
   | Just (tc1, cos1) <- splitTyConAppCo_maybe co1

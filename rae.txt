@@ -1,5 +1,5 @@
 stack:
-  - getDataConArgTys
+
 
 - do we need WpEvPrimApp?
 
@@ -14,7 +14,8 @@ stack:
 fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
 QUESTIONS:
-- Why must we zonk in flattenTyVarFinal? Optimization or necessary?
+- Is it useful to keep vanilla skolems separate from ordinary tyvars? I think
+not.
 
 - Should TYPE / Levity / Lifted / Unlifted be in the Prelude? If not,
 how to deal with :info, which suppresses output that mentions un-imported things.
@@ -125,6 +126,9 @@ removed functions:
 
 please remove:
 --------------------------------
+
+- Test uses of (void $ unifyType) to make sure that kind families are tolerated
+in those positions.
 
 - It would seem that classes can't have (~#) superclasses. These superclasses
 would be encoded as existential variables on the datacon for the class, which

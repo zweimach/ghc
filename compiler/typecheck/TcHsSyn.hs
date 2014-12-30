@@ -1590,4 +1590,4 @@ zonkTcCoToCo env co
                                      ; return (TcAxiomRuleCo co ts' cs')
                                      }
     go (TcCoercion co)        = do { co' <- zonkCoToCo env co
-                                   ; return (TcCoercion co') }
+                                   ; return (mkTcCoercion co') }

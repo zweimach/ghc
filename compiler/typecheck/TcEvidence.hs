@@ -25,7 +25,7 @@ module TcEvidence (
   mkTcSymCo, mkTcTransCo, mkTcNthCo, mkTcLRCo, mkTcSubCo, maybeTcSubCo,
   tcDowngradeRole, mkTcTransAppCo,
   mkTcAxiomRuleCo, mkTcCoherenceLeftCo, mkTcCoherenceRightCo, mkTcPhantomCo,
-  castTcCoercionKind, mkTcKindCo,
+  castTcCoercionKind, mkTcKindCo, mkTcCoercion,
   tcCoercionKind, coVarsOfTcCo, isEqVar, mkTcCoVarCo,
   isTcReflCo, getTcCoVar_maybe,
   tcCoercionRole, eqVarRole
@@ -404,6 +404,12 @@ castTcCoercionKind g h1 h2
 mkTcKindCo :: TcCoercion -> TcCoercion
 mkTcKindCo = TcKindCo
 
+-- | Convert a Coercion to a TcCoercion.
+mkTcCoercion :: Coercion -> TcCoercion
+mkTcCoercion co
+  | Just (ty, r) <- isReflCo_maybe co = TcRefl r ty
+  | otherwise                         = TcCoercion co
+
 tcCoercionKind :: TcCoercion -> Pair Type
 tcCoercionKind co = go co 
   where 
@@ -498,10 +504,7 @@ coVarsOfTcCo tc_co
     go (TcLetCo {}) = emptyVarSet    -- Harumph. This does legitimately happen in the call
                                      -- to evVarsOfTerm in the DEBUG check of setEvBind
     go (TcAxiomRuleCo _ _ cos)   = mapUnionVarSet go cos
-    go (TcCoercion co)           = -- the use of coVarsOfTcCo in dsTcCoercion will
-                                   -- fail if there are any proper, unlifted covars
-                                   ASSERT( isEmptyVarSet (coVarsOfCo co) )
-                                   emptyVarSet
+    go (TcCoercion co)           = coVarsOfCo co
 
     -- We expect only coercion bindings, so use evTermCoercion 
     go_bind :: EvBind -> VarSet
