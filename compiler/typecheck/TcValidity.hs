@@ -200,10 +200,8 @@ check_kind ctxt ty
 
   | otherwise
   = case expectedKindInCtxt ctxt of
-      TheKind k -> checkTcTidy (tcEqType actual_kind k)
-                               (kindErr actual_kind)
-      OpenKind  -> checkTcTidy (classifiesTypeWithValues actual_kind)
-                               (kindErr actual_kind)
+      TheKind k -> checkTc (tcEqType actual_kind k)               (kindErr actual_kind)
+      OpenKind  -> checkTc (classifiesTypeWithValues actual_kind) (kindErr actual_kind)
       AnythingKind -> return ()
   where
     actual_kind = typeKind ty
@@ -262,7 +260,7 @@ forAllAllowed _                         = False
 -- | Fail with error message if the type is unlifted
 check_lifted :: Type -> TcM ()
 check_lifted ty
-  = checkTcTidy (not (isUnLiftedType ty)) (unliftedArgErr ty)
+  = checkTc (not (isUnLiftedType ty)) (unliftedArgErr ty)
 
 check_type :: UserTypeCtxt -> Rank -> Type -> TcM ()
 -- The args say what the *type context* requires, independent
@@ -273,7 +271,7 @@ check_type :: UserTypeCtxt -> Rank -> Type -> TcM ()
 
 check_type ctxt rank ty
   | not (null tvs && null theta)
-  = do  { checkTcTidy (forAllAllowed rank) (forAllTyErr rank ty)
+  = do  { checkTc (forAllAllowed rank) (forAllTyErr rank ty)
                 -- Reject e.g. (Maybe (?x::Int => Int)),
                 -- with a decent error message
         ; check_valid_theta ctxt theta
@@ -351,7 +349,7 @@ check_ubx_tuple :: UserTypeCtxt -> KindOrType
                 -> [KindOrType] -> TcM ()
 check_ubx_tuple ctxt ty tys
   = do  { ub_tuples_allowed <- xoptM Opt_UnboxedTuples
-        ; checkTcTidy ub_tuples_allowed (ubxArgTyErr ty)
+        ; checkTc ub_tuples_allowed (ubxArgTyErr ty)
 
         ; impred <- xoptM Opt_ImpredicativeTypes
         ; let rank' = if impred then ArbitraryRank else tyConArgMonoType
@@ -399,9 +397,9 @@ check_arg_type ctxt rank ty
              -- kind * -> #); see Note [The kind invariant] in TyCoRep
 
 ----------------------------------------
-forAllTyErr :: Rank -> Type -> TidyEnv -> SDoc
-forAllTyErr rank ty env
-   = vcat [ hang (ptext (sLit "Illegal polymorphic or qualified type:")) 2 (ppr_tidy env ty)
+forAllTyErr :: Rank -> Type -> SDoc
+forAllTyErr rank ty
+   = vcat [ hang (ptext (sLit "Illegal polymorphic or qualified type:")) 2 (ppr ty)
           , suggestion ]
   where
     suggestion = case rank of
@@ -409,12 +407,12 @@ forAllTyErr rank ty env
                    MonoType d     -> d
                    _              -> Outputable.empty -- Polytype is always illegal
 
-unliftedArgErr, ubxArgTyErr :: Type -> TidyEnv -> SDoc
-unliftedArgErr  ty env = sep [ptext (sLit "Illegal unlifted type:"), ppr_tidy env ty]
-ubxArgTyErr     ty env = sep [ptext (sLit "Illegal unboxed tuple type as function argument:"), ppr_tidy env ty]
+unliftedArgErr, ubxArgTyErr :: Type -> SDoc
+unliftedArgErr  ty = sep [ptext (sLit "Illegal unlifted type:"), ppr ty]
+ubxArgTyErr     ty = sep [ptext (sLit "Illegal unboxed tuple type as function argument:"), ppr ty]
 
-kindErr :: Kind -> TidyEnv -> SDoc
-kindErr kind env = sep [ptext (sLit "Expecting an ordinary type, but found a type of kind"), ppr_tidy env kind]
+kindErr :: Kind -> SDoc
+kindErr kind = sep [ptext (sLit "Expecting an ordinary type, but found a type of kind"), ppr kind]
 
 {-
 Note [Liberal type synonyms]
@@ -511,8 +509,8 @@ check_class_pred dflags ctxt pred cls tys
   = do {        -- Class predicates are valid in all contexts
        ; checkTc (arity == n_tys) arity_err
 
-       ; checkTcTidy (not (isIPClass cls) || okIPCtxt ctxt)
-                     (badIPPred pred)
+       ; checkTc (not (isIPClass cls) || okIPCtxt ctxt)
+                 (badIPPred pred)
 
                 -- Check the form of the argument types
        ; check_class_pred_tys dflags ctxt pred tys
@@ -527,8 +525,8 @@ check_eq_pred :: DynFlags -> PredType -> TcM ()
 check_eq_pred dflags pred
   =         -- Equational constraints are valid in all contexts if type
             -- families are permitted
-    checkTcTidy (xopt Opt_TypeFamilies dflags || xopt Opt_GADTs dflags)
-                (eqPredTyErr pred)
+    checkTc (xopt Opt_TypeFamilies dflags || xopt Opt_GADTs dflags)
+            (eqPredTyErr pred)
 
 check_repr_eq_pred :: DynFlags -> UserTypeCtxt -> PredType
                    -> TcType -> TcType -> TcM ()
@@ -540,8 +538,8 @@ check_repr_eq_pred dflags ctxt pred ty1 ty2
 check_tuple_pred :: Bool -> DynFlags -> UserTypeCtxt -> PredType -> [PredType] -> TcM ()
 check_tuple_pred under_syn dflags ctxt pred ts
   = do { -- See Note [ConstraintKinds in predicates]
-         checkTcTidy (under_syn || xopt Opt_ConstraintKinds dflags)
-                     (predTupleErr pred)
+         checkTc (under_syn || xopt Opt_ConstraintKinds dflags)
+                 (predTupleErr pred)
        ; mapM_ (check_pred_help under_syn dflags ctxt) ts }
     -- This case will not normally be executed because without
     -- -XConstraintKinds tuple types are only kind-checked as *
@@ -554,13 +552,13 @@ check_irred_pred under_syn dflags ctxt pred
          --   see Note [ConstraintKinds in predicates]
          -- But (X t1 t2) is always ok because we just require ConstraintKinds
          -- at the definition site (Trac #9838)
-        checkTcTidy (under_syn || xopt Opt_ConstraintKinds dflags || not (tyvar_head pred))
-                    (predIrredErr pred)
+        checkTc (under_syn || xopt Opt_ConstraintKinds dflags || not (tyvar_head pred))
+                (predIrredErr pred)
 
          -- Make sure it is OK to have an irred pred in this context
          -- See Note [Irreducible predicates in superclasses]
-       ; checkTcTidy (xopt Opt_UndecidableInstances dflags || not (dodgy_superclass ctxt))
-                     (predIrredBadCtxtErr pred) }
+       ; checkTc (xopt Opt_UndecidableInstances dflags || not (dodgy_superclass ctxt))
+                 (predIrredBadCtxtErr pred) }
   where
     dodgy_superclass ctxt
        = case ctxt of { ClassSCCtxt _ -> True; InstDeclCtxt -> True; _ -> False }
@@ -595,7 +593,7 @@ Paterson conditions may not detect duplication of a type variable or size change
 check_class_pred_tys :: DynFlags -> UserTypeCtxt
                      -> PredType -> [KindOrType] -> TcM ()
 check_class_pred_tys dflags ctxt pred kts
-  = checkTcTidy pred_ok (predTyVarErr pred how_to_allow)
+  = checkTc pred_ok (predTyVarErr pred $$ how_to_allow)
   where
     tys = filterInvisibles (tyConAppTyCon pred) kts
         -- see Note [Kind polymorphic type classes]
@@ -627,8 +625,8 @@ okIPCtxt (InstDeclCtxt {}) = False
 okIPCtxt (SpecInstCtxt {}) = False
 okIPCtxt _                 = True
 
-badIPPred :: PredType -> TidyEnv -> SDoc
-badIPPred pred env = ptext (sLit "Illegal implicit parameter") <+> quotes (ppr_tidy env pred)
+badIPPred :: PredType -> SDoc
+badIPPred pred = ptext (sLit "Illegal implicit parameter") <+> quotes (ppr pred)
 
 {-
 Note [Kind polymorphic type classes]
@@ -753,23 +751,19 @@ checkThetaCtxt ctxt theta
   = vcat [ptext (sLit "In the context:") <+> pprTheta theta,
           ptext (sLit "While checking") <+> pprUserTypeCtxt ctxt ]
 
-eqPredTyErr, predTupleErr, predIrredErr, predIrredBadCtxtErr :: PredType -> TidyEnv -> SDoc
-eqPredTyErr  pred env = ptext (sLit "Illegal equational constraint") <+> ppr_tidy env pred
+eqPredTyErr, predTyVarErr, predTupleErr, predIrredErr, predIrredBadCtxtErr :: PredType -> SDoc
+eqPredTyErr  pred = ptext (sLit "Illegal equational constraint") <+> pprType pred
                     $$
                     parens (ptext (sLit "Use GADTs or TypeFamilies to permit this"))
-predTupleErr pred env = hang (ptext (sLit "Illegal tuple constraint:") <+> ppr_tidy env pred)
+predTyVarErr pred  = hang (ptext (sLit "Non type-variable argument"))
+                        2 (ptext (sLit "in the constraint:") <+> pprType pred)
+predTupleErr pred  = hang (ptext (sLit "Illegal tuple constraint:") <+> pprType pred)
                         2 (parens constraintKindsMsg)
-predIrredErr pred env = hang (ptext (sLit "Illegal constraint:") <+> ppr_tidy env pred)
+predIrredErr pred  = hang (ptext (sLit "Illegal constraint:") <+> pprType pred)
                         2 (parens constraintKindsMsg)
-predIrredBadCtxtErr pred env = hang (ptext (sLit "Illegal constraint") <+> quotes (ppr_tidy env pred)
+predIrredBadCtxtErr pred = hang (ptext (sLit "Illegal constraint") <+> quotes (pprType pred)
                                  <+> ptext (sLit "in a superclass/instance context"))
                                2 (parens undecidableMsg)
-
-predTyVarErr :: PredType -> SDoc -> TidyEnv -> SDoc
-predTyVarErr pred nb env = hang (ptext (sLit "Non type-variable argument"))
-                           2 (ptext (sLit "in the constraint:") <+> ppr_tidy env pred) $$
-                           nb
-
 
 constraintSynErr :: Type -> SDoc
 constraintSynErr kind = hang (ptext (sLit "Illegal constraint synonym of kind:") <+> quotes (ppr kind))
@@ -809,23 +803,23 @@ checkValidInstHead :: UserTypeCtxt -> Class -> [Type] -> TcM ()
 checkValidInstHead ctxt clas cls_args
   = do { dflags <- getDynFlags
 
-       ; checkTcTidy (clas `notElem` abstractClasses)
-                     (instTypeErr clas cls_args abstract_class_msg)
+       ; checkTc (clas `notElem` abstractClasses)
+                 (instTypeErr clas cls_args abstract_class_msg)
 
            -- Check language restrictions;
            -- but not for SPECIALISE isntance pragmas
        ; let ty_args = filterInvisibles (classTyCon clas) cls_args
        ; unless spec_inst_prag $
-         do { checkTcTidy (xopt Opt_TypeSynonymInstances dflags ||
-                           all tcInstHeadTyNotSynonym ty_args)
+         do { checkTc (xopt Opt_TypeSynonymInstances dflags ||
+                       all tcInstHeadTyNotSynonym ty_args)
                  (instTypeErr clas cls_args head_type_synonym_msg)
-            ; checkTcTidy (xopt Opt_FlexibleInstances dflags ||
-                           all tcInstHeadTyAppAllTyVars ty_args)
+            ; checkTc (xopt Opt_FlexibleInstances dflags ||
+                       all tcInstHeadTyAppAllTyVars ty_args)
                  (instTypeErr clas cls_args head_type_args_tyvars_msg)
-            ; checkTcTidy (xopt Opt_MultiParamTypeClasses dflags ||
-                           length ty_args == 1 ||  -- Only count type arguments
-                           (xopt Opt_NullaryTypeClasses dflags &&
-                            null ty_args))
+            ; checkTc (xopt Opt_MultiParamTypeClasses dflags ||
+                       length ty_args == 1 ||  -- Only count type arguments
+                       (xopt Opt_NullaryTypeClasses dflags &&
+                        null ty_args))
                  (instTypeErr clas cls_args head_one_type_msg) }
 
          -- May not contain type family applications
@@ -867,10 +861,10 @@ checkValidInstHead ctxt clas cls_args
 abstractClasses :: [ Class ]
 abstractClasses = [ coercibleClass ] -- See Note [Coercible Instances]
 
-instTypeErr :: Class -> [Type] -> SDoc -> TidyEnv -> SDoc
-instTypeErr cls tys msg env
+instTypeErr :: Class -> [Type] -> SDoc -> SDoc
+instTypeErr cls tys msg
   = hang (hang (ptext (sLit "Illegal instance declaration for"))
-             2 (quotes (pprClassPred cls (map (tidyType env) tys))))
+             2 (quotes (pprClassPred cls tys)))
        2 msg
 
 {-
@@ -934,7 +928,7 @@ checkValidInstance ctxt hs_type ty
 
         ; case (checkInstCoverage undecidable_ok clas theta inst_tys) of
             IsValid  -> return ()   -- Check succeeded
-            NotValid msg -> addErrTcTidy (instTypeErr clas inst_tys msg)
+            NotValid msg -> addErrTc (instTypeErr clas inst_tys msg)
 
         ; return (tvs, theta, clas, inst_tys) }
 
@@ -1224,12 +1218,12 @@ checkValidFamPats fam_tc tvs ty_pats
          --     type instance F Int y = y
          -- because then the type (F Int) would be like (\y.y)
          checkTc (length ty_pats == fam_arity) $
-             wrongNumberOfParmsErr (fam_arity - count isInvisibleBinder fam_bndrs)
+           wrongNumberOfParmsErr (fam_arity - count isInvisibleBinder fam_bndrs)
              -- report only explicit arguments
            
        ; mapM_ checkTyFamFreeness ty_pats
        ; let unbound_tvs = filterOut (`elemVarSet` exactTyCoVarsOfTypes ty_pats) tvs
-       ; checkTcTidy (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
+       ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
   where fam_arity    = tyConArity fam_tc
         fam_bndrs    = take fam_arity $ fst $ splitForAllTys (tyConKind fam_tc)
 
@@ -1241,7 +1235,7 @@ wrongNumberOfParmsErr exp_arity
 -- Ensure that no type family instances occur in a type.
 checkTyFamFreeness :: Type -> TcM ()
 checkTyFamFreeness ty
-  = checkTcTidy (isTyFamFree ty) $
+  = checkTc (isTyFamFree ty) $
     tyFamInstIllegalErr ty
 
 -- Check that a type does not contain any type family applications.
@@ -1251,11 +1245,11 @@ isTyFamFree = null . tcTyFamInsts
 
 -- Error messages
 
-tyFamInstIllegalErr :: Type -> TidyEnv -> SDoc
-tyFamInstIllegalErr ty env
+tyFamInstIllegalErr :: Type -> SDoc
+tyFamInstIllegalErr ty
   = hang (ptext (sLit "Illegal type synonym family application in instance") <>
          colon) 2 $
-      ppr_tidy env ty
+      ppr ty
 
 famInstUndecErr :: Type -> SDoc -> SDoc
 famInstUndecErr ty msg
@@ -1263,15 +1257,12 @@ famInstUndecErr ty msg
          nest 2 (ptext (sLit "in the type family application:") <+>
                  pprType ty)]
 
-famPatErr :: TyCon -> [TyCoVar] -> [Type] -> TidyEnv -> SDoc
-famPatErr fam_tc tvs pats env
-  = hang (ptext (sLit "Family instance purports to bind type variable") <> plural tvs'
-          <+> pprQuotedList tvs')
+famPatErr :: TyCon -> [TyCoVar] -> [Type] -> SDoc
+famPatErr fam_tc tvs pats
+  = hang (ptext (sLit "Family instance purports to bind type variable") <> plural tvs
+          <+> pprQuotedList tvs)
        2 (hang (ptext (sLit "but the real LHS (expanding synonyms) is:"))
-             2 (pprTypeApp fam_tc (map expandTypeSynonyms pats') <+> ptext (sLit "= ...")))
-  where
-    tvs'  = map (tidyTyVarOcc env) tvs
-    pats' = map (tidyType env) pats
+             2 (pprTypeApp fam_tc (map expandTypeSynonyms pats) <+> ptext (sLit "= ...")))
 
 nestedMsg, smallerAppMsg :: SDoc
 nestedMsg     = ptext (sLit "Nested type family application")
@@ -1395,6 +1386,3 @@ NB: we don't want to detect PredTypes in sizeType (and then call
 sizePred on them), or we might get an infinite loop if that PredType
 is irreducible. See Trac #5581.
 -}
-
-ppr_tidy :: TidyEnv -> Type -> SDoc
-ppr_tidy env ty = ppr (tidyType env ty)
