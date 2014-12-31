@@ -969,7 +969,7 @@ defaultTyVar :: TcTyVar -> TcS TcTyVar
 defaultTyVar the_tv
   | isLevityVar the_tv
   = do { traceTcS "defaultTyVar levity" (ppr the_tv)
-       ; setWantedTyBind the_tv liftedDataConTy
+       ; setWantedTyBind the_tv liftedDataConTy -- RAE was here
        ; return the_tv }
     
   | otherwise = return the_tv    -- The common case
@@ -1068,15 +1068,8 @@ are going to affect these type variables, so it's time to do it by
 hand.  However we aren't ready to default them fully to () or
 whatever, because the type-class defaulting rules have yet to run.
 
-An important point is that if the type variable tv has kind k and the
-default is default_k we do not simply generate [D] (k ~ default_k) because:
-
-   (1) k may be ArgKind and default_k may be * so we will fail
-
-   (2) We need to rewrite all occurrences of the tv to be a type
-       variable with the right kind and we choose to do this by rewriting
-       the type variable /itself/ by a new variable which does have the
-       right kind.
+An alternate implementation would be to emit a derived constraint setting
+the levity variable to Lifted, but this seems unnecessarily indirect.
 
 Note [Promote _and_ default when inferring]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

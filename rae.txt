@@ -1,5 +1,7 @@
 stack:
+  - search for "RAE was here". Thought of the moment: Lastly, we really shouldn't ever get (C a, C (a |> blargh)) in a constraint set. One implies the other. Sounds like a new top-level interaction.
 
+  - zonkWC should also subst any covars with their contents, as long as the contents are unlifted.
 
 - do we need WpEvPrimApp?
 

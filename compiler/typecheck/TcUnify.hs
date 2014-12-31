@@ -955,7 +955,7 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
          ; _ -> do { traceTc "deferring because I can't find a meta-tyvar:"
                        (pprTcTyVarDetails details1 <+> pprTcTyVarDetails details2)
                    ; unSwap swapped (uType_defer origin)
-                                    (ty1 `mkCastTy` co_k) ty2 } } }
+                                    (ty1 `mkCastTy` mkSubCo co_k) ty2 } } }
   where
     k1  = tyVarKind tv1
     k2  = tyVarKind tv2
@@ -1194,11 +1194,11 @@ lookupTcTyVar tyvar
 updateMeta :: TcTyVar            -- ^ tv to fill in, tv :: k1
            -> TcRef MetaDetails  -- ^ ref to tv's metadetails
            -> TcType             -- ^ ty2 :: k2
-           -> Coercion           -- ^ kind_co :: k2 ~ k1
+           -> Coercion           -- ^ kind_co :: k2 ~N k1
            -> TcM Coercion       -- ^ :: tv ~ ty2 |> kind_co
 updateMeta tv1 ref1 ty2 kind_co
   = do { let ty2' | isReflCo kind_co = ty2
-                  | otherwise        = ty2 `mkCastTy` kind_co
+                  | otherwise        = ty2 `mkCastTy` mkSubCo kind_co
        ; writeMetaTyVarRef tv1 ref1 ty2'
        ; return (mkReflCo Nominal ty2') }
 
@@ -1240,7 +1240,7 @@ checkExpectedKind ty act_kind exp_kind
                                   , uo_expected = exp_kind }
       ; co_k <- uType origin act_kind' exp_kind
       ; let result_ty | isReflCo co_k = ty'
-                      | otherwise     = ty' `mkCastTy` co_k
+                      | otherwise     = ty' `mkCastTy` mkSubCo co_k
       ; return result_ty }
   where
     -- we need to make sure that both kinds have the same number of implicit
