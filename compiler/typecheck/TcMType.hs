@@ -834,6 +834,7 @@ zonkTcTypeAndFV ty = do { ty <- zonkTcType ty; return (tyCoVarsOfType ty) }
 
 zonkTyCoVarX :: TCvSubst -> TyCoVar -> TcM TcType
 -- Works on TyVars and TcTyVars
+-- See Note [zonkX]
 zonkTyCoVarX env tv | isTcTyVar tv = zonkTcTyCoVarX env tv
                     | otherwise    = return (mkTyCoVarTy tv)
    -- Hackily, when typechecking type and class decls
@@ -845,6 +846,7 @@ zonkTyCoVarsAndFV :: TyCoVarSet -> TcM TyCoVarSet
 zonkTyCoVarsAndFV = zonkTyCoVarsAndFVX emptyTCvSubst
 
 zonkTyCoVarsAndFVX :: TCvSubst -> TyCoVarSet -> TcM TyCoVarSet
+-- See Note [zonkX]
 zonkTyCoVarsAndFVX env tycovars
   = tyCoVarsOfTypes <$> mapM (zonkTyCoVarX env) (varSetElems tycovars)
 
@@ -954,6 +956,19 @@ zonkSkolemInfo _ skol_info = return skol_info
 *              For internal use only!                                  *
 *                                                                      *
 ************************************************************************
+
+Note [zonkX]
+~~~~~~~~~~~~
+After solving (but only after solving) we have extra knowledge about some
+coercion variables that may appear in types. These coercion variables may
+be fully solved or can be simplified in terms of other coercion variables.
+Thus, it is possible to create a coercion substitution from an EvBindsVar,
+witnessing this simplification. This is done in evBindsSubst, in TcEvidence.
+Then, during zonking, we wish to apply this substitution. However, as
+this only makes sense after solving, we also keep versions of the zonking
+function that do not take a substitution. Hence, two versions of many
+functions.
+
 -}
 
 -- zonkId is used *during* typechecking just to zonk the Id's type
@@ -969,6 +984,7 @@ zonkTcType :: TcType -> TcM TcType
 zonkTcType = zonkTcTypeX emptyTCvSubst
 
 zonkTcTypeX :: TCvSubst -> TcType -> TcM TcType
+-- See Note [zonkX]
 zonkTcTypeX env ty
   = go ty
   where
@@ -1012,6 +1028,7 @@ zonkCo :: Coercion -> TcM Coercion
 zonkCo = zonkCoX emptyTCvSubst
 
 zonkCoX :: TCvSubst -> Coercion -> TcM Coercion
+-- See Note [zonkX]
 zonkCoX env = go_co
   where
     go_co (Refl r ty)               = Refl r <$> zonkTcTypeX env ty
@@ -1070,6 +1087,7 @@ zonkTcTyCoVarBndrX :: TCvSubst -> TcTyCoVar -> TcM (TCvSubst, TcTyCoVar)
 -- rather it is always a skolems.  BUT it may have a kind 
 -- that has not yet been zonked, and may include kind
 -- unification variables.
+-- See Note [zonkX]
 zonkTcTyCoVarBndrX env tyvar
     -- can't use isCoVar, because it looks at a TyCon. Argh.
   = ASSERT2( isImmutableTyVar tyvar || (not $ isTyVar tyvar), ppr tyvar )
@@ -1085,6 +1103,7 @@ zonkTcTyCoVar :: TcTyCoVar -> TcM TcType
 zonkTcTyCoVar = zonkTcTyCoVarX emptyTCvSubst
 
 zonkTcTyCoVarX :: TCvSubst -> TcTyCoVar -> TcM TcType
+-- See Note [zonkX]
 -- Simply look through all Flexis
 zonkTcTyCoVarX env tv
   | isTyVar tv
