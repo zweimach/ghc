@@ -24,7 +24,6 @@ import Class
 import TyCon
 import FunDeps
 import FamInst
-import Inst( tyCoVarsOfCt )
 
 import TcEvidence
 import Outputable

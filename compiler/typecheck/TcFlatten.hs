@@ -809,7 +809,7 @@ flatten_one fmode ty@(ForAllTy (Named {}) _)
 flatten_one fmode (CastTy ty g)
   = do { (xi, co) <- flatten_one fmode ty
        ; g' <- zonkCo g   -- this is necessary because we use typeKind sometime
-                          -- and if a coercion has an unzonked kind, the typeKi
+                          -- and if a coercion has an unzonked kind, the typeKind
                           -- panics in piResultTy
        ; return (mkCastTy xi g', castTcCoercionKind co g' g') }
     

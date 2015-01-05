@@ -848,16 +848,6 @@ dsEvBinds bs = mapM ds_scc (sccEvBinds bs)
     ds_ev_term v r | isUnLiftedType (varType v) = dsEvTermUnlifted r
                    | otherwise                  = dsEvTerm r
 
-sccEvBinds :: Bag EvBind -> [SCC EvBind]
-sccEvBinds bs = stronglyConnCompFromEdgedVertices edges
-  where
-    edges :: [(EvBind, EvVar, [EvVar])]
-    edges = foldrBag ((:) . mk_node) [] bs 
-
-    mk_node :: EvBind -> (EvBind, EvVar, [EvVar])
-    mk_node b@(EvBind var term) = (b, var, varSetElems (evVarsOfTerm term))
-
-
 ---------------------------------------
 dsEvTerm :: EvTerm -> DsM CoreExpr
 dsEvTerm (EvId v) = return (Var v)
@@ -932,7 +922,8 @@ dsTcCoercion co thing_inside
                                            (uniqsFromSupply us)
 
              subst = mkTopTCvSubst [(eqv, mkTyCoVarTy cov) | (eqv, cov) <- eqvs_covs]
-             result_expr = thing_inside (ds_tc_coercion subst co)
+             result_expr = thing_inside (expectJust "dsTcCoercion" $
+                                         tcCoercionToCoercion subst co)
              result_ty   = exprType result_expr
 
        ; return (foldr (wrap_in_case result_ty) result_expr eqvs_covs) }
@@ -960,59 +951,6 @@ dsTcCoercion co thing_inside
 
       | otherwise   -- it's already unlifted. No need to unbox!
       = body
-
-ds_tc_coercion :: TCvSubst -> TcCoercion -> Coercion
--- If the incoming TcCoercion if of type (a ~ b)   (resp.  Coercible a b)
---                 the result is of type (a ~# b)  (reps.  a ~# b)
--- The VarEnv maps EqVars of type (a ~ b) to Coercions of type (a ~# b) (resp. and so on)
--- No need for InScope set etc because the 
-ds_tc_coercion subst tc_co
-  = go tc_co
-  where
-    go (TcRefl r ty)            = mkReflCo r (Type.substTy subst ty)
-    go (TcTyConAppCo r tc cos)  = mkTyConAppCo r tc (map go_arg cos)
-    go (TcAppCo co1 co2)        = mkAppCo (go co1) (go_arg co2)
-    go (TcForAllCo tv co)       = mkForAllCo cobndr' (ds_tc_coercion subst' co)
-                              where
-                                cobndr = mkHomoCoBndr tv
-                                (subst', cobndr') = substForAllCoBndr subst cobndr
-    go (TcAxiomInstCo ax ind cos)
-                                = mkAxiomInstCo ax ind (map go_arg cos)
-    go (TcPhantomCo h ty1 ty2)  = mkPhantomCo (go h) ty1 ty2
-    go (TcSymCo co)             = mkSymCo (go co)
-    go (TcTransCo co1 co2)      = mkTransCo (go co1) (go co2)
-    go (TcNthCo n co)           = mkNthCo n (go co)
-    go (TcLRCo lr co)           = mkLRCo lr (go co)
-    go (TcSubCo co)             = mkSubCo (go co)
-    go (TcLetCo bs co)          = ds_tc_coercion (ds_co_binds bs) co
-    go (TcCastCo co1 co2)       = mkCoCast (go co1) (go co2)
-    go (TcCoherenceCo tco1 co2) = mkCoherenceCo (go tco1) co2
-    go (TcKindCo co)            = mkKindCo (go co)
-    go (TcCoVarCo v)            = ds_ev_id subst v
-    go (TcAxiomRuleCo co ts cs) = mkAxiomRuleCo co (map (Type.substTy subst) ts) (map go cs)
-    go (TcCoercion co)          = co
-
-    go_arg tc_co              = mkTyCoArg $ go tc_co
-
-    ds_co_binds :: TcEvBinds -> TCvSubst
-    ds_co_binds (EvBinds bs)      = foldl ds_scc subst (sccEvBinds bs)
-    ds_co_binds eb@(TcEvBinds {}) = pprPanic "ds_co_binds" (ppr eb)
-
-    ds_scc :: TCvSubst -> SCC EvBind -> TCvSubst
-    ds_scc subst (AcyclicSCC (EvBind v ev_term))
-      = extendTCvSubstAndInScope subst v (mkCoercionTy (ds_co_term subst ev_term))
-    ds_scc _ (CyclicSCC other) = pprPanic "ds_scc:cyclic" (ppr other $$ ppr tc_co)
-
-    ds_co_term :: TCvSubst -> EvTerm -> Coercion
-    ds_co_term subst (EvCoercion tc_co) = ds_tc_coercion subst tc_co
-    ds_co_term subst (EvId v)           = ds_ev_id subst v
-    ds_co_term subst (EvCast tm co)     = mkCoCast (ds_co_term subst tm) (ds_tc_coercion subst co)
-    ds_co_term _ other = pprPanic "ds_co_term" (ppr other $$ ppr tc_co)
-
-    ds_ev_id :: TCvSubst -> EqVar -> Coercion
-    ds_ev_id subst v
-     | Just co <- lookupCoVar subst v = co
-     | otherwise  = pprPanic "ds_tc_coercion" (ppr v $$ ppr tc_co)
 
 {-
 Note [Simple coercions]

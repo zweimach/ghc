@@ -13,8 +13,8 @@ module TcEvidence (
   -- Evidence bindings
   TcEvBinds(..), EvBindsVar(..), 
   EvBindMap(..), emptyEvBindMap, extendEvBinds, lookupEvBind, evBindMapBinds,
-  EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, 
-  EvTerm(..), mkEvCast, evVarsOfTerm, 
+  EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, evBindsSubst, sccEvBinds,
+  EvTerm(..), mkEvCast, evVarsOfTerm,
   EvLit(..), evTermCoercion,
 
   -- TcCoercion
@@ -28,7 +28,8 @@ module TcEvidence (
   castTcCoercionKind, mkTcKindCo, mkTcCoercion,
   tcCoercionKind, coVarsOfTcCo, isEqVar, mkTcCoVarCo,
   isTcReflCo, getTcCoVar_maybe,
-  tcCoercionRole, eqVarRole
+  tcCoercionRole, eqVarRole,
+  tcCoercionToCoercion
   ) where
 #include "HsVersions.h"
 
@@ -49,6 +50,7 @@ import Util
 import BasicTypes ( Boxity(..), isBoxed )
 import Bag
 import Pair
+import Digraph
 import Control.Applicative
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable (traverse, sequenceA)
@@ -513,6 +515,48 @@ coVarsOfTcCo tc_co
     get_bndrs :: Bag EvBind -> VarSet
     get_bndrs = foldrBag (\ (EvBind b _) bs -> extendVarSet bs b) emptyVarSet 
 
+-- | Converts a TcCoercion to a Coercion, substituting for covars as it goes.
+-- All covars in the TcCoercion must be mapped for this to succeed, as covars
+-- in a TcCoercion are different than those in a Coercion. A covar might not
+-- be mapped if, for example, there is an unsolved equality constraint, so
+-- failure here shouldn't be a panic.
+tcCoercionToCoercion :: TCvSubst -> TcCoercion -> Maybe Coercion
+-- If the incoming TcCoercion if of type (a ~ b)   (resp.  Coercible a b)
+--                 the result is of type (a ~# b)  (reps.  a ~# b)
+tcCoercionToCoercion subst tc_co
+  = go tc_co
+  where
+    go (TcRefl r ty)            = Just $ mkReflCo r (Type.substTy subst ty)
+    go (TcTyConAppCo r tc cos)  = mkTyConAppCo r tc <$> mapM go_arg cos
+    go (TcAppCo co1 co2)        = mkAppCo <$> go co1 <*> go_arg co2
+    go (TcForAllCo tv co)       = mkForAllCo cobndr' <$>
+                                    tcCoercionToCoercion subst' co
+                              where
+                                cobndr = mkHomoCoBndr tv
+                                (subst', cobndr') = substForAllCoBndr subst cobndr
+    go (TcAxiomInstCo ax ind cos)
+                                = mkAxiomInstCo ax ind <$> mapM go_arg cos
+    go (TcPhantomCo h ty1 ty2)  = mkPhantomCo <$> go h <*> pure (substTy subst ty1)
+                                                       <*> pure (substTy subst ty2)
+    go (TcSymCo co)             = mkSymCo <$> go co
+    go (TcTransCo co1 co2)      = mkTransCo <$> go co1 <*> go co2
+    go (TcNthCo n co)           = mkNthCo n <$> go co
+    go (TcLRCo lr co)           = mkLRCo lr <$> go co
+    go (TcSubCo co)             = mkSubCo <$> go co
+    go (TcLetCo bs co)          = tcCoercionToCoercion (ds_co_binds bs) co
+    go (TcCastCo co1 co2)       = mkCoCast <$> go co1 <*> go co2
+    go (TcCoherenceCo tco1 co2) = mkCoherenceCo <$> go tco1 <*> pure (substCo subst co2)
+    go (TcKindCo co)            = mkKindCo <$> go co
+    go (TcCoVarCo v)            = lookupCoVar subst v
+    go (TcAxiomRuleCo co ts cs) = mkAxiomRuleCo co (map (Type.substTy subst) ts) <$> (mapM go cs)
+    go (TcCoercion co)          = Just co
+
+    go_arg tc_co              = mkTyCoArg <$> go tc_co
+
+    ds_co_binds :: TcEvBinds -> TCvSubst
+    ds_co_binds (EvBinds bs)      = evBindsSubst subst bs
+    ds_co_binds eb@(TcEvBinds {}) = pprPanic "ds_co_binds" (ppr eb)
+
 -- Pretty printing
 
 instance Outputable TcCoercion where
@@ -925,6 +969,39 @@ evVarsOfTerm (EvLit _)            = emptyVarSet
 
 evVarsOfTerms :: [EvTerm] -> VarSet
 evVarsOfTerms = mapUnionVarSet evVarsOfTerm
+
+-- | Do SCC analysis on a bag of 'EvBind's.
+sccEvBinds :: Bag EvBind -> [SCC EvBind]
+sccEvBinds bs = stronglyConnCompFromEdgedVertices edges
+  where
+    edges :: [(EvBind, EvVar, [EvVar])]
+    edges = foldrBag ((:) . mk_node) [] bs 
+
+    mk_node :: EvBind -> (EvBind, EvVar, [EvVar])
+    mk_node b@(EvBind var term) = (b, var, varSetElems (evVarsOfTerm term))
+
+-- | Extends a coercion substitution from a bunch of EvBinds. For EvBinds
+-- that don't map to a coercion, just don't include the mapping.
+evBindsSubst :: TCvSubst -> Bag EvBind -> TCvSubst
+evBindsSubst subst = foldl combine subst . sccEvBinds
+  where
+    combine env (AcyclicSCC (EvBind v ev_term))
+      | Just co <- convert env ev_term
+      = extendTCvSubstAndInScope env v (mkCoercionTy co)
+    combine env _
+      = env
+
+    convert env (EvCoercion tc_co) = tcCoercionToCoercion env tc_co
+    convert env (EvId v)
+      | Just co <- lookupCoVar env v = Just co
+      | isCoVar v                    = Just $ mkCoVarCo v
+      | otherwise                    = Nothing
+    convert env (EvCast tm1 tc_co2)
+      | Just co1 <- convert env tm1
+      = mkCoCast co1 <$> tcCoercionToCoercion env tc_co2
+      | otherwise
+      = Nothing
+    convert _ _ = Nothing  -- this can happen with superclass equalities!
 
 {-
 ************************************************************************

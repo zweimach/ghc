@@ -18,7 +18,6 @@ import TcMType as TcM
 import TcType
 import TcSMonad as TcS
 import TcInteract
-import Inst
 import Type
 import TyCon    ( isTypeFamilyTyCon )
 import Class    ( Class, classTyCon )
@@ -34,7 +33,7 @@ import ListSetOps
 import Util
 import PrelInfo
 import PrelNames
-import Control.Monad    ( unless )
+import Control.Monad    ( unless, when, void )
 import DynFlags         ( ExtensionFlag( Opt_AllowAmbiguousTypes ) )
 import Class            ( classKey )
 import BasicTypes       ( RuleName )
@@ -87,13 +86,12 @@ simpl_top wanteds
                    -- filter isMetaTyVar: we might have runtime-skolems in GHCi,
                    -- and we definitely don't want to try to assign to those!
 
-           ; meta_tvs' <- mapM defaultTyVar meta_tvs   -- Has unification side effects
-           ; if meta_tvs' == meta_tvs   -- No defaulting took place;
-                                        -- (defaulting returns fresh vars)
-             then try_class_defaulting wc
-             else do { wc_residual <- nestTcS (solveWantedsAndDrop wc)
+           ; defaulted <- mapM defaultTyVar meta_tvs   -- Has unification side effects
+           ; if or defaulted
+             then do { wc_residual <- nestTcS (solveWantedsAndDrop wc)
                             -- See Note [Must simplify after defaulting]
-                     ; try_class_defaulting wc_residual } }
+                     ; try_class_defaulting wc_residual }
+             else try_class_defaulting wc }     -- No defaulting took place
 
     try_class_defaulting :: WantedConstraints -> TcS WantedConstraints
     try_class_defaulting wc
@@ -299,7 +297,8 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
        ; ev_binds_var <- TcM.newTcEvBinds
        ; wanted_transformed_incl_derivs <- setTcLevel rhs_tclvl $
                                            runTcSWithEvBinds ev_binds_var (solveWanteds wanteds)
-       ; wanted_transformed_incl_derivs <- zonkWC wanted_transformed_incl_derivs
+       ; wanted_transformed_incl_derivs <- zonkWC ev_binds_var
+                                                  wanted_transformed_incl_derivs
 
               -- Step 4) Candidates for quantification are an approximation of wanted_transformed
               -- NB: Already the fixpoint of any unifications that may have happened
@@ -485,15 +484,15 @@ growThetaTyCoVars theta tvs
 {-
 Note [Growing the tau-tvs using constraints]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-(growThetaTyVars insts tvs) is the result of extending the set
+(growThetaTyCoVars insts tvs) is the result of extending the set
     of tyvars tvs using all conceivable links from pred
 
 E.g. tvs = {a}, preds = {H [a] b, K (b,Int) c, Eq e}
-Then growThetaTyVars preds tvs = {a,b,c}
+Then growThetaTyCoVars preds tvs = {a,b,c}
 
 Notice that
-   growThetaTyVars is conservative       if v might be fixed by vs
-                                         => v `elem` grow(vs,C)
+   growThetaTyCoVars is conservative       if v might be fixed by vs
+                                           => v `elem` grow(vs,C)
 
 Note [Inheriting implicit parameters]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -639,10 +638,11 @@ simplifyRule :: RuleName
 simplifyRule name lhs_wanted rhs_wanted
   = do {         -- We allow ourselves to unify environment
                  -- variables: runTcS runs with topTcLevel
-         (resid_wanted, _) <- solveWantedsTcM (lhs_wanted `andWC` rhs_wanted)
+         (resid_wanted, binds) <- solveWantedsTcM (lhs_wanted `andWC` rhs_wanted)
                               -- Post: these are zonked and unflattened
 
-       ; zonked_lhs_simples <- TcM.zonkSimples (wc_simple lhs_wanted)
+       ; let subst = evBindsSubst emptyTCvSubst binds
+       ; zonked_lhs_simples <- TcM.zonkSimples subst (wc_simple lhs_wanted)
        ; let (q_cts, non_q_cts) = partitionBag quantify_me zonked_lhs_simples
              quantify_me  -- Note [RULE quantification over equalities]
                | insolubleWC resid_wanted = quantify_insol
@@ -733,7 +733,7 @@ solveWantedsTcMWithEvBinds :: EvBindsVar
 solveWantedsTcMWithEvBinds ev_binds_var wc tcs_action
   = do { traceTc "solveWantedsTcMWithEvBinds" $ text "wanted=" <+> ppr wc
        ; wc2 <- runTcSWithEvBinds ev_binds_var (tcs_action wc)
-       ; zonkWC wc2 }
+       ; zonkWC ev_binds_var wc2 }
          -- See Note [Zonk after solving]
 
 solveWantedsTcM :: WantedConstraints -> TcM (WantedConstraints, Bag EvBind)
@@ -958,21 +958,21 @@ promoteTyVar tclvl tv
 promoteAndDefaultTyVar :: TcLevel -> TcTyVarSet -> TyVar -> TcS ()
 -- See Note [Promote _and_ default when inferring]
 promoteAndDefaultTyVar tclvl gbl_tvs tv
-  = do { tv1 <- if tv `elemVarSet` gbl_tvs
-                then return tv
-                else defaultTyVar tv
-       ; promoteTyVar tclvl tv1 }
+  = do { when (not $ tv `elemVarSet` gbl_tvs) (void $ defaultTyVar tv)
+       ; promoteTyVar tclvl tv }
 
-defaultTyVar :: TcTyVar -> TcS TcTyVar
+-- | If the tyvar is a levity var, set it to Lifted. Returns whether or
+-- not this happened.
+defaultTyVar :: TcTyVar -> TcS Bool
 -- Precondition: MetaTyVars only
 -- See Note [DefaultTyVar]
 defaultTyVar the_tv
   | isLevityVar the_tv
   = do { traceTcS "defaultTyVar levity" (ppr the_tv)
-       ; setWantedTyBind the_tv liftedDataConTy -- RAE was here
-       ; return the_tv }
+       ; setWantedTyBind the_tv liftedDataConTy
+       ; return True }
     
-  | otherwise = return the_tv    -- The common case
+  | otherwise = return False    -- The common case
 
 approximateWC :: WantedConstraints -> Cts
 -- Postcondition: Wanted or Derived Cts

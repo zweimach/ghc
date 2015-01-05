@@ -50,10 +50,12 @@ module TcMType (
   zonkTcPredType, zonkTidyTcType, zonkTidyOrigin,
   tidyEvVar, tidyCt, tidySkolemInfo,
   skolemiseUnboundMetaTyVar,
-  zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, zonkTcTypeAndFV,
+  zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, zonkTyCoVarsAndFVX,
+  zonkTcTypeAndFV,
   zonkQuantifiedTyCoVar, zonkQuantifiedTyCoVarOrType, quantifyTyCoVars,
   quantifyTyCoVars', defaultKindVar,
   zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, zonkCo,
+  zonkCoX, zonkTcTypeX, zonkTcTyCoVarX,
 
   zonkEvVar, zonkWC, zonkSimples, zonkId, zonkCt, zonkSkolemInfo,
 
@@ -76,6 +78,7 @@ import Var
 
 -- others:
 import TcRnMonad        -- TcType, amongst others
+import TcEvidence
 import Id
 import Name
 import VarSet
@@ -829,25 +832,29 @@ zonkTcTypeAndFV :: TcType -> TcM TyCoVarSet
 -- k2 to look free in this type!
 zonkTcTypeAndFV ty = do { ty <- zonkTcType ty; return (tyCoVarsOfType ty) }
 
-zonkTyCoVar :: TyCoVar -> TcM TcType
+zonkTyCoVarX :: TCvSubst -> TyCoVar -> TcM TcType
 -- Works on TyVars and TcTyVars
-zonkTyCoVar tv | isTcTyVar tv = zonkTcTyCoVar tv
-             | otherwise    = return (mkTyCoVarTy tv)
+zonkTyCoVarX env tv | isTcTyVar tv = zonkTcTyCoVarX env tv
+                    | otherwise    = return (mkTyCoVarTy tv)
    -- Hackily, when typechecking type and class decls
    -- we have TyVars in scopeadded (only) in 
    -- TcHsType.tcTyClTyVars, but it seems
    -- painful to make them into TcTyVars there
 
 zonkTyCoVarsAndFV :: TyCoVarSet -> TcM TyCoVarSet
-zonkTyCoVarsAndFV tycovars = tyCoVarsOfTypes <$> mapM zonkTyCoVar (varSetElems tycovars)
+zonkTyCoVarsAndFV = zonkTyCoVarsAndFVX emptyTCvSubst
+
+zonkTyCoVarsAndFVX :: TCvSubst -> TyCoVarSet -> TcM TyCoVarSet
+zonkTyCoVarsAndFVX env tycovars
+  = tyCoVarsOfTypes <$> mapM (zonkTyCoVarX env) (varSetElems tycovars)
 
 zonkTcTyCoVars :: [TcTyCoVar] -> TcM [TcType]
 zonkTcTyCoVars tyvars = mapM zonkTcTyCoVar tyvars
 
 -----------------  Types
-zonkTyCoVarKind :: TyCoVar -> TcM TyCoVar
-zonkTyCoVarKind tv = do { kind' <- zonkTcType (tyVarKind tv)
-                        ; return (setTyVarKind tv kind') }
+zonkTyCoVarKind :: TCvSubst -> TyCoVar -> TcM TyCoVar
+zonkTyCoVarKind env tv = do { kind' <- zonkTcTypeX env (tyVarKind tv)
+                            ; return (setTyVarKind tv kind') }
 
 zonkTcTypes :: [TcType] -> TcM [TcType]
 zonkTcTypes tys = mapM zonkTcType tys
@@ -866,16 +873,17 @@ zonkTcPredType = zonkTcType
 ************************************************************************
 -}
 
-zonkImplication :: Implication -> TcM (Bag Implication)
-zonkImplication implic@(Implic { ic_skols  = skols
-                               , ic_given  = given
-                               , ic_wanted = wanted
-                               , ic_info   = info })
-  = do { skols'  <- mapM zonkTcTyCoVarBndr skols  -- Need to zonk their kinds!
-                                                  -- as Trac #7230 showed
-       ; given'  <- mapM zonkEvVar given
-       ; info'   <- zonkSkolemInfo info
-       ; wanted' <- zonkWCRec wanted
+zonkImplication :: TCvSubst -> Implication -> TcM (Bag Implication)
+zonkImplication env implic@(Implic { ic_skols  = skols
+                                   , ic_given  = given
+                                   , ic_wanted = wanted
+                                   , ic_info   = info
+                                   , ic_binds  = binds })
+  = do { (env', skols')  <- mapAccumLM zonkTcTyCoVarBndrX env skols
+                    -- Need to zonk their kinds! as Trac #7230 showed
+       ; given'  <- mapM (zonkEvVar env') given
+       ; info'   <- zonkSkolemInfo env' info
+       ; wanted' <- zonkWCRec env' binds wanted
        ; if isEmptyWC wanted'
          then return emptyBag
          else return $ unitBag $
@@ -884,56 +892,59 @@ zonkImplication implic@(Implic { ic_skols  = skols
                      , ic_wanted = wanted'
                      , ic_info   = info' } }
 
-zonkEvVar :: EvVar -> TcM EvVar
-zonkEvVar var = do { ty' <- zonkTcType (varType var)
-                   ; return (setVarType var ty') }
+zonkEvVar :: TCvSubst -> EvVar -> TcM EvVar
+zonkEvVar env var = do { ty' <- zonkTcTypeX env (varType var)
+                       ; return (setVarType var ty') }
 
 
-zonkWC :: WantedConstraints -> TcM WantedConstraints
-zonkWC wc = zonkWCRec wc
+zonkWC :: EvBindsVar -> WantedConstraints -> TcM WantedConstraints
+zonkWC evar wc = zonkWCRec (mkEmptyTCvSubst in_scope) evar wc
+  where in_scope = mkInScopeSet $ tyCoVarsOfWC wc
 
-zonkWCRec :: WantedConstraints -> TcM WantedConstraints
-zonkWCRec (WC { wc_simple = simple, wc_impl = implic, wc_insol = insol })
-  = do { simple' <- zonkSimples simple
-       ; implic' <- flatMapBagM zonkImplication implic
-       ; insol'  <- zonkSimples insol
+zonkWCRec :: TCvSubst -> EvBindsVar -> WantedConstraints -> TcM WantedConstraints
+zonkWCRec env evar (WC { wc_simple = simple, wc_impl = implic, wc_insol = insol })
+  = do { binds <- getTcEvBinds evar
+       ; let env' = evBindsSubst env binds
+       ; simple' <- zonkSimples env' simple
+       ; implic' <- flatMapBagM (zonkImplication env') implic
+       ; insol'  <- zonkSimples env' insol
        ; return (WC { wc_simple = simple', wc_impl = implic', wc_insol = insol' }) }
 
-zonkSimples :: Cts -> TcM Cts
-zonkSimples cts = do { cts' <- mapBagM zonkCt' cts
-                     ; traceTc "zonkSimples done:" (ppr cts')
-                     ; return cts' }
+zonkSimples :: TCvSubst -> Cts -> TcM Cts
+zonkSimples env cts = do { cts' <- mapBagM (zonkCt' env) cts
+                         ; traceTc "zonkSimples done:" (ppr cts')
+                         ; return cts' }
 
-zonkCt' :: Ct -> TcM Ct
-zonkCt' ct = zonkCt ct
+zonkCt' :: TCvSubst -> Ct -> TcM Ct
+zonkCt' env ct = zonkCt env ct
 
-zonkCt :: Ct -> TcM Ct
-zonkCt ct@(CHoleCan { cc_ev = ev })
-  = do { ev' <- zonkCtEvidence ev
+zonkCt :: TCvSubst -> Ct -> TcM Ct
+zonkCt env ct@(CHoleCan { cc_ev = ev })
+  = do { ev' <- zonkCtEvidence env ev
        ; return $ ct { cc_ev = ev' } }
-zonkCt ct
-  = do { fl' <- zonkCtEvidence (cc_ev ct)
+zonkCt env ct
+  = do { fl' <- zonkCtEvidence env (cc_ev ct)
        ; return (mkNonCanonical fl') }
 
-zonkCtEvidence :: CtEvidence -> TcM CtEvidence
-zonkCtEvidence ctev@(CtGiven { ctev_pred = pred }) 
-  = do { pred' <- zonkTcType pred
+zonkCtEvidence :: TCvSubst -> CtEvidence -> TcM CtEvidence
+zonkCtEvidence env ctev@(CtGiven { ctev_pred = pred }) 
+  = do { pred' <- zonkTcTypeX env pred
        ; return (ctev { ctev_pred = pred'}) }
-zonkCtEvidence ctev@(CtWanted { ctev_pred = pred })
-  = do { pred' <- zonkTcType pred
+zonkCtEvidence env ctev@(CtWanted { ctev_pred = pred })
+  = do { pred' <- zonkTcTypeX env pred
        ; return (ctev { ctev_pred = pred' }) }
-zonkCtEvidence ctev@(CtDerived { ctev_pred = pred })
-  = do { pred' <- zonkTcType pred
+zonkCtEvidence env ctev@(CtDerived { ctev_pred = pred })
+  = do { pred' <- zonkTcTypeX env pred
        ; return (ctev { ctev_pred = pred' }) }
 
-zonkSkolemInfo :: SkolemInfo -> TcM SkolemInfo
-zonkSkolemInfo (SigSkol cx ty)  = do { ty' <- zonkTcType ty
-                                     ; return (SigSkol cx ty') }
-zonkSkolemInfo (InferSkol ntys) = do { ntys' <- mapM do_one ntys
-                                     ; return (InferSkol ntys') }
+zonkSkolemInfo :: TCvSubst -> SkolemInfo -> TcM SkolemInfo
+zonkSkolemInfo env (SigSkol cx ty)  = do { ty' <- zonkTcTypeX env ty
+                                         ; return (SigSkol cx ty') }
+zonkSkolemInfo env (InferSkol ntys) = do { ntys' <- mapM do_one ntys
+                                         ; return (InferSkol ntys') }
   where
-    do_one (n, ty) = do { ty' <- zonkTcType ty; return (n, ty') }
-zonkSkolemInfo skol_info = return skol_info
+    do_one (n, ty) = do { ty' <- zonkTcTypeX env ty; return (n, ty') }
+zonkSkolemInfo _ skol_info = return skol_info
 
 {-
 %************************************************************************
@@ -955,7 +966,10 @@ zonkId id
 -- For tyvars bound at a for-all, zonkType zonks them to an immutable
 --      type variable and zonks the kind too
 zonkTcType :: TcType -> TcM TcType
-zonkTcType ty
+zonkTcType = zonkTcTypeX emptyTCvSubst
+
+zonkTcTypeX :: TCvSubst -> TcType -> TcM TcType
+zonkTcTypeX env ty
   = go ty
   where
     go (TyConApp tc tys) = do tys' <- mapM go tys
@@ -977,34 +991,40 @@ zonkTcType ty
                 -- See Note [Zonking inside the knot] in TcHsType
 
     go (CastTy ty co)    = do ty' <- go ty
-                              co' <- zonkCo co
+                              co' <- zonkCoX env co
                               return (CastTy ty' co')
 
-    go (CoercionTy co)   = do co' <- zonkCo co
+    go (CoercionTy co)   = do co' <- zonkCoX env co
                               return (CoercionTy co')
 
         -- The two interesting cases!
-    go (TyVarTy tyvar) | isTcTyVar tyvar = zonkTcTyCoVar tyvar
+    go (TyVarTy tyvar) | isTcTyVar tyvar = zonkTcTyCoVarX env tyvar
                        | otherwise       = TyVarTy <$> updateTyVarKindM go tyvar
                 -- Ordinary (non Tc) tyvars occur inside quantified types
 
     go (ForAllTy (Named tv vis) ty)
-                            = do { tv' <- zonkTcTyCoVarBndr tv
-                                 ; ty' <- go ty
+                            = do { (env', tv') <- zonkTcTyCoVarBndrX env tv
+                                 ; ty' <- zonkTcTypeX env' ty
                                  ; return (ForAllTy (Named tv' vis) ty') }
 
 -- | "Zonk" a coercion -- really, just zonk any types in the coercion
 zonkCo :: Coercion -> TcM Coercion
-zonkCo = go_co
+zonkCo = zonkCoX emptyTCvSubst
+
+zonkCoX :: TCvSubst -> Coercion -> TcM Coercion
+zonkCoX env = go_co
   where
-    go_co (Refl r ty)               = Refl r <$> zonkTcType ty
+    go_co (Refl r ty)               = Refl r <$> zonkTcTypeX env ty
     go_co (TyConAppCo r tc args)    = TyConAppCo r tc <$> mapM go_arg args
     go_co (AppCo co arg)            = AppCo <$> go_co co <*> go_arg arg
-    go_co (CoVarCo cv)              = CoVarCo <$> zonkTyCoVarKind cv
+    go_co (CoVarCo cv)
+      | Just co <- lookupCoVar env cv = go_co co
+      | otherwise                     = CoVarCo <$> zonkTyCoVarKind env cv
     go_co (AxiomInstCo ax ind args) = AxiomInstCo ax ind <$> mapM go_arg args
-    go_co (PhantomCo h ty1 ty2)     = PhantomCo <$> go_co h <*> zonkTcType ty1
-                                                            <*> zonkTcType ty2
-    go_co (UnsafeCo s r ty1 ty2)    = UnsafeCo s r <$> zonkTcType ty1 <*> zonkTcType ty2
+    go_co (PhantomCo h ty1 ty2)     = PhantomCo <$> go_co h <*> zonkTcTypeX env ty1
+                                                            <*> zonkTcTypeX env ty2
+    go_co (UnsafeCo s r ty1 ty2)    = UnsafeCo s r <$> zonkTcTypeX env ty1
+                                                   <*> zonkTcTypeX env ty2
     go_co (SymCo co)                = SymCo <$> go_co co
     go_co (TransCo co1 co2)         = TransCo <$> go_co co1 <*> go_co co2
     go_co (NthCo n co)              = NthCo n <$> go_co co
@@ -1013,27 +1033,27 @@ zonkCo = go_co
     go_co (CoherenceCo co1 co2)     = CoherenceCo <$> go_co co1 <*> go_co co2
     go_co (KindCo co)               = KindCo <$> go_co co
     go_co (SubCo co)                = SubCo <$> go_co co
-    go_co (AxiomRuleCo ax ts cs)    = AxiomRuleCo ax <$> mapM zonkTcType ts <*> mapM go_co cs
+    go_co (AxiomRuleCo ax ts cs)    = AxiomRuleCo ax <$> mapM (zonkTcTypeX env) ts <*> mapM go_co cs
 
     go_co (ForAllCo cobndr co)
       | Just v <- getHomoVar_maybe cobndr
-      = do { v' <- zonkTcTyCoVarBndr v
-           ; co' <- go_co co
+      = do { (env', v') <- zonkTcTyCoVarBndrX env v
+           ; co' <- zonkCoX env' co
            ; return (ForAllCo (mkHomoCoBndr v') co') }
 
       | TyHetero h tv1 tv2 cv <- cobndr
       = do { h' <- go_co h
-           ; tv1' <- zonkTcTyCoVarBndr tv1
-           ; tv2' <- zonkTcTyCoVarBndr tv2
-           ; cv' <- zonkTcTyCoVarBndr cv
-           ; co' <- go_co co
+           ; (env1, tv1') <- zonkTcTyCoVarBndrX env  tv1
+           ; (env2, tv2') <- zonkTcTyCoVarBndrX env1 tv2
+           ; (env3, cv')  <- zonkTcTyCoVarBndrX env2 cv
+           ; co' <- zonkCoX env3 co
            ; return (mkForAllCo (TyHetero h' tv1' tv2' cv') co') }
 
       | CoHetero h cv1 cv2 <- cobndr
       = do { h' <- go_co h
-           ; cv1' <- zonkTcTyCoVarBndr cv1
-           ; cv2' <- zonkTcTyCoVarBndr cv2
-           ; co' <- go_co co
+           ; (env1, cv1') <- zonkTcTyCoVarBndrX env  cv1
+           ; (env2, cv2') <- zonkTcTyCoVarBndrX env1 cv2
+           ; co' <- zonkCoX env2 co
            ; return (mkForAllCo (CoHetero h' cv1' cv2') co') }
 
       | otherwise
@@ -1043,34 +1063,51 @@ zonkCo = go_co
     go_arg (CoCoArg r co1 co2) = CoCoArg r <$> go_co co1 <*> go_co co2
 
 zonkTcTyCoVarBndr :: TcTyCoVar -> TcM TcTyCoVar
+zonkTcTyCoVarBndr tv = snd <$> zonkTcTyCoVarBndrX emptyTCvSubst tv
+
+zonkTcTyCoVarBndrX :: TCvSubst -> TcTyCoVar -> TcM (TCvSubst, TcTyCoVar)
 -- A tyvar binder is never a unification variable (MetaTv),
 -- rather it is always a skolems.  BUT it may have a kind 
 -- that has not yet been zonked, and may include kind
 -- unification variables.
-zonkTcTyCoVarBndr tyvar
+zonkTcTyCoVarBndrX env tyvar
     -- can't use isCoVar, because it looks at a TyCon. Argh.
-  = ASSERT2( isImmutableTyVar tyvar || (not $ isTyVar tyvar), ppr tyvar ) do
-    updateTyVarKindM zonkTcType tyvar
+  = ASSERT2( isImmutableTyVar tyvar || (not $ isTyVar tyvar), ppr tyvar )
+    do { tyvar' <- updateTyVarKindM (zonkTcTypeX env) tyvar
+       ; if tyvar' `isInScope` env
+         then -- bah. we have to rename.
+              let tyvar'' = uniqAway (getTCvInScope env) tyvar' in
+              return ( extendTCvSubstAndInScope env tyvar (mkTyCoVarTy tyvar'')
+                     , tyvar'' )
+         else return ( extendTCvInScope env tyvar', tyvar' ) }
 
 zonkTcTyCoVar :: TcTyCoVar -> TcM TcType
+zonkTcTyCoVar = zonkTcTyCoVarX emptyTCvSubst
+
+zonkTcTyCoVarX :: TCvSubst -> TcTyCoVar -> TcM TcType
 -- Simply look through all Flexis
-zonkTcTyCoVar tv
+zonkTcTyCoVarX env tv
   | isTyVar tv
   = ASSERT2( isTcTyVar tv, ppr tv ) do
     case tcTyVarDetails tv of
       SkolemTv {}   -> zonk_kind_and_return
       RuntimeUnk {} -> zonk_kind_and_return
-      FlatSkol ty   -> zonkTcType ty
+      FlatSkol ty   -> zonkTcTypeX env ty
       MetaTv { mtv_ref = ref }
          -> do { cts <- readMutVar ref
                ; case cts of
                     Flexi       -> zonk_kind_and_return
-                    Indirect ty -> zonkTcType ty }
+                    Indirect ty -> zonkTcTypeX env ty }
 
-  | otherwise -- coercion variable
+  -- coercion variable
+  | Just co <- lookupCoVar env tv
+  = mkCoercionTy <$> zonkCoX env co
+
+  -- quantified coercion variable
+  | otherwise 
   = zonk_kind_and_return
   where
-    zonk_kind_and_return = do { z_tv <- zonkTyCoVarKind tv
+    zonk_kind_and_return = do { z_tv <- zonkTyCoVarKind env tv
                               ; return (mkTyCoVarTy z_tv) }
 
 {-
@@ -1087,7 +1124,7 @@ zonkTidyTcType env ty = do { ty' <- zonkTcType ty
 
 zonkTidyOrigin :: TidyEnv -> CtOrigin -> TcM (TidyEnv, CtOrigin)
 zonkTidyOrigin env (GivenOrigin skol_info)
-  = do { skol_info1 <- zonkSkolemInfo skol_info
+  = do { skol_info1 <- zonkSkolemInfo emptyTCvSubst skol_info
        ; let (env1, skol_info2) = tidySkolemInfo env skol_info1
        ; return (env1, GivenOrigin skol_info2) }
 zonkTidyOrigin env (TypeEqOrigin { uo_actual = act, uo_expected = exp })

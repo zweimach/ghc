@@ -58,10 +58,11 @@ module TcRnTypes(
         mkNonCanonical, mkNonCanonicalCt,
         ctEvPred, ctEvLoc, ctEvEqRel,
         ctEvTerm, ctEvCoercion, ctEvId, ctEvCheckDepth,
+        tyCoVarsOfCt, tyCoVarsOfCts,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
         andWC, unionsWC, addSimples, addImplics, mkSimpleWC, addInsols,
-        dropDerivedWC,
+        dropDerivedWC, tyCoVarsOfWC,
 
         Implication(..),
         SubGoalCounter(..),
@@ -1218,6 +1219,43 @@ dropDerivedWC :: WantedConstraints -> WantedConstraints
 dropDerivedWC wc@(WC { wc_simple = simples })
   = wc { wc_simple  = filterBag isWantedCt simples }
     -- The wc_impl implications are already (recursively) filtered
+
+{-
+************************************************************************
+*                                                                      *
+        Simple functions over evidence variables
+*                                                                      *
+************************************************************************
+-}
+
+---------------- Getting free tyvars -------------------------
+tyCoVarsOfCt :: Ct -> TcTyVarSet
+tyCoVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })     = extendVarSet (tyCoVarsOfType xi) tv
+tyCoVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_fsk = fsk }) = extendVarSet (tyCoVarsOfTypes tys) fsk
+tyCoVarsOfCt (CDictCan { cc_tyargs = tys })                = tyCoVarsOfTypes tys
+tyCoVarsOfCt (CIrredEvCan { cc_ev = ev })                  = tyCoVarsOfType (ctEvPred ev)
+tyCoVarsOfCt (CHoleCan { cc_ev = ev })                     = tyCoVarsOfType (ctEvPred ev)
+tyCoVarsOfCt (CNonCanonical { cc_ev = ev })                = tyCoVarsOfType (ctEvPred ev)
+
+tyCoVarsOfCts :: Cts -> TcTyVarSet
+tyCoVarsOfCts = foldrBag (unionVarSet . tyCoVarsOfCt) emptyVarSet
+
+tyCoVarsOfWC :: WantedConstraints -> TyVarSet
+-- Only called on *zonked* things, hence no need to worry about flatten-skolems
+tyCoVarsOfWC (WC { wc_simple = simple, wc_impl = implic, wc_insol = insol })
+  = tyCoVarsOfCts simple `unionVarSet`
+    tyCoVarsOfBag tyCoVarsOfImplic implic `unionVarSet`
+    tyCoVarsOfCts insol
+
+tyCoVarsOfImplic :: Implication -> TyCoVarSet
+-- Only called on *zonked* things, hence no need to worry about flatten-skolems
+tyCoVarsOfImplic (Implic { ic_skols = skols
+                         , ic_given = givens, ic_wanted = wanted })
+  = (tyCoVarsOfWC wanted `unionVarSet` tyCoVarsOfTypes (map evVarPred givens))
+    `delVarSetList` skols
+
+tyCoVarsOfBag :: (a -> TyVarSet) -> Bag a -> TyVarSet
+tyCoVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet
 
 {-
 Note [Dropping derived constraints]

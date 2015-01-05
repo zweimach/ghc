@@ -1401,6 +1401,9 @@ extendSubstEnvs (tenv, cenv) v ty
   | isTyVar v
   = ASSERT( not $ isCoercionTy ty )
     (extendVarEnv tenv v ty, cenv)
+
+    -- NB: v might *not* be a proper covar, because it might be lifted.
+    -- This happens in tcCoercionToCoercion
   | CoercionTy co <- ty
   = (tenv, extendVarEnv cenv v co)
   | otherwise

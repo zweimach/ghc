@@ -1,7 +1,5 @@
 stack:
-  - search for "RAE was here". Thought of the moment: Lastly, we really shouldn't ever get (C a, C (a |> blargh)) in a constraint set. One implies the other. Sounds like a new top-level interaction.
-
-  - zonkWC should also subst any covars with their contents, as long as the contents are unlifted.
+  - We really shouldn't ever get (C a, C (a |> blargh)) in a constraint set. One implies the other. Sounds like a new top-level interaction.
 
 - do we need WpEvPrimApp?
 
@@ -129,18 +127,34 @@ removed functions:
 please remove:
 --------------------------------
 
-- Test uses of (void $ unifyType) to make sure that kind families are tolerated
+- Test uses of unifyType_ to make sure that kind families are tolerated
 in those positions.
 
 - It would seem that classes can't have (~#) superclasses. These superclasses
 would be encoded as existential variables on the datacon for the class, which
 is a Bad Thing. But, I don't think this restriction would bite in practice.
 
+- Somehow related to the last point (but I'm not sure exactly how), we also
+can't use superclass equalities "right away". E.g.:
+  class k1 ~ k2 => Foo (a :: k1) (b :: k2)
+  data SameKind (a :: k) (b :: k)
+  foo :: forall (a :: k1) (b :: k2). Foo a b => SameKind a b
+
+To get the above to be accepted, we would need to add a (k1 ~# k2) constraint,
+which should logically be implied by `Foo a b`. This will be confusing, but
+because we can't have superclass selectors in coercions, there isn't an easy
+fix here. (The problem, at its core, is that dictionaries can be bottom.)
+Perhaps Pi-quantify the dictionary somehow? Anyway, this is enough of a corner
+case to defer.
+
 - I'm becoming uncomfortable with the unlifted evbinds stuff. Too much special-
 casing throughout DsBinds. For example, see dsTcCoercion and dsEvTermUnlifted.
 Is there a better design?
 
 - New HsWrapper WpEvPrimApp, for unboxed coercion application
+
+- uType now returns a Coercion, not a TcCoercion. unifyType still deals in
+TcCoercions.
 
 - TcCoercions can be hetero.
 
