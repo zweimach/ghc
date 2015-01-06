@@ -470,12 +470,12 @@ solveOneFromTheOther ev_i ev_w
                    -- so it's safe to continue on from this point
   = return (IRDelete, False)
 
-  | CtWanted { ctev_evar = ev_id } <- ev_w
-  = do { setEvBind ev_id (ctEvTerm ev_i)
+  | CtWanted { ctev_evar = ev_id, ctev_pred = pred_w } <- ev_w
+  = do { setEvBind ev_id (ctEvCoherence ev_i pred_w)
        ; return (IRKeep, True) }
 
-  | CtWanted { ctev_evar = ev_id } <- ev_i
-  = do { setEvBind ev_id (ctEvTerm ev_w)
+  | CtWanted { ctev_evar = ev_id, ctev_pred = pred_i } <- ev_i
+  = do { setEvBind ev_id (ctEvCoherence ev_w pred_i)
        ; return (IRReplace, True) }
 
   | otherwise      -- If both are Given, we already have evidence; no need to duplicate
@@ -691,7 +691,7 @@ interactFunEq inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
   where
     eqs    = inert_eqs inerts
     funeqs = inert_funeqs inerts
-    matching_inerts = findFunEqs funeqs tc args
+    matching_inerts = findFunEq funeqs tc args
 
 interactFunEq _ wi = pprPanic "interactFunEq" (ppr wi)
 
@@ -707,9 +707,11 @@ reactFunEq :: CtEvidence -> TcTyVar    -- From this  :: F tys ~ fsk1
            -> CtEvidence -> TcTyVar    -- Solve this :: F tys ~ fsk2
            -> TcS ()
 reactFunEq from_this fsk1
-           solve_this@(CtGiven { ctev_evtm = tm, ctev_loc = loc }) fsk2
-  = do { let fsk_eq_co = mkTcSymCo (evTermCoercion tm)
-                         `mkTcTransCo` ctEvCoercion from_this
+           solve_this@(CtGiven { ctev_evtm = tm, ctev_loc = loc
+                               , ctev_pred = pred }) fsk2
+  = do { let from_term = ctEvCoherence from_this pred
+             fsk_eq_co = mkTcSymCo (evTermCoercion tm)
+                         `mkTcTransCo` evTermCoercion from_term
                          -- :: fsk2 ~ fsk1
              fsk_eq_pred = mkTcEqPredLikeEv solve_this
                              (mkOnlyTyVarTy fsk2) (mkOnlyTyVarTy fsk1)
@@ -717,8 +719,9 @@ reactFunEq from_this fsk1
        ; new_ev <- newGivenEvVar loc (fsk_eq_pred, EvCoercion fsk_eq_co)
        ; emitWorkNC [new_ev] }
 
-reactFunEq from_this fuv1 (CtWanted { ctev_evar = evar }) fuv2
-  = dischargeFmv evar fuv2 (ctEvCoercion from_this) (mkOnlyTyVarTy fuv1)
+reactFunEq from_this fuv1 (CtWanted { ctev_evar = evar, ctev_pred = pred }) fuv2
+  = dischargeFmv evar fuv2 (evTermCoercion (ctEvCoherence from_this pred))
+                           (mkOnlyTyVarTy fuv1)
 
 reactFunEq _ _ solve_this@(CtDerived {}) _
   = pprPanic "reactFunEq" (ppr solve_this)
@@ -1514,7 +1517,7 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = fl, cc_class = cls
   = try_fundeps_and_return
 
   | Just ev <- lookupSolvedDict inerts loc cls xis   -- Cached
-  = do { setEvBind dict_id (ctEvTerm ev);
+  = do { setEvBind dict_id (ctEvCoherence ev pred)
        ; stopWith fl "Dict/Top (cached)" }
 
   | otherwise  -- Not cached
@@ -2034,10 +2037,10 @@ matchClassInst inerts clas tys loc
             ; if null theta then
                   return (GenInst [] (EvDFunApp dfun_id tys []))
               else do
-            { evc_vars <- instDFunConstraints loc theta
-            ; let new_ev_vars = freshGoals evc_vars
+            { mb_evc_vars <- instDFunConstraints loc theta
+            ; let new_ev_vars = freshGoals mb_evc_vars
                       -- new_ev_vars are only the real new variables that can be emitted
-                  dfun_app = EvDFunApp dfun_id tys (map (ctEvTerm . fst) evc_vars)
+                  dfun_app = EvDFunApp dfun_id tys (map getEvTerm mb_evc_vars)
             ; return $ GenInst new_ev_vars dfun_app } }
 
      givens_for_this_clas :: Cts

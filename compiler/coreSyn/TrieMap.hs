@@ -3,10 +3,12 @@
 (c) The GRASP/AQUA Project, Glasgow University, 1992-1998
 -}
 
-{-# LANGUAGE ScopedTypeVariables, RankNTypes, TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables, RankNTypes, TypeFamilies,
+             GeneralizedNewtypeDeriving #-}
 module TrieMap(
    CoreMap, emptyCoreMap, extendCoreMap, lookupCoreMap, foldCoreMap,
    TypeMap, emptyTypeMap, extendTypeMap, lookupTypeMap, foldTypeMap,
+   ErasedTypeMap,
    CoercionMap,
    MaybeMap,
    ListMap,
@@ -961,6 +963,25 @@ xtTyLit l f m =
 foldTyLit :: (a -> b -> b) -> TyLitMap a -> b -> b
 foldTyLit l m = flip (Map.fold l) (tlm_string m)
               . flip (Map.fold l) (tlm_number m)
+
+{-
+************************************************************************
+*                                                                      *
+      Erased types
+*                                                                      *
+************************************************************************
+-}
+
+newtype ErasedTypeMap a = ErasedTypeMap (TypeMap a)
+  deriving (Outputable)
+
+instance TrieMap ErasedTypeMap where
+  type Key ErasedTypeMap = ErasedType
+  emptyTM = ErasedTypeMap emptyTM
+  lookupTM (ErasedType ty) (ErasedTypeMap tm) = lookupTM ty tm
+  alterTM (ErasedType ty) xt (ErasedTypeMap tm) = ErasedTypeMap (alterTM ty xt tm)
+  mapTM f (ErasedTypeMap tm) = ErasedTypeMap (mapTM f tm)
+  foldTM f (ErasedTypeMap tm) = foldTM f tm
 
 {-
 ************************************************************************

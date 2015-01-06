@@ -43,6 +43,7 @@ module VarEnv (
         addRnInScopeSet,
         rnEtaL, rnEtaR,
         rnInScope, rnInScopeSet, lookupRnInScope,
+        rnEnvL, rnEnvR,
 
         -- * TidyEnv and its operation
         TidyEnv,
@@ -215,6 +216,14 @@ rnInScope x env = x `elemInScopeSet` in_scope env
 
 rnInScopeSet :: RnEnv2 -> InScopeSet
 rnInScopeSet = in_scope
+
+-- | Retrieve the left mapping
+rnEnvL :: RnEnv2 -> VarEnv Var
+rnEnvL = envL
+
+-- | Retrieve the right mapping
+rnEnvR :: RnEnv2 -> VarEnv Var
+rnEnvR = envR
 
 rnBndrs2 :: RnEnv2 -> [Var] -> [Var] -> RnEnv2
 -- ^ Applies 'rnBndr2' to several variables: the two variable lists must be of equal length

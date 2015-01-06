@@ -145,6 +145,10 @@ module Type (
         substTyCoVar, substTyCoVars, substTyVarBndr, substTyCoVarBndr,
         cloneTyVarBndr, lookupTyVar, lookupVar, substTelescope,
 
+        -- * Erased types
+        ErasedType(ErasedType),   -- some friends need the representation
+        eraseType, eraseTypes,
+
         -- * Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTyThingCategory, pprTyThing,
         pprTCvBndr, pprTCvBndrs, pprForAll, pprForAllImplicit, pprUserForAll,
@@ -1827,7 +1831,38 @@ finding the GLB of the two.  Since the partial order is a tree, they only
 have a glb if one is a sub-kind of the other.  In that case, we bind the
 less-informative one to the more informative one.  Neat, eh?
 
+************************************************************************
+*                                                                      *
+        Erasing coercions from types
+*                                                                      *
+************************************************************************
 
+We use a newtype for ErasedType because we really want a limited set
+of operations on ErasedTypes. For example, typeKind would be disastrous.
+-}
+
+-- | A 'Type' missing all of its casts, and where all of its coercions
+-- are replaced with 'bulletCo'.
+newtype ErasedType = ErasedType Type
+
+eraseType :: Type -> ErasedType
+eraseType = ErasedType . go
+  where
+    go (TyVarTy tv)       = TyVarTy (updateTyVarKind go tv)
+    go (AppTy t1 t2)      = AppTy (go t1) (go t2)
+    go (TyConApp tc tys)  = TyConApp tc (map go tys)
+    go (ForAllTy bndr ty) = ForAllTy (go_bndr bndr) (go ty)
+    go (LitTy lit)        = LitTy lit
+    go (CastTy ty _)      = ty
+    go (CoercionTy _)     = CoercionTy bulletCo
+
+    go_bndr (Anon ty)     = Anon (go ty)
+    go_bndr (Named v vis) = Named (updateTyVarKind go v) vis
+
+eraseTypes :: [Type] -> [ErasedType]
+eraseTypes = map eraseType
+
+{-
 %************************************************************************
 %*                                                                      *
         Miscellaneous functions

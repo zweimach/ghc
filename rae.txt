@@ -1,6 +1,4 @@
 stack:
-  - We really shouldn't ever get (C a, C (a |> blargh)) in a constraint set. One implies the other. Sounds like a new top-level interaction.
-
 - do we need WpEvPrimApp?
 
 - examine extractDataDefnKindVars. Why use FreeKiTyVars? Should just be one pile, I think.
@@ -62,6 +60,7 @@ fix:
   - add CoreLint checks for levity polymorphism used the right way. But, what exactly
     is the right way??
   - shouldn't we *always* want closeOverKinds???
+  - need an -fprint-explicit-coercions, which is off by default.
   - homogeniseRhsKind should probably request representational coercions:
       Say we had [W]: (t :: k1) ~ (s :: k2). This was homogenized to
       become [W]: t ~ s |> g, where g :: k2 ~ k1. Of course, g has to
@@ -129,6 +128,8 @@ please remove:
 
 - Test uses of unifyType_ to make sure that kind families are tolerated
 in those positions.
+
+- Restored MaybeNew because we need to be able to use ctEvCoherence
 
 - It would seem that classes can't have (~#) superclasses. These superclasses
 would be encoded as existential variables on the datacon for the class, which

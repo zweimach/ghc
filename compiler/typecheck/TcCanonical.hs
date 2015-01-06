@@ -223,7 +223,7 @@ canClass ev cls tys
              mk_ct new_ev = CDictCan { cc_ev = new_ev
                                      , cc_tyargs = xis, cc_class = cls }
        ; mb <- rewriteEvidence ev xi co
-       ; traceTcS "canClass" (vcat [ ppr ev <+> ppr cls <+> ppr tys
+       ; traceTcS "canClass" (vcat [ ppr ev
                                    , ppr xi, ppr mb ])
        ; return (fmap mk_ct mb) }
 
@@ -1176,12 +1176,12 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
 
   | CtWanted { ctev_evar = evar } <- ev
     -- evar :: (lhs :: k1) ~ (rhs :: k2)
-  = do { kind_ev <- newWantedEvVar kind_loc kind_pty
+  = do { mb_kind_ev <- newWantedEvVar kind_loc kind_pty
              -- kind_ev :: (k1 :: *) ~ (k2 :: *)
        ; traceTcS "Hetero equality gives rise to wanted kind equality"
-           (ppr (fst kind_ev))
-       ; emitWorkNC $ freshGoals [kind_ev]
-       ; let kind_evt = ctEvTerm $ fst kind_ev
+           (ppr (getEvTerm mb_kind_ev))
+       ; emitWorkNC $ freshGoals [mb_kind_ev]
+       ; let kind_evt = getEvTerm mb_kind_ev
        ; kind_ev_id <- newBoundEvVarId kind_pty kind_evt
            -- this just creates an Id of the right type and with the given value
            -- necessary because we need to build a Coercion, not a TcCoercion
@@ -1191,17 +1191,17 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
            -- homo_co :: k2 ~ k1
              rhs'      = mkCastTy rhs homo_co
              homo_pred = mkTcEqPredLikeEv ev lhs rhs'
-       ; (type_ev, freshness) <- newWantedEvVar loc homo_pred
+       ; mb_type_ev <- newWantedEvVar loc homo_pred
           -- type_ev :: (lhs :: k1) ~ (rhs |> sym kind_ev :: k1)
-       ; let type_evt = ctEvTerm type_ev
+       ; let type_evt = getEvTerm mb_type_ev
        ; setEvBind evar (EvCoercion $
                          (evTermCoercion type_evt) `mkTcTransCo`
                          (mkTcReflCo (eqRelRole eq_rel) rhs
                             `mkTcCoherenceLeftCo` homo_co))
           -- evar := type_ev ; <rhs> |> homo_co :: (lhs :: k1) ~ (rhs :: k2)
-       ; case freshness of
-           Fresh  -> continueWith (build_ct type_ev rhs')
-           Cached -> stopWith ev  "cached homogenized equality" }
+       ; case mb_type_ev of
+           Fresh  type_ev -> continueWith (build_ct type_ev rhs')
+           Cached _       -> stopWith ev  "cached homogenized equality" }
 
   | otherwise   -- CtDerived {} <- ev
   = do { emitNewDerived kind_loc kind_pty
@@ -1436,9 +1436,9 @@ xCtEvidence :: CtEvidence            -- Original evidence
 
 xCtEvidence (CtWanted { ctev_evar = evar, ctev_loc = loc })
             (XEvTerm { ev_preds = ptys, ev_comp = comp_fn })
-  = do { new_evars <- mapM (newWantedEvVar loc) ptys
-       ; setEvBind evar (comp_fn (map (ctEvTerm . fst) new_evars))
-       ; emitWorkNC (freshGoals new_evars) }
+  = do { new_mb_evars <- mapM (newWantedEvVar loc) ptys
+       ; setEvBind evar (comp_fn (map getEvTerm new_mb_evars))
+       ; emitWorkNC (freshGoals new_mb_evars) }
          -- Note the "NC": these are fresh goals, not necessarily canonical
 
 xCtEvidence (CtGiven { ctev_evtm = tm, ctev_loc = loc })
@@ -1549,13 +1549,13 @@ rewriteEvidence ev@(CtGiven { ctev_evtm = old_tm , ctev_loc = loc }) new_pred co
                                               (mkTcSymCo co))  
 
 rewriteEvidence ev@(CtWanted { ctev_evar = evar, ctev_loc = loc }) new_pred co
-  = do { (new_ev, freshness) <- newWantedEvVar loc new_pred
+  = do { mb_new_ev <- newWantedEvVar loc new_pred
        ; MASSERT( tcCoercionRole co == ctEvRole ev )
-       ; setEvBind evar (mkEvCast (ctEvTerm new_ev)
+       ; setEvBind evar (mkEvCast (getEvTerm mb_new_ev)
                            (tcDowngradeRole Representational (ctEvRole ev) co))
-       ; case freshness of
-            Fresh  -> continueWith new_ev
-            Cached -> stopWith ev "Cached wanted" }
+       ; case mb_new_ev of
+            Fresh  new_ev -> continueWith new_ev
+            Cached _      -> stopWith ev "Cached wanted" }
 
 
 rewriteEqEvidence :: CtEvidence         -- Old evidence :: olhs ~ orhs (not swapped)

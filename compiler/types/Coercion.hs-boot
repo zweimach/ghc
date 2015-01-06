@@ -25,6 +25,7 @@ mkInstCo :: Coercion -> CoercionArg -> Coercion
 mkCoherenceCo :: Coercion -> Coercion -> Coercion
 mkKindCo :: Coercion -> Coercion
 mkSubCo :: Coercion -> Coercion
+bulletCo :: Coercion
 
 isReflCo :: Coercion -> Bool
 mkAppCos :: Coercion -> [CoercionArg] -> Coercion

@@ -58,6 +58,7 @@ module TcRnTypes(
         mkNonCanonical, mkNonCanonicalCt,
         ctEvPred, ctEvLoc, ctEvEqRel,
         ctEvTerm, ctEvCoercion, ctEvId, ctEvCheckDepth,
+        ctEvCoherence,
         tyCoVarsOfCt, tyCoVarsOfCts,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
@@ -107,6 +108,7 @@ import Type
 import CoAxiom  ( Role )
 import Class    ( Class )
 import TyCon    ( TyCon )
+import Coercion ( buildCoherenceCo )
 import ConLike  ( ConLike(..) )
 import DataCon  ( DataCon, dataConUserType, dataConOrigArgTys )
 import PatSyn   ( PatSyn, patSynType )
@@ -1657,6 +1659,22 @@ isGiven _ = False
 isDerived :: CtEvidence -> Bool
 isDerived (CtDerived {}) = True
 isDerived _              = False
+
+-- | @ctEvCoherence ev1 ty2@ produces a variant of the 'EvTerm' in @ev1@
+-- that precisely matches
+-- the predicate @ty2@. Precondition: the erased predicate of @ev1@ must
+-- match that of @ty2@. This is useful after an inert lookup via erased types.
+-- See also Note [Use erased types in inert set] in TcSMonad.
+ctEvCoherence :: CtEvidence -> TcPredType -> EvTerm
+ctEvCoherence from_this solve_pred
+  | from_pred `eqType` solve_pred
+  = from_term
+
+  | otherwise
+  = EvCast from_term (mkTcCoercion (buildCoherenceCo from_pred solve_pred))
+  where
+    from_pred = ctEvPred from_this
+    from_term = ctEvTerm from_this
 
 {-
 %************************************************************************

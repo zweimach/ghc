@@ -17,7 +17,7 @@ import Type
 import TcEvidence
 import TyCon
 import TyCoRep
-import Coercion  ( tyConRolesX )
+import Coercion  ( tyConRolesX, isReflCo )
 import Var
 import VarEnv
 import NameEnv
@@ -808,10 +808,14 @@ flatten_one fmode ty@(ForAllTy (Named {}) _)
 
 flatten_one fmode (CastTy ty g)
   = do { (xi, co) <- flatten_one fmode ty
-       ; g' <- zonkCo g   -- this is necessary because we use typeKind sometime
+       ; g' <- zonkCo g   -- this is necessary because we use typeKind
                           -- and if a coercion has an unzonked kind, the typeKind
                           -- panics in piResultTy
-       ; return (mkCastTy xi g', castTcCoercionKind co g' g') }
+
+       ; return $
+         if isReflCo g'   -- omit reflexive cast
+         then (xi,             mkTcCoherenceRightCo co    g')
+         else (mkCastTy xi g', castTcCoercionKind   co g' g') }
     
 flatten_one _ ty@(CoercionTy {}) = return (ty, mkTcNomReflCo ty)
 

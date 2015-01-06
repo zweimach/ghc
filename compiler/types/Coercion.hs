@@ -34,6 +34,7 @@ module Coercion (
         downgradeRole, downgradeRoleArg, mkAxiomRuleCo,
         mkCoherenceCo, mkCoherenceRightCo, mkCoherenceLeftCo,
         mkKindCo, castCoercionKind,
+        bulletCo,
 
         mkTyHeteroCoBndr, mkCoHeteroCoBndr, mkHomoCoBndr,
         mkHeteroCoercionType,
@@ -100,10 +101,12 @@ module Coercion (
         tidyCo, tidyCos,
 
         -- * Other
-        applyCo, promoteCoercion, mkGADTVars
+        applyCo, promoteCoercion, mkGADTVars, buildCoherenceCo
        ) where 
 
 #include "HsVersions.h"
+
+import {-# SOURCE #-} TysWiredIn ( unitTy )
 
 import TyCoRep
 import Type 
@@ -905,6 +908,10 @@ downgradeRoleArg r1 r2 arg
 
 mkAxiomRuleCo :: CoAxiomRule -> [Type] -> [Coercion] -> Coercion
 mkAxiomRuleCo = AxiomRuleCo
+
+-- | Coercion used as a placeholder in erased types
+bulletCo :: Coercion
+bulletCo = Refl Nominal unitTy
 
 {-
 %************************************************************************
@@ -2254,3 +2261,79 @@ mkGADTVars tmpl_tvs dc_tvs subst
            ; let name = mkSystemVarName u (fsLit "gadt")
            ; return $ mkCoVar name (mkCoercionType Nominal t1 t2) }
 
+
+{-
+%************************************************************************
+%*                                                                      *
+             Building a coherence coercion
+%*                                                                      *
+%************************************************************************
+-}
+
+-- | Finds a representational coercion between two types, assuming that the
+-- erased version of those types are equal. Panics otherwise.
+buildCoherenceCo :: Type -> Type -> Coercion
+buildCoherenceCo orig_ty1 orig_ty2
+  = mkSubCo $
+    go (mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes [orig_ty1, orig_ty2])))
+       orig_ty1 orig_ty2
+  where
+    go env (TyVarTy tv1) (TyVarTy tv2)
+      = ASSERT( rnOccL env tv1 == rnOccR env tv2 )
+        mkReflCo Nominal (mkOnlyTyVarTy $ rnOccL env tv1)
+    go env (AppTy tyl1 tyr1) (AppTy tyl2 tyr2)
+      = mkAppCo (go env tyl1 tyl2) (go_arg env tyr1 tyr2)
+    go env (TyConApp tc1 tys1) (TyConApp tc2 tys2)
+      = ASSERT( tc1 == tc2 )
+        mkTyConAppCo Nominal tc1 (zipWith (go_arg env) tys1 tys2)
+    go env (ForAllTy (Anon arg1) res1) (ForAllTy (Anon arg2) res2)
+      = mkFunCo Nominal (go env arg1 arg2) (go env res1 res2)
+    go env (ForAllTy (Named tv1 _) ty1) (ForAllTy (Named tv2 _) ty2)
+      = mkForAllCo bndr (go env' ty1 ty2)
+        where (env', bndr) = go_bndr env tv1 tv2
+    go _   (LitTy lit1) (LitTy lit2)
+      = ASSERT( lit1 == lit2 )
+        mkReflCo Nominal (LitTy lit1)
+    go env (CastTy ty1 co1) ty2
+      = mkCoherenceLeftCo (go env ty1 ty2) (rename rnEnvL env co1)
+    go env ty1 (CastTy ty2 co2)
+      = mkCoherenceRightCo (go env ty1 ty2) (rename rnEnvR env co2)
+
+    go _ _ _ = panic "buildCoherenceCo"
+
+    go_arg env (CoercionTy co1) (CoercionTy co2)
+      = mkCoCoArg Nominal (rename rnEnvL env co1) (rename rnEnvR env co2)
+    go_arg env ty1 ty2
+      = mkTyCoArg (go env ty1 ty2)
+
+    go_bndr env tv1 tv2
+      | k1 `eqType` k2 = let (env', tv') = rnBndr2_var env tv1 tv2 in
+                         (env', mkHomoCoBndr tv')
+                            
+      | isCoVar tv1    = let (env1, tv1') = rnBndrL env  tv1
+                             (env2, tv2') = rnBndrR env1 tv2 in
+                         (env2, mkCoHeteroCoBndr eta tv1' tv2')
+
+      | otherwise      = let (env1, tv1') = rnBndrL env  tv1
+                             (env2, tv2') = rnBndrR env1 tv2
+                             in_scope     = rnInScopeSet env2
+                             cv           = mkFreshCoVar in_scope
+                                              (mkOnlyTyVarTy tv1')
+                                              (mkOnlyTyVarTy tv2')
+                             env3         = addRnInScopeSet env2 (unitVarSet cv)
+                         in
+                         (env3, mkTyHeteroCoBndr eta tv1' tv2' cv)
+                         
+      where
+        k1  = tyVarKind tv1
+        k2  = tyVarKind tv2
+        eta = go env k1 k2
+
+    rename :: (RnEnv2 -> VarEnv Var) -> RnEnv2 -> Coercion -> Coercion
+    rename getvars env = substCo subst
+      where varenv = getvars env
+            (ty_env, co_env) = partitionVarEnv isTyVar varenv
+            tv_subst_env = mapVarEnv mkOnlyTyVarTy ty_env
+            cv_subst_env = mapVarEnv mkCoVarCo     co_env
+
+            subst = mkTCvSubst (rnInScopeSet env) (tv_subst_env, cv_subst_env)

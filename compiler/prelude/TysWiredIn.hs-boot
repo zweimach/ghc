@@ -8,5 +8,5 @@ eqTyCon, coercibleTyCon :: TyCon
 typeNatKind, typeSymbolKind :: Type
 mkBoxedTupleTy :: [Type] -> Type
 
-levityTy, liftedDataConTy, unliftedDataConTy :: Type
+levityTy, liftedDataConTy, unliftedDataConTy, unitTy :: Type
 
