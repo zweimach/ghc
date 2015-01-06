@@ -954,8 +954,7 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
            -- This happens for skolems of all sorts
          ; _ -> do { traceTc "deferring because I can't find a meta-tyvar:"
                        (pprTcTyVarDetails details1 <+> pprTcTyVarDetails details2)
-                   ; unSwap swapped (uType_defer origin)
-                                    (ty1 `mkCastTy` mkSubCo co_k) ty2 } } }
+                   ; unSwap swapped (uType_defer origin) ty1 ty2 } } }
   where
     k1  = tyVarKind tv1
     k2  = tyVarKind tv2
@@ -1197,10 +1196,14 @@ updateMeta :: TcTyVar            -- ^ tv to fill in, tv :: k1
            -> Coercion           -- ^ kind_co :: k2 ~N k1
            -> TcM Coercion       -- ^ :: tv ~ ty2 |> kind_co
 updateMeta tv1 ref1 ty2 kind_co
-  = do { let ty2' | isReflCo kind_co = ty2
-                  | otherwise        = ty2 `mkCastTy` mkSubCo kind_co
+  = do { let sub_kind_co          = mkSubCo kind_co
+             ty2_refl             = mkReflCo Nominal ty2
+             (ty2', co)
+               | isReflCo kind_co = (ty2, ty2_refl)
+               | otherwise        = ( ty2 `mkCastTy` sub_kind_co
+                                    , mkCoherenceLeftCo ty2_refl sub_kind_co )
        ; writeMetaTyVarRef tv1 ref1 ty2'
-       ; return (mkReflCo Nominal ty2') }
+       ; return co }
 
 {-
 Note [Unifying untouchables]
