@@ -940,8 +940,10 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
        ; traceTc "uUnfilledVars" (    text "trying to unify" <+> ppr k1
                                   <+> text "with"            <+> ppr k2)
        ; co_k <- uType kind_origin k1 k2
-       ; let no_swap ref = updateMeta tv1 ref ty2 (mkSymCo co_k)
-             do_swap ref = updateMeta tv2 ref ty1 co_k
+       ; let no_swap ref = maybe_sym swapped <$>
+                           updateMeta tv1 ref ty2 (mkSymCo co_k)
+             do_swap ref = maybe_sym (flipSwap swapped) <$>
+                           updateMeta tv2 ref ty1 co_k
        ; case (details1, details2) of
          { ( MetaTv { mtv_info = i1, mtv_ref = ref1 }
            , MetaTv { mtv_info = i2, mtv_ref = ref2 } )
@@ -961,6 +963,9 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
     ty1 = mkTyCoVarTy tv1
     ty2 = mkTyCoVarTy tv2
     kind_origin = KindEqOrigin ty1 ty2 origin
+
+    maybe_sym IsSwapped  = mkSymCo
+    maybe_sym NotSwapped = id
 
 nicer_to_update_tv1 :: TcTyVar -> MetaInfo -> MetaInfo -> Bool
 nicer_to_update_tv1 _   _     SigTv = True
