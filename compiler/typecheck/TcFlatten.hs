@@ -17,7 +17,7 @@ import Type
 import TcEvidence
 import TyCon
 import TyCoRep
-import Coercion  ( tyConRolesX, isReflCo )
+import Coercion  ( tyConRolesX, coercionKind )
 import Var
 import VarEnv
 import NameEnv
@@ -28,6 +28,7 @@ import DynFlags( DynFlags )
 
 import Util
 import Bag
+import Pair
 import FastString
 import Control.Monad( when )
 import MonadUtils ( zipWithAndUnzipM )
@@ -813,7 +814,13 @@ flatten_one fmode (CastTy ty g)
                           -- panics in piResultTy
 
        ; return $
-         if isReflCo g'   -- omit reflexive cast
+         let Pair k1 k2 = coercionKind g' in
+             -- TODO (RAE): Change to use isReflCo. This doesn't work now because
+             -- zonkCo has to be lazy in tycons b/c of zonking inside the knot. After
+             -- we no longer have to zonk inside the knot (because of separating out
+             -- tycon bodies from tycon sigs), then zonkCo will work better and we
+             -- can use isReflCo.
+         if k1 `eqType` k2
          then (xi,             mkTcCoherenceRightCo co    g')
          else (mkCastTy xi g', castTcCoercionKind   co g' g') }
     
