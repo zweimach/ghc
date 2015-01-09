@@ -343,7 +343,6 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
 
        ; zonked_taus <- mapM (TcM.zonkTcTypeEvBinds ev_binds_var . snd) name_taus
        ; let zonked_tau_tvs = tyCoVarsOfTypes zonked_taus
-       ; traceTc "RAEy1" (ppr zonked_taus $$ ppr zonked_tau_tvs $$ ppr name_taus $$ ppr (map (typeKind . snd) name_taus))
        ; (promote_tvs, qtvs, bound, mr_bites) <- decideQuantification apply_mr quant_pred_candidates zonked_tau_tvs
 
        ; outer_tclvl <- TcRnMonad.getTcLevel
@@ -436,7 +435,7 @@ decideQuantification apply_mr constraints zonked_tau_tvs
              theta       = filter (quantifyPred poly_qtvs) constraints
              promote_tvs = mono_tvs `intersectVarSet` (constrained_tvs `unionVarSet` zonked_tau_tvs)
        ; qtvs <- quantifyTyCoVars mono_tvs poly_qtvs
-       ; traceTc "decideQuantification 2" (vcat [ppr constraints, ppr gbl_tvs, ppr mono_tvs, ppr poly_qtvs, ppr qtvs, ppr theta, ppr zonked_tau_tvs])
+       ; traceTc "decideQuantification 2" (vcat [ppr constraints, ppr gbl_tvs, ppr mono_tvs, ppr poly_qtvs, ppr qtvs, ppr theta])
        ; return (promote_tvs, qtvs, theta, False) }
   where
     constrained_tvs = tyCoVarsOfTypes constraints

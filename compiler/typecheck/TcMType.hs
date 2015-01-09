@@ -996,11 +996,9 @@ zonkTcType = zonkTcTypeX emptyTCvSubst
 zonkTcTypeEvBinds :: EvBindsVar -> TcType -> TcM TcType
 zonkTcTypeEvBinds evar ty
   = do { binds <- getTcEvBinds evar
-       ; traceTc "RAEz1" (ppr evar $$ ppr binds)
        ; let in_scope = mkInScopeSet $ tyCoVarsOfType ty
              env1 = mkEmptyTCvSubst in_scope
              env  = evBindsSubst env1 binds
-       ; traceTc "RAEz2" (ppr env)
        ; zonkTcTypeX env ty }
 
 zonkTcTypeX :: TCvSubst -> TcType -> TcM TcType
