@@ -55,7 +55,7 @@ module TcMType (
   zonkQuantifiedTyCoVar, zonkQuantifiedTyCoVarOrType, quantifyTyCoVars,
   quantifyTyCoVars', defaultKindVar,
   zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, zonkCo,
-  zonkCoX, zonkTcTypeX, zonkTcTyCoVarX,
+  zonkCoX, zonkTcTypeX, zonkTcTyCoVarX, zonkTcTypeEvBinds,
 
   zonkEvVar, zonkWC, zonkSimples, zonkId, zonkCt, zonkSkolemInfo,
 
@@ -577,7 +577,7 @@ are about to wrap in a forall.
 
 It takes these free type/kind variables and 
   1. Zonks them and remove globals
-  2. Partitions into type and kind variables (kvs1, tvs)
+  2. Partitions into type and kind variables (kvs1, tvs) (removing covars)
   3. Extends kvs1 with free kind vars in the kinds of tvs (removing globals)
   4. Calls zonkQuantifiedTyVar on each
 
@@ -587,6 +587,9 @@ also free in the type.  Eg
 has free vars {k,a}.  But the type (see Trac #7916)
     (f::k->*) (a::k)
 has free vars {f,a}, but we must add 'k' as well! Hence step (3).
+
+Note that this function can accept covars, but will never return them.
+This is because we never want to infer a quantified covar!
 -}
 
 quantifyTyCoVars :: TcTyCoVarSet -> TcTyCoVarSet -> TcM [TcTyCoVar]
@@ -616,8 +619,9 @@ quantifyTyCoVars' gbl_tvs tkvs all_kind_vars
                                       varSetElems all_tvs)
                       `minusVarSet` gbl_tvs
              nondep_var_set = tkvs `minusVarSet` dep_var_set `minusVarSet` gbl_tvs
-             dep_vars       = varSetElemsWellScoped dep_var_set
-             nondep_vars    = varSetElemsWellScoped nondep_var_set
+             no_covars      = filterVarSet (not . isCoVar)
+             dep_vars       = varSetElemsWellScoped (no_covars dep_var_set)
+             nondep_vars    = varSetElemsWellScoped (no_covars nondep_var_set)
 
                               -- NB kinds of tvs are zonked by zonkTyVarsAndFV
 
@@ -629,8 +633,7 @@ quantifyTyCoVars' gbl_tvs tkvs all_kind_vars
        ; dep_vars2 <- if poly_kinds
                       then return dep_vars
                       else do { let (meta_kvs, skolem_kvs) = partition is_meta dep_vars
-                                    is_meta kv = (isTcTyVar kv && isMetaTyVar kv)
-                                                 || isCoVar kv  -- we'll try to solve these
+                                    is_meta kv = isTcTyVar kv && isMetaTyVar kv
 
                               ; traceTc "RAEx1" (ppr meta_kvs $$ ppr skolem_kvs)
                               ; mapM_ defaultKindVar meta_kvs
@@ -987,6 +990,18 @@ zonkId id
 --      type variable and zonks the kind too
 zonkTcType :: TcType -> TcM TcType
 zonkTcType = zonkTcTypeX emptyTCvSubst
+
+-- | Variant of 'zonkTcType' that also applies a covar substitution embodied
+-- in an EvBinds. Like 'zonkWC'.
+zonkTcTypeEvBinds :: EvBindsVar -> TcType -> TcM TcType
+zonkTcTypeEvBinds evar ty
+  = do { binds <- getTcEvBinds evar
+       ; traceTc "RAEz1" (ppr evar $$ ppr binds)
+       ; let in_scope = mkInScopeSet $ tyCoVarsOfType ty
+             env1 = mkEmptyTCvSubst in_scope
+             env  = evBindsSubst env1 binds
+       ; traceTc "RAEz2" (ppr env)
+       ; zonkTcTypeX env ty }
 
 zonkTcTypeX :: TCvSubst -> TcType -> TcM TcType
 -- See Note [zonkX]

@@ -1124,7 +1124,7 @@ tcMonoBinds :: RecFlag  -- Whether the binding is recursive for typechecking pur
             -> TcSigFun -> LetBndrSpec
             -> [LHsBind Name]
             -> TcM (LHsBinds TcId, [MonoBindInfo])
-
+{-
 tcMonoBinds is_rec sig_fn no_gen
            [ L b_loc (FunBind { fun_id = L nm_loc name, fun_infix = inf,
                                 fun_matches = matches, bind_fvs = fvs })]
@@ -1150,7 +1150,7 @@ tcMonoBinds is_rec sig_fn no_gen
                                fun_matches = matches', bind_fvs = fvs,
                                fun_co_fn = co_fn, fun_tick = [] },
                   [(name, Nothing, mono_id)]) }
-
+-}
 tcMonoBinds _ sig_fn no_gen binds
   = do  { traceTc "RAE tcMonoBinds" empty
         ; tc_binds <- mapM (wrapLocM (tcLhs sig_fn no_gen)) binds

@@ -77,7 +77,7 @@ import Pair
 import Data.Function       ( on )
 import Data.List
 import Data.Ord            ( comparing )
-import Control.Applicative
+import Control.Applicative hiding ( empty )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable    ( traverse )
 #endif
@@ -236,7 +236,7 @@ mkCast expr co
 --    if to_ty `eqType` from_ty
 --    then expr
 --    else
-        WARN(not (from_ty `eqType` exprType expr), text "Trying to coerce" <+> text "(" <> ppr expr $$ text "::" <+> ppr (exprType expr) <> text ")" $$ ppr co $$ ppr (coercionType co))
+        WARN(not (from_ty `eqType` exprType expr), text "Trying to coerce" <+> text "(" <> ppr expr $$ text "::" <+> ppr (exprType expr) <> text ")" $$ ppr co $$ ppr (coercionType co) $$ ppr from_ty $$ ppr _to_ty)
          (Cast expr co)
 
 -- | Wraps the given expression in the source annotation, dropping the
@@ -1878,7 +1878,8 @@ tryEtaReduce bndrs body
       | ok_fun fun
       , let used_vars = exprFreeVars fun `unionVarSet` tyCoVarsOfCo co
       , not (any (`elemVarSet` used_vars) bndrs)
-      = Just (mkCast fun co)   -- Check for any of the binders free in the result
+      = Just (pprTrace "RAE-eta" empty $
+              mkCast fun co)   -- Check for any of the binders free in the result
                                -- including the accumulated coercion
 
     go bs (Tick t e) co

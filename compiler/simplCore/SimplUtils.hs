@@ -286,7 +286,8 @@ argInfoExpr fun rev_args
     go []                              = Var fun
     go (ValArg a                 : as) = go as `App` a
     go (TyArg { as_arg_ty = ty } : as) = go as `App` Type ty
-    go (CastBy co                : as) = mkCast (go as) co
+    go (CastBy co                : as) = pprTrace "RAE-argInfoExpr" empty $
+                                         mkCast (go as) co
 
 
 {-
@@ -1177,7 +1178,8 @@ mkLam bndrs body cont
       | not (any bad bndrs)
         -- Note [Casts and lambdas]
       = do { lam <- mkLam' dflags bndrs body
-           ; return (mkCast lam (mkPiCos Representational bndrs co)) }
+           ; return (pprTrace "RAE-mkLam" empty $
+                     mkCast lam (mkPiCos Representational bndrs co)) }
       where
         co_vars  = tyCoVarsOfCo co
         bad bndr = isCoVar bndr && bndr `elemVarSet` co_vars

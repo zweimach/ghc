@@ -479,7 +479,8 @@ mkWWstr_one dflags fam_envs arg
                 unbox_fn       = mkUnpackCase (Var arg) co uniq1
                                               data_con unpk_args
                 rebox_fn       = Let (NonRec arg con_app)
-                con_app        = mkConApp2 data_con inst_tys unpk_args `mkCast` mkSymCo co
+                con_app        = pprTrace "RAE-wwlib1" empty $
+                                 mkConApp2 data_con inst_tys unpk_args `mkCast` mkSymCo co
          ; (_, worker_args, wrap_fn, work_fn) <- mkWWstr dflags fam_envs unpk_args_w_ds
          ; return (True, worker_args, unbox_fn . wrap_fn, work_fn . rebox_fn) }
                            -- Don't pass the arg, rebox instead
@@ -633,7 +634,8 @@ mkWWcpr_help (data_con, inst_tys, arg_tys, co)
         -- Worker:      case (   ..body..    ) of C x -> x
   = do { (work_uniq : arg_uniq : _) <- getUniquesM
        ; let arg       = mk_ww_local arg_uniq  arg_ty1
-             con_app   = mkConApp2 data_con inst_tys [arg] `mkCast` mkSymCo co
+             con_app   = pprTrace "RAE-wwlib2" empty $
+                         mkConApp2 data_con inst_tys [arg] `mkCast` mkSymCo co
 
        ; return ( True
                 , \ wkr_call -> Case wkr_call arg (exprType con_app) [(DEFAULT, [], con_app)]
@@ -647,7 +649,8 @@ mkWWcpr_help (data_con, inst_tys, arg_tys, co)
        ; let (wrap_wild : args) = zipWith mk_ww_local uniqs (ubx_tup_ty : arg_tys)
              ubx_tup_ty   = exprType ubx_tup_app
              ubx_tup_app  = mkCoreUbxTup arg_tys (map varToCoreExpr args)
-             con_app      = mkConApp2 data_con inst_tys args `mkCast` mkSymCo co
+             con_app      = pprTrace "RAE-wwlib3" empty $
+                            mkConApp2 data_con inst_tys args `mkCast` mkSymCo co
 
        ; return (True
                 , \ wkr_call -> Case wkr_call wrap_wild (exprType con_app)  [(DataAlt (tupleCon UnboxedTuple (length arg_tys)), args, con_app)]
@@ -665,7 +668,8 @@ mkUnpackCase scrut co uniq boxing_con unpk_args body
   = Case casted_scrut bndr (exprType body)
          [(DataAlt boxing_con, unpk_args, body)]
   where
-    casted_scrut = scrut `mkCast` co
+    casted_scrut = pprTrace "RAE-wwlib4" empty $
+                   scrut `mkCast` co
     bndr = mk_ww_local uniq (exprType casted_scrut)
 
 {-

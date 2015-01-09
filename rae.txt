@@ -1,4 +1,6 @@
 stack:
+ - kindGeneralize
+
 
 - relax tcMatchTys, tcUnifyTys to ignore casts. URGH!
    --> and, in the process, unify all three unification algorithms (!)

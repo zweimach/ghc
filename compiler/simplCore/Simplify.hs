@@ -1176,7 +1176,8 @@ rebuild env expr cont
   = case cont of
       Stop {}                       -> return (env, expr)
       TickIt t cont                 -> rebuild env (mkTick t expr) cont
-      CastIt co cont                -> rebuild env (mkCast expr co) cont
+      CastIt co cont                -> rebuild env (pprTrace "RAE-rebuild" empty $
+                                                    mkCast expr co) cont
                                     -- NB: mkCast implements the (Coercion co |> g) optimisation
 
       Select _ bndr alts se cont    -> rebuildCase (se `setFloats` env) expr bndr alts cont
@@ -1470,7 +1471,8 @@ rebuildCall env (ArgInfo { ai_fun = fun, ai_args = rev_args, ai_strs = [] }) con
   | not (contIsTrivial cont)     -- Only do this if there is a non-trivial
   = return (env, castBottomExpr res cont_ty)  -- contination to discard, else we do it
   where                                       -- again and again!
-    res     = argInfoExpr fun rev_args
+    res     = pprTrace "RAE-rebuildCall1" empty $
+              argInfoExpr fun rev_args
     cont_ty = contResultType cont
 
 rebuildCall env info (CastIt co cont)
@@ -1508,7 +1510,8 @@ rebuildCall env info@(ArgInfo { ai_encl = encl_rules, ai_type = fun_ty
 
 rebuildCall env (ArgInfo { ai_fun = fun, ai_args = rev_args, ai_rules = rules }) cont
   | null rules
-  = rebuild env (argInfoExpr fun rev_args) cont      -- No rules, common case
+  = rebuild env (pprTrace "RAE-rebuildCall" empty $
+                 argInfoExpr fun rev_args) cont      -- No rules, common case
 
   | otherwise
   = do {  -- We've accumulated a simplified call in <fun,rev_args>
@@ -1521,7 +1524,8 @@ rebuildCall env (ArgInfo { ai_fun = fun, ai_args = rev_args, ai_rules = rules })
              Just (rule_rhs, cont') -> simplExprF env' rule_rhs cont'
 
                  -- Rules don't match
-           ; Nothing -> rebuild env (argInfoExpr fun rev_args) cont      -- No rules
+           ; Nothing -> rebuild env (pprTrace "RAE-rebuildCall3" empty $
+                                     argInfoExpr fun rev_args) cont      -- No rules
     } }
 
 {-

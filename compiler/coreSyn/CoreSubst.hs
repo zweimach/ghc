@@ -1303,7 +1303,8 @@ dealWithCoercion co dc dc_args
 
           -- Cast the value arguments (which include dictionaries)
         new_val_args = zipWith cast_arg arg_tys val_args
-        cast_arg arg_ty arg = mkCast arg (psi_subst arg_ty)
+        cast_arg arg_ty arg = pprTrace "RAE-KPush" empty $
+                              mkCast arg (psi_subst arg_ty)
 
         to_ex_args = map ty_to_arg to_ex_arg_tys
 
@@ -1431,8 +1432,10 @@ pushCoercionIntoLambda in_scope x e co
           in_scope' = in_scope `extendInScopeSet` x'
           subst = extendIdSubst (mkEmptySubst in_scope')
                                 x
-                                (mkCast (Var x') (stripTyCoArg co1))
-      in Just (x', subst_expr subst e `mkCast` (stripTyCoArg co2))
+                                (pprTrace "RAE-pushLambda" empty $
+                                 mkCast (Var x') (stripTyCoArg co1))
+      in Just (x', pprTrace "RAE-pushLambda2" empty $
+                   subst_expr subst e `mkCast` (stripTyCoArg co2))
     | otherwise
     = pprTrace "exprIsLambda_maybe: Unexpected lambda in case" (ppr (Lam x e))
       Nothing

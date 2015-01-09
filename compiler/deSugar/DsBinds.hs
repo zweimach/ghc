@@ -826,7 +826,8 @@ dsHsWrapper (WpFun c1 c2 t1 _) e = do { x <- newSysLocalDs t1
                                       ; e2 <- dsHsWrapper c2 (e `mkCoreAppDs` e1)
                                       ; return (Lam x e2) }
 dsHsWrapper (WpCast co)       e = ASSERT(tcCoercionRole co == Representational)
-                                  dsTcCoercion co (mkCast e)
+                                  dsTcCoercion co (\co -> pprTrace "RAE-dsHsWrap" empty $
+                                                          mkCast e co)
 dsHsWrapper (WpEvLam ev)      e = return $ Lam ev e
 dsHsWrapper (WpTyLam tv)      e = return $ Lam tv e
 dsHsWrapper (WpEvApp    tm)   e = liftM (App e) (dsEvTerm tm)
@@ -854,7 +855,8 @@ dsEvTerm (EvId v) = return (Var v)
 
 dsEvTerm (EvCast tm co) 
   = do { tm' <- dsEvTerm tm
-       ; dsTcCoercion co $ mkCast tm' }
+       ; dsTcCoercion co $ \co' -> pprTrace "RAE-dsEvTerm" empty $
+                                   mkCast tm' co' }
                         -- 'v' is always a lifted evidence variable so it is
                         -- unnecessary to call varToCoreExpr v here.
 
