@@ -5,7 +5,6 @@
 module FamInst (
         FamInstEnvs, tcGetFamInstEnvs,
         checkFamInstConsistency, tcExtendLocalFamInstEnv,
-        tcLookupFamInst,
         tcLookupDataFamInst, tcLookupDataFamInst_maybe,
         tcInstNewTyCon_maybe, tcTopNormaliseNewTypeTF_maybe,
         newFamInst
@@ -181,35 +180,7 @@ getFamInsts hpt_fam_insts mod
 *                                                                      *
 ************************************************************************
 
-Look up the instance tycon of a family instance.
-
-The match may be ambiguous (as we know that overlapping instances have
-identical right-hand sides under overlapping substitutions - see
-'FamInstEnv.lookupFamInstEnvConflicts').  However, the type arguments used
-for matching must be equal to or be more specific than those of the family
-instance declaration.  We pick one of the matches in case of ambiguity; as
-the right-hand sides are identical under the match substitution, the choice
-does not matter.
-
-Return the instance tycon and its type instance.  For example, if we have
-
- tcLookupFamInst 'T' '[Int]' yields (':R42T', 'Int')
-
-then we have a coercion (ie, type instance of family instance coercion)
-
- :Co:R42T Int :: T [Int] ~ :R42T Int
-
-which implies that :R42T was declared as 'data instance T [a]'.
 -}
-
-tcLookupFamInst :: FamInstEnvs -> TyCon -> [Type] -> Maybe FamInstMatch
-tcLookupFamInst fam_envs tycon tys
-  | not (isOpenFamilyTyCon tycon)
-  = Nothing
-  | otherwise
-  = case lookupFamInstEnv fam_envs tycon tys of
-      match : _ -> Just match
-      []        -> Nothing
 
 -- | If @co :: T ts ~ rep_ty@ then:
 --
@@ -224,13 +195,13 @@ tcInstNewTyCon_maybe tc tys = fmap (second mkTcCoercion) $
 -- | Like 'tcLookupDataFamInst_maybe', but returns the arguments back if
 -- there is no data family to unwrap.
 tcLookupDataFamInst :: FamInstEnvs -> TyCon -> [TcType]
-                    -> (TyCon, [TcType], TcCoercion)
+                    -> (TyCon, [TcType], Coercion)
 tcLookupDataFamInst fam_inst_envs tc tc_args
   | Just (rep_tc, rep_args, co)
       <- tcLookupDataFamInst_maybe fam_inst_envs tc tc_args
-  = (rep_tc, rep_args, mkTcCoercion co)
+  = (rep_tc, rep_args, co)
   | otherwise
-  = (tc, tc_args, mkTcRepReflCo (mkTyConApp tc tc_args))
+  = (tc, tc_args, mkReflCo Representational (mkTyConApp tc tc_args))
 
 tcLookupDataFamInst_maybe :: FamInstEnvs -> TyCon -> [TcType]
                           -> Maybe (TyCon, [TcType], Coercion)
@@ -239,11 +210,12 @@ tcLookupDataFamInst_maybe :: FamInstEnvs -> TyCon -> [TcType]
 tcLookupDataFamInst_maybe fam_inst_envs tc tc_args
   | isDataFamilyTyCon tc
   , match : _ <- lookupFamInstEnv fam_inst_envs tc tc_args
-  , FamInstMatch { fim_instance = rep_fam
-                 , fim_tys      = rep_args } <- match
-  , let co_tc  = famInstAxiom rep_fam
-        rep_tc = dataFamInstRepTyCon rep_fam
-        co     = mkUnbranchedAxInstCo Representational co_tc rep_args
+  , FamInstMatch { fim_instance = rep_fam@(FamInst { fi_axiom = co_tc })
+                 , fim_tys      = rep_args
+                 , fim_coercion = match_co } <- match
+  , let rep_tc = dataFamInstRepTyCon rep_fam
+        co     = mkSubCo match_co `mkTransCo`
+                 mkUnbranchedAxInstCo Representational co_tc rep_args
   = Just (rep_tc, rep_args, co)
 
   | otherwise

@@ -499,8 +499,9 @@ interactIrred :: InertCans -> Ct -> TcS (StopOrContinue Ct)
 
 interactIrred inerts workItem@(CIrredEvCan { cc_ev = ev_w })
   | let pred = ctEvPred ev_w
-        (matching_irreds, others) = partitionBag (\ct -> ctPred ct `tcEqType` pred)
-                                                 (inert_irreds inerts)
+        (matching_irreds, others)
+          = partitionBag (\ct -> ctPred ct `tcEqTypeErased` pred)
+                         (inert_irreds inerts)
   , (ct_i : rest) <- bagToList matching_irreds
   , let ctev_i = ctEvidence ct_i
   = ASSERT( null rest )
@@ -1522,31 +1523,37 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = fl, cc_class = cls
 
   | otherwise  -- Not cached
    = do { lkup_inst_res <- matchClassInst inerts cls xis loc
-         ; case lkup_inst_res of
-               GenInst wtvs ev_term -> do { addSolvedDict fl cls xis
-                                          ; solve_from_instance wtvs ev_term }
+        ; case lkup_inst_res of
+               GenInst { lir_new_theta = wtvs
+                       , lir_pred      = pred
+                       , lir_ev_term   = ev_term } ->
+                 do { addSolvedDict fl cls xis
+                    ; solve_from_instance wtvs pred ev_term }
                NoInstance -> try_fundeps_and_return }
    where
      dict_id = ASSERT( isWanted fl ) ctEvId fl
      pred = mkClassPred cls xis
      loc = ctEvLoc fl
 
-     solve_from_instance :: [CtEvidence] -> EvTerm -> TcS (StopOrContinue Ct)
+     solve_from_instance :: [CtEvidence] -> PredType -> EvTerm
+                         -> TcS (StopOrContinue Ct)
       -- Precondition: evidence term matches the predicate workItem
-     solve_from_instance evs ev_term
+     solve_from_instance evs solved_pty ev_term
         | null evs
         = do { traceTcS "doTopReact/found nullary instance for" $
                ppr dict_id
-             ; setEvBind dict_id ev_term
+             ; setEvBind dict_id coh_ev_term
              ; stopWith fl "Dict/Top (solved, no new work)" }
         | otherwise
         = do { traceTcS "doTopReact/found non-nullary instance for" $
                ppr dict_id
-             ; setEvBind dict_id ev_term
+             ; setEvBind dict_id coh_ev_term
              ; let mk_new_wanted ev
                        = mkNonCanonical (ev {ctev_loc = bumpCtLocDepth CountConstraints loc })
              ; updWorkListTcS (extendWorkListCts (map mk_new_wanted evs))
              ; stopWith fl "Dict/Top (solved, more work)" }
+       where
+         coh_ev_term = evTermCoherence solved_pty ev_term pred
 
      -- We didn't solve it; so try functional dependencies with
      -- the instance environment, and return
@@ -1943,11 +1950,13 @@ NB: The desugarer needs be more clever to deal with equalities
 
 data LookupInstResult
   = NoInstance
-  | GenInst [CtEvidence] EvTerm
+  | GenInst { lir_new_theta :: [CtEvidence]
+            , lir_pred      :: PredType
+            , lir_ev_term   :: EvTerm }
 
 instance Outputable LookupInstResult where
   ppr NoInstance = text "NoInstance"
-  ppr (GenInst ev t) = text "GenInst" <+> ppr ev <+> ppr t
+  ppr (GenInst ev pr t) = text "GenInst" <+> ppr ev $$ ppr pr $$ ppr t
 
 
 matchClassInst :: InertSet -> Class -> [Type] -> CtLoc -> TcS LookupInstResult
@@ -1981,7 +1990,10 @@ matchClassInst _ clas [ ty ] _
                       $ idType meth         -- forall n. KnownNat n => SNat n
     , Just (_, co_rep) <- tcInstNewTyCon_maybe tcRep [ty]
           -- SNat n ~ Integer
-    = return (GenInst [] $ mkEvCast (EvLit evLit) (mkTcSymCo (mkTcTransCo co_dict co_rep)))
+    = return (GenInst { lir_new_theta = []
+                      , lir_pred      = mkClassPred clas [ty]
+                      , lir_ev_term   = mkEvCast (EvLit evLit) $
+                                        mkTcSymCo (mkTcTransCo co_dict co_rep) })
 
     | otherwise
     = panicTcS (text "Unexpected evidence for" <+> ppr (className clas)
@@ -2033,15 +2045,19 @@ matchClassInst inerts clas tys loc
      match_one dfun_id mb_inst_tys
        = do { checkWellStagedDFun pred dfun_id loc
             ; (tys, dfun_phi) <- instDFunType dfun_id mb_inst_tys
-            ; let (theta, _) = tcSplitPhiTy dfun_phi
+            ; let (theta, inst_head) = tcSplitPhiTy dfun_phi
             ; if null theta then
-                  return (GenInst [] (EvDFunApp dfun_id tys []))
+                  return (GenInst { lir_new_theta = []
+                                  , lir_pred      = inst_head
+                                  , lir_ev_term   = EvDFunApp dfun_id tys [] })
               else do
             { mb_evc_vars <- instDFunConstraints loc theta
             ; let new_ev_vars = freshGoals mb_evc_vars
                       -- new_ev_vars are only the real new variables that can be emitted
                   dfun_app = EvDFunApp dfun_id tys (map getEvTerm mb_evc_vars)
-            ; return $ GenInst new_ev_vars dfun_app } }
+            ; return $ GenInst { lir_new_theta = new_ev_vars
+                               , lir_pred      = inst_head
+                               , lir_ev_term   = dfun_app } } }
 
      givens_for_this_clas :: Cts
      givens_for_this_clas

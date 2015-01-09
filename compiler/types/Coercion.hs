@@ -101,7 +101,8 @@ module Coercion (
         tidyCo, tidyCos,
 
         -- * Other
-        applyCo, promoteCoercion, mkGADTVars, buildCoherenceCo
+        applyCo, promoteCoercion, mkGADTVars,
+        buildCoherenceCo, buildCoherenceCoArg
        ) where 
 
 #include "HsVersions.h"
@@ -2270,22 +2271,25 @@ mkGADTVars tmpl_tvs dc_tvs subst
 %************************************************************************
 -}
 
--- | Finds a representational coercion between two types, assuming that the
+-- | Finds a nominal coercion between two types, assuming that the
 -- erased version of those types are equal. Panics otherwise.
 buildCoherenceCo :: Type -> Type -> Coercion
 buildCoherenceCo orig_ty1 orig_ty2
-  = mkSubCo $
-    go (mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes [orig_ty1, orig_ty2])))
-       orig_ty1 orig_ty2
+  = build_coherence_co
+      (mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes [orig_ty1, orig_ty2])))
+      orig_ty1 orig_ty2
+
+build_coherence_co :: RnEnv2 -> Type -> Type -> Coercion
+build_coherence_co = go
   where
     go env (TyVarTy tv1) (TyVarTy tv2)
       = ASSERT( rnOccL env tv1 == rnOccR env tv2 )
         mkReflCo Nominal (mkOnlyTyVarTy $ rnOccL env tv1)
     go env (AppTy tyl1 tyr1) (AppTy tyl2 tyr2)
-      = mkAppCo (go env tyl1 tyl2) (go_arg env tyr1 tyr2)
+      = mkAppCo (go env tyl1 tyl2) (build_coherence_co_arg env tyr1 tyr2)
     go env (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       = ASSERT( tc1 == tc2 )
-        mkTyConAppCo Nominal tc1 (zipWith (go_arg env) tys1 tys2)
+        mkTyConAppCo Nominal tc1 (zipWith (build_coherence_co_arg env) tys1 tys2)
     go env (ForAllTy (Anon arg1) res1) (ForAllTy (Anon arg2) res2)
       = mkFunCo Nominal (go env arg1 arg2) (go env res1 res2)
     go env (ForAllTy (Named tv1 _) ty1) (ForAllTy (Named tv2 _) ty2)
@@ -2295,16 +2299,11 @@ buildCoherenceCo orig_ty1 orig_ty2
       = ASSERT( lit1 == lit2 )
         mkReflCo Nominal (LitTy lit1)
     go env (CastTy ty1 co1) ty2
-      = mkCoherenceLeftCo (go env ty1 ty2) (rename rnEnvL env co1)
+      = mkCoherenceLeftCo (go env ty1 ty2) (rename_co rnEnvL env co1)
     go env ty1 (CastTy ty2 co2)
-      = mkCoherenceRightCo (go env ty1 ty2) (rename rnEnvR env co2)
+      = mkCoherenceRightCo (go env ty1 ty2) (rename_co rnEnvR env co2)
 
     go _ _ _ = panic "buildCoherenceCo"
-
-    go_arg env (CoercionTy co1) (CoercionTy co2)
-      = mkCoCoArg Nominal (rename rnEnvL env co1) (rename rnEnvR env co2)
-    go_arg env ty1 ty2
-      = mkTyCoArg (go env ty1 ty2)
 
     go_bndr env tv1 tv2
       | k1 `eqType` k2 = let (env', tv') = rnBndr2_var env tv1 tv2 in
@@ -2329,11 +2328,25 @@ buildCoherenceCo orig_ty1 orig_ty2
         k2  = tyVarKind tv2
         eta = go env k1 k2
 
-    rename :: (RnEnv2 -> VarEnv Var) -> RnEnv2 -> Coercion -> Coercion
-    rename getvars env = substCo subst
-      where varenv = getvars env
-            (ty_env, co_env) = partitionVarEnv isTyVar varenv
-            tv_subst_env = mapVarEnv mkOnlyTyVarTy ty_env
-            cv_subst_env = mapVarEnv mkCoVarCo     co_env
+buildCoherenceCoArg :: Type -> Type -> CoercionArg
+buildCoherenceCoArg orig_ty1 orig_ty2
+  = build_coherence_co_arg
+      (mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes [orig_ty1, orig_ty2])))
+      orig_ty1 orig_ty2
 
-            subst = mkTCvSubst (rnInScopeSet env) (tv_subst_env, cv_subst_env)
+build_coherence_co_arg :: RnEnv2 -> Type -> Type -> CoercionArg
+build_coherence_co_arg = go_arg
+  where
+    go_arg env (CoercionTy co1) (CoercionTy co2)
+      = mkCoCoArg Nominal (rename_co rnEnvL env co1) (rename_co rnEnvR env co2)
+    go_arg env ty1 ty2
+      = mkTyCoArg (build_coherence_co env ty1 ty2)
+
+rename_co :: (RnEnv2 -> VarEnv Var) -> RnEnv2 -> Coercion -> Coercion
+rename_co getvars env = substCo subst
+  where varenv = getvars env
+        (ty_env, co_env) = partitionVarEnv isTyVar varenv
+        tv_subst_env = mapVarEnv mkOnlyTyVarTy ty_env
+        cv_subst_env = mapVarEnv mkCoVarCo     co_env
+
+        subst = mkTCvSubst (rnInScopeSet env) (tv_subst_env, cv_subst_env)

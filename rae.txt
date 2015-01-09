@@ -1,4 +1,8 @@
 stack:
+
+- relax tcMatchTys, tcUnifyTys to ignore casts. URGH!
+   --> and, in the process, unify all three unification algorithms (!)
+
 - do we need WpEvPrimApp?
 
 - examine extractDataDefnKindVars. Why use FreeKiTyVars? Should just be one pile, I think.
@@ -7,7 +11,9 @@ stack:
 
 - search for "get the boxity right"
 
-- fix the kind check in TcUnify.
+- fix the kind check in TcUnify. (just one last function!)
+
+- reduceTyFamApp_maybe should really use erased types intelligently.
 
 fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
@@ -40,6 +46,7 @@ changed from a proper arg to an existential covar arg. Does this matter?
 (Other uses of dataConRepArgTys are OK.)
 
 fix:
+  - liftSimply --> mkReflCoArg (if we keep coargs!)
   - do we need to annotate kind variables to have a proper CUSK? I think so.
     Here is Doel's example from Hac Phi of this problem at the term level:
 
@@ -53,6 +60,8 @@ fix:
        foo = T (Proxy :: Proxy Maybe) 1.0
 
   - should check to make sure a coercion isn't bound in a recursive let (!)
+  - after DeriveAnyClass is fixed (#9968), make sure that the use of looser
+    tcUnifyTys in deriveTyData isn't causing problems.
   - the count_bndrs nonsense in tcTyClDecl1 is terrible. It won't allow synonyms or
     anything interesting to the right of a :: in a GADT-style data def'n. There's got
     to be a better way! (Worse, it will just do the wrong thing if someone tries to

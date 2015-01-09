@@ -1624,7 +1624,7 @@ extendFlatCache tc xi_args stuff
 
 instDFunType :: DFunId -> [DFunInstType] -> TcS ([TcType], TcType)
 instDFunType dfun_id mb_inst_tys
-  = wrapTcS $ go dfun_tvs mb_inst_tys (mkTopTCvSubst [])
+  = wrapTcS $ go dfun_tvs mb_inst_tys emptyTCvSubst
   where
     (dfun_tvs, dfun_phi) = tcSplitNamedForAllTys (idType dfun_id)
 

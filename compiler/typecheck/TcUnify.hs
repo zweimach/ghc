@@ -1247,8 +1247,7 @@ checkExpectedKind ty act_kind exp_kind
       ; let origin = TypeEqOrigin { uo_actual   = act_kind'
                                   , uo_expected = exp_kind }
       ; co_k <- uType origin act_kind' exp_kind
-      ; let result_ty | isReflCo co_k = ty'
-                      | otherwise     = ty' `mkCastTy` mkSubCo co_k
+      ; let result_ty = ty' `mkCastTyOrRefl` mkSubCo co_k
       ; return result_ty }
   where
     -- we need to make sure that both kinds have the same number of implicit

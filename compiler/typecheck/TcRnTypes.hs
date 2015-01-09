@@ -58,7 +58,7 @@ module TcRnTypes(
         mkNonCanonical, mkNonCanonicalCt,
         ctEvPred, ctEvLoc, ctEvEqRel,
         ctEvTerm, ctEvCoercion, ctEvId, ctEvCheckDepth,
-        ctEvCoherence,
+        ctEvCoherence, evTermCoherence,
         tyCoVarsOfCt, tyCoVarsOfCts,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
@@ -1666,15 +1666,16 @@ isDerived _              = False
 -- match that of @ty2@. This is useful after an inert lookup via erased types.
 -- See also Note [Use erased types in inert set] in TcSMonad.
 ctEvCoherence :: CtEvidence -> TcPredType -> EvTerm
-ctEvCoherence from_this solve_pred
+ctEvCoherence from_this = evTermCoherence (ctEvPred from_this) (ctEvTerm from_this)
+
+-- | Like 'ctEvCoherence', but with arguments split out of a 'CtEvidence'
+evTermCoherence :: PredType -> EvTerm -> TcPredType -> EvTerm
+evTermCoherence from_pred from_term solve_pred
   | from_pred `eqType` solve_pred
   = from_term
 
   | otherwise
-  = EvCast from_term (mkTcCoercion (buildCoherenceCo from_pred solve_pred))
-  where
-    from_pred = ctEvPred from_this
-    from_term = ctEvTerm from_this
+  = EvCast from_term (mkTcSubCo $ mkTcCoercion $ buildCoherenceCo from_pred solve_pred)
 
 {-
 %************************************************************************

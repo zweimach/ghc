@@ -43,7 +43,7 @@ module Type (
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
 
-        mkCastTy, splitCastTy_maybe, mkCoercionTy,
+        mkCastTy, mkCastTyOrRefl, splitCastTy_maybe, mkCoercionTy,
 
         coAxNthLHS,
         stripCoercionTy, splitCoercionType_maybe,
@@ -147,7 +147,7 @@ module Type (
 
         -- * Erased types
         ErasedType(ErasedType),   -- some friends need the representation
-        eraseType, eraseTypes,
+        eraseType, eraseTypes, eqErasedType, eqTypeErased,
 
         -- * Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTyThingCategory, pprTyThing,
@@ -202,6 +202,7 @@ import Data.List        ( partition, sortBy )
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
+import Data.Function    ( on )
 
 -- $type_classification
 -- #type_classification#
@@ -690,11 +691,22 @@ A casted type has its *kind* casted into something new.
 Why not ignore Refl coercions? See Note [Optimising Refl] in OptCoercion.
 -}
 
--- | Make a `CastTy`. The Coercion must be representational.
+-- | Make a 'CastTy'. The Coercion must be representational.
 mkCastTy :: Type -> Coercion -> Type
 mkCastTy = CastTy
 
+-- | Make a 'CastTy', unless the coercion is reflexive, in which
+-- case it's omitted. Note that (ty |> <xxx>) is distinct from
+-- ty!
+mkCastTyOrRefl :: Type -> Coercion -> Type
+mkCastTyOrRefl ty co
+  | isReflCo co
+  = ty
+  | otherwise
+  = mkCastTy ty co
+
 splitCastTy_maybe :: Type -> Maybe (Type, Coercion)
+splitCastTy_maybe ty | Just ty' <- coreView ty = splitCastTy_maybe ty'
 splitCastTy_maybe (CastTy ty co) = Just (ty, co)
 splitCastTy_maybe _              = Nothing
 
@@ -1845,9 +1857,11 @@ of operations on ErasedTypes. For example, typeKind would be disastrous.
 -- are replaced with 'bulletCo'.
 newtype ErasedType = ErasedType Type
 
+-- | Erase all coercions and casts from a type
 eraseType :: Type -> ErasedType
 eraseType = ErasedType . go
   where
+    go ty | Just ty' <- coreView ty = go ty'
     go (TyVarTy tv)       = TyVarTy (updateTyVarKind go tv)
     go (AppTy t1 t2)      = AppTy (go t1) (go t2)
     go (TyConApp tc tys)  = TyConApp tc (map go tys)
@@ -1859,8 +1873,17 @@ eraseType = ErasedType . go
     go_bndr (Anon ty)     = Anon (go ty)
     go_bndr (Named v vis) = Named (updateTyVarKind go v) vis
 
+-- | Erase a list of types
 eraseTypes :: [Type] -> [ErasedType]
 eraseTypes = map eraseType
+
+-- | Compare two erased types for equality
+eqErasedType :: ErasedType -> ErasedType -> Bool
+eqErasedType (ErasedType ty1) (ErasedType ty2) = ty1 `eqType` ty2
+
+-- | Compare two types to see if their erased versions are equal
+eqTypeErased :: Type -> Type -> Bool
+eqTypeErased = eqErasedType `on` eraseType
 
 {-
 %************************************************************************

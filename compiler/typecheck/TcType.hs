@@ -22,6 +22,7 @@ module TcType (
   -- Types
   TcType, TcSigmaType, TcRhoType, TcTauType, TcPredType, TcThetaType,
   TcTyVar, TcTyVarSet, TcTyCoVarSet, TcKind, TcCoVar, TcTyCoVar,
+  TcErasedType,
 
   -- TcLevel
   TcLevel(..), topTcLevel, pushTcLevel,
@@ -62,12 +63,13 @@ module TcType (
   tcInstHeadTyNotSynonym, tcInstHeadTyAppAllTyVars,
   tcGetTyVar_maybe, tcGetTyCoVar_maybe, tcGetTyVar, nextRole,
   tcSplitSigmaTy, tcDeepSplitSigmaTy_maybe,
+  tcSplitCastTy_maybe,
 
   ---------------------------------
   -- Predicates.
   -- Again, newtypes are opaque
   eqType, eqTypes, eqPred, cmpType, cmpTypes, cmpPred, eqTypeX,
-  pickyEqType, tcEqType, tcEqKind,
+  pickyEqType, tcEqType, tcEqKind, tcEqErasedType, tcEqTypeErased,
   isSigmaTy, isRhoTy, isOverloadedTy,
   isDoubleTy, isFloatTy, isIntTy, isWordTy, isStringTy,
   isIntegerTy, isBoolTy, isUnitTy, isCharTy,
@@ -81,6 +83,7 @@ module TcType (
   orphNamesOfTypes, orphNamesOfCoCon,
   getDFunTyKey,
   evVarPred_maybe, evVarPred,
+  eraseType, eraseTypes,
 
   ---------------------------------
   -- Predicate types
@@ -185,6 +188,7 @@ import ErrUtils( Validity(..), isValid )
 
 import Data.IORef
 import Control.Monad (liftM, ap)
+import Data.Function (on)
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..))
 #endif
@@ -244,6 +248,8 @@ type TcTauType      = TcType
 type TcKind         = Kind
 type TcTyVarSet     = TyVarSet
 type TcTyCoVarSet   = TyCoVarSet
+
+type TcErasedType   = ErasedType
 
 {-
 Note [TcRhoType]
@@ -1139,6 +1145,12 @@ tcIsTyVarTy :: Type -> Bool
 tcIsTyVarTy ty = isJust (tcGetTyVar_maybe ty)
 
 -----------------------
+tcSplitCastTy_maybe :: TcType -> Maybe (TcType, Coercion)
+tcSplitCastTy_maybe ty | Just ty' <- tcView ty = tcSplitCastTy_maybe ty'
+tcSplitCastTy_maybe (CastTy ty co)             = Just (ty, co)
+tcSplitCastTy_maybe _                          = Nothing
+
+-----------------------
 tcSplitDFunTy :: Type -> ([TyCoVar], [Type], Class, [Type])
 -- Split the type of a dictionary function
 -- We don't use tcSplitSigmaTy,  because a DFun may (with NDP)
@@ -1354,6 +1366,14 @@ pickyEqType ty1 ty2
     go_args _   []             []              = True
     go_args env (a1:args1)     (a2:args2)      = go_arg env a1 a2 && go_args env args1 args2
     go_args _   _              _               = False
+
+-- | Compare two erased types for equality, using 'tcEqType'
+tcEqErasedType :: TcErasedType -> TcErasedType -> Bool
+tcEqErasedType (ErasedType ty1) (ErasedType ty2) = ty1 `tcEqType` ty2
+
+-- | Compare two 'TcType' to see if their erased versions equal
+tcEqTypeErased :: TcType -> TcType -> Bool
+tcEqTypeErased = tcEqErasedType `on` eraseType
 
 {-
 Note [Occurs check expansion]

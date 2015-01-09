@@ -10,9 +10,7 @@ module Unify (
         MatchEnv(..),
 
         tcMatchTy, tcMatchTys, tcMatchTyX, 
-        ruleMatchTyX, tcMatchPreds,
-
-        tcMatchCo, tcMatchCos, tcMatchCoX, ruleMatchCoX,
+        ruleMatchTyX,
 
         typesCantMatch,
 
@@ -127,11 +125,12 @@ tcMatch tmpls ty1 ty2
         -- We're assuming that all the interesting 
         -- tyvars in ty1 are in tmpls
 
+-- | @tcMatchTy tys t1 t2@ produces a substitution (over a subset of
+-- the variables @tys@) @s@ such that the erasure of @s(t1)@ equals
+-- the erasure of @t2@. Note that @s(t1)@ might /not/ equal @t2@!
+-- If you're concerned about this, check out 'Coercion.buildCoherenceCo'.
 tcMatchTy :: TyCoVarSet -> Type -> Type -> Maybe TCvSubst
 tcMatchTy = tcMatch
-
-tcMatchCo :: TyCoVarSet -> Coercion -> Coercion -> Maybe TCvSubst
-tcMatchCo = tcMatch
 
 tcMatches :: Unifiable t
           => TyCoVarSet     -- Template tyvars
@@ -150,11 +149,9 @@ tcMatches tmpls tys1 tys2
         -- We're assuming that all the interesting 
         -- tyvars in tys1 are in tmpls
 
+-- | Like 'tcMatchTy' but over a list of types.
 tcMatchTys :: TyCoVarSet -> [Type] -> [Type] -> Maybe TCvSubst
 tcMatchTys = tcMatches
-
-tcMatchCos :: TyCoVarSet -> [Coercion] -> [Coercion] -> Maybe TCvSubst
-tcMatchCos = tcMatches
 
 -- This is similar, but extends a substitution
 tcMatchX :: Unifiable t
@@ -176,16 +173,6 @@ tcMatchTyX = tcMatchX
 tcMatchCoX :: TyCoVarSet -> TCvSubst -> Coercion -> Coercion -> Maybe TCvSubst
 tcMatchCoX = tcMatchX
 
-tcMatchPreds
-        :: [TyVar]                      -- Bind these
-        -> [PredType] -> [PredType]
-        -> Maybe (TvSubstEnv, CvSubstEnv)
-tcMatchPreds tmpls ps1 ps2
-  = match_list menv emptyTvSubstEnv emptyCvSubstEnv ps1 ps2
-  where
-    menv = ME { me_tmpls = mkVarSet tmpls, me_env = mkRnEnv2 in_scope_tyvars }
-    in_scope_tyvars = mkInScopeSet (tyCoVarsOfTypes ps1 `unionVarSet` tyCoVarsOfTypes ps2)
-
 -- This one is called from the expression matcher, which already has a MatchEnv in hand
 ruleMatchTyX :: MatchEnv 
          -> TvSubstEnv          -- type substitution to extend
@@ -193,11 +180,16 @@ ruleMatchTyX :: MatchEnv
          -> Type                -- Template
          -> Type                -- Target
          -> Maybe (TvSubstEnv, CvSubstEnv)
-ruleMatchTyX = match
+ruleMatchTyX env tenv cenv tmpl target
+  | Just result <- match env tenv cenv tmpl target
+  , let subst = mkOpenTCvSubst tenv cenv
+  , substTy subst tmpl `eqType` target   -- we want exact matching here
+  = Just result
+     -- TODO (RAE): This should probably work with inexact matching too;
+     -- otherwise, various rules won't fire when they should
 
-ruleMatchCoX :: MatchEnv -> TvSubstEnv -> CvSubstEnv
-             -> Type -> Type -> Maybe (TvSubstEnv, CvSubstEnv)
-ruleMatchCoX = match
+  | otherwise
+  = Nothing
 
 -- Rename for export
 
@@ -205,7 +197,8 @@ ruleMatchCoX = match
 
 -- | Workhorse matching function.  Our goal is to find a substitution
 -- on all of the template variables (specified by @me_tmpls menv@) such
--- that @ty1@ and @ty2@ unify.  This substitution is accumulated in @subst@.
+-- that the erased versions of @ty1@ and @ty2@ match under the substituion.
+-- This substitution is accumulated in @subst@.
 -- If a variable is not a template variable, we don't attempt to find a
 -- substitution for it; it must match exactly on both sides.  Furthermore,
 -- only @ty1@ can have template variables.
@@ -220,7 +213,7 @@ match_ty :: MatchEnv    -- For the most part this is pushed downwards
          -> CvSubstEnv
          -> Type -> Type   -- Template and target respectively
          -> Maybe (TvSubstEnv, CvSubstEnv)
-
+-- TODO (RAE): Right now, this requires exact matching. Loosen.
 match_ty menv tsubst csubst ty1 ty2
   | Just ty1' <- coreView ty1 = match_ty menv tsubst csubst ty1' ty2
   | Just ty2' <- coreView ty2 = match_ty menv tsubst csubst ty1 ty2'
@@ -791,7 +784,10 @@ tcUnifyTy t1 t2 = tcUnifyTys (const BindMe) [t1] [t2]
 -----------------
 tcUnifyTys :: (TyCoVar -> BindFlag)
            -> [Type] -> [Type]
-           -> Maybe TCvSubst    -- A regular one-shot (idempotent) substitution
+           -> Maybe TCvSubst    -- ^ A regular one-shot (idempotent) substitution
+                                -- that unifies the erased types. See comments
+                                -- for 'tcUnifyTysFG'
+              
 -- The two types may have common type variables, and indeed do so in the
 -- second call to tcUnifyTys in FunDeps.checkClsFD
 tcUnifyTys bind_fn tys1 tys2
@@ -808,7 +804,11 @@ data UnifyResultM a = Unifiable a        -- the subst that unifies the types
                                          -- See Note [The substitution in MaybeApart]
                     | SurelyApart
 
--- See Note [Fine-grained unification]
+-- | @tcUnifyTysFG bind_tv tys1 tys2@ attepts to find a substitution @s@ (whose
+-- domain elements all respond 'BindMe' to @bind_tv@) such that the erasure of
+-- @s(tys1)@ and that of @s(tys2)@ are equal. If we want the types themselves
+-- to be equal, see 'Coercion.buildCoherenceCo' for a way forward.
+-- See also Note [Fine-grained unification].
 tcUnifyTysFG :: (TyCoVar -> BindFlag)
              -> [Type] -> [Type]
              -> UnifyResult
@@ -960,6 +960,7 @@ If this succeeds, we fail with MaybeApart. Once again, the types aren't apart, b
 we can't say NotApart when the types don't unify.
 -}
 
+-- TODO (RAE): Currently, requires an exact match. Relax to respect erasure.
 unify_ty :: Type -> Type   -- Types to be unified
          -> UM ()
 -- We do not require the incoming substitution to be idempotent,
