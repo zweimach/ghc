@@ -1881,7 +1881,8 @@ substCoVarBndrCallback sym subst_fun subst@(TCvSubst in_scope tenv cenv) old_var
     -- In that case, mkCoVarCo will return a ReflCoercion, and
     -- we want to substitute that (not new_var) for old_var
     new_co    = mkCoVarCo new_var
-    no_change = new_var == old_var && not (isReflCo new_co)
+    no_kind_change = isEmptyVarSet (tyCoVarsOfTypes [t1, t2])
+    no_change = new_var == old_var && not (isReflCo new_co) && no_kind_change
 
     new_cenv | no_change = delVarEnv cenv old_var
              | otherwise = extendVarEnv cenv old_var new_co
