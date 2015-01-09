@@ -119,7 +119,7 @@ coreAltType (_,bs,rhs)
   | otherwise         = ty    -- Note [Existential variables and silly type synonyms]
   where
     ty           = exprType rhs
-    free_tvs     = tyCoVarsOfType ty
+    free_tvs     = closeOverKinds (tyCoVarsOfType ty)
     bad_binder b = b `elemVarSet` free_tvs
 
 coreAltsType :: [CoreAlt] -> Type
