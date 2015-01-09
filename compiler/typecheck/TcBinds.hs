@@ -602,8 +602,7 @@ tcPolyInfer
   -> [LHsBind Name]
   -> TcM (LHsBinds TcId, [TcId], TopLevelFlag)
 tcPolyInfer rec_tc prag_fn tc_sig_fn mono closed bind_list
-  = do { traceTc "RAE tcPolyInfer" empty
-       ; (((binds', mono_infos), tclvl), wanted)
+  = do { (((binds', mono_infos), tclvl), wanted)
              <- captureConstraints  $
                 captureTcLevel      $
                 tcMonoBinds rec_tc tc_sig_fn LetLclBndr bind_list
@@ -1152,9 +1151,7 @@ tcMonoBinds is_rec sig_fn no_gen
                   [(name, Nothing, mono_id)]) }
 
 tcMonoBinds _ sig_fn no_gen binds
-  = do  { traceTc "RAE tcMonoBinds" empty
-        ; tc_binds <- mapM (wrapLocM (tcLhs sig_fn no_gen)) binds
-        ; traceTc "RAE tcMonoBinds 2" empty
+  = do  { tc_binds <- mapM (wrapLocM (tcLhs sig_fn no_gen)) binds
 
         -- Bring the monomorphic Ids, into scope for the RHSs
         ; let mono_info  = getMonoBindInfo tc_binds

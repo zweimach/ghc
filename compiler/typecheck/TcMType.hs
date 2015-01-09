@@ -609,14 +609,12 @@ quantifyTyCoVars' :: TcTyCoVarSet   -- globals
 quantifyTyCoVars' gbl_tvs tkvs all_kind_vars
   = do { tkvs    <- zonkTyCoVarsAndFV tkvs
        ; gbl_tvs <- zonkTyCoVarsAndFV gbl_tvs
-       ; traceTc "RAEx0" (ppr tkvs $$ ppr gbl_tvs $$ ppr (map tyVarKind $ varSetElems tkvs) $$ ppr (map tyVarKind $ varSetElems gbl_tvs))
-       ; let all_tvs = gbl_tvs `unionVarSet` tkvs
-             dep_var_set
+       ; let dep_var_set
                = if all_kind_vars
                  then tkvs `minusVarSet` gbl_tvs
                  else closeOverKinds (unionVarSets $
                                       map (tyCoVarsOfType . tyVarKind) $
-                                      varSetElems all_tvs)
+                                      varSetElems tkvs)
                       `minusVarSet` gbl_tvs
              nondep_var_set = tkvs `minusVarSet` dep_var_set `minusVarSet` gbl_tvs
              no_covars      = filterVarSet (not . isCoVar)
@@ -634,12 +632,10 @@ quantifyTyCoVars' gbl_tvs tkvs all_kind_vars
                       then return dep_vars
                       else do { let (meta_kvs, skolem_kvs) = partition is_meta dep_vars
                                     is_meta kv = isTcTyVar kv && isMetaTyVar kv
-
-                              ; traceTc "RAEx1" (ppr meta_kvs $$ ppr skolem_kvs)
+                              
                               ; mapM_ defaultKindVar meta_kvs
                               ; return skolem_kvs }  -- should be empty
 
-       ; traceTc "RAEx2" (ppr dep_vars2 $$ ppr nondep_vars)
        ; mapMaybeM zonk_quant (dep_vars2 ++ nondep_vars) }
            -- Because of the order, any kind variables
            -- mentioned in the kinds of the type variables refer to
