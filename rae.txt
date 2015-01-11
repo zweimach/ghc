@@ -1,4 +1,5 @@
 stack:
+  - shouldn't we *always* want closeOverKinds???  YES!!
 
 - relax tcMatchTys, tcUnifyTys to ignore casts. URGH!
    --> and, in the process, unify all three unification algorithms (!)
@@ -68,7 +69,6 @@ fix:
     put something sneaky there.)
   - add CoreLint checks for levity polymorphism used the right way. But, what exactly
     is the right way??
-  - shouldn't we *always* want closeOverKinds???
   - need an -fprint-explicit-coercions, which is off by default.
   - homogeniseRhsKind should probably request representational coercions:
       Say we had [W]: (t :: k1) ~ (s :: k2). This was homogenized to
@@ -121,7 +121,6 @@ fix:
   - tcSkolDFunType is used in tcInstDecl2 in a way that seems incompatible with coercions
     appearing in dictionary types. Fix? In particular, look at uses of mkWpTyApps, which
     can't deal with coercions.
-  - review canEqCast, homogeniseRhsKind in TcCanonical
   - changed newSigTyVar *not* to make a new unique. OK? This is necessary because
     we need to be able to match up undeclared (but user-written) kind variables
     before and after kind-checking.
@@ -207,9 +206,6 @@ lack of type-level lambdas.
 - instance (Typeable s, Typeable a) => Typeable (s a) now needs UndecidableInstances
 because of the appearance of a repeated kind variable on the left of the arrow.
 This actually looks legit.
-
-- (~) is declared, by fiat, in GHC to have kind forall k. k -> k -> Constraint.
-But, its inferred kind in GHC.Types is different. Huh?
 
 - Some interesting stuff is in TcHsType.splitTelescopeTvs, in particular see
 Note [Typechecking telescopes].
