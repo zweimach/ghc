@@ -2,7 +2,7 @@
 
 {-# LANGUAGE CPP #-}
 
-module OptCoercion ( optCoercion, optType, checkAxInstCo ) where 
+module OptCoercion ( optCoercion, checkAxInstCo ) where 
 
 #include "HsVersions.h"
 
@@ -132,26 +132,29 @@ optCoercion :: TCvSubst -> Coercion -> NormalCo
 --   *and* optimises it to reduce its size
 optCoercion env co 
   | opt_NoOptCoercion = substCo env co
+  | debugIsOn         = let out_co = opt_co1 env False co
+                            Pair in_ty1  in_ty2  = coercionKind co
+                            Pair out_ty1 out_ty2 = coercionKind out_co
+                        in
+                        ASSERT2( substTy env in_ty1 `eqType` out_ty1 &&
+                                 substTy env in_ty2 `eqType` out_ty2
+                               , text "optCoercion changed types!"
+                              $$ text "in_co:" <+> ppr co
+                              $$ text "in_ty1:" <+> ppr in_ty1
+                              $$ text "in_ty2:" <+> ppr in_ty2
+                              $$ text "out_co:" <+> ppr out_co
+                              $$ text "out_ty1:" <+> ppr out_ty1
+                              $$ text "out_ty2:" <+> ppr out_ty2
+                              $$ text "subst:" <+> ppr env )
+                        pprTrace "RAE-optCo" (vcat [ ppr co
+                                                   , ppr in_ty1
+                                                   , ppr in_ty2
+                                                   , ppr out_co
+                                                   , ppr out_ty1
+                                                   , ppr out_ty2
+                                                   , ppr env ]) $
+                        out_co
   | otherwise         = opt_co1 env False co
-
-optType :: TCvSubst -> Type -> Type
--- ^ optType applies a substitution to a type
--- *and* optimises any coercions therein
-optType subst = go
-  where
-    go (TyVarTy tv)         = substTyVar subst tv
-    go (AppTy fun arg)      = mkAppTy (go fun) $! (go arg)
-    go (TyConApp tc tys)    = let args = map go tys
-                              in  args `seqList` TyConApp tc args
-    go (ForAllTy (Anon arg) res)
-                            = (mkFunTy $! (go arg)) $! (go res)
-    go (ForAllTy (Named tv vis) ty)
-                            = case optTyVarBndr subst tv of
-                              (subst', tv') ->
-                                mkNamedForAllTy tv' vis $! (optType subst' ty)
-    go (LitTy n)            = LitTy $! n
-    go (CastTy ty co)       = (CastTy $! (go ty)) $! (optCoercion subst co)
-    go (CoercionTy co)      = CoercionTy $! (optCoercion subst co)
 
 type NormalCo    = Coercion
 type NormalCoArg = CoercionArg
@@ -253,7 +256,7 @@ opt_co4 env _   rep r (Refl _r ty)
   = ASSERT2( r == _r, text "Expected role:" <+> ppr r $$
                       text "Found role:" <+> ppr _r   $$
                       text "Type:" <+> ppr ty )
-    Refl (chooseRole rep r) (optType env ty)
+    Refl (chooseRole rep r) (substTy env ty)
 
 opt_co4 env sym rep r (SymCo co)  = opt_co4_wrap env (not sym) rep r co
 
@@ -319,12 +322,12 @@ opt_co4 env sym _ r (PhantomCo h t1 t2)
     PhantomCo (opt_co4 env sym False Representational h) a' b'
   where
     (a, b) = if sym then (t2, t1) else (t1, t2)
-    a' = optType env a
-    b' = optType env b
+    a' = substTy env a
+    b' = substTy env b
 
 opt_co4 env sym rep r (UnsafeCo s _r oty1 oty2)
   = ASSERT( r == _r )
-    opt_unsafe env s (chooseRole rep r) (optType env a) (optType env b)
+    opt_unsafe env s (chooseRole rep r) (substTy env a) (substTy env b)
   where
     (a,b) = if sym then (oty2,oty1) else (oty1,oty2)
 
@@ -514,8 +517,8 @@ opt_unsafe env prov role oty1 oty2
         k2 = tyVarKind tv2
   = if k1 `eqType` k2
     then case substTyCoVarBndr2 env tv1 tv2 of { (env1, env2, tv') ->
-         let ty1' = optType env1 ty1
-             ty2' = optType env2 ty2 in
+         let ty1' = substTy env1 ty1
+             ty2' = substTy env2 ty2 in
          mkForAllCo (mkHomoCoBndr tv')
                     (opt_unsafe (zapTCvSubstEnv2 env1 env2) prov role ty1' ty2') }
     else let eta = opt_unsafe env prov role k1 k2
@@ -1162,13 +1165,11 @@ and these two imply
 
 -}
 
--- substitution functions that call back to optimization functions
-optTyVarBndr :: TCvSubst -> TyVar -> (TCvSubst, TyVar)
-optTyVarBndr = substTyVarBndrCallback optType
-
+-- TODO (RAE): I think the "callback" nature of these functions can be changed,
+-- now that we've lost optType
 optForAllCoBndr :: TCvSubst -> Bool -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
 optForAllCoBndr env sym
-  = substForAllCoBndrCallback sym optType
+  = substForAllCoBndrCallback sym substTy
                               (\sym' env' -> opt_co1 env' sym') env
                               -- TODO (RAE): Could this be optimized?
 
