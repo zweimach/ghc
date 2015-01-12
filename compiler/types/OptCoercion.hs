@@ -136,10 +136,6 @@ optCoercion env co
                             Pair in_ty1  in_ty2  = coercionKind co
                             Pair out_ty1 out_ty2 = coercionKind out_co
                         in
-                        pprTrace "RAE-optCo-before" ( hang (text "in_co:") 2 (ppr co)
-                                                      $$ hang (text "in_ty1:") 2 (ppr in_ty1)
-                                                      $$ hang (text "in_ty2:") 2 (ppr in_ty2)
-                                                      $$ hang (text "subst:") 2 (ppr env) ) $
                         ASSERT2( substTy env in_ty1 `eqType` out_ty1 &&
                                  substTy env in_ty2 `eqType` out_ty2
                                , text "optCoercion changed types!"
@@ -150,9 +146,6 @@ optCoercion env co
                               $$ hang (text "out_ty1:") 2 (ppr out_ty1)
                               $$ hang (text "out_ty2:") 2 (ppr out_ty2)
                               $$ hang (text "subst:") 2 (ppr env) )
-                        pprTrace "RAE-optCo" ( hang (text "out_co:") 2 (ppr out_co)
-                                               $$ hang (text "out_ty1:") 2 (ppr out_ty1)
-                                               $$ hang (text "out_ty2:") 2 (ppr out_ty2) ) $
                         out_co
   | otherwise         = opt_co1 env False co
 
