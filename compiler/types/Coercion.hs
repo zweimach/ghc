@@ -755,9 +755,9 @@ mkTransCo :: Coercion -> Coercion -> Coercion
 mkTransCo co1 co2
   | Pair s1 _s2 <- coercionKind co1
   , Pair _t1 t2 <- coercionKind co2
-  , s1 `eqType` t2
-  = ASSERT2( _s2 `eqType` _t1, ppr co1 $$ ppr s1 $$ ppr _s2 $$ ppr co2 $$ ppr _t1 $$ ppr t2 )
-    Refl (coercionRole co1) s1
+  , ASSERT2( _s2 `eqType` _t1, ppr co1 $$ ppr s1 $$ ppr _s2 $$ ppr co2 $$ ppr _t1 $$ ppr t2 )
+    s1 `eqType` t2
+  = Refl (coercionRole co1) s1
 mkTransCo co1 co2     = TransCo co1 co2
 
 -- the Role is the desired one. It is the caller's responsibility to make

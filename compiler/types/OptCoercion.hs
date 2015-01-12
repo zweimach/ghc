@@ -136,23 +136,23 @@ optCoercion env co
                             Pair in_ty1  in_ty2  = coercionKind co
                             Pair out_ty1 out_ty2 = coercionKind out_co
                         in
+                        pprTrace "RAE-optCo-before" ( hang (text "in_co:") 2 (ppr co)
+                                                      $$ hang (text "in_ty1:") 2 (ppr in_ty1)
+                                                      $$ hang (text "in_ty2:") 2 (ppr in_ty2)
+                                                      $$ hang (text "subst:") 2 (ppr env) ) $
                         ASSERT2( substTy env in_ty1 `eqType` out_ty1 &&
                                  substTy env in_ty2 `eqType` out_ty2
                                , text "optCoercion changed types!"
-                              $$ text "in_co:" <+> ppr co
-                              $$ text "in_ty1:" <+> ppr in_ty1
-                              $$ text "in_ty2:" <+> ppr in_ty2
-                              $$ text "out_co:" <+> ppr out_co
-                              $$ text "out_ty1:" <+> ppr out_ty1
-                              $$ text "out_ty2:" <+> ppr out_ty2
-                              $$ text "subst:" <+> ppr env )
-                        pprTrace "RAE-optCo" (vcat [ ppr co
-                                                   , ppr in_ty1
-                                                   , ppr in_ty2
-                                                   , ppr out_co
-                                                   , ppr out_ty1
-                                                   , ppr out_ty2
-                                                   , ppr env ]) $
+                              $$ hang (text "in_co:") 2 (ppr co)
+                              $$ hang (text "in_ty1:") 2 (ppr in_ty1)
+                              $$ hang (text "in_ty2:") 2 (ppr in_ty2)
+                              $$ hang (text "out_co:") 2 (ppr out_co)
+                              $$ hang (text "out_ty1:") 2 (ppr out_ty1)
+                              $$ hang (text "out_ty2:") 2 (ppr out_ty2)
+                              $$ hang (text "subst:") 2 (ppr env) )
+                        pprTrace "RAE-optCo" ( hang (text "out_co:") 2 (ppr out_co)
+                                               $$ hang (text "out_ty1:") 2 (ppr out_ty1)
+                                               $$ hang (text "out_ty2:") 2 (ppr out_ty2) ) $
                         out_co
   | otherwise         = opt_co1 env False co
 
@@ -1050,11 +1050,10 @@ isCohLeft_maybe :: Coercion -> Maybe (Coercion, Coercion)
 isCohLeft_maybe (CoherenceCo co1 co2) = Just (co1, co2)
 isCohLeft_maybe _                     = Nothing
 
--- destruct a (sym (co1 |> co2)). Note that you probably want to work with
--- sym co1, not co1 directly.
+-- destruct a (sym (co1 |> co2)).
 -- if isCohRight_maybe co = Just (co1, co2), then (sym co1) `mkCohRightCo` co2 = co
 isCohRight_maybe :: Coercion -> Maybe (Coercion, Coercion)
-isCohRight_maybe (SymCo (CoherenceCo co1 co2)) = Just (co1, co2)
+isCohRight_maybe (SymCo (CoherenceCo co1 co2)) = Just (mkSymCo co1, co2)
 isCohRight_maybe _                             = Nothing
 
 -------------
