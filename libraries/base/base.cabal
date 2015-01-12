@@ -154,7 +154,6 @@ Library
         Data.List
         Data.Maybe
         Data.Monoid
-        Data.OldList
         Data.Ord
         Data.Proxy
         Data.Ratio
@@ -171,6 +170,7 @@ Library
         Data.Typeable.Internal
         Data.Unique
         Data.Version
+        Data.Void
         Data.Word
         Debug.Trace
         Foreign
@@ -245,6 +245,7 @@ Library
         GHC.Int
         GHC.List
         GHC.MVar
+        GHC.Natural
         GHC.Num
         GHC.PArr
         GHC.Pack
@@ -252,7 +253,9 @@ Library
         GHC.Ptr
         GHC.Read
         GHC.Real
+        GHC.RTS.Flags
         GHC.ST
+        GHC.StaticPtr
         GHC.STRef
         GHC.Show
         GHC.Stable
@@ -265,6 +268,7 @@ Library
         GHC.Weak
         GHC.Word
         Numeric
+        Numeric.Natural
         Prelude
         System.CPUTime
         System.Console.GetOpt
@@ -292,6 +296,7 @@ Library
     other-modules:
         Control.Monad.ST.Imp
         Control.Monad.ST.Lazy.Imp
+        Data.OldList
         Foreign.ForeignPtr.Imp
         System.Environment.ExecutablePath
 
@@ -306,6 +311,7 @@ Library
         cbits/inputReady.c
         cbits/md5.c
         cbits/primFloat.c
+        cbits/rts.c
         cbits/sysconf.c
 
     include-dirs: include

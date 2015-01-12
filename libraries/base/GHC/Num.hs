@@ -1,6 +1,7 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE NoImplicitPrelude, MagicHash, UnboxedTuples #-}
 {-# OPTIONS_HADDOCK hide #-}
+
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  GHC.Num
@@ -15,7 +16,12 @@
 --
 -----------------------------------------------------------------------------
 
-module GHC.Num (module GHC.Num, module GHC.Integer) where
+module GHC.Num
+     (
+       module GHC.Integer
+     , Num(..)
+     , subtract
+     ) where
 
 import GHC.Base
 import GHC.Integer

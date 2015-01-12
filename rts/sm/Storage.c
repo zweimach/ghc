@@ -55,6 +55,8 @@ generation *g0          = NULL; /* generation 0, for convenience */
 generation *oldest_gen  = NULL; /* oldest generation, for convenience */
 
 nursery *nurseries = NULL;     /* array of nurseries, size == n_capabilities */
+nat n_nurseries;
+volatile StgWord next_nursery = 0;
 
 #ifdef THREADED_RTS
 /*
@@ -65,6 +67,7 @@ Mutex sm_mutex;
 #endif
 
 static void allocNurseries (nat from, nat to);
+static void assignNurseriesToCapabilities (nat from, nat to);
 
 static void
 initGeneration (generation *gen, int g)
@@ -190,6 +193,7 @@ initStorage (void)
 
   N = 0;
 
+  next_nursery = 0;
   storageAddCapabilities(0, n_capabilities);
 
   IF_DEBUG(gc, statDescribeGens());
@@ -206,13 +210,22 @@ initStorage (void)
 
 void storageAddCapabilities (nat from, nat to)
 {
-    nat n, g, i;
+    nat n, g, i, new_n_nurseries;
+
+    if (RtsFlags.GcFlags.nurseryChunkSize == 0) {
+        new_n_nurseries = to;
+    } else {
+        memcount total_alloc = to * RtsFlags.GcFlags.minAllocAreaSize;
+        new_n_nurseries =
+            stg_max(to, total_alloc / RtsFlags.GcFlags.nurseryChunkSize);
+    }
 
     if (from > 0) {
-        nurseries = stgReallocBytes(nurseries, to * sizeof(struct nursery_),
+        nurseries = stgReallocBytes(nurseries,
+                                    new_n_nurseries * sizeof(struct nursery_),
                                     "storageAddCapabilities");
     } else {
-        nurseries = stgMallocBytes(to * sizeof(struct nursery_),
+        nurseries = stgMallocBytes(new_n_nurseries * sizeof(struct nursery_),
                                    "storageAddCapabilities");
     }
 
@@ -228,7 +241,15 @@ void storageAddCapabilities (nat from, nat to)
      * don't want it to be a big one.  This vague idea is borne out by
      * rigorous experimental evidence.
      */
-    allocNurseries(from, to);
+    allocNurseries(n_nurseries, new_n_nurseries);
+    n_nurseries = new_n_nurseries;
+
+    /*
+     * Assign each of the new capabilities a nursery.  Remember to start from
+     * next_nursery, because we may have already consumed some of the earlier
+     * nurseries.
+     */
+    assignNurseriesToCapabilities(from,to);
 
     // allocate a block for each mut list
     for (n = from; n < to; n++) {
@@ -525,14 +546,26 @@ allocNursery (bdescr *tail, W_ blocks)
     return &bd[0];
 }
 
+STATIC_INLINE void
+assignNurseryToCapability (Capability *cap, nat n)
+{
+    cap->r.rNursery = &nurseries[n];
+    cap->r.rCurrentNursery = nurseries[n].blocks;
+    newNurseryBlock(nurseries[n].blocks);
+    cap->r.rCurrentAlloc   = NULL;
+}
+
+/*
+ * Give each Capability a nursery from the pool. No need to do atomic increments
+ * here, everything must be stopped to call this function.
+ */
 static void
 assignNurseriesToCapabilities (nat from, nat to)
 {
     nat i;
 
     for (i = from; i < to; i++) {
-        capabilities[i]->r.rCurrentNursery = nurseries[i].blocks;
-        capabilities[i]->r.rCurrentAlloc   = NULL;
+        assignNurseryToCapability(capabilities[i], next_nursery++);
     }
 }
 
@@ -540,34 +573,37 @@ static void
 allocNurseries (nat from, nat to)
 { 
     nat i;
+    memcount n_blocks;
+
+    if (RtsFlags.GcFlags.nurseryChunkSize) {
+        n_blocks = RtsFlags.GcFlags.nurseryChunkSize;
+    } else {
+        n_blocks = RtsFlags.GcFlags.minAllocAreaSize;
+    }
 
     for (i = from; i < to; i++) {
-        nurseries[i].blocks =
-            allocNursery(NULL, RtsFlags.GcFlags.minAllocAreaSize);
-        nurseries[i].n_blocks =
-            RtsFlags.GcFlags.minAllocAreaSize;
+        nurseries[i].blocks = allocNursery(NULL, n_blocks);
+        nurseries[i].n_blocks = n_blocks;
     }
-    assignNurseriesToCapabilities(from, to);
 }
       
 void
-clearNursery (Capability *cap)
-{
-    bdescr *bd;
-
-    for (bd = nurseries[cap->no].blocks; bd; bd = bd->link) {
-        cap->total_allocated += (W_)(bd->free - bd->start);
-        bd->free = bd->start;
-        ASSERT(bd->gen_no == 0);
-        ASSERT(bd->gen == g0);
-        IF_DEBUG(sanity,memset(bd->start, 0xaa, BLOCK_SIZE));
-    }
-}
-
-void
 resetNurseries (void)
 {
+    next_nursery = 0;
     assignNurseriesToCapabilities(0, n_capabilities);
+
+#ifdef DEBUG
+    bdescr *bd;
+    nat n;
+    for (n = 0; n < n_nurseries; n++) {
+        for (bd = nurseries[n].blocks; bd; bd = bd->link) {
+            ASSERT(bd->gen_no == 0);
+            ASSERT(bd->gen == g0);
+            IF_DEBUG(sanity, memset(bd->start, 0xaa, BLOCK_SIZE));
+        }
+    }
+#endif
 }
 
 W_
@@ -576,7 +612,7 @@ countNurseryBlocks (void)
     nat i;
     W_ blocks = 0;
 
-    for (i = 0; i < n_capabilities; i++) {
+    for (i = 0; i < n_nurseries; i++) {
         blocks += nurseries[i].n_blocks;
     }
     return blocks;
@@ -625,13 +661,28 @@ resizeNursery (nursery *nursery, W_ blocks)
 // 
 // Resize each of the nurseries to the specified size.
 //
-void
-resizeNurseriesFixed (W_ blocks)
+static void
+resizeNurseriesEach (W_ blocks)
 {
     nat i;
-    for (i = 0; i < n_capabilities; i++) {
+
+    for (i = 0; i < n_nurseries; i++) {
         resizeNursery(&nurseries[i], blocks);
     }
+}
+
+void
+resizeNurseriesFixed (void)
+{
+    nat blocks;
+
+    if (RtsFlags.GcFlags.nurseryChunkSize) {
+        blocks = RtsFlags.GcFlags.nurseryChunkSize;
+    } else {
+        blocks = RtsFlags.GcFlags.minAllocAreaSize;
+    }
+
+    resizeNurseriesEach(blocks);
 }
 
 // 
@@ -642,9 +693,19 @@ resizeNurseries (W_ blocks)
 {
     // If there are multiple nurseries, then we just divide the number
     // of available blocks between them.
-    resizeNurseriesFixed(blocks / n_capabilities);
+    resizeNurseriesEach(blocks / n_nurseries);
 }
 
+rtsBool
+getNewNursery (Capability *cap)
+{
+    StgWord i = atomic_inc(&next_nursery, 1) - 1;
+    if (i >= n_nurseries) {
+        return rtsFalse;
+    }
+    assignNurseryToCapability(cap, i);
+    return rtsTrue;
+}
 
 /* -----------------------------------------------------------------------------
    move_STACK is called to update the TSO structure after it has been
@@ -734,14 +795,16 @@ StgPtr allocate (Capability *cap, W_ n)
     bd = cap->r.rCurrentAlloc;
     if (bd == NULL || bd->free + n > bd->start + BLOCK_SIZE_W) {
         
+        if (bd) finishedNurseryBlock(cap,bd);
+
         // The CurrentAlloc block is full, we need to find another
         // one.  First, we try taking the next block from the
         // nursery:
         bd = cap->r.rCurrentNursery->link;
         
-        if (bd == NULL || bd->free + n > bd->start + BLOCK_SIZE_W) {
-            // The nursery is empty, or the next block is already
-            // full: allocate a fresh block (we can't fail here).
+        if (bd == NULL) {
+            // The nursery is empty: allocate a fresh block (we can't
+            // fail here).
             ACQUIRE_SM_LOCK;
             bd = allocBlock();
             cap->r.rNursery->n_blocks++;
@@ -752,6 +815,7 @@ StgPtr allocate (Capability *cap, W_ n)
             // pretty quickly now, because MAYBE_GC() will
             // notice that CurrentNursery->link is NULL.
         } else {
+            newNurseryBlock(bd);
             // we have a block in the nursery: take it and put
             // it at the *front* of the nursery list, and use it
             // to allocate() from.
@@ -846,9 +910,9 @@ allocatePinned (Capability *cap, W_ n)
         // next GC cycle these objects will be moved to
         // g0->large_objects.
         if (bd != NULL) {
-            dbl_link_onto(bd, &cap->pinned_object_blocks);
             // add it to the allocation stats when the block is full
-            cap->total_allocated += bd->free - bd->start;
+            finishedNurseryBlock(cap, bd);
+            dbl_link_onto(bd, &cap->pinned_object_blocks);
         }
 
         // We need to find another block.  We could just allocate one,
@@ -861,7 +925,7 @@ allocatePinned (Capability *cap, W_ n)
         // an *empty* block, because we're about to mark it as
         // BF_PINNED | BF_LARGE.
         bd = cap->r.rCurrentNursery->link;
-        if (bd == NULL || bd->free != bd->start) { // must be empty!
+        if (bd == NULL) { // must be empty!
             // The nursery is empty, or the next block is non-empty:
             // allocate a fresh block (we can't fail here).
 
@@ -878,6 +942,7 @@ allocatePinned (Capability *cap, W_ n)
             RELEASE_SM_LOCK;
             initBdescr(bd, g0, g0);
         } else {
+            newNurseryBlock(bd);
             // we have a block in the nursery: steal it
             cap->r.rCurrentNursery->link = bd->link;
             if (bd->link != NULL) {
@@ -1001,21 +1066,57 @@ dirty_MVAR(StgRegTable *reg, StgClosure *p)
  * -------------------------------------------------------------------------- */
 
 /* -----------------------------------------------------------------------------
- * updateNurseriesStats()
+ * [Note allocation accounting]
  *
- * Update the per-cap total_allocated numbers with an approximation of
- * the amount of memory used in each cap's nursery.
+ *   - When cap->r.rCurrentNusery moves to a new block in the nursery,
+ *     we add the size of the used portion of the previous block to
+ *     cap->total_allocated. (see finishedNurseryBlock())
  *
- * Since this update is also performed by clearNurseries() then we only
- * need this function for the final stats when the RTS is shutting down.
+ *   - When we start a GC, the allocated portion of CurrentNursery and
+ *     CurrentAlloc are added to cap->total_allocated. (see
+ *     updateNurseriesStats())
+ *
  * -------------------------------------------------------------------------- */
 
-void updateNurseriesStats (void)
+//
+// Calculate the total allocated memory since the start of the
+// program.  Also emits events reporting the per-cap allocation
+// totals.
+//
+StgWord
+calcTotalAllocated (void)
+{
+    W_ tot_alloc = 0;
+    W_ n;
+
+    for (n = 0; n < n_capabilities; n++) {
+        tot_alloc += capabilities[n]->total_allocated;
+
+        traceEventHeapAllocated(capabilities[n],
+                                CAPSET_HEAP_DEFAULT,
+                                capabilities[n]->total_allocated * sizeof(W_));
+    }
+
+    return tot_alloc;
+}
+
+//
+// Update the per-cap total_allocated numbers with an approximation of
+// the amount of memory used in each cap's nursery.
+//
+void
+updateNurseriesStats (void)
 {
     nat i;
+    bdescr *bd;
 
     for (i = 0; i < n_capabilities; i++) {
-        capabilities[i]->total_allocated += countOccupied(nurseries[i].blocks);
+        // The current nursery block and the current allocate block have not
+        // yet been accounted for in cap->total_allocated, so we add them here.
+        bd = capabilities[i]->r.rCurrentNursery;
+        if (bd) finishedNurseryBlock(capabilities[i], bd);
+        bd = capabilities[i]->r.rCurrentAlloc;
+        if (bd) finishedNurseryBlock(capabilities[i], bd);
     }
 }
 
@@ -1168,7 +1269,7 @@ calcNeeded (rtsBool force_major, memcount *blocks_needed)
          should be modified to use allocateExec instead of VirtualAlloc.
    ------------------------------------------------------------------------- */
 
-#if defined(arm_HOST_ARCH) && defined(ios_HOST_OS)
+#if (defined(arm_HOST_ARCH) || defined(aarch64_HOST_ARCH)) && defined(ios_HOST_OS)
 void sys_icache_invalidate(void *start, size_t len);
 #endif
 
@@ -1180,7 +1281,7 @@ void flushExec (W_ len, AdjustorExecutable exec_addr)
   /* x86 doesn't need to do anything, so just suppress some warnings. */
   (void)len;
   (void)exec_addr;
-#elif defined(arm_HOST_ARCH) && defined(ios_HOST_OS)
+#elif (defined(arm_HOST_ARCH) || defined(aarch64_HOST_ARCH)) && defined(ios_HOST_OS)
   /* On iOS we need to use the special 'sys_icache_invalidate' call. */
   sys_icache_invalidate(exec_addr, ((unsigned char*)exec_addr)+len);
 #elif defined(__GNUC__)

@@ -246,6 +246,13 @@ module X where
       </varlistentry>
 
       <varlistentry>
+        <term><filename>.hspp</filename></term>
+        <listitem>
+          <para>A file created by the preprocessor.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
         <term><filename>.hi</filename></term>
         <listitem>
           <para>A Haskell interface file, probably
@@ -383,7 +390,7 @@ module X where
         <term>
           <cmdsynopsis>
             <command>ghc -E</command>
-            <command>ghc -c</command>
+            <command>ghc -C</command>
             <command>ghc -S</command>
             <command>ghc -c</command>
           </cmdsynopsis>
@@ -395,10 +402,7 @@ module X where
         <listitem>
           <para>This is the traditional batch-compiler mode, in which
           GHC can compile source files one at a time, or link objects
-          together into an executable.  This mode also applies if
-          there is no other mode flag specified on the command line,
-          in which case it means that the specified files should be
-          compiled and then linked to form a program. See <xref
+          together into an executable. See <xref
           linkend="options-order"/>.</para>
         </listitem>
       </varlistentry>
@@ -617,6 +621,11 @@ ghc Main.hs
       given on the command line and GHC will include them when linking
       the executable.</para>
 
+      <para>For backward compatibility with existing make scripts, when
+      used in combination with <option>-c</option>, the linking phase
+      is omitted (same as <option>--make</option>
+      <option>-no-link</option>).</para>
+
       <para>Note that GHC can only follow dependencies if it has the
       source file available, so if your program includes a module for
       which there is no source file, even if you have an object and an
@@ -765,6 +774,10 @@ ghc -c Foo.hs
       option</primary></indexterm> runs just the pre-processing passes
       of the compiler, dumping the result in a file.</para>
 
+      <para>Note: The option <option>-C</option> is only available when
+      GHC is built in unregisterised mode. See <xref linkend="unreg"/>
+      for more details.</para>
+
       <sect3 id="overriding-suffixes">
         <title>Overriding the default behaviour for a file</title>
 
@@ -910,10 +923,11 @@ GHC.ST.runST :: (forall s. GHC.ST.ST s a) -> a
 <listitem><para>If any of the quantified type variables has a kind
 that mentions a kind variable, e.g.
 <screen>
-ghci> :i Data.Coerce.coerce
-coerce ::
-  forall (k :: BOX) (a :: k) (b :: k). Coercible a b => a -> b
-     -- Defined in GHC.Prim
+ghci> :i Data.Type.Equality.sym
+Data.Type.Equality.sym ::
+  forall (k :: BOX) (a :: k) (b :: k).
+  (a Data.Type.Equality.:~: b) -> b Data.Type.Equality.:~: a
+        -- Defined in Data.Type.Equality
 </screen>
 </para></listitem>
 </itemizedlist>
@@ -1020,7 +1034,6 @@ test.hs:(5,4)-(6,7):
     program.  These are:
     <option>-fwarn-overlapping-patterns</option>,
     <option>-fwarn-warnings-deprecations</option>,
-    <option>-fwarn-amp</option>,
     <option>-fwarn-deprecated-flags</option>,
     <option>-fwarn-unrecognised-pragmas</option>,
     <option>-fwarn-pointless-pragmas</option>,
@@ -1034,8 +1047,9 @@ test.hs:(5,4)-(6,7):
     <option>-fwarn-unsupported-calling-conventions</option>,
     <option>-fwarn-dodgy-foreign-imports</option>,
     <option>-fwarn-inline-rule-shadowing</option>,
-    <option>-fwarn-unsupported-llvm-version</option>, and
-    <option>-fwarn-context-quantification</option>.
+    <option>-fwarn-unsupported-llvm-version</option>,
+    <option>-fwarn-context-quantification</option>, and
+    <option>-fwarn-tabs</option>.
     The following flags are simple ways to select standard
     &ldquo;packages&rdquo; of warnings:
     </para>
@@ -1047,12 +1061,12 @@ test.hs:(5,4)-(6,7):
         <listitem>
           <indexterm><primary>-W option</primary></indexterm>
           <para>Provides the standard warnings plus
-          <option>-fwarn-incomplete-patterns</option>,
-          <option>-fwarn-dodgy-exports</option>,
-          <option>-fwarn-dodgy-imports</option>,
+          <option>-fwarn-unused-binds</option>,
           <option>-fwarn-unused-matches</option>,
-          <option>-fwarn-unused-imports</option>, and
-          <option>-fwarn-unused-binds</option>.</para>
+          <option>-fwarn-unused-imports</option>,
+          <option>-fwarn-incomplete-patterns</option>,
+          <option>-fwarn-dodgy-exports</option>, and
+          <option>-fwarn-dodgy-imports</option>.</para>
         </listitem>
       </varlistentry>
 
@@ -1064,14 +1078,14 @@ test.hs:(5,4)-(6,7):
           suspicious code.  The warnings that are
           <emphasis>not</emphasis> enabled by <option>-Wall</option>
           are
-            <option>-fwarn-tabs</option>,
-            <option>-fwarn-incomplete-uni-patterns</option>,
-            <option>-fwarn-incomplete-record-updates</option>,
-            <option>-fwarn-monomorphism-restriction</option>,
-            <option>-fwarn-auto-orphans</option>,
-            <option>-fwarn-implicit-prelude</option>,
-            <option>-fwarn-missing-local-sigs</option>,
-            <option>-fwarn-missing-import-lists</option>.</para>
+            <option>-fwarn-type-defaults</option>,
+            <option>-fwarn-name-shadowing</option>,
+            <option>-fwarn-missing-signatures</option>,
+            <option>-fwarn-warn-hi-shadowing</option>,
+            <option>-fwarn-orphans</option>,
+            <option>-fwarn-unused-do-bind</option>, and
+            <option>-fwarn-trustworthy-safe</option>,
+            <option>-fwarn-unticked-promoted-constructors</option>.</para>
         </listitem>
       </varlistentry>
 
@@ -1117,14 +1131,11 @@ test.hs:(5,4)-(6,7):
           <indexterm><primary><option>-fwarn-typed-holes</option></primary>
           </indexterm>
           <indexterm><primary>warnings</primary></indexterm>
-            <para>When the compiler encounters an unbound local
-            variable prefixed with <literal>_</literal>, or encounters
-            the literal <literal>_</literal> on the right-hand side of
-            an expression, the error message for the unbound term
-            includes the type it needs to type check. It works
-            particularly well with <link
-            linkend="defer-type-errors">deferred type errors</link>.
-            See <xref linkend="typed-holes"/></para>
+          <para>
+              Determines whether the compiler reports typed holes warnings. Has
+              no effect unless typed holes errors are deferred until runtime.
+              See <xref linkend="typed-holes"/> and <xref linkend="defer-type-errors"/>
+            </para>
 
             <para>This warning is on by default.</para>
         </listitem>
@@ -1142,6 +1153,45 @@ test.hs:(5,4)-(6,7):
             runtime, if you use a value that depends on a type error, you 
             get a runtime error; but you can run any type-correct parts of your code 
             just fine.  See <xref linkend="defer-type-errors"/></para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><option>-fdefer-typed-holes</option>:</term>
+        <listitem>
+          <indexterm><primary><option>-fdefer-typed-holes</option></primary>
+          </indexterm>
+          <indexterm><primary>warnings</primary></indexterm>
+          <para>
+              Defer typed holes errors until runtime. This will turn the errors
+              produced by <link linked="typed-holes">typed holes</link> into
+              warnings. Using a value that depends on a typed hole produces a
+              runtime error, the same as <option>-fdefer-type-errors</option>
+              (which implies this option). See <xref linkend="typed-holes"/>
+              and <xref linkend="defer-type-errors"/>.
+          </para>
+          <para>
+              Implied by <option>-fdefer-type-errors</option>. See also
+              <option>-fwarn-typed-holes</option>.
+          </para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><option>-fwarn-partial-type-signatures</option>:</term>
+        <listitem>
+          <indexterm><primary><option>-fwarn-partial-type-signatures</option></primary>
+          </indexterm>
+          <indexterm><primary>warnings</primary></indexterm>
+          <para>
+              Determines whether the compiler reports holes in partial type
+              signatures as warnings. Has no effect unless
+              <option>-XPartialTypeSignatures</option> is enabled, which
+              controls whether errors should be generated for holes in types
+              or not. See <xref linkend="partial-type-signatures"/>.
+            </para>
+
+            <para>This warning is on by default.</para>
         </listitem>
       </varlistentry>
 
@@ -1358,7 +1408,54 @@ foreign import "&amp;f" f :: FunPtr t
           The warning will indicate the duplicated <literal>Eq a</literal> constraint.
           </para>
 
-          <para>This option is on by default.</para>
+          <para>This option is now deprecated in favour of <option>-fwarn-redundant-constraints</option>.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><option>-fwarn-redundant-constraints</option>:</term>
+        <listitem>
+          <indexterm><primary><option>-fwarn-redundant-constraints</option></primary></indexterm>
+          <indexterm><primary>redundant constraints, warning</primary></indexterm>
+
+          <para>Have the compiler warn about redundant constraints in a type signature. 
+          In particular:
+          <itemizedlist>
+          <listitem><para>
+          A redundant constraint within the type signature itself:
+          <programlisting>
+             f :: (Eq a, Ord a) => a -> a
+          </programlisting>
+          The warning will indicate the redundant <literal>Eq a</literal> constraint:
+          it is subsumed by the <literal>Ord a</literal> constraint.
+          </para></listitem>
+          <listitem><para>
+          A constraint in the type signature is not used in the code it covers:
+          <programlisting>
+             f :: Eq a => a -> a -> Bool
+             f x y = True
+          </programlisting>
+          The warning will indicate the redundant <literal>Eq a</literal> constraint:
+          : it is not used by the definition of <literal>f</literal>.)
+          </para></listitem>
+          </itemizedlist>
+          Similar warnings are given for a redundant constraint in an instance declaration.
+          </para>
+          <para>This option is on by default.  As usual you can suppress it on a per-module basis
+          with <option>-fno-warn-redundant-constraints</option>.  Occasionally you may specifically
+          want a function to have a more constrained signature than necessary, perhaps to
+          leave yourself wiggle-rooom for changing the implementation without changing the
+          API.  In that case, you can suppress the warning on a per-function basis, using a
+          call in a dead binding.  For example:
+          <programlisting>
+             f :: Eq a => a -> a -> Bool
+             f x y = True
+                where
+                  _ = x == x  -- Suppress the redundant-constraint warning for (Eq a)
+          </programlisting>
+          Here the call to <literal>(==)</literal> makes GHC think that the <literal>(Eq a)</literal>
+          constraint is needed, so no warning is issued.
+          </para>
         </listitem>
       </varlistentry>
 
@@ -1597,6 +1694,21 @@ module M where
       </varlistentry>
 
       <varlistentry>
+        <term><option>-fwarn-missing-exported-sigs</option>:</term>
+        <listitem>
+          <indexterm><primary><option>-fwarn-missing-exported-sigs</option></primary></indexterm>
+          <indexterm><primary>type signatures, missing</primary></indexterm>
+
+          <para>If you would like GHC to check that every exported top-level
+          function/value has a type signature, but not check unexported values, use the
+          <option>-fwarn-missing-exported-sigs</option> option.  This option
+          takes precedence over <option>-fwarn-missing-signatures</option>.
+          As part of the warning GHC also reports the inferred type.  The
+          option is off by default.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
         <term><option>-fwarn-missing-local-sigs</option>:</term>
         <listitem>
           <indexterm><primary><option>-fwarn-missing-local-sigs</option></primary></indexterm>
@@ -1727,6 +1839,30 @@ f "2"    = 2
           to have an explicit warning that it is being applied.</para>
 
           <para>This warning is off by default.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term><option>-fwarn-unticked-promoted-constructors</option>:</term>
+        <listitem>
+          <indexterm><primary><option>-fwarn-unticked-promoted-constructors</option></primary></indexterm>
+          <indexterm><primary>promoted constructor, warning</primary></indexterm>
+          <para>Warn if a promoted data constructor is used without a tick preceding it's name.
+          </para>
+          <para>For example:
+          </para>
+<programlisting>
+data Nat = Succ Nat | Zero
+
+data Vec n s where
+  Nil  :: Vec Zero a
+  Cons :: a -> Vec n a -> Vec (Succ n) a
+</programlisting>
+            <para> Will raise two warnings because <function>Zero</function>
+            and <function>Succ</function> are not written as <function>'Zero</function> and
+            <function>'Succ</function>.
+            </para>
+            <para>This warning is off by default.</para>
         </listitem>
       </varlistentry>
 
@@ -2387,35 +2523,6 @@ _  = rhs3        -- No warning: lone wild-card pattern
           </term>
           <listitem>
             <para>Set the size threshold for the liberate-case transformation. Default: 2000
-            </para>
-          </listitem>
-        </varlistentry>
-
-        <varlistentry>
-          <term>
-            <option>-fllvm-pass-vectors-in-regs</option>
-            <indexterm><primary><option>-fllvm-pass-vectors-in-regs</option></primary></indexterm>
-          </term>
-          <listitem>
-            <para>On 32-bit machines it changes calling convention used with LLVM backend
-             to pass 128-bit vectors in SIMD registers. At the moment this does not work
-             because this is not supported by LLVM. We strongly suggest you don't use this flag.
-            </para>
-          </listitem>
-        </varlistentry>
-
-        <varlistentry>
-          <term>
-            <option>-fllvm-tbaa</option>
-            <indexterm><primary><option>-fllvm-tbaa</option></primary></indexterm>
-          </term>
-          <listitem>
-            <para><emphasis>On by default for <option>-O0</option>, <option>-O</option>,
-                  <option>-O2</option>.</emphasis>
-            </para>
-            <para>Enables type-based alias analysis for LLVM backend.
-                  At the moment this has limited usefullness since we pass
-                  very little information to LLVM.
             </para>
           </listitem>
         </varlistentry>

@@ -75,7 +75,6 @@ import BreakArray
 import RtClosureInspect
 import Outputable
 import FastString
-import MonadUtils
 
 import System.Mem.Weak
 import System.Directory
@@ -83,7 +82,11 @@ import Data.Dynamic
 import Data.Either
 import Data.List (find)
 import Control.Monad
+#if __GLASGOW_HASKELL__ >= 709
+import Foreign
+#else
 import Foreign.Safe
+#endif
 import Foreign.C
 import GHC.Exts
 import Data.Array
@@ -302,8 +305,7 @@ handleRunStatus step expr bindings final_ids
     -- Completed successfully
     | Complete (Right hvals) <- status
     = do hsc_env <- getSession
-         let final_ic = extendInteractiveContext (hsc_IC hsc_env)
-                                                 (map AnId final_ids)
+         let final_ic = extendInteractiveContextWithIds (hsc_IC hsc_env) final_ids
              final_names = map getName final_ids
          liftIO $ Linker.extendLinkEnv (zip final_names hvals)
          hsc_env' <- liftIO $ rttiEnvironment hsc_env{hsc_IC=final_ic}
@@ -424,7 +426,7 @@ rethrow dflags io = Exception.catch io $ \se -> do
 -- resets everything when the computation has stopped running.  This
 -- is a not-very-good way to ensure that only the interactive
 -- evaluation should generate breakpoints.
-withBreakAction :: (ExceptionMonad m, MonadIO m) =>
+withBreakAction :: (ExceptionMonad m) =>
                    Bool -> DynFlags -> MVar () -> MVar Status -> m a -> m a
 withBreakAction step dflags breakMVar statusMVar act
  = gbracket (liftIO setBreakAction) (liftIO . resetBreakAction) (\_ -> act)
@@ -576,10 +578,10 @@ bindLocalsAtBreakpoint hsc_env apStack Nothing = do
        e_fs      = fsLit "e"
        e_name    = mkInternalName (getUnique e_fs) (mkTyVarOccFS e_fs) span
        e_tyvar   = mkRuntimeUnkTyVar e_name liftedTypeKind
-       exn_id    = AnId $ Id.mkVanillaGlobal exn_name (mkTyVarTy e_tyvar)
+       exn_id    = Id.mkVanillaGlobal exn_name (mkTyVarTy e_tyvar)
 
        ictxt0 = hsc_IC hsc_env
-       ictxt1 = extendInteractiveContext ictxt0 [exn_id]
+       ictxt1 = extendInteractiveContextWithIds ictxt0 [exn_id]
 
        span = mkGeneralSrcSpan (fsLit "<exception thrown>")
    --
@@ -648,7 +650,7 @@ bindLocalsAtBreakpoint hsc_env apStack (Just info) = do
        (_,tidy_tys) = tidyOpenTypes emptyTidyEnv id_tys
        final_ids = zipWith setIdType all_ids tidy_tys
        ictxt0 = hsc_IC hsc_env
-       ictxt1 = extendInteractiveContext ictxt0 (map AnId final_ids)
+       ictxt1 = extendInteractiveContextWithIds ictxt0 final_ids
 
    Linker.extendLinkEnv [ (name,hval) | (name, Just hval) <- zip names mb_hValues ]
    when result_ok $ Linker.extendLinkEnv [(result_name, unsafeCoerce# apStack)]
@@ -707,8 +709,7 @@ rttiEnvironment hsc_env@HscEnv{hsc_IC=ic} = do
                       printInfoForUser dflags alwaysQualify $
                       fsep [text "RTTI Improvement for", ppr id, equals, ppr subst]
 
-                 let ic' = extendInteractiveContext
-                               (substInteractiveContext ic subst) []
+                 let ic' = substInteractiveContext ic subst
                  return hsc_env{hsc_IC=ic'}
 
 getIdValFromApStack :: HValue -> Int -> IO (Maybe HValue)
@@ -908,7 +909,7 @@ getInfo allInfo name
     plausible rdr_env names
           -- Dfun involving only names that are in ic_rn_glb_env
         = allInfo
-       || all ok (nameSetToList names)
+       || all ok (nameSetElems names)
         where   -- A name is ok if it's in the rdr_env,
                 -- whether qualified or not
           ok n | n == name         = True       -- The one we looked for in the first place!
@@ -948,9 +949,9 @@ greToRdrNames GRE{ gre_name = name, gre_prov = prov }
 -- | Parses a string as an identifier, and returns the list of 'Name's that
 -- the identifier can refer to in the current interactive context.
 parseName :: GhcMonad m => String -> m [Name]
-parseName str = withSession $ \hsc_env -> do
-   (L _ rdr_name) <- liftIO $ hscParseIdentifier hsc_env str
-   liftIO $ hscTcRnLookupRdrName hsc_env rdr_name
+parseName str = withSession $ \hsc_env -> liftIO $
+   do { lrdr_name <- hscParseIdentifier hsc_env str
+      ; hscTcRnLookupRdrName hsc_env lrdr_name }
 
 -- -----------------------------------------------------------------------------
 -- Getting the type of an expression

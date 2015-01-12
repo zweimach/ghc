@@ -493,7 +493,7 @@ readPackageArg False str = Id `fmap` readGlobPkgId str
 
 -- globVersion means "all versions"
 globVersion :: Version
-globVersion = Version{ versionBranch=[], versionTags=["*"] }
+globVersion = Version [] ["*"]
 
 -- -----------------------------------------------------------------------------
 -- Package databases
@@ -600,9 +600,10 @@ getPkgDatabases verbosity modify use_user use_cache expand_vars my_flags = do
         case e_pkg_path of
                 Left  _ -> sys_databases
                 Right path
-                  | last cs == ""  -> init cs ++ sys_databases
-                  | otherwise      -> cs
-                  where cs = parseSearchPath path
+                  | not (null path) && isSearchPathSeparator (last path)
+                  -> splitSearchPath (init path) ++ sys_databases
+                  | otherwise
+                  -> splitSearchPath path
 
         -- The "global" database is always the one at the bottom of the stack.
         -- This is the database we modify by default.
@@ -1022,6 +1023,7 @@ convertPackageInfoToCacheFormat pkg =
        GhcPkg.haddockHTMLs       = haddockHTMLs pkg,
        GhcPkg.exposedModules     = map convertExposed (exposedModules pkg),
        GhcPkg.hiddenModules      = hiddenModules pkg,
+       GhcPkg.instantiatedWith   = map convertInst (instantiatedWith pkg),
        GhcPkg.exposed            = exposed pkg,
        GhcPkg.trusted            = trusted pkg
     }
@@ -1030,6 +1032,7 @@ convertPackageInfoToCacheFormat pkg =
                                    (fmap convertOriginal sig)
         convertOriginal (OriginalModule ipid m) =
             GhcPkg.OriginalModule (display ipid) m
+        convertInst (m, o) = (m, convertOriginal o)
 
 instance GhcPkg.BinaryStringRep ModuleName where
   fromStringRep = ModuleName.fromString . fromUTF8 . BS.unpack
@@ -2005,26 +2008,6 @@ openNewFile dir template = do
   -- we must use this version because the version below opens the file
   -- in binary mode.
   openTempFileWithDefaultPermissions dir template
-
--- | The function splits the given string to substrings
--- using 'isSearchPathSeparator'.
-parseSearchPath :: String -> [FilePath]
-parseSearchPath path = split path
-  where
-    split :: String -> [String]
-    split s =
-      case rest' of
-        []     -> [chunk]
-        _:rest -> chunk : split rest
-      where
-        chunk =
-          case chunk' of
-#ifdef mingw32_HOST_OS
-            ('\"':xs@(_:_)) | last xs == '\"' -> init xs
-#endif
-            _                                 -> chunk'
-
-        (chunk', rest') = break isSearchPathSeparator s
 
 readUTF8File :: FilePath -> IO String
 readUTF8File file = do

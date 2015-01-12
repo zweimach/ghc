@@ -398,7 +398,6 @@ PACKAGES_STAGE1 += array
 PACKAGES_STAGE1 += deepseq
 PACKAGES_STAGE1 += bytestring
 PACKAGES_STAGE1 += containers
-PACKAGES_STAGE1 += old-locale
 
 ifeq "$(Windows_Host)" "YES"
 PACKAGES_STAGE1 += Win32
@@ -418,12 +417,6 @@ PACKAGES_STAGE1 += Cabal/Cabal
 PACKAGES_STAGE1 += bin-package-db
 PACKAGES_STAGE1 += hoopl
 PACKAGES_STAGE1 += transformers
-
-ifneq "$(CrossCompiling)" "YES"
-PACKAGES_STAGE2 += old-time
-PACKAGES_STAGE2 += haskell98
-PACKAGES_STAGE2 += haskell2010
-endif
 
 ifeq "$(HADDOCK_DOCS)" "YES"
 PACKAGES_STAGE1 += xhtml
@@ -733,7 +726,7 @@ ifneq "$(BINDIST)" "YES"
 
 ifneq "$(BOOTSTRAPPING_CONF)" ""
 ifeq "$(wildcard $(BOOTSTRAPPING_CONF))" ""
-$(shell echo "[]" >$(BOOTSTRAPPING_CONF))
+$(shell $(GHC_PKG) init $(BOOTSTRAPPING_CONF))
 endif
 endif
 
@@ -1116,13 +1109,30 @@ SRC_DIST_GHC_DIRS = mk rules docs distrib bindisttest libffi includes \
 SRC_DIST_GHC_FILES += \
     configure.ac config.guess config.sub configure \
     aclocal.m4 README ANNOUNCE HACKING LICENSE Makefile install-sh \
-    settings.in VERSION \
+    settings.in VERSION GIT_COMMIT_ID \
     boot packages ghc.mk
 
-VERSION :
-	echo $(ProjectVersion) >VERSION
+.PHONY: VERSION
+VERSION:
+	@if test -f $@ && test "`cat $@`" = "$(ProjectVersion)"; \
+	then echo "$@ needs no update"; \
+	else echo "update $@ ($(ProjectVersion))"; echo "$(ProjectVersion)" > $@; fi
 
-sdist : VERSION
+.PHONY: GIT_COMMIT_ID
+GIT_COMMIT_ID:
+	@if test -d .git && test "`git rev-parse HEAD`" != "$(ProjectGitCommitId)"; then \
+	   echo "******************************************************************************"; \
+	   echo "Stale ProjectGitCommitId (=$(ProjectGitCommitId)) detected!"; \
+           echo "'git rev-parse HEAD' says: `git rev-parse HEAD`"; \
+	   echo "Please re-run './configure' before creating source-distribution"; \
+	   echo "******************************************************************************"; \
+	   exit 1; \
+	fi
+	@if test -f $@ && test "`cat $@`" = "$(ProjectGitCommitId)"; \
+	then echo "$@ needs no update"; \
+	else echo "update $@ ($(ProjectGitCommitId))"; echo -n "$(ProjectGitCommitId)" > $@; fi
+
+sdist-ghc-prep : VERSION GIT_COMMIT_ID
 
 # Use:
 #     $(call sdist_ghc_file,compiler,stage2,cmm,Foo/Bar,CmmLex,x)
@@ -1140,10 +1150,10 @@ EXTRA_PACKAGES=parallel stm random primitive vector dph
 sdist-ghc-prep :
 	$(call removeTrees,$(SRC_DIST_GHC_ROOT))
 	$(call removeFiles,$(SRC_DIST_GHC_TARBALL))
-	-mkdir $(SRC_DIST_ROOT)
-	mkdir $(SRC_DIST_GHC_ROOT)
-	mkdir $(SRC_DIST_GHC_DIR)
-	cd $(SRC_DIST_GHC_DIR) && for i in $(SRC_DIST_GHC_DIRS); do mkdir $$i; ( cd $$i && lndir $(TOP)/$$i ); done
+	mkdir -p $(SRC_DIST_ROOT)
+	mkdir -p $(SRC_DIST_GHC_ROOT)
+	mkdir -p $(SRC_DIST_GHC_DIR)
+	cd $(SRC_DIST_GHC_DIR) && for i in $(SRC_DIST_GHC_DIRS); do mkdir -p $$i; ( cd $$i && lndir $(TOP)/$$i ); done
 	cd $(SRC_DIST_GHC_DIR) && for i in $(SRC_DIST_GHC_FILES); do $(LN_S) $(TOP)/$$i .; done
 	cd $(SRC_DIST_GHC_DIR) && $(MAKE) distclean
 	$(call removeTrees,$(SRC_DIST_GHC_DIR)/libraries/tarballs/)
@@ -1164,10 +1174,10 @@ sdist-ghc-prep :
 sdist-windows-tarballs-prep :
 	$(call removeTrees,$(SRC_DIST_WINDOWS_TARBALLS_ROOT))
 	$(call removeFiles,$(SRC_DIST_WINDOWS_TARBALLS_TARBALL))
-	-mkdir $(SRC_DIST_ROOT)
-	mkdir $(SRC_DIST_WINDOWS_TARBALLS_ROOT)
-	mkdir $(SRC_DIST_WINDOWS_TARBALLS_DIR)
-	mkdir $(SRC_DIST_WINDOWS_TARBALLS_DIR)/ghc-tarballs
+	mkdir -p $(SRC_DIST_ROOT)
+	mkdir -p $(SRC_DIST_WINDOWS_TARBALLS_ROOT)
+	mkdir -p $(SRC_DIST_WINDOWS_TARBALLS_DIR)
+	mkdir -p $(SRC_DIST_WINDOWS_TARBALLS_DIR)/ghc-tarballs
 	cd $(SRC_DIST_WINDOWS_TARBALLS_DIR)/ghc-tarballs && lndir $(TOP)/ghc-tarballs
 	$(call removeTrees,$(SRC_DIST_WINDOWS_TARBALLS_DIR)/ghc-tarballs/.git)
 
@@ -1175,10 +1185,10 @@ sdist-windows-tarballs-prep :
 sdist-testsuite-prep :
 	$(call removeTrees,$(SRC_DIST_TESTSUITE_ROOT))
 	$(call removeFiles,$(SRC_DIST_TESTSUITE_TARBALL))
-	-mkdir $(SRC_DIST_ROOT)
-	mkdir $(SRC_DIST_TESTSUITE_ROOT)
-	mkdir $(SRC_DIST_TESTSUITE_DIR)
-	mkdir $(SRC_DIST_TESTSUITE_DIR)/testsuite
+	mkdir -p $(SRC_DIST_ROOT)
+	mkdir -p $(SRC_DIST_TESTSUITE_ROOT)
+	mkdir -p $(SRC_DIST_TESTSUITE_DIR)
+	mkdir -p $(SRC_DIST_TESTSUITE_DIR)/testsuite
 	cd $(SRC_DIST_TESTSUITE_DIR)/testsuite && lndir $(TOP)/testsuite
 
 .PHONY: sdist-ghc
@@ -1223,7 +1233,6 @@ sdist_%:
 
 .PHONY: clean
 
-CLEAN_FILES += libraries/bootstrapping.conf
 CLEAN_FILES += libraries/integer-gmp/cbits/GmpDerivedConstants.h
 CLEAN_FILES += libraries/integer-gmp/include/HsIntegerGmp.h
 CLEAN_FILES += libraries/integer-gmp2/include/HsIntegerGmp.h
@@ -1252,6 +1261,7 @@ clean_files :
 	$(call removeTrees,includes/dist-derivedconstants)
 	$(call removeTrees,inplace/bin)
 	$(call removeTrees,inplace/lib)
+	$(call removeTrees,libraries/bootstrapping.conf)
 
 .PHONY: clean_libraries
 clean_libraries: $(patsubst %,clean_libraries/%_dist-install,$(PACKAGES_STAGE1) $(PACKAGES_STAGE2))
@@ -1324,7 +1334,6 @@ distclean : clean
 	$(call removeFiles,libraries/process/include/HsProcessConfig.h)
 	$(call removeFiles,libraries/unix/include/HsUnixConfig.h)
 	$(call removeFiles,libraries/time/include/HsTimeConfig.h)
-	$(call removeFiles,libraries/old-time/include/HsTimeConfig.h)
 
 # The library configure scripts also like creating autom4te.cache
 # directories, so clean them all up.
@@ -1353,7 +1362,6 @@ maintainer-clean : distclean
 	$(call removeFiles,libraries/process/include/HsProcessConfig.h.in)
 	$(call removeFiles,libraries/unix/include/HsUnixConfig.h.in)
 	$(call removeFiles,libraries/time/include/HsTimeConfig.h.in)
-	$(call removeFiles,libraries/old-time/include/HsTimeConfig.h.in)
 
 .PHONY: all_libraries
 

@@ -74,7 +74,8 @@ basicBlocksCodeGen live (entryBlock:cmmBlocks)
 -- | Generate code for one block
 basicBlockCodeGen :: CmmBlock -> LlvmM ( LlvmBasicBlock, [LlvmCmmDecl] )
 basicBlockCodeGen block
-  = do let (CmmEntry id, nodes, tail)  = blockSplit block
+  = do let (_, nodes, tail)  = blockSplit block
+           id = entryLabel block
        (mid_instrs, top) <- stmtsToInstrs $ blockToList nodes
        (tail_instrs, top')  <- stmtToInstrs tail
        let instrs = fromOL (mid_instrs `appOL` tail_instrs)
@@ -102,6 +103,8 @@ stmtToInstrs :: CmmNode e x -> LlvmM StmtData
 stmtToInstrs stmt = case stmt of
 
     CmmComment _         -> return (nilOL, []) -- nuke comments
+    CmmTick    _         -> return (nilOL, [])
+    CmmUnwind  {}        -> return (nilOL, [])
 
     CmmAssign reg src    -> genAssign reg src
     CmmStore addr src    -> genStore addr src

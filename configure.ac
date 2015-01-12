@@ -13,7 +13,7 @@ dnl
 # see what flags are available. (Better yet, read the documentation!)
 #
 
-AC_INIT([The Glorious Glasgow Haskell Compilation System], [7.9], [glasgow-haskell-bugs@haskell.org], [ghc])
+AC_INIT([The Glorious Glasgow Haskell Compilation System], [7.11], [glasgow-haskell-bugs@haskell.org], [ghc])
 
 # Set this to YES for a released version, otherwise NO
 : ${RELEASE=NO}
@@ -187,56 +187,6 @@ AC_SUBST([WithGhc])
 dnl ** Without optimization some INLINE trickery fails for GHCi
 SRC_CC_OPTS="-O"
 
-dnl ** Bug 9439: Some GHC 7.8 releases had broken LLVM code generator.
-dnl Unfortunately we don't know whether the user is going to request a
-dnl build with the LLVM backend as this is only given in build.mk.
-dnl
-dnl Instead, we try to do as much work as possible here, checking
-dnl whether -fllvm is the stage 0 compiler's default. If so we
-dnl fail. If not, we check whether -fllvm is affected explicitly and
-dnl if so set a flag. The build system will later check this flag
-dnl after the desired build flags are known.
-AC_MSG_CHECKING(whether bootstrap compiler is affected by bug 9439)
-echo "main = putStrLn \"%function\"" > conftestghc.hs
-
-# Check whether LLVM backend is default for this platform
-"${WithGhc}" conftestghc.hs 2>&1 >/dev/null
-res=`./conftestghc`
-if test "x$res" == "x%object"
-then
-    AC_MSG_RESULT(yes)
-    echo "Buggy bootstrap compiler"
-    echo ""
-    echo "The stage 0 compiler $WithGhc is affected by GHC Bug \#9439"
-    echo "and therefore will miscompile the LLVM backend if -fllvm is"
-    echo "used."
-    echo
-    echo "Please use another bootstrap compiler"
-    exit 1
-fi
-
-# -fllvm is not the default, but set a flag so the Makefile can check
-# -for it in the build flags later on
-"${WithGhc}" -fforce-recomp -fllvm conftestghc.hs 2>&1 >/dev/null
-if test $? == 0
-then
-    res=`./conftestghc`
-    if test "x$res" == "x%object"
-    then
-        AC_MSG_RESULT(yes)
-        GHC_LLVM_AFFECTED_BY_9439=1
-    elif test "x$res" == "x%function"
-    then
-        AC_MSG_RESULT(no)
-        GHC_LLVM_AFFECTED_BY_9439=0
-    else
-        AC_MSG_WARN(unexpected output $res)
-    fi
-else
-    AC_MSG_RESULT(failed to compile, assuming no)
-fi
-AC_SUBST([GHC_LLVM_AFFECTED_BY_9439])
-
 dnl--------------------------------------------------------------------
 dnl * Choose host(/target/build) platform
 dnl--------------------------------------------------------------------
@@ -405,62 +355,6 @@ then
     fi
 fi
 
-# system libffi
-
-AC_ARG_WITH([system-libffi],
-[AC_HELP_STRING([--with-system-libffi],
-  [Use system provided libffi for RTS [default=no]])
-])
-
-AS_IF([test "x$with_system_libffi" = "xyes"],
-  [UseSystemLibFFI="YES"], [UseSystemLibFFI="NO"]
-)
-
-
-AC_SUBST(UseSystemLibFFI)
-
-AC_ARG_WITH([ffi-includes],
-[AC_HELP_STRING([--with-ffi-includes=ARG],
-  [Find includes for libffi in ARG [default=system default]])
-],
-[
- if test "x$UseSystemLibFFI" != "xYES"; then
-    AC_MSG_WARN([--with-ffi-includes will be ignored, --with-system-libffi not set])
- else
-    FFIIncludeDir="$withval"
-    LIBFFI_CFLAGS="-I$withval"
- fi
-])
-
-AC_SUBST(FFIIncludeDir)
-
-AC_ARG_WITH([ffi-libraries],
-[AC_HELP_STRING([--with-ffi-libraries=ARG],
-  [Find libffi in ARG [default=system default]])
-],
-[
- if test "x$UseSystemLibFFI" != "xYES"; then
-    AC_MSG_WARN([--with-ffi-libraries will be ignored, --with-system-libffi not set])
- else
-    FFILibDir="$withval" LIBFFI_LDFLAGS="-L$withval"
- fi
-])
-
-AC_SUBST(FFILibDir)
-
-AS_IF([test "$UseSystemLibFFI" = "YES"], [
- CFLAGS2="$CFLAGS"
- CFLAGS="$LIBFFI_CFLAGS $CFLAGS"
- LDFLAGS2="$LDFLAGS"
- LDFLAGS="$LIBFFI_LDFLAGS $LDFLAGS"
- AC_CHECK_LIB(ffi, ffi_call,
-  [AC_CHECK_HEADERS([ffi.h], [break], [])
-   AC_DEFINE([HAVE_LIBFFI], [1], [Define to 1 if you have libffi.])],
-  [AC_MSG_ERROR([Cannot find system libffi])])
- CFLAGS="$CFLAGS2"
- LDFLAGS="$LDFLAGS2"
-])
-
 FP_ICONV
 FP_GMP
 
@@ -592,6 +486,59 @@ dnl --------------------------------------------------------------
 dnl --------------------------------------------------------------
 dnl * General configuration checks
 dnl --------------------------------------------------------------
+
+dnl ** Bug 9439: Some GHC 7.8 releases had broken LLVM code generator.
+dnl Unfortunately we don't know whether the user is going to request a
+dnl build with the LLVM backend as this is only given in build.mk.
+dnl
+dnl Instead, we try to do as much work as possible here, checking
+dnl whether -fllvm is the stage 0 compiler's default. If so we
+dnl fail. If not, we check whether -fllvm is affected explicitly and
+dnl if so set a flag. The build system will later check this flag
+dnl after the desired build flags are known.
+if test -n "$LlcCmd" && test -n "$OptCmd"
+then
+    AC_MSG_CHECKING(whether bootstrap compiler is affected by bug 9439)
+    echo "main = putStrLn \"%function\"" > conftestghc.hs
+
+    # Check whether LLVM backend is default for this platform
+    "${WithGhc}" conftestghc.hs 2>&1 >/dev/null
+    res=`./conftestghc`
+    if test "x$res" = "x%object"
+    then
+        AC_MSG_RESULT(yes)
+        echo "Buggy bootstrap compiler"
+        echo ""
+        echo "The stage 0 compiler $WithGhc is affected by GHC Bug \#9439"
+        echo "and therefore will miscompile the LLVM backend if -fllvm is"
+        echo "used."
+        echo
+        echo "Please use another bootstrap compiler"
+        exit 1
+    fi
+
+    # -fllvm is not the default, but set a flag so the Makefile can check
+    # -for it in the build flags later on
+    "${WithGhc}" -fforce-recomp -fllvm conftestghc.hs 2>&1 >/dev/null
+    if test $? = 0
+    then
+        res=`./conftestghc`
+        if test "x$res" = "x%object"
+        then
+            AC_MSG_RESULT(yes)
+            GHC_LLVM_AFFECTED_BY_9439=1
+        elif test "x$res" = "x%function"
+        then
+            AC_MSG_RESULT(no)
+            GHC_LLVM_AFFECTED_BY_9439=0
+        else
+            AC_MSG_WARN(unexpected output $res)
+        fi
+    else
+        AC_MSG_RESULT(failed to compile, assuming no)
+    fi
+fi
+AC_SUBST([GHC_LLVM_AFFECTED_BY_9439])
 
 dnl ** Can the unix package be built?
 dnl --------------------------------------------------------------
@@ -852,6 +799,62 @@ dnl ################################################################
 dnl Check for libraries
 dnl ################################################################
 
+# system libffi
+
+AC_ARG_WITH([system-libffi],
+[AC_HELP_STRING([--with-system-libffi],
+  [Use system provided libffi for RTS [default=no]])
+])
+
+AS_IF([test "x$with_system_libffi" = "xyes"],
+  [UseSystemLibFFI="YES"], [UseSystemLibFFI="NO"]
+)
+
+
+AC_SUBST(UseSystemLibFFI)
+
+AC_ARG_WITH([ffi-includes],
+[AC_HELP_STRING([--with-ffi-includes=ARG],
+  [Find includes for libffi in ARG [default=system default]])
+],
+[
+ if test "x$UseSystemLibFFI" != "xYES"; then
+    AC_MSG_WARN([--with-ffi-includes will be ignored, --with-system-libffi not set])
+ else
+    FFIIncludeDir="$withval"
+    LIBFFI_CFLAGS="-I$withval"
+ fi
+])
+
+AC_SUBST(FFIIncludeDir)
+
+AC_ARG_WITH([ffi-libraries],
+[AC_HELP_STRING([--with-ffi-libraries=ARG],
+  [Find libffi in ARG [default=system default]])
+],
+[
+ if test "x$UseSystemLibFFI" != "xYES"; then
+    AC_MSG_WARN([--with-ffi-libraries will be ignored, --with-system-libffi not set])
+ else
+    FFILibDir="$withval" LIBFFI_LDFLAGS="-L$withval"
+ fi
+])
+
+AC_SUBST(FFILibDir)
+
+AS_IF([test "$UseSystemLibFFI" = "YES"], [
+ CFLAGS2="$CFLAGS"
+ CFLAGS="$LIBFFI_CFLAGS $CFLAGS"
+ LDFLAGS2="$LDFLAGS"
+ LDFLAGS="$LIBFFI_LDFLAGS $LDFLAGS"
+ AC_CHECK_LIB(ffi, ffi_call,
+  [AC_CHECK_HEADERS([ffi.h], [break], [])
+   AC_DEFINE([HAVE_LIBFFI], [1], [Define to 1 if you have libffi.])],
+  [AC_MSG_ERROR([Cannot find system libffi])])
+ CFLAGS="$CFLAGS2"
+ LDFLAGS="$LDFLAGS2"
+])
+
 dnl ** check whether we need -ldl to get dlopen()
 AC_CHECK_LIB(dl, dlopen)
 
@@ -1002,6 +1005,7 @@ echo ["
 Configure completed successfully.
 
    Building GHC version  : $ProjectVersion
+          Git commit id  : $ProjectGitCommitId
 
    Build platform        : $BuildPlatform
    Host platform         : $HostPlatform

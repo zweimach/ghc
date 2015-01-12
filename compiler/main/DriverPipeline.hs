@@ -30,7 +30,7 @@ module DriverPipeline (
    runPhase, exeFileName,
    mkExtraObjToLinkIntoBinary, mkNoteObjsToLinkIntoBinary,
    maybeCreateManifest, runPhase_MoveBinary,
-   linkingNeeded, checkLinkInfo
+   linkingNeeded, checkLinkInfo, writeInterfaceOnlyMode
   ) where
 
 #include "HsVersions.h"
@@ -171,7 +171,7 @@ compileOne' m_tc_result mHscMessage
    -- -fforce-recomp should also work with --make
    let force_recomp = gopt Opt_ForceRecomp dflags
        source_modified
-         | force_recomp || isNothing maybe_old_linkable = SourceModified
+         | force_recomp = SourceModified
          | otherwise = source_modified0
        object_filename = ml_obj_file location
 
@@ -240,7 +240,7 @@ compileOne' m_tc_result mHscMessage
 
                _ ->
                    case ms_hsc_src summary of
-                   t | isHsBootOrSig t ->
+                   HsBootFile ->
                        do (iface, changed, details) <- hscSimpleIface hsc_env tc_result mb_old_hash
                           hscWriteIface dflags iface changed summary
                           touchObjectFile dflags object_filename
@@ -248,7 +248,23 @@ compileOne' m_tc_result mHscMessage
                                                hm_iface    = iface,
                                                hm_linkable = maybe_old_linkable })
 
-                   _ -> do guts0 <- hscDesugar hsc_env summary tc_result
+                   HsigFile ->
+                       do (iface, changed, details) <-
+                                    hscSimpleIface hsc_env tc_result mb_old_hash
+                          hscWriteIface dflags iface changed summary
+                          compileEmptyStub dflags hsc_env basename location
+
+                          -- Same as Hs
+                          o_time <- getModificationUTCTime object_filename
+                          let linkable =
+                                  LM o_time this_mod [DotO object_filename]
+
+                          return (HomeModInfo{ hm_details  = details,
+                                               hm_iface    = iface,
+                                               hm_linkable = Just linkable })
+
+                   HsSrcFile ->
+                        do guts0 <- hscDesugar hsc_env summary tc_result
                            guts <- hscSimplify hsc_env guts0
                            (iface, changed, details, cgguts) <- hscNormalIface hsc_env guts mb_old_hash
                            hscWriteIface dflags iface changed summary
@@ -286,6 +302,21 @@ compileStub hsc_env stub_c = do
                                    Temporary Nothing{-no ModLocation-} Nothing
 
         return stub_o
+
+compileEmptyStub :: DynFlags -> HscEnv -> FilePath -> ModLocation -> IO ()
+compileEmptyStub dflags hsc_env basename location = do
+  -- To maintain the invariant that every Haskell file
+  -- compiles to object code, we make an empty (but
+  -- valid) stub object file for signatures
+  empty_stub <- newTempName dflags "c"
+  writeFile empty_stub ""
+  _ <- runPipeline StopLn hsc_env
+                  (empty_stub, Nothing)
+                  (Just basename)
+                  Persistent
+                  (Just location)
+                  Nothing
+  return ()
 
 -- ---------------------------------------------------------------------------
 -- Link
@@ -341,11 +372,7 @@ link' dflags batch_attempt_linking hpt
                           LinkStaticLib -> True
                           _ -> platformBinariesAreStaticLibs (targetPlatform dflags)
 
-            -- Don't attempt to link hsigs; they don't actually produce objects.
-            -- This is in contrast to hs-boot files, which will /eventually/
-            -- get objects.
-            home_mod_infos =
-                filter ((==Nothing).mi_sig_of.hm_iface) (eltsUFM hpt)
+            home_mod_infos = eltsUFM hpt
 
             -- the packages we depend on
             pkg_deps  = concatMap (map fst . dep_pkgs . mi_deps . hm_iface) home_mod_infos
@@ -908,6 +935,11 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
         location <- getLocation src_flavour mod_name
 
         let o_file = ml_obj_file location -- The real object file
+            hi_file = ml_hi_file location
+            dest_file | writeInterfaceOnlyMode dflags
+                            = hi_file
+                      | otherwise
+                            = o_file
 
   -- Figure out if the source has changed, for recompilation avoidance.
   --
@@ -925,10 +957,10 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
                 --      (b) we aren't going all the way to .o file (e.g. ghc -S)
              then return SourceModified
                 -- Otherwise look at file modification dates
-             else do o_file_exists <- doesFileExist o_file
-                     if not o_file_exists
+             else do dest_file_exists <- doesFileExist dest_file
+                     if not dest_file_exists
                         then return SourceModified       -- Need to recompile
-                        else do t2 <- getModificationUTCTime o_file
+                        else do t2 <- getModificationUTCTime dest_file
                                 if t2 > src_timestamp
                                   then return SourceUnmodified
                                   else return SourceModified
@@ -948,6 +980,7 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
                                         ms_location  = location,
                                         ms_hs_date   = src_timestamp,
                                         ms_obj_date  = Nothing,
+                                        ms_iface_date   = Nothing,
                                         ms_textual_imps = imps,
                                         ms_srcimps      = src_imps }
 
@@ -980,6 +1013,14 @@ runPhase (HscOut src_flavour mod_name result) _ dflags = do
                 do -- In the case of hs-boot files, generate a dummy .o-boot
                    -- stamp file for the benefit of Make
                    liftIO $ touchObjectFile dflags o_file
+                   return (RealPhase next_phase, o_file)
+            HscUpdateSig ->
+                do -- We need to create a REAL but empty .o file
+                   -- because we are going to attempt to put it in a library
+                   PipeState{hsc_env=hsc_env'} <- getPipeState
+                   let input_fn = expectJust "runPhase" (ml_hs_file location)
+                       basename = dropExtension input_fn
+                   liftIO $ compileEmptyStub dflags hsc_env' basename location
                    return (RealPhase next_phase, o_file)
             HscRecomp cgguts mod_summary
               -> do output_fn <- phaseOutputFilename next_phase
@@ -1934,6 +1975,7 @@ linkBinary' staticLink dflags o_files dep_packages = do
                                ArchX86 -> True
                                ArchX86_64 -> True
                                ArchARM {} -> True
+                               ArchARM64  -> True
                                _ -> False
                           then ["-Wl,-no_compact_unwind"]
                           else [])
@@ -2211,6 +2253,11 @@ joinObjectFiles dflags o_files output_fn = do
 
 -- -----------------------------------------------------------------------------
 -- Misc.
+
+writeInterfaceOnlyMode :: DynFlags -> Bool
+writeInterfaceOnlyMode dflags =
+ gopt Opt_WriteInterface dflags &&
+ HscNothing == hscTarget dflags
 
 -- | What phase to run after one of the backend code generators has run
 hscPostBackendPhase :: DynFlags -> HscSource -> HscTarget -> Phase

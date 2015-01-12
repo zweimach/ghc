@@ -2,6 +2,7 @@
 {-# LANGUAGE CPP, NoImplicitPrelude, MagicHash, UnboxedTuples, BangPatterns #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 {-# OPTIONS_HADDOCK hide #-}
+
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  GHC.Real
@@ -17,7 +18,19 @@
 --
 -----------------------------------------------------------------------------
 
-module GHC.Real where
+module GHC.Real
+     (
+     Fractional(..), Integral(..), Ratio(..), Real(..), RealFrac(..),
+
+     Rational,
+
+     (%), (^), (^%^), (^^), (^^%^^), denominator, divZeroError, even,
+     fromIntegral, gcd, infinity, integralEnumFrom,
+     integralEnumFromThen, integralEnumFromThenTo, integralEnumFromTo, lcm,
+     notANumber, numerator, numericEnumFrom, numericEnumFromThen,
+     numericEnumFromThenTo, numericEnumFromTo, odd, overflowError, ratioPrec,
+     ratioPrec1, ratioZeroDenominatorError, realToFrac, reduce, showSigned
+     ) where
 
 import GHC.Base
 import GHC.Num
@@ -27,7 +40,7 @@ import GHC.Show
 import {-# SOURCE #-} GHC.Exception( divZeroException, overflowException, ratioZeroDenomException )
 
 #ifdef OPTIMISE_INTEGER_GCD_LCM
-# if defined(MIN_VERSION_integer_gmp) || defined(MIN_VERSION_integer_gmp2)
+# if defined(MIN_VERSION_integer_gmp)
 import GHC.Integer.GMP.Internals
 # else
 #  error unsupported OPTIMISE_INTEGER_GCD_LCM configuration
@@ -90,12 +103,12 @@ notANumber = 0 :% 0
 -- | Extract the numerator of the ratio in reduced form:
 -- the numerator and denominator have no common factor and the denominator
 -- is positive.
-numerator       :: (Integral a) => Ratio a -> a
+numerator       :: Ratio a -> a
 
 -- | Extract the denominator of the ratio in reduced form:
 -- the numerator and denominator have no common factor and the denominator
 -- is positive.
-denominator     :: (Integral a) => Ratio a -> a
+denominator     :: Ratio a -> a
 
 
 -- | 'reduce' is a subsidiary function used only in this module.
@@ -397,7 +410,7 @@ instance  (Integral a)  => RealFrac (Ratio a)  where
     properFraction (x:%y) = (fromInteger (toInteger q), r:%y)
                           where (q,r) = quotRem x y
 
-instance  (Integral a, Show a)  => Show (Ratio a)  where
+instance  (Show a)  => Show (Ratio a)  where
     {-# SPECIALIZE instance Show Rational #-}
     showsPrec p (x:%y)  =  showParen (p > ratioPrec) $
                            showsPrec ratioPrec1 x .
@@ -633,6 +646,15 @@ lcm x y         =  abs ((x `quot` (gcd x y)) * y)
 
 gcdInt' :: Int -> Int -> Int
 gcdInt' (I# x) (I# y) = I# (gcdInt x y)
+
+#if MIN_VERSION_integer_gmp(1,0,0)
+{-# RULES
+"gcd/Word->Word->Word"          gcd = gcdWord'
+ #-}
+
+gcdWord' :: Word -> Word -> Word
+gcdWord' (W# x) (W# y) = W# (gcdWord x y)
+#endif
 #endif
 
 integralEnumFrom :: (Integral a, Bounded a) => a -> [a]

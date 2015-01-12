@@ -1,5 +1,5 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE Trustworthy #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -23,7 +23,7 @@ module Data.Functor
       void,
     ) where
 
-import GHC.Base ( Functor(..), const, flip )
+import GHC.Base ( Functor(..), flip )
 
 -- $setup
 -- Allow the use of Prelude in doctests.
@@ -67,7 +67,7 @@ infixl 4 $>
 
 -- | Flipped version of '<$'.
 --
--- /Since: 4.7.0.0/
+-- @since 4.7.0.0
 --
 -- ==== __Examples__
 --
@@ -140,4 +140,4 @@ infixl 4 $>
 -- 2
 --
 void :: Functor f => f a -> f ()
-void = fmap (const ())
+void x = () <$ x

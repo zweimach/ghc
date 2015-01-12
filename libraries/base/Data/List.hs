@@ -1,5 +1,5 @@
-{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE Trustworthy #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -65,6 +65,7 @@ module Data.List
 
    -- ** Scans
    , scanl
+   , scanl'
    , scanl1
    , scanr
    , scanr1
@@ -223,7 +224,7 @@ import GHC.Base ( Bool(..), Eq((==)), otherwise )
 --
 -- @'isSubsequenceOf' x y@ is equivalent to @'elem' x ('subsequences' y)@.
 --
--- /Since: 4.8.0.0/
+-- @since 4.8.0.0
 --
 -- ==== __Examples__
 --

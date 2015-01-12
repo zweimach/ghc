@@ -217,7 +217,7 @@ vectTypeEnv tycons vectTypeDecls vectClassDecls
            -- Furthermore, 'par_tcs' are those type constructors (converted or not) whose
            -- definition, directly or indirectly, depends on parallel arrays. Finally, 'drop_tcs'
            -- are all type constructors that cannot be vectorised.
-       ; parallelTyCons <- (`addListToNameSet` map (tyConName . fst) vectTyConsWithRHS) <$>
+       ; parallelTyCons <- (`extendNameSetList` map (tyConName . fst) vectTyConsWithRHS) <$>
                              globalParallelTyCons
        ; let maybeVectoriseTyCons = filter notVectSpecialTyCon tycons ++ impVectTyCons
              (conv_tcs, keep_tcs, par_tcs, drop_tcs)
@@ -234,7 +234,8 @@ vectTypeEnv tycons vectTypeDecls vectClassDecls
            -- warn the user about unvectorised type constructors
        ; let explanation    = ptext (sLit "(They use unsupported language extensions") $$
                               ptext (sLit "or depend on type constructors that are not vectorised)")
-             drop_tcs_nosyn = filter (not . isSynTyCon) drop_tcs
+             drop_tcs_nosyn = filter (not . isTypeFamilyTyCon) .
+                              filter (not . isTypeSynonymTyCon) $ drop_tcs
        ; unless (null drop_tcs_nosyn) $
            emitVt "Warning: cannot vectorise these type constructors:" $ 
              pprQuotedList drop_tcs_nosyn $$ explanation
@@ -356,7 +357,7 @@ vectTypeEnv tycons vectTypeDecls vectClassDecls
         origName  = tyConName origTyCon
         vectName  = tyConName vectTyCon
 
-        mkSyn canonName ty = mkSynTyCon canonName (typeKind ty) [] [] (SynonymTyCon ty) NoParentTyCon
+        mkSyn canonName ty = mkSynonymTyCon canonName (typeKind ty) [] [] ty
         
         defDataCons
           | isAbstract = return ()

@@ -777,10 +777,17 @@ lcmInteger a b = (aa `quotInteger` (aa `gcdInteger` ab)) `timesInteger` ab
 
 -- | Compute greatest common divisor.
 --
--- Warning: result may become negative if (at least) one argument is 'minBound'
+-- __Warning__: result may become negative if (at least) one argument
+-- is 'minBound'
 gcdInt :: Int# -> Int# -> Int#
 gcdInt x# y#
     = word2Int# (gcdWord# (int2Word# (absI# x#)) (int2Word# (absI# y#)))
+
+-- | Compute greatest common divisor.
+--
+-- @since 1.0.0.0
+gcdWord :: Word# -> Word# -> Word#
+gcdWord = gcdWord#
 
 ----------------------------------------------------------------------------
 -- BigNat operations
@@ -835,6 +842,7 @@ eqBigNatWord# bn w#
 bigNatToWord :: BigNat -> Word#
 bigNatToWord bn = indexBigNat# bn 0#
 
+-- | Equivalent to @'word2Int#' . 'bigNatToWord'@
 bigNatToInt :: BigNat -> Int#
 bigNatToInt (BN# ba#) = indexIntArray# ba# 0#
 
@@ -1248,6 +1256,175 @@ gcdBigNat x@(BN# x#) y@(BN# y#)
     nx# = sizeofBigNat# x
     ny# = sizeofBigNat# y
 
+-- | Extended euclidean algorithm.
+--
+-- For @/a/@ and @/b/@, compute their greatest common divisor @/g/@
+-- and the coefficient @/s/@ satisfying @/a//s/ + /b//t/ = /g/@.
+--
+-- @since 0.5.1.0
+{-# NOINLINE gcdExtInteger #-}
+gcdExtInteger :: Integer -> Integer -> (# Integer, Integer #)
+gcdExtInteger a b = case gcdExtSBigNat a' b' of
+    (# g, s #) -> let !g' = bigNatToInteger  g
+                      !s' = sBigNatToInteger s
+                  in (# g', s' #)
+  where
+    a' = integerToSBigNat a
+    b' = integerToSBigNat b
+
+-- internal helper
+gcdExtSBigNat :: SBigNat -> SBigNat -> (# BigNat, SBigNat #)
+gcdExtSBigNat x y = case runS go of (g,s) -> (# g, s #)
+  where
+    go = do
+        g@(MBN# g#) <- newBigNat# gn0#
+        s@(MBN# s#) <- newBigNat# (absI# xn#)
+        I# ssn_# <- liftIO (integer_gmp_gcdext# s# g# x# xn# y# yn#)
+        let ssn# = narrowGmpSize# ssn_#
+            sn#  = absI# ssn#
+        s' <- unsafeShrinkFreezeBigNat# s sn#
+        g' <- unsafeRenormFreezeBigNat# g
+        case ssn# >=# 0# of
+            0# -> return ( g', NegBN s' )
+            _  -> return ( g', PosBN s' )
+
+    !(BN# x#) = absSBigNat x
+    !(BN# y#) = absSBigNat y
+    xn# = ssizeofSBigNat# x
+    yn# = ssizeofSBigNat# y
+
+    gn0# = minI# (absI# xn#) (absI# yn#)
+
+----------------------------------------------------------------------------
+-- modular exponentiation
+
+-- | \"@'powModInteger' /b/ /e/ /m/@\" computes base @/b/@ raised to
+-- exponent @/e/@ modulo @abs(/m/)@.
+--
+-- Negative exponents are supported if an inverse modulo @/m/@
+-- exists.
+--
+-- __Warning__: It's advised to avoid calling this primitive with
+-- negative exponents unless it is guaranteed the inverse exists, as
+-- failure to do so will likely cause program abortion due to a
+-- divide-by-zero fault. See also 'recipModInteger'.
+--
+-- Future versions of @integer_gmp@ may not support negative @/e/@
+-- values anymore.
+--
+-- @since 0.5.1.0
+{-# NOINLINE powModInteger #-}
+powModInteger :: Integer -> Integer -> Integer -> Integer
+powModInteger (S# b#) (S# e#) (S# m#)
+  | isTrue# (b# >=# 0#), isTrue# (e# >=# 0#)
+  = wordToInteger (powModWord (int2Word# b#) (int2Word# e#)
+                              (int2Word# (absI# m#)))
+powModInteger b e m = case m of
+    (S# m#) -> wordToInteger (powModSBigNatWord b' e' (int2Word# (absI# m#)))
+    (Jp# m') -> bigNatToInteger (powModSBigNat b' e' m')
+    (Jn# m') -> bigNatToInteger (powModSBigNat b' e' m')
+  where
+    b' = integerToSBigNat b
+    e' = integerToSBigNat e
+
+-- | Version of 'powModInteger' operating on 'BigNat's
+--
+-- @since 1.0.0.0
+powModBigNat :: BigNat -> BigNat -> BigNat -> BigNat
+powModBigNat b e m = inline powModSBigNat (PosBN b) (PosBN e) m
+
+-- | Version of 'powModInteger' for 'Word#'-sized moduli
+--
+-- @since 1.0.0.0
+powModBigNatWord :: BigNat -> BigNat -> GmpLimb# -> GmpLimb#
+powModBigNatWord b e m# = inline powModSBigNatWord (PosBN b) (PosBN e) m#
+
+-- | Version of 'powModInteger' operating on 'Word#'s
+--
+-- @since 1.0.0.0
+foreign import ccall unsafe "integer_gmp_powm_word"
+  powModWord :: GmpLimb# -> GmpLimb# -> GmpLimb# -> GmpLimb#
+
+-- internal non-exported helper
+powModSBigNat :: SBigNat -> SBigNat -> BigNat -> BigNat
+powModSBigNat b e m@(BN# m#) = runS $ do
+    r@(MBN# r#) <- newBigNat# mn#
+    I# rn_# <- liftIO (integer_gmp_powm# r# b# bn# e# en# m# mn#)
+    let rn# = narrowGmpSize# rn_#
+    case rn# ==# mn# of
+        0# -> unsafeShrinkFreezeBigNat# r rn#
+        _  -> unsafeFreezeBigNat# r
+  where
+    !(BN# b#) = absSBigNat b
+    !(BN# e#) = absSBigNat e
+    bn# = ssizeofSBigNat# b
+    en# = ssizeofSBigNat# e
+    mn# = sizeofBigNat# m
+
+foreign import ccall unsafe "integer_gmp_powm"
+  integer_gmp_powm# :: MutableByteArray# RealWorld
+                       -> ByteArray# -> GmpSize# -> ByteArray# -> GmpSize#
+                       -> ByteArray# -> GmpSize# -> IO GmpSize
+
+-- internal non-exported helper
+powModSBigNatWord :: SBigNat -> SBigNat -> GmpLimb# -> GmpLimb#
+powModSBigNatWord b e m# = integer_gmp_powm1# b# bn# e# en# m#
+  where
+    !(BN# b#) = absSBigNat b
+    !(BN# e#) = absSBigNat e
+    bn# = ssizeofSBigNat# b
+    en# = ssizeofSBigNat# e
+
+foreign import ccall unsafe "integer_gmp_powm1"
+  integer_gmp_powm1# :: ByteArray# -> GmpSize# -> ByteArray# -> GmpSize#
+                        -> GmpLimb# -> GmpLimb#
+
+
+-- | \"@'recipModInteger' /x/ /m/@\" computes the inverse of @/x/@ modulo @/m/@. If
+-- the inverse exists, the return value @/y/@ will satisfy @0 < /y/ <
+-- abs(/m/)@, otherwise the result is @0@.
+--
+-- @since 0.5.1.0
+{-# NOINLINE recipModInteger #-}
+recipModInteger :: Integer -> Integer -> Integer
+recipModInteger (S# x#) (S# m#)
+  | isTrue# (x# >=# 0#)
+  = wordToInteger (recipModWord (int2Word# x#) (int2Word# (absI# m#)))
+recipModInteger x m = bigNatToInteger (recipModSBigNat x' m')
+  where
+    x' = integerToSBigNat x
+    m' = absSBigNat (integerToSBigNat m)
+
+-- | Version of 'recipModInteger' operating on 'BigNat's
+--
+-- @since 1.0.0.0
+recipModBigNat :: BigNat -> BigNat -> BigNat
+recipModBigNat x m = inline recipModSBigNat (PosBN x) m
+
+-- | Version of 'recipModInteger' operating on 'Word#'s
+--
+-- @since 1.0.0.0
+foreign import ccall unsafe "integer_gmp_invert_word"
+  recipModWord :: GmpLimb# -> GmpLimb# -> GmpLimb#
+
+-- internal non-exported helper
+recipModSBigNat :: SBigNat -> BigNat -> BigNat
+recipModSBigNat x m@(BN# m#) = runS $ do
+    r@(MBN# r#) <- newBigNat# mn#
+    I# rn_# <- liftIO (integer_gmp_invert# r# x# xn# m# mn#)
+    let rn# = narrowGmpSize# rn_#
+    case rn# ==# mn# of
+        0# -> unsafeShrinkFreezeBigNat# r rn#
+        _  -> unsafeFreezeBigNat# r
+  where
+    !(BN# x#) = absSBigNat x
+    xn# = ssizeofSBigNat# x
+    mn# = sizeofBigNat# m
+
+foreign import ccall unsafe "integer_gmp_invert"
+  integer_gmp_invert# :: MutableByteArray# RealWorld
+                         -> ByteArray# -> GmpSize#
+                         -> ByteArray# -> GmpSize# -> IO GmpSize
 
 ----------------------------------------------------------------------------
 -- Conversions to/from floating point
@@ -1307,6 +1484,11 @@ foreign import ccall unsafe "integer_gmp_mpn_gcd_1"
 foreign import ccall unsafe "integer_gmp_mpn_gcd"
   c_mpn_gcd# :: MutableByteArray# s -> ByteArray# -> GmpSize#
                 -> ByteArray# -> GmpSize# -> IO GmpSize
+
+foreign import ccall unsafe "integer_gmp_gcdext"
+  integer_gmp_gcdext# :: MutableByteArray# s -> MutableByteArray# s
+                         -> ByteArray# -> GmpSize#
+                         -> ByteArray# -> GmpSize# -> IO GmpSize
 
 -- mp_limb_t mpn_add_1 (mp_limb_t *rp, const mp_limb_t *s1p, mp_size_t n,
 --                      mp_limb_t s2limb)
@@ -1559,6 +1741,105 @@ byteArrayToBigNat# ba# n0#
       | isTrue# (neWord# (indexWordArray# ba# i#) 0##) = i# +# 1#
       | True                                           = fmssl (i# -# 1#)
 
+-- | Read 'Integer' (without sign) from memory location at @/addr/@ in
+-- base-256 representation.
+--
+-- @'importIntegerFromAddr' /addr/ /size/ /msbf/@
+--
+-- See description of 'importIntegerFromByteArray' for more details.
+--
+-- @since 1.0.0.0
+importIntegerFromAddr :: Addr# -> Word# -> Int# -> IO Integer
+importIntegerFromAddr addr len msbf = IO $ do
+    bn <- liftIO (importBigNatFromAddr addr len msbf)
+    return (bigNatToInteger bn)
+
+-- | Version of 'importIntegerFromAddr' constructing a 'BigNat'
+importBigNatFromAddr :: Addr# -> Word# -> Int# -> IO BigNat
+importBigNatFromAddr _ 0## _ = IO (\s -> (# s, zeroBigNat #))
+importBigNatFromAddr addr len0 1# = IO $ do -- MSBF
+    W# ofs <- liftIO (c_scan_nzbyte_addr addr 0## len0)
+    let len = len0 `minusWord#` ofs
+        addr' = addr `plusAddr#` (word2Int# ofs)
+    importBigNatFromAddr# addr' len 1#
+importBigNatFromAddr addr len0 _ = IO $ do -- LSBF
+    W# len <- liftIO (c_rscan_nzbyte_addr addr 0## len0)
+    importBigNatFromAddr# addr len 0#
+
+foreign import ccall unsafe "integer_gmp_scan_nzbyte"
+    c_scan_nzbyte_addr :: Addr# -> Word# -> Word# -> IO Word
+
+foreign import ccall unsafe "integer_gmp_rscan_nzbyte"
+    c_rscan_nzbyte_addr :: Addr# -> Word# -> Word# -> IO Word
+
+-- | Helper for 'importBigNatFromAddr'
+importBigNatFromAddr# :: Addr# -> Word# -> Int# -> S RealWorld BigNat
+importBigNatFromAddr# _ 0## _ = return zeroBigNat
+importBigNatFromAddr# addr len msbf = do
+    mbn@(MBN# mba#) <- newBigNat# n#
+    () <- liftIO (c_mpn_import_addr mba# addr 0## len msbf)
+    unsafeFreezeBigNat# mbn
+  where
+    -- n = ceiling(len / SIZEOF_HSWORD), i.e. number of limbs required
+    n# = (word2Int# len +# (SIZEOF_HSWORD# -# 1#)) `quotInt#` SIZEOF_HSWORD#
+
+foreign import ccall unsafe "integer_gmp_mpn_import"
+    c_mpn_import_addr :: MutableByteArray# RealWorld -> Addr# -> Word# -> Word#
+                      -> Int# -> IO ()
+
+-- | Read 'Integer' (without sign) from byte-array in base-256 representation.
+--
+-- The call
+--
+-- @'importIntegerFromByteArray' /ba/ /offset/ /size/ /msbf/@
+--
+-- reads
+--
+-- * @/size/@ bytes from the 'ByteArray#' @/ba/@ starting at @/offset/@
+--
+-- * with most significant byte first if @/msbf/@ is @1#@ or least
+--   significant byte first if @/msbf/@ is @0#@, and
+--
+-- * returns a new 'Integer'
+--
+-- @since 1.0.0.0
+importIntegerFromByteArray :: ByteArray# -> Word# -> Word# -> Int# -> Integer
+importIntegerFromByteArray ba ofs len msbf
+    = bigNatToInteger (importBigNatFromByteArray ba ofs len msbf)
+
+-- | Version of 'importIntegerFromByteArray' constructing a 'BigNat'
+importBigNatFromByteArray :: ByteArray# -> Word# -> Word# -> Int# -> BigNat
+importBigNatFromByteArray _  _    0##  _  = zeroBigNat
+importBigNatFromByteArray ba ofs0 len0 1# = runS $ do -- MSBF
+    W# ofs <- liftIO (c_scan_nzbyte_bytearray ba ofs0 len0)
+    let len = (len0 `plusWord#` ofs0) `minusWord#` ofs
+    importBigNatFromByteArray# ba ofs len 1#
+importBigNatFromByteArray ba ofs  len0 _  = runS $ do -- LSBF
+    W# len <- liftIO (c_rscan_nzbyte_bytearray ba ofs len0)
+    importBigNatFromByteArray# ba ofs len 0#
+
+foreign import ccall unsafe "integer_gmp_scan_nzbyte"
+    c_scan_nzbyte_bytearray :: ByteArray# -> Word# -> Word# -> IO Word
+
+foreign import ccall unsafe "integer_gmp_rscan_nzbyte"
+    c_rscan_nzbyte_bytearray :: ByteArray# -> Word# -> Word# -> IO Word
+
+-- | Helper for 'importBigNatFromByteArray'
+importBigNatFromByteArray# :: ByteArray# -> Word# -> Word# -> Int#
+                           -> S RealWorld BigNat
+importBigNatFromByteArray# _ _ 0## _ = return zeroBigNat
+importBigNatFromByteArray# ba ofs len msbf = do
+    mbn@(MBN# mba#) <- newBigNat# n#
+    () <- liftIO (c_mpn_import_bytearray mba# ba ofs len msbf)
+    unsafeFreezeBigNat# mbn
+  where
+    -- n = ceiling(len / SIZEOF_HSWORD), i.e. number of limbs required
+    n# = (word2Int# len +# (SIZEOF_HSWORD# -# 1#)) `quotInt#` SIZEOF_HSWORD#
+
+foreign import ccall unsafe "integer_gmp_mpn_import"
+    c_mpn_import_bytearray :: MutableByteArray# RealWorld -> ByteArray# -> Word#
+                           -> Word# -> Int# -> IO ()
+
 -- | Test whether all internal invariants are satisfied by 'BigNat' value
 --
 -- Returns @1#@ if valid, @0#@ otherwise.
@@ -1576,6 +1857,23 @@ isValidBigNat# (BN# ba#)
     sz# = sizeofByteArray# ba#
 
     (# szq#, szr# #) = quotRemInt# sz# GMP_LIMB_BYTES#
+
+-- | Version of 'nextPrimeInteger' operating on 'BigNat's
+--
+-- @since 1.0.0.0
+nextPrimeBigNat :: BigNat -> BigNat
+nextPrimeBigNat bn@(BN# ba#) = runS $ do
+    mbn@(MBN# mba#) <- newBigNat# n#
+    (W# c#) <- liftIO (nextPrime# mba# ba# n#)
+    case c# of
+        0## -> unsafeFreezeBigNat# mbn
+        _   -> unsafeSnocFreezeBigNat# mbn c#
+  where
+    n# = sizeofBigNat# bn
+
+foreign import ccall unsafe "integer_gmp_next_prime"
+  nextPrime# :: MutableByteArray# RealWorld -> ByteArray# -> GmpSize#
+                -> IO GmpLimb
 
 ----------------------------------------------------------------------------
 -- monadic combinators for low-level state threading
@@ -1620,6 +1918,43 @@ fail :: [Char] -> S s a
 fail s = return (raise# s)
 
 ----------------------------------------------------------------------------
+
+-- | Internal helper type for "signed" 'BigNat's
+--
+-- This is a useful abstraction for operations which support negative
+-- mp_size_t arguments.
+data SBigNat = NegBN !BigNat | PosBN !BigNat
+
+-- | Absolute value of 'SBigNat'
+absSBigNat :: SBigNat -> BigNat
+absSBigNat (NegBN bn) = bn
+absSBigNat (PosBN bn) = bn
+
+-- | /Signed/ limb count. Negative sizes denote negative integers
+ssizeofSBigNat# :: SBigNat -> GmpSize#
+ssizeofSBigNat# (NegBN bn) = negateInt# (sizeofBigNat# bn)
+ssizeofSBigNat# (PosBN bn) = sizeofBigNat# bn
+
+-- | Construct 'SBigNat' from 'Int#' value
+intToSBigNat# :: Int# -> SBigNat
+intToSBigNat# 0#     = PosBN zeroBigNat
+intToSBigNat# 1#     = PosBN oneBigNat
+intToSBigNat# (-1#)  = NegBN oneBigNat
+intToSBigNat# i# | isTrue# (i# ># 0#) = PosBN (wordToBigNat (int2Word# i#))
+                 | True   = PosBN (wordToBigNat (int2Word# (negateInt# i#)))
+
+-- | Convert 'Integer' into 'SBigNat'
+integerToSBigNat :: Integer -> SBigNat
+integerToSBigNat (S#  i#) = intToSBigNat# i#
+integerToSBigNat (Jp# bn) = PosBN bn
+integerToSBigNat (Jn# bn) = NegBN bn
+
+-- | Convert 'SBigNat' into 'Integer'
+sBigNatToInteger :: SBigNat -> Integer
+sBigNatToInteger (NegBN bn) = bigNatToNegInteger bn
+sBigNatToInteger (PosBN bn) = bigNatToInteger bn
+
+----------------------------------------------------------------------------
 -- misc helpers, some of these should rather be primitives exported by ghc-prim
 
 cmpW# :: Word# -> Word# -> Ordering
@@ -1661,3 +1996,7 @@ sgnI# x# = (x# ># 0#) -# (x# <# 0#)
 
 cmpI# :: Int# -> Int# -> Int#
 cmpI# x# y# = (x# ># y#) -# (x# <# y#)
+
+minI# :: Int# -> Int# -> Int#
+minI# x# y# | isTrue# (x# <=# y#) = x#
+            | True                = y#

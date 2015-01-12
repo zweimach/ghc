@@ -1,5 +1,5 @@
 {-# LANGUAGE Unsafe #-}
-{-# LANGUAGE NoImplicitPrelude, AutoDeriveTypeable #-}
+{-# LANGUAGE NoImplicitPrelude, AutoDeriveTypeable, RoleAnnotations #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 {-# OPTIONS_HADDOCK hide #-}
 
@@ -41,6 +41,9 @@ import Data.Typeable.Internal
 
 newtype IOArray i e = IOArray (STArray RealWorld i e) deriving( Typeable )
 
+-- index type should have a nominal role due to Ix class. See also #9220.
+type role IOArray nominal representational
+
 -- explicit instance because Haddock can't figure out a derived one
 instance Eq (IOArray i e) where
   IOArray x == IOArray y = x == y
@@ -51,12 +54,12 @@ newIOArray :: Ix i => (i,i) -> e -> IO (IOArray i e)
 newIOArray lu initial  = stToIO $ do {marr <- newSTArray lu initial; return (IOArray marr)}
 
 -- | Read a value from an 'IOArray'
-unsafeReadIOArray  :: Ix i => IOArray i e -> Int -> IO e
+unsafeReadIOArray  :: IOArray i e -> Int -> IO e
 {-# INLINE unsafeReadIOArray #-}
 unsafeReadIOArray (IOArray marr) i = stToIO (unsafeReadSTArray marr i)
 
 -- | Write a new value into an 'IOArray'
-unsafeWriteIOArray :: Ix i => IOArray i e -> Int -> e -> IO ()
+unsafeWriteIOArray :: IOArray i e -> Int -> e -> IO ()
 {-# INLINE unsafeWriteIOArray #-}
 unsafeWriteIOArray (IOArray marr) i e = stToIO (unsafeWriteSTArray marr i e)
 

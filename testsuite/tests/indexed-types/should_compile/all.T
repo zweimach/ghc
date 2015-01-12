@@ -194,7 +194,6 @@ test('T6152',
      run_command,
      ['$MAKE -s --no-print-directory T6152'])
 
-test('T6088', normal, compile, [''])
 test('T7082', normal, compile, [''])
 
 test('Overlap1', normal, compile, [''])
@@ -249,3 +248,5 @@ test('red-black-delete', normal, compile, [''])
 test('Sock', normal, compile, [''])
 test('T9211', normal, compile, [''])
 test('T9747', normal, compile, [''])
+test('T9582', normal, compile, [''])
+test('T9090', normal, compile, [''])

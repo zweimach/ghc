@@ -20,6 +20,7 @@ GMP_DIR := $(patsubst libraries/integer-gmp/gmp/tarball/%-nodoc-patched.tar.bz2,
 
 ifneq "$(NO_CLEAN_GMP)" "YES"
 $(eval $(call clean-target,gmp,,\
+  libraries/integer-gmp2/include/ghc-gmp.h \
   libraries/integer-gmp2/gmp/config.mk \
   libraries/integer-gmp2/gmp/libgmp.a \
   libraries/integer-gmp2/gmp/gmp.h \
@@ -75,14 +76,27 @@ HaveFrameworkGMP = NO
 endif
 endif
 
+UseIntreeGmp = NO
 ifneq "$(HaveLibGmp)" "YES"
 ifneq "$(HaveFrameworkGMP)" "YES"
-$(libraries/integer-gmp2_dist-install_depfile_c_asm): libraries/integer-gmp2/gmp/gmp.h
+UseIntreeGmp = YES
+endif
+endif
+
+ifeq "$(UseIntreeGmp)" "YES"
+$(libraries/integer-gmp2_dist-install_depfile_c_asm): libraries/integer-gmp2/gmp/gmp.h libraries/integer-gmp2/include/ghc-gmp.h
+
+libraries/integer-gmp2/include/ghc-gmp.h: libraries/integer-gmp2/gmp/gmp.h
+	$(CP) $< $@
 
 gmp_CC_OPTS += -Ilibraries/integer-gmp2/gmp
 
 libraries/integer-gmp2_dist-install_EXTRA_OBJS += libraries/integer-gmp2/gmp/objs/*.o
-endif
+else
+$(libraries/integer-gmp2_dist-install_depfile_c_asm): libraries/integer-gmp2/include/ghc-gmp.h
+
+libraries/integer-gmp2/include/ghc-gmp.h: libraries/integer-gmp2/gmp/ghc-gmp.h
+	$(CP) $< $@
 endif
 
 libraries/integer-gmp2_dist-install_EXTRA_CC_OPTS += $(gmp_CC_OPTS)
@@ -99,7 +113,8 @@ libraries/integer-gmp2/gmp/libgmp.a libraries/integer-gmp2/gmp/gmp.h:
 	$(RM) -rf libraries/integer-gmp2/gmp/$(GMP_DIR) libraries/integer-gmp2/gmp/gmpbuild libraries/integer-gmp2/gmp/objs
 	cat $(GMP_TARBALL) | $(BZIP2_CMD) -d | { cd libraries/integer-gmp2/gmp && $(TAR_CMD) -xf - ; }
 	mv libraries/integer-gmp2/gmp/$(GMP_DIR) libraries/integer-gmp2/gmp/gmpbuild
-	cd libraries/integer-gmp2/gmp && patch -p0 < gmpsrc.patch
+	cd libraries/integer-gmp2/gmp && $(PATCH_CMD) -p0 < gmpsrc.patch
+	cat libraries/integer-gmp/gmp/tarball/gmp-5.0.4.patch | { cd libraries/integer-gmp2/gmp/gmpbuild && $(PATCH_CMD) -p1 ; }
 	chmod +x libraries/integer-gmp2/gmp/ln
 
 	# Their cmd invocation only works on msys. On cygwin it starts

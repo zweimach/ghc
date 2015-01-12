@@ -50,7 +50,6 @@ import SrcLoc
 import qualified Maybes
 import UniqSet
 import FastString
-import Config
 import Platform
 import SysTools
 
@@ -117,8 +116,12 @@ data PersistentLinkerState
         -- The currently-loaded packages; always object code
         -- Held, as usual, in dependency order; though I am not sure if
         -- that is really important
-        pkgs_loaded :: ![PackageKey]
-     }
+        pkgs_loaded :: ![PackageKey],
+
+        -- we need to remember the name of the last temporary DLL/.so
+        -- so we can link it
+        last_temp_so :: !(Maybe (FilePath, String)) }
+
 
 emptyPLS :: DynFlags -> PersistentLinkerState
 emptyPLS _ = PersistentLinkerState {
@@ -126,7 +129,8 @@ emptyPLS _ = PersistentLinkerState {
                         itbl_env    = emptyNameEnv,
                         pkgs_loaded = init_pkgs,
                         bcos_loaded = [],
-                        objs_loaded = [] }
+                        objs_loaded = [],
+                        last_temp_so = Nothing }
 
   -- Packages that don't need loading, because the compiler
   -- shares them with the interpreted program.
@@ -195,7 +199,7 @@ linkDependencies hsc_env pls span needed_mods = do
 
 -- | Temporarily extend the linker state.
 
-withExtendedLinkEnv :: (MonadIO m, ExceptionMonad m) =>
+withExtendedLinkEnv :: (ExceptionMonad m) =>
                        [(Name,HValue)] -> m a -> m a
 withExtendedLinkEnv new_env action
     = gbracket (liftIO $ extendLinkEnv new_env)
@@ -316,14 +320,15 @@ linkCmdLineLibs' dflags@(DynFlags { ldInputs     = cmdline_ld_inputs
         ; if null cmdline_lib_specs then return pls
                                     else do
 
-        { mapM_ (preloadLib dflags lib_paths framework_paths) cmdline_lib_specs
+        { pls1 <- foldM (preloadLib dflags lib_paths framework_paths) pls
+                        cmdline_lib_specs
         ; maybePutStr dflags "final link ... "
         ; ok <- resolveObjs
 
         ; if succeeded ok then maybePutStrLn dflags "done"
           else throwGhcExceptionIO (ProgramError "linking extra libraries/objects failed")
 
-        ; return pls
+        ; return pls1
         }}
 
 
@@ -362,19 +367,22 @@ classifyLdInput dflags f
         return Nothing
     where platform = targetPlatform dflags
 
-preloadLib :: DynFlags -> [String] -> [String] -> LibrarySpec -> IO ()
-preloadLib dflags lib_paths framework_paths lib_spec
+preloadLib :: DynFlags -> [String] -> [String] -> PersistentLinkerState
+           -> LibrarySpec -> IO (PersistentLinkerState)
+preloadLib dflags lib_paths framework_paths pls lib_spec
   = do maybePutStr dflags ("Loading object " ++ showLS lib_spec ++ " ... ")
        case lib_spec of
           Object static_ish
-             -> do b <- preload_static lib_paths static_ish
+             -> do (b, pls1) <- preload_static lib_paths static_ish
                    maybePutStrLn dflags (if b  then "done"
                                                 else "not found")
+                   return pls1
 
           Archive static_ish
              -> do b <- preload_static_archive lib_paths static_ish
                    maybePutStrLn dflags (if b  then "done"
                                                 else "not found")
+                   return pls
 
           DLL dll_unadorned
              -> do maybe_errstr <- loadDLL (mkSOName platform dll_unadorned)
@@ -390,12 +398,14 @@ preloadLib dflags lib_paths framework_paths lib_spec
                         case err2 of
                           Nothing -> maybePutStrLn dflags "done"
                           Just _  -> preloadFailed mm lib_paths lib_spec
+                   return pls
 
           DLLPath dll_path
              -> do maybe_errstr <- loadDLL dll_path
                    case maybe_errstr of
                       Nothing -> maybePutStrLn dflags "done"
                       Just mm -> preloadFailed mm lib_paths lib_spec
+                   return pls
 
           Framework framework ->
               if platformUsesFrameworks (targetPlatform dflags)
@@ -403,6 +413,7 @@ preloadLib dflags lib_paths framework_paths lib_spec
                       case maybe_errstr of
                          Nothing -> maybePutStrLn dflags "done"
                          Just mm -> preloadFailed mm framework_paths lib_spec
+                      return pls
               else panic "preloadLib Framework"
 
   where
@@ -422,11 +433,13 @@ preloadLib dflags lib_paths framework_paths lib_spec
     -- Not interested in the paths in the static case.
     preload_static _paths name
        = do b <- doesFileExist name
-            if not b then return False
-                     else do if dynamicGhc
-                                 then dynLoadObjs dflags [name]
-                                 else loadObj name
-                             return True
+            if not b then return (False, pls)
+                     else if dynamicGhc
+                             then  do pls1 <- dynLoadObjs dflags pls [name]
+                                      return (True, pls1)
+                             else  do loadObj name
+                                      return (True, pls)
+
     preload_static_archive _paths name
        = do b <- doesFileExist name
             if not b then return False
@@ -473,7 +486,7 @@ linkExpr hsc_env span root_ul_bco
    ; return (pls, root_hval)
    }}}
    where
-     free_names = nameSetToList (bcoFreeNames root_ul_bco)
+     free_names = nameSetElems (bcoFreeNames root_ul_bco)
 
      needed_mods :: [Module]
      needed_mods = [ nameModule n | n <- free_names,
@@ -688,7 +701,7 @@ linkDecls hsc_env span (ByteCode unlinkedBCOs itblEnv) = do
                      itbl_env    = ie }
     return (pls2, ()) --hvals)
   where
-    free_names =  concatMap (nameSetToList . bcoFreeNames) unlinkedBCOs
+    free_names =  concatMap (nameSetElems . bcoFreeNames) unlinkedBCOs
 
     needed_mods :: [Module]
     needed_mods = [ nameModule n | n <- free_names,
@@ -784,8 +797,8 @@ dynLinkObjs dflags pls objs = do
             wanted_objs              = map nameOfObject unlinkeds
 
         if dynamicGhc
-            then do dynLoadObjs dflags wanted_objs
-                    return (pls1, Succeeded)
+            then do pls2 <- dynLoadObjs dflags pls1 wanted_objs
+                    return (pls2, Succeeded)
             else do mapM_ loadObj wanted_objs
 
                     -- Link them all together
@@ -799,20 +812,33 @@ dynLinkObjs dflags pls objs = do
                             pls2 <- unload_wkr dflags [] pls1
                             return (pls2, Failed)
 
-dynLoadObjs :: DynFlags -> [FilePath] -> IO ()
-dynLoadObjs _      []   = return ()
-dynLoadObjs dflags objs = do
+
+dynLoadObjs :: DynFlags -> PersistentLinkerState -> [FilePath]
+            -> IO PersistentLinkerState
+dynLoadObjs _      pls []   = return pls
+dynLoadObjs dflags pls objs = do
     let platform = targetPlatform dflags
-    soFile <- newTempName dflags (soExt platform)
+    (soFile, libPath , libName) <- newTempLibName dflags (soExt platform)
     let -- When running TH for a non-dynamic way, we still need to make
         -- -l flags to link against the dynamic libraries, so we turn
         -- Opt_Static off
         dflags1 = gopt_unset dflags Opt_Static
         dflags2 = dflags1 {
-                      -- We don't want to link the ldInputs in; we'll
-                      -- be calling dynLoadObjs with any objects that
-                      -- need to be linked.
-                      ldInputs = [],
+                      -- We don't want the original ldInputs in
+                      -- (they're already linked in), but we do want
+                      -- to link against the previous dynLoadObjs
+                      -- library if there was one, so that the linker
+                      -- can resolve dependencies when it loads this
+                      -- library.
+                      ldInputs =
+                        case last_temp_so pls of
+                          Nothing -> []
+                          Just (lp, l)  ->
+                                 [ Option ("-L" ++ lp)
+                                 , Option ("-Wl,-rpath")
+                                 , Option ("-Wl," ++ lp)
+                                 , Option ("-l" ++  l)
+                                 ],
                       -- Even if we're e.g. profiling, we still want
                       -- the vanilla dynamic libraries, so we set the
                       -- ways / build tag to be just WayDyn.
@@ -824,7 +850,7 @@ dynLoadObjs dflags objs = do
     consIORef (filesToNotIntermediateClean dflags) soFile
     m <- loadDLL soFile
     case m of
-        Nothing -> return ()
+        Nothing -> return pls { last_temp_so = Just (libPath, libName) }
         Just err -> panic ("Loading temp shared object failed: " ++ err)
 
 rmDupLinkables :: [Linkable]    -- Already loaded
@@ -1189,7 +1215,7 @@ locateLib dflags is_hs dirs lib
      mk_dyn_obj_path  dir = dir </> (lib <.> "dyn_o")
      mk_arch_path     dir = dir </> ("lib" ++ lib <.> "a")
 
-     hs_dyn_lib_name = lib ++ "-ghc" ++ cProjectVersion
+     hs_dyn_lib_name = lib ++ '-':programName dflags ++ projectVersion dflags
      mk_hs_dyn_lib_path dir = dir </> mkHsSOName platform hs_dyn_lib_name
 
      so_name = mkSOName platform lib

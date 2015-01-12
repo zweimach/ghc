@@ -90,7 +90,7 @@ module Language.Haskell.TH(
         normalB, guardedB, normalG, normalGE, patG, patGE, match, clause,
 
     -- *** Expressions
-        dyn, global, varE, conE, litE, appE, uInfixE, parensE,
+        dyn, global, varE, conE, litE, appE, uInfixE, parensE, staticE,
         infixE, infixApp, sectionL, sectionR,
         lamE, lam1E, lamCaseE, tupE, condE, multiIfE, letE, caseE, appsE,
         listE, sigE, recConE, recUpdE, stringE, fieldExp,
@@ -133,7 +133,8 @@ module Language.Haskell.TH(
     newtypeInstD, tySynInstD,
     typeFam, dataFam, tySynEqn,
     -- **** Foreign Function Interface (FFI)
-    cCall, stdCall, unsafe, safe, forImpD,
+    cCall, stdCall, cApi, prim, javaScript,
+    unsafe, safe, forImpD,
     -- **** Pragmas
     ruleVar, typedRuleVar,
     pragInlD, pragSpecD, pragSpecInlD, pragSpecInstD, pragRuleD, pragAnnD,

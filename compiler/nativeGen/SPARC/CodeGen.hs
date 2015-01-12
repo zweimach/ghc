@@ -87,7 +87,8 @@ basicBlockCodeGen :: CmmBlock
                           , [NatCmmDecl CmmStatics Instr])
 
 basicBlockCodeGen block = do
-  let (CmmEntry id, nodes, tail)  = blockSplit block
+  let (_, nodes, tail)  = blockSplit block
+      id = entryLabel block
       stmts = blockToList nodes
   mid_instrs <- stmtsToInstrs stmts
   tail_instrs <- stmtToInstrs tail
@@ -125,6 +126,8 @@ stmtToInstrs stmt = do
   dflags <- getDynFlags
   case stmt of
     CmmComment s   -> return (unitOL (COMMENT s))
+    CmmTick {}     -> return nilOL
+    CmmUnwind {}   -> return nilOL
 
     CmmAssign reg src
       | isFloatType ty  -> assignReg_FltCode size reg src

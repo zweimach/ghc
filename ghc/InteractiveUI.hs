@@ -81,7 +81,11 @@ import Data.Maybe
 import Exception hiding (catch)
 
 import Foreign.C
+#if __GLASGOW_HASKELL__ >= 709
+import Foreign
+#else
 import Foreign.Safe
+#endif
 
 import System.Directory
 import System.Environment
@@ -725,7 +729,11 @@ runCommands' eh sourceErrorHandler gCmd = do
         when (not success) $ maybe (return ()) lift sourceErrorHandler
         runCommands' eh sourceErrorHandler gCmd
 
--- | Evaluate a single line of user input (either :<command> or Haskell code)
+-- | Evaluate a single line of user input (either :<command> or Haskell code).
+-- A result of Nothing means there was no more input to process.
+-- Otherwise the result is Just b where b is True if the command succeeded;
+-- this is relevant only to ghc -e, which will exit with status 1
+-- if the commmand was unsuccessful. GHCi will continue in either case.
 runOneCommand :: (SomeException -> GHCi Bool) -> InputT GHCi (Maybe String)
             -> InputT GHCi (Maybe Bool)
 runOneCommand eh gCmd = do
@@ -736,14 +744,14 @@ runOneCommand eh gCmd = do
   case mb_cmd1 of
     Nothing -> return Nothing
     Just c  -> ghciHandle (\e -> lift $ eh e >>= return . Just) $
-             handleSourceError printErrorAndKeepGoing
+             handleSourceError printErrorAndFail
                (doCommand c)
                -- source error's are handled by runStmt
                -- is the handler necessary here?
   where
-    printErrorAndKeepGoing err = do
+    printErrorAndFail err = do
         GHC.printException err
-        return $ Just True
+        return $ Just False     -- Exit ghc -e, but not GHCi
 
     noSpace q = q >>= maybe (return Nothing)
                             (\c -> case removeSpaces c of
@@ -864,7 +872,7 @@ checkInputForLayout stmt getStmt = do
              eof <- Lexer.nextIsEOF
              if eof
                then Lexer.activeContext
-               else Lexer.lexer return >> goToEnd
+               else Lexer.lexer False return >> goToEnd
 
 enqueueCommands :: [String] -> GHCi ()
 enqueueCommands cmds = do
@@ -872,39 +880,63 @@ enqueueCommands cmds = do
   setGHCiState st{ cmdqueue = cmds ++ cmdqueue st }
 
 -- | If we one of these strings prefixes a command, then we treat it as a decl
--- rather than a stmt.
-declPrefixes :: [String]
-declPrefixes = ["class ","data ","newtype ","type ","instance ", "deriving ",
-                "foreign ", "default ", "default("]
+-- rather than a stmt. NB that the appropriate decl prefixes depends on the
+-- flag settings (Trac #9915)
+declPrefixes :: DynFlags -> [String]
+declPrefixes dflags = keywords ++ concat opt_keywords
+  where
+    keywords = [ "class ", "instance "
+               , "data ", "newtype ", "type "
+               , "default ", "default("
+               ]
 
--- | Entry point to execute some haskell code from user
+    opt_keywords = [ ["foreign "  | xopt Opt_ForeignFunctionInterface dflags]
+                   , ["deriving " | xopt Opt_StandaloneDeriving dflags]
+                   , ["pattern "  | xopt Opt_PatternSynonyms dflags]
+                   ]
+
+-- | Entry point to execute some haskell code from user.
+-- The return value True indicates success, as in `runOneCommand`.
 runStmt :: String -> SingleStep -> GHCi Bool
 runStmt stmt step
- -- empty
+ -- empty; this should be impossible anyways since we filtered out
+ -- whitespace-only input in runOneCommand's noSpace
  | null (filter (not.isSpace) stmt)
- = return False
+ = return True
 
  -- import
- | "import " `isPrefixOf` stmt
- = do addImportToContext stmt; return False
-
- -- data, class, newtype...
- | any (flip isPrefixOf stmt) declPrefixes
- = do _ <- liftIO $ tryIO $ hFlushAll stdin
-      result <- GhciMonad.runDecls stmt
-      afterRunStmt (const True) (GHC.RunOk result)
+ | stmt `looks_like` "import "
+ = do addImportToContext stmt; return True
 
  | otherwise
- = do -- In the new IO library, read handles buffer data even if the Handle
-      -- is set to NoBuffering.  This causes problems for GHCi where there
-      -- are really two stdin Handles.  So we flush any bufferred data in
-      -- GHCi's stdin Handle here (only relevant if stdin is attached to
-      -- a file, otherwise the read buffer can't be flushed).
-      _ <- liftIO $ tryIO $ hFlushAll stdin
-      m_result <- GhciMonad.runStmt stmt step
-      case m_result of
-        Nothing     -> return False
-        Just result -> afterRunStmt (const True) result
+ = do dflags <- getDynFlags
+      if any (stmt `looks_like`) (declPrefixes dflags)
+        then run_decl
+        else run_stmt
+  where
+    run_decl =
+        do _ <- liftIO $ tryIO $ hFlushAll stdin
+           m_result <- GhciMonad.runDecls stmt
+           case m_result of
+               Nothing     -> return False
+               Just result -> afterRunStmt (const True) (GHC.RunOk result)
+
+    run_stmt =
+        do -- In the new IO library, read handles buffer data even if the Handle
+           -- is set to NoBuffering.  This causes problems for GHCi where there
+           -- are really two stdin Handles.  So we flush any bufferred data in
+           -- GHCi's stdin Handle here (only relevant if stdin is attached to
+           -- a file, otherwise the read buffer can't be flushed).
+           _ <- liftIO $ tryIO $ hFlushAll stdin
+           m_result <- GhciMonad.runStmt stmt step
+           case m_result of
+               Nothing     -> return False
+               Just result -> afterRunStmt (const True) result
+
+    s `looks_like` prefix = prefix `isPrefixOf` dropWhile isSpace s
+       -- Ignore leading spaces (see Trac #9914), so that
+       --    ghci>   data T = T
+       -- (note leading spaces) works properly
 
 -- | Clean up the GHCi environment after a statement has run
 afterRunStmt :: (SrcSpan -> Bool) -> GHC.RunResult -> GHCi Bool
@@ -1948,9 +1980,10 @@ iiSubsumes (IIDecl d1) (IIDecl d2)      -- A bit crude
      && (not (ideclQualified d1) || ideclQualified d2)
      && (ideclHiding d1 `hidingSubsumes` ideclHiding d2)
   where
-     _                `hidingSubsumes` Just (False,[]) = True
-     Just (False, xs) `hidingSubsumes` Just (False,ys) = all (`elem` xs) ys
-     h1               `hidingSubsumes` h2              = h1 == h2
+     _                    `hidingSubsumes` Just (False,L _ []) = True
+     Just (False, L _ xs) `hidingSubsumes` Just (False,L _ ys)
+                                                           = all (`elem` xs) ys
+     h1                   `hidingSubsumes` h2              = h1 == h2
 iiSubsumes _ _ = False
 
 
@@ -2020,11 +2053,13 @@ showDynFlags show_all dflags = do
      text "warning settings:" $$
          nest 2 (vcat (map (setting wopt) DynFlags.fWarningFlags))
   where
-        setting test (str, f, _)
+        setting test flag
           | quiet     = empty
-          | is_on     = fstr str
-          | otherwise = fnostr str
-          where is_on = test f dflags
+          | is_on     = fstr name
+          | otherwise = fnostr name
+          where name = flagSpecName flag
+                f = flagSpecFlag flag
+                is_on = test f dflags
                 quiet = not show_all && test f default_dflags == is_on
 
         default_dflags = defaultDynFlags (settings dflags)
@@ -2032,7 +2067,7 @@ showDynFlags show_all dflags = do
         fstr   str = text "-f"    <> text str
         fnostr str = text "-fno-" <> text str
 
-        (ghciFlags,others)  = partition (\(_, f, _) -> f `elem` flgs)
+        (ghciFlags,others)  = partition (\f -> flagSpecFlag f `elem` flgs)
                                         DynFlags.fFlags
         flgs = [ Opt_PrintExplicitForalls
                , Opt_PrintExplicitKinds
@@ -2181,6 +2216,7 @@ unsetOptions str
            ]
 
          no_flag ('-':'f':rest) = return ("-fno-" ++ rest)
+         no_flag ('-':'X':rest) = return ("-XNo" ++ rest)
          no_flag f = throwGhcException (ProgramError ("don't know how to reverse " ++ f))
 
      in if (not (null rest3))
@@ -2381,11 +2417,13 @@ showLanguages' show_all dflags =
           nest 2 (vcat (map (setting xopt) DynFlags.xFlags))
      ]
   where
-   setting test (str, f, _)
+   setting test flag
           | quiet     = empty
-          | is_on     = text "-X" <> text str
-          | otherwise = text "-XNo" <> text str
-          where is_on = test f dflags
+          | is_on     = text "-X" <> text name
+          | otherwise = text "-XNo" <> text name
+          where name = flagSpecName flag
+                f = flagSpecFlag flag
+                is_on = test f dflags
                 quiet = not show_all && test f default_dflags == is_on
 
    default_dflags =

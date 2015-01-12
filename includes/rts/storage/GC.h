@@ -66,6 +66,27 @@ typedef struct nursery_ {
     memcount       n_blocks;
 } nursery;
 
+// Nursery invariants:
+//
+//  - cap->r.rNursery points to the nursery for this capability
+//
+//  - cap->r.rCurrentNursery points to the block in the nursery that we are
+//    currently allocating into.  While in Haskell the current heap pointer is
+//    in Hp, outside Haskell it is stored in cap->r.rCurrentNursery->free.
+//
+//  - the blocks *after* cap->rCurrentNursery in the chain are empty
+//    (although their bd->free pointers have not been updated to
+//    reflect that)
+//
+//  - the blocks *before* cap->rCurrentNursery have been used.  Except
+//    for rCurrentAlloc.
+//
+//  - cap->r.rCurrentAlloc is either NULL, or it points to a block in
+//    the nursery *before* cap->r.rCurrentNursery.
+//
+// See also Note [allocation accounting] to understand how total
+// memory allocation is tracked.
+
 typedef struct generation_ {
     nat            no;                  // generation number
 
@@ -130,9 +151,7 @@ extern generation * oldest_gen;
 
    StgPtr allocate(Capability *cap, W_ n)
                                 Allocates memory from the nursery in
-                                the current Capability.  This can be
-                                done without taking a global lock,
-                                unlike allocate().
+                                the current Capability.
 
    StgPtr allocatePinned(Capability *cap, W_ n)
                                 Allocates a chunk of contiguous store

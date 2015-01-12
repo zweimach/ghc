@@ -47,6 +47,7 @@ import FastString
 import Outputable
 
 import Control.Monad (when,void)
+import Control.Arrow (first)
 
 #if __GLASGOW_HASKELL__ >= 709
 import Prelude hiding ((<*>))
@@ -66,10 +67,7 @@ cgExpr (StgOpApp (StgPrimOp SeqOp) [StgVarArg a, _] _res_ty) =
 
 cgExpr (StgOpApp op args ty) = cgOpApp op args ty
 cgExpr (StgConApp con args)  = cgConApp con args
-cgExpr (StgSCC cc tick push expr) = do { emitSetCCC cc tick push; cgExpr expr }
-cgExpr (StgTick m n expr) = do dflags <- getDynFlags
-                               emit (mkTickBox dflags m n)
-                               cgExpr expr
+cgExpr (StgTick t e)         = cgTick t >> cgExpr e
 cgExpr (StgLit lit)       = do cmm_lit <- cgLit lit
                                emitReturn [CmmLit cmm_lit]
 
@@ -133,8 +131,8 @@ cgLetNoEscapeRhs
 cgLetNoEscapeRhs join_id local_cc bndr rhs =
   do { (info, rhs_code) <- cgLetNoEscapeRhsBody local_cc bndr rhs
      ; let (bid, _) = expectJust "cgLetNoEscapeRhs" $ maybeLetNoEscape info
-     ; let code = do { body <- getCode rhs_code
-                     ; emitOutOfLine bid (body <*> mkBranch join_id) }
+     ; let code = do { (_, body) <- getCodeScoped rhs_code
+                     ; emitOutOfLine bid (first (<*> mkBranch join_id) body) }
      ; return (info, code)
      }
 
@@ -591,8 +589,8 @@ cgAlts _ _ _ _ = panic "cgAlts"
 
 -------------------
 cgAlgAltRhss :: (GcPlan,ReturnKind) -> NonVoid Id -> [StgAlt]
-             -> FCode ( Maybe CmmAGraph
-                      , [(ConTagZ, CmmAGraph)] )
+             -> FCode ( Maybe CmmAGraphScoped
+                      , [(ConTagZ, CmmAGraphScoped)] )
 cgAlgAltRhss gc_plan bndr alts
   = do { tagged_cmms <- cgAltRhss gc_plan bndr alts
 
@@ -611,14 +609,14 @@ cgAlgAltRhss gc_plan bndr alts
 
 -------------------
 cgAltRhss :: (GcPlan,ReturnKind) -> NonVoid Id -> [StgAlt]
-          -> FCode [(AltCon, CmmAGraph)]
+          -> FCode [(AltCon, CmmAGraphScoped)]
 cgAltRhss gc_plan bndr alts = do
   dflags <- getDynFlags
   let
     base_reg = idToReg dflags bndr
-    cg_alt :: StgAlt -> FCode (AltCon, CmmAGraph)
+    cg_alt :: StgAlt -> FCode (AltCon, CmmAGraphScoped)
     cg_alt (con, bndrs, _uses, rhs)
-      = getCodeR                  $
+      = getCodeScoped             $
         maybeAltHeapCheck gc_plan $
         do { _ <- bindConArgs con base_reg bndrs
            ; _ <- cgExpr rhs
@@ -644,7 +642,7 @@ cgConApp con stg_args
        ; emitReturn arg_exprs }
 
   | otherwise   --  Boxed constructors; allocate and return
-  = ASSERT( stg_args `lengthIs` dataConRepRepArity con )
+  = ASSERT2( stg_args `lengthIs` dataConRepRepArity con, ppr con <+> ppr stg_args )
     do  { (idinfo, fcode_init) <- buildDynCon (dataConWorkId con) False
                                      currentCCS con stg_args
                 -- The first "con" says that the name bound to this
@@ -843,12 +841,30 @@ emitEnter fun = do
          -- inlined in the RHS of the R1 assignment.
        ; let entry = entryCode dflags (closureInfoPtr dflags (CmmReg nodeReg))
              the_call = toCall entry (Just lret) updfr_off off outArgs regs
+       ; tscope <- getTickScope
        ; emit $
            copyout <*>
            mkCbranch (cmmIsTagged dflags (CmmReg nodeReg)) lret lcall <*>
-           outOfLine lcall the_call <*>
-           mkLabel lret <*>
+           outOfLine lcall (the_call,tscope) <*>
+           mkLabel lret tscope <*>
            copyin
        ; return (ReturnedTo lret off)
        }
   }
+
+------------------------------------------------------------------------
+--              Ticks
+------------------------------------------------------------------------
+
+-- | Generate Cmm code for a tick. Depending on the type of Tickish,
+-- this will either generate actual Cmm instrumentation code, or
+-- simply pass on the annotation as a @CmmTickish@.
+cgTick :: Tickish Id -> FCode ()
+cgTick tick
+  = do { dflags <- getDynFlags
+       ; case tick of
+           ProfNote   cc t p -> emitSetCCC cc t p
+           HpcTick    m n    -> emit (mkTickBox dflags m n)
+           SourceNote s n    -> emitTick $ SourceNote s n
+           _other            -> return () -- ignore
+       }

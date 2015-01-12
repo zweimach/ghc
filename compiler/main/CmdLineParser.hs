@@ -13,9 +13,9 @@
 
 module CmdLineParser
     (
-      processArgs, OptKind(..),
+      processArgs, OptKind(..), GhcFlagMode(..),
       CmdLineP(..), getCmdLineState, putCmdLineState,
-      Flag(..),
+      Flag(..), defFlag, defGhcFlag, defGhciFlag, defHiddenFlag,
       errorsToGhcException,
 
       EwM, addErr, addWarn, getArg, getCurLoc, liftEwM, deprecate
@@ -42,9 +42,29 @@ import Control.Applicative (Applicative(..))
 --------------------------------------------------------
 
 data Flag m = Flag
-    {   flagName    :: String,   -- Flag, without the leading "-"
-        flagOptKind :: OptKind m -- What to do if we see it
+    {   flagName    :: String,     -- Flag, without the leading "-"
+        flagOptKind :: OptKind m,  -- What to do if we see it
+        flagGhcMode :: GhcFlagMode    -- Which modes this flag affects
     }
+
+defFlag :: String -> OptKind m -> Flag m
+defFlag name optKind = Flag name optKind AllModes
+
+defGhcFlag :: String -> OptKind m -> Flag m
+defGhcFlag name optKind = Flag name optKind OnlyGhc
+
+defGhciFlag :: String -> OptKind m -> Flag m
+defGhciFlag name optKind = Flag name optKind OnlyGhci
+
+defHiddenFlag :: String -> OptKind m -> Flag m
+defHiddenFlag name optKind = Flag name optKind HiddenFlag
+
+-- | GHC flag modes describing when a flag has an effect.
+data GhcFlagMode
+    = OnlyGhc  -- ^ The flag only affects the non-interactive GHC
+    | OnlyGhci -- ^ The flag only affects the interactive GHC
+    | AllModes -- ^ The flag affects multiple ghc modes
+    | HiddenFlag -- ^ This flag should not be seen in cli completion
 
 data OptKind m                             -- Suppose the flag is -f
     = NoArg     (EwM m ())                 -- -f all by itself
@@ -59,8 +79,6 @@ data OptKind m                             -- Suppose the flag is -f
     | AnySuffix (String -> EwM m ())       -- -f or -farg; pass entire "-farg" to fn
     | PrefixPred    (String -> Bool) (String -> EwM m ())
     | AnySuffixPred (String -> Bool) (String -> EwM m ())
-    | VersionSuffix (Int -> Int -> EwM m ())
-      -- -f or -f=maj.min; pass major and minor version to fn
 
 
 --------------------------------------------------------
@@ -90,7 +108,7 @@ instance Monad m => Monad (EwM m) where
                                       unEwM (k r) l e' w')
     return v = EwM (\_ e w -> return (e, w, v))
 
-setArg :: Monad m => Located String -> EwM m () -> EwM m ()
+setArg :: Located String -> EwM m () -> EwM m ()
 setArg l (EwM f) = EwM (\_ es ws -> f l es ws)
 
 addErr :: Monad m => String -> EwM m ()
@@ -191,8 +209,9 @@ processOneArg opt_kind rest arg args
                                     []               -> missingArgErr dash_arg
                                     (L _ arg1:args1) -> Right (f arg1, args1)
 
+        -- See Trac #9776
         SepArg f -> case args of
-                        []               -> unknownFlagErr dash_arg
+                        []               -> missingArgErr dash_arg
                         (L _ arg1:args1) -> Right (f arg1, args1)
 
         Prefix f | notNull rest_no_eq -> Right (f rest_no_eq, args)
@@ -217,15 +236,6 @@ processOneArg opt_kind rest arg args
         OptPrefix f       -> Right (f rest_no_eq, args)
         AnySuffix f       -> Right (f dash_arg, args)
         AnySuffixPred _ f -> Right (f dash_arg, args)
-
-        VersionSuffix f | [maj_s, min_s] <- split '.' rest_no_eq,
-                          Just maj <- parseInt maj_s,
-                          Just min <- parseInt min_s -> Right (f maj min, args)
-                        | [maj_s] <- split '.' rest_no_eq,
-                          Just maj <- parseInt maj_s -> Right (f maj 0, args)
-                        | null rest_no_eq -> Right (f 1 0, args)
-                        | otherwise -> Left ("malformed version argument in " ++ dash_arg)
-
 
 findArg :: [Flag m] -> String -> Maybe (String, OptKind m)
 findArg spec arg =
@@ -252,7 +262,6 @@ arg_ok (OptPrefix       _)  _    _   = True
 arg_ok (PassFlag        _)  rest _   = null rest
 arg_ok (AnySuffix       _)  _    _   = True
 arg_ok (AnySuffixPred p _)  _    arg = p arg
-arg_ok (VersionSuffix   _)  _    _   = True
 
 -- | Parse an Int
 --

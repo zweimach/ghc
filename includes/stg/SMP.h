@@ -14,12 +14,12 @@
 #ifndef SMP_H
 #define SMP_H
 
-#if defined(THREADED_RTS)
-
 #if arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv6)
 void arm_atomic_spin_lock(void);
 void arm_atomic_spin_unlock(void);
 #endif
+
+#if defined(THREADED_RTS)
 
 /* ----------------------------------------------------------------------------
    Atomic operations
@@ -157,6 +157,19 @@ xchg(StgPtr p, StgWord w)
                           : "r" (w), "r" (p)
                           : "memory"
                           );
+#elif aarch64_HOST_ARCH
+    // Don't think we actually use tmp here, but leaving
+    // it for consistent numbering
+    StgWord tmp; 
+    __asm__ __volatile__ (
+                          "1:    ldaxr  %0, [%3]\n"
+                          "      stlxr  %w0, %2, [%3]\n"
+                          "      cbnz   %w0, 1b\n"
+                          "      dmb sy\n"
+                          : "=&r" (result), "=&r" (tmp)
+                          : "r" (w), "r" (p)
+                          : "memory"
+                          );
 #else
 #error xchg() unimplemented on this architecture
 #endif
@@ -232,6 +245,24 @@ cas(StgVolatilePtr p, StgWord o, StgWord n)
                 : "cc","memory");
 
     return result;
+#elif aarch64_HOST_ARCH
+    // Don't think we actually use tmp here, but leaving
+    // it for consistent numbering
+    StgWord result,tmp;
+
+    __asm__ __volatile__(
+        "1:     ldxr %1, [%2]\n"
+        "       mov %w0, #0\n"
+        "       cmp %1, %3\n"
+        "       b.ne 2f\n"
+        "       stxr %w0, %4, [%2]\n"
+        "       cbnz %w0, 1b\n"
+        "2:     dmb sy\n"
+                : "=&r"(tmp), "=&r"(result)
+                : "r"(p), "r"(o), "r"(n)
+                : "cc","memory");
+
+    return result;
 #else
 #error cas() unimplemented on this architecture
 #endif
@@ -281,12 +312,22 @@ atomic_dec(StgVolatilePtr p)
 #endif
 }
 
+/*
+ * Some architectures have a way to tell the CPU that we're in a
+ * busy-wait loop, and the processor should look for something else to
+ * do (such as run another hardware thread).
+ */
 EXTERN_INLINE void
 busy_wait_nop(void)
 {
 #if defined(i386_HOST_ARCH) || defined(x86_64_HOST_ARCH)
+    // On Intel, the busy-wait-nop instruction is called "pause",
+    // which is actually represented as a nop with the rep prefix.
+    // On processors before the P4 this behaves as a nop; on P4 and
+    // later it might do something clever like yield to another
+    // hyperthread.  In any case, Intel recommends putting one
+    // of these in a spin lock loop.
     __asm__ __volatile__ ("rep; nop");
-    //
 #else
     // nothing
 #endif
@@ -313,7 +354,7 @@ write_barrier(void) {
     __asm__ __volatile__ ("" : : : "memory");
 #elif arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv7)
     __asm__ __volatile__ ("" : : : "memory");
-#elif arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv7)
+#elif (arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv7)) || aarch64_HOST_ARCH
     __asm__ __volatile__ ("dmb  st" : : : "memory");
 #else
 #error memory barriers unimplemented on this architecture
@@ -334,6 +375,8 @@ store_load_barrier(void) {
     __asm__ __volatile__ ("membar #StoreLoad" : : : "memory");
 #elif arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv7)
     __asm__ __volatile__ ("dmb" : : : "memory");
+#elif aarch64_HOST_ARCH
+    __asm__ __volatile__ ("dmb sy" : : : "memory");
 #else
 #error memory barriers unimplemented on this architecture
 #endif
@@ -354,6 +397,8 @@ load_load_barrier(void) {
     __asm__ __volatile__ ("" : : : "memory");
 #elif arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv7)
     __asm__ __volatile__ ("dmb" : : : "memory");
+#elif aarch64_HOST_ARCH
+    __asm__ __volatile__ ("dmb sy" : : : "memory");
 #else
 #error memory barriers unimplemented on this architecture
 #endif

@@ -174,7 +174,9 @@ test('T8766',
 
 test('T9111', normal, compile, [''])
 test('T9395', normal, compile_and_run, [''])
-test('T9532', normal, compile_and_run, [''])
+# Fails for debug way due to annotation linting timeout
+test('T9532', omit_ways(['debug']), compile_and_run, [''])
 test('T9586', normal, compile, [''])
 test('T9681', normal, compile_fail, [''])
 test('T8089', normal, compile_and_run, [''])
+test('T9826',normal, compile_and_run,[''])

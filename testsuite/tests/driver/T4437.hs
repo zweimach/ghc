@@ -8,7 +8,7 @@ import Language.Haskell.Extension
 
 main :: IO ()
 main = do
-    let ghcExtensions = [ ext | (ext, _, _) <- xFlags ]
+    let ghcExtensions = map flagSpecName xFlags
         cabalExtensions = map show [ toEnum 0 :: KnownExtension .. ]
         ghcOnlyExtensions = ghcExtensions \\ cabalExtensions
         cabalOnlyExtensions = cabalExtensions \\ ghcExtensions
@@ -33,8 +33,7 @@ expectedGhcOnlyExtensions :: [String]
 expectedGhcOnlyExtensions = ["RelaxedLayout",
                              "AlternativeLayoutRule",
                              "AlternativeLayoutRuleTransitional",
-                             "JavaScriptFFI",
-                             "PatternSynonyms"]
+                             "StaticPointers"]
 
 expectedCabalOnlyExtensions :: [String]
 expectedCabalOnlyExtensions = ["Generics",

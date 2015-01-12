@@ -98,8 +98,8 @@ test('T5657', normal, compile_fail, [''])
 test('T5745',
      extra_clean(['T5745a.hi', 'T5745a.o', 'T5745b.hi', 'T5745b.o']),
      multimod_compile_fail, ['T5745', '-v0'])
-test('T5892a', normal, compile_fail, [''])
-test('T5892b', normal, compile_fail, [''])
+test('T5892a', normal, compile_fail, ['-package containers'])
+test('T5892b', normal, compile_fail, ['-package containers'])
 test('T5951', normal, compile_fail, [''])
 test('T6060', normal, compile_fail, [''])
 test('T6148', normal, compile_fail, [''])
@@ -111,6 +111,13 @@ test('T7906', normal, compile_fail, [''])
 test('T7937', normal, compile_fail, [''])
 test('T7943', normal, compile_fail, [''])
 test('T8448', normal, compile_fail, [''])
+test('T8149', normal, compile, [''])
+test('RnStaticPointersFail01',
+     when(compiler_lt('ghc', '7.9'), skip), compile_fail, [''])
+test('RnStaticPointersFail02',
+     when(compiler_lt('ghc', '7.9'), skip), compile_fail, [''])
+test('RnStaticPointersFail03',
+     when(compiler_lt('ghc', '7.9'), skip), compile_fail, [''])
 test('T9006',
      extra_clean(['T9006a.hi', 'T9006a.o']),
      multimod_compile_fail, ['T9006', '-v0'])
@@ -119,3 +126,9 @@ test('T9177', normal, compile_fail, [''])
 test('T9436', normal, compile_fail, [''])
 test('T9437', normal, compile_fail, [''])
 test('T9077', normal, compile_fail, [''])
+test('T9815', normal, compile_fail, [''])
+
+test('T9032',
+     normal,
+     run_command,
+     ['$MAKE -s --no-print-directory T9032'])

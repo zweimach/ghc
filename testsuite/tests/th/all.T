@@ -161,6 +161,9 @@ test('T3177a', normal, compile_fail, ['-v0'])
 
 test('T3319', normal, compile, ['-ddump-splices -v0'])
 test('TH_foreignInterruptible', normal, compile, ['-ddump-splices -v0'])
+test('TH_foreignCallingConventions', normal,
+                                     compile,
+                                     ['-ddump-splices -dsuppress-uniques -v0'])
 
 test('T3395', normal, compile_fail, ['-v0'])
 test('T3467', normal, compile, [''])
@@ -319,6 +322,12 @@ test('T8577',
      ['T8577', '-v0 ' + config.ghc_th_way_flags])
 test('T8633', normal, compile_and_run, [''])
 test('T8625', normal, ghci_script, ['T8625.script'])
+test('TH_StaticPointers',
+     [ when(compiler_lt('ghc', '7.9'), skip) ],
+     compile_and_run, [''])
+test('TH_StaticPointers02',
+     [ when(compiler_lt('ghc', '7.9'), skip) ],
+     compile_fail, [''])
 test('T8759', normal, compile_fail, ['-v0'])
 test('T8759a', normal, compile_fail, ['-v0'])
 test('T7021',
@@ -339,3 +348,10 @@ test('T9081', normal, compile, ['-v0'])
 test('T9066', normal, compile, ['-v0'])
 test('T8100', normal, compile, ['-v0'])
 test('T9064', normal, compile, ['-v0'])
+test('T9209', normal, compile_fail, ['-v0'])
+test('T7484', normal, compile_fail, ['-v0'])
+test('T1476', normal, compile, ['-v0'])
+test('T1476b', normal, compile_fail, ['-v0'])
+test('T9824', normal, compile, ['-v0'])
+test('T8031', normal, compile, ['-v0'])
+test('TH_Lift', normal, compile, ['-v0'])

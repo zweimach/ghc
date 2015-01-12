@@ -401,9 +401,9 @@ raInsn _     new_instrs _ (LiveInstr ii Nothing)
         = do    setDeltaR n
                 return (new_instrs, [])
 
-raInsn _     new_instrs _ (LiveInstr ii Nothing)
+raInsn _     new_instrs _ (LiveInstr ii@(Instr i) Nothing)
         | isMetaInstr ii
-        = return (new_instrs, [])
+        = return (i : new_instrs, [])
 
 
 raInsn block_live new_instrs id (LiveInstr (Instr instr) (Just live))
@@ -606,7 +606,7 @@ releaseRegs regs = do
 --
 
 saveClobberedTemps
-        :: (Outputable instr, Instruction instr, FR freeRegs)
+        :: (Instruction instr, FR freeRegs)
         => [RealReg]            -- real registers clobbered by this instruction
         -> [Reg]                -- registers which are no longer live after this insn
         -> RegM freeRegs [instr]         -- return: instructions to spill any temps that will
@@ -873,7 +873,7 @@ newLocation _ my_reg = InReg my_reg
 
 -- | Load up a spilled temporary if we need to (read from memory).
 loadTemp
-        :: (Outputable instr, Instruction instr)
+        :: (Instruction instr)
         => VirtualReg   -- the temp being loaded
         -> SpillLoc     -- the current location of this temp
         -> RealReg      -- the hreg to load the temp into

@@ -140,9 +140,18 @@ class (Typeable e, Show e) => Exception e where
     toException = SomeException
     fromException (SomeException e) = cast e
 
+    -- | Render this exception value in a human-friendly manner.
+    --
+    -- Default implementation: @'show'@.
+    --
+    -- @since 4.8.0.0
+    displayException :: e -> String
+    displayException = show
+
 instance Exception SomeException where
     toException se = se
     fromException = Just
+    displayException (SomeException e) = displayException e
 
 -- | Throw an exception.  Exceptions may be thrown from purely
 -- functional code, but may only be caught within the 'IO' monad.
@@ -169,7 +178,7 @@ data ArithException
   | LossOfPrecision
   | DivideByZero
   | Denormal
-  | RatioZeroDenominator -- ^ /Since: 4.6.0.0/
+  | RatioZeroDenominator -- ^ @since 4.6.0.0
   deriving (Eq, Ord, Typeable)
 
 divZeroException, overflowException, ratioZeroDenomException  :: SomeException

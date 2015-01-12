@@ -280,15 +280,15 @@ type RegSet r     = Set r
 type LocalRegSet  = RegSet LocalReg
 type GlobalRegSet = RegSet GlobalReg
 
-emptyRegSet             :: Ord r => RegSet r
-nullRegSet              :: Ord r => RegSet r -> Bool
+emptyRegSet             :: RegSet r
+nullRegSet              :: RegSet r -> Bool
 elemRegSet              :: Ord r => r -> RegSet r -> Bool
 extendRegSet            :: Ord r => RegSet r -> r -> RegSet r
 deleteFromRegSet        :: Ord r => RegSet r -> r -> RegSet r
 mkRegSet                :: Ord r => [r] -> RegSet r
 minusRegSet, plusRegSet, timesRegSet :: Ord r => RegSet r -> RegSet r -> RegSet r
-sizeRegSet              :: Ord r => RegSet r -> Int
-regSetToList            :: Ord r => RegSet r -> [r]
+sizeRegSet              :: RegSet r -> Int
+regSetToList            :: RegSet r -> [r]
 
 emptyRegSet      = Set.empty
 nullRegSet       = Set.null
@@ -347,7 +347,9 @@ instance Ord r => DefinerOfRegs r r where
 instance Ord r => UserOfRegs r (RegSet r) where
     foldRegsUsed _ f = Set.fold (flip f)
 
-instance UserOfRegs r CmmReg => UserOfRegs r CmmExpr where
+instance (Ord r, UserOfRegs r CmmReg) => UserOfRegs r CmmExpr where
+  -- The (Ord r) in the context is necessary here
+  -- See Note [Recursive superclasses] in TcInstDcls
   foldRegsUsed dflags f z e = expr z e
     where expr z (CmmLit _)          = z
           expr z (CmmLoad addr _)    = foldRegsUsed dflags f z addr

@@ -20,14 +20,15 @@
 ../../typecheck/should_run/Defer01.hs:25:4: Warning:
     Couldn't match type ‘Int’ with ‘Bool’
     Inaccessible code in
-      a pattern with constructor
-        C2 :: Bool -> C Bool,
+      a pattern with constructor: C2 :: Bool -> C Bool,
       in an equation for ‘c’
     In the pattern: C2 x
     In an equation for ‘c’: c (C2 x) = True
 
 ../../typecheck/should_run/Defer01.hs:28:5: Warning:
-    No instance for (Num (a -> a)) arising from the literal ‘1’
+    No instance for (Num (a -> a))
+      (maybe you haven't applied a function to enough arguments?)
+      arising from the literal ‘1’
     In the expression: 1
     In an equation for ‘d’: d = 1
 
@@ -43,7 +44,7 @@
 ../../typecheck/should_run/Defer01.hs:34:8: Warning:
     Couldn't match expected type ‘Char’ with actual type ‘a’
       ‘a’ is a rigid type variable bound by
-          the type signature for h :: a -> (Char, Char)
+          the type signature for: h :: a -> (Char, Char)
           at ../../typecheck/should_run/Defer01.hs:33:6
     Relevant bindings include
       x :: a (bound at ../../typecheck/should_run/Defer01.hs:34:3)
@@ -69,9 +70,9 @@
     No instance for (Num a1) arising from the literal ‘23’
     The type variable ‘a1’ is ambiguous
     Note: there are several potential instances:
+      instance Num Integer -- Defined in ‘GHC.Num’
       instance Num Double -- Defined in ‘GHC.Float’
       instance Num Float -- Defined in ‘GHC.Float’
-      instance Num Int -- Defined in ‘GHC.Num’
       ...plus two others
     In the first argument of ‘myOp’, namely ‘23’
     In the expression: myOp 23
@@ -80,21 +81,23 @@
 ../../typecheck/should_run/Defer01.hs:45:6: Warning:
     Couldn't match type ‘Int’ with ‘Bool’
     Inaccessible code in
-      the type signature for k :: (Int ~ Bool) => Int -> Bool
-    In the ambiguity check for: (Int ~ Bool) => Int -> Bool
+      the type signature for: k :: (Int ~ Bool) => Int -> Bool
+    In the ambiguity check for the type signature for ‘k’:
+      k :: (Int ~ Bool) => Int -> Bool
     To defer the ambiguity check to use sites, enable AllowAmbiguousTypes
     In the type signature for ‘k’: k :: (Int ~ Bool) => Int -> Bool
 
 ../../typecheck/should_run/Defer01.hs:45:6: Warning:
     Couldn't match expected type ‘Bool’ with actual type ‘Int’
-    In the ambiguity check for: (Int ~ Bool) => Int -> Bool
+    In the ambiguity check for the type signature for ‘k’:
+      k :: (Int ~ Bool) => Int -> Bool
     To defer the ambiguity check to use sites, enable AllowAmbiguousTypes
     In the type signature for ‘k’: k :: (Int ~ Bool) => Int -> Bool
 
 ../../typecheck/should_run/Defer01.hs:45:6: Warning:
     Couldn't match type ‘Int’ with ‘Bool’
     Inaccessible code in
-      the type signature for k :: (Int ~ Bool) => Int -> Bool
+      the type signature for: k :: (Int ~ Bool) => Int -> Bool
 
 ../../typecheck/should_run/Defer01.hs:46:7: Warning:
     Couldn't match expected type ‘Bool’ with actual type ‘Int’
@@ -133,7 +136,9 @@
     In the first argument of ‘c’, namely ‘(C2 True)’
     In the first argument of ‘print’, namely ‘(c (C2 True))’
 *** Exception: ../../typecheck/should_run/Defer01.hs:28:5:
-    No instance for (Num (a -> a)) arising from the literal ‘1’
+    No instance for (Num (a -> a))
+      (maybe you haven't applied a function to enough arguments?)
+      arising from the literal ‘1’
     In the expression: 1
     In an equation for ‘d’: d = 1
 (deferred type error)
@@ -149,7 +154,7 @@
 *** Exception: ../../typecheck/should_run/Defer01.hs:34:8:
     Couldn't match expected type ‘Char’ with actual type ‘a’
       ‘a’ is a rigid type variable bound by
-          the type signature for h :: a -> (Char, Char)
+          the type signature for: h :: a -> (Char, Char)
           at ../../typecheck/should_run/Defer01.hs:33:6
     Relevant bindings include
       x :: a (bound at ../../typecheck/should_run/Defer01.hs:34:3)

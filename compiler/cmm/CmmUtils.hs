@@ -55,7 +55,10 @@ module CmmUtils(
 
         analFwd, analBwd, analRewFwd, analRewBwd,
         dataflowPassFwd, dataflowPassBwd, dataflowAnalFwd, dataflowAnalBwd,
-        dataflowAnalFwdBlocks
+        dataflowAnalFwdBlocks,
+
+        -- * Ticks
+        blockTicks
   ) where
 
 #include "HsVersions.h"
@@ -493,7 +496,8 @@ mapGraphNodes :: ( CmmNode C O -> CmmNode C O
                  , CmmNode O C -> CmmNode O C)
               -> CmmGraph -> CmmGraph
 mapGraphNodes funs@(mf,_,_) g =
-  ofBlockMap (entryLabel $ mf $ CmmEntry $ g_entry g) $ mapMap (mapBlock3' funs) $ toBlockMap g
+  ofBlockMap (entryLabel $ mf $ CmmEntry (g_entry g) GlobalScope) $
+  mapMap (mapBlock3' funs) $ toBlockMap g
 
 mapGraphNodes1 :: (forall e x. CmmNode e x -> CmmNode e x) -> CmmGraph -> CmmGraph
 mapGraphNodes1 f = modifyGraph (mapGraph f)
@@ -567,3 +571,13 @@ dataflowPassBwd :: NonLocal n =>
 dataflowPassBwd (CmmGraph {g_entry=entry, g_graph=graph}) facts bwd = do
   (graph, facts, NothingO) <- analyzeAndRewriteBwd bwd (JustC [entry]) graph (mkFactBase (bp_lattice bwd) facts)
   return (CmmGraph {g_entry=entry, g_graph=graph}, facts)
+
+-------------------------------------------------
+-- Tick utilities
+
+-- | Extract all tick annotations from the given block
+blockTicks :: Block CmmNode C C -> [CmmTickish]
+blockTicks b = reverse $ foldBlockNodesF goStmt b []
+  where goStmt :: CmmNode e x -> [CmmTickish] -> [CmmTickish]
+        goStmt  (CmmTick t) ts = t:ts
+        goStmt  _other      ts = ts

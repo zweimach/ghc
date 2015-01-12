@@ -93,10 +93,11 @@ import CoreTidy         ( tidyExpr )
 import Type             ( Type )
 import PrelNames
 import {- Kind parts of -} Type         ( Kind )
-import CoreMonad        ( lintInteractiveExpr )
+import CoreLint         ( lintInteractiveExpr )
 import DsMeta           ( templateHaskellNames )
 import VarEnv           ( emptyTidyEnv )
 import Panic
+import ConLike
 
 import GHC.Exts
 #endif
@@ -164,6 +165,7 @@ import Data.Maybe
 import Data.IORef
 import System.FilePath as FilePath
 import System.Directory
+import qualified Data.Map as Map
 
 #include "HsVersions.h"
 
@@ -269,10 +271,11 @@ ioMsgMaybe' ioA = do
 -- | Lookup things in the compiler's environment
 
 #ifdef GHCI
-hscTcRnLookupRdrName :: HscEnv -> RdrName -> IO [Name]
-hscTcRnLookupRdrName hsc_env0 rdr_name = runInteractiveHsc hsc_env0 $ do
-   hsc_env <- getHscEnv
-   ioMsgMaybe $ tcRnLookupRdrName hsc_env rdr_name
+hscTcRnLookupRdrName :: HscEnv -> Located RdrName -> IO [Name]
+hscTcRnLookupRdrName hsc_env0 rdr_name 
+  = runInteractiveHsc hsc_env0 $ 
+    do { hsc_env <- getHscEnv
+       ; ioMsgMaybe $ tcRnLookupRdrName hsc_env rdr_name }
 #endif
 
 hscTcRcLookupName :: HscEnv -> Name -> IO (Maybe TyThing)
@@ -372,7 +375,11 @@ hscParse' mod_summary = do
 
             return HsParsedModule {
                       hpm_module    = rdr_module,
-                      hpm_src_files = srcs2
+                      hpm_src_files = srcs2,
+                      hpm_annotations
+                              = (Map.fromListWith (++) $ annotations pst,
+                                 Map.fromList $ ((noSrcSpan,comment_q pst)
+                                                 :(annotations_comments pst)))
                    }
 
 -- XXX: should this really be a Maybe X?  Check under which circumstances this
@@ -642,7 +649,10 @@ hscCompileOneShot' hsc_env mod_summary src_changed
                     t | isHsBootOrSig t ->
                         do (iface, changed, _) <- hscSimpleIface' tc_result mb_old_hash
                            liftIO $ hscWriteIface dflags iface changed mod_summary
-                           return HscUpdateBoot
+                           return (case t of
+                                    HsBootFile -> HscUpdateBoot
+                                    HsigFile -> HscUpdateSig
+                                    HsSrcFile -> panic "hscCompileOneShot Src")
                     _ ->
                         do guts <- hscSimplify' guts0
                            (iface, changed, _details, cgguts) <- hscNormalIface' guts mb_old_hash
@@ -813,7 +823,7 @@ hscCheckSafeImports tcg_env = do
     warns dflags rules = listToBag $ map (warnRules dflags) rules
     warnRules dflags (L loc (HsRule n _ _ _ _ _ _)) =
         mkPlainWarnMsg dflags loc $
-            text "Rule \"" <> ftext n <> text "\" ignored" $+$
+            text "Rule \"" <> ftext (unLoc n) <> text "\" ignored" $+$
             text "User defined rules are disabled under Safe Haskell"
 
 -- | Validate that safe imported modules are actually safe.  For modules in the
@@ -1198,7 +1208,7 @@ hscGenHardCode hsc_env cgguts mod_summary output_filename = do
         -- PREPARE FOR CODE GENERATION
         -- Do saturation and convert to A-normal form
         prepd_binds <- {-# SCC "CorePrep" #-}
-                       corePrepPgm dflags hsc_env core_binds data_tycons ;
+                       corePrepPgm hsc_env location core_binds data_tycons ;
         -----------------  Convert to STG ------------------
         (stg_binds, cost_centre_info)
             <- {-# SCC "CoreToStg" #-}
@@ -1261,7 +1271,7 @@ hscInteractive hsc_env cgguts mod_summary = do
     -- PREPARE FOR CODE GENERATION
     -- Do saturation and convert to A-normal form
     prepd_binds <- {-# SCC "CorePrep" #-}
-                   corePrepPgm dflags hsc_env core_binds data_tycons
+                   corePrepPgm hsc_env location core_binds data_tycons
     -----------------  Generate byte code ------------------
     comp_bc <- byteCodeGen dflags this_mod prepd_binds data_tycons mod_breaks
     ------------------ Create f-x-dynamic C-side stuff ---
@@ -1457,9 +1467,6 @@ hscDeclsWithLocation hsc_env0 str source linenumber =
     -- We grab the whole environment because of the overlapping that may have
     -- been done. See the notes at the definition of InteractiveContext
     -- (ic_instances) for more details.
-    let finsts = tcg_fam_insts tc_gblenv
-        insts  = tcg_insts     tc_gblenv
-
     let defaults = tcg_default tc_gblenv
 
     {- Desugar it -}
@@ -1473,19 +1480,24 @@ hscDeclsWithLocation hsc_env0 str source linenumber =
     simpl_mg <- liftIO $ hscSimplify hsc_env ds_result
 
     {- Tidy -}
-    (tidy_cg, _mod_details) <- liftIO $ tidyProgram hsc_env simpl_mg
+    (tidy_cg, mod_details) <- liftIO $ tidyProgram hsc_env simpl_mg
 
     let dflags = hsc_dflags hsc_env
         !CgGuts{ cg_module    = this_mod,
                  cg_binds     = core_binds,
                  cg_tycons    = tycons,
                  cg_modBreaks = mod_breaks } = tidy_cg
+
+        !ModDetails { md_insts     = cls_insts
+                    , md_fam_insts = fam_insts } = mod_details
+            -- Get the *tidied* cls_insts and fam_insts
+
         data_tycons = filter isDataTyCon tycons
 
     {- Prepare For Code Generation -}
     -- Do saturation and convert to A-normal form
     prepd_binds <- {-# SCC "CorePrep" #-}
-                    liftIO $ corePrepPgm dflags hsc_env core_binds data_tycons
+      liftIO $ corePrepPgm hsc_env iNTERACTIVELoc core_binds data_tycons
 
     {- Generate byte code -}
     cbc <- liftIO $ byteCodeGen dflags this_mod
@@ -1495,6 +1507,7 @@ hscDeclsWithLocation hsc_env0 str source linenumber =
     liftIO $ linkDecls hsc_env src_span cbc
 
     let tcs = filterOut isImplicitTyCon (mg_tcs simpl_mg)
+        patsyns = mg_patsyns simpl_mg
 
         ext_ids = [ id | id <- bindersOfBinds core_binds
                        , isExternalName (idName id)
@@ -1502,16 +1515,14 @@ hscDeclsWithLocation hsc_env0 str source linenumber =
             -- We only need to keep around the external bindings
             -- (as decided by TidyPgm), since those are the only ones
             -- that might be referenced elsewhere.
-            -- The DFunIds are in 'insts' (see Note [ic_tythings] in HscTypes
+            -- The DFunIds are in 'cls_insts' (see Note [ic_tythings] in HscTypes
             -- Implicit Ids are implicit in tcs
 
-        tythings =  map AnId ext_ids ++ map ATyCon tcs
+        tythings =  map AnId ext_ids ++ map ATyCon tcs ++ map (AConLike . PatSynCon) patsyns
 
     let icontext = hsc_IC hsc_env
-        ictxt1   = extendInteractiveContext icontext tythings
-        ictxt    = ictxt1 { ic_instances = (insts, finsts)
-                          , ic_default   = defaults }
-
+        ictxt    = extendInteractiveContext icontext ext_ids tcs
+                                            cls_insts fam_insts defaults patsyns
     return (tythings, ictxt)
 
 hscImport :: HscEnv -> String -> IO (ImportDecl RdrName)
@@ -1519,7 +1530,7 @@ hscImport hsc_env str = runInteractiveHsc hsc_env $ do
     (L _ (HsModule{hsmodImports=is})) <-
        hscParseThing parseModule str
     case is of
-        [i] -> return (unLoc i)
+        [L _ i] -> return i
         _ -> liftIO $ throwOneError $
                  mkPlainErrMsg (hsc_dflags hsc_env) noSrcSpan $
                      ptext (sLit "parse error in import declaration")
