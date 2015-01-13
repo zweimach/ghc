@@ -131,6 +131,9 @@ removed functions:
 
 please remove:
 --------------------------------
+- zonking in TcHsSyn must be lazy in types, killing some optimizations and the use of setIdType. Is there a way forward?
+
+- quantifyTyCoVars, which is used during inference only to decide what to quantify over, should never quantify over covars!
 
 - Test uses of unifyType_ to make sure that kind families are tolerated
 in those positions.
