@@ -297,8 +297,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
        ; ev_binds_var <- TcM.newTcEvBinds
        ; wanted_transformed_incl_derivs <- setTcLevel rhs_tclvl $
                                            runTcSWithEvBinds ev_binds_var (solveWanteds wanteds)
-       ; wanted_transformed_incl_derivs <- zonkWC ev_binds_var
-                                                  wanted_transformed_incl_derivs
+       ; wanted_transformed_incl_derivs <- zonkWC wanted_transformed_incl_derivs
 
               -- Step 4) Candidates for quantification are an approximation of wanted_transformed
               -- NB: Already the fixpoint of any unifications that may have happened
@@ -638,11 +637,10 @@ simplifyRule :: RuleName
 simplifyRule name lhs_wanted rhs_wanted
   = do {         -- We allow ourselves to unify environment
                  -- variables: runTcS runs with topTcLevel
-         (resid_wanted, binds) <- solveWantedsTcM (lhs_wanted `andWC` rhs_wanted)
+         (resid_wanted, _) <- solveWantedsTcM (lhs_wanted `andWC` rhs_wanted)
                               -- Post: these are zonked and unflattened
 
-       ; let subst = evBindsSubst emptyTCvSubst binds
-       ; zonked_lhs_simples <- TcM.zonkSimples subst (wc_simple lhs_wanted)
+       ; zonked_lhs_simples <- TcM.zonkSimples (wc_simple lhs_wanted)
        ; let (q_cts, non_q_cts) = partitionBag quantify_me zonked_lhs_simples
              quantify_me  -- Note [RULE quantification over equalities]
                | insolubleWC resid_wanted = quantify_insol
@@ -733,7 +731,7 @@ solveWantedsTcMWithEvBinds :: EvBindsVar
 solveWantedsTcMWithEvBinds ev_binds_var wc tcs_action
   = do { traceTc "solveWantedsTcMWithEvBinds" $ text "wanted=" <+> ppr wc
        ; wc2 <- runTcSWithEvBinds ev_binds_var (tcs_action wc)
-       ; zonkWC ev_binds_var wc2 }
+       ; zonkWC wc2 }
          -- See Note [Zonk after solving]
 
 solveWantedsTcM :: WantedConstraints -> TcM (WantedConstraints, Bag EvBind)

@@ -983,7 +983,6 @@ sccEvBinds bs = stronglyConnCompFromEdgedVertices edges
 -- | Extends a coercion substitution from a bunch of EvBinds. For EvBinds
 -- that don't map to a coercion, just don't include the mapping.
 evBindsSubst :: TCvSubst -> Bag EvBind -> TCvSubst
--- See also Note [zonkX] in TcMType for explanation of why this is useful
 evBindsSubst subst = foldl combine subst . sccEvBinds
   where
     combine env (AcyclicSCC (EvBind v ev_term))

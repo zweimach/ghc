@@ -1081,10 +1081,6 @@ added.  This is initialised from the innermost implication constraint.
 data TcSEnv
   = TcSEnv {
       tcs_ev_binds    :: EvBindsVar,
-      
-      tcs_ev_subst    :: TCvSubst,
-         -- a coercion substitution for any *outer* EvBindsVars. Combine
-         -- this with tcs_ev_binds to get an appropriate substitution for zonking
 
       tcs_unified :: IORef Bool,
           -- The "dirty-flag" Bool is set True when
@@ -1201,7 +1197,6 @@ runTcSWithEvBinds ev_binds_var tcs
        ; fw_var <- TcM.newTcRef (panic "Flat work list")
 
        ; let env = TcSEnv { tcs_ev_binds  = ev_binds_var
-                          , tcs_ev_subst  = emptyTCvSubst
                           , tcs_unified   = unified_var
                           , tcs_count     = step_count
                           , tcs_inerts    = inert_var
@@ -1246,9 +1241,7 @@ checkForCyclicBinds ev_binds
 
 nestImplicTcS :: EvBindsVar -> TcLevel -> TcS a -> TcS a
 nestImplicTcS ref inner_tclvl (TcS thing_inside)
-  = TcS $ \ TcSEnv { tcs_ev_subst = ev_subst
-                   , tcs_ev_binds = outer_binds_var
-                   , tcs_unified = unified_var
+  = TcS $ \ TcSEnv { tcs_unified = unified_var
                    , tcs_inerts = old_inert_var
                    , tcs_count = count } ->
     do { inerts <- TcM.readTcRef old_inert_var
@@ -1257,11 +1250,7 @@ nestImplicTcS ref inner_tclvl (TcS thing_inside)
        ; new_inert_var <- TcM.newTcRef nest_inert
        ; new_wl_var    <- TcM.newTcRef emptyWorkList
        ; new_fw_var    <- TcM.newTcRef (panic "Flat work list")
-
-       ; outer_binds   <- TcM.getTcEvBinds outer_binds_var
-                          
        ; let nest_env = TcSEnv { tcs_ev_binds    = ref
-                               , tcs_ev_subst    = evBindsSubst ev_subst outer_binds
                                , tcs_unified     = unified_var
                                , tcs_count       = count
                                , tcs_inerts      = new_inert_var
@@ -1416,14 +1405,6 @@ getTcEvBindsMap
   = do { EvBindsVar ev_ref _ <- getTcEvBinds
        ; wrapTcS $ TcM.readTcRef ev_ref }
 
--- | Get the coercion substitution induced by the active EvBindsVar
-getTcEvBindsSubst :: TcS TCvSubst
-getTcEvBindsSubst
-  = TcS $ \ TcSEnv { tcs_ev_binds = ev_binds
-                   , tcs_ev_subst = ev_subst } ->
-          do { binds <- TcM.getTcEvBinds ev_binds
-             ; return $ evBindsSubst ev_subst binds }
-
 setWantedTyBind :: TcTyVar -> TcType -> TcS ()
 -- Add a type binding
 -- We never do this twice!
@@ -1508,29 +1489,19 @@ isFilledMetaTyVar :: TcTyVar -> TcS Bool
 isFilledMetaTyVar tv = wrapTcS (TcM.isFilledMetaTyVar tv)
 
 zonkTyCoVarsAndFV :: TcTyCoVarSet -> TcS TcTyCoVarSet
-zonkTyCoVarsAndFV tvs
-  = do { subst <- getTcEvBindsSubst
-       ; wrapTcS (TcM.zonkTyCoVarsAndFVX subst tvs) }
+zonkTyCoVarsAndFV tvs = wrapTcS (TcM.zonkTyCoVarsAndFV tvs)
 
 zonkCo :: Coercion -> TcS Coercion
-zonkCo co
-  = do { subst <- getTcEvBindsSubst
-       ; wrapTcS $ TcM.zonkCoX subst co }
+zonkCo = wrapTcS . TcM.zonkCo
 
 zonkTcType :: TcType -> TcS TcType
-zonkTcType ty
-  = do { subst <- getTcEvBindsSubst
-       ; wrapTcS (TcM.zonkTcTypeX subst ty) }
+zonkTcType ty = wrapTcS (TcM.zonkTcType ty)
 
 zonkTcTyCoVar :: TcTyCoVar -> TcS TcType
-zonkTcTyCoVar tv
-  = do { subst <- getTcEvBindsSubst
-       ; wrapTcS (TcM.zonkTcTyCoVarX subst tv) }
+zonkTcTyCoVar tv = wrapTcS (TcM.zonkTcTyCoVar tv)
 
 zonkSimples :: Cts -> TcS Cts
-zonkSimples cts
-  = do { subst <- getTcEvBindsSubst
-       ; wrapTcS (TcM.zonkSimples subst cts) }
+zonkSimples cts = wrapTcS (TcM.zonkSimples cts)
 
 {-
 Note [Do not add duplicate derived insolubles]
