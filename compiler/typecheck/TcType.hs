@@ -1142,7 +1142,12 @@ tcGetTyVar :: String -> Type -> TyVar
 tcGetTyVar msg ty = expectJust msg (tcGetTyVar_maybe ty)
 
 tcIsTyVarTy :: Type -> Bool
-tcIsTyVarTy ty = isJust (tcGetTyVar_maybe ty)
+tcIsTyVarTy ty | Just ty' <- tcView ty = tcIsTyVarTy ty'
+tcIsTyVarTy (CastTy ty _) = tcIsTyVarTy ty  -- look through casts, as
+                                            -- this is only used for
+                                            -- e.g., FlexibleContexts
+tcIsTyVarTy (TyVarTy _)   = True
+tcIsTyVarTy _             = False
 
 -----------------------
 tcSplitCastTy_maybe :: TcType -> Maybe (TcType, Coercion)
