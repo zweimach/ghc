@@ -1010,10 +1010,7 @@ in nominal ways. If not, having w be representational is OK.
 
 tyCoVarsOfType :: Type -> TyCoVarSet
 -- ^ NB: for type synonyms tyCoVarsOfType does /not/ expand the synonym
--- tyCoVarsOfType returns only the free variables of a type
--- For example, tyCoVarsOfType (a::k) returns {a}, not including the
--- kind variable {k}
-tyCoVarsOfType (TyVarTy v)         = unitVarSet v
+tyCoVarsOfType (TyVarTy v)         = unitVarSet v `unionVarSet` tyCoVarsOfType (tyVarKind v)
 tyCoVarsOfType (TyConApp _ tys)    = tyCoVarsOfTypes tys
 tyCoVarsOfType (LitTy {})          = emptyVarSet
 tyCoVarsOfType (AppTy fun arg)     = tyCoVarsOfType fun `unionVarSet` tyCoVarsOfType arg
@@ -1034,7 +1031,7 @@ tyCoVarsOfCo (AppCo co arg)      = tyCoVarsOfCo co `unionVarSet` tyCoVarsOfCoArg
 tyCoVarsOfCo (ForAllCo cobndr co)
   = let (vars, kinds) = coBndrVarsKinds cobndr in
     tyCoVarsOfCo co `delVarSetList` vars `unionVarSet` tyCoVarsOfTypes kinds
-tyCoVarsOfCo (CoVarCo v)         = unitVarSet v
+tyCoVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` tyCoVarsOfType (varType v)
 tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCoArgs cos
 tyCoVarsOfCo (PhantomCo h t1 t2)   = tyCoVarsOfCo h `unionVarSet` tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
 tyCoVarsOfCo (UnsafeCo _ _ ty1 ty2)
@@ -1060,7 +1057,7 @@ tyCoVarsOfCoArgs :: [CoercionArg] -> TyCoVarSet
 tyCoVarsOfCoArgs args = mapUnionVarSet tyCoVarsOfCoArg args
 
 coVarsOfType :: Type -> CoVarSet
-coVarsOfType (TyVarTy _)         = emptyVarSet
+coVarsOfType (TyVarTy v)         = coVarsOfType (tyVarKind v)
 coVarsOfType (TyConApp _ tys)    = coVarsOfTypes tys
 coVarsOfType (LitTy {})          = emptyVarSet
 coVarsOfType (AppTy fun arg)     = coVarsOfType fun `unionVarSet` coVarsOfType arg
@@ -1081,7 +1078,7 @@ coVarsOfCo (AppCo co arg)      = coVarsOfCo co `unionVarSet` coVarsOfCoArg arg
 coVarsOfCo (ForAllCo cobndr co)
   = let (vars, kinds) = coBndrVarsKinds cobndr in
     coVarsOfCo co `delVarSetList` vars `unionVarSet` coVarsOfTypes kinds
-coVarsOfCo (CoVarCo v)         = unitVarSet v
+coVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` coVarsOfType (varType v)
 coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCoArgs args
 coVarsOfCo (PhantomCo h t1 t2) = coVarsOfCo h `unionVarSet` coVarsOfTypes [t1, t2]
 coVarsOfCo (UnsafeCo _ _ t1 t2)= coVarsOfTypes [t1, t2]

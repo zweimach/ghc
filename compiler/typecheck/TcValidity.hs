@@ -72,7 +72,7 @@ checkAmbiguity ctxt ty
 
   | otherwise
   = do { traceTc "Ambiguity check for" (ppr ty)
-       ; let free_tkvs = varSetElemsWellScoped (closeOverKinds (tyCoVarsOfType ty))
+       ; let free_tkvs = varSetElemsWellScoped (tyCoVarsOfType ty)
        ; (subst, _tvs) <- tcInstSkolTyCoVars free_tkvs
        ; let ty' = substTy subst ty
               -- The type might have free TyVars, esp when the ambiguity check
@@ -80,7 +80,7 @@ checkAmbiguity ctxt ty
               -- so we skolemise them as TcTyVars.
               -- Tiresome; but the type inference engine expects TcTyVars
               -- NB: The free tyvar might be (a::k), so k is also free
-              --     and we must skolemise it as well. Hence closeOverKinds.
+              --     and we must skolemise it as well.
               --     (Trac #9222)
 
          -- Solve the constraints eagerly because an ambiguous type

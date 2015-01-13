@@ -1723,8 +1723,8 @@ mkCallUDs' env f args
                       , ppr (map (interestingDict env) dicts)]
     (tycovars, theta, _)    = tcSplitSigmaTy (idType f)
     (tyvars, covars)        = partition isTyVar tycovars
-    constrained_tyvars      = closeOverKinds (tyCoVarsOfTypes theta `unionVarSet`
-                                           tyCoVarsOfTypes (map varType covars))
+    constrained_tyvars      = tyCoVarsOfTypes theta `unionVarSet`
+                              tyCoVarsOfTypes (map varType covars)
     n_tyvars                = length tyvars
     n_dicts                 = length covars + length theta
 

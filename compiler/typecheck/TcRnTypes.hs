@@ -1232,8 +1232,8 @@ dropDerivedWC wc@(WC { wc_simple = simples })
 
 ---------------- Getting free tyvars -------------------------
 tyCoVarsOfCt :: Ct -> TcTyVarSet
-tyCoVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })     = extendVarSet (tyCoVarsOfType xi) tv
-tyCoVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_fsk = fsk }) = extendVarSet (tyCoVarsOfTypes tys) fsk
+tyCoVarsOfCt (CTyEqCan { cc_tyvar = tv, cc_rhs = xi })     = extendVarSet (tyCoVarsOfType xi) tv `unionVarSet` tyCoVarsOfType (tyVarKind tv)
+tyCoVarsOfCt (CFunEqCan { cc_tyargs = tys, cc_fsk = fsk }) = extendVarSet (tyCoVarsOfTypes tys) fsk `unionVarSet` tyCoVarsOfType (tyVarKind fsk)
 tyCoVarsOfCt (CDictCan { cc_tyargs = tys })                = tyCoVarsOfTypes tys
 tyCoVarsOfCt (CIrredEvCan { cc_ev = ev })                  = tyCoVarsOfType (ctEvPred ev)
 tyCoVarsOfCt (CHoleCan { cc_ev = ev })                     = tyCoVarsOfType (ctEvPred ev)
@@ -1254,7 +1254,7 @@ tyCoVarsOfImplic :: Implication -> TyCoVarSet
 tyCoVarsOfImplic (Implic { ic_skols = skols
                          , ic_given = givens, ic_wanted = wanted })
   = (tyCoVarsOfWC wanted `unionVarSet` tyCoVarsOfTypes (map evVarPred givens))
-    `delVarSetList` skols
+    `delVarSetList` skols `unionVarSet` tyCoVarsOfTypes (map tyVarKind skols)
 
 tyCoVarsOfBag :: (a -> TyVarSet) -> Bag a -> TyVarSet
 tyCoVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet

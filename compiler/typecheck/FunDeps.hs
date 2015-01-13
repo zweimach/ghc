@@ -395,7 +395,7 @@ checkInstCoverage be_liberal clas theta inst_taus
        = NotValid msg
        where
          (ls,rs) = instFD fd tyvars inst_taus
-         ls_tvs = closeOverKinds (tyCoVarsOfTypes ls)  -- See Note [Closing over kinds in coverage]
+         ls_tvs = tyCoVarsOfTypes ls
          rs_tvs = tyCoVarsOfTypes rs
 
          conservative_ok = rs_tvs `subVarSet` ls_tvs
@@ -418,22 +418,6 @@ checkInstCoverage be_liberal clas theta inst_taus
                       ptext (sLit "Using UndecidableInstances might help") ]
 
 {-
-Note [Closing over kinds in coverage]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Suppose we have a fundep  (a::k) -> b
-Then if 'a' is instantiated to (x y), where x:k2->*, y:k2,
-then fixing x really fixes k2 as well, and so k2 should be added to
-the lhs tyvars in the fundep check.
-
-Example (Trac #8391), using liberal coverage
-
-    type Foo a = a  -- Foo :: forall k. k -> k
-    class Bar a b | a -> b
-    instance Bar a (Foo a)
-
-In the instance decl, (a:k) does fix (Foo k a), but only if we notice
-that (a:k) fixes k.
-
 Note [The liberal coverage condition]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 (oclose preds tvs) closes the set of type variables tvs,

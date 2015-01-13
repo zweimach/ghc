@@ -1005,7 +1005,7 @@ kick_out new_flavour new_eq_rel new_tv (IC { inert_eqs      = tv_eqs
 
     kick_out_irred :: Ct -> Bool
     kick_out_irred ct =  can_rewrite (cc_ev ct)
-                      && new_tv `elemVarSet` closeOverKinds (tyCoVarsOfCt ct)
+                      && new_tv `elemVarSet` tyCoVarsOfCt ct
           -- See Note [Kicking out Irreds]
 
     kick_out_eqs :: EqualCtList -> ([Ct], TyVarEnv EqualCtList)
@@ -1067,7 +1067,7 @@ are not visible.  More precisely, the type looks like
    (~) k1 (a:k1) (ty:k2)
 because (~) has kind forall k. k -> k -> Constraint.  So the constraint
 itself is ill-kinded.  We can "see" k1 but not k2.  That's why we use
-closeOverKinds to make sure we see k2.
+tyCoVarsOfCt to make sure we see k2.
 
 This is not pretty. Maybe (~) should have kind
    (~) :: forall k1 k1. k1 -> k2 -> Constraint

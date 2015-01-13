@@ -613,9 +613,9 @@ quantifyTyCoVars' gbl_tvs tkvs all_kind_vars
              dep_var_set
                = if all_kind_vars
                  then tkvs `minusVarSet` gbl_tvs
-                 else closeOverKinds (unionVarSets $
-                                      map (tyCoVarsOfType . tyVarKind) $
-                                      varSetElems all_tvs)
+                 else (unionVarSets $
+                       map (tyCoVarsOfType . tyVarKind) $
+                       varSetElems all_tvs)
                       `minusVarSet` gbl_tvs
              nondep_var_set = tkvs `minusVarSet` dep_var_set `minusVarSet` gbl_tvs
              no_covars      = filterVarSet (not . isCoVar)

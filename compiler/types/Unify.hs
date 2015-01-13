@@ -873,7 +873,7 @@ niFixTCvSubst tenv cenv = f tenv cenv
 
           range_tvs     = foldVarEnv (unionVarSet . tyCoVarsOfType) emptyVarSet tenv
           range_cvs     = foldVarEnv (unionVarSet . tyCoVarsOfCo) emptyVarSet cenv
-          all_range_tvs = closeOverKinds (range_tvs `unionVarSet` range_cvs)
+          all_range_tvs = range_tvs `unionVarSet` range_cvs
           subst         = mkTCvSubst (mkInScopeSet all_range_tvs) (tenv, cenv)
 
              -- env' extends env by replacing any free type with 

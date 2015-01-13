@@ -118,7 +118,7 @@ mkFCall dflags uniq the_fcall val_args res_ty
   where
     arg_tys = map exprType val_args
     body_ty = (mkFunTys arg_tys res_ty)
-    tyvars  = varSetElemsWellScoped (closeOverKinds $ tyCoVarsOfType body_ty)
+    tyvars  = varSetElemsWellScoped (tyCoVarsOfType body_ty)
     ty      = mkInvForAllTys tyvars body_ty
     the_fcall_id = mkFCallId dflags uniq the_fcall ty
 

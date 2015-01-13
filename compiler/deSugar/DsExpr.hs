@@ -437,7 +437,7 @@ dsExpr (HsStatic expr@(L loc _)) = do
                  , moduleNameFS $ moduleName $ nameModule n'
                  , occNameFS    $ nameOccName n'
                  ]
-    let tvars = varSetElemsWellScoped $ closeOverKinds $ tyCoVarsOfType ty
+    let tvars = varSetElemsWellScoped $ tyCoVarsOfType ty
         speTy = mkInvForAllTys tvars $ mkTyConApp staticPtrTyCon [ty]
         speId = mkExportedLocalId VanillaId n' speTy
         fp@(Fingerprint w0 w1) = fingerprintName $ idName speId
