@@ -340,7 +340,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
        -- NB: quant_pred_candidates is already the fixpoint of any
        --     unifications that may have happened
 
-       ; zonked_taus <- mapM (TcM.zonkTcTypeEvBinds ev_binds_var . snd) name_taus
+       ; zonked_taus <- mapM (TcM.zonkTcType . snd) name_taus
        ; let zonked_tau_tvs = tyCoVarsOfTypes zonked_taus
        ; (promote_tvs, qtvs, bound, mr_bites) <- decideQuantification apply_mr quant_pred_candidates zonked_tau_tvs
 
