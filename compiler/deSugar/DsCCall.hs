@@ -39,7 +39,6 @@ import TysWiredIn
 import BasicTypes
 import Literal
 import PrelNames
-import VarSet
 import DynFlags
 import Outputable
 import Util
