@@ -251,7 +251,9 @@ zonkIdOccs env ids = map (zonkIdOcc env) ids
 zonkIdBndr :: ZonkEnv -> TcId -> TcM Id
 zonkIdBndr env id
   = do ty' <- zonkTcTypeToType env (idType id)
-       return (Id.setIdType id ty')
+       return (setVarType id ty')
+         -- NB: setVarType, *not* setIdType. We must be lazy in types,
+         --     which may contain knot-tied coercions.
 
 zonkIdBndrs :: ZonkEnv -> [TcId] -> TcM [Id]
 zonkIdBndrs env ids = mapM (zonkIdBndr env) ids
