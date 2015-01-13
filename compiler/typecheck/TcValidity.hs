@@ -174,7 +174,6 @@ checkValidType ctxt ty
                                           -- Can't happen; not used for *user* sigs
 
        ; env <- tcInitOpenTidyEnv (tyCoVarsOfType ty)
-       ; traceTc "RAE checkValidType" (ppr env)
              
         -- Check the internal validity of the type itself
        ; check_type env ctxt rank ty

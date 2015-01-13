@@ -1055,7 +1055,6 @@ tcInitOpenTidyEnv :: TyCoVarSet -> TcM TidyEnv
 tcInitOpenTidyEnv tvs
   = do { env1 <- tcInitTidyEnv
        ; let env2 = tidyFreeTyCoVars env1 tvs
-       ; traceTc "RAE tcInitOpenTidyEnv" (ppr env1 $$ ppr tvs $$ ppr env2)
        ; return env2 }
 
 
