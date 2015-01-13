@@ -53,8 +53,8 @@ module TyCoRep (
         pprPrefixApp, pprArrowChain, ppr_type,
 
         -- Free variables
-        tyCoVarsOfType, tyCoVarsOfTypes, tyVarsOnlyOfType, tyVarsOnlyOfTypes,
-        tyVarsOnlyOfCo, tyVarsOnlyOfCos, coVarsOfType, coVarsOfTypes,
+        tyCoVarsOfType, tyCoVarsOfTypes,
+        coVarsOfType, coVarsOfTypes,
         coVarsOfCo, coVarsOfCos, tyCoVarsOfCoArg, tyCoVarsOfCoArgs,
         tyCoVarsOfCo, tyCoVarsOfCos,
         closeOverKinds,
@@ -1007,56 +1007,6 @@ in nominal ways. If not, having w be representational is OK.
 %*                                                                      *
 %************************************************************************
 -}
-
-tyVarsOnlyOfType :: Type -> TyVarSet
--- ^ NB: for type synonyms tyVarsOnlyOfType does /not/ expand the synonym
--- tyVarsOnlyOfType returns only the free variables of a type
--- For example, tyVarsOnlyOfType (a::k) returns {a}, not including the
--- kind variable {k}
-tyVarsOnlyOfType (TyVarTy v)         = unitVarSet v
-tyVarsOnlyOfType (TyConApp _ tys)    = tyVarsOnlyOfTypes tys
-tyVarsOnlyOfType (LitTy {})          = emptyVarSet
-tyVarsOnlyOfType (AppTy fun arg)     = tyVarsOnlyOfType fun `unionVarSet` tyVarsOnlyOfType arg
-tyVarsOnlyOfType (ForAllTy bndr ty)
-  = tyVarsOnlyOfType ty `delBinderVar` bndr
-    `unionVarSet` tyVarsOnlyOfType (binderType bndr)
-tyVarsOnlyOfType (CastTy ty co)      = tyVarsOnlyOfType ty `unionVarSet` tyVarsOnlyOfCo co
-tyVarsOnlyOfType (CoercionTy co)     = tyVarsOnlyOfCo co
-
-tyVarsOnlyOfTypes :: [Type] -> TyVarSet
-tyVarsOnlyOfTypes tys = mapUnionVarSet tyVarsOnlyOfType tys
-
-tyVarsOnlyOfCo :: Coercion -> TyCoVarSet
--- Extracts type and coercion variables from a coercion
-tyVarsOnlyOfCo (Refl _ ty)         = tyVarsOnlyOfType ty
-tyVarsOnlyOfCo (TyConAppCo _ _ args) = tyVarsOnlyOfCoArgs args
-tyVarsOnlyOfCo (AppCo co arg)      = tyVarsOnlyOfCo co `unionVarSet` tyVarsOnlyOfCoArg arg
-tyVarsOnlyOfCo (ForAllCo cobndr co)
-  = let (vars, kinds) = coBndrVarsKinds cobndr in
-    tyVarsOnlyOfCo co `delVarSetList` vars `unionVarSet` tyVarsOnlyOfTypes kinds
-tyVarsOnlyOfCo (CoVarCo _)         = emptyVarSet
-tyVarsOnlyOfCo (AxiomInstCo _ _ cos) = tyVarsOnlyOfCoArgs cos
-tyVarsOnlyOfCo (PhantomCo h t1 t2) = tyVarsOnlyOfCo h `unionVarSet` tyVarsOnlyOfType t1 `unionVarSet` tyVarsOnlyOfType t2
-tyVarsOnlyOfCo (UnsafeCo _ _ t1 t2)= tyVarsOnlyOfType t1 `unionVarSet` tyVarsOnlyOfType t2
-tyVarsOnlyOfCo (SymCo co)          = tyVarsOnlyOfCo co
-tyVarsOnlyOfCo (TransCo co1 co2)   = tyVarsOnlyOfCo co1 `unionVarSet` tyVarsOnlyOfCo co2
-tyVarsOnlyOfCo (NthCo _ co)        = tyVarsOnlyOfCo co
-tyVarsOnlyOfCo (LRCo _ co)         = tyVarsOnlyOfCo co
-tyVarsOnlyOfCo (InstCo co arg)     = tyVarsOnlyOfCo co `unionVarSet` tyVarsOnlyOfCoArg arg
-tyVarsOnlyOfCo (CoherenceCo c1 c2) = tyVarsOnlyOfCo c1 `unionVarSet` tyVarsOnlyOfCo c2
-tyVarsOnlyOfCo (KindCo co)         = tyVarsOnlyOfCo co
-tyVarsOnlyOfCo (SubCo co)          = tyVarsOnlyOfCo co
-tyVarsOnlyOfCo (AxiomRuleCo _ ts cs) = tyVarsOnlyOfTypes ts `unionVarSet` tyVarsOnlyOfCos cs 
-
-tyVarsOnlyOfCos :: [Coercion] -> TyCoVarSet
-tyVarsOnlyOfCos cos = mapUnionVarSet tyVarsOnlyOfCo cos
-
-tyVarsOnlyOfCoArg :: CoercionArg -> TyCoVarSet
-tyVarsOnlyOfCoArg (TyCoArg co)      = tyVarsOnlyOfCo co
-tyVarsOnlyOfCoArg (CoCoArg _ c1 c2) = tyVarsOnlyOfCo c1 `unionVarSet` tyVarsOnlyOfCo c2
-
-tyVarsOnlyOfCoArgs :: [CoercionArg] -> TyCoVarSet
-tyVarsOnlyOfCoArgs args = mapUnionVarSet tyVarsOnlyOfCoArg args
 
 tyCoVarsOfType :: Type -> TyCoVarSet
 -- ^ NB: for type synonyms tyCoVarsOfType does /not/ expand the synonym
@@ -2090,7 +2040,7 @@ pprUserForAll bndrs
     pprForAll bndrs
   where
     bndr_has_kind_var bndr
-      = not (isEmptyVarSet (tyVarsOnlyOfType (binderType bndr)))
+      = not (isEmptyVarSet (tyCoVarsOfType (binderType bndr)))
 
 pprUserForAllImplicit :: [TyCoVar] -> SDoc
 pprUserForAllImplicit tvs = pprUserForAll (zipWith Named tvs (repeat Invisible))
