@@ -1049,6 +1049,16 @@ tcInitTidyEnv
   = do  { lcl_env <- getLclEnv
         ; return (tcl_tidy lcl_env) }
 
+-- | Get a 'TidyEnv' that includes mappings for all vars free in the given
+-- type. Useful when tidying open types.
+tcInitOpenTidyEnv :: TyCoVarSet -> TcM TidyEnv
+tcInitOpenTidyEnv tvs
+  = do { env1 <- tcInitTidyEnv
+       ; let env2 = tidyFreeTyCoVars env1 tvs
+       ; traceTc "RAE tcInitOpenTidyEnv" (ppr env1 $$ ppr tvs $$ ppr env2)
+       ; return env2 }
+
+
 {-
 -----------------------------------
         Other helper functions

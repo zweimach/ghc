@@ -173,7 +173,8 @@ checkValidType ctxt ty
                  _              -> panic "checkValidType"
                                           -- Can't happen; not used for *user* sigs
 
-       ; env <- tcInitTidyEnv
+       ; env <- tcInitOpenTidyEnv (tyCoVarsOfType ty)
+       ; traceTc "RAE checkValidType" (ppr env)
              
         -- Check the internal validity of the type itself
        ; check_type env ctxt rank ty
@@ -187,7 +188,7 @@ checkValidType ctxt ty
 
 checkValidMonoType :: Type -> TcM ()
 checkValidMonoType ty
-  = do { env <- tcInitTidyEnv
+  = do { env <- tcInitOpenTidyEnv (tyCoVarsOfType ty)
        ; check_type env SigmaCtxt MustBeMonoType ty }
 
 check_kind :: TidyEnv -> UserTypeCtxt -> TcType -> TcM ()
@@ -471,7 +472,7 @@ applying the instance decl would show up two uses of ?x.  Trac #8912.
 
 checkValidTheta :: UserTypeCtxt -> ThetaType -> TcM ()
 checkValidTheta ctxt theta
-  = do { env <- tcInitTidyEnv
+  = do { env <- tcInitOpenTidyEnv (tyCoVarsOfTypes theta)
        ; addErrCtxtM (checkThetaCtxt ctxt theta) $
          check_valid_theta env ctxt theta }
 
@@ -860,7 +861,7 @@ checkValidInstHead ctxt clas cls_args
 
          -- We can't have unlifted type arguments.
          -- check_arg_type is redundant with checkValidMonoType
-       ; env <- tcInitTidyEnv
+       ; env <- tcInitOpenTidyEnv (tyCoVarsOfTypes ty_args)
        ; mapM_ (check_lifted env) ty_args
        }
 
@@ -1190,7 +1191,7 @@ checkValidTyFamInst mb_clsinfo fam_tc
          --             type instance F Int              = forall a. a->a
          --             type instance F Int              = Int#
          -- See Trac #9357
-       ; env <- tcInitTidyEnv
+       ; env <- tcInitOpenTidyEnv (tyCoVarsOfTypes (rhs : typats))
        ; mapM_ checkValidMonoType typats
        ; mapM_ (check_lifted env) typats
        ; checkValidMonoType rhs
