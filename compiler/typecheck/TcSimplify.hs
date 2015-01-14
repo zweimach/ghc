@@ -357,7 +357,22 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                         -- tidied uniformly
 
        ; minimal_bound_ev_vars <- mapM TcM.newEvVar minimal_simple_preds
-       ; let implic = Implic { ic_tclvl    = rhs_tclvl
+
+           -- RAE was here. Trying to figure out when constraints can be
+           -- floated out of the implication.
+           --  * They can't mention the skolems.
+           --  * There can't be any givens.
+
+           -- Then, after doing this, we should check to see if the types
+           -- of any of the bindings mention non-floated-out things.
+           -- If they do, issue an error, and suggest MonoLocalBinds.
+
+           -- Oh, and review this later. It could all be bogus.
+       ; let can_be_floated_out evar
+               = not (any (`elem` tyCoVarsOfType (varType evar)) qtvs)
+                 && (null 
+             (needs_qtvs, no_qtvs) = filter (\evar ->any (`elemVarSet` 
+             implic = Implic { ic_tclvl    = rhs_tclvl
                              , ic_skols    = qtvs
                              , ic_no_eqs   = False
                              , ic_given    = minimal_bound_ev_vars

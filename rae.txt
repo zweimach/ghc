@@ -122,6 +122,7 @@ fix:
   - changed newSigTyVar *not* to make a new unique. OK? This is necessary because
     we need to be able to match up undeclared (but user-written) kind variables
     before and after kind-checking.
+  - check scoping of coercions with NoMonoLocalBinds. Test base's Numeric.
 
 check out usages of:
 
@@ -134,6 +135,12 @@ please remove:
 - zonking in TcHsSyn must be lazy in types, killing some optimizations and the use of setIdType. Is there a way forward?
 
 - quantifyTyCoVars, which is used during inference only to decide what to quantify over, should never quantify over covars!
+
+- MonoLocalBinds now on by default. Life is just better this way.
+  But it was motivated by the failure of base's Numeric module -- specifically
+  the showInt function, which has a local definition that captures an outer
+  variable. GHC ended up inferring a casted type, and then the coercion
+  binding was ill-scoped.
 
 - Test uses of unifyType_ to make sure that kind families are tolerated
 in those positions.
