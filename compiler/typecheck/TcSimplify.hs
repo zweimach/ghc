@@ -306,7 +306,8 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
 
        ; tc_lcl_env <- TcRnMonad.getLclEnv
        ; null_ev_binds_var <- TcM.newTcEvBinds
-       ; let wanted_transformed = dropDerivedWC wanted_transformed_incl_derivs
+       ; let wanted_transformed@(WC { wc_simple = simple_wanteds })
+               = dropDerivedWC wanted_transformed_incl_derivs
        ; quant_pred_candidates   -- Fully zonked
            <- if insolubleWC wanted_transformed_incl_derivs
               then return []   -- See Note [Quantification with errors]
@@ -333,9 +334,9 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                                      -- See Note [Promote _and_ default when inferring]
                                  ; solveSimpleWanteds quant_cand }
 
-                      ; return [ ctEvPred ev | ct <- bagToList simples
-                                             , let ev = ctEvidence ct
-                                             , isWanted ev ] }
+                      ; return [ ctEvId ev | ct <- bagToList simples
+                                           , let ev = ctEvidence ct
+                                           , isWanted ev ] }
 
        -- NB: quant_pred_candidates is already the fixpoint of any
        --     unifications that may have happened
@@ -343,10 +344,20 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
        ; zonked_taus <- mapM (TcM.zonkTcType . snd) name_taus
        ; let zonked_tau_tvs = tyCoVarsOfTypes zonked_taus
        ; (promote_tvs, qtvs, bound, mr_bites) <- decideQuantification apply_mr quant_pred_candidates zonked_tau_tvs
+       ; MASSERT( not (tyCoVarsOfTypes (map tyVarKind (varSetElems promote_tvs))
+                       `intersectsVarSet` mkVarSet qtvs) )
+         -- we can't promote things that mention quantified variables!
 
        ; outer_tclvl <- TcRnMonad.getTcLevel
        ; runTcSWithEvBinds null_ev_binds_var $  -- runTcS just to get the types right :-(
          mapM_ (promoteTyVar outer_tclvl) (varSetElems promote_tvs)
+
+          -- See Note [Promoting coercion variables]
+       ; let (promote_wanteds, leave_wanteds)
+               = partitionBag ((`elemVarSet` promote_tvs) . ctEvId . ctEvidence)
+                              simple_wanteds
+                  -- NB: simple_wanteds should be all CtWanted, so ctEvId should
+                  -- be OK.
 
        ; let minimal_simple_preds = mkMinimalBySCs bound
                   -- See Note [Minimize by Superclasses]
@@ -358,30 +369,18 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
 
        ; minimal_bound_ev_vars <- mapM TcM.newEvVar minimal_simple_preds
 
-           -- RAE was here. Trying to figure out when constraints can be
-           -- floated out of the implication.
-           --  * They can't mention the skolems.
-           --  * There can't be any givens.
-
-           -- Then, after doing this, we should check to see if the types
-           -- of any of the bindings mention non-floated-out things.
-           -- If they do, issue an error, and suggest MonoLocalBinds.
-
-           -- Oh, and review this later. It could all be bogus.
-       ; let can_be_floated_out evar
-               = not (any (`elem` tyCoVarsOfType (varType evar)) qtvs)
-                 && (null 
-             (needs_qtvs, no_qtvs) = filter (\evar ->any (`elemVarSet` 
-             implic = Implic { ic_tclvl    = rhs_tclvl
+       ; let implic = Implic { ic_tclvl    = rhs_tclvl
                              , ic_skols    = qtvs
                              , ic_no_eqs   = False
                              , ic_given    = minimal_bound_ev_vars
                              , ic_wanted   = wanted_transformed
+                                               { wc_simple = leave_wanteds }
                              , ic_insol    = False
                              , ic_binds    = ev_binds_var
                              , ic_info     = skol_info
                              , ic_env      = tc_lcl_env }
        ; emitImplication implic
+       ; emitSimples promote_wanteds
 
        ; traceTc "} simplifyInfer/produced residual implication for quantification" $
          vcat [ ptext (sLit "quant_pred_candidates =") <+> ppr quant_pred_candidates
@@ -393,7 +392,8 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                                                         | v <- minimal_bound_ev_vars]
               , ptext (sLit "mr_bites =") <+> ppr mr_bites
               , ptext (sLit "qtvs =") <+> ppr qtvs
-              , ptext (sLit "implic =") <+> ppr implic ]
+              , ptext (sLit "implic =") <+> ppr implic
+              , ptext (sLit "promote_wanteds =") <+> ppr promote_wanteds ]
 
        ; return ( qtvs, minimal_bound_ev_vars
                 , mr_bites,  TcEvBinds ev_binds_var) }
@@ -423,36 +423,58 @@ If the monomorphism restriction does not apply, then we quantify as follows:
 
 If the MR does apply, mono_tvs includes all the constrained tyvars,
 and the quantified constraints are empty.
+
+It's also important to include in promote_tvs any covars that are
+in zonked_tau_tvs. These covars are used in the types of the bindings
+beings processed, so they have to be in scope. Thus, we wish these
+always to be in mono_tvs. See also Note [Promoting coercion variables]
+
+Note [Promoting coercion variables]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Promoting a coercion variable means enlarging its scope. When a local
+definition gets an inferred type that mentions a coercion variable, that
+variable had better be defined in a larger scope than the local
+definition. In practice, this means that the promoted covars do *not*
+form part of the implication constraint emitted at the end of simplifyInfer.
+Instead, they are emitted as simple constraints in the larger scope.
+
 -}
 
-decideQuantification :: Bool -> [PredType] -> TcTyCoVarSet
+decideQuantification :: Bool -> [EvVar] -> TcTyCoVarSet
                      -> TcM ( TcTyCoVarSet      -- Promote these
+                                                -- See Note [Promoting coercion variables]
                             , [TcTyVar]         -- Do quantify over these
                             , [PredType]        -- and these
                             , Bool )            -- Did the MR bite?
 -- See Note [Deciding quantification]
-decideQuantification apply_mr constraints zonked_tau_tvs
+decideQuantification apply_mr constraint_vars zonked_tau_tvs
   | apply_mr     -- Apply the Monomorphism restriction
   = do { gbl_tvs <- tcGetGlobalTyVars
        ; let mono_tvs = gbl_tvs `unionVarSet` constrained_tvs
              mr_bites = constrained_tvs `intersectsVarSet` zonked_tau_tvs
              promote_tvs = constrained_tvs `unionVarSet` (zonked_tau_tvs `intersectVarSet` gbl_tvs)
        ; qtvs <- quantifyTyCoVars mono_tvs zonked_tau_tvs
-       ; traceTc "decideQuantification 1" (vcat [ppr constraints, ppr gbl_tvs, ppr mono_tvs, ppr qtvs])
+       ; traceTc "decideQuantification 1" (vcat [ppr constraint_vars, ppr constraints, ppr gbl_tvs, ppr mono_tvs, ppr qtvs])
        ; return (promote_tvs, qtvs, [], mr_bites) }
 
   | otherwise
   = do { gbl_tvs <- tcGetGlobalTyVars
        ; let mono_tvs    = growThetaTyCoVars (filter isEqPred constraints) gbl_tvs
+                           `unionVarSet` (constraint_tvs `intersectVarSet` zonked_tau_tvs)
              poly_qtvs   = growThetaTyCoVars constraints zonked_tau_tvs
                            `minusVarSet` mono_tvs
-             theta       = filter (quantifyPred poly_qtvs) constraints
              promote_tvs = mono_tvs `intersectVarSet` (constrained_tvs `unionVarSet` zonked_tau_tvs)
+             theta       = filter (quantifyPred poly_qtvs) $
+                           map varType $
+                           filter (not . (`elemVarSet` mono_tvs)) constraint_vars
+
        ; qtvs <- quantifyTyCoVars mono_tvs poly_qtvs
        ; traceTc "decideQuantification 2" (vcat [ppr constraints, ppr gbl_tvs, ppr mono_tvs, ppr poly_qtvs, ppr qtvs, ppr theta, ppr promote_tvs])
        ; return (promote_tvs, qtvs, theta, False) }
   where
-    constrained_tvs = tyCoVarsOfTypes constraints
+    constraints     = map varType constraint_vars
+    constraint_tvs  = mkVarSet (filter isCoVar constraint_vars)
+    constrained_tvs = tyCoVarsOfTypes constraints `unionVarSet` constraint_tvs
 
 ------------------
 quantifyPred :: TyCoVarSet         -- Quantifying over these
