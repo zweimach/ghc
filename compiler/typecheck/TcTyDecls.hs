@@ -29,6 +29,7 @@ import DataCon
 import Name
 import NameEnv
 import VarEnv
+import Var
 import VarSet
 import NameSet
 import Coercion ( ltRole )
@@ -681,10 +682,9 @@ irClass tc_name cls
 -- See Note [Role inference]
 irDataCon :: Name -> DataCon -> RoleM ()
 irDataCon tc_name datacon
--- TODO (RAE): We probably need to look in, say, ex_tv kinds when doing role
--- inference. This includes the _dep_eq_spec
   = addRoleInferenceInfo tc_name univ_tvs $
-    mapM_ (irType ex_var_set) (eqSpecPreds eq_spec ++ theta ++ arg_tys)
+    mapM_ (irType ex_var_set)
+          (map tyVarKind ex_tvs ++ eqSpecPreds eq_spec ++ theta ++ arg_tys)
       -- See Note [Role-checking data constructor arguments] 
   where
     (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, arg_tys, _res_ty)
