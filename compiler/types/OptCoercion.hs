@@ -405,8 +405,6 @@ opt_co4 env sym rep r (CoherenceCo co1 co2)
                                                 (mkCastTy tyl1 co2) tyr1)
   | TransCo col1 cor1 <- co1
   = opt_co4_wrap env sym rep r (mkTransCo (mkCoherenceCo col1 co2) cor1)
-  | CoherenceCo col1 cor1 <- co1
-  = opt_co4_wrap env sym rep r (mkCoherenceCo col1 (mkTransCo cor1 co2))
 
   | UnsafeCo s r_out tyl1' tyr1' <- co1'
   = ASSERT( output_role == r_out )
@@ -416,9 +414,7 @@ opt_co4 env sym rep r (CoherenceCo co1 co2)
   = if sym then opt_trans in_scope col1'
                   (optCoercion (zapTCvSubst env) (mkCoherenceRightCo cor1' co2'))
            else opt_trans in_scope (mkCoherenceCo col1' co2') cor1'
-  | CoherenceCo col1' cor1' <- co1'
-  = if sym then mkCoherenceCo (mkSymCo col1') (opt_trans in_scope cor1' co2')
-           else mkCoherenceCo col1' (opt_trans in_scope cor1' co2')
+
   | otherwise
   = wrapSym sym $ CoherenceCo (opt_co4_wrap env False rep r co1) co2'
   where output_role = chooseRole rep r
