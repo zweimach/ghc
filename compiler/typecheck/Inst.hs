@@ -410,7 +410,7 @@ tcGetInsts :: TcM [ClsInst]
 -- Gets the local class instances.
 tcGetInsts = fmap tcg_insts getGblEnv
 
-newClsInst :: Maybe OverlapMode -> Name -> [TyVar] -> ThetaType
+newClsInst :: Maybe OverlapMode -> Name -> [TyCoVar] -> ThetaType
            -> Class -> [Type] -> TcM ClsInst
 newClsInst overlap_mode dfun_name tvs theta clas tys
   = do { (subst, tvs') <- freshenTyCoVarBndrs tvs

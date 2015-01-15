@@ -353,7 +353,8 @@ which in turn is imported by Type
 
 -- named with "Only" to prevent naive use of mkTyVarTy
 mkOnlyTyVarTy  :: TyVar   -> Type
-mkOnlyTyVarTy v = ASSERT( isTyVar v ) TyVarTy v
+mkOnlyTyVarTy v = ASSERT2( isTyVar v, ppr v <+> dcolon <+> ppr (tyVarKind v) )
+                  TyVarTy v
 
 mkOnlyTyVarTys :: [TyVar] -> [Type]
 mkOnlyTyVarTys = map mkOnlyTyVarTy -- a common use of mkOnlyTyVarTy

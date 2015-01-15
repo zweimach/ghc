@@ -170,8 +170,13 @@ splitEarlyDerivSpec (GivenTheta spec : specs) =
 pprDerivSpec :: Outputable theta => DerivSpec theta -> SDoc
 pprDerivSpec (DS { ds_loc = l, ds_name = n, ds_tvs = tvs,
                    ds_cls = c, ds_tys = tys, ds_theta = rhs })
-  = parens (hsep [ppr l, ppr n, ppr tvs, ppr c, ppr tys]
-            <+> equals <+> ppr rhs)
+  = hang (text "DerivSpec")
+       2 (vcat [ text "ds_loc   =" <+> ppr l
+               , text "ds_name  =" <+> ppr n
+               , text "ds_tvs   =" <+> ppr tvs
+               , text "ds_cls   =" <+> ppr c
+               , text "ds_tys   =" <+> ppr tys
+               , text "ds_theta =" <+> ppr rhs ])
 
 instance Outputable theta => Outputable (DerivSpec theta) where
   ppr = pprDerivSpec
@@ -1088,7 +1093,7 @@ mkPolyKindedTypeableEqn cls tc
                              , ds_newtype = Nothing } }
         where
           (kvs,tc_app_kind) = splitNamedForAllTys (tyConKind tc)
-          tc_args = mkOnlyTyVarTys kvs
+          tc_args = mkTyCoVarTys kvs  -- tc could have covars if it's a promoted datacon
           tc_app  = mkTyConApp tc tc_args
 
 inferConstraints :: Class -> [TcType]

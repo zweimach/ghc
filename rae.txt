@@ -120,9 +120,6 @@ fix:
   - perhaps change promoteCoercion --> promoteCoercion_maybe that fails if
     it can't do any optimization.
   - consider removing CoercionArg.
-  - tcSkolDFunType is used in tcInstDecl2 in a way that seems incompatible with coercions
-    appearing in dictionary types. Fix? In particular, look at uses of mkWpTyApps, which
-    can't deal with coercions.
   - changed newSigTyVar *not* to make a new unique. OK? This is necessary because
     we need to be able to match up undeclared (but user-written) kind variables
     before and after kind-checking.

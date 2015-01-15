@@ -712,8 +712,7 @@ mkWpTyEvApps :: [Type] -> HsWrapper
 mkWpTyEvApps tys = mk_co_app_fn wp_ty_or_ev_app tys
   where wp_ty_or_ev_app ty
           | Just co <- isCoercionTy_maybe ty
-          , Just cv <- getCoVar_maybe co
-          = WpEvPrimApp (TcCoVarCo cv)
+          = WpEvPrimApp (mkTcCoercion co)
 
           | otherwise
           = WpTyApp ty
