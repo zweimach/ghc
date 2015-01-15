@@ -924,9 +924,10 @@ zonkCtEvidence :: CtEvidence -> TcM CtEvidence
 zonkCtEvidence ctev@(CtGiven { ctev_pred = pred }) 
   = do { pred' <- zonkTcType pred
        ; return (ctev { ctev_pred = pred'}) }
-zonkCtEvidence ctev@(CtWanted { ctev_pred = pred })
+zonkCtEvidence ctev@(CtWanted { ctev_pred = pred, ctev_evar = ev })
   = do { pred' <- zonkTcType pred
-       ; return (ctev { ctev_pred = pred' }) }
+       ; let ev' = setVarType ev pred'  -- necessary in simplifyInfer
+       ; return (ctev { ctev_pred = pred', ctev_evar = ev' }) }
 zonkCtEvidence ctev@(CtDerived { ctev_pred = pred })
   = do { pred' <- zonkTcType pred
        ; return (ctev { ctev_pred = pred' }) }

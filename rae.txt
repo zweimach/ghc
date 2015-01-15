@@ -136,6 +136,8 @@ please remove:
 --------------------------------
 - zonking in TcHsSyn must be lazy in types, killing some optimizations and the use of setIdType. Is there a way forward?
 
+- znokCtEvidence now does more zonking, because I needed that in simplifyInfer.
+
 - quantifyTyCoVars, which is used during inference only to decide what to quantify over, should never quantify over covars!
 
 - MonoLocalBinds now on by default. Life is just better this way.
