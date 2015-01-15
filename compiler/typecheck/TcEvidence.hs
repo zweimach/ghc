@@ -450,10 +450,15 @@ eqVarRole cv = getEqPredRole (varType cv)
 
 eqVarKind :: EqVar -> Pair Type
 eqVarKind cv
- | Just (tc, [_kind,ty1,ty2]) <- tcSplitTyConApp_maybe (varType cv)
- = ASSERT(tc `hasKey` eqTyConKey)
+ | Just (tc, [_kind,ty1,ty2]) <- split_ty
+ = ASSERT(tc `hasKey` eqTyConKey || tc `hasKey` coercibleTyConKey)
+   Pair ty1 ty2
+ | Just (tc, [_k1, _k2, ty1, ty2]) <- split_ty
+ = ASSERT(tc `hasKey` eqPrimTyConKey || tc `hasKey` eqReprPrimTyConKey)
    Pair ty1 ty2
  | otherwise = pprPanic "eqVarKind, non coercion variable" (ppr cv <+> dcolon <+> ppr (varType cv))
+  where
+    split_ty = tcSplitTyConApp_maybe (varType cv)
 
 tcCoercionRole :: TcCoercion -> Role
 tcCoercionRole = go
