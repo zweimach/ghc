@@ -80,7 +80,7 @@ typeNatMulTyCon = mkTypeNatFunTyCon2 name
     , sfInteractInert = interactInertMul
     }
   where
-  name = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "*")
+  name = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "Mult")
             typeNatMulTyFamNameKey typeNatMulTyCon
 
 typeNatExpTyCon :: TyCon

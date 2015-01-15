@@ -16,6 +16,8 @@ stack:
 
 fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
+fix parser; then fix TypeLits.Mult --> *
+
 QUESTIONS:
 - Check decideQuantification!
 
