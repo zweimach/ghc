@@ -2177,9 +2177,15 @@ simplAlt env scrut' _ case_bndr' cont' (DataAlt con, vs, rhs)
           go (v:vs') (str:strs)
             | isMarkedStrict str = eval v : go vs' strs
             | otherwise          = zap v  : go vs' strs
-          go _ _ = pprPanic "cat_evals" (ppr con $$ ppr vs $$ ppr the_strs $$
-                                         ppr (dataConRepArgTys con) $$
-                                         ppr (dataConRepStrictness con))
+          go _ _ = pprPanic "cat_evals"
+                    (ppr con $$
+                     ppr vs  $$
+                     ppr_with_length the_strs $$
+                     ppr_with_length (dataConRepArgTys con) $$
+                     ppr_with_length (dataConRepStrictness con))
+            where
+              ppr_with_length list
+                = ppr list <+> parens (text "length =" <+> ppr (length list))
                                     -- NB: If this panic triggers, note that
                                     -- NoStrictnessMark doesn't print!
 

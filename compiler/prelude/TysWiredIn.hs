@@ -91,7 +91,7 @@ import TysPrim
 import Constants        ( mAX_TUPLE_SIZE )
 import Module           ( Module )
 import Type
-import Coercion         ( mkFreshCoVar )
+import Coercion         ( mkFreshCoVar, mkFreshReprCoVar )
 import DataCon
 import ConLike
 import Var
@@ -546,13 +546,17 @@ coercibleTyCon = mkClassTyCon
         rhs = DataTyCon [coercibleDataCon] False
 
 coercibleDataCon :: DataCon
-coercibleDataCon = pcDataCon coercibleDataConName args [TyConApp eqReprPrimTyCon args'] coercibleTyCon
+coercibleDataCon
+  = pcDataConWithFixity False coercibleDataConName
+                        univ_args [ex_arg] [] coercibleTyCon
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
     a:b:_ = tyVarList k
-    args  = [kv, a, b]
-    args' = map mkOnlyTyVarTy [kv, kv, a, b]
+    a_ty = mkOnlyTyVarTy a
+    b_ty = mkOnlyTyVarTy b
+    univ_args = [kv, a, b]
+    ex_arg = mkFreshReprCoVar (mkInScopeSet $ mkVarSet univ_args) a_ty b_ty
 
 coercibleClass :: Class
 coercibleClass = mkClass (tyConTyVars coercibleTyCon) [] [] [] [] [] (mkAnd []) coercibleTyCon

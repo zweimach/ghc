@@ -11,7 +11,7 @@
 module Coercion (
         -- * Main data type
         Coercion, CoercionArg, ForAllCoBndr, LeftOrRight(..),
-        Var, CoVar, TyCoVar, mkFreshCoVar,
+        Var, CoVar, TyCoVar, mkFreshCoVar, mkFreshReprCoVar,
         Role(..), ltRole,
 
         -- ** Functions over coercions
@@ -665,10 +665,18 @@ mkCoVarCo cv
 -- | Creates a new, fresh (w.r.t. the InScopeSet) Nominal covar between the
 -- given types.
 mkFreshCoVar :: InScopeSet -> Type -> Type -> CoVar
-mkFreshCoVar in_scope ty1 ty2
+mkFreshCoVar = mk_fresh_co_var Nominal
+
+-- | Like 'mkFreshCoVar', but for a Representational covar.
+mkFreshReprCoVar :: InScopeSet -> Type -> Type -> CoVar
+mkFreshReprCoVar = mk_fresh_co_var Representational
+
+-- | Worker for 'mkFreshCoVar' and 'mkFreshReprCoVar'
+mk_fresh_co_var :: Role -> InScopeSet -> Type -> Type -> CoVar
+mk_fresh_co_var r in_scope ty1 ty2
   = let cv_uniq = mkCoVarUnique 31 -- arbitrary number
         cv_name = mkSystemVarName cv_uniq (fsLit "c") in
-    uniqAway in_scope $ mkCoVar cv_name (mkCoercionType Nominal ty1 ty2)
+    uniqAway in_scope $ mkCoVar cv_name (mkCoercionType r ty1 ty2)
 
 mkAxInstCo :: Role -> CoAxiom br -> BranchIndex -> [Type] -> Coercion
 -- mkAxInstCo can legitimately be called over-staturated; 
@@ -2282,13 +2290,16 @@ buildCoherenceCo orig_ty1 orig_ty2
 build_coherence_co :: RnEnv2 -> Type -> Type -> Coercion
 build_coherence_co = go
   where
+    go env ty1 ty2 | Just ty1' <- coreView ty1 = go env ty1' ty2
+    go env ty1 ty2 | Just ty2' <- coreView ty2 = go env ty1  ty2'
+    
     go env (TyVarTy tv1) (TyVarTy tv2)
       = ASSERT( rnOccL env tv1 == rnOccR env tv2 )
         mkReflCo Nominal (mkOnlyTyVarTy $ rnOccL env tv1)
     go env (AppTy tyl1 tyr1) (AppTy tyl2 tyr2)
       = mkAppCo (go env tyl1 tyl2) (build_coherence_co_arg env tyr1 tyr2)
-    go env (TyConApp tc1 tys1) (TyConApp tc2 tys2)
-      = ASSERT( tc1 == tc2 )
+    go env ty1@(TyConApp tc1 tys1) ty2@(TyConApp tc2 tys2)
+      = ASSERT2( tc1 == tc2, ppr ty1 $$ ppr ty2 )
         mkTyConAppCo Nominal tc1 (zipWith (build_coherence_co_arg env) tys1 tys2)
     go env (ForAllTy (Anon arg1) res1) (ForAllTy (Anon arg2) res2)
       = mkFunCo Nominal (go env arg1 arg2) (go env res1 res2)
