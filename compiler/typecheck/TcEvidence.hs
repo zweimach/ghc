@@ -58,7 +58,7 @@ import BasicTypes ( Boxity(..), isBoxed )
 import Bag
 import Pair
 import Digraph
-import Control.Applicative
+import Control.Applicative hiding ( empty )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable (traverse, sequenceA)
 #endif
@@ -334,14 +334,16 @@ mkTcTransAppCo r1 co1 ty1a ty1b r2 co2 ty2a ty2b r3
     go co1_repr
       | Just (tc1b, tys1b) <- tcSplitTyConApp_maybe ty1b
       , nextRole ty1b == r2
-      = (co1_repr `mkTcAppCo` mkTcNomReflCo ty2a) `mkTcTransCo`
+      = pprTrace "RAE mkTcTransAppCo" empty $
+        (co1_repr `mkTcAppCo` mkTcNomReflCo ty2a) `mkTcTransCo`
         (mkTcTyConAppCo Representational tc1b
            (zipWith mkTcReflCo (tyConRolesX Representational tc1b) tys1b
             ++ [co2]))
 
       | Just (tc1a, tys1a) <- tcSplitTyConApp_maybe ty1a
       , nextRole ty1a == r2
-      = (mkTcTyConAppCo Representational tc1a
+      = pprTrace "RAE mkTcTransAppCo 2" empty $
+        (mkTcTyConAppCo Representational tc1a
            (zipWith mkTcReflCo (tyConRolesX Representational tc1a) tys1a
             ++ [co2]))
         `mkTcTransCo`
@@ -360,7 +362,11 @@ mkTcSymCo co              = TcSymCo co
 mkTcTransCo :: TcCoercion -> TcCoercion -> TcCoercion
 mkTcTransCo (TcRefl {}) co = co
 mkTcTransCo co (TcRefl {}) = co
-mkTcTransCo co1 co2        = TcTransCo co1 co2
+mkTcTransCo co1 co2        = WARN( not (ty1 `eqType` ty2), ppr co1 $$ ppr (tcCoercionKind co1) $$ ppr co2 $$ ppr (tcCoercionKind co2) )
+                             TcTransCo co1 co2
+  where
+    Pair _ ty1 = tcCoercionKind co1
+    Pair ty2 _ = tcCoercionKind co2
 
 mkTcNthCo :: Int -> TcCoercion -> TcCoercion
 mkTcNthCo n (TcRefl r ty) = TcRefl r (tyConAppArgN n ty)
@@ -552,7 +558,8 @@ tcCoercionToCoercion subst tc_co
     go (TcPhantomCo h ty1 ty2)  = mkPhantomCo <$> go h <*> pure (substTy subst ty1)
                                                        <*> pure (substTy subst ty2)
     go (TcSymCo co)             = mkSymCo <$> go co
-    go (TcTransCo co1 co2)      = mkTransCo <$> go co1 <*> go co2
+    go (TcTransCo co1 co2)      = pprTrace "RAE tcCoToCo" (ppr co1 $$ ppr (tcCoercionKind co1) $$ ppr co2 $$ ppr (tcCoercionKind co2)) $
+                                  mkTransCo <$> go co1 <*> go co2
     go (TcNthCo n co)           = mkNthCo n <$> go co
     go (TcLRCo lr co)           = mkLRCo lr <$> go co
     go (TcSubCo co)             = mkSubCo <$> go co
@@ -1039,7 +1046,7 @@ pprHsWrapper :: SDoc -> HsWrapper -> SDoc
 -- In debug mode, print the wrapper
 -- otherwise just print what's inside
 pprHsWrapper doc wrap
-  = getPprStyle (\ s -> if debugStyle s then (help (add_parens doc) wrap False) else doc)
+  = {- getPprStyle (\ s -> if debugStyle s then -} (help (add_parens doc) wrap False) -- else doc)
   where
     help :: (Bool -> SDoc) -> HsWrapper -> Bool -> SDoc
     -- True  <=> appears in function application position
