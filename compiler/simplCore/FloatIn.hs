@@ -524,11 +524,16 @@ sepBindsByDropPoint dflags is_case drop_pts floaters
           n_alts      = length used_in_flags
           n_used_alts = count id used_in_flags -- returns number of Trues in list.
 
-          can_push = n_used_alts == 1           -- Used in just one branch
-                   || (is_case &&               -- We are looking at case alternatives
-                       n_used_alts > 1 &&       -- It's used in more than one
-                       n_used_alts < n_alts &&  -- ...but not all
-                       floatIsDupable dflags bind) -- and we can duplicate the binding
+          can_push = n_used_alts == 1              -- Used in just one branch
+                   || (is_case &&                  -- or we are looking at case analysis
+                       n_used_alts <= 2 &&         -- ...with a small number of alternatives
+                       dupable)                    -- and we can duplicate the binding
+                   || (is_case &&                  -- or we are looking at case alternatives
+                       n_used_alts > 1 &&          -- It's used in more than one
+                       n_used_alts < n_alts &&     -- ...but not all
+                       dupable)                    -- and we can duplicate the binding
+  
+          dupable = floatIsDupable dflags bind
 
           new_boxes | drop_here = (insert here_box : fork_boxes)
                     | otherwise = (here_box : new_fork_boxes)
