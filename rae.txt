@@ -1,4 +1,6 @@
 stack:
+ - extendEvBinds
+
  - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 
 - relax tcMatchTys, tcUnifyTys to ignore casts. URGH!
@@ -100,6 +102,7 @@ fix:
   - kind inference should use the "matchExpected..." functions;
     merge matchExpectedFunKind with a type-level thing.
   - APromotionErr (?)
+  - Remove TcRnTypes.hs-boot. See comment near top of TcEvidence.
   - promotion of GADT datacons (convert ~ to ~#)
   - no check for DataKinds any more when using a promoted tycon
   - no check for silliness like `data T :: T -> *`.

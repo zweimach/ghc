@@ -451,8 +451,9 @@ can_eq_nc' _rdr_env _envs ev eq_rel ty1 ps_ty1 (TyVarTy tv2) _
 can_eq_nc' _rdr_env _envs ev eq_rel ty1@(LitTy l1) _ (LitTy l2) _
  | l1 == l2
   = do { when (isWanted ev) $
-         setEvBind (ctev_evar ev) (EvCoercion $
-                                   mkTcReflCo (eqRelRole eq_rel) ty1)
+         setEvBind (ctev_evar ev)
+                   (EvCoercion $ mkTcReflCo (eqRelRole eq_rel) ty1)
+                   (ctev_loc ev)
        ; stopWith ev "Equal LitTy" }
 
 -- Decomposable type constructor applications
@@ -493,7 +494,7 @@ can_eq_nc' _rdr_env _envs ev eq_rel s1@(ForAllTy (Named {}) _) _
           do { traceTcS "Creating implication for polytype equality" $ ppr ev
              ; ev_term <- deferTcSForAllEq (eqRelRole eq_rel) loc
                                            (bndrs1,body1) (bndrs2,body2)
-             ; setEvBind orig_ev ev_term
+             ; setEvBind orig_ev ev_term loc
              ; stopWith ev "Deferred polytype equality" } }
  | otherwise
  = do { traceTcS "Ommitting decomposition of given polytype equality" $
@@ -676,7 +677,7 @@ try_decompose_nom_app ev ty1 ty2
        = do { co_s <- unifyWantedLikeEv ev loc Nominal s1 s2
             ; co_t <- unifyWantedLikeEv ev loc Nominal t1 t2
             ; let co = mkTcAppCo co_s co_t
-            ; setEvBind evar (EvCoercion co)
+            ; setEvBind evar (EvCoercion co) loc
             ; stopWith ev "Decomposed [W] AppTy" }
        | CtGiven { ctev_evtm = ev_tm, ctev_loc = loc } <- ev
        = do { let co   = evTermCoercion ev_tm
@@ -774,7 +775,7 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
 
      CtWanted { ctev_evar = evar, ctev_loc = loc }
         -> do { cos <- zipWith3M (unifyWantedLikeEv ev loc) tc_roles tys1 tys2
-              ; setEvBind evar (EvCoercion (mkTcTyConAppCo role tc cos)) }
+              ; setEvBind evar (EvCoercion (mkTcTyConAppCo role tc cos)) loc }
 
      CtGiven { ctev_evtm = ev_tm, ctev_loc = loc }
         -> do { let ev_co = evTermCoercion ev_tm
@@ -1073,7 +1074,7 @@ canEqTyVarTyVar ev eq_rel swapped tv1 tv2 co2
   | tv1 == tv2
   = do { when (isWanted ev) $
          ASSERT( tcCoercionRole co2 == eqRelRole eq_rel )
-         setEvBind (ctev_evar ev) (EvCoercion (maybeSym swapped co2))
+         setEvBind (ctev_evar ev) (EvCoercion (maybeSym swapped co2)) (ctev_loc ev)
        ; stopWith ev "Equal tyvars" }
 
     -- See Note [Orient equalities with flatten-meta-vars on the left] in TcFlatten
@@ -1136,8 +1137,9 @@ canEqReflexive :: CtEvidence    -- ty ~ ty
                -> TcS (StopOrContinue Ct)   -- always Stop
 canEqReflexive ev eq_rel ty
   = do { when (isWanted ev) $
-         setEvBind (ctev_evar ev) (EvCoercion $
-                                   mkTcReflCo (eqRelRole eq_rel) ty)
+         setEvBind (ctev_evar ev)
+                   (EvCoercion $ mkTcReflCo (eqRelRole eq_rel) ty)
+                   (ctev_loc ev)
        ; stopWith ev "Solved by reflexivity" }
 
 -- See Note [Equalities with incompatible kinds]
@@ -1194,10 +1196,12 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
        ; mb_type_ev <- newWantedEvVar loc homo_pred
           -- type_ev :: (lhs :: k1) ~ (rhs |> sym kind_ev :: k1)
        ; let type_evt = getEvTerm mb_type_ev
-       ; setEvBind evar (EvCoercion $
-                         (evTermCoercion type_evt) `mkTcTransCo`
-                         (mkTcReflCo (eqRelRole eq_rel) rhs
-                            `mkTcCoherenceLeftCo` homo_co))
+       ; setEvBind evar
+                   (EvCoercion $
+                    (evTermCoercion type_evt) `mkTcTransCo`
+                    (mkTcReflCo (eqRelRole eq_rel) rhs
+                     `mkTcCoherenceLeftCo` homo_co))
+                   loc
           -- evar := type_ev ; <rhs> |> homo_co :: (lhs :: k1) ~ (rhs :: k2)
        ; case mb_type_ev of
            Fresh  type_ev -> continueWith (build_ct type_ev rhs')
@@ -1437,7 +1441,7 @@ xCtEvidence :: CtEvidence            -- Original evidence
 xCtEvidence (CtWanted { ctev_evar = evar, ctev_loc = loc })
             (XEvTerm { ev_preds = ptys, ev_comp = comp_fn })
   = do { new_mb_evars <- mapM (newWantedEvVar loc) ptys
-       ; setEvBind evar (comp_fn (map getEvTerm new_mb_evars))
+       ; setEvBind evar (comp_fn (map getEvTerm new_mb_evars)) loc
        ; emitWorkNC (freshGoals new_mb_evars) }
          -- Note the "NC": these are fresh goals, not necessarily canonical
 
@@ -1551,8 +1555,10 @@ rewriteEvidence ev@(CtGiven { ctev_evtm = old_tm , ctev_loc = loc }) new_pred co
 rewriteEvidence ev@(CtWanted { ctev_evar = evar, ctev_loc = loc }) new_pred co
   = do { mb_new_ev <- newWantedEvVar loc new_pred
        ; MASSERT( tcCoercionRole co == ctEvRole ev )
-       ; setEvBind evar (mkEvCast (getEvTerm mb_new_ev)
-                           (tcDowngradeRole Representational (ctEvRole ev) co))
+       ; setEvBind evar
+                   (mkEvCast (getEvTerm mb_new_ev)
+                             (tcDowngradeRole Representational (ctEvRole ev) co))
+                   loc
        ; case mb_new_ev of
             Fresh  new_ev -> continueWith new_ev
             Cached _      -> stopWith ev "Cached wanted" }
@@ -1607,7 +1613,7 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
                   mkTcSymCo lhs_co
                   `mkTcTransCo` ctEvCoercion new_evar
                   `mkTcTransCo` rhs_co
-       ; setEvBind evar (EvCoercion co)
+       ; setEvBind evar (EvCoercion co) loc
        ; traceTcS "rewriteEqEvidence" (vcat [ppr old_ev, ppr nlhs, ppr nrhs, ppr co])
        ; return (ContinueWith new_evar) }
 
@@ -1620,7 +1626,8 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
       -- of recursive newtypes, where "reducing" a newtype can actually make
       -- it bigger. See Note [Eager reflexivity check] in TcCanonical before
       -- considering changing this behavior.
-    loc'     = bumpCtLocDepth CountConstraints (ctEvLoc old_ev)
+    loc      = ctEvLoc old_ev
+    loc'     = bumpCtLocDepth CountConstraints loc
 
 {- Note [unifyWanted and unifyDerived]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

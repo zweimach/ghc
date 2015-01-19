@@ -399,7 +399,7 @@ maybeReportError ctxt err
 addDeferredBinding :: ReportErrCtxt -> ErrMsg -> Ct -> TcM ()
 -- See Note [Deferring coercion errors to runtime]
 addDeferredBinding ctxt err ct
-  | CtWanted { ctev_pred = pred, ctev_evar = ev_id } <- ctEvidence ct
+  | CtWanted { ctev_pred = pred, ctev_evar = ev_id, ctev_loc = loc } <- ctEvidence ct
     -- Only add deferred bindings for Wanted constraints
   , Just ev_binds_var <- cec_binds ctxt  -- We have somewhere to put the bindings
   = do { dflags <- getDynFlags
@@ -408,7 +408,7 @@ addDeferredBinding ctxt err ct
                        err_msg $$ text "(deferred type error)"
 
          -- Create the binding
-       ; addTcEvBind ev_binds_var ev_id (EvDelayedError pred err_fs) }
+       ; addTcEvBind ev_binds_var ev_id (EvDelayedError pred err_fs) loc }
 
   | otherwise   -- Do not set any evidence for Given/Derived
   = return ()

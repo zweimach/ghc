@@ -840,10 +840,11 @@ dsTcEvBinds (EvBinds bs)   = dsEvBinds bs
 dsEvBinds :: Bag EvBind -> DsM [CoreBind]
 dsEvBinds bs = mapM ds_scc (sccEvBinds bs)
   where
-    ds_scc (AcyclicSCC (EvBind v r)) = liftM (NonRec v) (ds_ev_term v r)
-    ds_scc (CyclicSCC bs)            = liftM Rec (mapM ds_pair bs)
+    ds_scc (AcyclicSCC (EvBind { evb_var = v, evb_term = r}))
+                          = liftM (NonRec v) (ds_ev_term v r)
+    ds_scc (CyclicSCC bs) = liftM Rec (mapM ds_pair bs)
 
-    ds_pair (EvBind v r) = liftM ((,) v) (ds_ev_term v r)
+    ds_pair (EvBind { evb_var = v, evb_term = r}) = liftM ((,) v) (ds_ev_term v r)
 
     ds_ev_term v r | isUnLiftedType (varType v) = dsEvTermUnlifted r
                    | otherwise                  = dsEvTerm r

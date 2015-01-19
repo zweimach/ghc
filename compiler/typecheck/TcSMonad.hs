@@ -1233,10 +1233,11 @@ checkForCyclicBinds ev_binds
     cycles = [c | CyclicSCC c <- stronglyConnCompFromEdgedVertices edges]
 
     coercion_cycles = [c | c <- cycles, any is_co_bind c]
-    is_co_bind (EvBind b _) = isEqVar b
+    is_co_bind (EvBind { evb_var = b }) = isEqVar b
 
     edges :: [(EvBind, EvVar, [EvVar])]
-    edges = [(bind, bndr, varSetElems (evVarsOfTerm rhs)) | bind@(EvBind bndr rhs) <- bagToList ev_binds]
+    edges = [ (bind, bndr, varSetElems (evVarsOfTerm rhs))
+            | bind@(EvBind { evb_var = bndr, evb_term = rhs}) <- bagToList ev_binds ]
 #endif
 
 nestImplicTcS :: EvBindsVar -> TcLevel -> TcS a -> TcS a
@@ -1671,10 +1672,10 @@ getEvTerm :: MaybeNew -> EvTerm
 getEvTerm (Fresh ctev) = ctEvTerm ctev
 getEvTerm (Cached evt) = evt
 
-setEvBind :: EvVar -> EvTerm -> TcS ()
-setEvBind the_ev tm
+setEvBind :: EvVar -> EvTerm -> CtLoc -> TcS ()
+setEvBind the_ev tm loc
   = do { tc_evbinds <- getTcEvBinds
-       ; wrapTcS $ TcM.addTcEvBind tc_evbinds the_ev tm }
+       ; wrapTcS $ TcM.addTcEvBind tc_evbinds the_ev tm loc }
 
 newTcEvBinds :: TcS EvBindsVar
 newTcEvBinds = wrapTcS TcM.newTcEvBinds
@@ -1695,7 +1696,8 @@ newGivenEvVar loc (pred, rhs)
 newBoundEvVarId :: TcPredType -> EvTerm -> TcS EvVar
 newBoundEvVarId pred rhs
   = do { new_ev <- newEvVar pred
-       ; setEvBind new_ev rhs
+       ; loc <- wrapTcS $ TcM.getCtLoc ImpossibleOrigin
+       ; setEvBind new_ev rhs loc
        ; return new_ev }
 
 newGivenEvVars :: CtLoc -> [(TcPredType, EvTerm)] -> TcS [CtEvidence]

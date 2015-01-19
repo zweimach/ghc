@@ -1562,6 +1562,7 @@ unflatten tv_eqs funeqs
                                   setEvBind (ctEvId ev)
                                             (EvCoercion $
                                              mkTcReflCo (eqRelRole eq_rel) rhs)
+                                            (ctev_loc ev)
                                 ; return rest }
                         else return (mkNonCanonical ev `consCts` rest) }
       | otherwise
@@ -1593,6 +1594,7 @@ tryFill dflags tv rhs ev
              -> do { when (isWanted ev) $
                      setEvBind (ctEvId ev)
                                (EvCoercion (mkTcReflCo (ctEvRole ev) rhs''))
+                               (ctev_loc ev)
                    ; setWantedTyBind tv rhs''
                    ; return True }
 

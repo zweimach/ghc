@@ -1295,10 +1295,10 @@ zonkEvBinds env binds
   where
     collect_ev_bndrs :: Bag EvBind -> [EvVar]
     collect_ev_bndrs = foldrBag add []
-    add (EvBind var _) vars = var : vars
+    add (EvBind { evb_var = var }) vars = var : vars
 
 zonkEvBind :: ZonkEnv -> EvBind -> TcM EvBind
-zonkEvBind env (EvBind var term)
+zonkEvBind env bind@(EvBind { evb_var = var, evb_term = term })
   = do { var'  <- {-# SCC "zonkEvBndr" #-} zonkEvBndr env var
 
          -- Optimise the common case of Refl coercions
@@ -1315,7 +1315,7 @@ zonkEvBind env (EvBind var term)
                   -> return (EvBind var' (EvCoercion (mkTcReflCo r ty1)))
            _other -> do  -}
        ; term' <- zonkEvTerm env term
-       ; return (EvBind var' term') }
+       ; return (bind { evb_var = var', evb_term = term' }) }
 
 {-
 ************************************************************************

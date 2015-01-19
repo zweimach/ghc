@@ -33,6 +33,13 @@ module TcEvidence (
   ) where
 #include "HsVersions.h"
 
+import {-# SOURCE #-} TcRnTypes ( CtLoc )
+-- TODO (RAE): Remove this boot file.
+-- I think it can be done by storing a (Bag EvBind) in HsSyn and then
+-- augmenting TcEvBinds (which would be defined in TcRnTypes) to store
+-- locations.
+    
+
 import Var
 import Coercion
 import PprCore ()   -- Instance OutputableBndr TyVar
@@ -515,10 +522,11 @@ coVarsOfTcCo tc_co
 
     -- We expect only coercion bindings, so use evTermCoercion 
     go_bind :: EvBind -> VarSet
-    go_bind (EvBind _ tm) = go (evTermCoercion tm)
+    go_bind (EvBind { evb_term = tm }) = go (evTermCoercion tm)
 
     get_bndrs :: Bag EvBind -> VarSet
-    get_bndrs = foldrBag (\ (EvBind b _) bs -> extendVarSet bs b) emptyVarSet 
+    get_bndrs = foldrBag (\ (EvBind { evb_var = b }) bs -> extendVarSet bs b)
+                         emptyVarSet 
 
 -- | Converts a TcCoercion to a Coercion, substituting for covars as it goes.
 -- All covars in the TcCoercion must be mapped for this to succeed, as covars
@@ -798,9 +806,12 @@ newtype EvBindMap
 emptyEvBindMap :: EvBindMap
 emptyEvBindMap = EvBindMap { ev_bind_varenv = emptyVarEnv }
 
-extendEvBinds :: EvBindMap -> EvVar -> EvTerm -> EvBindMap
-extendEvBinds bs v t 
-  = EvBindMap { ev_bind_varenv = extendVarEnv (ev_bind_varenv bs) v (EvBind v t) }
+extendEvBinds :: EvBindMap -> EvVar -> EvTerm -> CtLoc -> EvBindMap
+extendEvBinds bs v t l
+  = EvBindMap { ev_bind_varenv = extendVarEnv (ev_bind_varenv bs) v
+                                              (EvBind { evb_var  = v
+                                                      , evb_term = t
+                                                      , evb_loc  = l}) }
 
 lookupEvBind :: EvBindMap -> EvVar -> Maybe EvBind
 lookupEvBind bs = lookupVarEnv (ev_bind_varenv bs)
@@ -811,7 +822,12 @@ evBindMapBinds bs
 
 -----------------
 -- All evidence is bound by EvBinds; no side effects
-data EvBind = EvBind EvVar EvTerm
+data EvBind = EvBind { evb_var  :: EvVar
+                     , evb_term :: EvTerm
+                     , evb_loc  :: CtLoc }
+
+evBindVar :: EvBind -> EvVar
+evBindVar = evb_var
 
 data EvTerm
   = EvId EvId                    -- Any sort of evidence Id, including coercions
@@ -982,14 +998,15 @@ sccEvBinds bs = stronglyConnCompFromEdgedVertices edges
     edges = foldrBag ((:) . mk_node) [] bs 
 
     mk_node :: EvBind -> (EvBind, EvVar, [EvVar])
-    mk_node b@(EvBind var term) = (b, var, varSetElems (evVarsOfTerm term))
+    mk_node b@(EvBind { evb_var = var, evb_term = term })
+      = (b, var, varSetElems (evVarsOfTerm term))
 
 -- | Extends a coercion substitution from a bunch of EvBinds. For EvBinds
 -- that don't map to a coercion, just don't include the mapping.
 evBindsSubst :: TCvSubst -> Bag EvBind -> TCvSubst
 evBindsSubst subst = foldl combine subst . sccEvBinds
   where
-    combine env (AcyclicSCC (EvBind v ev_term))
+    combine env (AcyclicSCC (EvBind { evb_var = v, evb_term = ev_term }))
       | Just co <- convert env ev_term
       = extendTCvSubstAndInScope env v (mkCoercionTy co)
     combine env _
@@ -1055,7 +1072,8 @@ instance Outputable EvBindsVar where
   ppr (EvBindsVar _ u) = ptext (sLit "EvBindsVar") <> angleBrackets (ppr u)
 
 instance Outputable EvBind where
-  ppr (EvBind v e)   = sep [ ppr v, nest 2 $ equals <+> ppr e ]
+  ppr (EvBind { evb_var = v, evb_term = e })
+    = sep [ ppr v, nest 2 $ equals <+> ppr e ]
    -- We cheat a bit and pretend EqVars are CoVars for the purposes of pretty printing
 
 instance Outputable EvTerm where

@@ -1275,8 +1275,12 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                  -- you to apply a function to a dictionary *expression*.
 
            ; self_dict <- newDict clas inst_tys
-           ; let self_ev_bind = EvBind self_dict
-                                (EvDFunApp dfun_id (mkTyCoVarTys tyvars) (map EvId dfun_ev_vars))
+           ; ev_loc <- getCtLoc ImpossibleOrigin
+           ; let ev_term = EvDFunApp dfun_id (mkTyCoVarTys tyvars)
+                                             (map EvId dfun_ev_vars)
+                 self_ev_bind = EvBind { evb_var  = self_dict
+                                       , evb_term = ev_term
+                                       , evb_loc  = ev_loc }
 
            ; (meth_id, local_meth_sig, hs_wrap)
                    <- mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
