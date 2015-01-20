@@ -1,5 +1,5 @@
 stack:
- - extendEvBinds
+ - setWantedTyBind
 
  - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 

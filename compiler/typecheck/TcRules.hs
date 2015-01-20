@@ -136,6 +136,9 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                   ; (rhs', rhs_wanted) <- captureConstraints (tcMonoExpr rhs rule_ty)
                   ; return (lhs', lhs_wanted, rhs', rhs_wanted, rule_ty) }
 
+       ; traceTc "tcRule 1" (vcat [ ppr name
+                                  , ppr lhs_wanted
+                                  , ppr rhs_wanted ])
        ; (lhs_evs, other_lhs_wanted) <- simplifyRule (unLoc name) lhs_wanted
                                                      rhs_wanted
 

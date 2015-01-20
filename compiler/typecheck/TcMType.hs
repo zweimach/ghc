@@ -26,6 +26,7 @@ module TcMType (
   mkTcTyVarName, cloneMetaTyVar, 
 
   newMetaTyVar, readMetaTyVar, writeMetaTyVar, writeMetaTyVarRef,
+  unFillMetaTyVar,
   newMetaDetails, isFilledMetaTyVar, isUnfilledMetaTyVar,
 
   --------------------------------
@@ -427,7 +428,7 @@ writeMetaTyVarRef tyvar ref ty
   | not debugIsOn
   = do { traceTc "writeMetaTyVar" (ppr tyvar <+> dcolon <+> ppr (tyVarKind tyvar)
                                    <+> text ":=" <+> ppr ty)
-       ; writeMutVar ref (Indirect ty) }
+       ; writeTcRef ref (Indirect ty) }
 
 -- Everything from here on only happens if DEBUG is on
   | otherwise
@@ -454,6 +455,27 @@ writeMetaTyVarRef tyvar ref ty
   where
     tv_kind = tyVarKind tyvar
     ty_kind = typeKind ty
+
+unFillMetaTyVar :: TcTyVar -> TcM ()
+unFillMetaTyVar tyvar
+  | debugIsOn
+  = case tcTyVarDetails tyvar of
+      MetaTv { mtv_ref = ref } ->
+        do { cts <- readTcRef ref
+           ; case cts of
+               Indirect ty ->
+                 do { traceTc "unFillMetaTyVar" (ppr tyvar <+> dcolon <+>
+                                                 ppr (tyVarKind tyvar) <+>
+                                                 text "/:=" <+> ppr ty)
+                    ; writeTcRef ref Flexi }
+               Flexi -> pprPanic "unFillMetaTyVar unfilled var" (ppr tyvar) }
+      _ -> pprPanic "unFillMetaTyVar non-meta-tyvar" (ppr tyvar)
+               
+
+  | otherwise
+  = do { traceTc "UnFillMetaTyVar" (ppr tyvar <+> dcolon <+> ppr (tyVarKind tyvar))
+       ; writeTcRef (mtv_ref (tcTyVarDetails tyvar)) Flexi }
+    
 
 {-
 ************************************************************************

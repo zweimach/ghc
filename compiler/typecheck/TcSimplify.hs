@@ -6,13 +6,13 @@ module TcSimplify(
        simplifyAmbiguityCheck,
        simplifyDefault,
        simplifyRule, simplifyTop, simplifyInteractive,
-       solveWantedsTcM
+       simplifyWantedsTcM
   ) where
 
 #include "HsVersions.h"
 
 import TcRnTypes
-import TcRnMonad
+import TcRnMonad as TcM
 import TcErrors
 import TcMType as TcM
 import TcType
@@ -33,10 +33,11 @@ import ListSetOps
 import Util
 import PrelInfo
 import PrelNames
-import Control.Monad    ( unless, when, void )
+import Control.Monad    ( unless, when )
 import DynFlags         ( ExtensionFlag( Opt_AllowAmbiguousTypes ) )
 import Class            ( classKey )
 import BasicTypes       ( RuleName )
+import Maybes
 import Outputable
 import FastString
 import TrieMap () -- DV: for now
@@ -59,7 +60,7 @@ simplifyTop wanteds
   = do { traceTc "simplifyTop {" $ text "wanted = " <+> ppr wanteds
        ; ev_binds_var <- TcM.newTcEvBinds
        ; zonked_final_wc <- solveWantedsTcMWithEvBinds ev_binds_var wanteds simpl_top
-       ; binds1 <- TcRnMonad.getTcEvBinds ev_binds_var
+       ; binds1 <- TcM.getTcEvBinds ev_binds_var
        ; traceTc "End simplifyTop }" empty
 
        ; traceTc "reportUnsolved {" empty
@@ -86,7 +87,7 @@ simpl_top wanteds
                    -- filter isMetaTyVar: we might have runtime-skolems in GHCi,
                    -- and we definitely don't want to try to assign to those!
 
-           ; defaulted <- mapM defaultTyVar meta_tvs   -- Has unification side effects
+           ; defaulted <- mapM defaultTyVarTcS meta_tvs   -- Has unification side effects
            ; if or defaulted
              then do { wc_residual <- nestTcS (solveWantedsAndDrop wc)
                             -- See Note [Must simplify after defaulting]
@@ -187,8 +188,7 @@ More details in Note [DefaultTyVar].
 simplifyAmbiguityCheck :: Type -> WantedConstraints -> TcM ()
 simplifyAmbiguityCheck ty wanteds
   = do { traceTc "simplifyAmbiguityCheck {" (text "type = " <+> ppr ty $$ text "wanted = " <+> ppr wanteds)
-       ; ev_binds_var <- TcM.newTcEvBinds
-       ; zonked_final_wc <- solveWantedsTcMWithEvBinds ev_binds_var wanteds simpl_top
+       ; zonked_final_wc <- simplifyWantedsTcMCustom (simpl_top wanteds)
        ; traceTc "End simplifyAmbiguityCheck }" empty
 
        -- Normally report all errors; but with -XAllowAmbiguousTypes
@@ -214,7 +214,7 @@ simplifyDefault :: ThetaType    -- Wanted; has no type variables in it
 simplifyDefault theta
   = do { traceTc "simplifyInteractive" empty
        ; wanted <- newSimpleWanteds DefaultOrigin theta
-       ; (unsolved, _binds) <- solveWantedsTcM (mkSimpleWC wanted)
+       ; unsolved <- simplifyWantedsTcM (mkSimpleWC wanted)
 
        ; traceTc "reportUnsolved {" empty
        -- See Note [Deferring coercion errors to runtime]
@@ -305,8 +305,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
               -- NB: We do not do any defaulting when inferring a type, this can lead
               -- to less polymorphic types, see Note [Default while Inferring]
 
-       ; tc_lcl_env <- TcRnMonad.getLclEnv
-       ; null_ev_binds_var <- TcM.newTcEvBinds
+       ; tc_lcl_env <- TcM.getLclEnv
        ; let wanted_transformed@(WC { wc_simple = simple_wanteds })
                = dropDerivedWC wanted_transformed_incl_derivs
        ; quant_pred_candidates   -- Fully zonked
@@ -327,13 +326,17 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                             -- If any meta-tyvar unifications take place (unlikely), we'll
                             -- pick that up later.
 
-
+                      -- See Note [Promote _and_ default when inferring]
+                      ; let def_tyvar tv
+                              = when (not $ tv `elemVarSet` gbl_tvs) $
+                                defaultTyVar tv
+                      ; mapM_ def_tyvar meta_tvs
+                      ; mapM_ (promoteTyVar rhs_tclvl) meta_tvs
+                                   
                       ; WC { wc_simple = simples }
-                           <- setTcLevel rhs_tclvl                $
-                              runTcSWithEvBinds null_ev_binds_var $
-                              do { mapM_ (promoteAndDefaultTyVar rhs_tclvl gbl_tvs) meta_tvs
-                                     -- See Note [Promote _and_ default when inferring]
-                                 ; solveSimpleWanteds quant_cand }
+                           <- setTcLevel rhs_tclvl     $
+                              simplifyWantedsTcMCustom $
+                              solveSimpleWanteds quant_cand
 
                       ; return [ ctEvId ev | ct <- bagToList simples
                                            , let ev = ctEvidence ct
@@ -349,9 +352,8 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                        `intersectsVarSet` mkVarSet qtvs) )
          -- we can't promote things that mention quantified variables!
 
-       ; outer_tclvl <- TcRnMonad.getTcLevel
-       ; runTcSWithEvBinds null_ev_binds_var $  -- runTcS just to get the types right :-(
-         mapM_ (promoteTyVar outer_tclvl) (varSetElems promote_tvs)
+       ; outer_tclvl <- TcM.getTcLevel
+       ; mapM_ (promoteTyVar outer_tclvl) (varSetElems promote_tvs)
 
           -- See Note [Promoting coercion variables]
        ; let (promote_wanteds, leave_wanteds)
@@ -665,21 +667,6 @@ Deciding which equalities to quantify over is tricky:
 The difficulty is that it's hard to tell what is insoluble!
 So we see whether the simplificaiotn step yielded any type errors,
 and if so refrain from quantifying over *any* equalites.
-
-Note [Extra EvBinds in simplifyRule]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-simplifyRule runs the solver over the wanteds generated by a rule's
-LHS and RHS to simplify out any equalities. However, in the process,
-it may introduce fresh wanteds. Critically, these fresh wanteds may
-leak out into types, via side-effected unification. Thus, even though
-we don't care directly about the EvBinds created during this run
-of the solver, we absolutely have to keep them around, as they have
-the definition for certain variables that may appear in types.
-
-We thus return the EvBinds. Later, when building the actual RuleDecl
-(in tcRule), we'll filter out any EvBinds which are duplicated in the
-second run of the solver. But we'll keep those that aren't duplicated.
-See also Note [Simplifying RULE constraints] in TcRules.
 -}
 
 simplifyRule :: RuleName
@@ -690,8 +677,23 @@ simplifyRule :: RuleName
 simplifyRule name lhs_wanted rhs_wanted
   = do {         -- We allow ourselves to unify environment
                  -- variables: runTcS runs with topTcLevel
-         (resid_wanted, _) <- solveWantedsTcM (lhs_wanted `andWC` rhs_wanted)
+         ev_binds_var <- TcM.newTcEvBinds
+       ; let all_wanted = lhs_wanted `andWC` rhs_wanted
+       ; (resid_wanted, unified_vars) <- runTcSUnifiedVars ev_binds_var $
+                                         solveWantedsAndDrop all_wanted
+       ; resid_wanted <- zonkWC resid_wanted
                               -- Post: these are zonked and unflattened
+
+         -- need to make sure to include any wanteds that bind covars in unified
+         -- variables
+       ; ev_bind_map <- TcM.getTcEvBindsMap ev_binds_var
+       ; fvs <- TcM.zonkTyCoVarsAndFV unified_vars
+       ; let all_tcvs      = fvs `unionVarSet` tyCoVarsOfWC resid_wanted
+             extra_wanteds = evBindMapWanteds all_tcvs ev_bind_map
+       ; extra_wanteds <- zonkWC extra_wanteds
+       ; emitConstraints extra_wanteds   -- kick the can down the road, because
+                                         -- there's nowhere convenient to put these
+                                         -- covars
 
        ; zonked_lhs_simples <- TcM.zonkSimples (wc_simple lhs_wanted)
        ; let (q_cts, non_q_cts) = partitionBag quantify_me zonked_lhs_simples
@@ -787,18 +789,39 @@ solveWantedsTcMWithEvBinds ev_binds_var wc tcs_action
        ; zonkWC wc2 }
          -- See Note [Zonk after solving]
 
-solveWantedsTcM :: WantedConstraints -> TcM (WantedConstraints, Bag EvBind)
+simplifyWantedsTcM :: WantedConstraints -> TcM WantedConstraints
 -- Zonk the input constraints, and simplify them
--- Return the evidence binds in the BagEvBinds result
 -- Discards all Derived stuff in result
 -- Postcondition: fully zonked and unflattened constraints
-solveWantedsTcM wanted
-  = do { ev_binds_var <- TcM.newTcEvBinds
-       ; wanteds' <- solveWantedsTcMWithEvBinds ev_binds_var wanted solveWantedsAndDrop
-       ; binds <- TcRnMonad.getTcEvBinds ev_binds_var
-       ; return (wanteds', binds) }
+-- This is a "pure" operation, in that *no* unification will be observed.
+simplifyWantedsTcM wanted
+  = do { traceTc "simplifyWantedsTcM {" (ppr wanted)
+       ; result <- simplifyWantedsTcMCustom (solveWantedsAndDrop wanted)
+       ; traceTc "simplifyWantedsTcM }" (ppr result)
+       ; return result }
 
-solveWantedsAndDrop :: WantedConstraints -> TcS (WantedConstraints)
+-- | Like 'simplifyWantedsTcM', but with a custom TcS action
+simplifyWantedsTcMCustom :: TcS WantedConstraints
+                         -> TcM WantedConstraints
+simplifyWantedsTcMCustom tcs
+  = do { (wc, ev_bind_map) <- tryTcS tcs
+       ; wc <- zonkWC wc
+       ; let new_wc = evBindMapWanteds (tyCoVarsOfWC wc) ev_bind_map
+       ; new_wc <- zonkWC new_wc
+       ; return (wc `andWC` new_wc) }
+
+-- | Produce a bag of wanted constraints, extracted from an 'EvBindMap',
+-- for any covar included in the provided 'TyCoVarSet'
+evBindMapWanteds :: TyCoVarSet -> EvBindMap -> WantedConstraints
+evBindMapWanteds tcvs ev_bind_map
+  = mkSimpleWC $
+    map (mkNonCanonical . evBindWanted) $
+    catMaybes $
+    map (lookupEvBind ev_bind_map) $
+    filter isCoVar $
+    varSetElems tcvs
+    
+solveWantedsAndDrop :: WantedConstraints -> TcS WantedConstraints
 -- Since solveWanteds returns the residual WantedConstraints,
 -- it should always be called within a runTcS or something similar,
 solveWantedsAndDrop wanted = do { wc <- solveWanteds wanted
@@ -823,7 +846,7 @@ solveWanteds wanteds
        -- equalities out of one or more of the implications.
        ; final_wanteds <- simpl_loop 1 solved_simples_wanteds
 
-       ; bb <- getTcEvBindsMap
+       ; bb <- TcS.getTcEvBindsMap
        ; traceTcS "solveWanteds }" $
                  vcat [ text "final wc =" <+> ppr final_wanteds
                       , text "current evbinds  =" <+> ppr (evBindMapBinds bb) ]
@@ -945,7 +968,7 @@ solveImplication imp@(Implic { ic_tclvl  = tclvl
                                        , ic_wanted = dropDerivedWC final_wanted
                                        , ic_insol  = insolubleWC final_wanted })
 
-       ; evbinds <- getTcEvBindsMap
+       ; evbinds <- TcS.getTcEvBindsMap
        ; traceTcS "solveImplication end }" $ vcat
              [ text "no_given_eqs =" <+> ppr no_given_eqs
              , text "floated_eqs =" <+> ppr floated_eqs
@@ -994,11 +1017,25 @@ Consider floated_eqs (all wanted or derived):
     simpl_loop.  So we iterate if there any of these
 -}
 
-promoteTyVar :: TcLevel -> TcTyVar  -> TcS ()
+promoteTyVar :: TcLevel -> TcTyVar  -> TcM ()
 -- When we float a constraint out of an implication we must restore
 -- invariant (MetaTvInv) in Note [TcLevel and untouchable type variables] in TcType
 -- See Note [Promoting unification variables]
 promoteTyVar tclvl tv
+  | isFloatedTouchableMetaTyVar tclvl tv
+  = do { cloned_tv <- TcM.cloneMetaTyVar tv
+       ; let rhs_tv = setMetaTyVarTcLevel cloned_tv tclvl
+       ; TcM.writeMetaTyVar tv (mkTyCoVarTy rhs_tv) }
+  | otherwise
+  = return ()
+
+promoteTyVarTcS :: TcLevel -> TcTyVar  -> TcS ()
+-- When we float a constraint out of an implication we must restore
+-- invariant (MetaTvInv) in Note [TcLevel and untouchable type variables] in TcType
+-- See Note [Promoting unification variables]
+-- We don't just call promoteTyVar because we want to use setWantedTyBind,
+-- not writeMetaTyVar
+promoteTyVarTcS tclvl tv
   | isFloatedTouchableMetaTyVar tclvl tv
   = do { cloned_tv <- TcS.cloneMetaTyVar tv
        ; let rhs_tv = setMetaTyVarTcLevel cloned_tv tclvl
@@ -1006,24 +1043,27 @@ promoteTyVar tclvl tv
   | otherwise
   = return ()
 
-promoteAndDefaultTyVar :: TcLevel -> TcTyVarSet -> TyVar -> TcS ()
--- See Note [Promote _and_ default when inferring]
-promoteAndDefaultTyVar tclvl gbl_tvs tv
-  = do { when (not $ tv `elemVarSet` gbl_tvs) (void $ defaultTyVar tv)
-       ; promoteTyVar tclvl tv }
-
 -- | If the tyvar is a levity var, set it to Lifted. Returns whether or
 -- not this happened.
-defaultTyVar :: TcTyVar -> TcS Bool
+defaultTyVar :: TcTyVar -> TcM ()
 -- Precondition: MetaTyVars only
 -- See Note [DefaultTyVar]
 defaultTyVar the_tv
   | isLevityVar the_tv
-  = do { traceTcS "defaultTyVar levity" (ppr the_tv)
+  = do { traceTc "defaultTyVar levity" (ppr the_tv)
+       ; writeMetaTyVar the_tv liftedDataConTy }
+    
+  | otherwise = return ()    -- The common case
+
+-- | Like 'defaultTyVar', but in the TcS monad.
+defaultTyVarTcS :: TcTyVar -> TcS Bool
+defaultTyVarTcS the_tv
+  | isLevityVar the_tv
+  = do { traceTcS "defaultTyVarTcS levity" (ppr the_tv)
        ; setWantedTyBind the_tv liftedDataConTy
        ; return True }
-    
-  | otherwise = return False    -- The common case
+  | otherwise
+  = return False  -- the common case
 
 approximateWC :: WantedConstraints -> Cts
 -- Postcondition: Wanted or Derived Cts
@@ -1282,7 +1322,7 @@ floatEqualities skols no_given_eqs wanteds@(WC { wc_simple = simples })
   = return (emptyBag, wanteds)   -- Note [Float Equalities out of Implications]
   | otherwise
   = do { outer_tclvl <- TcS.getTcLevel
-       ; mapM_ (promoteTyVar outer_tclvl) (varSetElems (tyCoVarsOfCts float_eqs))
+       ; mapM_ (promoteTyVarTcS outer_tclvl) (varSetElems (tyCoVarsOfCts float_eqs))
              -- See Note [Promoting unification variables]
        ; traceTcS "floatEqualities" (vcat [ text "Skols =" <+> ppr skols
                                           , text "Simples =" <+> ppr simples
@@ -1459,10 +1499,9 @@ disambigGroup []  _grp
   = return False
 disambigGroup (default_ty:default_tys) group
   = do { traceTcS "disambigGroup {" (ppr group $$ ppr default_ty)
-       ; fake_ev_binds_var <- TcS.newTcEvBinds
        ; given_ev_var      <- TcS.newEvVar (mkTcEqPred (mkOnlyTyVarTy the_tv) default_ty)
        ; tclvl             <- TcS.getTcLevel
-       ; success <- nestImplicTcS fake_ev_binds_var (pushTcLevel tclvl) $
+       ; success <- nestTryTcS (pushTcLevel tclvl) $
                     do { solveSimpleGivens loc [given_ev_var]
                        ; residual_wanted <- solveSimpleWanteds wanteds
                        ; return (isEmptyWC residual_wanted) }

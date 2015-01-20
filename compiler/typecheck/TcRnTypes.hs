@@ -59,7 +59,7 @@ module TcRnTypes(
         ctEvPred, ctEvLoc, ctEvEqRel,
         ctEvTerm, ctEvCoercion, ctEvId, ctEvCheckDepth,
         ctEvCoherence, evTermCoherence,
-        tyCoVarsOfCt, tyCoVarsOfCts,
+        tyCoVarsOfCt, tyCoVarsOfCts, evBindWanted,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
         andWC, unionsWC, addSimples, addImplics, mkSimpleWC, addInsols,
@@ -1640,6 +1640,10 @@ ctEvCoercion ctev@(CtDerived {}) = pprPanic "ctEvCoercion: derived constraint ca
 ctEvId :: CtEvidence -> TcId
 ctEvId (CtWanted  { ctev_evar = ev }) = ev
 ctEvId ctev = pprPanic "ctEvId:" (ppr ctev)
+
+evBindWanted :: EvBind -> CtEvidence
+evBindWanted (EvBind { evb_var = evar, evb_loc = loc })
+  = CtWanted { ctev_pred = varType evar, ctev_evar = evar, ctev_loc = loc }
 
 instance Outputable CtEvidence where
   ppr fl = case fl of

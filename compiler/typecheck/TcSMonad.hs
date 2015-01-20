@@ -12,8 +12,9 @@ module TcSMonad (
     runFlatten, emitFlatWork,
 
     -- The TcS monad
-    TcS, runTcS, runTcSWithEvBinds,
-    failTcS, tryTcS, nestTcS, nestImplicTcS, recoverTcS,
+    TcS, runTcS, runTcSWithEvBinds, tryTcS,
+    runTcSUnifiedVars,
+    nestTcS, nestImplicTcS, nestTryTcS,
 
     runTcPluginTcS, addUsedRdrNamesTcS, deferTcSForAllEq,
 
@@ -1082,9 +1083,8 @@ data TcSEnv
   = TcSEnv {
       tcs_ev_binds    :: EvBindsVar,
 
-      tcs_unified :: IORef Bool,
-          -- The "dirty-flag" Bool is set True when
-          -- we unify a unification variable
+      tcs_unified     :: IORef TyVarSet,
+          -- The set of metavars that have been filled
 
       tcs_count    :: IORef Int, -- Global step count
 
@@ -1133,8 +1133,7 @@ wrapWarnTcS :: TcM a -> TcS a
 -- There's no static check; it's up to the user
 wrapWarnTcS = wrapTcS
 
-failTcS, panicTcS :: SDoc -> TcS a
-failTcS      = wrapTcS . TcM.failWith
+panicTcS :: SDoc -> TcS a
 panicTcS doc = pprPanic "TcCanonical" doc
 
 traceTcS :: String -> SDoc -> TcS ()
@@ -1186,11 +1185,27 @@ runTcS tcs
        ; ev_binds <- TcM.getTcEvBinds ev_binds_var
        ; return (res, ev_binds) }
 
+-- | Run a TcS action, but unfill any unified metavars.
+tryTcS :: TcS a
+       -> TcM (a, EvBindMap)
+tryTcS tcs
+  = do { ev_binds_var <- TcM.newTcEvBinds
+       ; (res, unified_vars) <- runTcSUnifiedVars ev_binds_var tcs
+       ; ev_bind_map <- TcM.getTcEvBindsMap ev_binds_var
+       ; mapM_ TcM.unFillMetaTyVar (varSetElems unified_vars)
+       ; return (res, ev_bind_map) }
+
 runTcSWithEvBinds :: EvBindsVar
                   -> TcS a
                   -> TcM a
 runTcSWithEvBinds ev_binds_var tcs
-  = do { unified_var <- TcM.newTcRef False
+  = fst <$> runTcSUnifiedVars ev_binds_var tcs
+
+runTcSUnifiedVars :: EvBindsVar
+                  -> TcS a
+                  -> TcM (a, TyVarSet)  -- returns the set of unified variables
+runTcSUnifiedVars ev_binds_var tcs
+  = do { unified_var <- TcM.newTcRef emptyVarSet
        ; step_count <- TcM.newTcRef 0
        ; inert_var <- TcM.newTcRef is
        ; wl_var <- TcM.newTcRef emptyWorkList
@@ -1215,7 +1230,8 @@ runTcSWithEvBinds ev_binds_var tcs
        ; checkForCyclicBinds ev_binds
 #endif
 
-       ; return res }
+       ; unified_var_set <- TcM.readTcRef unified_var
+       ; return (res, unified_var_set) }
   where
     is = emptyInert
 
@@ -1268,10 +1284,12 @@ nestImplicTcS ref inner_tclvl (TcS thing_inside)
 
        ; return res }
 
-recoverTcS :: TcS a -> TcS a -> TcS a
-recoverTcS (TcS recovery_code) (TcS thing_inside)
-  = TcS $ \ env ->
-    TcM.recoverM (recovery_code env) (thing_inside env)
+-- | Make a totally new TcS environment at the given 'TcLevel'
+nestTryTcS :: TcLevel -> TcS a -> TcS a
+nestTryTcS tclvl thing_inside
+  = wrapTcS $
+    TcM.setTcLevel tclvl $
+    fst <$> tryTcS thing_inside
 
 nestTcS ::  TcS a -> TcS a
 -- Use the current untouchables, augmenting the current
@@ -1293,22 +1311,6 @@ nestTcS (TcS thing_inside)
                         (inerts { inert_solved_dicts = inert_solved_dicts new_inerts })
 
        ; return res }
-
-tryTcS :: TcS a -> TcS a
--- Like runTcS, but from within the TcS monad
--- Completely fresh inerts and worklist, be careful!
--- Moreover, we will simply throw away all the evidence generated.
-tryTcS (TcS thing_inside)
-  = TcS $ \env ->
-    do { is_var <- TcM.newTcRef emptyInert
-       ; unified_var <- TcM.newTcRef False
-       ; ev_binds_var <- TcM.newTcEvBinds
-       ; wl_var <- TcM.newTcRef emptyWorkList
-       ; let nest_env = env { tcs_ev_binds = ev_binds_var
-                            , tcs_unified  = unified_var
-                            , tcs_inerts   = is_var
-                            , tcs_worklist = wl_var }
-       ; thing_inside nest_env }
 
 {-
 Note [Propagate the solved dictionaries]
@@ -1412,8 +1414,7 @@ setWantedTyBind :: TcTyVar -> TcType -> TcS ()
 setWantedTyBind tv ty
   | ASSERT2( isMetaTyVar tv, ppr tv )
     isFmvTyVar tv
-  = ASSERT2( isMetaTyVar tv, ppr tv )
-    wrapTcS (TcM.writeMetaTyVar tv ty)
+  = wrapTcS (TcM.writeMetaTyVar tv ty)
            -- Write directly into the mutable tyvar
            -- Flatten meta-vars are born and die locally
 
@@ -1421,15 +1422,16 @@ setWantedTyBind tv ty
   = TcS $ \ env ->
     do { TcM.traceTc "setWantedTyBind" (ppr tv <+> text ":=" <+> ppr ty)
        ; TcM.writeMetaTyVar tv ty
-       ; TcM.writeTcRef (tcs_unified env) True }
+       ; TcM.updTcRef (tcs_unified env) (`extendVarSet` tv) }
 
 reportUnifications :: TcS a -> TcS (Bool, a)
 reportUnifications (TcS thing_inside)
   = TcS $ \ env ->
-    do { inner_unified <- TcM.newTcRef False
+    do { inner_unified <- TcM.newTcRef emptyVarSet
        ; res <- thing_inside (env { tcs_unified = inner_unified })
-       ; dirty <- TcM.readTcRef inner_unified
-       ; return (dirty, res) }
+       ; unified_vars <- TcM.readTcRef inner_unified
+       ; TcM.updTcRef (tcs_unified env) (`unionVarSet` unified_vars)
+       ; return (not (isEmptyVarSet unified_vars), res) }
 
 getDefaultInfo ::  TcS ([Type], (Bool, Bool))
 getDefaultInfo = wrapTcS TcM.tcGetDefaultTys

@@ -1884,8 +1884,7 @@ simplifyDeriv pred tvs theta
 
        ; traceTc "simplifyDeriv" $
          vcat [ pprTCvBndrs tvs $$ ppr theta $$ ppr wanted, doc ]
-       ; (residual_wanted, _ev_binds1)
-             <- solveWantedsTcM (mkSimpleWC wanted)
+       ; residual_wanted <- simplifyWantedsTcM (mkSimpleWC wanted)
                 -- Post: residual_wanted are already zonked
 
        ; let (good, bad) = partitionBagWith get_good (wc_simple residual_wanted)
