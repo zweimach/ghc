@@ -251,18 +251,15 @@ genCall (PrimTarget (MO_AtomicRead _)) [dst] [addr] = do
 
 -- Handle memcpy function specifically since llvm's intrinsic version takes
 -- some extra parameters.
-genCall t@(PrimTarget op) [] args'
- | op == MO_Memcpy ||
-   op == MO_Memset ||
-   op == MO_Memmove = do
+genCall t@(PrimTarget op) [] args
+ | Just align <- machOpMemcpyishAlign op = do
     ver <- getLlvmVer
     dflags <- getDynFlags
-    let (args, alignVal) = splitAlignVal args'
-        (isVolTy, isVolVal)
+    let (isVolTy, isVolVal)
               | ver >= 28       = ([i1], [mkIntLit i1 0])
               | otherwise       = ([], [])
-        argTy | op == MO_Memset = [i8Ptr, i8,    llvmWord dflags, i32] ++ isVolTy
-              | otherwise       = [i8Ptr, i8Ptr, llvmWord dflags, i32] ++ isVolTy
+        argTy | MO_Memset _ <- op = [i8Ptr, i8,    llvmWord dflags, i32] ++ isVolTy
+              | otherwise         = [i8Ptr, i8Ptr, llvmWord dflags, i32] ++ isVolTy
         funTy = \name -> LMFunction $ LlvmFunctionDecl name ExternallyVisible
                              CC_Ccc LMVoid FixedArgs (tysToParams argTy) Nothing
 
@@ -273,21 +270,12 @@ genCall t@(PrimTarget op) [] args'
     (argVars', stmts3)            <- castVars $ zip argVars argTy
 
     stmts4 <- getTrashStmts
-    let arguments = argVars' ++ (alignVal:isVolVal)
+    let alignVal = mkIntLit i32 align
+        arguments = argVars' ++ (alignVal:isVolVal)
         call = Expr $ Call StdCall fptr arguments []
         stmts = stmts1 `appOL` stmts2 `appOL` stmts3
                 `appOL` stmts4 `snocOL` call
     return (stmts, top1 ++ top2)
-  where
-    splitAlignVal xs = (init xs, extractLit $ last xs)
-
-    -- Fix for trac #6158. Since LLVM 3.1, opt fails when given anything other
-    -- than a direct constant (i.e. 'i32 8') as the alignment argument for the
-    -- memcpy & co llvm intrinsic functions. So we handle this directly now.
-    extractLit (CmmLit (CmmInt i _)) = mkIntLit i32 i
-    extractLit _other = trace ("WARNING: Non constant alignment value given" ++
-                               " for memcpy! Please report to GHC developers")
-                        mkIntLit i32 0
 
 -- Handle all other foreign calls and prim ops.
 genCall target res args = do
@@ -560,9 +548,9 @@ cmmPrimOpFunctions mop = do
     MO_F64_Cosh   -> fsLit "cosh"
     MO_F64_Tanh   -> fsLit "tanh"
 
-    MO_Memcpy     -> fsLit $ "llvm.memcpy."  ++ intrinTy1
-    MO_Memmove    -> fsLit $ "llvm.memmove." ++ intrinTy1
-    MO_Memset     -> fsLit $ "llvm.memset."  ++ intrinTy2
+    MO_Memcpy _   -> fsLit $ "llvm.memcpy."  ++ intrinTy1
+    MO_Memmove _  -> fsLit $ "llvm.memmove." ++ intrinTy1
+    MO_Memset _   -> fsLit $ "llvm.memset."  ++ intrinTy2
 
     (MO_PopCnt w) -> fsLit $ "llvm.ctpop."  ++ showSDoc dflags (ppr $ widthToLlvmInt w)
     (MO_BSwap w)  -> fsLit $ "llvm.bswap."  ++ showSDoc dflags (ppr $ widthToLlvmInt w)
