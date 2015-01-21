@@ -31,6 +31,8 @@ module DsMonad (
 
         DsMetaEnv, DsMetaVal(..), dsGetMetaEnv, dsLookupMetaEnv, dsExtendMetaEnv,
 
+        dsExtendCoEnv,
+
         -- Warnings
         DsWarning, warnDs, failWithDs, discardWarningsDs,
 
@@ -435,6 +437,11 @@ dsLookupMetaEnv name = do { env <- getLclEnv; return (lookupNameEnv (dsl_meta en
 dsExtendMetaEnv :: DsMetaEnv -> DsM a -> DsM a
 dsExtendMetaEnv menv thing_inside
   = updLclEnv (\env -> env { dsl_meta = dsl_meta env `plusNameEnv` menv }) thing_inside
+
+-- | Brings a bound covar into scope
+dsExtendCoEnv :: CoVar -> Coercion -> DsM a -> DsM a
+dsExtendCoEnv cv co
+  = updLclEnv (\env -> env { dsl_subst = extendVarEnv (dsl_subst env) cv co })
 
 -- | Gets a reference to the SPT entries created so far.
 dsGetStaticBindsVar :: DsM (IORef [(Fingerprint, (Id,CoreExpr))])

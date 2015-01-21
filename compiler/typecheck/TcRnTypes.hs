@@ -108,7 +108,7 @@ import Type
 import CoAxiom  ( Role )
 import Class    ( Class )
 import TyCon    ( TyCon )
-import Coercion ( buildCoherenceCo )
+import Coercion ( buildCoherenceCo, Coercion )
 import ConLike  ( ConLike(..) )
 import DataCon  ( DataCon, dataConUserType, dataConOrigArgTys )
 import PatSyn   ( PatSyn, patSynType )
@@ -300,7 +300,10 @@ instance ContainsModule DsGblEnv where
 
 data DsLclEnv = DsLclEnv {
         dsl_meta    :: DsMetaEnv,        -- Template Haskell bindings
-        dsl_loc     :: SrcSpan           -- to put in pattern-matching error msgs
+        dsl_loc     :: SrcSpan,          -- to put in pattern-matching error msgs
+        dsl_subst   :: IdEnv Coercion    -- inlining top-level coercions
+                                         -- See Note [No top-level coercions] in
+                                         -- DsBinds
      }
 
 -- Inside [| |] brackets, the desugarer looks

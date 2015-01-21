@@ -13,7 +13,7 @@ lower levels it is preserved with @let@/@letrec@s).
 {-# LANGUAGE CPP #-}
 
 module DsBinds ( dsTopLHsBinds, dsLHsBinds, decomposeRuleLhs, dsSpec,
-                 dsHsWrapper, dsTcEvBinds, dsEvBinds
+                 dsHsWrapper, dsTcEvBinds, dsTopLevelEvBinds, dsEvBinds
   ) where
 
 #include "HsVersions.h"
@@ -100,13 +100,14 @@ dsHsBind :: HsBind Id -> DsM (OrdList (Id,CoreExpr))
 dsHsBind (VarBind { var_id = var, var_rhs = expr, var_inline = inline_regardless })
   = do  { dflags <- getDynFlags
         ; core_expr <- dsLExpr expr
+        ; var' <- dsVar var
 
                 -- Dictionary bindings are always VarBinds,
                 -- so we only need do this here
-        ; let var' | inline_regardless = var `setIdUnfolding` mkCompulsoryUnfolding core_expr
-                   | otherwise         = var
+        ; let var'' | inline_regardless = var' `setIdUnfolding` mkCompulsoryUnfolding core_expr
+                    | otherwise         = var'
 
-        ; return (unitOL (makeCorePair dflags var' False 0 core_expr)) }
+        ; return (unitOL (makeCorePair dflags var'' False 0 core_expr)) }
 
 dsHsBind (FunBind { fun_id = L _ fun, fun_matches = matches
                   , fun_co_fn = co_fn, fun_tick = tick
@@ -115,12 +116,14 @@ dsHsBind (FunBind { fun_id = L _ fun, fun_matches = matches
         ; (args, body) <- matchWrapper (FunRhs (idName fun) inf) matches
         ; let body' = mkOptTickBox tick body
         ; rhs <- dsHsWrapper co_fn (mkLams args body')
+        ; fun' <- dsVar fun
         ; {- pprTrace "dsHsBind" (ppr fun <+> ppr (idInlinePragma fun)) $ -}
-           return (unitOL (makeCorePair dflags fun False 0 rhs)) }
+           return (unitOL (makeCorePair dflags fun' False 0 rhs)) }
 
 dsHsBind (PatBind { pat_lhs = pat, pat_rhs = grhss, pat_rhs_ty = ty
                   , pat_ticks = (rhs_tick, var_ticks) })
-  = do  { body_expr <- dsGuarded grhss ty
+  = do  { ty' <- dsType ty
+        ; body_expr <- dsGuarded grhss ty'
         ; let body' = mkOptTickBox rhs_tick body_expr
         ; sel_binds <- mkSelectorBinds var_ticks pat body'
           -- We silently ignore inline pragmas; no makeCorePair
@@ -140,8 +143,10 @@ dsHsBind (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dicts
         ; bind_prs    <- ds_lhs_binds binds
         ; let   core_bind = Rec (fromOL bind_prs)
         ; ds_binds <- dsTcEvBinds ev_binds
+        ; tyvars' <- mapM (updateTyVarKindM dsType) tyvars
+        ; local' <- -- RAE was here.
         ; rhs <- dsHsWrapper wrap $  -- Usually the identity
-                            mkLams tyvars $ mkLams dicts $ 
+                            mkLams tyvars' $ mkLams dicts $ 
                             mkCoreLets ds_binds $
                             Let core_bind $
                             Var local
@@ -805,6 +810,12 @@ confused.   Likewise it might have an InlineRule or something, which would be
 utterly bogus. So we really make a fresh Id, with the same unique and type
 as the old one, but with an Internal name and no IdInfo.
 
+Note [No top-level coercions]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+It can happen that an unlifted equality is emitted at the top level. But,
+this is problematic, because we can't have unlifted bindings at the top
+level! So, we take all top-level unlifted coercions and inline them during
+desugaring.
 
 ************************************************************************
 *                                                                      *
@@ -816,7 +827,8 @@ as the old one, but with an Internal name and no IdInfo.
 
 dsHsWrapper :: HsWrapper -> CoreExpr -> DsM CoreExpr
 dsHsWrapper WpHole            e = return e
-dsHsWrapper (WpTyApp ty)      e = return $ App e (Type ty)
+dsHsWrapper (WpTyApp ty)      e = do { subst <- dsGetCoSubst
+                                     ; return $ App e (Type $ substTy subst ty)
 dsHsWrapper (WpLet ev_binds)  e = do bs <- dsTcEvBinds ev_binds
                                      return (mkCoreLets bs e)
 dsHsWrapper (WpCompose c1 c2) e = do { e1 <- dsHsWrapper c2 e
@@ -837,21 +849,55 @@ dsTcEvBinds :: TcEvBinds -> DsM [CoreBind]
 dsTcEvBinds (TcEvBinds {}) = panic "dsEvBinds"    -- Zonker has got rid of this
 dsTcEvBinds (EvBinds bs)   = dsEvBinds bs
 
+-- | Desugar top-level 'EvBind's. See Note [No top-level coercions].
+-- EvBinds that are not coercions are desugared normally.
+dsTopLevelEvBinds :: Bag EvBind -> DsM a -> DsM (a, [CoreBind])
+dsTopLevelEvBinds bs thing = go [] (sccEvBinds bs)
+  where
+    go acc []
+      = do { result <- thing
+           ; return (result, reverse acc) }
+        
+    go acc (CyclicSCC bs : rest)
+      = ASSERT( all (isLiftedType . varType . evBindVar) bs )
+        do { core_bind <- liftM Rec (mapM dsEvBind bs)
+           ; go (core_bind : acc) rest }
+
+    go acc (AcyclicSCC (EvBind { evb_var = v, evb_term = r }) : rest) thing
+      | isUnLiftedType ty
+      = ASSERT( isCoercionType ty )
+        do { expr <- dsEvTermUnlifted r
+           ; case expr of
+               Coercion co -> dsExtendCoEnv v co $ go acc rest
+               _           -> pprPanic "dsTopLevelEvBinds" (ppr expr) }
+
+      | otherwise
+      = do { core_bind <- liftM (NonRec v) (dsEvTerm r)
+           ; go (core_bind : acc) rest }
+
 dsEvBinds :: Bag EvBind -> DsM [CoreBind]
 dsEvBinds bs = mapM ds_scc (sccEvBinds bs)
   where
     ds_scc (AcyclicSCC (EvBind { evb_var = v, evb_term = r}))
-                          = liftM (NonRec v) (ds_ev_term v r)
-    ds_scc (CyclicSCC bs) = liftM Rec (mapM ds_pair bs)
+                          = liftM (NonRec v) (dsAnyEvTerm v r)
+    ds_scc (CyclicSCC bs) = liftM Rec (mapM dsEvBind bs)
 
-    ds_pair (EvBind { evb_var = v, evb_term = r}) = liftM ((,) v) (ds_ev_term v r)
-
-    ds_ev_term v r | isUnLiftedType (varType v) = dsEvTermUnlifted r
-                   | otherwise                  = dsEvTerm r
+dsEvBind :: EvBind -> DsM (Id, CoreExpr)
+dsEvBind (EvBind { evb_var = v, evb_term = r}) = liftM ((,) v) (dsAnyEvTerm v r)
 
 ---------------------------------------
+-- | Desugar either an unlifted or lifted EvTerm
+dsAnyEvTerm :: EvVar -> EvTerm -> DsM CoreExpr
+dsAnyEvTerm v r | isUnLiftedType (varType v) = dsEvTermUnlifted r
+                | otherwise                  = dsEvTerm r
+
+
 dsEvTerm :: EvTerm -> DsM CoreExpr
-dsEvTerm (EvId v) = return (Var v)
+dsEvTerm (EvId v)
+  = do { mb_co <- dsLookupCoVar v
+       ; case mb_co of
+           Just co -> return (Coercion co)
+           Nothing -> return (Var v) }
 
 dsEvTerm (EvCast tm co) 
   = do { tm' <- dsEvTerm tm
@@ -918,11 +964,13 @@ dsTcCoercion :: TcCoercion -> (Coercion -> CoreExpr) -> DsM CoreExpr
 -- thing_inside will get a coercion at the role requested
 dsTcCoercion co thing_inside
   = do { us <- newUniqueSupply
+       ; outer_subst <- dsGetCoSubst
        ; let eqvs_covs :: [(EqVar,CoVar)]
              eqvs_covs = zipWith mk_co_var (varSetElems (coVarsOfTcCo co))
                                            (uniqsFromSupply us)
 
-             subst = mkTopTCvSubst [(eqv, mkTyCoVarTy cov) | (eqv, cov) <- eqvs_covs]
+             subst = outer_subst `composeTCvSubst`
+                     mkTopTCvSubst [(eqv, mkTyCoVarTy cov) | (eqv, cov) <- eqvs_covs]
              result_expr = thing_inside (expectJust "dsTcCoercion" $
                                          pprTrace "RAE dsTcCoercion" (ppr co) $
                                          tcCoercionToCoercion subst co)
