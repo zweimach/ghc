@@ -1,6 +1,4 @@
 stack:
- - setWantedTyBind
-
  - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 
 - relax tcMatchTys, tcUnifyTys to ignore casts. URGH!
@@ -136,6 +134,9 @@ removed functions:
 
 please remove:
 --------------------------------
+- tryTcS now rolls back calls to setTyVarBind and setEvBind. Why setEvBind? Because
+  there may be nested EvBindsVars that get twiddled.
+
 - zonking in TcHsSyn must be lazy in types, killing some optimizations and the use of setIdType. Is there a way forward?
 
 - znokCtEvidence now does more zonking, because I needed that in simplifyInfer.

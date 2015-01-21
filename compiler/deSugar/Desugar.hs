@@ -99,6 +99,17 @@ deSugar hsc_env
              print_unqual = mkPrintUnqualified dflags rdr_env
         ; showPass dflags "Desugar"
 
+        ; putStr $
+          showSDocDump dflags $
+          vcat [ text "RAE Before desugaring:"
+               , text "------ ev_binds -------"
+               , ppr ev_binds
+               , text "------ binds -------"
+               , ppr binds
+               , text "------ rules -------"
+               , ppr rules
+               ]
+
         -- Desugar the program
         ; let export_set = availsToNameSet exports
               target     = hscTarget dflags

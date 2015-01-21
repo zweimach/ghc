@@ -924,6 +924,7 @@ dsTcCoercion co thing_inside
 
              subst = mkTopTCvSubst [(eqv, mkTyCoVarTy cov) | (eqv, cov) <- eqvs_covs]
              result_expr = thing_inside (expectJust "dsTcCoercion" $
+                                         pprTrace "RAE dsTcCoercion" (ppr co) $
                                          tcCoercionToCoercion subst co)
              result_ty   = exprType result_expr
 

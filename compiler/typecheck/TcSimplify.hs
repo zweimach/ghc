@@ -680,21 +680,26 @@ simplifyRule name lhs_wanted rhs_wanted
                  -- variables: runTcS runs with topTcLevel
          ev_binds_var <- TcM.newTcEvBinds
        ; let all_wanted = lhs_wanted `andWC` rhs_wanted
-       ; (resid_wanted, unified_vars) <- runTcSUnifiedVars ev_binds_var $
-                                         solveWantedsAndDrop all_wanted
+       ; (resid_wanted, unified_vars, _orig_binds)
+           <- runTcSRollbackInfo ev_binds_var (solveWantedsAndDrop all_wanted)
        ; resid_wanted <- zonkWC resid_wanted
                               -- Post: these are zonked and unflattened
 
          -- need to make sure to include any wanteds that bind covars in unified
          -- variables
        ; ev_bind_map <- TcM.getTcEvBindsMap ev_binds_var
-       ; fvs <- TcM.zonkTyCoVarsAndFV unified_vars
+       ; inner_ev_vars <- free_ev_vars all_wanted
+       ; fvs <- TcM.zonkTyCoVarsAndFV (unified_vars `unionVarSet` inner_ev_vars)
        ; let all_tcvs      = fvs `unionVarSet` tyCoVarsOfWC resid_wanted
              extra_wanteds = evBindMapWanteds all_tcvs ev_bind_map
        ; extra_wanteds <- zonkWC extra_wanteds
        ; emitConstraints extra_wanteds   -- kick the can down the road, because
                                          -- there's nowhere convenient to put these
                                          -- covars
+       ; traceTc "simplifyRule extra wanteds" (vcat [ ppr unified_vars
+                                                    , ppr fvs
+                                                    , ppr all_tcvs
+                                                    , ppr extra_wanteds ])
 
        ; zonked_lhs_simples <- TcM.zonkSimples (wc_simple lhs_wanted)
        ; let (q_cts, non_q_cts) = partitionBag quantify_me zonked_lhs_simples
@@ -718,6 +723,35 @@ simplifyRule name lhs_wanted rhs_wanted
 
        ; return ( map (ctEvId . ctEvidence) (bagToList q_cts)
                 , lhs_wanted { wc_simple = non_q_cts }) }
+
+    where
+      free_ev_vars :: WantedConstraints -> TcM VarSet
+      free_ev_vars (WC { wc_simple = simples
+                       , wc_impl   = implics
+                       , wc_insol  = insols })
+        = do { implic_varss <- mapM vars_of_implic (bagToList implics)
+             ; return $ unionVarSets [ tyCoVarsOfCts simples
+                                     , tyCoVarsOfCts insols
+                                     , unionVarSets implic_varss ] }
+
+      vars_of_implic :: Implication -> TcM VarSet
+      vars_of_implic (Implic { ic_skols  = skols
+                             , ic_given  = givens
+                             , ic_wanted = wc
+                             , ic_binds  = ev_binds_var })
+        = do { ev_binds <- TcM.getTcEvBinds ev_binds_var
+             ; let (ev_vars, ev_terms)
+                     = mapAndUnzip (\(EvBind { evb_var = var
+                                             , evb_term = term })
+                                    -> (var, term)) (bagToList ev_binds)
+             ; rest <- free_ev_vars wc
+             ; return $ rest
+                        `unionVarSet` mapUnionVarSet evVarsOfTerm ev_terms
+                        `delVarSetList` skols
+                        `delVarSetList` ev_vars
+                        `delVarSetList` givens
+                        `unionVarSet` coVarsOfTypes (map evVarPred givens)
+                        `unionVarSet` coVarsOfTypes (map tyVarKind skols) }
 
 {-
 *********************************************************************************

@@ -104,7 +104,8 @@ module Type (
         constraintKindTyCon,
 
         -- * Type free variables
-        tyCoVarsOfType, tyCoVarsOfTypes, closeOverKinds,
+        tyCoVarsOfType, tyCoVarsOfTypes, coVarsOfType,
+        coVarsOfTypes, closeOverKinds,
         expandTypeSynonyms,
         typeSize, varSetElemsWellScoped,
 
