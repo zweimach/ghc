@@ -42,6 +42,7 @@ module Var (
 
         -- ** Modifying 'Var's
         setVarName, setVarUnique, setVarType, updateVarType,
+        updateVarTypeM,
 
         -- ** Constructing, taking apart, modifying 'Id's
         mkGlobalVar, mkLocalVar, mkExportedLocalVar, mkCoVar,
@@ -285,6 +286,10 @@ setVarType id ty = id { varType = ty }
 
 updateVarType :: (Type -> Type) -> Id -> Id
 updateVarType f id = id { varType = f (varType id) }
+
+updateVarTypeM :: Monad m => (Type -> m Type) -> Id -> m Id
+updateVarTypeM f id = do { ty' <- f (varType id)
+                         ; return (id { varType = ty' }) }
 
 {-
 ************************************************************************

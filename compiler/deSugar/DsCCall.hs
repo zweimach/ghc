@@ -85,7 +85,7 @@ follows:
 dsCCall :: CLabelString -- C routine to invoke
         -> [CoreExpr]   -- Arguments (desugared)
         -> Safety       -- Safety of the call
-        -> Type         -- Type of the result: IO t
+        -> DsType       -- Type of the result: IO t
         -> DsM CoreExpr -- Result, of type ???
 
 dsCCall lbl args may_gc result_ty
@@ -100,8 +100,8 @@ dsCCall lbl args may_gc result_ty
        return (foldr ($) (res_wrapper the_prim_app) arg_wrappers)
 
 mkFCall :: DynFlags -> Unique -> ForeignCall
-        -> [CoreExpr]   -- Args
-        -> Type         -- Result type
+        -> [CoreExpr]     -- Args
+        -> DsType         -- Result type
         -> CoreExpr
 -- Construct the ccall.  The only tricky bit is that the ccall Id should have
 -- no free vars, so if any of the arg tys do we must give it a polymorphic type.
@@ -193,8 +193,8 @@ unboxArg arg
     maybe_arg3_tycon               = tyConAppTyCon_maybe data_con_arg_ty3
     Just arg3_tycon                = maybe_arg3_tycon
 
-boxResult :: Type
-          -> DsM (Type, CoreExpr -> CoreExpr)
+boxResult :: DsType
+          -> DsM (DsType, CoreExpr -> CoreExpr)
 
 -- Takes the result of the user-level ccall:
 --      either (IO t),
@@ -263,9 +263,9 @@ boxResult result_ty
     return_result _ _     = panic "return_result: expected single result"
 
 
-mk_alt :: (Expr Var -> [Expr Var] -> Expr Var)
-       -> (Maybe Type, Expr Var -> Expr Var)
-       -> DsM (Type, (AltCon, [Id], Expr Var))
+mk_alt :: (Expr DsVar -> [Expr DsVar] -> Expr DsVar)
+       -> (Maybe DsType, Expr DsVar -> Expr DsVar)
+       -> DsM (DsType, (AltCon, [DsId], Expr DsVar))
 mk_alt return_result (Nothing, wrap_result)
   = do -- The ccall returns ()
        state_id <- newSysLocalDs realWorldStatePrimTy
@@ -307,8 +307,8 @@ mk_alt return_result (Just prim_res_ty, wrap_result)
     return (ccall_res_ty, the_alt)
 
 
-resultWrapper :: Type
-              -> DsM (Maybe Type,               -- Type of the expected result, if any
+resultWrapper :: DsType
+              -> DsM (Maybe DsType,             -- Type of the expected result, if any
                       CoreExpr -> CoreExpr)     -- Wrapper for the result
 -- resultWrapper deals with the result *value*
 -- E.g. foreign import foo :: Int -> IO T

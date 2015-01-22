@@ -1,9 +1,5 @@
 stack:
-  - matchWrapper
-  - dsLExpr
-  - dsGuarded (the ty is already substed)
-  - mkSelectorBinds
-  - dsSpecs
+  - mkCoAlgCaseMatchResult is now monadic
 
 - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 

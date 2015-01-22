@@ -79,23 +79,23 @@ import Control.Monad(liftM)
 ************************************************************************
 -}
 
-dsTopLHsBinds :: LHsBinds Id -> DsM (OrdList (Id,CoreExpr))
+dsTopLHsBinds :: LHsBinds Id -> DsM (OrdList (DsId,CoreExpr))
 dsTopLHsBinds binds = ds_lhs_binds binds
 
-dsLHsBinds :: LHsBinds Id -> DsM [(Id,CoreExpr)]
+dsLHsBinds :: LHsBinds Id -> DsM [(DsId,CoreExpr)]
 dsLHsBinds binds = do { binds' <- ds_lhs_binds binds
                       ; return (fromOL binds') }
 
 ------------------------
-ds_lhs_binds :: LHsBinds Id -> DsM (OrdList (Id,CoreExpr))
+ds_lhs_binds :: LHsBinds Id -> DsM (OrdList (DsId,CoreExpr))
 
 ds_lhs_binds binds = do { ds_bs <- mapBagM dsLHsBind binds
                         ; return (foldBag appOL id nilOL ds_bs) }
 
-dsLHsBind :: LHsBind Id -> DsM (OrdList (Id,CoreExpr))
+dsLHsBind :: LHsBind Id -> DsM (OrdList (DsId,CoreExpr))
 dsLHsBind (L loc bind) = putSrcSpanDs loc $ dsHsBind bind
 
-dsHsBind :: HsBind Id -> DsM (OrdList (Id,CoreExpr))
+dsHsBind :: HsBind Id -> DsM (OrdList (DsId,CoreExpr))
 
 dsHsBind (VarBind { var_id = var, var_rhs = expr, var_inline = inline_regardless })
   = do  { dflags <- getDynFlags
@@ -114,7 +114,8 @@ dsHsBind (FunBind { fun_id = L _ fun, fun_matches = matches
                   , fun_infix = inf })
  = do   { dflags <- getDynFlags
         ; (args, body) <- matchWrapper (FunRhs (idName fun) inf) matches
-        ; let body' = mkOptTickBox tick body
+        ; tick' <- dsTickish tick
+        ; let body' = mkOptTickBox tick' body
         ; rhs <- dsHsWrapper co_fn (mkLams args body')
         ; fun' <- dsVar fun
         ; {- pprTrace "dsHsBind" (ppr fun <+> ppr (idInlinePragma fun)) $ -}
@@ -124,8 +125,10 @@ dsHsBind (PatBind { pat_lhs = pat, pat_rhs = grhss, pat_rhs_ty = ty
                   , pat_ticks = (rhs_tick, var_ticks) })
   = do  { ty' <- dsType ty
         ; body_expr <- dsGuarded grhss ty'
-        ; let body' = mkOptTickBox rhs_tick body_expr
-        ; sel_binds <- mkSelectorBinds var_ticks pat body'
+        ; rhs_tick' <- dsTickish rhs_tick
+        ; var_ticks' <- mapM dsTickish var_ticks
+        ; let body' = mkOptTickBox rhs_tick' body_expr
+        ; sel_binds <- mkSelectorBinds var_ticks' pat body'
           -- We silently ignore inline pragmas; no makeCorePair
           -- Not so cool, but really doesn't matter
     ; return (toOL sel_binds) }
@@ -143,19 +146,21 @@ dsHsBind (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dicts
         ; bind_prs    <- ds_lhs_binds binds
         ; let   core_bind = Rec (fromOL bind_prs)
         ; ds_binds <- dsTcEvBinds ev_binds
-        ; tyvars' <- mapM (updateTyVarKindM dsType) tyvars
-        ; local' <- -- RAE was here.
+        ; tyvars' <- dsVars tyvars
+        ; dicts' <- dsVars dicts
+        ; local' <- dsVar local
+        ; global' <- dsVar global
         ; rhs <- dsHsWrapper wrap $  -- Usually the identity
-                            mkLams tyvars' $ mkLams dicts $ 
+                            mkLams tyvars' $ mkLams dicts' $ 
                             mkCoreLets ds_binds $
                             Let core_bind $
-                            Var local
+                            Var local'
     
         ; (spec_binds, rules) <- dsSpecs rhs prags
 
-        ; let   global'   = addIdSpecialisations global rules
-                main_bind = makeCorePair dflags global' (isDefaultMethod prags)
-                                         (dictArity dicts) rhs 
+        ; let   global''  = addIdSpecialisations global' rules
+                main_bind = makeCorePair dflags global'' (isDefaultMethod prags)
+                                         (dictArity dicts') rhs 
     
         ; return (main_bind `consOL` spec_binds) }
 
@@ -164,16 +169,21 @@ dsHsBind (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dicts
                    , abs_binds = binds })
          -- See Note [Desugaring AbsBinds]
   = do  { dflags <- getDynFlags
-        ; bind_prs    <- ds_lhs_binds binds
-        ; let core_bind = Rec [ makeCorePair dflags (add_inline lcl_id) False 0 rhs
-                              | (lcl_id, rhs) <- fromOL bind_prs ]
+        ; bind_prs <- ds_lhs_binds binds
+        ; exports' <- mapM dsExportTypes exports
+        ; let core_bind
+                = Rec [ makeCorePair dflags (add_inline exports' lcl_id)
+                                     False 0 rhs
+                      | (lcl_id, rhs) <- fromOL bind_prs ]
                 -- Monomorphic recursion possible, hence Rec
 
-              locals       = map abe_mono exports
-              tup_expr     = mkBigCoreVarTup locals
-              tup_ty       = exprType tup_expr
+              locals   = map abe_mono exports'
+              tup_expr = mkBigCoreVarTup locals
+              tup_ty   = exprType tup_expr
         ; ds_binds <- dsTcEvBinds ev_binds
-        ; let poly_tup_rhs = mkLams tyvars $ mkLams dicts $
+        ; tyvars' <- dsVars tyvars
+        ; dicts' <- dsVars dicts
+        ; let poly_tup_rhs = mkLams tyvars' $ mkLams dicts' $
                              mkCoreLets ds_binds $
                              Let core_bind $
                              tup_expr
@@ -184,9 +194,9 @@ dsHsBind (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dicts
                            , abe_mono = local, abe_prags = spec_prags })
                 = do { tup_id  <- newSysLocalDs tup_ty
                      ; rhs <- dsHsWrapper wrap $ 
-                                 mkLams tyvars $ mkLams dicts $
+                                 mkLams tyvars' $ mkLams dicts' $
                                  mkTupleSelector locals local tup_id $
-                                 mkVarApps (Var poly_tup_id) (tyvars ++ dicts)
+                                 mkVarApps (Var poly_tup_id) (tyvars' ++ dicts')
                      ; let rhs_for_spec = Let (NonRec poly_tup_id poly_tup_rhs) rhs
                      ; (spec_binds, rules) <- dsSpecs rhs_for_spec spec_prags
                      ; let global' = (global `setInlinePragma` defaultInlinePragma)
@@ -196,26 +206,29 @@ dsHsBind (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dicts
                            -- Id is just the selector.  Hmm.  
                      ; return ((global', rhs) `consOL` spec_binds) }
 
-        ; export_binds_s <- mapM mk_bind exports
+        ; export_binds_s <- mapM mk_bind exports'
 
         ; return ((poly_tup_id, poly_tup_rhs) `consOL` 
                     concatOL export_binds_s) }
   where
-    inline_env :: IdEnv Id   -- Maps a monomorphic local Id to one with
+    inline_env :: [ABExport Id] -> IdEnv Id
+                             -- Maps a monomorphic local Id to one with
                              -- the inline pragma from the source
                              -- The type checker put the inline pragma
                              -- on the *global* Id, so we need to transfer it
-    inline_env = mkVarEnv [ (lcl_id, setInlinePragma lcl_id prag)
-                          | ABE { abe_mono = lcl_id, abe_poly = gbl_id } <- exports
-                          , let prag = idInlinePragma gbl_id ]
+    inline_env exports'
+      = mkVarEnv [ (lcl_id, setInlinePragma lcl_id prag)
+                 | ABE { abe_mono = lcl_id, abe_poly = gbl_id } <- exports'
+                 , let prag = idInlinePragma gbl_id ]
 
-    add_inline :: Id -> Id    -- tran
-    add_inline lcl_id = lookupVarEnv inline_env lcl_id `orElse` lcl_id
+    add_inline :: [ABExport Id] -> Id -> Id    -- tran
+    add_inline exports' lcl_id = lookupVarEnv (inline_env exports') lcl_id
+                                 `orElse` lcl_id
 
 dsHsBind (PatSynBind{}) = panic "dsHsBind: PatSynBind"
 
 ------------------------
-makeCorePair :: DynFlags -> Id -> Bool -> Arity -> CoreExpr -> (Id, CoreExpr)
+makeCorePair :: DynFlags -> DsId -> Bool -> Arity -> CoreExpr -> (DsId, CoreExpr)
 makeCorePair dflags gbl_id is_default_method dict_arity rhs
   | is_default_method                 -- Default methods are *always* inlined
   = (gbl_id `setIdUnfolding` mkCompulsoryUnfolding rhs, rhs)
@@ -435,7 +448,7 @@ Note that
 ------------------------
 dsSpecs :: CoreExpr     -- Its rhs
         -> TcSpecPrags
-        -> DsM ( OrdList (Id,CoreExpr)  -- Binding for specialised Ids
+        -> DsM ( OrdList (DsId,CoreExpr)  -- Binding for specialised Ids
                , [CoreRule] )           -- Rules for the Global Ids
 -- See Note [Implementing SPECIALISE pragmas]
 dsSpecs _ IsDefaultMethod = return (nilOL, [])
@@ -448,7 +461,7 @@ dsSpec :: Maybe CoreExpr        -- Just rhs => RULE is for a local binding
                                 -- Nothing => RULE is for an imported Id
                                 --            rhs is in the Id's unfolding
        -> Located TcSpecPrag
-       -> DsM (Maybe (OrdList (Id,CoreExpr), CoreRule))
+       -> DsM (Maybe (OrdList (DsId,CoreExpr), CoreRule))
 dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
   | isJust (isClassOpId_maybe poly_id)
   = putSrcSpanDs loc $ 
@@ -468,11 +481,12 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
   | otherwise
   = putSrcSpanDs loc $ 
     do { uniq <- newUnique
-       ; let poly_name = idName poly_id
+       ; poly_id' <- dsVar poly_id
+       ; let poly_name = idName poly_id'
              spec_occ  = mkSpecOcc (getOccName poly_name)
              spec_name = mkInternalName uniq spec_occ (getSrcSpan poly_name)
        ; (bndrs, ds_lhs) <- liftM collectBinders
-                                  (dsHsWrapper spec_co (Var poly_id))
+                                  (dsHsWrapper spec_co (Var poly_id'))
        ; let spec_ty = mkPiTypes bndrs (exprType ds_lhs)
        ; -- pprTrace "dsRule" (vcat [ ptext (sLit "Id:") <+> ppr poly_id
          --                         , ptext (sLit "spec_co:") <+> ppr spec_co
@@ -482,7 +496,7 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
            Right (rule_bndrs, _fn, args) -> do
 
        { dflags <- getDynFlags
-       ; let fn_unf    = realIdUnfolding poly_id
+       ; let fn_unf    = realIdUnfolding poly_id'
              unf_fvs   = stableUnfoldingVars fn_unf `orElse` emptyVarSet
              in_scope  = mkInScopeSet (unf_fvs `unionVarSet` exprsFreeVars args)
              spec_unf  = specUnfolding dflags (mkEmptySubst in_scope) bndrs args fn_unf
@@ -593,7 +607,7 @@ SPEC f :: ty                [n]   INLINE [k]
 ************************************************************************
 -}
 
-decomposeRuleLhs :: [Var] -> CoreExpr -> Either SDoc ([Var], Id, [CoreExpr])
+decomposeRuleLhs :: [DsVar] -> CoreExpr -> Either SDoc ([DsVar], DsId, [CoreExpr])
 -- (decomposeRuleLhs bndrs lhs) takes apart the LHS of a RULE,
 -- The 'bndrs' are the quantified binders of the rules, but decomposeRuleLhs
 -- may add some extra dictionary binders (see Note [Free dictionaries])
