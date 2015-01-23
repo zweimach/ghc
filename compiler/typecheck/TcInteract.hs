@@ -831,7 +831,11 @@ interactTyVarEq inerts workItem@(CTyEqCan { cc_tyvar = tv
   =  -- Inert:     a ~ b
      -- Work item: a ~ b
     do { when (isWanted ev) $
-         setEvBind (ctev_evar ev) (ctEvTerm ev_i) (ctev_loc ev)
+         setEvBind (ctev_evar ev)
+                   (EvCoercion (tcDowngradeRole (eqRelRole eq_rel)
+                                                (ctEvRole ev_i)
+                                                (ctEvCoercion ev_i)))
+                   (ctev_loc ev)
        ; stopWith ev "Solved from inert" }
 
   | Just tv_rhs <- getTyVar_maybe rhs
@@ -843,7 +847,10 @@ interactTyVarEq inerts workItem@(CTyEqCan { cc_tyvar = tv
      -- Work item: b ~ a
     do { when (isWanted ev) $
          setEvBind (ctev_evar ev)
-                   (EvCoercion (mkTcSymCo (ctEvCoercion ev_i)))
+                   (EvCoercion (mkTcSymCo $
+                                tcDowngradeRole (eqRelRole eq_rel)
+                                                (ctEvRole ev_i)
+                                                (ctEvCoercion ev_i)))
                    (ctev_loc ev)
        ; stopWith ev "Solved from inert (r)" }
 
