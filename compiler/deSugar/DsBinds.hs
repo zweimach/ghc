@@ -114,7 +114,7 @@ dsHsBind (FunBind { fun_id = L _ fun, fun_matches = matches
                   , fun_infix = inf })
  = do   { dflags <- getDynFlags
         ; (args, body) <- matchWrapper (FunRhs (idName fun) inf) matches
-        ; tick' <- dsTickish tick
+        ; tick' <- mapM dsTickish tick
         ; let body' = mkOptTickBox tick' body
         ; rhs <- dsHsWrapper co_fn (mkLams args body')
         ; fun' <- dsVar fun
@@ -125,8 +125,8 @@ dsHsBind (PatBind { pat_lhs = pat, pat_rhs = grhss, pat_rhs_ty = ty
                   , pat_ticks = (rhs_tick, var_ticks) })
   = do  { ty' <- dsType ty
         ; body_expr <- dsGuarded grhss ty'
-        ; rhs_tick' <- dsTickish rhs_tick
-        ; var_ticks' <- mapM dsTickish var_ticks
+        ; rhs_tick' <- mapM dsTickish rhs_tick
+        ; var_ticks' <- mapM (mapM dsTickish) var_ticks
         ; let body' = mkOptTickBox rhs_tick' body_expr
         ; sel_binds <- mkSelectorBinds var_ticks' pat body'
           -- We silently ignore inline pragmas; no makeCorePair
@@ -841,8 +841,8 @@ desugaring.
 
 dsHsWrapper :: HsWrapper -> CoreExpr -> DsM CoreExpr
 dsHsWrapper WpHole            e = return e
-dsHsWrapper (WpTyApp ty)      e = do { subst <- dsGetCoSubst
-                                     ; return $ App e (Type $ substTy subst ty)
+dsHsWrapper (WpTyApp ty)      e = do { ty' <- dsType ty
+                                     ; return $ App e (Type ty') }
 dsHsWrapper (WpLet ev_binds)  e = do bs <- dsTcEvBinds ev_binds
                                      return (mkCoreLets bs e)
 dsHsWrapper (WpCompose c1 c2) e = do { e1 <- dsHsWrapper c2 e
@@ -873,12 +873,13 @@ dsTopLevelEvBinds bs thing = go [] (sccEvBinds bs)
            ; return (result, reverse acc) }
         
     go acc (CyclicSCC bs : rest)
-      = ASSERT( all (isLiftedType . varType . evBindVar) bs )
+      = ASSERT( all (not . isUnLiftedType . varType . evBindVar) bs )
         do { core_bind <- liftM Rec (mapM dsEvBind bs)
            ; go (core_bind : acc) rest }
 
-    go acc (AcyclicSCC (EvBind { evb_var = v, evb_term = r }) : rest) thing
-      | isUnLiftedType ty
+    go acc (AcyclicSCC (EvBind { evb_var = v, evb_term = r }) : rest)
+      | let ty = varType v
+      , isUnLiftedType ty
       = ASSERT( isCoercionType ty )
         do { expr <- dsEvTermUnlifted r
            ; case expr of
@@ -908,8 +909,8 @@ dsAnyEvTerm v r | isUnLiftedType (varType v) = dsEvTermUnlifted r
 
 dsEvTerm :: EvTerm -> DsM CoreExpr
 dsEvTerm (EvId v)
-  = do { mb_co <- dsLookupCoVar v
-       ; case mb_co of
+  = do { cv_env <- dsGetCvSubstEnv
+       ; case lookupVarEnv cv_env v of
            Just co -> return (Coercion co)
            Nothing -> return (Var v) }
 
@@ -978,12 +979,13 @@ dsTcCoercion :: TcCoercion -> (Coercion -> CoreExpr) -> DsM CoreExpr
 -- thing_inside will get a coercion at the role requested
 dsTcCoercion co thing_inside
   = do { us <- newUniqueSupply
-       ; outer_subst <- dsGetCoSubst
+       ; outer_subst <- dsGetCvSubstEnv
        ; let eqvs_covs :: [(EqVar,CoVar)]
              eqvs_covs = zipWith mk_co_var (varSetElems (coVarsOfTcCo co))
                                            (uniqsFromSupply us)
 
-             subst = outer_subst `composeTCvSubst`
+             subst = mkTCvSubst emptyInScopeSet (emptyTvSubstEnv, outer_subst)
+                     `composeTCvSubst`
                      mkTopTCvSubst [(eqv, mkTyCoVarTy cov) | (eqv, cov) <- eqvs_covs]
              result_expr = thing_inside (expectJust "dsTcCoercion" $
                                          pprTrace "RAE dsTcCoercion" (ppr co) $

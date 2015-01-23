@@ -33,7 +33,11 @@ module DsUtils (
         mkSelectorBinds,
 
         selectSimpleMatchVarL, selectMatchVars, selectMatchVar,
-        mkOptTickBox, mkBinaryTickBox
+        mkOptTickBox, mkBinaryTickBox,
+
+        DsType, DsCoercion, DsVar, DsId, DsTyVar, DsEvVar, DsIdSet,
+        dsVar, dsVars, dsType, dsExportTypes,
+        dsTickish, dsCoercionType
     ) where
 
 #include "HsVersions.h"
@@ -57,11 +61,15 @@ import ConLike
 import DataCon
 import PatSyn
 import Type
+import Coercion
 import TysPrim
 import TysWiredIn
 import BasicTypes
 import UniqSet
 import UniqSupply
+import Var              ( updateVarTypeM, EvVar )
+import VarEnv           ( mkInScopeSet, varEnvElts )
+import VarSet           ( unionVarSet, TyCoVarSet, IdSet )
 import Module
 import PrelNames
 import Outputable
@@ -264,7 +272,7 @@ mkCoPrimCaseMatchResult var ty match_alts
             return (LitAlt lit, [], body)
 
 data CaseAlt a = MkCaseAlt{ alt_pat :: a,
-                            alt_bndrs :: [CoreBndr],
+                            alt_bndrs :: [DsVar],
                             alt_wrapper :: HsWrapper,
                             alt_result :: MatchResult }
 
@@ -603,7 +611,7 @@ mkSelectorBinds ticks (L _ (VarPat v)) val_expr
   = do { v' <- dsVar v
        ; return [(v', case ticks of
                         [t] -> mkOptTickBox t val_expr
-                        _   -> val_expr)]
+                        _   -> val_expr)] }
 
 mkSelectorBinds ticks pat val_expr
   | null binders 
@@ -831,14 +839,30 @@ mkBinaryTickBox ixT ixF e = do
 See also Note [No top-level coercions] in DsBinds
 -}
 
-type DsType = Type
-type DsId   = Id
-type DsVar  = Var
+type DsType     = Type
+type DsCoercion = Coercion
+type DsId       = Id
+type DsVar      = Var
+type DsTyVar    = TyVar
+type DsEvVar    = EvVar
+type DsIdSet    = IdSet
+
+ds_mk_subst :: TyCoVarSet -> DsM TCvSubst
+ds_mk_subst fvs
+  = do { cv_env <- dsGetCvSubstEnv
+       ; let in_scope = mkInScopeSet $
+                        fvs `unionVarSet` tyCoVarsOfCos (varEnvElts cv_env)
+       ; return $ mkTCvSubst in_scope (emptyTvSubstEnv, cv_env) }
 
 dsType :: Type -> DsM DsType
 dsType ty
-  = do { subst <- dsGetCoSubst
+  = do { subst <- ds_mk_subst (tyCoVarsOfType ty)
        ; return (substTy subst ty) }
+
+dsCoercionType :: Coercion -> DsM DsCoercion
+dsCoercionType co
+  = do { subst <- ds_mk_subst (tyCoVarsOfCo co)
+       ; return (substCo subst co) }
 
 dsVar :: Var -> DsM DsVar
 dsVar = updateVarTypeM dsType
@@ -851,3 +875,10 @@ dsExportTypes exp@(ABE { abe_mono = mono, abe_poly = poly })
   = do { mono' <- dsVar mono
        ; poly' <- dsVar poly
        ; return (exp { abe_mono = mono', abe_poly = poly' }) }
+
+dsTickish :: Tickish Id -> DsM (Tickish DsId)
+dsTickish t@(Breakpoint { breakpointFVs = fvs })
+  = do { fvs' <- dsVars fvs
+       ; return $ t { breakpointFVs = fvs' } }
+    
+dsTickish t = return t

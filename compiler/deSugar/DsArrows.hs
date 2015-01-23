@@ -316,7 +316,7 @@ dsCmd   :: DsCmdEnv             -- arrow combinators
 dsCmd ids local_vars stack_ty res_ty
         (HsCmdArrApp arrow arg arrow_ty HsFirstOrderApp _)
         env_ids = do
-    arrow_ty <- dsType arrow_ty
+    arrow_ty' <- dsType arrow_ty
     let
         (a_arg_ty, _res_ty') = tcSplitAppTy arrow_ty'
         (_a_ty, arg_ty) = tcSplitAppTy a_arg_ty

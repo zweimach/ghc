@@ -24,10 +24,10 @@ import DsMonad
 
 import CoreUtils
 import MkCore
-import Var
 import MkId
 import ForeignCall
 import DataCon
+import DsUtils
 
 import TcType
 import Type

@@ -138,7 +138,7 @@ module Type (
         zapTCvSubst, getTCvInScope,
         extendTCvInScope, extendTCvInScopeList,
         extendTCvSubst, extendTCvSubstList,
-        isInScope, composeTCvSubstEnv, zipTyCoEnv,
+        isInScope, composeTCvSubstEnv, composeTCvSubst, zipTyCoEnv,
         isEmptyTCvSubst, unionTCvSubst,
 
         -- ** Performing substitution on types and kinds

@@ -19,7 +19,6 @@ import HsSyn
 import MkCore
 import CoreSyn
 import Var
-import Type
 
 import DsMonad
 import DsUtils

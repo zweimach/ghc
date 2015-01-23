@@ -1,5 +1,4 @@
 stack:
-  - mkCoAlgCaseMatchResult is now monadic
 
 - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 
@@ -51,6 +50,8 @@ changed from a proper arg to an existential covar arg. Does this matter?
 (Other uses of dataConRepArgTys are OK.)
 
 fix:
+  - have Core Lint check to make sure RHSs of `let (x :: foo ~# bar) = ...`
+    are really Coercions!
   - liftSimply --> mkReflCoArg (if we keep coargs!)
   - do we need to annotate kind variables to have a proper CUSK? I think so.
     Here is Doel's example from Hac Phi of this problem at the term level:

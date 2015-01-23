@@ -155,7 +155,7 @@ dsStrictBind (FunBind { fun_id = L _ fun, fun_matches = matches, fun_co_fn = co_
        ; (args, rhs) <- matchWrapper (FunRhs (idName fun') inf) matches
        ; MASSERT( null args ) -- Functions aren't lifted
        ; MASSERT( isIdHsWrapper co_fn )
-       ; tick' <- dsTickish tick
+       ; tick' <- mapM dsTickish tick
        ; let rhs' = mkOptTickBox tick' rhs
        ; return (bindNonRec fun' rhs' body) }
 
@@ -200,7 +200,7 @@ dsLExpr (L loc e) = putSrcSpanDs loc $ dsExpr e
 dsExpr :: HsExpr Id -> DsM CoreExpr
 dsExpr (HsPar e)              = dsLExpr e
 dsExpr (ExprWithTySigOut e _) = dsLExpr e
-dsExpr (HsVar var)            = varToCoreExpr <$> dsVar  -- See Note [Desugaring vars]
+dsExpr (HsVar var)            = varToCoreExpr <$> dsVar var  -- See Note [Desugaring vars]
 dsExpr (HsIPVar _)            = panic "dsExpr: HsIPVar"
 dsExpr (HsLit lit)            = dsLit lit
 dsExpr (HsOverLit lit)        = dsOverLit lit
@@ -354,7 +354,7 @@ dsExpr (HsMultiIf res_ty alts)
     do { match_result <- liftM (foldr1 combineMatchResults)
                                (mapM (dsGRHS IfAlt res_ty') alts)
        ; error_expr   <- mkErrorExpr res_ty'
-       ; extractMatchResult match_result error_expr }
+       ; extractMatchResult match_result error_expr } }
   where
     mkErrorExpr res_ty' = mkErrorAppDs nON_EXHAUSTIVE_GUARDS_ERROR_ID res_ty'
                                        (ptext (sLit "multi-way if"))

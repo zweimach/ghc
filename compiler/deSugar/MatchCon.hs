@@ -121,9 +121,9 @@ matchOneConLike :: [DsId]
                 -> DsM (CaseAlt ConLike)
 matchOneConLike vars ty (eqn1 : eqns)   -- All eqns for a single constructor
   = do  { tvs1' <- dsVars tvs1
-        ; dicts1' <- dsVars dicts
+        ; dicts1' <- dsVars dicts1
         ; arg_tys' <- mapM dsType arg_tys
-        ; let inst_tys = ASSERT( tvs1' `equalLength` ex_tvs )
+        ; let inst_tys = ASSERT( tvs1 `equalLength` ex_tvs )
                          arg_tys' ++ mkTyCoVarTys tvs1'
 
               val_arg_tys = case con1 of
@@ -132,7 +132,7 @@ matchOneConLike vars ty (eqn1 : eqns)   -- All eqns for a single constructor
         -- dataConInstOrigArgTys takes the univ and existential tyvars
         -- and returns the types of the *value* args, which is what we want
 
-              match_group :: [DsTyVar] -> [DsEvVar] -> [DsId]
+              match_group :: [DsId]
                           -> [(ConArgPats, EquationInfo)] -> DsM MatchResult
               -- All members of the group have compatible ConArgPats
               match_group arg_vars arg_eqn_prs
@@ -164,7 +164,7 @@ matchOneConLike vars ty (eqn1 : eqns)   -- All eqns for a single constructor
               groups = runs compatible_pats [ (pat_args (firstPat eqn), eqn) 
                                             | eqn <- eqn1:eqns ]
 
-        ; match_results <- mapM (match_group tvs1' dicts1' arg_vars) groups
+        ; match_results <- mapM (match_group arg_vars) groups
 
         ; return $ MkCaseAlt{ alt_pat = con1,
                               alt_bndrs = tvs1' ++ dicts1' ++ arg_vars,

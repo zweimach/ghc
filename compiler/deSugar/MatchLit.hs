@@ -454,7 +454,7 @@ matchNPlusKPats (var:vars) ty (eqn1:eqns)
         ; ge_expr     <- dsExpr ge
         ; minus_expr  <- dsExpr minus
         ; lit_expr    <- dsOverLit lit
-        ; n1'         <- dsVarn1
+        ; n1'         <- dsVar n1
         ; let pred_expr   = mkApps ge_expr [Var var, lit_expr]
               minusk_expr = mkApps minus_expr [Var var, lit_expr]
         ; (wraps, eqns') <- mapAndUnzipM (shift n1') (eqn1:eqns)

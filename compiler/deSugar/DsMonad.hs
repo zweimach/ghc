@@ -31,7 +31,7 @@ module DsMonad (
 
         DsMetaEnv, DsMetaVal(..), dsGetMetaEnv, dsLookupMetaEnv, dsExtendMetaEnv,
 
-        dsExtendCoEnv,
+        dsExtendCoEnv, dsGetCvSubstEnv,
 
         -- Warnings
         DsWarning, warnDs, failWithDs, discardWarningsDs,
@@ -56,6 +56,7 @@ import Bag
 import DataCon
 import TyCon
 import Id
+import Coercion
 import Module
 import Outputable
 import SrcLoc
@@ -63,6 +64,7 @@ import Type
 import UniqSupply
 import Name
 import NameEnv
+import VarEnv
 import DynFlags
 import ErrUtils
 import FastString
@@ -243,8 +245,9 @@ mkDsEnvs dflags mod rdr_env type_env fam_inst_env msg_var static_binds_var
                            , ds_parr_bi = panic "DsMonad: uninitialised ds_parr_bi"
                            , ds_static_binds = static_binds_var
                            }
-        lcl_env = DsLclEnv { dsl_meta = emptyNameEnv
-                           , dsl_loc  = noSrcSpan
+        lcl_env = DsLclEnv { dsl_meta  = emptyNameEnv
+                           , dsl_loc   = noSrcSpan
+                           , dsl_subst = emptyVarEnv
                            }
     in (gbl_env, lcl_env)
 
@@ -443,6 +446,9 @@ dsExtendCoEnv :: CoVar -> Coercion -> DsM a -> DsM a
 dsExtendCoEnv cv co
   = updLclEnv (\env -> env { dsl_subst = extendVarEnv (dsl_subst env) cv co })
 
+dsGetCvSubstEnv :: DsM CvSubstEnv
+dsGetCvSubstEnv = dsl_subst <$> getLclEnv
+
 -- | Gets a reference to the SPT entries created so far.
 dsGetStaticBindsVar :: DsM (IORef [(Fingerprint, (Id,CoreExpr))])
 dsGetStaticBindsVar = fmap ds_static_binds getGblEnv
@@ -460,3 +466,4 @@ discardWarningsDs thing_inside
         ; writeTcRef (ds_msgs env) old_msgs
 
         ; return result }
+

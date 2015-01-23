@@ -756,7 +756,7 @@ dsMcStmt (TransStmt { trS_stmts = stmts, trS_bndrs = bndrs
        ; let rhs'  = mkApps usingExpr' usingArgs'
              body' = mkTupleCase us to_bndrs' body tup_n_var' tup_n_expr'
 
-       ; return (mkApps bind_op' [rhs', Lam n_tup_var body']) }
+       ; return (mkApps bind_op' [rhs', Lam n_tup_var' body']) }
 
 -- Parallel statements. Use `Control.Monad.Zip.mzip` to zip parallel
 -- statements, for example:
@@ -787,6 +787,7 @@ dsMcStmt (ParStmt blocks mzip_op bind_op) stmts_rest
   where
     ds_inner (ParStmtBlock stmts bndrs return_op)
        = do { exp <- dsInnerMonadComp stmts bndrs return_op
+            ; bndrs' <- dsVars bndrs
             ; return (exp, mkBigCoreVarTupTy bndrs') }
 
 dsMcStmt stmt _ = pprPanic "dsMcStmt: unexpected stmt" (ppr stmt)
