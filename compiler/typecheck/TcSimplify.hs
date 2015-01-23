@@ -91,8 +91,37 @@ simpl_top wanteds
            ; if or defaulted
              then do { wc_residual <- nestTcS (solveWantedsAndDrop wc)
                             -- See Note [Must simplify after defaulting]
-                     ; try_class_defaulting wc_residual }
-             else try_class_defaulting wc }     -- No defaulting took place
+                     ; try_repr_defaulting wc_residual }
+             else try_repr_defaulting wc }     -- No defaulting took place
+
+     -- TODO (RAE): Remove this. The idea is that, sometimes, we end
+     -- up with a wanted like (k ~R# *), where k is a metavar. Because
+     -- repr equalities don't solve by unification, GHC gives up. Here,
+     -- we just set k := *. But, all of this should go away when we change
+     -- the role of the `kind` coercion former.
+    try_repr_defaulting :: WantedConstraints -> TcS WantedConstraints
+    try_repr_defaulting wc@(WC { wc_simple = simples })
+      | isEmptyWC wc
+      = return wc
+      | otherwise
+      = do { let repr_wanteds_deriveds = mapMaybe get_unif_pair $
+                                         bagToList simples
+           ; mapM_ (uncurry setWantedTyBind) repr_wanteds_deriveds
+           ; if (not (null repr_wanteds_deriveds))
+             then do { wc_residual <- nestTcS (solveWantedsAndDrop wc)
+                     ; try_repr_defaulting wc_residual }
+             else try_class_defaulting wc }
+
+      where
+        get_unif_pair ct
+          | isWantedCt ct || isDerivedCt ct
+          , EqPred ReprEq lhs rhs <- classifyPredType (ctPred ct)
+          = case (getTyVar_maybe lhs, getTyVar_maybe rhs) of
+              (Just tv, _) | isMetaTyVar tv -> Just (tv, rhs)
+              (_, Just tv) | isMetaTyVar tv -> Just (tv, lhs)
+              _                             -> Nothing
+          | otherwise
+          = Nothing
 
     try_class_defaulting :: WantedConstraints -> TcS WantedConstraints
     try_class_defaulting wc
@@ -1410,7 +1439,7 @@ floatEqualities ev_binds_var skols no_given_eqs
     float_me :: Ct -> Bool
     float_me ct   -- The constraint is un-flattened and de-cannonicalised
        | let pred = ctPred ct
-       , EqPred NomEq ty1 ty2 <- classifyPredType pred
+       , EqPred _ ty1 ty2 <- classifyPredType pred
        , tyCoVarsOfType pred `disjointVarSet` skol_set
        , useful_to_float ty1 ty2
        = True
