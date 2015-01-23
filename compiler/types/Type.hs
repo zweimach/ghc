@@ -1444,7 +1444,7 @@ getEqPredBoxity ty
 predTypeEqRel :: PredType -> EqRel
 predTypeEqRel ty
   | Just (tc, _) <- splitTyConApp_maybe ty
-  , tc `hasKey` coercibleTyConKey
+  , tc `hasKey` coercibleTyConKey || tc `hasKey` eqReprPrimTyConKey
   = ReprEq
   | otherwise
   = NomEq
