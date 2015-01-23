@@ -993,9 +993,9 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thi
     kc_hs_tv (UserTyVar n)
       = do { mb_thing <- tcLookupLcl_maybe n
            ; kind <- case mb_thing of
-                       Just (AThing k) -> return k
-                       _ | cusk        -> return liftedTypeKind
-                         | otherwise   -> newMetaKindVar
+                       Just (ATyVar _ tv) -> return (tyVarKind tv)
+                       _ | cusk           -> return liftedTypeKind
+                         | otherwise      -> newMetaKindVar
            ; return (n, kind) }
     kc_hs_tv (KindedTyVar n k) 
       = do { kind <- tcLHsKind k
@@ -1004,11 +1004,11 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thi
                -- matches the one declared here
            ; mb_thing <- tcLookupLcl_maybe n
            ; case mb_thing of
-               Nothing          -> return ()
+               Nothing            -> return ()
                                      -- we only need the side effects;
                                      -- no need for coercion
-               Just (AThing ks) -> unifyType_ kind ks
-               Just thing       -> pprPanic "check_in_scope" (ppr thing)
+               Just (ATyVar _ tv) -> unifyType_ kind (tyVarKind tv)
+               Just thing         -> pprPanic "check_in_scope" (ppr thing)
            ; return (n, kind) }
 
 tcHsTyVarBndrs :: LHsTyVarBndrs Name 
