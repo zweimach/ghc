@@ -548,11 +548,15 @@ tcExtendLocalTypeEnv tc_ty_things not_actually_free
   where
     extra_tvs = foldr get_tvs emptyVarSet tc_ty_things `minusVarSet` not_actually_free
 
-    get_tvs (_, ATcId { tct_id = id, tct_closed = closed }) tvs
-      = case closed of
+    get_tvs (_, ATcId { tct_id = id {-, tct_closed = closed -} }) tvs
+      ={- case closed of
           TopLevel    -> ASSERT2( isEmptyVarSet id_tvs, ppr id $$ ppr (idType id) )
                          tvs
-          NotTopLevel -> tvs `unionVarSet` id_tvs
+          NotTopLevel -> -} tvs `unionVarSet` id_tvs
+           -- TODO (RAE): uncomment the code above. I believe once zonkTcType
+           -- can establish invariants, this should work. The problem is that
+           -- reflexive covars can leak into "closed" ids' types. But with
+           -- better zonking, this problem should disappear. Test case: Data.Ratio.
         where id_tvs = tyCoVarsOfType (idType id)
 
     get_tvs (_, ATyVar _ tv) tvs          -- See Note [Global TyVars]
