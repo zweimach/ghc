@@ -75,16 +75,6 @@ fix:
   - add CoreLint checks for levity polymorphism used the right way. But, what exactly
     is the right way??
   - need an -fprint-explicit-coercions, which is off by default.
-  - homogeniseRhsKind should probably request representational coercions:
-      Say we had [W]: (t :: k1) ~ (s :: k2). This was homogenized to
-      become [W]: t ~ s |> g, where g :: k2 ~ k1. Of course, g has to
-      be representational. But we can still emit a *nominal* wanted
-      equality and then use SubCo. Otherwise, we need lifted and unlifted
-      representational equalities in the solver, and it all made my
-      head spin. This will have to be revisited if/when we have type-level
-      coerce, but at least my head has stopped spinning. Implementation plan:
-      a new constructor for PredTree: EqReprPred, that can track both lifted
-      and unlifted representational equality.
 - figure out how to handle the range of equalities. In particular,
   fix classifyPredType,
   - consider re-engineering the boxity problems in solver. look for the "LikeEv" functions
@@ -145,12 +135,6 @@ please remove:
 - znokCtEvidence now does more zonking, because I needed that in simplifyInfer.
 
 - quantifyTyCoVars, which is used during inference only to decide what to quantify over, should never quantify over covars!
-
-- MonoLocalBinds now on by default. Life is just better this way.
-  But it was motivated by the failure of base's Numeric module -- specifically
-  the showInt function, which has a local definition that captures an outer
-  variable. GHC ended up inferring a casted type, and then the coercion
-  binding was ill-scoped.
 
 - Test uses of unifyType_ to make sure that kind families are tolerated
 in those positions.
