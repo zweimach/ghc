@@ -1579,6 +1579,9 @@ available at www.cis.upenn.edu/~sweirich/papers/fckinds-extended.pdf
 
 data LiftingContext = LC InScopeSet LiftCoEnv
 
+instance Outputable LiftingContext where
+  ppr (LC _ env) = hang (text "LiftingContext:") 2 (ppr env)
+
 type LiftCoEnv = VarEnv CoercionArg
      -- Maps *type variables* to *coercions* (TyCoArg) and coercion variables
      -- to pairs of coercions (CoCoArg). That's the whole point of this function!
@@ -1698,30 +1701,33 @@ ty_co_subst lc@(LC _ env) role ty
 {-
 Note [liftCoSubstTyVar]
 ~~~~~~~~~~~~~~~~~~~~~~~
-This function can fail (i.e., return Nothing) for two separate reasons:
- 1) The variable is not in the substutition
- 2) The coercion found is of too low a role
+This function can fail if a coercion in the environment is of too low a role.
 
 liftCoSubstTyVar is called from two places: in liftCoSubst (naturally), and
 also in matchAxiom in OptCoercion. From liftCoSubst, the so-called lifting
-lemma guarantees that the roles work out. If we fail for reason 2) in this
+lemma guarantees that the roles work out. If we fail in this
 case, we really should panic -- something is deeply wrong. But, in matchAxiom,
-failing for reason 2) is fine. matchAxiom is trying to find a set of coercions
+failing is fine. matchAxiom is trying to find a set of coercions
 that match, but it may fail, and this is healthy behavior.
 -}
 
 liftCoSubstTyVar :: LiftingContext -> Role -> TyVar -> Maybe Coercion
 liftCoSubstTyVar (LC _ cenv) r tv
-  = do { TyCoArg co <- lookupVarEnv cenv tv
-       ; let co_role = coercionRole co   -- could theoretically take this as
-                                         -- a parameter, but painful
-       ; downgradeRole_maybe r co_role co } -- see Note [liftCoSubstTyVar]
+  | Just (TyCoArg co) <- lookupVarEnv cenv tv
+  = downgradeRole_maybe r (coercionRole co) co -- see Note [liftCoSubstTyVar]
+      -- could theoretically take (coercionRole co) as a parameter,
+      -- but it would be painful
+
+  | otherwise
+  = Just $ mkReflCo r (mkOnlyTyVarTy tv)
 
 liftCoSubstTyCoVar :: LiftingContext -> Role -> TyCoVar -> Maybe CoercionArg
 liftCoSubstTyCoVar (LC _ env) r v
-  = do { co_arg <- lookupVarEnv env v
-       ; let co_arg_role = coercionArgRole co_arg
-       ; setRoleArg_maybe r co_arg_role co_arg }
+  | Just co_arg <- lookupVarEnv env v
+  = setRoleArg_maybe r (coercionArgRole co_arg) co_arg
+
+  | otherwise
+  = Just $ liftSimply r (mkTyCoVarTy v)
 
 liftCoSubstVarBndr :: Role -> LiftingContext -> TyCoVar
                      -> (LiftingContext, ForAllCoBndr)

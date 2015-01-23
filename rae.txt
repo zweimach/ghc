@@ -117,7 +117,7 @@ fix:
   - changed newSigTyVar *not* to make a new unique. OK? This is necessary because
     we need to be able to match up undeclared (but user-written) kind variables
     before and after kind-checking.
-  - check scoping of coercions with NoMonoLocalBinds. Test base's Numeric.
+  - Remove try_repr_defaulting once we have a better role for `kind`.
 
 check out usages of:
 
