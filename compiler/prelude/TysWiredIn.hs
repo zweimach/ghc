@@ -76,7 +76,9 @@ module TysWiredIn (
         levityTy, levityTyCon, liftedDataCon, unliftedDataCon,
         liftedPromDataCon, unliftedPromDataCon,
         liftedDataConTy, unliftedDataConTy,
-        liftedDataConName, unliftedDataConName
+        liftedDataConName, unliftedDataConName,
+
+        specialPromotedDc
     ) where
 
 #include "HsVersions.h"
@@ -581,6 +583,13 @@ unliftedPromDataCon = promoteDataCon unliftedDataCon
 liftedDataConTy, unliftedDataConTy :: Type
 liftedDataConTy   = mkTyConTy liftedPromDataCon
 unliftedDataConTy = mkTyConTy unliftedPromDataCon
+
+-- | Should this DataCon be allowed in a type even without -XDataKinds?
+-- Currently, only Lifted & Unlifted
+specialPromotedDc :: DataCon -> Bool
+specialPromotedDc dc
+  = name == liftedDataConName || name == unliftedDataConName
+  where name = dataConName dc
 
 charTy :: Type
 charTy = mkTyConTy charTyCon

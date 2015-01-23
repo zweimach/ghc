@@ -691,7 +691,8 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
 
            AGlobal (AConLike (RealDataCon dc))
              -> do { data_kinds <- xoptM Opt_DataKinds
-                   ; unless data_kinds $ promotionErr name NoDataKinds
+                   ; unless (data_kinds || specialPromotedDc dc) $
+                     promotionErr name NoDataKinds
                    ; let tc = promoteDataCon dc
                    ; return (mkNakedTyConApp tc [], tyConKind tc) }
 

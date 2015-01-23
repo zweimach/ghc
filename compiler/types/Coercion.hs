@@ -2314,7 +2314,7 @@ build_coherence_co = go
     go env ty1 (CastTy ty2 co2)
       = mkCoherenceRightCo (go env ty1 ty2) (rename_co rnEnvR env co2)
 
-    go _ _ _ = panic "buildCoherenceCo"
+    go _ ty1 ty2  = pprPanic "buildCoherenceCo" (ppr ty1 $$ ppr ty2)
 
     go_bndr env tv1 tv2
       | k1 `eqType` k2 = let (env', tv') = rnBndr2_var env tv1 tv2 in
