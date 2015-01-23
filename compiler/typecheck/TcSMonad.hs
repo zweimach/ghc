@@ -29,13 +29,13 @@ module TcSMonad (
 
     newTcEvBinds, newWantedEvVar, newWantedEvVarNC, newBoundEvVarId,
     setWantedTyBind, reportUnifications,
-    setEvBind,
+    setEvBind, dropEvBindFromVar,
     newEvVar, newGivenEvVar, newGivenEvVars,
     newDerived, emitNewDerived,
     instDFunConstraints,
 
     getInstEnvs, getFamInstEnvs,                -- Getting the environments
-    getTopEnv, getGblEnv, getTcEvBinds, getTcLevel,
+    getTopEnv, getGblEnv, getTcEvBinds, getTcEvBindsFromVar, getTcLevel,
     getTcEvBindsMap,
 
         -- Inerts
@@ -1420,6 +1420,9 @@ updTcRef ref upd_fn = wrapTcS (TcM.updTcRef ref upd_fn)
 getTcEvBinds :: TcS EvBindsVar
 getTcEvBinds = TcS (return . tcs_ev_binds)
 
+getTcEvBindsFromVar :: EvBindsVar -> TcS (Bag EvBind)
+getTcEvBindsFromVar = wrapTcS . TcM.getTcEvBinds
+
 getTcLevel :: TcS TcLevel
 getTcLevel = wrapTcS TcM.getTcLevel
 
@@ -1694,16 +1697,28 @@ getEvTerm :: MaybeNew -> EvTerm
 getEvTerm (Fresh ctev) = ctEvTerm ctev
 getEvTerm (Cached evt) = evt
 
+-- | Record the state of an EvBindsVar in the TcS monad, unless that
+-- EvBindsVar has already been preserved
+saveOrigEvBindsVar :: EvBindsVar -> TcS ()
+saveOrigEvBindsVar ev_binds_var
+  = TcS $ \ TcSEnv { tcs_orig_binds = orig_maps } ->
+    do { ev_map <- TcM.readTcRef orig_maps
+       ; unless (ev_binds_var `elemUFM` ev_map) $
+         do { ev_binds_map <- TcM.getTcEvBindsMap ev_binds_var
+            ; let ev_map' = addToUFM ev_map ev_binds_var (ev_binds_var, ev_binds_map)
+            ; TcM.writeTcRef orig_maps ev_map' } }
+
 setEvBind :: EvVar -> EvTerm -> CtLoc -> TcS ()
 setEvBind the_ev tm loc
-  = TcS $ \ TcSEnv { tcs_ev_binds   = tc_evbinds
-                   , tcs_orig_binds = orig_maps } ->
-    do { ev_map <- TcM.readTcRef orig_maps
-       ; unless (tc_evbinds `elemUFM` ev_map) $
-         do { ev_binds_map <- TcM.getTcEvBindsMap tc_evbinds
-            ; let ev_map' = addToUFM ev_map tc_evbinds (tc_evbinds, ev_binds_map)
-            ; TcM.writeTcRef orig_maps ev_map' }
-       ; TcM.addTcEvBind tc_evbinds the_ev tm loc }
+  = do { ev_binds_var <- getTcEvBinds
+       ; saveOrigEvBindsVar ev_binds_var
+       ; wrapTcS $ TcM.addTcEvBind ev_binds_var the_ev tm loc }
+
+-- | Drop a binding from an EvBindsVar
+dropEvBindFromVar :: EvBindsVar -> EvVar -> TcS ()
+dropEvBindFromVar ev_binds_var the_ev
+  = do { saveOrigEvBindsVar ev_binds_var
+       ; wrapTcS $ TcM.dropTcEvBind ev_binds_var the_ev }
 
 newTcEvBinds :: TcS EvBindsVar
 newTcEvBinds = wrapTcS TcM.newTcEvBinds

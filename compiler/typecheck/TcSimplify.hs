@@ -362,6 +362,9 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                   -- NB: simple_wanteds should be all CtWanted, so ctEvId should
                   -- be OK.
 
+            -- some bits to be promoted might be in the ev_binds_var
+       ; promote_binds <- promoteEvBinds promote_tvs ev_binds_var
+
        ; let minimal_simple_preds = mkMinimalBySCs bound
                   -- See Note [Minimize by Superclasses]
              skol_info = InferSkol [ (name, mkSigmaTy [] minimal_simple_preds ty)
@@ -383,7 +386,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                              , ic_info     = skol_info
                              , ic_env      = tc_lcl_env }
        ; emitImplication implic
-       ; emitSimples promote_wanteds
+       ; emitSimples (promote_wanteds `unionBags` promote_binds)
 
        ; traceTc "} simplifyInfer/produced residual implication for quantification" $
          vcat [ ptext (sLit "quant_pred_candidates =") <+> ppr quant_pred_candidates
@@ -440,6 +443,10 @@ variable had better be defined in a larger scope than the local
 definition. In practice, this means that the promoted covars do *not*
 form part of the implication constraint emitted at the end of simplifyInfer.
 Instead, they are emitted as simple constraints in the larger scope.
+
+Note also that these covars might not appear in the original wanteds. So,
+we also look through the EvBinds to make sure to promote covars from there,
+too.
 
 -}
 
@@ -990,7 +997,7 @@ solveImplication imp@(Implic { ic_tclvl  = tclvl
                   ; return (no_eqs, residual_wanted) }
 
        ; (floated_eqs, final_wanted)
-             <- floatEqualities skols no_given_eqs residual_wanted
+             <- floatEqualities ev_binds skols no_given_eqs residual_wanted
 
        ; let res_implic | isEmptyWC final_wanted -- && no_given_eqs
                         = emptyBag  -- Reason for the no_given_eqs: we don't want to
@@ -1076,6 +1083,29 @@ promoteTyVarTcS tclvl tv
        ; setWantedTyBind tv (mkTyCoVarTy rhs_tv) }
   | otherwise
   = return ()
+
+-- | For every binding whose bound variable is in the provided set of
+-- variables, remove the binding and build a Wanted constraint from it.
+-- This is necessary when promoting something whose type mentions a covar
+-- bound in the EvBindsVar. If we don't promote, then the covar ends up
+-- out of scope. Precondition: input set is closed over kinds!
+promoteEvBinds :: TcTyCoVarSet -> EvBindsVar -> TcM Cts
+-- NB: We don't really have to remove the binding from the EvBindsVar,
+-- as it will just harmlessly shadow the outer, promoted binding. But
+-- it's cleaner to remove.
+promoteEvBinds cvs ev_binds_var
+  = do { ev_binds <- TcM.getTcEvBinds ev_binds_var
+       ; let promote_binds = filterBag ((`elemVarSet` cvs) . evBindVar) ev_binds
+       ; mapBagM_ (TcM.dropTcEvBind ev_binds_var . evBindVar) promote_binds
+       ; return $ mapBag (mkNonCanonical . evBindWanted) promote_binds }
+
+-- | Like 'promoteEvBinds' but in the TcS monad (so that it can be undone)
+promoteEvBindsTcS :: TcTyCoVarSet -> EvBindsVar -> TcS Cts
+promoteEvBindsTcS cvs ev_binds_var
+  = do { ev_binds <- TcS.getTcEvBindsFromVar ev_binds_var
+       ; let promote_binds = filterBag ((`elemVarSet` cvs) . evBindVar) ev_binds
+       ; mapBagM_ (TcS.dropEvBindFromVar ev_binds_var . evBindVar) promote_binds
+       ; return $ mapBag (mkNonCanonical . evBindWanted) promote_binds }
 
 -- | If the tyvar is a levity var, set it to Lifted. Returns whether or
 -- not this happened.
@@ -1333,7 +1363,7 @@ no evidence for a fundep equality), but equality superclasses do matter (since
 they carry evidence).
 -}
 
-floatEqualities :: [TcTyVar] -> Bool
+floatEqualities :: EvBindsVar -> [TcTyVar] -> Bool
                 -> WantedConstraints
                 -> TcS (Cts, WantedConstraints)
 -- Main idea: see Note [Float Equalities out of Implications]
@@ -1342,8 +1372,7 @@ floatEqualities :: [TcTyVar] -> Bool
 --               fully zonked, so that we can see their free variables
 --
 -- Postcondition: The returned floated constraints (Cts) are only
---                Wanted or Derived and come from the input wanted
---                ev vars or deriveds
+--                Wanted or Derived
 --
 -- Also performs some unifications (via promoteTyVar), adding to
 -- monadically-carried ty_binds. These will be used when processing
@@ -1351,21 +1380,33 @@ floatEqualities :: [TcTyVar] -> Bool
 --
 -- Subtleties: Note [Float equalities from under a skolem binding]
 --             Note [Skolem escape]
-floatEqualities skols no_given_eqs wanteds@(WC { wc_simple = simples })
+floatEqualities ev_binds_var skols no_given_eqs
+                wanteds@(WC { wc_simple = simples })
   | not no_given_eqs  -- There are some given equalities, so don't float
   = return (emptyBag, wanteds)   -- Note [Float Equalities out of Implications]
   | otherwise
   = do { outer_tclvl <- TcS.getTcLevel
-       ; mapM_ (promoteTyVarTcS outer_tclvl) (varSetElems (tyCoVarsOfCts float_eqs))
-             -- See Note [Promoting unification variables]
+       ; mapM_ (promoteTyVarTcS outer_tclvl) (varSetElems float_tvs)
+           -- See Note [Promoting unification variables]
+
+       ; more_to_float <- promoteEvBindsTcS float_tvs ev_binds_var
+           -- See Note [Promoting coercion variables]
+
        ; traceTcS "floatEqualities" (vcat [ text "Skols =" <+> ppr skols
                                           , text "Simples =" <+> ppr simples
                                           , text "Floated eqs =" <+> ppr float_eqs ])
-       ; return (float_eqs, wanteds { wc_simple = remaining_simples }) }
+       ; return ( float_eqs `unionBags` more_to_float
+                , wanteds { wc_simple = remaining_simples2 } ) }
   where
     skol_set = mkVarSet skols
-    (float_eqs, remaining_simples) = partitionBag float_me simples
+    (float_eqs1, remaining_simples1) = partitionBag float_me simples
 
+    float_tvs = tyCoVarsOfCts float_eqs1
+    (float_eqs2, remaining_simples2) = partitionBag (`ct_in_set` float_tvs)
+                                                    remaining_simples1
+
+    float_eqs = float_eqs1 `unionBags` float_eqs2
+                                                     
     float_me :: Ct -> Bool
     float_me ct   -- The constraint is un-flattened and de-cannonicalised
        | let pred = ctPred ct
@@ -1378,22 +1419,24 @@ floatEqualities skols no_given_eqs wanteds@(WC { wc_simple = simples })
 
       -- Float out alpha ~ ty, or ty ~ alpha
       -- which might be unified outside
-      -- See Note [Do not float kind-incompatible equalities]
     useful_to_float ty1 ty2
-      | k1 `eqType` k2
       = case (tcGetTyVar_maybe ty1, tcGetTyVar_maybe ty2) of
           (Just tv1, _) | isMetaTyVar tv1 -> True
           (_, Just tv2) | isMetaTyVar tv2 -> True
           _                               -> False
+
+    ct `ct_in_set` set
+      | isWantedCt ct
+      = (ctEvId (ctEvidence ct)) `elemVarSet` set
       | otherwise
       = False
-      where
-        k1 = typeKind ty1
-        k2 = typeKind ty2
 
 {-
 Note [Do not float kind-incompatible equalities]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+TODO (RAE): I removed this check. Remove this Note when everything else
+is working.
+
 If we have (t::* ~ s::*->*), we'll get a Derived insoluble equality.
 If we float the equality outwards, we'll get *another* Derived
 insoluble equality one level out, so the same error will be reported

@@ -12,7 +12,8 @@ module TcEvidence (
 
   -- Evidence bindings
   TcEvBinds(..), EvBindsVar(..), 
-  EvBindMap(..), emptyEvBindMap, extendEvBinds, lookupEvBind, evBindMapBinds,
+  EvBindMap(..), emptyEvBindMap, extendEvBinds, dropEvBind,
+  lookupEvBind, evBindMapBinds,
   EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, evBindsSubst, sccEvBinds, evBindVar,
   EvTerm(..), mkEvCast, evVarsOfTerm,
   EvLit(..), evTermCoercion,
@@ -813,6 +814,10 @@ extendEvBinds bs v t l
                                               (EvBind { evb_var  = v
                                                       , evb_term = t
                                                       , evb_loc  = l}) }
+
+dropEvBind :: EvBindMap -> EvVar -> EvBindMap
+dropEvBind bs v
+  = EvBindMap { ev_bind_varenv = delVarEnv (ev_bind_varenv bs) v }
 
 lookupEvBind :: EvBindMap -> EvVar -> Maybe EvBind
 lookupEvBind bs = lookupVarEnv (ev_bind_varenv bs)
