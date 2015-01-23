@@ -567,8 +567,7 @@ tcCoercionToCoercion subst tc_co
     go_arg tc_co              = mkTyCoArg <$> go tc_co
 
     ds_co_binds :: TcEvBinds -> TCvSubst
-    ds_co_binds (EvBinds bs)      = pprTrace "RAE tcCoToCo calls evBindsSubst" empty $
-                                    evBindsSubst subst bs
+    ds_co_binds (EvBinds bs)      = evBindsSubst subst bs
     ds_co_binds eb@(TcEvBinds {}) = pprPanic "ds_co_binds" (ppr eb)
 
 -- Pretty printing
@@ -1014,16 +1013,14 @@ evBindsSubst subst = foldl combine subst . sccEvBinds
     combine env _
       = env
 
-    convert env (EvCoercion tc_co) = pprTrace "RAE evBindsSubst1" empty $
-                                     tcCoercionToCoercion env tc_co
+    convert env (EvCoercion tc_co) = tcCoercionToCoercion env tc_co
     convert env (EvId v)
       | Just co <- lookupCoVar env v = Just co
       | isCoVar v                    = Just $ mkCoVarCo v
       | otherwise                    = Nothing
     convert env (EvCast tm1 tc_co2)
       | Just co1 <- convert env tm1
-      = mkCoCast co1 <$> (pprTrace "RAE evBindsSubst2" empty $
-                         tcCoercionToCoercion env tc_co2)
+      = mkCoCast co1 <$> tcCoercionToCoercion env tc_co2
       | otherwise
       = Nothing
     convert _ _ = Nothing  -- this can happen with superclass equalities!

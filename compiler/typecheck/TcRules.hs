@@ -169,12 +169,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
            -- Simplify the RHS constraints
        ; lcl_env <- getLclEnv
        ; rhs_binds_var <- newTcEvBinds
-       ; traceTc "RAE tcRule" (vcat [ text "topTcLevel:" <+> ppr topTcLevel
-                                    , text "qtkvs:" <+> ppr qtkvs
-                                    , text "lhs_evs:" <+> ppr lhs_evs
-                                    , text "rhs_wanted:" <+> ppr rhs_wanted
-                                    , text "insol:" <+> ppr (insolubleWC rhs_wanted)
-                                    , text "rhs_binds_var:" <+> ppr rhs_binds_var ])
+
        ; emitImplication $ Implic { ic_tclvl  = topTcLevel
                                   , ic_skols  = qtkvs
                                   , ic_no_eqs = False
@@ -189,11 +184,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
            -- (a) so that we report insoluble ones
            -- (b) so that we bind any soluble ones
        ; lhs_binds_var <- newTcEvBinds
-       ; traceTc "RAE tcRule 2" (vcat [ text "topTcLevel:" <+> ppr topTcLevel
-                                      , text "qtkvs:" <+> ppr qtkvs
-                                      , text "lhs_evs:" <+> ppr lhs_evs
-                                      , text "other_lhs_wanted:" <+> ppr other_lhs_wanted
-                                      , text "insol:" <+> ppr (insolubleWC other_lhs_wanted) ])                           
+
        ; emitImplication $ Implic { ic_tclvl  = topTcLevel
                                   , ic_skols  = qtkvs
                                   , ic_no_eqs = False
@@ -204,9 +195,6 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                                   , ic_info   = RuleSkol (unLoc name)
                                   , ic_env    = lcl_env }
 
-       ; traceTc "RAE tcRule 3" (vcat [ text "tpl_ids" <+> ppr tpl_ids
-                                      , text "fv_lhs" <+> ppr fv_lhs
-                                      , text "fv_rhs" <+> ppr fv_rhs ])
        ; return (HsRule name act
                     (map (noLoc . RuleBndr . noLoc) (qtkvs ++ tpl_ids))
                     (mkHsDictLet (TcEvBinds lhs_binds_var) lhs') fv_lhs

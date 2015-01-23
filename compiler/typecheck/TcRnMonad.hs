@@ -1154,37 +1154,31 @@ setConstraintVar lie_var = updLclEnv (\ env -> env { tcl_lie = lie_var })
 emitConstraints :: WantedConstraints -> TcM ()
 emitConstraints ct
   = do { lie_var <- getConstraintVar ;
-         traceTc "RAE emitConstraints" (ppr ct) ;
          updTcRef lie_var (`andWC` ct) }
 
 emitSimple :: Ct -> TcM ()
 emitSimple ct
   = do { lie_var <- getConstraintVar ;
-         traceTc "RAE emitSimple" (ppr ct) ;
          updTcRef lie_var (`addSimples` unitBag ct) }
 
 emitSimples :: Cts -> TcM ()
 emitSimples cts
   = do { lie_var <- getConstraintVar ;
-         traceTc "RAE emitSimples" (ppr cts) ;
          updTcRef lie_var (`addSimples` cts) }
 
 emitImplication :: Implication -> TcM ()
 emitImplication ct
   = do { lie_var <- getConstraintVar ;
-         traceTc "RAE emitImplication" (ppr ct) ;
          updTcRef lie_var (`addImplics` unitBag ct) }
 
 emitImplications :: Bag Implication -> TcM ()
 emitImplications ct
   = do { lie_var <- getConstraintVar ;
-         traceTc "RAE emitImplications" (ppr ct) ;
          updTcRef lie_var (`addImplics` ct) }
 
 emitInsoluble :: Ct -> TcM ()
 emitInsoluble ct
   = do { lie_var <- getConstraintVar ;
-         traceTc "RAE emitInsoluble" (ppr ct) ;
          updTcRef lie_var (`addInsols` unitBag ct) ;
          v <- readTcRef lie_var ;
          traceTc "emitInsoluble" (ppr v) }
