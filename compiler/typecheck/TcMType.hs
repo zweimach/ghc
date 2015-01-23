@@ -347,12 +347,8 @@ newNamedMetaTyVar name meta_info kind
 
 newSigTyVar :: Name -> Kind -> TcM TcTyVar
 newSigTyVar name kind
-  = do { uniq <- newUnique
-       ; let name' = setNameUnique name uniq
-                      -- Use the same OccName so that the tidy-er
-                      -- doesn't gratuitously rename 'a' to 'a0' etc
-       ; details <- newMetaDetails SigTv
-       ; return (mkTcTyVar name' kind details) }
+  = do { details <- newMetaDetails SigTv
+       ; return (mkTcTyVar name kind details) }
 
 newMetaDetails :: MetaInfo -> TcM TcTyVarDetails
 newMetaDetails info
