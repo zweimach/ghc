@@ -1748,6 +1748,7 @@ liftCoSubstVarBndrCallback fun homo r lc@(LC in_scope cenv) old_var
 
     (new_cenv, cobndr)
       | new_var == old_var
+      , isEmptyVarSet (tyCoVarsOfType (tyVarKind old_var))
       , k1 `eqType` k2
       = (delVarEnv cenv old_var, mkHomoCoBndr old_var)
 
