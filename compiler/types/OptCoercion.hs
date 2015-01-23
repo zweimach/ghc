@@ -815,32 +815,32 @@ opt_trans_rule is co1 co2
   -- See Note [Why call checkAxInstCo during optimisation]
   -- TrPushSymAxR
   | Just (sym, con, ind, cos1) <- co1_is_axiom_maybe
-  , Just cos2 <- matchAxiom sym con ind co2
   , True <- sym
+  , Just cos2 <- matchAxiom sym con ind co2
   , let newAxInst = AxiomInstCo con ind (opt_transList is (map mk_sym_co_arg cos2) cos1)
   , Nothing <- checkAxInstCo newAxInst
   = fireTransRule "TrPushSymAxR" co1 co2 $ SymCo newAxInst
 
   -- TrPushAxR
   | Just (sym, con, ind, cos1) <- co1_is_axiom_maybe
-  , Just cos2 <- matchAxiom sym con ind co2
   , False <- sym
+  , Just cos2 <- matchAxiom sym con ind co2
   , let newAxInst = AxiomInstCo con ind (opt_transList is cos1 cos2)
   , Nothing <- checkAxInstCo newAxInst
   = fireTransRule "TrPushAxR" co1 co2 newAxInst
 
   -- TrPushSymAxL
   | Just (sym, con, ind, cos2) <- co2_is_axiom_maybe
-  , Just cos1 <- matchAxiom (not sym) con ind co1
   , True <- sym
+  , Just cos1 <- matchAxiom (not sym) con ind co1
   , let newAxInst = AxiomInstCo con ind (opt_transList is cos2 (map mk_sym_co_arg cos1))
   , Nothing <- checkAxInstCo newAxInst
   = fireTransRule "TrPushSymAxL" co1 co2 $ SymCo newAxInst
 
   -- TrPushAxL  
   | Just (sym, con, ind, cos2) <- co2_is_axiom_maybe
-  , Just cos1 <- matchAxiom (not sym) con ind co1
   , False <- sym
+  , Just cos1 <- matchAxiom (not sym) con ind co1
   , let newAxInst = AxiomInstCo con ind (opt_transList is cos1 cos2)
   , Nothing <- checkAxInstCo newAxInst
   = fireTransRule "TrPushAxL" co1 co2 newAxInst
@@ -1022,16 +1022,16 @@ isAxiom_maybe _ = Nothing
 
 matchAxiom :: Bool -- True = match LHS, False = match RHS
            -> CoAxiom br -> Int -> Coercion -> Maybe [CoercionArg]
--- If we succeed in matching, then *all the quantified type variables are bound*
--- E.g.   if tvs = [a,b], lhs/rhs = [b], we'll fail
 matchAxiom sym ax@(CoAxiom { co_ax_tc = tc }) ind co
   = let (CoAxBranch { cab_tvs = qtvs
                     , cab_roles = roles
                     , cab_lhs = lhs
                     , cab_rhs = rhs }) = coAxiomNthBranch ax ind in
     case liftCoMatch (mkVarSet qtvs) (if sym then (mkTyConApp tc lhs) else rhs) co of
-      Nothing    -> Nothing
-      Just subst -> zipWithM (liftCoSubstTyCoVar subst) roles qtvs
+      Just subst
+        | all (`isMappedByLC` subst) qtvs
+        -> zipWithM (liftCoSubstTyCoVar subst) roles qtvs
+      _ -> Nothing
 
 -------------
 -- destruct a CoherenceCo

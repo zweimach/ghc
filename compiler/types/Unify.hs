@@ -1610,7 +1610,7 @@ liftCoMatch tmpls ty co
 
 -- | 'ty_co_match' does all the actual work for 'liftCoMatch'.
 ty_co_match :: MatchEnv -> LiftCoEnv -> Type -> Coercion -> Maybe LiftCoEnv
-ty_co_match menv subst ty co 
+ty_co_match menv subst ty co
   | Just ty' <- coreView ty = ty_co_match menv subst ty' co
 
   -- handle Refl case:

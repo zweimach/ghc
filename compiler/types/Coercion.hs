@@ -82,7 +82,7 @@ module Coercion (
         liftCoSubst, liftCoSubstTyVar, liftCoSubstWith, liftCoSubstWithEx,
         emptyLiftingContext, extendLiftingContext, extendLiftingContextIS,
         liftCoSubstTyCoVar, liftSimply,
-        liftCoSubstVarBndrCallback,
+        liftCoSubstVarBndrCallback, isMappedByLC,
 
         LiftCoEnv, LiftingContext(..), liftEnvSubstLeft, liftEnvSubstRight,
         substRightCo, substLeftCo,
@@ -1789,6 +1789,10 @@ liftCoSubstVarBndrCallback fun homo r lc@(LC in_scope cenv) old_var
         in
         ( extendVarEnv cenv old_var (CoCoArg Nominal (mkCoVarCo cv1) lifted_r)
         , mkCoHeteroCoBndr cv_eta cv1 cv2 )
+
+-- | Is a var in the domain of a lifting context?
+isMappedByLC :: TyCoVar -> LiftingContext -> Bool
+isMappedByLC tv (LC _ env) = tv `elemVarEnv` env
 
 -- If [a |-> g] is in the substitution and g :: t1 ~ t2, substitute a for t1
 -- If [a |-> (g1, g2)] is in the substitution, substitute a for g1
