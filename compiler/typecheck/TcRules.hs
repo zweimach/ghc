@@ -141,7 +141,6 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                                   , ppr rhs_wanted ])
        ; (lhs_evs, other_lhs_wanted) <- simplifyRule (unLoc name) lhs_wanted
                                                      rhs_wanted
-       ; traceTc "RAE tcRule1" (ppr name $$ ppr lhs_evs $$ ppr other_lhs_wanted $$ ppr rhs_wanted)
 
         -- Now figure out what to quantify over
         -- c.f. TcSimplify.simplifyInfer

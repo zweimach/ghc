@@ -711,8 +711,7 @@ reactFunEq from_this fsk1
            solve_this@(CtGiven { ctev_evtm = tm, ctev_loc = loc
                                , ctev_pred = pred }) fsk2
   = do { let from_term = ctEvCoherence from_this pred
-             fsk_eq_co = pprTrace "RAE reactFunEq" empty $
-                         mkTcSymCo (evTermCoercion tm)
+             fsk_eq_co = mkTcSymCo (evTermCoercion tm)
                          `mkTcTransCo` evTermCoercion from_term
                          -- :: fsk2 ~ fsk1
              fsk_eq_pred = mkTcEqPredLikeEv solve_this
@@ -1597,8 +1596,7 @@ doTopReactFunEq work_item@(CFunEqCan { cc_ev = old_ev, cc_fun = fam_tc
          -- Try shortcut; see Note [Short cut for top-level reaction]
 
     | isGiven old_ev  -- Not shortcut
-    -> do { let final_co = pprTrace "RAE doTopReactFunEq" empty $
-                           mkTcSymCo (ctEvCoercion old_ev) `mkTcTransCo` ax_co
+    -> do { let final_co = mkTcSymCo (ctEvCoercion old_ev) `mkTcTransCo` ax_co
                 -- final_co :: fsk ~ rhs_ty
           ; new_ev <- newGivenEvVar deeper_loc (mkTcEqPred (mkOnlyTyVarTy fsk) rhs_ty,
                                                 EvCoercion final_co)
@@ -1618,8 +1616,7 @@ doTopReactFunEq work_item@(CFunEqCan { cc_ev = old_ev, cc_fun = fam_tc
           ; emitWorkNC [new_ev]
               -- By emitting this as non-canonical, we deal with all
               -- flattening, occurs-check, and ufsk := ufsk issues
-          ; let final_co = pprTrace "RAE doTopReactFunEq 2" empty $
-                           ax_co `mkTcTransCo` mkTcSymCo (ctEvCoercion new_ev)
+          ; let final_co = ax_co `mkTcTransCo` mkTcSymCo (ctEvCoercion new_ev)
               --    ax_co :: fam_tc args ~ rhs_ty
               --       ev :: alpha ~ rhs_ty
               --     ufsk := alpha
@@ -1659,8 +1656,7 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
 
        ; new_ev <- newGivenEvVar deeper_loc
                          ( mkTcEqPred (mkTyConApp fam_tc xis) (mkOnlyTyVarTy fsk)
-                         , EvCoercion (pprTrace "RAE shortCutReduction" empty $
-                                       mkTcTyConAppCo Nominal fam_tc cos
+                         , EvCoercion (mkTcTyConAppCo Nominal fam_tc cos
                                         `mkTcTransCo` mkTcSymCo ax_co
                                         `mkTcTransCo` ctEvCoercion old_ev) )
 
@@ -1682,8 +1678,7 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
 
        ; new_ev <- newWantedEvVarNC loc (mkTcEqPred (mkTyConApp fam_tc xis) (mkOnlyTyVarTy fsk))
        ; setEvBind (ctEvId old_ev)
-                   (EvCoercion (pprTrace "RAE shortCutReduction 2" empty $
-                                ax_co `mkTcTransCo` mkTcSymCo (mkTcTyConAppCo Nominal fam_tc cos)
+                   (EvCoercion (ax_co `mkTcTransCo` mkTcSymCo (mkTcTyConAppCo Nominal fam_tc cos)
                                       `mkTcTransCo` ctEvCoercion new_ev))
                    loc
 
@@ -2001,8 +1996,7 @@ matchClassInst _ clas [ ty ] _
     = return (GenInst { lir_new_theta = []
                       , lir_pred      = mkClassPred clas [ty]
                       , lir_ev_term   = mkEvCast (EvLit evLit) $
-                                        mkTcSymCo (pprTrace "RAE makeDict" empty $
-                                                   mkTcTransCo co_dict co_rep) })
+                                        mkTcSymCo (mkTcTransCo co_dict co_rep) })
 
     | otherwise
     = panicTcS (text "Unexpected evidence for" <+> ppr (className clas)

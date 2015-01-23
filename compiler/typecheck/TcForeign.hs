@@ -146,15 +146,13 @@ normaliseFfiType' env ty0 = go initRecTc ty0
              ; case checkNewtypeFFI rdr_env tc of
                  Nothing  -> nothing
                  Just gre -> do { (co', ty', gres) <- go rec_nts' nt_rhs
-                                ; return (pprTrace "RAE normaliseFfiType" empty $
-                                          mkTransCo nt_co co', ty', gre `consBag` gres) } }
+                                ; return (mkTransCo nt_co co', ty', gre `consBag` gres) } }
 
         | isFamilyTyCon tc              -- Expand open tycons
         , (co, ty) <- normaliseTcApp env Representational tc tys
         , not (isReflCo co)
         = do (co', ty', gres) <- go rec_nts ty
-             return (pprTrace "RAE normalizeFfiType 2" empty $
-                     mkTransCo co co', ty', gres)
+             return (mkTransCo co co', ty', gres)
 
         | otherwise
         = nothing -- see Note [Don't recur in normaliseFfiType']

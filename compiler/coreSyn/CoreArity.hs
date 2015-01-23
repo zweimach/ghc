@@ -902,8 +902,7 @@ pushCoercion co1 (EtaCo co2 : eis)
   | isReflCo co = eis
   | otherwise   = EtaCo co : eis
   where
-    co = pprTrace "RAE pushCoercion" empty $
-         co1 `mkTransCo` co2
+    co = co1 `mkTransCo` co2
 
 pushCoercion co eis = EtaCo co : eis
 

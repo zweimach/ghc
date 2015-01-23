@@ -294,7 +294,6 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
               -- bindings, so we can't just revert to the input
               -- constraint.
 
-       ; traceTc "RAE simplifyInfer" empty
        ; ev_binds_var <- TcM.newTcEvBinds
        ; wanted_transformed_incl_derivs <- setTcLevel rhs_tclvl $
                                            runTcSWithEvBinds ev_binds_var (solveWanteds wanteds)

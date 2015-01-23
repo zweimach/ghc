@@ -214,8 +214,7 @@ tcLookupDataFamInst_maybe fam_inst_envs tc tc_args
                  , fim_tys      = rep_args
                  , fim_coercion = match_co } <- match
   , let rep_tc = dataFamInstRepTyCon rep_fam
-        co     = pprTrace "RAE tcLookupDataFam" empty $
-                 mkSubCo match_co `mkTransCo`
+        co     = mkSubCo match_co `mkTransCo`
                  mkUnbranchedAxInstCo Representational co_tc rep_args
   = Just (rep_tc, rep_args, co)
 
@@ -246,8 +245,7 @@ tcTopNormaliseNewTypeTF_maybe faminsts rdr_env ty
         \ rec_nts tc tys ->
         case tcLookupDataFamInst_maybe faminsts tc tys of
           Just (tc', tys', co) ->
-            modifyStepResultCo (\co2 -> pprTrace "RAE tcTopNormalise" empty $
-                                        co `mkTransCo` co2)
+            modifyStepResultCo (co `mkTransCo`)
                                (unwrap_newtype rec_nts tc' tys')
           Nothing -> NS_Done
 

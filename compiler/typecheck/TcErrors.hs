@@ -96,8 +96,7 @@ compilation. The errors are turned into warnings in `reportUnsolved`.
 
 reportUnsolved :: WantedConstraints -> TcM (Bag EvBind)
 reportUnsolved wanted
-  = do { traceTc "RAE reportUnsolved" empty
-       ; binds_var <- newTcEvBinds
+  = do { binds_var <- newTcEvBinds
        ; defer_errors <- goptM Opt_DeferTypeErrors
        ; defer_holes <- goptM Opt_DeferTypedHoles
        ; warn_holes <- woptM Opt_WarnTypedHoles
