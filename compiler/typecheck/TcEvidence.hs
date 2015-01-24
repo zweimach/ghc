@@ -563,7 +563,7 @@ tcCoercionToCoercion subst tc_co
     go (TcKindCo co)            = mkKindCo <$> go co
     go (TcCoVarCo v)            = lookupCoVar subst v
     go (TcAxiomRuleCo co ts cs) = mkAxiomRuleCo co (map (Type.substTy subst) ts) <$> (mapM go cs)
-    go (TcCoercion co)          = Just co
+    go (TcCoercion co)          = Just (substCo subst co)
 
     go_arg tc_co              = mkTyCoArg <$> go tc_co
 
@@ -1045,7 +1045,9 @@ pprHsWrapper :: SDoc -> HsWrapper -> SDoc
 -- In debug mode, print the wrapper
 -- otherwise just print what's inside
 pprHsWrapper doc wrap
-  = getPprStyle (\ s -> if debugStyle s then (help (add_parens doc) wrap False) else doc)
+  = getPprStyle (\ s -> if (dumpStyle s && debugIsOn) || debugStyle s
+                        then (help (add_parens doc) wrap False)
+                        else doc )
   where
     help :: (Bool -> SDoc) -> HsWrapper -> Bool -> SDoc
     -- True  <=> appears in function application position
