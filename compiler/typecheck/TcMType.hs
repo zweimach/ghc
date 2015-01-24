@@ -729,7 +729,7 @@ defaultKindVar kv
 
 skolemiseUnboundMetaTyVar :: TcTyVar -> TcTyVarDetails -> TcM TyVar
 -- We have a Meta tyvar with a ref-cell inside it
--- Skolemise it, including giving it a new Name, so that
+-- Skolemise it, so that
 --   we are totally out of Meta-tyvar-land
 -- We create a skolem TyVar, not a regular TyVar
 --   See Note [Zonking to Skolem]
@@ -737,24 +737,16 @@ skolemiseUnboundMetaTyVar tv details
   = ASSERT2( isMetaTyVar tv, ppr tv ) 
     do  { span <- getSrcSpanM    -- Get the location from "here"
                                  -- ie where we are generalising
-        ; uniq <- newUnique      -- Remove it from TcMetaTyVar unique land
         ; kind <- zonkTcType (tyVarKind tv)
-        ; let tv_name = getOccName tv
-              new_tv_name = if isWildcardVar tv
-                            then generaliseWildcardVarName tv_name
-                            else tv_name
-              final_name = mkInternalName uniq new_tv_name span
+        ; let tv_name    = tyVarName tv
+                -- NB: Use same Unique as original tyvar. This is
+                -- important for TcHsType.splitTelescopeTvs to work properly
+              final_name = setNameLoc tv_name span
               final_tv   = mkTcTyVar final_name kind details
 
         ; traceTc "Skolemising" (ppr tv <+> ptext (sLit ":=") <+> ppr final_tv)
         ; writeMetaTyVar tv (mkTyCoVarTy final_tv)
         ; return final_tv }
-  where
-    -- If a wildcard type called _a is generalised, we rename it to tw_a
-    generaliseWildcardVarName :: OccName -> OccName
-    generaliseWildcardVarName name | startsWithUnderscore name
-      = mkOccNameFS (occNameSpace name) (appendFS (fsLit "w") (occNameFS name))
-    generaliseWildcardVarName name = name
 
 {-
 Note [Zonking to Skolem]
@@ -1209,8 +1201,3 @@ newWildcardVarMetaKind :: Name -> TcM TcTyVar
 newWildcardVarMetaKind name = do kind <- newMetaKindVar
                                  newWildcardVar name kind
 
--- | Return 'True' if the argument is a meta var created for a wildcard (by
--- 'newWildcardVar' or 'newWildcardVarMetaKind').
-isWildcardVar :: TcTyVar -> Bool
-isWildcardVar tv | isTcTyVar tv, MetaTv (TauTv True) _ _ <- tcTyVarDetails tv = True
-isWildcardVar _ = False
