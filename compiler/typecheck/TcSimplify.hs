@@ -502,18 +502,26 @@ decideQuantification apply_mr constraint_vars zonked_tau_tvs
                            `unionVarSet` (constraint_tvs `intersectVarSet` zonked_tau_tvs)
              poly_qtvs   = growThetaTyCoVars constraints zonked_tau_tvs
                            `minusVarSet` mono_tvs
-             promote_tvs = mono_tvs `intersectVarSet` (constrained_tvs `unionVarSet` zonked_tau_tvs)
-             theta       = filter (quantifyPred poly_qtvs) $
-                           map varType $
-                           filter (not . (`elemVarSet` mono_tvs)) constraint_vars
+             (theta_vars, other_constraint_vars)
+                         = partition (quantifyPred poly_qtvs . varType &&&
+                                      not . (`elemVarSet` mono_tvs)) constraint_vars
 
-       ; qtvs <- quantifyTyCoVars mono_tvs poly_qtvs
-       ; traceTc "decideQuantification 2" (vcat [ppr constraints, ppr gbl_tvs, ppr mono_tvs, ppr poly_qtvs, ppr qtvs, ppr theta, ppr promote_tvs])
+             mono_tvs2   = mono_tvs `unionVarSet` mkVarSet other_constraint_vars
+             theta       = map varType theta_vars
+                           
+             promote_tvs = mono_tvs2 `intersectVarSet` (constrained_tvs `unionVarSet` zonked_tau_tvs)
+
+       ; qtvs <- quantifyTyCoVars mono_tvs2 poly_qtvs
+       ; traceTc "decideQuantification 2" (vcat [ppr constraints, ppr gbl_tvs, ppr mono_tvs2, ppr poly_qtvs, ppr qtvs, ppr theta, ppr promote_tvs])
        ; return (promote_tvs, qtvs, theta, False) }
   where
     constraints     = map varType constraint_vars
     constraint_tvs  = mkVarSet (filter isCoVar constraint_vars)
     constrained_tvs = tyCoVarsOfTypes constraints `unionVarSet` constraint_tvs
+
+    (&&&) :: (a -> Bool) -> (a -> Bool) -> a -> Bool
+    (&&&) f1 f2 x = f1 x && f2 x
+    infixr 3 &&&
 
 ------------------
 quantifyPred :: TyCoVarSet         -- Quantifying over these
