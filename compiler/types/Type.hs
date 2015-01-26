@@ -1219,7 +1219,7 @@ isClassPred ty = case tyConAppTyCon_maybe ty of
     Just tyCon | isClassTyCon tyCon -> True
     _                               -> False
 isEqPred ty = case tyConAppTyCon_maybe ty of
-    Just tyCon -> tyCon `hasKey` eqTyConKey
+    Just tyCon -> tyCon `hasKey` eqTyConKey || tyCon `hasKey` eqPrimTyConKey
     _          -> False
 
 isIPPred ty = case tyConAppTyCon_maybe ty of
