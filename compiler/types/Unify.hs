@@ -43,6 +43,8 @@ import Unique
 import Control.Monad
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..), Alternative(..))
+#else
+import Control.Applicative (Alternative(..))
 #endif
 
 {-
