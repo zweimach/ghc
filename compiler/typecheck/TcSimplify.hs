@@ -381,10 +381,18 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                        `intersectsVarSet` mkVarSet qtvs) )
          -- we can't promote things that mention quantified variables!
 
+       ; let minimal_simple_preds = mkMinimalBySCs bound
+                  -- See Note [Minimize by Superclasses]
+             skol_info = InferSkol [ (name, mkSigmaTy [] minimal_simple_preds ty)
+                                   | (name, ty) <- name_taus ]
+                        -- Don't add the quantified variables here, because
+                        -- they are also bound in ic_skols and we want them to be
+                        -- tidied uniformly
+
        ; outer_tclvl <- TcM.getTcLevel
        ; mapM_ (promoteTyVar outer_tclvl) (varSetElems promote_tvs)
 
-          -- See Note [Promoting coercion variables]
+         -- See Note [Promoting coercion variables]
        ; let (promote_wanteds, leave_wanteds)
                = partitionBag ((`elemVarSet` promote_tvs) . ctEvId . ctEvidence)
                               simple_wanteds
@@ -393,14 +401,6 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
 
             -- some bits to be promoted might be in the ev_binds_var
        ; promote_binds <- promoteEvBinds promote_tvs ev_binds_var
-
-       ; let minimal_simple_preds = mkMinimalBySCs bound
-                  -- See Note [Minimize by Superclasses]
-             skol_info = InferSkol [ (name, mkSigmaTy [] minimal_simple_preds ty)
-                                   | (name, ty) <- name_taus ]
-                        -- Don't add the quantified variables here, because
-                        -- they are also bound in ic_skols and we want them to be
-                        -- tidied uniformly
 
        ; minimal_bound_ev_vars <- mapM TcM.newEvVar minimal_simple_preds
 
@@ -489,9 +489,9 @@ decideQuantification :: Bool -> [EvVar] -> TcTyCoVarSet
 decideQuantification apply_mr constraint_vars zonked_tau_tvs
   | apply_mr     -- Apply the Monomorphism restriction
   = do { gbl_tvs <- tcGetGlobalTyVars
-       ; let mono_tvs = gbl_tvs `unionVarSet` constrained_tvs
-             mr_bites = constrained_tvs `intersectsVarSet` zonked_tau_tvs
-             promote_tvs = constrained_tvs `unionVarSet` (zonked_tau_tvs `intersectVarSet` gbl_tvs)
+       ; let mono_tvs = gbl_tvs `unionVarSet` constrained_tcvs
+             mr_bites = constrained_tcvs `intersectsVarSet` zonked_tau_tvs
+             promote_tvs = constrained_tcvs `unionVarSet` (zonked_tau_tvs `intersectVarSet` gbl_tvs)
        ; qtvs <- quantifyTyCoVars mono_tvs zonked_tau_tvs
        ; traceTc "decideQuantification 1" (vcat [ppr constraint_vars, ppr constraints, ppr gbl_tvs, ppr mono_tvs, ppr qtvs])
        ; return (promote_tvs, qtvs, [], mr_bites) }
@@ -499,7 +499,8 @@ decideQuantification apply_mr constraint_vars zonked_tau_tvs
   | otherwise
   = do { gbl_tvs <- tcGetGlobalTyVars
        ; let mono_tvs    = growThetaTyCoVars (filter isEqPred constraints) gbl_tvs
-                           `unionVarSet` (constraint_tvs `intersectVarSet` zonked_tau_tvs)
+                           `unionVarSet` (filterVarSet isCoVar $
+                                          zonked_tau_tvs `unionVarSet` constraint_fvs)
              poly_qtvs   = growThetaTyCoVars constraints zonked_tau_tvs
                            `minusVarSet` mono_tvs
              (theta_vars, other_constraint_vars)
@@ -509,15 +510,24 @@ decideQuantification apply_mr constraint_vars zonked_tau_tvs
              mono_tvs2   = mono_tvs `unionVarSet` mkVarSet other_constraint_vars
              theta       = map varType theta_vars
                            
-             promote_tvs = mono_tvs2 `intersectVarSet` (constrained_tvs `unionVarSet` zonked_tau_tvs)
+             promote_tvs = mono_tvs2 `intersectVarSet` (constrained_tcvs `unionVarSet` zonked_tau_tvs)
 
        ; qtvs <- quantifyTyCoVars mono_tvs2 poly_qtvs
-       ; traceTc "decideQuantification 2" (vcat [ppr constraints, ppr gbl_tvs, ppr mono_tvs2, ppr poly_qtvs, ppr qtvs, ppr theta, ppr promote_tvs])
+       ; traceTc "decideQuantification 2" $
+         vcat [ text "constraint_vars:" <+> ppr constraint_vars
+              , text "constraints:" <+> ppr constraints
+              , text "gbl_tvs:" <+> ppr gbl_tvs
+              , text "mono_tvs2:" <+> ppr mono_tvs2
+              , text "poly_qtvs:" <+> ppr poly_qtvs
+              , text "qtvs:" <+> ppr qtvs
+              , text "theta:" <+> ppr theta
+              , text "promote_tvs:" <+> ppr promote_tvs]
        ; return (promote_tvs, qtvs, theta, False) }
   where
-    constraints     = map varType constraint_vars
-    constraint_tvs  = mkVarSet (filter isCoVar constraint_vars)
-    constrained_tvs = tyCoVarsOfTypes constraints `unionVarSet` constraint_tvs
+    constraints      = map varType constraint_vars
+    constraint_cvs   = mkVarSet (filter isCoVar constraint_vars)
+    constraint_fvs   = tyCoVarsOfTypes constraints
+    constrained_tcvs = constraint_fvs `unionVarSet` constraint_cvs
 
     (&&&) :: (a -> Bool) -> (a -> Bool) -> a -> Bool
     (&&&) f1 f2 x = f1 x && f2 x
@@ -1153,6 +1163,9 @@ promoteEvBinds cvs ev_binds_var
 promoteEvBindsTcS :: TcTyCoVarSet -> EvBindsVar -> TcS Cts
 promoteEvBindsTcS cvs ev_binds_var
   = do { ev_binds <- TcS.getTcEvBindsFromVar ev_binds_var
+       ; traceTcS "promoteEvBindsTcS" (vcat [ ppr ev_binds_var
+                                            , ppr cvs
+                                            , ppr ev_binds ])
        ; let promote_binds = filterBag ((`elemVarSet` cvs) . evBindVar) ev_binds
        ; mapBagM_ (TcS.dropEvBindFromVar ev_binds_var . evBindVar) promote_binds
        ; return $ mapBag (mkNonCanonical . evBindWanted) promote_binds }
@@ -1444,7 +1457,8 @@ floatEqualities ev_binds_var skols no_given_eqs
 
        ; traceTcS "floatEqualities" (vcat [ text "Skols =" <+> ppr skols
                                           , text "Simples =" <+> ppr simples
-                                          , text "Floated eqs =" <+> ppr float_eqs ])
+                                          , text "Floated eqs =" <+> ppr float_eqs
+                                          , text "More floated =" <+> ppr more_to_float])
        ; return ( float_eqs `unionBags` more_to_float
                 , wanteds { wc_simple = remaining_simples2 } ) }
   where
@@ -1452,7 +1466,8 @@ floatEqualities ev_binds_var skols no_given_eqs
     (float_eqs1, remaining_simples1) = partitionBag float_me simples
 
     float_tvs = tyCoVarsOfCts float_eqs1
-    (float_eqs2, remaining_simples2) = partitionBag (`ct_in_set` float_tvs)
+    
+    (float_eqs2, remaining_simples2) = partitionBag (`ct_in_set` tyCoVarsOfCts simples)
                                                     remaining_simples1
 
     float_eqs = float_eqs1 `unionBags` float_eqs2
