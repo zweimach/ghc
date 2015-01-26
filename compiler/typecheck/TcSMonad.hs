@@ -1184,11 +1184,11 @@ csTraceTcM trace_level mk_doc
             ; TcM.traceTcRn Opt_D_dump_cs_trace msg } }
 
 runTcS :: TcS a                -- What to run
-       -> TcM (a, Bag EvBind)
+       -> TcM (a, EvBindMap)
 runTcS tcs
   = do { ev_binds_var <- TcM.newTcEvBinds
        ; res <- runTcSWithEvBinds ev_binds_var tcs
-       ; ev_binds <- TcM.getTcEvBinds ev_binds_var
+       ; ev_binds <- TcM.getTcEvBindsMap ev_binds_var
        ; return (res, ev_binds) }
 
 -- | Run a TcS action, but unfill any unified metavars.

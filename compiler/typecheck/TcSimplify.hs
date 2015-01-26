@@ -6,7 +6,7 @@ module TcSimplify(
        simplifyAmbiguityCheck,
        simplifyDefault,
        simplifyRule, simplifyTop, simplifyInteractive,
-       simplifyWantedsTcM
+       Purity(..), simplifyWantedsTcM
   ) where
 
 #include "HsVersions.h"
@@ -217,7 +217,7 @@ More details in Note [DefaultTyVar].
 simplifyAmbiguityCheck :: Type -> WantedConstraints -> TcM ()
 simplifyAmbiguityCheck ty wanteds
   = do { traceTc "simplifyAmbiguityCheck {" (text "type = " <+> ppr ty $$ text "wanted = " <+> ppr wanteds)
-       ; zonked_final_wc <- simplifyWantedsTcMCustom (simpl_top wanteds)
+       ; zonked_final_wc <- simplifyWantedsTcMCustom Pure (simpl_top wanteds)
        ; traceTc "End simplifyAmbiguityCheck }" empty
 
        -- Normally report all errors; but with -XAllowAmbiguousTypes
@@ -243,7 +243,7 @@ simplifyDefault :: ThetaType    -- Wanted; has no type variables in it
 simplifyDefault theta
   = do { traceTc "simplifyInteractive" empty
        ; wanted <- newSimpleWanteds DefaultOrigin theta
-       ; unsolved <- simplifyWantedsTcM (mkSimpleWC wanted)
+       ; unsolved <- simplifyWantedsTcM Pure (mkSimpleWC wanted)
 
        ; traceTc "reportUnsolved {" empty
        -- See Note [Deferring coercion errors to runtime]
@@ -364,7 +364,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                                    
                       ; WC { wc_simple = simples }
                            <- setTcLevel rhs_tclvl     $
-                              simplifyWantedsTcMCustom $
+                              simplifyWantedsTcMCustom Impure $
                               solveSimpleWanteds quant_cand
 
                       ; return [ ctEvId ev | ct <- bagToList simples
@@ -867,26 +867,39 @@ solveWantedsTcMWithEvBinds ev_binds_var wc tcs_action
        ; zonkWC wc2 }
          -- See Note [Zonk after solving]
 
-simplifyWantedsTcM :: WantedConstraints -> TcM WantedConstraints
+-- | Flag passed to 'simplifyWantedsTcM' as to whether or not the simplifier
+-- should be pure.
+data Purity = Pure
+            | Impure
+
+simplifyWantedsTcM :: Purity -- ^ Should the simplifier be pure? If the caller doesn't
+                             -- propagate the returned constraints, then this probably
+                             -- should be pure.
+                   -> WantedConstraints -> TcM WantedConstraints
 -- Zonk the input constraints, and simplify them
 -- Discards all Derived stuff in result
 -- Postcondition: fully zonked and unflattened constraints
 -- This is a "pure" operation, in that *no* unification will be observed.
-simplifyWantedsTcM wanted
+simplifyWantedsTcM purity wanted
   = do { traceTc "simplifyWantedsTcM {" (ppr wanted)
-       ; result <- simplifyWantedsTcMCustom (solveWantedsAndDrop wanted)
+       ; result <- simplifyWantedsTcMCustom purity (solveWantedsAndDrop wanted)
        ; traceTc "simplifyWantedsTcM }" (ppr result)
        ; return result }
 
 -- | Like 'simplifyWantedsTcM', but with a custom TcS action
-simplifyWantedsTcMCustom :: TcS WantedConstraints
+simplifyWantedsTcMCustom :: Purity
+                         -> TcS WantedConstraints
                          -> TcM WantedConstraints
-simplifyWantedsTcMCustom tcs
-  = do { (wc, ev_bind_map) <- tryTcS tcs
+simplifyWantedsTcMCustom purity tcs
+  = do { (wc, ev_bind_map) <- run_tcs tcs
        ; wc <- zonkWC wc
        ; let new_wc = evBindMapWanteds (tyCoVarsOfWC wc) ev_bind_map
        ; new_wc <- zonkWC new_wc
        ; return (wc `andWC` new_wc) }
+  where
+    run_tcs = case purity of
+                Pure   -> tryTcS
+                Impure -> runTcS
 
 -- | Produce a bag of wanted constraints, extracted from an 'EvBindMap',
 -- for any covar included in the provided 'TyCoVarSet'
