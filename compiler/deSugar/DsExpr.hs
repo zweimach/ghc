@@ -35,7 +35,6 @@ import Platform
 -- NB: The desugarer, which straddles the source and Core worlds, sometimes
 --     needs to see source types
 import TcType
-import Coercion ( Role(..), isCoVar )
 import TcEvidence
 import TcRnMonad
 import Type
@@ -49,7 +48,6 @@ import CostCentre
 import Id
 import Module
 import VarSet
-import VarEnv
 import ConLike
 import DataCon
 import TysWiredIn
@@ -64,6 +62,7 @@ import FastString
 
 import IdInfo
 import Data.IORef       ( atomicModifyIORef, modifyIORef )
+import Data.List   ( mapAccumL )
 
 import Control.Monad
 import GHC.Fingerprint
@@ -545,17 +544,6 @@ RHSs, and do not generate a Core constructor application directly, because the c
 might do some argument-evaluation first; and may have to throw away some
 dictionaries.
 
-Note [Update for GADTs]
-~~~~~~~~~~~~~~~~~~~~~~~
-Consider
-   data T a b where
-     T1 { f1 :: a } :: T a Int
-
-Then the wrapper function for T1 has type
-   $WT1 :: a -> T a Int
-But if x::T a b, then
-   x { f1 = v } :: T a b   (not T a Int!)
-So we need to cast (T a Int) to (T a b).  Sigh.
 -}
 
 dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
@@ -607,12 +595,11 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
     tycon     = dataConTyCon (head cons_to_upd)
 
     mk_alt in_inst_tys' out_inst_tys' upd_fld_env con
-      = do { let (univ_tvs, ex_tvs, dep_eq_spec, eq_spec, 
-                  theta, arg_tys, _) = dataConFullSig con
-                 subst = mkTopTCvSubst (univ_tvs `zip` in_inst_tys')
+      = do { let (univ_tvs, ex_tvs, _, eq_spec, theta, arg_tys, _) = dataConFullSig con
+                 subst1           = mkTopTCvSubst (univ_tvs `zip` in_inst_tys')
+                 (subst, ex_tvs') = mapAccumL substTyCoVarBndr subst1 ex_tvs
 
                 -- I'm not bothering to clone the ex_tvs
-           ; let dep_eqs_vars = filter isCoVar ex_tvs
            ; eqs_vars   <- mapM newPredVarDs (substTheta subst (eqSpecPreds eq_spec))
            ; theta_vars <- mapM newPredVarDs (substTheta subst theta)
            ; arg_ids    <- newSysLocalsDs (substTys subst arg_tys)
@@ -622,38 +609,19 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
                      = nlHsVar (lookupNameEnv upd_fld_env field_name `orElse` pat_arg_id)
                  inst_con = noLoc $ HsWrap wrap (HsVar (dataConWrapId con))
                         -- Reconstruct with the WrapId so that unpacking happens
-                 wrap = mkWpEvVarApps theta_vars            <.>
-                        mkWpTyEvApps  (mkTyCoVarTys ex_tvs) <.>
-                        mkWpTyApps [ty | (tv, ty) <- univ_tvs `zip` out_inst_tys'
-                                       , not (tv `elemVarEnv` wrap_subst) ]
+                 wrap = mkWpEvVarApps theta_vars             <.>
+                        mkWpTyEvApps  (mkTyCoVarTys ex_tvs') <.>
+                        mkWpTyApps    out_inst_tys'
                  rhs = foldl (\a b -> nlHsApp a b) inst_con val_args
 
-                        -- Tediously wrap the application in a cast
-                        -- Note [Update for GADTs]
-                       -- TODO (RAE): This won't work for kind equalities. Fix.
-                 wrap_co = mkTcTyConAppCo Nominal tycon
-                                [ lookup tv ty | (tv,ty) <- univ_tvs `zip` out_inst_tys' ]
-                 lookup univ_tv ty = case lookupVarEnv wrap_subst univ_tv of
-                                        Just co' -> co'
-                                        Nothing  -> mkTcReflCo Nominal ty
-                 wrap_subst = mkVarEnv [ (tv, mkTcSymCo (mkTcCoVarCo eq_var))
-                                       | (tv,eq_var) <-
-                                            (map eqSpecTyVar
-                                                 (dep_eq_spec ++ eq_spec))
-                                            `zip` (dep_eqs_vars ++ eqs_vars) ]
-
                  pat = noLoc $ ConPatOut { pat_con = noLoc (RealDataCon con)
-                                         , pat_tvs = ex_tvs
+                                         , pat_tvs = ex_tvs'
                                          , pat_dicts = eqs_vars ++ theta_vars
                                          , pat_binds = emptyTcEvBinds
                                          , pat_args = PrefixCon $ map nlVarPat arg_ids
                                          , pat_arg_tys = in_inst_tys'
                                          , pat_wrap = idHsWrapper }
-           ; let wrapped_rhs | null eq_spec && null dep_eq_spec
-                             = rhs
-                             | otherwise
-                             = mkLHsWrap (mkWpCast (mkTcSubCo wrap_co)) rhs
-           ; return (mkSimpleMatch [pat] wrapped_rhs) }
+           ; return (mkSimpleMatch [pat] rhs) }
 
 -- Here is where we desugar the Template Haskell brackets and escapes
 
