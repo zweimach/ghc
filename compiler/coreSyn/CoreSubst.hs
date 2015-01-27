@@ -1258,7 +1258,7 @@ dealWithCoercion :: Coercion -> DataCon -> [CoreExpr]
 dealWithCoercion co dc dc_args
   | isReflCo co
   , let (univ_ty_args, rest_args) = splitAtList (dataConUnivTyVars dc) dc_args
-  = Just (dc, stripTyCoArgs univ_ty_args, rest_args)
+  = Just (dc, map exprToType univ_ty_args, rest_args)
 
   | Pair _from_ty to_ty <- coercionKind co
   , Just (to_tc, to_tc_arg_tys) <- splitTyConApp_maybe to_ty
@@ -1291,11 +1291,7 @@ dealWithCoercion co dc dc_args
                               dc_univ_tyvars
                               omegas
                               dc_ex_tyvars
-                              (map arg_to_ty ex_args)
-
-        arg_to_ty (Type ty)     = ty
-        arg_to_ty (Coercion co) = mkCoercionTy co
-        arg_to_ty _bad          = pprPanic "dealWithCoercion" (ppr _bad)
+                              (map exprToType ex_args)
 
         ty_to_arg ty
           | Just co <- isCoercionTy_maybe ty = Coercion co
@@ -1311,19 +1307,12 @@ dealWithCoercion co dc dc_args
                          ppr arg_tys, ppr dc_args,
                          ppr ex_args, ppr val_args, ppr co, ppr _from_ty, ppr to_ty, ppr to_tc ]
     in
-    ASSERT2( eqType _from_ty (mkTyConApp to_tc (stripTyCoArgs $ takeList dc_univ_tyvars dc_args)), dump_doc )
+    ASSERT2( eqType _from_ty (mkTyConApp to_tc (map exprToType $ takeList dc_univ_tyvars dc_args)), dump_doc )
     ASSERT2( equalLength val_args arg_tys, dump_doc )
     Just (dc, to_tc_arg_tys, to_ex_args ++ new_val_args)
 
   | otherwise
   = Nothing
-
-stripTyCoArgs :: [CoreExpr] -> [Type]
-stripTyCoArgs args
-  = map strip args
-  where strip (Type ty)     = ty
-        strip (Coercion co) = mkCoercionTy co
-        strip arg           = pprPanic "stripTyCoArgs" (ppr arg)
 
 {-
 Note [Unfolding DFuns]

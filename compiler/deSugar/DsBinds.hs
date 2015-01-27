@@ -884,7 +884,10 @@ dsTopLevelEvBinds bs thing = go [] (sccEvBinds bs)
         do { expr <- dsEvTermUnlifted r
            ; case expr of
                Coercion co -> dsExtendCoEnv v co $ go acc rest
-               _           -> pprPanic "dsTopLevelEvBinds" (ppr expr) }
+               _           -> pprPanic "dsTopLevelEvBinds" (ppr expr $$
+                                                            ppr v <+> dcolon <+> ppr ty $$
+                                                            ppr r $$
+                                                            ppr (sccEvBinds bs)) }
 
       | otherwise
       = do { core_bind <- liftM (NonRec v) (dsEvTerm r)

@@ -1944,7 +1944,7 @@ rebuildCase env scrut case_bndr alts@[(_, bndrs, rhs)] cont
              out_args = [ TyArg { as_arg_ty  = scrut_ty
                                 , as_hole_ty = seq_id_ty }
                         , TyArg { as_arg_ty  = exprType rhs'
-                                , as_hole_ty = applyTy seq_id_ty scrut_ty }
+                                , as_hole_ty = piResultTy seq_id_ty scrut_ty }
                         , ValArg scrut, ValArg rhs']
                       -- Lazily evaluated, so we don't do most of this
 

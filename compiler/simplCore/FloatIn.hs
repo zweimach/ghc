@@ -25,8 +25,7 @@ import CoreUtils        ( exprIsDupable, exprIsExpandable, exprType,
 import CoreFVs          ( CoreExprWithFVs, freeVars, freeVarsOf, idRuleAndUnfoldingVars )
 import Id               ( isOneShotBndr, idType )
 import Var
-import Type             ( Type, isUnLiftedType, splitFunTy, applyTy, piResultTy,
-                          mkCoercionTy )
+import Type             ( Type, isUnLiftedType, splitFunTy, piResultTy, mkCoercionTy )
 import VarSet
 import Util
 import UniqFM
@@ -166,7 +165,7 @@ fiExpr dflags to_drop ann_expr@(_,AnnApp {})
     -- the types of the arguments, to pass to noFloatIntoRhs
     mk_arg_fvs :: (Type, FreeVarSet) -> CoreExprWithFVs -> ((Type, FreeVarSet), FreeVarSet)
     mk_arg_fvs (fun_ty, extra_fvs) (_, AnnType ty)
-      = ((applyTy fun_ty ty, extra_fvs), emptyVarSet)
+      = ((piResultTy fun_ty ty, extra_fvs), emptyVarSet)
 
       -- noFloatIntoRhs would return True here!
       -- This case must be separated from the general case because

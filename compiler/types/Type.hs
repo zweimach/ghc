@@ -38,7 +38,7 @@ module Type (
         splitNamedForAllTys, splitNamedForAllTysB,
         mkPiType, mkPiTypes, mkPiTypesNoTv, mkPiTypesPreferFunTy,
         piResultTy, piResultTys,
-        applyTy, applyTys, applyTysD, applyTysX, isForAllTy, dropForAlls,
+        applyTys, applyTysD, applyTysX, isForAllTy, dropForAlls,
 
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
@@ -1028,21 +1028,9 @@ tyConBinders :: TyCon -> [Binder]
 tyConBinders = fst . splitForAllTys . tyConKind
 
 {-
-applyTy, applyTys
+applyTys
 ~~~~~~~~~~~~~~~~~
 -}
-
--- | Instantiate a named forall type with one or more type arguments.
--- Used when we have a polymorphic function applied to type args:
---
--- > f t1 t2
---
--- We use @applyTys type-of-f [t1,t2]@ to compute the type of the expression.
--- Panics if no application is possible.
-applyTy :: Type -> KindOrType -> Type
-applyTy ty arg | Just ty' <- coreView ty = applyTy ty' arg
-applyTy (ForAllTy (Named tv _) ty) arg = substTyWith [tv] [arg] ty
-applyTy _                  _           = panic "applyTy"
 
 applyTys :: Type -> [KindOrType] -> Type
 -- ^ This function is interesting because:

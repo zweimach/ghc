@@ -91,7 +91,7 @@ newMethodFromName origin name inst_ty
               -- meant to find whatever thing is in scope, and that may
               -- be an ordinary function. 
 
-       ; let ty = applyTy (idType id) inst_ty
+       ; let ty = piResultTy (idType id) inst_ty
              (theta, _caller_knows_this) = tcSplitPhiTy ty
        ; wrap <- ASSERT( not (isNamedForAllTy ty) && isSingleton theta )
                  instCall origin [inst_ty] theta

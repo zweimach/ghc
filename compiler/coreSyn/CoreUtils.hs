@@ -40,6 +40,7 @@ module CoreUtils (
         tryEtaReduce,
 
         -- * Manipulating data constructors and types
+        exprToType,
         applyTypeToArgs, applyTypeToArg,
         dataConRepInstPat, dataConRepFSInstPat,
 
@@ -167,9 +168,7 @@ Note that there might be existentially quantified coercion variables, too.
 applyTypeToArg :: Type -> CoreExpr -> Type
 -- ^ Determines the type resulting from applying an expression with given type
 -- to a given argument expression
-applyTypeToArg fun_ty (Type arg_ty) = applyTy fun_ty arg_ty
-applyTypeToArg fun_ty (Coercion co) = applyTy fun_ty (mkCoercionTy co)
-applyTypeToArg fun_ty _             = funResultTy fun_ty
+applyTypeToArg fun_ty arg = piResultTy fun_ty (exprToType arg)
 
 applyTypeToArgs :: CoreExpr -> Type -> [CoreExpr] -> Type
 -- ^ A more efficient version of 'applyTypeToArg' when we have several arguments.
@@ -196,6 +195,13 @@ applyTypeToArgs e op_ty args
     panic_msg = vcat [ ptext (sLit "Expression:") <+> pprCoreExpr e
                      , ptext (sLit "Type:") <+> ppr op_ty
                      , ptext (sLit "Args:") <+> ppr args ]
+
+-- | If the expression is representable as a 'Type', converts. Otherwise,
+-- panics. Currently, only works for Type and Coercion expressions.
+exprToType :: CoreExpr -> Type
+exprToType (Type ty)     = ty
+exprToType (Coercion co) = mkCoercionTy co
+exprToType _bad          = pprPanic "exprToType" (ppr _bad)
 
 {-
 ************************************************************************
