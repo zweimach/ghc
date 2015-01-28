@@ -1590,8 +1590,7 @@ newFlattenSkolem Given loc fam_ty
                  do { uniq <- TcM.newUnique
                     ; let name = TcM.mkTcTyVarName uniq (fsLit "fsk")
                     ; return (mkTcTyVar name (typeKind fam_ty) (FlatSkol fam_ty)) }
-        ; let ev = CtGiven { ctev_pred = mkTcEqPred fam_ty (mkOnlyTyVarTy fsk)
-                                         -- TODO (RAE): Get the boxity right
+        ; let ev = CtGiven { ctev_pred = mkPrimEqPred fam_ty (mkOnlyTyVarTy fsk)
                            , ctev_evtm = EvCoercion (mkTcNomReflCo fam_ty)
                            , ctev_loc  = loc }
         ; return (ev, fsk) }
@@ -1605,8 +1604,7 @@ newFlattenSkolem _ loc fam_ty  -- Make a wanted
                                            , mtv_tclvl = fskTcLevel }
                           name = TcM.mkTcTyVarName uniq (fsLit "s")
                     ; return (mkTcTyVar name (typeKind fam_ty) details) }
-       ; ev <- newWantedEvVarNC loc (mkTcEqPred fam_ty (mkOnlyTyVarTy fuv))
-                      -- TODO (RAE): Get the boxity right
+       ; ev <- newWantedEvVarNC loc (mkPrimEqPred fam_ty (mkOnlyTyVarTy fuv))
        ; return (ev, fuv) }
 
 extendFlatCache :: TyCon -> [Type] -> (TcCoercion, TcType, CtFlavour) -> TcS ()
