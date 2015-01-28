@@ -1,12 +1,12 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, ViewPatterns #-}
 
 module TcFlatten(
    FlattenEnv(..), FlattenMode(..), mkFlattenEnv,
    flatten, flattenMany, flatten_many,
    flattenFamApp, flattenTyVarOuter,
    unflatten,
-   eqCanRewrite, eqCanRewriteFR, canRewriteOrSame,
-   CtFlavourRole, ctEvFlavourRole, ctFlavourRole
+   eqCanRewrite, eqCanRewriteFRB, canRewriteOrSame,
+   CtFRB, ctEvFRB
  ) where
 
 #include "HsVersions.h"
@@ -29,6 +29,7 @@ import DynFlags( DynFlags )
 import Util
 import Bag
 import Pair
+import BasicTypes  ( Boxity(..) )
 import FastString
 import Control.Monad( when )
 import MonadUtils ( zipWithAndUnzipM )
@@ -580,7 +581,8 @@ data FlattenEnv
   = FE { fe_mode    :: FlattenMode
        , fe_loc     :: CtLoc
        , fe_flavour :: CtFlavour
-       , fe_eq_rel  :: EqRel }   -- See Note [Flattener EqRels]
+       , fe_eq_rel  :: EqRel    -- See Note [Flattener EqRels]
+       , fe_boxity  :: Boxity } -- See Note [Flavours with boxities]
 
 data FlattenMode  -- Postcondition for all three: inert wrt the type substitution
   = FM_FlattenAll          -- Postcondition: function-free
@@ -598,7 +600,8 @@ mkFlattenEnv :: FlattenMode -> CtEvidence -> FlattenEnv
 mkFlattenEnv fm ctev = FE { fe_mode    = fm
                           , fe_loc     = ctEvLoc ctev
                           , fe_flavour = ctEvFlavour ctev
-                          , fe_eq_rel  = ctEvEqRel ctev }
+                          , fe_eq_rel  = ctEvEqRel ctev
+                          , fe_boxity  = ctEvBoxity ctev }
 
 feRole :: FlattenEnv -> Role
 feRole = eqRelRole . fe_eq_rel
@@ -927,10 +930,11 @@ flatten_exact_fam_app_fully fmode tc tys
        ; let ret_co = mkTcTyConAppCo (feRole fmode) tc cos
               -- ret_co :: F xis ~ F tys
 
+       ; tclvl <- getTcLevel
        ; mb_ct <- lookupFlatCache tc xis
        ; case mb_ct of
            Just (co, rhs_ty, flav)  -- co :: F xis ~ fsk
-             | (flav, NomEq) `canRewriteOrSameFR` (feFlavourRole fmode)
+             | canRewriteOrSameFRB tclvl (flav, NomEq, co_boxity co) (feFRB fmode)
              ->  -- Usable hit in the flat-cache
                  -- We certainly *can* use a Wanted for a Wanted
                 do { traceTcS "flatten/flat-cache hit" $ (ppr tc <+> ppr xis $$ ppr rhs_ty $$ ppr co)
@@ -969,6 +973,17 @@ flatten_exact_fam_app_fully fmode tc tys
         }
 
   where
+    co_boxity :: TcCoercion -> Boxity
+    -- if *any* covar in the coercion is lifted, return Boxed; otherwise,
+    -- Unboxed. Used to check if the coercion is a suitable RHS for a top-level
+    -- unlifted coercion. Laziness should hopefully prevent most runs of
+    -- this function. See Note [Flavours with boxities]
+    co_boxity co
+      | all (isUnLiftedType . varType) $ varSetElems $ coVarsOfTcCo co
+      = Unboxed
+      | otherwise
+      = Boxed
+    
     try_to_reduce :: TyCon   -- F, family tycon
                   -> [Type]  -- args, not necessarily flattened
                   -> Bool    -- add to the flat cache?
@@ -1130,7 +1145,7 @@ The idea is that
   TODO: Make sure that kicking out really *is* a Bad Thing. We've assumed
   this but haven't done the empirical study to check.
 
-* Assume we have  G>=G, G>=W, D>=D, and that's all.  Then, when performing
+* Assume we have  G>=G, G>=W and that's all.  Then, when performing
   a unification we add a new given  a -G-> ty.  But doing so does NOT require
   us to kick out an inert wanted that mentions a, because of (K2a).  This
   is a common case, hence good not to kick out.
@@ -1230,11 +1245,12 @@ isTyVarExposed in TcType. This is encoded in (K3b).
 Note [Flavours with roles]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 The system described in Note [The inert equalities] discusses an abstract
-set of flavours. In GHC, flavours have two components: the flavour proper,
-taken from {Wanted, Derived, Given}; and the equality relation (often called
-role), taken from {NomEq, ReprEq}. When substituting w.r.t. the inert set,
+set of flavours. In GHC, flavours have three components: the flavour proper,
+taken from {Wanted, Derived, Given}; the equality relation (often called
+role), taken from {NomEq, ReprEq}; and the levity, taken from {Lifted, Unlifted}.
+When substituting w.r.t. the inert set,
 as described in Note [The inert equalities], we must be careful to respect
-roles. For example, if we have
+all components of a flavour. For example, if we have
 
   inert set: a -G/R-> Int
              b -G/R-> Bool
@@ -1246,6 +1262,61 @@ T Int Bool. The reason is that T's first parameter has a nominal role, and
 thus rewriting a to Int in T a b is wrong. Indeed, this non-congruence of
 subsitution means that the proof in Note [The inert equalities] may need
 to be revisited, but we don't think that the end conclusion is wrong.
+
+Note [Flavours with boxities]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In most circumstances, it is perfectly OK to use a lifted equality in the body
+of an unlifted constraint. This is because desugaring wraps the EvBind in case
+matches to unpack lifted equality witnesses to unlifted ones. However, at the
+top-level, this trick fails. This is because top-level unlifted equality
+witnesses are never bound -- we can't have top-level unlifted bindings.
+Instead, the desugarer builds a substitution from top-level unlifted
+equalities, and inlines them during desugaring. See also Note [No top-level
+coercions] in DsBinds. There is no way to do this substitution trick if there
+are lifted equality variables in the unlifted equality coercion. Thus, at
+top-level (that is, TcLevel = 1), and *only* at top-level, we restrict lifted
+equalities from rewriting unlifted ones. This is the *only* place we care
+about the boxity component of a flavour.
+
+However, there is a wrinkle in having a tri-partite flavour. For rewriting
+purposes, Derived is equivalent to Wanted. Omitting Derived, then, we have
+the following relation:
+
+    GNL GNU GRL GRU WNL WNU WRL WRU
+GNL  x       x       x       x
+GNU  x   x   x   x   x   x   x   x
+GRL          x               x
+GRU          o   x           o   x
+WNL
+WNU
+WRL
+WRU
+
+If you see an x on the row labeled GRU and the column labeled WRU, it means
+that a Given, Representational, Unlifted constraint can rewrite a
+Wanted, Representational, Unlifted one. And so on.
+
+First, let's pretend the o's in there are really x's. The relation we see
+then is the "natural" relation that we want, where G can rewrite W,
+N can rewrite R, and U can rewrite L, but never vice versa. This relation
+in transitive. But, critically, it doesn't meet criterion R2 of what it
+takes to be a "can-rewrite" relation. See Note [The inert equalities].
+In practice, we could get a GRU constraint (a ~ b) and a GNL constraint
+(b ~ a) that rewrite some poor GRL constraint forever, causing a loop.
+Note that neither GNL nor GRU can rewrite the other, so the equalities
+are inert w.r.t. each other. How sad.
+
+To fix this, we drop the two elements of the can-rewrite relation denoted
+with `o`. We say, by fiat, that GRU can no longer rewrite GRL or WRL.
+Now, we satisfy both criteria R1 and R2 of a can-rewrite relation. And,
+what have we lost? Not much, I think. (I = Richard E) A GRU constraint
+is an assumption of representational equality. However, this can-rewrite
+relation only applies *at top-level*, and so there should be no assumptions!
+Any assumptions that do somehow come up should also be able to be phrased
+as GRL assumptions, which can happily rewrite the GRL and WRL targets.
+I thus conjecture that we lose no expressiveness by this restriction.
+
 -}
 
 flattenTyVar :: FlattenEnv -> TcTyVar -> TcS (Xi, TcCoercion)
@@ -1295,17 +1366,18 @@ flattenTyVarOuter fmode tv
     -- Try in the inert equalities
     -- See Definition [Applying a generalised substitution]
     do { ieqs <- getInertEqs
+       ; tclvl <- getTcLevel
        ; case lookupVarEnv ieqs tv of
            Just (ct:_)   -- If the first doesn't work,
                          -- the subsequent ones won't either
              | CTyEqCan { cc_ev = ctev, cc_tyvar = tv, cc_rhs = rhs_ty } <- ct
-             , ctEvFlavourRole ctev `eqCanRewriteFR` feFlavourRole fmode
+             , eqCanRewriteFRB tclvl (ctEvFRB ctev) (feFRB fmode)
              ->  do { traceTcS "Following inert tyvar" (ppr tv <+> equals <+> ppr rhs_ty $$ ppr ctev)
                     ; let rewrite_co1 = mkTcSymCo (ctEvCoercion ctev)
                           rewrite_co = case (ctEvEqRel ctev, fe_eq_rel fmode) of
                             (ReprEq, _rel)  -> ASSERT( _rel == ReprEq )
                                     -- if this ASSERT fails, then
-                                    -- eqCanRewriteFR answered incorrectly
+                                    -- eqCanRewriteFRB answered incorrectly
                                                rewrite_co1
                             (NomEq, NomEq)  -> rewrite_co1
                             (NomEq, ReprEq) -> mkTcSubCo rewrite_co1
@@ -1407,40 +1479,48 @@ more duplication in the inert set.  But this really only happens in pathalogical
 casee, so we don't care.
 -}
 
-eqCanRewrite :: CtEvidence -> CtEvidence -> Bool
-eqCanRewrite ev1 ev2 = ctEvFlavourRole ev1 `eqCanRewriteFR` ctEvFlavourRole ev2
+eqCanRewrite :: TcLevel -> CtEvidence -> CtEvidence -> Bool
+eqCanRewrite tclvl ev1 ev2 = eqCanRewriteFRB tclvl (ctEvFRB ev1) (ctEvFRB ev2)
 
 -- | Whether or not one 'Ct' can rewrite another is determined by its
--- flavour and its equality relation
-type CtFlavourRole = (CtFlavour, EqRel)
+-- flavour, its equality relation, and its boxity
+type CtFRB = (CtFlavour, EqRel, Boxity)
 
--- | Extract the flavour and role from a 'CtEvidence'
-ctEvFlavourRole :: CtEvidence -> CtFlavourRole
-ctEvFlavourRole ev = (ctEvFlavour ev, ctEvEqRel ev)
-
--- | Extract the flavour and role from a 'Ct'
-ctFlavourRole :: Ct -> CtFlavourRole
-ctFlavourRole = ctEvFlavourRole . cc_ev
+-- | Extract the flavour, role, and boxity from a 'CtEvidence'
+ctEvFRB :: CtEvidence -> CtFRB
+ctEvFRB ev = (ctEvFlavour ev, ctEvEqRel ev, ctEvBoxity ev)
 
 -- | Extract the flavour and role from a 'FlattenEnv'
-feFlavourRole :: FlattenEnv -> CtFlavourRole
-feFlavourRole (FE { fe_flavour = flav, fe_eq_rel = eq_rel })
-  = (flav, eq_rel)
+feFRB :: FlattenEnv -> CtFRB
+feFRB (FE { fe_flavour = flav, fe_eq_rel = eq_rel, fe_boxity = boxity })
+  = (flav, eq_rel, boxity)
 
-eqCanRewriteFR :: CtFlavourRole -> CtFlavourRole -> Bool
+eqCanRewriteFRB :: TcLevel -> CtFRB -> CtFRB -> Bool
 -- Very important function!
 -- See Note [eqCanRewrite]
-eqCanRewriteFR (Given,   NomEq)  (_,       _)      = True
-eqCanRewriteFR (Given,   ReprEq) (_,       ReprEq) = True
-eqCanRewriteFR _                 _                 = False
+-- See Note [Flavours with boxities] for first two clauses
+eqCanRewriteFRB (isTopTcLevel -> True)
+                  (_,     _,      Boxed)   (_, _,      Unboxed) = False
+eqCanRewriteFRB (isTopTcLevel -> True)
+                  (Given, ReprEq, Unboxed) (_, ReprEq, Boxed)   = False
+ -- NB: Much better to check the TcLevel before looking at boxity stuff; that's
+ -- why the view pattern. See co_boxity in flatten_exact_fam_app_fully, which
+ -- can be avoided if we check the TcLevel first!
+                                                                 
+eqCanRewriteFRB _ (Given, NomEq,  _)       (_, _,      _)       = True
+eqCanRewriteFRB _ (Given, ReprEq, _)       (_, ReprEq, _)       = True
+eqCanRewriteFRB _ _                        _                    = False
 
-canRewriteOrSame :: CtEvidence -> CtEvidence -> Bool
+canRewriteOrSame :: TcLevel -> CtEvidence -> CtEvidence -> Bool
 -- See Note [canRewriteOrSame]
-canRewriteOrSame ev1 ev2 = ev1 `eqCanRewrite` ev2 ||
-                           ctEvFlavourRole ev1 == ctEvFlavourRole ev2
+canRewriteOrSame tclvl ev1 ev2 = canRewriteOrSameFRB tclvl (ctEvFRB ev1) (ctEvFRB ev2)
 
-canRewriteOrSameFR :: CtFlavourRole -> CtFlavourRole -> Bool
-canRewriteOrSameFR fr1 fr2 = fr1 `eqCanRewriteFR` fr2 || fr1 == fr2
+canRewriteOrSameFRB :: TcLevel -> CtFRB -> CtFRB -> Bool
+canRewriteOrSameFRB tclvl frb1@(f1, r1, _) frb2@(f2, r2, _)
+  =  eqCanRewriteFRB tclvl frb1 frb2
+  || if isTopTcLevel tclvl
+     then frb1 == frb2
+     else f1 == f2 && r1 == r2
 
 {-
 Note [eqCanRewrite]

@@ -61,7 +61,7 @@ module Type (
         mkEqPred, mkCoerciblePred, mkPrimEqPred, mkReprPrimEqPred,
         mkHeteroPrimEqPred, mkHeteroReprPrimEqPred,
         mkClassPred,
-        isClassPred, isEqPred,
+        isClassPred, isEqPred, isNomEqPred,
         isIPPred, isIPPred_maybe, isIPTyCon, isIPClass,
 
         -- Deconstructing predicate types
@@ -1202,12 +1202,20 @@ isPredTy ty = go ty []
       = go_k (substTyWithBinders [bndr] [arg] k1) args
     go_k _ _ = False                  -- Typeable * Int :: Constraint
 
-isClassPred, isEqPred, isIPPred :: PredType -> Bool
+isClassPred, isEqPred, isNomEqPred, isIPPred :: PredType -> Bool
 isClassPred ty = case tyConAppTyCon_maybe ty of
     Just tyCon | isClassTyCon tyCon -> True
     _                               -> False
 isEqPred ty = case tyConAppTyCon_maybe ty of
-    Just tyCon -> tyCon `hasKey` eqTyConKey || tyCon `hasKey` eqPrimTyConKey
+    Just tyCon -> tyCon `hasKey` eqTyConKey
+               || tyCon `hasKey` eqPrimTyConKey
+               || tyCon `hasKey` coercibleTyConKey
+               || tyCon `hasKey` eqReprPrimTyConKey
+    _          -> False
+
+isNomEqPred ty = case tyConAppTyCon_maybe ty of
+    Just tyCon -> tyCon `hasKey` eqTyConKey
+               || tyCon `hasKey` eqPrimTyConKey
     _          -> False
 
 isIPPred ty = case tyConAppTyCon_maybe ty of

@@ -797,7 +797,7 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
         { let theta'     = substTheta tenv (eqSpecPreds eq_spec ++ theta)
                            -- order is *important* as we generate the list of
                            -- dictionary binders from theta'
-              no_equalities = null dep_eq_spec && not (any isEqPred theta')
+              no_equalities = null dep_eq_spec && not (any isNomEqPred theta')
               skol_info = case pe_ctxt penv of
                             LamPat mc -> PatSkol (RealDataCon data_con) mc
                             LetPat {} -> UnkSkol -- Doesn't matter

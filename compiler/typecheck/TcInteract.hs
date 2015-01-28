@@ -42,6 +42,7 @@ import Pair (Pair(..))
 import Unique( hasKey )
 import FastString ( sLit )
 import DynFlags
+import BasicTypes  ( Boxity(..) )
 import Util
 
 {-
@@ -439,12 +440,13 @@ interactWithInertsStage :: WorkItem -> TcS (StopOrContinue Ct)
 
 interactWithInertsStage wi
   = do { inerts <- getTcSInerts
+       ; tclvl <- getTcLevel
        ; let ics = inert_cans inerts
        ; case wi of
-             CTyEqCan    {} -> interactTyVarEq ics wi
-             CFunEqCan   {} -> interactFunEq   ics wi
-             CIrredEvCan {} -> interactIrred   ics wi
-             CDictCan    {} -> interactDict    ics wi
+             CTyEqCan    {} -> interactTyVarEq tclvl ics wi
+             CFunEqCan   {} -> interactFunEq   tclvl ics wi
+             CIrredEvCan {} -> interactIrred         ics wi
+             CDictCan    {} -> interactDict          ics wi
              _ -> pprPanic "interactWithInerts" (ppr wi) }
                 -- CHoleCan are put straight into inert_frozen, so never get here
                 -- CNonCanonical have been canonicalised
@@ -653,12 +655,12 @@ I can think of two ways to fix this:
 *********************************************************************************
 -}
 
-interactFunEq :: InertCans -> Ct -> TcS (StopOrContinue Ct)
+interactFunEq :: TcLevel -> InertCans -> Ct -> TcS (StopOrContinue Ct)
 -- Try interacting the work item with the inert set
-interactFunEq inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
-                                         , cc_tyargs = args, cc_fsk = fsk })
+interactFunEq tclvl inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
+                                               , cc_tyargs = args, cc_fsk = fsk })
   | Just (CFunEqCan { cc_ev = ev_i, cc_fsk = fsk_i }) <- matching_inerts
-  = if ev_i `canRewriteOrSame` ev
+  = if canRewriteOrSame tclvl ev_i ev
     then  -- Rewrite work-item using inert
       do { traceTcS "reactFunEq (discharge work item):" $
            vcat [ text "workItem =" <+> ppr workItem
@@ -694,7 +696,7 @@ interactFunEq inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
     funeqs = inert_funeqs inerts
     matching_inerts = findFunEq funeqs tc args
 
-interactFunEq _ wi = pprPanic "interactFunEq" (ppr wi)
+interactFunEq _ _ wi = pprPanic "interactFunEq" (ppr wi)
 
 lookupFlattenTyVar :: TyVarEnv EqualCtList -> TcTyVar -> TcType
 -- ^ Look up a flatten-tyvar in the inert nominal TyVarEqs;
@@ -818,15 +820,15 @@ test when solving pairwise CFunEqCan.
 *********************************************************************************
 -}
 
-interactTyVarEq :: InertCans -> Ct -> TcS (StopOrContinue Ct)
+interactTyVarEq :: TcLevel -> InertCans -> Ct -> TcS (StopOrContinue Ct)
 -- CTyEqCans are always consumed, so always returns Stop
-interactTyVarEq inerts workItem@(CTyEqCan { cc_tyvar = tv
-                                          , cc_rhs = rhs
-                                          , cc_ev = ev
-                                          , cc_eq_rel = eq_rel })
+interactTyVarEq tclvl inerts workItem@(CTyEqCan { cc_tyvar = tv
+                                                , cc_rhs = rhs
+                                                , cc_ev = ev
+                                                , cc_eq_rel = eq_rel })
   | (ev_i : _) <- [ ev_i | CTyEqCan { cc_ev = ev_i, cc_rhs = rhs_i }
                              <- findTyEqs inerts tv
-                         , ev_i `canRewriteOrSame` ev
+                         , canRewriteOrSame tclvl ev_i ev
                          , rhs_i `tcEqType` rhs ]
   =  -- Inert:     a ~ b
      -- Work item: a ~ b
@@ -841,7 +843,7 @@ interactTyVarEq inerts workItem@(CTyEqCan { cc_tyvar = tv
   | Just tv_rhs <- getTyVar_maybe rhs
   , (ev_i : _) <- [ ev_i | CTyEqCan { cc_ev = ev_i, cc_rhs = rhs_i }
                              <- findTyEqs inerts tv_rhs
-                         , ev_i `canRewriteOrSame` ev
+                         , canRewriteOrSame tclvl ev_i ev
                          , rhs_i `tcEqType` mkTyCoVarTy tv ]
   =  -- Inert:     a ~ b
      -- Work item: b ~ a
@@ -858,10 +860,11 @@ interactTyVarEq inerts workItem@(CTyEqCan { cc_tyvar = tv
   = do { tclvl <- getTcLevel
        ; if canSolveByUnification tclvl ev eq_rel tv rhs
          then do { solveByUnification ev tv rhs
-                 ; n_kicked <- kickOutRewritable Given NomEq tv
+                 ; n_kicked <- kickOutRewritable Given NomEq Unboxed tv
                                -- Given because the tv := xi is given
                                -- NomEq because only nom. equalities are solved
                                -- by unification
+                               -- Unboxed because the coercion is reflexive
                  ; return (Stop ev (ptext (sLit "Spontaneously solved") <+> ppr_kicked n_kicked)) }
 
          else do { traceTcS "Can't solve tyvar equality"
@@ -873,11 +876,12 @@ interactTyVarEq inerts workItem@(CTyEqCan { cc_tyvar = tv
                              , text "TcLevel =" <+> ppr tclvl ])
                  ; n_kicked <- kickOutRewritable (ctEvFlavour ev)
                                                  (ctEvEqRel ev)
+                                                 (ctEvBoxity ev)
                                                  tv
                  ; updInertCans (\ ics -> addInertCan ics workItem)
                  ; return (Stop ev (ptext (sLit "Kept as inert") <+> ppr_kicked n_kicked)) } }
 
-interactTyVarEq _ wi = pprPanic "interactTyVarEq" (ppr wi)
+interactTyVarEq _ _ wi = pprPanic "interactTyVarEq" (ppr wi)
 
 -- @trySpontaneousSolve wi@ solves equalities where one side is a
 -- touchable unification variable.
@@ -948,17 +952,19 @@ ppr_kicked n = parens (int n <+> ptext (sLit "kicked out"))
 kickOutRewritable :: CtFlavour    -- Flavour of the equality that is
                                   -- being added to the inert set
                   -> EqRel        -- of the new equality
+                  -> Boxity       -- of the new equality
                   -> TcTyVar      -- The new equality is tv ~ ty
                   -> TcS Int
-kickOutRewritable new_flavour new_eq_rel new_tv
-  | not ((new_flavour, new_eq_rel) `eqCanRewriteFR` (new_flavour, new_eq_rel))
-  = return 0  -- If new_flavour can't rewrite itself, it can't rewrite
-              -- anything else, so no need to kick out anything
-              -- This is a common case: wanteds can't rewrite wanteds
-
-  | otherwise
-  = do { ics <- getInertCans
-       ; let (kicked_out, ics') = kick_out new_flavour new_eq_rel new_tv ics
+kickOutRewritable new_flavour new_eq_rel new_boxity new_tv
+  = do { tclvl <- getTcLevel
+       ; let new_frb = (new_flavour, new_eq_rel, new_boxity)
+       ; if not (eqCanRewriteFRB tclvl new_frb new_frb)
+         then return 0  -- If new_flavour can't rewrite itself, it can't rewrite
+                        -- anything else, so no need to kick out anything
+                        -- This is a common case: wanteds can't rewrite wanteds
+         else
+    do { ics <- getInertCans
+       ; let (kicked_out, ics') = kick_out tclvl new_frb new_tv ics
        ; setInertCans ics'
        ; updWorkListTcS (appendWorkList kicked_out)
 
@@ -968,14 +974,14 @@ kickOutRewritable new_flavour new_eq_rel new_tv
             2 (vcat [ text "n-kicked =" <+> int (workListSize kicked_out)
                     , text "n-kept fun-eqs =" <+> int (sizeFunEqMap (inert_funeqs ics'))
                     , ppr kicked_out ])
-       ; return (workListSize kicked_out) }
+       ; return (workListSize kicked_out) } }
 
-kick_out :: CtFlavour -> EqRel -> TcTyVar -> InertCans -> (WorkList, InertCans)
-kick_out new_flavour new_eq_rel new_tv (IC { inert_eqs      = tv_eqs
-                                           , inert_dicts    = dictmap
-                                           , inert_funeqs   = funeqmap
-                                           , inert_irreds   = irreds
-                                           , inert_insols   = insols })
+kick_out :: TcLevel -> CtFRB -> TcTyVar -> InertCans -> (WorkList, InertCans)
+kick_out tclvl new_frb new_tv (IC { inert_eqs      = tv_eqs
+                                  , inert_dicts    = dictmap
+                                  , inert_funeqs   = funeqmap
+                                  , inert_irreds   = irreds
+                                  , inert_insols   = insols })
   = (kicked_out, inert_cans_in)
   where
                 -- NB: Notice that don't rewrite
@@ -1002,7 +1008,7 @@ kick_out new_flavour new_eq_rel new_tv (IC { inert_eqs      = tv_eqs
       -- Kick out even insolubles; see Note [Kick out insolubles]
 
     can_rewrite :: CtEvidence -> Bool
-    can_rewrite = ((new_flavour, new_eq_rel) `eqCanRewriteFR`) . ctEvFlavourRole
+    can_rewrite = eqCanRewriteFRB tclvl new_frb . ctEvFRB
 
     kick_out_ct :: Ct -> Bool
     kick_out_ct ct = kick_out_ctev (ctEvidence ct)
@@ -1035,7 +1041,7 @@ kick_out new_flavour new_eq_rel new_tv (IC { inert_eqs      = tv_eqs
       | otherwise
       = check_k2 && check_k3
       where
-        check_k2 = not (ev `eqCanRewrite` ev)
+        check_k2 = not (eqCanRewrite tclvl ev ev)
                 || not (can_rewrite ev)
                 || not (new_tv `elemVarSet` tyCoVarsOfType rhs_ty)
 
@@ -1709,7 +1715,7 @@ dischargeFmv evar loc fmv co xi
   = ASSERT2( not (fmv `elemVarSet` tyCoVarsOfType xi), ppr evar $$ ppr fmv $$ ppr xi )
     do { setWantedTyBind fmv xi
        ; setEvBind evar (EvCoercion co) loc
-       ; n_kicked <- kickOutRewritable Given NomEq fmv
+       ; n_kicked <- kickOutRewritable Given NomEq Unboxed fmv
        ; traceTcS "dischargeFuv" (ppr fmv <+> equals <+> ppr xi $$ ppr_kicked n_kicked) }
 
 {-

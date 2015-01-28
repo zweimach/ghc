@@ -760,7 +760,7 @@ simplifyRule name lhs_wanted rhs_wanted
                | insolubleWC resid_wanted = quantify_insol
                | otherwise                = quantify_normal
 
-             quantify_insol ct = not (isEqPred (ctPred ct))
+             quantify_insol ct = not (isNomEqPred (ctPred ct))
 
              quantify_normal ct
                | EqPred NomEq t1 t2 <- classifyPredType (ctPred ct)

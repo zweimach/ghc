@@ -25,7 +25,7 @@ module TcType (
   TcErasedType,
 
   -- TcLevel
-  TcLevel(..), topTcLevel, pushTcLevel,
+  TcLevel(..), topTcLevel, pushTcLevel, isTopTcLevel,
   strictlyDeeperThan, sameDepthAs, fskTcLevel,
 
   --------------------------------
@@ -126,7 +126,7 @@ module TcType (
   mkTyCoVarTy, mkTyCoVarTys, mkTyConTy, mkOnlyTyVarTy,
   mkOnlyTyVarTys,
 
-  isClassPred, isEqPred, isIPPred,
+  isClassPred, isEqPred, isNomEqPred, isIPPred,
   mkClassPred,
   isDictLikeTy,
   tcSplitDFunTy, tcSplitDFunHead,
@@ -495,6 +495,10 @@ fskTcLevel = TcLevel 0  -- 0 = Outside the outermost level:
 
 topTcLevel :: TcLevel
 topTcLevel = TcLevel 1   -- 1 = outermost level
+
+isTopTcLevel :: TcLevel -> Bool
+isTopTcLevel (TcLevel 1) = True
+isTopTcLevel _           = False
 
 pushTcLevel :: TcLevel -> TcLevel
 pushTcLevel (TcLevel us) = TcLevel (us+1)

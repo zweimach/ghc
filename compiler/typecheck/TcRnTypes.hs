@@ -80,7 +80,7 @@ module TcRnTypes(
         CtEvidence(..),
         mkGivenLoc, mkKindLoc,
         isWanted, isGiven, isDerived,
-        ctEvRole,
+        ctEvRole, ctEvBoxity,
 
         -- Constraint solver plugins
         TcPlugin(..), TcPluginResult(..), TcPluginSolver,
@@ -1626,6 +1626,14 @@ ctEvEqRel = predTypeEqRel . ctEvPred
 -- | Get the role relevant for a 'CtEvidence'
 ctEvRole :: CtEvidence -> Role
 ctEvRole = eqRelRole . ctEvEqRel
+
+-- | Get the boxity for a 'CtEvidence'
+ctEvBoxity :: CtEvidence -> Boxity
+ctEvBoxity ev
+  | isUnLiftedType pred = Unboxed
+  | otherwise           = Boxed
+  where
+    pred = ctEvPred ev
 
 ctEvTerm :: CtEvidence -> EvTerm
 ctEvTerm (CtGiven   { ctev_evtm = tm }) = tm
