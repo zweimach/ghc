@@ -140,6 +140,9 @@ please remove:
 - Test uses of unifyType_ to make sure that kind families are tolerated
 in those positions.
 
+- Unpacking lifted equality in data constructors has become harder.
+  See comments in MkId.mk_pred_strict_mark.
+
 - Restored MaybeNew because we need to be able to use ctEvCoherence
 
 - It would seem that classes can't have (~#) superclasses. These superclasses

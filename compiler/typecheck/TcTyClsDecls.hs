@@ -1338,6 +1338,12 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
     sorted_tcvs = varSetElemsWellScoped $ mkVarSet (substed_ex_tvs ++ substed_eq_cvs)
 
 {- TODO (RAE): Restore this behavior, or some semblance of it.
+   TODO (RAE): Or maybe not. There doesn't seem to be a reason to carefully separate
+               out dependent equalities from non-dependent ones. After all,
+               the non-dependent ones will get UNPACKed to ~# anyway.
+               NB: In 7.8.3, you can't create an ill-typed GADT, even with
+                   -fdefer-type-errors
+
       -- Remove a suffix of covars: these can be converted to lifted,
       -- non-dependent equalities for better deferred type errors.
     (ex_tvs, eq_cvs) = span_from_end isCoVar sorted_tcvs
