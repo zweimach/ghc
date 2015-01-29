@@ -44,6 +44,7 @@ import PrelNames
 import BasicTypes hiding (SuccessFlag(..))
 import DynFlags
 import SrcLoc
+import VarSet
 import Util
 import Outputable
 import FastString
@@ -762,7 +763,8 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
           -- Add the stupid theta
         ; setSrcSpan con_span $ addDataConStupidTheta data_con ctxt_res_tys
 
-        ; checkExistentials ex_tvs penv 
+        ; let all_arg_tys = eqSpecPreds eq_spec ++ theta ++ arg_tys
+        ; checkExistentials ex_tvs all_arg_tys penv 
         ; (tenv, ex_tvs') <- tcInstSuperSkolTyCoVarsX
                                (zipTopTCvSubst univ_tvs ctxt_res_tys) ex_tvs
                      -- Get location from monad, not from ex_tvs
@@ -836,7 +838,8 @@ tcPatSynPat penv (L con_span _) pat_syn pat_ty arg_pats thing_inside
 
         ; (subst, univ_tvs') <- tcInstTyCoVars PatOrigin univ_tvs
 
-        ; checkExistentials ex_tvs penv
+        ; let all_arg_tys = ty : prov_theta ++ arg_tys
+        ; checkExistentials ex_tvs all_arg_tys penv
         ; (tenv, ex_tvs') <- tcInstSuperSkolTyCoVarsX subst ex_tvs
         ; let ty' = substTy tenv ty
               arg_tys' = substTys tenv arg_tys
@@ -1150,13 +1153,16 @@ maybeWrapPatCtxt pat tcm thing_inside
    msg = hang (ptext (sLit "In the pattern:")) 2 (ppr pat)
 
 -----------------------------------------------
-checkExistentials :: [TyVar] -> PatEnv -> TcM ()
+checkExistentials :: [TyCoVar]   -- existentials
+                  -> [Type]      -- argument types
+                  -> PatEnv -> TcM ()
           -- See Note [Arrows and patterns]
-checkExistentials [] _                                 = return ()
-checkExistentials _ (PE { pe_ctxt = LetPat {}})        = failWithTc existentialLetPat
-checkExistentials _ (PE { pe_ctxt = LamPat ProcExpr }) = failWithTc existentialProcPat
-checkExistentials _ (PE { pe_lazy = True })            = failWithTc existentialLazyPat
-checkExistentials _ _                                  = return ()
+checkExistentials ex_tvs tys _
+  | all (not . (`elemVarSet` tyCoVarsOfTypes tys)) ex_tvs = return ()
+checkExistentials _ _ (PE { pe_ctxt = LetPat {}})         = failWithTc existentialLetPat
+checkExistentials _ _ (PE { pe_ctxt = LamPat ProcExpr })  = failWithTc existentialProcPat
+checkExistentials _ _ (PE { pe_lazy = True })             = failWithTc existentialLazyPat
+checkExistentials _ _ _                                   = return ()
 
 existentialLazyPat :: SDoc
 existentialLazyPat
