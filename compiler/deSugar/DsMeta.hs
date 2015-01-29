@@ -451,9 +451,9 @@ repTyFamInstD decl@(TyFamInstDecl { tfid_eqn = eqn })
        ; repTySynInst tc eqn1 }
 
 repTyFamEqn :: LTyFamInstEqn Name -> DsM (Core TH.TySynEqnQ)
-repTyFamEqn (L _ (TyFamEqn { tfie_pats = HsWB { hswb_cts  = tys
+repTyFamEqn (L _ (TyFamEqn { tfe_pats = HsWB { hswb_cts  = tys
                                               , hswb_vars = var_names }
-                               , tfie_rhs = rhs }))
+                           , tfe_rhs = rhs }))
   = do { let hs_tvs = HsQTvs { hsq_implicit = var_names
                              , hsq_explicit = [] }   -- Yuk
        ; addTyClTyVarBinds hs_tvs $ \ _ ->

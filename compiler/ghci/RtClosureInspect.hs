@@ -622,10 +622,9 @@ type RttiInstantiation = [(TcTyCoVar, TyVar)]
 --   mapping from new (instantiated) -to- old (skolem) type variables
 instScheme :: QuantifiedType -> TR (TcType, RttiInstantiation)
 instScheme (tvs, ty)
-   -- TODO (RAE): The monads are confused.
-  = liftTcM $ do { (subst, tvs') <- tcInstTyCoVars tvs
-                 ; let rtti_inst = [(tv',tv) | (tv',tv) <- tvs' `zip` tvs]
-                 ; return (substTy subst ty, rtti_inst) }
+  = do { (subst, tvs') <- instTyCoVars tvs
+       ; let rtti_inst = [(tv',tv) | (tv',tv) <- tvs' `zip` tvs]
+       ; return (substTy subst ty, rtti_inst) }
 
 applyRevSubst :: RttiInstantiation -> TR ()
 -- Apply the *reverse* substitution in-place to any un-filled-in
@@ -1195,7 +1194,7 @@ congruenceNewtypes lhs rhs = go lhs rhs >>= \rhs' -> return (lhs,rhs')
                traceTR (text "(Upgrade) upgraded " <> ppr ty <>
                         text " in presence of newtype evidence " <> ppr new_tycon)
                (_, vars) <- instTyCoVars (tyConTyVars new_tycon)
-               let ty' = mkTyConApp new_tycon (mkTyVarTys vars)
+               let ty' = mkTyConApp new_tycon (mkTyCoVarTys vars)
                    UnaryRep rep_ty = repType ty'
                _ <- liftTcM (unifyType ty rep_ty)
         -- assumes that reptype doesn't ^^^^ touch tyconApp args
