@@ -1175,7 +1175,8 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
              { is_infix <- tcConIsInfix name hs_details res_ty
              ; buildDataCon fam_envs name is_infix
                             stricts field_lbls
-                            univ_tvs ex_tvs eq_preds ctxt
+                            univ_tvs ex_tvs eq_preds
+                            (substTys arg_subst ctxt)
                             (substTys arg_subst arg_tys)
                             res_ty' rep_tycon
                   -- NB:  we put data_tc, the type constructor gotten from the
