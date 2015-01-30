@@ -162,7 +162,7 @@ ppr_expr add_par (Case expr var ty [(con,args,rhs)])
              ]
     else add_par $
          sep [sep [ptext (sLit "case") <+> pprCoreExpr expr,
-                   ifPprDebug (braces (ppr ty)),
+                   ifPprDebug (text "return" <+> ppr ty),
                    sep [ptext (sLit "of") <+> ppr_bndr var,
                         char '{' <+> ppr_case_pat con args <+> arrow]
                ],
@@ -176,7 +176,7 @@ ppr_expr add_par (Case expr var ty alts)
   = add_par $
     sep [sep [ptext (sLit "case")
                 <+> pprCoreExpr expr
-                <+> ifPprDebug (braces (ppr ty)),
+                <+> ifPprDebug (text "return" <+> ppr ty),
               ptext (sLit "of") <+> ppr_bndr var <+> char '{'],
          nest 2 (vcat (punctuate semi (map pprCoreAlt alts))),
          char '}'
@@ -280,7 +280,7 @@ pprCoreBinder LetBind binder
 -- Lambda bound type variables are preceded by "@"
 pprCoreBinder bind_site bndr
   = getPprStyle $ \ sty ->
-    pprTypedLamBinder bind_site (debugStyle sty) bndr
+    pprTypedLamBinder bind_site (debugStyle sty || debugIsOn) bndr
 
 pprUntypedBinder :: Var -> SDoc
 pprUntypedBinder binder
