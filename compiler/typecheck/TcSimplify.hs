@@ -72,8 +72,10 @@ simplifyTop wanteds
 simpl_top :: WantedConstraints -> TcS WantedConstraints
     -- See Note [Top-level Defaulting Plan]
 simpl_top wanteds
-  = do { wc_first_go <- nestTcS (solveWantedsAndDrop wanteds)
+  = do { wc_first_go <- nestTcS (solveWanteds wanteds)
                             -- This is where the main work happens
+                        -- NB: NOT solveWantedsAndDrop. We need the Deriveds
+                        -- in try_repr_defaulting
        ; try_tyvar_defaulting wc_first_go }
   where
     try_tyvar_defaulting :: WantedConstraints -> TcS WantedConstraints
@@ -89,7 +91,7 @@ simpl_top wanteds
 
            ; defaulted <- mapM defaultTyVarTcS meta_tvs   -- Has unification side effects
            ; if or defaulted
-             then do { wc_residual <- nestTcS (solveWantedsAndDrop wc)
+             then do { wc_residual <- nestTcS (solveWanteds wc)
                             -- See Note [Must simplify after defaulting]
                      ; try_repr_defaulting wc_residual }
              else try_repr_defaulting wc }     -- No defaulting took place
@@ -106,11 +108,15 @@ simpl_top wanteds
       | otherwise
       = do { let repr_wanteds_deriveds = mapMaybe get_unif_pair $
                                          bagToList simples
+           ; traceTcS "Trying to solve repr eqs by writing metavars"
+                      (vcat [ text "In simple constrains:" <+> ppr simples
+                            , text "Found:" <+> ppr repr_wanteds_deriveds ])
+                      
            ; mapM_ (uncurry setWantedTyBind) repr_wanteds_deriveds
            ; if (not (null repr_wanteds_deriveds))
-             then do { wc_residual <- nestTcS (solveWantedsAndDrop wc)
+             then do { wc_residual <- nestTcS (solveWanteds wc)
                      ; try_repr_defaulting wc_residual }
-             else try_class_defaulting wc }
+             else try_class_defaulting (dropDerivedWC wc) }
 
       where
         get_unif_pair ct
