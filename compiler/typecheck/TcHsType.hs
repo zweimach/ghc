@@ -950,17 +950,25 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thi
                 else zipWithM newSigTyVar kv_ns meta_kvs
        ; tcExtendTyVarEnv2 (kv_ns `zip` kvs) $
     do { (full_kind, _, stuff) <- bind_telescope hs_tvs thing_inside
-       ; let _all_kvs  = filter (not . isMetaTyVar) $
-                         varSetElems $ tyCoVarsOfType full_kind
+       ; let all_kvs = filter (not . isMetaTyVar) $
+                       varSetElems $ tyCoVarsOfType full_kind
+             (_mentioned_kvs, unmentioned_kvs)
+                     = partition (`elemVarSet` mkVarSet kvs) all_kvs
 
-                -- the free non-meta variables in the returned kind should be
-                -- exactly the same set of variables we list as implicit kind vars
-                -- BUT, it is critical that we generalise w.r.t. the declared kvs,
-                -- not the found _all_kvs, because we depend hsq_implicit and the
-                -- quantified tyvars to line up in kcTyClTyVars
+                -- the free non-meta variables in the returned kind will
+                -- contain both *mentioned* kind vars and *unmentioned* kind
+                -- vars (See case (1) under Note [Typechecking telescopes])
+                -- The mentioned kind vars should be the same as kvs. BUT, it
+                -- is critical that we generalise w.r.t. the declared kvs, not
+                -- the found _mentioned_kvs, because we depend hsq_implicit
+                -- and the quantified tyvars to line up in kcTyClTyVars
+                -- kcTyClTyVars also wants the unmentioned kvs first
              gen_kind  = if cusk
-                         then ASSERT( sort _all_kvs == sort kvs ) 
-                              mkInvForAllTys kvs full_kind
+                         then ASSERT2( sort _mentioned_kvs == sort kvs,
+                                       ppr _mentioned_kvs $$ ppr kvs ) 
+                              mkInvForAllTys unmentioned_kvs $
+                              mkInvForAllTys kvs $
+                              full_kind
                          else full_kind
        ; return (gen_kind, stuff) } }
   where
