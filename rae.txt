@@ -9,10 +9,6 @@ stack:
 
 - examine extractDataDefnKindVars. Why use FreeKiTyVars? Should just be one pile, I think.
 
-- search for "get the boxity right"
-
-- fix the kind check in TcUnify. (just one last function!)
-
 fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
 fix parser; then fix TypeLits.Mult --> *
