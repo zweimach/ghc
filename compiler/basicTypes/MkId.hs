@@ -782,7 +782,7 @@ space for each equality predicate, so it's pretty important!
 -}
 
 mk_pred_strict_mark :: PredType -> HsBang
-mk_pred_strict_mark pred 
+mk_pred_strict_mark _pred 
 --x  | isEqPred pred = HsUnpack Nothing    -- Note [Unpack equality predicates]
 {- TODO (RAE): Restore the line above. But it's complicated.
 

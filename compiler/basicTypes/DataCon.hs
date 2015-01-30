@@ -950,7 +950,7 @@ dataConWrapperType (MkData { dcUnivTyVars = univ_tvs
     univ_tys = mkOnlyTyVarTys univ_tvs
     res_ty
       | Just co <- tyConFamilyCoercion_maybe rep_tycon
-      = mkUnbranchedAxInstRHS co univ_tys
+      = mkUnbranchedAxInstLHS co univ_tys
       | otherwise
       = mkTyConApp rep_tycon univ_tys
 

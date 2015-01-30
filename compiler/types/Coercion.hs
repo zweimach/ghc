@@ -22,8 +22,9 @@ module Coercion (
 
         -- ** Constructing coercions
         mkReflCo, mkCoVarCo, 
-        mkAxInstCo, mkUnbranchedAxInstCo, mkAxInstRHS,
-        mkUnbranchedAxInstRHS,
+        mkAxInstCo, mkUnbranchedAxInstCo,
+        mkAxInstRHS, mkUnbranchedAxInstRHS,
+        mkAxInstLHS, mkUnbranchedAxInstLHS,
         mkPiCo, mkPiCos, mkCoCast,
         mkSymCo, mkTransCo, mkNthCo, mkNthCoRole, mkLRCo,
         mkInstCo, mkAppCo, mkAppCoFlexible, mkTyConAppCo, mkFunCo,
@@ -727,6 +728,23 @@ mkAxInstRHS ax index tys
 
 mkUnbranchedAxInstRHS :: CoAxiom Unbranched -> [Type] -> Type
 mkUnbranchedAxInstRHS ax = mkAxInstRHS ax 0
+
+-- | Return the left-hand type of the axiom, when the axiom is instantiated
+-- at the types given.
+mkAxInstLHS :: CoAxiom br -> BranchIndex -> [Type] -> Type
+mkAxInstLHS ax index tys
+  = ASSERT( tvs `equalLength` tys1 )
+    mkTyConApp fam_tc (lhs_tys `chkAppend` tys2)
+  where
+    branch       = coAxiomNthBranch ax index
+    tvs          = coAxBranchTyCoVars branch
+    (tys1, tys2) = splitAtList tvs tys
+    lhs_tys      = substTysWith tvs tys1 (coAxBranchLHS branch)
+    fam_tc       = coAxiomTyCon ax
+
+-- | Instantiate the left-hand side of an unbranched axiom
+mkUnbranchedAxInstLHS :: CoAxiom Unbranched -> [Type] -> Type
+mkUnbranchedAxInstLHS ax = mkAxInstLHS ax 0
 
 -- | Manufacture an unsafe coercion from thin air.
 --   Currently (May 14) this is used only to implement the
