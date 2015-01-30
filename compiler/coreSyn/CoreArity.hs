@@ -975,8 +975,8 @@ mkEtaWW orig_n orig_expr in_scope orig_ty
                (\tv -> let (subst1, tv1) = Type.substTyCoVarBndr subst tv in
                        if isTyVar tv
                        then ((subst1, tv1), n)
-                       else (freshEtaId n subst1 (varType tv1), n-1))
-               (\arg_ty -> (freshEtaId n subst arg_ty, n-1))
+                       else (freshEtaVar n subst1 (varType tv1), n-1))
+               (\arg_ty -> (freshEtaVar n subst arg_ty, n-1))
          in
             -- Avoid free vars of the original expression
          go new_n subst' ty' (EtaVar eta_id' : eis)
@@ -1012,7 +1012,7 @@ subst_bind = substBindSC
 
 
 --------------
-freshEtaId :: Int -> TCvSubst -> Type -> (TCvSubst, Id)
+freshEtaVar :: Int -> TCvSubst -> Type -> (TCvSubst, Var)
 -- Make a fresh Id, with specified type (after applying substitution)
 -- It should be "fresh" in the sense that it's not in the in-scope set
 -- of the TvSubstEnv; and it should itself then be added to the in-scope
@@ -1020,10 +1020,10 @@ freshEtaId :: Int -> TCvSubst -> Type -> (TCvSubst, Id)
 -- 
 -- The Int is just a reasonable starting point for generating a unique;
 -- it does not necessarily have to be unique itself.
-freshEtaId n subst ty
+freshEtaVar n subst ty
       = (subst', eta_id')
       where
         ty'     = Type.substTy subst ty
         eta_id' = uniqAway (getTCvInScope subst) $
-                  mkSysLocal (fsLit "eta") (mkBuiltinUnique n) ty'
+                  mkSysLocalOrCoVar (fsLit "eta") (mkBuiltinUnique n) ty'
         subst'  = extendTCvInScope subst eta_id'                  

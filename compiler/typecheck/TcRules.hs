@@ -213,7 +213,7 @@ tcRuleBndrs (L _ (RuleBndrSig (L _ name) rn_ty) : rule_bndrs)
 --              a::*, x :: a->a
   = do  { let ctxt = RuleSigCtxt name
         ; (id_ty, tv_prs, _) <- tcHsPatSigType ctxt rn_ty
-        ; let id  = mkLocalId name id_ty
+        ; let id  = mkLocalIdOrCoVar name id_ty
               tvs = map snd tv_prs   
                     -- tcHsPatSigType returns (Name,TyVar) pairs
                     -- for for RuleSigCtxt their Names are not

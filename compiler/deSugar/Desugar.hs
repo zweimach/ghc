@@ -426,7 +426,7 @@ unfold_coerce bndrs lhs rhs = do
         , tc == coercibleTyCon = do
                 -- remember: eqReprPrimTyCon is heterogeneous!
             let ty' = mkTyConApp eqReprPrimTyCon [k,k,ty1,ty2]
-            v' <- mkDerivedLocalM mkRepEqOcc v ty'
+            v' <- mkDerivedLocalCoVarM mkRepEqOcc v ty'
 
             (bndrs, wrap) <- go vs
             return (v':bndrs, mkCoreLet (NonRec v (mkEqBox (mkCoVarCo v'))) . wrap)

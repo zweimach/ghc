@@ -448,12 +448,12 @@ newSysName occ
 newSysLocalId :: FastString -> TcType -> TcRnIf gbl lcl TcId
 newSysLocalId fs ty
   = do  { u <- newUnique
-        ; return (mkSysLocal fs u ty) }
+        ; return (mkSysLocalOrCoVar fs u ty) }
 
 newSysLocalIds :: FastString -> [TcType] -> TcRnIf gbl lcl [TcId]
 newSysLocalIds fs tys
   = do  { us <- newUniqueSupply
-        ; return (zipWith (mkSysLocal fs) (uniqsFromSupply us) tys) }
+        ; return (zipWith (mkSysLocalOrCoVar fs) (uniqsFromSupply us) tys) }
 
 instance MonadUnique (IOEnv (Env gbl lcl)) where
         getUniqueM = newUnique
@@ -1254,7 +1254,7 @@ emitWildcardHoleConstraints wcs
        ; forM_ wcs $ \(name, tv) -> do {
        ; let ctLoc' = setCtLocSpan ctLoc (nameSrcSpan name)
              ty     = mkOnlyTyVarTy tv
-             ev     = mkLocalId name ty
+             ev     = mkLocalIdOrCoVar name ty
              can    = CHoleCan { cc_ev   = CtWanted ty ev ctLoc'
                                , cc_occ  = occName name
                                , cc_hole = TypeHole }

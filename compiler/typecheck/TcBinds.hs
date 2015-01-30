@@ -712,7 +712,7 @@ mkInferredPolyId poly_name qtvs theta mono_ty
        ; addErrCtxtM (mk_bind_msg True False poly_name inferred_poly_ty) $
          checkValidType (InfSigCtxt poly_name) inferred_poly_ty
 
-       ; return (mkLocalId poly_name inferred_poly_ty) }
+       ; return (mkLocalIdOrCoVar poly_name inferred_poly_ty) }
 
 mk_bind_msg :: Bool -> Bool -> Name -> TcType -> TidyEnv -> TcM (TidyEnv, SDoc)
 mk_bind_msg inferred want_ambig poly_name poly_ty tidy_env
@@ -1198,7 +1198,7 @@ tcLhs sig_fn no_gen (FunBind { fun_id = L nm_loc name, fun_infix = inf, fun_matc
                          -- which gives rise to LetLclBndr.  It wouldn't make
                          -- sense to have a *polymorphic* function Id at this point
     do  { mono_name <- newLocalName name
-        ; let mono_id = mkLocalId mono_name (sig_tau sig)
+        ; let mono_id = mkLocalIdOrCoVar mono_name (sig_tau sig)
         ; addErrCtxt (typeSigCtxt name sig) $
           emitWildcardHoleConstraints (sig_nwcs sig)
         ; return (TcFunBind (name, Just sig, mono_id) nm_loc inf matches) }
@@ -1420,7 +1420,7 @@ instTcTySig :: LHsType Name -> TcType    -- HsType and corresponding TcType
             -> [(Name, TcTyVar)] -> Name -> TcM TcSigInfo
 instTcTySig hs_ty@(L loc _) sigma_ty extra_cts nwcs name
   = do { (inst_tvs, theta, tau) <- tcInstType tcInstSigTyCoVars sigma_ty
-       ; return (TcSigInfo { sig_id  = mkLocalId name sigma_ty
+       ; return (TcSigInfo { sig_id  = mkLocalIdOrCoVar name sigma_ty
                            , sig_loc = loc
                            , sig_tvs = findScopedTyVars hs_ty sigma_ty inst_tvs
                            , sig_nwcs = nwcs

@@ -999,7 +999,7 @@ dsTcCoercion co thing_inside
       -- See Note [TcCoercion kinds] in TcEvidence
     mk_co_var :: Id -> Unique -> (Id, Id)
     mk_co_var eqv uniq
-      | isEqPredLifted pred = (eqv, mkUserLocal occ uniq ty loc)
+      | isEqPredLifted pred = (eqv, mkUserLocalCoVar occ uniq ty loc)
       | otherwise           = (eqv, eqv)
       where
          eq_nm = idName eqv

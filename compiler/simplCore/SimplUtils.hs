@@ -1490,7 +1490,7 @@ abstractFloats main_tvs body_env body
            ; let  poly_name = setNameUnique (idName var) uniq           -- Keep same name
                   poly_ty   = mkInvForAllTys tvs_here (idType var) -- But new type of course
                   poly_id   = transferPolyIdInfo var tvs_here $ -- Note [transferPolyIdInfo] in Id.lhs
-                              mkLocalId poly_name poly_ty
+                              mkLocalIdOrCoVar poly_name poly_ty
            ; return (poly_id, mkTyApps (Var poly_id) (mkTyCoVarTys tvs_here)) }
                 -- In the olden days, it was crucial to copy the occInfo of the original var,
                 -- because we were looking at occurrence-analysed but as yet unsimplified code!

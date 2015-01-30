@@ -973,7 +973,7 @@ tcIfaceExpr (IfaceCase scrut case_bndr alts)  = do
     case_bndr_name <- newIfaceName (mkVarOccFS case_bndr)
     let
         scrut_ty   = exprType scrut'
-        case_bndr' = mkLocalId case_bndr_name scrut_ty
+        case_bndr' = mkLocalIdOrCoVar case_bndr_name scrut_ty
         tc_app     = splitTyConApp scrut_ty
                 -- NB: Won't always succeed (polymorphic case)
                 --     but won't be demanded in those cases
@@ -990,7 +990,7 @@ tcIfaceExpr (IfaceLet (IfaceNonRec (IfLetBndr fs ty info) rhs) body)
         ; ty'     <- tcIfaceType ty
         ; id_info <- tcIdInfo False {- Don't ignore prags; we are inside one! -}
                               name ty' info
-        ; let id = mkLocalIdWithInfo name ty' id_info
+        ; let id = mkLocalIdOrCoVarWithInfo name ty' id_info
         ; rhs' <- tcIfaceExpr rhs
         ; body' <- extendIfaceIdEnv [id] (tcIfaceExpr body)
         ; return (Let (NonRec id rhs') body') }
@@ -1005,7 +1005,7 @@ tcIfaceExpr (IfaceLet (IfaceRec pairs) body)
    tc_rec_bndr (IfLetBndr fs ty _)
      = do { name <- newIfaceName (mkVarOccFS fs)
           ; ty'  <- tcIfaceType ty
-          ; return (mkLocalId name ty') }
+          ; return (mkLocalIdOrCoVar name ty') }
    tc_pair (IfLetBndr _ _ info, rhs) id
      = do { rhs' <- tcIfaceExpr rhs
           ; id_info <- tcIdInfo False {- Don't ignore prags; we are inside one! -}
@@ -1290,7 +1290,7 @@ bindIfaceId :: IfaceIdBndr -> (Id -> IfL a) -> IfL a
 bindIfaceId (fs, ty) thing_inside
   = do  { name <- newIfaceName (mkVarOccFS fs)
         ; ty' <- tcIfaceType ty
-        ; let id = mkLocalId name ty'
+        ; let id = mkLocalIdOrCoVar name ty'
         ; extendIfaceIdEnv [id] (thing_inside id) }
 
 bindIfaceBndr :: IfaceBndr -> (CoreBndr -> IfL a) -> IfL a

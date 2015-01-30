@@ -52,7 +52,7 @@ module Var (
 
         -- ** Predicates
         isId, isTKVar, isTyVar, isTcTyVar, isTcTyCoVar,
-        isLocalVar, isLocalId, isCoVar,
+        isLocalVar, isLocalId, isCoVar, isTyCoVar,
         isGlobalId, isExportedId,
         mustHaveLocalBinding,
 
@@ -437,6 +437,9 @@ isTcTyCoVar v = isTcTyVar v || isCoVar v
 isId :: Var -> Bool
 isId (Id {}) = True
 isId _       = False
+
+isTyCoVar :: Var -> Bool
+isTyCoVar v = isTyVar v || isCoVar v
 
 isCoVar :: Var -> Bool
 isCoVar v = isId v && isCoVarDetails (id_details v)

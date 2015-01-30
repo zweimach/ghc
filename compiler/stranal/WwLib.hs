@@ -14,10 +14,7 @@ module WwLib ( mkWwBodies, mkWWstr, mkWorkerArgs
 
 import CoreSyn
 import CoreUtils        ( exprType, mkCast )
-import Id               ( Id, idType, mkSysLocal, idDemandInfo, setIdDemandInfo,
-                          setIdUnfolding,
-                          setIdInfo, idOneShotInfo, setIdOneShotInfo
-                        )
+import Id
 import IdInfo           ( vanillaIdInfo )
 import DataCon
 import Demand
@@ -353,7 +350,7 @@ applyToVars vars fn = mkVarApps fn vars
 
 mk_wrap_arg :: Unique -> Type -> Demand -> OneShotInfo -> Id
 mk_wrap_arg uniq ty dmd one_shot
-  = mkSysLocal (fsLit "w") uniq ty
+  = mkSysLocalOrCoVar (fsLit "w") uniq ty
        `setIdDemandInfo` dmd
        `setIdOneShotInfo` one_shot
 
@@ -768,4 +765,4 @@ sanitiseCaseBndr :: Id -> Id
 sanitiseCaseBndr id = id `setIdInfo` vanillaIdInfo
 
 mk_ww_local :: Unique -> Type -> Id
-mk_ww_local uniq ty = mkSysLocal (fsLit "ww") uniq ty
+mk_ww_local uniq ty = mkSysLocalOrCoVar (fsLit "ww") uniq ty

@@ -1,4 +1,5 @@
 stack:
+
 - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 
 - relax tcMatchTys, tcUnifyTys to ignore casts. URGH!
@@ -74,6 +75,8 @@ fix:
   - add CoreLint checks for levity polymorphism used the right way. But, what exactly
     is the right way??
   - need an -fprint-explicit-coercions, which is off by default.
+- Are there uses of the `OrCoVar` functions that could be streamlined?
+  Also, look at uses of isCoercionType in module Id
 - figure out how to handle the range of equalities. In particular,
   fix classifyPredType,
   - consider re-engineering the boxity problems in solver. look for the "LikeEv" functions

@@ -1048,7 +1048,7 @@ newPolyBndrs dest_lvl
     add_id    env (v, v') = extendVarEnv env v ((v':abs_vars), mkVarApps (Var v') abs_vars)
 
     mk_poly_bndr bndr uniq = transferPolyIdInfo bndr abs_vars $         -- Note [transferPolyIdInfo] in Id.lhs
-                             mkSysLocal (mkFastString str) uniq poly_ty
+                             mkSysLocalOrCoVar (mkFastString str) uniq poly_ty
                            where
                              str     = "poly_" ++ occNameString (getOccName bndr)
                              poly_ty = mkPiTypes abs_vars (substTy subst (idType bndr))
@@ -1058,7 +1058,7 @@ newLvlVar :: LevelledExpr        -- The RHS of the new binding
           -> LvlM Id
 newLvlVar lvld_rhs is_bot
   = do { uniq <- getUniqueM
-       ; return (add_bot_info (mkLocalId (mk_name uniq) rhs_ty)) }
+       ; return (add_bot_info (mkLocalIdOrCoVar (mk_name uniq) rhs_ty)) }
   where
     add_bot_info var  -- We could call annotateBotStr always, but the is_bot
                       -- flag just tells us when we don't need to do so

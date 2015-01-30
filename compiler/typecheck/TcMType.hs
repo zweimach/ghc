@@ -134,12 +134,12 @@ newEvVars theta = mapM newEvVar theta
 newEvVar :: TcPredType -> TcRnIf gbl lcl EvVar
 -- Creates new *rigid* variables for predicates
 newEvVar ty = do { name <- newSysName (predTypeOccName ty) 
-                 ; return (mkLocalId name ty) }
+                 ; return (mkLocalIdOrCoVar name ty) }
 
 newEq :: TcType -> TcType -> TcM EvVar
 newEq ty1 ty2
   = do { name <- newSysName (mkVarOccFS (fsLit "cobox"))
-       ; return (mkLocalId name (mkPrimEqPred ty1 ty2)) }
+       ; return (mkLocalCoVar name (mkPrimEqPred ty1 ty2)) }
 
 newDict :: Class -> [TcType] -> TcM DictId
 newDict cls tys 
@@ -242,7 +242,7 @@ tcInstSkolTyCoVars' overlappable subst tvs
 mkTcSkolTyCoVar :: SrcSpan -> Bool -> Unique -> Name -> Kind -> TcTyCoVar
 mkTcSkolTyCoVar loc overlappable uniq old_name kind
   | isCoercionType kind
-  = mkLocalId (mkSystemNameAt uniq (getOccName old_name) loc) kind
+  = mkLocalCoVar (mkSystemNameAt uniq (getOccName old_name) loc) kind
 
   | otherwise
   = mkTcTyVar (mkInternalName uniq (getOccName old_name) loc)
@@ -261,7 +261,7 @@ tcInstSigTyCoVars
   where
     mk_tcv uniq old_name kind
        | isCoercionType kind
-       = mkLocalId (setNameUnique old_name uniq) kind
+       = mkLocalCoVar (setNameUnique old_name uniq) kind
 
        | otherwise
        = mkTcTyVar (setNameUnique old_name uniq) kind (SkolemTv False)
