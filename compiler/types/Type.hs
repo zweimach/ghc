@@ -58,7 +58,8 @@ module Type (
         -- Pred types
         mkFamilyTyConApp,
         isDictLikeTy,
-        mkEqPred, mkCoerciblePred, mkPrimEqPred, mkReprPrimEqPred,
+        mkEqPred, mkCoerciblePred, mkEqPredRole,
+        mkPrimEqPred, mkReprPrimEqPred,
         mkHeteroPrimEqPred, mkHeteroReprPrimEqPred,
         mkClassPred,
         isClassPred, isEqPred, isNomEqPred,
@@ -1257,6 +1258,12 @@ mkCoerciblePred ty1 ty2
   where
     k = typeKind ty1
 
+-- | Makes a lifted equality predicate at the given role
+mkEqPredRole :: Role -> Type -> Type -> PredType
+mkEqPredRole Nominal          = mkEqPred
+mkEqPredRole Representational = mkCoerciblePred
+mkEqPredRole Phantom          = panic "mkEqPredRole phantom"
+
 -- | Creates a primitive type equality predicate.
 -- Invariant: the types are not Coercions
 mkPrimEqPred :: Type -> Type -> Type
@@ -1410,6 +1417,7 @@ getEqPredTys_maybe ty
         | tc `hasKey` coercibleTyConKey -> Just (Boxed, Representational, ty1, ty2)
       Just (tc, [_, _, ty1, ty2])
         | tc `hasKey` eqPrimTyConKey    -> Just (Unboxed, Nominal, ty1, ty2)
+        | tc `hasKey` eqReprPrimTyConKey -> Just (Unboxed, Representational, ty1, ty2)
       _ -> Nothing
 
 getEqPredRole :: PredType -> Role

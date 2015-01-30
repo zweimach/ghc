@@ -407,8 +407,18 @@ addDeferredBinding ctxt err ct
              err_fs  = mkFastString $ showSDoc dflags $
                        err_msg $$ text "(deferred type error)"
 
-         -- Create the binding
-       ; addTcEvBind ev_binds_var ev_id (EvDelayedError pred err_fs) loc }
+          -- Create the binding
+       ; if isUnLiftedType pred
+         then case getEqPredTys_maybe pred of
+           Just (Unboxed, role, ty1, ty2) ->
+               -- See Note [Deferred errors for unlifted equality]
+             do { let lifted_pred = mkEqPredRole role ty1 ty2
+                ; liftedVar <- newEvVar lifted_pred
+                ; addTcEvBind ev_binds_var ev_id (EvId liftedVar) loc
+                ; addTcEvBind ev_binds_var liftedVar
+                              (EvDelayedError lifted_pred err_fs) loc }
+           _ -> pprPanic "addDeferredBinding" (ppr pred)
+         else addTcEvBind ev_binds_var ev_id (EvDelayedError pred err_fs) loc }
 
   | otherwise   -- Do not set any evidence for Given/Derived
   = return ()
@@ -506,6 +516,14 @@ To be consistent, we should also report multiple warnings from a single
 location in mkGroupReporter, when -fdefer-type-errors is on.  But that 
 is perhaps a bit *over*-consistent! Again, an easy choice to change.
 
+Note [Deferred errors for unlifted equality]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If we have a unlifted pred type (such as `a ~# b`), then we can't just
+bind it to EvDelayedError: the desugarer will choke in evTermCoercion.
+But, we *can* bind the unlifted equality to a *lifted* equality, and
+then bind the lifted equality to EvDelayedError. The desugarer will
+unpack the erroneous equality in a `case` match, and the unlifted
+equality basically stays away from the problem.
 
 Note [Do not report derived but soluble errors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

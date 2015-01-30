@@ -1826,9 +1826,8 @@ deferTcSForAllEq role loc (bndrs1,body1) (bndrs2,body2)
             phi2 = Type.substTy (zipTopTCvSubst tvs2 tys) body2
             skol_info = UnifyForAllSkol skol_tvs phi1
             eq_pred   = case role of
-                          Nominal ->          mkPrimEqPred    phi1 phi2
-                                         -- TODO (RAE): get the boxity right!
-                          Representational -> mkCoerciblePred phi1 phi2
+                          Nominal ->          mkPrimEqPred     phi1 phi2
+                          Representational -> mkReprPrimEqPred phi1 phi2
                           Phantom ->          panic "deferTcSForAllEq Phantom"
         ; mb_ctev <- newWantedEvVar loc eq_pred
         ; coe_inside <- case mb_ctev of
