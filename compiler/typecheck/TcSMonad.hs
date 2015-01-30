@@ -1759,6 +1759,8 @@ newWantedEvVar loc pty
               | not (isDerived ctev)
               -> do { traceTcS "newWantedEvVar/cache hit" $ ppr ctev
                     ; return $ Cached (ctEvCoherence ctev pty) }
+                      -- TODO (RAE): Could this have a problem with
+                      -- ~ vs ~#?
             _ -> do { ctev <- newWantedEvVarNC loc pty
                     ; traceTcS "newWantedEvVar/cache miss" $ ppr ctev
                     ; return (Fresh ctev) } }

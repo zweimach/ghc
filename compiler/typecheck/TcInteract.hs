@@ -15,6 +15,7 @@ import Type
 import Unify
 import InstEnv( lookupInstEnv, instanceDFunId )
 import CoAxiom(sfInteractTop, sfInteractInert)
+import Coercion ( buildCoherenceCo )
 
 import Var
 import TcType
@@ -659,13 +660,15 @@ interactFunEq :: TcLevel -> InertCans -> Ct -> TcS (StopOrContinue Ct)
 -- Try interacting the work item with the inert set
 interactFunEq tclvl inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
                                                , cc_tyargs = args, cc_fsk = fsk })
-  | Just (CFunEqCan { cc_ev = ev_i, cc_fsk = fsk_i }) <- matching_inerts
+  | Just (CFunEqCan { cc_tyargs = args_i
+                    , cc_ev = ev_i
+                    , cc_fsk = fsk_i }) <- matching_inerts
   = if canRewriteOrSame tclvl ev_i ev
     then  -- Rewrite work-item using inert
       do { traceTcS "reactFunEq (discharge work item):" $
            vcat [ text "workItem =" <+> ppr workItem
                 , text "inertItem=" <+> ppr ev_i ]
-         ; reactFunEq ev_i fsk_i ev fsk
+         ; reactFunEq tc ev_i args_i fsk_i ev args fsk
          ; stopWith ev "Inert rewrites work item" }
     else  -- Rewrite intert using work-item
       do { traceTcS "reactFunEq (rewrite inert item):" $
@@ -674,7 +677,7 @@ interactFunEq tclvl inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
          ; updInertFunEqs $ \ feqs -> insertFunEq feqs tc args workItem
                -- Do the updInertFunEqs before the reactFunEq, so that
                -- we don't kick out the inertItem as well as consuming it!
-         ; reactFunEq ev fsk ev_i fsk_i
+         ; reactFunEq tc ev args fsk ev_i args_i fsk_i
          ; stopWith ev "Work item rewrites inert" }
 
   | Just ops <- isBuiltInSynFamTyCon_maybe tc
@@ -706,15 +709,13 @@ lookupFlattenTyVar inert_eqs ftv
       Just (CTyEqCan { cc_rhs = rhs, cc_eq_rel = NomEq } : _) -> rhs
       _                                                       -> mkOnlyTyVarTy ftv
 
-reactFunEq :: CtEvidence -> TcTyVar    -- From this  :: F tys ~ fsk1
-           -> CtEvidence -> TcTyVar    -- Solve this :: F tys ~ fsk2
+reactFunEq :: TyCon   -- "F"
+           -> CtEvidence -> [TcType] -> TcTyVar    -- From this  :: F args1 ~ fsk1
+           -> CtEvidence -> [TcType] -> TcTyVar    -- Solve this :: F args2 ~ fsk2
            -> TcS ()
-reactFunEq from_this fsk1
-           solve_this@(CtGiven { ctev_evtm = tm, ctev_loc = loc
-                               , ctev_pred = pred }) fsk2
-  = do { let from_term = ctEvCoherence from_this pred
-             fsk_eq_co = mkTcSymCo (evTermCoercion tm)
-                         `mkTcTransCo` evTermCoercion from_term
+reactFunEq fam_tc from_this args1 fsk1 solve_this args2 fsk2
+  | CtGiven { ctev_evtm = tm, ctev_loc = loc } <- solve_this
+  = do { let fsk_eq_co = mkTcSymCo (evTermCoercion tm) `mkTcTransCo` co
                          -- :: fsk2 ~ fsk1
              fsk_eq_pred = mkTcEqPredLikeEv solve_this
                              (mkOnlyTyVarTy fsk2) (mkOnlyTyVarTy fsk1)
@@ -722,13 +723,21 @@ reactFunEq from_this fsk1
        ; new_ev <- newGivenEvVar loc (fsk_eq_pred, EvCoercion fsk_eq_co)
        ; emitWorkNC [new_ev] }
 
-reactFunEq from_this fuv1 (CtWanted { ctev_evar = evar, ctev_pred = pred
-                                    , ctev_loc = loc }) fuv2
-  = dischargeFmv evar loc fuv2 (evTermCoercion (ctEvCoherence from_this pred))
-                               (mkOnlyTyVarTy fuv1)
+  | CtWanted { ctev_evar = evar, ctev_loc = loc } <- solve_this
+  = dischargeFmv evar loc fsk2 co (mkOnlyTyVarTy fsk1)
 
-reactFunEq _ _ solve_this@(CtDerived {}) _
+  | otherwise
   = pprPanic "reactFunEq" (ppr solve_this)
+
+  where
+    coherence_cos = zipWith buildCoherenceCo args2 args1
+    coherence_tc_cos = map mkTcCoercion coherence_cos
+    middle_co = mkTcTyConAppCo Nominal fam_tc coherence_tc_cos
+      -- middle_co :: F args2 ~ F args1
+    co = middle_co `mkTcTransCo` ctEvCoercion from_this
+      -- co :: F args2 ~ fsk1
+      
+
 
 {-
 Note [Cache-caused loops]
