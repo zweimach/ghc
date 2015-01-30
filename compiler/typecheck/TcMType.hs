@@ -20,7 +20,8 @@ module TcMType (
   newFlexiTyVarTy,              -- Kind -> TcM TcType
   newFlexiTyVarTys,             -- Int -> Kind -> TcM [TcType]
   newOpenFlexiTyVarTy,
-  newReturnTyVar,
+  newReturnTyVar, newReturnTyVarTy,
+  newMaybeReturnTyVarTy,
   newOpenReturnTyVar,
   newMetaKindVar, newMetaKindVars,
   mkTcTyVarName, cloneMetaTyVar, 
@@ -524,6 +525,15 @@ newFlexiTyVarTys n kind = mapM newFlexiTyVarTy (nOfThem n kind)
 
 newReturnTyVar :: Kind -> TcM TcTyVar
 newReturnTyVar kind = newMetaTyVar ReturnTv kind
+
+newReturnTyVarTy :: Kind -> TcM TcType
+newReturnTyVarTy kind = mkOnlyTyVarTy <$> newReturnTyVar kind
+
+-- | Either makes a normal Flexi or a ReturnTv Flexi
+newMaybeReturnTyVarTy :: Bool  -- True <=> make a ReturnTv
+                      -> Kind -> TcM TcType
+newMaybeReturnTyVarTy True  = newReturnTyVarTy
+newMaybeReturnTyVarTy False = newFlexiTyVarTy
 
 -- | Create a tyvar that can be a lifted or unlifted type.
 newOpenFlexiTyVarTy :: TcM TcType

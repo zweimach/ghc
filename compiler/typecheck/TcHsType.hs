@@ -46,6 +46,7 @@ import TcIface
 import TcHsSyn ( zonkCoToCo, emptyZonkEnv )  -- TODO (RAE): Remove!
 import TcType
 import Type
+import Coercion  ( mkSubCo )
 import TyCoRep( Type(..), Binder(..) ) 
 import Kind
 import RdrName( lookupLocalRdrOcc )
@@ -205,8 +206,11 @@ tcHsVectInst :: LHsType Name -> TcM (Class, [Type])
 tcHsVectInst ty
   | Just (L _ cls_name, tys) <- splitLHsClassTy_maybe ty
   = do { (cls, cls_kind) <- tcClass cls_name
-       ; (arg_tys, _res_kind) <- tcInferApps cls_name cls_kind tys
-       ; return (cls, arg_tys) }
+       ; (applied_class, _res_kind) <- tcInferApps (mkClassPred cls []) cls_kind tys
+       ; case tcSplitTyConApp_maybe applied_class of
+           Just (_tc, args) -> ASSERT( _tc == classTyCon cls )
+                               return (cls, args)
+           _ -> failWithTc (text "Too many arguments passed to" <+> ppr cls_name) }
   | otherwise
   = failWithTc $ ptext (sLit "Malformed instance type")
 
@@ -369,15 +373,13 @@ tc_infer_hs_type (HsAppTy ty1 ty2)
   = do { let (fun_ty, arg_tys) = splitHsAppTys ty1 [ty2]
        ; (fun_ty', fun_kind) <- tc_infer_lhs_type fun_ty
        ; fun_kind' <- zonkTcType fun_kind
-       ; (arg_tys', res_kind) <- tcInferApps fun_ty fun_kind' arg_tys
-       ; return (mkNakedAppTys fun_ty' arg_tys', res_kind) }
+       ; tcInferApps fun_ty' fun_kind' arg_tys }
 tc_infer_hs_type (HsParTy t)     = tc_infer_lhs_type t
-tc_infer_hs_type (HsOpTy lhs l_op@(L _ op) rhs)
+tc_infer_hs_type (HsOpTy lhs (L _ op) rhs)
   | not (op `hasKey` funTyConKey)
   = do { (op', op_kind) <- tcTyVar op
        ; op_kind' <- zonkTcType op_kind
-       ; (arg_tys', res_kind) <- tcInferApps l_op op_kind' [lhs, rhs]
-       ; return (mkNakedAppTys op' arg_tys', res_kind) }
+       ; tcInferApps op' op_kind' [lhs, rhs] }
 tc_infer_hs_type (HsKindSig ty sig)
   = do { sig' <- tcLHsKind sig
        ; ty' <- tc_lhs_type ty sig'
@@ -624,47 +626,35 @@ finish_tuple tup_sort tau_tys exp_kind
                  ConstraintTuple -> constraintKind
 
 ---------------------------
-tcInferApps :: Outputable a
-       => a 
+tcInferApps :: 
+          TcType                        -- Function
        -> TcKind                        -- Function kind (zonked)
        -> [LHsType Name]                -- Arg types
-       -> TcM ([TcType], TcKind)        -- Kind-checked args
-tcInferApps the_fun = go
+       -> TcM (TcType, TcKind)          -- (f args, result kind)
+tcInferApps = go
   where
-    the_fun_doc = ppr the_fun
+    go fun fun_kind [] = return (fun, fun_kind)
+    go fun fun_kind (arg:args)
+      | Just fun_kind' <- tcView fun_kind = go fun fun_kind' (arg:args)
     
-    go fun_kind [] = return ([], fun_kind)
-    go fun_kind (arg:args)
       | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
       , isInvisibleBinder bndr
       , Just tv <- binderVar_maybe bndr
       = do { imp_param <- newFlexiTyVarTy (tyVarKind tv)
-           ; (args', res_kind) <-
-                go (substTyWith [tv] [imp_param] res_k) (arg:args)
-           ; return (imp_param : args', res_kind) }
+           ; go (mkNakedAppTy fun imp_param)
+                (substTyWith [tv] [imp_param] res_k) (arg:args) }
 
       | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
       , Just tv <- binderVar_maybe bndr
       , isVisibleBinder bndr
       = do { arg' <- tc_lhs_type arg (tyVarKind tv)
-           ; (args', res_kind) <-
-               go (substTyWith [tv] [arg'] res_k) args
-           ; return (arg' : args', res_kind) }
+           ; go (mkNakedAppTy fun arg')
+                (substTyWith [tv] [arg'] res_k) args }
 
-      | Just (arg_k, res_k) <- splitFunTy_maybe fun_kind
-      = do { arg' <- tc_lhs_type arg arg_k
-           ; (args', res_kind) <- go res_k args
-           ; return (arg' : args', res_kind) }
-
-      | otherwise   -- we hopefully just have a flexi. unify with (k1 -> k2)
-      = do { mb_k <- matchExpectedFunKind fun_kind
-           ; case mb_k of
-               Just k  -> go k (arg:args)
-               Nothing -> failWithTc too_many_args }
-
-    too_many_args = quotes the_fun_doc <+>
-                    ptext (sLit "is applied to too many type arguments")
-
+      | otherwise
+      = do { (co, arg_k, res_k) <- matchExpectedFunKind fun_kind
+           ; arg' <- tc_lhs_type arg arg_k
+           ; go (mkNakedAppTy (fun `mkCastTyOrRefl` mkSubCo co) arg') res_k args }
 
 ---------------------------
 tcHsContext :: LHsContext Name -> TcM [PredType]

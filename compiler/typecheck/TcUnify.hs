@@ -142,7 +142,7 @@ matchExpectedFunTys herald arity orig_ty
       = do { cts <- readMetaTyVar tv
            ; case cts of
                Indirect ty' -> go n_req ty'
-               Flexi        -> defer n_req ty }
+               Flexi        -> defer (isReturnTyVar tv) n_req ty }
 
        -- In all other cases we bale out into ordinary unification
        -- However unlike the meta-tyvar case, we are sure that the
@@ -160,15 +160,20 @@ matchExpectedFunTys herald arity orig_ty
        -- But in that case we add specialized type into error context
        -- anyway, because it may be useful. See also Trac #9605.
     go n_req ty = addErrCtxtM mk_ctxt $
-                  defer n_req ty
+                  defer False n_req ty
 
     ------------
-    defer n_req fun_ty 
-      = do { arg_tys <- replicateM n_req newOpenFlexiTyVarTy
+    defer is_return n_req fun_ty 
+      = do { arg_tys <- replicateM n_req new_flexi
                         -- See Note [Foralls to left of arrow]
-           ; res_ty  <- newOpenFlexiTyVarTy
+           ; res_ty  <- new_flexi
            ; co   <- unifyType fun_ty (mkFunTys arg_tys res_ty)
            ; return (co, arg_tys, res_ty) }
+      where
+        -- preserve ReturnTv-ness
+        new_flexi :: TcM TcType
+        new_flexi | is_return = (mkOnlyTyVarTy . fst) <$> newOpenReturnTyVar
+                  | otherwise = newOpenFlexiTyVarTy
 
     ------------
     mk_ctxt :: TidyEnv -> TcM (TidyEnv, MsgDoc)
@@ -241,9 +246,9 @@ matchExpectedTyConApp tc orig_ty
        = do { cts <- readMetaTyVar tv
             ; case cts of
                 Indirect ty -> go ty
-                Flexi       -> defer }
+                Flexi       -> defer (isReturnTyVar tv) }
    
-    go _ = defer
+    go _ = defer False
 
     -- If the common case does not occur, instantiate a template
     -- T k1 .. kn t1 .. tm, and unify with the original type
@@ -255,13 +260,14 @@ matchExpectedTyConApp tc orig_ty
     --    (a::*) ~ Maybe
     -- because that'll make types that are utterly ill-kinded.
     -- This happened in Trac #7368
-    defer = ASSERT2( classifiesTypeWithValues res_kind, ppr tc )
-            do { (k_subst, kvs') <- tcInstTyCoVars (OccurrenceOf (tyConName tc)) kvs
-               ; let arg_kinds' = substTys k_subst arg_kinds
-                     kappa_tys  = mkOnlyTyVarTys kvs'
-               ; tau_tys <- mapM newFlexiTyVarTy arg_kinds'
-               ; co <- unifyType (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
-               ; return (co, kappa_tys ++ tau_tys) }
+    defer is_return
+      = ASSERT2( classifiesTypeWithValues res_kind, ppr tc )
+        do { (k_subst, kvs') <- tcInstTyCoVars (OccurrenceOf (tyConName tc)) kvs
+           ; let arg_kinds' = substTys k_subst arg_kinds
+                 kappa_tys  = mkOnlyTyVarTys kvs'
+           ; tau_tys <- mapM (newMaybeReturnTyVarTy is_return) arg_kinds'
+           ; co <- unifyType (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
+           ; return (co, kappa_tys ++ tau_tys) }
 
     (bndrs, res_kind)     = splitForAllTys (tyConKind tc)
     (kvs, arg_kinds)      = partitionBinders bndrs
@@ -287,15 +293,16 @@ matchExpectedAppTy orig_ty
       = do { cts <- readMetaTyVar tv
            ; case cts of
                Indirect ty -> go ty
-               Flexi       -> defer }
+               Flexi       -> defer (isReturnTyVar tv) }
 
-    go _ = defer
+    go _ = defer False
 
     -- Defer splitting by generating an equality constraint
-    defer = do { ty1 <- newFlexiTyVarTy kind1
-               ; ty2 <- newFlexiTyVarTy kind2
-               ; co <- unifyType (mkAppTy ty1 ty2) orig_ty
-               ; return (co, (ty1, ty2)) }
+    defer is_return
+      = do { ty1 <- newMaybeReturnTyVarTy is_return kind1
+           ; ty2 <- newMaybeReturnTyVarTy is_return kind2
+           ; co <- unifyType (mkAppTy ty1 ty2) orig_ty
+           ; return (co, (ty1, ty2)) }
 
     orig_kind = typeKind orig_ty
     kind1 = mkArrowKind liftedTypeKind orig_kind
@@ -1218,21 +1225,37 @@ ensures it won't unify with anything.  It's a slight had, because
 we return a made-up TcTyVarDetails, but I think it works smoothly.
 -}
 
-matchExpectedFunKind :: TcKind             -- function kind
-                     -> TcM (Maybe TcKind) -- more informative function kind
-matchExpectedFunKind (TyVarTy kvar)
-  | isTcTyVar kvar, isMetaTyVar kvar
-  = do { maybe_kind <- readMetaTyVar kvar
-       ; case maybe_kind of
-            Indirect fun_kind -> matchExpectedFunKind fun_kind
-            Flexi ->
-                do { arg_kind <- newMetaKindVar
-                   ; res_kind <- newMetaKindVar
-                   ; let new_kind = mkFunTy arg_kind res_kind
-                   ; writeMetaTyVar kvar new_kind
-                   ; return (Just new_kind) } }
+-- | Breaks apart a function kind into its pieces. 
+matchExpectedFunKind :: TcKind                   -- function kind
+                     -> TcM (Coercion, TcKind, TcKind)
+                                  -- co :: old_kind ~ arg -> res
+matchExpectedFunKind = go
+  where
+    go k | Just k' <- tcView k = go k'
+    
+    go k@(TyVarTy kvar)
+      | isTcTyVar kvar, isMetaTyVar kvar
+      = do { maybe_kind <- readMetaTyVar kvar
+           ; case maybe_kind of
+                Indirect fun_kind -> go fun_kind
+                Flexi ->             defer (isReturnTyVar kvar) k }
 
-matchExpectedFunKind _ = return Nothing
+    go k@(ForAllTy (Anon arg) res)
+      = return (mkReflCo Nominal k, arg, res)
+
+    go other = defer False other
+
+    defer is_return k
+      = do { arg_kind <- new_flexi
+           ; res_kind <- new_flexi
+           ; let new_fun = mkFunTy arg_kind res_kind
+                 origin  = TypeEqOrigin { uo_actual   = k
+                                        , uo_expected = new_fun }
+           ; co <- uType origin k new_fun
+           ; return (co, arg_kind, res_kind) }
+      where
+        new_flexi | is_return = newReturnTyVarTy liftedTypeKind
+                  | otherwise = newMetaKindVar
 
 checkExpectedKind :: TcType               -- the type whose kind we're checking
                   -> TcKind               -- the known kind of that type, k

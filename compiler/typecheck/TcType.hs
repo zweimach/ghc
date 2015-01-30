@@ -34,7 +34,7 @@ module TcType (
   TcTyVarDetails(..), pprTcTyVarDetails, vanillaSkolemTv, superSkolemTv,
   MetaDetails(Flexi, Indirect), MetaInfo(..),
   isImmutableTyVar, isSkolemTyVar, isSkolemTyCoVar,
-  isMetaTyVar,  isMetaTyVarTy, isTyVarTy,
+  isMetaTyVar,  isMetaTyVarTy, isTyVarTy, isReturnTyVar,
   isSigTyVar, isOverlappableTyVar,  isTyConableTyVar, 
   isFskTyVar, isFmvTyVar, isFlattenTyVar, 
   isAmbiguousTyVar, metaTvRef, metaTyVarInfo,
@@ -48,7 +48,7 @@ module TcType (
   -- Builders
   mkPhiTy, mkInvSigmaTy, mkSigmaTy,
   mkTcEqPred, mkTcReprEqPred, mkTcEqPredBR,
-  mkNakedTyConApp, mkNakedAppTys,
+  mkNakedTyConApp, mkNakedAppTys, mkNakedAppTy,
 
   --------------------------------
   -- Splitters
@@ -732,7 +732,7 @@ isImmutableTyVar tv
   | otherwise    = True
 
 isTyConableTyVar, isSkolemTyVar, isSkolemTyCoVar, isOverlappableTyVar,
-  isMetaTyVar, isAmbiguousTyVar, 
+  isMetaTyVar, isReturnTyVar, isAmbiguousTyVar, 
   isFmvTyVar, isFskTyVar, isFlattenTyVar :: TcTyVar -> Bool
 
 isTyConableTyVar tv
@@ -791,6 +791,12 @@ isMetaTyVar tv
         MetaTv {} -> True
         _         -> False
   | otherwise = False
+
+isReturnTyVar tv
+  = ASSERT( isTcTyVar tv )
+    case tcTyVarDetails tv of
+      MetaTv { mtv_info = ReturnTv } -> True
+      _                              -> False
 
 -- isAmbiguousTyVar is used only when reporting type errors
 -- It picks out variables that are unbound, namely meta
@@ -960,7 +966,9 @@ mkNakedAppTys ty1                []   = ty1
 mkNakedAppTys (TyConApp tc tys1) tys2 = mkNakedTyConApp tc (tys1 ++ tys2)
 mkNakedAppTys ty1                tys2 = foldl AppTy ty1 tys2
 
-
+mkNakedAppTy :: Type -> Type -> Type
+-- See Note [Zonking inside the knot] in TcHsType
+mkNakedAppTy ty1 ty2 = mkNakedAppTys ty1 [ty2]
 
 {-
 ************************************************************************
