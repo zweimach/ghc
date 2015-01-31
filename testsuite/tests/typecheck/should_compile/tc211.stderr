@@ -47,10 +47,10 @@ tc211.hs:65:8:
         (\ x -> x) Nil
 
 tc211.hs:73:9:
-    Couldn't match type ‘forall a4. a4 -> a4’ with ‘a3 -> a3’
-    Expected type: List (forall a. a -> a)
-                   -> (forall a. a -> a) -> a3 -> a3
-      Actual type: List (a3 -> a3) -> (a3 -> a3) -> a3 -> a3
+    Couldn't match type ‘forall a4. a4 -> a4’ with ‘a -> a’
+    Expected type: List (forall a1. a1 -> a1)
+                   -> (forall a1. a1 -> a1) -> a -> a
+      Actual type: List (a -> a) -> (a -> a) -> a -> a
     In the expression:
         foo2 ::
           List (forall a. a -> a) -> (forall a. a -> a) -> (forall a. a -> a)
