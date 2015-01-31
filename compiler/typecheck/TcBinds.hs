@@ -1137,7 +1137,9 @@ tcMonoBinds is_rec sig_fn no_gen
         -- e.g.         f = \(x::forall a. a->a) -> <body>
         --      We want to infer a higher-rank type for f
     setSrcSpan b_loc    $
-    do  { rhs_ty  <- newOpenFlexiTyVarTy
+    do  { (rhs_tv, _) <- newOpenReturnTyVar
+                         -- use ReturnTv to allow impredicativity
+        ; let rhs_ty = mkOnlyTyVarTy rhs_tv
         ; mono_id <- newNoSigLetBndr no_gen name rhs_ty
         ; (co_fn, matches') <- tcExtendIdBndrs [TcIdBndr mono_id NotTopLevel] $
                                  -- We extend the error context even for a non-recursive
