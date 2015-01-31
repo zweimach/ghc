@@ -12,6 +12,9 @@ fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
 fix parser; then fix TypeLits.Mult --> *
 
+KNOWN TESTSUITE FAILURES:
+ typecheck/should_compile/tc192: Need coherence-aware instance lookup
+
 QUESTIONS:
 - Check decideQuantification!
 
