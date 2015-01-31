@@ -892,7 +892,8 @@ tcSpec poly_id prag@(SpecSig fun_name hs_tys inl)
                  (ptext (sLit "SPECIALISE pragma for non-overloaded function")
                   <+> quotes (ppr fun_name))
                   -- Note [SPECIALISE pragmas]
-        ; wraps <- mapM (tcSubType sig_ctxt (idType poly_id)) spec_tys
+        ; wraps <- mapM (tcSubType sig_ctxt (Just poly_id)
+                                            (idType poly_id)) spec_tys
         ; return [ (SpecPrag poly_id wrap inl) | wrap <- wraps ] }
   where
     name      = idName poly_id

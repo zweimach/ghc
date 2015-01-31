@@ -150,7 +150,7 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
            ; wrapped_args <- forM (zipEqual "tcCheckPatSynDecl" arg_names arg_tys) $ \(arg_name, arg_ty) -> do
                { arg <- tcLookupId arg_name
                ; let arg_ty' = substTy subst arg_ty
-               ; coi <- unifyType (varType arg) arg_ty'
+               ; coi <- unifyType (Just arg) (varType arg) arg_ty'
                ; return (setVarType arg arg_ty, coToHsWrapper coi) }
            ; return (ex_tys, prov_theta', wrapped_args) }
 

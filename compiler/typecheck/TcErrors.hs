@@ -689,15 +689,17 @@ mkEqErr1 ctxt ct
        ; (env1, tidy_orig) <- zonkTidyOrigin (cec_tidy ctxt) (ctLocOrigin loc)
        ; rdr_env <- getGlobalRdrEnv
        ; fam_envs <- tcGetFamInstEnvs
-       ; let (is_oriented, wanted_msg) = mk_wanted_extra tidy_orig
+       ; let (keep_going, is_oriented, wanted_msg) = mk_wanted_extra tidy_orig
              coercible_msg = case ctEvEqRel ev of
                NomEq  -> empty
                ReprEq -> mkCoercibleExplanation rdr_env fam_envs ty1 ty2
        ; dflags <- getDynFlags
        ; traceTc "mkEqErr1" (ppr ct $$ pprCtOrigin (ctLocOrigin loc) $$ pprCtOrigin tidy_orig)
-       ; mkEqErr_help dflags (ctxt {cec_tidy = env1})
-                      (wanted_msg $$ coercible_msg $$ binds_msg)
-                      ct is_oriented ty1 ty2 }
+       ; let extras = wanted_msg $$ coercible_msg $$ binds_msg
+       ; if keep_going
+         then mkEqErr_help dflags (ctxt {cec_tidy = env1})
+                      extras ct is_oriented ty1 ty2
+         else mkErrorMsg ctxt ct extras }
   where
     ev         = ctEvidence ct
     loc        = ctEvLoc ev
@@ -717,29 +719,29 @@ mkEqErr1 ctxt ct
       = mkExpectedActualMsg ty1 ty2 orig
 
     mk_wanted_extra (KindEqOrigin cty1 cty2 sub_o)
-      = (Nothing, msg1 $$ msg2)
+      = (True, Nothing, msg1 $$ msg2)
       where
         msg1 = hang (ptext (sLit "When matching types"))
                   2 (vcat [ ppr cty1 <+> dcolon <+> ppr (typeKind cty1)
                           , ppr cty2 <+> dcolon <+> ppr (typeKind cty2) ])
         msg2 = case sub_o of
-                 TypeEqOrigin {} -> snd (mkExpectedActualMsg cty1 cty2 sub_o)
+                 TypeEqOrigin {} -> thdOf3 (mkExpectedActualMsg cty1 cty2 sub_o)
                  _ -> empty
 
-    mk_wanted_extra orig@(FunDepOrigin1 {})     = (Nothing, pprArising orig)
-    mk_wanted_extra orig@(FunDepOrigin2 {})     = (Nothing, pprArising orig)
+    mk_wanted_extra orig@(FunDepOrigin1 {})     = (True, Nothing, pprArising orig)
+    mk_wanted_extra orig@(FunDepOrigin2 {})     = (True, Nothing, pprArising orig)
     mk_wanted_extra orig@(DerivOriginCoerce _ oty1 oty2)
-      = (Nothing, pprArising orig $+$ mkRoleSigs oty1 oty2)
+      = (True, Nothing, pprArising orig $+$ mkRoleSigs oty1 oty2)
     mk_wanted_extra orig@(CoercibleOrigin oty1 oty2)
         -- if the origin types are the same as the final types, don't
         -- clutter output with repetitive information
       | not (oty1 `eqType` ty1 && oty2 `eqType` ty2) &&
         not (oty1 `eqType` ty2 && oty2 `eqType` ty1)
-      = (Nothing, pprArising orig $+$ mkRoleSigs oty1 oty2)
+      = (True, Nothing, pprArising orig $+$ mkRoleSigs oty1 oty2)
       | otherwise
         -- still print role sigs even if types line up
-      = (Nothing, mkRoleSigs oty1 oty2)
-    mk_wanted_extra _                           = (Nothing, empty)
+      = (True, Nothing, mkRoleSigs oty1 oty2)
+    mk_wanted_extra _                           = (True, Nothing, empty)
 
 -- | This function tries to reconstruct why a "Coercible ty1 ty2" constraint
 -- is left over.
@@ -964,7 +966,8 @@ misMatchOrCND ctxt ct oriented ty1 ty2
   where
     givens = [ given | given@(_, _, no_eqs, _) <- getUserGivens ctxt, not no_eqs]
              -- Keep only UserGivens that have some equalities
-    orig   = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2 }
+    orig   = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2
+                          , uo_thing  = Nothing }
 
 couldNotDeduce :: [UserGiven] -> (ThetaType, CtOrigin) -> SDoc
 couldNotDeduce givens (wanteds, orig)
@@ -1056,15 +1059,28 @@ misMatchMsg oriented eq_rel ty1 ty2
       NomEq  -> (empty, empty, 0)
       ReprEq -> (text "representation of", text "that of", 10)
 
-mkExpectedActualMsg :: Type -> Type -> CtOrigin -> (Maybe SwapFlag, SDoc)
+mkExpectedActualMsg :: Type -> Type -> CtOrigin -> (Bool, Maybe SwapFlag, SDoc)
 -- NotSwapped means (actual, expected), IsSwapped is the reverse
-mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp })
-  | act `pickyEqType` ty1, exp `pickyEqType` ty2 = (Just NotSwapped,  empty)
-  | exp `pickyEqType` ty1, act `pickyEqType` ty2 = (Just IsSwapped, empty)
-  | otherwise                                    = (Nothing, msg)
+-- First return val is whether or not to print a herald above this msg
+mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
+                                          , uo_thing = maybe_thing})
+  | isUnliftedTypeKind act, isLiftedTypeKind exp = (False, Nothing, msg2)
+  | isLiftedTypeKind act, isUnliftedTypeKind exp = (False, Nothing, msg3)
+  | act `pickyEqType` ty1, exp `pickyEqType` ty2 = (True, Just NotSwapped,  empty)
+  | exp `pickyEqType` ty1, act `pickyEqType` ty2 = (True, Just IsSwapped, empty)
+  | otherwise                                    = (True, Nothing, msg)
   where
     msg = vcat [ text "Expected type:" <+> ppr exp
                , text "  Actual type:" <+> ppr act ]
+
+    thing_msg = case maybe_thing of
+                  Just thing -> \_ -> quotes (ppr thing) <+> text "is"
+                  Nothing    -> \vowel -> text "got a" <+>
+                                          if vowel then text "n" else empty
+    msg2 = hsep [ text "Expecting a lifted type, but"
+                , thing_msg True, text "unlifted" ]
+    msg3 = hsep [ text "Expecting an unlifted type, but"
+                , thing_msg False, text "lifted" ]
 
 mkExpectedActualMsg _ _ _ = panic "mkExprectedAcutalMsg"
 

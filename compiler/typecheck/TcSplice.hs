@@ -352,7 +352,7 @@ tcTypedBracket brack@(TExpBr expr) res_ty
                                 -- NC for no context; tcBracket does that
 
        ; meta_ty <- tcTExpTy expr_ty
-       ; co <- unifyType meta_ty res_ty
+       ; co <- unifyType (Just expr) meta_ty res_ty
        ; ps' <- readMutVar ps_ref
        ; texpco <- tcLookupId unsafeTExpCoerceName
        ; return (mkHsWrapCo co (unLoc (mkHsApp (nlHsTyApp texpco [expr_ty])
@@ -365,7 +365,7 @@ tcUntypedBracket brack ps res_ty
   = do { traceTc "tc_bracket untyped" (ppr brack $$ ppr ps)
        ; ps' <- mapM tcPendingSplice ps
        ; meta_ty <- tcBrackTy brack
-       ; co <- unifyType meta_ty res_ty
+       ; co <- unifyType (Just brack) meta_ty res_ty
        ; traceTc "tc_bracket done untyped" (ppr meta_ty)
        ; return (mkHsWrapCo co (HsTcBracketOut brack ps'))  }
 

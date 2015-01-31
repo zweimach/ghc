@@ -284,7 +284,7 @@ tcPatBndr (PE { pe_ctxt = LetPat lookup_sig no_gen}) bndr_name pat_ty
   , Just sig <- lookup_sig bndr_name
   = do { bndr_id <- addInlinePrags (sig_id sig) (prags bndr_name)
        ; traceTc "tcPatBndr(gbl,sig)" (ppr bndr_id $$ ppr (idType bndr_id)) 
-       ; co <- unifyPatType (idType bndr_id) pat_ty
+       ; co <- unifyPatType bndr_id (idType bndr_id) pat_ty
        ; return (co, bndr_id) }
       
   | otherwise 
@@ -472,7 +472,7 @@ tc_pat penv lpat@(LazyPat pat) pat_ty thing_inside
 
         -- Check that the expected pattern type is itself lifted
         ; pat_ty' <- newFlexiTyVarTy liftedTypeKind
-        ; _ <- unifyType pat_ty pat_ty'
+        ; _ <- unifyType noThing pat_ty pat_ty'
 
         ; return (LazyPat pat', res) }
 
@@ -512,7 +512,7 @@ tc_pat penv (ViewPat expr pat _) overall_pat_ty thing_inside
          -- we will only be able to use view at one instantation in the
          -- rest of the view
         ; (expr_co, pat_ty) <- tcInfer $ \ pat_ty -> 
-                unifyType expr'_inferred (mkFunTy overall_pat_ty pat_ty)
+                unifyType (Just expr) expr'_inferred (mkFunTy overall_pat_ty pat_ty)
         
          -- pattern must have pat_ty
         ; (pat', res) <- tc_lpat pat pat_ty penv thing_inside
@@ -590,7 +590,7 @@ tc_pat penv (ConPatIn con arg_pats) pat_ty thing_inside
 -- Literal patterns
 tc_pat _ (LitPat simple_lit) pat_ty thing_inside
   = do  { let lit_ty = hsLitType simple_lit
-        ; co <- unifyPatType lit_ty pat_ty
+        ; co <- unifyPatType simple_lit lit_ty pat_ty
                 -- coi is of kind: pat_ty ~ lit_ty
         ; res <- thing_inside 
         ; return ( mkHsWrapPatCo co (LitPat simple_lit) pat_ty 
@@ -633,13 +633,13 @@ tc_pat penv (NPlusKPat (L nm_loc name) lit ge minus) pat_ty thing_inside
 tc_pat _ _other_pat _ _ = panic "tc_pat"        -- ConPatOut, SigPatOut
 
 ----------------
-unifyPatType :: TcType -> TcType -> TcM TcCoercion
+unifyPatType :: Outputable a => a -> TcType -> TcType -> TcM TcCoercion
 -- In patterns we want a coercion from the
 -- context type (expected) to the actual pattern type
 -- But we don't want to reverse the args to unifyType because
 -- that controls the actual/expected stuff in error messages
-unifyPatType actual_ty expected_ty
-  = do { coi <- unifyType actual_ty expected_ty
+unifyPatType thing actual_ty expected_ty
+  = do { coi <- unifyType (Just thing) actual_ty expected_ty
        ; return (mkTcSymCo coi) }
 
 {-
@@ -846,7 +846,7 @@ tcPatSynPat penv (L con_span _) pat_syn pat_ty arg_pats thing_inside
               prov_theta' = substTheta tenv prov_theta
               req_theta' = substTheta tenv req_theta
 
-        ; wrap <- coToHsWrapper <$> unifyType ty' pat_ty
+        ; wrap <- coToHsWrapper <$> unifyType noThing ty' pat_ty
         ; traceTc "tcPatSynPat" (ppr pat_syn $$
                                  ppr pat_ty $$
                                  ppr ty' $$
@@ -919,7 +919,7 @@ matchExpectedConTy data_tc pat_ty
        ; traceTc "matchExpectedConTy" (vcat [ppr data_tc, 
                                              ppr (tyConTyVars data_tc),
                                              ppr fam_tc, ppr fam_args])
-       ; co1 <- unifyType (mkTyConApp fam_tc (substTys subst fam_args)) pat_ty
+       ; co1 <- unifyType noThing (mkTyConApp fam_tc (substTys subst fam_args)) pat_ty
              -- co1 : T (ty1,ty2) ~ pat_ty
 
        ; let tys' = mkOnlyTyVarTys tvs'

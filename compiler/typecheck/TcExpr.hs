@@ -296,7 +296,7 @@ was a language construct.
 See Note [seqId magic] in MkId, and
 -}
 
-tcExpr (OpApp arg1 op fix arg2) res_ty
+tcExpr expr@(OpApp arg1 op fix arg2) res_ty
   | (L loc (HsVar op_name)) <- op
   , op_name `hasKey` seqIdKey           -- Note [Typing rule for seq]
   = do { arg1_ty <- newFlexiTyVarTy liftedTypeKind
@@ -320,7 +320,7 @@ tcExpr (OpApp arg1 op fix arg2) res_ty
          -- where arg2_ty maybe polymorphic; that's the point
 
        ; arg2' <- tcArg op (arg2, arg2_ty, 2)
-       ; co_b  <- unifyType op_res_ty res_ty    -- op_res ~ res
+       ; co_b  <- unifyType (Just expr) op_res_ty res_ty    -- op_res ~ res
 
        -- Make sure that the argument type has kind '*'
        --   ($) :: forall (v:Levity) (a:*) (b:TYPE v). (a->b) -> a -> b
@@ -333,7 +333,7 @@ tcExpr (OpApp arg1 op fix arg2) res_ty
        -- so we don't need to check anything for that
        ; a2_tv <- newReturnTyVar liftedTypeKind
        ; let a2_ty = mkOnlyTyVarTy a2_tv
-       ; co_a <- unifyType arg2_ty a2_ty     -- arg2 ~ a2
+       ; co_a <- unifyType (Just arg2) arg2_ty a2_ty     -- arg2 ~ a2
 
        ; op_id  <- tcLookupId op_name
 
@@ -348,7 +348,7 @@ tcExpr (OpApp arg1 op fix arg2) res_ty
   = do { traceTc "Non Application rule" (ppr op)
        ; (op', op_ty) <- tcInferFun op
        ; (co_fn, arg_tys, op_res_ty) <- unifyOpFunTysWrap op 2 op_ty
-       ; co_res <- unifyType op_res_ty res_ty
+       ; co_res <- unifyType (Just expr) op_res_ty res_ty
        ; [arg1', arg2'] <- tcArgs op [arg1, arg2] arg_tys
        ; return $ mkHsWrapCo co_res $
          OpApp arg1' (mkLHsWrapCo co_fn op') fix arg2' }
@@ -356,27 +356,27 @@ tcExpr (OpApp arg1 op fix arg2) res_ty
 -- Right sections, equivalent to \ x -> x `op` expr, or
 --      \ x -> op x expr
 
-tcExpr (SectionR op arg2) res_ty
+tcExpr expr@(SectionR op arg2) res_ty
   = do { (op', op_ty) <- tcInferFun op
        ; (co_fn, [arg1_ty, arg2_ty], op_res_ty) <- unifyOpFunTysWrap op 2 op_ty
-       ; co_res <- unifyType (mkFunTy arg1_ty op_res_ty) res_ty
+       ; co_res <- unifyType (Just expr) (mkFunTy arg1_ty op_res_ty) res_ty
        ; arg2' <- tcArg op (arg2, arg2_ty, 2)
        ; return $ mkHsWrapCo co_res $
          SectionR (mkLHsWrapCo co_fn op') arg2' }
 
-tcExpr (SectionL arg1 op) res_ty
+tcExpr expr@(SectionL arg1 op) res_ty
   = do { (op', op_ty) <- tcInferFun op
        ; dflags <- getDynFlags      -- Note [Left sections]
        ; let n_reqd_args | xopt Opt_PostfixOperators dflags = 1
                          | otherwise                        = 2
 
        ; (co_fn, (arg1_ty:arg_tys), op_res_ty) <- unifyOpFunTysWrap op n_reqd_args op_ty
-       ; co_res <- unifyType (mkFunTys arg_tys op_res_ty) res_ty
+       ; co_res <- unifyType (Just expr) (mkFunTys arg_tys op_res_ty) res_ty
        ; arg1' <- tcArg op (arg1, arg1_ty, 1)
        ; return $ mkHsWrapCo co_res $
          SectionL arg1' (mkLHsWrapCo co_fn op') }
 
-tcExpr (ExplicitTuple tup_args boxity) res_ty
+tcExpr expr@(ExplicitTuple tup_args boxity) res_ty
   | all tupArgPresent tup_args
   = do { let arity  = length tup_args
              tup_tc = tupleTyCon (boxityNormalTupleSort boxity) arity
@@ -400,7 +400,7 @@ tcExpr (ExplicitTuple tup_args boxity) res_ty
                  = mkFunTys [ty | (ty, (L _ (Missing _))) <- arg_tys `zip` tup_args]
                             (mkTupleTy (boxityNormalTupleSort boxity) arg_tys)
 
-       ; coi <- unifyType actual_res_ty res_ty
+       ; coi <- unifyType (Just expr) actual_res_ty res_ty
 
        -- Handle tuple sections where
        ; tup_args1 <- tcTupArgs tup_args arg_tys
@@ -540,7 +540,7 @@ to support expressions like this:
 ************************************************************************
 -}
 
-tcExpr (RecordCon (L loc con_name) _ rbinds) res_ty
+tcExpr expr@(RecordCon (L loc con_name) _ rbinds) res_ty
   = do  { data_con <- tcLookupDataCon con_name
 
         -- Check for missing fields
@@ -551,7 +551,7 @@ tcExpr (RecordCon (L loc con_name) _ rbinds) res_ty
               (arg_tys, actual_res_ty) = tcSplitFunTysN con_tau arity
               con_id = dataConWrapId data_con
 
-        ; co_res <- unifyType actual_res_ty res_ty
+        ; co_res <- unifyType (Just expr) actual_res_ty res_ty
         ; rbinds' <- tcRecordBinds data_con arg_tys rbinds
         ; return $ mkHsWrapCo co_res $
           RecordCon (L loc con_id) con_expr rbinds' }
@@ -659,7 +659,7 @@ In the outgoing (HsRecordUpd scrut binds cons in_inst_tys out_inst_tys):
         family example], in_inst_tys = [t1,t2], out_inst_tys = [t3,t2]
 -}
 
-tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
+tcExpr expr@(RecordUpd record_expr rbinds _ _ _) res_ty
   = ASSERT( notNull upd_fld_names )
     do  {
         -- STEP 0
@@ -741,7 +741,7 @@ tcExpr (RecordUpd record_expr rbinds _ _ _) res_ty
               scrut_ty      = TcType.substTy scrut_subst  con1_res_ty
               con1_arg_tys' = map (TcType.substTy result_subst) con1_arg_tys
 
-        ; co_res <- unifyType rec_res_ty res_ty
+        ; co_res <- unifyType (Just expr) rec_res_ty res_ty
 
         -- STEP 5
         -- Typecheck the thing to be updated, and the bindings
@@ -944,7 +944,8 @@ tcApp fun args res_ty
         -- Rather like tcWrapResult, but (perhaps for historical reasons)
         -- we do this before typechecking the arguments
         ; wrap_res <- addErrCtxtM (funResCtxt True (unLoc fun) actual_res_ty res_ty) $
-                      tcSubTypeDS_NC GenSigCtxt actual_res_ty res_ty
+                      tcSubTypeDS_NC GenSigCtxt (Just $ foldl mkHsApp fun args)
+                                     actual_res_ty res_ty
 
         -- Typecheck the arguments
         ; args1 <- tcArgs fun args expected_arg_tys

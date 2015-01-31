@@ -1,5 +1,4 @@
 stack:
-
 - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 
 - relax tcMatchTys, tcUnifyTys to ignore casts. URGH!
@@ -46,6 +45,7 @@ changed from a proper arg to an existential covar arg. Does this matter?
 fix:
   - have Core Lint check to make sure RHSs of `let (x :: foo ~# bar) = ...`
     are really Coercions!
+  - make use of uo_thing in more error messages
   - liftSimply --> mkReflCoArg (if we keep coargs!)
   - do we need to annotate kind variables to have a proper CUSK? I think so.
     Here is Doel's example from Hac Phi of this problem at the term level:
@@ -134,7 +134,7 @@ please remove:
 
 - quantifyTyCoVars, which is used during inference only to decide what to quantify over, should never quantify over covars!
 
-- Test uses of unifyType_ to make sure that kind families are tolerated
+- Test uses of unifyType_ and unifyKind to make sure that kind families are tolerated
 in those positions.
 
 - Unpacking lifted equality in data constructors has become harder.

@@ -937,7 +937,7 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
                      ; let poly_sig_ty = mkInvSigmaTy tyvars theta sig_ty
                      ; tc_sig  <- instTcTySig lhs_ty sig_ty Nothing [] local_meth_name
                      ; hs_wrap <- addErrCtxtM (methSigCtxt sel_name poly_sig_ty poly_meth_ty) $
-                                  tcSubType (FunSigCtxt sel_name) poly_sig_ty poly_meth_ty
+                                  tcSubType (FunSigCtxt sel_name) Nothing poly_sig_ty poly_meth_ty
                      ; return (poly_meth_id, tc_sig, hs_wrap) }
 
             Nothing     -- No type signature
@@ -1159,7 +1159,8 @@ tcSpecInst dfun_id prag@(SpecInstSig hs_ty)
     do  { (tyvars, theta, clas, tys) <- tcHsInstHead SpecInstCtxt hs_ty
         ; let (_, spec_dfun_ty) = mkDictFunTy tyvars theta clas tys
 
-        ; co_fn <- tcSubType SpecInstCtxt (idType dfun_id) spec_dfun_ty
+        ; co_fn <- tcSubType SpecInstCtxt (Just dfun_id)
+                             (idType dfun_id) spec_dfun_ty
         ; return (SpecPrag dfun_id co_fn defaultInlinePragma) }
   where
     spec_ctxt prag = hang (ptext (sLit "In the SPECIALISE pragma")) 2 (ppr prag)

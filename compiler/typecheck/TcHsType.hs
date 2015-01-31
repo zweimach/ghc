@@ -652,7 +652,7 @@ tcInferApps = go
                 (substTyWith [tv] [arg'] res_k) args }
 
       | otherwise
-      = do { (co, arg_k, res_k) <- matchExpectedFunKind fun_kind
+      = do { (co, arg_k, res_k) <- matchExpectedFunKind fun fun_kind
            ; arg' <- tc_lhs_type arg arg_k
            ; go (mkNakedAppTy (fun `mkCastTyOrRefl` mkSubCo co) arg') res_k args }
 
@@ -1006,7 +1006,7 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thi
                Nothing            -> return ()
                                      -- we only need the side effects;
                                      -- no need for coercion
-               Just (ATyVar _ tv) -> unifyType_ kind (tyVarKind tv)
+               Just (ATyVar _ tv) -> unifyKind n kind (tyVarKind tv)
                Just thing         -> pprPanic "check_in_scope" (ppr thing)
            ; return (n, kind) }
 

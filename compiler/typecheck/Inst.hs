@@ -28,7 +28,7 @@ module Inst (
 #include "HsVersions.h"
 
 import {-# SOURCE #-}   TcExpr( tcPolyExpr, tcSyntaxOp )
-import {-# SOURCE #-}   TcUnify( unifyType )
+import {-# SOURCE #-}   TcUnify( unifyType, noThing )
 
 import FastString
 import HsSyn
@@ -221,7 +221,7 @@ instCallConstraints orig preds
   where
     go pred 
      | Just (boxity, Nominal, ty1, ty2) <- getEqPredTys_maybe pred -- Try short-cut
-     = do  { co <- unifyType ty1 ty2
+     = do  { co <- unifyType noThing ty1 ty2
            ; return (boxity, EvCoercion co) }
      | otherwise
      = do { ev_var <- emitWanted modified_orig pred

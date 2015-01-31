@@ -649,7 +649,7 @@ addConstraint actual expected = do
     recoverTR (traceTR $ fsep [text "Failed to unify", ppr actual,
                                     text "with", ppr expected]) $
       do { (ty1, ty2) <- congruenceNewtypes actual expected
-         ; _  <- captureConstraints $ unifyType ty1 ty2
+         ; _  <- captureConstraints $ unifyType noThing ty1 ty2
          ; return () }
      -- TOMDO: what about the coercion?
      -- we should consider family instances
@@ -1196,7 +1196,7 @@ congruenceNewtypes lhs rhs = go lhs rhs >>= \rhs' -> return (lhs,rhs')
                (_, vars) <- instTyCoVars (tyConTyVars new_tycon)
                let ty' = mkTyConApp new_tycon (mkTyCoVarTys vars)
                    UnaryRep rep_ty = repType ty'
-               _ <- liftTcM (unifyType ty rep_ty)
+               _ <- liftTcM (unifyType noThing ty rep_ty)
         -- assumes that reptype doesn't ^^^^ touch tyconApp args
                return ty'
 

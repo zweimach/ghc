@@ -269,7 +269,7 @@ tc_cmd env
 --              Do notation
 
 tc_cmd env (HsCmdDo stmts _) (cmd_stk, res_ty)
-  = do  { co <- unifyType unitTy cmd_stk  -- Expecting empty argument stack
+  = do  { co <- unifyType noThing unitTy cmd_stk  -- Expecting empty argument stack
         ; stmts' <- tcStmts ArrowExpr (tcArrDoStmt env) stmts res_ty
         ; return (mkHsCmdCast co (HsCmdDo stmts' res_ty)) }
 

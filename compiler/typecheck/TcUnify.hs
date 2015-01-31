@@ -15,7 +15,7 @@ module TcUnify (
   checkConstraints, newImplication,
 
   -- Various unifications
-  unifyType_, unifyType, unifyTypeList, unifyTheta, 
+  unifyType_, unifyType, unifyTheta, unifyKind, noThing,
 
   --------------------------------
   -- Holes
@@ -53,6 +53,7 @@ import VarSet
 import ErrUtils
 import DynFlags
 import BasicTypes
+import Name   ( Name )
 import Util
 import Outputable
 import FastString
@@ -167,7 +168,7 @@ matchExpectedFunTys herald arity orig_ty
       = do { arg_tys <- replicateM n_req new_flexi
                         -- See Note [Foralls to left of arrow]
            ; res_ty  <- new_flexi
-           ; co   <- unifyType fun_ty (mkFunTys arg_tys res_ty)
+           ; co   <- unifyType noThing fun_ty (mkFunTys arg_tys res_ty)
            ; return (co, arg_tys, res_ty) }
       where
         -- preserve ReturnTv-ness
@@ -266,7 +267,7 @@ matchExpectedTyConApp tc orig_ty
            ; let arg_kinds' = substTys k_subst arg_kinds
                  kappa_tys  = mkOnlyTyVarTys kvs'
            ; tau_tys <- mapM (newMaybeReturnTyVarTy is_return) arg_kinds'
-           ; co <- unifyType (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
+           ; co <- unifyType noThing (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
            ; return (co, kappa_tys ++ tau_tys) }
 
     (bndrs, res_kind)     = splitForAllTys (tyConKind tc)
@@ -301,7 +302,7 @@ matchExpectedAppTy orig_ty
     defer is_return
       = do { ty1 <- newMaybeReturnTyVarTy is_return kind1
            ; ty2 <- newMaybeReturnTyVarTy is_return kind2
-           ; co <- unifyType (mkAppTy ty1 ty2) orig_ty
+           ; co <- unifyType noThing (mkAppTy ty1 ty2) orig_ty
            ; return (co, (ty1, ty2)) }
 
     orig_kind = typeKind orig_ty
@@ -382,19 +383,29 @@ So it's important that we unify beta := forall a. a->a, rather than
 skolemising the type.
 -}
 
-tcSubType :: UserTypeCtxt -> TcSigmaType -> TcSigmaType -> TcM HsWrapper
+tcSubType :: UserTypeCtxt -> Maybe Id  -- ^ If present, it has type ty_actual
+          -> TcSigmaType -> TcSigmaType -> TcM HsWrapper
 -- Checks that actual <= expected
 -- Returns HsWrapper :: actual ~ expected
-tcSubType ctxt ty_actual ty_expected
+tcSubType ctxt maybe_id ty_actual ty_expected
   = addSubTypeCtxt ty_actual ty_expected $
-    tcSubType_NC ctxt ty_actual ty_expected
+    do { traceTc "tcSubType" (vcat [ pprUserTypeCtxt ctxt
+                                   , ppr maybe_id
+                                   , ppr ty_actual
+                                   , ppr ty_expected ])
+       ; tc_sub_type origin ctxt ty_actual ty_expected }
+  where
+    origin = TypeEqOrigin { uo_actual   = ty_actual
+                          , uo_expected = ty_expected
+                          , uo_thing    = mkErrorThing <$> maybe_id }
 
-tcSubTypeDS :: UserTypeCtxt -> TcSigmaType -> TcRhoType -> TcM HsWrapper
+tcSubTypeDS :: Outputable a => UserTypeCtxt -> a  -- ^ has type ty_actual
+            -> TcSigmaType -> TcRhoType -> TcM HsWrapper
 -- Just like tcSubType, but with the additional precondition that
 -- ty_expected is deeply skolemised (hence "DS")
-tcSubTypeDS ctxt ty_actual ty_expected
+tcSubTypeDS ctxt expr ty_actual ty_expected
   = addSubTypeCtxt ty_actual ty_expected $
-    tcSubTypeDS_NC ctxt ty_actual ty_expected
+    tcSubTypeDS_NC ctxt (Just expr) ty_actual ty_expected
 
 
 addSubTypeCtxt :: TcType -> TcType -> TcM a -> TcM a
@@ -423,14 +434,21 @@ tcSubType_NC ctxt ty_actual ty_expected
   = do { traceTc "tcSubType_NC" (vcat [pprUserTypeCtxt ctxt, ppr ty_actual, ppr ty_expected])
        ; tc_sub_type origin ctxt ty_actual ty_expected }
   where
-    origin = TypeEqOrigin { uo_actual = ty_actual, uo_expected = ty_expected }
+    origin = TypeEqOrigin { uo_actual   = ty_actual
+                          , uo_expected = ty_expected
+                          , uo_thing    = Nothing }
 
-tcSubTypeDS_NC :: UserTypeCtxt -> TcSigmaType -> TcRhoType -> TcM HsWrapper
-tcSubTypeDS_NC ctxt ty_actual ty_expected
+tcSubTypeDS_NC :: Outputable a
+               => UserTypeCtxt
+               -> Maybe a  -- ^ If present, this has type ty_actual
+               -> TcSigmaType -> TcRhoType -> TcM HsWrapper
+tcSubTypeDS_NC ctxt maybe_thing ty_actual ty_expected
   = do { traceTc "tcSubTypeDS_NC" (vcat [pprUserTypeCtxt ctxt, ppr ty_actual, ppr ty_expected])
        ; tc_sub_type_ds origin ctxt ty_actual ty_expected }
   where
-    origin = TypeEqOrigin { uo_actual = ty_actual, uo_expected = ty_expected }
+    origin = TypeEqOrigin { uo_actual   = ty_actual
+                          , uo_expected = ty_expected
+                          , uo_thing    = mkErrorThing <$> maybe_thing }
 
 ---------------
 tc_sub_type :: CtOrigin -> UserTypeCtxt -> TcSigmaType -> TcSigmaType -> TcM HsWrapper
@@ -466,7 +484,7 @@ tc_sub_type_ds origin ctxt ty_actual ty_expected
              theta'  = substTheta subst theta
              in_rho' = substTy subst in_rho
        ; in_wrap   <- instCall origin tys' theta'
-       ; body_wrap <- tcSubTypeDS_NC ctxt in_rho' ty_expected
+       ; body_wrap <- tcSubTypeDS_NC ctxt noThing in_rho' ty_expected
        ; return (body_wrap <.> in_wrap) }
 
   | otherwise   -- Revert to unification
@@ -476,7 +494,7 @@ tc_sub_type_ds origin ctxt ty_actual ty_expected
 -----------------
 tcWrapResult :: HsExpr TcId -> TcRhoType -> TcRhoType -> TcM (HsExpr TcId)
 tcWrapResult expr actual_ty res_ty
-  = do { cow <- tcSubTypeDS GenSigCtxt actual_ty res_ty
+  = do { cow <- tcSubTypeDS GenSigCtxt expr actual_ty res_ty
                 -- Both types are deeply skolemised
        ; return (mkHsWrap cow expr) }
 
@@ -624,21 +642,35 @@ non-exported generic functions.
 
 -- | Unify two types, discarding a resultant coercion. Any constraints
 -- generated will still need to be solved, however.
-unifyType_ :: TcTauType -> TcTauType -> TcM ()
-unifyType_ ty1 ty2 = void $ unifyType ty1 ty2
+unifyType_ :: Outputable a => Maybe a  -- ^ If present, has type 'ty1'
+           -> TcTauType -> TcTauType -> TcM ()
+unifyType_ thing ty1 ty2 = void $ unifyType thing ty1 ty2
 
-unifyType :: TcTauType -> TcTauType -> TcM TcCoercion
+unifyType :: Outputable a => Maybe a   -- ^ If present, has type 'ty1'
+          -> TcTauType -> TcTauType -> TcM TcCoercion
 -- Actual and expected types
 -- Returns a coercion : ty1 ~ ty2
-unifyType ty1 ty2 = do { co <- uType origin ty1 ty2
-                       ; return (mkTcCoercion co) }
+unifyType thing ty1 ty2 = do { co <- uType origin ty1 ty2
+                             ; return (mkTcCoercion co) }
   where
-    origin = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2 }
+    origin = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2
+                          , uo_thing  = mkErrorThing <$> thing }
+
+-- | Use this instead of 'Nothing' when calling 'unifyType' without
+-- a good "thing" (where the "thing" has the "actual" type passed in)
+-- This has an 'Outputable' instance, avoiding amgiguity problems.
+noThing :: Maybe (HsExpr Name)
+noThing = Nothing
+
+unifyKind :: Outputable a => a -> TcKind -> TcKind -> TcM ()
+unifyKind thing ty1 ty2 = discardResult $ uType origin ty1 ty2
+  where origin = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2
+                              , uo_thing  = Just $ mkErrorThing thing }
 
 ---------------
 unifyPred :: PredType -> PredType -> TcM TcCoercion
 -- Actual and expected types
-unifyPred = unifyType
+unifyPred = unifyType noThing
 
 ---------------
 unifyTheta :: TcThetaType -> TcThetaType -> TcM [TcCoercion]
@@ -648,18 +680,6 @@ unifyTheta theta1 theta2
                   (vcat [ptext (sLit "Contexts differ in length"),
                          nest 2 $ parens $ ptext (sLit "Use RelaxedPolyRec to allow this")])
         ; zipWithM unifyPred theta1 theta2 }
-
-{-
-@unifyTypeList@ takes a single list of @TauType@s and unifies them
-all together.  It is used, for example, when typechecking explicit
-lists, when all the elts should be of the same type.
--}
-
-unifyTypeList :: [TcTauType] -> TcM ()
-unifyTypeList []                 = return ()
-unifyTypeList [_]                = return ()
-unifyTypeList (ty1:tys@(ty2:_)) = do { _ <- unifyType ty1 ty2
-                                     ; unifyTypeList tys }
 
 {-
 %************************************************************************
@@ -1226,10 +1246,10 @@ we return a made-up TcTyVarDetails, but I think it works smoothly.
 -}
 
 -- | Breaks apart a function kind into its pieces. 
-matchExpectedFunKind :: TcKind                   -- function kind
+matchExpectedFunKind :: TcType -> TcKind                   -- function kind
                      -> TcM (Coercion, TcKind, TcKind)
                                   -- co :: old_kind ~ arg -> res
-matchExpectedFunKind = go
+matchExpectedFunKind ty = go
   where
     go k | Just k' <- tcView k = go k'
     
@@ -1250,7 +1270,8 @@ matchExpectedFunKind = go
            ; res_kind <- new_flexi
            ; let new_fun = mkFunTy arg_kind res_kind
                  origin  = TypeEqOrigin { uo_actual   = k
-                                        , uo_expected = new_fun }
+                                        , uo_expected = new_fun
+                                        , uo_thing    = Just $ mkTypeErrorThing ty }
            ; co <- uType origin k new_fun
            ; return (co, arg_kind, res_kind) }
       where
@@ -1268,7 +1289,8 @@ checkExpectedKind :: TcType               -- the type whose kind we're checking
 checkExpectedKind ty act_kind exp_kind
  = do { (ty', act_kind') <- instantiate ty act_kind exp_kind
       ; let origin = TypeEqOrigin { uo_actual   = act_kind'
-                                  , uo_expected = exp_kind }
+                                  , uo_expected = exp_kind
+                                  , uo_thing    = Just $ mkTypeErrorThing ty' }
       ; co_k <- uType origin act_kind' exp_kind
       ; let result_ty = ty' `mkCastTyOrRefl` mkSubCo co_k
       ; return result_ty }

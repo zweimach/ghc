@@ -50,6 +50,7 @@ module TcMType (
   --------------------------------
   -- Zonking and tidying
   zonkTcPredType, zonkTidyTcType, zonkTidyOrigin,
+  mkTypeErrorThing,
   tidyEvVar, tidyCt, tidySkolemInfo,
   skolemiseUnboundMetaTyVar,
   zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, zonkTcTypeAndFV,
@@ -1112,15 +1113,24 @@ zonkTidyTcType :: TidyEnv -> TcType -> TcM (TidyEnv, TcType)
 zonkTidyTcType env ty = do { ty' <- zonkTcType ty
                            ; return (tidyOpenType env ty') }
 
+-- | Make an 'ErrorThing' storing a type.
+mkTypeErrorThing :: TcType -> ErrorThing
+mkTypeErrorThing ty = ErrorThing ty zonkTidyTcType
+
 zonkTidyOrigin :: TidyEnv -> CtOrigin -> TcM (TidyEnv, CtOrigin)
 zonkTidyOrigin env (GivenOrigin skol_info)
   = do { skol_info1 <- zonkSkolemInfo skol_info
        ; let (env1, skol_info2) = tidySkolemInfo env skol_info1
        ; return (env1, GivenOrigin skol_info2) }
-zonkTidyOrigin env (TypeEqOrigin { uo_actual = act, uo_expected = exp })
+zonkTidyOrigin env (TypeEqOrigin { uo_actual   = act
+                                 , uo_expected = exp
+                                 , uo_thing    = m_thing })
   = do { (env1, act') <- zonkTidyTcType env  act
        ; (env2, exp') <- zonkTidyTcType env1 exp
-       ; return ( env2, TypeEqOrigin { uo_actual = act', uo_expected = exp' }) }
+       ; (env3, m_thing') <- zonkTidyErrorThing env2 m_thing
+       ; return ( env3, TypeEqOrigin { uo_actual   = act'
+                                     , uo_expected = exp'
+                                     , uo_thing    = m_thing' }) }
 zonkTidyOrigin env (KindEqOrigin ty1 ty2 orig)
   = do { (env1, ty1') <- zonkTidyTcType env  ty1
        ; (env2, ty2') <- zonkTidyTcType env1 ty2
@@ -1140,6 +1150,14 @@ zonkTidyOrigin env (FunDepOrigin2 p1 o1 p2 l2)
        ; (env3, o1') <- zonkTidyOrigin env2 o1
        ; return (env3, FunDepOrigin2 p1' o1' p2' l2) }
 zonkTidyOrigin env orig = return (env, orig)
+
+zonkTidyErrorThing :: TidyEnv -> Maybe ErrorThing
+                   -> TcM (TidyEnv, Maybe ErrorThing)
+zonkTidyErrorThing env (Just (ErrorThing thing zonker))
+  = do { (env', thing') <- zonker env thing
+       ; return (env', Just $ ErrorThing thing' zonker) }
+zonkTidyErrorThing env Nothing
+  = return (env, Nothing)
 
 ----------------
 tidyCt :: TidyEnv -> Ct -> Ct
