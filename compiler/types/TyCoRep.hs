@@ -2302,11 +2302,12 @@ tidyTyCoVarBndr tidy_env@(occ_env, subst) tyvar
     name = tyVarName tyvar
     occ  = getOccName name
     -- System Names are for unification variables;
-    -- when we tidy them we give them a trailing "0" (or 1 etc)
-    -- so that they don't take precedence for the un-modified name
+    -- when we tidy them we give them a leading '_'
+    -- so that they don't get confused for user-declared variables
+    -- could also do something like '$', but '_' is more visually discreet
     occ1 | isSystemName name = if isTyVar tyvar
-                               then mkTyVarOcc (occNameString occ ++ "0")
-                               else mkVarOcc   (occNameString occ ++ "0")
+                               then mkTyVarOcc ('_' : occNameString occ)
+                               else mkVarOcc   ('_' : occNameString occ)
          | otherwise         = occ
 
 
