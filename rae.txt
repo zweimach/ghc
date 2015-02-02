@@ -25,6 +25,8 @@ fix parser; then fix TypeLits.Mult --> *
 
 KNOWN TESTSUITE FAILURES:
  typecheck/should_compile/tc192: Need coherence-aware instance lookup
+ typecheck/should_fail/T1633: Need proper handling of kind coercions
+ 
 
 QUESTIONS:
 - Check decideQuantification!
