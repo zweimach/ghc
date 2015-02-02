@@ -1,5 +1,9 @@
+NOTE TO SELF:
+At this point, all the tests in typecheck/should_compile succeed, except for
+tc192, as noted below.
+
+
 stack:
- - unifyType
 
 - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 
@@ -13,15 +17,6 @@ stack:
 fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
 fix parser; then fix TypeLits.Mult --> *
-
-   .  T7220a [stderr mismatch] (normal)
-   .  T9834 [stderr mismatch] (normal)
-   .  holes [stderr mismatch] (normal)
-   .  holes2 [stderr mismatch] (normal)
-   .  holes3 [stderr mismatch] (normal)
-   .  tc141 [stderr mismatch] (normal)
-   .  tc168 [stderr mismatch] (normal)
-   .  tc192 [exit code non-0] (normal)
 
 KNOWN TESTSUITE FAILURES:
  typecheck/should_compile/tc192: Need coherence-aware instance lookup
