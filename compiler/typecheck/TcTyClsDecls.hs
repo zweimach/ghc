@@ -864,18 +864,18 @@ tcDefaultAssocDecl fam_tc [L loc (TyFamEqn { tfe_tycon = L _ tc_name
                                            , tfe_rhs = rhs })]
   = setSrcSpan loc $
     tcAddFamInstCtxt (ptext (sLit "default type instance")) tc_name $
-    tcTyClTyVars tc_name hs_tvs $ \ tvs _full_kind rhs_kind ->
-    do { traceTc "tcDefaultAssocDecl" (ppr tc_name)
-       ; checkTc (isTypeFamilyTyCon fam_tc) (wrongKindOfFamily fam_tc)
-       ; let (fam_name, fam_pat_arity, _) = famTyConShape fam_tc
+    do { let (fam_name, fam_pat_arity, _) = famTyConShape fam_tc
        ; ASSERT( fam_name == tc_name )
          checkTc (length (hsQTvExplicit hs_tvs) == fam_pat_arity)
                  (wrongNumberOfParmsErr fam_pat_arity)
+       ; tcTyClTyVars tc_name hs_tvs $ \ tvs _full_kind rhs_kind ->
+    do { traceTc "tcDefaultAssocDecl" (ppr tc_name)
+       ; checkTc (isTypeFamilyTyCon fam_tc) (wrongKindOfFamily fam_tc)
        ; rhs_ty <- tcCheckLHsType rhs rhs_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
        ; let fam_tc_tvs = tyConTyVars fam_tc
              subst = zipTopTCvSubst tvs (mkOnlyTyVarTys fam_tc_tvs)
-       ; return $ Just (substTy subst rhs_ty) }
+       ; return $ Just (substTy subst rhs_ty) } }
     -- We check for well-formedness and validity later, in checkValidClass
 
 -------------------------
