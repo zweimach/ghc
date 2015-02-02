@@ -1006,7 +1006,7 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thi
                Nothing            -> return ()
                                      -- we only need the side effects;
                                      -- no need for coercion
-               Just (ATyVar _ tv) -> unifyKind n kind (tyVarKind tv)
+               Just (ATyVar _ tv) -> unifyKind (Just n) kind (tyVarKind tv)
                Just thing         -> pprPanic "check_in_scope" (ppr thing)
            ; return (n, kind) }
 

@@ -967,7 +967,8 @@ misMatchOrCND ctxt ct oriented ty1 ty2
     givens = [ given | given@(_, _, no_eqs, _) <- getUserGivens ctxt, not no_eqs]
              -- Keep only UserGivens that have some equalities
     orig   = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2
-                          , uo_thing  = Nothing }
+                          , uo_thing  = Nothing, uo_level = panic "misMatchOrCND" }
+             -- this won't print in couldNotDeduce!
 
 couldNotDeduce :: [UserGiven] -> (ThetaType, CtOrigin) -> SDoc
 couldNotDeduce givens (wanteds, orig)
@@ -1063,15 +1064,25 @@ mkExpectedActualMsg :: Type -> Type -> CtOrigin -> (Bool, Maybe SwapFlag, SDoc)
 -- NotSwapped means (actual, expected), IsSwapped is the reverse
 -- First return val is whether or not to print a herald above this msg
 mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
-                                          , uo_thing = maybe_thing})
+                                          , uo_thing = maybe_thing
+                                          , uo_level = level })
   | isUnliftedTypeKind act, isLiftedTypeKind exp = (False, Nothing, msg2)
   | isLiftedTypeKind act, isUnliftedTypeKind exp = (False, Nothing, msg3)
+  | Just msg <- num_args_msg                     = (False, Nothing, msg $$ msg1)
   | act `pickyEqType` ty1, exp `pickyEqType` ty2 = (True, Just NotSwapped,  empty)
   | exp `pickyEqType` ty1, act `pickyEqType` ty2 = (True, Just IsSwapped, empty)
-  | otherwise                                    = (True, Nothing, msg)
+  | otherwise                                    = (True, Nothing, msg1)
   where
-    msg = vcat [ text "Expected type:" <+> ppr exp
-               , text "  Actual type:" <+> ppr act ]
+    sort = case level of
+      TypeLevel -> text "type"
+      KindLevel -> text "kind"
+    
+    msg1 = vcat [ text "   Expected" <+> sort <> colon <+> ppr exp
+                , text "     Actual" <+> sort <> colon <+> ppr act
+                , case maybe_thing of
+                  { Nothing -> empty
+                  ; Just th -> 
+                  text "which classifies:" <+> ppr th }]
 
     thing_msg = case maybe_thing of
                   Just thing -> \_ -> quotes (ppr thing) <+> text "is"
@@ -1081,6 +1092,24 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
                 , thing_msg True, text "unlifted" ]
     msg3 = hsep [ text "Expecting an unlifted type, but"
                 , thing_msg False, text "lifted" ]
+
+    num_args_msg = case level of
+      TypeLevel -> Nothing
+      KindLevel -> case (count_args act - count_args exp) of
+        0             -> Nothing
+        n | n < 0     -> Just $ text "TODO (RAE): Insert something clever here"
+          | otherwise -> Just $ text "Expecting" <+> speakN n <+>
+                                text "more" <+> plural_n n (text "argument") <+>
+                                to_thing
+          where
+            to_thing = case maybe_thing of
+              Nothing -> empty
+              Just th -> text "to" <+> quotes (ppr th)
+
+    count_args ty = length $ fst $ splitForAllTys ty
+
+    plural_n 1 doc = doc
+    plural_n _ doc = doc <> char 's'
 
 mkExpectedActualMsg _ _ _ = panic "mkExprectedAcutalMsg"
 

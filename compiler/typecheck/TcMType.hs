@@ -1122,15 +1122,15 @@ zonkTidyOrigin env (GivenOrigin skol_info)
   = do { skol_info1 <- zonkSkolemInfo skol_info
        ; let (env1, skol_info2) = tidySkolemInfo env skol_info1
        ; return (env1, GivenOrigin skol_info2) }
-zonkTidyOrigin env (TypeEqOrigin { uo_actual   = act
-                                 , uo_expected = exp
-                                 , uo_thing    = m_thing })
+zonkTidyOrigin env orig@(TypeEqOrigin { uo_actual   = act
+                                      , uo_expected = exp
+                                      , uo_thing    = m_thing })
   = do { (env1, act') <- zonkTidyTcType env  act
        ; (env2, exp') <- zonkTidyTcType env1 exp
        ; (env3, m_thing') <- zonkTidyErrorThing env2 m_thing
-       ; return ( env3, TypeEqOrigin { uo_actual   = act'
-                                     , uo_expected = exp'
-                                     , uo_thing    = m_thing' }) }
+       ; return ( env3, orig { uo_actual   = act'
+                             , uo_expected = exp'
+                             , uo_thing    = m_thing' }) }
 zonkTidyOrigin env (KindEqOrigin ty1 ty2 orig)
   = do { (env1, ty1') <- zonkTidyTcType env  ty1
        ; (env2, ty2') <- zonkTidyTcType env1 ty2

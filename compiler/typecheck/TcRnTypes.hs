@@ -72,7 +72,8 @@ module TcRnTypes(
         CtLoc(..), ctLocSpan, ctLocEnv, ctLocOrigin,
         ctLocDepth, bumpCtLocDepth,
         setCtLocOrigin, setCtLocEnv, setCtLocSpan,
-        CtOrigin(..), ErrorThing(..), mkErrorThing, pprCtOrigin,
+        CtOrigin(..), ErrorThing(..), mkErrorThing, TypeOrKind(..),
+        pprCtOrigin,
         pushErrCtxt, pushErrCtxtSameOrigin,
 
         SkolemInfo(..),
@@ -2015,6 +2016,7 @@ data CtOrigin
                  , uo_expected :: TcType
                  , uo_thing    :: Maybe ErrorThing
                                   -- ^ The thing that has type "actual"
+                 , uo_level    :: TypeOrKind
                  }
     
   | KindEqOrigin
@@ -2073,6 +2075,10 @@ data CtOrigin
 -- It is stored with a function to zonk and tidy the thing.
 data ErrorThing
   = forall a. Outputable a => ErrorThing a (TidyEnv -> a -> TcM (TidyEnv, a))
+
+-- | Flag to see whether we're type-checking terms or kind-checking types
+data TypeOrKind = TypeLevel | KindLevel
+  deriving Eq
 
 -- | Make an 'ErrorThing' that doesn't need tidying or zonking
 mkErrorThing :: Outputable a => a -> ErrorThing
@@ -2155,7 +2161,8 @@ pprCtO DefaultOrigin         = ptext (sLit "a 'default' declaration")
 pprCtO DoOrigin              = ptext (sLit "a do statement")
 pprCtO MCompOrigin           = ptext (sLit "a statement in a monad comprehension")
 pprCtO ProcOrigin            = ptext (sLit "a proc expression")
-pprCtO (TypeEqOrigin t1 t2 _)= ptext (sLit "a type equality") <+> sep [ppr t1, char '~', ppr t2]
+pprCtO (TypeEqOrigin t1 t2 _ _)
+                             = ptext (sLit "a type equality") <+> sep [ppr t1, char '~', ppr t2]
 pprCtO AnnOrigin             = ptext (sLit "an annotation")
 pprCtO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
 pprCtO ListOrigin            = ptext (sLit "an overloaded list")

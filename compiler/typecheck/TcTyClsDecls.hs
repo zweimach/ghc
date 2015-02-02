@@ -770,7 +770,7 @@ tcDataDefn rec_info tc_name tvs tycon_kind res_kind
            Nothing   -> return ()
            Just hs_k -> do { checkTc (kind_signatures) (badSigTyDecl tc_name)
                            ; tc_kind <- tcLHsKind hs_k
-                           ; unifyType_ noThing res_kind tc_kind }
+                           ; unifyKind noThing res_kind tc_kind }
 
        ; gadt_syntax <- dataDeclChecks tc_name new_or_data stupid_theta cons
 
@@ -912,12 +912,12 @@ kcDataDefn (HsDataDefn { dd_ctxt = ctxt, dd_cons = cons, dd_kindSig = mb_kind })
 ------------------
 kcResultKind :: Maybe (LHsKind Name) -> Kind -> TcM ()
 kcResultKind Nothing res_k
-  = unifyType_ noThing res_k liftedTypeKind
+  = unifyKind noThing res_k liftedTypeKind
       --             type family F a
       -- defaults to type family F a :: *
 kcResultKind (Just k) res_k
   = do { k' <- tcLHsKind k
-       ; unifyType_  noThing k' res_k }
+       ; unifyKind  noThing k' res_k }
 
 {-
 Kind check type patterns and kind annotate the embedded type variables.

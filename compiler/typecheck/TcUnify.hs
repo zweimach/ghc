@@ -397,7 +397,8 @@ tcSubType ctxt maybe_id ty_actual ty_expected
   where
     origin = TypeEqOrigin { uo_actual   = ty_actual
                           , uo_expected = ty_expected
-                          , uo_thing    = mkErrorThing <$> maybe_id }
+                          , uo_thing    = mkErrorThing <$> maybe_id
+                          , uo_level    = TypeLevel } -- TODO (RAE): Check.
 
 tcSubTypeDS :: Outputable a => UserTypeCtxt -> a  -- ^ has type ty_actual
             -> TcSigmaType -> TcRhoType -> TcM HsWrapper
@@ -436,7 +437,8 @@ tcSubType_NC ctxt ty_actual ty_expected
   where
     origin = TypeEqOrigin { uo_actual   = ty_actual
                           , uo_expected = ty_expected
-                          , uo_thing    = Nothing }
+                          , uo_thing    = Nothing
+                          , uo_level    = TypeLevel } -- TODO (RAE): Check.
 
 tcSubTypeDS_NC :: Outputable a
                => UserTypeCtxt
@@ -448,7 +450,8 @@ tcSubTypeDS_NC ctxt maybe_thing ty_actual ty_expected
   where
     origin = TypeEqOrigin { uo_actual   = ty_actual
                           , uo_expected = ty_expected
-                          , uo_thing    = mkErrorThing <$> maybe_thing }
+                          , uo_thing    = mkErrorThing <$> maybe_thing
+                          , uo_level    = TypeLevel } -- TODO (RAE): Check.
 
 ---------------
 tc_sub_type :: CtOrigin -> UserTypeCtxt -> TcSigmaType -> TcSigmaType -> TcM HsWrapper
@@ -654,7 +657,8 @@ unifyType thing ty1 ty2 = do { co <- uType origin ty1 ty2
                              ; return (mkTcCoercion co) }
   where
     origin = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2
-                          , uo_thing  = mkErrorThing <$> thing }
+                          , uo_thing  = mkErrorThing <$> thing
+                          , uo_level  = TypeLevel }
 
 -- | Use this instead of 'Nothing' when calling 'unifyType' without
 -- a good "thing" (where the "thing" has the "actual" type passed in)
@@ -662,10 +666,11 @@ unifyType thing ty1 ty2 = do { co <- uType origin ty1 ty2
 noThing :: Maybe (HsExpr Name)
 noThing = Nothing
 
-unifyKind :: Outputable a => a -> TcKind -> TcKind -> TcM ()
+unifyKind :: Outputable a => Maybe a -> TcKind -> TcKind -> TcM ()
 unifyKind thing ty1 ty2 = discardResult $ uType origin ty1 ty2
   where origin = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2
-                              , uo_thing  = Just $ mkErrorThing thing }
+                              , uo_thing  = mkErrorThing <$> thing
+                              , uo_level  = KindLevel }
 
 ---------------
 unifyPred :: PredType -> PredType -> TcM TcCoercion
@@ -1271,7 +1276,8 @@ matchExpectedFunKind ty = go
            ; let new_fun = mkFunTy arg_kind res_kind
                  origin  = TypeEqOrigin { uo_actual   = k
                                         , uo_expected = new_fun
-                                        , uo_thing    = Just $ mkTypeErrorThing ty }
+                                        , uo_thing    = Just $ mkTypeErrorThing ty
+                                        , uo_level    = KindLevel }
            ; co <- uType origin k new_fun
            ; return (co, arg_kind, res_kind) }
       where
@@ -1290,7 +1296,8 @@ checkExpectedKind ty act_kind exp_kind
  = do { (ty', act_kind') <- instantiate ty act_kind exp_kind
       ; let origin = TypeEqOrigin { uo_actual   = act_kind'
                                   , uo_expected = exp_kind
-                                  , uo_thing    = Just $ mkTypeErrorThing ty' }
+                                  , uo_thing    = Just $ mkTypeErrorThing ty'
+                                  , uo_level    = KindLevel }
       ; co_k <- uType origin act_kind' exp_kind
       ; let result_ty = ty' `mkCastTyOrRefl` mkSubCo co_k
       ; return result_ty }
