@@ -491,9 +491,10 @@ kcTyClDecl (ClassDecl { tcdLName = L _ name, tcdTyVars = hs_tvs
 -- closed type families look at their equations, but other families don't
 -- do anything here
 kcTyClDecl (FamDecl (FamilyDecl { fdLName  = L _ fam_tc_name
+                                , fdTyVars = hs_tvs
                                 , fdInfo   = ClosedTypeFamily eqns }))
   = do { tc_kind <- kcLookupKind fam_tc_name
-       ; let fam_tc_shape = ( fam_tc_name, tc_kind )
+       ; let fam_tc_shape = ( fam_tc_name, length $ hsQTvExplicit hs_tvs, tc_kind )
        ; mapM_ (kcTyFamInstEqn fam_tc_shape) eqns }
 kcTyClDecl (FamDecl {})    = return ()
 
@@ -686,7 +687,7 @@ tcFamDecl1 parent
 
          -- Process the equations, creating CoAxBranches
        ; tc_kind <- kcLookupKind tc_name
-       ; let fam_tc_shape = (tc_name, tc_kind) 
+       ; let fam_tc_shape = (tc_name, length $ hsQTvExplicit tvs, tc_kind) 
      
        ; branches <- mapM (tcTyFamInstEqn fam_tc_shape) eqns
 
@@ -866,12 +867,15 @@ tcDefaultAssocDecl fam_tc [L loc (TyFamEqn { tfe_tycon = L _ tc_name
     tcTyClTyVars tc_name hs_tvs $ \ tvs _full_kind rhs_kind ->
     do { traceTc "tcDefaultAssocDecl" (ppr tc_name)
        ; checkTc (isTypeFamilyTyCon fam_tc) (wrongKindOfFamily fam_tc)
+       ; let (fam_name, fam_pat_arity, _) = famTyConShape fam_tc
+       ; ASSERT( fam_name == tc_name )
+         checkTc (length (hsQTvExplicit hs_tvs) == fam_pat_arity)
+                 (wrongNumberOfParmsErr fam_pat_arity)
        ; rhs_ty <- tcCheckLHsType rhs rhs_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
        ; let fam_tc_tvs = tyConTyVars fam_tc
              subst = zipTopTCvSubst tvs (mkOnlyTyVarTys fam_tc_tvs)
-       ; return ( ASSERT( equalLength fam_tc_tvs tvs )
-                  Just (substTy subst rhs_ty) ) }
+       ; return $ Just (substTy subst rhs_ty) }
     -- We check for well-formedness and validity later, in checkValidClass
 
 -------------------------
@@ -885,7 +889,7 @@ kcTyFamInstEqn fam_tc_shape
 tcTyFamInstEqn :: FamTyConShape -> LTyFamInstEqn Name -> TcM CoAxBranch
 -- Needs to be here, not in TcInstDcls, because closed families
 -- (typechecked here) have TyFamInstEqns
-tcTyFamInstEqn fam_tc_shape@(fam_tc_name,_)
+tcTyFamInstEqn fam_tc_shape@(fam_tc_name,_,_)
     (L loc (TyFamEqn { tfe_tycon = L _ eqn_tc_name
                      , tfe_pats = pats
                      , tfe_rhs = hs_ty }))
@@ -959,11 +963,13 @@ two bad things could happen:
 -}
 
 -----------------
-type FamTyConShape = (Name, Kind) -- See Note [Type-checking type patterns]
+type FamTyConShape = (Name, Arity, Kind) -- See Note [Type-checking type patterns]
 
 famTyConShape :: TyCon -> FamTyConShape
 famTyConShape fam_tc
-  = ( tyConName fam_tc , tyConKind fam_tc )
+  = ( tyConName fam_tc
+    , length $ filterInvisibles fam_tc (tyConTyVars fam_tc)
+    , tyConKind fam_tc )
 
 tc_fam_ty_pats :: FamTyConShape
                -> HsWithBndrs Name [LHsType Name] -- Patterns
@@ -981,7 +987,7 @@ tc_fam_ty_pats :: FamTyConShape
 -- In that case, the type variable 'a' will *already be in scope*
 -- (and, if C is poly-kinded, so will its kind parameter).
 
-tc_fam_ty_pats (name, kind)
+tc_fam_ty_pats (name, _, kind)
                (HsWB { hswb_cts = arg_pats, hswb_vars = vars })
                kind_checker
   = do { let (fam_inv_tkvs, fam_body) = splitForAllTysInvisible kind
@@ -1014,7 +1020,7 @@ tcFamTyPats :: FamTyConShape
                 -> [TcType]          -- Kind and type arguments
                 -> Kind -> TcM a)
             -> TcM a
-tcFamTyPats fam_shape@(name,_) pats kind_checker thing_inside
+tcFamTyPats fam_shape@(name,_,_) pats kind_checker thing_inside
   = do { (fam_arg_kinds, typats, res_kind)
             <- tc_fam_ty_pats fam_shape pats kind_checker
        ; let all_args = fam_arg_kinds ++ typats
@@ -2254,6 +2260,11 @@ wrongKindOfFamily family
     kindOfFamily | isTypeFamilyTyCon family = text "type family"
                  | isDataFamilyTyCon family = text "data family"
                  | otherwise = pprPanic "wrongKindOfFamily" (ppr family)
+
+wrongNumberOfParmsErr :: Arity -> SDoc
+wrongNumberOfParmsErr max_args
+  = ptext (sLit "Number of parameters must match family declaration; expected")
+    <+> ppr max_args
 
 wrongTyFamName :: Name -> Name -> SDoc
 wrongTyFamName fam_tc_name eqn_tc_name
