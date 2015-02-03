@@ -17,7 +17,7 @@ import TcSMonad
 import TcEvidence
 import Class
 import TyCon
-import TyCoRep
+import TyCoRep   -- cleverly decomposes types, good for completeness checking
 import Coercion
 import FamInstEnv ( FamInstEnvs )
 import FamInst ( tcTopNormaliseNewTypeTF_maybe )

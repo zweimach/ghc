@@ -29,7 +29,8 @@ module Type (
         funResultTy, funArgTy,
 
         mkTyConApp, mkTyConTy,
-        tyConAppTyCon_maybe, tyConAppArgs_maybe, tyConAppTyCon, tyConAppArgs,
+        tyConAppTyCon_maybe, tyConAppTyConPicky_maybe,
+        tyConAppArgs_maybe, tyConAppTyCon, tyConAppArgs,
         splitTyConApp_maybe, splitTyConApp, tyConAppArgN, nextRole,
 
         mkForAllTy, mkForAllTys, mkInvForAllTys, mkVisForAllTys,
@@ -51,6 +52,10 @@ module Type (
         splitForAllTysInvisible, filterInvisibles,
         synTyConResKind,
         tyConBinders,
+
+        -- Analyzing types
+        analyzeType, TypeAnalysis(..),
+        TyCoMapper(..), mapType, mapCoercion, mapCoercionArg,
         
         -- (Newtypes)
         newTyConInstRhs,
@@ -158,6 +163,7 @@ module Type (
         pprTheta, pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprSourceTyCon,
         TyPrec(..), maybeParen, pprSigmaTypeExtraCts,
+        pprTcApp, pprPrefixApp, pprArrowChain,
 
         -- * Tidying type related things up for printing
         tidyType,      tidyTypes,
@@ -205,6 +211,7 @@ import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
 import Data.Function    ( on )
+import Control.Applicative ( (<$>) )
 
 -- $type_classification
 -- #type_classification#
@@ -380,6 +387,161 @@ expandTypeSynonyms ty
       -- handle coercion optimization (which sometimes swaps the
       -- order of a coercion)
     go_cobndr = substForAllCoBndrCallback False go (const go_co)
+
+{-
+************************************************************************
+*                                                                      *
+   Analyzing types
+*                                                                      *
+************************************************************************
+
+Use these definitions instead of doing a case-split on types. This allows
+us to enforce the fact that any two types equal according to `eqType` are
+treated the same.
+
+-}
+
+-- | This structure gives instructions for how to analyze a type, producing
+-- a result of type @r@.
+data TypeAnalysis r
+  = TypeAnalysis
+      { ta_tyvar    :: TyVar -> r
+      , ta_tyconapp :: TyCon -> [Type] -> r  -- ^ does not include (->)!
+      , ta_fun      :: Type -> Type -> r
+      , ta_app      :: Type -> Type -> r     -- ^ first type is not a tycon
+      , ta_forall   :: TyVar -> VisibilityFlag -> Type -> r
+           -- ^ Only named foralls. Anon foralls are in ta_tyconapp
+      , ta_lit      :: TyLit -> r
+      , ta_cast     :: Type -> Coercion -> r
+      }
+
+analyzeType :: TypeAnalysis r -> Type -> r
+analyzeType (TypeAnalysis { ta_tyvar    = tyvar
+                          , ta_tyconapp = tyconapp
+                          , ta_fun      = fun
+                          , ta_app      = app
+                          , ta_forall   = forall
+                          , ta_lit      = lit
+                          , ta_cast     = cast })
+  = go
+  where
+    go ty | Just ty' <- coreView ty    = go ty'
+    go (TyVarTy tv)                    = tyvar tv
+    go (AppTy t1 t2)                   = app t1 t2
+    go (TyConApp tc tys)               = tyconapp tc tys
+    go (ForAllTy (Anon arg) res)       = fun arg res
+    go (ForAllTy (Named tv vis) inner) = forall tv vis inner
+    go (LitTy tylit)                   = lit tylit
+    go (CastTy ty co)                  = cast ty co
+    go (CoercionTy co)                 = pprPanic "analyzeType" (ppr co)
+
+-- | This describes how a "map" operation over a type/coercion should behave
+data TyCoMapper env m
+  = TyCoMapper
+      { tcm_smart :: Bool -- ^ Should the new type be created with smart
+                         -- constructors?
+      , tcm_tyvar :: env -> TyVar -> m Type
+      , tcm_covar :: env -> CoVar -> m Coercion
+
+      , tcm_tycobinder :: env -> TyCoVar -> VisibilityFlag -> m (env, TyCoVar)
+          -- ^ The returned env is used in the extended scope
+      }
+
+mapType :: (Applicative m, Monad m) => TyCoMapper env m -> env -> Type -> m Type
+mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
+                           , tcm_tycobinder = tybinder })
+        env ty
+  = go ty
+  where
+    go (TyVarTy tv) = tyvar env tv
+    go (AppTy t1 t2) = mkappty <$> go t1 <*> go t2
+    go (TyConApp tc tys) = mktyconapp tc <$> mapM go tys
+    go (ForAllTy (Anon arg) res)
+      = do { arg' <- go arg
+           ; res' <- go res
+           ; return $ ForAllTy (Anon arg') res' }
+    go (ForAllTy (Named tv vis) inner)
+      = do { (env', tv') <- tybinder env tv vis
+           ; inner' <- mapType mapper env' inner
+           ; return $ ForAllTy (Named tv' vis) inner' }
+    go ty@(LitTy {}) = return ty
+    go (CastTy ty co) = mkcastty <$> go ty <*> mapCoercion mapper env co
+    go (CoercionTy co) = CoercionTy <$> mapCoercion mapper env co
+
+    (mktyconapp, mkappty, mkcastty)
+      | smart     = (mkTyConApp, mkAppTy, mkCastTy)
+      | otherwise = (TyConApp,   AppTy,   CastTy)
+
+mapCoercion :: (Applicative m, Monad m)
+            => TyCoMapper env m -> env -> Coercion -> m Coercion
+mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
+                               , tcm_tycobinder = tycobinder })
+            env co
+  = go co
+  where
+    go (Refl r ty) = Refl r <$> mapType mapper env ty
+    go (TyConAppCo r tc args)
+      = mktyconappco r tc <$> mapM (mapCoercionArg mapper env) args
+    go (AppCo c1 c2) = mkappco <$> go c1 <*> mapCoercionArg mapper env c2
+    go (ForAllCo cobndr co)
+      = do { (env', cobndr') <- go_cobndr cobndr
+           ; co' <- mapCoercion mapper env' co
+           ; return $ mkforallco cobndr' co' }
+    go (CoVarCo cv) = covar env cv
+    go (AxiomInstCo ax i args)
+      = mkaxiominstco ax i <$> mapM (mapCoercionArg mapper env) args
+    go (PhantomCo co t1 t2)
+      = mkphantomco <$> go co <*> mapType mapper env t1
+                              <*> mapType mapper env t2
+    go (UnsafeCo prov r t1 t2) = mkunsafeco prov r <$> mapType mapper env t1
+                                                   <*> mapType mapper env t2
+    go (SymCo co) = mksymco <$> go co
+    go (TransCo c1 c2) = mktransco <$> go c1 <*> go c2
+    go (AxiomRuleCo rule tys cos)
+      = AxiomRuleCo rule <$> mapM (mapType mapper env) tys
+                         <*> mapM go cos
+    go (NthCo i co) = mknthco i <$> go co
+    go (LRCo lr co) = mklrco lr <$> go co
+    go (InstCo co arg) = mkinstco <$> go co <*> mapCoercionArg mapper env arg
+    go (CoherenceCo c1 c2) = mkcoherenceco <$> go c1 <*> go c2
+    go (KindCo co) = mkkindco <$> go co
+    go (SubCo co) = mksubco <$> go co
+
+    go_cobndr (TyHomo tv)
+      = do { (env', tv') <- tycobinder env tv Invisible
+           ; return (env', TyHomo tv') }
+    go_cobndr (TyHetero h tv1 tv2 cv)
+      = do { h' <- go h
+           ; (env1, tv1') <- tycobinder env  tv1 Invisible
+           ; (env2, tv2') <- tycobinder env1 tv2 Invisible
+           ; (env3, cv')  <- tycobinder env2 cv  Invisible
+           ; return (env3, TyHetero h' tv1' tv2' cv') }
+    go_cobndr (CoHomo cv)
+      = do { (env', cv') <- tycobinder env cv Invisible
+           ; return (env', CoHomo cv') }
+    go_cobndr (CoHetero h cv1 cv2)
+      = do { h' <- go h
+           ; (env1, cv1') <- tycobinder env  cv1 Invisible
+           ; (env2, cv2') <- tycobinder env1 cv2 Invisible
+           ; return (env2, CoHetero h' cv1' cv2') }
+    
+    ( mktyconappco, mkappco, mkaxiominstco, mkphantomco, mkunsafeco
+      , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
+      , mkkindco, mksubco, mkforallco)
+      | smart
+      = ( mkTyConAppCo, mkAppCo, mkAxiomInstCo, mkPhantomCo, mkUnsafeCo
+        , mkSymCo, mkTransCo, mkNthCo, mkLRCo, mkInstCo, mkCoherenceCo
+        , mkKindCo, mkSubCo, mkForAllCo )
+      | otherwise
+      = ( TyConAppCo, AppCo, AxiomInstCo, PhantomCo, UnsafeCo
+        , SymCo, TransCo, NthCo, LRCo, InstCo, CoherenceCo
+        , KindCo, SubCo, ForAllCo )
+
+mapCoercionArg :: (Applicative m, Monad m)
+               => TyCoMapper env m -> env -> CoercionArg -> m CoercionArg
+mapCoercionArg mapper env (TyCoArg co) = TyCoArg <$> mapCoercion mapper env co
+mapCoercionArg mapper env (CoCoArg r c1 c2)
+  = CoCoArg r <$> mapCoercion mapper env c1 <*> mapCoercion mapper env c2
 
 {-
 ************************************************************************
@@ -616,6 +778,14 @@ mkTyConApp tycon tys
 -- splitTyConApp "looks through" synonyms, because they don't
 -- mean a distinct type, but all other type-constructor applications
 -- including functions are returned as Just ..
+
+-- | Retrieve the tycon heading this type, if there is one. Does /not/
+-- look through synonyms.
+tyConAppTyConPicky_maybe :: Type -> Maybe TyCon
+tyConAppTyConPicky_maybe (TyConApp tc _)       = Just tc
+tyConAppTyConPicky_maybe (ForAllTy (Anon _) _) = Just funTyCon
+tyConAppTyConPicky_maybe _                     = Nothing
+
 
 -- | The same as @fst . splitTyConApp@
 tyConAppTyCon_maybe :: Type -> Maybe TyCon

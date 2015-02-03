@@ -49,7 +49,7 @@ import Coercion
 import DataCon ( dataConTyCon )
 import TcType
 import DynFlags
-import TyCoRep
+import TyCoRep  -- needs to convert core types to iface types
 import Unique( hasKey )
 import Util ( filterOut, lengthIs, zipWithEqual )
 import TyCon hiding ( pprPromotionQuote )

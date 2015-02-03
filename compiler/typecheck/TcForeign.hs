@@ -43,7 +43,6 @@ import FamInst
 import FamInstEnv
 import Coercion
 import Type
-import TyCoRep
 import ForeignCall
 import ErrUtils
 import Id
@@ -57,7 +56,6 @@ import DynFlags
 import Outputable
 import Platform
 import SrcLoc
-import Util
 import Bag
 import FastString
 import Hooks
@@ -123,13 +121,28 @@ normaliseFfiType' :: FamInstEnvs -> Type -> TcM (Coercion, Type, Bag GlobalRdrEl
 normaliseFfiType' env ty0 = go initRecTc ty0
   where
     go :: RecTcChecker -> Type -> TcM (Coercion, Type, Bag GlobalRdrElt)
-    go rec_nts ty | Just ty' <- coreView ty     -- Expand synonyms
-        = go rec_nts ty'
+    go rec_nts ty
+      | Just ty' <- coreView ty     -- Expand synonyms
+      = go rec_nts ty'
 
-    go rec_nts ty@(TyConApp tc tys)
+      | Just (tc, tys) <- splitTyConApp_maybe ty
+      = go_tc_app rec_nts tc tys
+
+      | Just (bndr, inner_ty) <- splitForAllTy_maybe ty
+      = do   -- if the binder is anonymous, then the previous case snatches it
+           let tyvar = binderVar "normaliseFfiType'" bndr
+           (coi, nty1, gres1) <- go rec_nts inner_ty
+           return (mkForAllCo_TyHomo tyvar coi, mkForAllTy bndr nty1, gres1)
+
+      | otherwise -- see Note [Don't recur in normaliseFfiType']
+      = return (mkReflCo Representational ty, ty, emptyBag)
+
+    go_tc_app :: RecTcChecker -> TyCon -> [Type]
+              -> TcM (Coercion, Type, Bag GlobalRdrElt)
+    go_tc_app rec_nts tc tys
         -- We don't want to look through the IO newtype, even if it is
         -- in scope, so we have a special case for it:
-        | tc_key `elem` [ioTyConKey, funPtrTyConKey]
+        | tc_key `elem` [ioTyConKey, funPtrTyConKey, funTyConKey]
                   -- These *must not* have nominal roles on their parameters!
                   -- See Note [FFI type roles]
         = children_only
@@ -169,35 +182,17 @@ normaliseFfiType' env ty0 = go initRecTc ty0
                         , mkTyConApp tc tys', unionManyBags gres)
           nt_co  = mkUnbranchedAxInstCo Representational (newTyConCo tc) tys
           nt_rhs = newTyConInstRhs tc tys
-          nothing = return (Refl Representational ty, ty, emptyBag)
 
-    go rec_nts (ForAllTy (Anon ty1) ty2)
-      = do (coi1,nty1,gres1) <- go rec_nts ty1
-           (coi2,nty2,gres2) <- go rec_nts ty2
-           return (mkFunCo Representational coi1 coi2, mkFunTy nty1 nty2, gres1 `unionBags` gres2)
-
-    go rec_nts (ForAllTy bndr@(Named tyvar _) ty1)
-      = do (coi,nty1,gres1) <- go rec_nts ty1
-           return (mkForAllCo_TyHomo tyvar coi, mkForAllTy bndr nty1, gres1)
-
-    go rec_nts (CastTy ty1 co)
-      = do (coi,nty1,gres1) <- go rec_nts ty1
-           ASSERT( typeKind nty1 `eqType` typeKind ty1 )
-             return (castCoercionKind coi co co, mkCastTy nty1 co, gres1)
-
-    go _ ty@(CoercionTy {})
-      = pprPanic "normaliseFfiType'" (ppr ty)
-
-    go _ ty@(TyVarTy {}) = return (Refl Representational ty, ty, emptyBag)
-    go _ ty@(LitTy {})   = return (Refl Representational ty, ty, emptyBag)
-    go _ ty@(AppTy {})   = return (Refl Representational ty, ty, emptyBag)
-         -- See Note [Don't recur in normaliseFfiType']
+          ty      = mkTyConApp tc tys
+          nothing = return (mkReflCo Representational ty, ty, emptyBag)
 
     go_arg :: RecTcChecker -> Type -> TcM (CoercionArg, Type, Bag GlobalRdrElt)
-    go_arg _       (CoercionTy co) = return ( CoCoArg Representational co co
-                                            , CoercionTy co, emptyBag )
-    go_arg rec_nts ty              = do { (co, ty', gres) <- go rec_nts ty
-                                        ; return (TyCoArg co, ty', gres) }
+    go_arg rec_nts ty
+      | isCoercionTy ty
+      = return (liftSimply Representational ty, ty, emptyBag)
+      | otherwise
+      = do { (co, ty', gres) <- go rec_nts ty
+           ; return (mkTyCoArg co, ty', gres) }
 
 checkNewtypeFFI :: GlobalRdrEnv -> TyCon -> Maybe GlobalRdrElt
 checkNewtypeFFI rdr_env tc

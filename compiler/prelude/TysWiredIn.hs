@@ -99,7 +99,6 @@ import ConLike
 import Var
 import TyCon
 import Class            ( Class, mkClass )
-import TyCoRep
 import RdrName
 import Name
 import VarEnv           ( mkInScopeSet )
@@ -330,8 +329,8 @@ typeNatKindCon    = pcTyCon False NonRecursive typeNatKindConName    Nothing [] 
 typeSymbolKindCon = pcTyCon False NonRecursive typeSymbolKindConName Nothing [] []
 
 typeNatKind, typeSymbolKind :: Kind
-typeNatKind    = TyConApp typeNatKindCon    []
-typeSymbolKind = TyConApp typeSymbolKindCon []
+typeNatKind    = mkTyConTy typeNatKindCon
+typeSymbolKind = mkTyConTy typeSymbolKindCon
 
 {-
 ************************************************************************

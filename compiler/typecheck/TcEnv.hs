@@ -78,7 +78,6 @@ import PatSyn  ( PatSyn )
 import ConLike
 import TyCon
 import CoAxiom
-import TyCoRep
 import Class
 import Name
 import NameEnv
@@ -219,10 +218,8 @@ tcLookupInstance cls tys
   where
     errNotExact = ptext (sLit "Not an exact match (i.e., some variables get instantiated)")
 
-    uniqueTyVars tys = all isTyVarTy tys && hasNoDups (map extractTyVar tys)
-      where
-        extractTyVar (TyVarTy tv) = tv
-        extractTyVar _            = panic "TcEnv.tcLookupInstance: extractTyVar"
+    uniqueTyVars tys = all isTyVarTy tys
+                    && hasNoDups (map (getTyVar "tcLookupInstance") tys)
 
 tcGetInstEnvs :: TcM InstEnvs
 -- Gets both the external-package inst-env

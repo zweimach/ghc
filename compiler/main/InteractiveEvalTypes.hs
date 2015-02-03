@@ -20,7 +20,7 @@ import Id
 import BasicTypes
 import Name
 import RdrName
-import TyCoRep
+import Type
 import ByteCodeInstr
 import SrcLoc
 import Exception

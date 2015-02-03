@@ -51,7 +51,6 @@ import TysPrim
 import TysWiredIn
 import Type
 import Class
-import TyCoRep
 import VarSet
 import VarEnv
 import Module
@@ -1661,32 +1660,57 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
        -> Type
        -> (a, Bool)   -- (result of type a, does type contain var)
 
-    go co ty | Just ty' <- coreView ty = go co ty'
-    go co (TyVarTy    v) | v == var = (if co then caseCoVar else caseVar,True)
-    go co (ForAllTy (Anon x) y)  | isPredTy x = go co y
-                                 | xc || yc   = (caseFun xr yr,True)
-        where (xr,xc) = go (not co) x
-              (yr,yc) = go co       y
-    go co (AppTy    x y) | xc = (caseWrongArg,   True)
-                         | yc = (caseTyApp x yr, True)
-        where (_, xc) = go co x
-              (yr,yc) = go co y
-    go co ty@(TyConApp con args)
-       | not (or xcs)     = (caseTrivial, False)   -- Variable does not occur
+    go co ty = analyzeType analysis ty
+      where
+        tyvar v | v == var  = (if co then caseCoVar else caseVar, True)
+                | otherwise = fallthrough
+                              
+        tyconapp con args
+          | not (or xcs)
+          = fallthrough -- Variable does not occur
        -- At this point we know that xrs, xcs is not empty,
        -- and at least one xr is True
-       | isTupleTyCon con = (caseTuple (tupleTyConSort con) xrs, True)
-       | or (init xcs)    = (caseWrongArg, True)         -- T (..var..)    ty
-       | otherwise        = case splitAppTy_maybe ty of  -- T (..no var..) ty
-                              Nothing -> (caseWrongArg, True)   -- Non-decomposable (eg type function)
-                              Just (fun_ty, _) -> (caseTyApp fun_ty (last xrs), True)
-       where
-         (xrs,xcs) = unzip (map (go co) args)
-    go co (ForAllTy (Named v Invisible) x) | v /= var && xc = (caseForAll v xr,True)
-        where (xr,xc) = go co x
+          | isTupleTyCon con = (caseTuple (tupleTyConSort con) xrs, True)
+          | or (init xcs)    = (caseWrongArg, True)         -- T (..var..)   ty
+          | otherwise        = case splitAppTy_maybe ty of  -- T (..no var..) ty
+              Nothing -> (caseWrongArg, True) -- Non-decomposable
+              Just (fun_ty, _) -> (caseTyApp fun_ty (last xrs), True)
+          where
+            (xrs,xcs) = unzip (map (go co) args)
+
+        fun x y
+          | isPredTy x = go co y
+          | xc || yc   = (caseFun xr yr, True)
+          | otherwise  = fallthrough
+          where
+            (xr, xc) = go (not co) x
+            (yr, yc) = go co       y
+
+        app x y | xc        = (caseWrongArg,   True)
+                | yc        = (caseTyApp x yr, True)
+                | otherwise = fallthrough
+          where
+            (_,  xc) = go co x
+            (yr, yc) = go co y
+
+        forall v Invisible x
+          | v /= var && xc
+          = (caseForAll v xr, True)
+          | otherwise
+          = fallthrough
+          where (xr, xc) = go co x
+                
+        forall _ Visible _ = panic "unexpected visible binder"
               -- TODO (RAE): Fix.
-    go _ (ForAllTy (Named _ Visible) _) = panic "unexpected visible binder"
-    go _ _ = (caseTrivial,False)
+
+        lit _    = fallthrough
+        cast _ _ = fallthrough
+
+        fallthrough = (caseTrivial, False)
+
+        analysis = TypeAnalysis { ta_tyvar = tyvar, ta_tyconapp = tyconapp
+                                , ta_fun = fun, ta_app = app, ta_forall = forall
+                                , ta_lit = lit, ta_cast = cast }
 
 -- Return all syntactic subterms of ty that contain var somewhere
 -- These are the things that should appear in instance constraints

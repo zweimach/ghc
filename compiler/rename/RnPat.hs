@@ -50,7 +50,7 @@ import PrelNames
 import TyCon               ( tyConName )
 import ConLike
 import DataCon             ( dataConTyCon )
-import TyCoRep             ( TyThing(..) )
+import Type                ( TyThing(..) )
 import Name
 import NameSet
 import RdrName

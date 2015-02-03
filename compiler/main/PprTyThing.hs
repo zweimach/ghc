@@ -19,7 +19,7 @@ module PprTyThing (
 
 #include "HsVersions.h"
 
-import TyCoRep ( TyThing(..) )
+import Type    ( TyThing(..) )
 import CoAxiom ( coAxiomTyCon )
 import HscTypes( tyThingParent_maybe )
 import MkIface ( tyThingToIfaceDecl )

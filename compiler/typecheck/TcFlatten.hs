@@ -16,7 +16,7 @@ import TcType
 import Type
 import TcEvidence
 import TyCon
-import TyCoRep
+import TyCoRep   -- performs delicate algorithm on types
 import Coercion  ( tyConRolesX, coercionKind )
 import Var
 import VarEnv

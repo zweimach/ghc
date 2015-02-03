@@ -53,7 +53,7 @@ module TcType (
   --------------------------------
   -- Splitters
   -- These are important because they do not look through newtypes
-  tcView,
+  tcView, getTyVar,
   tcSplitForAllTys, tcSplitNamedForAllTys, tcSplitNamedForAllTysB,
   tcIsNamedForAllTy,
   tcSplitPhiTy, tcSplitPredFunTy_maybe,

@@ -13,11 +13,12 @@ import TcRnTypes
 import TcRnMonad
 import TcMType
 import TcType
-import TyCoRep
 import Type
+import TysPrim          ( funTyConName )
 import Unify            ( tcMatchTys )
 import Module
 import FamInst
+import FamInstEnv       ( flattenTys )
 import Inst
 import InstEnv
 import TyCon
@@ -1206,8 +1207,8 @@ mkDictErr ctxt cts
     do { inst_envs <- tcGetInstEnvs
        ; let (ct1:_) = cts  -- ct1 just for its location
              min_cts = elim_superclasses cts
-       ; lookups   <- mapM (lookup_cls_inst inst_envs) min_cts
-       ; let (no_inst_cts, overlap_cts) = partition is_no_inst lookups
+             lookups = map (lookup_cls_inst inst_envs) min_cts
+             (no_inst_cts, overlap_cts) = partition is_no_inst lookups
 
        -- Report definite no-instance errors,
        -- or (iff there are none) overlap errors
@@ -1225,9 +1226,8 @@ mkDictErr ctxt cts
       && (null unifiers || all (not . isAmbiguousTyVar) (varSetElems (tyCoVarsOfCt ct)))
 
     lookup_cls_inst inst_envs ct
-      = do { tys_flat <- mapM quickFlattenTy tys
                 -- Note [Flattening in error message generation]
-           ; return (ct, lookupInstEnv inst_envs clas tys_flat) }
+      = (ct, lookupInstEnv inst_envs clas (flattenTys emptyInScopeSet tys))
       where
         (clas, tys) = getClassPredTys (ctPred ct)
 
@@ -1307,14 +1307,7 @@ mk_dict_err ctxt (ct, (matches, unifiers, safe_haskell))
       | otherwise
       = ptext (sLit "Could not deduce") <+> pprParendType pred
 
-    type_has_arrow (TyVarTy _)      = False
-    type_has_arrow (AppTy t1 t2)    = type_has_arrow t1 || type_has_arrow t2
-    type_has_arrow (TyConApp _ ts)  = or $ map type_has_arrow ts
-    type_has_arrow (ForAllTy (Anon _) _)   = True
-    type_has_arrow (ForAllTy (Named {}) t) = type_has_arrow t
-    type_has_arrow (LitTy _)        = False
-    type_has_arrow (CastTy t _)     = type_has_arrow t
-    type_has_arrow (CoercionTy _)   = False
+    type_has_arrow ty = funTyConName `elemNameEnv` tyConsOfType ty
 
     drv_fixes = case orig of
                    DerivOrigin      -> [drv_fix]
@@ -1423,35 +1416,6 @@ ppr_insts insts
        | otherwise    = ptext (sLit "...plus") 
                         <+> speakNOf n_extra (ptext (sLit "other"))
 
-----------------------
-quickFlattenTy :: TcType -> TcM TcType
--- See Note [Flattening in error message generation]
-quickFlattenTy ty | Just ty' <- tcView ty = quickFlattenTy ty'
-quickFlattenTy ty@(TyVarTy {})    = return ty
-quickFlattenTy (ForAllTy (Anon ty1) ty2)
-                                  = do { fy1 <- quickFlattenTy ty1
-                                    ; fy2 <- quickFlattenTy ty2
-                                    ; return $ mkFunTy fy1 fy2 }
-quickFlattenTy ty@(ForAllTy {})   = return ty
-  -- Don't flatten because of the danger or removing a bound variable
-quickFlattenTy ty@(LitTy {})      = return ty
-quickFlattenTy ty@(CoercionTy {}) = return ty
-quickFlattenTy (CastTy ty co)  = do { fy <- quickFlattenTy ty
-                                       ; return (CastTy fy co) }
-quickFlattenTy (AppTy ty1 ty2) = do { fy1 <- quickFlattenTy ty1
-                                    ; fy2 <- quickFlattenTy ty2
-                                    ; return (AppTy fy1 fy2) }
-quickFlattenTy (TyConApp tc tys)
-    | not (isTypeFamilyTyCon tc)
-    = do { fys <- mapM quickFlattenTy tys
-         ; return (TyConApp tc fys) }
-    | otherwise
-    = do { let (funtys,resttys) = splitAt (tyConArity tc) tys
-                -- Ignore the arguments of the type family funtys
-         ; v <- newMetaTyVar (TauTv False) (typeKind (TyConApp tc funtys))
-         ; flat_resttys <- mapM quickFlattenTy resttys
-         ; return (foldl AppTy (mkTyCoVarTy v) flat_resttys) }
-
 {-
 Note [Flattening in error message generation]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1468,13 +1432,6 @@ instance when in fact there are two.
 Re-flattening is pretty easy, because we don't need to keep track of
 evidence.  We don't re-use the code in TcCanonical because that's in
 the TcS monad, and we are in TcM here.
-
-Note [Quick-flatten polytypes]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-If we see C (Ix a => blah) or C (forall a. blah) we simply refrain from
-flattening any further.  After all, there can be no instance declarations
-that match such things.  And flattening under a for-all is problematic
-anyway; consider C (forall a. F a)
 
 Note [Suggest -fprint-explicit-kinds]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

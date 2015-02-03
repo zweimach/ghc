@@ -43,11 +43,9 @@ import TcMType
 import TcValidity
 import TcUnify
 import TcIface
-import TcHsSyn ( zonkCoToCo, emptyZonkEnv )  -- TODO (RAE): Remove!
 import TcType
 import Type
 import Coercion  ( mkSubCo )
-import TyCoRep( Type(..), Binder(..) ) 
 import Kind
 import RdrName( lookupLocalRdrOcc )
 import Var
@@ -751,42 +749,11 @@ zonkSigType :: TcType -> TcM TcType
 -- Because of knot-typing (see Note [Zonking inside the knot])
 -- it may need to establish the Type invariants;
 -- hence the use of mkTyConApp and mkAppTy
-zonkSigType ty
-  = go ty
+zonkSigType = mapType mapper ()
   where
-    go (TyConApp tc tys) = do tys' <- mapM go tys
-                              return (mkTyConApp tc tys')
+    mapper = zonkTcTypeMapper { tcm_smart = True }
                 -- Key point: establish Type invariants!
                 -- See Note [Zonking inside the knot]
-
-    go (LitTy n)         = return (LitTy n)
-
-    go (ForAllTy (Anon arg) res)
-                         = do arg' <- go arg
-                              res' <- go res
-                              return (mkFunTy arg' res')
-
-    go (AppTy fun arg)   = do fun' <- go fun
-                              arg' <- go arg
-                              return (mkAppTy fun' arg')
-                -- NB the mkAppTy; we might have instantiated a
-                -- type variable to a type constructor, so we need
-                -- to pull the TyConApp to the top.
-
-        -- The two interesting cases!
-    go (TyVarTy tyvar) | isTcTyVar tyvar = zonkTcTyCoVar tyvar
-                       | otherwise       = TyVarTy <$> updateTyVarKindM go tyvar
-                -- Ordinary (non Tc) tyvars occur inside quantified types
-
-    go (ForAllTy (Named tv vis) ty)
-                            = do { tv' <- zonkTcTyCoVarBndr tv
-                                 ; ty' <- go ty
-                                 ; return (mkNamedForAllTy tv' vis ty') }
-
-    go (CastTy ty co) = do { ty' <- go ty
-                           ; co' <- zonkCoToCo emptyZonkEnv co  -- TODO (RAE): This is wrong.
-                           ; return (CastTy ty' co') }
-    go (CoercionTy co) = CoercionTy <$> zonkCoToCo emptyZonkEnv co -- TODO (RAE): Still wrong.
 
 {-
 Note [Body kind of a forall]

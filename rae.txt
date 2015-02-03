@@ -1,9 +1,7 @@
-NOTE TO SELF:
-At this point, all the tests in typecheck/should_compile succeed, except for
-tc192, as noted below.
-
-
 stack:
+ - Places to consider moving definitions to Type
+   - StgCmmClosure.getTyDescription
+ - HsUtils.toHsType could just use HsCoreTy, no?
 
 - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 

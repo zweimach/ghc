@@ -13,8 +13,6 @@ module DsForeign ( dsForeigns ) where
 #include "HsVersions.h"
 import TcRnMonad        -- temp
 
-import TyCoRep
-
 import CoreSyn
 
 import DsCCall
@@ -712,7 +710,7 @@ toCType = f False
            -- see if there is a C type associated with that constructor.
            -- Note that we aren't looking through type synonyms or
            -- anything, as it may be the synonym that is annotated.
-           | TyConApp tycon _ <- t
+           | Just tycon <- tyConAppTyConPicky_maybe t
            , Just (CType mHeader cType) <- tyConCType_maybe tycon
               = (mHeader, ftext cType)
            -- If we don't know a C type for this type, then try looking

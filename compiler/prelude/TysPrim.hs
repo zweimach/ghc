@@ -93,7 +93,8 @@ import SrcLoc
 import Unique           ( mkAlphaTyVarUnique )
 import PrelNames
 import FastString
-import TyCoRep
+import TyCoRep   -- doesn't need special access, but this is easier to avoid
+                 -- import loops
 
 import Data.Char
 

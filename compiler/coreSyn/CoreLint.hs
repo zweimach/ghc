@@ -42,7 +42,7 @@ import Coercion
 import SrcLoc
 import Kind
 import Type
-import TyCoRep
+import TyCoRep       -- checks validity of types/coercions
 import TyCon
 import CoAxiom
 import BasicTypes

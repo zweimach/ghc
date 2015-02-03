@@ -21,7 +21,7 @@ import Coercion
 import Literal
 import Name
 import Type
-import TyCoRep
+import TyCoRep         -- builds maps based on internal structure of types
 import TyCon(TyCon)
 import Var
 import UniqFM

@@ -35,7 +35,6 @@ import DataCon     ( dataConTag, dataConTyCon, dataConWorkId )
 import CoreUtils   ( cheapEqExpr, exprIsHNF )
 import CoreUnfold  ( exprIsConApp_maybe )
 import Type
-import TyCoRep
 import OccName     ( occNameFS )
 import PrelNames
 import Maybes      ( orElse )
@@ -1156,8 +1155,8 @@ match_magicDict _ = Nothing
 match_IntToInteger :: RuleFun
 match_IntToInteger _ id_unf fn [xl]
   | Just (MachInt x) <- exprIsLiteral_maybe id_unf xl
-  = case idType fn of
-    ForAllTy (Anon _) integerTy ->
+  = case splitFunTy_maybe (idType fn) of
+    Just (_, integerTy) ->
         Just (Lit (LitInteger x integerTy))
     _ ->
         panic "match_IntToInteger: Id has the wrong type"
@@ -1166,8 +1165,8 @@ match_IntToInteger _ _ _ _ = Nothing
 match_WordToInteger :: RuleFun
 match_WordToInteger _ id_unf id [xl]
   | Just (MachWord x) <- exprIsLiteral_maybe id_unf xl
-  = case idType id of
-    ForAllTy (Anon _) integerTy ->
+  = case splitFunTy_maybe (idType id) of
+    Just (_, integerTy) ->
         Just (Lit (LitInteger x integerTy))
     _ ->
         panic "match_WordToInteger: Id has the wrong type"
@@ -1176,8 +1175,8 @@ match_WordToInteger _ _ _ _ = Nothing
 match_Int64ToInteger :: RuleFun
 match_Int64ToInteger _ id_unf id [xl]
   | Just (MachInt64 x) <- exprIsLiteral_maybe id_unf xl
-  = case idType id of
-    ForAllTy (Anon _) integerTy ->
+  = case splitFunTy_maybe (idType id) of
+    Just (_, integerTy) ->
         Just (Lit (LitInteger x integerTy))
     _ ->
         panic "match_Int64ToInteger: Id has the wrong type"
@@ -1186,8 +1185,8 @@ match_Int64ToInteger _ _ _ _ = Nothing
 match_Word64ToInteger :: RuleFun
 match_Word64ToInteger _ id_unf id [xl]
   | Just (MachWord64 x) <- exprIsLiteral_maybe id_unf xl
-  = case idType id of
-    ForAllTy (Anon _) integerTy ->
+  = case splitFunTy_maybe (idType id) of
+    Just (_, integerTy) ->
         Just (Lit (LitInteger x integerTy))
     _ ->
         panic "match_Word64ToInteger: Id has the wrong type"
@@ -1291,13 +1290,14 @@ match_rationalTo _ _ _ _ _ = Nothing
 match_decodeDouble :: RuleFun
 match_decodeDouble _ id_unf fn [xl]
   | Just (MachDouble x) <- exprIsLiteral_maybe id_unf xl
-  = case idType fn of
-    ForAllTy (Anon _) (TyConApp _ [integerTy, intHashTy]) ->
-        case decodeFloat (fromRational x :: Double) of
-        (y, z) ->
-            Just $ mkCoreUbxTup [integerTy, intHashTy]
-                                [Lit (LitInteger y integerTy),
-                                 Lit (MachInt (toInteger z))]
+  = case splitFunTy_maybe (idType fn) of
+    Just (_, res)
+      | Just [integerTy, intHashTy] <- tyConAppArgs_maybe res
+      -> case decodeFloat (fromRational x :: Double) of
+           (y, z) ->
+             Just $ mkCoreUbxTup [integerTy, intHashTy]
+                                 [Lit (LitInteger y integerTy),
+                                  Lit (MachInt (toInteger z))]
     _ ->
         panic "match_decodeDouble: Id has the wrong type"
 match_decodeDouble _ _ _ _ = Nothing

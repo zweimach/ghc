@@ -29,7 +29,7 @@ import TcType
 import Type
 import Coercion
 import CoAxiom
-import TyCoRep
+import TyCoRep    -- needs to build types & coercions in a knot
 import HscTypes
 import Annotations
 import InstEnv
@@ -859,15 +859,15 @@ tcIfaceTyLit (IfaceStrTyLit n) = return (StrTyLit n)
 tcIfaceCo :: IfaceCoercion -> IfL Coercion
 tcIfaceCo = go
   where
-    go (IfaceReflCo r t)         = mkReflCo r <$> tcIfaceType t
+    go (IfaceReflCo r t)         = Refl r <$> tcIfaceType t
     go (IfaceFunCo r c1 c2)      = mkFunCo r <$> go c1 <*> go c2
     go (IfaceTyConAppCo r tc cs)
-      = mkTyConAppCo r <$> tcIfaceTyCon tc <*> tcIfaceCoArgs cs
-    go (IfaceAppCo c1 c2)        = mkAppCo <$> go c1 <*> tcIfaceCoArg c2
+      = TyConAppCo r <$> tcIfaceTyCon tc <*> tcIfaceCoArgs cs
+    go (IfaceAppCo c1 c2)        = AppCo <$> go c1 <*> tcIfaceCoArg c2
     go (IfaceForAllCo bndr c)    = bindIfaceBndrCo bndr $ \ cobndr ->
-                                            mkForAllCo cobndr <$> go c
-    go (IfaceCoVarCo n)          = mkCoVarCo <$> go_var n
-    go (IfaceAxiomInstCo n i cs) = mkAxiomInstCo <$> tcIfaceCoAxiom n <*> pure i <*> mapM tcIfaceCoArg cs
+                                            ForAllCo cobndr <$> go c
+    go (IfaceCoVarCo n)          = CoVarCo <$> go_var n
+    go (IfaceAxiomInstCo n i cs) = AxiomInstCo <$> tcIfaceCoAxiom n <*> pure i <*> mapM tcIfaceCoArg cs
     go (IfacePhantomCo h t1 t2)  = PhantomCo <$> go h <*> tcIfaceType t1
                                                       <*> tcIfaceType t2
     go (IfaceUnsafeCo s r t1 t2) = UnsafeCo s r <$> tcIfaceType t1

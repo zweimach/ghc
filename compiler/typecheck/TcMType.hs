@@ -57,6 +57,7 @@ module TcMType (
   zonkQuantifiedTyCoVar, zonkQuantifiedTyCoVarOrType, quantifyTyCoVars,
   quantifyTyCoVars', defaultKindVar,
   zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, zonkCo,
+  zonkTyCoVarKind, zonkTcTypeMapper,
 
   zonkEvVar, zonkWC, zonkSimples, zonkId, zonkCt, zonkSkolemInfo,
 
@@ -979,96 +980,28 @@ zonkId id
   = do { ty' <- zonkTcType (idType id)
        ; return (Id.setIdType id ty') }
 
+-- | A suitable TyCoMapper for zonking a type inside the knot, and
+-- before all metavars are filled in.
+zonkTcTypeMapper :: TyCoMapper () TcM
+zonkTcTypeMapper = TyCoMapper
+  { tcm_smart = False
+                -- Do NOT establish Type invariants, because
+                -- doing so is strict in the TyCOn.
+                -- See Note [Zonking inside the knot] in TcHsType
+  , tcm_tyvar = const zonkTcTyCoVar
+  , tcm_covar = const (\cv -> CoVarCo <$> zonkTyCoVarKind cv)
+  , tcm_tycobinder = \_env tv _vis -> do { tv' <- zonkTcTyCoVarBndr tv
+                                         ; return ((), tv') } }
+
 -- For unbound, mutable tyvars, zonkType uses the function given to it
 -- For tyvars bound at a for-all, zonkType zonks them to an immutable
 --      type variable and zonks the kind too
 zonkTcType :: TcType -> TcM TcType
-zonkTcType ty
-  = go ty
-  where
-    go (TyConApp tc tys) = do tys' <- mapM go tys
-                              return (TyConApp tc tys')
-                -- Do NOT establish Type invariants, because
-                -- doing so is strict in the TyCOn.
-                -- See Note [Zonking inside the knot] in TcHsType
-
-    go (LitTy n)         = return (LitTy n)
-
-    go (ForAllTy (Anon arg) res)
-                         = do arg' <- go arg
-                              res' <- go res
-                              return (mkFunTy arg' res')
-
-    go (AppTy fun arg)   = do fun' <- go fun
-                              arg' <- go arg
-                              return (AppTy fun' arg')
-                -- See Note [Zonking inside the knot] in TcHsType
-
-    go (CastTy ty co)    = do ty' <- go ty
-                              co' <- zonkCo co
-                              return (CastTy ty' co')
-
-    go (CoercionTy co)   = do co' <- zonkCo co
-                              return (CoercionTy co')
-
-        -- The two interesting cases!
-    go (TyVarTy tyvar) | isTcTyVar tyvar = zonkTcTyCoVar tyvar
-                       | otherwise       = TyVarTy <$> updateTyVarKindM go tyvar
-                -- Ordinary (non Tc) tyvars occur inside quantified types
-
-    go (ForAllTy (Named tv vis) ty)
-                            = do { tv' <- zonkTcTyCoVarBndr tv
-                                 ; ty' <- go ty
-                                 ; return (ForAllTy (Named tv' vis) ty') }
+zonkTcType = mapType zonkTcTypeMapper ()
 
 -- | "Zonk" a coercion -- really, just zonk any types in the coercion
 zonkCo :: Coercion -> TcM Coercion
-zonkCo = go_co
-  where
-    go_co (Refl r ty)               = Refl r <$> zonkTcType ty
-    go_co (TyConAppCo r tc args)    = TyConAppCo r tc <$> mapM go_arg args
-    go_co (AppCo co arg)            = AppCo <$> go_co co <*> go_arg arg
-    go_co (CoVarCo cv)              = CoVarCo <$> zonkTyCoVarKind cv
-    go_co (AxiomInstCo ax ind args) = AxiomInstCo ax ind <$> mapM go_arg args
-    go_co (PhantomCo h ty1 ty2)     = PhantomCo <$> go_co h <*> zonkTcType ty1
-                                                            <*> zonkTcType ty2
-    go_co (UnsafeCo s r ty1 ty2)    = UnsafeCo s r <$> zonkTcType ty1 <*> zonkTcType ty2
-    go_co (SymCo co)                = SymCo <$> go_co co
-    go_co (TransCo co1 co2)         = TransCo <$> go_co co1 <*> go_co co2
-    go_co (NthCo n co)              = NthCo n <$> go_co co
-    go_co (LRCo lr co)              = LRCo lr <$> go_co co
-    go_co (InstCo co arg)           = InstCo <$> go_co co <*> go_arg arg
-    go_co (CoherenceCo co1 co2)     = CoherenceCo <$> go_co co1 <*> go_co co2
-    go_co (KindCo co)               = KindCo <$> go_co co
-    go_co (SubCo co)                = SubCo <$> go_co co
-    go_co (AxiomRuleCo ax ts cs)    = AxiomRuleCo ax <$> mapM zonkTcType ts <*> mapM go_co cs
-
-    go_co (ForAllCo cobndr co)
-      | Just v <- getHomoVar_maybe cobndr
-      = do { v' <- zonkTcTyCoVarBndr v
-           ; co' <- go_co co
-           ; return (ForAllCo (mkHomoCoBndr v') co') }
-
-      | TyHetero h tv1 tv2 cv <- cobndr
-      = do { h' <- go_co h
-           ; tv1' <- zonkTcTyCoVarBndr tv1
-           ; tv2' <- zonkTcTyCoVarBndr tv2
-           ; cv' <- zonkTcTyCoVarBndr cv
-           ; co' <- go_co co
-           ; return (mkForAllCo (TyHetero h' tv1' tv2' cv') co') }
-
-      | CoHetero h cv1 cv2 <- cobndr
-      = do { h' <- go_co h
-           ; cv1' <- zonkTcTyCoVarBndr cv1
-           ; cv2' <- zonkTcTyCoVarBndr cv2
-           ; co' <- go_co co
-           ; return (mkForAllCo (CoHetero h' cv1' cv2') co') }
-
-      | otherwise
-      = pprPanic "zonkTcType" (ppr cobndr)
-
-    go_arg (TyCoArg co)        = TyCoArg <$> go_co co
-    go_arg (CoCoArg r co1 co2) = CoCoArg r <$> go_co co1 <*> go_co co2
+zonkCo = mapCoercion zonkTcTypeMapper () 
 
 zonkTcTyCoVarBndr :: TcTyCoVar -> TcM TcTyCoVar
 -- A tyvar binder is never a unification variable (MetaTv),
@@ -1083,9 +1016,8 @@ zonkTcTyCoVarBndr tyvar
 zonkTcTyCoVar :: TcTyCoVar -> TcM TcType
 -- Simply look through all Flexis
 zonkTcTyCoVar tv
-  | isTyVar tv
-  = ASSERT2( isTcTyVar tv, ppr tv ) do
-    case tcTyVarDetails tv of
+  | isTcTyVar tv
+  = case tcTyVarDetails tv of
       SkolemTv {}   -> zonk_kind_and_return
       RuntimeUnk {} -> zonk_kind_and_return
       FlatSkol ty   -> zonkTcType ty

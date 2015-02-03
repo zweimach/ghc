@@ -39,7 +39,8 @@ import CoreUtils        ( exprType, eqExpr, mkTick, mkTicks,
                           stripTicksTopT, stripTicksTopE )
 import PprCore          ( pprRules )
 import Type             ( Type )
-import TyCoRep          ( CoercionArg(..) )
+import TyCoRep          ( CoercionArg(..) )  -- TODO (RAE): Remove this, along
+                                             -- with matching on coercions
 import TcType           ( tcSplitTyConApp_maybe )
 import Coercion
 import CoreTidy         ( tidyRules )
