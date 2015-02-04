@@ -27,6 +27,11 @@ QUESTIONS:
 - Is it useful to keep vanilla skolems separate from ordinary tyvars? I think
 not.
 
+- Is the whole analyzeType thing paying its weight? Not sure. Antal thinks so.
+Perhaps using RecordWildCards for the construction of TypeAnalysis would ease
+some syntax annoyance. Anyway, keeping for now. If reverting, look for commits
+mentioning "reducing" and "TyCoRep"
+
 - Should TYPE / Levity / Lifted / Unlifted be in the Prelude? If not,
 how to deal with :info, which suppresses output that mentions un-imported things.
 Current sol'n: make these things BuiltInSyntax.
@@ -71,10 +76,6 @@ fix:
   - should check to make sure a coercion isn't bound in a recursive let (!)
   - after DeriveAnyClass is fixed (#9968), make sure that the use of looser
     tcUnifyTys in deriveTyData isn't causing problems.
-  - the count_bndrs nonsense in tcTyClDecl1 is terrible. It won't allow synonyms or
-    anything interesting to the right of a :: in a GADT-style data def'n. There's got
-    to be a better way! (Worse, it will just do the wrong thing if someone tries to
-    put something sneaky there.)
   - add CoreLint checks for levity polymorphism used the right way. But, what exactly
     is the right way??
   - need an -fprint-explicit-coercions, which is off by default.
@@ -146,7 +147,7 @@ please remove:
 - Test uses of unifyType_ and unifyKind to make sure that kind families are tolerated
 in those positions.
 
-- Unpacking lifted equality in data constructors has become harder.
+- UNPACKing lifted equality in data constructors has become harder.
   See comments in MkId.mk_pred_strict_mark.
 
 - Restored MaybeNew because we need to be able to use ctEvCoherence
@@ -274,14 +275,11 @@ interesting from a theoretical standpoint.
 After compiling:
 - consider adding full definition of lifting to core-spec.
 - use optType throughout code
-- fix liftTcCoSubstWith, TcCanonical.flatten
 - revisit MatchM monad
 - consider removing typesCantMatch from Unify, in favor of apartness checking
 - consider rewriting match in terms of unify.
 - make CoVar constructor of Var
 - merge tcView and coreView??
-- Add a new possibility to the result of unification: NotApartAndNoUnify ??
-
 
 
 Lifting restrictions:

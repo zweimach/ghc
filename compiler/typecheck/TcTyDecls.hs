@@ -706,6 +706,7 @@ irType lcls = analyzeType analysis
       , ta_tyconapp = \tc tys -> do { roles <- lookupRolesX tc
                                     ; zipWithM_ (go_app lcls) roles tys }
       , ta_fun      = \arg res -> irType lcls arg >> irType lcls res
+      , ta_app      = \t1 t2 -> irType lcls t1 >> mark_nominal lcls t2
            -- TODO (RAE): Is the following right??
       , ta_forall   = \tv _vis inner -> irType lcls (tyVarKind tv) >>
                                         irType (extendVarSet lcls tv) inner
@@ -716,7 +717,7 @@ irType lcls = analyzeType analysis
     
     go_app _ Phantom _ = return ()                 -- nothing to do here
     go_app lcls Nominal ty = mark_nominal lcls ty  -- all vars below here are N
-    go_app lcls Representational ty = go lcls ty
+    go_app lcls Representational ty = irType lcls ty
 
     mark_nominal lcls ty = let nvars = get_ty_vars ty `minusVarSet` lcls in
                            mapM_ (updateRole Nominal) (varSetElems nvars)
@@ -730,7 +731,7 @@ irType lcls = analyzeType analysis
       , ta_tyconapp = \_tc -> mapUnionVarSet get_ty_vars
       , ta_fun      = get_ty_vars_twice
       , ta_app      = get_ty_vars_twice
-      , ta_forall   = \tv _ inner -> get_ty_vars ty `delVarSet` tv
+      , ta_forall   = \tv _ inner -> get_ty_vars inner `delVarSet` tv
                                      `unionVarSet` get_ty_vars (tyVarKind tv)
       , ta_lit      = const emptyVarSet
       , ta_cast     = \ty _ -> get_ty_vars ty
