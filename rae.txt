@@ -1,7 +1,4 @@
 stack:
- - Places to consider moving definitions to Type
-   - StgCmmClosure.getTyDescription
- - HsUtils.toHsType could just use HsCoreTy, no?
 
 - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 
