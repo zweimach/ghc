@@ -15,7 +15,7 @@ module Type (
 
         -- $representation_types
         TyThing(..), Type, VisibilityFlag(..), KindOrType, PredType, ThetaType,
-        Var, TyVar, isTyVar, TyCoVar, Binder,
+        Var, TyVar, isTyVar, TyCoVar, Binder, TyLit(..),
 
         -- ** Constructing and deconstructing types
         mkOnlyTyVarTy, mkOnlyTyVarTys, getTyVar, getTyVar_maybe, repGetTyVar_maybe,
@@ -413,6 +413,7 @@ data TypeAnalysis r
            -- ^ Only named foralls. Anon foralls are in ta_tyconapp
       , ta_lit      :: TyLit -> r
       , ta_cast     :: Type -> Coercion -> r
+      , ta_coercion :: Coercion -> r
       }
 
 analyzeType :: TypeAnalysis r -> Type -> r
@@ -422,7 +423,8 @@ analyzeType (TypeAnalysis { ta_tyvar    = tyvar
                           , ta_app      = app
                           , ta_forall   = forall
                           , ta_lit      = lit
-                          , ta_cast     = cast })
+                          , ta_cast     = cast
+                          , ta_coercion = coercion })
   = go
   where
     go ty | Just ty' <- coreView ty    = go ty'
@@ -433,7 +435,7 @@ analyzeType (TypeAnalysis { ta_tyvar    = tyvar
     go (ForAllTy (Named tv vis) inner) = forall tv vis inner
     go (LitTy tylit)                   = lit tylit
     go (CastTy ty co)                  = cast ty co
-    go (CoercionTy co)                 = pprPanic "analyzeType" (ppr co)
+    go (CoercionTy co)                 = coercion co
 
 -- | This describes how a "map" operation over a type/coercion should behave
 data TyCoMapper env m

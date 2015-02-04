@@ -1703,14 +1703,16 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
         forall _ Visible _ = panic "unexpected visible binder"
               -- TODO (RAE): Fix.
 
-        lit _    = fallthrough
-        cast _ _ = fallthrough
+        lit _      = fallthrough
+        cast _ _   = fallthrough
+        coercion _ = fallthrough
 
         fallthrough = (caseTrivial, False)
 
         analysis = TypeAnalysis { ta_tyvar = tyvar, ta_tyconapp = tyconapp
                                 , ta_fun = fun, ta_app = app, ta_forall = forall
-                                , ta_lit = lit, ta_cast = cast }
+                                , ta_lit = lit, ta_cast = cast
+                                , ta_coercion = coercion }
 
 -- Return all syntactic subterms of ty that contain var somewhere
 -- These are the things that should appear in instance constraints

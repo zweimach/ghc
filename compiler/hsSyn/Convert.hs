@@ -1065,8 +1065,8 @@ split_ty_app ty = go ty []
     go f as           = return (f,as)
 
 cvtTyLit :: TH.TyLit -> HsTyLit
-cvtTyLit (NumTyLit i) = HsNumTy i
-cvtTyLit (StrTyLit s) = HsStrTy (fsLit s)
+cvtTyLit (TH.NumTyLit i) = HsNumTy i
+cvtTyLit (TH.StrTyLit s) = HsStrTy (fsLit s)
 
 cvtKind :: TH.Kind -> CvtM (LHsKind RdrName)
 cvtKind = cvtTypeKind "kind"

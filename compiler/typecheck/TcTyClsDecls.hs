@@ -41,7 +41,6 @@ import FamInst
 import FamInstEnv( isDominatedBy, mkCoAxBranch, mkBranchedCoAxiom )
 import Coercion
 import Type
-import TyCoRep   -- for checkValidRoles
 import Kind
 import Class
 import CoAxiom
@@ -1854,45 +1853,42 @@ checkValidRoles tc
           | isCoVar tv = (tv, Phantom)
           | otherwise  = (tv, Nominal)
 
-    check_ty_roles env role (TyVarTy tv)
+    check_ty_roles env role ty = analyzeType analysis ty
+      where
+        analysis = TypeAnalysis
+          { ta_tyvar    = check_tyvar env role
+          , ta_tyconapp = check_tyconapp env role
+          , ta_fun      = \arg res -> mapM_ (check_ty_roles env role) [arg, res]
+          , ta_app      = \ty1 ty2 -> check_ty_roles env role    ty1 >>
+                                      check_ty_roles env Nominal ty2
+          , ta_forall   = \tv _vis inner ->
+                             -- TODO (RAE): Check in tv's kind!
+                          check_ty_roles (extendVarEnv env tv Nominal) role inner
+          , ta_lit      = \_ -> return ()
+          , ta_cast     = \t _co -> check_ty_roles env role t
+          , ta_coercion = \co -> unless (role == Phantom) $
+                                 report_error $
+                                 text "coercion" <+> ppr co <+>
+                                 text "has bad role" <+> ppr role }
+
+    check_tyvar env role tv
       = case lookupVarEnv env tv of
           Just role' -> unless (role' `ltRole` role || role' == role) $
-                        report_error $ ptext (sLit "type variable") <+> quotes (ppr tv) <+>
-                                       ptext (sLit "cannot have role") <+> ppr role <+>
-                                       ptext (sLit "because it was assigned role") <+> ppr role'
-          Nothing    -> report_error $ ptext (sLit "type variable") <+> quotes (ppr tv) <+>
-                                       ptext (sLit "missing in environment")
+                        report_error $ text "type variable" <+> quotes (ppr tv) <+>
+                                       text "cannot have role" <+> ppr role <+>
+                                       text "because it was assigned role" <+> ppr role'
+          Nothing    -> report_error $ text "type variable" <+> quotes (ppr tv) <+>
+                                       text "missing in environment"
 
-    check_ty_roles env Representational (TyConApp tc tys)
+    check_tyconapp env Representational tc tys
       = let roles' = tyConRoles tc in
         zipWithM_ (maybe_check_ty_roles env) roles' tys
 
-    check_ty_roles env Nominal (TyConApp _ tys)
+    check_tyconapp env Nominal _ tys
       = mapM_ (check_ty_roles env Nominal) tys
 
-    check_ty_roles _   Phantom ty@(TyConApp {})
-      = pprPanic "check_ty_roles" (ppr ty)
-
-    check_ty_roles env role (AppTy ty1 ty2)
-      =  check_ty_roles env role    ty1
-      >> check_ty_roles env Nominal ty2
-
-    check_ty_roles env role (ForAllTy (Anon ty1) ty2)
-      =  check_ty_roles env role ty1
-      >> check_ty_roles env role ty2
-
-      -- TODO (RAE): Is this right??
-    check_ty_roles env role (ForAllTy (Named tv _) ty)
-      = check_ty_roles (extendVarEnv env tv Nominal) role ty
-
-    check_ty_roles _   _    (LitTy {}) = return ()
-
-    check_ty_roles env role (CastTy t _)
-      = check_ty_roles env role t
-
-    check_ty_roles _   role (CoercionTy co)
-      = unless (role == Phantom) $
-        report_error $ text "coercion" <+> ppr co <+> text "has bad role" <+> ppr role
+    check_tyconapp _   Phantom tc tys 
+      = pprPanic "check_ty_roles" (ppr $ mkTyConApp tc tys)
 
     maybe_check_ty_roles env role ty
       = when (role == Nominal || role == Representational) $

@@ -71,7 +71,6 @@ module TcMType (
 #include "HsVersions.h"
 
 -- friends:
-import TyCoRep
 import TcType
 import Type
 import Coercion
@@ -520,7 +519,7 @@ newFlexiTyVar kind = newMetaTyVar (TauTv False) kind
 newFlexiTyVarTy  :: Kind -> TcM TcType
 newFlexiTyVarTy kind = do
     tc_tyvar <- newFlexiTyVar kind
-    return (TyVarTy tc_tyvar)
+    return (mkOnlyTyVarTy tc_tyvar)
 
 newFlexiTyVarTys :: Int -> Kind -> TcM [TcType]
 newFlexiTyVarTys n kind = mapM newFlexiTyVarTy (nOfThem n kind)
@@ -989,7 +988,7 @@ zonkTcTypeMapper = TyCoMapper
                 -- doing so is strict in the TyCOn.
                 -- See Note [Zonking inside the knot] in TcHsType
   , tcm_tyvar = const zonkTcTyCoVar
-  , tcm_covar = const (\cv -> CoVarCo <$> zonkTyCoVarKind cv)
+  , tcm_covar = const (\cv -> mkCoVarCo <$> zonkTyCoVarKind cv)
   , tcm_tycobinder = \_env tv _vis -> do { tv' <- zonkTcTyCoVarBndr tv
                                          ; return ((), tv') } }
 

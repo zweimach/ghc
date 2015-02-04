@@ -56,7 +56,6 @@ import TcEnv
 import TcMType
 import TcHsType
 import TcIface
-import TyCoRep
 import FamInst
 import FamInstEnv
 import InstEnv
@@ -1324,7 +1323,7 @@ reifyClass cls
 -- This is used to annotate type patterns for poly-kinded tyvars in
 -- reifying class and type instances. See #8953 and th/T8953.
 annotThType :: Bool   -- True <=> annotate
-            -> TyCoRep.Type -> TH.Type -> TcM TH.Type
+            -> Type.Type -> TH.Type -> TcM TH.Type
   -- tiny optimization: if the type is annotated, don't annotate again.
 annotThType _    _  th_ty@(TH.SigT {}) = return th_ty
 annotThType True ty th_ty
@@ -1416,20 +1415,22 @@ reifyFamilyInstance is_poly_tvs inst@(FamInst { fi_flavor = flavor
     fam_tc = famInstTyCon inst
 
 ------------------------------
-reifyType :: TyCoRep.Type -> TcM TH.Type
+reifyType :: Type.Type -> TcM TH.Type
 -- Monadic only because of failure
-reifyType ty@(ForAllTy (Named _ _) _)        = reify_for_all ty
-reifyType (LitTy t)         = do { r <- reifyTyLit t; return (TH.LitT r) }
-reifyType (TyVarTy tv)      = return (TH.VarT (reifyName tv))
-reifyType (TyConApp tc tys) = reify_tc_app tc tys   -- Do not expand type synonyms here
-reifyType (AppTy t1 t2)     = do { [r1,r2] <- reifyTypes [t1,t2] ; return (r1 `TH.AppT` r2) }
-reifyType ty@(ForAllTy (Anon t1) t2)
-  | isPredTy t1 = reify_for_all ty  -- Types like ((?x::Int) => Char -> Char)
-  | otherwise   = do { [r1,r2] <- reifyTypes [t1,t2] ; return (TH.ArrowT `TH.AppT` r1 `TH.AppT` r2) }
-reifyType ty@(CastTy {})    = noTH (sLit "kind casts") (ppr ty)
-reifyType ty@(CoercionTy {})= noTH (sLit "coercions in types") (ppr ty)
+reifyType ty = analyzeType analysis ty
+  where
+    analysis = TypeAnalysis
+      { ta_tyvar    = return . TH.VarT . reifyName
+      , ta_tyconapp = reify_tc_app
+      , ta_fun      = reify_fun
+      , ta_app      = \t1 t2 -> TH.AppT <$> reifyType t1 <*> reifyType t2
+      , ta_forall   = \tv vis inner -> reify_for_all (mkNamedForAllTy tv vis inner)
+      , ta_lit      = \t -> TH.LitT <$> reifyTyLit t
+      , ta_cast     = \ty co -> noTH (sLit "kind casts") (ppr $ ty `mkCastTy` co)
+      , ta_coercion = \co -> noTH (sLit "coercion arguments") (ppr co) }
 
-reify_for_all :: TyCoRep.Type -> TcM TH.Type
+    
+reify_for_all :: Type.Type -> TcM TH.Type
 reify_for_all ty
   = do { cxt' <- reifyCxt cxt;
        ; tau' <- reifyType tau
@@ -1438,7 +1439,7 @@ reify_for_all ty
   where
     (tvs, cxt, tau) = tcSplitSigmaTy ty
 
-reifyTyLit :: TyCoRep.TyLit -> TcM TH.TyLit
+reifyTyLit :: Type.TyLit -> TcM TH.TyLit
 reifyTyLit (NumTyLit n) = return (TH.NumTyLit n)
 reifyTyLit (StrTyLit s) = return (TH.StrTyLit (unpackFS s))
 
@@ -1446,24 +1447,30 @@ reifyTypes :: [Type] -> TcM [TH.Type]
 reifyTypes = mapM reifyType
 
 reifyKind :: Kind -> TcM TH.Kind
-reifyKind  ki
+reifyKind ki
   = do { let (kis, ki') = splitFunTys ki
        ; ki'_rep <- reifyNonArrowKind ki'
        ; kis_rep <- mapM reifyKind kis
        ; return (foldr (TH.AppT . TH.AppT TH.ArrowT) ki'_rep kis_rep) }
   where
-    reifyNonArrowKind k | isLiftedTypeKind k = return TH.StarT
-                        | isConstraintKind k = return TH.ConstraintT
-    reifyNonArrowKind (TyVarTy v)            = return (TH.VarT (reifyName v))
-    reifyNonArrowKind (ForAllTy _ k)         = reifyKind k
-    reifyNonArrowKind (TyConApp kc kis)      = reify_kc_app kc kis
-    reifyNonArrowKind (AppTy k1 k2)          = do { k1' <- reifyKind k1
-                                                  ; k2' <- reifyKind k2
-                                                  ; return (TH.AppT k1' k2')
-                                                  }
-    reifyNonArrowKind k                      = noTH (sLit "this kind") (ppr k)
+    reifyNonArrowKind k
+      | isLiftedTypeKind k = return TH.StarT
+      | isConstraintKind k = return TH.ConstraintT
+      | otherwise          = analyzeType analysis k
 
-reify_kc_app :: TyCon -> [TyCoRep.Kind] -> TcM TH.Kind
+    analysis = TypeAnalysis
+      { ta_tyvar    = return . TH.VarT . reifyName
+      , ta_tyconapp = reify_kc_app
+      , ta_fun      = panic "reifyNonArrowKind sees an arrow!"
+      , ta_app      = \k1 k2 -> TH.AppT <$> reifyKind k1 <*> reifyKind k2
+      , ta_forall   = \_ _ inner -> reifyKind inner
+      , ta_lit      = \l -> no_th l
+      , ta_cast     = \ty co -> no_th (ty `mkCastTy` co)
+      , ta_coercoin = \co -> no_th co }
+
+    no_th thing = noTH (sLit "this kind") (ppr thing)
+
+reify_kc_app :: TyCon -> [Type.Kind] -> TcM TH.Kind
 reify_kc_app kc kis
   = fmap (mkThAppTs r_kc) (mapM reifyKind kis)
   where
@@ -1510,6 +1517,14 @@ reifyTyCoVars tvs m_tc = mapM reify_tv tvs'
         kind = tyVarKind tv
         name = reifyName tv
 
+reify_fun :: Type -> Type -> TcM TH.Type
+reify_fun t1 t2
+      -- Types like ((?x::Int) => Char -> Char)
+  | isPredTy t1 = reify_for_all (mkFunTy t1 t2)
+  | otherwise   = do { [r1,r2] <- reifyTypes [t1,t2]
+                     ; return (TH.ArrowT `TH.AppT` r1 `TH.AppT` r2) }
+
+
 {-
 Note [Kind annotations on TyConApps]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1547,7 +1562,7 @@ in.
 See #8953 and test th/T8953.
 -}
 
-reify_tc_app :: TyCon -> [TyCoRep.Type] -> TcM TH.Type
+reify_tc_app :: TyCon -> [Type.Type] -> TcM TH.Type
 reify_tc_app tc tys
   = do { tys' <- reifyTypes (filterInvisibles tc tys)
        ; maybe_sig_t (mkThAppTs r_tc tys') }
@@ -1588,7 +1603,7 @@ reify_tc_app tc tys
       | otherwise
       = Nothing
 
-reifyPred :: TyCoRep.PredType -> TcM TH.Pred
+reifyPred :: Type.PredType -> TcM TH.Pred
 reifyPred ty
   -- We could reify the invisible paramter as a class but it seems
   -- nicer to support them properly...
