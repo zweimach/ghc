@@ -136,6 +136,7 @@ import Data.List
 -- If you edit this type, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data Type
+  -- See Note [Non-trivial definitional equality]
   = TyVarTy Var -- ^ Vanilla type or kind variable (*never* a coercion variable)
 
   | AppTy         -- See Note [AppTy invariant]
@@ -175,7 +176,10 @@ data Type
 
   | CastTy
         Type
-        Coercion    -- ^ A kind cast
+        Coercion    -- ^ A kind cast.
+                    -- INVARIANT: The cast is never refl.
+                    -- INVARIANT: The cast is "pushed down" as far as it
+                    -- can go. See Note [Pushing down casts]
 
   | CoercionTy
         Coercion    -- ^ Injection of a Coercion into a type
@@ -298,6 +302,25 @@ So, to summarize:
 ----------------+-------
 (~)  |   no     |   yes
 (~#) |  yes     |   no
+
+
+Note [Pushing down casts]
+~~~~~~~~~~~~~~~~~~~~~~~~~
+Suppose we have (a :: k1 -> *), (b :: k1), and (co :: * ~ q).
+The type (a b |> co) is `eqType` to ((a |> co') b), where
+co' = (->) <k1> co. Thus, to make this visible to functions
+that inspect types, we always push down coercions, preferring
+the second form. Note that this also applies to TyConApps!
+
+Note [Non-trivial definitional equality]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Is Int |> <*> the same as Int? YES! In order to reduce headaches,
+we decide that any reflexive casts in types are just ignored. More
+generally, the `eqType` function, which defines Core's type equality
+relation, ignores casts and coercion arguments, as long as the
+two types have the same kind. This allows us to be a little sloppier
+in keeping track of coercions, which is a good thing. It also means
+that eqType does not depend on eqCoercion, which is also a good thing.
 
 -------------------------------------
                 Note [PredTy]

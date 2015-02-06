@@ -278,7 +278,7 @@ import Control.Applicative ( (<$>) )
 
 {-# INLINE coreView #-}
 coreView :: Type -> Maybe Type
--- ^ In Core, we \"look through\" non-recursive newtypes and 'PredTypes': this
+-- ^ In Core, we \"look through\" type synonyms: this
 -- function tries to obtain a different view of the supplied type given this
 --
 -- Strips off the /top layer only/ of a type to give
@@ -287,8 +287,9 @@ coreView :: Type -> Maybe Type
 --
 -- By being non-recursive and inlined, this case analysis gets efficiently
 -- joined onto the case analysis that the caller is already doing
-coreView (TyConApp tc tys) | Just (tenv, rhs, tys') <- coreExpandTyCon_maybe tc tys
-              = Just (mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys')
+coreView (TyConApp tc tys)
+  | Just (tenv, rhs, tys') <- coreExpandTyCon_maybe tc tys
+  = Just (mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys')
                -- Its important to use mkAppTys, rather than (foldl AppTy),
                -- because the function part might well return a
                -- partially-applied type constructor; indeed, usually will!
@@ -862,12 +863,15 @@ newTyConInstRhs tycon tys
                            ~~~~~~
 A casted type has its *kind* casted into something new.
 
-Why not ignore Refl coercions? See Note [Optimising Refl] in OptCoercion.
 -}
 
 -- | Make a 'CastTy'. The Coercion must be representational.
 mkCastTy :: Type -> Coercion -> Type
-mkCastTy = CastTy
+mkCastTy ty (Refl {}) = ty
+mkCastTy (AppTy t1 t2) co = pushDownCast t1 t2 co
+mkCastTy (TyConApp tc tys) com
+  | Just snocView (tys', last_ty) <- tys = pushDownCast (mkTyConApp
+                                                         -- RAE was here
 
 -- | Make a 'CastTy', unless the coercion is reflexive, in which
 -- case it's omitted. Note that (ty |> <xxx>) is distinct from

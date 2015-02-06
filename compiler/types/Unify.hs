@@ -926,7 +926,7 @@ SymFlag parameter.
 
 Note [Unifying casted types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+-- TODO (RAE): Update note!
 We must be careful when unifying casted types. Say (t :: *). On the one hand,
 we must consider (t) and (t |> <*>) to be distinct types inhabited by distinct
 sets of terms. These types are *not* equal. See Note [Optimising Refl] in

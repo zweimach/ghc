@@ -87,29 +87,6 @@ sym (g1[a1 |-> s1, a2 |-> s2, c |-> g2])
 
 Note that g2 does *not* have sym applied.
 
-Note [Optimising Refl]
-~~~~~~~~~~~~~~~~~~~~~~
-It would seem that we should optimise the type (t |> Refl _) and the coercion
-(g |> Refl _) to get rid of the Refls. This would be wrong. Optimising a type
-is a dangerous thing, because equality of types is quite sensitive. To be
-able to optimise one type to another, we must make sure that the two types
-are indistinguishable. This requirement is met by the AppTy/TyConApp invariant
-because (AppTy (TyConApp ..) ..) can never happen. This invariant is considered
-in mkAppTy and in the unification functions. We could consider having an
-invariant that Refl never appears to the right of a CastTy (like there is
-for Exprs). But, we run into a problem during unification. Consider unifying
-  (a |> c)
-with
-  (t |> g)
-(for suitable type variable a and coercion variable c). There are two possible
-unifying substitutions: [a |-> (t |> g), c |-> Refl _] and [a |-> t, c |-> g].
-Which to choose? There is no way to know, so backtracking search would be
-required. We don't want backtracking search in unification. So, the only viable
-option is to say that (t |> Refl _) and t are distinct types, inhabited by
-distinct sets of terms. This means that, in turn, the coercion (g |> Refl _)
-can't be optimised, because removing the Refl would change the kind of the
-coercion, which is not allowed.
-
 Note [Optimising coercion optimisation]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Looking up a coercion's role or kind is linear in the size of the
