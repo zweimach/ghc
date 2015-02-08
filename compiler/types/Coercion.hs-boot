@@ -5,7 +5,6 @@ import {-# SOURCE #-} CoAxiom
 import {-# SOURCE #-} TyCon
 import Var
 import Outputable
-import VarEnv
 import Pair
 import FastString
 
@@ -25,7 +24,8 @@ mkInstCo :: Coercion -> CoercionArg -> Coercion
 mkCoherenceCo :: Coercion -> Coercion -> Coercion
 mkKindCo :: Coercion -> Coercion
 mkSubCo :: Coercion -> Coercion
-bulletCo :: Coercion
+
+mkFunCos :: Role -> [Coercion] -> Coercion -> Coercion
 
 isReflCo :: Coercion -> Bool
 mkAppCos :: Coercion -> [CoercionArg] -> Coercion
@@ -45,7 +45,6 @@ liftCoSubst :: Role -> LiftingContext -> Type -> Coercion
 coercionSize :: Coercion -> Int
 seqCo :: Coercion -> ()
 
-cmpCoercionX :: RnEnv2 -> Coercion -> Coercion -> Ordering
 coercionKind :: Coercion -> Pair Type
 coercionType :: Coercion -> Type
 

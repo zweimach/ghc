@@ -485,7 +485,7 @@ check_valid_theta env ctxt theta
                   notNull dups) (dupPredWarn env dups)
        ; mapM_ (check_pred_ty env dflags ctxt) theta }
   where
-    (_,dups) = removeDups cmpPred theta
+    (_,dups) = removeDups cmpType theta
 
 -------------------------
 check_pred_ty :: TidyEnv -> DynFlags -> UserTypeCtxt -> PredType -> TcM ()

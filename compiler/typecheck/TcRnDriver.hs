@@ -933,7 +933,7 @@ checkBootTyCon tc1 tc2
           (text "The functional dependencies do not match") `andThenCheck`
     checkUnless (null sc_theta1 && null op_stuff1 && null ats1) $
                      -- Above tests for an "abstract" class
-    check (eqListBy (eqPredX env) sc_theta1 sc_theta2)
+    check (eqListBy (eqTypeX env) sc_theta1 sc_theta2)
           (text "The class constraints do not match") `andThenCheck`
     checkListBy eqSig op_stuff1 op_stuff2 (text "methods") `andThenCheck`
     checkListBy eqAT ats1 ats2 (text "associated types")
@@ -963,7 +963,7 @@ checkBootTyCon tc1 tc2
   , Just env <- eqTyCoVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
   = ASSERT(tc1 == tc2)
     check (roles1 == roles2) roles_msg `andThenCheck`
-    check (eqListBy (eqPredX env)
+    check (eqListBy (eqTypeX env)
                      (tyConStupidTheta tc1) (tyConStupidTheta tc2))
           (text "The datatype contexts do not match") `andThenCheck`
     eqAlgRhs tc1 (algTyConRhs tc1) (algTyConRhs tc2)

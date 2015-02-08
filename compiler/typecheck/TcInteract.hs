@@ -503,7 +503,7 @@ interactIrred :: InertCans -> Ct -> TcS (StopOrContinue Ct)
 interactIrred inerts workItem@(CIrredEvCan { cc_ev = ev_w })
   | let pred = ctEvPred ev_w
         (matching_irreds, others)
-          = partitionBag (\ct -> ctPred ct `tcEqTypeErased` pred)
+          = partitionBag (\ct -> ctPred ct `tcEqTypeNoKindCheck` pred)
                          (inert_irreds inerts)
   , (ct_i : rest) <- bagToList matching_irreds
   , let ctev_i = ctEvidence ct_i

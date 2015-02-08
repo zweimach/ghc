@@ -1680,7 +1680,7 @@ isDerived _              = False
 -- that precisely matches
 -- the predicate @ty2@. Precondition: the erased predicate of @ev1@ must
 -- match that of @ty2@. This is useful after an inert lookup via erased types.
--- See also Note [Use erased types in inert set] in TcSMonad.
+-- See also Note [Use loose types in inert set] in TcSMonad.
 ctEvCoherence :: CtEvidence -> TcPredType -> EvTerm
 ctEvCoherence from_this = evTermCoherence (ctEvPred from_this) (ctEvTerm from_this)
 

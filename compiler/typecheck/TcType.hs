@@ -22,7 +22,6 @@ module TcType (
   -- Types
   TcType, TcSigmaType, TcRhoType, TcTauType, TcPredType, TcThetaType,
   TcTyVar, TcTyVarSet, TcTyCoVarSet, TcKind, TcCoVar, TcTyCoVar,
-  TcErasedType,
 
   -- TcLevel
   TcLevel(..), topTcLevel, pushTcLevel, isTopTcLevel,
@@ -68,8 +67,8 @@ module TcType (
   ---------------------------------
   -- Predicates.
   -- Again, newtypes are opaque
-  eqType, eqTypes, eqPred, cmpType, cmpTypes, cmpPred, eqTypeX,
-  pickyEqType, tcEqType, tcEqKind, tcEqErasedType, tcEqTypeErased,
+  eqType, eqTypes, cmpType, cmpTypes, eqTypeX,
+  pickyEqType, tcEqType, tcEqKind, tcEqTypeNoKindCheck,
   isSigmaTy, isRhoTy, isOverloadedTy,
   isDoubleTy, isFloatTy, isIntTy, isWordTy, isStringTy,
   isIntegerTy, isBoolTy, isUnitTy, isCharTy,
@@ -83,7 +82,6 @@ module TcType (
   orphNamesOfTypes, orphNamesOfCoCon,
   getDFunTyKey,
   evVarPred_maybe, evVarPred,
-  eraseType, eraseTypes,
 
   ---------------------------------
   -- Predicate types
@@ -188,7 +186,6 @@ import ErrUtils( Validity(..), isValid )
 
 import Data.IORef
 import Control.Monad (liftM, ap)
-import Data.Function (on)
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..))
 #endif
@@ -248,8 +245,6 @@ type TcTauType      = TcType
 type TcKind         = Kind
 type TcTyVarSet     = TyVarSet
 type TcTyCoVarSet   = TyCoVarSet
-
-type TcErasedType   = ErasedType
 
 {-
 Note [TcRhoType]
@@ -1221,19 +1216,36 @@ tcEqKind :: TcKind -> TcKind -> Bool
 tcEqKind = tcEqType
 
 tcEqType :: TcType -> TcType -> Bool
--- tcEqType is a proper, sensible type-equality function, that does
--- just what you'd expect The function Type.eqType (currently) has a
--- grotesque hack that makes OpenKind = *, and that is NOT what we
--- want in the type checker!  Otherwise, for example, TcCanonical.reOrient
--- thinks the LHS and RHS have the same kinds, when they don't, and
--- fails to re-orient.  That in turn caused Trac #8553.
-
+-- tcEqType is a proper implements the same Note [Non-trivial definitional
+-- equality] (in TyCoRep) as `eqType`, but Type.eqType believes (* ==
+-- Constraint), and that is NOT what we want in the type checker!
 tcEqType ty1 ty2
-  = go init_env ty1 ty2
+  = tc_eq_type init_env ki1 ki2 && tc_eq_type init_env ty1 ty2
+  where
+    ki1 = typeKind ty1
+    ki2 = typeKind ty2
+
+    init_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2))
+
+-- | Just like 'tcEqType', but will return True for types of different kinds
+-- as long as their non-coercion structure is identical.
+tcEqTypeNoKindCheck :: TcType -> TcType -> Bool
+tcEqTypeNoKindCheck ty1 ty2 = tc_eq_type init_env ty1 ty2
   where
     init_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2))
+
+-- Worker for 'tcEqType'. No kind check!
+tc_eq_type :: RnEnv2 -> TcType -> TcType -> Bool
+tc_eq_type = go
+  where
+    go _ t1 t2 | pprTrace "RAE tc_eq_type" (ppr t1 $$ ppr t2) $ False = panic "urk"
+    
     go env t1 t2 | Just t1' <- tcView t1 = go env t1' t2
                  | Just t2' <- tcView t2 = go env t1 t2'
+
+    go env (CastTy t1 _)       t2                = go env t1 t2
+    go env t1                  (CastTy t2 _)     = go env t1 t2
+                                           
     go env (TyVarTy tv1)       (TyVarTy tv2)     = rnOccL env tv1 == rnOccR env tv2
     go _   (LitTy lit1)        (LitTy lit2)      = lit1 == lit2
     go env (ForAllTy bndr1 t1) (ForAllTy bndr2 t2)
@@ -1250,79 +1262,29 @@ tcEqType ty1 ty2
       && isNamedBinder bndr1    == isNamedBinder bndr2
     go env (AppTy s1 t1)       (AppTy s2 t2)     = go env s1 s2 && go env t1 t2
     go env (TyConApp tc1 ts1) (TyConApp tc2 ts2) = (tc1 == tc2) && gos env ts1 ts2
-    go env (CastTy t1 c1)      (CastTy t2 c2)    = go env t1 t2 && go_co env c1 c2
-    go env (CoercionTy c1)     (CoercionTy c2)   = go_co env c1 c2
+    go _   (CoercionTy {})     (CoercionTy {})   = True
     go _ _ _ = False
 
     gos _   []       []       = True
     gos env (t1:ts1) (t2:ts2) = go env t1 t2 && gos env ts1 ts2
     gos _ _ _ = False
-
-    go_co env (Refl r1 t1)              (Refl r2 t2) = r1 == r2 && go env t1 t2
-    go_co env (TyConAppCo r1 tc1 args1) (TyConAppCo r2 tc2 args2)
-      = r1 == r2 && tc1 == tc2 && go_args env args1 args2
-    go_co env (AppCo col1 cor1)         (AppCo col2 cor2)
-      = go_co env col1 col2 && go_arg env cor1 cor2
-    go_co env (ForAllCo cobndr1 co1)    (ForAllCo cobndr2 co2)
-      =  go_cobndr env cobndr1 cobndr2
-      && go_co (rnCoBndr2 env cobndr1 cobndr2) co1 co2
-    go_co env (CoVarCo cv1)             (CoVarCo cv2)
-      = rnOccL env cv1 == rnOccR env cv2
-    go_co env (AxiomInstCo x1 i1 cos1)  (AxiomInstCo x2 i2 cos2)
-      = x1 == x2 && i1 == i2 && go_args env cos1 cos2
-    go_co env (PhantomCo h1 tl1 tr1)    (PhantomCo h2 tl2 tr2)
-      = go_co env h1 h2 && go env tl1 tl2 && go env tr1 tr2
-    go_co env (UnsafeCo _ r1 tl1 tr1)   (UnsafeCo _ r2 tl2 tr2)
-      = r1 == r2 && go env tl1 tl2 && go env tr1 tr2
-    go_co env (SymCo co1)               (SymCo co2) = go_co env co1 co2
-    go_co env (TransCo col1 cor1)       (TransCo col2 cor2)
-      = go_co env col1 col2 && go_co env cor1 cor2
-    go_co env (NthCo d1 co1)            (NthCo d2 co2)
-      = d1 == d2 && go_co env co1 co2
-    go_co env (LRCo lr1 co1)            (LRCo lr2 co2)
-      = lr1 == lr2 && go_co env co1 co2
-    go_co env (InstCo co1 arg1)         (InstCo co2 arg2)
-      = go_co env co1 co2 && go_arg env arg1 arg2
-    go_co env (CoherenceCo col1 cor1)   (CoherenceCo col2 cor2)
-      = go_co env col1 col2 && go_co env cor1 cor2
-    go_co env (KindCo co1)              (KindCo co2) = go_co env co1 co2
-    go_co env (SubCo co1)               (SubCo co2) = go_co env co1 co2
-    go_co env (AxiomRuleCo ax1 ts1 cs1) (AxiomRuleCo ax2 ts2 cs2)
-      = ax1 == ax2 && gos env ts1 ts2 && go_cos env cs1 cs2
-    go_co _ _ _ = False
-
-    go_arg env (TyCoArg co1)          (TyCoArg co2) = go_co env co1 co2
-    go_arg env (CoCoArg r1 col1 cor1) (CoCoArg r2 col2 cor2)
-      = r1 == r2 && go_co env col1 col2 && go_co env cor1 cor2
-    go_arg _ _ _ = False
-
-    go_cos _   []       []       = True
-    go_cos env (c1:cs1) (c2:cs2) = go_co env c1 c2 && go_cos env cs1 cs2
-    go_cos _   _        _        = False
-
-    go_args _   []       []       = True
-    go_args env (a1:as1) (a2:as2) = go_arg env a1 a2 && go_args env as1 as2
-    go_args _   _        _        = False
-
-    go_cobndr env (TyHomo tv1)               (TyHomo tv2)
-      = go env (tyVarKind tv1) (tyVarKind tv2)
-    go_cobndr env (TyHetero co1 tvl1 tvr1 _) (TyHetero co2 tvl2 tvr2 _)
-      = go_co env co1 co2 && go env (tyVarKind tvl1) (tyVarKind tvl2)
-                          && go env (tyVarKind tvr1) (tyVarKind tvr2)
-    go_cobndr env (CoHomo cv1)               (CoHomo cv2)
-      = go env (tyVarKind cv1) (tyVarKind cv2)
-    go_cobndr env (CoHetero co1 cvl1 cvr1)   (CoHetero co2 cvl2 cvr2)
-      = go_co env co1 co2 && go env (tyVarKind cvl1) (tyVarKind cvl2)
-                          && go env (tyVarKind cvr1) (tyVarKind cvr2)
-    go_cobndr _ _ _ = False
 
 pickyEqType :: TcType -> TcType -> Bool
 -- Check when two types _look_ the same, _including_ synonyms.
 -- So (pickyEqType String [Char]) returns False
+-- This still ignores coercions, because this is used only for printing,
+-- and we omit coercions there.
 pickyEqType ty1 ty2
-  = go init_env ty1 ty2
+  = go init_env ki1 ki2 && go init_env ty1 ty2
   where
+    ki1 = typeKind ty1
+    ki2 = typeKind ty2
+    
     init_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2))
+
+    go env (CastTy t1 _)       t2                = go env t1 t2
+    go env t1                  (CastTy t2 _)     = go env t1 t2
+    
     go env (TyVarTy tv1)       (TyVarTy tv2)     = rnOccL env tv1 == rnOccR env tv2
     go _   (LitTy lit1)        (LitTy lit2)      = lit1 == lit2
     go env (ForAllTy bndr1 t1) (ForAllTy bndr2 t2)
@@ -1340,57 +1302,12 @@ pickyEqType ty1 ty2
 
     go env (AppTy s1 t1)       (AppTy s2 t2)     = go env s1 s2 && go env t1 t2
     go env (TyConApp tc1 ts1) (TyConApp tc2 ts2) = (tc1 == tc2) && gos env ts1 ts2
-    go env (CastTy ty1 co1)    (CastTy ty2 co2)  = go env ty1 ty2 && go_co env co1 co2
-    go env (CoercionTy co1)    (CoercionTy co2)  = go_co env co1 co2
+    go _   (CoercionTy {})    (CoercionTy {})    = True
     go _ _ _ = False
 
     gos _   []       []       = True
     gos env (t1:ts1) (t2:ts2) = go env t1 t2 && gos env ts1 ts2
     gos _ _ _ = False
-
-    go_co env (Refl r1 ty1)    (Refl r2 ty2)    = r1 == r2 && go env ty1 ty2
-    go_co env (TyConAppCo r1 tc1 args1) (TyConAppCo r2 tc2 args2) = (r1 == r2) && (tc1 == tc2) && go_args env args1 args2
-    go_co env (AppCo co1 arg1) (AppCo co2 arg2) = go_co env co1 co2 && go_arg env arg1 arg2
-    go_co env (ForAllCo cobndr1 co1) (ForAllCo cobndr2 co2)
-      = cobndr1 `eqCoBndrSort` cobndr2 &&
-        go_co (rnBndrs2 env (coBndrVars cobndr1) (coBndrVars cobndr2)) co1 co2
-    go_co env (CoVarCo cv1)    (CoVarCo cv2)    = rnOccL env cv1 == rnOccR env cv2
-    go_co env (AxiomInstCo ax1 ind1 args1) (AxiomInstCo ax2 ind2 args2)
-      = (ax1 == ax2) && (ind1 == ind2) && (go_args env args1 args2)
-    go_co env (PhantomCo h1 t1 s1) (PhantomCo h2 t2 s2) = go_co env h1 h2 && go env t1 t2 && go env s1 s2
-    go_co env (UnsafeCo _ r1 s1 t1) (UnsafeCo _ r2 s2 t2) = r1 == r2 && go env s1 s2 && go env t1 t2
-    go_co env (SymCo co1)      (SymCo co2)      = go_co env co1 co2
-    go_co env (TransCo c1 d1)  (TransCo c2 d2)  = go_co env c1 c2 && go_co env d1 d2
-    go_co env (NthCo n1 co1)   (NthCo n2 co2)   = (n1 == n2) && go_co env co1 co2
-    go_co env (LRCo lr1 co1)   (LRCo lr2 co2)   = (lr1 == lr2) && go_co env co1 co2
-    go_co env (InstCo c1 a1)   (InstCo c2 a2)   = go_co env c1 c2 && go_arg env a1 a2
-    go_co env (CoherenceCo c1 d1) (CoherenceCo c2 d2) = go_co env c1 c2 && go_co env d1 d2
-    go_co env (KindCo co1)     (KindCo co2)    = go_co env co1 co2
-    go_co env (SubCo co1)      (SubCo co2)     = go_co env co1 co2
-    go_co env (AxiomRuleCo ax1 ts1 cs1) (AxiomRuleCo ax2 ts2 cs2)
-      = ax1 == ax2 && gos env ts1 ts2 && go_cos env cs1 cs2
-    go_co _   _                _               = False
-
-    go_cos _   []       []       = True
-    go_cos env (c1:cs1) (c2:cs2) = go_co env c1 c2 && go_cos env cs1 cs2
-    go_cos _   _        _        = False
-
-    go_arg env (TyCoArg co1   )   (TyCoArg co2)      = go_co env co1 co2
-    go_arg env (CoCoArg r1 c1 d1) (CoCoArg r2 c2 d2)
-      = r1 == r2 && go_co env c1 c2 && go_co env d1 d2
-    go_arg _   _               _               = False
-    
-    go_args _   []             []              = True
-    go_args env (a1:args1)     (a2:args2)      = go_arg env a1 a2 && go_args env args1 args2
-    go_args _   _              _               = False
-
--- | Compare two erased types for equality, using 'tcEqType'
-tcEqErasedType :: TcErasedType -> TcErasedType -> Bool
-tcEqErasedType (ErasedType ty1) (ErasedType ty2) = ty1 `tcEqType` ty2
-
--- | Compare two 'TcType' to see if their erased versions equal
-tcEqTypeErased :: TcType -> TcType -> Bool
-tcEqTypeErased = tcEqErasedType `on` eraseType
 
 {-
 Note [Occurs check expansion]
@@ -1669,7 +1586,7 @@ mkMinimalBySCs ptys = [ ploc |  ploc <- ptys
                              ,  ploc `not_in_preds` rec_scs ]
  where
    rec_scs = concatMap trans_super_classes ptys
-   not_in_preds p ps = not (any (eqPred p) ps)
+   not_in_preds p ps = not (any (eqType p) ps)
 
    trans_super_classes pred   -- Superclasses of pred, excluding pred itself
      = case classifyPredType pred of

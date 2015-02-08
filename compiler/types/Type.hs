@@ -96,7 +96,7 @@ module Type (
         isPrimitiveType, isStrictType, isLevityTy, isLevityVar, getLevity,
 
         -- * Main data types representing Kinds
-        Kind, SimpleKind, MetaKindVar,
+        Kind,
 
         -- ** Finding the kind of a type
         typeKind,
@@ -117,7 +117,7 @@ module Type (
 
         -- * Type comparison
         eqType, eqTypeX, eqTypes, cmpType, cmpTypes, cmpTypeX, cmpTypesX, cmpTc,
-        eqPred, eqPredX, cmpPred, eqTyCoVarBndrs,
+        eqTyCoVarBndrs,
 
         -- * Forcing evaluation of types
         seqType, seqTypes,
@@ -151,10 +151,6 @@ module Type (
         substTy, substTys, substTyWith, substTysWith, substTheta,
         substTyCoVar, substTyCoVars, substTyVarBndr, substTyCoVarBndr,
         cloneTyVarBndr, lookupTyVar, lookupVar, substTelescope,
-
-        -- * Erased types
-        ErasedType(ErasedType),   -- some friends need the representation
-        eraseType, eraseTypes, eqErasedType, eqTypeErased,
 
         -- * Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTyThingCategory, pprTyThing,
@@ -210,7 +206,6 @@ import Data.List        ( partition, sortBy )
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
-import Data.Function    ( on )
 import Control.Applicative ( (<$>) )
 
 -- $type_classification
@@ -889,7 +884,8 @@ mkCastTy :: Type -> Coercion -> Type
 -- Note [Pushing down casts] in TyCoRep. Here is where we end
 -- up:
 --
---   (T Nat 3 Symbol |> <Symbol> -> <Bool> -> <Maybe Nat> -> co) "foo" True (Just 2)
+--   (T Nat 3 Symbol |> <Symbol> -> <Bool> -> <Maybe Nat> -> co)
+--      "foo" True (Just 2)
 --
 -- General approach:
 -- 
@@ -911,7 +907,7 @@ mkCastTy ty co = split_apps [] ty co
       = split_apps (t2:args) t1 co
     split_apps args (TyConApp tc tc_args) co
       = split_apps (tc_args ++ args) (mkTyConTy tc) co
-    split_apps args (ForAllTy (Anon fun) res)
+    split_apps args (ForAllTy (Anon fun) res) co
       = split_apps (fun : res : args) (mkTyConTy funTyCon) co
     split_apps args ty co
       = affix_co (typeKind ty) ty args co
@@ -1184,7 +1180,7 @@ splitForAllTys t = repSplitForAllTys t
 
 -- | Like 'splitForAllTys', but doesn't look through type synonyms.
 repSplitForAllTys :: Type -> ([Binder], Type)
-repSplitForAllTys = split [] t
+repSplitForAllTys = split []
   where
     split bndrs (ForAllTy bndr res) = split (bndr:bndrs) res
     split bndrs ty                  = (reverse bndrs, ty)
@@ -1696,6 +1692,9 @@ predTypeEqRel ty
 ************************************************************************
 -}
 
+-- NB: This function does not respect `eqType`, in that two types that
+-- are `eqType` may return different sizes. This is OK, because this
+-- function is used only in reporting, not decision-making.
 typeSize :: Type -> Int
 typeSize (LitTy {})       = 1
 typeSize (TyVarTy {})     = 1
@@ -1896,22 +1895,17 @@ seqTypes (ty:tys) = seqType ty `seq` seqTypes tys
 eqType :: Type -> Type -> Bool
 -- ^ Type equality on source types. Does not look through @newtypes@ or
 -- 'PredType's, but it does look through type synonyms.
+-- See also Note [Non-trivial definitional equality] in TyCoRep.
 eqType t1 t2 = isEqual $ cmpType t1 t2
 
-instance Eq Type where
-  (==) = eqType
-
+-- | Compare types with respect to a (presumably) non-empty 'RnEnv2'.
 eqTypeX :: RnEnv2 -> Type -> Type -> Bool
 eqTypeX env t1 t2 = isEqual $ cmpTypeX env t1 t2
 
+-- | Type equality on lists of types, looking through type synonyms
+-- but not newtypes.
 eqTypes :: [Type] -> [Type] -> Bool
 eqTypes tys1 tys2 = isEqual $ cmpTypes tys1 tys2
-
-eqPred :: PredType -> PredType -> Bool
-eqPred = eqType
-
-eqPredX :: RnEnv2 -> PredType -> PredType -> Bool
-eqPredX env p1 p2 = isEqual $ cmpTypeX env p1 p2
 
 eqTyCoVarBndrs :: RnEnv2 -> [TyCoVar] -> [TyCoVar] -> Maybe RnEnv2
 -- Check that the tyvar lists are the same length
@@ -1927,7 +1921,9 @@ eqTyCoVarBndrs _ _ _= Nothing
 -- Now here comes the real worker
 
 cmpType :: Type -> Type -> Ordering
-cmpType t1 t2 = cmpTypeX rn_env t1 t2
+cmpType t1 t2
+  -- we know k1 and k2 have the same kind, because they both have kind *.
+  = cmpTypeX rn_env t1 t2
   where
     rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2))
 
@@ -1936,44 +1932,50 @@ cmpTypes ts1 ts2 = cmpTypesX rn_env ts1 ts2
   where
     rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes ts1 `unionVarSet` tyCoVarsOfTypes ts2))
 
-cmpPred :: PredType -> PredType -> Ordering
-cmpPred p1 p2 = cmpTypeX rn_env p1 p2
-  where
-    rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType p1 `unionVarSet` tyCoVarsOfType p2))
-
 cmpTypeX :: RnEnv2 -> Type -> Type -> Ordering  -- Main workhorse
-cmpTypeX env t1 t2 | Just t1' <- coreViewOneStarKind t1 = cmpTypeX env t1' t2
-                   | Just t2' <- coreViewOneStarKind t2 = cmpTypeX env t1 t2'
--- We expand predicate types, because in Core-land we have
--- lots of definitions like
---      fOrdBool :: Ord Bool
---      fOrdBool = D:Ord .. .. ..
--- So the RHS has a data type
+cmpTypeX env t1 t2 = go env k1 k2 `thenCmp` go env t1 t2
+  where
+    k1 = typeKind t1
+    k2 = typeKind t2
 
-cmpTypeX env (TyVarTy tv1)       (TyVarTy tv2)       = rnOccL env tv1 `compare` rnOccR env tv2
-cmpTypeX env (ForAllTy (Named tv1 _) t1) (ForAllTy (Named tv2 _) t2)
-  = cmpTypeX env (tyVarKind tv1) (tyVarKind tv2)
-    `thenCmp` cmpTypeX (rnBndr2 env tv1 tv2) t1 t2
-cmpTypeX env (AppTy s1 t1)       (AppTy s2 t2)       = cmpTypeX env s1 s2 `thenCmp` cmpTypeX env t1 t2
-cmpTypeX env (ForAllTy (Anon s1) t1) (ForAllTy (Anon s2) t2)
-  = cmpTypeX env s1 s2 `thenCmp` cmpTypeX env t1 t2
-cmpTypeX env (TyConApp tc1 tys1) (TyConApp tc2 tys2) = (tc1 `cmpTc` tc2) `thenCmp` cmpTypesX env tys1 tys2
-cmpTypeX _   (LitTy l1)          (LitTy l2)          = compare l1 l2
-cmpTypeX env (CastTy t1 c1)      (CastTy t2 c2)      = cmpTypeX env t1 t2 `thenCmp` cmpCoercionX env c1 c2
-cmpTypeX env (CoercionTy c1)     (CoercionTy c2)     = cmpCoercionX env c1 c2
+    go _ t1 t2 | pprTrace "RAE cmpTypeX" (ppr t1 $$ ppr t2) $ False = panic "urk"
+    
+    go env t1 t2 | Just t1' <- coreViewOneStarKind t1 = go env t1' t2
+                 | Just t2' <- coreViewOneStarKind t2 = go env t1 t2'
 
-    -- Deal with the rest: TyVarTy < CoercionTy < CastTy < AppTy < LitTy < TyConApp < ForAllTy
-cmpTypeX _ ty1 ty2
-  = (get_rank ty1) `compare` (get_rank ty2)
-  where get_rank :: Type -> Int
-        get_rank (TyVarTy {})            = 0
-        get_rank (CoercionTy {})         = 1
-        get_rank (CastTy {})             = 2
-        get_rank (AppTy {})              = 3
-        get_rank (LitTy {})              = 4
-        get_rank (TyConApp {})           = 5
-        get_rank (ForAllTy (Anon {}) _)  = 6
-        get_rank (ForAllTy (Named {}) _) = 7
+    -- We expand predicate types, because in Core-land we have
+    -- lots of definitions like
+    --      fOrdBool :: Ord Bool
+    --      fOrdBool = D:Ord .. .. ..
+    -- So the RHS has a data type
+
+    -- See Note [Non-trivial definitional equality] in TyCoRep
+    go env (CastTy ty1 _)      ty2                 = go env ty1 ty2
+    go env ty1                 (CastTy ty2 _)      = go env ty1 ty2
+
+    go env (TyVarTy tv1)       (TyVarTy tv2)       = rnOccL env tv1 `compare` rnOccR env tv2
+    go env (ForAllTy (Named tv1 _) t1) (ForAllTy (Named tv2 _) t2)
+      = go env (tyVarKind tv1) (tyVarKind tv2)
+        `thenCmp` go (rnBndr2 env tv1 tv2) t1 t2
+    go env (AppTy s1 t1)       (AppTy s2 t2)       = go env s1 s2 `thenCmp` go env t1 t2
+    go env (ForAllTy (Anon s1) t1) (ForAllTy (Anon s2) t2)
+      = go env s1 s2 `thenCmp` go env t1 t2
+    go env (TyConApp tc1 tys1) (TyConApp tc2 tys2) = (tc1 `cmpTc` tc2) `thenCmp` cmpTypesX env tys1 tys2
+    go _   (LitTy l1)          (LitTy l2)          = compare l1 l2
+    go _   (CoercionTy {})     (CoercionTy {})     = EQ
+
+        -- Deal with the rest: TyVarTy < CoercionTy < CastTy < AppTy < LitTy < TyConApp < ForAllTy
+    go _ ty1 ty2
+      = (get_rank ty1) `compare` (get_rank ty2)
+      where get_rank :: Type -> Int
+            get_rank (TyVarTy {})            = 0
+            get_rank (CoercionTy {})         = 1
+            get_rank (CastTy {})             = panic "cmpTypeX"
+            get_rank (AppTy {})              = 3
+            get_rank (LitTy {})              = 4
+            get_rank (TyConApp {})           = 5
+            get_rank (ForAllTy (Anon {}) _)  = 6
+            get_rank (ForAllTy (Named {}) _) = 7
 
 -------------
 cmpTypesX :: RnEnv2 -> [Type] -> [Type] -> Ordering
@@ -1993,46 +1995,6 @@ cmpTc tc1 tc2
   where
     u1  = tyConUnique tc1
     u2  = tyConUnique tc2
-
-{-
-Note [cmpTypeX]
-~~~~~~~~~~~~~~~
-
-When we compare foralls, we should look at the kinds. But if we do so,
-we get a corelint error like the following (in
-libraries/ghc-prim/GHC/PrimopWrappers.hs):
-
-    Binder's type: forall (o_abY :: *).
-                   o_abY
-                   -> GHC.Prim.State# GHC.Prim.RealWorld
-                   -> GHC.Prim.State# GHC.Prim.RealWorld
-    Rhs type: forall (a_12 :: ?).
-              a_12
-              -> GHC.Prim.State# GHC.Prim.RealWorld
-              -> GHC.Prim.State# GHC.Prim.RealWorld
-
-This is why we don't look at the kind. Maybe we should look if the
-kinds are compatible.
-
--- cmpTypeX env (ForAllTy tv1 t1)   (ForAllTy tv2 t2)
---   = cmpTypeX env (tyVarKind tv1) (tyVarKind tv2) `thenCmp`
---     cmpTypeX (rnBndr2 env tv1 tv2) t1 t2
-
-----------------------------------------------------
--- Kind Stuff
-
-Kinds
-~~~~~
-
-For the description of subkinding in GHC, see
-  http://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/TypeType#Kinds
--}
-
-type MetaKindVar = TyVar  -- invariant: MetaKindVar will always be a
-                          -- TcTyVar with details MetaTv (TauTv ...) ...
--- meta kind var constructors and functions are in TcType
-
-type SimpleKind = Kind
 
 {-
 ************************************************************************
@@ -2057,73 +2019,6 @@ typeLiteralKind l =
   case l of
     NumTyLit _ -> typeNatKind
     StrTyLit _ -> typeSymbolKind
-
-{-
-Kind inference
-~~~~~~~~~~~~~~
-During kind inference, a kind variable unifies only with
-a "simple kind", sk
-        sk ::= * | sk1 -> sk2
-For example
-        data T a = MkT a (T Int#)
-fails.  We give T the kind (k -> *), and the kind variable k won't unify
-with # (the kind of Int#).
-
-Type inference
-~~~~~~~~~~~~~~
-When creating a fresh internal type variable, we give it a kind to express
-constraints on it.  E.g. in (\x->e) we make up a fresh type variable for x,
-with kind ??.
-
-During unification we only bind an internal type variable to a type
-whose kind is lower in the sub-kind hierarchy than the kind of the tyvar.
-
-When unifying two internal type variables, we collect their kind constraints by
-finding the GLB of the two.  Since the partial order is a tree, they only
-have a glb if one is a sub-kind of the other.  In that case, we bind the
-less-informative one to the more informative one.  Neat, eh?
-
-************************************************************************
-*                                                                      *
-        Erasing coercions from types
-*                                                                      *
-************************************************************************
-
-We use a newtype for ErasedType because we really want a limited set
-of operations on ErasedTypes. For example, typeKind would be disastrous.
--}
-
--- | A 'Type' missing all of its casts, and where all of its coercions
--- are replaced with 'bulletCo'.
-newtype ErasedType = ErasedType Type
-
--- | Erase all coercions and casts from a type
-eraseType :: Type -> ErasedType
-eraseType = ErasedType . go
-  where
-    go ty | Just ty' <- coreView ty = go ty'
-    go (TyVarTy tv)       = TyVarTy (updateTyVarKind go tv)
-    go (AppTy t1 t2)      = AppTy (go t1) (go t2)
-    go (TyConApp tc tys)  = TyConApp tc (map go tys)
-    go (ForAllTy bndr ty) = ForAllTy (go_bndr bndr) (go ty)
-    go (LitTy lit)        = LitTy lit
-    go (CastTy ty _)      = ty
-    go (CoercionTy _)     = CoercionTy bulletCo
-
-    go_bndr (Anon ty)     = Anon (go ty)
-    go_bndr (Named v vis) = Named (updateTyVarKind go v) vis
-
--- | Erase a list of types
-eraseTypes :: [Type] -> [ErasedType]
-eraseTypes = map eraseType
-
--- | Compare two erased types for equality
-eqErasedType :: ErasedType -> ErasedType -> Bool
-eqErasedType (ErasedType ty1) (ErasedType ty2) = ty1 `eqType` ty2
-
--- | Compare two types to see if their erased versions are equal
-eqTypeErased :: Type -> Type -> Bool
-eqTypeErased = eqErasedType `on` eraseType
 
 {-
 %************************************************************************

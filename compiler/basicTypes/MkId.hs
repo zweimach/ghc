@@ -991,7 +991,7 @@ mkDictFunTy tvs theta clas tys
         substTheta (zipTopTCvSubst (classTyVars clas) tys)
                    (classSCTheta clas)
                    -- See Note [Silent Superclass Arguments]
-    discard pred = any (`eqPred` pred) theta
+    discard pred = any (`eqType` pred) theta
                  -- See the DFun Superclass Invariant in TcInstDcls
 
 {-

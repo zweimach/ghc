@@ -69,7 +69,8 @@ module TyCoRep (
         extendTCvSubst, extendTCvSubstAndInScope, extendTCvSubstList,
         extendTCvSubstBinder,
         unionTCvSubst, zipTyCoEnv, mkTyCoInScopeSet,
-        mkOpenTCvSubst, zipOpenTCvSubst, mkTopTCvSubst, zipTopTCvSubst,
+        mkOpenTCvSubst, zipOpenTCvSubst, zipOpenTCvSubstBinders,
+        mkTopTCvSubst, zipTopTCvSubst,
 
         substTelescope, substTyWith, substTysWith, substTy,
         substTyWithBinders,

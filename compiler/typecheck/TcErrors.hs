@@ -1236,7 +1236,7 @@ mkDictErr ctxt cts
     --    [W] Eq a, [W] Ord a
     -- but we really only want to report the latter
     elim_superclasses cts
-      = filter (\ct -> any (eqPred (ctPred ct)) min_preds) cts
+      = filter (\ct -> any (eqType (ctPred ct)) min_preds) cts
       where
         min_preds = mkMinimalBySCs (map ctPred cts)
 

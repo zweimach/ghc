@@ -913,7 +913,7 @@ tcSuperClasses dfun_id inst_tyvars dfun_ev_vars sc_theta
     find [] pred
       = pprPanic "tcInstDecl2" (ppr dfun_id $$ ppr (idType dfun_id) $$ ppr pred)
     find (ev:evs) pred 
-      | pred `eqPred` evVarPred ev = ev
+      | pred `eqType` evVarPred ev = ev
       | otherwise                  = find evs pred
 
 ----------------------

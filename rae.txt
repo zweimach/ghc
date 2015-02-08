@@ -54,6 +54,8 @@ changed from a proper arg to an existential covar arg. Does this matter?
 (Other uses of dataConRepArgTys are OK.)
 
 fix:
+  - when -fprint-explicit-coercions is on, make sure to print any types
+    of printed coboxes.
   - have Core Lint check to make sure RHSs of `let (x :: foo ~# bar) = ...`
     are really Coercions!
   - make use of uo_thing in more error messages
@@ -132,6 +134,8 @@ please remove:
 --------------------------------
 - tryTcS now rolls back calls to setTyVarBind and setEvBind. Why setEvBind? Because
   there may be nested EvBindsVars that get twiddled.
+
+- Removed `instance Eq Type`.
 
 - zonking in TcHsSyn must be lazy in types, killing some optimizations and the use of setIdType. Is there a way forward?
 

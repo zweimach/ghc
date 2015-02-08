@@ -741,7 +741,9 @@ completeTheta inferred_theta
                              , sig_theta = annotated_theta })
   | Just loc <- mb_extra_cts
   = do { annotated_theta <- zonkTcThetaType annotated_theta
-       ; let inferred_diff = minusList inferred_theta annotated_theta
+       ; let inferred_diff = [ pred
+                             | pred <- inferred_theta
+                             , all (not . (`eqType` pred)) annotated_theta ]
              final_theta   = annotated_theta ++ inferred_diff
        ; partial_sigs      <- xoptM Opt_PartialTypeSignatures
        ; warn_partial_sigs <- woptM Opt_WarnPartialTypeSignatures

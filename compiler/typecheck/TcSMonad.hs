@@ -391,7 +391,7 @@ data InertCans
               -- All CTyEqCans with NomEq; index is the LHS tyvar
 
        , inert_funeqs :: FunEqMap Ct
-              -- All CFunEqCans; index is the whole family head erased type.
+              -- All CFunEqCans; index is the whole family head type.
 
        , inert_dicts :: DictMap Ct
               -- Dictionaries only, index is the class
@@ -437,7 +437,7 @@ data InertSet
               -- when allocating a new flatten-skolem.
               -- Not necessarily inert wrt top-level equations (or inert_cans)
 
-              -- NB: An ExactFunEqMap -- this doesn't match via erased types!
+              -- NB: An ExactFunEqMap -- this doesn't match via loose types!
 
        , inert_solved_dicts   :: DictMap CtEvidence
               -- Of form ev :: C t1 .. tn
@@ -820,7 +820,7 @@ lookupFlatCache fam_tc tys
       | Just (CFunEqCan { cc_ev = ctev, cc_fsk = fsk, cc_tyargs = xis })
            <- findFunEq inert_funeqs fam_tc tys
       , tys `eqTypes` xis   -- the lookup might find a near-match; see
-                            -- Note [Use erased types in inert set]
+                            -- Note [Use loose types in inert set]
       = Just (ctEvCoercion ctev, mkOnlyTyVarTy fsk, ctEvFlavour ctev)
       | otherwise = Nothing
 
@@ -838,7 +838,7 @@ lookupInInerts loc pty
   = return Nothing
 
 -- | Look up a dictionary inert. NB: the returned 'CtEvidence' might not
--- match the input exactly. Note [Use erased types in inert set].
+-- match the input exactly. Note [Use loose types in inert set].
 lookupInertDict :: InertCans -> CtLoc -> Class -> [Type] -> Maybe CtEvidence
 lookupInertDict (IC { inert_dicts = dicts }) loc cls tys
   = case findDict dicts cls tys of
@@ -848,7 +848,7 @@ lookupInertDict (IC { inert_dicts = dicts }) loc cls tys
       _       -> Nothing
 
 -- | Look up a solved inert. NB: the returned 'CtEvidence' might not
--- match the input exactly. See Note [Use erased types in inert set].
+-- match the input exactly. See Note [Use loose types in inert set].
 lookupSolvedDict :: InertSet -> CtLoc -> Class -> [Type] -> Maybe CtEvidence
 -- Returns just if exactly this predicate type exists in the solved.
 lookupSolvedDict (IS { inert_solved_dicts = solved }) loc cls tys
@@ -881,21 +881,22 @@ delTyEq m tv t = modifyVarEnv (filter (not . isThisOne)) m tv
 *                                                                      *
 ************************************************************************
 
-Note [Use erased types in inert set]
+Note [Use loose types in inert set]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Say we know (Eq (a |> c1)) and we need (Eq (a |> c2)). One is clearly
 solvable from the other. So, we do lookup in the inert set using
-erased types, which omit coercions (and, thus, may be ill-kinded).
+loose types, which omit the kind-check.
 
 We must be careful when using the result of a lookup because it may
 not match the requsted info exactly!
 
 -}
 
-type TcAppMap a = UniqFM (ListMap ErasedTypeMap a)
-    -- Indexed by tycon then the *erased* arg types
-    -- Note the type args are *erased* (no coercions) for more inclusive matching
-    -- See Note [Use erased types in inert set]
+type TcAppMap a = UniqFM (ListMap LooseTypeMap a)
+    -- Indexed by tycon then the arg types, using "loose" matching, where
+    -- we don't require kind equality. This allows, for example, (a |> co)
+    -- to match (a).
+    -- See Note [Use loose types in inert set]
     -- Used for types and classes; hence UniqFM
 
 emptyTcAppMap :: TcAppMap a
@@ -903,15 +904,15 @@ emptyTcAppMap = emptyUFM
 
 findTcApp :: TcAppMap a -> Unique -> [Type] -> Maybe a
 findTcApp m u tys = do { tys_map <- lookupUFM m u
-                       ; lookupTM (eraseTypes tys) tys_map }
+                       ; lookupTM tys tys_map }
 
 delTcApp :: TcAppMap a -> Unique -> [Type] -> TcAppMap a
-delTcApp m cls tys = adjustUFM (deleteTM (eraseTypes tys)) m cls
+delTcApp m cls tys = adjustUFM (deleteTM tys) m cls
 
 insertTcApp :: TcAppMap a -> Unique -> [Type] -> a -> TcAppMap a
 insertTcApp m cls tys ct = alterUFM alter_tm m cls
   where
-    alter_tm mb_tm = Just (insertTM (eraseTypes tys) ct (mb_tm `orElse` emptyTM))
+    alter_tm mb_tm = Just (insertTM tys ct (mb_tm `orElse` emptyTM))
 
 -- mapTcApp :: (a->b) -> TcAppMap a -> TcAppMap b
 -- mapTcApp f = mapUFM (mapTM f)
@@ -922,7 +923,7 @@ filterTcAppMap f m
   where
     do_tm tm = foldTM insert_mb tm emptyTM
     insert_mb ct tm
-       | f ct      = insertTM (eraseTypes tys) ct tm
+       | f ct      = insertTM tys ct tm
        | otherwise = tm
        where
          tys = case ct of
@@ -963,7 +964,7 @@ addDictsByClass :: DictMap Ct -> Class -> Bag Ct -> DictMap Ct
 addDictsByClass m cls items
   = addToUFM m cls (foldrBag add emptyTM items)
   where
-    add ct@(CDictCan { cc_tyargs = tys }) tm = insertTM (eraseTypes tys) ct tm
+    add ct@(CDictCan { cc_tyargs = tys }) tm = insertTM tys ct tm
     add ct _ = pprPanic "addDictsByClass" (ppr ct)
 
 filterDicts :: (Ct -> Bool) -> DictMap Ct -> DictMap Ct

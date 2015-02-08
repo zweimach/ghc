@@ -27,7 +27,7 @@ module Coercion (
         mkAxInstLHS, mkUnbranchedAxInstLHS,
         mkPiCo, mkPiCos, mkCoCast,
         mkSymCo, mkTransCo, mkNthCo, mkNthCoRole, mkLRCo,
-        mkInstCo, mkAppCo, mkAppCoFlexible, mkTyConAppCo, mkFunCo,
+        mkInstCo, mkAppCo, mkAppCoFlexible, mkTyConAppCo, mkFunCo, mkFunCos,
         mkForAllCo, mkForAllCo_TyHomo, mkForAllCo_CoHomo,
         mkPhantomCo, mkHomoPhantomCo,
         mkUnsafeCo, mkUnsafeCoArg, mkSubCo,
@@ -35,7 +35,6 @@ module Coercion (
         downgradeRole, downgradeRoleArg, mkAxiomRuleCo,
         mkCoherenceCo, mkCoherenceRightCo, mkCoherenceLeftCo,
         mkKindCo, castCoercionKind,
-        bulletCo,
 
         mkTyHeteroCoBndr, mkCoHeteroCoBndr, mkHomoCoBndr,
         mkHeteroCoercionType,
@@ -77,7 +76,7 @@ module Coercion (
         lookupCoVar,
         substCo, substCos, substCoVar, substCoVars,
         substCoVarBndr, substCoWithIS, substForAllCoBndr,
-        extendTCvSubstAndInScope, rnCoBndr2,
+        extendTCvSubstAndInScope,
 
         -- ** Lifting
         liftCoSubst, liftCoSubstTyVar, liftCoSubstWith, liftCoSubstWithEx,
@@ -89,7 +88,7 @@ module Coercion (
         substRightCo, substLeftCo,
 
         -- ** Comparison
-        eqCoercion, eqCoercionX, cmpCoercionX, eqCoercionArg,
+        eqCoercion, eqCoercionX, eqCoercionArg,
 
         -- ** Forcing evaluation of coercions
         seqCo,
@@ -107,8 +106,6 @@ module Coercion (
        ) where 
 
 #include "HsVersions.h"
-
-import {-# SOURCE #-} TysWiredIn ( unitTy )
 
 import TyCoRep
 import Type 
@@ -138,6 +135,7 @@ import Data.Maybe (isJust)
 import FastString
 import Control.Arrow ( first )
 import Data.List ( mapAccumR )
+import Data.Function ( on )
 
 {-
 %************************************************************************
@@ -593,6 +591,10 @@ mkTyConAppCo r tc cos
 mkFunCo :: Role -> Coercion -> Coercion -> Coercion
 mkFunCo r co1 co2 = mkTyConAppCo r funTyCon [TyCoArg co1, TyCoArg co2]
 
+-- | Make nested function 'Coercion's
+mkFunCos :: Role -> [Coercion] -> Coercion -> Coercion
+mkFunCos r cos res_co = foldr (mkFunCo r) res_co cos
+
 -- | Apply a 'Coercion' to another 'CoercionArg'.
 -- The second coercion must be Nominal, unless the first is Phantom.
 -- If the first is Phantom, then the second can be either Phantom or Nominal.
@@ -935,10 +937,6 @@ downgradeRoleArg r1 r2 arg
 
 mkAxiomRuleCo :: CoAxiomRule -> [Type] -> [Coercion] -> Coercion
 mkAxiomRuleCo = AxiomRuleCo
-
--- | Coercion used as a placeholder in erased types
-bulletCo :: Coercion
-bulletCo = Refl Nominal unitTy
 
 {-
 %************************************************************************
@@ -1422,138 +1420,17 @@ topNormaliseNewType_maybe ty
 
 -- | Syntactic equality of coercions
 eqCoercion :: Coercion -> Coercion -> Bool
-eqCoercion c1 c2 = isEqual $ cmpCoercion c1 c2
+eqCoercion = eqType `on` coercionType
   
 -- | Compare two 'Coercion's, with respect to an RnEnv2
 eqCoercionX :: RnEnv2 -> Coercion -> Coercion -> Bool
-eqCoercionX env c1 c2 = isEqual $ cmpCoercionX env c1 c2
-
--- | Substitute within several 'Coercion's
-cmpCoercion :: Coercion -> Coercion -> Ordering
-cmpCoercion c1 c2 = cmpCoercionX rn_env c1 c2
-  where rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfCo c1 `unionVarSet` tyCoVarsOfCo c2))
-
-cmpCoercionX :: RnEnv2 -> Coercion -> Coercion -> Ordering
-cmpCoercionX env (Refl r1 ty1)                (Refl r2 ty2)
-  = cmpTypeX env ty1 ty2 `thenCmp` compare r1 r2
-cmpCoercionX env (TyConAppCo r1 tc1 args1)    (TyConAppCo r2 tc2 args2)
-  = (tc1 `cmpTc` tc2) `thenCmp` cmpCoercionArgsX env args1 args2 `thenCmp` compare r1 r2
-cmpCoercionX env (AppCo co1 arg1)             (AppCo co2 arg2)
-  = cmpCoercionX env co1 co2 `thenCmp` cmpCoercionArgX env arg1 arg2
-cmpCoercionX env (ForAllCo cobndr1 co1)       (ForAllCo cobndr2 co2)
-  = cmpCoBndrX env cobndr1 cobndr2 `thenCmp`
-    cmpCoercionX (rnCoBndr2 env cobndr1 cobndr2) co1 co2
-cmpCoercionX env (CoVarCo cv1)                (CoVarCo cv2)
-  = rnOccL env cv1 `compare` rnOccR env cv2
-cmpCoercionX env (AxiomInstCo ax1 ind1 args1) (AxiomInstCo ax2 ind2 args2)
-  = (ax1 `cmpByUnique` ax2) `thenCmp`
-    (ind1 `compare` ind2) `thenCmp`
-    cmpCoercionArgsX env args1 args2
-cmpCoercionX env (PhantomCo h1 t1 s1)         (PhantomCo h2 t2 s2)
-  = cmpCoercionX env h1 h2 `thenCmp` cmpTypeX env t1 t2 `thenCmp` cmpTypeX env s1 s2
--- the provenance string is just a note, so don't use in comparisons
-cmpCoercionX env (UnsafeCo _ r1 tyl1 tyr1)    (UnsafeCo _ r2 tyl2 tyr2)
-  = cmpTypeX env tyl1 tyl2 `thenCmp` cmpTypeX env tyr1 tyr2 `thenCmp` compare r1 r2
-cmpCoercionX env (SymCo co1)                  (SymCo co2)
-  = cmpCoercionX env co1 co2
-cmpCoercionX env (TransCo col1 cor1)          (TransCo col2 cor2)
-  = cmpCoercionX env col1 col2 `thenCmp` cmpCoercionX env cor1 cor2
-cmpCoercionX env (NthCo n1 co1)               (NthCo n2 co2)
-  = (n1 `compare` n2) `thenCmp` cmpCoercionX env co1 co2
-cmpCoercionX env (InstCo co1 arg1)            (InstCo co2 arg2)
-  = cmpCoercionX env co1 co2 `thenCmp` cmpCoercionArgX env arg1 arg2
-cmpCoercionX env (CoherenceCo col1 cor1)      (CoherenceCo col2 cor2)
-  = cmpCoercionX env col1 col2 `thenCmp` cmpCoercionX env cor1 cor2
-cmpCoercionX env (KindCo co1)                 (KindCo co2)
-  = cmpCoercionX env co1 co2
-cmpCoercionX env (SubCo co1)                  (SubCo co2)
-  = cmpCoercionX env co1 co2
-cmpCoercionX env (AxiomRuleCo a1 ts1 cs1)     (AxiomRuleCo a2 ts2 cs2)
-  = cmpByUnique a1 a2
-    `thenCmp` cmpTypesX env ts1 ts2
-    `thenCmp` cmpCoercionsX env cs1 cs2
-
--- Deal with the rest, in constructor order
--- Refl < TyConAppCo < AppCo < ForAllCo < CoVarCo < AxiomInstCo <
---  PhantomCo < UnsafeCo < SymCo < TransCo < NthCo < LRCo <
---  InstCo < CoherenceCo < KindCo < SubCo < AxiomRuleCo
-cmpCoercionX _ co1 co2
-  = (get_rank co1) `compare` (get_rank co2)
-  where get_rank :: Coercion -> Int
-        get_rank (Refl {})        = 0
-        get_rank (TyConAppCo {})  = 1
-        get_rank (AppCo {})       = 2
-        get_rank (ForAllCo {})    = 3
-        get_rank (CoVarCo {})     = 4
-        get_rank (AxiomInstCo {}) = 5
-        get_rank (PhantomCo {})   = 6
-        get_rank (UnsafeCo {})    = 7
-        get_rank (SymCo {})       = 8
-        get_rank (TransCo {})     = 9
-        get_rank (NthCo {})       = 10
-        get_rank (LRCo {})        = 11
-        get_rank (InstCo {})      = 12
-        get_rank (CoherenceCo {}) = 13
-        get_rank (KindCo {})      = 14
-        get_rank (SubCo {})       = 15
-        get_rank (AxiomRuleCo {}) = 16
-
-cmpCoercionsX :: RnEnv2 -> [Coercion] -> [Coercion] -> Ordering
-cmpCoercionsX _   []        []        = EQ
-cmpCoercionsX env (c1:cos1) (c2:cos2)
-  = cmpCoercionX env c1 c2 `thenCmp` cmpCoercionsX env cos1 cos2
-cmpCoercionsX _   []        _         = LT
-cmpCoercionsX _   _         []        = GT
-
+eqCoercionX env = eqTypeX env `on` coercionType
 
 eqCoercionArg :: CoercionArg -> CoercionArg -> Bool
-eqCoercionArg arg1 arg2 = isEqual $ cmpCoercionArgX rn_env arg1 arg2
-  where
-    rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfCoArg arg1 `unionVarSet`
-                                     tyCoVarsOfCoArg arg2))
-
-cmpCoercionArgX :: RnEnv2 -> CoercionArg -> CoercionArg -> Ordering
-cmpCoercionArgX env (TyCoArg co1)          (TyCoArg co2)
-  = cmpCoercionX env co1 co2
-cmpCoercionArgX env (CoCoArg r1 col1 cor1) (CoCoArg r2 col2 cor2)
-  = cmpCoercionX env col1 col2
-    `thenCmp` cmpCoercionX env cor1 cor2
-    `thenCmp` compare r1 r2
-cmpCoercionArgX _ (TyCoArg {}) (CoCoArg {}) = LT
-cmpCoercionArgX _ (CoCoArg {}) (TyCoArg {}) = GT
-
-cmpCoercionArgsX :: RnEnv2 -> [CoercionArg] -> [CoercionArg] -> Ordering
-cmpCoercionArgsX _ [] [] = EQ
-cmpCoercionArgsX env (arg1:args1) (arg2:args2)
-  = cmpCoercionArgX env arg1 arg2 `thenCmp` cmpCoercionArgsX env args1 args2
-cmpCoercionArgsX _ [] _  = LT
-cmpCoercionArgsX _ _  [] = GT
-
-cmpCoBndrX :: RnEnv2 -> ForAllCoBndr -> ForAllCoBndr -> Ordering
-cmpCoBndrX env (TyHomo tv1) (TyHomo tv2)
-  = cmpTypeX env (tyVarKind tv1) (tyVarKind tv2)
-cmpCoBndrX env (TyHetero co1 tvl1 tvr1 cv1) (TyHetero co2 tvl2 tvr2 cv2)
-  = cmpCoercionX env co1 co2 `thenCmp`
-    cmpTypeX env (tyVarKind tvl1) (tyVarKind tvl2) `thenCmp`
-    cmpTypeX env (tyVarKind tvr1) (tyVarKind tvr2) `thenCmp`
-    cmpTypeX env (coVarKind cv1)  (coVarKind cv2)
-cmpCoBndrX env (CoHomo cv1) (CoHomo cv2)
-  = cmpTypeX env (coVarKind cv1) (coVarKind cv2)
-cmpCoBndrX env (CoHetero co1 cvl1 cvr1) (CoHetero co2 cvl2 cvr2)
-  = cmpCoercionX env co1 co2 `thenCmp`
-    cmpTypeX env (coVarKind cvl1) (coVarKind cvl2) `thenCmp`
-    cmpTypeX env (coVarKind cvr1) (coVarKind cvr2)
-cmpCoBndrX _ cobndr1 cobndr2
-  = (get_rank cobndr1) `compare` (get_rank cobndr2)
-  where get_rank :: ForAllCoBndr -> Int
-        get_rank (TyHomo {})   = 0
-        get_rank (TyHetero {}) = 1
-        get_rank (CoHomo {})   = 2
-        get_rank (CoHetero {}) = 3
-
-rnCoBndr2 :: RnEnv2 -> ForAllCoBndr -> ForAllCoBndr -> RnEnv2
-rnCoBndr2 env cobndr1 cobndr2
-  = foldl2 rnBndr2 env (coBndrVars cobndr1) (coBndrVars cobndr2)
+eqCoercionArg (TyCoArg co1) (TyCoArg co2) = eqCoercion co1 co2
+eqCoercionArg (CoCoArg r1 ca1 cb1) (CoCoArg r2 ca2 cb2)
+  = r1 == r2 && eqCoercion ca1 ca2 && eqCoercion cb1 cb2
+eqCoercionArg _ _ = False
 
 {-
 %************************************************************************
