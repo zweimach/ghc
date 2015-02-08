@@ -899,7 +899,11 @@ mkCastTy (ForAllTy (Named tv vis) inner_ty) co
         (subst, tv') = substTyCoVarBndr empty_subst tv
     in
     ForAllTy (Named tv' vis) (substTy subst inner_ty `mkCastTy` co)
-mkCastTy ty co = split_apps [] ty co
+mkCastTy ty co = let result = split_apps [] ty co in
+                 ASSERT2( CastTy ty co `eqType` result
+                        , ppr ty $$ ppr co $$ ppr (typeKind $ CastTy ty co) $$
+                          ppr result $$ ppr (typeKind result) )
+                 result
   where
     -- split_apps breaks apart any type applications, so we can see how far down
     -- to push the cast
