@@ -906,9 +906,10 @@ mkCastTy ty co = split_apps [] ty co
     split_apps args (AppTy t1 t2) co
       = split_apps (t2:args) t1 co
     split_apps args (TyConApp tc tc_args) co
-      = split_apps (tc_args ++ args) (mkTyConTy tc) co
-    split_apps args (ForAllTy (Anon fun) res) co
-      = split_apps (fun : res : args) (mkTyConTy funTyCon) co
+      = affix_co (tyConKind tc) (mkTyConTy tc) (tc_args `chkAppend` args) co
+    split_apps args (ForAllTy (Anon arg) res) co
+      = affix_co (tyConKind funTyCon) (mkTyConTy funTyCon)
+                 (arg : res : args) co
     split_apps args ty co
       = affix_co (typeKind ty) ty args co
 
@@ -1938,8 +1939,6 @@ cmpTypeX env t1 t2 = go env k1 k2 `thenCmp` go env t1 t2
     k1 = typeKind t1
     k2 = typeKind t2
 
-    go _ t1 t2 | pprTrace "RAE cmpTypeX" (ppr t1 $$ ppr t2) $ False = panic "urk"
-    
     go env t1 t2 | Just t1' <- coreViewOneStarKind t1 = go env t1' t2
                  | Just t2' <- coreViewOneStarKind t2 = go env t1 t2'
 

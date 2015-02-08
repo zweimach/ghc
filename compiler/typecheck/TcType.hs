@@ -1238,8 +1238,6 @@ tcEqTypeNoKindCheck ty1 ty2 = tc_eq_type init_env ty1 ty2
 tc_eq_type :: RnEnv2 -> TcType -> TcType -> Bool
 tc_eq_type = go
   where
-    go _ t1 t2 | pprTrace "RAE tc_eq_type" (ppr t1 $$ ppr t2) $ False = panic "urk"
-    
     go env t1 t2 | Just t1' <- tcView t1 = go env t1' t2
                  | Just t2' <- tcView t2 = go env t1 t2'
 
