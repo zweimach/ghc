@@ -15,7 +15,7 @@ module InteractiveUI (
         GhciSettings(..),
         defaultGhciSettings,
         ghciCommands,
-        ghciWelcomeMsg
+        ghciWelcomeMsg,
     ) where
 
 #include "HsVersions.h"
@@ -2043,15 +2043,21 @@ showOptions show_all
 showDynFlags :: Bool -> DynFlags -> IO ()
 showDynFlags show_all dflags = do
   showLanguages' show_all dflags
-  putStrLn $ showSDoc dflags $
+  putStrLn $ showSDoc dflags $ pprDynFlags show_all dflags
+
+-- | Pretty-print dynamic flags
+pprDynFlags :: Bool       -- ^ Whether to include flags which are on by default
+            -> DynFlags
+            -> SDoc
+pprDynFlags show_all dflags =
+  vcat [
      text "GHCi-specific dynamic flag settings:" $$
-         nest 2 (vcat (map (setting gopt) ghciFlags))
-  putStrLn $ showSDoc dflags $
+         nest 2 (vcat (map (setting gopt) ghciFlags)),
      text "other dynamic, non-language, flag settings:" $$
-         nest 2 (vcat (map (setting gopt) others))
-  putStrLn $ showSDoc dflags $
+         nest 2 (vcat (map (setting gopt) others)),
      text "warning settings:" $$
          nest 2 (vcat (map (setting wopt) DynFlags.fWarningFlags))
+  ]
   where
         setting test flag
           | quiet     = empty
@@ -2405,8 +2411,14 @@ showiLanguages :: GHCi ()
 showiLanguages = GHC.getInteractiveDynFlags >>= liftIO . showLanguages' False
 
 showLanguages' :: Bool -> DynFlags -> IO ()
-showLanguages' show_all dflags =
-  putStrLn $ showSDoc dflags $ vcat
+showLanguages' show_all dflags = putStrLn $ showSDoc dflags (pprLanguages show_all dflags)
+
+-- | Pretty-print the base language and active options
+pprLanguages :: Bool      -- ^ Whether to include flags which are on by default
+             -> DynFlags
+             -> SDoc
+pprLanguages show_all dflags =
+  vcat
      [ text "base language is: " <>
          case language dflags of
            Nothing          -> text "Haskell2010"
