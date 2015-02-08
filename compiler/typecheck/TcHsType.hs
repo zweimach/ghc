@@ -652,7 +652,7 @@ tcInferApps = go
       | otherwise
       = do { (co, arg_k, res_k) <- matchExpectedFunKind fun fun_kind
            ; arg' <- tc_lhs_type arg arg_k
-           ; go (mkNakedAppTy (fun `mkCastTyOrRefl` mkSubCo co) arg') res_k args }
+           ; go (mkNakedAppTy (fun `mkCastTy` mkSubCo co) arg') res_k args }
 
 ---------------------------
 tcHsContext :: LHsContext Name -> TcM [PredType]

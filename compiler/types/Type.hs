@@ -44,7 +44,7 @@ module Type (
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
 
-        mkCastTy, mkCastTyOrRefl, splitCastTy_maybe, mkCoercionTy,
+        mkCastTy, splitCastTy_maybe, mkCoercionTy,
 
         coAxNthLHS,
         stripCoercionTy, splitCoercionType_maybe,
@@ -863,25 +863,80 @@ newTyConInstRhs tycon tys
                            ~~~~~~
 A casted type has its *kind* casted into something new.
 
+Note [Weird typing rule for ForAllTy]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Here is the (truncated) typing rule for the dependent ForAllTy:
+
+inner : kind
+------------------------------------
+ForAllTy (Named tv vis) inner : kind
+
+Note that neither the inner type nor for ForAllTy itself have to have
+kind *! But, it means that we should push any kind casts through the
+ForAllTy. The only trouble is avoiding capture.
+
 -}
 
 -- | Make a 'CastTy'. The Coercion must be representational.
 mkCastTy :: Type -> Coercion -> Type
+-- Running example:
+--   T :: forall k1. k1 -> forall k2. k2 -> Bool -> Maybe k1 -> *
+--   co :: * ~R X    (maybe X is a newtype around *)
+--   ty = T Nat 3 Symbol "foo" True (Just 2)
+--
+-- We wish to "push" the cast down as far as possible. See also
+-- Note [Pushing down casts] in TyCoRep. Here is where we end
+-- up:
+--
+--   (T Nat 3 Symbol |> <Symbol> -> <Bool> -> <Maybe Nat> -> co) "foo" True (Just 2)
+--
+-- General approach:
+-- 
 mkCastTy ty (Refl {}) = ty
-mkCastTy (AppTy t1 t2) co = pushDownCast t1 t2 co
-mkCastTy (TyConApp tc tys) com
-  | Just snocView (tys', last_ty) <- tys = pushDownCast (mkTyConApp
-                                                         -- RAE was here
+mkCastTy (CastTy ty co1) co2 = mkCastTy ty (co1 `mkTransCo` co2)
+-- See Note [Weird typing rule for ForAllTy]
+mkCastTy (ForAllTy (Named tv vis) inner_ty) co
+  = -- have to make sure that pushing the co in doesn't capture the bound var!
+    let fvs = tyCoVarsOfCo co
+        empty_subst = mkEmptyTCvSubst (mkInScopeSet fvs)
+        (subst, tv') = substTyCoVarBndr empty_subst tv
+    in
+    ForAllTy (Named tv' vis) (substTy subst inner_ty `mkCastTy` co)
+mkCastTy ty co = split_apps [] ty co
+  where
+    -- split_apps breaks apart any type applications, so we can see how far down
+    -- to push the cast
+    split_apps args (AppTy t1 t2) co
+      = split_apps (t2:args) t1 co
+    split_apps args (TyConApp tc tc_args) co
+      = split_apps (tc_args ++ args) (mkTyConTy tc) co
+    split_apps args (ForAllTy (Anon fun) res)
+      = split_apps (fun : res : args) (mkTyConTy funTyCon) co
+    split_apps args ty co
+      = affix_co (typeKind ty) ty args co
 
--- | Make a 'CastTy', unless the coercion is reflexive, in which
--- case it's omitted. Note that (ty |> <xxx>) is distinct from
--- ty!
-mkCastTyOrRefl :: Type -> Coercion -> Type
-mkCastTyOrRefl ty co
-  | isReflCo co
-  = ty
-  | otherwise
-  = mkCastTy ty co
+    -- having broken everything apart, this figures out the point at which there
+    -- are no more dependent quantifications, and puts the cast there
+    affix_co _ ty [] co = CastTy ty co
+    affix_co kind ty args co
+      -- if kind contains any dependent quantifications, we can't push.
+      -- apply arguments until it doesn't
+      = let (bndrs, _inner_ki) = repSplitForAllTys kind
+            (some_dep_bndrs, no_dep_bndrs) = span_from_end isAnonBinder bndrs
+            (some_dep_args, rest_args) = splitAtList some_dep_bndrs args
+            dep_subst = zipOpenTCvSubstBinders some_dep_bndrs some_dep_args
+            rest_arg_tys = substTys dep_subst (map binderType no_dep_bndrs)
+            co' = mkFunCos Representational
+                           (map (mkReflCo Representational) rest_arg_tys)
+                           co
+        in
+        ((ty `mkAppTys` some_dep_args) `CastTy` co') `mkAppTys` rest_args
+
+    -- TODO (RAE): Make more efficient
+    span_from_end :: (a -> Bool) -> [a] -> ([a], [a])
+    span_from_end p as = let (xs, ys) = span p (reverse as) in
+                         (reverse ys, reverse xs)
 
 splitCastTy_maybe :: Type -> Maybe (Type, Coercion)
 splitCastTy_maybe ty | Just ty' <- coreView ty = splitCastTy_maybe ty'
@@ -1125,7 +1180,11 @@ mkPiTypesNoTv (k:ks) ty
 -- result type returned may have free variables that were bound by a forall.
 splitForAllTys :: Type -> ([Binder], Type)
 splitForAllTys t | Just t' <- coreView t = splitForAllTys t'
-splitForAllTys t = split [] t
+splitForAllTys t = repSplitForAllTys t
+
+-- | Like 'splitForAllTys', but doesn't look through type synonyms.
+repSplitForAllTys :: Type -> ([Binder], Type)
+repSplitForAllTys = split [] t
   where
     split bndrs (ForAllTy bndr res) = split (bndr:bndrs) res
     split bndrs ty                  = (reverse bndrs, ty)

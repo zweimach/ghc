@@ -1063,7 +1063,7 @@ mk_data_eqn overlap_mode tvs cls tycon tc_args kind_co rep_tc rep_tc_args _rep_k
                    , ds_overlap = overlap_mode
                    , ds_newtype = Nothing }
   where
-    inst_tys = [mkTyConApp tycon tc_args `mkCastTyOrRefl` kind_co]
+    inst_tys = [mkTyConApp tycon tc_args `mkCastTy` kind_co]
 
 ----------------------
 mkPolyKindedTypeableEqn :: Class -> TyCon -> TcM [EarlyDerivSpec]
@@ -1660,7 +1660,7 @@ mkNewTypeEqn dflags overlap_mode tvs
         -- We want the Num instance of B, *not* the Num instance of Int,
         -- when making the Num instance of A!
         rep_inst_ty = newTyConInstRhs rep_tycon rep_tc_args
-        rep_tys     = cls_tys ++ [rep_inst_ty `mkCastTyOrRefl` rep_kind_co]
+        rep_tys     = cls_tys ++ [rep_inst_ty `mkCastTy` rep_kind_co]
         rep_pred    = mkClassPred cls rep_tys
         rep_pred_o  = mkPredOrigin DerivOrigin rep_pred
                 -- rep_pred is the representation dictionary, from where
@@ -1674,7 +1674,7 @@ mkNewTypeEqn dflags overlap_mode tvs
         cls_tyvars = classTyVars cls
         dfun_tvs = tyCoVarsOfTypes inst_tys
         inst_ty = mkTyConApp tycon tc_args
-        inst_tys = cls_tys ++ [inst_ty `mkCastTyOrRefl` kind_co]
+        inst_tys = cls_tys ++ [inst_ty `mkCastTy` kind_co]
         sc_theta =
             mkThetaOrigin DerivOrigin $
             substTheta (zipOpenTCvSubst cls_tyvars inst_tys) (classSCTheta cls)

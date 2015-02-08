@@ -1448,11 +1448,10 @@ zipOpenTCvSubst tyvars tys
   = TCvSubst (mkInScopeSet (tyCoVarsOfTypes tys)) tenv cenv
   where (tenv, cenv) = zipTyCoEnv tyvars tys
 
+-- | Create an open TCvSubst combining the binders and types provided.
+-- NB: It is OK if the lists are of different lengths.
 zipOpenTCvSubstBinders :: [Binder] -> [Type] -> TCvSubst
 zipOpenTCvSubstBinders bndrs tys
-  | debugIsOn && (length bndrs /= length tys)
-  = pprTrace "zipOpenTCvSubstBinders" (ppr bndrs $$ ppr tys) emptyTCvSubst
-  | otherwise
   = TCvSubst is tenv cenv
   where
     is = mkInScopeSet (tyCoVarsOfTypes tys)
