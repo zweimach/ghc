@@ -899,14 +899,14 @@ mkCastTy (ForAllTy (Named tv vis) inner_ty) co
         (subst, tv') = substTyCoVarBndr empty_subst tv
     in
     ForAllTy (Named tv' vis) (substTy subst inner_ty `mkCastTy` co)
-mkCastTy ty co = let result = split_apps [] ty co in
+mkCastTy ty co = ASSERT2( typeKind ty `eqType` pFst (coercionKind co)
+                        , ppr ty <+> dcolon <+> ppr (typeKind ty) $$
+                          ppr co <+> dcolon <+> ppr (coercionKind co) )
+                 let result = split_apps [] ty co in
                  ASSERT2( CastTy ty co `eqType` result
                         , ppr ty <+> dcolon <+> ppr (typeKind ty) $$
                           ppr co <+> dcolon <+> ppr (coercionKind co) $$
                           ppr result <+> dcolon <+> ppr (typeKind result) )
-                 ASSERT2( typeKind ty `eqType` pFst (coercionKind co)
-                        , ppr ty <+> dcolon <+> ppr (typeKind ty) $$
-                          ppr co <+> dcolon <+> ppr (coercionKind co) )
                  result
   where
     -- split_apps breaks apart any type applications, so we can see how far down
@@ -931,7 +931,8 @@ mkCastTy ty co = let result = split_apps [] ty co in
             (some_dep_bndrs, no_dep_bndrs) = span_from_end isAnonBinder bndrs
             (some_dep_args, rest_args) = splitAtList some_dep_bndrs args
             dep_subst = zipOpenTCvSubstBinders some_dep_bndrs some_dep_args
-            rest_arg_tys = substTys dep_subst (map binderType no_dep_bndrs)
+            used_no_dep_bndrs = takeList rest_args no_dep_bndrs
+            rest_arg_tys = substTys dep_subst (map binderType used_no_dep_bndrs)
             co' = mkFunCos Representational
                            (map (mkReflCo Representational) rest_arg_tys)
                            co
@@ -2032,19 +2033,18 @@ eraseType view_fun = go
     go :: Type -> Type
     go t | Just t' <- view_fun t = go t'
     
-    go (TyVarTy tv1) = TyVarTy tv1   -- comparison doesn't recur into tv kinds
+    go (TyVarTy tv1)      = TyVarTy tv1   -- comparison doesn't recur into tv kinds
       -- NB: use mkAppTy, as erasing may expose a TyCon!
-    go t@(AppTy {}) = go_app t []
-    go (TyConApp tc tys) = TyConApp tc (map go tys)
+    go t@(AppTy {})       = go_app t []
+    go (TyConApp tc tys)  = TyConApp tc (map go tys)
     go (ForAllTy bndr ty) = ForAllTy (updateBinderType go bndr) (go ty)
-    go t@(LitTy {}) = t
-    go (CastTy t _) = t
-    go t@(CoercionTy {}) = t
+    go t@(LitTy {})       = t
+    go (CastTy t _)       = go t
+    go t@(CoercionTy {})  = t
 
       -- doing it this way turns a quadratic algorithm into a linear one!
     go_app (AppTy t1 t2) args = go_app t1 (go t2 : args)
     go_app other_ty      args = mkAppTys (go other_ty) args
-
 
 {-
 ************************************************************************
