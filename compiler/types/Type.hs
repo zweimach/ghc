@@ -208,6 +208,10 @@ import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
 import Control.Applicative ( (<$>) )
 
+#if __GLASGOW_HASKELL__ < 709
+import Control.Applicative ( Applicative, (<*>) )
+#endif
+
 -- $type_classification
 -- #type_classification#
 --
@@ -914,7 +918,14 @@ mkCastTy ty co = ASSERT2( typeKind ty `eqType` pFst (coercionKind co)
     split_apps args (AppTy t1 t2) co
       = split_apps (t2:args) t1 co
     split_apps args (TyConApp tc tc_args) co
+      | isDecomposableTyCon tc
       = affix_co (tyConKind tc) (mkTyConTy tc) (tc_args `chkAppend` args) co
+      | otherwise -- not decomposable... but it may still be oversaturated
+      = let (non_decomp_args, decomp_args) = splitAt (tyConArity tc) tc_args
+            saturated_tc = mkTyConApp tc non_decomp_args
+        in
+        affix_co (typeKind saturated_tc) saturated_tc (decomp_args `chkAppend` args) co
+            
     split_apps args (ForAllTy (Anon arg) res) co
       = affix_co (tyConKind funTyCon) (mkTyConTy funTyCon)
                  (arg : res : args) co
