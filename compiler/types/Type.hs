@@ -901,8 +901,12 @@ mkCastTy (ForAllTy (Named tv vis) inner_ty) co
     ForAllTy (Named tv' vis) (substTy subst inner_ty `mkCastTy` co)
 mkCastTy ty co = let result = split_apps [] ty co in
                  ASSERT2( CastTy ty co `eqType` result
-                        , ppr ty $$ ppr co $$ ppr (typeKind $ CastTy ty co) $$
-                          ppr result $$ ppr (typeKind result) )
+                        , ppr ty <+> dcolon <+> ppr (typeKind ty) $$
+                          ppr co <+> dcolon <+> ppr (coercionKind co) $$
+                          ppr result <+> dcolon <+> ppr (typeKind result) )
+                 ASSERT2( typeKind ty `eqType` pFst (coercionKind co)
+                        , ppr ty <+> dcolon <+> ppr (typeKind ty) $$
+                          ppr co <+> dcolon <+> ppr (coercionKind co) )
                  result
   where
     -- split_apps breaks apart any type applications, so we can see how far down
@@ -919,7 +923,7 @@ mkCastTy ty co = let result = split_apps [] ty co in
 
     -- having broken everything apart, this figures out the point at which there
     -- are no more dependent quantifications, and puts the cast there
-    affix_co _ ty [] co = CastTy ty co
+    affix_co _ ty [] co = no_double_casts ty co
     affix_co kind ty args co
       -- if kind contains any dependent quantifications, we can't push.
       -- apply arguments until it doesn't
@@ -932,7 +936,10 @@ mkCastTy ty co = let result = split_apps [] ty co in
                            (map (mkReflCo Representational) rest_arg_tys)
                            co
         in
-        ((ty `mkAppTys` some_dep_args) `CastTy` co') `mkAppTys` rest_args
+        ((ty `mkAppTys` some_dep_args) `no_double_casts` co') `mkAppTys` rest_args
+
+    no_double_casts (CastTy ty co1) co2 = CastTy ty (co1 `mkTransCo` co2)
+    no_double_casts ty              co  = CastTy ty co
 
     -- TODO (RAE): Make more efficient
     span_from_end :: (a -> Bool) -> [a] -> ([a], [a])
