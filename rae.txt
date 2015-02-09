@@ -54,6 +54,7 @@ changed from a proper arg to an existential covar arg. Does this matter?
 (Other uses of dataConRepArgTys are OK.)
 
 fix:
+  - look for uses of eqType. The typechecker should really stick to tcEqType!
   - when -fprint-explicit-coercions is on, make sure to print any types
     of printed coboxes.
   - have Core Lint check to make sure RHSs of `let (x :: foo ~# bar) = ...`

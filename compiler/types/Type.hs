@@ -117,7 +117,7 @@ module Type (
 
         -- * Type comparison
         eqType, eqTypeX, eqTypes, cmpType, cmpTypes, cmpTypeX, cmpTypesX, cmpTc,
-        eqTyCoVarBndrs,
+        eqTyCoVarBndrs, eraseType,
 
         -- * Forcing evaluation of types
         seqType, seqTypes,
@@ -1396,6 +1396,11 @@ partitionBindersIntoBinders = partitionWith named_or_anon
   where
     named_or_anon bndr = caseBinder bndr (\_ -> Left bndr) Right
 
+-- | Change the type of a binder
+updateBinderType :: (Type -> Type) -> Binder -> Binder
+updateBinderType f (Anon ty)      = Anon (f ty)
+updateBinderType f (Named tv vis) = Named (updateTyVarKind f tv) vis
+
 {-
 %************************************************************************
 %*                                                                      *
@@ -1938,32 +1943,39 @@ cmpTypes ts1 ts2 = cmpTypesX rn_env ts1 ts2
     rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes ts1 `unionVarSet` tyCoVarsOfTypes ts2))
 
 cmpTypeX :: RnEnv2 -> Type -> Type -> Ordering  -- Main workhorse
-cmpTypeX env t1 t2 = go env k1 k2 `thenCmp` go env t1 t2
+    -- See Note [Non-trivial definitional equality] in TyCoRep
+cmpTypeX env t1 t2 = go env (erase k1) (erase k2) `thenCmp`
+                     go env (erase t1) (erase t2)
   where
     k1 = typeKind t1
     k2 = typeKind t2
 
-    go env t1 t2 | Just t1' <- coreViewOneStarKind t1 = go env t1' t2
-                 | Just t2' <- coreViewOneStarKind t2 = go env t1 t2'
+    erase = eraseType coreViewOneStarKind
 
+    -- NB: It's tempting just to do a straightforward descent into the types,
+    -- ignoring casts. However, this might end up comparing an AppTy to a
+    -- TyConApp and getting confused. There may be a more efficient approach
+    -- than erasing and comparing, but I don't feel like succumbing to evil
+    -- premature optimization at the moment. TODO (RAE): Optimize when not
+    -- premature!
+   
     -- We expand predicate types, because in Core-land we have
     -- lots of definitions like
     --      fOrdBool :: Ord Bool
     --      fOrdBool = D:Ord .. .. ..
     -- So the RHS has a data type
 
-    -- See Note [Non-trivial definitional equality] in TyCoRep
-    go env (CastTy ty1 _)      ty2                 = go env ty1 ty2
-    go env ty1                 (CastTy ty2 _)      = go env ty1 ty2
-
-    go env (TyVarTy tv1)       (TyVarTy tv2)       = rnOccL env tv1 `compare` rnOccR env tv2
+    go env (TyVarTy tv1)       (TyVarTy tv2)
+      = rnOccL env tv1 `compare` rnOccR env tv2
     go env (ForAllTy (Named tv1 _) t1) (ForAllTy (Named tv2 _) t2)
       = go env (tyVarKind tv1) (tyVarKind tv2)
         `thenCmp` go (rnBndr2 env tv1 tv2) t1 t2
-    go env (AppTy s1 t1)       (AppTy s2 t2)       = go env s1 s2 `thenCmp` go env t1 t2
+    go env (AppTy s1 t1)       (AppTy s2 t2)
+      = go env s1 s2 `thenCmp` go env t1 t2
     go env (ForAllTy (Anon s1) t1) (ForAllTy (Anon s2) t2)
       = go env s1 s2 `thenCmp` go env t1 t2
-    go env (TyConApp tc1 tys1) (TyConApp tc2 tys2) = (tc1 `cmpTc` tc2) `thenCmp` cmpTypesX env tys1 tys2
+    go env (TyConApp tc1 tys1) (TyConApp tc2 tys2)
+      = (tc1 `cmpTc` tc2) `thenCmp` gos env tys1 tys2
     go _   (LitTy l1)          (LitTy l2)          = compare l1 l2
     go _   (CoercionTy {})     (CoercionTy {})     = EQ
 
@@ -1979,6 +1991,11 @@ cmpTypeX env t1 t2 = go env k1 k2 `thenCmp` go env t1 t2
             get_rank (TyConApp {})           = 5
             get_rank (ForAllTy (Anon {}) _)  = 6
             get_rank (ForAllTy (Named {}) _) = 7
+
+    gos _   []         []         = EQ
+    gos _   []         _          = LT
+    gos _   _          []         = GT
+    gos env (ty1:tys1) (ty2:tys2) = go env ty1 ty2 `thenCmp` gos env tys1 tys2
 
 -------------
 cmpTypesX :: RnEnv2 -> [Type] -> [Type] -> Ordering
@@ -1998,6 +2015,29 @@ cmpTc tc1 tc2
   where
     u1  = tyConUnique tc1
     u2  = tyConUnique tc2
+
+-- | Remove all casts from a type, and use the given "view" function to
+-- unwrap synonyms as we go. This will yield an ill-kinded type, so
+-- use with caution.
+eraseType :: (Type -> Maybe Type) -> Type -> Type
+eraseType view_fun = go
+  where
+    go :: Type -> Type
+    go t | Just t' <- view_fun t = go t'
+    
+    go (TyVarTy tv1) = TyVarTy tv1   -- comparison doesn't recur into tv kinds
+      -- NB: use mkAppTy, as erasing may expose a TyCon!
+    go t@(AppTy {}) = go_app t []
+    go (TyConApp tc tys) = TyConApp tc (map go tys)
+    go (ForAllTy bndr ty) = ForAllTy (updateBinderType go bndr) (go ty)
+    go t@(LitTy {}) = t
+    go (CastTy t _) = t
+    go t@(CoercionTy {}) = t
+
+      -- doing it this way turns a quadratic algorithm into a linear one!
+    go_app (AppTy t1 t2) args = go_app t1 (go t2 : args)
+    go_app other_ty      args = mkAppTys (go other_ty) args
+
 
 {-
 ************************************************************************

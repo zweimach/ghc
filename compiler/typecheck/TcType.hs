@@ -1236,14 +1236,10 @@ tcEqTypeNoKindCheck ty1 ty2 = tc_eq_type init_env ty1 ty2
 
 -- Worker for 'tcEqType'. No kind check!
 tc_eq_type :: RnEnv2 -> TcType -> TcType -> Bool
-tc_eq_type = go
+tc_eq_type env t1 t2 = go env (erase t1) (erase t2)
   where
-    go env t1 t2 | Just t1' <- tcView t1 = go env t1' t2
-                 | Just t2' <- tcView t2 = go env t1 t2'
-
-    go env (CastTy t1 _)       t2                = go env t1 t2
-    go env t1                  (CastTy t2 _)     = go env t1 t2
-                                           
+    erase = eraseType tcView
+    
     go env (TyVarTy tv1)       (TyVarTy tv2)     = rnOccL env tv1 == rnOccR env tv2
     go _   (LitTy lit1)        (LitTy lit2)      = lit1 == lit2
     go env (ForAllTy bndr1 t1) (ForAllTy bndr2 t2)
@@ -1273,16 +1269,15 @@ pickyEqType :: TcType -> TcType -> Bool
 -- This still ignores coercions, because this is used only for printing,
 -- and we omit coercions there.
 pickyEqType ty1 ty2
-  = go init_env ki1 ki2 && go init_env ty1 ty2
+  = go init_env (erase ki1) (erase ki2) && go init_env (erase ty1) (erase ty2)
   where
     ki1 = typeKind ty1
     ki2 = typeKind ty2
     
     init_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2))
 
-    go env (CastTy t1 _)       t2                = go env t1 t2
-    go env t1                  (CastTy t2 _)     = go env t1 t2
-    
+    erase = eraseType (const Nothing)
+
     go env (TyVarTy tv1)       (TyVarTy tv2)     = rnOccL env tv1 == rnOccR env tv2
     go _   (LitTy lit1)        (LitTy lit2)      = lit1 == lit2
     go env (ForAllTy bndr1 t1) (ForAllTy bndr2 t2)
