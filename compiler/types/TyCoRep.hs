@@ -2328,9 +2328,12 @@ tidyTyCoVarBndr tidy_env@(occ_env, subst) tyvar
     -- when we tidy them we give them a leading '_'
     -- so that they don't get confused for user-declared variables
     -- could also do something like '$', but '_' is more visually discreet
-    occ1 | isSystemName name = if isTyVar tyvar
-                               then mkTyVarOcc ('_' : occNameString occ)
-                               else mkVarOcc   ('_' : occNameString occ)
+    occ1 | isSystemName name
+         , let name_str = occNameString occ
+         , not ("_" `isPrefixOf` name_str)  -- no double underscores
+         = if isTyVar tyvar
+           then mkTyVarOcc ('_' : name_str)
+           else mkVarOcc   ('_' : name_str)
          | otherwise         = occ
 
 
