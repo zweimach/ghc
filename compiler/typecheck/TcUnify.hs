@@ -1043,7 +1043,7 @@ checkTauTvUpdate dflags origin tv ty
   = do { ty1  <- zonkTcType ty
        ; co_k <- uType kind_origin (typeKind ty1) (tyVarKind tv)
        ; if | is_return_tv ->
-                if tv `elemVarSet` tyCoVarsOfType ty
+                if tv `elemVarSet` tyCoVarsOfType ty1
                 then return Nothing -- TODO (RAE): use occurCheckExpand?
                 else return (Just (ty1, co_k))
             | defer_me ty1 ->  -- Quick test
