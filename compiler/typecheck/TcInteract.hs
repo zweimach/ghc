@@ -33,6 +33,7 @@ import TcRnTypes
 import TcErrors
 import TcSMonad
 import Bag
+import Maybes  ( expectJust )
 
 import Data.List( partition, foldl', deleteFirstsBy )
 

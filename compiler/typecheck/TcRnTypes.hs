@@ -138,6 +138,7 @@ import DynFlags
 import Outputable
 import ListSetOps
 import FastString
+import Maybes     ( expectJust )
 import GHC.Fingerprint
 
 import Data.Set (Set)

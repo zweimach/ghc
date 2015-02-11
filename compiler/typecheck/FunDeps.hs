@@ -274,7 +274,8 @@ checkClsFD fd clas_tvs
 
     case tcUnifyTys bind_fn ltys1 ltys2 of
         Nothing  -> []
-        Just subst | isJust (tcUnifyTys bind_fn rtys1' rtys2')
+        Just (subst, _)
+                   | isJust (tcUnifyTys bind_fn rtys1' rtys2')
                         -- Don't include any equations that already hold.
                         -- Reason: then we know if any actual improvement has happened,
                         --         in which case we need to iterate the solver

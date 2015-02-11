@@ -1220,43 +1220,42 @@ tcEqType :: TcType -> TcType -> Bool
 -- equality] (in TyCoRep) as `eqType`, but Type.eqType believes (* ==
 -- Constraint), and that is NOT what we want in the type checker!
 tcEqType ty1 ty2
-  = tc_eq_type init_env ki1 ki2 && tc_eq_type init_env ty1 ty2
+  = tc_eq_type ki1 ki2 && tc_eq_type ty1 ty2
   where
     ki1 = typeKind ty1
     ki2 = typeKind ty2
 
-    init_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2))
-
 -- | Just like 'tcEqType', but will return True for types of different kinds
 -- as long as their non-coercion structure is identical.
 tcEqTypeNoKindCheck :: TcType -> TcType -> Bool
-tcEqTypeNoKindCheck ty1 ty2 = tc_eq_type init_env ty1 ty2
-  where
-    init_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2))
+tcEqTypeNoKindCheck ty1 ty2 = tc_eq_type ty1 ty2
 
--- Worker for 'tcEqType'. No kind check!
-tc_eq_type :: RnEnv2 -> TcType -> TcType -> Bool
-tc_eq_type env t1 t2 = go env (erase t1) (erase t2)
+-- | Worker for 'tcEqType'. No kind check!
+tc_eq_type :: TcType -> TcType -> Bool
+tc_eq_type t1 t2 = tc_eq_type_erased init_env (erase t1) (erase t2)
   where
+    init_env = mkRnEnv2 $
+               mkInScopeSet $
+               tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
     erase = eraseType tcView
-    
-    go env (TyVarTy tv1)       (TyVarTy tv2)     = rnOccL env tv1 == rnOccR env tv2
-    go _   (LitTy lit1)        (LitTy lit2)      = lit1 == lit2
-    go env (ForAllTy bndr1 t1) (ForAllTy bndr2 t2)
-      =  go env (binderType bndr1) (binderType bndr2)
-      && let env'
-               | Just tv1 <- binderVar_maybe bndr1
-               , Just tv2 <- binderVar_maybe bndr2
-               = rnBndr2 env tv1 tv2
 
-               | otherwise
-               = env
-         in go env' t1 t2
-      && binderVisibility bndr1 == binderVisibility bndr2
-      && isNamedBinder bndr1    == isNamedBinder bndr2
-    go env (AppTy s1 t1)       (AppTy s2 t2)     = go env s1 s2 && go env t1 t2
-    go env (TyConApp tc1 ts1) (TyConApp tc2 ts2) = (tc1 == tc2) && gos env ts1 ts2
-    go _   (CoercionTy {})     (CoercionTy {})   = True
+-- | Real worker for 'tcEqType'. Works on erased types.
+tc_eq_type_erased :: RnEnv2 -> EType -> EType -> Bool
+tc_eq_type_erased = go
+  where
+    go env (ETyVarTy tv1)       (ETyVarTy tv2)
+      = rnOccL env tv1 == rnOccR env tv2
+    go _   (ELitTy lit1)        (ELitTy lit2)      = lit1 == lit2
+    go env (EForAllTy (ENamed tv1 k1 vis1) ty1)
+           (EForAllTy (ENamed tv2 k2 vis2) ty2)
+      = go env k1 k2 && go (rnBndr2 env tv1 tv2) ty1 ty2 && vis1 == vis2
+    go env (EForAllTy (EAnon arg1) res1) (EForAllTy (EAnon arg2) res2)
+      = go env arg1 arg2 && go env res1 res2
+    go env (EAppTy s1 k1 t1)    (EAppTy s2 k2 t2)
+      = go env s1 s2 && go env k1 k2 && go env t1 t2
+    go env (ETyConApp tc1 ts1)  (ETyConApp tc2 ts2)
+      = (tc1 == tc2) && gos env ts1 ts2
+    go _   ECoercionTy          ECoercionTy = True
     go _ _ _ = False
 
     gos _   []       []       = True
@@ -1269,38 +1268,17 @@ pickyEqType :: TcType -> TcType -> Bool
 -- This still ignores coercions, because this is used only for printing,
 -- and we omit coercions there.
 pickyEqType ty1 ty2
-  = go init_env (erase ki1) (erase ki2) && go init_env (erase ty1) (erase ty2)
+  =  tc_eq_type_erased init_env (erase ki1) (erase ki2)
+  && tc_eq_type_erased init_env (erase ty1) (erase ty2)
   where
     ki1 = typeKind ty1
     ki2 = typeKind ty2
     
-    init_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2))
+    init_env = mkRnEnv2 $
+               mkInScopeSet $
+               tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2
 
     erase = eraseType (const Nothing)
-
-    go env (TyVarTy tv1)       (TyVarTy tv2)     = rnOccL env tv1 == rnOccR env tv2
-    go _   (LitTy lit1)        (LitTy lit2)      = lit1 == lit2
-    go env (ForAllTy bndr1 t1) (ForAllTy bndr2 t2)
-      =  go env (binderType bndr1) (binderType bndr2)
-      && let env'
-               | Just tv1 <- binderVar_maybe bndr1
-               , Just tv2 <- binderVar_maybe bndr2
-               = rnBndr2 env tv1 tv2
-
-               | otherwise
-               = env
-         in go env' t1 t2
-      && binderVisibility bndr1 == binderVisibility bndr2
-      && isNamedBinder bndr1    == isNamedBinder bndr2
-
-    go env (AppTy s1 t1)       (AppTy s2 t2)     = go env s1 s2 && go env t1 t2
-    go env (TyConApp tc1 ts1) (TyConApp tc2 ts2) = (tc1 == tc2) && gos env ts1 ts2
-    go _   (CoercionTy {})    (CoercionTy {})    = True
-    go _ _ _ = False
-
-    gos _   []       []       = True
-    gos env (t1:ts1) (t2:ts2) = go env t1 t2 && gos env ts1 ts2
-    gos _ _ _ = False
 
 {-
 Note [Occurs check expansion]

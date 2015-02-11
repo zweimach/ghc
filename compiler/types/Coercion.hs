@@ -2,7 +2,7 @@
 (c) The University of Glasgow 2006
 -}
 
-{-# LANGUAGE RankNTypes, CPP, DeriveDataTypeable #-}
+{-# LANGUAGE RankNTypes, CPP, DeriveDataTypeable, MultiWayIf #-}
 
 -- | Module for (a) type kinds and (b) type coercions, 
 -- as used in System FC. See 'CoreSyn.Expr' for
@@ -26,7 +26,7 @@ module Coercion (
         mkAxInstRHS, mkUnbranchedAxInstRHS,
         mkAxInstLHS, mkUnbranchedAxInstLHS,
         mkPiCo, mkPiCos, mkCoCast,
-        mkSymCo, mkTransCo, mkNthCo, mkNthCoRole, mkLRCo,
+        mkSymCo, mkTransCo, mkNthCo, mkNthCoArg, mkNthCoRole, mkLRCo,
         mkInstCo, mkAppCo, mkAppCoFlexible, mkTyConAppCo, mkFunCo, mkFunCos,
         mkForAllCo, mkForAllCo_TyHomo, mkForAllCo_CoHomo,
         mkPhantomCo, mkHomoPhantomCo,
@@ -85,7 +85,7 @@ module Coercion (
         liftCoSubstVarBndrCallback, isMappedByLC,
 
         LiftCoEnv, LiftingContext(..), liftEnvSubstLeft, liftEnvSubstRight,
-        substRightCo, substLeftCo,
+        substRightCo, substLeftCo, swapLiftCoEnv,
 
         -- ** Comparison
         eqCoercion, eqCoercionX, eqCoercionArg,
@@ -102,7 +102,8 @@ module Coercion (
 
         -- * Other
         applyCo, promoteCoercion, mkGADTVars,
-        buildCoherenceCo, buildCoherenceCoArg
+        buildCoherenceCo, buildCoherenceCoX, buildCoherenceCoArg,
+        buildCoherenceCoArgX
        ) where 
 
 #include "HsVersions.h"
@@ -130,7 +131,7 @@ import Control.Applicative hiding ( empty )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable (traverse, sequenceA)
 #endif
-import Control.Monad (foldM)
+import Control.Monad (foldM, zipWithM)
 import Data.Maybe (isJust)
 import FastString
 import Control.Arrow ( first )
@@ -467,56 +468,7 @@ isReflLike = isJust . isReflLike_maybe
 %************************************************************************
 
 These "smart constructors" maintain the invariants listed in the definition
-of Coercion, and they perform very basic optimizations. Note that if you
-add a new optimization here, you will have to update the code in Unify
-to account for it. These smart constructors are used in substitution, so
-to preserve the semantics of matching and unification, those algorithms must
-be aware of any optimizations done here.
-
-See also Note [Coercion optimizations and match_co] in Unify.
-
-Note [Don't optimize mkTransCo]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-One would expect to implement the following two optimizations in mkTransCo:
-  mkTransCo co1 (Refl ...) --> co1
-  mkTransCo (Refl ...) co1 --> co1
-
-However, doing this would make unification require backtracking search. Say
-we had these optimizations and we are trying to match (co1 ; co2 ; co3) with
-(co1' ; co2') (where ; means `TransCo`) One of the coercions disappeared, but
-which one? Yuck. So, instead of putting this optimization here, we just have
-it in OptCoercion.
-
-Note [Don't optimize mkCoherenceCo]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-One would expect to use an easy optimization in mkCoherenceCo: we would want
-  (CoherenceCo (CoherenceCo co1 co2) co3)
-to become
-  (CoherenceCo co1 (mkTransCo co2 co3))
-
-This would be completely sound, and in fact it is done in OptCoercion. But
-we *can't* do it here. This is because these smart constructors must be
-invertible, in some sense. In the matching algorithm, we must consider all
-optimizations that can happen during substitution. Because mkCoherenceCo
-is used in substitution, if we did this optimization, the match function
-would need to look for substitutions that yield this optimization. The
-problem is that these substitutions are hard to find, because the mkTransCo
-itself might be optimized. The basic problem is that it is hard to figure
-out what co2 could possibly be from the optimized version. So, we don't
-do the optimization.
-
-Note [Optimizing mkSymCo is OK]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Given the previous two notes, the implementation of mkSymCo seems fishy.
-Why is it OK to optimize this one? Because the optimizations don't require
-backtracking search to invert, essentially. Say we are matching (SymCo co1)
-with co2. If co2 is (SymCo co2'), then we just match co1 with co2'. If
-co2 is (UnsafeCo ty1 ty2), then we match co1 with (UnsafeCo ty2 ty1). Otherwise,
-we match co1 with (SymCo co2) -- the only way to get a coercion headed by
-something other than SymCo or UnsafeCo is the SymCo (SymCo ..) optimization.
-Also, critically, it is impossible to get a coercion headed by SymCo or
-UnsafeCo by this optimization. (Contrast to the missing optimization in
-mkTransCo, which could produce a TransCo.) So, we can keep these here. Phew.
+of Coercion, and they perform very basic optimizations. 
 
 Note [Role twiddling functions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -771,7 +723,6 @@ mkSymCo :: Coercion -> Coercion
 
 -- Do a few simple optimizations, but don't bother pushing occurrences
 -- of symmetry to the leaves; the optimizer will take care of that.
--- See Note [Optimizing mkSymCo is OK]
 mkSymCo co@(Refl {})              = co
 mkSymCo    (UnsafeCo s r ty1 ty2) = UnsafeCo s r ty2 ty1
 mkSymCo    (SymCo co)             = co
@@ -779,7 +730,8 @@ mkSymCo co                        = SymCo co
 
 -- | Create a new 'Coercion' by composing the two given 'Coercion's transitively.
 mkTransCo :: Coercion -> Coercion -> Coercion
--- See Note [Don't optimize mkTransCo]
+mkTransCo co1 (Refl {}) = co1
+mkTransCo (Refl {}) co2 = co2
 mkTransCo co1 co2
   | Pair s1 _s2 <- coercionKind co1
   , Pair _t1 t2 <- coercionKind co2
@@ -860,6 +812,9 @@ mkInstCo co arg = let result = InstCo co arg
 -- See Note [Don't optimize mkCoherenceCo]
 -- TODO (RAE): This seems inefficient, if repeated. 
 mkCoherenceCo :: Coercion -> Coercion -> Coercion
+mkCoherenceCo co1 (Refl {}) = co1
+mkCoherenceCo (CoherenceCo co1 co2) co3
+  = CoherenceCo co1 (co2 `mkTransCo` co3)
 mkCoherenceCo co1 co2     = let result = CoherenceCo co1 co2
                                 Pair ty1 ty2 = coercionKind result in
                             if ty1 `eqType` ty2
@@ -1292,6 +1247,10 @@ mkCoArgForVar v
   | isTyVar v = TyCoArg $ mkReflCo Nominal $ mkOnlyTyVarTy v
   | otherwise = CoCoArg Nominal (mkCoVarCo v) (mkCoVarCo v)
 
+mkSymCoArg :: CoercionArg -> CoercionArg
+mkSymCoArg (TyCoArg co)        = TyCoArg (mkSymCo co)
+mkSymCoArg (CoCoArg r co1 co2) = CoCoArg r co2 co1
+
 {-
 %************************************************************************
 %*                                                                      *
@@ -1699,6 +1658,10 @@ substLeftCo lc co
 substRightCo :: LiftingContext -> Coercion -> Coercion
 substRightCo lc co
   = substCo (lcSubstRight lc) co
+
+-- | Apply "sym" to all coercions in a 'LiftCoEnv'
+swapLiftCoEnv :: LiftCoEnv -> LiftCoEnv
+swapLiftCoEnv = mapVarEnv mkSymCoArg
 
 lcSubstLeft :: LiftingContext -> TCvSubst
 lcSubstLeft (LC in_scope lc_env) = liftEnvSubstLeft in_scope lc_env
@@ -2204,7 +2167,7 @@ buildCoherenceCoX = go
       = Just $ mkReflCo Nominal (mkOnlyTyVarTy $ rnOccL env tv1)
     go env (AppTy tyl1 tyr1) (AppTy tyl2 tyr2)
       = mkAppCo <$> go env tyl1 tyl2 <*> buildCoherenceCoArgX env tyr1 tyr2
-    go env ty1@(TyConApp tc1 tys1) ty2@(TyConApp tc2 tys2)
+    go env (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       | tc1 == tc2
       = mkTyConAppCo Nominal tc1 <$> zipWithM (buildCoherenceCoArgX env) tys1 tys2
     go env (ForAllTy (Anon arg1) res1) (ForAllTy (Anon arg2) res2)
@@ -2225,24 +2188,24 @@ buildCoherenceCoX = go
     go_bndr env tv1 tv2
       = do { eta <- go env k1 k2
            ; if | k1 `eqType` k2
-                -> let (env', tv') = rnBndr2_var env tv1 tv2 in
-                   Just (env', mkHomoCoBndr tv')
+                  -> let (env', tv') = rnBndr2_var env tv1 tv2 in
+                     Just (env', mkHomoCoBndr tv')
 
                 | isCoVar tv1
-                -> let (env1, tv1') = rnBndrL env  tv1
-                       (env2, tv2') = rnBndrR env1 tv2 in
-                   Just (env2, mkCoHeteroCoBndr eta tv1' tv2')
+                  -> let (env1, tv1') = rnBndrL env  tv1
+                         (env2, tv2') = rnBndrR env1 tv2 in
+                     Just (env2, mkCoHeteroCoBndr eta tv1' tv2')
 
                 | otherwise
-                -> let (env1, tv1') = rnBndrL env  tv1
-                       (env2, tv2') = rnBndrR env1 tv2
-                       in_scope     = rnInScopeSet env2
-                       cv           = mkFreshCoVar in_scope
-                                                   (mkOnlyTyVarTy tv1')
-                                                   (mkOnlyTyVarTy tv2')
-                       env3         = addRnInScopeSet env2 (unitVarSet cv)
-                   in
-                   Just (env3, mkTyHeteroCoBndr eta tv1' tv2' cv) }
+                  -> let (env1, tv1') = rnBndrL env  tv1
+                         (env2, tv2') = rnBndrR env1 tv2
+                         in_scope     = rnInScopeSet env2
+                         cv           = mkFreshCoVar in_scope
+                                                     (mkOnlyTyVarTy tv1')
+                                                     (mkOnlyTyVarTy tv2')
+                         env3         = addRnInScopeSet env2 (unitVarSet cv)
+                     in
+                     Just (env3, mkTyHeteroCoBndr eta tv1' tv2' cv) }
       where
         k1  = tyVarKind tv1
         k2  = tyVarKind tv2

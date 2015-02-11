@@ -1173,6 +1173,7 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
        ; us <- newUniqueSupply
        ; let (univ_tvs, ex_tvs, eq_preds, res_ty', arg_subst)
                = rejigConRes us tmpl_tvs res_tmpl qtkvs res_ty
+                    -- TODO (RAE): Make sure that the types are of kind *!
 
        ; fam_envs <- tcGetFamInstEnvs
        ; let
@@ -1296,8 +1297,9 @@ rejigConRes :: UniqSupply         -- needed for fresh covars
             -> [TyCoVar] -> Type  -- Template for result type; e.g.
                                   -- data instance T [a] b c = ...
                                   --      gives template ([a,b,c], T [a] b c)
+                                  -- Type must be of kind *!
             -> [TyCoVar]         -- where MkT :: forall x y z. ...
-            -> ResType Type
+            -> ResType Type       -- ResTyGADT type must be of kind *!
             -> ([TyCoVar],             -- Universal
                 [TyCoVar],                -- Existential (distinct OccNames from univs)
                 [EqSpec],      -- Equality predicates
@@ -1325,7 +1327,9 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
   = (univ_tvs, sorted_tcvs, [], res_ty, arg_subst)
     -- TODO (RAE): split sorted_tcvs
   where
-    Just subst = tcMatchTy (mkVarSet tmpl_tvs) res_tmpl res_ty
+    Just (subst, _) = ASSERT( isLiftedTypeKind (typeKind res_ty) )
+                      ASSERT( isLiftedTypeKind (typeKind res_tmpl) )
+                      tcMatchTy (mkVarSet tmpl_tvs) res_tmpl res_ty
                 -- This 'Just' pattern is sure to match, because if not
                 -- checkValidDataCon will complain first.
                -- See Note [Checking GADT return types]
@@ -1562,7 +1566,8 @@ checkFieldCompat fld con1 con2 tvs1 res1 res2 fty1 fty2
         ; checkTc (isJust mb_subst2) (fieldTypeMisMatch fld con1 con2) }
   where
     mb_subst1 = tcMatchTy tvs1 res1 res2
-    mb_subst2 = tcMatchTyX tvs1 (expectJust "checkFieldCompat" mb_subst1) fty1 fty2
+    mb_subst2 = tcMatchTyX tvs1 (fst $
+                                 expectJust "checkFieldCompat" mb_subst1) fty1 fty2
 
 -------------------------------
 checkValidDataCon :: DynFlags -> Bool -> TyCon -> DataCon -> TcM ()

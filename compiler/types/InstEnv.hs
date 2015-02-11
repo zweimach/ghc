@@ -21,7 +21,7 @@ module InstEnv (
 
         InstEnvs(..), VisibleOrphanModules, InstEnv,
         emptyInstEnv, extendInstEnv, deleteFromInstEnv, identicalClsInstHead,
-        extendInstEnvList, lookupUniqueInstEnv, lookupInstEnv', lookupInstEnv, instEnvElts,
+        extendInstEnvList, lookupUniqueInstEnv, lookupInstEnv, instEnvElts,
         memberInstEnv, instIsVisible,
         classInstances, orphNamesOfClsInst, instanceBindFun,
         instanceCantMatch, roughMatchTcs
@@ -129,18 +129,6 @@ In is_tcs,
                 (Two different synonyms might match, but two
                 different real tycons can't.)
                 NB: newtypes are not transparent, though!
-
-Note [Match with erased types]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Say we have an instance (C (Foo |> co) x) and we're searching for
-an instance matching (C Foo Bar). We would like the instances
-to match, even though there is no substitution from type variables
-in the template to types in the target. Thus, we use tcMatchTysErased,
-which can handle such loose matching. See the comments on that
-function (in Unify) for more info.
-
-Accordingly, any ClsInst returned by the lookup functions may not
-match *exactly*... so callers should beware.
 
 Note [Proper-match fields]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -770,9 +758,7 @@ where the 'Nothing' indicates that 'b' can be freely instantiated.
 
 -- |Look up an instance in the given instance environment. The given class application must match exactly
 -- one instance and the match may not contain any flexi type variables.  If the lookup is unsuccessful,
--- yield 'Left errorMessage'. NB: The returned instance might not match exactly.
--- See Note [Match with erased types]
---
+-- yield 'Left errorMessage'.
 lookupUniqueInstEnv :: InstEnvs
                     -> Class -> [Type]
                     -> Either MsgDoc (ClsInst, [Type])
@@ -790,8 +776,7 @@ lookupUniqueInstEnv instEnv cls tys
 lookupInstEnv' :: InstEnv          -- InstEnv to look in
                -> VisibleOrphanModules   -- But filter against this
                -> Class -> [Type]  -- What we are looking for
-               -> ([InstMatch],    -- Successful matches (modulo erasure;
-                                   --        See Note [Match with erased types])
+               -> ([InstMatch],    -- Successful matches 
                    [ClsInst])     -- These don't match but do unify
 -- The second component of the result pair happens when we look up
 --      Foo [a]
@@ -825,7 +810,11 @@ lookupInstEnv' ie vis_mods cls tys
       | instanceCantMatch rough_tcs mb_tcs
       = find ms us rest
 
-      | Just subst <- tcMatchTys tpl_tv_set tpl_tys tys
+        -- The second return value from tcMatchTys is a coercion. This
+        -- will only be non-reflexive if a kind changes. But, every
+        -- fully-applied dictionary type is of kind Constraint, so we
+        -- don't worry about kind changes among individual type args.
+      | Just (subst, _) <- tcMatchTys tpl_tv_set tpl_tys tys
       = find ((item, map (lookup_tv subst) tpl_tvs) : ms) us rest
 
         -- Does not match, so next check whether the things unify
@@ -858,8 +847,7 @@ lookupInstEnv' ie vis_mods cls tys
 -- This is the common way to call this function.
 lookupInstEnv :: InstEnvs     -- External and home package inst-env
               -> Class -> [Type]   -- What we are looking for
-              -> ClsInstLookupResult -- NB: Results may not be exact;
-                                     -- See Note [Match with erased types]
+              -> ClsInstLookupResult
 -- ^ See Note [Rules for instance lookup]
 lookupInstEnv (InstEnvs { ie_global = pkg_ie, ie_local = home_ie, ie_visible = vis_mods }) cls tys
   = (final_matches, final_unifs, safe_fail)

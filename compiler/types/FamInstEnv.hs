@@ -476,7 +476,7 @@ compatibleBranches (CoAxBranch { cab_lhs = lhs1, cab_rhs = rhs1 })
                    (CoAxBranch { cab_lhs = lhs2, cab_rhs = rhs2 })
   = case tcUnifyTysFG instanceBindFun lhs1 lhs2 of
       SurelyApart -> True
-      Unifiable subst
+      Unifiable (subst, _)
         | Type.substTy subst rhs1 `eqType` Type.substTy subst rhs2
         -> True
       _ -> False
@@ -690,12 +690,11 @@ lookup_fam_inst_env' match_fun ie fam match_tys
 
         -- Proper check
       | Just (subst, cos) <- match_fun item (mkVarSet tpl_tvs) tpl_tys match_tys1
-      = let lhs = substTys subst tpl_tys in
-        (FamInstMatch { fim_instance = item
+      = (FamInstMatch { fim_instance = item
                       , fim_tys      = substTyVars subst tpl_tvs `chkAppend` match_tys2
-                      , fim_coercion = mkTyConAppCo Nominal fam cos
-                                       `chkAppend`
-                                       map (liftSimply Nominal) match_tys2
+                      , fim_coercion = mkTyConAppCo Nominal fam
+                                         (cos `chkAppend`
+                                          map (liftSimply Nominal) match_tys2)
                       })
         : find rest
 
@@ -867,7 +866,6 @@ findBranch (CoAxBranch { cab_tvs = tpl_tvs, cab_lhs = tpl_lhs, cab_incomps = inc
                 . tcUnifyTysFG instanceBindFun flattened_target
                 . coAxBranchLHS) incomps
         -> -- matching worked & we're apart from all incompatible branches. success
-           let ax_lhs = substTys subst tpl_lhs in
            Just (ind, substTyCoVars subst tpl_tvs, cos)
 
       -- failure. keep looking
