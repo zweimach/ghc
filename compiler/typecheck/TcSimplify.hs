@@ -507,6 +507,10 @@ decideQuantification apply_mr constraint_vars zonked_tau_tvs
        ; let mono_tvs    = growThetaTyCoVars (filter isEqPred constraints) gbl_tvs
                            `unionVarSet` (filterVarSet isCoVar $
                                           zonked_tau_tvs `unionVarSet` constraint_fvs)
+                           -- TODO (RAE): The filterVarSet isCoVar bit assumes
+                           -- that *no* equality constraints are quantified.
+                           -- But this is wrong.
+                            
              poly_qtvs   = growThetaTyCoVars constraints zonked_tau_tvs
                            `minusVarSet` mono_tvs
              (theta_vars, other_constraint_vars)

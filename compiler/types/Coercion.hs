@@ -11,7 +11,7 @@
 module Coercion (
         -- * Main data type
         Coercion, CoercionArg, ForAllCoBndr, LeftOrRight(..),
-        Var, CoVar, TyCoVar, mkFreshCoVar, mkFreshReprCoVar,
+        Var, CoVar, TyCoVar, mkFreshCoVar, mkFreshReprCoVar, mkFreshCoVarOfType,
         Role(..), ltRole,
 
         -- ** Functions over coercions
@@ -620,18 +620,21 @@ mkCoVarCo cv
 -- | Creates a new, fresh (w.r.t. the InScopeSet) Nominal covar between the
 -- given types.
 mkFreshCoVar :: InScopeSet -> Type -> Type -> CoVar
-mkFreshCoVar = mk_fresh_co_var Nominal
+mkFreshCoVar in_scope ty1 ty2 = mkFreshCoVarOfType in_scope $
+                                mkCoercionType Nominal ty1 ty2
 
 -- | Like 'mkFreshCoVar', but for a Representational covar.
 mkFreshReprCoVar :: InScopeSet -> Type -> Type -> CoVar
-mkFreshReprCoVar = mk_fresh_co_var Representational
+mkFreshReprCoVar in_scope ty1 ty2 = mkFreshCoVarOfType in_scope $
+                                    mkCoercionType Representational ty1 ty2
 
--- | Worker for 'mkFreshCoVar' and 'mkFreshReprCoVar'
-mk_fresh_co_var :: Role -> InScopeSet -> Type -> Type -> CoVar
-mk_fresh_co_var r in_scope ty1 ty2
-  = let cv_uniq = mkCoVarUnique 31 -- arbitrary number
+-- | Makes a fresh covar of the given type. The type must be a coercion type!
+mkFreshCoVarOfType :: InScopeSet -> Type -> CoVar
+mkFreshCoVarOfType in_scope ty
+  = ASSERT( isCoercionType ty )
+    let cv_uniq = mkCoVarUnique 31 -- arbitrary number
         cv_name = mkSystemVarName cv_uniq (fsLit "c") in
-    uniqAway in_scope $ mkCoVar cv_name (mkCoercionType r ty1 ty2)
+    uniqAway in_scope $ mkCoVar cv_name ty
 
 mkAxInstCo :: Role -> CoAxiom br -> BranchIndex -> [Type] -> Coercion
 -- mkAxInstCo can legitimately be called over-staturated; 

@@ -184,6 +184,7 @@ import Outputable
 import FastString
 import ErrUtils( Validity(..), isValid )
 
+import Data.List   ( mapAccumL )
 import Data.IORef
 import Control.Monad (liftM, ap)
 #if __GLASGOW_HASKELL__ < 709
@@ -882,8 +883,21 @@ mkInvSigmaTy tyvars
   = mkSigmaTy (zipWith mkNamedBinder tyvars (repeat Invisible))
 
 mkPhiTy :: [PredType] -> Type -> Type
-mkPhiTy theta ty = foldr mkFunTy ty theta
+-- We must be careful here to respect the invariant that all covars are
+-- dependently quantified. See Note [Equality-constrained types] in
+-- TyCoRep
+mkPhiTy theta ty = mkForAllTys (snd $ mapAccumL to_binder in_scope theta) ty
+  where
+    in_scope = mkInScopeSet $ tyCoVarsOfType ty
 
+    to_binder :: InScopeSet -> PredType -> (InScopeSet, Binder)
+    to_binder is ty
+      | isCoercionType ty
+      = let cv = mkFreshCoVarOfType is ty in
+        (is `extendInScopeSet` cv, Named cv Invisible)
+      | otherwise
+      = (is, Anon ty)
+    
 mkTcEqPred :: TcType -> TcType -> Type
 -- During type checking we build equalities between
 -- types of differing kinds. This all gets sorted out when
