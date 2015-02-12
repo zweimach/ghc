@@ -49,14 +49,14 @@ module TcMType (
 
   --------------------------------
   -- Zonking and tidying
-  zonkTcPredType, zonkTidyTcType, zonkTidyOrigin,
+  zonkTidyTcType, zonkTidyOrigin,
   mkTypeErrorThing,
   tidyEvVar, tidyCt, tidySkolemInfo,
   skolemiseUnboundMetaTyVar,
   zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, zonkTcTypeAndFV,
   zonkQuantifiedTyCoVar, zonkQuantifiedTyCoVarOrType, quantifyTyCoVars,
   quantifyTyCoVars', defaultKindVar,
-  zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkTcThetaType, zonkCo,
+  zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkCo,
   zonkTyCoVarKind, zonkTcTypeMapper,
 
   zonkEvVar, zonkWC, zonkSimples, zonkId, zonkCt, zonkSkolemInfo,
@@ -877,12 +877,6 @@ zonkTyCoVarKind tv = do { kind' <- zonkTcType (tyVarKind tv)
 
 zonkTcTypes :: [TcType] -> TcM [TcType]
 zonkTcTypes tys = mapM zonkTcType tys
-
-zonkTcThetaType :: TcThetaType -> TcM TcThetaType
-zonkTcThetaType theta = mapM zonkTcPredType theta
-
-zonkTcPredType :: TcPredType -> TcM TcPredType
-zonkTcPredType = zonkTcType
 
 {-
 ************************************************************************

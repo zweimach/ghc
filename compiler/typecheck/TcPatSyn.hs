@@ -89,8 +89,8 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
        ; univ_tvs   <- mapMaybeM zonkQuantifiedTyCoVar univ_tvs
        ; ex_tvs     <- mapMaybeM zonkQuantifiedTyCoVar ex_tvs
 
-       ; prov_theta <- zonkTcThetaType prov_theta
-       ; req_theta  <- zonkTcThetaType req_theta
+       ; prov_theta <- zonkTcTypes prov_theta
+       ; req_theta  <- zonkTcTypes req_theta
 
        ; pat_ty     <- zonkTcType pat_ty
        ; args       <- mapM zonkId args

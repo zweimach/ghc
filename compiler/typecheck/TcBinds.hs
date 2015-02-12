@@ -612,7 +612,7 @@ tcPolyInfer rec_tc prag_fn tc_sig_fn mono closed bind_list
        ; (qtvs, givens, mr_bites, ev_binds)
                  <- simplifyInfer tclvl mono name_taus wanted
 
-       ; inferred_theta  <- zonkTcThetaType (map evVarPred givens)
+       ; inferred_theta  <- zonkTcTypes (map evVarPred givens)
        ; exports <- checkNoErrs $ mapM (mkExport prag_fn qtvs inferred_theta)
                                        mono_infos
 
@@ -740,7 +740,7 @@ completeTheta inferred_theta
                              , sig_extra_cts = mb_extra_cts
                              , sig_theta = annotated_theta })
   | Just loc <- mb_extra_cts
-  = do { annotated_theta <- zonkTcThetaType annotated_theta
+  = do { annotated_theta <- zonkTcTypes annotated_theta
        ; let inferred_diff = [ pred
                              | pred <- inferred_theta
                              , all (not . (`eqType` pred)) annotated_theta ]
@@ -755,7 +755,7 @@ completeTheta inferred_theta
        ; return final_theta }
 
   | otherwise
-  = zonkTcThetaType annotated_theta
+  = zonkTcTypes annotated_theta
     -- No extra-constraints wildcard means no extra constraints will be added
     -- to the context, so just return the possibly empty (zonked)
     -- annotated_theta.
