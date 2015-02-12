@@ -1,5 +1,4 @@
 stack:
-
 - add KApp
 
 
@@ -16,7 +15,16 @@ fix parser; then fix TypeLits.Mult --> *
 KNOWN TESTSUITE FAILURES:
  typecheck/should_compile/tc192: Need coherence-aware instance lookup
  typecheck/should_fail/T1633: Need proper handling of kind coercions
- 
+
+   .  Simple12 [exit code non-0] (normal)
+   .  Simple14 [stderr mismatch] (normal)
+   .  T3017 [stderr mismatch] (normal)
+   .  T3208b [stderr mismatch] (normal)
+   .  T3484 [exit code non-0] (normal)
+   .  T8889 [exit code non-0] (normal)
+   .  T9316 [exit code non-0] (normal)
+   .  red-black-delete [exit code non-0] (normal)
+
 
 QUESTIONS:
 - Check decideQuantification!

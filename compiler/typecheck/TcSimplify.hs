@@ -520,7 +520,9 @@ decideQuantification apply_mr constraint_vars zonked_tau_tvs
              mono_tvs2   = mono_tvs `unionVarSet` mkVarSet other_constraint_vars
              theta       = map varType theta_vars
                            
-             promote_tvs = mono_tvs2 `intersectVarSet` (constrained_tcvs `unionVarSet` zonked_tau_tvs)
+             promote_tvs = closeOverKinds $  -- TODO (RAE): I'm deeply unsure
+                                             -- about closeOverKinds here.
+                           mono_tvs2 `intersectVarSet` (constrained_tcvs `unionVarSet` zonked_tau_tvs)
 
        ; qtvs <- quantifyTyCoVars mono_tvs2 poly_qtvs
        ; traceTc "decideQuantification 2" $
