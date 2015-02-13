@@ -536,8 +536,9 @@ data Coercion
                -- we expand synonyms eagerly
                -- But it can be a type function
 
-  | AppCo Coercion CoercionArg        -- lift AppTy
-          -- AppCo :: e -> N -> e
+  | AppCo Coercion Coercion CoercionArg        -- lift AppTy
+          -- AppCo :: e -> e -> N -> e
+          -- See Note [AppCo]
 
   -- See Note [Forall coercions]
   | ForAllCo ForAllCoBndr Coercion
@@ -590,6 +591,11 @@ data Coercion
   -- See Note [Roles and kind coercions]
   | KindCo Coercion
      -- :: e -> R
+
+  -- Extract a kind coercion from an application.
+  -- See Note [AppCo and KindAppCo]
+  | KindAppCo Coercion
+     -- :: e -> e
     
   | SubCo Coercion                  -- Turns a ~N into a ~R
     -- :: N -> R
@@ -692,6 +698,49 @@ Invariant 2:
 
 All coercions other than Refl are guaranteed to coerce between two
 *distinct* types.
+
+Note [AppCo and KindAppCo]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+Suppose the solver has this problem:
+  [G] (a b) ~N (c d)
+
+It can happily decompose using Left and Right to get
+
+  [G] a ~N c
+  [G] b ~N d
+
+But, a dreadful problem can occur: what if b and d have different kinds,
+say k1 and k2?
+This is quite possible. (It happens in compiling Control.Arrow, for
+example.) If we just use KindCo, then we get
+
+  [G] k1 ~R k2
+
+but that's not quite enough in practice. We need (k1 ~N k2). This
+problem also manifests itself in wanteds, where using representational
+equality means that we can't solve by writing to meta-tyvars.
+
+The solution is to store, in an AppCo, a proof that the kinds of the
+arguments equal. So, the typing rule is this:
+
+g : t1 ~r t2
+w : s1 ~N s2
+s1 : k1
+s2 : k2
+h : k1 ~r k2
+-----------------------------
+AppCo g h w : t1 s1 ~r t2 s2
+
+Note that h's role is the same as g's. This is redundant when g is
+representational, but not at all redundant if g is nominal.
+
+To extract this kind equality, we need KindAppCo:
+
+g : t1 s1 ~r t2 s2
+s1 : k1
+s2 : k2
+----------------------
+KindAppCo g : k1 ~r k2
 
 Note [Coercion axioms applied to coercions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1086,7 +1135,8 @@ tyCoVarsOfCo :: Coercion -> TyCoVarSet
 -- Extracts type and coercion variables from a coercion
 tyCoVarsOfCo (Refl _ ty)         = tyCoVarsOfType ty
 tyCoVarsOfCo (TyConAppCo _ _ args) = tyCoVarsOfCoArgs args
-tyCoVarsOfCo (AppCo co arg)      = tyCoVarsOfCo co `unionVarSet` tyCoVarsOfCoArg arg
+tyCoVarsOfCo (AppCo co h arg)    = tyCoVarsOfCo co `unionVarSet`
+                                   tyCoVarsOfCo h `unionVarSet` tyCoVarsOfCoArg arg
 tyCoVarsOfCo (ForAllCo cobndr co)
   = let (vars, kinds) = coBndrVarsKinds cobndr in
     tyCoVarsOfCo co `delVarSetList` vars `unionVarSet` tyCoVarsOfTypes kinds
@@ -1133,7 +1183,8 @@ coVarsOfCo :: Coercion -> CoVarSet
 -- Extract *coercion* variables only.  Tiresome to repeat the code, but easy.
 coVarsOfCo (Refl _ ty)         = coVarsOfType ty
 coVarsOfCo (TyConAppCo _ _ args) = coVarsOfCoArgs args
-coVarsOfCo (AppCo co arg)      = coVarsOfCo co `unionVarSet` coVarsOfCoArg arg
+coVarsOfCo (AppCo co h arg)    = coVarsOfCo co `unionVarSet`
+                                 coVarsOfCo h `unionVarSet` coVarsOfCoArg arg
 coVarsOfCo (ForAllCo cobndr co)
   = let (vars, kinds) = coBndrVarsKinds cobndr in
     coVarsOfCo co `delVarSetList` vars `unionVarSet` coVarsOfTypes kinds
@@ -1756,7 +1807,7 @@ subst_co subst co
     go (Refl r ty)           = mkReflCo r $! go_ty ty
     go (TyConAppCo r tc args)= let args' = map go_arg args
                                in  args' `seqList` mkTyConAppCo r tc args'
-    go (AppCo co arg)        = mkAppCo (go co) $! go_arg arg
+    go (AppCo co h arg)      = ((mkAppCo $! go co) $! go h) $! go_arg arg
     go (ForAllCo cobndr co)
       = case substForAllCoBndr subst cobndr of { (subst', cobndr') ->
           (mkForAllCo $! cobndr') $! subst_co subst' co }
@@ -2456,7 +2507,7 @@ tidyCo env@(_, subst) co
     go (Refl r ty)           = Refl r (tidyType env ty)
     go (TyConAppCo r tc cos) = let args = map go_arg cos
                                in args `seqList` TyConAppCo r tc args
-    go (AppCo co1 co2)       = (AppCo $! go co1) $! go_arg co2
+    go (AppCo co1 h co2)     = ((AppCo $! go co1) $! go h) $! go_arg co2
     go (ForAllCo cobndr co)  = ForAllCo cobndrp $! (tidyCo envp co)
                                where
                                  (envp, cobndrp) = go_bndr cobndr

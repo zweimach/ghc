@@ -249,8 +249,10 @@ opt_co4 env sym rep r g@(TyConAppCo _r tc cos)
                                    cos)
       (_, Phantom) -> pprPanic "opt_co4 sees a phantom!" (ppr g)
 
-opt_co4 env sym rep r (AppCo co1 co2) = mkAppCo (opt_co4_wrap env sym rep r co1)
-                                                (opt_co_arg4 env sym False Nominal co2)
+opt_co4 env sym rep r (AppCo co1 h co2)
+  = mkAppCo (opt_co4_wrap env sym rep r co1)
+            (opt_co4_wrap env sym rep r h)
+            (opt_co_arg4 env sym False Nominal co2)
 
 -- See Note [Sym and ForAllCo] in TyCoRep
 opt_co4 env sym rep r (ForAllCo cobndr co)
@@ -658,9 +660,11 @@ opt_trans_rule is in_co1@(TyConAppCo r1 tc1 cos1) in_co2@(TyConAppCo r2 tc2 cos2
     fireTransRule "PushTyConApp" in_co1 in_co2 $
     TyConAppCo r1 tc1 (opt_transList is cos1 cos2)
 
-opt_trans_rule is in_co1@(AppCo co1a co1b) in_co2@(AppCo co2a co2b)
+opt_trans_rule is in_co1@(AppCo co1a h1 co1b) in_co2@(AppCo co2a h2 co2b)
   = fireTransRule "TrPushApp" in_co1 in_co2 $
-    mkAppCo (opt_trans is co1a co2a) (opt_trans_arg is co1b co2b)
+    mkAppCo (opt_trans     is co1a co2a)
+            (opt_trans     is h1   h2)
+            (opt_trans_arg is co1b co2b)
 
 -- Eta rules
 opt_trans_rule is co1@(TyConAppCo r tc cos1) co2
@@ -675,15 +679,19 @@ opt_trans_rule is co1 co2@(TyConAppCo r tc cos2)
     fireTransRule "EtaCompR" co1 co2 $
     TyConAppCo r tc (opt_transList is cos1 cos2)
 
-opt_trans_rule is co1@(AppCo co1a co1b) co2
-  | Just (co2a,co2b) <- etaAppCo_maybe co2
+opt_trans_rule is co1@(AppCo co1a h1 co1b) co2
+  | Just (co2a,h2,co2b) <- etaAppCo_maybe co2
   = fireTransRule "EtaAppL" co1 co2 $
-    mkAppCo (opt_trans is co1a co2a) (opt_trans_arg is co1b co2b)
+    mkAppCo (opt_trans     is co1a co2a)
+            (opt_trans     is h1   h2)
+            (opt_trans_arg is co1b co2b)
 
-opt_trans_rule is co1 co2@(AppCo co2a co2b)
-  | Just (co1a,co1b) <- etaAppCo_maybe co1
+opt_trans_rule is co1 co2@(AppCo co2a h2 co2b)
+  | Just (co1a,h1,co1b) <- etaAppCo_maybe co1
   = fireTransRule "EtaAppR" co1 co2 $
-    mkAppCo (opt_trans is co1a co2a) (opt_trans_arg is co1b co2b)
+    mkAppCo (opt_trans     is co1a co2a)
+            (opt_trans     is h1   h2)
+            (opt_trans_arg is co1b co2b)
 
 -- Push transitivity inside forall
 opt_trans_rule is co1 co2

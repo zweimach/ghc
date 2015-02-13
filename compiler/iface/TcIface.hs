@@ -863,7 +863,7 @@ tcIfaceCo = go
     go (IfaceFunCo r c1 c2)      = mkFunCo r <$> go c1 <*> go c2
     go (IfaceTyConAppCo r tc cs)
       = TyConAppCo r <$> tcIfaceTyCon tc <*> tcIfaceCoArgs cs
-    go (IfaceAppCo c1 c2)        = AppCo <$> go c1 <*> tcIfaceCoArg c2
+    go (IfaceAppCo c1 h c2)      = AppCo <$> go c1 <*> go h <*> tcIfaceCoArg c2
     go (IfaceForAllCo bndr c)    = bindIfaceBndrCo bndr $ \ cobndr ->
                                             ForAllCo cobndr <$> go c
     go (IfaceCoVarCo n)          = CoVarCo <$> go_var n

@@ -1,6 +1,14 @@
 stack:
-- add KApp
+- mkAppCoFlexible
+- mkAppCo
+- etaAppCo_maybe
+- IfaceAppCo
 
+
+- rewrite decideQuantification. In particular, I think quantifyTyCoVars'
+  should call quantifyPred, which can easily be moved from TcSimplify
+  to TcType. It's possible that by rewriting quantifyTyCoVars' I can
+  greatly simplify decideQuantification.
 
 - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 

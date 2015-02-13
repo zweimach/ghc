@@ -1143,7 +1143,7 @@ lintCoercion co@(TyConAppCo r tc cos)
        ; _ <- zipWith3M lintRole cos (tyConRolesX r tc) rs
        ; return (k', k, mkTyConApp tc ss, mkTyConApp tc ts, r) }
 
-lintCoercion co@(AppCo co1 co2)
+lintCoercion co@(AppCo co1 kco co2)
   | TyConAppCo {} <- co1
   = failWithL (ptext (sLit "TyConAppCo to the left of AppCo:") <+> ppr co)
   | Refl _ (TyConApp {}) <- co1
@@ -1151,6 +1151,9 @@ lintCoercion co@(AppCo co1 co2)
   | otherwise
   = do { (k1,k2,s1,s2,r1) <- lintCoercion co1
        ; (k'1, k'2, t1, t2, r2) <- lintCoercionArg co2
+       ; (k'1', k'2') <- lintStarCoercion r1 kco
+       ; ensureEqTys k'1 k'1' (mkBadAppKindMsg co kco co2)
+       ; ensureEqTys k'2 k'2' (mkBadAppKindMsg co kco co2)
        ; k3 <- lint_co_app co k1 [(t1,k'1)]
        ; k4 <- lint_co_app co k2 [(t2,k'2)]
        ; if r1 == Phantom
@@ -1429,7 +1432,8 @@ in the quantification. See http://www.cis.upenn.edu/~sweirich/papers/nokinds-ext
 freeInCoercion :: CoVar -> Coercion -> Bool
 freeInCoercion v (Refl _ t)                = freeInType v t
 freeInCoercion v (TyConAppCo _ _ args)     = all (freeInCoercionArg v) args
-freeInCoercion v (AppCo g w)               = (freeInCoercion v g) &&
+freeInCoercion v (AppCo g h w)             = (freeInCoercion v g) &&
+                                             (freeInCoercion v h) &&
                                              (freeInCoercionArg v w)
 freeInCoercion v (ForAllCo (TyHomo a) g)   = (freeInTyVar v a) &&
                                              (freeInCoercion v g)
@@ -1964,6 +1968,13 @@ mkBadTyVarMsg :: TyCoVar -> SDoc
 mkBadTyVarMsg tv
   = ptext (sLit "Non-tyvar used in TyVarTy:")
       <+> ppr tv <+> dcolon <+> ppr (varType tv)
+
+mkBadAppKindMsg :: Coercion -> Coercion -> CoercionArg -> SDoc
+mkBadAppKindMsg co kco arg
+  = hang (text "Kind mismatch on the kind coercion in an AppCo:")
+       2 (vcat [ text "Kind coercion:" <+> ppr kco
+               , text "Arg coercion:" <+> ppr arg
+               , text "AppCo:" <+> co ])
 
 pprLeftOrRight :: LeftOrRight -> MsgDoc
 pprLeftOrRight CLeft  = ptext (sLit "left")

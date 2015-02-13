@@ -163,7 +163,7 @@ setCoVarName   = setVarName
 coercionSize :: Coercion -> Int
 coercionSize (Refl _ ty)         = typeSize ty
 coercionSize (TyConAppCo _ _ args) = 1 + sum (map coercionArgSize args)
-coercionSize (AppCo co arg)      = coercionSize co + coercionArgSize arg
+coercionSize (AppCo co h arg)    = coercionSize co + coercionSize h + coercionArgSize arg
 coercionSize (ForAllCo _ co)     = 1 + coercionSize co
 coercionSize (CoVarCo _)         = 1
 coercionSize (AxiomInstCo _ _ args) = 1 + sum (map coercionArgSize args)
@@ -214,7 +214,7 @@ ppr_co p co@(TyConAppCo _ tc [_,_])
   | tc `hasKey` funTyConKey = ppr_fun_co p co
 
 ppr_co _ (TyConAppCo r tc cos)  = pprTcApp TyConPrec ppr_arg tc cos <> ppr_role r
-ppr_co p (AppCo co arg)        = maybeParen p TyConPrec $
+ppr_co p (AppCo co _ arg)      = maybeParen p TyConPrec $
                                  pprCo co <+> ppr_arg TyConPrec arg
 ppr_co p co@(ForAllCo {})      = ppr_forall_co p co
 ppr_co _ (CoVarCo cv)          = parenSymOcc (getOccName cv) (ppr cv)
@@ -353,7 +353,7 @@ splitTyConAppCo_maybe _                     = Nothing
 -- first result has role equal to input; second result is Nominal
 splitAppCo_maybe :: Coercion -> Maybe (Coercion, CoercionArg)
 -- ^ Attempt to take a coercion application apart.
-splitAppCo_maybe (AppCo co arg) = Just (co, arg)
+splitAppCo_maybe (AppCo co _ arg) = Just (co, arg)
 splitAppCo_maybe (TyConAppCo r tc args)
   | isDecomposableTyCon tc || args `lengthExceeds` tyConArity tc 
   , Just (args', arg') <- snocView args
@@ -548,16 +548,24 @@ mkFunCos :: Role -> [Coercion] -> Coercion -> Coercion
 mkFunCos r cos res_co = foldr (mkFunCo r) res_co cos
 
 -- | Apply a 'Coercion' to another 'CoercionArg'.
--- The second coercion must be Nominal, unless the first is Phantom.
+-- The third coercion must be Nominal, unless the first is Phantom.
 -- If the first is Phantom, then the second can be either Phantom or Nominal.
-mkAppCo :: Coercion -> CoercionArg -> Coercion
-mkAppCo co1 co2 = mkAppCoFlexible co1 Nominal co2
+mkAppCo :: Coercion     -- ^ :: t1 ~r t2
+        -> Coercion     -- ^ :: k1 ~r k2
+        -> CoercionArg  -- ^ :: s1 ~N s2, where s1 :: k1, s2 :: k2
+        -> Coercion     -- ^ :: t1 s1 ~r t2 s2
+mkAppCo co1 kco co2 = mkAppCoFlexible co1 kco Nominal co2
 
-mkAppCoFlexible :: Coercion -> Role -> CoercionArg -> Coercion
-mkAppCoFlexible (Refl r ty1) _ arg
+-- | Apply a 'Coercion' to a 'CoercionArg' of the given role
+mkAppCoFlexible :: Coercion    -- ^ :: t1 ~r t2
+                -> Coercion    -- ^ :: k1 ~r k2
+                -> Role        -- ^ "e"
+                -> CoercionArg -- ^ :: s1 ~e s2, where s1 :: k1, s2 :: k2
+                -> Coercion    -- ^ :: t1 s1 ~r t2 s2
+mkAppCoFlexible (Refl r ty1) _ _ arg
   | Just ty2 <- isReflLike_maybe arg
   = Refl r (mkAppTy ty1 ty2)
-mkAppCoFlexible (Refl r ty1) r2 co2
+mkAppCoFlexible (Refl r ty1) _ r2 co2
   | Just (tc, tys) <- splitTyConApp_maybe ty1
     -- Expand type synonyms; a TyConAppCo can't have a type synonym (Trac #9102)
   = TyConAppCo r tc (zip_roles (tyConRolesX r tc) tys)
@@ -565,7 +573,7 @@ mkAppCoFlexible (Refl r ty1) r2 co2
     zip_roles (r1:_)  []            = [downgradeRoleArg r1 r2 co2]
     zip_roles (r1:rs) (ty1:tys)     = liftSimply r1 ty1 : zip_roles rs tys
     zip_roles _       _             = panic "zip_roles" -- but the roles are infinite...
-mkAppCoFlexible (TyConAppCo r tc cos) r2 co
+mkAppCoFlexible (TyConAppCo r tc cos) _ r2 co
   = case r of
       Nominal          -> ASSERT( r2 == Nominal )
                           TyConAppCo Nominal tc (cos ++ [co])
@@ -573,9 +581,9 @@ mkAppCoFlexible (TyConAppCo r tc cos) r2 co
         where new_role = (tyConRolesX Representational tc) !! (length cos)
               co'      = downgradeRoleArg new_role r2 co
       Phantom          -> TyConAppCo Phantom tc (cos ++ [toPhantomCoArg co])
-mkAppCoFlexible co1 _r2 co2
+mkAppCoFlexible co1 kco _r2 co2
   = ASSERT( _r2 == Nominal )
-    AppCo co1 co2
+    AppCo co1 kco co2
 -- Note, mkAppCo is careful to maintain invariants regarding
 -- where Refl constructors appear; see the comments in the definition
 -- of Coercion and the Note [Refl invariant] in types/TyCoRep.lhs.
@@ -919,8 +927,8 @@ setNominalRole_maybe (SymCo co)
   = SymCo <$> setNominalRole_maybe co
 setNominalRole_maybe (TransCo co1 co2)
   = TransCo <$> setNominalRole_maybe co1 <*> setNominalRole_maybe co2
-setNominalRole_maybe (AppCo co1 co2)
-  = AppCo <$> setNominalRole_maybe co1 <*> pure co2
+setNominalRole_maybe (AppCo co1 h co2)
+  = AppCo <$> setNominalRole_maybe co1 <*> setNominalRole_maybe h <*> pure co2
 setNominalRole_maybe (ForAllCo cobndr co)
   = ForAllCo <$> setNominalRoleCoBndr_maybe cobndr <*> setNominalRole_maybe co
 setNominalRole_maybe (NthCo n co)
@@ -1094,7 +1102,7 @@ promoteCoercion g@(TyConAppCo _ tc args)
   = co'
   | otherwise
   = mkKindCo g
-promoteCoercion g@(AppCo co arg)
+promoteCoercion g@(AppCo co _ arg)
   | Just co' <- instCoercion (promoteCoercion co) arg
   = co'
   | otherwise
@@ -1708,7 +1716,7 @@ liftSimply r ty = TyCoArg $ mkReflCo r ty
 seqCo :: Coercion -> ()
 seqCo (Refl r ty)           = r `seq` seqType ty
 seqCo (TyConAppCo r tc cos) = r `seq` tc `seq` seqCoArgs cos
-seqCo (AppCo co1 co2)       = seqCo co1 `seq` seqCoArg co2
+seqCo (AppCo co1 h co2)     = seqCo co1 `seq` seqCo h `seq` seqCoArg co2
 seqCo (ForAllCo cobndr co)  = seqCoBndr cobndr `seq` seqCo co
 seqCo (CoVarCo cv)          = cv `seq` ()
 seqCo (AxiomInstCo con ind cos) = con `seq` ind `seq` seqCoArgs cos
@@ -1779,7 +1787,7 @@ coercionKind co = go co
   where 
     go (Refl _ ty)          = Pair ty ty
     go (TyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map coercionArgKind cos)
-    go (AppCo co1 co2)      = mkAppTy <$> go co1 <*> coercionArgKind co2
+    go (AppCo co1 _ co2)    = mkAppTy <$> go co1 <*> coercionArgKind co2
     go (ForAllCo cobndr co) = mkNamedForAllTy <$> coBndrKind cobndr <*> pure Invisible <*> go co
     go (CoVarCo cv)         = toPair $ coVarTypes cv
     go (AxiomInstCo ax ind cos)
@@ -1842,7 +1850,7 @@ coercionKindRole = go
     go (Refl r ty) = (Pair ty ty, r)
     go (TyConAppCo r tc cos)
       = (mkTyConApp tc <$> (sequenceA $ map coercionArgKind cos), r)
-    go (AppCo co1 co2)
+    go (AppCo co1 _ co2)
       = let (tys1, r1) = go co1 in
         (mkAppTy <$> tys1 <*> coercionArgKind co2, r1)
     go (ForAllCo cobndr co)

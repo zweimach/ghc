@@ -653,7 +653,7 @@ exactTyCoVarsOfType ty
 
     goCo (Refl _ ty)        = go ty
     goCo (TyConAppCo _ _ args)= goCoArgs args
-    goCo (AppCo co arg)     = goCo co `unionVarSet` goCoArg arg
+    goCo (AppCo co h arg)   = goCo co `unionVarSet` goCo h `unionVarSet` goCoArg arg
     goCo (ForAllCo bndr co)
       = let (vars, kinds) = coBndrVarsKinds bndr in
         goCo co `delVarSetList` vars `unionVarSet` exactTyCoVarsOfTypes kinds
@@ -1384,7 +1384,9 @@ occurCheckExpand dflags tv ty
 
     fast_check_co (Refl _ ty)            = fast_check ty
     fast_check_co (TyConAppCo _ _ args)  = all fast_check_co_arg args
-    fast_check_co (AppCo co arg)         = fast_check_co co && fast_check_co_arg arg
+    fast_check_co (AppCo co h arg)       = fast_check_co co &&
+                                           fast_check_co h &&
+                                           fast_check_co_arg arg
     fast_check_co (ForAllCo cobndr co)
       | Just v <- getHomoVar_maybe cobndr
       = impredicative && fast_check (varType v) && (tv == v || fast_check_co co)
@@ -1456,9 +1458,10 @@ occurCheckExpand dflags tv ty
       -- Note: Coercions do not contain type synonyms
     go_co (TyConAppCo r tc args)    = do { args' <- mapM go_arg args
                                          ; return (mkTyConAppCo r tc args') }
-    go_co (AppCo co arg)            = do { co' <- go_co co
+    go_co (AppCo co h arg)          = do { co' <- go_co co
+                                         ; h' <- go_co h
                                          ; arg' <- go_arg arg
-                                         ; return (mkAppCo co' arg') }
+                                         ; return (mkAppCo co' h' arg') }
     go_co (ForAllCo cobndr co)
       | not impredicative           = OC_Forall
       | not (all fast_check (map varType (coBndrVars cobndr)))
@@ -1725,7 +1728,7 @@ orphNamesOfDFunHead dfun_ty
 orphNamesOfCo :: Coercion -> NameSet
 orphNamesOfCo (Refl _ ty)           = orphNamesOfType ty
 orphNamesOfCo (TyConAppCo _ tc cos) = unitNameSet (getName tc) `unionNameSet` orphNamesOfCoArgs cos
-orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSet` orphNamesOfCoArg co2
+orphNamesOfCo (AppCo co1 h co2)     = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo h `unionNameSet` orphNamesOfCoArg co2
 orphNamesOfCo (ForAllCo cobndr co)
   | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
   = orphNamesOfCo h `unionNameSet` orphNamesOfCo co

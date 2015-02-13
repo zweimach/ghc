@@ -155,7 +155,7 @@ data IfaceCoercion     -- represents Coercions and CoercionArgs
   = IfaceReflCo      Role IfaceType
   | IfaceFunCo       Role IfaceCoercion IfaceCoercion
   | IfaceTyConAppCo  Role IfaceTyCon [IfaceCoercion]
-  | IfaceAppCo       IfaceCoercion IfaceCoercion
+  | IfaceAppCo       IfaceCoercion IfaceCoercion IfaceCoercion
   | IfaceForAllCo    IfaceForAllBndr IfaceCoercion
   | IfaceCoVarCo     IfLclName
   | IfaceAxiomInstCo IfExtName BranchIndex [IfaceCoercion]
@@ -266,7 +266,8 @@ ifTyVarsOfCoercion = go
     go (IfaceReflCo _ ty)         = ifTyVarsOfType ty
     go (IfaceFunCo _ c1 c2)       = go c1 `unionUniqSets` go c2
     go (IfaceTyConAppCo _ _ cos)  = ifTyVarsOfCoercions cos
-    go (IfaceAppCo c1 c2)         = go c1 `unionUniqSets` go c2
+    go (IfaceAppCo c1 h c2)       = go c1 `unionUniqSets`
+                                    go h `unionUniqSets` go c2
     go (IfaceForAllCo bndr co)
      = let (free, bound) = ifTyVarsOfForAllBndr bndr in
         go co `delListFromUniqSet` bound `unionUniqSets` free
@@ -699,7 +700,7 @@ ppr_co ctxt_prec (IfaceFunCo r co1 co2)
 
 ppr_co _         (IfaceTyConAppCo r tc cos)
   = parens (pprIfaceCoTcApp TopPrec tc cos) <> ppr_role r
-ppr_co ctxt_prec (IfaceAppCo co1 co2)
+ppr_co ctxt_prec (IfaceAppCo co1 _ co2)
   = maybeParen ctxt_prec TyConPrec $
     ppr_co FunPrec co1 <+> pprParendIfaceCoercion co2
 ppr_co ctxt_prec co@(IfaceForAllCo _ _)
@@ -1162,7 +1163,8 @@ toIfaceCoercion (TyConAppCo r tc cos)
   , [arg,res] <- cos                = IfaceFunCo r (argToIfaceCoercion arg) (argToIfaceCoercion res)
   | otherwise                       = IfaceTyConAppCo r (toIfaceTyCon tc)
                                                         (map argToIfaceCoercion cos)
-toIfaceCoercion (AppCo co1 co2)     = IfaceAppCo  (toIfaceCoercion co1)
+toIfaceCoercion (AppCo co1 h co2)   = IfaceAppCo  (toIfaceCoercion co1)
+                                                  (toIfaceCoercion h)
                                                   (argToIfaceCoercion co2)
 toIfaceCoercion (ForAllCo cobndr co)= IfaceForAllCo (toIfaceForAllBndr cobndr)
                                                     (toIfaceCoercion co)

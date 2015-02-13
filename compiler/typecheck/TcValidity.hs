@@ -1323,7 +1323,7 @@ fvTypes tys                = concat (map fvType tys)
 fvCo :: Coercion -> [TyCoVar]
 fvCo (Refl _ ty)            = fvType ty
 fvCo (TyConAppCo _ _ args)  = concatMap fvCoArg args
-fvCo (AppCo co arg)         = fvCo co ++ fvCoArg arg
+fvCo (AppCo co h arg)       = fvCo co ++ fvCo h ++ fvCoArg arg
 fvCo (ForAllCo cobndr co)   = (fvCo co \\ coBndrVars cobndr)
                               ++ case splitHeteroCoBndr_maybe cobndr of
                                    Just (h, _, _) -> fvCo h

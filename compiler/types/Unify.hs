@@ -1094,7 +1094,7 @@ ty_co_match menv subst ty (SubCo co) lkco rkco
 ty_co_match menv subst (AppTy ty1a ty1b) co _lkco _rkco
   | Just (co2, arg2) <- splitAppCo_maybe co     -- c.f. Unify.match on AppTy
   = ty_co_match_app menv subst ty1a ty1b co2 arg2
-ty_co_match menv subst ty1 (AppCo co2 arg2) _lkco _rkco
+ty_co_match menv subst ty1 (AppCo co2 _ arg2) _lkco _rkco
   | Just (ty1a, ty1b) <- repSplitAppTy_maybe ty1
   = ty_co_match_app menv subst ty1a ty1b co2 arg2
 
@@ -1208,7 +1208,8 @@ ty_co_match_arg menv subst ty arg lkco rkco
 
 pushRefl :: Coercion -> Maybe Coercion
 pushRefl (Refl Nominal (AppTy ty1 ty2))
-  = Just (AppCo (Refl Nominal ty1) (liftSimply Nominal ty2))
+  = Just (AppCo (Refl Nominal ty1) (Refl Nominal (typeKind ty2))
+                                   (liftSimply Nominal ty2))
 pushRefl (Refl r (ForAllTy (Anon ty1) ty2))
   = Just (TyConAppCo r funTyCon [liftSimply r ty1, liftSimply r ty2])
 pushRefl (Refl r (TyConApp tc tys))

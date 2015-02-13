@@ -345,8 +345,8 @@ expandTypeSynonyms ty
        -- NB: coercions are always expanded upon creation
     go_co subst (TyConAppCo r tc args)
       = mkTyConAppCo r tc (map (go_arg subst) args)
-    go_co subst (AppCo co arg)
-      = mkAppCo (go_co subst co) (go_arg subst arg)
+    go_co subst (AppCo co h arg)
+      = mkAppCo (go_co subst co) (go_co subst h) (go_arg subst arg)
     go_co subst (ForAllCo cobndr co)
       = let (subst', cobndr') = go_cobndr subst cobndr in
         mkForAllCo cobndr' (go_co subst' co)
@@ -484,7 +484,9 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (Refl r ty) = Refl r <$> mapType mapper env ty
     go (TyConAppCo r tc args)
       = mktyconappco r tc <$> mapM (mapCoercionArg mapper env) args
-    go (AppCo c1 c2) = mkappco <$> go c1 <*> mapCoercionArg mapper env c2
+    go (AppCo c1 h c2) = mkappco <$> go c1
+                                 <*> go h
+                                 <*> mapCoercionArg mapper env c2
     go (ForAllCo cobndr co)
       = do { (env', cobndr') <- go_cobndr cobndr
            ; co' <- mapCoercion mapper env' co
@@ -2143,7 +2145,8 @@ tyConsOfType ty
 
      go_co (Refl _ ty)             = go ty
      go_co (TyConAppCo _ tc args)  = go_tc tc `plusNameEnv` go_args args
-     go_co (AppCo co arg)          = go_co co `plusNameEnv` go_arg arg
+     go_co (AppCo co h arg)        = go_co co `plusNameEnv`
+                                     go_co h `plusNameEnv` go_arg arg
      go_co (ForAllCo cobndr co)
        | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
        = go_co h `plusNameEnv` var_names `plusNameEnv` go_co co
