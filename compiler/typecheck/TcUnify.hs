@@ -275,7 +275,7 @@ matchExpectedTyConApp tc orig_ty
 
 ----------------------
 matchExpectedAppTy :: TcRhoType                         -- orig_ty
-                   -> TcM (TcCoercion,                   -- m a ~ orig_ty
+                   -> TcM (TcCoercion,                   -- m a ~N orig_ty
                            (TcSigmaType, TcSigmaType))  -- Returns m, a
 -- If the incoming type is a mutable type variable of kind k, then
 -- matchExpectedAppTy returns a new type variable (m: * -> k); note the *.
@@ -800,7 +800,7 @@ uType origin orig_ty1 orig_ty2
 
     go (LitTy m) ty@(LitTy n)
       | m == n
-      = return $ mkReflCo Nominal ty
+      = return $ mkNomReflCo ty
 
         -- See Note [Care with type applications]
         -- Do not decompose FunTy against App; 
@@ -824,13 +824,21 @@ uType origin orig_ty1 orig_ty2
 
     ------------------
     go_app s1 t1 s2 t2
-      = do { co_s <- uType    origin s1 s2  -- See Note [Unifying AppTy]
+      = do { co_s <- uType    origin s1 s2
+           ; co_h <- uType    kind_origin t1k t2k
            ; co_t <- uTypeArg origin t1 t2        
-           ; return $ mkAppCo co_s co_t }
+           ; return $ mkAppCo co_s co_h co_t }
+      where
+        t1k = typeKind t1
+        t2k = typeKind t2
+        kind_origin = KindEqOrigin t1 t2 origin
 
 uTypeArg :: CtOrigin -> TcType -> TcType -> TcM CoercionArg
-uTypeArg _ (CoercionTy co1) (CoercionTy co2)
-  = return (CoCoArg Nominal co1 co2)
+uTypeArg origin orig_ty1@(CoercionTy co1) orig_ty2@(CoercionTy co2)
+  = do { let ty1 = coercionType co1
+             ty2 = coercionType co2
+       ; kco <- uType (KindEqOrigin orig_ty1 orig_ty2 origin) ty1 ty2
+       ; return $ CoCoArg Nominal (mkSubCo kco) co1 co2 }
 uTypeArg origin ty1 ty2 = TyCoArg <$> uType origin ty1 ty2
 
 {-
@@ -840,16 +848,6 @@ Note: type applications need a bit of care!
 They can match FunTy and TyConApp, so use splitAppTy_maybe
 NB: we've already dealt with type variables and Notes,
 so if one type is an App the other one jolly well better be too
-
-Note [Unifying AppTy]
-~~~~~~~~~~~~~~~~~~~~~
-Consider unifying  (m Int) ~ (IO Int) where m is a unification variable 
-that is now bound to (say) (Bool ->).  Then we want to report 
-     "Can't unify (Bool -> Int) with (IO Int)
-and not 
-     "Can't unify ((->) Bool) with IO"
-That is why we use the "_np" variant of uType, which does not alter the error
-message.
 
 Note [Mismatched type lists and application decomposition]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -929,7 +927,7 @@ uUnfilledVar :: CtOrigin
 
 uUnfilledVar origin swapped tv1 details1 (TyVarTy tv2)
   | tv1 == tv2  -- Same type variable => no-op
-  = return (mkReflCo Nominal (mkTyCoVarTy tv1))
+  = return (mkNomReflCo (mkTyCoVarTy tv1))
 
   | otherwise  -- Distinct type variables
   = do  { lookup2 <- lookupTcTyVar tv2
@@ -1234,7 +1232,7 @@ updateMeta :: TcTyVar            -- ^ tv to fill in, tv :: k1
            -> TcM Coercion       -- ^ :: tv ~ ty2 |> kind_co
 updateMeta tv1 ref1 ty2 kind_co
   = do { let sub_kind_co          = mkSubCo kind_co
-             ty2_refl             = mkReflCo Nominal ty2
+             ty2_refl             = mkNomReflCo ty2
              (ty2', co)
                | isReflCo kind_co = (ty2, ty2_refl)
                | otherwise        = ( ty2 `mkCastTy` sub_kind_co
@@ -1266,7 +1264,7 @@ matchExpectedFunKind ty = go
                 Flexi ->             defer (isReturnTyVar kvar) k }
 
     go k@(ForAllTy (Anon arg) res)
-      = return (mkReflCo Nominal k, arg, res)
+      = return (mkNomReflCo k, arg, res)
 
     go other = defer False other
 

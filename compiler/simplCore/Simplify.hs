@@ -1238,7 +1238,7 @@ simplCast env body co0 cont0
          = ASSERT( isTyVar tyvar )
            cont { sc_cont = addCoerce new_cast tail }
          where
-           new_cast = mkInstCo co (liftSimply Nominal arg_ty)
+           new_cast = mkInstCo co (mkNomReflCoArg arg_ty)
 
        add_coerce co (Pair s1s2 t1t2) (ApplyToVal { sc_arg = arg, sc_env = arg_se
                                                   , sc_dup = dup, sc_cont = cont })

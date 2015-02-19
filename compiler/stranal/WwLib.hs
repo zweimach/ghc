@@ -539,7 +539,7 @@ deepSplitProductType_maybe :: FamInstEnvs -> Type -> Maybe (DataCon, [Type], [Ty
 --       co :: ty ~ rep_ty
 deepSplitProductType_maybe fam_envs ty
   | let (co, ty1) = topNormaliseType_maybe fam_envs ty
-                    `orElse` (mkReflCo Representational ty, ty)
+                    `orElse` (mkRepReflCo ty, ty)
   , Just (tc, tc_args) <- splitTyConApp_maybe ty1
   , Just con <- isDataProductTyCon_maybe tc
   , not (isClassTyCon tc)  -- See Note [Do not unpack class dictionaries]
@@ -552,7 +552,7 @@ deepSplitCprType_maybe :: FamInstEnvs -> ConTag -> Type -> Maybe (DataCon, [Type
 --       co :: ty ~ rep_ty
 deepSplitCprType_maybe fam_envs con_tag ty
   | let (co, ty1) = topNormaliseType_maybe fam_envs ty
-                    `orElse` (mkReflCo Representational ty, ty)
+                    `orElse` (mkRepReflCo ty, ty)
   , Just (tc, tc_args) <- splitTyConApp_maybe ty1
   , isDataTyCon tc
   , let cons = tyConDataCons tc

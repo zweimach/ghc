@@ -55,7 +55,8 @@ module TyCoRep (
         -- Free variables
         tyCoVarsOfType, tyCoVarsOfTypes,
         coVarsOfType, coVarsOfTypes,
-        coVarsOfCo, coVarsOfCos, tyCoVarsOfCoArg, tyCoVarsOfCoArgs,
+        coVarsOfCo, coVarsOfCos, coVarsOfCoArg,
+        tyCoVarsOfCoArg, tyCoVarsOfCoArgs,
         tyCoVarsOfCo, tyCoVarsOfCos,
         closeOverKinds,
 
@@ -76,7 +77,7 @@ module TyCoRep (
         substTyWithBinders,
         substTys, substTheta, substTyCoVar, substTyCoVars,
         lookupTyVar, lookupVar, substTyVarBndr,
-        substCo, substCos, substCoVar, substCoVars, lookupCoVar,
+        substCo, substCoArg, substCos, substCoVar, substCoVars, lookupCoVar,
         substTyCoVarBndr, substCoVarBndr, cloneTyVarBndr,
         substCoWithIS, substCoWith, substTyVar, substTyVars,
         substForAllCoBndr,
@@ -430,7 +431,18 @@ mkTyCoVarTys = map mkTyCoVarTy
 infixr 3 `mkFunTy`      -- Associates to the right
 -- | Make an arrow type
 mkFunTy :: Type -> Type -> Type
-mkFunTy arg res = ForAllTy (Anon arg) res
+-- We must be careful here to respect the invariant that all covars are
+-- dependently quantified. See Note [Equality-constrained types] in
+-- TyCoRep
+mkFunTy arg res
+  | isCoercionType arg
+  = let in_scope = mkInScopeSet $ tyCoVarsOfType res
+        cv       = mkFreshCoVarOfType in_scope arg
+    in
+    ForAllTy (Named cv Invisible) res
+    
+  | otherwise    
+  = ForAllTy (Anon arg) res
 
 -- | Does this type classify a core Coercion?
 isCoercionType :: Type -> Bool
@@ -655,8 +667,11 @@ eqCoBndrSort _             _             = False
 -- If you edit this type, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data CoercionArg
-  = TyCoArg Coercion               -- role is that of the Coercion
-  | CoCoArg Role Coercion Coercion -- role is given
+  = TyCoArg Coercion                        -- role is that of the Coercion
+  | CoCoArg Role             -- role of the CoercionArg
+            Coercion         -- :: phi1 ~R phi2
+            Coercion         -- :: phi1
+            Coercion         -- :: phi2
   deriving ( Data.Data, Data.Typeable )
 
 -- If you edit this type, you may need to update the GHC formalism
@@ -1152,6 +1167,7 @@ tyCoVarsOfCo (LRCo _ co)         = tyCoVarsOfCo co
 tyCoVarsOfCo (InstCo co arg)     = tyCoVarsOfCo co `unionVarSet` tyCoVarsOfCoArg arg
 tyCoVarsOfCo (CoherenceCo c1 c2) = tyCoVarsOfCo c1 `unionVarSet` tyCoVarsOfCo c2
 tyCoVarsOfCo (KindCo co)         = tyCoVarsOfCo co
+tyCoVarsOfCo (KindAppCo co)      = tyCoVarsOfCo co
 tyCoVarsOfCo (SubCo co)          = tyCoVarsOfCo co
 tyCoVarsOfCo (AxiomRuleCo _ ts cs) = tyCoVarsOfTypes ts `unionVarSet` tyCoVarsOfCos cs
 
@@ -1159,8 +1175,8 @@ tyCoVarsOfCos :: [Coercion] -> TyCoVarSet
 tyCoVarsOfCos cos = mapUnionVarSet tyCoVarsOfCo cos
 
 tyCoVarsOfCoArg :: CoercionArg -> TyCoVarSet
-tyCoVarsOfCoArg (TyCoArg co)      = tyCoVarsOfCo co
-tyCoVarsOfCoArg (CoCoArg _ c1 c2) = tyCoVarsOfCo c1 `unionVarSet` tyCoVarsOfCo c2
+tyCoVarsOfCoArg (TyCoArg co)        = tyCoVarsOfCo co
+tyCoVarsOfCoArg (CoCoArg _ h c1 c2) = mapUnionVarSet tyCoVarsOfCo [h, c1, c2]
 
 tyCoVarsOfCoArgs :: [CoercionArg] -> TyCoVarSet
 tyCoVarsOfCoArgs args = mapUnionVarSet tyCoVarsOfCoArg args
@@ -1199,6 +1215,7 @@ coVarsOfCo (LRCo _ co)         = coVarsOfCo co
 coVarsOfCo (InstCo co arg)     = coVarsOfCo co `unionVarSet` coVarsOfCoArg arg
 coVarsOfCo (CoherenceCo c1 c2) = coVarsOfCos [c1, c2]
 coVarsOfCo (KindCo co)         = coVarsOfCo co
+coVarsOfCo (KindAppCo co)      = coVarsOfCo co
 coVarsOfCo (SubCo co)          = coVarsOfCo co
 coVarsOfCo (AxiomRuleCo _ ts cs) = coVarsOfTypes ts `unionVarSet` coVarsOfCos cs
 
@@ -1206,8 +1223,8 @@ coVarsOfCos :: [Coercion] -> CoVarSet
 coVarsOfCos cos = mapUnionVarSet coVarsOfCo cos
 
 coVarsOfCoArg :: CoercionArg -> CoVarSet
-coVarsOfCoArg (TyCoArg co)      = coVarsOfCo co
-coVarsOfCoArg (CoCoArg _ c1 c2) = coVarsOfCos [c1, c2]
+coVarsOfCoArg (TyCoArg co)        = coVarsOfCo co
+coVarsOfCoArg (CoCoArg _ h c1 c2) = coVarsOfCos [h, c1, c2]
 
 coVarsOfCoArgs :: [CoercionArg] -> CoVarSet
 coVarsOfCoArgs args = mapUnionVarSet coVarsOfCoArg args
@@ -1778,6 +1795,11 @@ substCo :: TCvSubst -> Coercion -> Coercion
 substCo subst co | isEmptyTCvSubst subst = co
                  | otherwise             = subst_co subst co
 
+-- | Substitute within a 'Coercion'
+substCoArg :: TCvSubst -> CoercionArg -> CoercionArg
+substCoArg subst co | isEmptyTCvSubst subst = co
+                    | otherwise             = subst_co_arg subst co
+
 -- | Substitute within several 'Coercion's
 substCos :: TCvSubst -> [Coercion] -> [Coercion]
 substCos subst cos | isEmptyTCvSubst subst = cos
@@ -1822,15 +1844,23 @@ subst_co subst co
     go (InstCo co arg)       = (mkInstCo $! (go co)) $! go_arg arg
     go (CoherenceCo co1 co2) = (mkCoherenceCo $! (go co1)) $! (go co2)
     go (KindCo co)           = mkKindCo $! (go co)
+    go (KindAppCo co)        = mkKindAppCo $! (go co)
     go (SubCo co)            = mkSubCo $! (go co)
     go (AxiomRuleCo c ts cs) = let ts1 = map go_ty ts
                                    cs1 = map go cs
                                 in ts1 `seqList` cs1 `seqList`
                                    AxiomRuleCo c ts1 cs1
 
+    go_arg = subst_co_arg subst
+
+subst_co_arg :: TCvSubst -> CoercionArg -> CoercionArg
+subst_co_arg subst co = go_arg co
+  where
     go_arg :: CoercionArg -> CoercionArg
-    go_arg (TyCoArg co)        = TyCoArg $! go co
-    go_arg (CoCoArg r co1 co2) = (CoCoArg r $! go co1) $! go co2
+    go_arg (TyCoArg co)          = TyCoArg $! go co
+    go_arg (CoCoArg r h co1 co2) = ((CoCoArg r $! go h) $! go co1) $! go co2
+
+    go = subst_co subst
 
 substForAllCoBndr :: TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
 substForAllCoBndr = substForAllCoBndrCallback False substTy (const substCo)
@@ -2525,14 +2555,15 @@ tidyCo env@(_, subst) co
     go (InstCo co ty)        = (InstCo $! go co) $! go_arg ty
     go (CoherenceCo co1 co2) = (CoherenceCo $! go co1) $! go co2
     go (KindCo co)           = KindCo $! go co
+    go (KindAppCo co)        = KindAppCo $! go co
     go (SubCo co)            = SubCo $! go co
     go (AxiomRuleCo ax tys cos) = let tys1 = tidyTypes env tys
                                       cos1 = tidyCos env cos
                                   in tys1 `seqList` cos1 `seqList`
                                      AxiomRuleCo ax tys1 cos1
 
-    go_arg (TyCoArg co)        = TyCoArg $! go co
-    go_arg (CoCoArg r co1 co2) = (CoCoArg r $! go co1) $! go co2
+    go_arg (TyCoArg co)          = TyCoArg $! go co
+    go_arg (CoCoArg r h co1 co2) = ((CoCoArg r $! go h) $! go co1) $! go co2
 
     go_bndr cobndr
       | Just v <- getHomoVar_maybe cobndr

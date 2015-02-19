@@ -28,6 +28,7 @@ module TcSMonad (
     MaybeNew(..), freshGoals, isFresh, getEvTerm,
 
     newTcEvBinds, newWantedEvVar, newWantedEvVarNC, newBoundEvVarId,
+    dirtyTcCoToCo,
     setWantedTyBind, reportUnifications,
     setEvBind, dropEvBindFromVar,
     newEvVar, newGivenEvVar, newGivenEvVars,
@@ -107,7 +108,7 @@ import Kind
 import TcType
 import DynFlags
 import Type
-import Coercion ( Coercion )
+import Coercion
 
 import TcEvidence
 import Class
@@ -131,9 +132,9 @@ import TcRnTypes
 import Unique
 import UniqFM
 import Maybes ( orElse, firstJusts )
+import Pair
 
 import TrieMap
-import Control.Arrow ( first )
 import Control.Monad( ap, when, unless, MonadPlus(..) )
 import MonadUtils
 import Data.IORef
@@ -1585,16 +1586,17 @@ which will result in two Deriveds to end up in the insoluble set:
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 newFlattenSkolem :: CtFlavour -> CtLoc
                  -> TcType         -- F xis
-                 -> TcS (CtEvidence, TcTyVar)    -- [W] x:: F xis ~ fsk
+                 -> TcS (CtEvidence, Coercion, TcTyVar)    -- [W] x:: F xis ~ fsk
 newFlattenSkolem Given loc fam_ty
   =  do { fsk <- wrapTcS $
                  do { uniq <- TcM.newUnique
                     ; let name = TcM.mkTcTyVarName uniq (fsLit "fsk")
                     ; return (mkTcTyVar name (typeKind fam_ty) (FlatSkol fam_ty)) }
-        ; let ev = CtGiven { ctev_pred = mkPrimEqPred fam_ty (mkOnlyTyVarTy fsk)
-                           , ctev_evtm = EvCoercion (mkTcNomReflCo fam_ty)
+        ; let co = mkNomReflCo fam_ty 
+              ev = CtGiven { ctev_pred = mkPrimEqPred fam_ty (mkOnlyTyVarTy fsk)
+                           , ctev_evtm = EvCoercion (mkTcCoercion co)
                            , ctev_loc  = loc }
-        ; return (ev, fsk) }
+        ; return (ev, co, fsk) }
 
 newFlattenSkolem _ loc fam_ty  -- Make a wanted
   = do { fuv <- wrapTcS $
@@ -1606,7 +1608,7 @@ newFlattenSkolem _ loc fam_ty  -- Make a wanted
                           name = TcM.mkTcTyVarName uniq (fsLit "s")
                     ; return (mkTcTyVar name (typeKind fam_ty) details) }
        ; ev <- newWantedEvVarNC loc (mkPrimEqPred fam_ty (mkOnlyTyVarTy fuv))
-       ; return (ev, fuv) }
+       ; return (ev, mkCoVarCo (ctev_evar ev), fuv) }
 
 extendFlatCache :: TyCon -> [Type] -> (TcCoercion, TcType, CtFlavour) -> TcS ()
 extendFlatCache tc xi_args stuff
@@ -1766,6 +1768,18 @@ newWantedEvVar loc pty
                     ; traceTcS "newWantedEvVar/cache miss" $ ppr ctev
                     ; return (Fresh ctev) } }
 
+-- | Convert a TcCoercion into a Coercion the "dirty" way. This means
+-- creating a new CoVar, bound to the TcCoercion in the ambient EvBinds;
+-- the Coercion is just a CoVarCo around this CoVar. The desugarer should
+-- get it all to work out.
+dirtyTcCoToCo :: TcCoercion -> TcS Coercion
+dirtyTcCoToCo tc_co
+  = do { cv <- newBoundEvVarId (mkCoercionType role ty1 ty2) (EvCoercion tc_co)
+       ; return (mkCoVarCo cv) }
+  where
+    Pair ty1 ty2 = tcCoercionKind tc_co
+    role         = tcCoercionRole tc_co
+
 emitNewDerived :: CtLoc -> TcPredType -> TcS ()
 -- Create new Derived and put it in the work list
 emitNewDerived loc pred
@@ -1788,15 +1802,14 @@ instDFunConstraints :: CtLoc -> TcThetaType -> TcS [MaybeNew]
 instDFunConstraints loc = mapM (newWantedEvVar loc)
 
 
-matchFam :: TyCon -> [Type] -> TcS (Maybe (TcCoercion, TcType))
+matchFam :: TyCon -> [Type] -> TcS (Maybe (Coercion, TcType))
 matchFam tycon args = wrapTcS $ matchFamTcM tycon args
 
-matchFamTcM :: TyCon -> [Type] -> TcM (Maybe (TcCoercion, TcType))
+matchFamTcM :: TyCon -> [Type] -> TcM (Maybe (Coercion, TcType))
 -- Given (F tys) return (ty, co), where co :: F tys ~ ty
 matchFamTcM tycon args
   = do { fam_envs <- FamInst.tcGetFamInstEnvs
-       ; return $ fmap (first mkTcCoercion) $
-         reduceTyFamApp_maybe fam_envs Nominal tycon args }
+       ; return $ reduceTyFamApp_maybe fam_envs Nominal tycon args }
 
 {-
 Note [Residual implications]
@@ -1818,8 +1831,6 @@ deferTcSForAllEq :: Role -- Nominal or Representational
                  -> ([Binder],TcType)   -- ForAll tvs1 body1
                  -> ([Binder],TcType)   -- ForAll tvs2 body2
                  -> TcS EvTerm
--- Some of this functionality is repeated from TcUnify,
--- consider having a single place where we create fresh implications.
 deferTcSForAllEq role loc (bndrs1,body1) (bndrs2,body2)
  = do { (subst1, skol_tvs) <- wrapTcS $ TcM.tcInstSkolTyCoVars tvs1
       ; let tys  = mkTyCoVarTys skol_tvs

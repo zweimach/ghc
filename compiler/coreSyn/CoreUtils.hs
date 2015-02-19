@@ -1870,7 +1870,7 @@ need to address that here.
 
 tryEtaReduce :: [Var] -> CoreExpr -> Maybe CoreExpr
 tryEtaReduce bndrs body
-  = go (reverse bndrs) body (mkReflCo Representational (exprType body))
+  = go (reverse bndrs) body (mkRepReflCo (exprType body))
   where
     incoming_arity = count isId bndrs
 
@@ -1939,7 +1939,7 @@ tryEtaReduce bndrs body
        | Just cv <- getCoVar_maybe co1
        , bndr == cv  = Just (mkForAllCo_CoHomo cv co2, [])
     ok_arg bndr (Var v) co
-       | bndr == v   = let reflCo = mkReflCo Representational (idType bndr)
+       | bndr == v   = let reflCo = mkRepReflCo (idType bndr)
                        in Just (mkFunCo Representational reflCo co, [])
     ok_arg bndr (Cast e co_arg) co
        | (ticks, Var v) <- stripTicksTop tickishFloatable e

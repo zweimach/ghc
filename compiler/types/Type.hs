@@ -65,6 +65,7 @@ module Type (
         isDictLikeTy,
         mkEqPred, mkCoerciblePred, mkEqPredRole,
         mkPrimEqPred, mkReprPrimEqPred,
+        equalityTyCon,
         mkHeteroPrimEqPred, mkHeteroReprPrimEqPred,
         mkClassPred,
         isClassPred, isEqPred, isNomEqPred,
@@ -202,7 +203,7 @@ import FastString
 import Pair
 import ListSetOps
 
-import Data.List        ( partition, sortBy )
+import Data.List        ( partition, sortBy, mapAccumL )
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
@@ -372,6 +373,8 @@ expandTypeSynonyms ty
       = mkCoherenceCo (go_co subst co1) (go_co subst co2)
     go_co subst (KindCo co)
       = mkKindCo (go_co subst co)
+    go_co subst (KindAppCo co)
+      = mkKindAppCo (go_co subst co)
     go_co subst (SubCo co)
       = mkSubCo (go_co subst co)
     go_co subst (AxiomRuleCo ax ts cs)
@@ -379,8 +382,8 @@ expandTypeSynonyms ty
 
     go_arg subst (TyCoArg co)
       = TyCoArg (go_co subst co)
-    go_arg subst (CoCoArg r co1 co2)
-      = CoCoArg r (go_co subst co1) (go_co subst co2)
+    go_arg subst (CoCoArg r h co1 co2)
+      = CoCoArg r (go_co subst h) (go_co subst co1) (go_co subst co2)
 
       -- the "False" and "const" are to accommodate the type of
       -- substForAllCoBndrCallback, which is general enough to
@@ -458,10 +461,7 @@ mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
     go (TyVarTy tv) = tyvar env tv
     go (AppTy t1 t2) = mkappty <$> go t1 <*> go t2
     go (TyConApp tc tys) = mktyconapp tc <$> mapM go tys
-    go (ForAllTy (Anon arg) res)
-      = do { arg' <- go arg
-           ; res' <- go res
-           ; return $ ForAllTy (Anon arg') res' }
+    go (ForAllTy (Anon arg) res) = mkfunty <$> go arg <*> go res
     go (ForAllTy (Named tv vis) inner)
       = do { (env', tv') <- tybinder env tv vis
            ; inner' <- mapType mapper env' inner
@@ -470,9 +470,9 @@ mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
     go (CastTy ty co) = mkcastty <$> go ty <*> mapCoercion mapper env co
     go (CoercionTy co) = CoercionTy <$> mapCoercion mapper env co
 
-    (mktyconapp, mkappty, mkcastty)
-      | smart     = (mkTyConApp, mkAppTy, mkCastTy)
-      | otherwise = (TyConApp,   AppTy,   CastTy)
+    (mktyconapp, mkappty, mkcastty, mkfunty)
+      | smart     = (mkTyConApp, mkAppTy, mkCastTy, mkFunTy)
+      | otherwise = (TyConApp,   AppTy,   CastTy,   ForAllTy . Anon)
 
 mapCoercion :: (Applicative m, Monad m)
             => TyCoMapper env m -> env -> Coercion -> m Coercion
@@ -504,12 +504,13 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (AxiomRuleCo rule tys cos)
       = AxiomRuleCo rule <$> mapM (mapType mapper env) tys
                          <*> mapM go cos
-    go (NthCo i co) = mknthco i <$> go co
-    go (LRCo lr co) = mklrco lr <$> go co
-    go (InstCo co arg) = mkinstco <$> go co <*> mapCoercionArg mapper env arg
+    go (NthCo i co)        = mknthco i <$> go co
+    go (LRCo lr co)        = mklrco lr <$> go co
+    go (InstCo co arg)     = mkinstco <$> go co <*> mapCoercionArg mapper env arg
     go (CoherenceCo c1 c2) = mkcoherenceco <$> go c1 <*> go c2
-    go (KindCo co) = mkkindco <$> go co
-    go (SubCo co) = mksubco <$> go co
+    go (KindCo co)         = mkkindco <$> go co
+    go (KindAppCo co)      = mkkindappco <$> go co
+    go (SubCo co)          = mksubco <$> go co
 
     go_cobndr (TyHomo tv)
       = do { (env', tv') <- tycobinder env tv Invisible
@@ -531,21 +532,22 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     
     ( mktyconappco, mkappco, mkaxiominstco, mkphantomco, mkunsafeco
       , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
-      , mkkindco, mksubco, mkforallco)
+      , mkkindco, mkkindappco, mksubco, mkforallco)
       | smart
       = ( mkTyConAppCo, mkAppCo, mkAxiomInstCo, mkPhantomCo, mkUnsafeCo
         , mkSymCo, mkTransCo, mkNthCo, mkLRCo, mkInstCo, mkCoherenceCo
-        , mkKindCo, mkSubCo, mkForAllCo )
+        , mkKindCo, mkKindAppCo, mkSubCo, mkForAllCo )
       | otherwise
       = ( TyConAppCo, AppCo, AxiomInstCo, PhantomCo, UnsafeCo
         , SymCo, TransCo, NthCo, LRCo, InstCo, CoherenceCo
-        , KindCo, SubCo, ForAllCo )
+        , KindCo, KindAppCo, SubCo, ForAllCo )
 
 mapCoercionArg :: (Applicative m, Monad m)
                => TyCoMapper env m -> env -> CoercionArg -> m CoercionArg
 mapCoercionArg mapper env (TyCoArg co) = TyCoArg <$> mapCoercion mapper env co
-mapCoercionArg mapper env (CoCoArg r c1 c2)
-  = CoCoArg r <$> mapCoercion mapper env c1 <*> mapCoercion mapper env c2
+mapCoercionArg mapper env (CoCoArg r h c1 c2)
+  = CoCoArg r <$> mapCoercion mapper env h
+              <*> mapCoercion mapper env c1 <*> mapCoercion mapper env c2
 
 {-
 ************************************************************************
@@ -709,7 +711,23 @@ Function types are represented with (ForAllTy (Anon ...) ...)
 -}
 
 mkFunTys :: [Type] -> Type -> Type
-mkFunTys tys ty = foldr mkFunTy ty tys
+-- more efficient than foldr mkFunTy because of the InScopeSet business
+-- We must be careful here to respect the invariant that all covars are
+-- dependently quantified. See Note [Equality-constrained types] in
+-- TyCoRep
+mkFunTys args ty = mkForAllTys (snd $ mapAccumL to_binder in_scope args) ty
+  where
+    in_scope = mkInScopeSet $ tyCoVarsOfType ty
+
+    to_binder :: InScopeSet -> PredType -> (InScopeSet, Binder)
+    to_binder is ty
+      | isCoercionType ty
+      = let cv = mkFreshCoVarOfType is ty in
+        (is `extendInScopeSet` cv, Named cv Invisible)
+          -- we don't really need to extend in_scope, but we don't
+          -- want lots of name shadowing later
+      | otherwise
+      = (is, Anon ty)
 
 isFunTy :: Type -> Bool
 isFunTy ty = isJust (splitFunTy_maybe ty)
@@ -905,9 +923,8 @@ mkCastTy (ForAllTy (Named tv vis) inner_ty) co
         (subst, tv') = substTyCoVarBndr empty_subst tv
     in
     ForAllTy (Named tv' vis) (substTy subst inner_ty `mkCastTy` co)
-mkCastTy ty co = ASSERT2( typeKind ty `eqType` pFst (coercionKind co)
-                        , ppr ty <+> dcolon <+> ppr (typeKind ty) $$
-                          ppr co <+> dcolon <+> ppr (coercionKind co) )
+mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
+                 -- there may be unzonked variables about!
                  let result = split_apps [] ty co in
                  ASSERT2( CastTy ty co `eqType` result
                         , ppr ty <+> dcolon <+> ppr (typeKind ty) $$
@@ -1554,6 +1571,11 @@ mkReprPrimEqPred ty1  ty2
     k1 = typeKind ty1
     k2 = typeKind ty2
 
+equalityTyCon :: Role -> TyCon
+equalityTyCon Nominal          = eqPrimTyCon
+equalityTyCon Representational = eqReprPrimTyCon
+equalityTyCon Phantom          = eqPhantPrimTyCon
+
 -- --------------------- Dictionary types ---------------------------------
 
 mkClassPred :: Class -> [Type] -> PredType
@@ -2164,11 +2186,13 @@ tyConsOfType ty
      go_co (InstCo co arg)         = go_co co `plusNameEnv` go_arg arg
      go_co (CoherenceCo co1 co2)   = go_co co1 `plusNameEnv` go_co co2
      go_co (KindCo co)             = go_co co
+     go_co (KindAppCo co)          = go_co co
      go_co (SubCo co)              = go_co co
      go_co (AxiomRuleCo _ ts cs)   = go_s ts `plusNameEnv` go_cos cs
 
      go_arg (TyCoArg co)           = go_co co
-     go_arg (CoCoArg _ co1 co2)    = go_co co1 `plusNameEnv` go_co co2
+     go_arg (CoCoArg _ h co1 co2)  = go_co h `plusNameEnv`
+                                     go_co co1 `plusNameEnv` go_co co2
 
      go_s tys     = foldr (plusNameEnv . go)     emptyNameEnv tys
      go_cos cos   = foldr (plusNameEnv . go_co)  emptyNameEnv cos

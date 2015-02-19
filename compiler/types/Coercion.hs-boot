@@ -4,13 +4,14 @@ import {-# SOURCE #-} TyCoRep
 import {-# SOURCE #-} CoAxiom
 import {-# SOURCE #-} TyCon
 import Var
+import VarEnv
 import Outputable
 import Pair
 import FastString
 
 mkReflCo :: Role -> Type -> Coercion
 mkTyConAppCo :: Role -> TyCon -> [CoercionArg] -> Coercion
-mkAppCo :: Coercion -> CoercionArg -> Coercion
+mkAppCo :: Coercion -> Coercion -> CoercionArg -> Coercion
 mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
 mkCoVarCo :: CoVar -> Coercion
 mkAxiomInstCo :: CoAxiom Branched -> BranchIndex -> [CoercionArg] -> Coercion
@@ -23,14 +24,15 @@ mkLRCo :: LeftOrRight -> Coercion -> Coercion
 mkInstCo :: Coercion -> CoercionArg -> Coercion
 mkCoherenceCo :: Coercion -> Coercion -> Coercion
 mkKindCo :: Coercion -> Coercion
+mkKindAppCo :: Coercion -> Coercion
 mkSubCo :: Coercion -> Coercion
 
 mkFunCos :: Role -> [Coercion] -> Coercion -> Coercion
 
 isReflCo :: Coercion -> Bool
-mkAppCos :: Coercion -> [CoercionArg] -> Coercion
 coVarKindsTypesRole :: CoVar -> (Kind, Kind, Type, Type, Role)
 coVarRole :: CoVar -> Role
+mkFreshCoVarOfType :: InScopeSet -> Type -> CoVar
 
 mkHomoCoBndr :: TyCoVar -> ForAllCoBndr
 mkTyHeteroCoBndr :: Coercion -> TyVar -> TyVar -> CoVar -> ForAllCoBndr

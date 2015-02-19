@@ -304,7 +304,7 @@ tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM Type
 tcCheckHsTypeAndGen hs_ty kind
   = do { ty  <- tc_hs_type hs_ty kind
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
-       ; kvs <- zonkTcTypeAndFV ty 
+       ; kvs <- zonkTcTypeAndFV ty
        ; kvs <- kindGeneralize kvs
        ; return (mkInvForAllTys kvs ty) }
 
@@ -406,7 +406,7 @@ tc_fun_type ty1 ty2 exp_kind
        ; res_lev <- newFlexiTyVarTy levityTy
        ; ty1' <- tc_lhs_type ty1 (tYPE arg_lev)
        ; ty2' <- tc_lhs_type ty2 (tYPE res_lev)
-       ; checkExpectedKind (mkFunTy ty1' ty2') liftedTypeKind exp_kind }
+       ; checkExpectedKind (mkNakedFunTy ty1' ty2') liftedTypeKind exp_kind }
 
 ------------------------------------------
 tc_hs_type :: HsType Name -> TcKind -> TcM TcType
@@ -446,14 +446,14 @@ tc_hs_type hs_ty@(HsForAllTy _ _ hs_tvs context ty) exp_kind
        ; if null (unLoc context) then  -- Plain forall, no context
          do { ty' <- tc_lhs_type ty exp_kind
                 -- Why exp_kind?  See Note [Body kind of forall]
-            ; return $ mkInvSigmaTy tvs' ctxt' ty' }
+            ; return $ mkNakedInvSigmaTy tvs' ctxt' ty' }
          else
            -- If there is a context, then this forall is really a
            -- _function_, so the kind of the result really is *
            -- The body kind (result of the function) can be * or #, hence ekOpen
          do { ek  <- ekOpen
             ; ty' <- tc_lhs_type ty ek
-            ; checkExpectedKind (mkInvSigmaTy tvs' ctxt' ty')
+            ; checkExpectedKind (mkNakedInvSigmaTy tvs' ctxt' ty')
                                 liftedTypeKind exp_kind } }
          -- TODO (RAE): Change this when "forall ->" syntax exists
 

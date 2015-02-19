@@ -694,7 +694,7 @@ lookup_fam_inst_env' match_fun ie fam match_tys
                       , fim_tys      = substTyVars subst tpl_tvs `chkAppend` match_tys2
                       , fim_coercion = mkTyConAppCo Nominal fam
                                          (cos `chkAppend`
-                                          map (liftSimply Nominal) match_tys2)
+                                          map mkNomReflCoArg match_tys2)
                       })
         : find rest
 
@@ -850,7 +850,7 @@ chooseBranch axiom tys
              branches = coAxiomBranches axiom
        ; (ind, inst_tys, cos) <- findBranch (fromBranchList branches) 0 target_tys
        ; return ( ind, inst_tys `chkAppend` extra_tys
-                , cos `chkAppend` map (liftSimply Nominal) extra_tys) }
+                , cos `chkAppend` map mkNomReflCoArg extra_tys) }
 
 -- The axiom must *not* be oversaturated
 findBranch :: [CoAxBranch]             -- branches to check
@@ -1100,8 +1100,10 @@ normalise_type env lc
     go r ty@(LitTy {})     = (mkReflCo r ty, ty)
     go r (AppTy ty1 ty2)
       = let (co,  nty1) = go r ty1
+            -- TODO (RAE): make more efficient
+            (kco, _)    = go r (typeKind ty2)
             (arg, nty2) = normalise_ty_arg env lc Nominal ty2
-        in (mkAppCo co arg, mkAppTy nty1 nty2)
+        in (mkAppCo co kco arg, mkAppTy nty1 nty2)
     go r (ForAllTy (Anon ty1) ty2)
       = let (co1, nty1) = go r ty1
             (co2, nty2) = go r ty2
@@ -1122,7 +1124,9 @@ normalise_ty_arg :: FamInstEnvs -> LiftingContext -> Role
                  -> Type -> (CoercionArg, Type)
 normalise_ty_arg _ lc r (CoercionTy co)
   = let right_co = substRightCo lc co in
-    (CoCoArg r co right_co, CoercionTy right_co)
+    ( CoCoArg r (liftCoSubst Representational lc (coercionType co))
+              co right_co
+    , CoercionTy right_co )
 normalise_ty_arg env lc r ty
   = let (co, ty') = normalise_type env lc r ty in
     (TyCoArg co, ty')
@@ -1142,7 +1146,7 @@ normalise_tycovar_bndr env lc1 r1
   = liftCoSubstVarBndrCallback (\lc r ty -> fst $ normalise_type env lc r ty) True
     r1 lc1
   -- the True there means that we want homogeneous coercions
-  -- See Note [Homogenizing TyHetero substs] in Coercion
+  -- See Note [Normalising types]
 
 {-
 ************************************************************************
@@ -1317,13 +1321,14 @@ allTyVarsInTy = go
     go_co (InstCo co arg)       = go_co co `unionVarSet` go_arg arg
     go_co (CoherenceCo c1 c2)   = go_co c1 `unionVarSet` go_co c2
     go_co (KindCo co)           = go_co co
+    go_co (KindAppCo co)        = go_co co
     go_co (SubCo co)            = go_co co
     go_co (AxiomRuleCo _ ts cs) = allTyVarsInTys ts `unionVarSet` go_cos cs
 
     go_cos = foldr (unionVarSet . go_co) emptyVarSet
 
-    go_arg (TyCoArg co)      = go_co co
-    go_arg (CoCoArg _ c1 c2) = go_co c1 `unionVarSet` go_co c2
+    go_arg (TyCoArg co)        = go_co co
+    go_arg (CoCoArg _ h c1 c2) = mapUnionVarSet go_co [h, c1, c2]
 
     go_args = foldr (unionVarSet . go_arg) emptyVarSet
 

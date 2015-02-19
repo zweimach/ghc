@@ -674,23 +674,30 @@ try_decompose_nom_app ev ty1 ty2
        = do { unifyDeriveds loc [Nominal, Nominal] [s1, t1] [s2, t2]
             ; stopWith ev "Decomposed [D] AppTy" }
        | CtWanted { ctev_evar = evar, ctev_loc = loc } <- ev
-       = do { co_s <- unifyWantedLikeEv ev loc Nominal s1 s2
-            ; co_t <- unifyWantedLikeEv ev loc Nominal t1 t2
-            ; let co = mkTcAppCo co_s co_t
+       = do { co_s <- unifyWantedLikeEv ev loc Nominal s1  s2
+            ; co_h <- unifyWantedLikeEv ev loc Nominal t1k t2k
+            ; co_t <- unifyWantedLikeEv ev loc Nominal t1  t2
+            ; let co = mkTcAppCo co_s co_h co_t
             ; setEvBind evar (EvCoercion co) loc
             ; stopWith ev "Decomposed [W] AppTy" }
        | CtGiven { ctev_evtm = ev_tm, ctev_loc = loc } <- ev
        = do { let co   = evTermCoercion ev_tm
                   co_s = mkTcLRCo CLeft  co
+                  co_h = mkTcKindAppCo   co
                   co_t = mkTcLRCo CRight co
-            ; evar_s <- newGivenEvVar loc ( mkTcEqPredLikeEv ev s1 s2
-                                          , EvCoercion co_s)
-            ; evar_t <- newGivenEvVar loc ( mkTcEqPredLikeEv ev t1 t2
-                                          , EvCoercion co_t)
-            ; emitWorkNC [evar_t]
+            ; evar_s <- newGivenEvVar loc ( mkTcEqPredLikeEv ev s1  s2
+                                          , EvCoercion co_s )
+            ; evar_h <- newGivenEvVar loc ( mkTcEqPredLikeEv ev t1k t2k
+                                          , EvCoercion co_h )
+            ; evar_t <- newGivenEvVar loc ( mkTcEqPredLikeEv ev t1  t2
+                                          , EvCoercion co_t )
+            ; emitWorkNC [evar_h, evar_t]
             ; canEqNC evar_s NomEq s1 s2 }
        | otherwise  -- Can't happen
        = error "try_decompose_app"
+       where
+         t1k = typeKind t1
+         t2k = typeKind t2
 
 -----------------------
 -- | Break apart an equality over a casted type
@@ -971,7 +978,8 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
                            (vcat [ ppr tv1, ppr ty2, ppr swapped
                                  , ppr ty1 , ppUnless (isDerived ev) (ppr co1)])
                 ; rewriteEqEvidence ev swapped ty1 ps_ty2
-                                    co1 (mkTcReflCo (eqRelRole eq_rel) ps_ty2)
+                                    (mkTcCoercion co1)
+                                    (mkTcReflCo (eqRelRole eq_rel) ps_ty2)
                   `andWhenContinue` \ new_ev ->
                   can_eq_nc new_ev eq_rel ty1 ty1 ty2 ps_ty2 }
 
@@ -1184,12 +1192,8 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
            (ppr (getEvTerm mb_kind_ev))
        ; emitWorkNC $ freshGoals [mb_kind_ev]
        ; let kind_evt = getEvTerm mb_kind_ev
-       ; kind_ev_id <- newBoundEvVarId kind_pty kind_evt
-           -- this just creates an Id of the right type and with the given value
-           -- necessary because we need to build a Coercion, not a TcCoercion
-           -- this is dirtier than I'd like
-           -- See Note [TcCoercion kinds] in TcEvidence
-       ; let homo_co   = mkSymCo $ mkCoVarCo kind_ev_id
+       ; kind_co <- dirtyTcCoToCo (evTermCoercion kind_evt)
+       ; let homo_co   = mkSymCo kind_co
            -- homo_co :: k2 ~ k1
              rhs'      = mkCastTy rhs homo_co
              homo_pred = mkTcEqPredLikeEv ev lhs rhs'

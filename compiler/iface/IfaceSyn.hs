@@ -1163,8 +1163,8 @@ freeNamesIfCoercion (IfaceFunCo _ c1 c2)
   = freeNamesIfCoercion c1 &&& freeNamesIfCoercion c2
 freeNamesIfCoercion (IfaceTyConAppCo _ tc cos)
   = freeNamesIfTc tc &&& fnList freeNamesIfCoercion cos
-freeNamesIfCoercion (IfaceAppCo c1 c2)
-  = freeNamesIfCoercion c1 &&& freeNamesIfCoercion c2
+freeNamesIfCoercion (IfaceAppCo c1 h c2)
+  = freeNamesIfCoercion c1 &&& freeNamesIfCoercion h &&& freeNamesIfCoercion c2
 freeNamesIfCoercion (IfaceForAllCo tv co)
   = freeNamesIfForAllBndr tv &&& freeNamesIfCoercion co
 freeNamesIfCoercion (IfaceCoVarCo _)
@@ -1189,14 +1189,16 @@ freeNamesIfCoercion (IfaceCoherenceCo c1 c2)
   = freeNamesIfCoercion c1 &&& freeNamesIfCoercion c2
 freeNamesIfCoercion (IfaceKindCo c)
   = freeNamesIfCoercion c
+freeNamesIfCoercion (IfaceKindAppCo c)
+  = freeNamesIfCoercion c
 freeNamesIfCoercion (IfaceSubCo co)
   = freeNamesIfCoercion co
 freeNamesIfCoercion (IfaceAxiomRuleCo _ax tys cos)
   -- the axiom is just a string, so we don't count it as a name.
   = fnList freeNamesIfType tys &&&
     fnList freeNamesIfCoercion cos
-freeNamesIfCoercion (IfaceCoCoArg _ c1 c2)
-  = freeNamesIfCoercion c1 &&& freeNamesIfCoercion c2
+freeNamesIfCoercion (IfaceCoCoArg _ kco c1 c2)
+  = freeNamesIfCoercion kco &&& freeNamesIfCoercion c1 &&& freeNamesIfCoercion c2
 
 freeNamesIfTvBndrs :: [IfaceTvBndr] -> NameSet
 freeNamesIfTvBndrs = fnList freeNamesIfTvBndr

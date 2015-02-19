@@ -1,14 +1,13 @@
 stack:
-- mkAppCoFlexible
-- mkAppCo
-- etaAppCo_maybe
-- IfaceAppCo
-
+- IfaceKindCo
 
 - rewrite decideQuantification. In particular, I think quantifyTyCoVars'
   should call quantifyPred, which can easily be moved from TcSimplify
   to TcType. It's possible that by rewriting quantifyTyCoVars' I can
   greatly simplify decideQuantification.
+
+- flattening foralls is inadequate (though not quite wrong). The tyvar
+  kind isn't flattened. Also see go_bndr in flatten_co.
 
 - tcGetGlobalTyVars --> tcGetGlobalTyCoVars
 
@@ -21,7 +20,15 @@ fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 fix parser; then fix TypeLits.Mult --> *
 
 KNOWN TESTSUITE FAILURES:
- typecheck/should_compile/tc192: Need coherence-aware instance lookup
+   .  DfltProb2 [exit code non-0] (normal)
+   .  T2045 [exit code non-0] (normal)
+   .  T5490 [exit code non-0] (normal)
+   .  T7384 [exit code non-0] (normal)
+   .  T9892 [exit code non-0] (normal)
+   .  tc001 [exit code non-0] (normal)
+   .  tc081 [exit code non-0] (normal)
+   .  tc141 [stderr mismatch] (normal)
+
  typecheck/should_fail/T1633: Need proper handling of kind coercions
 
    .  Simple12 [exit code non-0] (normal)
@@ -70,7 +77,41 @@ changed from a proper arg to an existential covar arg. Does this matter?
 (Other uses of dataConRepArgTys are OK.)
 
 fix:
+  - The flattening story is subtler than I thought. Consider flattening
+    Proxy Age (3 |> sym axAge) (w.r.t. nominal equality). We'll get
+    the ill-typed Proxy Age 3! This is because, of course, (3 |> sym axAge)
+    and 3 are nominally equal. This is terrible. My best guess as to the
+    solution is to flatten the (3 |> sym axAge), and then to flatten
+    representationally the kind, and then repair the damage by transitivity.
+
+    And it gets worse. Let (T :: forall k1 k2. k1 k2 -> *), where
+    type role T rep nom nom.
+    Consider flattening representationally
+    (T MyMaybe Age (Just (3 |> sym axAge) |> sym axMyMaybe)). We want
+    to get (T Maybe Age (Just (3 |> sym axAge))). Nominally flattening
+    the third arg will yield (Just 3). The original 3rd kind is
+    MyMaybe Age. Rep flattening that will yield Maybe Int. And we somehow
+    have to figure out that the correct kind is Maybe Age! Maybe use
+    tcMatchTys to match the actual kind up with the template (from T's kind)?
+    Then, we can figure out the roles and flatten piece by piece.
+    This is painful.
+
+    And, the whole Note [Phantoms in the flattener] is bogus. This is
+    because a phantom's type might have been flattened, and so the phantom
+    itself must be flattened, too. It's safe just to nominally flatten
+    the phantom, because that will have the desired effect on the phantom's
+    type. Urgh.
+
+    And when fixing this, be careful about the fact that lots of the flattener
+    assumes that things aren't phantoms.
+
+    Search for "very wrong" in TcFlatten.
+
+  - I think we can remove TcCoercions, by adding a new EvTerm that contains
+    a TcEvBinds for local assumptions. The only point of TcCoercions is
+    TcLetCo, and I think this can be subsumed.
   - look for uses of eqType. The typechecker should really stick to tcEqType!
+    BUT: consider making Constraint ~R *. Then, tcEqType & eqType are the same.
   - when -fprint-explicit-coercions is on, make sure to print any types
     of printed coboxes.
   - have Core Lint check to make sure RHSs of `let (x :: foo ~# bar) = ...`

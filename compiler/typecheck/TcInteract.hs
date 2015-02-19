@@ -47,6 +47,9 @@ import DynFlags
 import BasicTypes  ( Boxity(..) )
 import Util
 
+import Control.Applicative ( (<$>) )
+import Control.Arrow       ( first, second )
+
 {-
 **********************************************************************
 *                                                                    *
@@ -1608,7 +1611,7 @@ doTopReactFunEq work_item@(CFunEqCan { cc_ev = old_ev, cc_fun = fam_tc
     ASSERT( not (isDerived old_ev) )   -- CFunEqCan is never Derived
     -- Look up in top-level instances, or built-in axiom
     do { match_res <- matchFam fam_tc args   -- See Note [MATCHING-SYNONYMS]
-       ; case match_res of {
+       ; case first mkTcCoercion <$> match_res of {
            Nothing -> do { try_improvement; continueWith work_item } ;
            Just (ax_co, rhs_ty)
 
@@ -1673,7 +1676,8 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
   = ASSERT( ctEvEqRel old_ev == NomEq )
     runFlatten $
     do { let fmode = mkFlattenEnv FM_FlattenAll old_ev
-       ; (xis, cos) <- flatten_many fmode (repeat Nominal) tc_args
+       ; (xis, cos) <- second (map mkTcCoercionArg) <$>
+                       flatten_many fmode (repeat Nominal) tc_args
                -- ax_co :: F args ~ G tc_args
                -- cos   :: xis ~ tc_args
                -- old_ev :: F args ~ fsk
@@ -1694,7 +1698,8 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
     ASSERT( ctEvEqRel old_ev == NomEq )
     runFlatten $
     do { let fmode = mkFlattenEnv FM_FlattenAll old_ev
-       ; (xis, cos) <- flatten_many fmode (repeat Nominal) tc_args
+       ; (xis, cos) <- second (map mkTcCoercionArg) <$>
+                       flatten_many fmode (repeat Nominal) tc_args
                -- ax_co :: F args ~ G tc_args
                -- cos   :: xis ~ tc_args
                -- G cos ; sym ax_co ; old_ev :: G xis ~ fsk

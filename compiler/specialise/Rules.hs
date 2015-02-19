@@ -757,8 +757,8 @@ match_co_args :: RuleMatchEnv
 match_co_args renv subst (TyCoArg co1 : args1) (TyCoArg co2 : args2)
   = do { subst' <- match_co renv subst co1 co2
        ; match_co_args renv subst' args1 args2 }
-match_co_args renv subst (CoCoArg _ co1l co1r : args1)
-                         (CoCoArg _ co2l co2r : args2)
+match_co_args renv subst (CoCoArg _ _ co1l co1r : args1)
+                         (CoCoArg _ _ co2l co2r : args2)
   = do { subst'  <- match_co renv subst co1l co2l
        ; subst'' <- match_co renv subst' co1r co2r
        ; match_co_args renv subst'' args1 args2 }

@@ -73,6 +73,7 @@ module TysPrim(
 
         eqPrimTyCon,            -- ty1 ~# ty2
         eqReprPrimTyCon,        -- ty1 ~R# ty2  (at role Representational)
+        eqPhantPrimTyCon,       -- ty1 ~P# ty2  (at role Phantom)
 
         -- * Any
         anyTy, anyTyCon, anyTypeOfKind,
@@ -141,6 +142,7 @@ primTyCons
     , anyTyCon
     , eqPrimTyCon
     , eqReprPrimTyCon
+    , eqPhantPrimTyCon
 
     , liftedTypeKindTyCon
     , unliftedTypeKindTyCon
@@ -165,7 +167,7 @@ mkBuiltInPrimTc fs unique tycon
                   BuiltInSyntax
 
 
-charPrimTyConName, intPrimTyConName, int32PrimTyConName, int64PrimTyConName, wordPrimTyConName, word32PrimTyConName, word64PrimTyConName, addrPrimTyConName, floatPrimTyConName, doublePrimTyConName, statePrimTyConName, proxyPrimTyConName, realWorldTyConName, arrayPrimTyConName, arrayArrayPrimTyConName, smallArrayPrimTyConName, byteArrayPrimTyConName, mutableArrayPrimTyConName, mutableByteArrayPrimTyConName, mutableArrayArrayPrimTyConName, smallMutableArrayPrimTyConName, mutVarPrimTyConName, mVarPrimTyConName, tVarPrimTyConName, stablePtrPrimTyConName, stableNamePrimTyConName, bcoPrimTyConName, weakPrimTyConName, threadIdPrimTyConName, eqPrimTyConName, eqReprPrimTyConName, voidPrimTyConName :: Name
+charPrimTyConName, intPrimTyConName, int32PrimTyConName, int64PrimTyConName, wordPrimTyConName, word32PrimTyConName, word64PrimTyConName, addrPrimTyConName, floatPrimTyConName, doublePrimTyConName, statePrimTyConName, proxyPrimTyConName, realWorldTyConName, arrayPrimTyConName, arrayArrayPrimTyConName, smallArrayPrimTyConName, byteArrayPrimTyConName, mutableArrayPrimTyConName, mutableByteArrayPrimTyConName, mutableArrayArrayPrimTyConName, smallMutableArrayPrimTyConName, mutVarPrimTyConName, mVarPrimTyConName, tVarPrimTyConName, stablePtrPrimTyConName, stableNamePrimTyConName, bcoPrimTyConName, weakPrimTyConName, threadIdPrimTyConName, eqPrimTyConName, eqReprPrimTyConName, eqPhantPrimTyConName, voidPrimTyConName :: Name
 charPrimTyConName             = mkPrimTc (fsLit "Char#") charPrimTyConKey charPrimTyCon
 intPrimTyConName              = mkPrimTc (fsLit "Int#") intPrimTyConKey  intPrimTyCon
 int32PrimTyConName            = mkPrimTc (fsLit "Int32#") int32PrimTyConKey int32PrimTyCon
@@ -181,6 +183,7 @@ voidPrimTyConName             = mkPrimTc (fsLit "Void#") voidPrimTyConKey voidPr
 proxyPrimTyConName            = mkPrimTc (fsLit "Proxy#") proxyPrimTyConKey proxyPrimTyCon
 eqPrimTyConName               = mkPrimTc (fsLit "~#") eqPrimTyConKey eqPrimTyCon
 eqReprPrimTyConName           = mkBuiltInPrimTc (fsLit "~R#") eqReprPrimTyConKey eqReprPrimTyCon
+eqPhantPrimTyConName          = mkBuiltInPrimTc (fsLit "~P#") eqPhantPrimTyConKey eqPhantPrimTyCon
 realWorldTyConName            = mkPrimTc (fsLit "RealWorld") realWorldTyConKey realWorldTyCon
 arrayPrimTyConName            = mkPrimTc (fsLit "Array#") arrayPrimTyConKey arrayPrimTyCon
 byteArrayPrimTyConName        = mkPrimTc (fsLit "ByteArray#") byteArrayPrimTyConKey byteArrayPrimTyCon
@@ -534,6 +537,21 @@ eqReprPrimTyCon :: TyCon
 eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
                               (replicate 4 Representational)
                               VoidRep
+  where kind = ForAllTy (Named kv1 Invisible) $
+               ForAllTy (Named kv2 Invisible) $
+               mkArrowKinds [k1, k2] unliftedTypeKind
+        kVars         = tyVarList liftedTypeKind
+        kv1 : kv2 : _ = kVars
+        k1            = mkOnlyTyVarTy kv1
+        k2            = mkOnlyTyVarTy kv2
+
+-- like eqPrimTyCon, but the type for *Phantom* coercions.
+-- This is only used to make higher-order equalities. Nothing
+-- should ever actually have this type!
+eqPhantPrimTyCon :: TyCon
+eqPhantPrimTyCon = mkPrimTyCon eqPhantPrimTyConName kind
+                               [Representational, Representational, Phantom, Phantom]
+                               VoidRep
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
                mkArrowKinds [k1, k2] unliftedTypeKind

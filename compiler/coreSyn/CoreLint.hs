@@ -1363,6 +1363,17 @@ lintCoercion (KindCo co)
   = do { (k1, k2, _, _, _) <- lintCoercion co
        ; return (liftedTypeKind, liftedTypeKind, k1, k2, Representational) }
 
+lintCoercion the_co@(KindAppCo co)
+  = do { (_, _, t1, t2, r) <- lintCoercion co
+       ; case (splitAppTy_maybe t1, splitAppTy_maybe t2) of
+           (Just (_, s1), Just (_, s2))
+             -> return (liftedTypeKind, liftedTypeKind, k1, k2, r)
+             where
+               k1 = typeKind s1
+               k2 = typeKind s2
+           _ -> failWithL (hang (text "Bad KindAppCo:")
+                              2 (ppr the_co $$ ppr t1 $$ ppr t2)) }
+
 lintCoercion (SubCo co')
   = do { (k1,k2,s,t,r) <- lintCoercion co'
        ; lintRole co' Nominal r
@@ -1413,9 +1424,14 @@ lintCoercion this@(AxiomRuleCo co ts cs)
 lintCoercionArg :: OutCoercionArg
                 -> LintM (LintedKind, LintedKind, LintedType, LintedType, Role)
 lintCoercionArg (TyCoArg co) = lintCoercion co
-lintCoercionArg (CoCoArg r co1 co2)
+lintCoercionArg (CoCoArg r kco co1 co2)
   = do { phi1 <- lintCoercion co1
        ; phi2 <- lintCoercion co2
+       ; let ty1 = phi_to_ty phi1
+             ty2 = phi_to_ty phi2
+       ; (ty1', ty2') <- lintStarCoercion Representational kco
+       ; ensureEqTys ty1 ty1' (mkBadCoCoArgMsg kco co1 co2)
+       ; ensureEqTys ty2 ty2' (mkBadCoCoArgMsg kco co1 co2)
        ; return ( phi_to_ty phi1, phi_to_ty phi2
                 , CoercionTy co1, CoercionTy co2, r) }
   where phi_to_ty (a,b,c,d,e) = mkHeteroCoercionType e a b c d
@@ -1456,6 +1472,7 @@ freeInCoercion v (LRCo _ g)                = freeInCoercion v g
 freeInCoercion v (InstCo g w)              = (freeInCoercion v g) && (freeInCoercionArg v w)
 freeInCoercion v (CoherenceCo g _)         = freeInCoercion v g
 freeInCoercion v (KindCo g)                = freeInCoercion v g
+freeInCoercion v (KindAppCo g)             = freeInCoercion v g
 freeInCoercion v (SubCo g)                 = freeInCoercion v g
 freeInCoercion v (AxiomRuleCo _ ts cs)     = all (freeInType v) ts && all (freeInCoercion v) cs
 
@@ -1479,8 +1496,8 @@ freeInCoVar :: CoVar -> CoVar -> Bool -> Bool
 freeInCoVar v c cont = freeInType v (varType c) && (v == c || cont)
 
 freeInCoercionArg :: CoVar -> CoercionArg -> Bool
-freeInCoercionArg v (TyCoArg g)   = freeInCoercion v g
-freeInCoercionArg _ (CoCoArg _ _ _) = True
+freeInCoercionArg v (TyCoArg g)       = freeInCoercion v g
+freeInCoercionArg _ (CoCoArg _ _ _ _) = True
 
 {-
 ************************************************************************
@@ -1964,6 +1981,13 @@ mkBadPhantomCoMsg lr co
   = text "Kind mismatch on the" <+> pprLeftOrRight lr <+>
     text "side of a phantom coercion:" <+> ppr co
 
+mkBadCoCoArgMsg :: Coercion -> Coercion -> Coercion -> SDoc
+mkBadCoCoArgMsg kco co1 co2
+  = hang (text "Bad CoCoArg:")
+       2 (vcat [ text "co1:" <+> ppr co1
+               , text "co2:" <+> ppr co2
+               , text "kco:" <+> ppr kco ])
+
 mkBadTyVarMsg :: TyCoVar -> SDoc
 mkBadTyVarMsg tv
   = ptext (sLit "Non-tyvar used in TyVarTy:")
@@ -1974,7 +1998,7 @@ mkBadAppKindMsg co kco arg
   = hang (text "Kind mismatch on the kind coercion in an AppCo:")
        2 (vcat [ text "Kind coercion:" <+> ppr kco
                , text "Arg coercion:" <+> ppr arg
-               , text "AppCo:" <+> co ])
+               , text "AppCo:" <+> ppr co ])
 
 pprLeftOrRight :: LeftOrRight -> MsgDoc
 pprLeftOrRight CLeft  = ptext (sLit "left")

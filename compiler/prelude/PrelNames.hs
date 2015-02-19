@@ -1364,34 +1364,35 @@ statePrimTyConKey, stableNamePrimTyConKey, stableNameTyConKey,
     liftedConKey, unliftedConKey, anyBoxConKey, kindConKey, boxityConKey,
     typeConKey, threadIdPrimTyConKey, bcoPrimTyConKey, ptrTyConKey,
     funPtrTyConKey, tVarPrimTyConKey, eqPrimTyConKey,
-    eqReprPrimTyConKey, voidPrimTyConKey :: Unique
+    eqReprPrimTyConKey, eqPhantPrimTyConKey, voidPrimTyConKey :: Unique
 statePrimTyConKey                       = mkPreludeTyConUnique 50
 stableNamePrimTyConKey                  = mkPreludeTyConUnique 51
 stableNameTyConKey                      = mkPreludeTyConUnique 52
 eqPrimTyConKey                          = mkPreludeTyConUnique 53
 eqReprPrimTyConKey                      = mkPreludeTyConUnique 54
-mutVarPrimTyConKey                      = mkPreludeTyConUnique 55
-ioTyConKey                              = mkPreludeTyConUnique 56
-voidPrimTyConKey                        = mkPreludeTyConUnique 57
-wordPrimTyConKey                        = mkPreludeTyConUnique 58
-wordTyConKey                            = mkPreludeTyConUnique 59
-word8TyConKey                           = mkPreludeTyConUnique 60
-word16TyConKey                          = mkPreludeTyConUnique 61
-word32PrimTyConKey                      = mkPreludeTyConUnique 62
-word32TyConKey                          = mkPreludeTyConUnique 63
-word64PrimTyConKey                      = mkPreludeTyConUnique 64
-word64TyConKey                          = mkPreludeTyConUnique 65
-liftedConKey                            = mkPreludeTyConUnique 66
-unliftedConKey                          = mkPreludeTyConUnique 67
-anyBoxConKey                            = mkPreludeTyConUnique 68
-kindConKey                              = mkPreludeTyConUnique 69
-boxityConKey                            = mkPreludeTyConUnique 70
-typeConKey                              = mkPreludeTyConUnique 71
-threadIdPrimTyConKey                    = mkPreludeTyConUnique 72
-bcoPrimTyConKey                         = mkPreludeTyConUnique 73
-ptrTyConKey                             = mkPreludeTyConUnique 74
-funPtrTyConKey                          = mkPreludeTyConUnique 75
-tVarPrimTyConKey                        = mkPreludeTyConUnique 76
+eqPhantPrimTyConKey                     = mkPreludeTyConUnique 55
+mutVarPrimTyConKey                      = mkPreludeTyConUnique 56
+ioTyConKey                              = mkPreludeTyConUnique 57
+voidPrimTyConKey                        = mkPreludeTyConUnique 58
+wordPrimTyConKey                        = mkPreludeTyConUnique 59
+wordTyConKey                            = mkPreludeTyConUnique 60
+word8TyConKey                           = mkPreludeTyConUnique 61
+word16TyConKey                          = mkPreludeTyConUnique 62
+word32PrimTyConKey                      = mkPreludeTyConUnique 63
+word32TyConKey                          = mkPreludeTyConUnique 64
+word64PrimTyConKey                      = mkPreludeTyConUnique 65
+word64TyConKey                          = mkPreludeTyConUnique 66
+liftedConKey                            = mkPreludeTyConUnique 67
+unliftedConKey                          = mkPreludeTyConUnique 68
+anyBoxConKey                            = mkPreludeTyConUnique 69
+kindConKey                              = mkPreludeTyConUnique 70
+boxityConKey                            = mkPreludeTyConUnique 71
+typeConKey                              = mkPreludeTyConUnique 72
+threadIdPrimTyConKey                    = mkPreludeTyConUnique 73
+bcoPrimTyConKey                         = mkPreludeTyConUnique 74
+ptrTyConKey                             = mkPreludeTyConUnique 75
+funPtrTyConKey                          = mkPreludeTyConUnique 76
+tVarPrimTyConKey                        = mkPreludeTyConUnique 77
 
 -- Parallel array type constructor
 parrTyConKey :: Unique

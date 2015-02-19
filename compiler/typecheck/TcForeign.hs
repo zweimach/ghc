@@ -135,7 +135,7 @@ normaliseFfiType' env ty0 = go initRecTc ty0
            return (mkForAllCo_TyHomo tyvar coi, mkForAllTy bndr nty1, gres1)
 
       | otherwise -- see Note [Don't recur in normaliseFfiType']
-      = return (mkReflCo Representational ty, ty, emptyBag)
+      = return (mkRepReflCo ty, ty, emptyBag)
 
     go_tc_app :: RecTcChecker -> TyCon -> [Type]
               -> TcM (Coercion, Type, Bag GlobalRdrElt)
@@ -184,12 +184,12 @@ normaliseFfiType' env ty0 = go initRecTc ty0
           nt_rhs = newTyConInstRhs tc tys
 
           ty      = mkTyConApp tc tys
-          nothing = return (mkReflCo Representational ty, ty, emptyBag)
+          nothing = return (mkRepReflCo ty, ty, emptyBag)
 
     go_arg :: RecTcChecker -> Type -> TcM (CoercionArg, Type, Bag GlobalRdrElt)
     go_arg rec_nts ty
       | isCoercionTy ty
-      = return (liftSimply Representational ty, ty, emptyBag)
+      = return (mkRepReflCoArg ty, ty, emptyBag)
       | otherwise
       = do { (co, ty', gres) <- go rec_nts ty
            ; return (mkTyCoArg co, ty', gres) }

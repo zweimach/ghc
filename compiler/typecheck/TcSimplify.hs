@@ -72,10 +72,8 @@ simplifyTop wanteds
 simpl_top :: WantedConstraints -> TcS WantedConstraints
     -- See Note [Top-level Defaulting Plan]
 simpl_top wanteds
-  = do { wc_first_go <- nestTcS (solveWanteds wanteds)
+  = do { wc_first_go <- nestTcS (solveWantedsAndDrop wanteds)
                             -- This is where the main work happens
-                        -- NB: NOT solveWantedsAndDrop. We need the Deriveds
-                        -- in try_repr_defaulting
        ; try_tyvar_defaulting wc_first_go }
   where
     try_tyvar_defaulting :: WantedConstraints -> TcS WantedConstraints
@@ -93,41 +91,8 @@ simpl_top wanteds
            ; if or defaulted
              then do { wc_residual <- nestTcS (solveWanteds wc)
                             -- See Note [Must simplify after defaulting]
-                     ; try_repr_defaulting wc_residual }
-             else try_repr_defaulting wc }     -- No defaulting took place
-
-     -- TODO (RAE): Remove this. The idea is that, sometimes, we end
-     -- up with a wanted like (k ~R# *), where k is a metavar. Because
-     -- repr equalities don't solve by unification, GHC gives up. Here,
-     -- we just set k := *. But, all of this should go away when we change
-     -- the role of the `kind` coercion former.
-    try_repr_defaulting :: WantedConstraints -> TcS WantedConstraints
-    try_repr_defaulting wc@(WC { wc_simple = simples })
-      | isEmptyWC wc
-      = return wc
-      | otherwise
-      = do { let repr_wanteds_deriveds = mapMaybe get_unif_pair $
-                                         bagToList simples
-           ; traceTcS "Trying to solve repr eqs by writing metavars"
-                      (vcat [ text "In simple constrains:" <+> ppr simples
-                            , text "Found:" <+> ppr repr_wanteds_deriveds ])
-                      
-           ; mapM_ (uncurry setWantedTyBind) repr_wanteds_deriveds
-           ; if (not (null repr_wanteds_deriveds))
-             then do { wc_residual <- nestTcS (solveWanteds wc)
-                     ; try_repr_defaulting wc_residual }
-             else try_class_defaulting (dropDerivedWC wc) }
-
-      where
-        get_unif_pair ct
-          | isWantedCt ct || isDerivedCt ct
-          , EqPred ReprEq lhs rhs <- classifyPredType (ctPred ct)
-          = case (getTyVar_maybe lhs, getTyVar_maybe rhs) of
-              (Just tv, _) | isMetaTyVar tv -> Just (tv, rhs)
-              (_, Just tv) | isMetaTyVar tv -> Just (tv, lhs)
-              _                             -> Nothing
-          | otherwise
-          = Nothing
+                     ; try_class_defaulting wc_residual }
+             else try_class_defaulting wc }     -- No defaulting took place
 
     try_class_defaulting :: WantedConstraints -> TcS WantedConstraints
     try_class_defaulting wc

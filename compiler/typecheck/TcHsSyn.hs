@@ -1446,6 +1446,9 @@ zonkTcTypeToTypes env tys = mapM (zonkTcTypeToType env) tys
 zonkCoToCo :: ZonkEnv -> Coercion -> TcM Coercion
 zonkCoToCo = mapCoercion zonk_tycomapper
 
+zonkCoArgToCoArg :: ZonkEnv -> CoercionArg -> TcM CoercionArg
+zonkCoArgToCoArg = mapCoercionArg zonk_tycomapper
+
 zonkTvCollecting :: TyVarSet -> TcRef TyVarSet -> UnboundTyVarZonker
 -- This variant collects unbound type variables in a mutable variable
 -- Works on both types and kinds
@@ -1488,8 +1491,8 @@ zonkTcCoToCo env co
                               = do { cos' <- mapM go cos; return (mkTcTyConAppCo r tc cos') }
     go (TcAxiomInstCo ax ind cos)
                               = do { cos' <- mapM go cos; return (TcAxiomInstCo ax ind cos') }
-    go (TcAppCo co1 co2)      = do { co1' <- go co1; co2' <- go co2
-                                   ; return (mkTcAppCo co1' co2') }
+    go (TcAppCo co1 h co2)    = do { co1' <- go co1; h' <- go h; co2' <- go co2
+                                   ; return (mkTcAppCo co1' h' co2') }
     go (TcCastCo co1 co2)     = do { co1' <- go co1; co2' <- go co2
                                    ; return (TcCastCo co1' co2') }
     go (TcCoherenceCo co g)   = do { co' <- go co
@@ -1497,6 +1500,8 @@ zonkTcCoToCo env co
                                    ; return (TcCoherenceCo co' g') }
     go (TcKindCo co)          = do { co' <- go co
                                    ; return (TcKindCo co') }
+    go (TcKindAppCo co)       = do { co' <- go co
+                                   ; return (TcKindAppCo co') }
     go (TcPhantomCo h ty1 ty2)= do { h'   <- go h
                                    ; ty1' <- zonkTcTypeToType env ty1
                                    ; ty2' <- zonkTcTypeToType env ty2
@@ -1515,5 +1520,5 @@ zonkTcCoToCo env co
                                      ; cs' <- mapM go cs
                                      ; return (TcAxiomRuleCo co ts' cs')
                                      }
-    go (TcCoercion co)        = do { co' <- zonkCoToCo env co
-                                   ; return (mkTcCoercion co') }
+    go (TcCoercion co)        = do { co' <- zonkCoArgToCoArg env co
+                                   ; return (mkTcCoercionArg co') }

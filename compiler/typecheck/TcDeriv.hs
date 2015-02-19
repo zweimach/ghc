@@ -650,7 +650,7 @@ deriveStandalone (L loc (DerivDecl deriv_ty overlap_mode))
 
        ; let cls_tys = take (length inst_tys - 1) inst_tys
              inst_ty = last inst_tys
-             kind_co = mkReflCo Representational (typeKind inst_ty)
+             kind_co = mkRepReflCo (typeKind inst_ty)
        ; traceTc "Standalone deriving:" $ vcat
               [ text "class:" <+> ppr cls
               , text "class types:" <+> ppr cls_tys

@@ -882,6 +882,7 @@ tcIfaceCo = go
     go (IfaceCoherenceCo c1 c2)  = CoherenceCo <$> go c1
                                                <*> tcIfaceCo c2
     go (IfaceKindCo c)           = KindCo   <$> tcIfaceCo c
+    go (IfaceKindAppCo c)        = KindAppCo<$> tcIfaceCo c
     go (IfaceSubCo c)            = SubCo    <$> go c
     go (IfaceAxiomRuleCo ax tys cos) = AxiomRuleCo <$> go_axiom_rule ax
                                                    <*> mapM tcIfaceType tys
@@ -898,8 +899,8 @@ tcIfaceCo = go
         _  -> pprPanic "go_axiom_rule" (ppr n)
 
 tcIfaceCoArg :: IfaceCoercion -> IfL CoercionArg
-tcIfaceCoArg (IfaceCoCoArg r c1 c2)
-  = CoCoArg r <$> tcIfaceCo c1 <*> tcIfaceCo c2
+tcIfaceCoArg (IfaceCoCoArg r h c1 c2)
+  = CoCoArg r <$> tcIfaceCo h <*> tcIfaceCo c1 <*> tcIfaceCo c2
 tcIfaceCoArg ico = TyCoArg <$> tcIfaceCo ico
 
 tcIfaceCoArgs :: [IfaceCoercion] -> IfL [CoercionArg]

@@ -201,7 +201,7 @@ tcLookupDataFamInst fam_inst_envs tc tc_args
       <- tcLookupDataFamInst_maybe fam_inst_envs tc tc_args
   = (rep_tc, rep_args, co)
   | otherwise
-  = (tc, tc_args, mkReflCo Representational (mkTyConApp tc tc_args))
+  = (tc, tc_args, mkRepReflCo (mkTyConApp tc tc_args))
 
 tcLookupDataFamInst_maybe :: FamInstEnvs -> TyCon -> [TcType]
                           -> Maybe (TyCon, [TcType], Coercion)

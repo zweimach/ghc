@@ -47,7 +47,8 @@ module TcType (
   -- Builders
   mkPhiTy, mkInvSigmaTy, mkSigmaTy,
   mkTcEqPred, mkTcReprEqPred, mkTcEqPredBR,
-  mkNakedTyConApp, mkNakedAppTys, mkNakedAppTy,
+  mkNakedTyConApp, mkNakedAppTys, mkNakedAppTy, mkNakedFunTy,
+  mkNakedInvSigmaTy,
 
   --------------------------------
   -- Splitters
@@ -184,7 +185,6 @@ import Outputable
 import FastString
 import ErrUtils( Validity(..), isValid )
 
-import Data.List   ( mapAccumL )
 import Data.IORef
 import Control.Monad (liftM, ap)
 #if __GLASGOW_HASKELL__ < 709
@@ -668,13 +668,14 @@ exactTyCoVarsOfType ty
     goCo (InstCo co arg)     = goCo co `unionVarSet` goCoArg arg
     goCo (CoherenceCo c1 c2) = goCo c1 `unionVarSet` goCo c2
     goCo (KindCo co)         = goCo co
+    goCo (KindAppCo co)      = goCo co
     goCo (SubCo co)          = goCo co
     goCo (AxiomRuleCo _ t c) = exactTyCoVarsOfTypes t `unionVarSet` goCos c
 
     goCos cos = foldr (unionVarSet . goCo) emptyVarSet cos
 
-    goCoArg (TyCoArg co)        = goCo co
-    goCoArg (CoCoArg _ co1 co2) = goCo co1 `unionVarSet` goCo co2
+    goCoArg (TyCoArg co)          = goCo co
+    goCoArg (CoCoArg _ h co1 co2) = mapUnionVarSet goCo [h, co1, co2]
 
     goCoArgs args            = mapUnionVarSet goCoArg args
 
@@ -883,20 +884,20 @@ mkInvSigmaTy tyvars
   = mkSigmaTy (zipWith mkNamedBinder tyvars (repeat Invisible))
 
 mkPhiTy :: [PredType] -> Type -> Type
--- We must be careful here to respect the invariant that all covars are
--- dependently quantified. See Note [Equality-constrained types] in
--- TyCoRep
-mkPhiTy theta ty = mkForAllTys (snd $ mapAccumL to_binder in_scope theta) ty
-  where
-    in_scope = mkInScopeSet $ tyCoVarsOfType ty
+mkPhiTy = mkFunTys
 
-    to_binder :: InScopeSet -> PredType -> (InScopeSet, Binder)
-    to_binder is ty
-      | isCoercionType ty
-      = let cv = mkFreshCoVarOfType is ty in
-        (is `extendInScopeSet` cv, Named cv Invisible)
-      | otherwise
-      = (is, Anon ty)
+mkNakedSigmaTy :: [Binder] -> [PredType] -> Type -> Type
+-- See Note [Zonking inside the knot] in TcHsType
+mkNakedSigmaTy bndrs theta tau = mkForAllTys bndrs (mkNakedPhiTy theta tau)
+
+mkNakedInvSigmaTy :: [TyCoVar] -> [PredType] -> Type -> Type
+-- See Note [Zonking inside the knot] in TcHsType
+mkNakedInvSigmaTy tyvars
+  = mkNakedSigmaTy (zipWith mkNamedBinder tyvars (repeat Invisible))
+
+mkNakedPhiTy :: [PredType] -> Type -> Type
+-- See Note [Zonking inside the knot] in TcHsType
+mkNakedPhiTy = flip $ foldr mkNakedFunTy
     
 mkTcEqPred :: TcType -> TcType -> Type
 -- During type checking we build equalities between
@@ -978,6 +979,10 @@ mkNakedAppTys ty1                tys2 = foldl AppTy ty1 tys2
 mkNakedAppTy :: Type -> Type -> Type
 -- See Note [Zonking inside the knot] in TcHsType
 mkNakedAppTy ty1 ty2 = mkNakedAppTys ty1 [ty2]
+
+mkNakedFunTy :: Type -> Type -> Type
+-- See Note [Zonking inside the knot] in TcHsType
+mkNakedFunTy arg res = ForAllTy (Anon arg) res
 
 {-
 ************************************************************************
@@ -1407,12 +1412,13 @@ occurCheckExpand dflags tv ty
     fast_check_co (LRCo _ co)            = fast_check_co co
     fast_check_co (CoherenceCo co1 co2)  = fast_check_co co1 && fast_check_co co2
     fast_check_co (KindCo co)            = fast_check_co co
+    fast_check_co (KindAppCo co)         = fast_check_co co
     fast_check_co (SubCo co)             = fast_check_co co
     fast_check_co (AxiomRuleCo _ ts cs)
       = all fast_check ts && all fast_check_co cs
 
-    fast_check_co_arg (TyCoArg co)         = fast_check_co co
-    fast_check_co_arg (CoCoArg _ co1 co2)  = fast_check_co co1 && fast_check_co co2
+    fast_check_co_arg (TyCoArg co)          = fast_check_co co
+    fast_check_co_arg (CoCoArg _ h co1 co2) = all fast_check_co [h, co1, co2]
 
     go t@(TyVarTy tv') | tv == tv' = OC_Occurs
                        | otherwise = return t
@@ -1500,6 +1506,8 @@ occurCheckExpand dflags tv ty
                                          ; return (mkCoherenceCo co1' co2') }
     go_co (KindCo co)               = do { co' <- go_co co
                                          ; return (mkKindCo co') }
+    go_co (KindAppCo co)            = do { co' <- go_co co
+                                         ; return (mkKindAppCo co') }
     go_co (SubCo co)                = do { co' <- go_co co
                                          ; return (mkSubCo co') }
     go_co (AxiomRuleCo ax ts cs)    = do { ts' <- mapM go ts
@@ -1508,9 +1516,10 @@ occurCheckExpand dflags tv ty
 
     go_arg (TyCoArg co)             = do { co' <- go_co co
                                          ; return (TyCoArg co') }
-    go_arg (CoCoArg r co1 co2)      = do { co1' <- go_co co1
+    go_arg (CoCoArg r h co1 co2)    = do { h'   <- go_co h
+                                         ; co1' <- go_co co1
                                          ; co2' <- go_co co2
-                                         ; return (CoCoArg r co1' co2') }
+                                         ; return (CoCoArg r h' co1' co2') }
 
 canUnifyWithPolyType :: DynFlags -> TcTyVarDetails -> Bool
 canUnifyWithPolyType dflags details
@@ -1745,6 +1754,7 @@ orphNamesOfCo (LRCo  _ co)          = orphNamesOfCo co
 orphNamesOfCo (InstCo co arg)       = orphNamesOfCo co `unionNameSet` orphNamesOfCoArg arg
 orphNamesOfCo (CoherenceCo co1 co2) = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (KindCo co)           = orphNamesOfCo co
+orphNamesOfCo (KindAppCo co)        = orphNamesOfCo co
 orphNamesOfCo (SubCo co)            = orphNamesOfCo co
 orphNamesOfCo (AxiomRuleCo _ ts cs) = orphNamesOfTypes ts `unionNameSet`
                                       orphNamesOfCos cs
@@ -1753,8 +1763,10 @@ orphNamesOfCos :: [Coercion] -> NameSet
 orphNamesOfCos = orphNamesOfThings orphNamesOfCo
 
 orphNamesOfCoArg :: CoercionArg -> NameSet
-orphNamesOfCoArg (TyCoArg co)        = orphNamesOfCo co
-orphNamesOfCoArg (CoCoArg _ co1 co2) = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
+orphNamesOfCoArg (TyCoArg co)          = orphNamesOfCo co
+orphNamesOfCoArg (CoCoArg _ h co1 co2) = orphNamesOfCo h `unionNameSet`
+                                         orphNamesOfCo co1 `unionNameSet`
+                                         orphNamesOfCo co2
 
 orphNamesOfCoArgs :: [CoercionArg] -> NameSet
 orphNamesOfCoArgs = orphNamesOfThings orphNamesOfCoArg

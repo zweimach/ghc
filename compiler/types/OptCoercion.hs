@@ -186,9 +186,9 @@ opt_co_arg2 :: TCvSubst
             -> Role   -- ^ The role of the input coercion
             -> CoercionArg -> NormalCoArg
 opt_co_arg2 env sym r (TyCoArg co) = TyCoArg $ opt_co2 env sym r co
-opt_co_arg2 env sym r (CoCoArg _r co1 co2)
+opt_co_arg2 env sym r (CoCoArg _r h co1 co2)
   = ASSERT( r == _r )
-    opt_cocoarg env sym r co1 co2
+    opt_cocoarg env sym r h co1 co2
 
 -- See Note [Optimising coercion optimisation]
 -- | Optimize a coercion, knowing the coercion's non-Phantom role.
@@ -202,9 +202,9 @@ opt_co3 env sym _                       r co = opt_co4_wrap env sym False r co
 opt_co_arg3 :: TCvSubst -> SymFlag -> Maybe Role -> Role
             -> CoercionArg -> NormalCoArg
 opt_co_arg3 env sym mrole r (TyCoArg co) = TyCoArg $ opt_co3 env sym mrole r co
-opt_co_arg3 env sym mrole r (CoCoArg _r co1 co2)
+opt_co_arg3 env sym mrole r (CoCoArg _r h co1 co2)
   = ASSERT( r == _r )
-    opt_cocoarg env sym (mrole `orElse` r) co1 co2
+    opt_cocoarg env sym (mrole `orElse` r) h co1 co2
 
 -- See Note [Optimising coercion optimisation]
 -- | Optimize a non-phantom coercion.
@@ -329,9 +329,9 @@ opt_co4 env sym rep r g@(LRCo lr co)
   where
     co' = opt_co4_wrap env sym False Nominal co
 
-    pick_lr CLeft  (l, _)         = l
-    pick_lr CRight (_, TyCoArg r) = r
-    pick_lr _      _              = pprPanic "opt_co(LRCo)" (ppr g)
+    pick_lr CLeft  (l, _, _)         = l
+    pick_lr CRight (_, _, TyCoArg r) = r
+    pick_lr _      _                 = pprPanic "opt_co(LRCo)" (ppr g)
 
 opt_co4 env sym rep r (InstCo co1 arg)
     -- forall over type...
@@ -345,7 +345,7 @@ opt_co4 env sym rep r (InstCo co1 arg)
             sym rep r co_body
 
     -- forall over coercion...
-  | CoCoArg _ co2 co3 <- arg'
+  | CoCoArg _ _ co2 co3 <- arg'
   , Just (cv1, cv2, co_body) <- splitForAllCo_Co_maybe co1
   = opt_co4_wrap (extendTCvSubstList env [cv1, cv2] (map mkCoercionTy [co2, co3]))
             sym rep r co_body
@@ -363,7 +363,7 @@ opt_co4 env sym rep r (InstCo co1 arg)
             False False r' co'_body
 
  -- forall over coercion...
-  | CoCoArg _ co2' co3' <- arg'
+  | CoCoArg _ _ co2' co3' <- arg'
   , Just (cv1', cv2', co'_body) <- splitForAllCo_Co_maybe co1'
   = opt_co4_wrap (extendTCvSubstList (zapTCvSubst env)
                                 [cv1', cv2']
@@ -410,6 +410,10 @@ opt_co4 env sym _rep r (KindCo co)
   -- This might be able to be optimized more to do the promotion
   -- and substitution/optimization at the same time
 
+opt_co4 env sym rep r (KindAppCo co)
+-- TODO (RAE): Actually optimize this!
+  = mkKindAppCo (opt_co4_wrap env sym rep r co)
+
 opt_co4 env sym _ r (SubCo co)
   = ASSERT( r == Representational )
     opt_co4_wrap env sym True Nominal co
@@ -426,12 +430,9 @@ opt_co4 env sym rep r (AxiomRuleCo co ts cs)
 opt_co_arg4 :: TCvSubst -> SymFlag -> ReprFlag -> Role
             -> CoercionArg -> NormalCoArg
 opt_co_arg4 env sym rep r (TyCoArg co) = TyCoArg $ opt_co4_wrap env sym rep r co
-opt_co_arg4 env sym rep r (CoCoArg _r co1 co2)
-  | sym       = ASSERT( r == _r ) CoCoArg role co2' co1'
-  | otherwise = ASSERT( r == _r ) CoCoArg role co1' co2'
-  where co1' = opt_co1 env False co1
-        co2' = opt_co1 env False co2
-        role = chooseRole rep r
+opt_co_arg4 env sym rep r (CoCoArg _r h co1 co2)
+  = ASSERT( r == _r )
+    opt_cocoarg env sym (chooseRole rep r) h co1 co2
 
 -- | Optimize a "coercion" between coercions.
 opt_cocoarg :: TCvSubst
@@ -439,12 +440,14 @@ opt_cocoarg :: TCvSubst
             -> Role   -- ^ desired role
             -> Coercion
             -> Coercion
+            -> Coercion
             -> NormalCoArg
-opt_cocoarg env sym r co1 co2
+opt_cocoarg env sym r h co1 co2
   = if sym
-    then CoCoArg r co2' co1'
-    else CoCoArg r co1' co2'
+    then CoCoArg r h' co2' co1'
+    else CoCoArg r h' co1' co2'
   where
+    h'   = opt_co4_wrap env sym False Representational h
     co1' = opt_co1 env False co1
     co2' = opt_co1 env False co2
 
@@ -471,10 +474,12 @@ opt_unsafe env prov role oty1 oty2
 
   | Just (l1, r1) <- splitAppTy_maybe oty1
   , Just (l2, r2) <- splitAppTy_maybe oty2
-  , typeKind l1 `eqType` typeKind l2   -- kind(r1) == kind(r2) by consequence
   = let role' = if role == Phantom then Phantom else Nominal in
        -- role' is to comform to mkAppCo's precondition
-    mkAppCo (opt_unsafe env prov role l1 l2) (opt_unsafe_arg env prov role' r1 r2)
+    mkAppCo (opt_unsafe env prov role l1 l2)
+               -- TODO (RAE): Make more efficient
+            (opt_unsafe env prov role (typeKind r1) (typeKind r2))
+            (opt_unsafe_arg env prov role' r1 r2)
 
   | Just (bndr1, ty1) <- splitForAllTy_maybe oty1
   , Just tv1          <- binderVar_maybe bndr1
@@ -506,8 +511,12 @@ opt_unsafe_arg :: TCvSubst -> FastString -> Role -> Type -> Type -> CoercionArg
 opt_unsafe_arg env prov role oty1 oty2
   | Just co1 <- isCoercionTy_maybe oty1
   , Just co2 <- isCoercionTy_maybe oty2
-  = CoCoArg role (opt_co1 env False co1) (opt_co1 env False co2)
-  | otherwise
+  = let co1' = opt_co1 env False co1
+        co2' = opt_co1 env False co2
+        kco = opt_unsafe (zapTCvSubst env) prov Representational
+                         (coercionType co1') (coercionType co2')
+    in CoCoArg role kco co1' co2'
+opt_unsafe_arg env prov role oty1 oty2
   = TyCoArg $ opt_unsafe env prov role oty1 oty2
 
 -------------
@@ -575,10 +584,10 @@ opt_transList :: InScopeSet -> [NormalCoArg] -> [NormalCoArg] -> [NormalCoArg]
 opt_transList is = zipWith (opt_trans_arg is)
   where
     opt_trans_arg is (TyCoArg co1) (TyCoArg co2) = TyCoArg (opt_trans is co1 co2)
-    opt_trans_arg _  (CoCoArg r col1 _col2) (CoCoArg _r _cor1 cor2)
+    opt_trans_arg _  (CoCoArg r hl col1 _col2) (CoCoArg _r hr _cor1 cor2)
       = ASSERT( coercionType _col2 `eqType` coercionType _cor1 )
         ASSERT( r == _r )
-        CoCoArg r col1 cor2
+        CoCoArg r (opt_trans is hl hr) col1 cor2
     opt_trans_arg _ arg1 arg2 = pprPanic "opt_trans_arg" (ppr arg1 <+> semi <+> ppr arg2)
 
 opt_trans :: InScopeSet -> NormalCo -> NormalCo -> NormalCo
@@ -623,10 +632,10 @@ opt_trans2 _ co1 co2
 
 opt_trans_arg2 :: InScopeSet -> NormalCoArg -> NormalCoArg -> NormalCoArg
 opt_trans_arg2 is (TyCoArg co1) (TyCoArg co2) = TyCoArg (opt_trans2 is co1 co2)
-opt_trans_arg2 _ (CoCoArg r col1 _cor1) (CoCoArg _r _col2 cor2)
+opt_trans_arg2 is (CoCoArg r h1 col1 _cor1) (CoCoArg _r h2 _col2 cor2)
   = ASSERT( coercionType _cor1 `eqType` coercionType _col2 )
     ASSERT( r == _r )
-    CoCoArg r col1 cor2
+    CoCoArg r (opt_trans2 is h1 h2) col1 cor2
 opt_trans_arg2 _ arg1 arg2 = pprPanic "opt_trans_arg2" (ppr arg1 <+> semi <+> ppr arg2)
 
 ------
@@ -696,14 +705,16 @@ opt_trans_rule is co1 co2@(AppCo co2a h2 co2b)
 -- Push transitivity inside forall
 opt_trans_rule is co1 co2
   | Just (cobndr1,r1) <- splitForAllCo_maybe co1
-  , Just (cobndr2,r2) <- etaForAllCo_maybe is co2
+  , Just (cobndr2,r2) <- etaForAllCo_maybe is role co2
   = push_trans cobndr1 r1 cobndr2 r2
 
   | Just (cobndr2,r2) <- splitForAllCo_maybe co2
-  , Just (cobndr1,r1) <- etaForAllCo_maybe is co1
+  , Just (cobndr1,r1) <- etaForAllCo_maybe is role co1
   = push_trans cobndr1 r1 cobndr2 r2
 
   where
+  role = coercionRole co1
+    
   push_trans cobndr1 r1 cobndr2 r2
     | Phantom <- role
        -- abort. We need to use some coercions to cast, and we can't
@@ -791,8 +802,7 @@ opt_trans_rule is co1 co2
         mkForAllCo cobndr1 (opt_trans is' r1 r2')
 
       _ -> Nothing
-    where role   = coercionRole r1  -- must be the same as r2
-          to_rep = downgradeRole Representational role
+    where to_rep = downgradeRole Representational role
 
 -- Push transitivity inside axioms
 opt_trans_rule is co1 co2
@@ -802,7 +812,7 @@ opt_trans_rule is co1 co2
   | Just (sym, con, ind, cos1) <- co1_is_axiom_maybe
   , True <- sym
   , Just cos2 <- matchAxiom sym con ind co2
-  , let newAxInst = AxiomInstCo con ind (opt_transList is (map mk_sym_co_arg cos2) cos1)
+  , let newAxInst = AxiomInstCo con ind (opt_transList is (map mkSymCoArg cos2) cos1)
   , Nothing <- checkAxInstCo newAxInst
   = fireTransRule "TrPushSymAxR" co1 co2 $ SymCo newAxInst
 
@@ -818,7 +828,7 @@ opt_trans_rule is co1 co2
   | Just (sym, con, ind, cos2) <- co2_is_axiom_maybe
   , True <- sym
   , Just cos1 <- matchAxiom (not sym) con ind co1
-  , let newAxInst = AxiomInstCo con ind (opt_transList is cos2 (map mk_sym_co_arg cos1))
+  , let newAxInst = AxiomInstCo con ind (opt_transList is cos2 (map mkSymCoArg cos1))
   , Nothing <- checkAxInstCo newAxInst
   = fireTransRule "TrPushSymAxL" co1 co2 $ SymCo newAxInst
 
@@ -845,16 +855,13 @@ opt_trans_rule is co1 co2
   = fireTransRule "TrPushAxSym" co1 co2 $
     if sym2
        -- TrPushAxSym
-    then liftCoSubstWith role qtvs (opt_transList is cos1 (map mk_sym_co_arg cos2)) lhs
+    then liftCoSubstWith role qtvs (opt_transList is cos1 (map mkSymCoArg cos2)) lhs
        -- TrPushSymAx
-    else liftCoSubstWith role qtvs (opt_transList is (map mk_sym_co_arg cos1) cos2) rhs
+    else liftCoSubstWith role qtvs (opt_transList is (map mkSymCoArg cos1) cos2) rhs
   where
     co1_is_axiom_maybe = isAxiom_maybe co1
     co2_is_axiom_maybe = isAxiom_maybe co2
     role = coercionRole co1 -- should be the same as coercionRole co2!
-
-    mk_sym_co_arg (TyCoArg co) = TyCoArg $ mkSymCo co
-    mk_sym_co_arg (CoCoArg r co1 co2) = CoCoArg r co2 co1
 
 opt_trans_rule is co1 co2
   | Just (lco, lh) <- isCohRight_maybe co1
@@ -1040,9 +1047,10 @@ compatible_co co1 co2
     Pair x2 _ = coercionKind co2
 
 -------------
-etaForAllCo_maybe :: InScopeSet -> Coercion -> Maybe (ForAllCoBndr, Coercion)
+etaForAllCo_maybe :: InScopeSet -> Role   -- of the coercion
+                  -> Coercion -> Maybe (ForAllCoBndr, Coercion)
 -- Try to make the coercion be of form (forall tv. co)
-etaForAllCo_maybe is co
+etaForAllCo_maybe is role co
   | Just (cobndr, r) <- splitForAllCo_maybe co
   = Just (cobndr, r)
 
@@ -1064,29 +1072,31 @@ etaForAllCo_maybe is co
               Just ( mkTyHeteroCoBndr (mkNthCo 0 co) tv1 tv2 covar
                    , mkInstCo co (TyCoArg (mkCoVarCo covar)))
          else Just ( mkCoHeteroCoBndr (mkNthCo 0 co) tv1 tv2
-                   , mkInstCo co (CoCoArg Nominal (mkCoVarCo tv1) (mkCoVarCo tv2)))
+                   , let kco = downgradeRole Representational role $ mkNthCo 0 co
+                     in mkInstCo co (CoCoArg Nominal kco (mkCoVarCo tv1)
+                                                         (mkCoVarCo tv2)))
 
   | otherwise
   = Nothing
 
-etaAppCo_maybe :: Coercion -> Maybe (Coercion,CoercionArg)
+etaAppCo_maybe :: Coercion -> Maybe (Coercion,Coercion,CoercionArg)
 -- If possible, split a coercion
 --   g :: t1a t1b ~ t2a t2b
 -- into a pair of coercions (left g, right g)
 etaAppCo_maybe co
-  | Just (co1,co2) <- splitAppCo_maybe co
-  = Just (co1,co2)
+  | Just (co1,h,co2) <- splitAppCo_maybe co
+  = Just (co1,h,co2)
   | (Pair ty1 ty2, Nominal) <- coercionKindRole co
   , Just (_,t1) <- splitAppTy_maybe ty1
   , Just (_,t2) <- splitAppTy_maybe ty2
   , let isco1 = isCoercionTy t1
   , let isco2 = isCoercionTy t2
   , isco1 == isco2
-  = Just (LRCo CLeft co, if not isco1
-                         then TyCoArg $ LRCo CRight co
-                         else CoCoArg Nominal
-                                      (stripCoercionTy t1)
-                                      (stripCoercionTy t2))
+  = Just ( LRCo CLeft co, KindAppCo co
+         , if not isco1
+           then TyCoArg $ LRCo CRight co
+           else CoCoArg Nominal (mkSubCo $ KindAppCo co)
+                        (stripCoercionTy t1) (stripCoercionTy t2) )
   | otherwise
   = Nothing
 

@@ -17,7 +17,7 @@ import Type
 import TcEvidence
 import TyCon
 import TyCoRep   -- performs delicate algorithm on types
-import Coercion  ( tyConRolesX, coercionKind )
+import Coercion
 import Var
 import VarEnv
 import NameEnv
@@ -29,11 +29,15 @@ import DynFlags( DynFlags )
 import Util
 import Bag
 import Pair
+import Maybes
 import BasicTypes  ( Boxity(..) )
 import FastString
 import Control.Monad( when )
 import MonadUtils ( zipWithAndUnzipM )
 import GHC.Exts ( inline )
+
+import Control.Applicative ( (<$>) )
+import Control.Arrow ( first, second )
 
 {-
 Note [The flattening story]
@@ -587,7 +591,7 @@ data FlattenEnv
 data FlattenMode  -- Postcondition for all three: inert wrt the type substitution
   = FM_FlattenAll          -- Postcondition: function-free
 
-  | FM_Avoid TcTyVar Bool  -- See Note [Lazy flattening]
+  --x | FM_Avoid TcTyVar Bool  -- See Note [Lazy flattening]
                            -- Postcondition:
                            --  * tyvar is only mentioned in result under a rigid path
                            --    e.g.   [a] is ok, but F a won't happen
@@ -678,12 +682,25 @@ If we need to make this yet more performant, a possible way forward is to
 duplicate the flattener code for the nominal case, and make that case
 faster. This doesn't seem quite worth it, yet.
 
+Note [Kinds when flattening an AppTy]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When flattening an AppTy, we must be quite careful with kinds. The problem
+is that flattening any type (even nominally) makes the kind of a type
+be flat representationally. Suppose we are flattening (x (3 |> sym axAge)),
+where axAge : Age ~R Int, and x is some type variable. We'll discover
+(via `nextRole`) that we should flatten (3 |> sym axAge) nominally. But
+this will output plain old 3! So, we also manually flatten the kind
+of the argument in an AppTy (in this case, Age), both nominally *and*
+representationally. So, we'll get (Age ~N Age) and (Age ~R Int). Then,
+we can use these coercions to sort out the mess, getting the argument's
+kind back to being Age, the way it should be.
+
 -}
 
 ------------------
 flatten :: FlattenMode -> CtEvidence -> TcType -> TcS (Xi, TcCoercion)
 flatten mode ev ty
-  = runFlatten (flatten_one fmode ty)
+  = second mkTcCoercion <$> runFlatten (flatten_one fmode ty)
   where
     fmode = mkFlattenEnv mode ev
 
@@ -692,19 +709,19 @@ flattenMany :: FlattenMode -> CtEvidence -> [Role]
 -- Flatten a bunch of types all at once. Roles on the coercions returned
 -- always match the corresponding roles passed in.
 flattenMany mode ev roles tys
-  = runFlatten (flatten_many fmode roles tys)
+  = second (map mkTcCoercionArg) <$> runFlatten (flatten_many fmode roles tys)
   where
     fmode = mkFlattenEnv mode ev
 
 flattenFamApp :: FlattenMode -> CtEvidence
               -> TyCon -> [TcType] -> TcS (Xi, TcCoercion)
 flattenFamApp mode ev tc tys
-  = runFlatten (flatten_fam_app fmode tc tys)
+  = second mkTcCoercion <$> runFlatten (flatten_fam_app fmode tc tys)
   where
     fmode = mkFlattenEnv mode ev
 
 ------------------
-flatten_many :: FlattenEnv -> [Role] -> [Type] -> TcS ([Xi], [TcCoercion])
+flatten_many :: FlattenEnv -> [Role] -> [Type] -> TcS ([Xi], [CoercionArg])
 -- Coercions :: Xi ~ Type, at roles given
 -- Returns True iff (no flattening happened)
 -- NB: The EvVar inside the 'fe_ev :: CtEvidence' is unused,
@@ -714,25 +731,23 @@ flatten_many fmode roles tys
 -- See Note [flatten_many performance]
   = inline zipWithAndUnzipM go roles tys
   where
-    go Nominal          ty = flatten_one (setFEEqRel fmode NomEq)  ty
-    go Representational ty = flatten_one (setFEEqRel fmode ReprEq) ty
+    go Nominal          ty = flatten_one_arg (setFEEqRel fmode NomEq)  ty
+    go Representational ty = flatten_one_arg (setFEEqRel fmode ReprEq) ty
     go Phantom          ty = -- See Note [Phantoms in the flattener]
-                             return ( ty
-                                    , mkTcPhantomCo (mkTcRepReflCo $ typeKind ty)
-                                                    ty ty )
+                             return ( ty, mkReflCoArg Phantom ty )
 
 -- | Like 'flatten_many', but assumes that every role is nominal.
-flatten_many_nom :: FlattenEnv -> [Type] -> TcS ([Xi], [TcCoercion])
+flatten_many_nom :: FlattenEnv -> [Type] -> TcS ([Xi], [CoercionArg])
 flatten_many_nom _     [] = return ([], [])
 -- See Note [flatten_many performance]
 flatten_many_nom fmode (ty:tys)
   = ASSERT( fe_eq_rel fmode == NomEq )
-    do { (xi, co) <- flatten_one fmode ty
+    do { (xi, co) <- flatten_one_arg fmode ty
        ; (xis, cos) <- flatten_many_nom fmode tys
        ; return (xi:xis, co:cos) }
 
 ------------------
-flatten_one :: FlattenEnv -> TcType -> TcS (Xi, TcCoercion)
+flatten_one :: FlattenEnv -> TcType -> TcS (Xi, Coercion)
 -- Flatten a type to get rid of type function applications, returning
 -- the new type-function-free type, and a collection of new equality
 -- constraints.  See Note [Flattening] for more detail.
@@ -740,7 +755,7 @@ flatten_one :: FlattenEnv -> TcType -> TcS (Xi, TcCoercion)
 -- Postcondition: Coercion :: Xi ~ TcType
 -- The role on the result coercion matches the EqRel in the FlattenEnv
 
-flatten_one fmode xi@(LitTy {}) = return (xi, mkTcReflCo (feRole fmode) xi)
+flatten_one fmode xi@(LitTy {}) = return (xi, mkReflCo (feRole fmode) xi)
 
 flatten_one fmode (TyVarTy tv)
   = flattenTyVar fmode tv
@@ -752,19 +767,38 @@ flatten_one fmode (AppTy ty1 ty2)
            (ReprEq, Nominal)          -> flatten_rhs xi1 co1 NomEq
            (ReprEq, Representational) -> flatten_rhs xi1 co1 ReprEq
            (ReprEq, Phantom)          ->
-             return (mkAppTy xi1 ty2, co1 `mkTcAppCo` mkTcNomReflCo ty2) }
+             return (mkAppTy xi1 ty2, mkAppCo co1 (mkRepReflCo (typeKind ty2))
+                                                  (mkNomReflCoArg ty2)) }
   where
+    -- See Note [Kinds when flattening an AppTy]
     flatten_rhs xi1 co1 eq_rel2
-      = do { (xi2,co2) <- flatten_one (setFEEqRel fmode eq_rel2) ty2
-           ; traceTcS "flatten/appty"
-                      (ppr ty1 $$ ppr ty2 $$ ppr xi1 $$
-                       ppr co1 $$ ppr xi2 $$ ppr co2)
+      = do { (xi2,co2) <- flatten_one_arg (setFEEqRel fmode eq_rel2) ty2
            ; let role1 = feRole fmode
                  role2 = eqRelRole eq_rel2
-           ; return ( mkAppTy xi1 xi2
-                    , mkTcTransAppCo role1 co1 xi1 ty1
-                                     role2 co2 xi2 ty2
-                                     role1 ) }  -- output should match fmode
+              -- kco :: kind xi2' ~N kind ty2
+           ; (kco, xi2') <- case role1 of
+               Phantom          -> return ( panic "flatten_one AppTy phantom"
+                                          , xi2 )
+               Representational -> return ( panic "flatten_one AppTy repr"
+                                          , xi2 )
+                                   -- TODO (RAE): I think the above cases are
+                                   -- wrong; it depends on the roles on
+                                   -- dependent parameters of the TyConApp
+               Nominal          ->
+                 do { let ki2 = typeKind ty2
+                    ; (r_ki2, r_kco2) <- flatten_one (setFEEqRel fmode ReprEq) ki2
+                    ; MASSERT( typeKind xi2 `eqType` r_ki2 )
+                    ; (_n_ki2, n_kco2) <- flatten_one fmode ki2
+                    ; return ( n_kco2, xi2 `mkCastTy`
+                                       (r_kco2 `mkTransCo` mkSymCo n_kco2) ) }
+           ; traceTcS "flatten/appty"
+                      (ppr ty1 $$ ppr ty2 $$ ppr xi1 $$
+                       ppr co1 $$ ppr xi2' $$ ppr co2)
+           ; return ( mkAppTy xi1 xi2'
+                    , mkTransAppCo role1 co1 xi1 ty1
+                                   kco
+                                   role2 co2 xi2' ty2
+                                   role1 ) }  -- output should match fmode
 
 flatten_one fmode (TyConApp tc tys)
   -- Expand type synonyms that mention type families
@@ -798,9 +832,13 @@ flatten_one fmode (TyConApp tc tys)
 flatten_one fmode (ForAllTy (Anon ty1) ty2)
   = do { (xi1,co1) <- flatten_one fmode ty1
        ; (xi2,co2) <- flatten_one fmode ty2
-       ; return (mkFunTy xi1 xi2, mkTcFunCo (feRole fmode) co1 co2) }
+       ; return (mkFunTy xi1 xi2, mkFunCo (feRole fmode) co1 co2) }
 
 flatten_one fmode ty@(ForAllTy (Named {}) _)
+-- TODO (RAE): This is inadequate, as it doesn't flatten the kind of
+-- the bound tyvar. Doing so will require carrying around a substitution
+-- and the usual substTyVarBndr-like silliness. Argh.
+
 -- We allow for-alls when, but only when, no type function
 -- applications inside the forall involve the bound type variables.
   = do { let (bndrs, rho) = splitNamedForAllTysB ty
@@ -808,33 +846,48 @@ flatten_one fmode ty@(ForAllTy (Named {}) _)
        ; (rho', co) <- flatten_one (setFEMode fmode FM_SubstOnly) rho
                          -- Substitute only under a forall
                          -- See Note [Flattening under a forall]
-       ; return (mkForAllTys bndrs rho', foldr mkTcForAllCo co tvs) }
+       ; let co_bndrs = map mkHomoCoBndr tvs
+       ; return (mkForAllTys bndrs rho', foldr mkForAllCo co co_bndrs) }
 
 flatten_one fmode (CastTy ty g)
   = do { (xi, co) <- flatten_one fmode ty
-       ; g' <- zonkCo g   -- this is necessary because we use typeKind
-                          -- and if a coercion has an unzonked kind, the typeKind
-                          -- panics in piResultTy
+       ; (g', _) <- flatten_co fmode g
 
-       ; return $
-         let Pair k1 k2 = coercionKind g' in
-             -- TODO (RAE): Change to use isReflCo. This doesn't work now because
-             -- zonkCo has to be lazy in tycons b/c of zonking inside the knot. After
-             -- we no longer have to zonk inside the knot (because of separating out
-             -- tycon bodies from tycon sigs), then zonkCo will work better and we
-             -- can use isReflCo.
-         if k1 `eqType` k2
-         then (xi,             mkTcCoherenceRightCo co    g')
-         else (mkCastTy xi g', castTcCoercionKind   co g' g') }
+       ; return (mkCastTy xi g', castCoercionKind co g' g) }
     
-flatten_one _ ty@(CoercionTy {}) = return (ty, mkTcNomReflCo ty)
+flatten_one _ ty@(CoercionTy {}) = pprPanic "flatten_one" (ppr ty)
 
-flattenTyConApp :: FlattenEnv -> TyCon -> [TcType] -> TcS (Xi, TcCoercion)
+flatten_one_arg :: FlattenEnv -> Type -> TcS (Xi, CoercionArg)
+flatten_one_arg fmode (CoercionTy co)
+  = first mkCoercionTy <$> flatten_co fmode co
+flatten_one_arg fmode ty = second TyCoArg <$> flatten_one fmode ty
+
+-- | "Flatten" a coercion. Really, just flatten the types that it coerces
+-- between and then use transitivity.
+flatten_co :: FlattenEnv -> Coercion -> TcS (Coercion, CoercionArg)
+flatten_co fmode co
+  = do { let (Pair ty1 ty2, role) = coercionKindRole co
+             eq_rel               = case role of
+                                      Representational -> ReprEq
+                                      _                -> NomEq
+             fmode'               = setFEEqRel fmode eq_rel
+       ; (_, co1) <- flatten_one fmode' ty1
+       ; (_, co2) <- flatten_one fmode' ty2
+       ; let co' = co1 `mkTransCo` co `mkTransCo` mkSymCo co2
+             -- kco :: (ty1' ~r ty2') ~R (ty1 ~r ty2)
+             kco = mkTyConAppCo Representational (equalityTyCon role) $
+                     map mkTyCoArg [ mkKindCo co1
+                                   , mkKindCo co2
+                                   , downgradeRole role (eqRelRole eq_rel) co1
+                                   , downgradeRole role (eqRelRole eq_rel) co2 ]
+       ; return (co', CoCoArg (feRole fmode) kco co' co) }
+
+flattenTyConApp :: FlattenEnv -> TyCon -> [TcType] -> TcS (Xi, Coercion)
 flattenTyConApp fmode tc tys
   = do { (xis, cos) <- case fe_eq_rel fmode of
                          NomEq  -> flatten_many_nom fmode tys
                          ReprEq -> flatten_many fmode (tyConRolesX role tc) tys
-       ; return (mkTyConApp tc xis, mkTcTyConAppCo role tc cos) }
+       ; return (mkTyConApp tc xis, mkTyConAppCo role tc cos) }
   where
     role = feRole fmode
 
@@ -881,8 +934,7 @@ and we have not begun to think about how to make that work!
 ************************************************************************
 -}
 
-flatten_fam_app, flatten_exact_fam_app, flatten_exact_fam_app_fully
-  :: FlattenEnv -> TyCon -> [TcType] -> TcS (Xi, TcCoercion)
+flatten_fam_app :: FlattenEnv -> TyCon -> [TcType] -> TcS (Xi, Coercion)
   --   flatten_fam_app            can be over-saturated
   --   flatten_exact_fam_app       is exactly saturated
   --   flatten_exact_fam_app_fully lifts out the application to top level
@@ -893,70 +945,93 @@ flatten_fam_app fmode tc tys  -- Can be over-saturated
                  -- in which case the remaining arguments should
                  -- be dealt with by AppTys
       do { let (tys1, tys_rest) = splitAt (tyConArity tc) tys
-         ; (xi1, co1) <- flatten_exact_fam_app fmode tc tys1
+         ; (xi1, co1, kco) <- flatten_exact_fam_app fmode tc tys1
                -- co1 :: xi1 ~ F tys1
 
                -- all Nominal roles b/c the tycon is oversaturated
          ; (xis_rest, cos_rest) <- flatten_many fmode (repeat Nominal) tys_rest
                -- cos_res :: xis_rest ~ tys_rest
+
+         ; let kcos = fst $ buildKindCosX (feRole fmode) kco cos_rest
          ; return ( mkAppTys xi1 xis_rest   -- NB mkAppTys: rhs_xi might not be a type variable
                                             --    cf Trac #5655
-                  , mkTcAppCos co1 cos_rest -- (rhs_xi :: F xis) ; (F cos :: F xis ~ F tys)
+                  , mkAppCos co1 (zip kcos cos_rest)
+                            -- (rhs_xi :: F xis) ; (F cos :: F xis ~ F tys)
                   ) }
 
+flatten_exact_fam_app, flatten_exact_fam_app_fully ::
+  FlattenEnv -> TyCon -> [TcType] -> TcS (Xi, Coercion, Coercion)
+   -- second coercion relates the kind of arguments to come,
+   -- at role (feRole fmode); use the coercion in a call to buildKindCosX
 flatten_exact_fam_app fmode tc tys
   = case fe_mode fmode of
        FM_FlattenAll -> flatten_exact_fam_app_fully fmode tc tys
 
        FM_SubstOnly -> do { (xis, cos) <- flatten_many fmode roles tys
-                          ; return ( mkTyConApp tc xis
-                                   , mkTcTyConAppCo (feRole fmode) tc cos ) }
+                          ; let co  = mkTyConAppCo role tc cos
+                                kco = case role of
+                                  Nominal ->
+                                    expectJust "flatten_exact_fam_app" $
+                                    snd $
+                                    buildKindCosX role
+                                                  (mkReflCo role (tyConKind tc))
+                                                  cos
+                                  Representational -> mkKindCo co
+                                  Phantom          -> toPhantomCo (mkKindCo co)
 
-       FM_Avoid tv flat_top ->
-         do { (xis, cos) <- flatten_many fmode roles tys
-            ; if flat_top || tv `elemVarSet` tyCoVarsOfTypes xis
-              then flatten_exact_fam_app_fully fmode tc tys
-              else return ( mkTyConApp tc xis
-                          , mkTcTyConAppCo (feRole fmode) tc cos ) }
+                          ; return (mkTyConApp tc xis, co, kco) }
+
+       -- FM_Avoid tv flat_top ->
+       --   do { (xis, cos) <- flatten_many fmode roles tys
+       --      ; if flat_top || tv `elemVarSet` tyCoVarsOfTypes xis
+       --        then flatten_exact_fam_app_fully fmode tc tys
+       --        else return ( mkTyConApp tc xis
+       --                    , mkTyConAppCo (feRole fmode) tc cos ) }
   where
     -- These are always going to be Nominal for now,
     -- but not if #8177 is implemented
-    roles = tyConRolesX (feRole fmode) tc
+    role  = feRole fmode
+    roles = tyConRolesX role tc
 
 flatten_exact_fam_app_fully fmode tc tys
   -- See Note [Reduce type family applications eagerly]
   = try_to_reduce tc tys False id $
     do { (xis, cos) <- flatten_many_nom (setFEEqRel (setFEMode fmode FM_FlattenAll) NomEq) tys
-       ; let ret_co = mkTcTyConAppCo (feRole fmode) tc cos
+       ; let ret_co = mkTyConAppCo (feRole fmode) tc cos
               -- ret_co :: F xis ~ F tys
 
        ; tclvl <- getTcLevel
        ; mb_ct <- lookupFlatCache tc xis
        ; case mb_ct of
-           Just (co, rhs_ty, flav)  -- co :: F xis ~ fsk
-             | canRewriteOrSameFRB tclvl (flav, NomEq, co_boxity co) (feFRB fmode)
+           Just (tc_co, rhs_ty, flav)  -- co :: F xis ~ fsk
+             | canRewriteOrSameFRB tclvl (flav, NomEq, tc_co_boxity tc_co)
+                                         (feFRB fmode)
              ->  -- Usable hit in the flat-cache
                  -- We certainly *can* use a Wanted for a Wanted
-                do { traceTcS "flatten/flat-cache hit" $ (ppr tc <+> ppr xis $$ ppr rhs_ty $$ ppr co)
+                do { traceTcS "flatten/flat-cache hit" $ (ppr tc <+> ppr xis $$ ppr rhs_ty $$ ppr tc_co)
                    ; (fsk_xi, fsk_co) <- flatten_one fmode rhs_ty
                           -- The fsk may already have been unified, so flatten it
                           -- fsk_co :: fsk_xi ~ fsk
-                   ; return (fsk_xi, fsk_co `mkTcTransCo`
-                                     maybeTcSubCo (fe_eq_rel fmode)
-                                                  (mkTcSymCo co) `mkTcTransCo`
-                                     ret_co) }
+                   ; co <- dirtyTcCoToCo tc_co
+                   ; return (fsk_xi, fsk_co `mkTransCo`
+                                     maybeSubCo (fe_eq_rel fmode)
+                                                (mkSymCo co) `mkTransCo`
+                                     ret_co
+                            , mkReflCo (feRole fmode) (typeKind fsk_xi) ) }
+                -- TODO (RAE): The previous line is very wrong.
                                     -- :: fsk_xi ~ F xis
 
            -- Try to reduce the family application right now
            -- See Note [Reduce type family applications eagerly]
-           _ -> try_to_reduce tc xis True (`mkTcTransCo` ret_co) $
+           _ -> try_to_reduce tc xis True (`mkTransCo` ret_co) $
                 do { let fam_ty = mkTyConApp tc xis
-                   ; (ev, fsk) <- newFlattenSkolem (fe_flavour fmode)
-                                                   (fe_loc fmode)
-                                                   fam_ty
+                   ; (ev, co, fsk) <- newFlattenSkolem (fe_flavour fmode)
+                                                       (fe_loc fmode)
+                                                       fam_ty
                    ; let fsk_ty = mkOnlyTyVarTy fsk
-                         co     = ctEvCoercion ev
-                   ; extendFlatCache tc xis (co, fsk_ty, ctEvFlavour ev)
+                   ; extendFlatCache tc xis ( mkTcCoercion co
+                                            , fsk_ty
+                                            , ctEvFlavour ev )
 
                    -- The new constraint (F xis ~ fsk) is not necessarily inert
                    -- (e.g. the LHS may be a redex) so we must put it in the work list
@@ -967,18 +1042,20 @@ flatten_exact_fam_app_fully fmode tc tys
                    ; emitFlatWork ct
 
                    ; traceTcS "flatten/flat-cache miss" $ (ppr fam_ty $$ ppr fsk $$ ppr ev)
-                   ; return (fsk_ty, maybeTcSubCo (fe_eq_rel fmode)
-                                                  (mkTcSymCo co)
-                                     `mkTcTransCo` ret_co) }
+                   ; return (fsk_ty, maybeSubCo (fe_eq_rel fmode)
+                                                (mkSymCo co)
+                                     `mkTransCo` ret_co
+                            , mkReflCo (feRole fmode) (typeKind fsk_ty) ) }
+                -- TODO (RAE): The previous line is very wrong.
         }
 
   where
-    co_boxity :: TcCoercion -> Boxity
+    tc_co_boxity :: TcCoercion -> Boxity
     -- if *any* covar in the coercion is lifted, return Boxed; otherwise,
     -- Unboxed. Used to check if the coercion is a suitable RHS for a top-level
     -- unlifted coercion. Laziness should hopefully prevent most runs of
     -- this function. See Note [Flavours with boxities]
-    co_boxity co
+    tc_co_boxity co
       | all (isUnLiftedType . varType) $ varSetElems $ coVarsOfTcCo co
       = Unboxed
       | otherwise
@@ -987,10 +1064,10 @@ flatten_exact_fam_app_fully fmode tc tys
     try_to_reduce :: TyCon   -- F, family tycon
                   -> [Type]  -- args, not necessarily flattened
                   -> Bool    -- add to the flat cache?
-                  -> (   TcCoercion     -- :: xi ~ F args
-                      -> TcCoercion )   -- what to return from outer function
-                  -> TcS (Xi, TcCoercion)  -- continuation upon failure
-                  -> TcS (Xi, TcCoercion)
+                  -> (   Coercion     -- :: xi ~ F args
+                      -> Coercion )   -- what to return from outer function
+                  -> TcS (Xi, Coercion, Coercion)  -- continuation upon failure
+                  -> TcS (Xi, Coercion, Coercion)
     try_to_reduce tc tys cache update_co k
       = do { mb_match <- matchFam tc tys
            ; case mb_match of
@@ -998,10 +1075,16 @@ flatten_exact_fam_app_fully fmode tc tys
                  -> do { traceTcS "Eager T.F. reduction success" $
                          vcat [ppr tc, ppr tys, ppr norm_ty, ppr cache]
                        ; (xi, final_co) <- flatten_one fmode norm_ty
-                       ; let co = norm_co `mkTcTransCo` mkTcSymCo final_co
+                       ; let co = norm_co `mkTransCo` mkSymCo final_co
                        ; when cache $
-                         extendFlatCache tc tys (co, xi, fe_flavour fmode)
-                       ; return (xi, update_co $ mkTcSymCo co) }
+                         extendFlatCache tc tys ( mkTcCoercion co, xi
+                                                , fe_flavour fmode)
+                       ; return ( xi, update_co $ mkSymCo co
+                     -- TODO (RAE): This next line is very wrong. It
+                     -- discounts the possibility that kinds can change during
+                     -- flattening.
+                                , mkReflCo (feRole fmode) (typeKind xi)
+                                ) }
                Nothing -> k }
 
 {- Note [Reduce type family applications eagerly]
@@ -1319,7 +1402,7 @@ I thus conjecture that we lose no expressiveness by this restriction.
 
 -}
 
-flattenTyVar :: FlattenEnv -> TcTyVar -> TcS (Xi, TcCoercion)
+flattenTyVar :: FlattenEnv -> TcTyVar -> TcS (Xi, Coercion)
 -- "Flattening" a type variable means to apply the substitution to it
 -- The substitution is actually the union of
 --     * the unifications that have taken place (either before the
@@ -1332,18 +1415,18 @@ flattenTyVar fmode tv
        ; case mb_yes of
            Left tv' -> -- Done
                        do { traceTcS "flattenTyVar1" (ppr tv $$ ppr (tyVarKind tv'))
-                          ; return (ty', mkTcReflCo (feRole fmode) ty') }
+                          ; return (ty', mkReflCo (feRole fmode) ty') }
                     where
                        ty' = mkOnlyTyVarTy tv'
 
            Right (ty1, co1)  -- Recurse
                     -> do { (ty2, co2) <- flatten_one fmode ty1
                           ; traceTcS "flattenTyVar3" (ppr tv $$ ppr ty2)
-                          ; return (ty2, co2 `mkTcTransCo` co1) }
+                          ; return (ty2, co2 `mkTransCo` co1) }
        }
 
 flattenTyVarOuter :: FlattenEnv -> TcTyVar
-                  -> TcS (Either TyVar (TcType, TcCoercion))
+                  -> TcS (Either TyVar (TcType, Coercion))
 -- Look up the tyvar in
 --   a) the internal MetaTyVar box
 --   b) the tyvar binds
@@ -1360,7 +1443,7 @@ flattenTyVarOuter fmode tv
   = do { mb_ty <- isFilledMetaTyVar_maybe tv
        ; case mb_ty of {
            Just ty -> do { traceTcS "Following filled tyvar" (ppr tv <+> equals <+> ppr ty)
-                         ; return (Right (ty, mkTcReflCo (feRole fmode) ty)) } ;
+                         ; return (Right (ty, mkReflCo (feRole fmode) ty)) } ;
            Nothing ->
 
     -- Try in the inert equalities
@@ -1373,14 +1456,15 @@ flattenTyVarOuter fmode tv
              | CTyEqCan { cc_ev = ctev, cc_tyvar = tv, cc_rhs = rhs_ty } <- ct
              , eqCanRewriteFRB tclvl (ctEvFRB ctev) (feFRB fmode)
              ->  do { traceTcS "Following inert tyvar" (ppr tv <+> equals <+> ppr rhs_ty $$ ppr ctev)
-                    ; let rewrite_co1 = mkTcSymCo (ctEvCoercion ctev)
+                    ; inert_co <- dirtyTcCoToCo (ctEvCoercion ctev)
+                    ; let rewrite_co1 = mkSymCo inert_co
                           rewrite_co = case (ctEvEqRel ctev, fe_eq_rel fmode) of
                             (ReprEq, _rel)  -> ASSERT( _rel == ReprEq )
                                     -- if this ASSERT fails, then
                                     -- eqCanRewriteFRB answered incorrectly
                                                rewrite_co1
                             (NomEq, NomEq)  -> rewrite_co1
-                            (NomEq, ReprEq) -> mkTcSubCo rewrite_co1
+                            (NomEq, ReprEq) -> mkSubCo rewrite_co1
 
                     ; return (Right (rhs_ty, rewrite_co)) }
                     -- NB: ct is Derived then fmode must be also, hence
@@ -1391,12 +1475,12 @@ flattenTyVarOuter fmode tv
     } } }
 
 flattenTyVarFinal :: FlattenEnv -> TcTyVar
-                  -> TcS (Either TyVar (TcType, TcCoercion))
+                  -> TcS (Either TyVar (TcType, Coercion))
 flattenTyVarFinal fmode tv
   = -- Done, but make sure the kind is zonked
     do { let kind = tyVarKind tv
        ; (new_kind, kind_co) <- flatten_one (setFEEqRel fmode ReprEq) kind
-       ; if isTcReflCo kind_co
+       ; if isReflCo kind_co
          then return (Left (setVarType tv new_kind))
          else do { traceTcS "flattenTyVarFinal abandoning hetero flattening"
                             (ppr new_kind $$ ppr kind_co)
@@ -1407,7 +1491,8 @@ flattenTyVarFinal fmode tv
           -- TODO (RAE): Fix, either by adding TcCastTy to Type or inventing TcType
           -- for realsies. Or, bind a new variable to the TcCoercion and use it
           -- in a CoVarCo. Dirty, but should work. See "dirtier than I'd like"
-          -- in TcCanonical
+          -- in TcCanonical.
+          -- TODO (RAE): UPDATE: just use dirtyTcCoToCo
 
 {-
 Note [An alternative story for the inert substitution]
@@ -1716,5 +1801,5 @@ setFEMode fmode@(FE { fe_mode = old_mode }) new_mode
   where
     FM_FlattenAll   `eq` FM_FlattenAll   = True
     FM_SubstOnly    `eq` FM_SubstOnly    = True
-    FM_Avoid tv1 b1 `eq` FM_Avoid tv2 b2 = tv1 == tv2 && b1 == b2
+--    FM_Avoid tv1 b1 `eq` FM_Avoid tv2 b2 = tv1 == tv2 && b1 == b2
     _               `eq` _               = False

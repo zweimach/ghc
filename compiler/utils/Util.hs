@@ -49,6 +49,9 @@ module Util (
         -- * For loop
         nTimes,
 
+        -- * Functions
+        uncurry2,
+
         -- * Sorting
         sortWith, minWith, nubSort,
 
@@ -486,6 +489,17 @@ isn'tIn msg x ys
                                 (x `notElem` (y:ys))
       | otherwise      =  x /= y && notElem100 (i +# _ILIT(1)) x ys
 # endif /* DEBUG */
+
+{-
+************************************************************************
+*                                                                      *
+\subsubsection{Functions}
+*                                                                      *
+************************************************************************
+-}
+
+uncurry2 :: (a -> b -> c -> d) -> a -> (b, c) -> d
+uncurry2 f a (b, c) = f a b c
 
 {-
 ************************************************************************
