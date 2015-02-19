@@ -667,7 +667,7 @@ opt_trans_rule is in_co1@(TyConAppCo r1 tc1 cos1) in_co2@(TyConAppCo r2 tc2 cos2
   | tc1 == tc2 
   = ASSERT( r1 == r2 )
     fireTransRule "PushTyConApp" in_co1 in_co2 $
-    TyConAppCo r1 tc1 (opt_transList is cos1 cos2)
+    mkTyConAppCo r1 tc1 (opt_transList is cos1 cos2)
 
 opt_trans_rule is in_co1@(AppCo co1a h1 co1b) in_co2@(AppCo co2a h2 co2b)
   = fireTransRule "TrPushApp" in_co1 in_co2 $
@@ -680,13 +680,13 @@ opt_trans_rule is co1@(TyConAppCo r tc cos1) co2
   | Just cos2 <- etaTyConAppCo_maybe tc co2
   = ASSERT( length cos1 == length cos2 )
     fireTransRule "EtaCompL" co1 co2 $
-    TyConAppCo r tc (opt_transList is cos1 cos2)
+    mkTyConAppCo r tc (opt_transList is cos1 cos2)
 
 opt_trans_rule is co1 co2@(TyConAppCo r tc cos2)
   | Just cos1 <- etaTyConAppCo_maybe tc co1
   = ASSERT( length cos1 == length cos2 )
     fireTransRule "EtaCompR" co1 co2 $
-    TyConAppCo r tc (opt_transList is cos1 cos2)
+    mkTyConAppCo r tc (opt_transList is cos1 cos2)
 
 opt_trans_rule is co1@(AppCo co1a h1 co1b) co2
   | Just (co2a,h2,co2b) <- etaAppCo_maybe co2

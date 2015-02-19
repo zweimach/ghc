@@ -852,8 +852,11 @@ zonkTcTypeAndFV :: TcType -> TcM TyCoVarSet
 --    forall k1. forall (a:k2). a
 -- where k2:=k1 is in the substitution.  We don't want
 -- k2 to look free in this type!
-zonkTcTypeAndFV ty = do { ty <- zonkTcType ty; return (tyCoVarsOfType ty) }
-
+-- NB: This might be called from within the knot, so don't use
+-- smart constructors. See Note [Zonking within the knot] in TcHsType
+zonkTcTypeAndFV ty
+  = tyCoVarsOfType <$> mapType (zonkTcTypeMapper { tcm_smart = False }) () ty
+    
 zonkTyCoVar :: TyCoVar -> TcM TcType
 -- Works on TyVars and TcTyVars
 zonkTyCoVar tv | isTcTyVar tv = zonkTcTyCoVar tv
@@ -976,7 +979,8 @@ zonkId id
 -- before all metavars are filled in.
 zonkTcTypeMapper :: TyCoMapper () TcM
 zonkTcTypeMapper = TyCoMapper
-  { tcm_smart = False
+-- TODO (RAE): Remove tcm_smart and zonkSigType.
+  { tcm_smart = True
                 -- Do NOT establish Type invariants, because
                 -- doing so is strict in the TyCOn.
                 -- See Note [Zonking inside the knot] in TcHsType
