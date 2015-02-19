@@ -20,23 +20,10 @@ fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 fix parser; then fix TypeLits.Mult --> *
 
 KNOWN TESTSUITE FAILURES:
-   .  T7384 [exit code non-0] (normal)
-   .  T9892 [exit code non-0] (normal)
-   .  tc001 [exit code non-0] (normal)
-   .  tc081 [exit code non-0] (normal)
-   .  tc141 [stderr mismatch] (normal)
-
  typecheck/should_fail/T1633: Need proper handling of kind coercions
 
-   .  Simple12 [exit code non-0] (normal)
-   .  Simple14 [stderr mismatch] (normal)
-   .  T3017 [stderr mismatch] (normal)
-   .  T3208b [stderr mismatch] (normal)
-   .  T3484 [exit code non-0] (normal)
-   .  T8889 [exit code non-0] (normal)
-   .  T9316 [exit code non-0] (normal)
-   .  red-black-delete [exit code non-0] (normal)
-
+   .  Simple12 [exit code non-0] (normal)  (decideQuantification/qTyCoVar)
+   .  T3017 [stderr mismatch] (normal)     (printing coercions)
 
 QUESTIONS:
 - Check decideQuantification!

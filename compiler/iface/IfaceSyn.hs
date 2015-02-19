@@ -681,7 +681,7 @@ pprIfaceDecl ss (IfaceSynonym { ifName    = tc
 pprIfaceDecl ss (IfaceFamily { ifName = tycon, ifTyVars = tyvars
                              , ifFamFlav = rhs, ifFamKind = kind })
   = vcat [ hang (text "type family" <+> pprIfaceDeclHead [] ss tycon kind tyvars)
-              2 (text "Kind:" <+> ppr kind <+> ppShowRhs ss (pp_rhs rhs))
+              2 (text "Kind:" <+> ppr kind $$ ppShowRhs ss (pp_rhs rhs))
          , ppShowRhs ss (nest 2 (pp_branches rhs)) ]
   where
     pp_rhs IfaceOpenSynFamilyTyCon             = ppShowIface ss (ptext (sLit "open"))

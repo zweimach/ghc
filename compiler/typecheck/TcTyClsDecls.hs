@@ -414,7 +414,9 @@ getFamDeclInitialKind decl@(FamilyDecl { fdLName = L _ name
            kcHsTyVarBndrs (famDeclHasCusk decl) ktvs $
            do { res_k <- case ksig of
                            Just k  -> tcLHsKind k
-                           Nothing -> newMetaKindVar
+                           Nothing
+                             | famDeclHasCusk decl -> return liftedTypeKind
+                             | otherwise           -> newMetaKindVar
               ; return (res_k, ()) }
        ; return [ (name, AThing fam_kind) ] }
 

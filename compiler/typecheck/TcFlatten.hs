@@ -786,8 +786,7 @@ flatten_one fmode (AppTy ty1 ty2)
                                    -- dependent parameters of the TyConApp
                Nominal          ->
                  do { let ki2 = typeKind ty2
-                    ; (r_ki2, r_kco2) <- flatten_one (setFEEqRel fmode ReprEq) ki2
-                    ; MASSERT( typeKind xi2 `eqType` r_ki2 )
+                    ; (_r_ki2, r_kco2) <- flatten_one (setFEEqRel fmode ReprEq) ki2
                     ; (_n_ki2, n_kco2) <- flatten_one fmode ki2
                     ; return ( n_kco2, xi2 `mkCastTy`
                                        (r_kco2 `mkTransCo` mkSymCo n_kco2) ) }
