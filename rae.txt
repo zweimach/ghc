@@ -20,9 +20,6 @@ fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 fix parser; then fix TypeLits.Mult --> *
 
 KNOWN TESTSUITE FAILURES:
-   .  DfltProb2 [exit code non-0] (normal)
-   .  T2045 [exit code non-0] (normal)
-   .  T5490 [exit code non-0] (normal)
    .  T7384 [exit code non-0] (normal)
    .  T9892 [exit code non-0] (normal)
    .  tc001 [exit code non-0] (normal)

@@ -1170,15 +1170,12 @@ splitTelescopeTvs kind (HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
       = mk_tvs scoped_tv_acc (tv : all_tv_acc)
                bndrs all_hs_kvs all_hs_tvs  -- Case (1)
 
-    mk_tvs scoped_tv_acc all_tv_acc all_bndrs all_hs_kvs all_hs_tvs
-      | [] <- all_hs_kvs
+     -- there may actually still be some hs_kvs, if we're kind checking
+     -- a non-CUSK. The kinds *aren't* generalized, so we won't see them
+     -- here.
+    mk_tvs scoped_tv_acc all_tv_acc all_bndrs _all_hs_kvs all_hs_tvs
       = mk_tvs2 scoped_tv_acc all_tv_acc all_bndrs all_hs_tvs
            -- no more Case (1) or (2)
-
-      | otherwise
-      = pprPanic "splitTelescopeTvs 0" (vcat [ ppr all_bndrs
-                                             , ppr all_hs_kvs
-                                             , ppr all_hs_tvs ])
 
     -- This can't handle Case (1) from Note [Typechecking telescopes]
     mk_tvs1 :: [TyVar]

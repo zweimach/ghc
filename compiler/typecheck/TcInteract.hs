@@ -1501,8 +1501,11 @@ instFunDepEqn (FDEqn { fd_qtvs = tvs, fd_eqs = eqs, fd_loc = loc })
        ; mapM_ (do_one subst) eqs }
   where
     do_one subst (FDEq { fd_ty_left = ty1, fd_ty_right = ty2 })
-       = unifyDerived loc Nominal $
-         Pair (Type.substTy subst ty1) (Type.substTy subst ty2)
+       = do { let ty1' = substTy subst ty1
+                  ty2' = substTy subst ty2
+            ; unifyDerived loc Nominal $ Pair ty1' ty2'
+            ; unifyDerived loc Nominal $ Pair (typeKind ty1') (typeKind ty2') }
+              -- emit a *kind-level* derived, too
 
 {-
 *********************************************************************************
