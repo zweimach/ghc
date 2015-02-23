@@ -24,7 +24,7 @@ module TcHsSyn (
 
         zonkTopDecls, zonkTopExpr, zonkTopLExpr,
         zonkTopBndrs, zonkTyCoBndrsX,
-        emptyZonkEnv, mkEmptyZonkEnv, mkTyVarZonkEnv,
+        emptyZonkEnv, mkEmptyZonkEnv,
         zonkTcTypeToType, zonkTcTypeToTypes, zonkTyVarOcc,
         zonkCoToCo
   ) where
@@ -183,6 +183,7 @@ type UnboundTyVarZonker = TcTyVar-> TcM Type
 data ZonkEnv
   = ZonkEnv
       UnboundTyVarZonker
+      TCvSubst
       (TyVarEnv TyVar)          --
       (IdEnv    Var)            -- What variables are in scope
         -- Maps an Id or EvVar to its zonked version; both have the same Name
@@ -195,32 +196,30 @@ instance Outputable ZonkEnv where
   ppr (ZonkEnv _ _ty_env var_env) = vcat (map ppr (varEnvElts var_env))
 
 
-emptyZonkEnv :: ZonkEnv
+emptyZonkEnv :: TCvSubst -> ZonkEnv
 emptyZonkEnv = mkEmptyZonkEnv zonkTypeZapping
 
-mkEmptyZonkEnv :: UnboundTyVarZonker -> ZonkEnv
-mkEmptyZonkEnv zonker = ZonkEnv zonker emptyVarEnv emptyVarEnv
+mkEmptyZonkEnv :: UnboundTyVarZonker -> TCvSubst -> ZonkEnv
+mkEmptyZonkEnv zonker subst = ZonkEnv zonker subst emptyVarEnv emptyVarEnv
 
 extendIdZonkEnv :: ZonkEnv -> [Var] -> ZonkEnv
-extendIdZonkEnv (ZonkEnv zonk_ty ty_env id_env) ids
-  = ZonkEnv zonk_ty ty_env (extendVarEnvList id_env [(id,id) | id <- ids])
+extendIdZonkEnv (ZonkEnv zonk_ty subst ty_env id_env) ids
+  = ZonkEnv zonk_ty subst ty_env (extendVarEnvList id_env [(id,id) | id <- ids])
 
 extendIdZonkEnv1 :: ZonkEnv -> Var -> ZonkEnv
-extendIdZonkEnv1 (ZonkEnv zonk_ty ty_env id_env) id
-  = ZonkEnv zonk_ty ty_env (extendVarEnv id_env id id)
+extendIdZonkEnv1 (ZonkEnv zonk_ty subst ty_env id_env) id
+  = ZonkEnv zonk_ty subst ty_env (extendVarEnv id_env id id)
 
 extendTyZonkEnv1 :: ZonkEnv -> TyVar -> ZonkEnv
-extendTyZonkEnv1 (ZonkEnv zonk_ty ty_env id_env) ty
-  = ZonkEnv zonk_ty (extendVarEnv ty_env ty ty) id_env
-
-mkTyVarZonkEnv :: [TyVar] -> ZonkEnv
-mkTyVarZonkEnv tvs = ZonkEnv zonkTypeZapping (mkVarEnv [(tv,tv) | tv <- tvs]) emptyVarEnv
+extendTyZonkEnv1 (ZonkEnv zonk_ty subst ty_env id_env) ty
+  = ZonkEnv zonk_ty subst (extendVarEnv ty_env ty ty) id_env
 
 setZonkType :: ZonkEnv -> UnboundTyVarZonker -> ZonkEnv
-setZonkType (ZonkEnv _ ty_env id_env) zonk_ty = ZonkEnv zonk_ty ty_env id_env
+setZonkType (ZonkEnv _ subst ty_env id_env) zonk_ty
+  = ZonkEnv zonk_ty subst ty_env id_env
 
 zonkEnvIds :: ZonkEnv -> [Id]
-zonkEnvIds (ZonkEnv _ _ id_env) = varEnvElts id_env
+zonkEnvIds (ZonkEnv _ _ _ id_env) = varEnvElts id_env
 
 zonkIdOcc :: ZonkEnv -> TcId -> Id
 -- Ids defined in this module should be in the envt;

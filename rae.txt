@@ -1,5 +1,8 @@
 stack:
-- IfaceKindCo
+  - quantifyTyCoVars
+
+  - I've added solving to tcDataDefn and kind-checker in TcTyClsDecls,
+    but nowhere else.
 
 - rewrite decideQuantification. In particular, I think quantifyTyCoVars'
   should call quantifyPred, which can easily be moved from TcSimplify

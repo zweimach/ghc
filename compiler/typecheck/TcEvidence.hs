@@ -14,7 +14,9 @@ module TcEvidence (
   TcEvBinds(..), EvBindsVar(..), 
   EvBindMap(..), emptyEvBindMap, extendEvBinds, dropEvBind,
   lookupEvBind, evBindMapBinds,
-  EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, evBindsSubst, sccEvBinds, evBindVar,
+  EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds,
+  evBindsVars, evBindsSubst, evBindsSubstX,
+  sccEvBinds, evBindVar,
   EvTerm(..), mkEvCast, evVarsOfTerm,
   EvLit(..), evTermCoercion,
 
@@ -416,7 +418,7 @@ coVarsOfTcCo tc_co
     go (TcLRCo  _ co)            = go co
     go (TcSubCo co)              = go co
     go (TcLetCo (EvBinds bs) co) = foldrBag (unionVarSet . go_bind) (go co) bs
-                                   `minusVarSet` get_bndrs bs
+                                   `minusVarSet` evBindsVars bs
     go (TcLetCo {}) = emptyVarSet    -- Harumph. This does legitimately happen in the call
                                      -- to evVarsOfTerm in the DEBUG check of setEvBind
     go (TcAxiomRuleCo _ _ cos)   = mapUnionVarSet go cos
@@ -425,10 +427,6 @@ coVarsOfTcCo tc_co
     -- We expect only coercion bindings, so use evTermCoercion 
     go_bind :: EvBind -> VarSet
     go_bind (EvBind { evb_term = tm }) = go (evTermCoercion tm)
-
-    get_bndrs :: Bag EvBind -> VarSet
-    get_bndrs = foldrBag (\ (EvBind { evb_var = b }) bs -> extendVarSet bs b)
-                         emptyVarSet 
 
 -- | Converts a TcCoercion to a Coercion, substituting for covars as it goes.
 -- All covars in the TcCoercion must be mapped for this to succeed, as covars
@@ -471,7 +469,7 @@ tcCoercionToCoercion subst tc_co
     go_arg tc_co                = mkTyCoArg <$> go tc_co
 
     ds_co_binds :: TcEvBinds -> TCvSubst
-    ds_co_binds (EvBinds bs)      = evBindsSubst subst bs
+    ds_co_binds (EvBinds bs)      = evBindsSubstX subst bs
     ds_co_binds eb@(TcEvBinds {}) = pprPanic "ds_co_binds" (ppr eb)
 
 -- Pretty printing
@@ -912,10 +910,19 @@ sccEvBinds bs = stronglyConnCompFromEdgedVertices edges
     mk_node b@(EvBind { evb_var = var, evb_term = term })
       = (b, var, varSetElems (evVarsOfTerm term))
 
+-- | Get the set of EvVars bound in a bag of EvBinds.
+evBindsVars :: Bag EvBind -> VarSet
+evBindsVars = foldrBag (\ (EvBind { evb_var = b }) bs -> extendVarSet bs b)
+                       emptyVarSet 
+
+-- | Create a coercion substitution from a bunch of EvBinds.
+evBindsSubst :: Bag EvBind -> TCvSubst
+evBindsSubst = evBindsSubstX emptyTCvSubst
+
 -- | Extends a coercion substitution from a bunch of EvBinds. For EvBinds
 -- that don't map to a coercion, just don't include the mapping.
-evBindsSubst :: TCvSubst -> Bag EvBind -> TCvSubst
-evBindsSubst subst = foldl combine subst . sccEvBinds
+evBindsSubstX :: TCvSubst -> Bag EvBind -> TCvSubst
+evBindsSubstX subst = foldl combine subst . sccEvBinds
   where
     combine env (AcyclicSCC (EvBind { evb_var = v, evb_term = ev_term }))
       | Just co <- convert env ev_term

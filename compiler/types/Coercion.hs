@@ -2458,8 +2458,8 @@ buildCoherenceCo orig_ty1 orig_ty2
 buildCoherenceCoX :: RnEnv2 -> Type -> Type -> Maybe Coercion
 buildCoherenceCoX = go
   where
-    go env ty1 ty2 | Just ty1' <- coreView ty1 = go env ty1' ty2
-    go env ty1 ty2 | Just ty2' <- coreView ty2 = go env ty1  ty2'
+    go env ty1 ty2 | Just ty1' <- coreViewOneStarKind ty1 = go env ty1' ty2
+    go env ty1 ty2 | Just ty2' <- coreViewOneStarKind ty2 = go env ty1  ty2'
     
     go env (TyVarTy tv1) (TyVarTy tv2)
       | rnOccL env tv1 == rnOccR env tv2
