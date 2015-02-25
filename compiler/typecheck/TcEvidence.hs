@@ -15,7 +15,7 @@ module TcEvidence (
   EvBindMap(..), emptyEvBindMap, extendEvBinds, dropEvBind,
   lookupEvBind, evBindMapBinds,
   EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds,
-  evBindsVars, evBindsSubst, evBindsSubstX,
+  evBindsVars, evBindsSubst, evBindsSubstX, evBindsCvSubstEnv,
   sccEvBinds, evBindVar,
   EvTerm(..), mkEvCast, evVarsOfTerm,
   EvLit(..), evTermCoercion,
@@ -941,6 +941,9 @@ evBindsSubstX subst = foldl combine subst . sccEvBinds
       | otherwise
       = Nothing
     convert _ _ = Nothing  -- this can happen with superclass equalities!
+
+evBindsCvSubstEnv :: Bag EvBind -> CvSubstEnv
+evBindsCvSubstEnv = getCvSubstEnv . evBindsSubst
 
 {-
 ************************************************************************

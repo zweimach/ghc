@@ -618,12 +618,13 @@ Note that this function can accept covars, but will never return them.
 This is because we never want to infer a quantified covar!
 -}
 
-quantifyTyCoVars :: TcTyCoVarSet -> TcTyCoVarSet -> TcM [TcTyCoVar]
-quantifyTyCoVars gbls tkvs = quantifyTyCoVars' gbls tkvs False
+quantifyTyCoVars :: CvSubstEnv -> TcTyCoVarSet -> TcTyCoVarSet -> TcM [TcTyCoVar]
+quantifyTyCoVars co_env gbls tkvs = quantifyTyCoVars' co_env gbls tkvs False
 
-quantifyTyCoVars' :: TcTyCoVarSet   -- globals
+quantifyTyCoVars' :: CvSubstEnv     -- solved coercions
+                  -> TcTyCoVarSet   -- globals
                   -> TcTyCoVarSet   -- variables we're quantifying
-                  -> Bool           -- True <=> all variables are kind
+                  -> Bool           -- True <=> all non-global variables are kind
                                     -- variables; used for -XNoPolyKinds defaults
                   -> TcM [TcTyCoVar]
 -- See Note [quantifyTyCoVars]
@@ -632,9 +633,9 @@ quantifyTyCoVars' :: TcTyCoVarSet   -- globals
 -- Can be given a mixture of TcTyVars and TyVars, in the case of
 --   associated type declarations
 
-quantifyTyCoVars' gbl_tvs tkvs all_kind_vars
-  = do { tkvs    <- zonkTyCoVarsAndFV tkvs
-       ; gbl_tvs <- zonkTyCoVarsAndFV gbl_tvs
+quantifyTyCoVars' co_env gbl_tvs tkvs all_kind_vars
+  = do { tkvs    <- apply_co_env <$> zonkTyCoVarsAndFV tkvs
+       ; gbl_tvs <- apply_co_env <$> zonkTyCoVarsAndFV gbl_tvs
        ; let all_tvs = tkvs `unionVarSet` gbl_tvs
              dep_var_set
                = if all_kind_vars
@@ -672,6 +673,13 @@ quantifyTyCoVars' gbl_tvs tkvs all_kind_vars
       | otherwise       = return $ Just tkv
       -- For associated types, we have the class variables 
       -- in scope, and they are TyVars not TcTyVars
+
+    apply_co_env = foldVarSet apply_co_env1 emptyVarSet
+    apply_co_env1 v acc
+      | Just co <- lookupVarEnv co_env v
+      = acc `unionVarSet` tyCoVarsOfCo co
+      | otherwise
+      = acc `extendVarSet` v
 
 zonkQuantifiedTyCoVar :: TcTyCoVar -> TcM (Maybe TcTyCoVar)
 -- The quantified type variables often include meta type variables

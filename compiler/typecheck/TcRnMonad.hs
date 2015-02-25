@@ -1192,6 +1192,10 @@ emitInsoluble ct
          v <- readTcRef lie_var ;
          traceTc "emitInsoluble" (ppr v) }
 
+-- | Throw out any constraints emitted by the thing_inside
+discardConstraints :: TcM a -> TcM a
+discardConstraints thing_inside = fst <$> captureConstraints thing_inside
+
 captureConstraints :: TcM a -> TcM (a, WantedConstraints)
 -- (captureConstraints m) runs m, and returns the type constraints it generates
 captureConstraints thing_inside

@@ -100,17 +100,6 @@ deSugar hsc_env
              print_unqual = mkPrintUnqualified dflags rdr_env
         ; showPass dflags "Desugar"
 
-{-
-        ; putStr $
-          showSDocDump dflags $
-          hang (text "Before Desugaring")
-             2 (vcat [ text "ev_binds" <+> ppr ev_binds
-                     , text "binds" <+> ppr binds
-                     , text "vects" <+> ppr vects
-                     , text "rules" <+> ppr rules
-                     , text "imp_specs" <+> ppr imp_specs ] )
--}
-
         -- Desugar the program
         ; let export_set = availsToNameSet exports
               target     = hscTarget dflags

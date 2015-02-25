@@ -1803,7 +1803,7 @@ tcRnType hsc_env normalise rdr_type
         -- Now kind-check the type
         -- It can have any rank or kind
        ; nwc_tvs <- mapM newWildcardVarMetaKind wcs
-       ; ty <- tcExtendTyVarEnv nwc_tvs $ tcHsSigType GhciCtxt rn_type
+       ; ty <- tcExtendTyVarEnv nwc_tvs $ tcTopHsSigType GhciCtxt rn_type
 
        ; ty' <- if normalise
                 then do { fam_envs <- tcGetFamInstEnvs

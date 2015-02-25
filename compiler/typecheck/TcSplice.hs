@@ -515,10 +515,7 @@ tcTopSpliceExpr isTypedSplice tc_action
                    -- is expected (Trac #7276)
     setStage (Splice isTypedSplice) $
     do {    -- Typecheck the expression
-         (expr', lie) <- captureConstraints tc_action
-
-        -- Solve the constraints
-        ; const_binds <- simplifyTop lie
+         (expr', const_binds) <- solveTopConstraints tc_action
 
           -- Zonk it and tie the knot of dictionary bindings
        ; zonkTopLExpr (mkHsDictLet (EvBinds const_binds) expr') }
@@ -1003,9 +1000,10 @@ reifyInstances th_nm th_tys
             <- bindHsTyVars doc Nothing kvs hs_tvbs $ \ rn_tvbs ->
                do { (rn_ty, fvs) <- rnLHsType doc rdr_ty
                   ; return ((rn_tvbs, rn_ty), fvs) }
-        ; (ty, _kind) <- tcHsTyVarBndrs rn_tvbs $ \ _tvs ->
-                         tcLHsType rn_ty
-        ; ty <- zonkTcTypeToType emptyZonkEnv ty
+        ; ((ty, _kind), ev_binds) <- solveTopConstraints $
+                                     tcHsTyVarBndrs rn_tvbs $ \ _tvs ->
+                                     tcLHsType rn_ty
+        ; ty <- zonkTcTypeToType (mkEvBindsZonkEnv ev_binds) ty
                 -- Substitute out the meta type variables
                 -- In particular, the type might have kind
                 -- variables inside it (Trac #7477)

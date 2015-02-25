@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 
 module TcSimplify(
-       simplifyInfer, 
+       simplifyInfer, solveTopConstraints,
        quantifyPred, growThetaTyCoVars,
        simplifyAmbiguityCheck,
        simplifyDefault,
@@ -26,6 +26,7 @@ import Var
 import TysWiredIn ( liftedDataConTy )
 import Unique
 import VarSet
+import VarEnv     ( emptyVarEnv )
 import TcEvidence
 import Name
 import Bag
@@ -105,6 +106,14 @@ simpl_top wanteds
              then do { wc_residual <- nestTcS (solveWantedsAndDrop wc)
                      ; try_class_defaulting wc_residual }
              else return wc }
+
+-- | Type-check a thing, returning the result and any EvBinds produced
+-- during solving. Emits errors -- but does not fail -- if there is trouble.
+solveTopConstraints :: TcM a -> TcM (a, Bag EvBind)
+solveTopConstraints thing_inside
+  = do { (result, wanted) <- captureConstraints thing_inside
+       ; ev_binds <- simplifyTop wanted
+       ; return (result, ev_binds) }
 
 {-
 Note [When to do type-class defaulting]
@@ -267,7 +276,8 @@ simplifyInfer :: TcLevel          -- Used when generating the constraints
 simplifyInfer rhs_tclvl apply_mr name_taus wanteds
   | isEmptyWC wanteds
   = do { gbl_tvs <- tcGetGlobalTyVars
-       ; qtkvs <- quantifyTyCoVars gbl_tvs (tyCoVarsOfTypes (map snd name_taus))
+       ; qtkvs <- quantifyTyCoVars emptyVarEnv gbl_tvs
+                                   (tyCoVarsOfTypes (map snd name_taus))
        ; traceTc "simplifyInfer: empty WC" (ppr name_taus $$ ppr qtkvs)
        ; return (qtkvs, [], False, emptyTcEvBinds) }
 
@@ -463,7 +473,8 @@ decideQuantification apply_mr constraint_vars zonked_tau_tvs
        ; let mono_tvs = gbl_tvs `unionVarSet` constrained_tcvs
              mr_bites = constrained_tcvs `intersectsVarSet` zonked_tau_tvs
              promote_tvs = constrained_tcvs `unionVarSet` (zonked_tau_tvs `intersectVarSet` gbl_tvs)
-       ; qtvs <- quantifyTyCoVars mono_tvs zonked_tau_tvs
+             -- TODO (RAE): Rewrite decideQuantification, fixing that emptyVarEnv
+       ; qtvs <- quantifyTyCoVars emptyVarEnv mono_tvs zonked_tau_tvs
        ; traceTc "decideQuantification 1" (vcat [ppr constraint_vars, ppr constraints, ppr gbl_tvs, ppr mono_tvs, ppr qtvs])
        ; return (promote_tvs, qtvs, [], mr_bites) }
 
@@ -489,7 +500,8 @@ decideQuantification apply_mr constraint_vars zonked_tau_tvs
                                              -- about closeOverKinds here.
                            mono_tvs2 `intersectVarSet` (constrained_tcvs `unionVarSet` zonked_tau_tvs)
 
-       ; qtvs <- quantifyTyCoVars mono_tvs2 poly_qtvs
+              -- TODO (RAE): Rewrite decideQuantification, fixing that emptyVarEnv
+       ; qtvs <- quantifyTyCoVars emptyVarEnv mono_tvs2 poly_qtvs
        ; traceTc "decideQuantification 2" $
          vcat [ text "constraint_vars:" <+> ppr constraint_vars
               , text "constraints:" <+> ppr constraints

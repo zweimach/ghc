@@ -200,7 +200,7 @@ tcHsBootSigs (ValBindsOut binds sigs)
   where
     tc_boot_sig (TypeSig lnames ty _) = mapM f lnames
       where
-        f (L _ name) = do  { sigma_ty <- tcHsSigType (FunSigCtxt name) ty
+        f (L _ name) = do  { sigma_ty <- tcTopHsSigType (FunSigCtxt name) ty
                            ; return (mkVanillaGlobal name sigma_ty) }
         -- Notice that we make GlobalIds, not LocalIds
     tc_boot_sig s = pprPanic "tcHsBootSigs/tc_boot_sig" (ppr s)
@@ -675,10 +675,9 @@ mkExport prag_fn qtvs inferred_theta (poly_name, mb_sig, mono_id)
         -- closed (unless we are doing NoMonoLocalBinds in which case all bets
         -- are off)
         -- See Note [Impedence matching]
-        ; (wrap, wanted) <- addErrCtxtM (mk_bind_msg inferred True poly_name (idType poly_id)) $
-                            captureConstraints $
-                            tcSubType_NC sig_ctxt sel_poly_ty (idType poly_id)
-        ; ev_binds <- simplifyTop wanted
+        ; (wrap, ev_binds) <- addErrCtxtM (mk_bind_msg inferred True poly_name (idType poly_id)) $
+                              solveTopConstraints $
+                              tcSubType_NC sig_ctxt sel_poly_ty (idType poly_id)
 
         ; return (ABE { abe_wrap = mkWpLet (EvBinds ev_binds) <.> wrap
                       , abe_poly = poly_id

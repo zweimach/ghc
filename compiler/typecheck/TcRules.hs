@@ -20,6 +20,7 @@ import TcEvidence( TcEvBinds(..) )
 import Type
 import Id
 import Name
+import VarEnv
 import SrcLoc
 import Outputable
 import FastString
@@ -158,7 +159,9 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
              forall_tvs = tyCoVarsOfTypes (rule_ty : map idType tpl_ids)
        ; gbls  <- tcGetGlobalTyVars   -- Even though top level, there might be top-level
                                       -- monomorphic bindings from the MR; test tc111
-       ; qtkvs <- quantifyTyCoVars gbls forall_tvs
+                  -- TODO (RAE): We probably need to subst some covars here,
+                  -- but I don't know enough about RULES
+       ; qtkvs <- quantifyTyCoVars emptyVarEnv gbls forall_tvs
        ; traceTc "tcRule" (vcat [ doubleQuotes (ftext $ unLoc name)
                                 , ppr forall_tvs
                                 , ppr qtkvs

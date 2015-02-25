@@ -24,7 +24,7 @@ module TcHsSyn (
 
         zonkTopDecls, zonkTopExpr, zonkTopLExpr,
         zonkTopBndrs, zonkTyCoBndrsX,
-        emptyZonkEnv, mkEmptyZonkEnv,
+        emptyZonkEnv, mkEmptyZonkEnv, mkZonkEnv, mkEvBindsZonkEnv,
         zonkTcTypeToType, zonkTcTypeToTypes, zonkTyVarOcc,
         zonkCoToCo
   ) where
@@ -176,14 +176,14 @@ It's all pretty boring stuff, because HsSyn is such a large type, and
 the environment manipulation is tiresome.
 -}
 
-type UnboundTyVarZonker = TcTyVar-> TcM Type
+type UnboundTyVarZonker = TcTyVar -> TcM Type
         -- How to zonk an unbound type variable
         -- Note [Zonking the LHS of a RULE]
 
 data ZonkEnv
   = ZonkEnv
       UnboundTyVarZonker
-      TCvSubst
+      CvSubstEnv
       (TyVarEnv TyVar)          --
       (IdEnv    Var)            -- What variables are in scope
         -- Maps an Id or EvVar to its zonked version; both have the same Name
@@ -193,14 +193,23 @@ data ZonkEnv
         -- Is only consulted lazily; hence knot-tying
 
 instance Outputable ZonkEnv where
-  ppr (ZonkEnv _ _ty_env var_env) = vcat (map ppr (varEnvElts var_env))
+  ppr (ZonkEnv _ _co_env _ty_env var_env) = vcat (map ppr (varEnvElts var_env))
 
 
-emptyZonkEnv :: TCvSubst -> ZonkEnv
+-- The EvBinds have to already be zonked, but that's usually the case.
+emptyZonkEnv :: ZonkEnv
 emptyZonkEnv = mkEmptyZonkEnv zonkTypeZapping
 
-mkEmptyZonkEnv :: UnboundTyVarZonker -> TCvSubst -> ZonkEnv
-mkEmptyZonkEnv zonker subst = ZonkEnv zonker subst emptyVarEnv emptyVarEnv
+mkEmptyZonkEnv :: UnboundTyVarZonker -> ZonkEnv
+mkEmptyZonkEnv zonker = ZonkEnv zonker emptyVarEnv emptyVarEnv emptyVarEnv
+
+-- | Make a ZonkEnv using the given CvSubstEnv
+mkZonkEnv :: CvSubstEnv -> ZonkEnv
+mkZonkEnv co_env
+  = ZonkEnv zonkTypeZapping co_env emptyVarEnv emptyVarEnv
+
+mkEvBindsZonkEnv :: Bag EvBind -> ZonkEnv
+mkEvBindsZonkEnv = mkZonkEnv . evBindsCvSubstEnv
 
 extendIdZonkEnv :: ZonkEnv -> [Var] -> ZonkEnv
 extendIdZonkEnv (ZonkEnv zonk_ty subst ty_env id_env) ids
@@ -237,7 +246,7 @@ zonkIdOcc :: ZonkEnv -> TcId -> Id
 --
 -- Even without template splices, in module Main, the checking of
 -- 'main' is done as a separate chunk.
-zonkIdOcc (ZonkEnv _zonk_ty _ty_env env) id
+zonkIdOcc (ZonkEnv _zonk_ty _cv_env _ty_env env) id
   | isLocalVar id = lookupVarEnv env id `orElse` id
   | otherwise     = id
 
@@ -278,8 +287,12 @@ zonkEvBndr env var
            zonkTcTypeToType env var_ty
        ; return (setVarType var ty) }
 
-zonkEvVarOcc :: ZonkEnv -> EvVar -> EvVar
-zonkEvVarOcc env v = zonkIdOcc env v
+zonkEvVarOcc :: ZonkEnv -> EvVar -> TcM EvTerm
+zonkEvVarOcc env v
+  | isCoVar v
+  = EvCoercion . mkTcCoercion <$> zonkCoVarOcc env v
+  | otherwise
+  = return (EvId $ zonkIdOcc env v)
 
 zonkTyCoBndrsX :: ZonkEnv -> [TyCoVar] -> TcM (ZonkEnv, [TyCoVar])
 zonkTyCoBndrsX = mapAccumLM zonkTyCoBndrX
@@ -1253,7 +1266,7 @@ zonkVect _ (HsVectInstIn _) = panic "TcHsSyn.zonkVect: HsVectInstIn"
 
 zonkEvTerm :: ZonkEnv -> EvTerm -> TcM EvTerm
 zonkEvTerm env (EvId v)           = ASSERT2( isId v, ppr v )
-                                    return (EvId (zonkIdOcc env v))
+                                    zonkEvVarOcc env v
 zonkEvTerm env (EvCoercion co)    = do { co' <- zonkTcCoToCo env co
                                        ; return (EvCoercion co') }
 zonkEvTerm env (EvCast tm co)     = do { tm' <- zonkEvTerm env tm
@@ -1396,7 +1409,7 @@ and you're safe.
 -}
 
 zonkTyVarOcc :: ZonkEnv -> TyVar -> TcM TcType
-zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar tv_env _) tv
+zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar _ tv_env _) tv
   | isTcTyVar tv
   = case tcTyVarDetails tv of
          SkolemTv {}    -> lookup_in_env
@@ -1425,8 +1438,10 @@ zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar tv_env _) tv
           Just tv' -> return (mkTyCoVarTy tv')
 
 zonkCoVarOcc :: ZonkEnv -> CoVar -> TcM Coercion
--- monadic so the types match up in zonk_tycomapper
-zonkCoVarOcc env cv = return (mkCoVarCo $ zonkIdOcc env cv)
+zonkCoVarOcc (ZonkEnv _ co_env _ id_env) cv
+  = return $
+    lookupVarEnv co_env cv `orElse`
+    mkCoVarCo (lookupVarEnv id_env cv `orElse` cv)
 
 zonk_tycomapper :: TyCoMapper ZonkEnv TcM
 zonk_tycomapper = TyCoMapper
@@ -1483,7 +1498,7 @@ zonkTcCoToCo env co
     go (TcLetCo bs co)        = do { (env', bs') <- zonkTcEvBinds env bs
                                    ; co' <- zonkTcCoToCo env' co
                                    ; return (TcLetCo bs' co') }
-    go (TcCoVarCo cv)         = return (mkTcCoVarCo (zonkEvVarOcc env cv))
+    go (TcCoVarCo cv)         = mkTcCoercion <$> zonkCoVarOcc env cv
     go (TcRefl r ty)          = do { ty' <- zonkTcTypeToType env ty
                                    ; return (TcRefl r ty') }
     go (TcTyConAppCo r tc cos)

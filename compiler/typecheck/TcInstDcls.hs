@@ -21,6 +21,8 @@ import TcClassDcl( tcClassDecl2,
 import TcPat      ( addInlinePrags )
 import TcRnMonad
 import TcValidity
+import TcSimplify ( solveTopConstraints )
+import TcHsSyn    ( zonkTcTypeToTypes, mkEvBindsZonkEnv )
 import TcMType
 import TcType
 import BuildTyCl
@@ -688,7 +690,9 @@ tcDataFamInstDecl mb_clsinfo
          -- Result kind must be '*' (otherwise, we have too few patterns)
        ; checkTc (isLiftedTypeKind res_kind) $ tooFewParmsErr (tyConArity fam_tc)
 
-       ; stupid_theta <- tcHsContext ctxt
+       ; (stupid_theta, stupid_ev_binds) <- solveTopConstraints $ tcHsContext ctxt
+       ; stupid_theta
+           <- zonkTcTypeToTypes (mkEvBindsZonkEnv stupid_ev_binds) stupid_theta
        ; gadt_syntax <- dataDeclChecks (tyConName fam_tc) new_or_data stupid_theta cons
 
          -- Construct representation tycon

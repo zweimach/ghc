@@ -247,7 +247,7 @@ tcForeignImports' decls
 tcFImport :: LForeignDecl Name -> TcM (Id, LForeignDecl Id, Bag GlobalRdrElt)
 tcFImport (L dloc fo@(ForeignImport (L nloc nm) hs_ty _ imp_decl))
   = setSrcSpan dloc $ addErrCtxt (foreignDeclCtxt fo)  $
-    do { sig_ty <- tcHsSigType (ForSigCtxt nm) hs_ty
+    do { sig_ty <- tcTopHsSigType (ForSigCtxt nm) hs_ty
        ; (norm_co, norm_sig_ty, gres) <- normaliseFfiType sig_ty
        ; let
            -- Drop the foralls before inspecting the

@@ -28,10 +28,10 @@ import TcRnMonad
 import TcEnv
 import TcValidity
 import TcHsSyn
-import TcSimplify( growThetaTyCoVars, simplifyTop )
+import TcSimplify( growThetaTyCoVars, solveTopConstraints )
 import TcBinds( tcRecSelBinds )
 import TcTyDecls
-import TcEvidence ( evBindsSubst )
+import TcEvidence ( evBindsCvSubstEnv, evBindsVars )
 import TcClassDcl
 import TcUnify
 import TcHsType
@@ -279,7 +279,7 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
           --    4. Generalise the inferred kinds
           -- See Note [Kind checking for type and class decls]
 
-        ; (lcl_env, wanted) <- captureConstraints $
+        ; (lcl_env, ev_binds) <- solveTopConstraints $
           do {
                -- Step 1: Bind kind variables for non-synonyms
                let (syn_decls, non_syn_decls) = partition (isSynDecl . unLoc) decls
@@ -296,60 +296,49 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
 
              ; return lcl_env }
 
-        ; ev_binds <- simplifyTop wanted
-        ; failIfErrsM   -- no point in continuing if we've found trouble here
-          
              -- Step 4: generalisation
              -- Kind checking done for this group
              -- Now we have to kind generalize the flexis
-        ; let subst = evBindsSubst ev_binds
-        ; res <- concatMapM (generaliseTCD subst (tcl_env lcl_env)) decls
+        ; let env = evBindsCvSubstEnv ev_binds
+        ; res <- concatMapM (generaliseTCD env (tcl_env lcl_env)) decls
 
         ; traceTc "kcTyClGroup result" (ppr res)
         ; return res }
 
   where
-    generalise :: TCvSubst -> TcTypeEnv -> Name -> TcM (Name, Kind)
+    generalise :: CvSubstEnv -> TcTypeEnv -> Name -> TcM (Name, Kind)
     -- For polymorphic things this is a no-op
-    generalise subst kind_env name
+    generalise env kind_env name
       = do { let kc_kind = case lookupNameEnv kind_env name of
                                Just (AThing k) -> k
                                _ -> pprPanic "kcTyClGroup" (ppr name $$ ppr kind_env)
-           ; kc_kind <- zonkTcType kc_kind
-               -- although kindGeneralize zonks, we need to apply the evBindsSubst
-               -- to the *zonked* kind. TODO (RAE): Make this cleaner by
-               -- passing the subst to kindGeneralize
-                        
-           ; let kc_kind1 = substTy subst kc_kind
-           ; kvs <- kindGeneralize (tyCoVarsOfType kc_kind1)
-           ; kc_kind2 <- zonkTcType kc_kind1
-                      -- TODO (RAE): Shouldn't that be zonkTcTypeToType??
-                      -- TODO (RAE): NB: we need to zonk again because
-                      -- kindGeneralize skolemizes.
+           ; kvs <- kindGeneralize env (tyCoVarsOfType kc_kind)
+           ; kc_kind' <- zonkTcTypeToType (mkZonkEnv env) kc_kind
                          
                       -- Make sure kc_kind' has the final, zonked kind variables
-           ; traceTc "Generalise kind" (vcat [ ppr name, ppr kc_kind1, ppr kvs, ppr kc_kind2 ])
-           ; return (name, mkInvForAllTys kvs kc_kind2) }
+           ; traceTc "Generalise kind" (vcat [ ppr name, ppr kc_kind, ppr kvs, ppr kc_kind' ])
+           ; return (name, mkInvForAllTys kvs kc_kind') }
 
-    generaliseTCD :: TCvSubst -> TcTypeEnv -> LTyClDecl Name -> TcM [(Name, Kind)]
-    generaliseTCD subst kind_env (L _ decl)
+    generaliseTCD :: CvSubstEnv -> TcTypeEnv
+                  -> LTyClDecl Name -> TcM [(Name, Kind)]
+    generaliseTCD co_env kind_env (L _ decl)
       | ClassDecl { tcdLName = (L _ name), tcdATs = ats } <- decl
-      = do { first <- generalise subst kind_env name
-           ; rest <- mapM ((generaliseFamDecl subst kind_env) . unLoc) ats
+      = do { first <- generalise co_env kind_env name
+           ; rest <- mapM ((generaliseFamDecl co_env kind_env) . unLoc) ats
            ; return (first : rest) }
 
       | FamDecl { tcdFam = fam } <- decl
-      = do { res <- generaliseFamDecl subst kind_env fam
+      = do { res <- generaliseFamDecl co_env kind_env fam
            ; return [res] }
 
       | otherwise
-      = do { res <- generalise subst kind_env (tcdName decl)
+      = do { res <- generalise co_env kind_env (tcdName decl)
            ; return [res] }
 
-    generaliseFamDecl :: TCvSubst -> TcTypeEnv
+    generaliseFamDecl :: CvSubstEnv -> TcTypeEnv
                       -> FamilyDecl Name -> TcM (Name, Kind)
-    generaliseFamDecl subst kind_env (FamilyDecl { fdLName = L _ name })
-      = generalise subst kind_env name
+    generaliseFamDecl co_env kind_env (FamilyDecl { fdLName = L _ name })
+      = generalise co_env kind_env name
 
 mk_thing_env :: [LTyClDecl Name] -> [(Name, TcTyThing)]
 mk_thing_env [] = []
@@ -645,8 +634,8 @@ tcTyClDecl1 _parent rec_info
                      tc_isrec = rti_is_rec rec_info tycon_name
                      roles = rti_roles rec_info tycon_name
 
-               ; ctxt' <- tcHsContext ctxt
-               ; ctxt' <- zonkTcTypeToTypes emptyZonkEnv ctxt'
+               ; (ctxt', ev_binds) <- solveTopConstraints $ tcHsContext ctxt
+               ; ctxt' <- zonkTcTypeToTypes (mkEvBindsZonkEnv ev_binds) ctxt'
                        -- Squeeze out any kind unification variables
                ; fds'  <- mapM (addLocM tc_fundep) fundeps
                ; (sig_stuff, gen_dm_env) <- tcClassSigs class_name sigs meths
@@ -672,26 +661,18 @@ tcTyClDecl1 _parent rec_info
          -- NB: Order is important due to the call to `mkGlobalThings' when
          --     tying the the type and class declaration type checking knot.
   where
-    tc_fundep (tvs1, tvs2) = do { tvs1' <- mapM tc_fd_tyvar tvs1 ;
-                                ; tvs2' <- mapM tc_fd_tyvar tvs2 ;
+    tc_fundep (tvs1, tvs2) = do { tvs1' <- mapM tcLookupTyVar tvs1 ;
+                                ; tvs2' <- mapM tcLookupTyVar tvs2 ;
                                 ; return (tvs1', tvs2') }
-    tc_fd_tyvar name   -- Scoped kind variables are bound to unification variables
-                       -- which are now fixed, so we can zonk
-      = do { tv <- tcLookupTyVar name
-           ; ty <- zonkTyVarOcc emptyZonkEnv tv
-                  -- Squeeze out any kind unification variables
-           ; case getTyVar_maybe ty of
-               Just tv' -> return tv'
-               Nothing  -> pprPanic "tc_fd_tyvar" (ppr name $$ ppr tv $$ ppr ty) }
 
 tcFamDecl1 :: TyConParent -> FamilyDecl Name -> TcM [TyThing]
 tcFamDecl1 parent
             (FamilyDecl {fdInfo = OpenTypeFamily, fdLName = L _ tc_name, fdTyVars = tvs})
-  = tcTyClTyVars tc_name tvs $ \ tvs' full_kind _res_kind -> do
-  { traceTc "open type family:" (ppr tc_name)
-  ; checkFamFlag tc_name
-  ; let tycon = mkFamilyTyCon tc_name full_kind tvs' OpenSynFamilyTyCon parent
-  ; return [ATyCon tycon] }
+  = tcTyClTyVars tc_name tvs $ \ tvs' full_kind _res_kind ->
+    do { traceTc "open type family:" (ppr tc_name)
+       ; checkFamFlag tc_name
+       ; let tycon = mkFamilyTyCon tc_name full_kind tvs' OpenSynFamilyTyCon parent
+       ; return [ATyCon tycon] }
 
 tcFamDecl1 parent
             (FamilyDecl { fdInfo = ClosedTypeFamily eqns
@@ -707,8 +688,7 @@ tcFamDecl1 parent
        ; checkFamFlag tc_name -- make sure we have -XTypeFamilies
 
          -- Process the equations, creating CoAxBranches
-       ; tc_kind <- kcLookupKind tc_name
-       ; let fam_tc_shape = (tc_name, length $ hsQTvExplicit tvs, tc_kind) 
+       ; let fam_tc_shape = (tc_name, length $ hsQTvExplicit tvs, kind) 
      
        ; branches <- mapM (tcTyFamInstEqn fam_tc_shape) eqns
 
@@ -764,8 +744,8 @@ tcTySynRhs :: RecTyInfo
 tcTySynRhs rec_info tc_name tvs full_kind res_kind hs_ty
   = do { env <- getLclEnv
        ; traceTc "tc-syn" (ppr tc_name $$ ppr (tcl_env env))
-       ; rhs_ty <- tcCheckLHsType hs_ty res_kind
-       ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
+       ; (rhs_ty, ev_binds) <- solveTopConstraints $ tcCheckLHsType hs_ty res_kind
+       ; rhs_ty <- zonkTcTypeToType (mkEvBindsZonkEnv ev_binds) rhs_ty
        ; let roles = rti_roles rec_info tc_name
              tycon = mkSynonymTyCon tc_name full_kind tvs roles rhs_ty
        ; return [ATyCon tycon] }
@@ -783,11 +763,10 @@ tcDataDefn rec_info tc_name tvs tycon_kind res_kind
        ; let final_tvs  = tvs `chkAppend` extra_tvs
              roles      = rti_roles rec_info tc_name
              
-       ; (stupid_tc_theta, stupid_wanteds) <- captureConstraints $
-                                              tcHsContext ctxt
-       ; stupid_ev_binds <- simplifyTop stupid_wanteds
-       ; stupid_theta    <- substTys (evBindsSubst stupid_ev_binds) <$>
-                            zonkTcTypeToTypes emptyZonkEnv stupid_tc_theta
+       ; (stupid_tc_theta, stupid_ev_binds) <- solveTopConstraints $
+                                               tcHsContext ctxt
+       ; stupid_theta    <- zonkTcTypeToTypes (mkEvBindsZonkEnv stupid_ev_binds)
+                                              stupid_tc_theta
        ; kind_signatures <- xoptM Opt_KindSignatures
        ; is_boot         <- tcIsHsBootOrSig -- Are we compiling an hs-boot file?
 
@@ -893,8 +872,8 @@ tcDefaultAssocDecl fam_tc [L loc (TyFamEqn { tfe_tycon = L _ tc_name
        ; tcTyClTyVars tc_name hs_tvs $ \ tvs _full_kind rhs_kind ->
     do { traceTc "tcDefaultAssocDecl" (ppr tc_name)
        ; checkTc (isTypeFamilyTyCon fam_tc) (wrongKindOfFamily fam_tc)
-       ; rhs_ty <- tcCheckLHsType rhs rhs_kind
-       ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
+       ; (rhs_ty, ev_binds) <- solveTopConstraints $ tcCheckLHsType rhs rhs_kind
+       ; rhs_ty <- zonkTcTypeToType (mkEvBindsZonkEnv ev_binds) rhs_ty
        ; let fam_tc_tvs = tyConTyVars fam_tc
              subst = zipTopTCvSubst tvs (mkOnlyTyVarTys fam_tc_tvs)
        ; return $ Just (substTy subst rhs_ty) } }
@@ -913,15 +892,15 @@ tcTyFamInstEqn :: FamTyConShape -> LTyFamInstEqn Name -> TcM CoAxBranch
 -- (typechecked here) have TyFamInstEqns
 tcTyFamInstEqn fam_tc_shape@(fam_tc_name,_,_)
     (L loc (TyFamEqn { tfe_tycon = L _ eqn_tc_name
-                     , tfe_pats = pats
-                     , tfe_rhs = hs_ty }))
+                     , tfe_pats  = pats
+                     , tfe_rhs   = hs_ty }))
   = setSrcSpan loc $
     tcFamTyPats fam_tc_shape pats (discardResult . (tcCheckLHsType hs_ty)) $
        \tvs' pats' res_kind ->
     do { checkTc (fam_tc_name == eqn_tc_name)
                  (wrongTyFamName fam_tc_name eqn_tc_name)
-       ; rhs_ty <- tcCheckLHsType hs_ty res_kind
-       ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
+       ; (rhs_ty, ev_binds) <- solveTopConstraints $ tcCheckLHsType hs_ty res_kind
+       ; rhs_ty <- zonkTcTypeToType (mkEvBindsZonkEnv ev_binds) rhs_ty
        ; traceTc "tcTyFamInstEqn" (ppr fam_tc_name <+> ppr tvs')
           -- don't print out the pats here, as they might be zonked inside the knot
        ; return (mkCoAxBranch tvs' pats' rhs_ty loc) }
@@ -997,7 +976,7 @@ tc_fam_ty_pats :: FamTyConShape
                -> HsWithBndrs Name [LHsType Name] -- Patterns
                -> (TcKind -> TcM ())              -- Kind checker for RHS
                                                   -- result is ignored
-               -> TcM ([Kind], [Type], Kind)
+               -> TcM ([Type], Kind)
 -- Check the type patterns of a type or data family instance
 --     type instance F <pat1> <pat2> = <type>
 -- The 'tyvars' are the free type variables of pats
@@ -1032,7 +1011,7 @@ tc_fam_ty_pats (name, _, kind)
                    do { kind_checker res_kind
                       ; tcHsTelescope (quotes (ppr name)) arg_pats arg_bndrs }
 
-       ; return (fam_arg_kinds, typats, res_kind) }
+       ; return (fam_arg_kinds ++ typats, res_kind) }
 
 -- See Note [tc_fam_ty_pats vs tcFamTyPats]
 tcFamTyPats :: FamTyConShape
@@ -1040,30 +1019,62 @@ tcFamTyPats :: FamTyConShape
             -> (TcKind -> TcM ())              -- kind-checker for RHS
             -> ([TyCoVar]            -- Kind and type variables
                 -> [TcType]          -- Kind and type arguments
-                -> Kind -> TcM a)
+                -> Kind -> TcM a)  -- NB: You can use solveTopConstraints here.
             -> TcM a
 tcFamTyPats fam_shape@(name,_,_) pats kind_checker thing_inside
-  = do { (fam_arg_kinds, typats, res_kind)
-            <- tc_fam_ty_pats fam_shape pats kind_checker
-       ; let all_args = fam_arg_kinds ++ typats
+  = do { ((typats, res_kind), ev_binds)
+            <- solveTopConstraints $  -- See Note [Constraints in patterns]
+               tc_fam_ty_pats fam_shape pats kind_checker
 
             -- Find free variables (after zonking) and turn
             -- them into skolems, so that we don't subsequently
             -- replace a meta kind var with (Any *)
             -- Very like kindGeneralize
-       ; qtkvs <- quantifyTyCoVars emptyVarSet (tyCoVarsOfTypes all_args)
+       ; let cv_env = evBindsCvSubstEnv ev_binds
+       ; qtkvs <- quantifyTyCoVars cv_env emptyVarSet (tyCoVarsOfTypes typats)
 
             -- Zonk the patterns etc into the Type world
-       ; (ze, qtkvs') <- zonkTyCoBndrsX emptyZonkEnv qtkvs
-       ; all_args'    <- zonkTcTypeToTypes ze all_args
+       ; (ze, qtkvs') <- zonkTyCoBndrsX (mkZonkEnv cv_env) qtkvs
+       ; typats'      <- zonkTcTypeToTypes ze typats
        ; res_kind'    <- zonkTcTypeToType  ze res_kind
 
        ; traceTc "tcFamTyPats" (ppr name)
             -- don't print out too much, as we might be in the knot
        ; tcExtendTyVarEnv qtkvs' $
-         thing_inside qtkvs' all_args' res_kind' }
+         thing_inside qtkvs' typats' res_kind' }
 
 {-
+Note [Constraints in patterns]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+At first glance, it seems there is a complicated story to tell in tcFamTyPats
+around constraint solving. After all, type family patterns can now do
+GADT pattern-matching, which is jolly complicated. But, there's a key fact
+which makes this all simple: everything is at top level! There cannot
+be untouchable type variables. There can't be weird interaction between
+case branches. There can't be global skolems.
+
+This means that the semantics of type-level GADT matching is a little
+different than term level. If we have
+
+  data G a where
+    MkGBool :: G Bool
+
+And then
+
+  type family F (a :: G k) :: k
+  type instance F MkGBool = True
+
+we get
+
+  axF : F Bool (MkGBool <Bool>) ~ True
+
+Simple! No casting on the RHS, because we can affect the kind parameter
+to F.
+
+If we ever introduce local type families, this all gets a lot more
+complicated, and will end up looking awfully like term-level GADT
+pattern-matching.
+
 Note [Quantifying over family patterns]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We need to quantify over two different lots of kind variables:
@@ -1166,8 +1177,8 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
                    , con_details = hs_details, con_res = hs_res_ty })
   = addErrCtxt (dataConCtxtName names) $
     do { traceTc "tcConDecl 1" (ppr names)
-       ; ((ctxt, arg_tys, res_ty, field_lbls, stricts), wanteds)
-           <- captureConstraints $
+       ; ((ctxt, arg_tys, res_ty, field_lbls, stricts), ev_binds)
+           <- solveTopConstraints $
               tcHsTyVarBndrs hs_tvs $ \ _ ->
               do { ctxt    <- tcHsContext hs_ctxt
                  ; details <- tcConArgs new_or_data hs_details
@@ -1177,8 +1188,7 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
                  ; return (ctxt, arg_tys, res_ty, field_lbls, stricts)
                  }
 
-       ; ev_binds <- simplifyTop wanteds
-       ; let subst   = evBindsSubst ev_binds
+       ; let co_env  = evBindsCvSubstEnv ev_binds
              ev_vars = evBindsVars ev_binds
               
              -- Generalise the kind variables (returning quantified TcKindVars)
@@ -1189,14 +1199,14 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
              -- c.f. the comment on con_qvars in HsDecls
        ; tkvs <- case res_ty of
                    ResTyH98
-                     -> quantifyTyCoVars subst gbl_tvs (tyCoVarsOfTypes (ctxt++arg_tys))
+                     -> quantifyTyCoVars co_env gbl_tvs (tyCoVarsOfTypes (ctxt++arg_tys))
                      where
                        gbl_tvs = ev_vars `unionVarSet` mkVarSet tmpl_tvs
-                   ResTyGADT res_ty -> quantifyTyCoVars subst ev_vars (tyCoVarsOfTypes (res_ty:ctxt++arg_tys))
+                   ResTyGADT res_ty -> quantifyTyCoVars co_env ev_vars (tyCoVarsOfTypes (res_ty:ctxt++arg_tys))
 
              -- Zonk to Types
-       ; let ze = 
-       ; (ze, qtkvs) <- zonkTyCoBndrsX emptyZonkEnv tkvs
+       ; let ze = mkZonkEnv co_env
+       ; (ze, qtkvs) <- zonkTyCoBndrsX ze tkvs
        ; arg_tys <- zonkTcTypeToTypes ze arg_tys
        ; ctxt    <- zonkTcTypeToTypes ze ctxt
        ; res_ty  <- case res_ty of

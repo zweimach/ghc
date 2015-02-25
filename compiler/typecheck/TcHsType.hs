@@ -8,7 +8,7 @@
 {-# LANGUAGE CPP #-}
 
 module TcHsType (
-        tcHsSigType, tcHsSigTypeNC, tcHsDeriv, tcHsVectInst,
+        tcHsSigType, tcHsSigTypeNC, tcTopHsSigType, tcHsDeriv, tcHsVectInst,
         tcHsInstHead, 
         UserTypeCtxt(..), 
 
@@ -37,15 +37,17 @@ module TcHsType (
 
 import HsSyn hiding ( Implicit, Explicit )
 import TcRnMonad
-import TcEvidence( HsWrapper )
+import TcEvidence( HsWrapper, evBindsSubst, evBindsCvSubstEnv )
 import TcEnv
 import TcMType
 import TcValidity
 import TcUnify
 import TcIface
+import TcSimplify ( solveTopConstraints )
 import TcType
+import TcHsSyn    ( zonkTcTypeToType, mkZonkEnv )
 import Type
-import Coercion  ( mkSubCo )
+import Coercion  ( mkSubCo, CvSubstEnv, mkCoVarCo )
 import Kind
 import RdrName( lookupLocalRdrOcc )
 import Var
@@ -57,10 +59,12 @@ import TysPrim ( tYPE )
 import Class
 import Name
 import NameEnv
+import NameSet
+import VarEnv ( lookupVarEnv )
 import TysWiredIn
 import BasicTypes
 import SrcLoc
-import DynFlags ( ExtensionFlag( Opt_DataKinds ) )
+import DynFlags ( ExtensionFlag( Opt_DataKinds, Opt_MonoLocalBinds ) )
 import Unique
 import Util
 import UniqSupply
@@ -130,7 +134,8 @@ the TyCon being defined.
 ************************************************************************
 -}
 
-tcHsSigType, tcHsSigTypeNC :: UserTypeCtxt -> LHsType Name -> TcM Type
+tcHsSigType, tcHsSigTypeNC, tcTopHsSigType
+  :: UserTypeCtxt -> LHsType Name -> TcM Type
   -- NB: it's important that the foralls that come from the top-level
   --     HsForAllTy in hs_ty occur *first* in the returned type.
   --     See Note [Scoped] with TcSigInfo
@@ -150,22 +155,29 @@ tcHsSigTypeNC ctxt (L loc hs_ty)
           -- of kind * in a Template Haskell quote eg [t| Maybe |]
 
           -- Generalise here: see Note [Kind generalisation]
-        ; ty <- tcCheckHsTypeAndGen hs_ty kind
+        ; ty <- tcCheckHsTypeAndMaybeGen hs_ty kind
+          -- ty is already zonked
 
-          -- Zonk to expose kind information to checkValidType
-        ; ty <- zonkSigType ty
         ; checkValidType ctxt ty
         ; return ty }
+
+-- Like 'tcHsSigType', but works only for top-level declarations that
+-- never see the desugarer
+tcTopHsSigType ctxt hs_ty
+  = do { (ty, ev_binds) <- solveTopConstraints $ tcHsSigType ctxt hs_ty
+       ; return $ substTy (evBindsSubst ev_binds) ty }
 
 -----------------
 tcHsInstHead :: UserTypeCtxt -> LHsType Name -> TcM ([TyCoVar], ThetaType, Class, [Type])
 -- Like tcHsSigTypeNC, but for an instance head.
 tcHsInstHead user_ctxt lhs_ty@(L loc hs_ty)
   = setSrcSpan loc $    -- The "In the type..." context comes from the caller
-    do { inst_ty <- tc_inst_head hs_ty
-       ; kvs     <- zonkTcTypeAndFV inst_ty
-       ; kvs     <- kindGeneralize kvs
-       ; inst_ty <- zonkSigType (mkInvForAllTys kvs inst_ty)
+    do { (inst_ty, ev_binds) <- solveTopConstraints $
+                                tc_inst_head hs_ty
+       ; let co_env = evBindsCvSubstEnv ev_binds
+       ; kvs      <- kindGeneralize co_env (tyCoVarsOfType inst_ty)
+       ; inst_ty  <- zonkTcTypeToType (mkZonkEnv co_env) $
+                     mkInvForAllTys kvs inst_ty
        ; checkValidInstance user_ctxt lhs_ty inst_ty }
 
 tc_inst_head :: HsType Name -> TcM TcType
@@ -190,9 +202,12 @@ tcHsDeriv :: HsType Name -> TcM ([TyCoVar], Class, [Type], Kind)
 -- if arg has a suitable kind
 tcHsDeriv hs_ty
   = do { arg_kind <- newMetaKindVar
-       ; ty <- tcCheckHsTypeAndGen hs_ty (mkArrowKind arg_kind constraintKind)
-       ; ty       <- zonkSigType ty
-       ; arg_kind <- zonkSigType arg_kind
+                    -- always safe to kind-generalize, because there
+                    -- can be no covars in an outer scope
+       ; (ty, cv_env) <- tcCheckHsTypeAndGen hs_ty $
+                         mkArrowKind arg_kind constraintKind
+          -- ty is already zonked
+       ; arg_kind <- zonkSigType cv_env arg_kind
        ; let (tvs, pred) = splitNamedForAllTys ty
        ; case getClassPredTys_maybe pred of
            Just (cls, tys) -> return (tvs, cls, tys, arg_kind)
@@ -230,8 +245,7 @@ tcHsVectInst ty
 tcClassSigType :: LHsType Name -> TcM Type
 tcClassSigType lhs_ty@(L _ hs_ty)
   = addTypeCtxt lhs_ty $
-    do { ty <- tcCheckHsTypeAndGen hs_ty liftedTypeKind
-       ; zonkSigType ty }
+    fst <$> tcCheckHsTypeAndGen hs_ty liftedTypeKind
 
 tcHsConArgType :: NewOrData ->  LHsType Name -> TcM Type
 -- Permit a bang, but discard it
@@ -297,16 +311,39 @@ tcLHsType :: LHsType Name -> TcM (TcType, TcKind)
 tcLHsType ty = addTypeCtxt ty (tc_infer_lhs_type ty)
 
 ---------------------------
-tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM Type
+-- | Check an HsType, and generalize if appropriate.
+-- The caller adds the context.
+-- The result is zonked, but not checked for validity
+-- May emit constraints.
+tcCheckHsTypeAndMaybeGen :: HsType Name -> Kind -> TcM Type
+tcCheckHsTypeAndMaybeGen hs_ty kind
+  = do { should_gen <- decideKindGeneralisationPlan hs_ty
+       ; if should_gen
+         then fst <$> tcCheckHsTypeAndGen hs_ty kind
+         else tc_hs_type hs_ty kind }
+
+-- | Should we generalise the kind of this type?
+-- We *should* generalise if the type is closed or if NoMonoLocalBinds
+-- is set. Otherwise, nope.
+decideKindGeneralisationPlan :: HsType Name -> TcM Bool
+decideKindGeneralisationPlan hs_ty
+  = do { mono_locals <- xoptM Opt_MonoLocalBinds
+       ; let fvs = ftvHsType hs_ty
+       ; return (mono_locals || not (isEmptyNameSet fvs)) }
+    
+tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM (Type, CvSubstEnv)
 -- Input type is HsType, not LhsType; the caller adds the context
 -- Typecheck a type signature, and kind-generalise it
--- The result is not necessarily zonked, and has not been checked for validity
+-- The result is zonked, but not checked for validity
+-- This should generally be called within the context of a captureConstraints
 tcCheckHsTypeAndGen hs_ty kind
-  = do { ty  <- tc_hs_type hs_ty kind
+  = do { (ty, ev_binds) <- solveTopConstraints $
+                           tc_hs_type hs_ty kind
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
-       ; kvs <- zonkTcTypeAndFV ty
-       ; kvs <- kindGeneralize kvs
-       ; return (mkInvForAllTys kvs ty) }
+       ; let cv_env = evBindsCvSubstEnv ev_binds
+       ; kvs <- kindGeneralize cv_env (tyCoVarsOfType ty)
+       ; gen_ty <- zonkSigType cv_env (mkInvForAllTys kvs ty)
+       ; return (gen_ty, cv_env) }
 
 {-
 Note [Bidirectional type checking]
@@ -743,17 +780,24 @@ This is horribly delicate.  I hate it.  A good example of how
 delicate it is can be seen in Trac #7903.
 -}
 
-zonkSigType :: TcType -> TcM TcType
+zonkSigType :: CvSubstEnv -> TcType -> TcM TcType
 -- Zonk the result of type-checking a user-written type signature
 -- It may have kind variables in it, but no meta type variables
 -- Because of knot-typing (see Note [Zonking inside the knot])
 -- it may need to establish the Type invariants;
 -- hence the use of mkTyConApp and mkAppTy
-zonkSigType = mapType mapper ()
+zonkSigType cv_env = mapType mapper ()
   where
-    mapper = zonkTcTypeMapper { tcm_smart = True }
+    mapper = zonkTcTypeMapper { tcm_smart = True
+                              , tcm_covar = zonk_covar }
                 -- Key point: establish Type invariants!
                 -- See Note [Zonking inside the knot]
+
+    zonk_covar _ cv
+      | Just co <- lookupVarEnv cv_env cv
+      = return co
+      | otherwise
+      = mkCoVarCo <$> zonkTyCoVarKind cv
 
 {-
 Note [Body kind of a forall]
@@ -1026,10 +1070,10 @@ new_skolem_tv :: Name -> Kind -> TcTyVar
 new_skolem_tv n k = mkTcTyVar n k vanillaSkolemTv
 
 ------------------
-kindGeneralize :: TyVarSet -> TcM [KindVar]
-kindGeneralize tkvs
+kindGeneralize :: CvSubstEnv -> TyVarSet -> TcM [KindVar]
+kindGeneralize co_env tkvs
   = do { gbl_tvs <- tcGetGlobalTyVars -- Already zonked
-       ; quantifyTyCoVars' gbl_tvs tkvs True }
+       ; quantifyTyCoVars' co_env gbl_tvs tkvs True }
 
 {-
 Note [Kind generalisation]
@@ -1262,6 +1306,8 @@ tcTyClTyVars :: Name -> LHsTyVarBndrs Name      -- LHS of the type or class decl
 --
 -- No need to freshen the k's because they are just skolem 
 -- constants here, and we are at top level anyway.
+--
+-- Never emits constraints.
 tcTyClTyVars tycon hs_tvs thing_inside
   = do { thing <- tcLookup tycon
        ; let kind = case thing of
@@ -1290,6 +1336,7 @@ tcDataKindSig :: Kind -> TcM [TyVar]
 -- This function makes up suitable (kinded) type variables for 
 -- the argument kinds, and checks that the result kind is indeed *.
 -- We use it also to make up argument type variables for for data instances.
+-- Never emits constraints.
 tcDataKindSig kind
   = do  { checkTc (isLiftedTypeKind res_kind) (badKindSig kind)
         ; span <- getSrcSpanM
@@ -1389,9 +1436,10 @@ tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_vars = sig_vars
         ; nwc_tvs <- mapM newWildcardVarMetaKind sig_wcs
         ; let nwc_binds = sig_wcs `zip` nwc_tvs
               ktv_binds = (sig_vars `zip` vars)
-        ; sig_ty <- tcExtendTyVarEnv2 (ktv_binds ++ nwc_binds) $
-                    tcHsLiftedType hs_ty
-        ; sig_ty <- zonkSigType sig_ty
+        ; (sig_ty, ev_binds) <- solveTopConstraints $
+                                tcExtendTyVarEnv2 (ktv_binds ++ nwc_binds) $
+                                tcHsLiftedType hs_ty
+        ; sig_ty   <- zonkSigType (evBindsCvSubstEnv ev_binds) sig_ty
         ; checkValidType ctxt sig_ty
         ; emitWildcardHoleConstraints (zip sig_wcs nwc_tvs)
         ; return (sig_ty, ktv_binds, nwc_binds) }

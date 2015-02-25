@@ -1,8 +1,4 @@
 stack:
-  - quantifyTyCoVars
-
-  - I've added solving to tcDataDefn and kind-checker in TcTyClsDecls,
-    but nowhere else.
 
 - rewrite decideQuantification. In particular, I think quantifyTyCoVars'
   should call quantifyPred, which can easily be moved from TcSimplify
@@ -136,6 +132,10 @@ fix:
      * Π
   - Do we need special rule for boxity of ($)? I don't think so, anymore. SPJ agrees. Maybe.
   - consider merging Kind into Type
+  - there is tracking of type vs kind in RnTypes. Much can be removed, but
+    we want to preserve errors for silly kinds when extensions are off,
+    so it can't be taken out entirely. I posit that, absent extension tracking,
+    we wouldn't need to track types vs kinds here.
   - search for IA0_NOTE
   - pattern synonyms: they can have existential covars, now, right?
             and: make sure they set givens correctly in TcPat (re dep_eq_spec)

@@ -41,6 +41,7 @@ module HsTypes (
         splitHsFunType,
         splitHsAppTys, hsTyGetAppHead_maybe, mkHsAppTys, mkHsOpTy,
         isWildcardTy, isNamedWildcardTy,
+        ftvLHsType, ftvHsType,
 
         -- Printing
         pprParendHsType, pprHsForAll, pprHsForAllExtra,
@@ -51,7 +52,8 @@ import {-# SOURCE #-} HsExpr ( HsSplice, pprUntypedSplice )
 
 import PlaceHolder ( PostTc,PostRn,DataId,PlaceHolder(..) )
 
-import Name( Name )
+import Name( Name, isTyVarName )
+import Var ( varName )
 import RdrName( RdrName )
 import DataCon( HsBang(..) )
 import TysPrim( funTyConName )
@@ -62,6 +64,8 @@ import SrcLoc
 import StaticFlags
 import Outputable
 import FastString
+import NameSet
+import UniqFM ( mapUFM )
 import Maybes( isJust )
 
 import Data.Data hiding ( Fixity )
@@ -592,6 +596,44 @@ splitHsFunType orig_ty@(L _ (HsAppTy t1 t2))
     go _                     _   = ([], orig_ty)  -- Failure to match
 
 splitHsFunType other = ([], other)
+
+-- | Get the free Names of type variables in a renamed HsType
+ftvLHsType :: LHsType Name -> NameSet
+ftvLHsType (L _ ty) = ftvHsType ty
+
+-- | Get the free Names of type variables in a renamed HsType
+ftvHsType :: HsType Name -> NameSet
+ftvHsType (HsForAllTy _ _ tvbs ctxt ty)
+  = (ftvLHsContext ctxt `unionNameSet` ftvLHsType ty)
+    `delListFromNameSet` hsLKiTyVarNames tvbs
+ftvHsType (HsTyVar n)
+  | isTyVarName n = unitNameSet n
+  | otherwise     = emptyNameSet
+ftvHsType (HsAppTy t1 t2)           = ftvLHsType t1 `unionNameSet` ftvLHsType t2
+ftvHsType (HsFunTy t1 t2)           = ftvLHsType t1 `unionNameSet` ftvLHsType t2
+ftvHsType (HsListTy t)              = ftvLHsType t
+ftvHsType (HsPArrTy t)              = ftvLHsType t
+ftvHsType (HsTupleTy _ tys)         = unionNameSets $ map ftvLHsType tys
+ftvHsType (HsOpTy t1 (L _ op) t2)
+  = unionNameSets (unitNameSet op : map ftvLHsType [t1, t2])
+ftvHsType (HsParTy t)               = ftvLHsType t
+ftvHsType (HsIParamTy _ t)          = ftvLHsType t
+ftvHsType (HsEqTy t1 t2)            = ftvLHsType t1 `unionNameSet` ftvLHsType t2
+ftvHsType (HsKindSig t1 t2)         = ftvLHsType t1 `unionNameSet` ftvLHsType t2
+ftvHsType (HsQuasiQuoteTy {})       = panic "ftvHsType HsQuasiQuoteTy"
+ftvHsType (HsSpliceTy {})           = panic "ftvHsType HsSpliceTy"
+ftvHsType (HsDocTy t _)             = ftvLHsType t
+ftvHsType (HsBangTy _ t)            = ftvLHsType t
+ftvHsType (HsRecTy {})              = panic "ftvHsType HsRecTy"
+ftvHsType (HsCoreTy ty)             = mapUFM varName $ tyCoVarsOfType ty
+ftvHsType (HsExplicitListTy _ tys)  = unionNameSets $ map ftvLHsType tys
+ftvHsType (HsExplicitTupleTy _ tys) = unionNameSets $ map ftvLHsType tys
+ftvHsType (HsTyLit {})              = emptyNameSet
+ftvHsType HsWildcardTy              = panic "ftvHsType HsWildcardTy"
+ftvHsType (HsNamedWildcardTy n)     = unitNameSet n
+
+ftvLHsContext :: LHsContext Name -> NameSet
+ftvLHsContext (L _ ctxt) = unionNameSets $ map ftvLHsType ctxt
 
 {-
 ************************************************************************
