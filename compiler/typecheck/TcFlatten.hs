@@ -1487,12 +1487,12 @@ flattenTyVarFinal fmode tv
        ; (new_kind, kind_co) <- flatten_one (setFEEqRel fmode ReprEq) kind
        ; if isReflCo kind_co
          then return (Left (setVarType tv new_kind))
-         else return (Right ( ty `mkCastTy` mkSymCo kind_co
+         else return (Left tv) } {- "RAE" (Right ( ty `mkCastTy` mkSymCo kind_co
                             , mkReflCo (feRole fmode) ty
                               `mkCoherenceLeftCo` mkSymCo kind_co )) }
   where
     ty = mkOnlyTyVarTy tv
-
+-}
 {-
 Note [An alternative story for the inert substitution]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

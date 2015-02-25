@@ -992,12 +992,13 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
                       -- Use ps_ty2 to preserve type synonyms if poss
        ; traceTcS "canEqTyVar flat LHS"
            (vcat [ ppr tv1, ppr tv1', ppr ty2, ppr swapped, ppr xi2 ])
-       ; case splitCastTy_maybe xi2 of
+{-  "RAE"     ; case splitCastTy_maybe xi2 of
          { Just (xi2_inner, xi2_co) ->
              canEqCast ev eq_rel (flipSwap swapped) xi2_inner xi2_co ty1 ty1
              where ty1 = mkOnlyTyVarTy tv1
-         ; Nothing ->
-    do { dflags <- getDynFlags
+         ; Nothing -> 
+    do { -}
+       ; dflags <- getDynFlags 
        ; case eq_rel of
       -- See Note [No top-level newtypes on RHS of representational equalities]
            ReprEq
@@ -1012,7 +1013,7 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
                                        (mkTcReflCo role xi1) co2
                      `andWhenContinue` \ new_ev ->
                      can_eq_nc new_ev eq_rel xi1 xi1 xi2 xi2 }
-           _ -> canEqTyVar2 dflags ev eq_rel swapped tv1' xi2 co2 } } } } }
+           _ -> canEqTyVar2 dflags ev eq_rel swapped tv1' xi2 co2 } } } -- "RAE" } }
 
 canEqTyVar2 :: DynFlags
             -> CtEvidence   -- olhs ~ orhs (or, if swapped, orhs ~ olhs)

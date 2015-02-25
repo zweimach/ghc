@@ -731,6 +731,7 @@ lintCoApp fun_ty arg_co
   , Just covar <- binderVar_maybe bndr
   , isId covar
   = do { (_, _, t1, t2, rAct) <- lintCoercion arg_co
+       ; lintUnLiftedCoVar covar
        ; let (_, _, t1', t2', rExp) = coVarKindsTypesRole covar
        ; ensureEqTys t1' t1 (mkCoAppMsg t1' t1 (Just CLeft))
        ; ensureEqTys t2' t2 (mkCoAppMsg t2' t2 (Just CRight))
@@ -1224,7 +1225,8 @@ lintCoercion (CoVarCo cv)
                   2 (ptext (sLit "With offending type:") <+> ppr (varType cv)))
   | otherwise
   = do { lintTyCoVarInScope cv
-       ; cv' <- lookupIdInScope cv 
+       ; cv' <- lookupIdInScope cv
+       ; lintUnLiftedCoVar cv
        ; return $ coVarKindsTypesRole cv' }
 
 lintCoercion co@(PhantomCo h ty1 ty2)
@@ -1435,6 +1437,13 @@ lintCoercionArg (CoCoArg r kco co1 co2)
        ; return ( phi_to_ty phi1, phi_to_ty phi2
                 , CoercionTy co1, CoercionTy co2, r) }
   where phi_to_ty (a,b,c,d,e) = mkHeteroCoercionType e a b c d
+
+lintUnLiftedCoVar :: CoVar -> LintM ()
+lintUnLiftedCoVar cv
+  = when (not (isUnLiftedType (coVarKind cv))) $
+    failWithL (text "Bad lifted equality:" <+> ppr cv
+                 <+> dcolon <+> ppr (coVarKind cv))
+
 
 {-
 Note [FreeIn...]
