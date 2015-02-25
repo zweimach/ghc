@@ -1152,8 +1152,8 @@ lintCoercion co@(AppCo co1 kco co2)
   = do { (k1,k2,s1,s2,r1) <- lintCoercion co1
        ; (k'1, k'2, t1, t2, r2) <- lintCoercionArg co2
        ; (k'1', k'2') <- lintStarCoercion r1 kco
-       ; ensureEqTys k'1 k'1' (mkBadAppKindMsg co kco co2)
-       ; ensureEqTys k'2 k'2' (mkBadAppKindMsg co kco co2)
+       ; ensureEqTys k'1 k'1' (mkBadAppKindMsg co kco co1 co2)
+       ; ensureEqTys k'2 k'2' (mkBadAppKindMsg co kco co1 co2)
        ; k3 <- lint_co_app co k1 [(t1,k'1)]
        ; k4 <- lint_co_app co k2 [(t2,k'2)]
        ; if r1 == Phantom
@@ -1993,12 +1993,17 @@ mkBadTyVarMsg tv
   = ptext (sLit "Non-tyvar used in TyVarTy:")
       <+> ppr tv <+> dcolon <+> ppr (varType tv)
 
-mkBadAppKindMsg :: Coercion -> Coercion -> CoercionArg -> SDoc
-mkBadAppKindMsg co kco arg
+mkBadAppKindMsg :: Coercion -> Coercion -> Coercion -> CoercionArg -> SDoc
+mkBadAppKindMsg co kco fun arg
   = hang (text "Kind mismatch on the kind coercion in an AppCo:")
        2 (vcat [ text "Kind coercion:" <+> ppr kco
+                   <+> dcolon <+> ppr (coercionKind kco)
+               , text "Function coercion:" <+> ppr fun
+                   <+> dcolon <+> ppr (coercionKind fun)
                , text "Arg coercion:" <+> ppr arg
-               , text "AppCo:" <+> ppr co ])
+                   <+> dcolon <+> ppr (coercionArgKind arg)
+               , text "AppCo:" <+> ppr co
+                   <+> dcolon <+> ppr (coercionKind co)])
 
 pprLeftOrRight :: LeftOrRight -> MsgDoc
 pprLeftOrRight CLeft  = ptext (sLit "left")

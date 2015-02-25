@@ -788,11 +788,17 @@ flatten_one fmode (AppTy ty1 ty2)
                  do { let ki2 = typeKind ty2
                     ; (_r_ki2, r_kco2) <- flatten_one (setFEEqRel fmode ReprEq) ki2
                     ; (_n_ki2, n_kco2) <- flatten_one fmode ki2
-                    ; return ( n_kco2, xi2 `mkCastTy`
-                                       (r_kco2 `mkTransCo` mkSymCo n_kco2) ) }
+                    ; let kico = r_kco2 `mkTransCo` mkSubCo (mkSymCo n_kco2)
+                    ; when (not $ isReflCo kico) $
+                      traceTcS "undoing overeager nominal flattening"
+                        (ppr ty1 $$ ppr ty2 $$ ppr xi1 $$ ppr xi2 $$
+                         ppr ki2 $$ ppr _r_ki2 $$ ppr r_kco2 $$
+                         ppr _n_ki2 $$ ppr n_kco2 $$ ppr kico)
+                    ; return ( n_kco2, xi2 `mkCastTy` kico ) }
            ; traceTcS "flatten/appty"
                       (ppr ty1 $$ ppr ty2 $$ ppr xi1 $$
-                       ppr co1 $$ ppr xi2' $$ ppr co2)
+                       ppr co1 $$ ppr xi2' $$ ppr co2 $$
+                       ppr role1 $$ ppr role2 $$ ppr kco)
            ; return ( mkAppTy xi1 xi2'
                     , mkTransAppCo role1 co1 xi1 ty1
                                    kco
@@ -1481,17 +1487,11 @@ flattenTyVarFinal fmode tv
        ; (new_kind, kind_co) <- flatten_one (setFEEqRel fmode ReprEq) kind
        ; if isReflCo kind_co
          then return (Left (setVarType tv new_kind))
-         else do { traceTcS "flattenTyVarFinal abandoning hetero flattening"
-                            (ppr new_kind $$ ppr kind_co)
-                 ; WARN( False, text "Abandoning hetero flattening for" <+> ppr tv )
-                   return (Left tv) } } 
-          -- if kind_co isn't Refl, then the kind really changed;
-          -- not much we can do. Can't current cast types by TcCoercions!
-          -- TODO (RAE): Fix, either by adding TcCastTy to Type or inventing TcType
-          -- for realsies. Or, bind a new variable to the TcCoercion and use it
-          -- in a CoVarCo. Dirty, but should work. See "dirtier than I'd like"
-          -- in TcCanonical.
-          -- TODO (RAE): UPDATE: just use dirtyTcCoToCo
+         else return (Right ( ty `mkCastTy` mkSymCo kind_co
+                            , mkReflCo (feRole fmode) ty
+                              `mkCoherenceLeftCo` mkSymCo kind_co )) }
+  where
+    ty = mkOnlyTyVarTy tv
 
 {-
 Note [An alternative story for the inert substitution]

@@ -66,6 +66,7 @@ import Data.Traversable (traverse, sequenceA)
 #endif
 import qualified Data.Data as Data 
 import Outputable
+import ListSetOps
 import FastString
 import Data.IORef( IORef )
 
@@ -255,7 +256,8 @@ mkTcTransCo co (TcRefl {}) = co
 mkTcTransCo co1 co2        = TcTransCo co1 co2
 
 mkTcNthCo :: Int -> TcCoercion -> TcCoercion
-mkTcNthCo n (TcRefl r ty) = TcRefl r (tyConAppArgN n ty)
+mkTcNthCo n (TcRefl r ty) = TcRefl (nthRole r tc n) (args `getNth` n)
+  where (tc, args) = splitTyConApp ty
 mkTcNthCo n co            = TcNthCo n co
 
 mkTcLRCo :: LeftOrRight -> TcCoercion -> TcCoercion
