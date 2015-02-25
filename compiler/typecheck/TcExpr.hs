@@ -319,8 +319,8 @@ tcExpr expr@(OpApp arg1 op fix arg2) res_ty
          -- So: arg1_ty = arg2_ty -> op_res_ty
          -- where arg2_ty maybe polymorphic; that's the point
 
-       ; arg2' <- tcArg op (arg2, arg2_ty, 2)
-       ; co_b  <- unifyType (Just expr) op_res_ty res_ty    -- op_res ~ res
+       ; arg2'  <- tcArg op (arg2, arg2_ty, 2)
+       ; co_b   <- unifyType (Just expr) op_res_ty res_ty    -- op_res ~ res
 
        -- Make sure that the argument type has kind '*'
        --   ($) :: forall (v:Levity) (a:*) (b:TYPE v). (a->b) -> a -> b
@@ -337,7 +337,10 @@ tcExpr expr@(OpApp arg1 op fix arg2) res_ty
 
        ; op_id  <- tcLookupId op_name
 
-       ; let op' = L loc (HsWrap (mkWpTyApps [getLevity "tcExpr ($)" res_ty, a2_ty, res_ty]) (HsVar op_id))
+       ; let op' = L loc (HsWrap (mkWpTyApps [ getLevity "tcExpr ($)" res_ty
+                                             , a2_ty
+                                             , res_ty ])
+                                 (HsVar op_id))
        ; return $
          OpApp (mkLHsWrapCo (mkTcFunCo Nominal co_a co_b) $
                 mkLHsWrapCo co_arg1 arg1')

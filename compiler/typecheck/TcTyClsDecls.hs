@@ -296,6 +296,8 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
 
              ; return lcl_env }
 
+        ; failIfErrsM   -- if we take the second pass, we'll get duplicate errors
+
              -- Step 4: generalisation
              -- Kind checking done for this group
              -- Now we have to kind generalize the flexis

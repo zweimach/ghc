@@ -436,9 +436,10 @@ coVarKind cv
 
 coVarRole :: CoVar -> Role
 coVarRole cv
-  | tc `hasKey` eqPrimTyConKey
+-- TODO (RAE): Remove lifted tycons after lifted equality is removed
+  | tc `hasKey` eqPrimTyConKey || tc `hasKey` eqTyConKey
   = Nominal
-  | tc `hasKey` eqReprPrimTyConKey
+  | tc `hasKey` eqReprPrimTyConKey || tc `hasKey` coercibleTyConKey
   = Representational
   | otherwise
   = pprPanic "coVarRole: unknown tycon" (ppr cv <+> dcolon <+> ppr (varType cv))

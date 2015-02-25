@@ -320,7 +320,7 @@ tcCheckHsTypeAndMaybeGen hs_ty kind
   = do { should_gen <- decideKindGeneralisationPlan hs_ty
        ; if should_gen
          then fst <$> tcCheckHsTypeAndGen hs_ty kind
-         else tc_hs_type hs_ty kind }
+         else zonkTcType =<< tc_hs_type hs_ty kind }
 
 -- | Should we generalise the kind of this type?
 -- We *should* generalise if the type is closed or if NoMonoLocalBinds
@@ -329,7 +329,7 @@ decideKindGeneralisationPlan :: HsType Name -> TcM Bool
 decideKindGeneralisationPlan hs_ty
   = do { mono_locals <- xoptM Opt_MonoLocalBinds
        ; let fvs = ftvHsType hs_ty
-       ; return (mono_locals || not (isEmptyNameSet fvs)) }
+       ; return (not mono_locals || isEmptyNameSet fvs) }
     
 tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM (Type, CvSubstEnv)
 -- Input type is HsType, not LhsType; the caller adds the context

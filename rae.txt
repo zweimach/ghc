@@ -101,7 +101,8 @@ fix:
   - have Core Lint check to make sure RHSs of `let (x :: foo ~# bar) = ...`
     are really Coercions!
   - make use of uo_thing in more error messages
-  - liftSimply --> mkReflCoArg (if we keep coargs!)
+  - check out typecheck/should_compile/tc167.hs. It might be possible to
+    do better here. (About weird typing rule for (->))
   - do we need to annotate kind variables to have a proper CUSK? I think so.
     Here is Doel's example from Hac Phi of this problem at the term level:
 

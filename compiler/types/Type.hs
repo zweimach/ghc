@@ -1868,7 +1868,9 @@ getLevity err ty = go (typeKind ty)
       | Just (tc, [arg]) <- splitTyConApp_maybe k
       , tc `hasKey` tYPETyConKey
       = arg
-    go k = pprPanic "getLevity" (text err $$ ppr k <+> dcolon <+> ppr (typeKind k))
+    go k = pprPanic "getLevity" (text err $$
+                                 ppr ty <+> dcolon <+> ppr k
+                                        <+> dcolon <+> ppr (typeKind k))
 
 isUnboxedTupleType :: Type -> Bool
 isUnboxedTupleType ty = case tyConAppTyCon_maybe ty of
