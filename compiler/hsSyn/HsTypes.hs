@@ -606,16 +606,14 @@ ftvHsType :: HsType Name -> NameSet
 ftvHsType (HsForAllTy _ _ tvbs ctxt ty)
   = (ftvLHsContext ctxt `unionNameSet` ftvLHsType ty)
     `delListFromNameSet` hsLKiTyVarNames tvbs
-ftvHsType (HsTyVar n)
-  | isTyVarName n = unitNameSet n
-  | otherwise     = emptyNameSet
+ftvHsType (HsTyVar n)               = ftvName n
 ftvHsType (HsAppTy t1 t2)           = ftvLHsType t1 `unionNameSet` ftvLHsType t2
 ftvHsType (HsFunTy t1 t2)           = ftvLHsType t1 `unionNameSet` ftvLHsType t2
 ftvHsType (HsListTy t)              = ftvLHsType t
 ftvHsType (HsPArrTy t)              = ftvLHsType t
 ftvHsType (HsTupleTy _ tys)         = unionNameSets $ map ftvLHsType tys
 ftvHsType (HsOpTy t1 (L _ op) t2)
-  = unionNameSets (unitNameSet op : map ftvLHsType [t1, t2])
+  = unionNameSets (ftvName op : map ftvLHsType [t1, t2])
 ftvHsType (HsParTy t)               = ftvLHsType t
 ftvHsType (HsIParamTy _ t)          = ftvLHsType t
 ftvHsType (HsEqTy t1 t2)            = ftvLHsType t1 `unionNameSet` ftvLHsType t2
@@ -630,10 +628,15 @@ ftvHsType (HsExplicitListTy _ tys)  = unionNameSets $ map ftvLHsType tys
 ftvHsType (HsExplicitTupleTy _ tys) = unionNameSets $ map ftvLHsType tys
 ftvHsType (HsTyLit {})              = emptyNameSet
 ftvHsType HsWildcardTy              = panic "ftvHsType HsWildcardTy"
-ftvHsType (HsNamedWildcardTy n)     = unitNameSet n
+ftvHsType (HsNamedWildcardTy n)     = ftvName n
 
 ftvLHsContext :: LHsContext Name -> NameSet
 ftvLHsContext (L _ ctxt) = unionNameSets $ map ftvLHsType ctxt
+
+ftvName :: Name -> NameSet
+ftvName n
+  | isTyVarName n = unitNameSet n
+  | otherwise     = emptyNameSet
 
 {-
 ************************************************************************

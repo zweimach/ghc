@@ -329,7 +329,12 @@ decideKindGeneralisationPlan :: HsType Name -> TcM Bool
 decideKindGeneralisationPlan hs_ty
   = do { mono_locals <- xoptM Opt_MonoLocalBinds
        ; let fvs = ftvHsType hs_ty
-       ; return (not mono_locals || isEmptyNameSet fvs) }
+             should_gen = not mono_locals || isEmptyNameSet fvs
+       ; traceTc "decideKindGeneralisationPlan"
+           (vcat [ text "type:" <+> ppr hs_ty
+                 , text "ftvs:" <+> ppr fvs
+                 , text "should gen?" <+> ppr should_gen ])
+       ; return should_gen }
     
 tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM (Type, CvSubstEnv)
 -- Input type is HsType, not LhsType; the caller adds the context
