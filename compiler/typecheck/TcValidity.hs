@@ -383,6 +383,9 @@ check_arg_type :: TidyEnv -> UserTypeCtxt -> Rank -> KindOrType -> TcM ()
 --     But not in user code.
 -- Anyway, they are dealt with by a special case in check_tau_type
 
+-- TODO (RAE): Do we care here?
+check_arg_type _ _ _ (CoercionTy {}) = return ()
+
 check_arg_type env ctxt rank ty
   = do  { impred <- xoptM Opt_ImpredicativeTypes
         ; let rank' = case rank of          -- Predictive => must be monotype

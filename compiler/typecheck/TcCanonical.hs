@@ -1704,6 +1704,10 @@ unifyWantedLikeEv ev loc role orig_ty1 orig_ty2
            ; case mb_ty of
                 Just ty2' -> go ty1 ty2'
                 Nothing   -> bale_out }
+        
+    go ty1@(CoercionTy {}) (CoercionTy {})
+      = return (mkTcReflCo role ty1) -- we just don't care about coercions!
+        
     go _ _ = bale_out
 
     bale_out = do { ev <- newWantedEvVarNC loc (mkTcEqPredBR boxity role

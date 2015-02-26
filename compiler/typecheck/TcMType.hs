@@ -868,7 +868,7 @@ zonkTcTypeAndFV ty
 zonkTyCoVar :: TyCoVar -> TcM TcType
 -- Works on TyVars and TcTyVars
 zonkTyCoVar tv | isTcTyVar tv = zonkTcTyCoVar tv
-               | otherwise    = return (mkTyCoVarTy tv)
+               | otherwise    = mkTyCoVarTy <$> zonkTyCoVarKind tv
    -- Hackily, when typechecking type and class decls
    -- we have TyVars in scopeadded (only) in 
    -- TcHsType.tcTyClTyVars, but it seems

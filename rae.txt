@@ -61,12 +61,26 @@ changed from a proper arg to an existential covar arg. Does this matter?
 (Other uses of dataConRepArgTys are OK.)
 
 fix:
+  - Deferred kind errors! Right now, evBindsSubst just silently fails,
+    creating core-lint errors. Proposed solution: box the equality.
+    Then use the desugared, unpacked boxed equality in terms, but
+    use a UnivCo with a clear provenance in types. A bogus type
+    coercion can't, by itself, make a program go wrong.
+
   - The flattening story is subtler than I thought. Consider flattening
     Proxy Age (3 |> sym axAge) (w.r.t. nominal equality). We'll get
     the ill-typed Proxy Age 3! This is because, of course, (3 |> sym axAge)
     and 3 are nominally equal. This is terrible. My best guess as to the
     solution is to flatten the (3 |> sym axAge), and then to flatten
     representationally the kind, and then repair the damage by transitivity.
+
+    (UPDATE: Maybe not. If we treated a TyConApp like nested AppTys, we
+    would get ((Proxy Age |> (axAge -> *)) 3), which is well-typed.
+    Errr... never mind. That new type isn't nominally equal to the original
+    type because it changes the kind of an application. Maybe this
+    is all a moot point because of that restriction. Or: it's a moot
+    point for AppTys, but not TyConApps. That's very silly. Think more
+    about it.)
 
     And it gets worse. Let (T :: forall k1 k2. k1 k2 -> *), where
     type role T rep nom nom.
