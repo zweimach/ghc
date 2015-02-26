@@ -892,6 +892,7 @@ mkSymCo :: Coercion -> Coercion
 mkSymCo co@(Refl {})              = co
 mkSymCo    (UnsafeCo s r ty1 ty2) = UnsafeCo s r ty2 ty1
 mkSymCo    (SymCo co)             = co
+mkSymCo    (SubCo (SymCo co))     = SubCo co
 mkSymCo co                        = SymCo co
 
 -- | Create a new 'Coercion' by composing the two given 'Coercion's transitively.

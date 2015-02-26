@@ -3,7 +3,7 @@
 module TcFlatten(
    FlattenEnv(..), FlattenMode(..), mkFlattenEnv,
    flatten, flattenMany, flatten_many,
-   flattenFamApp, flattenTyVarOuter,
+   flattenFamApp, flattenTyVarOuter, FlattenTvResult(..),
    unflatten,
    eqCanRewrite, eqCanRewriteFRB, canRewriteOrSame,
    CtFRB, ctEvFRB
@@ -1418,20 +1418,34 @@ flattenTyVar :: FlattenEnv -> TcTyVar -> TcS (Xi, Coercion)
 flattenTyVar fmode tv
   = do { mb_yes <- flattenTyVarOuter fmode tv
        ; case mb_yes of
-           Left tv' -> -- Done
-                       do { traceTcS "flattenTyVar1" (ppr tv $$ ppr (tyVarKind tv'))
-                          ; return (ty', mkReflCo (feRole fmode) ty') }
+           FTRCasted kco -> -- Done
+                       do { traceTcS "flattenTyVar1"
+                              (ppr tv $$ ppr kco <+> dcolon
+                                                 <+> ppr (coercionKind kco))
+                          ; return (ty', mkReflCo (feRole fmode) ty
+                                         `mkCoherenceLeftCo` mkSymCo kco ) }
                     where
-                       ty' = mkOnlyTyVarTy tv'
+                       ty  = mkOnlyTyVarTy tv
+                       ty' = ty `mkCastTy` mkSymCo kco
 
-           Right (ty1, co1)  -- Recurse
+           FTRFollowed ty1 co1  -- Recur
                     -> do { (ty2, co2) <- flatten_one fmode ty1
                           ; traceTcS "flattenTyVar3" (ppr tv $$ ppr ty2)
                           ; return (ty2, co2 `mkTransCo` co1) }
        }
 
+-- | The result of flattening a tyvar "one step".
+data FlattenTvResult
+  = FTRCasted Coercion
+      -- ^ Flattening the tyvar's kind produced a cast.
+      -- co :: new kind ~R old kind
+  | FTRFollowed TcType Coercion
+      -- ^ The tyvar flattens to a not-necessarily flat other type.
+      -- co :: new type ~r old type, where the role is determined by
+      -- the FlattenEnv
+
 flattenTyVarOuter :: FlattenEnv -> TcTyVar
-                  -> TcS (Either TyVar (TcType, Coercion))
+                  -> TcS FlattenTvResult
 -- Look up the tyvar in
 --   a) the internal MetaTyVar box
 --   b) the tyvar binds
@@ -1448,7 +1462,7 @@ flattenTyVarOuter fmode tv
   = do { mb_ty <- isFilledMetaTyVar_maybe tv
        ; case mb_ty of {
            Just ty -> do { traceTcS "Following filled tyvar" (ppr tv <+> equals <+> ppr ty)
-                         ; return (Right (ty, mkReflCo (feRole fmode) ty)) } ;
+                         ; return (FTRFollowed ty (mkReflCo (feRole fmode) ty)) } ;
            Nothing ->
 
     -- Try in the inert equalities
@@ -1471,7 +1485,7 @@ flattenTyVarOuter fmode tv
                             (NomEq, NomEq)  -> rewrite_co1
                             (NomEq, ReprEq) -> mkSubCo rewrite_co1
 
-                    ; return (Right (rhs_ty, rewrite_co)) }
+                    ; return (FTRFollowed rhs_ty rewrite_co) }
                     -- NB: ct is Derived then fmode must be also, hence
                     -- we are not going to touch the returned coercion
                     -- so ctEvCoercion is fine.
@@ -1480,19 +1494,13 @@ flattenTyVarOuter fmode tv
     } } }
 
 flattenTyVarFinal :: FlattenEnv -> TcTyVar
-                  -> TcS (Either TyVar (TcType, Coercion))
+                  -> TcS FlattenTvResult
 flattenTyVarFinal fmode tv
   = -- Done, but make sure the kind is zonked
     do { let kind = tyVarKind tv
-       ; (new_kind, kind_co) <- flatten_one (setFEEqRel fmode ReprEq) kind
-       ; if isReflCo kind_co
-         then return (Left (setVarType tv new_kind))
-         else return (Left tv) } {- "RAE" (Right ( ty `mkCastTy` mkSymCo kind_co
-                            , mkReflCo (feRole fmode) ty
-                              `mkCoherenceLeftCo` mkSymCo kind_co )) }
-  where
-    ty = mkOnlyTyVarTy tv
--}
+       ; (_new_kind, kind_co) <- flatten_one (setFEEqRel fmode ReprEq) kind
+       ; return (FTRCasted kind_co) }
+
 {-
 Note [An alternative story for the inert substitution]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

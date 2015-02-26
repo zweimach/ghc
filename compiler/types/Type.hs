@@ -19,6 +19,7 @@ module Type (
 
         -- ** Constructing and deconstructing types
         mkOnlyTyVarTy, mkOnlyTyVarTys, getTyVar, getTyVar_maybe, repGetTyVar_maybe,
+        getCastedTyVar_maybe,
         getTyCoVar_maybe, mkTyCoVarTy, mkTyCoVarTys,
 
         mkAppTy, mkAppTys, splitAppTy, splitAppTys,
@@ -579,6 +580,15 @@ isTyCoVarTy ty = isJust (getTyCoVar_maybe ty)
 getTyVar_maybe :: Type -> Maybe TyVar
 getTyVar_maybe ty | Just ty' <- coreView ty = getTyVar_maybe ty'
                   | otherwise               = repGetTyVar_maybe ty
+
+-- | If the type is a tyvar, possibly under a cast, returns it, along
+-- with the coercion. Thus, the co is :: kind tv ~R kind type
+getCastedTyVar_maybe :: Type -> Maybe (TyVar, Coercion)
+getCastedTyVar_maybe ty | Just ty' <- coreView ty = getCastedTyVar_maybe ty'
+getCastedTyVar_maybe (CastTy (TyVarTy tv) co)     = Just (tv, co)
+getCastedTyVar_maybe (TyVarTy tv)
+  = Just (tv, mkReflCo Representational (tyVarKind tv))
+getCastedTyVar_maybe _                            = Nothing
 
 -- | Attempts to obtain the type variable underlying a 'Type', without
 -- any expansion

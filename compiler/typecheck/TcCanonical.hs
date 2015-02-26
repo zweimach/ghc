@@ -973,7 +973,7 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
        ; let fmode = mkFlattenEnv FM_FlattenAll ev  -- the FM_ param is ignored
        ; mb_yes <- flattenTyVarOuter fmode tv1
        ; case mb_yes of
-         { Right (ty1, co1) -> -- co1 :: ty1 ~ tv1
+         { FTRFollowed ty1 co1 -> -- co1 :: ty1 ~ tv1
              do { traceTcS "canEqTyVar2"
                            (vcat [ ppr tv1, ppr ty2, ppr swapped
                                  , ppr ty1 , ppUnless (isDerived ev) (ppr co1)])
@@ -983,7 +983,7 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
                   `andWhenContinue` \ new_ev ->
                   can_eq_nc new_ev eq_rel ty1 ty1 ty2 ps_ty2 }
 
-         ; Left tv1' ->
+         ; FTRCasted kind_co ->
     do { -- FM_Avoid commented out: see Note [Lazy flattening] in TcFlatten
          -- let fmode = FE { fe_ev = ev, fe_mode = FM_Avoid tv1' True }
          -- Flatten the RHS less vigorously, to avoid gratuitous flattening
@@ -991,13 +991,8 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
        ; (xi2, co2) <- flatten FM_FlattenAll ev ps_ty2 -- co2 :: xi2 ~ ps_ty2
                       -- Use ps_ty2 to preserve type synonyms if poss
        ; traceTcS "canEqTyVar flat LHS"
-           (vcat [ ppr tv1, ppr tv1', ppr ty2, ppr swapped, ppr xi2 ])
-{-  "RAE"     ; case splitCastTy_maybe xi2 of
-         { Just (xi2_inner, xi2_co) ->
-             canEqCast ev eq_rel (flipSwap swapped) xi2_inner xi2_co ty1 ty1
-             where ty1 = mkOnlyTyVarTy tv1
-         ; Nothing -> 
-    do { -}
+           (vcat [ ppr tv1, ppr kind_co, ppr (coercionKind kind_co)
+                 , ppr ty2, ppr swapped, ppr xi2 ])
        ; dflags <- getDynFlags 
        ; case eq_rel of
       -- See Note [No top-level newtypes on RHS of representational equalities]
@@ -1005,21 +1000,25 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
              | Just (tc2, _) <- tcSplitTyConApp_maybe xi2
              , isNewTyCon tc2
              , not (ps_ty2 `eqType` xi2)
-             -> do { let xi1  = mkOnlyTyVarTy tv1'
+             -> do { let ty1  = mkOnlyTyVarTy tv1
+                         kco  = mkSymCo kind_co
+                         xi1  = ty1 `mkCastTy` kco
                          role = eqRelRole eq_rel
+                         co1  = mkTcReflCo role ty1 `mkTcCoherenceLeftCo` kco
                    ; traceTcS "canEqTyVar exposed newtype"
-                       (vcat [ ppr tv1', ppr ps_ty2, ppr xi2, ppr tc2 ])
+                       (vcat [ ppr tv1, ppr ps_ty2, ppr xi2, ppr tc2 ])
                    ; rewriteEqEvidence ev swapped xi1 xi2
-                                       (mkTcReflCo role xi1) co2
+                                       co1 co2
                      `andWhenContinue` \ new_ev ->
                      can_eq_nc new_ev eq_rel xi1 xi1 xi2 xi2 }
-           _ -> canEqTyVar2 dflags ev eq_rel swapped tv1' xi2 co2 } } } -- "RAE" } }
+           _ -> canEqTyVar2 dflags ev eq_rel swapped tv1 kind_co xi2 co2 } } }
 
 canEqTyVar2 :: DynFlags
             -> CtEvidence   -- olhs ~ orhs (or, if swapped, orhs ~ olhs)
             -> EqRel
             -> SwapFlag
             -> TcTyVar      -- olhs
+            -> Coercion     -- :: kind nrhs ~R kind olhs
             -> TcType       -- nrhs
             -> TcCoercion   -- nrhs ~ orhs
             -> TcS (StopOrContinue Ct)
@@ -1027,24 +1026,26 @@ canEqTyVar2 :: DynFlags
 -- and RHS is fully rewritten, but with type synonyms
 -- preserved as much as possible
 
-canEqTyVar2 dflags ev eq_rel swapped tv1 xi2 co2
-  | Just tv2 <- getTyVar_maybe xi2
+canEqTyVar2 dflags ev eq_rel swapped tv1 kco xi2 co2
+  | Just (tv2, kco2) <- getCastedTyVar_maybe xi2
+        -- kco2 :: kind tv2 ~R kind xi2
   = do { traceTcS "canEqTyVarTyVar from canEqTyVar2" (ppr tv1 $$ ppr tv2)
-       ; canEqTyVarTyVar ev eq_rel swapped tv1 tv2 co2 }
+       ; canEqTyVarTyVar ev eq_rel swapped tv1 tv2 (kco2 `mkTransCo` kco)
+                         (co2 `mkTcCoherenceLeftCo` mkSymCo kco2) }
 
-  | OC_OK xi2' <- occurCheckExpand dflags tv1 xi2  -- No occurs check
-  = do { rewriteEqEvidence ev swapped xi1 xi2' co1 co2
+  | OC_OK xi2' <- occurCheckExpand dflags tv1 casted_xi2  -- No occurs check
+  = rewriteEqEvidence ev swapped xi1 xi2' co1 casted_co2
                 -- Ensure that the new goal has enough type synonyms
                 -- expanded by the occurCheckExpand; hence using xi2' here
                 -- See Note [occurCheckExpand]
-         `andWhenContinue` \ new_ev ->
-         homogeniseRhsKind new_ev eq_rel xi1 xi2' $ \new_new_ev xi2'' ->
-         CTyEqCan { cc_ev = new_new_ev, cc_tyvar = tv1
-                  , cc_rhs = xi2'', cc_eq_rel = eq_rel } }
+    `andWhenContinue` \ new_ev ->
+    homogeniseRhsKind new_ev eq_rel xi1 xi2' $ \new_new_ev xi2'' ->
+    CTyEqCan { cc_ev = new_new_ev, cc_tyvar = tv1
+             , cc_rhs = xi2'', cc_eq_rel = eq_rel }
 
   | otherwise  -- Occurs check error
-  = do { traceTcS "canEqTyVar2 occurs check error" (ppr tv1 $$ ppr xi2)
-       ; rewriteEqEvidence ev swapped xi1 xi2 co1 co2
+  = do { traceTcS "canEqTyVar2 occurs check error" (ppr tv1 $$ ppr casted_xi2)
+       ; rewriteEqEvidence ev swapped xi1 casted_xi2 co1 casted_co2
          `andWhenContinue` \ new_ev ->
           case eq_rel of
             NomEq  -> do { emitInsoluble (mkNonCanonical new_ev)
@@ -1060,18 +1061,20 @@ canEqTyVar2 dflags ev eq_rel swapped tv1 xi2 co2
               -- But, the occurs-check certainly prevents the equality from being
               -- canonical, and we might loop if we were to use it in rewriting.
             ReprEq -> do { traceTcS "Occurs-check in representational equality"
-                              (ppr xi1 $$ ppr xi2)
+                              (ppr xi1 $$ ppr casted_xi2)
                          ; continueWith (CIrredEvCan { cc_ev = new_ev }) } }
   where
     xi1 = mkOnlyTyVarTy tv1
     co1 = mkTcReflCo (eqRelRole eq_rel) xi1
 
-
+    casted_xi2 = xi2 `mkCastTy` kco
+    casted_co2 = co2 `mkTcCoherenceLeftCo` kco
 
 canEqTyVarTyVar :: CtEvidence           -- tv1 ~ orhs (or orhs ~ tv1, if swapped)
                 -> EqRel
                 -> SwapFlag
                 -> TcTyVar -> TcTyVar   -- tv2, tv2
+                -> Coercion             -- :: kind tv2 ~R kind tv1
                 -> TcCoercion           -- tv2 ~ orhs
                 -> TcS (StopOrContinue Ct)
 -- Both LHS and RHS rewrote to a type variable,
@@ -1079,10 +1082,11 @@ canEqTyVarTyVar :: CtEvidence           -- tv1 ~ orhs (or orhs ~ tv1, if swapped
 --     rw_orhs = tv1, rw_olhs = orhs
 --     rw_nlhs = tv2, rw_nrhs = xi1
 -- See Note [Canonical orientation for tyvar/tyvar equality constraints]
-canEqTyVarTyVar ev eq_rel swapped tv1 tv2 co2
+canEqTyVarTyVar ev eq_rel swapped tv1 tv2 kco co2
   | tv1 == tv2
   = do { when (isWanted ev) $
          ASSERT( tcCoercionRole co2 == eqRelRole eq_rel )
+         ASSERT( isReflCo kco )
          setEvBind (ctev_evar ev) (EvCoercion (maybeSym swapped co2)) (ctev_loc ev)
        ; stopWith ev "Equal tyvars" }
 
@@ -1097,18 +1101,31 @@ canEqTyVarTyVar ev eq_rel swapped tv1 tv2 co2
     xi2 = mkOnlyTyVarTy tv2
     co1 = mkTcReflCo (eqRelRole eq_rel) xi1
 
-    no_swap = canon_eq swapped            tv1 xi1 xi2 co1 co2
-    do_swap = canon_eq (flipSwap swapped) tv2 xi2 xi1 co2 co1
+    no_swap = canon_eq swapped            tv1 xi1 xi2 kco           co1 co2
+    do_swap = canon_eq (flipSwap swapped) tv2 xi2 xi1 (mkSymCo kco) co2 co1
 
-    canon_eq swapped tv1 xi1 xi2 co1 co2
+    canon_eq swapped tv1 xi1 xi2 kco co1 co2
         -- ev  : tv1 ~ orhs  (not swapped) or   orhs ~ tv1   (swapped)
+        -- kco : kind tv1 ~ kind xi2
         -- co1 : xi1 ~ tv1
         -- co2 : xi2 ~ tv2
-      = rewriteEqEvidence ev swapped xi1 xi2 co1 co2
-        `andWhenContinue` \ new_ev ->
-        homogeniseRhsKind new_ev eq_rel xi1 xi2 $ \new_new_ev xi2' ->
-        CTyEqCan { cc_ev = new_new_ev, cc_tyvar = tv1
-                 , cc_rhs = xi2', cc_eq_rel = eq_rel }
+      = do { traceTcS "canEqTyVarTyVar"
+               (vcat [ ppr swapped
+                     , ppr tv1 <+> dcolon <+> ppr (tyVarKind tv1)
+                     , ppr xi1 <+> dcolon <+> ppr (typeKind xi1)
+                     , ppr xi2 <+> dcolon <+> ppr (typeKind xi2)
+                     , ppr kco <+> dcolon <+> ppr (coercionKind kco)
+                     , ppr co1 <+> dcolon <+> ppr (tcCoercionKind co1)
+                     , ppr co2 <+> dcolon <+> ppr (tcCoercionKind co2) ])
+           ; rewriteEqEvidence ev swapped xi1 casted_xi2
+                                          co1 casted_co2
+             `andWhenContinue` \ new_ev ->
+             homogeniseRhsKind new_ev eq_rel xi1 casted_xi2 $ \new_new_ev xi2' ->
+             CTyEqCan { cc_ev = new_new_ev, cc_tyvar = tv1
+                      , cc_rhs = xi2', cc_eq_rel = eq_rel } }
+      where
+        casted_xi2 = xi2 `mkCastTy` kco
+        casted_co2 = co2 `mkTcCoherenceLeftCo` kco
 
     swap_over
       -- If tv1 is touchable, swap only if tv2 is also

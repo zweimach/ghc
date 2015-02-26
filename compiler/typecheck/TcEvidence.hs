@@ -910,7 +910,8 @@ sccEvBinds bs = stronglyConnCompFromEdgedVertices edges
 
     mk_node :: EvBind -> (EvBind, EvVar, [EvVar])
     mk_node b@(EvBind { evb_var = var, evb_term = term })
-      = (b, var, varSetElems (evVarsOfTerm term))
+      = (b, var, varSetElems (evVarsOfTerm term `unionVarSet`
+                              coVarsOfType (varType var)))
 
 -- | Get the set of EvVars bound in a bag of EvBinds.
 evBindsVars :: Bag EvBind -> VarSet
