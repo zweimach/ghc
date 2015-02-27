@@ -472,7 +472,8 @@ decideQuantification apply_mr constraint_vars zonked_tau_tvs
   = do { gbl_tvs <- tcGetGlobalTyVars
        ; let mono_tvs = gbl_tvs `unionVarSet` constrained_tcvs
              mr_bites = constrained_tcvs `intersectsVarSet` zonked_tau_tvs
-             promote_tvs = constrained_tcvs `unionVarSet` (zonked_tau_tvs `intersectVarSet` gbl_tvs)
+             promote_tvs = closeOverKinds $
+                           constrained_tcvs `unionVarSet` (zonked_tau_tvs `intersectVarSet` gbl_tvs) `unionVarSet` (filterVarSet isCoVar zonked_tau_tvs)
              -- TODO (RAE): Rewrite decideQuantification, fixing that emptyVarEnv
        ; qtvs <- quantifyTyCoVars emptyVarEnv mono_tvs zonked_tau_tvs
        ; traceTc "decideQuantification 1" (vcat [ppr constraint_vars, ppr constraints, ppr gbl_tvs, ppr mono_tvs, ppr qtvs])
