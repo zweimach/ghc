@@ -1081,9 +1081,9 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
     msg1 = vcat [ text "   Expected" <+> sort <> colon <+> ppr exp
                 , text "     Actual" <+> sort <> colon <+> ppr act
                 , case maybe_thing of
-                  { Nothing -> empty
-                  ; Just th -> 
-                  text "which classifies:" <+> ppr th }]
+                  { Just th | KindLevel <- level -> 
+                      text "which classifies:" <+> ppr th
+                  ; _ -> empty }]
 
     thing_msg = case maybe_thing of
                   Just thing -> \_ -> quotes (ppr thing) <+> text "is"
