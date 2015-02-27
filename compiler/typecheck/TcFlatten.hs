@@ -876,6 +876,7 @@ flatten_co fmode co
                                       Representational -> ReprEq
                                       _                -> NomEq
              fmode'               = setFEEqRel fmode eq_rel
+       ; co <- zonkCo co   -- squeeze out any metavars from the original co
        ; (_, co1) <- flatten_one fmode' ty1
        ; (_, co2) <- flatten_one fmode' ty2
        ; let co' = co1 `mkTransCo` co `mkTransCo` mkSymCo co2
