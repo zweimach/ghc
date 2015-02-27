@@ -1047,10 +1047,16 @@ flatten_exact_fam_app_fully fmode tc tys
                    ; emitFlatWork ct
 
                    ; traceTcS "flatten/flat-cache miss" $ (ppr fam_ty $$ ppr fsk $$ ppr ev)
-                   ; return (fsk_ty, maybeSubCo (fe_eq_rel fmode)
+                   ; (fsk_xi, fsk_co) <- flatten_one fmode fsk_ty
+                   ; (_fsk_ki, fsk_ki_co) <- flatten_one fmode (typeKind fsk_ty)
+                -- TODO (RAE): The previous line is very wrong. It needs
+                -- to be at role R. Search for "overeager" in this file.
+                   ; return (fsk_xi, fsk_co
+                                     `mkTransCo`
+                                     maybeSubCo (fe_eq_rel fmode)
                                                 (mkSymCo co)
                                      `mkTransCo` ret_co
-                            , mkReflCo (feRole fmode) (typeKind fsk_ty) ) }
+                            , fsk_ki_co ) }
                 -- TODO (RAE): The previous line is very wrong.
         }
 
@@ -1078,9 +1084,13 @@ flatten_exact_fam_app_fully fmode tc tys
            ; case mb_match of
                Just (norm_co, norm_ty)
                  -> do { traceTcS "Eager T.F. reduction success" $
-                         vcat [ppr tc, ppr tys, ppr norm_ty, ppr cache]
+                         vcat [ ppr tc, ppr tys, ppr norm_ty
+                              , ppr norm_co <+> dcolon
+                                            <+> ppr (coercionKind norm_co)
+                              , ppr cache]
                        ; (xi, final_co) <- flatten_one fmode norm_ty
-                       ; let co = norm_co `mkTransCo` mkSymCo final_co
+                       ; let co = maybeSubCo (fe_eq_rel fmode) norm_co
+                                  `mkTransCo` mkSymCo final_co
                        ; when cache $
                          extendFlatCache tc tys ( mkTcCoercion co, xi
                                                 , fe_flavour fmode)

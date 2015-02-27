@@ -38,3 +38,4 @@ zero TyInt = 0
 zero TyBool = False
 zero (TyApp TyMaybe TyInt) = Nothing
 
+main = print $ zero (TyApp TyMaybe TyInt)

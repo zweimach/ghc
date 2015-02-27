@@ -779,7 +779,8 @@ piResultTy :: Type -> Type -> Type
 piResultTy ty arg | Just ty' <- coreView ty = piResultTy ty' arg
 piResultTy (ForAllTy (Anon _) res)     _   = res
 piResultTy (ForAllTy (Named tv _) res) arg = substTyWith [tv] [arg] res
-piResultTy ty _                            = pprPanic "piResultTy" (ppr ty)
+piResultTy ty arg                          = pprPanic "piResultTy"
+                                                 (ppr ty $$ ppr arg)
 
 -- | Fold 'piResultTy' over many types
 piResultTys :: Type -> [Type] -> Type

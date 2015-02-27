@@ -67,6 +67,9 @@ fix:
     use a UnivCo with a clear provenance in types. A bogus type
     coercion can't, by itself, make a program go wrong.
 
+  - unifyWantedLikeEv handles coercions. But make sure other, similar scenarios
+    do too.
+
   - The flattening story is subtler than I thought. Consider flattening
     Proxy Age (3 |> sym axAge) (w.r.t. nominal equality). We'll get
     the ill-typed Proxy Age 3! This is because, of course, (3 |> sym axAge)
