@@ -276,8 +276,8 @@ simplifyInfer :: TcLevel          -- Used when generating the constraints
 simplifyInfer rhs_tclvl apply_mr name_taus wanteds
   | isEmptyWC wanteds
   = do { gbl_tvs <- tcGetGlobalTyVars
-       ; qtkvs <- quantifyTyCoVars emptyVarEnv gbl_tvs
-                                   (tyCoVarsOfTypes (map snd name_taus))
+       ; qtkvs <- quantifyTyCoVars emptyVarEnv gbl_tvs $
+                  splitDepVarsOfTypes (map snd name_taus)
        ; traceTc "simplifyInfer: empty WC" (ppr name_taus $$ ppr qtkvs)
        ; return (qtkvs, [], False, emptyTcEvBinds) }
 
@@ -356,8 +356,8 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
        --     unifications that may have happened
 
        ; zonked_taus <- mapM (TcM.zonkTcType . snd) name_taus
-       ; let zonked_tau_tvs = tyCoVarsOfTypes zonked_taus
-       ; (promote_tvs, qtvs, bound, mr_bites) <- decideQuantification apply_mr quant_pred_candidates zonked_tau_tvs
+       ; let zonked_tau_tkvs = splitDepVarsOfTypes zonked_taus
+       ; (promote_tvs, qtvs, bound, mr_bites) <- decideQuantification apply_mr quant_pred_candidates zonked_tau_tkvs
        ; MASSERT( not (tyCoVarsOfTypes (map tyVarKind (varSetElems promote_tvs))
                        `intersectsVarSet` mkVarSet qtvs) )
          -- we can't promote things that mention quantified variables!
@@ -401,7 +401,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
        ; traceTc "} simplifyInfer/produced residual implication for quantification" $
          vcat [ ptext (sLit "quant_pred_candidates =") <+> ppr quant_pred_candidates
               , ptext (sLit "zonked_taus") <+> ppr zonked_taus
-              , ptext (sLit "zonked_tau_tvs=") <+> ppr zonked_tau_tvs
+              , ptext (sLit "zonked_tau_tkvs=") <+> ppr zonked_tau_tkvs
               , ptext (sLit "promote_tvs=") <+> ppr promote_tvs
               , ptext (sLit "bound =") <+> ppr bound
               , ptext (sLit "minimal_bound =") <+> vcat [ ppr v <+> dcolon <+> ppr (idType v)
@@ -460,22 +460,25 @@ too.
 
 -}
 
-decideQuantification :: Bool -> [EvVar] -> TcTyCoVarSet
+decideQuantification :: Bool -> [EvVar]
+                     -> ( TcTyCoVarSet     -- dependent (kind) variables
+                        , TcTyCoVarSet )   -- type variables
                      -> TcM ( TcTyCoVarSet      -- Promote these
                                                 -- See Note [Promoting coercion variables]
                             , [TcTyVar]         -- Do quantify over these
                             , [PredType]        -- and these
                             , Bool )            -- Did the MR bite?
 -- See Note [Deciding quantification]
-decideQuantification apply_mr constraint_vars zonked_tau_tvs
+decideQuantification apply_mr constraint_vars (zonked_tau_kvs, zonked_tau_tvs)
   | apply_mr     -- Apply the Monomorphism restriction
   = do { gbl_tvs <- tcGetGlobalTyVars
        ; let mono_tvs = gbl_tvs `unionVarSet` constrained_tcvs
-             mr_bites = constrained_tcvs `intersectsVarSet` zonked_tau_tvs
+             mr_bites = constrained_tcvs `intersectsVarSet` zonked_tkvs
              promote_tvs = closeOverKinds $
-                           constrained_tcvs `unionVarSet` (zonked_tau_tvs `intersectVarSet` gbl_tvs) `unionVarSet` (filterVarSet isCoVar zonked_tau_tvs)
+                           constrained_tcvs `unionVarSet` (zonked_tkvs `intersectVarSet` gbl_tvs) `unionVarSet` (filterVarSet isCoVar zonked_tkvs)
              -- TODO (RAE): Rewrite decideQuantification, fixing that emptyVarEnv
-       ; qtvs <- quantifyTyCoVars emptyVarEnv mono_tvs zonked_tau_tvs
+       ; qtvs <- quantifyTyCoVars emptyVarEnv mono_tvs $
+                                  (zonked_tau_kvs, zonked_tau_tvs)
        ; traceTc "decideQuantification 1" (vcat [ppr constraint_vars, ppr constraints, ppr gbl_tvs, ppr mono_tvs, ppr qtvs])
        ; return (promote_tvs, qtvs, [], mr_bites) }
 
@@ -483,15 +486,18 @@ decideQuantification apply_mr constraint_vars zonked_tau_tvs
   = do { gbl_tvs <- tcGetGlobalTyVars
        ; let mono_tvs    = growThetaTyCoVars (filter isEqPred constraints) gbl_tvs
                            `unionVarSet` (filterVarSet isCoVar $
-                                          zonked_tau_tvs `unionVarSet` constraint_fvs)
+                                          zonked_tkvs `unionVarSet` constraint_fvs)
                            -- TODO (RAE): The filterVarSet isCoVar bit assumes
                            -- that *no* equality constraints are quantified.
                            -- But this is wrong.
                             
+             poly_qkvs   = growThetaTyCoVars constraints zonked_tau_kvs
+                           `minusVarSet` mono_tvs
              poly_qtvs   = growThetaTyCoVars constraints zonked_tau_tvs
                            `minusVarSet` mono_tvs
+             poly_qtkvs  = poly_qkvs `unionVarSet` poly_qtvs
              (theta_vars, other_constraint_vars)
-                         = partition (quantifyPred poly_qtvs . varType &&&
+                         = partition (quantifyPred poly_qtkvs . varType &&&
                                       not . (`elemVarSet` mono_tvs)) constraint_vars
 
              mono_tvs2   = mono_tvs `unionVarSet` mkVarSet other_constraint_vars
@@ -502,12 +508,13 @@ decideQuantification apply_mr constraint_vars zonked_tau_tvs
                            mono_tvs2 `intersectVarSet` (constrained_tcvs `unionVarSet` zonked_tau_tvs)
 
               -- TODO (RAE): Rewrite decideQuantification, fixing that emptyVarEnv
-       ; qtvs <- quantifyTyCoVars emptyVarEnv mono_tvs2 poly_qtvs
+       ; qtvs <- quantifyTyCoVars emptyVarEnv mono_tvs2 (poly_qkvs, poly_qtvs)
        ; traceTc "decideQuantification 2" $
          vcat [ text "constraint_vars:" <+> ppr constraint_vars
               , text "constraints:" <+> ppr constraints
               , text "gbl_tvs:" <+> ppr gbl_tvs
               , text "mono_tvs2:" <+> ppr mono_tvs2
+              , text "poly_qkvs:" <+> ppr poly_qkvs
               , text "poly_qtvs:" <+> ppr poly_qtvs
               , text "qtvs:" <+> ppr qtvs
               , text "theta:" <+> ppr theta
@@ -518,6 +525,8 @@ decideQuantification apply_mr constraint_vars zonked_tau_tvs
     constraint_cvs   = mkVarSet (filter isCoVar constraint_vars)
     constraint_fvs   = tyCoVarsOfTypes constraints
     constrained_tcvs = constraint_fvs `unionVarSet` constraint_cvs
+
+    zonked_tkvs = zonked_tau_kvs `unionVarSet` zonked_tau_tvs
 
     (&&&) :: (a -> Bool) -> (a -> Bool) -> a -> Bool
     (&&&) f1 f2 x = f1 x && f2 x

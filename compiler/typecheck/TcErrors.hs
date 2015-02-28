@@ -805,6 +805,8 @@ mkRoleSigs ty1 ty2
     ppr_role_sig tc
       | null roles  -- if there are no parameters, don't bother printing
       = Nothing
+      | isBuiltInSyntax (tyConName tc)  -- don't print roles for (->), etc.
+      = Nothing
       | otherwise
       = Just $ hsep $ [text "type role", ppr tc] ++ map ppr roles
       where
@@ -1078,7 +1080,19 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
       TypeLevel -> text "type"
       KindLevel -> text "kind"
     
-    msg1 = vcat [ text "   Expected" <+> sort <> colon <+> ppr exp
+    msg1 = case level of
+      KindLevel
+        | isLiftedTypeKind exp
+        , Just th <- maybe_thing
+        -> text "Expected a type, but" <+> quotes (ppr th) <+>
+           text "has kind" <+> quotes (ppr act)
+
+        | Just th <- maybe_thing
+        -> hang (text "Expected kind" <+> quotes (ppr exp) <> comma)
+              2 (text "but" <+> quotes (ppr th) <+> text "has kind" <+>
+                 quotes (ppr act))
+      
+      _ -> vcat [ text "   Expected" <+> sort <> colon <+> ppr exp
                 , text "     Actual" <+> sort <> colon <+> ppr act
                 , case maybe_thing of
                   { Just th | KindLevel <- level -> 
@@ -1098,7 +1112,7 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
       TypeLevel -> Nothing
       KindLevel -> case (count_args act - count_args exp) of
         0             -> Nothing
-        n | n < 0     -> Just $ text "TODO (RAE): Insert something clever here"
+        n | n < 0     -> Just empty
           | otherwise -> Just $ text "Expecting" <+> speakN n <+>
                                 text "more" <+> plural_n n (text "argument") <+>
                                 to_thing

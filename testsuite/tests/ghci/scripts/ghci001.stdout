@@ -1,2 +1,2 @@
-(+) :: Num a => a -> a -> a
-enumFromTo :: Enum a => a -> a -> [a]
+(+) :: Num _a => _a -> _a -> _a
+enumFromTo :: Enum _a => _a -> _a -> [_a]

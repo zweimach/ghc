@@ -2033,7 +2033,7 @@ genAuxBindSpec loc (DerivTag2Con tycon)
            nlHsApp (nlHsVar tagToEnum_RDR) a_Expr)],
      L loc (TypeSig [L loc rdr_name] (L loc sig_ty) PlaceHolder))
   where
-    sig_ty = HsCoreTy $ mkForAllTys (tyConBinders tycon) $
+    sig_ty = HsCoreTy $ mkInvForAllTys (tyConTyVars tycon) $
              intTy `mkFunTy` mkParentType tycon
 
     rdr_name = tag2con_RDR tycon

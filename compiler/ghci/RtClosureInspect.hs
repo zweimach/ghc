@@ -607,8 +607,10 @@ newOpenVar = liftTcM newOpenFlexiTyVarTy
 instTyCoVars :: [TyCoVar] -> TR (TCvSubst, [TcTyCoVar])
 -- Instantiate fresh mutable type variables from some TyVars
 -- This function preserves the print-name, which helps error messages
-instTyCoVars = let origin = panic "No origin for instTyCoVars in GHCi" in
-               liftTcM . (tcInstTyCoVars origin)
+instTyCoVars tcvs
+  = let origin = panic "No origin for instTyCoVars in GHCi" in
+    liftTcM $ fst <$> captureConstraints (tcInstTyCoVars origin tcvs)
+    -- TODO (RAE): What about those constraints? Do we care???
 
 type RttiInstantiation = [(TcTyCoVar, TyVar)]
    -- Associates the typechecker-world meta type variables
@@ -648,12 +650,14 @@ addConstraint actual expected = do
     traceTR (text "add constraint:" <+> fsep [ppr actual, equals, ppr expected])
     recoverTR (traceTR $ fsep [text "Failed to unify", ppr actual,
                                     text "with", ppr expected]) $
+      discardResult $
+      captureConstraints $
       do { (ty1, ty2) <- congruenceNewtypes actual expected
-         ; _  <- captureConstraints $ unifyType noThing ty1 ty2
-         ; return () }
+         ; unifyType noThing ty1 ty2 }
      -- TOMDO: what about the coercion?
      -- we should consider family instances
 
+    traceTR (text "RAE addConstraint end")
 
 -- Type & Term reconstruction
 ------------------------------

@@ -2346,7 +2346,13 @@ pprTcApp_help p pp tc tys dflags
 
   | [ty1,ty2] <- tys_wo_kinds  -- Infix, two arguments;
                                -- we know nothing of precedence though
-  = pprInfixApp p pp (ppr tc) ty1 ty2
+    -- TODO (RAE): Remove this hack to fix printing `GHC.Prim.~#`
+  = let pp_tc | tc `hasKey` eqPrimTyConKey
+              , not (gopt Opt_PrintExplicitKinds dflags)
+              = text "~"
+              | otherwise
+              = ppr tc
+    in pprInfixApp p pp pp_tc ty1 ty2
 
   |  tc `hasKey` liftedTypeKindTyConKey
   || tc `hasKey` unliftedTypeKindTyConKey

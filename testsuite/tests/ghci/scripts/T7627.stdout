@@ -24,13 +24,9 @@ instance Foldable ((,) a) -- Defined in ‘Data.Foldable’
 instance Traversable ((,) a) -- Defined in ‘Data.Traversable’
 instance (Monoid a, Monoid b) => Monoid (a, b)
   -- Defined in ‘GHC.Base’
-data (#,#) (v :: GHC.Types.Levity)
-           (w :: GHC.Types.Levity)
-           (a :: TYPE v)
-           (b :: TYPE w)
-  = (#,#) a b
+data (#,#) (a :: TYPE v) (b :: TYPE w) = (#,#) a b
   	-- Defined in ‘GHC.Prim’
-(,) :: a -> b -> (a, b)
-(#,#) :: a -> b -> (# a, b #)
-(  ,  ) :: a -> b -> (a, b)
-(#  ,  #) :: a -> b -> (# a, b #)
+(,) :: _a -> _b -> (_a, _b)
+(#,#) :: _a -> _b -> (# _a, _b #)
+(  ,  ) :: _a -> _b -> (_a, _b)
+(#  ,  #) :: _a -> _b -> (# _a, _b #)

@@ -1,3 +1,3 @@
-nub :: Eq a => [a] -> [a]
-L.nub :: Eq a => [a] -> [a]
-L.nub :: Eq a => [a] -> [a]
+nub :: Eq _a => [_a] -> [_a]
+L.nub :: Eq _a => [_a] -> [_a]
+L.nub :: Eq _a => [_a] -> [_a]

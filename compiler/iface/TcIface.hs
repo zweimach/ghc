@@ -1072,7 +1072,7 @@ tcIfaceDataAlt con inst_tys arg_strs rhs
         ; let (ex_tvs, arg_ids)
                       = dataConRepFSInstPat arg_strs uniqs con inst_tys
 
-        ; rhs' <- extendIfaceTyVarEnv ex_tvs    $
+        ; rhs' <- extendIfaceEnvs  ex_tvs       $
                   extendIfaceIdEnv arg_ids      $
                   tcIfaceExpr rhs
         ; return (DataAlt con, ex_tvs ++ arg_ids, rhs') }

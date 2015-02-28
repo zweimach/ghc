@@ -55,7 +55,7 @@ module TcMType (
   skolemiseUnboundMetaTyVar,
   zonkTcTyCoVar, zonkTcTyCoVars, zonkTyCoVarsAndFV, zonkTcTypeAndFV,
   zonkQuantifiedTyCoVar, zonkQuantifiedTyCoVarOrType, quantifyTyCoVars,
-  quantifyTyCoVars', defaultKindVar,
+  defaultKindVar,
   zonkTcTyCoVarBndr, zonkTcType, zonkTcTypes, zonkCo,
   zonkTyCoVarKind, zonkTcTypeMapper,
 
@@ -618,37 +618,29 @@ Note that this function can accept covars, but will never return them.
 This is because we never want to infer a quantified covar!
 -}
 
-quantifyTyCoVars :: CvSubstEnv -> TcTyCoVarSet -> TcTyCoVarSet -> TcM [TcTyCoVar]
-quantifyTyCoVars co_env gbls tkvs = quantifyTyCoVars' co_env gbls tkvs False
-
-quantifyTyCoVars' :: CvSubstEnv     -- solved coercions
-                  -> TcTyCoVarSet   -- globals
-                  -> TcTyCoVarSet   -- variables we're quantifying
-                  -> Bool           -- True <=> all non-global variables are kind
-                                    -- variables; used for -XNoPolyKinds defaults
-                  -> TcM [TcTyCoVar]
+quantifyTyCoVars :: CvSubstEnv     -- any known values for covars
+                 -> TcTyCoVarSet   -- global tvs
+                 -> ( TcTyCoVarSet     -- dependent tvs       We only distinguish
+                    , TcTyCoVarSet )   -- nondependent tvs    between these for
+                                       --                     -XNoPolyKinds
+                 -> TcM [TcTyCoVar]
 -- See Note [quantifyTyCoVars]
--- The input is a mixture of type and kind variables; a kind variable k 
---   may occur *after* a tyvar mentioning k in its kind
 -- Can be given a mixture of TcTyVars and TyVars, in the case of
 --   associated type declarations
 
-quantifyTyCoVars' co_env gbl_tvs tkvs all_kind_vars
-  = do { tkvs    <- apply_co_env <$> zonkTyCoVarsAndFV tkvs
-       ; gbl_tvs <- apply_co_env <$> zonkTyCoVarsAndFV gbl_tvs
-       ; let all_tvs = tkvs `unionVarSet` gbl_tvs
-             dep_var_set
-               = if all_kind_vars
-                 then tkvs `minusVarSet` gbl_tvs
-                 else (mapUnionVarSet (tyCoVarsOfType . tyVarKind) $
-                       varSetElems all_tvs)
-                      `minusVarSet` gbl_tvs
-             nondep_var_set = tkvs `minusVarSet` dep_var_set `minusVarSet` gbl_tvs
-             no_covars      = filterVarSet (not . isCoVar)
-             dep_vars       = varSetElemsWellScoped (no_covars dep_var_set)
-             nondep_vars    = varSetElemsWellScoped (no_covars nondep_var_set)
+quantifyTyCoVars co_env gbl_tvs (dep_tkvs, nondep_tkvs)
+  = do { dep_tkvs    <- apply_co_env <$> zonkTyCoVarsAndFV dep_tkvs
+       ; nondep_tkvs <- (`minusVarSet` dep_tkvs) . apply_co_env <$>
+                        zonkTyCoVarsAndFV nondep_tkvs
+       ; gbl_tvs     <- apply_co_env <$> zonkTyCoVarsAndFV gbl_tvs
 
-                              -- NB kinds of tvs are zonked by zonkTyVarsAndFV
+       ; let no_covars  = filterVarSet (not . isCoVar)
+             dep_kvs    = varSetElemsWellScoped $
+                          no_covars dep_tkvs `minusVarSet` gbl_tvs
+             nondep_tvs = varSetElemsWellScoped $
+                          no_covars nondep_tkvs `minusVarSet` gbl_tvs
+
+                          -- NB kinds of tvs are zonked by zonkTyCoVarsAndFV
 
              -- In the non-PolyKinds case, default the kind variables
              -- to *, and zonk the tyvars as usual.  Notice that this
@@ -656,14 +648,14 @@ quantifyTyCoVars' co_env gbl_tvs tkvs all_kind_vars
              -- than it was passed, but that's ok
        ; poly_kinds <- xoptM Opt_PolyKinds
        ; dep_vars2 <- if poly_kinds
-                      then return dep_vars
-                      else do { let (meta_kvs, skolem_kvs) = partition is_meta dep_vars
+                      then return dep_kvs
+                      else do { let (meta_kvs, skolem_kvs) = partition is_meta dep_kvs
                                     is_meta kv = isTcTyVar kv && isMetaTyVar kv
                               
                               ; mapM_ defaultKindVar meta_kvs
                               ; return skolem_kvs }  -- should be empty
 
-       ; mapMaybeM zonk_quant (dep_vars2 ++ nondep_vars) }
+       ; mapMaybeM zonk_quant (dep_vars2 ++ nondep_tvs) }
            -- Because of the order, any kind variables
            -- mentioned in the kinds of the type variables refer to
            -- the now-quantified versions

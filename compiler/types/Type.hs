@@ -114,6 +114,7 @@ module Type (
         -- * Type free variables
         tyCoVarsOfType, tyCoVarsOfTypes, coVarsOfType,
         coVarsOfTypes, closeOverKinds,
+        splitDepVarsOfType, splitDepVarsOfTypes,
         expandTypeSynonyms,
         typeSize, varSetElemsWellScoped,
 
@@ -2221,3 +2222,36 @@ tyConsOfType ty
 synTyConResKind :: TyCon -> Kind
 synTyConResKind tycon = piResultTys (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
 
+-- | Retrieve the free variables in this type, splitting them based
+-- on whether the variable was used in a dependent context. It's possible
+-- for a variable to be reported twice, if it's used both dependently
+-- and non-dependently. (This isn't the most precise analysis, because
+-- it's used in the typechecking knot. It might list some dependent
+-- variables as also non-dependent.)
+splitDepVarsOfType :: Type -> (TyCoVarSet, TyCoVarSet)
+splitDepVarsOfType = go
+  where
+    go (TyVarTy tv)              = (tyCoVarsOfType $ tyVarKind tv, unitVarSet tv)
+    go (AppTy t1 t2)             = combine [go t1, go t2]
+    go (TyConApp _ tys)          = combine (map go tys)
+    go (ForAllTy (Anon arg) res) = combine [go arg, go res]
+    go (ForAllTy (Named tv _) ty)
+      = let (kvs, tvs) = go ty in
+        ( kvs `delVarSet` tv `unionVarSet` tyCoVarsOfType (tyVarKind tv)
+        , tvs `delVarSet` tv )
+    go (LitTy {})                = combine []
+    go (CastTy ty co)            = combine [go ty, (tyCoVarsOfCo co, emptyVarSet)]
+    go (CoercionTy co)           = go_co co
+
+    go_co co = let Pair ty1 ty2 = coercionKind co in
+               combine [go ty1, go ty2]
+
+    combine [] = (emptyVarSet, emptyVarSet)
+    combine ((kvs, tvs) : rest) = let (kvs', tvs') = combine rest in
+                                  (kvs `unionVarSet` kvs', tvs `unionVarSet` tvs')
+
+-- | Like 'splitDepVarsOfType', but over a list of types
+splitDepVarsOfTypes :: [Type] -> (TyCoVarSet, TyCoVarSet)
+splitDepVarsOfTypes tys
+  = let (kvss, tvss) = mapAndUnzip splitDepVarsOfType tys in
+    (unionVarSets kvss, unionVarSets tvss)

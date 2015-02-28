@@ -11,5 +11,5 @@ data Maybe a = Nothing | Just a
 data T = A Int | B Float
 f :: Double -> Double
 g :: Double -> Double
-h :: Integral t => t -> t
+h :: Integral _r => _r -> _r
 f :: Double -> Double

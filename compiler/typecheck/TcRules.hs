@@ -155,15 +155,16 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
         -- the LHS, lest they otherwise get defaulted to Any; but we do that
         -- during zonking (see TcHsSyn.zonkRule)
 
-       ; let tpl_ids    = lhs_evs ++ id_bndrs
-             forall_tvs = tyCoVarsOfTypes (rule_ty : map idType tpl_ids)
+       ; let tpl_ids     = lhs_evs ++ id_bndrs
+             forall_tkvs = splitDepVarsOfTypes $
+                           rule_ty : map idType tpl_ids
        ; gbls  <- tcGetGlobalTyVars   -- Even though top level, there might be top-level
                                       -- monomorphic bindings from the MR; test tc111
                   -- TODO (RAE): We probably need to subst some covars here,
                   -- but I don't know enough about RULES
-       ; qtkvs <- quantifyTyCoVars emptyVarEnv gbls forall_tvs
+       ; qtkvs <- quantifyTyCoVars emptyVarEnv gbls forall_tkvs
        ; traceTc "tcRule" (vcat [ doubleQuotes (ftext $ unLoc name)
-                                , ppr forall_tvs
+                                , ppr forall_tkvs
                                 , ppr qtkvs
                                 , ppr rule_ty
                                 , vcat [ ppr id <+> dcolon <+> ppr (idType id) | id <- tpl_ids ] 

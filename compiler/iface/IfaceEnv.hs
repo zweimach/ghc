@@ -9,7 +9,7 @@ module IfaceEnv (
         newIfaceName, newIfaceNames,
         extendIfaceIdEnv, extendIfaceTyVarEnv, 
         tcIfaceLclId, tcIfaceTyVar, lookupIfaceVar,
-        lookupIfaceTyVar,
+        lookupIfaceTyVar, extendIfaceEnvs,
 
         ifaceExportNames,
 
@@ -39,6 +39,7 @@ import Outputable
 import Exception     ( evaluate )
 
 import Data.IORef    ( atomicModifyIORef, readIORef )
+import Data.List     ( partition )
 
 {-
 *********************************************************
@@ -299,6 +300,14 @@ extendIfaceTyVarEnv tyvars thing_inside
         ; let { tv_env' = addListToUFM (if_tv_env env) pairs
               ; pairs   = [(occNameFS (getOccName tv), tv) | tv <- tyvars] }
         ; setLclEnv (env { if_tv_env = tv_env' }) thing_inside }
+
+extendIfaceEnvs :: [TyCoVar] -> IfL a -> IfL a
+extendIfaceEnvs tcvs thing_inside
+  = extendIfaceTyVarEnv tvs $
+    extendIfaceIdEnv    cvs $
+    thing_inside
+  where
+    (tvs, cvs) = partition isTyVar tcvs
 
 {-
 ************************************************************************

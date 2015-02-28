@@ -133,6 +133,7 @@ fix:
        foo = T (Proxy :: Proxy Maybe) 1.0
 
   - should check to make sure a coercion isn't bound in a recursive let (!)
+  - mkExpectedActualMsg has a lot of backward-compatibility stuff
   - after DeriveAnyClass is fixed (#9968), make sure that the use of looser
     tcUnifyTys in deriveTyData isn't causing problems.
   - add CoreLint checks for levity polymorphism used the right way. But, what exactly

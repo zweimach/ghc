@@ -1,5 +1,9 @@
 
 drvfail005.hs:4:13:
-    Expected kind ‘k0 -> Constraint’,
+    Expected kind ‘_k -> Constraint’,
       but ‘Show a’ has kind ‘Constraint’
+    In the data declaration for ‘Test’
+
+drvfail005.hs:4:13:
+    Illegal deriving item ‘Show a’
     In the data declaration for ‘Test’

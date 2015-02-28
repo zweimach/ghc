@@ -1032,8 +1032,9 @@ tcFamTyPats fam_shape@(name,_,_) pats kind_checker thing_inside
             -- them into skolems, so that we don't subsequently
             -- replace a meta kind var with (Any *)
             -- Very like kindGeneralize
-       ; let cv_env = evBindsCvSubstEnv ev_binds
-       ; qtkvs <- quantifyTyCoVars cv_env emptyVarSet (tyCoVarsOfTypes typats)
+       ; let cv_env     = evBindsCvSubstEnv ev_binds
+       ; qtkvs <- quantifyTyCoVars cv_env emptyVarSet $
+                                   splitDepVarsOfTypes typats
 
             -- Zonk the patterns etc into the Type world
        ; (ze, qtkvs') <- zonkTyCoBndrsX (mkZonkEnv cv_env) qtkvs
@@ -1201,10 +1202,10 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
              -- c.f. the comment on con_qvars in HsDecls
        ; tkvs <- case res_ty of
                    ResTyH98
-                     -> quantifyTyCoVars co_env gbl_tvs (tyCoVarsOfTypes (ctxt++arg_tys))
+                     -> quantifyTyCoVars co_env gbl_tvs (splitDepVarsOfTypes (ctxt++arg_tys))
                      where
                        gbl_tvs = ev_vars `unionVarSet` mkVarSet tmpl_tvs
-                   ResTyGADT res_ty -> quantifyTyCoVars co_env ev_vars (tyCoVarsOfTypes (res_ty:ctxt++arg_tys))
+                   ResTyGADT res_ty -> quantifyTyCoVars co_env ev_vars (splitDepVarsOfTypes (res_ty:ctxt++arg_tys))
 
              -- Zonk to Types
        ; let ze = mkZonkEnv co_env
@@ -1228,7 +1229,8 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
                             univ_tvs ex_tvs eq_preds
                             (substTys arg_subst ctxt)
                             (substTys arg_subst arg_tys)
-                            res_ty' rep_tycon
+                            (substTy  arg_subst res_ty')
+                            rep_tycon
                   -- NB:  we put data_tc, the type constructor gotten from the
                   --      constructor type signature into the data constructor;
                   --      that way checkValidDataCon can complain if it's wrong.

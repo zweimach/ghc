@@ -7,7 +7,7 @@
     Note: there are several potential instances:
       instance (Show a, Show b) => Show (Either a b)
         -- Defined in ‘Data.Either’
-      instance forall (k :: BOX) (s :: k). Show (Data.Proxy.Proxy s)
+      instance forall _t (s :: _t). Show (Data.Proxy.Proxy s)
         -- Defined in ‘Data.Proxy’
       instance (GHC.Arr.Ix a, Show a, Show b) => Show (GHC.Arr.Array a b)
         -- Defined in ‘GHC.Arr’
@@ -22,7 +22,7 @@
     Note: there are several potential instances:
       instance (Show a, Show b) => Show (Either a b)
         -- Defined in ‘Data.Either’
-      instance forall (k :: BOX) (s :: k). Show (Data.Proxy.Proxy s)
+      instance forall _t (s :: _t). Show (Data.Proxy.Proxy s)
         -- Defined in ‘Data.Proxy’
       instance (GHC.Arr.Ix a, Show a, Show b) => Show (GHC.Arr.Array a b)
         -- Defined in ‘GHC.Arr’
