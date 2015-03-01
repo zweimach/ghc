@@ -763,7 +763,13 @@ data CoreRule
     }
                 -- See Note [Extra args in rule matching] in Rules.lhs
 
-type RuleFun = DynFlags -> InScopeEnv -> Id -> [CoreExpr] -> Maybe CoreExpr
+-- | If @fun :: RuleFun@ then @fun dflags env context fname args@ possibly rewrites
+-- a call to to function @fname@ with arguments @args@.
+type RuleFun = DynFlags
+            -> InScopeEnv       -- ^ The scope within which the call is embedded
+            -> Id               -- ^ The name of the called function
+            -> [CoreExpr]       -- ^ The arguments of the call
+            -> Maybe CoreExpr   -- ^ The resulting rewrite if appropriate
 type InScopeEnv = (InScopeSet, IdUnfoldingFun)
 
 type IdUnfoldingFun = Id -> Unfolding
