@@ -46,7 +46,7 @@ import PrelNames
 import PrelInfo
 import PrimOp   ( allThePrimOps, primOpFixity, primOpOcc )
 import MkId     ( seqId )
-import Rules
+import {-# SOURCE #-} Rules
 import TyCon
 import Annotations
 import InstEnv

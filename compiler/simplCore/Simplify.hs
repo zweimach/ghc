@@ -1607,8 +1607,8 @@ tryRules env rules fn args call_cont
 -}
   | otherwise
   = do { dflags <- getDynFlags
-       ; case lookupRule dflags (getUnfoldingInRuleMatch env) (activeRule env)
-                         fn (argInfoAppArgs args) rules of {
+       ; case lookupRule dflags (getUnfoldingInRuleMatch env) call_cont
+                         (activeRule env) fn (argInfoAppArgs args) rules of {
            Nothing               -> return Nothing ;   -- No rule matches
            Just (rule, rule_rhs) ->
              do { checkedTick (RuleFired (ru_name rule))

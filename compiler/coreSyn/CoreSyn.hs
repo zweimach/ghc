@@ -101,6 +101,7 @@ import FastString
 import Outputable
 import Util
 import SrcLoc     ( RealSrcSpan, containsSpan )
+import {-# SOURCE #-} SimplCont (SimplCont)
 
 import Data.Data hiding (TyCon)
 import Data.Int
@@ -767,6 +768,7 @@ data CoreRule
 -- a call to to function @fname@ with arguments @args@.
 type RuleFun = DynFlags
             -> InScopeEnv       -- ^ The scope within which the call is embedded
+            -> SimplCont        -- ^ The scope within which the call is embedded
             -> Id               -- ^ The name of the called function
             -> [CoreExpr]       -- ^ The arguments of the call
             -> Maybe CoreExpr   -- ^ The resulting rewrite if appropriate

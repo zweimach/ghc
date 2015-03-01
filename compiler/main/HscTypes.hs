@@ -140,7 +140,7 @@ import Avail
 import Module
 import InstEnv          ( InstEnv, ClsInst, identicalClsInstHead )
 import FamInstEnv
-import Rules            ( RuleBase )
+import {-# SOURCE #-} Rules ( RuleBase )
 import CoreSyn          ( CoreProgram )
 import Name
 import NameEnv

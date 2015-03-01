@@ -62,7 +62,7 @@ import HscTypes
 import Module
 import DynFlags
 import StaticFlags
-import Rules            ( RuleBase )
+import {-# SOURCE #-} Rules ( RuleBase )
 import BasicTypes       ( CompilerPhase(..) )
 import Annotations
 

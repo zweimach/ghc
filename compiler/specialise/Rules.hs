@@ -52,6 +52,7 @@ import Unify            ( ruleMatchTyX, MatchEnv(..) )
 import BasicTypes       ( Activation, CompilerPhase, isActive )
 import StaticFlags      ( opt_PprStyle_Debug )
 import DynFlags         ( DynFlags )
+import SimplCont        ( SimplCont )
 import Outputable
 import FastString
 import Maybes
@@ -354,13 +355,14 @@ pprRuleBase rules = vcat [ pprRules (tidyRules emptyTidyEnv rs)
 -- context, returning the rule applied and the resulting expression if
 -- successful.
 lookupRule :: DynFlags -> InScopeEnv
+           -> SimplCont
            -> (Activation -> Bool)      -- When rule is active
            -> Id -> [CoreExpr]
            -> [CoreRule] -> Maybe (CoreRule, CoreExpr)
 
 -- See Note [Extra args in rule matching]
 -- See comments on matchRule
-lookupRule dflags in_scope is_active fn args rules
+lookupRule dflags in_scope eval_ctx is_active fn args rules
   = -- pprTrace "matchRules" (ppr fn <+> ppr args $$ ppr rules ) $
     case go [] rules of
         []     -> Nothing
@@ -377,7 +379,7 @@ lookupRule dflags in_scope is_active fn args rules
     go :: [(CoreRule,CoreExpr)] -> [CoreRule] -> [(CoreRule,CoreExpr)]
     go ms [] = ms
     go ms (r:rs)
-      | Just e <- matchRule dflags in_scope is_active fn args' rough_args r
+      | Just e <- matchRule dflags in_scope eval_ctx is_active fn args' rough_args r
       = go ((r,mkTicks ticks e):ms) rs
       | otherwise
       = -- pprTrace "match failed" (ppr r $$ ppr args $$
@@ -455,7 +457,8 @@ to lookupRule are the result of a lazy substitution
 -}
 
 ------------------------------------
-matchRule :: DynFlags -> InScopeEnv -> (Activation -> Bool)
+matchRule :: DynFlags -> InScopeEnv -> SimplCont
+          -> (Activation -> Bool)
           -> Id -> [CoreExpr] -> [Maybe Name]
           -> CoreRule -> Maybe CoreExpr
 
@@ -481,14 +484,14 @@ matchRule :: DynFlags -> InScopeEnv -> (Activation -> Bool)
 -- Any 'surplus' arguments in the input are simply put on the end
 -- of the output.
 
-matchRule dflags rule_env _is_active fn args _rough_args
+matchRule dflags rule_env eval_ctx _is_active fn args _rough_args
           (BuiltinRule { ru_try = match_fn })
 -- Built-in rules can't be switched off, it seems
-  = case match_fn dflags rule_env fn args of
+  = case match_fn dflags rule_env eval_ctx fn args of
         Just expr -> Just expr
         Nothing   -> Nothing
 
-matchRule _ in_scope is_active _ args rough_args
+matchRule _ in_scope _eval_ctx is_active _ args rough_args
           (Rule { ru_act = act, ru_rough = tpl_tops
                 , ru_bndrs = tpl_vars, ru_args = tpl_args
                 , ru_rhs = rhs })
@@ -1075,37 +1078,39 @@ ruleCheckBind :: RuleCheckEnv -> CoreBind -> Bag SDoc
 ruleCheckBind env (NonRec _ r) = ruleCheck env r
 ruleCheckBind env (Rec prs)    = unionManyBags [ruleCheck env r | (_,r) <- prs]
 
-ruleCheck :: RuleCheckEnv -> CoreExpr -> Bag SDoc
-ruleCheck _   (Var _)       = emptyBag
-ruleCheck _   (Lit _)       = emptyBag
-ruleCheck _   (Type _)      = emptyBag
-ruleCheck _   (Coercion _)  = emptyBag
-ruleCheck env (App f a)     = ruleCheckApp env (App f a) []
-ruleCheck env (Tick _ e)  = ruleCheck env e
-ruleCheck env (Cast e _)    = ruleCheck env e
-ruleCheck env (Let bd e)    = ruleCheckBind env bd `unionBags` ruleCheck env e
-ruleCheck env (Lam _ e)     = ruleCheck env e
-ruleCheck env (Case e _ _ as) = ruleCheck env e `unionBags`
-                                unionManyBags [ruleCheck env r | (_,_,r) <- as]
+ruleCheck :: RuleCheckEnv -> SimplCont -> CoreExpr -> Bag SDoc
+ruleCheck _   _   (Var _)         = emptyBag
+ruleCheck _   _   (Lit _)         = emptyBag
+ruleCheck _   _   (Type _)        = emptyBag
+ruleCheck _   _   (Coercion _)    = emptyBag
+ruleCheck env ctx (App f a)       = ruleCheckApp env ctx (App f a) []
+ruleCheck env ctx (Tick _ e)      = ruleCheck env ctx e
+ruleCheck env ctx (Cast e _)      = ruleCheck env ctx e
+ruleCheck env ctx (Let bd e)      = ruleCheckBind env ctx bd `unionBags`
+                                    ruleCheck env ctx e
+ruleCheck env ctx (Lam _ e)       = ruleCheck env e
+ruleCheck env ctx (Case e _ _ as) = ruleCheck env (Select NoDup ctx) e `unionBags`
+                                    unionManyBags [ruleCheck env r | (_,_,r) <- as]
 
-ruleCheckApp :: RuleCheckEnv -> Expr CoreBndr -> [Arg CoreBndr] -> Bag SDoc
-ruleCheckApp env (App f a) as = ruleCheck env a `unionBags` ruleCheckApp env f (a:as)
-ruleCheckApp env (Var f) as   = ruleCheckFun env f as
-ruleCheckApp env other _      = ruleCheck env other
+ruleCheckApp :: RuleCheckEnv -> SimplCont -> Expr CoreBndr -> [Arg CoreBndr] -> Bag SDoc
+ruleCheckApp env ctx (App f a) as = ruleCheck env (StrictArg argInfo callCtx ctx) a
+                                    `unionBags` ruleCheckApp env f (a:as)
+ruleCheckApp env ctx (Var f) as   = ruleCheckFun env ctx f as
+ruleCheckApp env ctx other _      = ruleCheck env ctx other
 
-ruleCheckFun :: RuleCheckEnv -> Id -> [CoreExpr] -> Bag SDoc
+ruleCheckFun :: RuleCheckEnv -> SimplCont -> Id -> [CoreExpr] -> Bag SDoc
 -- Produce a report for all rules matching the predicate
 -- saying why it doesn't match the specified application
 
-ruleCheckFun env fn args
+ruleCheckFun env eval_ctx fn args
   | null name_match_rules = emptyBag
-  | otherwise             = unitBag (ruleAppCheck_help env fn args name_match_rules)
+  | otherwise             = unitBag (ruleAppCheck_help env eval_ctx fn args name_match_rules)
   where
     name_match_rules = filter match (getRules (rc_rule_base env) fn)
     match rule = (rc_pattern env) `isPrefixOf` unpackFS (ruleName rule)
 
-ruleAppCheck_help :: RuleCheckEnv -> Id -> [CoreExpr] -> [CoreRule] -> SDoc
-ruleAppCheck_help env fn args rules
+ruleAppCheck_help :: RuleCheckEnv -> SimplCont -> Id -> [CoreExpr] -> [CoreRule] -> SDoc
+ruleAppCheck_help env eval_ctx fn args rules
   =     -- The rules match the pattern, so we want to print something
     vcat [text "Expression:" <+> ppr (mkApps (Var fn) args),
           vcat (map check_rule rules)]
@@ -1123,7 +1128,7 @@ ruleAppCheck_help env fn args rules
         = ptext (sLit "Rule") <+> doubleQuotes (ftext name)
 
     rule_info dflags rule
-        | Just _ <- matchRule dflags (emptyInScopeSet, rc_id_unf env)
+        | Just _ <- matchRule dflags (emptyInScopeSet, rc_id_unf env) eval_ctx
                               noBlackList fn args rough_args rule
         = text "matches (which is very peculiar!)"
 

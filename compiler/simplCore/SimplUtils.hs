@@ -21,12 +21,12 @@ module SimplUtils (
 
 #include "HsVersions.h"
 
+import SimplCont        ( SimplCont, contIsRhs )
 import SimplEnv
-import SimplCont
-import CoreMonad        ( SimplifierMode(..), Tick(..) )
 import MkCore           ( sortQuantVars )
 import DynFlags
 import CoreSyn
+import CoreMonad        ( SimplifierMode(..), Tick(..) )
 import qualified CoreSubst
 import PprCore
 import CoreFVs
