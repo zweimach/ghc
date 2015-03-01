@@ -834,6 +834,10 @@ ufFunAppDiscount
      Discount for a function argument that is applied.  Quite
      large, because if we inline we avoid the higher-order call.
 
+ufFreeAppDiscount
+     Discount for a free variable that is applied.  Quite
+     large, because if we inline we avoid the higher-order call.
+
 ufDearOp
      The size of a foreign call or not-dupable PrimOp
 
