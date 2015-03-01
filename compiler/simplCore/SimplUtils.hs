@@ -7,16 +7,16 @@
 {-# LANGUAGE CPP #-}
 
 module SimplUtils (
-        -- Rebuilding
+        -- * Rebuilding
         mkLam, mkCase, prepareAlts, tryEtaExpandRhs,
 
-        -- Inlining,
+        -- * Inlining,
         preInlineUnconditionally, postInlineUnconditionally,
         activeUnfolding, activeRule,
         getUnfoldingInRuleMatch,
         simplEnvForGHCi, updModeForStableUnfoldings,
 
-        -- The continuation type
+        -- * The continuation type
         SimplCont(..), DupFlag(..),
         isSimplified,
         contIsDupable, contResultType, contHoleType,
@@ -25,7 +25,7 @@ module SimplUtils (
         mkBoringStop, mkRhsStop, mkLazyArgStop, contIsRhsOrArg,
         interestingCallContext, interestingArg,
 
-        -- ArgInfo
+        -- * ArgInfo
         ArgInfo(..), ArgSpec(..), mkArgInfo,
         addValArgTo, addCastTo, addTyArgTo,
         argInfoExpr, argInfoAppArgs, pushSimplifiedArgs,
