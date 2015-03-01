@@ -33,6 +33,7 @@ module Rules (
 
 import CoreSyn          -- All of it
 import CoreSubst
+import CoreUnfold       ( CallCtxt( BoringCtxt ) )
 import OccurAnal        ( occurAnalyseExpr )
 import CoreFVs          ( exprFreeVars, exprsFreeVars, bindFreeVars, rulesFreeVars )
 import CoreUtils        ( exprType, eqExpr, mkTick, mkTicks,
@@ -52,7 +53,7 @@ import Unify            ( ruleMatchTyX, MatchEnv(..) )
 import BasicTypes       ( Activation, CompilerPhase, isActive )
 import StaticFlags      ( opt_PprStyle_Debug )
 import DynFlags         ( DynFlags )
-import SimplCont        ( SimplCont )
+import SimplCont        ( SimplCont(..), ArgInfo(..) )
 import Outputable
 import FastString
 import Maybes
@@ -1063,7 +1064,7 @@ ruleCheckProgram phase rule_pat rule_base binds
                                                         -- Should use activeUnfolding
                        , rc_pattern   = rule_pat
                        , rc_rule_base = rule_base }
-    results = unionManyBags (map (ruleCheckBind env) binds)
+    results = unionManyBags (map (ruleCheckTopLevelBind env) binds)
     line = text (replicate 20 '-')
 
 data RuleCheckEnv = RuleCheckEnv {
@@ -1073,44 +1074,46 @@ data RuleCheckEnv = RuleCheckEnv {
     rc_rule_base :: RuleBase
 }
 
+ruleCheckTopLevelBind :: RuleCheckEnv -> CoreBind -> Bag SDoc
+ruleCheckTopLevelBind env bind = ruleCheckBind env bind
+
 ruleCheckBind :: RuleCheckEnv -> CoreBind -> Bag SDoc
    -- The Bag returned has one SDoc for each call site found
 ruleCheckBind env (NonRec _ r) = ruleCheck env r
 ruleCheckBind env (Rec prs)    = unionManyBags [ruleCheck env r | (_,r) <- prs]
 
-ruleCheck :: RuleCheckEnv -> SimplCont -> CoreExpr -> Bag SDoc
-ruleCheck _   _   (Var _)         = emptyBag
-ruleCheck _   _   (Lit _)         = emptyBag
-ruleCheck _   _   (Type _)        = emptyBag
-ruleCheck _   _   (Coercion _)    = emptyBag
-ruleCheck env ctx (App f a)       = ruleCheckApp env ctx (App f a) []
-ruleCheck env ctx (Tick _ e)      = ruleCheck env ctx e
-ruleCheck env ctx (Cast e _)      = ruleCheck env ctx e
-ruleCheck env ctx (Let bd e)      = ruleCheckBind env ctx bd `unionBags`
-                                    ruleCheck env ctx e
-ruleCheck env ctx (Lam _ e)       = ruleCheck env e
-ruleCheck env ctx (Case e _ _ as) = ruleCheck env (Select NoDup ctx) e `unionBags`
+ruleCheck :: RuleCheckEnv -> CoreExpr -> Bag SDoc
+ruleCheck _   (Var _)         = emptyBag
+ruleCheck _   (Lit _)         = emptyBag
+ruleCheck _   (Type _)        = emptyBag
+ruleCheck _   (Coercion _)    = emptyBag
+ruleCheck env (App f a)       = ruleCheckApp env (App f a) []
+ruleCheck env (Tick _ e)      = ruleCheck env e
+ruleCheck env (Cast e _)      = ruleCheck env e
+ruleCheck env (Let bd e)      = ruleCheckBind env bd `unionBags`
+                                ruleCheck env e
+ruleCheck env (Lam _ e)       = ruleCheck env e
+ruleCheck env (Case e _ _ as) = ruleCheck env e `unionBags`
                                     unionManyBags [ruleCheck env r | (_,_,r) <- as]
 
-ruleCheckApp :: RuleCheckEnv -> SimplCont -> Expr CoreBndr -> [Arg CoreBndr] -> Bag SDoc
-ruleCheckApp env ctx (App f a) as = ruleCheck env (StrictArg argInfo callCtx ctx) a
-                                    `unionBags` ruleCheckApp env f (a:as)
-ruleCheckApp env ctx (Var f) as   = ruleCheckFun env ctx f as
-ruleCheckApp env ctx other _      = ruleCheck env ctx other
+ruleCheckApp :: RuleCheckEnv -> Expr CoreBndr -> [Arg CoreBndr] -> Bag SDoc
+ruleCheckApp env (App f a) as = ruleCheck env a `unionBags` ruleCheckApp env f (a:as)
+ruleCheckApp env (Var f) as   = ruleCheckFun env out_ty f as where out_ty = exprType $ foldl App (Var f) as
+ruleCheckApp env other _      = ruleCheck env other
 
-ruleCheckFun :: RuleCheckEnv -> SimplCont -> Id -> [CoreExpr] -> Bag SDoc
+ruleCheckFun :: RuleCheckEnv -> Type -> Id -> [CoreExpr] -> Bag SDoc
 -- Produce a report for all rules matching the predicate
 -- saying why it doesn't match the specified application
 
-ruleCheckFun env eval_ctx fn args
+ruleCheckFun env out_ty fn args
   | null name_match_rules = emptyBag
-  | otherwise             = unitBag (ruleAppCheck_help env eval_ctx fn args name_match_rules)
+  | otherwise             = unitBag (ruleAppCheck_help env out_ty fn args name_match_rules)
   where
     name_match_rules = filter match (getRules (rc_rule_base env) fn)
     match rule = (rc_pattern env) `isPrefixOf` unpackFS (ruleName rule)
 
-ruleAppCheck_help :: RuleCheckEnv -> SimplCont -> Id -> [CoreExpr] -> [CoreRule] -> SDoc
-ruleAppCheck_help env eval_ctx fn args rules
+ruleAppCheck_help :: RuleCheckEnv -> Type -> Id -> [CoreExpr] -> [CoreRule] -> SDoc
+ruleAppCheck_help env out_ty fn args rules
   =     -- The rules match the pattern, so we want to print something
     vcat [text "Expression:" <+> ppr (mkApps (Var fn) args),
           vcat (map check_rule rules)]
@@ -1128,9 +1131,11 @@ ruleAppCheck_help env eval_ctx fn args rules
         = ptext (sLit "Rule") <+> doubleQuotes (ftext name)
 
     rule_info dflags rule
-        | Just _ <- matchRule dflags (emptyInScopeSet, rc_id_unf env) eval_ctx
+        | Just _ <- matchRule dflags (emptyInScopeSet, rc_id_unf env) cont
                               noBlackList fn args rough_args rule
         = text "matches (which is very peculiar!)"
+        where
+          cont = Stop out_ty BoringCtxt
 
     rule_info _ (BuiltinRule {}) = text "does not match"
 
