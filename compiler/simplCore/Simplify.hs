@@ -14,6 +14,7 @@ import DynFlags
 import SimplMonad
 import Type hiding      ( substTy, extendTvSubst, substTyVar )
 import SimplEnv
+import SimplCont
 import SimplUtils
 import FamInstEnv       ( FamInstEnv )
 import Literal          ( litIsLifted ) --, mkMachInt ) -- temporalily commented out. See #8326
