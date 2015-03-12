@@ -689,7 +689,8 @@ lookup_fam_inst_env' match_fun ie fam match_tys
       = find rest
 
         -- Proper check
-      | Just (subst, cos) <- match_fun item (mkVarSet tpl_tvs) tpl_tys match_tys1
+      | Just ~(subst, cos) <- match_fun item (mkVarSet tpl_tvs) tpl_tys match_tys1
+             -- NB: lazy match; conflict-checking puts a panic there!
       = (FamInstMatch { fim_instance = item
                       , fim_tys      = substTyVars subst tpl_tvs `chkAppend` match_tys2
                       , fim_coercion = mkTyConAppCo Nominal fam
