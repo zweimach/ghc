@@ -601,7 +601,7 @@ deriveFamInst decl@(DataFamInstDecl
                          = defn@(HsDataDefn { dd_derivs = Just (L _ preds) }) })
   = tcAddDataFamInstCtxt decl $
     do { fam_tc <- tcLookupTyCon tc_name
-       ; tcFamTyPats (famTyConShape fam_tc) pats (kcDataDefn defn) $
+       ; tcFamTyPats (famTyConShape fam_tc) pats (kcDataDefn tc_name pats defn) $
              -- kcDataDefn defn: see Note [Finding the LHS patterns]
          \ tvs' pats' _ ->
            concatMapM (deriveTyData True tvs' fam_tc pats') preds }

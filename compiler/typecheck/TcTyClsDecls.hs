@@ -907,25 +907,25 @@ tcTyFamInstEqn fam_tc_shape@(fam_tc_name,_,_)
           -- don't print out the pats here, as they might be zonked inside the knot
        ; return (mkCoAxBranch tvs' pats' rhs_ty loc) }
 
-kcDataDefn :: HsDataDefn Name -> TcKind -> TcM ()
+kcDataDefn :: Name                -- ^ the family name, for error msgs only
+           -> HsTyPats Name       -- ^ the patterns, for error msgs only
+           -> HsDataDefn Name     -- ^ the RHS
+           -> TcKind              -- ^ the expected kind
+           -> TcM ()
 -- Used for 'data instance' only
 -- Ordinary 'data' is handled by kcTyClDec
-kcDataDefn (HsDataDefn { dd_ctxt = ctxt, dd_cons = cons, dd_kindSig = mb_kind }) res_k
+kcDataDefn fam_name (HsWB { hswb_cts = pats })
+           (HsDataDefn { dd_ctxt = ctxt, dd_cons = cons, dd_kindSig = mb_kind }) res_k
   = do  { _ <- tcHsContext ctxt
         ; checkNoErrs $ mapM_ (wrapLocM kcConDecl) cons
           -- See Note [Failing early in kcDataDefn]
-        ; kcResultKind mb_kind res_k }
-
-------------------
-kcResultKind :: Maybe (LHsKind Name) -> Kind -> TcM ()
-kcResultKind Nothing res_k
-  = unifyKind noThing res_k liftedTypeKind
-      --             type family F a
-      -- defaults to type family F a :: *
-kcResultKind (Just k) res_k
-  = do { k' <- tcLHsKind k
-       ; unifyKind  noThing k' res_k }
-
+        ; case mb_kind of
+            Nothing -> unifyKind (Just hs_ty_pats) res_k liftedTypeKind
+            Just k  -> do { k' <- tcLHsKind k
+                          ; unifyKind (Just hs_ty_pats) res_k k' } }
+  where
+    hs_ty_pats = mkHsAppTys (noLoc $ HsTyVar fam_name) pats
+ 
 {-
 Kind check type patterns and kind annotate the embedded type variables.
      type instance F [a] = rhs

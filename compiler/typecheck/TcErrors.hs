@@ -955,7 +955,8 @@ isUserSkolem ctxt tv
     is_user_skol_info (InferSkol {}) = False
     is_user_skol_info _ = True
 
-misMatchOrCND :: ReportErrCtxt -> Ct -> Maybe SwapFlag -> TcType -> TcType -> SDoc
+misMatchOrCND :: ReportErrCtxt -> Ct
+              -> Maybe SwapFlag -> TcType -> TcType -> SDoc
 -- If oriented then ty1 is actual, ty2 is expected
 misMatchOrCND ctxt ct oriented ty1 ty2
   | null givens || 
@@ -970,8 +971,8 @@ misMatchOrCND ctxt ct oriented ty1 ty2
     givens = [ given | given@(_, _, no_eqs, _) <- getUserGivens ctxt, not no_eqs]
              -- Keep only UserGivens that have some equalities
     orig   = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2
-                          , uo_thing  = Nothing, uo_level = panic "misMatchOrCND" }
-             -- this won't print in couldNotDeduce!
+                          , uo_thing  = Nothing, uo_level = t_or_k }
+    t_or_k = ctOriginTypeOrKind $ ctLocOrigin $ ctLoc ct
 
 couldNotDeduce :: [UserGiven] -> (ThetaType, CtOrigin) -> SDoc
 couldNotDeduce givens (wanteds, orig)
@@ -1071,6 +1072,7 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
                                           , uo_level = level })
   | isUnliftedTypeKind act, isLiftedTypeKind exp = (False, Nothing, msg2)
   | isLiftedTypeKind act, isUnliftedTypeKind exp = (False, Nothing, msg3)
+  | isLiftedTypeKind exp                         = (False, Nothing, msg4)
   | Just msg <- num_args_msg                     = (False, Nothing, msg $$ msg1)
   | act `pickyEqType` ty1, exp `pickyEqType` ty2 = (True, Just NotSwapped,  empty)
   | exp `pickyEqType` ty1, act `pickyEqType` ty2 = (True, Just IsSwapped, empty)
@@ -1103,10 +1105,15 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
                   Just thing -> \_ -> quotes (ppr thing) <+> text "is"
                   Nothing    -> \vowel -> text "got a" <+>
                                           if vowel then text "n" else empty
-    msg2 = hsep [ text "Expecting a lifted type, but"
-                , thing_msg True, text "unlifted" ]
-    msg3 = hsep [ text "Expecting an unlifted type, but"
-                , thing_msg False, text "lifted" ]
+    msg2 = sep [ text "Expecting a lifted type, but"
+               , thing_msg True, text "unlifted" ]
+    msg3 = sep [ text "Expecting an unlifted type, but"
+               , thing_msg False, text "lifted" ]
+    msg4 = sep [ text "Expected a type, but"
+               , maybe (text "found something with kind")
+                       (\thing -> quotes (ppr thing) <+> text "has kind")
+                       maybe_thing
+               , quotes (ppr act) ]
 
     num_args_msg = case level of
       TypeLevel -> Nothing

@@ -677,7 +677,7 @@ tcDataFamInstDecl mb_clsinfo
 
          -- Kind check type patterns
        ; tcFamTyPats (famTyConShape fam_tc) pats
-                     (kcDataDefn defn) $ 
+                     (kcDataDefn (unLoc fam_tc_name) pats defn) $ 
            \tvs' pats' res_kind -> do
 
        { -- Check that left-hand side contains no type family applications

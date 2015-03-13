@@ -73,7 +73,7 @@ module TcRnTypes(
         ctLocDepth, bumpCtLocDepth,
         setCtLocOrigin, setCtLocEnv, setCtLocSpan,
         CtOrigin(..), ErrorThing(..), mkErrorThing, TypeOrKind(..),
-        pprCtOrigin,
+        pprCtOrigin, ctOriginTypeOrKind,
         pushErrCtxt, pushErrCtxtSameOrigin,
 
         SkolemInfo(..),
@@ -2087,6 +2087,11 @@ data TypeOrKind = TypeLevel | KindLevel
 -- | Make an 'ErrorThing' that doesn't need tidying or zonking
 mkErrorThing :: Outputable a => a -> ErrorThing
 mkErrorThing thing = ErrorThing thing (\env x -> return (env, x))
+
+ctOriginTypeOrKind :: CtOrigin -> TypeOrKind
+ctOriginTypeOrKind (TypeEqOrigin { uo_level = t_or_k }) = t_or_k
+ctOriginTypeOrKind (KindEqOrigin {})                    = KindLevel
+ctOriginTypeOrKind _                                    = TypeLevel
 
 instance Outputable CtOrigin where
   ppr = pprCtOrigin
