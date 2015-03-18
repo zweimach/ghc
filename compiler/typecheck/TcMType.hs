@@ -748,10 +748,13 @@ skolemiseUnboundMetaTyVar tv details
     do  { span <- getSrcSpanM    -- Get the location from "here"
                                  -- ie where we are generalising
         ; kind <- zonkTcType (tyVarKind tv)
-        ; let tv_name    = tyVarName tv
+        ; let tv_name     = getOccName tv
+                -- TODO (RAE): /temp/head has some mucking about with wildcards here.
+                -- make sure this functionality isn't lost.
+                                 
                 -- NB: Use same Unique as original tyvar. This is
                 -- important for TcHsType.splitTelescopeTvs to work properly
-              final_name = setNameLoc tv_name span
+              final_name = mkInternalName (getUnique tv) tv_name span
               final_tv   = mkTcTyVar final_name kind details
 
         ; traceTc "Skolemising" (ppr tv <+> ptext (sLit ":=") <+> ppr final_tv)
