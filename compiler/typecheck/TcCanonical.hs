@@ -674,9 +674,10 @@ try_decompose_nom_app ev ty1 ty2
        = do { unifyDeriveds loc [Nominal, Nominal] [s1, t1] [s2, t2]
             ; stopWith ev "Decomposed [D] AppTy" }
        | CtWanted { ctev_evar = evar, ctev_loc = loc } <- ev
-       = do { co_s <- unifyWantedLikeEv ev loc Nominal s1  s2
-            ; co_h <- unifyWantedLikeEv ev loc Nominal t1k t2k
-            ; co_t <- unifyWantedLikeEv ev loc Nominal t1  t2
+       = do { let kind_loc = mkKindLoc t1 t2 loc
+            ; co_s <- unifyWantedLikeEv ev loc      Nominal s1  s2
+            ; co_h <- unifyWantedLikeEv ev kind_loc Nominal t1k t2k
+            ; co_t <- unifyWantedLikeEv ev loc      Nominal t1  t2
             ; let co = mkTcAppCo co_s co_h co_t
             ; setEvBind evar (EvCoercion co) loc
             ; stopWith ev "Decomposed [W] AppTy" }

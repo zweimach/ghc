@@ -1,8 +1,8 @@
 
 T4099.hs:11:30:
-    Couldn't match expected type ‘T a0’ with actual type ‘T b’
+    Couldn't match expected type ‘T _a’ with actual type ‘T b’
     NB: ‘T’ is a type function, and may not be injective
-    The type variable ‘a0’ is ambiguous
+    The type variable ‘_a’ is ambiguous
     Relevant bindings include
       x :: T b (bound at T4099.hs:11:8)
       a :: b (bound at T4099.hs:11:6)
@@ -11,8 +11,8 @@ T4099.hs:11:30:
     In the expression: foo (error "urk") x
 
 T4099.hs:14:30:
-    Couldn't match expected type ‘T a1’ with actual type ‘Maybe b’
-    The type variable ‘a1’ is ambiguous
+    Couldn't match expected type ‘T _a1’ with actual type ‘Maybe b’
+    The type variable ‘_a1’ is ambiguous
     Relevant bindings include
       x :: Maybe b (bound at T4099.hs:14:8)
       a :: b (bound at T4099.hs:14:6)
