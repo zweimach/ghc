@@ -598,6 +598,7 @@ tcInstTyCoVarX origin subst tyvar
 
 Note [quantifyTyCoVars]
 ~~~~~~~~~~~~~~~~~~~~~~~
+TODO (RAE): Update Note.
 quantifyTyCoVars is give the free vars of a type that we
 are about to wrap in a forall.
 

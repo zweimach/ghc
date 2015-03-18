@@ -527,10 +527,13 @@ decideQuantification cv_env apply_mr constraints (zonked_tau_kvs, zonked_tau_tvs
   | otherwise
   = do { gbl_tvs <- tcGetGlobalTyVars
        ; let mono_tvs     = growThetaTyCoVars (filter isEqPred constraints) gbl_tvs
-             tau_kvs_plus = growThetaTyCoVars constraints zonked_tau_kvs
              tau_tvs_plus = growThetaTyCoVars constraints zonked_tau_tvs
        ; qtvs <- quantifyTyCoVars cv_env mono_tvs
-                 (tau_kvs_plus, tau_tvs_plus)
+                 (zonked_tau_kvs, tau_tvs_plus)
+          -- We don't grow the kvs, as there's no real need to. Recall
+          -- that quantifyTyCoVars uses the separation between kvs and tvs
+          -- only for defaulting, and we don't want (ever) to default a tv
+          -- to *. So, don't grow the kvs.
 
        ; constraints <- zonkTcTypes constraints
                  -- quantiyTyCoVars turned some meta tyvars into
@@ -544,7 +547,7 @@ decideQuantification cv_env apply_mr constraints (zonked_tau_kvs, zonked_tau_tvs
            (vcat [ text "constraints:"  <+> ppr constraints
                  , text "gbl_tvs:"      <+> ppr gbl_tvs
                  , text "mono_tvs:"     <+> ppr mono_tvs
-                 , text "tau_kvs_plus:" <+> ppr tau_kvs_plus
+                 , text "zonked_kvs:"   <+> ppr zonked_tau_kvs
                  , text "tau_tvs_plus:" <+> ppr tau_tvs_plus
                  , text "qtvs:"         <+> ppr qtvs
                  , text "min_theta:"    <+> ppr min_theta ])
@@ -563,7 +566,7 @@ growThetaTyCoVars theta tvs
   where
     seed_tvs = tvs `unionVarSet` tyCoVarsOfTypes ips
     (ips, non_ips) = partition isIPPred theta
-                         -- See note [Inheriting implicit parameters]
+                         -- See Note [Inheriting implicit parameters] in TcType
     mk_next tvs = foldr grow_one tvs non_ips
     grow_one pred tvs
        | pred_tvs `intersectsVarSet` tvs = tvs `unionVarSet` pred_tvs
