@@ -94,7 +94,7 @@ import Bag
 import DynFlags
 
 import Control.Monad
-import Data.List        ( mapAccumL, partition )
+import Data.List        ( mapAccumL, partition, foldl' )
 
 {-
 ************************************************************************
@@ -634,11 +634,10 @@ quantifyTyCoVars co_env gbl_tvs (dep_tkvs, nondep_tkvs)
                         zonkTyCoVarsAndFV nondep_tkvs
        ; gbl_tvs     <- apply_co_env <$> zonkTyCoVarsAndFV gbl_tvs
 
-       ; let no_covars  = filterVarSet (not . isCoVar)
-             dep_kvs    = varSetElemsWellScoped $
-                          no_covars dep_tkvs `minusVarSet` gbl_tvs
+       ; let dep_kvs    = varSetElemsWellScoped $
+                          dep_tkvs `minusVarSet` gbl_tvs
              nondep_tvs = varSetElemsWellScoped $
-                          no_covars nondep_tkvs `minusVarSet` gbl_tvs
+                          nondep_tkvs `minusVarSet` gbl_tvs
 
                           -- NB kinds of tvs are zonked by zonkTyCoVarsAndFV
 
@@ -655,11 +654,29 @@ quantifyTyCoVars co_env gbl_tvs (dep_tkvs, nondep_tkvs)
                               ; mapM_ defaultKindVar meta_kvs
                               ; return skolem_kvs }  -- should be empty
 
-       ; mapMaybeM zonk_quant (dep_vars2 ++ nondep_tvs) }
+       ; let quant_vars1 = dep_vars2 ++ nondep_tvs
+             quant_vars2 = reverse $ foldl' quant_pred_telescope [] quant_vars1
+             
+       ; mapMaybeM zonk_quant quant_vars2 }
            -- Because of the order, any kind variables
            -- mentioned in the kinds of the type variables refer to
            -- the now-quantified versions
   where
+    -- Given a telescope of tyvars, filter out any that shouldn't
+    -- be quantified over, by applying the quantifyPred test. This
+    -- always passes proper TyVars through unchanged -- only affects
+    -- CoVars.
+    quant_pred_telescope :: [TcTyCoVar]   -- will quantify over (reversed)
+                         -> TcTyCoVar     -- check this var
+                         -> [TcTyCoVar]   -- combined list (reversed)
+    quant_pred_telescope qtvs tcv
+      |  isTyVar tcv
+      || quantifyPred (mkVarSet qtvs) (varType tcv)
+      =  tcv : qtvs
+         
+      |  otherwise
+      =  qtvs
+    
     zonk_quant tkv
       | isTcTyCoVar tkv = zonkQuantifiedTyCoVar tkv
       | otherwise       = return $ Just tkv

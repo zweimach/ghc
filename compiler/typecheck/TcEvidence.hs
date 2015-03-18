@@ -945,6 +945,7 @@ evBindsSubstX subst = foldl combine subst . sccEvBinds
       = Nothing
     convert _ _ = Nothing  -- this can happen with superclass equalities!
 
+-- | Get a mapping from covars to coercions induced by an EvBinds
 evBindsCvSubstEnv :: Bag EvBind -> CvSubstEnv
 evBindsCvSubstEnv = getCvSubstEnv . evBindsSubst
 

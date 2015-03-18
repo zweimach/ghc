@@ -87,6 +87,7 @@ module TcType (
   ---------------------------------
   -- Predicate types
   mkMinimalBySCs, transSuperClasses, immSuperClasses,
+  quantifyPred,
 
   -- * Finding type instances
   tcTyFamInsts,
@@ -1575,6 +1576,36 @@ evVarPred var
  | otherwise
   = varType var
 
+------------------
+-- | When inferring types, should we quantify over a given predicate?
+-- Generally true of classes; generally false of equality constraints.
+-- Equality constraints that mention quantified type variables and
+-- implicit variables complicate the story. See Notes
+-- [Inheriting implicit parameters] and [Quantifying over equality constraints]
+quantifyPred :: TyCoVarSet         -- Quantifying over these
+             -> PredType -> Bool   -- True <=> quantify over this wanted
+-- This function decides whether a particular constraint shoudl be
+-- quantified over, given the type variables that are being quantified
+quantifyPred qtvs pred
+  = case classifyPredType pred of
+      ClassPred cls tys
+         | isIPClass cls    -> True -- See note [Inheriting implicit parameters]
+         | otherwise        -> tyCoVarsOfTypes tys `intersectsVarSet` qtvs
+                               
+      EqPred NomEq ty1 ty2  -> quant_fun ty1 || quant_fun ty2
+        -- representational equality is like a class constraint
+      EqPred ReprEq ty1 ty2 -> tyCoVarsOfTypes [ty1, ty2] `intersectsVarSet` qtvs
+      
+      IrredPred ty          -> tyCoVarsOfType ty `intersectsVarSet` qtvs
+      TuplePred {}          -> False
+  where
+    -- See Note [Quantifying over equality constraints]
+    quant_fun ty
+      = case tcSplitTyConApp_maybe ty of
+          Just (tc, tys) | isTypeFamilyTyCon tc
+                         -> tyCoVarsOfTypes tys `intersectsVarSet` qtvs
+          _ -> False
+
 -- Superclasses
 
 mkMinimalBySCs :: [PredType] -> [PredType]
@@ -1610,6 +1641,46 @@ immSuperClasses cls tys
     (tyvars,sc_theta,_,_) = classBigSig cls
 
 {-
+Note [Inheriting implicit parameters]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider this:
+
+        f x = (x::Int) + ?y
+
+where f is *not* a top-level binding.
+From the RHS of f we'll get the constraint (?y::Int).
+There are two types we might infer for f:
+
+        f :: Int -> Int
+
+(so we get ?y from the context of f's definition), or
+
+        f :: (?y::Int) => Int -> Int
+
+At first you might think the first was better, because then
+?y behaves like a free variable of the definition, rather than
+having to be passed at each call site.  But of course, the WHOLE
+IDEA is that ?y should be passed at each call site (that's what
+dynamic binding means) so we'd better infer the second.
+
+BOTTOM LINE: when *inferring types* you must quantify over implicit
+parameters, *even if* they don't mention the bound type variables.
+Reason: because implicit parameters, uniquely, have local instance
+declarations. See the predicate quantifyPred.
+
+Note [Quantifying over equality constraints]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Should we quantify over an equality constraint (s ~ t)?  In general, we don't.
+Doing so may simply postpone a type error from the function definition site to
+its call site.  (At worst, imagine (Int ~ Bool)).
+
+However, consider this
+         forall a. (F [a] ~ Int) => blah
+Should we quantify over the (F [a] ~ Int).  Perhaps yes, because at the call
+site we will know 'a', and perhaps we have instance  F [Bool] = Int.
+So we *do* quantify over a type-family equality where the arguments mention
+the quantified variables.
+
 ************************************************************************
 *                                                                      *
 \subsection{Predicates}

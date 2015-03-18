@@ -612,7 +612,7 @@ tcPolyInfer rec_tc prag_fn tc_sig_fn mono closed bind_list
        ; (qtvs, givens, mr_bites, ev_binds)
                  <- simplifyInfer tclvl mono name_taus wanted
 
-       ; inferred_theta  <- zonkTcTypes (map evVarPred givens)
+       ; let inferred_theta = map evVarPred givens
        ; exports <- checkNoErrs $ mapM (mkExport prag_fn qtvs inferred_theta)
                                        mono_infos
 
