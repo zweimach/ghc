@@ -734,7 +734,8 @@ flatten_many fmode roles tys
     go Nominal          ty = flatten_one_arg (setFEEqRel fmode NomEq)  ty
     go Representational ty = flatten_one_arg (setFEEqRel fmode ReprEq) ty
     go Phantom          ty = -- See Note [Phantoms in the flattener]
-                             return ( ty, mkReflCoArg Phantom ty )
+                             do { ty <- zonkTcType ty
+                                ; return ( ty, mkReflCoArg Phantom ty ) }
 
 -- | Like 'flatten_many', but assumes that every role is nominal.
 flatten_many_nom :: FlattenEnv -> [Type] -> TcS ([Xi], [CoercionArg])
@@ -767,8 +768,10 @@ flatten_one fmode (AppTy ty1 ty2)
            (ReprEq, Nominal)          -> flatten_rhs xi1 co1 NomEq
            (ReprEq, Representational) -> flatten_rhs xi1 co1 ReprEq
            (ReprEq, Phantom)          ->
-             return (mkAppTy xi1 ty2, mkAppCo co1 (mkRepReflCo (typeKind ty2))
-                                                  (mkNomReflCoArg ty2)) }
+             do { ty2 <- zonkTcType ty2
+                ; return ( mkAppTy xi1 ty2
+                         , mkAppCo co1 (mkRepReflCo (typeKind ty2))
+                                       (mkNomReflCoArg ty2)) } }
   where
     -- See Note [Kinds when flattening an AppTy]
     flatten_rhs xi1 co1 eq_rel2
@@ -1429,14 +1432,14 @@ flattenTyVar :: FlattenEnv -> TcTyVar -> TcS (Xi, Coercion)
 flattenTyVar fmode tv
   = do { mb_yes <- flattenTyVarOuter fmode tv
        ; case mb_yes of
-           FTRCasted kco -> -- Done
+           FTRCasted tv' kco -> -- Done
                        do { traceTcS "flattenTyVar1"
-                              (ppr tv $$ ppr kco <+> dcolon
+                              (ppr tv' $$ ppr kco <+> dcolon
                                                  <+> ppr (coercionKind kco))
                           ; return (ty', mkReflCo (feRole fmode) ty
                                          `mkCoherenceLeftCo` mkSymCo kco ) }
                     where
-                       ty  = mkOnlyTyVarTy tv
+                       ty  = mkOnlyTyVarTy tv'
                        ty' = ty `mkCastTy` mkSymCo kco
 
            FTRFollowed ty1 co1  -- Recur
@@ -1447,9 +1450,10 @@ flattenTyVar fmode tv
 
 -- | The result of flattening a tyvar "one step".
 data FlattenTvResult
-  = FTRCasted Coercion
+  = FTRCasted TyVar Coercion
       -- ^ Flattening the tyvar's kind produced a cast.
-      -- co :: new kind ~R old kind
+      -- co :: new kind ~R old kind;
+      -- The 'TyVar' in there might have a new, zonked kind
   | FTRFollowed TcType Coercion
       -- ^ The tyvar flattens to a not-necessarily flat other type.
       -- co :: new type ~r old type, where the role is determined by
@@ -1459,10 +1463,7 @@ flattenTyVarOuter :: FlattenEnv -> TcTyVar
                   -> TcS FlattenTvResult
 -- Look up the tyvar in
 --   a) the internal MetaTyVar box
---   b) the tyvar binds
---   c) the inerts
--- Return (Left tv')      if it is not found, tv' has a properly zonked kind
---        (Right (ty, co) if found, with co :: ty ~ tv;
+--   b) the inerts
 
 flattenTyVarOuter fmode tv
   | not (isTcTyVar tv)             -- Happens when flatten under a (forall a. ty)
@@ -1510,7 +1511,13 @@ flattenTyVarFinal fmode tv
   = -- Done, but make sure the kind is zonked
     do { let kind = tyVarKind tv
        ; (_new_kind, kind_co) <- flatten_one (setFEEqRel fmode ReprEq) kind
-       ; return (FTRCasted kind_co) }
+       ; traceTcS "flattenTyVarFinal"
+           (vcat [ ppr tv <+> dcolon <+> ppr (tyVarKind tv)
+                 , ppr _new_kind
+                 , ppr kind_co <+> dcolon <+> ppr (coercionKind kind_co) ])
+       ; let Pair _ orig_kind = coercionKind kind_co
+             -- orig_kind might be zonked
+       ; return (FTRCasted (setTyVarKind tv orig_kind) kind_co) }
 
 {-
 Note [An alternative story for the inert substitution]

@@ -984,7 +984,7 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
                   `andWhenContinue` \ new_ev ->
                   can_eq_nc new_ev eq_rel ty1 ty1 ty2 ps_ty2 }
 
-         ; FTRCasted kind_co ->
+         ; FTRCasted tv1' kind_co ->
     do { -- FM_Avoid commented out: see Note [Lazy flattening] in TcFlatten
          -- let fmode = FE { fe_ev = ev, fe_mode = FM_Avoid tv1' True }
          -- Flatten the RHS less vigorously, to avoid gratuitous flattening
@@ -992,7 +992,7 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
        ; (xi2, co2) <- flatten FM_FlattenAll ev ps_ty2 -- co2 :: xi2 ~ ps_ty2
                       -- Use ps_ty2 to preserve type synonyms if poss
        ; traceTcS "canEqTyVar flat LHS"
-           (vcat [ ppr tv1, ppr kind_co, ppr (coercionKind kind_co)
+           (vcat [ ppr tv1', ppr kind_co, ppr (coercionKind kind_co)
                  , ppr ty2, ppr swapped, ppr xi2 ])
        ; dflags <- getDynFlags 
        ; case eq_rel of
@@ -1001,18 +1001,18 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
              | Just (tc2, _) <- tcSplitTyConApp_maybe xi2
              , isNewTyCon tc2
              , not (ps_ty2 `eqType` xi2)
-             -> do { let ty1  = mkOnlyTyVarTy tv1
+             -> do { let ty1  = mkOnlyTyVarTy tv1'
                          kco  = mkSymCo kind_co
                          xi1  = ty1 `mkCastTy` kco
                          role = eqRelRole eq_rel
                          co1  = mkTcReflCo role ty1 `mkTcCoherenceLeftCo` kco
                    ; traceTcS "canEqTyVar exposed newtype"
-                       (vcat [ ppr tv1, ppr ps_ty2, ppr xi2, ppr tc2 ])
+                       (vcat [ ppr tv1', ppr ps_ty2, ppr xi2, ppr tc2 ])
                    ; rewriteEqEvidence ev swapped xi1 xi2
                                        co1 co2
                      `andWhenContinue` \ new_ev ->
                      can_eq_nc new_ev eq_rel xi1 xi1 xi2 xi2 }
-           _ -> canEqTyVar2 dflags ev eq_rel swapped tv1 kind_co xi2 co2 } } }
+           _ -> canEqTyVar2 dflags ev eq_rel swapped tv1' kind_co xi2 co2 } } }
 
 canEqTyVar2 :: DynFlags
             -> CtEvidence   -- olhs ~ orhs (or, if swapped, orhs ~ olhs)

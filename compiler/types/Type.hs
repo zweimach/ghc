@@ -969,7 +969,7 @@ mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
     affix_co kind ty args co
       -- if kind contains any dependent quantifications, we can't push.
       -- apply arguments until it doesn't
-      = let (bndrs, _inner_ki) = repSplitForAllTys kind
+      = let (bndrs, _inner_ki) = splitForAllTys kind
             (some_dep_bndrs, no_dep_bndrs) = span_from_end isAnonBinder bndrs
             (some_dep_args, rest_args) = splitAtList some_dep_bndrs args
             dep_subst = zipOpenTCvSubstBinders some_dep_bndrs some_dep_args
@@ -1230,15 +1230,11 @@ mkPiTypesNoTv (k:ks) ty
 -- This always succeeds, even if it returns only an empty list. Note that the
 -- result type returned may have free variables that were bound by a forall.
 splitForAllTys :: Type -> ([Binder], Type)
-splitForAllTys t | Just t' <- coreView t = splitForAllTys t'
-splitForAllTys t = repSplitForAllTys t
-
--- | Like 'splitForAllTys', but doesn't look through type synonyms.
-repSplitForAllTys :: Type -> ([Binder], Type)
-repSplitForAllTys = split []
+splitForAllTys = split []
   where
-    split bndrs (ForAllTy bndr res) = split (bndr:bndrs) res
-    split bndrs ty                  = (reverse bndrs, ty)
+    split bndrs ty | Just ty' <- coreView ty = split bndrs ty'
+    split bndrs (ForAllTy bndr res)          = split (bndr:bndrs) res
+    split bndrs ty                           = (reverse bndrs, ty)
 
 -- | Like 'splitForAllTys' but split off only /named/ binders, returning
 -- only the tycovars.

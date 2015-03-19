@@ -657,8 +657,6 @@ addConstraint actual expected = do
      -- TOMDO: what about the coercion?
      -- we should consider family instances
 
-    traceTR (text "RAE addConstraint end")
-
 -- Type & Term reconstruction
 ------------------------------
 cvObtainTerm :: HscEnv -> Int -> Bool -> RttiType -> HValue -> IO Term
