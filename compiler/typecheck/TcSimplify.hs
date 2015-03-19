@@ -391,7 +391,11 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                    -- the run of the simplifier that produces them was impure.
                            
              promote_tvs = closeOverKinds phi_tvs `delVarSetList` qtvs
-       ; MASSERT( closeOverKinds promote_tvs `subVarSet` promote_tvs )
+       ; MASSERT2( closeOverKinds promote_tvs `subVarSet` promote_tvs
+                 , ppr phi_tvs $$
+                   ppr (closeOverKinds phi_tvs) $$
+                   ppr promote_tvs $$
+                   ppr (closeOverKinds promote_tvs) )
            -- we really don't want a type to be promoted when its kind isn't!
 
            -- promoteTyVar ignores coercion variables

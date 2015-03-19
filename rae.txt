@@ -223,6 +223,10 @@ can't use superclass equalities "right away". E.g.:
   data SameKind (a :: k) (b :: k)
   foo :: forall (a :: k1) (b :: k2). Foo a b => SameKind a b
 
+- Also related: transSuperClasses emits a kind equality from a type equality.
+Otherwise, we get only representational equality when emitting deriveds during
+solving, which is too weak.
+
 To get the above to be accepted, we would need to add a (k1 ~# k2) constraint,
 which should logically be implied by `Foo a b`. This will be confusing, but
 because we can't have superclass selectors in coercions, there isn't an easy

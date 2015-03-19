@@ -2418,7 +2418,8 @@ mkGADTVars tmpl_tvs dc_tvs subst
                       (composeTCvSubst r_sub2 r_sub)
                       t_tvs
             where
-              r_tv' = setTyVarKind r_tv (substTy t_sub (tyVarKind t_tv))
+              r_tv1 = setTyVarName r_tv (choose_tv_name r_tv t_tv)
+              r_tv' = setTyVarKind r_tv1 (substTy t_sub (tyVarKind t_tv))
               r_ty' = mkOnlyTyVarTy r_tv'
                 -- fixed r_ty' has the same kind as r_tv
               r_tv_subst = extendTCvSubst empty_subst r_tv r_ty'
@@ -2447,6 +2448,22 @@ mkGADTVars tmpl_tvs dc_tvs subst
            ; let name = mkSystemVarName u (fsLit "gadt")
            ; return $ mkCoVar name (mkCoercionType Nominal t1 t2) }
 
+      -- choose an appropriate name for a univ tyvar.
+      -- This *must* preserve the Unique of the result tv, so that we
+      -- can detect repeated variables. It prefers user-specified names
+      -- over system names, but never outputs a System name, because
+      -- those print terribly.
+    choose_tv_name :: TyVar -> TyVar -> Name
+    choose_tv_name r_tv t_tv
+      | isSystemName r_tv_name
+      = setNameUnique t_tv_name (getUnique r_tv_name)
+
+      | otherwise
+      = r_tv_name
+
+      where
+        r_tv_name = getName r_tv
+        t_tv_name = getName t_tv
 
 {-
 %************************************************************************
