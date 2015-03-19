@@ -671,30 +671,39 @@ tcInferApps ::
        -> TcKind                        -- Function kind (zonked)
        -> [LHsType Name]                -- Arg types
        -> TcM (TcType, TcKind)          -- (f args, result kind)
-tcInferApps = go
+tcInferApps = go emptyTCvSubst
   where
-    go fun fun_kind [] = return (fun, fun_kind)
-    go fun fun_kind (arg:args)
-      | Just fun_kind' <- tcView fun_kind = go fun fun_kind' (arg:args)
+    -- TODO (RAE): Update when updating tcInstTyCoVars
+    go _     fun fun_kind [] = return (fun, fun_kind)
+    go subst fun fun_kind (arg:args)
+      | Just fun_kind' <- tcView fun_kind = go subst fun fun_kind' (arg:args)
+
+      | Just tv <- getTyVar_maybe fun_kind
+      , Just fun_kind' <- lookupTyVar subst tv
+      = go subst fun fun_kind' (arg:args)
     
       | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
       , isInvisibleBinder bndr
       , Just tv <- binderVar_maybe bndr
-      = do { imp_param <- newFlexiTyVarTy (tyVarKind tv)
-           ; go (mkNakedAppTy fun imp_param)
-                (substTyWith [tv] [imp_param] res_k) (arg:args) }
+      = do { (subst', inst_tv) <- tcInstTyCoVarX AppOrigin subst tv
+           ; go subst'
+                (mkNakedAppTy fun (mkTyCoVarTy inst_tv))
+                res_k
+                (arg:args) }
 
       | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
       , Just tv <- binderVar_maybe bndr
       , isVisibleBinder bndr
       = do { arg' <- tc_lhs_type arg (tyVarKind tv)
-           ; go (mkNakedAppTy fun arg')
-                (substTyWith [tv] [arg'] res_k) args }
+           ; go (extendTCvSubst subst tv arg')
+                (mkNakedAppTy fun arg')
+                res_k
+                args }
 
       | otherwise
       = do { (co, arg_k, res_k) <- matchExpectedFunKind fun fun_kind
            ; arg' <- tc_lhs_type arg arg_k
-           ; go (mkNakedAppTy (fun `mkCastTy` mkSubCo co) arg') res_k args }
+           ; go subst (mkNakedAppTy (fun `mkCastTy` mkSubCo co) arg') res_k args }
 
 ---------------------------
 tcHsContext :: LHsContext Name -> TcM [PredType]

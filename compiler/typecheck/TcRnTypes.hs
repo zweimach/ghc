@@ -2073,7 +2073,7 @@ data CtOrigin
   | ListOrigin          -- An overloaded list
   | StaticOrigin        -- A static form
   | ImpossibleOrigin    -- An origin that should never be printed to
-                        -- the user
+                        -- the user  (TODO (RAE): Remove?)
 
 -- | A thing that can be stored for error message generation only.
 -- It is stored with a function to zonk and tidy the thing.

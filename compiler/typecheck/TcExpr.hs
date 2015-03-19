@@ -45,7 +45,6 @@ import Name
 import TyCon
 import Type
 import TcEvidence
-import Var
 import VarSet
 import VarEnv
 import TysWiredIn
@@ -731,8 +730,8 @@ tcExpr expr@(RecordUpd record_expr rbinds _ _ _) res_ty
                 | is_fixed_tv tv   -- Same as result type
                 = return (extendTCvSubst subst tv result_inst_ty, result_inst_ty)
                 | otherwise        -- Fresh type, of correct kind
-                = do { new_ty <- newFlexiTyVarTy (TcType.substTy subst (tyVarKind tv))
-                     ; return (extendTCvSubst subst tv new_ty, new_ty) }
+                = do { (subst', new_tv) <- tcInstTyCoVarX RecordUpdOrigin subst tv
+                     ; return (subst', mkTyCoVarTy new_tv) }
 
         ; (result_subst, con1_tvs') <- tcInstTyCoVars RecordUpdOrigin con1_tvs
         ; let result_inst_tys = mkOnlyTyVarTys con1_tvs'
