@@ -1626,11 +1626,13 @@ canRewriteOrSame :: TcLevel -> CtEvidence -> CtEvidence -> Bool
 canRewriteOrSame tclvl ev1 ev2 = canRewriteOrSameFRB tclvl (ctEvFRB ev1) (ctEvFRB ev2)
 
 canRewriteOrSameFRB :: TcLevel -> CtFRB -> CtFRB -> Bool
-canRewriteOrSameFRB tclvl frb1@(f1, r1, _) frb2@(f2, r2, _)
-  =  eqCanRewriteFRB tclvl frb1 frb2
-  || if isTopTcLevel tclvl
-     then frb1 == frb2
-     else f1 == f2 && r1 == r2
+canRewriteOrSameFRB tclvl frb1 frb2
+  | eqCanRewriteFRB tclvl frb1 frb2 = True
+canRewriteOrSameFRB (isTopTcLevel -> True)
+                      (_,  _, Boxed) (_, _, Unboxed)             = False
+canRewriteOrSameFRB _ (f1, NomEq,  _) (f2, _,      _) | f1 == f2 = True
+canRewriteOrSameFRB _ (f1, ReprEq, _) (f2, ReprEq, _) | f1 == f2 = True
+canRewriteOrSameFRB _ _               _                          = False
 
 {-
 Note [eqCanRewrite]
