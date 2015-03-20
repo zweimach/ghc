@@ -694,14 +694,14 @@ tcInferApps = go emptyTCvSubst
       | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
       , Just tv <- binderVar_maybe bndr
       , isVisibleBinder bndr
-      = do { arg' <- tc_lhs_type arg (tyVarKind tv)
+      = do { arg' <- tc_lhs_type arg (substTy subst $ tyVarKind tv)
            ; go (extendTCvSubst subst tv arg')
                 (mkNakedAppTy fun arg')
                 res_k
                 args }
 
       | otherwise
-      = do { (co, arg_k, res_k) <- matchExpectedFunKind fun fun_kind
+      = do { (co, arg_k, res_k) <- matchExpectedFunKind fun (substTy subst fun_kind)
            ; arg' <- tc_lhs_type arg arg_k
            ; go subst (mkNakedAppTy (fun `mkCastTy` mkSubCo co) arg') res_k args }
 
