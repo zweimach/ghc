@@ -1144,7 +1144,7 @@ if it has a CUSK (Foo does not, in point of fact) or
 if it does not, where mk1 and mk2 are meta-kind variables (mk1, mk2 :: *). 
 
 When calling tcTyClTyVars, this kind is further generalized w.r.t. any
-free variables appearing in mk1 or mk2. So, mk_telescope_tvs must handle
+free variables appearing in mk1 or mk2. So, mk_tvs must handle
 that possibility. Perhaps we discover that mk1 := Maybe k3 and mk2 := *,
 so we have
 
@@ -1175,11 +1175,10 @@ to be bound within the telescope scope. It must simultaneously walk
 through the hsq_implicit and hsq_explicit fields of a LHsTyVarBndrs.
 Comments in the code refer back to the cases in this Note.
 
-Because all instances of case (1) come before all others, and
-then all instances of case (2) come before all others, (the
-implicitly bound vars always precede the explicitly bound ones), we
-handle the lists in three stages (mk_tvs, mk_tvs1, and mk_tvs2).
--}
+Cases (1) and (2) can be mixed together, but these cases must appear before
+cases (3) and (4) (the implicitly bound vars always precede the explicitly
+bound ones). So, we handle the lists in two stages (mk_tvs and
+mk_tvs2). -}
 
 --------------------
 -- getInitialKind has made a suitably-shaped kind for the type or class
@@ -1201,7 +1200,7 @@ splitTelescopeTvs :: Kind         -- of the head of the telescope
                   -> ( [TyVar]    -- *scoped* type variables
                      , [TyVar]    -- *all* type variables
                      , Kind )     -- inner kind
-splitTelescopeTvs kind (HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
+splitTelescopeTvs kind tvbs@(HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
   = let (bndrs, inner_ki) = splitForAllTys kind
         (scoped_tvs, all_tvs, mk_kind) = mk_tvs [] [] bndrs hs_kvs hs_tvs
     in
@@ -1220,8 +1219,8 @@ splitTelescopeTvs kind (HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
       , isInvisibleBinder bndr
       , hs_kv : hs_kvs <- all_hs_kvs
       , getName tv == hs_kv
-      = mk_tvs1 (tv : scoped_tv_acc) (tv : all_tv_acc)
-                bndrs hs_kvs all_hs_tvs -- Case (2); no more Case (1)
+      = mk_tvs (tv : scoped_tv_acc) (tv : all_tv_acc)
+               bndrs hs_kvs all_hs_tvs      -- Case (2)
 
       | Just tv <- binderVar_maybe bndr
       , isInvisibleBinder bndr
@@ -1234,30 +1233,6 @@ splitTelescopeTvs kind (HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
     mk_tvs scoped_tv_acc all_tv_acc all_bndrs _all_hs_kvs all_hs_tvs
       = mk_tvs2 scoped_tv_acc all_tv_acc all_bndrs all_hs_tvs
            -- no more Case (1) or (2)
-
-    -- This can't handle Case (1) from Note [Typechecking telescopes]
-    mk_tvs1 :: [TyVar]
-            -> [TyVar]
-            -> [Binder]
-            -> [Name]              -- implicit variables
-            -> [LHsTyVarBndr Name] -- explicit variables
-            -> ( [TyVar]
-               , [TyVar]
-               , Type -> Type )    -- a function to create the result k
-    mk_tvs1 scoped_tv_acc all_tv_acc (bndr : bndrs) (hs_kv : hs_kvs) all_hs_tvs
-      | Just tv <- binderVar_maybe bndr
-      = ASSERT( isInvisibleBinder bndr )
-        ASSERT( getName tv == hs_kv )
-        mk_tvs1 (tv : scoped_tv_acc) (tv : all_tv_acc)
-                bndrs hs_kvs all_hs_tvs -- Case (2)
-
-    mk_tvs1 scoped_tv_acc all_tv_acc all_bndrs [] all_hs_tvs
-      = mk_tvs2 scoped_tv_acc all_tv_acc all_bndrs all_hs_tvs -- no more Case (2)
-
-    mk_tvs1 _ _ all_bndrs all_hs_kvs all_hs_tvs
-      = pprPanic "splitTelescopeTvs 1" (vcat [ ppr all_bndrs
-                                             , ppr all_hs_kvs
-                                             , ppr all_hs_tvs ])
 
     -- This can't handle Case (1) or Case (2) from [Typechecking telescopes]
     mk_tvs2 :: [TyVar]
@@ -1279,7 +1254,9 @@ splitTelescopeTvs kind (HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
         mk_tvs2 (tv : scoped_tv_acc) (tv : all_tv_acc) bndrs hs_tvs   -- Case (4)
       where
         err_doc = vcat [ ppr (bndr : bndrs)
-                       , ppr (hs_tv : hs_tvs) ]
+                       , ppr (hs_tv : hs_tvs)
+                       , ppr kind
+                       , ppr tvbs ]
 
     mk_tvs2 scoped_tv_acc all_tv_acc all_bndrs [] -- All done!
       = ( reverse scoped_tv_acc
