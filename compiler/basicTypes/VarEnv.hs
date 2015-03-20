@@ -9,7 +9,7 @@ module VarEnv (
         
         -- ** Manipulating these environments
         emptyVarEnv, unitVarEnv, mkVarEnv,
-        elemVarEnv, varEnvElts, varEnvKeys,
+        elemVarEnv, varEnvElts, varEnvKeys, varEnvToList,
         extendVarEnv, extendVarEnv_C, extendVarEnv_Acc, extendVarEnv_Directly,
         extendVarEnvList,
         plusVarEnv, plusVarEnv_C, plusVarEnv_CD, alterVarEnv,
@@ -407,6 +407,7 @@ mapVarEnv         :: (a -> b) -> VarEnv a -> VarEnv b
 modifyVarEnv      :: (a -> a) -> VarEnv a -> Var -> VarEnv a
 varEnvElts        :: VarEnv a -> [a]
 varEnvKeys        :: VarEnv a -> [Unique]
+varEnvToList      :: VarEnv a -> [(Unique, a)]
 
 isEmptyVarEnv     :: VarEnv a -> Bool
 lookupVarEnv      :: VarEnv a -> Var -> Maybe a
@@ -440,6 +441,7 @@ mkVarEnv         = listToUFM
 emptyVarEnv      = emptyUFM
 varEnvElts       = eltsUFM
 varEnvKeys       = keysUFM
+varEnvToList     = ufmToList
 unitVarEnv       = unitUFM
 isEmptyVarEnv    = isNullUFM
 foldVarEnv       = foldUFM

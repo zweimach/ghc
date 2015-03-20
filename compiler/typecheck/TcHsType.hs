@@ -30,14 +30,16 @@ module TcHsType (
         tcLHsKind, 
 
                 -- Pattern type signatures
-        tcHsPatSigType, tcPatSig
+        tcHsPatSigType, tcPatSig,
+
+        zonkedEvBindsSubst, zonkedEvBindsCvSubstEnv
    ) where
 
 #include "HsVersions.h"
 
 import HsSyn hiding ( Implicit, Explicit )
 import TcRnMonad
-import TcEvidence( HsWrapper, evBindsSubst, evBindsCvSubstEnv )
+import TcEvidence
 import TcEnv
 import TcMType
 import TcValidity
@@ -45,9 +47,9 @@ import TcUnify
 import TcIface
 import TcSimplify ( solveTopConstraints )
 import TcType
-import TcHsSyn    ( zonkTcTypeToType, mkZonkEnv )
+import TcHsSyn
 import Type
-import Coercion  ( mkSubCo, CvSubstEnv, mkCoVarCo )
+import Coercion
 import Kind
 import RdrName( lookupLocalRdrOcc )
 import Var
@@ -60,13 +62,14 @@ import Class
 import Name
 import NameEnv
 import NameSet
-import VarEnv ( lookupVarEnv )
+import VarEnv
 import TysWiredIn
 import BasicTypes
 import SrcLoc
 import DynFlags ( ExtensionFlag( Opt_DataKinds, Opt_MonoLocalBinds ) )
 import Unique
 import Util
+import Bag
 import UniqSupply
 import Outputable
 import FastString
@@ -165,7 +168,8 @@ tcHsSigTypeNC ctxt (L loc hs_ty)
 -- never see the desugarer
 tcTopHsSigType ctxt hs_ty
   = do { (ty, ev_binds) <- solveTopConstraints $ tcHsSigType ctxt hs_ty
-       ; return $ substTy (evBindsSubst ev_binds) ty }
+       ; subst <- zonkedEvBindsSubst ev_binds
+       ; return $ substTy subst ty }
 
 -----------------
 tcHsInstHead :: UserTypeCtxt -> LHsType Name -> TcM ([TyCoVar], ThetaType, Class, [Type])
@@ -174,7 +178,7 @@ tcHsInstHead user_ctxt lhs_ty@(L loc hs_ty)
   = setSrcSpan loc $    -- The "In the type..." context comes from the caller
     do { (inst_ty, ev_binds) <- solveTopConstraints $
                                 tc_inst_head hs_ty
-       ; let co_env = evBindsCvSubstEnv ev_binds
+       ; co_env   <- zonkedEvBindsCvSubstEnv ev_binds
        ; kvs      <- kindGeneralize co_env (tyCoVarsOfType inst_ty)
        ; inst_ty  <- zonkTcTypeToType (mkZonkEnv co_env) $
                      mkInvForAllTys kvs inst_ty
@@ -345,7 +349,7 @@ tcCheckHsTypeAndGen hs_ty kind
   = do { (ty, ev_binds) <- solveTopConstraints $
                            tc_hs_type hs_ty kind
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
-       ; let cv_env = evBindsCvSubstEnv ev_binds
+       ; cv_env <- zonkedEvBindsCvSubstEnv ev_binds
        ; kvs <- kindGeneralize cv_env (tyCoVarsOfType ty)
        ; gen_ty <- zonkSigType cv_env (mkInvForAllTys kvs ty)
        ; return (gen_ty, cv_env) }
@@ -586,10 +590,10 @@ tc_hs_type (HsIParamTy n ty) exp_kind
 tc_hs_type (HsEqTy ty1 ty2) exp_kind 
   = do { (ty1', kind1) <- tc_infer_lhs_type ty1
        ; (ty2', kind2) <- tc_infer_lhs_type ty2
-       ; let (tvs1, _) = splitForAllTysInvisible kind1
-             (tvs2, _) = splitForAllTysInvisible kind2
+       ; let (bndrs1, _) = splitForAllTysInvisible kind1
+             (bndrs2, _) = splitForAllTysInvisible kind2
        ; tys <-
-         if length tvs1 > length tvs2
+         if length bndrs1 > length bndrs2
          then do { ty1'' <- checkExpectedKind ty1' kind1 kind2
                  ; return [ty1'', ty2'] }
          else do { ty2'' <- checkExpectedKind ty2' kind2 kind1
@@ -671,9 +675,13 @@ tcInferApps ::
        -> TcKind                        -- Function kind (zonked)
        -> [LHsType Name]                -- Arg types
        -> TcM (TcType, TcKind)          -- (f args, result kind)
-tcInferApps = go emptyTCvSubst
+tcInferApps ty ki args
+  = do { traceTc "tcInferApps" (ppr ki $$ ppr args)
+       ; go emptyTCvSubst ty ki args }
   where
     -- TODO (RAE): Update when updating tcInstTyCoVars
+    -- TODO (RAE): This is essentially instantiateDeeply at the type level.
+    -- Can it be improved?
     go _     fun fun_kind [] = return (fun, fun_kind)
     go subst fun fun_kind (arg:args)
       | Just fun_kind' <- tcView fun_kind = go subst fun fun_kind' (arg:args)
@@ -681,16 +689,15 @@ tcInferApps = go emptyTCvSubst
       | Just tv <- getTyVar_maybe fun_kind
       , Just fun_kind' <- lookupTyVar subst tv
       = go subst fun fun_kind' (arg:args)
-    
-      | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
-      , isInvisibleBinder bndr
-      , Just tv <- binderVar_maybe bndr
-      = do { (subst', inst_tv) <- tcInstTyCoVarX AppOrigin subst tv
+
+      | (inv_bndrs, res_k) <- splitForAllTysInvisible fun_kind
+      , not (null inv_bndrs)
+      = do { (subst', args') <- tcInstBindersX AppOrigin subst inv_bndrs
            ; go subst'
-                (mkNakedAppTy fun (mkTyCoVarTy inst_tv))
+                (mkNakedAppTys fun args')
                 res_k
                 (arg:args) }
-
+    
       | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
       , Just tv <- binderVar_maybe bndr
       , isVisibleBinder bndr
@@ -1430,7 +1437,8 @@ tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_vars = sig_vars
         ; (sig_ty, ev_binds) <- solveTopConstraints $
                                 tcExtendTyVarEnv2 (ktv_binds ++ nwc_binds) $
                                 tcHsLiftedType hs_ty
-        ; sig_ty   <- zonkSigType (evBindsCvSubstEnv ev_binds) sig_ty
+        ; subst    <- zonkedEvBindsCvSubstEnv ev_binds
+        ; sig_ty   <- zonkSigType subst sig_ty
         ; checkValidType ctxt sig_ty
         ; emitWildcardHoleConstraints (zip sig_wcs nwc_tvs)
         ; return (sig_ty, ktv_binds, nwc_binds) }
@@ -1618,3 +1626,33 @@ badPatSigTvs sig_ty bad_tvs
          , ptext (sLit "To fix this, expand the type synonym") 
          , ptext (sLit "[Note: I hope to lift this restriction in due course]") ]
 
+{-
+************************************************************************
+*                                                                      *
+                Extracting coercions from a Bag EvBinds
+*                                                                      *
+************************************************************************
+
+These might belong in TcEvidence, but they do zonking, so they can't
+go there.
+
+-}
+
+zonkedEvBindsSubst :: Bag EvBind -> TcM TCvSubst
+zonkedEvBindsSubst binds
+  = do { let subst        = evBindsSubst binds
+             in_scope     = getTCvInScope subst
+             cv_env       = getCvSubstEnv subst
+       ; cv_env <- zonk_cv_subst_env cv_env
+       ; return (mkTCvSubst in_scope (emptyTvSubstEnv, cv_env)) }
+
+zonkedEvBindsCvSubstEnv :: Bag EvBind -> TcM CvSubstEnv
+zonkedEvBindsCvSubstEnv = zonk_cv_subst_env . evBindsCvSubstEnv
+             
+zonk_cv_subst_env :: CvSubstEnv -> TcM CvSubstEnv
+zonk_cv_subst_env cv_env
+  = do { let (uniqs, cos) = unzip $ varEnvToList cv_env
+       ; cos <- mapM (zonkCoToCo emptyZonkEnv) cos
+       ; return (foldl' extend emptyCvSubstEnv (zip uniqs cos)) }
+  where
+    extend env (uniq, co) = extendVarEnv_Directly env uniq co

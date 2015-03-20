@@ -757,11 +757,10 @@ lookupRoles tc
 updateRole :: Role -> TyVar -> RoleM ()
 updateRole role tv
   = do { var_ns <- getVarNs
+       ; name <- getTyConName
        ; case lookupVarEnv var_ns tv of
-       { Nothing -> pprPanic "updateRole" (ppr tv $$ ppr var_ns)
-       ; Just n  -> do
-       { name <- getTyConName
-       ; updateRoleEnv name n role }}}
+           Nothing -> pprPanic "updateRole" (ppr name $$ ppr tv $$ ppr var_ns)
+           Just n  -> updateRoleEnv name n role }
 
 -- the state in the RoleM monad
 data RoleInferenceState = RIS { role_env  :: RoleEnv

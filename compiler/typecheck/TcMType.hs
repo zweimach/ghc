@@ -32,12 +32,13 @@ module TcMType (
 
   --------------------------------
   -- Creating new evidence variables
-  newEvVar, newEvVars, newEq, newDict,
+  newEvVar, newEvVars, newEq, newDict, newWantedEvVar,
   newTcEvBinds, addTcEvBind,
   newSimpleWanted, newSimpleWanteds,
 
   --------------------------------
   -- Instantiation
+  tcInstBinders, tcInstBindersX,
   tcInstTyCoVars, tcInstTyCoVarX, newSigTyVar,
   tcInstType,
   tcInstSkolTyCoVars, tcInstSkolTyCoVarsLoc, tcInstSuperSkolTyCoVarsX,
@@ -92,6 +93,7 @@ import FastString
 import SrcLoc
 import Bag
 import DynFlags
+import BasicTypes    ( Boxity(..) )
 
 import Control.Monad
 import Data.List        ( mapAccumL, partition, foldl' )
@@ -137,6 +139,17 @@ newEvVar :: TcPredType -> TcRnIf gbl lcl EvVar
 -- Creates new *rigid* variables for predicates
 newEvVar ty = do { name <- newSysName (predTypeOccName ty) 
                  ; return (mkLocalIdOrCoVar name ty) }
+
+-- | Creates a new EvVar and immediately emits it as a Wanted
+newWantedEvVar :: CtOrigin -> TcPredType -> TcM EvVar
+newWantedEvVar origin ty
+  = do { new_cv <- newEvVar ty
+       ; loc <- getCtLoc origin
+       ; let ctev = CtWanted { ctev_evar = new_cv
+                             , ctev_pred = ty
+                             , ctev_loc  = loc }
+       ; emitSimple $ mkNonCanonical ctev
+       ; return new_cv }
 
 newEq :: TcType -> TcType -> TcM EvVar
 newEq ty1 ty2
@@ -581,16 +594,47 @@ tcInstTyCoVarX origin subst tyvar
               new_tv = mkTcTyVar name kind details
         ; return (extendTCvSubst subst tyvar (mkOnlyTyVarTy new_tv), new_tv) }
   | otherwise
-  = do { new_cv <- newEvVar (substTy subst (varType tyvar))
+  = do { new_cv <- newWantedEvVar origin (substTy subst (varType tyvar))
          -- can't call unifyType, because we need to return a CoVar,
          -- and unification might result in a TcCoercion that's not a CoVar
          -- See Note [Coercion variables in tcInstTyCoVarX]
-       ; loc <- getCtLoc origin
-       ; let ctev = CtWanted { ctev_evar = new_cv
-                             , ctev_pred = varType new_cv
-                             , ctev_loc  = loc }
-       ; emitSimple $ mkNonCanonical ctev
+         -- TODO (RAE): Improve now that unifyType *can* return a Coercion??
+
        ; return (extendTCvSubst subst tyvar (mkTyCoVarTy new_cv), new_cv) }
+
+-- | This is used to instantiate binders when type-checking *types* only.
+-- Precondition: all binders are invisible.
+tcInstBinders :: CtOrigin -> [Binder] -> TcM (TCvSubst, [TcType])
+tcInstBinders orig = tcInstBindersX orig emptyTCvSubst
+
+-- | This is used to instantiate binders when type-checking *types* only.
+-- Precondition: all binders are invisible.
+tcInstBindersX :: CtOrigin -> TCvSubst -> [Binder] -> TcM (TCvSubst, [TcType])
+tcInstBindersX orig subst bndrs
+  = do { (subst, args) <- mapAccumLM (tcInstBinderX orig) subst bndrs
+       ; traceTc "instantiating implicit dependent vars:"
+           (vcat $ zipWith (\bndr arg -> ppr bndr <+> text ":=" <+> ppr arg)
+                           bndrs args)
+       ; return (subst, args) }
+
+tcInstBinderX :: CtOrigin -> TCvSubst -> Binder -> TcM (TCvSubst, TcType)
+tcInstBinderX orig subst binder
+  | Just tv <- binderVar_maybe binder
+  = do { (subst', tv') <- tcInstTyCoVarX orig subst tv
+       ; return (subst', mkTyCoVarTy tv') }
+
+     -- TODO (RAE): This is special-case handling of promoted, lifted
+     -- equality. This is the *only* constraint currently handled in
+     -- types. The special-casing makes me sad. Improve.
+  | let ty = substTy subst (binderType binder)
+  , Just (boxity, role, k1, k2) <- getEqPredTys_maybe ty
+  = ASSERT( boxity == Boxed )   -- unboxed equality is always dependent
+    do { cv <- newWantedEvVar AppOrigin (mkPrimEqPredRole role k1 k2)
+       ; let arg' = mkEqBoxTy (mkCoVarCo cv)
+       ; return (subst, arg') }
+
+  | otherwise
+  = pprPanic "visible binder in tcInstBinderX" (ppr binder)
 
 {-
 ************************************************************************

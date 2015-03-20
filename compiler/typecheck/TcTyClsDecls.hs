@@ -31,7 +31,6 @@ import TcHsSyn
 import TcSimplify( growThetaTyCoVars, solveTopConstraints )
 import TcBinds( tcRecSelBinds )
 import TcTyDecls
-import TcEvidence ( evBindsCvSubstEnv, evBindsVars )
 import TcClassDcl
 import TcUnify
 import TcHsType
@@ -301,7 +300,7 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
              -- Step 4: generalisation
              -- Kind checking done for this group
              -- Now we have to kind generalize the flexis
-        ; let env = evBindsCvSubstEnv ev_binds
+        ; env <- zonkedEvBindsCvSubstEnv ev_binds
         ; res <- concatMapM (generaliseTCD env (tcl_env lcl_env)) decls
 
         ; traceTc "kcTyClGroup result" (ppr res)
@@ -993,12 +992,11 @@ tc_fam_ty_pats :: FamTyConShape
 tc_fam_ty_pats (name, _, kind)
                (HsWB { hswb_cts = arg_pats, hswb_vars = vars })
                kind_checker
-  = do { let (fam_inv_tkvs, fam_body) = splitForAllTysInvisible kind
+  = do { let (fam_inv_bndrs, fam_body) = splitForAllTysInvisible kind
 
          -- Instantiate with meta kind vars
-       ; (inv_subst, fam_arg_kvs) <- tcInstTyCoVars PatOrigin fam_inv_tkvs
-       ; let fam_arg_kinds          = mkOnlyTyVarTys fam_arg_kvs
-             fam_body'              = substTy inv_subst fam_body
+       ; (inv_subst, fam_arg_kinds) <- tcInstBinders PatOrigin fam_inv_bndrs
+       ; let fam_body'              = substTy inv_subst fam_body
              (exp_bndrs, bare_kind) = splitForAllTys fam_body'
              (arg_bndrs, leftover_bndrs) = splitAtList arg_pats exp_bndrs
              res_kind               = mkForAllTys leftover_bndrs bare_kind
@@ -1032,7 +1030,7 @@ tcFamTyPats fam_shape@(name,_,_) pats kind_checker thing_inside
             -- them into skolems, so that we don't subsequently
             -- replace a meta kind var with (Any *)
             -- Very like kindGeneralize
-       ; let cv_env     = evBindsCvSubstEnv ev_binds
+       ; cv_env <- zonkedEvBindsCvSubstEnv ev_binds
        ; qtkvs <- quantifyTyCoVars cv_env emptyVarSet $
                                    splitDepVarsOfTypes typats
 
@@ -1191,8 +1189,7 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
                  ; return (ctxt, arg_tys, res_ty, field_lbls, stricts)
                  }
 
-       ; let co_env  = evBindsCvSubstEnv ev_binds
-             ev_vars = evBindsVars ev_binds
+       ; co_env <- zonkedEvBindsCvSubstEnv ev_binds
               
              -- Generalise the kind variables (returning quantified TcKindVars)
              -- and quantify the type variables (substituting their kinds)
@@ -1204,8 +1201,8 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
                    ResTyH98
                      -> quantifyTyCoVars co_env gbl_tvs (splitDepVarsOfTypes (ctxt++arg_tys))
                      where
-                       gbl_tvs = ev_vars `unionVarSet` mkVarSet tmpl_tvs
-                   ResTyGADT res_ty -> quantifyTyCoVars co_env ev_vars (splitDepVarsOfTypes (res_ty:ctxt++arg_tys))
+                       gbl_tvs = mkVarSet tmpl_tvs
+                   ResTyGADT res_ty -> quantifyTyCoVars co_env emptyVarSet (splitDepVarsOfTypes (res_ty:ctxt++arg_tys))
 
              -- Zonk to Types
        ; let ze = mkZonkEnv co_env

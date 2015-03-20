@@ -7,8 +7,6 @@ stack:
 
 - do we need WpEvPrimApp?
 
-- examine extractDataDefnKindVars. Why use FreeKiTyVars? Should just be one pile, I think.
-
 fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
 fix parser; then fix TypeLits.Mult --> *
@@ -163,6 +161,10 @@ fix:
   - no check for DataKinds any more when using a promoted tycon
   - no check for silliness like `data T :: T -> *`.
   - abstractType (in vectorise)
+  - :kind in GHCi is unhappy with 
+    data Sg (s :: *) (t :: TyFun s * -> *) :: * where
+      (:&) :: Pi (fst :: s) -> t @@ fst -> Sg s t
+
   - prevent dependent variables without -XStarInStar
   - the kind-var finder in zonkRule only looks in tyvars. look in covars? how
     to identify type-level covars? does this matter?

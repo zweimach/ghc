@@ -1310,7 +1310,7 @@ rnConDecl decl@(ConDecl { con_names = names, con_qvars = tvs
                        Qualified -> do { warnContextQuantification (docOfHsDocContext doc)
                                                                    (userHsTyVarBndrs loc free_tvs)
                                        ; return (mkHsQTvs (userHsTyVarBndrs loc free_tvs)) }
-                       Explicit -> do { warnUnusedForAlls (docOfHsDocContext doc) tvs free_tvs
+                       Explicit -> do { warnUnusedForAlls (docOfHsDocContext doc) tvs (free_kvs ++ free_tvs)
                                       ; return tvs }
 
         ; mb_doc' <- rnMbLHsDoc mb_doc

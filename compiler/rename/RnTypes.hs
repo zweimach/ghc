@@ -178,7 +178,7 @@ rnHsTyKi isType doc ty@(HsForAllTy Explicit extra forall_tyvars lctxt@(L _ ctxt)
          -- mentioned in the type, and produce a warning if not
          let (kvs, mentioned) = extractHsTysRdrTyVars (tau:ctxt)
              in_type_doc = ptext (sLit "In the type") <+> quotes (ppr ty)
-       ; warnUnusedForAlls (in_type_doc $$ docOfHsDocContext doc) forall_tyvars mentioned
+       ; warnUnusedForAlls (in_type_doc $$ docOfHsDocContext doc) forall_tyvars (kvs ++ mentioned)
 
        ; rnForAll doc Explicit extra kvs forall_tyvars lctxt tau }
 
@@ -823,8 +823,12 @@ warnUnusedForAlls in_doc bound mentioned_rdrs
   = whenWOptM Opt_WarnUnusedMatches $
     mapM_ add_warn bound_but_not_used
   where
+    bound_tv_kinds     = [ k | L _ (KindedTyVar _ k) <- hsQTvExplicit bound ]
+    (kvs, _empty)      = foldr extract_lkind ([], []) bound_tv_kinds
+    all_mentioned      = kvs ++ mentioned_rdrs
+    
     bound_names        = hsLTyVarLocNames bound
-    bound_but_not_used = filterOut ((`elem` mentioned_rdrs) . unLoc) bound_names
+    bound_but_not_used = filterOut ((`elem` all_mentioned) . unLoc) bound_names
 
     add_warn (L loc tv)
       = addWarnAt loc $
@@ -953,9 +957,9 @@ extract_mb _ Nothing  acc = acc
 extract_mb f (Just x) acc = f x acc
 
 extract_lkind :: LHsType RdrName -> FreeKiTyVars -> FreeKiTyVars
-extract_lkind kind (acc_kvs, acc_tvs) = case extract_lty kind ([], acc_kvs) of
-                                          (_, res_kvs) -> (res_kvs, acc_tvs)
-                                        -- Kinds shouldn't have sort signatures!
+extract_lkind kind (acc_kvs, acc_tvs)
+  = case extract_lty kind ([], acc_kvs) of
+      (res_kkvs, res_kvs) -> (res_kkvs ++ res_kvs, acc_tvs)
 
 extract_lty :: LHsType RdrName -> FreeKiTyVars -> FreeKiTyVars
 extract_lty (L _ ty) acc

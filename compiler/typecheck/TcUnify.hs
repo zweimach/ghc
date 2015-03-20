@@ -1283,6 +1283,7 @@ matchExpectedFunKind ty = go
         new_flexi | is_return = newReturnTyVarTy liftedTypeKind
                   | otherwise = newMetaKindVar
 
+-- TODO (RAE): Move this to TcHsType, exposing uType via some interface.
 checkExpectedKind :: TcType               -- the type whose kind we're checking
                   -> TcKind               -- the known kind of that type, k
                   -> TcKind               -- the expected kind, exp_kind
@@ -1311,19 +1312,23 @@ checkExpectedKind ty act_kind exp_kind
                 -> TcM ( TcType   -- the inst'ed type
                        , TcKind ) -- its new kind
     instantiate ty act_ki exp_ki
-      = let (act_tvs, act_inner_ki) = splitForAllTysInvisible act_ki
-            (exp_tvs, _)            = splitForAllTysInvisible exp_ki
-            num_to_inst = length act_tvs - length exp_tvs
-               -- NB: splitAt is forgiving with invalid numbers
-            (inst_tvs, leftover_tvs) = splitAt num_to_inst act_tvs
-        in
-        if num_to_inst <= 0 then return (ty, act_ki)
-        else
-        do { (subst, insted_tvs) <- tcInstTyCoVars AppOrigin inst_tvs
-           ; let args = mkTyCoVarTys insted_tvs
-           ; traceTc "instantiating implicit dependent vars:"
-               (vcat $ zipWith (\tv arg -> ppr tv <+> text ":=" <+> ppr arg)
-                               inst_tvs args)
-           ; let rebuilt_act_ki = mkInvForAllTys leftover_tvs act_inner_ki
-                 act_ki' = substTy subst rebuilt_act_ki
-           ; return (mkNakedAppTys ty args, act_ki') }
+      = let (exp_bndrs, _) = splitForAllTysInvisible exp_ki in
+        instantiateTyN AppOrigin (length exp_bndrs) ty act_ki
+
+-- | Instantiate a type to have at most @n@ invisible arguments.
+instantiateTyN :: CtOrigin
+               -> Int    -- ^ @n@
+               -> TcType -- ^ the type
+               -> TcKind -- ^ its kind
+               -> TcM (TcType, TcKind)   -- ^ The inst'ed type with kind
+instantiateTyN orig n ty ki
+  = let (bndrs, inner_ki)            = splitForAllTysInvisible ki
+        num_to_inst                  = length bndrs - n
+           -- NB: splitAt is forgiving with invalid numbers
+        (inst_bndrs, leftover_bndrs) = splitAt num_to_inst bndrs
+    in
+    if num_to_inst <= 0 then return (ty, ki) else
+    do { (subst, inst_args) <- tcInstBinders orig inst_bndrs
+       ; let rebuilt_ki = mkForAllTys leftover_bndrs inner_ki
+             ki'        = substTy subst rebuilt_ki
+       ; return (mkNakedAppTys ty inst_args, ki') }

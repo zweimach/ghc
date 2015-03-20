@@ -65,7 +65,7 @@ module Type (
         mkFamilyTyConApp,
         isDictLikeTy,
         mkEqPred, mkCoerciblePred, mkEqPredRole,
-        mkPrimEqPred, mkReprPrimEqPred,
+        mkPrimEqPred, mkReprPrimEqPred, mkPrimEqPredRole,
         equalityTyCon,
         mkHeteroPrimEqPred, mkHeteroReprPrimEqPred,
         mkClassPred,
@@ -1295,17 +1295,19 @@ filterInvisibles tc xs = [ x | (x, bndr) <- zip xs bndrs
   where
     (bndrs, _) = splitForAllTys (tyConKind tc)
 
--- like splitForAllTys, but returns only *invisible* variables
-splitForAllTysInvisible :: Type -> ([TyCoVar], Type)
+-- like splitForAllTys, but returns only *invisible* binders, including constraints
+splitForAllTysInvisible :: Type -> ([Binder], Type)
 splitForAllTysInvisible ty = split ty ty []
    where
-     split orig_ty ty tvs
-       | Just ty' <- coreView ty = split orig_ty ty' tvs
-     split _       (ForAllTy bndr ty) tvs
-       | isInvisibleBinder bndr
-       = let tv = binderVar "splitForAllTysInvisible" bndr in
-         split ty ty (tv:tvs)
-     split orig_ty _ tvs      = (reverse tvs, orig_ty)
+     split orig_ty ty bndrs
+       | Just ty' <- coreView ty = split orig_ty ty' bndrs
+     split _       (ForAllTy bndr ty) bndrs
+       |  isInvisibleBinder bndr
+       || isPredTy (binderType bndr)
+       = split ty ty (bndr:bndrs)
+
+     split orig_ty _ bndrs
+       = (reverse bndrs, orig_ty)
 
 tyConBinders :: TyCon -> [Binder]
 tyConBinders = fst . splitForAllTys . tyConKind
@@ -1545,6 +1547,12 @@ mkEqPredRole :: Role -> Type -> Type -> PredType
 mkEqPredRole Nominal          = mkEqPred
 mkEqPredRole Representational = mkCoerciblePred
 mkEqPredRole Phantom          = panic "mkEqPredRole phantom"
+
+-- | Makes a lifted equality predicate at the given role
+mkPrimEqPredRole :: Role -> Type -> Type -> PredType
+mkPrimEqPredRole Nominal          = mkPrimEqPred
+mkPrimEqPredRole Representational = mkReprPrimEqPred
+mkPrimEqPredRole Phantom          = panic "mkPrimEqPredRole phantom"
 
 -- | Creates a primitive type equality predicate.
 -- Invariant: the types are not Coercions

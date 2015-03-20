@@ -1064,7 +1064,7 @@ kick_out tclvl new_frb new_tv (IC { inert_eqs      = tv_eqs
           | can_rewrite ev
           = case eq_rel of
               NomEq  -> not (rhs_ty `eqType` mkOnlyTyVarTy new_tv)
-              ReprEq -> isTyVarExposed new_tv rhs_ty
+              ReprEq -> not (isTyVarExposed new_tv rhs_ty)
 
           | otherwise
           = True

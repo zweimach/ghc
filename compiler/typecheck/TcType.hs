@@ -83,6 +83,7 @@ module TcType (
   orphNamesOfTypes, orphNamesOfCoCon,
   getDFunTyKey,
   evVarPred_maybe, evVarPred,
+  mkEqBoxTy,
 
   ---------------------------------
   -- Predicate types
@@ -178,12 +179,14 @@ import NameSet
 import VarEnv
 import PrelNames
 import TysWiredIn
+import DataCon     ( promoteDataCon )
 import BasicTypes
 import Util
 import Maybes
 import ListSetOps
 import Outputable
 import FastString
+import Pair
 import ErrUtils( Validity(..), isValid )
 
 import Data.IORef
@@ -1575,6 +1578,27 @@ evVarPred var
       Nothing   -> pprPanic "tcEvVarPred" (ppr var <+> ppr (varType var))
  | otherwise
   = varType var
+
+-------------------------------
+-- | This takes @a ~# b@ (or @a ~# R b@) and returns @a ~ b@ (or @Coercible a b@).
+-- c.f. MkCore.mkEqBox
+mkEqBoxTy :: Coercion -> Type
+-- NB: Defined here to avoid module loops with DataCon
+mkEqBoxTy co
+  = ASSERT2( typeKind ty2 `eqType` k
+           , ppr co $$
+             ppr ty1 $$
+             ppr ty2 $$
+             ppr (typeKind ty1) $$
+             ppr (typeKind ty2) )
+    mkTyConApp (promoteDataCon datacon) [k, ty1, ty2, mkCoercionTy co]
+  where (Pair ty1 ty2, role) = coercionKindRole co
+        k = typeKind ty1
+        datacon = case role of
+            Nominal ->          eqBoxDataCon
+            Representational -> coercibleDataCon
+            Phantom ->
+              pprPanic "mkEqBoxTy does not support boxing phantom coercions" (ppr co)
 
 ------------------
 -- | When inferring types, should we quantify over a given predicate?
