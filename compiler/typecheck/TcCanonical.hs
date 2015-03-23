@@ -791,7 +791,8 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
                              [ ( mkTcEqPredBR boxity r ty1 ty2
                                , EvCoercion (mkTcNthCo i ev_co) )
                              | (r, ty1, ty2, i) <- zip4 tc_roles tys1 tys2 [0..]
-                             , r /= Phantom ]
+                             , r /= Phantom
+                             , not (isCoercionTy ty1) && not (isCoercionTy ty2) ]
               ; emitWorkNC given_evs }
   where
     boxity   = getEqPredBoxity (ctEvPred ev)

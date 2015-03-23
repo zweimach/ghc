@@ -395,7 +395,6 @@ readMetaTyVar tyvar = ASSERT2( isMetaTyVar tyvar, ppr tyvar )
 isFilledMetaTyVar :: TyVar -> TcM Bool
 -- True of a filled-in (Indirect) meta type variable
 isFilledMetaTyVar tv
-  | not (isTcTyVar tv) = return False
   | MetaTv { mtv_ref = ref } <- tcTyVarDetails tv
   = do  { details <- readMutVar ref
         ; return (isIndirect details) }
@@ -404,7 +403,6 @@ isFilledMetaTyVar tv
 isUnfilledMetaTyVar :: TyVar -> TcM Bool
 -- True of a un-filled-in (Flexi) meta type variable
 isUnfilledMetaTyVar tv
-  | not (isTcTyVar tv) = return False
   | MetaTv { mtv_ref = ref } <- tcTyVarDetails tv
   = do  { details <- readMutVar ref
         ; return (isFlexi details) }
@@ -766,8 +764,7 @@ zonkQuantifiedTyCoVar tv = left_only `liftM` zonkQuantifiedTyCoVarOrType tv
 zonkQuantifiedTyCoVarOrType :: TcTyCoVar -> TcM (Either TcTyCoVar TcType)
 zonkQuantifiedTyCoVarOrType tv
   | isTyVar tv
-  = ASSERT2( isTcTyVar tv, ppr tv ) 
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
       SkolemTv {} -> do { kind <- zonkTcType (tyVarKind tv)
                         ; return $ Left $ setTyVarKind tv kind }
         -- It might be a skolem type variable, 

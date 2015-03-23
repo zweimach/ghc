@@ -71,7 +71,7 @@ module Var (
 #include "HsVersions.h"
 
 import {-# SOURCE #-}   TyCoRep( Type, Kind )
-import {-# SOURCE #-}   TcType( TcTyVarDetails, pprTcTyVarDetails )
+import {-# SOURCE #-}   TcType( TcTyVarDetails, pprTcTyVarDetails, vanillaSkolemTv )
 import {-# SOURCE #-}   IdInfo( IdDetails, IdInfo, coVarDetails, isCoVarDetails, vanillaIdInfo, pprIdDetails )
 
 import Name hiding (varName)
@@ -339,6 +339,7 @@ mkTcTyVar name kind details
 
 tcTyVarDetails :: TyVar -> TcTyVarDetails
 tcTyVarDetails (TcTyVar { tc_tv_details = details }) = details
+tcTyVarDetails (TyVar {})                            = vanillaSkolemTv
 tcTyVarDetails var = pprPanic "tcTyVarDetails" (ppr var <+> dcolon <+> ppr (tyVarKind var))
 
 setTcTyVarDetails :: TyVar -> TcTyVarDetails -> TyVar

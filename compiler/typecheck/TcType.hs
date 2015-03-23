@@ -696,8 +696,7 @@ exactTyCoVarsOfTypes tys = mapUnionVarSet exactTyCoVarsOfType tys
 
 isTouchableOrFmv :: TcLevel -> TcTyVar -> Bool
 isTouchableOrFmv ctxt_tclvl tv
-  = ASSERT2( isTcTyVar tv, ppr tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
       MetaTv { mtv_tclvl = tv_tclvl, mtv_info = info }
         -> ASSERT2( checkTcLevelInvariant ctxt_tclvl tv_tclvl,
                     ppr tv $$ ppr tv_tclvl $$ ppr ctxt_tclvl )
@@ -709,8 +708,7 @@ isTouchableOrFmv ctxt_tclvl tv
 isTouchableMetaTyVar :: TcLevel -> TcTyVar -> Bool
 isTouchableMetaTyVar ctxt_tclvl tv
   | isTyVar tv
-  = ASSERT2( isTcTyVar tv, ppr tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
       MetaTv { mtv_tclvl = tv_tclvl }
         -> ASSERT2( checkTcLevelInvariant ctxt_tclvl tv_tclvl,
                     ppr tv $$ ppr tv_tclvl $$ ppr ctxt_tclvl )
@@ -721,8 +719,7 @@ isTouchableMetaTyVar ctxt_tclvl tv
 isFloatedTouchableMetaTyVar :: TcLevel -> TcTyVar -> Bool
 isFloatedTouchableMetaTyVar ctxt_tclvl tv
   | isTyVar tv
-  = ASSERT2( isTcTyVar tv, ppr tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
       MetaTv { mtv_tclvl = tv_tclvl } -> tv_tclvl `strictlyDeeperThan` ctxt_tclvl
       _ -> False
   | otherwise = False
@@ -741,36 +738,31 @@ isTyConableTyVar tv
         -- with a type constructor application; in particular,
         -- not a SigTv
   | isTyVar tv
-  = ASSERT( isTcTyVar tv)
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
         MetaTv { mtv_info = SigTv } -> False
         _                           -> True
   | otherwise = True
 
 isFmvTyVar tv
-  = ASSERT2( isTcTyVar tv, ppr tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
         MetaTv { mtv_info = FlatMetaTv } -> True
         _                                -> False
 
 -- | True of both given and wanted flatten-skolems (fak and usk)
 isFlattenTyVar tv
-  = ASSERT2( isTcTyVar tv, ppr tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
         FlatSkol {}                      -> True
         MetaTv { mtv_info = FlatMetaTv } -> True
         _                                -> False
 
 -- | True of FlatSkol skolems only
 isFskTyVar tv
-  = ASSERT2( isTcTyVar tv, ppr tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
         FlatSkol {} -> True
         _           -> False
 
 isSkolemTyVar tv
-  = ASSERT2( isTcTyVar tv, ppr tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
         MetaTv {} -> False
         _other    -> True
 
@@ -779,23 +771,20 @@ isSkolemTyCoVar tv
 
 isOverlappableTyVar tv
   | isTyVar tv
-  = ASSERT( isTcTyVar tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
         SkolemTv overlappable -> overlappable
         _                     -> False
   | otherwise = False
 
 isMetaTyVar tv
   | isTyVar tv
-  = ASSERT2( isTcTyVar tv, ppr tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
         MetaTv {} -> True
         _         -> False
   | otherwise = False
 
 isReturnTyVar tv
-  = ASSERT( isTcTyVar tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
       MetaTv { mtv_info = ReturnTv } -> True
       _                              -> False
 
@@ -806,8 +795,7 @@ isReturnTyVar tv
 -- the sense that they stand for an as-yet-unknown type
 isAmbiguousTyVar tv
   | isTyVar tv
-  = ASSERT2( isTcTyVar tv, ppr tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
         MetaTv {}     -> True
         RuntimeUnk {} -> True
         _             -> False
@@ -819,43 +807,37 @@ isMetaTyVarTy _            = False
 
 metaTyVarInfo :: TcTyVar -> MetaInfo
 metaTyVarInfo tv
-  = ASSERT( isTcTyVar tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
       MetaTv { mtv_info = info } -> info
       _ -> pprPanic "metaTyVarInfo" (ppr tv)
 
 metaTyVarTcLevel :: TcTyVar -> TcLevel
 metaTyVarTcLevel tv
-  = ASSERT( isTcTyVar tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
       MetaTv { mtv_tclvl = tclvl } -> tclvl
       _ -> pprPanic "metaTyVarTcLevel" (ppr tv)
 
 metaTyVarTcLevel_maybe :: TcTyVar -> Maybe TcLevel
 metaTyVarTcLevel_maybe tv
-  = ASSERT( isTcTyVar tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
       MetaTv { mtv_tclvl = tclvl } -> Just tclvl
       _                            -> Nothing
 
 setMetaTyVarTcLevel :: TcTyVar -> TcLevel -> TcTyVar
 setMetaTyVarTcLevel tv tclvl
-  = ASSERT( isTcTyVar tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
       details@(MetaTv {}) -> setTcTyVarDetails tv (details { mtv_tclvl = tclvl })
       _ -> pprPanic "metaTyVarTcLevel" (ppr tv)
 
 isSigTyVar :: Var -> Bool
 isSigTyVar tv
-  = ASSERT( isTcTyVar tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
         MetaTv { mtv_info = SigTv } -> True
         _                           -> False
 
 metaTvRef :: TyVar -> IORef MetaDetails
 metaTvRef tv
-  = ASSERT2( isTcTyVar tv, ppr tv )
-    case tcTyVarDetails tv of
+  = case tcTyVarDetails tv of
         MetaTv { mtv_ref = ref } -> ref
         _ -> pprPanic "metaTvRef" (ppr tv)
 
@@ -1369,7 +1351,7 @@ occurCheckExpand dflags tv ty
   | fast_check ty = return ty
   | otherwise     = go ty
   where
-    details = ASSERT2( isTcTyVar tv, ppr tv ) tcTyVarDetails tv
+    details = tcTyVarDetails tv
 
     impredicative = canUnifyWithPolyType dflags details
 

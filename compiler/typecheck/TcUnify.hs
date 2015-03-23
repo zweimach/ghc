@@ -1053,10 +1053,10 @@ checkTauTvUpdate dflags origin tv ty
                    _ -> return Nothing
             | otherwise   -> return (Just (ty1, co_k)) }
   where
-    kind_origin = KindEqOrigin (mkOnlyTyVarTy tv) ty origin
-    details = ASSERT2( isMetaTyVar tv, ppr tv ) tcTyVarDetails tv
-    info         = mtv_info details
-    is_return_tv = case info of { ReturnTv -> True; _ -> False }
+    kind_origin   = KindEqOrigin (mkOnlyTyVarTy tv) ty origin
+    details       = tcTyVarDetails tv
+    info          = mtv_info details
+    is_return_tv  = case info of { ReturnTv -> True; _ -> False }
     impredicative = canUnifyWithPolyType dflags details
 
     defer_me :: TcType -> Bool
@@ -1205,9 +1205,6 @@ data LookupTyVarResult  -- The result of a lookupTcTyVar call
 
 lookupTcTyVar :: TcTyVar -> TcM LookupTyVarResult
 lookupTcTyVar tyvar
-  | not (isTcTyVar tyvar) -- See Note [Non-TcTyVars in TcUnify]
-  = return (Unfilled vanillaSkolemTv)
-
   | MetaTv { mtv_ref = ref } <- details
   = do { meta_details <- readMutVar ref
        ; case meta_details of
@@ -1221,8 +1218,7 @@ lookupTcTyVar tyvar
   | otherwise
   = return (Unfilled details)
   where
-    details = ASSERT2( isTcTyVar tyvar, ppr tyvar )
-              tcTyVarDetails tyvar
+    details = tcTyVarDetails tyvar
 
 -- | Fill in a meta-tyvar
 updateMeta :: TcTyVar            -- ^ tv to fill in, tv :: k1

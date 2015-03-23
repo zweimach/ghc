@@ -53,6 +53,17 @@ Current sol'n: make these things BuiltInSyntax.
 changed from a proper arg to an existential covar arg. Does this matter?
 (Other uses of dataConRepArgTys are OK.)
 
+- Writing a bogus GADT return type causes a panic. The problem is that
+checkValidDataCon is supposed to check if rejigConRes was valid. To do
+this, checkValidDataCon needs the user-specified result type. Normally,
+this is retrieved from dataConOrigResTy. The problem is that, now, 
+the dataConOrigResTy is substed by the kind substitution produced in
+rejigConRes. This is an ugly circular dependency. We could (1) store the
+original, unsubsted result ty in the DataCon for just this reason, or
+(2) install lots of ugly plumbing in TcTyClsDecls to carry the unsubsted
+result ty, or (3) do something else. I want SPJ's input, as both (1)
+and (2) are terrible.
+
 fix:
   - Deferred kind errors! Right now, evBindsSubst just silently fails,
     creating core-lint errors. Proposed solution: box the equality.
@@ -100,6 +111,12 @@ fix:
     assumes that things aren't phantoms.
 
     Search for "very wrong" in TcFlatten.
+
+    More thoughts: When flattening a telescope of arguments, we could track
+    the changes in earlier arguments and simply emit Wanted coercions for
+    the remaining ones. That is: flatten, and then stick on a cast by a
+    fresh wanted coercion, built from the changes made in the earlier,
+    dependent arguments.
 
   - I think we can remove TcCoercions, by adding a new EvTerm that contains
     a TcEvBinds for local assumptions. The only point of TcCoercions is
@@ -157,10 +174,7 @@ fix:
     merge matchExpectedFunKind with a type-level thing.
   - APromotionErr (?)
   - Remove TcRnTypes.hs-boot. See comment near top of TcEvidence.
-  - promotion of GADT datacons (convert ~ to ~#)
-  - no check for DataKinds any more when using a promoted tycon
   - no check for silliness like `data T :: T -> *`.
-  - abstractType (in vectorise)
   - :kind in GHCi is unhappy with 
     data Sg (s :: *) (t :: TyFun s * -> *) :: * where
       (:&) :: Pi (fst :: s) -> t @@ fst -> Sg s t
@@ -169,8 +183,6 @@ fix:
   - the kind-var finder in zonkRule only looks in tyvars. look in covars? how
     to identify type-level covars? does this matter?
   - add VisibilityFlag to Anon... see if we can sort out some constraint/* nonsense. Also, add relevance info to Anon, and work Binders into Lam and Case. This also allows us to get rid of DFunTy in iface/* stuff.
-  - somehow, we lost a zonk somewhere. The problem is that in, say, typecheck/should_fail/T7856, we look at types that don't have their invariants established, because zonkTcType doesn't establish invariants. I need SPJ's help with getting this right.
-    IDEA: It seems that the problem is just mkNakedTyConApp. If TyCon were a bit lazier (that is, if one could tell FunTyCon separate from other TyCons without knowing which other one we have) then we could call mkTyConApp within a knot. This might be better.
   - The parsing story is terrible terrible. Fix!
   - it should never be possible to get a R or N coercion from a P one.
     yet, this is currently possible with nthco-forall and kindco. investigate.
