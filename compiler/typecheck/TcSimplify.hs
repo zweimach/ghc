@@ -259,6 +259,43 @@ To infer f's type we do the following:
 This ensures that the implication constraint we generate, if any,
 has a strictly-increased level compared to the ambient level outside
 the let binding.
+
+Note [Leftover wanteds]
+~~~~~~~~~~~~~~~~~~~~~~~
+In the middle of simplifyInfer, we use the solver to try to figure
+out the correct set of constraints to quantify over. This yields the
+quant_pred_candidates that get sent to decideQuantification. However,
+this run of the solver might create new coercion variables that then
+leak into types solved by unification. (Note that the solver run is
+Impure -- we really do want unification to happen here.) So, the Wanted
+constraints that the solver outputs cannot simply be discarded. There
+are three different types of Wanteds here:
+
+ 1) Wanteds that should be quantified over, as decided by
+    decideQuantification.
+
+ 2) Wanteds included in simple_wanteds that should not be quantified over.
+
+ 3) Fresh Wanteds, not in either of the two sets above.
+
+Each of these three needs a final destination, lest we leave unbound
+coercion variables in the produced Core. Here is where they go:
+
+ 1) These are quantified over, in the bound_theta_vars included in the
+    ic_given field of the final Implic.
+
+ 2) These are the spoiled (that is, not fresh) leftovers. We don't need
+    to propagate them further, as they're already included in simple_wanteds.
+    So we filter them out when setting fresh_leftovers.
+
+ 3) These must be includied in the ic_wanted field of the Implic. They
+    are proessed by prepare_leftovers. Naturally, we wish to prepare only
+    the fresh leftovers.
+
+NB: If any spoiled leftovers end up in the soup, you can get <<loop>> in
+most running programs, as constraints get defined in terms of themselves;
+the solver doesn't notice the duplication.
+
 -}
 
 simplifyInfer :: TcLevel          -- Used when generating the constraints
@@ -401,9 +438,16 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
            -- promoteTyVar ignores coercion variables
        ; mapM_ (promoteTyVar outer_tclvl) (varSetElems promote_tvs)
 
-         -- See Note [Promoting coercion variables]
-       ; let leftover_wanteds = prepare_leftovers quant_pred_candidates
-                                                  leftover_vars []
+           -- See Note [Leftover wanteds]
+       ; let simple_wanted_vs = mkVarSet $
+                                map (ctEvId . ctEvidence) $
+                                bagToList simple_wanteds
+
+             fresh_leftovers  = filterOut (`elemVarSet` simple_wanted_vs)
+                                          leftover_vars
+
+             leftover_wanteds = prepare_leftovers quant_pred_candidates
+                                                  fresh_leftovers []
                -- leftover_vars is in the same order as quant_pred_cands.
                -- we want all quant_pred_cands mentioned in leftover_vars.
              prepare_leftovers _        []     acc = acc
@@ -416,6 +460,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                                                 (ppr quant_pred_candidates $$
                                                  ppr leftover_vars)
                                                   
+         -- See Note [Promoting coercion variables]
              (promote_wanteds, leave_wanteds)
                = partitionBag ((`elemVarSet` promote_tvs) . ctEvId . ctEvidence)
                               (simple_wanteds `unionBags`
