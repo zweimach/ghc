@@ -1000,11 +1000,15 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
 nicer_to_update_tv1 :: TcTyVar -> MetaInfo -> MetaInfo -> Bool
 nicer_to_update_tv1 _   _     SigTv = True
 nicer_to_update_tv1 _   SigTv _     = False
-nicer_to_update_tv1 tv1 _     _     = isSystemName (Var.varName tv1)
         -- Try not to update SigTvs; and try to update sys-y type
         -- variables in preference to ones gotten (say) by
         -- instantiating a polymorphic function with a user-written
         -- type sig
+nicer_to_update_tv1 _   ReturnTv _        = True
+nicer_to_update_tv1 _   _        ReturnTv = False
+        -- ReturnTvs are really holes just begging to be filled in.
+        -- Let's oblige.
+nicer_to_update_tv1 tv1 _     _     = isSystemName (Var.varName tv1)
 
 ----------------
 checkTauTvUpdate :: DynFlags
