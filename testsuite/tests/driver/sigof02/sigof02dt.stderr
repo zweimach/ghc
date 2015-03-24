@@ -1,6 +1,6 @@
 
 Double.hs:11:20:
-    Couldn't match expected type ‘MapAsSet.Map _k _a’
+    Couldn't match expected type ‘MapAsSet.Map k0 a0’
                 with actual type ‘Map.Map Int [Char]’
     NB: ‘MapAsSet.Map’ is defined in ‘MapAsSet’
         ‘Map.Map’ is defined in ‘Map’

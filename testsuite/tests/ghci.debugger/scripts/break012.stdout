@@ -3,14 +3,14 @@ _result :: (r, a1 -> a1, (), a -> a -> a) = _
 Stopped at break012.hs:5:10-18
 _result :: (r, a1 -> a1, (), a -> a -> a) = _
 a :: r = _
-b :: _a -> _a = _
+b :: a0 -> a0 = _
 c :: () = _
 d :: a -> a -> a = _
 a :: r
-b :: _a -> _a
+b :: a00 -> a00
 c :: ()
 d :: a -> a -> a
 a = (_t1::r)
-b = (_t2::_a -> _a)
+b = (_t2::a0 -> a0)
 c = (_t3::())
 d = (_t4::a -> a -> a)

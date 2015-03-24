@@ -1,18 +1,18 @@
 
 mc25.hs:9:24:
-    No instance for (Functor _t1) arising from a use of ‘fmap’
+    No instance for (Functor t1) arising from a use of ‘fmap’
     Possible fix:
-      add (Functor _t1) to the context of
-        a type expected by the context: (a -> b) -> _t1 a -> _t1 b
-        or the inferred type of z :: [_t1 _t]
+      add (Functor t1) to the context of
+        a type expected by the context: (a -> b) -> t1 a -> t1 b
+        or the inferred type of z :: [t1 t0]
     In the expression: fmap
     In a stmt of a monad comprehension: then group by x using take
     In the expression: [x | x <- [1 .. 10], then group by x using take]
 
 mc25.hs:9:46:
-    Couldn't match type ‘a -> _t’ with ‘Int’
-       Expected type: (a -> _t) -> [a] -> [_t1 a]
-         Actual type: Int -> [_t1 a] -> [_t1 a]
-    Relevant bindings include z :: [_t1 _t] (bound at mc25.hs:9:1)
+    Couldn't match type ‘a -> t0’ with ‘Int’
+       Expected type: (a -> t0) -> [a] -> [t1 a]
+         Actual type: Int -> [t1 a] -> [t1 a]
+    Relevant bindings include z :: [t1 t0] (bound at mc25.hs:9:1)
     In the expression: take
     In a stmt of a monad comprehension: then group by x using take

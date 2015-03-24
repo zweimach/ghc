@@ -1,8 +1,8 @@
 TYPE SIGNATURES
   foo ::
-    forall _s _b _chain.
-    Zork _s (Z [Char]) _b =>
-    Q _s (Z [Char]) _chain -> ST _s ()
+    forall s0 b0 chain0.
+    Zork s0 (Z [Char]) b0 =>
+    Q s0 (Z [Char]) chain0 -> ST s0 ()
   s :: forall t t1. Q t (Z [Char]) t1 -> Q t (Z [Char]) t1
 TYPE CONSTRUCTORS
   data Q s a chain = Node s a chain

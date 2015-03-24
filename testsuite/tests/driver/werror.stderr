@@ -14,7 +14,7 @@ werror.hs:10:1: Warning: Defined but not used: ‘f’
 
 werror.hs:10:1: Warning:
     Top-level binding with no type signature:
-      f :: forall _r _r1. [_r] -> [_r1]
+      f :: forall r0 r1. [r0] -> [r1]
 
 werror.hs:10:1: Warning:
     Pattern match(es) are overlapped

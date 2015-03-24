@@ -13,4 +13,4 @@ Data.Maybe.maybeToList :: Maybe a -> [a]
 data Maybe a = Nothing | Just a
 -- via readFile
 (True,False)
-id :: _a -> _a
+id :: a0 -> a0

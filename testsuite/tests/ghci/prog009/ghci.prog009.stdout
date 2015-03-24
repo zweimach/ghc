@@ -1,8 +1,8 @@
-nub :: Eq _a => [_a] -> [_a]
+nub :: Eq a0 => [a0] -> [a0]
 "tan"
-nub :: Eq _a => [_a] -> [_a]
+nub :: Eq a0 => [a0] -> [a0]
 "tan"
-nub :: Eq _a => [_a] -> [_a]
+nub :: Eq a0 => [a0] -> [a0]
 A                ( A.hs, interpreted )
-nub :: Eq _a => [_a] -> [_a]
+nub :: Eq a0 => [a0] -> [a0]
 "tan"
