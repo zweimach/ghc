@@ -1292,14 +1292,15 @@ match_decodeDouble _ id_unf fn [xl]
   | Just (MachDouble x) <- exprIsLiteral_maybe id_unf xl
   = case splitFunTy_maybe (idType fn) of
     Just (_, res)
-      | Just [integerTy, intHashTy] <- tyConAppArgs_maybe res
+      | Just [_lev1, _lev2, integerTy, intHashTy] <- tyConAppArgs_maybe res
       -> case decodeFloat (fromRational x :: Double) of
            (y, z) ->
              Just $ mkCoreUbxTup [integerTy, intHashTy]
                                  [Lit (LitInteger y integerTy),
                                   Lit (MachInt (toInteger z))]
     _ ->
-        panic "match_decodeDouble: Id has the wrong type"
+        pprPanic "match_decodeDouble: Id has the wrong type"
+          (ppr fn <+> dcolon <+> ppr (idType fn))
 match_decodeDouble _ _ _ _ = Nothing
 
 match_XToIntegerToX :: Name -> RuleFun

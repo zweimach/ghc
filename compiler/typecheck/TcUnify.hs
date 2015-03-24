@@ -263,7 +263,7 @@ matchExpectedTyConApp tc orig_ty
     -- This happened in Trac #7368
     defer is_return
       = ASSERT2( classifiesTypeWithValues res_kind, ppr tc )
-        do { (k_subst, kvs') <- tcInstTyCoVars (OccurrenceOf (tyConName tc)) kvs
+        do { (k_subst, kvs') <- tcInstTyCoVars TypeLevel kvs
            ; let arg_kinds' = substTys k_subst arg_kinds
                  kappa_tys  = mkOnlyTyVarTys kvs'
            ; tau_tys <- mapM (newMaybeReturnTyVarTy is_return) arg_kinds'
@@ -482,7 +482,7 @@ tc_sub_type_ds origin ctxt ty_actual ty_expected
      -- TODO (RAE): Does this work with contravariance in forall types?
   | (tvs, theta, in_rho) <- tcSplitSigmaTy ty_actual
   , not (null tvs && null theta)
-  = do { (subst, tvs') <- tcInstTyCoVars origin tvs
+  = do { (subst, tvs') <- tcInstTyCoVars TypeLevel tvs
        ; let tys'    = mkTyCoVarTys tvs'
              theta'  = substTheta subst theta
              in_rho' = substTy subst in_rho
@@ -1313,22 +1313,21 @@ checkExpectedKind ty act_kind exp_kind
                        , TcKind ) -- its new kind
     instantiate ty act_ki exp_ki
       = let (exp_bndrs, _) = splitForAllTysInvisible exp_ki in
-        instantiateTyN AppOrigin (length exp_bndrs) ty act_ki
+        instantiateTyN (length exp_bndrs) ty act_ki
 
 -- | Instantiate a type to have at most @n@ invisible arguments.
-instantiateTyN :: CtOrigin
-               -> Int    -- ^ @n@
+instantiateTyN :: Int    -- ^ @n@
                -> TcType -- ^ the type
                -> TcKind -- ^ its kind
                -> TcM (TcType, TcKind)   -- ^ The inst'ed type with kind
-instantiateTyN orig n ty ki
+instantiateTyN n ty ki
   = let (bndrs, inner_ki)            = splitForAllTysInvisible ki
         num_to_inst                  = length bndrs - n
            -- NB: splitAt is forgiving with invalid numbers
         (inst_bndrs, leftover_bndrs) = splitAt num_to_inst bndrs
     in
     if num_to_inst <= 0 then return (ty, ki) else
-    do { (subst, inst_args) <- tcInstBinders orig inst_bndrs
+    do { (subst, inst_args) <- tcInstBinders inst_bndrs
        ; let rebuilt_ki = mkForAllTys leftover_bndrs inner_ki
              ki'        = substTy subst rebuilt_ki
        ; return (mkNakedAppTys ty inst_args, ki') }

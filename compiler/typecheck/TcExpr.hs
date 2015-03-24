@@ -730,10 +730,10 @@ tcExpr expr@(RecordUpd record_expr rbinds _ _ _) res_ty
                 | is_fixed_tv tv   -- Same as result type
                 = return (extendTCvSubst subst tv result_inst_ty, result_inst_ty)
                 | otherwise        -- Fresh type, of correct kind
-                = do { (subst', new_tv) <- tcInstTyCoVarX RecordUpdOrigin subst tv
+                = do { (subst', new_tv) <- tcInstTyCoVarX TypeLevel subst tv
                      ; return (subst', mkTyCoVarTy new_tv) }
 
-        ; (result_subst, con1_tvs') <- tcInstTyCoVars RecordUpdOrigin con1_tvs
+        ; (result_subst, con1_tvs') <- tcInstTyCoVars TypeLevel con1_tvs
         ; let result_inst_tys = mkOnlyTyVarTys con1_tvs'
 
         ; (scrut_subst, scrut_inst_tys) <- mapAccumLM mk_inst_ty emptyTCvSubst
@@ -1135,7 +1135,7 @@ tc_infer_id orig id_name
        --   * No need to deeply instantiate because type has all foralls at top
        = do { let wrap_id           = dataConWrapId con
                   (tvs, theta, rho) = tcSplitSigmaTy (idType wrap_id)
-            ; (subst, tvs') <- tcInstTyCoVars orig tvs
+            ; (subst, tvs') <- tcInstTyCoVars TypeLevel tvs
             ; let tys'   = mkTyCoVarTys tvs'
                   theta' = substTheta subst theta
                   rho'   = substTy subst rho

@@ -91,24 +91,24 @@ c4 :: forall a b. C a b => forall a1. a1 -> b
 -- test :browse! <target> relative to different contexts
 :browse! Ghci025C -- from *Ghci025C>
 -- defined locally
-g :: forall _r. Num _r => _r -> _r
-h :: forall _r. Integral _r => _r -> _r
+g :: forall a0. Num a0 => a0 -> a0
+h :: forall a0. Integral a0 => a0 -> a0
 -- imported via Ghci025D
-f :: forall _r. Num _r => _r -> _r
+f :: forall a0. Num a0 => a0 -> a0
 :browse! Ghci025C -- from *Ghci025B>, after :add Ghci025B
 -- imported via Ghci025C
-g :: forall _r. Num _r => _r -> _r
-h :: forall _r. Integral _r => _r -> _r
-f :: forall _r. Num _r => _r -> _r
+g :: forall a0. Num a0 => a0 -> a0
+h :: forall a0. Integral a0 => a0 -> a0
+f :: forall a0. Num a0 => a0 -> a0
 :browse! Ghci025C -- from *Ghci025C>, after :m *Ghci025C
 -- defined locally
-g :: forall _r. Num _r => _r -> _r
-h :: forall _r. Integral _r => _r -> _r
+g :: forall a0. Num a0 => a0 -> a0
+h :: forall a0. Integral a0 => a0 -> a0
 -- imported via Ghci025D
-f :: forall _r. Num _r => _r -> _r
+f :: forall a0. Num a0 => a0 -> a0
 :browse! Ghci025C -- from *Ghci025D>, after :m *Ghci025D
 -- not currently imported
-Ghci025C.g :: forall _r. Num _r => _r -> _r
-Ghci025C.h :: forall _r. Integral _r => _r -> _r
+Ghci025C.g :: forall a0. Num a0 => a0 -> a0
+Ghci025C.h :: forall a0. Integral a0 => a0 -> a0
 -- defined locally
-f :: forall _r. Num _r => _r -> _r
+f :: forall a0. Num a0 => a0 -> a0

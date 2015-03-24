@@ -563,20 +563,20 @@ newOpenReturnTyVar
 -- TODO (RAE): This, and all call sites, will need to be updated when
 -- there's more visibility stuff. Should probably take a list of binders
 -- and args. Or something.
-tcInstTyCoVars :: CtOrigin -> [TyCoVar] -> TcM (TCvSubst, [TcTyCoVar])
+tcInstTyCoVars :: TypeOrKind -> [TyCoVar] -> TcM (TCvSubst, [TcTyCoVar])
 -- Instantiate with META type variables
 -- Note that this works for a sequence of kind, type, and coercion variables
 -- variables.  Eg    [ (k:*), (a:k->k) ]
 --             Gives [ (k7:*), (a8:k7->k7) ]
-tcInstTyCoVars orig = mapAccumLM (tcInstTyCoVarX orig) emptyTCvSubst
+tcInstTyCoVars t_or_k = mapAccumLM (tcInstTyCoVarX t_or_k) emptyTCvSubst
     -- emptyTCvSubst has an empty in-scope set, but that's fine here
     -- Since the tyvars are freshly made, they cannot possibly be
     -- captured by any existing for-alls.
 
-tcInstTyCoVarX :: CtOrigin -> TCvSubst -> TyCoVar -> TcM (TCvSubst, TcTyCoVar)
+tcInstTyCoVarX :: TypeOrKind -> TCvSubst -> TyCoVar -> TcM (TCvSubst, TcTyCoVar)
 -- Make a new unification variable tyvar whose Name and Kind come from
 -- an existing TyVar. We substitute kind variables in the kind.
-tcInstTyCoVarX origin subst tyvar
+tcInstTyCoVarX t_or_k subst tyvar
   | isTyVar tyvar
   = do  { uniq <- newUnique
                -- See Note [    -- TODO (RAE): Finish this line of comment!
@@ -591,7 +591,13 @@ tcInstTyCoVarX origin subst tyvar
               new_tv = mkTcTyVar name kind details
         ; return (extendTCvSubst subst tyvar (mkOnlyTyVarTy new_tv), new_tv) }
   | otherwise
-  = do { new_cv <- emitWantedEvVar origin (substTy subst (varType tyvar))
+  = do { let pred_ty    = substTy subst (varType tyvar)
+             (act, exp) = getEqPredTys pred_ty
+             origin     = TypeEqOrigin { uo_actual   = exp
+                                       , uo_expected = act
+                                       , uo_thing    = Nothing
+                                       , uo_level    = t_or_k }
+       ; new_cv <- emitWantedEvVar origin pred_ty
          -- can't call unifyType, because we need to return a CoVar,
          -- and unification might result in a TcCoercion that's not a CoVar
          -- See Note [Coercion variables in tcInstTyCoVarX]
@@ -601,23 +607,24 @@ tcInstTyCoVarX origin subst tyvar
 
 -- | This is used to instantiate binders when type-checking *types* only.
 -- Precondition: all binders are invisible.
-tcInstBinders :: CtOrigin -> [Binder] -> TcM (TCvSubst, [TcType])
-tcInstBinders orig = tcInstBindersX orig emptyTCvSubst
+tcInstBinders :: [Binder] -> TcM (TCvSubst, [TcType])
+tcInstBinders = tcInstBindersX emptyTCvSubst
 
 -- | This is used to instantiate binders when type-checking *types* only.
 -- Precondition: all binders are invisible.
-tcInstBindersX :: CtOrigin -> TCvSubst -> [Binder] -> TcM (TCvSubst, [TcType])
-tcInstBindersX orig subst bndrs
-  = do { (subst, args) <- mapAccumLM (tcInstBinderX orig) subst bndrs
+tcInstBindersX :: TCvSubst -> [Binder] -> TcM (TCvSubst, [TcType])
+tcInstBindersX subst bndrs
+  = do { (subst, args) <- mapAccumLM tcInstBinderX subst bndrs
        ; traceTc "instantiating implicit dependent vars:"
            (vcat $ zipWith (\bndr arg -> ppr bndr <+> text ":=" <+> ppr arg)
                            bndrs args)
        ; return (subst, args) }
 
-tcInstBinderX :: CtOrigin -> TCvSubst -> Binder -> TcM (TCvSubst, TcType)
-tcInstBinderX orig subst binder
+-- | Used only in *types*
+tcInstBinderX :: TCvSubst -> Binder -> TcM (TCvSubst, TcType)
+tcInstBinderX subst binder
   | Just tv <- binderVar_maybe binder
-  = do { (subst', tv') <- tcInstTyCoVarX orig subst tv
+  = do { (subst', tv') <- tcInstTyCoVarX KindLevel subst tv
        ; return (subst', mkTyCoVarTy tv') }
 
      -- TODO (RAE): This is special-case handling of promoted, lifted
@@ -626,7 +633,11 @@ tcInstBinderX orig subst binder
   | let ty = substTy subst (binderType binder)
   , Just (boxity, role, k1, k2) <- getEqPredTys_maybe ty
   = ASSERT( boxity == Boxed )   -- unboxed equality is always dependent
-    do { cv <- emitWantedEvVar AppOrigin (mkPrimEqPredRole role k1 k2)
+    do { let origin = TypeEqOrigin { uo_actual   = k1
+                                   , uo_expected = k2
+                                   , uo_thing    = Nothing
+                                   , uo_level    = KindLevel }
+       ; cv <- emitWantedEvVar origin (mkPrimEqPredRole role k1 k2)
        ; let arg' = mkEqBoxTy (mkCoVarCo cv)
        ; return (subst, arg') }
 

@@ -69,7 +69,7 @@ module TcType (
   -- Predicates.
   -- Again, newtypes are opaque
   eqType, eqTypes, cmpType, cmpTypes, eqTypeX,
-  pickyEqType, tcEqType, tcEqKind, tcEqTypeNoKindCheck,
+  pickyEqType, pickyEqTypeVis, tcEqType, tcEqKind, tcEqTypeNoKindCheck,
   isSigmaTy, isRhoTy, isOverloadedTy,
   isDoubleTy, isFloatTy, isIntTy, isWordTy, isStringTy,
   isIntegerTy, isBoolTy, isUnitTy, isCharTy,
@@ -1237,7 +1237,8 @@ tcEqTypeNoKindCheck ty1 ty2 = tc_eq_type ty1 ty2
 
 -- | Worker for 'tcEqType'. No kind check!
 tc_eq_type :: TcType -> TcType -> Bool
-tc_eq_type t1 t2 = tc_eq_type_erased init_env (erase t1) (erase t2)
+tc_eq_type t1 t2 = isNothing $
+                   tc_eq_type_erased init_env (erase t1) (erase t2)
   where
     init_env = mkRnEnv2 $
                mkInScopeSet $
@@ -1245,36 +1246,62 @@ tc_eq_type t1 t2 = tc_eq_type_erased init_env (erase t1) (erase t2)
     erase = eraseType tcView
 
 -- | Real worker for 'tcEqType'. Works on erased types.
-tc_eq_type_erased :: RnEnv2 -> EType -> EType -> Bool
-tc_eq_type_erased = go
+tc_eq_type_erased :: RnEnv2 -> EType -> EType -> Maybe VisibilityFlag
+tc_eq_type_erased = go Visible
   where
-    go env (ETyVarTy tv1)       (ETyVarTy tv2)
-      = rnOccL env tv1 == rnOccR env tv2
-    go _   (ELitTy lit1)        (ELitTy lit2)      = lit1 == lit2
-    go env (EForAllTy (ENamed tv1 k1 vis1) ty1)
-           (EForAllTy (ENamed tv2 k2 vis2) ty2)
-      = go env k1 k2 && go (rnBndr2 env tv1 tv2) ty1 ty2 && vis1 == vis2
-    go env (EForAllTy (EAnon arg1) res1) (EForAllTy (EAnon arg2) res2)
-      = go env arg1 arg2 && go env res1 res2
-    go env (EAppTy s1 k1 t1)    (EAppTy s2 k2 t2)
-      = go env s1 s2 && go env k1 k2 && go env t1 t2
-    go env (ETyConApp tc1 ts1)  (ETyConApp tc2 ts2)
-      = (tc1 == tc2) && gos env ts1 ts2
-    go _   ECoercionTy          ECoercionTy = True
-    go _ _ _ = False
+    go vis env (ETyVarTy tv1)       (ETyVarTy tv2)
+      = check vis $ rnOccL env tv1 == rnOccR env tv2
+        
+    go vis _   (ELitTy lit1)        (ELitTy lit2)
+      = check vis $ lit1 == lit2
+        
+    go vis env (EForAllTy (ENamed tv1 k1 vis1) ty1)
+               (EForAllTy (ENamed tv2 k2 vis2) ty2)
+      = go vis1 env k1 k2 `and_then` go vis (rnBndr2 env tv1 tv2) ty1 ty2
+                          `and_then` check vis (vis1 == vis2)
+    go vis env (EForAllTy (EAnon arg1) res1) (EForAllTy (EAnon arg2) res2)
+      = go vis env arg1 arg2 `and_then` go vis env res1 res2
+    go vis env (EAppTy s1 k1 t1)    (EAppTy s2 k2 t2)
+      = go vis env s1 s2 `and_then` go Invisible env k1 k2
+                         `and_then` go vis env t1 t2
+    go vis env (ETyConApp tc1 ts1)  (ETyConApp tc2 ts2)
+      = check vis (tc1 == tc2) `and_then` gos (tc_vis tc1) env ts1 ts2
+    go _   _   ECoercionTy          ECoercionTy = Nothing
+    go vis _   _                    _           = Just vis
 
-    gos _   []       []       = True
-    gos env (t1:ts1) (t2:ts2) = go env t1 t2 && gos env ts1 ts2
-    gos _ _ _ = False
+    gos _      _   []       []       = Nothing
+    gos (v:vs) env (t1:ts1) (t2:ts2) = go v env t1 t2 `and_then` gos vs env ts1 ts2
+    gos (v:_)  _   _        _        = Just v
+    gos _      _   _        _        = panic "tc_eq_type_erased"
 
-pickyEqType :: TcType -> TcType -> Bool
+    tc_vis :: TyCon -> [VisibilityFlag]
+    tc_vis tc = viss ++ repeat Visible
+       -- the repeat Visible is necessary because tycons can legitimately
+       -- be oversaturated
+      where
+        k          = tyConKind tc
+        (bndrs, _) = splitForAllTys k
+        viss       = map binderVisibility bndrs
+
+    check :: VisibilityFlag -> Bool -> Maybe VisibilityFlag
+    check _   True  = Nothing
+    check vis False = Just vis
+
+    Nothing `and_then` x = x
+    just    `and_then` _ = just
+    infixr 3 `and_then`
+
+pickyEqTypeVis :: TcType -> TcType -> Maybe VisibilityFlag
 -- Check when two types _look_ the same, _including_ synonyms.
 -- So (pickyEqType String [Char]) returns False
 -- This still ignores coercions, because this is used only for printing,
 -- and we omit coercions there.
-pickyEqType ty1 ty2
+-- Returns Nothing for "types equal", or otherwise whether or not the
+-- first difference is in a visible or invisible location.
+pickyEqTypeVis ty1 ty2
   =  tc_eq_type_erased init_env (erase ki1) (erase ki2)
-  && tc_eq_type_erased init_env (erase ty1) (erase ty2)
+     `and_then`
+     tc_eq_type_erased init_env (erase ty1) (erase ty2)
   where
     ki1 = typeKind ty1
     ki2 = typeKind ty2
@@ -1284,6 +1311,13 @@ pickyEqType ty1 ty2
                tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2
 
     erase = eraseType (const Nothing)
+
+    Nothing `and_then` x = x    -- first test succeeded; use second
+    Just _  `and_then` _ = Just Invisible  -- kinds are generally invisible
+
+-- | Like 'pickyEqTypeVis', but returns a Bool for convenience
+pickyEqType :: TcType -> TcType -> Bool
+pickyEqType ty1 ty2 = isNothing $ pickyEqTypeVis ty1 ty2
 
 {-
 Note [Occurs check expansion]

@@ -928,8 +928,9 @@ mkEqInfoMsg :: Ct -> TcType -> TcType -> SDoc
 --        (b) warning about injectivity if both sides are the same
 --            type function application   F a ~ F b
 --            See Note [Non-injective type functions]
+--        (c) warning about -fprint-explicit-kinds if that might be helpful
 mkEqInfoMsg ct ty1 ty2
-  = tyfun_msg $$ ambig_msg
+  = tyfun_msg $$ ambig_msg $$ invis_msg 
   where
     mb_fun1 = isTyFun_maybe ty1
     mb_fun2 = isTyFun_maybe ty2
@@ -937,6 +938,11 @@ mkEqInfoMsg ct ty1 ty2
     ambig_msg | isJust mb_fun1 || isJust mb_fun2 
               = snd (mkAmbigMsg ct)
               | otherwise = empty
+
+    invis_msg | Just Invisible <- pickyEqTypeVis ty1 ty2
+              = text "Use -fprint-explicit-kinds to see the kind arguments"
+              | otherwise
+              = empty
 
     tyfun_msg | Just tc1 <- mb_fun1
               , Just tc2 <- mb_fun2

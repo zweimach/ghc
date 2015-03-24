@@ -692,7 +692,7 @@ tcInferApps ty ki args
 
       | (inv_bndrs, res_k) <- splitForAllTysInvisible fun_kind
       , not (null inv_bndrs)
-      = do { (subst', args') <- tcInstBindersX AppOrigin subst inv_bndrs
+      = do { (subst', args') <- tcInstBindersX subst inv_bndrs
            ; go subst'
                 (mkNakedAppTys fun args')
                 res_k

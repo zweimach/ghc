@@ -608,8 +608,7 @@ instTyCoVars :: [TyCoVar] -> TR (TCvSubst, [TcTyCoVar])
 -- Instantiate fresh mutable type variables from some TyVars
 -- This function preserves the print-name, which helps error messages
 instTyCoVars tcvs
-  = let origin = panic "No origin for instTyCoVars in GHCi" in
-    liftTcM $ fst <$> captureConstraints (tcInstTyCoVars origin tcvs)
+  = liftTcM $ fst <$> captureConstraints (tcInstTyCoVars TypeLevel tcvs)
     -- TODO (RAE): What about those constraints? Do we care???
 
 type RttiInstantiation = [(TcTyCoVar, TyVar)]

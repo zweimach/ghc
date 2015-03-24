@@ -2,5 +2,5 @@ data D1 where
   MkD1 :: (forall k1 (p :: k1 -> *) (a :: k1). p a -> Int) -> D1
   	-- Defined at <interactive>:3:1
 data D2 where
-  MkD2 :: (forall (p :: _k -> *) (a :: _k). p a -> Int) -> D2
+  MkD2 :: (forall (p :: k0 -> *) (a :: k0). p a -> Int) -> D2
   	-- Defined at <interactive>:4:1
