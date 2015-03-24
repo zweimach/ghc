@@ -161,7 +161,7 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
        ; (prov_ev_binds, prov_dicts) <-
            checkConstraints skol_info ex_tvs_rhs prov_dicts_rhs $ do
            { let origin = PatOrigin -- TODO
-           ; emitWanteds origin prov_theta' }
+           ; emitWantedEvVars origin prov_theta' }
 
        ; traceTc "tcCheckPatSynDecl }" $ ppr name
        ; tc_patsyn_finish lname dir is_infix lpat'

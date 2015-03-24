@@ -1890,10 +1890,10 @@ simplifyDeriv pred tvs theta
        ; let (good, bad) = partitionBagWith get_good (wc_simple residual_wanted)
                          -- See Note [Exotic derived instance contexts]
 
-             get_good :: Ct -> Either EvVar Ct
+             get_good :: Ct -> Either PredType Ct
              get_good ct | validDerivPred skol_set p
                          , isWantedCt ct
-                         = Left (ctEvId (ctEvidence ct))
+                         = Left p
                           -- NB: residual_wanted may contain unsolved
                           -- Derived and we stick them into the bad set
                           -- so that reportUnsolved may decide what to do with them
@@ -1907,8 +1907,8 @@ simplifyDeriv pred tvs theta
        ; defer <- goptM Opt_DeferTypeErrors
        ; unless defer (reportAllUnsolved (residual_wanted { wc_simple = bad }))
 
-       ; let (min_theta_vars, _) = mkMinimalBySCs (bagToList good)
-       ; return (substTheta subst_skol (map evVarPred min_theta_vars)) }
+       ; let min_theta = mkMinimalBySCs (bagToList good)
+       ; return (substTheta subst_skol min_theta) }
 
 {-
 Note [Overlap and deriving]

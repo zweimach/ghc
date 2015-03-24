@@ -191,7 +191,7 @@ tcExpr (HsIPVar x) res_ty
               be a tau-type.) -}
        ; ip_ty <- newOpenFlexiTyVarTy
        ; let ip_name = mkStrLitTy (hsIPNameFS x)
-       ; ip_var <- emitWanted origin (mkClassPred ipClass [ip_name, ip_ty])
+       ; ip_var <- emitWantedEvVar origin (mkClassPred ipClass [ip_name, ip_ty])
        ; tcWrapResult (fromDict ipClass ip_name ip_ty (HsVar ip_var)) ip_ty res_ty }
   where
   -- Coerces a dictionary for `IP "x" t` into `t`.
@@ -508,7 +508,7 @@ tcExpr (HsStatic expr) res_ty
         -- the current implementation is as restrictive as future versions
         -- of the StaticPointers extension.
         ; typeableClass <- tcLookupClass typeableClassName
-        ; _ <- emitWanted StaticOrigin $
+        ; _ <- emitWantedEvVar StaticOrigin $
                   mkTyConApp (classTyCon typeableClass)
                              [liftedTypeKind, expr_ty]
         -- Insert the static form in a global list for later validation.

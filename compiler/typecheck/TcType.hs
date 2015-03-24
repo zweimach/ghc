@@ -190,7 +190,6 @@ import Pair
 import ErrUtils( Validity(..), isValid )
 
 import Data.IORef
-import Data.List     ( partition )
 import Control.Monad (liftM, ap)
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..))
@@ -1615,12 +1614,11 @@ quantifyPred qtvs pred
 
 -- Superclasses
 
-mkMinimalBySCs :: [EvVar] -> ([EvVar], [EvVar]) -- ^ (minimal, rest)
+mkMinimalBySCs :: [PredType] -> [PredType]
 -- Remove predicates that can be deduced from others by superclasses
-mkMinimalBySCs ev_vars = partition (\v -> evVarPred v `not_in_preds` rec_scs)
-                                   ev_vars
+mkMinimalBySCs ptys = [ pty | pty <- ptys
+                            , pty `not_in_preds` rec_scs ]
  where
-   ptys              = map evVarPred ev_vars
    rec_scs           = concatMap trans_super_classes ptys
    not_in_preds p ps = not (any (eqType p) ps)
 

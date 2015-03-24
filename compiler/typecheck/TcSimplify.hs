@@ -260,42 +260,6 @@ This ensures that the implication constraint we generate, if any,
 has a strictly-increased level compared to the ambient level outside
 the let binding.
 
-Note [Leftover wanteds]
-~~~~~~~~~~~~~~~~~~~~~~~
-In the middle of simplifyInfer, we use the solver to try to figure
-out the correct set of constraints to quantify over. This yields the
-quant_pred_candidates that get sent to decideQuantification. However,
-this run of the solver might create new coercion variables that then
-leak into types solved by unification. (Note that the solver run is
-Impure -- we really do want unification to happen here.) So, the Wanted
-constraints that the solver outputs cannot simply be discarded. There
-are three different types of Wanteds here:
-
- 1) Wanteds that should be quantified over, as decided by
-    decideQuantification.
-
- 2) Wanteds included in simple_wanteds that should not be quantified over.
-
- 3) Fresh Wanteds, not in either of the two sets above.
-
-Each of these three needs a final destination, lest we leave unbound
-coercion variables in the produced Core. Here is where they go:
-
- 1) These are quantified over, in the bound_theta_vars included in the
-    ic_given field of the final Implic.
-
- 2) These are the spoiled (that is, not fresh) leftovers. We don't need
-    to propagate them further, as they're already included in simple_wanteds.
-    So we filter them out when setting fresh_leftovers.
-
- 3) These must be includied in the ic_wanted field of the Implic. They
-    are proessed by prepare_leftovers. Naturally, we wish to prepare only
-    the fresh leftovers.
-
-NB: If any spoiled leftovers end up in the soup, you can get <<loop>> in
-most running programs, as constraints get defined in terms of themselves;
-the solver doesn't notice the duplication.
-
 -}
 
 simplifyInfer :: TcLevel          -- Used when generating the constraints
@@ -380,13 +344,13 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                       ; mapM_ (promoteTyVar rhs_tclvl) meta_tvs
                                    
                       ; WC { wc_simple = simples }
-                           <- setTcLevel rhs_tclvl     $
-                              simplifyWantedsTcMCustom Impure $
+                           <- setTcLevel rhs_tclvl          $
+                              simplifyWantedsTcMCustom Pure $
                               solveSimpleWanteds quant_cand
 
-                      ; return [ ct | ct <- bagToList simples
-                                    , let ev = ctEvidence ct
-                                    , isWanted ev ] }
+                      ; return [ ctEvPred ev | ct <- bagToList simples
+                                             , let ev = ctEvidence ct
+                                             , isWanted ev ] }
 
        -- NB: quant_pred_candidates is already fully zonked
 
@@ -395,10 +359,9 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
        ; ev_binds    <- TcM.getTcEvBinds ev_binds_var
        ; let zonked_tau_tkvs = splitDepVarsOfTypes zonked_taus
              cv_env          = evBindsCvSubstEnv   ev_binds
-             ev_var_cands    = map (ctEvId . ctEvidence) quant_pred_candidates
-       ; (qtvs, bound_theta_vars, leftover_vars, mr_bites)
+       ; (qtvs, bound_theta, mr_bites)
            <- decideQuantification cv_env
-                                   apply_mr ev_var_cands
+                                   apply_mr quant_pred_candidates
                                    zonked_tau_tkvs
 
          -- Promote any type variables that are free in the inferred type
@@ -421,13 +384,10 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
               -- decideQuantification turned some meta tyvars into
               -- quantified skolems, so we have to zonk again
                              
-       ; let bound_theta = map evVarPred bound_theta_vars
-             phi_tvs     = tyCoVarsOfTypes bound_theta
+       ; let phi_tvs     = tyCoVarsOfTypes bound_theta
                            `unionVarSet` zonked_tau_tvs
                            
-             promote_tvs = closeOverKinds phi_tvs `delVarSetList`
-                           (bound_theta_vars ++ qtvs)
-
+             promote_tvs = closeOverKinds phi_tvs `delVarSetList` qtvs
        ; MASSERT2( closeOverKinds promote_tvs `subVarSet` promote_tvs
                  , ppr phi_tvs $$
                    ppr (closeOverKinds phi_tvs) $$
@@ -438,41 +398,12 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
            -- promoteTyVar ignores coercion variables
        ; mapM_ (promoteTyVar outer_tclvl) (varSetElems promote_tvs)
 
-           -- See Note [Leftover wanteds]
-       ; let simple_wanted_vs = mkVarSet $
-                                map (ctEvId . ctEvidence) $
-                                bagToList simple_wanteds
-
-             fresh_leftovers  = filterOut (`elemVarSet` simple_wanted_vs)
-                                          leftover_vars
-
-             leftover_wanteds = prepare_leftovers quant_pred_candidates
-                                                  fresh_leftovers []
-               -- leftover_vars is in the same order as quant_pred_cands.
-               -- we want all quant_pred_cands mentioned in leftover_vars.
-             prepare_leftovers _        []     acc = acc
-             prepare_leftovers (ct:cts) (v:vs) acc
-               | ctEvId (ctEvidence ct) == v
-               = prepare_leftovers cts vs (ct:acc)
-               | otherwise
-               = prepare_leftovers cts (v:vs) acc
-             prepare_leftovers _ _ _ = pprPanic "prepare_leftovers"
-                                                (ppr quant_pred_candidates $$
-                                                 ppr leftover_vars)
-                                                  
          -- See Note [Promoting coercion variables]
-             (promote_wanteds, leave_wanteds)
+       ; let (promote_wanteds, leave_wanteds)
                = partitionBag ((`elemVarSet` promote_tvs) . ctEvId . ctEvidence)
-                              (simple_wanteds `unionBags`
-                               listToBag leftover_wanteds)
+                              simple_wanteds
                   -- NB: simple_wanteds should be all CtWanted, so ctEvId should
                   -- be OK.
-
-              -- anything in leftover_vars might, perchance, be
-              -- mentioned in a type due to unification that happens during
-              -- the run of the solver that produced them. Anything not
-              -- promoted must be included in the Implic created at the
-              -- bottom of simplifyInfer.
 
             -- some bits to be promoted might be in the ev_binds_var
        ; promote_binds <- promoteEvBinds promote_tvs ev_binds_var
@@ -480,6 +411,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
 
            -- Emit an implication constraint for the
            -- remaining constraints from the RHS
+       ; bound_theta_vars <- mapM TcM.newEvVar bound_theta
        ; let skol_info   = InferSkol [ (name, mkSigmaTy [] bound_theta ty)
                                      | (name, ty) <- name_taus ]
                         -- Don't add the quantified variables here, because
@@ -561,15 +493,14 @@ too.
 
 decideQuantification :: CvSubstEnv         -- known covar substitutions
                      -> Bool               -- try the MR restriction?
-                     -> [EvVar]            -- candidate theta vars
+                     -> [PredType]         -- candidate theta
                      -> ( TcTyCoVarSet     -- dependent (kind) variables
                         , TcTyCoVarSet )   -- type variables
                      -> TcM ( [TcTyCoVar]       -- Quantify over these (skolems)
-                            , [EvVar]           -- and this context (fully zonked)
-                            , [EvVar]           -- remaining EvVars
+                            , [PredType]        -- and this context (fully zonked)
                             , Bool )            -- Did the MR bite?
 -- See Note [Deciding quantification]
-decideQuantification cv_env apply_mr constraint_vars
+decideQuantification cv_env apply_mr constraints
                      (zonked_tau_kvs, zonked_tau_tvs)
   | apply_mr     -- Apply the Monomorphism restriction
   = do { gbl_tvs <- tcGetGlobalTyVars
@@ -593,7 +524,7 @@ decideQuantification cv_env apply_mr constraint_vars
                  , text "constrained_tvs:" <+> ppr constrained_tvs
                  , text "qtvs:"            <+> ppr qtvs ])
 
-       ; return (qtvs, [], constraint_vars, mr_bites) }
+       ; return (qtvs, [], mr_bites) }
 
   | otherwise
   = do { gbl_tvs <- tcGetGlobalTyVars
@@ -610,9 +541,8 @@ decideQuantification cv_env apply_mr constraint_vars
                  -- quantiyTyCoVars turned some meta tyvars into
                  -- quantified skolems, so we have to zonk again
 
-       ; let theta_vars = filter (quantifyPred (mkVarSet qtvs) . evVarPred)
-                                 constraint_vars
-             (min_theta_vars, other_vars) = mkMinimalBySCs theta_vars
+       ; let theta     = filter (quantifyPred (mkVarSet qtvs)) constraints
+             min_theta = mkMinimalBySCs theta
                -- See Note [Minimize by Superclasses]
 
        ; traceTc "decideQuantification 2"
@@ -622,12 +552,11 @@ decideQuantification cv_env apply_mr constraint_vars
                  , text "zonked_kvs:"   <+> ppr zonked_tau_kvs
                  , text "tau_tvs_plus:" <+> ppr tau_tvs_plus
                  , text "qtvs:"         <+> ppr qtvs
-                 , text "min_theta:"    <+> ppr min_theta_vars ])
-       ; return (qtvs, min_theta_vars, other_vars, False) }
+                 , text "min_theta:"    <+> ppr min_theta ])
+       ; return (qtvs, min_theta, False) }
 
   where
     zonked_tkvs = zonked_tau_kvs `unionVarSet` zonked_tau_tvs
-    constraints = map evVarPred constraint_vars
 
 ------------------
 growThetaTyCoVars :: ThetaType -> TyCoVarSet -> TyCoVarSet
@@ -1688,12 +1617,11 @@ disambigGroup (default_ty:default_tys) group
   = do { traceTcS "disambigGroup {" (ppr group $$ ppr default_ty)
        ; given_ev_var      <- TcS.newEvVar (mkTcEqPred (mkOnlyTyVarTy the_tv) default_ty)
        ; tclvl             <- TcS.getTcLevel
-       ; success <- nestTryTcS (pushTcLevel tclvl) $
-                    do { solveSimpleGivens loc [given_ev_var]
-                       ; residual_wanted <- solveSimpleWanteds wanteds
-                       ; return (isEmptyWC residual_wanted) }
+       ; resid <- nestTryTcS (pushTcLevel tclvl) $
+                  do { solveSimpleGivens loc [given_ev_var]
+                     ; solveSimpleWanteds wanteds }
 
-       ; if success then
+       ; if isEmptyWC resid then
              -- Success: record the type variable binding, and return
              do { setWantedTyBind the_tv default_ty
                 ; wrapWarnTcS $ warnDefaulting wanteds default_ty

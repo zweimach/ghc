@@ -901,13 +901,13 @@ tcSuperClasses :: DFunId -> [TcTyVar] -> [EvVar] -> TcThetaType
 -- See Note [Silent superclass arguments]
 tcSuperClasses dfun_id inst_tyvars dfun_ev_vars sc_theta
   | null inst_tyvars && null dfun_ev_vars
-  = emitWanteds ScOrigin sc_theta
+  = emitWantedEvVars ScOrigin sc_theta
 
   | otherwise
   = do {   -- Check that all superclasses can be deduced from
            -- the originally-specified dfun arguments
        ; _ <- checkConstraints InstSkol inst_tyvars orig_ev_vars $
-              emitWanteds ScOrigin sc_theta
+              emitWantedEvVars ScOrigin sc_theta
 
        ; return (map (find dfun_ev_vars) sc_theta) }
   where

@@ -32,7 +32,8 @@ module TcMType (
 
   --------------------------------
   -- Creating new evidence variables
-  newEvVar, newEvVars, newEq, newDict, newWantedEvVar,
+  newEvVar, newEvVars, newEq, newDict,
+  emitWantedEvVar, emitWantedEvVars,
   newTcEvBinds, addTcEvBind,
   newSimpleWanted, newSimpleWanteds,
 
@@ -141,8 +142,8 @@ newEvVar ty = do { name <- newSysName (predTypeOccName ty)
                  ; return (mkLocalIdOrCoVar name ty) }
 
 -- | Creates a new EvVar and immediately emits it as a Wanted
-newWantedEvVar :: CtOrigin -> TcPredType -> TcM EvVar
-newWantedEvVar origin ty
+emitWantedEvVar :: CtOrigin -> TcPredType -> TcM EvVar
+emitWantedEvVar origin ty
   = do { new_cv <- newEvVar ty
        ; loc <- getCtLoc origin
        ; let ctev = CtWanted { ctev_evar = new_cv
@@ -150,6 +151,9 @@ newWantedEvVar origin ty
                              , ctev_loc  = loc }
        ; emitSimple $ mkNonCanonical ctev
        ; return new_cv }
+
+emitWantedEvVars :: CtOrigin -> [TcPredType] -> TcM [EvVar]
+emitWantedEvVars orig = mapM (emitWantedEvVar orig)
 
 newEq :: TcType -> TcType -> TcM EvVar
 newEq ty1 ty2
@@ -465,9 +469,9 @@ writeMetaTyVarRef tyvar ref ty
     tv_kind = tyVarKind tyvar
     ty_kind = typeKind ty
 
-unFillMetaTyVar :: TcTyVar -> TcM ()
+-- | Wipes out the contents of a metatyvar, returning the wiped value
+unFillMetaTyVar :: TcTyVar -> TcM TcType
 unFillMetaTyVar tyvar
-  | debugIsOn
   = case tcTyVarDetails tyvar of
       MetaTv { mtv_ref = ref } ->
         do { cts <- readTcRef ref
@@ -476,16 +480,11 @@ unFillMetaTyVar tyvar
                  do { traceTc "unFillMetaTyVar" (ppr tyvar <+> dcolon <+>
                                                  ppr (tyVarKind tyvar) <+>
                                                  text "/:=" <+> ppr ty)
-                    ; writeTcRef ref Flexi }
+                    ; writeTcRef ref Flexi
+                    ; return ty }
                Flexi -> pprPanic "unFillMetaTyVar unfilled var" (ppr tyvar) }
       _ -> pprPanic "unFillMetaTyVar non-meta-tyvar" (ppr tyvar)
                
-
-  | otherwise
-  = do { traceTc "UnFillMetaTyVar" (ppr tyvar <+> dcolon <+> ppr (tyVarKind tyvar))
-       ; writeTcRef (mtv_ref (tcTyVarDetails tyvar)) Flexi }
-    
-
 {-
 ************************************************************************
 *                                                                      *
@@ -592,7 +591,7 @@ tcInstTyCoVarX origin subst tyvar
               new_tv = mkTcTyVar name kind details
         ; return (extendTCvSubst subst tyvar (mkOnlyTyVarTy new_tv), new_tv) }
   | otherwise
-  = do { new_cv <- newWantedEvVar origin (substTy subst (varType tyvar))
+  = do { new_cv <- emitWantedEvVar origin (substTy subst (varType tyvar))
          -- can't call unifyType, because we need to return a CoVar,
          -- and unification might result in a TcCoercion that's not a CoVar
          -- See Note [Coercion variables in tcInstTyCoVarX]
@@ -627,7 +626,7 @@ tcInstBinderX orig subst binder
   | let ty = substTy subst (binderType binder)
   , Just (boxity, role, k1, k2) <- getEqPredTys_maybe ty
   = ASSERT( boxity == Boxed )   -- unboxed equality is always dependent
-    do { cv <- newWantedEvVar AppOrigin (mkPrimEqPredRole role k1 k2)
+    do { cv <- emitWantedEvVar AppOrigin (mkPrimEqPredRole role k1 k2)
        ; let arg' = mkEqBoxTy (mkCoVarCo cv)
        ; return (subst, arg') }
 

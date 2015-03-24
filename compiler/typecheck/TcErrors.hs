@@ -1264,8 +1264,7 @@ mkDictErr ctxt cts
     elim_superclasses cts
       = filter (\ct -> any (eqType (ctPred ct)) min_preds) cts
       where
-        min_preds = map evVarPred $ fst $
-                    mkMinimalBySCs (map (ctEvId . ctEvidence) cts)
+        min_preds = mkMinimalBySCs (map ctPred cts)
 
 mk_dict_err :: ReportErrCtxt -> (Ct, ClsInstLookupResult)
             -> TcM (ReportErrCtxt, SDoc)

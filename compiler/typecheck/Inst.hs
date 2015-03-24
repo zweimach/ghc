@@ -11,8 +11,7 @@ The @Inst@ type: dictionaries or method instances
 module Inst ( 
        deeplySkolemise, 
        deeplyInstantiate, instCall, instStupidTheta,
-       emitWanted, emitWanteds,
-
+       
        newOverloadedLit, mkOverLit,
 
        newClsInst,
@@ -65,17 +64,6 @@ import Data.Maybe( isJust )
 *                                                                      *
 ************************************************************************
 -}
-
-emitWanteds :: CtOrigin -> TcThetaType -> TcM [EvVar]
-emitWanteds origin theta = mapM (emitWanted origin) theta
-
-emitWanted :: CtOrigin -> TcPredType -> TcM EvVar
-emitWanted origin pred 
-  = do { loc <- getCtLoc origin
-       ; ev  <- newEvVar pred
-       ; emitSimple $ mkNonCanonical $
-             CtWanted { ctev_pred = pred, ctev_evar = ev, ctev_loc = loc }
-       ; return ev }
 
 newMethodFromName :: CtOrigin -> Name -> TcRhoType -> TcM (HsExpr TcId)
 -- Used when Name is the wired-in name for a wired-in class method,
@@ -224,7 +212,7 @@ instCallConstraints orig preds
      = do  { co <- unifyType noThing ty1 ty2
            ; return (boxity, EvCoercion co) }
      | otherwise
-     = do { ev_var <- emitWanted modified_orig pred
+     = do { ev_var <- emitWantedEvVar modified_orig pred
           ; return (Boxed, EvId ev_var) }
       where
         -- Coercible constraints appear as normal class constraints, but
