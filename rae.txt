@@ -36,19 +36,11 @@ Current sol'n: make these things BuiltInSyntax.
 
 - No anonymous dependent binders in case alternative patterns.
 
-- somehow, any type pattern that mentions a coercion should just have
-  a bare variable there -- type patterns may *not* have non-variable coercions
-  in them, and all coercion variables *must* be unique!
-  EDIT: Not quite, as long as the solver is smart enough. It can use
-  transitivity and lifting coercions to work around non-variable coercions
-  in type patterns.
 - think about induction recursion
 - TH will need some updating -- in particular, its treatment of quantification
   over kinds (quantification forbidden) and types (quantification required)
   is problematic.
-- This won't work at all with kind families. Need to invoke solver during kind-checking
-  and be smarter when desugaring types.
-- extractHsTysRdrTyVars (does it need 2 return values??)
+
 - vectoriser code uses dataConRepArgTys. This value changed for Eq#, whose argument
 changed from a proper arg to an existential covar arg. Does this matter?
 (Other uses of dataConRepArgTys are OK.)
