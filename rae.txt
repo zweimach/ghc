@@ -74,6 +74,8 @@ fix:
   - unifyWantedLikeEv handles coercions. But make sure other, similar scenarios
     do too.
 
+  - Make sure coercions in types get optimised, too.
+
   - The flattening story is subtler than I thought. Consider flattening
     Proxy Age (3 |> sym axAge) (w.r.t. nominal equality). We'll get
     the ill-typed Proxy Age 3! This is because, of course, (3 |> sym axAge)
@@ -117,6 +119,9 @@ fix:
     the remaining ones. That is: flatten, and then stick on a cast by a
     fresh wanted coercion, built from the changes made in the earlier,
     dependent arguments.
+
+    Even more thought: Argh! This is much simpler than I thought. Just treat
+    TyConApps like nested AppTys, and all is well.
 
   - I think we can remove TcCoercions, by adding a new EvTerm that contains
     a TcEvBinds for local assumptions. The only point of TcCoercions is
@@ -165,7 +170,6 @@ fix:
     we want to preserve errors for silly kinds when extensions are off,
     so it can't be taken out entirely. I posit that, absent extension tracking,
     we wouldn't need to track types vs kinds here.
-  - search for IA0_NOTE
   - pattern synonyms: they can have existential covars, now, right?
             and: make sure they set givens correctly in TcPat (re dep_eq_spec)
   - hsq_implict --> hsq_undeclared; hsq_explicit --> hsq_declared
@@ -184,19 +188,15 @@ fix:
     to identify type-level covars? does this matter?
   - add VisibilityFlag to Anon... see if we can sort out some constraint/* nonsense. Also, add relevance info to Anon, and work Binders into Lam and Case. This also allows us to get rid of DFunTy in iface/* stuff.
   - The parsing story is terrible terrible. Fix!
-  - it should never be possible to get a R or N coercion from a P one.
-    yet, this is currently possible with nthco-forall and kindco. investigate.
   - comments in DataCon. Are they still correct?
   - sometimes, coercions might get printed in error messages. These should be suppressed unless enabled by a flag.
   - no more deferred type errors for gadts... no more non-dependent gadt equalities, either
-  - revert extra logging. search for "should revert" in gitlog.
   - perhaps change promoteCoercion --> promoteCoercion_maybe that fails if
     it can't do any optimization.
   - consider removing CoercionArg.
   - changed newSigTyVar *not* to make a new unique. OK? This is necessary because
     we need to be able to match up undeclared (but user-written) kind variables
     before and after kind-checking.
-  - Remove try_repr_defaulting once we have a better role for `kind`.
 
 check out usages of:
 
@@ -217,8 +217,6 @@ please remove:
 
 - znokCtEvidence now does more zonking, because I needed that in simplifyInfer.
 
-- quantifyTyCoVars, which is used during inference only to decide what to quantify over, should never quantify over covars!
-
 - Test uses of unifyType_ and unifyKind to make sure that kind families are tolerated
 in those positions.
 
@@ -237,16 +235,16 @@ can't use superclass equalities "right away". E.g.:
   data SameKind (a :: k) (b :: k)
   foo :: forall (a :: k1) (b :: k2). Foo a b => SameKind a b
 
-- Also related: transSuperClasses emits a kind equality from a type equality.
-Otherwise, we get only representational equality when emitting deriveds during
-solving, which is too weak.
-
 To get the above to be accepted, we would need to add a (k1 ~# k2) constraint,
 which should logically be implied by `Foo a b`. This will be confusing, but
 because we can't have superclass selectors in coercions, there isn't an easy
 fix here. (The problem, at its core, is that dictionaries can be bottom.)
 Perhaps Pi-quantify the dictionary somehow? Anyway, this is enough of a corner
 case to defer.
+
+- Also related: transSuperClasses emits a kind equality from a type equality.
+Otherwise, we get only representational equality when emitting deriveds during
+solving, which is too weak.
 
 - dataConWrappers now are rejigged w.r.t. GADTs. This is just simpler and
   has no user effect.
@@ -300,8 +298,6 @@ higher-rank kinds to exist, it may hamstring us later when extending the kind sy
 The current, rather simplistic higher-rank-kind algorithm critically depends on the
 lack of type-level lambdas.
 
-- All implicit tyvars to a datatype are Nominal. Revisit?
-
 - instance (Typeable s, Typeable a) => Typeable (s a) now needs UndecidableInstances
 because of the appearance of a repeated kind variable on the left of the arrow.
 This actually looks legit.
@@ -341,8 +337,7 @@ interesting from a theoretical standpoint.
 
 - Promoted covar arguments in promoted datacons have role P.
 
-- flattening replaces all coercions with coercion variables. unification still
-  needs to ignore casts.
+- flattening a coercion flattens the types it coerces.
 
 - I'm confused about roles in kinds.
 
@@ -361,26 +356,13 @@ After compiling:
 - merge tcView and coreView??
 
 
-Lifting restrictions:
-
-- mb_promoted in DataCon.lhs
-- promoteType/promoteKind
-- TcTyDecls.isPromotableType
-
 Notes:
 
-- Flattening replaces all coercions with coercion variables of the right types
-- Unification ignores casts.
 - Role inference ignores coercions. (But think about this more, perhaps.) Why?
   Because a kind cast cannot affect a representation. But, I still don't quite
   know what theorem should be maintained by the |-ctr judgment. In particular,
   I'm worried that *any* replacement in kind coercions will lead to ill-typed
   terms.
-- CoCoArgs have to be allowable at any role: they need to be nominal to work
-  with AppCo, and they need to be phantom to work with TyConAppCo Phantom. Argh.
-
-- should eqType and tcEqType differentiate coercions between the same types?? YES!
-  They're different types, inhabited by different terms.
 
  - the solver works over lifted equalities, which are homogeneous. This
    rather limits the usefulness of hetero equalities, which are now
@@ -395,6 +377,7 @@ Notes:
    Plan of record: Have solver deal with both lifted and unlifted equality. This
    is actually not too difficult. We just need to take some care in desugaring.
    But I'm not *very* happy with it.
+   NEW PLAN: Just rewrite the solver in terms of unlifted equality.
 
 BUGS:
 #9017
