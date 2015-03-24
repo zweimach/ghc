@@ -1194,8 +1194,10 @@ runTcS tcs
        ; return (res, ev_binds) }
 
 -- | Run a TcS action, but unfill any unified metavars.
-tryTcS :: TcS WantedConstraints
-       -> TcM (WantedConstraints, EvBindMap)
+tryTcS :: TcS a
+       -> TcM ( a              -- result
+              , [(TcTyVar, TcType)] -- unifications
+              , EvBindMap )    -- the ev binds created during solving     
 tryTcS tcs
   = do { ev_binds_var <- TcM.newTcEvBinds
        ; (res, unified_vars, ev_rollback) <- runTcSRollbackInfo ev_binds_var tcs
@@ -1204,25 +1206,11 @@ tryTcS tcs
           -- roll back calls to setWantedTyBind
        ; let wiped_tvs = varSetElems unified_vars
        ; tys <- mapM TcM.unFillMetaTyVar wiped_tvs
-       ; var_cts <- zipWithM mk_ct wiped_tvs tys
 
           -- roll back calls to setEvBind
        ; mapM_ (uncurry TcM.setTcEvBindsMap) ev_rollback
          
-       ; return (res `addSimples` listToBag var_cts, ev_bind_map) }
-  where
-    mk_ct var val
-      = do { let var_ty = mkOnlyTyVarTy var
-
-                   -- this orig should never be seen by the user
-                 orig   = TypeEqOrigin { uo_actual   = var_ty
-                                       , uo_expected = val
-                                       , uo_thing    = Nothing
-                                       , uo_level    = TypeLevel }
-
-                 pty    = mkPrimEqPred var_ty val
-           ; TcM.newSimpleWanted orig pty }
-
+       ; return (res, zip wiped_tvs tys, ev_bind_map) }
 
 runTcSWithEvBinds :: EvBindsVar
                   -> TcS a
@@ -1326,7 +1314,7 @@ nestTryTcS :: TcLevel -> TcS WantedConstraints -> TcS WantedConstraints
 nestTryTcS tclvl thing_inside
   = wrapTcS $
     TcM.setTcLevel tclvl $
-    fst <$> tryTcS thing_inside
+    fstOf3 <$> tryTcS thing_inside
 
 nestTcS ::  TcS a -> TcS a
 -- Use the current untouchables, augmenting the current

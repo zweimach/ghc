@@ -196,7 +196,7 @@ More details in Note [DefaultTyVar].
 simplifyAmbiguityCheck :: Type -> WantedConstraints -> TcM ()
 simplifyAmbiguityCheck ty wanteds
   = do { traceTc "simplifyAmbiguityCheck {" (text "type = " <+> ppr ty $$ text "wanted = " <+> ppr wanteds)
-       ; zonked_final_wc <- simplifyWantedsTcMCustom Pure (simpl_top wanteds)
+       ; (zonked_final_wc, _) <- simplifyWantedsTcMCustom Pure (simpl_top wanteds)
        ; traceTc "End simplifyAmbiguityCheck }" empty
 
        -- Normally report all errors; but with -XAllowAmbiguousTypes
@@ -343,14 +343,21 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                       ; mapM_ def_tyvar meta_tvs
                       ; mapM_ (promoteTyVar rhs_tclvl) meta_tvs
                                    
-                      ; WC { wc_simple = simples }
+                      ; (WC { wc_simple = simples }, unif_pairs)
                            <- setTcLevel rhs_tclvl          $
                               simplifyWantedsTcMCustom Pure $
                               solveSimpleWanteds quant_cand
 
-                      ; return [ ctEvPred ev | ct <- bagToList simples
-                                             , let ev = ctEvidence ct
-                                             , isWanted ev ] }
+                          -- must include info about unification, as it
+                          -- may be necessary to justify why we're using
+                          -- these particular quant_pred_candidates
+                      ; return ([ ctEvPred ev | ct <- bagToList simples
+                                              , let ev = ctEvidence ct
+                                              , isWanted ev ]
+                                ++
+                                [ mkPrimEqPred ty1 ty2
+                                | (tv1, ty2) <- unif_pairs
+                                , let ty1 = mkOnlyTyVarTy tv1 ]) }
 
        -- NB: quant_pred_candidates is already fully zonked
 
@@ -866,24 +873,28 @@ simplifyWantedsTcM :: Purity -- ^ Should the simplifier be pure? If the caller d
 -- Postcondition: fully zonked and unflattened constraints
 simplifyWantedsTcM purity wanted
   = do { traceTc "simplifyWantedsTcM {" (ppr wanted)
-       ; result <- simplifyWantedsTcMCustom purity (solveWantedsAndDrop wanted)
+       ; result <- fst <$>
+                   simplifyWantedsTcMCustom purity (solveWantedsAndDrop wanted)
        ; traceTc "simplifyWantedsTcM }" (ppr result)
        ; return result }
 
 -- | Like 'simplifyWantedsTcM', but with a custom TcS action
 simplifyWantedsTcMCustom :: Purity
                          -> TcS WantedConstraints
-                         -> TcM WantedConstraints
+                         -> TcM (WantedConstraints, [(TcTyVar, TcType)])
+-- In the Pure case, the second return value represents any unifications made
+-- during solving. These unifications are, of course, undone (because the
+-- solver run is Pure), but sometimes they are still useful to have about.
+-- In the Impure case, this return value is always empty.
 simplifyWantedsTcMCustom purity tcs
-  = do { (wc, ev_bind_map) <- run_tcs tcs
+  = do { (wc, unifs, ev_bind_map) <- case purity of
+            Pure   -> tryTcS tcs
+            Impure -> do { (res, ev_map) <- runTcS tcs
+                         ; return (res, [], ev_map) }
        ; wc <- zonkWC wc
        ; let new_wc = evBindMapWanteds (tyCoVarsOfWC wc) ev_bind_map
        ; new_wc <- zonkWC new_wc
-       ; return (wc `andWC` new_wc) }
-  where
-    run_tcs = case purity of
-                Pure   -> tryTcS
-                Impure -> runTcS
+       ; return (wc `andWC` new_wc, unifs) }
 
 -- | Produce a bag of wanted constraints, extracted from an 'EvBindMap',
 -- for any covar included in the provided 'TyCoVarSet'
