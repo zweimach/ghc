@@ -1,7 +1,6 @@
 
 ExtraTcsUntch.hs:23:18:
     Couldn't match expected type ‘F Int’ with actual type ‘[_r]’
-    The type variable ‘_r’ is ambiguous
     Relevant bindings include
       x :: _r (bound at ExtraTcsUntch.hs:21:3)
       f :: _r -> ((), ((), ())) (bound at ExtraTcsUntch.hs:21:1)

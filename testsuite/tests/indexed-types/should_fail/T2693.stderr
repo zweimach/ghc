@@ -17,14 +17,14 @@ T2693.hs:11:7:
 
 T2693.hs:19:15:
     Couldn't match expected type ‘(_r, _b)’ with actual type ‘TFn _a2’
-    The type variables ‘_r’, ‘_b’, ‘_a2’ are ambiguous
+    The type variables ‘_b’, ‘_a2’, ‘_r’ are ambiguous
     Relevant bindings include n :: _r (bound at T2693.hs:19:7)
     In the first argument of ‘fst’, namely ‘x’
     In the first argument of ‘(+)’, namely ‘fst x’
 
 T2693.hs:19:23:
     Couldn't match expected type ‘(_a3, _r)’ with actual type ‘TFn _a4’
-    The type variables ‘_r’, ‘_a3’, ‘_a4’ are ambiguous
+    The type variables ‘_a3’, ‘_a4’, ‘_r’ are ambiguous
     Relevant bindings include n :: _r (bound at T2693.hs:19:7)
     In the first argument of ‘snd’, namely ‘x’
     In the second argument of ‘(+)’, namely ‘snd x’

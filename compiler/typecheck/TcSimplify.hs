@@ -347,9 +347,9 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                               simplifyWantedsTcMCustom Impure $
                               solveSimpleWanteds quant_cand
 
-                      ; return [ ctEvId ev | ct <- bagToList simples
-                                           , let ev = ctEvidence ct
-                                           , isWanted ev ] }
+                      ; return [ ct | ct <- bagToList simples
+                                    , let ev = ctEvidence ct
+                                    , isWanted ev ] }
 
        -- NB: quant_pred_candidates is already fully zonked
 
@@ -358,9 +358,10 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
        ; ev_binds    <- TcM.getTcEvBinds ev_binds_var
        ; let zonked_tau_tkvs = splitDepVarsOfTypes zonked_taus
              cv_env          = evBindsCvSubstEnv   ev_binds
-       ; (qtvs, bound_theta_vars, mr_bites)
+             ev_var_cands    = map (ctEvId . ctEvidence) quant_pred_candidates
+       ; (qtvs, bound_theta_vars, leftover_vars, mr_bites)
            <- decideQuantification cv_env
-                                   apply_mr quant_pred_candidates
+                                   apply_mr ev_var_cands
                                    zonked_tau_tkvs
 
          -- Promote any type variables that are free in the inferred type
@@ -384,18 +385,14 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
               -- quantified skolems, so we have to zonk again
                              
        ; let bound_theta = map evVarPred bound_theta_vars
-             phi_tvs     = unionVarSets [ tyCoVarsOfTypes bound_theta
-                                        , zonked_tau_tvs
-                                        , mkVarSet $
-                                          filter isCoVar quant_pred_candidates ]
-                   -- we need to include the quant_pred_candidates because
-                   -- the run of the simplifier that produces them was impure.
+             phi_tvs     = tyCoVarsOfTypes bound_theta
+                           `unionVarSet` zonked_tau_tvs
                            
              promote_tvs = closeOverKinds phi_tvs `delVarSetList`
                            (bound_theta_vars ++ qtvs)
+
        ; MASSERT2( closeOverKinds promote_tvs `subVarSet` promote_tvs
-                 , ppr quant_pred_candidates $$
-                   ppr phi_tvs $$
+                 , ppr phi_tvs $$
                    ppr (closeOverKinds phi_tvs) $$
                    ppr promote_tvs $$
                    ppr (closeOverKinds promote_tvs) )
@@ -405,11 +402,32 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
        ; mapM_ (promoteTyVar outer_tclvl) (varSetElems promote_tvs)
 
          -- See Note [Promoting coercion variables]
-       ; let (promote_wanteds, leave_wanteds)
+       ; let leftover_wanteds = prepare_leftovers quant_pred_candidates
+                                                  leftover_vars []
+               -- leftover_vars is in the same order as quant_pred_cands.
+               -- we want all quant_pred_cands mentioned in leftover_vars.
+             prepare_leftovers _        []     acc = acc
+             prepare_leftovers (ct:cts) (v:vs) acc
+               | ctEvId (ctEvidence ct) == v
+               = prepare_leftovers cts vs (ct:acc)
+               | otherwise
+               = prepare_leftovers cts (v:vs) acc
+             prepare_leftovers _ _ _ = pprPanic "prepare_leftovers"
+                                                (ppr quant_pred_candidates $$
+                                                 ppr leftover_vars)
+                                                  
+             (promote_wanteds, leave_wanteds)
                = partitionBag ((`elemVarSet` promote_tvs) . ctEvId . ctEvidence)
-                              simple_wanteds
+                              (simple_wanteds `unionBags`
+                               listToBag leftover_wanteds)
                   -- NB: simple_wanteds should be all CtWanted, so ctEvId should
                   -- be OK.
+
+              -- anything in leftover_vars might, perchance, be
+              -- mentioned in a type due to unification that happens during
+              -- the run of the solver that produced them. Anything not
+              -- promoted must be included in the Implic created at the
+              -- bottom of simplifyInfer.
 
             -- some bits to be promoted might be in the ev_binds_var
        ; promote_binds <- promoteEvBinds promote_tvs ev_binds_var
@@ -503,6 +521,7 @@ decideQuantification :: CvSubstEnv         -- known covar substitutions
                         , TcTyCoVarSet )   -- type variables
                      -> TcM ( [TcTyCoVar]       -- Quantify over these (skolems)
                             , [EvVar]           -- and this context (fully zonked)
+                            , [EvVar]           -- remaining EvVars
                             , Bool )            -- Did the MR bite?
 -- See Note [Deciding quantification]
 decideQuantification cv_env apply_mr constraint_vars
@@ -529,7 +548,7 @@ decideQuantification cv_env apply_mr constraint_vars
                  , text "constrained_tvs:" <+> ppr constrained_tvs
                  , text "qtvs:"            <+> ppr qtvs ])
 
-       ; return (qtvs, [], mr_bites) }
+       ; return (qtvs, [], constraint_vars, mr_bites) }
 
   | otherwise
   = do { gbl_tvs <- tcGetGlobalTyVars
@@ -548,7 +567,7 @@ decideQuantification cv_env apply_mr constraint_vars
 
        ; let theta_vars = filter (quantifyPred (mkVarSet qtvs) . evVarPred)
                                  constraint_vars
-             min_theta_vars = mkMinimalBySCs theta_vars
+             (min_theta_vars, other_vars) = mkMinimalBySCs theta_vars
                -- See Note [Minimize by Superclasses]
 
        ; traceTc "decideQuantification 2"
@@ -559,7 +578,7 @@ decideQuantification cv_env apply_mr constraint_vars
                  , text "tau_tvs_plus:" <+> ppr tau_tvs_plus
                  , text "qtvs:"         <+> ppr qtvs
                  , text "min_theta:"    <+> ppr min_theta_vars ])
-       ; return (qtvs, min_theta_vars, False) }
+       ; return (qtvs, min_theta_vars, other_vars, False) }
 
   where
     zonked_tkvs = zonked_tau_kvs `unionVarSet` zonked_tau_tvs

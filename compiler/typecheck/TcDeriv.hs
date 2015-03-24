@@ -1907,7 +1907,7 @@ simplifyDeriv pred tvs theta
        ; defer <- goptM Opt_DeferTypeErrors
        ; unless defer (reportAllUnsolved (residual_wanted { wc_simple = bad }))
 
-       ; let min_theta_vars = mkMinimalBySCs (bagToList good)
+       ; let (min_theta_vars, _) = mkMinimalBySCs (bagToList good)
        ; return (substTheta subst_skol (map evVarPred min_theta_vars)) }
 
 {-

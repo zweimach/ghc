@@ -15,7 +15,6 @@ PushedInAsGivens.hs:10:31:
 
 PushedInAsGivens.hs:11:15:
     Couldn't match expected type ‘[_a]’ with actual type ‘F Int’
-    The type variable ‘_a’ is ambiguous
     Relevant bindings include
       y :: _a (bound at PushedInAsGivens.hs:9:5)
       bar :: _a -> (_a, Int) (bound at PushedInAsGivens.hs:9:1)
