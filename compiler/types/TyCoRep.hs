@@ -2446,17 +2446,13 @@ tidyTyCoVarBndr tidy_env@(occ_env, subst) tyvar
     name = tyVarName tyvar
     occ  = getOccName name
     -- System Names are for unification variables;
-    -- when we tidy them we give them a leading '_'
-    -- so that they don't get confused for user-declared variables
-    -- could also do something like '$', but '_' is more visually discreet
+    -- when we tidy them we give them a trailing "0" (or 1 etc)
+    -- so that they don't take precedence for the un-modified name
     occ1 | isSystemName name
-         , let name_str = occNameString occ
-         , not ("_" `isPrefixOf` name_str)  -- no double underscores
          = if isTyVar tyvar
-           then mkTyVarOcc ('_' : name_str)
-           else mkVarOcc   ('_' : name_str)
+           then mkTyVarOcc (occNameString occ ++ "0")
+           else mkVarOcc   (occNameString occ ++ "0")
          | otherwise         = occ
-
 
 ---------------
 tidyFreeTyCoVars :: TidyEnv -> TyCoVarSet -> TidyEnv
