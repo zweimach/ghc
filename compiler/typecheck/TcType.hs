@@ -1614,12 +1614,13 @@ quantifyPred qtvs pred
 
 -- Superclasses
 
-mkMinimalBySCs :: [PredType] -> [PredType]
+mkMinimalBySCs :: [EvVar] -> [EvVar]
 -- Remove predicates that can be deduced from others by superclasses
-mkMinimalBySCs ptys = [ ploc |  ploc <- ptys
-                             ,  ploc `not_in_preds` rec_scs ]
+mkMinimalBySCs ev_vars = [ v |  v <- ev_vars
+                             ,  evVarPred v `not_in_preds` rec_scs ]
  where
-   rec_scs = concatMap trans_super_classes ptys
+   ptys              = map evVarPred ev_vars
+   rec_scs           = concatMap trans_super_classes ptys
    not_in_preds p ps = not (any (eqType p) ps)
 
    trans_super_classes pred   -- Superclasses of pred, excluding pred itself

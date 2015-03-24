@@ -358,9 +358,9 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
        ; ev_binds    <- TcM.getTcEvBinds ev_binds_var
        ; let zonked_tau_tkvs = splitDepVarsOfTypes zonked_taus
              cv_env          = evBindsCvSubstEnv   ev_binds
-       ; (qtvs, bound_theta, mr_bites)
+       ; (qtvs, bound_theta_vars, mr_bites)
            <- decideQuantification cv_env
-                                   apply_mr (map evVarPred quant_pred_candidates)
+                                   apply_mr quant_pred_candidates
                                    zonked_tau_tkvs
 
          -- Promote any type variables that are free in the inferred type
@@ -383,16 +383,19 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
               -- decideQuantification turned some meta tyvars into
               -- quantified skolems, so we have to zonk again
                              
-       ; let phi_tvs     = unionVarSets [ tyCoVarsOfTypes bound_theta
+       ; let bound_theta = map evVarPred bound_theta_vars
+             phi_tvs     = unionVarSets [ tyCoVarsOfTypes bound_theta
                                         , zonked_tau_tvs
                                         , mkVarSet $
                                           filter isCoVar quant_pred_candidates ]
                    -- we need to include the quant_pred_candidates because
                    -- the run of the simplifier that produces them was impure.
                            
-             promote_tvs = closeOverKinds phi_tvs `delVarSetList` qtvs
+             promote_tvs = closeOverKinds phi_tvs `delVarSetList`
+                           (bound_theta_vars ++ qtvs)
        ; MASSERT2( closeOverKinds promote_tvs `subVarSet` promote_tvs
-                 , ppr phi_tvs $$
+                 , ppr quant_pred_candidates $$
+                   ppr phi_tvs $$
                    ppr (closeOverKinds phi_tvs) $$
                    ppr promote_tvs $$
                    ppr (closeOverKinds promote_tvs) )
@@ -414,9 +417,8 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
 
            -- Emit an implication constraint for the
            -- remaining constraints from the RHS
-       ; bound_ev_vars <- mapM TcM.newEvVar bound_theta
-       ; let skol_info = InferSkol [ (name, mkSigmaTy [] bound_theta ty)
-                                   | (name, ty) <- name_taus ]
+       ; let skol_info   = InferSkol [ (name, mkSigmaTy [] bound_theta ty)
+                                     | (name, ty) <- name_taus ]
                         -- Don't add the quantified variables here, because
                         -- they are also bound in ic_skols and we want them
                         -- to be tidied uniformly
@@ -424,7 +426,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
              implic = Implic { ic_tclvl    = rhs_tclvl
                              , ic_skols    = qtvs
                              , ic_no_eqs   = False
-                             , ic_given    = bound_ev_vars
+                             , ic_given    = bound_theta_vars
                              , ic_wanted   = wanted_transformed
                                                { wc_simple = leave_wanteds }
                              , ic_insol    = False
@@ -445,7 +447,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
               , ptext (sLit "promote_wanteds =") <+> ppr promote_wanteds
               , ptext (sLit "promote_binds =") <+> ppr promote_binds ]
 
-       ; return ( qtvs, bound_ev_vars
+       ; return ( qtvs, bound_theta_vars
                 , mr_bites,  TcEvBinds ev_binds_var) }
 
 {-
@@ -496,14 +498,15 @@ too.
 
 decideQuantification :: CvSubstEnv         -- known covar substitutions
                      -> Bool               -- try the MR restriction?
-                     -> [PredType]         -- candidate theta
+                     -> [EvVar]            -- candidate theta vars
                      -> ( TcTyCoVarSet     -- dependent (kind) variables
                         , TcTyCoVarSet )   -- type variables
                      -> TcM ( [TcTyCoVar]       -- Quantify over these (skolems)
-                            , [PredType]        -- and this context (fully zonked)
+                            , [EvVar]           -- and this context (fully zonked)
                             , Bool )            -- Did the MR bite?
 -- See Note [Deciding quantification]
-decideQuantification cv_env apply_mr constraints (zonked_tau_kvs, zonked_tau_tvs)
+decideQuantification cv_env apply_mr constraint_vars
+                     (zonked_tau_kvs, zonked_tau_tvs)
   | apply_mr     -- Apply the Monomorphism restriction
   = do { gbl_tvs <- tcGetGlobalTyVars
        ; let constrained_tvs = tyCoVarsOfTypes constraints `unionVarSet`
@@ -543,8 +546,9 @@ decideQuantification cv_env apply_mr constraints (zonked_tau_kvs, zonked_tau_tvs
                  -- quantiyTyCoVars turned some meta tyvars into
                  -- quantified skolems, so we have to zonk again
 
-       ; let theta = filter (quantifyPred (mkVarSet qtvs)) constraints
-             min_theta = mkMinimalBySCs theta
+       ; let theta_vars = filter (quantifyPred (mkVarSet qtvs) . evVarPred)
+                                 constraint_vars
+             min_theta_vars = mkMinimalBySCs theta_vars
                -- See Note [Minimize by Superclasses]
 
        ; traceTc "decideQuantification 2"
@@ -554,11 +558,12 @@ decideQuantification cv_env apply_mr constraints (zonked_tau_kvs, zonked_tau_tvs
                  , text "zonked_kvs:"   <+> ppr zonked_tau_kvs
                  , text "tau_tvs_plus:" <+> ppr tau_tvs_plus
                  , text "qtvs:"         <+> ppr qtvs
-                 , text "min_theta:"    <+> ppr min_theta ])
-       ; return (qtvs, min_theta, False) }
+                 , text "min_theta:"    <+> ppr min_theta_vars ])
+       ; return (qtvs, min_theta_vars, False) }
 
   where
     zonked_tkvs = zonked_tau_kvs `unionVarSet` zonked_tau_tvs
+    constraints = map evVarPred constraint_vars
 
 ------------------
 growThetaTyCoVars :: ThetaType -> TyCoVarSet -> TyCoVarSet

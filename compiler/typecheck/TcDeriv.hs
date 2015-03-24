@@ -1889,14 +1889,17 @@ simplifyDeriv pred tvs theta
 
        ; let (good, bad) = partitionBagWith get_good (wc_simple residual_wanted)
                          -- See Note [Exotic derived instance contexts]
-             get_good :: Ct -> Either PredType Ct
+
+             get_good :: Ct -> Either EvVar Ct
              get_good ct | validDerivPred skol_set p
-                         , isWantedCt ct  = Left p
-                         -- NB: residual_wanted may contain unsolved
-                         -- Derived and we stick them into the bad set
-                         -- so that reportUnsolved may decide what to do with them
-                         | otherwise = Right ct
-                         where p = ctPred ct
+                         , isWantedCt ct
+                         = Left (ctEvId (ctEvidence ct))
+                          -- NB: residual_wanted may contain unsolved
+                          -- Derived and we stick them into the bad set
+                          -- so that reportUnsolved may decide what to do with them
+                         | otherwise
+                         = Right ct
+                           where p = ctPred ct
 
        -- If we are deferring type errors, simply ignore any insoluble
        -- constraints.  They'll come up again when we typecheck the
@@ -1904,8 +1907,8 @@ simplifyDeriv pred tvs theta
        ; defer <- goptM Opt_DeferTypeErrors
        ; unless defer (reportAllUnsolved (residual_wanted { wc_simple = bad }))
 
-       ; let min_theta = mkMinimalBySCs (bagToList good)
-       ; return (substTheta subst_skol min_theta) }
+       ; let min_theta_vars = mkMinimalBySCs (bagToList good)
+       ; return (substTheta subst_skol (map evVarPred min_theta_vars)) }
 
 {-
 Note [Overlap and deriving]
