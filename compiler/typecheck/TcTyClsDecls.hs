@@ -992,27 +992,20 @@ tc_fam_ty_pats :: FamTyConShape
 tc_fam_ty_pats (name, _, kind)
                (HsWB { hswb_cts = arg_pats, hswb_vars = vars })
                kind_checker
-  = do { let (fam_inv_bndrs, fam_body) = splitForAllTysInvisible kind
-
-         -- Instantiate with meta kind vars
-       ; (inv_subst, fam_arg_kinds) <- tcInstBinders fam_inv_bndrs
-       ; let fam_body'              = substTy inv_subst fam_body
-             (exp_bndrs, bare_kind) = splitForAllTys fam_body'
-             (arg_bndrs, leftover_bndrs) = splitAtList arg_pats exp_bndrs
-             res_kind               = mkForAllTys leftover_bndrs bare_kind
-
-       ; loc <- getSrcSpanM
+  = do { loc <- getSrcSpanM
        ; let hs_tvs = mkHsQTvs (userHsTyVarBndrs loc vars)
 
          -- Kind-check and quantify
          -- See Note [Quantifying over family patterns]
-       ; typats <- ASSERT( all isVisibleBinder arg_bndrs )
-                   tcHsTyVarBndrs hs_tvs $ \ _ ->
-                   do { kind_checker res_kind
-                      ; tcHsTelescope (quotes (ppr name)) arg_pats arg_bndrs }
+       ; (res_kind, typats) <- tcHsTyVarBndrs hs_tvs $ \ _ ->
+         do { (_, res_kind, args) <- tcInferApps name no_fun kind arg_pats
+            ; kind_checker res_kind
+            ; return (res_kind, args) }
 
-       ; return (fam_arg_kinds ++ typats, res_kind) }
-
+       ; return (typats, res_kind) }
+  where
+    no_fun = pprPanic "tc_fam_ty_pats" (ppr name)
+    
 -- See Note [tc_fam_ty_pats vs tcFamTyPats]
 tcFamTyPats :: FamTyConShape
             -> HsWithBndrs Name [LHsType Name] -- patterns

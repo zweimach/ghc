@@ -22,7 +22,7 @@ module TcHsType (
         kcHsTyVarBndrs, tcHsTyVarBndrs, 
         tcHsLiftedType, tcHsOpenType,
         tcLHsType, tcCheckLHsType, 
-        tcHsContext, tcInferApps, tcHsTelescope,
+        tcHsContext, tcInferApps,
 
         kindGeneralize,
 
@@ -226,7 +226,7 @@ tcHsVectInst :: LHsType Name -> TcM (Class, [Type])
 tcHsVectInst ty
   | Just (L _ cls_name, tys) <- splitLHsClassTy_maybe ty
   = do { (cls, cls_kind) <- tcClass cls_name
-       ; (applied_class, _res_kind)
+       ; (applied_class, _res_kind, _args)
            <- tcInferApps cls_name (mkClassPred cls []) cls_kind tys
        ; case tcSplitTyConApp_maybe applied_class of
            Just (_tc, args) -> ASSERT( _tc == classTyCon cls )
@@ -265,35 +265,6 @@ tcHsConArgType DataType bty = tcHsOpenType (getBangType bty)
   -- Can't allow an unlifted type for newtypes, because we're effectively
   -- going to remove the constructor while coercing it to a lifted type.
   -- And newtypes can't be bang'd
-
----------------------------
-tcHsTelescope :: SDoc -> [LHsType Name] -> [Binder] -> TcM [TcType]
-tcHsTelescope what = go 1 emptyTCvSubst
-  where
-    go n subst (hs_ty : hs_tys) (bndr : bndrs)
-      = do { ty <- addTypeCtxt hs_ty $
-                   tc_lhs_type hs_ty (substTy subst (binderType bndr))
-           ; let subst' = case binderVar_maybe bndr of
-                            Just tv -> extendTCvSubst subst tv ty
-                            Nothing -> subst
-           ; tys <- go (n+1) subst' hs_tys bndrs
-           ; return (ty : tys) }
-    go n _ (hs_ty : _) [] =
-      addErrTc (hang (text "Too many parameters to" <+> what <> colon)
-                   2 (vcat [ ppr hs_ty <+> text "is unexpected;"
-                           , text "expected only" <+> (ppr (n-1))
-                             <+> text "parameter" <> plural_n ]))
-      >> return []  -- won't cause panic later
-      where plural_n
-              | n-1 == 1  = empty
-              | otherwise = char 's'
-    go n _ [] bndrs@(_:_) =
-      addErrTc (text "Not enough parameters to" <+> what <> semi
-                <+> text "expected" <+> (ppr (n + length bndrs - 1))
-                <+> text "but got" <+> (ppr (n-1)))
-      >> return []
-                   
-    go _ _ _ _ = return []
 
 tcHsArgTys :: [LHsType Name] -> [Kind] -> TcM [TcType]
 tcHsArgTys tys kinds = zipWithM tc_lhs_type tys kinds
@@ -421,13 +392,15 @@ tc_infer_hs_type (HsAppTy ty1 ty2)
   = do { let (fun_ty, arg_tys) = splitHsAppTys ty1 [ty2]
        ; (fun_ty', fun_kind) <- tc_infer_lhs_type fun_ty
        ; fun_kind' <- zonkTcType fun_kind
-       ; tcInferApps fun_ty fun_ty' fun_kind' arg_tys }
+       ; (ty', ki', _) <- tcInferApps fun_ty fun_ty' fun_kind' arg_tys
+       ; return (ty', ki') }
 tc_infer_hs_type (HsParTy t)     = tc_infer_lhs_type t
 tc_infer_hs_type (HsOpTy lhs (L _ op) rhs)
   | not (op `hasKey` funTyConKey)
   = do { (op', op_kind) <- tcTyVar op
        ; op_kind' <- zonkTcType op_kind
-       ; tcInferApps op op' op_kind' [lhs, rhs] }
+       ; (ty', ki', _) <- tcInferApps op op' op_kind' [lhs, rhs]
+       ; return (ty', ki') }
 tc_infer_hs_type (HsKindSig ty sig)
   = do { sig' <- tcLHsKind sig
        ; ty' <- tc_lhs_type ty sig'
@@ -675,33 +648,34 @@ finish_tuple tup_sort tau_tys exp_kind
 
 ---------------------------
 tcInferApps :: Outputable fun
-       => fun                           -- Function (for printing only)
-       -> TcType                        -- Function
-       -> TcKind                        -- Function kind (zonked)
-       -> [LHsType Name]                -- Arg types
-       -> TcM (TcType, TcKind)          -- (f args, result kind)
+       => fun                           -- ^ Function (for printing only)
+       -> TcType                        -- ^ Function (could be knot-tied)
+       -> TcKind                        -- ^ Function kind (zonked)
+       -> [LHsType Name]                -- ^ Arg types
+       -> TcM (TcType, TcKind, [TcType])   -- ^ (f args, result kind, args)
 tcInferApps orig_ty ty ki args
   = do { traceTc "tcInferApps" (ppr ki $$ ppr args)
-       ; go emptyTCvSubst ty ki args 1 }
+       ; go emptyTCvSubst ty ki args 1 [] }
   where
     -- TODO (RAE): Update when updating tcInstTyCoVars
     -- TODO (RAE): This is essentially instantiateDeeply at the type level.
     -- Can it be improved?
-    go _     fun fun_kind [] _ = return (fun, fun_kind)
-    go subst fun fun_kind args n
+    go _     fun fun_kind []   _ acc = return (fun, fun_kind, reverse acc)
+    go subst fun fun_kind args n acc
       | Just fun_kind' <- tcView fun_kind
-      = go subst fun fun_kind' args n
+      = go subst fun fun_kind' args n acc
 
       | Just tv <- getTyVar_maybe fun_kind
       , Just fun_kind' <- lookupTyVar subst tv
-      = go subst fun fun_kind' args n
+      = go subst fun fun_kind' args n acc
 
       | (inv_bndrs, res_k) <- splitForAllTysInvisible fun_kind
       , not (null inv_bndrs)
       = do { (subst', args') <- tcInstBindersX subst inv_bndrs
-           ; go subst' (mkNakedAppTys fun args') res_k args n }
+           ; go subst' (mkNakedAppTys fun args') res_k args n
+                (reverse args' ++ acc) }
 
-    go subst fun fun_kind (arg:args) n
+    go subst fun fun_kind (arg:args) n acc
       | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
       , Just tv <- binderVar_maybe bndr
       , isVisibleBinder bndr
@@ -709,14 +683,14 @@ tcInferApps orig_ty ty ki args
                      tc_lhs_type arg (substTy subst $ tyVarKind tv)
            ; go (extendTCvSubst subst tv arg')
                 (mkNakedAppTy fun arg')
-                res_k args (n+1) }
+                res_k args (n+1) (arg' : acc) }
 
       | otherwise
       = do { (co, arg_k, res_k) <- matchExpectedFunKind fun (substTy subst fun_kind)
            ; arg' <- addErrCtxt (funAppCtxt orig_ty arg n) $
                      tc_lhs_type arg arg_k
            ; go subst (mkNakedAppTy (fun `mkCastTy` mkSubCo co) arg')
-                res_k args (n+1) }
+                res_k args (n+1) (arg' : acc) }
 
 ---------------------------
 tcHsContext :: LHsContext Name -> TcM [PredType]
