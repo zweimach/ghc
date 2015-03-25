@@ -998,13 +998,21 @@ tc_fam_ty_pats (name, _, kind)
          -- Kind-check and quantify
          -- See Note [Quantifying over family patterns]
        ; (res_kind, typats) <- tcHsTyVarBndrs hs_tvs $ \ _ ->
-         do { (_, res_kind, args) <- tcInferApps name no_fun kind arg_pats
+         do { (res_kind, args, leftovers, n)
+                <- tcInferArgs True name kind arg_pats 1
+            ; case leftovers of
+                hs_ty:_ -> addErrTc $ too_many_args hs_ty n
+                _       -> return ()
             ; kind_checker res_kind
             ; return (res_kind, args) }
 
        ; return (typats, res_kind) }
   where
-    no_fun = pprPanic "tc_fam_ty_pats" (ppr name)
+    too_many_args hs_ty n
+      = hang (text "Too many parameters to" <+> ppr name <> colon)
+           2 (vcat [ ppr hs_ty <+> text "is unexpected;"
+                   , text "expected only" <+>
+                     speakNOf (n-1) (text "parameter") ])
     
 -- See Note [tc_fam_ty_pats vs tcFamTyPats]
 tcFamTyPats :: FamTyConShape
@@ -1032,7 +1040,7 @@ tcFamTyPats fam_shape@(name,_,_) pats kind_checker thing_inside
        ; typats'      <- zonkTcTypeToTypes ze typats
        ; res_kind'    <- zonkTcTypeToType  ze res_kind
 
-       ; traceTc "tcFamTyPats" (ppr name)
+       ; traceTc "tcFamTyPats" (ppr name $$ ppr typats)
             -- don't print out too much, as we might be in the knot
        ; tcExtendTyVarEnv qtkvs' $
          thing_inside qtkvs' typats' res_kind' }

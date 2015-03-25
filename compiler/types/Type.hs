@@ -2084,6 +2084,18 @@ data EBinder
   = EAnon EType
   | ENamed TyVar EType VisibilityFlag  -- don't ask for the tyvar's kind!
 
+instance Outputable EType where
+  ppr (ETyVarTy tv)       = ppr tv
+  ppr (EAppTy t1 k2 t2)   = ppr t1 <+> parens (ppr t2 <+> dcolon <+> ppr k2)
+  ppr (ETyConApp tc tys)  = ppr tc <+> sep (map (parens . ppr) tys)
+  ppr (EForAllTy bndr ty) = text "forall" <+> ppr bndr <> dot <+> ppr ty
+  ppr (ELitTy lit)        = ppr lit
+  ppr ECoercionTy         = text "<<co>>"
+
+instance Outputable EBinder where
+  ppr (EAnon ty)        = text "[anon]" <+> ppr ty
+  ppr (ENamed tv k vis) = parens (ppr tv <+> dcolon <+> ppr k <+> ppr vis)
+
 -- | Remove all casts from a type, and use the given "view" function to
 -- unwrap synonyms as we go. This will yield an ill-kinded type, so
 -- use with caution.

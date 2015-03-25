@@ -712,6 +712,14 @@ quantifyTyCoVars co_env gbl_tvs (dep_tkvs, nondep_tkvs)
 
        ; let quant_vars1 = dep_vars2 ++ nondep_tvs
              quant_vars2 = reverse $ foldl' quant_pred_telescope [] quant_vars1
+
+       ; traceTc "quantifyTyCoVars"
+           (vcat [ text "globals:" <+> ppr gbl_tvs
+                 , text "nondep:" <+> ppr nondep_tvs
+                 , text "dep:" <+> ppr dep_kvs
+                 , text "dep2:" <+> ppr dep_vars2
+                 , text "quant_vars1:" <+> ppr quant_vars1
+                 , text "quant_vars2:" <+> ppr quant_vars2 ])
              
        ; mapMaybeM zonk_quant quant_vars2 }
            -- Because of the order, any kind variables

@@ -22,7 +22,7 @@ module TcHsType (
         kcHsTyVarBndrs, tcHsTyVarBndrs, 
         tcHsLiftedType, tcHsOpenType,
         tcLHsType, tcCheckLHsType, 
-        tcHsContext, tcInferApps,
+        tcHsContext, tcInferArgs,
 
         kindGeneralize,
 
@@ -226,7 +226,7 @@ tcHsVectInst :: LHsType Name -> TcM (Class, [Type])
 tcHsVectInst ty
   | Just (L _ cls_name, tys) <- splitLHsClassTy_maybe ty
   = do { (cls, cls_kind) <- tcClass cls_name
-       ; (applied_class, _res_kind, _args)
+       ; (applied_class, _res_kind)
            <- tcInferApps cls_name (mkClassPred cls []) cls_kind tys
        ; case tcSplitTyConApp_maybe applied_class of
            Just (_tc, args) -> ASSERT( _tc == classTyCon cls )
@@ -392,15 +392,13 @@ tc_infer_hs_type (HsAppTy ty1 ty2)
   = do { let (fun_ty, arg_tys) = splitHsAppTys ty1 [ty2]
        ; (fun_ty', fun_kind) <- tc_infer_lhs_type fun_ty
        ; fun_kind' <- zonkTcType fun_kind
-       ; (ty', ki', _) <- tcInferApps fun_ty fun_ty' fun_kind' arg_tys
-       ; return (ty', ki') }
+       ; tcInferApps fun_ty fun_ty' fun_kind' arg_tys }
 tc_infer_hs_type (HsParTy t)     = tc_infer_lhs_type t
 tc_infer_hs_type (HsOpTy lhs (L _ op) rhs)
   | not (op `hasKey` funTyConKey)
   = do { (op', op_kind) <- tcTyVar op
        ; op_kind' <- zonkTcType op_kind
-       ; (ty', ki', _) <- tcInferApps op op' op_kind' [lhs, rhs]
-       ; return (ty', ki') }
+       ; tcInferApps op op' op_kind' [lhs, rhs] }
 tc_infer_hs_type (HsKindSig ty sig)
   = do { sig' <- tcLHsKind sig
        ; ty' <- tc_lhs_type ty sig'
@@ -647,50 +645,81 @@ finish_tuple tup_sort tau_tys exp_kind
                  ConstraintTuple -> constraintKind
 
 ---------------------------
-tcInferApps :: Outputable fun
-       => fun                           -- ^ Function (for printing only)
-       -> TcType                        -- ^ Function (could be knot-tied)
-       -> TcKind                        -- ^ Function kind (zonked)
-       -> [LHsType Name]                -- ^ Arg types
-       -> TcM (TcType, TcKind, [TcType])   -- ^ (f args, result kind, args)
-tcInferApps orig_ty ty ki args
+-- | Apply a type of a given kind to a list of arguments. This instantiates
+-- invisible parameters as necessary. However, it does *not* necessarily
+-- apply all the arguments, if the kind runs out of binders.
+tcInferArgs :: Outputable fun
+            => Bool                     -- ^ True => inst. all invis. args
+            -> fun                      -- ^ the function
+            -> TcKind                   -- ^ function kind (zonked)
+            -> [LHsType Name]           -- ^ args
+            -> Int                      -- ^ number to start arg counter at
+            -> TcM (TcKind, [TcType], [LHsType Name], Int)
+               -- ^ (result kind, typechecked args, untypechecked args, n)
+tcInferArgs keep_insting orig_ty ki args n0
   = do { traceTc "tcInferApps" (ppr ki $$ ppr args)
-       ; go emptyTCvSubst ty ki args 1 [] }
+       ; go emptyTCvSubst ki args n0 [] }
   where
     -- TODO (RAE): Update when updating tcInstTyCoVars
-    -- TODO (RAE): This is essentially instantiateDeeply at the type level.
-    -- Can it be improved?
-    go _     fun fun_kind []   _ acc = return (fun, fun_kind, reverse acc)
-    go subst fun fun_kind args n acc
+    go subst fun_kind []   n acc
+      | not keep_insting
+      = return ( substTy subst fun_kind, reverse acc, [], n )
+    -- when we call this when checking type family patterns, we really
+    -- do want to instantiate all invisible arguments. During other
+    -- typechecking, we don't.
+
+    go subst fun_kind (arg:args) n acc
+      | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
+      , isVisibleBinder bndr
+      = do { arg' <- addErrCtxt (funAppCtxt orig_ty arg n) $
+                     tc_lhs_type arg (substTy subst $ binderType bndr)
+           ; let subst' = case binderVar_maybe bndr of
+                   Just tv -> extendTCvSubst subst tv arg'
+                   Nothing -> subst
+           ; go subst' res_k args (n+1) (arg' : acc) }
+
+    go subst fun_kind args n acc
       | Just fun_kind' <- tcView fun_kind
-      = go subst fun fun_kind' args n acc
+      = go subst fun_kind' args n acc
 
       | Just tv <- getTyVar_maybe fun_kind
       , Just fun_kind' <- lookupTyVar subst tv
-      = go subst fun fun_kind' args n acc
+      = go subst fun_kind' args n acc
 
       | (inv_bndrs, res_k) <- splitForAllTysInvisible fun_kind
       , not (null inv_bndrs)
       = do { (subst', args') <- tcInstBindersX subst inv_bndrs
-           ; go subst' (mkNakedAppTys fun args') res_k args n
-                (reverse args' ++ acc) }
-
-    go subst fun fun_kind (arg:args) n acc
-      | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
-      , Just tv <- binderVar_maybe bndr
-      , isVisibleBinder bndr
-      = do { arg' <- addErrCtxt (funAppCtxt orig_ty arg n) $
-                     tc_lhs_type arg (substTy subst $ tyVarKind tv)
-           ; go (extendTCvSubst subst tv arg')
-                (mkNakedAppTy fun arg')
-                res_k args (n+1) (arg' : acc) }
+           ; go subst' res_k args n (reverse args' ++ acc) }
 
       | otherwise
-      = do { (co, arg_k, res_k) <- matchExpectedFunKind fun (substTy subst fun_kind)
+      = return (substTy subst fun_kind, reverse acc, args, n)
+
+-- | Applies a type to a list of arguments. Always consumes all the
+-- arguments.
+tcInferApps :: Outputable fun
+             => fun                  -- ^ Function (for printing only)
+             -> TcType               -- ^ Function (could be knot-tied)
+             -> TcKind               -- ^ Function kind (zonked)
+             -> [LHsType Name]       -- ^ Args
+             -> TcM (TcType, TcKind) -- ^ (f args, result kind)
+tcInferApps orig_ty ty ki args = go ty ki args 1
+  where
+    go fun fun_kind []   _ = return (fun, fun_kind)
+    go fun fun_kind args n
+      | Just fun_kind' <- tcView fun_kind
+      = go fun fun_kind' args n
+        
+      | isForAllTy fun_kind
+      = do { (res_kind, args', leftover_args, n')
+                <- tcInferArgs False orig_ty fun_kind args n
+           ; go (mkNakedAppTys fun args') res_kind leftover_args n' }
+
+    go fun fun_kind (arg:args) n
+      = do { (co, arg_k, res_k) <- matchExpectedFunKind fun fun_kind
            ; arg' <- addErrCtxt (funAppCtxt orig_ty arg n) $
                      tc_lhs_type arg arg_k
-           ; go subst (mkNakedAppTy (fun `mkCastTy` mkSubCo co) arg')
-                res_k args (n+1) (arg' : acc) }
+           ; go (mkNakedAppTy (fun `mkNakedCastTy` mkSubCo co) arg')
+                res_k args (n+1) }
 
 ---------------------------
 tcHsContext :: LHsContext Name -> TcM [PredType]
@@ -1633,7 +1662,7 @@ zonkedEvBindsCvSubstEnv = zonk_cv_subst_env . evBindsCvSubstEnv
 zonk_cv_subst_env :: CvSubstEnv -> TcM CvSubstEnv
 zonk_cv_subst_env cv_env
   = do { let (uniqs, cos) = unzip $ varEnvToList cv_env
-       ; cos <- mapM (zonkCoToCo emptyZonkEnv) cos
+       ; cos <- mapM zonkCo cos
        ; return (foldl' extend emptyCvSubstEnv (zip uniqs cos)) }
   where
     extend env (uniq, co) = extendVarEnv_Directly env uniq co

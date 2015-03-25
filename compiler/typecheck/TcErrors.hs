@@ -939,7 +939,7 @@ mkEqInfoMsg ct ty1 ty2
               = snd (mkAmbigMsg ct)
               | otherwise = empty
 
-    invis_msg | Just Invisible <- pickyEqTypeVis ty1 ty2
+    invis_msg | Just Invisible <- tcEqTypeVis ty1 ty2
               = text "Use -fprint-explicit-kinds to see the kind arguments"
               | otherwise
               = empty
@@ -1085,6 +1085,7 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
   | isLiftedTypeKind act, isUnliftedTypeKind exp = (False, Nothing, msg3)
   | isLiftedTypeKind exp                         = (False, Nothing, msg4)
   | Just msg <- num_args_msg                     = (False, Nothing, msg $$ msg1)
+  | KindLevel <- level, Just th <- maybe_thing   = (False, Nothing, msg5 th)
   | act `pickyEqType` ty1, exp `pickyEqType` ty2 = (True, Just NotSwapped, empty)
   | exp `pickyEqType` ty1, act `pickyEqType` ty2 = (True, Just IsSwapped, empty)
   | otherwise                                    = (True, Nothing, msg1)
@@ -1092,26 +1093,15 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
     sort = case level of
       TypeLevel -> text "type"
       KindLevel -> text "kind"
-    
+
     msg1 = case level of
       KindLevel
-        | isLiftedTypeKind exp
-        , Just th <- maybe_thing
-        -> text "Expected a type, but" <+> quotes (ppr th) <+>
-           text "has kind" <+> quotes (ppr act)
-
         | Just th <- maybe_thing
-        -> hang (text "Expected kind" <+> quotes (ppr exp) <> comma)
-              2 (text "but" <+> quotes (ppr th) <+> text "has kind" <+>
-                 quotes (ppr act))
+        -> msg5 th
       
       _ -> vcat [ text "   Expected" <+> sort <> colon <+> ppr exp
-                , text "     Actual" <+> sort <> colon <+> ppr act
-                , case maybe_thing of
-                  { Just th | KindLevel <- level -> 
-                      text "which classifies:" <+> ppr th
-                  ; _ -> empty }]
-
+                , text "     Actual" <+> sort <> colon <+> ppr act ]
+                
     thing_msg = case maybe_thing of
                   Just thing -> \_ -> quotes (ppr thing) <+> text "is"
                   Nothing    -> \vowel -> text "got a" <>
@@ -1126,6 +1116,10 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
                        (\thing -> quotes (ppr thing) <+> text "has kind")
                        maybe_thing
                , quotes (ppr act) ]
+
+    msg5 th = hang (text "Expected kind" <+> quotes (ppr exp) <> comma)
+                 2 (text "but" <+> quotes (ppr th) <+> text "has kind" <+>
+                    quotes (ppr act))
 
     num_args_msg = case level of
       TypeLevel -> Nothing

@@ -10,7 +10,7 @@ T4488.hs:17:11: Warning:
     (Use -fno-warn-identities to suppress this message)
 
 T4488.hs:23:11: Warning:
-    Call of toRational :: Rational -> GHC.Real.Ratio Integer
+    Call of toRational :: Rational -> Rational
       can probably be omitted
     (Use -fno-warn-identities to suppress this message)
 

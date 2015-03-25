@@ -801,7 +801,7 @@ flatten_one fmode (AppTy ty1 ty2)
            ; traceTcS "flatten/appty"
                       (ppr ty1 $$ ppr ty2 $$ ppr xi1 $$
                        ppr co1 $$ ppr xi2' $$ ppr co2 $$
-                       ppr role1 $$ ppr role2 $$ ppr kco)
+                       ppr role1 $$ ppr role2)
            ; return ( mkAppTy xi1 xi2'
                     , mkTransAppCo role1 co1 xi1 ty1
                                    kco

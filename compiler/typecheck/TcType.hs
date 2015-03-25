@@ -48,7 +48,7 @@ module TcType (
   mkPhiTy, mkInvSigmaTy, mkSigmaTy,
   mkTcEqPred, mkTcReprEqPred, mkTcEqPredBR,
   mkNakedTyConApp, mkNakedAppTys, mkNakedAppTy, mkNakedFunTy,
-  mkNakedInvSigmaTy,
+  mkNakedInvSigmaTy, mkNakedCastTy,
 
   --------------------------------
   -- Splitters
@@ -69,7 +69,7 @@ module TcType (
   -- Predicates.
   -- Again, newtypes are opaque
   eqType, eqTypes, cmpType, cmpTypes, eqTypeX,
-  pickyEqType, pickyEqTypeVis, tcEqType, tcEqKind, tcEqTypeNoKindCheck,
+  pickyEqType, tcEqType, tcEqKind, tcEqTypeNoKindCheck, tcEqTypeVis,
   isSigmaTy, isRhoTy, isOverloadedTy,
   isDoubleTy, isFloatTy, isIntTy, isWordTy, isStringTy,
   isIntegerTy, isBoolTy, isUnitTy, isCharTy,
@@ -970,6 +970,9 @@ mkNakedFunTy :: Type -> Type -> Type
 -- See Note [Zonking inside the knot] in TcHsType
 mkNakedFunTy arg res = ForAllTy (Anon arg) res
 
+mkNakedCastTy :: Type -> Coercion -> Type
+mkNakedCastTy = CastTy
+
 {-
 ************************************************************************
 *                                                                      *
@@ -1225,7 +1228,7 @@ tcEqType :: TcType -> TcType -> Bool
 -- equality] (in TyCoRep) as `eqType`, but Type.eqType believes (* ==
 -- Constraint), and that is NOT what we want in the type checker!
 tcEqType ty1 ty2
-  = tc_eq_type ki1 ki2 && tc_eq_type ty1 ty2
+  = isNothing (tc_eq_type ki1 ki2) && isNothing (tc_eq_type ty1 ty2)
   where
     ki1 = typeKind ty1
     ki2 = typeKind ty2
@@ -1233,12 +1236,24 @@ tcEqType ty1 ty2
 -- | Just like 'tcEqType', but will return True for types of different kinds
 -- as long as their non-coercion structure is identical.
 tcEqTypeNoKindCheck :: TcType -> TcType -> Bool
-tcEqTypeNoKindCheck ty1 ty2 = tc_eq_type ty1 ty2
+tcEqTypeNoKindCheck ty1 ty2 = isNothing $ tc_eq_type ty1 ty2
+
+-- | Like 'tcEqType', but returns information about whether the difference
+-- is visible in the case of a mismatch. A return of Nothing means the types
+-- are 'tcEqType'.
+tcEqTypeVis :: TcType -> TcType -> Maybe VisibilityFlag
+tcEqTypeVis ty1 ty2
+  = tc_eq_type ty1 ty2 `and_then` tc_eq_type ki1 ki2
+  where
+    ki1 = typeKind ty1
+    ki2 = typeKind ty2
+
+    Nothing `and_then` x = x
+    just    `and_then` _ = just
 
 -- | Worker for 'tcEqType'. No kind check!
-tc_eq_type :: TcType -> TcType -> Bool
-tc_eq_type t1 t2 = isNothing $
-                   tc_eq_type_erased init_env (erase t1) (erase t2)
+tc_eq_type :: TcType -> TcType -> Maybe VisibilityFlag
+tc_eq_type t1 t2 = tc_eq_type_erased init_env (erase t1) (erase t2)
   where
     init_env = mkRnEnv2 $
                mkInScopeSet $
@@ -1291,18 +1306,16 @@ tc_eq_type_erased = go Visible
     just    `and_then` _ = just
     infixr 3 `and_then`
 
-pickyEqTypeVis :: TcType -> TcType -> Maybe VisibilityFlag
+-- | Like 'pickyEqTypeVis', but returns a Bool for convenience
+pickyEqType :: TcType -> TcType -> Bool
 -- Check when two types _look_ the same, _including_ synonyms.
 -- So (pickyEqType String [Char]) returns False
 -- This still ignores coercions, because this is used only for printing,
 -- and we omit coercions there.
--- Returns Nothing for "types equal", or otherwise whether or not the
--- first difference is in a visible or invisible location.
-pickyEqTypeVis ty1 ty2
-  -- compare types first, to get better visibility info
-  =  tc_eq_type_erased init_env (erase ty1) (erase ty2)
-     `and_then`
-     tc_eq_type_erased init_env (erase ki1) (erase ki2)
+pickyEqType ty1 ty2
+  = tc_eq_type_erased init_env (erase ki1) (erase ki2)
+    `and_then`
+    tc_eq_type_erased init_env (erase ty1) (erase ty2)
   where
     ki1 = typeKind ty1
     ki2 = typeKind ty2
@@ -1313,12 +1326,8 @@ pickyEqTypeVis ty1 ty2
 
     erase = eraseType (const Nothing)
 
-    Nothing `and_then` x = x               -- first test succeeded; use second
-    just    `and_then` _ = just
-
--- | Like 'pickyEqTypeVis', but returns a Bool for convenience
-pickyEqType :: TcType -> TcType -> Bool
-pickyEqType ty1 ty2 = isNothing $ pickyEqTypeVis ty1 ty2
+    Nothing  `and_then` x = isNothing x      -- first test succeeded; use second
+    (Just _) `and_then` _ = False
 
 {-
 Note [Occurs check expansion]

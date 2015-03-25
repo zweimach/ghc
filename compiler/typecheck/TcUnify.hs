@@ -1249,8 +1249,8 @@ we return a made-up TcTyVarDetails, but I think it works smoothly.
 -}
 
 -- | Breaks apart a function kind into its pieces. 
-matchExpectedFunKind :: TcType    -- ^ type, only for errors
-                     -> TcKind    -- ^ function kind
+matchExpectedFunKind :: TcType          -- ^ type, only for errors
+                     -> TcKind          -- ^ function kind
                      -> TcM (Coercion, TcKind, TcKind)
                                   -- ^ co :: old_kind ~ arg -> res
 matchExpectedFunKind ty = go
