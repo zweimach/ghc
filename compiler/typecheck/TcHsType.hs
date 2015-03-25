@@ -1020,6 +1020,7 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thi
                                      -- no need for coercion
                Just (ATyVar _ tv) -> unifyKind (Just n) kind (tyVarKind tv)
                Just thing         -> pprPanic "check_in_scope" (ppr thing)
+           ; kind <- zonkTcType kind
            ; return (n, kind) }
 
 tcHsTyVarBndrs :: LHsTyVarBndrs Name 

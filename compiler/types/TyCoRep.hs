@@ -2112,8 +2112,12 @@ ppr_type p ty@(ForAllTy {})   = ppr_forall_type p ty
 ppr_type p (AppTy t1 t2) = maybeParen p TyConPrec $
                            ppr_type FunPrec t1 <+> ppr_type TyConPrec t2
 
-ppr_type _ (CastTy ty co)
-  = parens (ppr_type TopPrec ty <+> ptext (sLit "|>") <+> ppr co)
+ppr_type p (CastTy ty co)
+  = sdocWithDynFlags $ \dflags ->
+  -- TODO (RAE): PrintExplicitCoercions? PrintInvisibles?
+    if gopt Opt_PrintExplicitKinds dflags
+    then parens (ppr_type TopPrec ty <+> ptext (sLit "|>") <+> ppr co)
+    else ppr_type p ty
 
 ppr_type _ (CoercionTy co)
   = parens (ppr co) -- TODO (RAE): do we need these parens?
