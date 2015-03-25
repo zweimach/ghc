@@ -1,2 +1,1 @@
-($$$) :: [a0 -> c0] -> [a0] -> [c0]
-  	-- Defined at <interactive>:2:8
+($$$) :: [a -> c] -> [a] -> [c] 	-- Defined at <interactive>:2:8

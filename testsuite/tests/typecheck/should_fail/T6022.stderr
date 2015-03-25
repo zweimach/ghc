@@ -1,6 +1,6 @@
 
 T6022.hs:3:1:
-    Non type-variable argument in the constraint: Eq ([a0] -> a0)
+    Non type-variable argument in the constraint: Eq ([a] -> a)
     (Use FlexibleContexts to permit this)
     When checking that ‘f’ has the inferred type
-      f :: forall a0. Eq ([a0] -> a0) => ([a0] -> a0) -> Bool
+      f :: forall a. Eq ([a] -> a) => ([a] -> a) -> Bool

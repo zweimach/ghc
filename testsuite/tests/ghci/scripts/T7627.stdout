@@ -26,7 +26,7 @@ instance (Monoid a, Monoid b) => Monoid (a, b)
   -- Defined in ‘GHC.Base’
 data (#,#) (a :: TYPE v) (b :: TYPE w) = (#,#) a b
   	-- Defined in ‘GHC.Prim’
-(,) :: a0 -> b0 -> (a0, b0)
-(#,#) :: a0 -> b0 -> (# a0, b0 #)
-(  ,  ) :: a0 -> b0 -> (a0, b0)
-(#  ,  #) :: a0 -> b0 -> (# a0, b0 #)
+(,) :: a -> b -> (a, b)
+(#,#) :: a -> b -> (# a, b #)
+(  ,  ) :: a -> b -> (a, b)
+(#  ,  #) :: a -> b -> (# a, b #)

@@ -1,1 +1,1 @@
-f :: Monad m00 => (m00 a00, r00) -> m00 b00
+f :: Monad m => (m a, r) -> m b

@@ -1,8 +1,8 @@
-class Foo (a :: k0) where
-  type family Bar (a :: k0) b
+class Foo (a :: k) where
+  type family Bar (a :: k) b
     Kind: forall k1. k1 -> * -> *
   	-- Defined at T7939.hs:6:4
-Bar :: k0 -> * -> *
+Bar :: k -> * -> *
 type family F a
   Kind: * -> *
   	-- Defined at T7939.hs:8:1
@@ -20,17 +20,17 @@ type family H (a :: Bool)
     H 'False = 'True
   	-- Defined at T7939.hs:14:1
 H :: Bool -> Bool
-type family J (a :: [a0])
-  Kind: forall a1. [a1] -> Bool
+type family J (a1 :: [a])
+  Kind: forall a2. [a2] -> Bool
   where
-    J a0 '[] = 'False
-  forall a0 (h :: a0) (t :: [a0]). J a0 (h : t) = 'True
+    J a '[] = 'False
+  forall a (h :: a) (t :: [a]). J a (h : t) = 'True
   	-- Defined at T7939.hs:17:1
-J :: [a0] -> Bool
-type family K (a :: [a0])
-  Kind: forall a1. [a1] -> Maybe a1
+J :: [a] -> Bool
+type family K (a1 :: [a])
+  Kind: forall a2. [a2] -> Maybe a2
   where
-    K a0 '[] = 'Nothing
-  forall a0 (h :: a0) (t :: [a0]). K a0 (h : t) = 'Just h
+    K a '[] = 'Nothing
+  forall a (h :: a) (t :: [a]). K a (h : t) = 'Just h
   	-- Defined at T7939.hs:21:1
-K :: [a0] -> Maybe a0
+K :: [a] -> Maybe a

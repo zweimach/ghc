@@ -6,7 +6,7 @@ T9171.hs:10:1:
     The type variable ‘k20’ is ambiguous
     Use -fprint-explicit-kinds to see the kind arguments
     When checking that ‘foo’ has the inferred type
-      foo :: forall k20. GetParam Base (GetParam Base Int)
+      foo :: forall k2. GetParam Base (GetParam Base Int)
     Probable cause: the inferred type is ambiguous
 
 T9171.hs:10:20:
@@ -16,7 +16,7 @@ T9171.hs:10:20:
     The type variable ‘k20’ is ambiguous
     Use -fprint-explicit-kinds to see the kind arguments
     In the ambiguity check for an expression type signature:
-      forall k20. GetParam Base (GetParam Base Int)
+      forall k2. GetParam Base (GetParam Base Int)
     To defer the ambiguity check to use sites, enable AllowAmbiguousTypes
     In an expression type signature: GetParam Base (GetParam Base Int)
     In the expression: undefined :: GetParam Base (GetParam Base Int)

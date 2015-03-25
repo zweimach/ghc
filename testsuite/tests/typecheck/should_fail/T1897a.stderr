@@ -6,5 +6,5 @@ T1897a.hs:9:1:
       at T1897a.hs:9:1-24
     The type variable ‘a0’ is ambiguous
     When checking that ‘foo’ has the inferred type
-      foo :: forall a0 b0. Wob a0 b0 => b0 -> [b0]
+      foo :: forall a b. Wob a b => b -> [b]
     Probable cause: the inferred type is ambiguous

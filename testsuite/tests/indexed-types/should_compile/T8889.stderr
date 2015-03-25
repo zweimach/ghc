@@ -1,6 +1,6 @@
 
 T8889.hs:12:1: Warning:
     Top-level binding with no type signature:
-      f :: forall (f0 :: * -> *) a0 b0.
-           (C_fmap f0 a0, C f0) =>
-           (a0 -> b0) -> f0 a0 -> f0 b0
+      f :: forall (f :: * -> *) a b.
+           (C_fmap f a, C f) =>
+           (a -> b) -> f a -> f b
