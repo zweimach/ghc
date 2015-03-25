@@ -210,6 +210,7 @@ import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
 import Control.Applicative ( (<$>) )
+import Control.Arrow    ( first )
 
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative ( Applicative, (<*>) )
@@ -1230,28 +1231,25 @@ mkPiTypesNoTv (k:ks) ty
 -- This always succeeds, even if it returns only an empty list. Note that the
 -- result type returned may have free variables that were bound by a forall.
 splitForAllTys :: Type -> ([Binder], Type)
-splitForAllTys = split []
+splitForAllTys ty = split ty ty []
   where
-    split bndrs ty | Just ty' <- coreView ty = split bndrs ty'
-    split bndrs (ForAllTy bndr res)          = split (bndr:bndrs) res
-    split bndrs ty                           = (reverse bndrs, ty)
-
+    split orig_ty ty bndrs | Just ty' <- coreView ty = split orig_ty ty' bndrs
+    split _       (ForAllTy bndr ty) bndrs = split ty ty (bndr:bndrs)
+    split orig_ty _                  bndrs = (reverse bndrs, orig_ty)
+    
 -- | Like 'splitForAllTys' but split off only /named/ binders, returning
 -- only the tycovars.
 splitNamedForAllTys :: Type -> ([TyCoVar], Type)
-splitNamedForAllTys t | Just t' <- coreView t = splitNamedForAllTys t'
-splitNamedForAllTys t = split [] t
-  where
-    split tvs (ForAllTy (Named tv _) res) = split (tv:tvs) res
-    split tvs ty                          = (reverse tvs, ty)
+splitNamedForAllTys ty = first (map $ binderVar "splitNamedForAllTys") $
+                         splitNamedForAllTysB ty
 
 -- | Like 'splitForAllTys' but split off only /named/ binders.
 splitNamedForAllTysB :: Type -> ([Binder], Type)
-splitNamedForAllTysB t | Just t' <- coreView t = splitNamedForAllTysB t'
-splitNamedForAllTysB t = split [] t
+splitNamedForAllTysB ty = split ty ty []
   where
-    split bndrs (ForAllTy bndr@(Named {}) res) = split (bndr:bndrs) res
-    split bndrs ty                             = (reverse bndrs, ty)
+    split orig_ty ty bs | Just ty' <- coreView ty = split orig_ty ty' bs
+    split _       (ForAllTy b@(Named {}) res) bs  = split res res (b:bs)
+    split orig_ty _                           bs  = (reverse bs, orig_ty)
 
 isForAllTy :: Type -> Bool
 isForAllTy (ForAllTy {})  = True

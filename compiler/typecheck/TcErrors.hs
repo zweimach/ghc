@@ -1085,7 +1085,7 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
   | isLiftedTypeKind act, isUnliftedTypeKind exp = (False, Nothing, msg3)
   | isLiftedTypeKind exp                         = (False, Nothing, msg4)
   | Just msg <- num_args_msg                     = (False, Nothing, msg $$ msg1)
-  | act `pickyEqType` ty1, exp `pickyEqType` ty2 = (True, Just NotSwapped,  empty)
+  | act `pickyEqType` ty1, exp `pickyEqType` ty2 = (True, Just NotSwapped, empty)
   | exp `pickyEqType` ty1, act `pickyEqType` ty2 = (True, Just IsSwapped, empty)
   | otherwise                                    = (True, Nothing, msg1)
   where
@@ -1114,13 +1114,14 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
 
     thing_msg = case maybe_thing of
                   Just thing -> \_ -> quotes (ppr thing) <+> text "is"
-                  Nothing    -> \vowel -> text "got a" <+>
-                                          if vowel then text "n" else empty
+                  Nothing    -> \vowel -> text "got a" <>
+                                          if vowel then char 'n' else empty
     msg2 = sep [ text "Expecting a lifted type, but"
                , thing_msg True, text "unlifted" ]
     msg3 = sep [ text "Expecting an unlifted type, but"
                , thing_msg False, text "lifted" ]
-    msg4 = sep [ text "Expected a type, but"
+    msg4 = maybe_num_args_msg $$
+           sep [ text "Expected a type, but"
                , maybe (text "found something with kind")
                        (\thing -> quotes (ppr thing) <+> text "has kind")
                        maybe_thing
@@ -1128,18 +1129,28 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
 
     num_args_msg = case level of
       TypeLevel -> Nothing
-      KindLevel -> case (count_args act - count_args exp) of
-        0             -> Nothing
-        n | n < 0     -> Just empty
-          | otherwise -> Just $ text "Expecting" <+> speakN n <+>
-                                text "more" <+> plural_n n (text "argument") <+>
-                                to_thing
+      KindLevel -> let n_act = count_args act
+                       n_exp = count_args exp in
+                   case n_act - n_exp of
+        0 -> Nothing
+        n | n > 0 || n_act >= (-n)   -- don't ask for fewer than 0 args
+          -> Just $ text "Expecting" <+> speakN (abs n) <+>
+                    more_or_fewer <+> plural_n (abs n) (text "argument") <+>
+                    to_thing
           where
             to_thing = case maybe_thing of
               Nothing -> empty
               Just th -> text "to" <+> quotes (ppr th)
 
-    count_args ty = length $ fst $ splitForAllTys ty
+            more_or_fewer | n < 0     = text "fewer"
+                          | otherwise = text "more"
+        _ -> Nothing
+
+    maybe_num_args_msg = case num_args_msg of
+      Nothing -> empty
+      Just m  -> m
+
+    count_args ty = count isVisibleBinder $ fst $ splitForAllTys ty
 
     plural_n 1 doc = doc
     plural_n _ doc = doc <> char 's'

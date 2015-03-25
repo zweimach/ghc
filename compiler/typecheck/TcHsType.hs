@@ -32,7 +32,10 @@ module TcHsType (
                 -- Pattern type signatures
         tcHsPatSigType, tcPatSig,
 
-        zonkedEvBindsSubst, zonkedEvBindsCvSubstEnv
+        zonkedEvBindsSubst, zonkedEvBindsCvSubstEnv,
+
+            -- Error messages
+        funAppCtxt
    ) where
 
 #include "HsVersions.h"
@@ -223,7 +226,8 @@ tcHsVectInst :: LHsType Name -> TcM (Class, [Type])
 tcHsVectInst ty
   | Just (L _ cls_name, tys) <- splitLHsClassTy_maybe ty
   = do { (cls, cls_kind) <- tcClass cls_name
-       ; (applied_class, _res_kind) <- tcInferApps (mkClassPred cls []) cls_kind tys
+       ; (applied_class, _res_kind)
+           <- tcInferApps cls_name (mkClassPred cls []) cls_kind tys
        ; case tcSplitTyConApp_maybe applied_class of
            Just (_tc, args) -> ASSERT( _tc == classTyCon cls )
                                return (cls, args)
@@ -417,13 +421,13 @@ tc_infer_hs_type (HsAppTy ty1 ty2)
   = do { let (fun_ty, arg_tys) = splitHsAppTys ty1 [ty2]
        ; (fun_ty', fun_kind) <- tc_infer_lhs_type fun_ty
        ; fun_kind' <- zonkTcType fun_kind
-       ; tcInferApps fun_ty' fun_kind' arg_tys }
+       ; tcInferApps fun_ty fun_ty' fun_kind' arg_tys }
 tc_infer_hs_type (HsParTy t)     = tc_infer_lhs_type t
 tc_infer_hs_type (HsOpTy lhs (L _ op) rhs)
   | not (op `hasKey` funTyConKey)
   = do { (op', op_kind) <- tcTyVar op
        ; op_kind' <- zonkTcType op_kind
-       ; tcInferApps op' op_kind' [lhs, rhs] }
+       ; tcInferApps op op' op_kind' [lhs, rhs] }
 tc_infer_hs_type (HsKindSig ty sig)
   = do { sig' <- tcLHsKind sig
        ; ty' <- tc_lhs_type ty sig'
@@ -670,47 +674,49 @@ finish_tuple tup_sort tau_tys exp_kind
                  ConstraintTuple -> constraintKind
 
 ---------------------------
-tcInferApps :: 
-          TcType                        -- Function
+tcInferApps :: Outputable fun
+       => fun                           -- Function (for printing only)
+       -> TcType                        -- Function
        -> TcKind                        -- Function kind (zonked)
        -> [LHsType Name]                -- Arg types
        -> TcM (TcType, TcKind)          -- (f args, result kind)
-tcInferApps ty ki args
+tcInferApps orig_ty ty ki args
   = do { traceTc "tcInferApps" (ppr ki $$ ppr args)
-       ; go emptyTCvSubst ty ki args }
+       ; go emptyTCvSubst ty ki args 1 }
   where
     -- TODO (RAE): Update when updating tcInstTyCoVars
     -- TODO (RAE): This is essentially instantiateDeeply at the type level.
     -- Can it be improved?
-    go _     fun fun_kind [] = return (fun, fun_kind)
-    go subst fun fun_kind (arg:args)
-      | Just fun_kind' <- tcView fun_kind = go subst fun fun_kind' (arg:args)
+    go _     fun fun_kind [] _ = return (fun, fun_kind)
+    go subst fun fun_kind args n
+      | Just fun_kind' <- tcView fun_kind
+      = go subst fun fun_kind' args n
 
       | Just tv <- getTyVar_maybe fun_kind
       , Just fun_kind' <- lookupTyVar subst tv
-      = go subst fun fun_kind' (arg:args)
+      = go subst fun fun_kind' args n
 
       | (inv_bndrs, res_k) <- splitForAllTysInvisible fun_kind
       , not (null inv_bndrs)
       = do { (subst', args') <- tcInstBindersX subst inv_bndrs
-           ; go subst'
-                (mkNakedAppTys fun args')
-                res_k
-                (arg:args) }
-    
+           ; go subst' (mkNakedAppTys fun args') res_k args n }
+
+    go subst fun fun_kind (arg:args) n
       | Just (bndr, res_k) <- splitForAllTy_maybe fun_kind
       , Just tv <- binderVar_maybe bndr
       , isVisibleBinder bndr
-      = do { arg' <- tc_lhs_type arg (substTy subst $ tyVarKind tv)
+      = do { arg' <- addErrCtxt (funAppCtxt orig_ty arg n) $
+                     tc_lhs_type arg (substTy subst $ tyVarKind tv)
            ; go (extendTCvSubst subst tv arg')
                 (mkNakedAppTy fun arg')
-                res_k
-                args }
+                res_k args (n+1) }
 
       | otherwise
       = do { (co, arg_k, res_k) <- matchExpectedFunKind fun (substTy subst fun_kind)
-           ; arg' <- tc_lhs_type arg arg_k
-           ; go subst (mkNakedAppTy (fun `mkCastTy` mkSubCo co) arg') res_k args }
+           ; arg' <- addErrCtxt (funAppCtxt orig_ty arg n) $
+                     tc_lhs_type arg arg_k
+           ; go subst (mkNakedAppTy (fun `mkCastTy` mkSubCo co) arg')
+                res_k args (n+1) }
 
 ---------------------------
 tcHsContext :: LHsContext Name -> TcM [PredType]
@@ -1656,3 +1662,19 @@ zonk_cv_subst_env cv_env
        ; return (foldl' extend emptyCvSubstEnv (zip uniqs cos)) }
   where
     extend env (uniq, co) = extendVarEnv_Directly env uniq co
+
+{-
+************************************************************************
+*                                                                      *
+          Error messages and such
+*                                                                      *
+************************************************************************
+-}
+
+-- | Make an appropriate message for an error in a function argument.
+-- Used for both expressions and types.
+funAppCtxt :: (Outputable fun, Outputable arg) => fun -> arg -> Int -> SDoc
+funAppCtxt fun arg arg_no
+  = hang (hsep [ ptext (sLit "In the"), speakNth arg_no, ptext (sLit "argument of"),
+                    quotes (ppr fun) <> text ", namely"])
+       2 (quotes (ppr arg))

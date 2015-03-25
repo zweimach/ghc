@@ -1448,12 +1448,6 @@ fieldCtxt :: Name -> SDoc
 fieldCtxt field_name
   = ptext (sLit "In the") <+> quotes (ppr field_name) <+> ptext (sLit "field of a record")
 
-funAppCtxt :: LHsExpr Name -> LHsExpr Name -> Int -> SDoc
-funAppCtxt fun arg arg_no
-  = hang (hsep [ ptext (sLit "In the"), speakNth arg_no, ptext (sLit "argument of"),
-                    quotes (ppr fun) <> text ", namely"])
-       2 (quotes (ppr arg))
-
 funResCtxt :: Bool  -- There is at least one argument
            -> HsExpr Name -> TcType -> TcType
            -> TidyEnv -> TcM (TidyEnv, MsgDoc)

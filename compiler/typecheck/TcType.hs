@@ -1299,9 +1299,10 @@ pickyEqTypeVis :: TcType -> TcType -> Maybe VisibilityFlag
 -- Returns Nothing for "types equal", or otherwise whether or not the
 -- first difference is in a visible or invisible location.
 pickyEqTypeVis ty1 ty2
-  =  tc_eq_type_erased init_env (erase ki1) (erase ki2)
+  -- compare types first, to get better visibility info
+  =  tc_eq_type_erased init_env (erase ty1) (erase ty2)
      `and_then`
-     tc_eq_type_erased init_env (erase ty1) (erase ty2)
+     tc_eq_type_erased init_env (erase ki1) (erase ki2)
   where
     ki1 = typeKind ty1
     ki2 = typeKind ty2
@@ -1312,8 +1313,8 @@ pickyEqTypeVis ty1 ty2
 
     erase = eraseType (const Nothing)
 
-    Nothing `and_then` x = x    -- first test succeeded; use second
-    Just _  `and_then` _ = Just Invisible  -- kinds are generally invisible
+    Nothing `and_then` x = x               -- first test succeeded; use second
+    just    `and_then` _ = just
 
 -- | Like 'pickyEqTypeVis', but returns a Bool for convenience
 pickyEqType :: TcType -> TcType -> Bool

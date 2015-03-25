@@ -822,17 +822,24 @@ skolemiseUnboundMetaTyVar tv details
         ; kind <- zonkTcType (tyVarKind tv)
         ; let tv_name     = getOccName tv
               tv_uniq     = getUnique tv
-                -- TODO (RAE): /temp/head has some mucking about with wildcards here.
-                -- make sure this functionality isn't lost.
-                                 
+              new_tv_name = if isWildcardVar tv
+                            then generaliseWildcardVarName tv_name
+                            else tv_name
+
                 -- NB: Use same Unique as original tyvar. This is
                 -- important for TcHsType.splitTelescopeTvs to work properly
-              final_name = mkInternalName tv_uniq tv_name span
+              final_name = mkInternalName tv_uniq new_tv_name span
               final_tv   = mkTcTyVar final_name kind details
 
         ; traceTc "Skolemising" (ppr tv <+> ptext (sLit ":=") <+> ppr final_tv)
         ; writeMetaTyVar tv (mkTyCoVarTy final_tv)
         ; return final_tv }
+  where
+    -- If a wildcard type called _a is generalised, we rename it to tw_a
+    generaliseWildcardVarName :: OccName -> OccName
+    generaliseWildcardVarName name | startsWithUnderscore name
+      = mkOccNameFS (occNameSpace name) (appendFS (fsLit "w") (occNameFS name))
+    generaliseWildcardVarName name = name
 
 {-
 Note [Zonking to Skolem]
@@ -1233,3 +1240,8 @@ newWildcardVarMetaKind :: Name -> TcM TcTyVar
 newWildcardVarMetaKind name = do kind <- newMetaKindVar
                                  newWildcardVar name kind
 
+-- | Return 'True' if the argument is a meta var created for a wildcard (by
+-- 'newWildcardVar' or 'newWildcardVarMetaKind').
+isWildcardVar :: TcTyVar -> Bool
+isWildcardVar tv | MetaTv (TauTv True) _ _ <- tcTyVarDetails tv = True
+isWildcardVar _ = False
