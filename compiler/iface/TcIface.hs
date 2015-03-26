@@ -1313,25 +1313,19 @@ bindIfaceBndrTy (IfaceTv tv vis) thing_inside
   = bindIfaceTyVar tv $ \tv' -> thing_inside tv' vis
 bindIfaceBndrTy (IfaceCv cv)     thing_inside
   = bindIfaceId cv $ \cv' -> thing_inside cv' Invisible
-bindIfaceBndrTy bndr _         = pprPanic "bindIfaceBndrTy" (ppr bndr)
 
-bindIfaceBndrCo :: IfaceForAllBndr -> (ForAllCoBndr -> IfL a) -> IfL a
-bindIfaceBndrCo (IfaceTv tv _) thing_inside
-  = bindIfaceTyVar tv (\tv' -> thing_inside (TyHomo tv'))
-bindIfaceBndrCo (IfaceHeteroTv co tv1 tv2 cv) thing_inside
+bindIfaceBndrCo :: IfaceForAllCoBndr -> (ForAllCoBndr -> IfL a) -> IfL a
+bindIfaceBndrCo (IfaceCoBndr co tv1 tv2 m_cv) thing_inside
   = do { co' <- tcIfaceCo co
        ; bindIfaceTyVar tv1 $ \tv1' ->
          bindIfaceTyVar tv2 $ \tv2' ->
-         bindIfaceId cv $ \cv' ->
-         thing_inside (mkTyHeteroCoBndr co' tv1' tv2' cv') }
-bindIfaceBndrCo (IfaceCv cv) thing_inside
-  = bindIfaceId cv (\cv' -> thing_inside (CoHomo cv'))
-bindIfaceBndrCo (IfaceHeteroCv co cv1 cv2) thing_inside
-  = do { co' <- tcIfaceCo co
-       ; bindIfaceId cv1 $ \cv1' ->
-         bindIfaceId cv2 $ \cv2' ->
-         thing_inside (mkCoHeteroCoBndr co' cv1' cv2') }
-
+         maybe_bindIfaceId m_cv $ \m_cv' ->
+         thing_inside (mkForAllCoBndr co' tv1' tv2' m_cv') }
+  where
+    maybe_bindIfaceId Nothing   thing_inside = thing_inside Nothing
+    maybe_bindIfaceId (Just cv) thing_inside
+      = bindIfaceId cv $ \cv' -> thing_inside (Just cv')
+                                 
 bindIfaceTyVar :: IfaceTvBndr -> (TyVar -> IfL a) -> IfL a
 bindIfaceTyVar (occ,kind) thing_inside
   = do  { name <- newIfaceName (mkTyVarOccFS occ)

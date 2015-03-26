@@ -34,8 +34,8 @@ import Control.Monad   ( zipWithM )
 %*                                                                      *
 %************************************************************************
 
-Note [Hetero case for opt_trans_rule]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Note [ForAllCo case for opt_trans_rule]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Hold onto your hat, because this is messy.
 
 Say we have the following four coercions to hand:
@@ -76,7 +76,7 @@ As usual, the types tell us the answer:
     [c2 |-> c3 `mkCoherenceLeftCo` h1]
 
 Note [Sym and InstCo]
-~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
 We wish to simplify the following:
 
 sym ((forall_h (a1:k1, a2:k2, c:a1~a2). g1)@g2)
@@ -488,21 +488,15 @@ opt_unsafe env prov role oty1 oty2
   , isTyVar tv1 == isTyVar tv2   -- rule out weird UnsafeCo
   , let k1 = tyVarKind tv1
         k2 = tyVarKind tv2
-  = if k1 `eqType` k2
-    then case substTyCoVarBndr2 env tv1 tv2 of { (env1, env2, tv') ->
-         let ty1' = substTy env1 ty1
-             ty2' = substTy env2 ty2 in
-         mkForAllCo (mkHomoCoBndr tv')
-                    (opt_unsafe (zapTCvSubstEnv2 env1 env2) prov role ty1' ty2') }
-    else let eta = opt_unsafe env prov role k1 k2
-             cobndr
-               | isTyVar tv1 = let c = mkFreshCoVar (getTCvInScope env)
-                                                    (mkOnlyTyVarTy tv1)
-                                                    (mkOnlyTyVarTy tv2) in
-                               mkTyHeteroCoBndr eta tv1 tv2 c
-               | otherwise   = mkCoHeteroCoBndr eta tv1 tv2
-         in
-         mkForAllCo cobndr (opt_unsafe env prov role ty1 ty2)
+  = let eta = opt_unsafe env prov role k1 k2
+        cobndr
+          | isTyVar tv1 = let c = mkFreshCoVar (getTCvInScope env)
+                                               (mkOnlyTyVarTy tv1)
+                                               (mkOnlyTyVarTy tv2) in
+                          mkForAllCoBndr eta tv1 tv2 (Just c)
+          | otherwise   = mkForAllCoBndr eta tv1 tv2 Nothing
+    in
+    mkForAllCo cobndr (opt_unsafe env prov role ty1 ty2)
 
   | otherwise
   = mkUnsafeCo prov role oty1 oty2
@@ -544,11 +538,8 @@ opt_nth_co env sym rep r = go []
       = Just (Refl r1 (tyVarKind tv))
     push_nth n (TyConAppCo _ _ cos)
       = Just (stripTyCoArg $ cos `getNth` n)
-    push_nth 0 (ForAllCo cobndr co)
-      | Just v <- getHomoVar_maybe cobndr
-      = Just (Refl (coercionRole co) (varType v))
-      | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
-      = Just h
+    push_nth 0 (ForAllCo (ForAllCoBndr eta _ _ _) _)
+      = Just eta
     push_nth _ _ = Nothing
 
       -- input coercion is *not* yet sym'd or opt'd
@@ -705,104 +696,61 @@ opt_trans_rule is co1 co2@(AppCo co2a h2 co2b)
 -- Push transitivity inside forall
 opt_trans_rule is co1 co2
   | Just (cobndr1,r1) <- splitForAllCo_maybe co1
-  , Just (cobndr2,r2) <- etaForAllCo_maybe is role co2
+  , Just (cobndr2,r2) <- etaForAllCo_maybe is co2
   = push_trans cobndr1 r1 cobndr2 r2
 
   | Just (cobndr2,r2) <- splitForAllCo_maybe co2
-  , Just (cobndr1,r1) <- etaForAllCo_maybe is role co1
+  , Just (cobndr1,r1) <- etaForAllCo_maybe is co1
   = push_trans cobndr1 r1 cobndr2 r2
 
   where
-  role = coercionRole co1
+  role   = coercionRole co1
+  to_rep = downgradeRole Representational role
     
-  push_trans cobndr1 r1 cobndr2 r2
+  push_trans (ForAllCoBndr col tvl1 tvl2 m_cvl) r1
+             (ForAllCoBndr cor tvr1 tvr2 m_cvr) r2
     | Phantom <- role
        -- abort. We need to use some coercions to cast, and we can't
        -- if we're at a Phantom role.
     = WARN( True, ppr co1 $$ ppr co2 )
       Nothing
 
-    | otherwise =
-    case (cobndr1, cobndr2) of
-      (TyHomo tv1, TyHomo tv2) -> -- their kinds must be equal
-        let subst = extendTCvSubst (mkEmptyTCvSubst is') tv2 (mkOnlyTyVarTy tv1)
-            r2'   = optCoercion subst r2
-            is'   = is `extendInScopeSet` tv1 in
-        fireTransRule "EtaAllTyHomoHomo" co1 co2 $
-        mkForAllCo_TyHomo tv1 (opt_trans is' r1 r2')
+      -- See Note [ForAllCo case for opt_trans_rule]
+    | (Just cvl, Just cvr) <- (m_cvl, m_cvr)
+    = -- kinds of tvl2 and tvr1 must be equal
+      let cv       = mkFreshCoVar is (mkOnlyTyVarTy tvl1) (mkOnlyTyVarTy tvr2)
+          new_tvl2 = mkCastTy (mkOnlyTyVarTy tvr2) (to_rep $ mkSymCo cor)
+          new_cvl  = mkCoherenceRightCo (mkCoVarCo cv) (mkSymCo cor)
+          new_tvr1 = mkCastTy (mkOnlyTyVarTy tvl1) (to_rep col)
+          new_cvr  = mkCoherenceLeftCo  (mkCoVarCo cv) (col)
+          empty    = mkEmptyTCvSubst is'
+          subst_r1 = extendTCvSubstList empty [tvl2, cvl] [new_tvl2, mkCoercionTy new_cvl]
+          subst_r2 = extendTCvSubstList empty [tvr1, cvr] [new_tvr1, mkCoercionTy new_cvr]
+          r1' = optCoercion subst_r1 r1
+          r2' = optCoercion subst_r2 r2
+          is' = is `extendInScopeSetList` [tvl1, tvl2, cvl, tvr1, tvr2, cvr, cv]
+      in
+      fireTransRule "EtaAllTy" co1 co2 $
+      mkForAllCo (mkForAllCoBndr (opt_trans2 is col cor) tvl1 tvr2 (Just cv))
+                 (opt_trans is' r1' r2')
 
-      -- See Note [Hetero case for opt_trans_rule]
-      -- kinds of tvl2 and tvr1 must be equal
-      (TyHetero col tvl1 tvl2 cvl, TyHetero cor tvr1 tvr2 cvr) ->
-        let cv       = mkFreshCoVar is (mkOnlyTyVarTy tvl1) (mkOnlyTyVarTy tvr2)
-            new_tvl2 = mkCastTy (mkOnlyTyVarTy tvr2) (to_rep $ mkSymCo cor)
-            new_cvl  = mkCoherenceRightCo (mkCoVarCo cv) (mkSymCo cor)
-            new_tvr1 = mkCastTy (mkOnlyTyVarTy tvl1) (to_rep col)
-            new_cvr  = mkCoherenceLeftCo  (mkCoVarCo cv) (col)
-            empty    = mkEmptyTCvSubst is'
-            subst_r1 = extendTCvSubstList empty [tvl2, cvl] [new_tvl2, mkCoercionTy new_cvl]
-            subst_r2 = extendTCvSubstList empty [tvr1, cvr] [new_tvr1, mkCoercionTy new_cvr]
-            r1' = optCoercion subst_r1 r1
-            r2' = optCoercion subst_r2 r2
-            is' = is `extendInScopeSetList` [tvl1, tvl2, cvl, tvr1, tvr2, cvr, cv] in
-        fireTransRule "EtaAllTyHeteroHetero" co1 co2 $
-        mkForAllCo (mkTyHeteroCoBndr (opt_trans2 is col cor) tvl1 tvr2 cv)
-                   (opt_trans is' r1' r2')
-
-      (TyHomo tvl, TyHetero _ tvr1 tvr2 cvr) ->
-        let subst = extendTCvSubst (mkEmptyTCvSubst is') tvl (mkOnlyTyVarTy tvr1)
-            r1'   = optCoercion subst r1
-            is'   = is `extendInScopeSetList` [tvr1, tvr2, cvr] in
-        fireTransRule "EtaAllTyHomoHetero" co1 co2 $
-        mkForAllCo cobndr2 (opt_trans is' r1' r2)
-
-      (TyHetero _ tvl1 tvl2 cvl, TyHomo tvr) ->
-        let subst = extendTCvSubst (mkEmptyTCvSubst is') tvr (mkOnlyTyVarTy tvl2)
-            r2'   = optCoercion subst r2
-            is'   = is `extendInScopeSetList` [tvl1, tvl2, cvl] in
-        fireTransRule "EtaAllTyHeteroHomo" co1 co2 $
-        mkForAllCo cobndr1 (opt_trans is' r1 r2')
-   
-      (CoHomo cv1, CoHomo cv2) ->
-        let subst = extendTCvSubst (mkEmptyTCvSubst is') cv2 (mkTyCoVarTy cv1)
-            r2'   = optCoercion subst r2
-            is'   = is `extendInScopeSet` cv1 in
-         fireTransRule "EtaAllCoHomoHomo" co1 co2 $
-         mkForAllCo_CoHomo cv1 (opt_trans is' r1 r2')
-
-      (CoHetero col cvl1 cvl2, CoHetero cor cvr1 cvr2) ->
-        let new_cvl2 = (mkNthCo 2 cor) `mkTransCo`
-                       (mkCoVarCo cvr2) `mkTransCo`
-                       (mkNthCo 3 $ mkSymCo cor)
-            new_cvr1 = (mkNthCo 2 (mkSymCo col)) `mkTransCo`
-                       (mkCoVarCo cvl1) `mkTransCo`
-                       (mkNthCo 3 col)
-            empty    = mkEmptyTCvSubst is'
-            subst_r1 = extendTCvSubst empty cvl2 (mkCoercionTy new_cvl2)
-            subst_r2 = extendTCvSubst empty cvr1 (mkCoercionTy new_cvr1)
-            r1'      = optCoercion subst_r1 r1
-            r2'      = optCoercion subst_r2 r2
-            is'      = is `extendInScopeSetList` [cvl1, cvl2, cvr1, cvr2] in
-        fireTransRule "EtaAllCoHeteroHetero" co1 co2 $
-        mkForAllCo (mkCoHeteroCoBndr (opt_trans2 is col cor) cvl1 cvr2)
-                   (opt_trans is' r1' r2')
-
-      (CoHomo cvl, CoHetero _ cvr1 cvr2) ->
-        let subst = extendTCvSubst (mkEmptyTCvSubst is') cvl (mkTyCoVarTy cvr1)
-            r1'   = optCoercion subst r1
-            is'   = is `extendInScopeSetList` [cvr1, cvr2] in
-        fireTransRule "EtaAllCoHomoHetero" co1 co2 $
-        mkForAllCo cobndr2 (opt_trans is' r1' r2)
-
-      (CoHetero _ cvl1 cvl2, CoHomo cvr) ->
-        let subst = extendTCvSubst (mkEmptyTCvSubst is') cvr (mkTyCoVarTy cvl2)
-            r2'   = optCoercion subst r2
-            is'   = is `extendInScopeSetList` [cvl1, cvl2] in
-        fireTransRule "EtaAllCoHeteroHomo" co1 co2 $
-        mkForAllCo cobndr1 (opt_trans is' r1 r2')
-
-      _ -> Nothing
-    where to_rep = downgradeRole Representational role
+    | otherwise
+    = let new_tvl2 = (mkNthCo 2 cor) `mkTransCo`
+                     (mkCoVarCo tvr2) `mkTransCo`
+                     (mkNthCo 3 $ mkSymCo cor)
+          new_tvr1 = (mkNthCo 2 (mkSymCo col)) `mkTransCo`
+                     (mkCoVarCo tvl1) `mkTransCo`
+                     (mkNthCo 3 col)
+          empty    = mkEmptyTCvSubst is'
+          subst_r1 = extendTCvSubst empty tvl2 (mkCoercionTy new_tvl2)
+          subst_r2 = extendTCvSubst empty tvr1 (mkCoercionTy new_tvr1)
+          r1'      = optCoercion subst_r1 r1
+          r2'      = optCoercion subst_r2 r2
+          is'      = is `extendInScopeSetList` [tvl1, tvl2, tvr1, tvr2]
+      in
+      fireTransRule "EtaAllCo" co1 co2 $
+      mkForAllCo (mkForAllCoBndr (opt_trans2 is col cor) tvl1 tvr2 Nothing)
+                 (opt_trans is' r1' r2')
 
 -- Push transitivity inside axioms
 opt_trans_rule is co1 co2
@@ -989,19 +937,6 @@ chooseRole :: ReprFlag
            -> Role
 chooseRole True _ = Representational
 chooseRole _    r = r
------------
--- takes two tyvars and builds env'ts to map them to the same tyvar
-substTyCoVarBndr2 :: TCvSubst -> TyCoVar -> TyCoVar
-                  -> (TCvSubst, TCvSubst, TyCoVar)
-substTyCoVarBndr2 env tv1 tv2
-  = case substTyCoVarBndr env tv1 of
-      (env1, tv1') -> (env1, extendTCvSubstAndInScope env tv2 (mkTyCoVarTy tv1'), tv1')
-    
-zapTCvSubstEnv2 :: TCvSubst -> TCvSubst -> TCvSubst
-zapTCvSubstEnv2 env1 env2 = mkTCvSubst (is1 `unionInScope` is2)
-                                       (emptyTvSubstEnv, emptyCvSubstEnv)
-  where is1 = getTCvInScope env1
-        is2 = getTCvInScope env2
 
 -----------
 isAxiom_maybe :: Coercion -> Maybe (Bool, CoAxiom Branched, Int, [CoercionArg])
@@ -1047,10 +982,10 @@ compatible_co co1 co2
     Pair x2 _ = coercionKind co2
 
 -------------
-etaForAllCo_maybe :: InScopeSet -> Role   -- of the coercion
+etaForAllCo_maybe :: InScopeSet
                   -> Coercion -> Maybe (ForAllCoBndr, Coercion)
 -- Try to make the coercion be of form (forall tv. co)
-etaForAllCo_maybe is role co
+etaForAllCo_maybe is co
   | Just (cobndr, r) <- splitForAllCo_maybe co
   = Just (cobndr, r)
 
@@ -1060,21 +995,14 @@ etaForAllCo_maybe is role co
   , Just tv1 <- binderVar_maybe bndr1
   , Just tv2 <- binderVar_maybe bndr2
   , isTyVar tv1 == isTyVar tv2 -- we want them to be the same sort
-  = if varType tv1 `eqType` varType tv2
-
-    -- homogeneous:
-    then Just (mkHomoCoBndr tv1, mkInstCo co $ mkCoArgForVar tv1)
-
-    -- heterogeneous:
-    else if isTyVar tv1
-         then let covar = mkFreshCoVar is (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2)
-              in
-              Just ( mkTyHeteroCoBndr (mkNthCo 0 co) tv1 tv2 covar
-                   , mkInstCo co (TyCoArg (mkCoVarCo covar)))
-         else Just ( mkCoHeteroCoBndr (mkNthCo 0 co) tv1 tv2
-                   , let kco = downgradeRole Representational role $ mkNthCo 0 co
-                     in mkInstCo co (CoCoArg Nominal kco (mkCoVarCo tv1)
-                                                         (mkCoVarCo tv2)))
+  = let m_cv | isTyVar tv1
+             = Just $
+               mkFreshCoVar is (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2)
+             | otherwise
+             = Nothing
+        cobndr = mkForAllCoBndr (mkNthCo 0 co) tv1 tv2 m_cv
+    in
+    Just (cobndr, mkInstCo co (coBndrWitness cobndr))
 
   | otherwise
   = Nothing

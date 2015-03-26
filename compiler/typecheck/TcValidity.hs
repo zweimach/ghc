@@ -1328,9 +1328,7 @@ fvCo (Refl _ ty)            = fvType ty
 fvCo (TyConAppCo _ _ args)  = concatMap fvCoArg args
 fvCo (AppCo co h arg)       = fvCo co ++ fvCo h ++ fvCoArg arg
 fvCo (ForAllCo cobndr co)   = (fvCo co \\ coBndrVars cobndr)
-                              ++ case splitHeteroCoBndr_maybe cobndr of
-                                   Just (h, _, _) -> fvCo h
-                                   Nothing        -> []
+                              ++ fvCo (coBndrKindCo cobndr)
 fvCo (CoVarCo v)            = [v]
 fvCo (AxiomInstCo _ _ args) = concatMap fvCoArg args 
 fvCo (PhantomCo h t1 t2)    = fvCo h ++ fvType t1 ++ fvType t2

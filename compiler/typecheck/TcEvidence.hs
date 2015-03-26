@@ -29,7 +29,8 @@ module TcEvidence (
   tcDowngradeRole,
   mkTcAxiomRuleCo, mkTcCoherenceLeftCo, mkTcCoherenceRightCo, mkTcPhantomCo,
   castTcCoercionKind, mkTcKindCo, mkTcKindAppCo, mkTcCoercion, mkTcCoercionArg,
-  tcCoercionKind, coVarsOfTcCo, isEqVar, mkTcCoVarCo,
+  tcCoercionKind, coVarsOfTcCo, tyCoVarsOfTcCo,
+  isEqVar, mkTcCoVarCo,
   isTcReflCo, getTcCoVar_maybe,
   tcCoercionRole, eqVarRole,
   tcCoercionToCoercion
@@ -69,6 +70,7 @@ import Outputable
 import ListSetOps
 import FastString
 import Data.IORef( IORef )
+import Data.List ( mapAccumL )
 
 {-
 Note [TcCoercions]
@@ -396,6 +398,37 @@ tcCoercionRole = go
     go (TcLetCo _ c)          = go c
     go (TcCoercion co)        = coercionArgRole co
 
+tyCoVarsOfTcCo :: TcCoercion -> VarSet
+tyCoVarsOfTcCo = go
+  where
+    go (TcRefl _ t)              = tyCoVarsOfType t
+    go (TcTyConAppCo _ _ cos)    = mapUnionVarSet go cos
+    go (TcAppCo co1 h co2)       = go co1 `unionVarSet` go h `unionVarSet` go co2
+    go (TcCastCo co1 co2)        = go co1 `unionVarSet` go co2
+    go (TcCoherenceCo co g)      = go co `unionVarSet` tyCoVarsOfCo g
+    go (TcKindCo co)             = go co
+    go (TcKindAppCo co)          = go co
+    go (TcForAllCo _ co)         = go co
+    go (TcCoVarCo v)             = unitVarSet v
+    go (TcAxiomInstCo _ _ cos)   = mapUnionVarSet go cos
+    go (TcPhantomCo h t1 t2)     = unionVarSets [ go h
+                                                , tyCoVarsOfType t1
+                                                , tyCoVarsOfType t2 ]
+    go (TcSymCo co)              = go co
+    go (TcTransCo co1 co2)       = go co1 `unionVarSet` go co2
+    go (TcNthCo _ co)            = go co
+    go (TcLRCo  _ co)            = go co
+    go (TcSubCo co)              = go co
+    go (TcLetCo (EvBinds bs) co) = foldrBag (unionVarSet . go_bind) (go co) bs
+                                   `minusVarSet` evBindsVars bs
+    go (TcLetCo {}) = emptyVarSet    -- Harumph. This does legitimately happen in the call
+                                     -- to evVarsOfTerm in the DEBUG check of setEvBind
+    go (TcAxiomRuleCo _ _ cos)   = mapUnionVarSet go cos
+    go (TcCoercion co)           = tyCoVarsOfCoArg co
+
+    -- We expect only coercion bindings, so use evTermCoercion 
+    go_bind :: EvBind -> VarSet
+    go_bind (EvBind { evb_term = tm }) = go (evTermCoercion tm)
 
 coVarsOfTcCo :: TcCoercion -> VarSet
 -- Only works on *zonked* coercions, because of TcLetCo
@@ -444,11 +477,7 @@ tcCoercionToCoercion subst tc_co
     go (TcRefl r ty)            = Just $ mkReflCo r (Type.substTy subst ty)
     go (TcTyConAppCo r tc cos)  = mkTyConAppCo r tc <$> mapM go_arg cos
     go (TcAppCo co1 h co2)      = mkAppCo <$> go co1 <*> go h <*> go_arg co2
-    go (TcForAllCo tv co)       = mkForAllCo cobndr' <$>
-                                    tcCoercionToCoercion subst' co
-                              where
-                                cobndr = mkHomoCoBndr tv
-                                (subst', cobndr') = substForAllCoBndr subst cobndr
+    go co@(TcForAllCo {})       = go_forall [] co
     go (TcAxiomInstCo ax ind cos)
                                 = mkAxiomInstCo ax ind <$> mapM go_arg cos
     go (TcPhantomCo h ty1 ty2)  = mkPhantomCo <$> go h <*> pure (substTy subst ty1)
@@ -469,6 +498,19 @@ tcCoercionToCoercion subst tc_co
 
     go_arg (TcCoercion arg)     = Just (substCoArg subst arg)
     go_arg tc_co                = mkTyCoArg <$> go tc_co
+
+    go_forall tvs (TcForAllCo tv co) = go_forall (tv:tvs) co
+    go_forall tvs co = foldr mkForAllCo <$> tcCoercionToCoercion subst' co
+                                        <*> pure cobndrs'
+      where
+        role               = tcCoercionRole co  -- TODO (RAE): make more efficient?
+        in_scope           = mkInScopeSet $ tyCoVarsOfTcCo co
+        (_, cobndrs)       = mapAccumL mk_cobndr in_scope tvs
+        (subst', cobndrs') = mapAccumL substForAllCoBndr subst (reverse cobndrs)
+        
+        mk_cobndr is tv = (is', cobndr)
+          where cobndr = mkHomoCoBndr is role tv
+                is'    = is `extendInScopeSetList` coBndrVars cobndr
 
     ds_co_binds :: TcEvBinds -> TCvSubst
     ds_co_binds (EvBinds bs)      = evBindsSubstX subst bs

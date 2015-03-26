@@ -34,11 +34,8 @@ coVarKindsTypesRole :: CoVar -> (Kind, Kind, Type, Type, Role)
 coVarRole :: CoVar -> Role
 mkFreshCoVarOfType :: InScopeSet -> Type -> CoVar
 
-mkHomoCoBndr :: TyCoVar -> ForAllCoBndr
-mkTyHeteroCoBndr :: Coercion -> TyVar -> TyVar -> CoVar -> ForAllCoBndr
-mkCoHeteroCoBndr :: Coercion -> CoVar -> CoVar -> ForAllCoBndr
-getHomoVar_maybe :: ForAllCoBndr -> Maybe TyCoVar
-splitHeteroCoBndr_maybe :: ForAllCoBndr -> Maybe (Coercion, TyCoVar, TyCoVar)
+coBndrKindCo   :: ForAllCoBndr -> Coercion
+mkForAllCoBndr :: Coercion -> TyVar -> TyVar -> Maybe CoVar -> ForAllCoBndr
 
 mkCoercionType :: Role -> Type -> Type -> Type
 

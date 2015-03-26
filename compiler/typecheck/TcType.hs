@@ -1422,14 +1422,9 @@ occurCheckExpand dflags tv ty
     fast_check_co (AppCo co h arg)       = fast_check_co co &&
                                            fast_check_co h &&
                                            fast_check_co_arg arg
-    fast_check_co (ForAllCo cobndr co)
-      | Just v <- getHomoVar_maybe cobndr
-      = impredicative && fast_check (varType v) && (tv == v || fast_check_co co)
-      | Just (h, v1, v2) <- splitHeteroCoBndr_maybe cobndr
+    fast_check_co (ForAllCo (ForAllCoBndr h v1 v2 _) co)
       = impredicative && fast_check_co h && fast_check (varType v1)
                       && fast_check (varType v2) && (tv == v1 || tv == v2 || fast_check_co co)
-      | otherwise
-      = pprPanic "fast_check_co" (ppr cobndr)
     fast_check_co (CoVarCo _)            = True
     fast_check_co (AxiomInstCo _ _ args) = all fast_check_co_arg args
     fast_check_co (PhantomCo h t1 t2)    = fast_check_co h && fast_check t1
@@ -1503,10 +1498,8 @@ occurCheckExpand dflags tv ty
       | not (all fast_check (map varType (coBndrVars cobndr)))
                                     = OC_Occurs
       | tv `elem` coBndrVars cobndr = return co
-      | otherwise = do { cobndr' <- case splitHeteroCoBndr_maybe cobndr of
-                                      Just (h, _, _) -> do { h' <- go_co h
-                                                      ; return (setCoBndrEta cobndr h') }
-                                      _              -> return cobndr
+      | otherwise = do { h' <- go_co (coBndrKindCo cobndr)
+                       ; let cobndr' = setCoBndrKindCo cobndr h'
                        ; co' <- go_co co
                        ; return (mkForAllCo cobndr' co') }
     go_co co@(CoVarCo {})           = return co
@@ -1860,10 +1853,7 @@ orphNamesOfCo (Refl _ ty)           = orphNamesOfType ty
 orphNamesOfCo (TyConAppCo _ tc cos) = unitNameSet (getName tc) `unionNameSet` orphNamesOfCoArgs cos
 orphNamesOfCo (AppCo co1 h co2)     = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo h `unionNameSet` orphNamesOfCoArg co2
 orphNamesOfCo (ForAllCo cobndr co)
-  | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
-  = orphNamesOfCo h `unionNameSet` orphNamesOfCo co
-  | otherwise
-  = orphNamesOfCo co
+  = orphNamesOfCo (coBndrKindCo cobndr) `unionNameSet` orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
 orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSet` orphNamesOfCoArgs cos
 orphNamesOfCo (PhantomCo h t1 t2)   = orphNamesOfCo h `unionNameSet` orphNamesOfType t1 `unionNameSet` orphNamesOfType t2

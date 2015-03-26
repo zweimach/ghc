@@ -40,7 +40,7 @@ module TyCoRep (
         binderType, delBinderVar, isInvisibleBinder, isVisibleBinder,
 
         -- Functions over coercions
-        setCoBndrEta, eqCoBndrSort, pickLR, coBndrVars, coBndrVarsKinds,
+        pickLR, coBndrVars, coBndrVarsKinds,
 
         -- Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTCvBndr, pprTCvBndrs,
@@ -120,6 +120,7 @@ import Outputable
 import DynFlags
 import FastString
 import Util
+import Maybes
 
 -- libraries
 import qualified Data.Data        as Data hiding ( TyCon )
@@ -621,44 +622,19 @@ data Coercion
 -- If you edit this type, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data ForAllCoBndr
-  = TyHomo TyVar
-
-    -- | 'TyHetero's role is derived from its 'Coercion' argument. This role
-    -- must match the role used in the payload of the 'ForAllCo'. The 'CoVar's
-    -- role must be N.
-  | TyHetero Coercion TyVar TyVar CoVar
-  | CoHomo CoVar
-
-    -- | 'CoHetero's Coercion's role must match the role of the 'ForAllCo'
-    -- payload. The two covars must have the same role as each other.
-  | CoHetero Coercion CoVar CoVar
+  = ForAllCoBndr Coercion TyCoVar TyCoVar (Maybe CoVar)
+      -- The role on the coercion matches that of the coercion this is
+      -- embedded in. The role on the CoVar is always N.
   deriving (Data.Data, Data.Typeable)
 
--- returns the variable bound in a ForAllCoBndr
+-- returns the variables bound in a ForAllCoBndr
 coBndrVars :: ForAllCoBndr -> [TyCoVar]
-coBndrVars (TyHomo tv)             = [tv]
-coBndrVars (TyHetero _ tv1 tv2 cv) = [tv1, tv2, cv]
-coBndrVars (CoHomo cv)             = [cv]
-coBndrVars (CoHetero _ cv1 cv2)    = [cv1, cv2]
+coBndrVars (ForAllCoBndr _ tv1 tv2 m_cv) = maybeToList m_cv ++ [tv1, tv2]
 
 -- returns the variables with their types
 coBndrVarsKinds :: ForAllCoBndr -> ([TyCoVar], [Type])
 coBndrVarsKinds bndr = (vars, map varType vars)
   where vars = coBndrVars bndr
-
--- changes the "eta" coercion in a hetero CoBndr
-setCoBndrEta :: ForAllCoBndr -> Coercion -> ForAllCoBndr
-setCoBndrEta (TyHetero _ tv1 tv2 cv) h = mkTyHeteroCoBndr h tv1 tv2 cv
-setCoBndrEta (CoHetero _ cv1 cv2)    h = mkCoHeteroCoBndr h cv1 cv2
-setCoBndrEta cobndr                  _ = pprPanic "setCoBndrEta" (ppr cobndr)
-
--- are two ForAllCoBndrs the same sort of binder?
-eqCoBndrSort :: ForAllCoBndr -> ForAllCoBndr -> Bool
-eqCoBndrSort (TyHomo {})   (TyHomo {})   = True
-eqCoBndrSort (TyHetero {}) (TyHetero {}) = True
-eqCoBndrSort (CoHomo {})   (CoHomo {})   = True
-eqCoBndrSort (CoHetero {}) (CoHetero {}) = True
-eqCoBndrSort _             _             = False
 
 -- | A CoercionArg is an argument to a coercion. It may be a coercion (lifted from
 -- a type) or a pair of coercions (lifted from a coercion). See
@@ -841,54 +817,31 @@ Note [Forall coercions]
 Constructing coercions between forall-types can be a bit tricky.
 Currently, the situation is as follows:
 
-  1) ForAllCo (TyHetero Coercion TyVar TyVar CoVar) Coercion
-  2) ForAllCo (CoHetero Coercion CoVar CoVar)       Coercion
-  3) ForAllCo (TyHomo TyVar)                        Coercion
-  4) ForAllCo (CoHomo CoVar)                        Coercion
+  ForAllCo (ForAllCoBndr Coercion TyVar TyVar (Maybe CoVar)) Coercion
 
-We'll take these one at a time.
-
-1) This form represents a coercion between two forall-types-over-types,
+If there is a CoVar present,
+the form represents a coercion between two forall-types-over-types,
 say (forall v1:k1.t1) and (forall v2:k2.t2). The difficulty comes about
 because k1 might not be the same as k2. So, we will need three variables:
 one of kind k1, one of kind k2, and one representing the coercion between
-a1 and a2, which will be bound to the coercion stored in the TyHetero.
+a1 and a2, which will be bound to the coercion stored in the ForAllCoBndr.
 
 The typing rule is thus:
 
      h : k1 ~ k2  a1 : k1    a2 : k2    c : a1 ~ a2    g : t1 ~ t2
-  -------------------------------------------------------------------
-  ForAllCo (TyHetero h a1 a2 c) g : (all a1:k1.t1) ~ (all v2:k2.t2)
+  ---------------------------------------------------------------------
+  ForAllCo (ForAllCoBndr h a1 a2 c) g : (all a1:k1.t1) ~ (all v2:k2.t2)
 
-2) This form represents a coercion between two forall-types-over-coercions,
-say (forall c1:phi1.t1) and (forall c2:phi2.t2). Because phi1 might not
-equal phi2, we need two variables, one of kind phi1 and one of kind phi2.
-Because of proof irrelevance (or the absence of coercions among coercions),
-we won't need to refer to the witness showing phi1 and phi2 are coercible.
+However, if the coercion represents an equality between two
+forall-coercions-over-types, then we don't need the covar proving the
+equivalence between the two coercion variables: all coercions are
+considered equivalent. So, we leave out the covar in this case.
 
 The typing rule is thus:
 
       h : phi1 ~ phi2   c1 : phi1     c2 : phi2     g : t1 ~ t2
   -----------------------------------------------------------------
-  ForAllCo (CoHetero h c1 c2) g : (all c1:phi1.t1) ~ (all c2:phi2.t2)
-
-3) This form is a simplification when the two kinds of the types in a
-TyHetero are actually the same. The coercion variable would not normally
-appear in the coercion. The typing rule is:
-
-      a : k     g : t1 ~ t2
-  ---------------------------------------------------
-  ForAllCo (TyHomo a) g : (all a:k.t1) ~ (all a:k.t2)
-
-4) Similarly, the CoHomo form is for homogeneous coercion quantification.
-The typing rule is:
-
-      c : phi        g : t1 ~ t2
-  -------------------------------------------------------
-  ForAllCo (CoHomo c) g : (all c:phi.t1) ~ (all c:phi.t2)
-
-Note that is is an *invariant* that the kinds of the variables in a "Hetero"
-construction are different.
+  ForAllCo (ForAllCoBndr h c1 c2) g : (all c1:phi1.t1) ~ (all c2:phi2.t2)
 
 For role information, see Note [Roles and kind coercions].
 
@@ -1100,7 +1053,7 @@ be careful that (safe) phantom coercions do not relate types of different
 kinds. TODO (RAE): Expand this point.
 
 Other places that roles are non-trivial with kind coercions are in the "eta"
-coercions in TyHetero and CoHetero CoBndrs, and correspondingly in the output
+coercions in ForAllCoBndrs, and correspondingly in the output
 of NthCo on forall-coercions. Thinking of (->) as a degenerate forall, we see
 that the correct role to use here is that of the payload coercion in the
 forall. See docs/core-spec/core-spec.pdf for the exact rules.
@@ -1624,11 +1577,9 @@ instance Outputable TCvSubst where
 Note [Sym and ForAllCo]
 ~~~~~~~~~~~~~~~~~~~~~~~
 In OptCoercion, we try to push "sym" out to the leaves of a coercion. But,
-how do we push sym into a ForAllCo? It's a little ugly. Let's consider the
-heterogeneous cases first, as it's easier to understand the homogeneous
-cases as a specialization.
+how do we push sym into a ForAllCo? It's a little ugly.
 
-Here is the typing rule for TyHetero:
+Here is the typing rule:
 
 h : k1 ~# k2
 tv1 : k1              tv2 : k2
@@ -1637,21 +1588,22 @@ tv1, tv2, cv |- g : ty1 ~# ty2
 ForAllTy tv1 ty1 : *
 ForAllTy tv2 ty2 : *
 -----------------------------------------------------------------------------
-ForAllCo (TyHetero h tv1 tv2 cv) g : (ForAllTy tv1 ty1) ~# (ForAllTy tv2 ty2)
+ForAllCo (ForAllCoBndr h tv1 tv2 cv) g : (ForAllTy tv1 ty1) ~# (ForAllTy tv2 ty2)
 
 Here is what we want:
 
-ForAllCo (TyHetero h' tv1' tv2' cv') g' : (ForAllTy tv2 ty2) ~# (ForAllTy tv1 ty1)
+ForAllCo (ForAllCoBndr h' tv1' tv2' cv') g' :
+  (ForAllTy tv2 ty2) ~# (ForAllTy tv1 ty1)
 
 Because the kinds of the type variables to the right of the colon are the kinds
 coerced by h', we know (h' : k2 ~# k1). Thus, (h' = sym h).
 
-Then, because the kinds of the type variables in the TyHetero are related by
-the coercion in the TyHetero (i.e. h'), we need to swap these type variables:
+Then, because the kinds of the type variables in the bindr are related by
+the coercion (i.e. h'), we need to swap these type variables:
 (tv2' = tv1) and (tv1' = tv2).
 
-Then, because the coercion variable in the TyHetero must coerce the two type
-variables, *in order*, that appear in the TyHetero, we must have
+Then, because the coercion variable must coerce the two type
+variables, *in order*, that appear in the binder, we must have
 (cv' : tv1' ~# tv2') = (cv' : tv2 ~# tv1).
 
 But, g is well-typed only in a context where (cv : tv1 ~# tv2). So, to use
@@ -1661,17 +1613,13 @@ Lastly, to get ty1 and ty2 to work out, we must apply sym to g.
 
 Putting it all together, we get this:
 
-sym (ForAllCo (TyHetero h tv1 tv2 cv) g)
+sym (ForAllCo (ForAllCoBndr h tv1 tv2 cv) g)
 ==>
-ForAllCo (TyHetero (sym h) tv2 tv1 (cv' : tv2 ~# tv1)) (sym (g[cv |-> sym cv']))
+ForAllCo (ForAllCoBndr (sym h) tv2 tv1 (cv' : tv2 ~# tv1)) (sym (g[cv |-> sym cv']))
 
 This is done in opt_co (in OptCoercion), supported by substForAllCoBndrCallback
 and substCoVarBndrCallback.
 
-
-The rule for CoHetero is similar, but there is no coercion variable analogous
-to cv, so it's much simpler. Similarly, the TyHomo and CoHomo cases are
-straightforward once you understand the rule above.
 -}
 
 -- | Create a substitution from tyvars to types, but later types may depend
@@ -1870,37 +1818,16 @@ substForAllCoBndrCallback :: Bool -- apply "sym" to the binder?
                           -> (TCvSubst -> Type -> Type)
                           -> (Bool -> TCvSubst -> Coercion -> Coercion)
                           -> TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
-substForAllCoBndrCallback _ sty _ subst (TyHomo tv)
-  = case substTyVarBndrCallback sty subst tv of
-      (subst', tv') -> (subst', TyHomo tv')
-substForAllCoBndrCallback sym sty sco subst (TyHetero h tv1 tv2 cv)
-  = case substTyVarBndrCallback     sty subst  tv1 of { (subst1, tv1') ->
-    case substTyVarBndrCallback     sty subst1 tv2 of { (subst2, tv2') ->
-    case substCoVarBndrCallback sym sty subst2 cv  of { (subst3, cv') ->
+substForAllCoBndrCallback sym sty sco subst (ForAllCoBndr h tv1 tv2 m_cv)
+  = case substTyVarBndrCallback sty subst  tv1  of { (subst1, tv1') ->
+    case substTyVarBndrCallback sty subst1 tv2  of { (subst2, tv2') ->
+    case maybeSecond (substCoVarBndrCallback sym sty) subst2 m_cv of
+                                                   { (subst3, m_cv') ->
     let h' = sco sym subst h in -- just subst, not any of the others
-    if isReflCo h'
-    then let subst4 = extendTCvSubstList subst1   -- yes, subst1!
-                        [tv2,                cv]
-                        [mkOnlyTyVarTy tv1', CoercionTy $
-                                             mkReflCo Nominal (tyVarKind tv1')] in
-         (subst4, TyHomo tv1')
-    else if sym
-         then (subst3, (TyHetero $! h') tv2' tv1' cv')
-         else (subst3, (TyHetero $! h') tv1' tv2' cv') }}}
-substForAllCoBndrCallback _ sty _ subst (CoHomo cv)
-  = case substCoVarBndrCallback False sty subst cv of
-      (subst', cv') -> (subst', CoHomo cv')
-substForAllCoBndrCallback sym sty sco subst (CoHetero h cv1 cv2)
-  = case substCoVarBndrCallback False sty subst  cv1 of { (subst1, cv1') ->
-    case substCoVarBndrCallback False sty subst1 cv2 of { (subst2, cv2') ->
-    let h' = sco sym subst h in
-    if isReflCo h'
-    then let subst3 = extendTCvSubst subst2 cv2 (mkTyCoVarTy cv1') in
-         (subst3, CoHomo cv1')
-    else if sym
-         then (subst2, (CoHetero $! h') cv2' cv1')
-         else (subst2, (CoHetero $! h') cv1' cv2') }}
-
+    if sym
+    then (subst3, mkForAllCoBndr h' tv2' tv1' m_cv')
+    else (subst3, mkForAllCoBndr h' tv1' tv2' m_cv') }}}
+    
 substCoVar :: TCvSubst -> CoVar -> Coercion
 substCoVar (TCvSubst _ _ cenv) cv
   = case lookupVarEnv cenv cv of
@@ -2571,21 +2498,12 @@ tidyCo env@(_, subst) co
     go_arg (TyCoArg co)          = TyCoArg $! go co
     go_arg (CoCoArg r h co1 co2) = ((CoCoArg r $! go h) $! go co1) $! go co2
 
-    go_bndr cobndr
-      | Just v <- getHomoVar_maybe cobndr
-      = let (envp, vp) = tidyTyCoVarBndr env v in
-        (envp, mkHomoCoBndr vp)
-      | TyHetero h tv1 tv2 cv <- cobndr
+    go_bndr (ForAllCoBndr h tv1 tv2 m_cv)
       = let h' = go h
-            (envp, [tv1', tv2', cv']) = tidyTyCoVarBndrs env [tv1, tv2, cv] in
-        (envp, mkTyHeteroCoBndr h' tv1' tv2' cv')
-      | CoHetero h cv1 cv2 <- cobndr
-      = let h' = go h
-            (envp, [cv1', cv2']) = tidyTyCoVarBndrs env [cv1, cv2] in
-        (envp, mkCoHeteroCoBndr h' cv1' cv2')
-
-      | otherwise
-      = pprPanic "tidyCo#go_bndr" (ppr cobndr)
+            (env1, [tv1', tv2']) = tidyTyCoVarBndrs env [tv1, tv2]
+            (env2, m_cv')        = maybeSecond tidyTyCoVarBndr env1 m_cv
+        in
+        (env2, mkForAllCoBndr h' tv1' tv2' m_cv')
 
 tidyCos :: TidyEnv -> [Coercion] -> [Coercion]
 tidyCos env = map (tidyCo env)

@@ -1165,25 +1165,19 @@ lintCoercion co@(AppCo co1 kco co2)
        ; return (k3, k4, mkAppTy s1 t1, mkAppTy s2 t2, r1) }
 
 ----------
-lintCoercion (ForAllCo (TyHomo tv) co)
-  = do { (k1, k2, t1, t2, r) <- addInScopeVar tv (lintCoercion co)
-                            -- visibility shouldn't matter
-       ; let tyl = mkNamedForAllTy tv Invisible t1
-       ; let tyr = mkNamedForAllTy tv Invisible t2
-       ; k1' <- lintType tyl
-       ; k2' <- lintType tyr
-       ; ensureEqTys k1 k1' (mkBadForAllKindMsg CLeft co k1 k1')
-       ; ensureEqTys k2 k2' (mkBadForAllKindMsg CRight co k2 k2')
-       ; return (k1, k2, tyl, tyr, r) }
-
-lintCoercion g@(ForAllCo (TyHetero h tv1 tv2 cv) co)
-  = do { (k3, k4, t1, t2, r) <- addInScopeVars [tv1, tv2, cv] $ lintCoercion co
+lintCoercion g@(ForAllCo bndr@(ForAllCoBndr h tv1 tv2 m_cv) co)
+  = do { (k3, k4, t1, t2, r) <- addInScopeVars (coBndrVars bndr) $
+                                lintCoercion co
        ; (k1, k2) <- lintStarCoercion r h
-       ; lintL (not (k1 `eqType` k2)) (mkBadHeteroCoMsg h g)
        ; ensureEqTys k1 (tyVarKind tv1) (mkBadHeteroVarMsg CLeft k1 tv1 g)
        ; ensureEqTys k2 (tyVarKind tv2) (mkBadHeteroVarMsg CRight k2 tv2 g)
-       ; ensureEqTys (mkCoercionType Nominal (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2))
-                  (coVarKind cv) (mkBadHeteroCoVarMsg tv1 tv2 cv g)
+       ; case m_cv of
+           Just cv ->
+             ensureEqTys (mkCoercionType Nominal (mkOnlyTyVarTy tv1)
+                                                 (mkOnlyTyVarTy tv2))
+                         (coVarKind cv)
+                         (mkBadHeteroCoVarMsg tv1 tv2 cv g)
+           Nothing -> return ()
        ; let tyl = mkNamedForAllTy tv1 Invisible t1
        ; let tyr = mkNamedForAllTy tv2 Invisible t2
        ; k3' <- lintType tyl
@@ -1191,33 +1185,6 @@ lintCoercion g@(ForAllCo (TyHetero h tv1 tv2 cv) co)
        ; ensureEqTys k3 k3' (mkBadForAllKindMsg CLeft co k3 k3')
        ; ensureEqTys k4 k4' (mkBadForAllKindMsg CRight co k4 k4')
        ; return (k3, k4, tyl, tyr, r) }
-
-lintCoercion (ForAllCo (CoHomo cv) co)
-  = do { lintL (cv `freeInCoercion` co) (mkFreshnessViolationMsg cv co)
-       ; (k1, k2, t1, t2, r) <- addInScopeVar cv $ lintCoercion co
-       ; let tyl = mkNamedForAllTy cv Invisible t1
-       ; let tyr = mkNamedForAllTy cv Invisible t2
-       ; k1' <- lintType tyl
-       ; k2' <- lintType tyr
-       ; ensureEqTys k1 k1' (mkBadForAllKindMsg CLeft co k1 k1')
-       ; ensureEqTys k2 k2' (mkBadForAllKindMsg CRight co k2 k2')
-       ; return (k1, k2, tyl, tyr, r) }
-
-lintCoercion g@(ForAllCo (CoHetero h cv1 cv2) co)
-  = do { lintL (cv1 `freeInCoercion` co) (mkFreshnessViolationMsg cv1 co)
-       ; lintL (cv2 `freeInCoercion` co) (mkFreshnessViolationMsg cv2 co)
-       ; (k1, k2, t1, t2, r) <- addInScopeVars [cv1, cv2] $ lintCoercion co
-       ; (phi1, phi2) <- lintStarCoercion r h
-       ; lintL (not (phi1 `eqType` phi2)) (mkBadHeteroCoMsg h g)
-       ; ensureEqTys phi1 (coVarKind cv1) (mkBadHeteroVarMsg CLeft phi1 cv1 g)
-       ; ensureEqTys phi2 (coVarKind cv2) (mkBadHeteroVarMsg CRight phi2 cv2 g)
-       ; let tyl = mkNamedForAllTy cv1 Invisible t1
-       ; let tyr = mkNamedForAllTy cv2 Invisible t2
-       ; k1' <- lintType tyl
-       ; k2' <- lintType tyr
-       ; ensureEqTys k1 k1' (mkBadForAllKindMsg CLeft co k1 k1')
-       ; ensureEqTys k2 k2' (mkBadForAllKindMsg CRight co k2 k2')
-       ; return (k1, k2, tyl, tyr, r) }
 
 lintCoercion (CoVarCo cv)
   | not (isCoVar cv)
@@ -1443,70 +1410,6 @@ lintUnLiftedCoVar cv
   = when (not (isUnLiftedType (coVarKind cv))) $
     failWithL (text "Bad lifted equality:" <+> ppr cv
                  <+> dcolon <+> ppr (coVarKind cv))
-
-
-{-
-Note [FreeIn...]
-~~~~~~~~~~~~~~~~~~~~~
-The proof of consistency of the type system depends on a freeness condition
-in the premises of ForAllCo (CoHetero ...). This condition states that the coercion
-variables quantified over do not appear in the erased form of coercion
-in the quantification. See http://www.cis.upenn.edu/~sweirich/papers/nokinds-extended.pdf
--}
-
-freeInCoercion :: CoVar -> Coercion -> Bool
-freeInCoercion v (Refl _ t)                = freeInType v t
-freeInCoercion v (TyConAppCo _ _ args)     = all (freeInCoercionArg v) args
-freeInCoercion v (AppCo g h w)             = (freeInCoercion v g) &&
-                                             (freeInCoercion v h) &&
-                                             (freeInCoercionArg v w)
-freeInCoercion v (ForAllCo (TyHomo a) g)   = (freeInTyVar v a) &&
-                                             (freeInCoercion v g)
-freeInCoercion v (ForAllCo (TyHetero h a1 a2 c) g)
-  = (freeInCoercion v h) &&
-    (freeInTyVar v a1) && (freeInTyVar v a2) &&
-    (freeInCoVar v c $ freeInCoercion v g)
-freeInCoercion v (ForAllCo (CoHomo c) g)   = freeInCoVar v c $ freeInCoercion v g
-freeInCoercion v (ForAllCo (CoHetero h c1 c2) g)
-  = (freeInCoercion v h) &&
-    (freeInCoVar v c1 $ freeInCoVar v c2 $ freeInCoercion v g)
-freeInCoercion v (CoVarCo c)               = freeInCoVar v c True
-freeInCoercion v (AxiomInstCo _ _ args)    = all (freeInCoercionArg v) args
-freeInCoercion v (PhantomCo h t1 t2)       = freeInCoercion v h && freeInType v t1 && freeInType v t2
-freeInCoercion v (UnsafeCo _ _ t1 t2)      = (freeInType v t1) && (freeInType v t2)
-freeInCoercion v (SymCo g)                 = freeInCoercion v g
-freeInCoercion v (TransCo g1 g2)           = (freeInCoercion v g1) && (freeInCoercion v g2)
-freeInCoercion v (NthCo _ g)               = freeInCoercion v g
-freeInCoercion v (LRCo _ g)                = freeInCoercion v g
-freeInCoercion v (InstCo g w)              = (freeInCoercion v g) && (freeInCoercionArg v w)
-freeInCoercion v (CoherenceCo g _)         = freeInCoercion v g
-freeInCoercion v (KindCo g)                = freeInCoercion v g
-freeInCoercion v (KindAppCo g)             = freeInCoercion v g
-freeInCoercion v (SubCo g)                 = freeInCoercion v g
-freeInCoercion v (AxiomRuleCo _ ts cs)     = all (freeInType v) ts && all (freeInCoercion v) cs
-
-freeInType :: CoVar -> Type -> Bool
-freeInType v (TyVarTy tv)       = freeInTyVar v tv
-freeInType v (AppTy t1 t2)      = (freeInType v t1) && (freeInType v t2)
-freeInType v (TyConApp _ args)  = all (freeInType v) args
-freeInType v (ForAllTy bndr ty) = (freeInBinder v bndr) && (freeInType v ty)
-freeInType _ (LitTy {})         = True
-freeInType v (CastTy t _)       = freeInType v t
-freeInType _ (CoercionTy _)     = True
-
-freeInTyVar :: CoVar -> TyVar -> Bool
-freeInTyVar v tv = freeInType v (tyVarKind tv)
-
-freeInBinder :: CoVar -> Binder -> Bool
-freeInBinder v bndr = freeInType v (binderType bndr)
-
--- Third parameter is a continuation
-freeInCoVar :: CoVar -> CoVar -> Bool -> Bool
-freeInCoVar v c cont = freeInType v (varType c) && (v == c || cont)
-
-freeInCoercionArg :: CoVar -> CoercionArg -> Bool
-freeInCoercionArg v (TyCoArg g)       = freeInCoercion v g
-freeInCoercionArg _ (CoCoArg _ _ _ _) = True
 
 {-
 ************************************************************************
@@ -1945,12 +1848,6 @@ mkCastErr expr co from_ty expr_ty
           ptext (sLit "Coercion used in cast:") <+> ppr co
          ]
 
-mkBadHeteroCoMsg :: Coercion -> Coercion -> MsgDoc
-mkBadHeteroCoMsg h g
-  = hang (ptext (sLit "Heterogeneous quantified coercion has a reflexive kind:"))
-       2 (vcat [ptext (sLit "Kind coercion:") <+> ppr h,
-                ptext (sLit "Overall coercion:") <+> ppr g])
-
 mkBadHeteroVarMsg :: LeftOrRight -> Type -> TyCoVar -> Coercion -> MsgDoc
 mkBadHeteroVarMsg lr k tv g
   = hang (ptext (sLit "Kind mismatch in") <+> pprLeftOrRight lr <+>
@@ -1961,17 +1858,11 @@ mkBadHeteroVarMsg lr k tv g
 
 mkBadHeteroCoVarMsg :: TyVar -> TyVar -> CoVar -> Coercion -> MsgDoc
 mkBadHeteroCoVarMsg tv1 tv2 cv g
-  = hang (ptext (sLit "Coercion variable mismatch in TyHetero quantification:"))
+  = hang (ptext (sLit "Coercion variable mismatch in hetero quantification:"))
        2 (vcat [ptext (sLit "TyVars:") <+> ppr tv1 <> comma <+> ppr tv2,
                 ptext (sLit "CoVar:") <+> ppr cv,
                 ptext (sLit "In coercion:") <+> ppr g])
         
-mkFreshnessViolationMsg :: CoVar -> Coercion -> MsgDoc
-mkFreshnessViolationMsg cv co
-  = hang (ptext (sLit "CoVar") <+> (ppr cv) <+>
-          ptext (sLit "appears in the erased form of the following coercion:"))
-       2 (ppr co)
-
 mkNthIsCoMsg :: LeftOrRight -> Coercion -> MsgDoc
 mkNthIsCoMsg lr co
   = ptext (sLit "Coercion") <+> (ppr co) <+>

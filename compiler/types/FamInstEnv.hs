@@ -928,9 +928,9 @@ the place where the original type appears. Thus, all coercions returned in
 normaliseType must be *homogeneous*, so the substitution type-checks. When
 liftCoSubstVarBndr discovers that the kind of the (type variable) binder
 (we'll call the type variable alpha) has changed (let's call the one with the
-new kind beta and the coercion between the kinds eta), it uses a TyHetero
+new kind beta and the coercion between the kinds eta), it uses a hetero
 ForAllCoBndr, necessary to build a coercion between two ForAllTys whose (type)
-binders have different kinds. The last component of a TyHetero is a coercion
+binders have different kinds. The last component of a ForAllCoBndr is a coercion
 variable (call it zeta) that witnesses the (heterogeneous) equality between
 the two type variables in question (i.e., zeta :: alpha ~# beta). In a lifting
 operation, alpha will be mapped to this coercion variable. In normalisation,
@@ -1112,7 +1112,7 @@ normalise_type env lc
     go r (ForAllTy (Named tyvar vis) ty)
       = let (lc', cobndr) = normalise_tycovar_bndr env lc r tyvar
             (co, nty)     = normalise_type env lc' r ty
-            (_, tyvar')   = coBndrBoundVars cobndr
+            Pair _ tyvar' = coBndrKind cobndr
         in (mkForAllCo cobndr co, mkNamedForAllTy tyvar' vis nty)
     go r (TyVarTy tv)    = normalise_tyvar lc r tv
     go r (CastTy ty co)  =

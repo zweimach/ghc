@@ -984,8 +984,6 @@ will be, but that's OK. If the kind of c ever matters, the occurs check
 in the TyVarTy case will fail, because the kind of c mentions local
 variables.
 
-The coercion cases follow a similar logic.
-
 -}
 
 -- | 'liftCoMatch' is sort of inverse to 'liftCoSubst'.  In particular, if
@@ -1098,53 +1096,19 @@ ty_co_match menv subst (TyConApp tc1 tys) (TyConAppCo _ tc2 cos) _lkco _rkco
 ty_co_match menv subst (ForAllTy (Anon ty1) ty2) (TyConAppCo _ tc cos) _lkco _rkco
   = ty_co_match_tc menv subst funTyCon [ty1, ty2] tc cos
 
-ty_co_match menv subst (ForAllTy (Named tv _) ty) (ForAllCo cobndr co) lkco rkco
-  | TyHomo tv2 <- cobndr
-  = ASSERT( isTyVar tv )
-    do { subst1 <- ty_co_match menv subst (tyVarKind tv)
-                                          (mkNomReflCo $ tyVarKind tv2)
-                                          ki_ki_co ki_ki_co
-       ; let menv1 = menv { me_env = rnBndr2 (me_env menv) tv tv2 }
-       ; ty_co_match menv1 subst1 ty co lkco rkco }
-
-  | TyHetero co1 tvl tvr cv <- cobndr
-  = ASSERT( isTyVar tv )
-    do { subst1 <- ty_co_match menv subst (tyVarKind tv) co1 ki_ki_co ki_ki_co
+ty_co_match menv subst (ForAllTy (Named tv _) ty)
+                       (ForAllCo (ForAllCoBndr co1 tvl tvr m_cv) co)
+                       lkco rkco
+  = do { subst1 <- ty_co_match menv subst (tyVarKind tv) co1 ki_ki_co ki_ki_co
          -- See Note [Heterogeneous type matching]
        ; let rn_env0 = me_env menv
-             (rn_env1, tv')  = rnBndrL rn_env0 tv
-             (rn_env2, _)    = rnBndrR rn_env1 tvl
-             (rn_env3, _)    = rnBndrR rn_env2 tvr
-             (rn_env4, cv')  = rnBndrR rn_env3 cv
+             (rn_env1, tv')   = rnBndrL rn_env0 tv
+             (rn_env2, tvl')  = rnBndrR rn_env1 tvl
+             (rn_env3, tvr')  = rnBndrR rn_env2 tvr
+             (rn_env4, m_cv') = maybeSecond rnBndrR rn_env3 m_cv
              menv' = menv { me_env = rn_env4 }
-             subst2 = extendVarEnv subst1 tv' (TyCoArg (mkCoVarCo cv'))
-       ; subst3 <- ty_co_match menv' subst2 ty co lkco rkco
-       ; return $ delVarEnv subst3 tv' }
-
-  | CoHomo cv <- cobndr
-  = ASSERT( isCoVar tv )
-    do { subst1 <- ty_co_match menv subst (coVarKind tv)
-                                          (mkNomReflCo $ coVarKind cv)
-                                          ki_ki_co ki_ki_co
-       ; let rn_env0 = me_env menv
-             (rn_env1, tv') = rnBndrL rn_env0 tv
-             (rn_env2, cv') = rnBndrR rn_env1 cv
-             menv' = menv { me_env = rn_env2 }
-             subst2 = extendVarEnv subst1 tv' (mkCoArgForVar cv')
-       ; subst3 <- ty_co_match menv' subst2 ty co lkco rkco
-       ; return $ delVarEnv subst3 tv' }
-
-  | CoHetero co1 cvl cvr <- cobndr
-  = ASSERT( isCoVar tv )
-    do { subst1 <- ty_co_match menv subst (coVarKind tv) co1 ki_ki_co ki_ki_co
-       ; let rn_env0 = me_env menv
-             (rn_env1, tv')  = rnBndrL rn_env0 tv
-             (rn_env2, cvl') = rnBndrR rn_env1 cvl
-             (rn_env3, cvr') = rnBndrR rn_env2 cvr
-             menv' = menv { me_env = rn_env3 }
-             kco    = downgradeRole Representational (coercionRole co1) co1
-             subst2 = extendVarEnv subst1 tv' $
-                      CoCoArg Nominal kco (mkCoVarCo cvl') (mkCoVarCo cvr')
+             witness = coBndrWitness (mkForAllCoBndr co1 tvl' tvr' m_cv')
+             subst2  = extendVarEnv subst1 tv' witness
        ; subst3 <- ty_co_match menv' subst2 ty co lkco rkco
        ; return $ delVarEnv subst3 tv' }
   where
@@ -1212,8 +1176,8 @@ pushRefl (Refl r (ForAllTy (Anon ty1) ty2))
 pushRefl (Refl r (TyConApp tc tys))
   = Just (TyConAppCo r tc (zipWith mkReflCoArg (tyConRolesX r tc) tys))
 pushRefl (Refl r (ForAllTy (Named tv _) ty))
-  | isTyVar tv                    = Just (ForAllCo (TyHomo tv) (Refl r ty))
-  | otherwise                     = Just (ForAllCo (CoHomo tv) (Refl r ty))
+  = let in_scope = mkInScopeSet $ tyCoVarsOfType ty in
+    Just (ForAllCo (mkHomoCoBndr in_scope r tv) (Refl r ty))
 pushRefl (Refl r (CastTy ty co))  = Just (castCoercionKind (Refl r ty) co co)
 pushRefl _                        = Nothing
 

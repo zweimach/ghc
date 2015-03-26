@@ -31,7 +31,7 @@ module Coercion (
         mkSymCo, mkSymCoArg, mkTransCo, mkTransAppCo,
         mkNthCo, mkNthCoArg, mkNthCoRole, mkLRCo,
         mkInstCo, mkAppCo, mkAppCos, mkTyConAppCo, mkFunCo, mkFunCos,
-        mkForAllCo, mkForAllCo_TyHomo, mkForAllCo_CoHomo,
+        mkForAllCo, mkHomoForAllCo,
         mkPhantomCo, mkHomoPhantomCo, toPhantomCo,
         mkUnsafeCo, mkUnsafeCoArg, mkSubCo,
         mkNewTypeCo, mkAxiomInstCo,
@@ -40,7 +40,7 @@ module Coercion (
         mkKindCo, mkKindAppCo, castCoercionKind,
         buildKindCos, buildKindCosX,
 
-        mkTyHeteroCoBndr, mkCoHeteroCoBndr, mkHomoCoBndr,
+        mkForAllCoBndr, mkHomoCoBndr, coBndrVars, coBndrKind,
         mkHeteroCoercionType,
 
         mkTyCoArg, mkCoCoArg, mkCoArgForVar,
@@ -62,7 +62,7 @@ module Coercion (
 
         pickLR,
 
-        getHomoVar_maybe, splitHeteroCoBndr_maybe, coBndrBoundVars,
+        coBndrKindCo, coBndrWitness, setCoBndrKindCo,
 
         stripTyCoArg, splitCoCoArg_maybe,
 
@@ -387,20 +387,17 @@ splitForAllCo_maybe _                    = Nothing
 
 -- returns the two type variables abstracted over
 splitForAllCo_Ty_maybe :: Coercion -> Maybe (TyVar, TyVar, CoVar, Coercion)
-splitForAllCo_Ty_maybe (ForAllCo (TyHomo tv) co)
-  = let k  = tyVarKind tv
-        cv = mkCoVar wildCardName (mkCoercionType Nominal k k) in
-    Just (tv, tv, cv, co) -- cv won't occur in co anyway
-splitForAllCo_Ty_maybe (ForAllCo (TyHetero _ tv1 tv2 cv) co)
+splitForAllCo_Ty_maybe (ForAllCo (ForAllCoBndr _ tv1 tv2 (Just cv)) co)
   = Just (tv1, tv2, cv, co)
 splitForAllCo_Ty_maybe _
   = Nothing
 
 -- returns the two coercion variables abstracted over
 splitForAllCo_Co_maybe :: Coercion -> Maybe (CoVar, CoVar, Coercion)
-splitForAllCo_Co_maybe (ForAllCo (CoHomo cv) co)          = Just (cv, cv, co)
-splitForAllCo_Co_maybe (ForAllCo (CoHetero _ cv1 cv2) co) = Just (cv1, cv2, co)
-splitForAllCo_Co_maybe _                                  = Nothing
+splitForAllCo_Co_maybe (ForAllCo (ForAllCoBndr _ cv1 cv2 Nothing) co)
+  = Just (cv1, cv2, co)
+splitForAllCo_Co_maybe _
+  = Nothing
 
 -------------------------------------------------------
 -- and some coercion kind stuff
@@ -741,27 +738,22 @@ mkTransAppCo r1 co1 ty1a ty1b kco r2 co2 ty2a ty2b r3
 
 -- | Make a Coercion from a ForAllCoBndr and Coercion
 mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
-mkForAllCo cobndr co
+mkForAllCo cobndr@(ForAllCoBndr _ tv _ _) co
   | Refl r ty <- co
-  = Refl r (mkNamedForAllTy (getHomoVar cobndr) Invisible ty)
-                            -- vis. doesn't matter
+  = Refl r (mkNamedForAllTy tv Invisible ty)
   | otherwise
-  = ASSERT( isHomoCoBndr cobndr || (not $ isReflCo $ getHeteroKindCo cobndr) )
-    ForAllCo cobndr co
+  = ForAllCo cobndr co
 
--- | Make a Coercion quantified over a type variable; the variable has
--- the same type in both types of the coercion
-mkForAllCo_TyHomo :: TyVar -> Coercion -> Coercion
-mkForAllCo_TyHomo tv (Refl r ty)
-  = ASSERT( isTyVar tv ) Refl r (mkNamedForAllTy tv Invisible ty)
-mkForAllCo_TyHomo tv co          = ASSERT( isTyVar tv ) ForAllCo (TyHomo tv) co
-
--- | Make a Coercion quantified over a coercion variable; the variable has
--- the same type in both types of the coercion
-mkForAllCo_CoHomo :: CoVar -> Coercion -> Coercion
-mkForAllCo_CoHomo cv (Refl r ty)
-  = ASSERT( isCoVar cv ) Refl r (mkNamedForAllTy cv Invisible ty)
-mkForAllCo_CoHomo cv co          = ASSERT( isCoVar cv ) ForAllCo (CoHomo cv) co
+-- | Make a Coercion quantified over a type or coercion variable;
+-- the variable has the same type in both types of the coercion
+mkHomoForAllCo :: Role -> TyCoVar -> Coercion -> Coercion
+mkHomoForAllCo _r tv (Refl r ty)
+  = ASSERT( _r == r )
+    Refl r (mkNamedForAllTy tv Invisible ty)
+mkHomoForAllCo r tv co
+  = ForAllCo (mkHomoCoBndr in_scope r tv) co
+  where
+    in_scope = mkInScopeSet $ tyCoVarsOfCo co
 
 mkCoVarCo :: CoVar -> Coercion
 -- cv :: s ~# t
@@ -1133,12 +1125,8 @@ setNominalRoleArg_maybe (CoCoArg _ h c1 c2) = Just $ CoCoArg Nominal h c1 c2
 
 -- | Makes a 'ForAllCoBndr' become nominal, if possible
 setNominalRoleCoBndr_maybe :: ForAllCoBndr -> Maybe ForAllCoBndr
-setNominalRoleCoBndr_maybe cobndr@(TyHomo {}) = Just cobndr
-setNominalRoleCoBndr_maybe (TyHetero h tv1 tv2 cv) =
-  TyHetero <$> setNominalRole_maybe h <*> pure tv1 <*> pure tv2 <*> pure cv
-setNominalRoleCoBndr_maybe cobndr@(CoHomo {}) = Just cobndr
-setNominalRoleCoBndr_maybe (CoHetero h cv1 cv2) =
-  CoHetero <$> setNominalRole_maybe h <*> pure cv1 <*> pure cv2
+setNominalRoleCoBndr_maybe (ForAllCoBndr h tv1 tv2 m_cv) =
+  ForAllCoBndr <$> setNominalRole_maybe h <*> pure tv1 <*> pure tv2 <*> pure m_cv
 
 -- | Make a phantom coercion between two types. The coercion passed
 -- in must be a representational coercion between the kinds of the
@@ -1270,61 +1258,58 @@ buildKindCosX Phantom          _ args = (map mk_phantom args,  Nothing)
 %************************************************************************
 -}
 
--- | Makes homogeneous ForAllCoBndr, choosing between TyHomo and CoHomo
--- based on the nature of the TyCoVar
-mkHomoCoBndr :: TyCoVar -> ForAllCoBndr
-mkHomoCoBndr v
-  | isTyVar v = TyHomo v
-  | otherwise = CoHomo v
+-- | Makes homogeneous ForAllCoBndr
+mkHomoCoBndr :: InScopeSet -> Role -> TyCoVar -> ForAllCoBndr
+mkHomoCoBndr in_scope r v = ForAllCoBndr eta v v m_cv
+  where
+    eta = mkReflCo r (varType v)
+    
+    m_cv | isTyVar v = Just $ mkFreshCoVar in_scope ty ty
+         | otherwise = Nothing
 
-getHomoVar :: ForAllCoBndr -> TyCoVar
-getHomoVar cobndr
-  | Just v <- getHomoVar_maybe cobndr = v
-  | otherwise                          = pprPanic "getHomoVar" (ppr cobndr)
+    ty = mkOnlyTyVarTy v
 
-getHomoVar_maybe :: ForAllCoBndr -> Maybe TyCoVar
-getHomoVar_maybe (TyHomo tv) = Just tv
-getHomoVar_maybe (CoHomo cv) = Just cv
-getHomoVar_maybe _           = Nothing
+mkForAllCoBndr :: Coercion -> TyVar -> TyVar -> Maybe CoVar -> ForAllCoBndr
+mkForAllCoBndr co tv1 tv2 m_cv
+  | debugIsOn
+  = let Pair k1 k2 = coercionKind co in
+    ASSERT2( k1 `eqType` tyVarKind tv1
+           , ppr tv1 $$ ppr k1 $$ ppr (tyVarKind tv1) )
+    ASSERT2( k2 `eqType` tyVarKind tv2
+           , ppr tv2 $$ ppr k2 $$ ppr (tyVarKind tv2) )
+    let result = ForAllCoBndr co tv1 tv2 m_cv in
+    case m_cv of
+      Nothing -> ASSERT2( isCoVar tv1 && isCoVar tv2, ppr tv1 $$ ppr tv2 )
+                 result
+      Just cv -> ASSERT2( isTyVar tv1 && isTyVar tv2, ppr tv1 $$ ppr tv2 )
+                 ASSERT2( r == Nominal, cv_doc )
+                 ASSERT2( cvk1 `eqType` mkOnlyTyVarTy tv1, cv_doc $$ ppr tv1 )
+                 ASSERT2( cvk2 `eqType` mkOnlyTyVarTy tv2, cv_doc $$ ppr tv2 )
+                 result
+        where
+          (_, _, cvk1, cvk2, r) = coVarKindsTypesRole cv
+          cv_doc = ppr cv $$ ppr (varType cv)
 
--- | Split up a hetero cobndr. The role of the coercion depends on the
--- nature of the cobndr -- don't rely on it!
-splitHeteroCoBndr_maybe :: ForAllCoBndr -> Maybe (Coercion, TyCoVar, TyCoVar)
-splitHeteroCoBndr_maybe (TyHetero eta tv1 tv2 _) = Just (eta, tv1, tv2)
-splitHeteroCoBndr_maybe (CoHetero eta cv1 cv2)   = Just (eta, cv1, cv2)
-splitHeteroCoBndr_maybe _                        = Nothing
+  | otherwise
+  = ForAllCoBndr co tv1 tv2 m_cv
 
-coBndrBoundVars :: ForAllCoBndr -> (TyCoVar, TyCoVar)
-coBndrBoundVars (TyHomo tv)            = (tv,  tv)
-coBndrBoundVars (TyHetero _ tv1 tv2 _) = (tv1, tv2)
-coBndrBoundVars (CoHomo cv)            = (cv,  cv)
-coBndrBoundVars (CoHetero _ cv1 cv2)   = (cv1, cv2)
+-- | Gets a 'CoercionArg' that proves that the two variables bound
+-- in this ForAllCoBndr are nominally equal
+coBndrWitness :: ForAllCoBndr -> CoercionArg
+coBndrWitness (ForAllCoBndr _   _   _   (Just cv)) = TyCoArg (mkCoVarCo cv)
+coBndrWitness (ForAllCoBndr eta cv1 cv2 Nothing)
+  = CoCoArg Nominal (downgradeRole Representational (coercionRole eta) eta)
+            (mkCoVarCo cv1) (mkCoVarCo cv2)
 
-isHomoCoBndr :: ForAllCoBndr -> Bool
-isHomoCoBndr (TyHomo {}) = True
-isHomoCoBndr (CoHomo {}) = True
-isHomoCoBndr _           = False
+-- | Extracts a coercion that witnesses the equality between a 'ForAllCoBndr''s
+-- type variables' kinds.
+coBndrKindCo :: ForAllCoBndr -> Coercion
+coBndrKindCo (ForAllCoBndr h _ _ _) = h
 
--- | Retrive the "eta" coercion from a cobndr.
-getHeteroKindCo :: ForAllCoBndr -> Coercion
-getHeteroKindCo (TyHetero eta _ _ _) = eta
-getHeteroKindCo (CoHetero eta _ _) = eta
-getHeteroKindCo cobndr = pprPanic "getHeteroKindCo" (ppr cobndr)
+-- | changes the "eta" coercion in a hetero CoBndr
+setCoBndrKindCo :: ForAllCoBndr -> Coercion -> ForAllCoBndr
+setCoBndrKindCo (ForAllCoBndr _ tv1 tv2 cv) h = ForAllCoBndr h tv1 tv2 cv
 
-mkTyHeteroCoBndr :: Coercion -> TyVar -> TyVar -> CoVar -> ForAllCoBndr
-mkTyHeteroCoBndr h tv1 tv2 cv
-  = ASSERT( _hty1 `eqType` (tyVarKind tv1) )
-    ASSERT( _hty2 `eqType` (tyVarKind tv2) )
-    ASSERT( coVarKind cv `eqType` (mkCoercionType Nominal (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2)) )
-    TyHetero h tv1 tv2 cv
-    where Pair _hty1 _hty2 = coercionKind h
-
-mkCoHeteroCoBndr :: Coercion -> CoVar -> CoVar -> ForAllCoBndr
-mkCoHeteroCoBndr h cv1 cv2
-  = ASSERT( _hty1 `eqType` (coVarKind cv1) )
-    ASSERT( _hty2 `eqType` (coVarKind cv2) )
-    CoHetero h cv1 cv2
-    where Pair _hty1 _hty2 = coercionKind h
 
 -------------------------------
 
@@ -1481,9 +1466,8 @@ mkPiCos :: Role -> [Var] -> Coercion -> Coercion
 mkPiCos r vs co = foldr (mkPiCo r) co vs
 
 mkPiCo  :: Role -> Var -> Coercion -> Coercion
-mkPiCo r v co | isTyVar v = mkForAllCo_TyHomo v co
-              | isCoVar v = mkForAllCo_CoHomo v co
-              | otherwise = mkFunCo r (mkReflCo r (varType v)) co
+mkPiCo r v co | isTyVar v || isCoVar v = mkHomoForAllCo r v co
+              | otherwise              = mkFunCo r (mkReflCo r (varType v)) co
 
 -- The second coercion is sometimes lifted (~) and sometimes unlifted (~#).
 -- So, we have to make sure to supply the right parameter to decomposeCo.
@@ -1897,7 +1881,7 @@ liftCoSubstVarBndr :: Role -> LiftingContext -> TyCoVar
 liftCoSubstVarBndr = liftCoSubstVarBndrCallback ty_co_subst False
 
 liftCoSubstVarBndrCallback :: (LiftingContext -> Role -> Type -> Coercion)
-                           -> Bool -- ^ True <=> homogenize TyHetero substs
+                           -> Bool -- ^ True <=> homogenize hetero substs
                                    -- see Note [Normalising types] in FamInstEnv
                            -> Role -- ^ output rule; not Phantom
                            -> LiftingContext -> TyCoVar
@@ -1914,14 +1898,7 @@ liftCoSubstVarBndrCallback fun homo r lc@(LC in_scope cenv) old_var
       | new_var == old_var
       , isEmptyVarSet (tyCoVarsOfType old_kind)
       , k1 `eqType` k2
-      = (delVarEnv cenv old_var, mkHomoCoBndr old_var)
-
-      | k1 `eqType` k2
-        -- mkCoArgForVar returns a Nominal coercion. This is good here
-        -- because Nominal is the most expressive one. Remember: when
-        -- the coercion actually gets subst'ed in during lifting, we
-        -- re-check the roles and apply a SubCo if necessary
-      = (extendVarEnv cenv old_var (mkCoArgForVar new_var), mkHomoCoBndr new_var)
+      = (delVarEnv cenv old_var, mkHomoCoBndr in_scope r old_var)
 
       | isTyVar old_var
       = let a1 = new_var
@@ -1934,7 +1911,7 @@ liftCoSubstVarBndrCallback fun homo r lc@(LC in_scope cenv) old_var
                      else mkCoVarCo c
         in
         ( extendVarEnv cenv old_var (TyCoArg lifted)
-        , mkTyHeteroCoBndr eta a1 a2 c )
+        , mkForAllCoBndr eta a1 a2 (Just c) )
 
       | otherwise
       = let cv1 = new_var
@@ -1956,7 +1933,7 @@ liftCoSubstVarBndrCallback fun homo r lc@(LC in_scope cenv) old_var
                      , mkCoVarCo cv2 )
         in
         ( extendVarEnv cenv old_var (CoCoArg Nominal kco (mkCoVarCo cv1) lifted_r)
-        , mkCoHeteroCoBndr cv_eta cv1 cv2 )
+        , mkForAllCoBndr cv_eta cv1 cv2 Nothing )
 
 -- | Is a var in the domain of a lifting context?
 isMappedByLC :: TyCoVar -> LiftingContext -> Bool
@@ -2038,11 +2015,13 @@ seqCoArgs []         = ()
 seqCoArgs (arg:args) = seqCoArg arg `seq` seqCoArgs args
 
 seqCoBndr :: ForAllCoBndr -> ()
-seqCoBndr (TyHomo tv) = tv `seq` ()
-seqCoBndr (TyHetero h tv1 tv2 cv) = seqCo h `seq` tv1 `seq` tv2 `seq` cv `seq` ()
-seqCoBndr (CoHomo cv) = cv `seq` ()
-seqCoBndr (CoHetero h cv1 cv2) = seqCo h `seq` cv1 `seq` cv2 `seq` ()
-
+seqCoBndr (ForAllCoBndr h tv1 tv2 m_cv)
+  = seqCo h `seq` tv1 `seq` tv2 `seq` m_cv `m_seq` ()
+  where
+    Nothing `m_seq` x = x
+    Just cv `m_seq` x = cv `seq` x
+    infixr 0 `m_seq`
+    
 {-
 %************************************************************************
 %*                                                                      *
@@ -2213,10 +2192,7 @@ coercionArgRole = snd . coercionArgKindRole
 
 -- | Get the pair of vars bound by a 'ForAllCo'
 coBndrKind :: ForAllCoBndr -> Pair Var
-coBndrKind (TyHomo tv)            = pure tv
-coBndrKind (TyHetero _ tv1 tv2 _) = Pair tv1 tv2
-coBndrKind (CoHomo cv)            = pure cv
-coBndrKind (CoHetero _ cv1 cv2)   = Pair cv1 cv2
+coBndrKind (ForAllCoBndr _ tv1 tv2 _) = Pair tv1 tv2
 
 {-
 Note [Nested InstCos]
@@ -2515,14 +2491,10 @@ buildCoherenceCoX = go
 
     go_bndr env tv1 tv2
       = do { eta <- go env k1 k2
-           ; if | k1 `eqType` k2
-                  -> let (env', tv') = rnBndr2_var env tv1 tv2 in
-                     Just (env', mkHomoCoBndr tv')
-
-                | isCoVar tv1
+           ; if | isCoVar tv1
                   -> let (env1, tv1') = rnBndrL env  tv1
                          (env2, tv2') = rnBndrR env1 tv2 in
-                     Just (env2, mkCoHeteroCoBndr eta tv1' tv2')
+                     Just (env2, mkForAllCoBndr eta tv1' tv2' Nothing)
 
                 | otherwise
                   -> let (env1, tv1') = rnBndrL env  tv1
@@ -2533,11 +2505,10 @@ buildCoherenceCoX = go
                                                      (mkOnlyTyVarTy tv2')
                          env3         = addRnInScopeSet env2 (unitVarSet cv)
                      in
-                     Just (env3, mkTyHeteroCoBndr eta tv1' tv2' cv) }
+                     Just (env3, mkForAllCoBndr eta tv1' tv2' (Just cv)) }
       where
         k1  = tyVarKind tv1
         k2  = tyVarKind tv2
-
 
 buildCoherenceCoArg :: Type -> Type -> Maybe CoercionArg
 buildCoherenceCoArg orig_ty1 orig_ty2

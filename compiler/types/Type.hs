@@ -208,9 +208,9 @@ import ListSetOps
 import Data.List        ( partition, sortBy, mapAccumL )
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
-import Control.Monad    ( guard )
+import Control.Monad    ( guard, liftM )
 import Control.Applicative ( (<$>) )
-import Control.Arrow    ( first )
+import Control.Arrow    ( first, second )
 
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative ( Applicative, (<*>) )
@@ -515,23 +515,14 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (KindAppCo co)      = mkkindappco <$> go co
     go (SubCo co)          = mksubco <$> go co
 
-    go_cobndr (TyHomo tv)
-      = do { (env', tv') <- tycobinder env tv Invisible
-           ; return (env', TyHomo tv') }
-    go_cobndr (TyHetero h tv1 tv2 cv)
+    go_cobndr (ForAllCoBndr h tv1 tv2 m_cv)
       = do { h' <- go h
-           ; (env1, tv1') <- tycobinder env  tv1 Invisible
-           ; (env2, tv2') <- tycobinder env1 tv2 Invisible
-           ; (env3, cv')  <- tycobinder env2 cv  Invisible
-           ; return (env3, TyHetero h' tv1' tv2' cv') }
-    go_cobndr (CoHomo cv)
-      = do { (env', cv') <- tycobinder env cv Invisible
-           ; return (env', CoHomo cv') }
-    go_cobndr (CoHetero h cv1 cv2)
-      = do { h' <- go h
-           ; (env1, cv1') <- tycobinder env  cv1 Invisible
-           ; (env2, cv2') <- tycobinder env1 cv2 Invisible
-           ; return (env2, CoHetero h' cv1' cv2') }
+           ; (env1, tv1')  <-   tycobinder env  tv1  Invisible
+           ; (env2, tv2')  <-   tycobinder env1 tv2  Invisible
+           ; (env3, m_cv') <- m_tycobinder env2 m_cv Invisible
+           ; return (env3, ForAllCoBndr h' tv1' tv2' m_cv') }
+    m_tycobinder env Nothing  _   = return (env, Nothing)
+    m_tycobinder env (Just v) vis = liftM (second Just) $ tycobinder env v vis
     
     ( mktyconappco, mkappco, mkaxiominstco, mkphantomco, mkunsafeco
       , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
@@ -2198,10 +2189,7 @@ tyConsOfType ty
      go_co (AppCo co h arg)        = go_co co `plusNameEnv`
                                      go_co h `plusNameEnv` go_arg arg
      go_co (ForAllCo cobndr co)
-       | Just (h, _, _) <- splitHeteroCoBndr_maybe cobndr
-       = go_co h `plusNameEnv` var_names `plusNameEnv` go_co co
-       | otherwise
-       = var_names `plusNameEnv` go_co co
+       = go_co (coBndrKindCo cobndr) `plusNameEnv` var_names `plusNameEnv` go_co co
        where var_names = go_s (snd (coBndrVarsKinds cobndr))
      go_co (CoVarCo {})            = emptyNameEnv
      go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_args args

@@ -1,4 +1,6 @@
 stack:
+ - setCoBndrEta --> setCoBndrKindCo
+
 - flattening foralls is inadequate (though not quite wrong). The tyvar
   kind isn't flattened. Also see go_bndr in flatten_co.
 
@@ -9,13 +11,6 @@ stack:
 fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
 fix parser; then fix TypeLits.Mult --> *
-
-KNOWN TESTSUITE FAILURES:
- typecheck/should_fail/T1633: Need proper handling of kind coercions
-
- indexed-types/should_compile:
-   .  Simple12 [exit code non-0] (normal)  (decideQuantification/qTyCoVar)
-   .  T3017 [stderr mismatch] (normal)     (printing coercions)
 
 QUESTIONS:
 - Check decideQuantification!
