@@ -2189,8 +2189,7 @@ tyConsOfType ty
      go_co (AppCo co h arg)        = go_co co `plusNameEnv`
                                      go_co h `plusNameEnv` go_arg arg
      go_co (ForAllCo cobndr co)
-       = go_co (coBndrKindCo cobndr) `plusNameEnv` var_names `plusNameEnv` go_co co
-       where var_names = go_s (snd (coBndrVarsKinds cobndr))
+       = go_co (coBndrKindCo cobndr) `plusNameEnv` go_co co
      go_co (CoVarCo {})            = emptyNameEnv
      go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_args args
      go_co (PhantomCo h t1 t2)     = go_co h `plusNameEnv` go t1 `plusNameEnv` go t2

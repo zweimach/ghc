@@ -718,17 +718,18 @@ opt_trans_rule is co1 co2
       -- See Note [ForAllCo case for opt_trans_rule]
     | (Just cvl, Just cvr) <- (m_cvl, m_cvr)
     = -- kinds of tvl2 and tvr1 must be equal
-      let cv       = mkFreshCoVar is (mkOnlyTyVarTy tvl1) (mkOnlyTyVarTy tvr2)
+      let is0      = is `extendInScopeSetList` [tvl1, tvl2, cvl, tvr1, tvr2, cvr]
+          cv       = mkFreshCoVar is0 (mkOnlyTyVarTy tvl1) (mkOnlyTyVarTy tvr2)
           new_tvl2 = mkCastTy (mkOnlyTyVarTy tvr2) (to_rep $ mkSymCo cor)
-          new_cvl  = mkCoherenceRightCo (mkCoVarCo cv) (mkSymCo cor)
+          new_cvl  = mkCoherenceRightCo (mkCoVarCo cv) (to_rep $ mkSymCo cor)
           new_tvr1 = mkCastTy (mkOnlyTyVarTy tvl1) (to_rep col)
-          new_cvr  = mkCoherenceLeftCo  (mkCoVarCo cv) (col)
+          new_cvr  = mkCoherenceLeftCo  (mkCoVarCo cv) (to_rep col)
           empty    = mkEmptyTCvSubst is'
           subst_r1 = extendTCvSubstList empty [tvl2, cvl] [new_tvl2, mkCoercionTy new_cvl]
           subst_r2 = extendTCvSubstList empty [tvr1, cvr] [new_tvr1, mkCoercionTy new_cvr]
           r1' = optCoercion subst_r1 r1
           r2' = optCoercion subst_r2 r2
-          is' = is `extendInScopeSetList` [tvl1, tvl2, cvl, tvr1, tvr2, cvr, cv]
+          is' = is0 `extendInScopeSet` cv
       in
       fireTransRule "EtaAllTy" co1 co2 $
       mkForAllCo (mkForAllCoBndr (opt_trans2 is col cor) tvl1 tvr2 (Just cv))

@@ -133,6 +133,20 @@ fix:
        -- foo :: forall f. T f
        foo = T (Proxy :: Proxy Maybe) 1.0
 
+
+       type family Wat (k :: *) (t :: k) :: *
+       type instance Wat *        t = Int
+       type instance Wat (* -> *) t = Double
+
+       data T (k :: *) (t :: k) :: * where
+         T :: forall (k :: *) (t :: k).
+	      forall (t' :: k).
+	      Proxy k t' -> Wat k t' -> T k t
+
+       foo = T (* -> *) (Any (* -> *)) Maybe Proxy 1.0
+       ???
+       
+
   - should check to make sure a coercion isn't bound in a recursive let (!)
   - mkExpectedActualMsg has a lot of backward-compatibility stuff
   - after DeriveAnyClass is fixed (#9968), make sure that the use of looser

@@ -1310,7 +1310,7 @@ allTyVarsInTy = go
     go_co (TyConAppCo _ _ args) = go_args args
     go_co (AppCo co h arg)      = go_co co `unionVarSet`
                                   go_co h `unionVarSet` go_arg arg
-    go_co (ForAllCo cobndr co)  = mkVarSet (coBndrVars cobndr) `unionVarSet` go_co co
+    go_co (ForAllCo cobndr co)  = mkVarSet (coBndrVars cobndr) `unionVarSet` go_co co `unionVarSet` go_co (coBndrKindCo cobndr)
     go_co (CoVarCo cv)          = unitVarSet cv
     go_co (AxiomInstCo _ _ cos) = go_args cos
     go_co (PhantomCo h t1 t2)   = go_co h `unionVarSet` go t1 `unionVarSet` go t2

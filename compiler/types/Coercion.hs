@@ -1310,6 +1310,9 @@ coBndrKindCo (ForAllCoBndr h _ _ _) = h
 setCoBndrKindCo :: ForAllCoBndr -> Coercion -> ForAllCoBndr
 setCoBndrKindCo (ForAllCoBndr _ tv1 tv2 cv) h = ForAllCoBndr h tv1 tv2 cv
 
+-- | Get the pair of vars bound by a 'ForAllCo'
+coBndrKind :: ForAllCoBndr -> Pair Var
+coBndrKind (ForAllCoBndr _ tv1 tv2 _) = Pair tv1 tv2
 
 -------------------------------
 
@@ -2189,10 +2192,6 @@ coercionArgKindRole (CoCoArg r _ co1 co2) = (CoercionTy <$> Pair co1 co2, r)
 -- | Get a 'CoercionArg's role.
 coercionArgRole :: CoercionArg -> Role
 coercionArgRole = snd . coercionArgKindRole
-
--- | Get the pair of vars bound by a 'ForAllCo'
-coBndrKind :: ForAllCoBndr -> Pair Var
-coBndrKind (ForAllCoBndr _ tv1 tv2 _) = Pair tv1 tv2
 
 {-
 Note [Nested InstCos]

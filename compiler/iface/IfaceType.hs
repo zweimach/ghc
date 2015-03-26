@@ -40,7 +40,8 @@ module IfaceType (
         suppressIfaceInvisibles,
         stripIfaceInvisVars,
         stripInvisArgs,
-        substIfaceType, substIfaceTyVar, substIfaceTcArgs, mkIfaceTySubst
+        substIfaceType, substIfaceTyVar, substIfaceTcArgs, mkIfaceTySubst,
+        eqIfaceTvBndr
     ) where
 
 #include "HsVersions.h"
@@ -180,6 +181,9 @@ data IfaceForAllCoBndr
 *                                                                      *
 ************************************************************************
 -}
+
+eqIfaceTvBndr :: IfaceTvBndr -> IfaceTvBndr -> Bool
+eqIfaceTvBndr (occ1, _) (occ2, _) = occ1 == occ2
 
 splitIfaceSigmaTy :: IfaceType -> ([IfaceForAllBndr], [IfacePredType], IfaceType)
 -- Mainly for printing purposes

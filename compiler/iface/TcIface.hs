@@ -1318,10 +1318,16 @@ bindIfaceBndrCo :: IfaceForAllCoBndr -> (ForAllCoBndr -> IfL a) -> IfL a
 bindIfaceBndrCo (IfaceCoBndr co tv1 tv2 m_cv) thing_inside
   = do { co' <- tcIfaceCo co
        ; bindIfaceTyVar tv1 $ \tv1' ->
-         bindIfaceTyVar tv2 $ \tv2' ->
+         perhaps_bindIfaceTyVar2 tv1' $ \tv2' ->
          maybe_bindIfaceId m_cv $ \m_cv' ->
          thing_inside (mkForAllCoBndr co' tv1' tv2' m_cv') }
   where
+    perhaps_bindIfaceTyVar2 tv1' thing_inside
+      | tv1 `eqIfaceTvBndr` tv2
+      = thing_inside tv1'
+      | otherwise
+      = bindIfaceTyVar tv2 thing_inside
+    
     maybe_bindIfaceId Nothing   thing_inside = thing_inside Nothing
     maybe_bindIfaceId (Just cv) thing_inside
       = bindIfaceId cv $ \cv' -> thing_inside (Just cv')

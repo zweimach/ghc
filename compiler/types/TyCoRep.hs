@@ -40,7 +40,7 @@ module TyCoRep (
         binderType, delBinderVar, isInvisibleBinder, isVisibleBinder,
 
         -- Functions over coercions
-        pickLR, coBndrVars, coBndrVarsKinds,
+        pickLR, coBndrVars,
 
         -- Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTCvBndr, pprTCvBndrs,
@@ -629,12 +629,7 @@ data ForAllCoBndr
 
 -- returns the variables bound in a ForAllCoBndr
 coBndrVars :: ForAllCoBndr -> [TyCoVar]
-coBndrVars (ForAllCoBndr _ tv1 tv2 m_cv) = maybeToList m_cv ++ [tv1, tv2]
-
--- returns the variables with their types
-coBndrVarsKinds :: ForAllCoBndr -> ([TyCoVar], [Type])
-coBndrVarsKinds bndr = (vars, map varType vars)
-  where vars = coBndrVars bndr
+coBndrVars (ForAllCoBndr _ tv1 tv2 m_cv) = [tv1, tv2] ++ maybeToList m_cv
 
 -- | A CoercionArg is an argument to a coercion. It may be a coercion (lifted from
 -- a type) or a pair of coercions (lifted from a coercion). See
@@ -1106,8 +1101,8 @@ tyCoVarsOfCo (TyConAppCo _ _ args) = tyCoVarsOfCoArgs args
 tyCoVarsOfCo (AppCo co h arg)    = tyCoVarsOfCo co `unionVarSet`
                                    tyCoVarsOfCo h `unionVarSet` tyCoVarsOfCoArg arg
 tyCoVarsOfCo (ForAllCo cobndr co)
-  = let (vars, kinds) = coBndrVarsKinds cobndr in
-    tyCoVarsOfCo co `delVarSetList` vars `unionVarSet` tyCoVarsOfTypes kinds
+  = tyCoVarsOfCo co `delVarSetList` coBndrVars cobndr
+                    `unionVarSet` tyCoVarsOfCo (coBndrKindCo cobndr)
 tyCoVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` tyCoVarsOfType (varType v)
 tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCoArgs cos
 tyCoVarsOfCo (PhantomCo h t1 t2)   = tyCoVarsOfCo h `unionVarSet` tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
@@ -1155,8 +1150,8 @@ coVarsOfCo (TyConAppCo _ _ args) = coVarsOfCoArgs args
 coVarsOfCo (AppCo co h arg)    = coVarsOfCo co `unionVarSet`
                                  coVarsOfCo h `unionVarSet` coVarsOfCoArg arg
 coVarsOfCo (ForAllCo cobndr co)
-  = let (vars, kinds) = coBndrVarsKinds cobndr in
-    coVarsOfCo co `delVarSetList` vars `unionVarSet` coVarsOfTypes kinds
+  = coVarsOfCo co `delVarSetList` coBndrVars cobndr
+                  `unionVarSet` coVarsOfCo (coBndrKindCo cobndr)
 coVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` coVarsOfType (varType v)
 coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCoArgs args
 coVarsOfCo (PhantomCo h t1 t2) = coVarsOfCo h `unionVarSet` coVarsOfTypes [t1, t2]
@@ -1820,13 +1815,22 @@ substForAllCoBndrCallback :: Bool -- apply "sym" to the binder?
                           -> TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
 substForAllCoBndrCallback sym sty sco subst (ForAllCoBndr h tv1 tv2 m_cv)
   = case substTyVarBndrCallback sty subst  tv1  of { (subst1, tv1') ->
-    case substTyVarBndrCallback sty subst1 tv2  of { (subst2, tv2') ->
+    case subst_ty_var_bndr2         subst1 tv1' of { (subst2, tv2') ->
     case maybeSecond (substCoVarBndrCallback sym sty) subst2 m_cv of
                                                    { (subst3, m_cv') ->
     let h' = sco sym subst h in -- just subst, not any of the others
     if sym
     then (subst3, mkForAllCoBndr h' tv2' tv1' m_cv')
     else (subst3, mkForAllCoBndr h' tv1' tv2' m_cv') }}}
+  where
+    -- if tv1 == tv2, we don't want to call substTyVarBndr again.
+    -- we really want to call (substTyVarBndr subst tv2) -- with just
+    -- "subst" in there, not "subst1" -- but then we have to combine
+    -- the output substitutions. The following is a little dirty, but
+    -- much simpler
+    subst_ty_var_bndr2 sub tv1'
+      | tv1 == tv2 = (sub, tv1')
+      | otherwise  = substTyVarBndrCallback sty sub tv2
     
 substCoVar :: TCvSubst -> CoVar -> Coercion
 substCoVar (TCvSubst _ _ cenv) cv
@@ -2500,10 +2504,13 @@ tidyCo env@(_, subst) co
 
     go_bndr (ForAllCoBndr h tv1 tv2 m_cv)
       = let h' = go h
-            (env1, [tv1', tv2']) = tidyTyCoVarBndrs env [tv1, tv2]
-            (env2, m_cv')        = maybeSecond tidyTyCoVarBndr env1 m_cv
+            (env1, tv1')   = tidyTyCoVarBndr env  tv1
+            (env2, tv2')
+              | tv1 == tv2 = (env1, tv1')
+              | otherwise  = tidyTyCoVarBndr env1 tv2
+            (env3, m_cv')  = maybeSecond tidyTyCoVarBndr env2 m_cv
         in
-        (env2, mkForAllCoBndr h' tv1' tv2' m_cv')
+        (env3, mkForAllCoBndr h' tv1' tv2' m_cv')
 
 tidyCos :: TidyEnv -> [Coercion] -> [Coercion]
 tidyCos env = map (tidyCo env)

@@ -194,6 +194,7 @@ import Control.Monad (liftM, ap)
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..))
 #endif
+import qualified Data.Foldable as F
 
 {-
 ************************************************************************
@@ -659,8 +660,8 @@ exactTyCoVarsOfType ty
     goCo (TyConAppCo _ _ args)= goCoArgs args
     goCo (AppCo co h arg)   = goCo co `unionVarSet` goCo h `unionVarSet` goCoArg arg
     goCo (ForAllCo bndr co)
-      = let (vars, kinds) = coBndrVarsKinds bndr in
-        goCo co `delVarSetList` vars `unionVarSet` exactTyCoVarsOfTypes kinds
+      = let Pair v1 v2 = coBndrKind bndr in
+        goCo co `delVarSetList` [v1, v2] `unionVarSet` goCo (coBndrKindCo bndr)
     goCo (CoVarCo v)         = unitVarSet v
     goCo (AxiomInstCo _ _ args) = goCoArgs args
     goCo (PhantomCo h t1 t2) = goCo h `unionVarSet` go t1 `unionVarSet` go t2
@@ -1495,7 +1496,7 @@ occurCheckExpand dflags tv ty
                                          ; return (mkAppCo co' h' arg') }
     go_co (ForAllCo cobndr co)
       | not impredicative           = OC_Forall
-      | not (all fast_check (map varType (coBndrVars cobndr)))
+      | not (F.all fast_check (fmap varType (coBndrKind cobndr)))
                                     = OC_Occurs
       | tv `elem` coBndrVars cobndr = return co
       | otherwise = do { h' <- go_co (coBndrKindCo cobndr)
