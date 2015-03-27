@@ -67,10 +67,10 @@ So, we will need to find a way to substitute the a2, c1, b2, and c2 variables.
 As usual, the types tell us the answer:
 
   a2 has to be something with kind k2:
-    [a2 |-> b3 |> sym h2]
+    [a2 |-> a1 |> h1]
   c1 has to be a coercion from a1 to the new a2:
-    [c1 |-> c3 `mkCoherenceRightCo` sym h2]
-  b2 has to be something with kind k2:
+    [c1 |-> <a1> `mkCoherenceRightCo` h1]
+  b2 has to be the same as a2:
     [b2 |-> a1 |> h1]
   c2 has to be a coercion from the new b2 to b3:
     [c2 |-> c3 `mkCoherenceLeftCo` h1]
@@ -705,7 +705,6 @@ opt_trans_rule is co1 co2
 
   where
   role   = coercionRole co1
-  to_rep = downgradeRole Representational role
     
   push_trans (ForAllCoBndr col tvl1 tvl2 m_cvl) r1
              (ForAllCoBndr cor tvr1 tvr2 m_cvr) r2
@@ -719,11 +718,13 @@ opt_trans_rule is co1 co2
     | (Just cvl, Just cvr) <- (m_cvl, m_cvr)
     = -- kinds of tvl2 and tvr1 must be equal
       let is0      = is `extendInScopeSetList` [tvl1, tvl2, cvl, tvr1, tvr2, cvr]
-          cv       = mkFreshCoVar is0 (mkOnlyTyVarTy tvl1) (mkOnlyTyVarTy tvr2)
-          new_tvl2 = mkCastTy (mkOnlyTyVarTy tvr2) (to_rep $ mkSymCo cor)
-          new_cvl  = mkCoherenceRightCo (mkCoVarCo cv) (to_rep $ mkSymCo cor)
-          new_tvr1 = mkCastTy (mkOnlyTyVarTy tvl1) (to_rep col)
-          new_cvr  = mkCoherenceLeftCo  (mkCoVarCo cv) (to_rep col)
+          tyl1     = mkOnlyTyVarTy tvl1
+          cv       = mkFreshCoVar is0 tyl1 tyr2
+          rep_col  = downgradeRole Representational role col
+          new_tvl2 = tyl1 `mkCastTy` rep_col
+          new_cvl  = mkNomReflCo tyl1 `mkCoherenceRightCo` rep_col
+          new_tvr1 = new_tvl2
+          new_cvr  = mkCoVarCo cv `mkCoherenceLeftCo` rep_col
           empty    = mkEmptyTCvSubst is'
           subst_r1 = extendTCvSubstList empty [tvl2, cvl] [new_tvl2, mkCoercionTy new_cvl]
           subst_r2 = extendTCvSubstList empty [tvr1, cvr] [new_tvr1, mkCoercionTy new_cvr]
@@ -732,7 +733,26 @@ opt_trans_rule is co1 co2
           is' = is0 `extendInScopeSet` cv
       in
       fireTransRule "EtaAllTy" co1 co2 $
-      mkForAllCo (mkForAllCoBndr (opt_trans2 is col cor) tvl1 tvr2 (Just cv))
+      mkForAllCo (pprTrace "RAE opt"
+                    ( let eta = opt_trans2 is col cor
+                          pprc c = ppr c <+> dcolon <+> ppr (coercionKind c)
+                          pprt t = ppr t <+> dcolon <+> ppr (typeKind t)
+                          pprv v = ppr v <+> dcolon <+> ppr (varType v)
+                      in
+                      text "old co1:" <+> pprc co1 $$
+                      text "old co2:" <+> pprc co2 $$
+                      text "new tvl2:" <+> pprt new_tvl2 $$
+                      text "new cvl:" <+> pprc new_cvl $$
+                      text "new tvr1:" <+> pprt new_tvr1 $$
+                      text "new cvr:" <+> pprc new_cvr $$
+                      text "new r1:" <+> pprc r1' $$
+                      text "new r2:" <+> pprc r2' $$
+                      text "new eta:" <+> pprc eta $$
+                      text "new tv1:" <+> pprv tvl1  $$
+                      text "new tv2:" <+> pprv tvr2  $$
+                      text "new cv:" <+> pprv cv
+                    ) $
+                  mkForAllCoBndr (opt_trans2 is col cor) tvl1 tvr2 (Just cv))
                  (opt_trans is' r1' r2')
 
     | otherwise
