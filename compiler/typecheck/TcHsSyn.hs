@@ -59,6 +59,7 @@ import Bag
 import FastString
 import Outputable
 import Util
+import Control.Arrow ( second )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable ( traverse )
 #endif
@@ -1525,10 +1526,17 @@ zonkTcCoToCo env co
     go (TcLRCo lr co)         = do { co' <- go co; return (mkTcLRCo lr co') }
     go (TcTransCo co1 co2)    = do { co1' <- go co1; co2' <- go co2
                                    ; return (mkTcTransCo co1' co2') }
-    go (TcForAllCo tv co)     = ASSERT( isImmutableTyVar tv || isCoVar tv )
-                                do { tv' <- updateTyVarKindM (zonkTcTypeToType env) tv
-                                   ; co' <- go co
-                                   ; return (mkTcForAllCo tv' co') }
+    go (TcForAllCo (TcForAllCoBndr h tv1 tv2 m_cv) co)
+      = do { h' <- go h
+           ; (env1, tv1')  <-   zonkTyCoBndrX env  tv1
+           ; (env2, tv2')  <-   zonkTyCoBndrX env1 tv2
+           ; (env3, m_cv') <- m_zonkTyCoBndrX env2 m_cv
+           ; co' <- zonkTcCoToCo env3 co
+           ; return (mkTcForAllCo (TcForAllCoBndr h' tv1' tv2' m_cv') co') }
+      where
+        m_zonkTyCoBndrX e Nothing   = return (e, Nothing)
+        m_zonkTyCoBndrX e (Just cv) = second Just <$> zonkTyCoBndrX e cv
+        
     go (TcSubCo co)           = do { co' <- go co; return (mkTcSubCo co') }
     go (TcAxiomRuleCo co ts cs) = do { ts' <- zonkTcTypeToTypes env ts
                                      ; cs' <- mapM go cs

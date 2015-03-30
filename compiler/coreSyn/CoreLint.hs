@@ -1166,7 +1166,8 @@ lintCoercion co@(AppCo co1 kco co2)
 
 ----------
 lintCoercion g@(ForAllCo bndr@(ForAllCoBndr h tv1 tv2 m_cv) co)
-  = do { (k3, k4, t1, t2, r) <- addInScopeVars (coBndrVars bndr) $
+  = do { checkL (tv1 /= tv2) (mkDuplicateForAllCoVarsMsg tv1 g)
+       ; (k3, k4, t1, t2, r) <- addInScopeVars (coBndrVars bndr) $
                                 lintCoercion co
        ; (k1, k2) <- lintStarCoercion r h
        ; ensureEqTys k1 (tyVarKind tv1) (mkBadHeteroVarMsg CLeft k1 tv1 g)
@@ -1862,7 +1863,13 @@ mkBadHeteroCoVarMsg tv1 tv2 cv g
        2 (vcat [ptext (sLit "TyVars:") <+> ppr tv1 <> comma <+> ppr tv2,
                 ptext (sLit "CoVar:") <+> ppr cv,
                 ptext (sLit "In coercion:") <+> ppr g])
-        
+
+mkDuplicateForAllCoVarsMsg :: TyCoVar -> Coercion -> MsgDoc
+mkDuplicateForAllCoVarsMsg tv co
+  = hang (text "Repeated variable in forall coercion:" <+> ppr tv)
+       2 (sep [ text "In the coercion:"
+              , ppr co ])
+    
 mkNthIsCoMsg :: LeftOrRight -> Coercion -> MsgDoc
 mkNthIsCoMsg lr co
   = ptext (sLit "Coercion") <+> (ppr co) <+>

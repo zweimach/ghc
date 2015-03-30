@@ -132,7 +132,7 @@ normaliseFfiType' env ty0 = go initRecTc ty0
       = do   -- if the binder is anonymous, then the previous case snatches it
            let tyvar = binderVar "normaliseFfiType'" bndr
            (coi, nty1, gres1) <- go rec_nts inner_ty
-           return ( mkHomoForAllCo Representational tyvar coi
+           return ( mkHomoForAllCos Representational [tyvar] coi
                   , mkForAllTy bndr nty1, gres1 )
 
       | otherwise -- see Note [Don't recur in normaliseFfiType']

@@ -490,9 +490,7 @@ opt_unsafe env prov role oty1 oty2
         k2 = tyVarKind tv2
   = let eta = opt_unsafe env prov role k1 k2
         cobndr
-          | isTyVar tv1 = let c = mkFreshCoVar (getTCvInScope env)
-                                               (mkOnlyTyVarTy tv1)
-                                               (mkOnlyTyVarTy tv2) in
+          | isTyVar tv1 = let c = mkFreshCoVar (getTCvInScope env) tv1 tv2 in
                           mkForAllCoBndr eta tv1 tv2 (Just c)
           | otherwise   = mkForAllCoBndr eta tv1 tv2 Nothing
     in
@@ -719,7 +717,7 @@ opt_trans_rule is co1 co2
     = -- kinds of tvl2 and tvr1 must be equal
       let is0      = is `extendInScopeSetList` [tvl1, tvl2, cvl, tvr1, tvr2, cvr]
           tyl1     = mkOnlyTyVarTy tvl1
-          cv       = mkFreshCoVar is0 tyl1 tyr2
+          cv       = mkFreshCoVar is0 tvl1 tvr2
           rep_col  = downgradeRole Representational role col
           new_tvl2 = tyl1 `mkCastTy` rep_col
           new_cvl  = mkNomReflCo tyl1 `mkCoherenceRightCo` rep_col
@@ -733,26 +731,7 @@ opt_trans_rule is co1 co2
           is' = is0 `extendInScopeSet` cv
       in
       fireTransRule "EtaAllTy" co1 co2 $
-      mkForAllCo (pprTrace "RAE opt"
-                    ( let eta = opt_trans2 is col cor
-                          pprc c = ppr c <+> dcolon <+> ppr (coercionKind c)
-                          pprt t = ppr t <+> dcolon <+> ppr (typeKind t)
-                          pprv v = ppr v <+> dcolon <+> ppr (varType v)
-                      in
-                      text "old co1:" <+> pprc co1 $$
-                      text "old co2:" <+> pprc co2 $$
-                      text "new tvl2:" <+> pprt new_tvl2 $$
-                      text "new cvl:" <+> pprc new_cvl $$
-                      text "new tvr1:" <+> pprt new_tvr1 $$
-                      text "new cvr:" <+> pprc new_cvr $$
-                      text "new r1:" <+> pprc r1' $$
-                      text "new r2:" <+> pprc r2' $$
-                      text "new eta:" <+> pprc eta $$
-                      text "new tv1:" <+> pprv tvl1  $$
-                      text "new tv2:" <+> pprv tvr2  $$
-                      text "new cv:" <+> pprv cv
-                    ) $
-                  mkForAllCoBndr (opt_trans2 is col cor) tvl1 tvr2 (Just cv))
+      mkForAllCo (mkForAllCoBndr (opt_trans2 is col cor) tvl1 tvr2 (Just cv))
                  (opt_trans is' r1' r2')
 
     | otherwise
@@ -1018,7 +997,7 @@ etaForAllCo_maybe is co
   , isTyVar tv1 == isTyVar tv2 -- we want them to be the same sort
   = let m_cv | isTyVar tv1
              = Just $
-               mkFreshCoVar is (mkOnlyTyVarTy tv1) (mkOnlyTyVarTy tv2)
+               mkFreshCoVar is tv1 tv2
              | otherwise
              = Nothing
         cobndr = mkForAllCoBndr (mkNthCo 0 co) tv1 tv2 m_cv

@@ -619,7 +619,7 @@ initialRoleEnv1 is_boot annots_env tc
   | otherwise             = pprPanic "initialRoleEnv1" (ppr tc)
   where name         = tyConName tc
         bndrs        = tyConBinders tc
-        visflags     = map binderVisibility bndrs
+        visflags     = map binderVisibility $ take (tyConArity tc) bndrs
         num_exps     = count (== Visible) visflags
 
           -- if the number of annotations in the role annotation decl

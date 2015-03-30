@@ -854,9 +854,7 @@ flatten_one fmode ty@(ForAllTy (Named {}) _)
        ; (rho', co) <- flatten_one (setFEMode fmode FM_SubstOnly) rho
                          -- Substitute only under a forall
                          -- See Note [Flattening under a forall]
-       ; let in_scope = mkInScopeSet $ tyCoVarsOfCo co
-             co_bndrs = map (mkHomoCoBndr in_scope (feRole fmode)) tvs
-       ; return (mkForAllTys bndrs rho', foldr mkForAllCo co co_bndrs) }
+       ; return (mkForAllTys bndrs rho', mkHomoForAllCos (feRole fmode) tvs co) }
 
 flatten_one fmode (CastTy ty g)
   = do { (xi, co) <- flatten_one fmode ty

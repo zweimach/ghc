@@ -492,8 +492,10 @@ can_eq_nc' _rdr_env _envs ev eq_rel s1@(ForAllTy (Named {}) _) _
         then canEqHardFailure ev s1 s2
         else
           do { traceTcS "Creating implication for polytype equality" $ ppr ev
+             ; kind_cos <- zipWithM (unifyWantedLikeEv ev loc (eqRelRole eq_rel))
+                             (map binderType bndrs1) (map binderType bndrs2)
              ; ev_term <- deferTcSForAllEq (eqRelRole eq_rel) loc
-                                           (bndrs1,body1) (bndrs2,body2)
+                                           kind_cos (bndrs1,body1) (bndrs2,body2)
              ; setEvBind orig_ev ev_term loc
              ; stopWith ev "Deferred polytype equality" } }
  | otherwise

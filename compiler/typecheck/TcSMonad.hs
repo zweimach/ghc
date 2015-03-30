@@ -70,7 +70,7 @@ module TcSMonad (
     instDFunType,                              -- Instantiation
 
     -- MetaTyVars
-    newFlexiTcSTy, instFlexiTcS, instFlexiTcSHelperTcS,
+    newFlexiTcSTy, instFlexiTcS,
     cloneMetaTyVar, demoteUnfilledFmv,
 
     TcLevel, isTouchableMetaTyVarTcS,
@@ -138,7 +138,8 @@ import TrieMap
 import Control.Monad
 import MonadUtils
 import Data.IORef
-import Data.List ( partition, foldl' )
+import Data.Maybe ( catMaybes )
+import Data.List ( partition, foldl', zipWith4 )
 
 #ifdef DEBUG
 import Digraph
@@ -1672,8 +1673,6 @@ instFlexiTcSHelper tvname kind
        ; let name = setNameUnique tvname uniq
        ; return (mkTyCoVarTy (mkTcTyVar name kind details)) }
 
-instFlexiTcSHelperTcS :: Name -> Kind -> TcS TcType
-instFlexiTcSHelperTcS n k = wrapTcS (instFlexiTcSHelper n k)
 
 
 -- Creating and setting evidence variables and CtFlavors
@@ -1830,44 +1829,54 @@ See TcSMonad.deferTcSForAllEq
 
 deferTcSForAllEq :: Role -- Nominal or Representational
                  -> CtLoc  -- Original wanted equality flavor
+                 -> [TcCoercion]        -- among the kinds of the binders
                  -> ([Binder],TcType)   -- ForAll tvs1 body1
                  -> ([Binder],TcType)   -- ForAll tvs2 body2
                  -> TcS EvTerm
-deferTcSForAllEq role loc (bndrs1,body1) (bndrs2,body2)
- = do { (subst1, skol_tvs) <- wrapTcS $ TcM.tcInstSkolTyCoVars tvs1
-      ; let tys  = mkTyCoVarTys skol_tvs
-            phi1 = Type.substTy subst1 body1
-            phi2 = Type.substTy (zipTopTCvSubst tvs2 tys) body2
-            skol_info = UnifyForAllSkol skol_tvs phi1
-            eq_pred   = case role of
-                          Nominal ->          mkPrimEqPred     phi1 phi2
-                          Representational -> mkReprPrimEqPred phi1 phi2
-                          Phantom ->          panic "deferTcSForAllEq Phantom"
-        ; mb_ctev <- newWantedEvVar loc eq_pred
-        ; coe_inside <- case mb_ctev of
-            Cached term -> return (evTermCoercion term)
-            Fresh  ctev -> do { ev_binds_var <- newTcEvBinds
-                              ; env <- wrapTcS $ TcM.getLclEnv
-                              ; let ev_binds = TcEvBinds ev_binds_var
-                                    new_ct = mkNonCanonical ctev
-                                    new_co = ctEvCoercion ctev
-                                    new_tclvl = pushTcLevel (tcl_tclvl env)
-                              ; let wc = WC { wc_simple = singleCt new_ct
-                                            , wc_impl   = emptyBag
-                                            , wc_insol  = emptyCts }
-                                    imp = Implic { ic_tclvl  = new_tclvl
-                                                 , ic_skols  = skol_tvs
-                                                 , ic_no_eqs = True
-                                                 , ic_given  = []
-                                                 , ic_wanted = wc
-                                                 , ic_insol  = False
-                                                 , ic_binds  = ev_binds_var
-                                                 , ic_env    = env
-                                                 , ic_info   = skol_info }
-                              ; updWorkListTcS (extendWorkListImplic imp)
-                              ; return (TcLetCo ev_binds new_co) }
-
-        ; return $ EvCoercion (foldr mkTcForAllCo coe_inside skol_tvs) }
+deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
+ = do { (subst1, skol_tvs1) <- wrapTcS $ TcM.tcInstSkolTyCoVars tvs1
+      ; (subst2, skol_tvs2) <- wrapTcS $ TcM.tcInstSkolTyCoVars tvs2
+      ; let all_skols = skol_tvs1 ++ skol_tvs2
+            in_scope  = mkInScopeSet $ tyCoVarsOfTypes [body1, body2]
+                                       `unionVarSet` (mkVarSet all_skols)
+                        
+            m_mkFreshCoVar tv1 tv2 | isCoVar tv1
+                                   = ASSERT( isCoVar tv2 )
+                                     Nothing
+                                   | otherwise
+                                   = Just $ mkFreshCoVar in_scope tv1 tv2
+            
+            m_cvs = zipWith m_mkFreshCoVar skol_tvs1 skol_tvs2
+            phi1  = Type.substTy subst1 body1
+            phi2  = Type.substTy subst2 body2
+            skol_info = UnifyForAllSkol skol_tvs1 phi1
+            eq_pred   = mkPrimEqPredRole role phi1 phi2
+          -- The cache won't have the right covars here. So don't
+          -- even look
+      ; ctev <- newWantedEvVarNC loc eq_pred
+      ; ev_binds_var <- newTcEvBinds
+      ; env <- wrapTcS $ TcM.getLclEnv
+      ; let new_tclvl = pushTcLevel (tcl_tclvl env)
+            wc        = WC { wc_simple = singleCt (mkNonCanonical ctev)
+                           , wc_impl   = emptyBag
+                           , wc_insol  = emptyCts }
+            cvs       = catMaybes m_cvs
+            imp       = Implic { ic_tclvl  = new_tclvl
+                               , ic_skols  = skol_tvs1 ++ skol_tvs2
+                               , ic_no_eqs = null cvs
+                               , ic_given  = cvs
+                               , ic_wanted = wc
+                               , ic_insol  = False
+                               , ic_binds  = ev_binds_var
+                               , ic_env    = env
+                               , ic_info   = skol_info }
+      ; updWorkListTcS (extendWorkListImplic imp)
+      ; let new_co     = ctEvCoercion ctev
+            coe_inside = TcLetCo (TcEvBinds ev_binds_var) new_co
+            cobndrs    = zipWith4 TcForAllCoBndr
+                           kind_cos skol_tvs1 skol_tvs2 m_cvs
+      ; return $ EvCoercion (mkTcForAllCos cobndrs coe_inside) }
    where
      tvs1 = map (binderVar "deferTcSForAllEq") bndrs1
      tvs2 = map (binderVar "deferTcSForAllEq") bndrs2
+

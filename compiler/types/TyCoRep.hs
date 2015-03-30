@@ -1814,23 +1814,14 @@ substForAllCoBndrCallback :: Bool -- apply "sym" to the binder?
                           -> (Bool -> TCvSubst -> Coercion -> Coercion)
                           -> TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
 substForAllCoBndrCallback sym sty sco subst (ForAllCoBndr h tv1 tv2 m_cv)
-  = case substTyVarBndrCallback sty subst  tv1  of { (subst1, tv1') ->
-    case subst_ty_var_bndr2         subst1 tv1' of { (subst2, tv2') ->
+  = case substTyVarBndrCallback sty subst  tv1 of { (subst1, tv1') ->
+    case substTyVarBndrCallback sty subst1 tv2 of { (subst2, tv2') ->
     case maybeSecond (substCoVarBndrCallback sym sty) subst2 m_cv of
-                                                   { (subst3, m_cv') ->
+                                                  { (subst3, m_cv') ->
     let h' = sco sym subst h in -- just subst, not any of the others
     if sym
     then (subst3, mkForAllCoBndr h' tv2' tv1' m_cv')
     else (subst3, mkForAllCoBndr h' tv1' tv2' m_cv') }}}
-  where
-    -- if tv1 == tv2, we don't want to call substTyVarBndr again.
-    -- we really want to call (substTyVarBndr subst tv2) -- with just
-    -- "subst" in there, not "subst1" -- but then we have to combine
-    -- the output substitutions. The following is a little dirty, but
-    -- much simpler
-    subst_ty_var_bndr2 sub tv1'
-      | tv1 == tv2 = (sub, tv1')
-      | otherwise  = substTyVarBndrCallback sty sub tv2
     
 substCoVar :: TCvSubst -> CoVar -> Coercion
 substCoVar (TCvSubst _ _ cenv) cv
@@ -1897,7 +1888,7 @@ substCoVarBndrCallback sym subst_fun subst@(TCvSubst in_scope tenv cenv) old_var
     -- When we substitute (co :: t1 ~ t2) we may get the identity (co :: t ~ t)
     -- In that case, mkCoVarCo will return a ReflCoercion, and
     -- we want to substitute that (not new_var) for old_var
-    new_co    = mkCoVarCo new_var
+    new_co    = (if sym then mkSymCo else id) $ mkCoVarCo new_var
     no_kind_change = isEmptyVarSet (tyCoVarsOfTypes [t1, t2])
     no_change = new_var == old_var && not (isReflCo new_co) && no_kind_change
 
@@ -2505,9 +2496,7 @@ tidyCo env@(_, subst) co
     go_bndr (ForAllCoBndr h tv1 tv2 m_cv)
       = let h' = go h
             (env1, tv1')   = tidyTyCoVarBndr env  tv1
-            (env2, tv2')
-              | tv1 == tv2 = (env1, tv1')
-              | otherwise  = tidyTyCoVarBndr env1 tv2
+            (env2, tv2')   = tidyTyCoVarBndr env1 tv2
             (env3, m_cv')  = maybeSecond tidyTyCoVarBndr env2 m_cv
         in
         (env3, mkForAllCoBndr h' tv1' tv2' m_cv')

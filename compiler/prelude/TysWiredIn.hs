@@ -529,10 +529,8 @@ eqBoxDataCon
     kv = kKiVar
     k = mkOnlyTyVarTy kv
     a:b:_ = tyVarList k
-    a_ty = mkOnlyTyVarTy a
-    b_ty = mkOnlyTyVarTy b
     univ_args = [kv, a, b]
-    ex_arg = mkFreshCoVar (mkInScopeSet $ mkVarSet univ_args) a_ty b_ty
+    ex_arg = mkFreshCoVar (mkInScopeSet $ mkVarSet univ_args) a b
 
 coercibleTyCon :: TyCon
 coercibleTyCon = mkClassTyCon

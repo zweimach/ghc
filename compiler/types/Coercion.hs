@@ -31,7 +31,7 @@ module Coercion (
         mkSymCo, mkSymCoArg, mkTransCo, mkTransAppCo,
         mkNthCo, mkNthCoArg, mkNthCoRole, mkLRCo,
         mkInstCo, mkAppCo, mkAppCos, mkTyConAppCo, mkFunCo, mkFunCos,
-        mkForAllCo, mkHomoForAllCo,
+        mkForAllCo, mkHomoForAllCos,
         mkPhantomCo, mkHomoPhantomCo, toPhantomCo,
         mkUnsafeCo, mkUnsafeCoArg, mkSubCo,
         mkNewTypeCo, mkAxiomInstCo,
@@ -40,7 +40,7 @@ module Coercion (
         mkKindCo, mkKindAppCo, castCoercionKind,
         buildKindCos, buildKindCosX,
 
-        mkForAllCoBndr, mkHomoCoBndr, coBndrVars, coBndrKind,
+        mkForAllCoBndr, coBndrVars, coBndrKind,
         mkHeteroCoercionType,
 
         mkTyCoArg, mkCoCoArg, mkCoArgForVar,
@@ -85,7 +85,7 @@ module Coercion (
 
         -- ** Lifting
         liftCoSubst, liftCoSubstTyVar, liftCoSubstWith, liftCoSubstWithEx,
-        emptyLiftingContext, extendLiftingContext, extendLiftingContextIS,
+        emptyLiftingContext, extendLiftingContext,
         liftCoSubstTyCoVar,
         liftCoSubstVarBndrCallback, isMappedByLC,
 
@@ -300,7 +300,9 @@ ppr_forall_co p (ForAllCo cobndr co)
 ppr_forall_co _ _ = panic "ppr_forall_co"
 
 pprCoBndr :: ForAllCoBndr -> SDoc
-pprCoBndr cobndr = pprForAllImplicit (coBndrVars cobndr)
+pprCoBndr cobndr =
+  forAllLit <> underscore <> parens (pprCo $ coBndrKindCo cobndr) <+>
+  parens (pprWithCommas pprTCvBndr (coBndrVars cobndr)) <> dot
 
 pprCoAxiom :: CoAxiom br -> SDoc
 pprCoAxiom ax@(CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
@@ -619,7 +621,7 @@ mkTyConAppCo r tc cos
         leftover_co_pairs = zip leftover_kcos leftover_cos
     in
     mkAppCos (liftCoSubst r (mkLiftingContext tv_co_prs) rhs_ty) leftover_co_pairs
-
+    
   | Just tys <- traverse isReflLike_maybe cos 
   = Refl r (mkTyConApp tc tys)    -- See Note [Refl invariant]
 
@@ -746,14 +748,40 @@ mkForAllCo cobndr@(ForAllCoBndr _ tv _ _) co
 
 -- | Make a Coercion quantified over a type or coercion variable;
 -- the variable has the same type in both types of the coercion
-mkHomoForAllCo :: Role -> TyCoVar -> Coercion -> Coercion
-mkHomoForAllCo _r tv (Refl r ty)
+mkHomoForAllCos :: Role -> [TyCoVar] -> Coercion -> Coercion
+mkHomoForAllCos _r tvs (Refl r ty)
   = ASSERT( _r == r )
-    Refl r (mkNamedForAllTy tv Invisible ty)
-mkHomoForAllCo r tv co
-  = ForAllCo (mkHomoCoBndr in_scope r tv) co
+    Refl r (mkInvForAllTys tvs ty)
+mkHomoForAllCos r tvs co
+  = go (emptyLiftingContext in_scope) tvs
   where
-    in_scope = mkInScopeSet $ tyCoVarsOfCo co
+    in_scope = mkInScopeSet $ tyCoVarsOfCo co `unionVarSet`
+                              mapUnionVarSet (tyCoVarsOfType . tyVarKind) tvs
+                              -- this in_scope is a little bigger than
+                              -- necessary, but that's better than too small.
+    
+    go lc []       = let Pair _lty rty = coercionKind co in
+                     co `mkTransCo` liftCoSubst r lc rty
+    go lc (tv:tvs) = ForAllCo (ForAllCoBndr h tv tv' m_cv) $ go lc' tvs
+      where
+        k   = tyVarKind tv
+        k'  = substTy (lcSubstRight lc) k
+        h   = liftCoSubst r lc k   -- :: k ~ k'
+        tv' = uniqAway (lcInScope lc) $ setTyVarKind tv k'
+        lc1 = lc `extendLCInScope` tv'
+        (m_cv, lc') | isTyVar tv
+                    = let cv     = mkFreshCoVar (lcInScope lc1) tv tv'
+                          lc2    = lc1 `extendLCInScope` cv
+                          lifted = TyCoArg $ mkCoVarCo cv
+                      in
+                      (Just cv, extendLiftingContext lc2 tv lifted)
+                                                            
+                    | otherwise
+                    = let rep_h  = downgradeRole Representational r h
+                          lifted = CoCoArg Nominal rep_h (mkCoVarCo tv)
+                                                         (mkCoVarCo tv')
+                      in
+                      (Nothing, extendLiftingContext lc1 tv lifted)
 
 mkCoVarCo :: CoVar -> Coercion
 -- cv :: s ~# t
@@ -765,9 +793,11 @@ mkCoVarCo cv
 
 -- | Creates a new, fresh (w.r.t. the InScopeSet) Nominal covar between the
 -- given types.
-mkFreshCoVar :: InScopeSet -> Type -> Type -> CoVar
-mkFreshCoVar in_scope ty1 ty2 = mkFreshCoVarOfType in_scope $
-                                mkCoercionType Nominal ty1 ty2
+mkFreshCoVar :: InScopeSet -> TyVar -> TyVar -> CoVar
+mkFreshCoVar in_scope tv1 tv2 = ASSERT( isTyVar tv1 && isTyVar tv2 )
+                                mkFreshCoVarOfType in_scope $
+                                mkCoercionType Nominal (mkOnlyTyVarTy tv1)
+                                                       (mkOnlyTyVarTy tv2)
 
 -- | Like 'mkFreshCoVar', but for a Representational covar.
 mkFreshReprCoVar :: InScopeSet -> Type -> Type -> CoVar
@@ -1195,11 +1225,10 @@ ltRole Nominal          _       = True
 -- | Produces a list of coercions, each at the (one) desired role, that relate
 -- the kinds of coercion arguments about to be applied. For example,
 -- @buildKindCos N (tyConKind tc) args1 args2@ will give a list of N coercions
--- @kcos@, each of which relate the two types related by @args2@ (respectively).
--- This is appropriate right before calling @mkAppCos (tc args1) args2@.
--- The second and third
--- parameters (the initial type and some arguments) are helpful in building
--- the coercions.
+-- @kcos@, each of which relate the kinds of two types related by @args2@
+-- (respectively). This is appropriate right before calling @mkAppCos (tc
+-- args1) args2@. The second and third parameters (the initial type and some
+-- arguments) are helpful in building the coercions.
 buildKindCos :: Role
              -> Type           -- ^ type of tycon at the head of the coercion
              -> [CoercionArg]  -- ^ args already applied
@@ -1258,17 +1287,6 @@ buildKindCosX Phantom          _ args = (map mk_phantom args,  Nothing)
 %************************************************************************
 -}
 
--- | Makes homogeneous ForAllCoBndr
-mkHomoCoBndr :: InScopeSet -> Role -> TyCoVar -> ForAllCoBndr
-mkHomoCoBndr in_scope r v = ForAllCoBndr eta v v m_cv
-  where
-    eta = mkReflCo r (varType v)
-    
-    m_cv | isTyVar v = Just $ mkFreshCoVar in_scope ty ty
-         | otherwise = Nothing
-
-    ty = mkOnlyTyVarTy v
-
 mkForAllCoBndr :: Coercion -> TyVar -> TyVar -> Maybe CoVar -> ForAllCoBndr
 mkForAllCoBndr co tv1 tv2 m_cv
   | debugIsOn
@@ -1277,6 +1295,7 @@ mkForAllCoBndr co tv1 tv2 m_cv
            , ppr tv1 $$ ppr k1 $$ ppr (tyVarKind tv1) )
     ASSERT2( k2 `eqType` tyVarKind tv2
            , ppr tv2 $$ ppr k2 $$ ppr (tyVarKind tv2) )
+    ASSERT2( tv1 /= tv2, ppr co $$ ppr tv1 )
     let result = ForAllCoBndr co tv1 tv2 m_cv in
     case m_cv of
       Nothing -> ASSERT2( isCoVar tv1 && isCoVar tv2, ppr tv1 $$ ppr tv2 )
@@ -1469,7 +1488,7 @@ mkPiCos :: Role -> [Var] -> Coercion -> Coercion
 mkPiCos r vs co = foldr (mkPiCo r) co vs
 
 mkPiCo  :: Role -> Var -> Coercion -> Coercion
-mkPiCo r v co | isTyVar v || isCoVar v = mkHomoForAllCo r v co
+mkPiCo r v co | isTyVar v || isCoVar v = mkHomoForAllCos r [v] co
               | otherwise              = mkFunCo r (mkReflCo r (varType v)) co
 
 -- The second coercion is sometimes lifted (~) and sometimes unlifted (~#).
@@ -1748,19 +1767,14 @@ mkLiftingContext :: [(TyCoVar,CoercionArg)] -> LiftingContext
 mkLiftingContext prs = LC (mkInScopeSet (tyCoVarsOfCoArgs (map snd prs)))
                           (mkVarEnv prs)
 
--- | Add a variable to the in-scope set of a lifting context
-extendLiftingContextIS :: LiftingContext -> Var -> LiftingContext
-extendLiftingContextIS (LC in_scope env) var
-  = LC (extendInScopeSet in_scope var) env
-
 -- | Extend a lifting context with a new /type/ mapping.
 extendLiftingContext :: LiftingContext  -- ^ original LC
                      -> TyVar           -- ^ new variable to map...
-                     -> Coercion        -- ^ ...to this lifted version
+                     -> CoercionArg     -- ^ ...to this lifted version
                      -> LiftingContext
-extendLiftingContext (LC in_scope env) tv co
+extendLiftingContext (LC in_scope env) tv arg
   = ASSERT( isTyVar tv )
-    LC in_scope (extendVarEnv env tv (TyCoArg co))
+    LC in_scope (extendVarEnv env tv arg)
 
 -- | Extend a lifting context with existential-variable bindings.
 -- This follows the lifting context extension definition in the
@@ -1898,17 +1912,12 @@ liftCoSubstVarBndrCallback fun homo r lc@(LC in_scope cenv) old_var
     new_var    = uniqAway in_scope (setVarType old_var k1)
 
     (new_cenv, cobndr)
-      | new_var == old_var
-      , isEmptyVarSet (tyCoVarsOfType old_kind)
-      , k1 `eqType` k2
-      = (delVarEnv cenv old_var, mkHomoCoBndr in_scope r old_var)
-
       | isTyVar old_var
       = let a1 = new_var
             in_scope1 = in_scope `extendInScopeSet` a1
             a2 = uniqAway in_scope1 $ setVarType new_var k2
             in_scope2 = in_scope1 `extendInScopeSet` a2
-            c  = mkFreshCoVar in_scope2 (mkOnlyTyVarTy a1) (mkOnlyTyVarTy a2) 
+            c  = mkFreshCoVar in_scope2 a1 a2
             lifted = if homo
                      then mkCoVarCo c `mkCoherenceRightCo` mkSymCo eta
                      else mkCoVarCo c
@@ -1976,6 +1985,13 @@ liftEnvSubst fn in_scope lc_env
     (tenv0, cenv0) = partitionVarEnv isTyCoArg lc_env
     tenv           = mapVarEnv (fn . coercionKind . stripTyCoArg) tenv0
     cenv           = mapVarEnv (fn . stripCoCoArg) cenv0
+
+lcInScope :: LiftingContext -> InScopeSet
+lcInScope (LC in_scope _) = in_scope
+
+-- | Add a variable to the 'InScopeSet' of a lifting context
+extendLCInScope :: LiftingContext -> Var -> LiftingContext
+extendLCInScope (LC in_scope env) v = LC (in_scope `extendInScopeSet` v) env
 
 {-
 %************************************************************************
@@ -2499,9 +2515,7 @@ buildCoherenceCoX = go
                   -> let (env1, tv1') = rnBndrL env  tv1
                          (env2, tv2') = rnBndrR env1 tv2
                          in_scope     = rnInScopeSet env2
-                         cv           = mkFreshCoVar in_scope
-                                                     (mkOnlyTyVarTy tv1')
-                                                     (mkOnlyTyVarTy tv2')
+                         cv           = mkFreshCoVar in_scope tv1' tv2'
                          env3         = addRnInScopeSet env2 (unitVarSet cv)
                      in
                      Just (env3, mkForAllCoBndr eta tv1' tv2' (Just cv)) }

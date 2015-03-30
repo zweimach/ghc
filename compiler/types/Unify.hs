@@ -1176,8 +1176,7 @@ pushRefl (Refl r (ForAllTy (Anon ty1) ty2))
 pushRefl (Refl r (TyConApp tc tys))
   = Just (TyConAppCo r tc (zipWith mkReflCoArg (tyConRolesX r tc) tys))
 pushRefl (Refl r (ForAllTy (Named tv _) ty))
-  = let in_scope = mkInScopeSet $ tyCoVarsOfType ty in
-    Just (ForAllCo (mkHomoCoBndr in_scope r tv) (Refl r ty))
+  = Just (mkHomoForAllCos r [tv] (Refl r ty))
 pushRefl (Refl r (CastTy ty co))  = Just (castCoercionKind (Refl r ty) co co)
 pushRefl _                        = Nothing
 

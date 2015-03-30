@@ -1424,8 +1424,10 @@ occurCheckExpand dflags tv ty
                                            fast_check_co h &&
                                            fast_check_co_arg arg
     fast_check_co (ForAllCo (ForAllCoBndr h v1 v2 _) co)
-      = impredicative && fast_check_co h && fast_check (varType v1)
-                      && fast_check (varType v2) && (tv == v1 || tv == v2 || fast_check_co co)
+      = impredicative && fast_check_co h
+                      && fast_check (varType v1)
+                      && fast_check (varType v2)
+                      && (tv == v1 || tv == v2 || fast_check_co co)
     fast_check_co (CoVarCo _)            = True
     fast_check_co (AxiomInstCo _ _ args) = all fast_check_co_arg args
     fast_check_co (PhantomCo h t1 t2)    = fast_check_co h && fast_check t1
