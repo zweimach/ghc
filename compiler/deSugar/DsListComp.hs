@@ -87,7 +87,7 @@ dsInnerListComp (ParStmtBlock stmts bndrs _)
              -- really use original bndrs below!
        ; expr <- dsListComp (stmts ++ [noLoc $ mkLastStmt (mkBigLHsVarTup bndrs)])
                             (mkListTy bndrs_tuple_type)
-                 
+
        ; return (expr, bndrs_tuple_type) }
 
 -- This function factors out commonality between the desugaring strategies for GroupStmt.
@@ -103,7 +103,7 @@ dsTransStmt (TransStmt { trS_form = form, trS_stmts = stmts, trS_bndrs = binderM
 
     let from_bndrs_tys'  = map idType from_bndrs'
         to_bndrs_tys'    = map idType to_bndrs'
-        
+
         to_bndrs_tup_ty' = mkBigCoreTupTy to_bndrs_tys'
 
     -- Desugar an inner comprehension which outputs a list of tuples of the "from" binders

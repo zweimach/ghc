@@ -13,9 +13,9 @@
 -- types.  As '([::])' is being vectorised, any type constructor whose definition involves
 -- '([::])', either directly or indirectly, will be vectorised.
 
-module Vectorise.Type.Classify 
+module Vectorise.Type.Classify
   ( classifyTyCons
-  ) 
+  )
 where
 
 import NameSet
@@ -65,14 +65,14 @@ classifyTyCons convStatus parTyCons tcs = classify [] [] [] [] convStatus parTyC
       = classify conv keep (par ++ tcs_par) (tcs ++ novect) cs pts' rs
       where
         refs = ds `delListFromUniqSet` tcs
-        
+
           -- the tycons that directly or indirectly depend on parallel arrays
         tcs_par | any ((`elemNameSet` parTyCons) . tyConName) . eltsUFM $ refs = tcs
                 | otherwise                                                    = []
 
         pts' = pts `extendNameSetList` map tyConName tcs_par
 
-        can_convert  = (isNullUFM (filterUniqSet ((`elemNameSet` pts) . tyConName) (refs `minusUFM` cs)) 
+        can_convert  = (isNullUFM (filterUniqSet ((`elemNameSet` pts) . tyConName) (refs `minusUFM` cs))
                         && all convertable tcs)
                        || isShowClass tcs
         must_convert = foldUFM (||) False (intersectUFM_C const cs refs)
@@ -80,10 +80,10 @@ classifyTyCons convStatus parTyCons tcs = classify [] [] [] [] convStatus parTyC
 
         -- We currently admit Haskell 2011-style data and newtype declarations as well as type
         -- constructors representing classes.
-        convertable tc 
+        convertable tc
           = (isDataTyCon tc || isNewTyCon tc) && all isVanillaDataCon (tyConDataCons tc)
             || isClassTyCon tc
-            
+
         -- !!!FIXME: currently we allow 'Show' in vectorised code without actually providing a
         --   vectorised definition (to be able to vectorise 'Num')
         isShowClass [tc] = tyConName tc == showClassName

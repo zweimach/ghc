@@ -36,7 +36,7 @@ module TyCon(
         isTupleTyCon, isUnboxedTupleTyCon, isBoxedTupleTyCon,
         isTypeSynonymTyCon,
         isDecomposableTyCon,
-        isPromotedDataCon, isPromotedDataCon_maybe, 
+        isPromotedDataCon, isPromotedDataCon_maybe,
 
         isDataTyCon, isProductTyCon, isDataProductTyCon_maybe,
         isEnumerationTyCon,

@@ -17,7 +17,7 @@ HsTypes: Abstract syntax: user-defined types
 
 module HsTypes (
         HsType(..), LHsType, HsKind, LHsKind,
-        HsTyVarBndr(..), LHsTyVarBndr, 
+        HsTyVarBndr(..), LHsTyVarBndr,
         LHsTyVarBndrs(..),
         HsWithBndrs(..),
         HsTupleSort(..), HsExplicitFlag(..),
@@ -30,7 +30,7 @@ module HsTypes (
         getBangType, getBangStrictness,
 
         ConDeclField(..), LConDeclField, pprConDeclFields,
-        
+
         mkHsQTvs, hsQTvExplicit, isHsKindedTyVar, hsTvbAllKinded,
         mkExplicitHsForAllTy, mkImplicitHsForAllTy, mkQualifiedHsForAllTy,
         hsExplicitTvs,
@@ -145,7 +145,7 @@ type LHsKind name = Located (HsKind name)
 
 type LHsTyVarBndr name = Located (HsTyVarBndr name)
 
-data LHsTyVarBndrs name 
+data LHsTyVarBndrs name
   = HsQTvs { hsq_implicit :: [name]               -- implicit (dependent) variables
            , hsq_explicit :: [LHsTyVarBndr name]  -- explicit variables
              -- See Note [HsForAllTy tyvar binders]
@@ -170,7 +170,7 @@ data HsWithBndrs name thing
   = HsWB { hswb_cts  :: thing                 -- Main payload (type or list of types)
          , hswb_vars :: PostRn name [Name]    -- Kind and type vars
          , hswb_wcs  :: PostRn name [Name]    -- Wildcards
-    }                  
+    }
   deriving (Typeable)
 deriving instance (DataId name, Data thing) => Data (HsWithBndrs name thing)
 
@@ -653,7 +653,7 @@ instance Outputable HsTyLit where
     ppr = ppr_tylit
 
 instance (OutputableBndr name) => Outputable (LHsTyVarBndrs name) where
-    ppr (HsQTvs { hsq_implicit = kvs, hsq_explicit = tvs }) 
+    ppr (HsQTvs { hsq_implicit = kvs, hsq_explicit = tvs })
       = ppr_kvs <+> interppSP tvs
       where
         ppr_kvs

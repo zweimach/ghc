@@ -353,8 +353,8 @@ dmdAnalAlt env dmd (con,bndrs,rhs)
         -- In that case we should not evaluate y before the call to 'foo'.
         -- Hackish solution: spot the IO-like situation and add a virtual branch,
         -- as if we had
-        --      case foo x s of 
-        --         (# s, r #) -> y 
+        --      case foo x s of
+        --         (# s, r #) -> y
         --         other      -> return ()
         -- So the 'y' isn't necessarily going to be evaluated
         --
@@ -365,7 +365,7 @@ dmdAnalAlt env dmd (con,bndrs,rhs)
 
         io_hack_reqd = con == DataAlt (tupleCon UnboxedTuple 2) &&
                        idType (head bndrs) `eqType` realWorldStatePrimTy
-    in  
+    in
     (final_alt_ty, (con, bndrs', rhs'))
 
 {-
@@ -445,7 +445,7 @@ addDataConPatDmds (DataAlt con) bndrs dmd_ty
                      | ex_var <- dataConExTyCoVars con
                      , isCoVar ex_var ]
                      ++ dataConRepStrictness con
-                     
+
 
 {-
 Note [Add demands for strict constructors]

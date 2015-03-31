@@ -3,19 +3,19 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE CPP #-}
 
-module Unify ( 
-        -- Matching of types: 
+module Unify (
+        -- Matching of types:
         --      the "tc" prefix indicates that matching always
         --      respects newtypes (rather than looking through them)
         MatchEnv(..),
 
-        tcMatchTy, tcMatchTys, tcMatchTyX, 
+        tcMatchTy, tcMatchTys, tcMatchTyX,
         ruleMatchTyX,
 
         typesCantMatch,
 
         -- Side-effect free unification
-        tcUnifyTy, tcUnifyTys, 
+        tcUnifyTy, tcUnifyTys,
         tcUnifyTysFG,
         BindFlag(..),
         UnifyResult, UnifyResultM(..),
@@ -60,7 +60,7 @@ Matching is much tricker than you might think.
 1. The substitution we generate binds the *template type variables*
    which are given to us explicitly.
 
-2. We want to match in the presence of foralls; 
+2. We want to match in the presence of foralls;
         e.g     (forall a. t1) ~ (forall b. t2)
 
    That is what the RnEnv2 is for; it does the alpha-renaming
@@ -142,7 +142,7 @@ tcMatchTys tmpls tys1 tys2
   = tcMatchTysX tmpls (mkEmptyTCvSubst in_scope) tys1 tys2
   where
     in_scope = mkInScopeSet (tmpls `unionVarSet` tyCoVarsOfTypes tys2)
-        -- We're assuming that all the interesting 
+        -- We're assuming that all the interesting
         -- tyvars in tys1 are in tmpls
 
 -- | Like 'tcMatchTys', but extending a substitution
@@ -171,7 +171,7 @@ tcMatchTysX tmpls (TCvSubst in_scope tv_env cv_env) tys1 tys2
 
 -- | This one is called from the expression matcher,
 -- which already has a MatchEnv in hand
-ruleMatchTyX :: MatchEnv 
+ruleMatchTyX :: MatchEnv
          -> TvSubstEnv          -- ^ type substitution to extend
          -> CvSubstEnv          -- ^ coercion substitution to extend
          -> Type                -- ^ Template
@@ -205,7 +205,7 @@ ruleMatchTyX env tenv cenv tmpl target
 match_ty :: MatchEnv    -- ^ For the most part this is pushed downwards
          -> TvSubstEnv     -- ^ Substitution so far:
                            --   Domain is subset of template tyvars
-                           --   Free vars of range is subset of 
+                           --   Free vars of range is subset of
                            --      in-scope set of the RnEnv2
          -> Type -> Type   -- ^ Template and target respectively
          -> Coercion       -- ^ :: kind of template ~R kind of target
@@ -263,7 +263,7 @@ match_ty menv tsubst (ForAllTy (Anon ty1a) ty1b) (ForAllTy (Anon ty2a) ty2b) _kc
 -- A bogus coercion passed in won't hurt us.
   = do { tsubst' <- match_ty menv tsubst ty1a ty2a (mkRepReflCo (typeKind ty1a))
        ; match_ty menv tsubst' ty1b ty2b (mkRepReflCo (typeKind ty1b)) }
-    
+
 match_ty menv tsubst (AppTy ty1a ty1b) ty2 _kco
   | Just (ty2a, ty2b) <- repSplitAppTy_maybe ty2
         -- 'repSplit' used because the tcView stuff is done above
@@ -371,14 +371,14 @@ Now consider    case x of { T1 -> e1; T2 -> e2 }
 The question before the house is this: if I know something about the type
 of x, can I prune away the T1 alternative?
 
-Suppose x::T Char.  It's impossible to construct a (T Char) using T1, 
+Suppose x::T Char.  It's impossible to construct a (T Char) using T1,
         Answer = YES we can prune the T1 branch (clearly)
 
 Suppose x::T (F a), where 'a' is in scope.  Then 'a' might be instantiated
 to 'Bool', in which case x::T Int, so
         ANSWER = NO (clearly)
 
-Suppose x::T X.  Then *in Haskell* it's impossible to construct a (non-bottom) 
+Suppose x::T X.  Then *in Haskell* it's impossible to construct a (non-bottom)
 value of type (T X) using T1.  But *in FC* it's quite possible.  The newtype
 gives a coercion
         CoX :: X ~ Int
@@ -402,14 +402,14 @@ Consider
 Suppose x::Eq Int Char.  Is the alternative dead?  Clearly yes.
 
 What about x::Eq Int a, in a context where we have evidence that a~Char.
-Then again the alternative is dead.   
+Then again the alternative is dead.
 
 
                         Summary
 
 We are really doing a test for unsatisfiability of the type
 constraints implied by the match. And that is clearly, in general, a
-hard thing to do.  
+hard thing to do.
 
 However, since we are simply dropping dead code, a conservative test
 suffices.  There is a continuum of tests, ranging from easy to hard, that
@@ -550,7 +550,7 @@ tcUnifyTys :: (TyCoVar -> BindFlag)
                                 -- ^ A regular one-shot (idempotent) substitution
                                 -- that unifies the erased types. See comments
                                 -- for 'tcUnifyTysFG'
-              
+
 -- The two types may have common type variables, and indeed do so in the
 -- second call to tcUnifyTys in FunDeps.checkClsFD
 tcUnifyTys bind_fn tys1 tys2
@@ -640,7 +640,7 @@ niFixTCvSubst tenv = f tenv
           subst         = mkTCvSubst (mkInScopeSet range_tvs)
                                      (tenv, emptyCvSubstEnv)
 
-             -- env' extends env by replacing any free type with 
+             -- env' extends env by replacing any free type with
              -- that same tyvar with a substituted kind
              -- See note [Finding the substitution fixpoint]
           tenv'         = extendVarEnvList tenv [ (rtv, mkOnlyTyVarTy $
@@ -695,8 +695,8 @@ unify_ty (TyVarTy tv1) ty2 kco = uVar tv1 ty2 kco
 unify_ty ty1 (TyVarTy tv2) kco = umSwapRn $ uVar tv2 ty1 (mkSymCo kco)
 
 unify_ty (TyConApp tyc1 tys1) (TyConApp tyc2 tys2) _kco
-  | tyc1 == tyc2                                   
-  = unify_tys tys1 tys2 
+  | tyc1 == tyc2
+  = unify_tys tys1 tys2
 
 unify_ty (ForAllTy (Anon ty1a) ty1b) (ForAllTy (Anon ty2a) ty2b) _kco
   = do  { unify_ty ty1a ty2a (mkRepReflCo (typeKind ty1a))
@@ -708,7 +708,7 @@ unify_ty (ForAllTy (Anon ty1a) ty1b) (ForAllTy (Anon ty2a) ty2b) _kco
         -- so if one type is an App the other one jolly well better be too
 unify_ty (AppTy ty1a ty1b) ty2 _kco
   | Just (ty2a, ty2b) <- repSplitAppTy_maybe ty2
-  = unify_ty_app ty1a ty1b ty2a ty2b 
+  = unify_ty_app ty1a ty1b ty2a ty2b
 
 unify_ty ty1 (AppTy ty2a ty2b) _kco
   | Just (ty1a, ty1b) <- repSplitAppTy_maybe ty1
@@ -779,13 +779,13 @@ uUnrefined tv1 ty2 ty2' kco
        ; tv2' <- umRnOccR tv2
        ; when (tv1' /= tv2') $ do -- when they are equal, success: do nothing
        { subst <- getTvSubstEnv
-          -- Check to see whether tv2 is refined     
+          -- Check to see whether tv2 is refined
        ; case lookupVarEnv subst tv2 of
          {  Just ty' -> uUnrefined tv1 ty' ty' kco
          ;  Nothing  -> do
        {   -- So both are unrefined
 
-           -- And then bind one or the other, 
+           -- And then bind one or the other,
            -- depending on which is bindable
        ; b1 <- tvBindFlag tv1
        ; b2 <- tvBindFlag tv2
@@ -800,7 +800,7 @@ uUnrefined tv1 ty2 ty2' kco
 
 uUnrefined tv1 ty2 ty2' kco -- ty2 is not a type variable
   = do { occurs <- elemNiSubstSet tv1 (tyCoVarsOfType ty2')
-       ; if occurs 
+       ; if occurs
          then maybeApart               -- Occurs check, see Note [Fine-grained unification]
          else do bindTv tv1 (ty2 `mkCastTy` mkSymCo kco) }
             -- Bind tyvar to the synonym if poss
@@ -827,7 +827,7 @@ bindTv tv ty    -- ty is not a variable
 ************************************************************************
 -}
 
-data BindFlag 
+data BindFlag
   = BindMe      -- A regular type variable
 
   | Skolem      -- This type variable is a skolem constant
@@ -1008,7 +1008,7 @@ variables.
 -- also require a desired role. Thus, this algorithm prefers mapping to
 -- nominal coercions where it can do so.
 liftCoMatch :: TyCoVarSet -> Type -> Coercion -> Maybe LiftingContext
-liftCoMatch tmpls ty co 
+liftCoMatch tmpls ty co
   = do { cenv1 <- ty_co_match menv emptyVarEnv ki ki_co ki_ki_co ki_ki_co
        ; cenv2 <- ty_co_match menv cenv1       ty co
                               (mkRepReflCo co_lkind) (mkRepReflCo co_rkind)
@@ -1016,7 +1016,7 @@ liftCoMatch tmpls ty co
   where
     menv     = ME { me_tmpls = tmpls, me_env = mkRnEnv2 in_scope }
     in_scope = mkInScopeSet (tmpls `unionVarSet` tyCoVarsOfCo co)
-    -- Like tcMatchTy, assume all the interesting variables 
+    -- Like tcMatchTy, assume all the interesting variables
     -- in ty are in tmpls
 
     ki       = typeKind ty

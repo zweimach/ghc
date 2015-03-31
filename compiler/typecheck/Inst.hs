@@ -8,10 +8,10 @@ The @Inst@ type: dictionaries or method instances
 
 {-# LANGUAGE CPP #-}
 
-module Inst ( 
-       deeplySkolemise, 
+module Inst (
+       deeplySkolemise,
        deeplyInstantiate, instCall, instStupidTheta,
-       
+
        newOverloadedLit, mkOverLit,
 
        newClsInst,
@@ -69,7 +69,7 @@ newMethodFromName :: CtOrigin -> Name -> TcRhoType -> TcM (HsExpr TcId)
 -- Used when Name is the wired-in name for a wired-in class method,
 -- so the caller knows its type for sure, which should be of form
 --    forall a. C a => <blah>
--- newMethodFromName is supposed to instantiate just the outer 
+-- newMethodFromName is supposed to instantiate just the outer
 -- type variable and constraint
 
 newMethodFromName origin name inst_ty
@@ -77,7 +77,7 @@ newMethodFromName origin name inst_ty
               -- Use tcLookupId not tcLookupGlobalId; the method is almost
               -- always a class op, but with -XRebindableSyntax GHC is
               -- meant to find whatever thing is in scope, and that may
-              -- be an ordinary function. 
+              -- be an ordinary function.
 
        ; let ty = piResultTy (idType id) inst_ty
              (theta, _caller_knows_this) = tcSplitPhiTy ty
@@ -100,11 +100,11 @@ with all its arrows visible (ie not buried under foralls)
 
 Examples:
 
-  deeplySkolemise (Int -> forall a. Ord a => blah)  
+  deeplySkolemise (Int -> forall a. Ord a => blah)
     =  ( wp, [a], [d:Ord a], Int -> blah )
     where wp = \x:Int. /\a. \(d:Ord a). <hole> x
 
-  deeplySkolemise  (forall a. Ord a => Maybe a -> forall b. Eq b => blah)  
+  deeplySkolemise  (forall a. Ord a => Maybe a -> forall b. Eq b => blah)
     =  ( wp, [a,b], [d1:Ord a,d2:Eq b], Maybe a -> blah )
     where wp = /\a.\(d1:Ord a).\(x:Maybe a)./\b.\(d2:Ord b). <hole> x
 
@@ -166,9 +166,9 @@ deeplyInstantiate orig ty
                                                 , text "args:" <+> ppr ids1
                                                 , text "theta:" <+>  ppr theta' ])
        ; (wrap2, rho2) <- deeplyInstantiate orig (substTy subst rho)
-       ; return (mkWpLams ids1 
+       ; return (mkWpLams ids1
                     <.> wrap2
-                    <.> wrap1 
+                    <.> wrap1
                     <.> mkWpEvVarApps ids1,
                  mkFunTys arg_tys rho2) }
 
@@ -190,7 +190,7 @@ instCall :: CtOrigin -> [TcType] -> TcThetaType -> TcM HsWrapper
 -- (b) Throws these dictionaries into the LIE
 -- (c) Returns an HsWrapper ([.] tys dicts)
 
-instCall orig tys theta 
+instCall orig tys theta
   = do  { dict_app <- instCallConstraints orig theta
         ; return (dict_app <.> mkWpTyEvApps tys) }
 
@@ -200,14 +200,14 @@ instCallConstraints :: CtOrigin -> TcThetaType -> TcM HsWrapper
 -- into the LIE, and returns a HsWrapper to enclose the call site.
 
 instCallConstraints orig preds
-  | null preds 
+  | null preds
   = return idHsWrapper
   | otherwise
   = do { (boxities, evs) <- mapAndUnzipM go preds
        ; traceTc "instCallConstraints" (ppr evs)
        ; return (mkWpEvApps boxities evs) }
   where
-    go pred 
+    go pred
      | Just (boxity, Nominal, ty1, ty2) <- getEqPredTys_maybe pred -- Try short-cut
      = do  { co <- unifyType noThing ty1 ty2
            ; return (boxity, EvCoercion co) }
@@ -267,10 +267,10 @@ newOverloadedLit' dflags orig
                , ol_witness = meth_name }) res_ty
 
   | not rebindable
-  , Just expr <- shortCutLit dflags val res_ty 
-        -- Do not generate a LitInst for rebindable syntax.  
+  , Just expr <- shortCutLit dflags val res_ty
+        -- Do not generate a LitInst for rebindable syntax.
         -- Reason: If we do, tcSimplify will call lookupInst, which
-        --         will call tcSyntaxName, which does unification, 
+        --         will call tcSyntaxName, which does unification,
         --         which tcSimplify doesn't like
   = return (lit { ol_witness = expr, ol_type = res_ty
                 , ol_rebindable = rebindable })
@@ -303,7 +303,7 @@ mkOverLit (HsIsString src s) = return (HsString src s)
 ************************************************************************
 *                                                                      *
                 Re-mappable syntax
-    
+
      Used only for arrow syntax -- find a way to nuke this
 *                                                                      *
 ************************************************************************
@@ -327,7 +327,7 @@ Now the do-expression can proceed using then72, which has exactly
 the expected type.
 
 In fact tcSyntaxName just generates the RHS for then72, because we only
-want an actual binding in the do-expression case. For literals, we can 
+want an actual binding in the do-expression case. For literals, we can
 just use the expression inline.
 -}
 
@@ -345,7 +345,7 @@ tcSyntaxName orig ty (std_nm, HsVar user_nm)
 
 tcSyntaxName orig ty (std_nm, user_nm_expr) = do
     std_id <- tcLookupId std_nm
-    let 
+    let
         -- C.f. newMethodAtLoc
         ([tv], _, tau) = tcSplitSigmaTy (idType std_id)
         sigma1         = substTyWith [tv] [ty] tau
@@ -355,7 +355,7 @@ tcSyntaxName orig ty (std_nm, user_nm_expr) = do
     addErrCtxtM (syntaxNameCtxt user_nm_expr orig sigma1) $ do
 
         -- Check that the user-supplied thing has the
-        -- same type as the standard one.  
+        -- same type as the standard one.
         -- Tiresome jiggling because tcCheckSigma takes a located expression
      span <- getSrcSpanM
      expr <- tcPolyExpr (L span user_nm_expr) sigma1

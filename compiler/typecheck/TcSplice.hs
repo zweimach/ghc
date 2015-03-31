@@ -1262,10 +1262,10 @@ reifyDataCon :: [Type] -> DataCon -> TcM TH.Con
 reifyDataCon tys dc
   = do { let (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, arg_tys, _)
                = dataConFullSig dc
-                 
+
              subst             = mkTopTCvSubst (univ_tvs `zip` tys)
              (subst', ex_tvs') = mapAccumL substTyCoVarBndr subst ex_tvs
-             
+
              theta'   = substTheta subst' (eqSpecPreds eq_spec ++ theta)
              arg_tys' = substTys subst' arg_tys
              stricts  = map reifyStrict (dataConStrictMarks dc)
@@ -1427,7 +1427,7 @@ reifyType ty = analyzeType analysis ty
       , ta_cast     = \ty co -> noTH (sLit "kind casts") (ppr $ ty `mkCastTy` co)
       , ta_coercion = \co -> noTH (sLit "coercion arguments") (ppr co) }
 
-    
+
 reify_for_all :: Type.Type -> TcM TH.Type
 reify_for_all ty
   = do { cxt' <- reifyCxt cxt;
@@ -1505,7 +1505,7 @@ reifyTyCoVars tvs m_tc = mapM reify_tv tvs'
     tvs' = case m_tc of
              Just tc -> filterInvisibles tc tvs
              Nothing -> tvs
-             
+
     -- even if the kind is *, we need to include a kind annotation,
     -- in case a poly-kind would be inferred without the annotation.
     -- See #8953 or test th/T8953
@@ -1567,7 +1567,7 @@ reify_tc_app tc tys
   where
     arity   = tyConArity tc
     tc_kind = tyConKind tc
-    
+
     r_tc | isTupleTyCon tc            = if isPromotedDataCon tc
                                         then TH.PromotedTupleT arity
                                         else TH.TupleT arity

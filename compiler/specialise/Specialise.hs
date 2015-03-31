@@ -1144,7 +1144,7 @@ specCalls mb_mod env rules_for_me calls_for_me fn rhs
       | isTyVar v
       , (ty:tys') <- tys
       = ty : stitch_tys_dicts vs tys' dicts
-  
+
       | (dict:dicts') <- dicts
       = dict : stitch_tys_dicts vs tys dicts'
 
@@ -2033,7 +2033,7 @@ mapAndCombineSM f (x:xs) = do (y, uds1) <- f x
                               return (y:ys, uds1 `plusUDs` uds2)
 
 extendTCvSubstList :: SpecEnv -> [(TyVar,Type)] -> SpecEnv
-extendTCvSubstList env tv_binds 
+extendTCvSubstList env tv_binds
   = env { se_subst = CoreSubst.extendTCvSubstList (se_subst env) tv_binds }
 
 substTy :: SpecEnv -> Type -> Type

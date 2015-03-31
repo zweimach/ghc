@@ -51,11 +51,11 @@ mkLocalisedName mk_occ name
 
 mkDerivedName :: (OccName -> OccName) -> Name -> VM Name
 -- Similar to mkLocalisedName, but assumes the
--- incoming name is from this module.  
+-- incoming name is from this module.
 -- Works on External names only
-mkDerivedName mk_occ name 
+mkDerivedName mk_occ name
   = do { u   <- liftDs newUnique
-       ; return (mkExternalName u (nameModule name)  
+       ; return (mkExternalName u (nameModule name)
                                   (mk_occ (nameOccName name))
                                   (nameSrcSpan name)) }
 
@@ -88,7 +88,7 @@ cloneVar var = liftM (setIdUnique var) (liftDs newUnique)
 -- |Make a fresh exported variable with the given type.
 --
 newExportedVar :: OccName -> Type -> VM Var
-newExportedVar occ_name ty 
+newExportedVar occ_name ty
  = do mod <- liftDs getModule
       u   <- liftDs newUnique
 

@@ -742,7 +742,7 @@ reactFunEq fam_tc from_this args1 fsk1 solve_this args2 fsk2
       -- middle_co :: F args2 ~ F args1
     co = middle_co `mkTcTransCo` ctEvCoercion from_this
       -- co :: F args2 ~ fsk1
-      
+
 
 
 {-

@@ -4,7 +4,7 @@
 
 {-# LANGUAGE RankNTypes, CPP, DeriveDataTypeable, MultiWayIf #-}
 
--- | Module for (a) type kinds and (b) type coercions, 
+-- | Module for (a) type kinds and (b) type coercions,
 -- as used in System FC. See 'CoreSyn.Expr' for
 -- more on System FC and how coercions fit into it.
 --
@@ -23,7 +23,7 @@ module Coercion (
         -- ** Constructing coercions
         mkReflCo, mkRepReflCo, mkNomReflCo,
         mkReflCoArg, mkRepReflCoArg, mkNomReflCoArg,
-        mkCoVarCo, 
+        mkCoVarCo,
         mkAxInstCo, mkUnbranchedAxInstCo,
         mkAxInstRHS, mkUnbranchedAxInstRHS,
         mkAxInstLHS, mkUnbranchedAxInstLHS,
@@ -75,7 +75,7 @@ module Coercion (
         tyCoVarsOfCo, tyCoVarsOfCos, coVarsOfCo, coVarsOfCoArg,
         coercionSize,
         tyCoVarsOfCoArg, tyCoVarsOfCoArgs,
-        
+
         -- ** Substitution
         CvSubstEnv, emptyCvSubstEnv,
         lookupCoVar,
@@ -97,10 +97,10 @@ module Coercion (
 
         -- ** Forcing evaluation of coercions
         seqCo,
-        
+
         -- * Pretty-printing
         pprCo, pprParendCo, pprCoArg, pprCoBndr,
-        pprCoAxiom, pprCoAxBranch, pprCoAxBranchHdr, 
+        pprCoAxiom, pprCoAxBranch, pprCoAxBranchHdr,
 
         -- * Tidying
         tidyCo, tidyCos,
@@ -109,12 +109,12 @@ module Coercion (
         applyCo, promoteCoercion, mkGADTVars,
         buildCoherenceCo, buildCoherenceCoX, buildCoherenceCoArg,
         buildCoherenceCoArgX
-       ) where 
+       ) where
 
 #include "HsVersions.h"
 
 import TyCoRep
-import Type 
+import Type
 import TyCon
 import CoAxiom
 import Var
@@ -132,7 +132,7 @@ import PrelNames
 import TysPrim          ( eqPhantPrimTyCon )
 import ListSetOps
 import Maybes
-  
+
 import Control.Applicative hiding ( empty )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable (traverse, sequenceA)
@@ -146,9 +146,9 @@ import Data.Function ( on )
 {-
 %************************************************************************
 %*                                                                      *
-     -- The coercion arguments always *precisely* saturate 
+     -- The coercion arguments always *precisely* saturate
      -- arity of (that branch of) the CoAxiom.  If there are
-     -- any left over, we use AppCo.  See 
+     -- any left over, we use AppCo.  See
      -- See [Coercion axioms applied to coercions]
 
 \subsection{Coercion variables}
@@ -325,7 +325,7 @@ pprCoAxBranchHdr ax@(CoAxiom { co_ax_tc = fam_tc, co_ax_name = name }) index
         ppr_loc loc
           | isGoodSrcSpan loc
           = ptext (sLit "at") <+> ppr (srcSpanStart loc)
-    
+
           | otherwise
           = ptext (sLit "in") <+>
               quotes (ppr (nameModule name))
@@ -333,7 +333,7 @@ pprCoAxBranchHdr ax@(CoAxiom { co_ax_tc = fam_tc, co_ax_name = name }) index
 {-
 %************************************************************************
 %*                                                                      *
-        Destructing coercions           
+        Destructing coercions
 %*                                                                      *
 %************************************************************************
 -}
@@ -343,13 +343,13 @@ pprCoAxBranchHdr ax@(CoAxiom { co_ax_tc = fam_tc, co_ax_name = name }) index
 --
 -- > decomposeCo 3 c = [nth 0 c, nth 1 c, nth 2 c]
 decomposeCo :: Arity -> Coercion -> [CoercionArg]
-decomposeCo arity co 
+decomposeCo arity co
   = [mkNthCoArg n co | n <- [0..(arity-1)] ]
            -- Remember, Nth is zero-indexed
 
 -- | Attempts to obtain the type variable underlying a 'Coercion'
 getCoVar_maybe :: Coercion -> Maybe CoVar
-getCoVar_maybe (CoVarCo cv) = Just cv  
+getCoVar_maybe (CoVarCo cv) = Just cv
 getCoVar_maybe _            = Nothing
 
 -- | Attempts to tease a coercion apart into a type constructor and the application
@@ -374,12 +374,12 @@ splitAppCo_maybe (TyConAppCo r tc args)
   , Just arg'' <- setNominalRoleArg_maybe arg'
   = Just ( mkTyConAppCo r tc args'
          , only $ buildKindCos r (tyConKind tc) args' [arg'']
-         , arg'' ) 
+         , arg'' )
        -- Use mkTyConAppCo to preserve the invariant
        --  that identity coercions are always represented by Refl
 
-splitAppCo_maybe (Refl r ty) 
-  | Just (ty1, ty2) <- splitAppTy_maybe ty 
+splitAppCo_maybe (Refl r ty)
+  | Just (ty1, ty2) <- splitAppTy_maybe ty
   = Just (mkReflCo r ty1, mkReflCo r (typeKind ty2), mkNomReflCoArg ty2)
 splitAppCo_maybe _ = Nothing
 
@@ -446,7 +446,7 @@ coVarRole cv
   where
     tc = case tyConAppTyCon_maybe (varType cv) of
            Just tc0 -> tc0
-           Nothing  -> pprPanic "coVarRole: not tyconapp" (ppr cv)    
+           Nothing  -> pprPanic "coVarRole: not tyconapp" (ppr cv)
 
 -- | Makes a coercion type from two types: the types whose equality
 -- is proven by the relevant 'Coercion'
@@ -494,7 +494,7 @@ isReflLike = isJust . isReflLike_maybe
 %************************************************************************
 
 These "smart constructors" maintain the invariants listed in the definition
-of Coercion, and they perform very basic optimizations. 
+of Coercion, and they perform very basic optimizations.
 
 Note [Role twiddling functions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -621,8 +621,8 @@ mkTyConAppCo r tc cos
         leftover_co_pairs = zip leftover_kcos leftover_cos
     in
     mkAppCos (liftCoSubst r (mkLiftingContext tv_co_prs) rhs_ty) leftover_co_pairs
-    
-  | Just tys <- traverse isReflLike_maybe cos 
+
+  | Just tys <- traverse isReflLike_maybe cos
   = Refl r (mkTyConApp tc tys)    -- See Note [Refl invariant]
 
   | otherwise = TyConAppCo r tc cos
@@ -653,7 +653,7 @@ mkAppCo (Refl r ty1) _ arg
     zip_roles (r1:_)  []            = [downgradeRoleArg r1 Nominal arg]
     zip_roles (r1:rs) (ty1:tys)     = mkReflCoArg r1 ty1 : zip_roles rs tys
     zip_roles _       _             = panic "zip_roles" -- but the roles are infinite...
-    
+
 mkAppCo (TyConAppCo r tc args) _ arg
   = case r of
       Nominal          -> TyConAppCo Nominal tc (args ++ [arg])
@@ -700,7 +700,7 @@ mkTransAppCo r1 co1 ty1a ty1b kco r2 co2 ty2a ty2b r3
               -- ty1b ty2b :: k2b
               kind_co1 = mkKindCo co1        -- :: k1a -> k2a ~R k1b -> k2b
               kind_co  = mkNthCo 1 kind_co1  -- :: k2a ~R k2b
-          
+
       (_,                _,                Nominal)
         -> ASSERT( r1 == Nominal && r2 == Nominal )
            mkAppCo co1 kco co2
@@ -763,7 +763,7 @@ mkHomoForAllCos r tvs co
                               -- necessary, but that's better than too small.
                               -- NB: the mkVarSet tvs is essential, so that tv' and
                               -- tv are distinct
-    
+
     go lc []       = let Pair _lty rty = coercionKind co in
                      co `mkTransCo` liftCoSubst r lc rty
     go lc (tv:tvs) = ForAllCo (ForAllCoBndr h tv tv' m_cv) $ go lc' tvs
@@ -779,7 +779,7 @@ mkHomoForAllCos r tvs co
                           lifted = TyCoArg $ mkCoVarCo cv
                       in
                       (Just cv, extendLiftingContext lc2 tv lifted)
-                                                            
+
                     | otherwise
                     = let rep_h  = downgradeRole Representational r h
                           lifted = CoCoArg Nominal rep_h (mkCoVarCo tv)
@@ -817,7 +817,7 @@ mkFreshCoVarOfType in_scope ty
     uniqAway in_scope $ mkCoVar cv_name ty
 
 mkAxInstCo :: Role -> CoAxiom br -> BranchIndex -> [Type] -> Coercion
--- mkAxInstCo can legitimately be called over-staturated; 
+-- mkAxInstCo can legitimately be called over-staturated;
 -- i.e. with more type arguments than the coercion requires
 mkAxInstCo role ax index tys
   | arity == n_tys = downgradeRole role ax_role $ AxiomInstCo ax_br index rtys
@@ -858,10 +858,10 @@ mkUnbranchedAxInstCo role ax tys
 mkAxInstRHS :: CoAxiom br -> BranchIndex -> [Type] -> Type
 -- Instantiate the axiom with specified types,
 -- returning the instantiated RHS
--- A companion to mkAxInstCo: 
+-- A companion to mkAxInstCo:
 --    mkAxInstRhs ax index tys = snd (coercionKind (mkAxInstCo ax index tys))
 mkAxInstRHS ax index tys
-  = ASSERT( tvs `equalLength` tys1 ) 
+  = ASSERT( tvs `equalLength` tys1 )
     mkAppTys rhs' tys2
   where
     branch       = coAxiomNthBranch ax index
@@ -955,7 +955,7 @@ mkNthCoArg n (Refl r ty) = ASSERT( ok_tc_app ty n )
                            mkReflCoArg r' (tyConAppArgN n ty)
   where tc = tyConAppTyCon ty
         r' = nthRole r tc n
-        
+
 mkNthCoArg n co
   | Just (bndr1, _) <- splitForAllTy_maybe ty1
   , Just (bndr2, _) <- splitForAllTy_maybe ty2
@@ -987,7 +987,7 @@ ok_tc_app ty n
 
 mkLRCo :: LeftOrRight -> Coercion -> Coercion
 mkLRCo lr (Refl eq ty) = Refl eq (pickLR lr (splitAppTy ty))
-mkLRCo lr co    
+mkLRCo lr co
   | ty1 `eqType` ty2
   = Refl Nominal ty1
   | otherwise
@@ -1003,7 +1003,7 @@ mkInstCo co arg = let result = InstCo co arg
                   else result
 
 -- See Note [Don't optimize mkCoherenceCo]
--- TODO (RAE): This seems inefficient, if repeated. 
+-- TODO (RAE): This seems inefficient, if repeated.
 mkCoherenceCo :: Coercion -> Coercion -> Coercion
 mkCoherenceCo co1 (Refl {}) = co1
 mkCoherenceCo (CoherenceCo co1 co2) co3
@@ -1015,7 +1015,7 @@ mkCoherenceCo co1 co2     = let result = CoherenceCo co1 co2
                             else result
 
 -- | A CoherenceCo c1 c2 applies the coercion c2 to the left-hand type
--- in the kind of c1. This function uses sym to get the coercion on the 
+-- in the kind of c1. This function uses sym to get the coercion on the
 -- right-hand type of c1. Thus, if c1 :: s ~ t, then mkCoherenceRightCo c1 c2
 -- has the kind (s ~ (t |> c2)) down through type constructors.
 -- The second coercion must be representational.
@@ -1027,7 +1027,7 @@ mkCoherenceRightCo c1 c2 = mkSymCo (mkCoherenceCo (mkSymCo c1) c2)
 mkCoherenceLeftCo :: Coercion -> Coercion -> Coercion
 mkCoherenceLeftCo = mkCoherenceCo
 
-infixl 5 `mkCoherenceCo` 
+infixl 5 `mkCoherenceCo`
 infixl 5 `mkCoherenceRightCo`
 infixl 5 `mkCoherenceLeftCo`
 
@@ -1272,7 +1272,7 @@ buildKindCosX Nominal co_so_far args
       where
         next_left_type = piResultTy left_type (pFst $ coercionArgKind a)
         next_co        = mkNthCo 0 co_so_far
-        
+
 buildKindCosX Representational _ args = (map mkKindCoArg args, Nothing)
 buildKindCosX Phantom          _ args = (map mk_phantom args,  Nothing)
   where
@@ -1343,9 +1343,9 @@ coBndrKind (ForAllCoBndr _ tv1 tv2 _) = Pair tv1 tv2
 -- a KindCo constructor. The output role is representational.
 promoteCoercion :: Coercion -> Coercion
 
--- First cases handles anything that should yield refl. 
+-- First cases handles anything that should yield refl.
 promoteCoercion co = case co of
-  
+
     _ | ki1 `eqType` ki2
       -> mkRepReflCo (typeKind ty1)
      -- no later branch should return refl
@@ -1360,22 +1360,22 @@ promoteCoercion co = case co of
       -> co'
       | otherwise
       -> mkKindCo co
-    
+
     AppCo co1 _ arg
       | Just co' <- instCoercion (promoteCoercion co1) arg
       -> co'
       | otherwise
       -> mkKindCo co
-         
+
     ForAllCo _ g
       -> promoteCoercion g
-         
+
     CoVarCo {}
       -> mkKindCo co
-         
+
     AxiomInstCo {}
       -> mkKindCo co
-         
+
     PhantomCo co _ _
       -> co
 
@@ -1387,7 +1387,7 @@ promoteCoercion co = case co of
 
     TransCo co1 co2
       -> mkTransCo (promoteCoercion co1) (promoteCoercion co2)
-         
+
     NthCo n co1
       | Just (_, args) <- splitTyConAppCo_maybe co1
       , n < length args
@@ -1406,7 +1406,7 @@ promoteCoercion co = case co of
       | Just (lco, h, _) <- splitAppCo_maybe co1
       -> case lr of
            CLeft  -> promoteCoercion lco
-           CRight -> mkSubCo h 
+           CRight -> mkSubCo h
 
       | otherwise
       -> mkKindCo co
@@ -1683,7 +1683,7 @@ topNormaliseNewType_maybe ty
 -- | Syntactic equality of coercions
 eqCoercion :: Coercion -> Coercion -> Bool
 eqCoercion = eqType `on` coercionType
-  
+
 -- | Compare two 'Coercion's, with respect to an RnEnv2
 eqCoercionX :: RnEnv2 -> Coercion -> Coercion -> Bool
 eqCoercionX env = eqTypeX env `on` coercionType
@@ -1797,7 +1797,7 @@ extendLiftingContextEx lc@(LC in_scope env) ((v,ty):rest)
                                          (mkNomReflCo ty)
                                          (ty_co_subst lc Representational (tyVarKind v))))
     in extendLiftingContextEx lc' rest
-       
+
   | CoercionTy co <- ty
   = -- co :: s1 ~r s2
     -- lift_r(s1) :: s1 ~r s1'
@@ -1823,7 +1823,7 @@ extendLiftingContextEx lc@(LC in_scope env) ((v,ty):rest)
 -- | The \"lifting\" operation which substitutes coercions for type
 --   variables in a type to produce a coercion.
 --
---   For the inverse operation, see 'liftCoMatch' 
+--   For the inverse operation, see 'liftCoMatch'
 ty_co_subst :: LiftingContext -> Role -> Type -> Coercion
 ty_co_subst lc@(LC _ env) role ty
   = go role ty
@@ -2044,7 +2044,7 @@ seqCoBndr (ForAllCoBndr h tv1 tv2 m_cv)
     Nothing `m_seq` x = x
     Just cv `m_seq` x = cv `seq` x
     infixr 0 `m_seq`
-    
+
 {-
 %************************************************************************
 %*                                                                      *
@@ -2077,9 +2077,9 @@ coercionType co = case coercionKindRole co of
 --
 -- i.e. the kind of @c@ relates @t1@ and @t2@, then @coercionKind c = Pair t1 t2@.
 
-coercionKind :: Coercion -> Pair Type 
+coercionKind :: Coercion -> Pair Type
 coercionKind co = go co
-  where 
+  where
     go (Refl _ ty)          = Pair ty ty
     go (TyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map coercionArgKind cos)
     go (AppCo co1 _ co2)    = mkAppTy <$> go co1 <*> coercionArgKind co2
@@ -2088,7 +2088,7 @@ coercionKind co = go co
     go (AxiomInstCo ax ind cos)
       | CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs } <- coAxiomNthBranch ax ind
       , Pair tys1 tys2 <- sequenceA (map coercionArgKind cos)
-      = ASSERT( cos `equalLength` tvs )  -- Invariant of AxiomInstCo: cos should 
+      = ASSERT( cos `equalLength` tvs )  -- Invariant of AxiomInstCo: cos should
                                          -- exactly saturate the axiom branch
         Pair (substTyWith tvs tys1 (mkTyConApp (coAxiomTyCon ax) lhs))
              (substTyWith tvs tys2 rhs)
@@ -2101,7 +2101,7 @@ coercionKind co = go co
       , Just args2 <- tyConAppArgs_maybe ty2
       = ASSERT( d < length args1 && d < length args2 )
         (`getNth` d) <$> Pair args1 args2
-     
+
       | d == 0
       , Just (bndr1, _) <- splitForAllTy_maybe ty1
       , Just (bndr2, _) <- splitForAllTy_maybe ty2
@@ -2219,7 +2219,7 @@ Note [Nested InstCos]
 In Trac #5631 we found that 70% of the entire compilation time was
 being spent in coercionKind!  The reason was that we had
    (g @ ty1 @ ty2 .. @ ty100)    -- The "@s" are InstCos
-where 
+where
    g :: forall a1 a2 .. a100. phi
 If we deal with the InstCos one at a time, we'll do this:
    1.  Find the kind of (g @ ty1 .. @ ty99) : forall a100. phi'
@@ -2390,7 +2390,7 @@ mkGADTVars tmpl_tvs dc_tvs subst
   where
     in_scope = mkInScopeSet (mkVarSet tmpl_tvs `unionVarSet` mkVarSet dc_tvs)
     empty_subst = mkEmptyTCvSubst in_scope
-                                          
+
     choose :: [TyVar]           -- accumulator of univ tvs, reversed
            -> [CoVar]           -- accumulator of GADT equality covars, reversed
            -> TCvSubst          -- template substutition
@@ -2399,7 +2399,7 @@ mkGADTVars tmpl_tvs dc_tvs subst
            -> UniqSM ( [TyVar]  -- the univ_tvs
                      , [CoVar]  -- the covars witnessing GADT equalities
                      , TCvSubst )  -- a substitution to fix kinds in ex_tvs
-           
+
     choose univs eqs _     r_sub []
       = return (reverse univs, reverse eqs, r_sub)
     choose univs eqs t_sub r_sub (t_tv:t_tvs)
@@ -2481,7 +2481,7 @@ buildCoherenceCoX = go
   where
     go env ty1 ty2 | Just ty1' <- coreViewOneStarKind ty1 = go env ty1' ty2
     go env ty1 ty2 | Just ty2' <- coreViewOneStarKind ty2 = go env ty1  ty2'
-    
+
     go env (TyVarTy tv1) (TyVarTy tv2)
       | rnOccL env tv1 == rnOccR env tv2
       = Just $ mkNomReflCo (mkOnlyTyVarTy $ rnOccL env tv1)
@@ -2542,7 +2542,7 @@ buildCoherenceCoArgX = go_arg
                buildCoherenceCoX env (coercionType co1) (coercionType co2))
           <*> pure (rename_co rnEnvL env co1)
           <*> pure (rename_co rnEnvR env co2)
-                 
+
     go_arg env ty1 ty2
       = mkTyCoArg <$> buildCoherenceCoX env ty1 ty2
 

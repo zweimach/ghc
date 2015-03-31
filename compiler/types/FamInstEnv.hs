@@ -822,7 +822,7 @@ reduceTyFamApp_maybe envs role tc tys
                  , fim_tys      = inst_tys
                  , fim_coercion = match_co } : _ <- lookupFamInstEnv envs tc tys
       -- NB: Allow multiple matches because of compatible overlap
-                                                    
+
   = let co = downgradeRole role Nominal match_co
              `mkTransCo` mkUnbranchedAxInstCo role ax inst_tys
         ty = pSnd (coercionKind co)
@@ -1012,7 +1012,7 @@ topNormaliseType_maybe env ty
           -- in Note [Normalising types]) because the reduceTyFamApp below
           -- works only at top level. We'll never recur in this function
           -- after reducing the kind of a bound tyvar.
-        
+
         case reduceTyFamApp_maybe env Representational tc ntys of
           Just (co, rhs) -> NS_Step rec_nts rhs (args_co `mkTransCo` co)
           Nothing        -> NS_Done

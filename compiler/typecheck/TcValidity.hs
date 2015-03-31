@@ -7,7 +7,7 @@
 
 module TcValidity (
   Rank, UserTypeCtxt(..), checkValidType, checkValidMonoType,
-  ContextKind(..), expectedKindInCtxt, 
+  ContextKind(..), expectedKindInCtxt,
   checkValidTheta, checkValidFamPats,
   checkValidInstance, validDerivPred,
   checkInstTermination, checkValidTyFamInst, checkTyFamFreeness,
@@ -174,7 +174,7 @@ checkValidType ctxt ty
                                           -- Can't happen; not used for *user* sigs
 
        ; env <- tcInitOpenTidyEnv (tyCoVarsOfType ty)
-             
+
         -- Check the internal validity of the type itself
        ; check_type env ctxt rank ty
 
@@ -348,7 +348,7 @@ check_syn_tc_app env ctxt rank ty tc tys
     tc_arity  = tyConArity tc
     check_arg | isTypeFamilyTyCon tc = check_arg_type  env ctxt rank
               | otherwise            = check_type      env ctxt synArgMonoType
-         
+
 ----------------------------------------
 check_ubx_tuple :: TidyEnv -> UserTypeCtxt -> KindOrType
                 -> [KindOrType] -> TcM ()
@@ -399,7 +399,7 @@ check_arg_type env ctxt rank ty
 
         ; check_type env ctxt rank' ty
         ; check_lifted env ty }
-             -- NB the isUnLiftedType test also checks for 
+             -- NB the isUnLiftedType test also checks for
              --    T State#
              -- where there is an illegal partial application of State# (which has
              -- kind * -> #); see Note [The kind invariant] in TyCoRep
@@ -1143,7 +1143,7 @@ checkConsistentFamInst (Just (clas, mini_env)) fam_tc at_tvs at_tys
                        -- See Note [Associated type instances]
 
     all_distinct :: TCvSubst -> Bool
-    -- True if all the variables mapped the substitution 
+    -- True if all the variables mapped the substitution
     -- map to *distinct* type *variables*
     all_distinct subst = go [] at_tvs
        where
@@ -1251,7 +1251,7 @@ checkValidFamPats fam_tc tvs ty_pats
          checkTc (length ty_pats == fam_arity) $
            wrongNumberOfParmsErr (fam_arity - count isInvisibleBinder fam_bndrs)
              -- report only explicit arguments
-           
+
        ; mapM_ checkTyFamFreeness ty_pats
        ; let unbound_tvs = filterOut (`elemVarSet` exactTyCoVarsOfTypes ty_pats) tvs
        ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
@@ -1330,7 +1330,7 @@ fvCo (AppCo co h arg)       = fvCo co ++ fvCo h ++ fvCoArg arg
 fvCo (ForAllCo cobndr co)   = (fvCo co \\ coBndrVars cobndr)
                               ++ fvCo (coBndrKindCo cobndr)
 fvCo (CoVarCo v)            = [v]
-fvCo (AxiomInstCo _ _ args) = concatMap fvCoArg args 
+fvCo (AxiomInstCo _ _ args) = concatMap fvCoArg args
 fvCo (PhantomCo h t1 t2)    = fvCo h ++ fvType t1 ++ fvType t2
 fvCo (UnsafeCo _ _ ty1 ty2) = fvType ty1 ++ fvType ty2
 fvCo (SymCo co)             = fvCo co

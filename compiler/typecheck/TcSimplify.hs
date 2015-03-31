@@ -308,7 +308,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
        ; wanted_transformed_incl_derivs <- setTcLevel rhs_tclvl $
                                            runTcSWithEvBinds ev_binds_var (solveWanteds wanteds)
        ; wanted_transformed_incl_derivs <- zonkWC wanted_transformed_incl_derivs
-                                           
+
 
               -- Step 4) Candidates for quantification are an approximation of wanted_transformed
               -- NB: Already the fixpoint of any unifications that may have happened
@@ -342,7 +342,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                                 defaultTyVar tv
                       ; mapM_ def_tyvar meta_tvs
                       ; mapM_ (promoteTyVar rhs_tclvl) meta_tvs
-                                   
+
                       ; (WC { wc_simple = simples }, unif_pairs)
                            <- setTcLevel rhs_tclvl          $
                               simplifyWantedsTcMCustom Pure $
@@ -374,7 +374,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
          -- Promote any type variables that are free in the inferred type
          -- of the function:
          --    f :: forall qtvs. bound_theta => zonked_tau
-         -- These variables now become free in the envt, and hence will show 
+         -- These variables now become free in the envt, and hence will show
          -- up whenever 'f' is called.  They may currently at rhs_tclvl, but
          -- they had better be unifiable at the outer_tclvl!
          -- Example:   envt mentions alpha[1]
@@ -390,10 +390,10 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                              <*> TcM.zonkTyCoVarsAndFV (snd zonked_tau_tkvs)
               -- decideQuantification turned some meta tyvars into
               -- quantified skolems, so we have to zonk again
-                             
+
        ; let phi_tvs     = tyCoVarsOfTypes bound_theta
                            `unionVarSet` zonked_tau_tvs
-                           
+
              promote_tvs = closeOverKinds phi_tvs `delVarSetList` qtvs
        ; MASSERT2( closeOverKinds promote_tvs `subVarSet` promote_tvs
                  , ppr phi_tvs $$
@@ -424,7 +424,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                         -- Don't add the quantified variables here, because
                         -- they are also bound in ic_skols and we want them
                         -- to be tidied uniformly
-                         
+
              implic = Implic { ic_tclvl    = rhs_tclvl
                              , ic_skols    = qtvs
                              , ic_no_eqs   = False
@@ -517,7 +517,7 @@ decideQuantification cv_env apply_mr constraints
                  -- meet the quantifyPred test. We don't want *any*
                  -- quantification over covars here, so add all covars to
                  -- mono_tvs
-                               
+
              mono_tvs = gbl_tvs `unionVarSet` constrained_tvs
              mr_bites = constrained_tvs `intersectsVarSet` zonked_tkvs
        ; qtvs <- quantifyTyCoVars cv_env mono_tvs
@@ -906,7 +906,7 @@ evBindMapWanteds tcvs ev_bind_map
     map (lookupEvBind ev_bind_map) $
     filter isCoVar $
     varSetElems tcvs
-    
+
 solveWantedsAndDrop :: WantedConstraints -> TcS WantedConstraints
 -- Since solveWanteds returns the residual WantedConstraints,
 -- it should always be called within a runTcS or something similar,
@@ -1164,7 +1164,7 @@ defaultTyVar the_tv
   | isLevityVar the_tv
   = do { traceTc "defaultTyVar levity" (ppr the_tv)
        ; writeMetaTyVar the_tv liftedDataConTy }
-    
+
   | otherwise = return ()    -- The common case
 
 -- | Like 'defaultTyVar', but in the TcS monad.
@@ -1451,12 +1451,12 @@ floatEqualities ev_binds_var skols no_given_eqs
     (float_eqs1, remaining_simples1) = partitionBag float_me simples
 
     float_tvs = tyCoVarsOfCts float_eqs1
-    
+
     (float_eqs2, remaining_simples2) = partitionBag (`ct_in_set` tyCoVarsOfCts simples)
                                                     remaining_simples1
 
     float_eqs = float_eqs1 `unionBags` float_eqs2
-                                                     
+
     float_me :: Ct -> Bool
     float_me ct   -- The constraint is un-flattened and de-cannonicalised
        | let pred = ctPred ct

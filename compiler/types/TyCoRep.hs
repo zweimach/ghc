@@ -168,8 +168,8 @@ data Type
                         --    for example unsaturated type synonyms
                         --    can appear as the right hand side of a type synonym.
 
-  | ForAllTy            
-        Binder          
+  | ForAllTy
+        Binder
         Type            -- ^ A Π type.
                         -- See Note [Equality-constrained types]
                         -- This includes arrow types, constructed with
@@ -213,7 +213,7 @@ data VisibilityFlag = Visible | Invisible
 instance Binary VisibilityFlag where
   put_ bh Visible   = putByte bh 0
   put_ bh Invisible = putByte bh 1
-  
+
   get bh = do
     h <- getByte bh
     case h of
@@ -441,8 +441,8 @@ mkFunTy arg res
         cv       = mkFreshCoVarOfType in_scope arg
     in
     ForAllTy (Named cv Invisible) res
-    
-  | otherwise    
+
+  | otherwise
   = ForAllTy (Anon arg) res
 
 -- | Does this type classify a core Coercion?
@@ -575,10 +575,10 @@ data Coercion
       -- representationally equal. This is necessary so that KindCo
       -- (which always returns a representational coercion) is
       -- sensible.
-    
+
   | UnsafeCo FastString Role Type Type    -- :: _ -> "e" -> _ -> _ -> e
       -- The FastString is just a note for provenance
-    
+
   | SymCo Coercion             -- :: e -> e
   | TransCo Coercion Coercion  -- :: e -> e -> e
 
@@ -609,7 +609,7 @@ data Coercion
   -- See Note [AppCo and KindAppCo]
   | KindAppCo Coercion
      -- :: e -> e
-    
+
   | SubCo Coercion                  -- Turns a ~N into a ~R
     -- :: N -> R
 
@@ -658,7 +658,7 @@ instance Binary LeftOrRight where
                ; case h of
                    0 -> return CLeft
                    _ -> return CRight }
-                         
+
 pickLR :: LeftOrRight -> (a,a) -> a
 pickLR CLeft  (l,_) = l
 pickLR CRight (_,r) = r
@@ -1822,7 +1822,7 @@ substForAllCoBndrCallback sym sty sco subst (ForAllCoBndr h tv1 tv2 m_cv)
     if sym
     then (subst3, mkForAllCoBndr h' tv2' tv1' m_cv')
     else (subst3, mkForAllCoBndr h' tv1' tv2' m_cv') }}}
-    
+
 substCoVar :: TCvSubst -> CoVar -> Coercion
 substCoVar (TCvSubst _ _ cenv) cv
   = case lookupVarEnv cenv cv of
@@ -2176,7 +2176,7 @@ too much information; see Trac #9018.
 
 So I'm trying out this rule: print explicit foralls if
   a) User specifies -fprint-explicit-foralls, or
-  b) Any of the quantified type variables has a kind 
+  b) Any of the quantified type variables has a kind
      that mentions a kind variable
 
 This catches common situations, such as a type siguature
@@ -2250,7 +2250,7 @@ pprTcApp p pp tc tys
   | isTupleTyCon tc && tyConArity tc == length tys
   = pprPromotionQuote tc <>
     tupleParens (tupleTyConSort tc) (sep (punctuate comma (map (pp TopPrec) tys)))
-    
+
   | Just dc <- isPromotedDataCon_maybe tc
   , let dc_tc = dataConTyCon dc
   , isTupleTyCon dc_tc

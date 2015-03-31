@@ -14,7 +14,7 @@ module Class (
 
         FunDep, pprFundeps, pprFunDep,
 
-        mkClass, classTyVars, classArity, 
+        mkClass, classTyVars, classArity,
         classKey, className, classATs, classATItems, classTyCon, classMethods,
         classOpItems, classBigSig, classExtraBigSig, classTvsFds, classSCTheta,
         classAllSelIds, classSCSelId, classMinimalDef
@@ -54,18 +54,18 @@ data Class
 
         className :: Name,              -- Just the cached name of the TyCon
         classKey  :: Unique,            -- Cached unique of TyCon
-        
+
         classTyVars  :: [TyVar],        -- The class kind and type variables;
                                         -- identical to those of the TyCon
 
         classFunDeps :: [FunDep TyCoVar],  -- The functional dependencies
 
         -- Superclasses: eg: (F a ~ b, F b ~ G a, Eq a, Show b)
-        -- We need value-level selectors for both the dictionary 
+        -- We need value-level selectors for both the dictionary
         -- superclasses and the equality superclasses
-        classSCTheta :: [PredType],     -- Immediate superclasses, 
+        classSCTheta :: [PredType],     -- Immediate superclasses,
         classSCSels  :: [Id],           -- Selector functions to extract the
-                                        --   superclasses from a 
+                                        --   superclasses from a
                                         --   dictionary of this class
         -- Associated types
         classATStuff :: [ClassATItem],  -- Associated type families
@@ -172,7 +172,7 @@ parent class. Thus
       type F b x a :: *
 We make F use the same Name for 'a' as C does, and similary 'b'.
 
-The reason for this is when checking instances it's easier to match 
+The reason for this is when checking instances it's easier to match
 them up, to ensure they match.  Eg
     instance C Int [d] where
       type F [d] x Int = ....
@@ -203,7 +203,7 @@ classAllSelIds c@(Class {classSCSels = sc_sels})
 
 classSCSelId :: Class -> Int -> Id
 -- Get the n'th superclass selector Id
--- where n is 0-indexed, and counts 
+-- where n is 0-indexed, and counts
 --    *all* superclasses including equalities
 classSCSelId (Class { classSCSels = sc_sels }) n
   = ASSERT( n >= 0 && n < length sc_sels )
@@ -228,7 +228,7 @@ classTvsFds c
   = (classTyVars c, classFunDeps c)
 
 classBigSig :: Class -> ([TyCoVar], [PredType], [Id], [ClassOpItem])
-classBigSig (Class {classTyVars = tyvars, classSCTheta = sc_theta, 
+classBigSig (Class {classTyVars = tyvars, classSCTheta = sc_theta,
                     classSCSels = sc_sels, classOpStuff = op_stuff})
   = (tyvars, sc_theta, sc_sels, op_stuff)
 

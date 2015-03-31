@@ -776,7 +776,7 @@ lookupUniqueInstEnv instEnv cls tys
 lookupInstEnv' :: InstEnv          -- InstEnv to look in
                -> VisibleOrphanModules   -- But filter against this
                -> Class -> [Type]  -- What we are looking for
-               -> ([InstMatch],    -- Successful matches 
+               -> ([InstMatch],    -- Successful matches
                    [ClsInst])     -- These don't match but do unify
 -- The second component of the result pair happens when we look up
 --      Foo [a]

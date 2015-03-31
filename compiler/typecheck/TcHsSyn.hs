@@ -91,7 +91,7 @@ hsPatType (ListPat _ ty Nothing)      = mkListTy ty
 hsPatType (ListPat _ _ (Just (ty,_))) = ty
 hsPatType (PArrPat _ ty)              = mkPArrTy ty
 hsPatType (TuplePat _ bx tys)         = mkTupleTy (boxityNormalTupleSort bx) tys
-hsPatType (ConPatOut { pat_con = L _ con, pat_arg_tys = tys }) 
+hsPatType (ConPatOut { pat_con = L _ con, pat_arg_tys = tys })
                                       = conLikeResTy con tys
 hsPatType (SigPatOut _ ty)            = ty
 hsPatType (NPat lit _ _)              = overLitType lit
@@ -1320,7 +1320,7 @@ zonkEvBind env bind@(EvBind { evb_var = var, evb_term = term })
          -- TODO (RAE): Restore this optimization. It fails because it inspects
          -- a zonked type, which is a bad idea inside a knot. See also Note
          -- [Small optimization in zonking]
-{-         
+{-
        ; let ty' = idType var'
 
        ; case getEqPredTys_maybe ty' of
@@ -1536,7 +1536,7 @@ zonkTcCoToCo env co
       where
         m_zonkTyCoBndrX e Nothing   = return (e, Nothing)
         m_zonkTyCoBndrX e (Just cv) = second Just <$> zonkTyCoBndrX e cv
-        
+
     go (TcSubCo co)           = do { co' <- go co; return (mkTcSubCo co') }
     go (TcAxiomRuleCo co ts cs) = do { ts' <- zonkTcTypeToTypes env ts
                                      ; cs' <- mapM go cs

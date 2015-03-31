@@ -57,7 +57,7 @@ module Type (
         -- Analyzing types
         analyzeType, TypeAnalysis(..),
         TyCoMapper(..), mapType, mapCoercion, mapCoercionArg,
-        
+
         -- (Newtypes)
         newTyConInstRhs,
 
@@ -84,7 +84,7 @@ module Type (
         binderVar, binderRelevantType_maybe, caseBinder,
         partitionBinders, partitionBindersIntoBinders,
         binderType, isVisibleBinder, isInvisibleBinder,
-        
+
         -- ** Common type constructors
         funTyCon,
 
@@ -337,7 +337,7 @@ expandTypeSynonyms ty
     go subst (TyVarTy tv)  = substTyVar subst tv
     go subst (AppTy t1 t2) = mkAppTy (go subst t1) (go subst t2)
     go subst (ForAllTy (Anon arg) res)
-      = mkFunTy (go subst arg) (go subst res) 
+      = mkFunTy (go subst arg) (go subst res)
     go subst (ForAllTy (Named tv vis) t)
       = let (subst', tv') = substTyVarBndrCallback go subst tv in
         ForAllTy (Named tv' vis) (go subst' t)
@@ -523,7 +523,7 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
            ; return (env3, ForAllCoBndr h' tv1' tv2' m_cv') }
     m_tycobinder env Nothing  _   = return (env, Nothing)
     m_tycobinder env (Just v) vis = liftM (second Just) $ tycobinder env v vis
-    
+
     ( mktyconappco, mkappco, mkaxiominstco, mkphantomco, mkunsafeco
       , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
       , mkkindco, mkkindappco, mksubco, mkforallco)
@@ -916,7 +916,7 @@ mkCastTy :: Type -> Coercion -> Type
 --      "foo" True (Just 2)
 --
 -- General approach:
--- 
+--
 mkCastTy ty (Refl {}) = ty
 mkCastTy (CastTy ty co1) co2 = mkCastTy ty (co1 `mkTransCo` co2)
 -- See Note [Weird typing rule for ForAllTy]
@@ -948,7 +948,7 @@ mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
             saturated_tc = mkTyConApp tc non_decomp_args
         in
         affix_co (typeKind saturated_tc) saturated_tc (decomp_args `chkAppend` args) co
-            
+
     split_apps args (ForAllTy (Anon arg) res) co
       = affix_co (tyConKind funTyCon) (mkTyConTy funTyCon)
                  (arg : res : args) co
@@ -1146,7 +1146,7 @@ in TyCoRep.
 -}
 
 mkForAllTy :: Binder -> Type -> Type
-mkForAllTy = ForAllTy 
+mkForAllTy = ForAllTy
 
 -- | Make a dependent forall.
 mkNamedForAllTy :: TyVar -> VisibilityFlag -> Type -> Type
@@ -1227,7 +1227,7 @@ splitForAllTys ty = split ty ty []
     split orig_ty ty bndrs | Just ty' <- coreView ty = split orig_ty ty' bndrs
     split _       (ForAllTy bndr ty) bndrs = split ty ty (bndr:bndrs)
     split orig_ty _                  bndrs = (reverse bndrs, orig_ty)
-    
+
 -- | Like 'splitForAllTys' but split off only /named/ binders, returning
 -- only the tycovars.
 splitNamedForAllTys :: Type -> ([TyCoVar], Type)
@@ -2001,7 +2001,7 @@ cmpTypeX env t1 t2 = go env (coreEraseType k1) (coreEraseType k2) `thenCmp`
     -- than erasing and comparing, but I don't feel like succumbing to evil
     -- premature optimization at the moment. TODO (RAE): Optimize when not
     -- premature!
-   
+
     -- We expand predicate types, because in Core-land we have
     -- lots of definitions like
     --      fOrdBool :: Ord Bool
@@ -2095,7 +2095,7 @@ eraseType view_fun = go
   where
     go :: Type -> EType
     go t | Just t' <- view_fun t = go t'
-    
+
     go (TyVarTy tv1)      = ETyVarTy tv1 -- comparison doesn't recur into tv kinds
       -- NB: use mkAppTy, as erasing may expose a TyCon!
     go t@(AppTy {})       = go_app t []
@@ -2216,9 +2216,9 @@ tyConsOfType ty
      go_tc tc = unitNameEnv (tyConName tc) tc
      go_ax ax = go_tc $ coAxiomTyCon ax
 
--- | Find the result 'Kind' of a type synonym, 
+-- | Find the result 'Kind' of a type synonym,
 -- after applying it to its 'arity' number of type variables
--- Actually this function works fine on data types too, 
+-- Actually this function works fine on data types too,
 -- but they'd always return '*', so we never need to ask
 synTyConResKind :: TyCon -> Kind
 synTyConResKind tycon = piResultTys (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))

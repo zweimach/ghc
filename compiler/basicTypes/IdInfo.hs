@@ -172,7 +172,7 @@ pprIdDetails other     = brackets (pp other)
                              <> ppWhen (ns /= 0) (brackets (int ns))
                              <> ppWhen nt (ptext (sLit "(nt)"))
    pp (RecSelId { sel_naughty = is_naughty })
-                         = brackets $ ptext (sLit "RecSel") 
+                         = brackets $ ptext (sLit "RecSel")
                             <> ppWhen is_naughty (ptext (sLit "(naughty)"))
    pp CoVarId           = ptext (sLit "CoVarId")
 

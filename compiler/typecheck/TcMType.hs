@@ -24,7 +24,7 @@ module TcMType (
   newMaybeReturnTyVarTy,
   newOpenReturnTyVar,
   newMetaKindVar, newMetaKindVars,
-  mkTcTyVarName, cloneMetaTyVar, 
+  mkTcTyVarName, cloneMetaTyVar,
 
   newMetaTyVar, readMetaTyVar, writeMetaTyVar, writeMetaTyVarRef,
   unFillMetaTyVar,
@@ -138,7 +138,7 @@ newEvVars theta = mapM newEvVar theta
 
 newEvVar :: TcPredType -> TcRnIf gbl lcl EvVar
 -- Creates new *rigid* variables for predicates
-newEvVar ty = do { name <- newSysName (predTypeOccName ty) 
+newEvVar ty = do { name <- newSysName (predTypeOccName ty)
                  ; return (mkLocalIdOrCoVar name ty) }
 
 -- | Creates a new EvVar and immediately emits it as a Wanted
@@ -161,7 +161,7 @@ newEq ty1 ty2
        ; return (mkLocalCoVar name (mkPrimEqPred ty1 ty2)) }
 
 newDict :: Class -> [TcType] -> TcM DictId
-newDict cls tys 
+newDict cls tys
   = do { name <- newSysName (mkDictOcc (getOccName cls))
        ; return (mkLocalId name (mkClassPred cls tys)) }
 
@@ -174,7 +174,7 @@ predTypeOccName ty = case classifyPredType ty of
 
 {-
 *********************************************************************************
-*                                                                               * 
+*                                                                               *
 *                   Wanted constraints
 *                                                                               *
 *********************************************************************************
@@ -381,7 +381,7 @@ cloneMetaTyVar tv
     do  { uniq <- newUnique
         ; ref  <- newMutVar Flexi
         ; let name'    = setNameUnique (tyVarName tv) uniq
-              details' = case tcTyVarDetails tv of 
+              details' = case tcTyVarDetails tv of
                            details@(MetaTv {}) -> details { mtv_ref = ref }
                            _ -> pprPanic "cloneMetaTyVar" (ppr tv)
         ; return (mkTcTyVar name' (tyVarKind tv) details') }
@@ -418,7 +418,7 @@ writeMetaTyVar :: TcTyVar -> TcType -> TcM ()
 -- Write into a currently-empty MetaTyVar
 
 writeMetaTyVar tyvar ty
-  | not debugIsOn 
+  | not debugIsOn
   = writeMetaTyVarRef tyvar (metaTvRef tyvar) ty
 
 -- Everything from here on only happens if DEBUG is on
@@ -484,7 +484,7 @@ unFillMetaTyVar tyvar
                     ; return ty }
                Flexi -> pprPanic "unFillMetaTyVar unfilled var" (ppr tyvar) }
       _ -> pprPanic "unFillMetaTyVar non-meta-tyvar" (ppr tyvar)
-               
+
 {-
 ************************************************************************
 *                                                                      *
@@ -502,7 +502,7 @@ A similar case is
    bar :: Bool -> (forall a. a->a) -> Int
    bar True = \x. (x 3)
    bar False = error "urk"
-Here we need to instantiate 'error' with a polytype. 
+Here we need to instantiate 'error' with a polytype.
 
 But 'error' has an sort-polymorphic type variable, precisely so that
 we can instantiate it with Int#.  So we also allow such type variables
@@ -657,7 +657,7 @@ TODO (RAE): Update Note.
 quantifyTyCoVars is give the free vars of a type that we
 are about to wrap in a forall.
 
-It takes these free type/kind variables and 
+It takes these free type/kind variables and
   1. Zonks them and remove globals
   2. Partitions into type and kind variables (kvs1, tvs) (removing covars)
   3. Extends kvs1 with free kind vars in the kinds of tvs (removing globals)
@@ -706,7 +706,7 @@ quantifyTyCoVars co_env gbl_tvs (dep_tkvs, nondep_tkvs)
                       then return dep_kvs
                       else do { let (meta_kvs, skolem_kvs) = partition is_meta dep_kvs
                                     is_meta kv = isTcTyVar kv && isMetaTyVar kv
-                              
+
                               ; mapM_ defaultKindVar meta_kvs
                               ; return skolem_kvs }  -- should be empty
 
@@ -720,7 +720,7 @@ quantifyTyCoVars co_env gbl_tvs (dep_tkvs, nondep_tkvs)
                  , text "dep2:" <+> ppr dep_vars2
                  , text "quant_vars1:" <+> ppr quant_vars1
                  , text "quant_vars2:" <+> ppr quant_vars2 ])
-             
+
        ; mapMaybeM zonk_quant quant_vars2 }
            -- Because of the order, any kind variables
            -- mentioned in the kinds of the type variables refer to
@@ -737,14 +737,14 @@ quantifyTyCoVars co_env gbl_tvs (dep_tkvs, nondep_tkvs)
       |  isTyVar tcv
       || quantifyPred (mkVarSet qtvs) (varType tcv)
       =  tcv : qtvs
-         
+
       |  otherwise
       =  qtvs
-    
+
     zonk_quant tkv
       | isTcTyCoVar tkv = zonkQuantifiedTyCoVar tkv
       | otherwise       = return $ Just tkv
-      -- For associated types, we have the class variables 
+      -- For associated types, we have the class variables
       -- in scope, and they are TyVars not TcTyVars
 
     apply_co_env = foldVarSet apply_co_env1 emptyVarSet
@@ -758,8 +758,8 @@ zonkQuantifiedTyCoVar :: TcTyCoVar -> TcM (Maybe TcTyCoVar)
 -- The quantified type variables often include meta type variables
 -- we want to freeze them into ordinary type variables, and
 -- default their kind (e.g. from TYPE v to TYPE Lifted)
--- The meta tyvar is updated to point to the new skolem TyVar.  Now any 
--- bound occurrences of the original type variable will get zonked to 
+-- The meta tyvar is updated to point to the new skolem TyVar.  Now any
+-- bound occurrences of the original type variable will get zonked to
 -- the immutable version.
 --
 -- We leave skolem TyVars alone; they are immutable.
@@ -785,7 +785,7 @@ zonkQuantifiedTyCoVarOrType tv
   = case tcTyVarDetails tv of
       SkolemTv {} -> do { kind <- zonkTcType (tyVarKind tv)
                         ; return $ Left $ setTyVarKind tv kind }
-        -- It might be a skolem type variable, 
+        -- It might be a skolem type variable,
         -- for example from a user type signature
 
       MetaTv { mtv_ref = ref } ->
@@ -824,7 +824,7 @@ skolemiseUnboundMetaTyVar :: TcTyVar -> TcTyVarDetails -> TcM TyVar
 -- We create a skolem TyVar, not a regular TyVar
 --   See Note [Zonking to Skolem]
 skolemiseUnboundMetaTyVar tv details
-  = ASSERT2( isMetaTyVar tv, ppr tv ) 
+  = ASSERT2( isMetaTyVar tv, ppr tv )
     do  { span <- getSrcSpanM    -- Get the location from "here"
                                  -- ie where we are generalising
         ; kind <- zonkTcType (tyVarKind tv)
@@ -947,13 +947,13 @@ zonkTcTypeAndFV :: TcType -> TcM TyCoVarSet
 -- smart constructors. See Note [Zonking within the knot] in TcHsType
 zonkTcTypeAndFV ty
   = tyCoVarsOfType <$> mapType (zonkTcTypeMapper { tcm_smart = False }) () ty
-    
+
 zonkTyCoVar :: TyCoVar -> TcM TcType
 -- Works on TyVars and TcTyVars
 zonkTyCoVar tv | isTcTyVar tv = zonkTcTyCoVar tv
                | otherwise    = mkTyCoVarTy <$> zonkTyCoVarKind tv
    -- Hackily, when typechecking type and class decls
-   -- we have TyVars in scopeadded (only) in 
+   -- we have TyVars in scopeadded (only) in
    -- TcHsType.tcTyClTyVars, but it seems
    -- painful to make them into TcTyVars there
 
@@ -1029,7 +1029,7 @@ zonkCt ct
        ; return (mkNonCanonical fl') }
 
 zonkCtEvidence :: CtEvidence -> TcM CtEvidence
-zonkCtEvidence ctev@(CtGiven { ctev_pred = pred }) 
+zonkCtEvidence ctev@(CtGiven { ctev_pred = pred })
   = do { pred' <- zonkTcType pred
        ; return (ctev { ctev_pred = pred'}) }
 zonkCtEvidence ctev@(CtWanted { ctev_pred = pred, ctev_evar = ev })
@@ -1088,11 +1088,11 @@ zonkTcType = mapType zonkTcTypeMapper ()
 
 -- | "Zonk" a coercion -- really, just zonk any types in the coercion
 zonkCo :: Coercion -> TcM Coercion
-zonkCo = mapCoercion zonkTcTypeMapper () 
+zonkCo = mapCoercion zonkTcTypeMapper ()
 
 zonkTcTyCoVarBndr :: TcTyCoVar -> TcM TcTyCoVar
 -- A tyvar binder is never a unification variable (MetaTv),
--- rather it is always a skolems.  BUT it may have a kind 
+-- rather it is always a skolems.  BUT it may have a kind
 -- that has not yet been zonked, and may include kind
 -- unification variables.
 zonkTcTyCoVarBndr tyvar

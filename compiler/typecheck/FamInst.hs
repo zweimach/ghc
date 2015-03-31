@@ -80,7 +80,7 @@ check whether the instances in the two modules are consistent, *unless* we can
 be certain that the instances of the two modules have already been checked for
 consistency during the compilation of modules that we import.
 
-Why do we need to check?  Consider 
+Why do we need to check?  Consider
    module X1 where                module X2 where
     data T1                         data T2
     type instance F T1 b = Int      type instance F a T2 = Char
@@ -131,17 +131,17 @@ checkFamInstConsistency famInstMods directlyImpMods
 
        ; let { -- Fetch the iface of a given module.  Must succeed as
                -- all directly imported modules must already have been loaded.
-               modIface mod = 
+               modIface mod =
                  case lookupIfaceByModule dflags hpt (eps_PIT eps) mod of
                    Nothing    -> panic "FamInst.checkFamInstConsistency"
                    Just iface -> iface
 
              ; hmiModule     = mi_module . hm_iface
-             ; hmiFamInstEnv = extendFamInstEnvList emptyFamInstEnv 
+             ; hmiFamInstEnv = extendFamInstEnvList emptyFamInstEnv
                                . md_fam_insts . hm_details
-             ; hpt_fam_insts = mkModuleEnv [ (hmiModule hmi, hmiFamInstEnv hmi) 
+             ; hpt_fam_insts = mkModuleEnv [ (hmiModule hmi, hmiFamInstEnv hmi)
                                            | hmi <- eltsUFM hpt]
-             ; groups        = map (dep_finsts . mi_deps . modIface) 
+             ; groups        = map (dep_finsts . mi_deps . modIface)
                                    directlyImpMods
              ; okPairs       = listToSet $ concatMap allPairs groups
                  -- instances of okPairs are consistent
@@ -160,7 +160,7 @@ checkFamInstConsistency famInstMods directlyImpMods
     check hpt_fam_insts (ModulePair m1 m2)
       = do { env1 <- getFamInsts hpt_fam_insts m1
            ; env2 <- getFamInsts hpt_fam_insts m2
-           ; mapM_ (checkForConflicts (emptyFamInstEnv, env2))   
+           ; mapM_ (checkForConflicts (emptyFamInstEnv, env2))
                    (famInstEnvElts env1) }
 
 getFamInsts :: ModuleEnv FamInstEnv -> Module -> TcM FamInstEnv
@@ -276,7 +276,7 @@ tcTopNormaliseNewTypeTF_maybe faminsts rdr_env ty
 tcExtendLocalFamInstEnv :: [FamInst] -> TcM a -> TcM a
 tcExtendLocalFamInstEnv fam_insts thing_inside
  = do { env <- getGblEnv
-      ; (inst_env', fam_insts') <- foldlM addLocalFamInst  
+      ; (inst_env', fam_insts') <- foldlM addLocalFamInst
                                           (tcg_fam_inst_env env, tcg_fam_insts env)
                                           fam_insts
       ; let env' = env { tcg_fam_insts    = fam_insts'
@@ -346,7 +346,7 @@ conflictInstErr fam_inst conflictingMatch
   | (FamInstMatch { fim_instance = confInst }) : _ <- conflictingMatch
   = addFamInstsErr (ptext (sLit "Conflicting family instance declarations:"))
                    [fam_inst, confInst]
-  | otherwise 
+  | otherwise
   = panic "conflictInstErr"
 
 addFamInstsErr :: SDoc -> [FamInst] -> TcRn ()
@@ -368,6 +368,6 @@ addFamInstsErr herald insts
 tcGetFamInstEnvs :: TcM FamInstEnvs
 -- Gets both the external-package inst-env
 -- and the home-pkg inst env (includes module being compiled)
-tcGetFamInstEnvs 
+tcGetFamInstEnvs
   = do { eps <- getEps; env <- getGblEnv
        ; return (eps_fam_inst_env eps, tcg_fam_inst_env env) }

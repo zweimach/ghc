@@ -404,11 +404,11 @@ bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
              kvs_from_tv_bndrs = [ kv | L _ (KindedTyVar _ kind) <- tvs
                                  , let (_, kvs) = extractHsTyRdrTyVars kind
                                  , kv <- kvs ]
-             all_kvs' = nub (kv_bndrs ++ kvs_from_tv_bndrs) 
+             all_kvs' = nub (kv_bndrs ++ kvs_from_tv_bndrs)
              all_kvs  = filterOut (\kv -> kv `elemLocalRdrEnv` rdr_env
                                        || any ((== kv) . hsLTyVarName) tvs)
                                   all_kvs'
-                       
+
        ; poly_kind <- xoptM Opt_PolyKinds
        ; unless (poly_kind || null all_kvs)
                 (addErr (badKindBndrs doc all_kvs))
@@ -439,7 +439,7 @@ bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
                     ; traceRn (text "bhtv" <+> (ppr tvs $$ ppr all_kvs $$ ppr env))
                     ; thing_inside (HsQTvs { hsq_explicit = reverse renamed,
                                              hsq_implicit = kv_names }) }
-                                  
+
        -- Check for duplicate or shadowed tyvar bindrs
        ; checkDupRdrNames tv_names_w_loc
        ; when (isNothing mb_assoc) (checkShadowedRdrNames tv_names_w_loc)
@@ -826,7 +826,7 @@ warnUnusedForAlls in_doc bound mentioned_rdrs
     bound_tv_kinds     = [ k | L _ (KindedTyVar _ k) <- hsQTvExplicit bound ]
     (kvs, _empty)      = foldr extract_lkind ([], []) bound_tv_kinds
     all_mentioned      = kvs ++ mentioned_rdrs
-    
+
     bound_names        = hsLTyVarLocNames bound
     bound_but_not_used = filterOut ((`elem` all_mentioned) . unLoc) bound_names
 

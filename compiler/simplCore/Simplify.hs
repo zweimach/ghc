@@ -1313,7 +1313,7 @@ simplLam env (bndr:bndrs) body (ApplyToVal { sc_arg = arg, sc_env = arg_se
          = extendTCvSubst env bndr (mkCoercionTy co)
          | otherwise
          = env
-    
+
     zap_unfolding bndr  -- See Note [Zap unfolding when beta-reducing]
       | isId bndr, isStableUnfolding (realIdUnfolding bndr)
       = setIdUnfolding bndr NoUnfolding

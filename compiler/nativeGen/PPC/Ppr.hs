@@ -203,7 +203,7 @@ pprReg r
 
 
 pprSize :: Size -> SDoc
-pprSize x 
+pprSize x
  = ptext (case x of
                 II8        -> sLit "b"
                 II16        -> sLit "h"
@@ -211,10 +211,10 @@ pprSize x
                 FF32        -> sLit "fs"
                 FF64        -> sLit "fd"
                 _        -> panic "PPC.Ppr.pprSize: no match")
-                
-                
+
+
 pprCond :: Cond -> SDoc
-pprCond c 
+pprCond c
  = ptext (case c of {
                 ALWAYS  -> sLit "";
                 EQQ        -> sLit "eq";        NE    -> sLit "ne";
@@ -313,7 +313,7 @@ pprDataItem lit
 
         ppr_item II64 (CmmInt x _)  =
                 [ptext (sLit "\t.long\t")
-                    <> int (fromIntegral 
+                    <> int (fromIntegral
                         (fromIntegral (x `shiftR` 32) :: Word32)),
                  ptext (sLit "\t.long\t")
                     <> int (fromIntegral (fromIntegral x :: Word32))]
@@ -432,7 +432,7 @@ pprInstr (LI reg imm) = hcat [
         ptext (sLit ", "),
         pprImm imm
     ]
-pprInstr (MR reg1 reg2) 
+pprInstr (MR reg1 reg2)
     | reg1 == reg2 = empty
     | otherwise = hcat [
         char '\t',
@@ -630,7 +630,7 @@ pprInstr (RLWINM reg1 reg2 sh mb me) = hcat [
         ptext (sLit ", "),
         int me
     ]
-    
+
 pprInstr (FADD sz reg1 reg2 reg3) = pprBinaryF (sLit "fadd") sz reg1 reg2 reg3
 pprInstr (FSUB sz reg1 reg2 reg3) = pprBinaryF (sLit "fsub") sz reg1 reg2 reg3
 pprInstr (FMUL sz reg1 reg2 reg3) = pprBinaryF (sLit "fmul") sz reg1 reg2 reg3
@@ -723,7 +723,7 @@ pprBinaryF op sz reg1 reg2 reg3 = hcat [
         ptext (sLit ", "),
         pprReg reg3
     ]
-    
+
 pprRI :: RI -> SDoc
 pprRI (RIReg r) = pprReg r
 pprRI (RIImm r) = pprImm r

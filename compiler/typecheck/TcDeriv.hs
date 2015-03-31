@@ -763,7 +763,7 @@ deriveTyData is_instance tvs tc tc_args (L loc deriv_pred)
                 -- to drop b, giving us tc_args_to_keep = [a].
                 -- We now have (T a :: inst_ty_kind).
                 -- Then, (kind_co :: inst_ty_kind ~R cls_arg_kind).
-              
+
               all_tkvs        = varSetElemsWellScoped $
                                 mkVarSet deriv_tvs `unionVarSet`
                                 tyCoVarsOfTypes tc_args_to_keep
@@ -773,7 +773,7 @@ deriveTyData is_instance tvs tc tc_args (L loc deriv_pred)
               final_tc_args   = substTys subst tc_args_to_keep
               final_cls_tys   = substTys subst cls_tys
 
-              
+
         ; traceTc "derivTyData1" (vcat [ pprTCvBndrs tvs, ppr tc, ppr tc_args, ppr deriv_pred
                                        , pprTCvBndrs (varSetElems $ tyCoVarsOfTypes tc_args)
                                        , ppr n_args_to_keep, ppr n_args_to_drop
@@ -1074,7 +1074,7 @@ mkPolyKindedTypeableEqn cls tc
                     2 (ptext (sLit "You need DeriveDataTypeable to derive Typeable instances")))
 
        ; loc <- getSrcSpanM
-       ; let prom_dcs = map promoteDataCon (tyConDataCons tc) 
+       ; let prom_dcs = map promoteDataCon (tyConDataCons tc)
        ; mapM (mk_one loc) (tc : prom_dcs) }
   where
      mk_one loc tc = do { traceTc "mkPolyKindedTypeableEqn" (ppr tc)

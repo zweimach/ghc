@@ -16,7 +16,7 @@ module SimplEnv (
 
         -- Environments
         SimplEnv(..), StaticEnv, pprSimplEnv,   -- Temp not abstract
-        mkSimplEnv, extendIdSubst, SimplEnv.extendTCvSubst, 
+        mkSimplEnv, extendIdSubst, SimplEnv.extendTCvSubst,
         zapSubstEnv, setSubstEnv,
         getInScope, setInScope, setInScopeSet, modifyInScope, addNewInScopeIds,
         getSimplRules,

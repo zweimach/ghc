@@ -34,8 +34,8 @@ module TcType (
   MetaDetails(Flexi, Indirect), MetaInfo(..),
   isImmutableTyVar, isSkolemTyVar, isSkolemTyCoVar,
   isMetaTyVar,  isMetaTyVarTy, isTyVarTy, isReturnTyVar,
-  isSigTyVar, isOverlappableTyVar,  isTyConableTyVar, 
-  isFskTyVar, isFmvTyVar, isFlattenTyVar, 
+  isSigTyVar, isOverlappableTyVar,  isTyConableTyVar,
+  isFskTyVar, isFmvTyVar, isFlattenTyVar,
   isAmbiguousTyVar, metaTvRef, metaTyVarInfo,
   isFlexi, isIndirect, isRuntimeUnkSkol,
   metaTyVarTcLevel, setMetaTyVarTcLevel, metaTyVarTcLevel_maybe,
@@ -149,7 +149,7 @@ module TcType (
 
   tyCoVarsOfType, tyCoVarsOfTypes,
   closeOverKinds,
-  
+
   pprKind, pprParendKind, pprSigmaType,
   pprType, pprParendType, pprTypeApp, pprTyThingCategory,
   pprTheta, pprThetaArrowTy, pprClassPred
@@ -731,7 +731,7 @@ isImmutableTyVar tv
   | otherwise    = True
 
 isTyConableTyVar, isSkolemTyVar, isSkolemTyCoVar, isOverlappableTyVar,
-  isMetaTyVar, isReturnTyVar, isAmbiguousTyVar, 
+  isMetaTyVar, isReturnTyVar, isAmbiguousTyVar,
   isFmvTyVar, isFskTyVar, isFlattenTyVar :: TcTyVar -> Bool
 
 isTyConableTyVar tv
@@ -885,7 +885,7 @@ mkNakedInvSigmaTy tyvars
 mkNakedPhiTy :: [PredType] -> Type -> Type
 -- See Note [Zonking inside the knot] in TcHsType
 mkNakedPhiTy = flip $ foldr mkNakedFunTy
-    
+
 mkTcEqPred :: TcType -> TcType -> Type
 -- During type checking we build equalities between
 -- types of differing kinds. This all gets sorted out when
@@ -950,7 +950,7 @@ getDFunTyLitKey (StrTyLit n) = mkOccName Name.varName (show n)  -- hm
 
 ---------------
 mkNakedTyConApp :: TyCon -> [Type] -> Type
--- Builds a TyConApp 
+-- Builds a TyConApp
 --   * without being strict in TyCon,
 --   * without satisfying the invariants of TyConApp
 -- A subsequent zonking will establish the invariants
@@ -1267,10 +1267,10 @@ tc_eq_type_erased = go Visible
   where
     go vis env (ETyVarTy tv1)       (ETyVarTy tv2)
       = check vis $ rnOccL env tv1 == rnOccR env tv2
-        
+
     go vis _   (ELitTy lit1)        (ELitTy lit2)
       = check vis $ lit1 == lit2
-        
+
     go vis env (EForAllTy (ENamed tv1 k1 vis1) ty1)
                (EForAllTy (ENamed tv2 k2 vis2) ty2)
       = go vis1 env k1 k2 `and_then` go vis (rnBndr2 env tv1 tv2) ty1 ty2
@@ -1320,7 +1320,7 @@ pickyEqType ty1 ty2
   where
     ki1 = typeKind ty1
     ki2 = typeKind ty2
-    
+
     init_env = mkRnEnv2 $
                mkInScopeSet $
                tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2
@@ -1637,11 +1637,11 @@ quantifyPred qtvs pred
       ClassPred cls tys
          | isIPClass cls    -> True -- See note [Inheriting implicit parameters]
          | otherwise        -> tyCoVarsOfTypes tys `intersectsVarSet` qtvs
-                               
+
       EqPred NomEq ty1 ty2  -> quant_fun ty1 || quant_fun ty2
         -- representational equality is like a class constraint
       EqPred ReprEq ty1 ty2 -> tyCoVarsOfTypes [ty1, ty2] `intersectsVarSet` qtvs
-      
+
       IrredPred ty          -> tyCoVarsOfType ty `intersectsVarSet` qtvs
       TuplePred {}          -> False
   where

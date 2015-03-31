@@ -6,11 +6,11 @@
 
 module Lexeme (
           -- * Lexical characteristics of Haskell names
-  
+
           -- | Use these functions to figure what kind of name a 'FastString'
           -- represents; these functions do /not/ check that the identifier
           -- is valid.
-  
+
         isLexCon, isLexVar, isLexId, isLexSym,
         isLexConId, isLexConSym, isLexVarId, isLexVarSym,
         startsVarSym, startsVarId, startsConSym, startsConId,
@@ -112,7 +112,7 @@ isVarSymChar c = c == ':' || startsVarSym c
 -}
 
 ----------------------
--- External interface 
+-- External interface
 ----------------------
 
 -- | Is this an acceptable variable name?
@@ -228,7 +228,7 @@ okSymChar c
       ModifierSymbol       -> True
       OtherSymbol          -> True
       _                    -> False
-    
+
 -- | All reserved identifiers. Taken from section 2.4 of the 2010 Report.
 reservedIds :: Set.Set String
 reservedIds = Set.fromList [ "case", "class", "data", "default", "deriving"

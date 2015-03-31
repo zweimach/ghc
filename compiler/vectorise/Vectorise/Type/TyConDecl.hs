@@ -84,13 +84,13 @@ vectTyConDecl tycon name'
            -- return the type constructor of the vectorised class
        ; return tycon'
        }
-                      
+
        -- Regular algebraic type constructor — for now, Haskell 2011-style only
   | isAlgTyCon tycon
   = do { unless (all isVanillaDataCon (tyConDataCons tycon)) $
            do dflags <- getDynFlags
               cantVectorise dflags "Currently only Haskell 2011 datatypes are supported" (ppr tycon)
-  
+
            -- vectorise the data constructor of the class tycon
        ; rhs' <- vectAlgTyConRhs tycon (algTyConRhs tycon)
 
@@ -99,7 +99,7 @@ vectTyConDecl tycon name'
              gadt_flag = isGadtSyntaxTyCon tycon
 
            -- build the vectorised type constructor
-       ; return $ mkAlgTyCon 
+       ; return $ mkAlgTyCon
                     name'                   -- new name
                     (tyConKind tycon)       -- keep original kind
                     (tyConTyVars tycon)     -- keep original type vars
@@ -107,7 +107,7 @@ vectTyConDecl tycon name'
                     Nothing
                     []                      -- no stupid theta
                     rhs'                    -- new constructor defs
-                    NoParentTyCon           
+                    NoParentTyCon
                     rec_flag                -- whether recursive
                     gadt_flag               -- whether in GADT syntax
        }

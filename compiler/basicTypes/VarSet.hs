@@ -85,7 +85,7 @@ intersectVarSet = intersectUniqSets
 intersectsVarSet:: VarSet -> VarSet -> Bool     -- True if non-empty intersection
 disjointVarSet  :: VarSet -> VarSet -> Bool     -- True if empty intersection
 subVarSet       :: VarSet -> VarSet -> Bool     -- True if first arg is subset of second
-        -- (s1 `intersectsVarSet` s2) doesn't compute s2 if s1 is empty; 
+        -- (s1 `intersectsVarSet` s2) doesn't compute s2 if s1 is empty;
         -- ditto disjointVarSet, subVarSet
 
 unionVarSet     = unionUniqSets
@@ -117,7 +117,7 @@ subVarSet        s1 s2 = isEmptyVarSet (s1 `minusVarSet` s2)
 
 -- Iterate f to a fixpoint
 fixVarSet f s | new_s `subVarSet` s = s
-              | otherwise           = fixVarSet f new_s 
+              | otherwise           = fixVarSet f new_s
               where
                 new_s = f s
 

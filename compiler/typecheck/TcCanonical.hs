@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 
-module TcCanonical( 
+module TcCanonical(
      canonicalize,
      unifyDerived,
 
@@ -997,7 +997,7 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
        ; traceTcS "canEqTyVar flat LHS"
            (vcat [ ppr tv1', ppr kind_co, ppr (coercionKind kind_co)
                  , ppr ty2, ppr swapped, ppr xi2 ])
-       ; dflags <- getDynFlags 
+       ; dflags <- getDynFlags
        ; case eq_rel of
       -- See Note [No top-level newtypes on RHS of representational equalities]
            ReprEq
@@ -1576,7 +1576,7 @@ rewriteEvidence ev@(CtGiven { ctev_evtm = old_tm , ctev_loc = loc }) new_pred co
     -- mkEvCast optimises ReflCo
     new_tm = mkEvCast old_tm (tcDowngradeRole Representational
                                               (ctEvRole ev)
-                                              (mkTcSymCo co))  
+                                              (mkTcSymCo co))
 
 rewriteEvidence ev@(CtWanted { ctev_evar = evar, ctev_loc = loc }) new_pred co
   = do { mb_new_ev <- newWantedEvVar loc new_pred
@@ -1680,7 +1680,7 @@ unifyWantedLikeEv ev loc Phantom ty1 ty2
   = do { kind_co <- unifyWantedLikeEv ev loc Representational
                                       (typeKind ty1) (typeKind ty2)
        ; return (mkTcPhantomCo kind_co ty1 ty2) }
-    
+
 unifyWantedLikeEv ev loc role orig_ty1 orig_ty2
   = go orig_ty1 orig_ty2
   where
@@ -1708,10 +1708,10 @@ unifyWantedLikeEv ev loc role orig_ty1 orig_ty2
            ; case mb_ty of
                 Just ty2' -> go ty1 ty2'
                 Nothing   -> bale_out }
-        
+
     go ty1@(CoercionTy {}) (CoercionTy {})
       = return (mkTcReflCo role ty1) -- we just don't care about coercions!
-        
+
     go _ _ = bale_out
 
     bale_out = do { ev <- newWantedEvVarNC loc (mkTcEqPredBR boxity role

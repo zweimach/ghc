@@ -5,13 +5,13 @@
 module TcEvidence (
 
   -- HsWrapper
-  HsWrapper(..), 
+  HsWrapper(..),
   (<.>), mkWpTyEvApps,
   mkWpTyApps, mkWpEvApps, mkWpEvVarApps, mkWpTyLams, mkWpLams, mkWpLet, mkWpCast,
   mkWpFun, idHsWrapper, isIdHsWrapper, pprHsWrapper,
 
   -- Evidence bindings
-  TcEvBinds(..), EvBindsVar(..), 
+  TcEvBinds(..), EvBindsVar(..),
   EvBindMap(..), emptyEvBindMap, extendEvBinds, dropEvBind,
   lookupEvBind, evBindMapBinds,
   EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds,
@@ -42,7 +42,7 @@ import {-# SOURCE #-} TcRnTypes ( CtLoc )
 -- I think it can be done by storing a (Bag EvBind) in HsSyn and then
 -- augmenting TcEvBinds (which would be defined in TcRnTypes) to store
 -- locations.
-    
+
 
 import Var
 import Coercion
@@ -67,7 +67,7 @@ import Control.Applicative
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable (traverse, sequenceA)
 #endif
-import qualified Data.Data as Data 
+import qualified Data.Data as Data
 import Outputable
 import ListSetOps
 import FastString
@@ -132,11 +132,11 @@ reflexive and then we can proceed.
 
 -}
 
-data TcCoercion 
+data TcCoercion
   = TcRefl Role TcType
   | TcTyConAppCo Role TyCon [TcCoercion]
   | TcAppCo TcCoercion TcCoercion TcCoercion
-  | TcForAllCo TcForAllCoBndr TcCoercion 
+  | TcForAllCo TcForAllCoBndr TcCoercion
   | TcCoVarCo EqVar
   | TcAxiomInstCo (CoAxiom Branched) BranchIndex [TcCoercion]
           -- See Note [TcAxiomInstCo takes TcCoercions]
@@ -160,7 +160,7 @@ data TcCoercion
 data TcForAllCoBndr = TcForAllCoBndr TcCoercion TcTyCoVar TcTyCoVar (Maybe TcCoVar)
   deriving (Data.Data, Data.Typeable)
 
-isEqVar :: Var -> Bool 
+isEqVar :: Var -> Bool
 -- Is lifted coercion variable (only!)
 isEqVar v = case tyConAppTyCon_maybe (varType v) of
                Just tc -> tc `hasKey` eqTyConKey
@@ -193,7 +193,7 @@ mkTcFunCo role co1 co2 = mkTcTyConAppCo role funTyCon [co1, co2]
 mkTcTyConAppCo :: Role -> TyCon -> [TcCoercion] -> TcCoercion
 mkTcTyConAppCo role tc cos -- No need to expand type synonyms
                            -- See Note [TcCoercions]
-  | Just tys <- traverse isTcReflCo_maybe cos 
+  | Just tys <- traverse isTcReflCo_maybe cos
   = TcRefl role (mkTyConApp tc tys)  -- See Note [Refl invariant]
 
   | otherwise = TcTyConAppCo role tc cos
@@ -286,7 +286,7 @@ mkTcForAllCo (TcForAllCoBndr (TcRefl r1 _) tv1 tv2 m_cv) (TcRefl r2 ty)
       subst = case m_cv of
         Nothing -> substTyWith [tv2]     [ty1]
         Just cv -> substTyWith [tv2, cv] [ty1, mkCoercionTy $ mkNomReflCo ty1]
-        
+
 mkTcForAllCo bndr co = TcForAllCo bndr co
 
 mkTcForAllCos :: [TcForAllCoBndr] -> TcCoercion -> TcCoercion
@@ -336,8 +336,8 @@ mkTcCoercionArg co
   | otherwise                      = TcCoercion co
 
 tcCoercionKind :: TcCoercion -> Pair Type
-tcCoercionKind co = go co 
-  where 
+tcCoercionKind co = go co
+  where
     go (TcRefl _ ty)          = Pair ty ty
     go (TcLetCo _ co)         = go co
     go (TcCastCo _ co)        = case getEqPredTys (pSnd (go co)) of
@@ -450,7 +450,7 @@ coVarsOfTcCo tc_co
     go (TcAxiomRuleCo _ _ cos)   = mapUnionVarSet go cos
     go (TcCoercion co)           = coVarsOfCoArg co
 
-    -- We expect only coercion bindings, so use evTermCoercion 
+    -- We expect only coercion bindings, so use evTermCoercion
     go_bind :: EvBind -> VarSet
     go_bind (EvBind { evb_term = tm }) = go (evTermCoercion tm)
 
@@ -539,7 +539,7 @@ ppr_co p (TcForAllCo cobndr co)
     forAllLit <> underscore <> parens (pprTcCo $ tcCoBndrKindCo cobndr) <+>
     parens (pprWithCommas pprTCvBndr (tcCoBndrVars cobndr)) <> dot <+>
     ppr_co TopPrec co
-                     
+
 ppr_co _ (TcCoVarCo cv)          = parenSymOcc (getOccName cv) (ppr cv)
 
 ppr_co p (TcAxiomInstCo con ind cos)
@@ -622,7 +622,7 @@ data HsWrapper
   | WpEvLam EvVar               -- \d. []       the 'd' is an evidence variable
   | WpEvApp EvTerm              -- [] d         the 'd' is evidence for a constraint
   | WpEvPrimApp TcCoercion      -- [] @~ d      the 'd' will be an *unboxed* coercion
-    
+
         -- Kind and Type abstraction and application
   | WpTyLam TyVar       -- \a. []  the 'a' is a type/kind variable (not coercion var)
   | WpTyApp KindOrType  -- [] t    the 't' is a type (not coercion)
@@ -731,8 +731,8 @@ instance Data.Data TcEvBinds where
   dataTypeOf _ = Data.mkNoRepType "TcEvBinds"
 
 -----------------
-newtype EvBindMap 
-  = EvBindMap { 
+newtype EvBindMap
+  = EvBindMap {
        ev_bind_varenv :: VarEnv EvBind
     }       -- Map from evidence variables to evidence terms
 
@@ -754,7 +754,7 @@ lookupEvBind :: EvBindMap -> EvVar -> Maybe EvBind
 lookupEvBind bs = lookupVarEnv (ev_bind_varenv bs)
 
 evBindMapBinds :: EvBindMap -> Bag EvBind
-evBindMapBinds bs 
+evBindMapBinds bs
   = foldVarEnv consBag emptyBag (ev_bind_varenv bs)
 
 -----------------
@@ -811,14 +811,14 @@ A "coercion evidence term" takes one of these forms
 We do quite often need to get a TcCoercion from an EvTerm; see
 'evTermCoercion'.
 
-INVARIANT: The evidence for any constraint with type (t1~t2) is 
+INVARIANT: The evidence for any constraint with type (t1~t2) is
 a coercion evidence term.  Consider for example
     [G] d :: F Int a
 If we have
     ax7 a :: F Int a ~ (a ~ Bool)
 then we do NOT generate the constraint
     [G] (d |> ax7 a) :: a ~ Bool
-because that does not satisfy the invariant (d is not a coercion variable).  
+because that does not satisfy the invariant (d is not a coercion variable).
 Instead we make a binding
     g1 :: a~Bool = g |> ax7 a
 and the constraint
@@ -932,7 +932,7 @@ sccEvBinds :: Bag EvBind -> [SCC EvBind]
 sccEvBinds bs = stronglyConnCompFromEdgedVertices edges
   where
     edges :: [(EvBind, EvVar, [EvVar])]
-    edges = foldrBag ((:) . mk_node) [] bs 
+    edges = foldrBag ((:) . mk_node) [] bs
 
     mk_node :: EvBind -> (EvBind, EvVar, [EvVar])
     mk_node b@(EvBind { evb_var = var, evb_term = term })
@@ -942,7 +942,7 @@ sccEvBinds bs = stronglyConnCompFromEdgedVertices edges
 -- | Get the set of EvVars bound in a bag of EvBinds.
 evBindsVars :: Bag EvBind -> VarSet
 evBindsVars = foldrBag (\ (EvBind { evb_var = b }) bs -> extendVarSet bs b)
-                       emptyVarSet 
+                       emptyVarSet
 
 -- | Create a coercion substitution from a bunch of EvBinds.
 evBindsSubst :: Bag EvBind -> TCvSubst
@@ -1041,7 +1041,7 @@ instance Outputable EvTerm where
   ppr (EvSuperClass d n) = ptext (sLit "sc") <> parens (ppr (d,n))
   ppr (EvDFunApp df tys ts) = ppr df <+> sep [ char '@' <> ppr tys, ppr ts ]
   ppr (EvLit l)          = ppr l
-  ppr (EvDelayedError ty msg) =     ptext (sLit "error") 
+  ppr (EvDelayedError ty msg) =     ptext (sLit "error")
                                 <+> sep [ char '@' <> ppr ty, ppr msg ]
 
 instance Outputable EvLit where

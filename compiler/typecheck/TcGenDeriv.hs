@@ -1664,7 +1664,7 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
       where
         tyvar v | v == var  = (if co then caseCoVar else caseVar, True)
                 | otherwise = fallthrough
-                              
+
         tyconapp con args
           | not (or xcs)
           = fallthrough -- Variable does not occur
@@ -1699,7 +1699,7 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
           | otherwise
           = fallthrough
           where (xr, xc) = go co x
-                
+
         forall _ Visible _ = panic "unexpected visible binder"
               -- TODO (RAE): Fix.
 

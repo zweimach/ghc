@@ -23,12 +23,12 @@ module TcUnify (
   matchExpectedListTy,
   matchExpectedPArrTy,
   matchExpectedTyConApp,
-  matchExpectedAppTy, 
+  matchExpectedAppTy,
   matchExpectedFunTys,
-  
+
   matchExpectedFunKind,
   checkExpectedKind,
-  
+
   wrapFunResCoercion
 
   ) where
@@ -102,26 +102,26 @@ namely:
      An operator section
 
 This is not (currently) where deep skolemisation occurs;
-matchExpectedFunTys does not skolmise nested foralls in the 
+matchExpectedFunTys does not skolmise nested foralls in the
 expected type, because it expects that to have been done already
 -}
 
 matchExpectedFunTys :: SDoc     -- See Note [Herald for matchExpectedFunTys]
                     -> Arity
-                    -> TcRhoType 
+                    -> TcRhoType
                     -> TcM (TcCoercion, [TcSigmaType], TcRhoType)
 
 -- If    matchExpectFunTys n ty = (co, [t1,..,tn], ty_r)
 -- then  co : ty ~ (t1 -> ... -> tn -> ty_r)
 --
--- Does not allocate unnecessary meta variables: if the input already is 
--- a function, we just take it apart.  Not only is this efficient, 
+-- Does not allocate unnecessary meta variables: if the input already is
+-- a function, we just take it apart.  Not only is this efficient,
 -- it's important for higher rank: the argument might be of form
 --              (forall a. ty) -> other
 -- If allocated (fresh-meta-var1 -> fresh-meta-var2) and unified, we'd
 -- hide the forall inside a meta-variable
 
-matchExpectedFunTys herald arity orig_ty 
+matchExpectedFunTys herald arity orig_ty
   = go arity orig_ty
   where
     -- If     go n ty = (co, [t1,..,tn], ty_r)
@@ -164,7 +164,7 @@ matchExpectedFunTys herald arity orig_ty
                   defer False n_req ty
 
     ------------
-    defer is_return n_req fun_ty 
+    defer is_return n_req fun_ty
       = do { arg_tys <- replicateM n_req new_flexi
                         -- See Note [Foralls to left of arrow]
            ; res_ty  <- new_flexi
@@ -234,11 +234,11 @@ matchExpectedTyConApp :: TyCon                -- T :: forall kv1 ... kvm. k1 -> 
 matchExpectedTyConApp tc orig_ty
   = go orig_ty
   where
-    go ty 
-       | Just ty' <- tcView ty 
+    go ty
+       | Just ty' <- tcView ty
        = go ty'
 
-    go ty@(TyConApp tycon args) 
+    go ty@(TyConApp tycon args)
        | tc == tycon  -- Common case
        = return (mkTcNomReflCo ty, args)
 
@@ -248,7 +248,7 @@ matchExpectedTyConApp tc orig_ty
             ; case cts of
                 Indirect ty -> go ty
                 Flexi       -> defer (isReturnTyVar tv) }
-   
+
     go _ = defer False
 
     -- If the common case does not occur, instantiate a template
@@ -256,8 +256,8 @@ matchExpectedTyConApp tc orig_ty
     -- Doing it this way ensures that the types we return are
     -- kind-compatible with T.  For example, suppose we have
     --       matchExpectedTyConApp T (f Maybe)
-    -- where data T a = MkT a  
-    -- Then we don't want to instantate T's data constructors with  
+    -- where data T a = MkT a
+    -- Then we don't want to instantate T's data constructors with
     --    (a::*) ~ Maybe
     -- because that'll make types that are utterly ill-kinded.
     -- This happened in Trac #7368
@@ -569,8 +569,8 @@ tcGen ctxt expected_ty thing_inside
         -- for (newVar True), with s fresh.  Then we unify with the runST's arg type
         -- forall s'. ST s' a. That unifies s' with s, and a with MutVar s Bool.
         -- So now s' isn't unconstrained because it's linked to a.
-        -- 
-        -- However [Oct 10] now that the untouchables are a range of 
+        --
+        -- However [Oct 10] now that the untouchables are a range of
         -- TcTyVars, all this is handled automatically with no need for
         -- extra faffing around
 
@@ -613,9 +613,9 @@ newImplication skol_info skol_tvs given thing_inside
        ; if isEmptyWC wanted && null given
             -- Optimisation : if there are no wanteds, and no givens
             -- don't generate an implication at all.
-            -- Reason for the (null given): we don't want to lose 
+            -- Reason for the (null given): we don't want to lose
             -- the "inaccessible alternative" error check
-         then 
+         then
             return (emptyTcEvBinds, result)
          else do
        { ev_binds_var <- newTcEvBinds
@@ -689,7 +689,7 @@ unifyTheta theta1 theta2
 {-
 %************************************************************************
 %*                                                                      *
-                 uType and friends                                                                      
+                 uType and friends
 %*                                                                      *
 %************************************************************************
 
@@ -739,20 +739,20 @@ uType origin orig_ty1 orig_ty2
        ; return co }
   where
     go :: TcType -> TcType -> TcM Coercion
-        -- The arguments to 'go' are always semantically identical 
+        -- The arguments to 'go' are always semantically identical
         -- to orig_ty{1,2} except for looking through type synonyms
 
         -- Variables; go for uVar
-        -- Note that we pass in *original* (before synonym expansion), 
-        -- so that type variables tend to get filled in with 
+        -- Note that we pass in *original* (before synonym expansion),
+        -- so that type variables tend to get filled in with
         -- the most informative version of the type
-    go (TyVarTy tv1) ty2 
+    go (TyVarTy tv1) ty2
       = do { lookup_res <- lookupTcTyVar tv1
            ; case lookup_res of
                Filled ty1   -> do { traceTc "found filled tyvar" (ppr tv1 <+> text ":->" <+> ppr ty1)
                                   ; go ty1 ty2 }
                Unfilled ds1 -> uUnfilledVar origin NotSwapped tv1 ds1 ty2 }
-    go ty1 (TyVarTy tv2) 
+    go ty1 (TyVarTy tv2)
       = do { lookup_res <- lookupTcTyVar tv2
            ; case lookup_res of
                Filled ty2   -> do { traceTc "found filled tyvar" (ppr tv2 <+> text ":->" <+> ppr ty2)
@@ -778,7 +778,7 @@ uType origin orig_ty1 orig_ty2
     go t1 (CastTy t2 co2)
       = do { co_tys <- go t1 t2
            ; return (mkCoherenceRightCo co_tys co2) }
-                                  
+
         -- Functions (or predicate functions) just check the two parts
     go (ForAllTy (Anon fun1) arg1) (ForAllTy (Anon fun2) arg2)
       = do { co_l <- uType origin fun1 fun2
@@ -803,20 +803,20 @@ uType origin orig_ty1 orig_ty2
       = return $ mkNomReflCo ty
 
         -- See Note [Care with type applications]
-        -- Do not decompose FunTy against App; 
+        -- Do not decompose FunTy against App;
         -- it's often a type error, so leave it for the constraint solver
     go (AppTy s1 t1) (AppTy s2 t2)
       = go_app s1 t1 s2 t2
 
     go (AppTy s1 t1) (TyConApp tc2 ts2)
       | Just (ts2', t2') <- snocView ts2
-      = ASSERT( isDecomposableTyCon tc2 ) 
+      = ASSERT( isDecomposableTyCon tc2 )
         go_app s1 t1 (TyConApp tc2 ts2') t2'
 
-    go (TyConApp tc1 ts1) (AppTy s2 t2) 
+    go (TyConApp tc1 ts1) (AppTy s2 t2)
       | Just (ts1', t1') <- snocView ts1
-      = ASSERT( isDecomposableTyCon tc1 ) 
-        go_app (TyConApp tc1 ts1') t1' s2 t2 
+      = ASSERT( isDecomposableTyCon tc1 )
+        go_app (TyConApp tc1 ts1') t1' s2 t2
 
         -- Anything else fails
         -- E.g. unifying for-all types, which is relative unusual
@@ -826,7 +826,7 @@ uType origin orig_ty1 orig_ty2
     go_app s1 t1 s2 t2
       = do { co_s <- uType    origin s1 s2
            ; co_h <- uType    kind_origin t1k t2k
-           ; co_t <- uTypeArg origin t1 t2        
+           ; co_t <- uTypeArg origin t1 t2
            ; return $ mkAppCo co_s co_h co_t }
       where
         t1k = typeKind t1
@@ -851,17 +851,17 @@ so if one type is an App the other one jolly well better be too
 
 Note [Mismatched type lists and application decomposition]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When we find two TyConApps, you might think that the argument lists 
+When we find two TyConApps, you might think that the argument lists
 are guaranteed equal length.  But they aren't. Consider matching
         w (T x) ~ Foo (T x y)
 We do match (w ~ Foo) first, but in some circumstances we simply create
 a deferred constraint; and then go ahead and match (T x ~ T x y).
 This came up in Trac #3950.
 
-So either 
-   (a) either we must check for identical argument kinds 
+So either
+   (a) either we must check for identical argument kinds
        when decomposing applications,
-  
+
    (b) or we must be prepared for ill-kinded unification sub-problems
 
 Currently we adopt (b) since it seems more robust -- no need to maintain
@@ -932,7 +932,7 @@ uUnfilledVar origin swapped tv1 details1 (TyVarTy tv2)
   | otherwise  -- Distinct type variables
   = do  { lookup2 <- lookupTcTyVar tv2
         ; case lookup2 of
-            Filled ty2'       -> uUnfilledVar origin swapped tv1 details1 ty2' 
+            Filled ty2'       -> uUnfilledVar origin swapped tv1 details1 ty2'
             Unfilled details2 -> uUnfilledVars origin swapped tv1 details1 tv2 details2
         }
 
@@ -943,7 +943,7 @@ uUnfilledVar origin swapped tv1 details1 non_var_ty2  -- ty2 is not a type varia
               ; mb_ty2' <- checkTauTvUpdate dflags origin tv1 non_var_ty2
               ; case mb_ty2' of
                   Just (ty2', co_k) -> updateMeta tv1 ref1 ty2' co_k
-                  Nothing   -> do { traceTc "Occ/type-family defer" 
+                  Nothing   -> do { traceTc "Occ/type-family defer"
                                         (ppr tv1 <+> dcolon <+> ppr (tyVarKind tv1)
                                          $$ ppr non_var_ty2 $$ ppr (typeKind non_var_ty2))
                                   ; defer }
@@ -953,7 +953,7 @@ uUnfilledVar origin swapped tv1 details1 non_var_ty2  -- ty2 is not a type varia
   where
     defer = unSwap swapped (uType_defer origin) (mkTyCoVarTy tv1) non_var_ty2
                -- Occurs check or an untouchable: just defer
-               -- NB: occurs check isn't necessarily fatal: 
+               -- NB: occurs check isn't necessarily fatal:
                --     eg tv1 occured in type family parameter
 
 ----------------
@@ -1021,9 +1021,9 @@ checkTauTvUpdate :: DynFlags
 -- We are about to update the TauTv/ReturnTv tv with ty.
 -- Check (a) that tv doesn't occur in ty (occurs check)
 --       (b) that kind(ty) is a sub-kind of kind(tv)
--- 
+--
 -- We have two possible outcomes:
--- (1) Return the type to update the type variable with, 
+-- (1) Return the type to update the type variable with,
 --        [we know the update is ok]
 -- (2) Return Nothing,
 --        [the update might be dodgy]
@@ -1050,7 +1050,7 @@ checkTauTvUpdate dflags origin tv ty
                 else return (Just (ty1, co_k))
             | defer_me ty1 ->  -- Quick test
                 -- Failed quick test so try harder
-                case occurCheckExpand dflags tv ty1 of 
+                case occurCheckExpand dflags tv ty1 of
                    OC_OK ty2 | defer_me ty2 -> return Nothing
                              | otherwise    ->
                                  return (Just (ty2, co_k))
@@ -1101,7 +1101,7 @@ solver gets to see, and hence simplify the type-function call, which
 in turn might simplify the type of an inferred function.  Test ghci046
 is a case in point.
 
-More mysteriously, test T7010 gave a horrible error 
+More mysteriously, test T7010 gave a horrible error
   T7010.hs:29:21:
     Couldn't match type `Serial (ValueTuple Float)' with `IO Float'
     Expected type: (ValueTuple Vector, ValueTuple Vector)
@@ -1129,38 +1129,38 @@ error. Consider:
           x :: ()
           x = f (\ x p -> p x)
 
-We will eventually get a constraint of the form t ~ A t. The ok function above will 
+We will eventually get a constraint of the form t ~ A t. The ok function above will
 properly expand the type (A t) to just (), which is ok to be unified with t. If we had
-unified with the original type A t, we would lead the type checker into an infinite loop. 
+unified with the original type A t, we would lead the type checker into an infinite loop.
 
-Hence, if the occurs check fails for a type synonym application, then (and *only* then), 
+Hence, if the occurs check fails for a type synonym application, then (and *only* then),
 the ok function expands the synonym to detect opportunities for occurs check success using
-the underlying definition of the type synonym. 
+the underlying definition of the type synonym.
 
-The same applies later on in the constraint interaction code; see TcInteract, 
-function @occ_check_ok@. 
+The same applies later on in the constraint interaction code; see TcInteract,
+function @occ_check_ok@.
 
-Note [Type family sharing]  
-~~~~~~~~~~~~~~~~~~~~~~~~~~ 
-We must avoid eagerly unifying type variables to types that contain function symbols, 
+Note [Type family sharing]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+We must avoid eagerly unifying type variables to types that contain function symbols,
 because this may lead to loss of sharing, and in turn, in very poor performance of the
-constraint simplifier. Assume that we have a wanted constraint: 
-{ 
-  m1 ~ [F m2], 
-  m2 ~ [F m3], 
-  m3 ~ [F m4], 
-  D m1, 
-  D m2, 
-  D m3 
-} 
-where D is some type class. If we eagerly unify m1 := [F m2], m2 := [F m3], m3 := [F m4], 
-then, after zonking, our constraint simplifier will be faced with the following wanted 
-constraint: 
-{ 
-  D [F [F [F m4]]], 
-  D [F [F m4]], 
-  D [F m4] 
-} 
+constraint simplifier. Assume that we have a wanted constraint:
+{
+  m1 ~ [F m2],
+  m2 ~ [F m3],
+  m3 ~ [F m4],
+  D m1,
+  D m2,
+  D m3
+}
+where D is some type class. If we eagerly unify m1 := [F m2], m2 := [F m3], m3 := [F m4],
+then, after zonking, our constraint simplifier will be faced with the following wanted
+constraint:
+{
+  D [F [F [F m4]]],
+  D [F [F m4]],
+  D [F m4]
+}
 which has to be flattened by the constraint solver. In the absence of
 a flat-cache, this may generate a polynomially larger number of
 flatten skolems and the constraint sets we are working with will be
@@ -1248,7 +1248,7 @@ ensures it won't unify with anything.  It's a slight had, because
 we return a made-up TcTyVarDetails, but I think it works smoothly.
 -}
 
--- | Breaks apart a function kind into its pieces. 
+-- | Breaks apart a function kind into its pieces.
 matchExpectedFunKind :: TcType          -- ^ type, only for errors
                      -> TcKind          -- ^ function kind
                      -> TcM (Coercion, TcKind, TcKind)
@@ -1256,7 +1256,7 @@ matchExpectedFunKind :: TcType          -- ^ type, only for errors
 matchExpectedFunKind ty = go
   where
     go k | Just k' <- tcView k = go k'
-    
+
     go k@(TyVarTy kvar)
       | isTcTyVar kvar, isMetaTyVar kvar
       = do { maybe_kind <- readMetaTyVar kvar

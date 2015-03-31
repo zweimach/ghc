@@ -2,7 +2,7 @@
 
 {-# LANGUAGE CPP #-}
 
-module OptCoercion ( optCoercion, checkAxInstCo ) where 
+module OptCoercion ( optCoercion, checkAxInstCo ) where
 
 #include "HsVersions.h"
 
@@ -30,7 +30,7 @@ import Control.Monad   ( zipWithM )
 {-
 %************************************************************************
 %*                                                                      *
-                 Optimising coercions                                                                   
+                 Optimising coercions
 %*                                                                      *
 %************************************************************************
 
@@ -105,9 +105,9 @@ opt_co2.
 -}
 
 optCoercion :: TCvSubst -> Coercion -> NormalCo
--- ^ optCoercion applies a substitution to a coercion, 
+-- ^ optCoercion applies a substitution to a coercion,
 --   *and* optimises it to reduce its size
-optCoercion env co 
+optCoercion env co
   | opt_NoOptCoercion = substCo env co
   | debugIsOn         = let out_co = opt_co1 env False co
                             Pair in_ty1  in_ty2  = coercionKind co
@@ -128,7 +128,7 @@ optCoercion env co
 
 type NormalCo    = Coercion
 type NormalCoArg = CoercionArg
-  -- Invariants: 
+  -- Invariants:
   --  * The substitution has been fully applied
   --  * For trans coercions (co1 `trans` co2)
   --       co1 is not a trans, and neither co1 nor co2 is identity
@@ -338,7 +338,7 @@ opt_co4 env sym rep r (InstCo co1 arg)
   | TyCoArg co2 <- arg'
   , Just (tv1, tv2, cv, co_body) <- splitForAllCo_Ty_maybe co1
   , Pair ty1 ty2 <- coercionKind co2
-  = opt_co4_wrap (extendTCvSubstList env 
+  = opt_co4_wrap (extendTCvSubstList env
               [tv1, tv2, cv]
               [ty1, ty2, mkCoercionTy co2])
               -- See Note [Sym and InstCo]
@@ -352,7 +352,7 @@ opt_co4 env sym rep r (InstCo co1 arg)
 
     -- See if it is a forall after optimization
     -- If so, do an inefficient one-variable substitution, then re-optimize
-  
+
     -- forall over type...
   | TyCoArg co2' <- arg'
   , Just (tv1', tv2', cv', co'_body) <- splitForAllCo_Ty_maybe co1'
@@ -368,7 +368,7 @@ opt_co4 env sym rep r (InstCo co1 arg)
   = opt_co4_wrap (extendTCvSubstList (zapTCvSubst env)
                                 [cv1', cv2']
                                 [CoercionTy co2', CoercionTy co3'])
-           False False r' co'_body 
+           False False r' co'_body
 
   | otherwise = InstCo co1' arg'
   where
@@ -604,9 +604,9 @@ opt_trans2 :: InScopeSet -> NormalNonIdCo -> NormalNonIdCo -> NormalCo
 -- Neither arg is the identity
 opt_trans2 is (TransCo co1a co1b) co2
     -- Don't know whether the sub-coercions are the identity
-  = opt_trans is co1a (opt_trans is co1b co2)  
+  = opt_trans is co1a (opt_trans is co1b co2)
 
-opt_trans2 is co1 co2 
+opt_trans2 is co1 co2
   | Just co <- opt_trans_rule is co1 co2
   = co
 
@@ -650,10 +650,10 @@ opt_trans_rule is in_co1@(InstCo co1 ty1) in_co2@(InstCo co2 ty2)
   , co1 `compatible_co` co2
   = fireTransRule "TrPushInst" in_co1 in_co2 $
     mkInstCo (opt_trans is co1 co2) ty1
- 
+
 -- Push transitivity down through matching top-level constructors.
 opt_trans_rule is in_co1@(TyConAppCo r1 tc1 cos1) in_co2@(TyConAppCo r2 tc2 cos2)
-  | tc1 == tc2 
+  | tc1 == tc2
   = ASSERT( r1 == r2 )
     fireTransRule "PushTyConApp" in_co1 in_co2 $
     mkTyConAppCo r1 tc1 (opt_transList is cos1 cos2)
@@ -703,7 +703,7 @@ opt_trans_rule is co1 co2
 
   where
   role   = coercionRole co1
-    
+
   push_trans (ForAllCoBndr col tvl1 tvl2 m_cvl) r1
              (ForAllCoBndr cor tvr1 tvr2 m_cvr) r2
     | Phantom <- role
@@ -780,7 +780,7 @@ opt_trans_rule is co1 co2
   , Nothing <- checkAxInstCo newAxInst
   = fireTransRule "TrPushSymAxL" co1 co2 $ SymCo newAxInst
 
-  -- TrPushAxL  
+  -- TrPushAxL
   | Just (sym, con, ind, cos2) <- co2_is_axiom_maybe
   , False <- sym
   , Just cos1 <- matchAxiom (not sym) con ind co1
@@ -899,7 +899,7 @@ checkAxInstCo (AxiomInstCo ax ind cos)
   = let branch   = coAxiomNthBranch ax ind
         tvs      = coAxBranchTyCoVars branch
         incomps  = coAxBranchIncomps branch
-        tys      = map (pFst . coercionArgKind) cos 
+        tys      = map (pFst . coercionArgKind) cos
         subst    = zipOpenTCvSubst tvs tys
         target   = Type.substTys subst (coAxBranchLHS branch)
         in_scope = mkInScopeSet $
@@ -940,7 +940,7 @@ chooseRole _    r = r
 
 -----------
 isAxiom_maybe :: Coercion -> Maybe (Bool, CoAxiom Branched, Int, [CoercionArg])
-isAxiom_maybe (SymCo co) 
+isAxiom_maybe (SymCo co)
   | Just (sym, con, ind, cos) <- isAxiom_maybe co
   = Just (not sym, con, ind, cos)
 isAxiom_maybe (AxiomInstCo con ind cos)
@@ -976,7 +976,7 @@ isCohRight_maybe _                             = Nothing
 compatible_co :: Coercion -> Coercion -> Bool
 -- Check whether (co1 . co2) will be well-kinded
 compatible_co co1 co2
-  = x1 `eqType` x2              
+  = x1 `eqType` x2
   where
     Pair _ x1 = coercionKind co1
     Pair x2 _ = coercionKind co2
@@ -1029,9 +1029,9 @@ etaAppCo_maybe co
   = Nothing
 
 etaTyConAppCo_maybe :: TyCon -> Coercion -> Maybe [CoercionArg]
--- If possible, split a coercion 
+-- If possible, split a coercion
 --       g :: T s1 .. sn ~ T t1 .. tn
--- into [ Nth 0 g :: s1~t1, ..., Nth (n-1) g :: sn~tn ] 
+-- into [ Nth 0 g :: s1~t1, ..., Nth (n-1) g :: sn~tn ]
 etaTyConAppCo_maybe tc (TyConAppCo _ tc2 cos2)
   = ASSERT( tc == tc2 ) Just cos2
 
@@ -1042,9 +1042,9 @@ etaTyConAppCo_maybe tc co
   , Just (tc2, tys2) <- splitTyConApp_maybe ty2
   , tc1 == tc2
   , let n = length tys1
-  = ASSERT( tc == tc1 ) 
+  = ASSERT( tc == tc1 )
     ASSERT( n == length tys2 )
-    Just (decomposeCo n co)  
+    Just (decomposeCo n co)
     -- NB: n might be <> tyConArity tc
     -- e.g.   data family T a :: * -> *
     --        g :: T a b ~ T c d
@@ -1055,7 +1055,7 @@ etaTyConAppCo_maybe tc co
 {-
 Note [Eta for AppCo]
 ~~~~~~~~~~~~~~~~~~~~
-Suppose we have 
+Suppose we have
    g :: s1 t1 ~ s2 t2
 
 Then we can't necessarily make
@@ -1067,7 +1067,7 @@ because it's possible that
 and in that case (left g) does not have the same
 kind on either side.
 
-It's enough to check that 
+It's enough to check that
   kind t1 = kind t2
 because if g is well-kinded then
   kind (s1 t2) = kind (s2 t2)

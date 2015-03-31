@@ -218,7 +218,7 @@ mkCast e co | ASSERT2( coercionRole co == Representational
                      , ptext (sLit "coercion") <+> ppr co <+> ptext (sLit "passed to mkCast") <+> ppr e <+> ptext (sLit "has wrong role") <+> ppr (coercionRole co) )
               isReflCo co = e
 
-mkCast (Coercion e_co) co 
+mkCast (Coercion e_co) co
   | isCoercionType (pSnd (coercionKind co))
        -- The guard here checks that g has a (~#) on both sides,
        -- otherwise decomposeCo fails.  Can in principle happen
@@ -1393,7 +1393,7 @@ dataConInstPat fss uniqs con inst_tys
           | otherwise
           = ASSERT( isCoVar tv )
             mkCoVar (mkSystemVarName uniq fs) kind
-          
+
         kind     = Type.substTy subst (tyVarKind tv)
 
       -- Make value vars, instantiating types

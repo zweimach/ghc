@@ -1198,7 +1198,7 @@ runTcS tcs
 tryTcS :: TcS a
        -> TcM ( a              -- result
               , [(TcTyVar, TcType)] -- unifications
-              , EvBindMap )    -- the ev binds created during solving     
+              , EvBindMap )    -- the ev binds created during solving
 tryTcS tcs
   = do { ev_binds_var <- TcM.newTcEvBinds
        ; (res, unified_vars, ev_rollback) <- runTcSRollbackInfo ev_binds_var tcs
@@ -1210,7 +1210,7 @@ tryTcS tcs
 
           -- roll back calls to setEvBind
        ; mapM_ (uncurry TcM.setTcEvBindsMap) ev_rollback
-         
+
        ; return (res, zip wiped_tvs tys, ev_bind_map) }
 
 runTcSWithEvBinds :: EvBindsVar
@@ -1595,7 +1595,7 @@ newFlattenSkolem Given loc fam_ty
                  do { uniq <- TcM.newUnique
                     ; let name = TcM.mkTcTyVarName uniq (fsLit "fsk")
                     ; return (mkTcTyVar name (typeKind fam_ty) (FlatSkol fam_ty)) }
-        ; let co = mkNomReflCo fam_ty 
+        ; let co = mkNomReflCo fam_ty
               ev = CtGiven { ctev_pred = mkPrimEqPred fam_ty (mkOnlyTyVarTy fsk)
                            , ctev_evtm = EvCoercion (mkTcCoercion co)
                            , ctev_loc  = loc }
@@ -1839,13 +1839,13 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
       ; let all_skols = skol_tvs1 ++ skol_tvs2
             in_scope  = mkInScopeSet $ tyCoVarsOfTypes [body1, body2]
                                        `unionVarSet` (mkVarSet all_skols)
-                        
+
             m_mkFreshCoVar tv1 tv2 | isCoVar tv1
                                    = ASSERT( isCoVar tv2 )
                                      Nothing
                                    | otherwise
                                    = Just $ mkFreshCoVar in_scope tv1 tv2
-            
+
             m_cvs = zipWith m_mkFreshCoVar skol_tvs1 skol_tvs2
             phi1  = Type.substTy subst1 body1
             phi2  = Type.substTy subst2 body2

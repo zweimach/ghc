@@ -12,14 +12,14 @@ This module exports some utility functions of no great interest.
 
 -- | Utility functions for constructing Core syntax, principally for desugaring
 module DsUtils (
-        EquationInfo(..), 
+        EquationInfo(..),
         firstPat, shiftEqns,
 
         MatchResult(..), CanItFail(..), CaseAlt(..),
         cantFailMatchResult, alwaysFailMatchResult,
-        extractMatchResult, combineMatchResults, 
+        extractMatchResult, combineMatchResults,
         adjustMatchResult,  adjustMatchResultDs,
-        mkCoLetMatchResult, mkViewMatchResult, mkGuardedMatchResult, 
+        mkCoLetMatchResult, mkViewMatchResult, mkGuardedMatchResult,
         matchCanFail, mkEvalMatchResult,
         mkCoPrimCaseMatchResult, mkCoAlgCaseMatchResult, mkCoSynCaseMatchResult,
         wrapBind, wrapBinds,
@@ -147,7 +147,7 @@ different *unique* by then (the simplifier is good about maintaining
 proper scoping), but it's BAD to have two top-level bindings with the
 External Name M.a, because that turns into two linker symbols for M.a.
 It's quite rare for this to actually *happen* -- the only case I know
-of is tc003 compiled with the 'hpc' way -- but that only makes it 
+of is tc003 compiled with the 'hpc' way -- but that only makes it
 all the more annoying.
 
 To avoid this, we craftily call 'localiseId' in the desugarer, which
@@ -242,12 +242,12 @@ mkCoLetMatchResult bind = adjustMatchResult (mkCoreLet bind)
 -- (mkViewMatchResult var' viewExpr var mr) makes the expression
 -- let var' = viewExpr var in mr
 mkViewMatchResult :: DsId -> CoreExpr -> DsId -> MatchResult -> MatchResult
-mkViewMatchResult var' viewExpr var = 
+mkViewMatchResult var' viewExpr var =
     adjustMatchResult (mkCoreLet (NonRec var' (mkCoreAppDs viewExpr (Var var))))
 
 mkEvalMatchResult :: DsId -> DsType -> MatchResult -> MatchResult
 mkEvalMatchResult var ty
-  = adjustMatchResult (\e -> Case (Var var) var ty [(DEFAULT, [], e)]) 
+  = adjustMatchResult (\e -> Case (Var var) var ty [(DEFAULT, [], e)])
 
 mkGuardedMatchResult :: CoreExpr -> MatchResult -> MatchResult
 mkGuardedMatchResult pred_expr (MatchResult _ body_fn)
@@ -276,13 +276,13 @@ data CaseAlt a = MkCaseAlt{ alt_pat :: a,
                             alt_wrapper :: HsWrapper,
                             alt_result :: MatchResult }
 
-mkCoAlgCaseMatchResult 
+mkCoAlgCaseMatchResult
   :: DynFlags
   -> DsId               -- Scrutinee
   -> DsType             -- Type of exp
   -> [CaseAlt DataCon]  -- Alternatives (bndrs *include* tyvars, dicts)
   -> MatchResult
-mkCoAlgCaseMatchResult dflags var ty match_alts 
+mkCoAlgCaseMatchResult dflags var ty match_alts
   | isNewtype  -- Newtype case; use a let
   = ASSERT( null (tail match_alts) && null (tail arg_ids1) )
     mkCoLetMatchResult (NonRec arg_id1 newtype_rhs) match_result1
@@ -294,7 +294,7 @@ mkCoAlgCaseMatchResult dflags var ty match_alts
   where
     isNewtype = isNewTyCon (dataConTyCon (alt_pat alt1))
 
-        -- [Interesting: because of GADTs, we can't rely on the type of 
+        -- [Interesting: because of GADTs, we can't rely on the type of
         --  the scrutinised Id to be sufficiently refined to have a TyCon in it]
 
     alt1@MkCaseAlt{ alt_bndrs = arg_ids1, alt_result = match_result1 }
@@ -477,13 +477,13 @@ Note [Desugaring seq (1)]  cf Trac #1031
 ~~~~~~~~~~~~~~~~~~~~~~~~~
    f x y = x `seq` (y `seq` (# x,y #))
 
-The [CoreSyn let/app invariant] means that, other things being equal, because 
+The [CoreSyn let/app invariant] means that, other things being equal, because
 the argument to the outer 'seq' has an unlifted type, we'll use call-by-value thus:
 
    f x y = case (y `seq` (# x,y #)) of v -> x `seq` v
 
-But that is bad for two reasons: 
-  (a) we now evaluate y before x, and 
+But that is bad for two reasons:
+  (a) we now evaluate y before x, and
   (b) we can't bind v to an unboxed pair
 
 Seq is very, very special!  So we recognise it right here, and desugar to
@@ -527,15 +527,15 @@ So we desugar our example to:
 And now all is well.
 
 The reason it's a hack is because if you define mySeq=seq, the hack
-won't work on mySeq.  
+won't work on mySeq.
 
 Note [Desugaring seq (3)] cf Trac #2409
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The isLocalId ensures that we don't turn 
+The isLocalId ensures that we don't turn
         True `seq` e
 into
         case True of True { ... }
-which stupidly tries to bind the datacon 'True'. 
+which stupidly tries to bind the datacon 'True'.
 -}
 
 mkCoreAppDs  :: CoreExpr -> CoreExpr -> CoreExpr
@@ -588,12 +588,12 @@ OR (B)       t = case e of p -> (x,y)
              x = case t of (x,_) -> x
              y = case t of (_,y) -> y
 
-We do (A) when 
+We do (A) when
  * Matching the pattern is cheap so we don't mind
-   doing it twice.  
+   doing it twice.
  * Or if the pattern binds only one variable (so we'll only
    match once)
- * AND the pattern can't fail (else we tiresomely get two inexhaustive 
+ * AND the pattern can't fail (else we tiresomely get two inexhaustive
    pattern warning messages)
 
 Otherwise we do (B).  Really (A) is just an optimisation for very common
@@ -614,7 +614,7 @@ mkSelectorBinds ticks (L _ (VarPat v)) val_expr
                         _   -> val_expr)] }
 
 mkSelectorBinds ticks pat val_expr
-  | null binders 
+  | null binders
   = return []
 
   | isSingleton binders || is_simple_lpat pat
@@ -623,7 +623,7 @@ mkSelectorBinds ticks pat val_expr
        ; val_var <- newSysLocalDs pat_ty
         -- Make up 'v' in Note [mkSelectorBinds]
         -- NB: give it the type of *pattern* p, not the type of the *rhs* e.
-        -- This does not matter after desugaring, but there's a subtle 
+        -- This does not matter after desugaring, but there's a subtle
         -- issue with implicit parameters. Consider
         --      (x,y) = ?i
         -- Then, ?i is given type {?i :: Int}, a PredType, which is opaque
@@ -698,7 +698,7 @@ which is whey they are not in HsUtils.
 mkLHsPatTup :: [LPat Id] -> LPat Id
 mkLHsPatTup []     = noLoc $ mkVanillaTuplePat [] Boxed
 mkLHsPatTup [lpat] = lpat
-mkLHsPatTup lpats  = L (getLoc (head lpats)) $ 
+mkLHsPatTup lpats  = L (getLoc (head lpats)) $
                      mkVanillaTuplePat lpats Boxed
 
 mkLHsVarPatTup :: [Id] -> LPat Id
@@ -799,10 +799,10 @@ When we make a failure point we ensure that it
 does not look like a thunk. Example:
 
    let fail = \rw -> error "urk"
-   in case x of 
+   in case x of
         [] -> fail realWorld#
         (y:ys) -> case ys of
-                    [] -> fail realWorld#  
+                    [] -> fail realWorld#
                     (z:zs) -> (y,z)
 
 Reason: we know that a failure point is always a "join point" and is
@@ -817,7 +817,7 @@ mkOptTickBox = flip (foldr Tick)
 
 mkBinaryTickBox :: Int -> Int -> CoreExpr -> DsM CoreExpr
 mkBinaryTickBox ixT ixF e = do
-       uq <- newUnique  
+       uq <- newUnique
        this_mod <- getModule
        let bndr1 = mkSysLocal (fsLit "t1") uq boolTy
        let
@@ -880,5 +880,5 @@ dsTickish :: Tickish Id -> DsM (Tickish DsId)
 dsTickish t@(Breakpoint { breakpointFVs = fvs })
   = do { fvs' <- dsVars fvs
        ; return $ t { breakpointFVs = fvs' } }
-    
+
 dsTickish t = return t

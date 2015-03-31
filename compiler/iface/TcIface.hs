@@ -509,7 +509,7 @@ tcIfaceDataCons tycon_name tycon tc_tyvars if_cons
                          ifConOcc = occ, ifConCtxt = ctxt, ifConEqSpec = spec,
                          ifConArgTys = args, ifConFields = field_lbls,
                          ifConStricts = if_stricts})
-     = -- Universally-quantified tyvars are shared with 
+     = -- Universally-quantified tyvars are shared with
        -- parent TyCon, and are alrady in scope
        bindIfaceBndrs ex_tvs    $ \ ex_tyvars -> do
         { traceIf (text "Start interface-file tc_con_decl" <+> ppr occ)
@@ -1325,7 +1325,7 @@ bindIfaceBndrCo (IfaceCoBndr co tv1 tv2 m_cv) thing_inside
     maybe_bindIfaceId Nothing   thing_inside = thing_inside Nothing
     maybe_bindIfaceId (Just cv) thing_inside
       = bindIfaceId cv $ \cv' -> thing_inside (Just cv')
-                                 
+
 bindIfaceTyVar :: IfaceTvBndr -> (TyVar -> IfL a) -> IfL a
 bindIfaceTyVar (occ,kind) thing_inside
   = do  { name <- newIfaceName (mkTyVarOccFS occ)
@@ -1377,4 +1377,4 @@ bindIfaceBndrs_AT (b:bs) thing_inside
   = bindIfaceBndr_AT b $ \b' ->
     bindIfaceBndrs_AT bs $ \bs' ->
     thing_inside (b':bs')
-     
+

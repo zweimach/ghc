@@ -2,7 +2,7 @@ module Vectorise.Utils.Hoisting
   ( Inline(..)
   , addInlineArity
   , inlineMe
-  
+
   , hoistBinding
   , hoistExpr
   , hoistVExpr
@@ -31,7 +31,7 @@ import Control.Applicative
 
 -- |Records whether we should inline a particular binding.
 --
-data Inline 
+data Inline
         = Inline Arity
         | DontInline
 

@@ -1,12 +1,12 @@
 
 -- | Generate methods for the PA class.
 --
---   TODO: there is a large amount of redundancy here between the 
+--   TODO: there is a large amount of redundancy here between the
 --   a, PData a, and PDatas a forms. See if we can factor some of this out.
 --
 module Vectorise.Generic.PAMethods
   ( buildPReprTyCon
-  , buildPAScAndMethods 
+  , buildPAScAndMethods
   ) where
 
 import Vectorise.Utils
@@ -62,7 +62,7 @@ buildPReprTyCon orig_tc vect_tc repr
 --   @
 --
 type PAInstanceBuilder
-        =  TyCon        -- ^ Vectorised TyCon 
+        =  TyCon        -- ^ Vectorised TyCon
         -> CoAxiom Unbranched
                         -- ^ Coercion to the representation TyCon
         -> TyCon        -- ^ 'PData'  TyCon
@@ -191,7 +191,7 @@ buildFromPRepr vect_tc repr_ax _ _ repr
     from_prod expr con (UnaryProd r)
      = do e <- from_comp expr r
           return $ con `App` e
-     
+
     from_prod expr con (Prod { repr_tup_tc   = tup_tc
                              , repr_comp_tys = tys
                              , repr_comps    = comps
@@ -236,7 +236,7 @@ buildToArrPRepr vect_tc repr_co pdata_tc _ r
 
     to_sum ss
      = case ss of
-        EmptySum    -> builtin pvoidVar >>= \pvoid -> return ([], Var pvoid) 
+        EmptySum    -> builtin pvoidVar >>= \pvoid -> return ([], Var pvoid)
         UnarySum r  -> to_con r
         Sum{}
          -> do  let psum_tc     =  repr_psum_tc ss
@@ -245,7 +245,7 @@ buildToArrPRepr vect_tc repr_co pdata_tc _ r
                 sel             <- newLocalVar (fsLit "sel") (repr_sel_ty ss)
                 return ( sel : concat vars
                        , wrapFamInstBody psum_tc (repr_con_tys ss)
-                         $ mkConApp psum_con 
+                         $ mkConApp psum_con
                          $ map Type (repr_con_tys ss) ++ (Var sel : exprs))
 
     to_prod ss
@@ -331,7 +331,7 @@ buildFromArrPRepr vect_tc repr_co pdata_tc _ r
                 let scrut      =  unwrapFamInstScrut ptup_tc (repr_comp_tys ss) expr
                 let body       =  mkWildCase scrut (exprType scrut) res_ty
                                     [(DataAlt ptup_con, vars, res')]
-                return (body, args)      
+                return (body, args)
 
     from_con res_ty res expr (ConRepr _ r) = from_prod res_ty res expr r
 
@@ -343,7 +343,7 @@ buildFromArrPRepr vect_tc repr_co pdata_tc _ r
     fold f res_ty res exprs rs
       = foldrM f' (res, []) (zip exprs rs)
       where
-        f' (expr, r) (res, args) 
+        f' (expr, r) (res, args)
          = do (res', args') <- f res_ty res expr r
               return (res', args' ++ args)
 
@@ -358,7 +358,7 @@ buildToArrPReprs vect_tc repr_co _ pdatas_tc r
     --  eg: 'PDatas (Tree a b)'
     arg_ty    <- mkPDatasType el_ty
 
-    -- The result type. 
+    -- The result type.
     --  eg: 'PDatas (PRepr (Tree a b))'
     res_ty    <- mkPDatasType =<< mkPReprType el_ty
 
@@ -385,10 +385,10 @@ buildToArrPReprs vect_tc repr_co _ pdatas_tc r
     --  eg: 'Tree a b'.
     ty_args = mkOnlyTyVarTys $ tyConTyVars vect_tc
     el_ty   = mkTyConApp vect_tc ty_args
-        
+
     -- PDatas data constructor
     [pdatas_dc] = tyConDataCons pdatas_tc
-                  
+
     to_sum ss
      = case ss of
         -- We can't convert data types with no data.
@@ -403,7 +403,7 @@ buildToArrPReprs vect_tc repr_co _ pdatas_tc r
                 let [psums_con]  = tyConDataCons psums_tc
                 sels             <- newLocalVar (fsLit "sels") (repr_sels_ty ss)
 
-                -- Take the number of selectors to serve as the length of 
+                -- Take the number of selectors to serve as the length of
                 -- and PDatas Void arrays in the product. See Note [Empty PDatas].
                 let xSums        =  App (repr_selsLength_v ss) (Var sels)
 
@@ -414,12 +414,12 @@ buildToArrPReprs vect_tc repr_co _ pdatas_tc r
                        , wrapFamInstBody psums_tc (repr_con_tys ss)
                          $ mkCoreLet (NonRec xSums_var xSums)
                                  -- mkCoreLet ensures that the let/app invariant holds
-                         $ mkConApp psums_con 
-                         $ map Type (repr_con_tys ss) ++ (Var sels : exprs))        
+                         $ mkConApp psums_con
+                         $ map Type (repr_con_tys ss) ++ (Var sels : exprs))
 
     to_prod xSums ss
      = case ss of
-        EmptyProd    
+        EmptyProd
          -> do  pvoids  <- builtin pvoidsVar
                 return ([], App (Var pvoids) (Var xSums) )
 
@@ -449,19 +449,19 @@ buildToArrPReprs vect_tc repr_co _ pdatas_tc r
 -- buildFromArrPReprs ---------------------------------------------------------
 buildFromArrPReprs :: PAInstanceBuilder
 buildFromArrPReprs vect_tc repr_co _ pdatas_tc r
- = do   
+ = do
     -- The argument type of the instance.
     --  eg: 'PDatas (PRepr (Tree a b))'
     arg_ty      <- mkPDatasType =<< mkPReprType el_ty
 
-    -- The result type. 
+    -- The result type.
     --  eg: 'PDatas (Tree a b)'
     res_ty      <- mkPDatasType el_ty
-        
+
     -- Variable to bind the argument to the instance
     -- eg: (xss :: PDatas (PRepr (Tree a b)))
     varg        <- newLocalVar (fsLit "xss") arg_ty
-        
+
     -- Build the coercion between PRepr and the instance type
     pdatas_co <- mkBuiltinCo pdatasTyCon
     let co           = mkAppCo pdatas_co (panic "buildFromArrPReprs")
@@ -521,7 +521,7 @@ buildFromArrPReprs vect_tc repr_co _ pdatas_tc r
                 let scrut       =  unwrapFamInstScrut ptups_tc (repr_comp_tys ss) expr
                 let body        =  mkWildCase scrut (exprType scrut) res_ty
                                     [(DataAlt ptups_con, vars, res')]
-                return (body, args)      
+                return (body, args)
 
     from_con res_ty res expr (ConRepr _ r)
         = from_prod res_ty res expr r
@@ -534,7 +534,7 @@ buildFromArrPReprs vect_tc repr_co _ pdatas_tc r
     fold f res_ty res exprs rs
       = foldrM f' (res, []) (zip exprs rs)
       where
-        f' (expr, r) (res, args) 
+        f' (expr, r) (res, args)
          = do (res', args') <- f res_ty res expr r
               return (res', args' ++ args)
 
@@ -566,12 +566,12 @@ initialise the two (PDatas Void) arrays.
 
 However, with this:
   data Empty1 = MkEmpty1
- 
+
 The native and generic representations would be:
   type instance (PDatas Empty1)        = VPDs:Empty1
   type instance (PDatas (Repr Empty1)) = PVoids Int
- 
-The 'Int' argument of PVoids is supposed to store the length of the PDatas 
+
+The 'Int' argument of PVoids is supposed to store the length of the PDatas
 array. When converting the (PDatas Empty1) to a (PDatas (Repr Empty1)) we
 need to come up with a value for it, but there isn't one.
 

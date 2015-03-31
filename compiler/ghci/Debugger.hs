@@ -2,14 +2,14 @@
 
 -----------------------------------------------------------------------------
 --
--- GHCi Interactive debugging commands 
+-- GHCi Interactive debugging commands
 --
 -- Pepe Iborra (supported by Google SoC) 2006
 --
 -- ToDo: lots of violation of layering here.  This module should
 -- decide whether it is above the GHC API (import GHC and nothing
 -- else) or below it.
--- 
+--
 -----------------------------------------------------------------------------
 
 module Debugger (pprintClosureCommand, showTerm, pprTypeAndContents) where
@@ -71,7 +71,7 @@ pprintClosureCommand bindThings force str = do
    -- Do the obtainTerm--bindSuspensions-computeSubstitution dance
    go :: GhcMonad m => TCvSubst -> Id -> m (TCvSubst, Term)
    go subst id = do
-       let id' = id `setIdType` substTy subst (idType id) 
+       let id' = id `setIdType` substTy subst (idType id)
        term_    <- GHC.obtainTermFromId maxBound force id'
        term     <- tidyTermTyVars term_
        term'    <- if bindThings &&
@@ -114,7 +114,7 @@ bindSuspensions t = do
       availNames_var  <- liftIO $ newIORef availNames
       (t', stuff)     <- liftIO $ foldTerm (nameSuspensionsAndGetInfos availNames_var) t
       let (names, tys, hvals) = unzip3 stuff
-      let ids = [ mkVanillaGlobal name ty 
+      let ids = [ mkVanillaGlobal name ty
                 | (name,ty) <- zip names tys]
           new_ic = extendInteractiveContextWithIds ictxt ids
       liftIO $ extendLinkEnv (zip names hvals)
@@ -133,12 +133,12 @@ bindSuspensions t = do
                                     let (terms,names) = unzip tt'
                                     return (Term ty dc v terms, concat names)
                       , fPrim    = \ty n ->return (Prim ty n,[])
-                      , fNewtypeWrap  = 
-                                \ty dc t -> do 
+                      , fNewtypeWrap  =
+                                \ty dc t -> do
                                     (term, names) <- t
                                     return (NewtypeWrap ty dc term, names)
                       , fRefWrap = \ty t -> do
-                                    (term, names) <- t 
+                                    (term, names) <- t
                                     return (RefWrap ty term, names)
                       }
         doSuspension freeNames ct ty hval _name = do
@@ -181,7 +181,7 @@ showTerm term = do
          `gfinally` do
            setSession hsc_env
            GHC.setSessionDynFlags dflags
-  cPprShowable prec NewtypeWrap{ty=new_ty,wrapped_term=t} = 
+  cPprShowable prec NewtypeWrap{ty=new_ty,wrapped_term=t} =
       cPprShowable prec t{ty=new_ty}
   cPprShowable _ _ = return Nothing
 
@@ -193,7 +193,7 @@ showTerm term = do
 
   bindToFreshName hsc_env ty userName = do
     name <- newGrimName userName
-    let id       = mkVanillaGlobal name ty 
+    let id       = mkVanillaGlobal name ty
         new_ic   = extendInteractiveContextWithIds (hsc_IC hsc_env) [id]
     return (hsc_env {hsc_IC = new_ic }, name)
 
@@ -211,7 +211,7 @@ pprTypeAndContents id = do
   dflags  <- GHC.getSessionDynFlags
   let pcontents = gopt Opt_PrintBindContents dflags
       pprdId    = (PprTyThing.pprTyThing . AnId) id
-  if pcontents 
+  if pcontents
     then do
       let depthBound = 100
       -- If the value is an exception, make sure we catch it and
@@ -225,7 +225,7 @@ pprTypeAndContents id = do
     else return pprdId
 
 --------------------------------------------------------------
--- Utils 
+-- Utils
 
 traceOptIf :: GhcMonad m => DumpFlag -> SDoc -> m ()
 traceOptIf flag doc = do

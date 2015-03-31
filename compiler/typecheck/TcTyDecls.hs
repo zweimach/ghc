@@ -12,7 +12,7 @@ files for imported data types.
 {-# LANGUAGE CPP #-}
 
 module TcTyDecls(
-        calcRecFlags, RecTyInfo(..), 
+        calcRecFlags, RecTyInfo(..),
         calcSynCycles, calcClassCycles,
         RoleAnnots, extractRoleAnnots, emptyRoleAnnots, lookupRoleAnnots
     ) where
@@ -150,7 +150,7 @@ We want definitions such as:
 
 to be accepted, even though a naive acyclicity check would reject the
 program as having a cycle between D and its superclass.  Why? Because
-when we instantiate 
+when we instantiate
      D ty1
 we get the superclas
      C D ty1
@@ -165,8 +165,8 @@ Where expand is defined as follows:
 
 (1)  expand(a ty1 ... tyN) = expand(ty1) \union ... \union expand(tyN)
 
-(2)  expand(D ty1 ... tyN) = {D} 
-                             \union sup_D[ty1/x1, ..., tyP/xP] 
+(2)  expand(D ty1 ... tyN) = {D}
+                             \union sup_D[ty1/x1, ..., tyP/xP]
                              \union expand(ty(P+1)) ... \union expand(tyN)
            where (D x1 ... xM) is a class, P = min(M,N)
 
@@ -182,8 +182,8 @@ Furthermore, expand always looks through type synonyms.
 -}
 
 calcClassCycles :: Class -> [[TyCon]]
-calcClassCycles cls 
-  = nubBy eqAsCycle $ 
+calcClassCycles cls
+  = nubBy eqAsCycle $
     expandTheta (unitUniqSet cls) [classTyCon cls] (classSCTheta cls) []
   where
     -- The last TyCon in the cycle is always the same as the first
@@ -222,9 +222,9 @@ calcClassCycles cls
       , let (env, remainder) = papp (classTyVars cls) tys
             rest_tys = either (const []) id remainder
       = if cls `elementOfUniqSet` seen
-         then (reverse (classTyCon cls:path):) 
+         then (reverse (classTyCon cls:path):)
               . flip (foldr (expandType seen path)) tys
-         else expandTheta (addOneToUniqSet seen cls) (tc:path) 
+         else expandTheta (addOneToUniqSet seen cls) (tc:path)
                           (substTys (mkTopTCvSubst env) (classSCTheta cls))
               . flip (foldr (expandType seen path)) rest_tys
 
@@ -234,7 +234,7 @@ calcClassCycles cls
       | Just (tvs, rhs) <- synTyConDefn_maybe tc
       , let (env, remainder) = papp tvs tys
             rest_tys = either (const []) id remainder
-      = expandType seen (tc:path) (substTy (mkTopTCvSubst env) rhs) 
+      = expandType seen (tc:path) (substTy (mkTopTCvSubst env) rhs)
         . flip (foldr (expandType seen path)) rest_tys
 
       -- For non-class, non-synonyms, just check the arguments
@@ -400,7 +400,7 @@ calcRecFlags boot_details is_boot mrole_env tyclss
 
     single_con_tycons = [ tc | tc <- all_tycons
                              , not (tyConName tc `elemNameSet` boot_name_set)
-                                 -- Remove the boot_name_set because they are 
+                                 -- Remove the boot_name_set because they are
                                  -- going to be loop breakers regardless.
                              , isSingleton (tyConDataCons tc) ]
         -- Both newtypes and data types, with exactly one data constructor
@@ -638,7 +638,7 @@ initialRoleEnv1 is_boot annots_env tc
         build_default_roles [] [] = []
         build_default_roles _ _ = pprPanic "initialRoleEnv1 (2)"
                                            (vcat [ppr tc, ppr role_annots])
-        
+
         default_role
           | isClassTyCon tc = Nominal
           | is_boot         = Representational
@@ -691,7 +691,7 @@ irDataCon tc_name datacon
   = addRoleInferenceInfo tc_name univ_tvs $
     mapM_ (irType ex_var_set)
           (map tyVarKind ex_tvs ++ eqSpecPreds eq_spec ++ theta ++ arg_tys)
-      -- See Note [Role-checking data constructor arguments] 
+      -- See Note [Role-checking data constructor arguments]
   where
     (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, arg_tys, _res_ty)
       = dataConFullSig datacon
@@ -714,7 +714,7 @@ irType lcls = analyzeType analysis
       -- See Note [Coercions in role inference]
       , ta_cast     = \ty _ -> irType lcls ty
       , ta_coercion = const $ return () }
-    
+
     go_app _ Phantom _ = return ()                 -- nothing to do here
     go_app lcls Nominal ty = mark_nominal lcls ty  -- all vars below here are N
     go_app lcls Representational ty = irType lcls ty
@@ -790,7 +790,7 @@ instance Monad RoleM where
 
 runRoleM :: RoleEnv -> RoleM () -> (RoleEnv, Bool)
 runRoleM env thing = (env', update)
-  where RIS { role_env = env', update = update } = snd $ unRM thing Nothing state 
+  where RIS { role_env = env', update = update } = snd $ unRM thing Nothing state
         state = RIS { role_env  = env, update    = False }
 
 addRoleInferenceInfo :: Name -> [TyVar] -> RoleM a -> RoleM a

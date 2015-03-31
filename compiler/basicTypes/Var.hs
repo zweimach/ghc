@@ -166,7 +166,7 @@ data Var
  }
 
   | TcTyVar {                           -- Used only during type inference
-                                        -- Used for kind variables during 
+                                        -- Used for kind variables during
                                         -- inference, as well
         varName        :: !Name,
         realUnique     :: FastInt,
@@ -187,7 +187,7 @@ data IdScope    -- See Note [GlobalId/LocalId]
   = GlobalId
   | LocalId ExportFlag
 
-data ExportFlag 
+data ExportFlag
   = NotExported -- ^ Not exported: may be discarded as dead code.
   | Exported    -- ^ Exported: kept alive
 
@@ -219,9 +219,9 @@ instance Outputable Var where
                |  debugStyle ppr_style
                  -> ppr (varName var) <+> ppr_debug var ppr_style
                |  otherwise
-                 -> ppr (varName var)   
+                 -> ppr (varName var)
 
-{-  
+{-
   ppr var = ppr (varName var) <+> ifPprDebug (brackets (ppr_debug var))
 -- Printing the type on every occurrence is too much!
 -- TODO (RAE): comment these next few lines out, which is the way

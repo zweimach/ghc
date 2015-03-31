@@ -352,10 +352,10 @@ ppStore val dst
 
 
 ppCast :: LlvmCastOp -> LlvmVar -> LlvmType -> SDoc
-ppCast op from to 
-    =   ppr op 
+ppCast op from to
+    =   ppr op
     <+> ppr (getVarType from) <+> ppName from
-    <+> text "to" 
+    <+> text "to"
     <+> ppr to
 
 

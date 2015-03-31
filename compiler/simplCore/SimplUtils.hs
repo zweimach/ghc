@@ -20,7 +20,7 @@ module SimplUtils (
         SimplCont(..), DupFlag(..),
         isSimplified,
         contIsDupable, contResultType, contHoleType,
-        contIsTrivial, contArgs, 
+        contIsTrivial, contArgs,
         countValArgs, countArgs,
         mkBoringStop, mkRhsStop, mkLazyArgStop, contIsRhsOrArg,
         interestingCallContext, interestingArg,

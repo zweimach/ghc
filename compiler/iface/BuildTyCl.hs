@@ -10,7 +10,7 @@ module BuildTyCl (
         buildPatSyn,
         TcMethInfo, buildClass,
         distinctAbstractTyConRhs, totallyAbstractTyConRhs,
-        mkNewTyConRhs, mkDataTyConRhs, 
+        mkNewTyConRhs, mkDataTyConRhs,
         newImplicitBinder
     ) where
 
@@ -60,11 +60,11 @@ mkNewTyConRhs :: Name -> TyCon -> DataCon -> TcRnIf m n AlgTyConRhs
 -- ^ Monadic because it makes a Name for the coercion TyCon
 --   We pass the Name of the parent TyCon, as well as the TyCon itself,
 --   because the latter is part of a knot, whereas the former is not.
-mkNewTyConRhs tycon_name tycon con 
+mkNewTyConRhs tycon_name tycon con
   = do  { co_tycon_name <- newImplicitBinder tycon_name mkNewTyCoOcc
         ; let co_tycon = mkNewTypeCo co_tycon_name tycon etad_tvs etad_roles etad_rhs
         ; traceIf (text "mkNewTyConRhs" <+> ppr co_tycon)
-        ; return (NewTyCon { data_con    = con, 
+        ; return (NewTyCon { data_con    = con,
                              nt_rhs      = rhs_ty,
                              nt_etad_rhs = (etad_tvs, etad_rhs),
                              nt_co       = co_tycon } ) }
@@ -75,7 +75,7 @@ mkNewTyConRhs tycon_name tycon con
     roles  = tyConRoles tycon
     inst_con_ty = applyTys (dataConWrapperType con) (mkOnlyTyVarTys tvs)
     rhs_ty = ASSERT( isFunTy inst_con_ty ) funArgTy inst_con_ty
-        -- Instantiate the data con with the 
+        -- Instantiate the data con with the
         -- type variables from the tycon
         -- NB: a newtype DataCon has a type that must look like
         --        forall tvs.  <arg-ty> -> T tvs
@@ -88,7 +88,7 @@ mkNewTyConRhs tycon_name tycon con
     etad_roles :: [Role]   -- return a TyCon without pulling on rhs_ty
     etad_rhs   :: Type     -- See Note [Tricky iface loop] in LoadIface
     (etad_tvs, etad_roles, etad_rhs) = eta_reduce (reverse tvs) (reverse roles) rhs_ty
- 
+
     eta_reduce :: [TyVar]       -- Reversed
                -> [Role]        -- also reversed
                -> Type          -- Rhs type
@@ -102,11 +102,11 @@ mkNewTyConRhs tycon_name tycon con
     eta_reduce tvs rs ty = (reverse tvs, reverse rs, ty)
 
 ------------------------------------------------------
-buildDataCon :: FamInstEnvs 
+buildDataCon :: FamInstEnvs
             -> Name -> Bool
-            -> [HsBang] 
+            -> [HsBang]
             -> [Name]                   -- Field labels
-            -> [TyVar] -> [TyCoVar]     -- Univ and ext 
+            -> [TyVar] -> [TyCoVar]     -- Univ and ext
             -> [EqSpec]                 -- Equality spec
             -> ThetaType                -- Does not include the "stupid theta"
                                         -- or the GADT equalities
@@ -142,7 +142,7 @@ buildDataCon fam_envs src_name declared_infix arg_stricts field_lbls
 
 -- The stupid context for a data constructor should be limited to
 -- the type variables mentioned in the arg_tys
--- ToDo: Or functionally dependent on?  
+-- ToDo: Or functionally dependent on?
 --       This whole stupid theta thing is, well, stupid.
 mkDataConStupidTheta :: TyCon -> [Type] -> [TyCoVar] -> [PredType]
 mkDataConStupidTheta tycon arg_tys univ_tvs
@@ -151,11 +151,11 @@ mkDataConStupidTheta tycon arg_tys univ_tvs
   where
     tc_subst     = zipTopTCvSubst (tyConTyVars tycon) (mkOnlyTyVarTys univ_tvs)
     stupid_theta = substTheta tc_subst (tyConStupidTheta tycon)
-        -- Start by instantiating the master copy of the 
+        -- Start by instantiating the master copy of the
         -- stupid theta, taken from the TyCon
 
     arg_tyvars      = tyCoVarsOfTypes arg_tys
-    in_arg_tys pred = not $ isEmptyVarSet $ 
+    in_arg_tys pred = not $ isEmptyVarSet $
                       tyCoVarsOfType pred `intersectVarSet` arg_tyvars
 
 
@@ -187,8 +187,8 @@ buildPatSyn src_name declared_infix matcher@(matcher_id,_) builder
     (arg_tys', _) = tcSplitFunTys cont_tau
 
 ------------------------------------------------------
-type TcMethInfo = (Name, DefMethSpec, Type)  
-        -- A temporary intermediate, to communicate between 
+type TcMethInfo = (Name, DefMethSpec, Type)
+        -- A temporary intermediate, to communicate between
         -- tcClassSigs and buildClass.
 
 buildClass :: Name -> [TyVar] -> [Role] -> ThetaType
@@ -206,35 +206,35 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
 
         ; datacon_name <- newImplicitBinder tycon_name mkClassDataConOcc
                 -- The class name is the 'parent' for this datacon, not its tycon,
-                -- because one should import the class to get the binding for 
+                -- because one should import the class to get the binding for
                 -- the datacon
 
 
         ; op_items <- mapM (mk_op_item rec_clas) sig_stuff
                         -- Build the selector id and default method id
 
-              -- Make selectors for the superclasses 
-        ; sc_sel_names <- mapM  (newImplicitBinder tycon_name . mkSuperDictSelOcc) 
+              -- Make selectors for the superclasses
+        ; sc_sel_names <- mapM  (newImplicitBinder tycon_name . mkSuperDictSelOcc)
                                 [1..length sc_theta]
-        ; let sc_sel_ids = [ mkDictSelId sc_name rec_clas 
+        ; let sc_sel_ids = [ mkDictSelId sc_name rec_clas
                            | sc_name <- sc_sel_names]
-              -- We number off the Dict superclass selectors, 1, 2, 3 etc so that we 
+              -- We number off the Dict superclass selectors, 1, 2, 3 etc so that we
               -- can construct names for the selectors. Thus
               --      class (C a, C b) => D a b where ...
               -- gives superclass selectors
               --      D_sc1, D_sc2
               -- (We used to call them D_C, but now we can have two different
               --  superclasses both called C!)
-        
+
         ; let use_newtype = isSingleton arg_tys
-                -- Use a newtype if the data constructor 
+                -- Use a newtype if the data constructor
                 --   (a) has exactly one value field
                 --       i.e. exactly one operation or superclass taken together
                 --   (b) that value is of lifted type (which they always are, because
                 --       we box equality superclasses)
                 -- See note [Class newtypes and equality predicates]
 
-                -- We treat the dictionary superclasses as ordinary arguments.  
+                -- We treat the dictionary superclasses as ordinary arguments.
                 -- That means that in the case of
                 --     class C a => D a
                 -- we don't get a newtype with no arguments!
@@ -243,14 +243,14 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
               op_names  = [op | (op,_,_) <- sig_stuff]
               arg_tys   = sc_theta ++ op_tys
               rec_tycon = classTyCon rec_clas
-               
+
         ; dict_con <- buildDataCon (panic "buildClass: FamInstEnvs")
                                    datacon_name
                                    False        -- Not declared infix
                                    (map (const HsNoBang) args)
                                    [{- No fields -}]
                                    tvs [{- no existentials -}]
-                                   [{- No GADT equalities -}] 
+                                   [{- No GADT equalities -}]
                                    [{- No theta -}]
                                    arg_tys
                                    (mkTyConApp rec_tycon (mkTyCoVarTys tvs))
@@ -262,7 +262,7 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
 
         ; let { tycon = mkClassTyCon tycon_name kind tvs roles
                                      rhs rec_clas tc_isrec
-                -- A class can be recursive, and in the case of newtypes 
+                -- A class can be recursive, and in the case of newtypes
                 -- this matters.  For example
                 --      class C a where { op :: C b => a -> b -> Int }
                 -- Because C has only one operation, it is represented by
@@ -271,15 +271,15 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
                 -- newtype like a synonym, but that will lead to an infinite
                 -- type]
 
-              ; result = mkClass tvs fds 
+              ; result = mkClass tvs fds
                                  sc_theta sc_sel_ids at_items
                                  op_items mindef tycon
               }
-        ; traceIf (text "buildClass" <+> ppr tycon) 
+        ; traceIf (text "buildClass" <+> ppr tycon)
         ; return result }
   where
     mk_op_item :: Class -> TcMethInfo -> TcRnIf n m ClassOpItem
-    mk_op_item rec_clas (op_name, dm_spec, _) 
+    mk_op_item rec_clas (op_name, dm_spec, _)
       = do { dm_info <- case dm_spec of
                           NoDM      -> return NoDefMeth
                           GenericDM -> do { dm_name <- newImplicitBinder op_name mkGenDefMethodOcc

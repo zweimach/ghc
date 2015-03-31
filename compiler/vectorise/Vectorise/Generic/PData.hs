@@ -5,7 +5,7 @@
 --   We should be able to factor out the common parts.
 module Vectorise.Generic.PData
   ( buildPDataTyCon
-  , buildPDatasTyCon ) 
+  , buildPDatasTyCon )
 where
 
 import Vectorise.Monad
@@ -31,7 +31,7 @@ import Control.Monad
 -- buildPDataTyCon ------------------------------------------------------------
 -- | Build the PData instance tycon for a given type constructor.
 buildPDataTyCon :: TyCon -> TyCon -> SumRepr -> VM FamInst
-buildPDataTyCon orig_tc vect_tc repr 
+buildPDataTyCon orig_tc vect_tc repr
  = fixV $ \fam_inst ->
    do let repr_tc = dataFamInstRepTyCon fam_inst
       name' <- mkLocalisedName mkPDataTyConOcc orig_name
@@ -93,7 +93,7 @@ buildPDataDataCon orig_name vect_tc repr_tc repr
 -- buildPDatasTyCon -----------------------------------------------------------
 -- | Build the PDatas instance tycon for a given type constructor.
 buildPDatasTyCon :: TyCon -> TyCon -> SumRepr -> VM FamInst
-buildPDatasTyCon orig_tc vect_tc repr 
+buildPDatasTyCon orig_tc vect_tc repr
  = fixV $ \fam_inst ->
    do let repr_tc = dataFamInstRepTyCon fam_inst
       name'       <- mkLocalisedName mkPDatasTyConOcc orig_name
@@ -131,7 +131,7 @@ buildPDatasDataCon orig_name vect_tc repr_tc repr
 
 -- Utils ----------------------------------------------------------------------
 -- | Flatten a SumRepr into a list of data constructor types.
-mkSumTys 
+mkSumTys
         :: (SumRepr -> Type)
         -> (Type -> VM Type)
         -> SumRepr

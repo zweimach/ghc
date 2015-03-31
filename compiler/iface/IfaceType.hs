@@ -365,7 +365,7 @@ toIfaceTcArgs tc ty_args
   = go (mkEmptyTCvSubst in_scope) (tyConKind tc) ty_args
   where
     in_scope = mkInScopeSet (tyCoVarsOfTypes ty_args)
-    
+
     go _   _                   []     = ITC_Nil
     go env ty                  ts
       | Just ty' <- tcView ty
@@ -1164,7 +1164,7 @@ toIfaceTyCon tc
   | isPromotedDataCon tc            = IfacePromotedDataCon tc_name
   | otherwise                       = IfaceTc tc_name
     where tc_name = tyConName tc
-          
+
 toIfaceTyCon_name :: Name -> IfaceTyCon
 toIfaceTyCon_name = IfaceTc
 

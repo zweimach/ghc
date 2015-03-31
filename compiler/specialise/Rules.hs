@@ -596,7 +596,7 @@ rvInScopeEnv renv = (rnInScopeSet (rv_lcl renv), rv_unf renv)
 
 data RuleSubst = RS { rs_tv_subst :: TvSubstEnv   -- Range is the
                     , rs_cv_subst :: CvSubstEnv   --   template variables
-                    , rs_id_subst :: IdSubstEnv   
+                    , rs_id_subst :: IdSubstEnv
                     , rs_binds    :: BindWrapper  -- Floated bindings
                     , rs_bndrs    :: VarSet       -- Variables bound by floated lets
                     }

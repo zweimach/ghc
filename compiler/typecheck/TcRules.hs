@@ -29,7 +29,7 @@ import Data.List( partition )
 {-
 Note [Typechecking rules]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
-We *infer* the typ of the LHS, and use that type to *check* the type of 
+We *infer* the typ of the LHS, and use that type to *check* the type of
 the RHS.  That means that higher-rank rules work reasonably well. Here's
 an example (test simplCore/should_compile/rule2.hs) produced by Roman:
 
@@ -62,7 +62,7 @@ If we typecheck this expression we get constraints
 We do NOT want to "simplify" to the LHS
         forall x::a, y::a, z::a, d1::Ord a.
           f ((==) (eqFromOrd d1) x y) ((>) d1 y z) = ...
-Instead we want 
+Instead we want
         forall x::a, y::a, z::a, d1::Ord a, d2::Eq a.
           f ((==) d2 x y) ((>) d1 y z) = ...
 
@@ -77,7 +77,7 @@ because the scsel will mess up RULE matching.  Instead we want
         forall dIntegralInt, dNumInt.
           fromIntegral Int Int dIntegralInt dNumInt = id Int
 
-Even if we have 
+Even if we have
         g (x == y) (y == z) = ..
 where the two dictionaries are *identical*, we do NOT WANT
         forall x::a, y::a, z::a, d1::Eq a
@@ -86,7 +86,7 @@ because that will only match if the dict args are (visibly) equal.
 Instead we want to quantify over the dictionaries separately.
 
 In short, simplifyRuleLhs must *only* squash equalities, leaving
-all dicts unchanged, with absolutely no sharing.  
+all dicts unchanged, with absolutely no sharing.
 
 Also note that we can't solve the LHS constraints in isolation:
 Example   foo :: Ord a => a -> a
@@ -101,8 +101,8 @@ Consider
        f b True = ...
     #-}
 Here we *must* solve the wanted (Eq a) from the given (Eq a)
-resulting from skolemising the agument type of g.  So we 
-revert to SimplCheck when going under an implication.  
+resulting from skolemising the agument type of g.  So we
+revert to SimplCheck when going under an implication.
 
 
 ------------------------ So the plan is this -----------------------
@@ -167,7 +167,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                                 , ppr forall_tkvs
                                 , ppr qtkvs
                                 , ppr rule_ty
-                                , vcat [ ppr id <+> dcolon <+> ppr (idType id) | id <- tpl_ids ] 
+                                , vcat [ ppr id <+> dcolon <+> ppr (idType id) | id <- tpl_ids ]
                   ])
 
            -- Simplify the RHS constraints
@@ -218,17 +218,17 @@ tcRuleBndrs (L _ (RuleBndrSig (L _ name) rn_ty) : rule_bndrs)
   = do  { let ctxt = RuleSigCtxt name
         ; (id_ty, tv_prs, _) <- tcHsPatSigType ctxt rn_ty
         ; let id  = mkLocalIdOrCoVar name id_ty
-              tvs = map snd tv_prs   
+              tvs = map snd tv_prs
                     -- tcHsPatSigType returns (Name,TyVar) pairs
                     -- for for RuleSigCtxt their Names are not
                     -- cloned, so we get (n, tv-with-name-n) pairs
                     -- See Note [Pattern signature binders] in TcHsType
 
               -- The type variables scope over subsequent bindings; yuk
-        ; vars <- tcExtendTyVarEnv tvs $ 
-                  tcRuleBndrs rule_bndrs 
+        ; vars <- tcExtendTyVarEnv tvs $
+                  tcRuleBndrs rule_bndrs
         ; return (tvs ++ id : vars) }
 
 ruleCtxt :: FastString -> SDoc
-ruleCtxt name = ptext (sLit "When checking the transformation rule") <+> 
+ruleCtxt name = ptext (sLit "When checking the transformation rule") <+>
                 doubleQuotes (ftext name)

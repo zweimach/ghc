@@ -315,7 +315,7 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
                                _ -> pprPanic "kcTyClGroup" (ppr name $$ ppr kind_env)
            ; kvs <- kindGeneralize env (tyCoVarsOfType kc_kind)
            ; kc_kind' <- zonkTcTypeToType (mkZonkEnv env) kc_kind
-                         
+
                       -- Make sure kc_kind' has the final, zonked kind variables
            ; traceTc "Generalise kind" (vcat [ ppr name, ppr kc_kind, ppr kvs, ppr kc_kind' ])
            ; return (name, mkInvForAllTys kvs kc_kind') }
@@ -653,7 +653,7 @@ tcTyClDecl1 _parent rec_info
                             , let gen_dm_tau = expectJust "tcTyClDecl1" $
                                                lookupNameEnv gen_dm_env (idName sel_id)
                             , let gen_dm_ty = mkInvSigmaTy tvs'
-                                                      [mkClassPred clas (mkTyCoVarTys tvs')] 
+                                                      [mkClassPred clas (mkTyCoVarTys tvs')]
                                                       gen_dm_tau
                             ]
              ; class_ats = map ATyCon (classATs clas) }
@@ -689,8 +689,8 @@ tcFamDecl1 parent
        ; checkFamFlag tc_name -- make sure we have -XTypeFamilies
 
          -- Process the equations, creating CoAxBranches
-       ; let fam_tc_shape = (tc_name, length $ hsQTvExplicit tvs, kind) 
-     
+       ; let fam_tc_shape = (tc_name, length $ hsQTvExplicit tvs, kind)
+
        ; branches <- mapM (tcTyFamInstEqn fam_tc_shape) eqns
 
          -- we need the tycon that we will be creating, but it's in scope.
@@ -735,7 +735,7 @@ tcFamDecl1 parent
         tycon = mkAlgTyCon tc_name tycon_kind final_tvs roles Nothing []
                            DataFamilyTyCon parent Recursive
                            True    -- GADT syntax
-                  
+
   ; return [ATyCon tycon] }
 
 tcTySynRhs :: RecTyInfo
@@ -763,7 +763,7 @@ tcDataDefn rec_info tc_name tvs tycon_kind res_kind
    in do { extra_tvs <- tcDataKindSig res_kind
        ; let final_tvs  = tvs `chkAppend` extra_tvs
              roles      = rti_roles rec_info tc_name
-             
+
        ; (stupid_tc_theta, stupid_ev_binds) <- solveTopConstraints $
                                                tcHsContext ctxt
        ; stupid_theta    <- zonkTcTypeToTypes (mkEvBindsZonkEnv stupid_ev_binds)
@@ -924,7 +924,7 @@ kcDataDefn fam_name (HsWB { hswb_cts = pats })
                           ; unifyKind (Just hs_ty_pats) res_k k' } }
   where
     hs_ty_pats = mkHsAppTys (noLoc $ HsTyVar fam_name) pats
- 
+
 {-
 Kind check type patterns and kind annotate the embedded type variables.
      type instance F [a] = rhs
@@ -1013,7 +1013,7 @@ tc_fam_ty_pats (name, _, kind)
            2 (vcat [ ppr hs_ty <+> text "is unexpected;"
                    , text "expected only" <+>
                      speakNOf (n-1) (text "parameter") ])
-    
+
 -- See Note [tc_fam_ty_pats vs tcFamTyPats]
 tcFamTyPats :: FamTyConShape
             -> HsWithBndrs Name [LHsType Name] -- patterns
@@ -1092,7 +1092,7 @@ tcTyVarBndrsKindGen, as usual
   -- The 'k' comes from the tcTyVarBndrsKindGen (a::k)
 
 Second, the ones that come from the kind argument of the type family
-which we pick up using the (tyCoVarsOfTypes typats) in the result of 
+which we pick up using the (tyCoVarsOfTypes typats) in the result of
 the thing_inside of tcHsTyvarBndrsGen.
   -- Any :: forall k. k
   data instance Dist Any = DA
@@ -1191,7 +1191,7 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
                  }
 
        ; co_env <- zonkedEvBindsCvSubstEnv ev_binds
-              
+
              -- Generalise the kind variables (returning quantified TcKindVars)
              -- and quantify the type variables (substituting their kinds)
              -- REMEMBER: 'tkvs' are:
@@ -1704,7 +1704,7 @@ checkNewDataCon con
   where
     (_univ_tvs, ex_tvs, dep_eq_spec, eq_spec, theta, arg_tys, _res_ty)
       = dataConFullSig con
-    check_con what msg 
+    check_con what msg
        = checkTc what (msg $$ ppr con <+> dcolon <+> ppr (dataConUserType con))
 
 -------------------------------
@@ -1936,7 +1936,7 @@ checkValidRoles tc
     check_tyconapp env Nominal _ tys
       = mapM_ (check_ty_roles env Nominal) tys
 
-    check_tyconapp _   Phantom tc tys 
+    check_tyconapp _   Phantom tc tys
       = pprPanic "check_ty_roles" (ppr $ mkTyConApp tc tys)
 
     maybe_check_ty_roles env role ty
@@ -2012,7 +2012,7 @@ mkRecSelBind (tycon, sel_name)
     field_ty   = dataConFieldType con1 sel_name
     data_ty    = dataConOrigResTy con1
     data_tvs   = tyCoVarsOfType data_ty
-    is_naughty = not (tyCoVarsOfType field_ty `subVarSet` data_tvs)  
+    is_naughty = not (tyCoVarsOfType field_ty `subVarSet` data_tvs)
     (field_tvs, field_theta, field_tau) = tcSplitSigmaTy field_ty
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
            | otherwise  = mkInvForAllTys (varSetElemsWellScoped $

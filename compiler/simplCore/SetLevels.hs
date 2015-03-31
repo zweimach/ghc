@@ -61,7 +61,7 @@ import CoreUtils        ( exprType, exprOkForSpeculation, exprIsBottom )
 import CoreArity        ( exprBotStrictness_maybe )
 import CoreFVs          -- all of it
 import CoreSubst
-import MkCore           ( sortQuantVars ) 
+import MkCore           ( sortQuantVars )
 import Id
 import IdInfo
 import Var

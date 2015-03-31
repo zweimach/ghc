@@ -4,7 +4,7 @@ module Vectorise.Type.Type
   ( vectTyCon
   , vectAndLiftType
   , vectType
-  ) 
+  )
 where
 
 import Vectorise.Utils
@@ -41,12 +41,12 @@ vectAndLiftType ty
        }
   where
     (tyvars, phiTy)  = splitNamedForAllTys ty
-    (theta, mono_ty) = tcSplitPhiTy phiTy 
+    (theta, mono_ty) = tcSplitPhiTy phiTy
 
 -- |Vectorise a type.
 --
 -- For each quantified var we need to add a PA dictionary out the front of the type.
--- So          forall a.         C  a => a -> a   
+-- So          forall a.         C  a => a -> a
 -- turns into  forall a. PA a => Cv a => a :-> a
 --
 vectType :: Type -> VM Type
@@ -57,7 +57,7 @@ vectType (TyVarTy tv)      = return $ TyVarTy tv
 vectType (LitTy l)         = return $ LitTy l
 vectType (AppTy ty1 ty2)   = AppTy <$> vectType ty1 <*> vectType ty2
 vectType (TyConApp tc tys) = TyConApp <$> vectTyCon tc <*> mapM vectType tys
-vectType (ForAllTy (Anon ty1) ty2)   
+vectType (ForAllTy (Anon ty1) ty2)
   | isPredTy ty1
   = mkFunTy <$> vectType ty1 <*> vectType ty2   -- don't build a closure for dictionary abstraction
   | otherwise

@@ -861,7 +861,7 @@ flatten_one fmode (CastTy ty g)
        ; (g', _) <- flatten_co fmode g
 
        ; return (mkCastTy xi g', castCoercionKind co g' g) }
-    
+
 flatten_one _ ty@(CoercionTy {}) = pprPanic "flatten_one" (ppr ty)
 
 flatten_one_arg :: FlattenEnv -> Type -> TcS (Xi, CoercionArg)
@@ -1074,7 +1074,7 @@ flatten_exact_fam_app_fully fmode tc tys
       = Unboxed
       | otherwise
       = Boxed
-    
+
     try_to_reduce :: TyCon   -- F, family tycon
                   -> [Type]  -- args, not necessarily flattened
                   -> Bool    -- add to the flat cache?
@@ -1615,7 +1615,7 @@ eqCanRewriteFRB (isTopTcLevel -> True)
  -- NB: Much better to check the TcLevel before looking at boxity stuff; that's
  -- why the view pattern. See co_boxity in flatten_exact_fam_app_fully, which
  -- can be avoided if we check the TcLevel first!
-                                                                 
+
 eqCanRewriteFRB _ (Given, NomEq,  _)       (_, _,      _)       = True
 eqCanRewriteFRB _ (Given, ReprEq, _)       (_, ReprEq, _)       = True
 eqCanRewriteFRB _ _                        _                    = False

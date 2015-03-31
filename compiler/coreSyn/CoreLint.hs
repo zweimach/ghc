@@ -9,14 +9,14 @@ A ``lint'' pass to check for Core correctness
 {-# LANGUAGE CPP #-}
 {-# OPTIONS_GHC -fprof-auto #-}
 
-module CoreLint ( 
-    lintCoreBindings, lintUnfolding, 
+module CoreLint (
+    lintCoreBindings, lintUnfolding,
     lintPassResult, lintInteractiveExpr, lintExpr,
     lintAnnots,
 
     -- ** Debug output
-    CoreLint.showPass, showPassIO, endPass, endPassIO, 
-    dumpPassResult, 
+    CoreLint.showPass, showPassIO, endPass, endPassIO,
+    dumpPassResult,
     CoreLint.dumpIfSet,
  ) where
 
@@ -987,14 +987,14 @@ lintType ty@(TyConApp tc tys)
 
 -- arrows can related *unlifted* kinds, so this has to be separate from
 -- a dependent forall.
-lintType ty@(ForAllTy (Anon t1) t2) 
+lintType ty@(ForAllTy (Anon t1) t2)
   = do { k1 <- lintType t1
        ; k2 <- lintType t2
        ; lintArrow (ptext (sLit "type or kind") <+> quotes (ppr ty)) k1 k2 }
 
 lintType (ForAllTy (Named tv _vis) ty)
   = do { lintTyCoBndrKind tv
-       ; k <- addInScopeVar tv (lintType ty) 
+       ; k <- addInScopeVar tv (lintType ty)
        ; return k }
 
 lintType ty@(LitTy l) = lintTyLit l >> return (typeKind ty)
@@ -1074,7 +1074,7 @@ lint_app doc kfn kas
       = go_app kfn' ka
 
     go_app (ForAllTy (Anon kfa) kfb) (_,ka)
-      = do { unless (ka `eqType` kfa 
+      = do { unless (ka `eqType` kfa
                     || (isStarKind kfa && isUnliftedTypeKind ka) -- TODO (RAE): Remove this horrible hack
                     ) (addErrL fail_msg)
            ; return kfb }
@@ -1210,7 +1210,7 @@ lintCoercion (UnsafeCo _prov r ty1 ty2)
        ; k2 <- lintType ty2
        ; return (k1, k2, ty1, ty2, r) }
 
-lintCoercion (SymCo co) 
+lintCoercion (SymCo co)
   = do { (k1, k2, ty1, ty2, r) <- lintCoercion co
        ; return (k2, k1, ty2, ty1, r) }
 
@@ -1234,7 +1234,7 @@ lintCoercion the_co@(NthCo n co)
                tt = binderType bndr_t
                ks = typeKind ts
                kt = typeKind tt
-               
+
          ; _ -> case (splitTyConApp_maybe s, splitTyConApp_maybe t) of
          { (Just (tc_s, tys_s), Just (tc_t, tys_t))
              | tc_s == tc_t
@@ -1257,7 +1257,7 @@ lintCoercion the_co@(LRCo lr co)
   = do { (_,_,s,t,r) <- lintCoercion co
        ; lintRole co Nominal r
        ; case (splitAppTy_maybe s, splitAppTy_maybe t) of
-           (Just s_pr, Just t_pr) 
+           (Just s_pr, Just t_pr)
              -> do { lintL (not (isCoercionTy s_pick)) (mkNthIsCoMsg CLeft the_co)
                    ; lintL (not (isCoercionTy t_pick)) (mkNthIsCoMsg CRight the_co)
                    ; return (ks_pick, kt_pick, s_pick, t_pick, Nominal) }
@@ -1281,8 +1281,8 @@ lintCoercion (InstCo co arg)
             , k1' `eqType` tyVarKind tv1
             , k2' `eqType` tyVarKind tv2
             -> return (k3, k4,
-                       substTyWith [tv1] [s1] t1, 
-                       substTyWith [tv2] [s2] t2, r) 
+                       substTyWith [tv1] [s1] t1,
+                       substTyWith [tv2] [s2] t2, r)
             | otherwise
             -> failWithL (ptext (sLit "Kind mis-match in inst coercion"))
           _ -> failWithL (ptext (sLit "Bad argument of inst")) }
@@ -1316,11 +1316,11 @@ lintCoercion co@(AxiomInstCo con ind cos)
            ; lintRole arg role r
            ; let ktv_kind_l = substTy subst_l (tyVarKind ktv)
                  ktv_kind_r = substTy subst_r (tyVarKind ktv)
-           ; unless (k' `eqType` ktv_kind_l) 
+           ; unless (k' `eqType` ktv_kind_l)
                     (bad_ax (ptext (sLit "check_ki1") <+> vcat [ ppr co, ppr k', ppr ktv, ppr ktv_kind_l ] ))
            ; unless (k'' `eqType` ktv_kind_r)
                     (bad_ax (ptext (sLit "check_ki2") <+> vcat [ ppr co, ppr k'', ppr ktv, ppr ktv_kind_r ] ))
-           ; return (extendTCvSubst subst_l ktv s', 
+           ; return (extendTCvSubst subst_l ktv s',
                      extendTCvSubst subst_r ktv t') }
 
 lintCoercion (CoherenceCo co1 co2)
@@ -1422,7 +1422,7 @@ lintUnLiftedCoVar cv
 
 -- If you edit this type, you may need to update the GHC formalism
 -- See Note [GHC Formalism]
-data LintEnv 
+data LintEnv
   = LE { le_flags :: LintFlags       -- Linting the result of this pass
        , le_loc   :: [LintLocInfo]   -- Locations
        , le_subst :: TCvSubst        -- Current type substitution; we also use this
@@ -1540,7 +1540,7 @@ addMsg env msgs msg
 
 addLoc :: LintLocInfo -> LintM a -> LintM a
 addLoc extra_loc m
-  = LintM $ \ env errs -> 
+  = LintM $ \ env errs ->
     unLintM m (env { le_loc = extra_loc : le_loc env }) errs
 
 inCasePat :: LintM Bool         -- A slight hack; see the unique call site
@@ -1551,18 +1551,18 @@ inCasePat = LintM $ \ env errs -> (Just (is_case_pat env), errs)
 
 addInScopeVars :: [Var] -> LintM a -> LintM a
 addInScopeVars vars m
-  = LintM $ \ env errs -> 
-    unLintM m (env { le_subst = extendTCvInScopeList (le_subst env) vars }) 
+  = LintM $ \ env errs ->
+    unLintM m (env { le_subst = extendTCvInScopeList (le_subst env) vars })
               errs
 
 addInScopeVar :: Var -> LintM a -> LintM a
 addInScopeVar var m
-  = LintM $ \ env errs -> 
+  = LintM $ \ env errs ->
     unLintM m (env { le_subst = extendTCvInScope (le_subst env) var }) errs
 
 extendSubstL :: TyVar -> Type -> LintM a -> LintM a
 extendSubstL tv ty m
-  = LintM $ \ env errs -> 
+  = LintM $ \ env errs ->
     unLintM m (env { le_subst = Type.extendTCvSubst (le_subst env) tv ty }) errs
 
 updateTCvSubst :: TCvSubst -> LintM a -> LintM a
@@ -1869,7 +1869,7 @@ mkDuplicateForAllCoVarsMsg tv co
   = hang (text "Repeated variable in forall coercion:" <+> ppr tv)
        2 (sep [ text "In the coercion:"
               , ppr co ])
-    
+
 mkNthIsCoMsg :: LeftOrRight -> Coercion -> MsgDoc
 mkNthIsCoMsg lr co
   = ptext (sLit "Coercion") <+> (ppr co) <+>

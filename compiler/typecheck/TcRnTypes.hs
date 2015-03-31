@@ -2022,7 +2022,7 @@ data CtOrigin
                                   -- ^ The thing that has type "actual"
                  , uo_level    :: TypeOrKind
                  }
-    
+
   | KindEqOrigin
       TcType TcType             -- A kind equality arising from unifying these two types
       CtOrigin                  -- originally arising from this

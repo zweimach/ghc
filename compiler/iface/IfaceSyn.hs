@@ -14,7 +14,7 @@ module IfaceSyn (
         IfaceBinding(..), IfaceConAlt(..),
         IfaceIdInfo(..), IfaceIdDetails(..), IfaceUnfolding(..),
         IfaceInfoItem(..), IfaceRule(..), IfaceAnnotation(..), IfaceAnnTarget,
-        IfaceClsInst(..), IfaceFamInst(..), IfaceTickish(..), 
+        IfaceClsInst(..), IfaceFamInst(..), IfaceTickish(..),
         IfaceBang(..), IfaceAxBranch(..),
         IfaceTyConParent(..),
 
@@ -76,9 +76,9 @@ type IfaceTopBndr = OccName
   -- It's convenient to have an OccName in the IfaceSyn, altough in each
   -- case the namespace is implied by the context. However, having an
   -- OccNames makes things like ifaceDeclImplicitBndrs and ifaceDeclFingerprints
-  -- very convenient. 
-  --   
-  -- We don't serialise the namespace onto the disk though; rather we 
+  -- very convenient.
+  --
+  -- We don't serialise the namespace onto the disk though; rather we
   -- drop it when serialising and add it back in when deserialising.
 
 data IfaceDecl
@@ -601,7 +601,7 @@ pprIfaceDecl ss (IfaceData { ifName = tycon, ifCType = ctype,
     pp_roles
       | is_data_instance = empty
       | otherwise        = pprRoles (== Representational)
-                                    (pprPrefixIfDeclBndr ss tycon) 
+                                    (pprPrefixIfDeclBndr ss tycon)
                                     tc_bndrs roles
             -- Don't display roles for data family instances (yet)
             -- See discussion on Trac #8672.
@@ -652,7 +652,7 @@ pprIfaceDecl ss (IfaceClass { ifATs = ats, ifSigs = sigs, ifRec = isrec
          , nest 2 (vcat [vcat asocs, vcat dsigs, pprec])]
     where
       (bndrs, _, _) = splitIfaceSigmaTy kind
-      
+
       pp_where = ppShowRhs ss $ ppUnless (null sigs && null ats) (ptext (sLit "where"))
 
       asocs = ppr_trim $ map maybeShowAssoc ats
@@ -742,7 +742,7 @@ pprRec NonRecursive = Outputable.empty
 pprRec Recursive    = ptext (sLit "RecFlag: Recursive")
 
 pprInfixIfDeclBndr, pprPrefixIfDeclBndr :: ShowSub -> OccName -> SDoc
-pprInfixIfDeclBndr (ShowSub { ss_ppr_bndr = ppr_bndr }) occ 
+pprInfixIfDeclBndr (ShowSub { ss_ppr_bndr = ppr_bndr }) occ
   = pprInfixVar (isSymOcc occ) (ppr_bndr occ)
 pprPrefixIfDeclBndr (ShowSub { ss_ppr_bndr = ppr_bndr }) occ
   = parenSymOcc occ (ppr_bndr occ)
@@ -878,20 +878,20 @@ tv_to_forall_bndr tv = IfaceTv tv Invisible
 {-
 Note [Result type of a data family GADT]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider 
+Consider
    data family T a
    data instance T (p,q) where
       T1 :: T (Int, Maybe c)
       T2 :: T (Bool, q)
 
-The IfaceDecl actually looks like 
+The IfaceDecl actually looks like
 
    data TPr p q where
       T1 :: forall p q. forall c. (p~Int,q~Maybe c) => TPr p q
       T2 :: forall p q. (p~Bool) => TPr p q
 
 To reconstruct the result types for T1 and T2 that we
-want to pretty print, we substitute the eq-spec 
+want to pretty print, we substitute the eq-spec
 [p->Int, q->Maybe c] in the arg pattern (p,q) to give
    T (Int, Maybe c)
 Remember that in IfaceSyn, the TyCon and DataCon share the same
@@ -934,19 +934,19 @@ pprIfaceExpr add_par i@(IfaceLam _ _)
     collect bs e              = (reverse bs, e)
 
 pprIfaceExpr add_par (IfaceECase scrut ty)
-  = add_par (sep [ ptext (sLit "case") <+> pprIfaceExpr noParens scrut 
+  = add_par (sep [ ptext (sLit "case") <+> pprIfaceExpr noParens scrut
                  , ptext (sLit "ret_ty") <+> pprParendIfaceType ty
                  , ptext (sLit "of {}") ])
 
 pprIfaceExpr add_par (IfaceCase scrut bndr [(con, bs, rhs)])
-  = add_par (sep [ptext (sLit "case") 
-                        <+> pprIfaceExpr noParens scrut <+> ptext (sLit "of") 
+  = add_par (sep [ptext (sLit "case")
+                        <+> pprIfaceExpr noParens scrut <+> ptext (sLit "of")
                         <+> ppr bndr <+> char '{' <+> ppr_con_bs con bs <+> arrow,
                   pprIfaceExpr noParens rhs <+> char '}'])
 
 pprIfaceExpr add_par (IfaceCase scrut bndr alts)
-  = add_par (sep [ptext (sLit "case") 
-                        <+> pprIfaceExpr noParens scrut <+> ptext (sLit "of") 
+  = add_par (sep [ptext (sLit "case")
+                        <+> pprIfaceExpr noParens scrut <+> ptext (sLit "of")
                         <+> ppr bndr <+> char '{',
                   nest 2 (sep (map ppr_alt alts)) <+> char '}'])
 
@@ -1497,9 +1497,9 @@ instance Binary IfaceFamTyConFlav where
                     _ -> return IfaceAbstractClosedSynFamilyTyCon }
 
 instance Binary IfaceClassOp where
-    put_ bh (IfaceClassOp n def ty) = do 
+    put_ bh (IfaceClassOp n def ty) = do
         put_ bh (occNameFS n)
-        put_ bh def     
+        put_ bh def
         put_ bh ty
     get bh = do
         n   <- get bh
