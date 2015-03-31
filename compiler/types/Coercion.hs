@@ -31,7 +31,7 @@ module Coercion (
         mkSymCo, mkSymCoArg, mkTransCo, mkTransAppCo,
         mkNthCo, mkNthCoArg, mkNthCoRole, mkLRCo,
         mkInstCo, mkAppCo, mkAppCos, mkTyConAppCo, mkFunCo, mkFunCos,
-        mkForAllCo, mkHomoForAllCos,
+        mkForAllCo, mkHomoForAllCos, mkHomoForAllCos_NoRefl,
         mkPhantomCo, mkHomoPhantomCo, toPhantomCo,
         mkUnsafeCo, mkUnsafeCoArg, mkSubCo,
         mkNewTypeCo, mkAxiomInstCo,
@@ -752,7 +752,12 @@ mkHomoForAllCos :: Role -> [TyCoVar] -> Coercion -> Coercion
 mkHomoForAllCos _r tvs (Refl r ty)
   = ASSERT( _r == r )
     Refl r (mkInvForAllTys tvs ty)
-mkHomoForAllCos r tvs co
+mkHomoForAllCos r tvs ty = mkHomoForAllCos_NoRefl r tvs ty
+
+-- | Like 'mkHomoForAllCos', but doesn't check if the inner coercion
+-- is reflexive.
+mkHomoForAllCos_NoRefl :: Role -> [TyCoVar] -> Coercion -> Coercion
+mkHomoForAllCos_NoRefl r tvs co
   = go (emptyLiftingContext in_scope) tvs
   where
     in_scope = mkInScopeSet $ unionVarSets

@@ -1176,7 +1176,8 @@ pushRefl (Refl r (ForAllTy (Anon ty1) ty2))
 pushRefl (Refl r (TyConApp tc tys))
   = Just (TyConAppCo r tc (zipWith mkReflCoArg (tyConRolesX r tc) tys))
 pushRefl (Refl r (ForAllTy (Named tv _) ty))
-  = Just (mkHomoForAllCos r [tv] (Refl r ty))
+  = Just (mkHomoForAllCos_NoRefl r [tv] (Refl r ty))
+    -- NB: NoRefl variant. Otherwise, we get a loop!
 pushRefl (Refl r (CastTy ty co))  = Just (castCoercionKind (Refl r ty) co co)
 pushRefl _                        = Nothing
 
