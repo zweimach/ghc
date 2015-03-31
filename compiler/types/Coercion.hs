@@ -771,7 +771,7 @@ mkHomoForAllCos_NoRefl r tvs co
 
     go lc []       = let Pair _lty rty = coercionKind co in
                      co `mkTransCo` liftCoSubst r lc rty
-    go lc (tv:tvs) = ForAllCo (ForAllCoBndr h tv tv' m_cv) $ go lc' tvs
+    go lc (tv:tvs) = ForAllCo (mkForAllCoBndr h tv tv' m_cv) $ go lc' tvs
       where
         k   = tyVarKind tv
         k'  = substTy (lcSubstRight lc) k
@@ -1310,13 +1310,12 @@ mkForAllCoBndr co tv1 tv2 m_cv
       Nothing -> ASSERT2( isCoVar tv1 && isCoVar tv2, ppr tv1 $$ ppr tv2 )
                  result
       Just cv -> ASSERT2( isTyVar tv1 && isTyVar tv2, ppr tv1 $$ ppr tv2 )
-                 ASSERT2( r == Nominal, cv_doc )
-                 ASSERT2( cvk1 `eqType` mkOnlyTyVarTy tv1, cv_doc $$ ppr tv1 )
-                 ASSERT2( cvk2 `eqType` mkOnlyTyVarTy tv2, cv_doc $$ ppr tv2 )
+                 ASSERT2( coVarRole cv == Nominal, ppr cv $$ ppr (varType cv) )
                  result
-        where
-          (_, _, cvk1, cvk2, r) = coVarKindsTypesRole cv
-          cv_doc = ppr cv $$ ppr (varType cv)
+        -- It's tempting to check that the kind of cv matches tv1 and tv2.
+        -- But mkForAllCoBndr can be called with an ill-kinded cv. See
+        -- Note [Heterogeneous type matching] in Unify. A problem here
+        -- will get caught in CoreLint anyway.
 
   | otherwise
   = ForAllCoBndr co tv1 tv2 m_cv
