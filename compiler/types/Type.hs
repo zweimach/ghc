@@ -392,7 +392,7 @@ expandTypeSynonyms ty
       -- substForAllCoBndrCallback, which is general enough to
       -- handle coercion optimization (which sometimes swaps the
       -- order of a coercion)
-    go_cobndr = substForAllCoBndrCallback False go (const go_co)
+    go_cobndr subst = substForAllCoBndrCallback False go (go_co subst) subst
 
 {-
 ************************************************************************

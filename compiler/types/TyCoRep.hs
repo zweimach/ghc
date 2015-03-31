@@ -1806,19 +1806,20 @@ subst_co_arg subst co = go_arg co
     go = subst_co subst
 
 substForAllCoBndr :: TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
-substForAllCoBndr = substForAllCoBndrCallback False substTy (const substCo)
+substForAllCoBndr subst
+  = substForAllCoBndrCallback False substTy (substCo subst) subst
 
 -- See Note [Sym and ForAllCo]
 substForAllCoBndrCallback :: Bool -- apply "sym" to the binder?
                           -> (TCvSubst -> Type -> Type)
-                          -> (Bool -> TCvSubst -> Coercion -> Coercion)
+                          -> (Coercion -> Coercion)  -- transformation to kind co
                           -> TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
 substForAllCoBndrCallback sym sty sco subst (ForAllCoBndr h tv1 tv2 m_cv)
   = case substTyVarBndrCallback sty subst  tv1 of { (subst1, tv1') ->
     case substTyVarBndrCallback sty subst1 tv2 of { (subst2, tv2') ->
     case maybeSecond (substCoVarBndrCallback sym sty) subst2 m_cv of
                                                   { (subst3, m_cv') ->
-    let h' = sco sym subst h in -- just subst, not any of the others
+    let h' = sco h in
     if sym
     then (subst3, mkForAllCoBndr h' tv2' tv1' m_cv')
     else (subst3, mkForAllCoBndr h' tv1' tv2' m_cv') }}}

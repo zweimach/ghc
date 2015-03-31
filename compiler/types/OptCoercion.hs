@@ -256,7 +256,7 @@ opt_co4 env sym rep r (AppCo co1 h co2)
 
 -- See Note [Sym and ForAllCo] in TyCoRep
 opt_co4 env sym rep r (ForAllCo cobndr co)
-  = case optForAllCoBndr env sym cobndr of
+  = case optForAllCoBndr env sym rep r cobndr of
       (env', cobndr') -> mkForAllCo cobndr' (opt_co4_wrap env' sym rep r co)
      -- Use the "mk" functions to check for nested Refls
 
@@ -1076,11 +1076,12 @@ and these two imply
 
 -}
 
--- TODO (RAE): I think the "callback" nature of these functions can be changed,
--- now that we've lost optType
-optForAllCoBndr :: TCvSubst -> Bool -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
-optForAllCoBndr env sym
-  = substForAllCoBndrCallback sym substTy
-                              (\sym' env' -> opt_co1 env' sym') env
-                              -- TODO (RAE): Could this be optimized?
+-- params like opt_co4
+optForAllCoBndr :: TCvSubst
+                -> SymFlag
+                -> ReprFlag
+                -> Role
+                -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
+optForAllCoBndr env sym rep r
+  = substForAllCoBndrCallback sym substTy (opt_co4 env sym rep r) env
 

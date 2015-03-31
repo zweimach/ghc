@@ -1,8 +1,9 @@
 
 T7148a.hs:19:50:
-    Couldn't match representation of type ‘b’ with that of ‘Result a b’
-      ‘b’ is a rigid type variable bound by
-          the type forall b1. Proxy b1 -> a -> Result a b1 at T7148a.hs:19:50
+    Couldn't match representation of type ‘b1’
+                             with that of ‘Result a b1’
+      ‘b1’ is a rigid type variable bound by
+           the type forall b2. Proxy b2 -> a -> Result a b2 at T7148a.hs:19:50
     arising from the coercion of the method ‘coerce’
       from type ‘forall b. Proxy b -> a -> Result a b’
         to type ‘forall b.
