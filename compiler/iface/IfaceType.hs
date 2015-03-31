@@ -149,7 +149,7 @@ data IfaceTyCon
   = IfaceTc              { ifaceTyConName :: IfExtName }
   | IfacePromotedDataCon { ifaceTyConName :: IfExtName }
 
-data IfaceCoercion     -- represents Coercions and CoercionArgs
+data IfaceCoercion
   = IfaceReflCo      Role IfaceType
   | IfaceFunCo       Role IfaceCoercion IfaceCoercion
   | IfaceTyConAppCo  Role IfaceTyCon [IfaceCoercion]

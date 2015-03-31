@@ -34,7 +34,7 @@ module Coercion (
         mkForAllCo, mkHomoForAllCos, mkHomoForAllCos_NoRefl,
         mkPhantomCo, mkHomoPhantomCo, toPhantomCo,
         mkUnsafeCo, mkUnsafeCoArg, mkSubCo,
-        mkNewTypeCo, mkAxiomInstCo,
+        mkNewTypeCo, mkAxiomInstCo, mkProofIrrelCo,
         downgradeRole, downgradeRoleArg, maybeSubCo, mkAxiomRuleCo,
         mkCoherenceCo, mkCoherenceRightCo, mkCoherenceLeftCo,
         mkKindCo, mkKindAppCo, castCoercionKind,
@@ -1120,6 +1120,18 @@ maybeSubCo ReprEq = mkSubCo
 
 mkAxiomRuleCo :: CoAxiomRule -> [Type] -> [Coercion] -> Coercion
 mkAxiomRuleCo = AxiomRuleCo
+
+-- | Make a "coercion between coercions".
+mkProofIrrelCo :: Role       -- ^ role of the created coercion, "r"
+               -> Coercion   -- ^ :: phi1 ~R phi2
+               -> Coercion   -- ^ g1 :: phi1
+               -> Coercion   -- ^ g2 :: phi2
+               -> Coercion   -- ^ :: g1 ~r g2
+
+-- if the two coercion prove the same fact, I just don't care what
+-- the individual coercions are.
+mkProofIrrelCo r (Refl {}) g  _  = Refl r (CoercionTy g)
+mkProofIrrelCo r kco       g1 g2 = ProofIrrelCo r kco g1 g2    
 
 {-
 %************************************************************************

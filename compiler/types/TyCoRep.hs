@@ -28,7 +28,7 @@ module TyCoRep (
         VisibilityFlag(..),
 
         -- Coercions
-        Coercion(..), CoercionArg(..), LeftOrRight(..), ForAllCoBndr(..),
+        Coercion(..), LeftOrRight(..), ForAllCoBndr(..),
 
         -- Functions over types
         mkTyConTy, mkOnlyTyVarTy, mkOnlyTyVarTys,
@@ -544,12 +544,12 @@ data Coercion
 
   -- TyConAppCo :: "e" -> _ -> ?? -> e
   -- See Note [TyConAppCo roles]
-  | TyConAppCo Role TyCon [CoercionArg]    -- lift TyConApp
+  | TyConAppCo Role TyCon [Coercion]    -- lift TyConApp
                -- The TyCon is never a synonym;
                -- we expand synonyms eagerly
                -- But it can be a type function
 
-  | AppCo Coercion Coercion CoercionArg        -- lift AppTy
+  | AppCo Coercion Coercion Coercion        -- lift AppTy
           -- AppCo :: e -> e -> N -> e
           -- See Note [AppCo]
 
@@ -562,7 +562,7 @@ data Coercion
                        -- result role depends on the tycon of the variable's type
 
     -- AxiomInstCo :: e -> _ -> [N] -> e
-  | AxiomInstCo (CoAxiom Branched) BranchIndex [CoercionArg]
+  | AxiomInstCo (CoAxiom Branched) BranchIndex [Coercion]
      -- See also [CoAxiom index]
      -- The coercion arguments always *precisely* saturate
      -- arity of (that branch of) the CoAxiom. If there are
@@ -590,7 +590,7 @@ data Coercion
     -- :: _ -> e -> ?? (inverse of TyConAppCo, see Note [TyConAppCo roles])
   | LRCo   LeftOrRight Coercion     -- Decomposes (t_left t_right)
     -- :: _ -> N -> N
-  | InstCo Coercion CoercionArg
+  | InstCo Coercion Coercion
     -- :: e -> N -> e
     -- See Note [InstCo roles]
 
@@ -613,6 +613,12 @@ data Coercion
   | SubCo Coercion                  -- Turns a ~N into a ~R
     -- :: N -> R
 
+  | ProofIrrelCo Role        -- of this coercion
+                 Coercion    -- :: phi1 ~R phi2
+                 Coercion    -- :: phi1
+                 Coercion    -- :: phi2
+                             -- ProofIrrelCo r _ g1 g2 :: g1 ~r g2
+
   deriving (Data.Data, Data.Typeable)
 
 -- | A 'ForAllCoBndr' is a binding form for a quantified coercion. It is
@@ -630,20 +636,6 @@ data ForAllCoBndr
 -- returns the variables bound in a ForAllCoBndr
 coBndrVars :: ForAllCoBndr -> [TyCoVar]
 coBndrVars (ForAllCoBndr _ tv1 tv2 m_cv) = [tv1, tv2] ++ maybeToList m_cv
-
--- | A CoercionArg is an argument to a coercion. It may be a coercion (lifted from
--- a type) or a pair of coercions (lifted from a coercion). See
--- Note [Coercion arguments]
-
--- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-data CoercionArg
-  = TyCoArg Coercion                        -- role is that of the Coercion
-  | CoCoArg Role             -- role of the CoercionArg
-            Coercion         -- :: phi1 ~R phi2
-            Coercion         -- :: phi1
-            Coercion         -- :: phi2
-  deriving ( Data.Data, Data.Typeable )
 
 -- If you edit this type, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
@@ -768,31 +760,6 @@ Now we have
   sym (C b) ; C g
 
 which can be optimized to F g.
-
-Note [Coercion arguments]
-~~~~~~~~~~~~~~~~~~~~~~~~~
-As explained in the above note, a coercion lifted from a type
-is applied to a coercion, not a type. But, what if that type
-itself expected to be applied to a coercion? Consider
-
-  t : forall c: * ~ s. (* |> c)
-
-Then, we get
-
- <t> : (forall c: * ~ s. (* |> c)) ~ (forall c: * ~ s. (* |> c))
-
-We can't just apply <t> to a coercion, because then the components
-of <t>'s kind will get applied to types, and that doesn't work out.
-Note that we don't have coercions among coercions (thankfully), so
-that isn't the answer. The answer is that <t> must be applied to
-a pair of coercions, one for the left-hand type and one for the
-right-hand type:
-
-  <t> (g1, g2) : (* |> g1) ~ (* |> g2)
-
-Thus, we have the CoercionArg type, which is either a single
-coercion (for the normal case) or a pair of coercions (for the case
-described here).
 
 Note [CoAxiom index]
 ~~~~~~~~~~~~~~~~~~~~
@@ -1062,7 +1029,7 @@ w :: s1 ~N s2
 ------------------------------- InstCo
 InstCo g w :: (t1 [a |-> s1]) ~r (t2 [a |-> s2])
 
-Note that the CoercionArg w *must* be nominal. This is necessary
+Note that the Coercion w *must* be nominal. This is necessary
 because the variable a might be used in a "nominal position"
 (that is, a place where role inference would require a nominal
 role) in t1 or t2. If we allowed w to be representational, we
@@ -1118,16 +1085,10 @@ tyCoVarsOfCo (KindCo co)         = tyCoVarsOfCo co
 tyCoVarsOfCo (KindAppCo co)      = tyCoVarsOfCo co
 tyCoVarsOfCo (SubCo co)          = tyCoVarsOfCo co
 tyCoVarsOfCo (AxiomRuleCo _ ts cs) = tyCoVarsOfTypes ts `unionVarSet` tyCoVarsOfCos cs
+tyCoVarsOfCo (ProofIrrelCo _ c1 c2 c3) = tyCoVarsOfCos [c1, c2, c3]
 
 tyCoVarsOfCos :: [Coercion] -> TyCoVarSet
 tyCoVarsOfCos cos = mapUnionVarSet tyCoVarsOfCo cos
-
-tyCoVarsOfCoArg :: CoercionArg -> TyCoVarSet
-tyCoVarsOfCoArg (TyCoArg co)        = tyCoVarsOfCo co
-tyCoVarsOfCoArg (CoCoArg _ h c1 c2) = mapUnionVarSet tyCoVarsOfCo [h, c1, c2]
-
-tyCoVarsOfCoArgs :: [CoercionArg] -> TyCoVarSet
-tyCoVarsOfCoArgs args = mapUnionVarSet tyCoVarsOfCoArg args
 
 coVarsOfType :: Type -> CoVarSet
 coVarsOfType (TyVarTy v)         = coVarsOfType (tyVarKind v)
@@ -1166,16 +1127,10 @@ coVarsOfCo (KindCo co)         = coVarsOfCo co
 coVarsOfCo (KindAppCo co)      = coVarsOfCo co
 coVarsOfCo (SubCo co)          = coVarsOfCo co
 coVarsOfCo (AxiomRuleCo _ ts cs) = coVarsOfTypes ts `unionVarSet` coVarsOfCos cs
+coVarsOfCo (ProofIrrelCo _ c1 c2 c3) = coVarsOfCos [c1, c2, c3]
 
 coVarsOfCos :: [Coercion] -> CoVarSet
 coVarsOfCos cos = mapUnionVarSet coVarsOfCo cos
-
-coVarsOfCoArg :: CoercionArg -> CoVarSet
-coVarsOfCoArg (TyCoArg co)        = coVarsOfCo co
-coVarsOfCoArg (CoCoArg _ h c1 c2) = coVarsOfCos [h, c1, c2]
-
-coVarsOfCoArgs :: [CoercionArg] -> CoVarSet
-coVarsOfCoArgs args = mapUnionVarSet coVarsOfCoArg args
 
 closeOverKinds :: TyCoVarSet -> TyCoVarSet
 -- Add the kind variables free in the kinds
@@ -1738,11 +1693,6 @@ substCo :: TCvSubst -> Coercion -> Coercion
 substCo subst co | isEmptyTCvSubst subst = co
                  | otherwise             = subst_co subst co
 
--- | Substitute within a 'Coercion'
-substCoArg :: TCvSubst -> CoercionArg -> CoercionArg
-substCoArg subst co | isEmptyTCvSubst subst = co
-                    | otherwise             = subst_co_arg subst co
-
 -- | Substitute within several 'Coercion's
 substCos :: TCvSubst -> [Coercion] -> [Coercion]
 substCos subst cos | isEmptyTCvSubst subst = cos
@@ -1793,17 +1743,10 @@ subst_co subst co
                                    cs1 = map go cs
                                 in ts1 `seqList` cs1 `seqList`
                                    AxiomRuleCo c ts1 cs1
+    go (ProofIrrelCo r c1 c2 c3)
+                             = ((mkProofIrrelCo r $! go c1) $! go c2) $! go c3
 
     go_arg = subst_co_arg subst
-
-subst_co_arg :: TCvSubst -> CoercionArg -> CoercionArg
-subst_co_arg subst co = go_arg co
-  where
-    go_arg :: CoercionArg -> CoercionArg
-    go_arg (TyCoArg co)          = TyCoArg $! go co
-    go_arg (CoCoArg r h co1 co2) = ((CoCoArg r $! go h) $! go co1) $! go co2
-
-    go = subst_co subst
 
 substForAllCoBndr :: TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
 substForAllCoBndr subst
@@ -2162,8 +2105,6 @@ instance Outputable Coercion where -- defined here to avoid orphans
   ppr = pprCo
 instance Outputable ForAllCoBndr where
   ppr = pprCoBndr
-instance Outputable CoercionArg where
-  ppr = pprCoArg
 instance Outputable LeftOrRight where
   ppr CLeft    = ptext (sLit "Left")
   ppr CRight   = ptext (sLit "Right")

@@ -26,6 +26,7 @@ mkCoherenceCo :: Coercion -> Coercion -> Coercion
 mkKindCo :: Coercion -> Coercion
 mkKindAppCo :: Coercion -> Coercion
 mkSubCo :: Coercion -> Coercion
+mkProofIrrelCo :: Role -> Coercion -> Coercion -> Coercion -> Coercion
 
 mkFunCos :: Role -> [Coercion] -> Coercion -> Coercion
 

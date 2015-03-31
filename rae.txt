@@ -1,4 +1,14 @@
 stack:
+ - CoercionArg
+ - TyCoArg
+ - CoCoArg
+ - coercion argument
+ - tyCoVarsOfCoArg
+ - coVarsOfCoArg
+ - substCoArg
+ - pprCoArg
+ - subst_co_arg
+
 - flattening foralls is inadequate (though not quite wrong). The tyvar
   kind isn't flattened. Also see go_bndr in flatten_co.
 
