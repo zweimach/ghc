@@ -755,10 +755,14 @@ mkHomoForAllCos _r tvs (Refl r ty)
 mkHomoForAllCos r tvs co
   = go (emptyLiftingContext in_scope) tvs
   where
-    in_scope = mkInScopeSet $ tyCoVarsOfCo co `unionVarSet`
-                              mapUnionVarSet (tyCoVarsOfType . tyVarKind) tvs
+    in_scope = mkInScopeSet $ unionVarSets
+                              [ tyCoVarsOfCo co
+                              , mapUnionVarSet (tyCoVarsOfType . tyVarKind) tvs
+                              , mkVarSet tvs ]
                               -- this in_scope is a little bigger than
                               -- necessary, but that's better than too small.
+                              -- NB: the mkVarSet tvs is essential, so that tv' and
+                              -- tv are distinct
     
     go lc []       = let Pair _lty rty = coercionKind co in
                      co `mkTransCo` liftCoSubst r lc rty
