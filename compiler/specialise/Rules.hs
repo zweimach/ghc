@@ -57,9 +57,9 @@ import FastString
 import Maybes
 import Bag
 import Util
-import Pair
 import Data.List
 import Data.Ord
+import Control.Monad    ( guard )
 
 {-
 Note [Overall plumbing for rules]
@@ -724,17 +724,42 @@ match _ _ _e1 _e2 = -- pprTrace "Failing at" ((text "e1:" <+> ppr _e1) $$ (text 
                     Nothing
 
 -------------
+-- TODO (RAE): This is bad. It's looking at the structure of a coercion.
+-- Instead, is it possible to just have variables as the top level of
+-- every coercion made in a RULE? Then, we don't look at structure.
 match_co :: RuleMatchEnv
          -> RuleSubst
          -> Coercion
          -> Coercion
          -> Maybe RuleSubst
 match_co renv subst co1 co2
-  = do { subst1 <- match_ty renv subst  tyl1 tyl2
-       ;           match_ty renv subst1 tyr1 tyr2 }
-  where
-    Pair tyl1 tyr1 = coercionKind co1
-    Pair tyl2 tyr2 = coercionKind co2
+  | Just cv <- getCoVar_maybe co1
+  = match_var renv subst cv (Coercion co2)
+  | Just (ty1, r1) <- isReflCo_maybe co1
+  = do { (ty2, r2) <- isReflCo_maybe co2
+       ; guard (r1 == r2)
+       ; match_ty renv subst ty1 ty2 }
+match_co renv subst co1 co2
+  | Just (tc1, cos1) <- splitTyConAppCo_maybe co1
+  = case splitTyConAppCo_maybe co2 of
+      Just (tc2, cos2)
+        |  tc1 == tc2
+        -> match_cos renv subst cos1 cos2
+      _ -> Nothing
+match_co _ _ co1 co2
+  = pprTrace "match_co: needs more cases" (ppr co1 $$ ppr co2) Nothing
+    -- Currently just deals with CoVarCo, TyConAppCo and Refl
+
+match_cos :: RuleMatchEnv
+         -> RuleSubst
+         -> [Coercion]
+         -> [Coercion]
+         -> Maybe RuleSubst
+match_cos renv subst (co1:cos1) (co2:cos2) =
+  do { subst' <- match_co renv subst co1 co2
+     ; match_cos renv subst' cos1 cos2 }
+match_cos _ subst [] [] = Just subst
+match_cos _ _ cos1 cos2 = pprTrace "match_cos: not same length" (ppr cos1 $$ ppr cos2) Nothing
          
 -------------
 rnMatchBndr2 :: RuleMatchEnv -> RuleSubst -> Var -> Var -> RuleMatchEnv

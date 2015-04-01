@@ -317,13 +317,13 @@ opt_co4 env sym rep r (InstCo co1 arg)
   | Just (tv1, tv2, cv, co_body) <- splitForAllCo_Ty_maybe co1
   = opt_co4_wrap (extendTCvSubstList env
               [tv1, tv2, cv]
-              [ty1, ty2, mkCoercionTy arg])
+              [ty1', ty2', mkCoercionTy arg'])
               -- See Note [Sym and InstCo]
             sym rep r co_body
 
     -- forall over coercion...
   | Just (cv1, cv2, co_body) <- splitForAllCo_Co_maybe co1
-  = opt_co4_wrap (extendTCvSubstList env [cv1, cv2] [ty1, ty2])
+  = opt_co4_wrap (extendTCvSubstList env [cv1, cv2] [ty1', ty2'])
             sym rep r co_body
 
     -- See if it is a forall after optimization
@@ -345,8 +345,7 @@ opt_co4 env sym rep r (InstCo co1 arg)
 
   | otherwise = InstCo co1' arg'
   where
-    Pair ty1  ty2  = coercionKind arg
-    Pair ty1' ty2' = coercionKind arg'
+    Pair ty1' ty2'  = coercionKind arg'
     
     co1' = opt_co4_wrap env sym rep r co1
     r'   = chooseRole rep r
