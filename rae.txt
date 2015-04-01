@@ -8,6 +8,46 @@ stack:
  - substCoArg
  - pprCoArg
  - subst_co_arg
+ - argToIfaceCoercion
+ - tcIfaceCoArg
+ - TcCoercion constructor
+ - flatten_one_arg
+ - zonkCoArgToCoArg
+ - orphNamesOfCoArg
+ - uTypeArg
+ - fvCoArg
+ - coercionArgSize
+ - ppr_arg
+ - isReflLike_maybe  --> isReflCo_maybe
+ - isReflLike        --> isReflCo
+ - mkReflCoArg
+ - mkRepReflCoArg
+ - mkNomReflCoArg
+ - mkUnsafeCoArg
+ - mkNthCoArg
+ - mkKindCoArg
+ - setRoleArg_maybe
+ - downgradeRoleArg
+ - setNominalRoleArg_maybe
+ - toPhantomCoArg
+ - applyRole   --> _|_
+ - mkCoArgForVar  --> mkNomReflCo . mkTyCoVarTy
+ - mkSymCoArg
+ - eqCoercionArg
+ - seqCoArg
+ - setCoArgs
+ - coercionArgKind
+ - coercionArgKindRole
+ - coercionArgRole
+ - buildCoherenceCoArg
+ - normalise_ty_arg
+ - NormalCoArg
+ - opt_co_arg2
+ - opt_co_arg3
+ - opt_co_arg4
+ - opt_cocoarg --> opt_proofirrel
+ - opt_unsafe_arg
+ - ty_co_match_arg
 
 - flattening foralls is inadequate (though not quite wrong). The tyvar
   kind isn't flattened. Also see go_bndr in flatten_co.

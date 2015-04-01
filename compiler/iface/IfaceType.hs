@@ -1218,12 +1218,10 @@ toIfaceCoercion (AxiomRuleCo co ts cs) = IfaceAxiomRuleCo
                                           (coaxrName co)
                                           (map toIfaceType ts)
                                           (map toIfaceCoercion cs)
-
-argToIfaceCoercion :: CoercionArg -> IfaceCoercion
-argToIfaceCoercion (TyCoArg co) = toIfaceCoercion co
-argToIfaceCoercion (CoCoArg r kco co1 co2)
-  = IfaceCoCoArg r (toIfaceCoercion kco) (toIfaceCoercion co1)
-                   (toIfaceCoercion co2)
+toIfaceCoercion (ProofIrrelCo r c1 c2 c3) = IfaceCoCoArg r
+                                              (toIfaceCoercion c1)
+                                              (toIfaceCoercion c2)
+                                              (toIfaceCoercion c3)
 
 toIfaceForAllCoBndr :: ForAllCoBndr -> IfaceForAllCoBndr
 toIfaceForAllCoBndr (ForAllCoBndr co tv1 tv2 m_cv)

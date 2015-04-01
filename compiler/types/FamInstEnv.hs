@@ -666,8 +666,8 @@ Note [Family instance overlap conflicts]
 type MatchFun =  FamInst                -- The FamInst template
               -> TyVarSet -> [Type]     --   fi_tvs, fi_tys of that FamInst
               -> [Type]                 -- Target to match against
-              -> Maybe (TCvSubst, [CoercionArg])
-                                        -- co_args :: substed fi_tys ~N target
+              -> Maybe (TCvSubst, [Coercion])
+                                        -- args :: substed fi_tys ~N target
 
 lookup_fam_inst_env'          -- The worker, local to this module
     :: MatchFun
@@ -844,7 +844,7 @@ reduceTyFamApp_maybe envs role tc tys
   = Nothing
 
 -- The axiom can be oversaturated. (Closed families only.)
-chooseBranch :: CoAxiom Branched -> [Type] -> Maybe (BranchIndex, [Type], [CoercionArg])
+chooseBranch :: CoAxiom Branched -> [Type] -> Maybe (BranchIndex, [Type], [Coercion])
 chooseBranch axiom tys
   = do { let num_pats = coAxiomNumPats axiom
              (target_tys, extra_tys) = splitAt num_pats tys
@@ -857,7 +857,7 @@ chooseBranch axiom tys
 findBranch :: [CoAxBranch]             -- branches to check
            -> BranchIndex              -- index of current branch
            -> [Type]                   -- target types
-           -> Maybe (BranchIndex, [Type], [CoercionArg])
+           -> Maybe (BranchIndex, [Type], [Coercion])
                  -- coercions relate requested types to returned axiom LHS at role N
 findBranch (CoAxBranch { cab_tvs = tpl_tvs, cab_lhs = tpl_lhs, cab_incomps = incomps }
               : rest) ind target_tys
@@ -1119,18 +1119,11 @@ normalise_type env lc
       let (nco, nty) = go r ty
           co' = substRightCo lc co
       in (castCoercionKind nco co co', mkCastTy nty co')
-    go _ (CoercionTy co) = pprPanic "normalise_type" (ppr co)
-
-normalise_ty_arg :: FamInstEnvs -> LiftingContext -> Role
-                 -> Type -> (CoercionArg, Type)
-normalise_ty_arg _ lc r (CoercionTy co)
-  = let right_co = substRightCo lc co in
-    ( CoCoArg r (liftCoSubst Representational lc (coercionType co))
-              co right_co
-    , CoercionTy right_co )
-normalise_ty_arg env lc r ty
-  = let (co, ty') = normalise_type env lc r ty in
-    (TyCoArg co, ty')
+    go r (CoercionTy co)
+      = let right_co = substRightCo lc co in
+        ( mkProofIrrelCo r (liftCoSubst Representational lc (coercionType co))
+                         co right_co
+        , mkCoercionTy right_co )
 
 normalise_tyvar :: LiftingContext -> Role -> TyVar -> (Coercion, Type)
 normalise_tyvar lc r tv

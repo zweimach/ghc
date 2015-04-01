@@ -1679,7 +1679,7 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
   = ASSERT( ctEvEqRel old_ev == NomEq )
     runFlatten $
     do { let fmode = mkFlattenEnv FM_FlattenAll old_ev
-       ; (xis, cos) <- second (map mkTcCoercionArg) <$>
+       ; (xis, cos) <- second (map mkTcCoercion) <$>
                        flatten_many fmode (repeat Nominal) tc_args
                -- ax_co :: F args ~ G tc_args
                -- cos   :: xis ~ tc_args
@@ -1701,7 +1701,7 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
     ASSERT( ctEvEqRel old_ev == NomEq )
     runFlatten $
     do { let fmode = mkFlattenEnv FM_FlattenAll old_ev
-       ; (xis, cos) <- second (map mkTcCoercionArg) <$>
+       ; (xis, cos) <- second (map mkTcCoercion) <$>
                        flatten_many fmode (repeat Nominal) tc_args
                -- ax_co :: F args ~ G tc_args
                -- cos   :: xis ~ tc_args

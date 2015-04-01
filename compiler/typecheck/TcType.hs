@@ -1872,18 +1872,12 @@ orphNamesOfCo (KindAppCo co)        = orphNamesOfCo co
 orphNamesOfCo (SubCo co)            = orphNamesOfCo co
 orphNamesOfCo (AxiomRuleCo _ ts cs) = orphNamesOfTypes ts `unionNameSet`
                                       orphNamesOfCos cs
+orphNamesOfCo (ProofIrrelCo _ h co1 co2) = orphNamesOfCo h `unionNameSet`
+                                           orphNamesOfCo co1 `unionNameSet`
+                                           orphNamesOfCo co2
 
 orphNamesOfCos :: [Coercion] -> NameSet
 orphNamesOfCos = orphNamesOfThings orphNamesOfCo
-
-orphNamesOfCoArg :: CoercionArg -> NameSet
-orphNamesOfCoArg (TyCoArg co)          = orphNamesOfCo co
-orphNamesOfCoArg (CoCoArg _ h co1 co2) = orphNamesOfCo h `unionNameSet`
-                                         orphNamesOfCo co1 `unionNameSet`
-                                         orphNamesOfCo co2
-
-orphNamesOfCoArgs :: [CoercionArg] -> NameSet
-orphNamesOfCoArgs = orphNamesOfThings orphNamesOfCoArg
 
 orphNamesOfCoCon :: CoAxiom br -> NameSet
 orphNamesOfCoCon (CoAxiom { co_ax_tc = tc, co_ax_branches = branches })

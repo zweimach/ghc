@@ -127,7 +127,6 @@ optCoercion env co
   | otherwise         = opt_co1 env False co
 
 type NormalCo    = Coercion
-type NormalCoArg = CoercionArg
   -- Invariants:
   --  * The substitution has been fully applied
   --  * For trans coercions (co1 `trans` co2)
@@ -180,16 +179,6 @@ opt_co2 :: TCvSubst
 opt_co2 env sym Phantom co = opt_phantom env sym co
 opt_co2 env sym r       co = opt_co3 env sym Nothing r co
 
--- | Like 'opt_co2' but for 'CoercionArg'
-opt_co_arg2 :: TCvSubst
-            -> SymFlag
-            -> Role   -- ^ The role of the input coercion
-            -> CoercionArg -> NormalCoArg
-opt_co_arg2 env sym r (TyCoArg co) = TyCoArg $ opt_co2 env sym r co
-opt_co_arg2 env sym r (CoCoArg _r h co1 co2)
-  = ASSERT( r == _r )
-    opt_cocoarg env sym r h co1 co2
-
 -- See Note [Optimising coercion optimisation]
 -- | Optimize a coercion, knowing the coercion's non-Phantom role.
 opt_co3 :: TCvSubst -> SymFlag -> Maybe Role -> Role -> Coercion -> NormalCo
@@ -197,14 +186,6 @@ opt_co3 env sym (Just Phantom)          _ co = opt_phantom env sym co
 opt_co3 env sym (Just Representational) r co = opt_co4_wrap env sym True  r co
   -- if mrole is Just Nominal, that can't be a downgrade, so we can ignore
 opt_co3 env sym _                       r co = opt_co4_wrap env sym False r co
-
--- | Like 'opt_co3' but for 'CoercionArg'
-opt_co_arg3 :: TCvSubst -> SymFlag -> Maybe Role -> Role
-            -> CoercionArg -> NormalCoArg
-opt_co_arg3 env sym mrole r (TyCoArg co) = TyCoArg $ opt_co3 env sym mrole r co
-opt_co_arg3 env sym mrole r (CoCoArg _r h co1 co2)
-  = ASSERT( r == _r )
-    opt_cocoarg env sym (mrole `orElse` r) h co1 co2
 
 -- See Note [Optimising coercion optimisation]
 -- | Optimize a non-phantom coercion.
@@ -426,14 +407,11 @@ opt_co4 env sym rep r (AxiomRuleCo co ts cs)
     wrapSym sym $
     AxiomRuleCo co (map (substTy env) ts)
                    (zipWith (opt_co2 env False) (coaxrAsmpRoles co) cs)
--------------
-opt_co_arg4 :: TCvSubst -> SymFlag -> ReprFlag -> Role
-            -> CoercionArg -> NormalCoArg
-opt_co_arg4 env sym rep r (TyCoArg co) = TyCoArg $ opt_co4_wrap env sym rep r co
-opt_co_arg4 env sym rep r (CoCoArg _r h co1 co2)
-  = ASSERT( r == _r )
-    opt_cocoarg env sym (chooseRole rep r) h co1 co2
 
+opt_co4 env sym rep r (ProofIrrelCo _r kco co1 co2)
+  = ASSERT( _r == r )
+    opt_cocoarg env sym (chooseRole rep r) kco co1 co2
+    
 -- | Optimize a "coercion" between coercions.
 opt_cocoarg :: TCvSubst
             -> SymFlag
@@ -498,18 +476,6 @@ opt_unsafe env prov role oty1 oty2
 
   | otherwise
   = mkUnsafeCo prov role oty1 oty2
-
-opt_unsafe_arg :: TCvSubst -> FastString -> Role -> Type -> Type -> CoercionArg
-opt_unsafe_arg env prov role oty1 oty2
-  | Just co1 <- isCoercionTy_maybe oty1
-  , Just co2 <- isCoercionTy_maybe oty2
-  = let co1' = opt_co1 env False co1
-        co2' = opt_co1 env False co2
-        kco = opt_unsafe (zapTCvSubst env) prov Representational
-                         (coercionType co1') (coercionType co2')
-    in CoCoArg role kco co1' co2'
-opt_unsafe_arg env prov role oty1 oty2
-  = TyCoArg $ opt_unsafe env prov role oty1 oty2
 
 -------------
 -- NthCo must be handled separately, because it's the one case where we can't
@@ -646,7 +612,7 @@ opt_trans_rule is in_co1@(LRCo d1 co1) in_co2@(LRCo d2 co2)
 
 -- Push transitivity inside instantiation
 opt_trans_rule is in_co1@(InstCo co1 ty1) in_co2@(InstCo co2 ty2)
-  | ty1 `eqCoercionArg` ty2
+  | ty1 `eqCoercion` ty2
   , co1 `compatible_co` co2
   = fireTransRule "TrPushInst" in_co1 in_co2 $
     mkInstCo (opt_trans is co1 co2) ty1
@@ -939,7 +905,7 @@ chooseRole True _ = Representational
 chooseRole _    r = r
 
 -----------
-isAxiom_maybe :: Coercion -> Maybe (Bool, CoAxiom Branched, Int, [CoercionArg])
+isAxiom_maybe :: Coercion -> Maybe (Bool, CoAxiom Branched, Int, [Coercion])
 isAxiom_maybe (SymCo co)
   | Just (sym, con, ind, cos) <- isAxiom_maybe co
   = Just (not sym, con, ind, cos)
@@ -948,7 +914,7 @@ isAxiom_maybe (AxiomInstCo con ind cos)
 isAxiom_maybe _ = Nothing
 
 matchAxiom :: Bool -- True = match LHS, False = match RHS
-           -> CoAxiom br -> Int -> Coercion -> Maybe [CoercionArg]
+           -> CoAxiom br -> Int -> Coercion -> Maybe [Coercion]
 matchAxiom sym ax@(CoAxiom { co_ax_tc = tc }) ind co
   = let (CoAxBranch { cab_tvs = qtvs
                     , cab_roles = roles
@@ -1007,7 +973,7 @@ etaForAllCo_maybe is co
   | otherwise
   = Nothing
 
-etaAppCo_maybe :: Coercion -> Maybe (Coercion,Coercion,CoercionArg)
+etaAppCo_maybe :: Coercion -> Maybe (Coercion,Coercion,Coercion)
 -- If possible, split a coercion
 --   g :: t1a t1b ~ t2a t2b
 -- into a pair of coercions (left g, right g)
@@ -1028,7 +994,7 @@ etaAppCo_maybe co
   | otherwise
   = Nothing
 
-etaTyConAppCo_maybe :: TyCon -> Coercion -> Maybe [CoercionArg]
+etaTyConAppCo_maybe :: TyCon -> Coercion -> Maybe [Coercion]
 -- If possible, split a coercion
 --       g :: T s1 .. sn ~ T t1 .. tn
 -- into [ Nth 0 g :: s1~t1, ..., Nth (n-1) g :: sn~tn ]

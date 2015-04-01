@@ -173,7 +173,7 @@ normaliseFfiType' env ty0 = go initRecTc ty0
         where
           tc_key = getUnique tc
           children_only
-            = do xs <- mapM (go_arg rec_nts) tys
+            = do xs <- mapM (go rec_nts) tys
                  let (cos, tys', gres) = unzip3 xs
                         -- the (repeat Representational) is because 'go' always
                         -- returns R coercions
@@ -186,14 +186,6 @@ normaliseFfiType' env ty0 = go initRecTc ty0
 
           ty      = mkTyConApp tc tys
           nothing = return (mkRepReflCo ty, ty, emptyBag)
-
-    go_arg :: RecTcChecker -> Type -> TcM (CoercionArg, Type, Bag GlobalRdrElt)
-    go_arg rec_nts ty
-      | isCoercionTy ty
-      = return (mkRepReflCoArg ty, ty, emptyBag)
-      | otherwise
-      = do { (co, ty', gres) <- go rec_nts ty
-           ; return (mkTyCoArg co, ty', gres) }
 
 checkNewtypeFFI :: GlobalRdrEnv -> TyCon -> Maybe GlobalRdrElt
 checkNewtypeFFI rdr_env tc

@@ -28,7 +28,7 @@ module TcEvidence (
   mkTcSymCo, mkTcTransCo, mkTcNthCo, mkTcLRCo, mkTcSubCo, maybeTcSubCo,
   tcDowngradeRole,
   mkTcAxiomRuleCo, mkTcCoherenceLeftCo, mkTcCoherenceRightCo, mkTcPhantomCo,
-  castTcCoercionKind, mkTcKindCo, mkTcKindAppCo, mkTcCoercion, mkTcCoercionArg,
+  castTcCoercionKind, mkTcKindCo, mkTcKindAppCo, mkTcCoercion,
   tcCoercionKind, coVarsOfTcCo,
   isEqVar, mkTcCoVarCo,
   isTcReflCo, getTcCoVar_maybe,
@@ -154,7 +154,7 @@ data TcCoercion
   | TcKindCo TcCoercion
   | TcKindAppCo TcCoercion
   | TcLetCo TcEvBinds TcCoercion
-  | TcCoercion CoercionArg             -- embed a Core Coercion
+  | TcCoercion Coercion             -- embed a Core Coercion
   deriving (Data.Data, Data.Typeable)
 
 data TcForAllCoBndr = TcForAllCoBndr TcCoercion TcTyCoVar TcTyCoVar (Maybe TcCoVar)
@@ -328,12 +328,6 @@ mkTcCoercion :: Coercion -> TcCoercion
 mkTcCoercion co
   | Just (ty, r) <- isReflCo_maybe co = TcRefl r ty
   | otherwise                         = TcCoercion (mkTyCoArg co)
-
--- | Convert a CoercionArg to a TcCoercion
-mkTcCoercionArg :: CoercionArg -> TcCoercion
-mkTcCoercionArg co
-  | Just ty <- isReflLike_maybe co = TcRefl (coercionArgRole co) ty
-  | otherwise                      = TcCoercion co
 
 tcCoercionKind :: TcCoercion -> Pair Type
 tcCoercionKind co = go co

@@ -709,7 +709,7 @@ flattenMany :: FlattenMode -> CtEvidence -> [Role]
 -- Flatten a bunch of types all at once. Roles on the coercions returned
 -- always match the corresponding roles passed in.
 flattenMany mode ev roles tys
-  = second (map mkTcCoercionArg) <$> runFlatten (flatten_many fmode roles tys)
+  = second (map mkTcCoercion) <$> runFlatten (flatten_many fmode roles tys)
   where
     fmode = mkFlattenEnv mode ev
 
@@ -721,7 +721,7 @@ flattenFamApp mode ev tc tys
     fmode = mkFlattenEnv mode ev
 
 ------------------
-flatten_many :: FlattenEnv -> [Role] -> [Type] -> TcS ([Xi], [CoercionArg])
+flatten_many :: FlattenEnv -> [Role] -> [Type] -> TcS ([Xi], [Coercion])
 -- Coercions :: Xi ~ Type, at roles given
 -- Returns True iff (no flattening happened)
 -- NB: The EvVar inside the 'fe_ev :: CtEvidence' is unused,
@@ -738,7 +738,7 @@ flatten_many fmode roles tys
                                 ; return ( ty, mkReflCoArg Phantom ty ) }
 
 -- | Like 'flatten_many', but assumes that every role is nominal.
-flatten_many_nom :: FlattenEnv -> [Type] -> TcS ([Xi], [CoercionArg])
+flatten_many_nom :: FlattenEnv -> [Type] -> TcS ([Xi], [Coercion])
 flatten_many_nom _     [] = return ([], [])
 -- See Note [flatten_many performance]
 flatten_many_nom fmode (ty:tys)
@@ -862,16 +862,11 @@ flatten_one fmode (CastTy ty g)
 
        ; return (mkCastTy xi g', castCoercionKind co g' g) }
 
-flatten_one _ ty@(CoercionTy {}) = pprPanic "flatten_one" (ppr ty)
-
-flatten_one_arg :: FlattenEnv -> Type -> TcS (Xi, CoercionArg)
-flatten_one_arg fmode (CoercionTy co)
-  = first mkCoercionTy <$> flatten_co fmode co
-flatten_one_arg fmode ty = second TyCoArg <$> flatten_one fmode ty
+flatten_one fmode (CoercionTy co) = first mkCoercionTy <$> flatten_co fmode co
 
 -- | "Flatten" a coercion. Really, just flatten the types that it coerces
 -- between and then use transitivity.
-flatten_co :: FlattenEnv -> Coercion -> TcS (Coercion, CoercionArg)
+flatten_co :: FlattenEnv -> Coercion -> TcS (Coercion, Coercion)
 flatten_co fmode co
   = do { let (Pair ty1 ty2, role) = coercionKindRole co
              eq_rel               = case role of

@@ -818,6 +818,12 @@ uType origin orig_ty1 orig_ty2
       = ASSERT( isDecomposableTyCon tc1 )
         go_app (TyConApp tc1 ts1') t1' s2 t2
 
+    go (CoercionTy co1) (CoercionTy co2)
+      = do { let ty1 = coercionType co1
+                 ty2 = coercionType co2
+           ; kco <- uType (KindEqOrigin orig_ty1 orig_ty2 origin) ty1 ty2
+           ; return $ mkProofIrrelCo Nominal (mkSubCo kco) co1 co2 }
+
         -- Anything else fails
         -- E.g. unifying for-all types, which is relative unusual
     go ty1 ty2 = uType_defer origin ty1 ty2 -- failWithMisMatch origin
@@ -832,14 +838,6 @@ uType origin orig_ty1 orig_ty2
         t1k = typeKind t1
         t2k = typeKind t2
         kind_origin = KindEqOrigin t1 t2 origin
-
-uTypeArg :: CtOrigin -> TcType -> TcType -> TcM CoercionArg
-uTypeArg origin orig_ty1@(CoercionTy co1) orig_ty2@(CoercionTy co2)
-  = do { let ty1 = coercionType co1
-             ty2 = coercionType co2
-       ; kco <- uType (KindEqOrigin orig_ty1 orig_ty2 origin) ty1 ty2
-       ; return $ CoCoArg Nominal (mkSubCo kco) co1 co2 }
-uTypeArg origin ty1 ty2 = TyCoArg <$> uType origin ty1 ty2
 
 {-
 Note [Care with type applications]

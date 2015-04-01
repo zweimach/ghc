@@ -1461,9 +1461,6 @@ zonkTcTypeToTypes env tys = mapM (zonkTcTypeToType env) tys
 zonkCoToCo :: ZonkEnv -> Coercion -> TcM Coercion
 zonkCoToCo = mapCoercion zonk_tycomapper
 
-zonkCoArgToCoArg :: ZonkEnv -> CoercionArg -> TcM CoercionArg
-zonkCoArgToCoArg = mapCoercionArg zonk_tycomapper
-
 zonkTvCollecting :: TyVarSet -> TcRef TyVarSet -> UnboundTyVarZonker
 -- This variant collects unbound type variables in a mutable variable
 -- Works on both types and kinds
@@ -1542,5 +1539,5 @@ zonkTcCoToCo env co
                                      ; cs' <- mapM go cs
                                      ; return (TcAxiomRuleCo co ts' cs')
                                      }
-    go (TcCoercion co)        = do { co' <- zonkCoArgToCoArg env co
-                                   ; return (mkTcCoercionArg co') }
+    go (TcCoercion co)        = do { co' <- zonkCoToCo env co
+                                   ; return (mkTcCoercion co') }

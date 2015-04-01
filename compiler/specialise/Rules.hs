@@ -39,8 +39,6 @@ import CoreUtils        ( exprType, eqExpr, mkTick, mkTicks,
                           stripTicksTopT, stripTicksTopE )
 import PprCore          ( pprRules )
 import Type             ( Type )
-import TyCoRep          ( CoercionArg(..) )  -- TODO (RAE): Remove this, along
-                                             -- with matching on coercions
 import TcType           ( tcSplitTyConApp_maybe )
 import Coercion
 import CoreTidy         ( tidyRules )
@@ -732,39 +730,12 @@ match_co :: RuleMatchEnv
          -> Coercion
          -> Maybe RuleSubst
 match_co renv subst co1 co2
-  | Just cv <- getCoVar_maybe co1
-  = match_var renv subst cv (Coercion co2)
-  | Just (ty1, r1) <- isReflCo_maybe co1
-  = do { (ty2, r2) <- isReflCo_maybe co2
-       ; guard (r1 == r2)
-       ; match_ty renv subst ty1 ty2 }
-match_co renv subst co1 co2
-  | Just (tc1, cos1) <- splitTyConAppCo_maybe co1
-  = case splitTyConAppCo_maybe co2 of
-      Just (tc2, cos2)
-        |  tc1 == tc2
-        -> match_co_args renv subst cos1 cos2
-      _ -> Nothing
-match_co _ _ co1 co2
-  = pprTrace "match_co: needs more cases" (ppr co1 $$ ppr co2) Nothing
-    -- Currently just deals with CoVarCo, TyConAppCo and Refl
-
-match_co_args :: RuleMatchEnv
-              -> RuleSubst
-              -> [CoercionArg]
-              -> [CoercionArg]
-              -> Maybe RuleSubst
-match_co_args renv subst (TyCoArg co1 : args1) (TyCoArg co2 : args2)
-  = do { subst' <- match_co renv subst co1 co2
-       ; match_co_args renv subst' args1 args2 }
-match_co_args renv subst (CoCoArg _ _ co1l co1r : args1)
-                         (CoCoArg _ _ co2l co2r : args2)
-  = do { subst'  <- match_co renv subst co1l co2l
-       ; subst'' <- match_co renv subst' co1r co2r
-       ; match_co_args renv subst'' args1 args2 }
-match_co_args _ subst [] [] = Just subst
-match_co_args _ _ cos1 cos2 = pprTrace "match_co_args: not same length" (ppr cos1 $$ ppr cos2) Nothing
-
+  = do { subst1 <- match_ty renv subst  tyl1 tyl2
+       ;           match_ty renv subst1 tyr1 tyr2 }
+  where
+    Pair tyl1 tyr1 = coercionKind co1
+    Pair tyl2 tyr2 = coercionKind co2
+         
 -------------
 rnMatchBndr2 :: RuleMatchEnv -> RuleSubst -> Var -> Var -> RuleMatchEnv
 rnMatchBndr2 renv subst x1 x2

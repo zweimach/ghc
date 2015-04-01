@@ -135,7 +135,7 @@ tcMatchTyX tmpls subst ty1 ty2
 tcMatchTys :: TyCoVarSet     -- ^ Template tyvars
            -> [Type]         -- ^ Template
            -> [Type]         -- ^ Target
-           -> Maybe (TCvSubst, [CoercionArg])
+           -> Maybe (TCvSubst, [Coercion])
                              -- ^ One-shot; in principle the template
                              -- variables could be free in the target
 tcMatchTys tmpls tys1 tys2
@@ -150,7 +150,7 @@ tcMatchTysX :: TyCoVarSet     -- ^ Template tyvars
             -> TCvSubst       -- ^ Substitution to extend
             -> [Type]         -- ^ Template
             -> [Type]         -- ^ Target
-            -> Maybe (TCvSubst, [CoercionArg])  -- ^ One-shot substitution
+            -> Maybe (TCvSubst, [Coercion])  -- ^ One-shot substitution
 tcMatchTysX tmpls (TCvSubst in_scope tv_env cv_env) tys1 tys2
 -- See Note [Kind coercions in Unify]
   = do { tv_env1 <- match_tys menv tv_env kis1 kis2
@@ -296,7 +296,7 @@ match_ty_app menv tsubst ty1a ty1b ty2a ty2b
     ki1a = typeKind ty1a
     ki2a = typeKind ty2a
 
-match_tys :: MatchEnv -> TvSubstEnv -> [Type] -> [Type] -> [CoercionArg]
+match_tys :: MatchEnv -> TvSubstEnv -> [Type] -> [Type] -> [Coercion]
           -> Maybe TvSubstEnv
 match_tys _    tenv []     []     _ = Just tenv
 match_tys menv tenv (a:as) (b:bs) (c:cs)
@@ -546,7 +546,7 @@ tcUnifyTy t1 t2
 -----------------
 tcUnifyTys :: (TyCoVar -> BindFlag)
            -> [Type] -> [Type]
-           -> Maybe (TCvSubst, [CoercionArg])
+           -> Maybe (TCvSubst, [Coercion])
                                 -- ^ A regular one-shot (idempotent) substitution
                                 -- that unifies the erased types. See comments
                                 -- for 'tcUnifyTysFG'
@@ -560,7 +560,7 @@ tcUnifyTys bind_fn tys1 tys2
 
 -- This type does double-duty. It is used in the UM (unifier monad) and to
 -- return the final result. See Note [Fine-grained unification]
-type UnifyResult = UnifyResultM (TCvSubst, [CoercionArg])
+type UnifyResult = UnifyResultM (TCvSubst, [Coercion])
 data UnifyResultM a = Unifiable a        -- the subst that unifies the types
                     | MaybeApart a       -- the subst has as much as we know
                                          -- it must be part of an most general unifier
@@ -570,7 +570,7 @@ data UnifyResultM a = Unifiable a        -- the subst that unifies the types
 -- | @tcUnifyTysFG bind_tv tys1 tys2@ attepts to find a substitution @s@ (whose
 -- domain elements all respond 'BindMe' to @bind_tv@) such that
 -- @s(tys1)@ and that of @s(tys2)@ are equal, as witnessed by the returned
--- CoercionArgs.
+-- Coercions.
 tcUnifyTysFG :: (TyCoVar -> BindFlag)
              -> [Type] -> [Type]
              -> UnifyResult
@@ -1114,8 +1114,8 @@ ty_co_match menv subst (ForAllTy (Named tv _) ty)
   where
     ki_ki_co = mkRepReflCo liftedTypeKind
 
-ty_co_match _ _ (CoercionTy co) _ _ _
-  = pprPanic "ty_co_match" (ppr co)
+ty_co_match _ subst (CoercionTy {}) _ _ _
+  = Just subst -- don't inspect coercions
 
 ty_co_match menv subst ty co lkco rkco
   | Just co' <- pushRefl co = ty_co_match menv subst ty co' lkco rkco
@@ -1123,7 +1123,7 @@ ty_co_match menv subst ty co lkco rkco
 
 ty_co_match_tc :: MatchEnv -> LiftCoEnv
                -> TyCon -> [Type]
-               -> TyCon -> [CoercionArg]
+               -> TyCon -> [Coercion]
                -> Maybe LiftCoEnv
 ty_co_match_tc menv subst tc1 tys1 tc2 cos2
   = do { guard (tc1 == tc2)
@@ -1133,7 +1133,7 @@ ty_co_match_tc menv subst tc1 tys1 tc2 cos2
       = traverse (fmap mkRepReflCo . coercionArgKind) cos2
 
 ty_co_match_app :: MatchEnv -> LiftCoEnv
-                -> Type -> Type -> Coercion -> CoercionArg
+                -> Type -> Type -> Coercion -> Coercion
                 -> Maybe LiftCoEnv
 ty_co_match_app menv subst ty1a ty1b co2a co2b
   = do { -- TODO (RAE): Remove this exponential behavior.
@@ -1148,24 +1148,13 @@ ty_co_match_app menv subst ty1a ty1b co2a co2b
     ki_ki_co = mkRepReflCo liftedTypeKind
 
 ty_co_match_args :: MatchEnv -> LiftCoEnv -> [Type]
-                 -> [CoercionArg] -> [Coercion] -> [Coercion]
+                 -> [Coercion] -> [Coercion] -> [Coercion]
                  -> Maybe LiftCoEnv
 ty_co_match_args _    subst []       []         _ _ = Just subst
 ty_co_match_args menv subst (ty:tys) (arg:args) (lkco:lkcos) (rkco:rkcos)
-  = do { subst' <- ty_co_match_arg menv subst ty arg lkco rkco
+  = do { subst' <- ty_co_match menv subst ty arg lkco rkco
        ; ty_co_match_args menv subst' tys args lkcos rkcos }
 ty_co_match_args _    _     _        _          _ _ = Nothing
-
-ty_co_match_arg :: MatchEnv -> LiftCoEnv -> Type
-                -> CoercionArg -> Coercion -> Coercion -> Maybe LiftCoEnv
-ty_co_match_arg menv subst ty arg lkco rkco
-  | TyCoArg co <- arg
-  = ty_co_match menv subst ty co lkco rkco
-  | CoercionTy {} <- ty
-  , CoCoArg {} <- arg
-  = Just subst  -- don't inspect coercions!
-  | otherwise
-  = pprPanic "ty_co_match_arg" (ppr ty <+> ptext (sLit "<->") <+> ppr arg)
 
 pushRefl :: Coercion -> Maybe Coercion
 pushRefl (Refl Nominal (AppTy ty1 ty2))

@@ -1343,10 +1343,7 @@ fvCo (KindCo co)            = fvCo co
 fvCo (KindAppCo co)         = fvCo co
 fvCo (SubCo co)             = fvCo co
 fvCo (AxiomRuleCo _ ts cs)  = concatMap fvType ts ++ concatMap fvCo cs
-
-fvCoArg :: CoercionArg -> [TyCoVar]
-fvCoArg (TyCoArg co)          = fvCo co
-fvCoArg (CoCoArg _ h co1 co2) = fvCo h ++ fvCo co1 ++ fvCo co2
+fvCo (ProofIrrelCo _ h a b) = fvCo h ++ fvCo a ++ fvCo b
 
 sizeType :: Type -> Int
 -- Size of a type: the number of variables and constructors

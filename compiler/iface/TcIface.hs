@@ -880,14 +880,14 @@ tcIfaceCo = go
     go (IfaceNthCo d c)          = NthCo d  <$> go c
     go (IfaceLRCo lr c)          = LRCo lr  <$> go c
     go (IfaceCoherenceCo c1 c2)  = CoherenceCo <$> go c1
-                                               <*> tcIfaceCo c2
-    go (IfaceKindCo c)           = KindCo   <$> tcIfaceCo c
-    go (IfaceKindAppCo c)        = KindAppCo<$> tcIfaceCo c
+                                               <*> go c2
+    go (IfaceKindCo c)           = KindCo   <$> go c
+    go (IfaceKindAppCo c)        = KindAppCo<$> go c
     go (IfaceSubCo c)            = SubCo    <$> go c
     go (IfaceAxiomRuleCo ax tys cos) = AxiomRuleCo <$> go_axiom_rule ax
                                                    <*> mapM tcIfaceType tys
                                                    <*> mapM go cos
-    go co@(IfaceCoCoArg {})      = pprPanic "tcIfaceCo" (ppr co)
+    go (IfaceCoCoArg r h c1 c2)  = ProofIrrelCo r <$> go h <*> go c1 <*> go c2
 
     go_var :: FastString -> IfL CoVar
     go_var = tcIfaceLclId
@@ -897,14 +897,6 @@ tcIfaceCo = go
       case Map.lookup n typeNatCoAxiomRules of
         Just ax -> return ax
         _  -> pprPanic "go_axiom_rule" (ppr n)
-
-tcIfaceCoArg :: IfaceCoercion -> IfL CoercionArg
-tcIfaceCoArg (IfaceCoCoArg r h c1 c2)
-  = CoCoArg r <$> tcIfaceCo h <*> tcIfaceCo c1 <*> tcIfaceCo c2
-tcIfaceCoArg ico = TyCoArg <$> tcIfaceCo ico
-
-tcIfaceCoArgs :: [IfaceCoercion] -> IfL [CoercionArg]
-tcIfaceCoArgs = mapM tcIfaceCoArg
 
 {-
 ************************************************************************

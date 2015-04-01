@@ -56,7 +56,7 @@ module Type (
 
         -- Analyzing types
         analyzeType, TypeAnalysis(..),
-        TyCoMapper(..), mapType, mapCoercion, mapCoercionArg,
+        TyCoMapper(..), mapType, mapCoercion,
 
         -- (Newtypes)
         newTyConInstRhs,
@@ -486,17 +486,17 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
   where
     go (Refl r ty) = Refl r <$> mapType mapper env ty
     go (TyConAppCo r tc args)
-      = mktyconappco r tc <$> mapM (mapCoercionArg mapper env) args
+      = mktyconappco r tc <$> mapM go args
     go (AppCo c1 h c2) = mkappco <$> go c1
                                  <*> go h
-                                 <*> mapCoercionArg mapper env c2
+                                 <*> go c2
     go (ForAllCo cobndr co)
       = do { (env', cobndr') <- go_cobndr cobndr
            ; co' <- mapCoercion mapper env' co
            ; return $ mkforallco cobndr' co' }
     go (CoVarCo cv) = covar env cv
     go (AxiomInstCo ax i args)
-      = mkaxiominstco ax i <$> mapM (mapCoercionArg mapper env) args
+      = mkaxiominstco ax i <$> mapM go args
     go (PhantomCo co t1 t2)
       = mkphantomco <$> go co <*> mapType mapper env t1
                               <*> mapType mapper env t2
@@ -509,11 +509,13 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
                          <*> mapM go cos
     go (NthCo i co)        = mknthco i <$> go co
     go (LRCo lr co)        = mklrco lr <$> go co
-    go (InstCo co arg)     = mkinstco <$> go co <*> mapCoercionArg mapper env arg
+    go (InstCo co arg)     = mkinstco <$> go co <*> go arg
     go (CoherenceCo c1 c2) = mkcoherenceco <$> go c1 <*> go c2
     go (KindCo co)         = mkkindco <$> go co
     go (KindAppCo co)      = mkkindappco <$> go co
     go (SubCo co)          = mksubco <$> go co
+    go (ProofIrrelCo r h c1 c2)
+                           = mkproofirrelco r <$> go h <*> go c1 <*> go c2
 
     go_cobndr (ForAllCoBndr h tv1 tv2 m_cv)
       = do { h' <- go h
@@ -526,22 +528,15 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
 
     ( mktyconappco, mkappco, mkaxiominstco, mkphantomco, mkunsafeco
       , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
-      , mkkindco, mkkindappco, mksubco, mkforallco)
+      , mkkindco, mkkindappco, mksubco, mkforallco, mkproofirrelco)
       | smart
       = ( mkTyConAppCo, mkAppCo, mkAxiomInstCo, mkPhantomCo, mkUnsafeCo
         , mkSymCo, mkTransCo, mkNthCo, mkLRCo, mkInstCo, mkCoherenceCo
-        , mkKindCo, mkKindAppCo, mkSubCo, mkForAllCo )
+        , mkKindCo, mkKindAppCo, mkSubCo, mkForAllCo, mkProofIrrelCo )
       | otherwise
       = ( TyConAppCo, AppCo, AxiomInstCo, PhantomCo, UnsafeCo
         , SymCo, TransCo, NthCo, LRCo, InstCo, CoherenceCo
-        , KindCo, KindAppCo, SubCo, ForAllCo )
-
-mapCoercionArg :: (Applicative m, Monad m)
-               => TyCoMapper env m -> env -> CoercionArg -> m CoercionArg
-mapCoercionArg mapper env (TyCoArg co) = TyCoArg <$> mapCoercion mapper env co
-mapCoercionArg mapper env (CoCoArg r h c1 c2)
-  = CoCoArg r <$> mapCoercion mapper env h
-              <*> mapCoercion mapper env c1 <*> mapCoercion mapper env c2
+        , KindCo, KindAppCo, SubCo, ForAllCo, ProofIrrelCo )
 
 {-
 ************************************************************************
