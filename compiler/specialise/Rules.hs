@@ -57,9 +57,9 @@ import FastString
 import Maybes
 import Bag
 import Util
+import Pair
 import Data.List
 import Data.Ord
-import Control.Monad ( guard )
 
 {-
 Note [Overall plumbing for rules]

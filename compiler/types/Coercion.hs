@@ -80,7 +80,6 @@ module Coercion (
         -- ** Lifting
         liftCoSubst, liftCoSubstTyCoVar, liftCoSubstWith, liftCoSubstWithEx,
         emptyLiftingContext, extendLiftingContext,
-        liftCoSubstTyCoVar,
         liftCoSubstVarBndrCallback, isMappedByLC,
 
         LiftCoEnv, LiftingContext(..), liftEnvSubstLeft, liftEnvSubstRight,
@@ -239,7 +238,7 @@ ppr_co p (KindAppCo co)     = pprPrefixApp p (text "kapp") [pprParendCo co]
 ppr_co p (SubCo co)         = pprPrefixApp p (ptext (sLit "Sub")) [pprParendCo co]
 ppr_co p (AxiomRuleCo co ts cs) = maybeParen p TopPrec $
                                   ppr_axiom_rule_co co ts cs
-ppr_co p (ProofIrrelCo r h co1 co2)
+ppr_co _ (ProofIrrelCo r h co1 co2)
   = parens (pprCo co1 <> comma <+> pprCo co2) <> ppr_role r <>
     ifPprDebug (braces $ braces $ pprCo h)
 
@@ -579,8 +578,8 @@ mkTyConAppCo r tc cos
     in
     mkAppCos (liftCoSubst r (mkLiftingContext tv_co_prs) rhs_ty) leftover_co_pairs
 
-  | Just tys <- traverse isReflCo_maybe cos
-  = Refl r (mkTyConApp tc tys)    -- See Note [Refl invariant]
+  | Just tys_roles <- traverse isReflCo_maybe cos
+  = Refl r (mkTyConApp tc (map fst tys_roles))    -- See Note [Refl invariant]
 
   | otherwise = TyConAppCo r tc cos
 
@@ -600,7 +599,7 @@ mkAppCo :: Coercion     -- ^ :: t1 ~r t2
         -> Coercion     -- ^ :: s1 ~N s2, where s1 :: k1, s2 :: k2
         -> Coercion     -- ^ :: t1 s1 ~r t2 s2
 mkAppCo (Refl r ty1) _ arg
-  | Just ty2 <- isReflCo_maybe arg
+  | Just (ty2, _) <- isReflCo_maybe arg
   = Refl r (mkAppTy ty1 ty2)
 
   | Just (tc, tys) <- splitTyConApp_maybe ty1
@@ -1010,7 +1009,7 @@ mkSubCo (Refl Nominal ty) = Refl Representational ty
 mkSubCo (TyConAppCo Nominal tc cos)
   = TyConAppCo Representational tc (applyRoles tc cos)
 mkSubCo (UnsafeCo s Nominal ty1 ty2) = UnsafeCo s Representational ty1 ty2
-mkSubCo (ProofIrrelCo r kco co1 co2) = ProofIrrelCo Representational kco co1 co2
+mkSubCo (ProofIrrelCo _ kco co1 co2) = ProofIrrelCo Representational kco co1 co2
 mkSubCo co = ASSERT2( coercionRole co == Nominal, ppr co <+> ppr (coercionRole co) )
              SubCo co
 
@@ -1091,7 +1090,7 @@ setNominalRole_maybe (InstCo co arg)
 setNominalRole_maybe (CoherenceCo co1 co2)
   = CoherenceCo <$> setNominalRole_maybe co1 <*> pure co2
 setNominalRole_maybe (ProofIrrelCo _ h co1 co2)
-  = ProofIrrelCo Nominal h co1 co2
+  = Just $ ProofIrrelCo Nominal h co1 co2
 setNominalRole_maybe _ = Nothing
 
 -- | Makes a 'ForAllCoBndr' become nominal, if possible
@@ -1352,6 +1351,9 @@ promoteCoercion co = case co of
 
     AxiomRuleCo {}
       -> mkKindCo co
+
+    ProofIrrelCo _ kco _ _
+      -> kco
 
   where
     Pair ty1 ty2 = coercionKind co
@@ -1708,8 +1710,8 @@ ty_co_subst lc@(LC _ env) role ty
                                Nothing -> pprPanic "ty_co_subst" (vcat [ppr tv, ppr env])
                                -- TODO (RAE): make the typeKind more efficient
     go r (AppTy ty1 ty2)   = mkAppCo (go r ty1) (go r (typeKind ty2))
-                                                (go_arg Nominal ty2)
-    go r (TyConApp tc tys) = mkTyConAppCo r tc (zipWith go_arg (tyConRolesX r tc) tys)
+                                                (go Nominal ty2)
+    go r (TyConApp tc tys) = mkTyConAppCo r tc (zipWith go (tyConRolesX r tc) tys)
     go r (ForAllTy (Anon ty1) ty2)
                            = mkFunCo r (go r ty1) (go r ty2)
     go r (ForAllTy (Named v _) ty)

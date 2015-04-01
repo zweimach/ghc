@@ -36,8 +36,6 @@ import TyCon
 import TyCoRep hiding ( getTvSubstEnv, getCvSubstEnv )
 import Util
 import Pair
-import Outputable
-import FastString
 
 import Control.Monad
 import Maybes
@@ -1156,7 +1154,7 @@ ty_co_match_args _    _     _        _          _ _ = Nothing
 pushRefl :: Coercion -> Maybe Coercion
 pushRefl (Refl Nominal (AppTy ty1 ty2))
   = Just (AppCo (Refl Nominal ty1) (Refl Nominal (typeKind ty2))
-                                   (mkNomReflCoArg ty2))
+                                   (mkNomReflCo ty2))
 pushRefl (Refl r (ForAllTy (Anon ty1) ty2))
   = Just (TyConAppCo r funTyCon [mkReflCo r ty1, mkReflCo r ty2])
 pushRefl (Refl r (TyConApp tc tys))

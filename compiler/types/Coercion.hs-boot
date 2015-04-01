@@ -10,18 +10,18 @@ import Pair
 import FastString
 
 mkReflCo :: Role -> Type -> Coercion
-mkTyConAppCo :: Role -> TyCon -> [CoercionArg] -> Coercion
-mkAppCo :: Coercion -> Coercion -> CoercionArg -> Coercion
+mkTyConAppCo :: Role -> TyCon -> [Coercion] -> Coercion
+mkAppCo :: Coercion -> Coercion -> Coercion -> Coercion
 mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
 mkCoVarCo :: CoVar -> Coercion
-mkAxiomInstCo :: CoAxiom Branched -> BranchIndex -> [CoercionArg] -> Coercion
+mkAxiomInstCo :: CoAxiom Branched -> BranchIndex -> [Coercion] -> Coercion
 mkPhantomCo :: Coercion -> Type -> Type -> Coercion
 mkUnsafeCo :: FastString -> Role -> Type -> Type -> Coercion
 mkSymCo :: Coercion -> Coercion
 mkTransCo :: Coercion -> Coercion -> Coercion
 mkNthCo :: Int -> Coercion -> Coercion
 mkLRCo :: LeftOrRight -> Coercion -> Coercion
-mkInstCo :: Coercion -> CoercionArg -> Coercion
+mkInstCo :: Coercion -> Coercion -> Coercion
 mkCoherenceCo :: Coercion -> Coercion -> Coercion
 mkKindCo :: Coercion -> Coercion
 mkKindAppCo :: Coercion -> Coercion
@@ -50,6 +50,5 @@ coercionType :: Coercion -> Type
 
 pprCo :: Coercion -> SDoc
 pprCoBndr :: ForAllCoBndr -> SDoc
-pprCoArg :: CoercionArg -> SDoc
 
 

@@ -1069,7 +1069,7 @@ normalise_tc_args :: FamInstEnvs            -- environment with family instances
 normalise_tc_args env lc role tc tys
   = (mkTyConAppCo role tc cois, ntys)
   where
-    (cois, ntys) = zipWithAndUnzip (normalise_ty env lc)
+    (cois, ntys) = zipWithAndUnzip (normalise_type env lc)
                                    (tyConRolesX role tc) tys
 
 ---------------
@@ -1102,8 +1102,8 @@ normalise_type env lc
     go r (AppTy ty1 ty2)
       = let (co,  nty1) = go r ty1
             -- TODO (RAE): make more efficient
-            (kco, _)    = go r (typeKind ty2)
-            (arg, nty2) = normalise_ty env lc Nominal ty2
+            (kco, _)    = go r       (typeKind ty2)
+            (arg, nty2) = go Nominal ty2
         in (mkAppCo co kco arg, mkAppTy nty1 nty2)
     go r (ForAllTy (Anon ty1) ty2)
       = let (co1, nty1) = go r ty1

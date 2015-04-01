@@ -24,7 +24,6 @@ import FastString
 import Util
 import Unify
 import InstEnv
-import Maybes
 import Control.Monad   ( zipWithM )
 
 {-
@@ -296,7 +295,7 @@ opt_co4 env sym rep r (TransCo co1 co2)
 
 opt_co4 env sym rep r co@(NthCo {}) = opt_nth_co env sym rep r co
 
-opt_co4 env sym rep r g@(LRCo lr co)
+opt_co4 env sym rep r (LRCo lr co)
   | Just pr_co <- splitAppCo_maybe co
   = ASSERT( r == Nominal )
     opt_co4_wrap env sym rep Nominal (pick_lr lr pr_co)
@@ -592,7 +591,7 @@ opt_trans_rule is in_co1@(ProofIrrelCo r  h1 col1 _)
                   in_co2@(ProofIrrelCo _r h2 _ cor2)
   = ASSERT( r == _r )
     fireTransRule "ProofIrrel" in_co1 in_co2 $
-    mkProofIrrelCo r (opt_trans is h1 h2) col1 cor2)
+    mkProofIrrelCo r (opt_trans is h1 h2) col1 cor2
 
 -- Push transitivity down through matching top-level constructors.
 opt_trans_rule is in_co1@(TyConAppCo r1 tc1 cos1) in_co2@(TyConAppCo r2 tc2 cos2)
