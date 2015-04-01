@@ -117,7 +117,7 @@ data MatchEnv
 tcMatchTy :: TyCoVarSet -> Type -> Type -> Maybe (TCvSubst, Coercion)
 tcMatchTy tmpls ty1 ty2
     -- See Note [Lazy coercions in Unify]
-  = do { (subst, ~[~(TyCoArg co)]) <- tcMatchTys tmpls [ty1] [ty2]
+  = do { (subst, ~[co]) <- tcMatchTys tmpls [ty1] [ty2]
        ; return (subst, co) }
 
 -- | This is similar to 'tcMatchTy', but extends a substitution
@@ -128,7 +128,7 @@ tcMatchTyX :: TyCoVarSet          -- ^ Template tyvars
            -> Maybe (TCvSubst, Coercion)
 tcMatchTyX tmpls subst ty1 ty2
     -- See Note [Lazy coercions in Unify]
-  = do { (subst, ~[~(TyCoArg co)]) <- tcMatchTysX tmpls subst [ty1] [ty2]
+  = do { (subst, ~[co]) <- tcMatchTysX tmpls subst [ty1] [ty2]
        ; return (subst, co) }
 
 -- | Like 'tcMatchTy' but over a list of types.
@@ -154,15 +154,15 @@ tcMatchTysX :: TyCoVarSet     -- ^ Template tyvars
 tcMatchTysX tmpls (TCvSubst in_scope tv_env cv_env) tys1 tys2
 -- See Note [Kind coercions in Unify]
   = do { tv_env1 <- match_tys menv tv_env kis1 kis2
-                              (repeat (mkRepReflCoArg liftedTypeKind))
+                              (repeat (mkRepReflCo liftedTypeKind))
              -- it must be that subst(kis1) `eqTypes` kis2, because
              -- all kinds have kind *
        ; tv_env2 <- match_tys menv tv_env1 tys1 tys2
-                                           (map mkRepReflCoArg kis2)
+                                           (map mkRepReflCo kis2)
        ; let subst = TCvSubst in_scope tv_env2 cv_env
                  -- See Note [Lazy coercions in Unify]
        ; return (subst, map (expectJust "tcMatchTysX types") $
-                        zipWith buildCoherenceCoArg
+                        zipWith buildCoherenceCo
                                 (substTys subst tys1) tys2) }
   where
     kis1 = map typeKind tys1
@@ -252,7 +252,7 @@ match_ty menv tsubst (ForAllTy (Named tv1 _) ty1) (ForAllTy (Named tv2 _) ty2) k
 
 match_ty menv tsubst (TyConApp tc1 tys1) (TyConApp tc2 tys2) _kco
   | tc1 == tc2 = match_tys menv tsubst tys1 tys2
-                           (map (mkRepReflCoArg . typeKind) tys2)
+                           (map (mkRepReflCo . typeKind) tys2)
          -- if any of the kinds of the tys don't match up, there has to be
          -- an earlier, dependent parameter of the tycon that *also* doesn't
          -- match. So, we'll never look at any bogus kind coercions made on
@@ -300,9 +300,7 @@ match_tys :: MatchEnv -> TvSubstEnv -> [Type] -> [Type] -> [Coercion]
           -> Maybe TvSubstEnv
 match_tys _    tenv []     []     _ = Just tenv
 match_tys menv tenv (a:as) (b:bs) (c:cs)
-  = do { tenv' <- match_ty menv tenv a b (stripTyCoArg c)
-             -- the stripTyCoArg should fail iff a b are CoercionTys, in which
-             -- case it's never inspected
+  = do { tenv' <- match_ty menv tenv a b c
        ; match_tys menv tenv' as bs cs }
 match_tys _    _    _    _      _      = Nothing
 
@@ -540,7 +538,7 @@ tcUnifyTy :: Type -> Type       -- All tyvars are bindable
 -- Simple unification of two types; all type variables are bindable
 tcUnifyTy t1 t2
    -- See Note [Lazy coercions in Unify]
-  = do { (subst, ~[~(TyCoArg co)]) <- tcUnifyTys (const BindMe) [t1] [t2]
+  = do { (subst, ~[co]) <- tcUnifyTys (const BindMe) [t1] [t2]
        ; return (subst, co) }
 
 -----------------
@@ -580,7 +578,7 @@ tcUnifyTysFG bind_fn tys1 tys2
        ; unify_tys tys1 tys2
        ; subst <- getTCvSubst
        ; return (subst, map (expectJust "tcUnifyTysFG") $
-                        zipWith buildCoherenceCoArg
+                        zipWith buildCoherenceCo
                                 (substTys subst tys1)
                                 (substTys subst tys2)) }
   where
@@ -1062,7 +1060,7 @@ ty_co_match menv subst ty co lkco rkco
 
   -- Match a type variable against a non-refl coercion
 ty_co_match menv subst (TyVarTy tv1) co lkco rkco
-  | Just (TyCoArg co1') <- lookupVarEnv subst tv1' -- tv1' is already bound to co1
+  | Just co1' <- lookupVarEnv subst tv1' -- tv1' is already bound to co1
   = if eqCoercionX (nukeRnEnvL rn_env) co1' co
     then Just subst
     else Nothing       -- no match since tv1 matches two different coercions
@@ -1071,7 +1069,7 @@ ty_co_match menv subst (TyVarTy tv1) co lkco rkco
   = if any (inRnEnvR rn_env) (varSetElems (tyCoVarsOfCo co))
     then Nothing      -- occurs check failed
     else Just $ extendVarEnv subst tv1' $
-                TyCoArg (castCoercionKind co (mkSymCo lkco) (mkSymCo rkco))
+                castCoercionKind co (mkSymCo lkco) (mkSymCo rkco)
 
   | otherwise
   = Nothing
@@ -1130,7 +1128,7 @@ ty_co_match_tc menv subst tc1 tys1 tc2 cos2
        ; ty_co_match_args menv subst tys1 cos2 lkcos rkcos }
   where
     Pair lkcos rkcos
-      = traverse (fmap mkRepReflCo . coercionArgKind) cos2
+      = traverse (fmap mkRepReflCo . coercionKind) cos2
 
 ty_co_match_app :: MatchEnv -> LiftCoEnv
                 -> Type -> Type -> Coercion -> Coercion
@@ -1140,8 +1138,7 @@ ty_co_match_app menv subst ty1a ty1b co2a co2b
          subst1 <- ty_co_match menv subst  ki1a ki2a ki_ki_co ki_ki_co
        ; let Pair lkco rkco = mkRepReflCo <$> coercionKind ki2a
        ; subst2 <- ty_co_match menv subst1 ty1a co2a lkco rkco
-       ; ty_co_match_arg menv subst2 ty1b co2b
-                         (mkNthCo 0 lkco) (mkNthCo 0 rkco) }
+       ; ty_co_match menv subst2 ty1b co2b (mkNthCo 0 lkco) (mkNthCo 0 rkco) }
   where
     ki1a = typeKind ty1a
     ki2a = promoteCoercion co2a
@@ -1161,9 +1158,9 @@ pushRefl (Refl Nominal (AppTy ty1 ty2))
   = Just (AppCo (Refl Nominal ty1) (Refl Nominal (typeKind ty2))
                                    (mkNomReflCoArg ty2))
 pushRefl (Refl r (ForAllTy (Anon ty1) ty2))
-  = Just (TyConAppCo r funTyCon [mkReflCoArg r ty1, mkReflCoArg r ty2])
+  = Just (TyConAppCo r funTyCon [mkReflCo r ty1, mkReflCo r ty2])
 pushRefl (Refl r (TyConApp tc tys))
-  = Just (TyConAppCo r tc (zipWith mkReflCoArg (tyConRolesX r tc) tys))
+  = Just (TyConAppCo r tc (zipWith mkReflCo (tyConRolesX r tc) tys))
 pushRefl (Refl r (ForAllTy (Named tv _) ty))
   = Just (mkHomoForAllCos_NoRefl r [tv] (Refl r ty))
     -- NB: NoRefl variant. Otherwise, we get a loop!

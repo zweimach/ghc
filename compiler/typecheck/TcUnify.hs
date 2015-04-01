@@ -795,7 +795,7 @@ uType origin orig_ty1 orig_ty2
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       -- See Note [Mismatched type lists and application decomposition]
       | tc1 == tc2, length tys1 == length tys2
-      = do { cos <- zipWithM (uTypeArg origin) tys1 tys2
+      = do { cos <- zipWithM (uType origin) tys1 tys2
            ; return $ mkTyConAppCo Nominal tc1 cos }
 
     go (LitTy m) ty@(LitTy n)
@@ -830,9 +830,9 @@ uType origin orig_ty1 orig_ty2
 
     ------------------
     go_app s1 t1 s2 t2
-      = do { co_s <- uType    origin s1 s2
-           ; co_h <- uType    kind_origin t1k t2k
-           ; co_t <- uTypeArg origin t1 t2
+      = do { co_s <- uType origin s1 s2
+           ; co_h <- uType kind_origin t1k t2k
+           ; co_t <- uType origin t1 t2
            ; return $ mkAppCo co_s co_h co_t }
       where
         t1k = typeKind t1

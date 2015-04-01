@@ -55,8 +55,7 @@ module TyCoRep (
         -- Free variables
         tyCoVarsOfType, tyCoVarsOfTypes,
         coVarsOfType, coVarsOfTypes,
-        coVarsOfCo, coVarsOfCos, coVarsOfCoArg,
-        tyCoVarsOfCoArg, tyCoVarsOfCoArgs,
+        coVarsOfCo, coVarsOfCos,
         tyCoVarsOfCo, tyCoVarsOfCos,
         closeOverKinds,
 
@@ -77,7 +76,7 @@ module TyCoRep (
         substTyWithBinders,
         substTys, substTheta, substTyCoVar, substTyCoVars,
         lookupTyVar, lookupVar, substTyVarBndr,
-        substCo, substCoArg, substCos, substCoVar, substCoVars, lookupCoVar,
+        substCo, substCos, substCoVar, substCoVars, lookupCoVar,
         substTyCoVarBndr, substCoVarBndr, cloneTyVarBndr,
         substCoWithIS, substCoWith, substTyVar, substTyVars,
         substForAllCoBndr,
@@ -1064,14 +1063,14 @@ tyCoVarsOfTypes tys = mapUnionVarSet tyCoVarsOfType tys
 tyCoVarsOfCo :: Coercion -> TyCoVarSet
 -- Extracts type and coercion variables from a coercion
 tyCoVarsOfCo (Refl _ ty)         = tyCoVarsOfType ty
-tyCoVarsOfCo (TyConAppCo _ _ args) = tyCoVarsOfCoArgs args
+tyCoVarsOfCo (TyConAppCo _ _ args) = tyCoVarsOfCos args
 tyCoVarsOfCo (AppCo co h arg)    = tyCoVarsOfCo co `unionVarSet`
-                                   tyCoVarsOfCo h `unionVarSet` tyCoVarsOfCoArg arg
+                                   tyCoVarsOfCo h `unionVarSet` tyCoVarsOfCo arg
 tyCoVarsOfCo (ForAllCo cobndr co)
   = tyCoVarsOfCo co `delVarSetList` coBndrVars cobndr
                     `unionVarSet` tyCoVarsOfCo (coBndrKindCo cobndr)
 tyCoVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` tyCoVarsOfType (varType v)
-tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCoArgs cos
+tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCos cos
 tyCoVarsOfCo (PhantomCo h t1 t2)   = tyCoVarsOfCo h `unionVarSet` tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
 tyCoVarsOfCo (UnsafeCo _ _ ty1 ty2)
   = tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2
@@ -1079,7 +1078,7 @@ tyCoVarsOfCo (SymCo co)          = tyCoVarsOfCo co
 tyCoVarsOfCo (TransCo co1 co2)   = tyCoVarsOfCo co1 `unionVarSet` tyCoVarsOfCo co2
 tyCoVarsOfCo (NthCo _ co)        = tyCoVarsOfCo co
 tyCoVarsOfCo (LRCo _ co)         = tyCoVarsOfCo co
-tyCoVarsOfCo (InstCo co arg)     = tyCoVarsOfCo co `unionVarSet` tyCoVarsOfCoArg arg
+tyCoVarsOfCo (InstCo co arg)     = tyCoVarsOfCo co `unionVarSet` tyCoVarsOfCo arg
 tyCoVarsOfCo (CoherenceCo c1 c2) = tyCoVarsOfCo c1 `unionVarSet` tyCoVarsOfCo c2
 tyCoVarsOfCo (KindCo co)         = tyCoVarsOfCo co
 tyCoVarsOfCo (KindAppCo co)      = tyCoVarsOfCo co
@@ -1107,21 +1106,21 @@ coVarsOfTypes tys = mapUnionVarSet coVarsOfType tys
 coVarsOfCo :: Coercion -> CoVarSet
 -- Extract *coercion* variables only.  Tiresome to repeat the code, but easy.
 coVarsOfCo (Refl _ ty)         = coVarsOfType ty
-coVarsOfCo (TyConAppCo _ _ args) = coVarsOfCoArgs args
+coVarsOfCo (TyConAppCo _ _ args) = coVarsOfCos args
 coVarsOfCo (AppCo co h arg)    = coVarsOfCo co `unionVarSet`
-                                 coVarsOfCo h `unionVarSet` coVarsOfCoArg arg
+                                 coVarsOfCo h `unionVarSet` coVarsOfCo arg
 coVarsOfCo (ForAllCo cobndr co)
   = coVarsOfCo co `delVarSetList` coBndrVars cobndr
                   `unionVarSet` coVarsOfCo (coBndrKindCo cobndr)
 coVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` coVarsOfType (varType v)
-coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCoArgs args
+coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCos args
 coVarsOfCo (PhantomCo h t1 t2) = coVarsOfCo h `unionVarSet` coVarsOfTypes [t1, t2]
 coVarsOfCo (UnsafeCo _ _ t1 t2)= coVarsOfTypes [t1, t2]
 coVarsOfCo (SymCo co)          = coVarsOfCo co
 coVarsOfCo (TransCo co1 co2)   = coVarsOfCo co1 `unionVarSet` coVarsOfCo co2
 coVarsOfCo (NthCo _ co)        = coVarsOfCo co
 coVarsOfCo (LRCo _ co)         = coVarsOfCo co
-coVarsOfCo (InstCo co arg)     = coVarsOfCo co `unionVarSet` coVarsOfCoArg arg
+coVarsOfCo (InstCo co arg)     = coVarsOfCo co `unionVarSet` coVarsOfCo arg
 coVarsOfCo (CoherenceCo c1 c2) = coVarsOfCos [c1, c2]
 coVarsOfCo (KindCo co)         = coVarsOfCo co
 coVarsOfCo (KindAppCo co)      = coVarsOfCo co
@@ -1720,21 +1719,21 @@ subst_co subst co
 
     go :: Coercion -> Coercion
     go (Refl r ty)           = mkReflCo r $! go_ty ty
-    go (TyConAppCo r tc args)= let args' = map go_arg args
+    go (TyConAppCo r tc args)= let args' = map go args
                                in  args' `seqList` mkTyConAppCo r tc args'
-    go (AppCo co h arg)      = ((mkAppCo $! go co) $! go h) $! go_arg arg
+    go (AppCo co h arg)      = ((mkAppCo $! go co) $! go h) $! go arg
     go (ForAllCo cobndr co)
       = case substForAllCoBndr subst cobndr of { (subst', cobndr') ->
           (mkForAllCo $! cobndr') $! subst_co subst' co }
     go (CoVarCo cv)          = substCoVar subst cv
-    go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go_arg cos
+    go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go cos
     go (PhantomCo h t1 t2)   = ((mkPhantomCo $! (go h)) $! (go_ty t1)) $! (go_ty t2)
     go (UnsafeCo s r ty1 ty2)= (mkUnsafeCo s r $! go_ty ty1) $! go_ty ty2
     go (SymCo co)            = mkSymCo $! (go co)
     go (TransCo co1 co2)     = (mkTransCo $! (go co1)) $! (go co2)
     go (NthCo d co)          = mkNthCo d $! (go co)
     go (LRCo lr co)          = mkLRCo lr $! (go co)
-    go (InstCo co arg)       = (mkInstCo $! (go co)) $! go_arg arg
+    go (InstCo co arg)       = (mkInstCo $! (go co)) $! go arg
     go (CoherenceCo co1 co2) = (mkCoherenceCo $! (go co1)) $! (go co2)
     go (KindCo co)           = mkKindCo $! (go co)
     go (KindAppCo co)        = mkKindAppCo $! (go co)
@@ -1745,8 +1744,6 @@ subst_co subst co
                                    AxiomRuleCo c ts1 cs1
     go (ProofIrrelCo r c1 c2 c3)
                              = ((mkProofIrrelCo r $! go c1) $! go c2) $! go c3
-
-    go_arg = subst_co_arg subst
 
 substForAllCoBndr :: TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
 substForAllCoBndr subst
@@ -2405,16 +2402,16 @@ tidyCo env@(_, subst) co
   = go co
   where
     go (Refl r ty)           = Refl r (tidyType env ty)
-    go (TyConAppCo r tc cos) = let args = map go_arg cos
+    go (TyConAppCo r tc cos) = let args = map go cos
                                in args `seqList` TyConAppCo r tc args
-    go (AppCo co1 h co2)     = ((AppCo $! go co1) $! go h) $! go_arg co2
+    go (AppCo co1 h co2)     = ((AppCo $! go co1) $! go h) $! go co2
     go (ForAllCo cobndr co)  = ForAllCo cobndrp $! (tidyCo envp co)
                                where
                                  (envp, cobndrp) = go_bndr cobndr
     go (CoVarCo cv)          = case lookupVarEnv subst cv of
                                  Nothing  -> CoVarCo cv
                                  Just cv' -> CoVarCo cv'
-    go (AxiomInstCo con ind cos) = let args = map go_arg cos
+    go (AxiomInstCo con ind cos) = let args = map go cos
                                in  args `seqList` AxiomInstCo con ind args
     go (PhantomCo h t1 t2)   = ((PhantomCo $! go h) $! tidyType env t1) $! tidyType env t2
     go (UnsafeCo s r ty1 ty2)= (UnsafeCo s r $! tidyType env ty1) $! tidyType env ty2
@@ -2422,7 +2419,7 @@ tidyCo env@(_, subst) co
     go (TransCo co1 co2)     = (TransCo $! go co1) $! go co2
     go (NthCo d co)          = NthCo d $! go co
     go (LRCo lr co)          = LRCo lr $! go co
-    go (InstCo co ty)        = (InstCo $! go co) $! go_arg ty
+    go (InstCo co ty)        = (InstCo $! go co) $! go ty
     go (CoherenceCo co1 co2) = (CoherenceCo $! go co1) $! go co2
     go (KindCo co)           = KindCo $! go co
     go (KindAppCo co)        = KindAppCo $! go co
@@ -2431,9 +2428,7 @@ tidyCo env@(_, subst) co
                                       cos1 = tidyCos env cos
                                   in tys1 `seqList` cos1 `seqList`
                                      AxiomRuleCo ax tys1 cos1
-
-    go_arg (TyCoArg co)          = TyCoArg $! go co
-    go_arg (CoCoArg r h co1 co2) = ((CoCoArg r $! go h) $! go co1) $! go co2
+    go (ProofIrrelCo r h co1 co2) = ((ProofIrrelCo r $! go h) $! go co1) $! go co2 
 
     go_bndr (ForAllCoBndr h tv1 tv2 m_cv)
       = let h' = go h

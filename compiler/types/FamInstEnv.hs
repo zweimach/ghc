@@ -695,7 +695,7 @@ lookup_fam_inst_env' match_fun ie fam match_tys
                       , fim_tys      = substTyVars subst tpl_tvs `chkAppend` match_tys2
                       , fim_coercion = mkTyConAppCo Nominal fam
                                          (cos `chkAppend`
-                                          map mkNomReflCoArg match_tys2)
+                                          map mkNomReflCo match_tys2)
                       })
         : find rest
 
@@ -851,7 +851,7 @@ chooseBranch axiom tys
              branches = coAxiomBranches axiom
        ; (ind, inst_tys, cos) <- findBranch (fromBranchList branches) 0 target_tys
        ; return ( ind, inst_tys `chkAppend` extra_tys
-                , cos `chkAppend` map mkNomReflCoArg extra_tys) }
+                , cos `chkAppend` map mkNomReflCo extra_tys) }
 
 -- The axiom must *not* be oversaturated
 findBranch :: [CoAxBranch]             -- branches to check
@@ -948,7 +948,7 @@ there's no sense in removing these from coercions. We would just get back a
 new coercion witnessing the equality between the same types as the original
 coercion. Because coercions are irrelevant anyway, there is no point in doing
 this. So, whenever we encounter a coercion, we just say that it won't change.
-That's what the (CoCoArg co co) is doing in go_arg within normaliseType.
+That's what the ProofIrrelCo case is doing within normalise_type.
 
 There is still the possibility that the kind of a coercion variable mentions
 a type family and will change in normaliseTyCoVarBndr. So, we must perform
@@ -1069,7 +1069,7 @@ normalise_tc_args :: FamInstEnvs            -- environment with family instances
 normalise_tc_args env lc role tc tys
   = (mkTyConAppCo role tc cois, ntys)
   where
-    (cois, ntys) = zipWithAndUnzip (normalise_ty_arg env lc)
+    (cois, ntys) = zipWithAndUnzip (normalise_ty env lc)
                                    (tyConRolesX role tc) tys
 
 ---------------
@@ -1103,7 +1103,7 @@ normalise_type env lc
       = let (co,  nty1) = go r ty1
             -- TODO (RAE): make more efficient
             (kco, _)    = go r (typeKind ty2)
-            (arg, nty2) = normalise_ty_arg env lc Nominal ty2
+            (arg, nty2) = normalise_ty env lc Nominal ty2
         in (mkAppCo co kco arg, mkAppTy nty1 nty2)
     go r (ForAllTy (Anon ty1) ty2)
       = let (co1, nty1) = go r ty1
@@ -1129,10 +1129,9 @@ normalise_tyvar :: LiftingContext -> Role -> TyVar -> (Coercion, Type)
 normalise_tyvar lc r tv
   = ASSERT( isTyVar tv )
     case liftCoSubstTyCoVar lc r tv of
-      Just (TyCoArg co) -> (co, pSnd $ coercionKind co)
-      Nothing           -> (mkReflCo r ty, ty)
+      Just co -> (co, pSnd $ coercionKind co)
+      Nothing -> (mkReflCo r ty, ty)
         where ty = mkOnlyTyVarTy tv
-      bad_news          -> pprPanic "normaliseTyVar" (ppr bad_news)
 
 normalise_tycovar_bndr :: FamInstEnvs -> LiftingContext -> Role -> TyCoVar
                        -> (LiftingContext, ForAllCoBndr)
@@ -1300,33 +1299,29 @@ allTyVarsInTy = go
     go (CoercionTy co)   = go_co co
 
     go_co (Refl _ ty)           = go ty
-    go_co (TyConAppCo _ _ args) = go_args args
+    go_co (TyConAppCo _ _ args) = go_cos args
     go_co (AppCo co h arg)      = go_co co `unionVarSet`
-                                  go_co h `unionVarSet` go_arg arg
+                                  go_co h `unionVarSet` go_co arg
     go_co (ForAllCo cobndr co)  = unionVarSets [ mkVarSet (coBndrVars cobndr)
                                                , go_co co
                                                , go_co (coBndrKindCo cobndr) ]
     go_co (CoVarCo cv)          = unitVarSet cv
-    go_co (AxiomInstCo _ _ cos) = go_args cos
+    go_co (AxiomInstCo _ _ cos) = go_cos cos
     go_co (PhantomCo h t1 t2)   = go_co h `unionVarSet` go t1 `unionVarSet` go t2
     go_co (UnsafeCo _ _ t1 t2)  = go t1 `unionVarSet` go t2
     go_co (SymCo co)            = go_co co
     go_co (TransCo c1 c2)       = go_co c1 `unionVarSet` go_co c2
     go_co (NthCo _ co)          = go_co co
     go_co (LRCo _ co)           = go_co co
-    go_co (InstCo co arg)       = go_co co `unionVarSet` go_arg arg
+    go_co (InstCo co arg)       = go_co co `unionVarSet` go_co arg
     go_co (CoherenceCo c1 c2)   = go_co c1 `unionVarSet` go_co c2
     go_co (KindCo co)           = go_co co
     go_co (KindAppCo co)        = go_co co
     go_co (SubCo co)            = go_co co
     go_co (AxiomRuleCo _ ts cs) = allTyVarsInTys ts `unionVarSet` go_cos cs
+    go_co (ProofIrrelCo _ h a b)= mapUnionVarSet go_co [h, a, b]
 
     go_cos = foldr (unionVarSet . go_co) emptyVarSet
-
-    go_arg (TyCoArg co)        = go_co co
-    go_arg (CoCoArg _ h c1 c2) = mapUnionVarSet go_co [h, c1, c2]
-
-    go_args = foldr (unionVarSet . go_arg) emptyVarSet
 
 mkFlattenFreshTyName :: Uniquable a => a -> Name
 mkFlattenFreshTyName unq

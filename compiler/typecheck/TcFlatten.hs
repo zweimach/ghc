@@ -731,11 +731,11 @@ flatten_many fmode roles tys
 -- See Note [flatten_many performance]
   = inline zipWithAndUnzipM go roles tys
   where
-    go Nominal          ty = flatten_one_arg (setFEEqRel fmode NomEq)  ty
-    go Representational ty = flatten_one_arg (setFEEqRel fmode ReprEq) ty
+    go Nominal          ty = flatten_one (setFEEqRel fmode NomEq)  ty
+    go Representational ty = flatten_one (setFEEqRel fmode ReprEq) ty
     go Phantom          ty = -- See Note [Phantoms in the flattener]
                              do { ty <- zonkTcType ty
-                                ; return ( ty, mkReflCoArg Phantom ty ) }
+                                ; return ( ty, mkReflCo Phantom ty ) }
 
 -- | Like 'flatten_many', but assumes that every role is nominal.
 flatten_many_nom :: FlattenEnv -> [Type] -> TcS ([Xi], [Coercion])
@@ -743,7 +743,7 @@ flatten_many_nom _     [] = return ([], [])
 -- See Note [flatten_many performance]
 flatten_many_nom fmode (ty:tys)
   = ASSERT( fe_eq_rel fmode == NomEq )
-    do { (xi, co) <- flatten_one_arg fmode ty
+    do { (xi, co) <- flatten_one fmode ty
        ; (xis, cos) <- flatten_many_nom fmode tys
        ; return (xi:xis, co:cos) }
 
@@ -771,11 +771,11 @@ flatten_one fmode (AppTy ty1 ty2)
              do { ty2 <- zonkTcType ty2
                 ; return ( mkAppTy xi1 ty2
                          , mkAppCo co1 (mkRepReflCo (typeKind ty2))
-                                       (mkNomReflCoArg ty2)) } }
+                                       (mkNomReflCo ty2)) } }
   where
     -- See Note [Kinds when flattening an AppTy]
     flatten_rhs xi1 co1 eq_rel2
-      = do { (xi2,co2) <- flatten_one_arg (setFEEqRel fmode eq_rel2) ty2
+      = do { (xi2,co2) <- flatten_one (setFEEqRel fmode eq_rel2) ty2
            ; let role1 = feRole fmode
                  role2 = eqRelRole eq_rel2
               -- kco :: kind xi2' ~N kind ty2
@@ -879,11 +879,10 @@ flatten_co fmode co
        ; let co' = co1 `mkTransCo` co `mkTransCo` mkSymCo co2
              -- kco :: (ty1' ~r ty2') ~R (ty1 ~r ty2)
              kco = mkTyConAppCo Representational (equalityTyCon role) $
-                     map mkTyCoArg [ mkKindCo co1
-                                   , mkKindCo co2
-                                   , downgradeRole role (eqRelRole eq_rel) co1
-                                   , downgradeRole role (eqRelRole eq_rel) co2 ]
-       ; return (co', CoCoArg (feRole fmode) kco co' co) }
+                     [ mkKindCo co1, mkKindCo co2
+                     , downgradeRole role (eqRelRole eq_rel) co1
+                     , downgradeRole role (eqRelRole eq_rel) co2 ]
+       ; return (co', mkProofIrrelCo (feRole fmode) kco co' co) }
 
 flattenTyConApp :: FlattenEnv -> TyCon -> [TcType] -> TcS (Xi, Coercion)
 flattenTyConApp fmode tc tys

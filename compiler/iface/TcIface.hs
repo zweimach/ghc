@@ -862,12 +862,12 @@ tcIfaceCo = go
     go (IfaceReflCo r t)         = Refl r <$> tcIfaceType t
     go (IfaceFunCo r c1 c2)      = mkFunCo r <$> go c1 <*> go c2
     go (IfaceTyConAppCo r tc cs)
-      = TyConAppCo r <$> tcIfaceTyCon tc <*> tcIfaceCoArgs cs
-    go (IfaceAppCo c1 h c2)      = AppCo <$> go c1 <*> go h <*> tcIfaceCoArg c2
+      = TyConAppCo r <$> tcIfaceTyCon tc <*> mapM go cs
+    go (IfaceAppCo c1 h c2)      = AppCo <$> go c1 <*> go h <*> go c2
     go (IfaceForAllCo bndr c)    = bindIfaceBndrCo bndr $ \ cobndr ->
                                             ForAllCo cobndr <$> go c
     go (IfaceCoVarCo n)          = CoVarCo <$> go_var n
-    go (IfaceAxiomInstCo n i cs) = AxiomInstCo <$> tcIfaceCoAxiom n <*> pure i <*> mapM tcIfaceCoArg cs
+    go (IfaceAxiomInstCo n i cs) = AxiomInstCo <$> tcIfaceCoAxiom n <*> pure i <*> mapM go cs
     go (IfacePhantomCo h t1 t2)  = PhantomCo <$> go h <*> tcIfaceType t1
                                                       <*> tcIfaceType t2
     go (IfaceUnsafeCo s r t1 t2) = UnsafeCo s r <$> tcIfaceType t1
@@ -876,7 +876,7 @@ tcIfaceCo = go
     go (IfaceTransCo c1 c2)      = TransCo  <$> go c1
                                             <*> go c2
     go (IfaceInstCo c1 t2)       = InstCo   <$> go c1
-                                            <*> tcIfaceCoArg t2
+                                            <*> go t2
     go (IfaceNthCo d c)          = NthCo d  <$> go c
     go (IfaceLRCo lr c)          = LRCo lr  <$> go c
     go (IfaceCoherenceCo c1 c2)  = CoherenceCo <$> go c1
@@ -887,7 +887,7 @@ tcIfaceCo = go
     go (IfaceAxiomRuleCo ax tys cos) = AxiomRuleCo <$> go_axiom_rule ax
                                                    <*> mapM tcIfaceType tys
                                                    <*> mapM go cos
-    go (IfaceCoCoArg r h c1 c2)  = ProofIrrelCo r <$> go h <*> go c1 <*> go c2
+    go (IfaceProofIrrelCo r h c1 c2) = ProofIrrelCo r <$> go h <*> go c1 <*> go c2
 
     go_var :: FastString -> IfL CoVar
     go_var = tcIfaceLclId

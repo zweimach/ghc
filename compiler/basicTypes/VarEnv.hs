@@ -8,7 +8,7 @@ module VarEnv (
         VarEnv, IdEnv, TyVarEnv, CoVarEnv,
 
         -- ** Manipulating these environments
-        emptyVarEnv, unitVarEnv, mkVarEnv,
+        emptyVarEnv, unitVarEnv, mkVarEnv, mkVarEnv_Directly,
         elemVarEnv, varEnvElts, varEnvKeys, varEnvToList,
         extendVarEnv, extendVarEnv_C, extendVarEnv_Acc, extendVarEnv_Directly,
         extendVarEnvList,
@@ -382,6 +382,7 @@ type CoVarEnv elt = VarEnv elt
 
 emptyVarEnv       :: VarEnv a
 mkVarEnv          :: [(Var, a)] -> VarEnv a
+mkVarEnv_Directly :: [(Unique, a)] -> VarEnv a
 zipVarEnv         :: [Var] -> [a] -> VarEnv a
 unitVarEnv        :: Var -> a -> VarEnv a
 alterVarEnv       :: (Maybe a -> Maybe a) -> VarEnv a -> Var -> VarEnv a
@@ -438,6 +439,7 @@ filterVarEnv     = filterUFM
 lookupWithDefaultVarEnv = lookupWithDefaultUFM
 mapVarEnv        = mapUFM
 mkVarEnv         = listToUFM
+mkVarEnv_Directly= listToUFM_Directly
 emptyVarEnv      = emptyUFM
 varEnvElts       = eltsUFM
 varEnvKeys       = keysUFM

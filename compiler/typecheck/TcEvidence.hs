@@ -126,9 +126,6 @@ Why does TcAxiomInstCo take a list of TcCoercions? Because AxiomInstCo does,
 of course! Generally, we think of axioms as being applied to a list of types.
 The only reason for coercions in AxiomInstCo is to allow for coercion
 optimization -- see Note [Coercion axioms applied to coercions] in TyCoRep.
-But, of course, we don't want to fiddle with
-CoCoArgs in the type-checker, so we ensure that all CoCoArgs are actually
-reflexive and then we can proceed.
 
 -}
 
@@ -327,7 +324,7 @@ mkTcKindAppCo = TcKindAppCo
 mkTcCoercion :: Coercion -> TcCoercion
 mkTcCoercion co
   | Just (ty, r) <- isReflCo_maybe co = TcRefl r ty
-  | otherwise                         = TcCoercion (mkTyCoArg co)
+  | otherwise                         = TcCoercion co
 
 tcCoercionKind :: TcCoercion -> Pair Type
 tcCoercionKind co = go co
@@ -363,7 +360,7 @@ tcCoercionKind co = go co
        case coaxrProves ax ts (map tcCoercionKind cs) of
          Just res -> res
          Nothing -> panic "tcCoercionKind: malformed TcAxiomRuleCo"
-    go (TcCoercion co)        = coercionArgKind co
+    go (TcCoercion co)        = coercionKind co
 
 tcCoBndrKind :: TcForAllCoBndr -> Pair TcTyCoVar
 tcCoBndrKind (TcForAllCoBndr _ tv1 tv2 _) = Pair tv1 tv2
@@ -412,7 +409,7 @@ tcCoercionRole = go
     go (TcKindCo _)           = Representational
     go (TcKindAppCo co)       = go co
     go (TcLetCo _ c)          = go c
-    go (TcCoercion co)        = coercionArgRole co
+    go (TcCoercion co)        = coercionRole co
 
 coVarsOfTcCo :: TcCoercion -> VarSet
 -- Only works on *zonked* coercions, because of TcLetCo
@@ -442,7 +439,7 @@ coVarsOfTcCo tc_co
     go (TcLetCo {}) = emptyVarSet    -- Harumph. This does legitimately happen in the call
                                      -- to evVarsOfTerm in the DEBUG check of setEvBind
     go (TcAxiomRuleCo _ _ cos)   = mapUnionVarSet go cos
-    go (TcCoercion co)           = coVarsOfCoArg co
+    go (TcCoercion co)           = coVarsOfCo co
 
     -- We expect only coercion bindings, so use evTermCoercion
     go_bind :: EvBind -> VarSet
@@ -460,13 +457,13 @@ tcCoercionToCoercion subst tc_co
   = go tc_co
   where
     go (TcRefl r ty)            = Just $ mkReflCo r (Type.substTy subst ty)
-    go (TcTyConAppCo r tc cos)  = mkTyConAppCo r tc <$> mapM go_arg cos
-    go (TcAppCo co1 h co2)      = mkAppCo <$> go co1 <*> go h <*> go_arg co2
+    go (TcTyConAppCo r tc cos)  = mkTyConAppCo r tc <$> mapM go cos
+    go (TcAppCo co1 h co2)      = mkAppCo <$> go co1 <*> go h <*> go co2
     go (TcForAllCo cobndr co)   = do { (subst', cobndr') <- go_cobndr cobndr
                                      ; mkForAllCo cobndr' <$>
                                          tcCoercionToCoercion subst' co }
     go (TcAxiomInstCo ax ind cos)
-                                = mkAxiomInstCo ax ind <$> mapM go_arg cos
+                                = mkAxiomInstCo ax ind <$> mapM go cos
     go (TcPhantomCo h ty1 ty2)  = mkPhantomCo <$> go h <*> pure (substTy subst ty1)
                                                        <*> pure (substTy subst ty2)
     go (TcSymCo co)             = mkSymCo <$> go co
@@ -483,10 +480,7 @@ tcCoercionToCoercion subst tc_co
                                   do { guard (isCoercionType $ varType v)
                                      ; return (mkCoVarCo v) }
     go (TcAxiomRuleCo co ts cs) = mkAxiomRuleCo co (map (Type.substTy subst) ts) <$> (mapM go cs)
-    go (TcCoercion co)          = stripTyCoArg <$> Just (substCoArg subst co)
-
-    go_arg (TcCoercion arg)     = Just (substCoArg subst arg)
-    go_arg tc_co                = mkTyCoArg <$> go tc_co
+    go (TcCoercion co)          = Just (substCo subst co)
 
     go_cobndr (TcForAllCoBndr h tv1 tv2 m_cv)
       = do { let (subst1, tv1')  =             substTyCoVarBndr subst  tv1

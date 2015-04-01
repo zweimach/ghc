@@ -498,6 +498,7 @@ isn'tIn msg x ys
 ************************************************************************
 -}
 
+-- TODO (RAE): Rename this. See uncurry3 in same file.
 uncurry2 :: (a -> b -> c -> d) -> a -> (b, c) -> d
 uncurry2 f a (b, c) = f a b c
 

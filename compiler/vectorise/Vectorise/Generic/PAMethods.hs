@@ -218,7 +218,6 @@ buildToArrPRepr vect_tc repr_co pdata_tc _ r
 
       pdata_co <- mkBuiltinCo pdataTyCon
       let co           = mkAppCo pdata_co (panic "buildToArrPRepr")
-                       . mkTyCoArg
                        $ mkSymCo
                        $ mkUnbranchedAxInstCo Nominal repr_co ty_args
 
@@ -284,7 +283,7 @@ buildFromArrPRepr vect_tc repr_co pdata_tc _ r
 
       pdata_co <- mkBuiltinCo pdataTyCon
       let co           = mkAppCo pdata_co (panic "buildFromArrPRepr")
-                       $ mkTyCoArg $ mkUnbranchedAxInstCo Nominal repr_co var_tys
+                       $ mkUnbranchedAxInstCo Nominal repr_co var_tys
 
       let scrut        = mkCast (Var arg) co
 
@@ -369,7 +368,6 @@ buildToArrPReprs vect_tc repr_co _ pdatas_tc r
     -- Coersion to case between the (PRepr a) type and its instance.
     pdatas_co <- mkBuiltinCo pdatasTyCon
     let co           = mkAppCo pdatas_co (panic "buildToArrPReprs")
-                     . mkTyCoArg
                      $ mkSymCo
                      $ mkUnbranchedAxInstCo Nominal repr_co ty_args
 
@@ -465,7 +463,6 @@ buildFromArrPReprs vect_tc repr_co _ pdatas_tc r
     -- Build the coercion between PRepr and the instance type
     pdatas_co <- mkBuiltinCo pdatasTyCon
     let co           = mkAppCo pdatas_co (panic "buildFromArrPReprs")
-                     $ mkTyCoArg
                      $ mkUnbranchedAxInstCo Nominal repr_co var_tys
 
     let scrut        = mkCast (Var varg) co

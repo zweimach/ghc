@@ -657,32 +657,28 @@ exactTyCoVarsOfType ty
     go (CoercionTy co)      = goCo co
 
     goCo (Refl _ ty)        = go ty
-    goCo (TyConAppCo _ _ args)= goCoArgs args
-    goCo (AppCo co h arg)   = goCo co `unionVarSet` goCo h `unionVarSet` goCoArg arg
+    goCo (TyConAppCo _ _ args)= goCos args
+    goCo (AppCo co h arg)   = goCo co `unionVarSet` goCo h `unionVarSet` goCo arg
     goCo (ForAllCo bndr co)
       = let Pair v1 v2 = coBndrKind bndr in
         goCo co `delVarSetList` [v1, v2] `unionVarSet` goCo (coBndrKindCo bndr)
     goCo (CoVarCo v)         = unitVarSet v
-    goCo (AxiomInstCo _ _ args) = goCoArgs args
+    goCo (AxiomInstCo _ _ args) = goCos args
     goCo (PhantomCo h t1 t2) = goCo h `unionVarSet` go t1 `unionVarSet` go t2
     goCo (UnsafeCo _ _ t1 t2)= go t1 `unionVarSet` go t2
     goCo (SymCo co)          = goCo co
     goCo (TransCo co1 co2)   = goCo co1 `unionVarSet` goCo co2
     goCo (NthCo _ co)        = goCo co
     goCo (LRCo _ co)         = goCo co
-    goCo (InstCo co arg)     = goCo co `unionVarSet` goCoArg arg
+    goCo (InstCo co arg)     = goCo co `unionVarSet` goCo arg
     goCo (CoherenceCo c1 c2) = goCo c1 `unionVarSet` goCo c2
     goCo (KindCo co)         = goCo co
     goCo (KindAppCo co)      = goCo co
     goCo (SubCo co)          = goCo co
     goCo (AxiomRuleCo _ t c) = exactTyCoVarsOfTypes t `unionVarSet` goCos c
+    goCo (ProofIrrelCo _ h co1 co2) = mapUnionVarSet goCo [h, co1, co2]
 
     goCos cos = foldr (unionVarSet . goCo) emptyVarSet cos
-
-    goCoArg (TyCoArg co)          = goCo co
-    goCoArg (CoCoArg _ h co1 co2) = mapUnionVarSet goCo [h, co1, co2]
-
-    goCoArgs args            = mapUnionVarSet goCoArg args
 
 exactTyCoVarsOfTypes :: [Type] -> TyVarSet
 exactTyCoVarsOfTypes tys = mapUnionVarSet exactTyCoVarsOfType tys
@@ -1419,23 +1415,23 @@ occurCheckExpand dflags tv ty
     fast_check (CoercionTy co)     = fast_check_co co
 
     fast_check_co (Refl _ ty)            = fast_check ty
-    fast_check_co (TyConAppCo _ _ args)  = all fast_check_co_arg args
+    fast_check_co (TyConAppCo _ _ args)  = all fast_check_co args
     fast_check_co (AppCo co h arg)       = fast_check_co co &&
                                            fast_check_co h &&
-                                           fast_check_co_arg arg
+                                           fast_check_co arg
     fast_check_co (ForAllCo (ForAllCoBndr h v1 v2 _) co)
       = impredicative && fast_check_co h
                       && fast_check (varType v1)
                       && fast_check (varType v2)
                       && (tv == v1 || tv == v2 || fast_check_co co)
     fast_check_co (CoVarCo _)            = True
-    fast_check_co (AxiomInstCo _ _ args) = all fast_check_co_arg args
+    fast_check_co (AxiomInstCo _ _ args) = all fast_check_co args
     fast_check_co (PhantomCo h t1 t2)    = fast_check_co h && fast_check t1
                                                            && fast_check t2
     fast_check_co (UnsafeCo _ _ ty1 ty2) = fast_check ty1 && fast_check ty2
     fast_check_co (SymCo co)             = fast_check_co co
     fast_check_co (TransCo co1 co2)      = fast_check_co co1 && fast_check_co co2
-    fast_check_co (InstCo co arg)        = fast_check_co co && fast_check_co_arg arg
+    fast_check_co (InstCo co arg)        = fast_check_co co && fast_check_co arg
     fast_check_co (NthCo _ co)           = fast_check_co co
     fast_check_co (LRCo _ co)            = fast_check_co co
     fast_check_co (CoherenceCo co1 co2)  = fast_check_co co1 && fast_check_co co2
@@ -1444,9 +1440,7 @@ occurCheckExpand dflags tv ty
     fast_check_co (SubCo co)             = fast_check_co co
     fast_check_co (AxiomRuleCo _ ts cs)
       = all fast_check ts && all fast_check_co cs
-
-    fast_check_co_arg (TyCoArg co)          = fast_check_co co
-    fast_check_co_arg (CoCoArg _ h co1 co2) = all fast_check_co [h, co1, co2]
+    fast_check_co (ProofIrrelCo _ h a b) = all fast_check_co [h, a, b]
 
     go t@(TyVarTy tv') | tv == tv' = OC_Occurs
                        | otherwise = return t
@@ -1490,11 +1484,11 @@ occurCheckExpand dflags tv ty
     go_co (Refl r ty)               = do { ty' <- go ty
                                          ; return (mkReflCo r ty') }
       -- Note: Coercions do not contain type synonyms
-    go_co (TyConAppCo r tc args)    = do { args' <- mapM go_arg args
+    go_co (TyConAppCo r tc args)    = do { args' <- mapM go_co args
                                          ; return (mkTyConAppCo r tc args') }
     go_co (AppCo co h arg)          = do { co' <- go_co co
                                          ; h' <- go_co h
-                                         ; arg' <- go_arg arg
+                                         ; arg' <- go_co arg
                                          ; return (mkAppCo co' h' arg') }
     go_co (ForAllCo cobndr co)
       | not impredicative           = OC_Forall
@@ -1506,7 +1500,7 @@ occurCheckExpand dflags tv ty
                        ; co' <- go_co co
                        ; return (mkForAllCo cobndr' co') }
     go_co co@(CoVarCo {})           = return co
-    go_co (AxiomInstCo ax ind args) = do { args' <- mapM go_arg args
+    go_co (AxiomInstCo ax ind args) = do { args' <- mapM go_co args
                                          ; return (mkAxiomInstCo ax ind args') }
     go_co (PhantomCo h ty1 ty2)     = do { h' <- go_co h
                                          ; ty1' <- go ty1
@@ -1525,7 +1519,7 @@ occurCheckExpand dflags tv ty
     go_co (LRCo lr co)              = do { co' <- go_co co
                                          ; return (mkLRCo lr co') }
     go_co (InstCo co arg)           = do { co' <- go_co co
-                                         ; arg' <- go_arg arg
+                                         ; arg' <- go_co arg
                                          ; return (mkInstCo co' arg') }
     go_co (CoherenceCo co1 co2)     = do { co1' <- go_co co1
                                          ; co2' <- go_co co2
@@ -1539,13 +1533,10 @@ occurCheckExpand dflags tv ty
     go_co (AxiomRuleCo ax ts cs)    = do { ts' <- mapM go ts
                                          ; cs' <- mapM go_co cs
                                          ; return (AxiomRuleCo ax ts' cs') }
-
-    go_arg (TyCoArg co)             = do { co' <- go_co co
-                                         ; return (TyCoArg co') }
-    go_arg (CoCoArg r h co1 co2)    = do { h'   <- go_co h
+    go_co (ProofIrrelCo r h co1 co2)= do { h'   <- go_co h
                                          ; co1' <- go_co co1
                                          ; co2' <- go_co co2
-                                         ; return (CoCoArg r h' co1' co2') }
+                                         ; return (mkProofIrrelCo r h' co1' co2') }
 
 canUnifyWithPolyType :: DynFlags -> TcTyVarDetails -> Bool
 canUnifyWithPolyType dflags details
@@ -1853,19 +1844,19 @@ orphNamesOfDFunHead dfun_ty
 
 orphNamesOfCo :: Coercion -> NameSet
 orphNamesOfCo (Refl _ ty)           = orphNamesOfType ty
-orphNamesOfCo (TyConAppCo _ tc cos) = unitNameSet (getName tc) `unionNameSet` orphNamesOfCoArgs cos
-orphNamesOfCo (AppCo co1 h co2)     = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo h `unionNameSet` orphNamesOfCoArg co2
+orphNamesOfCo (TyConAppCo _ tc cos) = unitNameSet (getName tc) `unionNameSet` orphNamesOfCos cos
+orphNamesOfCo (AppCo co1 h co2)     = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo h `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (ForAllCo cobndr co)
   = orphNamesOfCo (coBndrKindCo cobndr) `unionNameSet` orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
-orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSet` orphNamesOfCoArgs cos
+orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSet` orphNamesOfCos cos
 orphNamesOfCo (PhantomCo h t1 t2)   = orphNamesOfCo h `unionNameSet` orphNamesOfType t1 `unionNameSet` orphNamesOfType t2
 orphNamesOfCo (UnsafeCo _ _ ty1 ty2)= orphNamesOfType ty1 `unionNameSet` orphNamesOfType ty2
 orphNamesOfCo (SymCo co)            = orphNamesOfCo co
 orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (NthCo _ co)          = orphNamesOfCo co
 orphNamesOfCo (LRCo  _ co)          = orphNamesOfCo co
-orphNamesOfCo (InstCo co arg)       = orphNamesOfCo co `unionNameSet` orphNamesOfCoArg arg
+orphNamesOfCo (InstCo co arg)       = orphNamesOfCo co `unionNameSet` orphNamesOfCo arg
 orphNamesOfCo (CoherenceCo co1 co2) = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (KindCo co)           = orphNamesOfCo co
 orphNamesOfCo (KindAppCo co)        = orphNamesOfCo co

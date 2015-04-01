@@ -1124,7 +1124,7 @@ lintCoercion co@(Refl r ty)
 
 lintCoercion co@(TyConAppCo r tc cos)
   | tc `hasKey` funTyConKey
-  , [TyCoArg co1,TyCoArg co2] <- cos
+  , [co1,co2] <- cos
   = do { (k1,k'1,s1,t1,r1) <- lintCoercion co1
        ; (k2,k'2,s2,t2,r2) <- lintCoercion co2
        ; k <- lintArrow (ptext (sLit "coercion") <+> quotes (ppr co)) k1 k2
@@ -1395,8 +1395,8 @@ lintCoercion (ProofIrrelCo r kco co1 co2)
        ; let ty1 = phi_to_ty phi1
              ty2 = phi_to_ty phi2
        ; (ty1', ty2') <- lintStarCoercion Representational kco
-       ; ensureEqTys ty1 ty1' (mkBadCoCoArgMsg kco co1 co2)
-       ; ensureEqTys ty2 ty2' (mkBadCoCoArgMsg kco co1 co2)
+       ; ensureEqTys ty1 ty1' (mkBadProofIrrelMsg kco co1 co2)
+       ; ensureEqTys ty2 ty2' (mkBadProofIrrelMsg kco co1 co2)
        ; return ( phi_to_ty phi1, phi_to_ty phi2
                 , CoercionTy co1, CoercionTy co2, r) }
   where phi_to_ty (a,b,c,d,e) = mkHeteroCoercionType e a b c d
@@ -1884,9 +1884,9 @@ mkBadPhantomCoMsg lr co
   = text "Kind mismatch on the" <+> pprLeftOrRight lr <+>
     text "side of a phantom coercion:" <+> ppr co
 
-mkBadCoCoArgMsg :: Coercion -> Coercion -> Coercion -> SDoc
-mkBadCoCoArgMsg kco co1 co2
-  = hang (text "Bad CoCoArg:")
+mkBadProofIrrelMsg :: Coercion -> Coercion -> Coercion -> SDoc
+mkBadProofIrrelMsg kco co1 co2
+  = hang (text "Bad ProofIrrelCo:")
        2 (vcat [ text "co1:" <+> ppr co1
                , text "co2:" <+> ppr co2
                , text "kco:" <+> ppr kco ])
@@ -1904,7 +1904,7 @@ mkBadAppKindMsg co kco fun arg
                , text "Function coercion:" <+> ppr fun
                    <+> dcolon <+> ppr (coercionKind fun)
                , text "Arg coercion:" <+> ppr arg
-                   <+> dcolon <+> ppr (coercionArgKind arg)
+                   <+> dcolon <+> ppr (coercionKind arg)
                , text "AppCo:" <+> ppr co
                    <+> dcolon <+> ppr (coercionKind co)])
 

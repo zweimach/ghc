@@ -348,16 +348,16 @@ expandTypeSynonyms ty
       = mkReflCo r (go subst ty)
        -- NB: coercions are always expanded upon creation
     go_co subst (TyConAppCo r tc args)
-      = mkTyConAppCo r tc (map (go_arg subst) args)
+      = mkTyConAppCo r tc (map (go_co subst) args)
     go_co subst (AppCo co h arg)
-      = mkAppCo (go_co subst co) (go_co subst h) (go_arg subst arg)
+      = mkAppCo (go_co subst co) (go_co subst h) (go_co subst arg)
     go_co subst (ForAllCo cobndr co)
       = let (subst', cobndr') = go_cobndr subst cobndr in
         mkForAllCo cobndr' (go_co subst' co)
     go_co subst (CoVarCo cv)
       = substCoVar subst cv
     go_co subst (AxiomInstCo ax ind args)
-      = mkAxiomInstCo ax ind (map (go_arg subst) args)
+      = mkAxiomInstCo ax ind (map (go_co subst) args)
     go_co subst (PhantomCo h t1 t2)
       = mkPhantomCo (go_co subst h) (go subst t1) (go subst t2)
     go_co subst (UnsafeCo s r ty1 ty2)
@@ -371,7 +371,7 @@ expandTypeSynonyms ty
     go_co subst (LRCo lr co)
       = mkLRCo lr (go_co subst co)
     go_co subst (InstCo co arg)
-      = mkInstCo (go_co subst co) (go_arg subst arg)
+      = mkInstCo (go_co subst co) (go_co subst arg)
     go_co subst (CoherenceCo co1 co2)
       = mkCoherenceCo (go_co subst co1) (go_co subst co2)
     go_co subst (KindCo co)
@@ -382,11 +382,8 @@ expandTypeSynonyms ty
       = mkSubCo (go_co subst co)
     go_co subst (AxiomRuleCo ax ts cs)
       = AxiomRuleCo ax (map (go subst) ts) (map (go_co subst) cs)
-
-    go_arg subst (TyCoArg co)
-      = TyCoArg (go_co subst co)
-    go_arg subst (CoCoArg r h co1 co2)
-      = CoCoArg r (go_co subst h) (go_co subst co1) (go_co subst co2)
+    go_co subst (ProofIrrelCo r h co1 co2)
+      = mkProofIrrelCo r (go_co subst h) (go_co subst co1) (go_co subst co2)
 
       -- the "False" and "const" are to accommodate the type of
       -- substForAllCoBndrCallback, which is general enough to
@@ -2180,33 +2177,30 @@ tyConsOfType ty
      go (CoercionTy co)            = go_co co
 
      go_co (Refl _ ty)             = go ty
-     go_co (TyConAppCo _ tc args)  = go_tc tc `plusNameEnv` go_args args
+     go_co (TyConAppCo _ tc args)  = go_tc tc `plusNameEnv` go_cos args
      go_co (AppCo co h arg)        = go_co co `plusNameEnv`
-                                     go_co h `plusNameEnv` go_arg arg
+                                     go_co h `plusNameEnv` go_co arg
      go_co (ForAllCo cobndr co)
        = go_co (coBndrKindCo cobndr) `plusNameEnv` go_co co
      go_co (CoVarCo {})            = emptyNameEnv
-     go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_args args
+     go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_cos args
      go_co (PhantomCo h t1 t2)     = go_co h `plusNameEnv` go t1 `plusNameEnv` go t2
      go_co (UnsafeCo _ _ ty1 ty2)  = go ty1 `plusNameEnv` go ty2
      go_co (SymCo co)              = go_co co
      go_co (TransCo co1 co2)       = go_co co1 `plusNameEnv` go_co co2
      go_co (NthCo _ co)            = go_co co
      go_co (LRCo _ co)             = go_co co
-     go_co (InstCo co arg)         = go_co co `plusNameEnv` go_arg arg
+     go_co (InstCo co arg)         = go_co co `plusNameEnv` go_co arg
      go_co (CoherenceCo co1 co2)   = go_co co1 `plusNameEnv` go_co co2
      go_co (KindCo co)             = go_co co
      go_co (KindAppCo co)          = go_co co
      go_co (SubCo co)              = go_co co
      go_co (AxiomRuleCo _ ts cs)   = go_s ts `plusNameEnv` go_cos cs
-
-     go_arg (TyCoArg co)           = go_co co
-     go_arg (CoCoArg _ h co1 co2)  = go_co h `plusNameEnv`
-                                     go_co co1 `plusNameEnv` go_co co2
+     go_co (ProofIrrelCo _ h c1 c2)= go_co h `plusNameEnv`
+                                     go_co c1 `plusNameEnv` go_co c2
 
      go_s tys     = foldr (plusNameEnv . go)     emptyNameEnv tys
      go_cos cos   = foldr (plusNameEnv . go_co)  emptyNameEnv cos
-     go_args args = foldr (plusNameEnv . go_arg) emptyNameEnv args
 
      go_tc tc = unitNameEnv (tyConName tc) tc
      go_ax ax = go_tc $ coAxiomTyCon ax

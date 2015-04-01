@@ -1238,7 +1238,7 @@ simplCast env body co0 cont0
          = ASSERT( isTyVar tyvar )
            cont { sc_cont = addCoerce new_cast tail }
          where
-           new_cast = mkInstCo co (mkNomReflCoArg arg_ty)
+           new_cast = mkInstCo co (mkNomReflCo arg_ty)
 
        add_coerce co (Pair s1s2 t1t2) (ApplyToVal { sc_arg = arg, sc_env = arg_se
                                                   , sc_dup = dup, sc_cont = cont })
@@ -1266,7 +1266,7 @@ simplCast env body co0 cont0
            -- we split coercion t1->t2 ~ s1->s2 into t1 ~ s1 and
            -- t2 ~ s2 with left and right on the curried form:
            --    (->) t1 t2 ~ (->) s1 s2
-           [co1, co2] = map stripTyCoArg $ decomposeCo 2 co
+           [co1, co2] = decomposeCo 2 co
            arg'       = substExpr (text "move-cast") arg_se' arg
            arg_se'    = arg_se `setInScope` env
 

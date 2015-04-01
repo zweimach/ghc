@@ -150,26 +150,26 @@ data IfaceTyCon
   | IfacePromotedDataCon { ifaceTyConName :: IfExtName }
 
 data IfaceCoercion
-  = IfaceReflCo      Role IfaceType
-  | IfaceFunCo       Role IfaceCoercion IfaceCoercion
-  | IfaceTyConAppCo  Role IfaceTyCon [IfaceCoercion]
-  | IfaceAppCo       IfaceCoercion IfaceCoercion IfaceCoercion
-  | IfaceForAllCo    IfaceForAllCoBndr IfaceCoercion
-  | IfaceCoVarCo     IfLclName
-  | IfaceAxiomInstCo IfExtName BranchIndex [IfaceCoercion]
-  | IfacePhantomCo   IfaceCoercion IfaceType IfaceType
-  | IfaceUnsafeCo    FastString Role IfaceType IfaceType
-  | IfaceSymCo       IfaceCoercion
-  | IfaceTransCo     IfaceCoercion IfaceCoercion
-  | IfaceNthCo       Int IfaceCoercion
-  | IfaceLRCo        LeftOrRight IfaceCoercion
-  | IfaceInstCo      IfaceCoercion IfaceCoercion
-  | IfaceCoherenceCo IfaceCoercion IfaceCoercion
-  | IfaceKindCo      IfaceCoercion
-  | IfaceKindAppCo   IfaceCoercion
-  | IfaceSubCo       IfaceCoercion
-  | IfaceAxiomRuleCo IfLclName [IfaceType] [IfaceCoercion]
-  | IfaceCoCoArg     Role IfaceCoercion IfaceCoercion IfaceCoercion
+  = IfaceReflCo       Role IfaceType
+  | IfaceFunCo        Role IfaceCoercion IfaceCoercion
+  | IfaceTyConAppCo   Role IfaceTyCon [IfaceCoercion]
+  | IfaceAppCo        IfaceCoercion IfaceCoercion IfaceCoercion
+  | IfaceForAllCo     IfaceForAllCoBndr IfaceCoercion
+  | IfaceCoVarCo      IfLclName
+  | IfaceAxiomInstCo  IfExtName BranchIndex [IfaceCoercion]
+  | IfacePhantomCo    IfaceCoercion IfaceType IfaceType
+  | IfaceUnsafeCo     FastString Role IfaceType IfaceType
+  | IfaceSymCo        IfaceCoercion
+  | IfaceTransCo      IfaceCoercion IfaceCoercion
+  | IfaceNthCo        Int IfaceCoercion
+  | IfaceLRCo         LeftOrRight IfaceCoercion
+  | IfaceInstCo       IfaceCoercion IfaceCoercion
+  | IfaceCoherenceCo  IfaceCoercion IfaceCoercion
+  | IfaceKindCo       IfaceCoercion
+  | IfaceKindAppCo    IfaceCoercion
+  | IfaceSubCo        IfaceCoercion
+  | IfaceAxiomRuleCo  IfLclName [IfaceType] [IfaceCoercion]
+  | IfaceProofIrrelCo Role IfaceCoercion IfaceCoercion IfaceCoercion
 
 data IfaceForAllCoBndr
   = IfaceCoBndr IfaceCoercion IfaceTvBndr IfaceTvBndr (Maybe IfaceIdBndr)
@@ -296,8 +296,8 @@ ifTyVarsOfCoercion = go
           [ unitUniqSet rule
           , foldr (unionUniqSets . ifTyVarsOfType) emptyUniqSet tys
           , ifTyVarsOfCoercions cos ]
-    go (IfaceCoCoArg _ h c1 c2)   = go h `unionUniqSets`
-                                    go c1 `unionUniqSets` go c2
+    go (IfaceProofIrrelCo _ h c1 c2)
+      = unionManyUniqSets $ map go [h, c1, c2]
 
 ifTyVarsOfCoercions :: [IfaceCoercion] -> UniqSet IfLclName
 ifTyVarsOfCoercions = foldr (unionUniqSets . ifTyVarsOfCoercion) emptyUniqSet
@@ -1024,7 +1024,7 @@ instance Binary IfaceCoercion where
           put_ bh a
           put_ bh b
           put_ bh c
-  put_ bh (IfaceCoCoArg a b c d) = do
+  put_ bh (IfaceProofIrrelCo a b c d) = do
           putByte bh 20
           put_ bh a
           put_ bh b
@@ -1098,7 +1098,7 @@ instance Binary IfaceCoercion where
                    b <- get bh
                    c <- get bh
                    d <- get bh
-                   return $ IfaceCoCoArg a b c d
+                   return $ IfaceProofIrrelCo a b c d
            _ -> panic ("get IfaceCoercion " ++ show tag)
 
 {-
@@ -1185,18 +1185,18 @@ toIfaceCoercion :: Coercion -> IfaceCoercion
 toIfaceCoercion (Refl r ty)         = IfaceReflCo r (toIfaceType ty)
 toIfaceCoercion (TyConAppCo r tc cos)
   | tc `hasKey` funTyConKey
-  , [arg,res] <- cos                = IfaceFunCo r (argToIfaceCoercion arg) (argToIfaceCoercion res)
+  , [arg,res] <- cos                = IfaceFunCo r (toIfaceCoercion arg) (toIfaceCoercion res)
   | otherwise                       = IfaceTyConAppCo r (toIfaceTyCon tc)
-                                                        (map argToIfaceCoercion cos)
+                                                        (map toIfaceCoercion cos)
 toIfaceCoercion (AppCo co1 h co2)   = IfaceAppCo  (toIfaceCoercion co1)
                                                   (toIfaceCoercion h)
-                                                  (argToIfaceCoercion co2)
+                                                  (toIfaceCoercion co2)
 toIfaceCoercion (ForAllCo cobndr co)= IfaceForAllCo (toIfaceForAllCoBndr cobndr)
                                                     (toIfaceCoercion co)
 toIfaceCoercion (CoVarCo cv)        = IfaceCoVarCo  (toIfaceCoVar cv)
 toIfaceCoercion (AxiomInstCo con ind cos)
                                     = IfaceAxiomInstCo (coAxiomName con) ind
-                                                       (map argToIfaceCoercion cos)
+                                                       (map toIfaceCoercion cos)
 toIfaceCoercion (PhantomCo h t1 t2) = IfacePhantomCo (toIfaceCoercion h)
                                                      (toIfaceType t1)
                                                      (toIfaceType t2)
@@ -1208,7 +1208,7 @@ toIfaceCoercion (TransCo co1 co2)   = IfaceTransCo (toIfaceCoercion co1)
 toIfaceCoercion (NthCo d co)        = IfaceNthCo d (toIfaceCoercion co)
 toIfaceCoercion (LRCo lr co)        = IfaceLRCo lr (toIfaceCoercion co)
 toIfaceCoercion (InstCo co arg)     = IfaceInstCo (toIfaceCoercion co)
-                                                  (argToIfaceCoercion arg)
+                                                  (toIfaceCoercion arg)
 toIfaceCoercion (CoherenceCo c1 c2) = IfaceCoherenceCo (toIfaceCoercion c1)
                                                        (toIfaceCoercion c2)
 toIfaceCoercion (KindCo c)          = IfaceKindCo (toIfaceCoercion c)
@@ -1218,7 +1218,7 @@ toIfaceCoercion (AxiomRuleCo co ts cs) = IfaceAxiomRuleCo
                                           (coaxrName co)
                                           (map toIfaceType ts)
                                           (map toIfaceCoercion cs)
-toIfaceCoercion (ProofIrrelCo r c1 c2 c3) = IfaceCoCoArg r
+toIfaceCoercion (ProofIrrelCo r c1 c2 c3) = IfaceProofIrrelCo r
                                               (toIfaceCoercion c1)
                                               (toIfaceCoercion c2)
                                               (toIfaceCoercion c3)
