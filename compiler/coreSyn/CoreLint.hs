@@ -563,6 +563,7 @@ lintCoreExpr (Lit lit)
 
 lintCoreExpr (Cast expr co)
   = do { expr_ty <- lintCoreExpr expr
+                    -- TODO (RAE): Resolve this issue.
 -- RAE       ; checkL (not (isReflCo co))
 -- RAE                (ptext (sLit "Cast by Refl in expression:") <+> ppr e)
 -- RAE This check fails, because of (at least) a failure to use mkCast in Specialise.specExpr
