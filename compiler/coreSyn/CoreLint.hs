@@ -1196,17 +1196,19 @@ lintCoercion (CoVarCo cv)
        ; lintUnLiftedCoVar cv
        ; return $ coVarKindsTypesRole cv' }
 
-lintCoercion co@(PhantomCo h ty1 ty2)
+lintCoercion co@(UnivCo prov r h ty1 ty2)
   = do { (k1, k2) <- lintStarCoercion Representational h
        ; k1' <- lintType ty1
        ; k2' <- lintType ty2
-       ; ensureEqTys k1 k1' (mkBadPhantomCoMsg CLeft  co)
-       ; ensureEqTys k2 k2' (mkBadPhantomCoMsg CRight co)
-       ; return (k1, k2, ty1, ty2, Phantom) }
-
-lintCoercion (UnsafeCo _prov r ty1 ty2)
-  = do { k1 <- lintType ty1
-       ; k2 <- lintType ty2
+       ; ensureEqTys k1 k1' (mkBadUnivCoMsg CLeft  co)
+       ; ensureEqTys k2 k2' (mkBadUnivCoMsg CRight co)
+       ; case prov of
+           UnsafeCoerceProv -> return ()  -- no extra checks
+           PhantomProv      -> lintRole co Phantom r
+           ProofIrrelProv   -> do { lintL (isCoercionTy ty1) $
+                                          mkBadProofIrrelMsg ty1 co
+                                  ; lintL (isCoercionTy ty2) $
+                                          mkBadProofIrrelMsg ty2 co }
        ; return (k1, k2, ty1, ty2, r) }
 
 lintCoercion (SymCo co)
@@ -1216,7 +1218,7 @@ lintCoercion (SymCo co)
 lintCoercion co@(TransCo co1 co2)
   = do { (k1a, _k1b, ty1a, ty1b, r1) <- lintCoercion co1
        ; (_k2a, k2b, ty2a, ty2b, r2) <- lintCoercion co2
-       ; lintL (ty1b `eqType` ty2a)
+       ; ensureEqTys ty1b ty2a
                (hang (ptext (sLit "Trans coercion mis-match:") <+> ppr co)
                    2 (vcat [ppr ty1a, ppr ty1b, ppr ty2a, ppr ty2b]))
        ; lintRole co r1 r2
@@ -1388,18 +1390,6 @@ lintCoercion this@(AxiomRuleCo co ts cs)
   lintRoles n es []  = err "Not enough coercion arguments"
                           [ text "Expected:" <+> int (n + length es)
                           , text "Provided:" <+> int n ]
-
-lintCoercion (ProofIrrelCo r kco co1 co2)
-  = do { phi1 <- lintCoercion co1
-       ; phi2 <- lintCoercion co2
-       ; let ty1 = phi_to_ty phi1
-             ty2 = phi_to_ty phi2
-       ; (ty1', ty2') <- lintStarCoercion Representational kco
-       ; ensureEqTys ty1 ty1' (mkBadProofIrrelMsg kco co1 co2)
-       ; ensureEqTys ty2 ty2' (mkBadProofIrrelMsg kco co1 co2)
-       ; return ( phi_to_ty phi1, phi_to_ty phi2
-                , CoercionTy co1, CoercionTy co2, r) }
-  where phi_to_ty (a,b,c,d,e) = mkHeteroCoercionType e a b c d
 
 ----------
 lintUnLiftedCoVar :: CoVar -> LintM ()
@@ -1879,17 +1869,16 @@ mkBadForAllKindMsg lr co co_kind ty_kind
     (ptext (sLit "Coercion kind:") <+> ppr co_kind) $$
     (ptext (sLit "Forall type kind:") <+> ppr ty_kind)
 
-mkBadPhantomCoMsg :: LeftOrRight -> Coercion -> SDoc
-mkBadPhantomCoMsg lr co
+mkBadUnivCoMsg :: LeftOrRight -> Coercion -> SDoc
+mkBadUnivCoMsg lr co
   = text "Kind mismatch on the" <+> pprLeftOrRight lr <+>
-    text "side of a phantom coercion:" <+> ppr co
+    text "side of a UnivCo:" <+> ppr co
 
-mkBadProofIrrelMsg :: Coercion -> Coercion -> Coercion -> SDoc
-mkBadProofIrrelMsg kco co1 co2
-  = hang (text "Bad ProofIrrelCo:")
-       2 (vcat [ text "co1:" <+> ppr co1
-               , text "co2:" <+> ppr co2
-               , text "kco:" <+> ppr kco ])
+mkBadProofIrrelMsg :: Type -> Coercion -> SDoc
+mkBadProofIrrelMsg ty co
+  = hang (text "Found a non-coercion in a proof-irrelevance UnivCo:")
+       2 (vcat [ text "type:" <+> ppr ty
+               , text "co:" <+> ppr co ])
 
 mkBadTyVarMsg :: TyCoVar -> SDoc
 mkBadTyVarMsg tv

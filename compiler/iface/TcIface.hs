@@ -868,10 +868,8 @@ tcIfaceCo = go
                                             ForAllCo cobndr <$> go c
     go (IfaceCoVarCo n)          = CoVarCo <$> go_var n
     go (IfaceAxiomInstCo n i cs) = AxiomInstCo <$> tcIfaceCoAxiom n <*> pure i <*> mapM go cs
-    go (IfacePhantomCo h t1 t2)  = PhantomCo <$> go h <*> tcIfaceType t1
-                                                      <*> tcIfaceType t2
-    go (IfaceUnsafeCo s r t1 t2) = UnsafeCo s r <$> tcIfaceType t1
-                                                <*> tcIfaceType t2
+    go (IfaceUnivCo p r h t1 t2) = UnivCo p r <$> go h <*> tcIfaceType t1
+                                                       <*> tcIfaceType t2
     go (IfaceSymCo c)            = SymCo    <$> go c
     go (IfaceTransCo c1 c2)      = TransCo  <$> go c1
                                             <*> go c2
@@ -887,7 +885,6 @@ tcIfaceCo = go
     go (IfaceAxiomRuleCo ax tys cos) = AxiomRuleCo <$> go_axiom_rule ax
                                                    <*> mapM tcIfaceType tys
                                                    <*> mapM go cos
-    go (IfaceProofIrrelCo r h c1 c2) = ProofIrrelCo r <$> go h <*> go c1 <*> go c2
 
     go_var :: FastString -> IfL CoVar
     go_var = tcIfaceLclId

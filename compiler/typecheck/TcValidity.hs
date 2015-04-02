@@ -1331,8 +1331,7 @@ fvCo (ForAllCo cobndr co)   = (fvCo co \\ coBndrVars cobndr)
                               ++ fvCo (coBndrKindCo cobndr)
 fvCo (CoVarCo v)            = [v]
 fvCo (AxiomInstCo _ _ args) = concatMap fvCo args
-fvCo (PhantomCo h t1 t2)    = fvCo h ++ fvType t1 ++ fvType t2
-fvCo (UnsafeCo _ _ ty1 ty2) = fvType ty1 ++ fvType ty2
+fvCo (UnivCo _ _ h t1 t2)   = fvCo h ++ fvType t1 ++ fvType t2
 fvCo (SymCo co)             = fvCo co
 fvCo (TransCo co1 co2)      = fvCo co1 ++ fvCo co2
 fvCo (NthCo _ co)           = fvCo co
@@ -1343,7 +1342,6 @@ fvCo (KindCo co)            = fvCo co
 fvCo (KindAppCo co)         = fvCo co
 fvCo (SubCo co)             = fvCo co
 fvCo (AxiomRuleCo _ ts cs)  = concatMap fvType ts ++ concatMap fvCo cs
-fvCo (ProofIrrelCo _ h a b) = fvCo h ++ fvCo a ++ fvCo b
 
 sizeType :: Type -> Int
 -- Size of a type: the number of variables and constructors

@@ -29,6 +29,7 @@ module TyCoRep (
 
         -- Coercions
         Coercion(..), LeftOrRight(..), ForAllCoBndr(..),
+        UnivCoProvenance(..),
 
         -- Functions over types
         mkTyConTy, mkOnlyTyVarTy, mkOnlyTyVarTys,
@@ -568,15 +569,12 @@ data Coercion
      -- any left over, we use AppCo.
      -- See [Coercion axioms applied to coercions]
 
-  | PhantomCo Coercion Type Type
-      -- :: R -> _ -> _ -> P
+  | UnivCo UnivCoProvenance Role Coercion Type Type
+      -- :: _ -> "e" -> R -> _ -> _ -> e
       -- The Coercion proves that the two *kinds* of the types are
       -- representationally equal. This is necessary so that KindCo
       -- (which always returns a representational coercion) is
       -- sensible.
-
-  | UnsafeCo FastString Role Type Type    -- :: _ -> "e" -> _ -> _ -> e
-      -- The FastString is just a note for provenance
 
   | SymCo Coercion             -- :: e -> e
   | TransCo Coercion Coercion  -- :: e -> e -> e
@@ -611,12 +609,6 @@ data Coercion
 
   | SubCo Coercion                  -- Turns a ~N into a ~R
     -- :: N -> R
-
-  | ProofIrrelCo Role        -- of this coercion
-                 Coercion    -- :: phi1 ~R phi2
-                 Coercion    -- :: phi1
-                 Coercion    -- :: phi2
-                             -- ProofIrrelCo r _ g1 g2 :: g1 ~r g2
 
   deriving (Data.Data, Data.Typeable)
 
@@ -653,6 +645,45 @@ instance Binary LeftOrRight where
 pickLR :: LeftOrRight -> (a,a) -> a
 pickLR CLeft  (l,_) = l
 pickLR CRight (_,r) = r
+
+{-
+%************************************************************************
+%*                                                                      *
+     UnivCo Provenance
+%*                                                                      *
+%************************************************************************
+
+-}
+
+-- | For simplicity, we have just one UnivCo that represents a coercion from
+-- some type to some other type, with (in general) no restrictions on the
+-- type. To make better sense of these, we tag a UnivCo with a
+-- UnivCoProvenance. This provenance is rarely consulted and is more
+-- for debugging info than anything else.
+data UnivCoProvenance
+  = UnsafeCoerceProv   -- ^ From @unsafeCoerce#@
+  | PhantomProv        -- ^ From the need to create a phantom coercion;
+                       --   the UnivCo must be Phantom.
+  | ProofIrrelProv     -- ^ From the fact that any two coercions are
+                       --   considered equivalent
+  deriving (Eq, Data.Data, Data.Typeable)
+
+instance Outputable UnivCoProvenance where
+  ppr UnsafeCoerceProv = text "(unsafeCoerce#)"
+  ppr PhantomProv      = text "(phantom)"
+  ppr ProofIrrelProv   = text "(proof irrel.)"
+
+instance Binary UnivCoProvenance where
+  put_ bh UnsafeCoerceProv = putByte bh 0
+  put_ bh PhantomProv      = putByte bh 1
+  put_ bh ProofIrrelProv   = putByte bh 2
+
+  get bh = do
+    h <- getByte bh
+    return $ case h of
+      0 -> UnsafeCoerceProv
+      1 -> PhantomProv
+      _ -> ProofIrrelProv
 
 {-
 Note [Refl invariant]
@@ -922,7 +953,7 @@ following definition
 data Q a = MkQ Int
 
 the Phantom role allows us to say that (Q Bool) ~R (Q Char), because we
-can construct the coercion Bool ~P Char (using PhantomCo).
+can construct the coercion Bool ~P Char (using UnivCo).
 
 See the paper cited above for more examples and information.
 
@@ -1071,9 +1102,7 @@ tyCoVarsOfCo (ForAllCo cobndr co)
                     `unionVarSet` tyCoVarsOfCo (coBndrKindCo cobndr)
 tyCoVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` tyCoVarsOfType (varType v)
 tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCos cos
-tyCoVarsOfCo (PhantomCo h t1 t2)   = tyCoVarsOfCo h `unionVarSet` tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
-tyCoVarsOfCo (UnsafeCo _ _ ty1 ty2)
-  = tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2
+tyCoVarsOfCo (UnivCo _ _ h t1 t2)  = tyCoVarsOfCo h `unionVarSet` tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
 tyCoVarsOfCo (SymCo co)          = tyCoVarsOfCo co
 tyCoVarsOfCo (TransCo co1 co2)   = tyCoVarsOfCo co1 `unionVarSet` tyCoVarsOfCo co2
 tyCoVarsOfCo (NthCo _ co)        = tyCoVarsOfCo co
@@ -1084,7 +1113,6 @@ tyCoVarsOfCo (KindCo co)         = tyCoVarsOfCo co
 tyCoVarsOfCo (KindAppCo co)      = tyCoVarsOfCo co
 tyCoVarsOfCo (SubCo co)          = tyCoVarsOfCo co
 tyCoVarsOfCo (AxiomRuleCo _ ts cs) = tyCoVarsOfTypes ts `unionVarSet` tyCoVarsOfCos cs
-tyCoVarsOfCo (ProofIrrelCo _ c1 c2 c3) = tyCoVarsOfCos [c1, c2, c3]
 
 tyCoVarsOfCos :: [Coercion] -> TyCoVarSet
 tyCoVarsOfCos cos = mapUnionVarSet tyCoVarsOfCo cos
@@ -1114,8 +1142,7 @@ coVarsOfCo (ForAllCo cobndr co)
                   `unionVarSet` coVarsOfCo (coBndrKindCo cobndr)
 coVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` coVarsOfType (varType v)
 coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCos args
-coVarsOfCo (PhantomCo h t1 t2) = coVarsOfCo h `unionVarSet` coVarsOfTypes [t1, t2]
-coVarsOfCo (UnsafeCo _ _ t1 t2)= coVarsOfTypes [t1, t2]
+coVarsOfCo (UnivCo _ _ h t1 t2)= coVarsOfCo h `unionVarSet` coVarsOfTypes [t1, t2]
 coVarsOfCo (SymCo co)          = coVarsOfCo co
 coVarsOfCo (TransCo co1 co2)   = coVarsOfCo co1 `unionVarSet` coVarsOfCo co2
 coVarsOfCo (NthCo _ co)        = coVarsOfCo co
@@ -1126,7 +1153,6 @@ coVarsOfCo (KindCo co)         = coVarsOfCo co
 coVarsOfCo (KindAppCo co)      = coVarsOfCo co
 coVarsOfCo (SubCo co)          = coVarsOfCo co
 coVarsOfCo (AxiomRuleCo _ ts cs) = coVarsOfTypes ts `unionVarSet` coVarsOfCos cs
-coVarsOfCo (ProofIrrelCo _ c1 c2 c3) = coVarsOfCos [c1, c2, c3]
 
 coVarsOfCos :: [Coercion] -> CoVarSet
 coVarsOfCos cos = mapUnionVarSet coVarsOfCo cos
@@ -1727,8 +1753,7 @@ subst_co subst co
           (mkForAllCo $! cobndr') $! subst_co subst' co }
     go (CoVarCo cv)          = substCoVar subst cv
     go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go cos
-    go (PhantomCo h t1 t2)   = ((mkPhantomCo $! (go h)) $! (go_ty t1)) $! (go_ty t2)
-    go (UnsafeCo s r ty1 ty2)= (mkUnsafeCo s r $! go_ty ty1) $! go_ty ty2
+    go (UnivCo p r h t1 t2)  = ((mkUnivCo p r $! (go h)) $! (go_ty t1)) $! (go_ty t2)
     go (SymCo co)            = mkSymCo $! (go co)
     go (TransCo co1 co2)     = (mkTransCo $! (go co1)) $! (go co2)
     go (NthCo d co)          = mkNthCo d $! (go co)
@@ -1742,8 +1767,6 @@ subst_co subst co
                                    cs1 = map go cs
                                 in ts1 `seqList` cs1 `seqList`
                                    AxiomRuleCo c ts1 cs1
-    go (ProofIrrelCo r c1 c2 c3)
-                             = ((mkProofIrrelCo r $! go c1) $! go c2) $! go c3
 
 substForAllCoBndr :: TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
 substForAllCoBndr subst
@@ -2413,8 +2436,7 @@ tidyCo env@(_, subst) co
                                  Just cv' -> CoVarCo cv'
     go (AxiomInstCo con ind cos) = let args = map go cos
                                in  args `seqList` AxiomInstCo con ind args
-    go (PhantomCo h t1 t2)   = ((PhantomCo $! go h) $! tidyType env t1) $! tidyType env t2
-    go (UnsafeCo s r ty1 ty2)= (UnsafeCo s r $! tidyType env ty1) $! tidyType env ty2
+    go (UnivCo p r h t1 t2)  = ((UnivCo p r $! go h) $! tidyType env t1) $! tidyType env t2
     go (SymCo co)            = SymCo $! go co
     go (TransCo co1 co2)     = (TransCo $! go co1) $! go co2
     go (NthCo d co)          = NthCo d $! go co
@@ -2428,7 +2450,6 @@ tidyCo env@(_, subst) co
                                       cos1 = tidyCos env cos
                                   in tys1 `seqList` cos1 `seqList`
                                      AxiomRuleCo ax tys1 cos1
-    go (ProofIrrelCo r h co1 co2) = ((ProofIrrelCo r $! go h) $! go co1) $! go co2 
 
     go_bndr (ForAllCoBndr h tv1 tv2 m_cv)
       = let h' = go h

@@ -1,4 +1,6 @@
 stack:
+  - ProofIrrelCo
+
 - flattening foralls is inadequate (though not quite wrong). The tyvar
   kind isn't flattened. Also see go_bndr in flatten_co.
 
@@ -117,6 +119,7 @@ fix:
   - have Core Lint check to make sure RHSs of `let (x :: foo ~# bar) = ...`
     are really Coercions!
   - make use of uo_thing in more error messages
+  - write optType. Use it instead of substTy in OptCoercion and other places.
   - check out typecheck/should_compile/tc167.hs. It might be possible to
     do better here. (About weird typing rule for (->))
   - do we need to annotate kind variables to have a proper CUSK? I think so.
@@ -191,7 +194,6 @@ fix:
   - no more deferred type errors for gadts... no more non-dependent gadt equalities, either
   - perhaps change promoteCoercion --> promoteCoercion_maybe that fails if
     it can't do any optimization.
-  - consider removing CoercionArg.
   - changed newSigTyVar *not* to make a new unique. OK? This is necessary because
     we need to be able to match up undeclared (but user-written) kind variables
     before and after kind-checking.

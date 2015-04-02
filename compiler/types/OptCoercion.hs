@@ -25,6 +25,7 @@ import Util
 import Unify
 import InstEnv
 import Control.Monad   ( zipWithM )
+import Data.List       ( zipWith4 )
 
 {-
 %************************************************************************
@@ -267,21 +268,9 @@ opt_co4 env sym rep r (AxiomInstCo con ind cos)
                                  cos)
       -- Note that the_co does *not* have sym pushed into it
 
--- TODO (RAE): After merging with new OptCoercion, actually make this work
--- better.
-opt_co4 env sym _ r (PhantomCo h t1 t2)
-  = ASSERT( r == Phantom )
-    PhantomCo (opt_co4 env sym False Representational h) a' b'
-  where
-    (a, b) = if sym then (t2, t1) else (t1, t2)
-    a' = substTy env a
-    b' = substTy env b
-
-opt_co4 env sym rep r (UnsafeCo s _r oty1 oty2)
+opt_co4 env sym _ r (UnivCo prov _r h t1 t2)
   = ASSERT( r == _r )
-    opt_unsafe env s (chooseRole rep r) (substTy env a) (substTy env b)
-  where
-    (a,b) = if sym then (oty2,oty1) else (oty1,oty2)
+    opt_univ env sym prov r h t1 t2
 
 opt_co4 env sym rep r (TransCo co1 co2)
                       -- sym (g `o` h) = sym h `o` sym g
@@ -351,19 +340,10 @@ opt_co4 env sym rep r (InstCo co1 arg)
     r'   = chooseRole rep r
     arg' = opt_co4_wrap env sym False Nominal arg
 
--- TODO (RAE): Should this interact with PhantomCo?
 opt_co4 env sym rep r (CoherenceCo co1 co2)
-  | UnsafeCo s _r tyl1 tyr1 <- co1
-  = ASSERT( r == _r )
-    opt_co4_wrap env sym False output_role (mkUnsafeCo s output_role
-                                                (mkCastTy tyl1 co2) tyr1)
   | TransCo col1 cor1 <- co1
   = opt_co4_wrap env sym rep r (mkTransCo (mkCoherenceCo col1 co2) cor1)
 
-  | UnsafeCo s r_out tyl1' tyr1' <- co1'
-  = ASSERT( output_role == r_out )
-    if sym then mkUnsafeCo s r_out tyl1' (mkCastTy tyr1' co2')
-           else mkUnsafeCo s r_out (mkCastTy tyl1' co2') tyr1'
   | TransCo col1' cor1' <- co1'
   = if sym then opt_trans in_scope col1'
                   (optCoercion (zapTCvSubst env) (mkCoherenceRightCo cor1' co2'))
@@ -371,8 +351,7 @@ opt_co4 env sym rep r (CoherenceCo co1 co2)
 
   | otherwise
   = wrapSym sym $ CoherenceCo (opt_co4_wrap env False rep r co1) co2'
-  where output_role = chooseRole rep r
-        co1' = opt_co4_wrap env sym   rep   r                co1
+  where co1' = opt_co4_wrap env sym   rep   r                co1
         co2' = opt_co4_wrap env False False Representational co2
         in_scope = getTCvInScope env
 
@@ -402,74 +381,67 @@ opt_co4 env sym rep r (AxiomRuleCo co ts cs)
     AxiomRuleCo co (map (substTy env) ts)
                    (zipWith (opt_co2 env False) (coaxrAsmpRoles co) cs)
 
-opt_co4 env sym rep r (ProofIrrelCo _r kco co1 co2)
-  = ASSERT( _r == r )
-    opt_proofirrel env sym (chooseRole rep r) kco co1 co2
-    
--- | Optimize a "coercion" between coercions.
-opt_proofirrel :: TCvSubst
-            -> SymFlag
-            -> Role   -- ^ desired role
-            -> Coercion
-            -> Coercion
-            -> Coercion
-            -> NormalCo
-opt_proofirrel env sym r h co1 co2
-  = if sym
-    then mkProofIrrelCo r h' co2' co1'
-    else mkProofIrrelCo r h' co1' co2'
-  where
-    h'   = opt_co4_wrap env sym False Representational h
-    co1' = opt_co1 env False co1
-    co2' = opt_co1 env False co2
-
 -------------
 -- | Optimize a phantom coercion. The input coercion may not necessarily
 -- be a phantom, but the output sure will be.
 opt_phantom :: TCvSubst -> SymFlag -> Coercion -> NormalCo
-  -- TODO (RAE): This is terrible. Write properly.
 opt_phantom env sym co
-  = if sym
-    then mkPhantomCo (mkKindCo (mkSymCo (substCo env co))) ty2' ty1'
-    else mkPhantomCo (mkKindCo (substCo env co)) ty1' ty2'
+  = opt_univ env sym PhantomProv Phantom (mkKindCo co) ty1 ty2
   where
     Pair ty1 ty2 = coercionKind co
+
+opt_univ :: TCvSubst -> SymFlag -> UnivCoProvenance -> Role -> Coercion
+         -> Type -> Type -> Coercion
+opt_univ env sym PhantomProv _r h ty1 ty2
+  | sym       = mkPhantomCo h' ty2' ty1'
+  | otherwise = mkPhantomCo h' ty1' ty2'
+  where
+    h' = opt_co4 env sym False Representational h
     ty1' = substTy env ty1
     ty2' = substTy env ty2
-
-opt_unsafe :: TCvSubst -> FastString -> Role -> Type -> Type -> Coercion
-opt_unsafe env prov role oty1 oty2
+    
+opt_univ env sym prov role kco oty1 oty2
   | Just (tc1, tys1) <- splitTyConApp_maybe oty1
   , Just (tc2, tys2) <- splitTyConApp_maybe oty2
   , tc1 == tc2
-  = mkTyConAppCo role tc1 (zipWith3 (opt_unsafe env prov) (tyConRolesX role tc1) tys1 tys2)
+  = let roles    = tyConRolesX role tc1
+        arg_cos  = zipWith4 (mkUnivCo prov) roles arg_kcos tys1 tys2
+        arg_kcos = buildKindCos Representational (tyConKind tc1) [] arg_cos
+        arg_cos' = zipWith (opt_co4 env sym False) roles arg_cos
+    in
+    mkTyConAppCo role tc1 arg_cos'
 
-  | Just (l1, r1) <- splitAppTy_maybe oty1
-  , Just (l2, r2) <- splitAppTy_maybe oty2
-  = let role' = if role == Phantom then Phantom else Nominal in
-       -- role' is to comform to mkAppCo's precondition
-    mkAppCo (opt_unsafe env prov role l1 l2)
-               -- TODO (RAE): Make more efficient
-            (opt_unsafe env prov role (typeKind r1) (typeKind r2))
-            (opt_unsafe env prov role' r1 r2)
+  -- can't optimize the AppTy case because we can't build the kind coercions.
 
   | Just (bndr1, ty1) <- splitForAllTy_maybe oty1
   , Just tv1          <- binderVar_maybe bndr1
   , Just (bndr2, ty2) <- splitForAllTy_maybe oty2
   , Just tv2          <- binderVar_maybe bndr2
   , isTyVar tv1 == isTyVar tv2   -- rule out weird UnsafeCo
-  , let k1 = tyVarKind tv1
+  , all (not . (`elemVarSet` tyCoVarsOfCo kco)) [tv1, tv2]
+       -- this coercion is going to move within the forall. We don't
+       -- want variable capture. Just abort the optimization if it would
+       -- capture.
+  = let k1 = tyVarKind tv1
         k2 = tyVarKind tv2
-  = let eta = opt_unsafe env prov role k1 k2
+        eta      = mkUnivCo prov role (mkRepReflCo liftedTypeKind) k1 k2
+          -- eta gets opt'ed soon, but not yet.
+        in_scope = getTCvInScope env `extendInScopeSetList` [tv1, tv2]
         cobndr
-          | isTyVar tv1 = let c = mkFreshCoVar (getTCvInScope env) tv1 tv2 in
+          | isTyVar tv1 = let c = mkFreshCoVar in_scope tv1 tv2 in
                           mkForAllCoBndr eta tv1 tv2 (Just c)
           | otherwise   = mkForAllCoBndr eta tv1 tv2 Nothing
+
+        (env', cobndr') = optForAllCoBndr env sym False role cobndr
     in
-    mkForAllCo cobndr (opt_unsafe env prov role ty1 ty2)
+    mkForAllCo cobndr' (opt_univ env' sym prov role kco ty1 ty2)
 
   | otherwise
-  = mkUnsafeCo prov role oty1 oty2
+  = let (a, b) | sym       = (oty2, oty1)
+               | otherwise = (oty1, oty2)
+    in
+    mkUnivCo prov role (opt_co4_wrap env sym False Representational kco)
+                       (substTy env a) (substTy env b)
 
 -------------
 -- NthCo must be handled separately, because it's the one case where we can't
@@ -586,11 +558,13 @@ opt_trans_rule is in_co1@(InstCo co1 ty1) in_co2@(InstCo co2 ty2)
   = fireTransRule "TrPushInst" in_co1 in_co2 $
     mkInstCo (opt_trans is co1 co2) ty1
 
-opt_trans_rule is in_co1@(ProofIrrelCo r  h1 col1 _)
-                  in_co2@(ProofIrrelCo _r h2 _ cor2)
-  = ASSERT( r == _r )
-    fireTransRule "ProofIrrel" in_co1 in_co2 $
-    mkProofIrrelCo r (opt_trans is h1 h2) col1 cor2
+opt_trans_rule is in_co1@(UnivCo p1 r1 h1 tyl1 _tyr1)
+                  in_co2@(UnivCo p2 r2 h2 _tyl2 tyr2)
+  | p1 == p2   -- if the provenances are different, opt'ing will be very
+               -- confusing
+  = ASSERT( r1 == r2 )
+    fireTransRule "UnivCo" in_co1 in_co2 $
+    mkUnivCo p1 r1 (opt_trans is h1 h2) tyl1 tyr2
 
 -- Push transitivity down through matching top-level constructors.
 opt_trans_rule is in_co1@(TyConAppCo r1 tc1 cos1) in_co2@(TyConAppCo r2 tc2 cos2)

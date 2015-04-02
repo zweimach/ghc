@@ -664,8 +664,7 @@ exactTyCoVarsOfType ty
         goCo co `delVarSetList` [v1, v2] `unionVarSet` goCo (coBndrKindCo bndr)
     goCo (CoVarCo v)         = unitVarSet v
     goCo (AxiomInstCo _ _ args) = goCos args
-    goCo (PhantomCo h t1 t2) = goCo h `unionVarSet` go t1 `unionVarSet` go t2
-    goCo (UnsafeCo _ _ t1 t2)= go t1 `unionVarSet` go t2
+    goCo (UnivCo _ _ h t1 t2)= goCo h `unionVarSet` go t1 `unionVarSet` go t2
     goCo (SymCo co)          = goCo co
     goCo (TransCo co1 co2)   = goCo co1 `unionVarSet` goCo co2
     goCo (NthCo _ co)        = goCo co
@@ -676,7 +675,6 @@ exactTyCoVarsOfType ty
     goCo (KindAppCo co)      = goCo co
     goCo (SubCo co)          = goCo co
     goCo (AxiomRuleCo _ t c) = exactTyCoVarsOfTypes t `unionVarSet` goCos c
-    goCo (ProofIrrelCo _ h co1 co2) = mapUnionVarSet goCo [h, co1, co2]
 
     goCos cos = foldr (unionVarSet . goCo) emptyVarSet cos
 
@@ -1426,9 +1424,8 @@ occurCheckExpand dflags tv ty
                       && (tv == v1 || tv == v2 || fast_check_co co)
     fast_check_co (CoVarCo _)            = True
     fast_check_co (AxiomInstCo _ _ args) = all fast_check_co args
-    fast_check_co (PhantomCo h t1 t2)    = fast_check_co h && fast_check t1
+    fast_check_co (UnivCo _ _ h t1 t2)   = fast_check_co h && fast_check t1
                                                            && fast_check t2
-    fast_check_co (UnsafeCo _ _ ty1 ty2) = fast_check ty1 && fast_check ty2
     fast_check_co (SymCo co)             = fast_check_co co
     fast_check_co (TransCo co1 co2)      = fast_check_co co1 && fast_check_co co2
     fast_check_co (InstCo co arg)        = fast_check_co co && fast_check_co arg
@@ -1440,7 +1437,6 @@ occurCheckExpand dflags tv ty
     fast_check_co (SubCo co)             = fast_check_co co
     fast_check_co (AxiomRuleCo _ ts cs)
       = all fast_check ts && all fast_check_co cs
-    fast_check_co (ProofIrrelCo _ h a b) = all fast_check_co [h, a, b]
 
     go t@(TyVarTy tv') | tv == tv' = OC_Occurs
                        | otherwise = return t
@@ -1502,13 +1498,10 @@ occurCheckExpand dflags tv ty
     go_co co@(CoVarCo {})           = return co
     go_co (AxiomInstCo ax ind args) = do { args' <- mapM go_co args
                                          ; return (mkAxiomInstCo ax ind args') }
-    go_co (PhantomCo h ty1 ty2)     = do { h' <- go_co h
+    go_co (UnivCo p r h ty1 ty2)    = do { h' <- go_co h
                                          ; ty1' <- go ty1
                                          ; ty2' <- go ty2
-                                         ; return (mkPhantomCo h' ty1' ty2') }
-    go_co (UnsafeCo s r ty1 ty2)    = do { ty1' <- go ty1
-                                         ; ty2' <- go ty2
-                                         ; return (mkUnsafeCo s r ty1' ty2') }
+                                         ; return (mkUnivCo p r h' ty1' ty2') }
     go_co (SymCo co)                = do { co' <- go_co co
                                          ; return (mkSymCo co') }
     go_co (TransCo co1 co2)         = do { co1' <- go_co co1
@@ -1533,10 +1526,6 @@ occurCheckExpand dflags tv ty
     go_co (AxiomRuleCo ax ts cs)    = do { ts' <- mapM go ts
                                          ; cs' <- mapM go_co cs
                                          ; return (AxiomRuleCo ax ts' cs') }
-    go_co (ProofIrrelCo r h co1 co2)= do { h'   <- go_co h
-                                         ; co1' <- go_co co1
-                                         ; co2' <- go_co co2
-                                         ; return (mkProofIrrelCo r h' co1' co2') }
 
 canUnifyWithPolyType :: DynFlags -> TcTyVarDetails -> Bool
 canUnifyWithPolyType dflags details
@@ -1850,8 +1839,7 @@ orphNamesOfCo (ForAllCo cobndr co)
   = orphNamesOfCo (coBndrKindCo cobndr) `unionNameSet` orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
 orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSet` orphNamesOfCos cos
-orphNamesOfCo (PhantomCo h t1 t2)   = orphNamesOfCo h `unionNameSet` orphNamesOfType t1 `unionNameSet` orphNamesOfType t2
-orphNamesOfCo (UnsafeCo _ _ ty1 ty2)= orphNamesOfType ty1 `unionNameSet` orphNamesOfType ty2
+orphNamesOfCo (UnivCo _ _ h t1 t2)  = orphNamesOfCo h `unionNameSet` orphNamesOfType t1 `unionNameSet` orphNamesOfType t2
 orphNamesOfCo (SymCo co)            = orphNamesOfCo co
 orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (NthCo _ co)          = orphNamesOfCo co
@@ -1863,9 +1851,6 @@ orphNamesOfCo (KindAppCo co)        = orphNamesOfCo co
 orphNamesOfCo (SubCo co)            = orphNamesOfCo co
 orphNamesOfCo (AxiomRuleCo _ ts cs) = orphNamesOfTypes ts `unionNameSet`
                                       orphNamesOfCos cs
-orphNamesOfCo (ProofIrrelCo _ h co1 co2) = orphNamesOfCo h `unionNameSet`
-                                           orphNamesOfCo co1 `unionNameSet`
-                                           orphNamesOfCo co2
 
 orphNamesOfCos :: [Coercion] -> NameSet
 orphNamesOfCos = orphNamesOfThings orphNamesOfCo

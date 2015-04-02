@@ -358,10 +358,8 @@ expandTypeSynonyms ty
       = substCoVar subst cv
     go_co subst (AxiomInstCo ax ind args)
       = mkAxiomInstCo ax ind (map (go_co subst) args)
-    go_co subst (PhantomCo h t1 t2)
-      = mkPhantomCo (go_co subst h) (go subst t1) (go subst t2)
-    go_co subst (UnsafeCo s r ty1 ty2)
-      = mkUnsafeCo s r (go subst ty1) (go subst ty2)
+    go_co subst (UnivCo p r h t1 t2)
+      = mkUnivCo p r (go_co subst h) (go subst t1) (go subst t2)
     go_co subst (SymCo co)
       = mkSymCo (go_co subst co)
     go_co subst (TransCo co1 co2)
@@ -382,8 +380,6 @@ expandTypeSynonyms ty
       = mkSubCo (go_co subst co)
     go_co subst (AxiomRuleCo ax ts cs)
       = AxiomRuleCo ax (map (go subst) ts) (map (go_co subst) cs)
-    go_co subst (ProofIrrelCo r h co1 co2)
-      = mkProofIrrelCo r (go_co subst h) (go_co subst co1) (go_co subst co2)
 
       -- the "False" and "const" are to accommodate the type of
       -- substForAllCoBndrCallback, which is general enough to
@@ -494,11 +490,9 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (CoVarCo cv) = covar env cv
     go (AxiomInstCo ax i args)
       = mkaxiominstco ax i <$> mapM go args
-    go (PhantomCo co t1 t2)
-      = mkphantomco <$> go co <*> mapType mapper env t1
-                              <*> mapType mapper env t2
-    go (UnsafeCo prov r t1 t2) = mkunsafeco prov r <$> mapType mapper env t1
-                                                   <*> mapType mapper env t2
+    go (UnivCo p r co t1 t2)
+      = mkunivco p r <$> go co <*> mapType mapper env t1
+                               <*> mapType mapper env t2
     go (SymCo co) = mksymco <$> go co
     go (TransCo c1 c2) = mktransco <$> go c1 <*> go c2
     go (AxiomRuleCo rule tys cos)
@@ -511,8 +505,6 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (KindCo co)         = mkkindco <$> go co
     go (KindAppCo co)      = mkkindappco <$> go co
     go (SubCo co)          = mksubco <$> go co
-    go (ProofIrrelCo r h c1 c2)
-                           = mkproofirrelco r <$> go h <*> go c1 <*> go c2
 
     go_cobndr (ForAllCoBndr h tv1 tv2 m_cv)
       = do { h' <- go h
@@ -523,17 +515,17 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     m_tycobinder env Nothing  _   = return (env, Nothing)
     m_tycobinder env (Just v) vis = liftM (second Just) $ tycobinder env v vis
 
-    ( mktyconappco, mkappco, mkaxiominstco, mkphantomco, mkunsafeco
+    ( mktyconappco, mkappco, mkaxiominstco, mkunivco
       , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
-      , mkkindco, mkkindappco, mksubco, mkforallco, mkproofirrelco)
+      , mkkindco, mkkindappco, mksubco, mkforallco)
       | smart
-      = ( mkTyConAppCo, mkAppCo, mkAxiomInstCo, mkPhantomCo, mkUnsafeCo
+      = ( mkTyConAppCo, mkAppCo, mkAxiomInstCo, mkUnivCo
         , mkSymCo, mkTransCo, mkNthCo, mkLRCo, mkInstCo, mkCoherenceCo
-        , mkKindCo, mkKindAppCo, mkSubCo, mkForAllCo, mkProofIrrelCo )
+        , mkKindCo, mkKindAppCo, mkSubCo, mkForAllCo )
       | otherwise
-      = ( TyConAppCo, AppCo, AxiomInstCo, PhantomCo, UnsafeCo
+      = ( TyConAppCo, AppCo, AxiomInstCo, UnivCo
         , SymCo, TransCo, NthCo, LRCo, InstCo, CoherenceCo
-        , KindCo, KindAppCo, SubCo, ForAllCo, ProofIrrelCo )
+        , KindCo, KindAppCo, SubCo, ForAllCo )
 
 {-
 ************************************************************************
@@ -2184,8 +2176,7 @@ tyConsOfType ty
        = go_co (coBndrKindCo cobndr) `plusNameEnv` go_co co
      go_co (CoVarCo {})            = emptyNameEnv
      go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_cos args
-     go_co (PhantomCo h t1 t2)     = go_co h `plusNameEnv` go t1 `plusNameEnv` go t2
-     go_co (UnsafeCo _ _ ty1 ty2)  = go ty1 `plusNameEnv` go ty2
+     go_co (UnivCo _ _ h t1 t2)    = go_co h `plusNameEnv` go t1 `plusNameEnv` go t2
      go_co (SymCo co)              = go_co co
      go_co (TransCo co1 co2)       = go_co co1 `plusNameEnv` go_co co2
      go_co (NthCo _ co)            = go_co co
@@ -2196,8 +2187,6 @@ tyConsOfType ty
      go_co (KindAppCo co)          = go_co co
      go_co (SubCo co)              = go_co co
      go_co (AxiomRuleCo _ ts cs)   = go_s ts `plusNameEnv` go_cos cs
-     go_co (ProofIrrelCo _ h c1 c2)= go_co h `plusNameEnv`
-                                     go_co c1 `plusNameEnv` go_co c2
 
      go_s tys     = foldr (plusNameEnv . go)     emptyNameEnv tys
      go_cos cos   = foldr (plusNameEnv . go_co)  emptyNameEnv cos

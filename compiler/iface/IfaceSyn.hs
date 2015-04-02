@@ -1171,10 +1171,8 @@ freeNamesIfCoercion (IfaceCoVarCo _)
   = emptyNameSet
 freeNamesIfCoercion (IfaceAxiomInstCo ax _ cos)
   = unitNameSet ax &&& fnList freeNamesIfCoercion cos
-freeNamesIfCoercion (IfacePhantomCo h t1 t2)
+freeNamesIfCoercion (IfaceUnivCo _ _ h t1 t2)
   = freeNamesIfCoercion h &&& freeNamesIfType t1 &&& freeNamesIfType t2
-freeNamesIfCoercion (IfaceUnsafeCo _ _ t1 t2)
-  = freeNamesIfType t1 &&& freeNamesIfType t2
 freeNamesIfCoercion (IfaceSymCo c)
   = freeNamesIfCoercion c
 freeNamesIfCoercion (IfaceTransCo c1 c2)
@@ -1197,8 +1195,6 @@ freeNamesIfCoercion (IfaceAxiomRuleCo _ax tys cos)
   -- the axiom is just a string, so we don't count it as a name.
   = fnList freeNamesIfType tys &&&
     fnList freeNamesIfCoercion cos
-freeNamesIfCoercion (IfaceProofIrrelCo _ kco c1 c2)
-  = freeNamesIfCoercion kco &&& freeNamesIfCoercion c1 &&& freeNamesIfCoercion c2
 
 freeNamesIfTvBndrs :: [IfaceTvBndr] -> NameSet
 freeNamesIfTvBndrs = fnList freeNamesIfTvBndr

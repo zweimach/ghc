@@ -7,7 +7,6 @@ import Var
 import VarEnv
 import Outputable
 import Pair
-import FastString
 
 mkReflCo :: Role -> Type -> Coercion
 mkTyConAppCo :: Role -> TyCon -> [Coercion] -> Coercion
@@ -16,7 +15,8 @@ mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
 mkCoVarCo :: CoVar -> Coercion
 mkAxiomInstCo :: CoAxiom Branched -> BranchIndex -> [Coercion] -> Coercion
 mkPhantomCo :: Coercion -> Type -> Type -> Coercion
-mkUnsafeCo :: FastString -> Role -> Type -> Type -> Coercion
+mkUnsafeCo :: Role -> Type -> Type -> Coercion
+mkUnivCo :: UnivCoProvenance -> Role -> Coercion -> Type -> Type -> Coercion
 mkSymCo :: Coercion -> Coercion
 mkTransCo :: Coercion -> Coercion -> Coercion
 mkNthCo :: Int -> Coercion -> Coercion

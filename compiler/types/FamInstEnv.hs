@@ -948,7 +948,7 @@ there's no sense in removing these from coercions. We would just get back a
 new coercion witnessing the equality between the same types as the original
 coercion. Because coercions are irrelevant anyway, there is no point in doing
 this. So, whenever we encounter a coercion, we just say that it won't change.
-That's what the ProofIrrelCo case is doing within normalise_type.
+That's what the CoercionTy case is doing within normalise_type.
 
 There is still the possibility that the kind of a coercion variable mentions
 a type family and will change in normaliseTyCoVarBndr. So, we must perform
@@ -1307,8 +1307,7 @@ allTyVarsInTy = go
                                                , go_co (coBndrKindCo cobndr) ]
     go_co (CoVarCo cv)          = unitVarSet cv
     go_co (AxiomInstCo _ _ cos) = go_cos cos
-    go_co (PhantomCo h t1 t2)   = go_co h `unionVarSet` go t1 `unionVarSet` go t2
-    go_co (UnsafeCo _ _ t1 t2)  = go t1 `unionVarSet` go t2
+    go_co (UnivCo _ _ h t1 t2)  = go_co h `unionVarSet` go t1 `unionVarSet` go t2
     go_co (SymCo co)            = go_co co
     go_co (TransCo c1 c2)       = go_co c1 `unionVarSet` go_co c2
     go_co (NthCo _ co)          = go_co co
@@ -1319,7 +1318,6 @@ allTyVarsInTy = go
     go_co (KindAppCo co)        = go_co co
     go_co (SubCo co)            = go_co co
     go_co (AxiomRuleCo _ ts cs) = allTyVarsInTys ts `unionVarSet` go_cos cs
-    go_co (ProofIrrelCo _ h a b)= mapUnionVarSet go_co [h, a, b]
 
     go_cos = foldr (unionVarSet . go_co) emptyVarSet
 
