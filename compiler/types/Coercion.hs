@@ -987,8 +987,12 @@ infixl 5 `mkCoherenceLeftCo`
 
 mkKindCo :: Coercion -> Coercion
 mkKindCo (Refl _ ty) = Refl Representational (typeKind ty)
+mkKindCo (UnivCo _ _ h _ _) = h
 mkKindCo co
-  | Pair ty1 ty2 <- coercionKind co  -- TODO (RAE): This looks inefficient.
+  | Pair ty1 ty2 <- coercionKind co
+       -- generally, calling coercionKind during coercion creation is a bad idea,
+       -- as it can lead to exponential behavior. But, we don't have nested mkKindCos,
+       -- so it's OK here.
   , typeKind ty1 `eqType` typeKind ty2
   = Refl Representational (typeKind ty1)
   | otherwise
@@ -1162,8 +1166,6 @@ ltRole Nominal          _       = True
 -- (respectively). This is appropriate right before calling @mkAppCos (tc
 -- args1) args2@. The second and third parameters (the initial type and some
 -- arguments) are helpful in building the coercions.
--- NB: This is strict in the kinds of the passed coercions, but lazy in the
--- bits that are irrelevant for their kinds.
 buildKindCos :: Role
              -> Type           -- ^ type of tycon at the head of the coercion
              -> [Coercion]     -- ^ args already applied

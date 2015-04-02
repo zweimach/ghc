@@ -194,13 +194,15 @@ opt_co4, opt_co4_wrap :: TCvSubst -> SymFlag -> ReprFlag -> Role -> Coercion -> 
 opt_co4_wrap = opt_co4
 {-
 opt_co4_wrap env sym rep r co
-  = pprTrace "opt_co4_wrap"
+  = pprTrace "opt_co4_wrap {"
     ( vcat [ text "Sym:" <+> ppr sym
            , text "Rep:" <+> ppr rep
            , text "Role:" <+> ppr r
            , text "Co:" <+> ppr co ]) $
     ASSERT( r == coercionRole co )
-    opt_co4 env sym rep r co
+    let result = opt_co4 env sym rep r co in
+    pprTrace "opt_co4_wrap }" (ppr co $$ text "---" $$ ppr result) $
+    result
 -}
 
 opt_co4 env _   rep r (Refl _r ty)
@@ -404,9 +406,10 @@ opt_univ env sym prov role kco oty1 oty2
   | Just (tc1, tys1) <- splitTyConApp_maybe oty1
   , Just (tc2, tys2) <- splitTyConApp_maybe oty2
   , tc1 == tc2
-  = let roles    = tyConRolesX role tc1
+  = let arg_kcos = zipWith (mkUnivCo prov Representational (mkRepReflCo liftedTypeKind))
+                           (map typeKind tys1) (map typeKind tys2)
+        roles    = tyConRolesX role tc1
         arg_cos  = zipWith4 (mkUnivCo prov) roles arg_kcos tys1 tys2
-        arg_kcos = buildKindCos Representational (tyConKind tc1) [] arg_cos
         arg_cos' = zipWith (opt_co4 env sym False) roles arg_cos
     in
     mkTyConAppCo role tc1 arg_cos'
