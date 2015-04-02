@@ -22,7 +22,6 @@ metavar x, c ::=   {{ com Term-level variable names }}
 metavar alpha {{ tex \alpha }}, beta {{ tex \beta }} ::=
   {{ com Type-level variable names }}
 metavar N ::=   {{ com Type-level constructor names }}
-metavar K ::=   {{ com Term-level data constructor names }}
 metavar M ::=   {{ com Axiom rule names }}
 
 indexvar i, j, kk {{ tex k }}, aa {{ tex a }}, bb {{ tex b }}, cc {{ tex c }} ::= {{ com Indices to be used in lists }}
@@ -109,6 +108,8 @@ t {{ tex \tau }}, k {{ tex \kappa }}, s {{ tex \sigma }}, phi {{ tex \phi }}
     {{ tex [[t1]] \mathop{ {}^{[[k1]]}\!\! \sim_{\mathsf{R}\#}^{[[k2]]} } [[t2]] }}
   | literalType lit         :: M :: literalType   {{ com \coderef{basicTypes/Literal.lhs}{literalType} }}
   | ( t )                   :: M :: parens        {{ com Parentheses }}
+  | { t }                   :: M :: IParens       {{ com Invisible parentheses }}
+    {{ tex [[t]] }}
   | t [ n |-> s ]           :: M :: TySubst       {{ com Type substitution }}
   | subst ( k )             :: M :: TySubstList   {{ com Type substitution list }}
   | t subst                 :: M :: TySubstListPost {{ com Type substitution list }}
@@ -122,14 +123,16 @@ t {{ tex \tau }}, k {{ tex \kappa }}, s {{ tex \sigma }}, phi {{ tex \phi }}
 g {{ tex \gamma }}, h {{ tex \eta }} :: 'Coercion_' ::= {{ com Coercions, \coderef{types/TyCoRep.lhs}{Coercion} }}
   | < t > _ R               ::   :: Refl          {{ com \ctor{Refl}: Reflexivity }}
     {{ tex {\langle [[t]] \rangle}_{[[R]]} }}
-  | T RA </ wi // i />      ::   :: TyConAppCo    {{ com \ctor{TyConAppCo}: Type constructor application }}
-  | g w                     ::   :: AppCo         {{ com \ctor{AppCo}: Application }}
+  | T RA </ gi // i />      ::   :: TyConAppCo    {{ com \ctor{TyConAppCo}: Type constructor application }}
+  | g1 g2 ^ ( h )           ::   :: AppCo         {{ com \ctor{AppCo}: Application }}
+    {{ tex [[g1]]\ {[[g2]]}^{[[h]]} }}
   | forall cobndr . g       ::   :: ForAllCo      {{ com \ctor{ForAllCo}: Polymorphism }}
   | n                       ::   :: CoVarCo       {{ com \ctor{CoVarCo}: Variable }}
-  | C ind </ wi // i />     ::   :: AxiomInstCo   {{ com \ctor{AxiomInstCo}: Axiom application }}
+  | C ind </ gi // i />     ::   :: AxiomInstCo   {{ com \ctor{AxiomInstCo}: Axiom application }}
+  | prov < t1 , t2 > _ R ^ ( h ) ::  :: UnivCo    {{ com \ctor{UnivCo}: Universal coercion }}
+    {{ tex {}_{[[prov]]}{\langle [[t1]], [[t2]] \rangle}_{[[R]]}^{[[h]]} }}
   | < t1 , t2 > _ h         ::   :: PhantomCo     {{ com \ctor{PhantomCo}: Phantom coercion }}
     {{ tex \langle [[t1]], [[t2]] \rangle _{[[h]]} }}
-  | t1 ==>! RA t2           ::   :: UnsafeCo      {{ com \ctor{UnsafeCo}: Unsafe coercion }}
   | sym g                   ::   :: SymCo         {{ com \ctor{SymCo}: Symmetry }}
   | g1 ; g2                 ::   :: TransCo       {{ com \ctor{TransCo}: Transitivity }}
   | mu </ ti // i /> $ </ gj // j />
@@ -137,29 +140,31 @@ g {{ tex \gamma }}, h {{ tex \eta }} :: 'Coercion_' ::= {{ com Coercions, \coder
   | nth I g                 ::   :: NthCo         {{ com \ctor{NthCo}: Projection (0-indexed) }}
     {{ tex \textsf{nth}^{[[I]]}\,[[g]] }}
   | LorR g                  ::   :: LRCo          {{ com \ctor{LRCo}: Left/right projection }}
-  | g @ w                   ::   :: InstCo        {{ com \ctor{InstCo}: Instantiation }}
+  | g @ h                   ::   :: InstCo        {{ com \ctor{InstCo}: Instantiation }}
   | g |> h                  ::   :: CoherenceCo   {{ com \ctor{CoherenceCo}: Coherence }}
   | kind g                  ::   :: KindCo        {{ com \ctor{KindCo}: Kind extraction }}
+  | kapp g                  ::   :: KindAppCo     {{ com \ctor{KindAppCo}: Kind extraction from application }}
   | sub g                   ::   :: SubCo         {{ com \ctor{SubCo}: Sub-role --- convert nominal to representational }}
   | ( g )                   :: M :: Parens        {{ com Parentheses }}
   | t $ liftingsubst        :: M :: Lifted        {{ com Type lifted to coercion }}
 
 cobndr :: 'ForAllCoBndr_' ::= {{ com Binder to quantified coercion, \coderef{types/TyCoRep.lhs}{ForAllCoBndr} }}
-  | aname                          ::   :: TyHomo
-    {{ com \ctor{TyHomo}: Homogeneous type quantification }}
-  | g ( aname1 , aname2 , xname )  ::   :: TyHetero
-    {{ com \ctor{TyHetero}: Heterogeneous type quantification }}
-    {{ tex {}_{[[g]]} ([[aname1]], [[aname2]], [[xname]]) }}
-  | xname                          ::   :: CoHomo
-    {{ com \ctor{CoHomo}: Homogeneous coercion quantification }}
-  | g ( xname1 , xname2 )          ::   :: CoHetero
-    {{ com \ctor{CoHetero}: Heterogeneous coercion quantification }}
-    {{ tex {}_{[[g]]} ([[xname1]], [[xname2]]) }}
+  | g ( aname1 , aname2 , maybe_xname ) ::   :: ForAllCoBndr {{ com \ctor{ForAllCoBndr}: Coercion quantification }}
+    {{ tex {}_{[[g]]} ([[aname1]], [[aname2]], [[maybe_xname]]) }}
 
-w {{ tex \omega }} :: 'CoercionArg_' ::= {{ com Argument to a coercion application, \coderef{types/TyCoRep.lhs}{CoercionArg} }}
-  | g                ::   :: TyCoArg         {{ com \ctor{TyCoArg}: Coercion between types }}
-  | ( g1 , g2 ) RA   ::   :: CoCoArg         {{ com \ctor{CoCoArg}: ``Coercion'' between coercions }}
-    {{ tex ([[g1]], [[g2]])\, [[RA]] }} 
+maybe_xname {{ tex \ottmv{x}? }} :: 'MaybeXName_' ::= {{ com \texttt{Maybe CoVar} }}
+  | Nothing          ::   :: Nothing         {{ com \ctor{Nothing} }}
+    {{ tex \bullet }}
+  | Just xname       ::   :: Just            {{ com \ctor{Just} }}
+    {{ tex [[xname]] }}
+
+prov :: 'UnivCoProvenance_' ::= {{ com \ctor{UnivCo} provenance, \coderef{types/TyCoRep.lhs}{UnivCoProvenance} }}
+  | UnsafeCoerceProv   ::   :: UnsafeCoerceProv  {{ com From \texttt{unsafeCoerce\#} }}
+    {{ tex \mathsf{unsafe} }}
+  | PhantomProv        ::   :: PhantomProv       {{ com From the need for a phantom coercion }}
+    {{ tex \mathsf{phant} }}
+  | ProofIrrelProv     ::   :: ProofIrrelProv    {{ com From proof irrelevance }}
+    {{ tex \mathsf{irrel} }}
 
 LorR :: 'LeftOrRight_' ::= {{ com left or right deconstructor, \coderef{types/TyCoRep.lhs}{LeftOrRight} }}
   | Left             ::   :: CLeft                {{ com \ctor{CLeft}: Left projection }}
@@ -202,11 +207,16 @@ H :: 'PrimTyCon_' ::= {{ com Primitive type constructors, \coderef{prelude/TysPr
   | Int#         ::   :: intPrimTyCon           {{ com Unboxed Int (\texttt{intPrimTyCon}) }}
   | ( ~# )       ::   :: eqPrimTyCon            {{ com Unboxed equality (\texttt{eqPrimTyCon}) }}
   | ( ~Rep# )      ::   :: eqReprPrimTyCon        {{ com Unboxed representational equality (\texttt{eqReprPrimTyCon}) }}
-  | BOX          ::   :: superKindTyCon         {{ com Sort of kinds (\texttt{superKindTyCon}) }}
   | *            ::   :: liftedTypeKindTyCon    {{ com Kind of lifted types (\texttt{liftedTypeKindTyCon}) }}
   | #            ::   :: unliftedTypeKindTyCon  {{ com Kind of unlifted types (\texttt{unliftedTypeKindTyCon}) }}
   | OpenKind     ::   :: openTypeKindTyCon      {{ com Either $*$ or $\#$ (\texttt{openTypeKindTyCon}) }}
   | Constraint   ::   :: constraintTyCon        {{ com Constraint (\texttt{constraintTyCon}) }}
+  | TYPE         ::   :: TYPE                   {{ com TYPE (\texttt{tYPETyCon}) }}
+  | Levity       ::   :: Levity                 {{ com Levity (\texttt{LevityTyCon}) }}
+
+K :: 'DataCon_' ::= {{ com Data constructors, \coderef{basicTypes/DataCon.lhs}{DataCon} }}
+  | Lifted       ::   :: Lifted       {{ com \ctor{Lifted}, a lifted type }}
+  | Unlifted     ::   :: Unlifted     {{ com \ctor{Unlifted}, an unlifted type }}
 
 %% CONTEXTS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -258,11 +268,6 @@ ind, I {{ tex i }} :: 'Ind_' ::= {{ com Indices, numbers }}
 types :: 'Types_' ::= {{ com List of types }}
   | </ ti // i />      ::   :: List
 
-args {{ tex \overline{\omega_i}^i }}:: 'Args_' ::= {{ com List of coercion arguments }}
-  | </ wi // i />      ::   :: List
-  | empty              :: M :: Empty
-  | args , w           :: M :: Snoc
-
 names {{ tex \overline{n_i}^i }} :: 'Names_' ::= {{ com List of names }}
   | </ ni // , // i />      ::   :: List
   | empty                   :: M :: Empty
@@ -272,6 +277,11 @@ namesroles {{ tex \overline{n_i \!\! {}_{\rho_i} }^i }} :: 'NamesRoles_' ::= {{ 
   | </ ni RAi // , // i />    ::   :: List
   | empty                     :: M :: Empty
   | namesroles , n RA         :: M :: Snoc
+
+gs {{ tex \overline{\gamma} }} :: 'Cos_' ::= {{ com List of coercions }}
+  | </ gi // , // i />     ::   :: List
+  | empty                  :: M :: Empty
+  | gs , g                 :: M :: Snoc
 
 RA {{ tex {\!\!{}_{\rho} } }} :: 'RoleAnnot_' ::= {{ com Role annotation }}
   | _ R                    :: M :: annotation
@@ -333,16 +343,21 @@ terminals :: 'terminals_' ::=
   | tyConKind    ::   :: tyConKind        {{ tex \mathop{\textsf{tyConKind} } }}
   | empty        ::   :: empty            {{ tex \cdot }}
   | length       ::   :: length           {{ tex \mathsf{length} }}
-  | <:           ::   :: subkind          {{ tex \mathop{ {<} {:}\, } }}
   | ~            ::   :: eq               {{ tex \sim }}
   | tyConArity   ::   :: tyConArity       {{ tex \textsf{tyConArity} }}
   | dataConTyCon ::   :: dataConTyCon     {{ tex \textsf{dataConTyCon} }}
   | dataConRepType :: :: dataConRepType   {{ tex \textsf{dataConRepType} }}
   | isNewTyCon   ::   :: isNewTyCon       {{ tex \textsf{isNewTyCon} }}
   | Constraint   ::   :: Constraint       {{ tex \textsf{Constraint} }}
+  | TYPE         ::   :: TYPE             {{ tex \textsf{TYPE} }}
+  | Levity       ::   :: Levity           {{ tex \textsf{Levity} }}
+  | Lifted       ::   :: Lifted           {{ tex \textsf{Lifted} }}
+  | Unlifted       ::   :: Unlifted           {{ tex \textsf{Unlifted} }}
   | no_conflict  ::   :: no_conflict      {{ tex \textsf{no\_conflict} }}
   | apart        ::   :: apart            {{ tex \textsf{apart} }}
   | kind         ::   :: kind             {{ tex \textsf{kind} }}
+  | kapp         ::   :: kapp             {{ tex \textsf{kapp} }}
+  | sub          ::   :: sub              {{ tex \textsf{sub} }}
   | #            ::   :: free             {{ tex \mathop{ \# } }}
   | BOX          ::   :: BOX              {{ tex \square }}
   | *            ::   :: star             {{ tex \star }}
@@ -403,7 +418,6 @@ formula :: 'formula_' ::=
   | axBranch1 = axBranch2              ::   :: branch_rewrite
   | C1 = C2                            ::   :: axiom_rewrite
   | apart ( </ ti // i /> , </ sj // j /> ) :: :: apart
-  | c # | g |                          ::   :: free_in_co
   | unify ( </ ti // i /> , </ sj // j /> ) = subst :: :: unify
   | role_list1 = role_list2            ::   :: eq_role_list
   | R1 /= R2                           ::   :: role_neq
@@ -454,7 +468,5 @@ Coercion_CoVarCo <= Type_CoercionTy
 
 Type_unliftedEq left Var_IdOrTyVar
 
-Name_Type <= ForAllCoBndr_CoHomo
-Name_Term <= ForAllCoBndr_TyHomo
 Expr_Coercion <= Subst_TmMapping
 

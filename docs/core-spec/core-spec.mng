@@ -30,7 +30,7 @@ System FC, as implemented in GHC\footnote{This
 document was originally prepared by Richard Eisenberg (\texttt{eir@cis.upenn.edu}),
 but it should be maintained by anyone who edits the functions or data structures
 mentioned in this file. Please feel free to contact Richard for more information.}\\
-\Large 21 November, 2013
+\Large 2 April, 2015
 \end{center}
 
 \section{Introduction}
@@ -150,7 +150,7 @@ $[[T]]$. It should be another application or a type variable.
 does \emph{not} need to be saturated.
 \item A saturated application of $[[(->) t1 t2]]$ should be represented as 
 $[[t1 -> t2]]$. This is a different point in the grammar, not just pretty-printing.
-The constructor for a saturated $[[(->)]]$ is \texttt{FunTy}.
+The constructor for a saturated $[[(->)]]$ is \texttt{ForAllTy}.
 \item A type-level literal is represented in GHC with a different datatype than
 a term-level literal, but we are ignoring this distinction here.
 \item A coercion used as a type should appear only in the right-hand side of
@@ -162,11 +162,15 @@ are purely representational. The metatheory would remain the same if these forms
 were removed in favor of $[[t1 t2]]$. Nevertheless, we keep all three forms in
 this documentation to accurately reflect the implementation.
 
+The \texttt{Named} variant of a \texttt{Binder} (the first argument to a
+\texttt{ForAllTy}) also tracks visibility of arguments. Visibility affects
+only source Haskell, and is omitted from this presentation.
+
 We use the notation $[[t1 k1~#k2 t2]]$ to stand for $[[(~#) k1 k2 t1 t2]]$.
 
 \subsection{Coercions}
 
-\gram{\ottg\ottinterrule\ottw\ottinterrule\ottcobndr}
+\gram{\ottg\ottinterrule\ottcobndr\ottinterrule\ottmaybeXXxname}
 
 Invariants on coercions:
 \begin{itemize}
@@ -179,24 +183,25 @@ be a type function.
 \item The name in a coercion must be a term-level name (\ctor{Id}).
 \item The contents of $[[<t>_R]]$ must not be a coercion. In other words,
 the payload in a \texttt{Refl} must not be built with \texttt{CoercionTy}.
-\item The coercion used in a \texttt{TyHetero} or in a \texttt{CoHetero} must not
-be reflexive. (If you want a reflexive coercion there, use \texttt{TyHomo} or
-\texttt{CoHomo}, respectively.)
+\item The two type variables in a \texttt{ForAllCoBndr} must be distinct.
 \end{itemize}
 
-The forms for $[[cobndr]]$ mention the use of type-level names $[[aname]]$ and
+The form for $[[cobndr]]$ mention the use of type-level names $[[aname]]$ and
 term-level names $[[xname]]$. These uses in the definition above are an aid to the
 reader. In GHC, these arguments to the \texttt{ForAllCoBndr} constructors are just
 \texttt{Var}s, which this document represents as $[[n]]$. See the typing rules for
 these forms to see how the variables are used.
 
-Similarly to with types, the form $[[T_R </ wi // i />]]$ is needed only to stay
-faithful to the implementation.
+The \texttt{UnivCo} constructor takes several arguments: the two types coerced
+between, a coercion relating these types' kinds, a role for the universal coercion,
+and a provenance. The provenance states what created the universal coercion:
+
+\gram{\ottprov}
 
 Roles label what equality relation a coercion is a witness of. Nominal equality
 means that two types are identical (have the same name); representational equality
 means that two types have the same representation (introduced by newtypes); and
-phantom equality includes all types. See \url{http://ghc.haskell.org/trac/ghc/wiki/Roles}
+phantom equality includes all types. See \url{http://ghc.haskell.org/trac/ghc/wiki/Roles} and \url{http://research.microsoft.com/en-us/um/people/simonpj/papers/ext-f/coercible.pdf}
 for more background.
 
 \gram{\ottR}
@@ -245,11 +250,20 @@ We include some representative primitive type constructors. There are many more 
 
 \gram{\ottH}
 
-Note that although GHC contains distinct type constructors $[[*]]$, $[[BOX]]$,
-and $[[Constraint]]$, this formalism treats only $[[*]]$. These three type
+Note that although GHC contains distinct type constructors $[[*]]$
+and $[[Constraint]]$, this formalism treats only $[[*]]$. These two type
 constructors are considered wholly equivalent. In particular the function
-\texttt{eqType} returns \texttt{True} when comparing any two members of this
-group. We need all three because they have different roles in source Haskell.
+\texttt{eqType} returns \texttt{True} when comparing $[[*]]$ and $[[Constraint]]$.
+We need them both because they serve different functions in source Haskell.
+
+\paragraph{$[[TYPE]]$}
+The type system is rooted at the special constant $[[TYPE]]$ and the
+(quite normal) datatype \texttt{data Levity = Lifted | Unlifted}.
+The type of $[[TYPE]]$ is $[[Levity -> TYPE 'Lifted]]$. The idea is that
+$[[TYPE 'Lifted]]$ classifies lifted types and $[[TYPE 'Unlifted]]$
+classifies unlifted types. Indeed $[[*]]$ is just a plain old type
+synonym for $[[TYPE 'Lifted]]$, and $[[#]]$ is just a plain old type
+synonym for $[[TYPE 'Unlifted]]$.
 
 \section{Contexts}
 
@@ -351,18 +365,8 @@ and \ottdrulename{Co\_CoVarCoRepr}.
 
 \ottdefnlintCoercion{}
 
-The $[[#]]$ checks in the rules \ottdrulename{Co\_ForAllCo\_Co...} are freshness
-checks. The variable to the left of $[[#]]$ may not appear in the \emph{erased}
-version of the coercion on the right. See the \emph{System FC with Explicit
-Kind Equality}
-paper for details.
-
 See Section~\ref{sec:tyconroles} for more information about $[[tyConRolesX]]$, and
 see Section~\ref{sec:axiom_rules} for more information about $[[coaxrProves]]$.
-
-\subsection{Coercion argument typing}
-
-\ottdefnlintCoArg{}
 
 \subsection{Name consistency}
 
@@ -399,10 +403,6 @@ There are two very similar checks for names, one declared as a local function:
 \subsection{Axiom argument kinding}
 
 \ottdefncheckXXki{}
-
-\subsection{Sub-kinding}
-
-\ottdefnisSubKind{}
 
 \subsection{Roles}
 \label{sec:tyconroles}

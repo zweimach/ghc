@@ -620,8 +620,9 @@ data Coercion
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data ForAllCoBndr
   = ForAllCoBndr Coercion TyCoVar TyCoVar (Maybe CoVar)
-      -- The role on the coercion matches that of the coercion this is
+      -- ^ The role on the coercion matches that of the coercion this is
       -- embedded in. The role on the CoVar is always N.
+      -- The two @TyCoVar@s must be distinct.
   deriving (Data.Data, Data.Typeable)
 
 -- returns the variables bound in a ForAllCoBndr

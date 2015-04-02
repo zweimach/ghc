@@ -179,55 +179,41 @@ G |-co (->)_R g1 g2 : (s1 -> s2) k~R k' (t1 -> t2)
 
 T /= (->)
 </ Ri // i /> = take(length </ gi // i />, tyConRolesX R T)
-</ G |-arg wi : (si : k'i, ti : ki, Ri) // i />
+</ G |-co gi : si k'i~Ri ki ti // i />
 G |-app </ (si : k'i) // i /> : tyConKind T ~> k'
 G |-app </ (ti : ki) // i /> : tyConKind T ~> k
 --------------------------------- :: TyConAppCo
-G |-co T_R </ wi // i /> : T </ si // i />  k'~R k T </ ti // i />
+G |-co T_R </ gi // i /> : T </ si // i />  k'~R k T </ ti // i />
 
-G |-co g : s1 k1~R k2 s2
-G |-arg w : (t1 : k'1, t2 : k'2, Nom)
-G |-app (t1 : k'1) : k1 ~> k3
-G |-app (t2 : k'2) : k2 ~> k4
+G |-co g1 : s1 k1~R k2 s2
+G |-co g2 : t1 k1'~Nom k2' t2
+G |-co h : k1' *~R * k2'
+G |-app (t1 : k1') : k1 ~> k3
+G |-app (t2 : k2') : k2 ~> k4
 --------------------- :: AppCo
-G |-co g w : (s1 t1) k3~R k4 (s2 t2)
+G |-co g1 g2^(h) : (s1 t1) k3~R k4 (s2 t2)
 
-G |-co g : s1 k1 ~Ph k2 s2
-G |-arg w : (t1 : k'1, t2 : k'2, Ph)
-G |-app (t1 : k'1) : k1 ~> k3
-G |-app (t2 : k'2) : k2 ~> k4
+G |-co g1 : s1 k1 ~Ph k2 s2
+G |-co g2 : t1 k1' ~Ph k2' t2
+G |-co h : k1' *~Ph * k2'
+G |-app (t1 : k1') : k1 ~> k3
+G |-app (t2 : k2') : k2 ~> k4
 --------------------- :: AppCoPhantom
-G |-co g w : (s1 t1) k3~Ph k4 (s2 t2)
-
-G, alpha_k |-co g : t1 k1~R k2 t2
-G |-ty forall alpha_k.t1 : k1
-G |-ty forall alpha_k.t2 : k2
---------------------------------------------------------------------------- :: ForAllCo_TyHomo
-G |-co forall alpha_k. g : (forall alpha_k. t1) k1~R k2 (forall alpha_k. t2)
+G |-co g1 g2^(h) : (s1 t1) k3~Ph k4 (s2 t2)
 
 G |-co h : k1 *~R * k2
 G, alpha1_k1, alpha2_k2, c_(alpha1$ k1~#k2 alpha2$) |-co g : t1 k3~R k4 t2
 G |-ty forall alpha1_k1.t1 : k3
 G |-ty forall alpha2_k2.t2 : k4
------------------------------------------------------------------------------------------------ :: ForAllCo_TyHetero
-G |-co forall h (alpha1_k1, alpha2_k2, c$). g : (forall alpha1_k1. t1) k3~R k4 (forall alpha2_k2. t2)
+----------------------------------------------------------------------------------------------- :: ForAllCo_Ty
+G |-co forall h (alpha1_k1, alpha2_k2, Just c$). g : (forall alpha1_k1. t1) k3~R k4 (forall alpha2_k2. t2)
 
-c # |g|
-G, c_phi |-co g : t1 k1~R k2 t2
-G |-ty forall c_phi.t1 : k1
-G |-ty forall c_phi.t2 : k2
------------------------------------------------------------------ :: ForAllCo_CoHomo
-G |-co forall c_phi. g : (forall c_phi.t1) k1~R k2 (forall c_phi.t2)
-
-c1 # |g|
-c2 # |g|
 G |-co h : phi1 *~R * phi2
-phi1 /= phi2
 G, c1_phi1, c2_phi2 |-co g : t1 k1~R k2 t2
 G |-ty forall c1_phi1.t1 : k1
 G |-ty forall c2_phi2.t2 : k2
 ---------------------------------------------------------------------------------- :: ForAllCo_CoHetero
-G |-co forall h (c1_phi1, c2_phi2). g : (forall c1_phi1.t1) k1~R k2 (forall c2_phi2.t2)
+G |-co forall h (c1_phi1, c2_phi2, Nothing). g : (forall c1_phi1.t1) k1~R k2 (forall c2_phi2.t2)
 
 z_phi elt G
 phi = t1 k1~#k2 t2
@@ -239,16 +225,23 @@ phi = t1 k1 ~Rep# k2 t2
 --------------------- :: CoVarCoRepr
 G |-co z_phi : t1 k1 ~Rep k2 t2
 
-G |-co h : k1 *~Rep* k2
+G |-co h : k1 *~Rep * k2
 G |-ty t1 : k1
 G |-ty t2 : k2
--------------- :: PhantomCo
-G |-co <t1,t2>_h : t1 k1 ~Ph k2 t2
+------------------------------------------------------ :: UnivCoUnsafe
+G |-co UnsafeCoerceProv <t1, t2>_R^(h) : t1 k1~R k2 t2
 
+G |-co h : k1 *~Rep * k2
 G |-ty t1 : k1
 G |-ty t2 : k2
------------------------------ :: UnsafeCo
-G |-co t1 ==>!_R t2 : t1 k1~R k2 t2
+-------------------------------------------------- :: UnivCoPhantom
+G |-co PhantomProv <t1,t2>_Ph^(h) : t1 k1~Ph k2 t2
+
+G |-co h : phi1 *~Rep * phi2
+G |-ty g1 : phi1
+G |-ty g2 : phi2
+-------------------------------------------------- :: UnivCoProofIrrel
+G |-co ProofIrrelProv <g1,g2>_R^(h) : g1 phi1~R phi2 g2
 
 G |-co g : t1 k1~R k2 t2
 ------------------------- :: SymCo
@@ -289,16 +282,14 @@ not (t2 is_a_coercion)
 G |-co Right g : s2 k2~Nom k2' t2
 
 G |-co g : (forall z1_k1.t1) k3~R k4 (forall z2_k2.t2)
-G |-arg w : (s1 : k1', s2 : k2', Nom)
-k1' <: k1
-k2' <: k2
+G |-co h : s1 k1~Nom k2 s2
 --------------------- :: InstCo
-G |-co g @ w : (t1[z1_k1 |-> s1]) k3~R k4 (t2[z2_k2 |-> s2])
+G |-co g @ h : (t1[z1_k1 |-> s1]) k3~R k4 (t2[z2_k2 |-> s2])
 
 C = T_R0 </ axBranchkk // kk />
 0 <= ind < length </ axBranchkk // kk />
 forall </ ni_^^Ri // i />. (</ s1j // j /> ~> t1) = (</ axBranchkk // kk />)[ind]
-G |-axk [ </ ni_Ri // i /> |-> </ wi // i /> ] ~> (subst1, subst2)
+G |-axk [ </ ni_Ri // i /> |-> </ gi // i /> ] ~> (subst1, subst2)
 </ s2j = subst1(s1j) // j />
 no_conflict(C, </ s2j // j />, ind, ind-1)
 t2 = subst2(t1)
@@ -306,7 +297,7 @@ s2 = T </ s2j // j />
 G |-ty s2 : k
 G |-ty t2 : k'
 ------------------------------------------------------ :: AxiomInstCo
-G |-co C ind </ wi // i /> : s2 k~R0 k' t2
+G |-co C ind </ gi // i /> : s2 k~R0 k' t2
 
 G |-co g : t1 k1~R k2 t2
 G |-ty t1 |> h : k1'
@@ -316,6 +307,12 @@ G |-co g |> h : t1 |> sub h k1'~R k2 t2
 G |-co g : t1 k1~R k2 t2
 -------------------------- :: KindCo
 G |-co kind g : k1 *~Rep * k2
+
+G |-co g : {t1 s1} k1'~R k2' {t2 s2}
+G |-ty s1 : k1
+G |-ty s2 : k2
+---------------------- :: KindAppCo
+G |-co kapp g : k1 *~R * k2
 
 G |-co g : s k' ~Nom k t
 ------------------------- :: SubCo
@@ -330,36 +327,19 @@ G |-ty t'2 : k0'
 --------------------------------------------------------------------- :: AxiomRuleCo
 G |-co mu </ ti // i /> $ </ gj // j /> : t'1 k0 ~R' k0' t'2
 
-defn G |- axk [ namesroles |-> args ] ~> ( subst1 , subst2 ) ::  :: check_ki :: 'AxiomKind_'
+defn G |- axk [ namesroles |-> gs ] ~> ( subst1 , subst2 ) ::  :: check_ki :: 'AxiomKind_'
   {{ com Axiom argument kinding, \coderef{coreSyn/CoreLint.lhs}{check\_ki} }}
-  {{ tex [[G]] \labeledjudge{axk} [ [[namesroles]] [[|->]] [[args]] ] [[~>]] ([[subst1]], [[subst2]]) }}
+  {{ tex [[G]] \labeledjudge{axk} [ [[namesroles]] [[|->]] [[gs]] ] [[~>]] ([[subst1]], [[subst2]]) }}
 by
 
 --------------------------------------- :: Empty
 G |-axk [empty |-> empty] ~> (empty, empty)
 
-G |-axk [namesroles |-> args] ~> (subst1, subst2)
-G |-arg w : (t1 : k1, t2 : k2, R)
+G |-axk [namesroles |-> gs] ~> (subst1, subst2)
 n = z_k
-k1 <: subst1(k)
-k2 <: subst2(k)
+G |-co g0 : t1 {subst1(k)}~R subst2(k) t2
 ----------------------------- :: Arg
-G |-axk [ namesroles, n_R |-> args, w ] ~> (subst1 [n |-> t1], subst2 [n |-> t2])
-
-defn G |- arg w : ( t1 : k1 , t2 : k2 , R ) ::  :: lintCoArg :: 'Arg_'
-  {{ com Coercion argument kinding, \coderef{coreSyn/CoreLint.lhs}{lintCoArg} }}
-  {{ tex [[G]] \labeledjudge{arg} [[w]] : ([[t1]] : [[k1]], [[t2]] : [[k2]], [[R]]) }}
-by
-
-G |-co g : t1 k1~R k2 t2
------------------------------- :: TyCoArg
-G |-arg g : (t1 : k1, t2 : k2, R)
-
-% could perhaps use coercionKind here instead of lintCoercion
-G |-co g1 : t1 k1 ~R k1' t1'
-G |-co g2 : t2 k2 ~R k2' t2'
------------------------------------------ :: CoCoArg
-G |-arg (g1, g2)_R' : (g1 : phi1, g2 : phi2, R')
+G |-axk [ namesroles, n_R |-> gs, g0 ] ~> (subst1 [n |-> t1], subst2 [n |-> t2])
 
 defn validRoles T ::  :: checkValidRoles :: 'Cvr_'
   {{ com Type constructor role validity, \coderef{typecheck/TcTyClsDecls.lhs}{checkValidRoles} }}
@@ -500,10 +480,9 @@ defn G |- subst n |-> t ok ::  :: lintTyKind :: 'Subst_'
   {{ tex [[G]] \labeledjudge{subst} [[n]] [[|->]] [[t]] [[ok]] }}
 by
 
-G |-ty t : k2
-k2 <: k1
+G |-ty t : k
 ---------------------- :: Type
-G |-subst z_k1 |-> t ok
+G |-subst z_k |-> t ok
 
 defn G ; s |- altern alt : t ::  :: lintCoreAlt :: 'Alt_'
   {{ com Case alternative consistency, \coderef{coreSyn/CoreLint.lhs}{lintCoreAlt} }}
@@ -581,28 +560,13 @@ by
 --------------------- :: Empty
 G |-app empty : k ~> k
 
-k <: k1
 G |-app </ (ti : ki) // i /> : k2 ~> k'
 ---------------------------------------------------- :: FunTy
-G |-app (t : k), </ (ti : ki) // i /> : (k1 -> k2) ~> k'
+G |-app (t : k1), </ (ti : ki) // i /> : (k1 -> k2) ~> k'
 
-k <: k1
 G |-app </ (ti : ki) // i /> : k2[z_k1 |-> t] ~> k'
 -------------------------------------------------------- :: ForAllTy
-G |-app (t : k), </ (ti : ki) // i /> : (forall z_k1. k2) ~> k'
-
-defn k1 <: k2 ::  :: isSubKind :: 'SubKind_'
-  {{ com Sub-kinding, \coderef{types/Kind.lhs}{isSubKind} }}
-by
-
------- :: Refl
-k <: k
-
--------------------- :: UnliftedTypeKindOpen
-# <: OpenKind
-
-------------------- :: LiftedTypeKindOpen
-* <: OpenKind
+G |-app (t : k1), </ (ti : ki) // i /> : (forall z_k1. k2) ~> k'
 
 defn no_conflict ( C , </ sj // j /> , ind1 , ind2 ) ::  :: check_no_conflict :: 'NoConflict_'
   {{ com \parbox{5in}{Branched axiom conflict checking, \coderef{types/OptCoercion.lhs}{checkAxInstCo} \\ and \coderef{types/FamInstEnv.lhs}{compatibleBranches} } }}
