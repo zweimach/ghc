@@ -5,11 +5,15 @@ TYPE CONSTRUCTORS
   class C2 a b where
     meth2 :: a ~ b => a -> b
   class C3 a b where
-    type family F3 b :: * open
+    type family F3 b
+      Kind: * -> *
+      open
     meth3 :: a -> F3 b -> F3 b
   class C4 a b where
     meth4 :: a -> F4 b -> F4 b
-  type family F4 a :: * open
+  type family F4 a
+    Kind: * -> *
+    open
   type Syn1 a = F4 a
   type Syn2 a = [a]
 COERCION AXIOMS
@@ -19,7 +23,7 @@ COERCION AXIOMS
   axiom Roles3.NTCo:C4 :: C4 a b = a -> F4 b -> F4 b
 Dependent modules: []
 Dependent packages: [base-4.8.0.0, ghc-prim-0.3.1.0,
-                     integer-gmp-0.5.1.0]
+                     integer-gmp-1.0.0.0]
 
 ==================== Typechecker ====================
 

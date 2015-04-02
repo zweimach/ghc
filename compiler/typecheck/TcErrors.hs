@@ -1127,8 +1127,7 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
                        n_exp = count_args exp in
                    case n_act - n_exp of
         0 -> Nothing
-        n | n > 0 || n_act >= (-n)   -- don't ask for fewer than 0 args
-          -> Just $ text "Expecting" <+> speakN (abs n) <+>
+        n -> Just $ text "Expecting" <+> speakN (abs n) <+>
                     more_or_fewer <+> plural_n (abs n) (text "argument") <+>
                     to_thing
           where
@@ -1138,7 +1137,6 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
 
             more_or_fewer | n < 0     = text "fewer"
                           | otherwise = text "more"
-        _ -> Nothing
 
     maybe_num_args_msg = case num_args_msg of
       Nothing -> empty
