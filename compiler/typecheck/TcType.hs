@@ -319,9 +319,21 @@ working. This happens in test case typecheck/should_fail/T5570, for
 example.
 
 See also the commentary on #9404.
+
+Note [TyVars and TcTyVars]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+The Var type has constructors TyVar and TcTyVar.  They are used
+as follows:
+
+* TcTyVar: used only during type checking.  Should never appear
+  afterwards.  May contain a mutable field, in the MetaTv case.
+
+* TyVar: can appear any time.  During type checking they behave
+  precisely like (SkolemTv False) = vanillaSkolemTv
 -}
 
 -- A TyVarDetails is inside a TyVar
+-- See Note [TyVars and TcTyVars]
 data TcTyVarDetails
   = SkolemTv      -- A skolem
        Bool       -- True <=> this skolem type variable can be overlapped
