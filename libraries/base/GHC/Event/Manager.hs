@@ -486,9 +486,10 @@ onFdEvent mgr fd evs
           _ -> do
             case I.elLifetime savedEls of
               OneShot | haveOneShot ->
-                -- if there are no saved events there is no need to re-arm
-                unless (OneShot == I.elLifetime (eventsOf triggered)
-                        && mempty == savedEls) $
+                -- if there are no saved events and we registered with one-shot
+                -- semantics then there is no need to re-arm
+                unless (OneShot == I.elLifetime allEls
+                        && mempty == I.elEvent savedEls) $ do
                   void $ I.modifyFdOnce (emBackend mgr) fd (I.elEvent savedEls)
               _ ->
                 void $ I.modifyFd (emBackend mgr) fd
