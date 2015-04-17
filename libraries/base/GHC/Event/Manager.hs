@@ -460,23 +460,29 @@ onFdEvent mgr fd evs
     forM_ fdds $ \(FdData reg _ cb) -> cb reg evs
   where
     -- | Here we look through the list of registrations for the fd of interest
-    -- and sort out which match the events that were triggered. We re-arm
-    -- the fd as appropriate and return a list containing the callbacks
-    -- that should be invoked.
+    -- and sort out which match the events that were triggered. We,
+    --
+    --   1. re-arm the fd as appropriate
+    --   2. reinsert registrations that weren't triggered and multishot registrations
+    --   3. return a list containing the callbacks that should be invoked.
     selectCallbacks :: IntTable [FdData] -> [FdData] -> IO [FdData]
     selectCallbacks tbl fdds = do
-        let matches :: FdData -> Bool
+        let -- figure out which registrations have been triggered
+            matches :: FdData -> Bool
             matches fd' = evs `I.eventIs` I.elEvent (fdEvents fd')
             (triggered, notTriggered) = partition matches fdds
+
+            -- sort out which registrations we need to retain
             isMultishot :: FdData -> Bool
             isMultishot fd' = I.elLifetime (fdEvents fd') == MultiShot
             saved = notTriggered ++ filter isMultishot triggered
+
             savedEls = eventsOf saved
             allEls = eventsOf fdds
 
         -- Reinsert multishot registrations.
         -- We deleted the table entry for this fd above so we there isn't a preexisting entry
-        IT.insertWith (\_ _-> saved) (fromIntegral fd) saved tbl
+        IT.insertWith (\_ _ -> saved) (fromIntegral fd) saved tbl
 
         case I.elLifetime allEls of
           -- we previously armed the fd for multiple shots, no need to rearm
@@ -494,6 +500,7 @@ onFdEvent mgr fd evs
                         && mempty == I.elEvent savedEls) $ do
                   void $ I.modifyFdOnce (emBackend mgr) fd (I.elEvent savedEls)
               _ ->
+                -- we need to re-arm with multi-shot semantics
                 void $ I.modifyFd (emBackend mgr) fd
                                   (I.elEvent allEls) (I.elEvent savedEls)
 
