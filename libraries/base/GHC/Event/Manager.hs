@@ -463,7 +463,8 @@ onFdEvent mgr fd evs
     -- and sort out which match the events that were triggered. We,
     --
     --   1. re-arm the fd as appropriate
-    --   2. reinsert registrations that weren't triggered and multishot registrations
+    --   2. reinsert registrations that weren't triggered and multishot
+    --      registrations
     --   3. return a list containing the callbacks that should be invoked.
     selectCallbacks :: IntTable [FdData] -> [FdData] -> IO [FdData]
     selectCallbacks tbl fdds = do

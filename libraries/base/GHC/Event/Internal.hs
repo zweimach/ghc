@@ -86,7 +86,8 @@ evtConcat = foldl' evtCombine evtNothing
 -- | The lifetime of an event registration.
 --
 -- @since 4.8.1.0
-data Lifetime = OneShot   -- ^ the registration will be active for only one event
+data Lifetime = OneShot   -- ^ the registration will be active for only one
+                          -- event
               | MultiShot -- ^ the registration will trigger multiple times
               deriving (Show, Eq)
 
