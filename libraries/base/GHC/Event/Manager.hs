@@ -483,7 +483,7 @@ onFdEvent mgr fd evs
 
           -- either we previously registered for one shot or the
           -- events of interest have changed, we must re-arm
-          _ -> do
+          _ ->
             case I.elLifetime savedEls of
               OneShot | haveOneShot ->
                 -- if there are no saved events and we registered with one-shot
@@ -494,7 +494,6 @@ onFdEvent mgr fd evs
               _ ->
                 void $ I.modifyFd (emBackend mgr) fd
                                   (I.elEvent allEls) (I.elEvent savedEls)
-            return ()
 
         return triggered
 
