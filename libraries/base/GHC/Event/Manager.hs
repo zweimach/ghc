@@ -468,7 +468,9 @@ onFdEvent mgr fd evs
         let matches :: FdData -> Bool
             matches fd' = evs `I.eventIs` I.elEvent (fdEvents fd')
             (triggered, notTriggered) = partition matches fdds
-            saved = notTriggered ++ filter (\fd' -> I.elLifetime (fdEvents fd') == MultiShot) triggered
+            isMultishot :: FdData -> Bool
+            isMultishot fd' = I.elLifetime (fdEvents fd') == MultiShot
+            saved = notTriggered ++ filter isMultishot triggered
             savedEls = eventsOf saved
             allEls = eventsOf fdds
 
