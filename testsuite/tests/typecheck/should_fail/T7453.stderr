@@ -1,17 +1,17 @@
 
 T7453.hs:9:15:
-    Couldn't match type ‘t’ with ‘t2’
-      because type variable ‘t2’ would escape its scope
+    Couldn't match type ‘r’ with ‘t’
+      because type variable ‘t’ would escape its scope
     This (rigid, skolem) type variable is bound by
-      the type signature for z :: Id t2
+      the type signature for z :: Id t
       at T7453.hs:8:16-19
-    Expected type: Id t2
-      Actual type: Id t
+       Expected type: Id t
+         Actual type: Id r
     Relevant bindings include
-      aux :: Id t (bound at T7453.hs:10:21)
-      z :: Id t2 (bound at T7453.hs:9:11)
-      v :: t (bound at T7453.hs:7:7)
-      cast1 :: t -> t1 (bound at T7453.hs:7:1)
+      aux :: Id r (bound at T7453.hs:10:21)
+      z :: Id t (bound at T7453.hs:9:11)
+      v :: r (bound at T7453.hs:7:7)
+      cast1 :: r -> a (bound at T7453.hs:7:1)
     In the expression: aux
     In an equation for ‘z’:
         z = aux
@@ -19,18 +19,18 @@ T7453.hs:9:15:
               aux = Id v
 
 T7453.hs:15:15:
-    Couldn't match type ‘t’ with ‘t2’
-      because type variable ‘t2’ would escape its scope
+    Couldn't match type ‘r’ with ‘t1’
+      because type variable ‘t1’ would escape its scope
     This (rigid, skolem) type variable is bound by
-      the type signature for z :: () -> t2
+      the type signature for z :: () -> t1
       at T7453.hs:14:16-22
-    Expected type: () -> t2
-      Actual type: () -> t
+       Expected type: () -> t1
+         Actual type: () -> r
     Relevant bindings include
-      aux :: forall b. b -> t (bound at T7453.hs:16:21)
-      z :: () -> t2 (bound at T7453.hs:15:11)
-      v :: t (bound at T7453.hs:13:7)
-      cast2 :: t -> t1 (bound at T7453.hs:13:1)
+      aux :: forall b. b -> r (bound at T7453.hs:16:21)
+      z :: () -> t1 (bound at T7453.hs:15:11)
+      v :: r (bound at T7453.hs:13:7)
+      cast2 :: r -> t (bound at T7453.hs:13:1)
     In the expression: aux
     In an equation for ‘z’:
         z = aux
@@ -38,16 +38,16 @@ T7453.hs:15:15:
               aux = const v
 
 T7453.hs:21:15:
-    Couldn't match expected type ‘t2’ with actual type ‘t’
-      because type variable ‘t2’ would escape its scope
+    Couldn't match expected type ‘t1’ with actual type ‘r’
+      because type variable ‘t1’ would escape its scope
     This (rigid, skolem) type variable is bound by
-      the type signature for z :: t2
+      the type signature for z :: t1
       at T7453.hs:20:16
     Relevant bindings include
-      aux :: forall b. b -> t (bound at T7453.hs:22:21)
-      z :: t2 (bound at T7453.hs:21:11)
-      v :: t (bound at T7453.hs:19:7)
-      cast3 :: t -> t1 (bound at T7453.hs:19:1)
+      aux :: forall b. b -> r (bound at T7453.hs:22:21)
+      z :: t1 (bound at T7453.hs:21:11)
+      v :: r (bound at T7453.hs:19:7)
+      cast3 :: r -> t (bound at T7453.hs:19:1)
     In the expression: v
     In an equation for ‘z’:
         z = v

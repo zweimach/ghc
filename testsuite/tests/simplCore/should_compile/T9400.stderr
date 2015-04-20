@@ -1,6 +1,6 @@
 
 ==================== Tidy Core ====================
-Result size of Tidy Core = {terms: 23, types: 16, coercions: 0}
+Result size of Tidy Core = {terms: 23, types: 17, coercions: 0}
 
 main :: IO ()
 [GblId, Str=DmdType]
@@ -30,7 +30,7 @@ main =
              @ ()
              (putStrLn (unpackCString# "efg"#))
              (Control.Exception.Base.patError
-                @ (IO ()) "T9400.hs:(17,5)-(18,29)|case"#))))
+                @ 'Lifted @ (IO ()) "T9400.hs:(17,5)-(18,29)|case"#))))
 
 
 

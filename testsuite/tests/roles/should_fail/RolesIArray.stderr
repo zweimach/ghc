@@ -11,8 +11,6 @@ RolesIArray.hs:10:13:
                  (N -> e' -> N) -> N -> (i, i) -> [(Int, e')] -> UArray i N’
     Relevant role signatures:
       type role Ix nominal
-      type role [] representational
-      type role (,) representational representational
       type role UArray nominal nominal
     When deriving the instance for (IArray UArray N)
 
@@ -28,8 +26,6 @@ RolesIArray.hs:10:13:
                  (N -> e' -> N) -> UArray i N -> [(Int, e')] -> UArray i N’
     Relevant role signatures:
       type role Ix nominal
-      type role [] representational
-      type role (,) representational representational
       type role UArray nominal nominal
     When deriving the instance for (IArray UArray N)
 
@@ -42,8 +38,6 @@ RolesIArray.hs:10:13:
         to type ‘forall i. Ix i => UArray i N -> [(Int, N)] -> UArray i N’
     Relevant role signatures:
       type role Ix nominal
-      type role [] representational
-      type role (,) representational representational
       type role UArray nominal nominal
     When deriving the instance for (IArray UArray N)
 
@@ -66,8 +60,6 @@ RolesIArray.hs:10:13:
         to type ‘forall i. Ix i => (i, i) -> [(Int, N)] -> UArray i N’
     Relevant role signatures:
       type role Ix nominal
-      type role [] representational
-      type role (,) representational representational
       type role UArray nominal nominal
     When deriving the instance for (IArray UArray N)
 
@@ -88,6 +80,5 @@ RolesIArray.hs:10:13:
         to type ‘forall i. Ix i => UArray i N -> (i, i)’
     Relevant role signatures:
       type role Ix nominal
-      type role (,) representational representational
       type role UArray nominal nominal
     When deriving the instance for (IArray UArray N)
