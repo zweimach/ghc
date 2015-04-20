@@ -298,7 +298,7 @@ coreView (TyConApp tc tys)
                -- partially-applied type constructor; indeed, usually will!
 coreView _                 = Nothing
 
--- | Like 'coreView', but it also "expands" @Constraint@ and @BOX@ to become
+-- | Like 'coreView', but it also "expands" @Constraint@ to become
 -- @TYPE Lifted@.
 coreViewOneStarKind :: Type -> Maybe Type
 coreViewOneStarKind = go Nothing
