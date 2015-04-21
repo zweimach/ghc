@@ -5,7 +5,7 @@ module SimplCont (
     SimplCont(..), DupFlag(..),
     isSimplified,
     contIsDupable, contResultType, contHoleType,
-    contIsTrivial, contArgs, 
+    contIsTrivial, contArgs,
     countValArgs, countArgs,
     mkBoringStop, mkRhsStop, mkLazyArgStop,
     contIsRhsOrArg, contIsRhs,
