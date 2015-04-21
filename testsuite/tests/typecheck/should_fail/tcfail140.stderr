@@ -8,9 +8,9 @@ tcfail140.hs:10:7:
     In an equation for ‘bar’: bar = f 3 9
 
 tcfail140.hs:12:10:
-    Couldn't match expected type ‘Integer -> t1’ with actual type ‘Int’
+    Couldn't match expected type ‘Integer -> t’ with actual type ‘Int’
     Relevant bindings include
-      rot :: t -> t1 (bound at tcfail140.hs:12:1)
+      rot :: r -> t (bound at tcfail140.hs:12:1)
     The operator ‘f’ takes two arguments,
     but its type ‘Int -> Int’ has only one
     In the expression: 3 `f` 4

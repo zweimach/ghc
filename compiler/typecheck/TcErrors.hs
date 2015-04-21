@@ -14,6 +14,7 @@ import TcRnMonad
 import TcMType
 import TcType
 import Type
+import Kind
 import TysPrim          ( funTyConName )
 import Unify            ( tcMatchTys )
 import Module
@@ -1117,9 +1118,12 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
                        maybe_thing
                , quotes (ppr act) ]
 
-    msg5 th = hang (text "Expected kind" <+> quotes (ppr exp) <> comma)
+    msg5 th = hang (text "Expected" <+> kind_desc <> comma)
                  2 (text "but" <+> quotes (ppr th) <+> text "has kind" <+>
                     quotes (ppr act))
+      where
+        kind_desc | isConstraintKind exp = text "a constraint"
+                  | otherwise            = text "kind" <+> quotes (ppr exp)
 
     num_args_msg = case level of
       TypeLevel -> Nothing
