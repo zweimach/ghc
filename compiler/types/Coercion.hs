@@ -549,7 +549,7 @@ using, say, coercionKind.
 
 mkReflCo :: Role -> Type -> Coercion
 mkReflCo r ty
-  = ASSERT( not $ isCoercionTy ty )
+  = ASSERT2( not $ isCoercionTy ty, ppr ty )
     Refl r ty
 
 -- | Make a representational reflexive coercion
@@ -938,7 +938,7 @@ mkNthCo n co
   = NthCo n co
   where
     Pair ty1 ty2 = coercionKind co
-    
+
 mkLRCo :: LeftOrRight -> Coercion -> Coercion
 mkLRCo lr (Refl eq ty) = Refl eq (pickLR lr (splitAppTy ty))
 mkLRCo lr co
@@ -1864,7 +1864,7 @@ liftEnvSubst selector in_scope lc_env
       = Left (u, equality_ty)
       where
         equality_ty = selector (coercionKind co)
-    
+
 lcInScope :: LiftingContext -> InScopeSet
 lcInScope (LC in_scope _) = in_scope
 
