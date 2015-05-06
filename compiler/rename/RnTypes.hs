@@ -190,7 +190,7 @@ rnHsTyKi isType _ (HsTyVar rdr_name)
 -- a sensible error message, but we don't want to complain about the dot too
 -- Hence the jiggery pokery with ty1
 rnHsTyKi isType doc ty@(HsOpTy ty1 (L loc op) ty2)
-  = ASSERT( isType ) setSrcSpan loc $
+  = setSrcSpan loc $
     do  { ops_ok <- xoptM Opt_TypeOperators
         ; op' <- if ops_ok
                  then rnTyVar isType op
@@ -238,9 +238,8 @@ rnHsTyKi isType doc listTy@(HsListTy ty)
        ; (ty', fvs) <- rnLHsTyKi isType doc ty
        ; return (HsListTy ty', fvs) }
 
-rnHsTyKi isType doc (HsKindSig ty k)
-  = ASSERT( isType )
-    do { kind_sigs_ok <- xoptM Opt_KindSignatures
+rnHsTyKi _ doc (HsKindSig ty k)
+  = do { kind_sigs_ok <- xoptM Opt_KindSignatures
        ; unless kind_sigs_ok (badSigErr False doc ty)
        ; (ty', fvs1) <- rnLHsType doc ty
        ; (k', fvs2) <- rnLHsKind doc k

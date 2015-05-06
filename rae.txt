@@ -43,7 +43,7 @@ changed from a proper arg to an existential covar arg. Does this matter?
 - Writing a bogus GADT return type causes a panic. The problem is that
 checkValidDataCon is supposed to check if rejigConRes was valid. To do
 this, checkValidDataCon needs the user-specified result type. Normally,
-this is retrieved from dataConOrigResTy. The problem is that, now, 
+this is retrieved from dataConOrigResTy. The problem is that, now,
 the dataConOrigResTy is substed by the kind substitution produced in
 rejigConRes. This is an ugly circular dependency. We could (1) store the
 original, unsubsted result ty in the DataCon for just this reason, or
@@ -57,6 +57,9 @@ fix:
     Then use the desugared, unpacked boxed equality in terms, but
     use a UnivCo with a clear provenance in types. A bogus type
     coercion can't, by itself, make a program go wrong.
+
+  - need to gracefully handle exotic kinds, like parallel arrays and implicit params.
+    Search for ASSERT( isType ) in RnTypes
 
   - unifyWantedLikeEv handles coercions. But make sure other, similar scenarios
     do too.
@@ -147,7 +150,7 @@ fix:
 
        foo = T (* -> *) (Any (* -> *)) Maybe Proxy 1.0
        ???
-       
+
 
   - should check to make sure a coercion isn't bound in a recursive let (!)
   - mkExpectedActualMsg has a lot of backward-compatibility stuff
@@ -181,7 +184,7 @@ fix:
   - APromotionErr (?)
   - Remove TcRnTypes.hs-boot. See comment near top of TcEvidence.
   - no check for silliness like `data T :: T -> *`.
-  - :kind in GHCi is unhappy with 
+  - :kind in GHCi is unhappy with
     data Sg (s :: *) (t :: TyFun s * -> *) :: * where
       (:&) :: Pi (fst :: s) -> t @@ fst -> Sg s t
 
@@ -343,7 +346,7 @@ interesting from a theoretical standpoint.
 - I'm confused about roles in kinds.
 
 (old):
-- move promoteKind to Kind    
+- move promoteKind to Kind
 - tcDataFamInstDecl seems to need more recursive information to get isPromotable right.
 - genGenericMetaTyCons makes unpromotable things. Why?
 
