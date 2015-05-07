@@ -382,6 +382,7 @@ getInitialKind decl@(ClassDecl { tcdLName = L _ name, tcdTyVars = ktvs, tcdATs =
            kcHsTyVarBndrs (hsDeclHasCusk decl) ktvs $
            do { inner_prs <- getFamDeclInitialKinds ats
               ; return (constraintKind, inner_prs) }
+       ; cl_kind <- zonkTcType cl_kind
        ; let main_pr = (name, AThing cl_kind)
        ; return (main_pr : inner_prs) }
 
@@ -397,10 +398,11 @@ getInitialKind decl@(DataDecl { tcdLName = L _ name
                            Just ksig -> tcLHsKind ksig
                            Nothing   -> return liftedTypeKind
               ; return (res_k, ()) }
-       ; let main_pr = (name, AThing decl_kind)
-             inner_prs = [ (unLoc con, APromotionErr RecDataConPE)
-                         | L _ con' <- cons, con <- con_names con' ]
-       ; return (main_pr : inner_prs) }
+        ; decl_kind <- zonkTcType decl_kind
+        ; let main_pr = (name, AThing decl_kind)
+              inner_prs = [ (unLoc con, APromotionErr RecDataConPE)
+                          | L _ con' <- cons, con <- con_names con' ]
+        ; return (main_pr : inner_prs) }
 
 getInitialKind (FamDecl { tcdFam = decl })
   = getFamDeclInitialKind decl
@@ -428,6 +430,7 @@ getFamDeclInitialKind decl@(FamilyDecl { fdLName = L _ name
                              | famDeclHasCusk decl -> return liftedTypeKind
                              | otherwise           -> newMetaKindVar
               ; return (res_k, ()) }
+       ; fam_kind <- zonkTcType fam_kind
        ; return [ (name, AThing fam_kind) ] }
 
 ----------------

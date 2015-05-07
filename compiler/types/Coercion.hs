@@ -549,8 +549,7 @@ using, say, coercionKind.
 
 mkReflCo :: Role -> Type -> Coercion
 mkReflCo r ty
-  = ASSERT2( not $ isCoercionTy ty, ppr ty )
-    Refl r ty
+  = Refl r ty
 
 -- | Make a representational reflexive coercion
 mkRepReflCo :: Type -> Coercion
