@@ -1258,8 +1258,15 @@ tyCoVarsOfImplic :: Implication -> TyCoVarSet
 -- Only called on *zonked* things, hence no need to worry about flatten-skolems
 tyCoVarsOfImplic (Implic { ic_skols = skols
                          , ic_given = givens, ic_wanted = wanted })
-  = (tyCoVarsOfWC wanted `unionVarSet` tyCoVarsOfTypes (map evVarPred givens))
-    `delVarSetList` skols `unionVarSet` tyCoVarsOfTypes (map tyVarKind skols)
+  = go_telescope skols $
+    (tyCoVarsOfWC wanted `unionVarSet` tyCoVarsOfTypes (map evVarPred givens))
+  where
+    go_telescope :: [TyCoVar] -> TyCoVarSet -> TyCoVarSet
+    go_telescope [] fvs = fvs
+    go_telescope (tcv:tcvs) fvs
+      = go_telescope tcvs fvs
+        `delVarSet` tcv
+        `unionVarSet` tyCoVarsOfType (tyVarKind tcv)
 
 tyCoVarsOfBag :: (a -> TyVarSet) -> Bag a -> TyVarSet
 tyCoVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet

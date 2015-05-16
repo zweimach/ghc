@@ -52,6 +52,15 @@ result ty, or (3) do something else. I want SPJ's input, as both (1)
 and (2) are terrible.
 
 fix:
+  - Every time tcExtendTyVarEnv{,2} is called, make sure an implication
+    constraint with skolem info is also produced. This currently seems to
+    happen, but not necessarily rigorously. See #21.
+    I have fixed this in tcHsTyVarBndrs to squash #21, but I'm sure this
+    problem lurks elsewhere.
+
+  - Fix #15 by refusing to have kind family applications inferred in type
+    patterns.
+
   - Deferred kind errors! Right now, evBindsSubst just silently fails,
     creating core-lint errors. Proposed solution: box the equality.
     Then use the desugared, unpacked boxed equality in terms, but

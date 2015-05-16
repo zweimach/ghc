@@ -323,6 +323,9 @@ tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM (Type, CvSubstEnv)
 tcCheckHsTypeAndGen hs_ty kind
   = do { (ty, ev_binds) <- solveTopConstraints $
                            tc_hs_type hs_ty kind
+       ; failIfErrsM  -- TODO (RAE): Does this abort too often? If the type
+                      -- has kind errors, then unbound coercions in the type
+                      -- cause endless trouble as we go forward. See #21.
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
        ; cv_env <- zonkedEvBindsCvSubstEnv ev_binds
        ; kvs <- kindGeneralize cv_env (tyCoVarsOfType ty)
