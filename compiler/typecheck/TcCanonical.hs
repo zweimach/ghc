@@ -1095,8 +1095,12 @@ canEqTyVarTyVar ev eq_rel swapped tv1 tv2 kco co2
        ; stopWith ev "Equal tyvars" }
 
     -- See Note [Orient equalities with flatten-meta-vars on the left] in TcFlatten
-  | isFmvTyVar tv1  = no_swap
-  | isFmvTyVar tv2  = do_swap
+--x  | isFmvTyVar tv1  = no_swap
+--x  | isFmvTyVar tv2  = do_swap
+    -- TODO (RAE): These lines caused #23. I think SPJ has replumbed this
+    -- bit in master. From what I can understand, commenting these out
+    -- may worsen error messages in obscure situations, but is otherwise
+    -- OK.
 
   | swap_over       = do_swap
   | otherwise       = no_swap
