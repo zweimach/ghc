@@ -95,7 +95,8 @@ module Type (
 
         -- (Lifting and boxity)
         isUnLiftedType, isUnboxedTupleType, isAlgType, isClosedAlgType,
-        isPrimitiveType, isStrictType, isLevityTy, isLevityVar, getLevity,
+        isPrimitiveType, isStrictType,
+        isLevityTy, isLevityVar, getLevity, getLevityFromKind,
 
         -- * Main data types representing Kinds
         Kind,
@@ -1850,7 +1851,14 @@ isUnLiftedType _                    = False
 -- | Extract the levity classifier of a type. Panics if this is not possible.
 getLevity :: String   -- ^ Printed in case of an error
           -> Type -> Type
-getLevity err ty = go (typeKind ty)
+getLevity err ty = getLevityFromKind err (typeKind ty)
+
+-- | Extract the levity classifier of a type from its kind.
+-- For example, getLevityFromKind * = Lifted; getLevityFromKind # = Unlifted.
+-- Panics if this is not possible.
+getLevityFromKind :: String  -- ^ Printed in case of an error
+                  -> Type -> Type
+getLevityFromKind err = go
   where
     go k | Just k' <- coreViewOneStarKind k = go k'
     go k
@@ -1858,8 +1866,7 @@ getLevity err ty = go (typeKind ty)
       , tc `hasKey` tYPETyConKey
       = arg
     go k = pprPanic "getLevity" (text err $$
-                                 ppr ty <+> dcolon <+> ppr k
-                                        <+> dcolon <+> ppr (typeKind k))
+                                 ppr k <+> dcolon <+> ppr (typeKind k))
 
 isUnboxedTupleType :: Type -> Bool
 isUnboxedTupleType ty = case tyConAppTyCon_maybe ty of

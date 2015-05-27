@@ -519,7 +519,7 @@ tc_hs_type (HsTupleTy HsBoxedOrConstraintTuple hs_tys) exp_kind
                             checkExpectedKind ty kind arg_kind
                           | ((L loc _),ty,kind) <- zip3 hs_tys tys kinds ]
 
-       ; finish_tuple tup_sort tys' exp_kind }
+       ; finish_tuple tup_sort tys' (map (const arg_kind) tys') exp_kind }
 
 
 tc_hs_type (HsTupleTy hs_tup_sort tys) exp_kind
@@ -625,17 +625,21 @@ tc_tuple tup_sort tys exp_kind
                                  ; return $ map tYPE levs }
            ConstraintTuple -> return (nOfThem arity constraintKind)
        ; tau_tys <- tcHsArgTys tys arg_kinds
-       ; finish_tuple tup_sort tau_tys exp_kind }
+       ; finish_tuple tup_sort tau_tys arg_kinds exp_kind }
   where
     arity   = length tys
 
-finish_tuple :: TupleSort -> [TcType] -> TcKind -> TcM TcType
-finish_tuple tup_sort tau_tys exp_kind
-  = do { traceTc "finish_tuple" (ppr res_kind $$ ppr exp_kind $$ ppr exp_kind)
-       ; tau_tys' <- zonkTcTypes tau_tys  -- necessary so that the getLevity works
+finish_tuple :: TupleSort
+             -> [TcType]    -- ^ argument types
+             -> [TcKind]    -- ^ of these kinds
+             -> TcKind      -- ^ expected kind of the whole tuple
+             -> TcM TcType
+finish_tuple tup_sort tau_tys tau_kinds exp_kind
+  = do { traceTc "finish_tuple" (ppr res_kind $$ ppr tau_kinds $$ ppr exp_kind)
        ; let arg_tys  = case tup_sort of
                    -- See also Note [Unboxed tuple levity vars] in TyCon
-                 UnboxedTuple    -> map (getLevity "finish_tuple") tau_tys' ++ tau_tys'
+                 UnboxedTuple    -> map (getLevityFromKind "finish_tuple") tau_kinds
+                                    ++ tau_tys
                  BoxedTuple      -> tau_tys
                  ConstraintTuple -> tau_tys
        ; checkWiredInTyCon tycon
