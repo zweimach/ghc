@@ -154,6 +154,7 @@ Relative to John's original paper, there are the following new features:
 {-# LANGUAGE BangPatterns, CPP, MagicHash #-}
 
 module Pretty (
+        -- * Constructing documents
         Doc,            -- Abstract
         Mode(..), TextDetails(..),
 
@@ -172,8 +173,12 @@ module Pretty (
 
         hang, punctuate,
 
+        -- * Rendering documents
         fullRender, printDoc, printDoc_, showDoc,
-        bufLeftRender -- performance hack
+        bufLeftRender, -- performance hack
+
+        -- * Desconstructing documents
+        Doc(..)
   ) where
 
 import BufWrite
