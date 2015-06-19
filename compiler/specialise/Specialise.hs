@@ -616,10 +616,13 @@ specImports :: DynFlags
             -> CoreM ( [CoreRule]   -- New rules
                      , [CoreBind] ) -- Specialised bindings and floating bindings
 specImports dflags this_mod done rule_base uds
-  = do { let import_calls = varEnvElts (ud_calls uds)
+  | not $ gopt Opt_CrossModuleSpecialise dflags = return ([], wrapDictBinds (ud_binds uds) [])
+  | otherwise =
+    do { let import_calls = varEnvElts (ud_calls uds)
        ; (rules, spec_binds) <- go rule_base import_calls
        ; return (rules, wrapDictBinds (ud_binds uds) spec_binds) }
   where
+    go :: RuleBase -> [CallInfoSet] -> CoreM ([CoreRule], [CoreBind])
     go _ [] = return ([], [])
     go rb (CIS fn calls_for_fn : other_calls)
       = do { (rules1, spec_binds1) <- specImport dflags this_mod done rb fn $
