@@ -988,25 +988,14 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thi
                 else zipWithM newSigTyVar kv_ns meta_kvs
        ; tcExtendTyVarEnv2 (kv_ns `zip` kvs) $
     do { (full_kind, _, stuff) <- bind_telescope hs_tvs thing_inside
-       ; let all_kvs = filter (not . isMetaTyVar) $
-                       varSetElems $ tyCoVarsOfType full_kind
-             (_mentioned_kvs, unmentioned_kvs)
-                     = partition (`elemVarSet` mkVarSet kvs) all_kvs
+       ; let kvs = filter (not . isMetaTyVar) $
+                   varSetElemsWellScoped $ tyCoVarsOfType full_kind
 
                 -- the free non-meta variables in the returned kind will
                 -- contain both *mentioned* kind vars and *unmentioned* kind
                 -- vars (See case (1) under Note [Typechecking telescopes])
-                -- The mentioned kind vars should be the same as kvs. BUT, it
-                -- is critical that we generalise w.r.t. the declared kvs, not
-                -- the found _mentioned_kvs, because we depend hsq_implicit
-                -- and the quantified tyvars to line up in kcTyClTyVars
-                -- kcTyClTyVars also wants the unmentioned kvs first
              gen_kind  = if cusk
-                         then ASSERT2( sort _mentioned_kvs == sort kvs,
-                                       ppr _mentioned_kvs $$ ppr kvs )
-                              mkInvForAllTys unmentioned_kvs $
-                              mkInvForAllTys kvs $
-                              full_kind
+                         then mkInvForAllTys kvs $ full_kind
                          else full_kind
        ; return (gen_kind, stuff) } }
   where
@@ -1159,11 +1148,11 @@ class Foo k (t :: Proxy k -> k2) where ...
 By the time [kt]cTyClTyVars is called, we know *something* about the kind of Foo,
 at least that it has the form
 
-  Foo :: forall (k2 :: mk2). forall (k :: mk1). (Proxy mk1 k -> k2) -> Constraint
+  Foo :: forall (k2 :: mk2). forall (k :: mk1) -> (Proxy mk1 k -> k2) -> Constraint
 
 if it has a CUSK (Foo does not, in point of fact) or
 
-  Foo :: forall (k :: mk1). (Proxy mk1 k -> k2) -> Constraint
+  Foo :: forall (k :: mk1) -> (Proxy mk1 k -> k2) -> Constraint
 
 if it does not, where mk1 and mk2 are meta-kind variables (mk1, mk2 :: *).
 
@@ -1172,7 +1161,7 @@ free variables appearing in mk1 or mk2. So, mk_tvs must handle
 that possibility. Perhaps we discover that mk1 := Maybe k3 and mk2 := *,
 so we have
 
-Foo :: forall (k3 :: *). forall (k2 :: *). forall (k :: Maybe k3).
+Foo :: forall (k3 :: *). forall (k2 :: *). forall (k :: Maybe k3) ->
        (Proxy (Maybe k3) k -> k2) -> Constraint
 
 We now have several sorts of variables to think about:
@@ -1202,7 +1191,15 @@ Comments in the code refer back to the cases in this Note.
 Cases (1) and (2) can be mixed together, but these cases must appear before
 cases (3) and (4) (the implicitly bound vars always precede the explicitly
 bound ones). So, we handle the lists in two stages (mk_tvs and
-mk_tvs2). -}
+mk_tvs2).
+
+As a further wrinkle, it's possible that the variables in case (2) have
+been reordered. This is because hsq_implicit is ordered by the renamer,
+but there may be dependency among the variables. Of course, the order in
+the kind must take dependency into account. So we use a NameSet to keep
+these straightened out.
+
+-}
 
 --------------------
 -- getInitialKind has made a suitably-shaped kind for the type or class
@@ -1226,14 +1223,14 @@ splitTelescopeTvs :: Kind         -- of the head of the telescope
                      , Kind )     -- inner kind
 splitTelescopeTvs kind tvbs@(HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
   = let (bndrs, inner_ki) = splitForAllTys kind
-        (scoped_tvs, all_tvs, mk_kind) = mk_tvs [] [] bndrs hs_kvs hs_tvs
+        (scoped_tvs, all_tvs, mk_kind) = mk_tvs [] [] bndrs (mkNameSet hs_kvs) hs_tvs
     in
     (scoped_tvs, all_tvs, mk_kind inner_ki)
   where
     mk_tvs :: [TyVar]    -- scoped tv accum (reversed)
            -> [TyVar]    -- all tv accum (reversed)
            -> [Binder]
-           -> [Name]              -- implicit variables
+           -> NameSet             -- implicit variables
            -> [LHsTyVarBndr Name] -- explicit variables
            -> ( [TyVar]           -- the tyvars to be lexically bound
               , [TyVar]           -- all tyvars
@@ -1241,10 +1238,10 @@ splitTelescopeTvs kind tvbs@(HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_t
     mk_tvs scoped_tv_acc all_tv_acc (bndr : bndrs) all_hs_kvs all_hs_tvs
       | Just tv <- binderVar_maybe bndr
       , isInvisibleBinder bndr
-      , hs_kv : hs_kvs <- all_hs_kvs
-      , getName tv == hs_kv
+      , let tv_name = getName tv
+      , tv_name `elemNameSet` all_hs_kvs
       = mk_tvs (tv : scoped_tv_acc) (tv : all_tv_acc)
-               bndrs hs_kvs all_hs_tvs      -- Case (2)
+               bndrs (all_hs_kvs `delFromNameSet` tv_name) all_hs_tvs      -- Case (2)
 
       | Just tv <- binderVar_maybe bndr
       , isInvisibleBinder bndr

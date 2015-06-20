@@ -1297,7 +1297,7 @@ checkExpectedKind ty act_kind exp_kind
                                   , uo_thing    = Just $ mkTypeErrorThing ty'
                                   , uo_level    = KindLevel }
       ; co_k <- uType origin act_kind' exp_kind
-      ; let result_ty = ty' `mkCastTy` mkSubCo co_k
+      ; let result_ty = ty' `mkNakedCastTy` mkSubCo co_k
       ; return result_ty }
   where
     -- we need to make sure that both kinds have the same number of implicit
