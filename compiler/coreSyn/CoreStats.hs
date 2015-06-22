@@ -1,12 +1,10 @@
 {-
 (c) The University of Glasgow 2006
-(c) The GRASP/AQUA Project, Glasgow University, 1992-1998
-
-
-Functions to computing the statistics reflective of the "size" of a Core expression
+(c) The GRASP/AQUA Project, Glasgow University, 1992-2015
 -}
 
--- | Functions to computing the statistics reflective of the "size" of a Core expression
+-- | Functions to computing the statistics reflective of the "size"
+-- of a Core expression
 module CoreStats (
         -- * Expression and bindings size
         coreBindsSize, exprSize,
@@ -66,7 +64,8 @@ exprStats (Coercion c)    = coStats c
 exprStats (App f a)       = exprStats f `plusCS` exprStats a
 exprStats (Lam b e)       = bndrStats b `plusCS` exprStats e
 exprStats (Let b e)       = bindStats b `plusCS` exprStats e
-exprStats (Case e b _ as) = exprStats e `plusCS` bndrStats b `plusCS` sumCS altStats as
+exprStats (Case e b _ as) = exprStats e `plusCS` bndrStats b
+                                        `plusCS` sumCS altStats as
 exprStats (Cast e co)     = coStats co `plusCS` exprStats e
 exprStats (Tick _ e)      = exprStats e
 
@@ -98,7 +97,8 @@ exprSize (Lit lit)       = lit `seq` 1
 exprSize (App f a)       = exprSize f + exprSize a
 exprSize (Lam b e)       = bndrSize b + exprSize e
 exprSize (Let b e)       = bindSize b + exprSize e
-exprSize (Case e b t as) = seqType t `seq` exprSize e + bndrSize b + 1 + foldr ((+) . altSize) 0 as
+exprSize (Case e b t as) = seqType t `seq`
+                           exprSize e + bndrSize b + 1 + foldr ((+) . altSize) 0 as
 exprSize (Cast e co)     = (seqCo co `seq` 1) + exprSize e
 exprSize (Tick n e)      = tickSize n + exprSize e
 exprSize (Type t)        = seqType t `seq` 1
