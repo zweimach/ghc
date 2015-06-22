@@ -257,6 +257,7 @@ Library
         CoreTidy
         CoreUnfold
         CoreUtils
+        CoreStats
         MkCore
         PprCore
         Check
