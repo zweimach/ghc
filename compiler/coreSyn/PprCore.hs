@@ -76,7 +76,7 @@ type Annotation b = Expr b -> SDoc
 
 -- | Annotate with the size of the right-hand-side
 sizeAnn :: CoreExpr -> SDoc
-sizeAnn e = ptext (sLit "--") <+> ppr (exprStats e)
+sizeAnn e = ptext (sLit "-- RHS size:") <+> ppr (exprStats e)
 
 -- | No annotation
 noAnn :: Expr b -> SDoc
