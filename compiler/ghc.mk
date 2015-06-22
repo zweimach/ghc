@@ -493,6 +493,7 @@ compiler_stage2_dll0_MODULES = \
 	CoreTidy \
 	CoreUnfold \
 	CoreUtils \
+	CoreStats \
 	CostCentre \
 	Ctype \
 	DataCon \
