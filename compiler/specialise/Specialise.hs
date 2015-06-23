@@ -1015,8 +1015,9 @@ specBind rhs_env (NonRec fn rhs) body_uds
              (free_uds, dump_dbs, float_all) = dumpBindUDs [fn] combined_uds
                 -- See Note [From non-recursive to recursive]
 
-             final_binds | isEmptyBag dump_dbs = [NonRec b r | (b,r) <- pairs]
-                         | otherwise = [Rec (flattenDictBinds dump_dbs pairs)]
+             final_binds :: [DictBind]
+             final_binds | isEmptyBag dump_dbs = [mkDB $ NonRec b r | (b,r) <- pairs]
+                         | otherwise = [flattenDictBinds dump_dbs pairs]
 
          ; if float_all then
              -- Rather than discard the calls mentioning the bound variables
@@ -1025,7 +1026,7 @@ specBind rhs_env (NonRec fn rhs) body_uds
            else
              -- No call in final_uds mentions bound variables,
              -- so we can just leave the binding here
-              return (final_binds, free_uds) }
+              return (map fst final_binds, free_uds) }
 
 
 specBind rhs_env (Rec pairs) body_uds
@@ -1046,13 +1047,12 @@ specBind rhs_env (Rec pairs) body_uds
                         ; return (bndrs2, spec_defns2 ++ spec_defns1, uds2) }
 
        ; let (final_uds, dumped_dbs, float_all) = dumpBindUDs bndrs uds3
-             bind = Rec (flattenDictBinds dumped_dbs $
-                         spec_defns3 ++ zip bndrs3 rhss')
+             bind = flattenDictBinds dumped_dbs (spec_defns3 ++ zip bndrs3 rhss')
 
        ; if float_all then
               return ([], final_uds `snocDictBind` bind)
            else
-              return ([bind], final_uds) }
+              return ([fst bind], final_uds) }
 
 
 ---------------------------
@@ -1260,7 +1260,7 @@ specCalls mb_mod env rules_for_me calls_for_me fn rhs
                                   (mkVarApps (Var spec_f) app_args)
 
                 -- Add the { d1' = dx1; d2' = dx2 } usage stuff
-                final_uds = foldr consDictBind rhs_uds dx_binds
+                final_uds = foldr consDictBind rhs_uds (map mkDB dx_binds)
 
                 --------------------------------------
                 -- Add a suitable unfolding if the spec_inl_prag says so
@@ -1874,27 +1874,29 @@ pair_fvs (bndr, rhs) = exprFreeVars rhs `unionVarSet` idFreeVars bndr
         --      type T a = Int
         --      x :: T a = 3
 
-flattenDictBinds :: Bag DictBind -> [(Id,CoreExpr)] -> [(Id,CoreExpr)]
+-- | Flatten a set of bindings into a single recursive binding (TODO: better comment)
+flattenDictBinds :: Bag DictBind -> [(Id,CoreExpr)] -> DictBind
 flattenDictBinds dbs pairs
-  = foldrBag add pairs dbs
+  = (Rec bindings, fvs)
   where
-    add (NonRec b r,_) pairs = (b,r) : pairs
-    add (Rec prs1, _)  pairs = prs1 ++ pairs
+    (bindings, fvs) = foldrBag add (pairs, emptyVarSet) dbs
+    add (NonRec b r, fvs') (pairs, fvs) = ((b,r) : pairs, fvs `unionVarSet` fvs')
+    add (Rec prs1,   fvs') (pairs, fvs) = (prs1 ++ pairs, fvs `unionVarSet` fvs')
 
-snocDictBinds :: UsageDetails -> [CoreBind] -> UsageDetails
+snocDictBinds :: UsageDetails -> [DictBind] -> UsageDetails
 -- Add ud_binds to the tail end of the bindings in uds
 snocDictBinds uds dbs
   = uds { ud_binds = ud_binds uds `unionBags`
-                     foldr (consBag . mkDB) emptyBag dbs }
+                     foldr consBag emptyBag dbs }
 
-consDictBind :: CoreBind -> UsageDetails -> UsageDetails
-consDictBind bind uds = uds { ud_binds = mkDB bind `consBag` ud_binds uds }
+consDictBind :: DictBind -> UsageDetails -> UsageDetails
+consDictBind bind uds = uds { ud_binds = bind `consBag` ud_binds uds }
 
 addDictBinds :: [DictBind] -> UsageDetails -> UsageDetails
 addDictBinds binds uds = uds { ud_binds = listToBag binds `unionBags` ud_binds uds }
 
-snocDictBind :: UsageDetails -> CoreBind -> UsageDetails
-snocDictBind uds bind = uds { ud_binds = ud_binds uds `snocBag` mkDB bind }
+snocDictBind :: UsageDetails -> DictBind -> UsageDetails
+snocDictBind uds bind = uds { ud_binds = ud_binds uds `snocBag` bind }
 
 wrapDictBinds :: Bag DictBind -> [CoreBind] -> [CoreBind]
 wrapDictBinds dbs binds
