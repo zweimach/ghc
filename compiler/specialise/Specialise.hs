@@ -1642,9 +1642,9 @@ instance Outputable UsageDetails where
                 [ptext (sLit "binds") <+> equals <+> ppr dbs,
                  ptext (sLit "calls") <+> equals <+> ppr calls]))
 
+-- | A 'DictBind' is a binding along with a cached set containing its free
+-- variables (both type variables and dictionaries)
 type DictBind = (CoreBind, VarSet)
-        -- The set is the free vars of the binding
-        -- both tyvars and dicts
 
 type DictExpr = CoreExpr
 
@@ -1856,9 +1856,11 @@ plusUDList = foldr plusUDs emptyUDs
 _dictBindBndrs :: Bag DictBind -> [Id]
 _dictBindBndrs dbs = foldrBag ((++) . bindersOf . fst) [] dbs
 
+-- | Construct a 'DictBind' from a 'CoreBind'
 mkDB :: CoreBind -> DictBind
 mkDB bind = (bind, bind_fvs bind)
 
+-- | Identify the free variables of a 'CoreBind'
 bind_fvs :: CoreBind -> VarSet
 bind_fvs (NonRec bndr rhs) = pair_fvs (bndr,rhs)
 bind_fvs (Rec prs)         = foldl delVarSet rhs_fvs bndrs
