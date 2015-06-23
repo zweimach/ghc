@@ -571,6 +571,7 @@ Hence, the invariant is this:
 ************************************************************************
 -}
 
+-- | Specialise calls to type-class overloaded functions occuring in a program.
 specProgram :: ModGuts -> CoreM ModGuts
 specProgram guts@(ModGuts { mg_module = this_mod
                           , mg_rules = local_rules
@@ -583,10 +584,18 @@ specProgram guts@(ModGuts { mg_module = this_mod
              -- Specialise imported functions
        ; hpt_rules <- getRuleBase
        ; let rule_base = extendRuleBaseList hpt_rules local_rules
-       ; (new_rules, spec_binds) <- specImports dflags this_mod emptyVarSet rule_base uds
 
-       ; let final_binds | null spec_binds = binds'
-                         | otherwise       = Rec (flattenBinds spec_binds) : binds'
+       ; (new_rules, spec_binds) <- specImports dflags this_mod emptyVarSet
+                                                rule_base (ud_calls uds)
+
+             -- Don't forget to wrap the specialized bindings with bindings
+             -- for the needed dictionaries.
+             -- See Note [Wrap bindings returned by specImports]
+       ; let spec_binds' = wrapDictBinds (ud_binds uds) spec_binds
+
+       ; let final_binds
+               | null spec_binds' = binds'
+               | otherwise        = Rec (flattenBinds spec_binds') : binds'
                    -- Note [Glom the bindings if imported functions are specialised]
 
        ; return (guts { mg_binds = final_binds
@@ -606,22 +615,34 @@ specProgram guts@(ModGuts { mg_module = this_mod
                          (bind', uds') <- specBind top_subst bind uds
                          return (bind' ++ binds', uds')
 
+{-
+Note [Wrap bindings returned by specImports]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+'specImports' returns a set of specialized bindings. However, these are lacking
+necessary floated dictionary bindings, which we temporarily kept in
+UsageDetails(ud_binds). These dictionaries need to be brought into scope with
+'wrapDictBinds' before the bindings returned by 'specImports' can be used. See,
+for instance, the 'specImports' call in 'specProgram'.
+-}
+
+-- | Specialise a set of calls to imported bindings
 specImports :: DynFlags
             -> Module
             -> VarSet           -- Don't specialise these ones
                                 -- See Note [Avoiding recursive specialisation]
             -> RuleBase         -- Rules from this module and the home package
                                 -- (but not external packages, which can change)
-            -> UsageDetails     -- Calls for imported things, and floating bindings
+            -> CallDetails      -- Calls for imported things, and floating bindings
             -> CoreM ( [CoreRule]   -- New rules
-                     , [CoreBind] ) -- Specialised bindings and floating bindings
-specImports dflags this_mod done rule_base uds
+                     , [CoreBind] ) -- Specialised bindings
+                                    -- See Note [Wrapping bindings returned by specImports]
+specImports dflags this_mod done rule_base cds
   | not $ gopt Opt_CrossModuleSpecialise dflags =
-    return ([], wrapDictBinds (ud_binds uds) [])
+    return ([], [])
   | otherwise =
-    do { let import_calls = varEnvElts (ud_calls uds)
+    do { let import_calls = varEnvElts cds
        ; (rules, spec_binds) <- go rule_base import_calls
-       ; return (rules, wrapDictBinds (ud_binds uds) spec_binds) }
+       ; return (rules, spec_binds) }
   where
     go :: RuleBase -> [CallInfoSet] -> CoreM ([CoreRule], [CoreBind])
     go _ [] = return ([], [])
@@ -671,9 +692,14 @@ specImport dflags this_mod done rb fn calls_for_fn
        ; (rules2, spec_binds2) <- -- pprTrace "specImport" (ppr fn $$ ppr uds $$ ppr rhs) $
                                   specImports dflags this_mod (extendVarSet done fn)
                                                      (extendRuleBaseList rb rules1)
-                                                     uds
+                                                     (ud_calls uds)
 
-       ; return (rules2 ++ rules1, spec_binds2 ++ spec_binds1) }
+             -- Don't forget to wrap the specialized bindings with bindings
+             -- for the needed dictionaries
+             -- See Note [Wrap bindings returned by specImports]
+       ; let spec_binds2' = wrapDictBinds (ud_binds uds) spec_binds2
+
+       ; return (rules2 ++ rules1, spec_binds2' ++ spec_binds1) }
 
   | otherwise
   = WARN( True, hang (ptext (sLit "specImport discarding:") <+> ppr fn <+> dcolon <+> ppr (idType fn))
