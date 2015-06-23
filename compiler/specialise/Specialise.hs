@@ -619,7 +619,7 @@ specProgram guts@(ModGuts { mg_module = this_mod
 Note [Wrap bindings returned by specImports]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 'specImports' returns a set of specialized bindings. However, these are lacking
-necessary floated dictionary bindings, which we temporarily kept in
+necessary floated dictionary bindings, which are returned by
 UsageDetails(ud_binds). These dictionaries need to be brought into scope with
 'wrapDictBinds' before the bindings returned by 'specImports' can be used. See,
 for instance, the 'specImports' call in 'specProgram'.
@@ -710,9 +710,10 @@ specImport dflags this_mod done rb fn calls_for_fn
              -- Don't forget to wrap the specialized bindings with bindings
              -- for the needed dictionaries
              -- See Note [Wrap bindings returned by specImports]
-       ; let spec_binds2' = wrapDictBinds (ud_binds uds) spec_binds2
+       ; let final_binds = wrapDictBinds (ud_binds uds)
+                                         (spec_binds2 ++ spec_binds1)
 
-       ; return (rules2 ++ rules1, spec_binds2' ++ spec_binds1) }
+       ; return (rules2 ++ rules1, final_binds) }
 
   | otherwise
   = WARN( True, hang (ptext (sLit "specImport discarding:") <+> ppr fn <+> dcolon <+> ppr (idType fn))
