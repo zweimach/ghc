@@ -623,6 +623,17 @@ necessary floated dictionary bindings, which we temporarily kept in
 UsageDetails(ud_binds). These dictionaries need to be brought into scope with
 'wrapDictBinds' before the bindings returned by 'specImports' can be used. See,
 for instance, the 'specImports' call in 'specProgram'.
+
+
+Note [Disabling cross-module specialisation]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Since GHC 7.10 we have performed specialisation of INLINEABLE bindings living
+in modules outside of the current module. This can sometimes uncover user code
+which explodes in size when aggressively optimized. The
+-fno-cross-module-specialise option was introduced to allow users to being
+bitten by such instances to revert to the pre-7.10 behavior.
+
+See Trac #10491
 -}
 
 -- | Specialise a set of calls to imported bindings
@@ -637,8 +648,10 @@ specImports :: DynFlags
                      , [CoreBind] ) -- Specialised bindings
                                     -- See Note [Wrapping bindings returned by specImports]
 specImports dflags this_mod done rule_base cds
+  -- See Note [Disabling cross-module specialisation]
   | not $ gopt Opt_CrossModuleSpecialise dflags =
     return ([], [])
+
   | otherwise =
     do { let import_calls = varEnvElts cds
        ; (rules, spec_binds) <- go rule_base import_calls
