@@ -1260,7 +1260,7 @@ specCalls mb_mod env rules_for_me calls_for_me fn rhs
                                   (mkVarApps (Var spec_f) app_args)
 
                 -- Add the { d1' = dx1; d2' = dx2 } usage stuff
-                final_uds = foldr consDictBind rhs_uds (map mkDB dx_binds)
+                final_uds = foldr consDictBind rhs_uds dx_binds
 
                 --------------------------------------
                 -- Add a suitable unfolding if the spec_inl_prag says so
@@ -1294,7 +1294,7 @@ bindAuxiliaryDicts
         -> [DictId] -> [CoreExpr]   -- Original dict bndrs, and the witnessing expressions
         -> [DictId]                 -- A cloned dict-id for each dict arg
         -> (SpecEnv,                -- Substitute for all orig_dicts
-            [CoreBind],             -- Auxiliary dict bindings
+            [DictBind],             -- Auxiliary dict bindings
             [CoreExpr])             -- Witnessing expressions (all trivial)
 -- Bind any dictionary arguments to fresh names, to preserve sharing
 bindAuxiliaryDicts env@(SE { se_subst = subst, se_interesting = interesting })
@@ -1305,14 +1305,15 @@ bindAuxiliaryDicts env@(SE { se_subst = subst, se_interesting = interesting })
     env' = env { se_subst = CoreSubst.extendIdSubstList subst (orig_dict_ids `zip` spec_dict_args)
                , se_interesting = interesting `unionVarSet` interesting_dicts }
 
-    interesting_dicts = mkVarSet [ dx_id | NonRec dx_id dx <- dx_binds
+    interesting_dicts = mkVarSet [ dx_id | (NonRec dx_id dx, _) <- dx_binds
                                  , interestingDict env dx ]
                   -- See Note [Make the new dictionaries interesting]
 
+    go :: [CoreExpr] -> [CoreBndr] -> ([DictBind], [CoreExpr])
     go [] _  = ([], [])
     go (dx:dxs) (dx_id:dx_ids)
       | exprIsTrivial dx = (dx_binds, dx:args)
-      | otherwise        = (NonRec dx_id dx : dx_binds, Var dx_id : args)
+      | otherwise        = (mkDB (NonRec dx_id dx) : dx_binds, Var dx_id : args)
       where
         (dx_binds, args) = go dxs dx_ids
              -- In the first case extend the substitution but not bindings;
