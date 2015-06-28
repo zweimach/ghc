@@ -1026,7 +1026,7 @@ specBind rhs_env (NonRec fn rhs) body_uds
            else
              -- No call in final_uds mentions bound variables,
              -- so we can just leave the binding here
-              pprTrace "specBind" (ppr final_binds) $ return (map fst final_binds, free_uds) }
+              return (map fst final_binds, free_uds) }
 
 
 specBind rhs_env (Rec pairs) body_uds
