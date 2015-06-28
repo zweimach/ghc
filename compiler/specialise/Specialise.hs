@@ -1883,7 +1883,9 @@ flattenDictBinds :: Bag DictBind -> [(Id,CoreExpr)] -> DictBind
 flattenDictBinds dbs pairs
   = (Rec bindings, fvs)
   where
-    (bindings, fvs) = foldrBag add ([], emptyVarSet) (dbs `snocBag` mkDB (Rec pairs))
+    (bindings, fvs) = foldrBag add
+                               ([], emptyVarSet)
+                               (dbs `snocBag` mkDB (Rec pairs))
     add (NonRec b r, fvs') (pairs, fvs) = ((b,r) : pairs, fvs `unionVarSet` fvs')
     add (Rec prs1,   fvs') (pairs, fvs) = (prs1 ++ pairs, fvs `unionVarSet` fvs')
 
