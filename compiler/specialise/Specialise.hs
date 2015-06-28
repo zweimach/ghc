@@ -1016,8 +1016,9 @@ specBind rhs_env (NonRec fn rhs) body_uds
                 -- See Note [From non-recursive to recursive]
 
              final_binds :: [DictBind]
-             final_binds | isEmptyBag dump_dbs = [mkDB $ NonRec b r | (b,r) <- pairs]
-                         | otherwise = [flattenDictBinds dump_dbs pairs]
+             final_binds
+               | isEmptyBag dump_dbs = [mkDB $ NonRec b r | (b,r) <- pairs]
+               | otherwise = [flattenDictBinds dump_dbs pairs]
 
          ; if float_all then
              -- Rather than discard the calls mentioning the bound variables
@@ -1047,7 +1048,8 @@ specBind rhs_env (Rec pairs) body_uds
                         ; return (bndrs2, spec_defns2 ++ spec_defns1, uds2) }
 
        ; let (final_uds, dumped_dbs, float_all) = dumpBindUDs bndrs uds3
-             bind = flattenDictBinds dumped_dbs (spec_defns3 ++ zip bndrs3 rhss')
+             bind = flattenDictBinds dumped_dbs
+                                     (spec_defns3 ++ zip bndrs3 rhss')
 
        ; if float_all then
               return ([], final_uds `snocDictBind` bind)
@@ -1886,8 +1888,10 @@ flattenDictBinds dbs pairs
     (bindings, fvs) = foldrBag add
                                ([], emptyVarSet)
                                (dbs `snocBag` mkDB (Rec pairs))
-    add (NonRec b r, fvs') (pairs, fvs) = ((b,r) : pairs, fvs `unionVarSet` fvs')
-    add (Rec prs1,   fvs') (pairs, fvs) = (prs1 ++ pairs, fvs `unionVarSet` fvs')
+    add (NonRec b r, fvs') (pairs, fvs) =
+      ((b,r) : pairs, fvs `unionVarSet` fvs')
+    add (Rec prs1,   fvs') (pairs, fvs) =
+      (prs1 ++ pairs, fvs `unionVarSet` fvs')
 
 snocDictBinds :: UsageDetails -> [DictBind] -> UsageDetails
 -- Add ud_binds to the tail end of the bindings in uds
