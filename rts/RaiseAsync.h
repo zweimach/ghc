@@ -23,6 +23,10 @@ void throwToSingleThreaded (Capability *cap,
                             StgTSO *tso,
                             StgClosure *exception);
 
+void throwToSingleThreadedNoDequeue (Capability *cap,
+                                     StgTSO *tso,
+                                     StgClosure *exception);
+
 void throwToSingleThreaded_ (Capability *cap,
                              StgTSO *tso,
                              StgClosure *exception,

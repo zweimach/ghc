@@ -56,7 +56,8 @@ static void throwToSendMsg (Capability *cap USED_IF_THREADS,
 
 static void
 throwToSingleThreaded__ (Capability *cap, StgTSO *tso, StgClosure *exception,
-                         rtsBool stop_at_atomically, StgUpdateFrame *stop_here)
+                         rtsBool stop_at_atomically, StgUpdateFrame *stop_here,
+                         rtsBool dequeue)
 {
     // Thread already dead?
     if (tso->what_next == ThreadComplete || tso->what_next == ThreadKilled) {
@@ -64,7 +65,9 @@ throwToSingleThreaded__ (Capability *cap, StgTSO *tso, StgClosure *exception,
     }
 
     // Remove it from any blocking queues
-    removeFromQueues(cap,tso);
+    if (dequeue) {
+        removeFromQueues(cap,tso);
+    }
 
     raiseAsync(cap, tso, exception, stop_at_atomically, stop_here);
 }
@@ -72,20 +75,28 @@ throwToSingleThreaded__ (Capability *cap, StgTSO *tso, StgClosure *exception,
 void
 throwToSingleThreaded (Capability *cap, StgTSO *tso, StgClosure *exception)
 {
-    throwToSingleThreaded__(cap, tso, exception, rtsFalse, NULL);
+    throwToSingleThreaded__(cap, tso, exception, rtsFalse, NULL, rtsTrue);
+}
+
+void
+throwToSingleThreadedNoDequeue (Capability *cap, StgTSO *tso,
+                                StgClosure *exception)
+{
+    throwToSingleThreaded__(cap, tso, exception, rtsFalse, NULL, rtsFalse);
 }
 
 void
 throwToSingleThreaded_ (Capability *cap, StgTSO *tso, StgClosure *exception,
                         rtsBool stop_at_atomically)
 {
-    throwToSingleThreaded__ (cap, tso, exception, stop_at_atomically, NULL);
+    throwToSingleThreaded__ (cap, tso, exception, stop_at_atomically,
+                             NULL, rtsTrue);
 }
 
 void // cannot return a different TSO
 suspendComputation (Capability *cap, StgTSO *tso, StgUpdateFrame *stop_here)
 {
-    throwToSingleThreaded__ (cap, tso, NULL, rtsFalse, stop_here);
+    throwToSingleThreaded__ (cap, tso, NULL, rtsFalse, stop_here, rtsTrue);
 }
 
 /* -----------------------------------------------------------------------------

@@ -412,8 +412,12 @@ awaitEvent(rtsBool wait)
                   IF_DEBUG(scheduler,
                       debugBelch("Killing blocked thread %lu on bad fd=%i\n",
                                  (unsigned long)tso->id, fd));
-                  throwToSingleThreaded(&MainCapability, tso,
-                                        (StgClosure *)blockedOnBadFD_closure);
+                  /*
+                   * We can't use throwToSingleThreaded() here
+                   * as 'RTS_FD_IS_READY' breaks blocked_queue_hd list
+                   */
+                  throwToSingleThreadedNoDequeue(&MainCapability, tso,
+                      (StgClosure *)blockedOnBadFD_closure);
                   break;
               case RTS_FD_IS_READY:
                   IF_DEBUG(scheduler,
