@@ -34,7 +34,7 @@ import Var
 import VarSet
 import VarEnv
 import Bag
-import ErrUtils         ( ErrMsg, pprLocErrMsg )
+import ErrUtils         ( pprLocErrMsg )
 import BasicTypes
 import Util
 import FastString
@@ -932,6 +932,21 @@ reportEqErr ctxt extra1 ct oriented ty1 ty2
        ; mkErrorMsgFromCt ctxt ct (vcat [ misMatchOrCND ctxt ct oriented ty1 ty2
                                         , extra2, extra1]) }
 
+class Embed a where
+    embed :: a -> ErrMsg
+
+instance Embed TcTyVar where
+    embed = Outputable.embed . TcTyVarDoc
+
+instance Embed TcType where
+    embed = Outputable.embed . TcTypeDoc
+
+instance Embed RealSrcSpan where
+    embed = Outputable.embed . TcRealSrcSpanDoc
+
+instance Embed TyCon where
+    embed = Outputable.embed . TcTyConDoc
+
 mkTyVarEqErr :: DynFlags -> ReportErrCtxt -> SDoc -> Ct
              -> Maybe SwapFlag -> TcTyVar -> TcType -> TcM ErrMsg
 -- tv1 and ty2 are already tidied
@@ -955,14 +970,14 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   , NomEq <- ctEqRel ct      -- reporting occurs check for Coercible is strange
   = do { let occCheckMsg = addArising (ctOrigin ct) $
                            hang (text "Occurs check: cannot construct the infinite type:")
-                              2 (sep [ppr ty1, char '~', ppr ty2])
+                              2 (sep [embed ty1, char '~', embed ty2])
              extra2 = mkEqInfoMsg ct ty1 ty2
        ; mkErrorMsgFromCt ctxt ct (occCheckMsg $$ extra2 $$ extra) }
 
   | OC_Forall <- occ_check_expand
   = do { let msg = vcat [ ptext (sLit "Cannot instantiate unification variable")
-                          <+> quotes (ppr tv1)
-                        , hang (ptext (sLit "with a type involving foralls:")) 2 (ppr ty2)
+                          <+> quotes (embed tv1)
+                        , hang (ptext (sLit "with a type involving foralls:")) 2 (embed ty2)
                         , nest 2 (ptext (sLit "GHC doesn't yet support impredicative polymorphism")) ]
        ; mkErrorMsgFromCt ctxt ct msg }
 
@@ -994,7 +1009,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
                                       else ptext (sLit "These (rigid, skolem) type variables are"))
                                <+> ptext (sLit "bound by")
                              , nest 2 $ ppr skol_info
-                             , nest 2 $ ptext (sLit "at") <+> ppr (tcl_loc env) ] ]
+                             , nest 2 $ ptext (sLit "at") <+> embed (tcl_loc env) ] ]
        ; mkErrorMsgFromCt ctxt ct (msg $$ tv_extra $$ extra) }
 
   -- Nastiest case: attempt to unify an untouchable variable
@@ -1003,10 +1018,10 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   = do { let msg = misMatchMsg ct oriented ty1 ty2
              tclvl_extra
                 = nest 2 $
-                  sep [ quotes (ppr tv1) <+> ptext (sLit "is untouchable")
+                  sep [ quotes (embed tv1) <+> ptext (sLit "is untouchable")
                       , nest 2 $ ptext (sLit "inside the constraints:") <+> pprEvVarTheta given
                       , nest 2 $ ptext (sLit "bound by") <+> ppr skol_info
-                      , nest 2 $ ptext (sLit "at") <+> ppr (tcl_loc env) ]
+                      , nest 2 $ ptext (sLit "at") <+> embed (tcl_loc env) ]
              tv_extra = extraTyVarInfo ctxt tv1 ty2
              add_sig  = suggestAddSig ctxt ty1 ty2
        ; mkErrorMsgFromCt ctxt ct (vcat [msg, tclvl_extra, tv_extra, add_sig, extra]) }
@@ -1041,7 +1056,7 @@ mkEqInfoMsg ct ty1 ty2
     tyfun_msg | Just tc1 <- mb_fun1
               , Just tc2 <- mb_fun2
               , tc1 == tc2
-              = ptext (sLit "NB:") <+> quotes (ppr tc1)
+              = ptext (sLit "NB:") <+> quotes (embed tc1)
                 <+> ptext (sLit "is a type function, and may not be injective")
               | otherwise = empty
 
@@ -1089,7 +1104,7 @@ pp_givens givens
        ppr_given herald (gs, skol_info, _, loc)
            = hang (herald <+> pprEvVarTheta gs)
                 2 (sep [ ptext (sLit "bound by") <+> ppr skol_info
-                       , ptext (sLit "at") <+> ppr loc])
+                       , ptext (sLit "at") <+> embed loc])
 
 extraTyVarInfo :: ReportErrCtxt -> TcTyVar -> TcType -> SDoc
 -- Add on extra info about skolem constants
@@ -1103,7 +1118,7 @@ extraTyVarInfo ctxt tv1 ty2
                     Nothing -> empty
 
     tv_extra tv | isTcTyVar tv, isSkolemTyVar tv
-                , let pp_tv = quotes (ppr tv)
+                , let pp_tv = quotes (embed tv)
                 = case tcTyVarDetails tv of
                     SkolemTv {}   -> pp_tv <+> pprSkol (getSkolemInfo implics tv) (getSrcLoc tv)
                     FlatSkol {}   -> pp_tv <+> ptext (sLit "is a flattening type variable")
@@ -1134,8 +1149,8 @@ suggestAddSig ctxt ty1 ty2
 kindErrorMsg :: TcType -> TcType -> SDoc   -- Types are already tidy
 kindErrorMsg ty1 ty2
   = vcat [ ptext (sLit "Kind incompatibility when matching types:")
-         , nest 2 (vcat [ ppr ty1 <+> dcolon <+> ppr k1
-                        , ppr ty2 <+> dcolon <+> ppr k2 ]) ]
+         , nest 2 (vcat [ embed ty1 <+> dcolon <+> embed k1
+                        , embed ty2 <+> dcolon <+> embed k2 ]) ]
   where
     k1 = typeKind ty1
     k2 = typeKind ty2
@@ -1151,9 +1166,9 @@ misMatchMsg ct oriented ty1 ty2
   | otherwise  -- So now we have Nothing or (Just IsSwapped)
                -- For some reason we treat Nothign like IsSwapped
   = addArising orig $
-    sep [ text herald1 <+> quotes (ppr ty1)
+    sep [ text herald1 <+> quotes (embed ty1)
         , nest padding $
-          text herald2 <+> quotes (ppr ty2)
+          text herald2 <+> quotes (embed ty2)
         , sameOccExtra ty2 ty1 ]
   where
     herald1 = conc [ "Couldn't match"
@@ -1187,8 +1202,8 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp }
   | exp `pickyEqType` ty1, act `pickyEqType` ty2 = (Just IsSwapped, empty)
   | otherwise                                    = (Nothing, msg)
   where
-    msg = vcat [ text "Expected type:" <+> ppr exp
-               , text "  Actual type:" <+> ppr act ]
+    msg = vcat [ text "Expected type:" <+> embed exp
+               , text "  Actual type:" <+> embed act ]
 
 mkExpectedActualMsg _ _ _ = panic "mkExprectedAcutalMsg"
 
@@ -1209,13 +1224,13 @@ sameOccExtra ty1 ty2
   where
     ppr_from same_pkg nm
       | isGoodSrcSpan loc
-      = hang (quotes (ppr nm) <+> ptext (sLit "is defined at"))
-           2 (ppr loc)
+      = hang (quotes (embed nm) <+> ptext (sLit "is defined at"))
+           2 (embed loc)
       | otherwise  -- Imported things have an UnhelpfulSrcSpan
-      = hang (quotes (ppr nm))
-           2 (sep [ ptext (sLit "is defined in") <+> quotes (ppr (moduleName mod))
+      = hang (quotes (embed nm))
+           2 (sep [ ptext (sLit "is defined in") <+> quotes (embed (moduleName mod))
                   , ppUnless (same_pkg || pkg == mainPackageKey) $
-                    nest 4 $ ptext (sLit "in package") <+> quotes (ppr pkg) ])
+                    nest 4 $ ptext (sLit "in package") <+> quotes (embed pkg) ])
        where
          pkg = modulePackageKey mod
          mod = nameModule nm

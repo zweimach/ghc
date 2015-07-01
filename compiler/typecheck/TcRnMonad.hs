@@ -35,7 +35,7 @@ import PrelNames
 import Id
 import VarSet
 import VarEnv
-import ErrUtils
+import ErrUtils hiding (ErrMsg)
 import SrcLoc
 import NameEnv
 import NameSet
@@ -59,6 +59,14 @@ import Control.Monad
 #ifdef GHCI
 import qualified Data.Map as Map
 #endif
+
+type ErrMsg = SDoc' TcDoc
+
+data TcDoc = TcTypeDoc TcType
+           | TcTyVarDoc TcTyVar
+           | TcTyConDoc TyCon
+           | TcRealSrcSpanDoc RealSrcSpan
+           | TcNameDoc Name
 
 {-
 ************************************************************************

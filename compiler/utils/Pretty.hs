@@ -183,6 +183,7 @@ import Panic
 import Numeric (fromRat)
 import System.IO
 import Data.Void
+import Control.Monad (ap)
 
 --for a RULES
 import GHC.Base ( unpackCString# )
@@ -255,18 +256,26 @@ punctuate :: Doc a -> [Doc a] -> [Doc a]      -- punctuate p [d1, ... dn] = [d1 
 
 -- Displaying @Doc@ values.
 
-instance Show a => Show (Doc a) where
+instance Show (Doc Void) where
   showsPrec _ doc cont = showDocPlus PageMode 100 doc cont
 
 instance Functor Doc where
-  fmap _ Empty = Empty
-  fmap f (Embed a) = Embed (f a)
-  fmap f (NilAbove a) = NilAbove (fmap f a)
-  fmap f (TextBeside td n a) = TextBeside td n (fmap f a)
-  fmap f (Nest n a) = Nest n (fmap f a)
-  fmap f (Union a b) = Union (fmap f a) (fmap f b)
-  fmap f (Beside a p b) = Beside (fmap f a) p (fmap f b)
-  fmap f (Above a p b) = Above (fmap f a) p (fmap f b)
+  fmap f a = a `ap` (return . f)
+
+instance Applicative Doc where
+  pure = Embed
+  (<*>) = ap
+
+instance Monad Doc where
+  return = Embed
+  Empty >>= f = Empty
+  Embed a >>= f = f a
+  NilAbove a >>= f = NilAbove (a >>= f)
+  TextBeside td n a >>= f = TextBeside td n $ a >>= f
+  Nest n a >>= f = Nest n (a >>= f)
+  Union a b >>= f = Union (a >>= f) (b >>= f)
+  Beside a p b >>= f = Beside (a >>= f) p (b >>= f)
+  Above a p b >>= f = Above (a >>= f) p (b >>= f)
 
 fullRender :: Mode
            -> Int                       -- Line length
@@ -636,7 +645,7 @@ nilAboveNest g k q           | (not g) && (k ># _ILIT(0))        -- No newline i
 p <>  q = Beside p False q
 p <+> q = Beside p True  q
 
-beside :: Doc a -> Bool -> RDoc -> RDoc a
+beside :: Doc a -> Bool -> RDoc a -> RDoc a
 -- Specification: beside g p q = p <g> q
 
 beside NoDoc               _ _   = NoDoc
@@ -706,7 +715,7 @@ sep1 _ _                   _ _  = panic "sep1: Unhandled case"
 -- Called when we have already found some text in the first item
 -- We have to eat up nests
 
-sepNB :: Bool -> Doc a -> FastInt -> [Doc] -> Doc a
+sepNB :: Bool -> Doc a -> FastInt -> [Doc a] -> Doc a
 sepNB g (Nest _ p)  k ys  = sepNB g p k ys
 
 sepNB g Empty k ys        = oneLiner (nilBeside g (reduceDoc rest))
