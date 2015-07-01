@@ -14,7 +14,7 @@ module Outputable (
         Outputable(..), OutputableBndr(..),
 
         -- * Pretty printing combinators
-        SDoc, runSDoc, initSDocContext,
+        SDoc, SDoc', runSDoc, initSDocContext,
         docToSDoc,
         interppSP, interpp'SP, pprQuotedList, pprWithCommas, quotedListWithOr,
         empty, nest,
@@ -102,6 +102,7 @@ import qualified Data.IntMap as IM
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Word
+import Data.Void
 import System.IO        ( Handle )
 import System.FilePath
 import Text.Printf
@@ -266,7 +267,9 @@ code (either C or assembly), or generating interface files.
 ************************************************************************
 -}
 
-newtype SDoc = SDoc { runSDoc :: SDocContext -> Doc }
+newtype SDoc' a = SDoc { runSDoc :: SDocContext -> Doc a }
+
+type SDoc = SDoc' Void
 
 data SDocContext = SDC
   { sdocStyle      :: !PprStyle
@@ -282,20 +285,20 @@ initSDocContext dflags sty = SDC
   , sdocDynFlags = dflags
   }
 
-withPprStyle :: PprStyle -> SDoc -> SDoc
+withPprStyle :: PprStyle -> SDoc' a -> SDoc' a
 withPprStyle sty d = SDoc $ \ctxt -> runSDoc d ctxt{sdocStyle=sty}
 
-withPprStyleDoc :: DynFlags -> PprStyle -> SDoc -> Doc
+withPprStyleDoc :: DynFlags -> PprStyle -> SDoc' a -> Doc a
 withPprStyleDoc dflags sty d = runSDoc d (initSDocContext dflags sty)
 
-pprDeeper :: SDoc -> SDoc
+pprDeeper :: SDoc' a -> SDoc' a
 pprDeeper d = SDoc $ \ctx -> case ctx of
   SDC{sdocStyle=PprUser _ (PartWay 0)} -> Pretty.text "..."
   SDC{sdocStyle=PprUser q (PartWay n)} ->
     runSDoc d ctx{sdocStyle = PprUser q (PartWay (n-1))}
   _ -> runSDoc d ctx
 
-pprDeeperList :: ([SDoc] -> SDoc) -> [SDoc] -> SDoc
+pprDeeperList :: ([SDoc' a] -> SDoc' a) -> [SDoc' a] -> SDoc' a
 -- Truncate a list that list that is longer than the current depth
 pprDeeperList f ds
   | null ds   = f []
@@ -311,7 +314,7 @@ pprDeeperList f ds
                  | otherwise = d : go (i+1) ds
   work other_ctx = runSDoc (f ds) other_ctx
 
-pprSetDepth :: Depth -> SDoc -> SDoc
+pprSetDepth :: Depth -> SDoc' a -> SDoc' a
 pprSetDepth depth doc = SDoc $ \ctx ->
     case ctx of
         SDC{sdocStyle=PprUser q _} ->
@@ -319,13 +322,13 @@ pprSetDepth depth doc = SDoc $ \ctx ->
         _ ->
             runSDoc doc ctx
 
-getPprStyle :: (PprStyle -> SDoc) -> SDoc
+getPprStyle :: (PprStyle -> SDoc' a) -> SDoc' a
 getPprStyle df = SDoc $ \ctx -> runSDoc (df (sdocStyle ctx)) ctx
 
-sdocWithDynFlags :: (DynFlags -> SDoc) -> SDoc
+sdocWithDynFlags :: (DynFlags -> SDoc' a) -> SDoc' a
 sdocWithDynFlags f = SDoc $ \ctx -> runSDoc (f (sdocDynFlags ctx)) ctx
 
-sdocWithPlatform :: (Platform -> SDoc) -> SDoc
+sdocWithPlatform :: (Platform -> SDoc' a) -> SDoc' a
 sdocWithPlatform f = sdocWithDynFlags (f . targetPlatform)
 
 qualName :: PprStyle -> QueryQualifyName
@@ -368,13 +371,13 @@ userStyle ::  PprStyle -> Bool
 userStyle (PprUser _ _) = True
 userStyle _other        = False
 
-ifPprDebug :: SDoc -> SDoc        -- Empty for non-debug style
+ifPprDebug :: SDoc' a -> SDoc' a        -- Empty for non-debug style
 ifPprDebug d = SDoc $ \ctx ->
     case ctx of
         SDC{sdocStyle=PprDebug} -> runSDoc d ctx
         _                       -> Pretty.empty
 
-printForUser :: DynFlags -> Handle -> PrintUnqualified -> SDoc -> IO ()
+printForUser :: DynFlags -> Handle -> PrintUnqualified -> SDoc' a -> IO ()
 printForUser dflags handle unqual doc
   = Pretty.printDoc PageMode (pprCols dflags) handle
       (runSDoc doc (initSDocContext dflags (mkUserStyle unqual AllTheWay)))
@@ -396,7 +399,7 @@ printForAsm dflags handle doc =
   Pretty.printDoc LeftMode (pprCols dflags) handle
     (runSDoc doc (initSDocContext dflags (PprCode AsmStyle)))
 
-pprCode :: CodeStyle -> SDoc -> SDoc
+pprCode :: CodeStyle -> SDoc' a -> SDoc' a
 pprCode cs d = withPprStyle (PprCode cs) d
 
 mkCodeStyle :: CodeStyle -> PprStyle
@@ -431,8 +434,8 @@ showSDocDump dflags d = renderWithStyle dflags d defaultDumpStyle
 showSDocDebug :: DynFlags -> SDoc -> String
 showSDocDebug dflags d = renderWithStyle dflags d PprDebug
 
-renderWithStyle :: DynFlags -> SDoc -> PprStyle -> String
-renderWithStyle dflags sdoc sty
+renderWithStyle :: DynFlags -> (a -> SDoc) -> SDoc -> PprStyle -> String
+renderWithStyle dflags renderEmbed sdoc sty
   = Pretty.showDoc PageMode (pprCols dflags) $
     runSDoc sdoc (initSDocContext dflags sty)
 
@@ -453,20 +456,20 @@ irrelevantNCols :: Int
 -- Used for OneLineMode and LeftMode when number of cols isn't used
 irrelevantNCols = 1
 
-docToSDoc :: Doc -> SDoc
+docToSDoc :: Doc a -> SDoc' a
 docToSDoc d = SDoc (\_ -> d)
 
-empty    :: SDoc
-char     :: Char       -> SDoc
-text     :: String     -> SDoc
-ftext    :: FastString -> SDoc
-ptext    :: LitString  -> SDoc
-ztext    :: FastZString -> SDoc
-int      :: Int        -> SDoc
-integer  :: Integer    -> SDoc
-float    :: Float      -> SDoc
-double   :: Double     -> SDoc
-rational :: Rational   -> SDoc
+empty    :: SDoc' a
+char     :: Char       -> SDoc' a
+text     :: String     -> SDoc' a
+ftext    :: FastString -> SDoc' a
+ptext    :: LitString  -> SDoc' a
+ztext    :: FastZString -> SDoc' a
+int      :: Int        -> SDoc' a
+integer  :: Integer    -> SDoc' a
+float    :: Float      -> SDoc' a
+double   :: Double     -> SDoc' a
+rational :: Rational   -> SDoc' a
 
 empty       = docToSDoc $ Pretty.empty
 char c      = docToSDoc $ Pretty.char c
@@ -494,7 +497,7 @@ doubleQuotes d  = SDoc $ Pretty.doubleQuotes . runSDoc d
 angleBrackets d = char '<' <> d <> char '>'
 paBrackets d    = ptext (sLit "[:") <> d <> ptext (sLit ":]")
 
-cparen :: Bool -> SDoc -> SDoc
+cparen :: Bool -> SDoc' a -> SDoc' a
 
 cparen b d     = SDoc $ Pretty.cparen b . runSDoc d
 
@@ -513,9 +516,9 @@ quotes d =
              ('\'' : _, _)       -> pp_d
              _other              -> Pretty.quotes pp_d
 
-semi, comma, colon, equals, space, dcolon, underscore, dot :: SDoc
-arrow, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt :: SDoc
-lparen, rparen, lbrack, rbrack, lbrace, rbrace, blankLine :: SDoc
+semi, comma, colon, equals, space, dcolon, underscore, dot :: SDoc' a
+arrow, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt :: SDoc' a
+lparen, rparen, lbrack, rbrack, lbrace, rbrace, blankLine :: SDoc' a
 
 blankLine  = docToSDoc $ Pretty.ptext (sLit "")
 dcolon     = unicodeSyntax (char '∷') (docToSDoc $ Pretty.ptext (sLit "::"))
@@ -540,25 +543,25 @@ rbrack     = docToSDoc $ Pretty.rbrack
 lbrace     = docToSDoc $ Pretty.lbrace
 rbrace     = docToSDoc $ Pretty.rbrace
 
-forAllLit :: SDoc
+forAllLit :: SDoc' a
 forAllLit = unicodeSyntax (char '∀') (ptext (sLit "forall"))
 
-unicodeSyntax :: SDoc -> SDoc -> SDoc
+unicodeSyntax :: SDoc' a -> SDoc' a -> SDoc' a
 unicodeSyntax unicode plain = sdocWithDynFlags $ \dflags ->
     if useUnicode dflags && useUnicodeSyntax dflags
     then unicode
     else plain
 
-nest :: Int -> SDoc -> SDoc
+nest :: Int -> SDoc' a -> SDoc' a
 -- ^ Indent 'SDoc' some specified amount
-(<>) :: SDoc -> SDoc -> SDoc
+(<>) :: SDoc' a -> SDoc' a -> SDoc' a
 -- ^ Join two 'SDoc' together horizontally without a gap
-(<+>) :: SDoc -> SDoc -> SDoc
+(<+>) :: SDoc' a -> SDoc' a -> SDoc' a
 -- ^ Join two 'SDoc' together horizontally with a gap between them
-($$) :: SDoc -> SDoc -> SDoc
+($$) :: SDoc' a -> SDoc' a -> SDoc' a
 -- ^ Join two 'SDoc' together vertically; if there is
 -- no vertical overlap it "dovetails" the two onto one line
-($+$) :: SDoc -> SDoc -> SDoc
+($+$) :: SDoc' a -> SDoc' a -> SDoc' a
 -- ^ Join two 'SDoc' together vertically
 
 nest n d    = SDoc $ Pretty.nest n . runSDoc d
@@ -567,20 +570,20 @@ nest n d    = SDoc $ Pretty.nest n . runSDoc d
 ($$) d1 d2  = SDoc $ \sty -> (Pretty.$$)  (runSDoc d1 sty) (runSDoc d2 sty)
 ($+$) d1 d2 = SDoc $ \sty -> (Pretty.$+$) (runSDoc d1 sty) (runSDoc d2 sty)
 
-hcat :: [SDoc] -> SDoc
+hcat :: [SDoc' a] -> SDoc' a
 -- ^ Concatenate 'SDoc' horizontally
-hsep :: [SDoc] -> SDoc
+hsep :: [SDoc' a] -> SDoc' a
 -- ^ Concatenate 'SDoc' horizontally with a space between each one
-vcat :: [SDoc] -> SDoc
+vcat :: [SDoc' a] -> SDoc' a
 -- ^ Concatenate 'SDoc' vertically with dovetailing
-sep :: [SDoc] -> SDoc
+sep :: [SDoc' a] -> SDoc' a
 -- ^ Separate: is either like 'hsep' or like 'vcat', depending on what fits
-cat :: [SDoc] -> SDoc
+cat :: [SDoc' a] -> SDoc' a
 -- ^ Catenate: is either like 'hcat' or like 'vcat', depending on what fits
-fsep :: [SDoc] -> SDoc
+fsep :: [SDoc' a] -> SDoc' a
 -- ^ A paragraph-fill combinator. It's much like sep, only it
 -- keeps fitting things on one line until it can't fit any more.
-fcat :: [SDoc] -> SDoc
+fcat :: [SDoc' a] -> SDoc' a
 -- ^ This behaves like 'fsep', but it uses '<>' for horizontal conposition rather than '<+>'
 
 
@@ -592,22 +595,22 @@ cat ds  = SDoc $ \sty -> Pretty.cat  [runSDoc d sty | d <- ds]
 fsep ds = SDoc $ \sty -> Pretty.fsep [runSDoc d sty | d <- ds]
 fcat ds = SDoc $ \sty -> Pretty.fcat [runSDoc d sty | d <- ds]
 
-hang :: SDoc  -- ^ The header
-      -> Int  -- ^ Amount to indent the hung body
-      -> SDoc -- ^ The hung body, indented and placed below the header
-      -> SDoc
+hang :: SDoc' a  -- ^ The header
+      -> Int     -- ^ Amount to indent the hung body
+      -> SDoc' a -- ^ The hung body, indented and placed below the header
+      -> SDoc' a
 hang d1 n d2   = SDoc $ \sty -> Pretty.hang (runSDoc d1 sty) n (runSDoc d2 sty)
 
-punctuate :: SDoc   -- ^ The punctuation
-          -> [SDoc] -- ^ The list that will have punctuation added between every adjacent pair of elements
-          -> [SDoc] -- ^ Punctuated list
+punctuate :: SDoc' a   -- ^ The punctuation
+          -> [SDoc' a] -- ^ The list that will have punctuation added between every adjacent pair of elements
+          -> [SDoc' a] -- ^ Punctuated list
 punctuate _ []     = []
 punctuate p (d:ds) = go d ds
                    where
                      go d [] = [d]
                      go d (e:es) = (d <> p) : go e es
 
-ppWhen, ppUnless :: Bool -> SDoc -> SDoc
+ppWhen, ppUnless :: Bool -> SDoc' a -> SDoc' a
 ppWhen True  doc = doc
 ppWhen False _   = empty
 
@@ -640,17 +643,17 @@ colReset = PprColour "\27[0m"
 -- | Apply the given colour\/style for the argument.
 --
 -- Only takes effect if colours are enabled.
-coloured :: PprColour -> SDoc -> SDoc
+coloured :: PprColour -> SDoc' a -> SDoc' a
 -- TODO: coloured _ sdoc ctxt | coloursDisabled = sdoc ctxt
 coloured col@(PprColour c) sdoc =
   SDoc $ \ctx@SDC{ sdocLastColour = PprColour lc } ->
     let ctx' = ctx{ sdocLastColour = col } in
     Pretty.zeroWidthText c Pretty.<> runSDoc sdoc ctx' Pretty.<> Pretty.zeroWidthText lc
 
-bold :: SDoc -> SDoc
+bold :: SDoc' a -> SDoc' a
 bold = coloured colBold
 
-keyword :: SDoc -> SDoc
+keyword :: SDoc' a -> SDoc' a
 keyword = bold
 
 {-
@@ -663,8 +666,8 @@ keyword = bold
 
 -- | Class designating that some type has an 'SDoc' representation
 class Outputable a where
-        ppr :: a -> SDoc
-        pprPrec :: Rational -> a -> SDoc
+        ppr :: a -> SDoc' b
+        pprPrec :: Rational -> a -> SDoc' b
                 -- 0 binds least tightly
                 -- We use Rational because there is always a
                 -- Rational between any other two Rationals
@@ -794,10 +797,10 @@ data BindingSite = LambdaBind | CaseBind | LetBind
 -- | When we print a binder, we often want to print its type too.
 -- The @OutputableBndr@ class encapsulates this idea.
 class Outputable a => OutputableBndr a where
-   pprBndr :: BindingSite -> a -> SDoc
+   pprBndr :: BindingSite -> a -> SDoc' b
    pprBndr _b x = ppr x
 
-   pprPrefixOcc, pprInfixOcc :: a -> SDoc
+   pprPrefixOcc, pprInfixOcc :: a -> SDoc' b
       -- Print an occurrence of the name, suitable either in the
       -- prefix position of an application, thus   (f a b) or  ((+) x)
       -- or infix position,                 thus   (a `f` b) or  (x + y)
@@ -813,16 +816,16 @@ class Outputable a => OutputableBndr a where
 -- We have 31-bit Chars and will simply use Show instances of Char and String.
 
 -- | Special combinator for showing character literals.
-pprHsChar :: Char -> SDoc
+pprHsChar :: Char -> SDoc' a
 pprHsChar c | c > '\x10ffff' = char '\\' <> text (show (fromIntegral (ord c) :: Word32))
             | otherwise      = text (show c)
 
 -- | Special combinator for showing string literals.
-pprHsString :: FastString -> SDoc
+pprHsString :: FastString -> SDoc' a
 pprHsString fs = vcat (map text (showMultiLineString (unpackFS fs)))
 
 -- | Special combinator for showing bytestring literals.
-pprHsBytes :: ByteString -> SDoc
+pprHsBytes :: ByteString -> SDoc' a
 pprHsBytes bs = let escaped = concatMap escape $ BS.unpack bs
                 in vcat (map text (showMultiLineString escaped)) <> char '#'
     where escape :: Word8 -> String
@@ -833,8 +836,8 @@ pprHsBytes bs = let escaped = concatMap escape $ BS.unpack bs
 
 -- Postfix modifiers for unboxed literals.
 -- See Note [Printing of literals in Core] in `basicTypes/Literal.hs`.
-primCharSuffix, primFloatSuffix, primIntSuffix :: SDoc
-primDoubleSuffix, primWordSuffix, primInt64Suffix, primWord64Suffix :: SDoc
+primCharSuffix, primFloatSuffix, primIntSuffix :: SDoc' a
+primDoubleSuffix, primWordSuffix, primInt64Suffix, primWord64Suffix :: SDoc' a
 primCharSuffix   = char '#'
 primFloatSuffix  = char '#'
 primIntSuffix    = char '#'
@@ -844,8 +847,8 @@ primInt64Suffix  = text "L#"
 primWord64Suffix = text "L##"
 
 -- | Special combinator for showing unboxed literals.
-pprPrimChar :: Char -> SDoc
-pprPrimInt, pprPrimWord, pprPrimInt64, pprPrimWord64 :: Integer -> SDoc
+pprPrimChar :: Char -> SDoc' a
+pprPrimInt, pprPrimWord, pprPrimInt64, pprPrimWord64 :: Integer -> SDoc' a
 pprPrimChar c   = pprHsChar c <> primCharSuffix
 pprPrimInt i    = integer i   <> primIntSuffix
 pprPrimWord w   = integer w   <> primWordSuffix
@@ -854,19 +857,19 @@ pprPrimWord64 w = integer w   <> primWord64Suffix
 
 ---------------------
 -- Put a name in parens if it's an operator
-pprPrefixVar :: Bool -> SDoc -> SDoc
+pprPrefixVar :: Bool -> SDoc' a -> SDoc' a
 pprPrefixVar is_operator pp_v
   | is_operator = parens pp_v
   | otherwise   = pp_v
 
 -- Put a name in backquotes if it's not an operator
-pprInfixVar :: Bool -> SDoc -> SDoc
+pprInfixVar :: Bool -> SDoc' a -> SDoc' a
 pprInfixVar is_operator pp_v
   | is_operator = pp_v
   | otherwise   = char '`' <> pp_v <> char '`'
 
 ---------------------
-pprFastFilePath :: FastString -> SDoc
+pprFastFilePath :: FastString -> SDoc' a
 pprFastFilePath path = text $ normalise $ unpackFS path
 
 {-
@@ -877,30 +880,30 @@ pprFastFilePath path = text $ normalise $ unpackFS path
 ************************************************************************
 -}
 
-pprWithCommas :: (a -> SDoc) -- ^ The pretty printing function to use
-              -> [a]         -- ^ The things to be pretty printed
-              -> SDoc        -- ^ 'SDoc' where the things have been pretty printed,
-                             -- comma-separated and finally packed into a paragraph.
+pprWithCommas :: (a -> SDoc' b) -- ^ The pretty printing function to use
+              -> [a]            -- ^ The things to be pretty printed
+              -> SDoc' b        -- ^ 'SDoc' where the things have been pretty printed,
+                                -- comma-separated and finally packed into a paragraph.
 pprWithCommas pp xs = fsep (punctuate comma (map pp xs))
 
 -- | Returns the separated concatenation of the pretty printed things.
-interppSP  :: Outputable a => [a] -> SDoc
+interppSP  :: Outputable a => [a] -> SDoc' b
 interppSP  xs = sep (map ppr xs)
 
 -- | Returns the comma-separated concatenation of the pretty printed things.
-interpp'SP :: Outputable a => [a] -> SDoc
+interpp'SP :: Outputable a => [a] -> SDoc' b
 interpp'SP xs = sep (punctuate comma (map ppr xs))
 
 -- | Returns the comma-separated concatenation of the quoted pretty printed things.
 --
 -- > [x,y,z]  ==>  `x', `y', `z'
-pprQuotedList :: Outputable a => [a] -> SDoc
+pprQuotedList :: Outputable a => [a] -> SDoc' b
 pprQuotedList = quotedList . map ppr
 
-quotedList :: [SDoc] -> SDoc
+quotedList :: [SDoc a] -> SDoc' a
 quotedList xs = hsep (punctuate comma (map quotes xs))
 
-quotedListWithOr :: [SDoc] -> SDoc
+quotedListWithOr :: [SDoc a] -> SDoc' a
 -- [x,y,z]  ==>  `x', `y' or `z'
 quotedListWithOr xs@(_:_:_) = quotedList (init xs) <+> ptext (sLit "or") <+> quotes (last xs)
 quotedListWithOr xs = quotedList xs
@@ -913,7 +916,7 @@ quotedListWithOr xs = quotedList xs
 ************************************************************************
 -}
 
-intWithCommas :: Integral a => a -> SDoc
+intWithCommas :: Integral a => a -> SDoc' b
 -- Prints a big integer with commas, eg 345,821
 intWithCommas n
   | n < 0     = char '-' <> intWithCommas (-n)
@@ -930,7 +933,7 @@ intWithCommas n
 -- > speakNth 1 = text "first"
 -- > speakNth 5 = text "fifth"
 -- > speakNth 21 = text "21st"
-speakNth :: Int -> SDoc
+speakNth :: Int -> SDoc' a
 speakNth 1 = ptext (sLit "first")
 speakNth 2 = ptext (sLit "second")
 speakNth 3 = ptext (sLit "third")
@@ -952,7 +955,7 @@ speakNth n = hcat [ int n, text suffix ]
 -- > speakN 0 = text "none"
 -- > speakN 5 = text "five"
 -- > speakN 10 = text "10"
-speakN :: Int -> SDoc
+speakN :: Int -> SDoc' a
 speakN 0 = ptext (sLit "none")  -- E.g.  "he has none"
 speakN 1 = ptext (sLit "one")   -- E.g.  "he has one"
 speakN 2 = ptext (sLit "two")
@@ -968,7 +971,7 @@ speakN n = int n
 -- > speakNOf 0 (text "melon") = text "no melons"
 -- > speakNOf 1 (text "melon") = text "one melon"
 -- > speakNOf 3 (text "melon") = text "three melons"
-speakNOf :: Int -> SDoc -> SDoc
+speakNOf :: Int -> SDoc' a -> SDoc' a
 speakNOf 0 d = ptext (sLit "no") <+> d <> char 's'
 speakNOf 1 d = ptext (sLit "one") <+> d                 -- E.g. "one argument"
 speakNOf n d = speakN n <+> d <> char 's'               -- E.g. "three arguments"
@@ -978,7 +981,7 @@ speakNOf n d = speakN n <+> d <> char 's'               -- E.g. "three arguments
 -- > speakNTimes 1 = text "once"
 -- > speakNTimes 2 = text "twice"
 -- > speakNTimes 4 = text "4 times"
-speakNTimes :: Int {- >=1 -} -> SDoc
+speakNTimes :: Int {- >=1 -} -> SDoc' a
 speakNTimes t | t == 1     = ptext (sLit "once")
               | t == 2     = ptext (sLit "twice")
               | otherwise  = speakN t <+> ptext (sLit "times")
@@ -988,7 +991,7 @@ speakNTimes t | t == 1     = ptext (sLit "once")
 -- > plural [] = char 's'
 -- > plural ["Hello"] = empty
 -- > plural ["Hello", "World"] = char 's'
-plural :: [a] -> SDoc
+plural :: [a] -> SDoc' a
 plural [_] = empty  -- a bit frightening, but there you are
 plural _   = char 's'
 
@@ -997,7 +1000,7 @@ plural _   = char 's'
 -- > isOrAre [] = ptext (sLit "are")
 -- > isOrAre ["Hello"] = ptext (sLit "is")
 -- > isOrAre ["Hello", "World"] = ptext (sLit "are")
-isOrAre :: [a] -> SDoc
+isOrAre :: [a] -> SDoc' a
 isOrAre [_] = ptext (sLit "is")
 isOrAre _   = ptext (sLit "are")
 
