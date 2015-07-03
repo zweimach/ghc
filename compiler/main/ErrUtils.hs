@@ -61,7 +61,7 @@ import Control.Monad.IO.Class
 import System.IO
 
 -------------------------
-type MsgDoc  = SDoc
+type MsgDoc = SDoc
 
 -------------------------
 data Validity
@@ -90,11 +90,11 @@ type Messages        = (WarningMessages, ErrorMessages)
 type WarningMessages = Bag WarnMsg
 type ErrorMessages   = Bag ErrMsg
 
-data ErrMsg = ErrMsg {
+data ErrMsg a = ErrMsg {
         errMsgSpan        :: SrcSpan,
         errMsgContext     :: PrintUnqualified,
-        errMsgShortDoc    :: MsgDoc,   -- errMsgShort* should always
-        errMsgShortString :: String,   -- contain the same text
+        errMsgShortDoc    :: MsgDoc a,   -- errMsgShort* should always
+        errMsgShortString :: String,     -- contain the same text
         errMsgExtraInfo   :: MsgDoc,
         errMsgSeverity    :: Severity
         }

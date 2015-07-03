@@ -151,7 +151,7 @@ Relative to John's original paper, there are the following new features:
         Use of unboxed data types to speed up the implementation
 -}
 
-{-# LANGUAGE BangPatterns, CPP, MagicHash #-}
+{-# LANGUAGE BangPatterns, CPP, MagicHash, FlexibleInstances #-}
 
 module Pretty (
         Doc,            -- Abstract
@@ -260,20 +260,22 @@ instance Show (Doc Void) where
   showsPrec _ doc cont = showDocPlus PageMode 100 doc cont
 
 instance Functor Doc where
-  fmap f a = a `ap` (return . f)
+  fmap f a = (return f) `ap` a
 
 instance Applicative Doc where
-  pure = Embed
+  pure = embed
   (<*>) = ap
 
 instance Monad Doc where
-  return = Embed
-  Empty >>= f = Empty
-  Embed a >>= f = f a
+  return = embed
+
+  Empty >>= _ = Empty
   NilAbove a >>= f = NilAbove (a >>= f)
-  TextBeside td n a >>= f = TextBeside td n $ a >>= f
+  EmbedBeside a g p >>= f = beside (f a) g (p >>= f)
+  TextBeside td n a >>= f = TextBeside td n (a >>= f)
   Nest n a >>= f = Nest n (a >>= f)
   Union a b >>= f = Union (a >>= f) (b >>= f)
+  NoDoc >>= _ = NoDoc
   Beside a p b >>= f = Beside (a >>= f) p (b >>= f)
   Above a p b >>= f = Above (a >>= f) p (b >>= f)
 
@@ -432,8 +434,8 @@ no occurrences of @Union@ or @NoDoc@ represents just one layout.
 
 data Doc a
  = Empty                                    -- empty
- | Embed a                                  -- embed x
  | NilAbove (Doc a)                         -- text "" $$ x
+ | EmbedBeside a Bool (Int -> Doc a)        -- embed x <> x
  | TextBeside !TextDetails FastInt (Doc a)  -- text s <> x
  | Nest FastInt (Doc a)                     -- nest k x
  | Union (Doc a) (Doc a)                    -- ul `union` ur
@@ -476,7 +478,7 @@ The argument of @TextBeside@ is never @Nest@.
 The layouts of the two arguments of @Union@ both flatten to the same string.
 
 \item
-The arguments of @Union@ are either @TextBeside@, or @NilAbove@.
+The arguments of @Union@ are either @TextBeside@, @EmbedBeside@, or @NilAbove@.
 
 \item
 The right argument of a union cannot be equivalent to the empty set (@NoDoc@).
@@ -510,6 +512,13 @@ textBeside_ s sl p = TextBeside s sl (LOCAL_ASSERT( _ok p ) p)
                      _ok (Nest _ _) = False
                      _ok _          = True
 
+-- Arg of a EmbedBeside is always an RDoc
+embedBeside_ :: a -> Bool -> Doc a -> Doc a
+embedBeside_ a g p = EmbedBeside a g (LOCAL_ASSERT( _ok p ) p)
+                   where
+                     _ok (Nest _ _) = False
+                     _ok _          = True
+
 -- Arg of Nest is always an RDoc
 nest_ :: FastInt -> Doc a -> Doc a
 nest_ k p = Nest k (LOCAL_ASSERT( _ok p ) p)
@@ -521,10 +530,11 @@ nest_ k p = Nest k (LOCAL_ASSERT( _ok p ) p)
 union_ :: Doc a -> Doc a -> Doc a
 union_ p q = Union (LOCAL_ASSERT( _ok p ) p) (LOCAL_ASSERT( _ok q ) q)
            where
-             _ok (TextBeside _ _ _) = True
-             _ok (NilAbove _)       = True
-             _ok (Union _ _)        = True
-             _ok _                  = False
+             _ok (TextBeside _ _ _)  = True
+             _ok (EmbedBeside _ _ _) = True
+             _ok (NilAbove _)        = True
+             _ok (Union _ _)         = True
+             _ok _                   = False
 
 {-
 Notice the difference between
@@ -547,7 +557,7 @@ empty = Empty
 isEmpty Empty = True
 isEmpty _     = False
 
-embed x = Embed x
+embed x = EmbedBeside x Empty
 
 char  c = textBeside_ (Chr c) (_ILIT(1)) Empty
 
@@ -664,6 +674,7 @@ beside (TextBeside s sl p) g q   = textBeside_ s sl $! rest
                                   rest = case p of
                                            Empty -> nilBeside g q
                                            _     -> beside p g q
+beside (EmbedBeside a g1 p) g2 q = embedBeside_ a g1 (beside p g2 q)
 
 nilBeside :: Bool -> RDoc a -> RDoc a
 -- Specification: text "" <> nilBeside g p
@@ -709,6 +720,7 @@ sep1 g (Nest n p)          k ys = nest_ n (sep1 g p (k -# n) ys)
 
 sep1 _ (NilAbove p)        k ys = nilAbove_ (aboveNest p False k (reduceDoc (vcat ys)))
 sep1 g (TextBeside s sl p) k ys = textBeside_ s sl (sepNB g p (k -# sl) ys)
+sep1 g2 (EmbedBeside a g1 p) k ys = embedBeside_ a g1 (sepNB g p (k -# sl) ys)
 sep1 _ _                   _ _  = panic "sep1: Unhandled case"
 
 -- Specification: sepNB p k ys = sep1 (text "" <> p) k ys
@@ -972,11 +984,11 @@ spaces :: Int# -> String
 spaces n | n <=# _ILIT(0) = ""
          | otherwise      = ' ' : spaces (n -# _ILIT(1))
 
-printDoc :: Mode -> Int -> Handle -> Doc a -> IO ()
+printDoc :: Mode -> Int -> Handle -> Doc Void -> IO ()
 -- printDoc adds a newline to the end
 printDoc mode cols hdl doc = printDoc_ mode cols hdl (doc $$ text "")
 
-printDoc_ :: Mode -> Int -> Handle -> Doc a -> IO ()
+printDoc_ :: Mode -> Int -> Handle -> Doc Void -> IO ()
 -- printDoc_ does not add a newline at the end, so that
 -- successive calls can output stuff on the same line
 -- Rather like putStr vs putStrLn
