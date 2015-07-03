@@ -1,10 +1,14 @@
-{-# LANGUAGE CPP #-}
-
+{-# LANGUAGE CPP, MagicHash, UnboxedTuples #-}
+#include "HsVersions.h"
 -- -----------------------------------------------------------------------------
 -- | GHC LLVM Mangler
 --
--- This script processes the assembly produced by LLVM, rearranging the code
--- so that an info table appears before its corresponding function.
+-- This script processes the assembly produced by LLVM, rewriting all symbols
+-- of type @function to @object. This keeps them from going through the PLT,
+-- which would be bad due to tables-next-to-code. On x86_64,
+-- it also rewrites AVX instructions that require alignment to their
+-- unaligned counterparts, since the stack is only 16-byte aligned but these
+-- instructions require 32-byte alignment.
 --
 
 module LlvmMangler ( llvmFixupAsm ) where
@@ -13,41 +17,12 @@ import DynFlags ( DynFlags )
 import ErrUtils ( showPass )
 
 import Control.Exception
-import Control.Monad ( when )
 import qualified Data.ByteString.Char8 as B
 import System.IO
 
-#if x86_64_TARGET_ARCH
-#define REWRITE_AVX
-#endif
-
--- Magic Strings
-secStmt, newLine, textStmt, dataStmt, syntaxUnified :: B.ByteString
-secStmt       = B.pack "\t.section\t"
-newLine       = B.pack "\n"
-textStmt      = B.pack "\t.text"
-dataStmt      = B.pack "\t.data"
-syntaxUnified = B.pack "\t.syntax unified"
-
 -- Search Predicates
 isType :: B.ByteString -> Bool
-isType = B.isPrefixOf (B.pack "\t.type")
-
--- section of a file in the form of (header line, contents)
-type Section = (B.ByteString, B.ByteString)
-
--- | Read in assembly file and process
-llvmFixupAsm :: DynFlags -> FilePath -> FilePath -> IO ()
-llvmFixupAsm dflags f1 f2 = {-# SCC "llvm_mangler" #-} do
-    showPass dflags "LLVM Mangler"
-    r <- openBinaryFile f1 ReadMode
-    w <- openBinaryFile f2 WriteMode
-    ss <- readSections r w
-    hClose r
-    let fixed = map rewriteAVX ss
-    mapM_ (writeSection w) fixed
-    hClose w
-    return ()
+isType = B.isPrefixOf (B.pack ".type")
 
 -- | This rewrites @.type@ annotations of function symbols to @%object@.
 -- This is done as the linker can relocate @%functions@ through the
@@ -55,84 +30,82 @@ llvmFixupAsm dflags f1 f2 = {-# SCC "llvm_mangler" #-} do
 -- info table will appear directly before the symbol's location. In the
 -- case that the PLT is used, this will be not an info table but instead
 -- some random PLT garbage.
-rewriteSymType :: B.ByteString -> B.ByteString
-rewriteSymType s =
-    B.unlines $ map (rewrite '@' . rewrite '%') $ B.lines s
+rewriteSymType :: B.ByteString -> [B.ByteString]
+rewriteSymType string = [B.pack "\t", rewrite '@' $ rewrite '%' string]
   where
     rewrite :: Char -> B.ByteString -> B.ByteString
-    rewrite prefix x
-        | isType x = replace funcType objType x
-        | otherwise = x
+    rewrite prefix = replaceOnce funcType objType
       where
         funcType = prefix `B.cons` B.pack "function"
         objType  = prefix `B.cons` B.pack "object"
 
--- | Splits the file contents into its sections
-readSections :: Handle -> Handle -> IO [Section]
-readSections r w = go B.empty [] []
+#if x86_64_TARGET_ARCH
+rewriteVmovdqa :: B.ByteString -> [B.ByteString]
+rewriteVmovdqa string = [B.pack "\tvmovdqu", length "vmovdqa" `B.drop` string]
+
+rewriteVmovap :: B.ByteString -> [B.ByteString]
+rewriteVmovap string = [B.pack "\tvmovup", length "vmovap" `B.drop` string]
+
+isVmovap :: B.ByteString -> Bool
+isVmovap = B.isPrefixOf (B.pack "vmovap")
+
+isVmovdqa :: B.ByteString -> Bool
+isVmovdqa = B.isPrefixOf (B.pack "vmovdqa")
+#endif
+
+-- | Read in assembly file and process
+llvmFixupAsm :: DynFlags -> FilePath -> FilePath -> IO ()
+llvmFixupAsm dflags f1 f2 = {-# SCC "llvm_mangler" #-} do
+    showPass dflags "LLVM Mangler"
+    r <- openBinaryFile f1 ReadMode
+    w <- openBinaryFile f2 WriteMode
+    go r w
+    hClose r
+    hClose w
+    return ()
   where
-    go hdr ss ls = do
+    go :: Handle -> Handle -> IO ()
+    go r w = do
       e_l <- (try (B.hGetLine r))::IO (Either IOError B.ByteString)
-
-      -- Note that ".type" directives at the end of a section refer to
-      -- the first directive of the *next* section, therefore we take
-      -- it over to that section.
-      let (tys, ls') = span isType ls
-          cts = rewriteSymType $ B.intercalate newLine $ reverse ls'
-
-      -- Decide whether to directly output the section or append it
-      -- to the list for resorting.
-      let finishSection = writeSection w (hdr, cts) >> return ss
-
+      let writeline a = B.hPutStrLn w (fixLine a) >> go r w
       case e_l of
-        Right l | l == syntaxUnified
-                  -> finishSection >>= \ss' -> writeSection w (l, B.empty)
-                                   >> go B.empty ss' tys
-                | any (`B.isPrefixOf` l) [secStmt, textStmt, dataStmt]
-                  -> finishSection >>= \ss' -> go l ss' tys
-                | otherwise
-                  -> go hdr ss (l:ls)
-        Left _    -> finishSection >>= \ss' -> return (reverse ss')
+        Right l -> writeline l
+        Left _  -> return ()
 
--- | Writes sections back
-writeSection :: Handle -> Section -> IO ()
-writeSection w (hdr, cts) = do
-  when (not $ B.null hdr) $
-    B.hPutStrLn w hdr
-  B.hPutStrLn w cts
 
-#if REWRITE_AVX
-rewriteAVX :: Section -> Section
-rewriteAVX = rewriteVmovaps . rewriteVmovdqa
 
-rewriteVmovdqa :: Section -> Section
-rewriteVmovdqa = rewriteInstructions vmovdqa vmovdqu
-  where
-    vmovdqa, vmovdqu :: B.ByteString
-    vmovdqa = B.pack "vmovdqa"
-    vmovdqu = B.pack "vmovdqu"
+-- | This function splits a line of assembly code into the label and the
+-- rest of the code.
+splitLine :: B.ByteString -> (# B.ByteString, B.ByteString #)
+splitLine l = let isSpace ' ' = True
+                  isSpace '\t' = True
+                  isSpace _ = False
+                  (symbol, rest) = B.span (not . isSpace) l
+              in (# symbol, B.dropWhile isSpace rest #)
 
-rewriteVmovap :: Section -> Section
-rewriteVmovap = rewriteInstructions vmovap vmovup
-  where
-    vmovap, vmovup :: B.ByteString
-    vmovap = B.pack "vmovap"
-    vmovup = B.pack "vmovup"
+-- | This function fixes @.type@ directives. It also rewrites aligned AVX
+-- instructions to their unaligned counterparts on x86-64. This is
+-- necessary because the stack is not adequately aligned for aligned AVX
+-- spills, so LLVM would emit code that adjusts the stack pointer
+-- and disable tail call optimization. Both would be catastrophic
+-- here so GHC tells LLVM that the stack is 32-byte aligned (even
+-- though it isn't) and then rewrites the instructions in the
+-- mangler.
+fixLine :: B.ByteString -> B.ByteString
+fixLine l = case splitLine l of
+  (# symbol, rest #) | isType rest -> B.concat (symbol : rewriteSymType rest)
+#if x86_64_TARGET_ARCH
+                     | isVmovap rest -> B.concat (symbol : rewriteVmovap rest)
+                     | isVmovdqa rest -> B.concat (symbol : rewriteVmovdqa rest)
+#endif
+                     | otherwise -> l
 
-rewriteInstructions :: B.ByteString -> B.ByteString -> Section -> Section
-rewriteInstructions matchBS replaceBS (hdr, cts) =
-    (hdr, replace matchBS replaceBS cts)
-#else /* !REWRITE_AVX */
-rewriteAVX :: Section -> Section
-rewriteAVX = id
-#endif /* !REWRITE_SSE */
-
-replace :: B.ByteString -> B.ByteString -> B.ByteString -> B.ByteString
-replace matchBS replaceBS = loop
+replaceOnce :: B.ByteString -> B.ByteString -> B.ByteString -> B.ByteString
+replaceOnce matchBS replaceOnceBS = loop
   where
     loop :: B.ByteString -> B.ByteString
     loop cts =
         case B.breakSubstring matchBS cts of
           (hd,tl) | B.null tl -> hd
-                  | otherwise -> hd `B.append` replaceBS `B.append`
-                                 loop (B.drop (B.length matchBS) tl)
+                  | otherwise -> hd `B.append` replaceOnceBS `B.append`
+                                 B.drop (B.length matchBS) tl
