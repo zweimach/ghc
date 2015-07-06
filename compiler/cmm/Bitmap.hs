@@ -69,17 +69,28 @@ intsToBitmap dflags size = go 0
 -- just to make the bitmap easier to read).
 --
 -- The list of @Int@s /must/ be already sorted and duplicate-free.
-intsToReverseBitmap :: DynFlags -> Int -> [Int] -> Bitmap
-intsToReverseBitmap dflags size slots{- must be sorted -}
-  | size <= 0 = []
-  | otherwise =
-    (foldr xor (toStgWord dflags init) (map (toStgWord dflags 1 `shiftL`) these)) :
-        intsToReverseBitmap dflags (size - wORD_SIZE_IN_BITS dflags)
-             (map (\x -> x - wORD_SIZE_IN_BITS dflags) rest)
-   where (these,rest) = span (< wORD_SIZE_IN_BITS dflags) slots
-         init
-           | size >= wORD_SIZE_IN_BITS dflags = -1
-           | otherwise                        = (1 `shiftL` size) - 1
+intsToReverseBitmap :: DynFlags
+                    -> Int      -- ^ size in bits
+                    -> [Int]    -- ^ sorted indices of zeros free of duplicates
+                    -> Bitmap
+intsToReverseBitmap dflags size = go 0
+  where
+    word_sz = wORD_SIZE_IN_BITS dflags
+    oneAt :: Int -> StgWord
+    oneAt i = toStgWord dflags 1 `shiftL` i
+
+    go :: Int -> [Int] -> Bitmap
+    go !pos slots'
+      | size <= pos = []
+      | otherwise =
+        (foldr xor (toStgWord dflags init) (map (\i->oneAt (i - pos)) these)) :
+          go (pos + word_sz) rest
+      where
+        (these,rest) = span (< (pos + word_sz)) slots'
+        remain = size - pos
+        init
+          | remain >= word_sz = -1
+          | otherwise         = (1 `shiftL` remain) - 1
 
 {- |
 Magic number, must agree with @BITMAP_BITS_SHIFT@ in InfoTables.h.
