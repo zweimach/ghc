@@ -815,7 +815,8 @@ A and B,
 
   4. Thread A eventually finishes evaluating @z@ (to @[]@) and updates @y@
      accordingly. It does *not* update @z@, however, as it is single-entry. This
-     leaves Thread B blocked forever on a black-hole which will never be updated.
+     leaves Thread B blocked forever on a black-hole which will never be
+     updated.
 
 To avoid this sort of condition we never black-hole non-updatable thunks.
 
