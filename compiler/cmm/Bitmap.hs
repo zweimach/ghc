@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, BangPatterns #-}
 
 --
 -- (c) The University of Glasgow 2003-2006
@@ -45,14 +45,24 @@ chunkToBitmap dflags chunk =
 -- eg. @[0,1,3], size 4 ==> 0xb@.
 --
 -- The list of @Int@s /must/ be already sorted.
-intsToBitmap :: DynFlags -> Int -> [Int] -> Bitmap
-intsToBitmap dflags size slots{- must be sorted -}
-  | size <= 0 = []
-  | otherwise =
-    (foldr (.|.) (toStgWord dflags 0) (map (toStgWord dflags 1 `shiftL`) these)) :
-        intsToBitmap dflags (size - wORD_SIZE_IN_BITS dflags)
-             (map (\x -> x - wORD_SIZE_IN_BITS dflags) rest)
-   where (these,rest) = span (< wORD_SIZE_IN_BITS dflags) slots
+intsToBitmap :: DynFlags
+             -> Int        -- ^ size in bits
+             -> [Int]      -- ^ sorted indices of ones
+             -> Bitmap
+intsToBitmap dflags size = go 0
+  where
+    word_sz = wORD_SIZE_IN_BITS dflags
+    oneAt :: Int -> StgWord
+    oneAt i = toStgWord dflags 1 `shiftL` i
+
+    go :: Int -> [Int] -> Bitmap
+    go !pos slots'
+      | size <= pos = []
+      | otherwise =
+        (foldr (.|.) (toStgWord dflags 0) (map (\i->oneAt (i - pos)) these)) :
+          go (pos + word_sz) rest
+      where
+        (these,rest) = span (< (pos + word_sz)) slots'
 
 -- | Make a bitmap where the slots specified are the /zeros/ in the bitmap.
 -- eg. @[0,1,3], size 4 ==> 0x4@  (we leave any bits outside the size as zero,
