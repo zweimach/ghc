@@ -764,10 +764,62 @@ blackHoleOnEntry cl_info
 
   | otherwise
   = case closureLFInfo cl_info of
-        LFReEntrant _ _ _ _          -> False
-        LFLetNoEscape                   -> False
+        LFReEntrant _ _ _ _              -> False
+        LFLetNoEscape                    -> False
         LFThunk _ _no_fvs _updatable _ _ -> True
+        -- We never black-hole non-updatable thunks
+        -- See Note [Black-holing non-updatable thunks]
+        LFThunk _ _no_fvs updatable  _ _ -> updatable
         _other -> panic "blackHoleOnEntry"      -- Should never happen
+
+{-
+Note [Black-holing non-updatable thunks]
+=========================================
+
+We cannot black-hole non-updatable thunks otherwise we run into issues like
+#10414. For instance, let's consider the following value (in pseudo-Core,
+example due to Reid Barton),
+
+    x = \u []  concat [[1], []]
+
+with the following definitions,
+
+    concat x = case x of
+        []       -> []
+        (:) x xs -> (++) x (concat xs)
+
+    (++) xs ys = case xs of
+        []         -> ys
+        (:) x rest -> (:) x ((++) rest ys)
+
+Where we use the syntax @\u []@ to denote an updatable thunk and @\s []@ to
+denote a single-entry (i.e. non-updatable) thunk. After a thread evaluates @x@
+to WHNF and calls @(++)@ the heap will contain the following thunks,
+
+    x = 1 : y
+    y = \u []  (++) [] z
+    z = \s []  concat []
+
+Now that the stage is set, consider the follow evaluations by two racing threads
+A and B,
+
+  1. Both threads enter @y@ before either is able to replace it with an
+     indirection
+
+  2. Thread A does the case analysis in @(++)@ and consequently enters @z@,
+     replacing it with a black-hole
+
+  3. At some later point thread B does the same case analysis and also attempts
+     to enter @z@. However, it finds that it has been replaced with a black-hole
+     so it blocks.
+
+  4. Thread A eventually finishes evaluating @z@ (to @[]@) and updates @y@
+     accordingly. It does *not* update @z@, however, as it is single-entry. This
+     leaves Thread B blocked forever on a black-hole which will never be updated.
+
+To avoid this sort of condition we never black-hole non-updatable thunks.
+
+-}
 
 isStaticClosure :: ClosureInfo -> Bool
 isStaticClosure cl_info = isStaticRep (closureSMRep cl_info)
