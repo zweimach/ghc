@@ -475,34 +475,35 @@ Known fun (>1 arg), fvs     & yes & yes & registers & node
 When black-holing, single-entry closures could also be entered via node
 (rather than directly) to catch double-entry. -}
 
+-- | Various means by which closures can be called
 data CallMethod
-  = EnterIt             -- No args, not a function
+  = EnterIt             -- ^ No args, not a function
 
-  | JumpToIt BlockId [LocalReg] -- A join point or a header of a local loop
+  | JumpToIt BlockId [LocalReg] -- ^ A join point or a header of a local loop
 
-  | ReturnIt            -- It's a value (function, unboxed value,
+  | ReturnIt            -- ^ It's a value (function, unboxed value,
                         -- or constructor), so just return it.
 
-  | SlowCall                -- Unknown fun, or known fun with
-                        -- too few args.
+  | SlowCall            -- ^ Unknown fun, or known fun with too few args.
 
-  | DirectEntry         -- Jump directly, with args in regs
-        CLabel          --   The code label
-        RepArity        --   Its arity
+  | DirectEntry         -- ^ Jump directly, with args in regs
+        CLabel          --  ^ The code label
+        RepArity        --  ^ Its arity
 
+-- | Figure out how we should call the given function
 getCallMethod :: DynFlags
-              -> Name           -- Function being applied
-              -> Id             -- Function Id used to chech if it can refer to
+              -> Name           -- ^ Function being applied
+              -> Id             -- ^ Function Id used to chech if it can refer to
                                 -- CAF's and whether the function is tail-calling
                                 -- itself
-              -> LambdaFormInfo -- Its info
-              -> RepArity       -- Number of available arguments
-              -> CgLoc          -- Passed in from cgIdApp so that we can
+              -> LambdaFormInfo -- ^ Its info
+              -> RepArity       -- ^ Number of available arguments
+              -> CgLoc          -- ^ Passed in from cgIdApp so that we can
                                 -- handle let-no-escape bindings and self-recursive
                                 -- tail calls using the same data constructor,
                                 -- JumpToIt. This saves us one case branch in
                                 -- cgIdApp
-              -> Maybe SelfLoopInfo -- can we perform a self-recursive tail call?
+              -> Maybe SelfLoopInfo -- ^ can we perform a self-recursive tail call?
               -> CallMethod
 
 getCallMethod dflags _ id _ n_args _cg_loc (Just (self_loop_id, block_id, args))
@@ -714,12 +715,14 @@ mkCmmInfo ClosureInfo {..}
 --        Building ClosureInfos
 --------------------------------------
 
+-- | Build a 'ClosureInfo'
 mkClosureInfo :: DynFlags
-              -> Bool                -- Is static
-              -> Id
+              -> Bool           -- ^ is it a static closure
+              -> Id             -- ^ name of closure
               -> LambdaFormInfo
-              -> Int -> Int        -- Total and pointer words
-              -> String         -- String descriptor
+              -> Int            -- ^ total size of closure in words
+              -> Int            -- ^ number of pointer words
+              -> String         -- ^ string descriptor
               -> ClosureInfo
 mkClosureInfo dflags is_static id lf_info tot_wds ptr_wds val_descr
   = ClosureInfo { closureName      = name
@@ -757,6 +760,7 @@ mkClosureInfo dflags is_static id lf_info tot_wds ptr_wds val_descr
 
 -- Static closures are never themselves black-holed.
 
+-- | Should we black-hole a closure when we enter it?
 blackHoleOnEntry :: ClosureInfo -> Bool
 blackHoleOnEntry cl_info
   | isStaticRep (closureSMRep cl_info)
@@ -919,7 +923,13 @@ getTyLitDescription l =
 --   CmmInfoTable-related things
 --------------------------------------
 
-mkDataConInfoTable :: DynFlags -> DataCon -> Bool -> Int -> Int -> CmmInfoTable
+-- | Generate an info table for the given data constructor
+mkDataConInfoTable :: DynFlags
+                   -> DataCon   -- ^ the data constructor
+                   -> Bool      -- ^ is the constructor static
+                   -> Int       -- ^ number of pointer words
+                   -> Int       -- ^ number of non-pointer words
+                   -> CmmInfoTable
 mkDataConInfoTable dflags data_con is_static ptr_wds nonptr_wds
  = CmmInfoTable { cit_lbl  = info_lbl
                 , cit_rep  = sm_rep
