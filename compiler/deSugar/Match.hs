@@ -29,6 +29,8 @@ import DsBinds
 import DsGRHSs
 import DsUtils
 import Id
+import MkId
+import PrimOp
 import ConLike
 import DataCon
 import PatSyn
@@ -1060,7 +1062,7 @@ patGroup _      (BangPat {})                  = PgBang
 patGroup _      (ConPatOut { pat_con = con }) = case unLoc con of
     RealDataCon dcon -> PgCon dcon
     PatSynCon psyn -> PgSyn psyn
-patGroup dflags (LitPat lit)                  = PgLit (hsLitKey dflags lit)
+patGroup dflags (LitPat lit)                  = patGroupLit dflags lit
 patGroup _      (NPat (L _ olit) mb_neg _)
                                      = PgN   (hsOverLitKey olit (isJust mb_neg))
 patGroup _      (NPlusKPat _ (L _ olit) _ _)  = PgNpK (hsOverLitKey olit False)
@@ -1069,7 +1071,28 @@ patGroup _      (ViewPat expr p _)            = PgView expr (hsPatType (unLoc p)
 patGroup _      (ListPat _ _ (Just _))        = PgOverloadedList
 patGroup _      pat                           = pprPanic "patGroup" (ppr pat)
 
+-- | Construct a 'PatGroup' from a match against a literal
+--
+-- See Note [Matching on floating-point literals]
+patGroupLit :: DynFlags -> HsLit -> PatGroup
+patGroupLit dflags lit =
+    case lit of
+      n@(HsDoublePrim _) -> buildEqPat (mkPrimOpId DoubleEqOp) n
+      n@(HsFloatPrim _)  -> buildEqPat (mkPrimOpId FloatEqOp) n
+      _                  -> PgLit (hsLitKey dflags lit)
+  where
+    buildEqPat :: Id -> HsLit -> PatGroup
+    buildEqPat eq n = PgView (nlHsVar eq `nlHsApp` nlHsLit n) boolTy
+
 {-
+Note [Matching on floating-point literals]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+We don't want to directly pattern match on floating point literals as the
+semantics of the resulting match can get messy during smiplification (see
+Trac #9238 and Trac #10215). Instead we convert the pattern into a view pattern
+matching on @var ==# lit@ in 'patGroup'.
+
 Note [Grouping overloaded literal patterns]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 WATCH OUT!  Consider
