@@ -665,6 +665,12 @@ lintCoreExpr e@(Case scrut var alt_ty alts) =
           (ptext (sLit "No alternatives for a case scrutinee not known to diverge for sure:") <+> ppr scrut)
         }
 
+     ; when (any (scrut_ty `eqType`) [floatPrimTy, doublePrimTy]) $
+         pprTrace (unlines ["Lint warning: Scrutinising floating-point",
+                            "expression in case analysis (see Trac #9238)"])
+             (text "scrut" <+> ppr scrut)
+             $ return ()
+
      ; case tyConAppTyCon_maybe (idType var) of
          Just tycon
               | debugIsOn &&
