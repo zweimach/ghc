@@ -172,10 +172,11 @@ mkInfoTableContents :: DynFlags
                                InfoTableContents)       -- Info tbl + extra bits
 
 mkInfoTableContents dflags
-                    info@(CmmInfoTable { cit_lbl  = info_lbl
-                                       , cit_rep  = smrep
-                                       , cit_prof = prof
-                                       , cit_srt = srt })
+                    info@(CmmInfoTable { cit_lbl   = info_lbl
+                                       , cit_rep   = smrep
+                                       , cit_prof  = prof
+                                       , cit_debug = debug
+                                       , cit_srt   = srt })
                     mb_rts_tag
   | RTSRep rts_tag rep <- smrep
   = mkInfoTableContents dflags info{cit_rep = rep} (Just rts_tag)

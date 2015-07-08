@@ -41,13 +41,28 @@
                  p_ updatee
 
 
+#if DEBUG_CLOSURE
+#define isSingleEntry(p) \
+    f
+
+#define updateToBlackhole(p) \
+    if (isSingleEntry(p)) {                         \
+        SET_INFO(p, stg_ERR_MULTIPLE_ENTRY_info);   \
+    } else {                                        \
+        SET_INFO(p, stg_BLACKHOLE_info);            \
+    }                                               \
+#else
+#define updateToBlackhole(p) \
+    SET_INFO(p, stg_BLACKHOLE_info);
+#endif
+
 #define updateWithIndirection(p1, p2, and_then) \
     W_ bd;                                                      \
                                                                 \
     OVERWRITING_CLOSURE(p1);                                    \
     StgInd_indirectee(p1) = p2;                                 \
     prim_write_barrier;                                         \
-    SET_INFO(p1, stg_BLACKHOLE_info);                           \
+    updateToBlackhole(p1);                                      \
     LDV_RECORD_CREATE(p1);                                      \
     bd = Bdescr(p1);                                            \
     if (bdescr_gen_no(bd) != 0 :: bits16) {                     \

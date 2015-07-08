@@ -16,12 +16,13 @@ module Cmm (
 
      -- * Cmm graphs
      CmmReplGraph, GenCmmReplGraph, CmmFwdRewrite, CmmBwdRewrite,
-   
+
      -- * Info Tables
      CmmTopInfo(..), CmmStackInfo(..), CmmInfoTable(..), topInfoTable,
      ClosureTypeInfo(..), 
      C_SRT(..), needsSRT,
-     ProfilingInfo(..), ConstrDescription, 
+     ProfilingInfo(..), ConstrDescription,
+     DebugInfo(..)
 
      -- * Statements, expressions and types
      module CmmNode,
@@ -146,7 +147,16 @@ data CmmInfoTable
 
 data ProfilingInfo
   = NoProfilingInfo
-  | ProfilingInfo [Word8] [Word8] -- closure_type, closure_desc
+  | ProfilingInfo {
+      pi_closure_type :: [Word8],
+      pi_closure_desc :: [Word8]
+    }
+
+data DebugInfo
+  = NoDebugInfo
+  | DebugInfo {
+      di_debug_flags :: !StgHalfWord,
+    }
 
 -- C_SRT is what StgSyn.SRT gets translated to... 
 -- we add a label for the table, and expect only the 'offset/length' form

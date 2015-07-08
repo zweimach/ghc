@@ -700,16 +700,18 @@ data ClosureInfo
           -- the rest is just an unpacked CmmInfoTable.
         closureInfoLabel :: !CLabel,
         closureSMRep     :: !SMRep,          -- representation used by storage mgr
-        closureProf      :: !ProfilingInfo
+        closureProf      :: !ProfilingInfo,
+        closureDebug     :: !DebugInfo
     }
 
 -- | Convert from 'ClosureInfo' to 'CmmInfoTable'.
 mkCmmInfo :: ClosureInfo -> CmmInfoTable
 mkCmmInfo ClosureInfo {..}
-  = CmmInfoTable { cit_lbl  = closureInfoLabel
-                 , cit_rep  = closureSMRep
-                 , cit_prof = closureProf
-                 , cit_srt  = NoC_SRT }
+  = CmmInfoTable { cit_lbl   = closureInfoLabel
+                 , cit_rep   = closureSMRep
+                 , cit_prof  = closureProf
+                 , cit_debug = closureDebug
+                 , cit_srt   = NoC_SRT }
 
 --------------------------------------
 --        Building ClosureInfos
@@ -727,13 +729,15 @@ mkClosureInfo :: DynFlags
 mkClosureInfo dflags is_static id lf_info tot_wds ptr_wds val_descr
   = ClosureInfo { closureName      = name
                 , closureLFInfo    = lf_info
-                , closureInfoLabel = info_lbl   -- These three fields are
+                , closureInfoLabel = info_lbl   -- These four fields are
                 , closureSMRep     = sm_rep     -- (almost) an info table
-                , closureProf      = prof }     -- (we don't have an SRT yet)
+                , closureProf      = prof       -- (we don't have an SRT yet)
+                , closureDebug     = debug }
   where
     name       = idName id
     sm_rep     = mkHeapRep dflags is_static ptr_wds nonptr_wds (lfClosureType lf_info)
     prof       = mkProfilingInfo dflags id val_descr
+    debug      = mkDebugInfo dflags lf_info
     nonptr_wds = tot_wds - ptr_wds
 
     info_lbl = mkClosureInfoTableLabel id lf_info
@@ -918,6 +922,22 @@ getTyLitDescription l =
   case l of
     NumTyLit n -> show n
     StrTyLit n -> show n
+
+------------------------------------------
+--   Debugging
+------------------------------------------
+
+-- Here we need to record whether the closure is single-entry.
+
+-- | Build the 'DebugInfo' for a closure
+mkDebugInfo :: DynFlags -> LambdaFormInfo -> DebugInfo
+mkDebugInfo dflags lf_info
+  | not (gopt Opt_DebuggingOn dflags) = NoDebugInfo
+  | otherwise = DebugInfo flags
+  where
+    flags = if lfUpdatable lf_info
+            then 0 -- FIXME
+            else 1
 
 --------------------------------------
 --   CmmInfoTable-related things

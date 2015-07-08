@@ -58,15 +58,28 @@ typedef struct {
    Debugging info
    -------------------------------------------------------------------------- */
 
+/* debug flags */
+
+/* Note [Checking single-entry closures]
+
+   The STG pass may produce three different types of closures: single-entry,
+   re-entrant, and updatable. Typically the code generator only cares about
+   whether a given closure is updatable or not; whether it is single- or
+   multiple-entry isn't typically important. For this reason the code that we
+   produce doesn't distinguish between these variants. However, it is necessary
+   to draw this distinction when linting single-entry closures.
+ */
 #ifdef DEBUG_CLOSURE
 
 typedef struct {
-        ... whatever ...
+    StgHalfWord debug_flags; /* see the CLOSURE_* flags below */
 } StgDebugInfo;
+
+#define CLOSURE_SINGLE_ENTRY (1<<0) /* the closure is single entry */
 
 #else /* !DEBUG_CLOSURE */
 
-/* There is no DEBUG-specific stuff in an info table at this time. */
+typedef struct {} StgDebugInfo;
 
 #endif /* DEBUG_CLOSURE */
 
@@ -220,7 +233,7 @@ typedef struct StgInfoTable_ {
   /* Ticky-specific stuff would go here. */
 #endif
 #ifdef DEBUG_CLOSURE
-  /* Debug-specific stuff would go here. */
+    struct StgDebugInfo debug;
 #endif
 
     StgClosureInfo  layout;     /* closure layout info (one word) */
