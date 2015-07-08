@@ -210,8 +210,6 @@ is an embryonic @CoreExpr@ with a ``hole'' at the end for the
 final ``else expression''.
 \end{itemize}
 
-There is a type synonym, @EquationInfo@, defined in module @DsUtils@.
-
 An experiment with re-ordering this information about equations (in
 particular, having the patterns available in column-major order)
 showed no benefit.
@@ -275,10 +273,11 @@ Wadler-chapter @match@ (p.~93, last clause), and @match_unmixed_blk@
 corresponds roughly to @matchVarCon@.
 -}
 
-match :: [Id]             -- Variables rep\'ing the exprs we\'re matching with
-      -> Type             -- Type of the case expression
-      -> [EquationInfo]   -- Info about patterns, etc. (type synonym below)
-      -> DsM MatchResult  -- Desugared result!
+-- | Desugar a pattern match
+match :: [Id]             -- ^ Variables rep'ing the exprs we're matching with
+      -> Type             -- ^ Type of the case expression
+      -> [EquationInfo]   -- ^ Info about patterns, etc.
+      -> DsM MatchResult  -- ^ Desugared result!
 
 match [] ty eqns
   = ASSERT2( not (null eqns), ppr ty )
