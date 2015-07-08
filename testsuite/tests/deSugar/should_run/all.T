@@ -48,3 +48,4 @@ test('DsStaticPointers',
 test('T8952', normal, compile_and_run, [''])
 test('T9238', normal, compile_and_run, [''])
 test('T9844', normal, compile_and_run, [''])
+test('T10215', normal, compile_and_run, [''])
