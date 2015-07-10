@@ -317,9 +317,9 @@ mkRelOpRule nm cmp extra
 --       __DEFAULT -> ...
 --       0.0 -> ...
 --
--- Where the second alternative matches where @ds@ is +0.0 and *also* when it is
--- -0.0. However, the simplifier doesn't realize this and will likely to
--- introduce a local inlining of @ds = -- +0.0@ as it believes this is the only
+-- Where the second alternative matches where @ds@ is +0.0 and *also* -0.0.
+-- However, the simplifier doesn't realize this and consequently
+-- introduces a local inlining @ds = -- +0.0@ as it believes this is the only
 -- value that matches this pattern.
 --
 -- Instead of teaching the simplifier about floating-point semantics

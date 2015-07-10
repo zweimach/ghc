@@ -666,6 +666,7 @@ lintCoreExpr e@(Case scrut var alt_ty alts) =
         }
 
      ; when (any (scrut_ty `eqType`) [floatPrimTy, doublePrimTy]) $
+         -- See Note [Rules for floating-point comparisons] in PrelRules
          pprTrace (unlines ["Lint warning: Scrutinising floating-point",
                             "expression in case analysis (see Trac #9238)"])
              (text "scrut" <+> ppr scrut)
