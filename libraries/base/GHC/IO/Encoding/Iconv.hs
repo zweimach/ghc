@@ -110,8 +110,10 @@ mkIconvEncoding :: CodingFailureMode -> String -> IO (Maybe TextEncoding)
 mkIconvEncoding cfm charset = do
     let enc = TextEncoding {
                   textEncodingName = charset,
-                  mkTextDecoder = newIConv raw_charset (haskellChar ++ suffix) (recoverDecode cfm) iconvDecode,
-                  mkTextEncoder = newIConv haskellChar charset                 (recoverEncode cfm) iconvEncode}
+                  mkTextDecoder = newIConv raw_charset (haskellChar ++ suffix)
+                                           (recoverDecode cfm) iconvDecode,
+                  mkTextEncoder = newIConv haskellChar charset
+                                           (recoverEncode cfm) iconvEncode}
     good <- charIsRepresentable enc 'a'
     return $ if good
                then Just enc
