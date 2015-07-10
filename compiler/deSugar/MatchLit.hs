@@ -25,11 +25,15 @@ import DsUtils
 import HsSyn
 
 import Id
+import MkId ( mkPrimOpId )
+import PrimOp
+import TcEvidence
+import ConLike
 import CoreSyn
 import MkCore
 import TyCon
 import DataCon
-import TcHsSyn ( shortCutLit )
+import TcHsSyn
 import TcType
 import Name
 import Type
@@ -269,7 +273,26 @@ tidyLitPat (HsString src s)
                   (mkNilPat charTy) (unpackFS s)
         -- The stringTy is the type of the whole pattern, not
         -- the type to instantiate (:) or [] with!
+
+tidyLitPat n@(HsDoublePrim _)
+  = buildEqPat (mkPrimOpId DoubleEqOp) n
+tidyLitPat n@(HsFloatPrim _)
+  = buildEqPat (mkPrimOpId FloatEqOp) n
 tidyLitPat lit = LitPat lit
+
+-- | Construct a pattern from a match against a literal.
+--
+-- This maps a match against a literal @LIT@ to a view pattern
+-- @True <- ((==) LIT)@.
+-- See Note [Matching on floating-point literals] for why we do this.
+buildEqPat :: Id     -- ^ identifier of equality relation
+           -> HsLit  -- ^ literal being matched against
+           -> Pat Id
+buildEqPat eq n = ViewPat (nlHsVar eq `nlHsApp` nlHsLit n) truePat (hsLitType n)
+  where
+    truePat :: LPat Id
+    truePat = noLoc $ ConPatOut (noLoc $ RealDataCon trueDataCon) [] [] []
+                                emptyTcEvBinds (PrefixCon []) idHsWrapper
 
 ----------------
 tidyNPat :: (HsLit -> Pat Id)   -- How to tidy a LitPat
