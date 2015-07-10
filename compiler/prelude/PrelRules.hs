@@ -241,19 +241,22 @@ primOpRules nm CharGeOp   = mkRelOpRule nm (>=) [ boundsCmp Ge ]
 primOpRules nm CharLeOp   = mkRelOpRule nm (<=) [ boundsCmp Le ]
 primOpRules nm CharLtOp   = mkRelOpRule nm (<)  [ boundsCmp Lt ]
 
+-- We exclude equalities on floating-point quantities from litEq treatment.
+-- See Note [Rules for floating-point comparisons]
 primOpRules nm FloatGtOp  = mkFloatingRelOpRule nm (>)  []
 primOpRules nm FloatGeOp  = mkFloatingRelOpRule nm (>=) []
 primOpRules nm FloatLeOp  = mkFloatingRelOpRule nm (<=) []
 primOpRules nm FloatLtOp  = mkFloatingRelOpRule nm (<)  []
-primOpRules nm FloatEqOp  = mkFloatingRelOpRule nm (==) [ litEq True ]
-primOpRules nm FloatNeOp  = mkFloatingRelOpRule nm (/=) [ litEq False ]
+primOpRules nm FloatEqOp  = mkFloatingRelOpRule nm (==) []
+primOpRules nm FloatNeOp  = mkFloatingRelOpRule nm (/=) []
+
 
 primOpRules nm DoubleGtOp = mkFloatingRelOpRule nm (>)  []
 primOpRules nm DoubleGeOp = mkFloatingRelOpRule nm (>=) []
 primOpRules nm DoubleLeOp = mkFloatingRelOpRule nm (<=) []
 primOpRules nm DoubleLtOp = mkFloatingRelOpRule nm (<)  []
-primOpRules nm DoubleEqOp = mkFloatingRelOpRule nm (==) [ litEq True ]
-primOpRules nm DoubleNeOp = mkFloatingRelOpRule nm (/=) [ litEq False ]
+primOpRules nm DoubleEqOp = mkFloatingRelOpRule nm (==) []
+primOpRules nm DoubleNeOp = mkFloatingRelOpRule nm (/=) []
 
 primOpRules nm WordGtOp   = mkRelOpRule nm (>)  [ boundsCmp Gt ]
 primOpRules nm WordGeOp   = mkRelOpRule nm (>=) [ boundsCmp Ge ]
@@ -302,6 +305,26 @@ mkRelOpRule nm cmp extra
 -- We need different rules for floating-point values because for floats
 -- it is not true that x = x. The special case when this does not occur
 -- are NaNs.
+--
+-- Moreover, we are careful not to convert equality comparisons into case
+-- analyses (as is done by litEq) as cases on floating-point scrutinees are
+-- prohibited in Core. The reason for this is that we that handling the
+-- intricacies of floating point semantics are quite tricky. For instance, in
+-- #10215 (and the similar issue #9238) we turned @ds == 0.0@ into a case
+-- analysis,
+--
+--     case ds of
+--       __DEFAULT -> ...
+--       0.0 -> ...
+--
+-- Where the second alternative matches where @ds@ is +0.0 and *also* when it is
+-- -0.0. However, the simplifier doesn't realize this and will likely to
+-- introduce a local inlining of @ds = -- +0.0@ as it believes this is the only
+-- value that matches this pattern.
+--
+-- Instead of teaching the simplifier about floating-point semantics
+-- we simply prohibit case analyes on floating-point scrutinees and keep
+-- this logic in the comparison primops, where it belongs.
 
 mkFloatingRelOpRule :: Name -> (forall a . Ord a => a -> a -> Bool)
                     -> [RuleM CoreExpr] -> Maybe CoreRule
