@@ -669,7 +669,7 @@ lintCoreExpr e@(Case scrut var alt_ty alts) =
      ; checkL (isFloatingTy scrut_ty)
          (ptext (sLit $ "Lint warning: Scrutinising floating-point" ++
                         "expression in case analysis (see Trac #9238).")
-          $$ text "scrut" <+> ppr scrut
+          $$ text "scrut" <+> ppr scrut)
 
      ; case tyConAppTyCon_maybe (idType var) of
          Just tycon
