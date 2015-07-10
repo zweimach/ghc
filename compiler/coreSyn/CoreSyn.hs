@@ -233,7 +233,7 @@ These data types are the heart of the compiler
 --       The inner case does not need a @Red@ alternative, because @x@
 --       can't be @Red@ at that program point.
 --
---    5. The scrutinee must not be of floating-point type.
+--    5. Floating-point values must not be scrutinised against literals.
 --       See Trac #9238 and Note [Rules for floating-point comparisons]
 --       in PrelRules for rationale.
 --
@@ -333,9 +333,9 @@ simplifier calling findAlt with argument (LitAlt 3).  No no.  Integer
 literals are an opaque encoding of an algebraic data type, not of
 an unlifted literal, like all the others.
 
-Also, we do not permit case analysis on floating-point types. See Trac #9238 and
-Note [Rules for floating-point comparisons] in PrelRules for the rationale for
-this restriction.
+Also, we do not permit case analysis with literal patterns on floating-point
+types . See Trac #9238 and Note [Rules for floating-point comparisons] in
+PrelRules for the rationale for this restriction.
 
 -------------------------- CoreSyn INVARIANTS ---------------------------
 

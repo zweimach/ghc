@@ -667,9 +667,12 @@ lintCoreExpr e@(Case scrut var alt_ty alts) =
         }
 
      -- See Note [Rules for floating-point comparisons] in PrelRules
-     ; checkL (not $ isFloatingTy scrut_ty)
+     ; let isLitPat (LitAlt _, _ , _) = True
+           isLitPat _                 = False
+     ; checkL (not $ isFloatingTy scrut_ty && any isLitPat alts)
          (ptext (sLit $ "Lint warning: Scrutinising floating-point " ++
-                        "expression in case analysis (see Trac #9238).")
+                        "expression with literal pattern in case " ++
+                        "analysis (see Trac #9238).")
           $$ text "scrut" <+> ppr scrut)
 
      ; case tyConAppTyCon_maybe (idType var) of
