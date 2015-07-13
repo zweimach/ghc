@@ -9,7 +9,8 @@ This code should build, but I have tested it only on `DEBUG` settings;
 I recommend using build style `devel2` in `build.mk`.
 
 Here is a minimal script you can follow to build this at home;
-see the [GHC Building Guide] [3] for more info.
+see the [GHC Building Guide] [3] for more info. Or if you have NixOS
+working for you, see the alternate instructions below.
 
 ~~~
 git clone https://github.com/goldfirere/ghc.git
@@ -33,6 +34,42 @@ For more information about GHC, visit [GHC's web site][1].
 
 Information for developers of GHC can be found on the [GHC Trac][2].
 
+Alternate instructions via NixOS
+--------------------------------
+
+Thanks to @deepfire, this branch is available via NixOS. Here are the
+instructions:
+
+1. To install NixOS:
+
+    curl https://nixos.org/nix/install | sh
+
+2. Switch to the bleeding edge `master` repository of Nix package definitions:
+
+    git clone https://github.com/NixOS/nixpkgs.git
+    pushd ~/.nix-defexpr
+    rm -rf channels
+    ln -s ../nixpkgs
+    popd
+    echo 'export NIX_PATH=nixpkgs=/home/---<USERNAME>---/nixpkgs' >> ~/.bashrc
+    export NIX_PATH=nixpkgs=/home/---<USERNAME>---/nixpkgs
+
+3. [OPTIONAL] To enable prebuilt binaries from Hydra run by Peter Simons:
+
+    sudo mkdir /etc/nix
+    echo 'binary-caches = http://hydra.nixos.org/ http://hydra.cryp.to/' | sudo dd of=/etc/nix/nix.conf
+
+    # If you don't do that, everything will still work, just it'll have
+    # to build everything from source.
+
+4. Enter a shell with `ghc-nokinds` available:
+
+    nix-shell -p haskell.compiler.ghcNokinds
+
+5. See it's indeed `nokinds`:
+
+    wget https://raw.githubusercontent.com/goldfirere/ghc/nokinds/testsuite/tests/dependent/should_compile/KindEqualities2.hs
+    runhaskell KindEqualities2.hs
 
 Building & Installing
 =====================
