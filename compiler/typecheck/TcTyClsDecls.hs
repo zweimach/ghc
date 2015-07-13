@@ -315,6 +315,7 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
                                _ -> pprPanic "kcTyClGroup" (ppr name $$ ppr kind_env)
            ; kvs <- kindGeneralize env (tyCoVarsOfType kc_kind)
            ; kc_kind' <- zonkTcTypeToType (mkZonkEnv env) kc_kind
+                         -- TODO (RAE): but the kvs aren't fully zonked to Type
 
                       -- Make sure kc_kind' has the final, zonked kind variables
            ; traceTc "Generalise kind" (vcat [ ppr name, ppr kc_kind, ppr kvs, ppr kc_kind' ])

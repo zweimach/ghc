@@ -462,3 +462,12 @@ stack:
     splitFunTy
   - will need to update DmdAnal.addDataConPatDmds to deal with strictness on
     dependent ids
+
+
+BEFORE MERGING:
+Restore:
+  - README.md
+  - .gitmodules
+
+Remove:
+  - rae.txt
