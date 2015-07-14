@@ -1088,7 +1088,8 @@ flatten_exact_fam_app_fully fmode tc tys
                        ; (xi, final_co) <- flatten_one fmode norm_ty
                        ; let co = maybeSubCo (fe_eq_rel fmode) norm_co
                                   `mkTransCo` mkSymCo final_co
-                       ; when cache $
+                           -- NB: only extend cache with nominal equalities
+                       ; when (cache && fe_eq_rel fmode == NomEq) $
                          extendFlatCache tc tys ( mkTcCoercion co, xi
                                                 , fe_flavour fmode)
                        ; return ( xi, update_co $ mkSymCo co
