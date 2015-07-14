@@ -164,6 +164,7 @@ module Type (
         pprKind, pprParendKind, pprSourceTyCon,
         TyPrec(..), maybeParen, pprSigmaTypeExtraCts,
         pprTcApp, pprPrefixApp, pprArrowChain,
+        pprTyVar,
 
         -- * Tidying type related things up for printing
         tidyType,      tidyTypes,
@@ -2148,6 +2149,10 @@ typeLiteralKind l =
   case l of
     NumTyLit _ -> typeNatKind
     StrTyLit _ -> typeSymbolKind
+
+-- | Print a tyvar with its kind
+pprTyVar :: TyVar -> SDoc
+pprTyVar tv = ppr tv <+> dcolon <+> ppr (tyVarKind tv)
 
 {-
 %************************************************************************
