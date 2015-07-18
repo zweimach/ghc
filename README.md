@@ -40,7 +40,7 @@ Alternate instructions via NixOS
 Thanks to @deepfire, this branch is available via NixOS. Here are the
 instructions:
 
-1. To install NixOS:
+1. To install the Nix package manager:
 
         curl https://nixos.org/nix/install | sh
 
