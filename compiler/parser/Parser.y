@@ -1884,9 +1884,9 @@ gadt_constrs :: { Located [LConDecl RdrName] }
 
 gadt_constr :: { LConDecl RdrName }
                    -- Returns a list because of:   C,D :: ty
-        : maybe_docnext con_list '::' sigtype maybe_docprev
+        : maybe_docnext con_list '::' sigtype
                 {% do { (anns,gadtDecl) <- mkGadtDecl (unLoc $2) $4
-                      ; ams (addConDoc (sLL $2 $4 gadtDecl) ($1 `mplus` $5))
+                      ; ams (addConDoc (sLL $2 $> gadtDecl) $1)
                             (mj AnnDcolon $3:anns) } }
 
                 -- Deprecated syntax for GADT record declarations
