@@ -990,7 +990,8 @@ pprConDecl (ConDecl { con_names = cons, con_explicit = expl, con_qvars = tvs
 pprConDecl (ConDecl { con_names = cons, con_explicit = expl, con_qvars = tvs
                     , con_cxt = cxt, con_details = RecCon fields
                     , con_res = ResTyGADT _ res_ty, con_doc = doc })
-  = sep [ppr_mbDoc doc <+> ppr_con_names cons <+> dcolon <+> pprHsForAll expl tvs cxt,
+  = sep [ppr_mbDoc doc <+> ppr_con_names cons <+> dcolon
+         <+> pprHsForAll expl tvs cxt,
          pprConDeclFields (unLoc fields) <+> arrow <+> ppr res_ty]
 
 pprConDecl decl@(ConDecl { con_details = InfixCon ty1 ty2, con_res = ResTyGADT {} })
