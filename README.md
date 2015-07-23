@@ -5,12 +5,16 @@ This is a fork of GHC, with work toward supporting dependent types.
 Anyone is welcome to download and play with this implementation,
 and I am happy to receive feedback and issue reports on GitHub.
 
+There are two options of using this branch:  manual, and Nix-based.
+
+Manual
+------
+
 This code should build, but I have tested it only on `DEBUG` settings;
 I recommend using build style `devel2` in `build.mk`.
 
 Here is a minimal script you can follow to build this at home;
-see the [GHC Building Guide] [3] for more info. Or if you have NixOS
-working for you, see the alternate instructions below.
+see the [GHC Building Guide] [3] for more info.
 
 ~~~
 git clone https://github.com/goldfirere/ghc.git
@@ -34,17 +38,22 @@ For more information about GHC, visit [GHC's web site][1].
 
 Information for developers of GHC can be found on the [GHC Trac][2].
 
-Alternate instructions via NixOS
---------------------------------
+Nix-based
+---------
 
-Thanks to @deepfire, this branch is available via NixOS. Here are the
-instructions:
+Thanks to @deepfire, this branch is available in Nixpkgs, which means that with
+some effort it can be fairly automatically employed to build any package from
+Hackage.  This way, though, requires that one installs the Nix package manager in
+parallel with the system package manager -- and this option is currently
+unavailable on Windows.
 
-1. To install the Nix package manager:
+Here are the instructions:
+
+1. To install the Nix package manager, taking over /nix for package storage:
 
         curl https://nixos.org/nix/install | sh
 
-2. Switch to the bleeding edge `master` repository of Nix package definitions:
+2. Make Nix use the `master` repository of Nixpkgs package definitions:
 
     	git clone https://github.com/NixOS/nixpkgs.git
     	pushd ~/.nix-defexpr
@@ -54,7 +63,7 @@ instructions:
     	echo 'export NIX_PATH=nixpkgs=/home/---<USERNAME>---/nixpkgs' >> ~/.bashrc
     	export NIX_PATH=nixpkgs=/home/---<USERNAME>---/nixpkgs
 
-3. [OPTIONAL] To enable prebuilt binaries from Hydra run by Peter Simons:
+3. [OPTIONAL] To enable prebuilt binaries from Peter Simons/NixOS Hydra servers:
 
     	sudo mkdir /etc/nix
     	echo 'binary-caches = http://hydra.nixos.org/ http://hydra.cryp.to/' | sudo dd of=/etc/nix/nix.conf
@@ -70,6 +79,13 @@ instructions:
 
     	wget https://raw.githubusercontent.com/goldfirere/ghc/nokinds/testsuite/tests/dependent/should_compile/KindEqualities2.hs
     	runhaskell KindEqualities2.hs
+
+To apply 'nokinds' to building packages from Hackage, the best option would be
+to follow instructions from the "Nix loves Haskell" talk by Peter Simons:
+
+   http://cryp.to/nixos-meetup-3-slides.pdf
+
+..where the relevant compiler name would be "ghcNokinds".
 
 Building & Installing
 =====================
