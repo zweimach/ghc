@@ -1,0 +1,335 @@
+[[options-debugging]]
+Debugging the compiler
+----------------------
+
+indexterm:[debugging options (for GHC)]
+HACKER TERRITORY. HACKER TERRITORY. (You were warned.)
+
+[[dumping-output]]
+Dumping out compiler intermediate structures
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+indexterm:[dumping GHC intermediates]
+indexterm:[intermediate passes]
+
+-ddump-pass::
+  Make a debugging dump after pass `<pass>` (may be common enough to
+  need a short form…). You can get all of these at once (__lots__ of
+  output) by using `-v5`, or most of them with `-v4`. You can prevent
+  them from clogging up your standard output by passing
+  `-ddump-to-file`. Some of the most useful ones are:
+  indexterm:[`-ddump` options]
+  +
+  `-ddump-parsed`;;
+    parser output
+
+  `-ddump-rn`;;
+    renamer output
+
+  `-ddump-tc`;;
+    typechecker output
+
+  `-ddump-splices`;;
+    Dump Template Haskell expressions that we splice in, and what
+    Haskell code the expression evaluates to.
+
+  `-ddump-types`;;
+    Dump a type signature for each value defined at the top level of the
+    module. The list is sorted alphabetically. Using `-dppr-debug` dumps
+    a type signature for all the imported and system-defined things as
+    well; useful for debugging the compiler.
+
+  `-ddump-deriv`;;
+    derived instances
+
+  `-ddump-ds`;;
+    desugarer output
+
+  `-ddump-spec`;;
+    output of specialisation pass
+
+  `-ddump-rules`;;
+    dumps all rewrite rules specified in this module; see ?.
+
+  `-ddump-rule-firings`;;
+    dumps the names of all rules that fired in this module
+
+  `-ddump-rule-rewrites`;;
+    dumps detailed information about all rules that fired in this module
+
+  `-ddump-vect`;;
+    dumps the output of the vectoriser.
+
+  `-ddump-simpl`;;
+    simplifier output (Core-to-Core passes)
+
+  `-ddump-inlinings`;;
+    inlining info from the simplifier
+
+  `-ddump-stranal`;;
+    strictness analyser output
+
+  `-ddump-strsigs`;;
+    strictness signatures
+
+  `-ddump-cse`;;
+    CSE pass output
+
+  `-ddump-worker-wrapper`;;
+    worker/wrapper split output
+
+  `-ddump-occur-anal`;;
+    `occurrence analysis' output
+
+  `-ddump-prep`;;
+    output of core preparation pass
+
+  `-ddump-stg`;;
+    output of STG-to-STG passes
+
+  `-ddump-cmm`;;
+    Print the C-- code out.
+
+  `-ddump-opt-cmm`;;
+    Dump the results of C-- to C-- optimising passes.
+
+  `-ddump-asm`;;
+    assembly language from the link:#native-code-gen[native code
+    generator]
+
+  `-ddump-llvm`;;
+    LLVM code from the link:#llvm-code-gen[LLVM code generator]
+
+  `-ddump-bcos`;;
+    byte code compiler output
+
+  `-ddump-foreign`;;
+    dump foreign export stubs
+
+  `-ddump-ticked`;;
+    dump bindings after ticks have been added.
+
+  `-ddump-simpl-iterations`;;
+    Show the output of each _iteration_ of the simplifier (each run of the
+    simplifier has a maximum number of iterations, normally 4). This outputs
+    even more information than `-ddump-simpl-phases`.
+
+  `-ddump-simpl-stats`;;
+    Dump statistics about how many of each kind of transformation too place.
+    If you add `-dppr-debug` you get more detailed information.
+
+  `-ddump-if-trace`;;
+    Make the interface loader be *real* chatty about what it is up to.
+
+  `-ddump-tc-trace`;;
+    Make the type checker be *real* chatty about what it is up to.
+
+  `-ddump-vt-trace`;;
+    Make the vectoriser be *real* chatty about what it is up to.
+
+  `-ddump-rn-trace`;;
+    Make the renamer be *real* chatty about what it is up to.
+
+  `-dshow-rn-stats`;;
+    Print out summary of what kind of information the renamer had to bring
+    in.
+
+  `-dverbose-core2core`;;
+  `-dverbose-stg2stg`;;
+    Show the output of the intermediate Core-to-Core and STG-to-STG passes,
+    respectively. (__Lots__ of output!) So: when we're really desperate:
+
+    % ghc -noC -O -ddump-simpl -dverbose-core2core -dcore-lint Foo.hs
+
+  `-dshow-passes`;;
+    Print out each pass name as it happens.
+
+  `-ddump-core-stats`;;
+    Print a one-line summary of the size of the Core program at the end of
+    the optimisation pipeline.
+
+  `-dfaststring-stats`;;
+    Show statistics for the usage of fast strings by the compiler.
+
+  `-dppr-debug`;;
+    Debugging output is in one of several “styles.” Take the printing of
+    types, for example. In the “user” style (the default), the compiler's
+    internal ideas about types are presented in Haskell source-level syntax,
+    insofar as possible. In the “debug” style (which is the default for
+    debugging output), the types are printed in with explicit foralls, and
+    variables have their unique-id attached (so you can check for things
+    that look the same but aren't). This flag makes debugging output appear
+    in the more verbose debug style.
+
+[formatting-dumps]
+Formatting dumps
+~~~~~~~~~~~~~~~~
+
+`-dppr-user-length`::
+  In error messages, expressions are printed to a certain “depth”, with
+  subexpressions beyond the depth replaced by ellipses. This flag sets
+  the depth. Its default value is 5.
+`-dppr-colsNNN`::
+  Set the width of debugging output. Use this if your code is wrapping
+  too much. For example: `-dppr-cols200`.
+`-dppr-case-as-let`::
+  Print single alternative case expressions as though they were strict
+  let expressions. This is helpful when your code does a lot of
+  unboxing.
+`-dno-debug-output`::
+  Suppress any unsolicited debugging output. When GHC has been built
+  with the `DEBUG` option it occasionally emits debug output of interest
+  to developers. The extra output can confuse the testing framework and
+  cause bogus test failures, so this flag is provided to turn it off.
+
+[[suppression]]
+Suppressing unwanted information
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+indexterm:[suppression]
+
+Core dumps contain a large amount of information. Depending on what you
+are doing, not all of it will be useful. Use these flags to suppress the
+parts that you are not interested in.
+
+`-dsuppress-all`::
+  Suppress everything that can be suppressed, except for unique ids as
+  this often makes the printout ambiguous. If you just want to see the
+  overall structure of the code, then start here.
+`-dsuppress-uniques`::
+  Suppress the printing of uniques. This may make the printout ambiguous
+  (e.g. unclear where an occurrence of 'x' is bound), but it makes the
+  output of two compiler runs have many fewer gratuitous differences, so
+  you can realistically apply `diff`. Once `diff` has shown you where to
+  look, you can try again without `-dsuppress-uniques`
+`-dsuppress-idinfo`::
+  Suppress extended information about identifiers where they are bound.
+  This includes strictness information and inliner templates. Using this
+  flag can cut the size of the core dump in half, due to the lack of
+  inliner templates
+`-dsuppress-unfoldings`::
+  Suppress the printing of the stable unfolding of a variable at its
+  binding site.
+`-dsuppress-module-prefixes`::
+  Suppress the printing of module qualification prefixes. This is the
+  `Data.List` in `Data.List.length`.
+`-dsuppress-type-signatures`::
+  Suppress the printing of type signatures.
+`-dsuppress-type-applications`::
+  Suppress the printing of type applications.
+`-dsuppress-coercions`::
+  Suppress the printing of type coercions.
+
+[[checking-consistency]]
+Checking for consistency
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+indexterm:[consistency checks]
+indexterm:[lint]
+
+`-dcore-lint`::
+  Turn on heavyweight intra-pass sanity-checking within GHC, at Core
+  level. (It checks GHC's sanity, not yours.)
+`-dstg-lint`::
+  Ditto for STG level. (NOTE: currently doesn't work).
+`-dcmm-lint`::
+  Ditto for C-- level.
+
+How to read Core syntax (from some `-ddump` flags)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+indexterm:[reading Core syntax]
+indexterm:[Core syntax, how to read]
+
+Let's do this by commenting an example. It's from doing `-ddump-ds` on
+this code:
+
+-------------------------
+skip2 m = m : skip2 (m+2)
+-------------------------
+
+Before we jump in, a word about names of things. Within GHC, variables,
+type constructors, etc., are identified by their “Uniques.” These are of
+the form `letter' plus `number' (both loosely interpreted). The `letter'
+gives some idea of where the Unique came from; e.g., `` means “built-in
+type variable”; `t` means “from the typechecker”; `s` means “from the
+simplifier”; and so on. The `number' is printed fairly compactly in a
+`base-62' format, which everyone hates except me (WDP).
+
+Remember, everything has a “Unique” and it is usually printed out when
+debugging, in some form or another. So here we go…
+
+-----------------------------------------------------------------------
+Desugared:
+Main.skip2{-r1L6-} :: _forall_ a$_4 =>{{Num a$_4}} -> a$_4 -> [a$_4]
+
+--# `r1L6' is the Unique for Main.skip2;
+--# `_4' is the Unique for the type-variable (template) `a'
+--# `{{Num a$_4}}' is a dictionary argument
+
+_NI_
+
+--# `_NI_' means "no (pragmatic) information" yet; it will later
+--# evolve into the GHC_PRAGMA info that goes into interface files.
+
+Main.skip2{-r1L6-} =
+    /\ _4 -> \ d.Num.t4Gt ->
+        let {
+          {- CoRec -}
+          +.t4Hg :: _4 -> _4 -> _4
+          _NI_
+          +.t4Hg = (+{-r3JH-} _4) d.Num.t4Gt
+
+          fromInt.t4GS :: Int{-2i-} -> _4
+          _NI_
+          fromInt.t4GS = (fromInt{-r3JX-} _4) d.Num.t4Gt
+
+--# The `+' class method (Unique: r3JH) selects the addition code
+--# from a `Num' dictionary (now an explicit lambda'd argument).
+--# Because Core is 2nd-order lambda-calculus, type applications
+--# and lambdas (/\) are explicit.  So `+' is first applied to a
+--# type (`_4'), then to a dictionary, yielding the actual addition
+--# function that we will use subsequently...
+
+--# We play the exact same game with the (non-standard) class method
+--# `fromInt'.  Unsurprisingly, the type `Int' is wired into the
+--# compiler.
+
+          lit.t4Hb :: _4
+          _NI_
+          lit.t4Hb =
+              let {
+                ds.d4Qz :: Int{-2i-}
+                _NI_
+                ds.d4Qz = I#! 2#
+              } in  fromInt.t4GS ds.d4Qz
+
+--# `I# 2#' is just the literal Int `2'; it reflects the fact that
+--# GHC defines `data Int = I# Int#', where Int# is the primitive
+--# unboxed type.  (see relevant info about unboxed types elsewhere...)
+
+--# The `!' after `I#' indicates that this is a *saturated*
+--# application of the `I#' data constructor (i.e., not partially
+--# applied).
+
+          skip2.t3Ja :: _4 -> [_4]
+          _NI_
+          skip2.t3Ja =
+              \ m.r1H4 ->
+                  let { ds.d4QQ :: [_4]
+                        _NI_
+                        ds.d4QQ =
+                    let {
+                      ds.d4QY :: _4
+                      _NI_
+                      ds.d4QY = +.t4Hg m.r1H4 lit.t4Hb
+                    } in  skip2.t3Ja ds.d4QY
+                  } in
+                  :! _4 m.r1H4 ds.d4QQ
+
+          {- end CoRec -}
+        } in  skip2.t3Ja
+-----------------------------------------------------------------------
+
+(“It's just a simple functional language” is an unregisterised trademark
+of Peyton Jones Enterprises, plc.)
