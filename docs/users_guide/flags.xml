@@ -3171,6 +3171,12 @@
             <entry>-</entry>
           </row>
           <row>
+            <entry><option>-ddump-ticked</option></entry>
+            <entry>Dump bindings after ticks have been added</entry>
+            <entry>dynamic</entry>
+            <entry>-</entry>
+          </row>
+          <row>
             <entry><option>-ddump-inlinings</option></entry>
             <entry>Dump inlining info</entry>
             <entry>dynamic</entry>

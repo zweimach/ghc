@@ -315,6 +315,19 @@
 	</listitem>
       </varlistentry>
 
+	    <varlistentry>
+	      <term>
+	        <option>-ddump-ticked</option>:
+                <indexterm><primary><option>-ddump-ticked</option></primary></indexterm>
+	      </term>
+	      <listitem>
+		<para>dump bindings after ticks have been added.</para>
+	      </listitem>
+	    </varlistentry>
+	  </variablelist>
+	</listitem>
+      </varlistentry>
+
       <varlistentry>
 	<term>
           <option>-ddump-simpl-iterations</option>:
