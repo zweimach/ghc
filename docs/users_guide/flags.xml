@@ -2565,6 +2565,13 @@
         </thead>
         <tbody>
           <row>
+            <entry><option>-g</option></entry>
+            <entry>Include <link linkend="debug-info">debugging information
+                </link> in the produced binaries.</entry>
+            <entry>dynamic</entry>
+            <entry>-</entry>
+          </row>
+          <row>
             <entry><option>-fasm</option></entry>
             <entry>Use the <link linkend="native-code-gen">native code
                 generator</link></entry>

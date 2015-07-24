@@ -638,12 +638,23 @@ $ cat foo.hspp</screen>
     <variablelist>
       <varlistentry>
         <term>
+          <option>-g</option>
+          <indexterm><primary><option>-g</option></primary></indexterm>
+        </term>
+        <listitem>
+          <para>Include <link linkend="debug-info">debugging information
+            </link> in the produced binaries.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
           <option>-fasm</option>
           <indexterm><primary><option>-fasm</option></primary></indexterm>
         </term>
         <listitem>
           <para>Use GHC's <link linkend="native-code-gen">native code generator
-            </link>rather than compiling via LLVM.
+            </link> rather than compiling via LLVM.
           <option>-fasm</option> is the default.</para>
         </listitem>
       </varlistentry>
