@@ -301,7 +301,9 @@ mkTcCoVarCo ipv = TcCoVarCo ipv
 -- | Cast the left type in a coercion. The second coercion must be
 -- Representational.
 mkTcCoherenceLeftCo :: TcCoercion -> Coercion -> TcCoercion
-mkTcCoherenceLeftCo co g = TcCoherenceCo co g
+mkTcCoherenceLeftCo co g
+  | isReflCo g = co
+  | otherwise  = TcCoherenceCo co g
 
 -- | Cast the right type in a coercion. The second coercion must be
 -- Representational.
