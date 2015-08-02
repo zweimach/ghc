@@ -39,9 +39,9 @@ import GHC.Base
 import GHC.Char
 import GHC.Num( Num(..), Integer )
 import GHC.Show( Show(..) )
-import GHC.Unicode( isSpace, isAlpha, isAlphaNum )
 import GHC.Real( Rational, (%), fromIntegral, Integral,
                  toInteger, (^), quot, even )
+import GHC.Unicode ( isSpace, isAlpha, isAlphaNum, isPunctuation, isSymbol )
 import GHC.List
 import GHC.Enum( minBound, maxBound )
 import Data.Maybe
@@ -198,8 +198,9 @@ lexPunc :: ReadP Lexeme
 lexPunc =
   do c <- satisfy isPuncChar
      return (Punc [c])
- where
-  isPuncChar c = c `elem` ",;()[]{}`"
+
+isPuncChar :: Char -> Bool
+isPuncChar c = c `elem` ",;()[]{}`"
 
 -- ----------------------------------------------------------------------
 -- Symbols
@@ -212,7 +213,8 @@ lexSymbol =
       else
         return (Symbol s)
  where
-  isSymbolChar c = c `elem` "!@#$%&*+./<=>?\\^|:-~"
+  isSymbolChar c = (isPunctuation c || isSymbol c) &&
+                   not (isPuncChar c || c `elem` "\"'_")
   reserved_ops   = ["..", "::", "=", "\\", "|", "<-", "->", "@", "~", "=>"]
 
 -- ----------------------------------------------------------------------
