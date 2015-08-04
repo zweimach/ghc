@@ -79,6 +79,7 @@ import Outputable
 
 import qualified Control.Applicative as A
 import Control.Monad
+import Control.Monad.Fix
 import Data.List
 import Prelude hiding( sequence, succ )
 
@@ -124,6 +125,9 @@ instance A.Applicative FCode where
 instance Monad FCode where
   (>>=) = thenFC
   return = returnFC
+
+instance MonadFix FCode where
+  mfix = fixC
 
 {-# INLINE thenC #-}
 {-# INLINE thenFC #-}
