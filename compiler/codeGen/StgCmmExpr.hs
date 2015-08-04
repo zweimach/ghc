@@ -279,6 +279,8 @@ Hence: two basic plans for
 
 
 -------------------------------------
+
+-- | Where should the heap-check for a case analysis be placed?
 data GcPlan
   = GcInAlts            -- Put a GC check at the start the case alternatives,
         [LocalReg]      -- which binds these registers
@@ -473,6 +475,8 @@ cgCase scrut bndr alt_type alts
        ; restoreCurrentCostCentre mb_cc
        ; _ <- bindArgsToRegs ret_bndrs
        ; cgAlts (gc_plan,ret_kind) (NonVoid bndr) alt_type alts
+fixC $ \gc_plan -> do
+    alts <- cgAlt (gc_plan,ret_kind) 
        }
 
 
@@ -544,6 +548,7 @@ chooseReturnBndrs _ _ _ = panic "chooseReturnBndrs"
         -- UbxTupALt has only one alternative
 
 -------------------------------------
+
 cgAlts :: (GcPlan,ReturnKind) -> NonVoid Id -> AltType -> [StgAlt]
        -> FCode ReturnKind
 -- At this point the result of the case are in the binders
@@ -557,7 +562,7 @@ cgAlts gc_plan _bndr (UbxTupAlt _) [(_, _, _, rhs)]
 cgAlts gc_plan bndr (PrimAlt _) alts
   = do  { dflags <- getDynFlags
 
-        ; tagged_cmms <- cgAltRhss gc_plan bndr alts
+        ; tagged_cmms <- cgAltRhss dflags gc_plan bndr alts
 
         ; let bndr_reg = CmmLocal (idToReg dflags bndr)
               (DEFAULT,deflt) = head tagged_cmms
@@ -624,7 +629,8 @@ cgAlgAltRhss :: (GcPlan,ReturnKind) -> NonVoid Id -> [StgAlt]
              -> FCode ( Maybe CmmAGraphScoped
                       , [(ConTagZ, CmmAGraphScoped)] )
 cgAlgAltRhss gc_plan bndr alts
-  = do { tagged_cmms <- cgAltRhss gc_plan bndr alts
+  = do { dflags <- getDynFlags
+       ; tagged_cmms <- cgAltRhss dflags gc_plan bndr alts
 
        ; let { mb_deflt = case tagged_cmms of
                            ((DEFAULT,rhs) : _) -> Just rhs
@@ -655,12 +661,87 @@ cgAltRhss gc_plan bndr alts = do
            ; return con }
   forkAlts (map cg_alt alts)
 
+{-
+Note [Knot tying for case analysis heap checks]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+There is a bit of knot-tying in the generation of heap checks for case analyses.
+Namely, the GcPlan (which determines where the heap check is placed, either
+before the case analysis or in the altnernatives) is determined by whether the
+code in the alternatives allocates.
+
+For this reason, maybeAltHeapCheck must be very careful: the actions it performs
+must be determined independent of the gc_plan which it is carrying out.
+This requies that we allocate a redundant Label, as it may be required by 
+
+State
+ * Writer: Can start with clean slate
+ * Reader: Just take value
+ * State:
+   * local bindings: take from context?
+   * heap usage:
+     * perhaps start from zero?
+     * getHeapUsage resets heap usage anyways
+   * UniqSupply:
+     * Split? Once? Thrice?
+
+Code Paths:
+ * NoGcInAlts: code
+ * AssignedDirectly -> altHeapCheck -> altOrNoEscapeHeapCheck:
+    * case cannedGCEntryPoint
+      * Nothing
+        * genericGC
+          * newLabel
+          * emit
+          * heapCheck
+      * Just
+        * newLabel x2
+        * emit
+        * cannedGCReturnsTo
+          * heapCheck
+ * ReturnedTo: altHeapCheckReturnsTo
+    * case cannedGCEntryPoint
+      * Nothing
+        * genericGC
+          * newLabel, emit, heapCheck
+      * Just
+        * cannedGCReturnsTo
+          * heapCheck
+
+ * `NoGcInAlts`
+    * just run the code
+ * `GcInAlts`, return `AssignedDirectly` without canned GC entrypoint:
+    * need 1 new label
+    * end up in `genericGC`
+ * `GcInAlts`, return `AssignedDirectly` with canned entrypoint:
+    * need 2 new labels
+    * end up in `cannedGCReturnsTo`
+ * `GcInAlts`, `ReturnedTo` without canned entrypoint:
+    * end up in `genericGC`
+ * `GcInAlts`, `ReturnedTo` with canned entrypoint:
+    * end up in `heapCheck`
+
+-}
+
+-- | Produce a heap check for
+-- Must be lazy in the 'GcPlan'.
 maybeAltHeapCheck :: (GcPlan,ReturnKind) -> FCode a -> FCode a
-maybeAltHeapCheck (NoGcInAlts,_)  code = code
-maybeAltHeapCheck (GcInAlts regs, AssignedDirectly) code =
-  altHeapCheck regs code
-maybeAltHeapCheck (GcInAlts regs, ReturnedTo lret off) code =
-  altHeapCheckReturnsTo regs lret off code
+maybeAltHeapCheck gc_plan code = do
+  -- See Note [Knot tying for case analysis heap checks]
+  label1 <- allocLabelC
+  label2 <- allocLabelC
+  info_down <- getInfoDown
+  let dflags = extractDynFlags info_down
+  getHeapUsage $ \hpHw -> do
+    let doHeapCheck = 
+    emit $ case gc_plan of
+      (NoGcInAlts,_)                       -> return ()
+      (GcInAlts regs, AssignedDirectly)    ->
+          -- formerly altHeapCheck
+          case cannedGCEntryPoint altHeapCheck regs of
+            Nothing -> genericGC' False
+      (GcInAlts regs, ReturnedTo lret off) -> altHeapCheckReturnsTo regs regs lret off code
+    code
 
 -----------------------------------------------------------------------------
 --      Tail calls

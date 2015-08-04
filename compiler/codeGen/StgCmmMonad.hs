@@ -193,6 +193,10 @@ data CgInfoDownwards        -- information only passed *downwards* by the monad
         cgd_tick_scope:: CmmTickScope       -- Tick scope for new blocks & ticks
   }
 
+instance ContainsDynFlags CgInfoDownwards where
+  extractDynFlags = cgd_dflags
+  replaceDynFlags info dflags = info { cgd_dflags = dflags }
+
 type CgBindings = IdEnv CgIdInfo
 
 data CgIdInfo

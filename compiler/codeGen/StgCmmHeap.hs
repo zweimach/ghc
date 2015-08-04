@@ -409,6 +409,7 @@ entryHeapCheck' is_fastf node arity args code
 --           then generate the continuation and do mkCallReturnsTo
 --           else we do a normal call to stg_gc_noregs
 
+-- | Produce a heap check for a case analysis alternative
 altHeapCheck :: [LocalReg] -> FCode a -> FCode a
 altHeapCheck regs code = altOrNoEscapeHeapCheck False regs code
 
@@ -454,6 +455,7 @@ cannedGCReturnsTo checkYield cont_on_stack gc regs lret off code
       -- to the canned heap-check routines, because we are in a case
       -- alternative and hence the [LocalReg] was passed to us in the
       -- NativeReturn convention.
+    gc_call :: DynFlags -> Label -> UpdFrameOffset -> CmmAGraph
     gc_call dflags label sp
       | cont_on_stack
       = mkJumpReturnsTo dflags label NativeReturn reg_exprs lret off sp
