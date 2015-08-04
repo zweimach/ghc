@@ -118,12 +118,12 @@ instance Functor FCode where
   fmap f (FCode g) = FCode $ \i s -> case g i s of (# a, s' #) -> (# f a, s' #)
 
 instance A.Applicative FCode where
-      pure = return
-      (<*>) = ap
+  pure = return
+  (<*>) = ap
 
 instance Monad FCode where
-        (>>=) = thenFC
-        return = returnFC
+  (>>=) = thenFC
+  return = returnFC
 
 {-# INLINE thenC #-}
 {-# INLINE thenFC #-}
