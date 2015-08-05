@@ -200,6 +200,7 @@ Library
         GHC.Exception
         GHC.ExecutionStack
         GHC.ExecutionStack.Internal
+        GHC.ExecutionStack.ZDecode
         GHC.Exts
         GHC.Fingerprint
         GHC.Fingerprint.Type

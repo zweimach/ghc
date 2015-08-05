@@ -29,6 +29,7 @@ module GHC.ExecutionStack.Internal (
 
 import GHC.IO (IO(..))
 import GHC.Base (Int(I##))
+import qualified GHC.ExecutionStack.ZDecode as ZDecode
 import GHC.Ptr (Ptr(Ptr))
 import GHC.Prim (ByteArray##, sizeofByteArray##, indexAddrArray##)
 import GHC.Prim (reifyStack##)
@@ -69,7 +70,7 @@ data StackFrame = StackFrame
 -- | Like 'show', without @unlines@
 prepareStackFrame :: StackFrame -> [String]
 prepareStackFrame su =
-        [procedureName su]
+        [ZDecode.decode $ procedureName su]
     --  Note: We intend to have multiple lines per frame once we have dwarf
 
 -- | Pretty-print an execution stack:
