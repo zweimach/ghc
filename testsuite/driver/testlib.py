@@ -387,6 +387,9 @@ def unregisterised( ):
 def compiler_profiled( ):
     return config.compiler_profiled
 
+def rts_with_libelf( ):
+    return config.rts_with_libelf
+
 def compiler_debugged( ):
     return config.compiler_debugged
 
