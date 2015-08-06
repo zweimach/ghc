@@ -121,6 +121,13 @@ class TestConfig:
         # Should we skip performance tests
         self.skip_perf_tests = False
 
+        # Trac linting:
+        # We can perform a variety of consistency checks between Trac and the
+        # testsuite given Trac credentials.
+        self.trac_lint = False
+        self.trac_user = None   # username
+        self.trac_passwd = None # password
+
 global config
 config = TestConfig()
 

@@ -29,6 +29,12 @@ if config.use_threads:
     except ImportError: # Python 3
         import _thread as thread
 
+if config.trac_lint:
+    import xmlrpclib
+    url = 'https://%s:%s@ghc.haskell.org/trac/ghc/login/xmlrpc' % \
+            (config.trac_user, config.trac_passwd)
+    trac = xmlrpclib.ServerProxy(url)
+
 global wantToStop
 wantToStop = False
 def stopNow():
@@ -172,6 +178,15 @@ def record_broken(name, opts, bug):
     me = (bug, opts.testdir, name)
     if not me in brokens:
         brokens.append(me)
+
+    if config.trac_lint:
+        try:
+            [ticket_id, time_created, time_changed, attrs]  = trac.ticket.get(bug)
+            if attrs['status'] == 'closed':
+                print 'Warning: Test %s marked as broken due to Ticket #%d which is marked as closed' % \
+                  (name, bug)
+        except Exception as e:
+            print 'Failed to fetch Trac #%d: %s' % (ticket_n, e)
 
 def _expect_pass(way):
     # Helper function. Not intended for use in .T files.
