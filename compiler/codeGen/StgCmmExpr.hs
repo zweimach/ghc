@@ -730,16 +730,11 @@ maybeAltHeapCheck gc_plan code = do
   -- See Note [Knot tying for case analysis heap checks]
   label1 <- allocLabelC
   label2 <- allocLabelC
-  info_down <- getInfoDown
-  let dflags = extractDynFlags info_down
+
   getHeapUsage $ \hpHw -> do
-    let doHeapCheck = 
-    emit $ case gc_plan of
+    codeOnly $ case gc_plan of
       (NoGcInAlts,_)                       -> return ()
-      (GcInAlts regs, AssignedDirectly)    ->
-          -- formerly altHeapCheck
-          case cannedGCEntryPoint altHeapCheck regs of
-            Nothing -> genericGC' False
+      (GcInAlts regs, AssignedDirectly)    -> altHeapCheck regs code
       (GcInAlts regs, ReturnedTo lret off) -> altHeapCheckReturnsTo regs regs lret off code
     code
 
