@@ -1090,6 +1090,7 @@ rnGRHSs :: HsMatchContext Name
         -> (Located (body RdrName) -> RnM (Located (body Name), FreeVars))
         -> GRHSs RdrName (Located (body RdrName))
         -> RnM (GRHSs Name (Located (body Name)), FreeVars)
+rnGRHSs _    _      ImpossibleCase = return (ImpossibleCase, emptyNameSet)
 rnGRHSs ctxt rnBody (GRHSs grhss binds)
   = rnLocalBindsAndThen binds   $ \ binds' -> do
     (grhss', fvGRHSs) <- mapFvRn (rnGRHS ctxt rnBody) grhss

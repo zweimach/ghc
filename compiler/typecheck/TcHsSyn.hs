@@ -557,6 +557,7 @@ zonkGRHSs :: ZonkEnv
           -> (ZonkEnv -> Located (body TcId) -> TcM (Located (body Id)))
           -> GRHSs TcId (Located (body TcId)) -> TcM (GRHSs Id (Located (body Id)))
 
+zonkGRHSs _   _     ImpossibleCase      = return ImpossibleCase
 zonkGRHSs env zBody (GRHSs grhss binds) = do
     (new_env, new_binds) <- zonkLocalBinds env binds
     let

@@ -620,6 +620,7 @@ addTickMatch isOneOfMany isLambda (Match mf pats opSig gRHSs) =
     return $ Match mf pats opSig gRHSs'
 
 addTickGRHSs :: Bool -> Bool -> GRHSs Id (LHsExpr Id) -> TM (GRHSs Id (LHsExpr Id))
+addTickGRHSs _           _        ImpossibleCase = return ImpossibleCase
 addTickGRHSs isOneOfMany isLambda (GRHSs guarded local_binds) = do
   bindLocals binders $ do
     local_binds' <- addTickHsLocalBinds local_binds
@@ -835,6 +836,7 @@ addTickCmdMatch (Match mf pats opSig gRHSs) =
     return $ Match mf pats opSig gRHSs'
 
 addTickCmdGRHSs :: GRHSs Id (LHsCmd Id) -> TM (GRHSs Id (LHsCmd Id))
+addTickCmdGRHSs ImpossibleCase = return ImpossibleCase
 addTickCmdGRHSs (GRHSs guarded local_binds) = do
   bindLocals binders $ do
     local_binds' <- addTickHsLocalBinds local_binds
@@ -1204,6 +1206,7 @@ hpcSrcSpan = mkGeneralSrcSpan (fsLit "Haskell Program Coverage internals")
 matchesOneOfMany :: [LMatch Id body] -> Bool
 matchesOneOfMany lmatches = sum (map matchCount lmatches) > 1
   where
+        matchCount (L _ (Match _ _pats _ty ImpossibleCase)) = 0
         matchCount (L _ (Match _ _pats _ty (GRHSs grhss _binds))) = length grhss
 
 type MixEntry_ = (SrcSpan, [String], [OccName], BoxLabel)

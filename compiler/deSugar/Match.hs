@@ -74,7 +74,7 @@ matchCheck_really :: DynFlags
                   -> Type
                   -> [EquationInfo]
                   -> DsM MatchResult
-matchCheck_really dflags ctx@(DsMatchContext hs_ctx _) vars ty qs
+matchCheck_really dflags ctx@(DsMatchContext impos_pats hs_ctx _) vars ty qs
   = do { when shadow (dsShadowWarn ctx eqns_shadow)
        ; when incomplete (dsIncompleteWarn ctx pats)
        ; match vars ty qs }
@@ -116,7 +116,7 @@ maximum_output = 4
 -- The next two functions create the warning message.
 
 dsShadowWarn :: DsMatchContext -> [EquationInfo] -> DsM ()
-dsShadowWarn ctx@(DsMatchContext kind loc) qs
+dsShadowWarn ctx@(DsMatchContext _ kind loc) qs
   = putSrcSpanDs loc (warnDs warn)
   where
     warn | qs `lengthExceeds` maximum_output
@@ -129,7 +129,7 @@ dsShadowWarn ctx@(DsMatchContext kind loc) qs
 
 
 dsIncompleteWarn :: DsMatchContext -> [ExhaustivePat] -> DsM ()
-dsIncompleteWarn ctx@(DsMatchContext kind loc) pats
+dsIncompleteWarn ctx@(DsMatchContext _ kind loc) pats
   = putSrcSpanDs loc (warnDs warn)
         where
           warn = pp_context ctx (ptext (sLit "are non-exhaustive"))
@@ -142,7 +142,7 @@ dsIncompleteWarn ctx@(DsMatchContext kind loc) pats
                | otherwise                           = empty
 
 pp_context :: DsMatchContext -> SDoc -> ((SDoc -> SDoc) -> SDoc) -> SDoc
-pp_context (DsMatchContext kind _loc) msg rest_of_msg_fun
+pp_context (DsMatchContext _ kind _loc) msg rest_of_msg_fun
   = vcat [ptext (sLit "Pattern match(es)") <+> msg,
           sep [ptext (sLit "In") <+> ppr_match <> char ':', nest 4 (rest_of_msg_fun pref)]]
   where
@@ -818,7 +818,7 @@ matchEquations  :: HsMatchContext Name
                 -> DsM CoreExpr
 matchEquations ctxt vars eqns_info rhs_ty
   = do  { locn <- getSrcSpanDs
-        ; let   ds_ctxt   = DsMatchContext ctxt locn
+        ; let   ds_ctxt   = DsMatchContext [] ctxt locn
                 error_doc = matchContextErrString ctxt
 
         ; match_result <- matchCheck ds_ctxt vars rhs_ty eqns_info

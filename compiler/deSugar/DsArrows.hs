@@ -1047,6 +1047,7 @@ matchSimplys _ _ _ _ _ = panic "matchSimplys"
 -- List of leaf expressions, with set of variables bound in each
 
 leavesMatch :: LMatch Id (Located (body Id)) -> [(Located (body Id), IdSet)]
+leavesMatch (L _ (Match _ _ _ ImpossibleCase)) = []
 leavesMatch (L _ (Match _ pats _ (GRHSs grhss binds)))
   = let
         defined_vars = mkVarSet (collectPatsBinders pats)
@@ -1066,6 +1067,8 @@ replaceLeavesMatch
         -> LMatch Id (Located (body Id))        -- the matches of a case command
         -> ([Located (body' Id)],               -- remaining leaf expressions
             LMatch Id (Located (body' Id)))     -- updated match
+replaceLeavesMatch _ leaves (L loc (Match mf pat mt ImpossibleCase))
+  = (leaves, L loc (Match mf pat mt ImpossibleCase)) -- TODO
 replaceLeavesMatch _res_ty leaves (L loc (Match mf pat mt (GRHSs grhss binds)))
   = let
         (leaves', grhss') = mapAccumL replaceLeavesGRHS leaves grhss

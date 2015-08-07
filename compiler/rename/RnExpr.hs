@@ -567,6 +567,7 @@ methodNamesMatch (MG { mg_alts = ms })
 -------------------------------------------------
 -- gaw 2004
 methodNamesGRHSs :: GRHSs Name (LHsCmd Name) -> FreeVars
+methodNamesGRHSs ImpossibleCase  = emptyFVs
 methodNamesGRHSs (GRHSs grhss _) = plusFVs (map methodNamesGRHS grhss)
 
 -------------------------------------------------

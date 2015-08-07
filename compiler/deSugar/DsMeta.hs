@@ -1145,6 +1145,7 @@ repMatchTup (L _ (Match _ [p] _ (GRHSs guards wheres))) =
 repMatchTup _ = panic "repMatchTup: case alt with more than one arg"
 
 repClauseTup ::  LMatch Name (LHsExpr Name) -> DsM (Core TH.ClauseQ)
+repClauseTup (L _ (Match _ _ _ ImpossibleCase)) = undefined -- TODO
 repClauseTup (L _ (Match _ ps _ (GRHSs guards wheres))) =
   do { ss1 <- mkGenSyms (collectPatsBinders ps)
      ; addBinds ss1 $ do {
@@ -1299,9 +1300,11 @@ rep_bind :: LHsBind Name -> DsM (SrcSpan, Core TH.DecQ)
 -- with an empty list of patterns
 rep_bind (L loc (FunBind
                  { fun_id = fn,
-                   fun_matches = MG { mg_alts = [L _ (Match _ [] _
-                                                   (GRHSs guards wheres))] } }))
- = do { (ss,wherecore) <- repBinds wheres
+                   fun_matches = MG { mg_alts = [L _ (Match _ [] _ rhss)]}}))
+  | ImpossibleCase <- rhss
+ =   undefined -- TODO
+  | GRHSs guards wheres <- rhss
+ =   do { (ss,wherecore) <- repBinds wheres
         ; guardcore <- addBinds ss (repGuards guards)
         ; fn'  <- lookupLBinder fn
         ; p    <- repPvar fn'
@@ -1315,6 +1318,8 @@ rep_bind (L loc (FunBind { fun_id = fn, fun_matches = MG { mg_alts = ms } }))
         ; ans <- repFun fn' (nonEmptyCoreList ms1)
         ; return (loc, ans) }
 
+rep_bind (L _ (PatBind { pat_rhs = ImpossibleCase }))
+ =   undefined -- TODO
 rep_bind (L loc (PatBind { pat_lhs = pat, pat_rhs = GRHSs guards wheres }))
  =   do { patcore <- repLP pat
         ; (ss,wherecore) <- repBinds wheres

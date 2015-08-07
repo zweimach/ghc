@@ -57,6 +57,8 @@ dsGRHSs :: HsMatchContext Name -> [Pat Id]      -- These are to build a MatchCon
         -> GRHSs Id (LHsExpr Id)                -- Guarded RHSs
         -> Type                                 -- Type of RHS
         -> DsM MatchResult
+-- TODO: Throw error?
+dsGRHSs _      _ ImpossibleCase _ = return $ MatchResult CanFail return
 dsGRHSs hs_ctx _ (GRHSs grhss binds) rhs_ty
   = ASSERT( notNull grhss )
     do { match_results <- mapM (dsGRHS hs_ctx rhs_ty) grhss

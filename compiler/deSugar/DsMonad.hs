@@ -79,7 +79,10 @@ import Control.Monad
 -}
 
 data DsMatchContext
-  = DsMatchContext (HsMatchContext Name) SrcSpan
+  = DsMatchContext
+        [Pat Id]               -- ^ patterns identified as impossible by user
+        (HsMatchContext Name)  -- ^ match context
+        SrcSpan                -- ^ span of match
   deriving ()
 
 data EquationInfo

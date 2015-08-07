@@ -1149,7 +1149,9 @@ data GRHSs id body
   = GRHSs {
       grhssGRHSs :: [LGRHS id body],       -- ^ Guarded RHSs
       grhssLocalBinds :: (HsLocalBinds id) -- ^ The where clause
-    } deriving (Typeable)
+    }
+  | ImpossibleCase
+  deriving (Typeable)
 deriving instance (Data body,DataId id) => Data (GRHSs id body)
 
 type LGRHS id body = Located (GRHS id body)
@@ -1216,6 +1218,8 @@ pprMatch ctxt (Match _ pats maybe_ty grhss)
 
 pprGRHSs :: (OutputableBndr idR, Outputable body)
          => HsMatchContext idL -> GRHSs idR body -> SDoc
+pprGRHSs _ ImpossibleCase
+  = text "impossible"
 pprGRHSs ctxt (GRHSs grhss binds)
   = vcat (map (pprGRHS ctxt . unLoc) grhss)
  $$ ppUnless (isEmptyLocalBinds binds)
@@ -1828,7 +1832,7 @@ data HsMatchContext id
                                 --    runtime error message to generate]
   | StmtCtxt                    -- ^ Pattern of a do-stmt, list comprehension,
       { mc_stmt_context :: HsStmtContext id -- ^ pattern guard, etc.
-      )
+      }
 
   | ThPatSplice                 -- ^ A Template Haskell pattern splice
   | ThPatQuote                  -- ^ A Template Haskell pattern quotation [p| (a,b) |]

@@ -183,6 +183,7 @@ tcMatch :: (Outputable (body Name)) => TcMatchCtxt body
         -> TcM (LMatch TcId (Located (body TcId)))
 
 tcMatch ctxt pat_tys rhs_ty match
+  | otherwise
   = wrapLocM (tc_match ctxt pat_tys rhs_ty) match
   where
     tc_match ctxt pat_tys rhs_ty match@(Match _ pats maybe_rhs_sig grhss)
@@ -214,6 +215,9 @@ tcGRHSs :: TcMatchCtxt body -> GRHSs Name (Located (body Name)) -> TcRhoType
 --      f = \(x::forall a.a->a) -> <stuff>
 -- We used to force it to be a monotype when there was more than one guard
 -- but we don't need to do that any more
+
+tcGRHSs _ ImpossibleCase _
+  = return ImpossibleCase
 
 tcGRHSs ctxt (GRHSs grhss binds) res_ty
   = do  { (binds', grhss') <- tcLocalBinds binds $

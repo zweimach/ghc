@@ -1137,6 +1137,7 @@ checkCmdMatchGroup mg@(MG { mg_alts = ms }) = do
             return $ Match mf pat mty grhss'
 
 checkCmdGRHSs :: GRHSs RdrName (LHsExpr RdrName) -> P (GRHSs RdrName (LHsCmd RdrName))
+checkCmdGRHSs ImpossibleCase = return ImpossibleCase
 checkCmdGRHSs (GRHSs grhss binds) = do
     grhss' <- mapM checkCmdGRHS grhss
     return $ GRHSs grhss' binds
