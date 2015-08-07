@@ -59,28 +59,32 @@ JJCQ 30-Nov-1997
 -}
 
 matchCheck ::  DsMatchContext
-            -> [Id]             -- Vars rep'ing the exprs we're matching with
-            -> Type             -- Type of the case expression
-            -> [EquationInfo]   -- Info about patterns, etc. (type synonym below)
-            -> DsM MatchResult  -- Desugared result!
+            -> [Pat Id]         -- ^ Patterns identified by the user to be impossible
+            -> [Id]             -- ^ Vars rep'ing the exprs we're matching with
+            -> Type             -- ^ Type of the case expression
+            -> [EquationInfo]   -- ^ Info about patterns, etc. (type synonym below)
+            -> DsM MatchResult  -- ^ Desugared result!
 
-matchCheck ctx vars ty qs
+matchCheck ctx impos_pats vars ty qs
   = do { dflags <- getDynFlags
-       ; matchCheck_really dflags ctx vars ty qs }
+       ; matchCheck_really dflags ctx impos_pats vars ty qs }
 
 matchCheck_really :: DynFlags
                   -> DsMatchContext
+                  -> [Pat Id]
                   -> [Id]
                   -> Type
                   -> [EquationInfo]
                   -> DsM MatchResult
-matchCheck_really dflags ctx@(DsMatchContext impos_pats hs_ctx _) vars ty qs
+matchCheck_really dflags ctx@(DsMatchContext hs_ctx _) impos_pats vars ty qs
   = do { when shadow (dsShadowWarn ctx eqns_shadow)
-       ; when incomplete (dsIncompleteWarn ctx pats)
+       ; when incomplete (dsIncompleteWarn ctx pos_pats)
        ; match vars ty qs }
   where
     (pats, eqns_shadow) = check qs
-    incomplete = incomplete_flag hs_ctx && notNull pats
+    -- don't warn about patterns identified as impossible by the user
+    pos_pats = filter (`notElem` impos_pats) pats
+    incomplete = incomplete_flag hs_ctx && notNull pos_pats
     shadow     = wopt Opt_WarnOverlappingPatterns dflags
               && notNull eqns_shadow
 
@@ -116,7 +120,7 @@ maximum_output = 4
 -- The next two functions create the warning message.
 
 dsShadowWarn :: DsMatchContext -> [EquationInfo] -> DsM ()
-dsShadowWarn ctx@(DsMatchContext _ kind loc) qs
+dsShadowWarn ctx@(DsMatchContext kind loc) qs
   = putSrcSpanDs loc (warnDs warn)
   where
     warn | qs `lengthExceeds` maximum_output
@@ -129,7 +133,7 @@ dsShadowWarn ctx@(DsMatchContext _ kind loc) qs
 
 
 dsIncompleteWarn :: DsMatchContext -> [ExhaustivePat] -> DsM ()
-dsIncompleteWarn ctx@(DsMatchContext _ kind loc) pats
+dsIncompleteWarn ctx@(DsMatchContext kind loc) pats
   = putSrcSpanDs loc (warnDs warn)
         where
           warn = pp_context ctx (ptext (sLit "are non-exhaustive"))
@@ -142,7 +146,7 @@ dsIncompleteWarn ctx@(DsMatchContext _ kind loc) pats
                | otherwise                           = empty
 
 pp_context :: DsMatchContext -> SDoc -> ((SDoc -> SDoc) -> SDoc) -> SDoc
-pp_context (DsMatchContext _ kind _loc) msg rest_of_msg_fun
+pp_context (DsMatchContext kind _loc) msg rest_of_msg_fun
   = vcat [ptext (sLit "Pattern match(es)") <+> msg,
           sep [ptext (sLit "In") <+> ppr_match <> char ':', nest 4 (rest_of_msg_fun pref)]]
   where
@@ -799,8 +803,13 @@ matchWrapper ctxt (MG { mg_alts = matches
         ; new_vars    <- case matches of
                            []    -> mapM newSysLocalDs arg_tys
                            (m:_) -> selectMatchVars (map unLoc (hsLMatchPats m))
+        ; let impos_pats :: [Pat Id]
+              impos_pats = do L _ match <- matches
+                              ImpossibleCase <- [m_grhss match]
+                              pat <- m_pats match
+                              return (unLoc pat)
         ; result_expr <- handleWarnings $
-                         matchEquations ctxt new_vars eqns_info rhs_ty
+                         matchEquations ctxt impos_pats new_vars eqns_info rhs_ty
         ; return (new_vars, result_expr) }
   where
     mk_eqn_info (L _ (Match _ pats _ grhss))
@@ -813,15 +822,18 @@ matchWrapper ctxt (MG { mg_alts = matches
                      else id
 
 
-matchEquations  :: HsMatchContext Name
-                -> [Id] -> [EquationInfo] -> Type
+matchEquations  :: HsMatchContext Name   -- ^ Match kind
+                -> [Pat Id]              -- ^ Patterns identified by user as impossible
+                -> [Id]                  -- ^ Variables being scrutinized
+                -> [EquationInfo]        -- ^ Equations
+                -> Type                  -- ^ Type of RHS
                 -> DsM CoreExpr
-matchEquations ctxt vars eqns_info rhs_ty
+matchEquations ctxt impos_pats vars eqns_info rhs_ty
   = do  { locn <- getSrcSpanDs
-        ; let   ds_ctxt   = DsMatchContext [] ctxt locn
+        ; let   ds_ctxt   = DsMatchContext ctxt locn
                 error_doc = matchContextErrString ctxt
 
-        ; match_result <- matchCheck ds_ctxt vars rhs_ty eqns_info
+        ; match_result <- matchCheck ds_ctxt impos_pats vars rhs_ty eqns_info
 
         ; fail_expr <- mkErrorAppDs pAT_ERROR_ID rhs_ty error_doc
         ; extractMatchResult match_result fail_expr }
@@ -860,7 +872,7 @@ matchSinglePat :: CoreExpr -> HsMatchContext Name -> LPat Id
 -- incomplete patterns are just fine
 matchSinglePat (Var var) ctx (L _ pat) ty match_result
   = do { locn <- getSrcSpanDs
-       ; matchCheck (DsMatchContext ctx locn)
+       ; matchCheck (DsMatchContext ctx locn) []
                     [var] ty
                     [EqnInfo { eqn_pats = [pat], eqn_rhs  = match_result }] }
 

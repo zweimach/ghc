@@ -256,6 +256,10 @@ tc_cmd env
     match_ctxt = (LambdaExpr :: HsMatchContext Name)    -- Maybe KappaExpr?
     pg_ctxt    = PatGuard match_ctxt
 
+    tc_grhss :: GRHSs Name (LHsCmd Name) -> TcType -> TcTauType -> TcM (GRHSs TcId (LHsCmd TcId))
+    tc_grhss ImpossibleCase _ _
+        =      return ImpossibleCase
+
     tc_grhss (GRHSs grhss binds) stk_ty res_ty
         = do { (binds', grhss') <- tcLocalBinds binds $
                                    mapM (wrapLocM (tc_grhs stk_ty res_ty)) grhss
