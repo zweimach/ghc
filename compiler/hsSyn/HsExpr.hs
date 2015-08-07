@@ -1811,24 +1811,28 @@ pp_dotdot = ptext (sLit " .. ")
 ************************************************************************
 -}
 
-data HsMatchContext id  -- Context of a Match
-  = FunRhs id Bool              -- Function binding for f; True <=> written infix
-  | LambdaExpr                  -- Patterns of a lambda
-  | CaseAlt                     -- Patterns and guards on a case alternative
-  | IfAlt                       -- Guards of a multi-way if alternative
-  | ProcExpr                    -- Patterns of a proc
-  | PatBindRhs                  -- A pattern binding  eg [y] <- e = e
+-- | Context of a Match
+data HsMatchContext id
+  = FunRhs
+       { mc_fun_bndr :: id      -- ^ Function binding for f
+       , mc_fun_infix :: Bool   -- ^ written infix?
+       }
+  | LambdaExpr                  -- ^ Patterns of a lambda
+  | CaseAlt                     -- ^ Patterns and guards on a case alternative
+  | IfAlt                       -- ^ Guards of a multi-way if alternative
+  | ProcExpr                    -- ^ Patterns of a proc
+  | PatBindRhs                  -- ^ A pattern binding  e.g. [y] <- e = e
 
-  | RecUpd                      -- Record update [used only in DsExpr to
+  | RecUpd                      -- ^ Record update [used only in DsExpr to
                                 --    tell matchWrapper what sort of
                                 --    runtime error message to generate]
+  | StmtCtxt                    -- ^ Pattern of a do-stmt, list comprehension,
+      { mc_stmt_context :: HsStmtContext id -- ^ pattern guard, etc.
+      )
 
-  | StmtCtxt (HsStmtContext id) -- Pattern of a do-stmt, list comprehension,
-                                -- pattern guard, etc
-
-  | ThPatSplice                 -- A Template Haskell pattern splice
-  | ThPatQuote                  -- A Template Haskell pattern quotation [p| (a,b) |]
-  | PatSyn                      -- A pattern synonym declaration
+  | ThPatSplice                 -- ^ A Template Haskell pattern splice
+  | ThPatQuote                  -- ^ A Template Haskell pattern quotation [p| (a,b) |]
+  | PatSyn                      -- ^ A pattern synonym declaration
   deriving (Data, Typeable)
 
 data HsStmtContext id
