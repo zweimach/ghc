@@ -539,6 +539,7 @@ data Token
   | ITforall                    -- GHC extension keywords
   | ITexport
   | ITlabel
+  | ITimpossible
   | ITdynamic
   | ITsafe
   | ITinterruptible
@@ -760,6 +761,7 @@ reservedWordsFM = listToUFM $
          ( "prim",           ITprimcallconv,  xbit FfiBit),
          ( "javascript",     ITjavascriptcallconv, xbit FfiBit),
 
+         ( "impossible",     ITimpossible,    xbit ImpossibleCasesBit),
          ( "rec",            ITrec,           xbit ArrowsBit .|.
                                               xbit RecursiveDoBit),
          ( "proc",           ITproc,          xbit ArrowsBit)
@@ -1978,6 +1980,7 @@ data ExtBits
   | CApiFfiBit
   | ParrBit
   | ArrowsBit
+  | ImpossibleCasesBit
   | ThBit
   | IpBit
   | ExplicitForallBit -- the 'forall' keyword and '.' symbol
@@ -2015,6 +2018,8 @@ parrEnabled :: ExtsBitmap -> Bool
 parrEnabled = xtest ParrBit
 arrowsEnabled :: ExtsBitmap -> Bool
 arrowsEnabled = xtest ArrowsBit
+impossibleCasesEnabled :: ExtsBitmap -> Bool
+impossibleCasesEnabled = xtest ImpossibleCasesBit
 thEnabled :: ExtsBitmap -> Bool
 thEnabled = xtest ThBit
 ipEnabled :: ExtsBitmap -> Bool
@@ -2106,6 +2111,7 @@ mkPState flags buf loc =
                .|. CApiFfiBit                  `setBitIf` xopt Opt_CApiFFI                  flags
                .|. ParrBit                     `setBitIf` xopt Opt_ParallelArrays           flags
                .|. ArrowsBit                   `setBitIf` xopt Opt_Arrows                   flags
+               .|. ImpossibleCasesBit          `setBitIf` xopt Opt_ImpossibleCases          flags
                .|. ThBit                       `setBitIf` xopt Opt_TemplateHaskell          flags
                .|. QqBit                       `setBitIf` xopt Opt_QuasiQuotes              flags
                .|. IpBit                       `setBitIf` xopt Opt_ImplicitParams           flags

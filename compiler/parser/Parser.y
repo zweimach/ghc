@@ -361,6 +361,7 @@ for some background.
  'javascript'   { L _ ITjavascriptcallconv }
  'proc'         { L _ ITproc }          -- for arrow notation extension
  'rec'          { L _ ITrec }           -- for arrow notation extension
+ 'impossible'   { L _ ITimpossible }    -- for impossible pattern extension
  'group'    { L _ ITgroup }     -- for list transform extension
  'by'       { L _ ITby }        -- for list transform extension
  'using'    { L _ ITusing }     -- for list transform extension
@@ -2518,7 +2519,8 @@ alt     :: { LMatch RdrName (LHsExpr RdrName) }
                                          ((fst $2) ++ (fst $ unLoc $3))}
 
 alt_rhs :: { Located ([AddAnn],GRHSs RdrName (LHsExpr RdrName)) }
-        : ralt wherebinds           { sLL $1 $> (fst $ unLoc $2,
+        : 'impossible'              { sLL $1 $1 ([], ImpossibleCase) }
+        | ralt wherebinds           { sLL $1 $> (fst $ unLoc $2,
                                             GRHSs (unLoc $1) (snd $ unLoc $2)) }
 
 ralt :: { Located [LGRHS RdrName (LHsExpr RdrName)] }
@@ -2974,6 +2976,7 @@ special_id
         | 'qualified'           { sL1 $1 (fsLit "qualified") }
         | 'hiding'              { sL1 $1 (fsLit "hiding") }
         | 'export'              { sL1 $1 (fsLit "export") }
+        | 'impossible'          { sL1 $1 (fsLit "impossible") }
         | 'label'               { sL1 $1 (fsLit "label")  }
         | 'dynamic'             { sL1 $1 (fsLit "dynamic") }
         | 'stdcall'             { sL1 $1 (fsLit "stdcall") }

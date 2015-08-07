@@ -576,6 +576,7 @@ data ExtensionFlag
    | Opt_JavaScriptFFI
    | Opt_ParallelArrays           -- Syntactic support for parallel arrays
    | Opt_Arrows                   -- Arrow-notation syntax
+   | Opt_ImpossibleCases          -- @impossible@ pattern syntax
    | Opt_TemplateHaskell
    | Opt_QuasiQuotes
    | Opt_ImplicitParams
