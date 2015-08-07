@@ -7,7 +7,7 @@ Author: Juan J. Quintela    <quintela@krilin.dc.fi.udc.es>
 
 {-# LANGUAGE CPP #-}
 
-module Check ( check , ExhaustivePat ) where
+module Check ( check , ExhaustivePat(..) ) where
 
 #include "HsVersions.h"
 
@@ -98,7 +98,13 @@ Then we need to use InPats.
 -}
 
 type WarningPat = InPat Name
-type ExhaustivePat = ([WarningPat], [(Name, [HsLit])])
+-- | A description of an set of non-exhaustive patterns
+data ExhaustivePat = ExhaustivePat
+    { -- | The patterns that are missing from the match
+      ep_missing_pats :: [WarningPat]
+      -- | Values missing from bound variable patterns
+    , ep_contraints   :: [(Name, [HsLit])]
+    }
 type EqnNo  = Int
 type EqnSet = UniqSet EqnNo
 
@@ -115,10 +121,10 @@ check qs = (untidy_warns, shadowed_eqns)
                                 not (i `elementOfUniqSet` used_nos)]
 
 untidy_exhaustive :: ExhaustivePat -> ExhaustivePat
-untidy_exhaustive ([pat], messages) =
-                  ([untidy_no_pars pat], map untidy_message messages)
-untidy_exhaustive (pats, messages) =
-                  (map untidy_pars pats, map untidy_message messages)
+untidy_exhaustive (ExhaustivePat [pat] messages) =
+    ExhaustivePat [untidy_no_pars pat] (map untidy_message messages)
+untidy_exhaustive (ExhaustivePat pats messages) =
+    ExhaustivePat (map untidy_pars pats) (map untidy_message messages)
 
 untidy_message :: (Name, [HsLit]) -> (Name, [HsLit])
 untidy_message (string, lits) = (string, map untidy_lit lits)
@@ -215,7 +221,7 @@ check' ((n, EqnInfo { eqn_pats = ps, eqn_rhs = MatchResult can_fail _ }) : rs)
    = ([], unitUniqSet n)        -- One eqn, which can't fail
 
    | first_eqn_all_vars && null rs      -- One eqn, but it can fail
-   = ([(takeList ps (repeat nlWildPatName),[])], unitUniqSet n)
+   = ([ExhaustivePat (takeList ps (repeat nlWildPatName)) []], unitUniqSet n)
 
    | first_eqn_all_vars         -- Several eqns, first can fail
    = (pats, addOneToUniqSet indexs n)
@@ -274,8 +280,8 @@ process_literals used_lits qs
        default_eqns    = ASSERT2( okGroup qs, pprGroup qs )
                          [remove_var q | q <- qs, is_var (firstPatN q)]
        (pats',indexs') = check' default_eqns
-       pats_default    = [(nlWildPatName:ps,constraints) |
-                                        (ps,constraints) <- (pats')] ++ pats
+       pats_default    = [ExhaustivePat (nlWildPatName:ps) constraints
+                         | ExhaustivePat ps constraints <- pats'] ++ pats
        indexs_default  = unionUniqSets indexs' indexs
 
 {-
@@ -285,7 +291,7 @@ begins for that literal and create a new matrix.
 
 construct_literal_matrix :: HsLit -> [(EqnNo, EquationInfo)] -> ([ExhaustivePat],EqnSet)
 construct_literal_matrix lit qs =
-    (map (\ (xs,ys) -> (new_lit:xs,ys)) pats,indexs)
+    (map (\(ExhaustivePat xs ys) -> ExhaustivePat (new_lit:xs) ys) pats, indexs)
   where
     (pats,indexs) = (check' (remove_first_column_lit lit qs))
     new_lit = nlLitPat lit
@@ -321,7 +327,7 @@ nothing to do.
 
 first_column_only_vars :: [(EqnNo, EquationInfo)] -> ([ExhaustivePat],EqnSet)
 first_column_only_vars qs
-  = (map (\ (xs,ys) -> (nlWildPatName:xs,ys)) pats,indexs)
+  = (map (\ (ExhaustivePat xs ys) -> ExhaustivePat (nlWildPatName:xs) ys) pats,indexs)
   where
     (pats, indexs) = check' (map remove_var qs)
 
@@ -350,10 +356,12 @@ need_default_case used_cons unused_cons qs
        default_eqns    = ASSERT2( okGroup qs, pprGroup qs )
                          [remove_var q | q <- qs, is_var (firstPatN q)]
        (pats',indexs') = check' default_eqns
-       pats_default    = [(make_whole_con c:ps,constraints) |
-                          c <- unused_cons, (ps,constraints) <- pats'] ++ pats
+       pats_default    = [ExhaustivePat (make_whole_con c:ps) constraints |
+                          c <- unused_cons,
+                          ExhaustivePat ps constraints <- pats'] ++ pats
        new_wilds       = ASSERT( not (null qs) ) make_row_vars_for_constructor (head qs)
-       pats_default_no_eqns =  [(make_whole_con c:new_wilds,[]) | c <- unused_cons] ++ pats
+       pats_default_no_eqns =  [ExhaustivePat (make_whole_con c:new_wilds) [] |
+                                c <- unused_cons] ++ pats
        indexs_default  = unionUniqSets indexs' indexs
 
 construct_matrix :: Pat Id -> [(EqnNo, EquationInfo)] -> ([ExhaustivePat],EqnSet)
@@ -395,8 +403,8 @@ remove_first_column _ _ = panic "Check.remove_first_column: Not ConPatOut"
 
 make_row_vars :: [HsLit] -> (EqnNo, EquationInfo) -> ExhaustivePat
 make_row_vars used_lits (_, EqnInfo { eqn_pats = pats})
-   = (nlVarPat new_var:takeList (tail pats) (repeat nlWildPatName)
-     ,[(new_var,used_lits)])
+   = ExhaustivePat (nlVarPat new_var:takeList (tail pats) (repeat nlWildPatName))
+                   [(new_var,used_lits)]
   where
      new_var = hash_x
 
@@ -588,20 +596,20 @@ make_list p (ListPat ps ty Nothing) = ListPat (p:ps) ty Nothing
 make_list _ _               = panic "Check.make_list: Invalid argument"
 
 make_con :: Pat Id -> ExhaustivePat -> ExhaustivePat
-make_con (ConPatOut{ pat_con = L _ (RealDataCon id) }) (lp:lq:ps, constraints)
-     | return_list id q = (noLoc (make_list lp q) : ps, constraints)
-     | isInfixCon id    = (nlInfixConPat (getName id) lp lq : ps, constraints)
+make_con (ConPatOut{ pat_con = L _ (RealDataCon id) })
+         (ExhaustivePat (lp:lq:ps) constraints)
+     | return_list id q = ExhaustivePat (noLoc (make_list lp q) : ps) constraints
+     | isInfixCon id    = ExhaustivePat (nlInfixConPat (getName id) lp lq : ps) constraints
    where q  = unLoc lq
 
 make_con (ConPatOut{ pat_con = L _ (RealDataCon id), pat_args = PrefixCon pats})
-         (ps, constraints)
+         (ExhaustivePat ps constraints)
       | Just sort <- tyConTuple_maybe tc
-                         = (noLoc (TuplePat pats_con (tupleSortBoxity sort) [])
-                                : rest_pats, constraints)
-      | isPArrFakeCon id = (noLoc (PArrPat pats_con placeHolderType)
-                                : rest_pats, constraints)
-      | otherwise        = (nlConPatName name pats_con
-                                : rest_pats, constraints)
+          = ExhaustivePat (noLoc (TuplePat pats_con (tupleSortBoxity sort) []) : rest_pats) constraints
+      | isPArrFakeCon id
+          = ExhaustivePat (noLoc (PArrPat pats_con placeHolderType) : rest_pats) constraints
+      | otherwise
+          = ExhaustivePat (nlConPatName name pats_con : rest_pats) constraints
     where
         name                  = getName id
         (pats_con, rest_pats) = splitAtList pats ps
