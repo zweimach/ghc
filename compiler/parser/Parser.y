@@ -2514,13 +2514,13 @@ alts1   :: { Located ([AddAnn],[LMatch RdrName (LHsExpr RdrName)]) }
         | alt                   { sL1 $1 ([],[$1]) }
 
 alt     :: { LMatch RdrName (LHsExpr RdrName) }
-        : pat opt_sig alt_rhs      {%ams (sLL $1 $> (Match Nothing [$1] (snd $2)
+        : pat opt_sig 'impossible' { sLL $1 $> (Match Nothing [$1] (snd $2) ImpossibleCase) }
+        | pat opt_sig alt_rhs      {%ams (sLL $1 $> (Match Nothing [$1] (snd $2)
                                                               (snd $ unLoc $3)))
                                          ((fst $2) ++ (fst $ unLoc $3))}
 
 alt_rhs :: { Located ([AddAnn],GRHSs RdrName (LHsExpr RdrName)) }
-        : 'impossible'              { sLL $1 $1 ([], ImpossibleCase) }
-        | ralt wherebinds           { sLL $1 $> (fst $ unLoc $2,
+        : ralt wherebinds           { sLL $1 $> (fst $ unLoc $2,
                                             GRHSs (unLoc $1) (snd $ unLoc $2)) }
 
 ralt :: { Located [LGRHS RdrName (LHsExpr RdrName)] }
