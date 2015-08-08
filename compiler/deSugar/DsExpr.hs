@@ -150,6 +150,8 @@ dsStrictBind (FunBind { fun_id = L _ fun, fun_matches = matches, fun_co_fn = co_
        ; let rhs' = mkOptTickBox tick rhs
        ; return (bindNonRec fun rhs' body) }
 
+dsStrictBind (PatBind {pat_rhs = ImpossibleCase }) _
+  = panic "dsStrictBind: Impossible case in strict binding"
 dsStrictBind (PatBind {pat_lhs = pat, pat_rhs = grhss, pat_rhs_ty = ty }) body
   =     -- let C x# y# = rhs in body
         -- ==> case rhs of C x# y# -> body
@@ -158,7 +160,7 @@ dsStrictBind (PatBind {pat_lhs = pat, pat_rhs = grhss, pat_rhs_ty = ty }) body
              eqn = EqnInfo { eqn_pats = [upat],
                              eqn_rhs = cantFailMatchResult body }
        ; var    <- selectMatchVar upat
-       ; result <- matchEquations PatBindRhs [var] [eqn] (exprType body)
+       ; result <- matchEquations PatBindRhs [] [var] [eqn] (exprType body)
        ; return (bindNonRec var rhs result) }
 
 dsStrictBind bind body = pprPanic "dsLet: unlifted" (ppr bind $$ ppr body)

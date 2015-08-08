@@ -1830,8 +1830,9 @@ data HsMatchContext id
   | RecUpd                      -- ^ Record update [used only in DsExpr to
                                 --    tell matchWrapper what sort of
                                 --    runtime error message to generate]
-  | StmtCtxt                    -- ^ Pattern of a do-stmt, list comprehension,
-      { mc_stmt_context :: HsStmtContext id -- ^ pattern guard, etc.
+  -- | Pattern of a do-stmt, list comprehension,
+  | StmtCtxt
+      { mc_stmt_context :: HsStmtContext id  -- ^ pattern guard, etc.
       }
 
   | ThPatSplice                 -- ^ A Template Haskell pattern splice

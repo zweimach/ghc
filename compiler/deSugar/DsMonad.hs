@@ -80,8 +80,9 @@ import Control.Monad
 
 data DsMatchContext
   = DsMatchContext
-        (HsMatchContext Name)  -- ^ match context
-        SrcSpan                -- ^ span of match
+        { dsmc_mc   :: HsMatchContext Name  -- ^ match context
+        , dsmc_span :: SrcSpan              -- ^ span of match
+        }
   deriving ()
 
 data EquationInfo

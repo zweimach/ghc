@@ -45,8 +45,9 @@ import Name
 import Outputable
 import BasicTypes ( isGenerated )
 import FastString
+import VarEnv
 
-import Control.Monad( when )
+import Control.Monad( when, guard, ap )
 import qualified Data.Map as Map
 
 {-
@@ -83,7 +84,11 @@ matchCheck_really dflags ctx@(DsMatchContext hs_ctx _) impos_pats vars ty qs
   where
     (pats, eqns_shadow) = check qs
     -- don't warn about patterns identified as impossible by the user
-    pos_pats = filter (`notElem` impos_pats) pats
+    pos_pats = do ExhaustivePat missing constraints <- pats
+                  let missing' = filter (\p -> any (unLoc p `eqPat`) impos_pats) missing
+                  guard $ not $ null missing'
+                  -- TODO Are these patterns on columns or ???
+                  return $ ExhaustivePat missing' constraints
     incomplete = incomplete_flag hs_ctx && notNull pos_pats
     shadow     = wopt Opt_WarnOverlappingPatterns dflags
               && notNull eqns_shadow
@@ -107,6 +112,59 @@ matchCheck_really dflags ctx@(DsMatchContext hs_ctx _) impos_pats vars ty qs
                                            -- etc.  They are often *supposed* to be
                                            -- incomplete
 
+-- | Essentially @State (VarEnv Name)@
+data ComparePat a = CmpPat { runComparePat :: VarEnv Name -> (VarEnv Name, a) }
+
+instance Functor ComparePat where
+    fmap f (CmpPat g) = CmpPat (\env -> let (env', a) = g env in (env', f a))
+
+instance Monad ComparePat where
+    return a = CmpPat $ \env -> (env, a)
+    CmpPat g >>= f = CmpPat $ \env ->
+      let (env', a) = g env in runComparePat (f a) env'
+
+instance Applicative ComparePat where
+    pure = return
+    (<*>) = ap
+
+-- | Compare patterns, instantiating variables with names as we go.
+-- As this is used for filtering out imposible patterns, our definition
+-- of equality is a bit loose (e.g. ignore as-patterns, bang-patterns)
+--
+-- Here we expect the @Pat Name@ to come from the exhaustiveness
+-- checker, therefore we should only see a rather limited subset of
+-- the constructors 'Pat'.
+eqPat :: Pat Name -> Pat Var -> Bool
+eqPat patA0 patB0 = let (_, a) = runComparePat (go patA0 patB0) emptyVarEnv in a
+  where
+    go :: Pat Name -> Pat Var -> ComparePat Bool
+    go (WildPat _) (WildPat _)    = return True
+    go (VarPat name) (VarPat var) = CmpPat $ \env ->
+     case lookupVarEnv env var of
+       Just name
+         | name == name -> (env, True)
+         | otherwise    -> (env, False)
+       Nothing ->
+           let env' = extendVarEnv env var name
+           in (env', True)
+    go patA           (LazyPat patB)  = go patA (unLoc patB)
+    go patA           (AsPat _ patB)  = go patA (unLoc patB)
+    --go (ParPat patA)  patB            = go patA (unLoc patB)
+    go patA           (ParPat patB)   = go patA (unLoc patB)
+    go patA           (BangPat patB)  = go patA (unLoc patB)
+    --go (ListPat patsA _ _)  (ListPat patsB _ _)  = goLoc patsA patsB
+    --go (TuplePat patsA _ _) (TuplePat patsB _ _) = goLoc patsA patsB
+    --go (PArrPat patsA _)    (PArrPat patsB _)    = goLoc patsA patsB
+    --go (ConPatIn conA _)    (ConPatIn conB _)    = conA == conB
+    --go patA@(ConPatOut _ _) patB@(ConPatIn _ _)  = unLoc (pat_con patA) == unLoc (pat_con patB)
+    --go (SigPatIn patA _)    patB                 = goLoc patA patB
+    --go patA                 (SigPatIn patB _)    = goLoc patA patB
+    --go (SigPatOut patA _)   patB                 = goLoc patA patB
+    --go patA                 (SigPatOut patB _)   = goLoc patA patB
+    --go patA                 (SigPatOut patB _)   = goLoc patA patB
+    --go _             (SplicePat _)    = return False
+    go patA          _                =
+      pprPanic "Match.cmpPatterns: Unhandled constructor in WarningPat:" (ppr patA)
 {-
 This variable shows the maximum number of lines of output generated for warnings.
 It will limit the number of patterns/equations displayed to@ maximum_output@.
@@ -163,10 +221,10 @@ ppr_shadow_pats kind pats
   = sep [ppr_pats pats, matchSeparator kind, ptext (sLit "...")]
 
 ppr_incomplete_pats :: HsMatchContext Name -> ExhaustivePat -> SDoc
-ppr_incomplete_pats _ (pats,[]) = ppr_pats pats
-ppr_incomplete_pats _ (pats,constraints) =
-                         sep [ppr_pats pats, ptext (sLit "with"),
-                              sep (map ppr_constraint constraints)]
+ppr_incomplete_pats _ (ExhaustivePat pats []) = ppr_pats pats
+ppr_incomplete_pats _ (ExhaustivePat pats constraints)
+  = sep [ppr_pats pats, ptext (sLit "with"),
+         sep (map ppr_constraint constraints)]
 
 ppr_constraint :: (Name,[HsLit]) -> SDoc
 ppr_constraint (var,pats) = sep [ppr var, ptext (sLit "`notElem`"), ppr pats]
