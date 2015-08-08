@@ -3156,6 +3156,7 @@ xFlags = [
                                               setGenDeriving,
   flagSpec "ImplicitParams"                   Opt_ImplicitParams,
   flagSpec "ImplicitPrelude"                  Opt_ImplicitPrelude,
+  flagSpec "ImpossibleCases"                  Opt_ImpossibleCases,
   flagSpec "ImpredicativeTypes"               Opt_ImpredicativeTypes,
   flagSpec' "IncoherentInstances"             Opt_IncoherentInstances
                                               setIncoherentInsts,
