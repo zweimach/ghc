@@ -143,12 +143,12 @@ prDictOfPReprInst ty
 prDictOfPReprInstTyCon :: Type -> CoAxiom Unbranched -> [Type] -> VM CoreExpr
 prDictOfPReprInstTyCon _ty prepr_ax prepr_args
   = do
-      let rhs = mkUnbranchedAxInstRHS prepr_ax prepr_args
+      let rhs = mkUnbranchedAxInstRHS prepr_ax prepr_args []
       dict <- prDictOfReprType' rhs
       pr_co <- mkBuiltinCo prTyCon
       let co = mkAppCo pr_co (panic "prDictOfReprInstTyCon")
              $ mkSymCo
-             $ mkUnbranchedAxInstCo Nominal prepr_ax prepr_args
+             $ mkUnbranchedAxInstCo Nominal prepr_ax prepr_args []
       return $ mkCast dict co
 
 -- |Get the PR dictionary for a type. The argument must be a representation
@@ -227,4 +227,3 @@ prDFunApply dfun tys
       | otherwise   = invalid dflags
 
     invalid dflags = cantVectorise dflags "Invalid PR dfun type" (ppr (varType dfun) <+> ppr tys)
-

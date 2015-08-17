@@ -736,7 +736,7 @@ lintCoApp fun_ty arg_co
        ; ensureEqTys t1' t1 (mkCoAppMsg t1' t1 (Just CLeft))
        ; ensureEqTys t2' t2 (mkCoAppMsg t2' t2 (Just CRight))
        ; lintRole arg_co rExp rAct
-       ; return (substTyWith [covar] [CoercionTy arg_co] body_ty) }
+       ; return (substTyWithCoVars [covar] [arg_co] body_ty) }
   | otherwise
   = failWithL (mkCoAppMsg fun_ty (CoercionTy arg_co) Nothing)
 
@@ -992,8 +992,9 @@ lintType ty@(ForAllTy (Anon t1) t2)
        ; k2 <- lintType t2
        ; lintArrow (ptext (sLit "type or kind") <+> quotes (ppr ty)) k1 k2 }
 
-lintType (ForAllTy (Named tv _vis) ty)
-  = do { lintTyCoBndrKind tv
+lintType t@(ForAllTy (Named tv _vis) ty)
+  = do { lintL (isTyVar tv) (text "Covar bound in type:" <+> ppr t)
+       ; lintTyCoBndrKind tv
        ; k <- addInScopeVar tv (lintType ty)
        ; return k }
 
@@ -1165,20 +1166,17 @@ lintCoercion co@(AppCo co1 kco co2)
        ; return (k3, k4, mkAppTy s1 t1, mkAppTy s2 t2, r1) }
 
 ----------
-lintCoercion g@(ForAllCo bndr@(ForAllCoBndr h tv1 tv2 m_cv) co)
+lintCoercion g@(ForAllCo bndr@(ForAllCoBndr h tv1 tv2 cv) co)
   = do { checkL (tv1 /= tv2) (mkDuplicateForAllCoVarsMsg tv1 g)
        ; (k3, k4, t1, t2, r) <- addInScopeVars (coBndrVars bndr) $
                                 lintCoercion co
        ; (k1, k2) <- lintStarCoercion r h
        ; ensureEqTys k1 (tyVarKind tv1) (mkBadHeteroVarMsg CLeft k1 tv1 g)
        ; ensureEqTys k2 (tyVarKind tv2) (mkBadHeteroVarMsg CRight k2 tv2 g)
-       ; case m_cv of
-           Just cv ->
-             ensureEqTys (mkCoercionType Nominal (mkOnlyTyVarTy tv1)
-                                                 (mkOnlyTyVarTy tv2))
-                         (coVarKind cv)
-                         (mkBadHeteroCoVarMsg tv1 tv2 cv g)
-           Nothing -> return ()
+       ; ensureEqTys (mkCoercionType Nominal (mkOnlyTyVarTy tv1)
+                                             (mkOnlyTyVarTy tv2))
+                     (coVarKind cv)
+                     (mkBadHeteroCoVarMsg tv1 tv2 cv g)
        ; let tyl = mkNamedForAllTy tv1 Invisible t1
        ; let tyr = mkNamedForAllTy tv2 Invisible t2
        ; k3' <- lintType tyl
@@ -1293,15 +1291,17 @@ lintCoercion co@(AxiomInstCo con ind cos)
   = do { unless (0 <= ind && ind < brListLength (coAxiomBranches con))
                 (bad_ax (ptext (sLit "index out of range")))
        ; let CoAxBranch { cab_tvs   = ktvs
+                        , cab_cvs   = cvs
                         , cab_roles = roles
                         , cab_lhs   = lhs
                         , cab_rhs   = rhs } = coAxiomNthBranch con ind
-       ; unless (equalLength ktvs cos) (bad_ax (ptext (sLit "lengths")))
+       ; unless (length ktvs + length cvs == length cos) $
+           bad_ax (ptext (sLit "lengths"))
        ; subst <- getTCvSubst
        ; let empty_subst = zapTCvSubst subst
        ; (subst_l, subst_r) <- foldlM check_ki
                                       (empty_subst, empty_subst)
-                                      (zip3 ktvs roles cos)
+                                      (zip3 (ktvs ++ cvs) roles cos)
        ; let lhs' = substTys subst_l lhs
              rhs' = substTy subst_r rhs
        ; case checkAxInstCo co of

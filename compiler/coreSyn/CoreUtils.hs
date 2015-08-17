@@ -196,11 +196,10 @@ applyTypeToArgs e op_ty args
                      , ptext (sLit "Type:") <+> ppr op_ty
                      , ptext (sLit "Args:") <+> ppr args ]
 
--- | If the expression is representable as a 'Type', converts. Otherwise,
--- panics. Currently, only works for Type and Coercion expressions.
+-- | If the expression is a 'Type', converts. Otherwise,
+-- panics. NB: This does /not/ convert 'Coercion' to 'CoercionTy'.
 exprToType :: CoreExpr -> Type
 exprToType (Type ty)     = ty
-exprToType (Coercion co) = mkCoercionTy co
 exprToType _bad          = pprPanic "exprToType" (ppr _bad)
 
 {-
@@ -1367,7 +1366,7 @@ dataConInstPat fss uniqs con inst_tys
     (ex_bndrs, arg_ids)
   where
     univ_tvs = dataConUnivTyVars con
-    ex_tvs   = dataConExTyCoVars con
+    ex_tvs   = dataConExTyVars con
     arg_tys  = dataConRepArgTys con
     arg_strs = dataConRepStrictness con  -- 1-1 with arg_tys
     n_ex = length ex_tvs
@@ -1384,17 +1383,12 @@ dataConInstPat fss uniqs con inst_tys
                                        (zip3 ex_tvs ex_fss ex_uniqs)
 
     mk_ex_var :: TCvSubst -> (TyVar, FastString, Unique) -> (TCvSubst, TyVar)
-    mk_ex_var subst (tv, fs, uniq) = (Type.extendTCvSubst subst tv (mkTyCoVarTy new_tv)
+    mk_ex_var subst (tv, fs, uniq) = (Type.extendTCvSubst subst tv
+                                       (mkOnlyTyVarTy new_tv)
                                      , new_tv)
       where
-        new_tv
-          | isTyVar tv
-          = mkTyVar (mkSysTvName uniq fs) kind
-          | otherwise
-          = ASSERT( isCoVar tv )
-            mkCoVar (mkSystemVarName uniq fs) kind
-
-        kind     = Type.substTy subst (tyVarKind tv)
+        new_tv = mkTyVar (mkSysTvName uniq fs) kind
+        kind   = Type.substTy subst (tyVarKind tv)
 
       -- Make value vars, instantiating types
     arg_ids = zipWith4 mk_id_var id_uniqs id_fss arg_tys arg_strs

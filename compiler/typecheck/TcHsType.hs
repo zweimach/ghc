@@ -175,7 +175,7 @@ tcTopHsSigType ctxt hs_ty
        ; return $ substTy subst ty }
 
 -----------------
-tcHsInstHead :: UserTypeCtxt -> LHsType Name -> TcM ([TyCoVar], ThetaType, Class, [Type])
+tcHsInstHead :: UserTypeCtxt -> LHsType Name -> TcM ([TyVar], ThetaType, Class, [Type])
 -- Like tcHsSigTypeNC, but for an instance head.
 tcHsInstHead user_ctxt lhs_ty@(L loc hs_ty)
   = setSrcSpan loc $    -- The "In the type..." context comes from the caller
@@ -199,7 +199,7 @@ tc_inst_head hs_ty
   = tc_hs_type hs_ty constraintKind
 
 -----------------
-tcHsDeriv :: HsType Name -> TcM ([TyCoVar], Class, [Type], Kind)
+tcHsDeriv :: HsType Name -> TcM ([TyVar], Class, [Type], Kind)
 -- Like tcHsSigTypeNC, but for the ...deriving( C t1 ty2 ) clause
 -- Returns the C, [ty1, ty2, and the kind of C's *next* argument
 -- E.g.    class C (a::*) (b::k->k)

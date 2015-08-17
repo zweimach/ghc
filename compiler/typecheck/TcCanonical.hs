@@ -499,7 +499,7 @@ can_eq_nc' _rdr_env _envs ev eq_rel s1@(ForAllTy (Named {}) _) _
              ; setEvBind orig_ev ev_term loc
              ; stopWith ev "Deferred polytype equality" } }
  | otherwise
- = do { traceTcS "Ommitting decomposition of given polytype equality" $
+ = do { traceTcS "Omitting decomposition of given polytype equality" $
         pprEq s1 s2    -- See Note [Do not decompose given polytype equalities]
       ; stopWith ev "Discard given polytype equality" }
 

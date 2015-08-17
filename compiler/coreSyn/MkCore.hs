@@ -141,7 +141,6 @@ mkCoreApps orig_fun orig_args
   where
     go fun _      []                   = fun
     go fun fun_ty (Type ty     : args) = go (App fun (Type ty)) (piResultTy fun_ty ty) args
-    go fun fun_ty (Coercion co : args) = go (App fun (Coercion co)) (applyCo fun_ty co) args
     go fun fun_ty (arg         : args) = ASSERT2( isFunTy fun_ty, ppr fun_ty $$ ppr orig_fun
                                                                   $$ ppr orig_args )
                                          go (mk_val_app fun arg arg_ty res_ty) res_ty args

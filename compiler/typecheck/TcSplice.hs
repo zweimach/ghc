@@ -1260,11 +1260,11 @@ reifyTyCon tc
 reifyDataCon :: [Type] -> DataCon -> TcM TH.Con
 -- For GADTs etc, see Note [Reifying data constructors]
 reifyDataCon tys dc
-  = do { let (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, arg_tys, _)
+  = do { let (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _)
                = dataConFullSig dc
 
              subst             = mkTopTCvSubst (univ_tvs `zip` tys)
-             (subst', ex_tvs') = mapAccumL substTyCoVarBndr subst ex_tvs
+             (subst', ex_tvs') = mapAccumL substTyVarBndr subst ex_tvs
 
              theta'   = substTheta subst' (eqSpecPreds eq_spec ++ theta)
              arg_tys' = substTys subst' arg_tys
@@ -1289,7 +1289,7 @@ reifyDataCon tys dc
              return main_con
          else do
          { cxt <- reifyCxt theta'
-         ; ex_tvs'' <- reifyTyCoVars ex_tvs' Nothing
+         ; ex_tvs'' <- reifyTyVars ex_tvs' Nothing
          ; return (TH.ForallC ex_tvs'' cxt main_con) } }
 
 ------------------------------

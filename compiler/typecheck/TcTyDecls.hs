@@ -693,7 +693,7 @@ irDataCon tc_name datacon
           (map tyVarKind ex_tvs ++ eqSpecPreds eq_spec ++ theta ++ arg_tys)
       -- See Note [Role-checking data constructor arguments]
   where
-    (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, arg_tys, _res_ty)
+    (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty)
       = dataConFullSig datacon
     ex_var_set = mkVarSet ex_tvs
 

@@ -1,4 +1,34 @@
 stack:
+Named now holds only TyVars, *NEVER* CoVars
+  - mkInvForAllTys
+    - kcHsTyVarBndrs
+    - mkRecSelBind
+    - mkHomoForAllCos
+  - mkVisForAllTys
+  - mkPiType(s)
+  - mkPiTypesPreferFunTy
+  - mkPiTypesNoTv --> ? mkFunTys
+  - mkNamedBinder
+  - binderVar(_maybe)
+  - caseBinder
+  - remove coBndrVars ?
+  - IfaceCoBndr
+  - remove maybe_bindIfaceId ?
+  - splitForAllCo functions
+  - remove coBndrWitness ?
+  - mkForAllCoBndr
+  - remove maybeSecond ?
+  - tidyTyCoVarBndr... split?
+  - quantifyTyCoVars --> quantifyTyVars: must not return covars!
+  - simplifyInfer must not return covars!
+
+  - do we still need the dsVars business??
+  - zonkTyCoBndrX --> zonkTyBndrX
+  - tcInstSuperSkolTyCoVarsX --> tcInstSuperSkolTyVarsX
+  - tcInstTyCoVars --> tcInstTyVars
+  - toIfaceTCvBndrs -->? toIfaceTvBndrs
+  - reifyTyCoVars --> reifyTyVars
+
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work
 
@@ -52,6 +82,8 @@ result ty, or (3) do something else. I want SPJ's input, as both (1)
 and (2) are terrible.
 
 fix:
+  - implement constrained instances in source
+
   - Every time tcExtendTyVarEnv{,2} is called, make sure an implication
     constraint with skolem info is also produced. This currently seems to
     happen, but not necessarily rigorously. See #21.
@@ -219,6 +251,8 @@ removed functions:
 
 please remove:
 --------------------------------
+- See https://ghc.haskell.org/trac/ghc/wiki/DependentHaskell/Internal#User-facingdesignissues about constrained family instances.
+
 - tryTcS now rolls back calls to setTyVarBind and setEvBind. Why setEvBind? Because
   there may be nested EvBindsVars that get twiddled.
 
@@ -235,6 +269,17 @@ in those positions.
 
 - UNPACKing lifted equality in data constructors has become harder.
   See comments in MkId.mk_pred_strict_mark.
+
+- reduceTyFamApp_maybe can't quite be pure anymore. The problem is that
+  family equations may now have coercions in them. Pure matching on coercions
+  is doomed to failure, because coercions have no normal form. So the
+  pure matcher can't deal with the coercion variables.
+
+  Solution: write a pure reduceTyFamApp_maybe and an impure one. The pure
+  one fails if it spots a coercion variable. This failure is acceptable,
+  because we give no guarantees about the ability to normalise a type.
+  The impure one emits wanted constraints and carries on. (We actually
+  need two impure ones: one in TcM and one in TcS.)
 
 - Restored MaybeNew because we need to be able to use ctEvCoherence
 

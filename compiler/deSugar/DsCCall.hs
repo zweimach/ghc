@@ -113,7 +113,8 @@ mkFCall :: DynFlags -> Unique -> ForeignCall
 --      (ccallid::(forall a b.  StablePtr (a -> b) -> Addr -> Char -> IO Addr))
 --                      a b s x c
 mkFCall dflags uniq the_fcall val_args res_ty
-  = mkApps (mkVarApps (Var the_fcall_id) tyvars) val_args
+  = ASSERT( all isTyVar tyvars )  -- this must be true because the type is top-level
+    mkApps (mkVarApps (Var the_fcall_id) tyvars) val_args
   where
     arg_tys = map exprType val_args
     body_ty = (mkFunTys arg_tys res_ty)

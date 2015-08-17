@@ -1141,7 +1141,7 @@ match_magicDict [Type _, Var wrap `App` Type a `App` Type _ `App` f, x, y ]
   , Just dictTc         <- tyConAppTyCon_maybe dictTy
   , Just (_,_,co)       <- unwrapNewTyCon_maybe dictTc
   = Just
-  $ f `App` Cast x (mkSymCo (mkUnbranchedAxInstCo Representational co [a]))
+  $ f `App` Cast x (mkSymCo (mkUnbranchedAxInstCo Representational co [a] []))
       `App` y
 
 match_magicDict _ = Nothing

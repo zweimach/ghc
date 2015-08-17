@@ -437,15 +437,8 @@ addDataConPatDmds (DataAlt con) bndrs dmd_ty
     add bndr dmd_ty = addVarDmd dmd_ty bndr seqDmd
     str_bndrs = [ b | (b,s) <- zipEqual "addDataConPatBndrs"
                                    (filter isId bndrs)
-                                   all_strictness
+                                   (dataConRepStrictness con)
                     , isMarkedStrict s ]
-
-      -- all existential covars are *also* strict
-    all_strictness = [ MarkedStrict
-                     | ex_var <- dataConExTyCoVars con
-                     , isCoVar ex_var ]
-                     ++ dataConRepStrictness con
-
 
 {-
 Note [Add demands for strict constructors]

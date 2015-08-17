@@ -18,7 +18,7 @@ module CoAxiom (
        coAxiomName, coAxiomArity, coAxiomBranches,
        coAxiomTyCon, isImplicitCoAxiom, coAxiomNumPats,
        coAxiomNthBranch, coAxiomSingleBranch_maybe, coAxiomRole,
-       coAxiomSingleBranch, coAxBranchTyCoVars, coAxBranchRoles,
+       coAxiomSingleBranch, coAxBranchTyVars, coAxBranchRoles,
        coAxBranchLHS, coAxBranchRHS, coAxBranchSpan, coAxBranchIncomps,
        placeHolderIncomps,
 
@@ -250,8 +250,9 @@ data CoAxBranch
   = CoAxBranch
     { cab_loc      :: SrcSpan       -- Location of the defining equation
                                     -- See Note [CoAxiom locations]
-    , cab_tvs      :: [TyCoVar]     -- Bound type variables; not necessarily fresh
+    , cab_tvs      :: [TyVar]       -- Bound type variables; not necessarily fresh
                                     -- See Note [CoAxBranch type variables]
+    , cab_cvs      :: [CoVar]       -- Bound coercion variables
     , cab_roles    :: [Role]        -- See Note [CoAxBranch roles]
     , cab_lhs      :: [Type]        -- Type patterns to match against
     , cab_rhs      :: Type          -- Right-hand side of the equality
@@ -277,7 +278,9 @@ coAxiomNthBranch (CoAxiom { co_ax_branches = bs }) index
 
 coAxiomArity :: CoAxiom br -> BranchIndex -> Arity
 coAxiomArity ax index
-  = length $ cab_tvs $ coAxiomNthBranch ax index
+  = length tvs + length cvs
+  where
+    CoAxBranch { cab_tvs = tvs, cab_cvs = cvs } = coAxiomNthBranch ax index
 
 coAxiomName :: CoAxiom br -> Name
 coAxiomName = co_ax_name
@@ -301,8 +304,8 @@ coAxiomSingleBranch (CoAxiom { co_ax_branches = FirstBranch br }) = br
 coAxiomTyCon :: CoAxiom br -> TyCon
 coAxiomTyCon = co_ax_tc
 
-coAxBranchTyCoVars :: CoAxBranch -> [TyCoVar]
-coAxBranchTyCoVars = cab_tvs
+coAxBranchTyVars :: CoAxBranch -> [TyCoVar]
+coAxBranchTyVars = cab_tvs
 
 coAxBranchLHS :: CoAxBranch -> [Type]
 coAxBranchLHS = cab_lhs

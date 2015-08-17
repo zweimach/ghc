@@ -891,7 +891,7 @@ checkBootTyCon tc1 tc2
           = classExtraBigSig c1
         (clas_tvs2, clas_fds2, sc_theta2, _, ats2, op_stuff2)
           = classExtraBigSig c2
-  , Just env <- eqTyCoVarBndrs emptyRnEnv2 clas_tvs1 clas_tvs2
+  , Just env <- eqVarBndrs emptyRnEnv2 clas_tvs1 clas_tvs2
   = let
        eqSig (id1, def_meth1) (id2, def_meth2)
          = check (name1 == name2)
@@ -940,7 +940,7 @@ checkBootTyCon tc1 tc2
 
   | Just syn_rhs1 <- synTyConRhs_maybe tc1
   , Just syn_rhs2 <- synTyConRhs_maybe tc2
-  , Just env <- eqTyCoVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
+  , Just env <- eqVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
   = ASSERT(tc1 == tc2)
     check (roles1 == roles2) roles_msg `andThenCheck`
     check (eqTypeX env syn_rhs1 syn_rhs2) empty   -- nothing interesting to say
@@ -960,7 +960,7 @@ checkBootTyCon tc1 tc2
     check (eqFamFlav fam_flav1 fam_flav2) empty   -- nothing interesting to say
 
   | isAlgTyCon tc1 && isAlgTyCon tc2
-  , Just env <- eqTyCoVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
+  , Just env <- eqVarBndrs emptyRnEnv2 (tyConTyVars tc1) (tyConTyVars tc2)
   = ASSERT(tc1 == tc2)
     check (roles1 == roles2) roles_msg `andThenCheck`
     check (eqListBy (eqTypeX env)
@@ -1017,9 +1017,12 @@ checkBootTyCon tc1 tc2
       =  brListLength branches1 == brListLength branches2
       && (and $ brListZipWith eqClosedFamilyBranch branches1 branches2)
 
-    eqClosedFamilyBranch (CoAxBranch { cab_tvs = tvs1, cab_lhs = lhs1, cab_rhs = rhs1 })
-                         (CoAxBranch { cab_tvs = tvs2, cab_lhs = lhs2, cab_rhs = rhs2 })
-      | Just env <- eqTyCoVarBndrs emptyRnEnv2 tvs1 tvs2
+    eqClosedFamilyBranch (CoAxBranch { cab_tvs = tvs1, cab_cvs = cvs1
+                                     , cab_lhs = lhs1, cab_rhs = rhs1 })
+                         (CoAxBranch { cab_tvs = tvs2, cab_cvs = cvs2
+                                     , cab_lhs = lhs2, cab_rhs = rhs2 })
+      | Just env1 <- eqVarBndrs emptyRnEnv2 tvs1 tvs2
+      , Just env  <- eqVarBndrs evn1        cvs1 cvs2
       = eqListBy (eqTypeX env) lhs1 lhs2 &&
         eqTypeX env rhs1 rhs2
 
@@ -1807,9 +1810,12 @@ tcRnType hsc_env normalise rdr_type
 
        ; ty' <- if normalise
                 then do { fam_envs <- tcGetFamInstEnvs
-                        ; return (snd (normaliseType fam_envs Nominal ty)) }
-                        -- normaliseType returns a coercion
-                        -- which we discard, so the Role is irrelevant
+                        ; let (_, ty, cvs)
+                                = normaliseTypeAggressive fam_envs Nominal ty
+                        ; ((subst, _), binds) <- solveTopConstraints $
+                                                 tcInstCoVars cvs
+                        ; cv_subst <- zonkedEvBindsSubst binds
+                        ; return (substTy (composeTCvSubst cv_subst subst) ty) }
                 else return ty ;
 
        ; return (ty', typeKind ty) }

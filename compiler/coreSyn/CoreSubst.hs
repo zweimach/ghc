@@ -1278,7 +1278,7 @@ dealWithCoercion co dc dc_args
     let
         tc_arity       = tyConArity to_tc
         dc_univ_tyvars = dataConUnivTyVars dc
-        dc_ex_tyvars   = dataConExTyCoVars dc
+        dc_ex_tyvars   = dataConExTyVars dc
         arg_tys        = dataConRepArgTys dc
 
         non_univ_args  = dropList dc_univ_tyvars dc_args
@@ -1293,15 +1293,11 @@ dealWithCoercion co dc dc_args
                               dc_ex_tyvars
                               (map exprToType ex_args)
 
-        ty_to_arg ty
-          | Just co <- isCoercionTy_maybe ty = Coercion co
-          | otherwise                        = Type ty
-
           -- Cast the value arguments (which include dictionaries)
         new_val_args = zipWith cast_arg arg_tys val_args
         cast_arg arg_ty arg = mkCast arg (psi_subst arg_ty)
 
-        to_ex_args = map ty_to_arg to_ex_arg_tys
+        to_ex_args = map Type to_ex_arg_tys
 
         dump_doc = vcat [ppr dc,      ppr dc_univ_tyvars, ppr dc_ex_tyvars,
                          ppr arg_tys, ppr dc_args,

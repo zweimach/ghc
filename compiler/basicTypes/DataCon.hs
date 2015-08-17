@@ -14,6 +14,7 @@ module DataCon (
 
         -- ** Equality specs
         EqSpec, mkEqSpec, eqSpecTyVar, eqSpecPair, eqSpecPreds,
+        substEqSpec,
 
         -- ** Type construction
         mkDataCon, fIRST_TAG,
@@ -22,7 +23,7 @@ module DataCon (
         dataConRepType, dataConSig, dataConFullSig,
         dataConName, dataConIdentity, dataConTag, dataConTyCon,
         dataConOrigTyCon, dataConUserType, dataConWrapperType,
-        dataConUnivTyVars, dataConExTyCoVars, dataConAllTyCoVars,
+        dataConUnivTyVars, dataConExTyVars, dataConAllTyVars,
         dataConEqSpec, dataConTheta,
         dataConStupidTheta,
         dataConInstArgTys, dataConOrigArgTys, dataConOrigResTy,
@@ -265,7 +266,7 @@ data DataCon
         -- e.g.
         --
         --      dcUnivTyVars  = [a]
-        --      dcExTyCoVars  = [x,y]
+        --      dcExTyVars    = [x,y]
         --      dcEqSpec      = [a~(x,y)]
         --      dcOtherTheta  = [x~y, Ord x]
         --      dcOrigArgTys  = [x,y]
@@ -275,7 +276,7 @@ data DataCon
                                 --          Its type is of form
                                 --              forall a1..an . t1 -> ... tm -> T a1..an
                                 --          No existentials, no coercions, nothing.
-                                -- That is: dcExTyCoVars = dcEqSpec = dcOtherTheta = []
+                                -- That is: dcExTyVars = dcEqSpec = dcOtherTheta = []
                 -- NB 1: newtypes always have a vanilla data con
                 -- NB 2: a vanilla constructor can still be declared in GADT-style
                 --       syntax, provided its type looks like the above.
@@ -285,7 +286,7 @@ data DataCon
                                         -- INVARIANT: length matches arity of the dcRepTyCon
                                         ---           result type of (rep) data con is exactly (T a b c)
 
-        dcExTyCoVars   :: [TyCoVar],    -- Existentially-quantified type vars
+        dcExTyVars     :: [TyVar],    -- Existentially-quantified type vars
                 -- In general, the dcUnivTyVars are NOT NECESSARILY THE SAME AS THE TYVARS
                 -- FOR THE PARENT TyCon. With GADTs the data con might not even have
                 -- the same number of type variables.
@@ -297,7 +298,6 @@ data DataCon
 
         dcEqSpec :: [EqSpec],   -- Equalities derived from the result type,
                                 -- _as written by the programmer_
-                -- This field contains only *non-dependent* GADT equalities
 
                 -- This field allows us to move conveniently between the two ways
                 -- of representing a GADT constructor's type:
@@ -359,7 +359,7 @@ data DataCon
         dcRep      :: DataConRep,
 
         -- Cached
-          -- dcRepArity == length dataConRepArgTys + count isId dcExTyCoVars
+          -- dcRepArity == length dataConRepArgTys
         dcRepArity    :: Arity,
           -- dcSourceArity == length dcOrigArgTys
         dcSourceArity :: Arity,
@@ -466,7 +466,7 @@ data EqSpec = EqSpec TyVar
                      Type
                      Boxity
 
--- | Make a non-dependent 'EqSpec'
+-- | Make an 'EqSpec'
 mkEqSpec :: TyVar -> Type -> EqSpec
 mkEqSpec tv ty = EqSpec tv ty Boxed
 
@@ -481,6 +481,10 @@ eqSpecPreds spec = [ mk_pred (mkTyCoVarTy tv) ty
                    | EqSpec tv ty boxity <- spec
                    , let mk_pred | isBoxed boxity = mkEqPred
                                  | otherwise      = mkPrimEqPred ]
+
+substEqSpec :: TCvSubst -> EqSpec -> EqSpec
+substEqSpec subst (EqSpec tv ty boxity)
+  = EqSpec (substTyVar subst tv) (substTy subst ty) boxity
 
 instance Outputable EqSpec where
   ppr (EqSpec tv ty boxity) = ppr (tv, ty, boxity)
@@ -612,9 +616,8 @@ mkDataCon :: Name
           -> [FieldLabel]       -- ^ Field labels for the constructor, if it is a record,
                                 --   otherwise empty
           -> [TyVar]            -- ^ Universally quantified type variables
-          -> [TyCoVar]          -- ^ Existentially quantified type variables,
-                                --   including dependent GADT equalities
-          -> [EqSpec]           -- ^ non-dependent GADT equalities
+          -> [TyVar]            -- ^ Existentially quantified type variables
+          -> [EqSpec]           -- ^ GADT equalities
           -> ThetaType          -- ^ Theta-type occuring before the arguments proper
           -> [Type]             -- ^ Original argument types
           -> Type               -- ^ Original result type
@@ -646,7 +649,7 @@ mkDataCon name declared_infix
     is_vanilla = null ex_tvs && null eq_spec && null theta
     con = MkData {dcName = name, dcUnique = nameUnique name,
                   dcVanilla = is_vanilla, dcInfix = declared_infix,
-                  dcUnivTyVars = univ_tvs, dcExTyCoVars = ex_tvs,
+                  dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs,
                   dcEqSpec = eq_spec,
                   dcOtherTheta = theta,
                   dcStupidTheta = stupid_theta,
@@ -657,7 +660,7 @@ mkDataCon name declared_infix
                   dcWorkId = work_id,
                   dcRep = rep,
                   dcSourceArity = length orig_arg_tys,
-                  dcRepArity = length rep_arg_tys + count isId ex_tvs,
+                  dcRepArity = length rep_arg_tys,
                   dcPromoted = promoted }
 
         -- The 'arg_stricts' passed to mkDataCon are simply those for the
@@ -674,9 +677,7 @@ mkDataCon name declared_infix
                -- TODO (RAE): Update note.
       = mkPromotedDataCon con name (getUnique name) (dataConWrapperType con) roles
 
-                -- covars have role P
-    roles = map (\tv -> if isTyVar tv then Nominal else Phantom)
-                (univ_tvs ++ ex_tvs) ++
+    roles = map (const Nominal) (univ_tvs ++ ex_tvs) ++
             map (const Representational) orig_arg_tys
 
 {-
@@ -723,24 +724,21 @@ dataConIsInfix = dcInfix
 dataConUnivTyVars :: DataCon -> [TyVar]
 dataConUnivTyVars = dcUnivTyVars
 
--- | The existentially-quantified type variables of the constructor,
--- including dependent (kind-) GADT equalities.
-dataConExTyCoVars :: DataCon -> [TyCoVar]
-dataConExTyCoVars = dcExTyCoVars
+-- | The existentially-quantified type variables of the constructor
+dataConExTyVars :: DataCon -> [TyVar]
+dataConExTyVars = dcExTyVars
 
 -- | Both the universal and existentiatial type variables of the constructor
-dataConAllTyCoVars :: DataCon -> [TyVar]
-dataConAllTyCoVars (MkData { dcUnivTyVars = univ_tvs, dcExTyCoVars = ex_tvs })
+dataConAllTyVars :: DataCon -> [TyVar]
+dataConAllTyVars (MkData { dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs })
   = univ_tvs ++ ex_tvs
 
 -- | Equalities derived from the result type of the data constructor, as written
 -- by the programmer in any GADT declaration. This includes *all* GADT-like
 -- equalities, including those written in by hand by the programmer.
 dataConEqSpec :: DataCon -> [EqSpec]
-dataConEqSpec con@(MkData { dcEqSpec     = eq_spec
-                          , dcOtherTheta = theta })
-  = dataConKindEqSpec con
-    ++ eq_spec ++
+dataConEqSpec (MkData { dcEqSpec = eq_spec, dcOtherTheta = theta })
+  = eq_spec ++
     [ spec
     | Just (tc, [_k, ty1, ty2]) <- map splitTyConApp_maybe theta
     , tc `hasKey` eqTyConKey
@@ -750,22 +748,11 @@ dataConEqSpec con@(MkData { dcEqSpec     = eq_spec
                     _             -> []
     ]
 
--- | Dependent (kind-level) equalities in a constructor. These are extracted
--- from the existential variables.
-dataConKindEqSpec :: DataCon -> [EqSpec]
-dataConKindEqSpec (MkData { dcExTyCoVars = ex_tcvs })
-  = [ EqSpec tv ty Unboxed
-    | cv <- ex_tcvs
-    , isCoVar cv
-    , let (ty1, ty) = coVarTypes cv
-          tv        = getTyVar "dataConKindEqSpec" ty1
-    ]
-
 -- | The *full* constraints on the constructor type, including dependent
 -- GADT equalities.
 dataConTheta :: DataCon -> ThetaType
 dataConTheta con@(MkData { dcEqSpec = eq_spec, dcOtherTheta = theta })
-  = eqSpecPreds (dataConKindEqSpec con ++ eq_spec) ++ theta
+  = eqSpecPreds eq_spec ++ theta
 
 -- | Get the Id of the 'DataCon' worker: a function that is the "actual"
 -- constructor and has no top level binding in the program. The type may
@@ -857,17 +844,16 @@ dataConBoxer _ = Nothing
 
 -- | The \"signature\" of the 'DataCon' returns, in order:
 --
--- 1) The result of 'dataConAllTyCoVars',
+-- 1) The result of 'dataConAllTyVars',
 --
 -- 2) All the 'ThetaType's relating to the 'DataCon' (coercion, dictionary, implicit
---    parameter - whatever), including dependent GADT equalities. Dependent GADT
---    equalities are *also* listed in return value (1), so be careful!
+--    parameter - whatever)
 --
 -- 3) The type arguments to the constructor
 --
 -- 4) The /original/ result type of the 'DataCon'
-dataConSig :: DataCon -> ([TyCoVar], ThetaType, [Type], Type)
-dataConSig con@(MkData {dcUnivTyVars = univ_tvs, dcExTyCoVars = ex_tvs,
+dataConSig :: DataCon -> ([TyVar], ThetaType, [Type], Type)
+dataConSig con@(MkData {dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs,
                         dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
   = (univ_tvs ++ ex_tvs, dataConTheta con, arg_tys, res_ty)
 
@@ -875,24 +861,22 @@ dataConSig con@(MkData {dcUnivTyVars = univ_tvs, dcExTyCoVars = ex_tvs,
 --
 -- 1) The result of 'dataConUnivTyVars'
 --
--- 2) The result of 'dataConExTyCoVars'
+-- 2) The result of 'dataConExTyVars'
 --
--- 3) The dependent GADT equalities (which are a subset of return value (2))
+-- 3) The GADT equalities
 --
--- 4) The non-dependent GADT equalities
+-- 4) The result of 'dataConDictTheta'
 --
--- 5) The result of 'dataConDictTheta'
---
--- 6) The original argument types to the 'DataCon' (i.e. before
+-- 5) The original argument types to the 'DataCon' (i.e. before
 --    any change of the representation of the type)
 --
--- 7) The original result type of the 'DataCon'
+-- 6) The original result type of the 'DataCon'
 dataConFullSig :: DataCon
-               -> ([TyVar], [TyCoVar], [EqSpec], [EqSpec], ThetaType, [Type], Type)
-dataConFullSig con@(MkData {dcUnivTyVars = univ_tvs, dcExTyCoVars = ex_tvs,
+               -> ([TyVar], [TyVar], [EqSpec], ThetaType, [Type], Type)
+dataConFullSig con@(MkData {dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs,
                             dcEqSpec = eq_spec, dcOtherTheta = theta,
                             dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
-  = (univ_tvs, ex_tvs, dataConKindEqSpec con, eq_spec, theta, arg_tys, res_ty)
+  = (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, res_ty)
 
 dataConOrigResTy :: DataCon -> Type
 dataConOrigResTy dc = dcOrigResTy dc
@@ -919,12 +903,11 @@ dataConUserType :: DataCon -> Type
 -- You probably want this only for pretty-printing. If you are not
 -- pretty-printing, you probably want 'dataConWrapperType'.
 dataConUserType con@(MkData { dcUnivTyVars = univ_tvs,
-                              dcExTyCoVars = ex_tvs, dcEqSpec = eq_spec,
+                              dcExTyVars = ex_tvs, dcEqSpec = eq_spec,
                               dcOtherTheta = theta, dcOrigArgTys = arg_tys,
                               dcOrigResTy = res_ty })
-  = let full_eq_spec = dataConKindEqSpec con ++ eq_spec in
-    mkInvForAllTys ((univ_tvs `minusList` map eqSpecTyVar full_eq_spec) ++
-                    (filter isTyVar ex_tvs)) $
+  = mkInvForAllTys ((univ_tvs `minusList` map eqSpecTyVar eq_spec) ++
+                    ex_tvs) $
     mkFunTys theta $
     mkFunTys arg_tys $
     res_ty
@@ -935,7 +918,7 @@ dataConUserType con@(MkData { dcUnivTyVars = univ_tvs,
 -- tyvars.
 dataConWrapperType :: DataCon -> Type
 dataConWrapperType (MkData { dcUnivTyVars = univ_tvs
-                           , dcExTyCoVars = ex_tvs
+                           , dcExTyVars   = ex_tvs
                            , dcEqSpec     = eq_spec
                            , dcOtherTheta = theta
                            , dcOrigArgTys = arg_tys
@@ -950,7 +933,7 @@ dataConWrapperType (MkData { dcUnivTyVars = univ_tvs
     univ_tys = mkOnlyTyVarTys univ_tvs
     res_ty
       | Just co <- tyConFamilyCoercion_maybe rep_tycon
-      = mkUnbranchedAxInstLHS co univ_tys
+      = mkUnbranchedAxInstLHS co univ_tys []
       | otherwise
       = mkTyConApp rep_tycon univ_tys
 
@@ -964,7 +947,7 @@ dataConInstArgTys :: DataCon    -- ^ A datacon with no existentials or equality 
                   -> [Type]     -- ^ Instantiated at these types
                   -> [Type]
 dataConInstArgTys dc@(MkData {dcUnivTyVars = univ_tvs, dcEqSpec = eq_spec,
-                              dcExTyCoVars = ex_tvs}) inst_tys
+                              dcExTyVars = ex_tvs}) inst_tys
  = ASSERT2( length univ_tvs == length inst_tys
           , ptext (sLit "dataConInstArgTys") <+> ppr dc $$ ppr univ_tvs $$ ppr inst_tys)
    ASSERT2( null ex_tvs && null eq_spec, ppr dc )
@@ -981,7 +964,7 @@ dataConInstOrigArgTys
 -- But for the call in MatchCon, we really do want just the value args
 dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
                                   dcUnivTyVars = univ_tvs,
-                                  dcExTyCoVars = ex_tvs}) inst_tys
+                                  dcExTyVars = ex_tvs}) inst_tys
   = ASSERT2( length tyvars == length inst_tys
           , ptext (sLit "dataConInstOrigArgTys") <+> ppr dc $$ ppr tyvars $$ ppr inst_tys )
     map (substTyWith tyvars inst_tys) arg_tys
@@ -993,7 +976,7 @@ dataConInstOrigArgTys dc@(MkData {dcOrigArgTys = arg_tys,
 dataConOrigArgTys :: DataCon -> [Type]
 dataConOrigArgTys dc = dcOrigArgTys dc
 
--- | Returns the arg types of the worker, including *all* non-dependent
+-- | Returns the arg types of the worker, including *all*
 -- evidence, after any flattening has been done and without substituting for
 -- any type variables
 dataConRepArgTys :: DataCon -> [Type]

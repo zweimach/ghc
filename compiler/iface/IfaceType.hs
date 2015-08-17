@@ -129,7 +129,6 @@ data IfaceTyLit
 
 data IfaceForAllBndr
   = IfaceTv IfaceTvBndr VisibilityFlag
-  | IfaceCv IfaceIdBndr
 
 -- See Note [Suppressing invisible arguments]
 -- We use a new list type (rather than [(IfaceType,Bool)], because
@@ -170,7 +169,7 @@ data IfaceCoercion
   | IfaceAxiomRuleCo  IfLclName [IfaceType] [IfaceCoercion]
 
 data IfaceForAllCoBndr
-  = IfaceCoBndr IfaceCoercion IfaceTvBndr IfaceTvBndr (Maybe IfaceIdBndr)
+  = IfaceCoBndr IfaceCoercion IfaceTvBndr IfaceTvBndr IfaceIdBndr
 
 {-
 %************************************************************************
@@ -243,16 +242,15 @@ ifTyVarsOfForAllBndr :: IfaceForAllBndr
                      -> ( UniqSet IfLclName   -- names used free in the binder
                         , [IfLclName] )       -- names bound by this binder
 ifTyVarsOfForAllBndr (IfaceTv (name, kind) _) = (ifTyVarsOfType kind, [name])
-ifTyVarsOfForAllBndr (IfaceCv (name, kind))   = (ifTyVarsOfType kind, [name])
 
 ifTyVarsOfForAllCoBndr :: IfaceForAllCoBndr
                        -> ( UniqSet IfLclName
                           , [IfLclName] )
-ifTyVarsOfForAllCoBndr (IfaceCoBndr eta (tv1, kind1) (tv2, kind2) m_cv)
+ifTyVarsOfForAllCoBndr (IfaceCoBndr eta (tv1, kind1) (tv2, kind2) (cv, _))
   = ( unionManyUniqSets [ ifTyVarsOfCoercion eta
                         , ifTyVarsOfType kind1
                         , ifTyVarsOfType kind2 ]
-    , map fst (maybeToList m_cv) ++ [tv1, tv2] )
+    , [cv, tv1, tv2] )
   -- don't need to check cv's kind because it always mentions just tv1 and tv2
 
 ifTyVarsOfArgs :: IfaceTcArgs -> UniqSet IfLclName
@@ -565,14 +563,13 @@ pprIfaceForAllCoBndrs bndrs = hsep $ map pprIfaceForAllCoBndr bndrs
 pprIfaceForAllBndr :: IfaceForAllBndr -> SDoc
  -- TODO (RAE): Make this work correctly.
 pprIfaceForAllBndr (IfaceTv tv _) = pprIfaceTvBndr tv
-pprIfaceForAllBndr (IfaceCv cv)   = pprIfaceIdBndr cv
 
 pprIfaceForAllCoBndr :: IfaceForAllCoBndr -> SDoc
-pprIfaceForAllCoBndr (IfaceCoBndr co tv1 tv2 m_cv)
+pprIfaceForAllCoBndr (IfaceCoBndr co tv1 tv2 cv)
   =  brackets (pprIfaceCoercion co)
   <> parens (sep (punctuate comma [pprIfaceTvBndr tv1,
                                    pprIfaceTvBndr tv2,
-                                   maybe empty pprIfaceIdBndr m_cv]))
+                                   pprIfaceIdBndr cv]))
 
 pprIfaceSigmaType :: IfaceType -> SDoc
 pprIfaceSigmaType ty = ppr_iface_sigma_type False ty
@@ -812,38 +809,27 @@ instance Binary IfaceTyLit where
 
 instance Binary IfaceForAllBndr where
    put_ bh (IfaceTv tv vis) = do
-     putByte bh 1
      put_ bh tv
      put_ bh vis
-   put_ bh (IfaceCv cv) = do
-     putByte bh 2
-     put_ bh cv
 
    get bh = do
-     c <- getByte bh
-     case c of
-       1 -> do
-         tv <- get bh
-         vis <- get bh
-         return (IfaceTv tv vis)
-       2 -> do
-         cv <- get bh
-         return (IfaceCv cv)
-       _ -> panic ("get IfaceForAllBndr " ++ show c)
+     tv <- get bh
+     vis <- get bh
+     return (IfaceTv tv vis)
 
 instance Binary IfaceForAllCoBndr where
-   put_ bh (IfaceCoBndr co tv1 tv2 m_cv) = do
+   put_ bh (IfaceCoBndr co tv1 tv2 cv) = do
      put_ bh co
      put_ bh tv1
      put_ bh tv2
-     put_ bh m_cv
+     put_ bh cv
 
    get bh = do
-     co   <- get bh
-     tv1  <- get bh
-     tv2  <- get bh
-     m_cv <- get bh
-     return (IfaceCoBndr co tv1 tv2 m_cv)
+     co  <- get bh
+     tv1 <- get bh
+     tv2 <- get bh
+     cv  <- get bh
+     return (IfaceCoBndr co tv1 tv2 cv)
 
 instance Binary IfaceTcArgs where
   put_ bh tk =
@@ -1129,10 +1115,9 @@ toIfaceTyVar = occNameFS . getOccName
 toIfaceCoVar :: CoVar -> FastString
 toIfaceCoVar = occNameFS . getOccName
 
-varToIfaceForAllBndr :: TyCoVar -> VisibilityFlag -> IfaceForAllBndr
+varToIfaceForAllBndr :: TyVar -> VisibilityFlag -> IfaceForAllBndr
 varToIfaceForAllBndr v vis
-  | isTyVar v = IfaceTv (toIfaceTvBndr v) vis
-  | otherwise = IfaceCv (toIfaceIdBndr v)
+  = IfaceTv (toIfaceTvBndr v) vis
 
 ----------------
 toIfaceTyCon :: TyCon -> IfaceTyCon
@@ -1194,10 +1179,8 @@ toIfaceCoercion (AxiomRuleCo co ts cs) = IfaceAxiomRuleCo
                                           (map toIfaceCoercion cs)
 
 toIfaceForAllCoBndr :: ForAllCoBndr -> IfaceForAllCoBndr
-toIfaceForAllCoBndr (ForAllCoBndr co tv1 tv2 m_cv)
+toIfaceForAllCoBndr (ForAllCoBndr co tv1 tv2 cv)
   = IfaceCoBndr (toIfaceCoercion co)
                 (toIfaceTvBndr tv1)
                 (toIfaceTvBndr tv2)
-                (fmap toIfaceIdBndr m_cv)
-
-
+                (toIfaceIdBndr cv)

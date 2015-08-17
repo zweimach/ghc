@@ -337,7 +337,7 @@ opt_co4 env sym rep r (InstCo co1 arg)
   | otherwise = InstCo co1' arg'
   where
     Pair ty1' ty2'  = coercionKind arg'
-    
+
     co1' = opt_co4_wrap env sym rep r co1
     r'   = chooseRole rep r
     arg' = opt_co4_wrap env sym False Nominal arg
@@ -401,7 +401,7 @@ opt_univ env sym PhantomProv _r h ty1 ty2
     h' = opt_co4 env sym False Representational h
     ty1' = substTy env ty1
     ty2' = substTy env ty2
-    
+
 opt_univ env sym prov role kco oty1 oty2
   | Just (tc1, tys1) <- splitTyConApp_maybe oty1
   , Just (tc2, tys2) <- splitTyConApp_maybe oty2
@@ -420,7 +420,6 @@ opt_univ env sym prov role kco oty1 oty2
   , Just tv1          <- binderVar_maybe bndr1
   , Just (bndr2, ty2) <- splitForAllTy_maybe oty2
   , Just tv2          <- binderVar_maybe bndr2
-  , isTyVar tv1 == isTyVar tv2   -- rule out weird UnsafeCo
   , all (not . (`elemVarSet` tyCoVarsOfCo kco)) [tv1, tv2]
        -- this coercion is going to move within the forall. We don't
        -- want variable capture. Just abort the optimization if it would
@@ -430,10 +429,8 @@ opt_univ env sym prov role kco oty1 oty2
         eta      = mkUnivCo prov role (mkRepReflCo liftedTypeKind) k1 k2
           -- eta gets opt'ed soon, but not yet.
         in_scope = getTCvInScope env `extendInScopeSetList` [tv1, tv2]
-        cobndr
-          | isTyVar tv1 = let c = mkFreshCoVar in_scope tv1 tv2 in
-                          mkForAllCoBndr eta tv1 tv2 (Just c)
-          | otherwise   = mkForAllCoBndr eta tv1 tv2 Nothing
+        c        = mkFreshCoVar in_scope tv1 tv2 in
+        cobndr   = mkForAllCoBndr eta tv1 tv2 c
 
         (env', cobndr') = optForAllCoBndr env sym False role cobndr
     in
@@ -622,8 +619,8 @@ opt_trans_rule is co1 co2
   where
   role   = coercionRole co1
 
-  push_trans (ForAllCoBndr col tvl1 tvl2 m_cvl) r1
-             (ForAllCoBndr cor tvr1 tvr2 m_cvr) r2
+  push_trans (ForAllCoBndr col tvl1 tvl2 cvl) r1
+             (ForAllCoBndr cor tvr1 tvr2 cvr) r2
     | Phantom <- role
        -- abort. We need to use some coercions to cast, and we can't
        -- if we're at a Phantom role.
@@ -631,7 +628,7 @@ opt_trans_rule is co1 co2
       Nothing
 
       -- See Note [ForAllCo case for opt_trans_rule]
-    | (Just cvl, Just cvr) <- (m_cvl, m_cvr)
+    | otherwise
     = -- kinds of tvl2 and tvr1 must be equal
       let is0      = is `extendInScopeSetList` [tvl1, tvl2, cvl, tvr1, tvr2, cvr]
           tyl1     = mkOnlyTyVarTy tvl1
@@ -649,25 +646,7 @@ opt_trans_rule is co1 co2
           is' = is0 `extendInScopeSet` cv
       in
       fireTransRule "EtaAllTy" co1 co2 $
-      mkForAllCo (mkForAllCoBndr (opt_trans2 is col cor) tvl1 tvr2 (Just cv))
-                 (opt_trans is' r1' r2')
-
-    | otherwise
-    = let new_tvl2 = (mkNthCo 2 cor) `mkTransCo`
-                     (mkCoVarCo tvr2) `mkTransCo`
-                     (mkNthCo 3 $ mkSymCo cor)
-          new_tvr1 = (mkNthCo 2 (mkSymCo col)) `mkTransCo`
-                     (mkCoVarCo tvl1) `mkTransCo`
-                     (mkNthCo 3 col)
-          empty    = mkEmptyTCvSubst is'
-          subst_r1 = extendTCvSubst empty tvl2 (mkCoercionTy new_tvl2)
-          subst_r2 = extendTCvSubst empty tvr1 (mkCoercionTy new_tvr1)
-          r1'      = optCoercion subst_r1 r1
-          r2'      = optCoercion subst_r2 r2
-          is'      = is `extendInScopeSetList` [tvl1, tvl2, tvr1, tvr2]
-      in
-      fireTransRule "EtaAllCo" co1 co2 $
-      mkForAllCo (mkForAllCoBndr (opt_trans2 is col cor) tvl1 tvr2 Nothing)
+      mkForAllCo (mkForAllCoBndr (opt_trans2 is col cor) tvl1 tvr2 cv)
                  (opt_trans is' r1' r2')
 
 -- Push transitivity inside axioms
@@ -712,8 +691,9 @@ opt_trans_rule is co1 co2
   , con1 == con2
   , ind1 == ind2
   , sym1 == not sym2
+  , [] <- coAxBranchCoVars branch   -- TODO (RAE): improve?
   , let branch = coAxiomNthBranch con1 ind1
-        qtvs = coAxBranchTyCoVars branch
+        qtvs = coAxBranchTyVars branch
         lhs  = coAxNthLHS con1 ind1
         rhs  = coAxBranchRHS branch
         pivot_tvs = exactTyCoVarsOfType (if sym2 then rhs else lhs)
@@ -814,11 +794,14 @@ checkAxInstCo :: Coercion -> Maybe CoAxBranch
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in CoreLint
 checkAxInstCo (AxiomInstCo ax ind cos)
-  = let branch   = coAxiomNthBranch ax ind
-        tvs      = coAxBranchTyCoVars branch
-        incomps  = coAxBranchIncomps branch
-        tys      = map (pFst . coercionKind) cos
-        subst    = zipOpenTCvSubst tvs tys
+  = let branch       = coAxiomNthBranch ax ind
+        tvs          = coAxBranchTyVars branch
+        cvs          = coAxBranchCoVars branch
+        incomps      = coAxBranchIncomps branch
+        (tys, cotys) = splitAtList tvs (map (pFst . coercionKind) cos)
+        cos          = map stripCoercionTy cotys
+        subst        = zipOpenTCvSubst tvs tys `composeTCvSubst`
+                       zipOpenTCvSubstCoVars cvs cos
         target   = Type.substTys subst (coAxBranchLHS branch)
         in_scope = mkInScopeSet $
                    unionVarSets (map (tyCoVarsOfTypes . coAxBranchLHS) incomps)
@@ -868,15 +851,19 @@ isAxiom_maybe _ = Nothing
 matchAxiom :: Bool -- True = match LHS, False = match RHS
            -> CoAxiom br -> Int -> Coercion -> Maybe [Coercion]
 matchAxiom sym ax@(CoAxiom { co_ax_tc = tc }) ind co
-  = let (CoAxBranch { cab_tvs = qtvs
-                    , cab_roles = roles
-                    , cab_lhs = lhs
-                    , cab_rhs = rhs }) = coAxiomNthBranch ax ind in
-    case liftCoMatch (mkVarSet qtvs) (if sym then (mkTyConApp tc lhs) else rhs) co of
-      Just subst
-        | all (`isMappedByLC` subst) qtvs
-        -> zipWithM (liftCoSubstTyCoVar subst) roles qtvs
-      _ -> Nothing
+  | CoAxBranch { cab_tvs = qtvs
+               , cab_cvs = []   -- can't infer these, so fail if there are any
+               , cab_roles = roles
+               , cab_lhs = lhs
+               , cab_rhs = rhs } <- coAxiomNthBranch ax ind
+  , Just subst <- liftCoMatch (mkVarSet qtvs)
+                              (if sym then (mkTyConApp tc lhs) else rhs)
+                              co
+  , all (`isMappedByLC` subst) qtvs
+  = zipWithM (liftCoSubstTyCoVar subst) roles qtvs
+
+  | otherwise
+  = Nothing
 
 -------------
 -- destruct a CoherenceCo
@@ -912,13 +899,8 @@ etaForAllCo_maybe is co
   , Just (bndr2, _) <- splitForAllTy_maybe ty2
   , Just tv1 <- binderVar_maybe bndr1
   , Just tv2 <- binderVar_maybe bndr2
-  , isTyVar tv1 == isTyVar tv2 -- we want them to be the same sort
-  = let m_cv | isTyVar tv1
-             = Just $
-               mkFreshCoVar is tv1 tv2
-             | otherwise
-             = Nothing
-        cobndr = mkForAllCoBndr (mkNthCo 0 co) tv1 tv2 m_cv
+  = let cv     = mkFreshCoVar is tv1 tv2
+        cobndr = mkForAllCoBndr (mkNthCo 0 co) tv1 tv2 cv
     in
     Just (cobndr, mkInstCo co (coBndrWitness cobndr))
 
@@ -998,4 +980,3 @@ optForAllCoBndr :: TCvSubst
                 -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
 optForAllCoBndr env sym rep r
   = substForAllCoBndrCallback sym substTy (opt_co4 env sym rep r) env
-

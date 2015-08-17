@@ -1017,7 +1017,7 @@ dsTcCoercion co thing_inside
          Representational -> Case (Var eqv) eqv result_ty [(DataAlt coercibleDataCon, [cov], body)]
          Phantom          -> panic "wrap_in_case/phantom"
 
-      | otherwise   -- it's already unlifted. No need to unbox!
+      | otherwise   -- it's already unlifted. No need to unbox.
       = body
 
 {-

@@ -121,7 +121,7 @@ module Type (
 
         -- * Type comparison
         eqType, eqTypeX, eqTypes, cmpType, cmpTypes, cmpTypeX, cmpTypesX, cmpTc,
-        eqTyCoVarBndrs, eraseType, EType(..), EKind, EBinder(..),
+        eqVarBndrs, eraseType, EType(..), EKind, EBinder(..),
 
         -- * Forcing evaluation of types
         seqType, seqTypes,
@@ -148,7 +148,7 @@ module Type (
         zapTCvSubst, getTCvInScope,
         extendTCvInScope, extendTCvInScopeList,
         extendTCvSubst, extendTCvSubstList,
-        isInScope, composeTCvSubstEnv, composeTCvSubst, zipTyCoEnv,
+        isInScope, composeTCvSubstEnv, composeTCvSubst, zipTyEnv, zipCoEnv,
         isEmptyTCvSubst, unionTCvSubst,
 
         -- ** Performing substitution on types and kinds
@@ -446,13 +446,14 @@ data TyCoMapper env m
       , tcm_tyvar :: env -> TyVar -> m Type
       , tcm_covar :: env -> CoVar -> m Coercion
 
-      , tcm_tycobinder :: env -> TyCoVar -> VisibilityFlag -> m (env, TyCoVar)
+      , tcm_tybinder :: env -> TyVar -> VisibilityFlag -> m (env, TyVar)
           -- ^ The returned env is used in the extended scope
+      , tcm_cobinder :: env -> CoVar -> m (env, CoVar)
       }
 
 mapType :: (Applicative m, Monad m) => TyCoMapper env m -> env -> Type -> m Type
 mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
-                           , tcm_tycobinder = tybinder })
+                           , tcm_tybinder = tybinder })
         env ty
   = go ty
   where
@@ -475,7 +476,8 @@ mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
 mapCoercion :: (Applicative m, Monad m)
             => TyCoMapper env m -> env -> Coercion -> m Coercion
 mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
-                               , tcm_tycobinder = tycobinder })
+                               , tcm_tybinder = tybinder
+                               , tcm_cobinder = cobinder })
             env co
   = go co
   where
@@ -508,14 +510,12 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (KindAppCo co)      = mkkindappco <$> go co
     go (SubCo co)          = mksubco <$> go co
 
-    go_cobndr (ForAllCoBndr h tv1 tv2 m_cv)
+    go_cobndr (ForAllCoBndr h tv1 tv2 cv)
       = do { h' <- go h
-           ; (env1, tv1')  <-   tycobinder env  tv1  Invisible
-           ; (env2, tv2')  <-   tycobinder env1 tv2  Invisible
-           ; (env3, m_cv') <- m_tycobinder env2 m_cv Invisible
-           ; return (env3, ForAllCoBndr h' tv1' tv2' m_cv') }
-    m_tycobinder env Nothing  _   = return (env, Nothing)
-    m_tycobinder env (Just v) vis = liftM (second Just) $ tycobinder env v vis
+           ; (env1, tv1') <- tybinder env  tv1 Invisible
+           ; (env2, tv2') <- tybinder env1 tv2 Invisible
+           ; (env3, cv')  <- cobinder env2 cv
+           ; return (env3, ForAllCoBndr h' tv1' tv2' cv') }
 
     ( mktyconappco, mkappco, mkaxiominstco, mkunivco
       , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
@@ -700,23 +700,7 @@ Function types are represented with (ForAllTy (Anon ...) ...)
 -}
 
 mkFunTys :: [Type] -> Type -> Type
--- more efficient than foldr mkFunTy because of the InScopeSet business
--- We must be careful here to respect the invariant that all covars are
--- dependently quantified. See Note [Equality-constrained types] in
--- TyCoRep
-mkFunTys args ty = mkForAllTys (snd $ mapAccumL to_binder in_scope args) ty
-  where
-    in_scope = mkInScopeSet $ tyCoVarsOfType ty
-
-    to_binder :: InScopeSet -> PredType -> (InScopeSet, Binder)
-    to_binder is ty
-      | isCoercionType ty
-      = let cv = mkFreshCoVarOfType is ty in
-        (is `extendInScopeSet` cv, Named cv Invisible)
-          -- we don't really need to extend in_scope, but we don't
-          -- want lots of name shadowing later
-      | otherwise
-      = (is, Anon ty)
+mkFunTys tys ty = foldr mkFunTy ty tys
 
 isFunTy :: Type -> Bool
 isFunTy ty = isJust (splitFunTy_maybe ty)
@@ -910,7 +894,7 @@ mkCastTy (ForAllTy (Named tv vis) inner_ty) co
   = -- have to make sure that pushing the co in doesn't capture the bound var!
     let fvs = tyCoVarsOfCo co
         empty_subst = mkEmptyTCvSubst (mkInScopeSet fvs)
-        (subst, tv') = substTyCoVarBndr empty_subst tv
+        (subst, tv') = substTyVarBndr empty_subst tv
     in
     ForAllTy (Named tv' vis) (substTy subst inner_ty `mkCastTy` co)
 mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
@@ -1062,11 +1046,7 @@ repType ty
       = go rec_nts ty'
 
     go rec_nts ty@(ForAllTy (Named tv _) ty2)  -- Drop type foralls
-      | isTyVar tv
       = go rec_nts ty2
-      | otherwise
-      = -- abstractions over coercions exist in the representation
-        UnaryRep ty
 
     go rec_nts (TyConApp tc tys)        -- Expand newtypes
       | isNewTyCon tc
@@ -1136,15 +1116,17 @@ mkForAllTy = ForAllTy
 
 -- | Make a dependent forall.
 mkNamedForAllTy :: TyVar -> VisibilityFlag -> Type -> Type
-mkNamedForAllTy tv vis = ForAllTy (Named tv vis)
+mkNamedForAllTy tv vis = ASSERT( isTyVar tv )
+                         ForAllTy (Named tv vis)
 
 -- | Wraps foralls over the type using the provided 'TyVar's from left to right
 mkForAllTys :: [Binder] -> Type -> Type
-mkForAllTys tyvars ty = foldr ForAllTy ty tyvars
+mkForAllTys tyvars ty = ASSERT( all isTyVar tyvars )
+                        foldr ForAllTy ty tyvars
 
 -- | Like mkForAllTys, but assumes all variables are dependent and invisible,
 -- a common case
-mkInvForAllTys :: [TyCoVar] -> Type -> Type
+mkInvForAllTys :: [TyVar] -> Type -> Type
 mkInvForAllTys tvs = mkForAllTys (map (flip Named Invisible) tvs)
 
 -- | Like mkForAllTys, but assumes all variables are dependent and visible
@@ -1160,49 +1142,29 @@ mkPiTypes :: [Var] -> Type -> Type
 -- ^ 'mkPiType' for multiple type or value arguments
 
 mkPiType v ty
-   |  isTyVar v
-   || isCoVar v = mkForAllTy (Named v Invisible) ty
-   | otherwise  = mkForAllTy (Anon (varType v)) ty
+   | isTyVar v = mkForAllTy (Named v Invisible) ty
+   | otherwise = mkForAllTy (Anon (varType v)) ty
 
 mkPiTypes vs ty = foldr mkPiType ty vs
 
 -- | Given a list of type-level vars, makes ForAllTys, preferring
 -- anonymous binders if the variable is, in fact, not dependent.
--- All non-coercion binders are /visible/.
--- This used to
--- be @mkPiKinds@.
-mkPiTypesPreferFunTy :: [TyCoVar] -> Type -> Type
+-- All binders are /visible/.
+-- This used to be @mkPiKinds@.
+mkPiTypesPreferFunTy :: [TyVar] -> Type -> Type
 mkPiTypesPreferFunTy vars inner_ty = fst $ go vars inner_ty
   where
-    go :: [TyCoVar] -> Type -> (Type, VarSet) -- also returns the free vars
+    go :: [TyVar] -> Type -> (Type, VarSet) -- also returns the free vars
     go [] ty = (ty, tyCoVarsOfType ty)
     go (v:vs) ty
-      | isTyVar v
       = if v `elemVarSet` fvs
         then ( mkForAllTy (Named v Visible) qty
              , fvs `delVarSet` v `unionVarSet` kind_vars )
         else ( mkForAllTy (Anon (tyVarKind v)) qty
              , fvs `unionVarSet` kind_vars )
-      | otherwise
-      = ASSERT( isCoVar v )
-        ( mkForAllTy (Named v Invisible) qty
-        , fvs `delVarSet` v `unionVarSet` kind_vars )
       where
         (qty, fvs) = go vs ty
         kind_vars  = tyCoVarsOfType $ tyVarKind v
-
--- | Given a list of kinds, makes either FunTys or ForAllTys (quantified
--- over a wild card) as appropriate. (A ForAllTy is used only when the type
--- is a coercion type.) An invariant on @Type@ forbids using anonymous
--- binders over coercions.
-mkPiTypesNoTv :: [Type] -> Type -> Type
-mkPiTypesNoTv [] ty = ty
-mkPiTypesNoTv (k:ks) ty
-  = let binder
-          | isCoercionType k = Named (mkCoVar wildCardName k) Invisible
-          | otherwise        = Anon k
-        result = mkPiTypesNoTv ks ty in
-    mkForAllTy binder result
 
 -- | Take a ForAllTy apart, returning the list of binders and the result type.
 -- This always succeeds, even if it returns only an empty list. Note that the
@@ -1365,10 +1327,10 @@ isAnonBinder (Anon {}) = True
 isAnonBinder _         = False
 
 -- | Does this binder bind a variable that is /not/ erased? Returns
--- 'True' for anonymous binders and coercion binders.
+-- 'True' for anonymous binders.
 isIdLikeBinder :: Binder -> Bool
-isIdLikeBinder (Named cv _) = isCoVar cv
-isIdLikeBinder (Anon {})    = True
+isIdLikeBinder (Named {}) = False
+isIdLikeBinder (Anon {})  = True
 
 -- | Does this type, when used to the left of an arrow, require
 -- a visible argument? This checks to see if the kind of the type
@@ -1843,11 +1805,9 @@ isUnLiftedType :: Type -> Bool
         -- construct them
 
 isUnLiftedType ty | Just ty' <- coreView ty = isUnLiftedType ty'
-isUnLiftedType (ForAllTy (Named tv _) ty)
-  | isTyVar tv                      = isUnLiftedType ty
-  | otherwise {- co var -}          = False
-isUnLiftedType (TyConApp tc _)      = isUnLiftedTyCon tc
-isUnLiftedType _                    = False
+isUnLiftedType (ForAllTy (Named {}) ty) = isUnLiftedType ty
+isUnLiftedType (TyConApp tc _)          = isUnLiftedTyCon tc
+isUnLiftedType _                        = False
 
 -- | Extract the levity classifier of a type. Panics if this is not possible.
 getLevity :: String   -- ^ Printed in case of an error
@@ -1954,16 +1914,16 @@ eqTypeX env t1 t2 = isEqual $ cmpTypeX env t1 t2
 eqTypes :: [Type] -> [Type] -> Bool
 eqTypes tys1 tys2 = isEqual $ cmpTypes tys1 tys2
 
-eqTyCoVarBndrs :: RnEnv2 -> [TyCoVar] -> [TyCoVar] -> Maybe RnEnv2
--- Check that the tyvar lists are the same length
+eqVarBndrs :: RnEnv2 -> [Var] -> [Var] -> Maybe RnEnv2
+-- Check that the var lists are the same length
 -- and have matching kinds; if so, extend the RnEnv2
 -- Returns Nothing if they don't match
-eqTyCoVarBndrs env [] []
+eqVarBndrs env [] []
  = Just env
-eqTyCoVarBndrs env (tv1:tvs1) (tv2:tvs2)
+eqVarBndrs env (tv1:tvs1) (tv2:tvs2)
  | eqTypeX env (tyVarKind tv1) (tyVarKind tv2)
- = eqTyCoVarBndrs (rnBndr2 env tv1 tv2) tvs1 tvs2
-eqTyCoVarBndrs _ _ _= Nothing
+ = eqVarBndrs (rnBndr2 env tv1 tv2) tvs1 tvs2
+eqVarBndrs _ _ _= Nothing
 
 -- Now here comes the real worker
 

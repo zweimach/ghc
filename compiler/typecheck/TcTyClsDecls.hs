@@ -782,7 +782,7 @@ tcDataDefn rec_info tc_name tvs tycon_kind res_kind
        ; gadt_syntax <- dataDeclChecks tc_name new_or_data stupid_theta cons
 
        ; tycon <- fixM $ \ tycon -> do
-             { let res_ty = mkTyConApp tycon (mkTyCoVarTys final_tvs)
+             { let res_ty = mkTyConApp tycon (mkOnlyTyVarTys final_tvs)
              ; data_cons <- tcConDecls new_or_data tycon (final_tvs, res_ty) cons
              ; tc_rhs <-
                  if null cons && is_boot              -- In a hs-boot file, empty cons means
@@ -1022,7 +1022,8 @@ tc_fam_ty_pats (name, _, kind)
 tcFamTyPats :: FamTyConShape
             -> HsWithBndrs Name [LHsType Name] -- patterns
             -> (TcKind -> TcM ())              -- kind-checker for RHS
-            -> ([TyCoVar]            -- Kind and type variables
+            -> (   [TyVar]           -- Kind and type variables
+                -> [CoVar]           -- coercion variables
                 -> [TcType]          -- Kind and type arguments
                 -> Kind -> TcM a)  -- NB: You can use solveTopConstraints here.
             -> TcM a
@@ -1030,24 +1031,53 @@ tcFamTyPats fam_shape@(name,_,_) pats kind_checker thing_inside
   = do { ((typats, res_kind), ev_binds)
             <- solveTopConstraints $  -- See Note [Constraints in patterns]
                tc_fam_ty_pats fam_shape pats kind_checker
+          {- TODO (RAE): This should be cleverer. Consider this:
+
+               type family F a
+
+               type family Blah (x :: k) :: F k
+
+               data Foo :: forall k. k -> F k -> * -> *
+
+               type family G a
+               type instance G (Foo @k a (Blah a) (Blah a)) = Int
+
+             This should probably be accepted. Yet the solveTopConstraints
+             will fail, unable to solve (F k ~ *) arising from the second
+             appearance of (Blah a). We want to quantify over that proof.
+             So we need something that consults quantifyPred here if there
+             are unsolved wanteds. But see Note [Constraints in patterns]
+             below, which I still think is right. So we don't want
+             the full glory of simplifyInfer, but more than just
+             solveTopConstraints, which is quite naive. -}
 
             -- Find free variables (after zonking) and turn
             -- them into skolems, so that we don't subsequently
             -- replace a meta kind var with (Any *)
             -- Very like kindGeneralize
        ; cv_env <- zonkedEvBindsCvSubstEnv ev_binds
-       ; qtkvs <- quantifyTyCoVars cv_env emptyVarSet $
-                                   splitDepVarsOfTypes typats
+       ; qtkvs <- quantifyTyVars cv_env emptyVarSet $
+                                 splitDepVarsOfTypes typats
+
+              -- TODO (RAE): squash away all coercions in typats, replacing
+              -- them with variables. Be careful about squashing away coercion
+              -- **variables**, as these may also appear legitimately on the
+              -- RHS.
+       ; let cvs = coVarsOfTypes typats
+       ; MASSERT( isEmptyVarSet $ coVarsOfTypes $ map tyVarKind qtkvs )
+           -- This should be the case, because otherwise the solveTopConstraints
+           -- above would fail. TODO (RAE): Update once the solveTopConstraints
+           -- bit is cleverer.
 
             -- Zonk the patterns etc into the Type world
-       ; (ze, qtkvs') <- zonkTyCoBndrsX (mkZonkEnv cv_env) qtkvs
+       ; (ze, qtkvs') <- zonkTyBndrsX (mkZonkEnv cv_env) qtkvs
        ; typats'      <- zonkTcTypeToTypes ze typats
        ; res_kind'    <- zonkTcTypeToType  ze res_kind
 
        ; traceTc "tcFamTyPats" (ppr name $$ ppr typats)
             -- don't print out too much, as we might be in the knot
        ; tcExtendTyVarEnv qtkvs' $
-         thing_inside qtkvs' typats' res_kind' }
+         thing_inside qtkvs' cvs typats' res_kind' }
 
 {-
 Note [Constraints in patterns]
@@ -1164,16 +1194,16 @@ consUseGadtSyntax _                                             = False
                  -- All constructors have same shape
 
 -----------------------------------
-tcConDecls :: NewOrData -> TyCon -> ([TyCoVar], Type)
+tcConDecls :: NewOrData -> TyCon -> ([TyVar], Type)
            -> [LConDecl Name] -> TcM [DataCon]
 tcConDecls new_or_data rep_tycon (tmpl_tvs, res_tmpl) cons
   = concatMapM (addLocM  $ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl)
                cons
 
 tcConDecl :: NewOrData
-          -> TyCon               -- Representation tycon
-          -> [TyCoVar] -> Type   -- Return type template (with its template tyvars)
-                                 --    (tvs, T tys), where T is the family TyCon
+          -> TyCon             -- Representation tycon
+          -> [TyVar] -> Type   -- Return type template (with its template tyvars)
+                               --    (tvs, T tys), where T is the family TyCon
           -> ConDecl Name
           -> TcM [DataCon]
 
@@ -1310,6 +1340,7 @@ For example:
 
 Note [Checking GADT return types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+TODO (RAE): Check note.
 There is a delicacy around checking the return types of a datacon. The
 central problem is dealing with a declaration like
 
@@ -1341,28 +1372,27 @@ catch the error before forcing the rejigged type and panicking.
 --      TI :: forall b1 c1. (b1 ~ c1) => b1 -> :R7T b1 c1
 -- In this case orig_res_ty = T (e,e)
 
-rejigConRes :: UniqSupply         -- needed for fresh covars
-            -> [TyCoVar] -> Type  -- Template for result type; e.g.
+rejigConRes :: [TyVar] -> Type    -- Template for result type; e.g.
                                   -- data instance T [a] b c = ...
                                   --      gives template ([a,b,c], T [a] b c)
                                   -- Type must be of kind *!
-            -> [TyCoVar]         -- where MkT :: forall x y z. ...
+            -> [TyVar]            -- where MkT :: forall x y z. ...
             -> ResType Type       -- ResTyGADT type must be of kind *!
-            -> ([TyCoVar],             -- Universal
-                [TyCoVar],                -- Existential (distinct OccNames from univs)
+            -> ([TyVar],          -- Universal
+                [TyVar],          -- Existential (distinct OccNames from univs)
                 [EqSpec],      -- Equality predicates
                 Type,          -- Typechecked return type
                 TCvSubst)      -- Substitution to apply to argument types
         -- We don't check that the TyCon given in the ResTy is
         -- the same as the parent tycon, because checkValidDataCon will do it
 
-rejigConRes _us tmpl_tvs res_ty dc_tvs ResTyH98
+rejigConRes tmpl_tvs res_ty dc_tvs ResTyH98
   = (tmpl_tvs, dc_tvs, [], res_ty, emptyTCvSubst)
         -- In H98 syntax the dc_tvs are the existential ones
         --      data T a b c = forall d e. MkT ...
         -- The {a,b,c} are tc_tvs, and {d,e} are dc_tvs
 
-rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
+rejigConRes tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
         -- E.g.  data T [a] b c where
         --         MkT :: forall x y z. T [(x,y)] z z
         -- Then we generate
@@ -1372,8 +1402,7 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
         --          z
         -- Existentials are the leftover type vars: [x,y]
         -- So we return ([a,b,z], [x,y], [a~(x,y),b~z], T [(x,y)] z z)
-  = (univ_tvs, sorted_tcvs, [], res_ty, arg_subst)
-    -- TODO (RAE): split sorted_tcvs
+  = (univ_tvs, substed_ex_tvs, substed_eqs, res_ty, arg_subst)
   where
     Just (subst, _) = ASSERT( isLiftedTypeKind (typeKind res_ty) )
                       ASSERT( isLiftedTypeKind (typeKind res_tmpl) )
@@ -1384,45 +1413,13 @@ rejigConRes us tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
 
                 -- /Lazily/ figure out the univ_tvs etc
                 -- Each univ_tv is either a dc_tv or a tmpl_tv
-    (univ_tvs, raw_eq_cvs, kind_subst) = initUs_ us $
-                                         mkGADTVars tmpl_tvs dc_tvs subst
+    (univ_tvs, raw_eqs, kind_subst) = mkGADTVars tmpl_tvs dc_tvs subst
     raw_ex_tvs = dc_tvs `minusList` univ_tvs
     (arg_subst, substed_ex_tvs) = mapAccumL substTyVarBndr kind_subst raw_ex_tvs
 
        -- don't use substCoVarBndr because we don't want fresh uniques!
        -- substed_ex_tvs and raw_eq_cvs may dependent on one another
-    substed_eq_cvs = map (updateVarType (substTy arg_subst)) raw_eq_cvs
-
-    sorted_tcvs = varSetElemsWellScoped $ mkVarSet (substed_ex_tvs ++ substed_eq_cvs)
-
-{- TODO (RAE): Restore this behavior, or some semblance of it.
-   TODO (RAE): Or maybe not. There doesn't seem to be a reason to carefully separate
-               out dependent equalities from non-dependent ones. After all,
-               the non-dependent ones will get UNPACKed to ~# anyway.
-               NB: In 7.8.3, you can't create an ill-typed GADT, even with
-                   -fdefer-type-errors
-
-      -- Remove a suffix of covars: these can be converted to lifted,
-      -- non-dependent equalities for better deferred type errors.
-    (ex_tvs, eq_cvs) = span_from_end isCoVar sorted_tcvs
-    eq_spec = map cv_to_eq_spec eq_cvs
-
-    cv_to_eq_spec cv
-      = ASSERT( isCoVar cv )
-        let (ty1, ty2) = coVarTypes cv
-            tv1        = getTyVar "rejigConRes.cv_to_eq_spec" ty1
-        in
-        (tv1, ty2)
-
-      -- second return value is longest *suffix* that returns True
-      -- to the predicate
-    span_from_end :: (a -> Bool) -> [a] -> ([a], [a])
-    span_from_end p = swap .
-                      first reverse .
-                      second reverse .
-                      span p .
-                      reverse
--}
+    substed_eqs = map (substEqSpec arg_subst) raw_eqs
 
 {-
 Note [Substitution in template variables kinds]
@@ -1634,7 +1631,7 @@ checkValidDataCon dflags existential_ok tc con
               [ ppr con, ppr tc, ppr tc_tvs
               , ppr res_ty_tmpl <+> dcolon <+> ppr (typeKind res_ty_tmpl)
               , ppr orig_res_ty <+> dcolon <+> ppr (typeKind orig_res_ty)])
-
+-- TODO (RAE): This is still broken. HELP!
         ; checkTc (isJust (tcMatchTy (mkVarSet tc_tvs)
                                      res_ty_tmpl
                                      orig_res_ty))
@@ -1690,7 +1687,7 @@ checkNewDataCon con
   = do  { checkTc (isSingleton arg_tys) (newtypeFieldErr con (length arg_tys))
                 -- One argument
 
-        ; check_con (null eq_spec && null dep_eq_spec) $
+        ; check_con (null eq_spec) $
           ptext (sLit "A newtype constructor must have a return type of form T a1 ... an")
                 -- Return type is (T a b c)
 
@@ -1706,7 +1703,7 @@ checkNewDataCon con
                 -- No strictness
     }
   where
-    (_univ_tvs, ex_tvs, dep_eq_spec, eq_spec, theta, arg_tys, _res_ty)
+    (_univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty)
       = dataConFullSig con
     check_con what msg
        = checkTc what (msg $$ ppr con <+> dcolon <+> ppr (dataConUserType con))
@@ -1896,15 +1893,12 @@ checkValidRoles tc
                     eqSpecPreds eq_spec ++ theta ++ arg_tys }
                     -- See Note [Role-checking data constructor arguments] in TcTyDecls
       where
-        (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, arg_tys, _res_ty)
+        (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty)
           = dataConFullSig datacon
         univ_roles = zipVarEnv univ_tvs (tyConRoles tc)
               -- zipVarEnv uses zipEqual, but we don't want that for ex_tvs
-        ex_roles   = mkVarEnv (map mk_ex_role ex_tvs)
+        ex_roles   = mkVarEnv (map (, Nominal) ex_tvs)
         role_env   = univ_roles `plusVarEnv` ex_roles
-        mk_ex_role tv
-          | isCoVar tv = (tv, Phantom)
-          | otherwise  = (tv, Nominal)
 
     check_ty_roles env role ty = analyzeType analysis ty
       where
@@ -2060,8 +2054,8 @@ mkRecSelBind (tycon, sel_name)
         --                 A :: { fld :: Int } -> T Int Bool
         --                 B :: { fld :: Int } -> T Int Char
     dealt_with con = con `elem` cons_w_field || dataConCannotMatch inst_tys con
-    inst_tys = substTyCoVars (mkTopTCvSubst (map eqSpecPair (dataConEqSpec con1)))
-                             (dataConUnivTyVars con1)
+    inst_tys = substTyVars (mkTopTCvSubst (map eqSpecPair (dataConEqSpec con1)))
+                           (dataConUnivTyVars con1)
 
     unit_rhs = mkLHsTupleExpr []
     msg_lit = HsStringPrim "" $ unsafeMkByteString $

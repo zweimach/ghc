@@ -21,8 +21,7 @@ module MkId (
 
         wrapNewTypeBody, unwrapNewTypeBody,
         wrapFamInstBody, unwrapFamInstScrut,
-        wrapTypeFamInstBody, wrapTypeUnbranchedFamInstBody, unwrapTypeFamInstScrut,
-        unwrapTypeUnbranchedFamInstScrut,
+        wrapTypeUnbranchedFamInstBody, unwrapTypeUnbranchedFamInstScrut,
 
         DataConBoxer(..), mkDataConRep, mkDataConWorkId,
 
@@ -403,7 +402,7 @@ mkDataConWorkId wkr_name data_con
 
         ----------- Workers for newtypes --------------
     (nt_tvs, _, nt_arg_tys, _) = dataConSig data_con
-    res_ty_args  = mkTyCoVarTys nt_tvs
+    res_ty_args  = mkOnlyTyVarTys nt_tvs
     nt_wrap_ty   = dataConWrapperType data_con
     nt_work_info = noCafIdInfo          -- The NoCaf-ness is set by noCafIdInfo
                   `setArityInfo` 1      -- Arity 1
@@ -512,7 +511,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
                      , dcr_bangs   = dropList ev_tys wrap_bangs }) }
 
   where
-    (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, orig_arg_tys, _orig_res_ty)
+    (univ_tvs, ex_tvs, eq_spec, theta, orig_arg_tys, _orig_res_ty)
       = dataConFullSig data_con
     all_tvs      = univ_tvs ++ ex_tvs
     tycon        = dataConTyCon data_con       -- The representation TyCon (not family)
@@ -520,8 +519,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
     wrap_arg_tys = ev_tys                         ++ orig_arg_tys
     orig_bangs   = map mk_pred_strict_mark ev_tys ++ dataConStrictMarks data_con
     wrap_ty      = dataConWrapperType data_con
-    wrap_arity   = count isId ex_tvs + length wrap_arg_tys
-      -- TODO (RAE): should we include the exst'l covars in wrap_arity?
+    wrap_arity   = length wrap_arg_tys
 
     (wrap_bangs, rep_tys_w_strs, wrappers)
        = unzip3 (zipWith (dataConArgRep dflags fam_envs) wrap_arg_tys orig_bangs)
@@ -538,11 +536,11 @@ mkDataConRep dflags fam_envs wrap_name data_con
 
     mk_boxer :: [Boxer] -> DataConBoxer
     mk_boxer boxers = DCB (\ ty_args src_vars ->
-                      do { let ex_vars = takeList ex_tvs src_vars
+                      do { let (ex_vars, term_vars) = splitAtList ex_tvs src_vars
                                subst1 = mkTopTCvSubst (all_tvs `zip` ty_args)
                                subst2 = extendTCvSubstList subst1 ex_tvs
-                                                          (mkTyCoVarTys ex_vars)
-                         ; (rep_ids, binds) <- go subst2 boxers (dropList ex_tvs src_vars)
+                                                          (mkOnlyTyVarTys ex_vars)
+                         ; (rep_ids, binds) <- go subst2 boxers term_vars
                          ; return (ex_vars ++ rep_ids, binds) } )
 
     go _ [] src_vars = ASSERT2( null src_vars, ppr data_con ) return ([], [])
@@ -837,7 +835,7 @@ wrapNewTypeBody tycon args result_expr
     wrapFamInstBody tycon args $
     mkCast result_expr (mkSymCo co)
   where
-    co = mkUnbranchedAxInstCo Representational (newTyConCo tycon) args
+    co = mkUnbranchedAxInstCo Representational (newTyConCo tycon) args []
 
 -- When unwrapping, we do *not* apply any family coercion, because this will
 -- be done via a CoPat by the type checker.  We have to do it this way as
@@ -847,7 +845,7 @@ wrapNewTypeBody tycon args result_expr
 unwrapNewTypeBody :: TyCon -> [Type] -> CoreExpr -> CoreExpr
 unwrapNewTypeBody tycon args result_expr
   = ASSERT( isNewTyCon tycon )
-    mkCast result_expr (mkUnbranchedAxInstCo Representational (newTyConCo tycon) args)
+    mkCast result_expr (mkUnbranchedAxInstCo Representational (newTyConCo tycon) args [])
 
 -- If the type constructor is a representation type of a data instance, wrap
 -- the expression into a cast adjusting the expression type, which is an
@@ -857,32 +855,36 @@ unwrapNewTypeBody tycon args result_expr
 wrapFamInstBody :: TyCon -> [Type] -> CoreExpr -> CoreExpr
 wrapFamInstBody tycon args body
   | Just co_con <- tyConFamilyCoercion_maybe tycon
-  = mkCast body (mkSymCo (mkUnbranchedAxInstCo Representational co_con args))
+  = mkCast body (mkSymCo (mkUnbranchedAxInstCo Representational co_con args []))
   | otherwise
   = body
 
 -- Same as `wrapFamInstBody`, but for type family instances, which are
 -- represented by a `CoAxiom`, and not a `TyCon`
-wrapTypeFamInstBody :: CoAxiom br -> Int -> [Type] -> CoreExpr -> CoreExpr
-wrapTypeFamInstBody axiom ind args body
-  = mkCast body (mkSymCo (mkAxInstCo Representational axiom ind args))
+wrapTypeFamInstBody :: CoAxiom br -> Int -> [Type] -> [Coercion]
+                    -> CoreExpr -> CoreExpr
+wrapTypeFamInstBody axiom ind args cos body
+  = mkCast body (mkSymCo (mkAxInstCo Representational axiom ind args cos))
 
-wrapTypeUnbranchedFamInstBody :: CoAxiom Unbranched -> [Type] -> CoreExpr -> CoreExpr
+wrapTypeUnbranchedFamInstBody :: CoAxiom Unbranched -> [Type] -> [Coercion]
+                              -> CoreExpr -> CoreExpr
 wrapTypeUnbranchedFamInstBody axiom
   = wrapTypeFamInstBody axiom 0
 
 unwrapFamInstScrut :: TyCon -> [Type] -> CoreExpr -> CoreExpr
 unwrapFamInstScrut tycon args scrut
   | Just co_con <- tyConFamilyCoercion_maybe tycon
-  = mkCast scrut (mkUnbranchedAxInstCo Representational co_con args) -- data instances only
+  = mkCast scrut (mkUnbranchedAxInstCo Representational co_con args []) -- data instances only
   | otherwise
   = scrut
 
-unwrapTypeFamInstScrut :: CoAxiom br -> Int -> [Type] -> CoreExpr -> CoreExpr
-unwrapTypeFamInstScrut axiom ind args scrut
-  = mkCast scrut (mkAxInstCo Representational axiom ind args)
+unwrapTypeFamInstScrut :: CoAxiom br -> Int -> [Type] -> [Coercion]
+                       -> CoreExpr -> CoreExpr
+unwrapTypeFamInstScrut axiom ind args cos scrut
+  = mkCast scrut (mkAxInstCo Representational axiom ind args cos)
 
-unwrapTypeUnbranchedFamInstScrut :: CoAxiom Unbranched -> [Type] -> CoreExpr -> CoreExpr
+unwrapTypeUnbranchedFamInstScrut :: CoAxiom Unbranched -> [Type] -> [Coercion]
+                                 -> CoreExpr -> CoreExpr
 unwrapTypeUnbranchedFamInstScrut axiom
   = unwrapTypeFamInstScrut axiom 0
 

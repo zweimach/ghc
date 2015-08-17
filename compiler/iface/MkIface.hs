@@ -1575,13 +1575,15 @@ coAxBranchToIfaceBranch tc lhs_s
 
 -- use this one for standalone branches without incompatibles
 coAxBranchToIfaceBranch' :: TyCon -> CoAxBranch -> IfaceAxBranch
-coAxBranchToIfaceBranch' tc (CoAxBranch { cab_tvs = tvs, cab_lhs = lhs
+coAxBranchToIfaceBranch' tc (CoAxBranch { cab_tvs = tvs, cab_cvs = cvs
+                                        , cab_lhs = lhs
                                         , cab_roles = roles, cab_rhs = rhs })
-  = IfaceAxBranch { ifaxbTyCoVars = toIfaceTCvBndrs tv_bndrs
-                  , ifaxbLHS      = tidyToIfaceTcArgs env1 tc lhs
-                  , ifaxbRoles    = roles
-                  , ifaxbRHS      = tidyToIfaceType env1 rhs
-                  , ifaxbIncomps  = [] }
+  = IfaceAxBranch { ifaxbTyVars  = toIfaceTvBndrs tvs
+                  , ifaxbCoVars  = map toIfaceIdBndr cvs
+                  , ifaxbLHS     = tidyToIfaceTcArgs env1 tc lhs
+                  , ifaxbRoles   = roles
+                  , ifaxbRHS     = tidyToIfaceType env1 rhs
+                  , ifaxbIncomps = [] }
   where
 
     (env1, tv_bndrs) = tidyTyClTyCoVarBndrs emptyTidyEnv tvs
@@ -1679,7 +1681,7 @@ tyConToIfaceDecl env tycon
         = IfCon   { ifConOcc     = getOccName (dataConName data_con),
                     ifConInfix   = dataConIsInfix data_con,
                     ifConWrapper = isJust (dataConWrapId_maybe data_con),
-                    ifConExTvs   = toIfaceTCvBndrs ex_tvs',
+                    ifConExTvs   = toIfaceTvBndrs ex_tvs',
                     ifConEqSpec  = map (to_eq_spec . eqSpecPair) eq_spec,
                     ifConCtxt    = tidyToIfaceContext con_env2 theta,
                     ifConArgTys  = map (tidyToIfaceType con_env2) arg_tys,
@@ -1687,7 +1689,7 @@ tyConToIfaceDecl env tycon
                                        (dataConFieldLabels data_con),
                     ifConStricts = map (toIfaceBang con_env2) (dataConRepBangs data_con) }
         where
-          (univ_tvs, ex_tvs, _dep_eq_spec, eq_spec, theta, arg_tys, _)
+          (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _)
             = dataConFullSig data_con
 
           -- Tidy the univ_tvs of the data constructor to be identical

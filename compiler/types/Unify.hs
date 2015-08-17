@@ -111,7 +111,8 @@ data MatchEnv
 -- | @tcMatchTy tys t1 t2@ produces a substitution (over a subset of
 -- the variables @tys@) @s@ such that @s(t1)@ equals @t2@, as witnessed
 -- by the returned coercion. That coercion will be reflexive whenever the
--- kinds of @s(t1)@ and @t2) are the same.
+-- kinds of @s(t1)@ and @t2) are the same. Note that the returned substitution
+-- never binds coercion variables.
 tcMatchTy :: TyCoVarSet -> Type -> Type -> Maybe (TCvSubst, Coercion)
 tcMatchTy tmpls ty1 ty2
     -- See Note [Lazy coercions in Unify]
@@ -743,9 +744,9 @@ unify_tys orig_xs orig_ys
     go _ _ = maybeApart  -- See Note [Lists of different lengths are MaybeApart]
 
 ---------------------------------
-uVar :: TyCoVar           -- Variable to be unified
-     -> Type              -- with this Type
-     -> Coercion          -- :: kind tv ~N kind ty
+uVar :: TyVar           -- Variable to be unified
+     -> Type            -- with this Type
+     -> Coercion        -- :: kind tv ~N kind ty
      -> UM ()
 
 uVar tv1 ty kco
@@ -755,10 +756,10 @@ uVar tv1 ty kco
           Just ty' -> unify_ty ty' ty kco        -- Yes, call back into unify
           Nothing  -> uUnrefined tv1 ty ty kco } -- No, continue
 
-uUnrefined :: TyCoVar             -- variable to be unified
-           -> Type                -- with this Type
-           -> Type                -- (version w/ expanded synonyms)
-           -> Coercion            -- :: kind tv ~N kind ty
+uUnrefined :: TyVar             -- variable to be unified
+           -> Type              -- with this Type
+           -> Type              -- (version w/ expanded synonyms)
+           -> Coercion          -- :: kind tv ~N kind ty
            -> UM ()
 
 -- We know that tv1 isn't refined
@@ -801,12 +802,12 @@ uUnrefined tv1 ty2 ty2' kco -- ty2 is not a type variable
          else do bindTv tv1 (ty2 `mkCastTy` mkSymCo kco) }
             -- Bind tyvar to the synonym if poss
 
-elemNiSubstSet :: TyCoVar -> TyCoVarSet -> UM Bool
+elemNiSubstSet :: TyVar -> TyCoVarSet -> UM Bool
 elemNiSubstSet v set
   = do { tsubst <- getTvSubstEnv
        ; return $ v `elemVarSet` niSubstTvSet tsubst set }
 
-bindTv :: TyCoVar -> Type -> UM ()
+bindTv :: TyVar -> Type -> UM ()
 bindTv tv ty    -- ty is not a variable
   = do  { checkRnEnvR ty -- make sure ty mentions no local variables
         ; b <- tvBindFlag tv
@@ -1093,17 +1094,17 @@ ty_co_match menv subst (ForAllTy (Anon ty1) ty2) (TyConAppCo _ tc cos) _lkco _rk
   = ty_co_match_tc menv subst funTyCon [ty1, ty2] tc cos
 
 ty_co_match menv subst (ForAllTy (Named tv _) ty)
-                       (ForAllCo (ForAllCoBndr co1 tvl tvr m_cv) co)
+                       (ForAllCo (ForAllCoBndr co1 tvl tvr cv) co)
                        lkco rkco
   = do { subst1 <- ty_co_match menv subst (tyVarKind tv) co1 ki_ki_co ki_ki_co
          -- See Note [Heterogeneous type matching]
        ; let rn_env0 = me_env menv
-             (rn_env1, tv')   = rnBndrL rn_env0 tv
-             (rn_env2, tvl')  = rnBndrR rn_env1 tvl
-             (rn_env3, tvr')  = rnBndrR rn_env2 tvr
-             (rn_env4, m_cv') = maybeSecond rnBndrR rn_env3 m_cv
+             (rn_env1, tv')  = rnBndrL rn_env0 tv
+             (rn_env2, tvl') = rnBndrR rn_env1 tvl
+             (rn_env3, tvr') = rnBndrR rn_env2 tvr
+             (rn_env4, cv')  = rnBndrR rn_env3 cv
              menv' = menv { me_env = rn_env4 }
-             witness = coBndrWitness (mkForAllCoBndr co1 tvl' tvr' m_cv')
+             witness = coBndrWitness (mkForAllCoBndr co1 tvl' tvr' cv')
              subst2  = extendVarEnv subst1 tv' witness
        ; subst3 <- ty_co_match menv' subst2 ty co lkco rkco
        ; return $ delVarEnv subst3 tv' }
@@ -1164,4 +1165,3 @@ pushRefl (Refl r (ForAllTy (Named tv _) ty))
     -- NB: NoRefl variant. Otherwise, we get a loop!
 pushRefl (Refl r (CastTy ty co))  = Just (castCoercionKind (Refl r ty) co co)
 pushRefl _                        = Nothing
-

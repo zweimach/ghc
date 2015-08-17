@@ -678,12 +678,12 @@ tcDataFamInstDecl mb_clsinfo
          -- Kind check type patterns
        ; tcFamTyPats (famTyConShape fam_tc) pats
                      (kcDataDefn (unLoc fam_tc_name) pats defn) $
-           \tvs' pats' res_kind -> do
-
-       { -- Check that left-hand side contains no type family applications
+           \tvs' cvs' pats' res_kind -> do
+       { MASSERT( null cvs' )
+         -- Check that left-hand side contains no type family applications
          -- (vanilla synonyms are fine, though, and we checked for
          --  foralls earlier)
-         checkValidFamPats fam_tc tvs' pats'
+       ; checkValidFamPats fam_tc tvs' pats'
          -- Check that type patterns match class instance head, if any
        ; checkConsistentFamInst mb_clsinfo fam_tc tvs' pats'
 
@@ -868,7 +868,7 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
              app_to_meth :: HsExpr Id -> Id -> HsExpr Id
              app_to_meth fun meth_id = L loc fun `HsApp` L loc (wrapId arg_wrapper meth_id)
 
-             inst_tv_tys = mkTyCoVarTys inst_tyvars
+             inst_tv_tys = mkOnlyTyVarTys inst_tyvars
              arg_wrapper = mkWpEvVarApps dfun_ev_vars <.> mkWpTyEvApps inst_tv_tys
 
                 -- Do not inline the dfun; instead give it a magic DFunFunfolding
@@ -1281,7 +1281,7 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
 
            ; self_dict <- newDict clas inst_tys
            ; ev_loc <- getCtLoc ImpossibleOrigin
-           ; let ev_term = EvDFunApp dfun_id (mkTyCoVarTys tyvars)
+           ; let ev_term = EvDFunApp dfun_id (mkOnlyTyVarTys tyvars)
                                              (map EvId dfun_ev_vars)
                  self_ev_bind = EvBind { evb_var  = self_dict
                                        , evb_term = ev_term

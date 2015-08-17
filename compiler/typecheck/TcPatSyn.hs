@@ -144,7 +144,8 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
            tcPat PatSyn lpat pat_ty $ do
            { ex_sigtvs <- mapM (\tv -> newSigTyVar (getName tv) (tyVarKind tv)) ex_tvs
            ; let subst = mkTCvSubst (mkInScopeSet (zipVarEnv ex_sigtvs ex_sigtvs)) $
-                         zipTyCoEnv ex_tvs (map mkTyCoVarTy ex_sigtvs)
+                         ( zipTyEnv ex_tvs (mkOnlyTyVarTys ex_sigtvs)
+                         , emptyCvSubstEnv )
            ; let ex_tys = substTys subst $ map mkTyCoVarTy ex_tvs
                  prov_theta' = substTheta subst prov_theta
            ; wrapped_args <- forM (zipEqual "tcCheckPatSynDecl" arg_names arg_tys) $ \(arg_name, arg_ty) -> do

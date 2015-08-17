@@ -667,9 +667,9 @@ cpeApp env expr
       = do { (fun',hd,fun_ty,floats,ss) <- collect_args fun depth
            ; return (App fun' arg, hd, piResultTy fun_ty arg_ty, floats, ss) }
 
-    collect_args (App fun arg@(Coercion arg_co)) depth
+    collect_args (App fun arg@(Coercion {})) depth
       = do { (fun',hd,fun_ty,floats,ss) <- collect_args fun depth
-           ; return (App fun' arg, hd, applyCo fun_ty arg_co, floats, ss) }
+           ; return (App fun' arg, hd, funResultTy fun_ty, floats, ss) }
 
     collect_args (App fun arg) depth
       = do { (fun',hd,fun_ty,floats,ss) <- collect_args fun (depth+1)

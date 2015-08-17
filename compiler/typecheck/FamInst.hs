@@ -57,13 +57,16 @@ newFamInst :: FamFlavor -> CoAxiom Unbranched -> TcRnIf gbl lcl FamInst
 newFamInst flavor axiom@(CoAxiom { co_ax_branches = FirstBranch branch
                                  , co_ax_tc = fam_tc })
   | CoAxBranch { cab_tvs = tvs
+               , cab_cvs = cvs
                , cab_lhs = lhs
                , cab_rhs = rhs } <- branch
-  = do { (subst, tvs') <- freshenTyCoVarBndrs tvs
+  = do { (subst, tvs') <- freshenTyVarBndrs tvs
+       ; (subst, cvs') <- freshenCoVarBndrsX subst cvs
        ; return (FamInst { fi_fam      = tyConName fam_tc
                          , fi_flavor   = flavor
                          , fi_tcs      = roughMatchTcs lhs
                          , fi_tvs      = tvs'
+                         , fi_cvs      = cvs'
                          , fi_tys      = substTys subst lhs
                          , fi_rhs      = substTy  subst rhs
                          , fi_axiom    = axiom }) }
@@ -206,17 +209,20 @@ tcLookupDataFamInst fam_inst_envs tc tc_args
 tcLookupDataFamInst_maybe :: FamInstEnvs -> TyCon -> [TcType]
                           -> Maybe (TyCon, [TcType], Coercion)
 -- ^ Converts a data family type (eg F [a]) to its representation type (eg FList a)
--- and returns a coercion between the two: co :: F [a] ~R FList a
+-- and returns a coercion between the two: co :: F [a] ~R FList a.
 tcLookupDataFamInst_maybe fam_inst_envs tc tc_args
   | isDataFamilyTyCon tc
   , match : _ <- lookupFamInstEnv fam_inst_envs tc tc_args
-  , FamInstMatch { fim_instance = rep_fam@(FamInst { fi_axiom = co_tc })
+  , FamInstMatch { fim_instance = rep_fam@(FamInst { fi_axiom = co_tc
+                                                   , fi_cvs   = cvs })
                  , fim_tys      = rep_args
                  , fim_coercion = match_co } <- match
   , let rep_tc = dataFamInstRepTyCon rep_fam
         co     = mkSubCo match_co `mkTransCo`
                  mkUnbranchedAxInstCo Representational co_tc rep_args
-  = Just (rep_tc, rep_args, co)
+                                      (mkCoVarVos cvs)
+  = ASSERT( null cvs ) -- See Note [Constrained family instances] in FamInstEnv
+    Just (rep_tc, rep_args, co)
 
   | otherwise
   = Nothing

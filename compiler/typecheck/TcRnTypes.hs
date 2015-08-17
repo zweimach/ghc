@@ -1258,15 +1258,8 @@ tyCoVarsOfImplic :: Implication -> TyCoVarSet
 -- Only called on *zonked* things, hence no need to worry about flatten-skolems
 tyCoVarsOfImplic (Implic { ic_skols = skols
                          , ic_given = givens, ic_wanted = wanted })
-  = go_telescope skols $
+  = tyCoVarsOfTelescope skols $
     (tyCoVarsOfWC wanted `unionVarSet` tyCoVarsOfTypes (map evVarPred givens))
-  where
-    go_telescope :: [TyCoVar] -> TyCoVarSet -> TyCoVarSet
-    go_telescope [] fvs = fvs
-    go_telescope (tcv:tcvs) fvs
-      = go_telescope tcvs fvs
-        `delVarSet` tcv
-        `unionVarSet` tyCoVarsOfType (tyVarKind tcv)
 
 tyCoVarsOfBag :: (a -> TyVarSet) -> Bag a -> TyVarSet
 tyCoVarsOfBag tvs_of = foldrBag (unionVarSet . tvs_of) emptyVarSet
@@ -1482,7 +1475,7 @@ data Implication
       ic_tclvl :: TcLevel, -- TcLevel: unification variables
                                 -- free in the environment
 
-      ic_skols  :: [TcTyCoVar],  -- Introduced skolems
+      ic_skols  :: [TcTyVar],    -- Introduced skolems
       ic_info  :: SkolemInfo,    -- See Note [Skolems in an implication]
                                  -- See Note [Shadowing in a constraint]
 
@@ -2079,6 +2072,7 @@ data CtOrigin
   | UnboundOccurrenceOf RdrName
   | ListOrigin          -- An overloaded list
   | StaticOrigin        -- A static form
+  | TypeRedOrigin Type  -- From reducing a type
   | ImpossibleOrigin    -- An origin that should never be printed to
                         -- the user  (TODO (RAE): Remove?)
 
@@ -2183,6 +2177,8 @@ pprCtO AnnOrigin             = ptext (sLit "an annotation")
 pprCtO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
 pprCtO ListOrigin            = ptext (sLit "an overloaded list")
 pprCtO StaticOrigin          = ptext (sLit "a static form")
+pprCtO (TypeRedOrigin ty)    = ptext (sLit "reducing the type") <+>
+                               quotes (ppr ty)
 
 -- don't panic here, so that we can print debugging output
 pprCtO ImpossibleOrigin      = ptext (sLit "a check that should never fail") $$

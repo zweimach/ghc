@@ -143,7 +143,7 @@ data TcSigInfo
 
           -- TODO (RAE): Understand this better. I have a nagging feeling we
           -- need visibility information around here.
-        sig_tvs    :: [(Maybe Name, TcTyCoVar)],
+        sig_tvs    :: [(Maybe Name, TcTyVar)],
                            -- Instantiated type and kind variables
                            -- Just n <=> this skolem is lexically in scope with name n
                            -- See Note [Binding scoped type variables]
@@ -751,7 +751,7 @@ tcDataConPat :: PatEnv -> Located Name -> DataCon
 tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
   = do  { let tycon = dataConTyCon data_con
                   -- For data families this is the representation tycon
-              (univ_tvs, ex_tvs, dep_eq_spec, eq_spec, theta, arg_tys, _)
+              (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _)
                 = dataConFullSig data_con
               header = L con_span (RealDataCon data_con)
 
@@ -765,7 +765,7 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
 
         ; let all_arg_tys = eqSpecPreds eq_spec ++ theta ++ arg_tys
         ; checkExistentials ex_tvs all_arg_tys penv
-        ; (tenv, ex_tvs') <- tcInstSuperSkolTyCoVarsX
+        ; (tenv, ex_tvs') <- tcInstSuperSkolTyVarsX
                                (zipTopTCvSubst univ_tvs ctxt_res_tys) ex_tvs
                      -- Get location from monad, not from ex_tvs
 
@@ -776,10 +776,9 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
               arg_tys' = substTys tenv arg_tys
 
         ; traceTc "tcConPat" (vcat [ ppr con_name, ppr univ_tvs, ppr ex_tvs
-                                   , ppr dep_eq_spec, ppr eq_spec
+                                   , ppr eq_spec
                                    , ppr ex_tvs', ppr ctxt_res_tys, ppr arg_tys'
                                    , ppr arg_pats ])
-             -- the conditions below imply (null dep_eq_spec)
         ; if null ex_tvs && null eq_spec && null theta
           then do { -- The common case; no class bindings etc
                     -- (see Note [Arrows and patterns])
@@ -799,7 +798,7 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
         { let theta'     = substTheta tenv (eqSpecPreds eq_spec ++ theta)
                            -- order is *important* as we generate the list of
                            -- dictionary binders from theta'
-              no_equalities = null dep_eq_spec && not (any isNomEqPred theta')
+              no_equalities = not (any isNomEqPred theta')
               skol_info = case pe_ctxt penv of
                             LamPat mc -> PatSkol (RealDataCon data_con) mc
                             LetPat {} -> UnkSkol -- Doesn't matter
@@ -813,10 +812,9 @@ tcDataConPat penv (L con_span con_name) data_con pat_ty arg_pats thing_inside
                   -- should require the GADT language flag.
                   -- Re TypeFamilies see also #7156
 
-        ; let dep_given = filter (isPredTy . tyVarKind) ex_tvs'
         ; given <- newEvVars theta'
         ; (ev_binds, (arg_pats', res))
-             <- checkConstraints skol_info ex_tvs' (dep_given ++ given) $
+             <- checkConstraints skol_info ex_tvs' given $
                 tcConArgs (RealDataCon data_con) arg_tys' arg_pats penv thing_inside
 
         ; let res_pat = ConPatOut { pat_con   = header,
@@ -840,7 +838,7 @@ tcPatSynPat penv (L con_span _) pat_syn pat_ty arg_pats thing_inside
 
         ; let all_arg_tys = ty : prov_theta ++ arg_tys
         ; checkExistentials ex_tvs all_arg_tys penv
-        ; (tenv, ex_tvs') <- tcInstSuperSkolTyCoVarsX subst ex_tvs
+        ; (tenv, ex_tvs') <- tcInstSuperSkolTyVarsX subst ex_tvs
         ; let ty' = substTy tenv ty
               arg_tys' = substTys tenv arg_tys
               prov_theta' = substTheta tenv prov_theta
@@ -923,7 +921,7 @@ matchExpectedConTy data_tc pat_ty
              -- co1 : T (ty1,ty2) ~ pat_ty
 
        ; let tys' = mkOnlyTyVarTys tvs'
-             co2 = mkTcUnbranchedAxInstCo Nominal co_tc tys'
+             co2 = mkTcUnbranchedAxInstCo Nominal co_tc tys' []
              -- co2 : T (ty1,ty2) ~ T7 ty1 ty2
 
        ; return (mkTcSymCo co2 `mkTcTransCo` co1, tys') }
@@ -1153,8 +1151,8 @@ maybeWrapPatCtxt pat tcm thing_inside
    msg = hang (ptext (sLit "In the pattern:")) 2 (ppr pat)
 
 -----------------------------------------------
-checkExistentials :: [TyCoVar]   -- existentials
-                  -> [Type]      -- argument types
+checkExistentials :: [TyVar]   -- existentials
+                  -> [Type]    -- argument types
                   -> PatEnv -> TcM ()
           -- See Note [Arrows and patterns]
 checkExistentials ex_tvs tys _

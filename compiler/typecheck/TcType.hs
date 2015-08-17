@@ -140,15 +140,16 @@ module TcType (
   mkTopTCvSubst, notElemTCvSubst, unionTCvSubst,
   getTvSubstEnv, setTvSubstEnv, getTCvInScope, extendTCvInScope,
   Type.lookupTyVar, Type.lookupVar, Type.extendTCvSubst, Type.substTyVarBndr,
-  extendTCvSubstList, isInScope, mkTCvSubst, zipTyCoEnv,
-  Type.substTy, substTys, substTyWith, substTheta, substTyCoVar, substTyCoVars,
+  extendTCvSubstList, isInScope, mkTCvSubst, zipTyEnv, zipCoEnv,
+  Type.substTy, substTys, substTyWith, substTyWithCoVars,
+  substTheta, substTyCoVar, substTyCoVars,
 
   isUnLiftedType,       -- Source types are always lifted
   isUnboxedTupleType,   -- Ditto
   isPrimitiveType,
 
   tyCoVarsOfType, tyCoVarsOfTypes,
-  closeOverKinds,
+  closeOverKinds, tyCoVarsOfTelescope,
 
   pprKind, pprParendKind, pprSigmaType,
   pprType, pprParendType, pprTypeApp, pprTyThingCategory,

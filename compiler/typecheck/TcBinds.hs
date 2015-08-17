@@ -253,7 +253,7 @@ tcLocalBinds (HsIPBinds (IPBinds ip_binds _)) thing_inside
     -- co : t -> IP "x" t
     toDict ipClass x ty =
       case unwrapNewTyCon_maybe (classTyCon ipClass) of
-        Just (_,_,ax) -> HsWrap $ mkWpCast $ mkTcSymCo $ mkTcUnbranchedAxInstCo Representational ax [x,ty]
+        Just (_,_,ax) -> HsWrap $ mkWpCast $ mkTcSymCo $ mkTcUnbranchedAxInstCo Representational ax [x,ty] []
         Nothing       -> panic "The dictionary for `IP` is not a newtype?"
 
 {-
@@ -1409,7 +1409,7 @@ tcTySig _ = return ([], [])
 instTcTySigFromId :: Id -> TcM TcSigInfo
 instTcTySigFromId id
   = do { let loc = getSrcSpan id
-       ; (tvs, theta, tau) <- tcInstType (tcInstSigTyCoVarsLoc loc)
+       ; (tvs, theta, tau) <- tcInstType (tcInstSigTyVarsLoc loc)
                                          (idType id)
        ; return (TcSigInfo { sig_id = id, sig_loc = loc
                            , sig_tvs = [(Nothing, tv) | tv <- tvs]
@@ -1423,7 +1423,7 @@ instTcTySig :: LHsType Name -> TcType    -- HsType and corresponding TcType
                                          -- wildcard is present at location loc.
             -> [(Name, TcTyVar)] -> Name -> TcM TcSigInfo
 instTcTySig hs_ty@(L loc _) sigma_ty extra_cts nwcs name
-  = do { (inst_tvs, theta, tau) <- tcInstType tcInstSigTyCoVars sigma_ty
+  = do { (inst_tvs, theta, tau) <- tcInstType tcInstSigTyVars sigma_ty
        ; return (TcSigInfo { sig_id  = mkLocalIdOrCoVar name sigma_ty
                            , sig_loc = loc
                            , sig_tvs = findScopedTyVars hs_ty sigma_ty inst_tvs
@@ -1627,4 +1627,3 @@ typeSigCtxt name (TcSigInfo { sig_id = _id, sig_tvs = tvs
         , nest 2 (pprSigmaTypeExtraCts (isJust extra_cts)
                     -- TODO (RAE): Should these always be invisible?
                   (mkInvSigmaTy (map snd tvs) theta tau)) ]
-

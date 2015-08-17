@@ -67,7 +67,7 @@ data ClsInst
              , is_tcs  :: [Maybe Name]  -- Top of type args
 
                 -- Used for "proper matching"; see Note [Proper-match fields]
-             , is_tvs  :: [TyCoVar]     -- Fresh template tyvars for full match
+             , is_tvs  :: [TyVar]       -- Fresh template tyvars for full match
                                         -- See Note [Template tyvars are fresh]
              , is_cls  :: Class         -- The real class
              , is_tys  :: [Type]        -- Full arg types (mentioning is_tvs)
@@ -211,7 +211,7 @@ instanceSig :: ClsInst -> ([TyCoVar], [Type], Class, [Type])
 instanceSig ispec = tcSplitDFunTy (idType (is_dfun ispec))
 
 mkLocalInstance :: DFunId -> OverlapFlag
-                -> [TyCoVar] -> Class -> [Type]
+                -> [TyVar] -> Class -> [Type]
                 -> ClsInst
 -- Used for local instances, where we can safely pull on the DFunId
 mkLocalInstance dfun oflag tvs cls tys

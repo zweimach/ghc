@@ -227,7 +227,7 @@ classTvsFds :: Class -> ([TyVar], [FunDep TyVar])
 classTvsFds c
   = (classTyVars c, classFunDeps c)
 
-classBigSig :: Class -> ([TyCoVar], [PredType], [Id], [ClassOpItem])
+classBigSig :: Class -> ([TyVar], [PredType], [Id], [ClassOpItem])
 classBigSig (Class {classTyVars = tyvars, classSCTheta = sc_theta,
                     classSCSels = sc_sels, classOpStuff = op_stuff})
   = (tyvars, sc_theta, sc_sels, op_stuff)

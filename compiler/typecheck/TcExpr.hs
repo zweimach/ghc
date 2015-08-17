@@ -197,7 +197,7 @@ tcExpr (HsIPVar x) res_ty
   -- Coerces a dictionary for `IP "x" t` into `t`.
   fromDict ipClass x ty =
     case unwrapNewTyCon_maybe (classTyCon ipClass) of
-      Just (_,_,ax) -> HsWrap $ mkWpCast $ mkTcUnbranchedAxInstCo Representational ax [x,ty]
+      Just (_,_,ax) -> HsWrap $ mkWpCast $ mkTcUnbranchedAxInstCo Representational ax [x,ty] []
       Nothing       -> panic "The dictionary for `IP` is not a newtype?"
 
 tcExpr (HsLam match) res_ty
@@ -691,7 +691,7 @@ tcExpr expr@(RecordUpd record_expr rbinds _ _ _) res_ty
 
                 -- Take apart a representative constructor
               con1 = ASSERT( not (null relevant_cons) ) head relevant_cons
-              (con1_tvs, _, _, _, _, con1_arg_tys, _) = dataConFullSig con1
+              (con1_tvs, _, _, _, con1_arg_tys, _) = dataConFullSig con1
               con1_flds = dataConFieldLabels con1
               con1_res_ty = mkFamilyTyConApp tycon (mkOnlyTyVarTys con1_tvs)
 
@@ -720,7 +720,7 @@ tcExpr expr@(RecordUpd record_expr rbinds _ _ _) res_ty
         -- These are variables that appear in *any* arg of *any* of the
         -- relevant constructors *except* in the updated fields
         --
-        ; let fixed_tvs = getFixedTyCoVars con1_tvs relevant_cons
+        ; let fixed_tvs = getFixedTyVars con1_tvs relevant_cons
               is_fixed_tv tv = tv `elemVarSet` fixed_tvs
 
               mk_inst_ty :: TCvSubst -> (TyVar, TcType) -> TcM (TCvSubst, TcType)
@@ -733,7 +733,7 @@ tcExpr expr@(RecordUpd record_expr rbinds _ _ _) res_ty
                 = do { (subst', new_tv) <- tcInstTyCoVarX TypeLevel subst tv
                      ; return (subst', mkTyCoVarTy new_tv) }
 
-        ; (result_subst, con1_tvs') <- tcInstTyCoVars TypeLevel con1_tvs
+        ; (result_subst, con1_tvs') <- tcInstTyVars TypeLevel con1_tvs
         ; let result_inst_tys = mkOnlyTyVarTys con1_tvs'
 
         ; (scrut_subst, scrut_inst_tys) <- mapAccumLM mk_inst_ty emptyTCvSubst
@@ -756,7 +756,7 @@ tcExpr expr@(RecordUpd record_expr rbinds _ _ _) res_ty
 
         -- Step 7: make a cast for the scrutinee, in the case that it's from a type family
         ; let scrut_co | Just co_con <- tyConFamilyCoercion_maybe tycon
-                       = mkWpCast (mkTcUnbranchedAxInstCo Representational co_con scrut_inst_tys)
+                       = mkWpCast (mkTcUnbranchedAxInstCo Representational co_con scrut_inst_tys [])
                        | otherwise
                        = idHsWrapper
         -- Phew!
@@ -766,9 +766,9 @@ tcExpr expr@(RecordUpd record_expr rbinds _ _ _) res_ty
   where
     upd_fld_names = hsRecFields rbinds
 
-    getFixedTyCoVars :: [TyCoVar] -> [DataCon] -> TyCoVarSet
+    getFixedTyVars :: [TyVar] -> [DataCon] -> TyCoVarSet
     -- These tyvars must not change across the updates
-    getFixedTyCoVars tvs1 cons
+    getFixedTyVars tvs1 cons
       = mkVarSet [tv1 | con <- cons
                       , let (tvs, theta, arg_tys, _) = dataConSig con
                             flds = dataConFieldLabels con

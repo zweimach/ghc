@@ -100,7 +100,7 @@ buildToPRepr vect_tc repr_ax _ _ repr
   where
     ty_args        = mkOnlyTyVarTys (tyConTyVars vect_tc)
 
-    wrap_repr_inst = wrapTypeUnbranchedFamInstBody repr_ax ty_args
+    wrap_repr_inst = wrapTypeUnbranchedFamInstBody repr_ax ty_args []
 
     -- CoreExp to convert the given argument to the generic representation.
     -- We start by doing a case branch on the possible data constructors.
@@ -163,7 +163,7 @@ buildFromPRepr vect_tc repr_ax _ _ repr
       arg_ty <- mkPReprType res_ty
       arg <- newLocalVar (fsLit "x") arg_ty
 
-      result <- from_sum (unwrapTypeUnbranchedFamInstScrut repr_ax ty_args (Var arg))
+      result <- from_sum (unwrapTypeUnbranchedFamInstScrut repr_ax ty_args (Var arg) [])
                          repr
       return $ Lam arg result
   where
@@ -219,7 +219,7 @@ buildToArrPRepr vect_tc repr_co pdata_tc _ r
       pdata_co <- mkBuiltinCo pdataTyCon
       let co           = mkAppCo pdata_co (panic "buildToArrPRepr")
                        $ mkSymCo
-                       $ mkUnbranchedAxInstCo Nominal repr_co ty_args
+                       $ mkUnbranchedAxInstCo Nominal repr_co ty_args []
 
           scrut   = unwrapFamInstScrut pdata_tc ty_args (Var arg)
 
@@ -283,7 +283,7 @@ buildFromArrPRepr vect_tc repr_co pdata_tc _ r
 
       pdata_co <- mkBuiltinCo pdataTyCon
       let co           = mkAppCo pdata_co (panic "buildFromArrPRepr")
-                       $ mkUnbranchedAxInstCo Nominal repr_co var_tys
+                       $ mkUnbranchedAxInstCo Nominal repr_co var_tys []
 
       let scrut        = mkCast (Var arg) co
 
@@ -369,7 +369,7 @@ buildToArrPReprs vect_tc repr_co _ pdatas_tc r
     pdatas_co <- mkBuiltinCo pdatasTyCon
     let co           = mkAppCo pdatas_co (panic "buildToArrPReprs")
                      $ mkSymCo
-                     $ mkUnbranchedAxInstCo Nominal repr_co ty_args
+                     $ mkUnbranchedAxInstCo Nominal repr_co ty_args []
 
     let scrut        = unwrapFamInstScrut pdatas_tc ty_args (Var varg)
     (vars, result)  <- to_sum r
@@ -463,7 +463,7 @@ buildFromArrPReprs vect_tc repr_co _ pdatas_tc r
     -- Build the coercion between PRepr and the instance type
     pdatas_co <- mkBuiltinCo pdatasTyCon
     let co           = mkAppCo pdatas_co (panic "buildFromArrPReprs")
-                     $ mkUnbranchedAxInstCo Nominal repr_co var_tys
+                     $ mkUnbranchedAxInstCo Nominal repr_co var_tys []
 
     let scrut        = mkCast (Var varg) co
 

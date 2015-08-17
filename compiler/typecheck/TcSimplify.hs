@@ -780,13 +780,10 @@ simplifyRule name lhs_wanted rhs_wanted
                                              , evb_term = term })
                                     -> (var, term)) (bagToList ev_binds)
              ; rest <- free_ev_vars wc
-             ; return $ rest
+             ; return $ tyCoVarsOfTelsecope (skols ++ givens) $
+                        rest
                         `unionVarSet` mapUnionVarSet evVarsOfTerm ev_terms
-                        `delVarSetList` skols
                         `delVarSetList` ev_vars
-                        `delVarSetList` givens
-                        `unionVarSet` coVarsOfTypes (map evVarPred givens)
-                        `unionVarSet` coVarsOfTypes (map tyVarKind skols) }
 
 {-
 *********************************************************************************

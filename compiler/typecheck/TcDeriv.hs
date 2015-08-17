@@ -85,7 +85,7 @@ Overall plan
 -- DerivSpec is purely  local to this module
 data DerivSpec theta = DS { ds_loc     :: SrcSpan
                           , ds_name    :: Name           -- DFun name
-                          , ds_tvs     :: [TyCoVar]
+                          , ds_tvs     :: [TyVar]
                           , ds_theta   :: theta
                           , ds_cls     :: Class
                           , ds_tys     :: [Type]
@@ -577,7 +577,7 @@ deriveTyDecl (L _ decl@(DataDecl { tcdLName = L _ tc_name
   = tcAddDeclCtxt decl $
     do { tc <- tcLookupTyCon tc_name
        ; let tvs  = tyConTyVars tc
-             tys  = mkTyCoVarTys tvs
+             tys  = mkOnlyTyVarTys tvs
 
        ; case preds of
           Just (L _ preds') -> concatMapM (deriveTyData False tvs tc tys) preds'
@@ -718,7 +718,7 @@ deriveStandalone (L loc (DerivDecl deriv_ty overlap_mode))
 ------------------------------------------------------------------
 deriveTyData :: Bool                         -- False <=> data/newtype
                                              -- True  <=> data/newtype *instance*
-             -> [TyCoVar] -> TyCon -> [Type] -- LHS of data or data instance
+             -> [TyVar] -> TyCon -> [Type]   -- LHS of data or data instance
                                              --   Can be a data instance, hence [Type] args
              -> LHsType Name                 -- The deriving predicate
              -> TcM [EarlyDerivSpec]
@@ -768,7 +768,7 @@ deriveTyData is_instance tvs tc tc_args (L loc deriv_pred)
                                 mkVarSet deriv_tvs `unionVarSet`
                                 tyCoVarsOfTypes tc_args_to_keep
               unmapped_tkvs   = filter (`notElemTCvSubst` kind_subst) all_tkvs
-              (subst, tkvs)   = mapAccumL substTyCoVarBndr
+              (subst, tkvs)   = mapAccumL substTyVarBndr
                                           kind_subst unmapped_tkvs
               final_tc_args   = substTys subst tc_args_to_keep
               final_cls_tys   = substTys subst cls_tys
@@ -1005,7 +1005,7 @@ See Note [Eta reduction for data family axioms] in TcInstDcls.
 
 mkDataTypeEqn :: DynFlags
               -> Maybe OverlapMode
-              -> [TyCoVar]              -- Universally quantified type variables in the instance
+              -> [TyVar]                -- Universally quantified type variables in the instance
               -> Class                  -- Class for which we need to derive an instance
               -> [Type]                 -- Other parameters to the class except the last
               -> TyCon                  -- Type constructor for which the instance is requested
@@ -1032,7 +1032,7 @@ mkDataTypeEqn dflags overlap_mode tvs cls cls_tys
     go_for_it    = mk_data_eqn overlap_mode tvs cls tycon tc_args kind_co rep_tc rep_tc_args rep_kind_co mtheta
     bale_out msg = failWithTc (derivingThingErr False cls cls_tys (mkTyConApp tycon tc_args) msg)
 
-mk_data_eqn :: Maybe OverlapMode -> [TyCoVar] -> Class
+mk_data_eqn :: Maybe OverlapMode -> [TyVar] -> Class
             -> TyCon -> [TcType] -> Coercion
             -> TyCon -> [TcType] -> Coercion
             -> DerivContext
@@ -1151,7 +1151,7 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
     rep_tc_tvs = tyConTyVars rep_tc
     last_tv = last rep_tc_tvs
     all_rep_tc_args | cls `hasKey` gen1ClassKey || is_functor_like
-                      = rep_tc_args ++ [mkTyCoVarTy last_tv]
+                      = rep_tc_args ++ [mkOnlyTyVarTy last_tv]
                     | otherwise       = rep_tc_args
 
         -- Constraints arising from superclasses
@@ -1553,7 +1553,7 @@ a context for the Data instances:
 ************************************************************************
 -}
 
-mkNewTypeEqn :: DynFlags -> Maybe OverlapMode -> [TyCoVar] -> Class
+mkNewTypeEqn :: DynFlags -> Maybe OverlapMode -> [TyVar] -> Class
              -> [Type] -> TyCon -> [Type] -> Coercion -> TyCon -> [Type] -> Coercion
              -> DerivContext
              -> TcRn EarlyDerivSpec
@@ -1870,13 +1870,13 @@ simplifyDeriv :: PredType
 -- Simplify 'wanted' as much as possibles
 -- Fail if not possible
 simplifyDeriv pred tvs theta
-  = do { (skol_subst, tvs_skols) <- tcInstSkolTyCoVars tvs -- Skolemize
+  = do { (skol_subst, tvs_skols) <- tcInstSkolTyVars tvs -- Skolemize
                 -- The constraint solving machinery
                 -- expects *TcTyVars* not TyVars.
                 -- We use *non-overlappable* (vanilla) skolems
                 -- See Note [Overlap and deriving]
 
-       ; let subst_skol = zipTopTCvSubst tvs_skols $ map mkTyCoVarTy tvs
+       ; let subst_skol = zipTopTCvSubst tvs_skols $ mkOnlyTyVarTys tvs
              skol_set   = mkVarSet tvs_skols
              doc = ptext (sLit "deriving") <+> parens (ppr pred)
 
@@ -1934,7 +1934,7 @@ and we want to infer
 
 BOTTOM LINE: use vanilla, non-overlappable skolems when inferring
              the context for the derived instance.
-             Hence tcInstSkolTyVars not tcInstSuperSkolTyCoVars
+             Hence tcInstSkolTyVars not tcInstSuperSkolTyVars
 
 Note [Exotic derived instance contexts]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

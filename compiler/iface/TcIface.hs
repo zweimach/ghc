@@ -480,14 +480,17 @@ tc_ax_branches if_branches = foldlM tc_ax_branch [] if_branches
 
 tc_ax_branch :: [CoAxBranch] -> IfaceAxBranch -> IfL [CoAxBranch]
 tc_ax_branch prev_branches
-             (IfaceAxBranch { ifaxbTyCoVars = tv_bndrs, ifaxbLHS = lhs, ifaxbRHS = rhs
+             (IfaceAxBranch { ifaxbTyVars = tv_bndrs, ifaxbCoVars = cv_bndrs
+                            , ifaxbLHS = lhs, ifaxbRHS = rhs
                             , ifaxbRoles = roles, ifaxbIncomps = incomps })
-  = bindIfaceBndrs_AT tv_bndrs $ \ tvs -> do
+  = bindIfaceTyVars_AT tv_bndrs $ \ tvs ->
          -- The _AT variant is needed here; see Note [CoAxBranch type variables] in CoAxiom
+    bindIfaceIds cv_bndrs $ \ cvs -> do
     { tc_lhs <- tcIfaceTcArgs lhs
     ; tc_rhs <- tcIfaceType rhs
     ; let br = CoAxBranch { cab_loc     = noSrcSpan
                           , cab_tvs     = tvs
+                          , cab_cvs     = cvs
                           , cab_lhs     = tc_lhs
                           , cab_roles   = roles
                           , cab_rhs     = tc_rhs
@@ -511,7 +514,7 @@ tcIfaceDataCons tycon_name tycon tc_tyvars if_cons
                          ifConStricts = if_stricts})
      = -- Universally-quantified tyvars are shared with
        -- parent TyCon, and are alrady in scope
-       bindIfaceBndrs ex_tvs    $ \ ex_tyvars -> do
+       bindIfaceTvBndrs ex_tvs    $ \ ex_tyvars -> do
         { traceIf (text "Start interface-file tc_con_decl" <+> ppr occ)
         ; name  <- lookupIfaceTop occ
 
@@ -1283,6 +1286,13 @@ bindIfaceId (fs, ty) thing_inside
         ; let id = mkLocalIdOrCoVar name ty'
         ; extendIfaceIdEnv [id] (thing_inside id) }
 
+bindIfaceIds :: [IfaceIdBndr] -> ([Id] -> IfL a) -> IfL a
+bindIfaceIds [] thing_inside = thing_inside []
+bindIfaceIds (b:bs) thing_inside
+  = bindIfaceId b   $ \b'  ->
+    bindIfaceIds bs $ \bs' ->
+    thing_inside (b':bs')
+
 bindIfaceBndr :: IfaceBndr -> (CoreBndr -> IfL a) -> IfL a
 bindIfaceBndr (IfaceIdBndr bndr) thing_inside
   = bindIfaceId bndr thing_inside
@@ -1297,19 +1307,17 @@ bindIfaceBndrs (b:bs) thing_inside
     thing_inside (b':bs')
 
 -----------------------
-bindIfaceBndrTy :: IfaceForAllBndr -> (TyCoVar -> VisibilityFlag -> IfL a) -> IfL a
+bindIfaceBndrTy :: IfaceForAllBndr -> (TyVar -> VisibilityFlag -> IfL a) -> IfL a
 bindIfaceBndrTy (IfaceTv tv vis) thing_inside
   = bindIfaceTyVar tv $ \tv' -> thing_inside tv' vis
-bindIfaceBndrTy (IfaceCv cv)     thing_inside
-  = bindIfaceId cv $ \cv' -> thing_inside cv' Invisible
 
 bindIfaceBndrCo :: IfaceForAllCoBndr -> (ForAllCoBndr -> IfL a) -> IfL a
-bindIfaceBndrCo (IfaceCoBndr co tv1 tv2 m_cv) thing_inside
+bindIfaceBndrCo (IfaceCoBndr co tv1 tv2 cv) thing_inside
   = do { co' <- tcIfaceCo co
        ; bindIfaceTyVar tv1 $ \tv1' ->
          bindIfaceTyVar tv2 $ \tv2' ->
-         maybe_bindIfaceId m_cv $ \m_cv' ->
-         thing_inside (mkForAllCoBndr co' tv1' tv2' m_cv') }
+         bindIfaceId    cv  $ \cv'  ->
+         thing_inside (mkForAllCoBndr co' tv1' tv2' cv') }
   where
     maybe_bindIfaceId Nothing   thing_inside = thing_inside Nothing
     maybe_bindIfaceId (Just cv) thing_inside
@@ -1366,4 +1374,3 @@ bindIfaceBndrs_AT (b:bs) thing_inside
   = bindIfaceBndr_AT b $ \b' ->
     bindIfaceBndrs_AT bs $ \bs' ->
     thing_inside (b':bs')
-

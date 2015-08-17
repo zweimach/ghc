@@ -604,12 +604,11 @@ newVar = liftTcM . newFlexiTyVarTy
 newOpenVar :: TR TcType
 newOpenVar = liftTcM newOpenFlexiTyVarTy
 
-instTyCoVars :: [TyCoVar] -> TR (TCvSubst, [TcTyCoVar])
+instTyVars :: [TyVar] -> TR (TCvSubst, [TcTyVar])
 -- Instantiate fresh mutable type variables from some TyVars
 -- This function preserves the print-name, which helps error messages
-instTyCoVars tcvs
-  = liftTcM $ fst <$> captureConstraints (tcInstTyCoVars TypeLevel tcvs)
-    -- TODO (RAE): What about those constraints? Do we care???
+instTyVars tcvs
+  = liftTcM $ fst <$> captureConstraints (tcInstTyVars TypeLevel tcvs)
 
 type RttiInstantiation = [(TcTyCoVar, TyVar)]
    -- Associates the typechecker-world meta type variables
@@ -623,7 +622,7 @@ type RttiInstantiation = [(TcTyCoVar, TyVar)]
 --   mapping from new (instantiated) -to- old (skolem) type variables
 instScheme :: QuantifiedType -> TR (TcType, RttiInstantiation)
 instScheme (tvs, ty)
-  = do { (subst, tvs') <- instTyCoVars tvs
+  = do { (subst, tvs') <- instTyVars tvs
        ; let rtti_inst = [(tv',tv) | (tv',tv) <- tvs' `zip` tvs]
        ; return (substTy subst ty, rtti_inst) }
 
@@ -961,7 +960,7 @@ getDataConArgTys dc con_app_ty
   = do { let UnaryRep rep_con_app_ty = repType con_app_ty
        ; traceTR (text "getDataConArgTys 1" <+> (ppr con_app_ty $$ ppr rep_con_app_ty
                    $$ ppr (tcSplitTyConApp_maybe rep_con_app_ty)))
-       ; (subst, _) <- instTyCoVars (univ_tvs ++ ex_tvs)
+       ; (subst, _) <- instTyVars (univ_tvs ++ ex_tvs)
        ; addConstraint rep_con_app_ty (substTy subst (dataConOrigResTy dc))
               -- See Note [Constructor arg types]
        ; let con_arg_tys = substTys subst (dataConRepArgTys dc)
@@ -969,7 +968,7 @@ getDataConArgTys dc con_app_ty
        ; return con_arg_tys }
   where
     univ_tvs = dataConUnivTyVars dc
-    ex_tvs   = dataConExTyCoVars dc
+    ex_tvs   = dataConExTyVars dc
 
 {- Note [Constructor arg types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1194,7 +1193,7 @@ congruenceNewtypes lhs rhs = go lhs rhs >>= \rhs' -> return (lhs,rhs')
             | otherwise = do
                traceTR (text "(Upgrade) upgraded " <> ppr ty <>
                         text " in presence of newtype evidence " <> ppr new_tycon)
-               (_, vars) <- instTyCoVars (tyConTyVars new_tycon)
+               (_, vars) <- instTyVars (tyConTyVars new_tycon)
                let ty' = mkTyConApp new_tycon (mkTyCoVarTys vars)
                    UnaryRep rep_ty = repType ty'
                _ <- liftTcM (unifyType noThing ty rep_ty)
@@ -1262,7 +1261,7 @@ tyConPhantomTyVars tc
   = tyConTyVars tc \\ dc_vars
 tyConPhantomTyVars _ = []
 
-type QuantifiedType = ([TyCoVar], Type)
+type QuantifiedType = ([TyVar], Type)
    -- Make the free type variables explicit
    -- The returned Type should have no top-level foralls (I believe)
 
@@ -1275,6 +1274,9 @@ quantifyType :: Type -> QuantifiedType
 -- returns ([a,b], a -> [b])
 
 quantifyType ty = (varSetElems (tyCoVarsOfType rho), rho)
+   -- TODO (RAE): This is broken. It really should return only
+   -- tyvars. But it doesn't. And it's not even well scoped!
+   -- I'm at a loss in this module.
   where
     (_tvs, rho) = tcSplitNamedForAllTys ty
 

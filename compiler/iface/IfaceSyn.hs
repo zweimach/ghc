@@ -171,7 +171,8 @@ data IfaceAT = IfaceAT  -- See Class.ClassATItem
 
 
 -- This is just like CoAxBranch
-data IfaceAxBranch = IfaceAxBranch { ifaxbTyCoVars :: [IfaceBndr]
+data IfaceAxBranch = IfaceAxBranch { ifaxbTyVars   :: [IfaceTvBndr]
+                                   , ifaxbCoVars   :: [IfaceIdBndr]
                                    , ifaxbLHS      :: IfaceTcArgs
                                    , ifaxbRoles    :: [Role]
                                    , ifaxbRHS      :: IfaceType
@@ -196,7 +197,7 @@ data IfaceConDecl
         -- but it's not so easy for the original TyCon/DataCon
         -- So this guarantee holds for IfaceConDecl, but *not* for DataCon
 
-        ifConExTvs   :: [IfaceBndr],            -- Existential tyvars
+        ifConExTvs   :: [IfaceTvBndr],          -- Existential tyvars
         ifConEqSpec  :: IfaceEqSpec,            -- Equality constraints
         ifConCtxt    :: IfaceContext,           -- Non-stupid context
         ifConArgTys  :: [IfaceType],            -- Arg types
@@ -485,15 +486,21 @@ pprAxBranch :: SDoc -> IfaceAxBranch -> SDoc
 -- The TyCon might be local (just an OccName), or this might
 -- be a branch for an imported TyCon, so it would be an ExtName
 -- So it's easier to take an SDoc here
-pprAxBranch pp_tc (IfaceAxBranch { ifaxbTyCoVars = tvs
+pprAxBranch pp_tc (IfaceAxBranch { ifaxbTyVars = tvs
+                                 , ifaxbCoVars = cvs
                                  , ifaxbLHS = pat_tys
                                  , ifaxbRHS = rhs
                                  , ifaxbIncomps = incomps })
-  = hang (pprUserIfaceForAll (map bndr_to_forall_bndr tvs))
-       2 (hang pp_lhs 2 (equals <+> ppr rhs))
+  = hang ppr_binders 2 (hang pp_lhs 2 (equals <+> ppr rhs))
     $+$
     nest 2 maybe_incomps
   where
+    ppr_binders
+      | null tvs && null cvs = empty
+      | null cvs             = brackets (pprWithCommas pprIfaceTvBndr tvs)
+      | otherwise
+      = brackets (pprWithCommas pprIfaceTvBndr tvs <> semi <+>
+                  pprWithCommas pprIfaceIdBndr cvs)
     pp_lhs = hang pp_tc 2 (pprParendIfaceTcArgs pat_tys)
     maybe_incomps = ppUnless (null incomps) $ parens $
                     ptext (sLit "incompatible indices:") <+> ppr incomps
@@ -810,8 +817,7 @@ pprIfaceConDecl ss gadt_style mk_user_con_res_ty
     pp_prefix_con = pprPrefixIfDeclBndr ss name
 
     (univ_tvs, pp_res_ty) = mk_user_con_res_ty eq_spec
-    ppr_ty = pprIfaceForAllPart (map tv_to_forall_bndr univ_tvs ++
-                                 map bndr_to_forall_bndr ex_tvs)
+    ppr_ty = pprIfaceForAllPart (map tv_to_forall_bndr (univ_tvs ++ ex_tvs))
                                 ctxt pp_tau
 
         -- A bit gruesome this, but we can't form the full con_tau, and ppr it,
@@ -867,10 +873,6 @@ instance Outputable IfaceFamInst where
 ppr_rough :: Maybe IfaceTyCon -> SDoc
 ppr_rough Nothing   = dot
 ppr_rough (Just tc) = ppr tc
-
-bndr_to_forall_bndr :: IfaceBndr -> IfaceForAllBndr
-bndr_to_forall_bndr (IfaceIdBndr cv) = IfaceCv cv
-bndr_to_forall_bndr (IfaceTvBndr tv) = IfaceTv tv Invisible
 
 tv_to_forall_bndr :: IfaceTvBndr -> IfaceForAllBndr
 tv_to_forall_bndr tv = IfaceTv tv Invisible
@@ -1092,10 +1094,12 @@ freeNamesIfDecl d@IfacePatSyn{} =
   freeNamesIfType (ifPatTy d)
 
 freeNamesIfAxBranch :: IfaceAxBranch -> NameSet
-freeNamesIfAxBranch (IfaceAxBranch { ifaxbTyCoVars = tyvars
+freeNamesIfAxBranch (IfaceAxBranch { ifaxbTyVars   = tyvars
+                                   , ifaxbCoVars   = covars
                                    , ifaxbLHS      = lhs
                                    , ifaxbRHS      = rhs }) =
-  freeNamesIfBndrs tyvars &&&
+  freeNamesIfTvBndrs tyvars &&&
+  fnList freeNamesIfIdBndr covars &&&
   freeNamesIfTcArgs lhs &&&
   freeNamesIfType rhs
 
@@ -1131,7 +1135,7 @@ freeNamesIfConDecls _               = emptyNameSet
 
 freeNamesIfConDecl :: IfaceConDecl -> NameSet
 freeNamesIfConDecl c
-  = freeNamesIfBndrs (ifConExTvs c) &&&
+  = freeNamesIfTvBndrs (ifConExTvs c) &&&
     freeNamesIfContext (ifConCtxt c) &&&
     fnList freeNamesIfType (ifConArgTys c) &&&
     fnList freeNamesIfType (map snd (ifConEqSpec c)) -- equality constraints
@@ -1201,7 +1205,6 @@ freeNamesIfTvBndrs = fnList freeNamesIfTvBndr
 
 freeNamesIfForAllBndr :: IfaceForAllBndr -> NameSet
 freeNamesIfForAllBndr (IfaceTv tv _) = freeNamesIfTvBndr tv
-freeNamesIfForAllBndr (IfaceCv cv)   = freeNamesIfIdBndr cv
 
 freeNamesIfForAllCoBndr :: IfaceForAllCoBndr -> NameSet
 freeNamesIfForAllCoBndr (IfaceCoBndr h tv1 tv2 m_cv)
@@ -1514,19 +1517,21 @@ instance Binary IfaceAT where
         return (IfaceAT dec defs)
 
 instance Binary IfaceAxBranch where
-    put_ bh (IfaceAxBranch a1 a2 a3 a4 a5) = do
+    put_ bh (IfaceAxBranch a1 a2 a3 a4 a5 a6) = do
         put_ bh a1
         put_ bh a2
         put_ bh a3
         put_ bh a4
         put_ bh a5
+        put_ bh a6
     get bh = do
         a1 <- get bh
         a2 <- get bh
         a3 <- get bh
         a4 <- get bh
         a5 <- get bh
-        return (IfaceAxBranch a1 a2 a3 a4 a5)
+        a6 <- get bh
+        return (IfaceAxBranch a1 a2 a3 a4 a5 a6)
 
 instance Binary IfaceConDecls where
     put_ bh (IfAbstractTyCon d) = putByte bh 0 >> put_ bh d

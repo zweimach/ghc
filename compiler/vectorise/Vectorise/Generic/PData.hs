@@ -45,7 +45,7 @@ buildDataFamInst :: Name -> TyCon -> TyCon -> AlgTyConRhs -> VM FamInst
 buildDataFamInst name' fam_tc vect_tc rhs
  = do { axiom_name <- mkDerivedName mkInstTyCoOcc name'
 
-      ; (_, tyvars') <- liftDs $ tcInstSigTyCoVarsLoc (getSrcSpan name') tyvars
+      ; (_, tyvars') <- liftDs $ tcInstSigTyVarsLoc (getSrcSpan name') tyvars
       ; let ax       = mkSingleCoAxiom axiom_name tyvars' fam_tc pat_tys rep_ty
             tys'     = mkTyCoVarTys tyvars'
             rep_ty   = mkTyConApp rep_tc tys'
@@ -158,4 +158,3 @@ mk_fam_inst :: TyCon -> TyCon -> (TyCon, [Type])
 mk_fam_inst fam_tc arg_tc
   = (fam_tc, [mkTyConApp arg_tc . mkOnlyTyVarTys $ tyConTyVars arg_tc])
 -}
-

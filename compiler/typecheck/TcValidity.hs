@@ -72,23 +72,12 @@ checkAmbiguity ctxt ty
 
   | otherwise
   = do { traceTc "Ambiguity check for" (ppr ty)
-       ; let free_tkvs = varSetElemsWellScoped (tyCoVarsOfType ty)
-       ; (subst, _tvs) <- tcInstSkolTyCoVars free_tkvs
-       ; let ty' = substTy subst ty
-              -- The type might have free TyVars, esp when the ambiguity check
-              -- happens during a call to checkValidType,
-              -- so we skolemise them as TcTyVars.
-              -- Tiresome; but the type inference engine expects TcTyVars
-              -- NB: The free tyvar might be (a::k), so k is also free
-              --     and we must skolemise it as well.
-              --     (Trac #9222)
-
          -- Solve the constraints eagerly because an ambiguous type
          -- can cause a cascade of further errors.  Since the free
          -- tyvars are skolemised, we can safely use tcSimplifyTop
-       ; (_wrap, wanted) <- addErrCtxtM (mk_msg ty') $
+       ; (_wrap, wanted) <- addErrCtxtM (mk_msg ty) $
                             captureConstraints $
-                            tcSubType_NC ctxt ty' ty'
+                            tcSubType_NC ctxt ty ty
        ; simplifyAmbiguityCheck ty wanted
 
        ; traceTc "Done ambiguity check for" (ppr ty) }
@@ -934,7 +923,7 @@ validDerivPred tv_set pred
 -}
 
 checkValidInstance :: UserTypeCtxt -> LHsType Name -> Type
-                   -> TcM ([TyCoVar], ThetaType, Class, [Type])
+                   -> TcM ([TyVar], ThetaType, Class, [Type])
 checkValidInstance ctxt hs_type ty
   | Just (clas,inst_tys) <- getClassPredTys_maybe tau
   , inst_tys `lengthIs` classArity clas
@@ -1111,7 +1100,7 @@ checkConsistentFamInst
                         , VarEnv Type )  -- ^ Class of associated type
                                          -- and instantiation of class TyVars
                -> TyCon              -- ^ Family tycon
-               -> [TyCoVar]          -- ^ Type variables of the family instance
+               -> [TyVar]            -- ^ Type variables of the family instance
                -> [Type]             -- ^ Type patterns from instance
                -> TcM ()
 -- See Note [Checking consistent instantiation]
@@ -1181,10 +1170,11 @@ wrongATArgErr ty instTy =
 checkValidTyFamInst :: Maybe ( Class, VarEnv Type )
                     -> TyCon -> CoAxBranch -> TcM ()
 checkValidTyFamInst mb_clsinfo fam_tc
-                    (CoAxBranch { cab_tvs = tvs, cab_lhs = typats
+                    (CoAxBranch { cab_tvs = tvs, cab_cvs = cvs
+                                , cab_lhs = typats
                                 , cab_rhs = rhs, cab_loc = loc })
   = setSrcSpan loc $
-    do { checkValidFamPats fam_tc tvs typats
+    do { checkValidFamPats fam_tc tvs cvs typats
 
          -- The argument patterns, and RHS, are all boxed tau types
          -- E.g  Reject type family F (a :: k1) :: k2
@@ -1233,7 +1223,7 @@ checkFamInstRhs lhsTys famInsts
         famInst = TyConApp tc tys
         bad_tvs = fvTypes tys \\ fvs
 
-checkValidFamPats :: TyCon -> [TyCoVar] -> [Type] -> TcM ()
+checkValidFamPats :: TyCon -> [TyVar] -> [CoVar] -> [Type] -> TcM ()
 -- Patterns in a 'type instance' or 'data instance' decl should
 -- a) contain no type family applications
 --    (vanilla synonyms are fine, though)
@@ -1242,7 +1232,7 @@ checkValidFamPats :: TyCon -> [TyCoVar] -> [Type] -> TcM ()
 --         type T a = Int
 --         type instance F (T a) = a
 -- c) Have the right number of patterns
-checkValidFamPats fam_tc tvs ty_pats
+checkValidFamPats fam_tc tvs cvs ty_pats
   = do { -- A family instance must have exactly the same number of type
          -- parameters as the family declaration.  You can't write
          --     type family F a :: * -> *
@@ -1253,8 +1243,8 @@ checkValidFamPats fam_tc tvs ty_pats
              -- report only explicit arguments
 
        ; mapM_ checkTyFamFreeness ty_pats
-       ; let unbound_tvs = filterOut (`elemVarSet` exactTyCoVarsOfTypes ty_pats) tvs
-       ; checkTc (null unbound_tvs) (famPatErr fam_tc unbound_tvs ty_pats) }
+       ; let unbound_tcvs = filterOut (`elemVarSet` exactTyCoVarsOfTypes ty_pats) (tvs ++ cvs)
+       ; checkTc (null unbound_tcvs) (famPatErr fam_tc unbound_tcvs ty_pats) }
   where fam_arity    = tyConArity fam_tc
         fam_bndrs    = take fam_arity $ fst $ splitForAllTys (tyConKind fam_tc)
 

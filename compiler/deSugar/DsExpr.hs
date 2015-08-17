@@ -448,7 +448,8 @@ dsExpr (HsStatic expr@(L loc _)) = do
                  , occNameFS    $ nameOccName n'
                  ]
     let tvars = varSetElemsWellScoped $ tyCoVarsOfType ty
-        speTy = mkInvForAllTys tvars $ mkTyConApp staticPtrTyCon [ty]
+        speTy = ASSERT( all isTyVar tvars )  -- ty is top-level, so this is OK
+                mkInvForAllTys tvars $ mkTyConApp staticPtrTyCon [ty]
         speId = mkExportedLocalId VanillaId n' speTy
         fp@(Fingerprint w0 w1) = fingerprintName $ idName speId
         fp_core = mkConApp fingerprintDataCon
@@ -595,9 +596,9 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
     tycon     = dataConTyCon (head cons_to_upd)
 
     mk_alt in_inst_tys' out_inst_tys' upd_fld_env con
-      = do { let (univ_tvs, ex_tvs, _, eq_spec, theta, arg_tys, _) = dataConFullSig con
+      = do { let (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _) = dataConFullSig con
                  subst1           = mkTopTCvSubst (univ_tvs `zip` in_inst_tys')
-                 (subst, ex_tvs') = mapAccumL substTyCoVarBndr subst1 ex_tvs
+                 (subst, ex_tvs') = mapAccumL substTyVarBndr subst1 ex_tvs
 
                 -- I'm not bothering to clone the ex_tvs
            ; eqs_vars   <- mapM newPredVarDs (substTheta subst (eqSpecPreds eq_spec))
@@ -609,8 +610,8 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
                      = nlHsVar (lookupNameEnv upd_fld_env field_name `orElse` pat_arg_id)
                  inst_con = noLoc $ HsWrap wrap (HsVar (dataConWrapId con))
                         -- Reconstruct with the WrapId so that unpacking happens
-                 wrap = mkWpEvVarApps theta_vars             <.>
-                        mkWpTyEvApps  (mkTyCoVarTys ex_tvs') <.>
+                 wrap = mkWpEvVarApps theta_vars               <.>
+                        mkWpTyEvApps  (mkOnlyTyVarTys ex_tvs') <.>
                         mkWpTyApps    out_inst_tys'
                  rhs = foldl (\a b -> nlHsApp a b) inst_con val_args
 

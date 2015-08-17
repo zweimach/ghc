@@ -1397,8 +1397,21 @@ emitWorkNC evs
   | null evs
   = return ()
   | otherwise
-  = do { traceTcS "Emitting fresh work" (vcat (map ppr evs))
-       ; updWorkListTcS (extendWorkListCts (map mkNonCanonical evs)) }
+  = emitWork (map mkNonCanonical evs)
+
+emitWork :: [Ct] -> TcS ()
+emitWork cts
+  = do { traceTcS "Emitting fresh work" (vcat (map ppr cts))
+       ; updWorkListTcS (extendWorkListCts cts) }
+
+emitWC :: WantedConstraints -> TcS ()
+emitWC (WC { wc_simple = simples
+           , wc_impl   = implics
+           , wc_insol  = insols })
+  = do { emitWork (bagToList simples)
+       ; updWorkListTcS (\wl -> foldr extendWorkListImplic
+                                wl (bagToList implics))
+       ; mapM_ emitInsoluble (bagToList insols) }
 
 emitInsoluble :: Ct -> TcS ()
 -- Emits a non-canonical constraint that will stand for a frozen error in the inerts.
@@ -1802,15 +1815,31 @@ newDerived loc pred
 instDFunConstraints :: CtLoc -> TcThetaType -> TcS [MaybeNew]
 instDFunConstraints loc = mapM (newWantedEvVar loc)
 
-
 matchFam :: TyCon -> [Type] -> TcS (Maybe (Coercion, TcType))
-matchFam tycon args = wrapTcS $ matchFamTcM tycon args
+matchFam tycon args
+  = do { mb_stuff <- wrapTcS $ matchFamTcM tycon args
+       ; case mb_stuff of
+              Just (co, ty, wc) -> do { emitWC wc
+                                      ; return $ Just (co, ty) }
+              Nothing           -> return Nothing }
 
-matchFamTcM :: TyCon -> [Type] -> TcM (Maybe (Coercion, TcType))
+matchFamTcM :: TyCon -> [Type]
+            -> TcM (Maybe (Coercion, TcType, WantedCosntraints))
 -- Given (F tys) return (ty, co), where co :: F tys ~ ty
+-- Also returns a list of wanted constraints that need to be solved
+-- NB: these WantedConstraints are *not* emitted
 matchFamTcM tycon args
   = do { fam_envs <- FamInst.tcGetFamInstEnvs
-       ; return $ reduceTyFamApp_maybe fam_envs Nominal tycon args }
+       ; case reduceTyFamApp_maybe fam_envs Nominal tycon args of
+         { Nothing -> return Nothing
+         ; Just (co, ty, cvs) ->
+    do { ((subst, _), wanteds) <- captureConstraints $
+                                  tcInstCoVars origin cvs
+       ; let co' = substCo subst co
+             ty' = substTy subst ty
+       ; return (co', ty', wanteds) }}}
+  where
+    origin = TypeRedOrigin (mkTyConApp tycon args)
 
 {-
 Note [Residual implications]
@@ -1834,8 +1863,8 @@ deferTcSForAllEq :: Role -- Nominal or Representational
                  -> ([Binder],TcType)   -- ForAll tvs2 body2
                  -> TcS EvTerm
 deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
- = do { (subst1, skol_tvs1) <- wrapTcS $ TcM.tcInstSkolTyCoVars tvs1
-      ; (subst2, skol_tvs2) <- wrapTcS $ TcM.tcInstSkolTyCoVars tvs2
+ = do { (subst1, skol_tvs1) <- wrapTcS $ TcM.tcInstSkolTyVars tvs1
+      ; (subst2, skol_tvs2) <- wrapTcS $ TcM.tcInstSkolTyVars tvs2
       ; let all_skols = skol_tvs1 ++ skol_tvs2
             in_scope  = mkInScopeSet $ tyCoVarsOfTypes [body1, body2]
                                        `unionVarSet` (mkVarSet all_skols)
@@ -1879,4 +1908,3 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
    where
      tvs1 = map (binderVar "deferTcSForAllEq") bndrs1
      tvs2 = map (binderVar "deferTcSForAllEq") bndrs2
-

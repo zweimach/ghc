@@ -275,7 +275,7 @@ pcDataCon n univs = pcDataConWithFixity False n univs []  -- no ex_tvs
 pcDataConWithFixity :: Bool      -- ^ declared infix?
                     -> Name      -- ^ datacon name
                     -> [TyVar]   -- ^ univ tyvars
-                    -> [TyCoVar] -- ^ ex tyvars
+                    -> [TyVar]   -- ^ ex tyvars
                     -> [Type]    -- ^ args
                     -> TyCon
                     -> DataCon
@@ -287,7 +287,7 @@ pcDataConWithFixity infx n = pcDataConWithFixity' infx n (incrUnique (nameUnique
 -- To support this the mkPreludeDataConUnique function "allocates"
 -- one DataCon unique per pair of Ints.
 
-pcDataConWithFixity' :: Bool -> Name -> Unique -> [TyVar] -> [TyCoVar]
+pcDataConWithFixity' :: Bool -> Name -> Unique -> [TyVar] -> [TyVar]
                      -> [Type] -> TyCon -> DataCon
 -- The Name should be in the DataName name space; it's the name
 -- of the DataCon itself.
@@ -524,13 +524,14 @@ eqTyCon = mkAlgTyCon eqTyConName
 
 eqBoxDataCon :: DataCon
 eqBoxDataCon
-  = pcDataConWithFixity False eqBoxDataConName univ_args [ex_arg] [] eqTyCon
+  = pcDataCon eqBoxDataConName univ_args [arg] eqTyCon
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
     a:b:_ = tyVarList k
     univ_args = [kv, a, b]
-    ex_arg = mkFreshCoVar (mkInScopeSet $ mkVarSet univ_args) a b
+    arg = mkTyConApp eqPrimTyCon [k, k, mkOnlyTyVarTy a, mkOnlyTyVarTy b]
+
 
 coercibleTyCon :: TyCon
 coercibleTyCon = mkClassTyCon
@@ -546,8 +547,7 @@ coercibleTyCon = mkClassTyCon
 
 coercibleDataCon :: DataCon
 coercibleDataCon
-  = pcDataConWithFixity False coercibleDataConName
-                        univ_args [ex_arg] [] coercibleTyCon
+  = pcDataCon coercibleDataConName univ_args [arg] coercibleTyCon
   where
     kv = kKiVar
     k = mkOnlyTyVarTy kv
@@ -555,7 +555,7 @@ coercibleDataCon
     a_ty = mkOnlyTyVarTy a
     b_ty = mkOnlyTyVarTy b
     univ_args = [kv, a, b]
-    ex_arg = mkFreshReprCoVar (mkInScopeSet $ mkVarSet univ_args) a_ty b_ty
+    arg = mkTyConApp eqReprPrimTyCon [k, k, a_ty, b_ty]
 
 coercibleClass :: Class
 coercibleClass = mkClass (tyConTyVars coercibleTyCon) [] [] [] [] [] (mkAnd []) coercibleTyCon

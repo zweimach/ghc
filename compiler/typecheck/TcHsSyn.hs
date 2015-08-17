@@ -295,20 +295,27 @@ zonkEvVarOcc env v
   | otherwise
   = return (EvId $ zonkIdOcc env v)
 
-zonkTyCoBndrsX :: ZonkEnv -> [TyCoVar] -> TcM (ZonkEnv, [TyCoVar])
-zonkTyCoBndrsX = mapAccumLM zonkTyCoBndrX
+zonkTyBndrsX :: ZonkEnv -> [TyVar] -> TcM (ZonkEnv, [TyVar])
+zonkTyBndrsX = mapAccumLM zonkTyBndrX
 
-zonkTyCoBndrX :: ZonkEnv -> TyCoVar -> TcM (ZonkEnv, TyCoVar)
--- This guarantees to return a TyCoVar (not a TcTyCoVar)
+zonkCoBndrsX :: ZonkEnv -> [CoVar] -> TcM (ZonkEnv, [CoVar])
+zonkCoBndrsX = mapAccumLM zonkCoBndrX
+
+zonkTyBndrX :: ZonkEnv -> TyVar -> TcM (ZonkEnv, TyVar)
+-- This guarantees to return a TyVar (not a TcTyVar)
 -- then we add it to the envt, so all occurrences are replaced
-zonkTyCoBndrX env tv
+zonkTyBndrX env tv
   = ASSERT( isImmutableTyVar tv )
     do { ki <- zonkTcTypeToType env (tyVarKind tv)
-       ; if isTyVar tv
-         then let tv' = mkTyVar (tyVarName tv) ki in
-              return (extendTyZonkEnv1 env tv', tv')
-         else let tv' = setVarType tv ki in
-              return (extendIdZonkEnv1 env tv', tv') }
+       ; let tv' = mkTyVar (tyVarName tv) ki
+       ; return (extendTyZonkEnv1 env tv', tv') }
+
+zonkCoBndrX :: ZonkEnv -> CoVar -> TcM (ZonkEnv, CoVar)
+-- we add it to the envt, so all occurrences are replaced
+zonkCoBndrX env cv
+  = do { ki <- zonkTcTypeToType env (varKind cv)
+       ; let cv' = setVarType cv ki
+       ; return (extendIdZonkEnv1 env cv', cv') }
 
 zonkTopExpr :: HsExpr TcId -> TcM (HsExpr Id)
 zonkTopExpr e = zonkExpr emptyZonkEnv e
@@ -479,7 +486,7 @@ zonk_bind env sig_warn (AbsBinds { abs_tvs = tyvars, abs_ev_vars = evs
                                  , abs_exports = exports
                                  , abs_binds = val_binds })
   = ASSERT( all isImmutableTyVar tyvars )
-    do { (env0, new_tyvars) <- zonkTyCoBndrsX env tyvars
+    do { (env0, new_tyvars) <- zonkTyBndrsX env tyvars
        ; (env1, new_evs) <- zonkEvBndrsX env0 evs
        ; (env2, new_ev_binds) <- zonkTcEvBinds env1 ev_binds
        ; (new_val_bind, new_exports) <- fixM $ \ ~(new_val_binds, _) ->
@@ -875,7 +882,7 @@ zonkCoFn env (WpEvApp arg)  = do { arg' <- zonkEvTerm env arg
 zonkCoFn env (WpEvPrimApp co) = do { co' <- zonkTcCoToCo env co
                                    ; return (env, WpEvPrimApp co') }
 zonkCoFn env (WpTyLam tv)   = ASSERT( isImmutableTyVar tv )
-                              do { (env', tv') <- zonkTyCoBndrX env tv
+                              do { (env', tv') <- zonkTyBndrX env tv
                                  ; return (env', WpTyLam tv') }
 zonkCoFn env (WpTyApp ty)   = do { ty' <- zonkTcTypeToType env ty
                                  ; return (env, WpTyApp ty') }
@@ -1217,7 +1224,7 @@ zonkRule env (HsRule name act (vars{-::[RuleBndr TcId]-}) lhs fv_lhs rhs fv_rhs)
      | isId v     = do { v' <- zonkIdBndr env v
                        ; return (extendIdZonkEnv1 env v', v') }
      | otherwise  = ASSERT( isImmutableTyVar v)
-                    zonkTyCoBndrX env v
+                    zonkTyBndrX env v
                     -- DV: used to be return (env,v) but that is plain
                     -- wrong because we may need to go inside the kind
                     -- of v and zonk there!
@@ -1450,7 +1457,8 @@ zonk_tycomapper = TyCoMapper
                        -- See Note [Zonking inside the knot] in TcHsType
   , tcm_tyvar = zonkTyVarOcc
   , tcm_covar = zonkCoVarOcc
-  , tcm_tycobinder = \env tv _vis -> zonkTyCoBndrX env tv }
+  , tcm_tybinder = \env tv _vis -> zonkTyBndrX env tv
+  , tcm_cobinder = \env cv      -> zonkCoBndrX env cv }
 
 zonkTcTypeToType :: ZonkEnv -> TcType -> TcM Type
 zonkTcTypeToType = mapType zonk_tycomapper
@@ -1501,8 +1509,6 @@ zonkTcCoToCo env co
                                    ; return (TcRefl r ty') }
     go (TcTyConAppCo r tc cos)
                               = do { cos' <- mapM go cos; return (mkTcTyConAppCo r tc cos') }
-    go (TcAxiomInstCo ax ind cos)
-                              = do { cos' <- mapM go cos; return (TcAxiomInstCo ax ind cos') }
     go (TcAppCo co1 h co2)    = do { co1' <- go co1; h' <- go h; co2' <- go co2
                                    ; return (mkTcAppCo co1' h' co2') }
     go (TcCastCo co1 co2)     = do { co1' <- go co1; co2' <- go co2
@@ -1523,16 +1529,13 @@ zonkTcCoToCo env co
     go (TcLRCo lr co)         = do { co' <- go co; return (mkTcLRCo lr co') }
     go (TcTransCo co1 co2)    = do { co1' <- go co1; co2' <- go co2
                                    ; return (mkTcTransCo co1' co2') }
-    go (TcForAllCo (TcForAllCoBndr h tv1 tv2 m_cv) co)
+    go (TcForAllCo (TcForAllCoBndr h tv1 tv2 cv) co)
       = do { h' <- go h
-           ; (env1, tv1')  <-   zonkTyCoBndrX env  tv1
-           ; (env2, tv2')  <-   zonkTyCoBndrX env1 tv2
-           ; (env3, m_cv') <- m_zonkTyCoBndrX env2 m_cv
+           ; (env1, tv1')  <- zonkTyBndrX env  tv1
+           ; (env2, tv2')  <- zonkTyBndrX env1 tv2
+           ; (env3, cv')   <- zonkCoBndrX env2 cv
            ; co' <- zonkTcCoToCo env3 co
            ; return (mkTcForAllCo (TcForAllCoBndr h' tv1' tv2' m_cv') co') }
-      where
-        m_zonkTyCoBndrX e Nothing   = return (e, Nothing)
-        m_zonkTyCoBndrX e (Just cv) = second Just <$> zonkTyCoBndrX e cv
 
     go (TcSubCo co)           = do { co' <- go co; return (mkTcSubCo co') }
     go (TcAxiomRuleCo co ts cs) = do { ts' <- zonkTcTypeToTypes env ts

@@ -74,7 +74,7 @@ module Coercion (
         CvSubstEnv, emptyCvSubstEnv,
         lookupCoVar,
         substCo, substCos, substCoVar, substCoVars,
-        substCoVarBndr, substCoWithIS, substForAllCoBndr,
+        substCoVarBndr, substForAllCoBndr,
         extendTCvSubstAndInScope, getCvSubstEnv,
 
         -- ** Lifting
@@ -99,7 +99,7 @@ module Coercion (
         tidyCo, tidyCos,
 
         -- * Other
-        applyCo, promoteCoercion, mkGADTVars,
+        promoteCoercion, mkGADTVars,
         buildCoherenceCo, buildCoherenceCoX
        ) where
 
@@ -289,10 +289,19 @@ pprCoAxiom ax@(CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
 
 pprCoAxBranch :: TyCon -> CoAxBranch -> SDoc
 pprCoAxBranch fam_tc (CoAxBranch { cab_tvs = tvs
+                                 , cab_cvs = cvs
                                  , cab_lhs = lhs
                                  , cab_rhs = rhs })
-  = hang (pprUserForAllImplicit tvs)
+  = hang ppr_binders
        2 (hang (pprTypeApp fam_tc lhs) 2 (equals <+> (ppr rhs)))
+  where
+    ppr_binders
+      | null tvs && null cvs = empty
+      | null cvs = brackets [pprWithCommas pprTvBndr tvs]
+      | otherwise
+      = brackets (pprWithCommas pprTvBndr tvs <> semi <+>
+                  pprWithCommas (\cv -> ppr cv <+> dcolon <+> ppr (varType cv))
+                                cvs)
 
 pprCoAxBranchHdr :: CoAxiom br -> BranchIndex -> SDoc
 pprCoAxBranchHdr ax@(CoAxiom { co_ax_tc = fam_tc, co_ax_name = name }) index
@@ -361,23 +370,11 @@ splitAppCo_maybe (Refl r ty)
   = Just (mkReflCo r ty1, mkReflCo r (typeKind ty2), mkNomReflCo ty2)
 splitAppCo_maybe _ = Nothing
 
-splitForAllCo_maybe :: Coercion -> Maybe (ForAllCoBndr, Coercion)
-splitForAllCo_maybe (ForAllCo cobndr co) = Just (cobndr, co)
-splitForAllCo_maybe _                    = Nothing
-
 -- returns the two type variables abstracted over
-splitForAllCo_Ty_maybe :: Coercion -> Maybe (TyVar, TyVar, CoVar, Coercion)
-splitForAllCo_Ty_maybe (ForAllCo (ForAllCoBndr _ tv1 tv2 (Just cv)) co)
+splitForAllCo_maybe :: Coercion -> Maybe (TyVar, TyVar, CoVar, Coercion)
+splitForAllCo_maybe (ForAllCo (ForAllCoBndr _ tv1 tv2 cv) co)
   = Just (tv1, tv2, cv, co)
-splitForAllCo_Ty_maybe _
-  = Nothing
-
--- returns the two coercion variables abstracted over
-splitForAllCo_Co_maybe :: Coercion -> Maybe (CoVar, CoVar, Coercion)
-splitForAllCo_Co_maybe (ForAllCo (ForAllCoBndr _ cv1 cv2 Nothing) co)
-  = Just (cv1, cv2, co)
-splitForAllCo_Co_maybe _
-  = Nothing
+splitForAllCo_maybe _ = Nothing
 
 -------------------------------------------------------
 -- and some coercion kind stuff
@@ -699,7 +696,7 @@ mkForAllCo cobndr@(ForAllCoBndr _ tv _ _) co
 
 -- | Make a Coercion quantified over a type or coercion variable;
 -- the variable has the same type in both types of the coercion
-mkHomoForAllCos :: Role -> [TyCoVar] -> Coercion -> Coercion
+mkHomoForAllCos :: Role -> [TyVar] -> Coercion -> Coercion
 mkHomoForAllCos _r tvs (Refl r ty)
   = ASSERT( _r == r )
     Refl r (mkInvForAllTys tvs ty)
@@ -707,7 +704,7 @@ mkHomoForAllCos r tvs ty = mkHomoForAllCos_NoRefl r tvs ty
 
 -- | Like 'mkHomoForAllCos', but doesn't check if the inner coercion
 -- is reflexive.
-mkHomoForAllCos_NoRefl :: Role -> [TyCoVar] -> Coercion -> Coercion
+mkHomoForAllCos_NoRefl :: Role -> [TyVar] -> Coercion -> Coercion
 mkHomoForAllCos_NoRefl r tvs co
   = go (emptyLiftingContext in_scope) tvs
   where
@@ -722,26 +719,17 @@ mkHomoForAllCos_NoRefl r tvs co
 
     go lc []       = let Pair _lty rty = coercionKind co in
                      co `mkTransCo` liftCoSubst r lc rty
-    go lc (tv:tvs) = ForAllCo (mkForAllCoBndr h tv tv' m_cv) $ go lc' tvs
+    go lc (tv:tvs) = ForAllCo (mkForAllCoBndr h tv tv' cv) $ go lc' tvs
       where
-        k   = tyVarKind tv
-        k'  = substTy (lcSubstRight lc) k
-        h   = liftCoSubst r lc k   -- :: k ~ k'
-        tv' = uniqAway (lcInScope lc) $ setTyVarKind tv k'
-        lc1 = lc `extendLCInScope` tv'
-        (m_cv, lc') | isTyVar tv
-                    = let cv     = mkFreshCoVar (lcInScope lc1) tv tv'
-                          lc2    = lc1 `extendLCInScope` cv
-                          lifted = mkCoVarCo cv
-                      in
-                      (Just cv, extendLiftingContext lc2 tv lifted)
-
-                    | otherwise
-                    = let rep_h  = downgradeRole Representational r h
-                          lifted = mkProofIrrelCo Nominal rep_h
-                                     (mkCoVarCo tv) (mkCoVarCo tv')
-                      in
-                      (Nothing, extendLiftingContext lc1 tv lifted)
+        k      = tyVarKind tv
+        k'     = substTy (lcSubstRight lc) k
+        h      = liftCoSubst r lc k   -- :: k ~ k'
+        tv'    = uniqAway (lcInScope lc) $ setTyVarKind tv k'
+        lc1    = lc `extendLCInScope` tv'
+        cv     = mkFreshCoVar (lcInScope lc1) tv tv'
+        lc2    = lc1 `extendLCInScope` cv
+        lifted = mkCoVarCo cv
+        lc'    = extendLiftingContext lc2 tv lifted
 
 mkCoVarCo :: CoVar -> Coercion
 -- cv :: s ~# t
@@ -772,20 +760,23 @@ mkFreshCoVarOfType in_scope ty
         cv_name = mkSystemVarName cv_uniq (fsLit "c") in
     uniqAway in_scope $ mkCoVar cv_name ty
 
-mkAxInstCo :: Role -> CoAxiom br -> BranchIndex -> [Type] -> Coercion
+mkAxInstCo :: Role -> CoAxiom br -> BranchIndex -> [Type] -> [Coercion]
+           -> Coercion
 -- mkAxInstCo can legitimately be called over-staturated;
 -- i.e. with more type arguments than the coercion requires
-mkAxInstCo role ax index tys
-  | arity == n_tys = downgradeRole role ax_role $ AxiomInstCo ax_br index rtys
+mkAxInstCo role ax index tys cos
+  | arity == n_tys = downgradeRole role ax_role $
+                     mkAxiomInstCo ax_br index (rtys `chkAppend` cos)
   | otherwise      = ASSERT( arity < n_tys )
                      downgradeRole role ax_role $
-                     mkAppCos (mkAxiomInstCo ax_br index ax_args)
+                     mkAppCos (mkAxiomInstCo ax_br index
+                                             (ax_args `chkAppend` cos))
                               (zip leftover_kcos leftover_args)
   where
     n_tys         = length tys
     ax_br         = toBranchedAxiom ax
     branch        = coAxiomNthBranch ax_br index
-    tvs           = coAxBranchTyCoVars branch
+    tvs           = coAxBranchTyVars branch
     arity         = length tvs
     arg_roles     = coAxBranchRoles branch
     rtys          = zipWith mkReflCo (arg_roles ++ repeat Nominal) tys
@@ -807,42 +798,49 @@ mkAxiomInstCo ax index args
     else co
 
 -- to be used only with unbranched axioms
-mkUnbranchedAxInstCo :: Role -> CoAxiom Unbranched -> [Type] -> Coercion
-mkUnbranchedAxInstCo role ax tys
-  = mkAxInstCo role ax 0 tys
+mkUnbranchedAxInstCo :: Role -> CoAxiom Unbranched
+                     -> [Type] -> [Coercion] -> Coercion
+mkUnbranchedAxInstCo role ax tys cos
+  = mkAxInstCo role ax 0 tys cos
 
-mkAxInstRHS :: CoAxiom br -> BranchIndex -> [Type] -> Type
+mkAxInstRHS :: CoAxiom br -> BranchIndex -> [Type] -> [Coercion] -> Type
 -- Instantiate the axiom with specified types,
 -- returning the instantiated RHS
 -- A companion to mkAxInstCo:
 --    mkAxInstRhs ax index tys = snd (coercionKind (mkAxInstCo ax index tys))
-mkAxInstRHS ax index tys
+mkAxInstRHS ax index tys cos
   = ASSERT( tvs `equalLength` tys1 )
     mkAppTys rhs' tys2
   where
     branch       = coAxiomNthBranch ax index
-    tvs          = coAxBranchTyCoVars branch
+    tvs          = coAxBranchTyVars branch
+    cvs          = coAxBranchCoVars branch
     (tys1, tys2) = splitAtList tvs tys
-    rhs'         = substTyWith tvs tys1 (coAxBranchRHS branch)
+    rhs'         = substTyWith tvs tys1 $
+                   substTyWithCoVars cvs cos $
+                   coAxBranchRHS branch
 
-mkUnbranchedAxInstRHS :: CoAxiom Unbranched -> [Type] -> Type
+mkUnbranchedAxInstRHS :: CoAxiom Unbranched -> [Type] -> [Coercion] -> Type
 mkUnbranchedAxInstRHS ax = mkAxInstRHS ax 0
 
 -- | Return the left-hand type of the axiom, when the axiom is instantiated
 -- at the types given.
-mkAxInstLHS :: CoAxiom br -> BranchIndex -> [Type] -> Type
-mkAxInstLHS ax index tys
+mkAxInstLHS :: CoAxiom br -> BranchIndex -> [Type] -> [Coercion] -> Type
+mkAxInstLHS ax index tys cos
   = ASSERT( tvs `equalLength` tys1 )
     mkTyConApp fam_tc (lhs_tys `chkAppend` tys2)
   where
     branch       = coAxiomNthBranch ax index
-    tvs          = coAxBranchTyCoVars branch
+    tvs          = coAxBranchTyVars branch
+    cvs          = coAxBranchCoVars branch
     (tys1, tys2) = splitAtList tvs tys
-    lhs_tys      = substTysWith tvs tys1 (coAxBranchLHS branch)
+    lhs_tys      = substTysWith tvs tys1 $
+                   substTysWithCoVars cvs cos $
+                   coAxBranchLHS branch
     fam_tc       = coAxiomTyCon ax
 
 -- | Instantiate the left-hand side of an unbranched axiom
-mkUnbranchedAxInstLHS :: CoAxiom Unbranched -> [Type] -> Type
+mkUnbranchedAxInstLHS :: CoAxiom Unbranched -> [Type] -> [Coercion] -> Type
 mkUnbranchedAxInstLHS ax = mkAxInstLHS ax 0
 
 -- | Manufacture an unsafe coercion from thin air.
@@ -1107,8 +1105,8 @@ setNominalRole_maybe _ = Nothing
 
 -- | Makes a 'ForAllCoBndr' become nominal, if possible
 setNominalRoleCoBndr_maybe :: ForAllCoBndr -> Maybe ForAllCoBndr
-setNominalRoleCoBndr_maybe (ForAllCoBndr h tv1 tv2 m_cv) =
-  ForAllCoBndr <$> setNominalRole_maybe h <*> pure tv1 <*> pure tv2 <*> pure m_cv
+setNominalRoleCoBndr_maybe (ForAllCoBndr h tv1 tv2 cv) =
+  ForAllCoBndr <$> setNominalRole_maybe h <*> pure tv1 <*> pure tv2 <*> pure cv
 
 -- | Make a phantom coercion between two types. The coercion passed
 -- in must be a representational coercion between the kinds of the
@@ -1223,37 +1221,26 @@ buildKindCosX Phantom          _ args = (map mk_phantom args, Nothing)
 %************************************************************************
 -}
 
-mkForAllCoBndr :: Coercion -> TyVar -> TyVar -> Maybe CoVar -> ForAllCoBndr
-mkForAllCoBndr co tv1 tv2 m_cv
-  | debugIsOn
+mkForAllCoBndr :: Coercion -> TyVar -> TyVar -> CoVar -> ForAllCoBndr
+mkForAllCoBndr co tv1 tv2 cv
   = let Pair k1 k2 = coercionKind co in
     ASSERT2( k1 `eqType` tyVarKind tv1
            , ppr tv1 $$ ppr k1 $$ ppr (tyVarKind tv1) )
     ASSERT2( k2 `eqType` tyVarKind tv2
            , ppr tv2 $$ ppr k2 $$ ppr (tyVarKind tv2) )
     ASSERT2( tv1 /= tv2, ppr co $$ ppr tv1 )
-    let result = ForAllCoBndr co tv1 tv2 m_cv in
-    case m_cv of
-      Nothing -> ASSERT2( isCoVar tv1 && isCoVar tv2, ppr tv1 $$ ppr tv2 )
-                 result
-      Just cv -> ASSERT2( isTyVar tv1 && isTyVar tv2, ppr tv1 $$ ppr tv2 )
-                 ASSERT2( coVarRole cv == Nominal, ppr cv $$ ppr (varType cv) )
-                 result
+    ASSERT2( isTyVar tv1 && isTyVar tv2, ppr tv1 $$ ppr tv2 )
+    ASSERT2( coVarRole cv == Nominal, ppr cv $$ ppr (varType cv) )
+    ForAllCoBndr co tv1 tv2 cv
         -- It's tempting to check that the kind of cv matches tv1 and tv2.
         -- But mkForAllCoBndr can be called with an ill-kinded cv. See
         -- Note [Heterogeneous type matching] in Unify. A problem here
         -- will get caught in CoreLint anyway.
 
-  | otherwise
-  = ForAllCoBndr co tv1 tv2 m_cv
-
 -- | Gets a 'Coercion' that proves that the two variables bound
 -- in this ForAllCoBndr are nominally equal
 coBndrWitness :: ForAllCoBndr -> Coercion
-coBndrWitness (ForAllCoBndr _   _   _   (Just cv)) = mkCoVarCo cv
-coBndrWitness (ForAllCoBndr eta cv1 cv2 Nothing)
-  = mkProofIrrelCo Nominal (downgradeRole Representational (coercionRole eta) eta)
-                   (mkCoVarCo cv1) (mkCoVarCo cv2)
+coBndrWitness (ForAllCoBndr _   _   _   cv) = mkCoVarCo cv
 
 -- | Extracts a coercion that witnesses the equality between a 'ForAllCoBndr''s
 -- type variables' kinds.
@@ -1409,6 +1396,7 @@ mkNewTypeCo name tycon tvs roles rhs_ty
             , co_ax_branches = FirstBranch branch }
   where branch = CoAxBranch { cab_loc = getSrcSpan name
                             , cab_tvs = tvs
+                            , cab_cvs = []
                             , cab_lhs = mkTyCoVarTys tvs
                             , cab_roles   = roles
                             , cab_rhs     = rhs_ty
@@ -1455,7 +1443,7 @@ instNewTyCon_maybe :: TyCon -> [Type] -> Maybe (Type, Coercion)
 instNewTyCon_maybe tc tys
   | Just (tvs, ty, co_tc) <- unwrapNewTyConEtad_maybe tc  -- Check for newtype
   , tvs `leLength` tys                                    -- Check saturated enough
-  = Just (applyTysX tvs ty tys, mkUnbranchedAxInstCo Representational co_tc tys)
+  = Just (applyTysX tvs ty tys, mkUnbranchedAxInstCo Representational co_tc tys [])
   | otherwise
   = Nothing
 
@@ -1623,17 +1611,18 @@ type LiftCoEnv = VarEnv Coercion
 
 -- like liftCoSubstWith, but allows for existentially-bound types as well
 liftCoSubstWithEx :: Role          -- desired role for output coercion
-                  -> [TyCoVar]     -- universally quantified tycovars
+                  -> [TyVar]       -- universally quantified tyvars
                   -> [Coercion]    -- coercions to substitute for those
-                  -> [TyCoVar]     -- existentially quantified tycovars
-                  -> [Type]        -- types and coercions to be bound to ex vars
+                  -> [TyVar]       -- existentially quantified tyvars
+                  -> [Type]        -- types to be bound to ex vars
                   -> (Type -> Coercion, [Type]) -- (lifting function, converted ex args)
 liftCoSubstWithEx role univs omegas exs rhos
   = let theta = mkLiftingContext (zipEqual "liftCoSubstWithExU" univs omegas)
         psi   = extendLiftingContextEx theta (zipEqual "liftCoSubstWithExX" exs rhos)
-    in (ty_co_subst psi role, substTys (lcSubstRight psi) (mkTyCoVarTys exs))
+    in (ty_co_subst psi role, substTyVars (lcSubstRight psi) exs)
 
 liftCoSubstWith :: Role -> [TyCoVar] -> [Coercion] -> Type -> Coercion
+-- NB: This really can be called with CoVars, when optimising axioms.
 liftCoSubstWith r tvs cos ty
   = liftCoSubst r (mkLiftingContext $ zipEqual "liftCoSubstWith" tvs cos) ty
 
@@ -1654,6 +1643,9 @@ extendLiftingContext :: LiftingContext  -- ^ original LC
                      -> TyVar           -- ^ new variable to map...
                      -> Coercion        -- ^ ...to this lifted version
                      -> LiftingContext
+  -- TODO (RAE): This seems utterly wrong. But I think it will go away soon
+  -- anyway. Why wrong? It doesn't take kind changes into account. Compare
+  -- extendLiftingContextEx
 extendLiftingContext (LC in_scope env) tv arg
   = ASSERT( isTyVar tv )
     LC in_scope (extendVarEnv env tv arg)
@@ -1662,39 +1654,18 @@ extendLiftingContext (LC in_scope env) tv arg
 -- This follows the lifting context extension definition in the
 -- "FC with Explicit Kind Equality" paper.
 extendLiftingContextEx :: LiftingContext    -- ^ original lifting context
-                       -> [(TyCoVar,Type)]  -- ^ ex. var / value pairs
+                       -> [(TyVar,Type)]    -- ^ ex. var / value pairs
                        -> LiftingContext
 extendLiftingContextEx lc [] = lc
 extendLiftingContextEx lc@(LC in_scope env) ((v,ty):rest)
 -- This function adds bindings for *Nominal* coercions. Why? Because it
 -- works with existentially bound variables, which are considered to have
 -- nominal roles.
-  | isTyVar v
   = let lc' = LC (in_scope `extendInScopeSetSet` tyCoVarsOfType ty)
                  (extendVarEnv env v (mkSymCo $ mkCoherenceCo
                                          (mkNomReflCo ty)
                                          (ty_co_subst lc Representational (tyVarKind v))))
     in extendLiftingContextEx lc' rest
-
-  | CoercionTy co <- ty
-  = -- co :: s1 ~r s2
-    -- lift_r(s1) :: s1 ~r s1'
-    -- lift_r(s2) :: s2 ~r s2'
-    -- kco :: (s1 ~r s2) ~R (s1' ~r s2')
-    let (_, _, s1, s2, r) = coVarKindsTypesRole v
-        lift_s1 = ty_co_subst lc r s1
-        lift_s2 = ty_co_subst lc r s2
-        kco = mkTyConAppCo Representational (equalityTyCon r) $
-                [ mkKindCo lift_s1, mkKindCo lift_s2
-                , lift_s1,          lift_s2 ]
-        lc' = LC (in_scope `extendInScopeSetSet` tyCoVarsOfCo co)
-                 (extendVarEnv env v (mkProofIrrelCo Nominal kco co $
-                                         (mkSymCo lift_s1) `mkTransCo`
-                                         co `mkTransCo`
-                                         lift_s2))
-    in extendLiftingContextEx lc' rest
-  | otherwise
-  = pprPanic "extendLiftingContextEx" (ppr v <+> ptext (sLit "|->") <+> ppr ty)
 
 -- | The \"lifting\" operation which substitutes coercions for type
 --   variables in a type to produce a coercion.
@@ -1760,60 +1731,40 @@ liftCoSubstTyCoVar (LC _ env) r v
   | otherwise
   = Just $ mkReflCo r (mkTyCoVarTy v)
 
-liftCoSubstVarBndr :: Role -> LiftingContext -> TyCoVar
-                     -> (LiftingContext, ForAllCoBndr)
-liftCoSubstVarBndr = liftCoSubstVarBndrCallback ty_co_subst False
+liftCoSubstVarBndr :: Role -> LiftingContext -> TyVar
+                   -> (LiftingContext, ForAllCoBndr)
+liftCoSubstVarBndr r lc tv
+  = let (lc', cobndr, _) = liftCoSubstVarBndrCallback callback False r lc tv in
+    (lc', cobndr)
+  where
+    callback lc' r' ty' = (ty_co_subst lc' r' ty', ())
 
-liftCoSubstVarBndrCallback :: (LiftingContext -> Role -> Type -> Coercion)
+liftCoSubstVarBndrCallback :: (LiftingContext -> Role -> Type -> (Coercion, a))
                            -> Bool -- ^ True <=> homogenize hetero substs
                                    -- see Note [Normalising types] in FamInstEnv
-                           -> Role -- ^ output rule; not Phantom
-                           -> LiftingContext -> TyCoVar
-                           -> (LiftingContext, ForAllCoBndr)
+                           -> Role -- ^ output role; not Phantom
+                           -> LiftingContext -> TyVar
+                           -> (LiftingContext, ForAllCoBndr, a)
 liftCoSubstVarBndrCallback fun homo r lc@(LC in_scope cenv) old_var
-  = (LC (in_scope `extendInScopeSetList` coBndrVars cobndr) new_cenv, cobndr)
+  = ( LC (in_scope `extendInScopeSetList` coBndrVars cobndr) new_cenv, cobndr
+    , stuff )
   where
-    old_kind   = tyVarKind old_var
-    eta        = fun lc r old_kind
-    Pair k1 k2 = coercionKind eta
-    new_var    = uniqAway in_scope (setVarType old_var k1)
+    old_kind     = tyVarKind old_var
+    (eta, stuff) = fun lc r old_kind
+    Pair k1 k2   = coercionKind eta
+    new_var      = uniqAway in_scope (setVarType old_var k1)
 
-    (new_cenv, cobndr)
-      | isTyVar old_var
-      = let a1 = new_var
-            in_scope1 = in_scope `extendInScopeSet` a1
-            a2 = uniqAway in_scope1 $ setVarType new_var k2
-            in_scope2 = in_scope1 `extendInScopeSet` a2
-            c  = mkFreshCoVar in_scope2 a1 a2
-            lifted = if homo
-                     then mkCoVarCo c `mkCoherenceRightCo` mkSymCo eta
-                     else mkCoVarCo c
-        in
-        ( extendVarEnv cenv old_var lifted
-        , mkForAllCoBndr eta a1 a2 (Just c) )
+    a1        = new_var
+    in_scope1 = in_scope `extendInScopeSet` a1
+    a2        = uniqAway in_scope1 $ setVarType new_var k2
+    in_scope2 = in_scope1 `extendInScopeSet` a2
+    c         = mkFreshCoVar in_scope2 a1 a2
+    lifted    = if homo
+                then mkCoVarCo c `mkCoherenceRightCo` mkSymCo eta
+                else mkCoVarCo c
 
-      | otherwise
-      = let cv1 = new_var
-            in_scope1 = in_scope `extendInScopeSet` cv1
-            cv2 = uniqAway in_scope1 $ setVarType new_var k2
-              -- cv_eta is like eta, but its role matches cv1/2
-            cv_role = coVarRole cv1
-            cv_eta = downgradeRole_maybe cv_role r eta `orElse`
-                     fun lc cv_role old_kind
-
-            (kco, lifted_r)
-              = if homo
-                then ( mkRepReflCo (varType cv1)
-                     , mkNthCo 2 cv_eta
-                       `mkTransCo` (mkCoVarCo cv2)
-                       `mkTransCo` mkNthCo 3 (mkSymCo cv_eta) )
-                else ( downgradeRole_maybe Representational r eta `orElse`
-                       fun lc Representational old_kind
-                     , mkCoVarCo cv2 )
-        in
-        ( extendVarEnv cenv old_var (mkProofIrrelCo Nominal kco
-                                       (mkCoVarCo cv1) lifted_r)
-        , mkForAllCoBndr cv_eta cv1 cv2 Nothing )
+    new_cenv = extendVarEnv cenv old_var lifted
+    cobndr   = mkForAllCoBndr eta a1 a2 c
 
 -- | Is a var in the domain of a lifting context?
 isMappedByLC :: TyCoVar -> LiftingContext -> Bool
@@ -1903,12 +1854,8 @@ seqCos []       = ()
 seqCos (co:cos) = seqCo co `seq` seqCos cos
 
 seqCoBndr :: ForAllCoBndr -> ()
-seqCoBndr (ForAllCoBndr h tv1 tv2 m_cv)
-  = seqCo h `seq` tv1 `seq` tv2 `seq` m_cv `m_seq` ()
-  where
-    Nothing `m_seq` x = x
-    Just cv `m_seq` x = cv `seq` x
-    infixr 0 `m_seq`
+seqCoBndr (ForAllCoBndr h tv1 tv2 cv)
+  = seqCo h `seq` tv1 `seq` tv2 `seq` cv `seq` ()
 
 {-
 %************************************************************************
@@ -1951,12 +1898,21 @@ coercionKind co = go co
     go (ForAllCo cobndr co) = mkNamedForAllTy <$> coBndrKind cobndr <*> pure Invisible <*> go co
     go (CoVarCo cv)         = toPair $ coVarTypes cv
     go (AxiomInstCo ax ind cos)
-      | CoAxBranch { cab_tvs = tvs, cab_lhs = lhs, cab_rhs = rhs } <- coAxiomNthBranch ax ind
-      , Pair tys1 tys2 <- sequenceA (map coercionKind cos)
-      = ASSERT( cos `equalLength` tvs )  -- Invariant of AxiomInstCo: cos should
-                                         -- exactly saturate the axiom branch
-        Pair (substTyWith tvs tys1 (mkTyConApp (coAxiomTyCon ax) lhs))
-             (substTyWith tvs tys2 rhs)
+      | CoAxBranch { cab_tvs = tvs, cab_cvs = cvs
+                   , cab_lhs = lhs, cab_rhs = rhs } <- coAxiomNthBranch ax ind
+      , let Pair tycos1 tycos2 = sequenceA (map coercionKind cos)
+            (tys1, cotys1) = splitAtList tvs tycos1
+            (tys2, cotys2) = splitAtList tvs tycos2
+            cos1           = map stripCoercionTy cotys1
+            cos2           = map stripCoercionTy cotys2
+      = ASSERT( cos `equalLength` (tvs ++ cvs) )
+                  -- Invariant of AxiomInstCo: cos should
+                  -- exactly saturate the axiom branch
+        Pair (substTyWith tvs tys1 $
+              substTyWithCoVars cvs cos1 $
+              mkTyConApp (coAxiomTyCon ax) lhs)
+             (substTyWith tvs tys2 $
+              substTyWithCoVars cvs cos2 rhs)
     go (UnivCo _ _ _ ty1 ty2) = Pair ty1 ty2
     go (SymCo co)             = swap $ go co
     go (TransCo co1 co2)      = Pair (pFst $ go co1) (pSnd $ go co2)
@@ -2077,16 +2033,7 @@ But this is a *quadratic* algorithm, and the blew up Trac #5631.
 So it's very important to do the substitution simultaneously.
 
 cf Type.applyTys (which in fact we call here)
--}
 
-applyCo :: Type -> Coercion -> Type
--- Gives the type of (e co) where e :: (a~b) => ty
-applyCo ty co | Just ty' <- coreView ty = applyCo ty' co
-applyCo (ForAllTy (Named cv _) ty) co = substTyWith [cv] [CoercionTy co] ty
-applyCo (ForAllTy (Anon _)     ty) _  = ty
-applyCo _                          _  = panic "applyCo"
-
-{-
 %************************************************************************
 %*                                                                      *
              GADT return types
@@ -2116,8 +2063,8 @@ becomes
 
 We start off by matching (T k1 k2 a b) with (T x1 * (Proxy x1 y, z) z). We
 know this match will succeed because of the validity check (actually done
-later, but laziness saves us -- see Note [Checking GADT return types]). Thus,
-we get
+later, but laziness saves us -- see Note [Checking GADT return types]
+in TcTyClsDecls). Thus, we get
 
   subst := { k1 |-> x1, k2 |-> *, a |-> (Proxy x1 y, z), b |-> z }
 
@@ -2227,13 +2174,14 @@ certainly degrade error messages a bit, though.
 -- lifting and coercions that it seemed to belong here.
 -- See Note [mkGADTVars].   TODO (RAE): Update note to remove LCs
 mkGADTVars :: [TyVar]    -- ^ The tycon vars
-           -> [TyCoVar]  -- ^ The datacon vars
+           -> [TyVar]    -- ^ The datacon vars
            -> TCvSubst   -- ^ The matching between the template result type
                          -- and the actual result type
-           -> UniqSM ( [TyVar]
-                     , [CoVar]
-                     , TCvSubst ) -- ^ The univ. variables, the GADT equalities,
-                                  -- and a subst to apply to any existentials.
+           -> ( [TyVar]
+              , [EqSpec]
+              , TCvSubst ) -- ^ The univ. variables, the GADT equalities,
+                           -- and a subst to apply to the GADT equalities
+                           -- and existentials.
 mkGADTVars tmpl_tvs dc_tvs subst
   = choose [] [] empty_subst empty_subst tmpl_tvs
   where
@@ -2241,56 +2189,39 @@ mkGADTVars tmpl_tvs dc_tvs subst
     empty_subst = mkEmptyTCvSubst in_scope
 
     choose :: [TyVar]           -- accumulator of univ tvs, reversed
-           -> [CoVar]           -- accumulator of GADT equality covars, reversed
+           -> [EqSpec]          -- accumulator of GADT equality covars, reversed
            -> TCvSubst          -- template substutition
            -> TCvSubst          -- res. substitution
            -> [TyVar]           -- template tvs (the univ tvs passed in)
-           -> UniqSM ( [TyVar]  -- the univ_tvs
-                     , [CoVar]  -- the covars witnessing GADT equalities
-                     , TCvSubst )  -- a substitution to fix kinds in ex_tvs
+           -> ( [TyVar]         -- the univ_tvs
+              , [EqSpec]        -- GADT equalities
+              , TCvSubst )       -- a substitution to fix kinds in ex_tvs
 
     choose univs eqs _     r_sub []
-      = return (reverse univs, reverse eqs, r_sub)
+      = (reverse univs, reverse eqs, r_sub)
     choose univs eqs t_sub r_sub (t_tv:t_tvs)
       | Just r_ty <- lookupVar subst t_tv
       = case getTyVar_maybe r_ty of
           Just r_tv
             |  not (r_tv `elem` univs)
             -> -- simple variable substitution. we should continue to subst.
-               choose (r_tv':univs) eqs'
+               choose (r_tv':univs) eqs
                       (extendTCvSubst t_sub t_tv r_ty')
-                      (composeTCvSubst r_sub2 r_sub)
+                      (extendTCvSubst r_sub r_tv r_ty')
                       t_tvs
             where
-              r_tv1 = setTyVarName r_tv (choose_tv_name r_tv t_tv)
-              r_tv' = setTyVarKind r_tv1 (substTy t_sub (tyVarKind t_tv))
-              r_ty' = mkOnlyTyVarTy r_tv'
-                -- fixed r_ty' has the same kind as r_tv
-              r_tv_subst = extendTCvSubst empty_subst r_tv r_ty'
-
-                -- use mapAccumR not mapAccumL: eqs is *reversed*
-              (r_sub2, eqs') = mapAccumR substCoVarBndr r_tv_subst eqs
-
+              r_tv1  = setTyVarName r_tv (choose_tv_name r_tv t_tv)
+              r_tv'  = setTyVarKind r_tv1 (substTy t_sub (tyVarKind t_tv))
+              r_ty'  = mkOnlyTyVarTy r_tv'
 
                -- not a simple substitution. make an equality predicate
-               -- and extend the lifting context
-          _ -> do { cv <- fresh_co_var (mkOnlyTyVarTy t_tv') r_ty
-                  ; let t_sub' = extendTCvInScope t_sub cv
-                        r_sub' = extendTCvInScope r_sub cv
-                  ; choose (t_tv':univs) (cv:eqs)
-                           (extendTCvSubst t_sub' t_tv (mkOnlyTyVarTy t_tv'))
-                           r_sub' t_tvs }
+          _ -> choose (t_tv':univs) (mkEqSpec t_tv' r_ty : eqs)
+                      (extendTCvSubst t_sub t_tv (mkOnlyTyVarTy t_tv'))
+                      r_sub t_tvs
             where t_tv' = updateTyVarKind (substTy t_sub) t_tv
 
       | otherwise
       = pprPanic "mkGADTVars" (ppr tmpl_tvs $$ ppr subst)
-
-      -- creates a fresh gadt covar, with a Nominal role
-    fresh_co_var :: Type -> Type -> UniqSM CoVar
-    fresh_co_var t1 t2
-      = do { u <- getUniqueM
-           ; let name = mkSystemVarName u (fsLit "gadt")
-           ; return $ mkCoVar name (mkCoercionType Nominal t1 t2) }
 
       -- choose an appropriate name for a univ tyvar.
       -- This *must* preserve the Unique of the result tv, so that we
@@ -2364,19 +2295,12 @@ buildCoherenceCoX = go
 
     go_bndr env tv1 tv2
       = do { eta <- go env k1 k2
-           ; if | isCoVar tv1
-                  -> let (env1, tv1') = rnBndrL env  tv1
-                         (env2, tv2') = rnBndrR env1 tv2 in
-                     Just (env2, mkForAllCoBndr eta tv1' tv2' Nothing)
-
-                | otherwise
-                  -> let (env1, tv1') = rnBndrL env  tv1
-                         (env2, tv2') = rnBndrR env1 tv2
-                         in_scope     = rnInScopeSet env2
-                         cv           = mkFreshCoVar in_scope tv1' tv2'
-                         env3         = addRnInScopeSet env2 (unitVarSet cv)
-                     in
-                     Just (env3, mkForAllCoBndr eta tv1' tv2' (Just cv)) }
+           ; let (env1, tv1') = rnBndrL env  tv1
+                 (env2, tv2') = rnBndrR env1 tv2
+                 in_scope     = rnInScopeSet env2
+                 cv           = mkFreshCoVar in_scope tv1' tv2'
+                 env3         = addRnInScopeSet env2 (unitVarSet cv)
+           ; return (env3, mkForAllCoBndr eta tv1' tv2' cv) }
       where
         k1  = tyVarKind tv1
         k2  = tyVarKind tv2

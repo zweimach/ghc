@@ -183,7 +183,7 @@ data HsBindLR idL idR
     }
 
   | AbsBinds {                      -- Binds abstraction; TRANSLATION
-        abs_tvs     :: [TyCoVar],
+        abs_tvs     :: [TyVar],
         abs_ev_vars :: [EvVar],  -- ^ Includes equality constraints
 
        -- | AbsBinds only gets used when idL = idR after renaming,

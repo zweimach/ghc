@@ -12,7 +12,7 @@ module TcUnify (
   -- Full-blown subsumption
   tcWrapResult, tcGen,
   tcSubType, tcSubType_NC, tcSubTypeDS, tcSubTypeDS_NC,
-  checkConstraints, newImplication,
+  checkConstraints,
 
   -- Various unifications
   unifyType_, unifyType, unifyTheta, unifyKind, noThing,
@@ -586,7 +586,7 @@ tcGen ctxt expected_ty thing_inside
           -- often empty, in which case mkWpLet is a no-op
 
 checkConstraints :: SkolemInfo
-                 -> [TcTyCoVar]         -- Skolems
+                 -> [TcTyVar]           -- Skolems
                  -> [EvVar]             -- Given
                  -> TcM result
                  -> TcM (TcEvBinds, result)
@@ -600,7 +600,7 @@ checkConstraints skol_info skol_tvs given thing_inside
   | otherwise
   = newImplication skol_info skol_tvs given thing_inside
 
-newImplication :: SkolemInfo -> [TcTyCoVar]
+newImplication :: SkolemInfo -> [TcTyVar]
                -> [EvVar] -> TcM result
                -> TcM (TcEvBinds, result)
 newImplication skol_info skol_tvs given thing_inside

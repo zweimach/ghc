@@ -130,7 +130,7 @@ deeplySkolemise
 deeplySkolemise ty
   | Just (arg_tys, tvs, theta, ty') <- tcDeepSplitSigmaTy_maybe ty
   = do { ids1 <- newSysLocalIds (fsLit "dk") arg_tys
-       ; (subst, tvs1) <- tcInstSkolTyCoVars tvs
+       ; (subst, tvs1) <- tcInstSkolTyVars tvs
        ; let ev_vars0 = filter isCoVar tvs1
        ; ev_vars1 <- newEvVars (substTheta subst theta)
        ; (wrap, tvs2, ev_vars2, rho) <- deeplySkolemise (substTy subst ty')
@@ -398,10 +398,10 @@ tcGetInsts :: TcM [ClsInst]
 -- Gets the local class instances.
 tcGetInsts = fmap tcg_insts getGblEnv
 
-newClsInst :: Maybe OverlapMode -> Name -> [TyCoVar] -> ThetaType
+newClsInst :: Maybe OverlapMode -> Name -> [TyVar] -> ThetaType
            -> Class -> [Type] -> TcM ClsInst
 newClsInst overlap_mode dfun_name tvs theta clas tys
-  = do { (subst, tvs') <- freshenTyCoVarBndrs tvs
+  = do { (subst, tvs') <- freshenTyVarBndrs tvs
              -- Be sure to freshen those type variables,
              -- so they are sure not to appear in any lookup
        ; let tys'   = substTys subst tys
@@ -555,4 +555,3 @@ addClsInstsErr herald ispecs
    -- The sortWith just arranges that instances are dislayed in order
    -- of source location, which reduced wobbling in error messages,
    -- and is better for users
-
