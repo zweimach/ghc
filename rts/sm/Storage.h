@@ -90,6 +90,12 @@ W_       countNurseryBlocks   ( void );
 rtsBool  getNewNursery        ( Capability *cap );
 
 /* -----------------------------------------------------------------------------
+   Allocation of heap objects
+   -------------------------------------------------------------------------- */
+
+StgArrWords *allocArrWords(Capability *cap, size_t size_in_bytes);
+
+/* -----------------------------------------------------------------------------
    Allocation accounting
 
    See [Note allocation accounting] in Storage.c

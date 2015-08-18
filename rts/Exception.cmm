@@ -434,6 +434,15 @@ INFO_TABLE_RET(stg_raise_ret, RET_SMALL, W_ info_ptr, P_ exception)
     jump stg_raisezh (exception);
 }
 
+stg_reifyStackzh(W_ max_stack_length)
+{
+    W_ reified_stack;
+    ("ptr" reified_stack) = ccall reifyStack (MyCapability() "ptr"
+                                            , Sp "ptr"
+                                            , max_stack_length);
+    return (reified_stack);
+}
+
 stg_raisezh /* explicit stack */
 /*
  * args : R1 :: Exception

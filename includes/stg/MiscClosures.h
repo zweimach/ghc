@@ -395,6 +395,7 @@ RTS_FUN_DECL(stg_asyncDoProczh);
 #endif
 
 RTS_FUN_DECL(stg_catchzh);
+RTS_FUN_DECL(stg_reifyStackzh);
 RTS_FUN_DECL(stg_raisezh);
 RTS_FUN_DECL(stg_raiseIOzh);
 
