@@ -176,9 +176,9 @@ tvName, varName            :: NameSpace
 
 -- Though type constructors and classes are in the same name space now,
 -- the NameSpace type is abstract, so we can easily separate them later
-tcName    = TcClsName           -- Type constructors
-clsName   = TcClsName           -- Classes
-tcClsName = TcClsName           -- Not sure which!
+tcName    = TcClsName           -- ^ Type constructors
+clsName   = TcClsName           -- ^ Classes
+tcClsName = TcClsName           -- ^ Not sure which!
 
 dataName    = DataName
 srcDataName = DataName  -- Haskell-source data constructors should be
