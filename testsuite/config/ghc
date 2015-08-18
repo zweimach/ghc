@@ -189,6 +189,8 @@ def get_compiler_info():
     except:
         config.package_conf_cache_file = ''
 
+    config.rts_with_libelf = compilerInfoDict["RTS expects libelf"] == "YES"
+
     try:
         if compilerInfoDict["GHC Dynamic"] == "YES":
             ghcDynamic = True

@@ -1099,6 +1099,9 @@ if test "$use_large_address_space" = "yes" ; then
    AC_DEFINE([USE_LARGE_ADDRESS_SPACE], [1], [Enable single heap address space support])
 fi
 
+AC_CHECK_LIB(elf, elf_begin, [HaveElfLib=YES], [HaveElfLib=NO])
+AC_SUBST(HaveElfLib)
+
 if test "$HAVE_DOCBOOK_XSL" = "NO" ||
    test "$XsltprocCmd" = ""
 then

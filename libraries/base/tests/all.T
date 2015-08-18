@@ -113,6 +113,12 @@ test('weak001', normal, compile_and_run, [''])
 
 test('T2528', normal, compile_and_run, [''])
 
+if rts_with_libelf():
+    test('executionStack001', omit_ways(['ghci']), compile_and_run, [''])
+    test('executionStack002', omit_ways(['ghci']), compile_and_run, [''])
+    test('executionStack003', omit_ways(['ghci']), compile_and_run, [''])
+    test('executionStack004', omit_ways(['ghci']), compile_and_run, [''])
+
 # In the 65001 codepage, we can't even cat the expected output on msys:
 #     $ cat 4006.stdout
 #     It works here

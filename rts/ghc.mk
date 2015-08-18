@@ -489,6 +489,15 @@ rts_PACKAGE_CPP_OPTS += '-DFFI_LIB="C$(LIBFFI_NAME)"'
 
 endif
 
+#-----------------------------------------------------------------------------
+# Add support for reading ELF debugging information, if available
+
+ifeq "$(GhcRtsWithElf)" "YES"
+rts_CC_OPTS += -DUSE_ELF
+rts_PACKAGE_CPP_OPTS += -DUSE_ELF
+else
+endif
+
 # -----------------------------------------------------------------------------
 # dependencies
 
