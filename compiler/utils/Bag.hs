@@ -29,6 +29,7 @@ import Util
 import MonadUtils
 import Data.Data
 import Data.List ( partition )
+import Data.Foldable (Foldable(foldr))
 
 infixr 3 `consBag`
 infixl 3 `snocBag`
@@ -269,3 +270,6 @@ instance Data a => Data (Bag a) where
   gunfold _ _  = error "gunfold"
   dataTypeOf _ = mkNoRepType "Bag"
   dataCast1 x  = gcast1 x
+
+instance Foldable Bag where
+    foldr = foldrBag
