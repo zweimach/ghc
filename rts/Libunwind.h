@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include "Rts.h"
 
 struct BacktraceFrame_ {
     const char *filename;

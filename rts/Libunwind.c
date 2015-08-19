@@ -16,6 +16,7 @@ static Backtrace *backtrace_alloc(void) {
     Backtrace *bt = stgMallocBytes(bytes, "backtrace_alloc");
     bt->n_frames = 0;
     bt->frames.n_frames = 0;
+    bt->frames.next = NULL;
     return bt;
 }
 
@@ -104,6 +105,8 @@ Backtrace *libunwind_get_backtrace(LibunwindSession *session) {
         BacktraceFrame frame;
         unw_word_t off;
         ret = unw_get_proc_name(&cursor, name_buf, sizeof(name_buf), &off);
+        frame.filename = "unknown";
+        frame.lineno = 0;
         switch (ret) {
         case 0:
         case UNW_ENOMEM:
