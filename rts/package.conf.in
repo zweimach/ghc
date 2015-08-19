@@ -59,6 +59,9 @@ extra-libraries:
 #if USE_ELF
                              , "elf"
 #endif
+#ifdef HAVE_LIBUNWIND
+                             , "libunwind"      /* for backtraces */
+#endif
 
 #ifdef INSTALLING
 include-dirs:           INCLUDE_DIR PAPI_INCLUDE_DIR FFI_INCLUDE_DIR

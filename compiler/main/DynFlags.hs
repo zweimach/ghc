@@ -4109,6 +4109,7 @@ compilerInfo dflags
        ("Tables next to code",         cGhcEnableTablesNextToCode),
        ("RTS ways",                    cGhcRTSWays),
        ("RTS expects libelf",          cGhcRtsWithElf),
+       ("RTS expects libunwind",       cGhcRtsWithUnwind),
        ("Support dynamic-too",         if isWindows then "NO" else "YES"),
        ("Support parallel --make",     "YES"),
        ("Support reexported-modules",  "YES"),

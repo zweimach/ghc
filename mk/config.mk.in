@@ -349,6 +349,9 @@ FFIIncludeDir=@FFIIncludeDir@
 # Include support for reading DWARF debugging information?
 GhcRtsWithElf = @HaveElfLib@
 
+# Include support for DWARF unwinding
+GhcRtsWithUnwind = @HaveUnwindLib@
+
 ################################################################################
 #
 #		Paths (see paths.mk)

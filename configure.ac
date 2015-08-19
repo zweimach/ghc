@@ -1089,8 +1089,10 @@ if test "$use_large_address_space" = "yes" ; then
    AC_DEFINE([USE_LARGE_ADDRESS_SPACE], [1], [Enable single heap address space support])
 fi
 
-AC_CHECK_HEADER([backtrace.h], [HavebacktraceLib=YES], [HavebacktraceLib=NO])
-AC_SUBST(HaveBacktraceLib)
+AC_CHECK_LIB(unwind, unw_init_local, [HaveUnwindLib=YES], [HaveUnwindLib=NO])
+AC_SUBST(HaveUnwindLib)
+dnl FIXME
+HaveUnwindLib=YES
 
 AC_CHECK_LIB(elf, elf_begin, [HaveElfLib=YES], [HaveElfLib=NO])
 AC_SUBST(HaveElfLib)

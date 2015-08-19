@@ -472,6 +472,8 @@ rts_PACKAGE_CPP_OPTS += -DPAPI_LIB_DIR=""
 
 endif
 
+rts_LD_OPTS     += -lunwind -lunwind-x86_64
+
 #-----------------------------------------------------------------------------
 # Use system provided libffi
 
