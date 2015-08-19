@@ -31,6 +31,6 @@ void print_backtrace(FILE *file, Backtrace *bt);
 struct LibunwindSession_;
 typedef struct LibunwindSession_ LibunwindSession;
 
-LibunwindSession *libunwind_init();
+LibunwindSession *libunwind_init(void);
 
 Backtrace *libunwind_get_backtrace(LibunwindSession *session);

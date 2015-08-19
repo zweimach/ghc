@@ -1,12 +1,16 @@
-#include <string.h>
+#include "Rts.h"
+#include "RtsUtils.h"
+#include "Libunwind.h"
+
 #include <libunwind.h>
-#include <Libunwind.h>
+
+#include <string.h>
 
 // Default chunk capacity
 #define BACKTRACE_CHUNK_CAP 256
 
 // Allocate a Backtrace
-static Backtrace *backtrace_alloc() {
+static Backtrace *backtrace_alloc(void) {
     // We allocate not only the Backtrace object itself but also its first chunk
     int bytes = sizeof(Backtrace) + sizeof(uintptr_t) * BACKTRACE_CHUNK_CAP;
     Backtrace *bt = stgMallocBytes(bytes, "backtrace_alloc");
@@ -15,7 +19,7 @@ static Backtrace *backtrace_alloc() {
     return bt;
 }
 
-static BacktraceChunk *backtrace_alloc_chunk() {
+static BacktraceChunk *backtrace_alloc_chunk(void) {
     int bytes = sizeof(BacktraceChunk) + sizeof(uintptr_t) * BACKTRACE_CHUNK_CAP;
     BacktraceChunk *chunk = stgMallocBytes(bytes, "backtrace_alloc_chunk");
     chunk->n_frames = 0;
@@ -49,12 +53,11 @@ static int backtrace_push(Backtrace *bt, BacktraceFrame frame) {
 void print_backtrace(FILE *file, Backtrace *bt) {
     BacktraceChunk *chunk = &bt->frames;
     while (chunk != NULL) {
-        int i;
+        unsigned int i;
         for (i=0; i<chunk->n_frames; i++) {
             BacktraceFrame *frame = &chunk->frames[i];
-            fprintf(file, "  %24p    %s (%s:%d)\n",
-                    (void*)frame->pc, frame->function,
-                    frame->filename, frame->lineno);
+            fprintf(file, "  %24p    %s\n",
+                    (void*)frame->pc, frame->function);
         }
         chunk = chunk->next;
     }
@@ -74,8 +77,8 @@ struct LibunwindSession_ {
     int dummy;
 };
 
-LibunwindSession *libunwind_init() {
-    LibunwindSession *session = stgCallocBytes(sizeof(LibunwindSession), "libbt_init");
+LibunwindSession *libunwind_init(void) {
+    LibunwindSession *session = stgCallocBytes(1, sizeof(LibunwindSession), "libbt_init");
     return session;
 }
 
