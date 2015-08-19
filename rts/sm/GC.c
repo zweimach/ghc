@@ -10,6 +10,8 @@
  *   http://ghc.haskell.org/trac/ghc/wiki/Commentary/Rts/Storage/GC
  *
  * ---------------------------------------------------------------------------*/
+#include <stdio.h>
+#include "Libunwind.h"
 
 #include "PosixSource.h"
 #include "Rts.h"
@@ -191,6 +193,11 @@ GarbageCollect (nat collect_gen,
   gc_thread *saved_gct;
 #endif
   nat g, n;
+
+  LibunwindSession *session = libunwind_init();
+  Backtrace *bt = libunwind_get_backtrace(session);
+  print_backtrace(stdout, bt);
+  free_backtrace(bt);
 
   // necessary if we stole a callee-saves register for gct:
 #if defined(THREADED_RTS)
