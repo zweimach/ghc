@@ -77,7 +77,7 @@ struct LibDwSession_ {
 
 typedef struct LibDwSession_ LibDwSession;
 
-static Dwfl_Thread_Callbacks thread_cbs;
+static const Dwfl_Thread_Callbacks thread_cbs;
 
 void libdw_free(LibDwSession *session) {
   // TODO
@@ -221,7 +221,7 @@ static bool set_initial_registers(Dwfl_Thread *thread, void *arg) {
     return dwfl_thread_state_registers(thread, 0, 17, regs);
 }
 
-static Dwfl_Thread_Callbacks thread_cbs = {
+static const Dwfl_Thread_Callbacks thread_cbs = {
     .next_thread = next_thread,
     .memory_read = memory_read,
     .set_initial_registers = set_initial_registers,
