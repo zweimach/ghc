@@ -121,6 +121,21 @@ LibDwSession *libdw_init() {
   return session;
 }
 
+static void libdw_lookup_addr(LibDwSession *session, BacktraceFrame *frame,
+                              uintptr_t pc) {
+    frame->pc = pc;
+
+    // Find the module and function name
+    Dwfl_Module *mod = dwfl_addrmodule(session->dwfl, pc);
+    frame->function = dwfl_module_addrname(mod, pc);
+
+    // Try looking up source location
+    Dwfl_Line *line = dwfl_getsrc(session->dwfl, pc);
+    Dwarf_Addr addr;
+    frame->filename = dwfl_lineinfo(line, &addr, &frame->lineno,
+                                    NULL, NULL, NULL);
+}
+
 static int frame_cb(Dwfl_Frame *frame, void *arg) {
     LibDwSession *session = arg;
     Dwarf_Addr pc;
@@ -133,17 +148,8 @@ static int frame_cb(Dwfl_Frame *frame, void *arg) {
         if (is_activation)
             pc -= 1; // TODO: is this right?
 
-        BacktraceFrame frame = { .pc = pc };
-
-        // Find the module and function name
-        Dwfl_Module *mod = dwfl_addrmodule(session->dwfl, pc);
-        frame.function = dwfl_module_addrname(mod, pc);
-
-        // Try looking up source location
-        Dwfl_Line *line = dwfl_getsrc(session->dwfl, pc);
-        Dwarf_Addr addr;
-        frame.filename = dwfl_lineinfo(line, &addr, &frame.lineno,
-                                       NULL, NULL, NULL);
+        BacktraceFrame frame;
+        libdw_lookup_addr(session, &frame, pc);
         backtrace_push(session->cur_bt, frame);
     }
     return DWARF_CB_OK;
