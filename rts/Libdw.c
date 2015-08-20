@@ -133,7 +133,7 @@ static void libdw_lookup_addr(LibDwSession *session, BacktraceFrame *frame,
     frame->function = dwfl_module_addrname(mod, pc);
 
     // Try looking up source location
-    Dwfl_Line *line = dwfl_getsrc(session->dwfl, pc);
+    Dwfl_Line *line = dwfl_module_getsrc(mod, pc);
     Dwarf_Addr addr;
     frame->filename = dwfl_lineinfo(line, &addr, &frame->lineno,
                                     &frame->colno, NULL, NULL);
