@@ -13,6 +13,7 @@ static Backtrace *backtrace_alloc(void) {
     Backtrace *bt = stgMallocBytes(bytes, "backtrace_alloc");
     bt->n_frames = 0;
     bt->frames.n_frames = 0;
+    bt->frames.next = 0;
     return bt;
 }
 
@@ -199,14 +200,15 @@ static pid_t next_thread(Dwfl *dwfl, void *arg, void **thread_argp) {
 }
 
 static bool memory_read(Dwfl *dwfl STG_UNUSED, Dwarf_Addr addr,
-                        Dwarf_Word *result, void *dwfl_arg STG_UNUSED) {
+                        Dwarf_Word *result, void *arg STG_UNUSED) {
     *result = *(Dwarf_Word *) addr;
     return true;
 }
 
 static bool set_initial_registers(Dwfl_Thread *thread, void *arg);
 
-static bool set_initial_registers(Dwfl_Thread *thread, void *arg) {
+static bool set_initial_registers(Dwfl_Thread *thread,
+                                  void *arg STG_UNUSED) {
     Dwarf_Word regs[17];
     __asm__ ("movq %%rax, 0x00(%0)\n\t"
              "movq %%rdx, 0x08(%0)\n\t"
