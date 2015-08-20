@@ -5,6 +5,7 @@ struct BacktraceFrame_ {
     const char *function;
     const char *filename;
     int lineno;
+    int colno;
 };
 
 typedef struct BacktraceFrame_ BacktraceFrame;

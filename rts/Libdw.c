@@ -64,9 +64,10 @@ void print_backtrace(FILE *file, Backtrace *bt) {
         int i;
         for (i=0; i<chunk->n_frames; i++) {
             BacktraceFrame *frame = &chunk->frames[i];
-            fprintf(file, "  %24p    %s (%s:%d)\n",
+            fprintf(file, "  %24p    %s (%s:%d.%d)\n",
                     (void*)frame->pc, frame->function,
-                    frame->filename, frame->lineno);
+                    frame->filename, frame->lineno,
+                    frame->colno);
         }
         chunk = chunk->next;
     }
@@ -135,7 +136,7 @@ static void libdw_lookup_addr(LibDwSession *session, BacktraceFrame *frame,
     Dwfl_Line *line = dwfl_getsrc(session->dwfl, pc);
     Dwarf_Addr addr;
     frame->filename = dwfl_lineinfo(line, &addr, &frame->lineno,
-                                    NULL, NULL, NULL);
+                                    &frame->colno, NULL, NULL);
 }
 
 static int frame_cb(Dwfl_Frame *frame, void *arg) {
@@ -148,6 +149,7 @@ static int frame_cb(Dwfl_Frame *frame, void *arg) {
             .pc = 0,
             .function = NULL,
             .lineno = 0,
+            .colno = 0,
             .filename = NULL,
         };
         backtrace_push(session->cur_bt, frame);
