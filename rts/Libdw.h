@@ -25,11 +25,11 @@ struct Backtrace_ {
 typedef struct Backtrace_ Backtrace;
 
 void backtrace_free(Backtrace *bt);
-    void print_backtrace(FILE *file, Backtrace *bt);
+void print_backtrace(FILE *file, Backtrace *bt);
 
 struct LibDwSession_;
 typedef struct LibDwSession_ LibDwSession;
 
 void libdw_free(LibDwSession *session);
-LibDwSession *libdw_init();
+LibDwSession *libdw_init(void);
 Backtrace *libdw_get_backtrace(LibDwSession *session);

@@ -1,6 +1,7 @@
 #include <elfutils/libdwfl.h>
 #include <unistd.h>
 #include "Libdw.h"
+#include "RtsUtils.h"
 
 // Default chunk capacity
 #define BACKTRACE_CHUNK_CAP 256
@@ -86,7 +87,7 @@ void libdw_free(LibDwSession *session) {
 
 // Load DWARF information for all present modules
 LibDwSession *libdw_init() {
-  LibDwSession *session = stgCallocBytes(sizeof(LibDwSession), "libdw_init");
+    LibDwSession *session = stgCallocBytes(1, sizeof(LibDwSession), "libdw_init");
 	// Initialize ELF library
 	if (elf_version(EV_CURRENT) == EV_NONE) {
       sysErrorBelch("libelf version too old!");
@@ -142,7 +143,12 @@ static int frame_cb(Dwfl_Frame *frame, void *arg) {
     bool is_activation;
     if (! dwfl_frame_pc(frame, &pc, &is_activation)) {
         // failed to find PC
-        BacktraceFrame frame = {};
+        BacktraceFrame frame = {
+            .pc = 0,
+            .function = NULL,
+            .lineno = 0,
+            .filename = NULL,
+        };
         backtrace_push(session->cur_bt, frame);
     } else {
         if (is_activation)
@@ -192,8 +198,8 @@ static pid_t next_thread(Dwfl *dwfl, void *arg, void **thread_argp) {
     return dwfl_pid(dwfl);
 }
 
-static bool memory_read(Dwfl *dwfl, Dwarf_Addr addr, Dwarf_Word *result,
-                     void *dwfl_arg) {
+static bool memory_read(Dwfl *dwfl STG_UNUSED, Dwarf_Addr addr,
+                        Dwarf_Word *result, void *dwfl_arg STG_UNUSED) {
     *result = *(Dwarf_Word *) addr;
     return true;
 }

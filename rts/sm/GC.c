@@ -194,10 +194,10 @@ GarbageCollect (nat collect_gen,
 #endif
   nat g, n;
 
-  LibdwSession *session = libdw_init();
+  LibDwSession *session = libdw_init();
   Backtrace *bt = libdw_get_backtrace(session);
   print_backtrace(stdout, bt);
-  free_backtrace(bt);
+  backtrace_free(bt);
 
   // necessary if we stole a callee-saves register for gct:
 #if defined(THREADED_RTS)
