@@ -3,14 +3,10 @@
 #include "Libdw.h"
 #include "RtsUtils.h"
 
-// Default chunk capacity
-#define BACKTRACE_CHUNK_CAP 256
-
 // Allocate a Backtrace
 static Backtrace *backtrace_alloc(void) {
     // We allocate not only the Backtrace object itself but also its first chunk
-    int bytes = sizeof(Backtrace) + sizeof(uintptr_t) * BACKTRACE_CHUNK_CAP;
-    Backtrace *bt = stgMallocBytes(bytes, "backtrace_alloc");
+    Backtrace *bt = stgMallocBytes(sizeof(Backtrace), "backtrace_alloc");
     bt->n_frames = 0;
     bt->frames.n_frames = 0;
     bt->frames.next = 0;
@@ -18,8 +14,7 @@ static Backtrace *backtrace_alloc(void) {
 }
 
 static BacktraceChunk *backtrace_alloc_chunk(void) {
-    int bytes = sizeof(BacktraceChunk) + sizeof(uintptr_t) * BACKTRACE_CHUNK_CAP;
-    BacktraceChunk *chunk = stgMallocBytes(bytes, "backtrace_alloc_chunk");
+    BacktraceChunk *chunk = stgMallocBytes(sizeof(BacktraceChunk), "backtrace_alloc_chunk");
     chunk->n_frames = 0;
     chunk->next = NULL;
     return chunk;
@@ -32,7 +27,7 @@ static int backtrace_push(Backtrace *bt, BacktraceFrame frame) {
         chunk = chunk->next;
 
     // Is this chunk full?
-    if (chunk->n_frames == BACKTRACE_CHUNK_CAP) {
+    if (chunk->n_frames == BACKTRACE_CHUNK_SZ) {
         chunk->next = backtrace_alloc_chunk();
         if (chunk->next == NULL) {
             sysErrorBelch("failed to allocate backtrace chunk");

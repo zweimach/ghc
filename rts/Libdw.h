@@ -10,10 +10,13 @@ struct BacktraceFrame_ {
 
 typedef struct BacktraceFrame_ BacktraceFrame;
 
+// Default chunk capacity
+#define BACKTRACE_CHUNK_SZ 256
+
 struct BacktraceChunk_ {
-    uint16_t n_frames;            // number of frames in this chunk
-    struct BacktraceChunk_ *next; // the chunk following this one
-    BacktraceFrame frames[];      // the actual stack frames
+    uint16_t n_frames;                         // number of frames in this chunk
+    struct BacktraceChunk_ *next;              // the chunk following this one
+    BacktraceFrame frames[BACKTRACE_CHUNK_SZ]; // the actual stack frames
 };
 
 typedef struct BacktraceChunk_ BacktraceChunk;
