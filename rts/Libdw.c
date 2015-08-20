@@ -1,35 +1,12 @@
 #include <elfutils/libdwfl.h>
 #include <unistd.h>
-
-struct BacktraceFrame_ {
-    uintptr_t pc;
-    const char *function;
-    const char *filename;
-    int lineno;
-};
-
-typedef struct BacktraceFrame_ BacktraceFrame;
-
-struct BacktraceChunk_ {
-    uint16_t n_frames;            // number of frames in this chunk
-    struct BacktraceChunk_ *next; // the chunk following this one
-    BacktraceFrame frames[];      // the actual stack frames
-};
-
-typedef struct BacktraceChunk_ BacktraceChunk;
-
-struct Backtrace_ {
-    StgWord n_frames;             // Total number of frames in the backtrace
-    BacktraceChunk frames;        // The first chunk of frames
-};
-
-typedef struct Backtrace_ Backtrace;
+#include "Libdw.h"
 
 // Default chunk capacity
 #define BACKTRACE_CHUNK_CAP 256
 
 // Allocate a Backtrace
-static Backtrace *backtrace_alloc() {
+static Backtrace *backtrace_alloc(void) {
     // We allocate not only the Backtrace object itself but also its first chunk
     int bytes = sizeof(Backtrace) + sizeof(uintptr_t) * BACKTRACE_CHUNK_CAP;
     Backtrace *bt = stgMallocBytes(bytes, "backtrace_alloc");
@@ -38,7 +15,7 @@ static Backtrace *backtrace_alloc() {
     return bt;
 }
 
-static BacktraceChunk *backtrace_alloc_chunk() {
+static BacktraceChunk *backtrace_alloc_chunk(void) {
     int bytes = sizeof(BacktraceChunk) + sizeof(uintptr_t) * BACKTRACE_CHUNK_CAP;
     BacktraceChunk *chunk = stgMallocBytes(bytes, "backtrace_alloc_chunk");
     chunk->n_frames = 0;
@@ -69,7 +46,7 @@ static int backtrace_push(Backtrace *bt, BacktraceFrame frame) {
     return 0;
 }
 
-static void backtrace_free(Backtrace *bt) {
+void backtrace_free(Backtrace *bt) {
     BacktraceChunk *chunk = bt->frames.next;
     stgFree(bt);
     while (chunk != NULL) {
