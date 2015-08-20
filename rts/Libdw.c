@@ -242,3 +242,33 @@ static const Dwfl_Thread_Callbacks thread_cbs = {
     .memory_read = memory_read,
     .set_initial_registers = set_initial_registers,
 };
+
+Backtrace *libdw_get_stg_backtrace(LibDwSession *session, StgTSO *tso) {
+    StgPtr sp = tso->stackobj->sp;
+    Backtrace *bt = backtrace_alloc();
+    BacktraceFrame frame;
+
+    while (1) {
+        StgRetInfoTable *info = get_ret_itbl((StgClosure *)sp);
+        StgPtr next = sp + stack_frame_sizeW((StgClosure *)sp);
+
+        switch (info->i.type) {
+        case STOP_FRAME:
+            return bt;
+        case PAP:
+        {
+            StgPAP *pap = (StgPAP *) sp;
+            libdw_lookup_addr(session, &frame, (uintptr_t) pap->fun);
+            backtrace_push(bt, frame);
+            break;
+        }
+        default:
+            libdw_lookup_addr(session, &frame, (uintptr_t) info->i.code);
+            backtrace_push(bt, frame);
+            break;
+        }
+
+        sp = next;
+    }
+    return bt;
+}

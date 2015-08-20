@@ -34,3 +34,4 @@ typedef struct LibDwSession_ LibDwSession;
 void libdw_free(LibDwSession *session);
 LibDwSession *libdw_init(void);
 Backtrace *libdw_get_backtrace(LibDwSession *session);
+Backtrace *libdw_get_stg_backtrace(LibDwSession *session, StgTSO *tso);
