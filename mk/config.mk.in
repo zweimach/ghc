@@ -350,7 +350,7 @@ FFIIncludeDir=@FFIIncludeDir@
 GhcRtsWithElf = @HaveElfLib@
 
 # Include support for DWARF unwinding
-GhcRtsWithUnwind = @HaveUnwindLib@
+GhcRtsWithLibdw = @HaveLibdw@
 
 ################################################################################
 #

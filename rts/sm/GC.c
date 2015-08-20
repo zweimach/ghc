@@ -11,7 +11,7 @@
  *
  * ---------------------------------------------------------------------------*/
 #include <stdio.h>
-#include "Libunwind.h"
+#include "Libdw.h"
 
 #include "PosixSource.h"
 #include "Rts.h"
@@ -194,8 +194,8 @@ GarbageCollect (nat collect_gen,
 #endif
   nat g, n;
 
-  LibunwindSession *session = libunwind_init();
-  Backtrace *bt = libunwind_get_backtrace(session);
+  LibdwSession *session = libdw_init();
+  Backtrace *bt = libdw_get_backtrace(session);
   print_backtrace(stdout, bt);
   free_backtrace(bt);
 

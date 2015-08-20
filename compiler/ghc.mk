@@ -104,8 +104,8 @@ endif
 	@echo 'cGhcRTSWays           = "$(GhcRTSWays)"'                     >> $@
 	@echo 'cGhcRtsWithElf        :: String'                             >> $@
 	@echo 'cGhcRtsWithElf        = "$(GhcRtsWithElf)"'                  >> $@
-	@echo 'cGhcRtsWithUnwind     :: String'                             >> $@
-	@echo 'cGhcRtsWithUnwind     = "$(GhcRtsWithUnwind)"'               >> $@
+	@echo 'cGhcRtsWithLibdw      :: String'                             >> $@
+	@echo 'cGhcRtsWithLibdw      = "$(GhcRtsWithLibdw)"'                >> $@
 	@echo 'cGhcEnableTablesNextToCode :: String'                        >> $@
 	@echo 'cGhcEnableTablesNextToCode = "$(GhcEnableTablesNextToCode)"' >> $@
 	@echo 'cLeadingUnderscore    :: String'                             >> $@

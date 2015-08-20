@@ -59,8 +59,8 @@ extra-libraries:
 #if USE_ELF
                              , "elf"
 #endif
-#ifdef HAVE_LIBUNWIND
-                             , "libunwind"      /* for backtraces */
+#ifdef USE_LIBDW
+                             , "dw"             /* for backtraces */
 #endif
 
 #ifdef INSTALLING
