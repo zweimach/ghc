@@ -347,6 +347,9 @@ FFILibDir=@FFILibDir@
 FFIIncludeDir=@FFIIncludeDir@
 
 
+# Include support for DWARF unwinding
+GhcRtsWithLibdw = @HaveLibdw@
+
 ################################################################################
 #
 #		Paths (see paths.mk)
