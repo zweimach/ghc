@@ -9,7 +9,7 @@ module Vectorise.Monad.Local
   , lookupTyVarPA
   , defLocalTyVar
   , defLocalTyVarWithPA
-  , localTyCoVars
+  , localTyVars
   )
 where
 

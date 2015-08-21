@@ -1349,24 +1349,9 @@ bindIfaceTyVars_AT (b : bs) thing_inside
          bindIfaceTyVars_AT bs $ \bs' ->
          thing_inside (b':bs') }
 
-bindIfaceBndr_AT :: IfaceBndr -> (Id -> IfL a) -> IfL a
-bindIfaceBndr_AT bndr thing_inside
-  = do { mb_id <- lookupIfaceVar bndr
-       ; case mb_id of
-           Just b' -> thing_inside b'
-           Nothing -> bindIfaceBndr bndr thing_inside }
-
 bindIfaceTyVar_AT :: IfaceTvBndr -> (TyVar -> IfL a) -> IfL a
 bindIfaceTyVar_AT tv thing
   = do { mb_tv <- lookupIfaceTyVar tv
        ; case mb_tv of
            Just b' -> thing b'
            Nothing -> bindIfaceTyVar tv thing }
-
-bindIfaceBndrs_AT :: [IfaceBndr] -> ([TyCoVar] -> IfL a) -> IfL a
-bindIfaceBndrs_AT [] thing_inside
-  = thing_inside []
-bindIfaceBndrs_AT (b:bs) thing_inside
-  = bindIfaceBndr_AT b $ \b' ->
-    bindIfaceBndrs_AT bs $ \bs' ->
-    thing_inside (b':bs')

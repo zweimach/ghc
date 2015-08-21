@@ -19,6 +19,7 @@ import TcMType
 import TysPrim
 import TysWiredIn  ( levityTy )
 import Name
+import Coercion    ( emptyCvSubstEnv )
 import SrcLoc
 import PatSyn
 import NameSet

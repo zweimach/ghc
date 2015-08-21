@@ -220,7 +220,7 @@ tcLookupDataFamInst_maybe fam_inst_envs tc tc_args
   , let rep_tc = dataFamInstRepTyCon rep_fam
         co     = mkSubCo match_co `mkTransCo`
                  mkUnbranchedAxInstCo Representational co_tc rep_args
-                                      (mkCoVarVos cvs)
+                                      (mkCoVarCos cvs)
   = ASSERT( null cvs ) -- See Note [Constrained family instances] in FamInstEnv
     Just (rep_tc, rep_args, co)
 

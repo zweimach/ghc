@@ -56,6 +56,8 @@ import Pair
 import SrcLoc
 import NameSet
 import FastString
+import MonadUtils
+import Control.Monad
 
 {-
 ************************************************************************
@@ -588,8 +590,8 @@ mkUnbranchedCoAxiom ax_name fam_tc branch
             , co_ax_implicit = False
             , co_ax_branches = FirstBranch (branch { cab_incomps = [] }) }
 
-mkSingleCoAxiom :: Name -> [TyVar] -> TyCon -> [Type] -> Type -> CoAxiom Unbranched
-mkSingleCoAxiom ax_name tvs fam_tc lhs_tys rhs_ty
+mkSingleCoAxiom :: Name -> [TyVar] -> [CoVar] -> TyCon -> [Type] -> Type -> CoAxiom Unbranched
+mkSingleCoAxiom ax_name tvs cvs fam_tc lhs_tys rhs_ty
   = CoAxiom { co_ax_unique   = nameUnique ax_name
             , co_ax_name     = ax_name
             , co_ax_tc       = fam_tc
@@ -597,7 +599,7 @@ mkSingleCoAxiom ax_name tvs fam_tc lhs_tys rhs_ty
             , co_ax_implicit = False
             , co_ax_branches = FirstBranch (branch { cab_incomps = [] }) }
   where
-    branch = mkCoAxBranch tvs lhs_tys rhs_ty (getSrcSpan ax_name)
+    branch = mkCoAxBranch tvs cvs lhs_tys rhs_ty (getSrcSpan ax_name)
 
 {-
 ************************************************************************
@@ -874,7 +876,7 @@ reduceTyFamApp_maybe envs role tc tys
     in Just (co, ty, cvs)
 
   | Just ax <- isClosedSynFamilyTyCon_maybe tc
-  , Just (ind, inst_tys, cos, cvs) <- chooseBranch ax tys
+  , Just (ind, inst_tys, cvs, cos) <- chooseBranch ax tys
   = let co     = downgradeRole role Nominal (mkTyConAppCo Nominal tc cos)
                  `mkTransCo` mkAxInstCo role ax ind inst_tys (mkCoVarCos cvs)
         ty     = pSnd (coercionKind co)
@@ -1074,10 +1076,9 @@ normaliseTcApp env role tc tys
 
 -- See Note [Normalising types] about the LiftingContext
 normalise_tc_app :: TyCon -> [Type] -> NormM (Coercion, Type)
-normalise_tc_app env lc role tc tys
+normalise_tc_app tc tys
   = do { (args_co, ntys) <- normalise_tc_args tc tys
-       ; mb_expansion <- tcExpandTyCon_maybe tc ntys
-       ; case mb_expansion of
+       ; case tcExpandTyCon_maybe tc ntys of
          { Just (tenv, rhs, ntys') ->
            do { (co2, ninst_rhs)
                   <- normalise_type (substTy (mkTopTCvSubst tenv) rhs)
@@ -1086,11 +1087,13 @@ normalise_tc_app env lc role tc tys
                 then (args_co,                 mkTyConApp tc ntys)
                 else (args_co `mkTransCo` co2, mkAppTys ninst_rhs ntys') }
          ; Nothing ->
-    do { agg <- getAggressive
+    do { agg <- getAgg
+       ; env <- getEnv
+       ; role <- getRole
        ; case reduceTyFamApp_maybe env role tc ntys of
            Just (first_co, ty', cvs)
              | agg || null cvs
-             -> do { emitCoVars cvs
+             -> do { emitCoVars (mkVarSet cvs)
                    ; (rest_co,nty) <- normalise_type ty'
                    ; return ( args_co `mkTransCo` first_co `mkTransCo` rest_co
                             , nty ) }
@@ -1118,17 +1121,14 @@ normalise_tc_args tc tys
                                           tys (tyConRolesX role tc)
        ; return (mkTyConAppCo role tc cois, ntys) }
   where
-    noramlise_type_role ty r = withRole r $ normalise_type ty
+    normalise_type_role ty r = withRole r $ normalise_type ty
 
 ---------------
 normaliseType :: FamInstEnvs
               -> Role  -- desired role of coercion
               -> Type -> (Coercion, Type)
 normaliseType env role ty
-  = initNormM env role ty $ normalise_type ty
-  where
-    in_scope = mkInScopeSet (tyCoVarsOfType ty)
-    lc = emptyLiftingContext in_scope
+  = initNormM env role (tyCoVarsOfType ty) $ normalise_type ty
 
 -- | Aggressively normalise a type, allowing normalisations that require
 -- solving some wanteds. Returns the covars representing the wanteds.
@@ -1137,10 +1137,10 @@ normaliseTypeAggressive :: FamInstEnvs
                         -> Role   -- desired role of coercion
                         -> Type -> (Coercion, Type, CoVarSet)
 normaliseTypeAggressive env role ty
-  = let ((co, ty), cvs)
-          = initAggressiveNormM env lc (tyCoVarsOfType ty) $
+  = let (cvs, (co, ty'))
+          = initAggressiveNormM env role (tyCoVarsOfType ty) $
             normalise_type ty
-    in (co, ty, cvs)
+    in (co, ty', cvs)
 
 normalise_type :: Type                     -- old type
                -> NormM (Coercion, Type)   -- (coercion,new type), where
@@ -1174,7 +1174,7 @@ normalise_type
       = do { (lc', cobndr) <- normalise_tyvar_bndr tyvar
            ; (co, nty)     <- withLC lc' $ normalise_type ty
            ; let Pair _ tyvar' = coBndrKind cobndr
-           ; (mkForAllCo cobndr co, mkNamedForAllTy tyvar' vis nty) }
+           ; return (mkForAllCo cobndr co, mkNamedForAllTy tyvar' vis nty) }
     go (TyVarTy tv)    = normalise_tyvar tv
     go (CastTy ty co)
       = do { (nco, nty) <- go ty
@@ -1201,17 +1201,17 @@ normalise_tyvar tv
   where ty = mkTyVarTy tv
 
 normalise_tyvar_bndr :: TyVar -> NormM (LiftingContext, ForAllCoBndr)
-normalise_tyvar_bndr
+normalise_tyvar_bndr tv
   = do { lc1 <- getLC
        ; r1  <- getRole
        ; env <- getEnv
-       ; agg <- getAggressive
+       ; agg <- getAgg
        ; let callback lc r ty
                = let (cvs, (co, _)) = runNormM (normalise_type ty)
                                                env lc r agg
                  in (co, cvs)
              (lc', cobndr, cvs)
-               = liftCoSubstVarBndrCallback callback True r1 lc1
+               = liftCoSubstVarBndrCallback callback True r1 lc1 tv
                    -- the True there means that we want homogeneous coercions
                    -- See Note [Normalising types]
        ; emitCoVars cvs
@@ -1261,6 +1261,12 @@ getAgg = NormM (\ _ _ _ agg -> (emptyVarSet, agg))
 
 emitCoVars :: CoVarSet -> NormM ()
 emitCoVars cvs = NormM (\ _ _ _ _ -> (cvs, ()))
+
+withRole :: Role -> NormM a -> NormM a
+withRole r thing = NormM $ \ envs lc _old_r agg -> runNormM thing envs lc r agg
+
+withLC :: LiftingContext -> NormM a -> NormM a
+withLC lc thing = NormM $ \ envs _old_lc r agg -> runNormM thing envs lc r agg
 
 instance Monad NormM where
   return x   = NormM $ \ _ _ _ _ -> (emptyVarSet, x)

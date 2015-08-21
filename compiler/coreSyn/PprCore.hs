@@ -327,7 +327,7 @@ pprTypedLetBinder binder
 pprKindedTyVarBndr :: TyVar -> SDoc
 -- Print a type variable binder with its kind (but not if *)
 pprKindedTyVarBndr tyvar
-  = ptext (sLit "@") <+> pprTCvBndr tyvar
+  = ptext (sLit "@") <+> pprTvBndr tyvar
 
 -- pprIdBndr does *not* print the type
 -- When printing any Id binder in debug mode, we print its inline pragma and one-shot-ness

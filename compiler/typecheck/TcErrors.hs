@@ -147,7 +147,7 @@ report_unsolved mb_binds_var defer_errors defer_holes warn_holes
                             , cec_binds    = mb_binds_var }
 
        ; traceTc "reportUnsolved (after unflattening):" $
-         vcat [ pprTCvBndrs (varSetElems free_tvs)
+         vcat [ pprTvBndrs (varSetElems free_tvs)
               , ppr wanted ]
 
        ; reportWanteds err_ctxt wanted }

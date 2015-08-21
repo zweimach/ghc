@@ -152,12 +152,12 @@ module Type (
 
         -- ** Performing substitution on types and kinds
         substTy, substTys, substTyWith, substTysWith, substTheta,
-        substTyVarBndr,
+        substTyVarBndr, substTyVar, substTyVars,
         cloneTyVarBndr, lookupTyVar, substTelescope,
 
         -- * Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTyThingCategory, pprTyThing,
-        pprTCvBndr, pprTCvBndrs, pprForAll, pprForAllImplicit, pprUserForAll,
+        pprTvBndr, pprTvBndrs, pprForAll, pprForAllImplicit, pprUserForAll,
         pprSigmaType,
         pprTheta, pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprSourceTyCon,
@@ -206,12 +206,12 @@ import FastString
 import Pair
 import ListSetOps
 
-import Data.List        ( partition, sortBy, mapAccumL )
+import Data.List        ( partition, sortBy )
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
-import Control.Monad    ( guard, liftM )
+import Control.Monad    ( guard )
 import Control.Applicative ( (<$>) )
-import Control.Arrow    ( first, second )
+import Control.Arrow    ( first )
 
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative ( Applicative, (<*>) )
@@ -1034,7 +1034,7 @@ repType ty
       | Just ty' <- coreView ty
       = go rec_nts ty'
 
-    go rec_nts ty@(ForAllTy (Named tv _) ty2)  -- Drop type foralls
+    go rec_nts (ForAllTy (Named {}) ty2)  -- Drop type foralls
       = go rec_nts ty2
 
     go rec_nts (TyConApp tc tys)        -- Expand newtypes
@@ -1110,8 +1110,7 @@ mkNamedForAllTy tv vis = ASSERT( isTyVar tv )
 
 -- | Wraps foralls over the type using the provided 'TyVar's from left to right
 mkForAllTys :: [Binder] -> Type -> Type
-mkForAllTys tyvars ty = ASSERT( all isTyVar tyvars )
-                        foldr ForAllTy ty tyvars
+mkForAllTys tyvars ty = foldr ForAllTy ty tyvars
 
 -- | Like mkForAllTys, but assumes all variables are dependent and invisible,
 -- a common case

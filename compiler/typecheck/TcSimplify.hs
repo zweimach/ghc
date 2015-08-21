@@ -520,7 +520,6 @@ decideQuantification cv_env apply_mr constraints
        ; traceTc "decideQuantification 1"
            (vcat [ text "constraints:"     <+> ppr constraints
                  , text "gbl_tvs:"         <+> ppr gbl_tvs
-                 , text "mono_tvs:"        <+> ppr mono_tvs
                  , text "constrained_tvs:" <+> ppr constrained_tvs
                  , text "qtvs:"            <+> ppr qtvs ])
 
@@ -565,10 +564,10 @@ growThetaTyVars :: ThetaType -> TyCoVarSet -> TyVarSet
 growThetaTyVars theta tvs
   | null theta             = tvs_only
   | isEmptyVarSet seed_tvs = tvs_only
-  | otherwise              = filter isTyVar $
+  | otherwise              = filterVarSet isTyVar $
                              fixVarSet mk_next seed_tvs
   where
-    tvs_only = filter isTyVar tvs
+    tvs_only = filterVarSet isTyVar tvs
     seed_tvs = tvs `unionVarSet` tyCoVarsOfTypes ips
     (ips, non_ips) = partition isIPPred theta
                          -- See Note [Inheriting implicit parameters] in TcType
@@ -776,10 +775,10 @@ simplifyRule name lhs_wanted rhs_wanted
                                              , evb_term = term })
                                     -> (var, term)) (bagToList ev_binds)
              ; rest <- free_ev_vars wc
-             ; return $ tyCoVarsOfTelsecope (skols ++ givens) $
+             ; return $ tyCoVarsOfTelescope (skols ++ givens) $
                         rest
                         `unionVarSet` mapUnionVarSet evVarsOfTerm ev_terms
-                        `delVarSetList` ev_vars
+                        `delVarSetList` ev_vars }
 
 {-
 *********************************************************************************

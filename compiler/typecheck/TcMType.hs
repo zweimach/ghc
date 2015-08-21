@@ -9,7 +9,7 @@ This module contains monadic operations over types that contain
 mutable type variables
 -}
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, TupleSections #-}
 
 module TcMType (
   TcTyVar, TcKind, TcType, TcTauType, TcThetaType, TcTyVarSet,
@@ -40,7 +40,8 @@ module TcMType (
   --------------------------------
   -- Instantiation
   tcInstBinders, tcInstBindersX,
-  tcInstTyVars, tcInstTyVarX, newSigTyVar,
+  tcInstTyVars, tcInstTyVarX, tcInstCoVars, tcInstCoVarX,
+  newSigTyVar,
   tcInstType,
   tcInstSkolTyVars, tcInstSkolTyVarsLoc, tcInstSuperSkolTyVarsX,
   tcInstSigTyVarsLoc, tcInstSigTyVars,
@@ -97,7 +98,7 @@ import DynFlags
 import BasicTypes    ( Boxity(..) )
 
 import Control.Monad
-import Data.List        ( mapAccumL, partition, foldl' )
+import Data.List        ( mapAccumL, partition )
 
 {-
 ************************************************************************
@@ -294,7 +295,7 @@ freshenTyVarBndrs = instSkolTyCoVars mk_tv
 freshenCoVarBndrsX :: TCvSubst -> [CoVar] -> TcRnIf gbl lcl (TCvSubst, [CoVar])
 -- ^ Give fresh uniques to a bunch of CoVars
 -- Used in FamInst.newFamInst
-freshenCoVarBndrsX subst = instSkolTyCoVars mk_cv subst
+freshenCoVarBndrsX subst = instSkolTyCoVarsX mk_cv subst
   where
     mk_cv uniq old_name kind = mkCoVar (setNameUnique old_name uniq) kind
 
@@ -318,8 +319,8 @@ instSkolTyCoVarX mk_tcv subst tycovar
     kind     = substTy subst (tyVarKind tycovar)
 
     mk_ty_co v
-      | isTyVar   = mkTyVarTy
-      | otherwise = mkCoercionTy . mkCoVarCo
+      | isTyVar v = mkTyVarTy v
+      | otherwise = mkCoercionTy $ mkCoVarCo v
 
 {-
 Note [Kind substitution when instantiating]
@@ -564,20 +565,20 @@ newOpenReturnTyVar
 -- TODO (RAE): This, and all call sites, will need to be updated when
 -- there's more visibility stuff. Should probably take a list of binders
 -- and args. Or something.
-tcInstTyVars :: TypeOrKind -> [TyVar] -> TcM (TCvSubst, [TcTyVar])
+tcInstTyVars :: [TyVar] -> TcM (TCvSubst, [TcTyVar])
 -- Instantiate with META type variables
 -- Note that this works for a sequence of kind, type, and coercion variables
 -- variables.  Eg    [ (k:*), (a:k->k) ]
 --             Gives [ (k7:*), (a8:k7->k7) ]
-tcInstTyVars t_or_k = mapAccumLM (tcInstTyVarX t_or_k) emptyTCvSubst
+tcInstTyVars = mapAccumLM tcInstTyVarX emptyTCvSubst
     -- emptyTCvSubst has an empty in-scope set, but that's fine here
     -- Since the tyvars are freshly made, they cannot possibly be
     -- captured by any existing for-alls.
 
-tcInstTyVarX :: TypeOrKind -> TCvSubst -> TyVar -> TcM (TCvSubst, TcTyVar)
+tcInstTyVarX :: TCvSubst -> TyVar -> TcM (TCvSubst, TcTyVar)
 -- Make a new unification variable tyvar whose Name and Kind come from
 -- an existing TyVar. We substitute kind variables in the kind.
-tcInstTyVarX t_or_k subst tyvar
+tcInstTyVarX subst tyvar
   = do  { uniq <- newUnique
                -- See Note [    -- TODO (RAE): Finish this line of comment!
                -- TODO (RAE): See Note [OpenTypeKind accepts foralls] in TcType,
@@ -600,13 +601,12 @@ tcInstCoVars orig = mapAccumLM (tcInstCoVarX orig) emptyTCvSubst
 tcInstCoVarX :: CtOrigin -> TCvSubst -> CoVar -> TcM (TCvSubst, CoVar)
 tcInstCoVarX orig subst covar
   = do { let pred_ty    = substTy subst (varType covar)
-             (act, exp) = getEqPredTys pred_ty
        ; new_cv <- emitWantedEvVar orig pred_ty
          -- can't call unifyType, because we need to return a CoVar,
          -- and unification might result in a TcCoercion that's not a CoVar
          -- TODO (RAE): Improve now that unifyType *can* return a Coercion??
 
-       ; return ( extendTCvSubst subst tyvar (mkCoercionTy $ mkCoVarCo new_cv)
+       ; return ( extendTCvSubst subst covar (mkCoercionTy $ mkCoVarCo new_cv)
                 , new_cv ) }
 
 -- | This is used to instantiate binders when type-checking *types* only.
@@ -628,7 +628,7 @@ tcInstBindersX subst bndrs
 tcInstBinderX :: TCvSubst -> Binder -> TcM (TCvSubst, TcType)
 tcInstBinderX subst binder
   | Just tv <- binderVar_maybe binder
-  = do { (subst', tv') <- tcInstTyVarX KindLevel subst tv
+  = do { (subst', tv') <- tcInstTyVarX subst tv
        ; return (subst', mkTyVarTy tv') }
 
      -- TODO (RAE): This is special-case handling of promoted, lifted
@@ -1067,7 +1067,7 @@ zonkTcTypeMapper = TyCoMapper
   , tcm_tyvar = const zonkTcTyVar
   , tcm_covar = const (\cv -> mkCoVarCo <$> zonkTyCoVarKind cv)
   , tcm_tybinder = \_env tv _vis -> ((), ) <$> zonkTcTyCoVarBndr tv
-  , tcm_cobinder = \_env cv      -> ((), ) <$> zonkTcTyCoVarBndr cv
+  , tcm_cobinder = \_env cv      -> ((), ) <$> zonkTcTyCoVarBndr cv }
 
 -- For unbound, mutable tyvars, zonkType uses the function given to it
 -- For tyvars bound at a for-all, zonkType zonks them to an immutable

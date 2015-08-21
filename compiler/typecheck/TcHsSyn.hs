@@ -23,7 +23,7 @@ module TcHsSyn (
         TcId, TcIdSet,
 
         zonkTopDecls, zonkTopExpr, zonkTopLExpr,
-        zonkTopBndrs, zonkTyCoBndrsX,
+        zonkTopBndrs, zonkTyBndrsX, zonkCoBndrsX,
         emptyZonkEnv, mkEmptyZonkEnv, mkZonkEnv, mkEvBindsZonkEnv,
         zonkTcTypeToType, zonkTcTypeToTypes, zonkTyVarOcc,
         zonkCoToCo
@@ -59,7 +59,6 @@ import Bag
 import FastString
 import Outputable
 import Util
-import Control.Arrow ( second )
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable ( traverse )
 #endif
@@ -313,8 +312,7 @@ zonkTyBndrX env tv
 zonkCoBndrX :: ZonkEnv -> CoVar -> TcM (ZonkEnv, CoVar)
 -- we add it to the envt, so all occurrences are replaced
 zonkCoBndrX env cv
-  = do { ki <- zonkTcTypeToType env (varKind cv)
-       ; let cv' = setVarType cv ki
+  = do { cv' <- updateVarTypeM (zonkTcTypeToType env) cv
        ; return (extendIdZonkEnv1 env cv', cv') }
 
 zonkTopExpr :: HsExpr TcId -> TcM (HsExpr Id)
@@ -1102,7 +1100,7 @@ zonk_pat env p@(ConPatOut { pat_arg_tys = tys, pat_tvs = tyvars
                           , pat_args = args, pat_wrap = wrapper })
   = ASSERT( all isImmutableTyVar tyvars )
     do  { new_tys <- mapM (zonkTcTypeToType env) tys
-        ; (env0, new_tyvars) <- zonkTyCoBndrsX env tyvars
+        ; (env0, new_tyvars) <- zonkTyBndrsX env tyvars
           -- Must zonk the existential variables, because their
           -- /kind/ need potential zonking.
           -- cf typecheck/should_compile/tc221.hs

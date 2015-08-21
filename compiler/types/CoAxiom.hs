@@ -18,7 +18,8 @@ module CoAxiom (
        coAxiomName, coAxiomArity, coAxiomBranches,
        coAxiomTyCon, isImplicitCoAxiom, coAxiomNumPats,
        coAxiomNthBranch, coAxiomSingleBranch_maybe, coAxiomRole,
-       coAxiomSingleBranch, coAxBranchTyVars, coAxBranchRoles,
+       coAxiomSingleBranch, coAxBranchTyVars, coAxBranchCoVars,
+       coAxBranchRoles,
        coAxBranchLHS, coAxBranchRHS, coAxBranchSpan, coAxBranchIncomps,
        placeHolderIncomps,
 
@@ -306,6 +307,9 @@ coAxiomTyCon = co_ax_tc
 
 coAxBranchTyVars :: CoAxBranch -> [TyVar]
 coAxBranchTyVars = cab_tvs
+
+coAxBranchCoVars :: CoAxBranch -> [CoVar]
+coAxBranchCoVars = cab_cvs
 
 coAxBranchLHS :: CoAxBranch -> [Type]
 coAxBranchLHS = cab_lhs

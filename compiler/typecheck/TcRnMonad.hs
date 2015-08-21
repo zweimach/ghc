@@ -1257,7 +1257,7 @@ emitWildcardHoleConstraints wcs
   = do { ctLoc <- getCtLoc HoleOrigin
        ; forM_ wcs $ \(name, tv) -> do {
        ; let ctLoc' = setCtLocSpan ctLoc (nameSrcSpan name)
-             ty     = mkOnlyTyVarTy tv
+             ty     = mkTyVarTy tv
              ev     = mkLocalIdOrCoVar name ty
              can    = CHoleCan { cc_ev   = CtWanted ty ev ctLoc'
                                , cc_occ  = occName name

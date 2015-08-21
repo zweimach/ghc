@@ -1504,7 +1504,7 @@ instance Outputable Implication where
               , ic_binds = binds, ic_info = info })
    = hang (ptext (sLit "Implic") <+> lbrace)
         2 (sep [ ptext (sLit "TcLevel =") <+> ppr tclvl
-               , ptext (sLit "Skolems =") <+> pprTCvBndrs skols
+               , ptext (sLit "Skolems =") <+> pprTvBndrs skols
                , ptext (sLit "No-eqs =") <+> ppr no_eqs
                , ptext (sLit "Insol =") <+> ppr insol
                , hang (ptext (sLit "Given ="))  2 (pprEvVars given)

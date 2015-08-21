@@ -57,7 +57,6 @@ import Name
 import NameSet
 import NameEnv
 import Outputable
-import UniqSupply
 import Maybes
 import Unify
 import Util
@@ -66,7 +65,7 @@ import ListSetOps
 import Digraph
 import DynFlags
 import FastString
-import Unique           ( mkBuiltinUnique )
+import Unique
 import BasicTypes
 
 import Bag
@@ -901,14 +900,14 @@ tcTyFamInstEqn fam_tc_shape@(fam_tc_name,_,_)
                      , tfe_rhs   = hs_ty }))
   = setSrcSpan loc $
     tcFamTyPats fam_tc_shape pats (discardResult . (tcCheckLHsType hs_ty)) $
-       \tvs' pats' res_kind ->
+       \tvs' cvs' pats' res_kind ->
     do { checkTc (fam_tc_name == eqn_tc_name)
                  (wrongTyFamName fam_tc_name eqn_tc_name)
        ; (rhs_ty, ev_binds) <- solveTopConstraints $ tcCheckLHsType hs_ty res_kind
        ; rhs_ty <- zonkTcTypeToType (mkEvBindsZonkEnv ev_binds) rhs_ty
-       ; traceTc "tcTyFamInstEqn" (ppr fam_tc_name <+> ppr tvs')
+       ; traceTc "tcTyFamInstEqn" (ppr fam_tc_name <+> pprTvBndrs (tvs' ++ cvs'))
           -- don't print out the pats here, as they might be zonked inside the knot
-       ; return (mkCoAxBranch tvs' pats' rhs_ty loc) }
+       ; return (mkCoAxBranch tvs' cvs' pats' rhs_ty loc) }
 
 kcDataDefn :: Name                -- ^ the family name, for error msgs only
            -> HsTyPats Name       -- ^ the patterns, for error msgs only
@@ -1059,11 +1058,6 @@ tcFamTyPats fam_shape@(name,_,_) pats kind_checker thing_inside
        ; qtkvs <- quantifyTyVars cv_env emptyVarSet $
                                  splitDepVarsOfTypes typats
 
-              -- TODO (RAE): squash away all coercions in typats, replacing
-              -- them with variables. Be careful about squashing away coercion
-              -- **variables**, as these may also appear legitimately on the
-              -- RHS.
-       ; let cvs = coVarsOfTypes typats
        ; MASSERT( isEmptyVarSet $ coVarsOfTypes $ map tyVarKind qtkvs )
            -- This should be the case, because otherwise the solveTopConstraints
            -- above would fail. TODO (RAE): Update once the solveTopConstraints
@@ -1073,6 +1067,12 @@ tcFamTyPats fam_shape@(name,_,_) pats kind_checker thing_inside
        ; (ze, qtkvs') <- zonkTyBndrsX (mkZonkEnv cv_env) qtkvs
        ; typats'      <- zonkTcTypeToTypes ze typats
        ; res_kind'    <- zonkTcTypeToType  ze res_kind
+
+              -- TODO (RAE): squash away all coercions in typats, replacing
+              -- them with variables. Be careful about squashing away coercion
+              -- **variables**, as these may also appear legitimately on the
+              -- RHS.
+       ; let cvs = varSetElemsWellScoped $ coVarsOfTypes typats'
 
        ; traceTc "tcFamTyPats" (ppr name $$ ppr typats)
             -- don't print out too much, as we might be in the knot
@@ -1247,9 +1247,8 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
        ; res_ty  <- case res_ty of
                       ResTyH98     -> return ResTyH98
                       ResTyGADT ty -> ResTyGADT <$> zonkTcTypeToType ze ty
-       ; us <- newUniqueSupply
        ; let (univ_tvs, ex_tvs, eq_preds, res_ty', arg_subst)
-               = rejigConRes us tmpl_tvs res_tmpl qtkvs res_ty
+               = rejigConRes tmpl_tvs res_tmpl qtkvs res_ty
                     -- TODO (RAE): Make sure that the types are of kind *!
 
        ; fam_envs <- tcGetFamInstEnvs
@@ -1420,6 +1419,207 @@ rejigConRes tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
        -- don't use substCoVarBndr because we don't want fresh uniques!
        -- substed_ex_tvs and raw_eq_cvs may dependent on one another
     substed_eqs = map (substEqSpec arg_subst) raw_eqs
+
+{-
+Note [mkGADTVars]
+~~~~~~~~~~~~~~~~~
+
+Running example:
+
+data T (k1 :: *) (k2 :: *) (a :: k2) (b :: k2) where
+  MkT :: T x1 * (Proxy (y :: x1), z) z
+
+We need the rejigged type to be
+
+  MkT :: forall (x1 :: *) (k2 :: *) (a :: k2) (z :: k2).
+         forall (y :: x1) (c1 :: k2 ~# *)
+                (c2 :: a ~# ((Proxy x1 y, z |> c1) |> sym c1)).
+         T x1 k2 a z
+
+The HsTypes have already been desugared to proper Types:
+
+  T x1 * (Proxy (y :: x1), z) z
+becomes
+  [x1 :: *, y :: x1, z :: *]. T x1 * (Proxy x1 y, z) z
+
+We start off by matching (T k1 k2 a b) with (T x1 * (Proxy x1 y, z) z). We
+know this match will succeed because of the validity check (actually done
+later, but laziness saves us -- see Note [Checking GADT return types]
+in TcTyClsDecls). Thus, we get
+
+  subst := { k1 |-> x1, k2 |-> *, a |-> (Proxy x1 y, z), b |-> z }
+
+Now, we need to figure out what the GADT equalities should be. In this case,
+we *don't* want (k1 ~ x1) to be a GADT equality: it should just be a
+renaming. The others should be GADT equalities, but they need to be
+homogeneous so that the solver can make sense of them. We also need to make
+sure that the universally-quantified variables of the datacon match up
+with the tyvars of the tycon, as required for Core context well-formedness.
+(This last bit is why we have to rejig at all!)
+
+`choose` walks down the tycon tyvars, figuring out what to do with each one.
+It carries three substitutions:
+  - t_sub's domain is *template* or *tycon* tyvars, mapping them to variables
+    mentioned in the datacon signature.
+  - r_sub's domain is *result* tyvars, names written by the programmer in
+    the datacon signature. The final rejigged type will use these names, but
+    the subst is still needed because sometimes the kind of these variables
+    is different than what the user wrote.
+  - lc is a lifting context -- that is, a mapping from type variables to
+    coercions -- that maps from *tycon* tyvars to coercion variables witnessing
+    the relevant GADT equality.
+
+Before explaining the details of `choose`, let's just look at its operation
+on our example:
+
+  choose [] [] {} {} {} [k1, k2, a, b]
+  -->          -- first branch of `case` statement
+  choose
+    univ_tvs: [x1 :: *]
+    covars:   []
+    t_sub:    {k1 |-> x1}
+    r_sub:    {x1 |-> x1 |> <*>}
+    lc:       {}
+    t_tvs:    [k2, a, b]
+  -->          -- second branch of `case` statement
+  choose
+    univ_tvs: [k2 :: *, x1 :: *]
+    covars:   [c1 :: k2 ~# (* |> sym <*>)]
+    t_sub:    {k1 |-> x1, k2 |-> k2}
+    r_sub:    {x1 |-> x1 |> <*>}
+    lc:       {k2 |-> c1}
+    t_tvs:    [a, b]
+  -->          -- second branch of `case` statement
+  choose
+    univ_tvs: [a :: k2, k2 :: *, x1 :: *]
+    covars:   [ c2 :: a ~# ((Proxy x1 y, z) |> sym c1)
+              , c1 :: k2 ~# (* |> sym <*>) ]
+    t_sub:    {k1 |-> x1, k2 |-> k2, a |-> a}
+    r_sub:    {x1 |-> x1 |> <*>}
+    lc:       {k2 |-> c1, a |-> c2}
+    t_tvs:    [b]
+  -->          -- first branch of `case` statement
+  choose
+    univ_tvs: [z :: k2, a :: k2, k2 :: *, x1 :: *]
+    covars:   [ c2 :: a ~# ((Proxy x1 y, z |> c1) |> sym c1)
+              , c1 :: k2 ~# (* |> sym <*>) ]
+    t_sub:    {k1 |-> x1, k2 |-> k2, a |-> a, b |-> z}
+    r_sub:    {x1 |-> x1 |> <*>, z |-> z |> c1}
+    lc:       {k2 |-> c1, a |-> c2}
+    t_tvs:    []
+  -->          -- end of recursion
+  ([x1, k2, a, z], [c1, c2], {x1 |-> x1 |> <*>, z |-> z |> c1})
+
+`choose` looks up each tycon tyvar in the matching (it *must* be matched!). If
+it finds a bare result tyvar (the first branch of the `case` statement), it
+checks to make sure that the result tyvar isn't yet in the list of univ_tvs.
+If it is in that list, then we have a repeated variable in the return type,
+and we in fact need a GADT equality. Assuming no repeated variables, we wish
+to use the variable name given in the datacon signature (that is, `x1` not
+`k1` and `z` not `b`), not the tycon signature (which may have been made up by
+GHC!). So, we add a mapping from the tycon tyvar to the result tyvar to t_sub.
+But, it's essential that the kind of the result tyvar (which is now becoming a
+proper universally- quantified variable) match the tycon tyvar. Thus, the
+setTyVarKind in the definition of r_tv'. This last step is necessary in
+fixing the kind of the universally-quantified `z`.
+
+However, because later uses of the result tyvar will expect it to have
+the user-supplied kind (that is, (z :: *) instead of (z :: k2)), we also
+must extend r_sub appropriately. This work with r_sub must take into account
+that some of the covars may mention the variables in question. Thus,
+the `mapAccumR substCoVarBndr`.
+
+If we discover that a mapping in `subst` gives us a non-tyvar (the second
+branch of the `case` statement), then we have a GADT equality to create.
+We create a fresh coercion variable and extend the substitutions accordingly,
+being careful to apply the correct substitutions built up from previous
+variables.
+
+This whole algorithm is quite delicate, indeed. I (Richard E.) see two ways
+of simplifying it:
+
+1) The first branch of the `case` statement is really an optimization, used
+in order to get fewer GADT equalities. It might be possible to make a GADT
+equality for *every* univ. tyvar, even if the equality is trivial, and then
+either deal with the bigger type or somehow reduce it later.
+
+2) This algorithm strives to use the names for type variables as specified
+by the user in the datacon signature. If we always used the tycon tyvar
+names, for example, this would be simplified. This change would almost
+certainly degrade error messages a bit, though.
+-}
+
+-- ^ From information about a source datacon definition, extract out
+-- what the universal variables and the GADT equalities should be.
+-- Called from TcTyClsDecls.rejigConRes, but it gets so involved with
+-- lifting and coercions that it seemed to belong here.
+-- See Note [mkGADTVars].   TODO (RAE): Update note to remove LCs
+mkGADTVars :: [TyVar]    -- ^ The tycon vars
+           -> [TyVar]    -- ^ The datacon vars
+           -> TCvSubst   -- ^ The matching between the template result type
+                         -- and the actual result type
+           -> ( [TyVar]
+              , [EqSpec]
+              , TCvSubst ) -- ^ The univ. variables, the GADT equalities,
+                           -- and a subst to apply to the GADT equalities
+                           -- and existentials.
+mkGADTVars tmpl_tvs dc_tvs subst
+  = choose [] [] empty_subst empty_subst tmpl_tvs
+  where
+    in_scope = mkInScopeSet (mkVarSet tmpl_tvs `unionVarSet` mkVarSet dc_tvs)
+    empty_subst = mkEmptyTCvSubst in_scope
+
+    choose :: [TyVar]           -- accumulator of univ tvs, reversed
+           -> [EqSpec]          -- accumulator of GADT equalities, reversed
+           -> TCvSubst          -- template substutition
+           -> TCvSubst          -- res. substitution
+           -> [TyVar]           -- template tvs (the univ tvs passed in)
+           -> ( [TyVar]         -- the univ_tvs
+              , [EqSpec]        -- GADT equalities
+              , TCvSubst )       -- a substitution to fix kinds in ex_tvs
+
+    choose univs eqs _     r_sub []
+      = (reverse univs, reverse eqs, r_sub)
+    choose univs eqs t_sub r_sub (t_tv:t_tvs)
+      | Just r_ty <- lookupTyVar subst t_tv
+      = case getTyVar_maybe r_ty of
+          Just r_tv
+            |  not (r_tv `elem` univs)
+            -> -- simple variable substitution. we should continue to subst.
+               choose (r_tv':univs) eqs
+                      (extendTCvSubst t_sub t_tv r_ty')
+                      (extendTCvSubst r_sub r_tv r_ty')
+                      t_tvs
+            where
+              r_tv1  = setTyVarName r_tv (choose_tv_name r_tv t_tv)
+              r_tv'  = setTyVarKind r_tv1 (substTy t_sub (tyVarKind t_tv))
+              r_ty'  = mkTyVarTy r_tv'
+
+               -- not a simple substitution. make an equality predicate
+          _ -> choose (t_tv':univs) (mkEqSpec t_tv' r_ty : eqs)
+                      (extendTCvSubst t_sub t_tv (mkTyVarTy t_tv'))
+                      r_sub t_tvs
+            where t_tv' = updateTyVarKind (substTy t_sub) t_tv
+
+      | otherwise
+      = pprPanic "mkGADTVars" (ppr tmpl_tvs $$ ppr subst)
+
+      -- choose an appropriate name for a univ tyvar.
+      -- This *must* preserve the Unique of the result tv, so that we
+      -- can detect repeated variables. It prefers user-specified names
+      -- over system names, but never outputs a System name, because
+      -- those print terribly.
+    choose_tv_name :: TyVar -> TyVar -> Name
+    choose_tv_name r_tv t_tv
+      | isSystemName r_tv_name
+      = setNameUnique t_tv_name (getUnique r_tv_name)
+
+      | otherwise
+      = r_tv_name
+
+      where
+        r_tv_name = getName r_tv
+        t_tv_name = getName t_tv
 
 {-
 Note [Substitution in template variables kinds]

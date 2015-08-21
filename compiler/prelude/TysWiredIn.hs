@@ -93,7 +93,6 @@ import TysPrim
 import Constants        ( mAX_TUPLE_SIZE )
 import Module           ( Module )
 import Type
-import Coercion         ( mkFreshCoVar, mkFreshReprCoVar )
 import DataCon
 import ConLike
 import Var
@@ -101,8 +100,6 @@ import TyCon
 import Class            ( Class, mkClass )
 import RdrName
 import Name
-import VarEnv           ( mkInScopeSet )
-import VarSet           ( mkVarSet )
 import BasicTypes       ( TupleSort(..), tupleSortBoxity,
                           Arity, RecFlag(..), Boxity(..) )
 import ForeignCall

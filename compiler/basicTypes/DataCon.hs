@@ -482,9 +482,14 @@ eqSpecPreds spec = [ mk_pred (mkTyVarTy tv) ty
                    , let mk_pred | isBoxed boxity = mkEqPred
                                  | otherwise      = mkPrimEqPred ]
 
+-- | Substitute in an 'EqSpec'. Precondition: if the LHS of the EqSpec
+-- is mapped in the substitution, it is mapped to a type variable, not
+-- a full type.
 substEqSpec :: TCvSubst -> EqSpec -> EqSpec
 substEqSpec subst (EqSpec tv ty boxity)
-  = EqSpec (substTyVar subst tv) (substTy subst ty) boxity
+  = EqSpec tv' (substTy subst ty) boxity
+  where
+    tv' = getTyVar "substEqSpec" (substTyVar subst tv)
 
 instance Outputable EqSpec where
   ppr (EqSpec tv ty boxity) = ppr (tv, ty, boxity)
@@ -751,7 +756,7 @@ dataConEqSpec (MkData { dcEqSpec = eq_spec, dcOtherTheta = theta })
 -- | The *full* constraints on the constructor type, including dependent
 -- GADT equalities.
 dataConTheta :: DataCon -> ThetaType
-dataConTheta con@(MkData { dcEqSpec = eq_spec, dcOtherTheta = theta })
+dataConTheta (MkData { dcEqSpec = eq_spec, dcOtherTheta = theta })
   = eqSpecPreds eq_spec ++ theta
 
 -- | Get the Id of the 'DataCon' worker: a function that is the "actual"
@@ -873,9 +878,9 @@ dataConSig con@(MkData {dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs,
 -- 6) The original result type of the 'DataCon'
 dataConFullSig :: DataCon
                -> ([TyVar], [TyVar], [EqSpec], ThetaType, [Type], Type)
-dataConFullSig con@(MkData {dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs,
-                            dcEqSpec = eq_spec, dcOtherTheta = theta,
-                            dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
+dataConFullSig (MkData {dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs,
+                        dcEqSpec = eq_spec, dcOtherTheta = theta,
+                        dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
   = (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, res_ty)
 
 dataConOrigResTy :: DataCon -> Type
@@ -902,10 +907,10 @@ dataConUserType :: DataCon -> Type
 --
 -- You probably want this only for pretty-printing. If you are not
 -- pretty-printing, you probably want 'dataConWrapperType'.
-dataConUserType con@(MkData { dcUnivTyVars = univ_tvs,
-                              dcExTyVars = ex_tvs, dcEqSpec = eq_spec,
-                              dcOtherTheta = theta, dcOrigArgTys = arg_tys,
-                              dcOrigResTy = res_ty })
+dataConUserType (MkData { dcUnivTyVars = univ_tvs,
+                          dcExTyVars = ex_tvs, dcEqSpec = eq_spec,
+                          dcOtherTheta = theta, dcOrigArgTys = arg_tys,
+                          dcOrigResTy = res_ty })
   = mkInvForAllTys ((univ_tvs `minusList` map eqSpecTyVar eq_spec) ++
                     ex_tvs) $
     mkFunTys theta $

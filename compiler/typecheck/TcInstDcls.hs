@@ -576,10 +576,12 @@ tcATDefault inst_subst defined_ats (ATI fam_tc defs)
   = do { let (subst', pat_tys') = mapAccumL subst_tv inst_subst
                                             (tyConTyVars fam_tc)
              rhs'     = substTy subst' rhs_ty
-             tv_set'  = tyCoVarsOfTypes pat_tys'
+             tcv_set' = tyCoVarsOfTypes pat_tys'
+             (tv_set', cv_set') = partitionVarSet isTyVar tcv_set'
              tvs'     = varSetElemsWellScoped tv_set'
+             cvs'     = varSetElemsWellScoped cv_set'
        ; rep_tc_name <- newFamInstTyConName (noLoc (tyConName fam_tc)) pat_tys'
-       ; let axiom = mkSingleCoAxiom rep_tc_name tvs' fam_tc pat_tys' rhs'
+       ; let axiom = mkSingleCoAxiom rep_tc_name tvs' cvs' fam_tc pat_tys' rhs'
        ; traceTc "mk_deflt_at_instance" (vcat [ ppr fam_tc, ppr rhs_ty
                                               , pprCoAxiom axiom ])
        ; fam_inst <- ASSERT( tyCoVarsOfType rhs' `subVarSet` tv_set' )
@@ -678,12 +680,12 @@ tcDataFamInstDecl mb_clsinfo
          -- Kind check type patterns
        ; tcFamTyPats (famTyConShape fam_tc) pats
                      (kcDataDefn (unLoc fam_tc_name) pats defn) $
-           \tvs' cvs' pats' res_kind -> do
-       { MASSERT( null cvs' )
+           \tvs' cvs pats' res_kind -> do
+       { MASSERT( null cvs )
          -- Check that left-hand side contains no type family applications
          -- (vanilla synonyms are fine, though, and we checked for
          --  foralls earlier)
-       ; checkValidFamPats fam_tc tvs' pats'
+       ; checkValidFamPats fam_tc tvs' cvs pats'
          -- Check that type patterns match class instance head, if any
        ; checkConsistentFamInst mb_clsinfo fam_tc tvs' pats'
 
@@ -709,7 +711,8 @@ tcDataFamInstDecl mb_clsinfo
                                  mkNewTyConRhs rep_tc_name rec_rep_tc (head data_cons)
               -- freshen tyvars
               ; let (eta_tvs, eta_pats) = eta_reduce tvs' pats'
-                    axiom    = mkSingleCoAxiom axiom_name eta_tvs fam_tc eta_pats
+                    axiom    = mkSingleCoAxiom axiom_name eta_tvs []
+                                               fam_tc eta_pats
                                                (mkTyConApp rep_tc (mkTyVarTys eta_tvs))
                     parent   = FamInstTyCon axiom fam_tc pats'
                     roles    = map (const Nominal) tvs'

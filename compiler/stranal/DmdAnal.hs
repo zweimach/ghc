@@ -19,7 +19,6 @@ import Demand   -- All of it
 import CoreSyn
 import Outputable
 import VarEnv
-import Var              ( isCoVar )
 import BasicTypes
 import FastString
 import Data.List

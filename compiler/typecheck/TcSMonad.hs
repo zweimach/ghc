@@ -138,7 +138,6 @@ import TrieMap
 import Control.Monad
 import MonadUtils
 import Data.IORef
-import Data.Maybe ( catMaybes )
 import Data.List ( partition, foldl', zipWith4 )
 
 #ifdef DEBUG
@@ -1823,7 +1822,7 @@ matchFam tycon args
               Nothing           -> return Nothing }
 
 matchFamTcM :: TyCon -> [Type]
-            -> TcM (Maybe (Coercion, TcType, WantedCosntraints))
+            -> TcM (Maybe (Coercion, TcType, WantedConstraints))
 -- Given (F tys) return (ty, co), where co :: F tys ~ ty
 -- Also returns a list of wanted constraints that need to be solved
 -- NB: these WantedConstraints are *not* emitted
@@ -1832,11 +1831,11 @@ matchFamTcM tycon args
        ; case reduceTyFamApp_maybe fam_envs Nominal tycon args of
          { Nothing -> return Nothing
          ; Just (co, ty, cvs) ->
-    do { ((subst, _), wanteds) <- captureConstraints $
-                                  tcInstCoVars origin cvs
+    do { ((subst, _), wanteds) <- TcM.captureConstraints $
+                                  TcM.tcInstCoVars origin cvs
        ; let co' = substCo subst co
              ty' = substTy subst ty
-       ; return (co', ty', wanteds) }}}
+       ; return (Just (co', ty', wanteds)) }}}
   where
     origin = TypeRedOrigin (mkTyConApp tycon args)
 
@@ -1882,7 +1881,6 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
             wc        = WC { wc_simple = singleCt (mkNonCanonical ctev)
                            , wc_impl   = emptyBag
                            , wc_insol  = emptyCts }
-            cvs       = catMaybes m_cvs
             imp       = Implic { ic_tclvl  = new_tclvl
                                , ic_skols  = skol_tvs1 ++ skol_tvs2
                                , ic_no_eqs = null cvs
@@ -1896,7 +1894,7 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
       ; let new_co     = ctEvCoercion ctev
             coe_inside = TcLetCo (TcEvBinds ev_binds_var) new_co
             cobndrs    = zipWith4 TcForAllCoBndr
-                           kind_cos skol_tvs1 skol_tvs2 m_cvs
+                           kind_cos skol_tvs1 skol_tvs2 cvs
       ; return $ EvCoercion (mkTcForAllCos cobndrs coe_inside) }
    where
      tvs1 = map (binderVar "deferTcSForAllEq") bndrs1

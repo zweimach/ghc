@@ -57,7 +57,6 @@ import VarSet
 import Name
 
 import Util
-import Maybes
 import Control.Monad ( guard )
 import BasicTypes ( Boxity(..), isBoxed )
 import Bag
@@ -506,11 +505,11 @@ ppr_co p (TcKindCo co)           = maybeParen p FunPrec $
                                    text "kind" <+> ppr_co FunPrec co
 ppr_co p (TcKindAppCo co)        = maybeParen p FunPrec $
                                    text "kapp" <+> ppr_co FunPrec co
-ppr_co p (TcForAllCo cobndr co)
+ppr_co p (TcForAllCo (TcForAllCoBndr eta tv1 tv2 cv) co)
   = maybeParen p FunPrec $
-    forAllLit <> underscore <> parens (pprTcCo $ tcCoBndrKindCo cobndr) <+>
-    parens (pprWithCommas pprTCvBndr (tcCoBndrVars cobndr)) <> dot <+>
-    ppr_co TopPrec co
+    forAllLit <> underscore <> pprParendTcCo eta <>
+    parens (pprTvBndr tv1 <> comma <+> pprTvBndr tv2 <> comma <+> ppr cv) <>
+    dot <+> ppr_co TopPrec co
 
 ppr_co _ (TcCoVarCo cv)          = parenSymOcc (getOccName cv) (ppr cv)
 

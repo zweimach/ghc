@@ -524,7 +524,8 @@ the desugarer.
 type InType      = Type
 type InCoercion  = Coercion
 type InVar       = Var
-type InTyCoVar   = Var
+type InTyVar     = Var
+type InCoVar     = Var
 
 type OutType     = Type -- Substitution has been applied to this,
                         -- but has not been linted yet
@@ -536,7 +537,7 @@ type LintedKind  = Kind
 type OutCoercion    = Coercion
 type OutVar         = Var
 type OutTyVar       = TyVar
-type OutTyCoVar     = Var
+type OutCoVar       = Var
 
 lintCoreExpr :: CoreExpr -> LintM OutType
 -- The returned type has the substitution from the monad
@@ -1733,18 +1734,6 @@ mkTyAppMsg ty arg_ty
                  4 (ppr ty <+> dcolon <+> ppr (typeKind ty)),
               hang (ptext (sLit "Arg type:"))
                  4 (ppr arg_ty <+> dcolon <+> ppr (typeKind arg_ty))]
-
-mkCoAppMsg :: Type -> Type -> Maybe LeftOrRight -> MsgDoc
-mkCoAppMsg t1 t2 m_lr
-  = vcat [text "Illegal coercion application:",
-              hang (ptext (sLit "Exp") <+> typename <> colon)
-                 4 (ppr t1 <+> dcolon <+> ppr (typeKind t1)),
-              hang (ptext (sLit "Arg") <+> typename <> colon)
-                 4 (ppr t2 <+> dcolon <+> ppr (typeKind t2))]
-  where
-    typename | Just CLeft <- m_lr  = ptext (sLit "left-hand type")
-             | Just CRight <- m_lr = ptext (sLit "right-hand type")
-             | otherwise           = empty
 
 mkRhsMsg :: Id -> SDoc -> Type -> MsgDoc
 mkRhsMsg binder what ty

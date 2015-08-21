@@ -1022,7 +1022,7 @@ checkBootTyCon tc1 tc2
                          (CoAxBranch { cab_tvs = tvs2, cab_cvs = cvs2
                                      , cab_lhs = lhs2, cab_rhs = rhs2 })
       | Just env1 <- eqVarBndrs emptyRnEnv2 tvs1 tvs2
-      , Just env  <- eqVarBndrs evn1        cvs1 cvs2
+      , Just env  <- eqVarBndrs env1        cvs1 cvs2
       = eqListBy (eqTypeX env) lhs1 lhs2 &&
         eqTypeX env rhs1 rhs2
 

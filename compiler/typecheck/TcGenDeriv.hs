@@ -50,6 +50,7 @@ import TcType
 import TysPrim
 import TysWiredIn
 import Type
+import Coercion  ( emptyCvSubstEnv )
 import Class
 import VarSet
 import VarEnv

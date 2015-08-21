@@ -38,7 +38,7 @@ buildPReprTyCon orig_tc vect_tc repr
  = do name      <- mkLocalisedName mkPReprTyConOcc (tyConName orig_tc)
       rhs_ty    <- sumReprType repr
       prepr_tc  <- builtin preprTyCon
-      let axiom = mkSingleCoAxiom name tyvars prepr_tc instTys rhs_ty
+      let axiom = mkSingleCoAxiom name tyvars [] prepr_tc instTys rhs_ty
       liftDs $ newFamInst SynFamilyInst axiom
   where
     tyvars = tyConTyVars vect_tc
@@ -163,7 +163,7 @@ buildFromPRepr vect_tc repr_ax _ _ repr
       arg_ty <- mkPReprType res_ty
       arg <- newLocalVar (fsLit "x") arg_ty
 
-      result <- from_sum (unwrapTypeUnbranchedFamInstScrut repr_ax ty_args (Var arg) [])
+      result <- from_sum (unwrapTypeUnbranchedFamInstScrut repr_ax ty_args [] (Var arg))
                          repr
       return $ Lam arg result
   where

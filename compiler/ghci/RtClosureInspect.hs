@@ -607,8 +607,8 @@ newOpenVar = liftTcM newOpenFlexiTyVarTy
 instTyVars :: [TyVar] -> TR (TCvSubst, [TcTyVar])
 -- Instantiate fresh mutable type variables from some TyVars
 -- This function preserves the print-name, which helps error messages
-instTyVars tcvs
-  = liftTcM $ fst <$> captureConstraints (tcInstTyVars TypeLevel tcvs)
+instTyVars tvs
+  = liftTcM $ fst <$> captureConstraints (tcInstTyVars tvs)
 
 type RttiInstantiation = [(TcTyVar, TyVar)]
    -- Associates the typechecker-world meta type variables

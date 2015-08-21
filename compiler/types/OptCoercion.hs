@@ -316,7 +316,7 @@ opt_co4 env sym rep r (InstCo co1 arg)
     -- If so, do an inefficient one-variable substitution, then re-optimize
 
     -- forall over type...
-  | Just (tv1', tv2', cv', co'_body) <- splitForAllCo_Ty_maybe co1'
+  | Just (tv1', tv2', cv', co'_body) <- splitForAllCo_maybe co1'
   = opt_co4_wrap (extendTCvSubstList (zapTCvSubst env)
                                [tv1', tv2', cv']
                                [ty1', ty2', mkCoercionTy arg'])
@@ -417,7 +417,7 @@ opt_univ env sym prov role kco oty1 oty2
         eta      = mkUnivCo prov role (mkRepReflCo liftedTypeKind) k1 k2
           -- eta gets opt'ed soon, but not yet.
         in_scope = getTCvInScope env `extendInScopeSetList` [tv1, tv2]
-        c        = mkFreshCoVar in_scope tv1 tv2 in
+        c        = mkFreshCoVar in_scope tv1 tv2
         cobndr   = mkForAllCoBndr eta tv1 tv2 c
 
         (env', cobndr') = optForAllCoBndr env sym False role cobndr
@@ -679,12 +679,12 @@ opt_trans_rule is co1 co2
   , con1 == con2
   , ind1 == ind2
   , sym1 == not sym2
-  , [] <- coAxBranchCoVars branch   -- TODO (RAE): improve?
   , let branch = coAxiomNthBranch con1 ind1
         qtvs = coAxBranchTyVars branch ++ coAxBranchCoVars branch
         lhs  = coAxNthLHS con1 ind1
         rhs  = coAxBranchRHS branch
         pivot_tvs = exactTyCoVarsOfType (if sym2 then rhs else lhs)
+  , [] <- coAxBranchCoVars branch  -- TODO (RAE): improve?
   , all (`elemVarSet` pivot_tvs) qtvs
   = fireTransRule "TrPushAxSym" co1 co2 $
     if sym2
@@ -787,9 +787,9 @@ checkAxInstCo (AxiomInstCo ax ind cos)
         cvs          = coAxBranchCoVars branch
         incomps      = coAxBranchIncomps branch
         (tys, cotys) = splitAtList tvs (map (pFst . coercionKind) cos)
-        cos          = map stripCoercionTy cotys
+        co_args      = map stripCoercionTy cotys
         subst        = zipOpenTCvSubst tvs tys `composeTCvSubst`
-                       zipOpenTCvSubstCoVars cvs cos
+                       zipOpenTCvSubstCoVars cvs co_args
         target   = Type.substTys subst (coAxBranchLHS branch)
         in_scope = mkInScopeSet $
                    unionVarSets (map (tyCoVarsOfTypes . coAxBranchLHS) incomps)

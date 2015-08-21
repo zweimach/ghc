@@ -263,7 +263,7 @@ matchExpectedTyConApp tc orig_ty
     -- This happened in Trac #7368
     defer is_return
       = ASSERT2( classifiesTypeWithValues res_kind, ppr tc )
-        do { (k_subst, kvs') <- tcInstTyVars TypeLevel kvs
+        do { (k_subst, kvs') <- tcInstTyVars kvs
            ; let arg_kinds' = substTys k_subst arg_kinds
                  kappa_tys  = mkTyVarTys kvs'
            ; tau_tys <- mapM (newMaybeReturnTyVarTy is_return) arg_kinds'
@@ -482,7 +482,7 @@ tc_sub_type_ds origin ctxt ty_actual ty_expected
      -- TODO (RAE): Does this work with contravariance in forall types?
   | (tvs, theta, in_rho) <- tcSplitSigmaTy ty_actual
   , not (null tvs && null theta)
-  = do { (subst, tvs') <- tcInstTyVars TypeLevel tvs
+  = do { (subst, tvs') <- tcInstTyVars tvs
        ; let tys'    = mkTyVarTys tvs'
              theta'  = substTheta subst theta
              in_rho' = substTy subst in_rho
@@ -576,7 +576,7 @@ tcGen ctxt expected_ty thing_inside
 
         -- Use the *instantiated* type in the SkolemInfo
         -- so that the names of displayed type variables line up
-        ; let skol_info = SigSkol ctxt (mkFunTys given rho')
+        ; let skol_info = SigSkol ctxt (mkFunTys (map varType given) rho')
 
         ; (ev_binds, result) <- checkConstraints skol_info tvs' given $
                                 thing_inside tvs' rho'

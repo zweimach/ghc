@@ -44,7 +44,7 @@ module TyCoRep (
         pickLR, coBndrVars,
 
         -- Pretty-printing
-        pprType, pprParendType, pprTypeApp, pprTCvBndr, pprTCvBndrs,
+        pprType, pprParendType, pprTypeApp, pprTvBndr, pprTvBndrs,
         pprTyThing, pprTyThingCategory, pprSigmaType, pprSigmaTypeExtraCts,
         pprTheta, pprForAll, pprForAllImplicit, pprUserForAll,
         pprThetaArrowTy, pprClassPred,
@@ -123,7 +123,6 @@ import Outputable
 import DynFlags
 import FastString
 import Util
-import Maybes
 
 -- libraries
 import qualified Data.Data        as Data hiding ( TyCon )
@@ -1488,7 +1487,7 @@ zipTopTCvSubst tyvars tys
 zipTyEnv :: [TyVar] -> [Type] -> TvSubstEnv
 zipTyEnv tyvars tys
   = ASSERT( all (not . isCoercionTy) tys )
-    mkVarEnv (zipEqual "zipTyEnv" tvs tys)
+    mkVarEnv (zipEqual "zipTyEnv" tyvars tys)
         -- There used to be a special case for when
         --      ty == TyVarTy tv
         -- (a not-uncommon case) in which case the substitution was dropped.
@@ -1503,7 +1502,7 @@ zipTyEnv tyvars tys
         -- Simplest fix is to nuke the "optimisation"
 
 zipCoEnv :: [CoVar] -> [Coercion] -> CvSubstEnv
-zipCoEnv cvs cos cenv = mkVarEnv (zipEqual "zipCoEnv" cvs cos)
+zipCoEnv cvs cos = mkVarEnv (zipEqual "zipCoEnv" cvs cos)
 
 instance Outputable TCvSubst where
   ppr (TCvSubst ins tenv cenv)
@@ -2010,7 +2009,7 @@ pprForAll [] = empty
 pprForAll bndrs@(Named _ vis : _)
   = add_separator (forAllLit <+> doc) <+> pprForAll bndrs'
   where
-    (bndrs', doc) = ppr_tcv_bndrs bndrs vis
+    (bndrs', doc) = ppr_tv_bndrs bndrs vis
 
     add_separator stuff = case vis of
                             Invisible -> stuff <>  dot

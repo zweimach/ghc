@@ -17,7 +17,6 @@ import Module( Module )
 import CoreMonad
 import qualified CoreSubst
 import CoreUnfold
-import Var              ( varType )
 import VarSet
 import VarEnv
 import CoreSyn
@@ -38,7 +37,6 @@ import Outputable
 import FastString
 import State
 
-import Data.List (partition)
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..))
 #endif

@@ -12,7 +12,7 @@ module Simplify ( simplTopBinds, simplExpr ) where
 
 import DynFlags
 import SimplMonad
-import Type hiding      ( substTy, extendTCvSubst )
+import Type hiding      ( substTy, substTyVar, extendTCvSubst )
 import SimplEnv
 import SimplUtils
 import FamInstEnv       ( FamInstEnv )
@@ -1234,7 +1234,7 @@ simplCast env body co0 cont0
                 -- (f |> g) ty  --->   (f ty) |> (g @ ty)
                 -- This implements the PushT rule from the paper
          | Just (bndr,_) <- splitForAllTy_maybe s1s2
-         , Just tyvar <- binderVar_maybe bndr
+         , isNamedBinder bndr
          = cont { sc_cont = addCoerce new_cast tail }
          where
            new_cast = mkInstCo co (mkNomReflCo arg_ty)

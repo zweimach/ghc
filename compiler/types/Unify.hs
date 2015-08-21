@@ -1100,8 +1100,8 @@ ty_co_match menv subst (ForAllTy (Named tv _) ty)
          -- See Note [Heterogeneous type matching]
        ; let rn_env0 = me_env menv
              (rn_env1, tv')  = rnBndrL rn_env0 tv
-             (rn_env2, tvl') = rnBndrR rn_env1 tvl
-             (rn_env3, tvr') = rnBndrR rn_env2 tvr
+             (rn_env2, _)    = rnBndrR rn_env1 tvl
+             (rn_env3, _)    = rnBndrR rn_env2 tvr
              (rn_env4, cv')  = rnBndrR rn_env3 cv
              menv' = menv { me_env = rn_env4 }
              witness = mkCoVarCo cv'

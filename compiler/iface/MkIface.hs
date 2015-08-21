@@ -1578,7 +1578,7 @@ coAxBranchToIfaceBranch' :: TyCon -> CoAxBranch -> IfaceAxBranch
 coAxBranchToIfaceBranch' tc (CoAxBranch { cab_tvs = tvs, cab_cvs = cvs
                                         , cab_lhs = lhs
                                         , cab_roles = roles, cab_rhs = rhs })
-  = IfaceAxBranch { ifaxbTyVars  = toIfaceTvBndrs tvs
+  = IfaceAxBranch { ifaxbTyVars  = toIfaceTvBndrs tv_bndrs
                   , ifaxbCoVars  = map toIfaceIdBndr cvs
                   , ifaxbLHS     = tidyToIfaceTcArgs env1 tc lhs
                   , ifaxbRoles   = roles

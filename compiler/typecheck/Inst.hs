@@ -46,7 +46,7 @@ import Class( Class )
 import MkId( mkDictFunId )
 import Id
 import Name
-import Var      ( EvVar, isCoVar )
+import Var      ( EvVar )
 import VarEnv
 import PrelNames
 import SrcLoc
@@ -154,7 +154,7 @@ deeplyInstantiate :: CtOrigin -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 deeplyInstantiate orig ty
     -- TODO (RAE): This should vare more about visibility, I think while merging
   | Just (arg_tys, tvs, theta, rho) <- tcDeepSplitSigmaTy_maybe ty
-  = do { (subst, tvs') <- tcInstTyVars TypeLevel tvs
+  = do { (subst, tvs') <- tcInstTyVars tvs
        ; ids1  <- newSysLocalIds (fsLit "di") (substTys subst arg_tys)
        ; let theta' = substTheta subst theta
        ; wrap1 <- instCall orig (mkTyVarTys tvs') theta'

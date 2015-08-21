@@ -36,7 +36,7 @@ coVarRole :: CoVar -> Role
 mkFreshCoVarOfType :: InScopeSet -> Type -> CoVar
 
 coBndrKindCo   :: ForAllCoBndr -> Coercion
-mkForAllCoBndr :: Coercion -> TyVar -> TyVar -> Maybe CoVar -> ForAllCoBndr
+mkForAllCoBndr :: Coercion -> TyVar -> TyVar -> CoVar -> ForAllCoBndr
 
 mkCoercionType :: Role -> Type -> Type -> Type
 
@@ -50,5 +50,3 @@ coercionType :: Coercion -> Type
 
 pprCo :: Coercion -> SDoc
 pprCoBndr :: ForAllCoBndr -> SDoc
-
-

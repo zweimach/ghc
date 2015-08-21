@@ -603,7 +603,8 @@ deriveFamInst decl@(DataFamInstDecl
     do { fam_tc <- tcLookupTyCon tc_name
        ; tcFamTyPats (famTyConShape fam_tc) pats (kcDataDefn tc_name pats defn) $
              -- kcDataDefn defn: see Note [Finding the LHS patterns]
-         \ tvs' pats' _ ->
+         \ tvs' _cvs pats' _ ->
+           ASSERT( null _cvs )
            concatMapM (deriveTyData True tvs' fam_tc pats') preds }
 
 deriveFamInst _ = return []
@@ -774,8 +775,8 @@ deriveTyData is_instance tvs tc tc_args (L loc deriv_pred)
               final_cls_tys   = substTys subst cls_tys
 
 
-        ; traceTc "derivTyData1" (vcat [ pprTCvBndrs tvs, ppr tc, ppr tc_args, ppr deriv_pred
-                                       , pprTCvBndrs (varSetElems $ tyCoVarsOfTypes tc_args)
+        ; traceTc "derivTyData1" (vcat [ pprTvBndrs tvs, ppr tc, ppr tc_args, ppr deriv_pred
+                                       , pprTvBndrs (varSetElems $ tyCoVarsOfTypes tc_args)
                                        , ppr n_args_to_keep, ppr n_args_to_drop
                                        , ppr inst_ty_kind, ppr cls_arg_kind, ppr mb_match
                                        , ppr final_tc_args, ppr final_cls_tys ])
@@ -1883,7 +1884,7 @@ simplifyDeriv pred tvs theta
        ; wanted <- mapM (\(PredOrigin t o) -> newSimpleWanted o (substTy skol_subst t)) theta
 
        ; traceTc "simplifyDeriv" $
-         vcat [ pprTCvBndrs tvs $$ ppr theta $$ ppr wanted, doc ]
+         vcat [ pprTvBndrs tvs $$ ppr theta $$ ppr wanted, doc ]
        ; residual_wanted <- simplifyWantedsTcM Impure (mkSimpleWC wanted)
                 -- Post: residual_wanted are already zonked
 
