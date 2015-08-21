@@ -73,7 +73,7 @@ mkNewTyConRhs tycon_name tycon con
   where
     tvs    = tyConTyVars tycon
     roles  = tyConRoles tycon
-    inst_con_ty = applyTys (dataConWrapperType con) (mkOnlyTyVarTys tvs)
+    inst_con_ty = applyTys (dataConWrapperType con) (mkTyVarTys tvs)
     rhs_ty = ASSERT( isFunTy inst_con_ty ) funArgTy inst_con_ty
         -- Instantiate the data con with the
         -- type variables from the tycon
@@ -95,7 +95,7 @@ mkNewTyConRhs tycon_name tycon con
                -> ([TyVar], [Role], Type)  -- Eta-reduced version
                                            -- (tyvars in normal order)
     eta_reduce (a:as) (_:rs) ty | Just (fun, arg) <- splitAppTy_maybe ty,
-                                  Just tv <- getTyCoVar_maybe arg,
+                                  Just tv <- getTyVar_maybe arg,
                                   tv == a,
                                   not (a `elemVarSet` tyCoVarsOfType fun)
                                 = eta_reduce as rs fun
@@ -144,12 +144,12 @@ buildDataCon fam_envs src_name declared_infix arg_stricts field_lbls
 -- the type variables mentioned in the arg_tys
 -- ToDo: Or functionally dependent on?
 --       This whole stupid theta thing is, well, stupid.
-mkDataConStupidTheta :: TyCon -> [Type] -> [TyCoVar] -> [PredType]
+mkDataConStupidTheta :: TyCon -> [Type] -> [TyVar] -> [PredType]
 mkDataConStupidTheta tycon arg_tys univ_tvs
   | null stupid_theta = []      -- The common case
   | otherwise         = filter in_arg_tys stupid_theta
   where
-    tc_subst     = zipTopTCvSubst (tyConTyVars tycon) (mkOnlyTyVarTys univ_tvs)
+    tc_subst     = zipTopTCvSubst (tyConTyVars tycon) (mkTyVarTys univ_tvs)
     stupid_theta = substTheta tc_subst (tyConStupidTheta tycon)
         -- Start by instantiating the master copy of the
         -- stupid theta, taken from the TyCon
@@ -253,7 +253,7 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
                                    [{- No GADT equalities -}]
                                    [{- No theta -}]
                                    arg_tys
-                                   (mkTyConApp rec_tycon (mkTyCoVarTys tvs))
+                                   (mkTyConApp rec_tycon (mkTyVarTys tvs))
                                    rec_tycon
 
         ; rhs <- if use_newtype

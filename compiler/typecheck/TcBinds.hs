@@ -632,7 +632,7 @@ tcPolyInfer rec_tc prag_fn tc_sig_fn mono closed bind_list
 
 --------------
 mkExport :: PragFun
-         -> [TyCoVar] -> TcThetaType      -- Both already zonked
+         -> [TyVar] -> TcThetaType      -- Both already zonked
          -> MonoBindInfo
          -> TcM (ABExport Id)
 -- Only called for generalisation plan IferGen, not by CheckGen or NoGen
@@ -701,7 +701,7 @@ mkInferredPolyId poly_name qtvs theta mono_ty
                -- here to make it as uncomplicated as possible.
                -- Example: f :: [F Int] -> Bool
                -- should be rewritten to f :: [Char] -> Bool, if possible
-             my_tvs2 = closeOverKinds (growThetaTyCoVars theta (tyCoVarsOfType norm_mono_ty))
+             my_tvs2 = closeOverKinds (growThetaTyVars theta (tyCoVarsOfType norm_mono_ty))
                   -- Include kind variables!  Trac #7916
 
              my_tvs   = filter (`elemVarSet` my_tvs2) qtvs   -- Maintain original order
@@ -1140,7 +1140,7 @@ tcMonoBinds is_rec sig_fn no_gen
     setSrcSpan b_loc    $
     do  { (rhs_tv, _) <- newOpenReturnTyVar
                          -- use ReturnTv to allow impredicativity
-        ; let rhs_ty = mkOnlyTyVarTy rhs_tv
+        ; let rhs_ty = mkTyVarTy rhs_tv
         ; mono_id <- newNoSigLetBndr no_gen name rhs_ty
         ; (co_fn, matches') <- tcExtendIdBndrs [TcIdBndr mono_id NotTopLevel] $
                                  -- We extend the error context even for a non-recursive
@@ -1390,7 +1390,7 @@ tcTySig (L loc (PatSynSig (L _ name) (_, qtvs) prov req ty))
        ; req' <- tcHsContext req
        ; prov' <- tcHsContext prov
 
-       ; qtvs' <- mapMaybeM zonkQuantifiedTyCoVar qtvs'
+       ; qtvs' <- mapMaybeM zonkQuantifiedTyVar qtvs'
 
        ; let (_, pat_ty) = tcSplitFunTys ty'
              univ_set = tyCoVarsOfType pat_ty

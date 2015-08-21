@@ -230,7 +230,7 @@ alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar :: TyVar
 (alphaTyVar:betaTyVar:gammaTyVar:deltaTyVar:_) = alphaTyVars
 
 alphaTys :: [Type]
-alphaTys = mkOnlyTyVarTys alphaTyVars
+alphaTys = mkTyVarTys alphaTyVars
 alphaTy, betaTy, gammaTy, deltaTy :: Type
 (alphaTy:betaTy:gammaTy:deltaTy:_) = alphaTys
 
@@ -238,16 +238,16 @@ levity1TyVar, levity2TyVar :: TyVar
 (levity1TyVar : levity2TyVar : _) = drop 21 (tyVarList levityTy)  -- selects 'v','w'
 
 levity1Ty, levity2Ty :: Type
-levity1Ty = mkOnlyTyVarTy levity1TyVar
-levity2Ty = mkOnlyTyVarTy levity2TyVar
+levity1Ty = mkTyVarTy levity1TyVar
+levity2Ty = mkTyVarTy levity2TyVar
 
 openAlphaTyVar, openBetaTyVar :: TyVar
 openAlphaTyVar = tyVarList (tYPE levity1Ty) !! 0
 openBetaTyVar  = tyVarList (tYPE levity2Ty) !! 1
 
 openAlphaTy, openBetaTy :: Type
-openAlphaTy = mkOnlyTyVarTy openAlphaTyVar
-openBetaTy  = mkOnlyTyVarTy openBetaTyVar
+openAlphaTy = mkTyVarTy openAlphaTyVar
+openBetaTy  = mkTyVarTy openBetaTyVar
 
 kKiVar :: KindVar
 kKiVar = (tyVarList liftedTypeKind) !! 10
@@ -516,7 +516,7 @@ proxyPrimTyCon = mkPrimTyCon proxyPrimTyConName kind [Nominal,Nominal] VoidRep
   where kind = ForAllTy (Named kv Invisible) $
                mkArrowKind k unliftedTypeKind
         kv   = kKiVar
-        k    = mkOnlyTyVarTy kv
+        k    = mkTyVarTy kv
 
 eqPrimTyCon :: TyCon  -- The representation type for equality predicates
                       -- See Note [The ~# TyCon]
@@ -526,8 +526,8 @@ eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind roles VoidRep
                mkArrowKinds [k1, k2] unliftedTypeKind
         kVars = tyVarList liftedTypeKind
         kv1 : kv2 : _ = kVars
-        k1 = mkOnlyTyVarTy kv1
-        k2 = mkOnlyTyVarTy kv2
+        k1 = mkTyVarTy kv1
+        k2 = mkTyVarTy kv2
         roles = [Representational, Representational, Nominal, Nominal]
 
 -- like eqPrimTyCon, but the type for *Representational* coercions
@@ -542,8 +542,8 @@ eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
                mkArrowKinds [k1, k2] unliftedTypeKind
         kVars         = tyVarList liftedTypeKind
         kv1 : kv2 : _ = kVars
-        k1            = mkOnlyTyVarTy kv1
-        k2            = mkOnlyTyVarTy kv2
+        k1            = mkTyVarTy kv1
+        k2            = mkTyVarTy kv2
 
 -- like eqPrimTyCon, but the type for *Phantom* coercions.
 -- This is only used to make higher-order equalities. Nothing
@@ -557,8 +557,8 @@ eqPhantPrimTyCon = mkPrimTyCon eqPhantPrimTyConName kind
                mkArrowKinds [k1, k2] unliftedTypeKind
         kVars         = tyVarList liftedTypeKind
         kv1 : kv2 : _ = kVars
-        k1            = mkOnlyTyVarTy kv1
-        k2            = mkOnlyTyVarTy kv2
+        k1            = mkTyVarTy kv1
+        k2            = mkTyVarTy kv2
 
 {-
 RealWorld is deeply magical.  It is *primitive*, but it is not
@@ -802,7 +802,7 @@ anyTyCon = mkFamilyTyCon anyTyConName kind [kKiVar]
                          AbstractClosedSynFamilyTyCon
                          NoParentTyCon
   where
-    kind = ForAllTy (Named kKiVar Invisible) (mkOnlyTyVarTy kKiVar)
+    kind = ForAllTy (Named kKiVar Invisible) (mkTyVarTy kKiVar)
 
 anyTypeOfKind :: Kind -> Type
 anyTypeOfKind kind = TyConApp anyTyCon [kind]

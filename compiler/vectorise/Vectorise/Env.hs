@@ -51,10 +51,10 @@ data LocalEnv
         { local_vars      :: VarEnv (Var, Var)
           -- ^Mapping from local variables to their vectorised and lifted versions.
 
-        , local_tycovars   :: [TyCoVar]
+        , local_tyvars     :: [TyVar]
           -- ^In-scope type variables.
 
-        , local_tycovar_pa :: VarEnv CoreExpr
+        , local_tyvar_pa   :: VarEnv CoreExpr
           -- ^Mapping from tyvars to their PA dictionaries.
 
         , local_bind_name  :: FastString
@@ -67,8 +67,8 @@ data LocalEnv
 emptyLocalEnv :: LocalEnv
 emptyLocalEnv = LocalEnv
                 { local_vars      = emptyVarEnv
-                , local_tycovars   = []
-                , local_tycovar_pa = emptyVarEnv
+                , local_tyvars    = []
+                , local_tyvar_pa  = emptyVarEnv
                 , local_bind_name = fsLit "fn"
                 }
 

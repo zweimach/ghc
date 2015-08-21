@@ -458,7 +458,7 @@ dsExpr (HsStatic expr@(L loc _)) = do
                     ]
         sp    = mkConApp staticPtrDataCon [Type ty, fp_core, info, expr_ds]
     liftIO $ modifyIORef static_binds_var ((fp, (speId, mkLams tvars sp)) :)
-    putSrcSpanDs loc $ return $ mkTyApps (Var speId) (mkTyCoVarTys tvars)
+    putSrcSpanDs loc $ return $ mkTyApps (Var speId) (mkTyVarTys tvars)
 
   where
 
@@ -611,7 +611,7 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
                  inst_con = noLoc $ HsWrap wrap (HsVar (dataConWrapId con))
                         -- Reconstruct with the WrapId so that unpacking happens
                  wrap = mkWpEvVarApps theta_vars               <.>
-                        mkWpTyEvApps  (mkOnlyTyVarTys ex_tvs') <.>
+                        mkWpTyEvApps  (mkTyVarTys ex_tvs') <.>
                         mkWpTyApps    out_inst_tys'
                  rhs = foldl (\a b -> nlHsApp a b) inst_con val_args
 

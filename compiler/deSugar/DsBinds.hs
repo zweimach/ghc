@@ -989,7 +989,8 @@ dsTcCoercion co thing_inside
 
              subst = mkTCvSubst emptyInScopeSet (emptyTvSubstEnv, outer_subst)
                      `composeTCvSubst`
-                     mkTopTCvSubst [(eqv, mkTyCoVarTy cov) | (eqv, cov) <- eqvs_covs]
+                     mkTopTCvSubst [ (eqv, mkCoercionTy $ mkCoVarCo cov)
+                                   | (eqv, cov) <- eqvs_covs]
              result_expr = thing_inside (expectJust "dsTcCoercion" $
                                          tcCoercionToCoercion subst co)
              result_ty   = exprType result_expr

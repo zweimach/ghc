@@ -711,7 +711,7 @@ lookupFlattenTyVar :: TyVarEnv EqualCtList -> TcTyVar -> TcType
 lookupFlattenTyVar inert_eqs ftv
   = case lookupVarEnv inert_eqs ftv of
       Just (CTyEqCan { cc_rhs = rhs, cc_eq_rel = NomEq } : _) -> rhs
-      _                                                       -> mkOnlyTyVarTy ftv
+      _                                                       -> mkTyVarTy ftv
 
 reactFunEq :: TyCon   -- "F"
            -> CtEvidence -> [TcType] -> TcTyVar    -- From this  :: F args1 ~ fsk1
@@ -722,13 +722,13 @@ reactFunEq fam_tc from_this args1 fsk1 solve_this args2 fsk2
   = do { let fsk_eq_co = mkTcSymCo (evTermCoercion tm) `mkTcTransCo` co
                          -- :: fsk2 ~ fsk1
              fsk_eq_pred = mkTcEqPredLikeEv solve_this
-                             (mkOnlyTyVarTy fsk2) (mkOnlyTyVarTy fsk1)
+                             (mkTyVarTy fsk2) (mkTyVarTy fsk1)
 
        ; new_ev <- newGivenEvVar loc (fsk_eq_pred, EvCoercion fsk_eq_co)
        ; emitWorkNC [new_ev] }
 
   | CtWanted { ctev_evar = evar, ctev_loc = loc } <- solve_this
-  = dischargeFmv evar loc fsk2 co (mkOnlyTyVarTy fsk1)
+  = dischargeFmv evar loc fsk2 co (mkTyVarTy fsk1)
 
   | otherwise
   = pprPanic "reactFunEq" (ppr solve_this)
@@ -859,7 +859,7 @@ interactTyVarEq tclvl inerts workItem@(CTyEqCan { cc_tyvar = tv
   , (ev_i : _) <- [ ev_i | CTyEqCan { cc_ev = ev_i, cc_rhs = rhs_i }
                              <- findTyEqs inerts tv_rhs
                          , canRewriteOrSame tclvl ev_i ev
-                         , rhs_i `tcEqType` mkTyCoVarTy tv ]
+                         , rhs_i `tcEqType` mkTyVarTy tv ]
   =  -- Inert:     a ~ b
      -- Work item: b ~ a
     do { when (isWanted ev) $
@@ -948,7 +948,7 @@ solveByUnification :: CtEvidence -> TcTyVar -> Xi -> TcS ()
 -- Post: tv is unified (by side effect) with xi;
 --       we often write tv := xi
 solveByUnification wd tv xi
-  = do { let tv_ty = mkOnlyTyVarTy tv
+  = do { let tv_ty = mkTyVarTy tv
        ; traceTcS "Sneaky unification:" $
                        vcat [text "Unifies:" <+> ppr tv <+> ptext (sLit ":=") <+> ppr xi,
                              text "Coercion:" <+> pprEq tv_ty xi,
@@ -1063,7 +1063,7 @@ kick_out tclvl new_frb new_tv (IC { inert_eqs      = tv_eqs
         check_k3
           | can_rewrite ev
           = case eq_rel of
-              NomEq  -> not (rhs_ty `eqType` mkOnlyTyVarTy new_tv)
+              NomEq  -> not (rhs_ty `eqType` mkTyVarTy new_tv)
               ReprEq -> not (isTyVarExposed new_tv rhs_ty)
 
           | otherwise
@@ -1629,7 +1629,7 @@ doTopReactFunEq work_item@(CFunEqCan { cc_ev = old_ev, cc_fun = fam_tc
     | isGiven old_ev  -- Not shortcut
     -> do { let final_co = mkTcSymCo (ctEvCoercion old_ev) `mkTcTransCo` ax_co
                 -- final_co :: fsk ~ rhs_ty
-          ; new_ev <- newGivenEvVar deeper_loc (mkTcEqPred (mkOnlyTyVarTy fsk) rhs_ty,
+          ; new_ev <- newGivenEvVar deeper_loc (mkTcEqPred (mkTyVarTy fsk) rhs_ty,
                                                 EvCoercion final_co)
           ; emitWorkNC [new_ev]   -- Non-cannonical; that will mean we flatten rhs_ty
           ; stopWith old_ev "Fun/Top (given)" }
@@ -1687,7 +1687,7 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
                -- G cos ; sym ax_co ; old_ev :: G xis ~ fsk
 
        ; new_ev <- newGivenEvVar deeper_loc
-                         ( mkTcEqPred (mkTyConApp fam_tc xis) (mkOnlyTyVarTy fsk)
+                         ( mkTcEqPred (mkTyConApp fam_tc xis) (mkTyVarTy fsk)
                          , EvCoercion (mkTcTyConAppCo Nominal fam_tc cos
                                         `mkTcTransCo` mkTcSymCo ax_co
                                         `mkTcTransCo` ctEvCoercion old_ev) )
@@ -1709,7 +1709,7 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
                -- new_ev :: G xis ~ fsk
                -- old_ev :: F args ~ fsk := ax_co ; sym (G cos) ; new_ev
 
-       ; new_ev <- newWantedEvVarNC loc (mkTcEqPred (mkTyConApp fam_tc xis) (mkOnlyTyVarTy fsk))
+       ; new_ev <- newWantedEvVarNC loc (mkTcEqPred (mkTyConApp fam_tc xis) (mkTyVarTy fsk))
        ; setEvBind (ctEvId old_ev)
                    (EvCoercion (ax_co `mkTcTransCo` mkTcSymCo (mkTcTyConAppCo Nominal fam_tc cos)
                                       `mkTcTransCo` ctEvCoercion new_ev))

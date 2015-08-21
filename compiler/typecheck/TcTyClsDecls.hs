@@ -28,7 +28,7 @@ import TcRnMonad
 import TcEnv
 import TcValidity
 import TcHsSyn
-import TcSimplify( growThetaTyCoVars, solveTopConstraints )
+import TcSimplify( growThetaTyVars, solveTopConstraints )
 import TcBinds( tcRecSelBinds )
 import TcTyDecls
 import TcClassDcl
@@ -657,7 +657,7 @@ tcTyClDecl1 _parent rec_info
                             , let gen_dm_tau = expectJust "tcTyClDecl1" $
                                                lookupNameEnv gen_dm_env (idName sel_id)
                             , let gen_dm_ty = mkInvSigmaTy tvs'
-                                                      [mkClassPred clas (mkTyCoVarTys tvs')]
+                                                      [mkClassPred clas (mkTyVarTys tvs')]
                                                       gen_dm_tau
                             ]
              ; class_ats = map ATyCon (classATs clas) }
@@ -782,7 +782,7 @@ tcDataDefn rec_info tc_name tvs tycon_kind res_kind
        ; gadt_syntax <- dataDeclChecks tc_name new_or_data stupid_theta cons
 
        ; tycon <- fixM $ \ tycon -> do
-             { let res_ty = mkTyConApp tycon (mkOnlyTyVarTys final_tvs)
+             { let res_ty = mkTyConApp tycon (mkTyVarTys final_tvs)
              ; data_cons <- tcConDecls new_or_data tycon (final_tvs, res_ty) cons
              ; tc_rhs <-
                  if null cons && is_boot              -- In a hs-boot file, empty cons means
@@ -880,7 +880,7 @@ tcDefaultAssocDecl fam_tc [L loc (TyFamEqn { tfe_tycon = L _ tc_name
        ; (rhs_ty, ev_binds) <- solveTopConstraints $ tcCheckLHsType rhs rhs_kind
        ; rhs_ty <- zonkTcTypeToType (mkEvBindsZonkEnv ev_binds) rhs_ty
        ; let fam_tc_tvs = tyConTyVars fam_tc
-             subst = zipTopTCvSubst tvs (mkOnlyTyVarTys fam_tc_tvs)
+             subst = zipTopTCvSubst tvs (mkTyVarTys fam_tc_tvs)
        ; return $ Just (substTy subst rhs_ty) } }
     -- We check for well-formedness and validity later, in checkValidClass
 
@@ -1234,14 +1234,14 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
              -- c.f. the comment on con_qvars in HsDecls
        ; tkvs <- case res_ty of
                    ResTyH98
-                     -> quantifyTyCoVars co_env gbl_tvs (splitDepVarsOfTypes (ctxt++arg_tys))
+                     -> quantifyTyVars co_env gbl_tvs (splitDepVarsOfTypes (ctxt++arg_tys))
                      where
                        gbl_tvs = mkVarSet tmpl_tvs
-                   ResTyGADT res_ty -> quantifyTyCoVars co_env emptyVarSet (splitDepVarsOfTypes (res_ty:ctxt++arg_tys))
+                   ResTyGADT res_ty -> quantifyTyVars co_env emptyVarSet (splitDepVarsOfTypes (res_ty:ctxt++arg_tys))
 
              -- Zonk to Types
        ; let ze = mkZonkEnv co_env
-       ; (ze, qtkvs) <- zonkTyCoBndrsX ze tkvs
+       ; (ze, qtkvs) <- zonkTyBndrsX ze tkvs
        ; arg_tys <- zonkTcTypeToTypes ze arg_tys
        ; ctxt    <- zonkTcTypeToTypes ze ctxt
        ; res_ty  <- case res_ty of
@@ -1625,7 +1625,7 @@ checkValidDataCon dflags existential_ok tc con
           -- c.f. Note [Check role annotations in a second pass]
           --  and Note [Checking GADT return types]
           let tc_tvs = tyConTyVars tc
-              res_ty_tmpl = mkFamilyTyConApp tc (mkOnlyTyVarTys tc_tvs)
+              res_ty_tmpl = mkFamilyTyConApp tc (mkTyVarTys tc_tvs)
               orig_res_ty = dataConOrigResTy con
         ; traceTc "checkValidDataCon" (vcat
               [ ppr con, ppr tc, ppr tc_tvs
@@ -1761,7 +1761,7 @@ checkValidClass cls
                 -- Here, MonadState has a fundep m->b, so newBoard is fine
                 -- The check is disabled for nullary type classes,
                 -- since there is no possible ambiguity
-        ; let grown_tyvars = growThetaTyCoVars theta (mkVarSet tyvars)
+        ; let grown_tyvars = growThetaTyVars theta (mkVarSet tyvars)
         ; checkTc (arity == 0 || tyCoVarsOfType tau `intersectsVarSet` grown_tyvars)
                   (noClassTyVarErr cls (ptext (sLit "class method") <+> quotes (ppr sel_id)))
 
@@ -2012,9 +2012,10 @@ mkRecSelBind (tycon, sel_name)
     data_tvs   = tyCoVarsOfType data_ty
     is_naughty = not (tyCoVarsOfType field_ty `subVarSet` data_tvs)
     (field_tvs, field_theta, field_tau) = tcSplitSigmaTy field_ty
+    all_tvs    = varSetElemsWellScoped $ data_tvs `extendVarSetList` field_tvs
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
-           | otherwise  = mkInvForAllTys (varSetElemsWellScoped $
-                                         data_tvs `extendVarSetList` field_tvs) $
+           | otherwise  = ASSERT( all isTyVar all_tvs )
+                          mkInvForAllTys all_tvs $
                           mkPhiTy (dataConStupidTheta con1) $   -- Urgh!
                           mkPhiTy field_theta               $   -- Urgh!
                           mkFunTy data_ty field_tau

@@ -579,7 +579,7 @@ bindLocalsAtBreakpoint hsc_env apStack Nothing = do
        e_fs      = fsLit "e"
        e_name    = mkInternalName (getUnique e_fs) (mkTyVarOccFS e_fs) span
        e_tyvar   = mkRuntimeUnkTyVar e_name liftedTypeKind
-       exn_id    = Id.mkVanillaGlobal exn_name (mkOnlyTyVarTy e_tyvar)
+       exn_id    = Id.mkVanillaGlobal exn_name (mkTyVarTy e_tyvar)
 
        ictxt0 = hsc_IC hsc_env
        ictxt1 = extendInteractiveContextWithIds ictxt0 [exn_id]
@@ -674,7 +674,7 @@ bindLocalsAtBreakpoint hsc_env apStack (Just info) = do
      -- Similarly, clone the type variables mentioned in the types
      -- we have here, *and* make them all RuntimeUnk tyars
    newTyVars us tvs
-     = mkTopTCvSubst [ (tv, mkTyCoVarTy (mkRuntimeUnkTyVar name (tyVarKind tv)))
+     = mkTopTCvSubst [ (tv, mkTyVarTy (mkRuntimeUnkTyVar name (tyVarKind tv)))
                      | (tv, uniq) <- varSetElems tvs `zip` uniqsFromSupply us
                      , let name = setNameUnique (tyVarName tv) uniq ]
 
@@ -1051,4 +1051,3 @@ reconstructType hsc_env bound id = do
 mkRuntimeUnkTyVar :: Name -> Kind -> TyVar
 mkRuntimeUnkTyVar name kind = mkTcTyVar name kind RuntimeUnk
 #endif /* GHCI */
-

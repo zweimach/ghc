@@ -477,7 +477,7 @@ eqSpecPair :: EqSpec -> (TyVar, Type)
 eqSpecPair (EqSpec tv ty _) = (tv, ty)
 
 eqSpecPreds :: [EqSpec] -> ThetaType
-eqSpecPreds spec = [ mk_pred (mkTyCoVarTy tv) ty
+eqSpecPreds spec = [ mk_pred (mkTyVarTy tv) ty
                    | EqSpec tv ty boxity <- spec
                    , let mk_pred | isBoxed boxity = mkEqPred
                                  | otherwise      = mkPrimEqPred ]
@@ -670,8 +670,8 @@ mkDataCon name declared_infix
     tag = assoc "mkDataCon" (tyConDataCons rep_tycon `zip` [fIRST_TAG..]) con
     rep_arg_tys = dataConRepArgTys con
     rep_ty = mkInvForAllTys univ_tvs $ mkInvForAllTys ex_tvs $
-             mkPiTypesNoTv rep_arg_tys $
-             mkTyConApp rep_tycon (mkTyCoVarTys univ_tvs)
+             mkFunTys rep_arg_tys $
+             mkTyConApp rep_tycon (mkTyVarTys univ_tvs)
 
     promoted   -- See Note [Promoted data constructors] in TyCon
                -- TODO (RAE): Update note.
@@ -930,7 +930,7 @@ dataConWrapperType (MkData { dcUnivTyVars = univ_tvs
     mkFunTys arg_tys $
     res_ty
   where
-    univ_tys = mkOnlyTyVarTys univ_tvs
+    univ_tys = mkTyVarTys univ_tvs
     res_ty
       | Just co <- tyConFamilyCoercion_maybe rep_tycon
       = mkUnbranchedAxInstLHS co univ_tys []
@@ -1021,7 +1021,7 @@ dataConCannotMatch tys con
   | null eq_spec      = False   -- Common
   | all isTyVarTy tys = False   -- Also common
   | otherwise
-  = typesCantMatch [( Type.substTy subst (mkOnlyTyVarTy tv1)
+  = typesCantMatch [( Type.substTy subst (mkTyVarTy tv1)
                     , Type.substTy subst ty2)
                    | EqSpec tv1 ty2 _ <- eq_spec ]
   where

@@ -75,7 +75,7 @@ module TcSMonad (
 
     TcLevel, isTouchableMetaTyVarTcS,
     isFilledMetaTyVar_maybe, isFilledMetaTyVar,
-    zonkTyCoVarsAndFV, zonkTcType, zonkTcTyCoVar, zonkCo, zonkSimples,
+    zonkTyCoVarsAndFV, zonkTcType, zonkTcTyVar, zonkCo, zonkSimples,
 
     -- References
     newTcRef, readTcRef, updTcRef,
@@ -823,7 +823,7 @@ lookupFlatCache fam_tc tys
            <- findFunEq inert_funeqs fam_tc tys
       , tys `eqTypes` xis   -- the lookup might find a near-match; see
                             -- Note [Use loose types in inert set]
-      = Just (ctEvCoercion ctev, mkOnlyTyVarTy fsk, ctEvFlavour ctev)
+      = Just (ctEvCoercion ctev, mkTyVarTy fsk, ctEvFlavour ctev)
       | otherwise = Nothing
 
     lookup_flats flat_cache = findExactFunEq flat_cache fam_tc tys
@@ -1541,8 +1541,8 @@ zonkCo = wrapTcS . TcM.zonkCo
 zonkTcType :: TcType -> TcS TcType
 zonkTcType ty = wrapTcS (TcM.zonkTcType ty)
 
-zonkTcTyCoVar :: TcTyCoVar -> TcS TcType
-zonkTcTyCoVar tv = wrapTcS (TcM.zonkTcTyCoVar tv)
+zonkTcTyVar :: TcTyVar -> TcS TcType
+zonkTcTyVar tv = wrapTcS (TcM.zonkTcTyVar tv)
 
 zonkSimples :: Cts -> TcS Cts
 zonkSimples cts = wrapTcS (TcM.zonkSimples cts)
@@ -1609,7 +1609,7 @@ newFlattenSkolem Given loc fam_ty
                     ; let name = TcM.mkTcTyVarName uniq (fsLit "fsk")
                     ; return (mkTcTyVar name (typeKind fam_ty) (FlatSkol fam_ty)) }
         ; let co = mkNomReflCo fam_ty
-              ev = CtGiven { ctev_pred = mkPrimEqPred fam_ty (mkOnlyTyVarTy fsk)
+              ev = CtGiven { ctev_pred = mkPrimEqPred fam_ty (mkTyVarTy fsk)
                            , ctev_evtm = EvCoercion (mkTcCoercion co)
                            , ctev_loc  = loc }
         ; return (ev, co, fsk) }
@@ -1623,7 +1623,7 @@ newFlattenSkolem _ loc fam_ty  -- Make a wanted
                                            , mtv_tclvl = fskTcLevel }
                           name = TcM.mkTcTyVarName uniq (fsLit "s")
                     ; return (mkTcTyVar name (typeKind fam_ty) details) }
-       ; ev <- newWantedEvVarNC loc (mkPrimEqPred fam_ty (mkOnlyTyVarTy fuv))
+       ; ev <- newWantedEvVarNC loc (mkPrimEqPred fam_ty (mkTyVarTy fuv))
        ; return (ev, mkCoVarCo (ctev_evar ev), fuv) }
 
 extendFlatCache :: TyCon -> [Type] -> (TcCoercion, TcType, CtFlavour) -> TcS ()
@@ -1642,16 +1642,15 @@ instDFunType dfun_id mb_inst_tys
   where
     (dfun_tvs, dfun_phi) = tcSplitNamedForAllTys (idType dfun_id)
 
-    go :: [TyCoVar] -> [DFunInstType] -> TCvSubst -> TcM ([TcType], TcType)
+    go :: [TyVar] -> [DFunInstType] -> TCvSubst -> TcM ([TcType], TcType)
     go [] [] subst = return ([], substTy subst dfun_phi)
     go (tv:tvs) (Just ty : mb_tys) subst
       = do { (tys, phi) <- go tvs mb_tys (extendTCvSubst subst tv ty)
            ; return (ty : tys, phi) }
     go (tv:tvs) (Nothing : mb_tys) subst
-      = ASSERT( isTyVar tv ) -- this won't work with coercion variables
-        do { ty <- instFlexiTcSHelper (tyVarName tv) (substTy subst (tyVarKind tv))
+      = do { ty <- instFlexiTcSHelper (tyVarName tv) (substTy subst (tyVarKind tv))
                          -- Don't forget to instantiate the kind!
-                         -- cf TcMType.tcInstTyCoVarX
+                         -- cf TcMType.tcInstTyVarX
            ; (tys, phi) <- go tvs mb_tys (extendTCvSubst subst tv ty)
            ; return (ty : tys, phi) }
     go _ _ _ = pprPanic "instDFunTypes" (ppr dfun_id $$ ppr mb_inst_tys)
@@ -1684,7 +1683,7 @@ instFlexiTcSHelper tvname kind
   = do { uniq <- TcM.newUnique
        ; details <- TcM.newMetaDetails (TauTv False)
        ; let name = setNameUnique tvname uniq
-       ; return (mkTyCoVarTy (mkTcTyVar name kind details)) }
+       ; return (mkTyVarTy (mkTcTyVar name kind details)) }
 
 
 
@@ -1869,13 +1868,7 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
             in_scope  = mkInScopeSet $ tyCoVarsOfTypes [body1, body2]
                                        `unionVarSet` (mkVarSet all_skols)
 
-            m_mkFreshCoVar tv1 tv2 | isCoVar tv1
-                                   = ASSERT( isCoVar tv2 )
-                                     Nothing
-                                   | otherwise
-                                   = Just $ mkFreshCoVar in_scope tv1 tv2
-
-            m_cvs = zipWith m_mkFreshCoVar skol_tvs1 skol_tvs2
+            cvs   = zipWith (mkFreshCoVar in_scope) skol_tvs1 skol_tvs2
             phi1  = Type.substTy subst1 body1
             phi2  = Type.substTy subst2 body2
             skol_info = UnifyForAllSkol skol_tvs1 phi1

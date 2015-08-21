@@ -305,16 +305,11 @@ opt_co4 env sym rep r (LRCo lr co)
 
 opt_co4 env sym rep r (InstCo co1 arg)
     -- forall over type...
-  | Just (tv1, tv2, cv, co_body) <- splitForAllCo_Ty_maybe co1
+  | Just (tv1, tv2, cv, co_body) <- splitForAllCo_maybe co1
   = opt_co4_wrap (extendTCvSubstList env
               [tv1, tv2, cv]
               [ty1', ty2', mkCoercionTy arg'])
               -- See Note [Sym and InstCo]
-            sym rep r co_body
-
-    -- forall over coercion...
-  | Just (cv1, cv2, co_body) <- splitForAllCo_Co_maybe co1
-  = opt_co4_wrap (extendTCvSubstList env [cv1, cv2] [ty1', ty2'])
             sym rep r co_body
 
     -- See if it is a forall after optimization
@@ -326,13 +321,6 @@ opt_co4 env sym rep r (InstCo co1 arg)
                                [tv1', tv2', cv']
                                [ty1', ty2', mkCoercionTy arg'])
             False False r' co'_body
-
- -- forall over coercion...
-  | Just (cv1', cv2', co'_body) <- splitForAllCo_Co_maybe co1'
-  = opt_co4_wrap (extendTCvSubstList (zapTCvSubst env)
-                                [cv1', cv2']
-                                [ty1', ty2'])
-           False False r' co'_body
 
   | otherwise = InstCo co1' arg'
   where
@@ -608,11 +596,11 @@ opt_trans_rule is co1 co2@(AppCo co2a h2 co2b)
 
 -- Push transitivity inside forall
 opt_trans_rule is co1 co2
-  | Just (cobndr1,r1) <- splitForAllCo_maybe co1
+  | ForAllCo cobndr1 r1 <- co1
   , Just (cobndr2,r2) <- etaForAllCo_maybe is co2
   = push_trans cobndr1 r1 cobndr2 r2
 
-  | Just (cobndr2,r2) <- splitForAllCo_maybe co2
+  | ForAllCo cobndr2 r2 <- co2
   , Just (cobndr1,r1) <- etaForAllCo_maybe is co1
   = push_trans cobndr1 r1 cobndr2 r2
 
@@ -631,7 +619,7 @@ opt_trans_rule is co1 co2
     | otherwise
     = -- kinds of tvl2 and tvr1 must be equal
       let is0      = is `extendInScopeSetList` [tvl1, tvl2, cvl, tvr1, tvr2, cvr]
-          tyl1     = mkOnlyTyVarTy tvl1
+          tyl1     = mkTyVarTy tvl1
           cv       = mkFreshCoVar is0 tvl1 tvr2
           rep_col  = downgradeRole Representational role col
           new_tvl2 = tyl1 `mkCastTy` rep_col
@@ -693,7 +681,7 @@ opt_trans_rule is co1 co2
   , sym1 == not sym2
   , [] <- coAxBranchCoVars branch   -- TODO (RAE): improve?
   , let branch = coAxiomNthBranch con1 ind1
-        qtvs = coAxBranchTyVars branch
+        qtvs = coAxBranchTyVars branch ++ coAxBranchCoVars branch
         lhs  = coAxNthLHS con1 ind1
         rhs  = coAxBranchRHS branch
         pivot_tvs = exactTyCoVarsOfType (if sym2 then rhs else lhs)
@@ -860,7 +848,7 @@ matchAxiom sym ax@(CoAxiom { co_ax_tc = tc }) ind co
                               (if sym then (mkTyConApp tc lhs) else rhs)
                               co
   , all (`isMappedByLC` subst) qtvs
-  = zipWithM (liftCoSubstTyCoVar subst) roles qtvs
+  = zipWithM (liftCoSubstTyVar subst) roles qtvs
 
   | otherwise
   = Nothing
@@ -891,7 +879,7 @@ etaForAllCo_maybe :: InScopeSet
                   -> Coercion -> Maybe (ForAllCoBndr, Coercion)
 -- Try to make the coercion be of form (forall tv. co)
 etaForAllCo_maybe is co
-  | Just (cobndr, r) <- splitForAllCo_maybe co
+  | ForAllCo cobndr r <- co
   = Just (cobndr, r)
 
   | Pair ty1 ty2  <- coercionKind co
@@ -902,7 +890,7 @@ etaForAllCo_maybe is co
   = let cv     = mkFreshCoVar is tv1 tv2
         cobndr = mkForAllCoBndr (mkNthCo 0 co) tv1 tv2 cv
     in
-    Just (cobndr, mkInstCo co (coBndrWitness cobndr))
+    Just (cobndr, mkInstCo co (mkCoVarCo cv))
 
   | otherwise
   = Nothing

@@ -588,7 +588,7 @@ lintCoreExpr (Let (NonRec tv (Type ty)) body)
   | isTyVar tv
   =     -- See Note [Linting type lets]
     do  { ty' <- applySubstTy ty
-        ; lintTyCoBndr tv              $ \ tv' ->
+        ; lintTyBndr tv              $ \ tv' ->
     do  { addLoc (RhsOf tv) $ lintTyKind tv' ty'
                 -- Now extend the substitution so we
                 -- take advantage of it in the body
@@ -682,10 +682,6 @@ lintCoreArg fun_ty (Type arg_ty)
        ; arg_ty' <- applySubstTy arg_ty
        ; lintTyApp fun_ty arg_ty' }
 
-lintCoreArg fun_ty (Coercion arg_co)
-  = do { arg_co' <- applySubstCo arg_co
-       ; lintCoApp fun_ty arg_co' }
-
 lintCoreArg fun_ty arg
   = do { arg_ty <- lintCoreExpr arg
        ; checkL (not (isUnLiftedType arg_ty) || exprOkForSpeculation arg)
@@ -703,10 +699,7 @@ lintAltBinders scrut_ty con_ty []
   = ensureEqTys con_ty scrut_ty (mkBadPatMsg con_ty scrut_ty)
 lintAltBinders scrut_ty con_ty (bndr:bndrs)
   | isTyVar bndr
-  = do { con_ty' <- lintTyApp con_ty (mkOnlyTyVarTy bndr)
-       ; lintAltBinders scrut_ty con_ty' bndrs }
-  | isCoVar bndr
-  = do { con_ty' <- lintCoApp con_ty (mkCoVarCo bndr)
+  = do { con_ty' <- lintTyApp con_ty (mkTyVarTy bndr)
        ; lintAltBinders scrut_ty con_ty' bndrs }
   | otherwise
   = do { con_ty' <- lintValApp (Var bndr) con_ty (idType bndr)
@@ -717,28 +710,11 @@ lintTyApp :: OutType -> OutType -> LintM OutType
 lintTyApp fun_ty arg_ty
   | Just (bndr,body_ty) <- splitForAllTy_maybe fun_ty
   , Just tv <- binderVar_maybe bndr
-  , isTyVar tv
   = do  { lintTyKind tv arg_ty
         ; return (substTyWith [tv] [arg_ty] body_ty) }
 
   | otherwise
   = failWithL (mkTyAppMsg fun_ty arg_ty)
-
------------------
-lintCoApp :: OutType -> OutCoercion -> LintM OutType
-lintCoApp fun_ty arg_co
-  | Just (bndr,body_ty) <- splitForAllTy_maybe fun_ty
-  , Just covar <- binderVar_maybe bndr
-  , isId covar
-  = do { (_, _, t1, t2, rAct) <- lintCoercion arg_co
-       ; lintUnLiftedCoVar covar
-       ; let (_, _, t1', t2', rExp) = coVarKindsTypesRole covar
-       ; ensureEqTys t1' t1 (mkCoAppMsg t1' t1 (Just CLeft))
-       ; ensureEqTys t2' t2 (mkCoAppMsg t2' t2 (Just CRight))
-       ; lintRole arg_co rExp rAct
-       ; return (substTyWithCoVars [covar] [arg_co] body_ty) }
-  | otherwise
-  = failWithL (mkCoAppMsg fun_ty (CoercionTy arg_co) Nothing)
 
 -----------------
 lintValApp :: CoreExpr -> OutType -> OutType -> LintM OutType
@@ -890,16 +866,23 @@ lintBinders (var:vars) linterF = lintBinder var $ \var' ->
 -- See Note [GHC Formalism]
 lintBinder :: Var -> (Var -> LintM a) -> LintM a
 lintBinder var linterF
-  |  isTyVar var
-  || isCoVar var = lintTyCoBndr var linterF
-  | otherwise    = lintIdBndr var linterF
+  | isTyVar var = lintTyBndr var linterF
+  | isCoVar var = lintCoBndr var linterF
+  | otherwise   = lintIdBndr var linterF
 
-lintTyCoBndr :: InTyCoVar -> (OutTyCoVar -> LintM a) -> LintM a
-lintTyCoBndr tv thing_inside
+lintTyBndr :: InTyVar -> (OutTyVar -> LintM a) -> LintM a
+lintTyBndr tv thing_inside
   = do { subst <- getTCvSubst
-       ; let (subst', tv') = substTyCoVarBndr subst tv
-       ; lintTyCoBndrKind tv'
+       ; let (subst', tv') = substTyVarBndr subst tv
+       ; lintKind (varType tv')
        ; updateTCvSubst subst' (thing_inside tv') }
+
+lintCoBndr :: InCoVar -> (OutCoVar -> LintM a) -> LintM a
+lintCoBndr cv thing_inside
+  = do { subst <- getTCvSubst
+       ; let (subst', cv') = substCoVarBndr subst cv
+       ; lintKind (varType cv')
+       ; updateTCvSubst subst' (thing_inside cv') }
 
 lintIdBndr :: Id -> (Id -> LintM a) -> LintM a
 -- Do substitution on the type of a binder and add the var with this
@@ -947,11 +930,6 @@ lintInTy ty
         ; return ty' }
 
 -------------------
-lintTyCoBndrKind :: OutTyVar -> LintM ()
--- Handles both type and kind foralls.
-lintTyCoBndrKind tv = lintKind (varType tv)
-
--------------------
 lintType :: OutType -> LintM LintedKind
 -- The returned Kind has itself been linted
 
@@ -994,9 +972,7 @@ lintType ty@(ForAllTy (Anon t1) t2)
 
 lintType t@(ForAllTy (Named tv _vis) ty)
   = do { lintL (isTyVar tv) (text "Covar bound in type:" <+> ppr t)
-       ; lintTyCoBndrKind tv
-       ; k <- addInScopeVar tv (lintType ty)
-       ; return k }
+       ; lintTyBndr tv $ \_ -> lintType ty }
 
 lintType ty@(LitTy l) = lintTyLit l >> return (typeKind ty)
 
@@ -1173,8 +1149,8 @@ lintCoercion g@(ForAllCo bndr@(ForAllCoBndr h tv1 tv2 cv) co)
        ; (k1, k2) <- lintStarCoercion r h
        ; ensureEqTys k1 (tyVarKind tv1) (mkBadHeteroVarMsg CLeft k1 tv1 g)
        ; ensureEqTys k2 (tyVarKind tv2) (mkBadHeteroVarMsg CRight k2 tv2 g)
-       ; ensureEqTys (mkCoercionType Nominal (mkOnlyTyVarTy tv1)
-                                             (mkOnlyTyVarTy tv2))
+       ; ensureEqTys (mkCoercionType Nominal (mkTyVarTy tv1)
+                                             (mkTyVarTy tv2))
                      (coVarKind cv)
                      (mkBadHeteroCoVarMsg tv1 tv2 cv g)
        ; let tyl = mkNamedForAllTy tv1 Invisible t1
@@ -1836,7 +1812,7 @@ mkCastErr expr co from_ty expr_ty
           ptext (sLit "Coercion used in cast:") <+> ppr co
          ]
 
-mkBadHeteroVarMsg :: LeftOrRight -> Type -> TyCoVar -> Coercion -> MsgDoc
+mkBadHeteroVarMsg :: LeftOrRight -> Type -> TyVar -> Coercion -> MsgDoc
 mkBadHeteroVarMsg lr k tv g
   = hang (ptext (sLit "Kind mismatch in") <+> pprLeftOrRight lr <+>
                 ptext (sLit "side of hetero quantification:"))
@@ -1851,7 +1827,7 @@ mkBadHeteroCoVarMsg tv1 tv2 cv g
                 ptext (sLit "CoVar:") <+> ppr cv,
                 ptext (sLit "In coercion:") <+> ppr g])
 
-mkDuplicateForAllCoVarsMsg :: TyCoVar -> Coercion -> MsgDoc
+mkDuplicateForAllCoVarsMsg :: TyVar -> Coercion -> MsgDoc
 mkDuplicateForAllCoVarsMsg tv co
   = hang (text "Repeated variable in forall coercion:" <+> ppr tv)
        2 (sep [ text "In the coercion:"
@@ -1881,7 +1857,7 @@ mkBadProofIrrelMsg ty co
        2 (vcat [ text "type:" <+> ppr ty
                , text "co:" <+> ppr co ])
 
-mkBadTyVarMsg :: TyCoVar -> SDoc
+mkBadTyVarMsg :: Var -> SDoc
 mkBadTyVarMsg tv
   = ptext (sLit "Non-tyvar used in TyVarTy:")
       <+> ppr tv <+> dcolon <+> ppr (varType tv)

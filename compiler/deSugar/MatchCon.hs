@@ -124,7 +124,7 @@ matchOneConLike vars ty (eqn1 : eqns)   -- All eqns for a single constructor
         ; dicts1' <- dsVars dicts1
         ; arg_tys' <- mapM dsType arg_tys
         ; let inst_tys = ASSERT( tvs1 `equalLength` ex_tvs )
-                         arg_tys' ++ mkOnlyTyVarTys tvs1'
+                         arg_tys' ++ mkTyVarTys tvs1'
 
               val_arg_tys = case con1 of
                 RealDataCon dcon1 -> dataConInstOrigArgTys dcon1 inst_tys

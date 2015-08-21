@@ -145,7 +145,7 @@ data TcCoercion
   | TcCoercion Coercion             -- embed a Core Coercion
   deriving (Data.Data, Data.Typeable)
 
-data TcForAllCoBndr = TcForAllCoBndr TcCoercion TcTyCoVar TcTyCoVar (Maybe TcCoVar)
+data TcForAllCoBndr = TcForAllCoBndr TcCoercion TcTyVar TcTyVar CoVar
   deriving (Data.Data, Data.Typeable)
 
 isEqVar :: Var -> Bool
@@ -273,7 +273,7 @@ mkTcForAllCo (TcForAllCoBndr (TcRefl r1 _) tv1 tv2 cv) (TcRefl r2 ty)
     TcRefl r1 (mkNamedForAllTy tv1 Invisible (subst ty))
   -- TODO (RAE): Check visibility.
     where
-      ty1   = mkOnlyTyVarTy tv1
+      ty1   = mkTyVarTy tv1
       subst = substTyWith [tv2] [ty1] .
               substTyWithCoVars [cv] [mkNomReflCo ty1]
 
@@ -350,14 +350,14 @@ tcCoercionKind co = go co
          Nothing -> panic "tcCoercionKind: malformed TcAxiomRuleCo"
     go (TcCoercion co)        = coercionKind co
 
-tcCoBndrKind :: TcForAllCoBndr -> Pair TcTyCoVar
+tcCoBndrKind :: TcForAllCoBndr -> Pair TcTyVar
 tcCoBndrKind (TcForAllCoBndr _ tv1 tv2 _) = Pair tv1 tv2
 
 tcCoBndrKindCo :: TcForAllCoBndr -> TcCoercion
 tcCoBndrKindCo (TcForAllCoBndr eta _ _ _) = eta
 
 tcCoBndrVars :: TcForAllCoBndr -> [TcTyCoVar]
-tcCoBndrVars (TcForAllCoBndr _ tv1 tv2 m_cv) = [tv1, tv2] ++ maybeToList m_cv
+tcCoBndrVars (TcForAllCoBndr _ tv1 tv2 cv) = [tv1, tv2, cv]
 
 eqVarRole :: EqVar -> Role
 eqVarRole cv = getEqPredRole (varType cv)
@@ -620,7 +620,7 @@ mkWpCast co
   | otherwise     = ASSERT2(tcCoercionRole co == Representational, ppr co)
                     WpCast co
 
--- | Make a wrapper from the list of types returned by a tcInstTyCoVars. This
+-- | Make a wrapper from the list of types returned by a tcInstTyVars. This
 -- list of types contains only type and coercion variables.
 mkWpTyEvApps :: [Type] -> HsWrapper
 mkWpTyEvApps tys = mk_co_app_fn wp_ty_or_ev_app tys

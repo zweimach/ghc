@@ -30,18 +30,18 @@ import Control.Monad
 --
 -- > forall (a :: * -> *). (forall (b :: *). PA b -> PA (a b)) -> PA (v a)
 --
-paDictArgType :: TyCoVar -> VM (Maybe Type)
-paDictArgType tv = go (mkTyCoVarTy tv) (tyVarKind tv)
+paDictArgType :: TyVar -> VM (Maybe Type)
+paDictArgType tv = go (mkTyVarTy tv) (tyVarKind tv)
   where
     go ty (ForAllTy (Anon k1) k2)
       = do
           tv   <- if isCoercionType k1
                   then newCoVar (fsLit "c") k1
                   else newTyVar (fsLit "a") k1
-          mty1 <- go (mkTyCoVarTy tv) k1
+          mty1 <- go (mkTyVarTy tv) k1
           case mty1 of
             Just ty1 -> do
-                          mty2 <- go (mkAppTy ty (mkTyCoVarTy tv)) k2
+                          mty2 <- go (mkAppTy ty (mkTyVarTy tv)) k2
                           return $ fmap (mkNamedForAllTy tv Invisible . mkFunTy ty1) mty2
             Nothing  -> go ty k2
 
@@ -73,7 +73,7 @@ paDictOfType ty
       = do
         { dfun <- maybeCantVectoriseM "No PA dictionary for type variable"
                                       (ppr tv <+> text "in" <+> ppr ty)
-                $ lookupTyCoVarPA tv
+                $ lookupTyVarPA tv
         ; dicts <- mapM paDictOfType ty_args
         ; return $ dfun `mkTyApps` ty_args `mkApps` dicts
         }

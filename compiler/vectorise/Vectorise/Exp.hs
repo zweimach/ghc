@@ -29,9 +29,9 @@ import CoreFVs
 import Class
 import DataCon
 import TyCon
-import TcType  hiding ( lookupVar )
-import Type    hiding ( lookupVar )
-import TyCoRep hiding ( lookupVar )
+import TcType
+import Type
+import TyCoRep
 import Var
 import VarEnv
 import VarSet
@@ -685,7 +685,7 @@ vectScalarDFun :: Var        -- ^ Original dfun
                -> VM CoreExpr
 vectScalarDFun var
   = do {   -- bring the type variables into scope
-       ; mapM_ defLocalTyCoVar tvs
+       ; mapM_ defLocalTyVar tvs
 
            -- vectorise dictionary argument types and generate variables for them
        ; vTheta     <- mapM vectType theta
@@ -696,7 +696,7 @@ vectScalarDFun var
        ; thetaVars  <- mapM (newLocalVar (fsLit "d")) theta
        ; thetaExprs <- zipWithM unVectDict theta vThetaVars
        ; let thetaDictBinds = zipWith NonRec thetaVars thetaExprs
-             dict           = Var var `mkTyApps` (mkTyCoVarTys tvs) `mkVarApps` thetaVars
+             dict           = Var var `mkTyApps` (mkTyVarTys tvs) `mkVarApps` thetaVars
              scsOps         = map (\selId -> varToCoreExpr selId `mkTyApps` tys `mkApps` [dict])
                                   selIds
        ; vScsOps <- mapM (\e -> vectorised <$> vectScalarFun e) scsOps
@@ -757,7 +757,7 @@ vectLam inline loop_breaker expr@((fvs, _vi), AnnLam _ _)
       ; let (bndrs, body) = collectAnnValBinders expr
 
           -- grab the in-scope type variables
-      ; tyvars <- localTyCoVars
+      ; tyvars <- localTyVars
 
           -- collect and vectorise all /local/ free variables
       ; vfvs <- readLEnv $ \env ->

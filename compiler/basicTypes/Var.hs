@@ -51,7 +51,7 @@ module Var (
         setIdExported, setIdNotExported,
 
         -- ** Predicates
-        isId, isTKVar, isTyVar, isTcTyVar, isTcTyCoVar,
+        isId, isTKVar, isTyVar, isTcTyVar,
         isLocalVar, isLocalId, isCoVar, isTyCoVar,
         isGlobalId, isExportedId,
         mustHaveLocalBinding,
@@ -431,9 +431,6 @@ isTKVar _            = False
 isTcTyVar :: Var -> Bool
 isTcTyVar (TcTyVar {}) = True
 isTcTyVar _            = False
-
-isTcTyCoVar :: Var -> Bool
-isTcTyCoVar v = isTcTyVar v || isCoVar v
 
 isId :: Var -> Bool
 isId (Id {}) = True

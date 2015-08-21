@@ -640,7 +640,7 @@ niFixTCvSubst tenv = f tenv
              -- env' extends env by replacing any free type with
              -- that same tyvar with a substituted kind
              -- See note [Finding the substitution fixpoint]
-          tenv'         = extendVarEnvList tenv [ (rtv, mkOnlyTyVarTy $
+          tenv'         = extendVarEnvList tenv [ (rtv, mkTyVarTy $
                                                         setTyVarKind rtv $
                                                         substTy subst $
                                                         tyVarKind rtv)
@@ -786,7 +786,7 @@ uUnrefined tv1 ty2 ty2' kco
            -- depending on which is bindable
        ; b1 <- tvBindFlag tv1
        ; b2 <- tvBindFlag tv2
-       ; let ty1 = mkOnlyTyVarTy tv1
+       ; let ty1 = mkTyVarTy tv1
        ; case (b1, b2) of
            (Skolem, Skolem) -> maybeApart -- See Note [Unification with skolems]
            (BindMe, _)      -> do { checkRnEnvR ty2 -- make sure ty2 is not a local
@@ -1104,7 +1104,7 @@ ty_co_match menv subst (ForAllTy (Named tv _) ty)
              (rn_env3, tvr') = rnBndrR rn_env2 tvr
              (rn_env4, cv')  = rnBndrR rn_env3 cv
              menv' = menv { me_env = rn_env4 }
-             witness = coBndrWitness (mkForAllCoBndr co1 tvl' tvr' cv')
+             witness = mkCoVarCo cv'
              subst2  = extendVarEnv subst1 tv' witness
        ; subst3 <- ty_co_match menv' subst2 ty co lkco rkco
        ; return $ delVarEnv subst3 tv' }

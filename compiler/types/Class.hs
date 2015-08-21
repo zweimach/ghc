@@ -58,7 +58,7 @@ data Class
         classTyVars  :: [TyVar],        -- The class kind and type variables;
                                         -- identical to those of the TyCon
 
-        classFunDeps :: [FunDep TyCoVar],  -- The functional dependencies
+        classFunDeps :: [FunDep TyVar],  -- The functional dependencies
 
         -- Superclasses: eg: (F a ~ b, F b ~ G a, Eq a, Show b)
         -- We need value-level selectors for both the dictionary
@@ -141,8 +141,8 @@ Note that
 The @mkClass@ function fills in the indirect superclasses.
 -}
 
-mkClass :: [TyCoVar]
-        -> [([TyCoVar], [TyCoVar])]
+mkClass :: [TyVar]
+        -> [([TyVar], [TyVar])]
         -> [PredType] -> [Id]
         -> [ClassATItem]
         -> [ClassOpItem]
@@ -232,7 +232,7 @@ classBigSig (Class {classTyVars = tyvars, classSCTheta = sc_theta,
                     classSCSels = sc_sels, classOpStuff = op_stuff})
   = (tyvars, sc_theta, sc_sels, op_stuff)
 
-classExtraBigSig :: Class -> ([TyCoVar], [FunDep TyCoVar], [PredType], [Id], [ClassATItem], [ClassOpItem])
+classExtraBigSig :: Class -> ([TyVar], [FunDep TyVar], [PredType], [Id], [ClassATItem], [ClassOpItem])
 classExtraBigSig (Class {classTyVars = tyvars, classFunDeps = fundeps,
                          classSCTheta = sc_theta, classSCSels = sc_sels,
                          classATStuff = ats, classOpStuff = op_stuff})

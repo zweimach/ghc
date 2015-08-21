@@ -12,7 +12,7 @@ module Simplify ( simplTopBinds, simplExpr ) where
 
 import DynFlags
 import SimplMonad
-import Type hiding      ( substTy, extendTCvSubst, substTyCoVar )
+import Type hiding      ( substTy, extendTCvSubst )
 import SimplEnv
 import SimplUtils
 import FamInstEnv       ( FamInstEnv )
@@ -1235,8 +1235,7 @@ simplCast env body co0 cont0
                 -- This implements the PushT rule from the paper
          | Just (bndr,_) <- splitForAllTy_maybe s1s2
          , Just tyvar <- binderVar_maybe bndr
-         = ASSERT( isTyVar tyvar )
-           cont { sc_cont = addCoerce new_cast tail }
+         = cont { sc_cont = addCoerce new_cast tail }
          where
            new_cast = mkInstCo co (mkNomReflCo arg_ty)
 
@@ -1395,7 +1394,7 @@ simplNonRecE env bndr (rhs, rhs_se) (bndrs, body) cont
 simplVar :: SimplEnv -> InVar -> SimplM OutExpr
 -- Look up an InVar in the environment
 simplVar env var
-  | isTyVar var = return (Type (substTyCoVar env var))
+  | isTyVar var = return (Type (substTyVar env var))
   | isCoVar var = return (Coercion (substCoVar env var))
   | otherwise
   = case substId env var of

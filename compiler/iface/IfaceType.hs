@@ -19,7 +19,7 @@ module IfaceType (
         -- Conversion from Type -> IfaceType
         toIfaceType, toIfaceTypes, toIfaceKind, toIfaceTyVar,
         toIfaceContext, toIfaceBndr, toIfaceIdBndr,
-        toIfaceTCvBndrs, toIfaceTyCon, toIfaceTyCon_name,
+        toIfaceTyCon, toIfaceTyCon_name,
         toIfaceTcArgs, toIfaceTvBndrs,
 
         -- Conversion from IfaceTcArgs -> IfaceType
@@ -370,7 +370,7 @@ toIfaceTcArgs tc ty_args
         ts' = go (extendTCvSubstBinder env bndr t) res ts
 
     go env (TyVarTy tv) ts
-      | Just ki <- lookupVar env tv = go env ki ts
+      | Just ki <- lookupTyVar env tv = go env ki ts
     go env kind (t:ts) = WARN( True, ppr tc $$ ppr (tyConKind tc) $$ ppr ty_args )
                          ITC_Vis (toIfaceType t) (go env kind ts) -- Ill-kinded
 
@@ -1082,9 +1082,6 @@ toIfaceIdBndr id      = (occNameFS (getOccName id),    toIfaceType (idType id))
 
 toIfaceTvBndrs :: [TyVar] -> [IfaceTvBndr]
 toIfaceTvBndrs = map toIfaceTvBndr
-
-toIfaceTCvBndrs :: [TyCoVar] -> [IfaceBndr]
-toIfaceTCvBndrs tyvars = map toIfaceBndr tyvars
 
 toIfaceBndr :: Var -> IfaceBndr
 toIfaceBndr var

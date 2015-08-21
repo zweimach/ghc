@@ -958,7 +958,7 @@ canCFunEqCan ev fn tys fsk
        ; let lhs_co  = mkTcTyConAppCo Nominal fn cos
                         -- :: F tys' ~ F tys
              new_lhs = mkTyConApp fn tys'
-             fsk_ty  = mkOnlyTyVarTy fsk
+             fsk_ty  = mkTyVarTy fsk
        ; rewriteEqEvidence ev NotSwapped new_lhs fsk_ty
                            lhs_co (mkTcNomReflCo fsk_ty)
          `andWhenContinue` \ ev' ->
@@ -1006,7 +1006,7 @@ canEqTyVar ev eq_rel swapped tv1 ty2 ps_ty2              -- ev :: tv ~ s2
              | Just (tc2, _) <- tcSplitTyConApp_maybe xi2
              , isNewTyCon tc2
              , not (ps_ty2 `eqType` xi2)
-             -> do { let ty1  = mkOnlyTyVarTy tv1'
+             -> do { let ty1  = mkTyVarTy tv1'
                          kco  = mkSymCo kind_co
                          xi1  = ty1 `mkCastTy` kco
                          role = eqRelRole eq_rel
@@ -1069,7 +1069,7 @@ canEqTyVar2 dflags ev eq_rel swapped tv1 xi2 co2
                               (ppr ty1 $$ ppr xi2)
                          ; continueWith (CIrredEvCan { cc_ev = new_ev }) } }
   where
-    ty1 = mkOnlyTyVarTy tv1
+    ty1 = mkTyVarTy tv1
     co1 = mkTcReflCo (eqRelRole eq_rel) ty1
 
 canEqTyVarTyVar :: CtEvidence           -- tv1 ~ orhs (or orhs ~ tv1, if swapped)
@@ -1101,8 +1101,8 @@ canEqTyVarTyVar ev eq_rel swapped tv1 tv2 co2
   | swap_over       = do_swap
   | otherwise       = no_swap
   where
-    ty1 = mkOnlyTyVarTy tv1
-    ty2 = mkOnlyTyVarTy tv2
+    ty1 = mkTyVarTy tv1
+    ty2 = mkTyVarTy tv2
     co1 = mkTcReflCo (eqRelRole eq_rel) ty1
 
     no_swap = canon_eq swapped            tv1 ty1 ty2 co1 co2

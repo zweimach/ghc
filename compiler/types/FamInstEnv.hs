@@ -221,7 +221,7 @@ pprFamInstHdr fi@(FamInst {fi_flavor = flavor})
             = getPprStyle $ \ sty ->
               if debugStyle sty
               then vanilla_pp_head   -- With -dppr-debug just show it as-is
-              else pprTypeApp fam_tc (etad_lhs_tys ++ mkOnlyTyVarTys extra_tvs)
+              else pprTypeApp fam_tc (etad_lhs_tys ++ mkTyVarTys extra_tvs)
                      -- Without -dppr-debug, eta-expand
                      -- See Trac #8674
                      -- (This is probably over the top now that we use this
@@ -999,7 +999,7 @@ this. So, whenever we encounter a coercion, we just say that it won't change.
 That's what the CoercionTy case is doing within normalise_type.
 
 There is still the possibility that the kind of a coercion variable mentions
-a type family and will change in normaliseTyCoVarBndr. So, we must perform
+a type family and will change in normaliseTyVarBndr. So, we must perform
 the same sort of homogenisation that we did for type variables. Let's use
 the same names as before:
   alpha is our original coercion variable, alpha :: s1 ~# t1
@@ -1195,10 +1195,10 @@ normalise_tyvar tv
   = ASSERT( isTyVar tv )
     do { lc <- getLC
        ; r  <- getRole
-       ; return $ case liftCoSubstTyCoVar lc r tv of
+       ; return $ case liftCoSubstTyVar lc r tv of
            Just co -> (co, pSnd $ coercionKind co)
            Nothing -> (mkReflCo r ty, ty) }
-  where ty = mkOnlyTyVarTy tv
+  where ty = mkTyVarTy tv
 
 normalise_tyvar_bndr :: TyVar -> NormM (LiftingContext, ForAllCoBndr)
 normalise_tyvar_bndr
@@ -1226,7 +1226,9 @@ newtype NormM a = NormM { runNormM ::
                          -> Bool   -- reduce even if covars are emitted?
                          -> (CoVarSet, a) }
 
-initNormM :: FamInstEnvs -> Role -> TyCoVarSet -> NormM a -> a
+initNormM :: FamInstEnvs -> Role
+          -> TyCoVarSet   -- the in-scope variables
+          -> NormM a -> a
 initNormM env role vars (NormM thing_inside)
   = let (cvs, result) = thing_inside env lc role False in
     ASSERT( isEmptyVarSet cvs )
@@ -1334,7 +1336,7 @@ coreFlattenTy = go
     go env (TyConApp tc tys)
       | isFamilyTyCon tc
       = let (env', tv) = coreFlattenTyFamApp env tc tys in
-        (env', mkOnlyTyVarTy tv)
+        (env', mkTyVarTy tv)
 
       | otherwise
       = let (env', tys') = coreFlattenTys env tys in
@@ -1370,15 +1372,15 @@ coreFlattenCo env co
     covar         = uniqAway in_scope $ mkCoVar fresh_name kind'
     env2          = env1 { fe_in_scope = in_scope `extendInScopeSet` covar }
 
-coreFlattenVarBndr :: FlattenEnv -> TyVar -> (FlattenEnv, TyCoVar)
+coreFlattenVarBndr :: FlattenEnv -> TyVar -> (FlattenEnv, TyVar)
 coreFlattenVarBndr env tv
   | kind' `eqType` kind
-  = ( env { fe_subst = extendTCvSubst old_subst tv (mkTyCoVarTy tv) }
+  = ( env { fe_subst = extendTCvSubst old_subst tv (mkTyVarTy tv) }
              -- override any previous binding for tv
     , tv)
   | otherwise
   = let new_tv    = uniqAway (fe_in_scope env) (setTyVarKind tv kind')
-        new_subst = extendTCvSubst old_subst tv (mkOnlyTyVarTy new_tv)
+        new_subst = extendTCvSubst old_subst tv (mkTyVarTy new_tv)
         new_is    = extendInScopeSet old_in_scope new_tv
     in
     (env' { fe_in_scope = new_is

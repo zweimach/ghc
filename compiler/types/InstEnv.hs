@@ -206,7 +206,7 @@ instanceHead (ClsInst { is_tvs = tvs, is_tys = tys, is_dfun = dfun })
    where
      (_, _, cls, _) = tcSplitDFunTy (idType dfun)
 
-instanceSig :: ClsInst -> ([TyCoVar], [Type], Class, [Type])
+instanceSig :: ClsInst -> ([TyVar], [Type], Class, [Type])
 -- Decomposes the DFunId
 instanceSig ispec = tcSplitDFunTy (idType (is_dfun ispec))
 
@@ -815,7 +815,7 @@ lookupInstEnv' ie vis_mods cls tys
         -- fully-applied dictionary type is of kind Constraint, so we
         -- don't worry about kind changes among individual type args.
       | Just (subst, _) <- tcMatchTys tpl_tv_set tpl_tys tys
-      = find ((item, map (lookup_tv subst) tpl_tvs) : ms) us rest
+      = find ((item, map (lookupTyVar subst) tpl_tvs) : ms) us rest
 
         -- Does not match, so next check whether the things unify
         -- See Note [Overlapping instances] and Note [Incoherent instances]
@@ -835,13 +835,6 @@ lookupInstEnv' ie vis_mods cls tys
             Nothing  -> find ms us        rest
       where
         tpl_tv_set = mkVarSet tpl_tvs
-
-    ----------------
-    lookup_tv :: TCvSubst -> TyVar -> DFunInstType
-        -- See Note [DFunInstType: instantiating types]
-    lookup_tv subst tv = case lookupVar subst tv of
-                                Just ty -> Just ty
-                                Nothing -> Nothing
 
 ---------------
 -- This is the common way to call this function.

@@ -593,7 +593,7 @@ mkBuildExpr :: (MonadThings m, MonadUnique m)
             -> m CoreExpr
 mkBuildExpr elt_ty mk_build_inside = do
     [n_tyvar] <- newTyVars [alphaTyVar]
-    let n_ty = mkOnlyTyVarTy n_tyvar
+    let n_ty = mkTyVarTy n_tyvar
         c_ty = mkFunTys [elt_ty, n_ty] n_ty
     [c, n] <- sequence [mkSysLocalM (fsLit "c") c_ty, mkSysLocalM (fsLit "n") n_ty]
 

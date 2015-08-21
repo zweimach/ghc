@@ -138,7 +138,7 @@ NOTA BENE:
     is no effect iff the result of improve is empty
 -}
 
-instFD :: FunDep TyCoVar -> [TyCoVar] -> [Type] -> FunDep Type
+instFD :: FunDep TyVar -> [TyVar] -> [Type] -> FunDep Type
 -- A simpler version of instFD_WithPos to be used in checking instance coverage etc.
 instFD (ls,rs) tvs tys
   = (map lookup ls, map lookup rs)
@@ -146,7 +146,7 @@ instFD (ls,rs) tvs tys
     env       = zipVarEnv tvs tys
     lookup tv = lookupVarEnv_NF env tv
 
-instFD_WithPos :: FunDep TyCoVar -> [TyCoVar] -> [Type] -> ([Type], [(Int,Type)])
+instFD_WithPos :: FunDep TyVar -> [TyVar] -> [Type] -> ([Type], [(Int,Type)])
 -- Returns a FunDep between the types accompanied along with their
 -- position (<=0) in the types argument list.
 instFD_WithPos (ls,rs) tvs tys
@@ -232,9 +232,9 @@ improveFromInstEnv inst_env pred
 improveFromInstEnv _ _ = []
 
 
-checkClsFD :: FunDep TyCoVar -> [TyCoVar]         -- One functional dependency from the class
+checkClsFD :: FunDep TyVar -> [TyVar]             -- One functional dependency from the class
            -> ClsInst                             -- An instance template
-           -> TyCoVarSet -> [Type] -> [Maybe Name]  -- Arguments of this (C tys) predicate
+           -> TyVarSet -> [Type] -> [Maybe Name]  -- Arguments of this (C tys) predicate
                                                   -- TyVarSet are extra tyvars that can be instantiated
            -> [([TyCoVar], [FDEq])]
 
@@ -537,7 +537,7 @@ badFunDeps cls_insts clas ins_tv_set ins_tys
         --      instance C Int Char Char
         -- The second instance conflicts with the first by *both* fundeps
 
-trimRoughMatchTcs :: [TyCoVar] -> FunDep TyCoVar -> [Maybe Name] -> [Maybe Name]
+trimRoughMatchTcs :: [TyVar] -> FunDep TyVar -> [Maybe Name] -> [Maybe Name]
 -- Computing rough_tcs for a particular fundep
 --     class C a b c | a -> b where ...
 -- For each instance .... => C ta tb tc

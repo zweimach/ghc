@@ -167,7 +167,7 @@ tc_cmd env (HsCmdIf (Just fun) pred b1 b2) res_ty -- Rebindable syntax for if
         -- because we're going to apply it to the environment, not
         -- the return value.
         ; (_, [r_tv]) <- tcInstSkolTyVars [alphaTyVar]
-        ; let r_ty = mkOnlyTyVarTy r_tv
+        ; let r_ty = mkTyVarTy r_tv
         ; let if_ty = mkFunTys [pred_ty, r_ty, r_ty] r_ty
         ; checkTc (not (r_tv `elemVarSet` tyCoVarsOfType pred_ty))
                   (ptext (sLit "Predicate type of `ifThenElse' depends on result type"))

@@ -480,7 +480,7 @@ tc_mkRepFamInsts gk tycon metaDts mod =
                      (init all_tyvars, Gen1_ $ last all_tyvars)
              where all_tyvars = tyConTyVars tycon
 
-           tyvar_args = mkTyCoVarTys tyvars
+           tyvar_args = mkTyVarTys tyvars
 
            appT :: [Type]
            appT = case tyConFamInst_maybe tycon of
@@ -560,7 +560,7 @@ argTyFold argVar (ArgTyAlg {ata_rec0 = mkRec0,
   go t = isParam `mplus` isApp where
 
     isParam = do -- handles parameters
-      t' <- getTyCoVar_maybe t
+      t' <- getTyVar_maybe t
       Just $ if t' == argVar then mkPar1 -- moreover, it is "the" parameter
              else mkRec0 t -- NB mkRec0 instead of the conventional mkPar0
 
@@ -572,7 +572,7 @@ argTyFold argVar (ArgTyAlg {ata_rec0 = mkRec0,
       -- Does it have no interesting structure to represent?
       if not interesting then Nothing
         else -- Is the argument the parameter? Special case for mkRec1.
-          if Just argVar == getTyCoVar_maybe beta then Just $ mkRec1 phi
+          if Just argVar == getTyVar_maybe beta then Just $ mkRec1 phi
             else mkComp phi `fmap` go beta -- It must be a composition.
 
 
@@ -606,7 +606,7 @@ tc_mkRepTy gk_ tycon metaDts =
         mkRec1 a   = mkTyConApp rec1  [a]
         mkPar1     = mkTyConTy  par1
         mkD    a   = mkTyConApp d1    [metaDTyCon, sumP (tyConDataCons a)]
-        mkC  i d a = mkTyConApp c1    [d, prod i (dataConInstOrigArgTys a $ mkOnlyTyVarTys $ tyConTyVars tycon)
+        mkC  i d a = mkTyConApp c1    [d, prod i (dataConInstOrigArgTys a $ mkTyVarTys $ tyConTyVars tycon)
                                                  (null (dataConFieldLabels a))]
         -- This field has no label
         mkS True  _ a = mkTyConApp s1 [mkTyConTy nS1, a]

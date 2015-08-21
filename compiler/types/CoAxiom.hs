@@ -304,7 +304,7 @@ coAxiomSingleBranch (CoAxiom { co_ax_branches = FirstBranch br }) = br
 coAxiomTyCon :: CoAxiom br -> TyCon
 coAxiomTyCon = co_ax_tc
 
-coAxBranchTyVars :: CoAxBranch -> [TyCoVar]
+coAxBranchTyVars :: CoAxBranch -> [TyVar]
 coAxBranchTyVars = cab_tvs
 
 coAxBranchLHS :: CoAxBranch -> [Type]

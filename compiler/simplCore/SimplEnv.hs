@@ -25,7 +25,7 @@ module SimplEnv (
 
         simplNonRecBndr, simplRecBndrs, simplLamBndr, simplLamBndrs,
         simplBinder, simplBinders, addBndrRules,
-        substExpr, substTy, substTyCoVar, getTCvSubst,
+        substExpr, substTy, getTCvSubst,
         substCo, substCoVar,
         mkCoreSubst,
 
@@ -51,7 +51,7 @@ import MkCore                   ( mkWildValBinder )
 import TysWiredIn
 import qualified CoreSubst
 import qualified Type
-import Type hiding              ( substTy, substTyVarBndr, substTyCoVar )
+import Type hiding              ( substTy, substTyVarBndr )
 import qualified Coercion
 import Coercion hiding          ( substCo, substCoVar, substCoVarBndr )
 import BasicTypes
@@ -736,9 +736,6 @@ getTCvSubst (SimplEnv { seInScope = in_scope, seTvSubst = tv_env, seCvSubst = cv
 
 substTy :: SimplEnv -> Type -> Type
 substTy env ty = Type.substTy (getTCvSubst env) ty
-
-substTyCoVar :: SimplEnv -> TyVar -> Type
-substTyCoVar env tv = Type.substTyCoVar (getTCvSubst env) tv
 
 substTyVarBndr :: SimplEnv -> TyVar -> (SimplEnv, TyVar)
 substTyVarBndr env tv

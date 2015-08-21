@@ -900,7 +900,7 @@ when finding the fixpoint, and that means the inferContext loop does
 not converge.  See Trac #5287.
 -}
 
-validDerivPred :: TyCoVarSet -> PredType -> Bool
+validDerivPred :: TyVarSet -> PredType -> Bool
 validDerivPred tv_set pred
   = case classifyPredType pred of
        ClassPred _ _         -> check_tys
@@ -1137,9 +1137,9 @@ checkConsistentFamInst (Just (clas, mini_env)) fam_tc at_tvs at_tys
     all_distinct subst = go [] at_tvs
        where
          go _   []       = True
-         go acc (tv:tvs) = case lookupVar subst tv of
+         go acc (tv:tvs) = case lookupTyVar subst tv of
                              Nothing -> go acc tvs
-                             Just ty | Just tv' <- tcGetTyCoVar_maybe ty
+                             Just ty | Just tv' <- tcGetTyVar_maybe ty
                                      , tv' `notElem` acc
                                      -> go (tv' : acc) tvs
                              _other -> False
@@ -1278,7 +1278,7 @@ famInstUndecErr ty msg
          nest 2 (ptext (sLit "in the type family application:") <+>
                  pprType ty)]
 
-famPatErr :: TyCon -> [TyCoVar] -> [Type] -> SDoc
+famPatErr :: TyCon -> [TyVar] -> [Type] -> SDoc
 famPatErr fam_tc tvs pats
   = hang (ptext (sLit "Family instance purports to bind type variable") <> plural tvs
           <+> pprQuotedList tvs)

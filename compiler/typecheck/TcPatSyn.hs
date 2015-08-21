@@ -86,8 +86,8 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
              prov_theta = map evVarPred prov_dicts
              req_theta  = map evVarPred req_dicts
 
-       ; univ_tvs   <- mapMaybeM zonkQuantifiedTyCoVar univ_tvs
-       ; ex_tvs     <- mapMaybeM zonkQuantifiedTyCoVar ex_tvs
+       ; univ_tvs   <- mapMaybeM zonkQuantifiedTyVar univ_tvs
+       ; ex_tvs     <- mapMaybeM zonkQuantifiedTyVar ex_tvs
 
        ; prov_theta <- zonkTcTypes prov_theta
        ; req_theta  <- zonkTcTypes req_theta
@@ -98,7 +98,7 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
        ; traceTc "tcInferPatSynDecl }" $ ppr name
        ; tc_patsyn_finish lname dir is_infix lpat'
                           (univ_tvs, req_theta, ev_binds, req_dicts)
-                          (ex_tvs, map mkTyCoVarTy ex_tvs, prov_theta, emptyTcEvBinds, prov_dicts)
+                          (ex_tvs, mkTyVarTys ex_tvs, prov_theta, emptyTcEvBinds, prov_dicts)
                           (zip args $ repeat idHsWrapper)
                           pat_ty }
 
@@ -144,9 +144,9 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
            tcPat PatSyn lpat pat_ty $ do
            { ex_sigtvs <- mapM (\tv -> newSigTyVar (getName tv) (tyVarKind tv)) ex_tvs
            ; let subst = mkTCvSubst (mkInScopeSet (zipVarEnv ex_sigtvs ex_sigtvs)) $
-                         ( zipTyEnv ex_tvs (mkOnlyTyVarTys ex_sigtvs)
+                         ( zipTyEnv ex_tvs (mkTyVarTys ex_sigtvs)
                          , emptyCvSubstEnv )
-           ; let ex_tys = substTys subst $ map mkTyCoVarTy ex_tvs
+           ; let ex_tys = substTys subst $ mkTyVarTys ex_tvs
                  prov_theta' = substTheta subst prov_theta
            ; wrapped_args <- forM (zipEqual "tcCheckPatSynDecl" arg_names arg_tys) $ \(arg_name, arg_ty) -> do
                { arg <- tcLookupId arg_name
@@ -240,10 +240,10 @@ tcPatSynMatcher (L loc name) lpat
        ; let lev_name = mkInternalName lev_uniq (mkTyVarOcc "rlev") loc
              tv_name  = mkInternalName tv_uniq (mkTyVarOcc "r") loc
              lev_tv   = mkTcTyVar lev_name levityTy   (SkolemTv False)
-             lev      = mkOnlyTyVarTy lev_tv
+             lev      = mkTyVarTy lev_tv
              res_tv   = mkTcTyVar tv_name  (tYPE lev) (SkolemTv False)
              is_unlifted = null wrapped_args && null prov_dicts
-             res_ty = mkOnlyTyVarTy res_tv
+             res_ty = mkTyVarTy res_tv
              (cont_arg_tys, cont_args)
                | is_unlifted = ([voidPrimTy], [nlHsVar voidPrimId])
                | otherwise   = unzip [ (varType arg, mkLHsWrap wrap $ nlHsVar arg)

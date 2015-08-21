@@ -162,7 +162,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                                       -- monomorphic bindings from the MR; test tc111
                   -- TODO (RAE): We probably need to subst some covars here,
                   -- but I don't know enough about RULES
-       ; qtkvs <- quantifyTyCoVars emptyVarEnv gbls forall_tkvs
+       ; qtkvs <- quantifyTyVars emptyVarEnv gbls forall_tkvs
        ; traceTc "tcRule" (vcat [ doubleQuotes (ftext $ unLoc name)
                                 , ppr forall_tkvs
                                 , ppr qtkvs

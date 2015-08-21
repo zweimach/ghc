@@ -53,13 +53,12 @@ module Coercion (
         splitTyConAppCo_maybe,
         splitAppCo_maybe,
         splitForAllCo_maybe,
-        splitForAllCo_Ty_maybe, splitForAllCo_Co_maybe,
 
         nthRole, tyConRolesX, setNominalRole_maybe,
 
         pickLR,
 
-        coBndrKindCo, coBndrWitness, setCoBndrKindCo,
+        coBndrKindCo, setCoBndrKindCo,
 
         isReflCo, isReflCo_maybe,
 
@@ -78,7 +77,7 @@ module Coercion (
         extendTCvSubstAndInScope, getCvSubstEnv,
 
         -- ** Lifting
-        liftCoSubst, liftCoSubstTyCoVar, liftCoSubstWith, liftCoSubstWithEx,
+        liftCoSubst, liftCoSubstTyVar, liftCoSubstWith, liftCoSubstWithEx,
         emptyLiftingContext, extendLiftingContext,
         liftCoSubstVarBndrCallback, isMappedByLC,
 
@@ -744,8 +743,8 @@ mkCoVarCo cv
 mkFreshCoVar :: InScopeSet -> TyVar -> TyVar -> CoVar
 mkFreshCoVar in_scope tv1 tv2 = ASSERT( isTyVar tv1 && isTyVar tv2 )
                                 mkFreshCoVarOfType in_scope $
-                                mkCoercionType Nominal (mkOnlyTyVarTy tv1)
-                                                       (mkOnlyTyVarTy tv2)
+                                mkCoercionType Nominal (mkTyVarTy tv1)
+                                                       (mkTyVarTy tv2)
 
 -- | Like 'mkFreshCoVar', but for a Representational covar.
 mkFreshReprCoVar :: InScopeSet -> Type -> Type -> CoVar
@@ -1237,11 +1236,6 @@ mkForAllCoBndr co tv1 tv2 cv
         -- Note [Heterogeneous type matching] in Unify. A problem here
         -- will get caught in CoreLint anyway.
 
--- | Gets a 'Coercion' that proves that the two variables bound
--- in this ForAllCoBndr are nominally equal
-coBndrWitness :: ForAllCoBndr -> Coercion
-coBndrWitness (ForAllCoBndr _   _   _   cv) = mkCoVarCo cv
-
 -- | Extracts a coercion that witnesses the equality between a 'ForAllCoBndr''s
 -- type variables' kinds.
 coBndrKindCo :: ForAllCoBndr -> Coercion
@@ -1397,7 +1391,7 @@ mkNewTypeCo name tycon tvs roles rhs_ty
   where branch = CoAxBranch { cab_loc = getSrcSpan name
                             , cab_tvs = tvs
                             , cab_cvs = []
-                            , cab_lhs = mkTyCoVarTys tvs
+                            , cab_lhs = mkTyVarTys tvs
                             , cab_roles   = roles
                             , cab_rhs     = rhs_ty
                             , cab_incomps = [] }
@@ -1406,8 +1400,8 @@ mkPiCos :: Role -> [Var] -> Coercion -> Coercion
 mkPiCos r vs co = foldr (mkPiCo r) co vs
 
 mkPiCo  :: Role -> Var -> Coercion -> Coercion
-mkPiCo r v co | isTyVar v || isCoVar v = mkHomoForAllCos r [v] co
-              | otherwise              = mkFunCo r (mkReflCo r (varType v)) co
+mkPiCo r v co | isTyVar v = mkHomoForAllCos r [v] co
+              | otherwise = mkFunCo r (mkReflCo r (varType v)) co
 
 -- The second coercion is sometimes lifted (~) and sometimes unlifted (~#).
 -- So, we have to make sure to supply the right parameter to decomposeCo.
@@ -1678,7 +1672,7 @@ ty_co_subst lc@(LC _ env) role ty
     go :: Role -> Type -> Coercion
     go Phantom ty        = lift_phantom ty
     go r ty | tyCoVarsOfType ty `isNotInDomainOf` env = mkReflCo r ty
-    go r (TyVarTy tv)      = case liftCoSubstTyCoVar lc r tv of
+    go r (TyVarTy tv)      = case liftCoSubstTyVar lc r tv of
                                Just co -> co
                                Nothing -> pprPanic "ty_co_subst" (vcat [ppr tv, ppr env])
                                -- TODO (RAE): make the typeKind more efficient
@@ -1710,11 +1704,11 @@ ty_co_subst lc@(LC _ env) role ty
                                   (substTy (lcSubstRight lc) ty)
 
 {-
-Note [liftCoSubstTyCoVar]
+Note [liftCoSubstTyVar]
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 This function can fail if a coercion in the environment is of too low a role.
 
-liftCoSubstTyCoVar is called from two places: in liftCoSubst (naturally), and
+liftCoSubstTyVar is called from two places: in liftCoSubst (naturally), and
 also in matchAxiom in OptCoercion. From liftCoSubst, the so-called lifting
 lemma guarantees that the roles work out. If we fail in this
 case, we really should panic -- something is deeply wrong. But, in matchAxiom,
@@ -1722,14 +1716,14 @@ failing is fine. matchAxiom is trying to find a set of coercions
 that match, but it may fail, and this is healthy behavior.
 -}
 
--- See Note [liftCoSubstTyCoVar]
-liftCoSubstTyCoVar :: LiftingContext -> Role -> TyCoVar -> Maybe Coercion
-liftCoSubstTyCoVar (LC _ env) r v
+-- See Note [liftCoSubstTyVar]
+liftCoSubstTyVar :: LiftingContext -> Role -> TyVar -> Maybe Coercion
+liftCoSubstTyVar (LC _ env) r v
   | Just co_arg <- lookupVarEnv env v
   = downgradeRole_maybe r (coercionRole co_arg) co_arg
 
   | otherwise
-  = Just $ mkReflCo r (mkTyCoVarTy v)
+  = Just $ mkReflCo r (mkTyVarTy v)
 
 liftCoSubstVarBndr :: Role -> LiftingContext -> TyVar
                    -> (LiftingContext, ForAllCoBndr)
@@ -2200,7 +2194,7 @@ mkGADTVars tmpl_tvs dc_tvs subst
     choose univs eqs _     r_sub []
       = (reverse univs, reverse eqs, r_sub)
     choose univs eqs t_sub r_sub (t_tv:t_tvs)
-      | Just r_ty <- lookupVar subst t_tv
+      | Just r_ty <- lookupTyVar subst t_tv
       = case getTyVar_maybe r_ty of
           Just r_tv
             |  not (r_tv `elem` univs)
@@ -2212,11 +2206,11 @@ mkGADTVars tmpl_tvs dc_tvs subst
             where
               r_tv1  = setTyVarName r_tv (choose_tv_name r_tv t_tv)
               r_tv'  = setTyVarKind r_tv1 (substTy t_sub (tyVarKind t_tv))
-              r_ty'  = mkOnlyTyVarTy r_tv'
+              r_ty'  = mkTyVarTy r_tv'
 
                -- not a simple substitution. make an equality predicate
           _ -> choose (t_tv':univs) (mkEqSpec t_tv' r_ty : eqs)
-                      (extendTCvSubst t_sub t_tv (mkOnlyTyVarTy t_tv'))
+                      (extendTCvSubst t_sub t_tv (mkTyVarTy t_tv'))
                       r_sub t_tvs
             where t_tv' = updateTyVarKind (substTy t_sub) t_tv
 
@@ -2264,7 +2258,7 @@ buildCoherenceCoX = go
 
     go env (TyVarTy tv1) (TyVarTy tv2)
       | rnOccL env tv1 == rnOccR env tv2
-      = Just $ mkNomReflCo (mkOnlyTyVarTy $ rnOccL env tv1)
+      = Just $ mkNomReflCo (mkTyVarTy $ rnOccL env tv1)
     go env (AppTy tyl1 tyr1) (AppTy tyl2 tyr2)
       = mkAppCo <$> go env tyl1 tyl2
                       -- TODO (RAE): This next line is inefficient
@@ -2309,7 +2303,7 @@ rename_co :: (RnEnv2 -> VarEnv Var) -> RnEnv2 -> Coercion -> Coercion
 rename_co getvars env = substCo subst
   where varenv = getvars env
         (ty_env, co_env) = partitionVarEnv isTyVar varenv
-        tv_subst_env = mapVarEnv mkOnlyTyVarTy ty_env
-        cv_subst_env = mapVarEnv mkCoVarCo     co_env
+        tv_subst_env = mapVarEnv mkTyVarTy ty_env
+        cv_subst_env = mapVarEnv mkCoVarCo co_env
 
         subst = mkTCvSubst (rnInScopeSet env) (tv_subst_env, cv_subst_env)

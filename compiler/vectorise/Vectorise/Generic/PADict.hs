@@ -106,7 +106,7 @@ buildPADict vect_tc prepr_ax pdata_tc pdatas_tc repr
       }
   where
     tvs          = tyConTyVars vect_tc
-    arg_tys      = mkOnlyTyVarTys tvs
+    arg_tys      = mkTyVarTys tvs
     inst_ty      = mkTyConApp vect_tc arg_tys
     vect_tc_name = getName vect_tc
 

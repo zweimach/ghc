@@ -47,7 +47,7 @@ buildDataFamInst name' fam_tc vect_tc rhs
 
       ; (_, tyvars') <- liftDs $ tcInstSigTyVarsLoc (getSrcSpan name') tyvars
       ; let ax       = mkSingleCoAxiom axiom_name tyvars' fam_tc pat_tys rep_ty
-            tys'     = mkTyCoVarTys tyvars'
+            tys'     = mkTyVarTys tyvars'
             rep_ty   = mkTyConApp rep_tc tys'
             pat_tys  = [mkTyConApp vect_tc tys']
             rep_tc   = mkAlgTyCon name'
@@ -86,7 +86,7 @@ buildPDataDataCon orig_name vect_tc repr_tc repr
                             []                     -- no eq spec
                             []                     -- no context
                             comp_tys
-                            (mkFamilyTyConApp repr_tc (mkOnlyTyVarTys tvs))
+                            (mkFamilyTyConApp repr_tc (mkTyVarTys tvs))
                             repr_tc
 
 
@@ -125,7 +125,7 @@ buildPDatasDataCon orig_name vect_tc repr_tc repr
                             []                     -- no eq spec
                             []                     -- no context
                             comp_tys
-                            (mkFamilyTyConApp repr_tc (mkOnlyTyVarTys tvs))
+                            (mkFamilyTyConApp repr_tc (mkTyVarTys tvs))
                             repr_tc
 
 
@@ -156,5 +156,5 @@ mkSumTys repr_selX_ty mkTc repr
 {-
 mk_fam_inst :: TyCon -> TyCon -> (TyCon, [Type])
 mk_fam_inst fam_tc arg_tc
-  = (fam_tc, [mkTyConApp arg_tc . mkOnlyTyVarTys $ tyConTyVars arg_tc])
+  = (fam_tc, [mkTyConApp arg_tc . mkTyVarTys $ tyConTyVars arg_tc])
 -}

@@ -849,7 +849,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   -- generalised it).  So presumably it is an *untouchable*
   -- meta tyvar or a SigTv, else it'd have been unified
   | not (k2 `tcEqKind` k1)       -- Kind error
-  = mkErrorMsg ctxt ct $ (kindErrorMsg (mkTyCoVarTy tv1) ty2 $$ extra)
+  = mkErrorMsg ctxt ct $ (kindErrorMsg (mkTyVarTy tv1) ty2 $$ extra)
 
   | OC_Occurs <- occ_check_expand
   , NomEq <- ctEqRel ct      -- reporting occurs check for Coercible is strange
@@ -911,7 +911,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
        ; mkErrorMsg ctxt ct (vcat [msg, tclvl_extra, tv_extra, add_sig, extra]) }
 
   | otherwise
-  = reportEqErr ctxt extra ct oriented (mkTyCoVarTy tv1) ty2
+  = reportEqErr ctxt extra ct oriented (mkTyVarTy tv1) ty2
         -- This *can* happen (Trac #6123, and test T2627b)
         -- Consider an ambiguous top-level constraint (a ~ F a)
         -- Not an occurs check, because F is a type function.
@@ -919,7 +919,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
     occ_check_expand = occurCheckExpand dflags tv1 ty2
     k1     = tyVarKind tv1
     k2     = typeKind ty2
-    ty1    = mkTyCoVarTy tv1
+    ty1    = mkTyVarTy tv1
     eq_rel = ctEqRel ct
     t_or_k = ctOriginTypeOrKind (ctLocOrigin (ctLoc ct))
 

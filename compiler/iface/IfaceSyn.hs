@@ -1207,9 +1207,9 @@ freeNamesIfForAllBndr :: IfaceForAllBndr -> NameSet
 freeNamesIfForAllBndr (IfaceTv tv _) = freeNamesIfTvBndr tv
 
 freeNamesIfForAllCoBndr :: IfaceForAllCoBndr -> NameSet
-freeNamesIfForAllCoBndr (IfaceCoBndr h tv1 tv2 m_cv)
-  = freeNamesIfCoercion h &&& freeNamesIfTvBndrs [tv1, tv2]
-    &&& maybe emptyNameSet freeNamesIfIdBndr m_cv
+freeNamesIfForAllCoBndr (IfaceCoBndr h tv1 tv2 cv)
+  = freeNamesIfCoercion h &&& freeNamesIfTvBndrs [tv1, tv2] &&&
+    freeNamesIfIdBndr cv
 
 freeNamesIfBndr :: IfaceBndr -> NameSet
 freeNamesIfBndr (IfaceIdBndr b) = freeNamesIfIdBndr b

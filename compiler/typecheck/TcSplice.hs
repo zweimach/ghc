@@ -1188,7 +1188,7 @@ reifyThing (ATcId {tct_id = id})
         ; return (TH.VarI (reifyName id) ty2 Nothing fix) }
 
 reifyThing (ATyVar tv tv1)
-  = do { ty1 <- zonkTcTyCoVar tv1
+  = do { ty1 <- zonkTcTyVar tv1
        ; ty2 <- reifyType ty1
        ; return (TH.TyVarI (reifyName tv) ty2) }
 
@@ -1224,7 +1224,7 @@ reifyTyCon tc
                                              mono_kind
        ; kind' <- fmap Just (reifyKind res_kind)
 
-       ; tvs' <- reifyTyCoVars tvs (Just tc)
+       ; tvs' <- reifyTyVars tvs (Just tc)
        ; flav' <- reifyFamFlavour tc
        ; case flav' of
          { Left flav ->  -- open type/data family
@@ -1241,7 +1241,7 @@ reifyTyCon tc
 
   | Just (tvs, rhs) <- synTyConDefn_maybe tc  -- Vanilla type synonym
   = do { rhs' <- reifyType rhs
-       ; tvs' <- reifyTyCoVars tvs (Just tc)
+       ; tvs' <- reifyTyVars tvs (Just tc)
        ; return (TH.TyConI
                    (TH.TySynD (reifyName tc) tvs' rhs'))
        }
@@ -1249,8 +1249,8 @@ reifyTyCon tc
   | otherwise
   = do  { cxt <- reifyCxt (tyConStupidTheta tc)
         ; let tvs = tyConTyVars tc
-        ; cons <- mapM (reifyDataCon (mkOnlyTyVarTys tvs)) (tyConDataCons tc)
-        ; r_tvs <- reifyTyCoVars tvs (Just tc)
+        ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons tc)
+        ; r_tvs <- reifyTyVars tvs (Just tc)
         ; let name = reifyName tc
               deriv = []        -- Don't know about deriving
               decl | isNewTyCon tc = TH.NewtypeD cxt name r_tvs (head cons) deriv
@@ -1299,7 +1299,7 @@ reifyClass cls
         ; inst_envs <- tcGetInstEnvs
         ; insts <- reifyClassInstances cls (InstEnv.classInstances inst_envs cls)
         ; ops <- concatMapM reify_op op_stuff
-        ; tvs' <- reifyTyCoVars tvs (Just $ classTyCon cls)
+        ; tvs' <- reifyTyVars tvs (Just $ classTyCon cls)
         ; let dec = TH.ClassD cxt (reifyName cls) tvs' fds' ops
         ; return (TH.ClassI dec insts ) }
   where
@@ -1401,8 +1401,8 @@ reifyFamilyInstance is_poly_tvs inst@(FamInst { fi_flavor = flavor
                    -- in TcInstDcls
                  (_rep_tc, rep_tc_args) = splitTyConApp rhs
                  etad_tyvars            = dropList rep_tc_args tvs
-                 eta_expanded_lhs = lhs `chkAppend` mkOnlyTyVarTys etad_tyvars
-           ; cons <- mapM (reifyDataCon (mkOnlyTyVarTys tvs)) (tyConDataCons rep_tc)
+                 eta_expanded_lhs = lhs `chkAppend` mkTyVarTys etad_tyvars
+           ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons rep_tc)
            ; let types_only = filterInvisibles fam_tc eta_expanded_lhs
            ; th_tys <- reifyTypes types_only
            ; annot_th_tys <- zipWith3M annotThType is_poly_tvs types_only th_tys
@@ -1432,7 +1432,7 @@ reify_for_all :: Type.Type -> TcM TH.Type
 reify_for_all ty
   = do { cxt' <- reifyCxt cxt;
        ; tau' <- reifyType tau
-       ; tvs' <- reifyTyCoVars tvs Nothing
+       ; tvs' <- reifyTyVars tvs Nothing
        ; return (TH.ForallT tvs' cxt' tau') }
   where
     (tvs, cxt, tau) = tcSplitSigmaTy ty
@@ -1496,11 +1496,11 @@ reifyFamFlavour tc
   | otherwise
   = panic "TcSplice.reifyFamFlavour: not a type family"
 
-reifyTyCoVars :: [TyCoVar]
-              -> Maybe TyCon  -- the tycon if the tycovars are from a tycon.
-                              -- Used to detect which tvs are implicit.
-              -> TcM [TH.TyVarBndr]
-reifyTyCoVars tvs m_tc = mapM reify_tv tvs'
+reifyTyVars :: [TyVar]
+            -> Maybe TyCon  -- the tycon if the tycovars are from a tycon.
+                            -- Used to detect which tvs are implicit.
+            -> TcM [TH.TyVarBndr]
+reifyTyVars tvs m_tc = mapM reify_tv tvs'
   where
     tvs' = case m_tc of
              Just tc -> filterInvisibles tc tvs
@@ -1509,8 +1509,7 @@ reifyTyCoVars tvs m_tc = mapM reify_tv tvs'
     -- even if the kind is *, we need to include a kind annotation,
     -- in case a poly-kind would be inferred without the annotation.
     -- See #8953 or test th/T8953
-    reify_tv tv | not (isTyVar tv)      = noTH (sLit "coercion variables") (ppr tv)
-                | otherwise             = TH.KindedTV name <$> reifyKind kind
+    reify_tv tv = TH.KindedTV name <$> reifyKind kind
       where
         kind = tyVarKind tv
         name = reifyName tv

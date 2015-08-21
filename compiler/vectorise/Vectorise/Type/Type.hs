@@ -11,8 +11,8 @@ import Vectorise.Utils
 import Vectorise.Monad
 import Vectorise.Builtins
 import TcType
-import Type     hiding ( lookupVar )
-import TyCoRep  hiding ( lookupVar )
+import Type
+import TyCoRep
 import TyCon
 import Control.Monad
 import Control.Applicative

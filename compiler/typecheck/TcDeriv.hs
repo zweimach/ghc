@@ -577,7 +577,7 @@ deriveTyDecl (L _ decl@(DataDecl { tcdLName = L _ tc_name
   = tcAddDeclCtxt decl $
     do { tc <- tcLookupTyCon tc_name
        ; let tvs  = tyConTyVars tc
-             tys  = mkOnlyTyVarTys tvs
+             tys  = mkTyVarTys tvs
 
        ; case preds of
           Just (L _ preds') -> concatMapM (deriveTyData False tvs tc tys) preds'
@@ -1093,7 +1093,7 @@ mkPolyKindedTypeableEqn cls tc
                              , ds_newtype = Nothing } }
         where
           (kvs,tc_app_kind) = splitNamedForAllTys (tyConKind tc)
-          tc_args = mkTyCoVarTys kvs  -- tc could have covars if it's a promoted datacon
+          tc_args = mkTyVarTys kvs
           tc_app  = mkTyConApp tc tc_args
 
 inferConstraints :: Class -> [TcType]
@@ -1151,7 +1151,7 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
     rep_tc_tvs = tyConTyVars rep_tc
     last_tv = last rep_tc_tvs
     all_rep_tc_args | cls `hasKey` gen1ClassKey || is_functor_like
-                      = rep_tc_args ++ [mkOnlyTyVarTy last_tv]
+                      = rep_tc_args ++ [mkTyVarTy last_tv]
                     | otherwise       = rep_tc_args
 
         -- Constraints arising from superclasses
@@ -1863,7 +1863,7 @@ extendLocalInstEnv dfuns thing_inside
 -}
 
 simplifyDeriv :: PredType
-              -> [TyCoVar]
+              -> [TyVar]
               -> ThetaOrigin      -- Wanted
               -> TcM ThetaType  -- Needed
 -- Given  instance (wanted) => C inst_ty
@@ -1876,7 +1876,7 @@ simplifyDeriv pred tvs theta
                 -- We use *non-overlappable* (vanilla) skolems
                 -- See Note [Overlap and deriving]
 
-       ; let subst_skol = zipTopTCvSubst tvs_skols $ mkOnlyTyVarTys tvs
+       ; let subst_skol = zipTopTCvSubst tvs_skols $ mkTyVarTys tvs
              skol_set   = mkVarSet tvs_skols
              doc = ptext (sLit "deriving") <+> parens (ppr pred)
 

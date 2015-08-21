@@ -18,9 +18,8 @@ module Type (
         Var, TyVar, isTyVar, TyCoVar, Binder, TyLit(..),
 
         -- ** Constructing and deconstructing types
-        mkOnlyTyVarTy, mkOnlyTyVarTys, getTyVar, getTyVar_maybe, repGetTyVar_maybe,
+        mkTyVarTy, mkTyVarTys, getTyVar, getTyVar_maybe, repGetTyVar_maybe,
         getCastedTyVar_maybe,
-        getTyCoVar_maybe, mkTyCoVarTy, mkTyCoVarTys,
 
         mkAppTy, mkAppTys, splitAppTy, splitAppTys,
         splitAppTy_maybe, repSplitAppTy_maybe,
@@ -38,7 +37,7 @@ module Type (
         mkNamedForAllTy,
         splitForAllTy_maybe, splitForAllTys, splitForAllTy,
         splitNamedForAllTys, splitNamedForAllTysB,
-        mkPiType, mkPiTypes, mkPiTypesNoTv, mkPiTypesPreferFunTy,
+        mkPiType, mkPiTypes, mkPiTypesPreferFunTy,
         piResultTy, piResultTys,
         applyTys, applyTysD, applyTysX, isForAllTy, dropForAlls,
 
@@ -89,7 +88,7 @@ module Type (
         funTyCon,
 
         -- ** Predicates on types
-        isTyCoVarTy, allDistinctTyVars,
+        allDistinctTyVars,
         isTyVarTy, isFunTy, isDictTy, isPredTy, isVoidTy, isCoercionTy,
         isCoercionTy_maybe, isCoercionType, isNamedForAllTy,
 
@@ -153,8 +152,8 @@ module Type (
 
         -- ** Performing substitution on types and kinds
         substTy, substTys, substTyWith, substTysWith, substTheta,
-        substTyCoVar, substTyCoVars, substTyVarBndr, substTyCoVarBndr,
-        cloneTyVarBndr, lookupTyVar, lookupVar, substTelescope,
+        substTyVarBndr,
+        cloneTyVarBndr, lookupTyVar, substTelescope,
 
         -- * Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTyThingCategory, pprTyThing,
@@ -552,9 +551,6 @@ getTyVar msg ty = case getTyVar_maybe ty of
 isTyVarTy :: Type -> Bool
 isTyVarTy ty = isJust (getTyVar_maybe ty)
 
-isTyCoVarTy :: Type -> Bool
-isTyCoVarTy ty = isJust (getTyCoVar_maybe ty)
-
 -- | Attempts to obtain the type variable underlying a 'Type'
 getTyVar_maybe :: Type -> Maybe TyVar
 getTyVar_maybe ty | Just ty' <- coreView ty = getTyVar_maybe ty'
@@ -574,13 +570,6 @@ getCastedTyVar_maybe _                            = Nothing
 repGetTyVar_maybe :: Type -> Maybe TyVar
 repGetTyVar_maybe (TyVarTy tv) = Just tv
 repGetTyVar_maybe _            = Nothing
-
--- | Attempts to obtain the type or coercion variable underlying a 'Type'
-getTyCoVar_maybe :: Type -> Maybe TyCoVar
-getTyCoVar_maybe ty | Just ty' <- coreView ty = getTyCoVar_maybe ty'
-getTyCoVar_maybe (TyVarTy tv)                 = Just tv
-getTyCoVar_maybe (CoercionTy (CoVarCo cv))    = Just cv
-getTyCoVar_maybe _                            = Nothing
 
 allDistinctTyVars :: [KindOrType] -> Bool
 allDistinctTyVars tkvs = go emptyVarSet tkvs
@@ -1127,11 +1116,13 @@ mkForAllTys tyvars ty = ASSERT( all isTyVar tyvars )
 -- | Like mkForAllTys, but assumes all variables are dependent and invisible,
 -- a common case
 mkInvForAllTys :: [TyVar] -> Type -> Type
-mkInvForAllTys tvs = mkForAllTys (map (flip Named Invisible) tvs)
+mkInvForAllTys tvs = ASSERT( all isTyVar tvs )
+                     mkForAllTys (map (flip Named Invisible) tvs)
 
 -- | Like mkForAllTys, but assumes all variables are dependent and visible
-mkVisForAllTys :: [TyCoVar] -> Type -> Type
-mkVisForAllTys tvs = mkForAllTys (map (flip Named Visible) tvs)
+mkVisForAllTys :: [TyVar] -> Type -> Type
+mkVisForAllTys tvs = ASSERT( all isTyVar tvs )
+                     mkForAllTys (map (flip Named Visible) tvs)
 
   -- TODO (RAE): should these ever produce Explicit?
 mkPiType  :: Var -> Type -> Type
@@ -1178,7 +1169,7 @@ splitForAllTys ty = split ty ty []
 
 -- | Like 'splitForAllTys' but split off only /named/ binders, returning
 -- only the tycovars.
-splitNamedForAllTys :: Type -> ([TyCoVar], Type)
+splitNamedForAllTys :: Type -> ([TyVar], Type)
 splitNamedForAllTys ty = first (map $ binderVar "splitNamedForAllTys") $
                          splitNamedForAllTysB ty
 
@@ -1361,15 +1352,15 @@ binderRelevantType_maybe (Named {}) = Nothing
 binderRelevantType_maybe (Anon ty)  = Just ty
 
 -- | Like 'maybe', but for binders.
-caseBinder :: Binder      -- ^ binder to scrutinize
-           -> (Var -> a)  -- ^ named case
-           -> (Type -> a) -- ^ anonymous case
+caseBinder :: Binder       -- ^ binder to scrutinize
+           -> (TyVar -> a) -- ^ named case
+           -> (Type -> a)  -- ^ anonymous case
            -> a
 caseBinder (Named v _) f _ = f v
 caseBinder (Anon t) _ d    = d t
 
--- | Break apart a list of binders into ty/co vars and anonymous types.
-partitionBinders :: [Binder] -> ([TyCoVar], [Type])
+-- | Break apart a list of binders into tyvars and anonymous types.
+partitionBinders :: [Binder] -> ([TyVar], [Type])
 partitionBinders = partitionWith named_or_anon
   where
     named_or_anon bndr = caseBinder bndr Left Right
@@ -2171,7 +2162,7 @@ tyConsOfType ty
 -- Actually this function works fine on data types too,
 -- but they'd always return '*', so we never need to ask
 synTyConResKind :: TyCon -> Kind
-synTyConResKind tycon = piResultTys (tyConKind tycon) (mkOnlyTyVarTys (tyConTyVars tycon))
+synTyConResKind tycon = piResultTys (tyConKind tycon) (mkTyVarTys (tyConTyVars tycon))
 
 -- | Retrieve the free variables in this type, splitting them based
 -- on whether the variable was used in a dependent context. It's possible

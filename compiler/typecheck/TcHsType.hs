@@ -667,7 +667,7 @@ tcInferArgs keep_insting orig_ty ki args n0
   = do { traceTc "tcInferApps" (ppr ki $$ ppr args)
        ; go emptyTCvSubst ki args n0 [] }
   where
-    -- TODO (RAE): Update when updating tcInstTyCoVars
+    -- TODO (RAE): Update when updating tcInstTyVars
     go subst fun_kind []   n acc
       | not keep_insting
       = return ( substTy subst fun_kind, reverse acc, [], n )
@@ -743,7 +743,7 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
   = do { traceTc "lk1" (ppr name)
        ; thing <- tcLookup name
        ; case thing of
-           ATyVar _ tv -> return (mkTyCoVarTy tv, tyVarKind tv)
+           ATyVar _ tv -> return (mkTyVarTy tv, tyVarKind tv)
 
            AThing kind -> do { tc <- get_loopy_tc name
                              ; return (mkNakedTyConApp tc [], kind) }
@@ -995,7 +995,8 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thi
                 -- contain both *mentioned* kind vars and *unmentioned* kind
                 -- vars (See case (1) under Note [Typechecking telescopes])
              gen_kind  = if cusk
-                         then mkInvForAllTys kvs $ full_kind
+                         then ASSERT( all isTyVar kvs )  -- nowhere for a cv to come from
+                              mkInvForAllTys kvs $ full_kind
                          else full_kind
        ; return (gen_kind, stuff) } }
   where
@@ -1100,7 +1101,7 @@ new_skolem_tv n k = mkTcTyVar n k vanillaSkolemTv
 kindGeneralize :: CvSubstEnv -> TyVarSet -> TcM [KindVar]
 kindGeneralize co_env tkvs
   = do { gbl_tvs <- tcGetGlobalTyVars -- Already zonked
-       ; quantifyTyCoVars co_env gbl_tvs (tkvs, emptyVarSet) }
+       ; quantifyTyVars co_env gbl_tvs (tkvs, emptyVarSet) }
 
 {-
 Note [Kind generalisation]

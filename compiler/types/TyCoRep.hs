@@ -32,8 +32,8 @@ module TyCoRep (
         UnivCoProvenance(..),
 
         -- Functions over types
-        mkTyConTy, mkOnlyTyVarTy, mkOnlyTyVarTys,
-        mkTyCoVarTy, mkTyCoVarTys, mkFunTy,
+        mkTyConTy, mkTyVarTy, mkTyVarTys,
+        mkFunTy,
         isLiftedTypeKind, isUnliftedTypeKind,
         isCoercionType, isLevityTy, isLevityVar,
 
@@ -78,10 +78,10 @@ module TyCoRep (
         substTyWith, substTyWithCoVars, substTysWith, substTysWithCoVars,
         substTy,
         substTyWithBinders,
-        substTys, substTheta, substTyCoVar, substTyCoVars,
-        lookupTyVar, lookupVar, substTyVarBndr,
+        substTys, substTheta,
+        lookupTyVar, substTyVarBndr,
         substCo, substCos, substCoVar, substCoVars, lookupCoVar,
-        substTyCoVarBndr, substCoVarBndr, cloneTyVarBndr,
+        substCoVarBndr, cloneTyVarBndr,
         substTyVar, substTyVars,
         substForAllCoBndr,
         substTyVarBndrCallback, substForAllCoBndrCallback,
@@ -392,22 +392,12 @@ which in turn is imported by Type
 -}
 
 -- named with "Only" to prevent naive use of mkTyVarTy
-mkOnlyTyVarTy  :: TyVar   -> Type
-mkOnlyTyVarTy v = ASSERT2( isTyVar v, ppr v <+> dcolon <+> ppr (tyVarKind v) )
+mkTyVarTy  :: TyVar   -> Type
+mkTyVarTy v = ASSERT2( isTyVar v, ppr v <+> dcolon <+> ppr (tyVarKind v) )
                   TyVarTy v
 
-mkOnlyTyVarTys :: [TyVar] -> [Type]
-mkOnlyTyVarTys = map mkOnlyTyVarTy -- a common use of mkOnlyTyVarTy
-
-mkTyCoVarTy :: TyCoVar -> Type
-mkTyCoVarTy v
-  | isTyVar v
-  = TyVarTy v
-  | otherwise
-  = CoercionTy (CoVarCo v)
-
-mkTyCoVarTys :: [TyCoVar] -> [Type]
-mkTyCoVarTys = map mkTyCoVarTy
+mkTyVarTys :: [TyVar] -> [Type]
+mkTyVarTys = map mkTyVarTy -- a common use of mkTyVarTy
 
 infixr 3 `mkFunTy`      -- Associates to the right
 -- | Make an arrow type
@@ -591,10 +581,10 @@ data Coercion
 -- If you edit this type, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data ForAllCoBndr
-  = ForAllCoBndr Coercion TyCoVar TyCoVar CoVar
+  = ForAllCoBndr Coercion TyVar TyVar CoVar
       -- ^ The role on the coercion matches that of the coercion this is
       -- embedded in. The role on the CoVar is always N.
-      -- The two @TyCoVar@s must be distinct.
+      -- The two @TyVar@s must be distinct.
   deriving (Data.Data, Data.Typeable)
 
 -- returns the variables bound in a ForAllCoBndr
@@ -1274,7 +1264,7 @@ This invariant has several crucial consequences:
         - if the unique has changed
         - or if the kind has changed
 
-* In substTyCoVar, we do not need to consult the in-scope set;
+* In substTyVar, we do not need to consult the in-scope set;
   the TvSubstEnv is enough
 
 * In substTy, substTheta, we can short-circuit when the TvSubstEnv is empty
@@ -1481,7 +1471,7 @@ zipOpenTCvSubstBinders bndrs tys
 
 -- | Called when doing top-level substitutions. Here we expect that the
 -- free vars of the range of the substitution will be empty.
-mkTopTCvSubst :: [(TyVar, Type)] -> TCvSubst
+mkTopTCvSubst :: [(TyCoVar, Type)] -> TCvSubst
 mkTopTCvSubst prs = TCvSubst emptyInScopeSet tenv cenv
   where (tenv, cenv) = foldl extend (emptyTvSubstEnv, emptyCvSubstEnv) prs
         extend envs (v, ty) = extendSubstEnvs envs v ty
@@ -1640,7 +1630,7 @@ subst_ty :: TCvSubst -> Type -> Type
 subst_ty subst ty
    = go ty
   where
-    go (TyVarTy tv)      = substTyCoVar subst tv
+    go (TyVarTy tv)      = substTyVar subst tv
     go (AppTy fun arg)   = mkAppTy (go fun) $! (go arg)
                 -- The mkAppTy smart constructor is important
                 -- we might be replacing (a Int), represented with App
@@ -1668,41 +1658,11 @@ substTyVar (TCvSubst _ tenv _) tv
 substTyVars :: TCvSubst -> [TyVar] -> [Type]
 substTyVars subst = map $ substTyVar subst
 
-substTyCoVars :: TCvSubst -> [TyCoVar] -> [Type]
-substTyCoVars subst = map $ substTyCoVar subst
-
--- See Note [Apply Once]
-substTyCoVar :: TCvSubst -> TyCoVar -> Type
-substTyCoVar (TCvSubst _ tenv cenv) tv
-  | isTyVar tv
-  = case lookupVarEnv tenv tv of
-      Just ty -> ty
-      Nothing -> TyVarTy tv
-  | otherwise
-  = case lookupVarEnv cenv tv of
-      Just co -> CoercionTy co
-      Nothing -> CoercionTy (CoVarCo tv)
-  -- We do not require that the tyvar is in scope
-  -- Reason: we do quite a bit of (substTyWith [tv] [ty] tau)
-  -- and it's a nuisance to bring all the free vars of tau into
-  -- scope --- and then force that thunk at every tyvar
-  -- Instead we have an ASSERT in substTyVarBndr to check for capture
-
-
 lookupTyVar :: TCvSubst -> TyVar  -> Maybe Type
         -- See Note [Extending the TCvSubst]
 lookupTyVar (TCvSubst _ tenv _) tv
   = ASSERT( isTyVar tv )
     lookupVarEnv tenv tv
-
-lookupVar :: TCvSubst -> TyCoVar -> Maybe Type
-lookupVar (TCvSubst _ tenv cenv) tv
-  | isTyVar tv
-  = lookupVarEnv tenv tv
-  | Just co <- lookupVarEnv cenv tv
-  = Just (CoercionTy co)
-  | otherwise
-  = Nothing
 
 -- | Substitute within a 'Coercion'
 substCo :: TCvSubst -> Coercion -> Coercion
@@ -1845,7 +1805,7 @@ cloneTyVarBndr :: TCvSubst -> TyVar -> Unique -> (TCvSubst, TyVar)
 cloneTyVarBndr (TCvSubst in_scope tv_env cv_env) tv uniq
   | isTyVar tv
   = (TCvSubst (extendInScopeSet in_scope tv')
-              (extendVarEnv tv_env tv (mkOnlyTyVarTy tv')) cv_env, tv')
+              (extendVarEnv tv_env tv (mkTyVarTy tv')) cv_env, tv')
   | otherwise
   = (TCvSubst (extendInScopeSet in_scope tv')
               tv_env (extendVarEnv cv_env tv (mkCoVarCo tv')), tv')

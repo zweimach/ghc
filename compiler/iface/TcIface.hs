@@ -497,7 +497,7 @@ tc_ax_branch prev_branches
                           , cab_incomps = map (prev_branches `getNth`) incomps }
     ; return (prev_branches ++ [br]) }
 
-tcIfaceDataCons :: Name -> TyCon -> [TyCoVar] -> IfaceConDecls -> IfL AlgTyConRhs
+tcIfaceDataCons :: Name -> TyCon -> [TyVar] -> IfaceConDecls -> IfL AlgTyConRhs
 tcIfaceDataCons tycon_name tycon tc_tyvars if_cons
   = case if_cons of
         IfAbstractTyCon dis -> return (AbstractTyCon dis)
@@ -535,8 +535,8 @@ tcIfaceDataCons tycon_name tycon tc_tyvars if_cons
 
         -- Remember, tycon is the representation tycon
         ; let orig_res_ty = mkFamilyTyConApp tycon
-                                (substTyCoVars (mkTopTCvSubst (map eqSpecPair eq_spec))
-                                               tc_tyvars)
+                                (substTyVars (mkTopTCvSubst (map eqSpecPair eq_spec))
+                                             tc_tyvars)
 
         ; con <- buildDataCon (pprPanic "tcIfaceDataCons: FamInstEnvs" (ppr name))
                        name is_infix
@@ -1318,10 +1318,6 @@ bindIfaceBndrCo (IfaceCoBndr co tv1 tv2 cv) thing_inside
          bindIfaceTyVar tv2 $ \tv2' ->
          bindIfaceId    cv  $ \cv'  ->
          thing_inside (mkForAllCoBndr co' tv1' tv2' cv') }
-  where
-    maybe_bindIfaceId Nothing   thing_inside = thing_inside Nothing
-    maybe_bindIfaceId (Just cv) thing_inside
-      = bindIfaceId cv $ \cv' -> thing_inside (Just cv')
 
 bindIfaceTyVar :: IfaceTvBndr -> (TyVar -> IfL a) -> IfL a
 bindIfaceTyVar (occ,kind) thing_inside

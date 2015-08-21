@@ -32,7 +32,7 @@ module TcType (
   UserTypeCtxt(..), pprUserTypeCtxt, pprSigCtxt,
   TcTyVarDetails(..), pprTcTyVarDetails, vanillaSkolemTv, superSkolemTv,
   MetaDetails(Flexi, Indirect), MetaInfo(..),
-  isImmutableTyVar, isSkolemTyVar, isSkolemTyCoVar,
+  isImmutableTyVar, isSkolemTyVar,
   isMetaTyVar,  isMetaTyVarTy, isTyVarTy, isReturnTyVar,
   isSigTyVar, isOverlappableTyVar,  isTyConableTyVar,
   isFskTyVar, isFmvTyVar, isFlattenTyVar,
@@ -61,7 +61,7 @@ module TcType (
   tcSplitTyConApp, tcSplitTyConApp_maybe, tcTyConAppTyCon, tcTyConAppArgs,
   tcSplitAppTy_maybe, tcSplitAppTy, tcSplitAppTys, repSplitAppTy_maybe,
   tcInstHeadTyNotSynonym, tcInstHeadTyAppAllTyVars,
-  tcGetTyVar_maybe, tcGetTyCoVar_maybe, tcGetTyVar, nextRole,
+  tcGetTyVar_maybe, tcGetTyVar, nextRole,
   tcSplitSigmaTy, tcDeepSplitSigmaTy_maybe,
   tcSplitCastTy_maybe,
 
@@ -124,8 +124,8 @@ module TcType (
   mkForAllTy, mkForAllTys, mkInvForAllTys, mkNamedForAllTy,
   mkFunTy, mkFunTys,
   mkTyConApp, mkAppTy, mkAppTys, applyTys,
-  mkTyCoVarTy, mkTyCoVarTys, mkTyConTy, mkOnlyTyVarTy,
-  mkOnlyTyVarTys,
+  mkTyConTy, mkTyVarTy,
+  mkTyVarTys,
 
   isClassPred, isEqPred, isNomEqPred, isIPPred,
   mkClassPred,
@@ -139,10 +139,10 @@ module TcType (
   mkOpenTCvSubst, zipOpenTCvSubst, zipTopTCvSubst,
   mkTopTCvSubst, notElemTCvSubst, unionTCvSubst,
   getTvSubstEnv, setTvSubstEnv, getTCvInScope, extendTCvInScope,
-  Type.lookupTyVar, Type.lookupVar, Type.extendTCvSubst, Type.substTyVarBndr,
+  Type.lookupTyVar, Type.extendTCvSubst, Type.substTyVarBndr,
   extendTCvSubstList, isInScope, mkTCvSubst, zipTyEnv, zipCoEnv,
   Type.substTy, substTys, substTyWith, substTyWithCoVars,
-  substTheta, substTyCoVar, substTyCoVars,
+  substTheta,
 
   isUnLiftedType,       -- Source types are always lifted
   isUnboxedTupleType,   -- Ditto
@@ -732,12 +732,12 @@ isFloatedTouchableMetaTyVar ctxt_tclvl tv
       _ -> False
   | otherwise = False
 
-isImmutableTyVar :: TyCoVar -> Bool
+isImmutableTyVar :: TyVar -> Bool
 isImmutableTyVar tv
   | isTcTyVar tv = isSkolemTyVar tv
   | otherwise    = True
 
-isTyConableTyVar, isSkolemTyVar, isSkolemTyCoVar, isOverlappableTyVar,
+isTyConableTyVar, isSkolemTyVar, isOverlappableTyVar,
   isMetaTyVar, isReturnTyVar, isAmbiguousTyVar,
   isFmvTyVar, isFskTyVar, isFlattenTyVar :: TcTyVar -> Bool
 
@@ -773,9 +773,6 @@ isSkolemTyVar tv
   = case tcTyVarDetails tv of
         MetaTv {} -> False
         _other    -> True
-
-isSkolemTyCoVar tv
-  = isCoVar tv || isSkolemTyVar tv
 
 isOverlappableTyVar tv
   | isTyVar tv
@@ -873,7 +870,7 @@ isRuntimeUnkSkol x
 mkSigmaTy :: [Binder] -> [PredType] -> Type -> Type
 mkSigmaTy bndrs theta tau = mkForAllTys bndrs (mkPhiTy theta tau)
 
-mkInvSigmaTy :: [TyCoVar] -> [PredType] -> Type -> Type
+mkInvSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
 mkInvSigmaTy tyvars
   = mkSigmaTy (zipWith mkNamedBinder tyvars (repeat Invisible))
 
@@ -884,7 +881,7 @@ mkNakedSigmaTy :: [Binder] -> [PredType] -> Type -> Type
 -- See Note [Zonking inside the knot] in TcHsType
 mkNakedSigmaTy bndrs theta tau = mkForAllTys bndrs (mkNakedPhiTy theta tau)
 
-mkNakedInvSigmaTy :: [TyCoVar] -> [PredType] -> Type -> Type
+mkNakedInvSigmaTy :: [TyVar] -> [PredType] -> Type -> Type
 -- See Note [Zonking inside the knot] in TcHsType
 mkNakedInvSigmaTy tyvars
   = mkNakedSigmaTy (zipWith mkNamedBinder tyvars (repeat Invisible))
@@ -1002,7 +999,7 @@ tcSplitForAllTys = splitForAllTys
 
 -- | Like 'tcSplitForAllTys', but splits off only named binders, returning
 -- just the tycovars.
-tcSplitNamedForAllTys :: Type -> ([TyCoVar], Type)
+tcSplitNamedForAllTys :: Type -> ([TyVar], Type)
 tcSplitNamedForAllTys = splitNamedForAllTys
 
 -- | Like 'tcSplitForAllTys', but splits off only named binders.
@@ -1039,14 +1036,14 @@ tcSplitPhiTy ty
           Nothing         -> (reverse ts, ty)
 
 -- | Split a sigma type into its parts.
-tcSplitSigmaTy :: Type -> ([TyCoVar], ThetaType, Type)
+tcSplitSigmaTy :: Type -> ([TyVar], ThetaType, Type)
 tcSplitSigmaTy ty = case tcSplitNamedForAllTys ty of
                         (tvs, rho) -> case tcSplitPhiTy rho of
                                         (theta, tau) -> (tvs, theta, tau)
 
 -----------------------
 tcDeepSplitSigmaTy_maybe
-  :: TcSigmaType -> Maybe ([TcType], [TyCoVar], ThetaType, TcSigmaType)
+  :: TcSigmaType -> Maybe ([TcType], [TyVar], ThetaType, TcSigmaType)
 -- Looks for a *non-trivial* quantified type, under zero or more function arrows
 -- By "non-trivial" we mean either tyvars or constraints are non-empty
 
@@ -1155,12 +1152,6 @@ tcGetTyVar_maybe ty | Just ty' <- tcView ty = tcGetTyVar_maybe ty'
 tcGetTyVar_maybe (TyVarTy tv)   = Just tv
 tcGetTyVar_maybe _              = Nothing
 
-tcGetTyCoVar_maybe :: Type -> Maybe TyCoVar
-tcGetTyCoVar_maybe ty | Just ty' <- tcView ty = tcGetTyCoVar_maybe ty'
-tcGetTyCoVar_maybe (TyVarTy tv)               = Just tv
-tcGetTyCoVar_maybe (CoercionTy (CoVarCo cv))  = Just cv
-tcGetTyCoVar_maybe _                          = Nothing
-
 tcGetTyVar :: String -> Type -> TyVar
 tcGetTyVar msg ty = expectJust msg (tcGetTyVar_maybe ty)
 
@@ -1179,7 +1170,7 @@ tcSplitCastTy_maybe (CastTy ty co)             = Just (ty, co)
 tcSplitCastTy_maybe _                          = Nothing
 
 -----------------------
-tcSplitDFunTy :: Type -> ([TyCoVar], [Type], Class, [Type])
+tcSplitDFunTy :: Type -> ([TyVar], [Type], Class, [Type])
 -- Split the type of a dictionary function
 -- We don't use tcSplitSigmaTy,  because a DFun may (with NDP)
 -- have non-Pred arguments, such as
@@ -1621,7 +1612,7 @@ mkEqBoxTy co
 -- Equality constraints that mention quantified type variables and
 -- implicit variables complicate the story. See Notes
 -- [Inheriting implicit parameters] and [Quantifying over equality constraints]
-quantifyPred :: TyCoVarSet         -- Quantifying over these
+quantifyPred :: TyVarSet           -- Quantifying over these
              -> PredType -> Bool   -- True <=> quantify over this wanted
 -- This function decides whether a particular constraint shoudl be
 -- quantified over, given the type variables that are being quantified

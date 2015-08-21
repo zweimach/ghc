@@ -162,7 +162,7 @@ mergeIdSATInfos = foldl' mergeIdSATInfo emptyIdSATInfo
 bindersToSATInfo :: [Id] -> SATInfo
 bindersToSATInfo vs = map (Static . binderToApp) vs
     where binderToApp v | isId v    = VarApp v
-                        | isTyVar v = TypeApp $ mkOnlyTyVarTy v
+                        | isTyVar v = TypeApp $ mkTyVarTy v
                         | otherwise = CoApp $ mkCoVarCo v
 
 finalizeApp :: Maybe IdAppInfo -> IdSATInfo -> IdSATInfo

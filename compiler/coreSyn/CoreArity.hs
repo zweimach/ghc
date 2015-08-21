@@ -972,10 +972,7 @@ mkEtaWW orig_n orig_expr in_scope orig_ty
 
        | Just (bndr,ty') <- splitForAllTy_maybe ty
        = let ((subst', eta_id'), new_n) = caseBinder bndr
-               (\tv -> let (subst1, tv1) = Type.substTyCoVarBndr subst tv in
-                       if isTyVar tv
-                       then ((subst1, tv1), n)
-                       else (freshEtaVar n subst1 (varType tv1), n-1))
+               (\tv -> (Type.substTyVarBndr subst tv, n))
                (\arg_ty -> (freshEtaVar n subst arg_ty, n-1))
          in
             -- Avoid free vars of the original expression

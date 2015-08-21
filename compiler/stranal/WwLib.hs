@@ -315,14 +315,14 @@ mkWWargs subst fun_ty arg_info
 
   | Just (bndr, fun_ty') <- splitForAllTy_maybe fun_ty
   , Just tv <- binderVar_maybe bndr
-  = do  { let (subst', tv') = substTyCoVarBndr subst tv
-                -- This substTyCoVarBndr clones the type variable when necy
+  = do  { let (subst', tv') = substTyVarBndr subst tv
+                -- This substTyVarBndr clones the type variable when necy
                 -- See Note [Freshen type variables]
         ; (wrap_args, wrap_fn_args, work_fn_args, res_ty)
              <- mkWWargs subst' fun_ty' arg_info
         ; return (tv' : wrap_args,
                   Lam tv' . wrap_fn_args,
-                  work_fn_args . (`mkTyApps` [mkTyCoVarTy tv']),
+                  work_fn_args . (`mkTyApps` [mkTyVarTy tv']),
                   res_ty) }
 
   | Just (co, rep_ty) <- topNormaliseNewType_maybe fun_ty

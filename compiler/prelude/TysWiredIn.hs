@@ -302,7 +302,7 @@ pcDataConWithFixity' declared_infix dc_name wrk_key tyvars ex_tyvars arg_tys tyc
                 ex_tyvars
                 []      -- No equality spec
                 []      -- No theta
-                arg_tys (mkTyConApp tycon (mkTyCoVarTys tyvars))
+                arg_tys (mkTyConApp tycon (mkTyVarTys tyvars))
                 tycon
                 []      -- No stupid theta
                 (mkDataConWorkId wrk_name data_con)
@@ -450,7 +450,7 @@ mk_tuple sort arity = (tycon, tuple_con)
             ( mkFunTys (nOfThem arity liftedTypeKind) liftedTypeKind
             , arity
             , boxed_tyvars
-            , mkOnlyTyVarTys boxed_tyvars )
+            , mkTyVarTys boxed_tyvars )
             -- See Note [Unboxed tuple levity vars] in TyCon
           UnboxedTuple ->
             let lev_tvs  = take arity $
@@ -458,20 +458,20 @@ mk_tuple sort arity = (tycon, tuple_con)
                            tyVarList levityTy
                 open_tvs = zipWith mk_open_tv [0..] lev_tvs
                 mk_open_tv n ltv
-                  = (tyVarList (tYPE (mkOnlyTyVarTy ltv))) !! n
+                  = (tyVarList (tYPE (mkTyVarTy ltv))) !! n
             in
             ( mkInvForAllTys lev_tvs $
               mkFunTys (map tyVarKind open_tvs) $
               unliftedTypeKind
             , arity * 2
             , lev_tvs ++ open_tvs
-            , mkOnlyTyVarTys open_tvs )
+            , mkTyVarTys open_tvs )
           ConstraintTuple ->
             let constr_tyvars = take arity $ tyVarList constraintKind in
             ( mkFunTys (nOfThem arity constraintKind) constraintKind
             , arity
             , constr_tyvars
-            , mkOnlyTyVarTys constr_tyvars )
+            , mkTyVarTys constr_tyvars )
 
         modu    = mkTupleModule sort
         tc_name = mkWiredInName modu (mkTupleOcc tcName sort arity) tc_uniq
@@ -519,7 +519,7 @@ eqTyCon = mkAlgTyCon eqTyConName
             False
   where
     kv = kKiVar
-    k = mkOnlyTyVarTy kv
+    k = mkTyVarTy kv
     a:b:_ = tyVarList k
 
 eqBoxDataCon :: DataCon
@@ -527,10 +527,10 @@ eqBoxDataCon
   = pcDataCon eqBoxDataConName univ_args [arg] eqTyCon
   where
     kv = kKiVar
-    k = mkOnlyTyVarTy kv
+    k = mkTyVarTy kv
     a:b:_ = tyVarList k
     univ_args = [kv, a, b]
-    arg = mkTyConApp eqPrimTyCon [k, k, mkOnlyTyVarTy a, mkOnlyTyVarTy b]
+    arg = mkTyConApp eqPrimTyCon [k, k, mkTyVarTy a, mkTyVarTy b]
 
 
 coercibleTyCon :: TyCon
@@ -540,7 +540,7 @@ coercibleTyCon = mkClassTyCon
   where kind = (mkNamedForAllTy kv Invisible $
                 mkArrowKinds [k, k] constraintKind)
         kv = kKiVar
-        k = mkOnlyTyVarTy kv
+        k = mkTyVarTy kv
         a:b:_ = tyVarList k
         tvs = [kv, a, b]
         rhs = DataTyCon [coercibleDataCon] False
@@ -550,10 +550,10 @@ coercibleDataCon
   = pcDataCon coercibleDataConName univ_args [arg] coercibleTyCon
   where
     kv = kKiVar
-    k = mkOnlyTyVarTy kv
+    k = mkTyVarTy kv
     a:b:_ = tyVarList k
-    a_ty = mkOnlyTyVarTy a
-    b_ty = mkOnlyTyVarTy b
+    a_ty = mkTyVarTy a
+    b_ty = mkTyVarTy b
     univ_args = [kv, a, b]
     arg = mkTyConApp eqReprPrimTyCon [k, k, a_ty, b_ty]
 
@@ -876,7 +876,7 @@ mkPArrFakeCon arity  = data_con
   where
         data_con  = pcDataCon name [tyvar] tyvarTys parrTyCon
         tyvar     = head alphaTyVars
-        tyvarTys  = replicate arity $ mkOnlyTyVarTy tyvar
+        tyvarTys  = replicate arity $ mkTyVarTy tyvar
         nameStr   = mkFastString ("MkPArr" ++ show arity)
         name      = mkWiredInName gHC_PARR' (mkDataOccFS nameStr) unique
                                   (AConLike (RealDataCon data_con)) UserSyntax

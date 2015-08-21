@@ -924,8 +924,8 @@ checkBootTyCon tc1 tc2
        eqATDef _ _ = False
 
        eqFD (as1,bs1) (as2,bs2) =
-         eqListBy (eqTypeX env) (mkTyCoVarTys as1) (mkTyCoVarTys as2) &&
-         eqListBy (eqTypeX env) (mkTyCoVarTys bs1) (mkTyCoVarTys bs2)
+         eqListBy (eqTypeX env) (mkTyVarTys as1) (mkTyVarTys as2) &&
+         eqListBy (eqTypeX env) (mkTyVarTys bs1) (mkTyVarTys bs2)
     in
     check (roles1 == roles2) roles_msg `andThenCheck`
           -- Checks kind of class

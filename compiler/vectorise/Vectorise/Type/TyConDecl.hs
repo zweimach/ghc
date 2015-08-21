@@ -173,7 +173,7 @@ vectDataCon dc
   = do { name'   <- mkLocalisedName mkVectDataConOcc name
        ; tycon'  <- vectTyCon tycon
        ; arg_tys <- mapM vectType rep_arg_tys
-       ; let ret_ty = mkFamilyTyConApp tycon' (mkTyCoVarTys univ_tvs)
+       ; let ret_ty = mkFamilyTyConApp tycon' (mkTyVarTys univ_tvs)
        ; fam_envs  <- readGEnv global_fam_inst_env
        ; liftDs $ buildDataCon fam_envs
                     name'

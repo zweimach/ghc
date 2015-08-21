@@ -257,7 +257,7 @@ extendSubst subst var arg
 
 extendSubstWithVar :: Subst -> Var -> Var -> Subst
 extendSubstWithVar subst v1 v2
-  | isTyVar v1 = ASSERT( isTyVar v2 ) extend_tv_subst subst v1 (mkOnlyTyVarTy v2)
+  | isTyVar v1 = ASSERT( isTyVar v2 ) extend_tv_subst subst v1 (mkTyVarTy v2)
   | isCoVar v1 = ASSERT( isCoVar v2 ) extendCvSubst subst v1 (mkCoVarCo v2)
   | otherwise  = ASSERT( isId    v2 ) extendIdSubst subst v1 (Var v2)
 
@@ -283,7 +283,7 @@ lookupIdSubst doc (Subst in_scope ids _ _) v
 lookupTCvSubst :: Subst -> TyVar -> Type
 lookupTCvSubst (Subst _ _ tvs cvs) v
   | isTyVar v
-  = lookupVarEnv tvs v `orElse` Type.mkOnlyTyVarTy v
+  = lookupVarEnv tvs v `orElse` Type.mkTyVarTy v
   | otherwise
   = mkCoercionTy $ lookupVarEnv cvs v `orElse` mkCoVarCo v
 

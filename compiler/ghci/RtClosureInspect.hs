@@ -610,7 +610,7 @@ instTyVars :: [TyVar] -> TR (TCvSubst, [TcTyVar])
 instTyVars tcvs
   = liftTcM $ fst <$> captureConstraints (tcInstTyVars TypeLevel tcvs)
 
-type RttiInstantiation = [(TcTyCoVar, TyVar)]
+type RttiInstantiation = [(TcTyVar, TyVar)]
    -- Associates the typechecker-world meta type variables
    -- (which are mutable and may be refined), to their
    -- debugger-world RuntimeUnk counterparts.
@@ -633,9 +633,9 @@ applyRevSubst :: RttiInstantiation -> TR ()
 applyRevSubst pairs = liftTcM (mapM_ do_pair pairs)
   where
     do_pair (tc_tv, rtti_tv)
-      = do { tc_ty <- zonkTcTyCoVar tc_tv
+      = do { tc_ty <- zonkTcTyVar tc_tv
            ; case tcGetTyVar_maybe tc_ty of
-               Just tv | isMetaTyVar tv -> writeMetaTyVar tv (mkTyCoVarTy rtti_tv)
+               Just tv | isMetaTyVar tv -> writeMetaTyVar tv (mkTyVarTy rtti_tv)
                _                        -> return () }
 
 -- Adds a constraint of the form t1 == t2
@@ -1194,7 +1194,7 @@ congruenceNewtypes lhs rhs = go lhs rhs >>= \rhs' -> return (lhs,rhs')
                traceTR (text "(Upgrade) upgraded " <> ppr ty <>
                         text " in presence of newtype evidence " <> ppr new_tycon)
                (_, vars) <- instTyVars (tyConTyVars new_tycon)
-               let ty' = mkTyConApp new_tycon (mkTyCoVarTys vars)
+               let ty' = mkTyConApp new_tycon (mkTyVarTys vars)
                    UnaryRep rep_ty = repType ty'
                _ <- liftTcM (unifyType noThing ty rep_ty)
         -- assumes that reptype doesn't ^^^^ touch tyconApp args
@@ -1225,7 +1225,7 @@ zonkRttiType = zonkTcTypeToType (mkEmptyZonkEnv zonk_unbound_meta)
              -- otherwise-unconstrained unification variables are
              -- turned into RuntimeUnks as they leave the
              -- typechecker's monad
-           ; return (mkTyCoVarTy tv') }
+           ; return (mkTyVarTy tv') }
 
 --------------------------------------------------------------------------------
 -- Restore Class predicates out of a representation type

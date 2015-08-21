@@ -122,16 +122,14 @@ ToDo: this eta-abstraction plays fast and loose with termination,
 deeplySkolemise
   :: TcSigmaType
   -> TcM ( HsWrapper
-         , [TyCoVar]   -- all skolemised variables, including covars
-         , [EvVar]     -- all "given"s, including dependent covars
-                  -- This means that the dependent covars are returned *twice*
+         , [TyVar]     -- all skolemised variables
+         , [EvVar]     -- all "given"s
          , TcRhoType)
 
 deeplySkolemise ty
   | Just (arg_tys, tvs, theta, ty') <- tcDeepSplitSigmaTy_maybe ty
   = do { ids1 <- newSysLocalIds (fsLit "dk") arg_tys
        ; (subst, tvs1) <- tcInstSkolTyVars tvs
-       ; let ev_vars0 = filter isCoVar tvs1
        ; ev_vars1 <- newEvVars (substTheta subst theta)
        ; (wrap, tvs2, ev_vars2, rho) <- deeplySkolemise (substTy subst ty')
        ; return ( mkWpLams ids1
@@ -140,7 +138,7 @@ deeplySkolemise ty
                    <.> wrap
                    <.> mkWpEvVarApps ids1
                 , tvs1     ++ tvs2
-                , ev_vars0 ++ ev_vars1 ++ ev_vars2
+                , ev_vars1 ++ ev_vars2
                 , mkFunTys arg_tys rho ) }
 
   | otherwise
@@ -156,10 +154,10 @@ deeplyInstantiate :: CtOrigin -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 deeplyInstantiate orig ty
     -- TODO (RAE): This should vare more about visibility, I think while merging
   | Just (arg_tys, tvs, theta, rho) <- tcDeepSplitSigmaTy_maybe ty
-  = do { (subst, tvs') <- tcInstTyCoVars TypeLevel tvs
+  = do { (subst, tvs') <- tcInstTyVars TypeLevel tvs
        ; ids1  <- newSysLocalIds (fsLit "di") (substTys subst arg_tys)
        ; let theta' = substTheta subst theta
-       ; wrap1 <- instCall orig (mkTyCoVarTys tvs') theta'
+       ; wrap1 <- instCall orig (mkTyVarTys tvs') theta'
        ; traceTc "Instantiating (deeply)" (vcat [ text "origin" <+> pprCtOrigin orig
                                                 , text "type" <+> ppr ty
                                                 , text "with" <+> ppr tvs'

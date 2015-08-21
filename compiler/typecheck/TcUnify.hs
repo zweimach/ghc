@@ -173,7 +173,7 @@ matchExpectedFunTys herald arity orig_ty
       where
         -- preserve ReturnTv-ness
         new_flexi :: TcM TcType
-        new_flexi | is_return = (mkOnlyTyVarTy . fst) <$> newOpenReturnTyVar
+        new_flexi | is_return = (mkTyVarTy . fst) <$> newOpenReturnTyVar
                   | otherwise = newOpenFlexiTyVarTy
 
     ------------
@@ -263,9 +263,9 @@ matchExpectedTyConApp tc orig_ty
     -- This happened in Trac #7368
     defer is_return
       = ASSERT2( classifiesTypeWithValues res_kind, ppr tc )
-        do { (k_subst, kvs') <- tcInstTyCoVars TypeLevel kvs
+        do { (k_subst, kvs') <- tcInstTyVars TypeLevel kvs
            ; let arg_kinds' = substTys k_subst arg_kinds
-                 kappa_tys  = mkOnlyTyVarTys kvs'
+                 kappa_tys  = mkTyVarTys kvs'
            ; tau_tys <- mapM (newMaybeReturnTyVarTy is_return) arg_kinds'
            ; co <- unifyType noThing (mkTyConApp tc (kappa_tys ++ tau_tys)) orig_ty
            ; return (co, kappa_tys ++ tau_tys) }
@@ -482,8 +482,8 @@ tc_sub_type_ds origin ctxt ty_actual ty_expected
      -- TODO (RAE): Does this work with contravariance in forall types?
   | (tvs, theta, in_rho) <- tcSplitSigmaTy ty_actual
   , not (null tvs && null theta)
-  = do { (subst, tvs') <- tcInstTyCoVars TypeLevel tvs
-       ; let tys'    = mkTyCoVarTys tvs'
+  = do { (subst, tvs') <- tcInstTyVars TypeLevel tvs
+       ; let tys'    = mkTyVarTys tvs'
              theta'  = substTheta subst theta
              in_rho' = substTy subst in_rho
        ; in_wrap   <- instCall origin tys' theta'
@@ -521,7 +521,7 @@ wrapFunResCoercion arg_tys co_fn_res
 tcInfer :: (TcType -> TcM a) -> TcM (a, TcType)
 tcInfer tc_check
   = do { (ret_tv, ret_kind) <- newOpenReturnTyVar
-       ; res <- tc_check (mkOnlyTyVarTy ret_tv)
+       ; res <- tc_check (mkTyVarTy ret_tv)
        ; details <- readMetaTyVar ret_tv
        ; res_ty <- case details of
             Indirect ty -> return ty
@@ -576,10 +576,10 @@ tcGen ctxt expected_ty thing_inside
 
         -- Use the *instantiated* type in the SkolemInfo
         -- so that the names of displayed type variables line up
-        ; let skol_info = SigSkol ctxt (mkPiTypes given rho')
+        ; let skol_info = SigSkol ctxt (mkFunTys given rho')
 
         ; (ev_binds, result) <- checkConstraints skol_info tvs' given $
-                                thing_inside (filter isTyVar tvs') rho'
+                                thing_inside tvs' rho'
 
         ; return (wrap <.> mkWpLet ev_binds, result) }
           -- The ev_binds returned by checkConstraints is very
@@ -604,8 +604,8 @@ newImplication :: SkolemInfo -> [TcTyVar]
                -> [EvVar] -> TcM result
                -> TcM (TcEvBinds, result)
 newImplication skol_info skol_tvs given thing_inside
-  = ASSERT2( all isTcTyCoVar skol_tvs, ppr skol_tvs )
-    ASSERT2( all isSkolemTyCoVar skol_tvs, ppr skol_tvs )
+  = ASSERT2( all isTcTyVar skol_tvs, ppr skol_tvs )
+    ASSERT2( all isSkolemTyVar skol_tvs, ppr skol_tvs )
     do { ((result, tclvl), wanted) <- captureConstraints  $
                                       captureTcLevel $
                                       thing_inside
@@ -925,7 +925,7 @@ uUnfilledVar :: CtOrigin
 
 uUnfilledVar origin swapped tv1 details1 (TyVarTy tv2)
   | tv1 == tv2  -- Same type variable => no-op
-  = return (mkNomReflCo (mkTyCoVarTy tv1))
+  = return (mkNomReflCo (mkTyVarTy tv1))
 
   | otherwise  -- Distinct type variables
   = do  { lookup2 <- lookupTcTyVar tv2
@@ -949,7 +949,7 @@ uUnfilledVar origin swapped tv1 details1 non_var_ty2  -- ty2 is not a type varia
 
       _other -> do { traceTc "Skolem defer" (ppr tv1); defer }  -- Skolems of all sorts
   where
-    defer = unSwap swapped (uType_defer origin) (mkTyCoVarTy tv1) non_var_ty2
+    defer = unSwap swapped (uType_defer origin) (mkTyVarTy tv1) non_var_ty2
                -- Occurs check or an untouchable: just defer
                -- NB: occurs check isn't necessarily fatal:
                --     eg tv1 occured in type family parameter
@@ -988,8 +988,8 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
   where
     k1  = tyVarKind tv1
     k2  = tyVarKind tv2
-    ty1 = mkTyCoVarTy tv1
-    ty2 = mkTyCoVarTy tv2
+    ty1 = mkTyVarTy tv1
+    ty2 = mkTyVarTy tv2
     kind_origin = KindEqOrigin ty1 ty2 origin
 
     maybe_sym IsSwapped  = mkSymCo
@@ -1055,7 +1055,7 @@ checkTauTvUpdate dflags origin tv ty
                    _ -> return Nothing
             | otherwise   -> return (Just (ty1, co_k)) }
   where
-    kind_origin   = KindEqOrigin (mkOnlyTyVarTy tv) ty origin
+    kind_origin   = KindEqOrigin (mkTyVarTy tv) ty origin
     details       = tcTyVarDetails tv
     info          = mtv_info details
     is_return_tv  = case info of { ReturnTv -> True; _ -> False }

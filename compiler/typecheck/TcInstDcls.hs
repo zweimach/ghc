@@ -597,7 +597,7 @@ tcATDefault inst_subst defined_ats (ATI fam_tc defs)
       | otherwise
       = (extendTCvSubst subst tc_tv ty', ty')
       where
-        ty' = mkOnlyTyVarTy (updateTyVarKind (substTy subst) tc_tv)
+        ty' = mkTyVarTy (updateTyVarKind (substTy subst) tc_tv)
 
 {-
 ************************************************************************
@@ -710,7 +710,7 @@ tcDataFamInstDecl mb_clsinfo
               -- freshen tyvars
               ; let (eta_tvs, eta_pats) = eta_reduce tvs' pats'
                     axiom    = mkSingleCoAxiom axiom_name eta_tvs fam_tc eta_pats
-                                               (mkTyConApp rep_tc (mkTyCoVarTys eta_tvs))
+                                               (mkTyConApp rep_tc (mkTyVarTys eta_tvs))
                     parent   = FamInstTyCon axiom fam_tc pats'
                     roles    = map (const Nominal) tvs'
                     kind     = mkPiTypesPreferFunTy tvs' liftedTypeKind
@@ -868,7 +868,7 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
              app_to_meth :: HsExpr Id -> Id -> HsExpr Id
              app_to_meth fun meth_id = L loc fun `HsApp` L loc (wrapId arg_wrapper meth_id)
 
-             inst_tv_tys = mkOnlyTyVarTys inst_tyvars
+             inst_tv_tys = mkTyVarTys inst_tyvars
              arg_wrapper = mkWpEvVarApps dfun_ev_vars <.> mkWpTyEvApps inst_tv_tys
 
                 -- Do not inline the dfun; instead give it a magic DFunFunfolding
@@ -1281,7 +1281,7 @@ tcInstanceMethods dfun_id clas tyvars dfun_ev_vars inst_tys
 
            ; self_dict <- newDict clas inst_tys
            ; ev_loc <- getCtLoc ImpossibleOrigin
-           ; let ev_term = EvDFunApp dfun_id (mkOnlyTyVarTys tyvars)
+           ; let ev_term = EvDFunApp dfun_id (mkTyVarTys tyvars)
                                              (map EvId dfun_ev_vars)
                  self_ev_bind = EvBind { evb_var  = self_dict
                                        , evb_term = ev_term

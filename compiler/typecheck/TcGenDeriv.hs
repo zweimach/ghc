@@ -2010,7 +2010,7 @@ genAuxBindSpec loc (DerivCon2Tag tycon)
     rdr_name = con2tag_RDR tycon
 
     sig_ty = HsCoreTy $
-                 -- TODO (RAE): Check.
+                 -- TODO (RAE): Check visibility.
              mkInvSigmaTy (tyConTyVars tycon) (tyConStupidTheta tycon) $
              mkParentType tycon `mkFunTy` intPrimTy
 
@@ -2091,7 +2091,7 @@ mkParentType :: TyCon -> Type
 -- a use of its family constructor
 mkParentType tc
   = case tyConFamInst_maybe tc of
-       Nothing  -> mkTyConApp tc (mkOnlyTyVarTys (tyConTyVars tc))
+       Nothing  -> mkTyConApp tc (mkTyVarTys (tyConTyVars tc))
        Just (fam_tc,tys) -> mkTyConApp fam_tc tys
 
 {-

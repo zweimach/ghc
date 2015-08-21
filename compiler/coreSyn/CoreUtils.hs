@@ -1384,7 +1384,7 @@ dataConInstPat fss uniqs con inst_tys
 
     mk_ex_var :: TCvSubst -> (TyVar, FastString, Unique) -> (TCvSubst, TyVar)
     mk_ex_var subst (tv, fs, uniq) = (Type.extendTCvSubst subst tv
-                                       (mkOnlyTyVarTy new_tv)
+                                       (mkTyVarTy new_tv)
                                      , new_tv)
       where
         new_tv = mkTyVar (mkSysTvName uniq fs) kind
@@ -1929,9 +1929,6 @@ tryEtaReduce bndrs body
     ok_arg bndr (Type ty) co
        | Just tv <- getTyVar_maybe ty
        , bndr == tv  = Just (mkHomoForAllCos Representational [tv] co, [])
-    ok_arg bndr (Coercion co1) co2
-       | Just cv <- getCoVar_maybe co1
-       , bndr == cv  = Just (mkHomoForAllCos Representational [cv] co2, [])
     ok_arg bndr (Var v) co
        | bndr == v   = let reflCo = mkRepReflCo (idType bndr)
                        in Just (mkFunCo Representational reflCo co, [])

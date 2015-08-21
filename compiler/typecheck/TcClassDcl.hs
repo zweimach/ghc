@@ -161,7 +161,7 @@ tcClassDecl2 (L loc (ClassDecl {tcdLName = class_name, tcdSigs = sigs,
               prag_fn     = mkPragFun sigs default_binds
               sig_fn      = mkHsSigFun sigs
               clas_tyvars = snd (tcSuperSkolTyVars tyvars)
-              pred        = mkClassPred clas (mkTyCoVarTys clas_tyvars)
+              pred        = mkClassPred clas (mkTyVarTys clas_tyvars)
         ; this_dict <- newEvVar pred
 
         ; traceTc "TIM2" (ppr sigs)
@@ -214,7 +214,7 @@ tcDefMeth clas tyvars this_dict binds_in hs_sig_fn prag_fn (sel_id, dm_info)
            ; spec_prags     <- discardConstraints $
                                tcSpecPrags dm_id prags
 
-           ; let local_dm_ty = instantiateMethod clas dm_id (mkOnlyTyVarTys tyvars)
+           ; let local_dm_ty = instantiateMethod clas dm_id (mkTyVarTys tyvars)
                  hs_ty       = lookupHsSig hs_sig_fn sel_name
                                `orElse` pprPanic "tc_dm" (ppr sel_name)
 

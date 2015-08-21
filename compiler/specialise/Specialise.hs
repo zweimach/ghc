@@ -1104,9 +1104,9 @@ specCalls mb_mod env rules_for_me calls_for_me fn rhs
     fn_type                 = idType fn
     fn_arity                = idArity fn
     fn_unf                  = realIdUnfolding fn  -- Ignore loop-breaker-ness here
-    (tycovars, theta, _)    = tcSplitSigmaTy fn_type
-    n_tyvars                = count isTyVar tycovars
-    n_dicts                 = length tycovars + length theta - n_tyvars
+    (tyvars, theta, _)      = tcSplitSigmaTy fn_type
+    n_tyvars                = length tyvars
+    n_dicts                 = length theta
     inl_prag                = idInlinePragma fn
     inl_act                 = inlinePragmaActivation inl_prag
     is_local                = isLocalId fn
@@ -1131,25 +1131,10 @@ specCalls mb_mod env rules_for_me calls_for_me fn rhs
     mk_ty_args [] poly_tvs
       = ASSERT( null poly_tvs ) []
     mk_ty_args (Nothing : call_ts) (poly_tv : poly_tvs)
-      = Type (mkOnlyTyVarTy poly_tv) : mk_ty_args call_ts poly_tvs
+      = Type (mkTyVarTy poly_tv) : mk_ty_args call_ts poly_tvs
     mk_ty_args (Just ty : call_ts) poly_tvs
       = Type ty : mk_ty_args call_ts poly_tvs
     mk_ty_args (Nothing : _) [] = panic "mk_ty_args"
-
-    -- reassemble ty and dict arguments in the right order,
-    -- according to the nature of the tycovars
-    stitch_tys_dicts :: [TyCoVar] -> [CoreExpr] -> [CoreExpr] -> [CoreExpr]
-    stitch_tys_dicts [] [] dicts = dicts -- theta dicts
-    stitch_tys_dicts (v:vs) tys dicts
-      | isTyVar v
-      , (ty:tys') <- tys
-      = ty : stitch_tys_dicts vs tys' dicts
-
-      | (dict:dicts') <- dicts
-      = dict : stitch_tys_dicts vs tys dicts'
-
-    stitch_tys_dicts vs tys dicts
-      = pprPanic "stitch_tys_dicts" (vcat [ppr vs, ppr tys, ppr dicts])
 
     ----------------------------------------------------------
         -- Specialise to one particular call pattern
@@ -1187,7 +1172,7 @@ specCalls mb_mod env rules_for_me calls_for_me fn rhs
            ; let (rhs_env2, dx_binds, spec_dict_args)
                             = bindAuxiliaryDicts rhs_env rhs_dict_ids call_ds inst_dict_ids
                  ty_args    = mk_ty_args call_ts poly_tyvars
-                 rule_args  = stitch_tys_dicts tycovars ty_args (map Var inst_dict_ids)
+                 rule_args  = ty_args ++ map Var inst_dict_ids
                  rule_bndrs = poly_tyvars ++ inst_dict_ids
 
            ; dflags <- getDynFlags
@@ -1721,17 +1706,13 @@ mkCallUDs' env f args
   where
     _trace_doc = vcat [ppr f, ppr args, ppr n_tyvars, ppr n_dicts
                       , ppr (map (interestingDict env) dicts)]
-    (tycovars, theta, _)    = tcSplitSigmaTy (idType f)
-    (tyvars, covars)        = partition isTyVar tycovars
-    constrained_tyvars      = tyCoVarsOfTypes theta `unionVarSet`
-                              tyCoVarsOfTypes (map varType covars)
+    (tyvars, theta, _)      = tcSplitSigmaTy (idType f)
+    constrained_tyvars      = tyCoVarsOfTypes theta
     n_tyvars                = length tyvars
-    n_dicts                 = length covars + length theta
+    n_dicts                 = length theta
 
     spec_tys = [mk_spec_ty tv ty | (tv, ty) <- tyvars `type_zip` args]
-    cv_dicts = take (length covars) [cv_dict | cv_dict@(Coercion _) <- args]
-    th_dicts = take (length theta) (drop (length tycovars) args)
-    dicts    = cv_dicts ++ th_dicts
+    dicts    = [dict_expr | (_, dict_expr) <- theta `zip` (drop n_tyvars args)]
 
     -- ignores Coercion arguments
     type_zip :: [TyVar] -> [CoreExpr] -> [(TyVar, Type)]

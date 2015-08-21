@@ -2,7 +2,7 @@
 
 module TcSimplify(
        simplifyInfer, solveTopConstraints,
-       growThetaTyCoVars,
+       growThetaTyVars,
        simplifyAmbiguityCheck,
        simplifyDefault,
        simplifyRule, simplifyTop, simplifyInteractive,
@@ -267,16 +267,16 @@ simplifyInfer :: TcLevel          -- Used when generating the constraints
               -> [(Name, TcTauType)]   -- Variables to be generalised,
                                        -- and their tau-types
               -> WantedConstraints
-              -> TcM ([TcTyCoVar],  -- Quantify over these type variables
-                      [EvVar],      -- ... and these constraints (fully zonked)
-                      Bool,         -- The monomorphism restriction did something
-                                    --   so the results type is not as general as
-                                    --   it could be
-                      TcEvBinds)    -- ... binding these evidence variables
+              -> TcM ([TcTyVar],  -- Quantify over these type variables
+                      [EvVar],    -- ... and these constraints (fully zonked)
+                      Bool,       -- The monomorphism restriction did something
+                                  --   so the results type is not as general as
+                                  --   it could be
+                      TcEvBinds)  -- ... binding these evidence variables
 simplifyInfer rhs_tclvl apply_mr name_taus wanteds
   | isEmptyWC wanteds
   = do { gbl_tvs <- tcGetGlobalTyVars
-       ; qtkvs <- quantifyTyCoVars emptyVarEnv gbl_tvs $
+       ; qtkvs <- quantifyTyVars emptyVarEnv gbl_tvs $
                   splitDepVarsOfTypes (map snd name_taus)
        ; traceTc "simplifyInfer: empty WC" (ppr name_taus $$ ppr qtkvs)
        ; return (qtkvs, [], False, emptyTcEvBinds) }
@@ -357,7 +357,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
                                 ++
                                 [ mkPrimEqPred ty1 ty2
                                 | (tv1, ty2) <- unif_pairs
-                                , let ty1 = mkOnlyTyVarTy tv1 ]) }
+                                , let ty1 = mkTyVarTy tv1 ]) }
 
        -- NB: quant_pred_candidates is already fully zonked
 
@@ -503,9 +503,9 @@ decideQuantification :: CvSubstEnv         -- known covar substitutions
                      -> [PredType]         -- candidate theta
                      -> ( TcTyCoVarSet     -- dependent (kind) variables
                         , TcTyCoVarSet )   -- type variables
-                     -> TcM ( [TcTyCoVar]       -- Quantify over these (skolems)
-                            , [PredType]        -- and this context (fully zonked)
-                            , Bool )            -- Did the MR bite?
+                     -> TcM ( [TcTyVar]       -- Quantify over these (skolems)
+                            , [PredType]      -- and this context (fully zonked)
+                            , Bool )          -- Did the MR bite?
 -- See Note [Deciding quantification]
 decideQuantification cv_env apply_mr constraints
                      (zonked_tau_kvs, zonked_tau_tvs)
@@ -513,16 +513,9 @@ decideQuantification cv_env apply_mr constraints
   = do { gbl_tvs <- tcGetGlobalTyVars
        ; let constrained_tvs = tyCoVarsOfTypes constraints `unionVarSet`
                                filterVarSet isCoVar zonked_tkvs
-                 -- quantifyTyCoVars will try to quantify over covars that
-                 -- meet the quantifyPred test. We don't want *any*
-                 -- quantification over covars here, so add all covars to
-                 -- mono_tvs
-
-             mono_tvs = gbl_tvs `unionVarSet` constrained_tvs
              mr_bites = constrained_tvs `intersectsVarSet` zonked_tkvs
-       ; qtvs <- quantifyTyCoVars cv_env mono_tvs
-                                  (zonked_tau_kvs, zonked_tau_tvs)
-       ; MASSERT( all (not . isCoVar) qtvs )
+       ; qtvs <- quantifyTyVars cv_env gbl_tvs
+                                (zonked_tau_kvs, zonked_tau_tvs)
 
        ; traceTc "decideQuantification 1"
            (vcat [ text "constraints:"     <+> ppr constraints
@@ -535,12 +528,12 @@ decideQuantification cv_env apply_mr constraints
 
   | otherwise
   = do { gbl_tvs <- tcGetGlobalTyVars
-       ; let mono_tvs     = growThetaTyCoVars (filter isEqPred constraints) gbl_tvs
-             tau_tvs_plus = growThetaTyCoVars constraints zonked_tau_tvs
-       ; qtvs <- quantifyTyCoVars cv_env mono_tvs
+       ; let mono_tvs     = growThetaTyVars (filter isEqPred constraints) gbl_tvs
+             tau_tvs_plus = growThetaTyVars constraints zonked_tau_tvs
+       ; qtvs <- quantifyTyVars cv_env mono_tvs
                  (zonked_tau_kvs, tau_tvs_plus)
           -- We don't grow the kvs, as there's no real need to. Recall
-          -- that quantifyTyCoVars uses the separation between kvs and tvs
+          -- that quantifyTyVars uses the separation between kvs and tvs
           -- only for defaulting, and we don't want (ever) to default a tv
           -- to *. So, don't grow the kvs.
 
@@ -566,13 +559,16 @@ decideQuantification cv_env apply_mr constraints
     zonked_tkvs = zonked_tau_kvs `unionVarSet` zonked_tau_tvs
 
 ------------------
-growThetaTyCoVars :: ThetaType -> TyCoVarSet -> TyCoVarSet
+growThetaTyVars :: ThetaType -> TyCoVarSet -> TyVarSet
 -- See Note [Growing the tau-tvs using constraints]
-growThetaTyCoVars theta tvs
-  | null theta             = tvs
-  | isEmptyVarSet seed_tvs = tvs
-  | otherwise              = fixVarSet mk_next seed_tvs
+-- NB: only returns tyvars, never covars
+growThetaTyVars theta tvs
+  | null theta             = tvs_only
+  | isEmptyVarSet seed_tvs = tvs_only
+  | otherwise              = filter isTyVar $
+                             fixVarSet mk_next seed_tvs
   where
+    tvs_only = filter isTyVar tvs
     seed_tvs = tvs `unionVarSet` tyCoVarsOfTypes ips
     (ips, non_ips) = partition isIPPred theta
                          -- See Note [Inheriting implicit parameters] in TcType
@@ -586,15 +582,15 @@ growThetaTyCoVars theta tvs
 {-
 Note [Growing the tau-tvs using constraints]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-(growThetaTyCoVars insts tvs) is the result of extending the set
+(growThetaTyVars insts tvs) is the result of extending the set
     of tyvars tvs using all conceivable links from pred
 
 E.g. tvs = {a}, preds = {H [a] b, K (b,Int) c, Eq e}
-Then growThetaTyCoVars preds tvs = {a,b,c}
+Then growThetaTyVars preds tvs = {a,b,c}
 
 Notice that
-   growThetaTyCoVars is conservative       if v might be fixed by vs
-                                           => v `elem` grow(vs,C)
+   growThetaTyVars is conservative       if v might be fixed by vs
+                                         => v `elem` grow(vs,C)
 
 Note [Quantification with errors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1108,7 +1104,7 @@ promoteTyVar tclvl tv
   | isFloatedTouchableMetaTyVar tclvl tv
   = do { cloned_tv <- TcM.cloneMetaTyVar tv
        ; let rhs_tv = setMetaTyVarTcLevel cloned_tv tclvl
-       ; TcM.writeMetaTyVar tv (mkTyCoVarTy rhs_tv) }
+       ; TcM.writeMetaTyVar tv (mkTyVarTy rhs_tv) }
   | otherwise
   = return ()
 
@@ -1122,7 +1118,7 @@ promoteTyVarTcS tclvl tv
   | isFloatedTouchableMetaTyVar tclvl tv
   = do { cloned_tv <- TcS.cloneMetaTyVar tv
        ; let rhs_tv = setMetaTyVarTcLevel cloned_tv tclvl
-       ; setWantedTyBind tv (mkTyCoVarTy rhs_tv) }
+       ; setWantedTyBind tv (mkTyVarTy rhs_tv) }
   | otherwise
   = return ()
 
@@ -1286,7 +1282,7 @@ approximateWC to produce a list of candidate constraints.  Then we MUST
 To see (b), suppose the constraint is (C ((a :: OpenKind) -> Int)), and we
 have an instance (C ((x:*) -> Int)).  The instance doesn't match -- but it
 should!  If we don't solve the constraint, we'll stupidly quantify over
-(C (a->Int)) and, worse, in doing so zonkQuantifiedTyCoVar will quantify over
+(C (a->Int)) and, worse, in doing so zonkQuantifiedTyVar will quantify over
 (b:*) instead of (a:OpenKind), which can lead to disaster; see Trac #7332.
 Trac #7641 is a simpler example.
 
@@ -1623,7 +1619,7 @@ disambigGroup []  _grp
   = return False
 disambigGroup (default_ty:default_tys) group
   = do { traceTcS "disambigGroup {" (ppr group $$ ppr default_ty)
-       ; given_ev_var      <- TcS.newEvVar (mkTcEqPred (mkOnlyTyVarTy the_tv) default_ty)
+       ; given_ev_var      <- TcS.newEvVar (mkTcEqPred (mkTyVarTy the_tv) default_ty)
        ; tclvl             <- TcS.getTcLevel
        ; resid <- nestTryTcS (pushTcLevel tclvl) $
                   do { solveSimpleGivens loc [given_ev_var]

@@ -1030,7 +1030,7 @@ flatten_exact_fam_app_fully fmode tc tys
                    ; (ev, co, fsk) <- newFlattenSkolem (fe_flavour fmode)
                                                        (fe_loc fmode)
                                                        fam_ty
-                   ; let fsk_ty = mkOnlyTyVarTy fsk
+                   ; let fsk_ty = mkTyVarTy fsk
                    ; extendFlatCache tc xis ( mkTcCoercion co
                                             , fsk_ty
                                             , ctEvFlavour ev )
@@ -1433,7 +1433,7 @@ flattenTyVar fmode tv
                           ; return (ty', mkReflCo (feRole fmode) ty
                                          `mkCoherenceLeftCo` mkSymCo kco ) }
                     where
-                       ty  = mkOnlyTyVarTy tv'
+                       ty  = mkTyVarTy tv'
                        ty' = ty `mkCastTy` mkSymCo kco
 
            FTRFollowed ty1 co1  -- Recur
@@ -1727,7 +1727,7 @@ unflatten tv_eqs funeqs
       | isFmvTyVar tv
       = do { lhs_elim <- tryFill dflags tv rhs ev
            ; if lhs_elim then return rest else
-        do { rhs_elim <- try_fill dflags tclvl ev rhs (mkOnlyTyVarTy tv)
+        do { rhs_elim <- try_fill dflags tclvl ev rhs (mkTyVarTy tv)
            ; if rhs_elim then return rest else
              return (ct `consCts` rest) } }
 
@@ -1741,7 +1741,7 @@ unflatten tv_eqs funeqs
     finalise_eq (CTyEqCan { cc_ev = ev, cc_tyvar = tv
                           , cc_rhs = rhs, cc_eq_rel = eq_rel }) rest
       | isFmvTyVar tv
-      = do { ty1 <- zonkTcTyCoVar tv
+      = do { ty1 <- zonkTcTyVar tv
            ; ty2 <- zonkTcType rhs
            ; let is_refl = ty1 `tcEqType` ty2
            ; if is_refl then do { when (isWanted ev) $

@@ -1953,7 +1953,7 @@ data SkolemInfo
   | BracketSkol         -- Template Haskell bracket
 
   | UnifyForAllSkol     -- We are unifying two for-all types
-       [TcTyCoVar]      -- The instantiated skolem variables
+       [TcTyVar]        -- The instantiated skolem variables
        TcType           -- The instantiated type *inside* the forall
 
   | UnkSkol             -- Unhelpful info (until I improve it)

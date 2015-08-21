@@ -1442,8 +1442,8 @@ zonkTyVarOcc env@(ZonkEnv zonk_unbound_tyvar _ tv_env _) tv
   where
     lookup_in_env    -- Look up in the env just as we do for Ids
       = case lookupVarEnv tv_env tv of
-          Nothing  -> return (mkTyCoVarTy tv)
-          Just tv' -> return (mkTyCoVarTy tv')
+          Nothing  -> return (mkTyVarTy tv)
+          Just tv' -> return (mkTyVarTy tv')
 
 zonkCoVarOcc :: ZonkEnv -> CoVar -> TcM Coercion
 zonkCoVarOcc (ZonkEnv _ co_env _ id_env) cv
@@ -1475,13 +1475,13 @@ zonkTvCollecting :: TyVarSet -> TcRef TyVarSet -> UnboundTyVarZonker
 zonkTvCollecting kind_vars unbound_tv_set tv
   = do { poly_kinds <- xoptM Opt_PolyKinds
        ; if tv `elemVarSet` kind_vars && not poly_kinds then defaultKindVar tv else do
-       { ty_or_tv <- zonkQuantifiedTyCoVarOrType tv
+       { ty_or_tv <- zonkQuantifiedTyVarOrType tv
        ; case ty_or_tv of
            Right ty -> return ty
            Left tv' -> do
              { tv_set <- readMutVar unbound_tv_set
              ; writeMutVar unbound_tv_set (extendVarSet tv_set tv')
-             ; return (mkTyCoVarTy tv') } } }
+             ; return (mkTyVarTy tv') } } }
 
 zonkTypeZapping :: UnboundTyVarZonker
 -- This variant is used for everything except the LHS of rules
@@ -1535,7 +1535,7 @@ zonkTcCoToCo env co
            ; (env2, tv2')  <- zonkTyBndrX env1 tv2
            ; (env3, cv')   <- zonkCoBndrX env2 cv
            ; co' <- zonkTcCoToCo env3 co
-           ; return (mkTcForAllCo (TcForAllCoBndr h' tv1' tv2' m_cv') co') }
+           ; return (mkTcForAllCo (TcForAllCoBndr h' tv1' tv2' cv') co') }
 
     go (TcSubCo co)           = do { co' <- go co; return (mkTcSubCo co') }
     go (TcAxiomRuleCo co ts cs) = do { ts' <- zonkTcTypeToTypes env ts

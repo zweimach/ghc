@@ -279,7 +279,7 @@ mkDictSelId name clas
     arg_tys        = dataConRepArgTys data_con  -- Includes the dictionary superclasses
     val_index      = assoc "MkId.mkDictSelId" (sel_names `zip` [0..]) name
 
-    sel_ty = mkInvForAllTys tyvars (mkFunTy (mkClassPred clas (mkOnlyTyVarTys tyvars))
+    sel_ty = mkInvForAllTys tyvars (mkFunTy (mkClassPred clas (mkTyVarTys tyvars))
                                             (getNth arg_tys val_index))
 
     base_info = noCafIdInfo
@@ -332,11 +332,11 @@ mkDictSelRhs clas val_index
     arg_tys        = dataConRepArgTys data_con  -- Includes the dictionary superclasses
 
     the_arg_id     = getNth arg_ids val_index
-    pred           = mkClassPred clas (mkTyCoVarTys tyvars)
+    pred           = mkClassPred clas (mkTyVarTys tyvars)
     dict_id        = mkTemplateLocal 1 pred
     arg_ids        = mkTemplateLocalsNum 2 arg_tys
 
-    rhs_body | new_tycon = unwrapNewTypeBody tycon (mkOnlyTyVarTys tyvars) (Var dict_id)
+    rhs_body | new_tycon = unwrapNewTypeBody tycon (mkTyVarTys tyvars) (Var dict_id)
              | otherwise = Case (Var dict_id) dict_id (idType the_arg_id)
                                 [(DataAlt data_con, arg_ids, varToCoreExpr the_arg_id)]
                                 -- varToCoreExpr needed for equality superclass selectors
@@ -402,7 +402,7 @@ mkDataConWorkId wkr_name data_con
 
         ----------- Workers for newtypes --------------
     (nt_tvs, _, nt_arg_tys, _) = dataConSig data_con
-    res_ty_args  = mkOnlyTyVarTys nt_tvs
+    res_ty_args  = mkTyVarTys nt_tvs
     nt_wrap_ty   = dataConWrapperType data_con
     nt_work_info = noCafIdInfo          -- The NoCaf-ness is set by noCafIdInfo
                   `setArityInfo` 1      -- Arity 1
@@ -501,7 +501,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
              wrap_unf = mkInlineUnfolding (Just wrap_arity) wrap_rhs
              wrap_rhs = mkLams all_tvs $
                         mkLams wrap_args $
-                        wrapFamInstBody tycon (mkOnlyTyVarTys univ_tvs) $
+                        wrapFamInstBody tycon (mkTyVarTys univ_tvs) $
                         wrap_body
 
        ; return (DCR { dcr_wrap_id = wrap_id
@@ -539,7 +539,7 @@ mkDataConRep dflags fam_envs wrap_name data_con
                       do { let (ex_vars, term_vars) = splitAtList ex_tvs src_vars
                                subst1 = mkTopTCvSubst (all_tvs `zip` ty_args)
                                subst2 = extendTCvSubstList subst1 ex_tvs
-                                                          (mkOnlyTyVarTys ex_vars)
+                                                          (mkTyVarTys ex_vars)
                          ; (rep_ids, binds) <- go subst2 boxers term_vars
                          ; return (ex_vars ++ rep_ids, binds) } )
 
@@ -964,7 +964,7 @@ NB: See also Note [Exported LocalIds] in Id
 -}
 
 mkDictFunId :: Name      -- Name to use for the dict fun;
-            -> [TyCoVar]
+            -> [TyVar]
             -> ThetaType
             -> Class
             -> [Type]
@@ -980,7 +980,7 @@ mkDictFunId dfun_name tvs theta clas tys
     is_nt = isNewTyCon (classTyCon clas)
     (n_silent, dfun_ty) = mkDictFunTy tvs theta clas tys
 
-mkDictFunTy :: [TyCoVar] -> ThetaType -> Class -> [Type] -> (Int, Type)
+mkDictFunTy :: [TyVar] -> ThetaType -> Class -> [Type] -> (Int, Type)
 mkDictFunTy tvs theta clas tys
   = (length silent_theta, dfun_ty)
   where
@@ -1056,9 +1056,9 @@ proxyHashId
   where
     ty      = mkInvForAllTys [kv, tv] (mkProxyPrimTy k t)
     kv      = kKiVar
-    k       = mkOnlyTyVarTy kv
+    k       = mkTyVarTy kv
     tv:_    = tyVarList k
-    t       = mkOnlyTyVarTy tv
+    t       = mkTyVarTy tv
 
 ------------------------------------------------
 -- unsafeCoerce# :: forall a b. a -> b

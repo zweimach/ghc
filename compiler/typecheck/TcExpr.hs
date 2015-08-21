@@ -331,7 +331,7 @@ tcExpr expr@(OpApp arg1 op fix arg2) res_ty
        -- The *result* type can have any kind (Trac #8739),
        -- so we don't need to check anything for that
        ; a2_tv <- newReturnTyVar liftedTypeKind
-       ; let a2_ty = mkOnlyTyVarTy a2_tv
+       ; let a2_ty = mkTyVarTy a2_tv
        ; co_a <- unifyType (Just arg2) arg2_ty a2_ty     -- arg2 ~ a2
 
        ; op_id  <- tcLookupId op_name
@@ -585,7 +585,7 @@ After all, upd should be equivalent to:
 
 So we need to give a completely fresh type to the result record,
 and then constrain it by the fields that are *not* updated ("p" above).
-We call these the "fixed" type variables, and compute them in getFixedTyCoVars.
+We call these the "fixed" type variables, and compute them in getFixedTyVars.
 
 Note that because MkT3 doesn't contain all the fields being updated,
 its RHS is simply an error, so it doesn't impose any type constraints.
@@ -693,7 +693,7 @@ tcExpr expr@(RecordUpd record_expr rbinds _ _ _) res_ty
               con1 = ASSERT( not (null relevant_cons) ) head relevant_cons
               (con1_tvs, _, _, _, con1_arg_tys, _) = dataConFullSig con1
               con1_flds = dataConFieldLabels con1
-              con1_res_ty = mkFamilyTyConApp tycon (mkOnlyTyVarTys con1_tvs)
+              con1_res_ty = mkFamilyTyConApp tycon (mkTyVarTys con1_tvs)
 
         -- Step 2
         -- Check that at least one constructor has all the named fields
@@ -725,16 +725,16 @@ tcExpr expr@(RecordUpd record_expr rbinds _ _ _) res_ty
 
               mk_inst_ty :: TCvSubst -> (TyVar, TcType) -> TcM (TCvSubst, TcType)
               -- Deals with instantiation of kind variables
-              --   c.f. TcMType.tcInstTyCoVars
+              --   c.f. TcMType.tcInstTyVars
               mk_inst_ty subst (tv, result_inst_ty)
                 | is_fixed_tv tv   -- Same as result type
                 = return (extendTCvSubst subst tv result_inst_ty, result_inst_ty)
                 | otherwise        -- Fresh type, of correct kind
-                = do { (subst', new_tv) <- tcInstTyCoVarX TypeLevel subst tv
-                     ; return (subst', mkTyCoVarTy new_tv) }
+                = do { (subst', new_tv) <- tcInstTyVarX TypeLevel subst tv
+                     ; return (subst', mkTyVarTy new_tv) }
 
         ; (result_subst, con1_tvs') <- tcInstTyVars TypeLevel con1_tvs
-        ; let result_inst_tys = mkOnlyTyVarTys con1_tvs'
+        ; let result_inst_tys = mkTyVarTys con1_tvs'
 
         ; (scrut_subst, scrut_inst_tys) <- mapAccumLM mk_inst_ty emptyTCvSubst
                                                       (con1_tvs `zip` result_inst_tys)
@@ -766,7 +766,7 @@ tcExpr expr@(RecordUpd record_expr rbinds _ _ _) res_ty
   where
     upd_fld_names = hsRecFields rbinds
 
-    getFixedTyVars :: [TyVar] -> [DataCon] -> TyCoVarSet
+    getFixedTyVars :: [TyVar] -> [DataCon] -> TyVarSet
     -- These tyvars must not change across the updates
     getFixedTyVars tvs1 cons
       = mkVarSet [tv1 | con <- cons
@@ -1135,8 +1135,8 @@ tc_infer_id orig id_name
        --   * No need to deeply instantiate because type has all foralls at top
        = do { let wrap_id           = dataConWrapId con
                   (tvs, theta, rho) = tcSplitSigmaTy (idType wrap_id)
-            ; (subst, tvs') <- tcInstTyCoVars TypeLevel tvs
-            ; let tys'   = mkTyCoVarTys tvs'
+            ; (subst, tvs') <- tcInstTyVars TypeLevel tvs
+            ; let tys'   = mkTyVarTys tvs'
                   theta' = substTheta subst theta
                   rho'   = substTy subst rho
             ; wrap <- instCall orig tys' theta'

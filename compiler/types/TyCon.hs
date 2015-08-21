@@ -1456,9 +1456,9 @@ coreExpandTyCon_maybe tycon tys = tcExpandTyCon_maybe tycon tys
 
 
 ----------------
-expand  :: [TyCoVar] -> Type                   -- Template
-        -> [a]                                 -- Args
-        -> Maybe ([(TyCoVar,a)], Type, [a])    -- Expansion
+expand  :: [var] -> Type                     -- Template
+        -> [a]                               -- Args
+        -> Maybe ([(var,a)], Type, [a])  -- Expansion
 expand tvs rhs tys
   = case n_tvs `compare` length tys of
         LT -> Just (tvs `zip` tys, rhs, drop n_tvs tys)
