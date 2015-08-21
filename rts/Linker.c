@@ -1423,6 +1423,9 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(hs_spt_remove)                                      \
       SymI_HasProto(hs_spt_keys)                                        \
       SymI_HasProto(hs_spt_key_count)                                   \
+      SymI_HasProto(backtrace_free)                                     \
+      SymI_HasProto(libdw_my_cap_get_backtrace)                         \
+      SymI_HasProto(libdw_my_cap_free)                                  \
       RTS_USER_SIGNALS_SYMBOLS                                          \
       RTS_INTCHAR_SYMBOLS
 
