@@ -288,31 +288,24 @@ Backtrace *get_stg_backtrace(StgTSO *tso) {
     return bt;
 }
 
-static LocationBacktrace *libdw_lookup_backtrace(LibDwSession *session, Backtrace *bt) {
-    int len = sizeof(StgWord) + bt->n_frames * sizeof(Location);
-    LocationBacktrace *lbt = stgMallocBytes(len, "libdw_lookup_backtrace");
-    lbt->n_frames = bt->n_frames;
-    int i = 0;
-    StgPtr pc;
-    FOREACH_FRAME(pc, bt) {
-        libdw_lookup_location(session, &lbt->frames[i], pc);
-        i++;
-    }
-    return lbt;
-}
-
-LocationBacktrace *libdw_cap_get_backtrace(void) {
+int libdw_cap_lookup_location(StgPtr pc, Location *loc) {
     Capability *cap = myTask()->cap;
     if (!cap->libdw)
         cap->libdw = libdw_init();
-    if (cap->libdw) {
-         Backtrace *bt = libdw_get_backtrace(cap->libdw);
-         LocationBacktrace *lbt = libdw_lookup_backtrace(cap->libdw, bt);
-         backtrace_free(bt);
-         return lbt;
-    } else {
+
+    if (!cap->libdw)
+        return 1;
+    return libdw_lookup_location(cap->libdw, loc, pc);
+}
+
+Backtrace *libdw_cap_get_backtrace(void) {
+    Capability *cap = myTask()->cap;
+    if (!cap->libdw)
+        cap->libdw = libdw_init();
+    if (!cap->libdw)
         return NULL;
-    }
+
+    return libdw_get_backtrace(cap->libdw);
 }
 
 void libdw_cap_free(void) {

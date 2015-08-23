@@ -73,26 +73,29 @@ Backtrace *get_stg_backtrace(StgTSO *tso);
  * Helpers for Haskell interface:
  * ------------------------------------------------------------------------*/
 
-struct LocationBacktrace_ {
-    StgWord n_frames;
-    Location frames[];
-} __attribute__((packed));
-
-typedef struct LocationBacktrace_ LocationBacktrace;
-
 #ifdef USE_LIBDW
 
-// Use the current capability's libdw context (initializing if necessary)
-// to collect a backtrace.
-LocationBacktrace *libdw_cap_get_backtrace(void);
+/*
+ * Use the current capability's libdw context (initializing if necessary)
+ * to collect a backtrace.
+ */
+Backtrace *libdw_cap_get_backtrace(void);
 
-// Free the current capability's libdw context. This is necessary after
-// you have loaded or unloaded a dynamic module.
+/*
+ * Lookup the location of an address using the current capabiliy's libdw
+ * context. Returns 0 if successful.
+ */
+int libdw_cap_lookup_location(StgPtr pc, Location *loc);
+
+/*
+ * Free the current capability's libdw context. This is necessary after
+ * you have loaded or unloaded a dynamic module.
+ */
 void libdw_cap_free(void);
 
 #else
 
-INLINE_HEADER LocationBacktrace *libdw_cap_get_backtrace(void) {
+INLINE_HEADER Backtrace *libdw_cap_get_backtrace(void) {
     return NULL;
 }
 
