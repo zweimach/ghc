@@ -1,7 +1,10 @@
 #include <elfutils/libdwfl.h>
 #include <dwarf.h>
 #include <unistd.h>
+
 #include "Libdw.h"
+#include "Task.h"
+#include "Capability.h"
 #include "RtsUtils.h"
 
 // Allocate a Backtrace
@@ -273,4 +276,19 @@ Backtrace *get_stg_backtrace(StgTSO *tso) {
         sp = next;
     }
     return bt;
+}
+
+Backtrace *libdw_my_cap_get_backtrace(void) {
+    Capability *cap = myTask()->cap;
+    if (!cap->libdw)
+        cap->libdw = libdw_init();
+    if (cap->libdw)
+        return libdw_get_backtrace(cap->libdw);
+    else
+        return NULL;
+}
+
+void libdw_my_cap_free(void) {
+    Capability *cap = myTask()->cap;
+    libdw_free(cap->libdw);
 }

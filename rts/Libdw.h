@@ -69,4 +69,12 @@ Backtrace *get_stg_backtrace(StgTSO *tso);
              pc = _chunk->frames[_frame_idx], _frame_idx < _chunk->n_frames; \
              _frame_idx++)
 
+// Use the current capability's libdw context (initializing if necessary)
+// to collect a backtrace.
+Backtrace *libdw_my_cap_get_backtrace(void);
+
+// Free the current capability's libdw context. This is necessary after
+// you have loaded or unloaded a dynamic module.
+void libdw_my_cap_free(void);
+
 #endif
