@@ -692,7 +692,7 @@ quantifyTyVars co_env gbl_tvs (dep_tkvs, nondep_tkvs)
   = do { dep_tkvs    <- apply_co_env <$> zonkTyCoVarsAndFV dep_tkvs
        ; nondep_tkvs <- (`minusVarSet` dep_tkvs) . apply_co_env <$>
                         zonkTyCoVarsAndFV nondep_tkvs
-       ; gbl_tvs     <- zonkTyCoVarsAndFV gbl_tvs
+       ; gbl_tvs     <- apply_co_env <$> zonkTyCoVarsAndFV gbl_tvs
 
        ; let all_cvs    = filterVarSet isCoVar $
                           dep_tkvs `unionVarSet` nondep_tkvs `minusVarSet` gbl_tvs

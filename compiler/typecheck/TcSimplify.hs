@@ -513,8 +513,9 @@ decideQuantification cv_env apply_mr constraints
   = do { gbl_tvs <- tcGetGlobalTyVars
        ; let constrained_tvs = tyCoVarsOfTypes constraints `unionVarSet`
                                filterVarSet isCoVar zonked_tkvs
+             mono_tvs = gbl_tvs `unionVarSet` constrained_tvs
              mr_bites = constrained_tvs `intersectsVarSet` zonked_tkvs
-       ; qtvs <- quantifyTyVars cv_env gbl_tvs
+       ; qtvs <- quantifyTyVars cv_env mono_tvs
                                 (zonked_tau_kvs, zonked_tau_tvs)
 
        ; traceTc "decideQuantification 1"

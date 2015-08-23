@@ -2172,7 +2172,6 @@ simplAlt env scrut' _ case_bndr' cont' (DataAlt con, vs, rhs)
         where
           go [] [] = []
           go (v:vs') strs | isTyVar v = v : go vs' strs
-          go (v:vs') strs | isCoVar v = eval v : go vs' strs
           go (v:vs') (str:strs)
             | isMarkedStrict str = eval v : go vs' strs
             | otherwise          = zap v  : go vs' strs

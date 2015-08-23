@@ -780,27 +780,8 @@ space for each equality predicate, so it's pretty important!
 -}
 
 mk_pred_strict_mark :: PredType -> HsBang
-mk_pred_strict_mark _pred
---x  | isEqPred pred = HsUnpack Nothing    -- Note [Unpack equality predicates]
-{- TODO (RAE): Restore the line above. But it's complicated.
-
-  The problem is that when we look inside of a lifted equality constraint
-  (only lifted ones will get here), we find Eq# which takes an
-  existential covar. To unpack such a thing, we would need the outer
-  GADT to take a new, unexpected existential covar. There is no facility
-  for a DataConRep to take a different set of type variables than the
-  DataCon itself, so this doesn't work.
-
-  However, this isn't as critical as it used to be: rejigConRes now
-  works in terms of *unlifted* equality, so the unpacking has already
-  happened. Indeed, the above line will trigger only if the user writes
-  a ~ constraint manually. (Or uses Coercible, which is the same thing.)
-
-  On the flip side, getting unpacking of existentials to work is a good
-  thing, when we can have Pi-bound arguments in data constructors. So,
-  getting it to work for equality would pay off in the long run.
--}
-
+mk_pred_strict_mark pred
+  | isEqPred pred = HsUnpack Nothing    -- Note [Unpack equality predicates]
   | otherwise     = HsNoBang
 
 {-
