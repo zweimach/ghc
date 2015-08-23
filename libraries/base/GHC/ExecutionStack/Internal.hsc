@@ -34,8 +34,6 @@ import Foreign.Marshal.Alloc (allocaBytes)
 import Foreign.Storable (Storable(..))
 import System.IO.Unsafe (unsafePerformIO)
 
-#include "Rts.h"
-
 -- | A location in the original program source.
 data SrcLoc = SrcLoc { sourceFile   :: String
                      , sourceLine   :: Int
@@ -173,27 +171,29 @@ collectStackTrace = do
 invalidateDebugCache :: IO ()
 invalidateDebugCache = libdw_cap_free
 
--- | Render a stack as a string
+-- | Render a stacktrace as a string
 showStackFrames :: [Location] -> ShowS
 showStackFrames frames =
     showString "Stack trace:\n"
     . foldr (.) id (map showFrame frames)
   where
-    showFrame :: Location -> ShowS
-    showFrame frame =
-      showString "    "
-      . showString (functionName frame)
-      . maybe id showSrcLoc (srcLoc frame)
-      . showString " in "
-      . showString (objectName frame)
-      . showString "\n"
+    showFrame loc =
+      showString "    " . showLocation loc . showChar '\n'
 
+-- | Render a 'Location' as a string
+showLocation :: Location -> ShowS
+showLocation loc =
+        showString (functionName loc)
+      . maybe id showSrcLoc (srcLoc loc)
+      . showString " in "
+      . showString (objectName loc)
+  where
     showSrcLoc :: SrcLoc -> ShowS
-    showSrcLoc loc =
+    showSrcLoc sloc =
         showString " ("
-      . showString (sourceFile loc)
+      . showString (sourceFile sloc)
       . showString ":"
-      . showString (show $ sourceLine loc)
+      . shows (sourceLine sloc)
       . showString "."
-      . showString (show $ sourceColumn loc)
+      . shows (sourceColumn sloc)
       . showString ")"

@@ -16,15 +16,14 @@
 --
 -- myFunction :: IO ()
 -- myFunction = do
---      stackFrames <- currentStackFrames
---      putStrLn $ showStackFrames stackFrames
+--      putStrLn =<< showStackTrace stackFrames
 -- @
 --
--- Your `ghc` must have been built with libelf for this to work.
+-- Your GHC must have been built with @libdw@ support for this to work.
 --
 -- @
--- $ ghc --info | grep libelf
---  ,("RTS expects libelf","YES")
+-- $ ghc --info | grep libdw
+--  ,("RTS expects libdw","YES")
 -- @
 --
 -- /Since: 4.11.0.0/
