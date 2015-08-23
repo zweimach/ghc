@@ -14,6 +14,8 @@
 
 #include "Rts.h"
 #include "Libdw.h"
+#include "Task.h"
+#include "Capability.h"
 #include "RtsUtils.h"
 
 // Allocate a Backtrace
@@ -285,6 +287,31 @@ Backtrace *get_stg_backtrace(StgTSO *tso) {
         sp = next;
     }
     return bt;
+}
+
+int libdw_cap_lookup_location(StgPtr pc, Location *loc) {
+    Capability *cap = myTask()->cap;
+    if (!cap->libdw)
+        cap->libdw = libdw_init();
+
+    if (!cap->libdw)
+        return 1;
+    return libdw_lookup_location(cap->libdw, loc, pc);
+}
+
+Backtrace *libdw_cap_get_backtrace(void) {
+    Capability *cap = myTask()->cap;
+    if (!cap->libdw)
+        cap->libdw = libdw_init();
+    if (!cap->libdw)
+        return NULL;
+
+    return libdw_get_backtrace(cap->libdw);
+}
+
+void libdw_cap_free(void) {
+    Capability *cap = myTask()->cap;
+    libdw_free(cap->libdw);
 }
 
 #endif /* USE_LIBDW */
