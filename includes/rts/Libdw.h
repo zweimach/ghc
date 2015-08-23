@@ -80,7 +80,35 @@ typedef struct Location_ {
 
 void backtrace_free(Backtrace *bt);
 
+/* -------------------------------------------------------------------------
+ * Helpers for Haskell interface:
+ * ------------------------------------------------------------------------*/
+
+/*
+ * Use the current capability's libdw context (initializing if necessary)
+ * to collect a backtrace.
+ */
+Backtrace *libdw_cap_get_backtrace(void);
+
+/*
+ * Lookup the location of an address using the current capabiliy's libdw
+ * context. Returns 0 if successful.
+ */
+int libdw_cap_lookup_location(StgPtr pc, Location *loc);
+
+/*
+ * Free the current capability's libdw context. This is necessary after
+ * you have loaded or unloaded a dynamic module.
+ */
+void libdw_cap_free(void);
+
 #else
+
+INLINE_HEADER Backtrace *libdw_cap_get_backtrace(void) {
+    return NULL;
+}
+
+INLINE_HEADER void libdw_cap_free(void) { }
 
 INLINE_HEADER void backtrace_free(Backtrace *bt STG_UNUSED) { }
 
