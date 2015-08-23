@@ -26,6 +26,9 @@
 #include "Sparks.h"
 
 #include "BeginPrivate.h"
+#ifdef USE_LIBDW
+#include "Libdw.h"
+#endif
 
 struct Capability_ {
     // State required by the STG virtual machine when running Haskell
@@ -142,6 +145,12 @@ struct Capability_ {
     StgTRecChunk *free_trec_chunks;
     StgTRecHeader *free_trec_headers;
     nat transaction_tokens;
+
+    // debug information context.
+    // This is per-capability to avoid contention when profiling.
+#ifdef USE_LIBDW
+    LibDwSession *libdw;
+#endif
 } // typedef Capability is defined in RtsAPI.h
   // We never want a Capability to overlap a cache line with anything
   // else, so round it up to a cache line size:
