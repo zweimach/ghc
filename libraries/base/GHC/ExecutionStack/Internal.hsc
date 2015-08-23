@@ -13,194 +13,140 @@
 -- /Since: 4.11.0.0/
 -----------------------------------------------------------------------------
 
-{-# LANGUAGE UnboxedTuples, MagicHash, RecordWildCards #-}
 module GHC.ExecutionStack.Internal (
   -- * Internal
-    currentStackFrames
+    Location (..)
+  , SrcLoc (..)
+  , StackTrace
+  , stackFrames
+  , stackDepth
+  , collectStackTrace
   , showStackFrames
-  , currentExecutionStack
-  , codemapTryUnload
-  , codemapIsLoaded
-  , withCodemap
-  , getStackFrames
-  , getStackFramesNoSync
-  , StackFrame (..)
   ) where
 
-import GHC.IO (IO(..))
-import GHC.Base (Int(I##))
-import GHC.Ptr (Ptr(Ptr))
-import GHC.Prim (ByteArray##, sizeofByteArray##, indexAddrArray##)
-import GHC.Prim (reifyStack##)
-import Foreign.C.String (peekCString, CString)
-import Foreign.Ptr (nullPtr)
+import Data.Word
+import Foreign.C.String (peekCString)
+import Foreign.C.Types (CChar)
+import Foreign.Ptr (Ptr, nullPtr, castPtr, plusPtr, FunPtr)
+import Foreign.ForeignPtr
+import Foreign.ForeignPtr.Unsafe
 import Foreign.Storable (Storable(..))
-import Foreign.Marshal (alloca)
-import Text.Printf (printf)
-import Control.Exception.Base (bracket_)
+import System.IO.Unsafe (unsafePerformIO)
 
 #include "Rts.h"
 
--- | An 'ExecutionStack' represents a reified stack at some moment and each
--- element is a code address.
---
-data ExecutionStack = ExecutionStack
-    { unExecutionStack ::  ByteArray##
-    }
+-- | A location in the original program source.
+data SrcLoc = SrcLoc { sourceFile   :: String
+                     , sourceLine   :: Int
+                     , sourceColumn :: Int
+                     }
 
--- | The number of functions on your stack
-stackSize :: ExecutionStack -> Int
-stackSize stack =
-    I## (sizeofByteArray## (unExecutionStack stack)) `div` (#const SIZEOF_HSPTR)
+-- | Location information about an addresss from a backtrace.
+data Location = Location { objectName   :: String
+                         , functionName :: String
+                         , srcLoc       :: Maybe SrcLoc
+                         }
 
-stackIndex :: ExecutionStack -> Int -> Ptr Instruction
-stackIndex (ExecutionStack ba##) (I## i##) = Ptr (indexAddrArray## ba## i##)
+newtype StackTrace = StackTrace (ForeignPtr StackTrace)
 
-stackIndices :: ExecutionStack -> [Ptr Instruction]
-stackIndices stack = map (stackIndex stack) [0..(stackSize stack)-1]
+-- | How many stack frames in the given stack trace.
+stackDepth :: StackTrace -> Int
+stackDepth (StackTrace fptr) = unsafePerformIO $
+    withForeignPtr fptr $ \ptr -> fromIntegral `fmap` peekWord (castPtr ptr)
+  where
+    peekWord = peek :: Ptr Word -> IO Word
 
-data StackFrame = StackFrame
-    { unitName      :: !String -- ^ From symbol table
-    , procedureName :: !String -- ^ From symbol table
-    -- Once we have some more interesting data here, like with dwarf data, it
-    -- might make sense to export this function and getStackFrames
-    } deriving Show
+firstFrame :: StackTrace -> Ptr Location
+firstFrame (StackTrace fptr) =
+    ptr `plusPtr` sizeOf (undefined :: Word)
+  where ptr = unsafeForeignPtrToPtr fptr
 
--- | Like 'show', without @unlines@
-prepareStackFrame :: StackFrame -> [String]
-prepareStackFrame su =
-        [procedureName su]
-    --  Note: We intend to have multiple lines per frame once we have dwarf
+peekLocation :: Ptr Location -> IO Location
+peekLocation ptr = do
+    let ptrSize = sizeOf ptr
+        peekCStringPtr :: Ptr (Ptr CChar) -> IO String
+        peekCStringPtr p = do
+            str <- peek p
+            if str /= nullPtr
+              then peekCString str
+              else return ""
+    objFile <- peekCStringPtr (castPtr ptr)
+    function <- peekCStringPtr (castPtr ptr `plusPtr` (1*ptrSize))
+    srcFile <- peekCStringPtr (castPtr ptr `plusPtr` (2*ptrSize))
+    lineNo <- peek (castPtr ptr `plusPtr` (3*ptrSize)) :: IO Word32
+    colNo <- peek (castPtr ptr `plusPtr` (3*ptrSize + sizeOf lineNo)) :: IO Word32
+    let srcLoc
+          | null srcFile = Nothing
+          | otherwise = Just $ SrcLoc { sourceFile = srcFile
+                                      , sourceLine = fromIntegral lineNo
+                                      , sourceColumn = fromIntegral colNo
+                                      }
+    return Location { objectName = objFile
+                    , functionName = function
+                    , srcLoc = srcLoc
+                    }
 
--- | Pretty-print an execution stack:
---
--- @
--- Stack trace (Haskell):
---    0: base_GHCziExecutionStackziInternal_currentStackFrames1_info
---    1: base_GHCziBase_bindIO1_info
---    2: base_GHCziIO_unsafeDupablePerformIO_info
---    3: sPd_info
---    4: base_GHCziShow_zdfShowZLZRzuzdcshow_info
---    5: sPe_info
---    6: base_GHCziBase_eqString_info
---    7: Main_dontInlineMe_info
---    8: stg_bh_upd_frame_info
---    9: base_GHCziShow_showLitString_info
---   10: s2YV_info
---   11: base_GHCziIOziHandleziText_zdwa8_info
---   12: stg_catch_frame_info
--- @
---
--- For a program looking like this
---
--- @
--- module Main where
---
--- import GHC.ExecutionStack
--- import System.IO.Unsafe (unsafePerformIO)
---
--- main :: IO ()
--- main = print (dontInlineMe (show (unsafePerformIO printStack)))
---
--- printStack :: IO ()
--- printStack = currentStackFrames >>= (putStrLn . showStackFrames)
---
--- dontInlineMe :: String -> String
--- dontInlineMe x = case x of
---                    "hello" -> "world"
---                    x       -> x
--- @
---
--- As can be seen, the stack trace reveals function names.
---
-showStackFrames :: [StackFrame] -> String
+-- | The size in bytes of a 'locationSize'
+locationSize :: Int
+locationSize = 2*4 + 4*ptrSize
+  where ptrSize = sizeOf (undefined :: Ptr ())
+
+-- | List the frames of a stack trace.
+stackFrames :: StackTrace -> [Location]
+stackFrames st@(StackTrace fptr) =
+    iterFrames (stackDepth st - 1) (firstFrame st)
+  where
+    wordSize = sizeOf (0 :: Word)
+    ptr = unsafeForeignPtrToPtr fptr
+
+    stackLen = stackDepth st
+
+    iterFrames :: Int -> Ptr Location -> [Location]
+    iterFrames (-1) _     = []
+    iterFrames n    frame =
+        unsafePerformIO this : iterFrames (n-1) frame'
+      where
+        this = withForeignPtr fptr $ const $ peekLocation frame
+        frame' = frame `plusPtr` locationSize
+
+foreign import ccall unsafe "libdw_my_cap_get_backtrace"
+    libdw_my_cap_get_backtrace :: IO (Ptr StackTrace)
+
+foreign import ccall unsafe "libdw_my_cap_free"
+    libdw_my_cap_free :: IO ()
+
+foreign import ccall unsafe "&backtrace_free"
+    freeStackTrace :: FunPtr (Ptr StackTrace -> IO ())
+
+-- | Get an execution stack.
+collectStackTrace :: IO StackTrace
+collectStackTrace = do
+    st <- libdw_my_cap_get_backtrace
+    StackTrace <$> newForeignPtr freeStackTrace st
+
+invalidateDebugCache :: IO ()
+invalidateDebugCache = libdw_my_cap_free
+
+showStackFrames :: [Location] -> ShowS
 showStackFrames frames =
-    "Stack trace (Haskell):\n" ++
-    concatMap (uncurry displayFrame) ([0..] `zip` frames)
+    showString "Stack trace:\n"
+    . foldr (.) id (map showFrame frames)
+  where
+    showFrame :: Location -> ShowS
+    showFrame frame =
+      showString "    "
+      . showString (functionName frame)
+      . maybe id showSrcLoc (srcLoc frame)
+      . showString " in "
+      . showString (objectName frame)
+      . showString "\n"
 
--- | How one StackFrame is displayed in one stack trace
-displayFrame :: Int -> StackFrame -> String
-displayFrame ix frame = unlines $ zipWith ($) formatters strings
-      where formatters = (printf "%4u: %s" (ix :: Int)) : repeat ("      " ++)
-            strings    = prepareStackFrame frame
-
--- We use these three empty data declarations for type-safety
-data CodemapUnit
-data CodemapProc
-data Instruction
-
-peekCodemapUnitName :: Ptr CodemapUnit -> IO CString
-peekCodemapUnitName ptr = #{peek struct CodemapUnit_, name } ptr
-
-peekCodemapProcName :: Ptr CodemapProc -> IO CString
-peekCodemapProcName ptr = #{peek struct CodemapProc_, name } ptr
-
--- | Reify the execution stack and look up the function names using the symbol
--- table.  If no debug data is found, the `StackFrame`s will only contain the
--- dummy string `<Data not found>`. This can for example happen when your ghc
--- is not built with libelf or if you use dynamic linking.
-currentStackFrames :: IO [StackFrame]
-currentStackFrames = currentExecutionStack >>= getStackFrames
-
--- | Reify the stack. This is the only way to get an ExecutionStack value.
-currentExecutionStack :: IO (ExecutionStack)
-currentExecutionStack = currentExecutionStackLimit (maxBound :: Int)
-
-currentExecutionStackLimit :: Int -> IO (ExecutionStack)
-currentExecutionStackLimit (I## i##) =
-    IO (\s -> let (## new_s, byteArray## ##) = reifyStack## i## s
-                  ba = ExecutionStack byteArray##
-              in (## new_s, ba ##) )
-
--- | Tell the codemap module that you want to use codemap. Synchronized.
-foreign import ccall "Codemap.h codemap_inc_ref" codemapIncRef :: IO ()
-
--- | Tell the codemap module that you are done using codemap. Synchronized.
-foreign import ccall "Codemap.h codemap_dec_ref" codemapDecRef :: IO ()
-
--- | Ask the codemap module if it can unload and free up memory. It will not be
--- able to if the module is in use or if data is not loaded. Synchronized.
---
--- Returns True if codemap data was unloaded.
-foreign import ccall "Codemap.h codemap_try_unload" codemapTryUnload :: IO Bool
-
-foreign import ccall "Codemap.h codemap_is_loaded" codemapIsLoaded :: IO Bool
-
--- | Lookup an instruction pointer
---
--- Codemap module must be loaded to use this!
-foreign import ccall "Codemap.h codemap_lookup_ip"
-    codemapLookupIp ::
-       Ptr Instruction -- ^ Code address you want information about
-    -> Ptr (Ptr CodemapProc) -- ^ Out: CodemapProc Pointer Pointer
-    -> Ptr (Ptr CodemapUnit) -- ^ Out: CodemapUnit Pointer Pointer
-    -> IO ()
-
-withCodemap :: IO a -> IO a
-withCodemap = bracket_ codemapIncRef codemapDecRef
-
-getStackFrameNoSync ::
-       Ptr Instruction -- ^ Instruction Pointer
-    -> IO StackFrame -- ^ Result
-getStackFrameNoSync ip = do
-    alloca $ \ppCodemapProc -> do
-      poke ppCodemapProc nullPtr
-      alloca $ \ppCodemapUnit -> do
-          codemapLookupIp ip
-                        ppCodemapProc
-                        ppCodemapUnit
-          pCodemapProc <- peek ppCodemapProc
-          pCodemapUnit <- peek ppCodemapUnit
-          unitName <- stringPeekWith peekCodemapUnitName pCodemapUnit
-          procedureName <- stringPeekWith peekCodemapProcName pCodemapProc
-          return StackFrame{..}
-
-stringPeekWith :: (Ptr a -> IO CString) -> Ptr a -> IO String
-stringPeekWith _peeker ptr | ptr == nullPtr = return "<Data not found>"
-stringPeekWith peeker ptr  | otherwise      = peeker ptr >>= peekCString
-
-getStackFrames :: ExecutionStack -> IO [StackFrame]
-getStackFrames stack = withCodemap $ getStackFramesNoSync stack
-
-getStackFramesNoSync :: ExecutionStack -> IO [StackFrame]
-getStackFramesNoSync = mapM getStackFrameNoSync . stackIndices
+    showSrcLoc :: SrcLoc -> ShowS
+    showSrcLoc loc =
+        showString " ("
+      . showString (sourceFile loc)
+      . showString ":"
+      . showString (show $ sourceLine loc)
+      . showString "."
+      . showString (show $ sourceColumn loc)
+      . showString ")"

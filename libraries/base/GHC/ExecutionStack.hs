@@ -31,8 +31,18 @@
 -----------------------------------------------------------------------------
 
 module GHC.ExecutionStack (
-    currentStackFrames
-  , showStackFrames
+    Location (..)
+  , SrcLoc (..)
+  , getStackTrace
+  , showStackTrace
   ) where
 
-import GHC.ExecutionStack.Internal (currentStackFrames, showStackFrames)
+import GHC.ExecutionStack.Internal
+
+-- | Get a trace of the current execution stack state.
+getStackTrace :: IO [Location]
+getStackTrace = stackFrames `fmap` collectStackTrace
+
+-- | Get a string representation of the current execution stack state.
+showStackTrace :: IO String
+showStackTrace = flip showStackFrames "" `fmap` getStackTrace
