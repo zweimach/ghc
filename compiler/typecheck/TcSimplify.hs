@@ -756,7 +756,7 @@ simplifyRule name lhs_wanted rhs_wanted
                 , lhs_wanted { wc_simple = non_q_cts }) }
 
     where
-      free_ev_vars :: WantedConstraints -> TcM VarSet
+      free_ev_vars :: WantedConstraints -> TcM TyCoVarSet
       free_ev_vars (WC { wc_simple = simples
                        , wc_impl   = implics
                        , wc_insol  = insols })
@@ -778,7 +778,8 @@ simplifyRule name lhs_wanted rhs_wanted
              ; rest <- free_ev_vars wc
              ; return $ tyCoVarsOfTelescope (skols ++ givens) $
                         rest
-                        `unionVarSet` mapUnionVarSet evVarsOfTerm ev_terms
+                        `unionVarSet` mapUnionVarSet (filterVarSet isCoVar .
+                                                      evVarsOfTerm) ev_terms
                         `delVarSetList` ev_vars }
 
 {-

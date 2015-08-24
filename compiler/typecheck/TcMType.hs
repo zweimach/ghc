@@ -940,7 +940,8 @@ zonkTyCoVar :: TyCoVar -> TcM TcType
 -- Works on TyVars and TcTyVars
 zonkTyCoVar tv | isTcTyVar tv = zonkTcTyVar tv
                | isTyVar   tv = mkTyVarTy <$> zonkTyCoVarKind tv
-               | otherwise    = mkCoercionTy . mkCoVarCo <$> zonkTyCoVarKind tv
+               | otherwise    = ASSERT2( isCoVar tv, ppr tv )
+                                mkCoercionTy . mkCoVarCo <$> zonkTyCoVarKind tv
    -- Hackily, when typechecking type and class decls
    -- we have TyVars in scopeadded (only) in
    -- TcHsType.tcTyClTyVars, but it seems
