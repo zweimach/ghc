@@ -7,6 +7,7 @@ import CmmExpr         ( GlobalReg(..) )
 import Config          ( cProjectName, cProjectVersion )
 import CoreSyn         ( Tickish(..) )
 import Debug
+import Debug.GhcDebug
 import DynFlags
 import FastString
 import Module
@@ -87,7 +88,13 @@ dwarfGen df modLoc us blocks = do
   let aranges = dwarfARangesSection $$
                 pprDwarfARange (DwarfARange lowLabel highLabel unitU)
 
-  return (infoSct $$ abbrevSct $$ lineSct $$ frameSct $$ aranges, us'')
+  -- .debug_ghc section: debug data in eventlog format (GHC-specific, obviously)
+  evData <- writeDebugToEventlog df modLoc blocks
+  let ghcSct = dwarfGhcSection $$
+               pprBuffer evData
+
+  return (infoSct $$ abbrevSct $$ lineSct $$ frameSct
+          $$ aranges $$ ghcSct, us'')
 
 -- | Header for a compilation unit, establishing global format
 -- parameters
