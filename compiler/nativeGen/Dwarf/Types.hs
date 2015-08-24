@@ -17,11 +17,13 @@ module Dwarf.Types
   , pprWord
   , pprLEBWord
   , pprLEBInt
+  , pprBuffer
   , wordAlign
   , sectionOffset
   )
   where
 
+import Binary
 import Debug
 import CLabel
 import CmmExpr         ( GlobalReg(..) )
@@ -39,6 +41,8 @@ import Data.List ( mapAccumL )
 import qualified Data.Map as Map
 import Data.Word
 import Data.Char
+import Foreign
+import qualified System.IO.Unsafe as Unsafe
 
 import CodeGen.Platform
 
@@ -507,3 +511,38 @@ sectionOffset target section = sdocWithPlatform $ \plat ->
     OSDarwin  -> pprDwWord (target <> char '-' <> section)
     OSMinGW32 -> text "\t.secrel32 " <> target
     _other    -> pprDwWord target
+
+-- | Generate code for emitting the given buffer. Will take care to
+-- escape it appropriatly.
+pprBuffer :: (Int, ForeignPtr Word8) -> SDoc
+pprBuffer (len, buf) = Unsafe.unsafePerformIO $ do
+
+  -- As we output a string, we need to do escaping. We approximate
+  -- here that the escaped string will have double the size of the
+  -- original buffer. That should be plenty of space given the fact
+  -- that we expect to be converting a lot of text.
+  bh <- openBinMem (len * 2)
+  let go p q | p == q    = return ()
+             | otherwise = peek p >>= escape . fromIntegral >> go (p `plusPtr` 1) q
+      escape c
+        | c == ord '\\'  = putB '\\' >> putB '\\'
+        | c == ord '\"'  = putB '\\' >> putB '"'
+        | c == ord '\n'  = putB '\\' >> putB 'n'
+        | c == ord '?'   = putB '\\' >> putB '?' -- silence trigraph warnings
+        | isAscii (chr c) && isPrint (chr c)
+                         = putByte bh (fromIntegral c)
+        | otherwise      = do putB '\\'
+                              putB $ intToDigit (c `div` 64)
+                              putB $ intToDigit ((c `div` 8) `mod` 8)
+                              putB $ intToDigit (c `mod` 8)
+      putB :: Char -> IO ()
+      putB = putByte bh . fromIntegral . ord
+      {-# INLINE putB #-}
+  withForeignPtr buf $ \p ->
+    go p (p `plusPtr` len)
+
+  -- Pack result into a string
+  (elen, ebuf) <- getBinMemBuf bh
+  buf <- withForeignPtr ebuf $ \p -> mkFastStringForeignPtr p ebuf elen
+
+  return $ ptext (sLit "\t.ascii ") <> doubleQuotes (ftext buf)

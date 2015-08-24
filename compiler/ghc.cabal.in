@@ -467,6 +467,7 @@ Library
         UniqFM
         UniqSet
         Util
+        Debug.GhcDebug
         Vectorise.Builtins.Base
         Vectorise.Builtins.Initialise
         Vectorise.Builtins
