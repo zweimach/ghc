@@ -33,6 +33,7 @@ module Binary
 
    writeBinMem,
    readBinMem,
+   getBinMemBuf,
 
    fingerprintBinMem,
    computeFingerprint,
@@ -204,6 +205,12 @@ readBinMem filename = do
   sz_r <- newFastMutInt
   writeFastMutInt sz_r filesize
   return (BinMem noUserData ix_r sz_r arr_r)
+
+getBinMemBuf :: BinHandle -> IO (Int, ForeignPtr Word8)
+getBinMemBuf (BinMem _ ix_r _ arr_r) = do
+  arr <- readIORef arr_r
+  ix  <- readFastMutInt ix_r
+  return (ix, arr)
 
 fingerprintBinMem :: BinHandle -> IO Fingerprint
 fingerprintBinMem (BinMem _ ix_r _ arr_r) = do
