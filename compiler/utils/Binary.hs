@@ -29,6 +29,7 @@ module Binary
    seekBy,
    tellBin,
    castBin,
+   diffBin,
 
    writeBinMem,
    readBinMem,
@@ -115,6 +116,10 @@ newtype Bin a = BinPtr Int
 
 castBin :: Bin a -> Bin b
 castBin (BinPtr i) = BinPtr i
+
+-- | Take the difference between two pointers into a binary-encoded structure
+diffBin :: Bin a -> Bin a -> Int
+diffBin (BinPtr i) (BinPtr j) = i - j
 
 ---------------------------------------------------------------
 -- class Binary
