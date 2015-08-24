@@ -2615,6 +2615,13 @@
             <entry>dynamic</entry>
             <entry>-</entry>
           </row>
+          <row>
+            <entry><option>-fsave-core</option></entry>
+            <entry>Embed Core representation of program in debugging information
+            emitted in produced object file.</entry>
+            <entry>dynamic</entry>
+            <entry>-</entry>
+          </row>
         </tbody>
       </tgroup>
     </informaltable>

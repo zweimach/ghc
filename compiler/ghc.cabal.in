@@ -262,6 +262,7 @@ Library
         CoreUtils
         CoreSeq
         CoreStats
+        CoreNote
         MkCore
         PprCore
         Check

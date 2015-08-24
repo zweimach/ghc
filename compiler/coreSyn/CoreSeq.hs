@@ -69,9 +69,10 @@ seqExprs (e:es) = seqExpr e `seq` seqExprs es
 
 seqTickish :: Tickish Id -> ()
 seqTickish ProfNote{ profNoteCC = cc } = cc `seq` ()
-seqTickish HpcTick{} = ()
+seqTickish HpcTick{}    = ()
 seqTickish Breakpoint{ breakpointFVs = ids } = seqBndrs ids
 seqTickish SourceNote{} = ()
+seqTickish CoreNote{}   = ()
 
 seqBndr :: CoreBndr -> ()
 seqBndr b | isTyVar b = seqType (tyVarKind b)

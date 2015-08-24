@@ -730,6 +730,20 @@ $ cat foo.hspp</screen>
 
       <varlistentry>
         <term>
+          <option>-fsave-core</option>
+        </term>
+        <listitem>
+          <para>GHC will output the simplified Core representation of the
+          compiled program (e.g. what is emitted by <option>-ddump-simpl</option>)
+          in its extended debugging informationfor use by debugging
+          and performance analysis tools.</para>
+          <para>Note that including Core can substantially increase the size of
+          the produced object file.</para>
+        </listitem>
+      </varlistentry>
+
+      <varlistentry>
+        <term>
           <option>-dynamic</option>
         </term>
         <listitem>
