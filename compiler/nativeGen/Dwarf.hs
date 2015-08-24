@@ -37,7 +37,8 @@ dwarfGen df modLoc us blocks = do
   -- We strip out block information, as it is not currently useful for
   -- anything. In future we might want to only do this for -g1.
   let procs = debugSplitProcs blocks
-      stripBlocks dbg = dbg { dblBlocks = [] }
+      stripBlocks dbg = dbg
+      --stripBlocks dbg = dbg { dblBlocks = [] }
   compPath <- getCurrentDirectory
   let lowLabel = dblCLabel $ head procs
       highLabel = mkAsmTempEndLabel $ dblCLabel $ last procs
