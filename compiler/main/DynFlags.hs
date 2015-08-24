@@ -478,6 +478,7 @@ data GeneralFlag
 
    -- debugging flags
    | Opt_Debug
+   | Opt_DebugCore
 
    deriving (Eq, Show, Enum)
 
@@ -2722,6 +2723,7 @@ dynamic_flags = [
 
          ------ Debugging flags ----------------------------------------------
   , defGhcFlag "g"             (NoArg (setGeneralFlag Opt_Debug))
+  , defGhcFlag "fsave-core"    (NoArg (setGeneralFlag Opt_DebugCore))
  ]
  ++ map (mkFlag turnOn  ""     setGeneralFlag  ) negatableFlags
  ++ map (mkFlag turnOff "no-"  unSetGeneralFlag) negatableFlags
