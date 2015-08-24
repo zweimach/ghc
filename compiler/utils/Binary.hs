@@ -29,9 +29,11 @@ module Binary
    seekBy,
    tellBin,
    castBin,
+   diffBin,
 
    writeBinMem,
    readBinMem,
+   getBinMemBuf,
 
    fingerprintBinMem,
    computeFingerprint,
@@ -116,6 +118,10 @@ newtype Bin a = BinPtr Int
 castBin :: Bin a -> Bin b
 castBin (BinPtr i) = BinPtr i
 
+-- | Take the difference between two pointers into a binary-encoded structure
+diffBin :: Bin a -> Bin a -> Int
+diffBin (BinPtr i) (BinPtr j) = i - j
+
 ---------------------------------------------------------------
 -- class Binary
 ---------------------------------------------------------------
@@ -199,6 +205,12 @@ readBinMem filename = do
   sz_r <- newFastMutInt
   writeFastMutInt sz_r filesize
   return (BinMem noUserData ix_r sz_r arr_r)
+
+getBinMemBuf :: BinHandle -> IO (Int, ForeignPtr Word8)
+getBinMemBuf (BinMem _ ix_r _ arr_r) = do
+  arr <- readIORef arr_r
+  ix  <- readFastMutInt ix_r
+  return (ix, arr)
 
 fingerprintBinMem :: BinHandle -> IO Fingerprint
 fingerprintBinMem (BinMem _ ix_r _ arr_r) = do
