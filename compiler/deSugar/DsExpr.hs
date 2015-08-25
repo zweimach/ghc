@@ -601,8 +601,8 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
                  (subst, ex_tvs') = mapAccumL substTyVarBndr subst1 ex_tvs
 
                 -- I'm not bothering to clone the ex_tvs
-           ; eqs_vars   <- mapM newPredVarDs (substTheta subst (eqSpecPreds eq_spec))
-           ; theta_vars <- mapM newPredVarDs (substTheta subst theta)
+           ; theta_vars <- mapM newPredVarDs (substTheta subst $
+                                              eqSpecPreds eq_spec ++ theta)
            ; arg_ids    <- newSysLocalsDs (substTys subst arg_tys)
            ; let val_args = zipWithEqual "dsExpr:RecordUpd" mk_val_arg
                                          (dataConFieldLabels con) arg_ids
@@ -610,14 +610,14 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
                      = nlHsVar (lookupNameEnv upd_fld_env field_name `orElse` pat_arg_id)
                  inst_con = noLoc $ HsWrap wrap (HsVar (dataConWrapId con))
                         -- Reconstruct with the WrapId so that unpacking happens
-                 wrap = mkWpEvVarApps theta_vars               <.>
+                 wrap = mkWpEvVarApps theta_vars           <.>
                         mkWpTyEvApps  (mkTyVarTys ex_tvs') <.>
                         mkWpTyApps    out_inst_tys'
                  rhs = foldl (\a b -> nlHsApp a b) inst_con val_args
 
                  pat = noLoc $ ConPatOut { pat_con = noLoc (RealDataCon con)
                                          , pat_tvs = ex_tvs'
-                                         , pat_dicts = eqs_vars ++ theta_vars
+                                         , pat_dicts = theta_vars
                                          , pat_binds = emptyTcEvBinds
                                          , pat_args = PrefixCon $ map nlVarPat arg_ids
                                          , pat_arg_tys = in_inst_tys'

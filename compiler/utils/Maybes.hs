@@ -22,7 +22,6 @@ import Control.Applicative
 #endif
 import Control.Monad
 import Data.Maybe
-import Control.Arrow  ( second )
 
 infixr 4 `orElse`
 

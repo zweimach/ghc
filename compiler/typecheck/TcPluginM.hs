@@ -52,7 +52,7 @@ import qualified Finder
 
 import FamInstEnv ( FamInstEnv )
 import TcRnMonad  ( TcGblEnv, TcLclEnv, Ct, TcPluginM
-                  , unsafeTcPluginTcM, liftIO, traceTc )
+                  , unsafeTcPluginTcM, liftIO, traceTc, WantedConstraints )
 import TcMType    ( TcTyVar, TcType )
 import TcEnv      ( TcTyThing )
 import TcEvidence ( TcCoercion, mkTcCoercion )
@@ -68,7 +68,6 @@ import Type
 import Id
 import InstEnv
 import FastString
-import Control.Arrow ( first )
 
 
 -- | Perform some IO, typically to interact with an external tool.
@@ -121,12 +120,13 @@ getFamInstEnvs :: TcPluginM (FamInstEnv, FamInstEnv)
 getFamInstEnvs = unsafeTcPluginTcM FamInst.tcGetFamInstEnvs
 
 -- The [Ct] returned are wanted constraints that must be solved.
-matchFam :: TyCon -> [Type] -> TcPluginM (Maybe (TcCoercion, TcType, [Ct]))
+matchFam :: TyCon -> [Type]
+         -> TcPluginM (Maybe (TcCoercion, TcType, WantedConstraints))
 matchFam tycon args
   = do { mb_stuff <- unsafeTcPluginTcM $ TcSMonad.matchFamTcM tycon args
        ; return $ case mb_stuff of
-           Just (co, ty, cts) -> (mkTcCoercion co, ty, cts)
-           Nothing            -> Nothing
+           Just (co, ty, cts) -> Just (mkTcCoercion co, ty, cts)
+           Nothing            -> Nothing }
 
 newFlexiTyVar :: Kind -> TcPluginM TcTyVar
 newFlexiTyVar = unsafeTcPluginTcM . TcMType.newFlexiTyVar
