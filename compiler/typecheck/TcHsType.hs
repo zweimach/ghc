@@ -201,7 +201,7 @@ tcHsDeriv hs_ty
                     -- always safe to kind-generalize, because there
                     -- can be no covars in an outer scope
        ; ty <- tcCheckHsTypeAndGen hs_ty $
-               mkArrowKind arg_kind constraintKind
+               mkFunTy arg_kind constraintKind
           -- ty is already zonked
        ; arg_kind <- zonkSigType arg_kind
        ; let (tvs, pred) = splitNamedForAllTys ty
@@ -553,22 +553,16 @@ tc_hs_type (HsIParamTy n ty) exp_kind
        ; checkExpectedKind (mkClassPred ipClass [n',ty'])
            constraintKind exp_kind }
 
--- In the ~ case, we want to be careful with checkExpectedKind. checkExpectedKind
--- can do implicit argument instantiation. But, we don't know which argument
--- to ~ might need the instantiation. So, we compare lists of implicit
--- arguments to find out which way to do the check. Somewhat delicate.
+-- TODO (RAE): I'm a little worried about needing to inst something.
+-- But I don't know what and how much. The (~) will be will-kinded
+-- without insting, but I imagine users would want some insting.
+-- Consider `type ProxyStar = Proxy :: * -> *` and `ProxyStar ~ Proxy`.
+-- Perhaps the right answer is to give users the ability to control
+-- this themselves through visible type application.
 tc_hs_type (HsEqTy ty1 ty2) exp_kind
   = do { (ty1', kind1) <- tc_infer_lhs_type ty1
        ; (ty2', kind2) <- tc_infer_lhs_type ty2
-       ; let (bndrs1, _) = splitForAllTysInvisible kind1
-             (bndrs2, _) = splitForAllTysInvisible kind2
-       ; tys <-
-         if length bndrs1 > length bndrs2
-         then do { ty1'' <- checkExpectedKind ty1' kind1 kind2
-                 ; return [ty1'', ty2'] }
-         else do { ty2'' <- checkExpectedKind ty2' kind2 kind1
-                 ; return [ty1', ty2''] }
-       ; let ty' = mkNakedTyConApp eqTyCon (kind1 : tys)
+       ; let ty' = mkNakedTyConApp eqTyCon [kind1, kind2, ty1', ty2']
        ; checkExpectedKind ty' constraintKind exp_kind }
 
 --------- Literals

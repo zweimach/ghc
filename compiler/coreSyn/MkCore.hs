@@ -288,15 +288,16 @@ mkStringExprFS str
 
 -- This take a ~# b (or a ~# R b) and returns a ~ b (or Coercible a b)
 mkEqBox :: Coercion -> CoreExpr
-mkEqBox co = ASSERT2( typeKind ty2 `eqType` k, ppr co $$ ppr ty1 $$ ppr ty2 $$ ppr (typeKind ty1) $$ ppr (typeKind ty2) )
-             Var (dataConWorkId datacon) `mkTyApps` [k, ty1, ty2] `App` Coercion co
+mkEqBox co = Var (dataConWorkId datacon)
+             `mkTyApps` [k1, k2, ty1, ty2]
+             `App` Coercion co
   where (Pair ty1 ty2, role) = coercionKindRole co
-        k = typeKind ty1
+        k1 = typeKind ty1
+        k2 = typeKind ty2
         datacon = case role of
             Nominal ->          eqBoxDataCon
             Representational -> coercibleDataCon
-            Phantom ->          pprPanic "mkEqBox does not support boxing phantom coercions"
-                                         (ppr co)
+            Phantom ->          pprPanic "mkEqBox phantom" (ppr co)
 
 {-
 ************************************************************************

@@ -383,17 +383,13 @@ coVarKindsTypesRole cv
  | Just (tc, [k1,k2,ty1,ty2]) <- splitTyConApp_maybe (varType cv)
  = let role
          | tc `hasKey` eqPrimTyConKey     = Nominal
+         | tc `hasKey` eqTyConKey         = Nominal
+             -- TODO (RAE): Remove the following when there are no more lifted
+             -- equalities in the typechecker.
          | tc `hasKey` eqReprPrimTyConKey = Representational
+         | tc `hasKey` coercibleTyConKey  = Representational
          | otherwise                      = panic "coVarKindsTypesRole"
    in (k1,k2,ty1,ty2,role)
- | Just (tc, [k,ty1,ty2]) <- splitTyConApp_maybe (varType cv)
- = let role  -- this case should only happen during typechecking.
-             -- TODO (RAE): Remove this when there are no more lifted
-             -- equalities in the typechecker.
-         | tc `hasKey` eqTyConKey         = Nominal
-         | tc `hasKey` coercibleTyConKey  = Representational
-         | otherwise                      = panic "coVarKindsTypeRole 2"
-   in (k,k,ty1,ty2,role)
  | otherwise = pprPanic "coVarKindsTypesRole, non coercion variable"
                         (ppr cv $$ ppr (varType cv))
 

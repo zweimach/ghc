@@ -118,7 +118,7 @@ module TcType (
   -- Rexported from Kind
   Kind, typeKind,
   unliftedTypeKind, liftedTypeKind,
-  constraintKind, mkArrowKind, mkArrowKinds,
+  constraintKind,
   isLiftedTypeKind, isUnliftedTypeKind, classifiesTypeWithValues,
 
   --------------------------------
@@ -931,22 +931,19 @@ mkNakedPhiTy :: [PredType] -> Type -> Type
 mkNakedPhiTy = flip $ foldr mkNakedFunTy
 
 mkTcEqPred :: TcType -> TcType -> Type
--- During type checking we build equalities between
--- types of differing kinds. This all gets sorted out when
--- we desugar to Core (which allows heterogeneous equality
--- anyway), but we must be careful *not* to check that the
--- two types have the same kind here!
 mkTcEqPred ty1 ty2
-  = mkTyConApp eqTyCon [k, ty1, ty2]
+  = mkTyConApp eqTyCon [k1, k2, ty1, ty2]
   where
-    k = typeKind ty1
+    k1 = typeKind ty1
+    k2 = typeKind ty2
 
 -- | Make a representational equality predicate
 mkTcReprEqPred :: TcType -> TcType -> Type
 mkTcReprEqPred ty1 ty2
-  = mkTyConApp coercibleTyCon [k, ty1, ty2]
+  = mkTyConApp coercibleTyCon [k1, k2, ty1, ty2]
   where
-    k = typeKind ty1
+    k1 = typeKind ty1
+    k2 = typeKind ty2
 
 -- | Make an equality predicate at a given boxity & role.
 -- The role must not be Phantom.
@@ -1653,20 +1650,15 @@ evVarPred var
 mkEqBoxTy :: Coercion -> Type
 -- NB: Defined here to avoid module loops with DataCon
 mkEqBoxTy co
-  = ASSERT2( typeKind ty2 `eqType` k
-           , ppr co $$
-             ppr ty1 $$
-             ppr ty2 $$
-             ppr (typeKind ty1) $$
-             ppr (typeKind ty2) )
-    mkTyConApp (promoteDataCon datacon) [k, ty1, ty2, mkCoercionTy co]
+  = mkTyConApp (promoteDataCon datacon) [k1, k2, ty1, ty2, mkCoercionTy co]
   where (Pair ty1 ty2, role) = coercionKindRole co
-        k = typeKind ty1
+        k1 = typeKind ty1
+        k2 = typeKind ty2
         datacon = case role of
             Nominal ->          eqBoxDataCon
             Representational -> coercibleDataCon
             Phantom ->
-              pprPanic "mkEqBoxTy does not support boxing phantom coercions" (ppr co)
+              pprPanic "mkEqBoxTy phantom" (ppr co)
 
 ------------------
 -- | When inferring types, should we quantify over a given predicate?

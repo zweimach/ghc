@@ -24,7 +24,6 @@ module TysPrim(
 
         -- Kinds
         tYPE,
-        mkArrowKind, mkArrowKinds,
 
         funTyCon, funTyConName,
         primTyCons,
@@ -261,7 +260,7 @@ funTyConName = mkPrimTyConName (fsLit "(->)") funTyConKey funTyCon
 
 funTyCon :: TyCon
 funTyCon = mkFunTyCon funTyConName $
-           mkArrowKinds [liftedTypeKind, liftedTypeKind] liftedTypeKind
+           mkFunTys [liftedTypeKind, liftedTypeKind] liftedTypeKind
         -- You might think that (->) should have type (?? -> ? -> *), and you'd be right
         -- But if we do that we get kind errors when saying
         --      instance Control.Arrow (->)
@@ -360,14 +359,6 @@ mkPrimTcName built_in_syntax occ key tycon
 tYPE :: Type -> Type
 tYPE lev = TyConApp tYPETyCon [lev]
 
--- | Given two kinds @k1@ and @k2@, creates the 'Kind' @k1 -> k2@
-mkArrowKind :: Kind -> Kind -> Kind
-mkArrowKind k1 k2 = mkFunTy k1 k2
-
--- | Iterated application of 'mkArrowKind'
-mkArrowKinds :: [Kind] -> Kind -> Kind
-mkArrowKinds arg_kinds result_kind = foldr mkArrowKind result_kind arg_kinds
-
 {-
 ************************************************************************
 *                                                                      *
@@ -381,7 +372,7 @@ pcPrimTyCon :: Name -> [Role] -> PrimRep -> TyCon
 pcPrimTyCon name roles rep
   = mkPrimTyCon name kind roles rep
   where
-    kind        = mkArrowKinds (map (const liftedTypeKind) roles) result_kind
+    kind        = mkFunTys (map (const liftedTypeKind) roles) result_kind
     result_kind = unliftedTypeKind
 
 pcPrimTyCon0 :: Name -> PrimRep -> TyCon
@@ -492,7 +483,7 @@ mkProxyPrimTy k ty = TyConApp proxyPrimTyCon [k, ty]
 proxyPrimTyCon :: TyCon
 proxyPrimTyCon = mkPrimTyCon proxyPrimTyConName kind [Nominal,Nominal] VoidRep
   where kind = ForAllTy (Named kv Invisible) $
-               mkArrowKind k unliftedTypeKind
+               mkFunTy k unliftedTypeKind
         kv   = kKiVar
         k    = mkTyVarTy kv
 
@@ -501,7 +492,7 @@ eqPrimTyCon :: TyCon  -- The representation type for equality predicates
 eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind roles VoidRep
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
-               mkArrowKinds [k1, k2] unliftedTypeKind
+               mkFunTys [k1, k2] unliftedTypeKind
         [kv1, kv2] = mkTemplateTyVars [liftedTypeKind, liftedTypeKind]
         k1 = mkTyVarTy kv1
         k2 = mkTyVarTy kv2
@@ -515,7 +506,7 @@ eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
                               roles VoidRep
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
-               mkArrowKinds [k1, k2] unliftedTypeKind
+               mkFunTys [k1, k2] unliftedTypeKind
         [kv1, kv2]    = mkTemplateTyVars [liftedTypeKind, liftedTypeKind]
         k1            = mkTyVarTy kv1
         k2            = mkTyVarTy kv2
@@ -530,7 +521,7 @@ eqPhantPrimTyCon = mkPrimTyCon eqPhantPrimTyConName kind
                                VoidRep
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
-               mkArrowKinds [k1, k2] unliftedTypeKind
+               mkFunTys [k1, k2] unliftedTypeKind
         [kv1, kv2]    = mkTemplateTyVars [liftedTypeKind, liftedTypeKind]
         k1            = mkTyVarTy kv1
         k2            = mkTyVarTy kv2

@@ -822,7 +822,7 @@ dataConEqSpec :: DataCon -> [EqSpec]
 dataConEqSpec (MkData { dcEqSpec = eq_spec, dcOtherTheta = theta })
   = eq_spec ++
     [ spec
-    | Just (tc, [_k, ty1, ty2]) <- map splitTyConApp_maybe theta
+    | Just (tc, [_k1, _k2, ty1, ty2]) <- map splitTyConApp_maybe theta
     , tc `hasKey` eqTyConKey
     , spec <- case (getTyVar_maybe ty1, getTyVar_maybe ty2) of
                     (Just tv1, _) -> [mkEqSpec tv1 ty2]
