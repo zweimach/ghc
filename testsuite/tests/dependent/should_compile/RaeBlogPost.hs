@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds, PolyKinds, GADTs, TypeOperators, TypeFamilies #-}
 {-# OPTIONS_GHC -fwarn-unticked-promoted-constructors #-}
 
+module RaeBlogPost where
+
 -- a Proxy type with an explicit kind
 data Proxy k (a :: k) = P
 prox :: Proxy * Bool
