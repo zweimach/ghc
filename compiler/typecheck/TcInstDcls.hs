@@ -681,7 +681,11 @@ tcDataFamInstDecl mb_clsinfo
        ; tcFamTyPats (famTyConShape fam_tc) pats
                      (kcDataDefn (unLoc fam_tc_name) pats defn) $
            \tvs' cvs pats' res_kind -> do
-       { MASSERT( null cvs )
+       { when debugIsOn $
+         ifErrsM (return ())
+                 ( MASSERT( null cvs ) )  -- could be cvs in error cases
+                                          -- e.g. dependent/should_fail/RAE_T32a
+
          -- Check that left-hand side contains no type family applications
          -- (vanilla synonyms are fine, though, and we checked for
          --  foralls earlier)

@@ -59,6 +59,7 @@ module Util (
         isEqual, eqListBy, eqMaybeBy,
         thenCmp, cmpList,
         removeSpaces,
+        (|||), (&&&),
 
         -- * Edit distance
         fuzzyMatch, fuzzyLookup,
@@ -680,6 +681,16 @@ cmpList cmp (a:as) (b:bs)
 
 removeSpaces :: String -> String
 removeSpaces = dropWhileEndLE isSpace . dropWhile isSpace
+
+-- | Higher-order AND
+(&&&) :: (a -> Bool) -> (a -> Bool) -> a -> Bool
+(a &&& b) x = a x && b x
+infixr 3 &&&
+
+-- | Higher-order OR
+(|||) :: (a -> Bool) -> (a -> Bool) -> a -> Bool
+(a ||| b) x = a x || b x
+infixr 2 |||
 
 {-
 ************************************************************************

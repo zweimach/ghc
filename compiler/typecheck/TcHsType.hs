@@ -980,7 +980,8 @@ kcHsTyVarBndrs :: Bool    -- ^ True <=> the decl being checked has a CUSK
                -> TcM (Kind, r)   -- ^ the result kind, possibly with other info
                -> TcM (Kind, r)   -- ^ The full kind of the thing being declared,
                                   -- with the other info
-kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thing_inside
+kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns
+                            , hsq_explicit = hs_tvs }) thing_inside
   = do { meta_kvs <- mapM (const newMetaKindVar) kv_ns
        ; kvs <- if cusk
                 then return $ zipWith new_skolem_tv kv_ns meta_kvs
@@ -988,15 +989,15 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns, hsq_explicit = hs_tvs }) thi
                 else zipWithM newSigTyVar kv_ns meta_kvs
        ; tcExtendTyVarEnv2 (kv_ns `zip` kvs) $
     do { (full_kind, _, stuff) <- bind_telescope hs_tvs thing_inside
-       ; let kvs = filter (not . isMetaTyVar) $
-                   varSetElemsWellScoped $ tyCoVarsOfType full_kind
+       ; let qkvs = filter (not . isMetaTyVar &&& not . isCoVar) $
+                             -- TODO (RAE): Change above to isMetaCoVar
+                    varSetElemsWellScoped $ tyCoVarsOfType full_kind
 
                 -- the free non-meta variables in the returned kind will
                 -- contain both *mentioned* kind vars and *unmentioned* kind
                 -- vars (See case (1) under Note [Typechecking telescopes])
              gen_kind  = if cusk
-                         then ASSERT( all isTyVar kvs )  -- nowhere for a cv to come from
-                              mkInvForAllTys kvs $ full_kind
+                         then mkInvForAllTys qkvs $ full_kind
                          else full_kind
        ; return (gen_kind, stuff) } }
   where

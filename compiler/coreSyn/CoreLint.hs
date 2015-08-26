@@ -998,8 +998,9 @@ lintKind k = do { sk <- lintType k
 -- confirms that a type is really *
 lintStar :: SDoc -> OutKind -> LintM ()
 lintStar doc k
-  = lintL (isStarKind k) (ptext (sLit "Non-* kind when * expected:") <+> ppr k $$
-                           ptext (sLit "when checking") <+> doc)
+  = lintL (classifiesTypeWithValues k)
+          (ptext (sLit "Non-*-like kind when *-like expected:") <+> ppr k $$
+           ptext (sLit "when checking") <+> doc)
 
 lintArrow :: SDoc -> LintedKind -> LintedKind -> LintM LintedKind
 -- If you edit this function, you may need to update the GHC formalism
@@ -1095,10 +1096,8 @@ lintCoercion :: OutCoercion -> LintM (LintedKind, LintedKind, LintedType, Linted
 
 -- If you edit this function, you may need to update the GHC formalism
 -- See Note [GHC Formalism]
-lintCoercion co@(Refl r ty)
-  = do { checkL (not $ isCoercionTy ty)
-                (ptext (sLit "Refl (CoercionTy ...):") <+> ppr co)
-       ; k <- lintType ty
+lintCoercion (Refl r ty)
+  = do { k <- lintType ty
        ; return (k, k, ty, ty, r) }
 
 lintCoercion co@(TyConAppCo r tc cos)

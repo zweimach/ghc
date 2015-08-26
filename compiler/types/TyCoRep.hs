@@ -490,8 +490,6 @@ data Coercion
           --            always show up as Refl.
           -- For example  (Refl T) (Refl a) (Refl b) shows up as (Refl (T a b)).
 
-          -- Invariant: The type in a Refl will never be headed by CoercionTy
-
           -- Applications of (Refl T) to some coercions, at least one of
           -- which is NOT the identity, show up as TyConAppCo.
           -- (They may not be fully saturated however.)
@@ -2165,7 +2163,7 @@ pprTcApp_help p pp tc tys dflags
     -- TODO (RAE): Remove this hack to fix printing `GHC.Prim.~#`
   = let pp_tc | tc `hasKey` eqPrimTyConKey
               , not (gopt Opt_PrintExplicitKinds dflags)
-              = text "~"
+              = text "~#"
               | otherwise
               = ppr tc
     in pprInfixApp p pp pp_tc ty1 ty2
