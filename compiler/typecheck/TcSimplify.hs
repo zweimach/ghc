@@ -538,7 +538,7 @@ decideQuantification cv_env apply_mr constraints
           -- to *. So, don't grow the kvs.
 
        ; constraints <- zonkTcTypes constraints
-                 -- quantiyTyCoVars turned some meta tyvars into
+                 -- quantiyTyVars turned some meta tyvars into
                  -- quantified skolems, so we have to zonk again
 
        ; let theta     = filter (quantifyPred (mkVarSet qtvs)) constraints
