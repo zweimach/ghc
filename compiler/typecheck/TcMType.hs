@@ -636,13 +636,14 @@ tcInstBinderX subst binder
      -- types. The special-casing makes me sad. Improve.
   | let ty = substTy subst (binderType binder)
   , Just (boxity, role, k1, k2) <- getEqPredTys_maybe ty
-  = ASSERT( boxity == Boxed )   -- unboxed equality is always dependent
-    do { let origin = TypeEqOrigin { uo_actual   = k1
+  = do { let origin = TypeEqOrigin { uo_actual   = k1
                                    , uo_expected = k2
                                    , uo_thing    = Nothing
                                    , uo_level    = KindLevel }
        ; cv <- emitWantedEvVar origin (mkPrimEqPredRole role k1 k2)
-       ; let arg' = mkEqBoxTy (mkCoVarCo cv)
+       ; let arg' = case boxity of
+                      Boxed   -> mkEqBoxTy    (mkCoVarCo cv)
+                      Unboxed -> mkCoercionTy (mkCoVarCo cv)
        ; return (subst, arg') }
 
   | otherwise

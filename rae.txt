@@ -55,6 +55,8 @@ and (2) are terrible.
 fix:
   - implement constrained instances in source
 
+  - See tag hetero-twiddle.
+
   - See #10782. Depending on the answer, we may need to add covars, too.
 
   - Every time tcExtendTyVarEnv{,2} is called, make sure an implication

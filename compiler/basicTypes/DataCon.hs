@@ -464,11 +464,11 @@ data StrictnessMark = MarkedStrict | NotMarkedStrict
 -- rejigging a GADT constructor
 data EqSpec = EqSpec TyVar
                      Type
-                     Boxity
+                     Boxity  -- TODO (RAE): This is *always* Unboxed. Remove.
 
 -- | Make an 'EqSpec'
 mkEqSpec :: TyVar -> Type -> EqSpec
-mkEqSpec tv ty = EqSpec tv ty Boxed
+mkEqSpec tv ty = EqSpec tv ty Unboxed
 
 eqSpecTyVar :: EqSpec -> TyVar
 eqSpecTyVar (EqSpec tv _ _) = tv

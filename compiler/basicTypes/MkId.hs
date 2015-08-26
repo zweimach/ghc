@@ -529,7 +529,8 @@ mkDataConRep dflags fam_envs wrap_name data_con
     wrapper_reqd = not (isNewTyCon tycon)  -- Newtypes have only a worker
                 && (any isBanged orig_bangs   -- Some forcing/unboxing
                                               -- (includes eq_spec)
-                    || isFamInstTyCon tycon)  -- Cast result
+                    || isFamInstTyCon tycon   -- Cast result
+                    || (not $ null eq_spec))  -- GADT
 
     initial_wrap_app = Var (dataConWorkId data_con)
                       `mkVarApps` all_tvs
@@ -781,8 +782,11 @@ space for each equality predicate, so it's pretty important!
 
 mk_pred_strict_mark :: PredType -> HsBang
 mk_pred_strict_mark pred
-  | isEqPred pred = HsUnpack Nothing    -- Note [Unpack equality predicates]
-  | otherwise     = HsNoBang
+  | Just (Boxed, _, _, _) <- getEqPredTys_maybe pred
+  = HsUnpack Nothing    -- Note [Unpack equality predicates]
+
+  | otherwise
+  = HsNoBang
 
 {-
 ************************************************************************
