@@ -372,6 +372,14 @@ typedef struct _RtsSymbolVal {
       SymI_NeedsDataProto(nocldstop)
 #endif
 
+#if defined (USE_LIBDW)
+#define RTS_LIBDW_SYMBOLS                                             \
+    SymE_HasProto(backtrace_free)                                     \
+    SymE_HasProto(libdw_my_cap_get_backtrace)                         \
+    SymE_HasProto(libdw_my_cap_lookup_location)                       \
+    SymE_HasProto(libdw_my_cap_free)
+#endif
+
 #if defined (cygwin32_HOST_OS)
 #define RTS_MINGW_ONLY_SYMBOLS /**/
 /* Don't have the ability to read import libs / archives, so
@@ -1423,9 +1431,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(hs_spt_remove)                                      \
       SymI_HasProto(hs_spt_keys)                                        \
       SymI_HasProto(hs_spt_key_count)                                   \
-      SymI_HasProto(backtrace_free)                                     \
-      SymI_HasProto(libdw_my_cap_get_backtrace)                         \
-      SymI_HasProto(libdw_my_cap_free)                                  \
+      RTS_LIBDW_SYMBOLS                                                 \
       RTS_USER_SIGNALS_SYMBOLS                                          \
       RTS_INTCHAR_SYMBOLS
 
