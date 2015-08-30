@@ -277,6 +277,9 @@ void traceTaskMigrate_ (Task       *task,
 
 void traceTaskDelete_ (Task       *task);
 
+/* Profiling */
+#define SAMPLE_BY_HEAP_LIFE       2
+
 #else /* !TRACING */
 
 #define traceSchedEvent(cap, tag, tso, other) /* nothing */

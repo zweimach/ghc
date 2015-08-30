@@ -120,6 +120,10 @@ typedef struct _PROFILING_FLAGS {
 
 # define HEAP_BY_CLOSURE_TYPE   8
 
+/* event log heap profiling */
+# define EVENTLOG_HEAP_START 256
+# define EVENTLOG_BY_CODE_PTR (EVENLOG_HEAP_START + 0)
+
     Time                heapProfileInterval; /* time between samples */
     nat                 heapProfileIntervalTicks; /* ticks between samples (derived) */
     rtsBool             includeTSOs;
