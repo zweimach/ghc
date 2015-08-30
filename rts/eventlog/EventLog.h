@@ -133,6 +133,15 @@ void postTaskMigrateEvent (EventTaskId taskId,
 
 void postTaskDeleteEvent (EventTaskId taskId);
 
+/* Statistical profiler */
+#ifdef STAT_PROFILE
+void postGhcDebug(const char *modName, const void *debugData, W_ len);
+
+void postStatProfileSamples(Capability *cap, StgBool own_cap,
+                            StgWord32 sample_by, StgWord32 sample_type,
+                            StgWord32 cnt, void **samples, nat *weights);
+#endif /* STAT_PROFILE */
+
 #else /* !TRACING */
 
 INLINE_HEADER void postSchedEvent (Capability *cap  STG_UNUSED,

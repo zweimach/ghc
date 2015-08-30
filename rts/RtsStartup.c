@@ -39,6 +39,7 @@
 #include "Globals.h"
 #include "FileLock.h"
 #include "LinkerInternals.h"
+#include "StatProfile.h"
 
 #if defined(PROFILING)
 # include "ProfHeap.h"
@@ -175,6 +176,10 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     /* initTracing must be after setupRtsFlags() */
 #ifdef TRACING
     initTracing();
+#endif
+
+#ifdef STAT_PROFILE
+    statprof_init();
 #endif
 
     /* initialise scheduler data structures (needs to be done before

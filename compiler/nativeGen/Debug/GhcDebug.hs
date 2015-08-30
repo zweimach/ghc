@@ -49,7 +49,8 @@ writeDebugToEventlog dflags mod_loc blocks = do
   getBinMemBuf bh
 
 -- | Packs the given static value into a (variable-length) event-log
--- packet.
+-- packet. This isn't the proper event log format as we use only one
+-- byte for the event type number to save space.
 putEvent :: Word8 -> PutDbgM () -> PutDbgM ()
 putEvent id cts
   = PutDbgM $ \bh df cm ->

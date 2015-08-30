@@ -779,6 +779,25 @@ void traceEnd (void)
 }
 #endif /* DEBUG */
 
+#ifdef STAT_PROFILE
+
+void traceStatProfileSamples(Capability *cap, StgBool own_cap,
+                             StgWord32 sample_by, StgWord32 sample_type,
+                             StgWord32 cnt, void **samples, nat *weights)
+{
+    if (eventlog_enabled)
+        postStatProfileSamples(cap, own_cap, sample_by, sample_type, cnt,
+                                samples, weights);
+}
+
+void traceGhcDebug(const char *modName, const void *debugData, W_ len)
+{
+    if (eventlog_enabled)
+        postGhcDebug(modName, debugData, len);
+}
+
+#endif /* STAT_PROFILE */
+
 #endif /* TRACING */
 
 // If DTRACE is enabled, but neither DEBUG nor TRACING, we need a C land

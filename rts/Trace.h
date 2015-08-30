@@ -275,6 +275,26 @@ void traceTaskMigrate_ (Task       *task,
 
 void traceTaskDelete_ (Task       *task);
 
+/* Statistical profiling */
+#ifdef STAT_PROFILE
+/* SAMPLE_BY_*: Various things we can trigger samples on */
+
+/* SAMPLE_TYPE_*: Various things we can collect in our samples */
+#define SAMPLE_TYPE_INSTR_PTR     0
+
+void traceStatProfileSamples(Capability *cap, StgBool own_cap,
+                             StgWord32 sample_by, StgWord32 sample_type,
+                             StgWord32 cnt, void **samples, nat *weights);
+
+/*
+ * Post debugging information from the .debug_ghc section to the event log.
+ * It is assumed that the data in debugData is a set of properly-formed
+ * event-log entries. modName is the name of the module (object file, not
+ * Haskell module) from which the .debug_ghc section came from.
+ */
+void traceGhcDebug(const char *modName, const void *debugData, W_ len);
+#endif /* STAT_PROFILE */
+
 #else /* !TRACING */
 
 #define traceSchedEvent(cap, tag, tso, other) /* nothing */
