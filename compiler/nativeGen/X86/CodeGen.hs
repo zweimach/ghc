@@ -2320,18 +2320,36 @@ genCCall64' dflags target dest_regs args = do
         tot_arg_size = arg_size * arg_stack_slots
 
 
+    -- See Note [Setup the frame pointer (x86_64)]
+    let push_frame_ptr
+          | useFramePtr = toOL [ PUSH II64 (OpReg rbp),
+                                 MOV  II64 (OpReg rsp) (OpReg rbp) ]
+          | otherwise   = nilOL
+        pop_frame_ptr
+          | useFramePtr = unitOL $ POP II64 (OpReg rbp)
+          | otherwise   = nilOL
+        frame_ptr_sz
+          | useFramePtr = wORD_SIZE dflags
+          | otherwise   = 0
+        useFramePtr = not $ gopt Opt_OmitFramePointer dflags
+
     -- Align stack to 16n for calls, assuming a starting stack
     -- alignment of 16n - word_size on procedure entry. Which we
     -- maintain. See Note [rts/StgCRun.c : Stack Alignment on X86]
+    let -- the size of the stack frames that we will push while preparing
+        -- this call. This includes the arguments, and potentially a frame
+        -- pointer.
+        stack_size = tot_arg_size + frame_ptr_sz
+        word_sz = wORD_SIZE dflags
     (real_size, adjust_rsp) <-
-        if (tot_arg_size + wORD_SIZE dflags) `rem` 16 == 0
-            then return (tot_arg_size, nilOL)
+        if (stack_size + word_sz) `rem` 16 == 0
+            then return (stack_size, nilOL)
             else do -- we need to adjust...
                 delta <- getDeltaNat
-                setDeltaNat (delta - wORD_SIZE dflags)
-                return (tot_arg_size + wORD_SIZE dflags, toOL [
-                                SUB II64 (OpImm (ImmInt (wORD_SIZE dflags))) (OpReg rsp),
-                                DELTA (delta - wORD_SIZE dflags) ])
+                setDeltaNat (delta - word_sz)
+                return (stack_size + word_sz, toOL [
+                                SUB II64 (OpImm (ImmInt word_sz)) (OpReg rsp),
+                                DELTA (delta - word_sz) ])
 
     -- push the stack args, right to left
     push_code <- push_args (reverse stack_args) nilOL
@@ -2396,13 +2414,15 @@ genCCall64' dflags target dest_regs args = do
                 r_dest = getRegisterReg platform True (CmmLocal dest)
         assign_code _many = panic "genCCall.assign_code many"
 
-    return (load_args_code      `appOL`
+    return (push_frame_ptr      `appOL`
+            load_args_code      `appOL`
             adjust_rsp          `appOL`
             push_code           `appOL`
             lss_code            `appOL`
             assign_eax sse_regs `appOL`
             call                `appOL`
-            assign_code dest_regs)
+            assign_code dest_regs `appOL`
+            pop_frame_ptr)
 
   where platform = targetPlatform dflags
         arg_size = 8 -- always, at the mo
@@ -2497,6 +2517,25 @@ genCCall64' dflags target dest_regs args = do
              return $ toOL [
                          SUB II64 (OpImm (ImmInt (n * wORD_SIZE dflags))) (OpReg rsp),
                          DELTA (delta - n * arg_size)]
+
+{-
+Note [Setup the frame pointer (x86_64)]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+rbp is usually the frame pointer base register in the C calling convention but
+we use it for the STG BaseReg register. It is saved by the caller, so we don't
+strictly need to preserve it over FFI calls. However, DWARF stack unwinders
+typically use its value as the frame pointer, storing $rbp to $rsp to unwind the
+stack. If $rbp if left as its BaseReg value the unwinder will overwrite $rsp
+with BaseReg. This is problematic as we will need $rsp to continue unwinding
+into the C stack after we have reached the top of the STG stack.
+
+For this reason, we need to preserve the value of $rbp and set it to the current
+$sp before passing execution to the C target, making it look to the FFI target
+like a standard frame pointer.
+
+Since this costs a few instructions per every FFI call, we allow the user to
+disable this behavior with -fomit-frame-pointer, as done by most C compilers.
+-}
 
 maybePromoteCArg :: DynFlags -> Width -> CmmExpr -> CmmExpr
 maybePromoteCArg dflags wto arg
