@@ -2793,7 +2793,7 @@ _  = rhs3        -- No warning: lone wild-card pattern
               stack through the Haskell stack all the way back to the C stack of
               the caller. This enables better stack traces in settings where Haskell code is
               called by native code. This comes at a cost, however, incurring a bit of
-              bookkeeping overhead for every Haskell-to-native FFI call.
+              bookkeeping overhead for every Haskell-to-native FFI call.</para>
           </listitem>
         </varlistentry>
 

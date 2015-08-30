@@ -2199,8 +2199,12 @@
 
           <row>
             <entry><option>-fomit-frame-pointer</option></entry>
-            <entry>Omit frame pointer updates from FFI calls. This option degrades debuggability
-              for a slight improvement in FFI call efficiency (currently only has effect on
+            <entry><emphasis>On by default</emphasis> Omit frame pointer setup
+              from FFI calls. Compiling <option>-fno-omit-frame-pointer</option>
+              will result in a binary that is more easily debugged the expense
+              of a slightly less efficient Haskell-to-native FFI calls. Namely,
+              the frame pointer allows one to produce a stack trace of the
+              native caller of Haskell code (currently only has effect on
               x86_64).</entry>
             <entry>dynamic</entry>
             <entry><option>-fno-omit-frame-pointer</option></entry>
