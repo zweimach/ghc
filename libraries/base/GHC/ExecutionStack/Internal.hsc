@@ -22,11 +22,11 @@ module GHC.ExecutionStack.Internal (
   , stackDepth
   , collectStackTrace
   , showStackFrames
+  , invalidateDebugCache
   ) where
 
 import Data.Word
 import Foreign.C.String (peekCString)
-import Foreign.C.Types (CChar)
 import Foreign.Ptr (Ptr, nullPtr, castPtr, plusPtr, FunPtr)
 import Foreign.ForeignPtr
 import Foreign.ForeignPtr.Unsafe
@@ -96,7 +96,7 @@ peekLocation ptr = do
     srcFile <- peekCStringPtr (castPtr ptr `plusPtr` (2*ptrSize))
     lineNo <- peek (castPtr ptr `plusPtr` (3*ptrSize)) :: IO Word32
     colNo <- peek (castPtr ptr `plusPtr` (3*ptrSize + sizeOf lineNo)) :: IO Word32
-    let srcLoc
+    let _srcLoc
           | null srcFile = Nothing
           | otherwise = Just $ SrcLoc { sourceFile = srcFile
                                       , sourceLine = fromIntegral lineNo
@@ -104,7 +104,7 @@ peekLocation ptr = do
                                       }
     return Location { objectName = objFile
                     , functionName = function
-                    , srcLoc = srcLoc
+                    , srcLoc = _srcLoc
                     }
 
 -- | The size in bytes of a 'locationSize'
@@ -116,11 +116,6 @@ locationSize = 2*4 + 4*ptrSize
 stackFrames :: StackTrace -> [Location]
 stackFrames st@(StackTrace fptr) = iterChunk (firstChunk st)
   where
-    wordSize = sizeOf (0 :: Word)
-    ptr = unsafeForeignPtrToPtr fptr
-
-    stackLen = stackDepth st
-
     {-
     Here we lazily lookup the location information associated with each address
     as this can be rather costly. This does mean, however, that if the set of
