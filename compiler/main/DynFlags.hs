@@ -379,6 +379,7 @@ data GeneralFlag
    | Opt_DmdTxDictSel              -- use a special demand transformer for dictionary selectors
    | Opt_Loopification                  -- See Note [Self-recursive tail calls]
    | Opt_CprAnal
+   | Opt_OmitFramePointer
 
    -- Interface files
    | Opt_IgnoreInterfacePragmas
@@ -3003,6 +3004,7 @@ fFlags = [
   flagHiddenSpec "llvm-pass-vectors-in-regs"  Opt_LlvmPassVectorsInRegisters,
   flagHiddenSpec "llvm-tbaa"                  Opt_LlvmTBAA,
   flagSpec "loopification"                    Opt_Loopification,
+  flagSpec "omit-frame-pointer"               Opt_OmitFramePointer,
   flagSpec "omit-interface-pragmas"           Opt_OmitInterfacePragmas,
   flagSpec "omit-yields"                      Opt_OmitYields,
   flagSpec "pedantic-bottoms"                 Opt_PedanticBottoms,
@@ -3238,6 +3240,7 @@ defaultFlags settings
       Opt_GhciHistory,
       Opt_GhciSandbox,
       Opt_HelpfulErrors,
+      Opt_OmitFramePointer,
       Opt_OmitYields,
       Opt_PrintBindContents,
       Opt_ProfCountEntries,

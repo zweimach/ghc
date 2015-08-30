@@ -2198,6 +2198,15 @@
           </row>
 
           <row>
+            <entry><option>-fomit-frame-pointer</option></entry>
+            <entry>Omit frame pointer updates from FFI calls. This option degrades debuggability
+              for a slight improvement in FFI call efficiency (currently only has effect on
+              x86_64).</entry>
+            <entry>dynamic</entry>
+            <entry><option>-fno-omit-frame-pointer</option></entry>
+          </row>
+
+          <row>
             <entry><option>-fomit-interface-pragmas</option></entry>
             <entry>Don't generate interface pragmas. Implied by <option>-O0</option> only.</entry>
             <entry>dynamic</entry>
