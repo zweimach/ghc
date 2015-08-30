@@ -1014,6 +1014,18 @@ void postTaskDeleteEvent (EventTaskId taskId)
 }
 
 void
+postStatProfInitEvent (StgWord8 *events_buf, StgWord64 len)
+{
+    written = fwrite(events_buf, 1, len, event_log_file);
+    if (written != len) {
+        debugBelch(
+            "postStatProfInitEvent: fwrite() failed, written=%" FMT_Word64
+            " doesn't match numBytes=%" FMT_Word64, written, numBytes);
+        return;
+    }
+}
+
+void
 postEvent (Capability *cap, EventTypeNum tag)
 {
     EventsBuf *eb;
