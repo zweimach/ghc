@@ -181,6 +181,7 @@
 #define EVENT_DEBUG_BLOCK         201
 #define EVENT_DEBUG_SOURCE        202
 #define EVENT_DEBUG_CORE          203
+#define EVENT_STAT_PROF_SAMPLES   204
 
 /*
  * The highest event code +1 that ghc itself emits. Note that some event

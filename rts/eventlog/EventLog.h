@@ -135,7 +135,16 @@ void postTaskMigrateEvent (EventTaskId taskId,
 
 void postTaskDeleteEvent (EventTaskId taskId);
 
+/* Statistical profiler */
+#ifdef STAT_PROFILE
+#define SAMPLE_INSTR_PTR 0
+
 void postStatProfInitEvent (StgWord8 *event_buf, nat int);
+
+void postStatProfileSamples(Capability *cap, StgBool own_cap,
+                            StgWord32 sample_by, StgWord32 sample_type,
+                            StgWord32 cnt, void **samples, nat *weights);
+#endif /* STAT_PROFILE */
 
 #else /* !TRACING */
 
