@@ -105,4 +105,15 @@ void statprof_init(void) {
   }
 }
 
+/*
+ * Note [Statistical profiling of heap allocation]
+ *
+ * Each capability carries with it a buffer where we accumulate IP samples
+ * collected when the heap check fails in stg_gc_noregs. This buffer is
+ * unconditionally flushed to the event log on every Schedule. It is important
+ * that the buffer does not fill up, as this would mean we must drop samples,
+ * skewing the profile.
+ *
+ */
+
 #endif

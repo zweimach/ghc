@@ -278,6 +278,7 @@ void traceTaskDelete_ (Task       *task);
 /* Statistical profiling */
 #ifdef STAT_PROFILE
 /* SAMPLE_BY_*: Various things we can trigger samples on */
+#define SAMPLE_BY_HEAP_ALLOC      1
 
 /* SAMPLE_TYPE_*: Various things we can collect in our samples */
 #define SAMPLE_TYPE_INSTR_PTR     0

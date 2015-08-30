@@ -105,6 +105,12 @@ struct Capability_ {
     // See [Note allocation accounting] in Storage.c
     W_ total_allocated;
 
+    // Heap instruction pointer profiling
+    // See Note [Statistical profiling of heap allocation]
+#define STAT_PROFILE_HEAP_SAMPLE_BUFFER_SIZE 4096
+    int heap_ip_sample_count;
+    void *heap_ip_samples[STAT_PROFILE_HEAP_SAMPLE_BUFFER_SIZE];
+
 #if defined(THREADED_RTS)
     // Worker Tasks waiting in the wings.  Singly-linked.
     Task *spare_workers;

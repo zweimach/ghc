@@ -401,12 +401,14 @@ run_thread:
     startHeapProfTimer();
 
 #ifdef STAT_PROFILE
+    // See Note [Statistical profiling of heap allocations]
     if (cap->heap_ip_sample_count) {
-        traceSamples(cap, rtsTrue, SAMPLE_BY_HEAP_ALLOC, SAMPLE_INSTR_PTR,
-                     cap->heap_ip_sample_count, cap->heap_ip_samples, NULL);
+        traceStatProfileSamples(cap, rtsTrue, SAMPLE_BY_HEAP_ALLOC,
+                                SAMPLE_TYPE_INSTR_PTR,
+                                cap->heap_ip_sample_count,
+                                cap->heap_ip_samples, NULL);
         cap->heap_ip_sample_count = 0;
     }
-
 #endif
 
     // ----------------------------------------------------------------------
