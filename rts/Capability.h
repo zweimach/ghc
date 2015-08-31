@@ -111,6 +111,12 @@ struct Capability_ {
     int heap_ip_sample_count;
     void *heap_ip_samples[STAT_PROFILE_HEAP_SAMPLE_BUFFER_SIZE];
 
+    // Black hole instruction pointer profiling
+    // See Note [Statistical profiling of black hole waits]
+#define STAT_PROFILE_BLACKHOLE_SAMPLE_BUFFER_SIZE 4096
+    int blackhole_ip_sample_count;
+    void *blackhole_ip_samples[STAT_PROFILE_BLACKHOLE_SAMPLE_BUFFER_SIZE];
+
 #if defined(THREADED_RTS)
     // Worker Tasks waiting in the wings.  Singly-linked.
     Task *spare_workers;

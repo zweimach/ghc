@@ -369,6 +369,8 @@ wanteds = concat
           ,structField C    "Capability" "weak_ptr_list_tl"
           ,structField C    "Capability" "heap_ip_samples"
           ,structField C    "Capability" "heap_ip_sample_count"
+          ,structField C    "Capability" "blackhole_ip_samples"
+          ,structField C    "Capability" "blackhole_ip_samples"
 
           ,structField Both "bdescr" "start"
           ,structField Both "bdescr" "free"

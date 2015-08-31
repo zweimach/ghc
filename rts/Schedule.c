@@ -409,6 +409,14 @@ run_thread:
                                 cap->heap_ip_samples, NULL);
         cap->heap_ip_sample_count = 0;
     }
+    // See Note [Statistical profiling of black-hole allocations]
+    if (cap->blackhole_ip_sample_count) {
+        traceStatProfileSamples(cap, rtsTrue, SAMPLE_BY_BLACKHOLE,
+                                SAMPLE_TYPE_INSTR_PTR,
+                                cap->blackhole_ip_sample_count,
+                                cap->blackhole_ip_samples, NULL);
+        cap->blackhole_ip_sample_count = 0;
+    }
 #endif
 
     // ----------------------------------------------------------------------

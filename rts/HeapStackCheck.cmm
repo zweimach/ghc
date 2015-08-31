@@ -643,6 +643,15 @@ stg_block_putmvar (P_ mvar, P_ val)
 
 stg_block_blackhole (P_ node)
 {
+#ifdef STAT_PROFILE
+    /* See Note [Statistical profiling of blackhole blocking] */
+    CInt n;
+    n = Capability_blackhole_ip_sample_count(MyCapability());
+    if (n < STAT_PROFILE_BLACKHOLE_SAMPLE_BUFFER_SIZE :: CInt) {
+            W_[MyCapability()+OFFSET_Capability_heap_ip_samples+WDS(TO_W_(n))] = node;
+            Capability_heap_ip_sample_count(MyCapability()) = n+(1::CInt);
+    }
+#endif
     Sp_adj(-2);
     Sp(1) = node;
     Sp(0) = stg_enter_info;
