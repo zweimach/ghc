@@ -30,6 +30,7 @@
 #include "Proftimer.h"
 #include "GetEnv.h"
 #include "Stable.h"
+#include "Libdw.h"
 
 #if !defined(mingw32_HOST_OS)
 #include "posix/Signals.h"
@@ -370,6 +371,16 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(rtsTimerSignal)             \
       SymI_HasProto(atexit)                     \
       SymI_NeedsDataProto(nocldstop)
+#endif
+
+#if defined (USE_LIBDW)
+#define RTS_LIBDW_SYMBOLS                                             \
+    SymE_HasProto(backtrace_free)                                     \
+    SymE_HasProto(libdw_cap_get_backtrace)                            \
+    SymE_HasProto(libdw_cap_lookup_location)                          \
+    SymE_HasProto(libdw_cap_free)
+#else
+#define RTS_LIBDW_SYMBOLS
 #endif
 
 #if defined (cygwin32_HOST_OS)
@@ -1417,6 +1428,7 @@ typedef struct _RtsSymbolVal {
       SymI_HasProto(hs_spt_remove)                                      \
       SymI_HasProto(hs_spt_keys)                                        \
       SymI_HasProto(hs_spt_key_count)                                   \
+      RTS_LIBDW_SYMBOLS                                                 \
       RTS_USER_SIGNALS_SYMBOLS                                          \
       RTS_INTCHAR_SYMBOLS
 
