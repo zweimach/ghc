@@ -250,8 +250,13 @@ pprDwarfFrame DwarfFrame{dwCieLabel=cieLabel,dwCieInit=cieInit,dwCieProcs=procs}
               pprByte (dW_CFA_offset+retReg)
             , pprByte 0
 
+              -- Preserve sp: This necessary to override that default unwinding
+              -- behavior of setting $sp = CFA.
+            , pprByte dW_CFA_same_value
+            , pprLEBWord 7   -- TODO: portability
+
               -- Sp' = CFA
-              -- (we need to set this manually as our Sp register is
+              -- (we need to set this manually as our (STG) Sp register is
               -- often not the architecture's default stack register)
             , pprByte dW_CFA_val_offset
             , pprLEBWord (fromIntegral spReg)
