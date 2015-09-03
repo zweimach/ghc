@@ -217,6 +217,26 @@ Backtrace *libdw_get_backtrace(LibDwSession *session) {
     return bt;
 }
 
+Backtrace *libdw_get_backtrace_from_mcontext(LibDwSession *session, mcontext_t *ctx) {
+    static const Dwfl_Thread_Callbacks thread_cbs = {
+        .next_thread = next_thread,
+        .memory_read = memory_read,
+        .set_initial_registers = set_initial_registers,
+    };
+
+    if (session->cur_bt != NULL) {
+        sysErrorBelch("Already collecting backtrace. Uh oh.");
+        return NULL;
+    }
+
+    Backtrace *bt = backtrace_alloc();
+    session->cur_bt = bt;
+
+    int pid = getpid();
+    int ret = dwfl_getthread_frames(session->dwfl, pid, frame_cb, session);
+
+}
+
 static pid_t next_thread(Dwfl *dwfl, void *arg, void **thread_argp) {
     /* there is only the current thread */
     if (*thread_argp != NULL)
@@ -259,6 +279,28 @@ static bool set_initial_registers(Dwfl_Thread *thread,
              :"r" (&regs[0])              /* input */
              :"%rax"                      /* clobbered */
         );
+    return dwfl_thread_state_registers(thread, 0, 17, regs);
+}
+
+Backtrace *set_initial_registers_mcontext(mcontext_t *ctx) {
+    Dwarf_Word regs[17];
+    regs[0] = REG_RAX;
+    regs[1] = REG_RDX;
+    regs[2] = REG_RCX;
+    regs[3] = REG_RBX;
+    regs[4] = REG_RSI;
+    regs[5] = REG_RDI;
+    regs[6] = REG_RBP;
+    regs[7] = REG_RSP;
+    regs[8] = REG_R8;
+    regs[9] = REG_R9;
+    regs[10] = REG_R10;
+    regs[11] = REG_R11;
+    regs[12] = REG_R12;
+    regs[13] = REG_R13;
+    regs[14] = REG_R14;
+    regs[15] = REG_R15;
+    regs[16] = REG_RIP;
     return dwfl_thread_state_registers(thread, 0, 17, regs);
 }
 

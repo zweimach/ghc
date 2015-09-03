@@ -33,6 +33,10 @@
 # include <signal.h>
 #endif
 
+#ifdef HAVE_UCONTEXT_H
+# include <ucontext.h>
+#endif
+
 #ifdef HAVE_ERRNO_H
 # include <errno.h>
 #endif
@@ -532,17 +536,24 @@ shutdown_handler(int sig STG_UNUSED)
  * We try to give the user an indication of what we are currently doing
  * in response to SIGUSR2.
  * -------------------------------------------------------------------------- */
+
 static void
-backtrace_handler(int sig STG_UNUSED)
+backtrace_handler(int sig STG_UNUSED, siginfo_t *info, void *data)
 {
 #ifdef USE_LIBDW
     LibDwSession *session = libdw_init();
+#ifdef HAVE_UCONTEXT_H
+    ucontext_t *ctx = data;
+    Backtrace *bt = libdw_get_backtrace_from_context(ctx->uc_mcontext->gregs);
+#else
+    (void) data; // Silence unused warning
     Backtrace *bt = libdw_get_backtrace(session);
+#endif /* HAVE_UCONTEXT_H */
     libdw_print_backtrace(session, stderr, bt);
     backtrace_free(bt);
 #else
     fprintf(stderr, "This build does not support backtraces.\n");
-#endif
+#endif /* USE_LIBDW */
 }
 
 /* -----------------------------------------------------------------------------
@@ -692,9 +703,9 @@ initDefaultHandlers(void)
 
 #ifdef USE_LIBDW
     // Print a backtrace on SIGUSR2
-    action.sa_handler = backtrace_handler;
+    action.sa_sa_action = backtrace_handler;
     sigemptyset(&action.sa_mask);
-    action.sa_flags = 0;
+    action.sa_flags = SA_SIGINFO;
     if (sigaction(SIGUSR2, &action, &oact) != 0) {
         sysErrorBelch("warning: failed to install SIGUSR2 handler");
     }
