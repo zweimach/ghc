@@ -28,7 +28,7 @@ import Control.Monad   ( foldM, forM_, void, when, ap )
 
 import Data.Char       ( ord)
 import Data.Maybe
-import Data.Word       ( Word8, Word16 )
+import Data.Word
 
 import Foreign.ForeignPtr
 
@@ -38,7 +38,6 @@ import Foreign.ForeignPtr
 -- | Generates debug data into a buffer
 writeDebugToEventlog :: DynFlags -> ModLocation -> [DebugBlock] -> IO (Int, ForeignPtr Word8)
 writeDebugToEventlog dflags mod_loc blocks = do
-
   -- Write data into a binary memory handle
   bh <- openBinMem $ 1024 * 1024
   let code = do putEvent EVENT_DEBUG_MODULE $ do
@@ -50,41 +49,20 @@ writeDebugToEventlog dflags mod_loc blocks = do
 
 -- | Packs the given static value into a (variable-length) event-log
 -- packet. This isn't the proper event log format as we use only one
--- byte for the event type number to save space.
+-- byte for the event type number to save space and use a larger size field.
 putEvent :: Word8 -> PutDbgM () -> PutDbgM ()
-putEvent id cts
-  = PutDbgM $ \bh df cm ->
-     let wrap = do
-           put_ bh id
-           -- Put placeholder for size
-           sizePos <- put bh (0 :: Word16)
-           -- Put contents
-           res <- runPutDbg cts bh df cm
-           -- Put final size
-           endPos <- tellBin bh
-           putAt bh sizePos $ fromIntegral $ (endPos `diffBin` sizePos) - 2
-           -- Seek back
-           seekBin bh endPos
-           return res
-     in do catchSize bh 0x10000 wrap (return (cm, ()))
-
--- | Puts an alternate version if the first one is bigger than the
--- given limit.
---
--- This is a pretty crude way of handling oversized
--- packets... Can't think of a better way right now though.
-catchSize :: BinHandle -> Int -> IO a -> IO a -> IO a
-catchSize bh limit cts1 cts2 = do
-
-  -- Put contents, note how much size it uses
-  start <- tellBin bh :: IO (Bin ())
-  a <- cts1
-  end <- tellBin bh
-
-  -- Seek back and put second version if size is over limit
-  if (end `diffBin` start) >= limit
-    then seekBin bh start >> cts2
-    else return a
+putEvent id cts = PutDbgM $ \bh df cm -> do
+  put_ bh id
+  -- Put placeholder for size
+  sizePos <- put bh (0 :: Word32)
+  -- Put contents
+  res <- runPutDbg cts bh df cm
+  -- Put final size
+  endPos <- tellBin bh
+  putAt bh sizePos $ fromIntegral $ (endPos `diffBin` sizePos) - 4
+  -- Seek back
+  seekBin bh endPos
+  return res
 
 type BlockId = Word16
 

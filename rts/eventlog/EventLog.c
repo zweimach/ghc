@@ -17,6 +17,7 @@
 #include "Stats.h"
 #include "EventLog.h"
 
+#include <arpa/inet.h> /* for ntohl */
 #include <string.h>
 #include <stdio.h>
 #ifdef HAVE_SYS_TYPES_H
@@ -1258,8 +1259,8 @@ void postGhcDebug(const char *modName, const void *debugData, W_ len)
         dbg++;
 
         // Get size
-        StgWord16 size = ntohs(*(StgWord16 *)dbg);
-        dbg += sizeof(StgWord16);
+        StgWord32 remaining = ntohl(*(StgWord32 *)dbg);
+        dbg += sizeof(StgWord32);
 
         // Sanity check
         switch (num) {
@@ -1272,15 +1273,23 @@ void postGhcDebug(const char *modName, const void *debugData, W_ len)
             continue;
         }
 
-        if (ensureRoomForVariableEvent(eb, size)) {
-            break;
-        }
-        postEventHeader(eb, num);
-        postPayloadSize(eb, size);
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+        while (remaining > 0) {
+            StgWord32 size = MIN(0xffff, remaining);
+            if (ensureRoomForVariableEvent(eb, size)) {
+                return;
+            }
+            postEventHeader(eb, num);
+            postPayloadSize(eb, size);
 
-        // Post data
-        postBuf(eb, dbg, size);
-        dbg += size;
+            // Post data
+            postBuf(eb, dbg, size);
+
+            dbg += size;
+            remaining -= size;
+            num = EVENT_CONTINUATION;
+        }
+        fprintf(stderr, "%-4d  %20s\n", num, dbg);
     }
     RELEASE_LOCK(&eventBufMutex);
 }
