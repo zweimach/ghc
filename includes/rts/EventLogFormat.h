@@ -163,11 +163,11 @@
 #define EVENT_USER_MARKER         58 /* (marker_name) */
 #define EVENT_HACK_BUG_T9003      59 /* Hack: see trac #9003 */
 
-/* Range 59 - 59 is available for new GHC and common events. */
-
 /* Range 60 - 80 is used by eden for parallel tracing
  * see http://www.mathematik.uni-marburg.de/~eden/
  */
+
+#define EVENT_CONTINUATION        81 /* continuation of previous packet */
 
 /* Range 100 - 139 is reserved for Mercury. */
 
