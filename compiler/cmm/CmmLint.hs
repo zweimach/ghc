@@ -142,6 +142,7 @@ lintCmmMiddle node = case node of
   CmmComment _ -> return ()
   CmmTick _    -> return ()
   CmmUnwind{}  -> return ()
+  CmmUnwindCFA{}  -> return ()
 
   CmmAssign reg expr -> do
             dflags <- getDynFlags

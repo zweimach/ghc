@@ -126,11 +126,8 @@ locationSize = 2*4 + 4*ptrSize
 -- | List the frames of a stack trace.
 stackFrames :: StackTrace -> [Location]
 stackFrames st@(StackTrace fptr) =
-    concatMap iterChunk $ reverse $ unsafePerformIO $ do c <- chunksList st
-                                                         print c
-                                                         return c
+    concatMap iterChunk $ reverse $ unsafePerformIO $ chunksList st
   where
-
     {-
     Here we lazily lookup the location information associated with each address
     as this can be rather costly. This does mean, however, that if the set of

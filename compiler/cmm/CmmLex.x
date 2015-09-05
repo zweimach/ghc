@@ -160,6 +160,7 @@ data CmmToken
   | CmmT_default
   | CmmT_push
   | CmmT_unwind
+  | CmmT_unwind_cfa
   | CmmT_bits8
   | CmmT_bits16
   | CmmT_bits32
@@ -243,6 +244,7 @@ reservedWordsFM = listToUFM $
         ( "default",            CmmT_default ),
         ( "push",               CmmT_push ),
         ( "unwind",             CmmT_unwind ),
+        ( "unwind_cfa",         CmmT_unwind_cfa ),
         ( "bits8",              CmmT_bits8 ),
         ( "bits16",             CmmT_bits16 ),
         ( "bits32",             CmmT_bits32 ),

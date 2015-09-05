@@ -226,9 +226,9 @@ static int frame_cb(Dwfl_Frame *frame, void *arg) {
         backtrace_push(session->cur_bt, (StgPtr) pc);
     }
 
-    if ((void *) pc == &stg_stop_thread_info)
+    /*if ((void *) pc == &stg_stop_thread_info)
         return DWARF_CB_ABORT;
-    else
+    else*/
         return DWARF_CB_OK;
 }
 

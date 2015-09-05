@@ -199,6 +199,9 @@ pprNode node = pp_node <+> pp_debug
       -- unwind reg = expr;
       CmmUnwind r e -> ptext (sLit "unwind ") <> ppr r <+> char '=' <+> ppr e
 
+      -- unwind_cfa expr;
+      CmmUnwindCFA e -> ptext (sLit "unwind_cfa ") <+> ppr e
+
       -- reg = expr;
       CmmAssign reg expr -> ppr reg <+> equals <+> ppr expr <> semi
 
@@ -289,6 +292,7 @@ pprNode node = pp_node <+> pp_debug
              CmmComment {}           -> empty -- Looks also terrible with text "  // CmmComment"
              CmmTick {}              -> empty
              CmmUnwind {}            -> text "  // CmmUnwind"
+             CmmUnwindCFA {}         -> text "  // CmmUnwindCFA"
              CmmAssign {}            -> text "  // CmmAssign"
              CmmStore {}             -> text "  // CmmStore"
              CmmUnsafeForeignCall {} -> text "  // CmmUnsafeForeignCall"

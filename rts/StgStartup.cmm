@@ -66,6 +66,7 @@ INFO_TABLE_RET(stg_stop_thread, STOP_FRAME,
        Here we setup the stack unwinding annotation necessary to allow
        debuggers to find their way back to the C stack.
      */
+    unwind_cfa StgReturn
     unwind MachSp = MachSp + WDS(RESERVED_STACK_WORDS)
 
     Sp = Sp + SIZEOF_StgStopFrame - WDS(2);

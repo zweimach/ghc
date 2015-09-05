@@ -20,7 +20,7 @@ module StgCmmMonad (
         emit, emitDecl, emitProc,
         emitProcWithConvention, emitProcWithStackFrame,
         emitOutOfLine, emitAssign, emitStore, emitComment,
-        emitTick, emitUnwind,
+        emitTick, emitUnwind, emitUnwindCFA,
 
         getCmm, aGraphToGraph,
         getCodeR, getCode, getCodeScoped, getHeapUsage,
@@ -731,6 +731,12 @@ emitUnwind g e = do
   dflags <- getDynFlags
   when (gopt Opt_Debug dflags) $
      emitCgStmt $ CgStmt $ CmmUnwind g e
+
+emitUnwindCFA :: CmmExpr -> FCode ()
+emitUnwindCFA e = do
+  dflags <- getDynFlags
+  when (gopt Opt_Debug dflags) $
+     emitCgStmt $ CgStmt $ CmmUnwindCFA e
 
 emitAssign :: CmmReg  -> CmmExpr -> FCode ()
 emitAssign l r = emitCgStmt (CgStmt (CmmAssign l r))

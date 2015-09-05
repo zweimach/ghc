@@ -279,9 +279,10 @@ extractUnwind b = go $ blockToList mid
         go :: [CmmNode O O] -> UnwindTable
         go []       = Map.empty
         go (x : xs) = case x of
-          CmmUnwind g so -> Map.insert g (toUnwindExpr so) $! go xs
-          CmmTick {}     -> go xs
-          _other         -> Map.empty
+          CmmUnwind g so  -> Map.insert g (toUnwindExpr so) $! go xs
+          CmmUnwindCFA so -> Map.insert g (toUnwindExpr so) $! go xs
+          CmmTick {}      -> go xs
+          _other          -> Map.empty
                             -- TODO: Unwind statements after actual instructions
 
 -- | Conversion of Cmm expressions to unwind expressions. We check for

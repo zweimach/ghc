@@ -139,6 +139,7 @@ stmtToInstrs stmt = do
     CmmComment s   -> return (unitOL (COMMENT s))
     CmmTick {}     -> return nilOL
     CmmUnwind {}   -> return nilOL
+    CmmUnwindCFA {}-> return nilOL
 
     CmmAssign reg src
       | isFloatType ty -> assignReg_FltCode format reg src
