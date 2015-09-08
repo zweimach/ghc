@@ -10,6 +10,7 @@
 #define RTS_LIBDW_H
 
 // Chunk capacity
+// This is rather arbitrary
 #define BACKTRACE_CHUNK_SZ 256
 
 /*
