@@ -226,6 +226,26 @@ genCall t@(PrimTarget (MO_Ctz w)) dsts args =
 genCall t@(PrimTarget (MO_BSwap w)) dsts args =
     genCallSimpleCast w t dsts args
 
+genCall (PrimTarget (MO_AtomicRMW width amop)) [dst] [addr, n] = do
+    (addrVar, stmts1, decls1) <- exprToVar addr
+    (nVar, stmts2, decls2) <- exprToVar n
+    let targetTy = widthToLlvmInt width
+        ptrExpr = Cast LM_Inttoptr addrVar (pLift targetTy)
+    (ptrVar, stmt3) <- doExpr (pLift targetTy) ptrExpr
+    dstVar <- getCmmReg (CmmLocal dst)
+    let op = case amop of
+               AMO_Add  -> LAO_Add
+               AMO_Sub  -> LAO_Sub
+               AMO_And  -> LAO_And
+               AMO_Nand -> LAO_Nand
+               AMO_Or   -> LAO_Or
+               AMO_Xor  -> LAO_Xor
+    (retVar, stmt4) <- doExpr targetTy $ AtomicRMW op ptrVar nVar SyncSeqCst
+    let stmt5 = Store retVar dstVar
+    let stmts = stmts1 `appOL` stmts2 `snocOL`
+                stmt3 `snocOL` stmt4 `snocOL` stmt5
+    return (stmts, decls1++decls2)
+
 genCall (PrimTarget (MO_AtomicRead _)) [dst] [addr] = do
   dstV <- getCmmReg (CmmLocal dst)
   (v1, stmts, top) <- genLoad True addr (localRegType dst)
@@ -234,7 +254,6 @@ genCall (PrimTarget (MO_AtomicRead _)) [dst] [addr] = do
 
 -- TODO: implement these properly rather than calling to RTS functions.
 -- genCall t@(PrimTarget (MO_AtomicWrite width)) [] [addr, val] = undefined
--- genCall t@(PrimTarget (MO_AtomicRMW width amop)) [dst] [addr, n] = undefined
 -- genCall t@(PrimTarget (MO_Cmpxchg width)) [dst] [addr, old, new] = undefined
 
 -- Handle memcpy function specifically since llvm's intrinsic version takes
@@ -715,8 +734,8 @@ cmmPrimOpFunctions mop = do
     MO_UF_Conv _     -> unsupported
 
     MO_AtomicRead _  -> unsupported
+    MO_AtomicRMW _ _ -> unsupported
 
-    MO_AtomicRMW w amop -> fsLit $ atomicRMWLabel w amop
     MO_Cmpxchg w        -> fsLit $ cmpxchgLabel w
     MO_AtomicWrite w    -> fsLit $ atomicWriteLabel w
 
