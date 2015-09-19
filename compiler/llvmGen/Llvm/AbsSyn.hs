@@ -87,6 +87,20 @@ data LlvmSyncOrdering
   | SyncSeqCst
   deriving (Show, Eq)
 
+data LlvmAtomicOp
+  = LAO_Xchg
+  | LAO_Add
+  | LAO_Sub
+  | LAO_And
+  | LAO_Nand
+  | LAO_Or
+  | LAO_Xor
+  | LAO_Max
+  | LAO_Min
+  | LAO_Umax
+  | LAO_Umin
+  deriving (Show, Eq)
+
 -- | Llvm Statements
 data LlvmStatement
   {- |
@@ -257,6 +271,15 @@ data LlvmExpression
        * to:   type to cast to
   -}
   | Cast LlvmCastOp LlvmVar LlvmType
+
+  {- |
+    Atomic read-modify-write operation
+       * op:       Atomic operation
+       * addr:     Address to modify
+       * operand:  Operand to operation
+       * ordering: Ordering requirement
+  -}
+  | AtomicRMW LlvmAtomicOp LlvmVar LlvmVar LlvmSyncOrdering
 
   {- |
     Call a function. The result is the value of the expression.
