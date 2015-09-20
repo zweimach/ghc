@@ -1003,6 +1003,7 @@ builtinIntegerRules =
   rule_unop           "complementInteger"   complementIntegerName   complement,
   rule_Int_binop      "shiftLInteger"       shiftLIntegerName       shiftL,
   rule_Int_binop      "shiftRInteger"       shiftRIntegerName       shiftR,
+  rule_IntToInteger_unop "bitInteger"       bitIntegerName          (bit . fromIntegral),
   -- See Note [Integer division constant folding] in libraries/base/GHC/Real.hs
   rule_divop_one      "quotInteger"         quotIntegerName         quot,
   rule_divop_one      "remInteger"          remIntegerName          rem,
@@ -1039,6 +1040,9 @@ builtinIntegerRules =
           rule_unop str name op
            = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
                            ru_try = match_Integer_unop op }
+          rule_IntToInteger_unop str name op
+           = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
+                           ru_try = match_IntToInteger_unop op }
           rule_binop str name op
            = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 2,
                            ru_try = match_Integer_binop op }
@@ -1208,6 +1212,16 @@ match_Integer_unop unop _ id_unf _ [xl]
   | Just (LitInteger x i) <- exprIsLiteral_maybe id_unf xl
   = Just (Lit (LitInteger (unop x) i))
 match_Integer_unop _ _ _ _ _ = Nothing
+
+match_IntToInteger_unop :: (Integer -> Integer) -> RuleFun
+match_IntToInteger_unop unop _ id_unf fn [xl]
+  | Just (MachInt x) <- exprIsLiteral_maybe id_unf xl
+  = case idType fn of
+    FunTy _ integerTy ->
+        Just (Lit (LitInteger (unop x) integerTy))
+    _ ->
+        panic "match_IntToInteger_unop: Id has the wrong type"
+match_IntToInteger_unop _ _ _ _ _ = Nothing
 
 match_Integer_binop :: (Integer -> Integer -> Integer) -> RuleFun
 match_Integer_binop binop _ id_unf _ [xl,yl]

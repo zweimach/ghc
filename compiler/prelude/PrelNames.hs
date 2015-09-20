@@ -308,7 +308,7 @@ basicKnownKeyNames
         decodeDoubleIntegerName,
         gcdIntegerName, lcmIntegerName,
         andIntegerName, orIntegerName, xorIntegerName, complementIntegerName,
-        shiftLIntegerName, shiftRIntegerName,
+        shiftLIntegerName, shiftRIntegerName, bitIntegerName,
 
         -- Float/Double
         rationalToFloatName,
@@ -934,7 +934,7 @@ integerTyConName, mkIntegerName, integerSDataConName,
     decodeDoubleIntegerName,
     gcdIntegerName, lcmIntegerName,
     andIntegerName, orIntegerName, xorIntegerName, complementIntegerName,
-    shiftLIntegerName, shiftRIntegerName :: Name
+    shiftLIntegerName, shiftRIntegerName, bitIntegerName :: Name
 integerTyConName      = tcQual  gHC_INTEGER_TYPE (fsLit "Integer")           integerTyConKey
 integerSDataConName   = dcQual gHC_INTEGER_TYPE (fsLit n)                   integerSDataConKey
   where n = case cIntegerLibraryType of
@@ -981,6 +981,7 @@ xorIntegerName        = varQual gHC_INTEGER_TYPE (fsLit "xorInteger")        xor
 complementIntegerName = varQual gHC_INTEGER_TYPE (fsLit "complementInteger") complementIntegerIdKey
 shiftLIntegerName     = varQual gHC_INTEGER_TYPE (fsLit "shiftLInteger")     shiftLIntegerIdKey
 shiftRIntegerName     = varQual gHC_INTEGER_TYPE (fsLit "shiftRInteger")     shiftRIntegerIdKey
+bitIntegerName        = varQual gHC_INTEGER_TYPE (fsLit "bitInteger")        bitIntegerIdKey
 
 -- GHC.Real types and classes
 rationalTyConName, ratioTyConName, ratioDataConName, realClassName,
@@ -1891,6 +1892,9 @@ typeSymbolTypeRepKey  = mkPreludeMiscIdUnique 507
 -- Dynamic
 toDynIdKey :: Unique
 toDynIdKey = mkPreludeMiscIdUnique 508
+
+bitIntegerIdKey :: Unique
+bitIntegerIdKey       = mkPreludeMiscIdUnique 509
 
 {-
 ************************************************************************
