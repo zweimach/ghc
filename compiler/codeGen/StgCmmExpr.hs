@@ -898,5 +898,6 @@ cgTick tick
            ProfNote   cc t p -> emitSetCCC cc t p
            HpcTick    m n    -> emit (mkTickBox dflags m n)
            SourceNote s n    -> emitTick $ SourceNote s n
+           CoreNote s n      -> emitTick $ CoreNote s n
            _other            -> return () -- ignore
        }
