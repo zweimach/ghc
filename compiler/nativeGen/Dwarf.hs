@@ -5,7 +5,7 @@ module Dwarf (
 import CLabel
 import CmmExpr         ( GlobalReg(..) )
 import Config          ( cProjectName, cProjectVersion )
-import CoreSyn         ( Tickish(..) )
+import CoreSyn         ( Tickish(..), ExprPtr(..) )
 import Debug
 import Debug.GhcDebug
 import DynFlags
@@ -134,7 +134,7 @@ debugSplitProcs b = concat $ H.mapElems $ mergeMaps $ map split b
 -- | Generate DWARF info for a procedure debug block
 procToDwarf :: DynFlags -> DebugBlock -> DwarfInfo
 procToDwarf df prc
-  = DwarfSubprogram { dwChildren = foldr blockToDwarf [] $ dblBlocks prc
+  = DwarfSubprogram { dwChildren = foldr (blockToDwarf df) [] $ dblBlocks prc
                     , dwName     = case dblSourceTick prc of
                          Just s@SourceNote{} -> sourceName s
                          _otherwise -> showSDocDump df $ ppr $ dblLabel prc
@@ -142,15 +142,24 @@ procToDwarf df prc
                     }
 
 -- | Generate DWARF info for a block
-blockToDwarf :: DebugBlock -> [DwarfInfo] -> [DwarfInfo]
-blockToDwarf blk dws
+blockToDwarf :: DynFlags -> DebugBlock -> [DwarfInfo] -> [DwarfInfo]
+blockToDwarf df blk dws
   | isJust (dblPosition blk) = dw : dws
   | otherwise                = nested ++ dws -- block was optimized out, flatten
-  where nested = foldr blockToDwarf [] $ dblBlocks blk
+  where nested = concatMap (tickToDwarf df) (dblTicks blk)
+              ++ foldr (blockToDwarf df) [] (dblBlocks blk)
         dw = DwarfBlock { dwChildren = nested
                         , dwLabel    = dblCLabel blk
                         , dwMarker   = mkAsmTempLabel (dblLabel blk)
                         }
+
+tickToDwarf :: DynFlags -> Tickish () -> [DwarfInfo]
+tickToDwarf _  (SourceNote ss _) = [DwarfSrcNote ss]
+tickToDwarf df (CoreNote _ corePtr)
+  = [DwarfCoreNote $ showSDocDump df body]
+  where body = case corePtr of ExprPtr core -> ppr core
+                               AltPtr alt   -> ppr alt
+tickToDwarf _ _ = []
 
 -- | Generates the data for the debug frame section, which encodes the
 -- desired stack unwind behaviour for the debugger

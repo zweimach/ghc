@@ -22,6 +22,19 @@ In particular GHC produces the following DWARF information,
    trace (the `.debug_frames` section)
  * address range information necessary for efficient lookup in debug information
    (the `.debug_arange` section)
+ * debug information entity (DIE) information (the `.debug_info` section)
+
+As GHC's compilation products don't map perfectly onto DWARF constructs, some 
+
+GHC may produce the following DIEs,
+
+#### `DW_TAG_compile_unit`
+
+hi
+
+#### `DW_TAG_subprogram`
+
+#### `DW_TAG_lexical_block`
 
 ### Limitations
 
@@ -31,6 +44,38 @@ forced to choose some between a variety of possible originating source
 locations. This limits the usefulness of DWARF information with traditional
 statistical profiling tools. For profiling it is recommended that one use the
 extended debugging information. See the *Profiling* section below.
+
+### DWARF extensions
+
+In addition to the usual DIEs specified by the DWARF specification, GHC produces
+a variety of others using the vendor-extensibility regions of the tag and
+attribute space.
+
+#### `DW_TAG_ghc_core_note`
+
+DIEs of this type (tag 0x5b000 )are found as children of `DW_TAG_lexical_block`
+DIEs. They carry a single string attribute, `DW_AT_core`. This attribute
+provides a string representation of the simplified Core which gave rise to the
+block (e.g. as would have been produced by `-ddump-simpl`).
+
+ * `DW_AT_ghc_core` (0x2b00) - string : A textual representation of the Core
+   AST which gave rise to the block.
+
+#### `DW_TAG_ghc_src_note`
+
+`DW_TAG_ghc_src_note` DIEs (tag 0x5b01) are found as children of
+`DW_TAG_lexical_block` DIEs. They describe source spans which gave rise to the
+block; formally these spans are causally responsible for produced code:
+changes to code in the given span may change the code within the block; conversely
+changes outside the span are guaranteed not to affect the code in the block.
+
+Spans are described with the following attributes,
+
+ * `DW_AT_ghc_span_file` (0x2b10) - string : the name of the source file
+ * `DW_AT_ghc_span_start_line` (0x2b11) - integer : the line number of the beginning of the span
+ * `DW_AT_ghc_span_start_col` (0x2b11) - integer : the column number of the beginning of the span
+ * `DW_AT_ghc_span_end_line` (0x2b11) - integer : the line number of the end of the span
+ * `DW_AT_ghc_span_end_col` (0x2b11) - integer : the column number of the end of the span
 
 ## Extended debugging information
 

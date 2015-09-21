@@ -33,6 +33,7 @@ import Outputable
 import Platform
 import Unique
 import Reg
+import SrcLoc
 
 import Dwarf.Constants
 
@@ -61,7 +62,12 @@ data DwarfInfo
                     , dwLabel :: CLabel }
   | DwarfBlock { dwChildren :: [DwarfInfo]
                , dwLabel :: CLabel
-               , dwMarker :: CLabel }
+               , dwMarker :: CLabel
+               }
+  | DwarfCoreNote { dwCore :: String
+                  }
+  | DwarfSrcNote { dwSrcSpan :: RealSrcSpan
+                 }
 
 -- | Abbreviation codes used for encoding above records in the
 -- .debug_info section.
@@ -70,6 +76,8 @@ data DwarfAbbrev
   | DwAbbrCompileUnit
   | DwAbbrSubprogram
   | DwAbbrBlock
+  | DwAbbrGhcCoreNote
+  | DwAbbrGhcSrcNote
   deriving (Eq, Enum)
 
 -- | Generate assembly for the given abbreviation code
@@ -112,6 +120,16 @@ pprAbbrevDecls haveDebugLine =
        , (dW_AT_low_pc, dW_FORM_addr)
        , (dW_AT_high_pc, dW_FORM_addr)
        ] $$
+     mkAbbrev DwAbbrGhcCoreNote dW_TAG_ghc_core_note dW_CHILDREN_no
+       [ (dW_AT_ghc_core, dW_FORM_string)
+       ] $$
+     mkAbbrev DwAbbrGhcSrcNote dW_TAG_ghc_src_note dW_CHILDREN_no
+       [ (dW_AT_ghc_span_file, dW_FORM_string)
+       , (dW_AT_ghc_span_start_line, dW_FORM_data4)
+       , (dW_AT_ghc_span_start_col, dW_FORM_data2)
+       , (dW_AT_ghc_span_end_line, dW_FORM_data4)
+       , (dW_AT_ghc_span_end_col, dW_FORM_data2)
+       ] $$
      pprByte 0
 
 -- | Generate assembly for DWARF data
@@ -151,6 +169,16 @@ pprDwarfInfoOpen _ (DwarfBlock _ label marker) = sdocWithDynFlags $ \df ->
   $$ pprString (renderWithStyle df (ppr label) (mkCodeStyle CStyle))
   $$ pprWord (ppr marker)
   $$ pprWord (ppr $ mkAsmTempEndLabel marker)
+pprDwarfInfoOpen _ (DwarfCoreNote core) =
+  pprAbbrev DwAbbrGhcCoreNote
+  $$ pprString core
+pprDwarfInfoOpen _ (DwarfSrcNote ss) =
+  pprAbbrev DwAbbrGhcSrcNote
+  $$ pprString' (ftext $ srcSpanFile ss)
+  $$ pprData4 (fromIntegral $ srcSpanStartLine ss)
+  $$ pprHalf (fromIntegral $ srcSpanStartCol ss)
+  $$ pprData4 (fromIntegral $ srcSpanEndLine ss)
+  $$ pprHalf (fromIntegral $ srcSpanEndCol ss)
 
 -- | Close a DWARF info record with children
 pprDwarfInfoClose :: SDoc
