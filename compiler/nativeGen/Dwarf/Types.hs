@@ -135,9 +135,18 @@ pprAbbrevDecls haveDebugLine =
 -- | Generate assembly for DWARF data
 pprDwarfInfo :: Bool -> DwarfInfo -> SDoc
 pprDwarfInfo haveSrc d
-  = pprDwarfInfoOpen haveSrc d $$
-    vcat (map (pprDwarfInfo haveSrc) (dwChildren d)) $$
-    pprDwarfInfoClose
+  = case d of
+      DwarfCompileUnit {}  -> hasChildren
+      DwarfSubprogram {}   -> hasChildren
+      DwarfBlock {}        -> hasChildren
+      DwarfCoreNote {}     -> noChildren
+      DwarfSrcNote {}      -> noChildren
+  where
+    hasChildren =
+        pprDwarfInfoOpen haveSrc d $$
+        vcat (map (pprDwarfInfo haveSrc) (dwChildren d)) $$
+        pprDwarfInfoClose
+    noChildren = pprDwarfInfoOpen haveSrc d
 
 -- | Prints assembler data corresponding to DWARF info records. Note
 -- that the binary format of this is paramterized in @abbrevDecls@ and

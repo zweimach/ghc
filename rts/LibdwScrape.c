@@ -7,8 +7,12 @@
  *
  * --------------------------------------------------------------------------*/
 
-#include "Rts.h"
+#include <elfutils/libdwfl.h>
 
+#include "Rts.h"
+#include "Trace.h"
+
+#if 0
 static int subprogram_cb(Dwarf_Die *die, void *cbdata)
 {
     Dwarf_Addr basep, startp, endp;
@@ -162,3 +166,6 @@ int libdw_scrape()
     dwfl_end(dwfl);
     return 0;
 }
+#endif
+
+int libdw_scrape() { return 0; }
