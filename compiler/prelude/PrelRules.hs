@@ -1159,14 +1159,7 @@ match_magicDict _ = Nothing
 -- Similarly Int64, Word64
 
 match_IntToInteger :: RuleFun
-match_IntToInteger _ id_unf fn [xl]
-  | Just (MachInt x) <- exprIsLiteral_maybe id_unf xl
-  = case idType fn of
-    FunTy _ integerTy ->
-        Just (Lit (LitInteger x integerTy))
-    _ ->
-        panic "match_IntToInteger: Id has the wrong type"
-match_IntToInteger _ _ _ _ = Nothing
+match_IntToInteger = match_IntToInteger_unop id
 
 match_WordToInteger :: RuleFun
 match_WordToInteger _ id_unf id [xl]
