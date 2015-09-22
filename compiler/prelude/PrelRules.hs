@@ -1206,6 +1206,22 @@ match_Integer_unop unop _ id_unf _ [xl]
   = Just (Lit (LitInteger (unop x) i))
 match_Integer_unop _ _ _ _ _ = Nothing
 
+{- Note [Rewriting bitInteger]
+
+For most types the bitInteger operation can be implemented in terms of shifts.
+The integer-gmp package, however, can do substantially better than this if
+allowed to provide its own implementation. However, in so doing it previously lost
+constant-folding (see Trac #8832). The bitInteger rule above provides constant folding
+specifically for this function.
+
+There is, however, a bit of trickiness here when it comes to ranges. While the
+AST encodes all integers (even MachInts) as Integers, `bit` expects the bit
+index to be given as an Int. Hence we coerce to an Int in the rule definition.
+This will behave a bit funny for constants larger than the word size, but the user
+should expect some funniness given that they will have at very least ignored a
+warning in this case.
+-}
+
 match_IntToInteger_unop :: (Integer -> Integer) -> RuleFun
 match_IntToInteger_unop unop _ id_unf fn [xl]
   | Just (MachInt x) <- exprIsLiteral_maybe id_unf xl
