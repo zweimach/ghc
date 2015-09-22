@@ -1003,7 +1003,7 @@ builtinIntegerRules =
   rule_unop           "complementInteger"   complementIntegerName   complement,
   rule_Int_binop      "shiftLInteger"       shiftLIntegerName       shiftL,
   rule_Int_binop      "shiftRInteger"       shiftRIntegerName       shiftR,
-  rule_IntToInteger_unop "bitInteger"       bitIntegerName          (bit . fromIntegral),
+  rule_bitInteger     "bitInteger"          bitIntegerName,
   -- See Note [Integer division constant folding] in libraries/base/GHC/Real.hs
   rule_divop_one      "quotInteger"         quotIntegerName         quot,
   rule_divop_one      "remInteger"          remIntegerName          rem,
@@ -1040,9 +1040,9 @@ builtinIntegerRules =
           rule_unop str name op
            = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
                            ru_try = match_Integer_unop op }
-          rule_IntToInteger_unop str name op
+          rule_bitInteger str name
            = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 1,
-                           ru_try = match_IntToInteger_unop op }
+                           ru_try = match_IntToInteger_unop (bit . fromIntegral) }
           rule_binop str name op
            = BuiltinRule { ru_name = fsLit str, ru_fn = name, ru_nargs = 2,
                            ru_try = match_Integer_binop op }
