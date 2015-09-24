@@ -282,6 +282,19 @@ data LlvmExpression
   | AtomicRMW LlvmAtomicOp LlvmVar LlvmVar LlvmSyncOrdering
 
   {- |
+    Compare-and-exchange operation
+       * addr:     Address to modify
+       * old:      Expected value
+       * new:      New value
+       * suc_ord:  Ordering required in success case
+       * fail_ord: Ordering required in failure case, can be no stronger than
+                   suc_ord
+
+    Result is an @i1@, true if store was successful.
+  -}
+  | CmpXChg LlvmVar LlvmVar LlvmVar LlvmSyncOrdering LlvmSyncOrdering
+
+  {- |
     Call a function. The result is the value of the expression.
       * tailJumps: CallType to signal if the function should be tail called
       * fnptrval:  An LLVM value containing a pointer to a function to be

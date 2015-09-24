@@ -246,6 +246,7 @@ ppLlvmExpression expr
         ALoad      ord st ptr       -> ppALoad ord st ptr
         Malloc     tp amount        -> ppMalloc tp amount
         AtomicRMW  aop tgt src ordering -> ppAtomicRMW aop tgt src ordering
+        CmpXChg    addr old new s_ord f_ord -> ppCmpXChg addr old new s_ord f_ord
         Phi        tp precessors    -> ppPhi tp precessors
         Asm        asm c ty v se sk -> ppAsm asm c ty v se sk
         MExpr      meta expr        -> ppMetaExpr meta expr
@@ -345,6 +346,12 @@ ppAtomicRMW :: LlvmAtomicOp -> LlvmVar -> LlvmVar -> LlvmSyncOrdering -> SDoc
 ppAtomicRMW aop tgt src ordering =
   text "atomicrmw" <+> ppAtomicOp aop <+> ppr tgt <> comma
   <+> ppr src <+> ppSyncOrdering ordering
+
+ppCmpXChg :: LlvmVar -> LlvmVar -> LlvmVar
+          -> LlvmSyncOrdering -> LlvmSyncOrdering -> SDoc
+ppCmpXChg addr old new s_ord f_ord =
+  text "cmpxchg" <+> ppr addr <> comma <+> ppr old <> comma <+> ppr new
+  <+> ppSyncOrdering s_ord <+> ppSyncOrdering f_ord
 
 -- XXX: On x86, vector types need to be 16-byte aligned for aligned access, but
 -- we have no way of guaranteeing that this is true with GHC (we would need to
