@@ -253,8 +253,18 @@ genCall (PrimTarget (MO_AtomicRead _)) [dst] [addr] = do
   return (stmts `snocOL` stmt1, top)
 
 -- TODO: implement these properly rather than calling to RTS functions.
--- genCall t@(PrimTarget (MO_AtomicWrite width)) [] [addr, val] = undefined
 -- genCall t@(PrimTarget (MO_Cmpxchg width)) [dst] [addr, old, new] = undefined
+
+genCall (PrimTarget (MO_AtomicWrite _width)) [] [addr, val] = do
+    (addrVar, stmts1, decls1) <- exprToVar addr
+    (valVar, stmts2, decls2) <- exprToVar val
+    let ptrTy = pLift $ getVarType valVar
+        ptrExpr = Cast LM_Inttoptr addrVar ptrTy
+    (ptrVar, stmt3) <- doExpr ptrTy ptrExpr
+    let stmts4 = unitOL $ Expr
+                 $ AtomicRMW LAO_Xchg ptrVar valVar SyncSeqCst
+        stmts = stmts1 `appOL` stmts2 `snocOL` stmt3 `appOL` stmts4
+    return (stmts, decls1++decls2)
 
 -- Handle memcpy function specifically since llvm's intrinsic version takes
 -- some extra parameters.
@@ -735,9 +745,9 @@ cmmPrimOpFunctions mop = do
 
     MO_AtomicRead _  -> unsupported
     MO_AtomicRMW _ _ -> unsupported
+    MO_AtomicWrite _ -> unsupported
 
     MO_Cmpxchg w        -> fsLit $ cmpxchgLabel w
-    MO_AtomicWrite w    -> fsLit $ atomicWriteLabel w
 
 -- | Tail function calls
 genJump :: CmmExpr -> [GlobalReg] -> LlvmM StmtData
