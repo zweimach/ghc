@@ -247,10 +247,10 @@ genCall (PrimTarget (MO_AtomicRMW width amop)) [dst] [addr, n] = do
     return (stmts, decls1++decls2)
 
 genCall (PrimTarget (MO_AtomicRead _)) [dst] [addr] = do
-  dstV <- getCmmReg (CmmLocal dst)
-  (v1, stmts, top) <- genLoad True addr (localRegType dst)
-  let stmt1 = Store v1 dstV
-  return (stmts `snocOL` stmt1, top)
+    dstV <- getCmmReg (CmmLocal dst)
+    (v1, stmts, top) <- genLoad True addr (localRegType dst)
+    let stmt1 = Store v1 dstV
+    return (stmts `snocOL` stmt1, top)
 
 -- TODO: implement these properly rather than calling to RTS functions.
 -- genCall t@(PrimTarget (MO_Cmpxchg width)) [dst] [addr, old, new] = undefined
