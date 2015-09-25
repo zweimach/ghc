@@ -85,6 +85,7 @@ dW_FORM_data4  = 0x06
 dW_FORM_string = 0x08
 dW_FORM_flag   = 0x0c
 dW_FORM_block1 = 0x0a
+dW_FORM_strp   = 0x0e
 dW_FORM_ref4   = 0x13
 dW_FORM_flag_present = 0x19
 

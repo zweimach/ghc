@@ -20,6 +20,12 @@ module Dwarf.Types
   , pprBuffer
   , wordAlign
   , sectionOffset
+    -- * Building string tables
+  , StringTableM
+  , runStringTableM
+  , putString
+  , putString'
+  , StringTableOffset
   )
   where
 
@@ -40,10 +46,12 @@ import Dwarf.Constants
 import Data.Bits
 import Data.List ( mapAccumL )
 import qualified Data.Map as Map
+import qualified Data.Sequence as Seq
 import Data.Word
 import Data.Char
 import Foreign
 import qualified System.IO.Unsafe as Unsafe
+import Control.Monad.Trans.State
 
 import CodeGen.Platform
 
@@ -64,10 +72,20 @@ data DwarfInfo
                , dwLabel :: CLabel
                , dwMarker :: CLabel
                }
-  | DwarfCoreNote { dwCore :: String
-                  }
-  | DwarfSrcNote { dwSrcSpan :: RealSrcSpan
-                 }
+  | DwarfCoreNote { dwCore :: StringTableOffset }
+  | DwarfSrcNote { dwSrcSpan :: RealSrcSpan }
+
+data DwarfCoreNote = DwarfCoreAp { dwExpr1, dwExpr2 :: DwardCoreNote }
+                   | DwarfCoreLam { dwBinder :: CoreBinder
+                                  , dwRhs :: DwarfCoreNote
+                                  }
+                   | DwarfCoreLet { dwBinder :: CoreBinder
+                                  , dwRhs :: DwarfCoreNote
+                                  }
+                   | DwarfCoreCase { dwScrutinee :: DwarfCoreNote
+                                   , dwBinder :: CoreBinder
+                                   , dwAlts :: [DwarfCoreNote]
+                                   }
 
 -- | Abbreviation codes used for encoding above records in the
 -- .debug_info section.
@@ -583,3 +601,25 @@ pprBuffer (len, buf) = Unsafe.unsafePerformIO $ do
   buf <- withForeignPtr ebuf $ \p -> mkFastStringForeignPtr p ebuf elen
 
   return $ ptext (sLit "\t.ascii ") <> doubleQuotes (ftext buf)
+
+newtype StringTableM = StringTableM (State StringTable a)
+                     deriving (Functor, Applicative, Monad)
+
+newtype StringTableOffset = STO { getStringTableOffset :: Int }
+
+data StringTable = StringTable !StringTableOffset !(Seq.Seq LitString)
+
+putString :: Monad m => String -> StringTableM StringTableOffset
+putString = putStringTab . sLit
+
+putString' :: Monad m => LitString -> StringTableM StringTableOffset
+putString' s = do
+  StringTable offset strs <- get
+  let offset' = STO $ getStringTableOffset len + lengthLS s
+  put $! StringTable offset' (strs Seq.:|> s)
+  return offset
+
+runStringTableM :: StringTableM a -> (a, SDoc)
+runStringTableM (StringTableM action) =
+  let (r, StringTable _ strs) = runStateT action (StringTable 0 Seq.empty)
+  in (r, foldMap (pprString' . sLit) (Seq.toList strs))

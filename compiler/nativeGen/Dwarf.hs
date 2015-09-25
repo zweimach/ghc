@@ -22,6 +22,7 @@ import Dwarf.Types
 import Data.Maybe
 import Data.List        ( sortBy )
 import Data.Ord         ( comparing )
+import Data.Foldable    ( foldMap )
 import qualified Data.Map as Map
 import System.FilePath
 import System.Directory ( getCurrentDirectory )
@@ -52,6 +53,9 @@ dwarfGen df modLoc us blocks = do
         , dwHighLabel = highLabel
         , dwLineLabel = dwarfLineLabel
         }
+
+  let (coreStrings, stringTable) = runStringTableM $ do
+          Map.unions <$> traverse buildCoreStrings blocks
 
   -- Check whether we have any source code information, so we do not
   -- end up writing a pointer to an empty .debug_line section
@@ -93,9 +97,15 @@ dwarfGen df modLoc us blocks = do
   let ghcSct = dwarfGhcSection $$
                pprBuffer evData
 
-  return (infoSct $$ abbrevSct $$ lineSct $$ frameSct
-          $$ aranges $$ ghcSct, us'')
+  -- .debug_str section: string tables (used particularly for Core notes)
+  let stringSct = dwarfStringSection $$ stringTable
 
+  return (infoSct $$ abbrevSct $$ lineSct $$ frameSct
+          $$ aranges $$ ghcSct $$ stringsSct, us'')
+
+buildCoreNotes :: CoreExpr -> StateT (UniqFM [AltCon]) StringTableM DwarfCoreNote
+buildCoreNotes (App e1 e2) = DwarfCoreAp <$> buildCoreStrings e1 <*> buildCoreStrings e2
+buildCoreNotes (Lam b e) = DwarfCoreLam <$> 
 -- | Header for a compilation unit, establishing global format
 -- parameters
 compileUnitHeader :: Unique -> SDoc
