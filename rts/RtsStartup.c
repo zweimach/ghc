@@ -35,6 +35,7 @@
 #include "FileLock.h"
 #include "LinkerInternals.h"
 #include "LibdwPool.h"
+#include "LibdwScrape.h"
 #include "sm/CNF.h"
 
 #if defined(PROFILING)
@@ -192,6 +193,7 @@ hs_init_ghc(int *argc, char **argv[], RtsConfig rts_config)
     /* initTracing must be after setupRtsFlags() */
 #ifdef TRACING
     initTracing();
+    libdwScrapeToEventlog();
 #endif
 
     /* Initialise libdw session pool */
