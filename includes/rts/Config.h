@@ -27,21 +27,25 @@
 #define USING_LIBBFD 1
 #endif
 
-/* DEBUG implies TRACING and TICKY_TICKY
+/*
+ * DEBUG implies TRACING and TICKY_TICKY
  */
 #if defined(DEBUG)
 #define TRACING
 #define TICKY_TICKY
 #endif
 
-/* -----------------------------------------------------------------------------
-   Signals - supported on non-PAR versions of the runtime.  See RtsSignals.h.
-   -------------------------------------------------------------------------- */
+/* Statistical profiler: implied by TRACING for the time being */
+#if defined(TRACING)
+#define STAT_PROFILE
+#endif
 
+/*
+ * Signals - supported on non-PAR versions of the runtime.  See RtsSignals.h.
+ */
 #define RTS_USER_SIGNALS 1
 
 /* Profile spin locks */
-
 #define PROF_SPIN
 
 #endif /* RTS_CONFIG_H */

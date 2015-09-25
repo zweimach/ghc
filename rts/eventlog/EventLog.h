@@ -151,6 +151,13 @@ void postProcSourceNoteEvent(const char *name,
                              nat start_line, nat start_col,
                              nat end_line, nat end_col);
 
+/* Statistical profiler */
+#ifdef STAT_PROFILE
+void postStatProfileSamples(Capability *cap, StgBool own_cap,
+                            StgWord32 sample_by, StgWord32 sample_type,
+                            StgWord32 cnt, void **samples, nat *weights);
+#endif /* STAT_PROFILE */
+
 #else /* !TRACING */
 
 INLINE_HEADER void postSchedEvent (Capability *cap  STG_UNUSED,
