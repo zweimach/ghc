@@ -325,11 +325,12 @@ check_and_gen :: Bool   -- should generalize?
               -> Kind
               -> TcM (Type, CvSubstEnv)
 check_and_gen should_gen hs_ty kind
-  = do { (ty, ev_binds) <- solveTopConstraints $
+  = do { (ty, ev_binds) <- checkNoErrs $
+                           solveTopConstraints $
                            tc_hs_type hs_ty kind
-       ; failIfErrsM  -- TODO (RAE): Does this abort too often? If the type
-                      -- has kind errors, then unbound coercions in the type
-                      -- cause endless trouble as we go forward. See #21.
+           -- TODO (RAE): Does this abort too often? If the type
+           -- has kind errors, then unbound coercions in the type
+           -- cause endless trouble as we go forward. See #21.
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
        ; cv_env <- zonkedEvBindsCvSubstEnv ev_binds
        ; kvs <- if should_gen
