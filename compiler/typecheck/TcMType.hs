@@ -916,7 +916,10 @@ a \/\a in the final result but all the occurrences of a will be zonked to ()
 
 -- | @tcGetGlobalTyVars@ returns a fully-zonked set of *scoped* tyvars free in
 -- the environment. To improve subsequent calls to the same function it writes
--- the zonked set back into the environment.
+-- the zonked set back into the environment. Note that this returns all
+-- variables free in anything (term-level or type-level) in scope. We thus
+-- don't have to worry about clashes with things that are not in scope, because
+-- if they are reachable, then they'll be returned here.
 tcGetGlobalTyVars :: TcM TcTyVarSet
 tcGetGlobalTyVars
   = do { (TcLclEnv {tcl_tyvars = gtv_var}) <- getLclEnv

@@ -297,9 +297,7 @@ tcLHsType ty = addTypeCtxt ty (tc_infer_lhs_type ty)
 tcCheckHsTypeAndMaybeGen :: HsType Name -> Kind -> TcM Type
 tcCheckHsTypeAndMaybeGen hs_ty kind
   = do { should_gen <- decideKindGeneralisationPlan hs_ty
-       ; if should_gen
-         then fst <$> tcCheckHsTypeAndGen hs_ty kind
-         else zonkTcType =<< tc_hs_type hs_ty kind }
+       ; fst <$> check_and_gen should_gen hs_ty kind }
 
 -- | Should we generalise the kind of this type?
 -- We *should* generalise if the type is closed or if NoMonoLocalBinds
@@ -320,7 +318,13 @@ tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM (Type, CvSubstEnv)
 -- Typecheck a type signature, and kind-generalise it
 -- The result is zonked, but not checked for validity
 -- This should generally be called within the context of a captureConstraints
-tcCheckHsTypeAndGen hs_ty kind
+tcCheckHsTypeAndGen = check_and_gen True
+
+check_and_gen :: Bool   -- should generalize?
+              -> HsType Name
+              -> Kind
+              -> TcM (Type, CvSubstEnv)
+check_and_gen should_gen hs_ty kind
   = do { (ty, ev_binds) <- solveTopConstraints $
                            tc_hs_type hs_ty kind
        ; failIfErrsM  -- TODO (RAE): Does this abort too often? If the type
@@ -328,7 +332,9 @@ tcCheckHsTypeAndGen hs_ty kind
                       -- cause endless trouble as we go forward. See #21.
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
        ; cv_env <- zonkedEvBindsCvSubstEnv ev_binds
-       ; kvs <- kindGeneralize cv_env (tyCoVarsOfType ty)
+       ; kvs <- if should_gen
+                then kindGeneralize cv_env (tyCoVarsOfType ty)
+                else return []
        ; gen_ty <- zonkSigType cv_env (mkInvForAllTys kvs ty)
        ; return (gen_ty, cv_env) }
 

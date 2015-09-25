@@ -53,6 +53,9 @@ result ty, or (3) do something else. I want SPJ's input, as both (1)
 and (2) are terrible.
 
 fix:
+  - implement better dependency checking
+  - implement StarInStar (or other name) extension
+
   - implement constrained instances in source
 
   - See tag hetero-twiddle.
