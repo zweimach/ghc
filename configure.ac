@@ -1067,6 +1067,10 @@ fi
 
 AC_CHECK_LIB(dw, dwfl_begin, [HaveLibdw=YES], [HaveLibdw=NO])
 AC_SUBST(HaveLibdw)
+OLD_LIBS="$LIBS"
+LIBS="-ldw $LIBS"
+AC_CHECK_FUNCS(dwarf_cu_getdwarf)
+LIBS="$OLD_LIBS"
 
 if test -n "$SPHINXBUILD"; then
     BUILD_MAN=YES

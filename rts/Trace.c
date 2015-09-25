@@ -621,6 +621,30 @@ void traceTaskDelete_ (Task *task)
     }
 }
 
+void traceProc(const char *name)
+{
+    if (eventlog_enabled) postProcEvent(name);
+}
+
+void traceProcEnd()
+{
+    if (eventlog_enabled) postProcEndEvent();
+}
+
+void traceProcRange(StgWord start, StgWord end)
+{
+    if (eventlog_enabled) postProcRangeEvent(start, end);
+}
+
+void traceProcSourceNote(const char *name,
+                         nat start_line, nat start_col,
+                         nat end_line, nat end_col)
+{
+    if (eventlog_enabled)
+        postProcSourceNoteEvent(name, start_line, start_col,
+                                end_line, end_col);
+}
+
 #ifdef DEBUG
 static void vtraceCap_stderr(Capability *cap, char *msg, va_list ap)
 {

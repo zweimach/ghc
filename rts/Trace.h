@@ -275,6 +275,23 @@ void traceTaskMigrate_ (Task       *task,
 
 void traceTaskDelete_ (Task       *task);
 
+/*
+ * Events for emitting debug information describing the program to the eventlog
+ *
+ * These are used by LibdwScrape to emit information from the DWARF annotations
+ * in the loaded modules to the event log for later use by debugging and
+ * analysis tools.
+ */
+void traceProc(const char *name);
+
+void traceProcEnd(void);
+
+void traceProcRange(StgWord start, StgWord end);
+
+void traceProcSourceNote(const char *name,
+                         nat start_line, nat start_col,
+                         nat end_line, nat end_col);
+
 #else /* !TRACING */
 
 #define traceSchedEvent(cap, tag, tso, other) /* nothing */
@@ -474,7 +491,7 @@ void dtraceUserMarkerWrapper(Capability *cap, char *msg);
 #define dtraceTaskMigrate(taskID, cap, new_cap)         /* nothing */
 #define dtraceTaskDelete(taskID)                        /* nothing */
 
-#endif
+#endif /* DTRACE */
 
 // -----------------------------------------------------------------------------
 // Trace probes dispatching to various tracing frameworks

@@ -106,6 +106,10 @@ char *EventDesc[] = {
   [EVENT_TASK_MIGRATE]        = "Task migrate",
   [EVENT_TASK_DELETE]         = "Task delete",
   [EVENT_HACK_BUG_T9003]      = "Empty event for bug #9003",
+  [EVENT_PROC]                = "Procedure information",
+  [EVENT_PROC_END]            = "End of previous EVENT_PROC node",
+  [EVENT_PROC_RANGE]          = "Procedure address range information",
+  [EVENT_PROC_SOURCE_NOTE]    = "Procedure source note",
 };
 
 // Event type.
@@ -209,6 +213,7 @@ static inline void postInt8(EventsBuf *eb, StgInt8 i)
 static inline void postInt32(EventsBuf *eb, StgInt32 i)
 { postWord32(eb, (StgWord32)i); }
 
+#define EVENT_SIZE_DYNAMIC (-1)
 
 void
 initEventLogging(void)
@@ -427,6 +432,22 @@ initEventLogging(void)
 
         case EVENT_HACK_BUG_T9003:
             eventTypes[t].size = 0;
+            break;
+
+        case EVENT_PROC:
+            eventTypes[t].size = EVENT_SIZE_DYNAMIC;
+            break;
+
+        case EVENT_PROC_END:
+            eventTypes[t].size = 0;
+            break;
+
+        case EVENT_PROC_RANGE:
+            eventTypes[t].size = 2 * sizeof(StgWord64);
+            break;
+
+        case EVENT_PROC_SOURCE_NOTE:
+            eventTypes[t].size = EVENT_SIZE_DYNAMIC;
             break;
 
         default:
@@ -959,6 +980,63 @@ void postTaskDeleteEvent (EventTaskId taskId)
     postEventHeader(&eventBuf, EVENT_TASK_DELETE);
     /* EVENT_TASK_DELETE (taskID) */
     postTaskId(&eventBuf, taskId);
+
+    RELEASE_LOCK(&eventBufMutex);
+}
+
+void postProcEvent(const char *name)
+{
+    ACQUIRE_LOCK(&eventBufMutex);
+    nat size = strlen(name);
+    ensureRoomForVariableEvent(&eventBuf, size);
+
+    postEventHeader(&eventBuf, EVENT_PROC);
+    postPayloadSize(&eventBuf, size);
+    /* EVENT_PROC (name) */
+    postBuf(&eventBuf, (StgWord8*) name, size);
+
+    RELEASE_LOCK(&eventBufMutex);
+}
+
+void postProcEndEvent()
+{
+    ACQUIRE_LOCK(&eventBufMutex);
+    ensureRoomForEvent(&eventBuf, EVENT_PROC_END);
+    postEventHeader(&eventBuf, EVENT_PROC_END);
+    /* EVENT_PROC_END */
+    RELEASE_LOCK(&eventBufMutex);
+}
+
+void postProcRangeEvent(StgWord start, StgWord end)
+{
+    ACQUIRE_LOCK(&eventBufMutex);
+    ensureRoomForEvent(&eventBuf, EVENT_PROC_RANGE);
+
+    postEventHeader(&eventBuf, EVENT_PROC_RANGE);
+    /* EVENT_PROC_RANGE (start, end) */
+    postWord64(&eventBuf, start);
+    postWord64(&eventBuf, end);
+
+    RELEASE_LOCK(&eventBufMutex);
+}
+
+void postProcSourceNoteEvent(const char *name,
+                             nat start_line, nat start_col,
+                             nat end_line, nat end_col)
+{
+    ACQUIRE_LOCK(&eventBufMutex);
+    nat name_sz = strlen(name) + 1; // Include \0 byte
+    nat size = name_sz + 4*4;
+    ensureRoomForVariableEvent(&eventBuf, size);
+
+    postEventHeader(&eventBuf, EVENT_PROC_SOURCE_NOTE);
+    postPayloadSize(&eventBuf, size);
+    /* EVENT_PROC_SOURCE_NOTE (name, start_line, start_col, end_line, end_col)*/
+    postBuf(&eventBuf, (StgWord8*) name, name_sz);
+    postWord32(&eventBuf, start_line);
+    postWord32(&eventBuf, start_col);
+    postWord32(&eventBuf, end_line);
+    postWord32(&eventBuf, end_col);
 
     RELEASE_LOCK(&eventBufMutex);
 }
