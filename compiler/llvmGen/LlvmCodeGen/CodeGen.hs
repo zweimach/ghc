@@ -1402,11 +1402,11 @@ genMachOp_slow opt op [x, y] = case op of
         -- implementation. Its much longer due to type information/safety.
         -- This should actually compile to only about 3 asm instructions.
         isSMulOK :: Width -> CmmExpr -> CmmExpr -> LlvmM ExprData
-        isSMulOK _ x y = do
-            (vx, stmts1, top1) <- exprToVar x
-            (vy, stmts2, top2) <- exprToVar y
+        isSMulOK _ x y = runExprData $ do
+            vx <- exprToVarW x
+            vy <- exprToVarW y
 
-            dflags <- getDynFlags
+            dflags <- lift getDynFlags
             let word  = getVarType vx
             let word2 = LMInt $ 2 * (llvmWidthInBits dflags $ getVarType vx)
             let shift = llvmWidthInBits dflags word
@@ -1415,18 +1415,14 @@ genMachOp_slow opt op [x, y] = case op of
 
             if isInt word
                 then do
-                    (x1, s1)     <- doExpr word2 $ Cast LM_Sext vx word2
-                    (y1, s2)     <- doExpr word2 $ Cast LM_Sext vy word2
-                    (r1, s3)     <- doExpr word2 $ LlvmOp LM_MO_Mul x1 y1
-                    (rlow1, s4)  <- doExpr word $ Cast LM_Trunc r1 word
-                    (rlow2, s5)  <- doExpr word $ LlvmOp LM_MO_AShr rlow1 shift1
-                    (rhigh1, s6) <- doExpr word2 $ LlvmOp LM_MO_AShr r1 shift2
-                    (rhigh2, s7) <- doExpr word $ Cast LM_Trunc rhigh1 word
-                    (dst, s8)    <- doExpr word $ LlvmOp LM_MO_Sub rlow2 rhigh2
-                    let stmts = (unitOL s1) `snocOL` s2 `snocOL` s3 `snocOL` s4
-                            `snocOL` s5 `snocOL` s6 `snocOL` s7 `snocOL` s8
-                    return (dst, stmts1 `appOL` stmts2 `appOL` stmts,
-                        top1 ++ top2)
+                    x1     <- doExpr word2 $ Cast LM_Sext vx word2
+                    y1     <- doExpr word2 $ Cast LM_Sext vy word2
+                    r1     <- doExpr word2 $ LlvmOp LM_MO_Mul x1 y1
+                    rlow1  <- doExpr word $ Cast LM_Trunc r1 word
+                    rlow2  <- doExpr word $ LlvmOp LM_MO_AShr rlow1 shift1
+                    rhigh1 <- doExpr word2 $ LlvmOp LM_MO_AShr r1 shift2
+                    rhigh2 <- doExpr word $ Cast LM_Trunc rhigh1 word
+                    doExpr word $ LlvmOp LM_MO_Sub rlow2 rhigh2
 
                 else
                     panic $ "isSMulOK: Not bit type! (" ++ showSDoc dflags (ppr word) ++ ")"
