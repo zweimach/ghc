@@ -225,13 +225,13 @@ genCall t@(PrimTarget (MO_Ctz w)) dsts args =
 genCall t@(PrimTarget (MO_BSwap w)) dsts args =
     genCallSimpleCast w t dsts args
 
-genCall (PrimTarget (MO_AtomicRMW width amop)) [dst] [addr, n] = do
-    (addrVar, stmts1, decls1) <- exprToVar addr
-    (nVar, stmts2, decls2) <- exprToVar n
+genCall (PrimTarget (MO_AtomicRMW width amop)) [dst] [addr, n] = runStmtsDecls $ do
+    addrVar <- exprToVarW addr
+    nVar <- exprToVarW n
     let targetTy = widthToLlvmInt width
         ptrExpr = Cast LM_Inttoptr addrVar (pLift targetTy)
-    (ptrVar, stmt3) <- doExpr (pLift targetTy) ptrExpr
-    dstVar <- getCmmReg (CmmLocal dst)
+    ptrVar <- doExprW (pLift targetTy) ptrExpr
+    dstVar <- getCmmRegW (CmmLocal dst)
     let op = case amop of
                AMO_Add  -> LAO_Add
                AMO_Sub  -> LAO_Sub
@@ -239,11 +239,8 @@ genCall (PrimTarget (MO_AtomicRMW width amop)) [dst] [addr, n] = do
                AMO_Nand -> LAO_Nand
                AMO_Or   -> LAO_Or
                AMO_Xor  -> LAO_Xor
-    (retVar, stmt4) <- doExpr targetTy $ AtomicRMW op ptrVar nVar SyncSeqCst
-    let stmt5 = Store retVar dstVar
-    let stmts = stmts1 `appOL` stmts2 `snocOL`
-                stmt3 `snocOL` stmt4 `snocOL` stmt5
-    return (stmts, decls1++decls2)
+    retVar <- doExprW targetTy $ AtomicRMW op ptrVar nVar SyncSeqCst
+    statement $ Store retVar dstVar
 
 genCall (PrimTarget (MO_AtomicRead _)) [dst] [addr] = runStmtsDecls $ do
     dstV <- getCmmRegW (CmmLocal dst)
