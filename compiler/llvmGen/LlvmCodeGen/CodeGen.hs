@@ -15,7 +15,6 @@ import BlockId
 import CodeGen.Platform ( activeStgRegs, callerSaves )
 import CLabel
 import Cmm
-import CPrim
 import PprCmm
 import CmmUtils
 import CmmSwitch
@@ -341,13 +340,14 @@ genCall (PrimTarget (MO_U_Mul2 w)) [dstH, dstL] [lhs, rhs] = do
 -- the width and use normal LLVM instructions (similarly to the MO_U_Mul2). The
 -- main difference here is that we need to combine two words into one register
 -- and then use both 'udiv' and 'urem' instructions to compute the result.
-genCall (PrimTarget (MO_U_QuotRem2 w)) [dstQ, dstR] [lhsH, lhsL, rhs] = run $ do
+genCall (PrimTarget (MO_U_QuotRem2 w))
+        [dstQ, dstR] [lhsH, lhsL, rhs] = runStmtsDecls $ do
     let width = widthToLlvmInt w
         bitWidth = widthInBits w
         width2x = LMInt (bitWidth * 2)
     -- First zero-extend all parameters to double width.
     let zeroExtend expr = do
-            var <- liftExprData $ exprToVar expr
+            var <- exprToVarW expr
             doExprW width2x $ Cast LM_Zext var width2x
     lhsExtH <- zeroExtend lhsH
     lhsExtL <- zeroExtend lhsL
@@ -370,19 +370,6 @@ genCall (PrimTarget (MO_U_QuotRem2 w)) [dstQ, dstR] [lhsH, lhsL, rhs] = run $ do
     dstRegR <- lift $ getCmmReg (CmmLocal dstR)
     statement $ Store retDiv dstRegQ
     statement $ Store retRem dstRegR
-  where
-    -- TODO(michalt): Consider extracting this and using in more places.
-    -- Hopefully this should cut down on the noise of accumulating the
-    -- statements and declarations.
-    doExprW :: LlvmType -> LlvmExpression -> WriterT LlvmAccum LlvmM LlvmVar
-    doExprW a b = do
-        (var, stmt) <- lift $ doExpr a b
-        statement stmt
-        return var
-    run :: WriterT LlvmAccum LlvmM () -> LlvmM (LlvmStatements, [LlvmCmmDecl])
-    run action = do
-        LlvmAccum stmts decls <- execWriterT action
-        return (stmts, decls)
 
 -- Handle the MO_{Add,Sub}IntC separately. LLVM versions return a record from
 -- which we need to extract the actual values.
@@ -1880,3 +1867,17 @@ liftExprData action = do
 
 statement :: LlvmStatement -> WriterT LlvmAccum LlvmM ()
 statement stmt = tell $ LlvmAccum (unitOL stmt) []
+
+doExprW :: LlvmType -> LlvmExpression -> WriterT LlvmAccum LlvmM LlvmVar
+doExprW a b = do
+    (var, stmt) <- lift $ doExpr a b
+    statement stmt
+    return var
+
+exprToVarW :: CmmExpr -> WriterT LlvmAccum LlvmM LlvmVar
+exprToVarW = liftExprData . exprToVar
+
+runStmtsDecls :: WriterT LlvmAccum LlvmM () -> LlvmM (LlvmStatements, [LlvmCmmDecl])
+runStmtsDecls action = do
+    LlvmAccum stmts decls <- execWriterT action
+    return (stmts, decls)
