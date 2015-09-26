@@ -349,6 +349,9 @@ FFIIncludeDir=@FFIIncludeDir@
 # Include support for DWARF unwinding
 GhcRtsWithLibdw = @HaveLibdw@
 
+# Include support for Linux perf_event interface
+GhcRtsWithPerfEvent = @HavePerfEvent@
+
 ################################################################################
 #
 #		Paths (see paths.mk)

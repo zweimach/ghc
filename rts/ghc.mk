@@ -487,6 +487,13 @@ rts_CC_OPTS          += -DUSE_LIBDW
 rts_PACKAGE_CPP_OPTS += -DUSE_LIBDW
 endif
 
+#-----------------------------------------------------------------------------
+# Add support for Linux perf_event interface if available
+ifeq "$(GhcRtsWithPerfEvent)" "YES"
+rts_CC_OPTS          += -DHAVE_PERF_EVENT
+rts_PACKAGE_CPP_OPTS += -DHAVE_PERF_EVENT
+endif
+
 # -----------------------------------------------------------------------------
 # dependencies
 

@@ -1072,6 +1072,9 @@ LIBS="-ldw $LIBS"
 AC_CHECK_FUNCS(dwarf_cu_getdwarf)
 LIBS="$OLD_LIBS"
 
+AC_CHECK_HEADER([linux/perf_event.h], [HavePerfEvent=YES], [HavePerfEvent=NO])
+AC_SUBST(HavePerfEvent)
+
 if test -n "$SPHINXBUILD"; then
     BUILD_MAN=YES
     BUILD_SPHINX_HTML=YES

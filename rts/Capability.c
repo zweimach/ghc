@@ -308,6 +308,13 @@ initCapability( Capability *cap, nat i )
         stgMallocBytes(sizeof(void *) *
                        STAT_PROFILE_BLACKHOLE_SAMPLE_BUFFER_SIZE,
                        "initCapability");
+#ifdef HAVE_PERF_EVENT
+    cap->perf_event_sample_count = 0;
+    cap->perf_event_samples =
+        stgMallocBytes(sizeof(void *) *
+                       STAT_PROFILE_PERF_EVENT_SAMPLE_BUFFER_SIZE,
+                       "initCapability");
+#endif
 #endif
 
     // cap->r.rCurrentTSO is charged for calls to allocate(), so we
@@ -1077,6 +1084,9 @@ freeCapability (Capability *cap)
 #if defined(STAT_PROFILE)
     stgFree(cap->heap_samples);
     stgFree(cap->blackhole_samples);
+#if defined(HAVE_PERF_EVENT)
+    stgFree(cap->perf_event_samples);
+#endif
 #endif
     traceCapsetRemoveCap(CAPSET_OSPROCESS_DEFAULT, cap->no);
     traceCapsetRemoveCap(CAPSET_CLOCKDOMAIN_DEFAULT, cap->no);
