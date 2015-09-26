@@ -268,8 +268,8 @@ genCall (PrimTarget (MO_AtomicWrite _width)) [] [addr, val] = runStmtsDecls $ do
 -- Handle memcpy function specifically since llvm's intrinsic version takes
 -- some extra parameters.
 genCall t@(PrimTarget op) [] args
- | Just align <- machOpMemcpyishAlign op = do
-    dflags <- getDynFlags
+ | Just align <- machOpMemcpyishAlign op = runStmtsDecls $ do
+    dflags <- lift $ getDynFlags
     let isVolTy = [i1]
         isVolVal = [mkIntLit i1 0]
         argTy | MO_Memset _ <- op = [i8Ptr, i8,    llvmWord dflags, i32] ++ isVolTy
@@ -279,17 +279,14 @@ genCall t@(PrimTarget op) [] args
 
     let (_, arg_hints) = foreignTargetHints t
     let args_hints = zip args arg_hints
-    (argVars, stmts1, top1)       <- arg_vars args_hints ([], nilOL, [])
-    (fptr, stmts2, top2)          <- getFunPtr funTy t
-    (argVars', stmts3)            <- castVars $ zip argVars argTy
+    argVars       <- arg_varsW args_hints ([], nilOL, [])
+    fptr          <- getFunPtrW funTy t
+    argVars' <- castVarsW $ zip argVars argTy
 
-    stmts4 <- getTrashStmts
+    doTrashStmts
     let alignVal = mkIntLit i32 align
         arguments = argVars' ++ (alignVal:isVolVal)
-        call = Expr $ Call StdCall fptr arguments []
-        stmts = stmts1 `appOL` stmts2 `appOL` stmts3
-                `appOL` stmts4 `snocOL` call
-    return (stmts, top1 ++ top2)
+    statement $ Expr $ Call StdCall fptr arguments []
 
 -- We handle MO_U_Mul2 by simply using a 'mul' instruction, but with operands
 -- twice the width (we first zero-extend them), e.g., on 64-bit arch we will
@@ -566,6 +563,11 @@ genCallSimpleCast w t@(PrimTarget op) [dst] args = do
     return (stmts, top2 ++ top3)
 genCallSimpleCast _ _ dsts _ =
     panic ("genCallSimpleCast: " ++ show (length dsts) ++ " dsts")
+
+-- | Create a function pointer from a target.
+getFunPtrW :: (LMString -> LlvmType) -> ForeignTarget
+           -> WriterT LlvmAccum LlvmM LlvmVar
+getFunPtrW funTy targ = liftExprData $ getFunPtr funTy targ
 
 -- | Create a function pointer from a target.
 getFunPtr :: (LMString -> LlvmType) -> ForeignTarget
