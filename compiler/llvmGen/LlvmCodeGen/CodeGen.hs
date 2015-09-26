@@ -195,23 +195,20 @@ genCall (PrimTarget (MO_UF_Conv _)) [_] args =
 
 -- Handle prefetching data
 genCall t@(PrimTarget (MO_Prefetch_Data localityInt)) [] args
-  | 0 <= localityInt && localityInt <= 3 = do
+  | 0 <= localityInt && localityInt <= 3 = runStmtsDecls $ do
     let argTy = [i8Ptr, i32, i32, i32]
         funTy = \name -> LMFunction $ LlvmFunctionDecl name ExternallyVisible
                              CC_Ccc LMVoid FixedArgs (tysToParams argTy) Nothing
 
     let (_, arg_hints) = foreignTargetHints t
     let args_hints' = zip args arg_hints
-    (argVars, stmts1, top1) <- arg_vars args_hints' ([], nilOL, [])
-    (fptr, stmts2, top2)    <- getFunPtr funTy t
-    (argVars', stmts3)      <- castVars $ zip argVars argTy
+    argVars <- arg_varsW args_hints' ([], nilOL, [])
+    fptr    <- liftExprData $ getFunPtr funTy t
+    argVars' <- castVarsW $ zip argVars argTy
 
-    trash <- getTrashStmts
+    doTrashStmts
     let argSuffix = [mkIntLit i32 0, mkIntLit i32 localityInt, mkIntLit i32 1]
-        call = Expr $ Call StdCall fptr (argVars' ++ argSuffix) []
-        stmts = stmts1 `appOL` stmts2 `appOL` stmts3
-                `appOL` trash `snocOL` call
-    return (stmts, top1 ++ top2)
+    statement $ Expr $ Call StdCall fptr (argVars' ++ argSuffix) []
   | otherwise = panic $ "prefetch locality level integer must be between 0 and 3, given: " ++ (show localityInt)
 
 -- Handle PopCnt, Clz, Ctz, and BSwap that need to only convert arg
@@ -599,6 +596,15 @@ getFunPtr funTy targ = case targ of
         getInstrinct2 name fty
 
 -- | Conversion of call arguments.
+arg_varsW :: [(CmmActual, ForeignHint)]
+          -> ([LlvmVar], LlvmStatements, [LlvmCmmDecl])
+          -> WriterT LlvmAccum LlvmM [LlvmVar]
+arg_varsW xs ys = do
+    (vars, stmts, decls) <- lift $ arg_vars xs ys
+    tell $ LlvmAccum stmts decls
+    return vars
+
+-- | Conversion of call arguments.
 arg_vars :: [(CmmActual, ForeignHint)]
          -> ([LlvmVar], LlvmStatements, [LlvmCmmDecl])
          -> LlvmM ([LlvmVar], LlvmStatements, [LlvmCmmDecl])
@@ -624,6 +630,14 @@ arg_vars ((e, _):rest) (vars, stmts, tops)
   = do (v1, stmts', top') <- exprToVar e
        arg_vars rest (vars ++ [v1], stmts `appOL` stmts', tops ++ top')
 
+
+-- | Cast a collection of LLVM variables to specific types.
+castVarsW :: [(LlvmVar, LlvmType)]
+          -> WriterT LlvmAccum LlvmM [LlvmVar]
+castVarsW vars = do
+    (vars, stmts) <- lift $ castVars vars
+    tell $ LlvmAccum stmts mempty
+    return vars
 
 -- | Cast a collection of LLVM variables to specific types.
 castVars :: [(LlvmVar, LlvmType)]
@@ -1875,3 +1889,8 @@ getCmmRegW = lift . getCmmReg
 
 genLoadW :: Atomic -> CmmExpr -> CmmType -> WriterT LlvmAccum LlvmM LlvmVar
 genLoadW atomic e ty = liftExprData $ genLoad atomic e ty
+
+doTrashStmts :: WriterT LlvmAccum LlvmM ()
+doTrashStmts = do
+    stmts <- lift getTrashStmts
+    tell $ LlvmAccum stmts mempty
