@@ -1508,24 +1508,19 @@ genLoad_fast atomic e r n ty = do
 -- | Handle Cmm load expression.
 -- Generic case. Uses casts and pointer arithmetic if needed.
 genLoad_slow :: Atomic -> CmmExpr -> CmmType -> [MetaAnnot] -> LlvmM ExprData
-genLoad_slow atomic e ty meta = do
-    (iptr, stmts, tops) <- exprToVar e
-    dflags <- getDynFlags
+genLoad_slow atomic e ty meta = runExprData $ do
+    iptr <- exprToVarW e
+    dflags <- lift getDynFlags
     case getVarType iptr of
          LMPointer _ -> do
-                    (dvar, load) <- doExpr (cmmToLlvmType ty)
-                                           (MExpr meta $ loadInstr iptr)
-                    return (dvar, stmts `snocOL` load, tops)
+                    doExprW (cmmToLlvmType ty) (MExpr meta $ loadInstr iptr)
 
          i@(LMInt _) | i == llvmWord dflags -> do
                     let pty = LMPointer $ cmmToLlvmType ty
-                    (ptr, cast)  <- doExpr pty $ Cast LM_Inttoptr iptr pty
-                    (dvar, load) <- doExpr (cmmToLlvmType ty)
-                                           (MExpr meta $ loadInstr ptr)
-                    return (dvar, stmts `snocOL` cast `snocOL` load, tops)
+                    ptr <- doExprW pty $ Cast LM_Inttoptr iptr pty
+                    doExprW (cmmToLlvmType ty) (MExpr meta $ loadInstr ptr)
 
-         other -> do dflags <- getDynFlags
-                     pprPanic "exprToVar: CmmLoad expression is not right type!"
+         other -> do pprPanic "exprToVar: CmmLoad expression is not right type!"
                         (PprCmm.pprExpr e <+> text (
                             "Size of Ptr: " ++ show (llvmPtrBits dflags) ++
                             ", Size of var: " ++ show (llvmWidthInBits dflags other) ++
