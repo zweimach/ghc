@@ -252,8 +252,21 @@ genCall (PrimTarget (MO_AtomicRead _)) [dst] [addr] = do
     let stmt1 = Store v1 dstV
     return (stmts `snocOL` stmt1, top)
 
--- TODO: implement these properly rather than calling to RTS functions.
--- genCall t@(PrimTarget (MO_Cmpxchg width)) [dst] [addr, old, new] = undefined
+genCall (PrimTarget (MO_Cmpxchg _width)) [dst] [addr, old, new] = do
+    (addrVar, stmts1, decls1) <- exprToVar addr
+    (oldVar, stmts2, decls2) <- exprToVar old
+    (newVar, stmts3, decls3) <- exprToVar new
+    let targetTy = getVarType oldVar
+        ptrExpr = Cast LM_Inttoptr addrVar (pLift targetTy)
+    (ptrVar, stmt4) <- doExpr (pLift targetTy) ptrExpr
+    dstVar <- getCmmReg (CmmLocal dst)
+    (retVar, stmt5) <- doExpr (LMStructU [targetTy,i1])
+                       $ CmpXChg ptrVar oldVar newVar SyncSeqCst SyncSeqCst
+    (retVar', stmt6) <- doExpr targetTy $ ExtractV retVar 0
+    let stmt7 = Store retVar' dstVar
+        stmts = stmts1 `appOL` stmts2 `appOL` stmts3 `snocOL`
+                stmt4 `snocOL` stmt5 `snocOL` stmt6 `snocOL` stmt7
+    return (stmts, decls1 ++ decls2 ++ decls3)
 
 genCall (PrimTarget (MO_AtomicWrite _width)) [] [addr, val] = do
     (addrVar, stmts1, decls1) <- exprToVar addr
@@ -746,8 +759,7 @@ cmmPrimOpFunctions mop = do
     MO_AtomicRead _  -> unsupported
     MO_AtomicRMW _ _ -> unsupported
     MO_AtomicWrite _ -> unsupported
-
-    MO_Cmpxchg w        -> fsLit $ cmpxchgLabel w
+    MO_Cmpxchg _     -> unsupported
 
 -- | Tail function calls
 genJump :: CmmExpr -> [GlobalReg] -> LlvmM StmtData
