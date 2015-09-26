@@ -267,16 +267,13 @@ genCall (PrimTarget (MO_Cmpxchg _width)) [dst] [addr, old, new] = do
                 stmt4 `snocOL` stmt5 `snocOL` stmt6 `snocOL` stmt7
     return (stmts, decls1 ++ decls2 ++ decls3)
 
-genCall (PrimTarget (MO_AtomicWrite _width)) [] [addr, val] = do
-    (addrVar, stmts1, decls1) <- exprToVar addr
-    (valVar, stmts2, decls2) <- exprToVar val
+genCall (PrimTarget (MO_AtomicWrite _width)) [] [addr, val] = runStmtsDecls $ do
+    addrVar <- exprToVarW addr
+    valVar <- exprToVarW val
     let ptrTy = pLift $ getVarType valVar
         ptrExpr = Cast LM_Inttoptr addrVar ptrTy
-    (ptrVar, stmt3) <- doExpr ptrTy ptrExpr
-    let stmts4 = unitOL $ Expr
-                 $ AtomicRMW LAO_Xchg ptrVar valVar SyncSeqCst
-        stmts = stmts1 `appOL` stmts2 `snocOL` stmt3 `appOL` stmts4
-    return (stmts, decls1++decls2)
+    ptrVar <- doExprW ptrTy ptrExpr
+    statement $ Expr $ AtomicRMW LAO_Xchg ptrVar valVar SyncSeqCst
 
 -- Handle memcpy function specifically since llvm's intrinsic version takes
 -- some extra parameters.
