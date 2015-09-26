@@ -179,15 +179,14 @@ genCall (PrimTarget MO_WriteBarrier) _ _ = do
 genCall (PrimTarget MO_Touch) _ _
  = return (nilOL, [])
 
-genCall (PrimTarget (MO_UF_Conv w)) [dst] [e] = do
-    dstV <- getCmmReg (CmmLocal dst)
+genCall (PrimTarget (MO_UF_Conv w)) [dst] [e] = runStmtsDecls $ do
+    dstV <- getCmmRegW (CmmLocal dst)
     let ty = cmmToLlvmType $ localRegType dst
         width = widthToLlvmFloat w
-    castV <- mkLocalVar ty
-    (ve, stmts, top) <- exprToVar e
-    let stmt3 = Assignment castV $ Cast LM_Uitofp ve width
-        stmt4 = Store castV dstV
-    return (stmts `snocOL` stmt3 `snocOL` stmt4, top)
+    castV <- lift $ mkLocalVar ty
+    ve <- exprToVarW e
+    statement $ Assignment castV $ Cast LM_Uitofp ve width
+    statement $ Store castV dstV
 
 genCall (PrimTarget (MO_UF_Conv _)) [_] args =
     panic $ "genCall: Too many arguments to MO_UF_Conv. " ++
