@@ -367,9 +367,8 @@ genCall t@(PrimTarget (MO_Add2 w)) [dstO, dstV] [lhs, rhs] =
     genCallWithOverflow t w [dstV, dstO] [lhs, rhs]
 
 -- Handle all other foreign calls and prim ops.
-genCall target res args = do
-
-    dflags <- getDynFlags
+genCall target res args = runStmtsDecls $ do
+    dflags <- lift $ getDynFlags
 
     -- parameter types
     let arg_type (_, AddrHint) = i8Ptr
@@ -384,7 +383,7 @@ genCall target res args = do
                         ++ " 0 or 1, given " ++ show (length t) ++ "."
 
     -- extract Cmm call convention, and translate to LLVM call convention
-    platform <- getLlvmPlatform
+    platform <- lift $ getLlvmPlatform
     let lmconv = case target of
             ForeignTarget _ (ForeignConvention conv _ _ _) ->
               case conv of
@@ -426,37 +425,32 @@ genCall target res args = do
                              lmconv retTy FixedArgs argTy (llvmFunAlign dflags)
 
 
-    (argVars, stmts1, top1) <- arg_vars args_hints ([], nilOL, [])
-    (fptr, stmts2, top2)    <- getFunPtr funTy target
+    argVars <- arg_varsW args_hints ([], nilOL, [])
+    fptr    <- getFunPtrW funTy target
 
-    let retStmt | ccTy == TailCall  = unitOL $ Return Nothing
-                | never_returns     = unitOL $ Unreachable
-                | otherwise         = nilOL
+    let doReturn | ccTy == TailCall  = statement $ Return Nothing
+                 | never_returns     = statement $ Unreachable
+                 | otherwise         = return ()
 
-    stmts3 <- getTrashStmts
-    let stmts = stmts1 `appOL` stmts2 `appOL` stmts3
+    doTrashStmts
 
     -- make the actual call
     case retTy of
         LMVoid -> do
-            let s1 = Expr $ Call ccTy fptr argVars fnAttrs
-            let allStmts = stmts `snocOL` s1 `appOL` retStmt
-            return (allStmts, top1 ++ top2)
+            statement $ Expr $ Call ccTy fptr argVars fnAttrs
 
         _ -> do
-            (v1, s1) <- doExpr retTy $ Call ccTy fptr argVars fnAttrs
+            v1 <- doExprW retTy $ Call ccTy fptr argVars fnAttrs
             -- get the return register
             let ret_reg [reg] = reg
                 ret_reg t = panic $ "genCall: Bad number of registers! Can only handle"
                                 ++ " 1, given " ++ show (length t) ++ "."
             let creg = ret_reg res
-            vreg <- getCmmReg (CmmLocal creg)
-            let allStmts = stmts `snocOL` s1
+            vreg <- getCmmRegW (CmmLocal creg)
             if retTy == pLower (getVarType vreg)
                 then do
-                    let s2 = Store v1 vreg
-                    return (allStmts `snocOL` s2 `appOL` retStmt,
-                                top1 ++ top2)
+                    statement $ Store v1 vreg
+                    doReturn
                 else do
                     let ty = pLower $ getVarType vreg
                     let op = case ty of
@@ -466,10 +460,9 @@ genCall target res args = do
                                    panic $ "genCall: CmmReg bad match for"
                                         ++ " returned type!"
 
-                    (v2, s2) <- doExpr ty $ Cast op v1 ty
-                    let s3 = Store v2 vreg
-                    return (allStmts `snocOL` s2 `snocOL` s3
-                                `appOL` retStmt, top1 ++ top2)
+                    v2 <- doExprW ty $ Cast op v1 ty
+                    statement $ Store v2 vreg
+                    doReturn
 
 -- | Generate a call to an LLVM intrinsic that performs arithmetic operation
 -- with overflow bit (i.e., returns a struct containing the actual result of the
