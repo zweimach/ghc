@@ -251,21 +251,19 @@ genCall (PrimTarget (MO_AtomicRead _)) [dst] [addr] = do
     let stmt1 = Store v1 dstV
     return (stmts `snocOL` stmt1, top)
 
-genCall (PrimTarget (MO_Cmpxchg _width)) [dst] [addr, old, new] = do
-    (addrVar, stmts1, decls1) <- exprToVar addr
-    (oldVar, stmts2, decls2) <- exprToVar old
-    (newVar, stmts3, decls3) <- exprToVar new
+genCall (PrimTarget (MO_Cmpxchg _width))
+        [dst] [addr, old, new] = runStmtsDecls $ do
+    addrVar <- exprToVarW addr
+    oldVar <- exprToVarW old
+    newVar <- exprToVarW new
     let targetTy = getVarType oldVar
         ptrExpr = Cast LM_Inttoptr addrVar (pLift targetTy)
-    (ptrVar, stmt4) <- doExpr (pLift targetTy) ptrExpr
-    dstVar <- getCmmReg (CmmLocal dst)
-    (retVar, stmt5) <- doExpr (LMStructU [targetTy,i1])
-                       $ CmpXChg ptrVar oldVar newVar SyncSeqCst SyncSeqCst
-    (retVar', stmt6) <- doExpr targetTy $ ExtractV retVar 0
-    let stmt7 = Store retVar' dstVar
-        stmts = stmts1 `appOL` stmts2 `appOL` stmts3 `snocOL`
-                stmt4 `snocOL` stmt5 `snocOL` stmt6 `snocOL` stmt7
-    return (stmts, decls1 ++ decls2 ++ decls3)
+    ptrVar <- doExprW (pLift targetTy) ptrExpr
+    dstVar <- getCmmRegW (CmmLocal dst)
+    retVar <- doExprW (LMStructU [targetTy,i1])
+              $ CmpXChg ptrVar oldVar newVar SyncSeqCst SyncSeqCst
+    retVar' <- doExprW targetTy $ ExtractV retVar 0
+    statement $ Store retVar' dstVar
 
 genCall (PrimTarget (MO_AtomicWrite _width)) [] [addr, val] = runStmtsDecls $ do
     addrVar <- exprToVarW addr
