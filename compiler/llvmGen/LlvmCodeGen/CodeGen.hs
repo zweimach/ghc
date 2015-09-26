@@ -245,11 +245,10 @@ genCall (PrimTarget (MO_AtomicRMW width amop)) [dst] [addr, n] = do
                 stmt3 `snocOL` stmt4 `snocOL` stmt5
     return (stmts, decls1++decls2)
 
-genCall (PrimTarget (MO_AtomicRead _)) [dst] [addr] = do
-    dstV <- getCmmReg (CmmLocal dst)
-    (v1, stmts, top) <- genLoad True addr (localRegType dst)
-    let stmt1 = Store v1 dstV
-    return (stmts `snocOL` stmt1, top)
+genCall (PrimTarget (MO_AtomicRead _)) [dst] [addr] = runStmtsDecls $ do
+    dstV <- getCmmRegW (CmmLocal dst)
+    v1 <- genLoadW True addr (localRegType dst)
+    statement $ Store v1 dstV
 
 genCall (PrimTarget (MO_Cmpxchg _width))
         [dst] [addr, old, new] = runStmtsDecls $ do
@@ -1876,3 +1875,6 @@ runStmtsDecls action = do
 
 getCmmRegW :: CmmReg -> WriterT LlvmAccum LlvmM LlvmVar
 getCmmRegW = lift . getCmmReg
+
+genLoadW :: Atomic -> CmmExpr -> CmmType -> WriterT LlvmAccum LlvmM LlvmVar
+genLoadW atomic e ty = liftExprData $ genLoad atomic e ty
