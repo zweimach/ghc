@@ -308,33 +308,30 @@ genCall t@(PrimTarget op) [] args
 -- twice the width (we first zero-extend them), e.g., on 64-bit arch we will
 -- generate 'mul' on 128-bit operands. Then we only need some plumbing to
 -- extract the two 64-bit values out of 128-bit result.
-genCall (PrimTarget (MO_U_Mul2 w)) [dstH, dstL] [lhs, rhs] = do
+genCall (PrimTarget (MO_U_Mul2 w)) [dstH, dstL] [lhs, rhs] = runStmtsDecls $ do
     let width = widthToLlvmInt w
         bitWidth = widthInBits w
         width2x = LMInt (bitWidth * 2)
     -- First zero-extend the operands ('mul' instruction requires the operands
     -- and the result to be of the same type). Note that we don't use 'castVars'
     -- because it tries to do LM_Sext.
-    (lhsVar, stmts1, decls1) <- exprToVar lhs
-    (rhsVar, stmts2, decls2) <- exprToVar rhs
-    (lhsExt, stmt3) <- doExpr width2x $ Cast LM_Zext lhsVar width2x
-    (rhsExt, stmt4) <- doExpr width2x $ Cast LM_Zext rhsVar width2x
+    lhsVar <- exprToVarW lhs
+    rhsVar <- exprToVarW rhs
+    lhsExt <- doExprW width2x $ Cast LM_Zext lhsVar width2x
+    rhsExt <- doExprW width2x $ Cast LM_Zext rhsVar width2x
     -- Do the actual multiplication (note that the result is also 2x width).
-    (retV, stmt5) <- doExpr width2x $ LlvmOp LM_MO_Mul lhsExt rhsExt
+    retV <- doExprW width2x $ LlvmOp LM_MO_Mul lhsExt rhsExt
     -- Extract the lower bits of the result into retL.
-    (retL, stmt6) <- doExpr width $ Cast LM_Trunc retV width
+    retL <- doExprW width $ Cast LM_Trunc retV width
     -- Now we right-shift the higher bits by width.
     let widthLlvmLit = LMLitVar $ LMIntLit (fromIntegral bitWidth) width
-    (retShifted, stmt7) <- doExpr width2x $ LlvmOp LM_MO_LShr retV widthLlvmLit
+    retShifted <- doExprW width2x $ LlvmOp LM_MO_LShr retV widthLlvmLit
     -- And extract them into retH.
-    (retH, stmt8) <- doExpr width $ Cast LM_Trunc retShifted width
-    dstRegL <- getCmmReg (CmmLocal dstL)
-    dstRegH <- getCmmReg (CmmLocal dstH)
-    let storeL = Store retL dstRegL
-        storeH = Store retH dstRegH
-        stmts = stmts1 `appOL` stmts2 `appOL`
-           toOL [ stmt3 , stmt4, stmt5, stmt6, stmt7, stmt8, storeL, storeH ]
-    return (stmts, decls1 ++ decls2)
+    retH <- doExprW width $ Cast LM_Trunc retShifted width
+    dstRegL <- getCmmRegW (CmmLocal dstL)
+    dstRegH <- getCmmRegW (CmmLocal dstH)
+    statement $ Store retL dstRegL
+    statement $ Store retH dstRegH
 
 -- MO_U_QuotRem2 is another case we handle by widening the registers to double
 -- the width and use normal LLVM instructions (similarly to the MO_U_Mul2). The
@@ -1881,3 +1878,6 @@ runStmtsDecls :: WriterT LlvmAccum LlvmM () -> LlvmM (LlvmStatements, [LlvmCmmDe
 runStmtsDecls action = do
     LlvmAccum stmts decls <- execWriterT action
     return (stmts, decls)
+
+getCmmRegW :: CmmReg -> WriterT LlvmAccum LlvmM LlvmVar
+getCmmRegW = lift . getCmmReg
