@@ -1233,44 +1233,38 @@ genMachOp_fast opt op r n e
 genMachOp_slow :: EOption -> MachOp -> [CmmExpr] -> LlvmM ExprData
 
 -- Element extraction
-genMachOp_slow _ (MO_V_Extract l w) [val, idx] = do
-    (vval, stmts1, top1) <- exprToVar val
-    (vidx, stmts2, top2) <- exprToVar idx
-    ([vval'], stmts3)    <- castVars [(vval, LMVector l ty)]
-    (v1, s1)             <- doExpr ty $ Extract vval' vidx
-    return (v1, stmts1 `appOL` stmts2 `appOL` stmts3 `snocOL` s1, top1 ++ top2)
+genMachOp_slow _ (MO_V_Extract l w) [val, idx] = runExprData $ do
+    vval <- exprToVarW val
+    vidx <- exprToVarW idx
+    [vval'] <- castVarsW [(vval, LMVector l ty)]
+    doExprW ty $ Extract vval' vidx
   where
     ty = widthToLlvmInt w
 
-genMachOp_slow _ (MO_VF_Extract l w) [val, idx] = do
-    (vval, stmts1, top1) <- exprToVar val
-    (vidx, stmts2, top2) <- exprToVar idx
-    ([vval'], stmts3)    <- castVars [(vval, LMVector l ty)]
-    (v1, s1)             <- doExpr ty $ Extract vval' vidx
-    return (v1, stmts1 `appOL` stmts2 `appOL` stmts3 `snocOL` s1, top1 ++ top2)
+genMachOp_slow _ (MO_VF_Extract l w) [val, idx] = runExprData $ do
+    vval <- exprToVarW val
+    vidx <- exprToVarW idx
+    [vval'] <- castVarsW [(vval, LMVector l ty)]
+    doExprW ty $ Extract vval' vidx
   where
     ty = widthToLlvmFloat w
 
 -- Element insertion
-genMachOp_slow _ (MO_V_Insert l w) [val, elt, idx] = do
-    (vval, stmts1, top1) <- exprToVar val
-    (velt, stmts2, top2) <- exprToVar elt
-    (vidx, stmts3, top3) <- exprToVar idx
-    ([vval'], stmts4)    <- castVars [(vval, ty)]
-    (v1, s1)             <- doExpr ty $ Insert vval' velt vidx
-    return (v1, stmts1 `appOL` stmts2 `appOL` stmts3 `appOL` stmts4 `snocOL` s1,
-            top1 ++ top2 ++ top3)
+genMachOp_slow _ (MO_V_Insert l w) [val, elt, idx] = runExprData $ do
+    vval <- exprToVarW val
+    velt <- exprToVarW elt
+    vidx <- exprToVarW idx
+    [vval'] <- castVarsW [(vval, ty)]
+    doExprW ty $ Insert vval' velt vidx
   where
     ty = LMVector l (widthToLlvmInt w)
 
-genMachOp_slow _ (MO_VF_Insert l w) [val, elt, idx] = do
-    (vval, stmts1, top1) <- exprToVar val
-    (velt, stmts2, top2) <- exprToVar elt
-    (vidx, stmts3, top3) <- exprToVar idx
-    ([vval'], stmts4)    <- castVars [(vval, ty)]
-    (v1, s1)             <- doExpr ty $ Insert vval' velt vidx
-    return (v1, stmts1 `appOL` stmts2 `appOL` stmts3 `appOL` stmts4 `snocOL` s1,
-            top1 ++ top2 ++ top3)
+genMachOp_slow _ (MO_VF_Insert l w) [val, elt, idx] = runExprData $ do
+    vval <- exprToVarW val
+    velt <- exprToVarW elt
+    vidx <- exprToVarW idx
+    [vval'] <- castVarsW [(vval, ty)]
+    doExprW ty $ Insert vval' velt vidx
   where
     ty = LMVector l (widthToLlvmFloat w)
 
@@ -1359,35 +1353,28 @@ genMachOp_slow opt op [x, y] = case op of
     MO_VF_Neg {} -> panicOp
 
     where
-        binLlvmOp ty binOp = do
-            (vx, stmts1, top1) <- exprToVar x
-            (vy, stmts2, top2) <- exprToVar y
+        binLlvmOp ty binOp = runExprData $ do
+            vx <- exprToVarW x
+            vy <- exprToVarW y
             if getVarType vx == getVarType vy
                 then do
-                    (v1, s1) <- doExpr (ty vx) $ binOp vx vy
-                    return (v1, stmts1 `appOL` stmts2 `snocOL` s1,
-                            top1 ++ top2)
+                    doExprW (ty vx) $ binOp vx vy
 
                 else do
                     -- Error. Continue anyway so we can debug the generated ll file.
-                    dflags <- getDynFlags
+                    dflags <- lift getDynFlags
                     let style = mkCodeStyle CStyle
                         toString doc = renderWithStyle dflags doc style
                         cmmToStr = (lines . toString . PprCmm.pprExpr)
-                    let dx = Comment $ map fsLit $ cmmToStr x
-                    let dy = Comment $ map fsLit $ cmmToStr y
-                    (v1, s1) <- doExpr (ty vx) $ binOp vx vy
-                    let allStmts = stmts1 `appOL` stmts2 `snocOL` dx
-                                    `snocOL` dy `snocOL` s1
-                    return (v1, allStmts, top1 ++ top2)
+                    statement $ Comment $ map fsLit $ cmmToStr x
+                    statement $ Comment $ map fsLit $ cmmToStr y
+                    doExprW (ty vx) $ binOp vx vy
 
-        binCastLlvmOp ty binOp = do
-            (vx, stmts1, top1) <- exprToVar x
-            (vy, stmts2, top2) <- exprToVar y
-            ([vx', vy'], stmts3) <- castVars [(vx, ty), (vy, ty)]
-            (v1, s1) <- doExpr ty $ binOp vx' vy'
-            return (v1, stmts1 `appOL` stmts2 `appOL` stmts3 `snocOL` s1,
-                    top1 ++ top2)
+        binCastLlvmOp ty binOp = runExprData $ do
+            vx <- exprToVarW x
+            vy <- exprToVarW y
+            [vx', vy'] <- castVarsW [(vx, ty), (vy, ty)]
+            doExprW ty $ binOp vx' vy'
 
         -- | Need to use EOption here as Cmm expects word size results from
         -- comparisons while LLVM return i1. Need to extend to llvmWord type
@@ -1872,6 +1859,11 @@ doExprW a b = do
 
 exprToVarW :: CmmExpr -> WriterT LlvmAccum LlvmM LlvmVar
 exprToVarW = liftExprData . exprToVar
+
+runExprData :: WriterT LlvmAccum LlvmM LlvmVar -> LlvmM ExprData
+runExprData action = do
+    (var, LlvmAccum stmts decls) <- runWriterT action
+    return (var, stmts, decls)
 
 runStmtsDecls :: WriterT LlvmAccum LlvmM () -> LlvmM (LlvmStatements, [LlvmCmmDecl])
 runStmtsDecls action = do
