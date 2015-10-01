@@ -136,7 +136,7 @@ rnHsKind = rnHsTyKi False
 rnHsTyKi :: Bool -> HsDocContext -> HsType RdrName -> RnM (HsType Name, FreeVars)
 
 rnHsTyKi isType doc (HsForAllTy Implicit extra _ lctxt@(L _ ctxt) ty)
-  = ASSERT( isType ) do
+  = do
         -- Implicit quantifiction in source code (no kinds on tyvars)
         -- Given the signature  C => T  we universally quantify
         -- over FV(T) \ {in-scope-tyvars}
@@ -156,10 +156,10 @@ rnHsTyKi isType doc (HsForAllTy Implicit extra _ lctxt@(L _ ctxt) ty)
            --   class C a where { op :: a -> a }
         tyvar_bndrs = userHsTyVarBndrs loc forall_tvs
 
-    rnForAll doc Implicit extra forall_kvs (mkHsQTvs tyvar_bndrs) lctxt ty
+    rnForAll isType doc Implicit extra forall_kvs (mkHsQTvs tyvar_bndrs) lctxt ty
 
 rnHsTyKi isType doc fulltype@(HsForAllTy Qualified extra _ lctxt@(L _ ctxt) ty)
-  = ASSERT( isType ) do
+  = do
     rdr_env <- getLocalRdrEnv
     loc <- getSrcSpanM
     let
@@ -170,17 +170,17 @@ rnHsTyKi isType doc fulltype@(HsForAllTy Qualified extra _ lctxt@(L _ ctxt) ty)
 
     -- See Note [Context quantification]
     warnContextQuantification (in_type_doc $$ docOfHsDocContext doc) tyvar_bndrs
-    rnForAll doc Implicit extra forall_kvs (mkHsQTvs tyvar_bndrs) lctxt ty
+    rnForAll isType doc Implicit extra forall_kvs (mkHsQTvs tyvar_bndrs) lctxt ty
 
 rnHsTyKi isType doc ty@(HsForAllTy Explicit extra forall_tyvars lctxt@(L _ ctxt) tau)
-  = ASSERT( isType ) do {      -- Explicit quantification.
+  = do {      -- Explicit quantification.
          -- Check that the forall'd tyvars are actually
          -- mentioned in the type, and produce a warning if not
          let (kvs, mentioned) = extractHsTysRdrTyVars (tau:ctxt)
              in_type_doc = ptext (sLit "In the type") <+> quotes (ppr ty)
        ; warnUnusedForAlls (in_type_doc $$ docOfHsDocContext doc) forall_tyvars (kvs ++ mentioned)
 
-       ; rnForAll doc Explicit extra kvs forall_tyvars lctxt tau }
+       ; rnForAll isType doc Explicit extra kvs forall_tyvars lctxt tau }
 
 rnHsTyKi isType _ (HsTyVar rdr_name)
   = do { name <- rnTyVar isType rdr_name
@@ -342,19 +342,22 @@ rnLHsTypes :: HsDocContext -> [LHsType RdrName]
            -> RnM ([LHsType Name], FreeVars)
 rnLHsTypes doc tys = mapFvRn (rnLHsType doc) tys
 
-rnForAll :: HsDocContext -> HsExplicitFlag
+rnForAll :: Bool -- "isType"
+         -> HsDocContext -> HsExplicitFlag
          -> Maybe SrcSpan           -- Location of an extra-constraints wildcard
          -> [RdrName]               -- Kind variables
          -> LHsTyVarBndrs RdrName   -- Type variables
          -> LHsContext RdrName -> LHsType RdrName
          -> RnM (HsType Name, FreeVars)
 
-rnForAll doc exp extra kvs forall_tyvars ctxt ty
+rnForAll isType doc exp extra kvs forall_tyvars ctxt ty
+  -- TODO (RAE): Check that either isType or TypeInType is set
+
   | null kvs
   , null (hsQTvExplicit forall_tyvars)
   , null (unLoc ctxt)
   , isNothing extra
-  = rnHsType doc (unLoc ty)
+  = rnHsTyKi isType doc (unLoc ty)
         -- One reason for this case is that a type like Int#
         -- starts off as (HsForAllTy Implicit Nothing [] Int), in case
         -- there is some quantification.  Now that we have quantified
@@ -366,7 +369,7 @@ rnForAll doc exp extra kvs forall_tyvars ctxt ty
   | otherwise
   = bindHsTyVars doc Nothing kvs forall_tyvars $ \ new_tyvars ->
     do { (new_ctxt, fvs1) <- rnContext doc ctxt
-       ; (new_ty, fvs2) <- rnLHsType doc ty
+       ; (new_ty, fvs2) <- rnLHsTyKi isType doc ty
        ; return (HsForAllTy exp extra new_tyvars new_ctxt new_ty, fvs1 `plusFV` fvs2) }
         -- Retain the same implicit/explicit flag as before
         -- so that we can later print it correctly

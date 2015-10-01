@@ -1492,7 +1492,7 @@ atype :: { LHsType RdrName }
 
         -- Two or more [ty, ty, ty] must be a promoted list type, just as
         -- if you had written '[ty, ty, ty]
-        -- (One means a list type, zero means the list type constructor, 
+        -- (One means a list type, zero means the list type constructor,
         -- so you have to quote those.)
         | '[' ctype ',' comma_types1 ']'  {% ams (sLL $1 $> $ HsExplicitListTy
                                                      placeHolderKind ($2 : $4))
@@ -1557,7 +1557,7 @@ varids0 :: { Located [RdrName] }
 -- Kinds
 
 kind :: { LHsKind RdrName }
-        : type                  { $1 }
+        : ctype                  { $1 }
 
 {- Note [Promotion]
    ~~~~~~~~~~~~~~~~

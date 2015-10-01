@@ -416,7 +416,8 @@ Notes:
    NEW PLAN: Just rewrite the solver in terms of unlifted equality.
 
 BUGS:
-#9017
+#9017:
+#9173: mention expression in error
 
 ----------------------------------------
 Stuff for implementing Π:

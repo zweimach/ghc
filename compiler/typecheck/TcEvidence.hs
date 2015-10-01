@@ -454,7 +454,8 @@ tcCoercionToCoercion subst tc_co
     go (TcNthCo n co)           = mkNthCo n <$> go co
     go (TcLRCo lr co)           = mkLRCo lr <$> go co
     go (TcSubCo co)             = mkSubCo <$> go co
-    go (TcLetCo bs co)          = tcCoercionToCoercion (ds_co_binds bs) co
+    go (TcLetCo bs co)          = do { subst <- ds_co_binds bs
+                                     ; tcCoercionToCoercion subst co }
     go (TcCastCo co1 co2)       = mkCoCast <$> go co1 <*> go co2
     go (TcCoherenceCo tco1 co2) = mkCoherenceCo <$> go tco1 <*> pure (substCo subst co2)
     go (TcKindCo co)            = mkKindCo <$> go co
@@ -472,9 +473,10 @@ tcCoercionToCoercion subst tc_co
            ; h' <- go h
            ; return (subst3, mkForAllCoBndr h' tv1' tv2' cv') }
 
-    ds_co_binds :: TcEvBinds -> TCvSubst
-    ds_co_binds (EvBinds bs)      = evBindsSubstX subst bs
-    ds_co_binds eb@(TcEvBinds {}) = pprPanic "ds_co_binds" (ppr eb)
+      -- TODO (RAE): Rename this, and remove the Maybe
+    ds_co_binds :: TcEvBinds -> Maybe TCvSubst
+    ds_co_binds (EvBinds bs)   = Just $ evBindsSubstX subst bs
+    ds_co_binds (TcEvBinds {}) = Nothing  -- TODO (RAE): this shouldn't happen
 
 -- Pretty printing
 
