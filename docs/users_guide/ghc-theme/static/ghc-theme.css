@@ -29,6 +29,18 @@ body {
     min-width: 740px;
 }
 
+div.rest-example {
+    display: flex;
+    justify-content: center;
+}
+
+div.rest-example > div {
+    flex-grow: 1;
+    width: 60em;;
+    border: 1px solid #CCC;
+    padding: 1em;
+}
+
 div.logo {
     background-color: white;
     text-align: left;

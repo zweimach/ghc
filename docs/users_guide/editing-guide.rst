@@ -24,68 +24,70 @@ Unicode characters are allowed in the document.
 
 The basic syntax works largely as one would expect. For instance,
 
-.. code-block:: rest
+.. compound::
+    :class: rest-example
 
-    This is a paragraph containing a few sentences of text. Purple turtles walk
-    through green fields of lofty maize. Lorem ipsum dolor sit amet, consectetur
-    adipiscing elit. Some lists,
+    .. code-block:: rest
 
-    1. This is a list item
+        This is a paragraph containing a few sentences of text. Dreamy purple
+        turtles walk through green fields of lofty maize. And now for some lists,
 
-       a. Followed by a sub-item
-       b. And another!
-       c. Now with ``a bit of code`` and some *emphasis*.
+        1. This is a list item
 
-    2. Back to the first list
+           a. Followed by a sub-item
+           b. And another!
+           c. Now with ``a bit of code`` and some *emphasis*.
 
-    Or perhaps you are more of a bullet list person,
+        2. Back to the first list
 
-    * Foo
-    * Fizzle
+        Or perhaps you are more of a bullet list person,
 
-      - Bar
-      - Blah
+        * Foo
+        * Fizzle
 
-    Or perhaps a definition list is in order,
+          - Bar
+          - Blah
 
-    *Chelonii*
-        The taxonomic order consisting of modern turtles
-    *Meiolaniidae*
-        The taxonomic order of an extinct variety of herbivorous turtles.
+        Or perhaps a definition list is in order,
+
+        *Chelonii*
+            The taxonomic order consisting of modern turtles
+        *Meiolaniidae*
+            The taxonomic order of an extinct variety of herbivorous turtles.
+
+    .. compound::
+
+        This is a paragraph containing a few sentences of text. Dreamy purple
+        turtles walk through green fields of lofty maize. And now for some lists,
+
+        1. This is a list item
+
+           a. Followed by a sub-item
+           b. And another!
+           c. Now with ``a bit of code`` and some *emphasis*.
+
+        2. Back to the first list
+
+        Or perhaps you are more of a bullet list person,
+
+        * Foo
+        * Fizzle
+
+          - Bar
+          - Blah
+
+        Or perhaps a definition list is in order,
+
+        *Chelonii*
+            The taxonomic order consisting of modern turtles
+        *Meiolaniidae*
+            The taxonomic order of an extinct variety of herbivorous turtles.
 
 Note the blank lines between a list item and its sub-items. Sub-items should be
 on the same indentation level as the content of their parent items. Also note
 that no whitespace is necessary or desirable before the bullet or item number
 (lest the list be indented unnecessarily).
 
-The above would be rendered as,
-
-    This is a paragraph containing a few sentences of text. Purple turtles walk
-    through green fields of lofty maize. Lorem ipsum dolor sit amet, consectetur
-    adipiscing elit. Some lists,
-
-    1. This is a list item
-
-       a. Followed by a sub-item
-       b. And another!
-       c. Now with ``a bit of code`` and some *emphasis*.
-
-    2. Back to the first list
-
-    Or perhaps you are more of a bullet list person,
-
-    * Foo
-    * Fizzle
-
-      - Bar
-      - Blah
-
-    Or perhaps a definition list is in order,
-
-    *Chelonii*
-        The taxonomic order consisting of modern turtles
-    *Meiolaniidae*
-        The taxonomic order of an extinct variety of herbivorous turtles.
 
 
 Headings
