@@ -661,7 +661,7 @@ exactTyCoVarsOfType ty
   = go ty
   where
     go ty | Just ty' <- tcView ty = go ty'  -- This is the key line
-    go (TyVarTy tv)         = unitVarSet tv
+    go (TyVarTy tv)         = unitVarSet tv `unionVarSet` go (tyVarKind tv)
     go (TyConApp _ tys)     = exactTyCoVarsOfTypes tys
     go (LitTy {})           = emptyVarSet
     go (AppTy fun arg)      = go fun `unionVarSet` go arg
@@ -675,7 +675,7 @@ exactTyCoVarsOfType ty
     goCo (ForAllCo bndr co)
       = let Pair v1 v2 = coBndrKind bndr in
         goCo co `delVarSetList` [v1, v2] `unionVarSet` goCo (coBndrKindCo bndr)
-    goCo (CoVarCo v)         = unitVarSet v
+    goCo (CoVarCo v)         = unitVarSet v `unionVarSet` go (varType v)
     goCo (AxiomInstCo _ _ args) = goCos args
     goCo (UnivCo _ _ h t1 t2)= goCo h `unionVarSet` go t1 `unionVarSet` go t2
     goCo (SymCo co)          = goCo co
