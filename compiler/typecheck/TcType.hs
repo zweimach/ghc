@@ -1399,13 +1399,14 @@ occurCheckExpand dflags tv ty
     impredicative = canUnifyWithPolyType dflags details
 
     -- Check 'ty' is a tyvar, or can be expanded into one
-    go_sig_tv ty@(TyVarTy {})            = OC_OK ty
+    go_sig_tv (TyVarTy tv')            = do { k' <- check_kind (tyVarKind tv')
+                                            ; return (mkTyVarTy (setTyVarKind tv' k')) }
     go_sig_tv ty | Just ty' <- tcView ty = go_sig_tv ty'
     go_sig_tv _                          = OC_NonTyVar
 
     -- True => fine
     fast_check (LitTy {})          = True
-    fast_check (TyVarTy tv')       = tv /= tv'
+    fast_check (TyVarTy tv')       = tv /= tv' && fast_check (tyVarKind tv')
     fast_check (TyConApp _ tys)    = all fast_check tys
     fast_check (ForAllTy (Anon a) r) = fast_check a && fast_check r
     fast_check (AppTy fun arg)     = fast_check fun && fast_check arg
@@ -1426,7 +1427,7 @@ occurCheckExpand dflags tv ty
                       && fast_check (varType v1)
                       && fast_check (varType v2)
                       && (tv == v1 || tv == v2 || fast_check_co co)
-    fast_check_co (CoVarCo _)            = True
+    fast_check_co (CoVarCo c)            = fast_check (varType c)
     fast_check_co (AxiomInstCo _ _ args) = all fast_check_co args
     fast_check_co (UnivCo _ _ h t1 t2)   = fast_check_co h && fast_check t1
                                                            && fast_check t2
@@ -1442,8 +1443,9 @@ occurCheckExpand dflags tv ty
     fast_check_co (AxiomRuleCo _ ts cs)
       = all fast_check ts && all fast_check_co cs
 
-    go t@(TyVarTy tv') | tv == tv' = OC_Occurs
-                       | otherwise = return t
+    go (TyVarTy tv') | tv == tv' = OC_Occurs
+                     | otherwise = do { k' <- check_kind (tyVarKind tv')
+                                      ; return (mkTyVarTy (setTyVarKind tv' k')) }
     go ty@(LitTy {}) = return ty
     go (AppTy ty1 ty2) = do { ty1' <- go ty1
                             ; ty2' <- go ty2
@@ -1460,6 +1462,8 @@ occurCheckExpand dflags tv ty
            -- In principle fast_check might fail because of a for-all
            -- but we don't yet have poly-kinded tyvars so I'm not
            -- going to worry about that now
+           -- TODO (RAE): Worry about this now. But note that current
+           -- behavior is conservative. So worry, but without losing sleep.
        | tv == tv' = return ty
        | otherwise = do { body' <- go body_ty
                         ; return (ForAllTy (Named tv' vis) body') }
@@ -1499,7 +1503,8 @@ occurCheckExpand dflags tv ty
                        ; let cobndr' = setCoBndrKindCo cobndr h'
                        ; co' <- go_co co
                        ; return (mkForAllCo cobndr' co') }
-    go_co co@(CoVarCo {})           = return co
+    go_co (CoVarCo c)               = do { k' <- check_kind (varType c)
+                                         ; return (mkCoVarCo (setVarType c k')) }
     go_co (AxiomInstCo ax ind args) = do { args' <- mapM go_co args
                                          ; return (mkAxiomInstCo ax ind args') }
     go_co (UnivCo p r h ty1 ty2)    = do { h' <- go_co h
@@ -1530,6 +1535,9 @@ occurCheckExpand dflags tv ty
     go_co (AxiomRuleCo ax ts cs)    = do { ts' <- mapM go ts
                                          ; cs' <- mapM go_co cs
                                          ; return (AxiomRuleCo ax ts' cs') }
+
+    check_kind k | fast_check k = return k
+                 | otherwise    = go k
 
 canUnifyWithPolyType :: DynFlags -> TcTyVarDetails -> Bool
 canUnifyWithPolyType dflags details
