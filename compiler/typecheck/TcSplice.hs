@@ -1464,7 +1464,7 @@ reifyKind ki
       , ta_forall   = \_ _ inner -> reifyKind inner
       , ta_lit      = \l -> no_th l
       , ta_cast     = \ty co -> no_th (ty `mkCastTy` co)
-      , ta_coercion = \co -> no_th co }
+      , ta_coercoin = \co -> no_th co }
 
     no_th thing = noTH (sLit "this kind") (ppr thing)
 
