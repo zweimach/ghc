@@ -74,6 +74,7 @@ module TcMType (
 #include "HsVersions.h"
 
 -- friends:
+import TyCoRep
 import TcType
 import Type
 import Coercion

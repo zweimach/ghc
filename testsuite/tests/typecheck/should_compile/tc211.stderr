@@ -12,9 +12,8 @@ tc211.hs:17:8:
 
 tc211.hs:18:22:
     Couldn't match type ‘forall a1. a1 -> a1’ with ‘a -> a’
-       Expected type: [a -> a]
-         Actual type: [forall a. a -> a]
-    which classifies: foo
+    Expected type: [a -> a]
+      Actual type: [forall a. a -> a]
     In the first argument of ‘head’, namely ‘foo’
     In the first argument of ‘(:) ::
                                 (forall a. a -> a)
@@ -49,10 +48,9 @@ tc211.hs:65:8:
 
 tc211.hs:73:9:
     Couldn't match type ‘forall a1. a1 -> a1’ with ‘a -> a’
-       Expected type: List (forall a1. a1 -> a1)
-                      -> (forall a1. a1 -> a1) -> a -> a
-         Actual type: List (a -> a) -> (a -> a) -> a -> a
-    which classifies: foo2
+    Expected type: List (forall a1. a1 -> a1)
+                   -> (forall a1. a1 -> a1) -> a -> a
+      Actual type: List (a -> a) -> (a -> a) -> a -> a
     In the expression:
         foo2 ::
           List (forall a. a -> a) -> (forall a. a -> a) -> (forall a. a -> a)

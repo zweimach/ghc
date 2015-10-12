@@ -19,6 +19,7 @@ module TcTyDecls(
 
 #include "HsVersions.h"
 
+import TyCoRep
 import HsSyn
 import Class
 import Type
@@ -201,21 +202,7 @@ calcClassCycles cls
     expandTheta _    _    []           = id
     expandTheta seen path (pred:theta) = expandType seen path pred . expandTheta seen path theta
 
-    expandType seen path ty = analyzeType analysis ty
-      where
-        analysis = TypeAnalysis
-          { ta_tyvar    = const id
-          , ta_tyconapp = expandTyConApp seen path
-          , ta_fun      = expand_2_types
-          , ta_app      = expand_2_types
-          , ta_forall   = \tv _vis inner -> expand_2_types (tyVarKind tv) inner
-          , ta_lit      = const id
-          , ta_cast     = \ty _co -> expandType seen path ty
-          , ta_coercion = const id }
-
-        expand_2_types t1 t2 = expandType seen path t1 . expandType seen path t2
-
-    expandTyConApp seen path tc tys
+    expandType seen path (TyConApp tc tys)
       -- Expand unsaturated classes to their superclass theta if they are yet unseen.
       -- If they have already been seen then we have detected an error!
       | Just cls <- tyConClass_maybe tc
@@ -240,6 +227,13 @@ calcClassCycles cls
       -- For non-class, non-synonyms, just check the arguments
       | otherwise
       = flip (foldr (expandType seen path)) tys
+
+    expandType _    _    (TyVarTy {})     = id
+    expandType _    _    (LitTy {})       = id
+    expandType seen path (AppTy t1 t2)    = expandType seen path t1 . expandType seen path t2
+    expandType seen path (ForAllTy b t)   = expandType seen path (binderType b) . expandType seen path t
+    expandType seen path (CastTy ty _co)  = expandType seen path ty
+    expandType _    _    (CoercionTy {})  = id
 
     papp :: [TyVar] -> [Type] -> ([(TyVar, Type)], Either [TyVar] [Type])
     papp []       tys      = ([], Right tys)
@@ -698,21 +692,24 @@ irDataCon tc_name datacon
     ex_var_set = mkVarSet ex_tvs
 
 irType :: VarSet -> Type -> RoleM ()
-irType lcls = analyzeType analysis
+irType = go
   where
-    analysis = TypeAnalysis
-      { ta_tyvar    = \tv -> unless (tv `elemVarSet` lcls) $
-                             updateRole Representational tv
-      , ta_tyconapp = \tc tys -> do { roles <- lookupRolesX tc
+    go lcls (TyVarTy tv)       = unless (tv `elemVarSet` lcls) $
+                                 updateRole Representational tv
+    go lcls (AppTy t1 t2)      = go lcls t1 >> mark_nominal lcls t2
+    go lcls (TyConApp tc tys)  = do { roles <- lookupRolesX tc
                                     ; zipWithM_ (go_app lcls) roles tys }
-      , ta_fun      = \arg res -> irType lcls arg >> irType lcls res
-           -- TODO (RAE): Is the following right??
-      , ta_forall   = \tv _vis inner -> irType lcls (tyVarKind tv) >>
-                                        irType (extendVarSet lcls tv) inner
-      , ta_lit      = const $ return ()
+    go lcls (ForAllTy bndr ty)
+      = let lcls'
+              | Just v <- binderVar_maybe bndr = extendVarSet lcls v
+              | otherwise                      = lcls
+        in
+           -- TODO (RAE): Is this right in the Named case??
+        go lcls (binderType bndr) >> go lcls' ty
+    go _    (LitTy {})         = return ()
       -- See Note [Coercions in role inference]
-      , ta_cast     = \ty _ -> irType lcls ty
-      , ta_coercion = const $ return () }
+    go lcls (CastTy ty _)      = go lcls ty
+    go _    (CoercionTy _)     = return ()
 
     go_app _ Phantom _ = return ()                 -- nothing to do here
     go_app lcls Nominal ty = mark_nominal lcls ty  -- all vars below here are N
@@ -724,19 +721,15 @@ irType lcls = analyzeType analysis
      -- get_ty_vars gets all the tyvars (no covars!) from a type *without*
      -- recurring into coercions. Recall: coercions are totally ignored during
      -- role inference. See [Coercions in role inference]
-    get_ty_vars = analyzeType get_ty_vars_analysis
-    get_ty_vars_analysis = TypeAnalysis
-      { ta_tyvar    = unitVarSet
-      , ta_tyconapp = \_tc -> mapUnionVarSet get_ty_vars
-      , ta_fun      = get_ty_vars_twice
-      , ta_app      = get_ty_vars_twice
-      , ta_forall   = \tv _ inner -> get_ty_vars ty `delVarSet` tv
-                                     `unionVarSet` get_ty_vars (tyVarKind tv)
-      , ta_lit      = const emptyVarSet
-      , ta_cast     = \ty _ -> get_ty_vars ty
-      , ta_coercion = const emptyVarSet }
-
-    get_ty_vars_twice t1 t2 = get_ty_vars t1 `unionVarSet` get_ty_vars t2
+    get_ty_vars (TyVarTy tv)     = unitVarSet tv
+    get_ty_vars (AppTy t1 t2)    = get_ty_vars t1 `unionVarSet` get_ty_vars t2
+    get_ty_vars (TyConApp _ tys) = foldr (unionVarSet . get_ty_vars) emptyVarSet tys
+    get_ty_vars (ForAllTy bndr ty)
+      = get_ty_vars ty `delBinderVar` bndr
+        `unionVarSet` (tyCoVarsOfType $ binderType bndr)
+    get_ty_vars (LitTy {})       = emptyVarSet
+    get_ty_vars (CastTy ty _)    = get_ty_vars ty
+    get_ty_vars (CoercionTy _)   = emptyVarSet
 
 -- like lookupRoles, but with Nominal tags at the end for oversaturated TyConApps
 lookupRolesX :: TyCon -> RoleM [Role]
