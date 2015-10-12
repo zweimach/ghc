@@ -44,7 +44,7 @@ module Type (
         mkNumLitTy, isNumLitTy,
         mkStrLitTy, isStrLitTy,
 
-        mkCastTy, splitCastTy_maybe, mkCoercionTy,
+        mkCastTy, mkCoercionTy,
 
         coAxNthLHS,
         stripCoercionTy, splitCoercionType_maybe,
@@ -348,8 +348,8 @@ expandTypeSynonyms ty
        -- NB: coercions are always expanded upon creation
     go_co subst (TyConAppCo r tc args)
       = mkTyConAppCo r tc (map (go_co subst) args)
-    go_co subst (AppCo co h arg)
-      = mkAppCo (go_co subst co) (go_co subst h) (go_co subst arg)
+    go_co subst (AppCo co arg)
+      = mkAppCo (go_co subst co) (go_co subst arg)
     go_co subst (ForAllCo cobndr co)
       = let (subst', cobndr') = go_cobndr subst cobndr in
         mkForAllCo cobndr' (go_co subst' co)
@@ -373,8 +373,6 @@ expandTypeSynonyms ty
       = mkCoherenceCo (go_co subst co1) (go_co subst co2)
     go_co subst (KindCo co)
       = mkKindCo (go_co subst co)
-    go_co subst (KindAppCo co)
-      = mkKindAppCo (go_co subst co)
     go_co subst (SubCo co)
       = mkSubCo (go_co subst co)
     go_co subst (AxiomRuleCo ax ts cs)
@@ -445,9 +443,7 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (Refl r ty) = Refl r <$> mapType mapper env ty
     go (TyConAppCo r tc args)
       = mktyconappco r tc <$> mapM go args
-    go (AppCo c1 h c2) = mkappco <$> go c1
-                                 <*> go h
-                                 <*> go c2
+    go (AppCo c1 c2) = mkappco <$> go c1 <*> go c2
     go (ForAllCo cobndr co)
       = do { (env', cobndr') <- go_cobndr cobndr
            ; co' <- mapCoercion mapper env' co
@@ -468,7 +464,6 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (InstCo co arg)     = mkinstco <$> go co <*> go arg
     go (CoherenceCo c1 c2) = mkcoherenceco <$> go c1 <*> go c2
     go (KindCo co)         = mkkindco <$> go co
-    go (KindAppCo co)      = mkkindappco <$> go co
     go (SubCo co)          = mksubco <$> go co
 
     go_cobndr (ForAllCoBndr h tv1 tv2 cv)
@@ -480,15 +475,15 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
 
     ( mktyconappco, mkappco, mkaxiominstco, mkunivco
       , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
-      , mkkindco, mkkindappco, mksubco, mkforallco)
+      , mkkindco, mksubco, mkforallco)
       | smart
       = ( mkTyConAppCo, mkAppCo, mkAxiomInstCo, mkUnivCo
         , mkSymCo, mkTransCo, mkNthCo, mkLRCo, mkInstCo, mkCoherenceCo
-        , mkKindCo, mkKindAppCo, mkSubCo, mkForAllCo )
+        , mkKindCo, mkSubCo, mkForAllCo )
       | otherwise
       = ( TyConAppCo, AppCo, AxiomInstCo, UnivCo
         , SymCo, TransCo, NthCo, LRCo, InstCo, CoherenceCo
-        , KindCo, KindAppCo, SubCo, ForAllCo )
+        , KindCo, SubCo, ForAllCo )
 
 {-
 ************************************************************************
@@ -524,7 +519,7 @@ getCastedTyVar_maybe :: Type -> Maybe (TyVar, Coercion)
 getCastedTyVar_maybe ty | Just ty' <- coreView ty = getCastedTyVar_maybe ty'
 getCastedTyVar_maybe (CastTy (TyVarTy tv) co)     = Just (tv, co)
 getCastedTyVar_maybe (TyVarTy tv)
-  = Just (tv, mkReflCo Representational (tyVarKind tv))
+  = Just (tv, mkReflCo Nominal (tyVarKind tv))
 getCastedTyVar_maybe _                            = Nothing
 
 -- | Attempts to obtain the type variable underlying a 'Type', without
@@ -822,7 +817,7 @@ ForAllTy. The only trouble is avoiding capture.
 
 -}
 
--- | Make a 'CastTy'. The Coercion must be representational.
+-- | Make a 'CastTy'. The Coercion must be nominal.
 mkCastTy :: Type -> Coercion -> Type
 -- Running example:
 --   T :: forall k1. k1 -> forall k2. k2 -> Bool -> Maybe k1 -> *
@@ -888,8 +883,8 @@ mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
             dep_subst = zipOpenTCvSubstBinders some_dep_bndrs some_dep_args
             used_no_dep_bndrs = takeList rest_args no_dep_bndrs
             rest_arg_tys = substTys dep_subst (map binderType used_no_dep_bndrs)
-            co' = mkFunCos Representational
-                           (map (mkReflCo Representational) rest_arg_tys)
+            co' = mkFunCos Nominal
+                           (map (mkReflCo Nominal) rest_arg_tys)
                            co
         in
         ((ty `mkAppTys` some_dep_args) `no_double_casts` co') `mkAppTys` rest_args
@@ -901,11 +896,6 @@ mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
     span_from_end :: (a -> Bool) -> [a] -> ([a], [a])
     span_from_end p as = let (xs, ys) = span p (reverse as) in
                          (reverse ys, reverse xs)
-
-splitCastTy_maybe :: Type -> Maybe (Type, Coercion)
-splitCastTy_maybe ty | Just ty' <- coreView ty = splitCastTy_maybe ty'
-splitCastTy_maybe (CastTy ty co) = Just (ty, co)
-splitCastTy_maybe _              = Nothing
 
 {-
 --------------------------------------------------------------------
@@ -2093,8 +2083,7 @@ tyConsOfType ty
 
      go_co (Refl _ ty)             = go ty
      go_co (TyConAppCo _ tc args)  = go_tc tc `plusNameEnv` go_cos args
-     go_co (AppCo co h arg)        = go_co co `plusNameEnv`
-                                     go_co h `plusNameEnv` go_co arg
+     go_co (AppCo co arg)          = go_co co `plusNameEnv` go_co arg
      go_co (ForAllCo cobndr co)
        = go_co (coBndrKindCo cobndr) `plusNameEnv` go_co co
      go_co (CoVarCo {})            = emptyNameEnv
@@ -2107,7 +2096,6 @@ tyConsOfType ty
      go_co (InstCo co arg)         = go_co co `plusNameEnv` go_co arg
      go_co (CoherenceCo co1 co2)   = go_co co1 `plusNameEnv` go_co co2
      go_co (KindCo co)             = go_co co
-     go_co (KindAppCo co)          = go_co co
      go_co (SubCo co)              = go_co co
      go_co (AxiomRuleCo _ ts cs)   = go_s ts `plusNameEnv` go_cos cs
 

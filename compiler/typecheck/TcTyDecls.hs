@@ -651,26 +651,22 @@ irTyCon tc
   = do { old_roles <- lookupRoles tc
        ; unless (all (== Nominal) old_roles) $  -- also catches data families,
                                                 -- which don't want or need role inference
-    do { whenIsJust (tyConClass_maybe tc) (irClass tc_name)
-       ; addRoleInferenceInfo tc_name (tyConTyVars tc) $
-         mapM_ (irType emptyVarSet) (tyConStupidTheta tc)  -- See #8958
-       ; mapM_ (irDataCon tc_name) (visibleDataCons $ algTyConRhs tc) }}
+         irTcTyVars tc $
+         do { mapM_ (irType emptyVarSet) (tyConStupidTheta tc)  -- See #8958
+            ; whenIsJust (tyConClass_maybe tc) irClass
+            ; mapM_ irDataCon (visibleDataCons $ algTyConRhs tc) }}
 
   | Just ty <- synTyConRhs_maybe tc
-  = addRoleInferenceInfo tc_name (tyConTyVars tc) $
+  = irTcTyVars tc $
     irType emptyVarSet ty
 
   | otherwise
   = return ()
 
-  where
-    tc_name = tyConName tc
-
 -- any type variable used in an associated type must be Nominal
-irClass :: Name -> Class -> RoleM ()
-irClass tc_name cls
-  = addRoleInferenceInfo tc_name cls_tvs $
-    mapM_ ir_at (classATs cls)
+irClass :: Class -> RoleM ()
+irClass cls
+  = mapM_ ir_at (classATs cls)
   where
     cls_tvs    = classTyVars cls
     cls_tv_set = mkVarSet cls_tvs
@@ -680,44 +676,59 @@ irClass tc_name cls
       where nvars = (mkVarSet $ tyConTyVars at_tc) `intersectVarSet` cls_tv_set
 
 -- See Note [Role inference]
-irDataCon :: Name -> DataCon -> RoleM ()
-irDataCon tc_name datacon
-  = addRoleInferenceInfo tc_name univ_tvs $
+irDataCon :: DataCon -> RoleM ()
+irDataCon datacon
+  = setRoleInferenceVars univ_tvs $
+    irExTyVars ex_tvs $ \ ex_var_set ->
     mapM_ (irType ex_var_set)
           (map tyVarKind ex_tvs ++ eqSpecPreds eq_spec ++ theta ++ arg_tys)
       -- See Note [Role-checking data constructor arguments]
   where
     (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty)
       = dataConFullSig datacon
-    ex_var_set = mkVarSet ex_tvs
 
 irType :: VarSet -> Type -> RoleM ()
 irType = go
   where
     go lcls (TyVarTy tv)       = unless (tv `elemVarSet` lcls) $
                                  updateRole Representational tv
-    go lcls (AppTy t1 t2)      = go lcls t1 >> mark_nominal lcls t2
+    go lcls (AppTy t1 t2)      = go lcls t1 >> markNominal lcls t2
     go lcls (TyConApp tc tys)  = do { roles <- lookupRolesX tc
                                     ; zipWithM_ (go_app lcls) roles tys }
-    go lcls (ForAllTy bndr ty)
-      = let lcls'
-              | Just v <- binderVar_maybe bndr = extendVarSet lcls v
-              | otherwise                      = lcls
-        in
-           -- TODO (RAE): Is this right in the Named case??
-        go lcls (binderType bndr) >> go lcls' ty
+    go lcls (ForAllTy (Named tv _) ty)
+      = let lcls' = extendVarSet lcls tv in
+        markNominal lcls (tyVarKind tv) >> go lcls' ty
+    go lcls (ForAllTy (Anon arg) res)
+      = go lcls arg >> go lcls res
     go _    (LitTy {})         = return ()
       -- See Note [Coercions in role inference]
     go lcls (CastTy ty _)      = go lcls ty
     go _    (CoercionTy _)     = return ()
 
     go_app _ Phantom _ = return ()                 -- nothing to do here
-    go_app lcls Nominal ty = mark_nominal lcls ty  -- all vars below here are N
+    go_app lcls Nominal ty = markNominal lcls ty  -- all vars below here are N
     go_app lcls Representational ty = go lcls ty
 
-    mark_nominal lcls ty = let nvars = get_ty_vars ty `minusVarSet` lcls in
-                           mapM_ (updateRole Nominal) (varSetElems nvars)
+irTcTyVars :: TyCon -> RoleM a -> RoleM a
+irTcTyVars tc thing
+  = setRoleInferenceTc (tyConName tc) $ go (tyConTyVars tc)
+  where
+    go []       = thing
+    go (tv:tvs) = do { markNominal emptyVarSet (tyVarKind tv)
+                     ; addRoleInferenceVar tv $ go tvs }
 
+irExTyVars :: [TyVar] -> (TyVarSet -> RoleM a) -> RoleM a
+irExTyVars orig_tvs thing = go emptyVarSet orig_tvs
+  where
+    go lcls []       = thing lcls
+    go lcls (tv:tvs) = do { markNominal lcls (tyVarKind tv)
+                          ; go (extendVarSet lcls tv) tvs }
+
+markNominal :: TyVarSet   -- local variables
+            -> Type -> RoleM ()
+markNominal lcls ty = let nvars = get_ty_vars ty `minusVarSet` lcls in
+                      mapM_ (updateRole Nominal) (varSetElems nvars)
+  where
      -- get_ty_vars gets all the tyvars (no covars!) from a type *without*
      -- recurring into coercions. Recall: coercions are totally ignored during
      -- role inference. See [Coercions in role inference]
@@ -760,11 +771,11 @@ data RoleInferenceState = RIS { role_env  :: RoleEnv
 
 -- the environment in the RoleM monad
 type VarPositions = VarEnv Int
-data RoleInferenceInfo = RII { var_ns :: VarPositions
-                             , name   :: Name }
 
 -- See [Role inference]
-newtype RoleM a = RM { unRM :: Maybe RoleInferenceInfo
+newtype RoleM a = RM { unRM :: Maybe Name   -- of the tycon
+                            -> VarPositions
+                            -> Int          -- size of VarPositions
                             -> RoleInferenceState
                             -> (a, RoleInferenceState) }
 
@@ -776,40 +787,53 @@ instance Applicative RoleM where
     (<*>) = ap
 
 instance Monad RoleM where
-  return x = RM $ \_ state -> (x, state)
-  a >>= f  = RM $ \m_info state -> let (a', state') = unRM a m_info state in
-                                   unRM (f a') m_info state'
+  return x = RM $ \_ _ _ state -> (x, state)
+  a >>= f  = RM $ \m_info vps nvps state ->
+                  let (a', state') = unRM a m_info vps nvps state in
+                  unRM (f a') m_info vps nvps state'
 
 runRoleM :: RoleEnv -> RoleM () -> (RoleEnv, Bool)
 runRoleM env thing = (env', update)
-  where RIS { role_env = env', update = update } = snd $ unRM thing Nothing state
-        state = RIS { role_env  = env, update    = False }
+  where RIS { role_env = env', update = update }
+          = snd $ unRM thing Nothing emptyVarEnv 0 state
+        state = RIS { role_env  = env
+                    , update    = False }
 
-addRoleInferenceInfo :: Name -> [TyVar] -> RoleM a -> RoleM a
-addRoleInferenceInfo name tvs thing
-  = RM $ \_nothing state -> ASSERT( isNothing _nothing )
-                            unRM thing (Just info) state
-  where info = RII { var_ns = mkVarEnv (zip tvs [0..]), name = name }
+setRoleInferenceTc :: Name -> RoleM a -> RoleM a
+setRoleInferenceTc name thing = RM $ \m_name vps nvps state ->
+                                ASSERT( isNothing m_name )
+                                ASSERT( isEmptyVarEnv vps )
+                                ASSERT( nvps == 0 )
+                                unRM thing (Just name) vps nvps state
+
+addRoleInferenceVar :: TyVar -> RoleM a -> RoleM a
+addRoleInferenceVar tv thing
+  = RM $ \m_name vps nvps state ->
+    ASSERT( isJust m_name )
+    unRM thing m_name (extendVarEnv vps tv nvps) (nvps+1) state
+
+setRoleInferenceVars :: [TyVar] -> RoleM a -> RoleM a
+setRoleInferenceVars tvs thing
+  = RM $ \m_name _vps _nvps state ->
+    ASSERT( isJust m_name )
+    unRM thing m_name (mkVarEnv (zip tvs [0..])) (panic "setRoleInferenceVars")
+         state
 
 getRoleEnv :: RoleM RoleEnv
-getRoleEnv = RM $ \_ state@(RIS { role_env = env }) -> (env, state)
+getRoleEnv = RM $ \_ _ _ state@(RIS { role_env = env }) -> (env, state)
 
 getVarNs :: RoleM VarPositions
-getVarNs = RM $ \m_info state ->
-                case m_info of
-                  Nothing -> panic "getVarNs"
-                  Just (RII { var_ns = var_ns }) -> (var_ns, state)
+getVarNs = RM $ \_ vps _ state -> (vps, state)
 
 getTyConName :: RoleM Name
-getTyConName = RM $ \m_info state ->
-                    case m_info of
-                      Nothing -> panic "getTyConName"
-                      Just (RII { name = name }) -> (name, state)
-
+getTyConName = RM $ \m_name _ _ state ->
+                    case m_name of
+                      Nothing   -> panic "getTyConName"
+                      Just name -> (name, state)
 
 updateRoleEnv :: Name -> Int -> Role -> RoleM ()
 updateRoleEnv name n role
-  = RM $ \_ state@(RIS { role_env = role_env }) -> ((),
+  = RM $ \_ _ _ state@(RIS { role_env = role_env }) -> ((),
          case lookupNameEnv role_env name of
            Nothing -> pprPanic "updateRoleEnv" (ppr name)
            Just roles -> let (before, old_role : after) = splitAt n roles in

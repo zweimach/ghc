@@ -152,7 +152,7 @@ data IfaceCoercion
   = IfaceReflCo       Role IfaceType
   | IfaceFunCo        Role IfaceCoercion IfaceCoercion
   | IfaceTyConAppCo   Role IfaceTyCon [IfaceCoercion]
-  | IfaceAppCo        IfaceCoercion IfaceCoercion IfaceCoercion
+  | IfaceAppCo        IfaceCoercion IfaceCoercion
   | IfaceForAllCo     IfaceForAllCoBndr IfaceCoercion
   | IfaceCoVarCo      IfLclName
   | IfaceAxiomInstCo  IfExtName BranchIndex [IfaceCoercion]
@@ -164,7 +164,6 @@ data IfaceCoercion
   | IfaceInstCo       IfaceCoercion IfaceCoercion
   | IfaceCoherenceCo  IfaceCoercion IfaceCoercion
   | IfaceKindCo       IfaceCoercion
-  | IfaceKindAppCo    IfaceCoercion
   | IfaceSubCo        IfaceCoercion
   | IfaceAxiomRuleCo  IfLclName [IfaceType] [IfaceCoercion]
 
@@ -266,8 +265,7 @@ ifTyVarsOfCoercion = go
     go (IfaceReflCo _ ty)         = ifTyVarsOfType ty
     go (IfaceFunCo _ c1 c2)       = go c1 `unionUniqSets` go c2
     go (IfaceTyConAppCo _ _ cos)  = ifTyVarsOfCoercions cos
-    go (IfaceAppCo c1 h c2)       = go c1 `unionUniqSets`
-                                    go h `unionUniqSets` go c2
+    go (IfaceAppCo c1 c2)         = go c1 `unionUniqSets` go c2
     go (IfaceForAllCo bndr co)
      = let (free, bound) = ifTyVarsOfForAllCoBndr bndr in
         go co `delListFromUniqSet` bound `unionUniqSets` free
@@ -283,7 +281,6 @@ ifTyVarsOfCoercion = go
     go (IfaceInstCo c1 c2)        = go c1 `unionUniqSets` go c2
     go (IfaceCoherenceCo c1 c2)   = go c1 `unionUniqSets` go c2
     go (IfaceKindCo co)           = go co
-    go (IfaceKindAppCo co)        = go co
     go (IfaceSubCo co)            = go co
     go (IfaceAxiomRuleCo rule tys cos)
       = unionManyUniqSets
@@ -712,7 +709,7 @@ ppr_co ctxt_prec (IfaceFunCo r co1 co2)
 
 ppr_co _         (IfaceTyConAppCo r tc cos)
   = parens (pprIfaceCoTcApp TopPrec tc cos) <> ppr_role r
-ppr_co ctxt_prec (IfaceAppCo co1 _ co2)
+ppr_co ctxt_prec (IfaceAppCo co1 co2)
   = maybeParen ctxt_prec TyConPrec $
     ppr_co FunPrec co1 <+> pprParendIfaceCoercion co2
 ppr_co ctxt_prec co@(IfaceForAllCo _ _)
@@ -939,11 +936,10 @@ instance Binary IfaceCoercion where
           put_ bh a
           put_ bh b
           put_ bh c
-  put_ bh (IfaceAppCo a b c) = do
+  put_ bh (IfaceAppCo a b) = do
           putByte bh 4
           put_ bh a
           put_ bh b
-          put_ bh c
   put_ bh (IfaceForAllCo a b) = do
           putByte bh 5
           put_ bh a
@@ -989,14 +985,11 @@ instance Binary IfaceCoercion where
   put_ bh (IfaceKindCo a) = do
           putByte bh 15
           put_ bh a
-  put_ bh (IfaceKindAppCo a) = do
+  put_ bh (IfaceSubCo a) = do
           putByte bh 16
           put_ bh a
-  put_ bh (IfaceSubCo a) = do
-          putByte bh 17
-          put_ bh a
   put_ bh (IfaceAxiomRuleCo a b c) = do
-          putByte bh 18
+          putByte bh 17
           put_ bh a
           put_ bh b
           put_ bh c
@@ -1017,8 +1010,7 @@ instance Binary IfaceCoercion where
                    return $ IfaceTyConAppCo a b c
            4 -> do a <- get bh
                    b <- get bh
-                   c <- get bh
-                   return $ IfaceAppCo a b c
+                   return $ IfaceAppCo a b
            5 -> do a <- get bh
                    b <- get bh
                    return $ IfaceForAllCo a b
@@ -1054,10 +1046,8 @@ instance Binary IfaceCoercion where
            15-> do a <- get bh
                    return $ IfaceKindCo a
            16-> do a <- get bh
-                   return $ IfaceKindAppCo a
-           17-> do a <- get bh
                    return $ IfaceSubCo a
-           18-> do a <- get bh
+           17-> do a <- get bh
                    b <- get bh
                    c <- get bh
                    return $ IfaceAxiomRuleCo a b c
@@ -1146,8 +1136,7 @@ toIfaceCoercion (TyConAppCo r tc cos)
   , [arg,res] <- cos                = IfaceFunCo r (toIfaceCoercion arg) (toIfaceCoercion res)
   | otherwise                       = IfaceTyConAppCo r (toIfaceTyCon tc)
                                                         (map toIfaceCoercion cos)
-toIfaceCoercion (AppCo co1 h co2)   = IfaceAppCo  (toIfaceCoercion co1)
-                                                  (toIfaceCoercion h)
+toIfaceCoercion (AppCo co1 co2)     = IfaceAppCo  (toIfaceCoercion co1)
                                                   (toIfaceCoercion co2)
 toIfaceCoercion (ForAllCo cobndr co)= IfaceForAllCo (toIfaceForAllCoBndr cobndr)
                                                     (toIfaceCoercion co)
@@ -1168,7 +1157,6 @@ toIfaceCoercion (InstCo co arg)     = IfaceInstCo (toIfaceCoercion co)
 toIfaceCoercion (CoherenceCo c1 c2) = IfaceCoherenceCo (toIfaceCoercion c1)
                                                        (toIfaceCoercion c2)
 toIfaceCoercion (KindCo c)          = IfaceKindCo (toIfaceCoercion c)
-toIfaceCoercion (KindAppCo c)       = IfaceKindAppCo (toIfaceCoercion c)
 toIfaceCoercion (SubCo co)          = IfaceSubCo (toIfaceCoercion co)
 toIfaceCoercion (AxiomRuleCo co ts cs) = IfaceAxiomRuleCo
                                           (coaxrName co)

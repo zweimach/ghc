@@ -528,15 +528,14 @@ eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind roles VoidRep
         kv1 : kv2 : _ = kVars
         k1 = mkTyVarTy kv1
         k2 = mkTyVarTy kv2
-        roles = [Representational, Representational, Nominal, Nominal]
+        roles = [Nominal, Nominal, Nominal, Nominal]
 
 -- like eqPrimTyCon, but the type for *Representational* coercions
 -- this should only ever appear as the type of a covar. Its role is
 -- interpreted in coercionRole
 eqReprPrimTyCon :: TyCon
 eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
-                              (replicate 4 Representational)
-                              VoidRep
+                              roles VoidRep
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
                mkArrowKinds [k1, k2] unliftedTypeKind
@@ -544,13 +543,14 @@ eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
         kv1 : kv2 : _ = kVars
         k1            = mkTyVarTy kv1
         k2            = mkTyVarTy kv2
+        roles         = [Nominal, Nominal, Representational, Representational]
 
 -- like eqPrimTyCon, but the type for *Phantom* coercions.
 -- This is only used to make higher-order equalities. Nothing
 -- should ever actually have this type!
 eqPhantPrimTyCon :: TyCon
 eqPhantPrimTyCon = mkPrimTyCon eqPhantPrimTyConName kind
-                               [Representational, Representational, Phantom, Phantom]
+                               [Nominal, Nominal, Phantom, Phantom]
                                VoidRep
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $

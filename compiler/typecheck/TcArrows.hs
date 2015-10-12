@@ -90,8 +90,7 @@ tcProc pat cmd exp_ty
         ; (pat', cmd') <- tcPat ProcExpr pat arg_ty $
                           tcCmdTop cmd_env cmd (unitTy, res_ty)
         ; let res_co = mkTcTransCo co
-                         (mkTcAppCo co1 (mkTcNomReflCo (typeKind res_ty))
-                                        (mkTcNomReflCo res_ty))
+                         (mkTcAppCo co1 (mkTcNomReflCo res_ty))
         ; return (pat', cmd', res_co) }
 
 {-

@@ -822,7 +822,7 @@ uType origin orig_ty1 orig_ty2
       = do { let ty1 = coercionType co1
                  ty2 = coercionType co2
            ; kco <- uType (KindEqOrigin orig_ty1 orig_ty2 origin) ty1 ty2
-           ; return $ mkProofIrrelCo Nominal (mkSubCo kco) co1 co2 }
+           ; return $ mkProofIrrelCo Nominal kco co1 co2 }
 
         -- Anything else fails
         -- E.g. unifying for-all types, which is relative unusual
@@ -831,13 +831,8 @@ uType origin orig_ty1 orig_ty2
     ------------------
     go_app s1 t1 s2 t2
       = do { co_s <- uType origin s1 s2
-           ; co_h <- uType kind_origin t1k t2k
            ; co_t <- uType origin t1 t2
-           ; return $ mkAppCo co_s co_h co_t }
-      where
-        t1k = typeKind t1
-        t2k = typeKind t2
-        kind_origin = KindEqOrigin t1 t2 origin
+           ; return $ mkAppCo co_s co_t }
 
 {-
 Note [Care with type applications]
@@ -1014,7 +1009,7 @@ checkTauTvUpdate :: DynFlags
                  -> TcTyVar             -- tv :: k1
                  -> TcType              -- ty :: k2
                  -> TcM (Maybe ( TcType        -- possibly-expanded ty
-                               , Coercion )) -- :: k2 ~ k1
+                               , Coercion )) -- :: k2 ~N k1
 --    (checkTauTvUpdate tv ty)
 -- We are about to update the TauTv/ReturnTv tv with ty.
 -- Check (a) that tv doesn't occur in ty (occurs check)
@@ -1229,12 +1224,11 @@ updateMeta :: TcTyVar            -- ^ tv to fill in, tv :: k1
            -> Coercion           -- ^ kind_co :: k2 ~N k1
            -> TcM Coercion       -- ^ :: tv ~ ty2 |> kind_co
 updateMeta tv1 ref1 ty2 kind_co
-  = do { let sub_kind_co          = mkSubCo kind_co
-             ty2_refl             = mkNomReflCo ty2
+  = do { let ty2_refl             = mkNomReflCo ty2
              (ty2', co)
                | isReflCo kind_co = (ty2, ty2_refl)
-               | otherwise        = ( ty2 `mkCastTy` sub_kind_co
-                                    , mkCoherenceLeftCo ty2_refl sub_kind_co )
+               | otherwise        = ( ty2 `mkCastTy` kind_co
+                                    , mkCoherenceLeftCo ty2_refl kind_co )
        ; writeMetaTyVarRef tv1 ref1 ty2'
        ; return co }
 
@@ -1297,7 +1291,7 @@ checkExpectedKind ty act_kind exp_kind
                                   , uo_thing    = Just $ mkTypeErrorThing ty'
                                   , uo_level    = KindLevel }
       ; co_k <- uType origin act_kind' exp_kind
-      ; let result_ty = ty' `mkNakedCastTy` mkSubCo co_k
+      ; let result_ty = ty' `mkNakedCastTy` co_k
       ; return result_ty }
   where
     -- we need to make sure that both kinds have the same number of implicit

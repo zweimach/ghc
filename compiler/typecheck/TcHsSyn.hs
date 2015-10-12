@@ -1507,8 +1507,8 @@ zonkTcCoToCo env co
                                    ; return (TcRefl r ty') }
     go (TcTyConAppCo r tc cos)
                               = do { cos' <- mapM go cos; return (mkTcTyConAppCo r tc cos') }
-    go (TcAppCo co1 h co2)    = do { co1' <- go co1; h' <- go h; co2' <- go co2
-                                   ; return (mkTcAppCo co1' h' co2') }
+    go (TcAppCo co1 co2)      = do { co1' <- go co1; co2' <- go co2
+                                   ; return (mkTcAppCo co1' co2') }
     go (TcCastCo co1 co2)     = do { co1' <- go co1; co2' <- go co2
                                    ; return (TcCastCo co1' co2') }
     go (TcCoherenceCo co g)   = do { co' <- go co
@@ -1516,8 +1516,6 @@ zonkTcCoToCo env co
                                    ; return (TcCoherenceCo co' g') }
     go (TcKindCo co)          = do { co' <- go co
                                    ; return (TcKindCo co') }
-    go (TcKindAppCo co)       = do { co' <- go co
-                                   ; return (TcKindAppCo co') }
     go (TcPhantomCo h ty1 ty2)= do { h'   <- go h
                                    ; ty1' <- zonkTcTypeToType env ty1
                                    ; ty2' <- zonkTcTypeToType env ty2

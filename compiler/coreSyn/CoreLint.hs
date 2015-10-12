@@ -979,7 +979,7 @@ lintType ty@(LitTy l) = lintTyLit l >> return (typeKind ty)
 
 lintType (CastTy ty co)
   = do { k1 <- lintType ty
-       ; (k1', k2) <- lintStarCoercion Representational co
+       ; (k1', k2) <- lintStarCoercion co
        ; ensureEqTys k1 k1' (mkCastErr ty co k1' k1)
        ; return k2 }
 
@@ -1081,13 +1081,13 @@ lintInCo co
         ; lintCoercion co' }
 
 -- lints a coercion, confirming that its lh kind and its rh kind are both *
--- also ensures that the role is as requested
-lintStarCoercion :: Role -> OutCoercion -> LintM (LintedType, LintedType)
-lintStarCoercion r_exp g
+-- also ensures that the role is Nominal
+lintStarCoercion :: OutCoercion -> LintM (LintedType, LintedType)
+lintStarCoercion g
   = do { (k1, k2, t1, t2, r) <- lintCoercion g
        ; lintStar (ptext (sLit "the kind of the left type in") <+> ppr g) k1
        ; lintStar (ptext (sLit "the kind of the right type in") <+> ppr g) k2
-       ; lintRole g r_exp r
+       ; lintRole g Nominal r
        ; return (t1, t2) }
 
 lintCoercion :: OutCoercion -> LintM (LintedKind, LintedKind, LintedType, LintedType, Role)
@@ -1121,7 +1121,7 @@ lintCoercion co@(TyConAppCo r tc cos)
        ; _ <- zipWith3M lintRole cos (tyConRolesX r tc) rs
        ; return (k', k, mkTyConApp tc ss, mkTyConApp tc ts, r) }
 
-lintCoercion co@(AppCo co1 kco co2)
+lintCoercion co@(AppCo co1 co2)
   | TyConAppCo {} <- co1
   = failWithL (ptext (sLit "TyConAppCo to the left of AppCo:") <+> ppr co)
   | Refl _ (TyConApp {}) <- co1
@@ -1129,9 +1129,6 @@ lintCoercion co@(AppCo co1 kco co2)
   | otherwise
   = do { (k1,k2,s1,s2,r1) <- lintCoercion co1
        ; (k'1, k'2, t1, t2, r2) <- lintCoercion co2
-       ; (k'1', k'2') <- lintStarCoercion r1 kco
-       ; ensureEqTys k'1 k'1' (mkBadAppKindMsg co kco co1 co2)
-       ; ensureEqTys k'2 k'2' (mkBadAppKindMsg co kco co1 co2)
        ; k3 <- lint_co_app co k1 [(t1,k'1)]
        ; k4 <- lint_co_app co k2 [(t2,k'2)]
        ; if r1 == Phantom
@@ -1146,7 +1143,7 @@ lintCoercion g@(ForAllCo bndr@(ForAllCoBndr h tv1 tv2 cv) co)
   = do { checkL (tv1 /= tv2) (mkDuplicateForAllCoVarsMsg tv1 g)
        ; (k3, k4, t1, t2, r) <- addInScopeVars (coBndrVars bndr) $
                                 lintCoercion co
-       ; (k1, k2) <- lintStarCoercion r h
+       ; (k1, k2) <- lintStarCoercion h
        ; ensureEqTys k1 (tyVarKind tv1) (mkBadHeteroVarMsg CLeft k1 tv1 g)
        ; ensureEqTys k2 (tyVarKind tv2) (mkBadHeteroVarMsg CRight k2 tv2 g)
        ; ensureEqTys (mkCoercionType Nominal (mkTyVarTy tv1)
@@ -1172,7 +1169,7 @@ lintCoercion (CoVarCo cv)
        ; return $ coVarKindsTypesRole cv' }
 
 lintCoercion co@(UnivCo prov r h ty1 ty2)
-  = do { (k1, k2) <- lintStarCoercion Representational h
+  = do { (k1, k2) <- lintStarCoercion h
        ; k1' <- lintType ty1
        ; k2' <- lintType ty2
        ; ensureEqTys k1 k1' (mkBadUnivCoMsg CLeft  co)
@@ -1204,7 +1201,9 @@ lintCoercion the_co@(NthCo n co)
        ; case (splitForAllTy_maybe s, splitForAllTy_maybe t) of
          { (Just (bndr_s, _ty_s), Just (bndr_t, _ty_t))
              |  n == 0
-             -> return (ks, kt, ts, tt, r)
+             ,  isNamedBinder bndr_s
+             ,  isNamedBinder bndr_t
+             -> return (ks, kt, ts, tt, Nominal)
              where
                ts = binderType bndr_s
                tt = binderType bndr_t
@@ -1309,18 +1308,7 @@ lintCoercion (CoherenceCo co1 co2)
 
 lintCoercion (KindCo co)
   = do { (k1, k2, _, _, _) <- lintCoercion co
-       ; return (liftedTypeKind, liftedTypeKind, k1, k2, Representational) }
-
-lintCoercion the_co@(KindAppCo co)
-  = do { (_, _, t1, t2, r) <- lintCoercion co
-       ; case (splitAppTy_maybe t1, splitAppTy_maybe t2) of
-           (Just (_, s1), Just (_, s2))
-             -> return (liftedTypeKind, liftedTypeKind, k1, k2, r)
-             where
-               k1 = typeKind s1
-               k2 = typeKind s2
-           _ -> failWithL (hang (text "Bad KindAppCo:")
-                              2 (ppr the_co $$ ppr t1 $$ ppr t2)) }
+       ; return (liftedTypeKind, liftedTypeKind, k1, k2, Nominal) }
 
 lintCoercion (SubCo co')
   = do { (k1,k2,s,t,r) <- lintCoercion co'
@@ -1849,18 +1837,6 @@ mkBadTyVarMsg :: Var -> SDoc
 mkBadTyVarMsg tv
   = ptext (sLit "Non-tyvar used in TyVarTy:")
       <+> ppr tv <+> dcolon <+> ppr (varType tv)
-
-mkBadAppKindMsg :: Coercion -> Coercion -> Coercion -> Coercion -> SDoc
-mkBadAppKindMsg co kco fun arg
-  = hang (text "Kind mismatch on the kind coercion in an AppCo:")
-       2 (vcat [ text "Kind coercion:" <+> ppr kco
-                   <+> dcolon <+> ppr (coercionKind kco)
-               , text "Function coercion:" <+> ppr fun
-                   <+> dcolon <+> ppr (coercionKind fun)
-               , text "Arg coercion:" <+> ppr arg
-                   <+> dcolon <+> ppr (coercionKind arg)
-               , text "AppCo:" <+> ppr co
-                   <+> dcolon <+> ppr (coercionKind co)])
 
 pprLeftOrRight :: LeftOrRight -> MsgDoc
 pprLeftOrRight CLeft  = ptext (sLit "left")

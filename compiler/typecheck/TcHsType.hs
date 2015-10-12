@@ -732,7 +732,7 @@ tcInferApps orig_ty ty ki args = go ty ki args 1
       = do { (co, arg_k, res_k) <- matchExpectedFunKind fun fun_kind
            ; arg' <- addErrCtxt (funAppCtxt orig_ty arg n) $
                      tc_lhs_type arg arg_k
-           ; go (mkNakedAppTy (fun `mkNakedCastTy` mkSubCo co) arg')
+           ; go (mkNakedAppTy (fun `mkNakedCastTy` co) arg')
                 res_k args (n+1) }
 
 ---------------------------

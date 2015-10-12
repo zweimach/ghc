@@ -508,13 +508,12 @@ data Coercion
                -- we expand synonyms eagerly
                -- But it can be a type function
 
-  | AppCo Coercion Coercion Coercion        -- lift AppTy
-          -- AppCo :: e -> e -> N -> e
-          -- See Note [AppCo]
+  | AppCo Coercion Coercion             -- lift AppTy
+          -- AppCo :: e -> N -> e
 
   -- See Note [Forall coercions]
   | ForAllCo ForAllCoBndr Coercion
-         -- ForAllCo :: "e" -> e -> e
+         -- ForAllCo :: N -> e -> e
 
   -- These are special
   | CoVarCo CoVar      -- :: _ -> (N or R)
@@ -529,11 +528,10 @@ data Coercion
      -- See [Coercion axioms applied to coercions]
 
   | UnivCo UnivCoProvenance Role Coercion Type Type
-      -- :: _ -> "e" -> R -> _ -> _ -> e
+      -- :: _ -> "e" -> N -> _ -> _ -> e
       -- The Coercion proves that the two *kinds* of the types are
-      -- representationally equal. This is necessary so that KindCo
-      -- (which always returns a representational coercion) is
-      -- sensible.
+      -- nominally equal. This is necessary so that KindCo
+      -- (which always returns a nominal coercion) is sensible.
 
   | SymCo Coercion             -- :: e -> e
   | TransCo Coercion Coercion  -- :: e -> e -> e
@@ -544,6 +542,8 @@ data Coercion
 
   | NthCo  Int         Coercion     -- Zero-indexed; decomposes (T t0 ... tn)
     -- :: _ -> e -> ?? (inverse of TyConAppCo, see Note [TyConAppCo roles])
+    -- Using NthCo on a ForAllCo gives an N coercion always
+
   | LRCo   LeftOrRight Coercion     -- Decomposes (t_left t_right)
     -- :: _ -> N -> N
   | InstCo Coercion Coercion
@@ -552,19 +552,13 @@ data Coercion
 
   -- Coherence applies a coercion to the left-hand type of another coercion
   -- See Note [Coherence]
-  -- See Note [Roles and kind coercions]
   | CoherenceCo Coercion Coercion
-     -- :: e -> R -> e
+     -- :: e -> N -> e
 
   -- Extract a kind coercion from a (heterogeneous) type coercion
-  -- See Note [Roles and kind coercions]
+  -- NB: all kind coercions are Nominal
   | KindCo Coercion
-     -- :: e -> R
-
-  -- Extract a kind coercion from an application.
-  -- See Note [AppCo and KindAppCo]
-  | KindAppCo Coercion
-     -- :: e -> e
+     -- :: e -> N
 
   | SubCo Coercion                  -- Turns a ~N into a ~R
     -- :: N -> R
@@ -579,8 +573,8 @@ data Coercion
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
 data ForAllCoBndr
   = ForAllCoBndr Coercion TyVar TyVar CoVar
-      -- ^ The role on the coercion matches that of the coercion this is
-      -- embedded in. The role on the CoVar is always N.
+      -- ^ The role on the coercion must be N.
+      -- The role on the CoVar is always N.
       -- The two @TyVar@s must be distinct.
   deriving (Data.Data, Data.Typeable)
 
@@ -666,49 +660,6 @@ Invariant 2:
 
 All coercions other than Refl are guaranteed to coerce between two
 *distinct* types.
-
-Note [AppCo and KindAppCo]
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-Suppose the solver has this problem:
-  [G] (a b) ~N (c d)
-
-It can happily decompose using Left and Right to get
-
-  [G] a ~N c
-  [G] b ~N d
-
-But, a dreadful problem can occur: what if b and d have different kinds,
-say k1 and k2?
-This is quite possible. (It happens in compiling Control.Arrow, for
-example.) If we just use KindCo, then we get
-
-  [G] k1 ~R k2
-
-but that's not quite enough in practice. We need (k1 ~N k2). This
-problem also manifests itself in wanteds, where using representational
-equality means that we can't solve by writing to meta-tyvars.
-
-The solution is to store, in an AppCo, a proof that the kinds of the
-arguments equal. So, the typing rule is this:
-
-g : t1 ~r t2
-w : s1 ~N s2
-s1 : k1
-s2 : k2
-h : k1 ~r k2
------------------------------
-AppCo g h w : t1 s1 ~r t2 s2
-
-Note that h's role is the same as g's. This is redundant when g is
-representational, but not at all redundant if g is nominal.
-
-To extract this kind equality, we need KindAppCo:
-
-g : t1 s1 ~r t2 s2
-s1 : k1
-s2 : k2
-----------------------
-KindAppCo g : k1 ~r k2
 
 Note [Coercion axioms applied to coercions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -943,73 +894,6 @@ necessary for soundness, but this choice removes ambiguity.
 
 The rules here also dictate what the parameters to mkTyConAppCo.
 
-Note [Roles and kind coercions]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-According to the "System FC With Explicit Kind Equality" paper, a
-coercion proving (t1 ~ t2), where t1 :: k1 and t2 :: k2, also proves
-(k1 ~ k2). This is precisely what KindCo shows. But, roles make
-this story subtler. Let's build up intuition through a few examples.
-
-Here are some definitions:
-
-  Bool :: *
-  True :: Bool
-  False :: Bool
-  Sunny :: *
-  axSunny :: Bool ~R Sunny
-
-At the term level, we have (True |> axSunny :: Sunny), because
-term-level casts use representational coercions. Uniformity compels
-us to make the same thing true at the type level. Thus, CastTy must
-take a representational coercion.
-
-Now, let's look at coherence. Here is the typing rule from the paper:
-
-g :: t1 ~ t2
-t1 |> h :: k    -- that is, t1 |> h is well-formed
----------------------- CoherenceCo
-g |> h :: t1 |> h ~ t2
-
-We must consider what the roles of CoherenceCo should be. I (Richard E.)
-propose this:
-
-g :: t1 ~r t2
-t1 |> h :: k
------------------------ CoherenceCo
-g |> h :: t1 |> h ~r t2
-
-That is, the second coercion must be representational, while the first's
-role carries through to the result.
-
-This may lead to a proof (True |> axSunny) ~N True.
-Recall that nominal equality
-is supposed to be equality in surface Haskell. So, a statement
-((True |> axSunny) ~N True) means that the two types should be indistinguishable
-in Haskell code. But, they're not indistinguishable! (True |> axSunny) is
-a desugaring of (coerce True), which is certainly distinct from plain old
-True. We resolve this strangeness by noting that (True |> axSunny) and
-True *have different kinds*. Thus, clearly, they are distinguishable.
-Accordingly, we refine our intuition of nominal equality to say that if
-two types are nominally equal and have nominally-equal kinds, then the
-types are indistinguishable in Haskell code.
-
-From this discussion, we can also see how we have to modify the KindCo
-rule:
-
-g :: (~r) k1 k2 t1 t2
---------------------- :: KindCo
-kind g :: k1 ~R k2
-
-This rule says that (kind g) is always representational. Accordingly, we must
-be careful that (safe) phantom coercions do not relate types of different
-kinds. TODO (RAE): Expand this point.
-
-Other places that roles are non-trivial with kind coercions are in the "eta"
-coercions in ForAllCoBndrs, and correspondingly in the output
-of NthCo on forall-coercions. Thinking of (->) as a degenerate forall, we see
-that the correct role to use here is that of the payload coercion in the
-forall. See docs/core-spec/core-spec.pdf for the exact rules.
-
 Note [InstCo roles]
 ~~~~~~~~~~~~~~~~~~~
 Here is (essentially) the typing rule for InstCo:
@@ -1055,8 +939,7 @@ tyCoVarsOfCo :: Coercion -> TyCoVarSet
 -- Extracts type and coercion variables from a coercion
 tyCoVarsOfCo (Refl _ ty)         = tyCoVarsOfType ty
 tyCoVarsOfCo (TyConAppCo _ _ args) = tyCoVarsOfCos args
-tyCoVarsOfCo (AppCo co h arg)    = tyCoVarsOfCo co `unionVarSet`
-                                   tyCoVarsOfCo h `unionVarSet` tyCoVarsOfCo arg
+tyCoVarsOfCo (AppCo co arg)      = tyCoVarsOfCo co `unionVarSet` tyCoVarsOfCo arg
 tyCoVarsOfCo (ForAllCo cobndr co)
   = tyCoVarsOfCo co `delVarSetList` coBndrVars cobndr
                     `unionVarSet` tyCoVarsOfCo (coBndrKindCo cobndr)
@@ -1070,7 +953,6 @@ tyCoVarsOfCo (LRCo _ co)         = tyCoVarsOfCo co
 tyCoVarsOfCo (InstCo co arg)     = tyCoVarsOfCo co `unionVarSet` tyCoVarsOfCo arg
 tyCoVarsOfCo (CoherenceCo c1 c2) = tyCoVarsOfCo c1 `unionVarSet` tyCoVarsOfCo c2
 tyCoVarsOfCo (KindCo co)         = tyCoVarsOfCo co
-tyCoVarsOfCo (KindAppCo co)      = tyCoVarsOfCo co
 tyCoVarsOfCo (SubCo co)          = tyCoVarsOfCo co
 tyCoVarsOfCo (AxiomRuleCo _ ts cs) = tyCoVarsOfTypes ts `unionVarSet` tyCoVarsOfCos cs
 
@@ -1095,8 +977,7 @@ coVarsOfCo :: Coercion -> CoVarSet
 -- Extract *coercion* variables only.  Tiresome to repeat the code, but easy.
 coVarsOfCo (Refl _ ty)         = coVarsOfType ty
 coVarsOfCo (TyConAppCo _ _ args) = coVarsOfCos args
-coVarsOfCo (AppCo co h arg)    = coVarsOfCo co `unionVarSet`
-                                 coVarsOfCo h `unionVarSet` coVarsOfCo arg
+coVarsOfCo (AppCo co arg)      = coVarsOfCo co `unionVarSet` coVarsOfCo arg
 coVarsOfCo (ForAllCo cobndr co)
   = coVarsOfCo co `delVarSetList` coBndrVars cobndr
                   `unionVarSet` coVarsOfCo (coBndrKindCo cobndr)
@@ -1110,7 +991,6 @@ coVarsOfCo (LRCo _ co)         = coVarsOfCo co
 coVarsOfCo (InstCo co arg)     = coVarsOfCo co `unionVarSet` coVarsOfCo arg
 coVarsOfCo (CoherenceCo c1 c2) = coVarsOfCos [c1, c2]
 coVarsOfCo (KindCo co)         = coVarsOfCo co
-coVarsOfCo (KindAppCo co)      = coVarsOfCo co
 coVarsOfCo (SubCo co)          = coVarsOfCo co
 coVarsOfCo (AxiomRuleCo _ ts cs) = coVarsOfTypes ts `unionVarSet` coVarsOfCos cs
 
@@ -1682,7 +1562,7 @@ subst_co subst co
     go (Refl r ty)           = mkReflCo r $! go_ty ty
     go (TyConAppCo r tc args)= let args' = map go args
                                in  args' `seqList` mkTyConAppCo r tc args'
-    go (AppCo co h arg)      = ((mkAppCo $! go co) $! go h) $! go arg
+    go (AppCo co arg)        = (mkAppCo $! go co) $! go arg
     go (ForAllCo cobndr co)
       = case substForAllCoBndr subst cobndr of { (subst', cobndr') ->
           (mkForAllCo $! cobndr') $! subst_co subst' co }
@@ -1696,7 +1576,6 @@ subst_co subst co
     go (InstCo co arg)       = (mkInstCo $! (go co)) $! go arg
     go (CoherenceCo co1 co2) = (mkCoherenceCo $! (go co1)) $! (go co2)
     go (KindCo co)           = mkKindCo $! (go co)
-    go (KindAppCo co)        = mkKindAppCo $! (go co)
     go (SubCo co)            = mkSubCo $! (go co)
     go (AxiomRuleCo c ts cs) = let ts1 = map go_ty ts
                                    cs1 = map go cs
@@ -2353,7 +2232,7 @@ tidyCo env@(_, subst) co
     go (Refl r ty)           = Refl r (tidyType env ty)
     go (TyConAppCo r tc cos) = let args = map go cos
                                in args `seqList` TyConAppCo r tc args
-    go (AppCo co1 h co2)     = ((AppCo $! go co1) $! go h) $! go co2
+    go (AppCo co1 co2)       = (AppCo $! go co1) $! go co2
     go (ForAllCo cobndr co)  = ForAllCo cobndrp $! (tidyCo envp co)
                                where
                                  (envp, cobndrp) = go_bndr cobndr
@@ -2370,7 +2249,6 @@ tidyCo env@(_, subst) co
     go (InstCo co ty)        = (InstCo $! go co) $! go ty
     go (CoherenceCo co1 co2) = (CoherenceCo $! go co1) $! go co2
     go (KindCo co)           = KindCo $! go co
-    go (KindAppCo co)        = KindAppCo $! go co
     go (SubCo co)            = SubCo $! go co
     go (AxiomRuleCo ax tys cos) = let tys1 = tidyTypes env tys
                                       cos1 = tidyCos env cos

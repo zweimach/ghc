@@ -492,7 +492,7 @@ can_eq_nc' _rdr_env _envs ev eq_rel s1@(ForAllTy (Named {}) _) _
         then canEqHardFailure ev s1 s2
         else
           do { traceTcS "Creating implication for polytype equality" $ ppr ev
-             ; kind_cos <- zipWithM (unifyWantedLikeEv ev loc (eqRelRole eq_rel))
+             ; kind_cos <- zipWithM (unifyWantedLikeEv ev loc Nominal)
                              (map binderType bndrs1) (map binderType bndrs2)
              ; ev_term <- deferTcSForAllEq (eqRelRole eq_rel) loc
                                            kind_cos (bndrs1,body1) (bndrs2,body2)
@@ -676,31 +676,23 @@ try_decompose_nom_app ev ty1 ty2
        = do { unifyDeriveds loc [Nominal, Nominal] [s1, t1] [s2, t2]
             ; stopWith ev "Decomposed [D] AppTy" }
        | CtWanted { ctev_evar = evar, ctev_loc = loc } <- ev
-       = do { let kind_loc = mkKindLoc t1 t2 loc
-            ; co_s <- unifyWantedLikeEv ev loc      Nominal s1  s2
-            ; co_h <- unifyWantedLikeEv ev kind_loc Nominal t1k t2k
-            ; co_t <- unifyWantedLikeEv ev loc      Nominal t1  t2
-            ; let co = mkTcAppCo co_s co_h co_t
+       = do { co_s <- unifyWantedLikeEv ev loc Nominal s1 s2
+            ; co_t <- unifyWantedLikeEv ev loc Nominal t1 t2
+            ; let co = mkTcAppCo co_s co_t
             ; setEvBind evar (EvCoercion co) loc
             ; stopWith ev "Decomposed [W] AppTy" }
        | CtGiven { ctev_evtm = ev_tm, ctev_loc = loc } <- ev
        = do { let co   = evTermCoercion ev_tm
                   co_s = mkTcLRCo CLeft  co
-                  co_h = mkTcKindAppCo   co
                   co_t = mkTcLRCo CRight co
             ; evar_s <- newGivenEvVar loc ( mkTcEqPredLikeEv ev s1  s2
                                           , EvCoercion co_s )
-            ; evar_h <- newGivenEvVar loc ( mkTcEqPredLikeEv ev t1k t2k
-                                          , EvCoercion co_h )
             ; evar_t <- newGivenEvVar loc ( mkTcEqPredLikeEv ev t1  t2
                                           , EvCoercion co_t )
-            ; emitWorkNC [evar_h, evar_t]
+            ; emitWorkNC [evar_t]
             ; canEqNC evar_s NomEq s1 s2 }
        | otherwise  -- Can't happen
        = error "try_decompose_app"
-       where
-         t1k = typeKind t1
-         t2k = typeKind t2
 
 -----------------------
 -- | Break apart an equality over a casted type
@@ -1236,7 +1228,7 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
     k1 = typeKind lhs
     k2 = typeKind rhs
 
-    kind_pty = mkHeteroReprPrimEqPred liftedTypeKind liftedTypeKind k1 k2
+    kind_pty = mkHeteroPrimEqPred liftedTypeKind liftedTypeKind k1 k2
     kind_loc = mkKindLoc lhs rhs loc
 
     loc = ctev_loc ev
@@ -1671,7 +1663,7 @@ unifyWantedLikeEv :: CtEvidence -> CtLoc -> Role
 -- The returned coercion's role matches the input parameter
 -- The boxity of any produced Wanteds matches the CtEvidence parameter
 unifyWantedLikeEv ev loc Phantom ty1 ty2
-  = do { kind_co <- unifyWantedLikeEv ev loc Representational
+  = do { kind_co <- unifyWantedLikeEv ev loc Nominal
                                       (typeKind ty1) (typeKind ty2)
        ; return (mkTcPhantomCo kind_co ty1 ty2) }
 

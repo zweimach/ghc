@@ -651,7 +651,7 @@ deriveStandalone (L loc (DerivDecl deriv_ty overlap_mode))
 
        ; let cls_tys = take (length inst_tys - 1) inst_tys
              inst_ty = last inst_tys
-             kind_co = mkRepReflCo (typeKind inst_ty)
+             kind_co = mkNomReflCo (typeKind inst_ty)
        ; traceTc "Standalone deriving:" $ vcat
               [ text "class:" <+> ppr cls
               , text "class types:" <+> ppr cls_tys
@@ -756,14 +756,13 @@ deriveTyData is_instance tvs tc tc_args (L loc deriv_pred)
               -- to the types.  See Note [Unify kinds in deriving]
               -- We are assuming the tycon tyvars and the class tyvars are distinct
               mb_match        = tcUnifyTy inst_ty_kind cls_arg_kind
-              Just (kind_subst, nom_kind_co) = mb_match
-              kind_co         = mkSubCo nom_kind_co
+              Just (kind_subst, kind_co) = mb_match
                 -- if we're deriving (C x) on a datatype definition (T a b),
                 -- then (C x) should have kind (cls_arg_kind -> Constraint).
                 -- The logic above (n_args_to_drop/keep) might determine, say,
                 -- to drop b, giving us tc_args_to_keep = [a].
                 -- We now have (T a :: inst_ty_kind).
-                -- Then, (kind_co :: inst_ty_kind ~R cls_arg_kind).
+                -- Then, (kind_co :: inst_ty_kind ~N cls_arg_kind).
 
               all_tkvs        = varSetElemsWellScoped $
                                 mkVarSet deriv_tvs `unionVarSet`

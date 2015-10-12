@@ -1167,8 +1167,8 @@ freeNamesIfCoercion (IfaceFunCo _ c1 c2)
   = freeNamesIfCoercion c1 &&& freeNamesIfCoercion c2
 freeNamesIfCoercion (IfaceTyConAppCo _ tc cos)
   = freeNamesIfTc tc &&& fnList freeNamesIfCoercion cos
-freeNamesIfCoercion (IfaceAppCo c1 h c2)
-  = freeNamesIfCoercion c1 &&& freeNamesIfCoercion h &&& freeNamesIfCoercion c2
+freeNamesIfCoercion (IfaceAppCo c1 c2)
+  = freeNamesIfCoercion c1 &&& freeNamesIfCoercion c2
 freeNamesIfCoercion (IfaceForAllCo tv co)
   = freeNamesIfForAllCoBndr tv &&& freeNamesIfCoercion co
 freeNamesIfCoercion (IfaceCoVarCo _)
@@ -1190,8 +1190,6 @@ freeNamesIfCoercion (IfaceInstCo co co2)
 freeNamesIfCoercion (IfaceCoherenceCo c1 c2)
   = freeNamesIfCoercion c1 &&& freeNamesIfCoercion c2
 freeNamesIfCoercion (IfaceKindCo c)
-  = freeNamesIfCoercion c
-freeNamesIfCoercion (IfaceKindAppCo c)
   = freeNamesIfCoercion c
 freeNamesIfCoercion (IfaceSubCo co)
   = freeNamesIfCoercion co

@@ -1316,7 +1316,7 @@ fvTypes tys                = concat (map fvType tys)
 fvCo :: Coercion -> [TyCoVar]
 fvCo (Refl _ ty)            = fvType ty
 fvCo (TyConAppCo _ _ args)  = concatMap fvCo args
-fvCo (AppCo co h arg)       = fvCo co ++ fvCo h ++ fvCo arg
+fvCo (AppCo co arg)         = fvCo co ++ fvCo arg
 fvCo (ForAllCo cobndr co)   = (fvCo co \\ coBndrVars cobndr)
                               ++ fvCo (coBndrKindCo cobndr)
 fvCo (CoVarCo v)            = [v]
@@ -1329,7 +1329,6 @@ fvCo (LRCo _ co)            = fvCo co
 fvCo (InstCo co arg)        = fvCo co ++ fvCo arg
 fvCo (CoherenceCo co1 co2)  = fvCo co1 ++ fvCo co2
 fvCo (KindCo co)            = fvCo co
-fvCo (KindAppCo co)         = fvCo co
 fvCo (SubCo co)             = fvCo co
 fvCo (AxiomRuleCo _ ts cs)  = concatMap fvType ts ++ concatMap fvCo cs
 

@@ -23,12 +23,12 @@ module TcEvidence (
   -- TcCoercion
   TcCoercion(..), TcForAllCoBndr(..), LeftOrRight(..), pickLR,
   mkTcReflCo, mkTcNomReflCo, mkTcRepReflCo,
-  mkTcTyConAppCo, mkTcAppCo, mkTcAppCos, mkTcFunCo,
+  mkTcTyConAppCo, mkTcAppCo, mkTcFunCo,
   mkTcAxInstCo, mkTcUnbranchedAxInstCo, mkTcForAllCo, mkTcForAllCos,
   mkTcSymCo, mkTcTransCo, mkTcNthCo, mkTcLRCo, mkTcSubCo, maybeTcSubCo,
   tcDowngradeRole,
   mkTcAxiomRuleCo, mkTcCoherenceLeftCo, mkTcCoherenceRightCo, mkTcPhantomCo,
-  castTcCoercionKind, mkTcKindCo, mkTcKindAppCo, mkTcCoercion,
+  mkTcKindCo, mkTcCoercion,
   tcCoercionKind, coVarsOfTcCo,
   isEqVar, mkTcCoVarCo,
   isTcReflCo, getTcCoVar_maybe,
@@ -124,7 +124,7 @@ tcCoercionKind returns a (Pair Type), so it's not affected by this ambiguity.
 data TcCoercion
   = TcRefl Role TcType
   | TcTyConAppCo Role TyCon [TcCoercion]
-  | TcAppCo TcCoercion TcCoercion TcCoercion
+  | TcAppCo TcCoercion TcCoercion
   | TcForAllCo TcForAllCoBndr TcCoercion
   | TcCoVarCo EqVar
   -- This is number of types and coercions are expected to match to CoAxiomRule
@@ -139,7 +139,6 @@ data TcCoercion
   | TcCastCo TcCoercion TcCoercion     -- co1 |> co2
   | TcCoherenceCo TcCoercion Coercion
   | TcKindCo TcCoercion
-  | TcKindAppCo TcCoercion
   | TcLetCo TcEvBinds TcCoercion
   | TcCoercion Coercion             -- embed a Core Coercion
   deriving (Data.Data, Data.Typeable)
@@ -235,11 +234,11 @@ mkTcUnbranchedAxInstCo :: Role -> CoAxiom Unbranched -> [TcType] -> [Coercion]
 mkTcUnbranchedAxInstCo role ax tys cos
   = mkTcAxInstCo role ax 0 tys cos
 
-mkTcAppCo :: TcCoercion -> TcCoercion -> TcCoercion -> TcCoercion
+mkTcAppCo :: TcCoercion -> TcCoercion -> TcCoercion
 -- No need to deal with TyConApp on the left; see Note [TcCoercions]
--- Third coercion *must* be nominal; other two must match roles
-mkTcAppCo (TcRefl r ty1) _ (TcRefl _ ty2) = TcRefl r (mkAppTy ty1 ty2)
-mkTcAppCo co1 h co2                       = TcAppCo co1 h co2
+-- Second coercion *must* be nominal
+mkTcAppCo (TcRefl r ty1) (TcRefl _ ty2) = TcRefl r (mkAppTy ty1 ty2)
+mkTcAppCo co1 co2                       = TcAppCo co1 co2
 
 mkTcSymCo :: TcCoercion -> TcCoercion
 mkTcSymCo co@(TcRefl {})  = co
@@ -262,9 +261,6 @@ mkTcLRCo lr co            = TcLRCo lr co
 
 mkTcPhantomCo :: TcCoercion -> TcType -> TcType -> TcCoercion
 mkTcPhantomCo = TcPhantomCo
-
-mkTcAppCos :: TcCoercion -> [(TcCoercion, TcCoercion)] -> TcCoercion
-mkTcAppCos co1 tys = foldl (uncurry2 mkTcAppCo) co1 tys
 
 mkTcForAllCo :: TcForAllCoBndr -> TcCoercion -> TcCoercion
 mkTcForAllCo (TcForAllCoBndr (TcRefl r1 _) tv1 tv2 cv) (TcRefl r2 ty)
@@ -291,7 +287,7 @@ mkTcCoVarCo ipv = TcCoVarCo ipv
   -- will be done in the later zonking phase
 
 -- | Cast the left type in a coercion. The second coercion must be
--- Representational.
+-- Nominal.
 mkTcCoherenceLeftCo :: TcCoercion -> Coercion -> TcCoercion
 mkTcCoherenceLeftCo co g
   | isReflCo g = co
@@ -302,17 +298,8 @@ mkTcCoherenceLeftCo co g
 mkTcCoherenceRightCo :: TcCoercion -> Coercion -> TcCoercion
 mkTcCoherenceRightCo c1 c2 = mkTcSymCo (mkTcCoherenceLeftCo (mkTcSymCo c1) c2)
 
--- | Cast both types in a coercion. The second and third coercions must be
--- Representational.
-castTcCoercionKind :: TcCoercion -> Coercion -> Coercion -> TcCoercion
-castTcCoercionKind g h1 h2
-  = g `mkTcCoherenceLeftCo` h1 `mkTcCoherenceRightCo` h2
-
 mkTcKindCo :: TcCoercion -> TcCoercion
 mkTcKindCo = TcKindCo
-
-mkTcKindAppCo :: TcCoercion -> TcCoercion
-mkTcKindAppCo = TcKindAppCo
 
 -- | Convert a Coercion to a TcCoercion.
 mkTcCoercion :: Coercion -> TcCoercion
@@ -329,9 +316,8 @@ tcCoercionKind co = go co
                                    (ty1,ty2) -> Pair ty1 ty2
     go (TcCoherenceCo co g)   = pLiftFst (`mkCastTy` g) (go co)
     go (TcKindCo co)          = typeKind <$> go co
-    go (TcKindAppCo co)       = typeKind <$> (snd <$> (splitAppTy <$> go co))
     go (TcTyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map go cos)
-    go (TcAppCo co1 _ co2)    = mkAppTy <$> go co1 <*> go co2
+    go (TcAppCo co1 co2)      = mkAppTy <$> go co1 <*> go co2
     go (TcForAllCo cobndr co) = mkNamedForAllTy <$> tcCoBndrKind cobndr
                                                 <*> pure Invisible
                                                 <*> go co
@@ -340,7 +326,11 @@ tcCoercionKind co = go co
     go (TcPhantomCo _ ty1 ty2)= Pair ty1 ty2
     go (TcSymCo co)           = swap (go co)
     go (TcTransCo co1 co2)    = Pair (pFst (go co1)) (pSnd (go co2))
-    go (TcNthCo d co)         = tyConAppArgN d <$> go co
+    go (TcNthCo d co)         = let tys = go co in
+                                case traverse splitForAllTy_maybe tys of
+                                  Just splits
+                                    | d == 0  -> (binderType . fst) <$> splits
+                                  _           -> tyConAppArgN d <$> tys
     go (TcLRCo lr co)         = (pickLR lr . tcSplitAppTy) <$> go co
     go (TcSubCo co)           = go co
     go (TcAxiomRuleCo ax ts cs) =
@@ -378,22 +368,23 @@ tcCoercionRole = go
   where
     go (TcRefl r _)           = r
     go (TcTyConAppCo r _ _)   = r
-    go (TcAppCo co _ _)       = go co
+    go (TcAppCo co _)         = go co
     go (TcForAllCo _ co)      = go co
     go (TcCoVarCo cv)         = eqVarRole cv
     go (TcPhantomCo _ _ _)    = Phantom
     go (TcSymCo co)           = go co
     go (TcTransCo co1 _)      = go co1 -- same as go co2
-    go (TcNthCo n co)         = let Pair ty1 _ = tcCoercionKind co
-                                    (tc, _) = tcSplitTyConApp ty1
-                                in nthRole (go co) tc n
+    go (TcNthCo n co)         = let Pair ty1 _ = tcCoercionKind co in
+                                case splitForAllTy_maybe ty1 of
+                                  Just _ -> Nominal
+                                  _      -> let (tc, _) = tcSplitTyConApp ty1 in
+                                            nthRole (go co) tc n
     go (TcLRCo _ _)           = Nominal
     go (TcSubCo _)            = Representational
     go (TcAxiomRuleCo c _ _)  = coaxrRole c
     go (TcCastCo c _)         = go c
     go (TcCoherenceCo co _)   = go co
-    go (TcKindCo _)           = Representational
-    go (TcKindAppCo co)       = go co
+    go (TcKindCo _)           = Nominal
     go (TcLetCo _ c)          = go c
     go (TcCoercion co)        = coercionRole co
 
@@ -404,11 +395,10 @@ coVarsOfTcCo tc_co
   where
     go (TcRefl _ t)              = coVarsOfType t
     go (TcTyConAppCo _ _ cos)    = mapUnionVarSet go cos
-    go (TcAppCo co1 h co2)       = go co1 `unionVarSet` go h `unionVarSet` go co2
+    go (TcAppCo co1 co2)         = go co1 `unionVarSet` go co2
     go (TcCastCo co1 co2)        = go co1 `unionVarSet` go co2
     go (TcCoherenceCo co g)      = go co `unionVarSet` coVarsOfCo g
     go (TcKindCo co)             = go co
-    go (TcKindAppCo co)          = go co
     go (TcForAllCo cobndr co)    = go co `delVarSetList` tcCoBndrVars cobndr
                                          `unionVarSet`   go (tcCoBndrKindCo cobndr)
     go (TcCoVarCo v)             = unitVarSet v
@@ -443,7 +433,7 @@ tcCoercionToCoercion subst tc_co
   where
     go (TcRefl r ty)            = Just $ mkReflCo r (Type.substTy subst ty)
     go (TcTyConAppCo r tc cos)  = mkTyConAppCo r tc <$> mapM go cos
-    go (TcAppCo co1 h co2)      = mkAppCo <$> go co1 <*> go h <*> go co2
+    go (TcAppCo co1 co2)        = mkAppCo <$> go co1 <*> go co2
     go (TcForAllCo cobndr co)   = do { (subst', cobndr') <- go_cobndr cobndr
                                      ; mkForAllCo cobndr' <$>
                                          tcCoercionToCoercion subst' co }
@@ -459,7 +449,6 @@ tcCoercionToCoercion subst tc_co
     go (TcCastCo co1 co2)       = mkCoCast <$> go co1 <*> go co2
     go (TcCoherenceCo tco1 co2) = mkCoherenceCo <$> go tco1 <*> pure (substCo subst co2)
     go (TcKindCo co)            = mkKindCo <$> go co
-    go (TcKindAppCo co)         = mkKindAppCo <$> go co
     go (TcCoVarCo v)            = lookupCoVar subst v <|>
                                   do { guard (isCoercionType $ varType v)
                                      ; return (mkCoVarCo v) }
@@ -496,7 +485,7 @@ ppr_co p co@(TcTyConAppCo _ tc [_,_])
 ppr_co p (TcTyConAppCo r tc cos) = pprTcApp   p ppr_co tc cos <> ppr_role r
 ppr_co p (TcLetCo bs co)         = maybeParen p TopPrec $
                                    sep [ptext (sLit "let") <+> braces (ppr bs), ppr co]
-ppr_co p (TcAppCo co1 _ co2)     = maybeParen p TyConPrec $
+ppr_co p (TcAppCo co1 co2)       = maybeParen p TyConPrec $
                                    pprTcCo co1 <+> ppr_co TyConPrec co2
                                    -- TODO (RAE): Printing TcCastCo like this is terrible.
 ppr_co p (TcCastCo co1 co2)      = maybeParen p FunPrec $
@@ -505,8 +494,6 @@ ppr_co p (TcCoherenceCo co g)    = maybeParen p FunPrec $
                                    ppr_co FunPrec co <+> text "|>>" <+> ppr g
 ppr_co p (TcKindCo co)           = maybeParen p FunPrec $
                                    text "kind" <+> ppr_co FunPrec co
-ppr_co p (TcKindAppCo co)        = maybeParen p FunPrec $
-                                   text "kapp" <+> ppr_co FunPrec co
 ppr_co p (TcForAllCo (TcForAllCoBndr eta tv1 tv2 cv) co)
   = maybeParen p FunPrec $
     forAllLit <> underscore <> pprParendTcCo eta <>

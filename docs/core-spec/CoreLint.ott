@@ -187,33 +187,24 @@ G |-co T_R </ gi // i /> : T </ si // i />  k'~R k T </ ti // i />
 
 G |-co g1 : s1 k1~R k2 s2
 G |-co g2 : t1 k1'~Nom k2' t2
-G |-co h : k1' *~R * k2'
 G |-app (t1 : k1') : k1 ~> k3
 G |-app (t2 : k2') : k2 ~> k4
 --------------------- :: AppCo
-G |-co g1 g2^(h) : (s1 t1) k3~R k4 (s2 t2)
+G |-co g1 g2 : (s1 t1) k3~R k4 (s2 t2)
 
 G |-co g1 : s1 k1 ~Ph k2 s2
 G |-co g2 : t1 k1' ~Ph k2' t2
-G |-co h : k1' *~Ph * k2'
 G |-app (t1 : k1') : k1 ~> k3
 G |-app (t2 : k2') : k2 ~> k4
 --------------------- :: AppCoPhantom
-G |-co g1 g2^(h) : (s1 t1) k3~Ph k4 (s2 t2)
+G |-co g1 g2 : (s1 t1) k3~Ph k4 (s2 t2)
 
-G |-co h : k1 *~R * k2
+G |-co h : k1 *~Nom * k2
 G, alpha1_k1, alpha2_k2, c_(alpha1$ k1~#k2 alpha2$) |-co g : t1 k3~R k4 t2
 G |-ty forall alpha1_k1.t1 : k3
 G |-ty forall alpha2_k2.t2 : k4
------------------------------------------------------------------------------------------------ :: ForAllCo_Ty
-G |-co forall h (alpha1_k1, alpha2_k2, Just c$). g : (forall alpha1_k1. t1) k3~R k4 (forall alpha2_k2. t2)
-
-G |-co h : phi1 *~R * phi2
-G, c1_phi1, c2_phi2 |-co g : t1 k1~R k2 t2
-G |-ty forall c1_phi1.t1 : k1
-G |-ty forall c2_phi2.t2 : k2
----------------------------------------------------------------------------------- :: ForAllCo_CoHetero
-G |-co forall h (c1_phi1, c2_phi2, Nothing). g : (forall c1_phi1.t1) k1~R k2 (forall c2_phi2.t2)
+----------------------------------------------------------------------------------------------- :: ForAllCo
+G |-co forall h (alpha1_k1, alpha2_k2, c$). g : (forall alpha1_k1. t1) k3~R k4 (forall alpha2_k2. t2)
 
 z_phi elt G
 phi = t1 k1~#k2 t2
@@ -225,19 +216,19 @@ phi = t1 k1 ~Rep# k2 t2
 --------------------- :: CoVarCoRepr
 G |-co z_phi : t1 k1 ~Rep k2 t2
 
-G |-co h : k1 *~Rep * k2
+G |-co h : k1 *~Nom * k2
 G |-ty t1 : k1
 G |-ty t2 : k2
 ------------------------------------------------------ :: UnivCoUnsafe
 G |-co UnsafeCoerceProv <t1, t2>_R^(h) : t1 k1~R k2 t2
 
-G |-co h : k1 *~Rep * k2
+G |-co h : k1 *~Nom * k2
 G |-ty t1 : k1
 G |-ty t2 : k2
 -------------------------------------------------- :: UnivCoPhantom
 G |-co PhantomProv <t1,t2>_Ph^(h) : t1 k1~Ph k2 t2
 
-G |-co h : phi1 *~Rep * phi2
+G |-co h : phi1 *~Nom * phi2
 G |-ty g1 : phi1
 G |-ty g2 : phi2
 -------------------------------------------------- :: UnivCoProofIrrel
@@ -265,7 +256,7 @@ G |-co nth i g : si k2~R' k2' ti
 
 G |-co g : (forall z1_k1.t1) k3~R k4 (forall z2_k2.t2)
 --------------------------- :: NthCoForAll
-G |-co nth 0 g : k1 *~R * k2
+G |-co nth 0 g : k1 *~Nom * k2
 
 G |-co g : (s1 s2) k~Nom k' (t1 t2)
 G |-ty s1 : k1
@@ -302,17 +293,11 @@ G |-co C ind </ gi // i /> : s2 k~R0 k' t2
 G |-co g : t1 k1~R k2 t2
 G |-ty t1 |> h : k1'
 ---------------------------------- :: CoherenceCo
-G |-co g |> h : t1 |> sub h k1'~R k2 t2
+G |-co g |> h : t1 |> h k1'~R k2 t2
 
 G |-co g : t1 k1~R k2 t2
 -------------------------- :: KindCo
-G |-co kind g : k1 *~Rep * k2
-
-G |-co g : {t1 s1} k1'~R k2' {t2 s2}
-G |-ty s1 : k1
-G |-ty s2 : k2
----------------------- :: KindAppCo
-G |-co kapp g : k1 *~R * k2
+G |-co kind g : k1 *~Nom * k2
 
 G |-co g : s k' ~Nom k t
 ------------------------- :: SubCo
@@ -343,7 +328,7 @@ G |-axk [ namesroles, n_R |-> gs, g0 ] ~> (subst1 [n |-> t1], subst2 [n |-> t2])
 
 defn validRoles T ::  :: checkValidRoles :: 'Cvr_'
   {{ com Type constructor role validity, \coderef{typecheck/TcTyClsDecls.lhs}{checkValidRoles} }}
-by  
+by
 
 </ Ki // i /> = tyConDataCons T
 </ Rj // j /> = tyConRoles T
@@ -415,7 +400,7 @@ Nom <= R
 R <= Ph
 
 ------- :: Refl
-R <= R 
+R <= R
 
 defn G |- ki k ok ::  :: lintKind :: 'K_'
   {{ com Kind validity, \coderef{coreSyn/CoreLint.lhs}{lintKind} }}
@@ -430,7 +415,7 @@ G |-ty k : #
 -------------- :: Hash
 G |-ki k ok
 
-defn G |- ty t : k ::  :: lintType :: 'Ty_'  
+defn G |- ty t : k ::  :: lintType :: 'Ty_'
   {{ com Kinding, \coderef{coreSyn/CoreLint.lhs}{lintType} }}
   {{ tex [[G]] \labeledjudge{ty} [[t]] : [[k]] }}
 by
@@ -467,13 +452,17 @@ G |-tylit lit : k
 G |-ty lit : k
 
 G |-ty t : k1
-G |-co g : k1 *~Rep * k2
+G |-co g : k1 *~Nom * k2
 --------------------- :: CastTy
 G |-ty t |> g : k2
 
 G |-co g : t1 k1 ~Nom k2 t2
--------------- :: CoercionTy
+-------------- :: CoercionTy_Nom
 G |-ty g : t1 k1 ~# k2 t2
+
+G |-co g : t1 k1 ~Rep k2 t2
+------------------- :: CoercionTy_Repr
+G |-ty g : (~Rep#) k1 k2 t1 t2
 
 defn G |- subst n |-> t ok ::  :: lintTyKind :: 'Subst_'
   {{ com Substitution consistency, \coderef{coreSyn/CoreLint.lhs}{lintTyKind} }}

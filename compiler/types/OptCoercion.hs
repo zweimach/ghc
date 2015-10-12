@@ -232,14 +232,13 @@ opt_co4 env sym rep r g@(TyConAppCo _r tc cos)
                                    cos)
       (_, Phantom) -> pprPanic "opt_co4 sees a phantom!" (ppr g)
 
-opt_co4 env sym rep r (AppCo co1 h co2)
+opt_co4 env sym rep r (AppCo co1 co2)
   = mkAppCo (opt_co4_wrap env sym rep r co1)
-            (opt_co4_wrap env sym rep r h)
             (opt_co4_wrap env sym False Nominal co2)
 
 -- See Note [Sym and ForAllCo] in TyCoRep
 opt_co4 env sym rep r (ForAllCo cobndr co)
-  = case optForAllCoBndr env sym rep r cobndr of
+  = case optForAllCoBndr env sym cobndr of
       (env', cobndr') -> mkForAllCo cobndr' (opt_co4_wrap env' sym rep r co)
      -- Use the "mk" functions to check for nested Refls
 
@@ -300,8 +299,8 @@ opt_co4 env sym rep r (LRCo lr co)
   where
     co' = opt_co4_wrap env sym False Nominal co
 
-    pick_lr CLeft  (l, _, _) = l
-    pick_lr CRight (_, _, r) = r
+    pick_lr CLeft  (l, _) = l
+    pick_lr CRight (_, r) = r
 
 opt_co4 env sym rep r (InstCo co1 arg)
     -- forall over type...
@@ -341,22 +340,18 @@ opt_co4 env sym rep r (CoherenceCo co1 co2)
 
   | otherwise
   = wrapSym sym $ CoherenceCo (opt_co4_wrap env False rep r co1) co2'
-  where co1' = opt_co4_wrap env sym   rep   r                co1
-        co2' = opt_co4_wrap env False False Representational co2
+  where co1' = opt_co4_wrap env sym   rep   r       co1
+        co2' = opt_co4_wrap env False False Nominal co2
         in_scope = getTCvInScope env
 
 opt_co4 env sym _rep r (KindCo co)
-  = ASSERT( r == Representational )
+  = ASSERT( r == Nominal )
     let kco' = promoteCoercion co in
     case kco' of
       KindCo co' -> promoteCoercion (opt_co1 env sym co')
-      _          -> opt_co4_wrap env sym False Representational kco'
+      _          -> opt_co4_wrap env sym False Nominal kco'
   -- This might be able to be optimized more to do the promotion
   -- and substitution/optimization at the same time
-
-opt_co4 env sym rep r (KindAppCo co)
--- TODO (RAE): Actually optimize this!
-  = mkKindAppCo (opt_co4_wrap env sym rep r co)
 
 opt_co4 env sym _ r (SubCo co)
   = ASSERT( r == Representational )
@@ -386,7 +381,7 @@ opt_univ env sym PhantomProv _r h ty1 ty2
   | sym       = mkPhantomCo h' ty2' ty1'
   | otherwise = mkPhantomCo h' ty1' ty2'
   where
-    h' = opt_co4 env sym False Representational h
+    h' = opt_co4 env sym False Nominal h
     ty1' = substTy env ty1
     ty2' = substTy env ty2
 
@@ -394,7 +389,7 @@ opt_univ env sym prov role kco oty1 oty2
   | Just (tc1, tys1) <- splitTyConApp_maybe oty1
   , Just (tc2, tys2) <- splitTyConApp_maybe oty2
   , tc1 == tc2
-  = let arg_kcos = zipWith (mkUnivCo prov Representational (mkRepReflCo liftedTypeKind))
+  = let arg_kcos = zipWith (mkUnivCo prov Nominal (mkNomReflCo liftedTypeKind))
                            (map typeKind tys1) (map typeKind tys2)
         roles    = tyConRolesX role tc1
         arg_cos  = zipWith4 (mkUnivCo prov) roles arg_kcos tys1 tys2
@@ -414,13 +409,13 @@ opt_univ env sym prov role kco oty1 oty2
        -- capture.
   = let k1 = tyVarKind tv1
         k2 = tyVarKind tv2
-        eta      = mkUnivCo prov role (mkRepReflCo liftedTypeKind) k1 k2
+        eta      = mkUnivCo prov Nominal (mkNomReflCo liftedTypeKind) k1 k2
           -- eta gets opt'ed soon, but not yet.
         in_scope = getTCvInScope env `extendInScopeSetList` [tv1, tv2]
         c        = mkFreshCoVar in_scope tv1 tv2
         cobndr   = mkForAllCoBndr eta tv1 tv2 c
 
-        (env', cobndr') = optForAllCoBndr env sym False role cobndr
+        (env', cobndr') = optForAllCoBndr env sym cobndr
     in
     mkForAllCo cobndr' (opt_univ env' sym prov role kco ty1 ty2)
 
@@ -428,7 +423,7 @@ opt_univ env sym prov role kco oty1 oty2
   = let (a, b) | sym       = (oty2, oty1)
                | otherwise = (oty1, oty2)
     in
-    mkUnivCo prov role (opt_co4_wrap env sym False Representational kco)
+    mkUnivCo prov role (opt_co4_wrap env sym False Nominal kco)
                        (substTy env a) (substTy env b)
 
 -------------
@@ -453,7 +448,7 @@ opt_nth_co env sym rep r = go []
       | n == 0
       , Just (bndr, _) <- splitForAllTy_maybe ty
       , Just tv        <- binderVar_maybe bndr
-      = Just (Refl r1 (tyVarKind tv))
+      = Just (Refl Nominal (tyVarKind tv))
     push_nth n (TyConAppCo _ _ cos)
       = Just (cos `getNth` n)
     push_nth 0 (ForAllCo (ForAllCoBndr eta _ _ _) _)
@@ -561,10 +556,9 @@ opt_trans_rule is in_co1@(TyConAppCo r1 tc1 cos1) in_co2@(TyConAppCo r2 tc2 cos2
     fireTransRule "PushTyConApp" in_co1 in_co2 $
     mkTyConAppCo r1 tc1 (opt_transList is cos1 cos2)
 
-opt_trans_rule is in_co1@(AppCo co1a h1 co1b) in_co2@(AppCo co2a h2 co2b)
+opt_trans_rule is in_co1@(AppCo co1a co1b) in_co2@(AppCo co2a co2b)
   = fireTransRule "TrPushApp" in_co1 in_co2 $
     mkAppCo (opt_trans is co1a co2a)
-            (opt_trans is h1   h2)
             (opt_trans is co1b co2b)
 
 -- Eta rules
@@ -580,18 +574,16 @@ opt_trans_rule is co1 co2@(TyConAppCo r tc cos2)
     fireTransRule "EtaCompR" co1 co2 $
     mkTyConAppCo r tc (opt_transList is cos1 cos2)
 
-opt_trans_rule is co1@(AppCo co1a h1 co1b) co2
-  | Just (co2a,h2,co2b) <- etaAppCo_maybe co2
+opt_trans_rule is co1@(AppCo co1a co1b) co2
+  | Just (co2a,co2b) <- etaAppCo_maybe co2
   = fireTransRule "EtaAppL" co1 co2 $
     mkAppCo (opt_trans is co1a co2a)
-            (opt_trans is h1   h2)
             (opt_trans is co1b co2b)
 
-opt_trans_rule is co1 co2@(AppCo co2a h2 co2b)
-  | Just (co1a,h1,co1b) <- etaAppCo_maybe co1
+opt_trans_rule is co1 co2@(AppCo co2a co2b)
+  | Just (co1a,co1b) <- etaAppCo_maybe co1
   = fireTransRule "EtaAppR" co1 co2 $
     mkAppCo (opt_trans is co1a co2a)
-            (opt_trans is h1   h2)
             (opt_trans is co1b co2b)
 
 -- Push transitivity inside forall
@@ -621,11 +613,10 @@ opt_trans_rule is co1 co2
       let is0      = is `extendInScopeSetList` [tvl1, tvl2, cvl, tvr1, tvr2, cvr]
           tyl1     = mkTyVarTy tvl1
           cv       = mkFreshCoVar is0 tvl1 tvr2
-          rep_col  = downgradeRole Representational role col
-          new_tvl2 = tyl1 `mkCastTy` rep_col
-          new_cvl  = mkNomReflCo tyl1 `mkCoherenceRightCo` rep_col
+          new_tvl2 = tyl1 `mkCastTy` col
+          new_cvl  = mkNomReflCo tyl1 `mkCoherenceRightCo` col
           new_tvr1 = new_tvl2
-          new_cvr  = mkCoVarCo cv `mkCoherenceLeftCo` rep_col
+          new_cvr  = mkCoVarCo cv `mkCoherenceLeftCo` col
           empty    = mkEmptyTCvSubst is'
           subst_r1 = extendTCvSubstList empty [tvl2, cvl] [new_tvl2, mkCoercionTy new_cvl]
           subst_r2 = extendTCvSubstList empty [tvr1, cvr] [new_tvr1, mkCoercionTy new_cvr]
@@ -895,20 +886,20 @@ etaForAllCo_maybe is co
   | otherwise
   = Nothing
 
-etaAppCo_maybe :: Coercion -> Maybe (Coercion,Coercion,Coercion)
+etaAppCo_maybe :: Coercion -> Maybe (Coercion,Coercion)
 -- If possible, split a coercion
 --   g :: t1a t1b ~ t2a t2b
 -- into a pair of coercions (left g, right g)
 etaAppCo_maybe co
-  | Just (co1,h,co2) <- splitAppCo_maybe co
-  = Just (co1,h,co2)
+  | Just (co1,co2) <- splitAppCo_maybe co
+  = Just (co1,co2)
   | (Pair ty1 ty2, Nominal) <- coercionKindRole co
   , Just (_,t1) <- splitAppTy_maybe ty1
   , Just (_,t2) <- splitAppTy_maybe ty2
   , let isco1 = isCoercionTy t1
   , let isco2 = isCoercionTy t2
   , isco1 == isco2
-  = Just (LRCo CLeft co, KindAppCo co, LRCo CRight co)
+  = Just (LRCo CLeft co, LRCo CRight co)
   | otherwise
   = Nothing
 
@@ -963,8 +954,6 @@ and these two imply
 -- params like opt_co4
 optForAllCoBndr :: TCvSubst
                 -> SymFlag
-                -> ReprFlag
-                -> Role
                 -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
-optForAllCoBndr env sym rep r
-  = substForAllCoBndrCallback sym substTy (opt_co4 env sym rep r) env
+optForAllCoBndr env sym
+  = substForAllCoBndrCallback sym substTy (opt_co4 env sym False Nominal) env

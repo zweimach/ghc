@@ -1161,10 +1161,8 @@ normalise_type
                               ; return (mkReflCo r ty, ty) }
     go (AppTy ty1 ty2)
       = do { (co,  nty1) <- go ty1
-            -- TODO (RAE): make more efficient
-           ; (kco, _)    <- go (typeKind ty2)
            ; (arg, nty2) <- withRole Nominal $ go ty2
-           ; return (mkAppCo co kco arg, mkAppTy nty1 nty2) }
+           ; return (mkAppCo co arg, mkAppTy nty1 nty2) }
     go (ForAllTy (Anon ty1) ty2)
       = do { (co1, nty1) <- go ty1
            ; (co2, nty2) <- go ty2
@@ -1186,7 +1184,7 @@ normalise_type
            ; r <- getRole
            ; let right_co = substRightCo lc co
            ; return ( mkProofIrrelCo r
-                         (liftCoSubst Representational lc (coercionType co))
+                         (liftCoSubst Nominal lc (coercionType co))
                          co right_co
                     , mkCoercionTy right_co ) }
 
@@ -1203,15 +1201,14 @@ normalise_tyvar tv
 normalise_tyvar_bndr :: TyVar -> NormM (LiftingContext, ForAllCoBndr)
 normalise_tyvar_bndr tv
   = do { lc1 <- getLC
-       ; r1  <- getRole
        ; env <- getEnv
        ; agg <- getAgg
-       ; let callback lc r ty
+       ; let callback lc ty
                = let (cvs, (co, _)) = runNormM (normalise_type ty)
-                                               env lc r agg
+                                               env lc Nominal agg
                  in (co, cvs)
              (lc', cobndr, cvs)
-               = liftCoSubstVarBndrCallback callback True r1 lc1 tv
+               = liftCoSubstVarBndrCallback callback True lc1 tv
                    -- the True there means that we want homogeneous coercions
                    -- See Note [Normalising types]
        ; emitCoVars cvs
@@ -1440,8 +1437,7 @@ allTyVarsInTy = go
 
     go_co (Refl _ ty)           = go ty
     go_co (TyConAppCo _ _ args) = go_cos args
-    go_co (AppCo co h arg)      = go_co co `unionVarSet`
-                                  go_co h `unionVarSet` go_co arg
+    go_co (AppCo co arg)        = go_co co `unionVarSet` go_co arg
     go_co (ForAllCo cobndr co)  = unionVarSets [ mkVarSet (coBndrVars cobndr)
                                                , go_co co
                                                , go_co (coBndrKindCo cobndr) ]
@@ -1455,7 +1451,6 @@ allTyVarsInTy = go
     go_co (InstCo co arg)       = go_co co `unionVarSet` go_co arg
     go_co (CoherenceCo c1 c2)   = go_co c1 `unionVarSet` go_co c2
     go_co (KindCo co)           = go_co co
-    go_co (KindAppCo co)        = go_co co
     go_co (SubCo co)            = go_co co
     go_co (AxiomRuleCo _ ts cs) = allTyVarsInTys ts `unionVarSet` go_cos cs
 

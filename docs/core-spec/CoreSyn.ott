@@ -124,15 +124,12 @@ g {{ tex \gamma }}, h {{ tex \eta }} :: 'Coercion_' ::= {{ com Coercions, \coder
   | < t > _ R               ::   :: Refl          {{ com \ctor{Refl}: Reflexivity }}
     {{ tex {\langle [[t]] \rangle}_{[[R]]} }}
   | T RA </ gi // i />      ::   :: TyConAppCo    {{ com \ctor{TyConAppCo}: Type constructor application }}
-  | g1 g2 ^ ( h )           ::   :: AppCo         {{ com \ctor{AppCo}: Application }}
-    {{ tex [[g1]]\ {[[g2]]}^{[[h]]} }}
+  | g1 g2                   ::   :: AppCo         {{ com \ctor{AppCo}: Application }}
   | forall cobndr . g       ::   :: ForAllCo      {{ com \ctor{ForAllCo}: Polymorphism }}
   | n                       ::   :: CoVarCo       {{ com \ctor{CoVarCo}: Variable }}
   | C ind </ gi // i />     ::   :: AxiomInstCo   {{ com \ctor{AxiomInstCo}: Axiom application }}
   | prov < t1 , t2 > _ R ^ ( h ) ::  :: UnivCo    {{ com \ctor{UnivCo}: Universal coercion }}
     {{ tex {}_{[[prov]]}{\langle [[t1]], [[t2]] \rangle}_{[[R]]}^{[[h]]} }}
-  | < t1 , t2 > _ h         ::   :: PhantomCo     {{ com \ctor{PhantomCo}: Phantom coercion }}
-    {{ tex \langle [[t1]], [[t2]] \rangle _{[[h]]} }}
   | sym g                   ::   :: SymCo         {{ com \ctor{SymCo}: Symmetry }}
   | g1 ; g2                 ::   :: TransCo       {{ com \ctor{TransCo}: Transitivity }}
   | mu </ ti // i /> $ </ gj // j />
@@ -143,20 +140,13 @@ g {{ tex \gamma }}, h {{ tex \eta }} :: 'Coercion_' ::= {{ com Coercions, \coder
   | g @ h                   ::   :: InstCo        {{ com \ctor{InstCo}: Instantiation }}
   | g |> h                  ::   :: CoherenceCo   {{ com \ctor{CoherenceCo}: Coherence }}
   | kind g                  ::   :: KindCo        {{ com \ctor{KindCo}: Kind extraction }}
-  | kapp g                  ::   :: KindAppCo     {{ com \ctor{KindAppCo}: Kind extraction from application }}
   | sub g                   ::   :: SubCo         {{ com \ctor{SubCo}: Sub-role --- convert nominal to representational }}
   | ( g )                   :: M :: Parens        {{ com Parentheses }}
   | t $ liftingsubst        :: M :: Lifted        {{ com Type lifted to coercion }}
 
 cobndr :: 'ForAllCoBndr_' ::= {{ com Binder to quantified coercion, \coderef{types/TyCoRep.lhs}{ForAllCoBndr} }}
-  | g ( aname1 , aname2 , maybe_xname ) ::   :: ForAllCoBndr {{ com \ctor{ForAllCoBndr}: Coercion quantification }}
-    {{ tex {}_{[[g]]} ([[aname1]], [[aname2]], [[maybe_xname]]) }}
-
-maybe_xname {{ tex \ottmv{x}? }} :: 'MaybeXName_' ::= {{ com \texttt{Maybe CoVar} }}
-  | Nothing          ::   :: Nothing         {{ com \ctor{Nothing} }}
-    {{ tex \bullet }}
-  | Just xname       ::   :: Just            {{ com \ctor{Just} }}
-    {{ tex [[xname]] }}
+  | g ( aname1 , aname2 , xname ) ::   :: ForAllCoBndr {{ com \ctor{ForAllCoBndr}: Coercion quantification }}
+    {{ tex {}_{[[g]]} ([[aname1]], [[aname2]], [[xname]]) }}
 
 prov :: 'UnivCoProvenance_' ::= {{ com \ctor{UnivCo} provenance, \coderef{types/TyCoRep.lhs}{UnivCoProvenance} }}
   | UnsafeCoerceProv   ::   :: UnsafeCoerceProv  {{ com From \texttt{unsafeCoerce\#} }}
@@ -435,7 +425,7 @@ formula :: 'formula_' ::=
   | Just ( t1 , t2 ) = coaxrProves mu </ si // i /> </ ( s'j , s''j ) // j />
                                        ::   :: coaxrProves
   | mu1 = mu2                          ::   :: mu_rewrite
-                          
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  Subrules and Parsing  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -469,4 +459,3 @@ Coercion_CoVarCo <= Type_CoercionTy
 Type_unliftedEq left Var_IdOrTyVar
 
 Expr_Coercion <= Subst_TmMapping
-

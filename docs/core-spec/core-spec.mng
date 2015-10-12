@@ -170,7 +170,7 @@ We use the notation $[[t1 k1~#k2 t2]]$ to stand for $[[(~#) k1 k2 t1 t2]]$.
 
 \subsection{Coercions}
 
-\gram{\ottg\ottinterrule\ottcobndr\ottinterrule\ottmaybeXXxname}
+\gram{\ottg\ottinterrule\ottcobndr}
 
 Invariants on coercions:
 \begin{itemize}

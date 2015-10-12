@@ -146,7 +146,7 @@ prDictOfPReprInstTyCon _ty prepr_ax prepr_args
       let rhs = mkUnbranchedAxInstRHS prepr_ax prepr_args []
       dict <- prDictOfReprType' rhs
       pr_co <- mkBuiltinCo prTyCon
-      let co = mkAppCo pr_co (panic "prDictOfReprInstTyCon")
+      let co = mkAppCo pr_co
              $ mkSymCo
              $ mkUnbranchedAxInstCo Nominal prepr_ax prepr_args []
       return $ mkCast dict co

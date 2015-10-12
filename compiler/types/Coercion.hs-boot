@@ -10,7 +10,7 @@ import Pair
 
 mkReflCo :: Role -> Type -> Coercion
 mkTyConAppCo :: Role -> TyCon -> [Coercion] -> Coercion
-mkAppCo :: Coercion -> Coercion -> Coercion -> Coercion
+mkAppCo :: Coercion -> Coercion -> Coercion
 mkForAllCo :: ForAllCoBndr -> Coercion -> Coercion
 mkCoVarCo :: CoVar -> Coercion
 mkAxiomInstCo :: CoAxiom Branched -> BranchIndex -> [Coercion] -> Coercion
@@ -24,7 +24,6 @@ mkLRCo :: LeftOrRight -> Coercion -> Coercion
 mkInstCo :: Coercion -> Coercion -> Coercion
 mkCoherenceCo :: Coercion -> Coercion -> Coercion
 mkKindCo :: Coercion -> Coercion
-mkKindAppCo :: Coercion -> Coercion
 mkSubCo :: Coercion -> Coercion
 mkProofIrrelCo :: Role -> Coercion -> Coercion -> Coercion -> Coercion
 

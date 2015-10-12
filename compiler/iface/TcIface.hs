@@ -866,7 +866,7 @@ tcIfaceCo = go
     go (IfaceFunCo r c1 c2)      = mkFunCo r <$> go c1 <*> go c2
     go (IfaceTyConAppCo r tc cs)
       = TyConAppCo r <$> tcIfaceTyCon tc <*> mapM go cs
-    go (IfaceAppCo c1 h c2)      = AppCo <$> go c1 <*> go h <*> go c2
+    go (IfaceAppCo c1 c2)        = AppCo <$> go c1 <*> go c2
     go (IfaceForAllCo bndr c)    = bindIfaceBndrCo bndr $ \ cobndr ->
                                             ForAllCo cobndr <$> go c
     go (IfaceCoVarCo n)          = CoVarCo <$> go_var n
@@ -883,7 +883,6 @@ tcIfaceCo = go
     go (IfaceCoherenceCo c1 c2)  = CoherenceCo <$> go c1
                                                <*> go c2
     go (IfaceKindCo c)           = KindCo   <$> go c
-    go (IfaceKindAppCo c)        = KindAppCo<$> go c
     go (IfaceSubCo c)            = SubCo    <$> go c
     go (IfaceAxiomRuleCo ax tys cos) = AxiomRuleCo <$> go_axiom_rule ax
                                                    <*> mapM tcIfaceType tys
