@@ -54,7 +54,6 @@ module Type (
         tyConBinders,
 
         -- Analyzing types
-        analyzeType, TypeAnalysis(..),
         TyCoMapper(..), mapType, mapCoercion,
 
         -- (Newtypes)
@@ -162,8 +161,6 @@ module Type (
         pprTheta, pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprSourceTyCon,
         TyPrec(..), maybeParen, pprSigmaTypeExtraCts,
-        pprTcApp, pprPrefixApp, pprArrowChain,
-        pprTyVar,
 
         -- * Tidying type related things up for printing
         tidyType,      tidyTypes,
@@ -400,40 +397,6 @@ us to enforce the fact that any two types equal according to `eqType` are
 treated the same.
 
 -}
-
--- | This structure gives instructions for how to analyze a type, producing
--- a result of type @r@.
-data TypeAnalysis r
-  = TypeAnalysis
-      { ta_tyvar    :: TyVar -> r
-      , ta_tyconapp :: TyCon -> [Type] -> r  -- ^ does not include (->)!
-      , ta_fun      :: Type -> Type -> r
-      , ta_app      :: Type -> Type -> r     -- ^ first type is not a tycon
-      , ta_forall   :: TyVar -> VisibilityFlag -> Type -> r
-           -- ^ Only named foralls. Anon foralls are in ta_tyconapp
-      , ta_lit      :: TyLit -> r
-      , ta_cast     :: Type -> Coercion -> r
-      }
-
-analyzeType :: TypeAnalysis r -> Type -> r
-analyzeType (TypeAnalysis { ta_tyvar    = tyvar
-                          , ta_tyconapp = tyconapp
-                          , ta_fun      = fun
-                          , ta_app      = app
-                          , ta_forall   = forall
-                          , ta_lit      = lit
-                          , ta_cast     = cast })
-  = go
-  where
-    go ty | Just ty' <- coreView ty    = go ty'
-    go (TyVarTy tv)                    = tyvar tv
-    go (AppTy t1 t2)                   = app t1 t2
-    go (TyConApp tc tys)               = tyconapp tc tys
-    go (ForAllTy (Anon arg) res)       = fun arg res
-    go (ForAllTy (Named tv vis) inner) = forall tv vis inner
-    go (LitTy tylit)                   = lit tylit
-    go (CastTy ty co)                  = cast ty co
-    go (CoercionTy co)                 = pprPanic "analyzeType" (ppr co)
 
 -- | This describes how a "map" operation over a type/coercion should behave
 data TyCoMapper env m
