@@ -896,19 +896,19 @@ mkProfilingInfo dflags id val_descr
 
 getTyDescription :: Type -> String
 getTyDescription ty
-  = case (tcSplitSigmaTy ty) of
-      (_, _, tau_ty) -> analyzeType (TypeAnalysis { .. }) tau_ty
-  where
-    ta_tyvar _          = "*"
-    ta_tyconapp tycon _ = getOccString tycon
+  = case (tcSplitSigmaTy ty) of { (_, _, tau_ty) ->
+    case tau_ty of
+      TyVarTy _              -> "*"
+      AppTy fun _            -> getTyDescription fun
+      TyConApp tycon _       -> getOccString tycon
         -- TODO (RAE): Should this use isIdLikeBinder?
-    ta_fun _ res        = '-' : '>' : fun_result res
-    ta_app fun _        = getTyDescription fun
-    ta_forall _ _ ty    = getTyDescription ty
-    ta_lit n            = getTyLitDescription n
-    ta_cast ty _        = getTyDescription ty
-    ta_coercion co      = pprPanic "getTyDescription" (ppr co)
-
+      ForAllTy (Anon _) res  -> '-' : '>' : fun_result res
+      ForAllTy (Named {}) ty -> getTyDescription ty
+      LitTy n                -> getTyLitDescription n
+      CastTy ty _            -> getTyDescription ty
+      CoercionTy co          -> pprPanic "getTyDescription" (ppr co)
+    }
+  where
     fun_result (ForAllTy (Anon _) res) = '>' : fun_result res
     fun_result other                   = getTyDescription other
 
