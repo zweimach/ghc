@@ -212,8 +212,8 @@ match_ty :: MatchEnv    -- ^ For the most part this is pushed downwards
          -> Maybe TvSubstEnv
 
 match_ty menv tsubst ty1 ty2 kco
-  | Just ty1' <- coreViewOneStarKind ty1 = match_ty menv tsubst ty1' ty2 kco
-  | Just ty2' <- coreViewOneStarKind ty2 = match_ty menv tsubst ty1 ty2' kco
+  | Just ty1' <- tcView ty1 = match_ty menv tsubst ty1' ty2 kco
+  | Just ty2' <- tcView ty2 = match_ty menv tsubst ty1 ty2' kco
 
   | CastTy ty1' co <- ty1 = match_ty menv tsubst ty1' ty2 (co `mkTransCo` kco)
   | CastTy ty2' co <- ty2 = match_ty menv tsubst ty1 ty2'
