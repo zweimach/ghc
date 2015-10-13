@@ -64,7 +64,7 @@ module TcMType (
 
   zonkEvVar, zonkWC, zonkSimples, zonkId, zonkCt, zonkSkolemInfo,
 
-  tcGetGlobalTyVars,
+  tcGetGlobalTyCoVars,
 
   --------------------------------
   -- (Named) Wildcards
@@ -681,7 +681,7 @@ This is because we never want to infer a quantified covar!
 -}
 
 quantifyTyVars :: CvSubstEnv     -- any known values for covars
-               -> TcTyVarSet   -- global tvs
+               -> TcTyCoVarSet   -- global tvs
                -> ( TcTyCoVarSet     -- dependent tvs       We only distinguish
                   , TcTyCoVarSet )   -- nondependent tvs    between these for
                                        --                     -XNoPolyKinds
@@ -915,14 +915,14 @@ a \/\a in the final result but all the occurrences of a will be zonked to ()
 
 -}
 
--- | @tcGetGlobalTyVars@ returns a fully-zonked set of *scoped* tyvars free in
+-- | @tcGetGlobalTyCoVars@ returns a fully-zonked set of *scoped* tyvars free in
 -- the environment. To improve subsequent calls to the same function it writes
 -- the zonked set back into the environment. Note that this returns all
 -- variables free in anything (term-level or type-level) in scope. We thus
 -- don't have to worry about clashes with things that are not in scope, because
 -- if they are reachable, then they'll be returned here.
-tcGetGlobalTyVars :: TcM TcTyVarSet
-tcGetGlobalTyVars
+tcGetGlobalTyCoVars :: TcM TcTyVarSet
+tcGetGlobalTyCoVars
   = do { (TcLclEnv {tcl_tyvars = gtv_var}) <- getLclEnv
        ; gbl_tvs  <- readMutVar gtv_var
        ; gbl_tvs' <- zonkTyCoVarsAndFV gbl_tvs

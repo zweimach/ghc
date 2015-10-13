@@ -1108,7 +1108,7 @@ new_skolem_tv n k = mkTcTyVar n k vanillaSkolemTv
 ------------------
 kindGeneralize :: CvSubstEnv -> TyVarSet -> TcM [KindVar]
 kindGeneralize co_env tkvs
-  = do { gbl_tvs <- tcGetGlobalTyVars -- Already zonked
+  = do { gbl_tvs <- tcGetGlobalTyCoVars -- Already zonked
        ; quantifyTyVars co_env gbl_tvs (tkvs, emptyVarSet) }
 
 {-

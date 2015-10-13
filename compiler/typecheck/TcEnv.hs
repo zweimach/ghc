@@ -45,7 +45,7 @@ module TcEnv(
         tcGetDefaultTys,
 
         -- Global type variables
-        tcGetGlobalTyVars, zapLclTypeEnv,
+        tcGetGlobalTyCoVars, zapLclTypeEnv,
 
         -- Template Haskell stuff
         checkWellStaged, tcMetaTy, thLevel,

@@ -1,7 +1,5 @@
 stack:
 
-- it really should be tcGetGlobalTyCoVars!
-
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work
 

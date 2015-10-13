@@ -275,7 +275,7 @@ simplifyInfer :: TcLevel          -- Used when generating the constraints
                       TcEvBinds)  -- ... binding these evidence variables
 simplifyInfer rhs_tclvl apply_mr name_taus wanteds
   | isEmptyWC wanteds
-  = do { gbl_tvs <- tcGetGlobalTyVars
+  = do { gbl_tvs <- tcGetGlobalTyCoVars
        ; qtkvs <- quantifyTyVars emptyVarEnv gbl_tvs $
                   splitDepVarsOfTypes (map snd name_taus)
        ; traceTc "simplifyInfer: empty WC" (ppr name_taus $$ ppr qtkvs)
@@ -327,7 +327,7 @@ simplifyInfer rhs_tclvl apply_mr name_taus wanteds
               else do { let quant_cand = approximateWC wanted_transformed
                             meta_tvs   = filter isMetaTyVar (varSetElems (tyCoVarsOfCts quant_cand))
 
-                      ; gbl_tvs <- tcGetGlobalTyVars
+                      ; gbl_tvs <- tcGetGlobalTyCoVars
                             -- Miminise quant_cand.  We are not interested in any evidence
                             -- produced, because we are going to simplify wanted_transformed
                             -- again later. All we want here is the predicates over which to
@@ -510,7 +510,7 @@ decideQuantification :: CvSubstEnv         -- known covar substitutions
 decideQuantification cv_env apply_mr constraints
                      (zonked_tau_kvs, zonked_tau_tvs)
   | apply_mr     -- Apply the Monomorphism restriction
-  = do { gbl_tvs <- tcGetGlobalTyVars
+  = do { gbl_tvs <- tcGetGlobalTyCoVars
        ; let constrained_tvs = tyCoVarsOfTypes constraints `unionVarSet`
                                filterVarSet isCoVar zonked_tkvs
              mono_tvs = gbl_tvs `unionVarSet` constrained_tvs
@@ -527,7 +527,7 @@ decideQuantification cv_env apply_mr constraints
        ; return (qtvs, [], mr_bites) }
 
   | otherwise
-  = do { gbl_tvs <- tcGetGlobalTyVars
+  = do { gbl_tvs <- tcGetGlobalTyCoVars
        ; let mono_tvs     = growThetaTyVars (filter isEqPred constraints) gbl_tvs
              tau_tvs_plus = growThetaTyVars constraints zonked_tau_tvs
        ; qtvs <- quantifyTyVars cv_env mono_tvs

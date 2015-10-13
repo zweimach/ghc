@@ -158,7 +158,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
        ; let tpl_ids     = lhs_evs ++ id_bndrs
              forall_tkvs = splitDepVarsOfTypes $
                            rule_ty : map idType tpl_ids
-       ; gbls  <- tcGetGlobalTyVars   -- Even though top level, there might be top-level
+       ; gbls  <- tcGetGlobalTyCoVars -- Even though top level, there might be top-level
                                       -- monomorphic bindings from the MR; test tc111
                   -- TODO (RAE): We probably need to subst some covars here,
                   -- but I don't know enough about RULES
