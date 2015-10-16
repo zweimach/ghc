@@ -36,6 +36,8 @@ import Data.List       ( zipWith4 )
 
 Note [ForAllCo case for opt_trans_rule]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+TODO (RAE): Update note.
+
 Hold onto your hat, because this is messy.
 
 Say we have the following four coercions to hand:
@@ -102,6 +104,23 @@ checks that opt_co4 can avoid. This is a big win because Phantom coercions
 rarely appear within non-phantom coercions -- only in some TyConAppCos
 and some AxiomInstCos. We handle these cases specially by calling
 opt_co2.
+
+Note [Optimising InstCo]
+~~~~~~~~~~~~~~~~~~~~~~~~
+When we have (InstCo (ForAllCo tv h g) g2), we want to optimise. What
+we really want to do is to substitute [tv |-> g2] in g. This is bizarre,
+though, because we're substituting a type variable with a coercion. However,
+this operation already exists: it's called *lifting*, and defined in Coercion.
+
+However, there are two challenges here when compared with normal lifting.
+
+1) We already have a substitution to propagate. I have thus enhanced lifting
+contexts to contain and apply the substitution.
+
+2) We need to lift in a *coercion*. Normally lifting is done in types. Lifting
+in a coercion is just homomorphic, affecting only the types contained
+in the Refl leaves. So we have liftCoSubstCo (in Coercion) to do exactly this.
+
 -}
 
 optCoercion :: TCvSubst -> Coercion -> NormalCo
@@ -236,10 +255,10 @@ opt_co4 env sym rep r (AppCo co1 co2)
   = mkAppCo (opt_co4_wrap env sym rep r co1)
             (opt_co4_wrap env sym False Nominal co2)
 
--- See Note [Sym and ForAllCo] in TyCoRep
-opt_co4 env sym rep r (ForAllCo cobndr co)
-  = case optForAllCoBndr env sym cobndr of
-      (env', cobndr') -> mkForAllCo cobndr' (opt_co4_wrap env' sym rep r co)
+opt_co4 env sym rep r (ForAllCo name k_co co)
+  = case optForAllCoBndr env sym name k_co of
+      (env', name', k_co') -> mkForAllCo name' k_co' $
+                              opt_co4_wrap env' sym rep r co
      -- Use the "mk" functions to check for nested Refls
 
 opt_co4 env sym rep r (CoVarCo cv)
@@ -304,8 +323,10 @@ opt_co4 env sym rep r (LRCo lr co)
 
 opt_co4 env sym rep r (InstCo co1 arg)
     -- forall over type...
-  | Just (tv1, tv2, cv, co_body) <- splitForAllCo_maybe co1
-  = opt_co4_wrap (extendTCvSubstList env
+  | Just (name, kind_co, co_body) <- splitForAllCo_maybe co1
+  =
+
+  = opt_co4_wrap (extendTCvSubst_Directly env (getUnique name)
               [tv1, tv2, cv]
               [ty1', ty2', mkCoercionTy arg'])
               -- See Note [Sym and InstCo]
@@ -951,9 +972,7 @@ and these two imply
 
 -}
 
--- params like opt_co4
-optForAllCoBndr :: TCvSubst
-                -> SymFlag
-                -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
+optForAllCoBndr :: TCvSubst -> Bool
+                -> Name -> Coercion -> (TCvSubst, Name, Coercion)
 optForAllCoBndr env sym
-  = substForAllCoBndrCallback sym substTy (opt_co4 env sym False Nominal) env
+  = substForAllCoBndrCallback sym (opt_co4 env sym False Nominal) env

@@ -1139,23 +1139,15 @@ lintCoercion co@(AppCo co1 co2)
        ; return (k3, k4, mkAppTy s1 t1, mkAppTy s2 t2, r1) }
 
 ----------
+lintCoercion g@(ForAllCo name kind_co co)
 lintCoercion g@(ForAllCo bndr@(ForAllCoBndr h tv1 tv2 cv) co)
-  = do { checkL (tv1 /= tv2) (mkDuplicateForAllCoVarsMsg tv1 g)
-       ; (k3, k4, t1, t2, r) <- addInScopeVars (coBndrVars bndr) $
-                                lintCoercion co
-       ; (k1, k2) <- lintStarCoercion h
-       ; ensureEqTys k1 (tyVarKind tv1) (mkBadHeteroVarMsg CLeft k1 tv1 g)
-       ; ensureEqTys k2 (tyVarKind tv2) (mkBadHeteroVarMsg CRight k2 tv2 g)
-       ; ensureEqTys (mkCoercionType Nominal (mkTyVarTy tv1)
-                                             (mkTyVarTy tv2))
-                     (coVarKind cv)
-                     (mkBadHeteroCoVarMsg tv1 tv2 cv g)
+  = do { (k1, k2) <- lintStarCoercion kind_co
+       ; let tv1 = mkTyVar name k1
+             tv2 = mkTyVar name k2
+       ; (k3, k4, t1, t2, r) <- addInScopeVar tv1 $ lintCoercion co
        ; let tyl = mkNamedForAllTy tv1 Invisible t1
-       ; let tyr = mkNamedForAllTy tv2 Invisible t2
-       ; k3' <- lintType tyl
-       ; k4' <- lintType tyr
-       ; ensureEqTys k3 k3' (mkBadForAllKindMsg CLeft co k3 k3')
-       ; ensureEqTys k4 k4' (mkBadForAllKindMsg CRight co k4 k4')
+             tyr = mkNamedForAllTy tv2 Invisible $
+                   substTyWith [tv1] [tv2 `mkCastTy` mkSymCo kind_co] t2
        ; return (k3, k4, tyl, tyr, r) }
 
 lintCoercion (CoVarCo cv)
@@ -1788,39 +1780,11 @@ mkCastErr expr co from_ty expr_ty
           ptext (sLit "Coercion used in cast:") <+> ppr co
          ]
 
-mkBadHeteroVarMsg :: LeftOrRight -> Type -> TyVar -> Coercion -> MsgDoc
-mkBadHeteroVarMsg lr k tv g
-  = hang (ptext (sLit "Kind mismatch in") <+> pprLeftOrRight lr <+>
-                ptext (sLit "side of hetero quantification:"))
-       2 (vcat [ptext (sLit "Var:") <+> ppr tv,
-                ptext (sLit "Expected kind:") <+> ppr k,
-                ptext (sLit "In coercion:") <+> ppr g])
-
-mkBadHeteroCoVarMsg :: TyVar -> TyVar -> CoVar -> Coercion -> MsgDoc
-mkBadHeteroCoVarMsg tv1 tv2 cv g
-  = hang (ptext (sLit "Coercion variable mismatch in hetero quantification:"))
-       2 (vcat [ptext (sLit "TyVars:") <+> ppr tv1 <> comma <+> ppr tv2,
-                ptext (sLit "CoVar:") <+> ppr cv,
-                ptext (sLit "In coercion:") <+> ppr g])
-
-mkDuplicateForAllCoVarsMsg :: TyVar -> Coercion -> MsgDoc
-mkDuplicateForAllCoVarsMsg tv co
-  = hang (text "Repeated variable in forall coercion:" <+> ppr tv)
-       2 (sep [ text "In the coercion:"
-              , ppr co ])
-
 mkNthIsCoMsg :: LeftOrRight -> Coercion -> MsgDoc
 mkNthIsCoMsg lr co
   = ptext (sLit "Coercion") <+> (ppr co) <+>
     ptext (sLit "yields a coercion on the") <+> pprLeftOrRight lr <+>
     ptext (sLit "side")
-
-mkBadForAllKindMsg :: LeftOrRight -> Coercion -> Kind -> Kind -> SDoc
-mkBadForAllKindMsg lr co co_kind ty_kind
-  = (ptext (sLit "Kind mismatch on the") <+> pprLeftOrRight lr <+>
-      ptext (sLit "side of the coercion") <+> ppr co)  $$
-    (ptext (sLit "Coercion kind:") <+> ppr co_kind) $$
-    (ptext (sLit "Forall type kind:") <+> ppr ty_kind)
 
 mkBadUnivCoMsg :: LeftOrRight -> Coercion -> SDoc
 mkBadUnivCoMsg lr co

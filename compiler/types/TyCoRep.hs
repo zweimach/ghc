@@ -512,8 +512,8 @@ data Coercion
           -- AppCo :: e -> N -> e
 
   -- See Note [Forall coercions]
-  | ForAllCo ForAllCoBndr Coercion
-         -- ForAllCo :: N -> e -> e
+  | ForAllCo Name Coercion Coercion
+         -- ForAllCo :: _ -> N -> e -> e
 
   -- These are special
   | CoVarCo CoVar      -- :: _ -> (N or R)
@@ -1404,43 +1404,37 @@ how do we push sym into a ForAllCo? It's a little ugly.
 Here is the typing rule:
 
 h : k1 ~# k2
-tv1 : k1              tv2 : k2
-cv : tv1 ~# tv2
-tv1, tv2, cv |- g : ty1 ~# ty2
-ForAllTy tv1 ty1 : *
-ForAllTy tv2 ty2 : *
------------------------------------------------------------------------------
-ForAllCo (ForAllCoBndr h tv1 tv2 cv) g : (ForAllTy tv1 ty1) ~# (ForAllTy tv2 ty2)
+(nm : k1) |- g : ty1 ~# ty2
+----------------------------
+ForAllCo nm h g : (ForAllTy (nm : k1) ty1) ~#
+                  (ForAllTy (nm : k2) (ty2[nm |-> nm |> sym h]))
 
 Here is what we want:
 
-ForAllCo (ForAllCoBndr h' tv1' tv2' cv') g' :
-  (ForAllTy tv2 ty2) ~# (ForAllTy tv1 ty1)
+ForAllCo nm h' g' : (ForAllTy (nm : k2) (ty2[nm |-> nm |> sym h])) ~#
+                    (ForAllTy (nm : k1) ty1)
+
 
 Because the kinds of the type variables to the right of the colon are the kinds
 coerced by h', we know (h' : k2 ~# k1). Thus, (h' = sym h).
 
-Then, because the kinds of the type variables in the bindr are related by
-the coercion (i.e. h'), we need to swap these type variables:
-(tv2' = tv1) and (tv1' = tv2).
+Now, we can rewrite ty1 to be (ty1[nm |-> nm |> sym h' |> h']). We thus want
 
-Then, because the coercion variable must coerce the two type
-variables, *in order*, that appear in the binder, we must have
-(cv' : tv1' ~# tv2') = (cv' : tv2 ~# tv1).
+ForAllCo nm h' g' :
+  (ForAllTy (nm : k2) (ty2[nm |-> nm |> h'])) ~#
+  (ForAllTy (nm : k1) (ty1[nm |-> nm |> h'][nm |-> nm |> sym h']))
 
-But, g is well-typed only in a context where (cv : tv1 ~# tv2). So, to use
-cv' in g, we must perform the substitution [cv |-> sym cv'].
+We thus see that we want
 
-Lastly, to get ty1 and ty2 to work out, we must apply sym to g.
+g' : ty2[nm |-> nm |> h'] ~# ty1[nm |-> nm |> h']
+
+and thus g' = sym (g[nm |-> nm |> h']).
 
 Putting it all together, we get this:
 
-sym (ForAllCo (ForAllCoBndr h tv1 tv2 cv) g)
+sym (ForAllCo nm h g)
 ==>
-ForAllCo (ForAllCoBndr (sym h) tv2 tv1 (cv' : tv2 ~# tv1)) (sym (g[cv |-> sym cv']))
-
-This is done in opt_co (in OptCoercion), supported by substForAllCoBndrCallback
-and substCoVarBndrCallback.
+ForAllCo nm (sym h) (sym g[nm |-> nm |> sym h])
 
 -}
 
@@ -1582,23 +1576,36 @@ subst_co subst co
                                 in ts1 `seqList` cs1 `seqList`
                                    AxiomRuleCo c ts1 cs1
 
-substForAllCoBndr :: TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
+substForAllCoBndr :: TCvSubst -> Name -> Coercion -> (TCvSubst, Name, Coercion)
 substForAllCoBndr subst
-  = substForAllCoBndrCallback False substTy (substCo subst) subst
+  = substForAllCoBndrCallback False (substCo subst) subst
 
 -- See Note [Sym and ForAllCo]
-substForAllCoBndrCallback :: Bool -- apply "sym" to the binder?
-                          -> (TCvSubst -> Type -> Type)
+substForAllCoBndrCallback :: Bool  -- apply sym to binder?
                           -> (Coercion -> Coercion)  -- transformation to kind co
-                          -> TCvSubst -> ForAllCoBndr -> (TCvSubst, ForAllCoBndr)
-substForAllCoBndrCallback sym sty sco subst (ForAllCoBndr h tv1 tv2 cv)
-  = case substTyVarBndrCallback     sty subst  tv1 of { (subst1, tv1') ->
-    case substTyVarBndrCallback     sty subst1 tv2 of { (subst2, tv2') ->
-    case substCoVarBndrCallback sym sty subst2 cv  of { (subst3, cv') ->
-    let h' = sco h in
-    if sym
-    then (subst3, mkForAllCoBndr h' tv2' tv1' cv')
-    else (subst3, mkForAllCoBndr h' tv1' tv2' cv') }}}
+                          -> TCvSubst -> Name -> Coercion
+                          -> (TCvSubst, Name, Coercion)
+substForAllCoBndrCallback sym sco subst old_name old_kind_co
+  = ( TCvSubst (in_scope `extendInScopeSet` new_var) new_env cenv
+    , new_name, new_kind_co )
+  where
+    old_unique = getUnique old_name
+
+    new_env | no_change && not sym = delVarEnvByKey tenv old_unique
+            | sym       = extendVarEnv_Directly tenv old_unique $
+                            TyVarTy new_var `CastTy` new_kind_co
+            | otherwise = extendVarEnv_Directly tenv old_unique (TyVarTy new_var)
+
+    no_kind_change = isEmptyVarSet (tyCoVarsOfCo old_kind_co)
+    no_change = no_kind_change && (getUnique new_name == old_unique)
+
+    new_kind_co | no_kind_change = old_kind_co
+                | otherwise      = sco old_kind_co
+
+    Pair new_ki1 _ = coercionKind new_kind_co
+
+    new_var  = uniqAway in_scope (mkTyVar old_name new_ki1)
+    new_name = getName new_var
 
 substCoVar :: TCvSubst -> CoVar -> Coercion
 substCoVar (TCvSubst _ _ cenv) cv

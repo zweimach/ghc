@@ -1928,7 +1928,7 @@ tryEtaReduce bndrs body
     -- See Note [Eta reduction with casted arguments]
     ok_arg bndr (Type ty) co
        | Just tv <- getTyVar_maybe ty
-       , bndr == tv  = Just (mkHomoForAllCos Representational [tv] co, [])
+       , bndr == tv  = Just (mkHomoForAllCos [tv] co, [])
     ok_arg bndr (Var v) co
        | bndr == v   = let reflCo = mkRepReflCo (idType bndr)
                        in Just (mkFunCo Representational reflCo co, [])

@@ -125,7 +125,8 @@ g {{ tex \gamma }}, h {{ tex \eta }} :: 'Coercion_' ::= {{ com Coercions, \coder
     {{ tex {\langle [[t]] \rangle}_{[[R]]} }}
   | T RA </ gi // i />      ::   :: TyConAppCo    {{ com \ctor{TyConAppCo}: Type constructor application }}
   | g1 g2                   ::   :: AppCo         {{ com \ctor{AppCo}: Application }}
-  | forall cobndr . g       ::   :: ForAllCo      {{ com \ctor{ForAllCo}: Polymorphism }}
+  | forall z : h . g        ::   :: ForAllCo      {{ com \ctor{ForAllCo}: Polymorphism }}
+    {{ tex [[forall]] [[z]]{:}[[h]].[[g]] }}
   | n                       ::   :: CoVarCo       {{ com \ctor{CoVarCo}: Variable }}
   | C ind </ gi // i />     ::   :: AxiomInstCo   {{ com \ctor{AxiomInstCo}: Axiom application }}
   | prov < t1 , t2 > _ R ^ ( h ) ::  :: UnivCo    {{ com \ctor{UnivCo}: Universal coercion }}
@@ -143,10 +144,6 @@ g {{ tex \gamma }}, h {{ tex \eta }} :: 'Coercion_' ::= {{ com Coercions, \coder
   | sub g                   ::   :: SubCo         {{ com \ctor{SubCo}: Sub-role --- convert nominal to representational }}
   | ( g )                   :: M :: Parens        {{ com Parentheses }}
   | t $ liftingsubst        :: M :: Lifted        {{ com Type lifted to coercion }}
-
-cobndr :: 'ForAllCoBndr_' ::= {{ com Binder to quantified coercion, \coderef{types/TyCoRep.lhs}{ForAllCoBndr} }}
-  | g ( aname1 , aname2 , xname ) ::   :: ForAllCoBndr {{ com \ctor{ForAllCoBndr}: Coercion quantification }}
-    {{ tex {}_{[[g]]} ([[aname1]], [[aname2]], [[xname]]) }}
 
 prov :: 'UnivCoProvenance_' ::= {{ com \ctor{UnivCo} provenance, \coderef{types/TyCoRep.lhs}{UnivCoProvenance} }}
   | UnsafeCoerceProv   ::   :: UnsafeCoerceProv  {{ com From \texttt{unsafeCoerce\#} }}
@@ -236,6 +233,7 @@ kinded_types {{ tex \overline{(\sigma_i : \kappa_i)}^i }} :: 'Kinded_Types_' ::=
 subst :: 'Subst_' ::= {{ com List of substitutions }}
   | [ n |-> t ]        ::   :: TyMapping
   | [ n |-> e ]        ::   :: TmMapping
+  | [ z |-> t ]        ::   :: TyMapping_Raw
   | </ substi // i />  ::   :: List
   | empty              :: M :: Empty
 
@@ -459,3 +457,5 @@ Coercion_CoVarCo <= Type_CoercionTy
 Type_unliftedEq left Var_IdOrTyVar
 
 Expr_Coercion <= Subst_TmMapping
+
+Type_CastTy <= Var_IdOrTyVar

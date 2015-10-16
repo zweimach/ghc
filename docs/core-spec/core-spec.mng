@@ -170,7 +170,7 @@ We use the notation $[[t1 k1~#k2 t2]]$ to stand for $[[(~#) k1 k2 t1 t2]]$.
 
 \subsection{Coercions}
 
-\gram{\ottg\ottinterrule\ottcobndr}
+\gram{\ottg}
 
 Invariants on coercions:
 \begin{itemize}
@@ -183,14 +183,7 @@ be a type function.
 \item The name in a coercion must be a term-level name (\ctor{Id}).
 \item The contents of $[[<t>_R]]$ must not be a coercion. In other words,
 the payload in a \texttt{Refl} must not be built with \texttt{CoercionTy}.
-\item The two type variables in a \texttt{ForAllCoBndr} must be distinct.
 \end{itemize}
-
-The form for $[[cobndr]]$ mention the use of type-level names $[[aname]]$ and
-term-level names $[[xname]]$. These uses in the definition above are an aid to the
-reader. In GHC, these arguments to the \texttt{ForAllCoBndr} constructors are just
-\texttt{Var}s, which this document represents as $[[n]]$. See the typing rules for
-these forms to see how the variables are used.
 
 The \texttt{UnivCo} constructor takes several arguments: the two types coerced
 between, a coercion relating these types' kinds, a role for the universal coercion,

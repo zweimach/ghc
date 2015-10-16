@@ -14,7 +14,7 @@ module IfaceType (
         IfaceTyLit(..), IfaceTcArgs(..),
         IfaceContext, IfaceBndr(..), IfaceOneShot(..), IfaceLamBndr,
         IfaceTvBndr, IfaceIdBndr,
-        IfaceForAllBndr(..), IfaceForAllCoBndr(..), VisibilityFlag(..),
+        IfaceForAllBndr(..), VisibilityFlag(..),
 
         -- Conversion from Type -> IfaceType
         toIfaceType, toIfaceTypes, toIfaceKind, toIfaceTyVar,
@@ -153,7 +153,7 @@ data IfaceCoercion
   | IfaceFunCo        Role IfaceCoercion IfaceCoercion
   | IfaceTyConAppCo   Role IfaceTyCon [IfaceCoercion]
   | IfaceAppCo        IfaceCoercion IfaceCoercion
-  | IfaceForAllCo     IfaceForAllCoBndr IfaceCoercion
+  | IfaceForAllCo     IfLclName IfaceCoercion IfaceCoercion
   | IfaceCoVarCo      IfLclName
   | IfaceAxiomInstCo  IfExtName BranchIndex [IfaceCoercion]
   | IfaceUnivCo       UnivCoProvenance Role IfaceCoercion IfaceType IfaceType
@@ -166,9 +166,6 @@ data IfaceCoercion
   | IfaceKindCo       IfaceCoercion
   | IfaceSubCo        IfaceCoercion
   | IfaceAxiomRuleCo  IfLclName [IfaceType] [IfaceCoercion]
-
-data IfaceForAllCoBndr
-  = IfaceCoBndr IfaceCoercion IfaceTvBndr IfaceTvBndr IfaceIdBndr
 
 {-
 %************************************************************************
@@ -242,16 +239,6 @@ ifTyVarsOfForAllBndr :: IfaceForAllBndr
                         , [IfLclName] )       -- names bound by this binder
 ifTyVarsOfForAllBndr (IfaceTv (name, kind) _) = (ifTyVarsOfType kind, [name])
 
-ifTyVarsOfForAllCoBndr :: IfaceForAllCoBndr
-                       -> ( UniqSet IfLclName
-                          , [IfLclName] )
-ifTyVarsOfForAllCoBndr (IfaceCoBndr eta (tv1, kind1) (tv2, kind2) (cv, _))
-  = ( unionManyUniqSets [ ifTyVarsOfCoercion eta
-                        , ifTyVarsOfType kind1
-                        , ifTyVarsOfType kind2 ]
-    , [cv, tv1, tv2] )
-  -- don't need to check cv's kind because it always mentions just tv1 and tv2
-
 ifTyVarsOfArgs :: IfaceTcArgs -> UniqSet IfLclName
 ifTyVarsOfArgs args = argv emptyUniqSet args
    where
@@ -266,9 +253,8 @@ ifTyVarsOfCoercion = go
     go (IfaceFunCo _ c1 c2)       = go c1 `unionUniqSets` go c2
     go (IfaceTyConAppCo _ _ cos)  = ifTyVarsOfCoercions cos
     go (IfaceAppCo c1 c2)         = go c1 `unionUniqSets` go c2
-    go (IfaceForAllCo bndr co)
-     = let (free, bound) = ifTyVarsOfForAllCoBndr bndr in
-        go co `delListFromUniqSet` bound `unionUniqSets` free
+    go (IfaceForAllCo bound kind_co co)
+     = go co `delListFromUniqSet` bound `unionUniqSets` go kind_co
     go (IfaceCoVarCo cv)          = unitUniqSet cv
     go (IfaceAxiomInstCo _ _ cos) = ifTyVarsOfCoercions cos
     go (IfaceUnivCo _ _ h ty1 ty2)= go h `unionUniqSets`
@@ -530,7 +516,7 @@ instance Outputable IfaceForAllBndr where
 pprIfaceForAllPart :: [IfaceForAllBndr] -> [IfaceType] -> SDoc -> SDoc
 pprIfaceForAllPart tvs ctxt sdoc = ppr_iface_forall_part False tvs ctxt sdoc
 
-pprIfaceForAllCoPart :: [IfaceForAllCoBndr] -> SDoc -> SDoc
+pprIfaceForAllCoPart :: [(IfLclName, IfaceCoercion)] -> SDoc -> SDoc
 pprIfaceForAllCoPart tvs sdoc = sep [ pprIfaceForAllCo tvs
                                     , sdoc ]
 
@@ -547,26 +533,23 @@ pprIfaceForAll :: [IfaceForAllBndr] -> SDoc
 pprIfaceForAll []  = empty
 pprIfaceForAll tvs = ptext (sLit "forall") <+> pprIfaceForAllBndrs tvs <> dot
 
-pprIfaceForAllCo :: [IfaceForAllCoBndr] -> SDoc
+pprIfaceForAllCo :: [(IfLclName, IfaceCoercion)] -> SDoc
 pprIfaceForAllCo []  = empty
 pprIfaceForAllCo tvs = text "forall" <+> pprIfaceForAllCoBndrs tvs <> dot
 
 pprIfaceForAllBndrs :: [IfaceForAllBndr] -> SDoc
 pprIfaceForAllBndrs bndrs = hsep $ map pprIfaceForAllBndr bndrs
 
-pprIfaceForAllCoBndrs :: [IfaceForAllCoBndr] -> SDoc
+pprIfaceForAllCoBndrs :: [(IfLclName, IfaceCoercion)] -> SDoc
 pprIfaceForAllCoBndrs bndrs = hsep $ map pprIfaceForAllCoBndr bndrs
 
 pprIfaceForAllBndr :: IfaceForAllBndr -> SDoc
  -- TODO (RAE): Make this work correctly.
 pprIfaceForAllBndr (IfaceTv tv _) = pprIfaceTvBndr tv
 
-pprIfaceForAllCoBndr :: IfaceForAllCoBndr -> SDoc
-pprIfaceForAllCoBndr (IfaceCoBndr co tv1 tv2 cv)
-  =  brackets (pprIfaceCoercion co)
-  <> parens (sep (punctuate comma [pprIfaceTvBndr tv1,
-                                   pprIfaceTvBndr tv2,
-                                   pprIfaceIdBndr cv]))
+pprIfaceForAllCoBndr :: (IfLclName, IfaceCoercion) -> SDoc
+pprIfaceForAllCoBndr (tv, kind_co)
+  = parens (ppr tv <+> dcolon <+> pprIfaceCoercion kind_co)
 
 pprIfaceSigmaType :: IfaceType -> SDoc
 pprIfaceSigmaType ty = ppr_iface_sigma_type False ty
@@ -717,8 +700,8 @@ ppr_co ctxt_prec co@(IfaceForAllCo _ _)
   where
     (tvs, inner_co) = split_co co
 
-    split_co (IfaceForAllCo tv co')
-      = let (tvs, co'') = split_co co' in (tv:tvs,co'')
+    split_co (IfaceForAllCo name kind_co co')
+      = let (tvs, co'') = split_co co' in ((name,kind_co):tvs,co'')
     split_co co' = ([], co')
 
 ppr_co _         (IfaceCoVarCo covar)       = ppr covar
@@ -813,20 +796,6 @@ instance Binary IfaceForAllBndr where
      tv <- get bh
      vis <- get bh
      return (IfaceTv tv vis)
-
-instance Binary IfaceForAllCoBndr where
-   put_ bh (IfaceCoBndr co tv1 tv2 cv) = do
-     put_ bh co
-     put_ bh tv1
-     put_ bh tv2
-     put_ bh cv
-
-   get bh = do
-     co  <- get bh
-     tv1 <- get bh
-     tv2 <- get bh
-     cv  <- get bh
-     return (IfaceCoBndr co tv1 tv2 cv)
 
 instance Binary IfaceTcArgs where
   put_ bh tk =
@@ -940,10 +909,11 @@ instance Binary IfaceCoercion where
           putByte bh 4
           put_ bh a
           put_ bh b
-  put_ bh (IfaceForAllCo a b) = do
+  put_ bh (IfaceForAllCo a b c) = do
           putByte bh 5
           put_ bh a
           put_ bh b
+          put_ bh c
   put_ bh (IfaceCoVarCo a) = do
           putByte bh 6
           put_ bh a
@@ -1013,7 +983,8 @@ instance Binary IfaceCoercion where
                    return $ IfaceAppCo a b
            5 -> do a <- get bh
                    b <- get bh
-                   return $ IfaceForAllCo a b
+                   c <- get bh
+                   return $ IfaceForAllCo a b c
            6 -> do a <- get bh
                    return $ IfaceCoVarCo a
            7 -> do a <- get bh
@@ -1138,7 +1109,8 @@ toIfaceCoercion (TyConAppCo r tc cos)
                                                         (map toIfaceCoercion cos)
 toIfaceCoercion (AppCo co1 co2)     = IfaceAppCo  (toIfaceCoercion co1)
                                                   (toIfaceCoercion co2)
-toIfaceCoercion (ForAllCo cobndr co)= IfaceForAllCo (toIfaceForAllCoBndr cobndr)
+toIfaceCoercion (ForAllCo name k co)= IfaceForAllCo (occNameFS (getOccName name))
+                                                    (toIfaceCoercion k)
                                                     (toIfaceCoercion co)
 toIfaceCoercion (CoVarCo cv)        = IfaceCoVarCo  (toIfaceCoVar cv)
 toIfaceCoercion (AxiomInstCo con ind cos)
@@ -1162,10 +1134,3 @@ toIfaceCoercion (AxiomRuleCo co ts cs) = IfaceAxiomRuleCo
                                           (coaxrName co)
                                           (map toIfaceType ts)
                                           (map toIfaceCoercion cs)
-
-toIfaceForAllCoBndr :: ForAllCoBndr -> IfaceForAllCoBndr
-toIfaceForAllCoBndr (ForAllCoBndr co tv1 tv2 cv)
-  = IfaceCoBndr (toIfaceCoercion co)
-                (toIfaceTvBndr tv1)
-                (toIfaceTvBndr tv2)
-                (toIfaceIdBndr cv)

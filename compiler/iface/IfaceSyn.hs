@@ -1169,8 +1169,8 @@ freeNamesIfCoercion (IfaceTyConAppCo _ tc cos)
   = freeNamesIfTc tc &&& fnList freeNamesIfCoercion cos
 freeNamesIfCoercion (IfaceAppCo c1 c2)
   = freeNamesIfCoercion c1 &&& freeNamesIfCoercion c2
-freeNamesIfCoercion (IfaceForAllCo tv co)
-  = freeNamesIfForAllCoBndr tv &&& freeNamesIfCoercion co
+freeNamesIfCoercion (IfaceForAllCo _ kind_co co)
+  = freeNamesIfCoercion kind_co &&& freeNamesIfCoercion co
 freeNamesIfCoercion (IfaceCoVarCo _)
   = emptyNameSet
 freeNamesIfCoercion (IfaceAxiomInstCo ax _ cos)
@@ -1203,11 +1203,6 @@ freeNamesIfTvBndrs = fnList freeNamesIfTvBndr
 
 freeNamesIfForAllBndr :: IfaceForAllBndr -> NameSet
 freeNamesIfForAllBndr (IfaceTv tv _) = freeNamesIfTvBndr tv
-
-freeNamesIfForAllCoBndr :: IfaceForAllCoBndr -> NameSet
-freeNamesIfForAllCoBndr (IfaceCoBndr h tv1 tv2 cv)
-  = freeNamesIfCoercion h &&& freeNamesIfTvBndrs [tv1, tv2] &&&
-    freeNamesIfIdBndr cv
 
 freeNamesIfBndr :: IfaceBndr -> NameSet
 freeNamesIfBndr (IfaceIdBndr b) = freeNamesIfIdBndr b

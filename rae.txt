@@ -1,4 +1,12 @@
 stack:
+ - removed tcCoBndrKind
+ - removed tcCoBndrKindCo
+ - removed tcCoBndrVars
+ - probably don't need mkFreshCoVar
+ - liftCoSubstVarBndr
+ - removed coBndrKind coBndrKindCo coBndrVars
+ - buildCoherenceCo
+ - substForAllCoBndrCallback
 
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work
@@ -51,6 +59,8 @@ result ty, or (3) do something else. I want SPJ's input, as both (1)
 and (2) are terrible.
 
 fix:
+  - break out NthCo into ForAllKindCo
+
   - implement better dependency checking
   - implement StarInStar (or other name) extension
 

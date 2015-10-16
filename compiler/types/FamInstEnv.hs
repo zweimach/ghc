@@ -964,32 +964,10 @@ Type) pairs.
 
 We also benefit because we can piggyback on the liftCoSubstVarBndr function to
 deal with binders. However, I had to modify that function to work with this
-application in two ways. Thus, we now how liftCoSubstVarBndrCallback that
-takes two customisations implementing the following differences with lifting:
-
-* liftCoSubstVarBndr has to process the kind of the binder. We don't wish
+application. Thus, we now have liftCoSubstVarBndrCallback, which takes
+a function used to process the kind of the binder. We don't wish
 to lift the kind, but instead normalise it. So, we pass in a callback function
 that processes the kind of the binder.
-
-* liftCoSubstVarBndr is happy to deal with heterogeneous coercions. But, we
-here require *homogeneous* coercions. Why? A normalisation is essentially a
-substitutive operation -- we need to be able to substitute a resultant type in
-the place where the original type appears. Thus, all coercions returned in
-normaliseType must be *homogeneous*, so the substitution type-checks. When
-liftCoSubstVarBndr discovers that the kind of the (type variable) binder
-(we'll call the type variable alpha) has changed (let's call the one with the
-new kind beta and the coercion between the kinds eta), it uses a hetero
-ForAllCoBndr, necessary to build a coercion between two ForAllTys whose (type)
-binders have different kinds. The last component of a ForAllCoBndr is a coercion
-variable (call it zeta) that witnesses the (heterogeneous) equality between
-the two type variables in question (i.e., zeta :: alpha ~# beta). In a lifting
-operation, alpha will be mapped to this coercion variable. In normalisation,
-this won't do, because zeta is a *heterogeneous* coercion. So, we homogenize
-zeta by casting the kind of its right-hand type to match that of its left-hand
-type. That is, we make the mapping
-  [alpha |-> zeta `mkCoherenceRightCo` (sym eta)]
-. Thus, alpha maps to a coercion with type (alpha ~# beta |> sym eta), which
-is *homogeneous*. Hurrah.
 
 After that brilliant explanation of all this, I'm sure you've forgotten the
 dangling reference to coercion variables. What do we do with those? Nothing at
@@ -1000,31 +978,6 @@ coercion. Because coercions are irrelevant anyway, there is no point in doing
 this. So, whenever we encounter a coercion, we just say that it won't change.
 That's what the CoercionTy case is doing within normalise_type.
 
-There is still the possibility that the kind of a coercion variable mentions
-a type family and will change in normaliseTyVarBndr. So, we must perform
-the same sort of homogenisation that we did for type variables. Let's use
-the same names as before:
-  alpha is our original coercion variable, alpha :: s1 ~# t1
-  beta is our new coercion variable, beta :: s2 ~# t2
-  eta is the coercion between the kinds, eta :: (s1 ~# t1) ~# (s2 ~# t2)
-  zeta does not exist -- there is no coercion among coercions.
-We must form some coercion, not involving alpha, with type (s1 ~# t1). It
-should look something like this:
-  g1 ; beta ; g2 :: s1 ~# t1
-From this guess, we can see:
-  g1 :: s1 ~# s2
-  g2 :: t2 ~# t1
-It looks like we can extract those from eta. Let's rewrite eta's type:
-  eta :: ((~#) _ _ s1 t1) ~# ((~#) _ _ s2 t2)
-where those underscores are kinds that we don't care about. Now, it is
-easy to see that (nth:2 eta) :: s1 ~# s2 and (nth:3 eta) :: t1 ~# t2.
-So, we can derive:
-  g1 = nth:2 eta
-  g2 = nth:3 (sym eta)
-And, so we use the following mapping:
-  [alpha |-> (alpha, nth:2 eta ; beta ; nth:3 (sym eta))]
-Hurrah again. This last bit is implemented in liftCoSubstVarBndrCallback
-in Coercion.
 -}
 
 topNormaliseType :: FamInstEnvs -> Type -> Type
@@ -1169,10 +1122,10 @@ normalise_type
            ; r <- getRole
            ; return (mkFunCo r co1 co2, mkFunTy nty1 nty2) }
     go (ForAllTy (Named tyvar vis) ty)
-      = do { (lc', cobndr) <- normalise_tyvar_bndr tyvar
-           ; (co, nty)     <- withLC lc' $ normalise_type ty
-           ; let Pair _ tyvar' = coBndrKind cobndr
-           ; return (mkForAllCo cobndr co, mkNamedForAllTy tyvar' vis nty) }
+      = do { (lc', nm, h) <- normalise_tyvar_bndr tyvar
+           ; (co, nty)    <- withLC lc' $ normalise_type ty
+           ; let tyvar' = mkTyVar nm (pSnd $ coercionKind h)
+           ; return (mkForAllCo nm h co, mkNamedForAllTy tyvar' vis nty) }
     go (TyVarTy tv)    = normalise_tyvar tv
     go (CastTy ty co)
       = do { (nco, nty) <- go ty
@@ -1198,7 +1151,7 @@ normalise_tyvar tv
            Nothing -> (mkReflCo r ty, ty) }
   where ty = mkTyVarTy tv
 
-normalise_tyvar_bndr :: TyVar -> NormM (LiftingContext, ForAllCoBndr)
+normalise_tyvar_bndr :: TyVar -> NormM (LiftingContext, Name, Coercion)
 normalise_tyvar_bndr tv
   = do { lc1 <- getLC
        ; env <- getEnv
@@ -1207,12 +1160,10 @@ normalise_tyvar_bndr tv
                = let (cvs, (co, _)) = runNormM (normalise_type ty)
                                                env lc Nominal agg
                  in (co, cvs)
-             (lc', cobndr, cvs)
-               = liftCoSubstVarBndrCallback callback True lc1 tv
-                   -- the True there means that we want homogeneous coercions
-                   -- See Note [Normalising types]
+             (lc', name, kind_co, cvs)
+               = liftCoSubstVarBndrCallback callback lc1 tv
        ; emitCoVars cvs
-       ; return (lc', cobndr) }
+       ; return (lc', name, kind_co) }
 
 -- | a monad for the normalisation functions, reading 'FamInstEnvs',
 -- a 'LiftingContext', a 'Role', and writing a 'CoVarSet'.
@@ -1438,9 +1389,10 @@ allTyVarsInTy = go
     go_co (Refl _ ty)           = go ty
     go_co (TyConAppCo _ _ args) = go_cos args
     go_co (AppCo co arg)        = go_co co `unionVarSet` go_co arg
-    go_co (ForAllCo cobndr co)  = unionVarSets [ mkVarSet (coBndrVars cobndr)
-                                               , go_co co
-                                               , go_co (coBndrKindCo cobndr) ]
+    go_co (ForAllCo nm h co)
+      = unionVarSets [ unitVarSet (mkTyVar nm (pFst $ coercionKind h))
+                     , go_co co
+                     , go_co (coBndrKindCo cobndr) ]
     go_co (CoVarCo cv)          = unitVarSet cv
     go_co (AxiomInstCo _ _ cos) = go_cos cos
     go_co (UnivCo _ _ h t1 t2)  = go_co h `unionVarSet` go t1 `unionVarSet` go t2

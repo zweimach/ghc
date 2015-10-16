@@ -867,8 +867,11 @@ tcIfaceCo = go
     go (IfaceTyConAppCo r tc cs)
       = TyConAppCo r <$> tcIfaceTyCon tc <*> mapM go cs
     go (IfaceAppCo c1 c2)        = AppCo <$> go c1 <*> go c2
-    go (IfaceForAllCo bndr c)    = bindIfaceBndrCo bndr $ \ cobndr ->
-                                            ForAllCo cobndr <$> go c
+    go (IfaceForAllCo name k c)  = do { k' <- go k
+                                      ; bindIfaceTyVar
+                                          (name, pFst (coercionKind k')) $
+                                        \ tv -> ForAllCo (tyVarName tv)
+                                                         k' <$> go c }
     go (IfaceCoVarCo n)          = CoVarCo <$> go_var n
     go (IfaceAxiomInstCo n i cs) = AxiomInstCo <$> tcIfaceCoAxiom n <*> pure i <*> mapM go cs
     go (IfaceUnivCo p r h t1 t2) = UnivCo p r <$> go h <*> tcIfaceType t1
@@ -1309,14 +1312,6 @@ bindIfaceBndrs (b:bs) thing_inside
 bindIfaceBndrTy :: IfaceForAllBndr -> (TyVar -> VisibilityFlag -> IfL a) -> IfL a
 bindIfaceBndrTy (IfaceTv tv vis) thing_inside
   = bindIfaceTyVar tv $ \tv' -> thing_inside tv' vis
-
-bindIfaceBndrCo :: IfaceForAllCoBndr -> (ForAllCoBndr -> IfL a) -> IfL a
-bindIfaceBndrCo (IfaceCoBndr co tv1 tv2 cv) thing_inside
-  = do { co' <- tcIfaceCo co
-       ; bindIfaceTyVar tv1 $ \tv1' ->
-         bindIfaceTyVar tv2 $ \tv2' ->
-         bindIfaceId    cv  $ \cv'  ->
-         thing_inside (mkForAllCoBndr co' tv1' tv2' cv') }
 
 bindIfaceTyVar :: IfaceTvBndr -> (TyVar -> IfL a) -> IfL a
 bindIfaceTyVar (occ,kind) thing_inside

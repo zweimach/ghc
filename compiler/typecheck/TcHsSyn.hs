@@ -1525,13 +1525,11 @@ zonkTcCoToCo env co
     go (TcLRCo lr co)         = do { co' <- go co; return (mkTcLRCo lr co') }
     go (TcTransCo co1 co2)    = do { co1' <- go co1; co2' <- go co2
                                    ; return (mkTcTransCo co1' co2') }
-    go (TcForAllCo (TcForAllCoBndr h tv1 tv2 cv) co)
-      = do { h' <- go h
-           ; (env1, tv1')  <- zonkTyBndrX env  tv1
-           ; (env2, tv2')  <- zonkTyBndrX env1 tv2
-           ; (env3, cv')   <- zonkCoBndrX env2 cv
-           ; co' <- zonkTcCoToCo env3 co
-           ; return (mkTcForAllCo (TcForAllCoBndr h' tv1' tv2' cv') co') }
+    go (TcForAllCo name kind_co co)
+      = do { kind_co' <- go kind_co
+           ; let tv1 = mkTyVar name (pFst (coercionKind kind_co'))
+           ; co' <- zonkTcCoToCo (extendTyZonkEnv1 env tv1) co
+           ; return (mkTcForAllCo name kind_co' co') }
 
     go (TcSubCo co)           = do { co' <- go co; return (mkTcSubCo co') }
     go (TcAxiomRuleCo co ts cs) = do { ts' <- zonkTcTypeToTypes env ts

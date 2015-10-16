@@ -672,9 +672,8 @@ exactTyCoVarsOfType ty
     goCo (Refl _ ty)        = go ty
     goCo (TyConAppCo _ _ args)= goCos args
     goCo (AppCo co arg)     = goCo co `unionVarSet` goCo arg
-    goCo (ForAllCo bndr co)
-      = let Pair v1 v2 = coBndrKind bndr in
-        goCo co `delVarSetList` [v1, v2] `unionVarSet` goCo (coBndrKindCo bndr)
+    goCo (ForAllCo nm k_co co)
+      = goCo co `delVarSetByKey` getUnique nm `unionVarSet` goCo k_co
     goCo (CoVarCo v)         = unitVarSet v `unionVarSet` go (varType v)
     goCo (AxiomInstCo _ _ args) = goCos args
     goCo (UnivCo _ _ h t1 t2)= goCo h `unionVarSet` go t1 `unionVarSet` go t2
@@ -1420,11 +1419,9 @@ occurCheckExpand dflags tv ty
     fast_check_co (TyConAppCo _ _ args)  = all fast_check_co args
     fast_check_co (AppCo co arg)         = fast_check_co co &&
                                            fast_check_co arg
-    fast_check_co (ForAllCo (ForAllCoBndr h v1 v2 _) co)
+    fast_check_co (ForAllCo name h co)
       = impredicative && fast_check_co h
-                      && fast_check (varType v1)
-                      && fast_check (varType v2)
-                      && (tv == v1 || tv == v2 || fast_check_co co)
+                      && (getName tv == name || fast_check_co co)
     fast_check_co (CoVarCo c)            = fast_check (varType c)
     fast_check_co (AxiomInstCo _ _ args) = all fast_check_co args
     fast_check_co (UnivCo _ _ h t1 t2)   = fast_check_co h && fast_check t1
@@ -1490,15 +1487,13 @@ occurCheckExpand dflags tv ty
     go_co (AppCo co arg)            = do { co' <- go_co co
                                          ; arg' <- go_co arg
                                          ; return (mkAppCo co' arg') }
-    go_co (ForAllCo cobndr co)
+    go_co co@(ForAllCo name kind_co body_co)
       | not impredicative           = OC_Forall
-      | not (F.all fast_check (fmap varType (coBndrKind cobndr)))
-                                    = OC_Occurs
-      | tv `elem` coBndrVars cobndr = return co
-      | otherwise = do { h' <- go_co (coBndrKindCo cobndr)
-                       ; let cobndr' = setCoBndrKindCo cobndr h'
-                       ; co' <- go_co co
-                       ; return (mkForAllCo cobndr' co') }
+      | not (fast_check_co kind_co) = OC_Occurs
+           -- See ForAllTy case for commentary
+           -- TODO (RAE): Fix this when you fix ForAllTy case.
+      | getName tv == name          = return co
+      | otherwise = mkForAllCo name kind_co <$> go_co body_co
     go_co (CoVarCo c)               = do { k' <- check_kind (varType c)
                                          ; return (mkCoVarCo (setVarType c k')) }
     go_co (AxiomInstCo ax ind args) = do { args' <- mapM go_co args
@@ -1841,8 +1836,8 @@ orphNamesOfCo :: Coercion -> NameSet
 orphNamesOfCo (Refl _ ty)           = orphNamesOfType ty
 orphNamesOfCo (TyConAppCo _ tc cos) = unitNameSet (getName tc) `unionNameSet` orphNamesOfCos cos
 orphNamesOfCo (AppCo co1 co2)       = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
-orphNamesOfCo (ForAllCo cobndr co)
-  = orphNamesOfCo (coBndrKindCo cobndr) `unionNameSet` orphNamesOfCo co
+orphNamesOfCo (ForAllCo _ kind_co co)
+  = orphNamesOfCo kind_co `unionNameSet` orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
 orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSet` orphNamesOfCos cos
 orphNamesOfCo (UnivCo _ _ h t1 t2)  = orphNamesOfCo h `unionNameSet` orphNamesOfType t1 `unionNameSet` orphNamesOfType t2

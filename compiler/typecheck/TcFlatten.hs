@@ -817,7 +817,7 @@ flatten_one fmode ty@(ForAllTy (Named {}) _)
        ; (rho', co) <- flatten_one (setFEMode fmode FM_SubstOnly) rho
                          -- Substitute only under a forall
                          -- See Note [Flattening under a forall]
-       ; return (mkForAllTys bndrs rho', mkHomoForAllCos (feRole fmode) tvs co) }
+       ; return (mkForAllTys bndrs rho', mkHomoForAllCos tvs co) }
 
 flatten_one fmode (CastTy ty g)
   = do { (xi, co) <- flatten_one fmode ty

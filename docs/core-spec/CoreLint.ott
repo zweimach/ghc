@@ -200,11 +200,9 @@ G |-app (t2 : k2') : k2 ~> k4
 G |-co g1 g2 : (s1 t1) k3~Ph k4 (s2 t2)
 
 G |-co h : k1 *~Nom * k2
-G, alpha1_k1, alpha2_k2, c_(alpha1$ k1~#k2 alpha2$) |-co g : t1 k3~R k4 t2
-G |-ty forall alpha1_k1.t1 : k3
-G |-ty forall alpha2_k2.t2 : k4
------------------------------------------------------------------------------------------------ :: ForAllCo
-G |-co forall h (alpha1_k1, alpha2_k2, c$). g : (forall alpha1_k1. t1) k3~R k4 (forall alpha2_k2. t2)
+G, z_k1 |-co g : t1 k3~R k4 t2
+------------------------------------------------------------------ :: ForAllCo
+G |-co forall z:h. g : (forall z_k1. t1) k3~R k4 (forall z_k2. (t2[z |-> z_k2 |> sym h]))
 
 z_phi elt G
 phi = t1 k1~#k2 t2

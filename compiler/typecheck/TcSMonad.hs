@@ -1861,17 +1861,17 @@ deferTcSForAllEq :: Role -- Nominal or Representational
                  -> ([Binder],TcType)   -- ForAll tvs2 body2
                  -> TcS EvTerm
 deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
- = do { (subst1, skol_tvs1) <- wrapTcS $ TcM.tcInstSkolTyVars tvs1
-      ; (subst2, skol_tvs2) <- wrapTcS $ TcM.tcInstSkolTyVars tvs2
-      ; let all_skols = skol_tvs1 ++ skol_tvs2
-            in_scope  = mkInScopeSet $ tyCoVarsOfTypes [body1, body2]
-                                       `unionVarSet` (mkVarSet all_skols)
-
-            cvs   = zipWith (mkFreshCoVar in_scope) skol_tvs1 skol_tvs2
-            phi1  = Type.substTy subst1 body1
-            phi2  = Type.substTy subst2 body2
-            skol_info = UnifyForAllSkol skol_tvs1 phi1
+ = do { let tvs1'  = zipWithEqual "deferTcSForAllEq"
+                       mkCastTy (mkTyVarTys tvs1) kind_cos
+            body2' = substTyWith tvs2 tvs1' body2
+      ; (subst, skol_tvs) <- wrapTcS $ TcM.tcInstSkolTyVars tvs1
+      ; let in_scope  = mkInScopeSet $ tyCoVarsOfTypes [body1, body2]
+                                       `unionVarSet` (mkVarSet skol_tvs)
+            phi1  = Type.substTy subst body1
+            phi2  = Type.substTy subst body2'
+            skol_info = UnifyForAllSkol skol_tvs phi1
             eq_pred   = mkPrimEqPredRole role phi1 phi2
+
           -- The cache won't have the right covars here. So don't
           -- even look
       ; ctev <- newWantedEvVarNC loc eq_pred
@@ -1882,9 +1882,9 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
                            , wc_impl   = emptyBag
                            , wc_insol  = emptyCts }
             imp       = Implic { ic_tclvl  = new_tclvl
-                               , ic_skols  = skol_tvs1 ++ skol_tvs2
-                               , ic_no_eqs = null cvs
-                               , ic_given  = cvs
+                               , ic_skols  = skol_tvs
+                               , ic_no_eqs = True
+                               , ic_given  = []
                                , ic_wanted = wc
                                , ic_insol  = False
                                , ic_binds  = ev_binds_var
@@ -1893,8 +1893,7 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
       ; updWorkListTcS (extendWorkListImplic imp)
       ; let new_co     = ctEvCoercion ctev
             coe_inside = TcLetCo (TcEvBinds ev_binds_var) new_co
-            cobndrs    = zipWith4 TcForAllCoBndr
-                           kind_cos skol_tvs1 skol_tvs2 cvs
+            cobndrs    = zip (map tyVarName skol_tvs) kind_cos
       ; return $ EvCoercion (mkTcForAllCos cobndrs coe_inside) }
    where
      tvs1 = map (binderVar "deferTcSForAllEq") bndrs1
