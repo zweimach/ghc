@@ -1436,10 +1436,7 @@ available at www.cis.upenn.edu/~sweirich/papers/fckinds-extended.pdf
 -- See Note [Lifting coercions over types: liftCoSubst]
 -- ----------------------------------------------------
 
-data LiftingContext = LC TCvSubst LiftCoEnv
-  -- in optCoercion, we need to lift when optimizing InstCo.
-  -- See Note [Optimising InstCo] in OptCoercion
-  -- We thus propagate the substitution from OptCoercion here.
+data LiftingContext = LC InScopeSet LiftCoEnv
 
 instance Outputable LiftingContext where
   ppr (LC _ env) = hang (text "LiftingContext:") 2 (ppr env)
@@ -1475,15 +1472,11 @@ liftCoSubst r lc@(LC _ env) ty
   | otherwise         = ty_co_subst lc r ty
 
 emptyLiftingContext :: InScopeSet -> LiftingContext
-emptyLiftingContext in_scope = LC (mkEmptyTCvSubst in_scope) emptyVarEnv
+emptyLiftingContext in_scope = LC in_scope emptyVarEnv
 
 mkLiftingContext :: [(TyCoVar,Coercion)] -> LiftingContext
-mkLiftingContext = mkSubstLiftingContext emptyTCvSubst
-
-mkSubstLiftingContext :: TCvSubst -> [(TyCoVar,Coercion)] -> LiftingContext
-mkSubstLiftingContext subst pairs
-  = LC (subst `extendTCvInScopeSet` tyCoVarsOfCos (map snd pairs))
-       (mkVarEnv pairs)
+mkLiftingContext prs = LC (mkInScopeSet (tyCoVarsOfCos (map snd prs)))
+                          (mkVarEnv prs)
 
 -- | Extend a lifting context with a new /type/ mapping.
 extendLiftingContext :: LiftingContext  -- ^ original LC
@@ -1493,9 +1486,9 @@ extendLiftingContext :: LiftingContext  -- ^ original LC
   -- TODO (RAE): This seems utterly wrong. But I think it will go away soon
   -- anyway. Why wrong? It doesn't take kind changes into account. Compare
   -- extendLiftingContextEx
-extendLiftingContext (LC subst env) tv arg
+extendLiftingContext (LC in_scope env) tv arg
   = ASSERT( isTyVar tv )
-    LC subst (extendVarEnv env tv arg)
+    LC in_scope (extendVarEnv env tv arg)
 
 -- | Extend a lifting context with existential-variable bindings.
 -- This follows the lifting context extension definition in the
@@ -1504,11 +1497,11 @@ extendLiftingContextEx :: LiftingContext    -- ^ original lifting context
                        -> [(TyVar,Type)]    -- ^ ex. var / value pairs
                        -> LiftingContext
 extendLiftingContextEx lc [] = lc
-extendLiftingContextEx lc@(LC subst env) ((v,ty):rest)
+extendLiftingContextEx lc@(LC in_scope env) ((v,ty):rest)
 -- This function adds bindings for *Nominal* coercions. Why? Because it
 -- works with existentially bound variables, which are considered to have
 -- nominal roles.
-  = let lc' = LC (subst `extendTCvInScopeSet` tyCoVarsOfType ty)
+  = let lc' = LC (in_scope `extendInScopeSetSet` tyCoVarsOfType ty)
                  (extendVarEnv env v (mkSymCo $ mkCoherenceCo
                                          (mkNomReflCo ty)
                                          (ty_co_subst lc Nominal (tyVarKind v))))
@@ -1519,20 +1512,22 @@ extendLiftingContextEx lc@(LC subst env) ((v,ty):rest)
 --
 --   For the inverse operation, see 'liftCoMatch'
 ty_co_subst :: LiftingContext -> Role -> Type -> Coercion
-ty_co_subst lc@(LC subst env) role ty
+ty_co_subst lc@(LC _ env) role ty
   = go role ty
   where
     go :: Role -> Type -> Coercion
-    go Phantom ty          = lift_phantom ty
-    go r (TyVarTy tv)      = liftCoSubstTyVar lc r tv `orElse`
-                             Refl r (substTyVar subst tv)
+    go Phantom ty        = lift_phantom ty
+    go r ty | tyCoVarsOfType ty `isNotInDomainOf` env = mkReflCo r ty
+    go r (TyVarTy tv)      = case liftCoSubstTyVar lc r tv of
+                               Just co -> co
+                               Nothing -> pprPanic "ty_co_subst" (vcat [ppr tv, ppr env])
     go r (AppTy ty1 ty2)   = mkAppCo (go r ty1) (go Nominal ty2)
     go r (TyConApp tc tys) = mkTyConAppCo r tc (zipWith go (tyConRolesX r tc) tys)
     go r (ForAllTy (Anon ty1) ty2)
                            = mkFunCo r (go r ty1) (go r ty2)
     go r (ForAllTy (Named v _) ty)
-                           = let (lc', name, h) = liftCoSubstVarBndr lc v in
-                             mkForAllCo name h $! ty_co_subst lc' r ty
+                           = let (lc', cobndr) = liftCoSubstVarBndr lc v in
+                             mkForAllCo cobndr $! ty_co_subst lc' r ty
     go r ty@(LitTy {})     = ASSERT( r == Nominal )
                              mkReflCo r ty
     go r (CastTy ty co)    = castCoercionKind (go r ty) (substLeftCo lc co)
@@ -1619,10 +1614,10 @@ swapLiftCoEnv :: LiftCoEnv -> LiftCoEnv
 swapLiftCoEnv = mapVarEnv mkSymCo
 
 lcSubstLeft :: LiftingContext -> TCvSubst
-lcSubstLeft (LC subst lc_env) = liftEnvSubstLeft subst lc_env
+lcSubstLeft (LC in_scope lc_env) = liftEnvSubstLeft in_scope lc_env
 
 lcSubstRight :: LiftingContext -> TCvSubst
-lcSubstRight (LC subst lc_env) = liftEnvSubstRight subst lc_env
+lcSubstRight (LC in_scope lc_env) = liftEnvSubstRight in_scope lc_env
 
 liftEnvSubstLeft :: InScopeSet -> LiftCoEnv -> TCvSubst
 liftEnvSubstLeft = liftEnvSubst pFst
@@ -1630,9 +1625,9 @@ liftEnvSubstLeft = liftEnvSubst pFst
 liftEnvSubstRight :: InScopeSet -> LiftCoEnv -> TCvSubst
 liftEnvSubstRight = liftEnvSubst pSnd
 
-liftEnvSubst :: (forall a. Pair a -> a) -> TCvSubst -> LiftCoEnv -> TCvSubst
-liftEnvSubst selector subst lc_env
-  = composeTCvSubst (TCvSubst emptyInScopeSet tenv cenv) subst
+liftEnvSubst :: (forall a. Pair a -> a) -> InScopeSet -> LiftCoEnv -> TCvSubst
+liftEnvSubst selector in_scope lc_env
+  = mkTCvSubst in_scope (tenv, cenv)
   where
     pairs            = varEnvToList lc_env
     (tpairs, cpairs) = partitionWith ty_or_co pairs
@@ -1649,11 +1644,11 @@ liftEnvSubst selector subst lc_env
         equality_ty = selector (coercionKind co)
 
 lcInScope :: LiftingContext -> InScopeSet
-lcInScope (LC subst _) = getTCvInScope subst
+lcInScope (LC in_scope _) = in_scope
 
 -- | Add a variable to the 'InScopeSet' of a lifting context
 extendLCInScope :: LiftingContext -> Var -> LiftingContext
-extendLCInScope (LC subst env) v = LC (subst `extendTCvInScope` v) env
+extendLCInScope (LC in_scope env) v = LC (in_scope `extendInScopeSet` v) env
 
 {-
 %************************************************************************
