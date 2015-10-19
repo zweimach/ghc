@@ -140,7 +140,6 @@ fix:
     then "ew" check in DsBinds, and Note [TcCoercion kinds] in DsBinds.
 
   - Update formalism.
-     * NoSubKinds
      * Π
   - Do we need special rule for boxity of ($)? I don't think so, anymore. SPJ agrees. Maybe.
   - consider merging Kind into Type
