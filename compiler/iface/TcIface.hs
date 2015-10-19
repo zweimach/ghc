@@ -867,11 +867,9 @@ tcIfaceCo = go
     go (IfaceTyConAppCo r tc cs)
       = TyConAppCo r <$> tcIfaceTyCon tc <*> mapM go cs
     go (IfaceAppCo c1 c2)        = AppCo <$> go c1 <*> go c2
-    go (IfaceForAllCo name k c)  = do { k' <- go k
-                                      ; bindIfaceTyVar
-                                          (name, pFst (coercionKind k')) $
-                                        \ tv -> ForAllCo (tyVarName tv)
-                                                         k' <$> go c }
+    go (IfaceForAllCo tv k c)  = do { k' <- go k
+                                      ; bindIfaceTyVar tv $ \ tv' ->
+                                        ForAllCo tv' k' <$> go c }
     go (IfaceCoVarCo n)          = CoVarCo <$> go_var n
     go (IfaceAxiomInstCo n i cs) = AxiomInstCo <$> tcIfaceCoAxiom n <*> pure i <*> mapM go cs
     go (IfaceUnivCo p r h t1 t2) = UnivCo p r <$> go h <*> tcIfaceType t1
@@ -887,9 +885,8 @@ tcIfaceCo = go
                                                <*> go c2
     go (IfaceKindCo c)           = KindCo   <$> go c
     go (IfaceSubCo c)            = SubCo    <$> go c
-    go (IfaceAxiomRuleCo ax tys cos) = AxiomRuleCo <$> go_axiom_rule ax
-                                                   <*> mapM tcIfaceType tys
-                                                   <*> mapM go cos
+    go (IfaceAxiomRuleCo ax cos) = AxiomRuleCo <$> go_axiom_rule ax
+                                               <*> mapM go cos
 
     go_var :: FastString -> IfL CoVar
     go_var = tcIfaceLclId

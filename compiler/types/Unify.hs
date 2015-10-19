@@ -958,30 +958,6 @@ surelyApart = UM (\_ _ _ _ -> SurelyApart)
 This section defines essentially an inverse to liftCoSubst. It is defined
 here to avoid a dependency from Coercion on this module.
 
-Note [Heterogeneous type matching]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Say we have the following in our LiftCoEnv:
-
-[a |-> g]
-where g :: k1 ~ k2
-
-Now, we are matching the following:
-
-forall a:k.t <-> forall_g (a1:k1, a2:k2, c:a1~a2).h
-
-We can't just use RnEnv2 the normal way, because there are a different
-number of binders on either side. What we want to ensure is that, while
-matching t and h, any appearance of a in t is replaced by an appearance
-of c in h. So, we just add all the variables separately to the appropriate
-sides of the RnEnv2. Then, we augment the substitution to link the renamed
-'a' to its lifted coercion, the renamed 'c'. After matching, we then
-want to remove this mapping from the substitution before returning.
-
-But, what about the kind of c? Won't its new kind be wrong? Sure, it
-will be, but that's OK. If the kind of c ever matters, the occurs check
-in the TyVarTy case will fail, because the kind of c mentions local
-variables.
-
 -}
 
 -- | 'liftCoMatch' is sort of inverse to 'liftCoSubst'.  In particular, if
@@ -1010,7 +986,7 @@ liftCoMatch tmpls ty co
   = do { cenv1 <- ty_co_match menv emptyVarEnv ki ki_co ki_ki_co ki_ki_co
        ; cenv2 <- ty_co_match menv cenv1       ty co
                               (mkNomReflCo co_lkind) (mkNomReflCo co_rkind)
-       ; return (LC in_scope cenv2) }
+       ; return (LC (mkEmptyTCvSubst in_scope) cenv2) }
   where
     menv     = ME { me_tmpls = tmpls, me_env = mkRnEnv2 in_scope }
     in_scope = mkInScopeSet (tmpls `unionVarSet` tyCoVarsOfCo co)
@@ -1094,21 +1070,15 @@ ty_co_match menv subst (TyConApp tc1 tys) (TyConAppCo _ tc2 cos) _lkco _rkco
 ty_co_match menv subst (ForAllTy (Anon ty1) ty2) (TyConAppCo _ tc cos) _lkco _rkco
   = ty_co_match_tc menv subst funTyCon [ty1, ty2] tc cos
 
-ty_co_match menv subst (ForAllTy (Named tv _) ty)
-                       (ForAllCo (ForAllCoBndr co1 tvl tvr cv) co)
+ty_co_match menv subst (ForAllTy (Named tv1 _) ty1)
+                       (ForAllCo tv2 kind_co2 co2)
                        lkco rkco
-  = do { subst1 <- ty_co_match menv subst (tyVarKind tv) co1 ki_ki_co ki_ki_co
-         -- See Note [Heterogeneous type matching]
+  = do { subst1 <- ty_co_match menv subst (tyVarKind tv1) kind_co2
+                               ki_ki_co ki_ki_co
        ; let rn_env0 = me_env menv
-             (rn_env1, tv')  = rnBndrL rn_env0 tv
-             (rn_env2, _)    = rnBndrR rn_env1 tvl
-             (rn_env3, _)    = rnBndrR rn_env2 tvr
-             (rn_env4, cv')  = rnBndrR rn_env3 cv
-             menv' = menv { me_env = rn_env4 }
-             witness = mkCoVarCo cv'
-             subst2  = extendVarEnv subst1 tv' witness
-       ; subst3 <- ty_co_match menv' subst2 ty co lkco rkco
-       ; return $ delVarEnv subst3 tv' }
+             rn_env1 = rnBndr2 rn_env0 tv1 tv2
+             menv'   = menv { me_env = rn_env1 }
+       ; ty_co_match menv' subst1 ty1 co2 lkco rkco }
   where
     ki_ki_co = mkNomReflCo liftedTypeKind
 
@@ -1161,7 +1131,7 @@ pushRefl (Refl r (ForAllTy (Anon ty1) ty2))
 pushRefl (Refl r (TyConApp tc tys))
   = Just (TyConAppCo r tc (zipWith mkReflCo (tyConRolesX r tc) tys))
 pushRefl (Refl r (ForAllTy (Named tv _) ty))
-  = Just (mkHomoForAllCos_NoRefl r [tv] (Refl r ty))
+  = Just (mkHomoForAllCos_NoRefl [tv] (Refl r ty))
     -- NB: NoRefl variant. Otherwise, we get a loop!
 pushRefl (Refl r (CastTy ty co))  = Just (castCoercionKind (Refl r ty) co co)
 pushRefl _                        = Nothing

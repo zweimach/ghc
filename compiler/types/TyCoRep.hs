@@ -28,7 +28,7 @@ module TyCoRep (
         VisibilityFlag(..),
 
         -- Coercions
-        Coercion(..), LeftOrRight(..), ForAllCoBndr(..),
+        Coercion(..), LeftOrRight(..),
         UnivCoProvenance(..),
 
         -- Functions over types
@@ -41,7 +41,7 @@ module TyCoRep (
         binderType, delBinderVar, isInvisibleBinder, isVisibleBinder,
 
         -- Functions over coercions
-        pickLR, coBndrVars,
+        pickLR,
 
         -- Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTvBndr, pprTvBndrs,
@@ -66,7 +66,7 @@ module TyCoRep (
         emptyTCvSubst, mkEmptyTCvSubst, isEmptyTCvSubst, mkTCvSubst, getTvSubstEnv,
         getCvSubstEnv, getTCvInScope, isInScope, notElemTCvSubst,
         setTvSubstEnv, setCvSubstEnv, zapTCvSubst,
-        extendTCvInScope, extendTCvInScopeList,
+        extendTCvInScope, extendTCvInScopeList, extendTCvInScopeSet,
         extendTCvSubst, extendTCvSubstAndInScope, extendTCvSubstList,
         extendTCvSubstBinder,
         unionTCvSubst, zipTyEnv, zipCoEnv, mkTyCoInScopeSet,
@@ -76,6 +76,7 @@ module TyCoRep (
 
         substTelescope,
         substTyWith, substTyWithCoVars, substTysWith, substTysWithCoVars,
+        substCoWith,
         substTy,
         substTyWithBinders,
         substTys, substTheta,
@@ -122,6 +123,7 @@ import Binary
 import Outputable
 import DynFlags
 import FastString
+import Pair
 import Util
 
 -- libraries
@@ -512,7 +514,7 @@ data Coercion
           -- AppCo :: e -> N -> e
 
   -- See Note [Forall coercions]
-  | ForAllCo Name Coercion Coercion
+  | ForAllCo TyVar Coercion Coercion
          -- ForAllCo :: _ -> N -> e -> e
 
   -- These are special
@@ -536,9 +538,9 @@ data Coercion
   | SymCo Coercion             -- :: e -> e
   | TransCo Coercion Coercion  -- :: e -> e -> e
 
-    -- The number of types and coercions should match exactly the expectations
+    -- The number coercions should match exactly the expectations
     -- of the CoAxiomRule (i.e., the rule is fully saturated).
-  | AxiomRuleCo CoAxiomRule [Type] [Coercion]
+  | AxiomRuleCo CoAxiomRule [Coercion]
 
   | NthCo  Int         Coercion     -- Zero-indexed; decomposes (T t0 ... tn)
     -- :: _ -> e -> ?? (inverse of TyConAppCo, see Note [TyConAppCo roles])
@@ -564,23 +566,6 @@ data Coercion
     -- :: N -> R
 
   deriving (Data.Data, Data.Typeable)
-
--- | A 'ForAllCoBndr' is a binding form for a quantified coercion. It is
--- necessary when lifting quantified types into coercions.  See Note
--- [Forall coercions].
-
--- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
-data ForAllCoBndr
-  = ForAllCoBndr Coercion TyVar TyVar CoVar
-      -- ^ The role on the coercion must be N.
-      -- The role on the CoVar is always N.
-      -- The two @TyVar@s must be distinct.
-  deriving (Data.Data, Data.Typeable)
-
--- returns the variables bound in a ForAllCoBndr
-coBndrVars :: ForAllCoBndr -> [TyCoVar]
-coBndrVars (ForAllCoBndr _ tv1 tv2 cv) = [tv1, tv2, cv]
 
 -- If you edit this type, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
@@ -717,36 +702,40 @@ of the chosen branch.
 
 Note [Forall coercions]
 ~~~~~~~~~~~~~~~~~~~~~~~
-TODO (RAE): Update Note.
-Constructing coercions between forall-types can be a bit tricky.
-Currently, the situation is as follows:
+Constructing coercions between forall-types can be a bit tricky,
+because the kinds of the bound tyvars can be different.
 
-  ForAllCo (ForAllCoBndr Coercion TyVar TyVar CoVar) Coercion
+The typing rule is:
 
-The form represents a coercion between two forall-types-over-types,
-say (forall v1:k1.t1) and (forall v2:k2.t2). The difficulty comes about
-because k1 might not be the same as k2. So, we will need three variables:
-one of kind k1, one of kind k2, and one representing the coercion between
-a1 and a2, which will be bound to the coercion stored in the ForAllCoBndr.
 
-The typing rule is thus:
+  kind_co : k1 ~ k2
+  tv1:k1 |- co : t1 ~ t2
+  -------------------------------------------------------------------
+  ForAllCo tv1 kind_co co : all tv1:k1. t1  ~
+                            all tv1:k2. (t2[tv1 |-> tv1 |> sym kind_co])
 
-     h : k1 ~ k2  a1 : k1    a2 : k2    c : a1 ~ a2    g : t1 ~ t2
-  ---------------------------------------------------------------------
-  ForAllCo (ForAllCoBndr h a1 a2 c) g : (all a1:k1.t1) ~ (all v2:k2.t2)
+First, the TyVar stored in a ForAllCo is really an optimisation: this field
+should be a Name, as its kind is redundant. Thinking of the field as a Name
+is helpful in understanding what a ForAllCo means.
 
-However, if the coercion represents an equality between two
-forall-coercions-over-types, then we don't need the covar proving the
-equivalence between the two coercion variables: all coercions are
-considered equivalent. So, we leave out the covar in this case.
+The idea is that kind_co gives the two kinds of the tyvar. See how, in the
+conclusion, tv1 is assigned kind k1 on the left but kind k2 on the right.
 
-The typing rule is thus:
+Of course, a type variable can't have different kinds at the same time. So,
+we arbitrarily prefer the first kind when using tv1 in the inner coercion
+co, which shows that t1 equals t2.
 
-      h : phi1 ~ phi2   c1 : phi1     c2 : phi2     g : t1 ~ t2
-  -----------------------------------------------------------------
-  ForAllCo (ForAllCoBndr h c1 c2) g : (all c1:phi1.t1) ~ (all c2:phi2.t2)
+The last wrinkle is that we need to fix the kinds in the conclusion. In
+t2, tv1 is assumed to have kind k1, but it has kind k2 in the conclusion of
+the rule. So we do a kind-fixing substitution, replacing (tv1:k1) with
+(tv1:k2) |> sym kind_co. This substitution is slightly bizarre, because it
+mentions the same name with different kinds, but it *is* well-kinded, noting
+that `(tv1:k2) |> sym kind_co` has kind k1.
 
-For role information, see Note [Roles and kind coercions].
+This all really would work storing just a Name in the ForAllCo. But we can't
+add Names to, e.g., VarSets, and there generally is just an impedence mismatch
+in a bunch of places. So we use tv1. When we need tv2, we can use
+setTyVarKind.
 
 Note [Coherence]
 ~~~~~~~~~~~~~~~~
@@ -940,9 +929,8 @@ tyCoVarsOfCo :: Coercion -> TyCoVarSet
 tyCoVarsOfCo (Refl _ ty)         = tyCoVarsOfType ty
 tyCoVarsOfCo (TyConAppCo _ _ args) = tyCoVarsOfCos args
 tyCoVarsOfCo (AppCo co arg)      = tyCoVarsOfCo co `unionVarSet` tyCoVarsOfCo arg
-tyCoVarsOfCo (ForAllCo cobndr co)
-  = tyCoVarsOfCo co `delVarSetList` coBndrVars cobndr
-                    `unionVarSet` tyCoVarsOfCo (coBndrKindCo cobndr)
+tyCoVarsOfCo (ForAllCo tv kind_co co)
+  = tyCoVarsOfCo co `delVarSet` tv `unionVarSet` tyCoVarsOfCo kind_co
 tyCoVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` tyCoVarsOfType (varType v)
 tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCos cos
 tyCoVarsOfCo (UnivCo _ _ h t1 t2)  = tyCoVarsOfCo h `unionVarSet` tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
@@ -954,7 +942,7 @@ tyCoVarsOfCo (InstCo co arg)     = tyCoVarsOfCo co `unionVarSet` tyCoVarsOfCo ar
 tyCoVarsOfCo (CoherenceCo c1 c2) = tyCoVarsOfCo c1 `unionVarSet` tyCoVarsOfCo c2
 tyCoVarsOfCo (KindCo co)         = tyCoVarsOfCo co
 tyCoVarsOfCo (SubCo co)          = tyCoVarsOfCo co
-tyCoVarsOfCo (AxiomRuleCo _ ts cs) = tyCoVarsOfTypes ts `unionVarSet` tyCoVarsOfCos cs
+tyCoVarsOfCo (AxiomRuleCo _ cs)  = tyCoVarsOfCos cs
 
 tyCoVarsOfCos :: [Coercion] -> TyCoVarSet
 tyCoVarsOfCos cos = mapUnionVarSet tyCoVarsOfCo cos
@@ -978,9 +966,8 @@ coVarsOfCo :: Coercion -> CoVarSet
 coVarsOfCo (Refl _ ty)         = coVarsOfType ty
 coVarsOfCo (TyConAppCo _ _ args) = coVarsOfCos args
 coVarsOfCo (AppCo co arg)      = coVarsOfCo co `unionVarSet` coVarsOfCo arg
-coVarsOfCo (ForAllCo cobndr co)
-  = coVarsOfCo co `delVarSetList` coBndrVars cobndr
-                  `unionVarSet` coVarsOfCo (coBndrKindCo cobndr)
+coVarsOfCo (ForAllCo tv kind_co co)
+  = coVarsOfCo co `delVarSet` tv `unionVarSet` coVarsOfCo kind_co
 coVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` coVarsOfType (varType v)
 coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCos args
 coVarsOfCo (UnivCo _ _ h t1 t2)= coVarsOfCo h `unionVarSet` coVarsOfTypes [t1, t2]
@@ -992,7 +979,7 @@ coVarsOfCo (InstCo co arg)     = coVarsOfCo co `unionVarSet` coVarsOfCo arg
 coVarsOfCo (CoherenceCo c1 c2) = coVarsOfCos [c1, c2]
 coVarsOfCo (KindCo co)         = coVarsOfCo co
 coVarsOfCo (SubCo co)          = coVarsOfCo co
-coVarsOfCo (AxiomRuleCo _ ts cs) = coVarsOfTypes ts `unionVarSet` coVarsOfCos cs
+coVarsOfCo (AxiomRuleCo _ cs)  = coVarsOfCos cs
 
 coVarsOfCos :: [Coercion] -> CoVarSet
 coVarsOfCos cos = mapUnionVarSet coVarsOfCo cos
@@ -1243,6 +1230,10 @@ extendTCvInScopeList :: TCvSubst -> [Var] -> TCvSubst
 extendTCvInScopeList (TCvSubst in_scope tenv cenv) vars
   = TCvSubst (extendInScopeSetList in_scope vars) tenv cenv
 
+extendTCvInScopeSet :: TCvSubst -> VarSet -> TCvSubst
+extendTCvInScopeSet (TCvSubst in_scope tenv cenv) vars
+  = TCvSubst (extendInScopeSetSet in_scope vars) tenv cenv
+
 extendSubstEnvs :: (TvSubstEnv, CvSubstEnv) -> Var -> Type
                 -> (TvSubstEnv, CvSubstEnv)
 extendSubstEnvs (tenv, cenv) v ty
@@ -1404,37 +1395,37 @@ how do we push sym into a ForAllCo? It's a little ugly.
 Here is the typing rule:
 
 h : k1 ~# k2
-(nm : k1) |- g : ty1 ~# ty2
+(tv : k1) |- g : ty1 ~# ty2
 ----------------------------
-ForAllCo nm h g : (ForAllTy (nm : k1) ty1) ~#
-                  (ForAllTy (nm : k2) (ty2[nm |-> nm |> sym h]))
+ForAllCo tv h g : (ForAllTy (tv : k1) ty1) ~#
+                  (ForAllTy (tv : k2) (ty2[tv |-> tv |> sym h]))
 
 Here is what we want:
 
-ForAllCo nm h' g' : (ForAllTy (nm : k2) (ty2[nm |-> nm |> sym h])) ~#
-                    (ForAllTy (nm : k1) ty1)
+ForAllCo tv h' g' : (ForAllTy (tv : k2) (ty2[tv |-> tv |> sym h])) ~#
+                    (ForAllTy (tv : k1) ty1)
 
 
 Because the kinds of the type variables to the right of the colon are the kinds
 coerced by h', we know (h' : k2 ~# k1). Thus, (h' = sym h).
 
-Now, we can rewrite ty1 to be (ty1[nm |-> nm |> sym h' |> h']). We thus want
+Now, we can rewrite ty1 to be (ty1[tv |-> tv |> sym h' |> h']). We thus want
 
-ForAllCo nm h' g' :
-  (ForAllTy (nm : k2) (ty2[nm |-> nm |> h'])) ~#
-  (ForAllTy (nm : k1) (ty1[nm |-> nm |> h'][nm |-> nm |> sym h']))
+ForAllCo tv h' g' :
+  (ForAllTy (tv : k2) (ty2[tv |-> tv |> h'])) ~#
+  (ForAllTy (tv : k1) (ty1[tv |-> tv |> h'][tv |-> tv |> sym h']))
 
 We thus see that we want
 
-g' : ty2[nm |-> nm |> h'] ~# ty1[nm |-> nm |> h']
+g' : ty2[tv |-> tv |> h'] ~# ty1[tv |-> tv |> h']
 
-and thus g' = sym (g[nm |-> nm |> h']).
+and thus g' = sym (g[tv |-> tv |> h']).
 
 Putting it all together, we get this:
 
-sym (ForAllCo nm h g)
+sym (ForAllCo tv h g)
 ==>
-ForAllCo nm (sym h) (sym g[nm |-> nm |> sym h])
+ForAllCo tv (sym h) (sym g[tv |-> tv |> sym h])
 
 -}
 
@@ -1456,6 +1447,12 @@ substTelescope = go_subst emptyTCvSubst
 substTyWith :: [TyVar] -> [Type] -> Type -> Type
 substTyWith tvs tys = ASSERT( length tvs == length tys )
                       substTy (zipOpenTCvSubst tvs tys)
+
+-- | Coercion substitution making use of an 'TCvSubst' that
+-- is assumed to be open, see 'zipOpenTCvSubst'
+substCoWith :: [TyVar] -> [Type] -> Coercion -> Coercion
+substCoWith tvs tys = ASSERT( length tvs == length tys )
+                      substCo (zipOpenTCvSubst tvs tys)
 
 -- | Substitute covars within a type
 substTyWithCoVars :: [CoVar] -> [Coercion] -> Type -> Type
@@ -1557,9 +1554,9 @@ subst_co subst co
     go (TyConAppCo r tc args)= let args' = map go args
                                in  args' `seqList` mkTyConAppCo r tc args'
     go (AppCo co arg)        = (mkAppCo $! go co) $! go arg
-    go (ForAllCo cobndr co)
-      = case substForAllCoBndr subst cobndr of { (subst', cobndr') ->
-          (mkForAllCo $! cobndr') $! subst_co subst' co }
+    go (ForAllCo tv kind_co co)
+      = case substForAllCoBndr subst tv kind_co of { (subst', tv', kind_co') ->
+          ((mkForAllCo $! tv') $! kind_co') $! subst_co subst' co }
     go (CoVarCo cv)          = substCoVar subst cv
     go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go cos
     go (UnivCo p r h t1 t2)  = ((mkUnivCo p r $! (go h)) $! (go_ty t1)) $! (go_ty t2)
@@ -1571,41 +1568,37 @@ subst_co subst co
     go (CoherenceCo co1 co2) = (mkCoherenceCo $! (go co1)) $! (go co2)
     go (KindCo co)           = mkKindCo $! (go co)
     go (SubCo co)            = mkSubCo $! (go co)
-    go (AxiomRuleCo c ts cs) = let ts1 = map go_ty ts
-                                   cs1 = map go cs
-                                in ts1 `seqList` cs1 `seqList`
-                                   AxiomRuleCo c ts1 cs1
+    go (AxiomRuleCo c cs)    = let cs1 = map go cs
+                                in cs1 `seqList` AxiomRuleCo c cs1
 
-substForAllCoBndr :: TCvSubst -> Name -> Coercion -> (TCvSubst, Name, Coercion)
+substForAllCoBndr :: TCvSubst -> TyVar -> Coercion -> (TCvSubst, TyVar, Coercion)
 substForAllCoBndr subst
   = substForAllCoBndrCallback False (substCo subst) subst
 
 -- See Note [Sym and ForAllCo]
 substForAllCoBndrCallback :: Bool  -- apply sym to binder?
                           -> (Coercion -> Coercion)  -- transformation to kind co
-                          -> TCvSubst -> Name -> Coercion
-                          -> (TCvSubst, Name, Coercion)
-substForAllCoBndrCallback sym sco subst old_name old_kind_co
+                          -> TCvSubst -> TyVar -> Coercion
+                          -> (TCvSubst, TyVar, Coercion)
+substForAllCoBndrCallback sym sco (TCvSubst in_scope tenv cenv)
+                          old_var old_kind_co
   = ( TCvSubst (in_scope `extendInScopeSet` new_var) new_env cenv
-    , new_name, new_kind_co )
+    , new_var, new_kind_co )
   where
-    old_unique = getUnique old_name
-
-    new_env | no_change && not sym = delVarEnvByKey tenv old_unique
-            | sym       = extendVarEnv_Directly tenv old_unique $
+    new_env | no_change && not sym = delVarEnv tenv old_var
+            | sym       = extendVarEnv tenv old_var $
                             TyVarTy new_var `CastTy` new_kind_co
-            | otherwise = extendVarEnv_Directly tenv old_unique (TyVarTy new_var)
+            | otherwise = extendVarEnv tenv old_var (TyVarTy new_var)
 
     no_kind_change = isEmptyVarSet (tyCoVarsOfCo old_kind_co)
-    no_change = no_kind_change && (getUnique new_name == old_unique)
+    no_change = no_kind_change && (new_var == old_var)
 
     new_kind_co | no_kind_change = old_kind_co
                 | otherwise      = sco old_kind_co
 
     Pair new_ki1 _ = coercionKind new_kind_co
 
-    new_var  = uniqAway in_scope (mkTyVar old_name new_ki1)
-    new_name = getName new_var
+    new_var  = uniqAway in_scope (setTyVarKind old_var new_ki1)
 
 substCoVar :: TCvSubst -> CoVar -> Coercion
 substCoVar (TCvSubst _ _ cenv) cv
@@ -1935,8 +1928,6 @@ instance Outputable VisibilityFlag where
 -----------------
 instance Outputable Coercion where -- defined here to avoid orphans
   ppr = pprCo
-instance Outputable ForAllCoBndr where
-  ppr = pprCoBndr
 instance Outputable LeftOrRight where
   ppr CLeft    = ptext (sLit "Left")
   ppr CRight   = ptext (sLit "Right")
@@ -2240,9 +2231,10 @@ tidyCo env@(_, subst) co
     go (TyConAppCo r tc cos) = let args = map go cos
                                in args `seqList` TyConAppCo r tc args
     go (AppCo co1 co2)       = (AppCo $! go co1) $! go co2
-    go (ForAllCo cobndr co)  = ForAllCo cobndrp $! (tidyCo envp co)
-                               where
-                                 (envp, cobndrp) = go_bndr cobndr
+    go (ForAllCo tv h co)    = ((ForAllCo $! tvp) $! (go h)) $! (tidyCo envp co)
+                               where (envp, tvp) = tidyTyCoVarBndr env tv
+            -- the case above duplicates a bit of work in tidying h and the kind
+            -- of tv. But the alternative is to use coercionKind, which seems worse.
     go (CoVarCo cv)          = case lookupVarEnv subst cv of
                                  Nothing  -> CoVarCo cv
                                  Just cv' -> CoVarCo cv'
@@ -2257,18 +2249,8 @@ tidyCo env@(_, subst) co
     go (CoherenceCo co1 co2) = (CoherenceCo $! go co1) $! go co2
     go (KindCo co)           = KindCo $! go co
     go (SubCo co)            = SubCo $! go co
-    go (AxiomRuleCo ax tys cos) = let tys1 = tidyTypes env tys
-                                      cos1 = tidyCos env cos
-                                  in tys1 `seqList` cos1 `seqList`
-                                     AxiomRuleCo ax tys1 cos1
-
-    go_bndr (ForAllCoBndr h tv1 tv2 cv)
-      = let h' = go h
-            (env1, tv1') = tidyTyCoVarBndr env  tv1
-            (env2, tv2') = tidyTyCoVarBndr env1 tv2
-            (env3, cv')  = tidyTyCoVarBndr env2 cv
-        in
-        (env3, mkForAllCoBndr h' tv1' tv2' cv')
+    go (AxiomRuleCo ax cos)  = let cos1 = tidyCos env cos
+                               in cos1 `seqList` AxiomRuleCo ax cos1
 
 tidyCos :: TidyEnv -> [Coercion] -> [Coercion]
 tidyCos env = map (tidyCo env)

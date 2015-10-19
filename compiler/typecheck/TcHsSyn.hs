@@ -23,7 +23,7 @@ module TcHsSyn (
         TcId, TcIdSet,
 
         zonkTopDecls, zonkTopExpr, zonkTopLExpr,
-        zonkTopBndrs, zonkTyBndrsX, zonkCoBndrsX,
+        zonkTopBndrs, zonkTyBndrsX,
         emptyZonkEnv, mkEmptyZonkEnv, mkZonkEnv, mkEvBindsZonkEnv,
         zonkTcTypeToType, zonkTcTypeToTypes, zonkTyVarOcc,
         zonkCoToCo
@@ -297,9 +297,6 @@ zonkEvVarOcc env v
 zonkTyBndrsX :: ZonkEnv -> [TyVar] -> TcM (ZonkEnv, [TyVar])
 zonkTyBndrsX = mapAccumLM zonkTyBndrX
 
-zonkCoBndrsX :: ZonkEnv -> [CoVar] -> TcM (ZonkEnv, [CoVar])
-zonkCoBndrsX = mapAccumLM zonkCoBndrX
-
 zonkTyBndrX :: ZonkEnv -> TyVar -> TcM (ZonkEnv, TyVar)
 -- This guarantees to return a TyVar (not a TcTyVar)
 -- then we add it to the envt, so all occurrences are replaced
@@ -308,12 +305,6 @@ zonkTyBndrX env tv
     do { ki <- zonkTcTypeToType env (tyVarKind tv)
        ; let tv' = mkTyVar (tyVarName tv) ki
        ; return (extendTyZonkEnv1 env tv', tv') }
-
-zonkCoBndrX :: ZonkEnv -> CoVar -> TcM (ZonkEnv, CoVar)
--- we add it to the envt, so all occurrences are replaced
-zonkCoBndrX env cv
-  = do { cv' <- updateVarTypeM (zonkTcTypeToType env) cv
-       ; return (extendIdZonkEnv1 env cv', cv') }
 
 zonkTopExpr :: HsExpr TcId -> TcM (HsExpr Id)
 zonkTopExpr e = zonkExpr emptyZonkEnv e
@@ -1455,8 +1446,7 @@ zonk_tycomapper = TyCoMapper
                        -- See Note [Zonking inside the knot] in TcHsType
   , tcm_tyvar = zonkTyVarOcc
   , tcm_covar = zonkCoVarOcc
-  , tcm_tybinder = \env tv _vis -> zonkTyBndrX env tv
-  , tcm_cobinder = \env cv      -> zonkCoBndrX env cv }
+  , tcm_tybinder = \env tv _vis -> zonkTyBndrX env tv }
 
 zonkTcTypeToType :: ZonkEnv -> TcType -> TcM Type
 zonkTcTypeToType = mapType zonk_tycomapper
@@ -1525,16 +1515,14 @@ zonkTcCoToCo env co
     go (TcLRCo lr co)         = do { co' <- go co; return (mkTcLRCo lr co') }
     go (TcTransCo co1 co2)    = do { co1' <- go co1; co2' <- go co2
                                    ; return (mkTcTransCo co1' co2') }
-    go (TcForAllCo name kind_co co)
-      = do { kind_co' <- go kind_co
-           ; let tv1 = mkTyVar name (pFst (coercionKind kind_co'))
-           ; co' <- zonkTcCoToCo (extendTyZonkEnv1 env tv1) co
-           ; return (mkTcForAllCo name kind_co' co') }
+    go (TcForAllCo tv1 kind_co co)
+      = do { kind_co' <- zonkCoToCo env kind_co
+           ; (env', tv1') <- zonkTyBndrX env tv1
+           ; co' <- zonkTcCoToCo env' co
+           ; return (mkTcForAllCo tv1' kind_co' co') }
 
     go (TcSubCo co)           = do { co' <- go co; return (mkTcSubCo co') }
-    go (TcAxiomRuleCo co ts cs) = do { ts' <- zonkTcTypeToTypes env ts
-                                     ; cs' <- mapM go cs
-                                     ; return (TcAxiomRuleCo co ts' cs')
-                                     }
+    go (TcAxiomRuleCo co cs)  = do { cs' <- mapM go cs
+                                   ; return (TcAxiomRuleCo co cs') }
     go (TcCoercion co)        = do { co' <- zonkCoToCo env co
                                    ; return (mkTcCoercion co') }

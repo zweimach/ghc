@@ -138,7 +138,7 @@ import TrieMap
 import Control.Monad
 import MonadUtils
 import Data.IORef
-import Data.List ( partition, foldl', zipWith4 )
+import Data.List ( partition, foldl' )
 
 #ifdef DEBUG
 import Digraph
@@ -1856,7 +1856,7 @@ See TcSMonad.deferTcSForAllEq
 
 deferTcSForAllEq :: Role -- Nominal or Representational
                  -> CtLoc  -- Original wanted equality flavor
-                 -> [TcCoercion]        -- among the kinds of the binders
+                 -> [Coercion]        -- among the kinds of the binders
                  -> ([Binder],TcType)   -- ForAll tvs1 body1
                  -> ([Binder],TcType)   -- ForAll tvs2 body2
                  -> TcS EvTerm
@@ -1865,9 +1865,7 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
                        mkCastTy (mkTyVarTys tvs1) kind_cos
             body2' = substTyWith tvs2 tvs1' body2
       ; (subst, skol_tvs) <- wrapTcS $ TcM.tcInstSkolTyVars tvs1
-      ; let in_scope  = mkInScopeSet $ tyCoVarsOfTypes [body1, body2]
-                                       `unionVarSet` (mkVarSet skol_tvs)
-            phi1  = Type.substTy subst body1
+      ; let phi1  = Type.substTy subst body1
             phi2  = Type.substTy subst body2'
             skol_info = UnifyForAllSkol skol_tvs phi1
             eq_pred   = mkPrimEqPredRole role phi1 phi2
@@ -1893,7 +1891,7 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
       ; updWorkListTcS (extendWorkListImplic imp)
       ; let new_co     = ctEvCoercion ctev
             coe_inside = TcLetCo (TcEvBinds ev_binds_var) new_co
-            cobndrs    = zip (map tyVarName skol_tvs) kind_cos
+            cobndrs    = zip skol_tvs kind_cos
       ; return $ EvCoercion (mkTcForAllCos cobndrs coe_inside) }
    where
      tvs1 = map (binderVar "deferTcSForAllEq") bndrs1

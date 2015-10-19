@@ -1317,7 +1317,7 @@ fvCo :: Coercion -> [TyCoVar]
 fvCo (Refl _ ty)            = fvType ty
 fvCo (TyConAppCo _ _ args)  = concatMap fvCo args
 fvCo (AppCo co arg)         = fvCo co ++ fvCo arg
-fvCo (ForAllCo name h co)   = filter ((/= name) . tyVarName) (fvCo co) ++ fvCo h
+fvCo (ForAllCo tv h co)     = filter (/= tv) (fvCo co) ++ fvCo h
 fvCo (CoVarCo v)            = [v]
 fvCo (AxiomInstCo _ _ args) = concatMap fvCo args
 fvCo (UnivCo _ _ h t1 t2)   = fvCo h ++ fvType t1 ++ fvType t2
@@ -1329,7 +1329,7 @@ fvCo (InstCo co arg)        = fvCo co ++ fvCo arg
 fvCo (CoherenceCo co1 co2)  = fvCo co1 ++ fvCo co2
 fvCo (KindCo co)            = fvCo co
 fvCo (SubCo co)             = fvCo co
-fvCo (AxiomRuleCo _ ts cs)  = concatMap fvType ts ++ concatMap fvCo cs
+fvCo (AxiomRuleCo _ cs)     = concatMap fvCo cs
 
 sizeType :: Type -> Int
 -- Size of a type: the number of variables and constructors

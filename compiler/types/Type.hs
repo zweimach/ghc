@@ -350,9 +350,9 @@ expandTypeSynonyms ty
       = mkTyConAppCo r tc (map (go_co subst) args)
     go_co subst (AppCo co arg)
       = mkAppCo (go_co subst co) (go_co subst arg)
-    go_co subst (ForAllCo cobndr co)
-      = let (subst', cobndr') = go_cobndr subst cobndr in
-        mkForAllCo cobndr' (go_co subst' co)
+    go_co subst (ForAllCo tv kind_co co)
+      = let (subst', tv', kind_co') = go_cobndr subst tv kind_co in
+        mkForAllCo tv' kind_co' (go_co subst' co)
     go_co subst (CoVarCo cv)
       = substCoVar subst cv
     go_co subst (AxiomInstCo ax ind args)
@@ -375,14 +375,13 @@ expandTypeSynonyms ty
       = mkKindCo (go_co subst co)
     go_co subst (SubCo co)
       = mkSubCo (go_co subst co)
-    go_co subst (AxiomRuleCo ax ts cs)
-      = AxiomRuleCo ax (map (go subst) ts) (map (go_co subst) cs)
+    go_co subst (AxiomRuleCo ax cs) = AxiomRuleCo ax (map (go_co subst) cs)
 
       -- the "False" and "const" are to accommodate the type of
       -- substForAllCoBndrCallback, which is general enough to
       -- handle coercion optimization (which sometimes swaps the
       -- order of a coercion)
-    go_cobndr subst = substForAllCoBndrCallback False go (go_co subst) subst
+    go_cobndr subst = substForAllCoBndrCallback False (go_co subst) subst
 
 {-
 ************************************************************************
@@ -391,9 +390,28 @@ expandTypeSynonyms ty
 *                                                                      *
 ************************************************************************
 
-Use these definitions instead of doing a case-split on types. This allows
-us to enforce the fact that any two types equal according to `eqType` are
-treated the same.
+These functions do a map-like operation over types, performing some operation
+on all variables and binding sites. Primarily used for zonking.
+
+Note [Efficiency for mapCoercion ForAllCo case]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+As noted in Note [Forall coercions] in TyCoRep, a ForAllCo is a bit redundant.
+It stores a TyVar and a Coercion, where the kind of the TyVar always matches
+the left-hand kind of the coercion. This is convenient lots of the time, but
+not when mapping a function over a coercion.
+
+The problem is that tcm_tybinder will affect the TyVar's kind and
+mapCoercion will affect the Coercion, and we hope that the results will be
+the same. Even if they are the same (which should generally happen with
+correct algorithms), then there is an efficiency issue. In particular,
+this problem seems to make what should be a linear algorithm into a potentially
+exponential one. But it's only going to be bad in the case where there's
+lots of foralls in the kinds of other foralls. Like this:
+
+  forall a : (forall b : (forall c : ...). ...). ...
+
+This construction seems unlikely. So we'll do the inefficient, easy way
+for now.
 
 -}
 
@@ -407,7 +425,6 @@ data TyCoMapper env m
 
       , tcm_tybinder :: env -> TyVar -> VisibilityFlag -> m (env, TyVar)
           -- ^ The returned env is used in the extended scope
-      , tcm_cobinder :: env -> CoVar -> m (env, CoVar)
       }
 
 mapType :: (Applicative m, Monad m) => TyCoMapper env m -> env -> Type -> m Type
@@ -435,8 +452,7 @@ mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
 mapCoercion :: (Applicative m, Monad m)
             => TyCoMapper env m -> env -> Coercion -> m Coercion
 mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
-                               , tcm_tybinder = tybinder
-                               , tcm_cobinder = cobinder })
+                               , tcm_tybinder = tybinder })
             env co
   = go co
   where
@@ -444,10 +460,12 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (TyConAppCo r tc args)
       = mktyconappco r tc <$> mapM go args
     go (AppCo c1 c2) = mkappco <$> go c1 <*> go c2
-    go (ForAllCo cobndr co)
-      = do { (env', cobndr') <- go_cobndr cobndr
+    go (ForAllCo tv kind_co co)
+      = do { kind_co' <- go kind_co
+           ; (env', tv') <- tybinder env tv Invisible
            ; co' <- mapCoercion mapper env' co
-           ; return $ mkforallco cobndr' co' }
+           ; return $ mkforallco tv' kind_co' co' }
+        -- See Note [Efficiency for mapCoercion ForAllCo case]
     go (CoVarCo cv) = covar env cv
     go (AxiomInstCo ax i args)
       = mkaxiominstco ax i <$> mapM go args
@@ -456,22 +474,13 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
                                <*> mapType mapper env t2
     go (SymCo co) = mksymco <$> go co
     go (TransCo c1 c2) = mktransco <$> go c1 <*> go c2
-    go (AxiomRuleCo rule tys cos)
-      = AxiomRuleCo rule <$> mapM (mapType mapper env) tys
-                         <*> mapM go cos
+    go (AxiomRuleCo r cos) = AxiomRuleCo r <$> mapM go cos
     go (NthCo i co)        = mknthco i <$> go co
     go (LRCo lr co)        = mklrco lr <$> go co
     go (InstCo co arg)     = mkinstco <$> go co <*> go arg
     go (CoherenceCo c1 c2) = mkcoherenceco <$> go c1 <*> go c2
     go (KindCo co)         = mkkindco <$> go co
     go (SubCo co)          = mksubco <$> go co
-
-    go_cobndr (ForAllCoBndr h tv1 tv2 cv)
-      = do { h' <- go h
-           ; (env1, tv1') <- tybinder env  tv1 Invisible
-           ; (env2, tv2') <- tybinder env1 tv2 Invisible
-           ; (env3, cv')  <- cobinder env2 cv
-           ; return (env3, ForAllCoBndr h' tv1' tv2' cv') }
 
     ( mktyconappco, mkappco, mkaxiominstco, mkunivco
       , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
@@ -2084,8 +2093,7 @@ tyConsOfType ty
      go_co (Refl _ ty)             = go ty
      go_co (TyConAppCo _ tc args)  = go_tc tc `plusNameEnv` go_cos args
      go_co (AppCo co arg)          = go_co co `plusNameEnv` go_co arg
-     go_co (ForAllCo cobndr co)
-       = go_co (coBndrKindCo cobndr) `plusNameEnv` go_co co
+     go_co (ForAllCo _ kind_co co) = go_co kind_co `plusNameEnv` go_co co
      go_co (CoVarCo {})            = emptyNameEnv
      go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_cos args
      go_co (UnivCo _ _ h t1 t2)    = go_co h `plusNameEnv` go t1 `plusNameEnv` go t2
@@ -2097,7 +2105,7 @@ tyConsOfType ty
      go_co (CoherenceCo co1 co2)   = go_co co1 `plusNameEnv` go_co co2
      go_co (KindCo co)             = go_co co
      go_co (SubCo co)              = go_co co
-     go_co (AxiomRuleCo _ ts cs)   = go_s ts `plusNameEnv` go_cos cs
+     go_co (AxiomRuleCo _ cs)      = go_cos cs
 
      go_s tys     = foldr (plusNameEnv . go)     emptyNameEnv tys
      go_cos cos   = foldr (plusNameEnv . go_co)  emptyNameEnv cos

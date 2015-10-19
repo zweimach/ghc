@@ -1139,15 +1139,13 @@ lintCoercion co@(AppCo co1 co2)
        ; return (k3, k4, mkAppTy s1 t1, mkAppTy s2 t2, r1) }
 
 ----------
-lintCoercion g@(ForAllCo name kind_co co)
-lintCoercion g@(ForAllCo bndr@(ForAllCoBndr h tv1 tv2 cv) co)
-  = do { (k1, k2) <- lintStarCoercion kind_co
-       ; let tv1 = mkTyVar name k1
-             tv2 = mkTyVar name k2
+lintCoercion (ForAllCo tv1 kind_co co)
+  = do { (_, k2) <- lintStarCoercion kind_co
+       ; let tv2 = setTyVarKind tv1 k2
        ; (k3, k4, t1, t2, r) <- addInScopeVar tv1 $ lintCoercion co
        ; let tyl = mkNamedForAllTy tv1 Invisible t1
              tyr = mkNamedForAllTy tv2 Invisible $
-                   substTyWith [tv1] [tv2 `mkCastTy` mkSymCo kind_co] t2
+                   substTyWith [tv1] [TyVarTy tv2 `mkCastTy` mkSymCo kind_co] t2
        ; return (k3, k4, tyl, tyr, r) }
 
 lintCoercion (CoVarCo cv)
@@ -1307,28 +1305,13 @@ lintCoercion (SubCo co')
        ; lintRole co' Nominal r
        ; return (k1,k2,s,t,Representational) }
 
-lintCoercion this@(AxiomRuleCo co ts cs)
-  = do _ks <- mapM lintType ts
-       eqs <- mapM lintCoercion cs
-
-       let tyNum = length ts
-
-       case compare (coaxrTypeArity co) tyNum of
-         EQ -> return ()
-         LT -> err "Too many type arguments"
-                    [ text "expected" <+> int (coaxrTypeArity co)
-                    , text "provided" <+> int tyNum ]
-         GT -> err "Not enough type arguments"
-                    [ text "expected" <+> int (coaxrTypeArity co)
-                          , text "provided" <+> int tyNum ]
-       lintRoles 0 (coaxrAsmpRoles co) eqs
-
-       case coaxrProves co ts [ Pair l r | (_,_,l,r,_) <- eqs ] of
-         Nothing -> err "Malformed use of AxiomRuleCo" [ ppr this ]
-         Just (Pair l r) ->
-           do kL <- lintType l
-              kR <- lintType r
-              return (kL, kR, l, r, coaxrRole co)
+lintCoercion this@(AxiomRuleCo co cs)
+  = do { eqs <- mapM lintCoercion cs
+       ; lintRoles 0 (coaxrAsmpRoles co) eqs
+       ; case coaxrProves co [ Pair l r | (_,_,l,r,_) <- eqs ] of
+           Nothing -> err "Malformed use of AxiomRuleCo" [ ppr this ]
+           Just (Pair l r) ->
+             return (typeKind l, typeKind r, l, r, coaxrRole co) }
   where
   err m xs  = failWithL $
                 hang (text m) 2 $ vcat (text "Rule:" <+> ppr (coaxrName co) : xs)

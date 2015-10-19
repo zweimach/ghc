@@ -1072,8 +1072,7 @@ zonkTcTypeMapper = TyCoMapper
                 -- See Note [Zonking inside the knot] in TcHsType
   , tcm_tyvar = const zonkTcTyVar
   , tcm_covar = const (\cv -> mkCoVarCo <$> zonkTyCoVarKind cv)
-  , tcm_tybinder = \_env tv _vis -> ((), ) <$> zonkTcTyCoVarBndr tv
-  , tcm_cobinder = \_env cv      -> ((), ) <$> zonkTcTyCoVarBndr cv }
+  , tcm_tybinder = \_env tv _vis -> ((), ) <$> zonkTcTyCoVarBndr tv }
 
 -- For unbound, mutable tyvars, zonkType uses the function given to it
 -- For tyvars bound at a for-all, zonkType zonks them to an immutable

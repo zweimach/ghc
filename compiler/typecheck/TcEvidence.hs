@@ -61,6 +61,7 @@ import Control.Monad ( guard )
 import BasicTypes ( Boxity(..), isBoxed )
 import Bag
 import Pair
+import Maybes
 import Digraph
 import Control.Applicative
 #if __GLASGOW_HASKELL__ < 709
@@ -125,11 +126,11 @@ data TcCoercion
   = TcRefl Role TcType
   | TcTyConAppCo Role TyCon [TcCoercion]
   | TcAppCo TcCoercion TcCoercion
-  | TcForAllCo Name TcCoercion TcCoercion
+  | TcForAllCo TyVar Coercion TcCoercion
   | TcCoVarCo EqVar
-  -- This is number of types and coercions are expected to match to CoAxiomRule
+  -- The number of coercions are expected to match to CoAxiomRule
   -- (i.e., the CoAxiomRules are always fully saturated)
-  | TcAxiomRuleCo CoAxiomRule [TcType] [TcCoercion]
+  | TcAxiomRuleCo CoAxiomRule [TcCoercion]
   | TcPhantomCo TcCoercion TcType TcType
   | TcSymCo TcCoercion
   | TcTransCo TcCoercion TcCoercion
@@ -223,7 +224,7 @@ mkTcAxInstCo :: Role -> CoAxiom br -> Int -> [TcType] -> [Coercion]
 mkTcAxInstCo role ax index tys cos
   = mkTcCoercion $ mkAxInstCo role ax index tys cos
 
-mkTcAxiomRuleCo :: CoAxiomRule -> [TcType] -> [TcCoercion] -> TcCoercion
+mkTcAxiomRuleCo :: CoAxiomRule -> [TcCoercion] -> TcCoercion
 mkTcAxiomRuleCo = TcAxiomRuleCo
 
 mkTcUnbranchedAxInstCo :: Role -> CoAxiom Unbranched -> [TcType] -> [Coercion]
@@ -259,13 +260,14 @@ mkTcLRCo lr co            = TcLRCo lr co
 mkTcPhantomCo :: TcCoercion -> TcType -> TcType -> TcCoercion
 mkTcPhantomCo = TcPhantomCo
 
-mkTcForAllCo :: Name -> TcCoercion -> TcCoercion -> TcCoercion
-mkTcForAllCo name (TcRefl _ k) (TcRefl r ty)
-  = TcRefl r (mkNamedForAllTy (mkTyVar name k) Invisible ty)
+mkTcForAllCo :: TyVar -> Coercion -> TcCoercion -> TcCoercion
+mkTcForAllCo tv kind_co (TcRefl r ty)
+  | isReflCo kind_co
+  = TcRefl r (mkNamedForAllTy tv Invisible ty)
   -- TODO (RAE): Check visibility.
-mkTcForAllCo name k_co co = TcForAllCo name k_co co
+mkTcForAllCo tv k_co co = TcForAllCo tv k_co co
 
-mkTcForAllCos :: [(Name, TcCoercion)] -> TcCoercion -> TcCoercion
+mkTcForAllCos :: [(TyVar, Coercion)] -> TcCoercion -> TcCoercion
 mkTcForAllCos bndrs co = foldr (uncurry mkTcForAllCo) co bndrs
 
 mkTcCoVarCo :: EqVar -> TcCoercion
@@ -309,12 +311,12 @@ tcCoercionKind co = go co
     go (TcKindCo co)          = typeKind <$> go co
     go (TcTyConAppCo _ tc cos)= mkTyConApp tc <$> (sequenceA $ map go cos)
     go (TcAppCo co1 co2)      = mkAppTy <$> go co1 <*> go co2
-    go (TcForAllCo n k co)
-      = let ks                 = go k
-            tvs@(Pair tv1 tv2) = mkTyVar n <$> ks
+    go (TcForAllCo tv1 k co)
+      = let Pair _ k2          = coercionKind k
+            tv2                = setTyVarKind tv1 k2
             Pair ty1 ty2       = go co
-            ty2' = substTyWith [tv1] [tv2 `mkCastTy` mkSymCo k] ty2 in
-        mkNamedForAllTy <$> tvs <*> pure Invisible <*> Pair ty1 ty2'
+            ty2' = substTyWith [tv1] [mkTyVarTy tv2 `mkCastTy` mkSymCo k] ty2 in
+        mkNamedForAllTy <$> Pair tv1 tv2 <*> pure Invisible <*> Pair ty1 ty2'
        -- TODO (RAE): Check above for visibility.
     go (TcCoVarCo cv)         = eqVarKind cv
     go (TcPhantomCo _ ty1 ty2)= Pair ty1 ty2
@@ -327,10 +329,8 @@ tcCoercionKind co = go co
                                   _           -> tyConAppArgN d <$> tys
     go (TcLRCo lr co)         = (pickLR lr . tcSplitAppTy) <$> go co
     go (TcSubCo co)           = go co
-    go (TcAxiomRuleCo ax ts cs) =
-       case coaxrProves ax ts (map tcCoercionKind cs) of
-         Just res -> res
-         Nothing -> panic "tcCoercionKind: malformed TcAxiomRuleCo"
+    go (TcAxiomRuleCo ax cs)  = expectJust "tcCoercionKind" $
+                                coaxrProves ax (map go cs)
     go (TcCoercion co)        = coercionKind co
 
 eqVarRole :: EqVar -> Role
@@ -366,7 +366,7 @@ tcCoercionRole = go
                                             nthRole (go co) tc n
     go (TcLRCo _ _)           = Nominal
     go (TcSubCo _)            = Representational
-    go (TcAxiomRuleCo c _ _)  = coaxrRole c
+    go (TcAxiomRuleCo c _)    = coaxrRole c
     go (TcCastCo c _)         = go c
     go (TcCoherenceCo co _)   = go co
     go (TcKindCo _)           = Nominal
@@ -384,8 +384,8 @@ coVarsOfTcCo tc_co
     go (TcCastCo co1 co2)        = go co1 `unionVarSet` go co2
     go (TcCoherenceCo co g)      = go co `unionVarSet` coVarsOfCo g
     go (TcKindCo co)             = go co
-    go (TcForAllCo name k_co co) = go co `delVarSetByKey` getUnique name
-                                         `unionVarSet`    go k_co
+    go (TcForAllCo tv k_co co)   = go co `delVarSet`   tv
+                                         `unionVarSet` coVarsOfCo k_co
     go (TcCoVarCo v)             = unitVarSet v
     go (TcPhantomCo h t1 t2)     = go h `unionVarSet`
                                    coVarsOfType t1 `unionVarSet` coVarsOfType t2
@@ -398,7 +398,7 @@ coVarsOfTcCo tc_co
                                    `minusVarSet` evBindsVars bs
     go (TcLetCo {}) = emptyVarSet    -- Harumph. This does legitimately happen in the call
                                      -- to evVarsOfTerm in the DEBUG check of setEvBind
-    go (TcAxiomRuleCo _ _ cos)   = mapUnionVarSet go cos
+    go (TcAxiomRuleCo _ cos)     = mapUnionVarSet go cos
     go (TcCoercion co)           = coVarsOfCo co
 
     -- We expect only coercion bindings, so use evTermCoercion
@@ -419,13 +419,11 @@ tcCoercionToCoercion subst tc_co
     go (TcRefl r ty)            = Just $ mkReflCo r (Type.substTy subst ty)
     go (TcTyConAppCo r tc cos)  = mkTyConAppCo r tc <$> mapM go cos
     go (TcAppCo co1 co2)        = mkAppCo <$> go co1 <*> go co2
-    go (TcForAllCo nm k_co co)
-      = do { k_co1 <- go k_co
-           ; let tv = mkTyVar nm (pFst (tcCoercionKind k_co))
-                 -- NB: kind is not yet substed. it will be by substTyVarBndr
+    go (TcForAllCo tv k_co co)
+      = do { let k_co1 = substCo subst k_co
                  (subst1, tv1) = substTyVarBndr subst tv
            ; MASSERT( tyVarKind tv1 `eqType` pFst (coercionKind k_co1) )
-           ; mkForAllCo (tyVarName tv1) k_co1 <$>
+           ; mkForAllCo tv1 k_co1 <$>
                tcCoercionToCoercion subst1 co }
     go (TcPhantomCo h ty1 ty2)  = mkPhantomCo <$> go h <*> pure (substTy subst ty1)
                                                        <*> pure (substTy subst ty2)
@@ -442,7 +440,7 @@ tcCoercionToCoercion subst tc_co
     go (TcCoVarCo v)            = lookupCoVar subst v <|>
                                   do { guard (isCoercionType $ varType v)
                                      ; return (mkCoVarCo v) }
-    go (TcAxiomRuleCo co ts cs) = mkAxiomRuleCo co (map (Type.substTy subst) ts) <$> (mapM go cs)
+    go (TcAxiomRuleCo co cs)    = mkAxiomRuleCo co <$> mapM go cs
     go (TcCoercion co)          = Just (substCo subst co)
 
       -- TODO (RAE): Rename this, and remove the Maybe
@@ -477,9 +475,9 @@ ppr_co p (TcCoherenceCo co g)    = maybeParen p FunPrec $
                                    ppr_co FunPrec co <+> text "|>>" <+> ppr g
 ppr_co p (TcKindCo co)           = maybeParen p FunPrec $
                                    text "kind" <+> ppr_co FunPrec co
-ppr_co p (TcForAllCo name kind_co co)
+ppr_co p (TcForAllCo tv kind_co co)
   = maybeParen p FunPrec $
-    forAllLit <+> parens (ppr name <+> dcolon <+> pprTcCo kind_co) <>
+    forAllLit <+> parens (ppr (getName tv) <+> dcolon <+> pprCo kind_co) <>
     dot <+> ppr_co TopPrec co
 
 ppr_co _ (TcCoVarCo cv)          = parenSymOcc (getOccName cv) (ppr cv)
@@ -493,23 +491,12 @@ ppr_co p (TcSymCo co)         = pprPrefixApp p (ptext (sLit "Sym")) [pprParendTc
 ppr_co p (TcNthCo n co)       = pprPrefixApp p (ptext (sLit "Nth:") <+> int n) [pprParendTcCo co]
 ppr_co p (TcLRCo lr co)       = pprPrefixApp p (ppr lr) [pprParendTcCo co]
 ppr_co p (TcSubCo co)         = pprPrefixApp p (ptext (sLit "Sub")) [pprParendTcCo co]
-ppr_co p (TcAxiomRuleCo co ts ps) = maybeParen p TopPrec
-                                  $ ppr_tc_axiom_rule_co co ts ps
+ppr_co p (TcAxiomRuleCo co ps) = maybeParen p TopPrec $
+                                 ppr_tc_axiom_rule_co co ps
 ppr_co p (TcCoercion co)      = pprPrefixApp p (text "Core co:") [ppr co]
 
-ppr_tc_axiom_rule_co :: CoAxiomRule -> [TcType] -> [TcCoercion] -> SDoc
-ppr_tc_axiom_rule_co co ts ps = ppr (coaxrName co) <> ppTs ts $$ nest 2 (ppPs ps)
-  where
-  ppTs []   = Outputable.empty
-  ppTs [t]  = ptext (sLit "@") <> pprType t
-  ppTs ts   = ptext (sLit "@") <>
-                parens (hsep $ punctuate comma $ map pprType ts)
-
-  ppPs []   = Outputable.empty
-  ppPs [p]  = pprParendTcCo p
-  ppPs (p : ps) = ptext (sLit "(") <+> pprTcCo p $$
-                  vcat [ ptext (sLit ",") <+> pprTcCo q | q <- ps ] $$
-                  ptext (sLit ")")
+ppr_tc_axiom_rule_co :: CoAxiomRule -> [TcCoercion] -> SDoc
+ppr_tc_axiom_rule_co co ps = ppr (coaxrName co) <+> parens (interpp'SP ps)
 
 ppr_role :: Role -> SDoc
 ppr_role r = underscore <> pp_role

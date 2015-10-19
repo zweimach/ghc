@@ -884,7 +884,7 @@ reduceTyFamApp_maybe envs role tc tys
 
   | Just ax           <- isBuiltInSynFamTyCon_maybe tc
   , Just (coax,ts,ty) <- sfMatchFam ax tys
-  = let co = mkAxiomRuleCo coax ts []
+  = let co = mkAxiomRuleCo coax (zipWith mkReflCo (coaxrAsmpRoles coax) ts)
     in Just (co, ty, [])
 
   | otherwise
@@ -1122,10 +1122,10 @@ normalise_type
            ; r <- getRole
            ; return (mkFunCo r co1 co2, mkFunTy nty1 nty2) }
     go (ForAllTy (Named tyvar vis) ty)
-      = do { (lc', nm, h) <- normalise_tyvar_bndr tyvar
-           ; (co, nty)    <- withLC lc' $ normalise_type ty
-           ; let tyvar' = mkTyVar nm (pSnd $ coercionKind h)
-           ; return (mkForAllCo nm h co, mkNamedForAllTy tyvar' vis nty) }
+      = do { (lc', tv', h, ki') <- normalise_tyvar_bndr tyvar
+           ; (co, nty)          <- withLC lc' $ normalise_type ty
+           ; let tv2 = setTyVarKind tv' ki'
+           ; return (mkForAllCo tv' h co, mkNamedForAllTy tv2 vis nty) }
     go (TyVarTy tv)    = normalise_tyvar tv
     go (CastTy ty co)
       = do { (nco, nty) <- go ty
@@ -1151,19 +1151,19 @@ normalise_tyvar tv
            Nothing -> (mkReflCo r ty, ty) }
   where ty = mkTyVarTy tv
 
-normalise_tyvar_bndr :: TyVar -> NormM (LiftingContext, Name, Coercion)
+normalise_tyvar_bndr :: TyVar -> NormM (LiftingContext, TyVar, Coercion, Kind)
 normalise_tyvar_bndr tv
   = do { lc1 <- getLC
        ; env <- getEnv
        ; agg <- getAgg
-       ; let callback lc ty
-               = let (cvs, (co, _)) = runNormM (normalise_type ty)
-                                               env lc Nominal agg
-                 in (co, cvs)
-             (lc', name, kind_co, cvs)
+       ; let callback lc ki
+               = let (cvs, (co, ki')) = runNormM (normalise_type ki)
+                                                 env lc Nominal agg
+                 in (co, (cvs, ki'))
+             (lc', tv', kind_co, (cvs, ki'))
                = liftCoSubstVarBndrCallback callback lc1 tv
        ; emitCoVars cvs
-       ; return (lc', name, kind_co) }
+       ; return (lc', tv', kind_co, ki') }
 
 -- | a monad for the normalisation functions, reading 'FamInstEnvs',
 -- a 'LiftingContext', a 'Role', and writing a 'CoVarSet'.
@@ -1389,10 +1389,8 @@ allTyVarsInTy = go
     go_co (Refl _ ty)           = go ty
     go_co (TyConAppCo _ _ args) = go_cos args
     go_co (AppCo co arg)        = go_co co `unionVarSet` go_co arg
-    go_co (ForAllCo nm h co)
-      = unionVarSets [ unitVarSet (mkTyVar nm (pFst $ coercionKind h))
-                     , go_co co
-                     , go_co (coBndrKindCo cobndr) ]
+    go_co (ForAllCo tv h co)
+      = unionVarSets [unitVarSet tv, go_co co, go_co h]
     go_co (CoVarCo cv)          = unitVarSet cv
     go_co (AxiomInstCo _ _ cos) = go_cos cos
     go_co (UnivCo _ _ h t1 t2)  = go_co h `unionVarSet` go t1 `unionVarSet` go t2
@@ -1404,7 +1402,7 @@ allTyVarsInTy = go
     go_co (CoherenceCo c1 c2)   = go_co c1 `unionVarSet` go_co c2
     go_co (KindCo co)           = go_co co
     go_co (SubCo co)            = go_co co
-    go_co (AxiomRuleCo _ ts cs) = allTyVarsInTys ts `unionVarSet` go_cos cs
+    go_co (AxiomRuleCo _ cs)    = go_cos cs
 
     go_cos = foldr (unionVarSet . go_co) emptyVarSet
 

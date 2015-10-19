@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module TcTypeNats
   ( typeNatTyCons
   , typeNatCoAxiomRules
@@ -18,7 +20,7 @@ import TcType     ( TcType, tcEqType )
 import TyCon      ( TyCon, FamTyConFlav(..), mkFamilyTyCon, TyConParent(..)  )
 import Coercion   ( Role(..) )
 import TcRnTypes  ( Xi )
-import CoAxiom    ( CoAxiomRule(..), BuiltInSynFamily(..) )
+import CoAxiom    ( CoAxiomRule(..), BuiltInSynFamily(..), Eqn )
 import Name       ( Name, BuiltInSyntax(..) )
 import TysWiredIn
 import TysPrim    ( tyVarList, mkArrowKinds )
@@ -208,38 +210,33 @@ axCmpNatDef   = mkBinAxiom "CmpNatDef" typeNatCmpTyCon
 axCmpSymbolDef =
   CoAxiomRule
     { coaxrName      = fsLit "CmpSymbolDef"
-    , coaxrTypeArity = 2
-    , coaxrAsmpRoles = []
+    , coaxrAsmpRoles = [Nominal, Nominal]
     , coaxrRole      = Nominal
-    , coaxrProves    = \ts cs ->
-        case (ts,cs) of
-          ([s,t],[]) ->
-            do x <- isStrLitTy s
-               y <- isStrLitTy t
-               return (mkTyConApp typeSymbolCmpTyCon [s,t] ===
-                      ordering (compare x y))
-          _ -> Nothing
-    }
+    , coaxrProves    = \cs ->
+        do [Pair s1 s2, Pair t1 t2] <- return cs
+           [s2', t2'] <- traverse isStrLitTy [s2, t2]
+           return (mkTyConApp typeSymbolCmpTyCon [s1,t1] ===
+                   ordering (compare s2' t2')) }
 
 axSubDef = mkBinAxiom "SubDef" typeNatSubTyCon $
               \x y -> fmap num (minus x y)
 
-axAdd0L     = mkAxiom1 "Add0L"    $ \t -> (num 0 .+. t) === t
-axAdd0R     = mkAxiom1 "Add0R"    $ \t -> (t .+. num 0) === t
-axSub0R     = mkAxiom1 "Sub0R"    $ \t -> (t .-. num 0) === t
-axMul0L     = mkAxiom1 "Mul0L"    $ \t -> (num 0 .*. t) === num 0
-axMul0R     = mkAxiom1 "Mul0R"    $ \t -> (t .*. num 0) === num 0
-axMul1L     = mkAxiom1 "Mul1L"    $ \t -> (num 1 .*. t) === t
-axMul1R     = mkAxiom1 "Mul1R"    $ \t -> (t .*. num 1) === t
-axExp1L     = mkAxiom1 "Exp1L"    $ \t -> (num 1 .^. t) === num 1
-axExp0R     = mkAxiom1 "Exp0R"    $ \t -> (t .^. num 0) === num 1
-axExp1R     = mkAxiom1 "Exp1R"    $ \t -> (t .^. num 1) === t
-axLeqRefl   = mkAxiom1 "LeqRefl"  $ \t -> (t <== t) === bool True
+axAdd0L     = mkAxiom1 "Add0L"    $ \(Pair s t) -> (num 0 .+. s) === t
+axAdd0R     = mkAxiom1 "Add0R"    $ \(Pair s t) -> (s .+. num 0) === t
+axSub0R     = mkAxiom1 "Sub0R"    $ \(Pair s t) -> (s .-. num 0) === t
+axMul0L     = mkAxiom1 "Mul0L"    $ \(Pair s _) -> (num 0 .*. s) === num 0
+axMul0R     = mkAxiom1 "Mul0R"    $ \(Pair s _) -> (s .*. num 0) === num 0
+axMul1L     = mkAxiom1 "Mul1L"    $ \(Pair s t) -> (num 1 .*. s) === t
+axMul1R     = mkAxiom1 "Mul1R"    $ \(Pair s t) -> (s .*. num 1) === t
+axExp1L     = mkAxiom1 "Exp1L"    $ \(Pair s _) -> (num 1 .^. s) === num 1
+axExp0R     = mkAxiom1 "Exp0R"    $ \(Pair s _) -> (s .^. num 0) === num 1
+axExp1R     = mkAxiom1 "Exp1R"    $ \(Pair s t) -> (s .^. num 1) === t
+axLeqRefl   = mkAxiom1 "LeqRefl"  $ \(Pair s _) -> (s <== s) === bool True
 axCmpNatRefl    = mkAxiom1 "CmpNatRefl"
-                $ \t -> (cmpNat t t) === ordering EQ
+                $ \(Pair s _) -> (cmpNat s s) === ordering EQ
 axCmpSymbolRefl = mkAxiom1 "CmpSymbolRefl"
-                $ \t -> (cmpSymbol t t) === ordering EQ
-axLeq0L     = mkAxiom1 "Leq0L"    $ \t -> (num 0 <== t) === bool True
+                $ \(Pair s _) -> (cmpSymbol s s) === ordering EQ
+axLeq0L     = mkAxiom1 "Leq0L"    $ \(Pair s _) -> (num 0 <== s) === bool True
 
 typeNatCoAxiomRules :: Map.Map FastString CoAxiomRule
 typeNatCoAxiomRules = Map.fromList $ map (\x -> (coaxrName x, x))
@@ -343,31 +340,25 @@ mkBinAxiom :: String -> TyCon ->
 mkBinAxiom str tc f =
   CoAxiomRule
     { coaxrName      = fsLit str
-    , coaxrTypeArity = 2
-    , coaxrAsmpRoles = []
+    , coaxrAsmpRoles = [Nominal, Nominal]
     , coaxrRole      = Nominal
-    , coaxrProves    = \ts cs ->
-        case (ts,cs) of
-          ([s,t],[]) -> do x <- isNumLitTy s
-                           y <- isNumLitTy t
-                           z <- f x y
-                           return (mkTyConApp tc [s,t] === z)
-          _ -> Nothing
+    , coaxrProves    = \cs ->
+        do [Pair s1 s2, Pair t1 t2] <- return cs
+           [s2', t2'] <- traverse isNumLitTy [s2, t2]
+           z          <- f s2' t2'
+           return (mkTyConApp tc [s1,t1] === z)
     }
 
 
 
-mkAxiom1 :: String -> (Type -> Pair Type) -> CoAxiomRule
+mkAxiom1 :: String -> (Eqn -> Eqn) -> CoAxiomRule
 mkAxiom1 str f =
   CoAxiomRule
     { coaxrName      = fsLit str
-    , coaxrTypeArity = 1
-    , coaxrAsmpRoles = []
+    , coaxrAsmpRoles = [Nominal]
     , coaxrRole      = Nominal
-    , coaxrProves    = \ts cs ->
-        case (ts,cs) of
-          ([s],[]) -> return (f s)
-          _        -> Nothing
+    , coaxrProves    = \case [eqn] -> Just (f eqn)
+                             _     -> Nothing
     }
 
 
@@ -671,10 +662,3 @@ genLog x base = Just (exactLoop 0 x)
   underLoop s i
     | i < base  = s
     | otherwise = let s1 = s + 1 in s1 `seq` underLoop s1 (div i base)
-
-
-
-
-
-
-

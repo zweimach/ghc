@@ -500,10 +500,9 @@ type Eqn = Pair Type
 -- | For now, we work only with nominal equality.
 data CoAxiomRule = CoAxiomRule
   { coaxrName      :: FastString
-  , coaxrTypeArity :: Int       -- number of type argumentInts
   , coaxrAsmpRoles :: [Role]    -- roles of parameter equations
   , coaxrRole      :: Role      -- role of resulting equation
-  , coaxrProves    :: [Type] -> [Eqn] -> Maybe Eqn
+  , coaxrProves    :: [Eqn] -> Maybe Eqn
         -- ^ coaxrProves returns @Nothing@ when it doesn't like
         -- the supplied arguments.  When this happens in a coercion
         -- that means that the coercion is ill-formed, and Core Lint

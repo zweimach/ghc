@@ -195,7 +195,7 @@ import Control.Monad (liftM, ap)
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..))
 #endif
-import qualified Data.Foldable as F
+import Control.Applicative ( (<$>) )
 
 {-
 ************************************************************************
@@ -672,8 +672,8 @@ exactTyCoVarsOfType ty
     goCo (Refl _ ty)        = go ty
     goCo (TyConAppCo _ _ args)= goCos args
     goCo (AppCo co arg)     = goCo co `unionVarSet` goCo arg
-    goCo (ForAllCo nm k_co co)
-      = goCo co `delVarSetByKey` getUnique nm `unionVarSet` goCo k_co
+    goCo (ForAllCo tv k_co co)
+      = goCo co `delVarSet` tv `unionVarSet` goCo k_co
     goCo (CoVarCo v)         = unitVarSet v `unionVarSet` go (varType v)
     goCo (AxiomInstCo _ _ args) = goCos args
     goCo (UnivCo _ _ h t1 t2)= goCo h `unionVarSet` go t1 `unionVarSet` go t2
@@ -685,7 +685,7 @@ exactTyCoVarsOfType ty
     goCo (CoherenceCo c1 c2) = goCo c1 `unionVarSet` goCo c2
     goCo (KindCo co)         = goCo co
     goCo (SubCo co)          = goCo co
-    goCo (AxiomRuleCo _ t c) = exactTyCoVarsOfTypes t `unionVarSet` goCos c
+    goCo (AxiomRuleCo _ c)   = goCos c
 
     goCos cos = foldr (unionVarSet . goCo) emptyVarSet cos
 
@@ -1419,9 +1419,9 @@ occurCheckExpand dflags tv ty
     fast_check_co (TyConAppCo _ _ args)  = all fast_check_co args
     fast_check_co (AppCo co arg)         = fast_check_co co &&
                                            fast_check_co arg
-    fast_check_co (ForAllCo name h co)
+    fast_check_co (ForAllCo tv' h co)
       = impredicative && fast_check_co h
-                      && (getName tv == name || fast_check_co co)
+                      && (tv == tv' || fast_check_co co)
     fast_check_co (CoVarCo c)            = fast_check (varType c)
     fast_check_co (AxiomInstCo _ _ args) = all fast_check_co args
     fast_check_co (UnivCo _ _ h t1 t2)   = fast_check_co h && fast_check t1
@@ -1434,8 +1434,7 @@ occurCheckExpand dflags tv ty
     fast_check_co (CoherenceCo co1 co2)  = fast_check_co co1 && fast_check_co co2
     fast_check_co (KindCo co)            = fast_check_co co
     fast_check_co (SubCo co)             = fast_check_co co
-    fast_check_co (AxiomRuleCo _ ts cs)
-      = all fast_check ts && all fast_check_co cs
+    fast_check_co (AxiomRuleCo _ cs)     = all fast_check_co cs
 
     go (TyVarTy tv') | tv == tv' = OC_Occurs
                      | otherwise = do { k' <- check_kind (tyVarKind tv')
@@ -1487,13 +1486,13 @@ occurCheckExpand dflags tv ty
     go_co (AppCo co arg)            = do { co' <- go_co co
                                          ; arg' <- go_co arg
                                          ; return (mkAppCo co' arg') }
-    go_co co@(ForAllCo name kind_co body_co)
+    go_co co@(ForAllCo tv' kind_co body_co)
       | not impredicative           = OC_Forall
       | not (fast_check_co kind_co) = OC_Occurs
            -- See ForAllTy case for commentary
            -- TODO (RAE): Fix this when you fix ForAllTy case.
-      | getName tv == name          = return co
-      | otherwise = mkForAllCo name kind_co <$> go_co body_co
+      | tv == tv'                   = return co
+      | otherwise = mkForAllCo tv' kind_co <$> go_co body_co
     go_co (CoVarCo c)               = do { k' <- check_kind (varType c)
                                          ; return (mkCoVarCo (setVarType c k')) }
     go_co (AxiomInstCo ax ind args) = do { args' <- mapM go_co args
@@ -1521,9 +1520,8 @@ occurCheckExpand dflags tv ty
                                          ; return (mkKindCo co') }
     go_co (SubCo co)                = do { co' <- go_co co
                                          ; return (mkSubCo co') }
-    go_co (AxiomRuleCo ax ts cs)    = do { ts' <- mapM go ts
-                                         ; cs' <- mapM go_co cs
-                                         ; return (AxiomRuleCo ax ts' cs') }
+    go_co (AxiomRuleCo ax cs)       = do { cs' <- mapM go_co cs
+                                         ; return (mkAxiomRuleCo ax cs') }
 
     check_kind k | fast_check k = return k
                  | otherwise    = go k
@@ -1849,8 +1847,7 @@ orphNamesOfCo (InstCo co arg)       = orphNamesOfCo co `unionNameSet` orphNamesO
 orphNamesOfCo (CoherenceCo co1 co2) = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (KindCo co)           = orphNamesOfCo co
 orphNamesOfCo (SubCo co)            = orphNamesOfCo co
-orphNamesOfCo (AxiomRuleCo _ ts cs) = orphNamesOfTypes ts `unionNameSet`
-                                      orphNamesOfCos cs
+orphNamesOfCo (AxiomRuleCo _ cs)    = orphNamesOfCos cs
 
 orphNamesOfCos :: [Coercion] -> NameSet
 orphNamesOfCos = orphNamesOfThings orphNamesOfCo
