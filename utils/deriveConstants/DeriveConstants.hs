@@ -412,9 +412,9 @@ wanteds = concat
           ,closureSize  Both "StgSmallMutArrPtrs"
           ,closureField Both "StgSmallMutArrPtrs" "ptrs"
 
-          ,closureSize    Both "StgArrWords"
-          ,closureField   Both "StgArrWords" "bytes"
-          ,closurePayload C    "StgArrWords" "payload"
+          ,closureSize    Both "StgArrBytes"
+          ,closureField   Both "StgArrBytes" "bytes"
+          ,closurePayload C    "StgArrBytes" "payload"
 
           ,closureField  C    "StgTSO"      "_link"
           ,closureField  C    "StgTSO"      "global_link"
@@ -568,6 +568,7 @@ wanteds = concat
           ,structField  C    "StgFunInfoExtraRev" "fun_type"
           ,structFieldH Both "StgFunInfoExtraRev" "arity"
           ,structField_ C    "StgFunInfoExtraRev_bitmap" "StgFunInfoExtraRev" "b.bitmap"
+          ,structField_ C    "StgFunInfoExtraRev_bitmap_offset" "StgFunInfoExtraRev" "b.bitmap_offset"
 
           ,structField C "StgLargeBitmap" "size"
           ,fieldOffset C "StgLargeBitmap" "bitmap"

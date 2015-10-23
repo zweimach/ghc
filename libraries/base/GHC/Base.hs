@@ -147,7 +147,7 @@ The Integer type is special because TidyPgm uses
 GHC.Integer.Type.mkInteger to construct Integer literal values
 Currently it reads the interface file whether or not the current
 module *has* any Integer literals, so it's important that
-GHC.Integer.Type (in patckage integer-gmp or integer-simple) is
+GHC.Integer.Type (in package integer-gmp or integer-simple) is
 compiled before any other module.  (There's a hack in GHC to disable
 this for packages ghc-prim, integer-gmp, integer-simple, which aren't
 allowed to contain any Integer literals.)
@@ -321,6 +321,12 @@ instance Monoid a => Applicative ((,) a) where
     pure x = (mempty, x)
     (u, f) <*> (v, x) = (u `mappend` v, f x)
 
+instance Monoid a => Monad ((,) a) where
+    (u, a) >>= k = case k a of (v, b) -> (u `mappend` v, b)
+
+instance Monoid a => Monoid (IO a) where
+    mempty = pure mempty
+    mappend = liftA2 mappend
 
 {- | The 'Functor' class is used for types that can be mapped over.
 Instances of 'Functor' should satisfy the following laws:
@@ -481,6 +487,7 @@ class Applicative m => Monad m where
 
     -- | Inject a value into the monadic type.
     return      :: a -> m a
+    return      = pure
 
     -- | Fail with a message.  This operation is not part of the
     -- mathematical definition of a monad, but is invoked on pattern-match
@@ -631,7 +638,6 @@ instance Applicative ((->) a) where
     (<*>) f g x = f x (g x)
 
 instance Monad ((->) r) where
-    return = const
     f >>= k = \ r -> k (f r) r
 
 instance Functor ((,) a) where
@@ -657,7 +663,6 @@ instance  Monad Maybe  where
 
     (>>) = (*>)
 
-    return              = Just
     fail _              = Nothing
 
 -- -----------------------------------------------------------------------------
@@ -740,8 +745,6 @@ instance Monad []  where
     xs >>= f             = [y | x <- xs, y <- f x]
     {-# INLINE (>>) #-}
     (>>) = (*>)
-    {-# INLINE return #-}
-    return x            = [x]
     {-# INLINE fail #-}
     fail _              = []
 
@@ -858,9 +861,10 @@ augment g xs = g (:) xs
 -- > map f [x1, x2, ...] == [f x1, f x2, ...]
 
 map :: (a -> b) -> [a] -> [b]
-{-# NOINLINE [1] map #-}    -- We want the RULE to fire first.
-                            -- It's recursive, so won't inline anyway,
-                            -- but saying so is more explicit
+{-# NOINLINE [0] map #-}
+  -- We want the RULEs "map" and "map/coerce" to fire first.
+  -- map is recursive, so won't inline anyway,
+  -- but saying so is more explicit, and silences warnings
 map _ []     = []
 map f (x:xs) = f x : map f xs
 
@@ -1067,18 +1071,19 @@ asTypeOf                =  const
 ----------------------------------------------
 
 instance  Functor IO where
-   fmap f x = x >>= (return . f)
+   fmap f x = x >>= (pure . f)
 
 instance Applicative IO where
-    pure = return
-    (<*>) = ap
+    {-# INLINE pure #-}
+    {-# INLINE (*>) #-}
+    pure   = returnIO
+    m *> k = m >>= \ _ -> k
+    (<*>)  = ap
 
 instance  Monad IO  where
-    {-# INLINE return #-}
     {-# INLINE (>>)   #-}
     {-# INLINE (>>=)  #-}
-    m >> k    = m >>= \ _ -> k
-    return    = returnIO
+    (>>)      = (*>)
     (>>=)     = bindIO
     fail s    = failIO s
 

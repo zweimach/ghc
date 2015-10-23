@@ -40,6 +40,7 @@ module CoreSubst (
 
 import CoreSyn
 import CoreFVs
+import CoreSeq
 import CoreUtils
 import Literal  ( Literal(MachStr) )
 import qualified Data.ByteString as BS
@@ -629,12 +630,12 @@ substIdType subst@(Subst _ _ tv_env cv_env) id
 substIdInfo :: Subst -> Id -> IdInfo -> Maybe IdInfo
 substIdInfo subst new_id info
   | nothing_to_do = Nothing
-  | otherwise     = Just (info `setSpecInfo`      substSpec subst new_id old_rules
+  | otherwise     = Just (info `setRuleInfo`      substSpec subst new_id old_rules
                                `setUnfoldingInfo` substUnfolding subst old_unf)
   where
-    old_rules     = specInfo info
+    old_rules     = ruleInfo info
     old_unf       = unfoldingInfo info
-    nothing_to_do = isEmptySpecInfo old_rules && isClosedUnfolding old_unf
+    nothing_to_do = isEmptyRuleInfo old_rules && isClosedUnfolding old_unf
 
 
 ------------------
@@ -674,12 +675,12 @@ substIdOcc subst v = case lookupIdSubst (text "substIdOcc") subst v of
 
 ------------------
 -- | Substitutes for the 'Id's within the 'WorkerInfo' given the new function 'Id'
-substSpec :: Subst -> Id -> SpecInfo -> SpecInfo
-substSpec subst new_id (SpecInfo rules rhs_fvs)
-  = seqSpecInfo new_spec `seq` new_spec
+substSpec :: Subst -> Id -> RuleInfo -> RuleInfo
+substSpec subst new_id (RuleInfo rules rhs_fvs)
+  = seqRuleInfo new_spec `seq` new_spec
   where
     subst_ru_fn = const (idName new_id)
-    new_spec = SpecInfo (map (substRule subst subst_ru_fn) rules)
+    new_spec = RuleInfo (map (substRule subst subst_ru_fn) rules)
                         (substVarSet subst rhs_fvs)
 
 ------------------
@@ -702,15 +703,16 @@ substRule _ _ rule@(BuiltinRule {}) = rule
 substRule subst subst_ru_fn rule@(Rule { ru_bndrs = bndrs, ru_args = args
                                        , ru_fn = fn_name, ru_rhs = rhs
                                        , ru_local = is_local })
-  = rule { ru_bndrs = bndrs',
-           ru_fn    = if is_local
+  = rule { ru_bndrs = bndrs'
+         , ru_fn    = if is_local
                         then subst_ru_fn fn_name
-                        else fn_name,
-           ru_args  = map (substExpr (text "subst-rule" <+> ppr fn_name) subst') args,
-           ru_rhs   = simpleOptExprWith subst' rhs }
-           -- Do simple optimisation on RHS, in case substitution lets
-           -- you improve it.  The real simplifier never gets to look at it.
+                        else fn_name
+         , ru_args  = map (substExpr doc subst') args
+         , ru_rhs   = substExpr (text "foo") subst' rhs }
+           -- Do NOT optimise the RHS (previously we did simplOptExpr here)
+           -- See Note [Substitute lazily]
   where
+    doc = ptext (sLit "subst-rule") <+> ppr fn_name
     (subst', bndrs') = substBndrs subst bndrs
 
 ------------------
@@ -740,8 +742,22 @@ substTickish subst (Breakpoint n ids) = Breakpoint n (map do_one ids)
  where do_one = getIdFromTrivialExpr . lookupIdSubst (text "subst_tickish") subst
 substTickish _subst other = other
 
-{- Note [substTickish]
+{- Note [Substitute lazily]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The functions that substitute over IdInfo must be pretty lazy, becuause
+they are knot-tied by substRecBndrs.
 
+One case in point was Trac #10627 in which a rule for a function 'f'
+referred to 'f' (at a differnet type) on the RHS.  But instead of just
+substituting in the rhs of the rule, we were calling simpleOptExpr, which
+looked at the idInfo for 'f'; result <<loop>>.
+
+In any case we don't need to optimise the RHS of rules, or unfoldings,
+because the simplifier will do that.
+
+
+Note [substTickish]
+~~~~~~~~~~~~~~~~~~~~~~
 A Breakpoint contains a list of Ids.  What happens if we ever want to
 substitute an expression for one of these Ids?
 
@@ -775,7 +791,7 @@ InlVanilla.  The WARN is just so I can see if it happens a lot.
 *                                                                      *
 ************************************************************************
 
-Note [Optimise coercion boxes agressively]
+Note [Optimise coercion boxes aggressively]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The simple expression optimiser needs to deal with Eq# boxes as follows:
@@ -796,7 +812,7 @@ We do this for two reasons:
 
  2. The test T4356 fails Lint because it creates a coercion between types
     of kind (* -> * -> *) and (?? -> ? -> *), which differ. If we do this
-    inlining agressively we can collapse away the intermediate coercion between
+    inlining aggressively we can collapse away the intermediate coercion between
     these two types and hence pass Lint again. (This is a sort of a hack.)
 
 In fact, our implementation uses slightly liberalised versions of the second rule
@@ -834,7 +850,7 @@ simpleOptExpr :: CoreExpr -> CoreExpr
 -- or where the RHS is trivial
 --
 -- We also inline bindings that bind a Eq# box: see
--- See Note [Optimise coercion boxes agressively].
+-- See Note [Optimise coercion boxes aggressively].
 --
 -- The result is NOT guaranteed occurrence-analysed, because
 -- in  (let x = y in ....) we substitute for x; so y's occ-info
@@ -911,7 +927,7 @@ simple_opt_expr subst expr
 
     go lam@(Lam {})     = go_lam [] subst lam
     go (Case e b ty as)
-       -- See Note [Optimise coercion boxes agressively]
+       -- See Note [Optimise coercion boxes aggressively]
       | isDeadBinder b
       , Just (con, _tys, es) <- exprIsConApp_maybe in_scope_env e'
       , Just (altcon, bs, rhs) <- findAlt (DataAlt con) as
@@ -961,6 +977,7 @@ simple_app subst (Lam b e) (a:as)
     b2 = add_info subst' b b'
 simple_app subst (Var v) as
   | isCompulsoryUnfolding (idUnfolding v)
+  , isAlwaysActive (idInlineActivation v)
   -- See Note [Unfold compulsory unfoldings in LHSs]
   =  simple_app subst (unfoldingTemplate (idUnfolding v)) as
 simple_app subst (Tick t e) as
@@ -1041,7 +1058,7 @@ maybe_substitute subst b r
             | (Var fun, args) <- collectArgs r
             , Just dc <- isDataConWorkId_maybe fun
             , dc `hasKey` eqBoxDataConKey || dc `hasKey` coercibleDataConKey
-            , all exprIsTrivial args = True -- See Note [Optimise coercion boxes agressively]
+            , all exprIsTrivial args = True -- See Note [Optimise coercion boxes aggressively]
             | otherwise = False
 
 ----------------------
@@ -1115,10 +1132,16 @@ to remain visible until Phase 1
 
 Note [Unfold compulsory unfoldings in LHSs]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When the user writes `map coerce = coerce` as a rule, the rule will only ever
-match if we replace coerce by its unfolding on the LHS, because that is the
-core that the rule matching engine will find. So do that for everything that
-has a compulsory unfolding. Also see Note [Desugaring coerce as cast] in Desugar
+When the user writes `RULES map coerce = coerce` as a rule, the rule
+will only ever match if simpleOptExpr replaces coerce by its unfolding
+on the LHS, because that is the core that the rule matching engine
+will find. So do that for everything that has a compulsory
+unfolding. Also see Note [Desugaring coerce as cast] in Desugar.
+
+However, we don't want to inline 'seq', which happens to also have a
+compulsory unfolding, so we only do this unfolding only for things
+that are always-active.  See Note [User-defined RULES for seq] in MkId.
+
 
 ************************************************************************
 *                                                                      *

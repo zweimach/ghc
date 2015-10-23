@@ -42,20 +42,28 @@ module TysWiredIn (
         -- * Word
         wordTyCon, wordDataCon, wordTyConName, wordTy,
 
+        -- * Word8
+        word8TyCon, word8DataCon, word8TyConName, word8Ty,
+
         -- * List
-        listTyCon, nilDataCon, nilDataConName, consDataCon, consDataConName,
-        listTyCon_RDR, consDataCon_RDR, listTyConName,
+        listTyCon, listTyCon_RDR, listTyConName, listTyConKey,
+        nilDataCon, nilDataConName, nilDataConKey,
+        consDataCon_RDR, consDataCon, consDataConName,
+
         mkListTy,
+
+        -- * Maybe
+        maybeTyCon, maybeTyConName,
+        nothingDataCon, nothingDataConName, justDataCon, justDataConName,
 
         -- * Tuples
         mkTupleTy, mkBoxedTupleTy,
-        tupleTyCon, tupleCon,
+        tupleTyCon, tupleDataCon, tupleTyConName,
         promotedTupleDataCon,
-        unitTyCon, unitDataCon, unitDataConId, pairTyCon,
+        unitTyCon, unitDataCon, unitDataConId, unitTy, unitTyConKey,
+        pairTyCon,
         unboxedUnitTyCon, unboxedUnitDataCon,
-
-        -- * Unit
-        unitTy,
+        cTupleTyConName, cTupleTyConNames, isCTupleTyConName,
 
         -- * Kinds
         typeNatKindCon, typeNatKind, typeSymbolKindCon, typeSymbolKind,
@@ -68,6 +76,11 @@ module TysWiredIn (
         -- * Equality predicates
         eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
         coercibleTyCon, coercibleDataCon, coercibleClass,
+
+        -- * Implicit Parameters
+        ipTyCon, ipDataCon, ipClass,
+
+        callStackTyCon,
 
         mkWiredInTyConName, -- This is used in TcTypeNats to define the
                             -- built-in functions for evaluation.
@@ -90,7 +103,9 @@ import PrelNames
 import TysPrim
 
 -- others:
-import Constants        ( mAX_TUPLE_SIZE )
+import CoAxiom
+import Coercion
+import Constants        ( mAX_TUPLE_SIZE, mAX_CTUPLE_SIZE )
 import Module           ( Module )
 import Type
 import DataCon
@@ -100,11 +115,12 @@ import TyCon
 import Class            ( Class, mkClass )
 import RdrName
 import Name
-import BasicTypes       ( TupleSort(..), tupleSortBoxity,
-                          Arity, RecFlag(..), Boxity(..) )
+import NameSet          ( NameSet, mkNameSet, elemNameSet )
+import BasicTypes       ( Arity, RecFlag(..), Boxity(..),
+                           TupleSort(..) )
 import ForeignCall
-import Unique           ( incrUnique, mkTupleTyConUnique,
-                          mkTupleDataConUnique, mkPArrDataConUnique )
+import SrcLoc           ( noSrcSpan )
+import Unique
 import Data.Array
 import FastString
 import Outputable
@@ -153,13 +169,16 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
               , floatTyCon
               , intTyCon
               , wordTyCon
+              , word8TyCon
               , listTyCon
+              , maybeTyCon
               , parrTyCon
               , eqTyCon
               , coercibleTyCon
               , typeNatKindCon
               , typeSymbolKindCon
               , levityTyCon
+              , ipTyCon
               ]
 
 mkWiredInTyConName :: BuiltInSyntax -> Module -> FastString -> Unique -> TyCon -> Name
@@ -172,6 +191,13 @@ mkWiredInDataConName :: BuiltInSyntax -> Module -> FastString -> Unique -> DataC
 mkWiredInDataConName built_in modu fs unique datacon
   = mkWiredInName modu (mkDataOccFS fs) unique
                   (AConLike (RealDataCon datacon))    -- Relevant DataCon
+                  built_in
+
+mkWiredInCoAxiomName :: BuiltInSyntax -> Module -> FastString -> Unique
+                     -> CoAxiom Branched -> Name
+mkWiredInCoAxiomName built_in modu fs unique ax
+  = mkWiredInName modu (mkTcOccFS fs) unique
+                  (ACoAxiom ax)        -- Relevant CoAxiom
                   built_in
 
 -- See Note [Kind-changing of (~) and Coercible] in libraries/ghc-prim/GHC/Types.hs
@@ -200,9 +226,21 @@ listTyConName     = mkWiredInTyConName   BuiltInSyntax gHC_TYPES (fsLit "[]") li
 nilDataConName    = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "[]") nilDataConKey nilDataCon
 consDataConName   = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit ":") consDataConKey consDataCon
 
-wordTyConName, wordDataConName, floatTyConName, floatDataConName, doubleTyConName, doubleDataConName :: Name
+maybeTyConName, nothingDataConName, justDataConName :: Name
+maybeTyConName     = mkWiredInTyConName   UserSyntax gHC_BASE (fsLit "Maybe")
+                                          maybeTyConKey maybeTyCon
+nothingDataConName = mkWiredInDataConName UserSyntax gHC_BASE (fsLit "Nothing")
+                                          nothingDataConKey nothingDataCon
+justDataConName    = mkWiredInDataConName UserSyntax gHC_BASE (fsLit "Just")
+                                          justDataConKey justDataCon
+
+wordTyConName, wordDataConName, word8TyConName, word8DataConName :: Name
 wordTyConName      = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Word")   wordTyConKey     wordTyCon
 wordDataConName    = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "W#")     wordDataConKey   wordDataCon
+word8TyConName     = mkWiredInTyConName   UserSyntax gHC_WORD  (fsLit "Word8")  word8TyConKey    word8TyCon
+word8DataConName   = mkWiredInDataConName UserSyntax gHC_WORD  (fsLit "W8#")    word8DataConKey  word8DataCon
+
+floatTyConName, floatDataConName, doubleTyConName, doubleDataConName :: Name
 floatTyConName     = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Float")  floatTyConKey    floatTyCon
 floatDataConName   = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "F#")     floatDataConKey  floatDataCon
 doubleTyConName    = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Double") doubleTyConKey   doubleTyCon
@@ -210,8 +248,8 @@ doubleDataConName  = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "D#")     
 
 -- Kinds
 typeNatKindConName, typeSymbolKindConName :: Name
-typeNatKindConName    = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "Nat")    typeNatKindConNameKey    typeNatKindCon
-typeSymbolKindConName = mkWiredInTyConName UserSyntax gHC_TYPELITS (fsLit "Symbol") typeSymbolKindConNameKey typeSymbolKindCon
+typeNatKindConName    = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Nat")    typeNatKindConNameKey    typeNatKindCon
+typeSymbolKindConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Symbol") typeSymbolKindConNameKey typeSymbolKindCon
 
 levityTyConName, liftedDataConName, unliftedDataConName :: Name
 levityTyConName     = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Levity") levityTyConKey levityTyCon
@@ -293,7 +331,7 @@ pcDataConWithFixity' declared_infix dc_name wrk_key tyvars ex_tyvars arg_tys tyc
   = data_con
   where
     data_con = mkDataCon dc_name declared_infix
-                (map (const HsNoBang) arg_tys)
+                (map (const no_bang) arg_tys)
                 []      -- No labelled fields
                 tyvars
                 ex_tyvars
@@ -304,6 +342,8 @@ pcDataConWithFixity' declared_infix dc_name wrk_key tyvars ex_tyvars arg_tys tyc
                 []      -- No stupid theta
                 (mkDataConWorkId wrk_name data_con)
                 NoDataConRep    -- Wired-in types are too simple to need wrappers
+
+    no_bang = HsSrcBang Nothing NoSrcUnpack NoSrcStrict
 
     modu     = ASSERT( isExternalName dc_name )
                nameModule dc_name
@@ -339,14 +379,39 @@ typeSymbolKind = mkTyConTy typeSymbolKindCon
 Note [How tuples work]  See also Note [Known-key names] in PrelNames
 ~~~~~~~~~~~~~~~~~~~~~~
 * There are three families of tuple TyCons and corresponding
-  DataCons, (boxed, unboxed, and constraint tuples), expressed by the
-  type BasicTypes.TupleSort.
+  DataCons, expressed by the type BasicTypes.TupleSort:
+    data TupleSort = BoxedTuple | UnboxedTuple | ConstraintTuple
 
-* DataCons (and workers etc) for BoxedTuple and ConstraintTuple have
-    - distinct Uniques
-    - the same OccName
-  Using the same OccName means (hack!) that a single copy of the
-  runtime library code (info tables etc) works for both.
+* All three families are AlgTyCons, whose AlgTyConRhs is TupleTyCon
+
+* BoxedTuples
+    - A wired-in type
+    - Data type declarations in GHC.Tuple
+    - The data constructors really have an info table
+
+* UnboxedTuples
+    - A wired-in type
+    - Have a pretend DataCon, defined in GHC.Prim,
+      but no actual declaration and no info table
+
+* ConstraintTuples
+    - Are known-key rather than wired-in. Reason: it's awkward to
+      have all the superclass selectors wired-in.
+    - Declared as classes in GHC.Classes, e.g.
+         class (c1,c2) => (c1,c2)
+    - Given constraints: the superclasses automatically become available
+    - Wanted constraints: there is a built-in instance
+         instance (c1,c2) => (c1,c2)
+    - Currently just go up to 16; beyond that
+      you have to use manual nesting
+    - Their OccNames look like (%,,,%), so they can easily be
+      distinguished from term tuples.  But (following Haskell) we
+      pretty-print saturated constraint tuples with round parens; see
+      BasicTypes.tupleParens.
+
+* In quite a lot of places things are restrcted just to
+  BoxedTuple/UnboxedTuple, and then we used BasicTypes.Boxity to distinguish
+  E.g. tupleTyCon has a Boxity argument
 
 * When looking up an OccName in the original-name cache
   (IfaceEnv.lookupOrigNameCache), we spot the tuple OccName to make sure
@@ -360,144 +425,155 @@ isBuiltInOcc_maybe :: OccName -> Maybe Name
 -- map to wired-in Names with BuiltInSyntax
 isBuiltInOcc_maybe occ
   = case occNameString occ of
-        "[]"             -> choose_ns listTyCon nilDataCon
+        "[]"             -> choose_ns listTyConName nilDataConName
         ":"              -> Just consDataConName
         "[::]"           -> Just parrTyConName
-        "(##)"           -> choose_ns unboxedUnitTyCon unboxedUnitDataCon
-        "()"             -> choose_ns unitTyCon        unitDataCon
-        '(':'#':',':rest -> parse_tuple UnboxedTuple 2 rest
-        '(':',':rest     -> parse_tuple BoxedTuple   2 rest
+        "()"             -> tup_name Boxed      0
+        "(##)"           -> tup_name Unboxed    0
+        '(':',':rest     -> parse_tuple Boxed   2 rest
+        '(':'#':',':rest -> parse_tuple Unboxed 2 rest
         _other           -> Nothing
   where
     ns = occNameSpace occ
 
     parse_tuple sort n rest
       | (',' : rest2) <- rest   = parse_tuple sort (n+1) rest2
-      | tail_matches sort rest  = choose_ns (tupleTyCon sort n)
-                                            (tupleCon   sort n)
+      | tail_matches sort rest  = tup_name sort n
       | otherwise               = Nothing
 
-    tail_matches BoxedTuple   ")"  = True
-    tail_matches UnboxedTuple "#)" = True
-    tail_matches _            _    = False
+    tail_matches Boxed   ")" = True
+    tail_matches Unboxed "#)" = True
+    tail_matches _       _    = False
+
+    tup_name boxity arity
+      = choose_ns (getName (tupleTyCon   boxity arity))
+                  (getName (tupleDataCon boxity arity))
 
     choose_ns tc dc
-      | isTcClsNameSpace ns   = Just (getName tc)
-      | isDataConNameSpace ns = Just (getName dc)
-      | otherwise             = Just (getName (dataConWorkId dc))
+      | isTcClsNameSpace ns   = Just tc
+      | isDataConNameSpace ns = Just dc
+      | otherwise             = pprPanic "tup_name" (ppr occ)
 
-mkTupleOcc :: NameSpace -> TupleSort -> Arity -> OccName
+mkTupleOcc :: NameSpace -> Boxity -> Arity -> OccName
 mkTupleOcc ns sort ar = mkOccName ns str
   where
     -- No need to cache these, the caching is done in mk_tuple
     str = case sort of
-                UnboxedTuple    -> '(' : '#' : commas ++ "#)"
-                BoxedTuple      -> '(' : commas ++ ")"
-                ConstraintTuple -> '(' : commas ++ ")"
+                Unboxed    -> '(' : '#' : commas ++ "#)"
+                Boxed      -> '(' : commas ++ ")"
 
     commas = take (ar-1) (repeat ',')
 
-    -- Cute hack: we reuse the standard tuple OccNames (and hence code)
-    -- for fact tuples, but give them different Uniques so they are not equal.
-    --
-    -- You might think that this will go wrong because isBuiltInOcc_maybe won't
-    -- be able to tell the difference between boxed tuples and constraint tuples. BUT:
-    --  1. Constraint tuples never occur directly in user code, so it doesn't matter
-    --     that we can't detect them in Orig OccNames originating from the user
-    --     programs (or those built by setRdrNameSpace used on an Exact tuple Name)
-    --  2. Interface files have a special representation for tuple *occurrences*
-    --     in IfaceTyCons, their workers (in IfaceSyn) and their DataCons (in case
-    --     alternatives). Thus we don't rely on the OccName to figure out what kind
-    --     of tuple an occurrence was trying to use in these situations.
-    --  3. We *don't* represent tuple data type declarations specially, so those
-    --     are still turned into wired-in names via isBuiltInOcc_maybe. But that's OK
-    --     because we don't actually need to declare constraint tuples thanks to this hack.
-    --
-    -- So basically any OccName like (,,) flowing to isBuiltInOcc_maybe will always
-    -- refer to the standard boxed tuple. Cool :-)
-
-
-tupleTyCon :: TupleSort -> Arity -> TyCon
-tupleTyCon sort i | i > mAX_TUPLE_SIZE = fst (mk_tuple sort i)  -- Build one specially
-tupleTyCon BoxedTuple   i = fst (boxedTupleArr   ! i)
-tupleTyCon UnboxedTuple i = fst (unboxedTupleArr ! i)
-tupleTyCon ConstraintTuple    i = fst (factTupleArr    ! i)
-
-promotedTupleDataCon :: TupleSort -> Arity -> TyCon
-promotedTupleDataCon sort i = promoteDataCon (tupleCon sort i)
-
-tupleCon :: TupleSort -> Arity -> DataCon
-tupleCon sort i | i > mAX_TUPLE_SIZE = snd (mk_tuple sort i)    -- Build one specially
-tupleCon BoxedTuple   i = snd (boxedTupleArr   ! i)
-tupleCon UnboxedTuple i = snd (unboxedTupleArr ! i)
-tupleCon ConstraintTuple    i = snd (factTupleArr    ! i)
-
-boxedTupleArr, unboxedTupleArr, factTupleArr :: Array Int (TyCon,DataCon)
-boxedTupleArr   = listArray (0,mAX_TUPLE_SIZE) [mk_tuple BoxedTuple i | i <- [0..mAX_TUPLE_SIZE]]
-unboxedTupleArr = listArray (0,mAX_TUPLE_SIZE) [mk_tuple UnboxedTuple i | i <- [0..mAX_TUPLE_SIZE]]
-factTupleArr = listArray (0,mAX_TUPLE_SIZE) [mk_tuple ConstraintTuple i | i <- [0..mAX_TUPLE_SIZE]]
-
-mk_tuple :: TupleSort -> Int -> (TyCon,DataCon)
-mk_tuple sort arity = (tycon, tuple_con)
+mkCTupleOcc :: NameSpace -> Arity -> OccName
+mkCTupleOcc ns ar = mkOccName ns str
   where
-        tycon   = mkTupleTyCon tc_name tc_kind tc_arity tyvars tuple_con sort
-        (tc_kind, tc_arity, tyvars, tyvar_tys) = case sort of
-          BoxedTuple ->
+    str    = "(%" ++ commas ++ "%)"
+    commas = take (ar-1) (repeat ',')
+
+cTupleTyConName :: Arity -> Name
+cTupleTyConName arity
+  = mkExternalName (mkCTupleTyConUnique arity) gHC_CLASSES
+                   (mkCTupleOcc tcName arity) noSrcSpan
+  -- The corresponding DataCon does not have a known-key name
+
+cTupleTyConNames :: [Name]
+cTupleTyConNames = map cTupleTyConName (0 : [2..mAX_CTUPLE_SIZE])
+
+cTupleTyConNameSet :: NameSet
+cTupleTyConNameSet = mkNameSet cTupleTyConNames
+
+isCTupleTyConName :: Name -> Bool
+isCTupleTyConName n
+ = ASSERT2( isExternalName n, ppr n )
+   nameModule n == gHC_CLASSES
+   && n `elemNameSet` cTupleTyConNameSet
+
+tupleTyCon :: Boxity -> Arity -> TyCon
+tupleTyCon sort i | i > mAX_TUPLE_SIZE = fst (mk_tuple sort i)  -- Build one specially
+tupleTyCon Boxed   i = fst (boxedTupleArr   ! i)
+tupleTyCon Unboxed i = fst (unboxedTupleArr ! i)
+
+tupleTyConName :: TupleSort -> Arity -> Name
+tupleTyConName ConstraintTuple a = cTupleTyConName a
+tupleTyConName BoxedTuple      a = tyConName (tupleTyCon Boxed a)
+tupleTyConName UnboxedTuple    a = tyConName (tupleTyCon Unboxed a)
+
+promotedTupleDataCon :: Boxity -> Arity -> TyCon
+promotedTupleDataCon boxity i = promoteDataCon (tupleDataCon boxity i)
+
+tupleDataCon :: Boxity -> Arity -> DataCon
+tupleDataCon sort i | i > mAX_TUPLE_SIZE = snd (mk_tuple sort i)    -- Build one specially
+tupleDataCon Boxed   i = snd (boxedTupleArr   ! i)
+tupleDataCon Unboxed i = snd (unboxedTupleArr ! i)
+
+boxedTupleArr, unboxedTupleArr :: Array Int (TyCon,DataCon)
+boxedTupleArr   = listArray (0,mAX_TUPLE_SIZE) [mk_tuple Boxed   i | i <- [0..mAX_TUPLE_SIZE]]
+unboxedTupleArr = listArray (0,mAX_TUPLE_SIZE) [mk_tuple Unboxed i | i <- [0..mAX_TUPLE_SIZE]]
+
+mk_tuple :: Boxity -> Int -> (TyCon,DataCon)
+mk_tuple boxity arity = (tycon, tuple_con)
+  where
+        tycon   = mkTupleTyCon tc_name tc_kind tc_arity tyvars tuple_con
+                               tup_sort NoParentTyCon
+
+        (tup_sort, modu, tc_kind, tc_arity, tyvars, tyvar_tys) = case boxity of
+          BoxedT ->
             let boxed_tyvars = take arity alphaTyVars in
-            ( mkFunTys (nOfThem arity liftedTypeKind) liftedTypeKind
+            ( BoxedTuple
+            , gHC_TUPLE
+            , mkFunTys (nOfThem arity liftedTypeKind) liftedTypeKind
             , arity
             , boxed_tyvars
             , mkTyVarTys boxed_tyvars )
             -- See Note [Unboxed tuple levity vars] in TyCon
-          UnboxedTuple ->
+          Unboxed ->
             let lev_tvs  = take arity $
                            drop 21 $  -- to get "v" and "w" ...
                            tyVarList levityTy
-                open_tvs = zipWith mk_open_tv [0..] lev_tvs
-                mk_open_tv n ltv
-                  = (tyVarList (tYPE (mkTyVarTy ltv))) !! n
+                open_tvs = mkTemplateTyVars (map (tYPE . mkTyVarTy) lev_tvs)
             in
-            ( mkInvForAllTys lev_tvs $
+            ( UnboxedTuple
+            , gHC_PRIM
+            , mkInvForAllTys lev_tvs $
               mkFunTys (map tyVarKind open_tvs) $
               unliftedTypeKind
             , arity * 2
             , lev_tvs ++ open_tvs
             , mkTyVarTys open_tvs )
-          ConstraintTuple ->
-            let constr_tyvars = take arity $ tyVarList constraintKind in
-            ( mkFunTys (nOfThem arity constraintKind) constraintKind
-            , arity
-            , constr_tyvars
-            , mkTyVarTys constr_tyvars )
 
-        modu    = mkTupleModule sort
-        tc_name = mkWiredInName modu (mkTupleOcc tcName sort arity) tc_uniq
+        tc_name = mkWiredInName modu (mkTupleOcc tcName boxity arity) tc_uniq
                                 (ATyCon tycon) BuiltInSyntax
         tuple_con = pcDataCon dc_name tyvars tyvar_tys tycon
-        dc_name   = mkWiredInName modu (mkTupleOcc dataName sort arity) dc_uniq
+        dc_name   = mkWiredInName modu (mkTupleOcc dataName boxity arity) dc_uniq
                                   (AConLike (RealDataCon tuple_con)) BuiltInSyntax
-        tc_uniq   = mkTupleTyConUnique   sort arity
-        dc_uniq   = mkTupleDataConUnique sort arity
+        tc_uniq   = mkTupleTyConUnique   boxity arity
+        dc_uniq   = mkTupleDataConUnique boxity arity
 
 unitTyCon :: TyCon
-unitTyCon     = tupleTyCon BoxedTuple 0
+unitTyCon = tupleTyCon Boxed 0
+
+unitTyConKey :: Unique
+unitTyConKey = getUnique unitTyCon
+
 unitDataCon :: DataCon
 unitDataCon   = head (tyConDataCons unitTyCon)
+
 unitDataConId :: Id
 unitDataConId = dataConWorkId unitDataCon
 
 pairTyCon :: TyCon
-pairTyCon = tupleTyCon BoxedTuple 2
+pairTyCon = tupleTyCon Boxed 2
 
 unboxedUnitTyCon :: TyCon
-unboxedUnitTyCon   = tupleTyCon UnboxedTuple 0
+unboxedUnitTyCon = tupleTyCon Unboxed 0
+
 unboxedUnitDataCon :: DataCon
-unboxedUnitDataCon = tupleCon   UnboxedTuple 0
+unboxedUnitDataCon = tupleDataCon   Unboxed 0
 
 {-
 ************************************************************************
 *                                                                      *
-\subsection[TysWiredIn-boxed-prim]{The ``boxed primitive'' types (@Char@, @Int@, etc)}
+     The ``boxed primitive'' types (@Char@, @Int@, etc)
 *                                                                      *
 ************************************************************************
 -}
@@ -517,7 +593,7 @@ eqTyCon = mkAlgTyCon eqTyConName
   where
     kv = kKiVar
     k = mkTyVarTy kv
-    a:b:_ = tyVarList k
+    [a,b] = mkTemplateTyVars [k,k]
 
 eqBoxDataCon :: DataCon
 eqBoxDataCon
@@ -525,7 +601,7 @@ eqBoxDataCon
   where
     kv = kKiVar
     k = mkTyVarTy kv
-    a:b:_ = tyVarList k
+    [a,b] = mkTemplateTyVars [k,k]
     univ_args = [kv, a, b]
     arg = mkTyConApp eqPrimTyCon [k, k, mkTyVarTy a, mkTyVarTy b]
 
@@ -538,7 +614,7 @@ coercibleTyCon = mkClassTyCon
                 mkArrowKinds [k, k] constraintKind)
         kv = kKiVar
         k = mkTyVarTy kv
-        a:b:_ = tyVarList k
+        [a,b] = mkTemplateTyVars [k,k]
         tvs = [kv, a, b]
         rhs = DataTyCon [coercibleDataCon] False
 
@@ -548,7 +624,7 @@ coercibleDataCon
   where
     kv = kKiVar
     k = mkTyVarTy kv
-    a:b:_ = tyVarList k
+    [a,b] = mkTemplateTyVars [k,k]
     a_ty = mkTyVarTy a
     b_ty = mkTyVarTy b
     univ_args = [kv, a, b]
@@ -590,8 +666,8 @@ charTy = mkTyConTy charTyCon
 
 charTyCon :: TyCon
 charTyCon   = pcNonRecDataTyCon charTyConName
-                                (Just (CType Nothing (fsLit "HsChar")))
-                                [] [charDataCon]
+                       (Just (CType "" Nothing ("HsChar",fsLit "HsChar")))
+                       [] [charDataCon]
 charDataCon :: DataCon
 charDataCon = pcDataCon charDataConName [] [charPrimTy] charTyCon
 
@@ -602,7 +678,9 @@ intTy :: Type
 intTy = mkTyConTy intTyCon
 
 intTyCon :: TyCon
-intTyCon = pcNonRecDataTyCon intTyConName (Just (CType Nothing (fsLit "HsInt"))) [] [intDataCon]
+intTyCon = pcNonRecDataTyCon intTyConName
+                            (Just (CType "" Nothing ("HsInt",fsLit "HsInt"))) []
+                            [intDataCon]
 intDataCon :: DataCon
 intDataCon = pcDataCon intDataConName [] [intPrimTy] intTyCon
 
@@ -610,15 +688,29 @@ wordTy :: Type
 wordTy = mkTyConTy wordTyCon
 
 wordTyCon :: TyCon
-wordTyCon = pcNonRecDataTyCon wordTyConName (Just (CType Nothing (fsLit "HsWord"))) [] [wordDataCon]
+wordTyCon = pcNonRecDataTyCon wordTyConName
+                      (Just (CType "" Nothing ("HsWord", fsLit "HsWord"))) []
+                      [wordDataCon]
 wordDataCon :: DataCon
 wordDataCon = pcDataCon wordDataConName [] [wordPrimTy] wordTyCon
+
+word8Ty :: Type
+word8Ty = mkTyConTy word8TyCon
+
+word8TyCon :: TyCon
+word8TyCon = pcNonRecDataTyCon word8TyConName
+                      (Just (CType "" Nothing ("HsWord8", fsLit "HsWord8"))) []
+                      [word8DataCon]
+word8DataCon :: DataCon
+word8DataCon = pcDataCon word8DataConName [] [wordPrimTy] word8TyCon
 
 floatTy :: Type
 floatTy = mkTyConTy floatTyCon
 
 floatTyCon :: TyCon
-floatTyCon   = pcNonRecDataTyCon floatTyConName   (Just (CType Nothing (fsLit "HsFloat"))) [] [floatDataCon]
+floatTyCon   = pcNonRecDataTyCon floatTyConName
+                      (Just (CType "" Nothing ("HsFloat", fsLit "HsFloat"))) []
+                      [floatDataCon]
 floatDataCon :: DataCon
 floatDataCon = pcDataCon         floatDataConName [] [floatPrimTy] floatTyCon
 
@@ -626,7 +718,9 @@ doubleTy :: Type
 doubleTy = mkTyConTy doubleTyCon
 
 doubleTyCon :: TyCon
-doubleTyCon = pcNonRecDataTyCon doubleTyConName (Just (CType Nothing (fsLit "HsDouble"))) [] [doubleDataCon]
+doubleTyCon = pcNonRecDataTyCon doubleTyConName
+                      (Just (CType "" Nothing ("HsDouble",fsLit "HsDouble"))) []
+                      [doubleDataCon]
 
 doubleDataCon :: DataCon
 doubleDataCon = pcDataCon doubleDataConName [] [doublePrimTy] doubleTyCon
@@ -634,7 +728,7 @@ doubleDataCon = pcDataCon doubleDataConName [] [doublePrimTy] doubleTyCon
 {-
 ************************************************************************
 *                                                                      *
-\subsection[TysWiredIn-Bool]{The @Bool@ type}
+              The Bool type
 *                                                                      *
 ************************************************************************
 
@@ -686,7 +780,7 @@ boolTy = mkTyConTy boolTyCon
 
 boolTyCon :: TyCon
 boolTyCon = pcTyCon True NonRecursive boolTyConName
-                    (Just (CType Nothing (fsLit "HsBool")))
+                    (Just (CType "" Nothing ("HsBool", fsLit "HsBool")))
                     [] [falseDataCon, trueDataCon]
 
 falseDataCon, trueDataCon :: DataCon
@@ -714,18 +808,13 @@ gtDataConId = dataConWorkId gtDataCon
 {-
 ************************************************************************
 *                                                                      *
-\subsection[TysWiredIn-List]{The @List@ type (incl ``build'' magic)}
+            The List type
+   Special syntax, deeply wired in,
+   but otherwise an ordinary algebraic data type
 *                                                                      *
 ************************************************************************
 
-Special syntax, deeply wired in, but otherwise an ordinary algebraic
-data types:
-\begin{verbatim}
-data [] a = [] | a : (List a)
-data () = ()
-data (,) a b = (,,) a b
-...
-\end{verbatim}
+       data [] a = [] | a : (List a)
 -}
 
 mkListTy :: Type -> Type
@@ -746,10 +835,22 @@ consDataCon = pcDataConWithFixity True {- Declared infix -}
 -- We can't use (mkListTy alphaTy) in the defn of consDataCon, else mkListTy
 -- gets the over-specific type (Type -> Type)
 
+-- Wired-in type Maybe
+
+maybeTyCon :: TyCon
+maybeTyCon = pcTyCon True NonRecursive True maybeTyConName Nothing alpha_tyvar
+                     [nothingDataCon, justDataCon]
+
+nothingDataCon :: DataCon
+nothingDataCon = pcDataCon nothingDataConName alpha_tyvar [] maybeTyCon
+
+justDataCon :: DataCon
+justDataCon = pcDataCon justDataConName alpha_tyvar [alphaTy] maybeTyCon
+
 {-
-************************************************************************
+** *********************************************************************
 *                                                                      *
-\subsection[TysWiredIn-Tuples]{The @Tuple@ types}
+            The tuple types
 *                                                                      *
 ************************************************************************
 
@@ -796,24 +897,23 @@ done by enumeration\srcloc{lib/prelude/InTup?.hs}.
 
 -- | Make a tuple type. The list of types should /not/ include any
 -- levity specifications.
-mkTupleTy :: TupleSort -> [Type] -> Type
+mkTupleTy :: Boxity -> [Type] -> Type
 -- Special case for *boxed* 1-tuples, which are represented by the type itself
-mkTupleTy sort [ty] | Boxed <- tupleSortBoxity sort = ty
-mkTupleTy UnboxedTuple tys = mkTyConApp (tupleTyCon UnboxedTuple (length tys))
+mkTupleTy Boxed [ty] = ty
+mkTupleTy Unboxed tys = mkTyConApp (tupleTyCon Unboxed (length tys))
                                         (map (getLevity "mkTupleTy") tys ++ tys)
-mkTupleTy sort tys = mkTyConApp (tupleTyCon sort (length tys)) tys
 
 -- | Build the type of a small tuple that holds the specified type of thing
 mkBoxedTupleTy :: [Type] -> Type
-mkBoxedTupleTy tys = mkTupleTy BoxedTuple tys
+mkBoxedTupleTy tys = mkTupleTy Boxed tys
 
 unitTy :: Type
-unitTy = mkTupleTy BoxedTuple []
+unitTy = mkTupleTy Boxed []
 
-{-
-************************************************************************
+
+{- *********************************************************************
 *                                                                      *
-\subsection[TysWiredIn-PArr]{The @[::]@ type}
+        The parallel-array type,  [::]
 *                                                                      *
 ************************************************************************
 
@@ -898,3 +998,54 @@ promotedLTDataCon
 promotedLTDataCon     = promoteDataCon ltDataCon
 promotedEQDataCon     = promoteDataCon eqDataCon
 promotedGTDataCon     = promoteDataCon gtDataCon
+
+{-
+Note [The Implicit Parameter class]
+
+Implicit parameters `?x :: a` are desugared into dictionaries for the
+class `IP "x" a`, which is defined (in GHC.Classes) as
+
+  class IP (x :: Symbol) a | x -> a
+
+This class is wired-in so that `error` and `undefined`, which have
+wired-in types, can use the implicit-call-stack feature to provide
+a call-stack alongside the error message.
+-}
+
+ipDataConName, ipTyConName, ipCoName :: Name
+ipDataConName = mkWiredInDataConName UserSyntax gHC_CLASSES (fsLit "IP")
+                  ipDataConKey ipDataCon
+ipTyConName   = mkWiredInTyConName UserSyntax gHC_CLASSES (fsLit "IP")
+                  ipTyConKey ipTyCon
+ipCoName      = mkWiredInCoAxiomName BuiltInSyntax gHC_CLASSES (fsLit "NTCo:IP")
+                  ipCoNameKey (toBranchedAxiom ipCoAxiom)
+
+-- See Note [The Implicit Parameter class]
+ipTyCon :: TyCon
+ipTyCon = mkClassTyCon ipTyConName kind [ip,a] [] rhs ipClass NonRecursive
+  where
+    kind = mkArrowKinds [typeSymbolKind, liftedTypeKind] constraintKind
+    [ip,a] = mkTemplateTyVars [typeSymbolKind, liftedTypeKind]
+    rhs = NewTyCon ipDataCon (mkTyVarTy a) ([], mkTyVarTy a) ipCoAxiom
+
+ipCoAxiom :: CoAxiom Unbranched
+ipCoAxiom = mkNewTypeCo ipCoName ipTyCon [ip,a] [Nominal, Nominal] (mkTyVarTy a)
+  where
+    [ip,a] = mkTemplateTyVars [typeSymbolKind, liftedTypeKind]
+
+ipDataCon :: DataCon
+ipDataCon = pcDataCon ipDataConName [ip,a] ts ipTyCon
+  where
+    [ip,a] = mkTemplateTyVars [typeSymbolKind, liftedTypeKind]
+    ts  = [mkTyVarTy a]
+
+ipClass :: Class
+ipClass = mkClass (tyConTyVars ipTyCon) [([ip], [a])] [] [] [] [] (mkAnd [])
+            ipTyCon
+  where
+    [ip, a] = tyConTyVars ipTyCon
+
+-- this is a fake version of the CallStack TyCon so we can refer to it
+-- in MkCore.errorTy
+callStackTyCon :: TyCon
+callStackTyCon = pcNonRecDataTyCon callStackTyConName Nothing [] []

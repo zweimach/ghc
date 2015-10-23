@@ -6,14 +6,15 @@ TYPE SIGNATURES
   s :: forall t t1. Q t (Z [Char]) t1 -> Q t (Z [Char]) t1
 TYPE CONSTRUCTORS
   data Q s a chain = Node s a chain
-    Kind: * -> * -> * -> *
+    Promotable
   data Z a = Z a
-    Kind: * -> *
+    Promotable
   class Zork s a b | a -> b where
     huh :: Q s a chain -> ST s ()
+    {-# MINIMAL huh #-}
 COERCION AXIOMS
   axiom NTCo:Zork ::
-    [s, a, b] Zork s a b = forall chain. Q s a chain -> ST s ()
+      Zork s a b = forall chain. Q s a chain -> ST s ()
 Dependent modules: []
-Dependent packages: [base-4.8.0.0, ghc-prim-0.3.1.0,
+Dependent packages: [base-4.8.2.0, ghc-prim-0.4.0.0,
                      integer-gmp-1.0.0.0]

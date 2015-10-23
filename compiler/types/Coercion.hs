@@ -121,8 +121,8 @@ import TysPrim          ( eqPhantPrimTyCon )
 import ListSetOps
 import Maybes
 
-import Control.Applicative hiding ( empty )
 #if __GLASGOW_HASKELL__ < 709
+import Control.Applicative hiding ( empty )
 import Prelude hiding ( and )
 import Data.Traversable (traverse, sequenceA)
 import Data.Foldable ( and )
@@ -265,7 +265,7 @@ pprCoBndr name eta =
 pprCoAxiom :: CoAxiom br -> SDoc
 pprCoAxiom ax@(CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
   = hang (ptext (sLit "axiom") <+> ppr ax <+> dcolon)
-       2 (vcat (map (pprCoAxBranch tc) $ fromBranchList branches))
+       2 (vcat (map (pprCoAxBranch tc) $ fromBranches branches))
 
 pprCoAxBranch :: TyCon -> CoAxBranch -> SDoc
 pprCoAxBranch fam_tc (CoAxBranch { cab_tvs = tvs
@@ -334,7 +334,7 @@ splitAppCo_maybe :: Coercion -> Maybe (Coercion, Coercion)
 -- ^ Attempt to take a coercion application apart.
 splitAppCo_maybe (AppCo co arg) = Just (co, arg)
 splitAppCo_maybe (TyConAppCo r tc args)
-  | isDecomposableTyCon tc || args `lengthExceeds` tyConArity tc
+  | mightBeUnsaturatedTyCon tc || args `lengthExceeds` tyConArity tc
     -- Never create unsaturated type family apps!
   , Just (args', arg') <- snocView args
   , Just arg'' <- setNominalRole_maybe arg'
@@ -536,7 +536,7 @@ mkNomReflCo = mkReflCo Nominal
 mkTyConAppCo :: Role -> TyCon -> [Coercion] -> Coercion
 mkTyConAppCo r tc cos
                -- Expand type synonyms
-  | Just (tv_co_prs, rhs_ty, leftover_cos) <- tcExpandTyCon_maybe tc cos
+  | Just (tv_co_prs, rhs_ty, leftover_cos) <- expandSynTyCon_maybe tc cos
   = mkAppCos (liftCoSubst r (mkLiftingContext tv_co_prs) rhs_ty) leftover_cos
 
   | Just tys_roles <- traverse isReflCo_maybe cos
@@ -580,7 +580,7 @@ mkAppCo (TyConAppCo r tc args) arg
 mkAppCo co arg = AppCo co  arg
 -- Note, mkAppCo is careful to maintain invariants regarding
 -- where Refl constructors appear; see the comments in the definition
--- of Coercion and the Note [Refl invariant] in types/TyCoRep.lhs.
+-- of Coercion and the Note [Refl invariant] in types/TyCoRep.hs.
 
 -- | Applies multiple 'Coercion's to another 'Coercion', from left to right.
 -- See also 'mkAppCo'.
@@ -939,6 +939,8 @@ mkSubCo co = ASSERT2( coercionRole co == Nominal, ppr co <+> ppr (coercionRole c
 downgradeRole_maybe :: Role   -- ^ desired role
                     -> Role   -- ^ current role
                     -> Coercion -> Maybe Coercion
+-- In (downgradeRole_maybe dr cr co) it's a precondition that
+--                                   cr = coercionRole co
 downgradeRole_maybe Representational Nominal co = Just (mkSubCo co)
 downgradeRole_maybe Nominal Representational _  = Nothing
 downgradeRole_maybe Phantom Phantom          co = Just co
@@ -1198,7 +1200,7 @@ mkNewTypeCo name tycon tvs roles rhs_ty
             , co_ax_implicit = True  -- See Note [Implicit axioms] in TyCon
             , co_ax_role     = Representational
             , co_ax_tc       = tycon
-            , co_ax_branches = FirstBranch branch }
+            , co_ax_branches = unbranched branch }
   where branch = CoAxBranch { cab_loc = getSrcSpan name
                             , cab_tvs = tvs
                             , cab_cvs = []
@@ -1270,9 +1272,9 @@ type NormaliseStepper = RecTcChecker
 -- | The result of stepping in a normalisation function.
 -- See 'topNormaliseTypeX_maybe'.
 data NormaliseStepResult
-  = NS_Done   -- ^ nothing more to do
-  | NS_Abort  -- ^ utter failure. The outer function should fail too.
-  | NS_Step RecTcChecker Type Coercion  -- ^ we stepped, yielding new bits;
+  = NS_Done   -- ^ Nothing more to do
+  | NS_Abort  -- ^ Utter failure. The outer function should fail too.
+  | NS_Step RecTcChecker Type Coercion  -- ^ We stepped, yielding new bits;
                                         -- ^ co :: old type ~ new type
 
 modifyStepResultCo :: (Coercion -> Coercion)
@@ -1282,6 +1284,7 @@ modifyStepResultCo _ result                  = result
 
 -- | Try one stepper and then try the next, if the first doesn't make
 -- progress.
+-- So if it returns NS_Done, it means that both steppers are satisfied
 composeSteppers :: NormaliseStepper -> NormaliseStepper
                 -> NormaliseStepper
 composeSteppers step1 step2 rec_nts tc tys
@@ -1640,22 +1643,24 @@ lcInScopeSet (LC subst _) = getTCvInScope subst
 -}
 
 seqCo :: Coercion -> ()
-seqCo (Refl r ty)           = r `seq` seqType ty
-seqCo (TyConAppCo r tc cos) = r `seq` tc `seq` seqCos cos
-seqCo (AppCo co1 co2)       = seqCo co1 `seq` seqCo co2
-seqCo (ForAllCo tv k co)    = tv `seq` seqCo k `seq` seqCo co
-seqCo (CoVarCo cv)          = cv `seq` ()
+seqCo (Refl r ty)               = r `seq` seqType ty
+seqCo (TyConAppCo r tc cos)     = r `seq` tc `seq` seqCos cos
+seqCo (AppCo co1 co2)           = seqCo co1 `seq` seqCo co2
+seqCo (ForAllCo tv k co)        = seqType (tyVarKind tv) `seq` seqCo k
+                                                         `seq` seqCo co
+seqCo (CoVarCo cv)              = cv `seq` ()
 seqCo (AxiomInstCo con ind cos) = con `seq` ind `seq` seqCos cos
-seqCo (UnivCo p r h t1 t2)  = p `seq` r `seq` seqCo h `seq` seqType t1 `seq` seqType t2
-seqCo (SymCo co)            = seqCo co
-seqCo (TransCo co1 co2)     = seqCo co1 `seq` seqCo co2
-seqCo (NthCo _ co)          = seqCo co
-seqCo (LRCo _ co)           = seqCo co
-seqCo (InstCo co arg)       = seqCo co `seq` seqCo arg
-seqCo (CoherenceCo co1 co2) = seqCo co1 `seq` seqCo co2
-seqCo (KindCo co)           = seqCo co
-seqCo (SubCo co)            = seqCo co
-seqCo (AxiomRuleCo _ cs)    = seqCos cs
+seqCo (UnivCo p r h t1 t2)
+  = p `seq` r `seq` seqCo h `seq` seqType t1 `seq` seqType t2
+seqCo (SymCo co)                = seqCo co
+seqCo (TransCo co1 co2)         = seqCo co1 `seq` seqCo co2
+seqCo (NthCo n co)              = n `seq` seqCo co
+seqCo (LRCo lr co)              = lr `seq` seqCo co
+seqCo (InstCo co arg)           = seqCo co `seq` seqCo arg
+seqCo (CoherenceCo co1 co2)     = seqCo co1 `seq` seqCo co2
+seqCo (KindCo co)               = seqCo co
+seqCo (SubCo co)                = seqCo co
+seqCo (AxiomRuleCo _ cs)        = seqCos cs
 
 seqCos :: [Coercion] -> ()
 seqCos []       = ()

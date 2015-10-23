@@ -1,6 +1,11 @@
+# NOTICE TO DEVELOPERS
+# ~~~~~~~~~~~~~~~~~~~~
+# Adding a TemplateHaskell test?  If it only contains (non-quasi) quotes
+# and no splices, consider adding it to the quotes/ directory instead
+# of the th/ directory; this way, we can test it on the stage 1 compiler too!
 
 # This test needs to come before the setTestOpts calls below, as we want
-# to run it if !compiler_profiled
+# to run it if compiler_profiled.
 test('T4255', unless(compiler_profiled(), skip), compile_fail, ['-v0'])
 
 def f(name, opts):
@@ -9,16 +14,13 @@ def f(name, opts):
         opts.skip = 1
 
 setTestOpts(f)
-setTestOpts(only_compiler_types(['ghc']))
 setTestOpts(only_ways(['normal','ghci']))
 setTestOpts(when(compiler_profiled(), skip))
 
 test('TH_mkName', normal, compile, ['-v0'])
 test('TH_1tuple', normal, compile_fail, ['-v0'])
 
-test('TH_repE1', normal, compile, [''])
 test('TH_repE2', normal, compile_and_run, [''])
-test('TH_repE3', normal, compile, [''])
 test('TH_repPrim', normal, compile, ['-v0'])
 test('TH_repPrim2', normal, compile, ['-v0'])
 test('TH_repUnboxedTuples', normal, compile, ['-v0'])
@@ -67,8 +69,6 @@ test('TH_spliceD2',
 test('TH_reifyDecl1', normal, compile, ['-v0'])
 test('TH_reifyDecl2', normal, compile, ['-v0'])
 
-test('TH_reifyType1', normal, compile, [''])
-test('TH_reifyType2', normal, compile, [''])
 test('TH_reifyMkName', normal, compile, ['-v0'])
 
 test('TH_reifyInstances', normal, compile, ['-v0'])
@@ -99,10 +99,6 @@ test('TH_spliceExpr1', normal, compile, ['-v0'])
 test('TH_spliceE3', normal, compile, ['-v0'])
 test('TH_spliceE4', normal, compile_and_run, [''])
 
-test('TH_bracket1', normal, compile, [''])
-test('TH_bracket2', normal, compile, [''])
-test('TH_bracket3', normal, compile, [''])
-
 test('TH_class1', normal, compile, ['-v0'])
 test('TH_tuple1', normal, compile, ['-v0'])
 test('TH_genEx',
@@ -122,8 +118,6 @@ test('TH_exn2', normal, compile_fail, ['-v0'])
 test('TH_recover', normal, compile_and_run, [''])
 test('TH_dataD1', normal, compile_fail, ['-v0'])
 
-test('TH_ppr1', normal, compile_and_run, [''])
-
 test('TH_fail', normal, compile_fail, ['-v0'])
 test('TH_scopedTvs', normal, compile, ['-v0'])
 
@@ -133,13 +127,14 @@ test('TH_ghci1', normal, ghci_script, ['TH_ghci1.script'])
 
 test('TH_linePragma', normal, compile_fail, ['-v0'])
 
-test('TH_scope', normal, compile, [''])
-test('T2632', normal, compile, [''])
+test('T1830_3',
+     extra_clean(['T1830_3a.o','T1830_3a.hi']),
+     multimod_compile_and_run,
+     ['T1830_3', '-v0'])
 test('T2700', normal, compile, ['-v0'])
 test('T2817', normal, compile, ['-v0'])
 test('T2713', normal, compile_fail, ['-v0'])
 test('T2674', normal, compile_fail, ['-v0'])
-test('T2931', normal, compile, ['-v0'])
 test('TH_emptycase', normal, compile, ['-v0'])
 
 test('T2386', extra_clean(['T2386_Lib.hi', 'T2386_Lib.o']),
@@ -152,7 +147,6 @@ test('T2685', extra_clean(['T2685a.hi','T2685a.o']),
 test('TH_sections', normal, compile, ['-v0'])
 
 test('TH_tf1', normal, compile, ['-v0'])
-test('TH_tf2', normal, compile, ['-v0'])
 test('TH_tf3', normal, compile, ['-v0'])
 
 test('TH_pragma', normal, compile, ['-v0 -dsuppress-uniques'])
@@ -167,7 +161,6 @@ test('TH_foreignCallingConventions', normal,
 
 test('T3395', normal, compile_fail, ['-v0'])
 test('T3467', normal, compile, [''])
-test('T3572', normal, compile_and_run, [''])
 test('T3100', normal, compile, ['-v0'])
 test('T3920', normal, compile_and_run, ['-v0'])
 
@@ -177,10 +170,8 @@ test('T3845', normal, compile, ['-v0'])
 test('T3899', extra_clean(['T3899a.hi','T3899a.o']),
               multimod_compile,
               ['T3899','-v0 -ddump-splices -dsuppress-uniques ' + config.ghc_th_way_flags])
-test('T4056', normal, compile, ['-v0'])
 test('T4188', normal, compile, ['-v0'])
 test('T4233', normal, compile, ['-v0'])
-test('T4169', normal, compile, ['-v0'])
 test('T1835', normal, compile_and_run, ['-v0'])
 
 test('TH_viewPatPrint', normal, compile_and_run, [''])
@@ -227,7 +218,6 @@ test('T5665', extra_clean(['T5665a.hi','T5665a.o']),
 test('T5700', extra_clean(['T5700a.hi','T5700a.o']),
               multimod_compile,
               ['T5700','-v0 -ddump-splices ' + config.ghc_th_way_flags])
-test('T5721', normal, compile, ['-v0'])
 
 test('TH_PromotedTuple', normal, compile, ['-v0 -ddump-splices -dsuppress-uniques'])
 test('TH_PromotedList', normal, compile, ['-v0'])
@@ -285,11 +275,13 @@ test('ClosedFam2TH', normal, compile, ['-v0'])
 
 test('T8028',
      extra_clean(['T8028a.hi', 'T8028a.o']),
-     multimod_compile_fail,
+     multimod_compile,
      ['T8028', '-v0 ' + config.ghc_th_way_flags])
 
 test('TH_Roles1', normal, compile_fail, ['-v0'])
-test('TH_Roles2', normal, compile, ['-v0 -ddump-tc'])
+test('TH_Roles2', normalise_version('array', 'base', 'deepseq', 'ghc-prim',
+                                    'integer-gmp', 'pretty', 'template-haskell'
+                                    ), compile, ['-v0 -ddump-tc'])
 test('TH_Roles3', normal, compile, ['-v0 -dsuppress-uniques'])
 test('TH_Roles4', normal, compile, ['-v0'])
 
@@ -300,15 +292,12 @@ test('T8333',
      run_command,
      ['$MAKE -s --no-print-directory T8333'])
 
-test('T4170', normal, compile, ['-v0'])
 test('T4124', normal, compile, ['-v0'])
 test('T4128', normal, compile, ['-v0'])
-test('T6062', normal, compile, ['-v0'])
 test('T4364', normal, compile, ['-v0'])
 test('T8412', normal, compile_fail, ['-v0'])
 test('T7667', normal, compile, ['-v0'])
 test('T7667a', normal, compile_fail, ['-v0'])
-test('T8455', normal, compile, ['-v0'])
 test('T8499', normal, compile, ['-v0'])
 test('T7477', normal, compile, ['-v0'])
 test('T8507', normal, compile, ['-v0'])
@@ -320,16 +309,16 @@ test('T8577',
      extra_clean(['T8577a.hi', 'T8577a.o']),
      multimod_compile_fail,
      ['T8577', '-v0 ' + config.ghc_th_way_flags])
-test('T8633', normal, compile_and_run, [''])
 test('T8625', normal, ghci_script, ['T8625.script'])
 test('TH_StaticPointers',
-     [ when(compiler_lt('ghc', '7.9'), skip) ],
+     [ when(compiler_lt('ghc', '7.9'), skip)
+     , when(doing_ghci(), extra_hc_opts('-fobject-code'))
+     ],
      compile_and_run, [''])
 test('TH_StaticPointers02',
      [ when(compiler_lt('ghc', '7.9'), skip) ],
      compile_fail, [''])
 test('T8759', normal, compile_fail, ['-v0'])
-test('T8759a', normal, compile_fail, ['-v0'])
 test('T7021',
      extra_clean(['T7021a.hi', 'T7021a.o']), multimod_compile, ['T7021','-v0'])
 test('T8807', normal, compile, ['-v0'])
@@ -351,7 +340,31 @@ test('T9064', normal, compile, ['-v0'])
 test('T9209', normal, compile_fail, ['-v0'])
 test('T7484', normal, compile_fail, ['-v0'])
 test('T1476', normal, compile, ['-v0'])
-test('T1476b', normal, compile_fail, ['-v0'])
-test('T9824', normal, compile, ['-v0'])
+test('T1476b', normal, compile, ['-v0'])
 test('T8031', normal, compile, ['-v0'])
+test('T8624', normal, run_command, ['$MAKE -s --no-print-directory T8624'])
 test('TH_Lift', normal, compile, ['-v0'])
+test('T10047', normal, ghci_script, ['T10047.script'])
+test('T10019', normal, ghci_script, ['T10019.script'])
+test('T10267', extra_clean(['T10267a.hi', 'T10267a.o']),
+               multimod_compile_fail,
+               ['T10267', '-dsuppress-uniques -v0'])
+test('T10279', normal, compile_fail, ['-v0'])
+test('T10306', normal, compile, ['-v0'])
+test('T10596', normal, compile, ['-v0'])
+test('T10620', normal, compile_and_run, ['-v0'])
+test('T10638', normal, compile_fail, ['-v0'])
+test('T10704',
+     extra_clean(['T10704a.o','T10704a.hi']),
+     multimod_compile_and_run,
+     ['T10704', '-v0'])
+test('T6018th', normal, compile_fail, ['-v0'])
+test('TH_namePackage', normal, compile_and_run, ['-v0'])
+test('TH_nameSpace', normal, compile_and_run, ['-v0'])
+test('T10796a', normal, compile, ['-v0'])
+test('T10796b', normal, compile_fail, ['-v0'])
+test('T10811', normal, compile, ['-v0'])
+test('T10810', normal, compile, ['-v0'])
+test('T10891', normal, compile, ['-v0'])
+test('T10945', expect_broken(10945), compile, ['-v0'])
+test('T10946', expect_broken(10946), compile, ['-v0'])

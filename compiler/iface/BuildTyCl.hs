@@ -18,6 +18,7 @@ module BuildTyCl (
 
 import IfaceEnv
 import FamInstEnv( FamInstEnvs )
+import TysWiredIn( isCTupleTyConName )
 import DataCon
 import PatSyn
 import Var
@@ -104,20 +105,22 @@ mkNewTyConRhs tycon_name tycon con
 ------------------------------------------------------
 buildDataCon :: FamInstEnvs
             -> Name -> Bool
-            -> [HsBang]
-            -> [Name]                   -- Field labels
-            -> [TyVar] -> [TyVar]       -- Univ and ext
-            -> [EqSpec]                 -- Equality spec
-            -> ThetaType                -- Does not include the "stupid theta"
-                                        -- or the GADT equalities
-            -> [Type] -> Type           -- Argument and result types
-            -> TyCon                    -- Rep tycon
-            -> TcRnIf m n DataCon
+            -> [HsSrcBang]
+            -> Maybe [HsImplBang]
+                -- See Note [Bangs on imported data constructors] in MkId
+           -> [FieldLabel]             -- Field labels
+           -> [TyVar] -> [TyVar]       -- Univ and ext
+           -> [EqSpec]                 -- Equality spec
+           -> ThetaType                -- Does not include the "stupid theta"
+                                       -- or the GADT equalities
+           -> [Type] -> Type           -- Argument and result types
+           -> TyCon                    -- Rep tycon
+           -> TcRnIf m n DataCon
 -- A wrapper for DataCon.mkDataCon that
 --   a) makes the worker Id
 --   b) makes the wrapper Id if necessary, including
 --      allocating its unique (hence monadic)
-buildDataCon fam_envs src_name declared_infix arg_stricts field_lbls
+buildDataCon fam_envs src_name declared_infix src_bangs impl_bangs field_lbls
              univ_tvs ex_tvs eq_spec ctxt arg_tys res_ty rep_tycon
   = do  { wrap_name <- newImplicitBinder src_name mkDataConWrapperOcc
         ; work_name <- newImplicitBinder src_name mkDataConWorkerOcc
@@ -130,12 +133,13 @@ buildDataCon fam_envs src_name declared_infix arg_stricts field_lbls
         ; let
                 stupid_ctxt = mkDataConStupidTheta rep_tycon arg_tys univ_tvs
                 data_con = mkDataCon src_name declared_infix
-                                     arg_stricts field_lbls
+                                     src_bangs field_lbls
                                      univ_tvs ex_tvs eq_spec ctxt
                                      arg_tys res_ty rep_tycon
                                      stupid_ctxt dc_wrk dc_rep
                 dc_wrk = mkDataConWorkId work_name data_con
-                dc_rep = initUs_ us (mkDataConRep dflags fam_envs wrap_name data_con)
+                dc_rep = initUs_ us (mkDataConRep dflags fam_envs wrap_name
+                                                  impl_bangs data_con)
 
         ; return data_con }
 
@@ -215,7 +219,7 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
 
               -- Make selectors for the superclasses
         ; sc_sel_names <- mapM  (newImplicitBinder tycon_name . mkSuperDictSelOcc)
-                                [1..length sc_theta]
+                                (takeList sc_theta [fIRST_TAG..])
         ; let sc_sel_ids = [ mkDictSelId sc_name rec_clas
                            | sc_name <- sc_sel_names]
               -- We number off the Dict superclass selectors, 1, 2, 3 etc so that we
@@ -247,7 +251,8 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
         ; dict_con <- buildDataCon (panic "buildClass: FamInstEnvs")
                                    datacon_name
                                    False        -- Not declared infix
-                                   (map (const HsNoBang) args)
+                                   (map (const no_bang) args)
+                                   (Just (map (const HsLazy) args))
                                    [{- No fields -}]
                                    tvs [{- no existentials -}]
                                    [{- No GADT equalities -}]
@@ -258,6 +263,9 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
 
         ; rhs <- if use_newtype
                  then mkNewTyConRhs tycon_name rec_tycon dict_con
+                 else if isCTupleTyConName tycon_name
+                 then return (TupleTyCon { data_con = dict_con
+                                         , tup_sort = ConstraintTuple })
                  else return (mkDataTyConRhs [dict_con])
 
         ; let { tycon = mkClassTyCon tycon_name kind tvs roles
@@ -278,6 +286,8 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
         ; traceIf (text "buildClass" <+> ppr tycon)
         ; return result }
   where
+    no_bang = HsSrcBang Nothing NoSrcUnpack NoSrcStrict
+
     mk_op_item :: Class -> TcMethInfo -> TcRnIf n m ClassOpItem
     mk_op_item rec_clas (op_name, dm_spec, _)
       = do { dm_info <- case dm_spec of
@@ -305,3 +315,21 @@ Here we can't use a newtype either, even though there is only
 one field, because equality predicates are unboxed, and classes
 are boxed.
 -}
+
+newImplicitBinder :: Name                       -- Base name
+                  -> (OccName -> OccName)       -- Occurrence name modifier
+                  -> TcRnIf m n Name            -- Implicit name
+-- Called in BuildTyCl to allocate the implicit binders of type/class decls
+-- For source type/class decls, this is the first occurrence
+-- For iface ones, the LoadIface has alrady allocated a suitable name in the cache
+newImplicitBinder base_name mk_sys_occ
+  | Just mod <- nameModule_maybe base_name
+  = newGlobalBinder mod occ loc
+  | otherwise           -- When typechecking a [d| decl bracket |],
+                        -- TH generates types, classes etc with Internal names,
+                        -- so we follow suit for the implicit binders
+  = do  { uniq <- newUnique
+        ; return (mkInternalName uniq occ loc) }
+  where
+    occ = mk_sys_occ (nameOccName base_name)
+    loc = nameSrcSpan base_name

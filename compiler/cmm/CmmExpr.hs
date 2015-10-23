@@ -20,7 +20,6 @@ module CmmExpr
     , emptyRegSet, elemRegSet, extendRegSet, deleteFromRegSet, mkRegSet
     , plusRegSet, minusRegSet, timesRegSet, sizeRegSet, nullRegSet
     , regSetToList
-    , regUsedIn
 
     , Area(..)
     , module CmmMachOp
@@ -280,15 +279,15 @@ type RegSet r     = Set r
 type LocalRegSet  = RegSet LocalReg
 type GlobalRegSet = RegSet GlobalReg
 
-emptyRegSet             :: Ord r => RegSet r
-nullRegSet              :: Ord r => RegSet r -> Bool
+emptyRegSet             :: RegSet r
+nullRegSet              :: RegSet r -> Bool
 elemRegSet              :: Ord r => r -> RegSet r -> Bool
 extendRegSet            :: Ord r => RegSet r -> r -> RegSet r
 deleteFromRegSet        :: Ord r => RegSet r -> r -> RegSet r
 mkRegSet                :: Ord r => [r] -> RegSet r
 minusRegSet, plusRegSet, timesRegSet :: Ord r => RegSet r -> RegSet r -> RegSet r
-sizeRegSet              :: Ord r => RegSet r -> Int
-regSetToList            :: Ord r => RegSet r -> [r]
+sizeRegSet              :: RegSet r -> Int
+regSetToList            :: RegSet r -> [r]
 
 emptyRegSet      = Set.empty
 nullRegSet       = Set.null
@@ -347,7 +346,9 @@ instance Ord r => DefinerOfRegs r r where
 instance Ord r => UserOfRegs r (RegSet r) where
     foldRegsUsed _ f = Set.fold (flip f)
 
-instance UserOfRegs r CmmReg => UserOfRegs r CmmExpr where
+instance (Ord r, UserOfRegs r CmmReg) => UserOfRegs r CmmExpr where
+  -- The (Ord r) in the context is necessary here
+  -- See Note [Recursive superclasses] in TcInstDcls
   foldRegsUsed dflags f z e = expr z e
     where expr z (CmmLit _)          = z
           expr z (CmmLoad addr _)    = foldRegsUsed dflags f z addr
@@ -373,17 +374,6 @@ instance DefinerOfRegs r a => DefinerOfRegs r (Maybe a) where
   foldRegsDefd dflags f set (Just x) = foldRegsDefd dflags f set x
 
 -----------------------------------------------------------------------------
--- Another reg utility
-
-regUsedIn :: CmmReg -> CmmExpr -> Bool
-_   `regUsedIn` CmmLit _         = False
-reg `regUsedIn` CmmLoad e  _     = reg `regUsedIn` e
-reg `regUsedIn` CmmReg reg'      = reg == reg'
-reg `regUsedIn` CmmRegOff reg' _ = reg == reg'
-reg `regUsedIn` CmmMachOp _ es   = any (reg `regUsedIn`) es
-_   `regUsedIn` CmmStackSlot _ _ = False
-
------------------------------------------------------------------------------
 --              Global STG registers
 -----------------------------------------------------------------------------
 
@@ -396,6 +386,31 @@ data VGcPtr = VGcPtr | VNonGcPtr deriving( Eq, Show )
 vgcFlag :: CmmType -> VGcPtr
 vgcFlag ty | isGcPtrType ty = VGcPtr
            | otherwise      = VNonGcPtr
+
+{-
+Note [Overlapping global registers]
+
+The backend might not faithfully implement the abstraction of the STG
+machine with independent registers for different values of type
+GlobalReg. Specifically, certain pairs of registers (r1, r2) may
+overlap in the sense that a store to r1 invalidates the value in r2,
+and vice versa.
+
+Currently this occurs only on the x86_64 architecture where FloatReg n
+and DoubleReg n are assigned the same microarchitectural register, in
+order to allow functions to receive more Float# or Double# arguments
+in registers (as opposed to on the stack).
+
+There are no specific rules about which registers might overlap with
+which other registers, but presumably it's safe to assume that nothing
+will overlap with special registers like Sp or BaseReg.
+
+Use CmmUtils.regsOverlap to determine whether two GlobalRegs overlap
+on a particular platform. The instance Eq GlobalReg is syntactic
+equality of STG registers and does not take overlap into
+account. However it is still used in UserOfRegs/DefinerOfRegs and
+there are likely still bugs there, beware!
+-}
 
 data GlobalReg
   -- Argument and return registers

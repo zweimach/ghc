@@ -1,3 +1,16 @@
+<<<<<<< HEAD
 *** Exception: Prelude.undefined
 x :: r = *** Exception: Prelude.undefined
 y :: Integer = 3
+||||||| merged common ancestors
+*** Exception: Prelude.undefined
+x :: t = *** Exception: Prelude.undefined
+y :: Integer = 3
+=======
+*** Exception: Prelude.undefined
+CallStack:
+  error, called at libraries/base/GHC/Err.hs:42:14 in base:GHC.Err
+  undefined, called at <interactive>:1:7 in interactive:Ghci1
+x :: t = _
+y :: Integer = 3
+>>>>>>> origin/master

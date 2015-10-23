@@ -1881,7 +1881,8 @@ resetStaticObjectForRetainerProfiling( StgClosure *static_objects )
     count = 0;
 #endif
     p = static_objects;
-    while (p != END_OF_STATIC_LIST) {
+    while (p != END_OF_STATIC_OBJECT_LIST) {
+        p = UNTAG_STATIC_LIST_PTR(p);
 #ifdef DEBUG_RETAINER
         count++;
 #endif
@@ -2199,7 +2200,7 @@ checkHeapSanityForRetainerProfiling( void )
             /*
               After all live objects have been scavenged, the garbage
               collector may create some objects in
-              scheduleFinalizers(). These objects are created throught
+              scheduleFinalizers(). These objects are created through
               allocate(), so the small object pool or the large object
               pool of the g0s0 may not be empty.
             */

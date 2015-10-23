@@ -20,7 +20,8 @@ import CoreFVs
 import CoreTidy
 import CoreMonad
 import CorePrep
-import CoreUtils
+import CoreUtils        (rhsIsStatic)
+import CoreStats        (coreBindsStats, CoreStats(..))
 import CoreLint
 import Literal
 import Rules
@@ -55,7 +56,6 @@ import Maybes
 import UniqSupply
 import ErrUtils (Severity(..))
 import Outputable
-import FastBool hiding ( fastOr )
 import SrcLoc
 import FastString
 import qualified ErrUtils as Err
@@ -63,7 +63,7 @@ import qualified ErrUtils as Err
 import Control.Monad
 import Data.Function
 import Data.List        ( sortBy )
-import Data.IORef       ( atomicModifyIORef )
+import Data.IORef       ( atomicModifyIORef' )
 
 {-
 Constructing the TypeEnv, Instances, Rules, VectInfo from which the
@@ -144,9 +144,9 @@ mkBootModDetailsTc hsc_env
         ; showPassIO dflags CoreTidy
 
         ; let { insts'     = map (tidyClsInstDFun globaliseAndTidyId) insts
+              ; pat_syns'  = map (tidyPatSynIds   globaliseAndTidyId) pat_syns
               ; type_env1  = mkBootTypeEnv (availsToNameSet exports)
                                            (typeEnvIds type_env) tcs fam_insts
-              ; pat_syns'  = map (tidyPatSynIds   globaliseAndTidyId) pat_syns
               ; type_env2  = extendTypeEnvWithPatSyns pat_syns' type_env1
               ; dfun_ids   = map instanceDFunId insts'
               ; type_env'  = extendTypeEnvWithIds type_env2 dfun_ids
@@ -771,11 +771,11 @@ instance Functor DFFV where
     fmap = liftM
 
 instance Applicative DFFV where
-    pure = return
+    pure a = DFFV $ \_ st -> (st, a)
     (<*>) = ap
 
 instance Monad DFFV where
-  return a = DFFV $ \_ st -> (st, a)
+  return = pure
   (DFFV m) >>= k = DFFV $ \env st ->
     case m env st of
        (st',a) -> case k a of
@@ -832,7 +832,7 @@ dffvLetBndr :: Bool -> Id -> DFFV ()
 --       we say "True" if we are exposing that unfolding
 dffvLetBndr vanilla_unfold id
   = do { go_unf (unfoldingInfo idinfo)
-       ; mapM_ go_rule (specInfoRules (specInfo idinfo)) }
+       ; mapM_ go_rule (ruleInfoRules (ruleInfo idinfo)) }
   where
     idinfo = idInfo id
 
@@ -1018,7 +1018,7 @@ tidyTopName mod nc_var maybe_ref occ_env id
   -- Now we get to the real reason that all this is in the IO Monad:
   -- we have to update the name cache in a nice atomic fashion
 
-  | local  && internal = do { new_local_name <- atomicModifyIORef nc_var mk_new_local
+  | local  && internal = do { new_local_name <- atomicModifyIORef' nc_var mk_new_local
                             ; return (occ_env', new_local_name) }
         -- Even local, internal names must get a unique occurrence, because
         -- if we do -split-objs we externalise the name later, in the code generator
@@ -1026,7 +1026,7 @@ tidyTopName mod nc_var maybe_ref occ_env id
         -- Similarly, we must make sure it has a system-wide Unique, because
         -- the byte-code generator builds a system-wide Name->BCO symbol table
 
-  | local  && external = do { new_external_name <- atomicModifyIORef nc_var mk_new_external
+  | local  && external = do { new_external_name <- atomicModifyIORef' nc_var mk_new_external
                             ; return (occ_env', new_external_name) }
 
   | otherwise = panic "tidyTopName"
@@ -1039,25 +1039,25 @@ tidyTopName mod nc_var maybe_ref occ_env id
     loc         = nameSrcSpan name
 
     old_occ     = nameOccName name
-    new_occ
-      | Just ref <- maybe_ref, ref /= id =
-          mkOccName (occNameSpace old_occ) $
-             let
-                 ref_str = occNameString (getOccName ref)
-                 occ_str = occNameString old_occ
-             in
-             case occ_str of
-               '$':'w':_ -> occ_str
-                  -- workers: the worker for a function already
-                  -- includes the occname for its parent, so there's
-                  -- no need to prepend the referrer.
-               _other | isSystemName name -> ref_str
-                      | otherwise         -> ref_str ++ '_' : occ_str
-                  -- If this name was system-generated, then don't bother
-                  -- to retain its OccName, just use the referrer.  These
-                  -- system-generated names will become "f1", "f2", etc. for
-                  -- a referrer "f".
-      | otherwise = old_occ
+    new_occ | Just ref <- maybe_ref
+            , ref /= id
+            = mkOccName (occNameSpace old_occ) $
+                   let
+                       ref_str = occNameString (getOccName ref)
+                       occ_str = occNameString old_occ
+                   in
+                   case occ_str of
+                     '$':'w':_ -> occ_str
+                        -- workers: the worker for a function already
+                        -- includes the occname for its parent, so there's
+                        -- no need to prepend the referrer.
+                     _other | isSystemName name -> ref_str
+                            | otherwise         -> ref_str ++ '_' : occ_str
+                        -- If this name was system-generated, then don't bother
+                        -- to retain its OccName, just use the referrer.  These
+                        -- system-generated names will become "f1", "f2", etc. for
+                        -- a referrer "f".
+            | otherwise = old_occ
 
     (occ_env', occ') = tidyOccName occ_env new_occ
 
@@ -1123,7 +1123,7 @@ tidyTopBinds hsc_env this_mod unfold_env init_occ_env binds
 
 ------------------------
 tidyTopBind  :: DynFlags
-             -> PackageKey
+             -> UnitId
              -> Module
              -> (Integer -> CoreExpr)
              -> UnfoldEnv
@@ -1263,7 +1263,7 @@ tidyTopIdInfo dflags rhs_tidy_env name orig_rhs tidy_rhs idinfo show_unfold caf_
     --    the function returns bottom
     -- In this case, show_unfold will be false (we don't expose unfoldings
     -- for bottoming functions), but we might still have a worker/wrapper
-    -- split (see Note [Worker-wrapper for bottoming functions] in WorkWrap.lhs
+    -- split (see Note [Worker-wrapper for bottoming functions] in WorkWrap.hs
 
     --------- Arity ------------
     -- Usually the Id will have an accurate arity on it, because
@@ -1311,14 +1311,14 @@ type CafRefEnv = (VarEnv Id, Integer -> CoreExpr)
   -- The Integer -> CoreExpr is the desugaring function for Integer literals
   -- See Note [Disgusting computation of CafRefs]
 
-hasCafRefs :: DynFlags -> PackageKey -> Module
+hasCafRefs :: DynFlags -> UnitId -> Module
            -> CafRefEnv -> Arity -> CoreExpr
            -> CafInfo
 hasCafRefs dflags this_pkg this_mod p@(_,cvt_integer) arity expr
   | is_caf || mentions_cafs = MayHaveCafRefs
   | otherwise               = NoCafRefs
  where
-  mentions_cafs   = isFastTrue (cafRefsE p expr)
+  mentions_cafs   = cafRefsE p expr
   is_dynamic_name = isDllName dflags this_pkg this_mod
   is_caf = not (arity > 0 || rhsIsStatic (targetPlatform dflags) is_dynamic_name cvt_integer expr)
 
@@ -1328,38 +1328,34 @@ hasCafRefs dflags this_pkg this_mod p@(_,cvt_integer) arity expr
   -- CorePrep later on, and we don't want to duplicate that
   -- knowledge in rhsIsStatic below.
 
-cafRefsE :: CafRefEnv -> Expr a -> FastBool
+cafRefsE :: CafRefEnv -> Expr a -> Bool
 cafRefsE p (Var id)            = cafRefsV p id
 cafRefsE p (Lit lit)           = cafRefsL p lit
-cafRefsE p (App f a)           = fastOr (cafRefsE p f) (cafRefsE p) a
+cafRefsE p (App f a)           = cafRefsE p f || cafRefsE p a
 cafRefsE p (Lam _ e)           = cafRefsE p e
-cafRefsE p (Let b e)           = fastOr (cafRefsEs p (rhssOfBind b)) (cafRefsE p) e
-cafRefsE p (Case e _bndr _ alts) = fastOr (cafRefsE p e) (cafRefsEs p) (rhssOfAlts alts)
+cafRefsE p (Let b e)           = cafRefsEs p (rhssOfBind b) || cafRefsE p e
+cafRefsE p (Case e _bndr _ alts) = cafRefsE p e || cafRefsEs p (rhssOfAlts alts)
 cafRefsE p (Tick _n e)         = cafRefsE p e
 cafRefsE p (Cast e _co)        = cafRefsE p e
-cafRefsE _ (Type _)            = fastBool False
-cafRefsE _ (Coercion _)        = fastBool False
+cafRefsE _ (Type _)            = False
+cafRefsE _ (Coercion _)        = False
 
-cafRefsEs :: CafRefEnv -> [Expr a] -> FastBool
-cafRefsEs _ []     = fastBool False
-cafRefsEs p (e:es) = fastOr (cafRefsE p e) (cafRefsEs p) es
+cafRefsEs :: CafRefEnv -> [Expr a] -> Bool
+cafRefsEs _ []     = False
+cafRefsEs p (e:es) = cafRefsE p e || cafRefsEs p es
 
-cafRefsL :: CafRefEnv -> Literal -> FastBool
+cafRefsL :: CafRefEnv -> Literal -> Bool
 -- Don't forget that mk_integer id might have Caf refs!
 -- We first need to convert the Integer into its final form, to
 -- see whether mkInteger is used.
 cafRefsL p@(_, cvt_integer) (LitInteger i _) = cafRefsE p (cvt_integer i)
-cafRefsL _                  _                = fastBool False
+cafRefsL _                  _                = False
 
-cafRefsV :: CafRefEnv -> Id -> FastBool
+cafRefsV :: CafRefEnv -> Id -> Bool
 cafRefsV (subst, _) id
-  | not (isLocalId id)                = fastBool (mayHaveCafRefs (idCafInfo id))
-  | Just id' <- lookupVarEnv subst id = fastBool (mayHaveCafRefs (idCafInfo id'))
-  | otherwise                         = fastBool False
-
-fastOr :: FastBool -> (a -> FastBool) -> a -> FastBool
--- hack for lazy-or over FastBool.
-fastOr a f x = fastBool (isFastTrue a || isFastTrue (f x))
+  | not (isLocalId id)                = mayHaveCafRefs (idCafInfo id)
+  | Just id' <- lookupVarEnv subst id = mayHaveCafRefs (idCafInfo id')
+  | otherwise                         = False
 
 {-
 ------------------------------------------------------------------------------

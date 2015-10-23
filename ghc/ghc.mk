@@ -51,6 +51,10 @@ ghc_stage1_C_FILES_NODEPS = ghc/hschooks.c
 ghc_stage2_MKDEPENDC_OPTS = -DMAKING_GHC_BUILD_SYSTEM_DEPENDENCIES
 ghc_stage3_MKDEPENDC_OPTS = -DMAKING_GHC_BUILD_SYSTEM_DEPENDENCIES
 
+ghc_stage1_MORE_HC_OPTS += -no-hs-main
+ghc_stage2_MORE_HC_OPTS += -no-hs-main
+ghc_stage3_MORE_HC_OPTS += -no-hs-main
+
 ifeq "$(GhcDebugged)" "YES"
 ghc_stage1_MORE_HC_OPTS += -debug
 ghc_stage2_MORE_HC_OPTS += -debug
@@ -96,6 +100,7 @@ echo 'executablename="$$exedir/ghc"' >> "$(WRAPPER)"
 endef
 
 # if stage is set to something other than "1" or "", disable stage 1
+# See Note [Stage1Only vs stage=1] in mk/config.mk.in.
 ifneq "$(filter-out 1,$(stage))" ""
 ghc_stage1_NOT_NEEDED = YES
 endif
@@ -104,6 +109,7 @@ ifneq "$(filter-out 2,$(stage))" ""
 ghc_stage2_NOT_NEEDED = YES
 endif
 # When cross-compiling, the stage 1 compiler is our release compiler, so omit stage 2
+# See Note [Stage1Only vs stage=1] in mk/config.mk.in.
 ifeq "$(Stage1Only)" "YES"
 ghc_stage2_NOT_NEEDED = YES
 endif

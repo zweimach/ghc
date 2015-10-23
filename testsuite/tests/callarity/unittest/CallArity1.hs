@@ -145,6 +145,11 @@ exprs =
         Let (Rec [ (x, Var d `mkApps` [go `mkLApps` [1,2]])
                  , (go, mkLams [x] $ mkACase (mkLams [z] $ Var x) (Var go `mkVarApps` [x]) ) ]) $
             Var go `mkApps` [mkLit 0, go `mkLApps` [0,1]]
+  , ("a thunk (non-function-type), in mutual recursion, causes many calls (d 1 would be bad)",) $
+    mkLet d (f `mkLApps` [0]) $
+        Let (Rec [ (x, Var go `mkApps` [go `mkLApps` [1,2], go `mkLApps` [1,2]])
+                 , (go, mkLams [x] $ mkACase (Var d) (Var go `mkVarApps` [x]) ) ]) $
+            Var go `mkApps` [mkLit 0, go `mkLApps` [0,1]]
   , ("a thunk (function type), in mutual recursion, still calls once (d 1 would be good)",) $
     mkLet d (f `mkLApps` [0]) $
         Let (Rec [ (n, Var go `mkApps` [d `mkLApps` [1]])
@@ -162,7 +167,7 @@ main = do
         getSessionDynFlags >>= setSessionDynFlags . flip gopt_set Opt_SuppressUniques
         dflags <- getSessionDynFlags
         liftIO $ forM_ exprs $ \(n,e) -> do
-            case lintExpr [f,scrut] e of
+            case lintExpr dflags [f,scrut] e of
                 Just msg -> putMsg dflags (msg $$ text "in" <+> text n)
                 Nothing -> return ()
             putMsg dflags (text n <> char ':')

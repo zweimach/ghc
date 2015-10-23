@@ -63,6 +63,7 @@ import UniqFM
 import UniqSupply
 import DynFlags
 import Util
+import Unique
 
 import BasicTypes       ( Alignment )
 import Digraph
@@ -81,6 +82,7 @@ import qualified Stream
 
 import Data.List
 import Data.Maybe
+import Data.Ord         ( comparing )
 import Control.Exception
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative (Applicative(..))
@@ -165,18 +167,18 @@ nativeCodeGen dflags this_mod modLoc h us cmms
             => NcgImpl statics instr jumpDest -> IO UniqSupply
        nCG' ncgImpl = nativeCodeGen' dflags this_mod modLoc ncgImpl h us cmms
    in case platformArch platform of
-      ArchX86     -> nCG' (x86NcgImpl    dflags)
-      ArchX86_64  -> nCG' (x86_64NcgImpl dflags)
-      ArchPPC     -> nCG' (ppcNcgImpl    dflags)
-      ArchSPARC   -> nCG' (sparcNcgImpl  dflags)
-      ArchARM {}  -> panic "nativeCodeGen: No NCG for ARM"
-      ArchARM64   -> panic "nativeCodeGen: No NCG for ARM64"
-      ArchPPC_64  -> panic "nativeCodeGen: No NCG for PPC 64"
-      ArchAlpha   -> panic "nativeCodeGen: No NCG for Alpha"
-      ArchMipseb  -> panic "nativeCodeGen: No NCG for mipseb"
-      ArchMipsel  -> panic "nativeCodeGen: No NCG for mipsel"
-      ArchUnknown -> panic "nativeCodeGen: No NCG for unknown arch"
-      ArchJavaScript -> panic "nativeCodeGen: No NCG for JavaScript"
+      ArchX86       -> nCG' (x86NcgImpl    dflags)
+      ArchX86_64    -> nCG' (x86_64NcgImpl dflags)
+      ArchPPC       -> nCG' (ppcNcgImpl    dflags)
+      ArchSPARC     -> nCG' (sparcNcgImpl  dflags)
+      ArchARM {}    -> panic "nativeCodeGen: No NCG for ARM"
+      ArchARM64     -> panic "nativeCodeGen: No NCG for ARM64"
+      ArchPPC_64 _  -> nCG' (ppcNcgImpl    dflags)
+      ArchAlpha     -> panic "nativeCodeGen: No NCG for Alpha"
+      ArchMipseb    -> panic "nativeCodeGen: No NCG for mipseb"
+      ArchMipsel    -> panic "nativeCodeGen: No NCG for mipsel"
+      ArchUnknown   -> panic "nativeCodeGen: No NCG for unknown arch"
+      ArchJavaScript-> panic "nativeCodeGen: No NCG for JavaScript"
 
 x86NcgImpl :: DynFlags -> NcgImpl (Alignment, CmmStatics) X86.Instr.Instr X86.Instr.JumpDest
 x86NcgImpl dflags
@@ -427,12 +429,15 @@ cmmNativeGens dflags this_mod modLoc ncgImpl h dbgMap us
              cmmNativeGen dflags this_mod modLoc ncgImpl us fileIds dbgMap
                           cmm count
 
-        let newFileIds = fileIds' `minusUFM` fileIds
+        -- Generate .file directives for every new file that has been
+        -- used. Note that it is important that we generate these in
+        -- ascending order, as Clang's 3.6 assembler complains.
+        let newFileIds = sortBy (comparing snd) $ eltsUFM $ fileIds' `minusUFM` fileIds
             pprDecl (f,n) = ptext (sLit "\t.file ") <> ppr n <+>
                             doubleQuotes (ftext f)
 
         emitNativeCode dflags h $ vcat $
-          map pprDecl (eltsUFM newFileIds) ++
+          map pprDecl newFileIds ++
           map (pprNatCmmDecl ncgImpl) native
 
         -- force evaluation all this stuff to avoid space leaks
@@ -779,25 +784,41 @@ mkNode block@(BasicBlock id instrs) = (block, id, getOutEdges instrs)
 
 seqBlocks :: BlockEnv i -> [(GenBasicBlock t1, BlockId, [BlockId])]
                         -> [GenBasicBlock t1]
-seqBlocks _ [] = []
-seqBlocks infos ((block,_,[]) : rest)
-  = block : seqBlocks infos rest
-seqBlocks infos ((block@(BasicBlock id instrs),_,[next]) : rest)
-  | can_fallthrough = BasicBlock id (init instrs) : seqBlocks infos rest'
-  | otherwise       = block : seqBlocks infos rest'
+seqBlocks infos blocks = placeNext pullable0 todo0
   where
-        can_fallthrough = not (mapMember next infos) && can_reorder
-        (can_reorder, rest') = reorder next [] rest
-          -- TODO: we should do a better job for cycles; try to maximise the
-          -- fallthroughs within a loop.
-seqBlocks _ _ = panic "AsmCodegen:seqBlocks"
+    -- pullable: Blocks that are not yet placed
+    -- todo:     Original order of blocks, to be followed if we have no good
+    --           reason not to;
+    --           may include blocks that have already been placed, but then
+    --           these are not in pullable
+    pullable0 = listToUFM [ (i,(b,n)) | (b,i,n) <- blocks ]
+    todo0     = [i | (_,i,_) <- blocks ]
 
-reorder :: (Eq a) => a -> [(t, a, t1)] -> [(t, a, t1)] -> (Bool, [(t, a, t1)])
-reorder  _ accum [] = (False, reverse accum)
-reorder id accum (b@(block,id',out) : rest)
-  | id == id'  = (True, (block,id,out) : reverse accum ++ rest)
-  | otherwise  = reorder id (b:accum) rest
+    placeNext _ [] = []
+    placeNext pullable (i:rest)
+        | Just (block, pullable') <- lookupDeleteUFM pullable i
+        = place pullable' rest block
+        | otherwise
+        -- We already placed this block, so ignore
+        = placeNext pullable rest
 
+    place pullable todo (block,[])
+                          = block : placeNext pullable todo
+    place pullable todo (block@(BasicBlock id instrs),[next])
+        | mapMember next infos
+        = block : placeNext pullable todo
+        | Just (nextBlock, pullable') <- lookupDeleteUFM pullable next
+        = BasicBlock id (init instrs) : place pullable' todo nextBlock
+        | otherwise
+        = block : placeNext pullable todo
+    place _ _ (_,tooManyNextNodes)
+        = pprPanic "seqBlocks" (ppr tooManyNextNodes)
+
+
+lookupDeleteUFM :: Uniquable key => UniqFM elt -> key -> Maybe (elt, UniqFM elt)
+lookupDeleteUFM m k = do -- Maybe monad
+    v <- lookupUFM m k
+    return (v, delFromUFM m k)
 
 -- -----------------------------------------------------------------------------
 -- Generate jump tables
@@ -958,11 +979,11 @@ instance Functor CmmOptM where
     fmap = liftM
 
 instance Applicative CmmOptM where
-    pure = return
+    pure x = CmmOptM $ \_ _ imports -> (# x, imports #)
     (<*>) = ap
 
 instance Monad CmmOptM where
-  return x = CmmOptM $ \_ _ imports -> (# x, imports #)
+  return = pure
   (CmmOptM f) >>= g =
     CmmOptM $ \dflags this_mod imports ->
                 case f dflags this_mod imports of
@@ -1029,12 +1050,12 @@ cmmStmtConFold stmt
                  args' <- mapM (cmmExprConFold DataReference) args
                  return $ CmmUnsafeForeignCall target' regs args'
 
-        CmmCondBranch test true false
+        CmmCondBranch test true false likely
            -> do test' <- cmmExprConFold DataReference test
                  return $ case test' of
                    CmmLit (CmmInt 0 _) -> CmmBranch false
                    CmmLit (CmmInt _ _) -> CmmBranch true
-                   _other -> CmmCondBranch test' true false
+                   _other -> CmmCondBranch test' true false likely
 
         CmmSwitch expr ids
            -> do expr' <- cmmExprConFold DataReference expr
@@ -1101,15 +1122,15 @@ cmmExprNative referenceKind expr = do
         CmmReg (CmmGlobal EagerBlackholeInfo)
           | arch == ArchPPC && not (gopt Opt_PIC dflags)
           -> cmmExprNative referenceKind $
-             CmmLit (CmmLabel (mkCmmCodeLabel rtsPackageKey (fsLit "__stg_EAGER_BLACKHOLE_info")))
+             CmmLit (CmmLabel (mkCmmCodeLabel rtsUnitId (fsLit "__stg_EAGER_BLACKHOLE_info")))
         CmmReg (CmmGlobal GCEnter1)
           | arch == ArchPPC && not (gopt Opt_PIC dflags)
           -> cmmExprNative referenceKind $
-             CmmLit (CmmLabel (mkCmmCodeLabel rtsPackageKey (fsLit "__stg_gc_enter_1")))
+             CmmLit (CmmLabel (mkCmmCodeLabel rtsUnitId (fsLit "__stg_gc_enter_1")))
         CmmReg (CmmGlobal GCFun)
           | arch == ArchPPC && not (gopt Opt_PIC dflags)
           -> cmmExprNative referenceKind $
-             CmmLit (CmmLabel (mkCmmCodeLabel rtsPackageKey (fsLit "__stg_gc_fun")))
+             CmmLit (CmmLabel (mkCmmCodeLabel rtsUnitId (fsLit "__stg_gc_fun")))
 
         other
            -> return other

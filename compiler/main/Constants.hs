@@ -17,13 +17,18 @@ mAX_TUPLE_SIZE :: Int
 mAX_TUPLE_SIZE = 62 -- Should really match the number
                     -- of decls in Data.Tuple
 
-mAX_CONTEXT_REDUCTION_DEPTH :: Int
-mAX_CONTEXT_REDUCTION_DEPTH = 100
-  -- Trac #5395 reports at least one library that needs depth 37 here
+mAX_CTUPLE_SIZE :: Int   -- Constraint tuples
+mAX_CTUPLE_SIZE = 62     -- Should match the number of decls in GHC.Classes
 
-mAX_TYPE_FUNCTION_REDUCTION_DEPTH :: Int
-mAX_TYPE_FUNCTION_REDUCTION_DEPTH = 200
-  -- Needs to be much higher than mAX_CONTEXT_REDUCTION_DEPTH; see Trac #5395
+-- | Default maximum depth for both class instance search and type family
+-- reduction. See also Trac #5395.
+mAX_REDUCTION_DEPTH :: Int
+mAX_REDUCTION_DEPTH = 200
+
+-- | Default maximum constraint-solver iterations
+-- Typically there should be very few
+mAX_SOLVER_ITERATIONS :: Int
+mAX_SOLVER_ITERATIONS = 4
 
 wORD64_SIZE :: Int
 wORD64_SIZE = 8

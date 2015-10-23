@@ -188,7 +188,10 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
             test -z "[$]2" || eval "[$]2=ArchPPC"
             ;;
         powerpc64)
-            test -z "[$]2" || eval "[$]2=ArchPPC_64"
+            test -z "[$]2" || eval "[$]2=\"ArchPPC_64 {ppc_64ABI = ELF_V1}\""
+            ;;
+        powerpc64le)
+            test -z "[$]2" || eval "[$]2=\"ArchPPC_64 {ppc_64ABI = ELF_V2}\""
             ;;
         sparc)
             test -z "[$]2" || eval "[$]2=ArchSPARC"
@@ -209,7 +212,7 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
         mipsel)
             test -z "[$]2" || eval "[$]2=ArchMipsel"
             ;;
-        hppa|hppa1_1|ia64|m68k|powerpc64le|rs6000|s390|s390x|sparc64|vax)
+        hppa|hppa1_1|ia64|m68k|rs6000|s390|s390x|sparc64|vax)
             test -z "[$]2" || eval "[$]2=ArchUnknown"
             ;;
         *)
@@ -271,7 +274,7 @@ AC_DEFUN([FPTOOLS_SET_HASKELL_PLATFORM_VARS],
         nto-qnx)
             test -z "[$]2" || eval "[$]2=OSQNXNTO"
             ;;
-        dragonfly|osf1|hpux|linuxaout|freebsd2|cygwin32|gnu|nextstep2|nextstep3|sunos4|ultrix|irix|aix)
+        dragonfly|osf1|hpux|linuxaout|freebsd2|gnu|nextstep2|nextstep3|sunos4|ultrix|irix|aix)
             test -z "[$]2" || eval "[$]2=OSUnknown"
             ;;
         linux-android)
@@ -565,6 +568,22 @@ AC_DEFUN([FPTOOLS_SET_C_LD_FLAGS],
         $3="$$3 -D_HPUX_SOURCE"
         $5="$$5 -D_HPUX_SOURCE"
         ;;
+    arm*linux*)
+        # On arm/linux and arm/android, tell gcc to generate Arm
+        # instructions (ie not Thumb) and to link using the gold linker.
+        # Forcing LD to be ld.gold is done in FIND_LD m4 macro.
+        $2="$$2 -marm"
+        $3="$$3 -fuse-ld=gold -Wl,-z,noexecstack"
+        $4="$$4 -z noexecstack"
+        ;;
+
+    aarch64*linux*)
+        # On aarch64/linux and aarch64/android, tell gcc to link using the
+        # gold linker.
+        # Forcing LD to be ld.gold is done in FIND_LD m4 macro.
+        $3="$$3 -fuse-ld=gold -Wl,-z,noexecstack"
+        $4="$$4 -z noexecstack"
+        ;;
     esac
 
     # If gcc knows about the stack protector, turn it off.
@@ -577,21 +596,6 @@ AC_DEFUN([FPTOOLS_SET_C_LD_FLAGS],
 
     rm -f conftest.c conftest.o
     AC_MSG_RESULT([done])
-])
-
-
-AC_DEFUN([FP_PATH_PROG],[
-    AC_PATH_PROG($1,$2,$3,$4,$5,$6)
-    # If we have a cygwin path for something, and we try to run it
-    # from cabal or python, then it'll fail. So we convert to a
-    # native path.
-    if test "$HostOS"     = "mingw32" && \
-       test "${OSTYPE}"  != "msys"    && \
-       test "${$1}" != ""
-    then
-        # Canonicalise to <drive>:/path/to/gcc
-        $1=`cygpath -m "${$1}"`
-    fi
 ])
 
 
@@ -787,9 +791,6 @@ AC_DEFUN([FP_LEADING_UNDERSCORE],
 AC_CACHE_CHECK([leading underscore in symbol names], [fptools_cv_leading_underscore], [
 # Hack!: nlist() under Digital UNIX insist on there being an _,
 # but symbol table listings shows none. What is going on here?!?
-#
-# Another hack: cygwin doesn't come with nlist.h , so we hardwire
-# the underscoredness of that "platform"
 case $HostPlatform in
 *openbsd*) # x86 openbsd is ELF from 3.4 >, meaning no leading uscore
   case $build in
@@ -797,7 +798,6 @@ case $HostPlatform in
     *) fptools_cv_leading_underscore=no ;;
   esac ;;
 alpha-dec-osf*) fptools_cv_leading_underscore=no;;
-*cygwin32) fptools_cv_leading_underscore=yes;;
 i386-unknown-mingw32) fptools_cv_leading_underscore=yes;;
 x86_64-unknown-mingw32) fptools_cv_leading_underscore=no;;
 
@@ -861,18 +861,20 @@ AS_IF([test "$fp_num1" $2 "$fp_num2"], [$4], [$5])[]dnl
 
 
 dnl
-dnl Check for Happy and version.  If we're building GHC, then we need
-dnl at least Happy version 1.19.  If there's no installed Happy, we look
+dnl Check for Happy and version.
+dnl If there's no installed Happy, we look
 dnl for a happy source tree and point the build system at that instead.
+dnl If you increase the minimum version requirement, please also update:
+dnl https://ghc.haskell.org/trac/ghc/wiki/Building/Preparation/Tools
 dnl
 AC_DEFUN([FPTOOLS_HAPPY],
-[FP_PATH_PROG(HappyCmd,happy,)
+[AC_PATH_PROG(HappyCmd,happy,)
 
 AC_CACHE_CHECK([for version of happy], fptools_cv_happy_version,
 changequote(, )dnl
 [if test x"$HappyCmd" != x; then
    fptools_cv_happy_version=`"$HappyCmd" -v |
-			  grep 'Happy Version' | sed -e 's/Happy Version \([^ ]*\).*/\1/g'` ;
+              grep 'Happy Version' | sed -e 's/Happy Version \([^ ]*\).*/\1/g'` ;
 else
    fptools_cv_happy_version="";
 fi;
@@ -888,18 +890,19 @@ AC_SUBST(HappyVersion)
 ])
 
 dnl
-dnl Check for Alex and version.  If we're building GHC, then we need
-dnl at least Alex version 2.1.1.
+dnl Check for Alex and version.
+dnl If you increase the minimum version requirement, please also update:
+dnl https://ghc.haskell.org/trac/ghc/wiki/Building/Preparation/Tools
 dnl
 AC_DEFUN([FPTOOLS_ALEX],
 [
-FP_PATH_PROG(AlexCmd,alex,)
+AC_PATH_PROG(AlexCmd,alex,)
 
 AC_CACHE_CHECK([for version of alex], fptools_cv_alex_version,
 changequote(, )dnl
 [if test x"$AlexCmd" != x; then
    fptools_cv_alex_version=`"$AlexCmd" -v |
-			  grep 'Alex [Vv]ersion' | sed -e 's/Alex [Vv]ersion \([0-9\.]*\).*/\1/g'` ;
+              grep 'Alex [Vv]ersion' | sed -e 's/Alex [Vv]ersion \([0-9\.]*\).*/\1/g'` ;
 else
    fptools_cv_alex_version="";
 fi;
@@ -1037,9 +1040,9 @@ AC_SUBST([LdHasFilelist])
 
 # FP_PROG_AR
 # ----------
-# Sets fp_prog_ar to a (non-Cygwin) path to ar. Exits if no ar can be found
+# Sets fp_prog_ar to a path to ar. Exits if no ar can be found
 AC_DEFUN([FP_PROG_AR],
-[FP_PATH_PROG([fp_prog_ar], [ar])
+[AC_PATH_PROG([fp_prog_ar], [ar])
 if test -z "$fp_prog_ar"; then
   AC_MSG_ERROR([cannot find ar in your PATH, no idea how to make a library])
 fi
@@ -1091,7 +1094,7 @@ AC_SUBST([ArSupportsAtFile], [`echo $fp_prog_ar_supports_atfile | tr 'a-z' 'A-Z'
 # FP_PROG_AR_ARGS
 # ---------------
 # Sets fp_prog_ar_args to the arguments for ar and the output variable ArCmd
-# to a non-Cygwin invocation of ar including these arguments.
+# to an invocation of ar including these arguments.
 AC_DEFUN([FP_PROG_AR_ARGS],
 [AC_REQUIRE([FP_PROG_AR_IS_GNU])
 AC_CACHE_CHECK([for ar arguments], [fp_cv_prog_ar_args],
@@ -1267,15 +1270,6 @@ echo foo > conftest.txt
 $fp_prog_find conftest.txt -print > conftest.out 2>&1
 if grep '^conftest.txt$' conftest.out > /dev/null 2>&1 ; then
   # OK, looks like a real "find".
-  case $HostPlatform in
-    *mingw32)
-      if test x${OSTYPE} != xmsys
-      then
- 	    fp_prog_find="`cygpath --mixed ${fp_prog_find}`"
-        AC_MSG_NOTICE([normalized find command to $fp_prog_find])
-      fi ;;
-    *) ;;
-  esac
   FindCmd="$fp_prog_find"
 else
   # Found a poor WinDoze version of "find", ignore it.
@@ -1387,124 +1381,6 @@ AS_IF([test AS_VAR_GET(fp_func) = yes],
 AS_VAR_POPDEF([fp_func])dnl
 ])# FP_CHECK_FUNC
 
-
-# FP_GEN_DOCBOOK_XML
-# ------------------
-# Generates a DocBook XML V4.5 document in conftest.xml.
-#
-# It took a lot of experimentation to find a document that will cause
-# xsltproc to fail with an error code when the relevant
-# stylesheets/DTDs are not found.  I couldn't make xsltproc fail with
-# a single-file document, it seems a multi-file document is needed.
-# -- SDM 2009-06-03
-#
-AC_DEFUN([FP_GEN_DOCBOOK_XML],
-[rm -f conftest.xml conftest-book.xml
-cat > conftest.xml << EOF
-<?xml version="1.0" encoding="iso-8859-1"?>
-<!DOCTYPE book PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN"
-   "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd" [[
-<!ENTITY conftest-book SYSTEM "conftest-book.xml">
-]]>
-<book id="test">
-&conftest-book;
-</book>
-EOF
-cat >conftest-book.xml << EOF
-<?xml version="1.0" encoding="iso-8859-1"?>
-  <title>A DocBook &ldquo;Test Document&rdquo;</title>
-  <chapter id="id-one">
-    <title>A Chapter Title</title>
-    <para>This is a paragraph, referencing <xref linkend="id-two"/>.</para>
-  </chapter>
-  <chapter id="id-two">
-    <title>Another Chapter Title</title>
-    <para>This is another paragraph, referencing <xref linkend="id-one"/>.</para>
-  </chapter>
-EOF
-]) # FP_GEN_DOCBOOK_XML
-
-
-# FP_PROG_DBLATEX
-# ----------------
-# Sets the output variable DblatexCmd to the full path of dblatex,
-# which we use for building PDF and PS docs.
-# DblatexCmd is empty if dblatex could not be found.
-AC_DEFUN([FP_PROG_DBLATEX],
-[FP_PATH_PROG([DblatexCmd], [dblatex])
-if test -z "$DblatexCmd"; then
-  AC_MSG_WARN([cannot find dblatex in your PATH, you will not be able to build the PDF and PS documentation])
-fi
-])# FP_PROG_DBLATEX
-
-
-# FP_PROG_XSLTPROC
-# ----------------
-# Sets the output variable XsltprocCmd to the full path of the XSLT processor
-# xsltproc. XsltprocCmd is empty if xsltproc could not be found.
-AC_DEFUN([FP_PROG_XSLTPROC],
-[FP_PATH_PROG([XsltprocCmd], [xsltproc])
-if test -z "$XsltprocCmd"; then
-  AC_MSG_WARN([cannot find xsltproc in your PATH, you will not be able to build the HTML documentation])
-fi
-])# FP_PROG_XSLTPROC
-
-
-# FP_DOCBOOK_XSL
-# ----------------------------
-# Check that we can process a DocBook XML document to HTML using xsltproc.
-AC_DEFUN([FP_DOCBOOK_XSL],
-[AC_REQUIRE([FP_PROG_XSLTPROC])dnl
-if test -n "$XsltprocCmd"; then
-  AC_CACHE_CHECK([for DocBook XSL stylesheet], fp_cv_dir_docbook_xsl,
-  [FP_GEN_DOCBOOK_XML
-  fp_cv_dir_docbook_xsl=no
-  if $XsltprocCmd --nonet http://docbook.sourceforge.net/release/xsl/current/html/chunk.xsl conftest.xml > /dev/null 2>&1; then
-     fp_cv_dir_docbook_xsl=yes
-  fi
-  rm -rf conftest*])
-fi
-if test x"$fp_cv_dir_docbook_xsl" = xno; then
-  AC_MSG_WARN([cannot find DocBook XSL stylesheets, you will not be able to build the documentation])
-  HAVE_DOCBOOK_XSL=NO
-else
-  HAVE_DOCBOOK_XSL=YES
-fi
-AC_SUBST([HAVE_DOCBOOK_XSL])
-])# FP_DOCBOOK_XSL
-
-
-# FP_PROG_XMLLINT
-# ----------------
-# Sets the output variable XmllintCmd to the full path of the XSLT processor
-# xmllint. XmllintCmd is empty if xmllint could not be found.
-AC_DEFUN([FP_PROG_XMLLINT],
-[FP_PATH_PROG([XmllintCmd], [xmllint])
-if test -z "$XmllintCmd"; then
-  AC_MSG_WARN([cannot find xmllint in your PATH, you will not be able to validate your documentation])
-fi
-])# FP_PROG_XMLLINT
-
-
-# FP_CHECK_DOCBOOK_DTD
-# --------------------
-AC_DEFUN([FP_CHECK_DOCBOOK_DTD],
-[AC_REQUIRE([FP_PROG_XMLLINT])dnl
-if test -n "$XmllintCmd"; then
-  AC_MSG_CHECKING([for DocBook DTD])
-  FP_GEN_DOCBOOK_XML
-  if $XmllintCmd --nonet --valid --noout conftest.xml ; then
-    AC_MSG_RESULT([ok])
-  else
-    AC_MSG_RESULT([failed])
-    AC_MSG_WARN([cannot find a DTD for DocBook XML V4.5, you will not be able to validate your documentation])
-    AC_MSG_WARN([check your XML_CATALOG_FILES environment variable and/or /etc/xml/catalog])
-  fi
-  rm -rf conftest*
-fi
-])# FP_CHECK_DOCBOOK_DTD
-
-
 # FP_PROG_GHC_PKG
 # ----------------
 # Try to find a ghc-pkg matching the ghc mentioned in the environment variable
@@ -1581,6 +1457,7 @@ if test "$RELEASE" = "NO"; then
         dnl less likely to go wrong.
         PACKAGE_VERSION=${PACKAGE_VERSION}.`date +%Y%m%d`
     fi
+fi
 
     AC_MSG_CHECKING([for GHC Git commit id])
     if test -d .git; then
@@ -1598,7 +1475,6 @@ if test "$RELEASE" = "NO"; then
         PACKAGE_GIT_COMMIT_ID="0000000000000000000000000000000000000000"
     fi
 
-fi
 
 # Some renamings
 AC_SUBST([ProjectName], [$PACKAGE_NAME])
@@ -1649,7 +1525,7 @@ then
   then
     # We can't test timer_create when we're cross-compiling, so we
     # optimistiaclly assume that it actually works properly.
-    AC_DEFINE([USE_TIMER_CREATE], 1,  [Define to 1 if we can use timer_create(CLOCK_PROCESS_CPUTIME_ID,...)])
+    AC_DEFINE([USE_TIMER_CREATE], 1,  [Define to 1 if we can use timer_create(CLOCK_REALTIME,...)])
   else
   AC_CACHE_CHECK([for a working timer_create(CLOCK_REALTIME)],
     [fptools_cv_timer_create_works],
@@ -1710,36 +1586,6 @@ int main(int argc, char *argv[])
     }
     alarm(1);
 
-    if (timer_create(CLOCK_PROCESS_CPUTIME_ID, &ev, &timer) != 0) {
-        fprintf(stderr,"No CLOCK_PROCESS_CPUTIME_ID timer\n");
-       exit(1);
-    }
-
-    it.it_value.tv_sec = 0;
-    it.it_value.tv_nsec = 1;
-    it.it_interval = it.it_value;
-    if (timer_settime(timer, 0, &it, NULL) != 0) {
-        fprintf(stderr,"settime problem\n");
-        exit(4);
-    }
-
-    tock = 0;
-
-    for(n = 3; n < 20000; n++){
-        for(m = 2; m <= n/2; m++){
-            if (!(n%m)) count++;
-            if (tock) goto out;
-        }
-    }
-out:
-
-    if (!tock) {
-        fprintf(stderr,"no CLOCK_PROCESS_CPUTIME_ID signal\n");
-        exit(5);
-    }
-
-    timer_delete(timer);
-
     if (timer_create(CLOCK_REALTIME, &ev, &timer) != 0) {
         fprintf(stderr,"No CLOCK_REALTIME timer\n");
         exit(2);
@@ -1772,7 +1618,7 @@ out:
   ])
 case $fptools_cv_timer_create_works in
     yes) AC_DEFINE([USE_TIMER_CREATE], 1,
-                   [Define to 1 if we can use timer_create(CLOCK_PROCESS_CPUTIME_ID,...)]);;
+                   [Define to 1 if we can use timer_create(CLOCK_REALTIME,...)]);;
 esac
   fi
 fi
@@ -1825,6 +1671,28 @@ AC_DEFUN([FP_GMP],
   AC_SUBST(GMP_INCLUDE_DIRS)
   AC_SUBST(GMP_LIB_DIRS)
 ])# FP_GMP
+
+# FP_CURSES
+# -------------
+AC_DEFUN([FP_CURSES],
+[
+  dnl--------------------------------------------------------------------
+  dnl * Deal with arguments telling us curses is somewhere odd
+  dnl--------------------------------------------------------------------
+
+  AC_ARG_WITH([curses-includes],
+    [AC_HELP_STRING([--with-curses-includes],
+      [directory containing curses headers])],
+      [CURSES_INCLUDE_DIRS=$withval])
+
+  AC_ARG_WITH([curses-libraries],
+    [AC_HELP_STRING([--with-curses-libraries],
+      [directory containing curses libraries])],
+      [CURSES_LIB_DIRS=$withval])
+
+  AC_SUBST(CURSES_INCLUDE_DIRS)
+  AC_SUBST(CURSES_LIB_DIRS)
+])# FP_CURSES
 
 # --------------------------------------------------------------
 # Calculate absolute path to build tree
@@ -1966,6 +1834,9 @@ AC_DEFUN([GHC_CONVERT_VENDOR],[
   softfloat) # like armv5tel-softfloat-linux-gnueabi
     $2="unknown"
     ;;
+  hardfloat) # like armv7a-hardfloat-linux-gnueabi
+    $2="unknown"
+    ;;
   *)
     #pass thru by default
     $2="$1"
@@ -1990,7 +1861,7 @@ case "$1-$2" in
         $3="linux"
         ;;
       # As far as I'm aware, none of these have relevant variants
-      freebsd|netbsd|openbsd|dragonfly|osf1|osf3|hpux|linuxaout|kfreebsdgnu|freebsd2|solaris2|cygwin32|mingw32|darwin|gnu|nextstep2|nextstep3|sunos4|ultrix|irix|aix|haiku)
+      freebsd|netbsd|openbsd|dragonfly|osf1|osf3|hpux|linuxaout|kfreebsdgnu|freebsd2|solaris2|mingw32|darwin|gnu|nextstep2|nextstep3|sunos4|ultrix|irix|aix|haiku)
         $3="$1"
         ;;
       freebsd*) # like i686-gentoo-freebsd7
@@ -2069,27 +1940,66 @@ AC_DEFUN([XCODE_VERSION],[
 # $1 = the variable to set
 # $2 = the with option name
 # $3 = the command to look for
+# $4 = the version of the command to look for
 #
 AC_DEFUN([FIND_LLVM_PROG],[
-    FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL_NOTARGET([$1], [$2], [$3])
-    if test "$$1" == ""; then
-        save_IFS=$IFS
-        IFS=":;"
-        for p in ${PATH}; do
-            if test -d "${p}"; then
-                if test "$windows" = YES; then
-                    $1=`${FindCmd} "${p}" -type f -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' -or -type l -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' | ${SortCmd} -n | tail -1`
-                else
-                    $1=`${FindCmd} "${p}" -type f -perm \111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' -or -type l -perm \111 -maxdepth 1 -regex '.*/$3-[[0-9]]\.[[0-9]]' | ${SortCmd} -n | tail -1`
-                fi
-                if test -n "$$1"; then
-                    break
-                fi
-            fi
-        done
-        IFS=$save_IFS
+    # Test for program with version name.
+    FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL_NOTARGET([$1], [$2], [$3-$4])
+    if test "$$1" = ""; then
+        # Test for program without version name.
+        FP_ARG_WITH_PATH_GNU_PROG_OPTIONAL_NOTARGET([$1], [$2], [$3])
+        AC_MSG_CHECKING([$$1 is version $4])
+        if test `$$1 --version | grep -c "version $4"` -gt 0 ; then
+            AC_MSG_RESULT(yes)
+        else
+            AC_MSG_RESULT(no)
+            $1=""
+        fi
     fi
 ])
+
+# FIND_LD
+# Find the version of `ld` to use. This is used in both in the top level
+# configure.ac and in distrib/configure.ac.in.
+#
+# $1 = the variable to set
+#
+AC_DEFUN([FIND_LD],[
+    FP_ARG_WITH_PATH_GNU_PROG([LD], [ld], [ld])
+    case $target in
+        arm*linux*       | \
+        aarch64*linux*   )
+            # Arm and Aarch64 requires use of the binutils ld.gold linker.
+            # This case should catch at least arm-unknown-linux-gnueabihf,
+            # arm-linux-androideabi, arm64-unknown-linux and
+            # aarch64-linux-android
+            FP_ARG_WITH_PATH_GNU_PROG([LD_GOLD], [ld.gold], [ld.gold])
+            $1="$LD_GOLD"
+            ;;
+        *)
+            $1="$LD"
+            ;;
+    esac
+])
+
+# FIND_GHC_BOOTSTRAP_PROG()
+# --------------------------------
+# Parse the bootstrap GHC's compier settings file for the location of things
+# like the `llc` and `opt` commands.
+#
+# $1 = the variable to set
+# $2 = The bootstrap compiler.
+# $3 = The string to grep for to find the correct line.
+#
+AC_DEFUN([FIND_GHC_BOOTSTRAP_PROG],[
+    BootstrapTmpCmd=`grep $3 $($2 --print-libdir)/settings 2>/dev/null | sed 's/.*", "//;s/".*//'`
+    if test -n "$BootstrapTmpCmd" && test `basename $BootstrapTmpCmd` = $BootstrapTmpCmd ; then
+        AC_PATH_PROG([$1], [$BootstrapTmpCmd], "")
+    else
+        $1=$BootstrapTmpCmd
+    fi
+])
+
 
 # FIND_GCC()
 # --------------------------------
@@ -2146,7 +2056,7 @@ dnl ** what cpp to use?
 dnl --------------------------------------------------------------
 AC_ARG_WITH(hs-cpp,
 [AC_HELP_STRING([--with-hs-cpp=ARG],
-        [Use ARG as the path to cpp [default=autodetect]])],
+      [Path to the (C) preprocessor for Haskell files [default=autodetect]])],
 [
     if test "$HostOS" = "mingw32"
     then
@@ -2157,6 +2067,8 @@ AC_ARG_WITH(hs-cpp,
 ],
 [
 
+    # We can't use $CPP here, since HS_CPP_CMD is expected to be a single
+    # command (no flags), and AC_PROG_CPP defines CPP as "/usr/bin/gcc -E".
     HS_CPP_CMD=$WhatGccIsCalled
 
     SOLARIS_GCC_CPP_BROKEN=NO
@@ -2198,7 +2110,7 @@ dnl ** what cpp flags to use?
 dnl -----------------------------------------------------------
 AC_ARG_WITH(hs-cpp-flags,
   [AC_HELP_STRING([--with-hs-cpp-flags=ARG],
-          [Use ARG as the path to hs cpp [default=autodetect]])],
+      [Flags to the (C) preprocessor for Haskell files [default=autodetect]])],
   [
       if test "$HostOS" = "mingw32"
       then
@@ -2210,11 +2122,11 @@ AC_ARG_WITH(hs-cpp-flags,
 [
   $HS_CPP_CMD -x c /dev/null -dM -E > conftest.txt 2>&1
   if grep "__clang__" conftest.txt >/dev/null 2>&1; then
-    HS_CPP_ARGS="-E -undef -traditional -Wno-invalid-pp-token -Wno-unicode -Wno-trigraphs "
+    HS_CPP_ARGS="-E -undef -traditional -Wno-invalid-pp-token -Wno-unicode -Wno-trigraphs"
   else
       $HS_CPP_CMD  -v > conftest.txt 2>&1
       if  grep "gcc" conftest.txt >/dev/null 2>&1; then
-          HS_CPP_ARGS="-E -undef -traditional "
+          HS_CPP_ARGS="-E -undef -traditional"
         else
           $HS_CPP_CMD  --version > conftest.txt 2>&1
           if grep "cpphs" conftest.txt >/dev/null 2>&1; then

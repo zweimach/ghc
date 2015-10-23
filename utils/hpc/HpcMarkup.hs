@@ -13,6 +13,7 @@ import HpcFlags
 import HpcUtils
 
 import System.Directory
+import System.FilePath
 import System.IO (localeEncoding)
 import Data.List
 import Data.Maybe(fromJust)
@@ -32,6 +33,7 @@ markup_options
         . funTotalsOpt
         . altHighlightOpt
         . destDirOpt
+        . verbosityOpt
 
 markup_plugin :: Plugin
 markup_plugin = Plugin { name = "markup"
@@ -76,9 +78,10 @@ markup_main flags (prog:modNames) = do
   let writeSummary filename cmp = do
         let mods' = sortBy cmp mods
 
-        putStrLn $ "Writing: " ++ (filename ++ ".html")
+        unless (verbosity flags < Normal) $
+            putStrLn $ "Writing: " ++ (filename <.> "html")
 
-        writeFileUsing (dest_dir ++ "/" ++ filename ++ ".html") $
+        writeFileUsing (dest_dir </> filename <.> "html") $
             "<html>" ++
             "<head>" ++
             charEncodingTag ++
@@ -222,9 +225,10 @@ genHtmlFromMod dest_dir flags tix theFunTotals invertOutput = do
   let content' = markup tabStop info content
   let addLine n xs = "<span class=\"lineno\">" ++ padLeft 5 ' ' (show n) ++ " </span>" ++ xs
   let addLines = unlines . map (uncurry addLine) . zip [1 :: Int ..] . lines
-  let fileName = modName0 ++ ".hs.html"
-  putStrLn $ "Writing: " ++ fileName
-  writeFileUsing (dest_dir ++ "/" ++ fileName) $
+  let fileName = modName0 <.> "hs" <.> "html"
+  unless (verbosity flags < Normal) $
+            putStrLn $ "Writing: " ++ fileName
+  writeFileUsing (dest_dir </> fileName) $
             unlines ["<html>",
                      "<head>",
                      charEncodingTag,
@@ -475,15 +479,12 @@ instance Monoid ModuleSummary where
 
 writeFileUsing :: String -> String -> IO ()
 writeFileUsing filename text = do
-  let dest_dir = dropWhileEndLE (\ x -> x /= '/') $ filename
-
 -- We need to check for the dest_dir each time, because we use sub-dirs for
 -- packages, and a single .tix file might contain information about
 -- many package.
 
   -- create the dest_dir if needed
-  when (not (null dest_dir)) $
-    createDirectoryIfMissing True dest_dir
+  createDirectoryIfMissing True (takeDirectory filename)
 
   writeFile filename text
 

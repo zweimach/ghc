@@ -2,13 +2,19 @@ test('testblockalloc',
      [c_src, only_ways(['normal','threaded1']), extra_run_opts('+RTS -I0')], 
      compile_and_run, [''])
 
+test('testmblockalloc',
+     [c_src, only_ways(['normal','threaded1']), extra_run_opts('+RTS -I0')], 
+     compile_and_run, [''])
+# -I0 is important: the idle GC will run the memory leak detector,
+# which will crash because the mblocks we allocate are not in a state
+# the leak detector is expecting.
+
 
 # See bug #101, test requires +RTS -c (or equivalently +RTS -M<something>)
 # only GHCi triggers the bug, but we run the test all ways for completeness.
 test('bug1010', normal, compile_and_run, ['+RTS -c -RTS'])
 test('derefnull',
-     [when(opsys('mingw32'), expect_broken(6079)),
-      # LLVM Optimiser considers dereference of a null pointer
+     [# LLVM Optimiser considers dereference of a null pointer
       # undefined and marks the code as unreachable which means
       # that later optimisations remove it altogether.
       omit_ways(['optllvm']),
@@ -21,17 +27,30 @@ test('derefnull',
       # SIGBUS on OX X (PPC and x86 only; amd64 gives SEGV)
       when(platform('i386-apple-darwin'), exit_code(138)),
       when(platform('powerpc-apple-darwin'), exit_code(138)),
-      when(opsys('mingw32'), exit_code(1))],
+      when(opsys('mingw32'), exit_code(1)),
+      # since these test are supposed to crash the
+      # profile report will be empty always.
+      # so disable the check for profiling
+      when(opsys('mingw32'), omit_ways(prof_ways))],
      compile_and_run, [''])
 test('divbyzero',
-     [when(opsys('mingw32'), expect_broken(6079)),
-      # SIGFPE on Linux
+     [# SIGFPE on Linux
       exit_code(136),
       # Apparently the output can be different on different
       # Linux setups, so just ignore it. As long as we get
       # the right exit code we're OK.
       when(opsys('linux'), ignore_output),
-      when(opsys('mingw32'), exit_code(1))],
+      # PowerPC 64 bit and most likely PowerPC 32 bit processors
+      # do not generate an exception (interrupt) for integer
+      # division by zero but the result is undefined.
+      # C programs compiled with gcc exit normally, so do we.
+      when(platform('powerpc64-unknown-linux'), exit_code(0)),
+      when(platform('powerpc64le-unknown-linux'), exit_code(0)),
+      when(opsys('mingw32'), exit_code(1)),
+      # since these test are supposed to crash the
+      # profile report will be empty always.
+      # so disable the check for profiling
+      when(opsys('mingw32'), omit_ways(prof_ways))],
      compile_and_run, [''])
 
 test('outofmem', when(opsys('darwin'), skip), 
@@ -211,7 +230,7 @@ test('T7919', [extra_clean(['T7919A.o','T7919A.hi',
 test('T8035', normal, compile_and_run, [''])
 
 test('linker_unload',
-     [ extra_clean(['Test.o','Test.hi', 'linker_unload']), when(opsys('mingw32'), expect_broken(8292)) ],
+     [ extra_clean(['Test.o','Test.hi', 'linker_unload']) ],
      run_command,
      ['$MAKE -s --no-print-directory linker_unload'])
 
@@ -238,6 +257,9 @@ test('T9045', [ omit_ways(['ghci']), extra_run_opts('10000 +RTS -A8k -RTS') ], c
 # with the non-threaded one.
 test('T9078', [ omit_ways(threaded_ways) ], compile_and_run, ['-with-rtsopts="-DS" -debug'])
 
+test('T10017', [ when(opsys('mingw32'), skip)
+               , only_ways(threaded_ways), extra_run_opts('+RTS -N2 -RTS') ], compile_and_run, [''])
+
 test('rdynamic', [ unless(opsys('linux') or opsys('mingw32'), skip)
                  # this needs runtime infrastructure to do in ghci:
                  #  '-rdynamic' ghc, load modules only via dlopen(RTLD_BLOBAL) and more.
@@ -246,10 +268,14 @@ test('rdynamic', [ unless(opsys('linux') or opsys('mingw32'), skip)
      compile_and_run, ['-rdynamic -package ghc'])
 
 test('GcStaticPointers',
-     [ when(compiler_lt('ghc', '7.9'), skip) ],
+     [ when(compiler_lt('ghc', '7.9'), skip)
+     , when(doing_ghci(), extra_hc_opts('-fobject-code'))
+     ],
      compile_and_run, [''])
 test('ListStaticPointers',
-     [ when(compiler_lt('ghc', '7.9'), skip) ],
+     [ when(compiler_lt('ghc', '7.9'), skip)
+     , when(doing_ghci(), extra_hc_opts('-fobject-code'))
+     ],
      compile_and_run, [''])
 
 # 251 = RTS exit code for "out of memory"
@@ -273,3 +299,37 @@ test('linker_error3',
        ignore_output ],
      run_command,
      ['$MAKE -s --no-print-directory linker_error3'])
+
+test('T9839_01', [ no_stdin, ignore_output],
+                run_command,
+                ['{compiler} -e 1 +RTS -T-s 2>&1 | \
+                  grep "flag -T given an argument when none was expected: -T-s"'])
+
+test('T9839_02', [ only_ways(prof_ways), ignore_output, exit_code(1), extra_run_opts('+RTS -Pax')],
+                compile_and_run,
+                [''])
+
+test('T9839_03', [ only_ways(prof_ways), ignore_output, exit_code(1), extra_run_opts('+RTS -Px')],
+                compile_and_run,
+                [''])
+
+test('T9839_04', [ only_ways(prof_ways), ignore_output, exit_code(0), extra_run_opts('+RTS -xc')],
+                compile_and_run,
+                [''])
+
+test('T9839_05', [ only_ways(prof_ways), ignore_output, exit_code(1), extra_run_opts('+RTS -xcx')],
+                compile_and_run,
+                [''])
+
+test('T9839_06', [ only_ways(prof_ways), ignore_output, exit_code(1), extra_run_opts('+RTS -xtx')],
+                compile_and_run,
+                [''])
+
+# ignore_output as RTS reports slightly different error messages
+# in 'epoll' and 'select' backends on reading from EBADF
+# mingw32 skip as UNIX pipe and close(fd) is used to exercise the problem
+test('T10590', [ignore_output, when(opsys('mingw32'),skip)], compile_and_run, [''])
+
+# 20000 was easily enough to trigger the bug with 7.10
+test('T10904', [ omit_ways(['ghci']), extra_run_opts('20000') ],
+               compile_and_run, ['T10904lib.c'])

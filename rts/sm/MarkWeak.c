@@ -191,6 +191,11 @@ static void collectDeadWeakPtrs (generation *gen)
 {
     StgWeak *w, *next_w;
     for (w = gen->old_weak_ptr_list; w != NULL; w = next_w) {
+        // If we have C finalizers, keep the value alive for this GC.
+        // See Note [MallocPtr finalizers] in GHC.ForeignPtr, and #10904
+        if (w->cfinalizers != &stg_NO_FINALIZER_closure) {
+            evacuate(&w->value);
+        }
         evacuate(&w->finalizer);
         next_w = w->link;
         w->link = dead_weak_ptr_list;
@@ -348,7 +353,8 @@ static void checkWeakPtrSanity(StgWeak *hd, StgWeak *tl)
 {
     StgWeak *w, *prev;
     for (w = hd; w != NULL; prev = w, w = w->link) {
-        ASSERT(INFO_PTR_TO_STRUCT(UNTAG_CLOSURE((StgClosure*)w)->header.info)->type == WEAK);
+        ASSERT(INFO_PTR_TO_STRUCT(UNTAG_CLOSURE((StgClosure*)w)->header.info)->type == WEAK
+            || UNTAG_CLOSURE((StgClosure*)w)->header.info == &stg_DEAD_WEAK_info);
         checkClosure((StgClosure*)w);
     }
     if (tl != NULL) {

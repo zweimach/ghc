@@ -109,10 +109,10 @@ expected type, because it expects that to have been done already
 matchExpectedFunTys :: SDoc     -- See Note [Herald for matchExpectedFunTys]
                     -> Arity
                     -> TcRhoType
-                    -> TcM (TcCoercion, [TcSigmaType], TcRhoType)
+                    -> TcM (TcCoercionN, [TcSigmaType], TcRhoType)
 
 -- If    matchExpectFunTys n ty = (co, [t1,..,tn], ty_r)
--- then  co : ty ~ (t1 -> ... -> tn -> ty_r)
+-- then  co : ty ~N (t1 -> ... -> tn -> ty_r)
 --
 -- Does not allocate unnecessary meta variables: if the input already is
 -- a function, we just take it apart.  Not only is this efficient,
@@ -143,7 +143,7 @@ matchExpectedFunTys herald arity orig_ty
       = do { cts <- readMetaTyVar tv
            ; case cts of
                Indirect ty' -> go n_req ty'
-               Flexi        -> defer (isReturnTyVar tv) n_req ty }
+               Flexi        -> defer n_req ty (isReturnTyVar tv) }
 
        -- In all other cases we bale out into ordinary unification
        -- However unlike the meta-tyvar case, we are sure that the
@@ -161,10 +161,13 @@ matchExpectedFunTys herald arity orig_ty
        -- But in that case we add specialized type into error context
        -- anyway, because it may be useful. See also Trac #9605.
     go n_req ty = addErrCtxtM mk_ctxt $
-                  defer False n_req ty
+                  defer n_req ty False
 
     ------------
-    defer is_return n_req fun_ty
+    -- If we decide that a ReturnTv (see Note [ReturnTv] in TcType) should
+    -- really be a function type, then we need to allow the argument and
+    -- result types also to be ReturnTvs.
+    defer n_req fun_ty is_return
       = do { arg_tys <- replicateM n_req new_flexi
                         -- See Note [Foralls to left of arrow]
            ; res_ty  <- new_flexi
@@ -207,14 +210,14 @@ and Note [TYPE] in TysPrim.
 -}
 
 ----------------------
-matchExpectedListTy :: TcRhoType -> TcM (TcCoercion, TcRhoType)
+matchExpectedListTy :: TcRhoType -> TcM (TcCoercionN, TcRhoType)
 -- Special case for lists
 matchExpectedListTy exp_ty
  = do { (co, [elt_ty]) <- matchExpectedTyConApp listTyCon exp_ty
       ; return (co, elt_ty) }
 
 ----------------------
-matchExpectedPArrTy :: TcRhoType -> TcM (TcCoercion, TcRhoType)
+matchExpectedPArrTy :: TcRhoType -> TcM (TcCoercionN, TcRhoType)
 -- Special case for parrs
 matchExpectedPArrTy exp_ty
   = do { (co, [elt_ty]) <- matchExpectedTyConApp parrTyCon exp_ty
@@ -223,7 +226,7 @@ matchExpectedPArrTy exp_ty
 ---------------------
 matchExpectedTyConApp :: TyCon                -- T :: forall kv1 ... kvm. k1 -> ... -> kn -> *
                       -> TcRhoType            -- orig_ty
-                      -> TcM (TcCoercion,     -- T k1 k2 k3 a b c ~ orig_ty
+                      -> TcM (TcCoercionN,    -- T k1 k2 k3 a b c ~N orig_ty
                               [TcSigmaType])  -- Element types, k1 k2 k3 a b c
 
 -- It's used for wired-in tycons, so we call checkWiredInTyCon
@@ -598,17 +601,9 @@ checkConstraints skol_info skol_tvs given thing_inside
       -- tcPolyExpr, which uses tcGen and hence checkConstraints.
 
   | otherwise
-  = newImplication skol_info skol_tvs given thing_inside
-
-newImplication :: SkolemInfo -> [TcTyVar]
-               -> [EvVar] -> TcM result
-               -> TcM (TcEvBinds, result)
-newImplication skol_info skol_tvs given thing_inside
   = ASSERT2( all isTcTyVar skol_tvs, ppr skol_tvs )
     ASSERT2( all isSkolemTyVar skol_tvs, ppr skol_tvs )
-    do { ((result, tclvl), wanted) <- captureConstraints  $
-                                      captureTcLevel $
-                                      thing_inside
+    do { (result, tclvl, wanted) <- pushLevelAndCaptureConstraints thing_inside
 
        ; if isEmptyWC wanted && null given
             -- Optimisation : if there are no wanteds, and no givens
@@ -625,7 +620,7 @@ newImplication skol_info skol_tvs given thing_inside
                                   , ic_no_eqs = False
                                   , ic_given = given
                                   , ic_wanted = wanted
-                                  , ic_insol  = insolubleWC wanted
+                                  , ic_status  = IC_Unsolved
                                   , ic_binds = ev_binds_var
                                   , ic_env = env
                                   , ic_info = skol_info }
@@ -708,7 +703,7 @@ uType, uType_defer
 -- See Note [Deferred unification]
 uType_defer origin ty1 ty2
   = do { eqv <- newEq ty1 ty2
-       ; loc <- getCtLoc origin
+       ; loc <- getCtLocM origin
        ; emitSimple $ mkNonCanonical $
              CtWanted { ctev_evar = eqv
                       , ctev_pred = mkPrimEqPred ty1 ty2
@@ -788,14 +783,15 @@ uType origin orig_ty1 orig_ty2
         -- Always defer if a type synonym family (type function)
         -- is involved.  (Data families behave rigidly.)
     go ty1@(TyConApp tc1 _) ty2
-      | isTypeFamilyTyCon tc1 = uType_defer origin ty1 ty2
+      | isTypeFamilyTyCon tc1 = defer ty1 ty2
     go ty1 ty2@(TyConApp tc2 _)
-      | isTypeFamilyTyCon tc2 = uType_defer origin ty1 ty2
+      | isTypeFamilyTyCon tc2 = defer ty1 ty2
 
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       -- See Note [Mismatched type lists and application decomposition]
       | tc1 == tc2, length tys1 == length tys2
-      = do { cos <- zipWithM (uType origin) tys1 tys2
+      = ASSERT( isGenerativeTyCon tc1 Nominal )
+        do { cos <- zipWithM (uType origin) tys1 tys2
            ; return $ mkTyConAppCo Nominal tc1 cos }
 
     go (LitTy m) ty@(LitTy n)
@@ -810,12 +806,12 @@ uType origin orig_ty1 orig_ty2
 
     go (AppTy s1 t1) (TyConApp tc2 ts2)
       | Just (ts2', t2') <- snocView ts2
-      = ASSERT( isDecomposableTyCon tc2 )
+      = ASSERT( mightBeUnsaturatedTyCon tc2 )
         go_app s1 t1 (TyConApp tc2 ts2') t2'
 
     go (TyConApp tc1 ts1) (AppTy s2 t2)
       | Just (ts1', t1') <- snocView ts1
-      = ASSERT( isDecomposableTyCon tc1 )
+      = ASSERT( mightBeUnsaturatedTyCon tc1 )
         go_app (TyConApp tc1 ts1') t1' s2 t2
 
     go (CoercionTy co1) (CoercionTy co2)
@@ -826,7 +822,12 @@ uType origin orig_ty1 orig_ty2
 
         -- Anything else fails
         -- E.g. unifying for-all types, which is relative unusual
-    go ty1 ty2 = uType_defer origin ty1 ty2 -- failWithMisMatch origin
+    go ty1 ty2 = defer ty1 ty2
+
+    ------------------
+    defer ty1 ty2   -- See Note [Check for equality before deferring]
+      | ty1 `tcEqType` ty2 = return (mkTcNomReflCo ty1)
+      | otherwise          = uType_defer origin ty1 ty2
 
     ------------------
     go_app s1 t1 s2 t2
@@ -834,7 +835,17 @@ uType origin orig_ty1 orig_ty2
            ; co_t <- uType origin t1 t2
            ; return $ mkAppCo co_s co_t }
 
-{-
+{- Note [Check for equality before deferring]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Particularly in ambiguity checks we can get equalities like (ty ~ ty).
+If ty involves a type function we may defer, which isn't very sensible.
+An egregious example of this was in test T9872a, which has a type signature
+       Proxy :: Proxy (Solutions Cubes)
+Doing the ambiguity check on this signature generates the equality
+   Solutions Cubes ~ Solutions Cubes
+and currently the constraint solver normalises both sides at vast cost.
+This little short-cut in 'defer' helps quite a bit.
+
 Note [Care with type applications]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Note: type applications need a bit of care!
@@ -880,7 +891,7 @@ We may encounter a unification ty1 ~ ty2 that cannot be performed syntactically,
 and yet its consistency is undetermined. Previously, there was no way to still
 make it consistent. So a mismatch error was issued.
 
-Now these unfications are deferred until constraint simplification, where type
+Now these unifications are deferred until constraint simplification, where type
 family instances and given equations may (or may not) establish the consistency.
 Deferred unifications are of the form
                 F ... ~ ...
@@ -890,7 +901,7 @@ E.g.
         id :: x ~ y => x -> y
         id e = e
 
-involves the unfication x = y. It is deferred until we bring into account the
+involves the unification x = y. It is deferred until we bring into account the
 context x ~ y to establish that it holds.
 
 If available, we defer original types (rather than those where closed type
@@ -1035,34 +1046,36 @@ checkTauTvUpdate dflags origin tv ty
   = ASSERT( not (isTyVarTy ty) )
     return Nothing
   | otherwise
-  = do { ty1  <- zonkTcType ty
-       ; co_k <- uType kind_origin (typeKind ty1) (tyVarKind tv)
-       ; if | is_return_tv ->
-                if tv `elemVarSet` tyCoVarsOfType ty1
-                then return Nothing -- TODO (RAE): use occurCheckExpand?
-                else return (Just (ty1, co_k))
+  = do { ty   <- zonkTcType ty
+       ; co_k <- uType kind_origin (typeKind ty) (tyVarKind tv)
+       ; if | is_return_tv -> -- ReturnTv: a simple occurs-check is all that we need
+                              -- See Note [ReturnTv] in TcType
+                if tv `elemVarSet` tyCoVarsOfType ty
+                then return Nothing
+                else return (Just (ty, co_k))
             | defer_me ty1 ->  -- Quick test
                 -- Failed quick test so try harder
-                case occurCheckExpand dflags tv ty1 of
+                case occurCheckExpand dflags tv ty of
                    OC_OK ty2 | defer_me ty2 -> return Nothing
-                             | otherwise    ->
-                                 return (Just (ty2, co_k))
-                   _ -> return Nothing
-            | otherwise   -> return (Just (ty1, co_k)) }
+                             | otherwise    -> return (Just (ty2, co_k))
+                   _                        -> return Nothing
+            | otherwise   -> return (Just (ty, co_k)) }
   where
     kind_origin   = KindEqOrigin (mkTyVarTy tv) ty origin
     details       = tcTyVarDetails tv
     info          = mtv_info details
-    is_return_tv  = case info of { ReturnTv -> True; _ -> False }
+    is_return_tv  = isReturnTyVar tv
     impredicative = canUnifyWithPolyType dflags details
 
     defer_me :: TcType -> Bool
     -- Checks for (a) occurrence of tv
     --            (b) type family applications
+    --            (c) foralls
     -- See Note [Conservative unification check]
     defer_me (LitTy {})        = False
     defer_me (TyVarTy tv')     = tv == tv'
     defer_me (TyConApp tc tys) = isTypeFamilyTyCon tc || any defer_me tys
+                                 || not (impredicative || isTauTyCon tc)
     defer_me (ForAllTy bndr t) = defer_me (binderType bndr) || defer_me t
                                  || (isNamedBinder bndr && not impredicative)
     defer_me (AppTy fun arg)   = defer_me fun || defer_me arg

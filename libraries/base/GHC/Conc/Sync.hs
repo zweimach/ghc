@@ -5,7 +5,6 @@
            , MagicHash
            , UnboxedTuples
            , UnliftedFFITypes
-           , DeriveDataTypeable
            , StandaloneDeriving
            , RankNTypes
   #-}
@@ -98,12 +97,10 @@ module GHC.Conc.Sync
 import Foreign
 import Foreign.C
 
-#ifdef mingw32_HOST_OS
-import Data.Typeable
-#endif
-
 #ifndef mingw32_HOST_OS
 import Data.Dynamic
+#else
+import Data.Typeable
 #endif
 import Data.Maybe
 
@@ -128,7 +125,7 @@ infixr 0 `par`, `pseq`
 -- 'ThreadId', 'par', and 'fork'
 -----------------------------------------------------------------------------
 
-data ThreadId = ThreadId ThreadId# deriving( Typeable )
+data ThreadId = ThreadId ThreadId#
 -- ToDo: data ThreadId = ThreadId (Weak ThreadId#)
 -- But since ThreadId# is unlifted, the Weak type must use open
 -- type variables.
@@ -216,7 +213,9 @@ getAllocationCounter = do
 -- to 100K, but tunable with the @+RTS -xq@ option) so that it can handle
 -- the exception and perform any necessary clean up.  If it exhausts
 -- this additional allowance, another 'AllocationLimitExceeded' exception
--- is sent, and so forth.
+-- is sent, and so forth.  Like other asynchronous exceptions, the
+-- 'AllocationLimitExceeded' exception is deferred while the thread is inside
+-- 'mask' or an exception handler in 'catch'.
 --
 -- Note that memory allocation is unrelated to /live memory/, also
 -- known as /heap residency/.  A thread can allocate a large amount of
@@ -622,25 +621,24 @@ mkWeakThreadId t@(ThreadId t#) = IO $ \s ->
 
 -- |A monad supporting atomic memory transactions.
 newtype STM a = STM (State# RealWorld -> (# State# RealWorld, a #))
-                deriving Typeable
 
 unSTM :: STM a -> (State# RealWorld -> (# State# RealWorld, a #))
 unSTM (STM a) = a
 
 instance  Functor STM where
-   fmap f x = x >>= (return . f)
+   fmap f x = x >>= (pure . f)
 
 instance Applicative STM where
-  pure = return
+  {-# INLINE pure #-}
+  {-# INLINE (*>) #-}
+  pure x = returnSTM x
   (<*>) = ap
+  m *> k = thenSTM m k
 
 instance  Monad STM  where
-    {-# INLINE return #-}
-    {-# INLINE (>>)   #-}
     {-# INLINE (>>=)  #-}
-    m >> k      = thenSTM m k
-    return x    = returnSTM x
     m >>= k     = bindSTM m k
+    (>>) = (*>)
 
 bindSTM :: STM a -> (a -> STM b) -> STM b
 bindSTM (STM m) k = STM ( \s ->
@@ -752,7 +750,7 @@ catchSTM (STM m) handler = STM $ catchSTM# m handler'
 -- subsequent transcations, (ii) the invariant failure is indicated
 -- by raising an exception.
 checkInv :: STM a -> STM ()
-checkInv (STM m) = STM (\s -> (check# m) s)
+checkInv (STM m) = STM (\s -> case (check# m) s of s' -> (# s', () #))
 
 -- | alwaysSucceeds adds a new invariant that must be true when passed
 -- to alwaysSucceeds, at the end of the current transaction, and at
@@ -772,7 +770,6 @@ always i = alwaysSucceeds ( do v <- i
 
 -- |Shared memory locations that support atomic memory transactions.
 data TVar a = TVar (TVar# RealWorld a)
-              deriving Typeable
 
 instance Eq (TVar a) where
         (TVar tvar1#) == (TVar tvar2#) = isTrue# (sameTVar# tvar1# tvar2#)
@@ -880,9 +877,7 @@ uncaughtExceptionHandler = unsafePerformIO (newIORef defaultHandler)
          (hFlush stdout) `catchAny` (\ _ -> return ())
          let msg = case cast ex of
                Just Deadlock -> "no threads to run:  infinite loop or deadlock?"
-               _ -> case cast ex of
-                    Just (ErrorCall s) -> s
-                    _                  -> showsPrec 0 se ""
+               _                  -> showsPrec 0 se ""
          withCString "%s" $ \cfmt ->
           withCString msg $ \cmsg ->
             errorBelch cfmt cmsg

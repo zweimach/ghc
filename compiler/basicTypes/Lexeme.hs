@@ -28,9 +28,12 @@ module Lexeme (
   ) where
 
 import FastString
+import Util ((<||>))
 
 import Data.Char
 import qualified Data.Set as Set
+
+import GHC.Lexeme
 
 {-
 
@@ -85,22 +88,6 @@ isLexVarSym fs                          -- Infix identifiers e.g. "+"
       (c:cs) -> startsVarSym c && all isVarSymChar cs
         -- See Note [Classification of generated names]
 
--------------
-startsVarSym, startsVarId, startsConSym, startsConId :: Char -> Bool
-startsVarSym c = startsVarSymASCII c || (ord c > 0x7f && isSymbol c)  -- Infix Ids
-startsConSym c = c == ':'               -- Infix data constructors
-startsVarId c  = c == '_' || case generalCategory c of  -- Ordinary Ids
-  LowercaseLetter -> True
-  OtherLetter     -> True   -- See #1103
-  _               -> False
-startsConId c  = isUpper c || c == '('  -- Ordinary type constructors and data constructors
-
-startsVarSymASCII :: Char -> Bool
-startsVarSymASCII c = c `elem` "!#$%&*+./<=>?@\\^|~-"
-
-isVarSymChar :: Char -> Bool
-isVarSymChar c = c == ':' || startsVarSym c
-
 {-
 
 ************************************************************************
@@ -153,7 +140,9 @@ okTcOcc _ = False
 -- with an acceptable letter?
 okVarIdOcc :: String -> Bool
 okVarIdOcc str = okIdOcc str &&
-                 not (str `Set.member` reservedIds)
+                 -- admit "_" as a valid identifier.  Required to support typed
+                 -- holes in Template Haskell.  See #10267
+                 (str == "_" || not (str `Set.member` reservedIds))
 
 -- | Is this an acceptable symbolic variable name, assuming it starts
 -- with an acceptable character?
@@ -194,7 +183,8 @@ okConSymOcc str = all okSymChar str &&
 -- but not worrying about case or clashing with reserved words?
 okIdOcc :: String -> Bool
 okIdOcc str
-  = let hashes = dropWhile okIdChar str in
+  -- TODO. #10196. Only allow modifier letters in the suffix of an identifier.
+  = let hashes = dropWhile (okIdChar <||> okIdSuffixChar) str in
     all (== '#') hashes   -- -XMagicHash allows a suffix of hashes
                           -- of course, `all` says "True" to an empty list
 
@@ -209,6 +199,13 @@ okIdChar c = case generalCategory c of
   DecimalNumber   -> True
   OtherNumber     -> True
   _               -> c == '\'' || c == '_'
+
+-- | Is this character acceptable in the suffix of an identifier.
+-- See alexGetByte in Lexer.x
+okIdSuffixChar :: Char -> Bool
+okIdSuffixChar c = case generalCategory c of
+  ModifierLetter  -> True  -- See #10196
+  _               -> False
 
 -- | Is this character acceptable in a symbol (after the first char)?
 -- See alexGetByte in Lexer.x

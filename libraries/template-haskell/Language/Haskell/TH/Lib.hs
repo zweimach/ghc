@@ -2,12 +2,14 @@
 -- TH.Lib contains lots of useful helper functions for
 -- generating and manipulating Template Haskell terms
 
+{-# LANGUAGE CPP #-}
+
 module Language.Haskell.TH.Lib where
     -- All of the exports from this module should
     -- be "public" functions.  The main module TH
     -- re-exports them all.
 
-import Language.Haskell.TH.Syntax hiding (Role)
+import Language.Haskell.TH.Syntax hiding (Role, InjectivityAnn)
 import qualified Language.Haskell.TH.Syntax as TH
 import Control.Monad( liftM, liftM2 )
 import Data.Word( Word8 )
@@ -40,6 +42,7 @@ type FieldExpQ      = Q FieldExp
 type RuleBndrQ      = Q RuleBndr
 type TySynEqnQ      = Q TySynEqn
 type Role           = TH.Role       -- must be defined here for DsMeta to find it
+type InjectivityAnn = TH.InjectivityAnn
 
 ----------------------------------------------------------
 -- * Lowercase pattern syntax functions
@@ -57,6 +60,8 @@ integerL    :: Integer -> Lit
 integerL    = IntegerL
 charL       :: Char -> Lit
 charL       = CharL
+charPrimL   :: Char -> Lit
+charPrimL   = CharPrimL
 stringL     :: String -> Lit
 stringL     = StringL
 stringPrimL :: [Word8] -> Lit
@@ -199,11 +204,6 @@ clause ps r ds = do { ps' <- sequence ps;
 dyn :: String -> ExpQ
 dyn s = return (VarE (mkName s))
 
-global :: Name -> ExpQ
-{-# DEPRECATED global "Use varE instead" #-}
--- Trac #8656; I have no idea why this function is duplicated
-global s = return (VarE s)
-
 varE :: Name -> ExpQ
 varE s = return (VarE s)
 
@@ -299,6 +299,9 @@ fieldExp s e = do { e' <- e; return (s,e') }
 -- | @staticE x = [| static x |]@
 staticE :: ExpQ -> ExpQ
 staticE = fmap StaticE
+
+unboundVarE :: Name -> ExpQ
+unboundVarE s = return (UnboundVarE s)
 
 -- ** 'arithSeqE' Shortcuts
 fromE :: ExpQ -> ExpQ
@@ -420,12 +423,6 @@ pragAnnD target expr
 pragLineD :: Int -> String -> DecQ
 pragLineD line file = return $ PragmaD $ LineP line file
 
-familyNoKindD :: FamFlavour -> Name -> [TyVarBndr] -> DecQ
-familyNoKindD flav tc tvs = return $ FamilyD flav tc tvs Nothing
-
-familyKindD :: FamFlavour -> Name -> [TyVarBndr] -> Kind -> DecQ
-familyKindD flav tc tvs k = return $ FamilyD flav tc tvs (Just k)
-
 dataInstD :: CxtQ -> Name -> [TypeQ] -> [ConQ] -> [Name] -> DecQ
 dataInstD ctxt tc tys cons derivs =
   do
@@ -448,17 +445,57 @@ tySynInstD tc eqn =
     eqn1 <- eqn
     return (TySynInstD tc eqn1)
 
+dataFamilyD :: Name -> [TyVarBndr] -> Maybe Kind -> DecQ
+dataFamilyD tc tvs kind
+    = return $ DataFamilyD tc tvs kind
+
+openTypeFamilyD :: Name -> [TyVarBndr] -> FamilyResultSig
+                -> Maybe InjectivityAnn -> DecQ
+openTypeFamilyD tc tvs res inj
+    = return $ OpenTypeFamilyD tc tvs res inj
+
+closedTypeFamilyD :: Name -> [TyVarBndr] -> FamilyResultSig
+                  -> Maybe InjectivityAnn -> [TySynEqnQ] -> DecQ
+closedTypeFamilyD tc tvs result injectivity eqns =
+  do eqns1 <- sequence eqns
+     return (ClosedTypeFamilyD tc tvs result injectivity eqns1)
+
+-- These were deprecated in GHC 7.12 with a plan to remove them in 7.14. If you
+-- remove this check please also:
+--   1. remove deprecated functions
+--   2. remove CPP language extension from top of this module
+--   3. remove the FamFlavour data type from Syntax module
+--   4. make sure that all references to FamFlavour are gone from DsMeta,
+--      Convert, TcSplice (follows from 3)
+#if __GLASGOW_HASKELL__ > 712
+#error Remove deprecated familyNoKindD, familyKindD, closedTypeFamilyNoKindD and closedTypeFamilyKindD
+#endif
+
+{-# DEPRECATED familyNoKindD, familyKindD
+               "This function will be removed in the next stable release. Use openTypeFamilyD/dataFamilyD instead." #-}
+familyNoKindD :: FamFlavour -> Name -> [TyVarBndr] -> DecQ
+familyNoKindD flav tc tvs =
+    case flav of
+      TypeFam -> return $ OpenTypeFamilyD tc tvs NoSig Nothing
+      DataFam -> return $ DataFamilyD tc tvs Nothing
+
+familyKindD :: FamFlavour -> Name -> [TyVarBndr] -> Kind -> DecQ
+familyKindD flav tc tvs k =
+    case flav of
+      TypeFam -> return $ OpenTypeFamilyD tc tvs (KindSig k) Nothing
+      DataFam -> return $ DataFamilyD tc tvs (Just k)
+
+{-# DEPRECATED closedTypeFamilyNoKindD, closedTypeFamilyKindD
+               "This function will be removed in the next stable release. Use closedTypeFamilyD instead." #-}
 closedTypeFamilyNoKindD :: Name -> [TyVarBndr] -> [TySynEqnQ] -> DecQ
 closedTypeFamilyNoKindD tc tvs eqns =
-  do
-    eqns1 <- sequence eqns
-    return (ClosedTypeFamilyD tc tvs Nothing eqns1)
+ do eqns1 <- sequence eqns
+    return (ClosedTypeFamilyD tc tvs NoSig Nothing eqns1)
 
 closedTypeFamilyKindD :: Name -> [TyVarBndr] -> Kind -> [TySynEqnQ] -> DecQ
 closedTypeFamilyKindD tc tvs kind eqns =
-  do
-    eqns1 <- sequence eqns
-    return (ClosedTypeFamilyD tc tvs (Just kind) eqns1)
+ do eqns1 <- sequence eqns
+    return (ClosedTypeFamilyD tc tvs (KindSig kind) Nothing eqns1)
 
 roleAnnotD :: Name -> [Role] -> DecQ
 roleAnnotD name roles = return $ RoleAnnotD name roles
@@ -516,6 +553,20 @@ varT = return . VarT
 conT :: Name -> TypeQ
 conT = return . ConT
 
+infixT :: TypeQ -> Name -> TypeQ -> TypeQ
+infixT t1 n t2 = do t1' <- t1
+                    t2' <- t2
+                    return (InfixT t1' n t2')
+
+uInfixT :: TypeQ -> Name -> TypeQ -> TypeQ
+uInfixT t1 n t2 = do t1' <- t1
+                     t2' <- t2
+                     return (UInfixT t1' n t2')
+
+parensT :: TypeQ -> TypeQ
+parensT t = do t' <- t
+               return (ParensT t')
+
 appT :: TypeQ -> TypeQ -> TypeQ
 appT t1 t2 = do
            t1' <- t1
@@ -545,6 +596,12 @@ sigT t k
 
 equalityT :: TypeQ
 equalityT = return EqualityT
+
+wildCardT :: TypeQ
+wildCardT = return (WildCardT Nothing)
+
+namedWildCardT :: Name -> TypeQ
+namedWildCardT = return . WildCardT . Just
 
 {-# DEPRECATED classP "As of template-haskell-2.10, constraint predicates (Pred) are just types (Type), in keeping with ConstraintKinds. Please use 'conT' and 'appT'." #-}
 classP :: Name -> [Q Type] -> Q Pred
@@ -629,6 +686,24 @@ starK = StarT
 
 constraintK :: Kind
 constraintK = ConstraintT
+
+-------------------------------------------------------------------------------
+-- *   Type family result
+
+noSig :: FamilyResultSig
+noSig = NoSig
+
+kindSig :: Kind -> FamilyResultSig
+kindSig = KindSig
+
+tyVarSig :: TyVarBndr -> FamilyResultSig
+tyVarSig = TyVarSig
+
+-------------------------------------------------------------------------------
+-- *   Injectivity annotation
+
+injectivityAnn :: Name -> [Name] -> InjectivityAnn
+injectivityAnn = TH.InjectivityAnn
 
 -------------------------------------------------------------------------------
 -- *   Role

@@ -23,12 +23,7 @@ import DsMonad
 import Name
 import NameEnv
 import FamInstEnv( topNormaliseType )
-
-#ifdef GHCI
-        -- Template Haskell stuff iff bootstrapped
 import DsMeta
-#endif
-
 import HsSyn
 
 import Platform
@@ -37,6 +32,7 @@ import Platform
 import TcType
 import TcEvidence
 import TcRnMonad
+import TcHsSyn
 import Type
 import CoreSyn
 import CoreUtils
@@ -60,8 +56,9 @@ import Bag
 import Outputable
 import FastString
 
+import IfaceEnv
 import IdInfo
-import Data.IORef       ( atomicModifyIORef, modifyIORef )
+import Data.IORef       ( atomicModifyIORef', modifyIORef )
 import Data.List   ( mapAccumL )
 
 import Control.Monad
@@ -143,7 +140,7 @@ dsStrictBind (AbsBinds { abs_tvs = [], abs_ev_vars = []
              bind_export export b = bindNonRec (abe_poly export) (Var (abe_mono export)) b
        ; body2 <- foldlBagM (\body lbind -> dsStrictBind (unLoc lbind) body)
                             body1 lbinds
-       ; ds_binds <- dsTcEvBinds ev_binds
+       ; ds_binds <- dsTcEvBinds_s ev_binds
        ; return (mkCoreLets ds_binds body2) }
 
 dsStrictBind (FunBind { fun_id = L _ fun, fun_matches = matches, fun_co_fn = co_fn
@@ -200,6 +197,7 @@ dsExpr :: HsExpr Id -> DsM CoreExpr
 dsExpr (HsPar e)              = dsLExpr e
 dsExpr (ExprWithTySigOut e _) = dsLExpr e
 dsExpr (HsVar var)            = varToCoreExpr <$> dsVar var  -- See Note [Desugaring vars]
+dsExpr (HsUnboundVar {})      = panic "dsExpr: HsUnboundVar" -- Typechecker eliminates them
 dsExpr (HsIPVar _)            = panic "dsExpr: HsIPVar"
 dsExpr (HsLit lit)            = dsLit lit
 dsExpr (HsOverLit lit)        = dsOverLit lit
@@ -226,7 +224,6 @@ dsExpr (HsLamCase arg matches)
 dsExpr (HsApp fun arg)
   = mkCoreAppDs <$> dsLExpr fun <*>  dsLExpr arg
 
-dsExpr (HsUnboundVar _) = panic "dsExpr: HsUnboundVar"
 
 {-
 Note [Desugaring vars]
@@ -305,13 +302,18 @@ dsExpr (ExplicitTuple tup_args boxity)
        ; return $ mkCoreLams lam_vars $
                   mkCoreTupBoxity boxity args }
 
-dsExpr (HsSCC cc expr@(L loc _)) = do
-    mod_name <- getModule
-    count <- goptM Opt_ProfCountEntries
-    uniq <- newUnique
-    Tick (ProfNote (mkUserCC cc mod_name loc uniq) count True) <$> dsLExpr expr
+dsExpr (HsSCC _ cc expr@(L loc _)) = do
+    dflags <- getDynFlags
+    if gopt Opt_SccProfilingOn dflags
+      then do
+        mod_name <- getModule
+        count <- goptM Opt_ProfCountEntries
+        uniq <- newUnique
+        Tick (ProfNote (mkUserCC (sl_fs cc) mod_name loc uniq) count True)
+               <$> dsLExpr expr
+      else dsLExpr expr
 
-dsExpr (HsCoreAnn _ expr)
+dsExpr (HsCoreAnn _ _ expr)
   = dsLExpr expr
 
 dsExpr (HsCase discrim matches)
@@ -412,8 +414,8 @@ dsExpr (PArrSeq _ _)
     g = ... static f ...
 ==>
     sptEntry:N = StaticPtr
-        (fingerprintString "pkgId:module.sptEntry:N")
-        (StaticPtrInfo "current pkg id" "current module" "sptEntry:0")
+        (fingerprintString "pkgKey:module.sptEntry:N")
+        (StaticPtrInfo "current pkg key" "current module" "sptEntry:0")
         f
     g = ... sptEntry:N
 \end{verbatim}
@@ -436,14 +438,14 @@ dsExpr (HsStatic expr@(L loc _)) = do
                             , srcLocCol  $ realSrcSpanStart r
                             )
            _             -> (0, 0)
-        srcLoc = mkCoreConApps (tupleCon BoxedTuple 2)
+        srcLoc = mkCoreConApps (tupleDataCon Boxed 2)
                      [ Type intTy              , Type intTy
                      , mkIntExprInt dflags line, mkIntExprInt dflags col
                      ]
     info <- mkConApp staticPtrInfoDataCon <$>
             (++[srcLoc]) <$>
             mapM mkStringExprFS
-                 [ packageKeyFS $ modulePackageKey $ nameModule n'
+                 [ unitIdFS $ moduleUnitId $ nameModule n'
                  , moduleNameFS $ moduleName $ nameModule n'
                  , occNameFS    $ nameOccName n'
                  ]
@@ -470,7 +472,7 @@ dsExpr (HsStatic expr@(L loc _)) = do
 
     fingerprintName :: Name -> Fingerprint
     fingerprintName n = fingerprintString $ unpackFS $ concatFS
-        [ packageKeyFS $ modulePackageKey $ nameModule n
+        [ unitIdFS $ moduleUnitId $ nameModule n
         , fsLit ":"
         , moduleNameFS (moduleName $ nameModule n)
         , fsLit "."
@@ -486,14 +488,14 @@ For record construction we do this (assuming T has three arguments)
         T { op2 = e }
 ==>
         let err = /\a -> recConErr a
-        T (recConErr t1 "M.lhs/230/op1")
+        T (recConErr t1 "M.hs/230/op1")
           e
-          (recConErr t1 "M.lhs/230/op3")
+          (recConErr t1 "M.hs/230/op3")
 \end{verbatim}
-@recConErr@ then converts its arugment string into a proper message
+@recConErr@ then converts its argument string into a proper message
 before printing it as
 \begin{verbatim}
-        M.lhs, line 230: missing field op1 was evaluated
+        M.hs, line 230: missing field op1 was evaluated
 \end{verbatim}
 
 We also handle @C{}@ as valid construction syntax for an unlabelled
@@ -507,11 +509,11 @@ dsExpr (RecordCon (L _ data_con_id) con_expr rbinds) = do
         -- A newtype in the corner should be opaque;
         -- hence TcType.tcSplitFunTys
 
-        mk_arg (arg_ty, lbl)    -- Selector id has the field label as its name
-          = case findField (rec_flds rbinds) lbl of
+        mk_arg (arg_ty, fl)
+          = case findField (rec_flds rbinds) (flSelector fl) of
               (rhs:rhss) -> ASSERT( null rhss )
                             dsLExpr rhs
-              []         -> mkErrorAppDs rEC_CON_ERROR_ID arg_ty (ppr lbl)
+              []         -> mkErrorAppDs rEC_CON_ERROR_ID arg_ty (ppr (flLabel fl))
         unlabelled_bottom arg_ty = mkErrorAppDs rEC_CON_ERROR_ID arg_ty Outputable.empty
 
         labels = dataConFieldLabels (idDataCon data_con_id)
@@ -538,7 +540,7 @@ Then we translate as follows:
         case r of
           T1 op1 _ op3 -> T1 op1 op2 op3
           T2 op4 _     -> T2 op4 op2
-          other        -> recUpdError "M.lhs/230"
+          other        -> recUpdError "M.hs/230"
 \end{verbatim}
 It's important that we use the constructor Ids for @T1@, @T2@ etc on the
 RHSs, and do not generate a Core constructor application directly, because the constructor
@@ -547,7 +549,7 @@ dictionaries.
 
 -}
 
-dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
+dsExpr expr@(RecordUpd record_expr fields
                        cons_to_upd in_inst_tys out_inst_tys)
   | null fields
   = dsLExpr record_expr
@@ -578,13 +580,13 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
         ; return (add_field_binds field_binds' $
                   bindNonRec discrim_var record_expr' matching_code) }
   where
-    ds_field :: LHsRecField Id (LHsExpr Id) -> DsM (Name, DsId, CoreExpr)
+    ds_field :: LHsRecUpdField Id -> DsM (Name, DsId, CoreExpr)
       -- Clone the Id in the HsRecField, because its Name is that
-      -- of the record selector, and we must not make that a lcoal binder
+      -- of the record selector, and we must not make that a local binder
       -- else we shadow other uses of the record selector
       -- Hence 'lcl_id'.  Cf Trac #2735
     ds_field (L _ rec_field) = do { rhs <- dsLExpr (hsRecFieldArg rec_field)
-                                  ; fld_id <- dsVar $ unLoc (hsRecFieldId rec_field)
+                                  ; fld_id <- dsVar $ unLoc (hsRecUpdFieldId rec_field)
                                   ; lcl_id <- newSysLocalDs (idType fld_id)
                                   ; return (idName fld_id, lcl_id, rhs) }
 
@@ -606,8 +608,8 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
            ; arg_ids    <- newSysLocalsDs (substTys subst arg_tys)
            ; let val_args = zipWithEqual "dsExpr:RecordUpd" mk_val_arg
                                          (dataConFieldLabels con) arg_ids
-                 mk_val_arg field_name pat_arg_id
-                     = nlHsVar (lookupNameEnv upd_fld_env field_name `orElse` pat_arg_id)
+                 mk_val_arg fl pat_arg_id
+                     = nlHsVar (lookupNameEnv upd_fld_env (flSelector fl) `orElse` pat_arg_id)
                  inst_con = noLoc $ HsWrap wrap (HsVar (dataConWrapId con))
                         -- Reconstruct with the WrapId so that unpacking happens
                  wrap = mkWpEvVarApps theta_vars           <.>
@@ -629,12 +631,8 @@ dsExpr expr@(RecordUpd record_expr (HsRecFields { rec_flds = fields })
 -- Template Haskell stuff
 
 dsExpr (HsRnBracketOut _ _) = panic "dsExpr HsRnBracketOut"
-#ifdef GHCI
 dsExpr (HsTcBracketOut x ps) = dsBracket x ps
-#else
-dsExpr (HsTcBracketOut _ _) = panic "dsExpr HsBracketOut"
-#endif
-dsExpr (HsSpliceE _ s)      = pprPanic "dsExpr:splice" (ppr s)
+dsExpr (HsSpliceE s)  = pprPanic "dsExpr:splice" (ppr s)
 
 -- Arrow notation extension
 dsExpr (HsProc pat cmd) = dsProcExpr pat cmd
@@ -659,25 +657,30 @@ dsExpr (HsBinTick ixT ixF e) = do
        mkBinaryTickBox ixT ixF e2
      }
 
+dsExpr (HsTickPragma _ _ expr) = do
+  dflags <- getDynFlags
+  if gopt Opt_Hpc dflags
+    then panic "dsExpr:HsTickPragma"
+    else dsLExpr expr
+
 -- HsSyn constructs that just shouldn't be here:
 dsExpr (ExprWithTySig {})  = panic "dsExpr:ExprWithTySig"
 dsExpr (HsBracket     {})  = panic "dsExpr:HsBracket"
-dsExpr (HsQuasiQuoteE {})  = panic "dsExpr:HsQuasiQuoteE"
 dsExpr (HsArrApp      {})  = panic "dsExpr:HsArrApp"
 dsExpr (HsArrForm     {})  = panic "dsExpr:HsArrForm"
-dsExpr (HsTickPragma  {})  = panic "dsExpr:HsTickPragma"
 dsExpr (EWildPat      {})  = panic "dsExpr:EWildPat"
 dsExpr (EAsPat        {})  = panic "dsExpr:EAsPat"
 dsExpr (EViewPat      {})  = panic "dsExpr:EViewPat"
 dsExpr (ELazyPat      {})  = panic "dsExpr:ELazyPat"
 dsExpr (HsType        {})  = panic "dsExpr:HsType"
 dsExpr (HsDo          {})  = panic "dsExpr:HsDo"
+dsExpr (HsSingleRecFld{})  = panic "dsExpr: HsSingleRecFld"
 
 
 findField :: [LHsRecField Id arg] -> Name -> [arg]
-findField rbinds lbl
-  = [rhs | L _ (HsRecField { hsRecFieldId = id, hsRecFieldArg = rhs }) <- rbinds
-         , lbl == idName (unLoc id) ]
+findField rbinds sel
+  = [hsRecFieldArg fld | L _ fld <- rbinds
+                       , sel == idName (unLoc $ hsRecFieldId fld) ]
 
 {-
 %--------------------------------------------------------------------
@@ -808,7 +811,7 @@ dsDo stmts
     goL [] = panic "dsDo"
     goL (L loc stmt:lstmts) = putSrcSpanDs loc (go loc stmt lstmts)
 
-    go _ (LastStmt body _) stmts
+    go _ (LastStmt body _ _) stmts
       = ASSERT( null stmts ) dsLExpr body
         -- The 'return' op isn't used for 'do' expressions
 
@@ -835,13 +838,45 @@ dsDo stmts
             ; match_code <- handle_failure pat match fail_op
             ; return (mkApps bind_op' [rhs', Lam var match_code]) }
 
+    go _ (ApplicativeStmt args mb_join body_ty) stmts
+      = do {
+             let
+               (pats, rhss) = unzip (map (do_arg . snd) args)
+
+               do_arg (ApplicativeArgOne pat expr) =
+                 (pat, dsLExpr expr)
+               do_arg (ApplicativeArgMany stmts ret pat) =
+                 (pat, dsDo (stmts ++ [noLoc $ mkLastStmt (noLoc ret)]))
+
+               arg_tys = map hsLPatType pats
+
+           ; rhss' <- sequence rhss
+           ; ops' <- mapM dsExpr (map fst args)
+
+           ; let body' = noLoc $ HsDo DoExpr stmts body_ty
+
+           ; let fun = L noSrcSpan $ HsLam $
+                   MG { mg_alts = [mkSimpleMatch pats body']
+                      , mg_arg_tys = arg_tys
+                      , mg_res_ty = body_ty
+                      , mg_origin = Generated }
+
+           ; fun' <- dsLExpr fun
+           ; let mk_ap_call l (op,r) = mkApps op [l,r]
+                 expr = foldl mk_ap_call fun' (zip ops' rhss')
+           ; case mb_join of
+               Nothing -> return expr
+               Just join_op ->
+                 do { join_op' <- dsExpr join_op
+                    ; return (App join_op' expr) } }
+
     go loc (RecStmt { recS_stmts = rec_stmts, recS_later_ids = later_ids
                     , recS_rec_ids = rec_ids, recS_ret_fn = return_op
                     , recS_mfix_fn = mfix_op, recS_bind_fn = bind_op
                     , recS_rec_rets = rec_rets, recS_ret_ty = body_ty }) stmts
       = goL (new_bind_stmt : stmts)  -- rec_ids can be empty; eg  rec { print 'x' }
       where
-        new_bind_stmt = L loc $ BindStmt (mkBigLHsPatTup later_pats)
+        new_bind_stmt = L loc $ BindStmt (mkBigLHsPatTupId later_pats)
                                          mfix_app bind_op
                                          noSyntaxExpr  -- Tuple cannot fail
 
@@ -854,9 +889,9 @@ dsDo stmts
         mfix_arg     = noLoc $ HsLam (MG { mg_alts = [mkSimpleMatch [mfix_pat] body]
                                          , mg_arg_tys = [tup_ty], mg_res_ty = body_ty
                                          , mg_origin = Generated })
-        mfix_pat     = noLoc $ LazyPat $ mkBigLHsPatTup rec_tup_pats
+        mfix_pat     = noLoc $ LazyPat $ mkBigLHsPatTupId rec_tup_pats
         body         = noLoc $ HsDo DoExpr (rec_stmts ++ [ret_stmt]) body_ty
-        ret_app      = nlHsApp (noLoc return_op) (mkBigLHsTup rets)
+        ret_app      = nlHsApp (noLoc return_op) (mkBigLHsTupId rets)
         ret_stmt     = noLoc $ mkLastStmt ret_app
                      -- This LastStmt will be desugared with dsDo,
                      -- which ignores the return_op in the LastStmt,
@@ -941,10 +976,9 @@ badMonadBind rhs elt_ty flag_doc
 --
 mkSptEntryName :: SrcSpan -> DsM Name
 mkSptEntryName loc = do
-    uniq <- newUnique
     mod  <- getModule
     occ  <- mkWrapperName "sptEntry"
-    return $ mkExternalName uniq mod occ loc
+    newGlobalBinder mod occ loc
   where
     mkWrapperName what
       = do dflags <- getDynFlags
@@ -952,7 +986,7 @@ mkSptEntryName loc = do
            let -- Note [Generating fresh names for ccall wrapper]
                -- in compiler/typecheck/TcEnv.hs
                wrapperRef = nextWrapperNum dflags
-           wrapperNum <- liftIO $ atomicModifyIORef wrapperRef $ \mod_env ->
+           wrapperNum <- liftIO $ atomicModifyIORef' wrapperRef $ \mod_env ->
                let num = lookupWithDefaultModuleEnv mod_env 0 thisMod
                 in (extendModuleEnv mod_env thisMod (num+1), num)
            return $ mkVarOcc $ what ++ ":" ++ show wrapperNum

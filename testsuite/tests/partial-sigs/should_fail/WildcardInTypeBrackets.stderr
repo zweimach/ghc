@@ -1,4 +1,0 @@
-
-WildcardInTypeBrackets.hs:4:11:
-    Wildcard not allowed
-    in type brackets: ‘[t| _ |]’

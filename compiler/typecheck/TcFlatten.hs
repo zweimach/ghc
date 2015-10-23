@@ -1,12 +1,10 @@
 {-# LANGUAGE CPP, ViewPatterns #-}
 
 module TcFlatten(
-   FlattenEnv(..), FlattenMode(..), mkFlattenEnv,
-   flatten, flattenMany, flatten_many,
-   flattenFamApp, flattenTyVarOuter, FlattenTvResult(..),
+   FlattenMode(..),
+   flatten, flattenManyNom,
+
    unflatten,
-   eqCanRewrite, eqCanRewriteFRB, canRewriteOrSame,
-   CtFRB, ctEvFRB
  ) where
 
 #include "HsVersions.h"
@@ -22,7 +20,6 @@ import Var
 import VarEnv
 import NameEnv
 import Outputable
-import VarSet
 import TcSMonad as TcS
 import DynFlags( DynFlags )
 
@@ -31,11 +28,13 @@ import Bag
 import Pair
 import BasicTypes  ( Boxity(..) )
 import FastString
-import Control.Monad( when )
+import Control.Monad
 import MonadUtils ( zipWithAndUnzipM )
 import GHC.Exts ( inline )
 
-import Control.Applicative ( (<$>) )
+#if __GLASGOW_HASKELL__ < 709
+import Control.Applicative ( Applicative(..), (<$>) )
+#endif
 import Control.Arrow ( first, second )
 
 {-
@@ -128,38 +127,8 @@ Note [The flattening story]
   This just unites the two fsks into one.
   Always solve given from wanted if poss.
 
-* [Firing rule: wanteds]
-    (work item) [W] x : F tys ~ fmv
-    instantiate axiom: ax_co : F tys ~ rhs
-
-   Dischard fmv:
-      fmv := alpha
-      x := ax_co ; sym x2
-      [W] x2 : alpha ~ rhs  (Non-canonical)
-   discharging the work item. This is the way that fmv's get
-   unified; even though they are "untouchable".
-
-   NB: this deals with the case where fmv appears in xi, which can
-   happen; it just happens through the non-canonical stuff
-
-   Possible short cut (shortCutReduction) if rhs = G rhs_tys,
-   where G is a type function.  Then
-      - Flatten rhs_tys (cos : rhs_tys ~ rhs_xis)
-      - Add G rhs_xis ~ fmv to flat cache
-      - New wanted [W] x2 : G rhs_xis ~ fmv
-      - Discharge x := co ; G cos ; x2
-
-* [Firing rule: givens]
-    (work item) [G] g : F tys ~ fsk
-    instantiate axiom: co : F tys ~ rhs
-
-   Now add non-canonical (since rhs is not flat)
-      [G] (sym g ; co) : fsk ~ rhs
-
-   Short cut (shortCutReduction) for when rhs = G rhs_tys and G is a type function
-      [G] (co ; g) : G tys ~ fsk
-   But need to flatten tys:  flat_cos : tys ~ flat_tys
-      [G] (sym (G flat_cos) ; co ; g) : G flat_tys ~ fsk
+* For top-level reductions, see Note [Top-level reductions for type functions]
+  in TcInteract
 
 
 Why given-fsks, alone, doesn't work
@@ -231,86 +200,78 @@ Consider
   g (x:Int) (y:Bool)
 Here we get (F Int ~ Int, F Int ~ Bool), which flattens to
   (fmv ~ Int, fmv ~ Bool)
-But there are really TWO separate errors.  We must not complain
-about Int~Bool.  Moreover these two errors could arise in entirely
-unrelated parts of the code.  (In the alpha case, there must be
-*some* connection (eg v:alpha in common envt).)
+But there are really TWO separate errors.
 
-Note [Orient equalities with flatten-meta-vars on the left]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-This example comes from IndTypesPerfMerge
+  ** We must not complain about Int~Bool. **
 
+Moreover these two errors could arise in entirely unrelated parts of
+the code.  (In the alpha case, there must be *some* connection (eg
+v:alpha in common envt).)
+
+Note [Orientation of equalities with fmvs] and
+Note [Unflattening can force the solver to iterate]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Here is a bad dilemma concerning flatten meta-vars (fmvs).
+
+This example comes from IndTypesPerfMerge, T10226, T10009.
 From the ambiguity check for
   f :: (F a ~ a) => a
 we get:
       [G] F a ~ a
       [W] F alpha ~ alpha, alpha ~ a
 
-    From Givens we get
+From Givens we get
       [G] F a ~ fsk, fsk ~ a
 
-    Now if we flatten we get
+Now if we flatten we get
       [W] alpha ~ fmv, F alpha ~ fmv, alpha ~ a
 
-    Now, processing the first one first, choosing alpha := fmv
+Now, processing the first one first, choosing alpha := fmv
       [W] F fmv ~ fmv, fmv ~ a
 
-    And now we are stuck.  We must either *unify* fmv := a, or
-    use the fmv ~ a to rewrite F fmv ~ fmv, so we can make it
-    meet up with the given F a ~ blah.
+And now we are stuck.  We must either *unify* fmv := a, or
+use the fmv ~ a to rewrite F fmv ~ fmv, so we can make it
+meet up with the given F a ~ blah.
 
-Solution: always put fmvs on the left, so we get
+Old solution: always put fmvs on the left, so we get
       [W] fmv ~ alpha, F alpha ~ fmv, alpha ~ a
-  The point is that fmvs are very uninformative, so doing alpha := fmv
-  is a bad idea.  We want to use other constraints on alpha first.
 
+BUT this works badly for Trac #10340:
+     get :: MonadState s m => m s
+     instance MonadState s (State s) where ...
 
-Note [Derived constraints from wanted CTyEqCans]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Is this type ambiguous:  (Foo e ~ Maybe e) => Foo e
- (indexed-types/should_fail/T4093a)
+     foo :: State Any Any
+     foo = get
 
- [G] Foo e ~ Maybe e
- [W] Foo e ~ Foo ee      -- ee is a unification variable
- [W] Foo ee ~ Maybe ee)
----
- [G] Foo e ~ fsk
- [G] fsk ~ Maybe e
+For 'foo' we instantiate 'get' at types mm ss
+       [W] MonadState ss mm, [W] mm ss ~ State Any Any
+Flatten, and decompose
+       [W] MnadState ss mm, [W] Any ~ fmv, [W] mm ~ State fmv, [W] fmv ~ ss
+Unify mm := State fmv:
+       [W] MonadState ss (State fmv), [W] Any ~ fmv, [W] fmv ~ ss
+If we orient with (untouchable) fmv on the left we are now stuck:
+alas, the instance does not match!!  But if instead we orient with
+(touchable) ss on the left, we unify ss:=fmv, to get
+       [W] MonadState fmv (State fmv), [W] Any ~ fmv
+Now we can solve.
 
- [W] Foo e ~ fmv1
- [W] Foo ee ~ fmv2
- [W] fmv1 ~ fmv2
- [W] fmv2 ~ Maybe ee
+This is a real dilemma. CURRENT SOLUTION:
+ * Orient with touchable variables on the left.  This is the
+   simple, uniform thing to do.  So we would orient ss ~ fmv,
+   not the other way round.
 
---->   fmv1 := fsk  by matching LHSs
- [W] Foo ee ~ fmv2
- [W] fsk ~ fmv2
- [W] fmv2 ~ Maybe ee
+ * In the 'f' example, we get stuck with
+        F fmv ~ fmv, fmv ~ a
+   But during unflattening we will fail to dischargeFmv for the
+   CFunEqCan F fmv ~ fmv, because fmv := F fmv would make an ininite
+   type.  Instead we unify fmv:=a, AND record that we have done so.
 
---->
- [W] Foo ee ~ fmv2
- [W] fmv2 ~ Maybe e
- [W] fmv2 ~ Maybe ee
+   If any such "non-CFunEqCan unifications" take place (in
+   unflatten_eq in TcFlatten.unflatten) iterate the entire process.
+   This is done by the 'go' loop in solveSimpleWanteds.
 
-Now maybe we shuld get [D] e ~ ee, and then we'd solve it entirely.
-But if in a smilar situation we got [D] Int ~ Bool we'd be back
-to complaining about wanted/wanted interactions.  Maybe this arises
-also for fundeps?
-
-Here's another example:
-  f :: [a] -> [b] -> blah
-  f (e1 :: F Int) (e2 :: F Int)
-
-  we get
-     F Int ~ fmv
-     fmv ~ [alpha]
-     fmv ~ [beta]
-
-  We want: alpha := beta (which might unlock something else).  If we
-  generated [D] [alpha] ~ [beta] we'd be good here.
-
-Current story: we don't generate these derived constraints.  We could, but
-we'd want to make them very weak, so we didn't get the Int~Bool complaint.
+This story does not feel right but it's the best I can do; and the
+iteration only happens in pretty obscure circumstances.
 
 
 ************************************************************************
@@ -527,89 +488,244 @@ wanteds, we will
 
 ************************************************************************
 *                                                                      *
-*           The main flattening functions
+*                FlattenEnv & FlatM
+*             The flattening environment & monad
 *                                                                      *
 ************************************************************************
 
-Note [Flattening]
-~~~~~~~~~~~~~~~~~~~~
-  flatten ty  ==>   (xi, cc)
-    where
-      xi has no type functions, unless they appear under ForAlls
+-}
 
-      cc = Auxiliary given (equality) constraints constraining
-           the fresh type variables in xi.  Evidence for these
-           is always the identity coercion, because internally the
-           fresh flattening skolem variables are actually identified
-           with the types they have been generated to stand in for.
+type FlatWorkListRef = TcRef [Ct]  -- See Note [The flattening work list]
 
-Note that it is flatten's job to flatten *every type function it sees*.
-flatten is only called on *arguments* to type functions, by canEqGiven.
+data FlattenEnv
+  = FE { fe_mode    :: FlattenMode
+       , fe_loc     :: CtLoc              -- See Note [Flattener CtLoc]
+       , fe_flavour :: CtFlavour
+       , fe_eq_rel  :: EqRel              -- See Note [Flattener EqRels]
+       , fe_boxity  :: Boxity             -- See Note [Flavours with boxities]
+                                          -- in TcSMonad
+       , fe_work    :: FlatWorkListRef }  -- See Note [The flattening work list]
 
-Recall that in comments we use alpha[flat = ty] to represent a
-flattening skolem variable alpha which has been generated to stand in
-for ty.
+data FlattenMode  -- Postcondition for all three: inert wrt the type substitution
+  = FM_FlattenAll          -- Postcondition: function-free
+  | FM_SubstOnly           -- See Note [Flattening under a forall]
 
------ Example of flattening a constraint: ------
-  flatten (List (F (G Int)))  ==>  (xi, cc)
-    where
-      xi  = List alpha
-      cc  = { G Int ~ beta[flat = G Int],
-              F beta ~ alpha[flat = F beta] }
-Here
-  * alpha and beta are 'flattening skolem variables'.
-  * All the constraints in cc are 'given', and all their coercion terms
-    are the identity.
+--  | FM_Avoid TcTyVar Bool  -- See Note [Lazy flattening]
+--                           -- Postcondition:
+--                           --  * tyvar is only mentioned in result under a rigid path
+--                           --    e.g.   [a] is ok, but F a won't happen
+--                           --  * If flat_top is True, top level is not a function application
+--                           --   (but under type constructors is ok e.g. [F a])
 
-NB: Flattening Skolems only occur in canonical constraints, which
-are never zonked, so we don't need to worry about zonking doing
-accidental unflattening.
+mkFlattenEnv :: FlattenMode -> CtEvidence -> FlatWorkListRef -> FlattenEnv
+mkFlattenEnv fm ctev ref = FE { fe_mode    = fm
+                              , fe_loc     = ctEvLoc ctev
+                              , fe_flavour = ctEvFlavour ctev
+                              , fe_eq_rel  = ctEvEqRel ctev
+                              , fe_boxity  = ctEvBoxity ctev
+                              , fe_work    = ref }
 
-Note that we prefer to leave type synonyms unexpanded when possible,
-so when the flattener encounters one, it first asks whether its
-transitive expansion contains any type function applications.  If so,
-it expands the synonym and proceeds; if not, it simply returns the
-unexpanded synonym.
+-- | The 'FlatM' monad is a wrapper around 'TcS' with the following
+-- extra capabilities: (1) it offers access to a 'FlattenEnv';
+-- and (2) it maintains the flattening worklist.
+-- See Note [The flattening work list].
+newtype FlatM a
+  = FlatM { runFlatM :: FlattenEnv -> TcS a }
+
+instance Monad FlatM where
+  return = pure
+  m >>= k  = FlatM $ \env ->
+             do { a  <- runFlatM m env
+                ; runFlatM (k a) env }
+
+instance Functor FlatM where
+  fmap = liftM
+
+instance Applicative FlatM where
+  pure x = FlatM $ const (pure x)
+  (<*>) = ap
+
+liftTcS :: TcS a -> FlatM a
+liftTcS thing_inside
+  = FlatM $ const thing_inside
+
+emitFlatWork :: Ct -> FlatM ()
+-- See Note [The flattening work list]
+emitFlatWork ct = FlatM $ \env -> updTcRef (fe_work env) (ct :)
+
+runFlatten :: FlattenMode -> CtEvidence -> FlatM a -> TcS a
+-- Run thing_inside (which does flattening), and put all
+-- the work it generates onto the main work list
+-- See Note [The flattening work list]
+-- NB: The returned evidence is always the same as the original, but with
+-- perhaps a new CtLoc
+runFlatten mode ev thing_inside
+  = do { flat_ref <- newTcRef []
+       ; let fmode = mkFlattenEnv mode ev flat_ref
+       ; res <- runFlatM thing_inside fmode
+       ; new_flats <- readTcRef flat_ref
+       ; updWorkListTcS (add_flats new_flats)
+       ; return res }
+  where
+    add_flats new_flats wl
+      = wl { wl_funeqs = add_funeqs new_flats (wl_funeqs wl) }
+
+    add_funeqs []     wl = wl
+    add_funeqs (f:fs) wl = add_funeqs fs (f:wl)
+      -- add_funeqs fs ws = reverse fs ++ ws
+      -- e.g. add_funeqs [f1,f2,f3] [w1,w2,w3,w4]
+      --        = [f3,f2,f1,w1,w2,w3,w4]
+
+traceFlat :: String -> SDoc -> FlatM ()
+traceFlat herald doc = liftTcS $ traceTcS herald doc
+
+getFlatEnvField :: (FlattenEnv -> a) -> FlatM a
+getFlatEnvField accessor
+  = FlatM $ \env -> return (accessor env)
+
+getEqRel :: FlatM EqRel
+getEqRel = getFlatEnvField fe_eq_rel
+
+getRole :: FlatM Role
+getRole = eqRelRole <$> getEqRel
+
+getFlavour :: FlatM CtFlavour
+getFlavour = getFlatEnvField fe_flavour
+
+getFRB :: FlatM CtFRB
+getFRB
+  = do { flavour <- getFlavour
+       ; eq_rel <- getEqRel
+       ; boxity <- getBoxity
+       ; return (flavour, eq_rel, boxity) }
+
+getMode :: FlatM FlattenMode
+getMode = getFlatEnvField fe_mode
+
+getLoc :: FlatM CtLoc
+getLoc = getFlatEnvField fe_loc
+
+getBoxity :: FlatM Boxity
+getBoxity = getFlatEnvField fe_boxity
+
+checkStackDepth :: Type -> FlatM ()
+checkStackDepth ty
+  = do { loc <- getLoc
+       ; liftTcS $ checkReductionDepth loc ty }
+
+-- | Change the 'EqRel' in a 'FlatM'.
+setEqRel :: EqRel -> FlatM a -> FlatM a
+setEqRel new_eq_rel thing_inside
+  = FlatM $ \env ->
+    if new_eq_rel == fe_eq_rel env
+    then runFlatM thing_inside env
+    else runFlatM thing_inside (env { fe_eq_rel = new_eq_rel })
+
+-- | Change the 'FlattenMode' in a 'FlattenEnv'.
+setMode :: FlattenMode -> FlatM a -> FlatM a
+setMode new_mode thing_inside
+  = FlatM $ \env ->
+    if new_mode `eq` fe_mode env
+    then runFlatM thing_inside env
+    else runFlatM thing_inside (env { fe_mode = new_mode })
+  where
+    FM_FlattenAll   `eq` FM_FlattenAll   = True
+    FM_SubstOnly    `eq` FM_SubstOnly    = True
+--  FM_Avoid tv1 b1 `eq` FM_Avoid tv2 b2 = tv1 == tv2 && b1 == b2
+    _               `eq` _               = False
+
+bumpDepth :: FlatM a -> FlatM a
+bumpDepth (FlatM thing_inside)
+  = FlatM $ \env -> do { let env' = env { fe_loc = bumpCtLocDepth (fe_loc env) }
+                       ; thing_inside env' }
+
+-- Flatten skolems
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+newFlattenSkolemFlatM :: TcType         -- F xis
+                      -> FlatM (CtEvidence, Coercion, TcTyVar) -- [W] x:: F xis ~ fsk
+newFlattenSkolemFlatM ty
+  = do { flavour <- getFlavour
+       ; loc <- getLoc
+       ; liftTcS $ newFlattenSkolem flavour loc ty }
+
+{-
+Note [The flattening work list]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The "flattening work list", held in the fe_work field of FlattenEnv,
+is a list of CFunEqCans generated during flattening.  The key idea
+is this.  Consider flattening (Eq (F (G Int) (H Bool)):
+  * The flattener recursively calls itself on sub-terms before building
+    the main term, so it will encounter the terms in order
+              G Int
+              H Bool
+              F (G Int) (H Bool)
+    flattening to sub-goals
+              w1: G Int ~ fuv0
+              w2: H Bool ~ fuv1
+              w3: F fuv0 fuv1 ~ fuv2
+
+  * Processing w3 first is BAD, because we can't reduce i t,so it'll
+    get put into the inert set, and later kicked out when w1, w2 are
+    solved.  In Trac #9872 this led to inert sets containing hundreds
+    of suspended calls.
+
+  * So we want to process w1, w2 first.
+
+  * So you might think that we should just use a FIFO deque for the work-list,
+    so that putting adding goals in order w1,w2,w3 would mean we processed
+    w1 first.
+
+  * BUT suppose we have 'type instance G Int = H Char'.  Then processing
+    w1 leads to a new goal
+                w4: H Char ~ fuv0
+    We do NOT want to put that on the far end of a deque!  Instead we want
+    to put it at the *front* of the work-list so that we continue to work
+    on it.
+
+So the work-list structure is this:
+
+  * The wl_funeqs (in TcS) is a LIFO stack; we push new goals (such as w4) on
+    top (extendWorkListFunEq), and take new work from the top
+    (selectWorkItem).
+
+  * When flattening, emitFlatWork pushes new flattening goals (like
+    w1,w2,w3) onto the flattening work list, fe_work, another
+    push-down stack.
+
+  * When we finish flattening, we *reverse* the fe_work stack
+    onto the wl_funeqs stack (which brings w1 to the top).
+
+The function runFlatten initialises the fe_work stack, and reverses
+it onto wl_fun_eqs at the end.
 
 Note [Flattener EqRels]
 ~~~~~~~~~~~~~~~~~~~~~~~
 When flattening, we need to know which equality relation -- nominal
 or representation -- we should be respecting. The only difference is
 that we rewrite variables by representational equalities when fe_eq_rel
-is ReprEq.
+is ReprEq, and that we unwrap newtypes when flattening w.r.t.
+representational equality.
 
--}
+Note [Flattener CtLoc]
+~~~~~~~~~~~~~~~~~~~~~~
+The flattener does eager type-family reduction.
+Type families might loop, and we
+don't want GHC to do so. A natural solution is to have a bounded depth
+to these processes. A central difficulty is that such a solution isn't
+quite compositional. For example, say it takes F Int 10 steps to get to Bool.
+How many steps does it take to get from F Int -> F Int to Bool -> Bool?
+10? 20? What about getting from Const Char (F Int) to Char? 11? 1? Hard to
+know and hard to track. So, we punt, essentially. We store a CtLoc in
+the FlattenEnv and just update the environment when recurring. In the
+TyConApp case, where there may be multiple type families to flatten,
+we just copy the current CtLoc into each branch. If any branch hits the
+stack limit, then the whole thing fails.
 
-data FlattenEnv
-  = FE { fe_mode    :: FlattenMode
-       , fe_loc     :: CtLoc
-       , fe_flavour :: CtFlavour
-       , fe_eq_rel  :: EqRel    -- See Note [Flattener EqRels]
-       , fe_boxity  :: Boxity } -- See Note [Flavours with boxities]
+A consequence of this is that setting the stack limits appropriately
+will be essentially impossible. So, the official recommendation if a
+stack limit is hit is to disable the check entirely. Otherwise, there
+will be baffling, unpredictable errors.
 
-data FlattenMode  -- Postcondition for all three: inert wrt the type substitution
-  = FM_FlattenAll          -- Postcondition: function-free
-
-  --x | FM_Avoid TcTyVar Bool  -- See Note [Lazy flattening]
-                           -- Postcondition:
-                           --  * tyvar is only mentioned in result under a rigid path
-                           --    e.g.   [a] is ok, but F a won't happen
-                           --  * If flat_top is True, top level is not a function application
-                           --   (but under type constructors is ok e.g. [F a])
-
-  | FM_SubstOnly           -- See Note [Flattening under a forall]
-
-mkFlattenEnv :: FlattenMode -> CtEvidence -> FlattenEnv
-mkFlattenEnv fm ctev = FE { fe_mode    = fm
-                          , fe_loc     = ctEvLoc ctev
-                          , fe_flavour = ctEvFlavour ctev
-                          , fe_eq_rel  = ctEvEqRel ctev
-                          , fe_boxity  = ctEvBoxity ctev }
-
-feRole :: FlattenEnv -> Role
-feRole = eqRelRole . fe_eq_rel
-
-{-
 Note [Lazy flattening]
 ~~~~~~~~~~~~~~~~~~~~~~
 The idea of FM_Avoid mode is to flatten less aggressively.  If we have
@@ -650,6 +766,78 @@ soon throw out the phantoms when decomposing a TyConApp. (Or, the
 canonicaliser will emit an insoluble, in which case the unflattened version
 yields a better error message anyway.)
 
+-}
+
+{- *********************************************************************
+*                                                                      *
+*      Externally callable flattening functions                        *
+*                                                                      *
+*  They are all wrapped in runFlatten, so their                        *
+*  flattening work gets put into the work list                         *
+*                                                                      *
+********************************************************************* -}
+
+flatten :: FlattenMode -> CtEvidence -> TcType
+        -> TcS (Xi, TcCoercion)
+flatten mode ev ty
+  = second mkTcCoercion <$> runFlatten mode ev (flatten_one ty)
+
+flattenManyNom :: CtEvidence -> [TcType] -> TcS ([Xi], [TcCoercion])
+-- Externally-callable, hence runFlatten
+-- Flatten a bunch of types all at once; in fact they are
+-- always the arguments of a saturated type-family, so
+--      ctEvFlavour ev = Nominal
+-- and we want to flatten all at nominal role
+flattenManyNom ev tys
+  = second (map mkTcCoercion) <$>
+    runFlatten FM_FlattenAll ev (flatten_many_nom tys)
+
+{- *********************************************************************
+*                                                                      *
+*           The main flattening functions
+*                                                                      *
+********************************************************************* -}
+
+{- Note [Flattening]
+~~~~~~~~~~~~~~~~~~~~
+  flatten ty  ==>   (xi, cc)
+    where
+      xi has no type functions, unless they appear under ForAlls
+
+      cc = Auxiliary given (equality) constraints constraining
+           the fresh type variables in xi.  Evidence for these
+           is always the identity coercion, because internally the
+           fresh flattening skolem variables are actually identified
+           with the types they have been generated to stand in for.
+
+Note that it is flatten's job to flatten *every type function it sees*.
+flatten is only called on *arguments* to type functions, by canEqGiven.
+
+Recall that in comments we use alpha[flat = ty] to represent a
+flattening skolem variable alpha which has been generated to stand in
+for ty.
+
+----- Example of flattening a constraint: ------
+  flatten (List (F (G Int)))  ==>  (xi, cc)
+    where
+      xi  = List alpha
+      cc  = { G Int ~ beta[flat = G Int],
+              F beta ~ alpha[flat = F beta] }
+Here
+  * alpha and beta are 'flattening skolem variables'.
+  * All the constraints in cc are 'given', and all their coercion terms
+    are the identity.
+
+NB: Flattening Skolems only occur in canonical constraints, which
+are never zonked, so we don't need to worry about zonking doing
+accidental unflattening.
+
+Note that we prefer to leave type synonyms unexpanded when possible,
+so when the flattener encounters one, it first asks whether its
+transitive expansion contains any type function applications.  If so,
+it expands the synonym and proceeds; if not, it simply returns the
+unexpanded synonym.
+
 Note [flatten_many performance]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In programs with lots of type-level evaluation, flatten_many becomes
@@ -680,61 +868,35 @@ and T5321Fun.
 If we need to make this yet more performant, a possible way forward is to
 duplicate the flattener code for the nominal case, and make that case
 faster. This doesn't seem quite worth it, yet.
-
 -}
 
-------------------
-flatten :: FlattenMode -> CtEvidence -> TcType -> TcS (Xi, TcCoercion)
-flatten mode ev ty
-  = second mkTcCoercion <$> runFlatten (flatten_one fmode ty)
-  where
-    fmode = mkFlattenEnv mode ev
-
-flattenMany :: FlattenMode -> CtEvidence -> [Role]
-            -> [TcType] -> TcS ([Xi], [TcCoercion])
--- Flatten a bunch of types all at once. Roles on the coercions returned
--- always match the corresponding roles passed in.
-flattenMany mode ev roles tys
-  = second (map mkTcCoercion) <$> runFlatten (flatten_many fmode roles tys)
-  where
-    fmode = mkFlattenEnv mode ev
-
-flattenFamApp :: FlattenMode -> CtEvidence
-              -> TyCon -> [TcType] -> TcS (Xi, TcCoercion)
-flattenFamApp mode ev tc tys
-  = second mkTcCoercion <$> runFlatten (flatten_fam_app fmode tc tys)
-  where
-    fmode = mkFlattenEnv mode ev
-
-------------------
-flatten_many :: FlattenEnv -> [Role] -> [Type] -> TcS ([Xi], [Coercion])
+flatten_many :: [Role] -> [Type] -> FlatM ([Xi], [Coercion])
 -- Coercions :: Xi ~ Type, at roles given
 -- Returns True iff (no flattening happened)
 -- NB: The EvVar inside the 'fe_ev :: CtEvidence' is unused,
 --     we merely want (a) Given/Solved/Derived/Wanted info
 --                    (b) the GivenLoc/WantedLoc for when we create new evidence
-flatten_many fmode roles tys
+flatten_many roles tys
 -- See Note [flatten_many performance]
   = inline zipWithAndUnzipM go roles tys
   where
-    go Nominal          ty = flatten_one (setFEEqRel fmode NomEq)  ty
-    go Representational ty = flatten_one (setFEEqRel fmode ReprEq) ty
+    go Nominal          ty = setEqRel NomEq  $ flatten_one ty
+    go Representational ty = setEqRel ReprEq $ flatten_one ty
     go Phantom          ty = -- See Note [Phantoms in the flattener]
                              do { ty <- zonkTcType ty
                                 ; return ( ty, mkReflCo Phantom ty ) }
 
 -- | Like 'flatten_many', but assumes that every role is nominal.
-flatten_many_nom :: FlattenEnv -> [Type] -> TcS ([Xi], [Coercion])
-flatten_many_nom _     [] = return ([], [])
+flatten_many_nom :: [Type] -> FlatM ([Xi], [Coercion])
+flatten_many_nom [] = return ([], [])
 -- See Note [flatten_many performance]
-flatten_many_nom fmode (ty:tys)
-  = ASSERT( fe_eq_rel fmode == NomEq )
-    do { (xi, co) <- flatten_one fmode ty
-       ; (xis, cos) <- flatten_many_nom fmode tys
+flatten_many_nom (ty:tys)
+  = do { (xi, co) <- flatten_one ty
+       ; (xis, cos) <- flatten_many_nom tys
        ; return (xi:xis, co:cos) }
 
 ------------------
-flatten_one :: FlattenEnv -> TcType -> TcS (Xi, Coercion)
+flatten_one :: TcType -> FlatM (Xi, Coercion)
 -- Flatten a type to get rid of type function applications, returning
 -- the new type-function-free type, and a collection of new equality
 -- constraints.  See Note [Flattening] for more detail.
@@ -742,14 +904,33 @@ flatten_one :: FlattenEnv -> TcType -> TcS (Xi, Coercion)
 -- Postcondition: Coercion :: Xi ~ TcType
 -- The role on the result coercion matches the EqRel in the FlattenEnv
 
-flatten_one fmode xi@(LitTy {}) = return (xi, mkReflCo (feRole fmode) xi)
+flatten_one xi@(LitTy {})
+  = do { role <- getRole
+       ; return (xi, mkReflCo role xi) }
 
-flatten_one fmode (TyVarTy tv)
-  = flattenTyVar fmode tv
+flatten_one (TyVarTy tv)
+  = do { mb_yes <- flatten_tyvar tv
+       ; role <- getRole
+       ; case mb_yes of
+           FTRCasted tv' kco -> -- Done
+                       do { traceFlat "flattenTyVar1"
+                              (pprTvBndr tv' $$
+                               ppr kco <+> dcolon <+> ppr (coercionKind kco))
+                          ; return (ty', mkReflCo role ty
+                                         `mkCoherenceLeftCo` mkSymCo kco) }
+                    where
+                       ty  = mkTyVarTy tv'
+                       ty' = ty `mkCastTy` mkSymCo kco
 
-flatten_one fmode (AppTy ty1 ty2)
-  = do { (xi1,co1) <- flatten_one fmode ty1
-       ; case (fe_eq_rel fmode, nextRole xi1) of
+           FTRFollowed ty1 co1  -- Recur
+                    -> do { (ty2, co2) <- flatten_one ty1
+                          ; traceFlat "flattenTyVar2" (ppr tv $$ ppr ty2)
+                          ; return (ty2, co2 `mkTcTransCo` co1) } }
+
+flatten_one (AppTy ty1 ty2)
+  = do { (xi1,co1) <- flatten_one ty1
+       ; eq_rel <- getEqRel
+       ; case (eq_rel, nextRole xi1) of
            (NomEq,  _)                -> flatten_rhs xi1 co1 NomEq
            (ReprEq, Nominal)          -> flatten_rhs xi1 co1 NomEq
            (ReprEq, Representational) -> flatten_rhs xi1 co1 ReprEq
@@ -759,35 +940,36 @@ flatten_one fmode (AppTy ty1 ty2)
                          , mkAppCo co1 (mkNomReflCo ty2)) } }
   where
     flatten_rhs xi1 co1 eq_rel2
-      = do { (xi2,co2) <- flatten_one (setFEEqRel fmode eq_rel2) ty2
-           ; let role1 = feRole fmode
-                 role2 = eqRelRole eq_rel2
-           ; traceTcS "flatten/appty"
-                      (ppr ty1 $$ ppr ty2 $$ ppr xi1 $$
-                       ppr co1 $$ ppr xi2 $$ ppr co2 $$
-                       ppr role1 $$ ppr role2)
+      = do { (xi2,co2) <- setEqRel eq_rel2 $ flatten_one ty2
+           ; role1 <- getRole
+           ; let role2 = eqRelRole eq_rel2
+           ; traceFlat "flatten/appty"
+                       (ppr ty1 $$ ppr ty2 $$ ppr xi1 $$
+                        ppr co1 $$ ppr xi2 $$
+                        ppr role1 $$ ppr role2)
+
            ; return ( mkAppTy xi1 xi2
                     , mkTransAppCo role1 co1 xi1 ty1
                                    role2 co2 xi2 ty2
                                    role1 ) }  -- output should match fmode
 
-flatten_one fmode (TyConApp tc tys)
+flatten_one (TyConApp tc tys)
   -- Expand type synonyms that mention type families
   -- on the RHS; see Note [Flattening synonyms]
-  | Just (tenv, rhs, tys') <- tcExpandTyCon_maybe tc tys
+  | Just (tenv, rhs, tys') <- expandSynTyCon_maybe tc tys
   , let expanded_ty = mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys'
-  = case fe_mode fmode of
-      FM_FlattenAll | anyNameEnv isTypeFamilyTyCon (tyConsOfType rhs)
-                   -> flatten_one fmode expanded_ty
-                    | otherwise
-                   -> flattenTyConApp fmode tc tys
-      _ -> flattenTyConApp fmode tc tys
+  = do { mode <- getMode
+       ; let used_tcs = tyConsOfType rhs
+       ; case mode of
+           FM_FlattenAll | anyNameEnv isTypeFamilyTyCon used_tcs
+                         -> flatten_one expanded_ty
+           _             -> flatten_ty_con_app tc tys }
 
   -- Otherwise, it's a type function application, and we have to
   -- flatten it away as well, and generate a new given equality constraint
   -- between the application and a newly generated flattening skolem variable.
   | isTypeFamilyTyCon tc
-  = flatten_fam_app fmode tc tys
+  = flatten_fam_app tc tys
 
   -- For * a normal data type application
   --     * data family application
@@ -798,14 +980,15 @@ flatten_one fmode (TyConApp tc tys)
 --                   FE { fe_mode = FM_Avoid tv _ }
 --                     -> fmode { fe_mode = FM_Avoid tv False }
 --                   _ -> fmode
-  = flattenTyConApp fmode tc tys
+  = flatten_ty_con_app tc tys
 
-flatten_one fmode (ForAllTy (Anon ty1) ty2)
-  = do { (xi1,co1) <- flatten_one fmode ty1
-       ; (xi2,co2) <- flatten_one fmode ty2
-       ; return (mkFunTy xi1 xi2, mkFunCo (feRole fmode) co1 co2) }
+flatten_one (ForAllTy (Anon ty1) ty2)
+  = do { (xi1,co1) <- flatten_one ty1
+       ; (xi2,co2) <- flatten_one ty2
+       ; role <- getRole
+       ; return (mkFunTy xi1 xi2, mkFunCo role co1 co2) }
 
-flatten_one fmode ty@(ForAllTy (Named {}) _)
+flatten_one ty@(ForAllTy (Named {}) _)
 -- TODO (RAE): This is inadequate, as it doesn't flatten the kind of
 -- the bound tyvar. Doing so will require carrying around a substitution
 -- and the usual substTyVarBndr-like silliness. Argh.
@@ -814,7 +997,7 @@ flatten_one fmode ty@(ForAllTy (Named {}) _)
 -- applications inside the forall involve the bound type variables.
   = do { let (bndrs, rho) = splitNamedForAllTysB ty
              tvs          = map (binderVar "flatten") bndrs
-       ; (rho', co) <- flatten_one (setFEMode fmode FM_SubstOnly) rho
+       ; (rho', co) <- setMode FM_SubstOnly $ flatten_one rho
                          -- Substitute only under a forall
                          -- See Note [Flattening under a forall]
        ; return (mkForAllTys bndrs rho', mkHomoForAllCos tvs co) }
@@ -844,14 +1027,14 @@ flatten_co fmode co
                      [ mkKindCo co1, mkKindCo co2, co1, co2 ]
        ; return (co', mkProofIrrelCo (feRole fmode) kco co' co) }
 
-flattenTyConApp :: FlattenEnv -> TyCon -> [TcType] -> TcS (Xi, Coercion)
-flattenTyConApp fmode tc tys
-  = do { (xis, cos) <- case fe_eq_rel fmode of
-                         NomEq  -> flatten_many_nom fmode tys
-                         ReprEq -> flatten_many fmode (tyConRolesX role tc) tys
+flatten_ty_con_app :: TyCon -> [TcType] -> FlatM (Xi, Coercion)
+flatten_ty_con_app tc tys
+  = do { eq_rel <- getEqRel
+       ; let role = eqRelRole eq_rel
+       ; (xis, cos) <- case eq_rel of
+                         NomEq  -> flatten_many_nom tys
+                         ReprEq -> flatten_many (tyConRolesX role tc) tys
        ; return (mkTyConApp tc xis, mkTyConAppCo role tc cos) }
-  where
-    role = feRole fmode
 
 {-
 Note [Flattening synonyms]
@@ -896,22 +1079,24 @@ and we have not begun to think about how to make that work!
 ************************************************************************
 -}
 
-flatten_fam_app :: FlattenEnv -> TyCon -> [TcType] -> TcS (Xi, Coercion)
+flatten_fam_app :: TyCon -> [TcType] -> FlatM (Xi, Coercion)
   --   flatten_fam_app            can be over-saturated
   --   flatten_exact_fam_app       is exactly saturated
   --   flatten_exact_fam_app_fully lifts out the application to top level
   -- Postcondition: Coercion :: Xi ~ F tys
-flatten_fam_app fmode tc tys  -- Can be over-saturated
-    = ASSERT( tyConArity tc <= length tys )  -- Type functions are saturated
+flatten_fam_app tc tys  -- Can be over-saturated
+    = ASSERT2( tyConArity tc <= length tys
+             , ppr tc $$ ppr (tyConArity tc) $$ ppr tys)
+                 -- Type functions are saturated
                  -- The type function might be *over* saturated
                  -- in which case the remaining arguments should
                  -- be dealt with by AppTys
       do { let (tys1, tys_rest) = splitAt (tyConArity tc) tys
-         ; (xi1, co1) <- flatten_exact_fam_app fmode tc tys1
+         ; (xi1, co1) <- flatten_exact_fam_app tc tys1
                -- co1 :: xi1 ~ F tys1
 
                -- all Nominal roles b/c the tycon is oversaturated
-         ; (xis_rest, cos_rest) <- flatten_many fmode (repeat Nominal) tys_rest
+         ; (xis_rest, cos_rest) <- flatten_many (repeat Nominal) tys_rest
                -- cos_res :: xis_rest ~ tys_rest
 
          ; return ( mkAppTys xi1 xis_rest   -- NB mkAppTys: rhs_xi might not be a type variable
@@ -921,50 +1106,56 @@ flatten_fam_app fmode tc tys  -- Can be over-saturated
                   ) }
 
 flatten_exact_fam_app, flatten_exact_fam_app_fully ::
-  FlattenEnv -> TyCon -> [TcType] -> TcS (Xi, Coercion)
-flatten_exact_fam_app fmode tc tys
-  = case fe_mode fmode of
-       FM_FlattenAll -> flatten_exact_fam_app_fully fmode tc tys
+  TyCon -> [TcType] -> FlatM (Xi, Coercion)
 
-       FM_SubstOnly -> do { (xis, cos) <- flatten_many fmode roles tys
-                          ; return ( mkTyConApp        tc xis
-                                   , mkTyConAppCo role tc cos ) }
+flatten_exact_fam_app tc tys
+  = do { mode <- getMode
+       ; role <- getRole
+       ; case mode of
+           FM_FlattenAll -> flatten_exact_fam_app_fully tc tys
 
-       -- FM_Avoid tv flat_top ->
-       --   do { (xis, cos) <- flatten_many fmode roles tys
-       --      ; if flat_top || tv `elemVarSet` tyCoVarsOfTypes xis
-       --        then flatten_exact_fam_app_fully fmode tc tys
-       --        else return ( mkTyConApp tc xis
-       --                    , mkTyConAppCo (feRole fmode) tc cos ) }
-  where
-    -- These are always going to be Nominal for now,
-    -- but not if #8177 is implemented
-    role  = feRole fmode
-    roles = tyConRolesX role tc
+           FM_SubstOnly -> do { (xis, cos) <- flatten_many roles tys
+                              ; return ( mkTyConApp tc xis
+                                       , mkTcTyConAppCo role tc cos ) }
+             where
+               -- These are always going to be Nominal for now,
+               -- but not if #8177 is implemented
+               roles = tyConRolesX role tc }
 
-flatten_exact_fam_app_fully fmode tc tys
+--       FM_Avoid tv flat_top ->
+--         do { (xis, cos) <- flatten_many fmode roles tys
+--            ; if flat_top || tv `elemVarSet` tyCoVarsOfTypes xis
+--              then flatten_exact_fam_app_fully fmode tc tys
+--              else return ( mkTyConApp tc xis
+--                          , mkTcTyConAppCo (feRole fmode) tc cos ) }
+
+flatten_exact_fam_app_fully tc tys
   -- See Note [Reduce type family applications eagerly]
   = try_to_reduce tc tys False id $
-    do { (xis, cos) <- flatten_many_nom (setFEEqRel (setFEMode fmode FM_FlattenAll) NomEq) tys
-       ; let ret_co = mkTyConAppCo (feRole fmode) tc cos
+    do { -- First, flatten the arguments
+         (xis, cos) <- setEqRel NomEq $ flatten_many_nom tys
+       ; eq_rel <- getEqRel
+       ; let role   = eqRelRole eq_rel
+             ret_co = mkTyConAppCo role tc cos
               -- ret_co :: F xis ~ F tys
 
        ; tclvl <- getTcLevel
-       ; mb_ct <- lookupFlatCache tc xis
+        -- Now, look in the cache
+       ; mb_ct <- liftTcS $ lookupFlatCache tc xis
+       ; frb <- getFRB
        ; case mb_ct of
            Just (tc_co, rhs_ty, flav)  -- co :: F xis ~ fsk
-             | canRewriteOrSameFRB tclvl (flav, NomEq, tc_co_boxity tc_co)
-                                         (feFRB fmode)
+             | canDischargeFRB tclvl (flav, NomEq, tc_co_boxity tc_co) frb
              ->  -- Usable hit in the flat-cache
                  -- We certainly *can* use a Wanted for a Wanted
-                do { traceTcS "flatten/flat-cache hit" $ (ppr tc <+> ppr xis $$ ppr rhs_ty $$ ppr tc_co)
-                   ; (fsk_xi, fsk_co) <- flatten_one fmode rhs_ty
+                do { traceFlat "flatten/flat-cache hit" $ (ppr tc <+> ppr xis $$ ppr rhs_ty)
+                   ; (fsk_xi, fsk_co) <- flatten_one rhs_ty
                           -- The fsk may already have been unified, so flatten it
                           -- fsk_co :: fsk_xi ~ fsk
                    ; co <- dirtyTcCoToCo tc_co
                    ; return ( fsk_xi
                             , fsk_co `mkTransCo`
-                              maybeSubCo (fe_eq_rel fmode) (mkSymCo co) `mkTransCo`
+                              maybeSubCo eq_rel (mkSymCo co) `mkTransCo`
                               ret_co ) }
                                     -- :: fsk_xi ~ F xis
 
@@ -972,13 +1163,9 @@ flatten_exact_fam_app_fully fmode tc tys
            -- See Note [Reduce type family applications eagerly]
            _ -> try_to_reduce tc xis True (`mkTransCo` ret_co) $
                 do { let fam_ty = mkTyConApp tc xis
-                   ; (ev, co, fsk) <- newFlattenSkolem (fe_flavour fmode)
-                                                       (fe_loc fmode)
-                                                       fam_ty
+                   ; (ev, co, fsk) <- newFlattenSkolemFlatM fam_ty
                    ; let fsk_ty = mkTyVarTy fsk
-                   ; extendFlatCache tc xis ( mkTcCoercion co
-                                            , fsk_ty
-                                            , ctEvFlavour ev )
+                   ; liftTcS $ extendFlatCache tc xis (co, fsk_ty, ctEvFlavour ev)
 
                    -- The new constraint (F xis ~ fsk) is not necessarily inert
                    -- (e.g. the LHS may be a redex) so we must put it in the work list
@@ -988,12 +1175,11 @@ flatten_exact_fam_app_fully fmode tc tys
                                         , cc_fsk    = fsk }
                    ; emitFlatWork ct
 
-                   ; traceTcS "flatten/flat-cache miss" $ (ppr fam_ty $$ ppr fsk $$ ppr ev)
+                   ; traceFlat "flatten/flat-cache miss" $ (ppr fam_ty $$ ppr fsk $$ ppr ev)
                    ; (fsk_xi, fsk_co) <- flatten_one fmode fsk_ty
                    ; return (fsk_xi, fsk_co
                                      `mkTransCo`
-                                     maybeSubCo (fe_eq_rel fmode)
-                                                (mkSymCo co)
+                                     maybeSubCo eq_rel (mkSymCo co)
                                      `mkTransCo` ret_co ) }
         }
 
@@ -1002,7 +1188,7 @@ flatten_exact_fam_app_fully fmode tc tys
     -- if *any* covar in the coercion is lifted, return Boxed; otherwise,
     -- Unboxed. Used to check if the coercion is a suitable RHS for a top-level
     -- unlifted coercion. Laziness should hopefully prevent most runs of
-    -- this function. See Note [Flavours with boxities]
+    -- this function. See Note [Flavours with boxities] in TcSMonad
     tc_co_boxity co
       | all (isUnLiftedType . varType) $ varSetElems $ coVarsOfTcCo co
       = Unboxed
@@ -1014,24 +1200,27 @@ flatten_exact_fam_app_fully fmode tc tys
                   -> Bool    -- add to the flat cache?
                   -> (   Coercion     -- :: xi ~ F args
                       -> Coercion )   -- what to return from outer function
-                  -> TcS (Xi, Coercion)  -- continuation upon failure
-                  -> TcS (Xi, Coercion)
+                  -> FlatM (Xi, Coercion)  -- continuation upon failure
+                  -> FlatM (Xi, Coercion)
     try_to_reduce tc tys cache update_co k
-      = do { mb_match <- matchFam tc tys
+      = do { checkStackDepth (mkTyConApp tc tys)
+           ; mb_match <- liftTcS $ matchFam tc tys
            ; case mb_match of
                Just (norm_co, norm_ty)
-                 -> do { traceTcS "Eager T.F. reduction success" $
+                 -> do { traceFlat "Eager T.F. reduction success" $
                          vcat [ ppr tc, ppr tys, ppr norm_ty
                               , ppr norm_co <+> dcolon
                                             <+> ppr (coercionKind norm_co)
                               , ppr cache]
-                       ; (xi, final_co) <- flatten_one fmode norm_ty
+                       ; (xi, final_co) <- bumpDepth $ flatten_one norm_ty
                        ; let co = maybeSubCo (fe_eq_rel fmode) norm_co
                                   `mkTransCo` mkSymCo final_co
+                       ; flavour <- getFlavour
                            -- NB: only extend cache with nominal equalities
                        ; when (cache && fe_eq_rel fmode == NomEq) $
+                         liftTcS $
                          extendFlatCache tc tys ( mkTcCoercion co, xi
-                                                , fe_flavour fmode)
+                                                , flavour )
                        ; return ( xi, update_co $ mkSymCo co ) }
                Nothing -> k }
 
@@ -1045,10 +1234,7 @@ Examples that are helped are tests T9872, and T5321Fun.
 Performance testing indicates that it's best to try this *twice*, once
 before flattening arguments and once after flattening arguments.
 Adding the extra reduction attempt before flattening arguments cut
-the allocation amounts for the T9872{a,b,c} tests by half. Testing
-also indicated that the early reduction should not use the flat-cache,
-but that the later reduction should. It's possible that with more
-examples, we might learn that these knobs should be set differently.
+the allocation amounts for the T9872{a,b,c} tests by half.
 
 An example of where the early reduction appears helpful:
 
@@ -1061,6 +1247,14 @@ An example of where the early reduction appears helpful:
 Flattening the argument never gets us anywhere, but trying to flatten
 it at every step is quadratic in the length of the list. Reducing more
 eagerly makes simplifying the right-hand type linear in its length.
+
+Testing also indicated that the early reduction should *not* use the
+flat-cache, but that the later reduction *should*. (Although the
+effect was not large.)  Hence the Bool argument to try_to_reduce.  To
+me (SLPJ) this seems odd; I get that eager reduction usually succeeds;
+and if don't use the cache for eager reduction, we will miss most of
+the opportunities for using it at all.  More exploration would be good
+here.
 
 At the end, once we've got a flat rhs, we extend the flatten-cache to record
 the result. Doing so can save lots of work when the same redex shows up more
@@ -1075,307 +1269,7 @@ have any knowledge as to *why* these facts are true.
 *                                                                      *
              Flattening a type variable
 *                                                                      *
-************************************************************************
-
-
-Note [The inert equalities]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Definition [Can-rewrite relation]
-A "can-rewrite" relation between flavours, written f1 >= f2, is a
-binary relation with the following properties
-
-  R1.  >= is transitive
-  R2.  If f1 >= f, and f2 >= f,
-       then either f1 >= f2 or f2 >= f1
-
-Lemma.  If f1 >= f then f1 >= f1
-Proof.  By property (R2), with f1=f2
-
-Definition [Generalised substitution]
-A "generalised substitution" S is a set of triples (a -f-> t), where
-  a is a type variable
-  t is a type
-  f is a flavour
-such that
-  (WF1) if (a -f1-> t1) in S
-           (a -f2-> t2) in S
-        then neither (f1 >= f2) nor (f2 >= f1) hold
-  (WF2) if (a -f-> t) is in S, then t /= a
-
-Definition [Applying a generalised substitution]
-If S is a generalised substitution
-   S(f,a) = t,  if (a -fs-> t) in S, and fs >= f
-          = a,  otherwise
-Application extends naturally to types S(f,t), modulo roles.
-See Note [Flavours with roles].
-
-Theorem: S(f,a) is well defined as a function.
-Proof: Suppose (a -f1-> t1) and (a -f2-> t2) are both in S,
-               and  f1 >= f and f2 >= f
-       Then by (R2) f1 >= f2 or f2 >= f1, which contradicts (WF)
-
-Notation: repeated application.
-  S^0(f,t)     = t
-  S^(n+1)(f,t) = S(f, S^n(t))
-
-Definition: inert generalised substitution
-A generalised substitution S is "inert" iff
-
-  (IG1) there is an n such that
-        for every f,t, S^n(f,t) = S^(n+1)(f,t)
-
-  (IG2) if (b -f-> t) in S, and f >= f, then S(f,t) = t
-        that is, each individual binding is "self-stable"
-
-----------------------------------------------------------------
-Our main invariant:
-   the inert CTyEqCans should be an inert generalised substitution
-----------------------------------------------------------------
-
-Note that inertness is not the same as idempotence.  To apply S to a
-type, you may have to apply it recursive.  But inertness does
-guarantee that this recursive use will terminate.
-
----------- The main theorem --------------
-   Suppose we have a "work item"
-       a -fw-> t
-   and an inert generalised substitution S,
-   such that
-      (T1) S(fw,a) = a     -- LHS of work-item is a fixpoint of S(fw,_)
-      (T2) S(fw,t) = t     -- RHS of work-item is a fixpoint of S(fw,_)
-      (T3) a not in t      -- No occurs check in the work item
-
-      (K1) if (a -fs-> s) is in S then not (fw >= fs)
-      (K2) if (b -fs-> s) is in S, where b /= a, then
-              (K2a) not (fs >= fs)
-           or (K2b) not (fw >= fs)
-           or (K2c) a not in s
-      (K3) If (b -fs-> s) is in S with (fw >= fs), then
-        (K3a) If the role of fs is nominal: s /= a
-        (K3b) If the role of fs is representational: EITHER
-                a not in s, OR
-                the path from the top of s to a includes at least one non-newtype
-
-   then the extended substition T = S+(a -fw-> t)
-   is an inert generalised substitution.
-
-The idea is that
-* (T1-2) are guaranteed by exhaustively rewriting the work-item
-  with S(fw,_).
-
-* T3 is guaranteed by a simple occurs-check on the work item.
-
-* (K1-3) are the "kick-out" criteria.  (As stated, they are really the
-  "keep" criteria.) If the current inert S contains a triple that does
-  not satisfy (K1-3), then we remove it from S by "kicking it out",
-  and re-processing it.
-
-* Note that kicking out is a Bad Thing, because it means we have to
-  re-process a constraint.  The less we kick out, the better.
-  TODO: Make sure that kicking out really *is* a Bad Thing. We've assumed
-  this but haven't done the empirical study to check.
-
-* Assume we have  G>=G, G>=W and that's all.  Then, when performing
-  a unification we add a new given  a -G-> ty.  But doing so does NOT require
-  us to kick out an inert wanted that mentions a, because of (K2a).  This
-  is a common case, hence good not to kick out.
-
-* Lemma (L1): The conditions of the Main Theorem imply that there is no
-              (a fs-> t) in S, s.t.  (fs >= fw).
-  Proof. Suppose the contrary (fs >= fw).  Then because of (T1),
-  S(fw,a)=a.  But since fs>=fw, S(fw,a) = s, hence s=a.  But now we
-  have (a -fs-> a) in S, which contradicts (WF2).
-
-* The extended substitution satisfies (WF1) and (WF2)
-  - (K1) plus (L1) guarantee that the extended substiution satisfies (WF1).
-  - (T3) guarantees (WF2).
-
-* (K2) is about inertness.  Intuitively, any infinite chain T^0(f,t),
-  T^1(f,t), T^2(f,T).... must pass through the new work item infnitely
-  often, since the substution without the work item is inert; and must
-  pass through at least one of the triples in S infnitely often.
-
-  - (K2a): if not(fs>=fs) then there is no f that fs can rewrite (fs>=f),
-    and hence this triple never plays a role in application S(f,a).
-    It is always safe to extend S with such a triple.
-
-    (NB: we could strengten K1) in this way too, but see K3.
-
-  - (K2b): If this holds, we can't pass through this triple infinitely
-    often, because if we did then fs>=f, fw>=f, hence fs>=fw,
-    contradicting (L1), or fw>=fs contradicting K2b.
-
-  - (K2c): if a not in s, we hae no further opportunity to apply the
-    work item.
-
-  NB: this reasoning isn't water tight.
-
-Key lemma to make it watertight.
-  Under the conditions of the Main Theorem,
-  forall f st fw >= f, a is not in S^k(f,t), for any k
-
-Also, consider roles more carefully. See Note [Flavours with roles].
-
-Completeness
-~~~~~~~~~~~~~
-K3: completeness.  (K3) is not necessary for the extended substitution
-to be inert.  In fact K1 could be made stronger by saying
-   ... then (not (fw >= fs) or not (fs >= fs))
-But it's not enough for S to be inert; we also want completeness.
-That is, we want to be able to solve all soluble wanted equalities.
-Suppose we have
-
-   work-item   b -G-> a
-   inert-item  a -W-> b
-
-Assuming (G >= W) but not (W >= W), this fulfills all the conditions,
-so we could extend the inerts, thus:
-
-   inert-items   b -G-> a
-                 a -W-> b
-
-But if we kicked-out the inert item, we'd get
-
-   work-item     a -W-> b
-   inert-item    b -G-> a
-
-Then rewrite the work-item gives us (a -W-> a), which is soluble via Refl.
-So we add one more clause to the kick-out criteria
-
-Another way to understand (K3) is that we treat an inert item
-        a -f-> b
-in the same way as
-        b -f-> a
-So if we kick out one, we should kick out the other.  The orientation
-is somewhat accidental.
-
-When considering roles, we also need the second clause (K3b). Consider
-
-  inert-item   a -W/R-> b c
-  work-item    c -G/N-> a
-
-The work-item doesn't get rewritten by the inert, because (>=) doesn't hold.
-We've satisfied conditions (T1)-(T3) and (K1) and (K2). If all we had were
-condition (K3a), then we would keep the inert around and add the work item.
-But then, consider if we hit the following:
-
-  work-item2   b -G/N-> Id
-
-where
-
-  newtype Id x = Id x
-
-For similar reasons, if we only had (K3a), we wouldn't kick the
-representational inert out. And then, we'd miss solving the inert, which
-now reduced to reflexivity. The solution here is to kick out representational
-inerts whenever the tyvar of a work item is "exposed", where exposed means
-not under some proper data-type constructor, like [] or Maybe. See
-isTyVarExposed in TcType. This is encoded in (K3b).
-
-Note [Flavours with roles]
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-The system described in Note [The inert equalities] discusses an abstract
-set of flavours. In GHC, flavours have three components: the flavour proper,
-taken from {Wanted, Derived, Given}; the equality relation (often called
-role), taken from {NomEq, ReprEq}; and the levity, taken from {Lifted, Unlifted}.
-When substituting w.r.t. the inert set,
-as described in Note [The inert equalities], we must be careful to respect
-all components of a flavour. For example, if we have
-
-  inert set: a -G/R-> Int
-             b -G/R-> Bool
-
-  type role T nominal representational
-
-and we wish to compute S(W/R, T a b), the correct answer is T a Bool, NOT
-T Int Bool. The reason is that T's first parameter has a nominal role, and
-thus rewriting a to Int in T a b is wrong. Indeed, this non-congruence of
-subsitution means that the proof in Note [The inert equalities] may need
-to be revisited, but we don't think that the end conclusion is wrong.
-
-Note [Flavours with boxities]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-In most circumstances, it is perfectly OK to use a lifted equality in the body
-of an unlifted constraint. This is because desugaring wraps the EvBind in case
-matches to unpack lifted equality witnesses to unlifted ones. However, at the
-top-level, this trick fails. This is because top-level unlifted equality
-witnesses are never bound -- we can't have top-level unlifted bindings.
-Instead, the desugarer builds a substitution from top-level unlifted
-equalities, and inlines them during desugaring. See also Note [No top-level
-coercions] in DsBinds. There is no way to do this substitution trick if there
-are lifted equality variables in the unlifted equality coercion. Thus, at
-top-level (that is, TcLevel = 1), and *only* at top-level, we restrict lifted
-equalities from rewriting unlifted ones. This is the *only* place we care
-about the boxity component of a flavour.
-
-However, there is a wrinkle in having a tri-partite flavour. For rewriting
-purposes, Derived is equivalent to Wanted. Omitting Derived, then, we have
-the following relation:
-
-    GNL GNU GRL GRU WNL WNU WRL WRU
-GNL  x       x       x       x
-GNU  x   x   x   x   x   x   x   x
-GRL          x               x
-GRU          o   x           o   x
-WNL
-WNU
-WRL
-WRU
-
-If you see an x on the row labeled GRU and the column labeled WRU, it means
-that a Given, Representational, Unlifted constraint can rewrite a
-Wanted, Representational, Unlifted one. And so on.
-
-First, let's pretend the o's in there are really x's. The relation we see
-then is the "natural" relation that we want, where G can rewrite W,
-N can rewrite R, and U can rewrite L, but never vice versa. This relation
-in transitive. But, critically, it doesn't meet criterion R2 of what it
-takes to be a "can-rewrite" relation. See Note [The inert equalities].
-In practice, we could get a GRU constraint (a ~ b) and a GNL constraint
-(b ~ a) that rewrite some poor GRL constraint forever, causing a loop.
-Note that neither GNL nor GRU can rewrite the other, so the equalities
-are inert w.r.t. each other. How sad.
-
-To fix this, we drop the two elements of the can-rewrite relation denoted
-with `o`. We say, by fiat, that GRU can no longer rewrite GRL or WRL.
-Now, we satisfy both criteria R1 and R2 of a can-rewrite relation. And,
-what have we lost? Not much, I think. (I = Richard E) A GRU constraint
-is an assumption of representational equality. However, this can-rewrite
-relation only applies *at top-level*, and so there should be no assumptions!
-Any assumptions that do somehow come up should also be able to be phrased
-as GRL assumptions, which can happily rewrite the GRL and WRL targets.
-I thus conjecture that we lose no expressiveness by this restriction.
-
--}
-
-flattenTyVar :: FlattenEnv -> TcTyVar -> TcS (Xi, Coercion)
--- "Flattening" a type variable means to apply the substitution to it
--- The substitution is actually the union of
---     * the unifications that have taken place (either before the
---       solver started, or in TcInteract.solveByUnification)
---     * the CTyEqCans held in the inert set
---
--- Postcondition: co : xi ~ tv
-flattenTyVar fmode tv
-  = do { mb_yes <- flattenTyVarOuter fmode tv
-       ; case mb_yes of
-           FTRCasted tv' kco -> -- Done
-                       do { traceTcS "flattenTyVar1"
-                              (ppr tv' $$ ppr kco <+> dcolon
-                                                 <+> ppr (coercionKind kco))
-                          ; return (ty', mkReflCo (feRole fmode) ty
-                                         `mkCoherenceLeftCo` mkSymCo kco ) }
-                    where
-                       ty  = mkTyVarTy tv'
-                       ty' = ty `mkCastTy` mkSymCo kco
-
-           FTRFollowed ty1 co1  -- Recur
-                    -> do { (ty2, co2) <- flatten_one fmode ty1
-                          ; traceTcS "flattenTyVar3" (ppr tv $$ ppr ty2)
-                          ; return (ty2, co2 `mkTransCo` co1) }
-       }
+********************************************************************* -}
 
 -- | The result of flattening a tyvar "one step".
 data FlattenTvResult
@@ -1388,37 +1282,54 @@ data FlattenTvResult
       -- co :: new type ~r old type, where the role is determined by
       -- the FlattenEnv
 
-flattenTyVarOuter :: FlattenEnv -> TcTyVar
-                  -> TcS FlattenTvResult
--- Look up the tyvar in
---   a) the internal MetaTyVar box
---   b) the inerts
+flatten_tyvar :: TcTyVar -> FlatM FlattenTvResult
+-- "Flattening" a type variable means to apply the substitution to it
+-- Specifically, look up the tyvar in
+--   * the internal MetaTyVar box
+--   * the inerts
+-- See also the documentation for FlattenTvResult
 
-flattenTyVarOuter fmode tv
+flatten_tyvar tv
   | not (isTcTyVar tv)             -- Happens when flatten under a (forall a. ty)
-  = flattenTyVarFinal fmode tv
-          -- So ty contains refernces to the non-TcTyVar a
+  = flatten_tyvar3 tv
+          -- So ty contains references to the non-TcTyVar a
 
   | otherwise
-  = do { mb_ty <- isFilledMetaTyVar_maybe tv
-       ; case mb_ty of {
-           Just ty -> do { traceTcS "Following filled tyvar" (ppr tv <+> equals <+> ppr ty)
-                         ; return (FTRFollowed ty (mkReflCo (feRole fmode) ty)) } ;
-           Nothing ->
+  = do { mb_ty <- liftTcS $ isFilledMetaTyVar_maybe tv
+       ; role <- getRole
+       ; case mb_ty of
+           Just ty -> do { traceFlat "Following filled tyvar" (ppr tv <+> equals <+> ppr ty)
+                         ; return (FTRFollowed ty (mkReflCo role ty)) } ;
+           Nothing -> do { frb <- getFRB
+                         ; flatten_tyvar2  tv frb } }
 
-    -- Try in the inert equalities
-    -- See Definition [Applying a generalised substitution]
-    do { ieqs <- getInertEqs
+flatten_tyvar2 :: TcTyVar -> CtFRB -> FlatM FlattenTvResult
+-- Try in the inert equalities
+-- See Definition [Applying a generalised substitution] in TcSMonad
+-- See Note [Stability of flattening] in TcSMonad
+
+flatten_tyvar2 tv frb@(flavour, eq_rel, _)
+  | Derived <- flavour  -- For derived equalities, consult the inert_model (only)
+  = ASSERT( eq_rel == NomEq )    -- All derived equalities are nominal
+    do { model <- liftTcS $ getInertModel
+       ; case lookupVarEnv model tv of
+           Just (CTyEqCan { cc_rhs = rhs })
+             -> return (FTRFollowed rhs (pprPanic "flatten_tyvar2" (ppr tv $$ ppr rhs)))
+                              -- Evidence is irrelevant for Derived contexts
+           _ -> flatten_tyvar3 tv }
+
+  | otherwise   -- For non-derived equalities, consult the inert_eqs (only)
+  = do { ieqs <- liftTcS $ getInertEqs
        ; tclvl <- getTcLevel
        ; case lookupVarEnv ieqs tv of
            Just (ct:_)   -- If the first doesn't work,
                          -- the subsequent ones won't either
              | CTyEqCan { cc_ev = ctev, cc_tyvar = tv, cc_rhs = rhs_ty } <- ct
-             , eqCanRewriteFRB tclvl (ctEvFRB ctev) (feFRB fmode)
-             ->  do { traceTcS "Following inert tyvar" (ppr tv <+> equals <+> ppr rhs_ty $$ ppr ctev)
+             , eqCanRewriteFRB tclvl (ctEvFRB ctev) frb
+             ->  do { traceFlat "Following inert tyvar" (ppr tv <+> equals <+> ppr rhs_ty $$ ppr ctev)
                     ; inert_co <- dirtyTcCoToCo (ctEvCoercion ctev)
                     ; let rewrite_co1 = mkSymCo inert_co
-                          rewrite_co = case (ctEvEqRel ctev, fe_eq_rel fmode) of
+                          rewrite_co = case (ctEvEqRel ctev, eq_rel) of
                             (ReprEq, _rel)  -> ASSERT( _rel == ReprEq )
                                     -- if this ASSERT fails, then
                                     -- eqCanRewriteFRB answered incorrectly
@@ -1431,15 +1342,14 @@ flattenTyVarOuter fmode tv
                     -- we are not going to touch the returned coercion
                     -- so ctEvCoercion is fine.
 
-           _other -> flattenTyVarFinal fmode tv
-    } } }
+           _other -> flatten_tyvar3 tv }
 
-flattenTyVarFinal :: FlattenEnv -> TcTyVar
-                  -> TcS FlattenTvResult
-flattenTyVarFinal fmode tv
+flatten_tyvar3 :: TcTyVar -> FlatM FlattenTvResult
+-- Always returns FTRCasted!
+flatten_tyvar3 tv
   = -- Done, but make sure the kind is zonked
     do { let kind = tyVarKind tv
-       ; (_new_kind, kind_co) <- flatten_one (setFEEqRel fmode NomEq) kind
+       ; (_new_kind, kind_co) <- setMde FM_SubstOnly $ flatten_one kind
        ; traceTcS "flattenTyVarFinal"
            (vcat [ ppr tv <+> dcolon <+> ppr (tyVarKind tv)
                  , ppr _new_kind
@@ -1516,82 +1426,7 @@ is an example; all the constraints here are Givens
 Because the incoming given rewrites all the inert givens, we get more and
 more duplication in the inert set.  But this really only happens in pathalogical
 casee, so we don't care.
--}
 
-eqCanRewrite :: TcLevel -> CtEvidence -> CtEvidence -> Bool
-eqCanRewrite tclvl ev1 ev2 = eqCanRewriteFRB tclvl (ctEvFRB ev1) (ctEvFRB ev2)
-
--- | Whether or not one 'Ct' can rewrite another is determined by its
--- flavour, its equality relation, and its boxity
-type CtFRB = (CtFlavour, EqRel, Boxity)
-
--- | Extract the flavour, role, and boxity from a 'CtEvidence'
-ctEvFRB :: CtEvidence -> CtFRB
-ctEvFRB ev = (ctEvFlavour ev, ctEvEqRel ev, ctEvBoxity ev)
-
--- | Extract the flavour and role from a 'FlattenEnv'
-feFRB :: FlattenEnv -> CtFRB
-feFRB (FE { fe_flavour = flav, fe_eq_rel = eq_rel, fe_boxity = boxity })
-  = (flav, eq_rel, boxity)
-
-eqCanRewriteFRB :: TcLevel -> CtFRB -> CtFRB -> Bool
--- Very important function!
--- See Note [eqCanRewrite]
--- See Note [Flavours with boxities] for first two clauses
-eqCanRewriteFRB (isTopTcLevel -> True)
-                  (_,     _,      Boxed)   (_, _,      Unboxed) = False
-eqCanRewriteFRB (isTopTcLevel -> True)
-                  (Given, ReprEq, Unboxed) (_, ReprEq, Boxed)   = False
- -- NB: Much better to check the TcLevel before looking at boxity stuff; that's
- -- why the view pattern. See co_boxity in flatten_exact_fam_app_fully, which
- -- can be avoided if we check the TcLevel first!
-
-eqCanRewriteFRB _ (Given, NomEq,  _)       (_, _,      _)       = True
-eqCanRewriteFRB _ (Given, ReprEq, _)       (_, ReprEq, _)       = True
-eqCanRewriteFRB _ _                        _                    = False
-
-canRewriteOrSame :: TcLevel -> CtEvidence -> CtEvidence -> Bool
--- See Note [canRewriteOrSame]
-canRewriteOrSame tclvl ev1 ev2 = canRewriteOrSameFRB tclvl (ctEvFRB ev1) (ctEvFRB ev2)
-
-canRewriteOrSameFRB :: TcLevel -> CtFRB -> CtFRB -> Bool
-canRewriteOrSameFRB tclvl frb1 frb2
-  | eqCanRewriteFRB tclvl frb1 frb2 = True
-canRewriteOrSameFRB (isTopTcLevel -> True)
-                      (_,  _, Boxed) (_, _, Unboxed)             = False
-canRewriteOrSameFRB _ (f1, NomEq,  _) (f2, _,      _) | f1 == f2 = True
-canRewriteOrSameFRB _ (f1, ReprEq, _) (f2, ReprEq, _) | f1 == f2 = True
-canRewriteOrSameFRB _ _               _                          = False
-
-{-
-Note [eqCanRewrite]
-~~~~~~~~~~~~~~~~~~~
-(eqCanRewrite ct1 ct2) holds if the constraint ct1 (a CTyEqCan of form
-tv ~ ty) can be used to rewrite ct2.  It must satisfy the properties of
-a can-rewrite relation, see Definition [Can-rewrite relation]
-
-At the moment we don't allow Wanteds to rewrite Wanteds, because that can give
-rise to very confusing type error messages.  A good example is Trac #8450.
-Here's another
-   f :: a -> Bool
-   f x = ( [x,'c'], [x,True] ) `seq` True
-Here we get
-  [W] a ~ Char
-  [W] a ~ Bool
-but we do not want to complain about Bool ~ Char!
-
-Accordingly, we also don't let Deriveds rewrite Deriveds.
-
-With the solver handling Coercible constraints like equality constraints,
-the rewrite conditions must take role into account, never allowing
-a representational equality to rewrite a nominal one.
-
-Note [canRewriteOrSame]
-~~~~~~~~~~~~~~~~~~~~~~~
-canRewriteOrSame is similar but
- * returns True for Wanted/Wanted.
- * works for all kinds of constraints, not just CTyEqCans
-See the call sites for explanations.
 
 ************************************************************************
 *                                                                      *
@@ -1617,11 +1452,14 @@ unflatten tv_eqs funeqs
              , ptext (sLit "Tv eqs =") <+> pprCts tv_eqs ]
 
          -- Step 1: unflatten the CFunEqCans, except if that causes an occurs check
+         -- Occurs check: consider  [W] alpha ~ [F alpha]
+         --                 ==> (flatten) [W] F alpha ~ fmv, [W] alpha ~ [fmv]
+         --                 ==> (unify)   [W] F [fmv] ~ fmv
          -- See Note [Unflatten using funeqs first]
       ; funeqs <- foldrBagM (unflatten_funeq dflags) emptyCts funeqs
       ; traceTcS "Unflattening 1" $ braces (pprCts funeqs)
 
-          -- Step 2: unify the irreds, if possible
+          -- Step 2: unify the tv_eqs, if possible
       ; tv_eqs  <- foldrBagM (unflatten_eq dflags tclvl) emptyCts tv_eqs
       ; traceTcS "Unflattening 2" $ braces (pprCts tv_eqs)
 
@@ -1629,22 +1467,35 @@ unflatten tv_eqs funeqs
       ; funeqs <- mapBagM finalise_funeq funeqs
       ; traceTcS "Unflattening 3" $ braces (pprCts funeqs)
 
-          -- Step 4: remove any irreds that look like ty ~ ty
+          -- Step 4: remove any tv_eqs that look like ty ~ ty
       ; tv_eqs <- foldrBagM finalise_eq emptyCts tv_eqs
 
       ; let all_flat = tv_eqs `andCts` funeqs
       ; traceTcS "Unflattening done" $ braces (pprCts all_flat)
 
-      ; return all_flat }
+          -- Step 5: zonk the result
+          -- Motivation: makes them nice and ready for the next step
+          --             (see TcInteract.solveSimpleWanteds)
+      ; zonkSimples all_flat }
   where
     ----------------
     unflatten_funeq :: DynFlags -> Ct -> Cts -> TcS Cts
     unflatten_funeq dflags ct@(CFunEqCan { cc_fun = tc, cc_tyargs = xis
                                          , cc_fsk = fmv, cc_ev = ev }) rest
-      = do {   -- fmv should be a flatten meta-tv; we now fix its final
-               -- value, and then zonking will eliminate it
-             filled <- tryFill dflags fmv (mkTyConApp tc xis) ev
-           ; return (if filled then rest else ct `consCts` rest) }
+      = do {   -- fmv should be an un-filled flatten meta-tv;
+               -- we now fix its final value by filling it, being careful
+               -- to observe the occurs check.  Zonking will eliminate it
+               -- altogether in due course
+             rhs' <- zonkTcType (mkTyConApp tc xis)
+           ; case occurCheckExpand dflags fmv rhs' of
+               OC_OK rhs''    -- Normal case: fill the tyvar
+                 -> do { setEvBindIfWanted ev
+                               (EvCoercion (mkTcReflCo (ctEvRole ev) rhs''))
+                       ; unflattenFmv fmv rhs''
+                       ; return rest }
+
+               _ ->  -- Occurs check
+                     return (ct `consCts` rest) }
 
     unflatten_funeq _ other_ct _
       = pprPanic "unflatten_funeq" (ppr other_ct)
@@ -1659,7 +1510,11 @@ unflatten tv_eqs funeqs
     ----------------
     unflatten_eq ::  DynFlags -> TcLevel -> Ct -> Cts -> TcS Cts
     unflatten_eq dflags tclvl ct@(CTyEqCan { cc_ev = ev, cc_tyvar = tv, cc_rhs = rhs }) rest
-      | isFmvTyVar tv
+      | isFmvTyVar tv   -- Previously these fmvs were untouchable,
+                        -- but now they are touchable
+                        -- NB: unlike unflattenFmv, filling a fmv here does
+                        --     bump the unification count; it is "improvement"
+                        -- Note [Unflattening can force the solver to iterate]
       = do { lhs_elim <- tryFill dflags tv rhs ev
            ; if lhs_elim then return rest else
         do { rhs_elim <- try_fill dflags tclvl ev rhs (mkTyVarTy tv)
@@ -1679,8 +1534,7 @@ unflatten tv_eqs funeqs
       = do { ty1 <- zonkTcTyVar tv
            ; ty2 <- zonkTcType rhs
            ; let is_refl = ty1 `tcEqType` ty2
-           ; if is_refl then do { when (isWanted ev) $
-                                  setEvBind (ctEvId ev)
+           ; if is_refl then do { setEvBindIfWanted ev
                                             (EvCoercion $
                                              mkTcReflCo (eqRelRole eq_rel) rhs)
                                             (ctev_loc ev)
@@ -1712,11 +1566,9 @@ tryFill dflags tv rhs ev
     do { rhs' <- zonkTcType rhs
        ; case occurCheckExpand dflags tv rhs' of
            OC_OK rhs''    -- Normal case: fill the tyvar
-             -> do { when (isWanted ev) $
-                     setEvBind (ctEvId ev)
+             -> do { setEvBindIfWanted ev
                                (EvCoercion (mkTcReflCo (ctEvRole ev) rhs''))
-                               (ctev_loc ev)
-                   ; setWantedTyBind tv rhs''
+                   ; unifyTyVar tv rhs''
                    ; return True }
 
            _ ->  -- Occurs check
@@ -1729,7 +1581,7 @@ Note [Unflatten using funeqs first]
     [W] F (G a) ~ G a
 
 do not want to end up with
-    [W} F Int ~ Int
+    [W] F Int ~ Int
 because that might actually hold!  Better to end up with the two above
 unsolved constraints.  The flat form will be
 
@@ -1740,22 +1592,3 @@ unsolved constraints.  The flat form will be
 
 Flatten using the fun-eqs first.
 -}
-
--- | Change the 'EqRel' in a 'FlattenEnv'. Avoids allocating a
--- new 'FlattenEnv' where possible.
-setFEEqRel :: FlattenEnv -> EqRel -> FlattenEnv
-setFEEqRel fmode@(FE { fe_eq_rel = old_eq_rel }) new_eq_rel
-  | old_eq_rel == new_eq_rel = fmode
-  | otherwise                = fmode { fe_eq_rel = new_eq_rel }
-
--- | Change the 'FlattenMode' in a 'FlattenEnv'. Avoids allocating
--- a new 'FlattenEnv' where possible.
-setFEMode :: FlattenEnv -> FlattenMode -> FlattenEnv
-setFEMode fmode@(FE { fe_mode = old_mode }) new_mode
-  | old_mode `eq` new_mode = fmode
-  | otherwise            = fmode { fe_mode = new_mode }
-  where
-    FM_FlattenAll   `eq` FM_FlattenAll   = True
-    FM_SubstOnly    `eq` FM_SubstOnly    = True
---    FM_Avoid tv1 b1 `eq` FM_Avoid tv2 b2 = tv1 == tv2 && b1 == b2
-    _               `eq` _               = False

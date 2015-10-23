@@ -217,6 +217,7 @@ G |-co z_phi : t1 k1 ~Rep k2 t2
 G |-co h : k1 *~Nom * k2
 G |-ty t1 : k1
 G |-ty t2 : k2
+(R <= Ph \/ not (classifiesTypeWithValues k1)) \\/ (not (classifiesTypeWithValues k2) \/ compatibleUnBoxedTys t1 t2)
 ------------------------------------------------------ :: UnivCoUnsafe
 G |-co UnsafeCoerceProv <t1, t2>_R^(h) : t1 k1~R k2 t2
 

@@ -50,7 +50,8 @@ data LlvmType
   | LMVector Int LlvmType -- ^ A vector of 'LlvmType'
   | LMLabel               -- ^ A 'LlvmVar' can represent a label (address)
   | LMVoid                -- ^ Void type
-  | LMStruct [LlvmType]   -- ^ Structure type
+  | LMStruct [LlvmType]   -- ^ Packed structure type
+  | LMStructU [LlvmType]  -- ^ Unpacked structure type
   | LMAlias LlvmAlias     -- ^ A type alias
   | LMMetadata            -- ^ LLVM Metadata
 
@@ -70,6 +71,7 @@ instance Outputable LlvmType where
   ppr (LMLabel        ) = text "label"
   ppr (LMVoid         ) = text "void"
   ppr (LMStruct tys   ) = text "<{" <> ppCommaJoin tys <> text "}>"
+  ppr (LMStructU tys  ) = text "{" <> ppCommaJoin tys <> text "}"
   ppr (LMMetadata     ) = text "metadata"
 
   ppr (LMFunction (LlvmFunctionDecl _ _ _ r varg p _))
@@ -260,7 +262,7 @@ pLift LMVoid     = error "Voids are unliftable"
 pLift LMMetadata = error "Metadatas are unliftable"
 pLift x          = LMPointer x
 
--- | Lower a variable of 'LMPointer' type.
+-- | Lift a variable to 'LMPointer' type.
 pVarLift :: LlvmVar -> LlvmVar
 pVarLift (LMGlobalVar s t l x a c) = LMGlobalVar s (pLift t) l x a c
 pVarLift (LMLocalVar  s t        ) = LMLocalVar  s (pLift t)
@@ -326,6 +328,16 @@ llvmWidthInBits dflags (LMVector n ty) = n * llvmWidthInBits dflags ty
 llvmWidthInBits _      LMLabel         = 0
 llvmWidthInBits _      LMVoid          = 0
 llvmWidthInBits dflags (LMStruct tys)  = sum $ map (llvmWidthInBits dflags) tys
+llvmWidthInBits _      (LMStructU _)   =
+    -- It's not trivial to calculate the bit width of the unpacked structs,
+    -- since they will be aligned depending on the specified datalayout (
+    -- http://llvm.org/docs/LangRef.html#data-layout ). One way we could support
+    -- this could be to make the LlvmCodeGen.Ppr.moduleLayout be a data type
+    -- that exposes the alignment information. However, currently the only place
+    -- we use unpacked structs is LLVM intrinsics that return them (e.g.,
+    -- llvm.sadd.with.overflow.*), so we don't actually need to compute their
+    -- bit width.
+    panic "llvmWidthInBits: not implemented for LMStructU"
 llvmWidthInBits _      (LMFunction  _) = 0
 llvmWidthInBits dflags (LMAlias (_,t)) = llvmWidthInBits dflags t
 llvmWidthInBits _      LMMetadata      = panic "llvmWidthInBits: Meta-data has no runtime representation!"
@@ -556,6 +568,8 @@ data LlvmCallConvention
   -- does not support varargs and requires the prototype of all callees to
   -- exactly match the prototype of the function definition.
   | CC_Coldcc
+  -- | The GHC-specific 'registerised' calling convention.
+  | CC_Ghc
   -- | Any calling convention may be specified by number, allowing
   -- target-specific calling conventions to be used. Target specific calling
   -- conventions start at 64.
@@ -569,6 +583,7 @@ instance Outputable LlvmCallConvention where
   ppr CC_Ccc       = text "ccc"
   ppr CC_Fastcc    = text "fastcc"
   ppr CC_Coldcc    = text "coldcc"
+  ppr CC_Ghc       = text "ghccc"
   ppr (CC_Ncc i)   = text "cc " <> ppr i
   ppr CC_X86_Stdcc = text "x86_stdcallcc"
 

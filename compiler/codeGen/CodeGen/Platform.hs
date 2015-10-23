@@ -4,7 +4,6 @@ module CodeGen.Platform
        where
 
 import CmmExpr
-import FastBool
 import Platform
 import Reg
 
@@ -31,7 +30,7 @@ callerSaves platform
    ArchARM {} -> ARM.callerSaves
    ArchARM64  -> ARM64.callerSaves
    arch
-    | arch `elem` [ArchPPC, ArchPPC_64] ->
+    | arch `elem` [ArchPPC, ArchPPC_64 ELF_V1, ArchPPC_64 ELF_V2] ->
        case platformOS platform of
        OSDarwin -> PPC_Darwin.callerSaves
        _        -> PPC.callerSaves
@@ -54,7 +53,7 @@ activeStgRegs platform
    ArchARM {} -> ARM.activeStgRegs
    ArchARM64  -> ARM64.activeStgRegs
    arch
-    | arch `elem` [ArchPPC, ArchPPC_64] ->
+    | arch `elem` [ArchPPC, ArchPPC_64 ELF_V1, ArchPPC_64 ELF_V2] ->
        case platformOS platform of
        OSDarwin -> PPC_Darwin.activeStgRegs
        _        -> PPC.activeStgRegs
@@ -72,7 +71,7 @@ haveRegBase platform
    ArchARM {} -> ARM.haveRegBase
    ArchARM64  -> ARM64.haveRegBase
    arch
-    | arch `elem` [ArchPPC, ArchPPC_64] ->
+    | arch `elem` [ArchPPC, ArchPPC_64 ELF_V1, ArchPPC_64 ELF_V2] ->
        case platformOS platform of
        OSDarwin -> PPC_Darwin.haveRegBase
        _        -> PPC.haveRegBase
@@ -90,14 +89,14 @@ globalRegMaybe platform
    ArchARM {} -> ARM.globalRegMaybe
    ArchARM64  -> ARM64.globalRegMaybe
    arch
-    | arch `elem` [ArchPPC, ArchPPC_64] ->
+    | arch `elem` [ArchPPC, ArchPPC_64 ELF_V1, ArchPPC_64 ELF_V2] ->
        case platformOS platform of
        OSDarwin -> PPC_Darwin.globalRegMaybe
        _        -> PPC.globalRegMaybe
 
     | otherwise -> NoRegs.globalRegMaybe
 
-freeReg :: Platform -> RegNo -> FastBool
+freeReg :: Platform -> RegNo -> Bool
 freeReg platform
  | platformUnregisterised platform = NoRegs.freeReg
  | otherwise
@@ -108,7 +107,7 @@ freeReg platform
    ArchARM {} -> ARM.freeReg
    ArchARM64  -> ARM64.freeReg
    arch
-    | arch `elem` [ArchPPC, ArchPPC_64] ->
+    | arch `elem` [ArchPPC, ArchPPC_64 ELF_V1, ArchPPC_64 ELF_V2] ->
        case platformOS platform of
        OSDarwin -> PPC_Darwin.freeReg
        _        -> PPC.freeReg

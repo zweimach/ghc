@@ -21,7 +21,7 @@ module DsCCall
 import CoreSyn
 
 import DsMonad
-
+import DsUtils( mkCastDs )
 import CoreUtils
 import MkCore
 import MkId
@@ -37,6 +37,7 @@ import TysPrim
 import TyCon
 import TysWiredIn
 import BasicTypes
+import FastString ( unpackFS )
 import Literal
 import PrelNames
 import DynFlags
@@ -94,7 +95,7 @@ dsCCall lbl args may_gc result_ty
        uniq <- newUnique
        dflags <- getDynFlags
        let
-           target = StaticTarget lbl Nothing True
+           target = StaticTarget (unpackFS lbl) lbl Nothing True
            the_fcall    = CCall (CCallSpec target CCallConv may_gc)
            the_prim_app = mkFCall dflags uniq the_fcall unboxed_args ccall_result_ty
        return (foldr ($) (res_wrapper the_prim_app) arg_wrappers)
@@ -137,7 +138,7 @@ unboxArg arg
 
   -- Recursive newtypes
   | Just(co, _rep_ty) <- topNormaliseNewType_maybe arg_ty
-  = unboxArg (mkCast arg co)
+  = unboxArg (mkCastDs arg co)
 
   -- Booleans
   | Just tc <- tyConAppTyCon_maybe arg_ty,
@@ -291,7 +292,7 @@ mk_alt return_result (Just prim_res_ty, wrap_result)
         the_rhs = return_result (Var state_id)
                                 (wrap_result (Var result_id) : map Var as)
         ccall_res_ty = mkTupleTy UnboxedTuple (realWorldStatePrimTy : ls)
-        the_alt      = ( DataAlt (tupleCon UnboxedTuple arity)
+        the_alt      = ( DataAlt (tupleDataCon Unboxed arity)
                        , (state_id : args_ids)
                        , the_rhs
                        )
@@ -336,7 +337,7 @@ resultWrapper result_ty
   -- Newtypes
   | Just (co, rep_ty) <- topNormaliseNewType_maybe result_ty
   = do (maybe_ty, wrapper) <- resultWrapper rep_ty
-       return (maybe_ty, \e -> mkCast (wrapper e) (mkSymCo co))
+       return (maybe_ty, \e -> mkCastDs (wrapper e) (mkSymCo co))
 
   -- The type might contain foralls (eg. for dummy type arguments,
   -- referring to 'Ptr a' is legal).

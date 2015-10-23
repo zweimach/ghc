@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE MagicHash                 #-}
 {-# LANGUAGE UnboxedTuples             #-}
 {-# LANGUAGE ExistentialQuantification #-}
@@ -24,9 +23,9 @@
 --
 -- To solve such concern, the references provided by this module offer a key
 -- that can be used to locate the values on each process. Each process maintains
--- a global and immutable table of references which can be looked up with a
--- given key. This table is known as the Static Pointer Table. The reference can
--- then be dereferenced to obtain the value.
+-- a global table of references which can be looked up with a given key. This
+-- table is known as the Static Pointer Table. The reference can then be
+-- dereferenced to obtain the value.
 --
 -----------------------------------------------------------------------------
 
@@ -41,19 +40,16 @@ module GHC.StaticPtr
   , staticPtrKeys
   ) where
 
-import Data.Typeable       (Typeable)
 import Foreign.C.Types     (CInt(..))
 import Foreign.Marshal     (allocaArray, peekArray, withArray)
 import Foreign.Ptr         (castPtr)
 import GHC.Exts            (addrToAny#)
 import GHC.Ptr             (Ptr(..), nullPtr)
 import GHC.Fingerprint     (Fingerprint(..))
-import System.IO.Unsafe    (unsafePerformIO)
 
 
 -- | A reference to a value of type 'a'.
 data StaticPtr a = StaticPtr StaticKey StaticPtrInfo a
-  deriving Typeable
 
 -- | Dereferences a static pointer.
 deRefStaticPtr :: StaticPtr a -> a
@@ -74,13 +70,20 @@ staticKey (StaticPtr k _ _) = k
 -- This function is unsafe because the program behavior is undefined if the type
 -- of the returned 'StaticPtr' does not match the expected one.
 --
-unsafeLookupStaticPtr :: StaticKey -> Maybe (StaticPtr a)
-unsafeLookupStaticPtr k = unsafePerformIO $ sptLookup k
+unsafeLookupStaticPtr :: StaticKey -> IO (Maybe (StaticPtr a))
+unsafeLookupStaticPtr (Fingerprint w1 w2) = do
+    ptr@(Ptr addr) <- withArray [w1,w2] (hs_spt_lookup . castPtr)
+    if (ptr == nullPtr)
+    then return Nothing
+    else case addrToAny# addr of
+           (# spe #) -> return (Just spe)
+
+foreign import ccall unsafe hs_spt_lookup :: Ptr () -> IO (Ptr a)
 
 -- | Miscelaneous information available for debugging purposes.
 data StaticPtrInfo = StaticPtrInfo
-    { -- | PackageId of the package where the static pointer is defined
-      spInfoPackageId  :: String
+    { -- | Package key of the package where the static pointer is defined
+      spInfoUnitId  :: String
       -- | Name of the module where the static pointer is defined
     , spInfoModuleName :: String
       -- | An internal name that is distinct for every static pointer defined in
@@ -90,26 +93,15 @@ data StaticPtrInfo = StaticPtrInfo
       -- @(Line, Column)@ pair.
     , spInfoSrcLoc     :: (Int, Int)
     }
-  deriving (Show, Typeable)
+  deriving (Show)
 
 -- | 'StaticPtrInfo' of the given 'StaticPtr'.
 staticPtrInfo :: StaticPtr a -> StaticPtrInfo
 staticPtrInfo (StaticPtr _ n _) = n
 
--- | Like 'unsafeLookupStaticPtr' but evaluates in 'IO'.
-sptLookup :: StaticKey -> IO (Maybe (StaticPtr a))
-sptLookup (Fingerprint w1 w2) = do
-    ptr@(Ptr addr) <- withArray [w1,w2] (hs_spt_lookup . castPtr)
-    if (ptr == nullPtr)
-    then return Nothing
-    else case addrToAny# addr of
-           (# spe #) -> return (Just spe)
-
-foreign import ccall unsafe hs_spt_lookup :: Ptr () -> IO (Ptr a)
-
 -- | A list of all known keys.
-staticPtrKeys :: [StaticKey]
-staticPtrKeys = unsafePerformIO $ do
+staticPtrKeys :: IO [StaticKey]
+staticPtrKeys = do
     keyCount <- hs_spt_key_count
     allocaArray (fromIntegral keyCount) $ \p -> do
       count <- hs_spt_keys p keyCount

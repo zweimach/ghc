@@ -33,11 +33,10 @@ expectedGhcOnlyExtensions :: [String]
 expectedGhcOnlyExtensions = ["RelaxedLayout",
                              "AlternativeLayoutRule",
                              "AlternativeLayoutRuleTransitional",
-                             "DeriveAnyClass",
-                             "PatternSynonyms",
-                             "PartialTypeSignatures",
-                             "NamedWildCards",
-                             "StaticPointers"]
+                             "DuplicateRecordFields",
+                             "StaticPointers",
+                             "StrictData",
+                             "ApplicativeDo"] -- TODO add this to Cabal
 
 expectedCabalOnlyExtensions :: [String]
 expectedCabalOnlyExtensions = ["Generics",
@@ -51,4 +50,3 @@ expectedCabalOnlyExtensions = ["Generics",
                                "Safe",
                                "Unsafe",
                                "Trustworthy"]
-

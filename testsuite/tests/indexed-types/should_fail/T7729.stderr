@@ -1,5 +1,5 @@
 
-T7729.hs:36:14:
+T7729.hs:36:14: error:
     Couldn't match type ‘BasePrimMonad m’ with ‘t0 (BasePrimMonad m)’
     The type variable ‘t0’ is ambiguous
        Expected type: t0 (BasePrimMonad m) a -> Rand m a

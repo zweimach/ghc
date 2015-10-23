@@ -22,6 +22,7 @@ where
 import BlockId
 import Cmm
 import CmmCallConv
+import CmmSwitch (SwitchTargets)
 
 import Compiler.Hoopl hiding (Unique, (<*>), mkFirst, mkMiddle, mkLast, mkLabel, mkBranch, Shape(..))
 import DynFlags
@@ -34,7 +35,7 @@ import OrdList
 import Control.Monad
 import Data.List
 import Data.Maybe
-import Prelude (($),Int,Eq(..)) -- avoid importing (<*>)
+import Prelude (($),Int,Bool,Eq(..)) -- avoid importing (<*>)
 
 #include "HsVersions.h"
 
@@ -220,10 +221,11 @@ mkJumpExtra dflags conv e actuals updfr_off extra_stack =
   lastWithArgsAndExtraStack dflags Jump Old conv actuals updfr_off extra_stack $
     toCall e Nothing updfr_off 0
 
-mkCbranch       :: CmmExpr -> BlockId -> BlockId -> CmmAGraph
-mkCbranch pred ifso ifnot = mkLast (CmmCondBranch pred ifso ifnot)
+mkCbranch       :: CmmExpr -> BlockId -> BlockId -> Maybe Bool -> CmmAGraph
+mkCbranch pred ifso ifnot likely =
+  mkLast (CmmCondBranch pred ifso ifnot likely)
 
-mkSwitch        :: CmmExpr -> [Maybe BlockId] -> CmmAGraph
+mkSwitch        :: CmmExpr -> SwitchTargets -> CmmAGraph
 mkSwitch e tbl   = mkLast $ CmmSwitch e tbl
 
 mkReturn        :: DynFlags -> CmmExpr -> [CmmActual] -> UpdFrameOffset

@@ -14,19 +14,16 @@ module Hooks ( Hooks
              , tcForeignImportsHook
              , tcForeignExportsHook
              , hscFrontendHook
-             , hscCompileOneShotHook
              , hscCompileCoreExprHook
              , ghcPrimIfaceHook
              , runPhaseHook
              , runMetaHook
              , linkHook
-             , runQuasiQuoteHook
              , runRnSpliceHook
              , getValueSafelyHook
              ) where
 
 import DynFlags
-import HsTypes
 import Name
 import PipelineMonad
 import HscTypes
@@ -58,23 +55,20 @@ import Data.Maybe
 --   uses the default built-in behaviour
 
 emptyHooks :: Hooks
-emptyHooks = Hooks Nothing Nothing Nothing Nothing Nothing Nothing
+emptyHooks = Hooks Nothing Nothing Nothing Nothing Nothing
                    Nothing Nothing Nothing Nothing Nothing Nothing
-                   Nothing
 
 data Hooks = Hooks
   { dsForeignsHook         :: Maybe ([LForeignDecl Id] -> DsM (ForeignStubs, OrdList (Id, CoreExpr)))
   , tcForeignImportsHook   :: Maybe ([LForeignDecl Name] -> TcM ([Id], [LForeignDecl Id], Bag GlobalRdrElt))
   , tcForeignExportsHook   :: Maybe ([LForeignDecl Name] -> TcM (LHsBinds TcId, [LForeignDecl TcId], Bag GlobalRdrElt))
-  , hscFrontendHook        :: Maybe (ModSummary -> Hsc TcGblEnv)
-  , hscCompileOneShotHook  :: Maybe (HscEnv -> ModSummary -> SourceModified -> IO HscStatus)
+  , hscFrontendHook        :: Maybe (ModSummary -> Hsc FrontendResult)
   , hscCompileCoreExprHook :: Maybe (HscEnv -> SrcSpan -> CoreExpr -> IO HValue)
   , ghcPrimIfaceHook       :: Maybe ModIface
   , runPhaseHook           :: Maybe (PhasePlus -> FilePath -> DynFlags -> CompPipeline (PhasePlus, FilePath))
   , runMetaHook            :: Maybe (MetaHook TcM)
   , linkHook               :: Maybe (GhcLink -> DynFlags -> Bool -> HomePackageTable -> IO SuccessFlag)
-  , runQuasiQuoteHook      :: Maybe (HsQuasiQuote Name -> RnM (HsQuasiQuote Name))
-  , runRnSpliceHook        :: Maybe (LHsExpr Name -> RnM (LHsExpr Name))
+  , runRnSpliceHook        :: Maybe (HsSplice Name -> RnM (HsSplice Name))
   , getValueSafelyHook     :: Maybe (HscEnv -> Name -> Type -> IO (Maybe HValue))
   }
 

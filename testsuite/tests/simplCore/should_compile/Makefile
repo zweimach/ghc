@@ -4,7 +4,11 @@ include $(TOP)/mk/test.mk
 
 T8832:
 	$(RM) -f T8832.o T8832.hi
-	'$(TEST_HC)' $(TEST_HC_OPTS) $(T8832_WORDSIZE_OPTS) -O -c -ddump-simpl T8832.hs | grep '#'
+	'$(TEST_HC)' $(TEST_HC_OPTS) $(T8832_WORDSIZE_OPTS) -O -c -ddump-simpl T8832.hs | grep '^[a-zA-Z0-9]\+ ='
+
+T8274:
+	$(RM) -f T8274.o T8274.hi
+	'$(TEST_HC)' $(TEST_HC_OPTS) -O -c -ddump-simpl T8274.hs | grep '#'
 
 T7865:
 	$(RM) -f T7865.o T7865.hi
@@ -13,7 +17,7 @@ T7865:
 T3055:
 	$(RM) -f T3055.o T3055.hi T3055.simpl
 	'$(TEST_HC)' $(TEST_HC_OPTS) -O -c T3055.hs -ddump-simpl > T3055.simpl
-	grep 'I# (-28)' T3055.simpl | sed 's/.*\(I# (-28)\).*/\1/'
+	grep 'I# -28#' T3055.simpl | sed 's/.*\(I# -28#\).*/\1/'
 
 T5658b:
 	$(RM) -f T5658b.o T5658b.hi
@@ -79,7 +83,7 @@ simpl021:
 .PHONY: T5327
 T5327:
 	$(RM) -f T5327.hi T5327.o
-	'$(TEST_HC)' $(TEST_HC_OPTS) -c T5327.hs -O -ddump-simpl | grep -c 'GHC.Prim.># 34 '
+	'$(TEST_HC)' $(TEST_HC_OPTS) -c T5327.hs -O -ddump-simpl | grep -c '># 34# '
 
 .PHONY: T5623
 T5623:
@@ -122,3 +126,9 @@ T8221:
 T5996:
 	$(RM) -f T5996.o T5996.hi
 	'$(TEST_HC)' $(TEST_HC_OPTS) -O -c T5996.hs -ddump-simpl -dsuppress-uniques -dsuppress-all | grep y2
+
+T10083:
+	$(RM) -f T10083.o T10083.hi T10083.hi-boot T10083a.o T10083a.hi 
+	'$(TEST_HC)' $(TEST_HC_OPTS) -c -O T10083.hs-boot
+	'$(TEST_HC)' $(TEST_HC_OPTS) -c -O T10083a.hs
+	'$(TEST_HC)' $(TEST_HC_OPTS) -c -O T10083.hs

@@ -12,8 +12,7 @@ module LlvmCodeGen.Base (
         LiveGlobalRegs,
         LlvmUnresData, LlvmData, UnresLabel, UnresStatic,
 
-        LlvmVersion, defaultLlvmVersion, minSupportLlvmVersion,
-        maxSupportLlvmVersion,
+        LlvmVersion, supportedLlvmVersion,
 
         LlvmM,
         runLlvm, liftStream, withClearVars, varLookup, varInsert,
@@ -24,11 +23,10 @@ module LlvmCodeGen.Base (
 
         getMetaUniqueId,
         setUniqMeta, getUniqMeta,
-        freshSectionId,
 
         cmmToLlvmType, widthToLlvmFloat, widthToLlvmInt, llvmFunTy,
-        llvmFunSig, llvmStdFunAttrs, llvmFunAlign, llvmInfAlign,
-        llvmPtrBits, mkLlvmFunc, tysToParams,
+        llvmFunSig, llvmFunArgs, llvmStdFunAttrs, llvmFunAlign, llvmInfAlign,
+        llvmPtrBits, tysToParams,
 
         strCLabel_llvm, strDisplayName_llvm, strProcedureName_llvm,
         getGlobalPtr, generateExternDecls,
@@ -37,6 +35,7 @@ module LlvmCodeGen.Base (
     ) where
 
 #include "HsVersions.h"
+#include "ghcautoconf.h"
 
 import Llvm
 import LlvmCodeGen.Regs
@@ -46,7 +45,7 @@ import CodeGen.Platform ( activeStgRegs )
 import DynFlags
 import FastString
 import Cmm
-import qualified Outputable as Outp
+import Outputable as Outp
 import qualified Pretty as Prt
 import Platform
 import UniqFM
@@ -112,7 +111,7 @@ widthToLlvmInt w = LMInt $ widthInBits w
 llvmGhcCC :: DynFlags -> LlvmCallConvention
 llvmGhcCC dflags
  | platformUnregisterised (targetPlatform dflags) = CC_Ccc
- | otherwise                                      = CC_Ncc 10
+ | otherwise                                      = CC_Ghc
 
 -- | Llvm Function type for Cmm function
 llvmFunTy :: LiveGlobalRegs -> LlvmM LlvmType
@@ -132,15 +131,6 @@ llvmFunSig' live lbl link
        return $ LlvmFunctionDecl lbl link (llvmGhcCC dflags) LMVoid FixedArgs
                                  (map (toParams . getVarType) (llvmFunArgs dflags live))
                                  (llvmFunAlign dflags)
-
--- | Create a Haskell function in LLVM.
-mkLlvmFunc :: LiveGlobalRegs -> CLabel -> LlvmLinkageType -> LMSection -> LlvmBlocks
-           -> LlvmM LlvmFunction
-mkLlvmFunc live lbl link sec blks
-  = do funDec <- llvmFunSig live lbl link
-       dflags <- getDynFlags
-       let funArgs = map (fsLit . Outp.showSDoc dflags . ppPlainName) (llvmFunArgs dflags live)
-       return $ LlvmFunction funDec funArgs llvmStdFunAttrs sec blks
 
 -- | Alignment to use for functions
 llvmFunAlign :: DynFlags -> LMAlign
@@ -182,17 +172,11 @@ llvmPtrBits dflags = widthInBits $ typeWidth $ gcWord dflags
 --
 
 -- | LLVM Version Number
-type LlvmVersion = Int
+type LlvmVersion = (Int, Int)
 
--- | The LLVM Version we assume if we don't know
-defaultLlvmVersion :: LlvmVersion
-defaultLlvmVersion = 30
-
-minSupportLlvmVersion :: LlvmVersion
-minSupportLlvmVersion = 28
-
-maxSupportLlvmVersion :: LlvmVersion
-maxSupportLlvmVersion = 35
+-- | The LLVM Version that is currently supported.
+supportedLlvmVersion :: LlvmVersion
+supportedLlvmVersion = sUPPORTED_LLVM_VERSION
 
 -- ----------------------------------------------------------------------------
 -- * Environment Handling
@@ -203,7 +187,6 @@ data LlvmEnv = LlvmEnv
   , envDynFlags :: DynFlags        -- ^ Dynamic flags
   , envOutput :: BufHandle         -- ^ Output buffer
   , envUniq :: UniqSupply          -- ^ Supply of unique values
-  , envNextSection :: Int          -- ^ Supply of fresh section IDs
   , envFreshMeta :: Int            -- ^ Supply of fresh metadata IDs
   , envUniqMeta :: UniqFM Int      -- ^ Global metadata nodes
   , envFunMap :: LlvmEnvMap        -- ^ Global functions so far, with type
@@ -225,11 +208,11 @@ instance Functor LlvmM where
                                   return (f x, env')
 
 instance Applicative LlvmM where
-    pure = return
+    pure x = LlvmM $ \env -> return (x, env)
     (<*>) = ap
 
 instance Monad LlvmM where
-    return x = LlvmM $ \env -> return (x, env)
+    return = pure
     m >>= f  = LlvmM $ \env -> do (x, env') <- runLlvmM m env
                                   runLlvmM (f x) env'
 
@@ -257,7 +240,6 @@ runLlvm dflags ver out us m = do
                       , envUniq = us
                       , envFreshMeta = 0
                       , envUniqMeta = emptyUFM
-                      , envNextSection = 1
                       }
 
 -- | Get environment (internal)
@@ -361,10 +343,6 @@ setUniqMeta f m = modifyEnv $ \env -> env { envUniqMeta = addToUFM (envUniqMeta 
 -- | Gets metadata node for given unique
 getUniqMeta :: Unique -> LlvmM (Maybe Int)
 getUniqMeta s = getEnv (flip lookupUFM s . envUniqMeta)
-
--- | Returns a fresh section ID
-freshSectionId :: LlvmM Int
-freshSectionId = LlvmM $ \env -> return (envNextSection env, env { envNextSection = envNextSection env + 1})
 
 -- ----------------------------------------------------------------------------
 -- * Internal functions
@@ -554,11 +532,3 @@ aliasify (LMGlobal var val) = do
 -- away with casting the alias to the desired type in @getSymbolPtr@
 -- and instead just emit a reference to the definition symbol directly.
 -- This is the @Just@ case in @getSymbolPtr@.
-
--- ----------------------------------------------------------------------------
--- * Misc
---
-
--- | Error function
-panic :: String -> a
-panic s = Outp.panic $ "LlvmCodeGen.Base." ++ s

@@ -12,19 +12,18 @@ module SimplCore ( core2core, simplifyExpr ) where
 
 import DynFlags
 import CoreSyn
-import CoreSubst
 import HscTypes
 import CSE              ( cseProgram )
-import Rules            ( RuleBase, emptyRuleBase, mkRuleBase, unionRuleBase,
-                          extendRuleBaseList, ruleCheckProgram, addSpecInfo, )
+import Rules            ( mkRuleBase, unionRuleBase,
+                          extendRuleBaseList, ruleCheckProgram, addRuleInfo, )
 import PprCore          ( pprCoreBindings, pprCoreExpr )
 import OccurAnal        ( occurAnalysePgm, occurAnalyseExpr )
 import IdInfo
-import CoreUtils        ( coreBindsSize, coreBindsStats, exprSize,
-                          mkTicks, stripTicksTop )
+import CoreStats        ( coreBindsSize, coreBindsStats, exprSize )
+import CoreUtils        ( mkTicks, stripTicksTop )
 import CoreLint         ( showPass, endPass, lintPassResult, dumpPassResult,
                           lintAnnots )
-import Simplify         ( simplTopBinds, simplExpr )
+import Simplify         ( simplTopBinds, simplExpr, simplRules )
 import SimplUtils       ( simplEnvForGHCi, activeRule )
 import SimplEnv
 import SimplMonad
@@ -48,6 +47,7 @@ import Vectorise        ( vectorise )
 import FastString
 import SrcLoc
 import Util
+import Module
 
 import Maybes
 import UniqSupply       ( UniqSupply, mkSplitUniqSupply, splitUniqSupply )
@@ -68,13 +68,18 @@ import Plugins          ( installCoreToDos )
 -}
 
 core2core :: HscEnv -> ModGuts -> IO ModGuts
-core2core hsc_env guts
+core2core hsc_env guts@(ModGuts { mg_module  = mod
+                                , mg_loc     = loc
+                                , mg_deps    = deps
+                                , mg_rdr_env = rdr_env })
   = do { us <- mkSplitUniqSupply 's'
        -- make sure all plugins are loaded
 
        ; let builtin_passes = getCoreToDo dflags
+             orph_mods = mkModuleSet (mod : dep_orphs deps)
        ;
-       ; (guts2, stats) <- runCoreM hsc_env hpt_rule_base us mod print_unqual $
+       ; (guts2, stats) <- runCoreM hsc_env hpt_rule_base us mod
+                                    orph_mods print_unqual loc $
                            do { all_passes <- addPluginPasses builtin_passes
                               ; runCorePasses all_passes guts }
 
@@ -85,15 +90,14 @@ core2core hsc_env guts
        ; return guts2 }
   where
     dflags         = hsc_dflags hsc_env
-    home_pkg_rules = hptRules hsc_env (dep_mods (mg_deps guts))
+    home_pkg_rules = hptRules hsc_env (dep_mods deps)
     hpt_rule_base  = mkRuleBase home_pkg_rules
-    mod            = mg_module guts
+    print_unqual   = mkPrintUnqualified dflags rdr_env
     -- mod: get the module out of the current HscEnv so we can retrieve it from the monad.
     -- This is very convienent for the users of the monad (e.g. plugins do not have to
     -- consume the ModGuts to find the module) but somewhat ugly because mg_module may
     -- _theoretically_ be changed during the Core pipeline (it's part of ModGuts), which
     -- would mean our cached value would go out of date.
-    print_unqual = mkPrintUnqualified dflags (mg_rdr_env guts)
 
 {-
 ************************************************************************
@@ -296,7 +300,7 @@ getCoreToDo dflags
             simpl_phase 0 ["post-liberate-case"] max_iter
             ]),         -- Run the simplifier after LiberateCase to vastly
                         -- reduce the possiblility of shadowing
-                        -- Reason: see Note [Shadowing] in SpecConstr.lhs
+                        -- Reason: see Note [Shadowing] in SpecConstr.hs
 
         runWhen spec_constr CoreDoSpecConstr,
 
@@ -412,9 +416,11 @@ ruleCheckPass :: CompilerPhase -> String -> ModGuts -> CoreM ModGuts
 ruleCheckPass current_phase pat guts = do
     rb <- getRuleBase
     dflags <- getDynFlags
+    vis_orphs <- getVisibleOrphanMods
     liftIO $ Err.showPass dflags "RuleCheck"
     liftIO $ log_action dflags dflags Err.SevDump noSrcSpan defaultDumpStyle
-                 (ruleCheckProgram current_phase pat rb (mg_binds guts))
+                 (ruleCheckProgram current_phase pat
+                    (RuleEnv rb vis_orphs) (mg_binds guts))
     return guts
 
 
@@ -491,8 +497,9 @@ simplifyExpr dflags expr
 
         ; let sz = exprSize expr
 
-        ; (expr', counts) <- initSmpl dflags emptyRuleBase emptyFamInstEnvs us sz $
-                                 simplExprGently (simplEnvForGHCi dflags) expr
+        ; (expr', counts) <- initSmpl dflags emptyRuleEnv
+                               emptyFamInstEnvs us sz
+                               (simplExprGently (simplEnvForGHCi dflags) expr)
 
         ; Err.dumpIfSet dflags (dopt Opt_D_dump_simpl_stats dflags)
                   "Simplifier statistics" (pprSimplCount counts)
@@ -552,6 +559,7 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
               hsc_env us hpt_rule_base
               guts@(ModGuts { mg_module = this_mod
                             , mg_rdr_env = rdr_env
+                            , mg_deps = deps
                             , mg_binds = binds, mg_rules = rules
                             , mg_fam_inst_env = fam_inst_env })
   = do { (termination_msg, it_count, counts_out, guts')
@@ -600,7 +608,7 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
       -- Try and force thunks off the binds; significantly reduces
       -- space usage, especially with -O.  JRS, 000620.
       | let sz = coreBindsSize binds
-      , sz == sz     -- Force it
+      , () <- sz `seq` ()     -- Force it
       = do {
                 -- Occurrence analysis
            let {   -- Note [Vectorisation declarations and occurrences]
@@ -625,13 +633,14 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
                        InitialPhase -> (mg_vect_decls guts, vectVars)
                        _            -> ([], vectVars)
                ; tagged_binds = {-# SCC "OccAnal" #-}
-                     occurAnalysePgm this_mod active_rule rules maybeVects maybeVectVars binds
+                     occurAnalysePgm this_mod active_rule rules
+                                     maybeVects maybeVectVars binds
                } ;
            Err.dumpIfSet_dyn dflags Opt_D_dump_occur_anal "Occurrence analysis"
                      (pprCoreBindings tagged_binds);
 
                 -- Get any new rules, and extend the rule base
-                -- See Note [Overall plumbing for rules] in Rules.lhs
+                -- See Note [Overall plumbing for rules] in Rules.hs
                 -- We need to do this regularly, because simplification can
                 -- poke on IdInfo thunks, which in turn brings in new rules
                 -- behind the scenes.  Otherwise there's a danger we'll simply
@@ -639,16 +648,22 @@ simplifyPgmIO pass@(CoreDoSimplify max_iterations mode)
            eps <- hscEPS hsc_env ;
            let  { rule_base1 = unionRuleBase hpt_rule_base (eps_rule_base eps)
                 ; rule_base2 = extendRuleBaseList rule_base1 rules
-                ; simpl_binds = {-# SCC "SimplTopBinds" #-}
-                                simplTopBinds simpl_env tagged_binds
-                ; fam_envs = (eps_fam_inst_env eps, fam_inst_env) } ;
+                ; fam_envs = (eps_fam_inst_env eps, fam_inst_env)
+                ; vis_orphs = this_mod : dep_orphs deps } ;
 
                 -- Simplify the program
-           (env1, counts1) <- initSmpl dflags rule_base2 fam_envs us1 sz simpl_binds ;
+           ((binds1, rules1), counts1) <-
+             initSmpl dflags (mkRuleEnv rule_base2 vis_orphs) fam_envs us1 sz $
+               do { env1 <- {-# SCC "SimplTopBinds" #-}
+                            simplTopBinds simpl_env tagged_binds
 
-           let  { binds1 = getFloatBinds env1
-                ; rules1 = substRulesForImportedIds (mkCoreSubst (text "imp-rules") env1) rules
-                } ;
+                      -- Apply the substitution to rules defined in this module
+                      -- for imported Ids.  Eg  RULE map my_f = blah
+                      -- If we have a substitution my_f :-> other_f, we'd better
+                      -- apply it to the rule to, or it'll never match
+                  ; rules1 <- simplRules env1 Nothing rules
+
+                  ; return (getFloatBinds env1, rules1) } ;
 
                 -- Stop if nothing happened; don't dump output
            if isZeroSimplCount counts1 then
@@ -856,7 +871,7 @@ shortOutIndirections binds
     -- These exported Ids are the subjects  of the indirection-elimination
     exp_ids            = map fst $ varEnvElts ind_env
     exp_id_set         = mkVarSet exp_ids
-    no_need_to_flatten = all (null . specInfoRules . idSpecialisation) exp_ids
+    no_need_to_flatten = all (null . ruleInfoRules . idSpecialisation) exp_ids
     binds'             = concatMap zap binds
 
     zap (NonRec bndr rhs) = [NonRec b r | (b,r) <- zapPair (bndr,rhs)]
@@ -914,7 +929,7 @@ hasShortableIdInfo :: Id -> Bool
 -- so we can safely discard it
 -- See Note [Messing up the exported Id's IdInfo]
 hasShortableIdInfo id
-  =  isEmptySpecInfo (specInfo info)
+  =  isEmptyRuleInfo (ruleInfo info)
   && isDefaultInlinePragma (inlinePragInfo info)
   && not (isStableUnfolding (unfoldingInfo info))
   where
@@ -936,8 +951,8 @@ transferIdInfo exported_id local_id
     transfer exp_info = exp_info `setStrictnessInfo`    strictnessInfo local_info
                                  `setUnfoldingInfo`     unfoldingInfo local_info
                                  `setInlinePragInfo`    inlinePragInfo local_info
-                                 `setSpecInfo`          addSpecInfo (specInfo exp_info) new_info
-    new_info = setSpecInfoHead (idName exported_id)
-                               (specInfo local_info)
+                                 `setRuleInfo`          addRuleInfo (ruleInfo exp_info) new_info
+    new_info = setRuleInfoHead (idName exported_id)
+                               (ruleInfo local_info)
         -- Remember to set the function-name field of the
         -- rules as we transfer them from one function to another

@@ -43,6 +43,7 @@ import BlockId ()
 import CLabel
 import Cmm
 import CmmUtils
+import CmmSwitch
 import DynFlags
 import FastString
 import Outputable
@@ -219,34 +220,43 @@ pprNode node = pp_node <+> pp_debug
       CmmBranch ident -> ptext (sLit "goto") <+> ppr ident <> semi
 
       -- if (expr) goto t; else goto f;
-      CmmCondBranch expr t f ->
+      CmmCondBranch expr t f l ->
           hsep [ ptext (sLit "if")
                , parens(ppr expr)
+               , case l of
+                   Nothing -> empty
+                   Just b -> parens (ptext (sLit "likely:") <+> ppr b)
                , ptext (sLit "goto")
                , ppr t <> semi
                , ptext (sLit "else goto")
                , ppr f <> semi
                ]
 
-      CmmSwitch expr maybe_ids ->
-          hang (hcat [ ptext (sLit "switch [0 .. ")
-                     , int (length maybe_ids - 1)
-                     , ptext (sLit "] ")
+      CmmSwitch expr ids ->
+          hang (hsep [ ptext (sLit "switch")
+                     , range
                      , if isTrivialCmmExpr expr
                        then ppr expr
                        else parens (ppr expr)
-                     , ptext (sLit " {")
+                     , ptext (sLit "{")
                      ])
-             4 (vcat ( map caseify pairs )) $$ rbrace
-          where pairs = groupBy snds (zip [0 .. ] maybe_ids )
-                snds a b = (snd a) == (snd b)
-                caseify ixs@((_,Nothing):_) = ptext (sLit "/* impossible: ")
-                                              <> hcat (intersperse comma (map (int.fst) ixs)) <> ptext (sLit " */")
-                caseify as = let (is,ids) = unzip as
-                             in hsep [ ptext (sLit "case")
-                                     , hcat (punctuate comma (map int is))
-                                     , ptext (sLit ": goto")
-                                     , ppr (head [ id | Just id <- ids]) <> semi ]
+             4 (vcat (map ppCase cases) $$ def) $$ rbrace
+          where
+            (cases, mbdef) = switchTargetsFallThrough ids
+            ppCase (is,l) = hsep
+                            [ ptext (sLit "case")
+                            , commafy $ map integer is
+                            , ptext (sLit ": goto")
+                            , ppr l <> semi
+                            ]
+            def | Just l <- mbdef = hsep
+                            [ ptext (sLit "default: goto")
+                            , ppr l <> semi
+                            ]
+                | otherwise = empty
+
+            range = brackets $ hsep [integer lo, ptext (sLit ".."), integer hi]
+              where (lo,hi) = switchTargetsRange ids
 
       CmmCall tgt k regs out res updfr_off ->
           hcat [ ptext (sLit "call"), space

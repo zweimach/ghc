@@ -1,5 +1,3 @@
-setTestOpts(only_compiler_types(['ghc']))
-
 test('driver011',
      extra_clean(['A011.hi', 'A011.o']),
      run_command,
@@ -317,7 +315,7 @@ else:
   only_darwin = skip
 
 test('static001',
-     [only_darwin, expect_fail,
+     [only_darwin, expect_broken(8127),
       extra_clean(['Static001.hi', 'Static001.o', 'liba.a', 'Static001_stub.h', 'Static001_stub.o'])],
      run_command,
      ['$MAKE -s --no-print-directory static001'])
@@ -384,7 +382,10 @@ test('T7060',
 test('T7130', normal, compile_fail, ['-fflul-laziness'])
 test('T7563', when(unregisterised(), skip), run_command,
      ['$MAKE -s --no-print-directory T7563'])
-test('T6037', expect_broken(6037), run_command,
+test('T6037',
+     # The testsuite doesn't know how to set a non-Unicode locale on Windows or Mac OS X
+     [when(opsys('mingw32'), expect_fail), when(opsys('darwin'), expect_fail)],
+     run_command,
      ['$MAKE -s --no-print-directory T6037'])
 test('T2507',
      # The testsuite doesn't know how to set a non-Unicode locale on Windows or Mac OS X
@@ -399,14 +400,59 @@ test('T8959a',
 
 test('T703', normal, run_command, ['$MAKE -s --no-print-directory T703'])
 test('T2182', normal, run_command, ['$MAKE -s --no-print-directory T2182'])
-test('T8101', normal, compile, ['-Wall -fno-code'])
+test('T8101', expect_broken(10600), compile, ['-Wall -fno-code'])
+test('T8101b', expect_broken(10600), multimod_compile,
+     ['T8101b', '-Wall -fno-code'])
 
 def build_T9050(name, way):
      return simple_build(name + '.cmm', way, '-outputdir=. ', 0, '', 0, 0, 0)
 test('T9050', normal, build_T9050, [])
 
-test('write_interface_oneshot', normal, run_command, ['$MAKE -s --no-print-directory write_interface_oneshot'])
-test('write_interface_make', normal, run_command, ['$MAKE -s --no-print-directory write_interface_make'])
+test('write_interface_oneshot',
+     extra_clean(['write_interface_oneshot_hidir/*']),
+     run_command,
+     ['$MAKE -s --no-print-directory write_interface_oneshot'])
+
+test('write_interface_make',
+     extra_clean(['write_interface_make_hidir/*']),
+     run_command,
+     ['$MAKE -s --no-print-directory write_interface_make'])
 
 test('T9776', normal, compile_fail, ['-frule-check'])
 
+test('T9938',
+     [ extra_clean(['T9938.hi', 'T9938.o', 'T9938']), normal ],
+     run_command,
+     ['$MAKE -s --no-print-directory T9938'])
+
+test('T9938B',
+     [ extra_clean(['T9938B.hi', 'T9938B.o', 'T9938B']) ],
+     run_command,
+     ['$MAKE -s --no-print-directory T9938B'])
+
+test('T9963', exit_code(1), run_command,
+     ['{compiler} --interactive -ignore-dot-ghci --print-libdir'])
+
+test('T10219', normal, run_command,
+     # `-x hspp` in make mode should work.
+     # Note: need to specify `-x hspp` before the filename.
+     ['{compiler} --make -x hspp T10219.hspp -fno-code -v0'])
+
+test('T10220', normal, run_command,
+     # Preprocessed T10220.hspp imports T10220B. Should work in --make mode.
+     ['{compiler} --make T10220.hspp -fno-code -v0'])
+
+test('T10182',
+     extra_clean(['T10182.o', 'T10182a.o', 'T10182.o-boot', 'T10182.hi', 'T10182a.hi', 'T10182.hi-boot']),
+     run_command,
+     ['$MAKE -s --no-print-directory T10182'])
+     
+test('T365',
+     [extra_clean(['test_preprocessor.txt']),
+      pre_cmd('touch test_preprocessor.txt'),
+      unless(opsys('mingw32'), skip)],
+      compile_fail,
+      [''])
+
+test('T9360a', normal, run_command, ['{compiler} --interactive -e ""'])
+test('T9360b', normal, run_command, ['{compiler} -e "" --interactive'])

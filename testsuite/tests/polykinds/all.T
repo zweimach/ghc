@@ -1,5 +1,3 @@
-setTestOpts(only_compiler_types(['ghc']))
-
 test('PolyKinds09', normal, compile_and_run, [''])
 test('PolyKinds10', normal, compile_and_run, [''])
 
@@ -114,4 +112,18 @@ test('T9838', normal, multimod_compile, ['T9838.hs','-v0'])
 test('T9574', normal, compile_fail, [''])
 test('T9833', normal, compile, [''])
 test('T7908', normal, compile, [''])
+<<<<<<< HEAD
 test('PolyInstances', normal, compile, [''])
+||||||| merged common ancestors
+=======
+test('T10041', normal, compile, [''])
+test('T10451', normal, compile_fail, [''])
+test('T10516', normal, compile_fail, [''])
+test('T10503', normal, compile_fail, [''])
+test('T10570', normal, compile_fail, [''])
+test('T10670', normal, compile, [''])
+test('T10670a', normal, compile, [''])
+test('T10134', normal, multimod_compile, ['T10134.hs','-v0'])
+test('T10742', normal, compile, [''])
+test('T10934', normal, compile, [''])
+>>>>>>> origin/master

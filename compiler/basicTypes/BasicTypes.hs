@@ -27,7 +27,7 @@ module BasicTypes(
 
         FunctionOrData(..),
 
-        WarningTxt(..),
+        WarningTxt(..), StringLiteral(..),
 
         Fixity(..), FixityDirection(..),
         defaultFixity, maxPrecedence, minPrecedence,
@@ -37,7 +37,7 @@ module BasicTypes(
         RecFlag(..), isRec, isNonRec, boolToRecFlag,
         Origin(..), isGenerated,
 
-        RuleName,
+        RuleName, pprRuleName,
 
         TopLevelFlag(..), isTopLevel, isNotTopLevel,
 
@@ -46,7 +46,7 @@ module BasicTypes(
 
         Boxity(..), isBoxed,
 
-        TupleSort(..), tupleSortBoxity, boxityNormalTupleSort,
+        TupleSort(..), tupleSortBoxity, boxityTupleSort,
         tupleParens,
 
         -- ** The OneShotInfo type
@@ -68,8 +68,10 @@ module BasicTypes(
         SwapFlag(..), flipSwap, unSwap, isSwapped,
 
         CompilerPhase(..), PhaseNum,
-        Activation(..), isActive, isActiveIn,
+
+        Activation(..), isActive, isActiveIn, competesWith,
         isNeverActive, isAlwaysActive, isEarlyActive,
+
         RuleMatchInfo(..), isConLike, isFunLike,
         InlineSpec(..), isEmptyInlineSpec,
         InlinePragma(..), defaultInlinePragma, alwaysInlinePragma,
@@ -84,13 +86,17 @@ module BasicTypes(
 
         FractionalLit(..), negateFractionalLit, integralFractionalLit,
 
-        HValue(..)
+        HValue(..),
+
+        SourceText,
+
+        IntWithInf, infinity, treatZeroAsInf, mkIntWithInf, intGtLimit
    ) where
 
 import FastString
 import Outputable
 import SrcLoc ( Located,unLoc )
-
+import StaticFlags( opt_PprStyle_Debug )
 import Data.Data hiding (Fixity)
 import Data.Function (on)
 import GHC.Exts (Any)
@@ -125,10 +131,12 @@ type RepArity = Int
 -}
 
 -- | Type of the tags associated with each constructor possibility
+--   or superclass selector
 type ConTag = Int
 
 fIRST_TAG :: ConTag
 -- ^ Tags are allocated from here for real constructors
+--   or for superclass selectors
 fIRST_TAG =  1
 
 {-
@@ -159,7 +167,7 @@ type Alignment = Int -- align to next N-byte boundary (N must be a power of 2).
 data OneShotInfo
   = NoOneShotInfo -- ^ No information
   | ProbOneShot   -- ^ The lambda is probably applied at most once
-                  -- See Note [Computing one-shot info, and ProbOneShot] in OccurAnl
+                  -- See Note [Computing one-shot info, and ProbOneShot] in Demand
   | OneShotLam    -- ^ The lambda is applied at most once.
   deriving (Eq)
 
@@ -260,15 +268,30 @@ initialVersion = 1
 ************************************************************************
 -}
 
+-- |A String Literal in the source, including its original raw format for use by
+-- source to source manipulation tools.
+data StringLiteral = StringLiteral
+                       { sl_st :: SourceText, -- literal raw source.
+                                              -- See not [Literal source text]
+                         sl_fs :: FastString  -- literal string value
+                       } deriving (Data, Typeable)
+
+instance Eq StringLiteral where
+  (StringLiteral _ a) == (StringLiteral _ b) = a == b
+
 -- reason/explanation from a WARNING or DEPRECATED pragma
-data WarningTxt = WarningTxt [Located FastString]
-                | DeprecatedTxt [Located FastString]
+data WarningTxt = WarningTxt (Located SourceText)
+                             [Located StringLiteral]
+                | DeprecatedTxt (Located SourceText)
+                                [Located StringLiteral]
     deriving (Eq, Data, Typeable)
 
 instance Outputable WarningTxt where
-    ppr (WarningTxt    ws) = doubleQuotes (vcat (map (ftext . unLoc) ws))
-    ppr (DeprecatedTxt ds) = text "Deprecated:" <+>
-                             doubleQuotes (vcat (map (ftext . unLoc) ds))
+    ppr (WarningTxt    _ ws)
+                         = doubleQuotes (vcat (map (ftext . sl_fs . unLoc) ws))
+    ppr (DeprecatedTxt _ ds)
+                         = text "Deprecated:" <+>
+                           doubleQuotes (vcat (map (ftext . sl_fs . unLoc) ds))
 
 {-
 ************************************************************************
@@ -279,6 +302,9 @@ instance Outputable WarningTxt where
 -}
 
 type RuleName = FastString
+
+pprRuleName :: RuleName -> SDoc
+pprRuleName rn = doubleQuotes (ftext rn)
 
 {-
 ************************************************************************
@@ -448,8 +474,17 @@ instance Outputable Origin where
 -}
 
 -- | The semantics allowed for overlapping instances for a particular
--- instance. See Note [Safe Haskell isSafeOverlap] (in `InstEnv.lhs`) for a
+-- instance. See Note [Safe Haskell isSafeOverlap] (in `InstEnv.hs`) for a
 -- explanation of the `isSafeOverlap` field.
+--
+-- - 'ApiAnnotation.AnnKeywordId' :
+--      'ApiAnnotation.AnnOpen' @'\{-\# OVERLAPPABLE'@ or
+--                              @'\{-\# OVERLAPPING'@ or
+--                              @'\{-\# OVERLAPS'@ or
+--                              @'\{-\# INCOHERENT'@,
+--      'ApiAnnotation.AnnClose' @`\#-\}`@,
+
+-- For details on above see note [Api annotations] in ApiAnnotation
 data OverlapFlag = OverlapFlag
   { overlapMode   :: OverlapMode
   , isSafeOverlap :: Bool
@@ -462,27 +497,29 @@ setOverlapModeMaybe f (Just m) = f { overlapMode = m }
 hasOverlappableFlag :: OverlapMode -> Bool
 hasOverlappableFlag mode =
   case mode of
-    Overlappable -> True
-    Overlaps     -> True
-    Incoherent   -> True
-    _            -> False
+    Overlappable _ -> True
+    Overlaps     _ -> True
+    Incoherent   _ -> True
+    _              -> False
 
 hasOverlappingFlag :: OverlapMode -> Bool
 hasOverlappingFlag mode =
   case mode of
-    Overlapping  -> True
-    Overlaps     -> True
-    Incoherent   -> True
-    _            -> False
+    Overlapping  _ -> True
+    Overlaps     _ -> True
+    Incoherent   _ -> True
+    _              -> False
 
 data OverlapMode  -- See Note [Rules for instance lookup] in InstEnv
-  = NoOverlap
+  = NoOverlap SourceText
+                  -- See Note [Pragma source text]
     -- ^ This instance must not overlap another `NoOverlap` instance.
     -- However, it may be overlapped by `Overlapping` instances,
     -- and it may overlap `Overlappable` instances.
 
 
-  | Overlappable
+  | Overlappable SourceText
+                  -- See Note [Pragma source text]
     -- ^ Silently ignore this instance if you find a
     -- more specific one that matches the constraint
     -- you are trying to resolve
@@ -496,7 +533,8 @@ data OverlapMode  -- See Note [Rules for instance lookup] in InstEnv
     -- its ambiguous which to choose)
 
 
-  | Overlapping
+  | Overlapping SourceText
+                  -- See Note [Pragma source text]
     -- ^ Silently ignore any more general instances that may be
     --   used to solve the constraint.
     --
@@ -509,10 +547,12 @@ data OverlapMode  -- See Note [Rules for instance lookup] in InstEnv
     -- it is ambiguous which to choose)
 
 
-  | Overlaps
+  | Overlaps SourceText
+                  -- See Note [Pragma source text]
     -- ^ Equivalent to having both `Overlapping` and `Overlappable` flags.
 
-  | Incoherent
+  | Incoherent SourceText
+                  -- See Note [Pragma source text]
     -- ^ Behave like Overlappable and Overlapping, and in addition pick
     -- an an arbitrary one if there are multiple matching candidates, and
     -- don't worry about later instantiation
@@ -531,11 +571,11 @@ instance Outputable OverlapFlag where
    ppr flag = ppr (overlapMode flag) <+> pprSafeOverlap (isSafeOverlap flag)
 
 instance Outputable OverlapMode where
-   ppr NoOverlap    = empty
-   ppr Overlappable = ptext (sLit "[overlappable]")
-   ppr Overlapping  = ptext (sLit "[overlapping]")
-   ppr Overlaps     = ptext (sLit "[overlap ok]")
-   ppr Incoherent   = ptext (sLit "[incoherent]")
+   ppr (NoOverlap    _) = empty
+   ppr (Overlappable _) = ptext (sLit "[overlappable]")
+   ppr (Overlapping  _) = ptext (sLit "[overlapping]")
+   ppr (Overlaps     _) = ptext (sLit "[overlap ok]")
+   ppr (Incoherent   _) = ptext (sLit "[incoherent]")
 
 pprSafeOverlap :: Bool -> SDoc
 pprSafeOverlap True  = ptext $ sLit "[safe]"
@@ -556,19 +596,20 @@ data TupleSort
   deriving( Eq, Data, Typeable )
 
 tupleSortBoxity :: TupleSort -> Boxity
-tupleSortBoxity BoxedTuple     = Boxed
-tupleSortBoxity UnboxedTuple   = Unboxed
+tupleSortBoxity BoxedTuple      = Boxed
+tupleSortBoxity UnboxedTuple    = Unboxed
 tupleSortBoxity ConstraintTuple = Boxed
 
-boxityNormalTupleSort :: Boxity -> TupleSort
-boxityNormalTupleSort Boxed   = BoxedTuple
-boxityNormalTupleSort Unboxed = UnboxedTuple
+boxityTupleSort :: Boxity -> TupleSort
+boxityTupleSort Boxed   = BoxedTuple
+boxityTupleSort Unboxed = UnboxedTuple
 
 tupleParens :: TupleSort -> SDoc -> SDoc
 tupleParens BoxedTuple      p = parens p
-tupleParens ConstraintTuple p = parens p -- The user can't write fact tuples
-                                         -- directly, we overload the (,,) syntax
-tupleParens UnboxedTuple p = ptext (sLit "(#") <+> p <+> ptext (sLit "#)")
+tupleParens UnboxedTuple    p = ptext (sLit "(#") <+> p <+> ptext (sLit "#)")
+tupleParens ConstraintTuple p   -- In debug-style write (% Eq a, Ord b %)
+  | opt_PprStyle_Debug        = ptext (sLit "(%") <+> p <+> ptext (sLit "%)")
+  | otherwise                 = parens p
 
 {-
 ************************************************************************
@@ -770,6 +811,70 @@ failed Failed    = True
 {-
 ************************************************************************
 *                                                                      *
+\subsection{Source Text}
+*                                                                      *
+************************************************************************
+Keeping Source Text for source to source conversions
+
+Note [Pragma source text]
+~~~~~~~~~~~~~~~~~~~~~~~~~
+The lexer does a case-insensitive match for pragmas, as well as
+accepting both UK and US spelling variants.
+
+So
+
+  {-# SPECIALISE #-}
+  {-# SPECIALIZE #-}
+  {-# Specialize #-}
+
+will all generate ITspec_prag token for the start of the pragma.
+
+In order to be able to do source to source conversions, the original
+source text for the token needs to be preserved, hence the
+`SourceText` field.
+
+So the lexer will then generate
+
+  ITspec_prag "{ -# SPECIALISE"
+  ITspec_prag "{ -# SPECIALIZE"
+  ITspec_prag "{ -# Specialize"
+
+for the cases above.
+ [without the space between '{' and '-', otherwise this comment won't parse]
+
+
+Note [Literal source text]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+The lexer/parser converts literals from their original source text
+versions to an appropriate internal representation. This is a problem
+for tools doing source to source conversions, so the original source
+text is stored in literals where this can occur.
+
+Motivating examples for HsLit
+
+  HsChar          '\n'       == '\x20`
+  HsCharPrim      '\x41`#    == `A`
+  HsString        "\x20\x41" == " A"
+  HsStringPrim    "\x20"#    == " "#
+  HsInt           001        == 1
+  HsIntPrim       002#       == 2#
+  HsWordPrim      003##      == 3##
+  HsInt64Prim     004##      == 4##
+  HsWord64Prim    005##      == 5##
+  HsInteger       006        == 6
+
+For OverLitVal
+
+  HsIntegral      003      == 0x003
+  HsIsString      "\x41nd" == "And"
+-}
+
+type SourceText = String -- Note [Literal source text],[Pragma source text]
+
+
+{-
+************************************************************************
+*                                                                      *
 \subsection{Activation}
 *                                                                      *
 ************************************************************************
@@ -791,7 +896,7 @@ instance Outputable CompilerPhase where
 
 data Activation = NeverActive
                 | AlwaysActive
-                | ActiveBefore PhaseNum -- Active only *before* this phase
+                | ActiveBefore PhaseNum -- Active only *strictly before* this phase
                 | ActiveAfter PhaseNum  -- Active in this phase and later
                 deriving( Eq, Data, Typeable )  -- Eq used in comparing rules in HsDecls
 
@@ -802,7 +907,8 @@ data RuleMatchInfo = ConLike                    -- See Note [CONLIKE pragma]
 
 data InlinePragma            -- Note [InlinePragma]
   = InlinePragma
-      { inl_inline :: InlineSpec
+      { inl_src    :: SourceText -- Note [Pragma source text]
+      , inl_inline :: InlineSpec
 
       , inl_sat    :: Maybe Arity    -- Just n <=> Inline only when applied to n
                                      --            explicit (non-type, non-dictionary) args
@@ -875,7 +981,7 @@ The main effects of CONLIKE are:
     - A CoreUnfolding has a field that caches exprIsExpandable
 
     - The rule matcher consults this field.  See
-      Note [Expanding variables] in Rules.lhs.
+      Note [Expanding variables] in Rules.hs.
 -}
 
 isConLike :: RuleMatchInfo -> Bool
@@ -892,7 +998,8 @@ isEmptyInlineSpec _               = False
 
 defaultInlinePragma, alwaysInlinePragma, neverInlinePragma, dfunInlinePragma
   :: InlinePragma
-defaultInlinePragma = InlinePragma { inl_act = AlwaysActive
+defaultInlinePragma = InlinePragma { inl_src = "{-# INLINE"
+                                   , inl_act = AlwaysActive
                                    , inl_rule = FunLike
                                    , inl_inline = EmptyInlineSpec
                                    , inl_sat = Nothing }
@@ -990,6 +1097,35 @@ isActiveIn _ AlwaysActive     = True
 isActiveIn p (ActiveAfter n)  = p <= n
 isActiveIn p (ActiveBefore n) = p >  n
 
+competesWith :: Activation -> Activation -> Bool
+-- See Note [Activation competition]
+competesWith NeverActive       _                = False
+competesWith _                 NeverActive      = False
+competesWith AlwaysActive      _                = True
+
+competesWith (ActiveBefore {}) AlwaysActive      = True
+competesWith (ActiveBefore {}) (ActiveBefore {}) = True
+competesWith (ActiveBefore a)  (ActiveAfter b)   = a < b
+
+competesWith (ActiveAfter {})  AlwaysActive      = False
+competesWith (ActiveAfter {})  (ActiveBefore {}) = False
+competesWith (ActiveAfter a)   (ActiveAfter b)   = a >= b
+
+{- Note [Competing activations]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Sometimes a RULE and an inlining may compete, or two RULES.
+See Note [Rules and inlining/other rules] in Desugar.
+
+We say that act1 "competes with" act2 iff
+   act1 is active in the phase when act2 *becomes* active
+NB: remember that phases count *down*: 2, 1, 0!
+
+It's too conservative to ensure that the two are never simultaneously
+active.  For example, a rule might be always active, and an inlining
+might switch on in phase 2.  We could switch off the rule, but it does
+no harm.
+-}
+
 isNeverActive, isAlwaysActive, isEarlyActive :: Activation -> Bool
 isNeverActive NeverActive = True
 isNeverActive _           = False
@@ -1032,3 +1168,72 @@ instance Outputable FractionalLit where
   ppr = text . fl_text
 
 newtype HValue = HValue Any
+
+{-
+************************************************************************
+*                                                                      *
+    IntWithInf
+*                                                                      *
+************************************************************************
+
+Represents an integer or positive infinity
+
+-}
+
+-- | An integer or infinity
+data IntWithInf = Int {-# UNPACK #-} !Int
+                | Infinity
+  deriving Eq
+
+-- | A representation of infinity
+infinity :: IntWithInf
+infinity = Infinity
+
+instance Ord IntWithInf where
+  compare Infinity Infinity = EQ
+  compare (Int _)  Infinity = LT
+  compare Infinity (Int _)  = GT
+  compare (Int a)  (Int b)  = a `compare` b
+
+instance Outputable IntWithInf where
+  ppr Infinity = char '∞'
+  ppr (Int n)  = int n
+
+instance Num IntWithInf where
+  (+) = plusWithInf
+  (*) = mulWithInf
+
+  abs Infinity = Infinity
+  abs (Int n)  = Int (abs n)
+
+  signum Infinity = Int 1
+  signum (Int n)  = Int (signum n)
+
+  fromInteger = Int . fromInteger
+
+  (-) = panic "subtracting IntWithInfs"
+
+intGtLimit :: Int -> IntWithInf -> Bool
+intGtLimit _ Infinity = False
+intGtLimit n (Int m)  = n > m
+
+-- | Add two 'IntWithInf's
+plusWithInf :: IntWithInf -> IntWithInf -> IntWithInf
+plusWithInf Infinity _        = Infinity
+plusWithInf _        Infinity = Infinity
+plusWithInf (Int a)  (Int b)  = Int (a + b)
+
+-- | Multiply two 'IntWithInf's
+mulWithInf :: IntWithInf -> IntWithInf -> IntWithInf
+mulWithInf Infinity _        = Infinity
+mulWithInf _        Infinity = Infinity
+mulWithInf (Int a)  (Int b)  = Int (a * b)
+
+-- | Turn a positive number into an 'IntWithInf', where 0 represents infinity
+treatZeroAsInf :: Int -> IntWithInf
+treatZeroAsInf 0 = Infinity
+treatZeroAsInf n = Int n
+
+-- | Inject any integer into an 'IntWithInf'
+mkIntWithInf :: Int -> IntWithInf
+mkIntWithInf = Int

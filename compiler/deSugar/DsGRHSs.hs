@@ -122,6 +122,8 @@ matchGuards (LastStmt  {} : _) _ _ _ = panic "matchGuards LastStmt"
 matchGuards (ParStmt   {} : _) _ _ _ = panic "matchGuards ParStmt"
 matchGuards (TransStmt {} : _) _ _ _ = panic "matchGuards TransStmt"
 matchGuards (RecStmt   {} : _) _ _ _ = panic "matchGuards RecStmt"
+matchGuards (ApplicativeStmt {} : _) _ _ _ =
+  panic "matchGuards ApplicativeLastStmt"
 
 isTrueLHsExpr :: LHsExpr Id -> Maybe (CoreExpr -> DsM CoreExpr)
 

@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP, NondecreasingIndentation #-}
+{-# LANGUAGE CPP, NondecreasingIndentation, TupleSections #-}
 {-# OPTIONS -fno-warn-incomplete-patterns -optc-DNON_POSIX_SOURCE #-}
 
 -----------------------------------------------------------------------------
@@ -22,7 +22,7 @@ import CmdLineParser
 -- Implementations of the various modes (--show-iface, mkdependHS. etc.)
 import LoadIface        ( showIface )
 import HscMain          ( newHscEnv )
-import DriverPipeline   ( oneShot, compileFile )
+import DriverPipeline   ( oneShot, compileFile, mergeRequirement )
 import DriverMkDepend   ( doMkDependHS )
 #ifdef GHCI
 import InteractiveUI    ( interactiveUI, ghciWelcomeMsg, defaultGhciSettings )
@@ -80,6 +80,19 @@ main = do
    initGCStatistics -- See Note [-Bsymbolic and hooks]
    hSetBuffering stdout LineBuffering
    hSetBuffering stderr LineBuffering
+
+   -- Handle GHC-specific character encoding flags, allowing us to control how
+   -- GHC produces output regardless of OS.
+   env <- getEnvironment
+   case lookup "GHC_CHARENC" env of
+    Just "UTF-8" -> do
+     hSetEncoding stdout utf8
+     hSetEncoding stderr utf8
+    _ -> do
+     -- Avoid GHC erroring out when trying to display unhandled characters
+     hSetTranslit stdout
+     hSetTranslit stderr
+
    GHC.defaultErrorHandler defaultFatalMessager defaultFlushOut $ do
     -- 1. extract the -B flag from the args
     argv0 <- getArgs
@@ -143,6 +156,7 @@ main' postLoadMode dflags0 args flagWarnings = do
                DoMake          -> (CompManager, dflt_target,    LinkBinary)
                DoMkDependHS    -> (MkDepend,    dflt_target,    LinkBinary)
                DoAbiHash       -> (OneShot,     dflt_target,    LinkBinary)
+               DoMergeRequirements -> (OneShot, dflt_target,    LinkBinary)
                _               -> (OneShot,     dflt_target,    LinkBinary)
 
   let dflags1 = case lang of
@@ -237,6 +251,7 @@ main' postLoadMode dflags0 args flagWarnings = do
        DoInteractive          -> ghciUI srcs Nothing
        DoEval exprs           -> ghciUI srcs $ Just $ reverse exprs
        DoAbiHash              -> abiHash (map fst srcs)
+       DoMergeRequirements           -> doMergeRequirements (map fst srcs)
        ShowPackages           -> liftIO $ showPackages dflags6
 
   liftIO $ dumpFinalStats dflags6
@@ -315,7 +330,7 @@ checkOptions mode dflags srcs objs = do
    when ((filter (not . wayRTSOnly) (ways dflags) /= interpWays)
          && isInterpretiveMode mode) $
       do throwGhcException (UsageError
-                   "--interactive can't be used with -prof or -unreg.")
+                   "--interactive can't be used with -prof or -static.")
         -- -ohi sanity check
    if (isJust (outputHi dflags) &&
       (isCompManagerMode mode || srcs `lengthExceeds` 1))
@@ -339,9 +354,14 @@ checkOptions mode dflags srcs objs = do
         then throwGhcException (UsageError "no input files")
         else do
 
+   case mode of
+      StopBefore HCc | hscTarget dflags /= HscC
+        -> throwGhcException $ UsageError $
+           "the option -C is only available with an unregisterised GHC"
+      _ -> return ()
+
      -- Verify that output files point somewhere sensible.
    verifyOutputFiles dflags
-
 
 -- Compiler output options
 
@@ -437,14 +457,16 @@ data PostLoadMode
   | DoEval [String]         -- ghc -e foo -e bar => DoEval ["bar", "foo"]
   | DoAbiHash               -- ghc --abi-hash
   | ShowPackages            -- ghc --show-packages
+  | DoMergeRequirements            -- ghc --merge-requirements
 
 doMkDependHSMode, doMakeMode, doInteractiveMode,
-  doAbiHashMode, showPackagesMode :: Mode
+  doAbiHashMode, showPackagesMode, doMergeRequirementsMode :: Mode
 doMkDependHSMode = mkPostLoadMode DoMkDependHS
 doMakeMode = mkPostLoadMode DoMake
 doInteractiveMode = mkPostLoadMode DoInteractive
 doAbiHashMode = mkPostLoadMode DoAbiHash
 showPackagesMode = mkPostLoadMode ShowPackages
+doMergeRequirementsMode = mkPostLoadMode DoMergeRequirements
 
 showInterfaceMode :: FilePath -> Mode
 showInterfaceMode fp = mkPostLoadMode (ShowInterface fp)
@@ -469,6 +491,10 @@ isStopLnMode _ = False
 isDoMakeMode :: Mode -> Bool
 isDoMakeMode (Right (Right DoMake)) = True
 isDoMakeMode _ = False
+
+isDoEvalMode :: Mode -> Bool
+isDoEvalMode (Right (Right (DoEval _))) = True
+isDoEvalMode _ = False
 
 #ifdef GHCI
 isInteractiveMode :: PostLoadMode -> Bool
@@ -517,8 +543,11 @@ parseModeFlags args = do
       mode = case mModeFlag of
              Nothing     -> doMakeMode
              Just (m, _) -> m
-      errs = errs1 ++ map (mkGeneralLocated "on the commandline") errs2
-  when (not (null errs)) $ throwGhcException $ errorsToGhcException errs
+
+  -- See Note [Handling errors when parsing commandline flags]
+  unless (null errs1 && null errs2) $ throwGhcException $ errorsToGhcException $
+      map (("on the commandline", )) $ map unLoc errs1 ++ errs2
+
   return (mode, flags' ++ leftover, warns)
 
 type ModeM = CmdLineP (Maybe (Mode, String), [String], [Located String])
@@ -577,6 +606,7 @@ mode_flags =
   , defFlag "C"            (PassFlag (setMode (stopBeforeMode HCc)))
   , defFlag "S"            (PassFlag (setMode (stopBeforeMode (As False))))
   , defFlag "-make"        (PassFlag (setMode doMakeMode))
+  , defFlag "-merge-requirements" (PassFlag (setMode doMergeRequirementsMode))
   , defFlag "-interactive" (PassFlag (setMode doInteractiveMode))
   , defFlag "-abi-hash"    (PassFlag (setMode doAbiHashMode))
   , defFlag "e"            (SepArg   (\s -> setMode (doEvalMode s) "-e"))
@@ -603,6 +633,15 @@ setMode newMode newFlag = liftEwM $ do
                       | isShowGhcUsageMode newMode &&
                         isDoInteractiveMode oldMode ->
                             ((showGhciUsageMode, newFlag), [])
+
+                    -- If we have both -e and --interactive then -e always wins
+                    _ | isDoEvalMode oldMode &&
+                        isDoInteractiveMode newMode ->
+                            ((oldMode, oldFlag), [])
+                      | isDoEvalMode newMode &&
+                        isDoInteractiveMode oldMode ->
+                            ((newMode, newFlag), [])
+
                     -- Otherwise, --help/--version/--numeric-version always win
                       | isDominantFlag oldMode -> ((oldMode, oldFlag), [])
                       | isDominantFlag newMode -> ((newMode, newFlag), [])
@@ -648,9 +687,9 @@ doMake srcs  = do
     let (hs_srcs, non_hs_srcs) = partition haskellish srcs
 
         haskellish (f,Nothing) =
-          looksLikeModuleName f || isHaskellUserSrcFilename f || '.' `notElem` f
+          looksLikeModuleName f || isHaskellSrcFilename f || '.' `notElem` f
         haskellish (_,Just phase) =
-          phase `notElem` [ As True, As False, Cc, Cobjc, Cobjcpp, CmmCpp, Cmm
+          phase `notElem` [ As True, As False, Cc, Cobjc, Cobjcxx, CmmCpp, Cmm
                           , StopLn]
 
     hsc_env <- GHC.getSession
@@ -677,6 +716,16 @@ doMake srcs  = do
     when (failed ok_flag) (liftIO $ exitWith (ExitFailure 1))
     return ()
 
+-- ----------------------------------------------------------------------------
+-- Run --merge-requirements mode
+
+doMergeRequirements :: [String] -> Ghc ()
+doMergeRequirements srcs = mapM_ doMergeRequirement srcs
+
+doMergeRequirement :: String -> Ghc ()
+doMergeRequirement src = do
+    hsc_env <- getSession
+    liftIO $ mergeRequirement hsc_env (mkModuleName src)
 
 -- ---------------------------------------------------------------------------
 -- --show-iface mode
@@ -803,8 +852,8 @@ Generates a combined hash of the ABI for modules Data.Foo and
 System.Bar.  The modules must already be compiled, and appropriate -i
 options may be necessary in order to find the .hi files.
 
-This is used by Cabal for generating the InstalledPackageId for a
-package.  The InstalledPackageId must change when the visible ABI of
+This is used by Cabal for generating the ComponentId for a
+package.  The ComponentId must change when the visible ABI of
 the package chagnes, so during registration Cabal calls ghc --abi-hash
 to get a hash of the package's ABI.
 -}

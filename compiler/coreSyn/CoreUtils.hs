@@ -17,8 +17,9 @@ module CoreUtils (
         mkAltExpr,
 
         -- * Taking expressions apart
-        findDefault, findAlt, isDefaultAlt,
-        mergeAlts, trimConArgs, filterAlts,
+        findDefault, addDefault, findAlt, isDefaultAlt,
+        mergeAlts, trimConArgs,
+        filterAlts, combineIdenticalAlts, refineDefaultAlt,
 
         -- * Properties of expressions
         exprType, coreAltType, coreAltsType,
@@ -27,10 +28,6 @@ module CoreUtils (
         exprIsHNF, exprOkForSpeculation, exprOkForSideEffects, exprIsWorkFree,
         exprIsBig, exprIsConLike,
         rhsIsStatic, isCheapApp, isExpandableApp,
-
-        -- * Expression and bindings size
-        coreBindsSize, exprSize,
-        CoreStats(..), coreBindsStats,
 
         -- * Equality
         cheapEqExpr, cheapEqExpr', eqExpr,
@@ -43,9 +40,11 @@ module CoreUtils (
         exprToType,
         applyTypeToArgs, applyTypeToArg,
         dataConRepInstPat, dataConRepFSInstPat,
+        isEmptyTy,
 
         -- * Working with ticks
-        stripTicksTop, stripTicksTopE, stripTicksTopT, stripTicks,
+        stripTicksTop, stripTicksTopE, stripTicksTopT,
+        stripTicksE, stripTicksT
     ) where
 
 #include "HsVersions.h"
@@ -72,16 +71,13 @@ import TysPrim
 import DynFlags
 import FastString
 import Maybes
+import ListSetOps       ( minusList )
 import Platform
 import Util
 import Pair
 import Data.Function       ( on )
 import Data.List
 import Data.Ord            ( comparing )
-import Control.Applicative
-#if __GLASGOW_HASKELL__ < 709
-import Data.Traversable    ( traverse )
-#endif
 import OrdList
 
 {-
@@ -213,9 +209,12 @@ exprToType _bad          = pprPanic "exprToType" (ppr _bad)
 -- | Wrap the given expression in the coercion safely, dropping
 -- identity coercions and coalescing nested coercions
 mkCast :: CoreExpr -> Coercion -> CoreExpr
-mkCast e co | ASSERT2( coercionRole co == Representational
-                     , ptext (sLit "coercion") <+> ppr co <+> ptext (sLit "passed to mkCast") <+> ppr e <+> ptext (sLit "has wrong role") <+> ppr (coercionRole co) )
-              isReflCo co = e
+mkCast e co
+  | ASSERT2( coercionRole co == Representational
+           , ptext (sLit "coercion") <+> ppr co <+> ptext (sLit "passed to mkCast")
+             <+> ppr e <+> ptext (sLit "has wrong role") <+> ppr (coercionRole co) )
+    isReflCo co
+  = e
 
 mkCast (Coercion e_co) co
   | isCoercionType (pSnd (coercionKind co))
@@ -238,11 +237,11 @@ mkCast (Tick t expr) co
 
 mkCast expr co
   = let Pair from_ty _to_ty = coercionKind co in
---    if to_ty `eqType` from_ty
---    then expr
---    else
-        WARN(not (from_ty `eqType` exprType expr), text "Trying to coerce" <+> text "(" <> ppr expr $$ text "::" <+> ppr (exprType expr) <> text ")" $$ ppr co $$ ppr (coercionType co))
-         (Cast expr co)
+    WARN( not (from_ty `eqType` exprType expr),
+          text "Trying to coerce" <+> text "(" <> ppr expr
+          $$ text "::" <+> ppr (exprType expr) <> text ")"
+          $$ ppr co $$ ppr (coercionType co) )
+    (Cast expr co)
 
 -- | Wraps the given expression in the source annotation, dropping the
 -- annotation if possible.
@@ -311,10 +310,18 @@ mkTick t orig_expr = mkTick' id id orig_expr
          else top $ Tick (mkNoScope t) $ rest $ tickHNFArgs (mkNoCount t) expr
 
     Var x
-      | not (isFunTy (idType x)) && tickishPlace t == PlaceCostCentre
+      | notFunction && tickishPlace t == PlaceCostCentre
       -> orig_expr
-      | canSplit
+      | notFunction && canSplit
       -> top $ Tick (mkNoScope t) $ rest expr
+      where
+        -- SCCs can be eliminated on variables provided the variable
+        -- is not a function.  In these cases the SCC makes no difference:
+        -- the cost of evaluating the variable will be attributed to its
+        -- definition site.  When the variable refers to a function, however,
+        -- an SCC annotation on the variable affects the cost-centre stack
+        -- when the function is called, so we must retain those.
+        notFunction = not (isFunTy (idType x))
 
     Lit{}
       | tickishPlace t == PlaceCostCentre
@@ -369,25 +376,37 @@ stripTicksTopT p = go []
 
 -- | Completely strip ticks satisfying a predicate from an
 -- expression. Note this is O(n) in the size of the expression!
-stripTicks :: (Tickish Id -> Bool) -> Expr b -> ([Tickish Id], Expr b)
-stripTicks p expr = (fromOL ticks, expr')
-  where (ticks, expr') = go expr
-        -- Note that  OrdList (Tickish Id) is a Monoid, which makes
-        -- ((,) (OrdList (Tickish Id))) an Applicative.
-        go (App e a)        = App <$> go e <*> go a
-        go (Lam b e)        = Lam b <$> go e
-        go (Let b e)        = Let <$> go_bs b <*> go e
-        go (Case e b t as)  = Case <$> go e <*> pure b <*> pure t
-                                   <*> traverse go_a as
-        go (Cast e c)       = Cast <$> go e <*> pure c
+stripTicksE :: (Tickish Id -> Bool) -> Expr b -> Expr b
+stripTicksE p expr = go expr
+  where go (App e a)        = App (go e) (go a)
+        go (Lam b e)        = Lam b (go e)
+        go (Let b e)        = Let (go_bs b) (go e)
+        go (Case e b t as)  = Case (go e) b t (map go_a as)
+        go (Cast e c)       = Cast (go e) c
         go (Tick t e)
-          | p t             = let (ts, e') = go e in (t `consOL` ts, e')
-          | otherwise       = Tick t <$> go e
-        go other            = pure other
-        go_bs (NonRec b e)  = NonRec b <$> go e
-        go_bs (Rec bs)      = Rec <$> traverse go_b bs
-        go_b (b, e)         = (,) <$> pure b <*> go e
-        go_a (c,bs,e)       = (,,) <$> pure c <*> pure bs <*> go e
+          | p t             = go e
+          | otherwise       = Tick t (go e)
+        go other            = other
+        go_bs (NonRec b e)  = NonRec b (go e)
+        go_bs (Rec bs)      = Rec (map go_b bs)
+        go_b (b, e)         = (b, go e)
+        go_a (c,bs,e)       = (c,bs, go e)
+
+stripTicksT :: (Tickish Id -> Bool) -> Expr b -> [Tickish Id]
+stripTicksT p expr = fromOL $ go expr
+  where go (App e a)        = go e `appOL` go a
+        go (Lam _ e)        = go e
+        go (Let b e)        = go_bs b `appOL` go e
+        go (Case e _ _ as)  = go e `appOL` concatOL (map go_a as)
+        go (Cast e _)       = go e
+        go (Tick t e)
+          | p t             = t `consOL` go e
+          | otherwise       = go e
+        go _                = nilOL
+        go_bs (NonRec _ e)  = go e
+        go_bs (Rec bs)      = concatOL (map go_b bs)
+        go_b (_, e)         = go e
+        go_a (_, _, e)      = go e
 
 {-
 ************************************************************************
@@ -440,7 +459,7 @@ mkAltExpr DEFAULT _ _ = panic "mkAltExpr DEFAULT"
 {-
 ************************************************************************
 *                                                                      *
-\subsection{Taking expressions apart}
+               Operations oer case alternatives
 *                                                                      *
 ************************************************************************
 
@@ -453,10 +472,13 @@ findDefault :: [(AltCon, [a], b)] -> ([(AltCon, [a], b)], Maybe b)
 findDefault ((DEFAULT,args,rhs) : alts) = ASSERT( null args ) (alts, Just rhs)
 findDefault alts                        =                     (alts, Nothing)
 
+addDefault :: [(AltCon, [a], b)] -> Maybe b -> [(AltCon, [a], b)]
+addDefault alts Nothing    = alts
+addDefault alts (Just rhs) = (DEFAULT, [], rhs) : alts
+
 isDefaultAlt :: (AltCon, a, b) -> Bool
 isDefaultAlt (DEFAULT, _, _) = True
 isDefaultAlt _               = False
-
 
 -- | Find the case alternative corresponding to a particular
 -- constructor: panics if no such constructor exists
@@ -474,6 +496,36 @@ findAlt con alts
           LT -> deflt   -- Missed it already; the alts are in increasing order
           EQ -> Just alt
           GT -> ASSERT( not (con1 == DEFAULT) ) go alts deflt
+
+{- Note [Unreachable code]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+It is possible (although unusual) for GHC to find a case expression
+that cannot match.  For example:
+
+     data Col = Red | Green | Blue
+     x = Red
+     f v = case x of
+              Red -> ...
+              _ -> ...(case x of { Green -> e1; Blue -> e2 })...
+
+Suppose that for some silly reason, x isn't substituted in the case
+expression.  (Perhaps there's a NOINLINE on it, or profiling SCC stuff
+gets in the way; cf Trac #3118.)  Then the full-lazines pass might produce
+this
+
+     x = Red
+     lvl = case x of { Green -> e1; Blue -> e2 })
+     f v = case x of
+             Red -> ...
+             _ -> ...lvl...
+
+Now if x gets inlined, we won't be able to find a matching alternative
+for 'Red'.  That's because 'lvl' is unreachable.  So rather than crashing
+we generate (error "Inaccessible alternative").
+
+Similar things can happen (augmented by GADTs) when the Simplifier
+filters down the matching alternatives in Simplify.rebuildCase.
+-}
 
 ---------------------------------
 mergeAlts :: [(AltCon, a, b)] -> [(AltCon, a, b)] -> [(AltCon, a, b)]
@@ -502,16 +554,15 @@ trimConArgs DEFAULT      args = ASSERT( null args ) []
 trimConArgs (LitAlt _)   args = ASSERT( null args ) []
 trimConArgs (DataAlt dc) args = dropList (dataConUnivTyVars dc) args
 
-filterAlts :: [Unique]             -- ^ Supply of uniques used in case we have to manufacture a new AltCon
-           -> Type                 -- ^ Type of scrutinee (used to prune possibilities)
+filterAlts :: TyCon                -- ^ Type constructor of scrutinee's type (used to prune possibilities)
+           -> [Type]               -- ^ And its type arguments
            -> [AltCon]             -- ^ 'imposs_cons': constructors known to be impossible due to the form of the scrutinee
            -> [(AltCon, [Var], a)] -- ^ Alternatives
-           -> ([AltCon], Bool, [(AltCon, [Var], a)])
+           -> ([AltCon], [(AltCon, [Var], a)])
              -- Returns:
              --  1. Constructors that will never be encountered by the
              --     *default* case (if any).  A superset of imposs_cons
-             --  2. Whether we managed to refine the default alternative into a specific constructor (for statistics only)
-             --  3. The new alternatives, trimmed by
+             --  2. The new alternatives, trimmed by
              --        a) remove imposs_cons
              --        b) remove constructors which can't match because of GADTs
              --      and with the DEFAULT expanded to a DataAlt if there is exactly
@@ -525,98 +576,147 @@ filterAlts :: [Unique]             -- ^ Supply of uniques used in case we have t
              -- If callers need to preserve the invariant that there is always at least one branch
              -- in a "case" statement then they will need to manually add a dummy case branch that just
              -- calls "error" or similar.
-filterAlts us ty imposs_cons alts
-  | Just (tycon, inst_tys) <- splitTyConApp_maybe ty
-  = filter_alts tycon inst_tys
-  | otherwise
-  = (imposs_cons, False, alts)
+filterAlts _tycon inst_tys imposs_cons alts
+  = (imposs_deflt_cons, addDefault trimmed_alts maybe_deflt)
   where
     (alts_wo_default, maybe_deflt) = findDefault alts
     alt_cons = [con | (con,_,_) <- alts_wo_default]
 
-    filter_alts tycon inst_tys
-      = (imposs_deflt_cons, refined_deflt, merged_alts)
-     where
-       trimmed_alts = filterOut (impossible_alt inst_tys) alts_wo_default
+    trimmed_alts = filterOut (impossible_alt inst_tys) alts_wo_default
 
-       imposs_deflt_cons = nub (imposs_cons ++ alt_cons)
+    imposs_deflt_cons = nub (imposs_cons ++ alt_cons)
          -- "imposs_deflt_cons" are handled
          --   EITHER by the context,
          --   OR by a non-DEFAULT branch in this case expression.
-
-       merged_alts  = mergeAlts trimmed_alts (maybeToList maybe_deflt')
-         -- We need the mergeAlts in case the new default_alt
-         -- has turned into a constructor alternative.
-         -- The merge keeps the inner DEFAULT at the front, if there is one
-         -- and interleaves the alternatives in the right order
-
-       (refined_deflt, maybe_deflt') = case maybe_deflt of
-          Nothing -> (False, Nothing)
-          Just deflt_rhs
-             | isAlgTyCon tycon            -- It's a data type, tuple, or unboxed tuples.
-             , not (isNewTyCon tycon)      -- We can have a newtype, if we are just doing an eval:
-                                           --      case x of { DEFAULT -> e }
-                                           -- and we don't want to fill in a default for them!
-             , Just all_cons <- tyConDataCons_maybe tycon
-             , let imposs_data_cons = [con | DataAlt con <- imposs_deflt_cons]   -- We now know it's a data type
-                   impossible con   = con `elem` imposs_data_cons || dataConCannotMatch inst_tys con
-             -> case filterOut impossible all_cons of
-                  -- Eliminate the default alternative
-                  -- altogether if it can't match:
-                  []    -> (False, Nothing)
-                  -- It matches exactly one constructor, so fill it in:
-                  [con] -> (True, Just (DataAlt con, ex_tvs ++ arg_ids, deflt_rhs))
-                    where (ex_tvs, arg_ids) = dataConRepInstPat us con inst_tys
-                  _     -> (False, Just (DEFAULT, [], deflt_rhs))
-
-             | debugIsOn, isAlgTyCon tycon
-             , null (tyConDataCons tycon)
-             , not (isFamilyTyCon tycon || isAbstractTyCon tycon)
-                   -- Check for no data constructors
-                   -- This can legitimately happen for abstract types and type families,
-                   -- so don't report that
-             -> pprTrace "prepareDefault" (ppr tycon)
-                (False, Just (DEFAULT, [], deflt_rhs))
-
-             | otherwise -> (False, Just (DEFAULT, [], deflt_rhs))
 
     impossible_alt :: [Type] -> (AltCon, a, b) -> Bool
     impossible_alt _ (con, _, _) | con `elem` imposs_cons = True
     impossible_alt inst_tys (DataAlt con, _, _) = dataConCannotMatch inst_tys con
     impossible_alt _  _                         = False
 
-{-
-Note [Unreachable code]
-~~~~~~~~~~~~~~~~~~~~~~~
-It is possible (although unusual) for GHC to find a case expression
-that cannot match.  For example:
+refineDefaultAlt :: [Unique] -> TyCon -> [Type] -> [AltCon] -> [CoreAlt] -> (Bool, [CoreAlt])
+-- Refine the default alterantive to a DataAlt,
+-- if there is a unique way to do so
+refineDefaultAlt us tycon tys imposs_deflt_cons all_alts
+  | (DEFAULT,_,rhs) : rest_alts <- all_alts
+  , isAlgTyCon tycon            -- It's a data type, tuple, or unboxed tuples.
+  , not (isNewTyCon tycon)      -- We can have a newtype, if we are just doing an eval:
+                                --      case x of { DEFAULT -> e }
+                                -- and we don't want to fill in a default for them!
+  , Just all_cons <- tyConDataCons_maybe tycon
+  , let imposs_data_cons = [con | DataAlt con <- imposs_deflt_cons]   -- We now know it's a data type
+        impossible con   = con `elem` imposs_data_cons || dataConCannotMatch tys con
+  = case filterOut impossible all_cons of
+       -- Eliminate the default alternative
+       -- altogether if it can't match:
+       []    -> (False, rest_alts)
 
-     data Col = Red | Green | Blue
-     x = Red
-     f v = case x of
-              Red -> ...
-              _ -> ...(case x of { Green -> e1; Blue -> e2 })...
+       -- It matches exactly one constructor, so fill it in:
+       [con] -> (True, mergeAlts rest_alts [(DataAlt con, ex_tvs ++ arg_ids, rhs)])
+                       -- We need the mergeAlts to keep the alternatives in the right order
+             where
+                (ex_tvs, arg_ids) = dataConRepInstPat us con tys
 
-Suppose that for some silly reason, x isn't substituted in the case
-expression.  (Perhaps there's a NOINLINE on it, or profiling SCC stuff
-gets in the way; cf Trac #3118.)  Then the full-lazines pass might produce
-this
+       -- It matches more than one, so do nothing
+       _  -> (False, all_alts)
 
-     x = Red
-     lvl = case x of { Green -> e1; Blue -> e2 })
-     f v = case x of
-             Red -> ...
-             _ -> ...lvl...
+  | debugIsOn, isAlgTyCon tycon, null (tyConDataCons tycon)
+  , not (isFamilyTyCon tycon || isAbstractTyCon tycon)
+        -- Check for no data constructors
+        -- This can legitimately happen for abstract types and type families,
+        -- so don't report that
+  = pprTrace "prepareDefault" (ppr tycon) (False, all_alts)
 
-Now if x gets inlined, we won't be able to find a matching alternative
-for 'Red'.  That's because 'lvl' is unreachable.  So rather than crashing
-we generate (error "Inaccessible alternative").
+  | otherwise      -- The common case
+  = (False, all_alts)
 
-Similar things can happen (augmented by GADTs) when the Simplifier
-filters down the matching alternatives in Simplify.rebuildCase.
+{- Note [Combine identical alternatives]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If several alternatives are identical, merge them into a single
+DEFAULT alternative.  I've occasionally seen this making a big
+difference:
+
+     case e of               =====>     case e of
+       C _ -> f x                         D v -> ....v....
+       D v -> ....v....                   DEFAULT -> f x
+       DEFAULT -> f x
+
+The point is that we merge common RHSs, at least for the DEFAULT case.
+[One could do something more elaborate but I've never seen it needed.]
+To avoid an expensive test, we just merge branches equal to the *first*
+alternative; this picks up the common cases
+     a) all branches equal
+     b) some branches equal to the DEFAULT (which occurs first)
+
+The case where Combine Identical Alternatives transformation showed up
+was like this (base/Foreign/C/Err/Error.hs):
+
+        x | p `is` 1 -> e1
+          | p `is` 2 -> e2
+        ...etc...
+
+where @is@ was something like
+
+        p `is` n = p /= (-1) && p == n
+
+This gave rise to a horrible sequence of cases
+
+        case p of
+          (-1) -> $j p
+          1    -> e1
+          DEFAULT -> $j p
+
+and similarly in cascade for all the join points!
+
+NB: it's important that all this is done in [InAlt], *before* we work
+on the alternatives themselves, because Simpify.simplAlt may zap the
+occurrence info on the binders in the alternatives, which in turn
+defeats combineIdenticalAlts (see Trac #7360).
+
+Note [Care with impossible-constructors when combining alternatives]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Suppose we have (Trac #10538)
+   data T = A | B | C
+
+   ... case x::T of
+         DEFAULT -> e1
+         A -> e2
+         B -> e1
+
+When calling combineIdentialAlts, we'll have computed that the "impossible
+constructors" for the DEFAULT alt is {A,B}, since if x is A or B we'll
+take the other alternatives.  But suppose we combine B into the DEFAULT,
+to get
+   ... case x::T of
+         DEFAULT -> e1
+         A -> e2
+Then we must be careful to trim the impossible constructors to just {A},
+else we risk compiling 'e1' wrong!
+-}
 
 
-************************************************************************
+combineIdenticalAlts :: [AltCon] -> [CoreAlt] -> (Bool, [AltCon], [CoreAlt])
+-- See Note [Combine identical alternatives]
+-- See Note [Care with impossible-constructors when combining alternatives]
+-- True <=> we did some combining, result is a single DEFAULT alternative
+combineIdenticalAlts imposs_cons ((_con1,bndrs1,rhs1) : con_alts)
+  | all isDeadBinder bndrs1    -- Remember the default
+  , not (null eliminated_alts) -- alternative comes first
+  = (True, imposs_cons', deflt_alt : filtered_alts)
+  where
+    (eliminated_alts, filtered_alts) = partition identical_to_alt1 con_alts
+    deflt_alt = (DEFAULT, [], mkTicks (concat tickss) rhs1)
+    imposs_cons' = imposs_cons `minusList` map fstOf3 eliminated_alts
+
+    cheapEqTicked e1 e2 = cheapEqExpr' tickishFloatable e1 e2
+    identical_to_alt1 (_con,bndrs,rhs)
+      = all isDeadBinder bndrs && rhs `cheapEqTicked` rhs1
+    tickss = map (stripTicksT tickishFloatable . thirdOf3) eliminated_alts
+
+combineIdenticalAlts imposs_cons alts
+  = (False, imposs_cons, alts)
+
+{- *********************************************************************
 *                                                                      *
              exprIsTrivial
 *                                                                      *
@@ -687,7 +787,11 @@ expensive.
 -}
 
 exprIsBottom :: CoreExpr -> Bool
+-- See Note [Bottoming expressions]
 exprIsBottom e
+  | isEmptyTy (exprType e)
+  = True
+  | otherwise
   = go 0 e
   where
     go n (Var v) = isBottomingId v &&  n >= idArity v
@@ -696,9 +800,39 @@ exprIsBottom e
     go n (Tick _ e)              = go n e
     go n (Cast e _)              = go n e
     go n (Let _ e)               = go n e
+    go n (Lam v e) | isTyVar v   = go n e
     go _ _                       = False
 
-{-
+{- Note [Bottoming expressions]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A bottoming expression is guaranteed to diverge, or raise an
+exception.  We can test for it in two different ways, and exprIsBottom
+checks for both of these situations:
+
+* Visibly-bottom computations.  For example
+      (error Int "Hello")
+  is visibly bottom.  The strictness analyser also finds out if
+  a function diverges or raises an exception, and puts that info
+  in its strictness signature.
+
+* Empty types.  If a type is empty, its only inhabitant is bottom.
+  For example:
+      data T
+      f :: T -> Bool
+      f = \(x:t). case x of Bool {}
+  Since T has no data constructors, the case alternatives are of course
+  empty.  However note that 'x' is not bound to a visibly-bottom value;
+  it's the *type* that tells us it's going to diverge.
+
+A GADT may also be empty even though it has constructors:
+        data T a where
+          T1 :: a -> T Bool
+          T2 :: T Int
+        ...(case (x::T Char) of {})...
+Here (T Char) is uninhabited.  A more realistic case is (Int ~ Bool),
+which is likewise uninhabited.
+
+
 ************************************************************************
 *                                                                      *
              exprIsDupable
@@ -812,7 +946,7 @@ the moment we go for the slightly more aggressive version which treats
 
 
 Note [exprIsCheap]   See also Note [Interaction of exprIsCheap and lone variables]
-~~~~~~~~~~~~~~~~~~   in CoreUnfold.lhs
+~~~~~~~~~~~~~~~~~~   in CoreUnfold.hs
 @exprIsCheap@ looks at a Core expression and returns \tr{True} if
 it is obviously in weak head normal form, or is cheap to get to WHNF.
 [Note that that's not the same as exprIsDupable; an expression might be
@@ -901,8 +1035,8 @@ exprIsCheap' good_app other_expr        -- Applications and variables
          -- good plan
 
     go (Var f) args
-       | good_app f (length args)
-       = go_pap args
+       | good_app f (length args)  -- Typically holds of data constructor applications
+       = go_pap args               -- E.g. good_app = isCheapApp below
 
        | otherwise
         = case idDetails f of
@@ -1077,7 +1211,7 @@ expr_ok primop_ok other_expr
 app_ok :: (PrimOp -> Bool) -> Id -> [Expr b] -> Bool
 app_ok primop_ok fun args
   = case idDetails fun of
-      DFunId _ new_type ->  not new_type
+      DFunId new_type ->  not new_type
          -- DFuns terminate, unless the dict is implemented
          -- with a newtype in which case they may not
 
@@ -1658,119 +1792,6 @@ locBind loc b1 b2 diffs = map addLoc diffs
 {-
 ************************************************************************
 *                                                                      *
-\subsection{The size of an expression}
-*                                                                      *
-************************************************************************
--}
-
-data CoreStats = CS { cs_tm :: Int    -- Terms
-                    , cs_ty :: Int    -- Types
-                    , cs_co :: Int }  -- Coercions
-
-
-instance Outputable CoreStats where
- ppr (CS { cs_tm = i1, cs_ty = i2, cs_co = i3 })
-   = braces (sep [ptext (sLit "terms:")     <+> intWithCommas i1 <> comma,
-                  ptext (sLit "types:")     <+> intWithCommas i2 <> comma,
-                  ptext (sLit "coercions:") <+> intWithCommas i3])
-
-plusCS :: CoreStats -> CoreStats -> CoreStats
-plusCS (CS { cs_tm = p1, cs_ty = q1, cs_co = r1 })
-       (CS { cs_tm = p2, cs_ty = q2, cs_co = r2 })
-  = CS { cs_tm = p1+p2, cs_ty = q1+q2, cs_co = r1+r2 }
-
-zeroCS, oneTM :: CoreStats
-zeroCS = CS { cs_tm = 0, cs_ty = 0, cs_co = 0 }
-oneTM  = zeroCS { cs_tm = 1 }
-
-sumCS :: (a -> CoreStats) -> [a] -> CoreStats
-sumCS f = foldr (plusCS . f) zeroCS
-
-coreBindsStats :: [CoreBind] -> CoreStats
-coreBindsStats = sumCS bindStats
-
-bindStats :: CoreBind -> CoreStats
-bindStats (NonRec v r) = bindingStats v r
-bindStats (Rec prs)    = sumCS (\(v,r) -> bindingStats v r) prs
-
-bindingStats :: Var -> CoreExpr -> CoreStats
-bindingStats v r = bndrStats v `plusCS` exprStats r
-
-bndrStats :: Var -> CoreStats
-bndrStats v = oneTM `plusCS` tyStats (varType v)
-
-exprStats :: CoreExpr -> CoreStats
-exprStats (Var {})        = oneTM
-exprStats (Lit {})        = oneTM
-exprStats (Type t)        = tyStats t
-exprStats (Coercion c)    = coStats c
-exprStats (App f a)       = exprStats f `plusCS` exprStats a
-exprStats (Lam b e)       = bndrStats b `plusCS` exprStats e
-exprStats (Let b e)       = bindStats b `plusCS` exprStats e
-exprStats (Case e b _ as) = exprStats e `plusCS` bndrStats b `plusCS` sumCS altStats as
-exprStats (Cast e co)     = coStats co `plusCS` exprStats e
-exprStats (Tick _ e)      = exprStats e
-
-altStats :: CoreAlt -> CoreStats
-altStats (_, bs, r) = altBndrStats bs `plusCS` exprStats r
-
-altBndrStats :: [Var] -> CoreStats
--- Charge one for the alternative, not for each binder
-altBndrStats vs = oneTM `plusCS` sumCS (tyStats . varType) vs
-
-tyStats :: Type -> CoreStats
-tyStats ty = zeroCS { cs_ty = typeSize ty }
-
-coStats :: Coercion -> CoreStats
-coStats co = zeroCS { cs_co = coercionSize co }
-
-coreBindsSize :: [CoreBind] -> Int
--- We use coreBindStats for user printout
--- but this one is a quick and dirty basis for
--- the simplifier's tick limit
-coreBindsSize bs = foldr ((+) . bindSize) 0 bs
-
-exprSize :: CoreExpr -> Int
--- ^ A measure of the size of the expressions, strictly greater than 0
--- It also forces the expression pretty drastically as a side effect
--- Counts *leaves*, not internal nodes. Types and coercions are not counted.
-exprSize (Var v)         = v `seq` 1
-exprSize (Lit lit)       = lit `seq` 1
-exprSize (App f a)       = exprSize f + exprSize a
-exprSize (Lam b e)       = bndrSize b + exprSize e
-exprSize (Let b e)       = bindSize b + exprSize e
-exprSize (Case e b t as) = seqType t `seq` exprSize e + bndrSize b + 1 + foldr ((+) . altSize) 0 as
-exprSize (Cast e co)     = (seqCo co `seq` 1) + exprSize e
-exprSize (Tick n e)      = tickSize n + exprSize e
-exprSize (Type t)        = seqType t `seq` 1
-exprSize (Coercion co)   = seqCo co `seq` 1
-
-tickSize :: Tickish Id -> Int
-tickSize (ProfNote cc _ _) = cc `seq` 1
-tickSize _ = 1 -- the rest are strict
-
-bndrSize :: Var -> Int
-bndrSize b | isTyVar b = seqType (tyVarKind b) `seq` 1
-           | otherwise = seqType (idType b)             `seq`
-                         megaSeqIdInfo (idInfo b)       `seq`
-                         1
-
-bndrsSize :: [Var] -> Int
-bndrsSize = sum . map bndrSize
-
-bindSize :: CoreBind -> Int
-bindSize (NonRec b e) = bndrSize b + exprSize e
-bindSize (Rec prs)    = foldr ((+) . pairSize) 0 prs
-
-pairSize :: (Var, CoreExpr) -> Int
-pairSize (b,e) = bndrSize b + exprSize e
-
-altSize :: CoreAlt -> Int
-altSize (c,bs,e) = c `seq` bndrsSize bs + exprSize e
-
-{-
-************************************************************************
-*                                                                      *
                 Eta reduction
 *                                                                      *
 ************************************************************************
@@ -2093,3 +2114,28 @@ rhsIsStatic platform is_dynamic_name cvt_integer rhs = is_static False rhs
         = case isDataConWorkId_maybe f of
             Just dc -> n_val_args == dataConRepArity dc
             Nothing -> False
+
+{-
+************************************************************************
+*                                                                      *
+\subsection{Type utilities}
+*                                                                      *
+************************************************************************
+-}
+
+-- | True if the type has no non-bottom elements, e.g. when it is an empty
+-- datatype, or a GADT with non-satisfiable type parameters, e.g. Int :~: Bool.
+-- See Note [Bottoming expressions]
+--
+-- See Note [No alternatives lint check] for another use of this function.
+isEmptyTy :: Type -> Bool
+isEmptyTy ty
+    -- Data types where, given the particular type parameters, no data
+    -- constructor matches, are empty.
+    -- This includes data types with no constructors, e.g. Data.Void.Void.
+    | Just (tc, inst_tys) <- splitTyConApp_maybe ty
+    , Just dcs <- tyConDataCons_maybe tc
+    , all (dataConCannotMatch inst_tys) dcs
+    = True
+    | otherwise
+    = False

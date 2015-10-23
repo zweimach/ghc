@@ -47,8 +47,6 @@ import Data.Foldable ( Foldable(..) )
 import Data.Traversable ( Traversable(..) )
 import Data.Monoid ( mappend )
 import Control.Applicative hiding (empty)
-#else
-import Control.Applicative ((<$>))
 #endif
 
 {-
@@ -73,15 +71,24 @@ type HsLocalBinds id = HsLocalBindsLR id id
 -- or a 'where' clause
 data HsLocalBindsLR idL idR
   = HsValBinds (HsValBindsLR idL idR)
+         -- There should be no pattern synonyms in the HsValBindsLR
+         -- These are *local* (not top level) bindings
+         -- The parser accepts them, however, leaving the the
+         -- renamer to report them
+
   | HsIPBinds  (HsIPBinds idR)
+
   | EmptyLocalBinds
   deriving (Typeable)
+
 deriving instance (DataId idL, DataId idR)
   => Data (HsLocalBindsLR idL idR)
 
 type HsValBinds id = HsValBindsLR id id
 
 -- | Value bindings (not implicit parameters)
+-- Used for both top level and nested bindings
+-- May contain pattern synonym bindings
 data HsValBindsLR idL idR
   = -- | Before renaming RHS; idR is always RdrName
     -- Not dependency analysed
@@ -97,6 +104,7 @@ data HsValBindsLR idL idR
         [(RecFlag, LHsBinds idL)]
         [LSig Name]
   deriving (Typeable)
+
 deriving instance (DataId idL, DataId idR)
   => Data (HsValBindsLR idL idR)
 
@@ -126,9 +134,11 @@ data HsBindLR idL idR
     --
     --  - 'ApiAnnotation.AnnEqual','ApiAnnotation.AnnWhere',
     --    'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose',
+
+    -- For details on above see note [Api annotations] in ApiAnnotation
     FunBind {
 
-        fun_id :: Located idL,
+        fun_id :: Located idL, -- Note [fun_id in Match] in HsExpr
 
         fun_infix :: Bool,      -- ^ True => infix declaration
 
@@ -163,6 +173,8 @@ data HsBindLR idL idR
   --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnBang',
   --       'ApiAnnotation.AnnEqual','ApiAnnotation.AnnWhere',
   --       'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose',
+
+  -- For details on above see note [Api annotations] in ApiAnnotation
   | PatBind {
         pat_lhs    :: LPat idL,
         pat_rhs    :: GRHSs idR (LHsExpr idR),
@@ -191,14 +203,22 @@ data HsBindLR idL idR
        -- to have the right type
         abs_exports :: [ABExport idL],
 
-        abs_ev_binds :: TcEvBinds,     -- ^ Evidence bindings
-        abs_binds    :: LHsBinds idL   -- ^ Typechecked user bindings
+        -- | Evidence bindings
+        -- Why a list? See TcInstDcls
+        -- Note [Typechecking plan for instance declarations]
+        abs_ev_binds :: [TcEvBinds],
+
+        -- | Typechecked user bindings
+        abs_binds    :: LHsBinds idL
     }
 
   | PatSynBind (PatSynBind idL idR)
         -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnPattern',
-        --           'ApiAnnotation.AnnLarrow','ApiAnnotation.AnnWhere'
-        --           'ApiAnnotation.AnnOpen','ApiAnnotation.AnnClose'
+        --          'ApiAnnotation.AnnLarrow','ApiAnnotation.AnnEqual',
+        --          'ApiAnnotation.AnnWhere'
+        --          'ApiAnnotation.AnnOpen' @'{'@,'ApiAnnotation.AnnClose' @'}'@
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
 
   deriving (Typeable)
 deriving instance (DataId idL, DataId idR)
@@ -224,6 +244,12 @@ data ABExport id
         , abe_prags :: TcSpecPrags  -- ^ SPECIALISE pragmas
   } deriving (Data, Typeable)
 
+-- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnPattern',
+--             'ApiAnnotation.AnnEqual','ApiAnnotation.AnnLarrow'
+--             'ApiAnnotation.AnnWhere','ApiAnnotation.AnnOpen' @'{'@,
+--             'ApiAnnotation.AnnClose' @'}'@,
+
+-- For details on above see note [Api annotations] in ApiAnnotation
 data PatSynBind idL idR
   = PSB { psb_id   :: Located idL,             -- ^ Name of the pattern synonym
           psb_fvs  :: PostRn idR NameSet,      -- ^ See Note [Bind free vars]
@@ -263,7 +289,7 @@ That's where AbsBinds comes in.  It looks like this:
 
    AbsBinds { abs_tvs     = [a]
             , abs_exports = [ABE { abe_poly = M.reverse :: forall a. [a] -> [a],
-                                 , abe_mono = reverse :: a -> a}]
+                                 , abe_mono = reverse :: [a] -> [a]}]
             , abs_binds = { reverse :: [a] -> [a]
                                = \xs -> case xs of
                                             []     -> []
@@ -307,7 +333,7 @@ This ultimately desugars to something like this:
                (fm::a->a,gm:Any->Any) -> fm
    ...similarly for g...
 
-The abe_wrap field deals with impedence-matching between
+The abe_wrap field deals with impedance-matching between
     (/\a b. case tup a b of { (f,g) -> f })
 and the thing we really want, which may have fewer type
 variables.  The action happens in TcBinds.mkExport.
@@ -539,15 +565,20 @@ type LIPBind id = Located (IPBind id)
 -- ^ May have 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnSemi' when in a
 --   list
 
+-- For details on above see note [Api annotations] in ApiAnnotation
+
 -- | Implicit parameter bindings.
 --
+-- These bindings start off as (Left "x") in the parser and stay
+-- that way until after type-checking when they are replaced with
+-- (Right d), where "d" is the name of the dictionary holding the
+-- evidence for the implicit parameter.
+--
 -- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnEqual'
-{- These bindings start off as (Left "x") in the parser and stay
-that way until after type-checking when they are replaced with
-(Right d), where "d" is the name of the dictionary holding the
-evidence for the implicit parameter. -}
+
+-- For details on above see note [Api annotations] in ApiAnnotation
 data IPBind id
-  = IPBind (Either HsIPName id) (LHsExpr id)
+  = IPBind (Either (Located HsIPName) id) (LHsExpr id)
   deriving (Typeable)
 deriving instance (DataId name) => Data (IPBind name)
 
@@ -558,8 +589,8 @@ instance (OutputableBndr id) => Outputable (HsIPBinds id) where
 instance (OutputableBndr id) => Outputable (IPBind id) where
   ppr (IPBind lr rhs) = name <+> equals <+> pprExpr (unLoc rhs)
     where name = case lr of
-                   Left ip  -> pprBndr LetBind ip
-                   Right id -> pprBndr LetBind id
+                   Left (L _ ip) -> pprBndr LetBind ip
+                   Right     id  -> pprBndr LetBind id
 
 {-
 ************************************************************************
@@ -592,7 +623,12 @@ data Sig name
       --
       --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDcolon',
       --          'ApiAnnotation.AnnComma'
-    TypeSig [Located name] (LHsType name) (PostRn name [Name])
+
+      -- For details on above see note [Api annotations] in ApiAnnotation
+    TypeSig 
+       [Located name]         -- LHS of the signature; e.g.  f,g,h :: blah
+       (LHsType name)         -- RHS of the signature
+       (PostRn name [Name])   -- Wildcards (both named and anonymous) of the RHS
 
       -- | A pattern synonym type signature
       --
@@ -601,6 +637,8 @@ data Sig name
       --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnPattern',
       --           'ApiAnnotation.AnnDcolon','ApiAnnotation.AnnForall'
       --           'ApiAnnotation.AnnDot','ApiAnnotation.AnnDarrow'
+
+      -- For details on above see note [Api annotations] in ApiAnnotation
   | PatSynSig (Located name)
               (HsExplicitFlag, LHsTyVarBndrs name)
               (LHsContext name) -- Provided context
@@ -613,6 +651,8 @@ data Sig name
         --
         --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDefault',
         --           'ApiAnnotation.AnnDcolon'
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
   | GenericSig [Located name] (LHsType name)
 
         -- | A type signature in generated code, notably the code
@@ -629,16 +669,21 @@ data Sig name
         --
         --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnInfix',
         --           'ApiAnnotation.AnnVal'
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
   | FixSig (FixitySig name)
 
         -- | An inline pragma
         --
         -- > {#- INLINE f #-}
         --
-        --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
+        --  - 'ApiAnnotation.AnnKeywordId' :
+        --       'ApiAnnotation.AnnOpen' @'{-\# INLINE'@ and @'['@,
         --       'ApiAnnotation.AnnClose','ApiAnnotation.AnnOpen',
         --       'ApiAnnotation.AnnVal','ApiAnnotation.AnnTilde',
         --       'ApiAnnotation.AnnClose'
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
   | InlineSig   (Located name)  -- Function name
                 InlinePragma    -- Never defaultInlinePragma
 
@@ -647,9 +692,13 @@ data Sig name
         -- > {-# SPECIALISE f :: Int -> Int #-}
         --
         --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
-        --      'ApiAnnotation.AnnOpen','ApiAnnotation.AnnTilde',
-        --      'ApiAnnotation.AnnVal','ApiAnnotation.AnnClose',
-        --      'ApiAnnotation.AnnDcolon','ApiAnnotation.AnnClose',
+        --      'ApiAnnotation.AnnOpen' @'{-\# SPECIALISE'@ and @'['@,
+        --      'ApiAnnotation.AnnTilde',
+        --      'ApiAnnotation.AnnVal',
+        --      'ApiAnnotation.AnnClose' @']'@ and @'\#-}'@,
+        --      'ApiAnnotation.AnnDcolon'
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
   | SpecSig     (Located name)  -- Specialise a function or datatype  ...
                 [LHsType name]  -- ... to these types
                 InlinePragma    -- The pragma on SPECIALISE_INLINE form.
@@ -665,7 +714,10 @@ data Sig name
         --
         --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
         --      'ApiAnnotation.AnnInstance','ApiAnnotation.AnnClose'
-  | SpecInstSig (LHsType name)
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
+  | SpecInstSig SourceText (LHsType name)
+                  -- Note [Pragma source text] in BasicTypes
 
         -- | A minimal complete definition pragma
         --
@@ -674,7 +726,10 @@ data Sig name
         --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
         --      'ApiAnnotation.AnnVbar','ApiAnnotation.AnnComma',
         --      'ApiAnnotation.AnnClose'
-  | MinimalSig (BooleanFormula (Located name))
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
+  | MinimalSig SourceText (BooleanFormula (Located name))
+               -- Note [Pragma source text] in BasicTypes
 
   deriving (Typeable)
 deriving instance (DataId name) => Data (Sig name)
@@ -781,8 +836,9 @@ ppr_sig (FixSig fix_sig)          = ppr fix_sig
 ppr_sig (SpecSig var ty inl)
   = pragBrackets (pprSpec (unLoc var) (interpp'SP ty) inl)
 ppr_sig (InlineSig var inl)       = pragBrackets (ppr inl <+> pprPrefixOcc (unLoc var))
-ppr_sig (SpecInstSig ty)          = pragBrackets (ptext (sLit "SPECIALIZE instance") <+> ppr ty)
-ppr_sig (MinimalSig bf)           = pragBrackets (pprMinimalSig bf)
+ppr_sig (SpecInstSig _ ty)
+  = pragBrackets (ptext (sLit "SPECIALIZE instance") <+> ppr ty)
+ppr_sig (MinimalSig _ bf)         = pragBrackets (pprMinimalSig bf)
 ppr_sig (PatSynSig name (flag, qtvs) (L _ prov) (L _ req) ty)
   = pprPatSynSig (unLoc name) False -- TODO: is_bindir
                  (pprHsForAll flag qtvs (noLoc []))

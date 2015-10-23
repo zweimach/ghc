@@ -50,21 +50,24 @@ tmp.d
 *.dyn_o
 *.dyn_hi
 *.dyn_hi-boot
-*o
 *.dll
 *.dylib
 *.so
 *bindisttest_install___dir_bin_ghc.mk
 *bindisttest_install___dir_bin_ghc.exe.mk
-mk/ghcconfig*_inplace_bin_ghc-stage1.mk
-mk/ghcconfig*_inplace_bin_ghc-stage2.mk
-mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
+mk/ghcconfig*_bin_ghc*.mk
+mk/ghcconfig*_bin_ghc*.exe.mk
 *.imports
 
 # -----------------------------------------------------------------------------
 # specific generated files
+#
+# NOTE: to edit this section in Vim, add your ignore annotations some where
+# in the list, select the entire section and say ':sort u' to sort it.
 
 /mk/ghc-config
+
+/tests/ado/ado001
 /tests/annotations/should_compile/th/build_make
 /tests/annotations/should_run/Config.hs
 /tests/annotations/should_run/annrun01
@@ -114,12 +117,6 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/cabal/cabal05/r-0.1.0.0/
 /tests/cabal/cabal06/inst-*/
 /tests/cabal/cabal06/tmp*
-/tests/cabal/sigcabal01/Main
-/tests/cabal/sigcabal01/tmp*
-/tests/cabal/sigcabal01/inst-*
-/tests/cabal/sigcabal01/p_lazy
-/tests/cabal/sigcabal01/p_strict
-/tests/cabal/sigcabal01/containers
 /tests/cabal/local01.package.conf/
 /tests/cabal/local03.package.conf/
 /tests/cabal/local04.package.conf/
@@ -131,12 +128,19 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/cabal/localT1750.package.conf/
 /tests/cabal/localshadow1.package.conf/
 /tests/cabal/localshadow2.package.conf/
+/tests/cabal/localshadow3.package.conf/
 /tests/cabal/package.conf.*/
 /tests/cabal/recache_reexport_db/package.cache
 /tests/cabal/shadow.hs
 /tests/cabal/shadow1.out
 /tests/cabal/shadow2.out
 /tests/cabal/shadow3.out
+/tests/cabal/sigcabal01/Main
+/tests/cabal/sigcabal01/containers
+/tests/cabal/sigcabal01/inst-*
+/tests/cabal/sigcabal01/p_lazy
+/tests/cabal/sigcabal01/p_strict
+/tests/cabal/sigcabal01/tmp*
 /tests/callarity/perf/T3924
 /tests/callarity/should_run/StrictLet
 /tests/callarity/unittest/CallArity1
@@ -160,11 +164,18 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/codeGen/should_run/5747
 /tests/codeGen/should_run/5785
 /tests/codeGen/should_run/6146
+/tests/codeGen/should_run/CgStaticPointers
+/tests/codeGen/should_run/CmmSwitchTest
 /tests/codeGen/should_run/CopySmallArray
 /tests/codeGen/should_run/CopySmallArrayStressTest
 /tests/codeGen/should_run/SizeOfSmallArray
 /tests/codeGen/should_run/StaticArraySize
 /tests/codeGen/should_run/StaticByteArraySize
+/tests/codeGen/should_run/T10245
+/tests/codeGen/should_run/T10246
+/tests/codeGen/should_run/T10414
+/tests/codeGen/should_run/T10521
+/tests/codeGen/should_run/T10521b
 /tests/codeGen/should_run/T1852
 /tests/codeGen/should_run/T1861
 /tests/codeGen/should_run/T2080
@@ -258,6 +269,7 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/codeGen/should_run/cgrun070
 /tests/codeGen/should_run/cgrun071
 /tests/codeGen/should_run/cgrun072
+/tests/codeGen/should_run/cgrun074
 /tests/codeGen/should_run/setByteArray
 /tests/concurrent/T2317/T2317
 /tests/concurrent/prog001/concprog001
@@ -281,6 +293,7 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/concurrent/should_run/5558
 /tests/concurrent/should_run/5611
 /tests/concurrent/should_run/5866
+/tests/concurrent/should_run/AtomicPrimops
 /tests/concurrent/should_run/T1980
 /tests/concurrent/should_run/T2910
 /tests/concurrent/should_run/T2910a
@@ -297,7 +310,11 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/concurrent/should_run/T5611
 /tests/concurrent/should_run/T5866
 /tests/concurrent/should_run/T7970
-/tests/concurrent/should_run/AtomicPrimops
+/tests/concurrent/should_run/T9379
+/tests/concurrent/should_run/allocLimit1
+/tests/concurrent/should_run/allocLimit2
+/tests/concurrent/should_run/allocLimit3
+/tests/concurrent/should_run/allocLimit4
 /tests/concurrent/should_run/allowinterrupt001
 /tests/concurrent/should_run/async001
 /tests/concurrent/should_run/compareAndSwap
@@ -368,20 +385,23 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/concurrent/should_run/readMVar2
 /tests/concurrent/should_run/readMVar3
 /tests/concurrent/should_run/setnumcapabilities001
+/tests/concurrent/should_run/threadstatus-9333
 /tests/concurrent/should_run/throwto001
 /tests/concurrent/should_run/throwto002
 /tests/concurrent/should_run/throwto003
 /tests/concurrent/should_run/tryReadMVar1
 /tests/concurrent/should_run/tryReadMVar2
-/tests/concurrent/should_run/threadstatus-9333
 /tests/cpranal/should_run/CPRRepeat
 /tests/deSugar/should_run/DsLambdaCase
 /tests/deSugar/should_run/DsMultiWayIf
+/tests/deSugar/should_run/DsStaticPointers
+/tests/deSugar/should_run/DsStrictData
 /tests/deSugar/should_run/T246
 /tests/deSugar/should_run/T3126
 /tests/deSugar/should_run/T3382
 /tests/deSugar/should_run/T5742
 /tests/deSugar/should_run/T8952
+/tests/deSugar/should_run/T9844
 /tests/deSugar/should_run/dsrun001
 /tests/deSugar/should_run/dsrun002
 /tests/deSugar/should_run/dsrun003
@@ -413,6 +433,8 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/deSugar/should_run/mc06
 /tests/deSugar/should_run/mc07
 /tests/deSugar/should_run/mc08
+/tests/deriving/should_run/T10104
+/tests/deriving/should_run/T10447
 /tests/deriving/should_run/T2529
 /tests/deriving/should_run/T4136
 /tests/deriving/should_run/T4528a
@@ -420,7 +442,8 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/deriving/should_run/T5628
 /tests/deriving/should_run/T5712
 /tests/deriving/should_run/T7931
-/tests/deriving/should_run/T8280
+/tests/deriving/should_run/T9576
+/tests/deriving/should_run/T9830
 /tests/deriving/should_run/drvrun-foldable1
 /tests/deriving/should_run/drvrun-functor1
 /tests/deriving/should_run/drvrun001
@@ -530,11 +553,13 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/driver/T706.hs
 /tests/driver/T7060dump/
 /tests/driver/T7373/package.conf
+/tests/driver/T7373/package.conf.d/
 /tests/driver/T7373/pkg/Setup
 /tests/driver/T7373/pkg/dist/
 /tests/driver/T7835/Test
 /tests/driver/T8526/A.inc
 /tests/driver/T8602/t8602.sh
+/tests/driver/T9562/Main
 /tests/driver/Test.081b
 /tests/driver/Test.081b.hs
 /tests/driver/Test_081a
@@ -601,11 +626,19 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/driver/recomp012/Main
 /tests/driver/recomp012/Main.hs
 /tests/driver/recomp012/MyBool.hs
+/tests/driver/recomp013/A.hs
+/tests/driver/recomp013/B.hs
+/tests/driver/recomp013/C.hs
 /tests/driver/recomp014/A.hs
 /tests/driver/recomp014/A1.hs
 /tests/driver/recomp014/B.hsig
+/tests/driver/recomp014/B.hs-boot
 /tests/driver/recomp014/C.hs
 /tests/driver/recomp014/recomp014
+/tests/driver/retc001/B.hs
+/tests/driver/retc001/C
+/tests/driver/retc003/Data/
+/tests/driver/retc003/err
 /tests/driver/rtsOpts
 /tests/driver/rtsopts002
 /tests/driver/sigof01/Main
@@ -626,7 +659,6 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/dynlibs/T5373B
 /tests/dynlibs/T5373C
 /tests/dynlibs/T5373D
-/tests/ext-core/T7239.hcr
 /tests/ffi/should_run/1288
 /tests/ffi/should_run/1679
 /tests/ffi/should_run/2276
@@ -678,6 +710,7 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/ffi/should_run/ffi020
 /tests/ffi/should_run/ffi021
 /tests/ffi/should_run/ffi022
+/tests/ffi/should_run/ffi023
 /tests/ffi/should_run/ffi_parsing_001
 /tests/ffi/should_run/fptr01
 /tests/ffi/should_run/fptr02
@@ -700,7 +733,12 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/generics/GMap/GMap1
 /tests/generics/GShow/GShow1
 /tests/generics/GenNewtype
+/tests/generics/T10030
+/tests/generics/T5462Yes1
+/tests/generics/T5462Yes2
 /tests/generics/Uniplate/GUniplate1
+/tests/ghc-api/T10052/T10052
+/tests/ghc-api/T10508_api
 /tests/ghc-api/T4891/T4891
 /tests/ghc-api/T6145
 /tests/ghc-api/T7478/A
@@ -1032,6 +1070,7 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/numeric/should_run/4383
 /tests/numeric/should_run/CarryOverflow
 /tests/numeric/should_run/NumDecimals
+/tests/numeric/should_run/T10011
 /tests/numeric/should_run/T3676
 /tests/numeric/should_run/T4381
 /tests/numeric/should_run/T4383
@@ -1098,6 +1137,10 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/parser/unicode/T6016
 /tests/parser/unicode/T6016-twoBOMs
 /tests/parser/unicode/utf8_024
+/tests/patsyn/should_compile/A.hs
+/tests/patsyn/should_compile/B.hs
+/tests/patsyn/should_compile/T8584-1a.hs
+/tests/patsyn/should_run/T9783
 /tests/patsyn/should_run/bidir-explicit
 /tests/patsyn/should_run/bidir-explicit-scope
 /tests/patsyn/should_run/eval
@@ -1184,9 +1227,15 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/perf/space_leaks/T4334.stats
 /tests/perf/space_leaks/space_leak_001
 /tests/perf/space_leaks/space_leak_001.stats
+/tests/plugins/T10420
+/tests/plugins/annotation-plugin/pkg.T10294/
+/tests/plugins/annotation-plugin/pkg.T10294a/
 /tests/plugins/plugins01
 /tests/plugins/plugins05
 /tests/plugins/plugins06
+/tests/plugins/plugins07
+/tests/plugins/rule-defining-plugin/pkg.T10420/
+/tests/plugins/rule-defining-plugin/pkg.plugins07/
 /tests/plugins/simple-plugin/dist/
 /tests/plugins/simple-plugin/install/
 /tests/plugins/simple-plugin/local.package.conf
@@ -1199,8 +1248,10 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/polykinds/MonoidsTF
 /tests/polykinds/PolyKinds09
 /tests/polykinds/PolyKinds10
+/tests/primops/should_run/T10481
 /tests/primops/should_run/T6135
 /tests/primops/should_run/T7689
+/tests/primops/should_run/T9430
 /tests/profiling/should_compile/prof001
 /tests/profiling/should_compile/prof002
 /tests/profiling/should_run/2592
@@ -1292,6 +1343,9 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/rts/5644/5644
 /tests/rts/5993
 /tests/rts/7087
+/tests/rts/GcStaticPointers
+/tests/rts/ListStaticPointers
+/tests/rts/T10590
 /tests/rts/T2047
 /tests/rts/T2615
 /tests/rts/T2783
@@ -1330,7 +1384,6 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/rts/bug1010
 /tests/rts/derefnull
 /tests/rts/divbyzero
-/tests/rts/rdynamic
 /tests/rts/exec_signals
 /tests/rts/exec_signals_child
 /tests/rts/exec_signals_prepare
@@ -1343,6 +1396,7 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/rts/overflow2
 /tests/rts/overflow3
 /tests/rts/prep.out
+/tests/rts/rdynamic
 /tests/rts/return_mem_to_os
 /tests/rts/rtsflags001
 /tests/rts/rtsflags002
@@ -1382,6 +1436,7 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/simplCore/should_compile/T4138.simpl
 /tests/simplCore/should_compile/T7702plugin/pkg.T7702/
 /tests/simplCore/should_compile/T7796.prep
+/tests/simplCore/should_fail/T7411
 /tests/simplCore/should_run/SeqRule
 /tests/simplCore/should_run/T2110
 /tests/simplCore/should_run/T2756
@@ -1405,6 +1460,7 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/simplCore/should_run/T7101
 /tests/simplCore/should_run/T7924
 /tests/simplCore/should_run/T9128
+/tests/simplCore/should_run/T9390
 /tests/simplCore/should_run/runST
 /tests/simplCore/should_run/simplrun001
 /tests/simplCore/should_run/simplrun002
@@ -1459,7 +1515,9 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/typecheck/should_fail/T3468.o-boot
 /tests/typecheck/should_fail/tcfail149
 /tests/typecheck/should_run/Defer01
+/tests/typecheck/should_run/IPLocation
 /tests/typecheck/should_run/IPRun
+/tests/typecheck/should_run/T10284
 /tests/typecheck/should_run/T1624
 /tests/typecheck/should_run/T1735
 /tests/typecheck/should_run/T2722
@@ -1480,6 +1538,11 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/typecheck/should_run/T7861
 /tests/typecheck/should_run/T8492
 /tests/typecheck/should_run/T8739
+/tests/typecheck/should_run/T9497a-run
+/tests/typecheck/should_run/T9497b-run
+/tests/typecheck/should_run/T9497c-run
+/tests/typecheck/should_run/T9858c
+/tests/typecheck/should_run/T9858d
 /tests/typecheck/should_run/TcCoercible
 /tests/typecheck/should_run/TcNullaryTC
 /tests/typecheck/should_run/TcTypeNatSimpleRun
@@ -1536,8 +1599,6 @@ mk/ghcconfig*_inplace_bin_ghc-stage2.exe.mk
 /tests/typecheck/should_run/tcrun051
 /tests/typecheck/should_run/testeq2
 /tests/typecheck/testeq1/typecheck.testeq1
-/tests/concurrent/should_run/T9379
-/tests/simplCore/should_run/T9390
 /timeout/calibrate.out
 /timeout/dist/
 /timeout/install-inplace/

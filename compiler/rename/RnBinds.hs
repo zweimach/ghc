@@ -45,6 +45,7 @@ import ListSetOps       ( findDupsEq )
 import BasicTypes       ( RecFlag(..) )
 import Digraph          ( SCC(..) )
 import Bag
+import Util
 import Outputable
 import FastString
 import Data.List        ( partition, sort )
@@ -176,7 +177,7 @@ rnTopBindsRHS bound_names binds
   = do { is_boot <- tcIsHsBootOrSig
        ; if is_boot
          then rnTopBindsBoot binds
-         else rnValBindsRHS (TopSigCtxt bound_names False) binds }
+         else rnValBindsRHS (TopSigCtxt bound_names) binds }
 
 rnTopBindsBoot :: HsValBindsLR Name RdrName -> RnM (HsValBinds Name, DefUses)
 -- A hs-boot file has no bindings.
@@ -196,13 +197,13 @@ rnTopBindsBoot b = pprPanic "rnTopBindsBoot" (ppr b)
 -}
 
 rnLocalBindsAndThen :: HsLocalBinds RdrName
-                    -> (HsLocalBinds Name -> RnM (result, FreeVars))
+                    -> (HsLocalBinds Name -> FreeVars -> RnM (result, FreeVars))
                     -> RnM (result, FreeVars)
 -- This version (a) assumes that the binding vars are *not* already in scope
 --               (b) removes the binders from the free vars of the thing inside
 -- The parser doesn't produce ThenBinds
-rnLocalBindsAndThen EmptyLocalBinds thing_inside
-  = thing_inside EmptyLocalBinds
+rnLocalBindsAndThen EmptyLocalBinds thing_inside =
+  thing_inside EmptyLocalBinds emptyNameSet
 
 rnLocalBindsAndThen (HsValBinds val_binds) thing_inside
   = rnLocalValBindsAndThen val_binds $ \ val_binds' ->
@@ -210,7 +211,7 @@ rnLocalBindsAndThen (HsValBinds val_binds) thing_inside
 
 rnLocalBindsAndThen (HsIPBinds binds) thing_inside = do
     (binds',fv_binds) <- rnIPBinds binds
-    (thing, fvs_thing) <- thing_inside (HsIPBinds binds')
+    (thing, fvs_thing) <- thing_inside (HsIPBinds binds') fv_binds
     return (thing, fvs_thing `plusFV` fv_binds)
 
 rnIPBinds :: HsIPBinds RdrName -> RnM (HsIPBinds Name, FreeVars)
@@ -258,6 +259,9 @@ rnLocalValBindsLHS fix_env binds
          --   g = let f = ... in f
          -- should.
        ; let bound_names = collectHsValBinders binds'
+             -- There should be only Ids, but if there are any bogus
+             -- pattern synonyms, we'll collect them anyway, so that
+             -- we don't generate subsequent out-of-scope messages
        ; envs <- getRdrEnvs
        ; checkDupAndShadowedNames envs bound_names
 
@@ -318,9 +322,10 @@ rnLocalValBindsRHS bound_names binds
 --
 -- here there are no local fixity decls passed in;
 -- the local fixity decls come from the ValBinds sigs
-rnLocalValBindsAndThen :: HsValBinds RdrName
-                       -> (HsValBinds Name -> RnM (result, FreeVars))
-                       -> RnM (result, FreeVars)
+rnLocalValBindsAndThen
+  :: HsValBinds RdrName
+  -> (HsValBinds Name -> FreeVars -> RnM (result, FreeVars))
+  -> RnM (result, FreeVars)
 rnLocalValBindsAndThen binds@(ValBindsIn _ sigs) thing_inside
  = do   {     -- (A) Create the local fixity environment
           new_fixities <- makeMiniFixityEnv [L loc sig
@@ -335,7 +340,7 @@ rnLocalValBindsAndThen binds@(ValBindsIn _ sigs) thing_inside
 
         {      -- (C) Do the RHS and thing inside
           (binds', dus) <- rnLocalValBindsRHS (mkNameSet bound_names) new_lhs
-        ; (result, result_fvs) <- thing_inside binds'
+        ; (result, result_fvs) <- thing_inside binds' (allUses dus)
 
                 -- Report unused bindings based on the (accurate)
                 -- findUses.  E.g.
@@ -374,42 +379,6 @@ rnLocalValBindsAndThen binds@(ValBindsIn _ sigs) thing_inside
 rnLocalValBindsAndThen bs _ = pprPanic "rnLocalValBindsAndThen" (ppr bs)
 
 
--- Process the fixity declarations, making a FastString -> (Located Fixity) map
--- (We keep the location around for reporting duplicate fixity declarations.)
---
--- Checks for duplicates, but not that only locally defined things are fixed.
--- Note: for local fixity declarations, duplicates would also be checked in
---       check_sigs below.  But we also use this function at the top level.
-
-makeMiniFixityEnv :: [LFixitySig RdrName] -> RnM MiniFixityEnv
-
-makeMiniFixityEnv decls = foldlM add_one_sig emptyFsEnv decls
- where
-   add_one_sig env (L loc (FixitySig names fixity)) =
-     foldlM add_one env [ (loc,name_loc,name,fixity)
-                        | L name_loc name <- names ]
-
-   add_one env (loc, name_loc, name,fixity) = do
-     { -- this fixity decl is a duplicate iff
-       -- the ReaderName's OccName's FastString is already in the env
-       -- (we only need to check the local fix_env because
-       --  definitions of non-local will be caught elsewhere)
-       let { fs = occNameFS (rdrNameOcc name)
-           ; fix_item = L loc fixity };
-
-       case lookupFsEnv env fs of
-         Nothing -> return $ extendFsEnv env fs fix_item
-         Just (L loc' _) -> do
-           { setSrcSpan loc $
-             addErrAt name_loc (dupFixityDecl loc' name)
-           ; return env}
-     }
-
-dupFixityDecl :: SrcSpan -> RdrName -> SDoc
-dupFixityDecl loc rdr_name
-  = vcat [ptext (sLit "Multiple fixity declarations for") <+> quotes (ppr rdr_name),
-          ptext (sLit "also at ") <+> ppr loc]
-
 ---------------------
 
 -- renaming a single bind
@@ -431,22 +400,27 @@ rnBindLHS name_maker _ bind@(PatBind { pat_lhs = pat })
                 -- gets updated to the FVs of the whole bind
                 -- when doing the RHS below
 
-rnBindLHS name_maker _ bind@(FunBind { fun_id = name@(L nameLoc _) })
-  = do { newname <- applyNameMaker name_maker name
-       ; return (bind { fun_id = L nameLoc newname
+rnBindLHS name_maker _ bind@(FunBind { fun_id = rdr_name })
+  = do { name <- applyNameMaker name_maker rdr_name
+       ; return (bind { fun_id   = name
                       , bind_fvs = placeHolderNamesTc }) }
 
-rnBindLHS name_maker _ (PatSynBind psb@PSB{ psb_id = rdrname@(L nameLoc _) })
-  = do { unless (isTopRecNameMaker name_maker) $
-           addErr localPatternSynonymErr
-       ; addLocM checkConName rdrname
+rnBindLHS name_maker _ (PatSynBind psb@PSB{ psb_id = rdrname })
+  | isTopRecNameMaker name_maker
+  = do { addLocM checkConName rdrname
+       ; name <- lookupLocatedTopBndrRn rdrname   -- Should be in scope already
+       ; return (PatSynBind psb{ psb_id = name }) }
+
+  | otherwise  -- Pattern synonym, not at top level
+  = do { addErr localPatternSynonymErr  -- Complain, but make up a fake
+                                        -- name so that we can carry on
        ; name <- applyNameMaker name_maker rdrname
-       ; return (PatSynBind psb{ psb_id = L nameLoc name }) }
+       ; return (PatSynBind psb{ psb_id = name }) }
   where
     localPatternSynonymErr :: SDoc
     localPatternSynonymErr
-      = hang (ptext (sLit "Illegal pattern synonym declaration"))
-           2 (ptext (sLit "Pattern synonym declarations are only valid in the top-level scope"))
+      = hang (ptext (sLit "Illegal pattern synonym declaration for") <+> quotes (ppr rdrname))
+           2 (ptext (sLit "Pattern synonym declarations are only valid at top level"))
 
 rnBindLHS _ _ b = pprPanic "rnBindHS" (ppr b)
 
@@ -489,7 +463,7 @@ rnBind _ bind@(PatBind { pat_lhs = pat
         -- which (a) is not that different from  _v = rhs
         --       (b) is sometimes used to give a type sig for,
         --           or an occurrence of, a variable on the RHS
-        ; whenWOptM Opt_WarnUnusedBinds $
+        ; whenWOptM Opt_WarnUnusedPatternBinds $
           when (null bndrs && not is_wild_pat) $
           addWarn $ unusedPatBindWarn bind'
 
@@ -539,6 +513,120 @@ and we don't want to retain the list bound_names. This showed up in
 trac ticket #1136.
 -}
 
+{- *********************************************************************
+*                                                                      *
+          Dependency analysis and other support functions
+*                                                                      *
+********************************************************************* -}
+
+depAnalBinds :: Bag (LHsBind Name, [Name], Uses)
+             -> ([(RecFlag, LHsBinds Name)], DefUses)
+-- Dependency analysis; this is important so that
+-- unused-binding reporting is accurate
+depAnalBinds binds_w_dus
+  = (map get_binds sccs, map get_du sccs)
+  where
+    sccs = depAnal (\(_, defs, _) -> defs)
+                   (\(_, _, uses) -> nameSetElems uses)
+                   (bagToList binds_w_dus)
+
+    get_binds (AcyclicSCC (bind, _, _)) = (NonRecursive, unitBag bind)
+    get_binds (CyclicSCC  binds_w_dus)  = (Recursive, listToBag [b | (b,_,_) <- binds_w_dus])
+
+    get_du (AcyclicSCC (_, bndrs, uses)) = (Just (mkNameSet bndrs), uses)
+    get_du (CyclicSCC  binds_w_dus)      = (Just defs, uses)
+        where
+          defs = mkNameSet [b | (_,bs,_) <- binds_w_dus, b <- bs]
+          uses = unionNameSets [u | (_,_,u) <- binds_w_dus]
+
+---------------------
+-- Bind the top-level forall'd type variables in the sigs.
+-- E.g  f :: a -> a
+--      f = rhs
+--      The 'a' scopes over the rhs
+--
+-- NB: there'll usually be just one (for a function binding)
+--     but if there are many, one may shadow the rest; too bad!
+--      e.g  x :: [a] -> [a]
+--           y :: [(a,a)] -> a
+--           (x,y) = e
+--      In e, 'a' will be in scope, and it'll be the one from 'y'!
+
+mkSigTvFn :: [LSig Name] -> (Name -> [Name])
+-- Return a lookup function that maps an Id Name to the names
+-- of the type variables that should scope over its body..
+mkSigTvFn sigs
+  = \n -> lookupNameEnv env n `orElse` []
+  where
+    extractScopedTyVars :: LHsType Name -> [Name]
+    extractScopedTyVars (L _ (HsForAllTy Explicit _ ltvs _ _)) = hsLKiTyVarNames ltvs
+    extractScopedTyVars _ = []
+
+    env :: NameEnv [Name]
+    env = mkNameEnv [ (name, nwcs ++ extractScopedTyVars ty)  -- Kind variables and type variables
+                      -- nwcs: see Note [Scoping of named wildcards]
+                    | L _ (TypeSig names ty nwcs) <- sigs
+                    , L _ name <- names]
+        -- Note the pattern-match on "Explicit"; we only bind
+        -- type variables from signatures with an explicit top-level for-all
+
+
+{- Note [Scoping of named wildcards]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider
+  f :: _a -> _a
+  f x = let g :: _a -> _a
+            g = ...
+        in ...
+
+Currently, for better or worse, the "_a" variables are all the same. So
+although there is no explicit forall, the "_a" scopes over the definition.
+I don't know if this is a good idea, but there it is.
+-}
+
+-- Process the fixity declarations, making a FastString -> (Located Fixity) map
+-- (We keep the location around for reporting duplicate fixity declarations.)
+--
+-- Checks for duplicates, but not that only locally defined things are fixed.
+-- Note: for local fixity declarations, duplicates would also be checked in
+--       check_sigs below.  But we also use this function at the top level.
+
+makeMiniFixityEnv :: [LFixitySig RdrName] -> RnM MiniFixityEnv
+
+makeMiniFixityEnv decls = foldlM add_one_sig emptyFsEnv decls
+ where
+   add_one_sig env (L loc (FixitySig names fixity)) =
+     foldlM add_one env [ (loc,name_loc,name,fixity)
+                        | L name_loc name <- names ]
+
+   add_one env (loc, name_loc, name,fixity) = do
+     { -- this fixity decl is a duplicate iff
+       -- the ReaderName's OccName's FastString is already in the env
+       -- (we only need to check the local fix_env because
+       --  definitions of non-local will be caught elsewhere)
+       let { fs = occNameFS (rdrNameOcc name)
+           ; fix_item = L loc fixity };
+
+       case lookupFsEnv env fs of
+         Nothing -> return $ extendFsEnv env fs fix_item
+         Just (L loc' _) -> do
+           { setSrcSpan loc $
+             addErrAt name_loc (dupFixityDecl loc' name)
+           ; return env}
+     }
+
+dupFixityDecl :: SrcSpan -> RdrName -> SDoc
+dupFixityDecl loc rdr_name
+  = vcat [ptext (sLit "Multiple fixity declarations for") <+> quotes (ppr rdr_name),
+          ptext (sLit "also at ") <+> ppr loc]
+
+
+{- *********************************************************************
+*                                                                      *
+                Pattern synonym bindings
+*                                                                      *
+********************************************************************* -}
+
 rnPatSynBind :: (Name -> [Name])                -- Signature tyvar function
              -> PatSynBind Name RdrName
              -> RnM (PatSynBind Name Name, [Name], Uses)
@@ -587,7 +675,7 @@ rnPatSynBind _sig_fn bind@(PSB { psb_id = L _ name
 
         ; fvs' `seq` -- See Note [Free-variable space leak]
           return (bind', [name], fvs1)
-          -- See Note [Pattern synonym wrappers don't yield dependencies]
+          -- See Note [Pattern synonym builders don't yield dependencies]
       }
   where
     lookupVar = wrapLocM lookupOccRn
@@ -598,10 +686,10 @@ rnPatSynBind _sig_fn bind@(PSB { psb_id = L _ name
            2 (ptext (sLit "Use -XPatternSynonyms to enable this extension"))
 
 {-
-Note [Pattern synonym wrappers don't yield dependencies]
+Note [Pattern synonym builders don't yield dependencies]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When renaming a pattern synonym that has an explicit wrapper,
-references in the wrapper definition should not be used when
+When renaming a pattern synonym that has an explicit builder,
+references in the builder definition should not be used when
 calculating dependencies. For example, consider the following pattern
 synonym definition:
 
@@ -614,9 +702,9 @@ In this case, 'P' needs to be typechecked in two passes:
 
 1. Typecheck the pattern definition of 'P', which fully determines the
 type of 'P'. This step doesn't require knowing anything about 'f',
-since the wrapper definition is not looked at.
+since the builder definition is not looked at.
 
-2. Typecheck the wrapper definition, which needs the typechecked
+2. Typecheck the builder definition, which needs the typechecked
 definition of 'f' to be in scope.
 
 This behaviour is implemented in 'tcValBinds', but it crucially
@@ -626,59 +714,13 @@ P' which is unsound and rejected).
 
 -}
 
----------------------
-depAnalBinds :: Bag (LHsBind Name, [Name], Uses)
-             -> ([(RecFlag, LHsBinds Name)], DefUses)
--- Dependency analysis; this is important so that
--- unused-binding reporting is accurate
-depAnalBinds binds_w_dus
-  = (map get_binds sccs, map get_du sccs)
-  where
-    sccs = depAnal (\(_, defs, _) -> defs)
-                   (\(_, _, uses) -> nameSetElems uses)
-                   (bagToList binds_w_dus)
+{- *********************************************************************
+*                                                                      *
+                Class/instance method bindings
+*                                                                      *
+********************************************************************* -}
 
-    get_binds (AcyclicSCC (bind, _, _)) = (NonRecursive, unitBag bind)
-    get_binds (CyclicSCC  binds_w_dus)  = (Recursive, listToBag [b | (b,_,_) <- binds_w_dus])
-
-    get_du (AcyclicSCC (_, bndrs, uses)) = (Just (mkNameSet bndrs), uses)
-    get_du (CyclicSCC  binds_w_dus)      = (Just defs, uses)
-        where
-          defs = mkNameSet [b | (_,bs,_) <- binds_w_dus, b <- bs]
-          uses = unionNameSets [u | (_,_,u) <- binds_w_dus]
-
----------------------
--- Bind the top-level forall'd type variables in the sigs.
--- E.g  f :: a -> a
---      f = rhs
---      The 'a' scopes over the rhs
---
--- NB: there'll usually be just one (for a function binding)
---     but if there are many, one may shadow the rest; too bad!
---      e.g  x :: [a] -> [a]
---           y :: [(a,a)] -> a
---           (x,y) = e
---      In e, 'a' will be in scope, and it'll be the one from 'y'!
-
-mkSigTvFn :: [LSig Name] -> (Name -> [Name])
--- Return a lookup function that maps an Id Name to the names
--- of the type variables that should scope over its body..
-mkSigTvFn sigs
-  = \n -> lookupNameEnv env n `orElse` []
-  where
-    extractScopedTyVars :: LHsType Name -> [Name]
-    extractScopedTyVars (L _ (HsForAllTy Explicit _ ltvs _ _)) = hsLKiTyVarNames ltvs
-    extractScopedTyVars _ = []
-
-    env :: NameEnv [Name]
-    env = mkNameEnv [ (name, nwcs ++ extractScopedTyVars ty)  -- Kind variables and type variables
-                    | L _ (TypeSig names ty nwcs) <- sigs
-                    , L _ name <- names]
-        -- Note the pattern-match on "Explicit"; we only bind
-        -- type variables from signatures with an explicit top-level for-all
-
-{-
-@rnMethodBinds@ is used for the method bindings of a class and an instance
+{- @rnMethodBinds@ is used for the method bindings of a class and an instance
 declaration.   Like @rnBinds@ but without dependency analysis.
 
 NOTA BENE: we record each {\em binder} of a method-bind group as a free variable.
@@ -694,13 +736,17 @@ in many ways the @op@ in an instance decl is just like an occurrence, not
 a binder.
 -}
 
-rnMethodBinds :: Name                   -- Class name
-              -> (Name -> [Name])       -- Signature tyvar function
-              -> LHsBinds RdrName
-              -> RnM (LHsBinds Name, FreeVars)
-
-rnMethodBinds cls sig_fn binds
-  = do { checkDupRdrNames meth_names
+rnMethodBinds :: Bool                   -- True <=> is a class declaration
+              -> Name                   -- Class name
+              -> [Name]                 -- Type variables from the class/instance header
+              -> LHsBinds RdrName       -- Binds
+              -> [LSig RdrName]         -- and signatures/pragmas
+              -> RnM (LHsBinds Name, [LSig Name], FreeVars)
+-- Used for
+--   * the default method bindings in a class decl
+--   * the method bindings in an instance decl
+rnMethodBinds is_cls_decl cls ktv_names binds sigs
+  = do { checkDupRdrNames (collectMethodBinders binds)
              -- Check that the same method is not given twice in the
              -- same instance decl      instance C T where
              --                       f x = ...
@@ -711,49 +757,70 @@ rnMethodBinds cls sig_fn binds
              -- points to the class declaration; and we use rnMethodBinds
              -- for instance decls too
 
-       ; foldlM do_one (emptyBag, emptyFVs) (bagToList binds) }
+       -- Rename the bindings LHSs
+       ; binds' <- foldrBagM (rnMethodBindLHS is_cls_decl cls) emptyBag binds
+
+       -- Rename the pragmas and signatures
+       -- Annoyingly the type variables /are/ in scope for signatures, but
+       -- /are not/ in scope in the SPECIALISE instance pramas; e.g.
+       --    instance Eq a => Eq (T a) where
+       --       (==) :: a -> a -> a
+       --       {-# SPECIALISE instance Eq a => Eq (T [a]) #-}
+       ; let (spec_inst_prags, other_sigs) = partition isSpecInstLSig sigs
+             bound_nms = mkNameSet (collectHsBindsBinders binds')
+             sig_ctxt | is_cls_decl = ClsDeclCtxt cls
+                      | otherwise   = InstDeclCtxt bound_nms
+       ; (spec_inst_prags', sip_fvs) <- renameSigs sig_ctxt spec_inst_prags
+       ; (other_sigs',      sig_fvs) <- extendTyVarEnvFVRn ktv_names $
+                                        renameSigs sig_ctxt other_sigs
+
+       -- Rename the bindings RHSs.  Again there's an issue about whether the
+       -- type variables from the class/instance head are in scope.
+       -- Answer no in Haskell 2010, but yes if you have -XScopedTypeVariables
+       ; scoped_tvs  <- xoptM Opt_ScopedTypeVariables
+       ; (binds'', bind_fvs) <- maybe_extend_tyvar_env scoped_tvs $
+              do { binds_w_dus <- mapBagM (rnLBind (mkSigTvFn other_sigs')) binds'
+                 ; let bind_fvs = foldrBag (\(_,_,fv1) fv2 -> fv1 `plusFV` fv2)
+                                           emptyFVs binds_w_dus
+                 ; return (mapBag fstOf3 binds_w_dus, bind_fvs) }
+
+       ; return ( binds'', spec_inst_prags' ++ other_sigs'
+                , sig_fvs `plusFV` sip_fvs `plusFV` bind_fvs) }
   where
-    meth_names  = collectMethodBinders binds
-    do_one (binds,fvs) bind
-       = do { (bind', fvs_bind) <- rnMethodBind cls sig_fn bind
-            ; return (binds `unionBags` bind', fvs_bind `plusFV` fvs) }
+    -- For the method bindings in class and instance decls, we extend
+    -- the type variable environment iff -XScopedTypeVariables
+    maybe_extend_tyvar_env scoped_tvs thing_inside
+       | scoped_tvs = extendTyVarEnvFVRn ktv_names thing_inside
+       | otherwise  = thing_inside
 
-rnMethodBind :: Name
-              -> (Name -> [Name])
-              -> LHsBindLR RdrName RdrName
-              -> RnM (Bag (LHsBindLR Name Name), FreeVars)
-rnMethodBind cls sig_fn
-             (L loc bind@(FunBind { fun_id = name, fun_infix = is_infix
-                                  , fun_matches = MG { mg_alts = matches
-                                                     , mg_origin = origin } }))
+rnMethodBindLHS :: Bool -> Name
+                -> LHsBindLR RdrName RdrName
+                -> LHsBindsLR Name RdrName
+                -> RnM (LHsBindsLR Name RdrName)
+rnMethodBindLHS _ cls (L loc bind@(FunBind { fun_id = name })) rest
   = setSrcSpan loc $ do
-    sel_name <- wrapLocM (lookupInstDeclBndr cls (ptext (sLit "method"))) name
-    let plain_name = unLoc sel_name
-        -- We use the selector name as the binder
+    do { sel_name <- wrapLocM (lookupInstDeclBndr cls (ptext (sLit "method"))) name
+                     -- We use the selector name as the binder
+       ; let bind' = bind { fun_id = sel_name
+                          , bind_fvs = placeHolderNamesTc }
 
-    (new_matches, fvs) <- bindSigTyVarsFV (sig_fn plain_name) $
-                          mapFvRn (rnMatch (FunRhs plain_name is_infix) rnLExpr)
-                                           matches
-    let new_group = mkMatchGroupName origin new_matches
+       ; return (L loc bind' `consBag` rest ) }
 
-    when is_infix $ checkPrecMatch plain_name new_group
-    return (unitBag (L loc (bind { fun_id      = sel_name
-                                 , fun_matches = new_group
-                                 , bind_fvs    = fvs })),
-             fvs `addOneFV` plain_name)
-        -- The 'fvs' field isn't used for method binds
-
--- Can't handle method pattern-bindings which bind multiple methods.
-rnMethodBind _ _ (L loc bind@(PatBind {})) = do
-    addErrAt loc (methodBindErr bind)
-    return (emptyBag, emptyFVs)
-
--- Associated pattern synonyms are not implemented yet
-rnMethodBind _ _ (L loc bind@(PatSynBind {})) = do
-    addErrAt loc $ methodPatSynErr bind
-    return (emptyBag, emptyFVs)
-
-rnMethodBind _ _ b = pprPanic "rnMethodBind" (ppr b)
+-- Report error for all other forms of bindings
+-- This is why we use a fold rather than map
+rnMethodBindLHS is_cls_decl _ (L loc bind) rest
+  = do { addErrAt loc $
+         vcat [ what <+> ptext (sLit "not allowed in") <+> decl_sort
+              , nest 2 (ppr bind) ]
+       ; return rest }
+  where
+    decl_sort | is_cls_decl = ptext (sLit "class declaration:")
+              | otherwise   = ptext (sLit "instance declaration:")
+    what = case bind of
+              PatBind {}    -> ptext (sLit "Pattern bindings (except simple variables)")
+              PatSynBind {} -> ptext (sLit "Pattern synonyms")
+                               -- Associated pattern synonyms are not implemented yet
+              _ -> pprPanic "rnMethodBind" (ppr bind)
 
 {-
 ************************************************************************
@@ -805,11 +872,17 @@ renameSig _ (IdSig x)
 
 renameSig ctxt sig@(TypeSig vs ty _)
   = do  { new_vs <- mapM (lookupSigOccRn ctxt sig) vs
-        -- (named and anonymous) wildcards are bound here.
-        ; (wcs, ty') <- extractWildcards ty
-        ; bindLocatedLocalsFV wcs $ \wcs_new -> do {
-          (new_ty, fvs) <- rnHsSigType (ppr_sig_bndrs vs) ty'
-        ; return (TypeSig new_vs new_ty wcs_new, fvs) } }
+        ; let doc = ppr_sig_bndrs vs
+              wildCardsAllowed = case ctxt of
+                TopSigCtxt _    -> True
+                LocalBindCtxt _ -> True
+                _               -> False
+        ; (new_ty, fvs, wcs)
+            <- if wildCardsAllowed
+               then rnHsSigTypeWithWildCards doc ty
+               else do { (new_ty, fvs) <- rnHsSigType doc ty
+                       ; return (new_ty, fvs, []) }
+        ; return (TypeSig new_vs new_ty wcs, fvs) }
 
 renameSig ctxt sig@(GenericSig vs ty)
   = do  { defaultSigs_on <- xoptM Opt_DefaultSignatures
@@ -818,9 +891,9 @@ renameSig ctxt sig@(GenericSig vs ty)
         ; (new_ty, fvs) <- rnHsSigType (ppr_sig_bndrs vs) ty
         ; return (GenericSig new_v new_ty, fvs) }
 
-renameSig _ (SpecInstSig ty)
+renameSig _ (SpecInstSig src ty)
   = do  { (new_ty, fvs) <- rnLHsType SpecInstSigCtx ty
-        ; return (SpecInstSig new_ty,fvs) }
+        ; return (SpecInstSig src new_ty,fvs) }
 
 -- {-# SPECIALISE #-} pragmas can refer to imported Ids
 -- so, in the top-level case (when mb_names is Nothing)
@@ -846,9 +919,9 @@ renameSig ctxt sig@(FixSig (FixitySig vs f))
   = do  { new_vs <- mapM (lookupSigOccRn ctxt sig) vs
         ; return (FixSig (FixitySig new_vs f), emptyFVs) }
 
-renameSig ctxt sig@(MinimalSig bf)
+renameSig ctxt sig@(MinimalSig s bf)
   = do new_bf <- traverse (lookupSigOccRn ctxt sig) bf
-       return (MinimalSig new_bf, emptyFVs)
+       return (MinimalSig s new_bf, emptyFVs)
 
 renameSig ctxt sig@(PatSynSig v (flag, qtvs) prov req ty)
   = do  { v' <- lookupSigOccRn ctxt sig v
@@ -970,18 +1043,23 @@ rnMatch' :: Outputable (body RdrName) => HsMatchContext Name
          -> (Located (body RdrName) -> RnM (Located (body Name), FreeVars))
          -> Match RdrName (Located (body RdrName))
          -> RnM (Match Name (Located (body Name)), FreeVars)
-rnMatch' ctxt rnBody match@(Match pats maybe_rhs_sig grhss)
+rnMatch' ctxt rnBody match@(Match { m_fun_id_infix = mf, m_pats = pats
+                                  , m_type = maybe_rhs_sig, m_grhss = grhss })
   = do  {       -- Result type signatures are no longer supported
           case maybe_rhs_sig of
                 Nothing -> return ()
                 Just (L loc ty) -> addErrAt loc (resSigErr ctxt match ty)
 
                -- Now the main event
-               -- note that there are no local ficity decls for matches
+               -- Note that there are no local fixity decls for matches
         ; rnPats ctxt pats      $ \ pats' -> do
         { (grhss', grhss_fvs) <- rnGRHSs ctxt rnBody grhss
-
-        ; return (Match pats' Nothing grhss', grhss_fvs) }}
+        ; let mf' = case (ctxt,mf) of
+                      (FunRhs funid isinfix,Just (L lf _,_))
+                                                    -> Just (L lf funid,isinfix)
+                      _                             -> Nothing
+        ; return (Match { m_fun_id_infix = mf', m_pats = pats'
+                        , m_type = Nothing, m_grhss = grhss'}, grhss_fvs ) }}
 
 emptyCaseErr :: HsMatchContext Name -> SDoc
 emptyCaseErr ctxt = hang (ptext (sLit "Empty list of alternatives in") <+> pp_ctxt)
@@ -1014,7 +1092,7 @@ rnGRHSs :: HsMatchContext Name
         -> GRHSs RdrName (Located (body RdrName))
         -> RnM (GRHSs Name (Located (body Name)), FreeVars)
 rnGRHSs ctxt rnBody (GRHSs grhss binds)
-  = rnLocalBindsAndThen binds   $ \ binds' -> do
+  = rnLocalBindsAndThen binds   $ \ binds' _ -> do
     (grhss', fvGRHSs) <- mapFvRn (rnGRHS ctxt rnBody) grhss
     return (GRHSs grhss' binds', fvGRHSs)
 
@@ -1073,16 +1151,6 @@ defaultSigErr :: Sig RdrName -> SDoc
 defaultSigErr sig = vcat [ hang (ptext (sLit "Unexpected default signature:"))
                               2 (ppr sig)
                          , ptext (sLit "Use DefaultSignatures to enable default signatures") ]
-
-methodBindErr :: HsBindLR RdrName RdrName -> SDoc
-methodBindErr mbind
- =  hang (ptext (sLit "Pattern bindings (except simple variables) not allowed in instance declarations"))
-       2 (ppr mbind)
-
-methodPatSynErr :: HsBindLR RdrName RdrName -> SDoc
-methodPatSynErr mbind
- =  hang (ptext (sLit "Pattern synonyms not allowed in class/instance declarations"))
-       2 (ppr mbind)
 
 bindsInHsBootFile :: LHsBindsLR Name RdrName -> SDoc
 bindsInHsBootFile mbinds

@@ -46,6 +46,7 @@ import PrelNames
 import PrelInfo
 import PrimOp   ( allThePrimOps, primOpFixity, primOpOcc )
 import MkId     ( seqId )
+import TysPrim  ( funTyConName )
 import Rules
 import TyCon
 import Annotations
@@ -67,6 +68,7 @@ import Util
 import FastString
 import Fingerprint
 import Hooks
+import FieldLabel
 
 import Control.Monad
 import Data.IORef
@@ -190,11 +192,12 @@ checkWiredInTyCon tc
   = return ()
   | otherwise
   = do  { mod <- getModule
+        ; traceIf (text "checkWiredInTyCon" <+> ppr tc_name $$ ppr mod)
         ; ASSERT( isExternalName tc_name )
           when (mod /= nameModule tc_name)
                (initIfaceTcRn (loadWiredInHomeIface tc_name))
                 -- Don't look for (non-existent) Float.hi when
-                -- compiling Float.lhs, which mentions Float of course
+                -- compiling Float.hs, which mentions Float of course
                 -- A bit yukky to call initIfaceTcRn here
         }
   where
@@ -233,61 +236,26 @@ needWiredInHomeIface _           = False
 ************************************************************************
 -}
 
--- Note [Un-ambiguous multiple interfaces]
--- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
--- When a user writes an import statement, this usually causes a *single*
--- interface file to be loaded.  However, the game is different when
--- signatures are being imported.  Suppose in packages p and q we have
--- signatures:
---
---  module A where
---      foo :: Int
---
---  module A where
---      bar :: Int
---
--- If both packages are exposed and I am importing A, I should see a
--- "unified" signature:
---
---  module A where
---      foo :: Int
---      bar :: Int
---
--- The way we achieve this is having the module lookup for A load and return
--- multiple interface files, which we will then process as if there were
--- "multiple" imports:
---
---  import "p" A
---  import "q" A
---
--- Doing so does not cause any ambiguity, because any overlapping identifiers
--- are guaranteed to have the same name if the backing implementations of the
--- two signatures are the same (a condition which is checked by 'Packages'.)
-
-
 -- | Load the interface corresponding to an @import@ directive in
 -- source code.  On a failure, fail in the monad with an error message.
--- See Note [Un-ambiguous multiple interfaces] for why the return type
--- is @[ModIface]@
 loadSrcInterface :: SDoc
                  -> ModuleName
                  -> IsBootInterface     -- {-# SOURCE #-} ?
                  -> Maybe FastString    -- "package", if any
-                 -> RnM [ModIface]
+                 -> RnM ModIface
 
 loadSrcInterface doc mod want_boot maybe_pkg
   = do { res <- loadSrcInterface_maybe doc mod want_boot maybe_pkg
        ; case res of
-           Failed err       -> failWithTc err
-           Succeeded ifaces -> return ifaces }
+           Failed err      -> failWithTc err
+           Succeeded iface -> return iface }
 
--- | Like 'loadSrcInterface', but returns a 'MaybeErr'.  See also
--- Note [Un-ambiguous multiple interfaces]
+-- | Like 'loadSrcInterface', but returns a 'MaybeErr'.
 loadSrcInterface_maybe :: SDoc
                        -> ModuleName
                        -> IsBootInterface     -- {-# SOURCE #-} ?
                        -> Maybe FastString    -- "package", if any
-                       -> RnM (MaybeErr MsgDoc [ModIface])
+                       -> RnM (MaybeErr MsgDoc ModIface)
 
 loadSrcInterface_maybe doc mod want_boot maybe_pkg
   -- We must first find which Module this import refers to.  This involves
@@ -296,12 +264,9 @@ loadSrcInterface_maybe doc mod want_boot maybe_pkg
   -- interface; it will call the Finder again, but the ModLocation will be
   -- cached from the first search.
   = do { hsc_env <- getTopEnv
-       -- ToDo: findImportedModule should return a list of interfaces
        ; res <- liftIO $ findImportedModule hsc_env mod maybe_pkg
        ; case res of
-           Found _ mod -> fmap (fmap (:[]))
-                        . initIfaceTcRn
-                        $ loadInterface doc mod (ImportByUser want_boot)
+           Found _ mod -> initIfaceTcRn $ loadInterface doc mod (ImportByUser want_boot)
            err         -> return (Failed (cannotFindInterface (hsc_dflags hsc_env) mod err)) }
 
 -- | Load interface directly for a fully qualified 'Module'.  (This is a fairly
@@ -320,17 +285,15 @@ loadModuleInterfaces doc mods
     load mod = loadSysInterface (doc <+> parens (ppr mod)) mod
 
 -- | Loads the interface for a given Name.
+-- Should only be called for an imported name;
+-- otherwise loadSysInterface may not find the interface
 loadInterfaceForName :: SDoc -> Name -> TcRn ModIface
 loadInterfaceForName doc name
-  = do {
-    when debugIsOn $ do
-        -- Should not be called with a name from the module being compiled
-        { this_mod <- getModule
-        ; MASSERT2( not (nameIsLocalOrFrom this_mod name), ppr name <+> parens doc )
-        }
-  ; ASSERT2( isExternalName name, ppr name )
-    initIfaceTcRn $ loadSysInterface doc (nameModule name)
-  }
+  = do { when debugIsOn $  -- Check pre-condition
+         do { this_mod <- getModule
+            ; MASSERT2( not (nameIsLocalOrFrom this_mod name), ppr name <+> parens doc ) }
+      ; ASSERT2( isExternalName name, ppr name )
+        initIfaceTcRn $ loadSysInterface doc (nameModule name) }
 
 -- | Loads the interface for a given Module.
 loadInterfaceForModule :: SDoc -> Module -> TcRn ModIface
@@ -356,7 +319,7 @@ loadInterfaceForModule doc m
 
 -- | An 'IfM' function to load the home interface for a wired-in thing,
 -- so that we're sure that we see its instance declarations and rules
--- See Note [Loading instances for wired-in things] in TcIface
+-- See Note [Loading instances for wired-in things]
 loadWiredInHomeIface :: Name -> IfM lcl ()
 loadWiredInHomeIface name
   = ASSERT( isWiredInName name )
@@ -409,6 +372,7 @@ loadInterface :: SDoc -> Module -> WhereFrom
 loadInterface doc_str mod from
   = do  {       -- Read the state
           (eps,hpt) <- getEpsAndHpt
+        ; gbl_env <- getGblEnv
 
         ; traceIf (text "Considering whether to load" <+> ppr mod <+> ppr from)
 
@@ -425,7 +389,15 @@ loadInterface doc_str mod from
         -- READ THE MODULE IN
         ; read_result <- case (wantHiBootFile dflags eps mod from) of
                            Failed err             -> return (Failed err)
-                           Succeeded hi_boot_file -> findAndReadIface doc_str mod hi_boot_file
+                           Succeeded hi_boot_file ->
+                            -- Stoutly warn against an EPS-updating import
+                            -- of one's own boot file! (one-shot only)
+                            --See Note [Do not update EPS with your own hi-boot]
+                            -- in MkIface.
+                            WARN( hi_boot_file &&
+                                  fmap fst (if_rec_types gbl_env) == Just mod,
+                                  ppr mod )
+                            findAndReadIface doc_str mod hi_boot_file
         ; case read_result of {
             Failed err -> do
                 { let fake_iface = emptyModIface mod
@@ -488,11 +460,7 @@ loadInterface doc_str mod from
 
         ; updateEps_  $ \ eps ->
            if elemModuleEnv mod (eps_PIT eps) then eps else
-              case from of  -- See Note [Care with plugin imports]
-                ImportByPlugin -> eps {
-                  eps_PIT          = extendModuleEnv (eps_PIT eps) mod final_iface,
-                  eps_PTE          = addDeclsToPTE   (eps_PTE eps) new_eps_decls}
-                _              -> eps {
+                eps {
                   eps_PIT          = extendModuleEnv (eps_PIT eps) mod final_iface,
                   eps_PTE          = addDeclsToPTE   (eps_PTE eps) new_eps_decls,
                   eps_rule_base    = extendRuleBaseList (eps_rule_base eps)
@@ -548,34 +516,13 @@ wantHiBootFile dflags eps mod from
                      -- The boot-ness of the requested interface,
                      -- based on the dependencies in directly-imported modules
   where
-    this_package = thisPackage dflags == modulePackageKey mod
+    this_package = thisPackage dflags == moduleUnitId mod
 
 badSourceImport :: Module -> SDoc
 badSourceImport mod
   = hang (ptext (sLit "You cannot {-# SOURCE #-} import a module from another package"))
        2 (ptext (sLit "but") <+> quotes (ppr mod) <+> ptext (sLit "is from package")
-          <+> quotes (ppr (modulePackageKey mod)))
-
-{-
-Note [Care with plugin imports]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-When dynamically loading a plugin (via loadPluginInterface) we
-populate the same External Package State (EPS), even though plugin
-modules are to link with the compiler itself, and not with the
-compiled program.  That's fine: mostly the EPS is just a cache for
-the interace files on disk.
-
-But it's NOT ok for the RULES or instance environment.  We do not want
-to fire a RULE from the plugin on the code we are compiling, otherwise
-the code we are compiling will have a reference to a RHS of the rule
-that exists only in the compiler!  This actually happened to Daniel,
-via a RULE arising from a specialisation of (^) in the plugin.
-
-Solution: when loading plugins, do not extend the rule and instance
-environments.  We are only interested in the type environment, so that
-we can check that the plugin exports a function with the type that the
-compiler expects.
--}
+          <+> quotes (ppr (moduleUnitId mod)))
 
 -----------------------------------------------------
 --      Loading type/class/value decls
@@ -597,20 +544,18 @@ loadDecls :: Bool
           -> [(Fingerprint, IfaceDecl)]
           -> IfL [(Name,TyThing)]
 loadDecls ignore_prags ver_decls
-   = do { mod <- getIfModule
-        ; thingss <- mapM (loadDecl ignore_prags mod) ver_decls
+   = do { thingss <- mapM (loadDecl ignore_prags) ver_decls
         ; return (concat thingss)
         }
 
 loadDecl :: Bool                    -- Don't load pragmas into the decl pool
-         -> Module
           -> (Fingerprint, IfaceDecl)
           -> IfL [(Name,TyThing)]   -- The list can be poked eagerly, but the
                                     -- TyThings are forkM'd thunks
-loadDecl ignore_prags mod (_version, decl)
+loadDecl ignore_prags (_version, decl)
   = do  {       -- Populate the name cache with final versions of all
                 -- the names associated with the decl
-          main_name      <- lookupOrig mod (ifName decl)
+          main_name      <- lookupIfaceTop (ifName decl)
 
         -- Typecheck the thing, lazily
         -- NB. Firstly, the laziness is there in case we never need the
@@ -683,7 +628,7 @@ loadDecl ignore_prags mod (_version, decl)
                            Nothing    ->
                              pprPanic "loadDecl" (ppr main_name <+> ppr n $$ ppr (decl))
 
-        ; implicit_names <- mapM (lookupOrig mod) (ifaceDeclImplicitBndrs decl)
+        ; implicit_names <- mapM lookupIfaceTop (ifaceDeclImplicitBndrs decl)
 
 --         ; traceIf (text "Loading decl for " <> ppr main_name $$ ppr implicit_names)
         ; return $ (main_name, thing) :
@@ -766,7 +711,7 @@ findAndReadIface doc_str mod hi_boot_file
                                                            (ml_hi_file loc)
 
                        -- See Note [Home module load error]
-                       if thisPackage dflags == modulePackageKey mod &&
+                       if thisPackage dflags == moduleUnitId mod &&
                           not (isOneShot (ghcMode dflags))
                            then return (Failed (homeModError mod loc))
                            else do r <- read_file file_path
@@ -873,6 +818,7 @@ ghcPrimIface
     }
   where
     fixities = (getOccName seqId, Fixity 0 InfixR)  -- seq is infixr 0
+             : (occName funTyConName, funTyFixity)  -- trac #10145
              : mapMaybe mkFixity allThePrimOps
     mkFixity op = (,) (primOpOcc op) <$> primOpFixity op
 
@@ -921,7 +867,7 @@ pprModIface :: ModIface -> SDoc
 -- Show a ModIface
 pprModIface iface
  = vcat [ ptext (sLit "interface")
-                <+> ppr (mi_module iface) <+> pp_boot
+                <+> ppr (mi_module iface) <+> pp_hsc_src (mi_hsc_src iface)
                 <+> (if mi_orphan iface then ptext (sLit "[orphan module]") else Outputable.empty)
                 <+> (if mi_finsts iface then ptext (sLit "[family instance module]") else Outputable.empty)
                 <+> (if mi_hpc    iface then ptext (sLit "[hpc]") else Outputable.empty)
@@ -950,8 +896,9 @@ pprModIface iface
         , pprTrustPkg (mi_trust_pkg iface)
         ]
   where
-    pp_boot | mi_boot iface = ptext (sLit "[boot]")
-            | otherwise     = Outputable.empty
+    pp_hsc_src HsBootFile = ptext (sLit "[boot]")
+    pp_hsc_src HsBootMerge = ptext (sLit "[merge]")
+    pp_hsc_src HsSrcFile = Outputable.empty
 
 {-
 When printing export lists, we print like this:
@@ -961,14 +908,14 @@ When printing export lists, we print like this:
 -}
 
 pprExport :: IfaceExport -> SDoc
-pprExport (Avail n)      = ppr n
-pprExport (AvailTC _ []) = Outputable.empty
-pprExport (AvailTC n (n':ns))
-  | n==n'     = ppr n <> pp_export ns
-  | otherwise = ppr n <> char '|' <> pp_export (n':ns)
+pprExport (Avail n)         = ppr n
+pprExport (AvailTC _ [] []) = Outputable.empty
+pprExport (AvailTC n ns0 fs) = case ns0 of
+                                 (n':ns) | n==n' -> ppr n <> pp_export ns fs
+                                 _               -> ppr n <> char '|' <> pp_export ns0 fs
   where
-    pp_export []    = Outputable.empty
-    pp_export names = braces (hsep (map ppr names))
+    pp_export []    [] = Outputable.empty
+    pp_export names fs = braces (hsep (map ppr names ++ map (ppr . flLabel) fs))
 
 pprUsage :: Usage -> SDoc
 pprUsage usage@UsagePackageModule{}

@@ -17,10 +17,13 @@
 
 {-# LANGUAGE UnboxedTuples, MagicHash, NoImplicitPrelude #-}
 module GHC.Stack (
-    -- * Call stack
+    -- * Call stacks
     currentCallStack,
     whoCreated,
     errorWithStackTrace,
+
+    -- * Implicit parameter call stacks
+    SrcLoc(..), CallStack(..),
 
     -- * Internals
     CostCentreStack,
@@ -127,4 +130,4 @@ errorWithStackTrace x = unsafeDupablePerformIO $ do
    stack <- ccsToStrings =<< getCurrentCCS x
    if null stack
       then throwIO (ErrorCall x)
-      else throwIO (ErrorCall (x ++ '\n' : renderStack stack))
+      else throwIO (ErrorCallWithLocation x (renderStack stack))

@@ -3,11 +3,12 @@ TYPE CONSTRUCTORS
   type role C2 representational
   class C2 a where
     meth2 :: a -> a
+    {-# MINIMAL meth2 #-}
 COERCION AXIOMS
   axiom Roles12.NTCo:C2 :: C2 a = a -> a
 Dependent modules: []
-Dependent packages: [base-4.8.0.0, ghc-prim-0.3.1.0,
-                     integer-gmp-0.5.1.0]
+Dependent packages: [base-4.8.2.0, ghc-prim-0.4.0.0,
+                     integer-gmp-1.0.0.0]
 
 ==================== Typechecker ====================
 

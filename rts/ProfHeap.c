@@ -9,6 +9,7 @@
 #include "PosixSource.h"
 #include "Rts.h"
 
+#include "RtsFlags.h"
 #include "RtsUtils.h"
 #include "Profiling.h"
 #include "ProfHeap.h"
@@ -279,7 +280,15 @@ nextEra( void )
         era++;
 
         if (era == max_era) {
-            errorBelch("maximum number of censuses reached; use +RTS -i to reduce");
+            errorBelch("Maximum number of censuses reached.");
+            if (rtsConfig.rts_opts_suggestions == rtsTrue) {
+                if (rtsConfig.rts_opts_enabled == RtsOptsAll)  {
+                    errorBelch("Use `+RTS -i' to reduce censuses.");
+                } else  {
+                    errorBelch("Relink with -rtsopts and "
+                               "use `+RTS -i' to reduce censuses.");
+                }
+            }
             stg_exit(EXIT_FAILURE);
         }
 
@@ -356,11 +365,9 @@ void endProfiling( void )
 static void
 printSample(rtsBool beginSample, StgDouble sampleValue)
 {
-    StgDouble fractionalPart, integralPart;
-    fractionalPart = modf(sampleValue, &integralPart);
-    fprintf(hp_file, "%s %" FMT_Word64 ".%02" FMT_Word64 "\n",
+    fprintf(hp_file, "%s %f\n",
             (beginSample ? "BEGIN_SAMPLE" : "END_SAMPLE"),
-            (StgWord64)integralPart, (StgWord64)(fractionalPart * 100));
+            sampleValue);
     if (!beginSample) {
         fflush(hp_file);
     }
@@ -1016,7 +1023,7 @@ heapCensusChain( Census *census, bdescr *bd )
 
             case ARR_WORDS:
                 prim = rtsTrue;
-                size = arr_words_sizeW((StgArrWords*)p);
+                size = arr_words_sizeW((StgArrBytes*)p);
                 break;
 
             case MUT_ARR_PTRS_CLEAN:

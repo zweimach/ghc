@@ -9,18 +9,24 @@
 
 module DataCon (
         -- * Main data types
-        DataCon, DataConRep(..), HsBang(..), StrictnessMark(..),
+        DataCon, DataConRep(..),
+        SrcStrictness(..), SrcUnpackedness(..),
+        HsSrcBang(..), HsImplBang(..),
+        StrictnessMark(..),
         ConTag,
 
         -- ** Equality specs
         EqSpec, mkEqSpec, eqSpecTyVar, eqSpecPair, eqSpecPreds,
         substEqSpec,
 
+        -- ** Field labels
+        FieldLbl(..), FieldLabel, FieldLabelString,
+
         -- ** Type construction
         mkDataCon, fIRST_TAG,
 
         -- ** Type deconstruction
-        dataConRepType, dataConSig, dataConFullSig,
+        dataConRepType, dataConSig, dataConInstSig, dataConFullSig,
         dataConName, dataConIdentity, dataConTag, dataConTyCon,
         dataConOrigTyCon, dataConUserType, dataConWrapperType,
         dataConUnivTyVars, dataConExTyVars, dataConAllTyVars,
@@ -29,18 +35,18 @@ module DataCon (
         dataConInstArgTys, dataConOrigArgTys, dataConOrigResTy,
         dataConInstOrigArgTys, dataConRepArgTys,
         dataConFieldLabels, dataConFieldType,
-        dataConStrictMarks,
+        dataConSrcBangs,
         dataConSourceArity, dataConRepArity, dataConRepRepArity,
         dataConIsInfix,
         dataConWorkId, dataConWrapId, dataConWrapId_maybe, dataConImplicitIds,
-        dataConRepStrictness, dataConRepBangs, dataConBoxer,
+        dataConRepStrictness, dataConImplBangs, dataConBoxer,
 
         splitDataProductType_maybe,
 
         -- ** Predicates on DataCons
         isNullarySrcDataCon, isNullaryRepDataCon, isTupleDataCon, isUnboxedTupleCon,
         isVanillaDataCon, classDataCon, dataConCannotMatch,
-        isBanged, isMarkedStrict, eqHsBang,
+        isBanged, isMarkedStrict, eqHsBang, isSrcStrict, isSrcUnpacked,
 
         -- ** Promotion related functions
         promoteDataCon
@@ -53,6 +59,7 @@ import Type
 import Coercion
 import Unify
 import TyCon
+import FieldLabel
 import Class
 import Name
 import PrelNames
@@ -63,11 +70,13 @@ import Util
 import BasicTypes
 import FastString
 import Module
+import Binary
 
 import qualified Data.Data as Data
 import qualified Data.Typeable
 import Data.Char
 import Data.Word
+import Data.List( mapAccumL, find )
 
 {-
 Data constructor representation
@@ -174,7 +183,7 @@ Why might the wrapper have anything to do?  Two reasons:
   The wrapper has the programmer-specified type:
         \$wMkT :: a -> T [a]
         \$wMkT a x = MkT [a] a [a] x
-  The third argument is a coerion
+  The third argument is a coercion
         [a] :: [a]~[a]
 
 INVARIANT: the dictionary constructor for a class
@@ -245,6 +254,8 @@ Note that (Foo a) might not be an instance of Ord.
 --
 -- - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen',
 --             'ApiAnnotation.AnnClose','ApiAnnotation.AnnComma'
+
+-- For details on above see note [Api annotations] in ApiAnnotation
 data DataCon
   = MkData {
         dcName    :: Name,      -- This is the name of the *source data con*
@@ -339,9 +350,11 @@ data DataCon
                 -- The OrigResTy is T [a], but the dcRepTyCon might be :T123
 
         -- Now the strictness annotations and field labels of the constructor
-        -- See Note [Bangs on data constructor arguments]
-        dcArgBangs :: [HsBang],
-                -- Strictness annotations as decided by the compiler.
+        dcSrcBangs :: [HsSrcBang],
+                -- See Note [Bangs on data constructor arguments]
+                --
+                -- The [HsSrcBang] as written by the programmer.
+                --
                 -- Matches 1-1 with dcOrigArgTys
                 -- Hence length = dataConSourceArity dataCon
 
@@ -404,11 +417,11 @@ data DataConRep
                                  -- and *including* all evidence args
 
         , dcr_stricts :: [StrictnessMark]  -- 1-1 with dcr_arg_tys
-                -- See also Note [Data-con worker strictness] in MkId.lhs
+                -- See also Note [Data-con worker strictness] in MkId.hs
 
-        , dcr_bangs :: [HsBang]  -- The actual decisions made (including failures)
-                                 -- 1-1 with orig_arg_tys
-                                 -- See Note [Bangs on data constructor arguments]
+        , dcr_bangs :: [HsImplBang]  -- The actual decisions made (including failures)
+                                     -- about the original arguments; 1-1 with orig_arg_tys
+                                     -- See Note [Bangs on data constructor arguments]
 
     }
 -- Algebraic data types always have a worker, and
@@ -437,23 +450,43 @@ data DataConRep
 -- when we bring bits of unfoldings together.)
 
 -------------------------
--- HsBang describes what the *programmer* wrote
--- This info is retained in the DataCon.dcStrictMarks field
-data HsBang
-  = HsUserBang   -- The user's source-code request
-       (Maybe Bool)       -- Just True    {-# UNPACK #-}
-                          -- Just False   {-# NOUNPACK #-}
-                          -- Nothing      no pragma
-       Bool               -- True <=> '!' specified
 
-  | HsNoBang              -- Lazy field
-                          -- HsUserBang Nothing False means the same as HsNoBang
-
-  | HsUnpack              -- Definite commitment: this field is strict and unboxed
-       (Maybe Coercion)   --    co :: arg-ty ~ product-ty
-
-  | HsStrict              -- Definite commitment: this field is strict but not unboxed
+-- | Bangs on data constructor arguments as the user wrote them in the
+-- source code.
+--
+-- (HsSrcBang _ SrcUnpack SrcLazy) and
+-- (HsSrcBang _ SrcUnpack NoSrcStrict) (without StrictData) makes no sense, we
+-- emit a warning (in checkValidDataCon) and treat it like
+-- (HsSrcBang _ NoSrcUnpack SrcLazy)
+data HsSrcBang =
+  HsSrcBang (Maybe SourceText) -- Note [Pragma source text] in BasicTypes
+            SrcUnpackedness
+            SrcStrictness
   deriving (Data.Data, Data.Typeable)
+
+-- | Bangs of data constructor arguments as generated by the compiler
+-- after consulting HsSrcBang, flags, etc.
+data HsImplBang
+  = HsLazy  -- ^ Lazy field
+  | HsStrict  -- ^ Strict but not unpacked field
+  | HsUnpack (Maybe Coercion)
+    -- ^ Strict and unpacked field
+    -- co :: arg-ty ~ product-ty HsBang
+  deriving (Data.Data, Data.Typeable)
+
+-- | What strictness annotation the user wrote
+data SrcStrictness = SrcLazy -- ^ Lazy, ie '~'
+                   | SrcStrict -- ^ Strict, ie '!'
+                   | NoSrcStrict -- ^ no strictness annotation
+     deriving (Eq, Data.Data, Data.Typeable)
+
+-- | What unpackedness the user requested
+data SrcUnpackedness = SrcUnpack -- ^ {-# UNPACK #-} specified
+                     | SrcNoUnpack -- ^ {-# NOUNPACK #-} specified
+                     | NoSrcUnpack -- ^ no unpack pragma
+     deriving (Eq, Data.Data, Data.Typeable)
+
+
 
 -------------------------
 -- StrictnessMark is internal only, used to indicate strictness
@@ -494,11 +527,47 @@ substEqSpec subst (EqSpec tv ty boxity)
 instance Outputable EqSpec where
   ppr (EqSpec tv ty boxity) = ppr (tv, ty, boxity)
 
-{-
+{- Note [Bangs on data constructor arguments]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider
+  data T = MkT !Int {-# UNPACK #-} !Int Bool
+
+When compiling the module, GHC will decide how to represent
+MkT, depending on the optimisation level, and settings of
+flags like -funbox-small-strict-fields.
+
+Terminology:
+  * HsSrcBang:  What the user wrote
+                Constructors: HsSrcBang
+
+  * HsImplBang: What GHC decided
+                Constructors: HsLazy, HsStrict, HsUnpack
+
+* If T was defined in this module, MkT's dcSrcBangs field
+  records the [HsSrcBang] of what the user wrote; in the example
+    [ HsSrcBang _ NoSrcUnpack SrcStrict
+    , HsSrcBang _ SrcUnpack SrcStrict
+    , HsSrcBang _ NoSrcUnpack NoSrcStrictness]
+
+* However, if T was defined in an imported module, the importing module
+  must follow the decisions made in the original module, regardless of
+  the flag settings in the importing module.
+  Also see Note [Bangs on imported data constructors] in MkId
+
+* The dcr_bangs field of the dcRep field records the [HsImplBang]
+  If T was defined in this module, Without -O the dcr_bangs might be
+    [HsStrict, HsStrict, HsLazy]
+  With -O it might be
+    [HsStrict, HsUnpack _, HsLazy]
+  With -funbox-small-strict-fields it might be
+    [HsUnpack, HsUnpack _, HsLazy]
+  With -XStrictData it might be
+    [HsStrict, HsUnpack _, HsStrict]
+
 Note [Data con representation]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The dcRepType field contains the type of the representation of a contructor
-This may differ from the type of the contructor *Id* (built
+This may differ from the type of the constructor *Id* (built
 by MkId.mkDataConId) for two reasons:
         a) the constructor Id may be overloaded, but the dictionary isn't stored
            e.g.    data Eq a => T a = MkT a a
@@ -513,26 +582,6 @@ but the rep type is
         Trep :: Int# -> a -> T a
 Actually, the unboxed part isn't implemented yet!
 
-Note [Bangs on data constructor arguments]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider
-  data T = MkT !Int {-# UNPACK #-} !Int Bool
-Its dcArgBangs field records the *users* specifications, in this case
-    [ HsUserBang Nothing True
-    , HsUserBang (Just True) True
-    , HsNoBang]
-See the declaration of HsBang in BasicTypes
-
-The dcr_bangs field of the dcRep field records the *actual, decided*
-representation of the data constructor.  Without -O this might be
-    [HsStrict, HsStrict, HsNoBang]
-With -O it might be
-    [HsStrict, HsUnpack, HsNoBang]
-With -funbox-small-strict-fields it might be
-    [HsUnpack, HsUnpack, HsNoBang]
-
-For imported data types, the dcArgBangs field is just the same as the
-dcr_bangs field; we don't know what the user originally said.
 
 
 ************************************************************************
@@ -572,35 +621,74 @@ instance Data.Data DataCon where
     gunfold _ _  = error "gunfold"
     dataTypeOf _ = mkNoRepType "DataCon"
 
-instance Outputable HsBang where
-    ppr HsNoBang               = empty
-    ppr (HsUserBang prag bang) = pp_unpk prag <+> ppWhen bang (char '!')
-    ppr (HsUnpack Nothing)     = ptext (sLit "Unpk")
-    ppr (HsUnpack (Just co))   = ptext (sLit "Unpk") <> parens (ppr co)
-    ppr HsStrict               = ptext (sLit "SrictNotUnpacked")
+instance Outputable HsSrcBang where
+    ppr (HsSrcBang _ prag mark) = ppr prag <+> ppr mark
 
-pp_unpk :: Maybe Bool -> SDoc
-pp_unpk Nothing      = empty
-pp_unpk (Just True)  = ptext (sLit "{-# UNPACK #-}")
-pp_unpk (Just False) = ptext (sLit "{-# NOUNPACK #-}")
+instance Outputable HsImplBang where
+    ppr HsLazy                  = ptext (sLit "Lazy")
+    ppr (HsUnpack Nothing)      = ptext (sLit "Unpacked")
+    ppr (HsUnpack (Just co))    = ptext (sLit "Unpacked") <> parens (ppr co)
+    ppr HsStrict                = ptext (sLit "StrictNotUnpacked")
+
+instance Outputable SrcStrictness where
+    ppr SrcLazy     = char '~'
+    ppr SrcStrict   = char '!'
+    ppr NoSrcStrict = empty
+
+instance Outputable SrcUnpackedness where
+    ppr SrcUnpack   = ptext (sLit "{-# UNPACK #-}")
+    ppr SrcNoUnpack = ptext (sLit "{-# NOUNPACK #-}")
+    ppr NoSrcUnpack = empty
 
 instance Outputable StrictnessMark where
-  ppr MarkedStrict     = ptext (sLit "!")
-  ppr NotMarkedStrict  = empty
+    ppr MarkedStrict    = ptext (sLit "!")
+    ppr NotMarkedStrict = empty
 
+instance Binary SrcStrictness where
+    put_ bh SrcLazy     = putByte bh 0
+    put_ bh SrcStrict   = putByte bh 1
+    put_ bh NoSrcStrict = putByte bh 2
 
-eqHsBang :: HsBang -> HsBang -> Bool
-eqHsBang HsNoBang             HsNoBang             = True
-eqHsBang HsStrict             HsStrict             = True
-eqHsBang (HsUserBang u1 b1)   (HsUserBang u2 b2)   = u1==u2 && b1==b2
-eqHsBang (HsUnpack Nothing)   (HsUnpack Nothing)   = True
-eqHsBang (HsUnpack (Just c1)) (HsUnpack (Just c2)) = eqType (coercionType c1) (coercionType c2)
-eqHsBang _ _ = False
+    get bh =
+      do h <- getByte bh
+         case h of
+           0 -> return SrcLazy
+           1 -> return SrcLazy
+           _ -> return NoSrcStrict
 
-isBanged :: HsBang -> Bool
-isBanged HsNoBang                  = False
-isBanged (HsUserBang Nothing bang) = bang
-isBanged _                         = True
+instance Binary SrcUnpackedness where
+    put_ bh SrcNoUnpack = putByte bh 0
+    put_ bh SrcUnpack   = putByte bh 1
+    put_ bh NoSrcUnpack = putByte bh 2
+
+    get bh =
+      do h <- getByte bh
+         case h of
+           0 -> return SrcNoUnpack
+           1 -> return SrcUnpack
+           _ -> return NoSrcUnpack
+
+-- | Compare strictness annotations
+eqHsBang :: HsImplBang -> HsImplBang -> Bool
+eqHsBang HsLazy               HsLazy              = True
+eqHsBang HsStrict             HsStrict            = True
+eqHsBang (HsUnpack Nothing)   (HsUnpack Nothing)  = True
+eqHsBang (HsUnpack (Just c1)) (HsUnpack (Just c2))
+  = eqType (coercionType c1) (coercionType c2)
+eqHsBang _ _                                       = False
+
+isBanged :: HsImplBang -> Bool
+isBanged (HsUnpack {}) = True
+isBanged (HsStrict {}) = True
+isBanged HsLazy        = False
+
+isSrcStrict :: SrcStrictness -> Bool
+isSrcStrict SrcStrict = True
+isSrcStrict _ = False
+
+isSrcUnpacked :: SrcUnpackedness -> Bool
+isSrcUnpacked SrcUnpack = True
+isSrcUnpacked _ = False
 
 isMarkedStrict :: StrictnessMark -> Bool
 isMarkedStrict NotMarkedStrict = False
@@ -616,21 +704,21 @@ isMarkedStrict _               = True   -- All others are strict
 
 -- | Build a new data constructor
 mkDataCon :: Name
-          -> Bool               -- ^ Is the constructor declared infix?
-          -> [HsBang]           -- ^ Strictness annotations written in the source file
-          -> [FieldLabel]       -- ^ Field labels for the constructor, if it is a record,
-                                --   otherwise empty
-          -> [TyVar]            -- ^ Universally quantified type variables
-          -> [TyVar]            -- ^ Existentially quantified type variables
-          -> [EqSpec]           -- ^ GADT equalities
-          -> ThetaType          -- ^ Theta-type occuring before the arguments proper
-          -> [Type]             -- ^ Original argument types
-          -> Type               -- ^ Original result type
-          -> TyCon              -- ^ Representation type constructor
-          -> ThetaType          -- ^ The "stupid theta", context of the data declaration
-                                --   e.g. @data Eq a => T a ...@
-          -> Id                 -- ^ Worker Id
-          -> DataConRep         -- ^ Representation
+          -> Bool           -- ^ Is the constructor declared infix?
+          -> [HsSrcBang]       -- ^ Strictness/unpack annotations, from user
+          -> [FieldLabel]   -- ^ Field labels for the constructor,
+                            -- if it is a record, otherwise empty
+          -> [TyVar]        -- ^ Universally quantified type variables
+          -> [TyVar]        -- ^ Existentially quantified type variables
+          -> [EqSpec]       -- ^ GADT equalities
+          -> ThetaType      -- ^ Theta-type occuring before the arguments proper
+          -> [Type]         -- ^ Original argument types
+          -> Type           -- ^ Original result type
+          -> TyCon          -- ^ Representation type constructor
+          -> ThetaType      -- ^ The "stupid theta", context of the data
+                            -- declaration e.g. @data Eq a => T a ...@
+          -> Id             -- ^ Worker Id
+          -> DataConRep     -- ^ Representation
           -> DataCon
   -- Can get the tag from the TyCon
 
@@ -660,7 +748,7 @@ mkDataCon name declared_infix
                   dcStupidTheta = stupid_theta,
                   dcOrigArgTys = orig_arg_tys, dcOrigResTy = orig_res_ty,
                   dcRepTyCon = rep_tycon,
-                  dcArgBangs = arg_stricts,
+                  dcSrcBangs = arg_stricts,
                   dcFields = fields, dcTag = tag, dcRepType = rep_ty,
                   dcWorkId = work_id,
                   dcRep = rep,
@@ -684,17 +772,6 @@ mkDataCon name declared_infix
 
     roles = map (const Nominal) (univ_tvs ++ ex_tvs) ++
             map (const Representational) orig_arg_tys
-
-{-
-Note [Unpack equality predicates]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-If we have a GADT with a contructor C :: (a~[b]) => b -> T a
-we definitely want that equality predicate *unboxed* so that it
-takes no space at all.  This is easily done: just give it
-an UNPACK pragma. The rest of the unpack/repack code does the
-heavy lifting.  This one line makes every GADT take a word less
-space for each equality predicate, so it's pretty important!
--}
 
 -- | The 'Name' of the 'DataCon', giving it a unique, rooted identification
 dataConName :: DataCon -> Name
@@ -796,16 +873,18 @@ dataConFieldLabels :: DataCon -> [FieldLabel]
 dataConFieldLabels = dcFields
 
 -- | Extract the type for any given labelled field of the 'DataCon'
-dataConFieldType :: DataCon -> FieldLabel -> Type
+dataConFieldType :: DataCon -> FieldLabelString -> Type
 dataConFieldType con label
-  = case lookup label (dcFields con `zip` dcOrigArgTys con) of
-      Just ty -> ty
+  = case find ((== label) . flLabel . fst) (dcFields con `zip` dcOrigArgTys con) of
+      Just (_, ty) -> ty
       Nothing -> pprPanic "dataConFieldType" (ppr con <+> ppr label)
 
--- | The strictness markings decided on by the compiler.  Does not include those for
--- existential dictionaries.  The list is in one-to-one correspondence with the arity of the 'DataCon'
-dataConStrictMarks :: DataCon -> [HsBang]
-dataConStrictMarks = dcArgBangs
+-- | Strictness/unpack annotations, from user; or, for imported
+-- DataCons, from the interface file
+-- The list is in one-to-one correspondence with the arity of the 'DataCon'
+
+dataConSrcBangs :: DataCon -> [HsSrcBang]
+dataConSrcBangs = dcSrcBangs
 
 -- | Source-level arity of the data constructor
 dataConSourceArity :: DataCon -> Arity
@@ -838,10 +917,13 @@ dataConRepStrictness dc = case dcRep dc of
                             NoDataConRep -> [NotMarkedStrict | _ <- dataConRepArgTys dc]
                             DCR { dcr_stricts = strs } -> strs
 
-dataConRepBangs :: DataCon -> [HsBang]
-dataConRepBangs dc = case dcRep dc of
-                       NoDataConRep -> dcArgBangs dc
-                       DCR { dcr_bangs = bangs } -> bangs
+dataConImplBangs :: DataCon -> [HsImplBang]
+-- The implementation decisions about the strictness/unpack of each
+-- source program argument to the data constructor
+dataConImplBangs dc
+  = case dcRep dc of
+      NoDataConRep              -> replicate (dcSourceArity dc) HsLazy
+      DCR { dcr_bangs = bangs } -> bangs
 
 dataConBoxer :: DataCon -> Maybe DataConBoxer
 dataConBoxer (MkData { dcRep = DCR { dcr_boxer = boxer } }) = Just boxer
@@ -861,6 +943,25 @@ dataConSig :: DataCon -> ([TyVar], ThetaType, [Type], Type)
 dataConSig con@(MkData {dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs,
                         dcOrigArgTys = arg_tys, dcOrigResTy = res_ty})
   = (univ_tvs ++ ex_tvs, dataConTheta con, arg_tys, res_ty)
+
+dataConInstSig
+  :: DataCon
+  -> [Type]    -- Instantiate the *universal* tyvars with these types
+  -> ([TyVar], ThetaType, [Type])  -- Return instantiated existentials
+                                   -- theta and arg tys
+-- ^ Instantantiate the universal tyvars of a data con,
+--   returning the instantiated existentials, constraints, and args
+dataConInstSig (MkData { dcUnivTyVars = univ_tvs, dcExTyVars = ex_tvs
+                       , dcEqSpec = eq_spec, dcOtherTheta  = theta
+                       , dcOrigArgTys = arg_tys })
+               univ_tys
+  = (ex_tvs'
+    , substTheta subst (eqSpecPreds eq_spec ++ theta)
+    , substTys   subst arg_tys)
+  where
+    univ_subst = zipTopTvSubst univ_tvs univ_tys
+    (subst, ex_tvs') = mapAccumL Type.substTyVarBndr univ_subst ex_tvs
+
 
 -- | The \"full signature\" of the 'DataCon' returns, in order:
 --
@@ -951,11 +1052,11 @@ dataConInstArgTys :: DataCon    -- ^ A datacon with no existentials or equality 
                                 -- class dictionary, with superclasses)
                   -> [Type]     -- ^ Instantiated at these types
                   -> [Type]
-dataConInstArgTys dc@(MkData {dcUnivTyVars = univ_tvs, dcEqSpec = eq_spec,
+dataConInstArgTys dc@(MkData {dcUnivTyVars = univ_tvs,
                               dcExTyVars = ex_tvs}) inst_tys
  = ASSERT2( length univ_tvs == length inst_tys
           , ptext (sLit "dataConInstArgTys") <+> ppr dc $$ ppr univ_tvs $$ ppr inst_tys)
-   ASSERT2( null ex_tvs && null eq_spec, ppr dc )
+   ASSERT2( null ex_tvs, ppr dc )
    map (substTyWith univ_tvs inst_tys) (dataConRepArgTys dc)
 
 -- | Returns just the instantiated /value/ argument types of a 'DataCon',
@@ -997,7 +1098,7 @@ dataConRepArgTys (MkData { dcRep = rep
 -- to its info table and used by the GHCi debugger and the heap profiler
 dataConIdentity :: DataCon -> [Word8]
 -- We want this string to be UTF-8, so we get the bytes directly from the FastStrings.
-dataConIdentity dc = bytesFS (packageKeyFS (modulePackageKey mod)) ++
+dataConIdentity dc = bytesFS (unitIdFS (moduleUnitId mod)) ++
                   fromIntegral (ord ':') : bytesFS (moduleNameFS (moduleName mod)) ++
                   fromIntegral (ord '.') : bytesFS (occNameFS (nameOccName name))
   where name = dataConName dc
@@ -1023,17 +1124,17 @@ dataConCannotMatch :: [Type] -> DataCon -> Bool
 --                  scrutinee of type (T tys)
 --                  where T is the dcRepTyCon for the data con
 dataConCannotMatch tys con
-  | null eq_spec      = False   -- Common
+  | null inst_theta   = False   -- Common
   | all isTyVarTy tys = False   -- Also common
-  | otherwise
-  = typesCantMatch [( Type.substTy subst (mkTyVarTy tv1)
-                    , Type.substTy subst ty2)
-                   | EqSpec tv1 ty2 _ <- eq_spec ]
+  | otherwise         = typesCantMatch (concatMap predEqs inst_theta)
   where
-    dc_tvs  = dataConUnivTyVars con
-    eq_spec = dataConEqSpec con
-    subst   = ASSERT2( length dc_tvs == length tys, ppr con $$ ppr dc_tvs $$ ppr tys )
-              zipTopTCvSubst dc_tvs tys
+    (_, inst_theta, _) = dataConInstSig con tys
+
+    -- TODO: could gather equalities from superclasses too
+    predEqs pred = case classifyPredType pred of
+                     EqPred NomEq ty1 ty2 -> [(ty1, ty2)]
+                     _                    -> []
+
 
 {-
 %************************************************************************

@@ -16,7 +16,6 @@ module DriverMkDepend (
 
 import qualified GHC
 import GhcMonad
-import HsSyn            ( ImportDecl(..) )
 import DynFlags
 import Util
 import HscTypes
@@ -198,9 +197,9 @@ processDeps dflags _ _ _ _ (CyclicSCC nodes)
     throwGhcExceptionIO (ProgramError (showSDoc dflags $ GHC.cyclicModuleErr nodes))
 
 processDeps dflags hsc_env excl_mods root hdl (AcyclicSCC node)
+  | Just src_file <- msHsFilePath node
   = do  { let extra_suffixes = depSuffixes dflags
               include_pkg_deps = depIncludePkgDeps dflags
-              src_file  = msHsFilePath node
               obj_file  = msObjFilePath node
               obj_files = insertSuffixes obj_file extra_suffixes
 
@@ -226,14 +225,17 @@ processDeps dflags hsc_env excl_mods root hdl (AcyclicSCC node)
                 -- Emit a dependency for each import
 
         ; let do_imps is_boot idecls = sequence_
-                    [ do_imp loc is_boot (ideclPkgQual i) mod
-                    | L loc i <- idecls,
-                      let mod = unLoc (ideclName i),
+                    [ do_imp loc is_boot mb_pkg mod
+                    | (mb_pkg, L loc mod) <- idecls,
                       mod `notElem` excl_mods ]
 
         ; do_imps True  (ms_srcimps node)
         ; do_imps False (ms_imps node)
         }
+
+  | otherwise
+  = ASSERT( ms_hsc_src node == HsBootMerge )
+    panic "HsBootMerge not supported in DriverMkDepend yet"
 
 
 findDependency  :: HscEnv
@@ -374,7 +376,7 @@ pprCycle summaries = pp_group (CyclicSCC summaries)
           pp_ms loop_breaker $$ vcat (map pp_group groups)
         where
           (boot_only, others) = partition is_boot_only mss
-          is_boot_only ms = not (any in_group (map (ideclName.unLoc) (ms_imps ms)))
+          is_boot_only ms = not (any in_group (map snd (ms_imps ms)))
           in_group (L _ m) = m `elem` group_mods
           group_mods = map (moduleName . ms_mod) mss
 
@@ -383,8 +385,8 @@ pprCycle summaries = pp_group (CyclicSCC summaries)
           groups = GHC.topSortModuleGraph True all_others Nothing
 
     pp_ms summary = text mod_str <> text (take (20 - length mod_str) (repeat ' '))
-                       <+> (pp_imps empty (map (ideclName.unLoc) (ms_imps summary)) $$
-                            pp_imps (ptext (sLit "{-# SOURCE #-}")) (map (ideclName.unLoc) (ms_srcimps summary)))
+                       <+> (pp_imps empty (map snd (ms_imps summary)) $$
+                            pp_imps (ptext (sLit "{-# SOURCE #-}")) (map snd (ms_srcimps summary)))
         where
           mod_str = moduleNameString (moduleName (ms_mod summary))
 

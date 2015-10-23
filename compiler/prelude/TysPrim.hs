@@ -10,9 +10,8 @@
 -- | This module defines TyCons that can't be expressed in Haskell.
 --   They are all, therefore, wired-in TyCons.  C.f module TysWiredIn
 module TysPrim(
-        mkPrimTyConName, -- For implicit parameters in TysWiredIn only
-
-        tyVarList, alphaTyVars, alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar,
+        mkTemplateTyVars,
+        alphaTyVars, alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar,
         alphaTys, alphaTy, betaTy, gammaTy, deltaTy,
         levity1TyVar, levity2TyVar, levity1Ty, levity2Ty,
         openAlphaTy, openBetaTy, openAlphaTyVar, openBetaTyVar,
@@ -213,18 +212,19 @@ alphaTyVars is a list of type variables for use in templates:
         ["a", "b", ..., "z", "t1", "t2", ... ]
 -}
 
-tyVarList :: Kind -> [TyVar]
-tyVarList kind = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u)
-                                           (mkTyVarOccFS (mkFastString name))
-                                           noSrcSpan) kind
-                 | u <- [2..],
-                   let name | c <= 'z'  = [c]
-                            | otherwise = 't':show u
-                            where c = chr (u-2 + ord 'a')
-                 ]
+mkTemplateTyVars :: [Kind] -> [TyVar]
+mkTemplateTyVars kinds =
+  [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u)
+                            (mkTyVarOccFS (mkFastString name))
+                            noSrcSpan) k
+  | (k,u) <- zip kinds [2..],
+    let name | c <= 'z'  = [c]
+             | otherwise = 't':show u
+          where c = chr (u-2 + ord 'a')
+  ]
 
 alphaTyVars :: [TyVar]
-alphaTyVars = tyVarList liftedTypeKind
+alphaTyVars = mkTemplateTyVars $ repeat liftedTypeKind
 
 alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar :: TyVar
 (alphaTyVar:betaTyVar:gammaTyVar:deltaTyVar:_) = alphaTyVars
@@ -250,7 +250,7 @@ openAlphaTy = mkTyVarTy openAlphaTyVar
 openBetaTy  = mkTyVarTy openBetaTyVar
 
 kKiVar :: KindVar
-kKiVar = (tyVarList liftedTypeKind) !! 10
+kKiVar = (mkTemplateTyVars $ repeat liftedTypeKind) !! 10
   -- the 10 selects the 11th letter in the alphabet: 'k'
 
 {-
@@ -353,19 +353,24 @@ unliftedTypeKindTyCon = mkSynonymTyCon unliftedTypeKindTyConName
 -- ... and now their names
 
 -- If you edit these, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 liftedTypeKindTyConName   = mkPrimTyConName (fsLit "*") liftedTypeKindTyConKey liftedTypeKindTyCon
 tYPETyConName             = mkPrimTyConName (fsLit "TYPE") tYPETyConKey tYPETyCon
 unliftedTypeKindTyConName = mkPrimTyConName (fsLit "#") unliftedTypeKindTyConKey unliftedTypeKindTyCon
-constraintKindTyConName   = mkPrimTyConName (fsLit "Constraint") constraintKindTyConKey constraintKindTyCon
 
 mkPrimTyConName :: FastString -> Unique -> TyCon -> Name
-mkPrimTyConName occ key tycon = mkWiredInName gHC_PRIM (mkTcOccFS occ)
-                                              key
-                                              (ATyCon tycon)
-                                              BuiltInSyntax
-        -- All of the super kinds and kinds are defined in Prim and use BuiltInSyntax,
-        -- because they are never in scope in the source
+mkPrimTyConName = mkPrimTcName BuiltInSyntax
+  -- All of the super kinds and kinds are defined in Prim,
+  -- and use BuiltInSyntax, because they are never in scope in the source
+
+constraintKindTyConName -- Unlike the others, Constraint does *not* use BuiltInSyntax,
+                        -- and can be imported/exported like any other type constructor
+  = mkPrimTcName UserSyntax (fsLit "Constraint") constraintKindTyConKey   constraintKindTyCon
+
+
+mkPrimTcName :: BuiltInSyntax -> FastString -> Unique -> TyCon -> Name
+mkPrimTcName built_in_syntax occ key tycon
+  = mkWiredInName gHC_PRIM (mkTcOccFS occ) key (ATyCon tycon) built_in_syntax
 
 kindTyConType :: TyCon -> Type
 kindTyConType kind = TyConApp kind []   -- mkTyConApp isn't defined yet
@@ -575,7 +580,7 @@ realWorldStatePrimTy = mkStatePrimTy realWorldTy        -- State# RealWorld
 
 {-
 Note: the ``state-pairing'' types are not truly primitive, so they are
-defined in \tr{TysWiredIn.lhs}, not here.
+defined in \tr{TysWiredIn.hs}, not here.
 
 ************************************************************************
 *                                                                      *
@@ -798,9 +803,10 @@ anyTy :: Type
 anyTy = mkTyConTy anyTyCon
 
 anyTyCon :: TyCon
-anyTyCon = mkFamilyTyCon anyTyConName kind [kKiVar]
-                         AbstractClosedSynFamilyTyCon
+anyTyCon = mkFamilyTyCon anyTyConName kind [kKiVar] Nothing
+                         (ClosedSynFamilyTyCon Nothing)
                          NoParentTyCon
+                         NotInjective
   where
     kind = ForAllTy (Named kKiVar Invisible) (mkTyVarTy kKiVar)
 

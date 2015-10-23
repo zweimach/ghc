@@ -57,7 +57,7 @@ test('mod35', normal, compile, [''])
 test('mod36', normal, compile_fail, [''])
 test('mod37', normal, compile, [''])
 test('mod38', normal, compile_fail, [''])
-test('mod39', normal, compile, [''])
+test('mod39', normal, compile_fail, [''])
 test('mod40', normal, compile_fail, [''])
 test('mod41', normal, compile_fail, [''])
 test('mod42', normal, compile_fail, [''])
@@ -116,7 +116,7 @@ test('mod85', normal, compile, [''])
 test('mod86', normal, compile, [''])
 test('mod87', normal, compile_fail, [''])
 test('mod88', normal, compile_fail, [''])
-test('mod89', normal, compile_fail, [''])
+test('mod89', normal, compile, [''])
 test('mod90', normal, compile_fail, [''])
 test('mod91', normal, compile_fail, [''])
 test('mod92', normal, compile, [''])
@@ -260,7 +260,7 @@ test('mod150', normal, compile_fail, [''])
 test('mod151', normal, compile_fail, [''])
 test('mod152', normal, compile_fail, [''])
 test('mod153', normal, compile_fail, [''])
-test('mod154', when(compiler_type('hugs'), expect_fail), compile, [''])
+test('mod154', normal, compile, [''])
 test('mod155', normal, compile_fail, [''])
 test('mod156', normal, compile, [''])
 test('mod157', 
@@ -319,8 +319,7 @@ test('mod172', extra_clean(['Mod172_B.hi', 'Mod172_B.o', 'Mod172_C.hi', 'Mod172_
 test('mod173', extra_clean(['Mod173_Aux.hi', 'Mod173_Aux.o']),
      multimod_compile, ['mod173', '-v0'])
 
-test('mod174', normal, compile_fail, [''])
-
+# mod174 has been deleted
 # mod175 is a sub-directory
 
 test('mod176', normal, compile, ['-fwarn-unused-imports'])
@@ -343,4 +342,8 @@ test('T414', normal, compile_fail, [''])
 test('T414a', normal, compile, [''])
 test('T414b', normal, compile, [''])
 test('T3776', normal, compile, [''])
+test('T7765', normal, compile_fail, [''])
 test('T9061', normal, compile, [''])
+test('T9997', normal, compile, [''])
+test('T10233', extra_clean(['T01233a.hi', 'T01233a.o']),
+     multimod_compile, ['T10233', '-v0'])

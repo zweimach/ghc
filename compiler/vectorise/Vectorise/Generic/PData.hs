@@ -46,7 +46,7 @@ buildDataFamInst name' fam_tc vect_tc rhs
  = do { axiom_name <- mkDerivedName mkInstTyCoOcc name'
 
       ; (_, tyvars') <- liftDs $ tcInstSigTyVarsLoc (getSrcSpan name') tyvars
-      ; let ax       = mkSingleCoAxiom axiom_name tyvars' [] fam_tc pat_tys rep_ty
+      ; let ax       = mkSingleCoAxiom Representational axiom_name tyvars' [] fam_tc pat_tys rep_ty
             tys'     = mkTyVarTys tyvars'
             rep_ty   = mkTyConApp rep_tc tys'
             pat_tys  = [mkTyConApp vect_tc tys']
@@ -79,7 +79,8 @@ buildPDataDataCon orig_name vect_tc repr_tc repr
       fam_envs  <- readGEnv global_fam_inst_env
       liftDs $ buildDataCon fam_envs dc_name
                             False                  -- not infix
-                            (map (const HsNoBang) comp_tys)
+                            (map (const no_bang) comp_tys)
+                            (Just $ map (const HsLazy) comp_tys)
                             []                     -- no field labels
                             tvs
                             []                     -- no existentials
@@ -88,6 +89,8 @@ buildPDataDataCon orig_name vect_tc repr_tc repr
                             comp_tys
                             (mkFamilyTyConApp repr_tc (mkTyVarTys tvs))
                             repr_tc
+  where
+    no_bang = HsSrcBang Nothing NoSrcUnpack NoSrcStrict
 
 
 -- buildPDatasTyCon -----------------------------------------------------------
@@ -118,7 +121,8 @@ buildPDatasDataCon orig_name vect_tc repr_tc repr
       fam_envs <- readGEnv global_fam_inst_env
       liftDs $ buildDataCon fam_envs dc_name
                             False                  -- not infix
-                            (map (const HsNoBang) comp_tys)
+                            (map (const no_bang) comp_tys)
+                            (Just $ map (const HsLazy) comp_tys)
                             []                     -- no field labels
                             tvs
                             []                     -- no existentials
@@ -127,6 +131,8 @@ buildPDatasDataCon orig_name vect_tc repr_tc repr
                             comp_tys
                             (mkFamilyTyConApp repr_tc (mkTyVarTys tvs))
                             repr_tc
+  where
+     no_bang = HsSrcBang Nothing NoSrcUnpack NoSrcStrict
 
 
 -- Utils ----------------------------------------------------------------------

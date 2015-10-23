@@ -53,8 +53,6 @@ static StgThreadID next_thread_id = 1;
 
    createGenThread() and createIOThread() (in SchedAPI.h) are
    convenient packaged versions of this function.
-
-   currently pri (priority) is only used in a GRAN setup -- HWL
    ------------------------------------------------------------------------ */
 StgTSO *
 createThread(Capability *cap, W_ size)
@@ -110,7 +108,7 @@ createThread(Capability *cap, W_ size)
     tso->stackobj       = stack;
     tso->tot_stack_size = stack->stack_size;
 
-    tso->alloc_limit = 0;
+    ASSIGN_Int64((W_*)&(tso->alloc_limit), 0);
 
     tso->trec = NO_TREC;
 
@@ -173,12 +171,12 @@ HsInt64 rts_getThreadAllocationCounter(StgPtr tso)
 {
     // NB. doesn't take into account allocation in the current nursery
     // block, so it might be off by up to 4k.
-    return ((StgTSO *)tso)->alloc_limit;
+    return PK_Int64((W_*)&(((StgTSO *)tso)->alloc_limit));
 }
 
 void rts_setThreadAllocationCounter(StgPtr tso, HsInt64 i)
 {
-    ((StgTSO *)tso)->alloc_limit = i;
+    ASSIGN_Int64((W_*)&(((StgTSO *)tso)->alloc_limit), i);
 }
 
 void rts_enableThreadAllocationLimit(StgPtr tso)
@@ -553,6 +551,7 @@ threadStackOverflow (Capability *cap, StgTSO *tso)
 
         // Note [Throw to self when masked], also #767 and #8303.
         throwToSelf(cap, tso, (StgClosure *)stackOverflow_closure);
+        return;
     }
 
 
@@ -603,7 +602,15 @@ threadStackOverflow (Capability *cap, StgTSO *tso)
                   "allocating new stack chunk of size %d bytes",
                   chunk_size * sizeof(W_));
 
+    // Charge the current thread for allocating stack.  Stack usage is
+    // non-deterministic, because the chunk boundaries might vary from
+    // run to run, but accounting for this is better than not
+    // accounting for it, since a deep recursion will otherwise not be
+    // subject to allocation limits.
+    cap->r.rCurrentTSO = tso;
     new_stack = (StgStack*) allocate(cap, chunk_size);
+    cap->r.rCurrentTSO = NULL;
+
     SET_HDR(new_stack, &stg_STACK_info, old_stack->header.prof.ccs);
     TICK_ALLOC_STACK(chunk_size);
 

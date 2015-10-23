@@ -13,15 +13,18 @@ module TcEvidence (
   -- Evidence bindings
   TcEvBinds(..), EvBindsVar(..),
   EvBindMap(..), emptyEvBindMap, extendEvBinds, dropEvBind,
-  lookupEvBind, evBindMapBinds,
-  EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds,
+  lookupEvBind, evBindMapBinds, foldEvBindMap,
+  EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, mkGivenEvBind, mkWantedEvBind,
   evBindsVars, evBindsSubst, evBindsSubstX, evBindsCvSubstEnv,
   sccEvBinds, evBindVar,
-  EvTerm(..), mkEvCast, evVarsOfTerm,
+  EvTerm(..), mkEvCast, evVarsOfTerm, mkEvScSelectors,
   EvLit(..), evTermCoercion,
+  EvCallStack(..),
+  EvTypeable(..),
 
   -- TcCoercion
-  TcCoercion(..), LeftOrRight(..), pickLR,
+  TcCoercion(..), TcCoercionR, TcCoercionN,
+  LeftOrRight(..), pickLR,
   mkTcReflCo, mkTcNomReflCo, mkTcRepReflCo,
   mkTcTyConAppCo, mkTcAppCo, mkTcFunCo,
   mkTcAxInstCo, mkTcUnbranchedAxInstCo, mkTcForAllCo, mkTcForAllCos,
@@ -32,8 +35,8 @@ module TcEvidence (
   tcCoercionKind, coVarsOfTcCo,
   isEqVar, mkTcCoVarCo,
   isTcReflCo, getTcCoVar_maybe,
-  tcCoercionRole, eqVarRole,
-  tcCoercionToCoercion
+  tcCoercionRole, eqVarRole, tcCoercionToCoercion,
+  unwrapIP, wrapIP
   ) where
 #include "HsVersions.h"
 
@@ -50,6 +53,7 @@ import PprCore ()   -- Instance OutputableBndr TyVar
 import TcType
 import Type
 import TyCon
+import Class( Class )
 import CoAxiom
 import PrelNames
 import VarEnv
@@ -63,14 +67,15 @@ import Bag
 import Pair
 import Maybes
 import Digraph
-import Control.Applicative
 #if __GLASGOW_HASKELL__ < 709
+import Control.Applicative
 import Data.Traversable (traverse, sequenceA)
 #endif
 import qualified Data.Data as Data
 import Outputable
 import ListSetOps
 import FastString
+import SrcLoc
 import Data.IORef( IORef )
 
 {-
@@ -122,6 +127,9 @@ tcCoercionKind returns a (Pair Type), so it's not affected by this ambiguity.
 
 -}
 
+type TcCoercionN = TcCoercion    -- A Nominal          corecion ~N
+type TcCoercionR = TcCoercion    -- A Representational corecion ~R
+
 data TcCoercion
   = TcRefl Role TcType
   | TcTyConAppCo Role TyCon [TcCoercion]
@@ -136,7 +144,7 @@ data TcCoercion
   | TcTransCo TcCoercion TcCoercion
   | TcNthCo Int TcCoercion
   | TcLRCo LeftOrRight TcCoercion
-  | TcSubCo TcCoercion
+  | TcSubCo TcCoercion                 -- Argument is never TcRefl
   | TcCastCo TcCoercion TcCoercion     -- co1 |> co2
   | TcCoherenceCo TcCoercion Coercion
   | TcKindCo TcCoercion
@@ -151,12 +159,14 @@ isEqVar v = case tyConAppTyCon_maybe (varType v) of
                Nothing -> False
 
 isTcReflCo_maybe :: TcCoercion -> Maybe TcType
-isTcReflCo_maybe (TcRefl _ ty) = Just ty
-isTcReflCo_maybe _             = Nothing
+isTcReflCo_maybe (TcRefl _ ty)   = Just ty
+isTcReflCo_maybe (TcCoercion co) = isReflCo_maybe co
+isTcReflCo_maybe _               = Nothing
 
 isTcReflCo :: TcCoercion -> Bool
-isTcReflCo (TcRefl {}) = True
-isTcReflCo _           = False
+isTcReflCo (TcRefl {})     = True
+isTcReflCo (TcCoercion co) = isReflCo co
+isTcReflCo _               = False
 
 getTcCoVar_maybe :: TcCoercion -> Maybe CoVar
 getTcCoVar_maybe (TcCoVarCo v) = Just v
@@ -182,12 +192,15 @@ mkTcTyConAppCo role tc cos -- No need to expand type synonyms
 
   | otherwise = TcTyConAppCo role tc cos
 
--- input coercion is Nominal
+-- Input coercion is Nominal
 -- mkSubCo will do some normalisation. We do not do it for TcCoercions, but
 -- defer that to desugaring; just to reduce the code duplication a little bit
 mkTcSubCo :: TcCoercion -> TcCoercion
-mkTcSubCo co = ASSERT2( tcCoercionRole co == Nominal, ppr co)
-               TcSubCo co
+mkTcSubCo (TcRefl _ ty)
+  = TcRefl Representational ty
+mkTcSubCo co
+   = ASSERT2( tcCoercionRole co == Nominal, ppr co)
+     TcSubCo co
 
 -- See Note [Role twiddling functions] in Coercion
 -- | Change the role of a 'TcCoercion'. Returns 'Nothing' if this isn't
@@ -403,7 +416,7 @@ coVarsOfTcCo tc_co
 
     -- We expect only coercion bindings, so use evTermCoercion
     go_bind :: EvBind -> VarSet
-    go_bind (EvBind { evb_term = tm }) = go (evTermCoercion tm)
+    go_bind (EvBind { eb_rhs = tm }) = go (evTermCoercion tm)
 
 -- | Converts a TcCoercion to a Coercion, substituting for covars as it goes.
 -- All covars in the TcCoercion must be mapped for this to succeed, as covars
@@ -665,12 +678,11 @@ newtype EvBindMap
 emptyEvBindMap :: EvBindMap
 emptyEvBindMap = EvBindMap { ev_bind_varenv = emptyVarEnv }
 
-extendEvBinds :: EvBindMap -> EvVar -> EvTerm -> CtLoc -> EvBindMap
-extendEvBinds bs v t l
-  = EvBindMap { ev_bind_varenv = extendVarEnv (ev_bind_varenv bs) v
-                                              (EvBind { evb_var  = v
-                                                      , evb_term = t
-                                                      , evb_loc  = l}) }
+extendEvBinds :: EvBindMap -> EvBind -> EvBindMap
+extendEvBinds bs ev_bind
+  = EvBindMap { ev_bind_varenv = extendVarEnv (ev_bind_varenv bs)
+                                              (eb_lhs ev_bind)
+                                              ev_bind }
 
 dropEvBind :: EvBindMap -> EvVar -> EvBindMap
 dropEvBind bs v
@@ -680,17 +692,28 @@ lookupEvBind :: EvBindMap -> EvVar -> Maybe EvBind
 lookupEvBind bs = lookupVarEnv (ev_bind_varenv bs)
 
 evBindMapBinds :: EvBindMap -> Bag EvBind
-evBindMapBinds bs
-  = foldVarEnv consBag emptyBag (ev_bind_varenv bs)
+evBindMapBinds = foldEvBindMap consBag emptyBag
+
+foldEvBindMap :: (EvBind -> a -> a) -> a -> EvBindMap -> a
+foldEvBindMap k z bs = foldVarEnv k z (ev_bind_varenv bs)
 
 -----------------
 -- All evidence is bound by EvBinds; no side effects
-data EvBind = EvBind { evb_var  :: EvVar
-                     , evb_term :: EvTerm
-                     , evb_loc  :: CtLoc }
+data EvBind
+  = EvBind { eb_lhs      :: EvVar
+           , eb_rhs      :: EvTerm
+           , eb_is_given :: Bool  -- True <=> given
+           , eb_loc      :: CtLoc -- TODO (RAE): Do we still need this?
+                 -- See Note [Tracking redundant constraints] in TcSimplify
+    }
 
-evBindVar :: EvBind -> EvVar
-evBindVar = evb_var
+mkWantedEvBind :: EvVar -> EvTerm -> CtLoc -> EvBind
+mkWantedEvBind ev tm loc = EvBind { eb_is_given = False, eb_lhs = ev, eb_rhs = tm
+                                  , eb_loc = loc }
+
+mkGivenEvBind :: EvVar -> EvTerm -> CtLoc -> EvBind
+mkGivenEvBind ev tm loc = EvBind { eb_is_given = True, eb_lhs = ev, eb_rhs = tm
+                                 , eb_loc = loc }
 
 data EvTerm
   = EvId EvId                    -- Any sort of evidence Id, including coercions
@@ -701,11 +724,7 @@ data EvTerm
   | EvCast EvTerm TcCoercion     -- d |> co, the coercion being at role representational
 
   | EvDFunApp DFunId             -- Dictionary instance application
-       [Type] [EvTerm]
-
-  | EvTupleSel EvTerm  Int       -- n'th component of the tuple, 0-indexed
-
-  | EvTupleMk [EvTerm]           -- tuple built from this stuff
+       [Type] [EvId]
 
   | EvDelayedError Type FastString  -- Used with Opt_DeferTypeErrors
                                -- See Note [Deferring coercion errors to runtime]
@@ -718,13 +737,43 @@ data EvTerm
   | EvLit EvLit       -- Dictionary for KnownNat and KnownSymbol classes.
                       -- Note [KnownNat & KnownSymbol and EvLit]
 
-  deriving( Data.Data, Data.Typeable)
+  | EvCallStack EvCallStack -- Dictionary for CallStack implicit parameters
 
+  | EvTypeable EvTypeable   -- Dictionary for `Typeable`
+
+  deriving( Data.Data, Data.Typeable )
+
+
+-- | Instructions on how to make a 'Typeable' dictionary.
+data EvTypeable
+  = EvTypeableTyCon TyCon [Kind]
+    -- ^ Dictionary for concrete type constructors.
+
+  | EvTypeableTyApp (EvTerm,Type) (EvTerm,Type)
+    -- ^ Dictionary for type applications;  this is used when we have
+    -- a type expression starting with a type variable (e.g., @Typeable (f a)@)
+
+  | EvTypeableTyLit (EvTerm,Type)
+    -- ^ Dictionary for a type literal.
+
+  deriving ( Data.Data, Data.Typeable )
 
 data EvLit
   = EvNum Integer
   | EvStr FastString
-    deriving( Data.Data, Data.Typeable)
+    deriving( Data.Data, Data.Typeable )
+
+-- | Evidence for @CallStack@ implicit parameters.
+data EvCallStack
+  -- See Note [Overview of implicit CallStacks]
+  = EvCsEmpty
+  | EvCsPushCall Name RealSrcSpan EvTerm
+    -- ^ @EvCsPushCall name loc stk@ represents a call to @name@, occurring at
+    -- @loc@, in a calling context @stk@.
+  | EvCsTop FastString RealSrcSpan EvTerm
+    -- ^ @EvCsTop name loc stk@ represents a use of an implicit parameter
+    -- @?name@, occurring at @loc@, in a calling context @stk@.
+  deriving( Data.Data, Data.Typeable )
 
 {-
 Note [Coercion evidence terms]
@@ -749,7 +798,7 @@ Instead we make a binding
     g1 :: a~Bool = g |> ax7 a
 and the constraint
     [G] g1 :: a~Bool
-See Trac [7238] and Note [Bind new Givens immediately] in TcSMonad
+See Trac [7238] and Note [Bind new Givens immediately] in TcRnTypes
 
 Note [EvBinds/EvTerm]
 ~~~~~~~~~~~~~~~~~~~~~
@@ -815,6 +864,119 @@ The story for kind `Symbol` is analogous:
   * class KnownSymbol
   * newtype SSymbol
   * Evidence: EvLit (EvStr n)
+
+
+Note [Overview of implicit CallStacks]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+(See https://ghc.haskell.org/trac/ghc/wiki/ExplicitCallStack/ImplicitLocations)
+
+The goal of CallStack evidence terms is to reify locations
+in the program source as runtime values, without any support
+from the RTS. We accomplish this by assigning a special meaning
+to implicit parameters of type GHC.Stack.CallStack. A use of
+a CallStack IP, e.g.
+
+  head []    = error (show (?loc :: CallStack))
+  head (x:_) = x
+
+will be solved with the source location that gave rise to the IP
+constraint (here, the use of ?loc). If there is already
+a CallStack IP in scope, e.g. passed-in as an argument
+
+  head :: (?loc :: CallStack) => [a] -> a
+  head []    = error (show (?loc :: CallStack))
+  head (x:_) = x
+
+we will push the new location onto the CallStack that was passed
+in. These two cases are reflected by the EvCallStack evidence
+type. In the first case, we will create an evidence term
+
+  EvCsTop "?loc" <?loc's location> EvCsEmpty
+
+and in the second we'll have a given constraint
+
+  [G] d :: IP "loc" CallStack
+
+in scope, and will create an evidence term
+
+  EvCsTop "?loc" <?loc's location> d
+
+When we call a function that uses a CallStack IP, e.g.
+
+  f = head xs
+
+we create an evidence term
+
+  EvCsPushCall "head" <head's location> EvCsEmpty
+
+again pushing onto a given evidence term if one exists.
+
+This provides a lightweight mechanism for building up call-stacks
+explicitly, but is notably limited by the fact that the stack will
+stop at the first function whose type does not include a CallStack IP.
+For example, using the above definition of head:
+
+  f :: [a] -> a
+  f = head
+
+  g = f []
+
+the resulting CallStack will include use of ?loc inside head and
+the call to head inside f, but NOT the call to f inside g, because f
+did not explicitly request a CallStack.
+
+Important Details:
+- GHC should NEVER report an insoluble CallStack constraint.
+
+- A CallStack (defined in GHC.Stack) is a [(String, SrcLoc)], where the String
+  is the name of the binder that is used at the SrcLoc. SrcLoc is defined in
+  GHC.SrcLoc and contains the package/module/file name, as well as the full
+  source-span. Both CallStack and SrcLoc are kept abstract so only GHC can
+  construct new values.
+
+- Consider the use of ?stk in:
+
+    head :: (?stk :: CallStack) => [a] -> a
+    head [] = error (show ?stk)
+
+  When solving the use of ?stk we'll have a given
+
+   [G] d :: IP "stk" CallStack
+
+  in scope. In the interaction phase, GHC would normally solve the use of ?stk
+  directly from the given, i.e. re-using the dicionary. But this is NOT what we
+  want! We want to generate a *new* CallStack with ?loc's SrcLoc pushed onto
+  the given CallStack. So we must take care in TcInteract.interactDict to
+  prioritize solving wanted CallStacks.
+
+- We will automatically solve any wanted CallStack regardless of the name of the
+  IP, i.e.
+
+    f = show (?stk :: CallStack)
+    g = show (?loc :: CallStack)
+
+  are both valid. However, we will only push new SrcLocs onto existing
+  CallStacks when the IP names match, e.g. in
+
+    head :: (?loc :: CallStack) => [a] -> a
+    head [] = error (show (?stk :: CallStack))
+
+  the printed CallStack will NOT include head's call-site. This reflects the
+  standard scoping rules of implicit-parameters. (See TcInteract.interactDict)
+
+- An EvCallStack term desugars to a CoreExpr of type `IP "some str" CallStack`.
+  The desugarer will need to unwrap the IP newtype before pushing a new
+  call-site onto a given stack (See DsBinds.dsEvCallStack)
+
+- We only want to intercept constraints that arose due to the use of an IP or a
+  function call. In particular, we do NOT want to intercept the
+
+    (?stk :: CallStack) => [a] -> a
+      ~
+    (?stk :: CallStack) => [a] -> a
+
+  constraint that arises from the ambiguity check on `head`s type signature.
+  (See TcEvidence.isCallStackIP)
 -}
 
 mkEvCast :: EvTerm -> TcCoercion -> EvTerm
@@ -822,6 +984,12 @@ mkEvCast ev lco
   | ASSERT2(tcCoercionRole lco == Representational, (vcat [ptext (sLit "Coercion of wrong role passed to mkEvCast:"), ppr ev, ppr lco]))
     isTcReflCo lco = ev
   | otherwise      = EvCast ev lco
+
+mkEvScSelectors :: EvTerm -> Class -> [TcType] -> [(TcPredType, EvTerm)]
+mkEvScSelectors ev cls tys
+   = zipWith mk_pr (immSuperClasses cls tys) [0..]
+  where
+    mk_pr pred i = (pred, EvSuperClass ev i)
 
 emptyTcEvBinds :: TcEvBinds
 emptyTcEvBinds = EvBinds emptyBag
@@ -842,13 +1010,13 @@ evTermCoercion tm = pprPanic "evTermCoercion" (ppr tm)
 evVarsOfTerm :: EvTerm -> VarSet
 evVarsOfTerm (EvId v)             = unitVarSet v
 evVarsOfTerm (EvCoercion co)      = coVarsOfTcCo co
-evVarsOfTerm (EvDFunApp _ _ evs)  = evVarsOfTerms evs
-evVarsOfTerm (EvTupleSel v _)     = evVarsOfTerm v
+evVarsOfTerm (EvDFunApp _ _ evs)  = mkVarSet evs
 evVarsOfTerm (EvSuperClass v _)   = evVarsOfTerm v
 evVarsOfTerm (EvCast tm co)       = evVarsOfTerm tm `unionVarSet` coVarsOfTcCo co
-evVarsOfTerm (EvTupleMk evs)      = evVarsOfTerms evs
 evVarsOfTerm (EvDelayedError _ _) = emptyVarSet
 evVarsOfTerm (EvLit _)            = emptyVarSet
+evVarsOfTerm (EvCallStack cs)     = evVarsOfCallStack cs
+evVarsOfTerm (EvTypeable ev)      = evVarsOfTypeable ev
 
 evVarsOfTerms :: [EvTerm] -> VarSet
 evVarsOfTerms = mapUnionVarSet evVarsOfTerm
@@ -861,13 +1029,13 @@ sccEvBinds bs = stronglyConnCompFromEdgedVertices edges
     edges = foldrBag ((:) . mk_node) [] bs
 
     mk_node :: EvBind -> (EvBind, EvVar, [EvVar])
-    mk_node b@(EvBind { evb_var = var, evb_term = term })
+    mk_node b@(EvBind { eb_lhs = var, eb_rhs = term })
       = (b, var, varSetElems (evVarsOfTerm term `unionVarSet`
                               coVarsOfType (varType var)))
 
 -- | Get the set of EvVars bound in a bag of EvBinds.
 evBindsVars :: Bag EvBind -> VarSet
-evBindsVars = foldrBag (\ (EvBind { evb_var = b }) bs -> extendVarSet bs b)
+evBindsVars = foldrBag (\ (EvBind { eb_lhs = b }) bs -> extendVarSet bs b)
                        emptyVarSet
 
 -- | Create a coercion substitution from a bunch of EvBinds.
@@ -900,6 +1068,19 @@ evBindsSubstX subst = foldl combine subst . sccEvBinds
 -- | Get a mapping from covars to coercions induced by an EvBinds
 evBindsCvSubstEnv :: Bag EvBind -> CvSubstEnv
 evBindsCvSubstEnv = getCvSubstEnv . evBindsSubst
+
+evVarsOfCallStack :: EvCallStack -> VarSet
+evVarsOfCallStack cs = case cs of
+  EvCsEmpty -> emptyVarSet
+  EvCsTop _ _ tm -> evVarsOfTerm tm
+  EvCsPushCall _ _ tm -> evVarsOfTerm tm
+
+evVarsOfTypeable :: EvTypeable -> VarSet
+evVarsOfTypeable ev =
+  case ev of
+    EvTypeableTyCon _ _    -> emptyVarSet
+    EvTypeableTyApp e1 e2  -> evVarsOfTerms (map fst [e1,e2])
+    EvTypeableTyLit e      -> evVarsOfTerm (fst e)
 
 {-
 ************************************************************************
@@ -954,22 +1135,63 @@ instance Uniquable EvBindsVar where
   getUnique (EvBindsVar _ u) = u
 
 instance Outputable EvBind where
-  ppr (EvBind { evb_var = v, evb_term = e })
-    = sep [ ppr v, nest 2 $ equals <+> ppr e ]
+  ppr (EvBind { eb_lhs = v, eb_rhs = e, eb_is_given = is_given })
+     = sep [ pp_gw <+> ppr v
+           , nest 2 $ equals <+> ppr e ]
+     where
+       pp_gw = brackets (if is_given then char 'G' else char 'W')
    -- We cheat a bit and pretend EqVars are CoVars for the purposes of pretty printing
 
 instance Outputable EvTerm where
-  ppr (EvId v)           = ppr v
-  ppr (EvCast v co)      = ppr v <+> (ptext (sLit "`cast`")) <+> pprParendTcCo co
-  ppr (EvCoercion co)    = ptext (sLit "CO") <+> ppr co
-  ppr (EvTupleSel v n)   = ptext (sLit "tupsel") <> parens (ppr (v,n))
-  ppr (EvTupleMk vs)     = ptext (sLit "tupmk") <+> ppr vs
-  ppr (EvSuperClass d n) = ptext (sLit "sc") <> parens (ppr (d,n))
+  ppr (EvId v)              = ppr v
+  ppr (EvCast v co)         = ppr v <+> (ptext (sLit "`cast`")) <+> pprParendTcCo co
+  ppr (EvCoercion co)       = ptext (sLit "CO") <+> ppr co
+  ppr (EvSuperClass d n)    = ptext (sLit "sc") <> parens (ppr (d,n))
   ppr (EvDFunApp df tys ts) = ppr df <+> sep [ char '@' <> ppr tys, ppr ts ]
-  ppr (EvLit l)          = ppr l
+  ppr (EvLit l)             = ppr l
+  ppr (EvCallStack cs)      = ppr cs
   ppr (EvDelayedError ty msg) =     ptext (sLit "error")
                                 <+> sep [ char '@' <> ppr ty, ppr msg ]
+  ppr (EvTypeable ev)    = ppr ev
 
 instance Outputable EvLit where
   ppr (EvNum n) = integer n
   ppr (EvStr s) = text (show s)
+
+instance Outputable EvCallStack where
+  ppr EvCsEmpty
+    = ptext (sLit "[]")
+  ppr (EvCsTop name loc tm)
+    = angleBrackets (ppr (name,loc)) <+> ptext (sLit ":") <+> ppr tm
+  ppr (EvCsPushCall name loc tm)
+    = angleBrackets (ppr (name,loc)) <+> ptext (sLit ":") <+> ppr tm
+
+instance Outputable EvTypeable where
+  ppr ev =
+    case ev of
+      EvTypeableTyCon tc ks    -> parens (ppr tc <+> sep (map ppr ks))
+      EvTypeableTyApp t1 t2    -> parens (ppr (fst t1) <+> ppr (fst t2))
+      EvTypeableTyLit x        -> ppr (fst x)
+
+
+----------------------------------------------------------------------
+-- Helper functions for dealing with IP newtype-dictionaries
+----------------------------------------------------------------------
+
+-- | Create a 'Coercion' that unwraps an implicit-parameter dictionary
+-- to expose the underlying value. We expect the 'Type' to have the form
+-- `IP sym ty`, return a 'Coercion' `co :: IP sym ty ~ ty`.
+unwrapIP :: Type -> Coercion
+unwrapIP ty =
+  case unwrapNewTyCon_maybe tc of
+    Just (_,_,ax) -> mkUnbranchedAxInstCo Representational ax tys
+    Nothing       -> pprPanic "unwrapIP" $
+                       text "The dictionary for" <+> quotes (ppr tc)
+                         <+> text "is not a newtype!"
+  where
+  (tc, tys) = splitTyConApp ty
+
+-- | Create a 'Coercion' that wraps a value in an implicit-parameter
+-- dictionary. See 'unwrapIP'.
+wrapIP :: Type -> Coercion
+wrapIP ty = mkSymCo (unwrapIP ty)

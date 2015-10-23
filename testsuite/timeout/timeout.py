@@ -35,7 +35,6 @@ try:
     else:
         # parent
         def handler(signum, frame):
-            sys.stderr.write('Timeout happened...killing process...\n')
             killProcess(pid)
             sys.exit(99)
         old = signal.signal(signal.SIGALRM, handler)

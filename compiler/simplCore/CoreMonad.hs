@@ -27,7 +27,8 @@ module CoreMonad (
     -- ** Reading from the monad
     getHscEnv, getRuleBase, getModule,
     getDynFlags, getOrigNameCache, getPackageFamInstEnv,
-    getPrintUnqualified,
+    getVisibleOrphanMods,
+    getPrintUnqualified, getSrcSpanM,
 
     -- ** Writing to the monad
     addSimplCount,
@@ -43,7 +44,7 @@ module CoreMonad (
     getAnnotations, getFirstAnnotations,
 
     -- ** Screen output
-    putMsg, putMsgS, errorMsg, errorMsgS,
+    putMsg, putMsgS, errorMsg, errorMsgS, warnMsg,
     fatalErrorMsg, fatalErrorMsgS,
     debugTraceMsg, debugTraceMsgS,
     dumpIfSet_dyn,
@@ -56,29 +57,29 @@ module CoreMonad (
 
 #ifdef GHCI
 import Name( Name )
+import TcRnMonad        ( initTcForLookup )
 #endif
 import CoreSyn
 import HscTypes
 import Module
 import DynFlags
 import StaticFlags
-import Rules            ( RuleBase )
 import BasicTypes       ( CompilerPhase(..) )
 import Annotations
 
 import IOEnv hiding     ( liftIO, failM, failWithM )
 import qualified IOEnv  ( liftIO )
-import TcEnv            ( tcLookupGlobal )
-import TcRnMonad        ( initTcForLookup )
+import TcEnv            ( lookupGlobal )
 import Var
 import Outputable
 import FastString
 import qualified ErrUtils as Err
+import ErrUtils( Severity(..) )
 import Maybes
 import UniqSupply
 import UniqFM       ( UniqFM, mapUFM, filterUFM )
 import MonadUtils
-
+import SrcLoc
 import ListSetOps       ( runs )
 import Data.List
 import Data.Ord
@@ -515,10 +516,13 @@ newtype CoreState = CoreState {
 }
 
 data CoreReader = CoreReader {
-        cr_hsc_env :: HscEnv,
-        cr_rule_base :: RuleBase,
-        cr_module :: Module,
-        cr_print_unqual :: PrintUnqualified,
+        cr_hsc_env             :: HscEnv,
+        cr_rule_base           :: RuleBase,
+        cr_module              :: Module,
+        cr_print_unqual        :: PrintUnqualified,
+        cr_loc                 :: SrcSpan,   -- Use this for log/error messages so they
+                                             -- are at least tagged with the right source file
+        cr_visible_orphan_mods :: !ModuleSet,
 #ifdef GHCI
         cr_globals :: (MVar PersistentLinkerState, Bool)
 #else
@@ -550,12 +554,10 @@ type CoreIOEnv = IOEnv CoreReader
 newtype CoreM a = CoreM { unCoreM :: CoreState -> CoreIOEnv (a, CoreState, CoreWriter) }
 
 instance Functor CoreM where
-    fmap f ma = do
-        a <- ma
-        return (f a)
+    fmap = liftM
 
 instance Monad CoreM where
-    return x = CoreM (\s -> nop s x)
+    return = pure
     mx >>= f = CoreM $ \s -> do
             (x, s', w1) <- unCoreM mx s
             (y, s'', w2) <- unCoreM (f x) s'
@@ -563,10 +565,11 @@ instance Monad CoreM where
             return $ seq w (y, s'', w)
             -- forcing w before building the tuple avoids a space leak
             -- (Trac #7702)
+
 instance A.Applicative CoreM where
-    pure = return
+    pure x = CoreM $ \s -> nop s x
     (<*>) = ap
-    (*>) = (>>)
+    m *> k = m >>= \_ -> k
 
 instance MonadPlus IO => A.Alternative CoreM where
     empty = mzero
@@ -595,19 +598,23 @@ runCoreM :: HscEnv
          -> RuleBase
          -> UniqSupply
          -> Module
+         -> ModuleSet
          -> PrintUnqualified
+         -> SrcSpan
          -> CoreM a
          -> IO (a, SimplCount)
-runCoreM hsc_env rule_base us mod print_unqual m = do
-        glbls <- saveLinkerGlobals
-        liftM extract $ runIOEnv (reader glbls) $ unCoreM m state
+runCoreM hsc_env rule_base us mod orph_imps print_unqual loc m
+  = do { glbls <- saveLinkerGlobals
+       ; liftM extract $ runIOEnv (reader glbls) $ unCoreM m state }
   where
     reader glbls = CoreReader {
             cr_hsc_env = hsc_env,
             cr_rule_base = rule_base,
             cr_module = mod,
+            cr_visible_orphan_mods = orph_imps,
             cr_globals = glbls,
-            cr_print_unqual = print_unqual
+            cr_print_unqual = print_unqual,
+            cr_loc = loc
         }
     state = CoreState {
             cs_uniq_supply = us
@@ -668,8 +675,14 @@ getHscEnv = read cr_hsc_env
 getRuleBase :: CoreM RuleBase
 getRuleBase = read cr_rule_base
 
+getVisibleOrphanMods :: CoreM ModuleSet
+getVisibleOrphanMods = read cr_visible_orphan_mods
+
 getPrintUnqualified :: CoreM PrintUnqualified
 getPrintUnqualified = read cr_print_unqual
+
+getSrcSpanM :: CoreM SrcSpan
+getSrcSpanM = read cr_loc
 
 addSimplCount :: SimplCount -> CoreM ()
 addSimplCount count = write (CoreWriter { cw_simpl_count = count })
@@ -803,10 +816,21 @@ we aren't using annotations heavily.
 ************************************************************************
 -}
 
-msg :: (DynFlags -> SDoc -> IO ()) -> SDoc -> CoreM ()
-msg how doc = do
-        dflags <- getDynFlags
-        liftIO $ how dflags doc
+msg :: Severity -> SDoc -> CoreM ()
+msg sev doc
+  = do { dflags <- getDynFlags
+       ; loc    <- getSrcSpanM
+       ; unqual <- getPrintUnqualified
+       ; let sty = case sev of
+                     SevError   -> err_sty
+                     SevWarning -> err_sty
+                     SevDump    -> dump_sty
+                     _          -> user_sty
+             err_sty  = mkErrStyle dflags unqual
+             user_sty = mkUserStyle unqual AllTheWay
+             dump_sty = mkDumpStyle unqual
+       ; liftIO $
+         (log_action dflags) dflags sev loc sty doc }
 
 -- | Output a String message to the screen
 putMsgS :: String -> CoreM ()
@@ -814,7 +838,7 @@ putMsgS = putMsg . text
 
 -- | Output a message to the screen
 putMsg :: SDoc -> CoreM ()
-putMsg = msg Err.putMsg
+putMsg = msg SevInfo
 
 -- | Output a string error to the screen
 errorMsgS :: String -> CoreM ()
@@ -822,7 +846,10 @@ errorMsgS = errorMsg . text
 
 -- | Output an error to the screen
 errorMsg :: SDoc -> CoreM ()
-errorMsg = msg Err.errorMsg
+errorMsg = msg SevError
+
+warnMsg :: SDoc -> CoreM ()
+warnMsg = msg SevWarning
 
 -- | Output a fatal string error to the screen. Note this does not by itself cause the compiler to die
 fatalErrorMsgS :: String -> CoreM ()
@@ -830,7 +857,7 @@ fatalErrorMsgS = fatalErrorMsg . text
 
 -- | Output a fatal error to the screen. Note this does not by itself cause the compiler to die
 fatalErrorMsg :: SDoc -> CoreM ()
-fatalErrorMsg = msg Err.fatalErrorMsg
+fatalErrorMsg = msg SevFatal
 
 -- | Output a string debugging message at verbosity level of @-v@ or higher
 debugTraceMsgS :: String -> CoreM ()
@@ -838,11 +865,15 @@ debugTraceMsgS = debugTraceMsg . text
 
 -- | Outputs a debugging message at verbosity level of @-v@ or higher
 debugTraceMsg :: SDoc -> CoreM ()
-debugTraceMsg = msg (flip Err.debugTraceMsg 3)
+debugTraceMsg = msg SevDump
 
 -- | Show some labelled 'SDoc' if a particular flag is set or at a verbosity level of @-v -ddump-most@ or higher
 dumpIfSet_dyn :: DumpFlag -> String -> SDoc -> CoreM ()
-dumpIfSet_dyn flag str = msg (\dflags -> Err.dumpIfSet_dyn dflags flag str)
+dumpIfSet_dyn flag str doc
+  = do { dflags <- getDynFlags
+       ; unqual <- getPrintUnqualified
+       ; when (dopt flag dflags) $ liftIO $
+         Err.dumpSDoc dflags unqual flag str doc }
 
 {-
 ************************************************************************
@@ -853,9 +884,8 @@ dumpIfSet_dyn flag str = msg (\dflags -> Err.dumpIfSet_dyn dflags flag str)
 -}
 
 instance MonadThings CoreM where
-    lookupThing name = do
-        hsc_env <- getHscEnv
-        liftIO $ initTcForLookup hsc_env (tcLookupGlobal name)
+    lookupThing name = do { hsc_env <- getHscEnv
+                          ; liftIO $ lookupGlobal hsc_env name }
 
 {-
 ************************************************************************

@@ -1,6 +1,12 @@
 -- (c) The University of Glasgow, 1992-2006
 
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveFunctor      #-}
+{-# LANGUAGE DeriveFoldable     #-}
+{-# LANGUAGE DeriveTraversable  #-}
+{-# LANGUAGE FlexibleInstances  #-}
 {-# OPTIONS_GHC -fno-omit-interface-pragmas #-}
    -- Workaround for Trac #5252 crashes the bootstrap compiler without -O
    -- When the earliest compiler we want to boostrap with is
@@ -36,6 +42,7 @@ module SrcLoc (
         mkGeneralSrcSpan, mkSrcSpan, mkRealSrcSpan,
         noSrcSpan,
         wiredInSrcSpan,         -- Something wired into the compiler
+        interactiveSrcSpan,
         srcLocSpan, realSrcLocSpan,
         combineSrcSpans,
 
@@ -43,7 +50,7 @@ module SrcLoc (
         srcSpanStart, srcSpanEnd,
         realSrcSpanStart, realSrcSpanEnd,
         srcSpanFileName_maybe,
-        showUserSpan, pprUserRealSpan,
+        pprUserRealSpan,
 
         -- ** Unsafely deconstructing SrcSpan
         -- These are dubious exports, because they crash on some inputs
@@ -77,6 +84,10 @@ import Util
 import Outputable
 import FastString
 
+#if __GLASGOW_HASKELL__ < 709
+import Data.Foldable ( Foldable )
+import Data.Traversable ( Traversable )
+#endif
 import Data.Bits
 import Data.Data
 import Data.List
@@ -122,7 +133,7 @@ mkRealSrcLoc x line col = SrcLoc x line col
 noSrcLoc, generatedSrcLoc, interactiveSrcLoc :: SrcLoc
 noSrcLoc          = UnhelpfulLoc (fsLit "<no location info>")
 generatedSrcLoc   = UnhelpfulLoc (fsLit "<compiler-generated code>")
-interactiveSrcLoc = UnhelpfulLoc (fsLit "<interactive session>")
+interactiveSrcLoc = UnhelpfulLoc (fsLit "<interactive>")
 
 -- | Creates a "bad" 'SrcLoc' that has no detailed information about its location
 mkGeneralSrcLoc :: FastString -> SrcLoc
@@ -269,9 +280,10 @@ data SrcSpan =
                                      -- derive Show for Token
 
 -- | Built-in "bad" 'SrcSpan's for common sources of location uncertainty
-noSrcSpan, wiredInSrcSpan :: SrcSpan
-noSrcSpan      = UnhelpfulSpan (fsLit "<no location info>")
-wiredInSrcSpan = UnhelpfulSpan (fsLit "<wired into compiler>")
+noSrcSpan, wiredInSrcSpan, interactiveSrcSpan :: SrcSpan
+noSrcSpan          = UnhelpfulSpan (fsLit "<no location info>")
+wiredInSrcSpan     = UnhelpfulSpan (fsLit "<wired into compiler>")
+interactiveSrcSpan = UnhelpfulSpan (fsLit "<interactive>")
 
 -- | Create a "bad" 'SrcSpan' that has not location information
 mkGeneralSrcSpan :: FastString -> SrcSpan
@@ -475,9 +487,6 @@ instance Outputable SrcSpan where
 --           UnhelpfulSpan _ -> panic "Outputable UnhelpfulSpan"
 --           RealSrcSpan s -> ppr s
 
-showUserSpan :: Bool -> SrcSpan -> String
-showUserSpan show_path span = showSDocSimple (pprUserSpan show_path span)
-
 pprUserSpan :: Bool -> SrcSpan -> SDoc
 pprUserSpan _         (UnhelpfulSpan s) = ftext s
 pprUserSpan show_path (RealSrcSpan s)   = pprUserRealSpan show_path s
@@ -514,7 +523,7 @@ pprUserRealSpan show_path (SrcSpanPoint src_path line col)
 
 -- | We attach SrcSpans to lots of things, so let's have a datatype for it.
 data GenLocated l e = L l e
-  deriving (Eq, Ord, Typeable, Data)
+  deriving (Eq, Ord, Typeable, Data, Functor, Foldable, Traversable)
 
 type Located e = GenLocated SrcSpan e
 type RealLocated e = GenLocated RealSrcSpan e
@@ -549,9 +558,6 @@ eqLocated a b = unLoc a == unLoc b
 -- | Tests the ordering of the two located things
 cmpLocated :: Ord a => Located a -> Located a -> Ordering
 cmpLocated a b = unLoc a `compare` unLoc b
-
-instance Functor (GenLocated l) where
-  fmap f (L l e) = L l (f e)
 
 instance (Outputable l, Outputable e) => Outputable (GenLocated l e) where
   ppr (L l e) = -- TODO: We can't do this since Located was refactored into

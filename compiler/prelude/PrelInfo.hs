@@ -10,7 +10,7 @@ module PrelInfo (
         primOpRules, builtinRules,
 
         ghcPrimExports,
-        wiredInThings, basicKnownKeyNames,
+        wiredInThings, knownKeyNames,
         primOpId,
 
         -- Random other things
@@ -30,20 +30,49 @@ import PrimOp
 import DataCon
 import Id
 import MkId
+import Name( Name, getName )
 import TysPrim
 import TysWiredIn
 import HscTypes
 import Class
 import TyCon
+import Outputable
+import UniqFM
 import Util
 import {-# SOURCE #-} TcTypeNats ( typeNatTyCons )
 
+#ifdef GHCI
+import THNames
+#endif
+
 import Data.Array
 
-{-
-************************************************************************
+
+{- *********************************************************************
 *                                                                      *
-\subsection[builtinNameInfo]{Lookup built-in names}
+                Known key things
+*                                                                      *
+********************************************************************* -}
+
+knownKeyNames :: [Name]
+knownKeyNames =
+  ASSERT2( isNullUFM badNamesUFM, text "badknownKeyNames" <+> ppr badNamesUFM )
+  names
+  where
+  badNamesUFM = filterUFM (\ns -> length ns > 1) namesUFM
+  namesUFM = foldl (\m n -> addToUFM_Acc (:) singleton m n n) emptyUFM names
+  names = concat
+    [ map getName wiredInThings
+    , cTupleTyConNames
+    , basicKnownKeyNames
+#ifdef GHCI
+    , templateHaskellNames
+#endif
+    ]
+
+{- *********************************************************************
+*                                                                      *
+                Wired in things
 *                                                                      *
 ************************************************************************
 
@@ -121,7 +150,7 @@ ghcPrimExports :: [IfaceExport]
 ghcPrimExports
  = map (Avail . idName) ghcPrimIds ++
    map (Avail . idName . primOpId) allThePrimOps ++
-   [ AvailTC n [n]
+   [ AvailTC n [n] []
    | tc <- funTyCon : primTyCons, let n = tyConName tc  ]
 
 {-

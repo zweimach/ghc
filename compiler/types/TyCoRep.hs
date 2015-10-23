@@ -45,7 +45,7 @@ module TyCoRep (
 
         -- Pretty-printing
         pprType, pprParendType, pprTypeApp, pprTvBndr, pprTvBndrs,
-        pprTyThing, pprTyThingCategory, pprSigmaType, pprSigmaTypeExtraCts,
+        pprTyThing, pprTyThingCategory, pprSigmaType,
         pprTheta, pprForAll, pprForAllImplicit, pprUserForAll,
         pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprTyLit, suppressImplicits,
@@ -122,12 +122,13 @@ import PrelNames
 import Binary
 import Outputable
 import DynFlags
+import StaticFlags ( opt_PprStyle_Debug )
 import FastString
 import Pair
 import Util
 
 -- libraries
-import qualified Data.Data        as Data hiding ( TyCon )
+import qualified Data.Data as Data hiding ( TyCon )
 import Data.List
 
 {-
@@ -141,12 +142,12 @@ import Data.List
 -- | The key representation of types within the compiler
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 data Type
   -- See Note [Non-trivial definitional equality]
   = TyVarTy Var -- ^ Vanilla type or kind variable (*never* a coercion variable)
 
-  | AppTy         -- See Note [AppTy invariant]
+  | AppTy         -- See Note [AppTy rep]
         Type
         Type            -- ^ Type application to something other than a 'TyCon'. Parameters:
                         --
@@ -155,10 +156,10 @@ data Type
                         --
                         --  2) Argument type
 
-  | TyConApp      -- See Note [AppTy invariant]
+  | TyConApp      -- See Note [AppTy rep]
         TyCon
         [KindOrType]    -- ^ Application of a 'TyCon', including newtypes /and/ synonyms.
-                        -- Invariant: saturated appliations of 'FunTyCon' must
+                        -- Invariant: saturated applications of 'FunTyCon' must
                         -- use 'FunTy' and saturated synonyms must use their own
                         -- constructors. However, /unsaturated/ 'FunTyCon's
                         -- do appear as 'TyConApp's.
@@ -476,7 +477,7 @@ isLevityVar = isLevityTy . tyVarKind
 -- of two types.
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 data Coercion
   -- Each constructor has a "role signature", indicating the way roles are
   -- propagated through coercions. P, N, and R stand for coercions of the
@@ -545,6 +546,7 @@ data Coercion
   | NthCo  Int         Coercion     -- Zero-indexed; decomposes (T t0 ... tn)
     -- :: _ -> e -> ?? (inverse of TyConAppCo, see Note [TyConAppCo roles])
     -- Using NthCo on a ForAllCo gives an N coercion always
+    -- See Note [NthCo and newtypes]
 
   | LRCo   LeftOrRight Coercion     -- Decomposes (t_left t_right)
     -- :: _ -> N -> N
@@ -568,7 +570,7 @@ data Coercion
   deriving (Data.Data, Data.Typeable)
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 data LeftOrRight = CLeft | CRight
                  deriving( Eq, Data.Data, Data.Typeable )
 
@@ -864,24 +866,59 @@ which the coercion proves equality. The choice of this parameter affects
 the required roles of the arguments of the TyConAppCo. To help explain
 it, assume the following definition:
 
-newtype Age = MkAge Int
+  type instance F Int = Bool   -- Axiom axF : F Int ~N Bool
+  newtype Age = MkAge Int      -- Axiom axAge : Age ~R Int
+  data Foo a = MkFoo a         -- Role on Foo's parameter is Representational
 
-Nominal: All arguments must have role Nominal. Why? So that Foo Age ~N Foo Int
-does *not* hold.
+TyConAppCo Nominal Foo axF : Foo (F Int) ~N Foo Bool
+  For (TyConAppCo Nominal) all arguments must have role Nominal. Why?
+  So that Foo Age ~N Foo Int does *not* hold.
 
-Representational: All arguments must have the roles corresponding to the
-result of tyConRoles on the TyCon. This is the whole point of having
-roles on the TyCon to begin with. So, we can have Foo Age ~R Foo Int,
-if Foo's parameter has role R.
+TyConAppCo Representational Foo (SubCo axF) : Foo (F Int) ~R Foo Bool
+TyConAppCo Representational Foo axAge       : Foo Age     ~R Foo Int
+  For (TyConAppCo Representational), all arguments must have the roles
+  corresponding to the result of tyConRoles on the TyCon. This is the
+  whole point of having roles on the TyCon to begin with. So, we can
+  have Foo Age ~R Foo Int, if Foo's parameter has role R.
 
-If a Representational TyConAppCo is over-saturated (which is otherwise fine),
-the spill-over arguments must all be at Nominal. This corresponds to the
-behavior for AppCo.
+  If a Representational TyConAppCo is over-saturated (which is otherwise fine),
+  the spill-over arguments must all be at Nominal. This corresponds to the
+  behavior for AppCo.
 
-Phantom: All arguments must have role Phantom. This one isn't strictly
-necessary for soundness, but this choice removes ambiguity.
+TyConAppCo Phantom Foo (UnivCo Phantom Int Bool) : Foo Int ~P Foo Bool
+  All arguments must have role Phantom. This one isn't strictly
+  necessary for soundness, but this choice removes ambiguity.
 
-The rules here also dictate what the parameters to mkTyConAppCo.
+The rules here dictate the roles of the parameters to mkTyConAppCo
+(should be checked by Lint).
+
+Note [NthCo and newtypes]
+~~~~~~~~~~~~~~~~~~~~~~~~~
+Suppose we have
+
+  newtype N a = MkN Int
+  type role N representational
+
+This yields axiom
+
+  NTCo:N :: forall a. N a ~R Int
+
+We can then build
+
+  co :: forall a b. N a ~R N b
+  co = NTCo:N a ; sym (NTCo:N b)
+
+for any `a` and `b`. Because of the role annotation on N, if we use
+NthCo, we'll get out a representational coercion. That is:
+
+  NthCo 0 co :: forall a b. a ~R b
+
+Yikes! Clearly, this is terrible. The solution is simple: forbid
+NthCo to be used on newtypes if the internal coercion is representational.
+
+This is not just some corner case discovered by a segfault somewhere;
+it was discovered in the proof of soundness of roles and described
+in the "Safe Coercions" paper (ICFP '14).
 
 Note [InstCo roles]
 ~~~~~~~~~~~~~~~~~~~
@@ -911,6 +948,7 @@ in nominal ways. If not, having w be representational is OK.
 
 tyCoVarsOfType :: Type -> TyCoVarSet
 -- ^ NB: for type synonyms tyCoVarsOfType does /not/ expand the synonym
+-- tyVarsOfType returns free variables of a type, including kind variables.
 tyCoVarsOfType (TyVarTy v)         = unitVarSet v `unionVarSet` tyCoVarsOfType (tyVarKind v)
 tyCoVarsOfType (TyConApp _ tys)    = tyCoVarsOfTypes tys
 tyCoVarsOfType (LitTy {})          = emptyVarSet
@@ -1017,7 +1055,10 @@ as ATyCon.  You can tell the difference, and get to the class, with
 The Class and its associated TyCon have the same Name.
 -}
 
--- | A typecheckable-thing, essentially anything that has a name
+-- | A global typecheckable-thing, essentially anything that has a name.
+-- Not to be confused with a 'TcTyThing', which is also a typecheckable
+-- thing but in the *local* context.  See 'TcEnv' for how to retrieve
+-- a 'TyThing' given a 'Name'.
 data TyThing
   = AnId     Id
   | AConLike ConLike
@@ -1068,7 +1109,7 @@ instance NamedThing TyThing where       -- Can't put this with the type
 -- the in-scope set is not relevant
 --
 -- 3. The substitution is only applied ONCE! This is because
--- in general such application will not reached a fixed point.
+-- in general such application will not reach a fixed point.
 data TCvSubst
   = TCvSubst InScopeSet -- The in-scope type and kind variables
              TvSubstEnv -- Substitutes both type and kind variables
@@ -1749,7 +1790,7 @@ pprClassPred clas tys = pprTypeApp (classTyCon clas) tys
 
 ------------
 pprTheta :: ThetaType -> SDoc
--- pprTheta [pred] = pprPred pred        -- I'm in two minds about this
+pprTheta [pred] = ppr_type TopPrec pred     -- I'm in two minds about this
 pprTheta theta  = parens (sep (punctuate comma (map (ppr_type TopPrec) theta)))
 
 pprThetaArrowTy :: ThetaType -> SDoc
@@ -1782,10 +1823,6 @@ pprThetaArrowTy preds  = parens (fsep (punctuate comma (map (ppr_type TopPrec) p
     --            Eq j, Eq k, Eq l) =>
     --           Eq (a, b, c, d, e, f, g, h, i, j, k, l)
 
-pprThetaArrowTyExtra :: ThetaType -> SDoc
-pprThetaArrowTyExtra []    = text "_" <+> darrow
-pprThetaArrowTyExtra preds = parens (fsep (punctuate comma xs)) <+> darrow
-  where xs = (map (ppr_type TopPrec) preds) ++ [text "_"]
 ------------------
 instance Outputable Type where
     ppr ty = pprType ty
@@ -1818,7 +1855,7 @@ ppr_type _ (CoercionTy co)
 
 ppr_forall_type :: TyPrec -> Type -> SDoc
 ppr_forall_type p ty
-  = maybeParen p FunPrec $ ppr_sigma_type True False ty
+  = maybeParen p FunPrec $ ppr_sigma_type True ty
     -- True <=> we always print the foralls on *nested* quantifiers
     -- Opt_PrintExplicitForalls only affects top-level quantifiers
     -- False <=> we don't print an extra-constraints wildcard
@@ -1834,16 +1871,14 @@ ppr_tylit _ tl =
     StrTyLit s -> text (show s)
 
 -------------------
-ppr_sigma_type :: Bool -> Bool -> Type -> SDoc
+ppr_sigma_type :: Bool -> Type -> SDoc
 -- First Bool <=> Show the foralls unconditionally
 -- Second Bool <=> Show an extra-constraints wildcard
-ppr_sigma_type show_foralls_unconditionally extra_cts ty
+ppr_sigma_type show_foralls_unconditionally ty
   = sep [ if   show_foralls_unconditionally
           then pprForAll bndrs
           else pprUserForAll bndrs
-        , if extra_cts
-          then pprThetaArrowTyExtra ctxt
-          else pprThetaArrowTy ctxt
+        , pprThetaArrowTy ctxt
         , pprArrowChain TopPrec (ppr_fun_tail tau) ]
   where
     (bndrs, rho) = split1 [] ty
@@ -1861,10 +1896,7 @@ ppr_sigma_type show_foralls_unconditionally extra_cts ty
     ppr_fun_tail other_ty = [ppr_type TopPrec other_ty]
 
 pprSigmaType :: Type -> SDoc
-pprSigmaType ty = ppr_sigma_type False False ty
-
-pprSigmaTypeExtraCts :: Bool -> Type -> SDoc
-pprSigmaTypeExtraCts = ppr_sigma_type False
+pprSigmaType ty = ppr_sigma_type False ty
 
 pprUserForAll :: [Binder] -> SDoc
 -- Print a user-level forall; see Note [When to print foralls]
@@ -1979,7 +2011,7 @@ pprTyTcApp :: TyPrec -> TyCon -> [Type] -> SDoc
 -- Used for types only; so that we can make a
 -- special case for type-level lists
 pprTyTcApp p tc tys
-  | tc `hasKey` ipClassNameKey
+  | tc `hasKey` ipTyConKey
   , [LitTy (StrTyLit n),ty] <- tys
   = maybeParen p FunPrec $
     char '?' <> ftext n <> ptext (sLit "::") <> ppr_type TopPrec ty
@@ -2006,28 +2038,37 @@ pprTcApp _ pp tc [ty]
   | tc `hasKey` parrTyConKey = pprPromotionQuote tc <> paBrackets (pp TopPrec ty)
 
 pprTcApp p pp tc tys
-  | Just UnboxedTuple <- tyConTuple_maybe tc
+  | Just sort <- tyConTuple_maybe tc
   , let arity = tyConArity tc
   , arity == length tys
-  = tupleParens UnboxedTuple
-      (sep (punctuate comma (map (pp TopPrec) $ drop (arity `div` 2) tys)))
-
-  | isTupleTyCon tc && tyConArity tc == length tys
-  = pprPromotionQuote tc <>
-    tupleParens (tupleTyConSort tc) (sep (punctuate comma (map (pp TopPrec) tys)))
+  , let num_to_drop = case sort of UnboxedTuple -> arity `div` 2
+                                   _            -> 0
+  = pprTupleApp p pp tc sort (drop num_to_drop tys)
 
   | Just dc <- isPromotedDataCon_maybe tc
   , let dc_tc = dataConTyCon dc
-  , isTupleTyCon dc_tc
+  , Just tup_sort <- tyConTuple_maybe dc_tc
   , let arity = tyConArity dc_tc    -- E.g. 3 for (,,) k1 k2 k3 t1 t2 t3
         ty_args = drop arity tys    -- Drop the kind args
   , ty_args `lengthIs` arity        -- Result is saturated
   = pprPromotionQuote tc <>
-    (tupleParens (tupleTyConSort dc_tc) $
-     sep (punctuate comma (map (pp TopPrec) ty_args)))
+    (tupleParens tup_sort $ pprWithCommas (pp TopPrec) ty_args)
 
   | otherwise
   = sdocWithDynFlags (pprTcApp_help p pp tc tys)
+
+pprTupleApp :: TyPrec -> (TyPrec -> a -> SDoc)
+            -> TyCon -> TupleSort -> [a] -> SDoc
+-- Print a saturated tuple
+pprTupleApp p pp tc sort tys
+  | null tys
+  , ConstraintTuple <- sort
+  = if opt_PprStyle_Debug then ptext (sLit "(%%)")
+                          else maybeParen p FunPrec $
+                               ptext (sLit "() :: Constraint")
+  | otherwise
+  = pprPromotionQuote tc <>
+    tupleParens sort (pprWithCommas (pp TopPrec) tys)
 
 pprTcApp_help :: TyPrec -> (TyPrec -> a -> SDoc) -> TyCon -> [a] -> DynFlags -> SDoc
 -- This one has accss to the DynFlags
@@ -2139,6 +2180,8 @@ tidyTyCoVarBndr tidy_env@(occ_env, subst) tyvar
     -- System Names are for unification variables;
     -- when we tidy them we give them a trailing "0" (or 1 etc)
     -- so that they don't take precedence for the un-modified name
+    -- Plus, indicating a unification variable in this way is a
+    -- helpful clue for users
     occ1 | isSystemName name
          = if isTyVar tyvar
            then mkTyVarOcc (occNameString occ ++ "0")

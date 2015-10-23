@@ -1,12 +1,14 @@
 
-TcCoercibleFail.hs:11:8:
-    Couldn't match representation of type ‘()’ with that of ‘Int’
+TcCoercibleFail.hs:11:8: error:
+    Couldn't match representation of type ‘Int’ with that of ‘()’
+      arising from a use of ‘coerce’
     In the expression: coerce
     In the expression: coerce $ one :: ()
     In an equation for ‘foo1’: foo1 = coerce $ one :: ()
 
-TcCoercibleFail.hs:14:8:
-    Couldn't match representation of type ‘m Age’ with that of ‘m Int’
+TcCoercibleFail.hs:14:8: error:
+    Couldn't match representation of type ‘m Int’ with that of ‘m Age’
+      arising from a use of ‘coerce’
     NB: We cannot know what roles the parameters to ‘m’ have;
       we must assume that the role is nominal
     Relevant bindings include
@@ -15,53 +17,48 @@ TcCoercibleFail.hs:14:8:
     In the expression: coerce $ (return one :: m Int)
     In an equation for ‘foo2’: foo2 = coerce $ (return one :: m Int)
 
-TcCoercibleFail.hs:16:8:
-    Couldn't match type ‘Int’ with ‘Age’
-    arising from trying to show that the representations of
-      ‘Map Int ()’ and
-      ‘Map Age ()’ are the same
-    Relevant role signatures: type role Map nominal representational
+TcCoercibleFail.hs:16:8: error:
+    Couldn't match type ‘Int’ with ‘Age’ arising from a use of ‘coerce’
     In the expression: coerce
     In the expression: coerce $ Map one () :: Map Age ()
     In an equation for ‘foo3’: foo3 = coerce $ Map one () :: Map Age ()
 
-TcCoercibleFail.hs:18:8:
-    Couldn't match representation of type ‘Down Int’ with that of ‘Int’
-    Relevant role signatures: type role Down representational
-    The data constructor ‘Data.Ord.Down’
-      of newtype ‘Down’ is not in scope
+TcCoercibleFail.hs:18:8: error:
+    Couldn't match representation of type ‘Int’ with that of ‘Down Int’
+      arising from a use of ‘coerce’
+    The data constructor ‘Down’ of newtype ‘Down’ is not in scope
     In the expression: coerce
     In the expression: coerce $ one :: Down Int
     In an equation for ‘foo4’: foo4 = coerce $ one :: Down Int
 
-TcCoercibleFail.hs:21:8:
-    Couldn't match representation of type ‘()’ with that of ‘Void’
+TcCoercibleFail.hs:21:8: error:
+    Couldn't match representation of type ‘Void’ with that of ‘()’
+      arising from a use of ‘coerce’
     In the expression: coerce :: Void -> ()
     In an equation for ‘foo5’: foo5 = coerce :: Void -> ()
 
-TcCoercibleFail.hs:24:9:
-    Couldn't match representation of type ‘()’
-                             with that of ‘VoidBad ()’
-    Relevant role signatures: type role VoidBad phantom
+TcCoercibleFail.hs:24:9: error:
+    Couldn't match representation of type ‘VoidBad ()’
+                             with that of ‘()’
+      arising from a use of ‘coerce’
     In the expression: coerce :: (VoidBad ()) -> ()
     In an equation for ‘foo5'’: foo5' = coerce :: (VoidBad ()) -> ()
 
-TcCoercibleFail.hs:28:8:
-    Context reduction stack overflow; size = 101
-    Use -fcontext-stack=N to increase stack size to N
-      Coercible (Fix (Either Int)) (Fix (Either Age))
+TcCoercibleFail.hs:28:8: error:
+    Reduction stack overflow; size = 201
+    When simplifying the following type: Fix (Either Age)
+    Use -freduction-depth=0 to disable this check
+    (any upper bound you could choose might fail unpredictably with
+     minor updates to GHC, so disabling the check is recommended if
+     you're sure that type checking should terminate)
     In the expression: coerce :: Fix (Either Int) -> Fix (Either Age)
     In an equation for ‘foo6’:
         foo6 = coerce :: Fix (Either Int) -> Fix (Either Age)
 
-TcCoercibleFail.hs:29:8:
-    Couldn't match representation of type ‘()’
-                             with that of ‘Either Int (Fix (Either Int))’
-    arising from trying to show that the representations of
-      ‘Fix (Either Int)’ and
-      ‘()’ are the same
-    Relevant role signatures:
-      type role Either representational representational
-      type role Fix nominal
+TcCoercibleFail.hs:29:8: error:
+    Couldn't match representation of type ‘Either
+                                             Int (Fix (Either Int))’
+                             with that of ‘()’
+      arising from a use of ‘coerce’
     In the expression: coerce :: Fix (Either Int) -> ()
     In an equation for ‘foo7’: foo7 = coerce :: Fix (Either Int) -> ()

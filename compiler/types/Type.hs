@@ -69,6 +69,7 @@ module Type (
         mkClassPred,
         isClassPred, isEqPred, isNomEqPred,
         isIPPred, isIPPred_maybe, isIPTyCon, isIPClass,
+        isCTupleClass,
 
         -- Deconstructing predicate types
         PredTree(..), EqRel(..), eqRelRole, classifyPredType,
@@ -160,7 +161,7 @@ module Type (
         pprSigmaType,
         pprTheta, pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprSourceTyCon,
-        TyPrec(..), maybeParen, pprSigmaTypeExtraCts,
+        TyPrec(..), maybeParen,
         pprTyVar, pprTcApp, pprPrefixApp, pprArrowChain,
 
         -- * Tidying type related things up for printing
@@ -280,22 +281,18 @@ import Control.Applicative ( Applicative, (<*>) )
 
 {-# INLINE coreView #-}
 coreView :: Type -> Maybe Type
--- ^ In Core, we \"look through\" type synonyms: this
--- function tries to obtain a different view of the supplied type given this
---
--- Strips off the /top layer only/ of a type to give
--- its underlying representation type.
+-- ^ This function Strips off the /top layer only/ of a type synonym
+-- application (if any) its underlying representation type.
 -- Returns Nothing if there is nothing to look through.
 --
 -- By being non-recursive and inlined, this case analysis gets efficiently
 -- joined onto the case analysis that the caller is already doing
-coreView (TyConApp tc tys)
-  | Just (tenv, rhs, tys') <- coreExpandTyCon_maybe tc tys
-  = Just (mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys')
+coreView (TyConApp tc tys) | Just (tenv, rhs, tys') <- expandSynTyCon_maybe tc tys
+              = Just (mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys')
                -- Its important to use mkAppTys, rather than (foldl AppTy),
                -- because the function part might well return a
                -- partially-applied type constructor; indeed, usually will!
-coreView _                 = Nothing
+coreView _ = Nothing
 
 -- | Like 'coreView', but it also "expands" @Constraint@ to become
 -- @TYPE Lifted@.
@@ -310,10 +307,9 @@ coreViewOneStarKind = go Nothing
 -----------------------------------------------
 {-# INLINE tcView #-}
 tcView :: Type -> Maybe Type
--- ^ Similar to 'coreView', but for the type checker, which just looks through synonyms
-tcView (TyConApp tc tys) | Just (tenv, rhs, tys') <- tcExpandTyCon_maybe tc tys
-                         = Just (mkAppTys (substTy (mkTopTCvSubst tenv) rhs) tys')
-tcView _                 = Nothing
+-- ^ Historical only; 'tcView' and 'coreView' used to differ, but don't any more
+tcView = coreView
+  -- ToDo: get rid of tcView altogether
   -- You might think that tcView belows in TcType rather than Type, but unfortunately
   -- it is needed by Unify, which is turn imported by Coercion (for MatchEnv and matchList).
   -- So we will leave it here to avoid module loops.
@@ -327,7 +323,7 @@ expandTypeSynonyms ty
   = go (mkEmptyTCvSubst (mkTyCoInScopeSet [ty] [])) ty
   where
     go subst (TyConApp tc tys)
-      | Just (tenv, rhs, tys') <- tcExpandTyCon_maybe tc tys
+      | Just (tenv, rhs, tys') <- expandSynTyCon_maybe tc tys
       = let subst' = unionTCvSubst subst (mkTopTCvSubst tenv) in
         go subst' (mkAppTys rhs tys')
       | otherwise
@@ -554,6 +550,26 @@ allDistinctTyVars tkvs = go emptyVarSet tkvs
 We need to be pretty careful with AppTy to make sure we obey the
 invariant that a TyConApp is always visibly so.  mkAppTy maintains the
 invariant: use it.
+
+Note [Decomposing fat arrow c=>t]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Can we unify (a b) with (Eq a => ty)?   If we do so, we end up with
+a partial application like ((=>) Eq a) which doesn't make sense in
+source Haskell.  In constrast, we *can* unify (a b) with (t1 -> t2).
+Here's an example (Trac #9858) of how you might do it:
+   i :: (Typeable a, Typeable b) => Proxy (a b) -> TypeRep
+   i p = typeRep p
+
+   j = i (Proxy :: Proxy (Eq Int => Int))
+The type (Proxy (Eq Int => Int)) is only accepted with -XImpredicativeTypes,
+but suppose we want that.  But then in the call to 'i', we end
+up decomposing (Eq Int => Int), and we definitely don't want that.
+
+This really only applies to the type checker; in Core, '=>' and '->'
+are the same, as are 'Constraint' and '*'.  But for now I've put
+the test in repSplitAppTy_maybe, which applies throughout, because
+the other calls to splitAppTy are in Unify, which is also used by
+the type checker (e.g. when matching type-function equations).
 -}
 
 -- | Applies a type to another, as in e.g. @k a@
@@ -588,10 +604,11 @@ repSplitAppTy_maybe :: Type -> Maybe (Type,Type)
 -- ^ Does the AppTy split as in 'splitAppTy_maybe', but assumes that
 -- any Core view stuff is already done
 repSplitAppTy_maybe (ForAllTy (Anon ty1) ty2)
-  = Just (TyConApp funTyCon [ty1], ty2)
+  | isConstraintKind (typeKind ty1)   = Nothing  -- See Note [Decomposing fat arrow c=>t]
+  | otherwise                         = Just (TyConApp funTyCon [ty1], ty2)
 repSplitAppTy_maybe (AppTy ty1 ty2)   = Just (ty1, ty2)
 repSplitAppTy_maybe (TyConApp tc tys)
-  | isDecomposableTyCon tc || tys `lengthExceeds` tyConArity tc
+  | mightBeUnsaturatedTyCon tc || tys `lengthExceeds` tyConArity tc
   , Just (tys', ty') <- snocView tys
   = Just (TyConApp tc tys', ty')    -- Never create unsaturated type family apps!
 repSplitAppTy_maybe _other = Nothing
@@ -614,8 +631,8 @@ splitAppTys ty = split ty ty []
     split _       (AppTy ty arg)        args = split ty ty (arg:args)
     split _       (TyConApp tc tc_args) args
       = let -- keep type families saturated
-            n | isDecomposableTyCon tc = 0
-              | otherwise              = tyConArity tc
+            n | mightBeUnsaturatedTyCon tc = 0
+              | otherwise                  = tyConArity tc
             (tc_args1, tc_args2) = splitAt n tc_args
         in
         (TyConApp tc tc_args1, tc_args2 ++ args)
@@ -946,7 +963,7 @@ we want
 not                                ([a], a -> a)
 
 The reason is that we then get better (shorter) type signatures in
-interfaces.  Notably this plays a role in tcTySigs in TcBinds.lhs.
+interfaces.  Notably this plays a role in tcTySigs in TcBinds.hs.
 
 
                 Representation types
@@ -1224,7 +1241,7 @@ applyTys :: Type -> [KindOrType] -> Type
 -- there are more type args than foralls in 'undefined's type.
 
 -- If you edit this function, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 applyTys ty args = applyTysD empty ty args
 
 applyTysD :: SDoc -> Type -> [Type] -> Type     -- Debug version
@@ -1396,11 +1413,14 @@ isIPPred ty = case tyConAppTyCon_maybe ty of
     _       -> False
 
 isIPTyCon :: TyCon -> Bool
-isIPTyCon tc = tc `hasKey` ipClassNameKey
+isIPTyCon tc = tc `hasKey` ipTyConKey
 
 isIPClass :: Class -> Bool
-isIPClass cls = cls `hasKey` ipClassNameKey
+isIPClass cls = cls `hasKey` ipTyConKey
   -- Class and it corresponding TyCon have the same Unique
+
+isCTupleClass :: Class -> Bool
+isCTupleClass cls = isTupleTyCon (classTyCon cls)
 
 isIPPred_maybe :: Type -> Maybe (FastString, Type)
 isIPPred_maybe ty =
@@ -1544,7 +1564,6 @@ eqRelRole ReprEq = Representational
 
 data PredTree = ClassPred Class [Type]
               | EqPred EqRel Type Type
-              | TuplePred [PredType]
               | IrredPred PredType
 
 classifyPredType :: PredType -> PredTree
@@ -1565,8 +1584,6 @@ classifyPredType ev_ty = case splitTyConApp_maybe ev_ty of
      -- NB: Coercible is also a class, so this check must come *after*
      -- the Coercible check
       | Just clas <- tyConClass_maybe tc  -> ClassPred clas tys
-
-      | isTupleTyCon tc                   -> TuplePred tys
 
     _                                     -> IrredPred ev_ty
 

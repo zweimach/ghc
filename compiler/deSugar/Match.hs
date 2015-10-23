@@ -43,7 +43,7 @@ import Maybes
 import Util
 import Name
 import Outputable
-import BasicTypes ( boxityNormalTupleSort, isGenerated )
+import BasicTypes ( isGenerated )
 import FastString
 
 import Control.Monad( when )
@@ -573,14 +573,14 @@ tidy1 _ (TuplePat pats boxity tys)
   = return (idDsWrapper, unLoc tuple_ConPat)
   where
     arity = length pats
-    tuple_ConPat = mkPrefixConPat (tupleCon (boxityNormalTupleSort boxity) arity) pats tys
+    tuple_ConPat = mkPrefixConPat (tupleDataCon boxity arity) pats tys
 
 -- LitPats: we *might* be able to replace these w/ a simpler form
 tidy1 _ (LitPat lit)
   = return (idDsWrapper, tidyLitPat lit)
 
 -- NPats: we *might* be able to replace these w/ a simpler form
-tidy1 _ (NPat lit mb_neg eq)
+tidy1 _ (NPat (L _ lit) mb_neg eq)
   = return (idDsWrapper, tidyNPat tidyLitPat lit mb_neg eq)
 
 -- Everything else goes through unchanged...
@@ -810,7 +810,7 @@ matchWrapper ctxt (MG { mg_alts = matches
                          matchEquations ctxt new_vars eqns_info rhs_ty'
         ; return (new_vars, result_expr) }
   where
-    mk_eqn_info rhs_ty' (L _ (Match pats _ grhss))
+    mk_eqn_info rhs_ty' (L _ (Match _ pats _ grhss))
       = do { let upats = map unLoc pats
            ; match_result <- dsGRHSs ctxt upats grhss rhs_ty'
            ; return (EqnInfo { eqn_pats = upats, eqn_rhs  = match_result}) }
@@ -1071,8 +1071,9 @@ patGroup _      (ConPatOut { pat_con = con }) = case unLoc con of
     RealDataCon dcon -> PgCon dcon
     PatSynCon psyn -> PgSyn psyn
 patGroup dflags (LitPat lit)                  = PgLit (hsLitKey dflags lit)
-patGroup _      (NPat olit mb_neg _)          = PgN   (hsOverLitKey olit (isJust mb_neg))
-patGroup _      (NPlusKPat _ olit _ _)        = PgNpK (hsOverLitKey olit False)
+patGroup _      (NPat (L _ olit) mb_neg _)
+                                     = PgN   (hsOverLitKey olit (isJust mb_neg))
+patGroup _      (NPlusKPat _ (L _ olit) _ _)  = PgNpK (hsOverLitKey olit False)
 patGroup _      (CoPat _ p _)                 = PgCo  (hsPatType p) -- Type of innelexp pattern
 patGroup _      (ViewPat expr p _)            = PgView expr (hsPatType (unLoc p))
 patGroup _      (ListPat _ _ (Just _))        = PgOverloadedList

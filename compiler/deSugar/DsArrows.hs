@@ -18,6 +18,7 @@ import DsMonad
 
 import HsSyn    hiding (collectPatBinders, collectPatsBinders, collectLStmtsBinders, collectLStmtBinders, collectStmtBinders )
 import TcHsSyn
+import qualified HsUtils
 
 -- NB: The desugarer, which straddles the source and Core worlds, sometimes
 --     needs to see source types (newtypes etc), and sometimes not
@@ -152,7 +153,7 @@ coreCaseTuple uniqs scrut_var vars body
 coreCasePair :: Id -> Id -> Id -> CoreExpr -> CoreExpr
 coreCasePair scrut_var var1 var2 body
   = Case (Var scrut_var) scrut_var (exprType body)
-         [(DataAlt (tupleCon BoxedTuple 2), [var1, var2], body)]
+         [(DataAlt (tupleDataCon Boxed 2), [var1, var2], body)]
 
 mkCorePairTy :: Type -> Type -> Type
 mkCorePairTy t1 t2 = mkBoxedTupleTy [t1, t2]
@@ -402,7 +403,8 @@ dsCmd ids local_vars stack_ty res_ty (HsCmdApp cmd arg) env_ids = do
 --              ---> premap (\ ((xs), (p1, ... (pk,stk)...)) -> ((ys),stk)) cmd
 
 dsCmd ids local_vars stack_ty res_ty
-        (HsCmdLam (MG { mg_alts = [L _ (Match pats _ (GRHSs [L _ (GRHS [] body)] _ ))] }))
+        (HsCmdLam (MG { mg_alts = [L _ (Match _ pats _
+                                       (GRHSs [L _ (GRHS [] body)] _ ))] }))
         env_ids = do
     pat_vars <- mkVarSet <$> dsVars (collectPatsBinders pats)
     let
@@ -698,7 +700,7 @@ dsCmdDo _ _ _ [] _ = panic "dsCmdDo"
 --
 --              ---> premap (\ (xs) -> ((xs), ())) c
 
-dsCmdDo ids local_vars res_ty [L _ (LastStmt body _)] env_ids = do
+dsCmdDo ids local_vars res_ty [L _ (LastStmt body _ _)] env_ids = do
     (core_body, env_ids') <- dsLCmd ids local_vars unitTy res_ty body env_ids
     let env_ty = mkBigCoreVarTupTy env_ids
     env_var <- newSysLocalDs env_ty
@@ -1052,7 +1054,7 @@ matchSimplys _ _ _ _ _ = panic "matchSimplys"
 -- List of leaf expressions, with set of variables bound in each
 
 leavesMatch :: LMatch Id (Located (body Id)) -> [(Located (body Id), IdSet)]
-leavesMatch (L _ (Match pats _ (GRHSs grhss binds)))
+leavesMatch (L _ (Match _ pats _ (GRHSs grhss binds)))
   = let
         defined_vars = mkVarSet (collectPatsBinders pats)
                         `unionVarSet`
@@ -1071,11 +1073,11 @@ replaceLeavesMatch
         -> LMatch Id (Located (body Id))        -- the matches of a case command
         -> ([Located (body' Id)],               -- remaining leaf expressions
             LMatch Id (Located (body' Id)))     -- updated match
-replaceLeavesMatch _res_ty leaves (L loc (Match pat mt (GRHSs grhss binds)))
+replaceLeavesMatch _res_ty leaves (L loc (Match mf pat mt (GRHSs grhss binds)))
   = let
         (leaves', grhss') = mapAccumL replaceLeavesGRHS leaves grhss
     in
-    (leaves', L loc (Match pat mt (GRHSs grhss' binds)))
+    (leaves', L loc (Match mf pat mt (GRHSs grhss' binds)))
 
 replaceLeavesGRHS
         :: [Located (body' Id)]                 -- replacement leaf expressions of that type
@@ -1155,15 +1157,14 @@ collectl (L _ pat) bndrs
     go (CoPat _ pat _)            = collectl (noLoc pat) bndrs
     go (ViewPat _ pat _)          = collectl pat bndrs
     go p@(SplicePat {})           = pprPanic "collectl/go" (ppr p)
-    go p@(QuasiQuotePat {})       = pprPanic "collectl/go" (ppr p)
 
 collectEvBinders :: TcEvBinds -> [Id]
 collectEvBinders (EvBinds bs)   = foldrBag add_ev_bndr [] bs
 collectEvBinders (TcEvBinds {}) = panic "ToDo: collectEvBinders"
 
 add_ev_bndr :: EvBind -> [Id] -> [Id]
-add_ev_bndr (EvBind { evb_var = b }) bs | isId b    = b:bs
-                                        | otherwise = bs
+add_ev_bndr (EvBind { eb_lhs = b }) bs | isId b    = b:bs
+                                       | otherwise = bs
   -- A worry: what about coercion variable binders??
 
 collectLStmtsBinders :: [LStmt Id body] -> [Id]
@@ -1173,11 +1174,5 @@ collectLStmtBinders :: LStmt Id body -> [Id]
 collectLStmtBinders = collectStmtBinders . unLoc
 
 collectStmtBinders :: Stmt Id body -> [Id]
-collectStmtBinders (BindStmt pat _ _ _) = collectPatBinders pat
-collectStmtBinders (LetStmt binds)      = collectLocalBinders binds
-collectStmtBinders (BodyStmt {})        = []
-collectStmtBinders (LastStmt {})        = []
-collectStmtBinders (ParStmt xs _ _)     = collectLStmtsBinders
-                                        $ [ s | ParStmtBlock ss _ _ <- xs, s <- ss]
-collectStmtBinders (TransStmt { trS_stmts = stmts }) = collectLStmtsBinders stmts
 collectStmtBinders (RecStmt { recS_later_ids = later_ids }) = later_ids
+collectStmtBinders stmt = HsUtils.collectStmtBinders stmt

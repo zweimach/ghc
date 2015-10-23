@@ -16,6 +16,7 @@ test('drv015', normal, compile, [''])
 test('drv020', normal, compile, [''])
 test('drv022', normal, compile, [''])
 test('deriving-1935', normal, compile, [''])
+test('T1830_2', normal, compile, [''])
 test('T2378', normal, compile, [''])
 test('T2856', normal, compile, [''])
 test('T3057', extra_clean(['T3057A.o', 'T3057A.hi']), multimod_compile, ['T3057', '-v0'])
@@ -32,7 +33,7 @@ test('drv-functor2', normal, compile, [''])
 test('drv-foldable-traversable1', normal, compile, [''])
 test('T6031', extra_clean(['T6031a.o', 'T6031a.hi']), multimod_compile, ['T6031', '-v0'])
 test('T1133',
-     extra_clean(['T1133.o-boot', 'T1133.hi-boot']),
+     extra_clean(['T1133.o-boot', 'T1133.hi-boot', 'T1133a.o', 'T1133a.hi']),
      run_command,
      ['$MAKE --no-print-directory -s T1133'])
 test('T7704', normal, compile, [''])
@@ -46,11 +47,12 @@ test('T8758', extra_clean(['T8758a.o', 'T8758a.hi']), multimod_compile, ['T8758a
 test('T8678', normal, compile, [''])
 test('T8865', normal, compile, [''])
 test('T8893', normal, compile, [''])
-test('T8950', expect_broken(8950), compile, [''])
+test('T8950', normal, compile, [''])
 test('T8963', normal, compile, [''])
 test('T7269', normal, compile, [''])
 test('T9069', normal, compile, [''])
 test('T9359', normal, compile, [''])
 test('T4896', normal, compile, [''])
 test('T7947', extra_clean(['T7947a.o', 'T7947a.hi', 'T7947b.o', 'T7947b.hi']), multimod_compile, ['T7947', '-v0'])
-
+test('T10561', normal, compile_fail, [''])
+test('T10487', extra_clean(['T10487_M.o', 'T10487_M.hi']), multimod_compile, ['T10487', '-v0'])

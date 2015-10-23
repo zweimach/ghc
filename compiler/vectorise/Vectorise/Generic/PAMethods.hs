@@ -38,7 +38,7 @@ buildPReprTyCon orig_tc vect_tc repr
  = do name      <- mkLocalisedName mkPReprTyConOcc (tyConName orig_tc)
       rhs_ty    <- sumReprType repr
       prepr_tc  <- builtin preprTyCon
-      let axiom = mkSingleCoAxiom name tyvars [] prepr_tc instTys rhs_ty
+      let axiom = mkSingleCoAxiom Nominal name tyvars [] prepr_tc instTys rhs_ty
       liftDs $ newFamInst SynFamilyInst axiom
   where
     tyvars = tyConTyVars vect_tc
@@ -365,7 +365,7 @@ buildToArrPReprs vect_tc repr_co _ pdatas_tc r
     -- eg: (xss :: PDatas (Tree a b))
     varg      <- newLocalVar (fsLit "xss") arg_ty
 
-    -- Coersion to case between the (PRepr a) type and its instance.
+    -- Coercion to case between the (PRepr a) type and its instance.
     pdatas_co <- mkBuiltinCo pdatasTyCon
     let co           = mkAppCo pdatas_co
                      $ mkSymCo

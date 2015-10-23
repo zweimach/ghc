@@ -6,6 +6,7 @@
 -}
 
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE RecordWildCards #-}
 
 -- |
 -- #name_types#
@@ -60,14 +61,17 @@ module Name (
         isTyVarName, isTyConName, isDataConName,
         isValName, isVarName,
         isWiredInName, isBuiltInSyntax,
+        isHoleName,
         wiredInNameTyThing_maybe,
-        nameIsLocalOrFrom, stableNameCmp,
+        nameIsLocalOrFrom, nameIsHomePackageImport, nameIsFromExternalPackage,
+        stableNameCmp,
 
         -- * Class 'NamedThing' and overloaded friends
         NamedThing(..),
         getSrcLoc, getSrcSpan, getOccString,
 
         pprInfixName, pprPrefixName, pprModulePrefix,
+        nameStableString,
 
         -- Re-export the OccName stuff
         module OccName
@@ -84,7 +88,6 @@ import Util
 import Maybes
 import Binary
 import DynFlags
-import FastTypes
 import FastString
 import Outputable
 
@@ -103,8 +106,7 @@ import Data.Data
 data Name = Name {
                 n_sort :: NameSort,     -- What sort of name it is
                 n_occ  :: !OccName,     -- Its occurrence name
-                n_uniq :: FastInt,      -- UNPACK doesn't work, recursive type
---(note later when changing Int# -> FastInt: is that still true about UNPACK?)
+                n_uniq :: {-# UNPACK #-} !Int,
                 n_loc  :: !SrcSpan      -- Definition site
             }
     deriving Typeable
@@ -124,6 +126,12 @@ data NameSort
 
   | System              -- A system-defined Id or TyVar.  Typically the
                         -- OccName is very uninformative (like 's')
+
+instance Outputable NameSort where
+  ppr (External _)    = text "external"
+  ppr (WiredIn _ _ _) = text "wired-in"
+  ppr  Internal       = text "internal"
+  ppr  System         = text "system"
 
 -- | BuiltInSyntax is for things like @(:)@, @[]@ and tuples,
 -- which have special syntactic forms.  They aren't in scope
@@ -176,7 +184,7 @@ nameModule              :: Name -> Module
 nameSrcLoc              :: Name -> SrcLoc
 nameSrcSpan             :: Name -> SrcSpan
 
-nameUnique  name = mkUniqueGrimily (iBox (n_uniq name))
+nameUnique  name = mkUniqueGrimily (n_uniq name)
 nameOccName name = n_occ  name
 nameSrcLoc  name = srcSpanStart (n_loc name)
 nameSrcSpan name = n_loc  name
@@ -189,7 +197,6 @@ nameSrcSpan name = n_loc  name
 ************************************************************************
 -}
 
-nameIsLocalOrFrom :: Module -> Name -> Bool
 isInternalName    :: Name -> Bool
 isExternalName    :: Name -> Bool
 isSystemName      :: Name -> Bool
@@ -212,15 +219,66 @@ isExternalName _                               = False
 
 isInternalName name = not (isExternalName name)
 
-nameModule name = nameModule_maybe name `orElse` pprPanic "nameModule" (ppr name)
+isHoleName :: Name -> Bool
+isHoleName = isHoleModule . nameModule
+
+nameModule name =
+  nameModule_maybe name `orElse`
+  pprPanic "nameModule" (ppr (n_sort name) <+> ppr name)
+
 nameModule_maybe :: Name -> Maybe Module
 nameModule_maybe (Name { n_sort = External mod})    = Just mod
 nameModule_maybe (Name { n_sort = WiredIn mod _ _}) = Just mod
 nameModule_maybe _                                  = Nothing
 
+nameIsLocalOrFrom :: Module -> Name -> Bool
+-- ^ Returns True if the name is
+--   (a) Internal
+--   (b) External but from the specified module
+--   (c) External but from the 'interactive' package
+--
+-- The key idea is that
+--    False means: the entity is defined in some other module
+--                 you can find the details (type, fixity, instances)
+--                     in some interface file
+--                 those details will be stored in the EPT or HPT
+--
+--    True means:  the entity is defined in this module or earlier in
+--                     the GHCi session
+--                 you can find details (type, fixity, instances) in the
+--                     TcGblEnv or TcLclEnv
+--
+-- The isInteractiveModule part is because successive interactions of a GCHi session
+-- each give rise to a fresh module (Ghci1, Ghci2, etc), but they all come
+-- from the magic 'interactive' package; and all the details are kept in the
+-- TcLclEnv, TcGblEnv, NOT in the HPT or EPT.
+-- See Note [The interactive package] in HscTypes
+
 nameIsLocalOrFrom from name
-  | isExternalName name = from == nameModule name
-  | otherwise           = True
+  | Just mod <- nameModule_maybe name = from == mod || isInteractiveModule mod
+  | otherwise                         = True
+
+nameIsHomePackageImport :: Module -> Name -> Bool
+-- True if the Name is defined in module of this package
+-- /other than/ the this_mod
+nameIsHomePackageImport this_mod
+  = \nm -> case nameModule_maybe nm of
+              Nothing -> False
+              Just nm_mod -> nm_mod /= this_mod
+                          && moduleUnitId nm_mod == this_pkg
+  where
+    this_pkg = moduleUnitId this_mod
+
+-- | Returns True if the Name comes from some other package: neither this
+-- pacakge nor the interactive package.
+nameIsFromExternalPackage :: UnitId -> Name -> Bool
+nameIsFromExternalPackage this_pkg name
+  | Just mod <- nameModule_maybe name
+  , moduleUnitId mod /= this_pkg    -- Not this package
+  , not (isInteractiveModule mod)       -- Not the 'interactive' package
+  = True
+  | otherwise
+  = False
 
 isTyVarName :: Name -> Bool
 isTyVarName name = isTvOcc (nameOccName name)
@@ -251,7 +309,7 @@ isSystemName _                        = False
 -- | Create a name which is (for now at least) local to the current module and hence
 -- does not need a 'Module' to disambiguate it from other 'Name's
 mkInternalName :: Unique -> OccName -> SrcSpan -> Name
-mkInternalName uniq occ loc = Name { n_uniq = getKeyFastInt uniq
+mkInternalName uniq occ loc = Name { n_uniq = getKey uniq
                                    , n_sort = Internal
                                    , n_occ = occ
                                    , n_loc = loc }
@@ -266,12 +324,12 @@ mkInternalName uniq occ loc = Name { n_uniq = getKeyFastInt uniq
 
 mkClonedInternalName :: Unique -> Name -> Name
 mkClonedInternalName uniq (Name { n_occ = occ, n_loc = loc })
-  = Name { n_uniq = getKeyFastInt uniq, n_sort = Internal
+  = Name { n_uniq = getKey uniq, n_sort = Internal
          , n_occ = occ, n_loc = loc }
 
 mkDerivedInternalName :: (OccName -> OccName) -> Unique -> Name -> Name
 mkDerivedInternalName derive_occ uniq (Name { n_occ = occ, n_loc = loc })
-  = Name { n_uniq = getKeyFastInt uniq, n_sort = Internal
+  = Name { n_uniq = getKey uniq, n_sort = Internal
          , n_occ = derive_occ occ, n_loc = loc }
 
 -- | Create a name which definitely originates in the given module
@@ -280,13 +338,13 @@ mkExternalName :: Unique -> Module -> OccName -> SrcSpan -> Name
 -- (see Note [The Name Cache] in IfaceEnv), so don't just call mkExternalName
 -- with some fresh unique without populating the Name Cache
 mkExternalName uniq mod occ loc
-  = Name { n_uniq = getKeyFastInt uniq, n_sort = External mod,
+  = Name { n_uniq = getKey uniq, n_sort = External mod,
            n_occ = occ, n_loc = loc }
 
 -- | Create a name which is actually defined by the compiler itself
 mkWiredInName :: Module -> OccName -> Unique -> TyThing -> BuiltInSyntax -> Name
 mkWiredInName mod occ uniq thing built_in
-  = Name { n_uniq = getKeyFastInt uniq,
+  = Name { n_uniq = getKey uniq,
            n_sort = WiredIn mod thing built_in,
            n_occ = occ, n_loc = wiredInSrcSpan }
 
@@ -295,7 +353,7 @@ mkSystemName :: Unique -> OccName -> Name
 mkSystemName uniq occ = mkSystemNameAt uniq occ noSrcSpan
 
 mkSystemNameAt :: Unique -> OccName -> SrcSpan -> Name
-mkSystemNameAt uniq occ loc = Name { n_uniq = getKeyFastInt uniq, n_sort = System
+mkSystemNameAt uniq occ loc = Name { n_uniq = getKey uniq, n_sort = System
                                    , n_occ = occ, n_loc = loc }
 
 mkSystemVarName :: Unique -> FastString -> Name
@@ -313,7 +371,7 @@ mkFCallName uniq str = mkInternalName uniq (mkVarOcc str) noSrcSpan
 -- able to change a Name's Unique to match the cached
 -- one in the thing it's the name of.  If you know what I mean.
 setNameUnique :: Name -> Unique -> Name
-setNameUnique name uniq = name {n_uniq = getKeyFastInt uniq}
+setNameUnique name uniq = name {n_uniq = getKey uniq}
 
 -- This is used for hsigs: we want to use the name of the originally exported
 -- entity, but edit the location to refer to the reexport site
@@ -334,7 +392,8 @@ localiseName n = n { n_sort = Internal }
 -- |Create a localised variant of a name.
 --
 -- If the name is external, encode the original's module name to disambiguate.
---
+-- SPJ says: this looks like a rather odd-looking function; but it seems to
+--           be used only during vectorisation, so I'm not going to worry
 mkLocalisedOccName :: Module -> (Maybe String -> OccName -> OccName) -> Name -> OccName
 mkLocalisedOccName this_mod mk_occ name = mk_occ origin (nameOccName name)
   where
@@ -351,7 +410,7 @@ mkLocalisedOccName this_mod mk_occ name = mk_occ origin (nameOccName name)
 -}
 
 cmpName :: Name -> Name -> Ordering
-cmpName n1 n2 = iBox (n_uniq n1) `compare` iBox (n_uniq n2)
+cmpName n1 n2 = n_uniq n1 `compare` n_uniq n2
 
 stableNameCmp :: Name -> Name -> Ordering
 -- Compare lexicographically
@@ -446,7 +505,7 @@ pprName (Name {n_sort = sort, n_uniq = u, n_occ = occ})
       External mod            -> pprExternal sty uniq mod occ False UserSyntax
       System                  -> pprSystem sty uniq occ
       Internal                -> pprInternal sty uniq occ
-  where uniq = mkUniqueGrimily (iBox u)
+  where uniq = mkUniqueGrimily u
 
 pprExternal :: PprStyle -> Unique -> Module -> OccName -> Bool -> BuiltInSyntax -> SDoc
 pprExternal sty uniq mod occ is_wired is_builtin
@@ -498,9 +557,9 @@ pprModulePrefix sty mod occ = sdocWithDynFlags $ \dflags ->
     case qualName sty mod occ of              -- See Outputable.QualifyName:
       NameQual modname -> ppr modname <> dot       -- Name is in scope
       NameNotInScope1  -> ppr mod <> dot           -- Not in scope
-      NameNotInScope2  -> ppr (modulePackageKey mod) <> colon     -- Module not in
-                          <> ppr (moduleName mod) <> dot         -- scope either
-      _otherwise       -> empty
+      NameNotInScope2  -> ppr (moduleUnitId mod) <> colon     -- Module not in
+                          <> ppr (moduleName mod) <> dot          -- scope either
+      NameUnqual       -> empty                   -- In scope unqualified
 
 ppr_underscore_unique :: Unique -> SDoc
 -- Print an underscore separating the name from its unique
@@ -541,6 +600,21 @@ pprNameDefnLoc name
          | otherwise
          -> ptext (sLit "in") <+> quotes (ppr (nameModule name))
 
+
+-- | Get a string representation of a 'Name' that's unique and stable
+-- across recompilations. Used for deterministic generation of binds for
+-- derived instances.
+-- eg. "$aeson_70dylHtv1FFGeai1IoxcQr$Data.Aeson.Types.Internal$String"
+nameStableString :: Name -> String
+nameStableString Name{..} =
+  nameSortStableString n_sort ++ "$" ++ occNameString n_occ
+
+nameSortStableString :: NameSort -> String
+nameSortStableString System = "$_sys"
+nameSortStableString Internal = "$_in"
+nameSortStableString (External mod) = moduleStableString mod
+nameSortStableString (WiredIn mod _ _) = moduleStableString mod
+
 {-
 ************************************************************************
 *                                                                      *
@@ -564,11 +638,12 @@ getSrcLoc           = nameSrcLoc           . getName
 getSrcSpan          = nameSrcSpan          . getName
 getOccString        = occNameString        . getOccName
 
-pprInfixName, pprPrefixName :: (Outputable a, NamedThing a) => a -> SDoc
+pprInfixName :: (Outputable a, NamedThing a) => a -> SDoc
 -- See Outputable.pprPrefixVar, pprInfixVar;
 -- add parens or back-quotes as appropriate
 pprInfixName  n = pprInfixVar (isSymOcc (getOccName n)) (ppr n)
 
+pprPrefixName :: NamedThing a => a -> SDoc
 pprPrefixName thing
  |  name `hasKey` liftedTypeKindTyConKey
  = ppr name   -- See Note [Special treatment for kind *]

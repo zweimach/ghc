@@ -1,5 +1,4 @@
-{-# LANGUAGE CPP, TypeSynonymInstances, FlexibleInstances, RecordWildCards,
-             GeneralizedNewtypeDeriving, StandaloneDeriving #-}
+{-# LANGUAGE CPP, TypeSynonymInstances, FlexibleInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 -----------------------------------------------------------------------------
 --
@@ -20,13 +19,12 @@ import Distribution.ModuleName (ModuleName)
 import Distribution.InstalledPackageInfo as Cabal
 import Distribution.Compat.ReadP hiding (get)
 import Distribution.ParseUtils
-import Distribution.Package hiding (depends, installedPackageId)
+import Distribution.Package hiding (installedComponentId)
 import Distribution.Text
 import Distribution.Version
-import Distribution.Simple.Utils (fromUTF8, toUTF8)
+import Distribution.Simple.Utils (fromUTF8, toUTF8, writeUTF8File, readUTF8File)
 import System.FilePath as FilePath
 import qualified System.FilePath.Posix as FilePath.Posix
-import System.Process
 import System.Directory ( getAppUserDataDirectory, createDirectoryIfMissing,
                           getModificationTime )
 import Text.Printf
@@ -44,7 +42,7 @@ import Control.Applicative (Applicative(..))
 #endif
 import Control.Monad
 import System.Directory ( doesDirectoryExist, getDirectoryContents,
-                          doesFileExist, renameFile, removeFile,
+                          doesFileExist, removeFile,
                           getCurrentDirectory )
 import System.Exit ( exitWith, ExitCode(..) )
 import System.Environment ( getArgs, getProgName, getEnv )
@@ -86,6 +84,15 @@ import System.Console.Terminfo as Terminfo
 # endif
 #endif
 
+-- | Short-circuit 'any' with a \"monadic predicate\".
+anyM :: (Monad m) => (a -> m Bool) -> [a] -> m Bool
+anyM _ [] = return False
+anyM p (x:xs) = do
+  b <- p x
+  if b
+    then return True
+    else anyM p xs
+
 -- -----------------------------------------------------------------------------
 -- Entry point
 
@@ -120,7 +127,6 @@ data Flag
   | FlagUserConfig FilePath
   | FlagForce
   | FlagForceFiles
-  | FlagAutoGHCiLibs
   | FlagMultiInstance
   | FlagExpandEnvVars
   | FlagExpandPkgroot
@@ -130,7 +136,7 @@ data Flag
   | FlagIgnoreCase
   | FlagNoUserDb
   | FlagVerbosity (Maybe String)
-  | FlagIPId
+  | FlagComponentId
   deriving Eq
 
 flags :: [OptDescr Flag]
@@ -155,8 +161,6 @@ flags = [
          "ignore missing dependencies, directories, and libraries",
   Option [] ["force-files"] (NoArg FlagForceFiles)
          "ignore missing directories and libraries only",
-  Option ['g'] ["auto-ghci-libs"] (NoArg FlagAutoGHCiLibs)
-        "automatically build libs for GHCi (with register)",
   Option [] ["enable-multi-instance"] (NoArg FlagMultiInstance)
         "allow registering multiple instances of the same package version",
   Option [] ["expand-env-vars"] (NoArg FlagExpandEnvVars)
@@ -175,7 +179,7 @@ flags = [
         "only print package names, not versions; can only be used with list --simple-output",
   Option [] ["ignore-case"] (NoArg FlagIgnoreCase)
         "ignore case for substring matching",
-  Option [] ["ipid"] (NoArg FlagIPId)
+  Option [] ["ipid", "package-key"] (NoArg FlagComponentId)
         "interpret package arguments as installed package IDs",
   Option ['v'] ["verbose"] (OptArg FlagVerbosity "Verbosity")
         "verbosity level (0-2, default 1)"
@@ -313,15 +317,20 @@ substProg prog (c:xs) = c : substProg prog xs
 data Force = NoForce | ForceFiles | ForceAll | CannotForce
   deriving (Eq,Ord)
 
+-- | Enum flag representing argument type
+data AsPackageArg
+    = AsComponentId
+    | AsDefault
+
 -- | Represents how a package may be specified by a user on the command line.
 data PackageArg
     -- | A package identifier foo-0.1; the version might be a glob.
     = Id PackageIdentifier
     -- | An installed package ID foo-0.1-HASH.  This is guaranteed to uniquely
     -- match a single entry in the package database.
-    | IPId InstalledPackageId
+    | ICId ComponentId
     -- | A glob against the package name.  The first string is the literal
-    -- glob, the second is a function which returns @True@ if the the argument
+    -- glob, the second is a function which returns @True@ if the argument
     -- matches.
     | Substring String (String->Bool)
 
@@ -334,8 +343,8 @@ runit verbosity cli nonopts = do
           | FlagForce `elem` cli        = ForceAll
           | FlagForceFiles `elem` cli   = ForceFiles
           | otherwise                   = NoForce
-        as_ipid = FlagIPId `elem` cli
-        auto_ghci_libs = FlagAutoGHCiLibs `elem` cli
+        as_arg | FlagComponentId        `elem` cli = AsComponentId
+               | otherwise                  = AsDefault
         multi_instance = FlagMultiInstance `elem` cli
         expand_env_vars= FlagExpandEnvVars `elem` cli
         mexpand_pkgroot= foldl' accumExpandPkgroot Nothing cli
@@ -405,32 +414,32 @@ runit verbosity cli nonopts = do
         initPackageDB filename verbosity cli
     ["register", filename] ->
         registerPackage filename verbosity cli
-                        auto_ghci_libs multi_instance
+                        multi_instance
                         expand_env_vars False force
     ["update", filename] ->
         registerPackage filename verbosity cli
-                        auto_ghci_libs multi_instance
+                        multi_instance
                         expand_env_vars True force
     ["unregister", pkgarg_str] -> do
-        pkgarg <- readPackageArg as_ipid pkgarg_str
+        pkgarg <- readPackageArg as_arg pkgarg_str
         unregisterPackage pkgarg verbosity cli force
     ["expose", pkgarg_str] -> do
-        pkgarg <- readPackageArg as_ipid pkgarg_str
+        pkgarg <- readPackageArg as_arg pkgarg_str
         exposePackage pkgarg verbosity cli force
     ["hide",   pkgarg_str] -> do
-        pkgarg <- readPackageArg as_ipid pkgarg_str
+        pkgarg <- readPackageArg as_arg pkgarg_str
         hidePackage pkgarg verbosity cli force
     ["trust",    pkgarg_str] -> do
-        pkgarg <- readPackageArg as_ipid pkgarg_str
+        pkgarg <- readPackageArg as_arg pkgarg_str
         trustPackage pkgarg verbosity cli force
     ["distrust", pkgarg_str] -> do
-        pkgarg <- readPackageArg as_ipid pkgarg_str
+        pkgarg <- readPackageArg as_arg pkgarg_str
         distrustPackage pkgarg verbosity cli force
     ["list"] -> do
         listPackages verbosity cli Nothing Nothing
     ["list", pkgarg_str] ->
         case substringCheck pkgarg_str of
-          Nothing -> do pkgarg <- readPackageArg as_ipid pkgarg_str
+          Nothing -> do pkgarg <- readPackageArg as_arg pkgarg_str
                         listPackages verbosity cli (Just pkgarg) Nothing
           Just m -> listPackages verbosity cli
                                  (Just (Substring pkgarg_str m)) Nothing
@@ -444,13 +453,13 @@ runit verbosity cli nonopts = do
         latestPackage verbosity cli pkgid
     ["describe", pkgid_str] -> do
         pkgarg <- case substringCheck pkgid_str of
-          Nothing -> readPackageArg as_ipid pkgid_str
+          Nothing -> readPackageArg as_arg pkgid_str
           Just m  -> return (Substring pkgid_str m)
         describePackage verbosity cli pkgarg (fromMaybe False mexpand_pkgroot)
         
     ["field", pkgid_str, fields] -> do
         pkgarg <- case substringCheck pkgid_str of
-          Nothing -> readPackageArg as_ipid pkgid_str
+          Nothing -> readPackageArg as_arg pkgid_str
           Just m  -> return (Substring pkgid_str m)
         describeField verbosity cli pkgarg
                       (splitFields fields) (fromMaybe True mexpand_pkgroot)
@@ -486,10 +495,10 @@ parseGlobPackageId =
       _ <- string "-*"
       return (PackageIdentifier{ pkgName = n, pkgVersion = globVersion }))
 
-readPackageArg :: Bool -> String -> IO PackageArg
-readPackageArg True str =
-    parseCheck (IPId `fmap` parse) str "installed package id"
-readPackageArg False str = Id `fmap` readGlobPkgId str
+readPackageArg :: AsPackageArg -> String -> IO PackageArg
+readPackageArg AsComponentId str =
+    parseCheck (ICId `fmap` parse) str "installed package id"
+readPackageArg AsDefault str = Id `fmap` readGlobPkgId str
 
 -- globVersion means "all versions"
 globVersion :: Version
@@ -680,10 +689,18 @@ readParseDatabase verbosity mb_user_conf modify use_cache path
   = do e <- tryIO $ getDirectoryContents path
        case e of
          Left err
-           | ioeGetErrorType err == InappropriateType ->
-              die ("ghc no longer supports single-file style package databases "
-                ++ "(" ++ path ++ ") use 'ghc-pkg init' to create the database "
-                ++ "with the correct format.")
+           | ioeGetErrorType err == InappropriateType -> do
+              -- We provide a limited degree of backwards compatibility for
+              -- old single-file style db:
+              mdb <- tryReadParseOldFileStyleDatabase verbosity
+                       mb_user_conf modify use_cache path
+              case mdb of
+                Just db -> return db
+                Nothing ->
+                  die $ "ghc no longer supports single-file style package "
+                     ++ "databases (" ++ path ++ ") use 'ghc-pkg init'"
+                     ++ "to create the database with the correct format."
+
            | otherwise -> ioError err
          Right fs
            | not use_cache -> ignore_cache (const $ return ())
@@ -698,7 +715,7 @@ readParseDatabase verbosity mb_user_conf modify use_cache path
                       then do
                         warn ("WARNING: cache does not exist: " ++ cache)
                         warn ("ghc will fail to read this package db. " ++
-                              "Use 'ghc-pkg recache' to fix.")
+                              recacheAdvice)
                       else do
                         warn ("WARNING: cache cannot be read: " ++ show ex)
                         warn "ghc will fail to read this package db."
@@ -728,7 +745,7 @@ readParseDatabase verbosity mb_user_conf modify use_cache path
                           whenReportCacheErrors $ do
                               warn ("WARNING: cache is out of date: " ++ cache)
                               warn ("ghc will see an old view of this " ++
-                                    "package db. Use 'ghc-pkg recache' to fix.")
+                                    "package db. " ++ recacheAdvice)
                           ignore_cache compareTimestampToCache
             where
                  ignore_cache :: (FilePath -> IO ()) -> IO PackageDB
@@ -745,6 +762,12 @@ readParseDatabase verbosity mb_user_conf modify use_cache path
                      when (   verbosity >  Normal
                            || verbosity >= Normal && not modify)
   where
+    recacheAdvice
+      | Just (user_conf, True) <- mb_user_conf, path == user_conf
+      = "Use 'ghc-pkg recache --user' to fix."
+      | otherwise
+      = "Use 'ghc-pkg recache' to fix."
+
     mkPackageDB pkgs = do
       path_abs <- absolutePath path
       return PackageDB {
@@ -823,6 +846,67 @@ mungePackagePaths top_dir pkgroot pkg =
 
 
 -- -----------------------------------------------------------------------------
+-- Workaround for old single-file style package dbs
+
+-- Single-file style package dbs have been deprecated for some time, but
+-- it turns out that Cabal was using them in one place. So this code is for a
+-- workaround to allow older Cabal versions to use this newer ghc.
+
+-- We check if the file db contains just "[]" and if so, we look for a new
+-- dir-style db in path.d/, ie in a dir next to the given file.
+-- We cannot just replace the file with a new dir style since Cabal still
+-- assumes it's a file and tries to overwrite with 'writeFile'.
+
+-- ghc itself also cooperates in this workaround
+
+tryReadParseOldFileStyleDatabase :: Verbosity -> Maybe (FilePath, Bool)
+                                 -> Bool -> Bool -> FilePath
+                                 -> IO (Maybe PackageDB)
+tryReadParseOldFileStyleDatabase verbosity mb_user_conf modify use_cache path = do
+  -- assumes we've already established that path exists and is not a dir
+  content <- readFile path `catchIO` \_ -> return ""
+  if take 2 content == "[]"
+    then do
+      path_abs <- absolutePath path
+      let path_dir = path <.> "d"
+      warn $ "Warning: ignoring old file-style db and trying " ++ path_dir
+      direxists <- doesDirectoryExist path_dir
+      if direxists
+         then do db <- readParseDatabase verbosity mb_user_conf
+                                   modify use_cache path_dir
+                 -- but pretend it was at the original location
+                 return $ Just db {
+                   location         = path,
+                   locationAbsolute = path_abs
+                 }
+         else   return $ Just PackageDB {
+                   location         = path,
+                   locationAbsolute = path_abs,
+                   packages         = []
+                 }
+
+    -- if the path is not a file, or is not an empty db then we fail
+    else return Nothing
+
+adjustOldFileStylePackageDB :: PackageDB -> IO PackageDB
+adjustOldFileStylePackageDB db = do
+  -- assumes we have not yet established if it's an old style or not
+  mcontent <- liftM Just (readFile (location db)) `catchIO` \_ -> return Nothing
+  case fmap (take 2) mcontent of
+    -- it is an old style and empty db, so look for a dir kind in location.d/
+    Just "[]" -> return db {
+                   location         = location db <.> "d",
+                   locationAbsolute = locationAbsolute db <.> "d"
+                 }
+    -- it is old style but not empty, we have to bail
+    Just  _   -> die $ "ghc no longer supports single-file style package "
+                    ++ "databases (" ++ location db ++ ") use 'ghc-pkg init'"
+                    ++ "to create the database with the correct format."
+    -- probably not old style, carry on as normal
+    Nothing   -> return db
+
+
+-- -----------------------------------------------------------------------------
 -- Creating a new package DB
 
 initPackageDB :: FilePath -> Verbosity -> [Flag] -> IO ()
@@ -844,13 +928,12 @@ initPackageDB filename verbosity _flags = do
 registerPackage :: FilePath
                 -> Verbosity
                 -> [Flag]
-                -> Bool              -- auto_ghci_libs
                 -> Bool              -- multi_instance
                 -> Bool              -- expand_env_vars
                 -> Bool              -- update
                 -> Force
                 -> IO ()
-registerPackage input verbosity my_flags auto_ghci_libs multi_instance
+registerPackage input verbosity my_flags multi_instance
                 expand_env_vars update force = do
   (db_stack, Just to_modify, _flag_dbs) <- 
       getPkgDatabases verbosity True{-modify-} True{-use user-}
@@ -859,10 +942,6 @@ registerPackage input verbosity my_flags auto_ghci_libs multi_instance
   let
         db_to_operate_on = my_head "register" $
                            filter ((== to_modify).location) db_stack
-  --
-  when (auto_ghci_libs && verbosity >= Silent) $
-    warn "Warning: --auto-ghci-libs is deprecated and will be removed in GHC 7.4"
-  --
   s <-
     case input of
       "-" -> do
@@ -884,7 +963,7 @@ registerPackage input verbosity my_flags auto_ghci_libs multi_instance
       infoLn "done."
 
   -- report any warnings from the parse phase
-  _ <- reportValidateErrors [] ws
+  _ <- reportValidateErrors verbosity [] ws
          (display (sourcePackageId pkg) ++ ": Warning: ") Nothing
 
   -- validate the expanded pkg, but register the unexpanded
@@ -896,7 +975,7 @@ registerPackage input verbosity my_flags auto_ghci_libs multi_instance
   -- truncate the stack for validation, because we don't allow
   -- packages lower in the stack to refer to those higher up.
   validatePackageConfig pkg_expanded verbosity truncated_stack
-                        auto_ghci_libs multi_instance update force
+                        multi_instance update force
 
   let 
      -- In the normal mode, we only allow one version of each package, so we
@@ -924,12 +1003,7 @@ parsePackageInfo str =
                            (Just l, s) -> die (show l ++ ": " ++ s)
 
 mungePackageInfo :: InstalledPackageInfo -> InstalledPackageInfo
-mungePackageInfo ipi = ipi { packageKey = packageKey' }
-  where
-    packageKey'
-      | OldPackageKey (PackageIdentifier (PackageName "") _) <- packageKey ipi
-          = OldPackageKey (sourcePackageId ipi)
-      | otherwise = packageKey ipi
+mungePackageInfo ipi = ipi
 
 -- -----------------------------------------------------------------------------
 -- Making changes to a package database
@@ -941,14 +1015,15 @@ data DBOp = RemovePackage InstalledPackageInfo
 changeDB :: Verbosity -> [DBOp] -> PackageDB -> IO ()
 changeDB verbosity cmds db = do
   let db' = updateInternalDB db cmds
-  createDirectoryIfMissing True (location db)
-  changeDBDir verbosity cmds db'
+  db'' <- adjustOldFileStylePackageDB db'
+  createDirectoryIfMissing True (location db'')
+  changeDBDir verbosity cmds db''
 
 updateInternalDB :: PackageDB -> [DBOp] -> PackageDB
 updateInternalDB db cmds = db{ packages = foldl do_cmd (packages db) cmds }
  where
   do_cmd pkgs (RemovePackage p) = 
-    filter ((/= installedPackageId p) . installedPackageId) pkgs
+    filter ((/= installedComponentId p) . installedComponentId) pkgs
   do_cmd pkgs (AddPackage p) = p : pkgs
   do_cmd pkgs (ModifyPackage p) = 
     do_cmd (do_cmd pkgs (RemovePackage p)) (AddPackage p)
@@ -960,13 +1035,13 @@ changeDBDir verbosity cmds db = do
   updateDBCache verbosity db
  where
   do_cmd (RemovePackage p) = do
-    let file = location db </> display (installedPackageId p) <.> "conf"
+    let file = location db </> display (installedComponentId p) <.> "conf"
     when (verbosity > Normal) $ infoLn ("removing " ++ file)
     removeFileSafe file
   do_cmd (AddPackage p) = do
-    let file = location db </> display (installedPackageId p) <.> "conf"
+    let file = location db </> display (installedComponentId p) <.> "conf"
     when (verbosity > Normal) $ infoLn ("writing " ++ file)
-    writeFileUtf8Atomic file (showInstalledPackageInfo p)
+    writeUTF8File file (showInstalledPackageInfo p)
   do_cmd (ModifyPackage p) = 
     do_cmd (AddPackage p)
 
@@ -987,27 +1062,34 @@ updateDBCache verbosity db = do
       if isPermissionError e
       then die (filename ++ ": you don't have permission to modify this file")
       else ioError e
-#ifndef mingw32_HOST_OS
-  status <- getFileStatus filename
-  setFileTimes (location db) (accessTime status) (modificationTime status)
-#endif
+  -- See Note [writeAtomic leaky abstraction]
+  -- Cross-platform "touch". This only works if filename is not empty, and not
+  -- open for writing already.
+  -- TODO. When the Win32 or directory packages have either a touchFile or a
+  -- setModificationTime function, use one of those.
+  withBinaryFile filename ReadWriteMode $ \handle -> do
+      c <- hGetChar handle
+      hSeek handle AbsoluteSeek 0
+      hPutChar handle c
 
 type PackageCacheFormat = GhcPkg.InstalledPackageInfo
                             String     -- installed package id
                             String     -- src package id
                             String     -- package name
-                            String     -- package key
+                            String     -- unit id
                             ModuleName -- module name
 
 convertPackageInfoToCacheFormat :: InstalledPackageInfo -> PackageCacheFormat
 convertPackageInfoToCacheFormat pkg =
     GhcPkg.InstalledPackageInfo {
-       GhcPkg.installedPackageId = display (installedPackageId pkg),
+       GhcPkg.componentId = display (installedComponentId pkg),
        GhcPkg.sourcePackageId    = display (sourcePackageId pkg),
        GhcPkg.packageName        = display (packageName pkg),
        GhcPkg.packageVersion     = packageVersion pkg,
-       GhcPkg.packageKey         = display (packageKey pkg),
+       GhcPkg.unitId            = display (installedComponentId pkg),
        GhcPkg.depends            = map display (depends pkg),
+       GhcPkg.abiHash            = let AbiHash abi = abiHash pkg
+                                   in abi,
        GhcPkg.importDirs         = importDirs pkg,
        GhcPkg.hsLibraries        = hsLibraries pkg,
        GhcPkg.extraLibraries     = extraLibraries pkg,
@@ -1079,9 +1161,9 @@ modifyPackage fn pkgarg verbosity my_flags force = do
       db_name = location db
       pkgs    = packages db
 
-      pks = map packageKey ps
+      pks = map installedComponentId ps
 
-      cmds = [ fn pkg | pkg <- pkgs, packageKey pkg `elem` pks ]
+      cmds = [ fn pkg | pkg <- pkgs, installedComponentId pkg `elem` pks ]
       new_db = updateInternalDB db cmds
 
       -- ...but do consistency checks with regards to the full stack
@@ -1089,14 +1171,14 @@ modifyPackage fn pkgarg verbosity my_flags force = do
       rest_of_stack = filter ((/= db_name) . location) db_stack
       new_stack = new_db : rest_of_stack
       new_broken = brokenPackages (allPackagesInStack new_stack)
-      newly_broken = filter ((`notElem` map packageKey old_broken)
-                            . packageKey) new_broken
+      newly_broken = filter ((`notElem` map installedComponentId old_broken)
+                            . installedComponentId) new_broken
   --
   let displayQualPkgId pkg
         | [_] <- filter ((== pkgid) . sourcePackageId)
                         (allPackagesInStack db_stack)
             = display pkgid
-        | otherwise = display pkgid ++ "@" ++ display (packageKey pkg)
+        | otherwise = display pkgid ++ "@" ++ display (installedComponentId pkg)
         where pkgid = sourcePackageId pkg
   when (not (null newly_broken)) $
       dieOrForceAll force ("unregistering would break the following packages: "
@@ -1147,7 +1229,7 @@ listPackages verbosity my_flags mPackageName mModuleName = do
                         EQ -> case pkgVersion p1 `compare` pkgVersion p2 of
                                 LT -> LT
                                 GT -> GT
-                                EQ -> packageKey pkg1 `compare` packageKey pkg2
+                                EQ -> installedComponentId pkg1 `compare` installedComponentId pkg2
                    where (p1,p2) = (sourcePackageId pkg1, sourcePackageId pkg2)
 
       stack = reverse db_stack_sorted
@@ -1155,7 +1237,7 @@ listPackages verbosity my_flags mPackageName mModuleName = do
       match `exposedInPkg` pkg = any match (map display $ exposedModules pkg)
 
       pkg_map = allPackagesInStack db_stack
-      broken = map packageKey (brokenPackages pkg_map)
+      broken = map installedComponentId (brokenPackages pkg_map)
 
       show_normal PackageDB{ location = db_name, packages = pkg_confs } =
           do hPutStrLn stdout (db_name ++ ":")
@@ -1164,15 +1246,15 @@ listPackages verbosity my_flags mPackageName mModuleName = do
                  else hPutStrLn stdout $ unlines (map ("    " ++) pp_pkgs)
            where
                  -- Sort using instance Ord PackageId
-                 pp_pkgs = map pp_pkg . sortBy (comparing installedPackageId) $ pkg_confs
+                 pp_pkgs = map pp_pkg . sortBy (comparing installedComponentId) $ pkg_confs
                  pp_pkg p
-                   | packageKey p `elem` broken = printf "{%s}" doc
+                   | installedComponentId p `elem` broken = printf "{%s}" doc
                    | exposed p = doc
                    | otherwise = printf "(%s)" doc
-                   where doc | verbosity >= Verbose = printf "%s (%s)" pkg ipid
+                   where doc | verbosity >= Verbose = printf "%s (%s)" pkg pk
                              | otherwise            = pkg
                           where
-                          InstalledPackageId ipid = installedPackageId p
+                          ComponentId pk = installedComponentId p
                           pkg = display (sourcePackageId p)
 
       show_simple = simplePackageList my_flags . allPackagesInStack
@@ -1193,15 +1275,15 @@ listPackages verbosity my_flags mPackageName mModuleName = do
                   map (termText "   " <#>) (map pp_pkg (packages db)))
           where
                    pp_pkg p
-                     | packageKey p `elem` broken = withF Red  doc
+                     | installedComponentId p `elem` broken = withF Red  doc
                      | exposed p                       = doc
                      | otherwise                       = withF Blue doc
                      where doc | verbosity >= Verbose
-                               = termText (printf "%s (%s)" pkg ipid)
+                               = termText (printf "%s (%s)" pkg pk)
                                | otherwise
                                = termText pkg
                             where
-                            InstalledPackageId ipid = installedPackageId p
+                            ComponentId pk = installedComponentId p
                             pkg = display (sourcePackageId p)
 
     is_tty <- hIsTerminalDevice stdout
@@ -1237,8 +1319,8 @@ showPackageDot verbosity myflags = do
   mapM_ putStrLn [ quote from ++ " -> " ++ quote to
                  | p <- all_pkgs,
                    let from = display (sourcePackageId p),
-                   depid <- depends p,
-                   Just dep <- [PackageIndex.lookupInstalledPackageId ipix depid],
+                   key <- depends p,
+                   Just dep <- [PackageIndex.lookupComponentId ipix key],
                    let to = display (sourcePackageId dep)
                  ]
   putStrLn "}"
@@ -1246,7 +1328,7 @@ showPackageDot verbosity myflags = do
 -- -----------------------------------------------------------------------------
 -- Prints the highest (hidden or exposed) version of a package
 
--- ToDo: This is no longer well-defined with package keys, because the
+-- ToDo: This is no longer well-defined with unit ids, because the
 -- dependencies may be varying versions
 latestPackage ::  Verbosity -> [Flag] -> PackageIdentifier -> IO ()
 latestPackage verbosity my_flags pkgid = do
@@ -1310,7 +1392,7 @@ findPackagesByDB db_stack pkgarg
         ps -> return ps
   where
         pkg_msg (Id pkgid)           = display pkgid
-        pkg_msg (IPId ipid)          = display ipid
+        pkg_msg (ICId ipid)          = display ipid
         pkg_msg (Substring pkgpat _) = "matching " ++ pkgpat
 
 matches :: PackageIdentifier -> PackageIdentifier -> Bool
@@ -1324,7 +1406,7 @@ realVersion pkgid = versionBranch (pkgVersion pkgid) /= []
 
 matchesPkg :: PackageArg -> InstalledPackageInfo -> Bool
 (Id pid)        `matchesPkg` pkg = pid `matches` sourcePackageId pkg
-(IPId ipid)     `matchesPkg` pkg = ipid == installedPackageId pkg
+(ICId ipid)     `matchesPkg` pkg = ipid == installedComponentId pkg
 (Substring _ m) `matchesPkg` pkg = m (display (sourcePackageId pkg))
 
 -- -----------------------------------------------------------------------------
@@ -1365,16 +1447,16 @@ checkConsistency verbosity my_flags = do
 
       checkPackage p = do
          (_,es,ws) <- runValidate $ checkPackageConfig p verbosity db_stack
-                                                       False True True
+                                                       True True
          if null es
             then do when (not simple_output) $ do
-                      _ <- reportValidateErrors [] ws "" Nothing
+                      _ <- reportValidateErrors verbosity [] ws "" Nothing
                       return ()
                     return []
             else do
               when (not simple_output) $ do
                   reportError ("There are problems in package " ++ display (sourcePackageId p) ++ ":")
-                  _ <- reportValidateErrors es ws "  " Nothing
+                  _ <- reportValidateErrors verbosity es ws "  " Nothing
                   return ()
               return [p]
 
@@ -1412,7 +1494,7 @@ closure pkgs db_stack = go pkgs db_stack
                  -> Bool
    depsAvailable pkgs_ok pkg = null dangling
         where dangling = filter (`notElem` pids) (depends pkg)
-              pids = map installedPackageId pkgs_ok
+              pids = map installedComponentId pkgs_ok
 
         -- we want mutually recursive groups of package to show up
         -- as broken. (#1750)
@@ -1433,11 +1515,11 @@ instance Functor Validate where
     fmap = liftM
 
 instance Applicative Validate where
-    pure = return
+    pure a = V $ pure (a, [], [])
     (<*>) = ap
 
 instance Monad Validate where
-   return a = V $ return (a, [], [])
+   return = pure
    m >>= k = V $ do
       (a, es, ws) <- runValidate m
       (b, es', ws') <- runValidate (k a)
@@ -1453,9 +1535,9 @@ liftIO :: IO a -> Validate a
 liftIO k = V (k >>= \a -> return (a,[],[]))
 
 -- returns False if we should die
-reportValidateErrors :: [ValidateError] -> [ValidateWarning]
+reportValidateErrors :: Verbosity -> [ValidateError] -> [ValidateWarning]
                      -> String -> Maybe Force -> IO Bool
-reportValidateErrors es ws prefix mb_force = do
+reportValidateErrors verbosity es ws prefix mb_force = do
   mapM_ (warn . (prefix++)) ws
   oks <- mapM report es
   return (and oks)
@@ -1463,7 +1545,8 @@ reportValidateErrors es ws prefix mb_force = do
     report (f,s)
       | Just force <- mb_force
       = if (force >= f)
-           then do reportError (prefix ++ s ++ " (ignoring)")
+           then do when (verbosity >= Normal) $
+                        reportError (prefix ++ s ++ " (ignoring)")
                    return True
            else if f < CannotForce
                    then do reportError (prefix ++ s ++ " (use --force to override)")
@@ -1478,31 +1561,29 @@ reportValidateErrors es ws prefix mb_force = do
 validatePackageConfig :: InstalledPackageInfo
                       -> Verbosity
                       -> PackageDBStack
-                      -> Bool   -- auto-ghc-libs
                       -> Bool   -- multi_instance
                       -> Bool   -- update, or check
                       -> Force
                       -> IO ()
-validatePackageConfig pkg verbosity db_stack auto_ghci_libs
+validatePackageConfig pkg verbosity db_stack
                       multi_instance update force = do
   (_,es,ws) <- runValidate $
                  checkPackageConfig pkg verbosity db_stack
-                                    auto_ghci_libs multi_instance update
-  ok <- reportValidateErrors es ws (display (sourcePackageId pkg) ++ ": ") (Just force)
+                                    multi_instance update
+  ok <- reportValidateErrors verbosity es ws
+          (display (sourcePackageId pkg) ++ ": ") (Just force)
   when (not ok) $ exitWith (ExitFailure 1)
 
 checkPackageConfig :: InstalledPackageInfo
                       -> Verbosity
                       -> PackageDBStack
-                      -> Bool   -- auto-ghc-libs
                       -> Bool   -- multi_instance
                       -> Bool   -- update, or check
                       -> Validate ()
-checkPackageConfig pkg verbosity db_stack auto_ghci_libs
+checkPackageConfig pkg verbosity db_stack
                    multi_instance update = do
-  checkInstalledPackageId pkg db_stack update
   checkPackageId pkg
-  checkPackageKey pkg
+  checkComponentId pkg db_stack update
   checkDuplicates db_stack pkg multi_instance update
   mapM_ (checkDep db_stack) (depends pkg)
   checkDuplicateDepends (depends pkg)
@@ -1515,22 +1596,10 @@ checkPackageConfig pkg verbosity db_stack auto_ghci_libs
   checkDuplicateModules pkg
   checkExposedModules db_stack pkg
   checkOtherModules pkg
-  mapM_ (checkHSLib verbosity (libraryDirs pkg) auto_ghci_libs) (hsLibraries pkg)
+  mapM_ (checkHSLib verbosity (libraryDirs pkg)) (hsLibraries pkg)
   -- ToDo: check these somehow?
   --    extra_libraries :: [String],
   --    c_includes      :: [String],
-
-checkInstalledPackageId :: InstalledPackageInfo -> PackageDBStack -> Bool 
-                        -> Validate ()
-checkInstalledPackageId ipi db_stack update = do
-  let ipid@(InstalledPackageId str) = installedPackageId ipi
-  when (null str) $ verror CannotForce "missing id field"
-  let dups = [ p | p <- allPackagesInStack db_stack, 
-                   installedPackageId p == ipid ]
-  when (not update && not (null dups)) $
-    verror CannotForce $
-        "package(s) with this id already exist: " ++ 
-         unwords (map (display.packageId) dups)
 
 -- When the package name and version are put together, sometimes we can
 -- end up with a package id that cannot be parsed.  This will lead to
@@ -1544,13 +1613,17 @@ checkPackageId ipi =
     []  -> verror CannotForce ("invalid package identifier: " ++ str)
     _   -> verror CannotForce ("ambiguous package identifier: " ++ str)
 
-checkPackageKey :: InstalledPackageInfo -> Validate ()
-checkPackageKey ipi =
-  let str = display (packageKey ipi) in
-  case [ x :: PackageKey | (x,ys) <- readP_to_S parse str, all isSpace ys ] of
-    [_] -> return ()
-    []  -> verror CannotForce ("invalid package key: " ++ str)
-    _   -> verror CannotForce ("ambiguous package key: " ++ str)
+checkComponentId :: InstalledPackageInfo -> PackageDBStack -> Bool
+                -> Validate ()
+checkComponentId ipi db_stack update = do
+  let pk@(ComponentId str) = installedComponentId ipi
+  when (null str) $ verror CannotForce "missing id field"
+  let dups = [ p | p <- allPackagesInStack db_stack,
+                   installedComponentId p == pk ]
+  when (not update && not (null dups)) $
+    verror CannotForce $
+        "package(s) with this id already exist: " ++
+         unwords (map (display.installedComponentId) dups)
 
 checkDuplicates :: PackageDBStack -> InstalledPackageInfo
                 -> Bool -> Bool-> Validate ()
@@ -1570,7 +1643,8 @@ checkDuplicates db_stack pkg multi_instance update = do
         uncasep = map toLower . display
         dups = filter ((== uncasep pkgid) . uncasep) (map sourcePackageId pkgs)
 
-  when (not update && not (null dups)) $ verror ForceAll $
+  when (not update && not multi_instance
+                   && not (null dups)) $ verror ForceAll $
         "Package names may be treated case-insensitively in the future.\n"++
         "Package " ++ display pkgid ++
         " overlaps with: " ++ unwords (map display dups)
@@ -1608,16 +1682,16 @@ checkPath url_ok is_dir warn_only thisfield d
           then vwarn msg
           else verror ForceFiles msg
 
-checkDep :: PackageDBStack -> InstalledPackageId -> Validate ()
+checkDep :: PackageDBStack -> ComponentId -> Validate ()
 checkDep db_stack pkgid
   | pkgid `elem` pkgids = return ()
   | otherwise = verror ForceAll ("dependency \"" ++ display pkgid
                                  ++ "\" doesn't exist")
   where
         all_pkgs = allPackagesInStack db_stack
-        pkgids = map installedPackageId all_pkgs
+        pkgids = map installedComponentId all_pkgs
 
-checkDuplicateDepends :: [InstalledPackageId] -> Validate ()
+checkDuplicateDepends :: [ComponentId] -> Validate ()
 checkDuplicateDepends deps
   | null dups = return ()
   | otherwise = verror ForceAll ("package has duplicate dependencies: " ++
@@ -1625,28 +1699,23 @@ checkDuplicateDepends deps
   where
        dups = [ p | (p:_:_) <- group (sort deps) ]
 
-checkHSLib :: Verbosity -> [String] -> Bool -> String -> Validate ()
-checkHSLib verbosity dirs auto_ghci_libs lib = do
-  let batch_lib_file = "lib" ++ lib ++ ".a"
-      filenames = ["lib" ++ lib ++ ".a",
+checkHSLib :: Verbosity -> [String] -> String -> Validate ()
+checkHSLib _verbosity dirs lib = do
+  let filenames = ["lib" ++ lib ++ ".a",
                    "lib" ++ lib ++ ".p_a",
                    "lib" ++ lib ++ "-ghc" ++ Version.version ++ ".so",
                    "lib" ++ lib ++ "-ghc" ++ Version.version ++ ".dylib",
                             lib ++ "-ghc" ++ Version.version ++ ".dll"]
-  m <- liftIO $ doesFileExistOnPath filenames dirs
-  case m of
-    Nothing -> verror ForceFiles ("cannot find any of " ++ show filenames ++
-                                  " on library path")
-    Just dir -> liftIO $ checkGHCiLib verbosity dir batch_lib_file lib auto_ghci_libs
+  b <- liftIO $ doesFileExistOnPath filenames dirs
+  when (not b) $
+    verror ForceFiles ("cannot find any of " ++ show filenames ++
+                       " on library path")
 
-doesFileExistOnPath :: [FilePath] -> [FilePath] -> IO (Maybe FilePath)
-doesFileExistOnPath filenames paths = go fullFilenames
-  where fullFilenames = [ (path, path </> filename)
+doesFileExistOnPath :: [FilePath] -> [FilePath] -> IO Bool
+doesFileExistOnPath filenames paths = anyM doesFileExist fullFilenames
+  where fullFilenames = [ path </> filename
                         | filename <- filenames
                         , path <- paths ]
-        go []             = return Nothing
-        go ((p, fp) : xs) = do b <- doesFileExist fp
-                               if b then return (Just p) else go xs
 
 -- | Perform validation checks (module file existence checks) on the
 -- @hidden-modules@ field.
@@ -1673,8 +1742,8 @@ checkModuleFile pkg modl =
       unless (modl == ModuleName.fromString "GHC.Prim") $ do
       let files = [ ModuleName.toFilePath modl <.> extension
                   | extension <- ["hi", "p_hi", "dyn_hi" ] ]
-      m <- liftIO $ doesFileExistOnPath files (importDirs pkg)
-      when (isNothing m) $
+      b <- liftIO $ doesFileExistOnPath files (importDirs pkg)
+      when (not b) $
          verror ForceFiles ("cannot find any of " ++ show files)
 
 -- | Validates that @exposed-modules@ and @hidden-modules@ do not have duplicate
@@ -1704,20 +1773,20 @@ checkOriginalModule :: String
                     -> InstalledPackageInfo
                     -> OriginalModule
                     -> Validate ()
-checkOriginalModule fieldName db_stack pkg
+checkOriginalModule field_name db_stack pkg
     (OriginalModule definingPkgId definingModule) =
-  let mpkg = if definingPkgId == installedPackageId pkg
+  let mpkg = if definingPkgId == installedComponentId pkg
               then Just pkg
-              else PackageIndex.lookupInstalledPackageId ipix definingPkgId
+              else PackageIndex.lookupComponentId ipix definingPkgId
   in case mpkg of
       Nothing
-           -> verror ForceAll (fieldName ++ " refers to a non-existent " ++
+           -> verror ForceAll (field_name ++ " refers to a non-existent " ++
                                "defining package: " ++
                                        display definingPkgId)
 
       Just definingPkg
         | not (isIndirectDependency definingPkgId)
-           -> verror ForceAll (fieldName ++ " refers to a defining  " ++
+           -> verror ForceAll (field_name ++ " refers to a defining " ++
                                "package that is not a direct (or indirect) " ++
                                "dependency of this package: " ++
                                        display definingPkgId)
@@ -1726,12 +1795,12 @@ checkOriginalModule fieldName db_stack pkg
         -> case find ((==definingModule).exposedName)
                      (exposedModules definingPkg) of
             Nothing ->
-              verror ForceAll (fieldName ++ " refers to a module " ++
+              verror ForceAll (field_name ++ " refers to a module " ++
                                display definingModule ++ " " ++
                                "that is not exposed in the " ++
                                "defining package " ++ display definingPkgId)
             Just (ExposedModule {exposedReexport = Just _} ) ->
-              verror ForceAll (fieldName ++ " refers to a module " ++
+              verror ForceAll (field_name ++ " refers to a module " ++
                                display definingModule ++ " " ++
                                "that is reexported but not defined in the " ++
                                "defining package " ++ display definingPkgId)
@@ -1742,78 +1811,12 @@ checkOriginalModule fieldName db_stack pkg
     ipix     = PackageIndex.fromList all_pkgs
 
     isIndirectDependency pkgid = fromMaybe False $ do
-      thispkg  <- graphVertex (installedPackageId pkg)
+      thispkg  <- graphVertex (installedComponentId pkg)
       otherpkg <- graphVertex pkgid
       return (Graph.path depgraph thispkg otherpkg)
     (depgraph, _, graphVertex) =
       PackageIndex.dependencyGraph (PackageIndex.insert pkg ipix)
 
-
-checkGHCiLib :: Verbosity -> String -> String -> String -> Bool -> IO ()
-checkGHCiLib verbosity batch_lib_dir batch_lib_file lib auto_build
-  | auto_build = autoBuildGHCiLib verbosity batch_lib_dir batch_lib_file ghci_lib_file
-  | otherwise  = return ()
- where
-    ghci_lib_file = lib <.> "o"
-
--- automatically build the GHCi version of a batch lib,
--- using ld --whole-archive.
-
-autoBuildGHCiLib :: Verbosity -> String -> String -> String -> IO ()
-autoBuildGHCiLib verbosity dir batch_file ghci_file = do
-  let ghci_lib_file  = dir ++ '/':ghci_file
-      batch_lib_file = dir ++ '/':batch_file
-  when (verbosity >= Normal) $
-    info ("building GHCi library " ++ ghci_lib_file ++ "...")
-#if defined(darwin_HOST_OS)
-  r <- rawSystem "ld" ["-r","-x","-o",ghci_lib_file,"-all_load",batch_lib_file]
-#elif defined(mingw32_HOST_OS)
-  execDir <- getLibDir
-  r <- rawSystem (maybe "" (++"/gcc-lib/") execDir++"ld") ["-r","-x","-o",ghci_lib_file,"--whole-archive",batch_lib_file]
-#else
-  r <- rawSystem "ld" ["-r","-x","-o",ghci_lib_file,"--whole-archive",batch_lib_file]
-#endif
-  when (r /= ExitSuccess) $ exitWith r
-  when (verbosity >= Normal) $
-    infoLn (" done.")
-
--- -----------------------------------------------------------------------------
--- Searching for modules
-
-#if not_yet
-
-findModules :: [FilePath] -> IO [String]
-findModules paths =
-  mms <- mapM searchDir paths
-  return (concat mms)
-
-searchDir path prefix = do
-  fs <- getDirectoryEntries path `catchIO` \_ -> return []
-  searchEntries path prefix fs
-
-searchEntries path prefix [] = return []
-searchEntries path prefix (f:fs)
-  | looks_like_a_module  =  do
-        ms <- searchEntries path prefix fs
-        return (prefix `joinModule` f : ms)
-  | looks_like_a_component  =  do
-        ms <- searchDir (path </> f) (prefix `joinModule` f)
-        ms' <- searchEntries path prefix fs
-        return (ms ++ ms')
-  | otherwise
-        searchEntries path prefix fs
-
-  where
-        (base,suffix) = splitFileExt f
-        looks_like_a_module =
-                suffix `elem` haskell_suffixes &&
-                all okInModuleName base
-        looks_like_a_component =
-                null suffix && all okInModuleName base
-
-okInModuleName c
-
-#endif
 
 -- ---------------------------------------------------------------------------
 -- expanding environment variables in the package configuration
@@ -1953,68 +1956,11 @@ installSignalHandlers = do
   return ()
 #endif
 
-#if mingw32_HOST_OS || mingw32_TARGET_OS
-throwIOIO :: Exception.IOException -> IO a
-throwIOIO = Exception.throwIO
-#endif
-
 catchIO :: IO a -> (Exception.IOException -> IO a) -> IO a
 catchIO = Exception.catch
 
 tryIO :: IO a -> IO (Either Exception.IOException a)
 tryIO = Exception.try
-
-writeFileUtf8Atomic :: FilePath -> String -> IO ()
-writeFileUtf8Atomic targetFile content =
-  withFileAtomic targetFile $ \h -> do
-     hSetEncoding h utf8
-     hPutStr h content
-
--- copied from Cabal's Distribution.Simple.Utils, except that we want
--- to use text files here, rather than binary files.
-withFileAtomic :: FilePath -> (Handle -> IO ()) -> IO ()
-withFileAtomic targetFile write_content = do
-  (newFile, newHandle) <- openNewFile targetDir template
-  do  write_content newHandle
-      hClose newHandle
-#if mingw32_HOST_OS || mingw32_TARGET_OS
-      renameFile newFile targetFile
-        -- If the targetFile exists then renameFile will fail
-        `catchIO` \err -> do
-          exists <- doesFileExist targetFile
-          if exists
-            then do removeFileSafe targetFile
-                    -- Big fat hairy race condition
-                    renameFile newFile targetFile
-                    -- If the removeFile succeeds and the renameFile fails
-                    -- then we've lost the atomic property.
-            else throwIOIO err
-#else
-      renameFile newFile targetFile
-#endif
-   `Exception.onException` do hClose newHandle
-                              removeFileSafe newFile
-  where
-    template = targetName <.> "tmp"
-    targetDir | null targetDir_ = "."
-              | otherwise       = targetDir_
-    --TODO: remove this when takeDirectory/splitFileName is fixed
-    --      to always return a valid dir
-    (targetDir_,targetName) = splitFileName targetFile
-
-openNewFile :: FilePath -> String -> IO (FilePath, Handle)
-openNewFile dir template = do
-  -- this was added to System.IO in 6.12.1
-  -- we must use this version because the version below opens the file
-  -- in binary mode.
-  openTempFileWithDefaultPermissions dir template
-
-readUTF8File :: FilePath -> IO String
-readUTF8File file = do
-  h <- openFile file ReadMode
-  -- fix the encoding to UTF-8
-  hSetEncoding h utf8
-  hGetContents h
 
 -- removeFileSave doesn't throw an exceptions, if the file is already deleted
 removeFileSafe :: FilePath -> IO ()
@@ -2022,5 +1968,42 @@ removeFileSafe fn =
   removeFile fn `catchIO` \ e ->
     when (not $ isDoesNotExistError e) $ ioError e
 
+-- | Turn a path relative to the current directory into a (normalised)
+-- absolute path.
 absolutePath :: FilePath -> IO FilePath
 absolutePath path = return . normalise . (</> path) =<< getCurrentDirectory
+
+
+{- Note [writeAtomic leaky abstraction]
+GhcPkg.writePackageDb calls writeAtomic, which first writes to a temp file,
+and then moves the tempfile to its final destination. This all happens in the
+same directory (package.conf.d).
+Moving a file doesn't change its modification time, but it *does* change the
+modification time of the directory it is placed in. Since we compare the
+modification time of the cache file to that of the directory it is in to
+decide whether the cache is out-of-date, it will be instantly out-of-date
+after creation, if the renaming takes longer than the smallest time difference
+that the getModificationTime can measure.
+
+The solution we opt for is a "touch" of the cache file right after it is
+created. This resets the modification time of the cache file and the directory
+to the current time.
+
+Other possible solutions:
+  * backdate the modification time of the directory to the modification time
+    of the cachefile. This is what we used to do on posix platforms. An
+    observer of the directory would see the modification time of the directory
+    jump back in time. Not nice, although in practice probably not a problem.
+    Also note that a cross-platform implementation of setModificationTime is
+    currently not available.
+  * set the modification time of the cache file to the modification time of
+    the directory (instead of the curent time). This could also work,
+    given that we are the only ones writing to this directory. It would also
+    require a high-precision getModificationTime (lower precision times get
+    rounded down it seems), or the cache would still be out-of-date.
+  * change writeAtomic to create the tempfile outside of the target file's
+    directory.
+  * create the cachefile outside of the package.conf.d directory in the first
+    place. But there are tests and there might be tools that currently rely on
+    the package.conf.d/package.cache format.
+-}

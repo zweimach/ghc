@@ -18,6 +18,17 @@ $(call profStart, build-package-data($1,$2,$3))
 # $2 = distdir
 # $3 = GHC stage to use (0 == bootstrapping compiler)
 
+ifeq "$(V)" "0"
+$1_$2_CONFIGURE_OPTS += -v0 --configure-option=--quiet
+
+# Cabal always passes --with-compiler and --with-gcc to library configure
+# scripts, resulting in the following useless (for us) warning in the logs:
+# "configure: WARNING: unrecognized options: --with-compiler, --with-gcc"
+$1_$2_CONFIGURE_OPTS += --configure-option=--disable-option-checking
+
+$1_$2_GHC_PKG_OPTS += -v0
+endif
+
 $1_$2_CONFIGURE_OPTS += --disable-library-for-ghci
 ifeq "$$(filter v,$$($1_$2_WAYS))" "v"
 $1_$2_CONFIGURE_OPTS += --enable-library-vanilla
@@ -50,7 +61,7 @@ endif
 # for a feature it may not generate warning-free C code, and thus may
 # think that the feature doesn't exist if -Werror is on.
 $1_$2_CONFIGURE_CFLAGS = $$(filter-out -Werror,$$(SRC_CC_OPTS)) $$(CONF_CC_OPTS_STAGE$3) $$($1_CC_OPTS) $$($1_$2_CC_OPTS) $$(SRC_CC_WARNING_OPTS)
-$1_$2_CONFIGURE_LDFLAGS = $$(SRC_LD_OPTS) $$(CONF_GCC_LINKER_OPTS_STAGE$3) $$($1_LD_OPTS) $$($1_$2_LD_OPTS)
+$1_$2_CONFIGURE_LDFLAGS = $$(SRC_LD_OPTS) $$($1_LD_OPTS) $$($1_$2_LD_OPTS)
 $1_$2_CONFIGURE_CPPFLAGS = $$(SRC_CPP_OPTS) $$(CONF_CPP_OPTS_STAGE$3) $$($1_CPP_OPTS) $$($1_$2_CPP_OPTS)
 
 $1_$2_CONFIGURE_OPTS += --configure-option=CFLAGS="$$($1_$2_CONFIGURE_CFLAGS)"
@@ -75,6 +86,14 @@ endif
 
 ifneq "$$(GMP_LIB_DIRS)" ""
 $1_$2_CONFIGURE_OPTS += --configure-option=--with-gmp-libraries="$$(GMP_LIB_DIRS)"
+endif
+
+ifneq "$$(CURSES_INCLUDE_DIRS)" ""
+$1_$2_CONFIGURE_OPTS += --configure-option=--with-curses-includes="$$(CURSES_INCLUDE_DIRS)"
+endif
+
+ifneq "$$(CURSES_LIB_DIRS)" ""
+$1_$2_CONFIGURE_OPTS += --configure-option=--with-curses-libraries="$$(CURSES_LIB_DIRS)"
 endif
 
 ifeq "$$(CrossCompiling)" "YES"
@@ -120,8 +139,8 @@ ifneq "$$($1_$2_REGISTER_PACKAGE)" "NO"
 	$$(call cmd,$1_$2_GHC_PKG) update --force $$($1_$2_GHC_PKG_OPTS) $1/$2/inplace-pkg-config
 endif
 endif
-endif
-endif
+endif # NO_GENERATED_MAKEFILE_RULES
+endif # BINDIST
 
 PACKAGE_DATA_MKS += $1/$2/package-data.mk
 

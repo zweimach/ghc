@@ -1,5 +1,3 @@
-setTestOpts(only_compiler_types(['ghc']))
-
 # setTestOpts(only_ways(['normal']));
 # Not only-normal: want optimisation too, to check coercion optimiser
 
@@ -46,13 +44,15 @@ test('nbe', normal, compile, [''])
 test('while', normal, compile_and_run, [''])
 test('rw', normal, compile_fail, [''])
 test('lazypat', normal, compile_fail, [''])
+# Not marked as expect_broken, because it's not clear whether this test should
+# succeed or fail.
 test('lazypatok', expect_fail, compile, [''])
 test('tc', normal, compile_and_run, [''])
 test('arrow', normal, compile, [''])
 test('tdpe', normal, compile, [''])
 test('Nilsson', when(fast(), skip), compile, [''])
 
-if config.fast:
+if fast():
     test('records', normal, compile, [''])
 else:
     test('records', normal, compile_and_run, [''])
@@ -102,10 +102,10 @@ test('gadt25', normal, compile, [''])
 test('T3651', normal, compile_fail, [''])
 test('T3638', normal, compile, [''])
 
-test('gadtSyntax001', when(compiler_lt('ghc', '7.1'), expect_fail), compile, [''])
-test('gadtSyntaxFail001', when(compiler_lt('ghc', '7.1'), expect_fail), compile_fail, [''])
-test('gadtSyntaxFail002', when(compiler_lt('ghc', '7.1'), expect_fail), compile_fail, [''])
-test('gadtSyntaxFail003', when(compiler_lt('ghc', '7.1'), expect_fail), compile_fail, [''])
+test('gadtSyntax001', normal, compile, [''])
+test('gadtSyntaxFail001', normal, compile_fail, [''])
+test('gadtSyntaxFail002', normal, compile_fail, [''])
+test('gadtSyntaxFail003', normal, compile_fail, [''])
 test('T3169', normal, compile_fail, [''])
 test('T5424',
      extra_clean(['T5424a.hi', 'T5424a.o']),

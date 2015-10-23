@@ -33,9 +33,9 @@ module TcMType (
   --------------------------------
   -- Creating new evidence variables
   newEvVar, newEvVars, newEq, newDict,
+  newWanted, newWanteds,
   emitWantedEvVar, emitWantedEvVars,
   newTcEvBinds, addTcEvBind,
-  newSimpleWanted, newSimpleWanteds,
 
   --------------------------------
   -- Instantiation
@@ -64,11 +64,7 @@ module TcMType (
 
   zonkEvVar, zonkWC, zonkSimples, zonkId, zonkCt, zonkSkolemInfo,
 
-  tcGetGlobalTyCoVars,
-
-  --------------------------------
-  -- (Named) Wildcards
-  newWildcardVar, newWildcardVarMetaKind
+  tcGetGlobalTyCoVars
   ) where
 
 #include "HsVersions.h"
@@ -118,7 +114,7 @@ kind_var_occ = mkOccName tvName "k"
 
 newMetaKindVar :: TcM TcKind
 newMetaKindVar = do { uniq <- newUnique
-                    ; details <- newMetaDetails (TauTv False)
+                    ; details <- newMetaDetails TauTv
                     ; let kv = mkTcTyVar (mkKindName uniq) liftedTypeKind details
                     ; return (mkTyVarTy kv) }
 
@@ -142,6 +138,17 @@ newEvVar :: TcPredType -> TcRnIf gbl lcl EvVar
 -- Creates new *rigid* variables for predicates
 newEvVar ty = do { name <- newSysName (predTypeOccName ty)
                  ; return (mkLocalIdOrCoVar name ty) }
+
+newWanted :: CtOrigin -> PredType -> TcM CtEvidence
+newWanted orig pty
+  = do loc <- getCtLocM orig
+       v <- newEvVar pty
+       return $ CtWanted { ctev_evar = v
+                         , ctev_pred = pty
+                         , ctev_loc = loc }
+
+newWanteds :: CtOrigin -> ThetaType -> TcM [CtEvidence]
+newWanteds orig = mapM (newWanted orig)
 
 -- | Creates a new EvVar and immediately emits it as a Wanted
 emitWantedEvVar :: CtOrigin -> TcPredType -> TcM EvVar
@@ -171,28 +178,8 @@ predTypeOccName :: PredType -> OccName
 predTypeOccName ty = case classifyPredType ty of
     ClassPred cls _ -> mkDictOcc (getOccName cls)
     EqPred _ _ _    -> mkVarOccFS (fsLit "cobox")
-    TuplePred _     -> mkVarOccFS (fsLit "tup")
     IrredPred _     -> mkVarOccFS (fsLit "irred")
 
-{-
-*********************************************************************************
-*                                                                               *
-*                   Wanted constraints
-*                                                                               *
-*********************************************************************************
--}
-
-newSimpleWanted :: CtOrigin -> PredType -> TcM Ct
-newSimpleWanted orig pty
-  = do loc <- getCtLoc orig
-       v <- newEvVar pty
-       return $ mkNonCanonical $
-            CtWanted { ctev_evar = v
-                     , ctev_pred = pty
-                     , ctev_loc = loc }
-
-newSimpleWanteds :: CtOrigin -> ThetaType -> TcM [Ct]
-newSimpleWanteds orig = mapM (newSimpleWanted orig)
 
 {-
 ************************************************************************
@@ -354,18 +341,14 @@ newMetaTyVar meta_info kind
         ; let name = mkTcTyVarName uniq s
               s = case meta_info of
                         ReturnTv    -> fsLit "r"
-                        TauTv True  -> fsLit "w"
-                        TauTv False -> fsLit "t"
+                        TauTv       -> fsLit "t"
                         FlatMetaTv  -> fsLit "fmv"
                         SigTv       -> fsLit "a"
         ; details <- newMetaDetails meta_info
         ; return (mkTcTyVar name kind details) }
 
-newNamedMetaTyVar :: Name -> MetaInfo -> Kind -> TcM TcTyVar
--- Make a new meta tyvar out of thin air
-newNamedMetaTyVar name meta_info kind
-  = do { details <- newMetaDetails meta_info
-       ; return (mkTcTyVar name kind details) }
+newSigKindVar :: Name -> TcM TcTyVar
+newSigKindVar name = newSigTyVar name superKind
 
 newSigTyVar :: Name -> Kind -> TcM TcTyVar
 newSigTyVar name kind
@@ -390,8 +373,6 @@ cloneMetaTyVar tv
         ; return (mkTcTyVar name' (tyVarKind tv) details') }
 
 mkTcTyVarName :: Unique -> FastString -> Name
--- Make sure that fresh TcTyVar names finish with a digit
--- leaving the un-cluttered names free for user names
 mkTcTyVarName uniq str = mkSysTvName uniq str
 
 -- Works for both type and kind variables
@@ -527,7 +508,7 @@ that can't ever appear in user code, so we're safe!
 -}
 
 newFlexiTyVar :: Kind -> TcM TcTyVar
-newFlexiTyVar kind = newMetaTyVar (TauTv False) kind
+newFlexiTyVar kind = newMetaTyVar TauTv kind
 
 newFlexiTyVarTy  :: Kind -> TcM TcType
 newFlexiTyVarTy kind = do
@@ -541,7 +522,7 @@ newReturnTyVar :: Kind -> TcM TcTyVar
 newReturnTyVar kind = newMetaTyVar ReturnTv kind
 
 newReturnTyVarTy :: Kind -> TcM TcType
-newReturnTyVarTy kind = mkTyVarTy <$> newReturnTyVar kind
+newReturnTyVarTy kind = TyVarTy <$> newReturnTyVar kind
 
 -- | Either makes a normal Flexi or a ReturnTv Flexi
 newMaybeReturnTyVarTy :: Bool  -- True <=> make a ReturnTv
@@ -586,9 +567,10 @@ tcInstTyVarX subst tyvar
                -- but then delete that note
         ; let info = if isSortPolymorphic (tyVarKind tyvar)
                      then ReturnTv
-                     else TauTv False
+                     else TauTv
         ; details <- newMetaDetails info
         ; let name   = mkSystemName uniq (getOccName tyvar)
+                       -- See Note [Name of an instantiated type variable]
               kind   = substTy subst (tyVarKind tyvar)
               new_tv = mkTcTyVar name kind details
         ; return (extendTCvSubst subst tyvar (mkTyVarTy new_tv), new_tv) }
@@ -613,24 +595,29 @@ tcInstCoVarX orig subst covar
 -- | This is used to instantiate binders when type-checking *types* only.
 -- Precondition: all binders are invisible.
 tcInstBinders :: [Binder] -> TcM (TCvSubst, [TcType])
-tcInstBinders = tcInstBindersX emptyTCvSubst
+tcInstBinders = tcInstBindersX emptyTCvSubst Nothing
 
 -- | This is used to instantiate binders when type-checking *types* only.
 -- Precondition: all binders are invisible.
-tcInstBindersX :: TCvSubst -> [Binder] -> TcM (TCvSubst, [TcType])
-tcInstBindersX subst bndrs
-  = do { (subst, args) <- mapAccumLM tcInstBinderX subst bndrs
+-- The @VarEnv Kind@ gives some known instantiations.
+tcInstBindersX :: TCvSubst -> Maybe (VarEnv Kind)
+               -> [Binder] -> TcM (TCvSubst, [TcType])
+tcInstBindersX subst mb_kind_info bndrs
+  = do { (subst, args) <- mapAccumLM (tcInstBinderX mb_kind_info) subst bndrs
        ; traceTc "instantiating implicit dependent vars:"
            (vcat $ zipWith (\bndr arg -> ppr bndr <+> text ":=" <+> ppr arg)
                            bndrs args)
        ; return (subst, args) }
 
 -- | Used only in *types*
-tcInstBinderX :: TCvSubst -> Binder -> TcM (TCvSubst, TcType)
-tcInstBinderX subst binder
+tcInstBinderX :: Maybe (VarEnv Kind)
+              -> TCvSubst -> Binder -> TcM (TCvSubst, TcType)
+tcInstBinderX mb_kind_info subst binder
   | Just tv <- binderVar_maybe binder
-  = do { (subst', tv') <- tcInstTyVarX subst tv
-       ; return (subst', mkTyVarTy tv') }
+  = case lookup_tv tv of
+      Just ki -> return (extendTCvSubst subst tv ki, ki)
+      Nothing -> = do { (subst', tv') <- tcInstTyVarX subst tv
+                      ; return (subst', mkTyVarTy tv') }
 
      -- TODO (RAE): This is special-case handling of promoted, lifted
      -- equality. This is the *only* constraint currently handled in
@@ -650,7 +637,15 @@ tcInstBinderX subst binder
   | otherwise
   = pprPanic "visible binder in tcInstBinderX" (ppr binder)
 
-{-
+  where
+    lookup_tv tv = do { env <- mb_kind_info   -- `Maybe` monad
+                      ; lookupVarEnv env tv }
+
+{- Note [Name of an instantiated type variable]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+At the moment we give a unification variable a System Name, which
+influences the way it is tidied; see TypeRep.tidyTyVarBndr.
+
 ************************************************************************
 *                                                                      *
              Quantification
@@ -819,26 +814,17 @@ skolemiseUnboundMetaTyVar tv details
     do  { span <- getSrcSpanM    -- Get the location from "here"
                                  -- ie where we are generalising
         ; kind <- zonkTcType (tyVarKind tv)
-        ; let tv_name     = getOccName tv
-              tv_uniq     = getUnique tv
-              new_tv_name = if isWildcardVar tv
-                            then generaliseWildcardVarName tv_name
-                            else tv_name
-
+        ; let uniq        = getUnique tv
                 -- NB: Use same Unique as original tyvar. This is
                 -- important for TcHsType.splitTelescopeTvs to work properly
-              final_name = mkInternalName tv_uniq new_tv_name span
-              final_tv   = mkTcTyVar final_name kind details
+
+              tv_name     = getOccName tv
+              final_name  = mkInternalName uniq tv_name span
+              final_tv    = mkTcTyVar final_name kind details
 
         ; traceTc "Skolemising" (ppr tv <+> ptext (sLit ":=") <+> ppr final_tv)
         ; writeMetaTyVar tv (mkTyVarTy final_tv)
         ; return final_tv }
-  where
-    -- If a wildcard type called _a is generalised, we rename it to tw_a
-    generaliseWildcardVarName :: OccName -> OccName
-    generaliseWildcardVarName name | startsWithUnderscore name
-      = mkOccNameFS (occNameSpace name) (appendFS (fsLit "w") (occNameFS name))
-    generaliseWildcardVarName name = name
 
 {-
 Note [Zonking to Skolem]
@@ -974,7 +960,7 @@ zonkTcTypes tys = mapM zonkTcType tys
 ************************************************************************
 -}
 
-zonkImplication :: Implication -> TcM (Bag Implication)
+zonkImplication :: Implication -> TcM Implication
 zonkImplication implic@(Implic { ic_skols  = skols
                                , ic_given  = given
                                , ic_wanted = wanted
@@ -984,13 +970,10 @@ zonkImplication implic@(Implic { ic_skols  = skols
        ; given'  <- mapM zonkEvVar given
        ; info'   <- zonkSkolemInfo info
        ; wanted' <- zonkWCRec wanted
-       ; if isEmptyWC wanted'
-         then return emptyBag
-         else return $ unitBag $
-              implic { ic_skols  = skols'
-                     , ic_given  = given'
-                     , ic_wanted = wanted'
-                     , ic_info   = info' } }
+       ; return (implic { ic_skols  = skols'
+                        , ic_given  = given'
+                        , ic_wanted = wanted'
+                        , ic_info   = info' }) }
 
 zonkEvVar :: EvVar -> TcM EvVar
 zonkEvVar var = do { ty' <- zonkTcType (varType var)
@@ -1003,7 +986,7 @@ zonkWC wc = zonkWCRec wc
 zonkWCRec :: WantedConstraints -> TcM WantedConstraints
 zonkWCRec (WC { wc_simple = simple, wc_impl = implic, wc_insol = insol })
   = do { simple' <- zonkSimples simple
-       ; implic' <- flatMapBagM zonkImplication implic
+       ; implic' <- mapBagM zonkImplication implic
        ; insol'  <- zonkSimples insol
        ; return (WC { wc_simple = simple', wc_impl = implic', wc_insol = insol' }) }
 
@@ -1149,10 +1132,6 @@ zonkTidyOrigin env (KindEqOrigin ty1 ty2 orig)
        ; (env2, ty2') <- zonkTidyTcType env1 ty2
        ; (env3, orig') <- zonkTidyOrigin env2 orig
        ; return (env3, KindEqOrigin ty1' ty2' orig') }
-zonkTidyOrigin env (CoercibleOrigin ty1 ty2)
-  = do { (env1, ty1') <- zonkTidyTcType env  ty1
-       ; (env2, ty2') <- zonkTidyTcType env1 ty2
-       ; return (env2, CoercibleOrigin ty1' ty2') }
 zonkTidyOrigin env (FunDepOrigin1 p1 l1 p2 l2)
   = do { (env1, p1') <- zonkTidyTcType env  p1
        ; (env2, p2') <- zonkTidyTcType env1 p2
@@ -1186,7 +1165,7 @@ tidyCt env ct
      _ -> mkNonCanonical (tidy_ev env (ctEvidence ct))
   where
     tidy_ev :: TidyEnv -> CtEvidence -> CtEvidence
-     -- NB: we do not tidy the ctev_evtm/var field because we don't
+     -- NB: we do not tidy the ctev_evar field because we don't
      --     show it in error messages
     tidy_ev env ctev@(CtGiven { ctev_pred = pred })
       = ctev { ctev_pred = tidyType env pred }
@@ -1222,31 +1201,3 @@ tidySkolemInfo env (UnifyForAllSkol skol_tvs ty)
     ty'               = tidyType env2 ty
 
 tidySkolemInfo env info = (env, info)
-
-{-
-************************************************************************
-*                                                                      *
-        (Named) Wildcards
-*                                                                      *
-************************************************************************
--}
-
--- | Create a new meta var with the given kind. This meta var should be used
--- to replace a wildcard in a type. Such a wildcard meta var can be
--- distinguished from other meta vars with the 'isWildcardVar' function.
-newWildcardVar :: Name -> Kind -> TcM TcTyVar
-newWildcardVar name kind = newNamedMetaTyVar name (TauTv True) kind
-
--- | Create a new meta var (which can unify with a type of any kind). This
--- meta var should be used to replace a wildcard in a type. Such a wildcard
--- meta var can be distinguished from other meta vars with the 'isWildcardVar'
--- function.
-newWildcardVarMetaKind :: Name -> TcM TcTyVar
-newWildcardVarMetaKind name = do kind <- newMetaKindVar
-                                 newWildcardVar name kind
-
--- | Return 'True' if the argument is a meta var created for a wildcard (by
--- 'newWildcardVar' or 'newWildcardVarMetaKind').
-isWildcardVar :: TcTyVar -> Bool
-isWildcardVar tv | MetaTv (TauTv True) _ _ <- tcTyVarDetails tv = True
-isWildcardVar _ = False

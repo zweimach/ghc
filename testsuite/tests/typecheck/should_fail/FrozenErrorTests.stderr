@@ -2,8 +2,7 @@
 FrozenErrorTests.hs:12:12:
     Couldn't match type ‘Int’ with ‘Bool’
     Inaccessible code in
-      a pattern with constructor
-        MkT3 :: forall a. (a ~ Bool) => T a,
+      a pattern with constructor: MkT3 :: forall a. (a ~ Bool) => T a,
       in a case alternative
     In the pattern: MkT3
     In a case alternative: MkT3 -> ()
@@ -11,32 +10,32 @@ FrozenErrorTests.hs:12:12:
 
 FrozenErrorTests.hs:26:9:
     Occurs check: cannot construct the infinite type: a ~ [a]
-       Expected type: [a]
-         Actual type: F a Bool
+    Expected type: [a]
+      Actual type: F a Bool
     Relevant bindings include
       test1 :: a (bound at FrozenErrorTests.hs:26:1)
     In the expression: goo1 False undefined
     In an equation for ‘test1’: test1 = goo1 False undefined
 
 FrozenErrorTests.hs:29:15:
-    Couldn't match type ‘[Int]’ with ‘Int’
-       Expected type: [[Int]]
-         Actual type: F [Int] Bool
+    Couldn't match type ‘Int’ with ‘[Int]’
+    Expected type: [[Int]]
+      Actual type: F [Int] Bool
     In the first argument of ‘goo2’, namely ‘(goo1 False undefined)’
     In the expression: goo2 (goo1 False undefined)
     In an equation for ‘test2’: test2 = goo2 (goo1 False undefined)
 
 FrozenErrorTests.hs:30:9:
-    Couldn't match type ‘[Int]’ with ‘Int’
-       Expected type: [[Int]]
-         Actual type: F [Int] Bool
+    Couldn't match type ‘Int’ with ‘[Int]’
+    Expected type: [[Int]]
+      Actual type: F [Int] Bool
     In the expression: goo1 False (goo2 undefined)
     In an equation for ‘test3’: test3 = goo1 False (goo2 undefined)
 
 FrozenErrorTests.hs:45:15:
     Couldn't match type ‘T2 c c’ with ‘M (T2 (T2 c c) c)’
-       Expected type: T2 (M (T2 (T2 c c) c)) (T2 (T2 c c) c)
-         Actual type: F (T2 (T2 c c) c) Bool
+    Expected type: T2 (M (T2 (T2 c c) c)) (T2 (T2 c c) c)
+      Actual type: F (T2 (T2 c c) c) Bool
     Relevant bindings include
       test4 :: T2 (T2 c c) c (bound at FrozenErrorTests.hs:45:1)
     In the first argument of ‘goo4’, namely ‘(goo3 False undefined)’
@@ -45,8 +44,8 @@ FrozenErrorTests.hs:45:15:
 
 FrozenErrorTests.hs:46:9:
     Couldn't match type ‘T2 c c’ with ‘M (T2 (T2 c c) c)’
-       Expected type: T2 (M (T2 (T2 c c) c)) (T2 (T2 c c) c)
-         Actual type: F (T2 (T2 c c) c) Bool
+    Expected type: T2 (M (T2 (T2 c c) c)) (T2 (T2 c c) c)
+      Actual type: F (T2 (T2 c c) c) Bool
     Relevant bindings include
       test5 :: T2 (T2 c c) c (bound at FrozenErrorTests.hs:46:1)
     In the expression: goo3 False (goo4 undefined)

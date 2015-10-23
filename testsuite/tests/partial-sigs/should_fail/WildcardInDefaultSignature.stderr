@@ -1,0 +1,5 @@
+
+WildcardInDefaultSignature.hs:7:16:
+    Unexpected wild card: ‘_’
+    In the type ‘_’
+    In the class declaration for ‘C’

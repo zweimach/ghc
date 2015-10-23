@@ -6,6 +6,7 @@ import Distribution.PackageDescription
 import Distribution.PackageDescription.Check hiding (doesFileExist)
 import Distribution.PackageDescription.Configuration
 import Distribution.PackageDescription.Parse
+import Distribution.Package
 import Distribution.System
 import Distribution.Simple
 import Distribution.Simple.Configure
@@ -113,12 +114,11 @@ doCheck directory
  $ do let verbosity = normal
       gpdFile <- defaultPackageDesc verbosity
       gpd <- readPackageDescription verbosity gpdFile
-      case partition isFailure $ checkPackage gpd Nothing of
-          ([],   [])       -> return ()
-          ([],   warnings) -> mapM_ print warnings
-          (errs, _)        -> do mapM_ print errs
-                                 exitWith (ExitFailure 1)
+      case filter isFailure $ checkPackage gpd Nothing of
+          []   -> return ()
+          errs -> mapM_ print errs >> exitWith (ExitFailure 1)
     where isFailure (PackageDistSuspicious {}) = False
+          isFailure (PackageDistSuspiciousWarn {}) = False
           isFailure _ = True
 
 runHsColour :: FilePath -> FilePath -> [String] -> IO ()
@@ -229,12 +229,7 @@ doRegister directory distDir ghc ghcpkg topdir
             let installedPkgs' = PackageIndex.fromList instInfos
             let updateComponentConfig (cn, clbi, deps)
                     = (cn, updateComponentLocalBuildInfo clbi, deps)
-                updateComponentLocalBuildInfo clbi
-                    = clbi {
-                          componentPackageDeps =
-                              [ (fixupPackageId instInfos ipid, pid)
-                              | (ipid,pid) <- componentPackageDeps clbi ]
-                      }
+                updateComponentLocalBuildInfo clbi = clbi -- TODO: remove
                 ccs' = map updateComponentConfig (componentsConfigs lbi)
                 lbi' = lbi {
                                componentsConfigs = ccs',
@@ -257,7 +252,7 @@ updateInstallDirTemplates relocatableBuild myPrefix myLibdir myDocdir idts
                           if relocatableBuild
                           then "$topdir"
                           else myLibdir,
-          libsubdir = toPathTemplate "$pkgkey",
+          libsubdir = toPathTemplate "$libname",
           docdir    = toPathTemplate $
                           if relocatableBuild
                           then "$topdir/../doc/html/libraries/$pkgid"
@@ -265,48 +260,25 @@ updateInstallDirTemplates relocatableBuild myPrefix myLibdir myDocdir idts
           htmldir   = toPathTemplate "$docdir"
       }
 
--- The packages are built with the package ID ending in "-inplace", but
--- when they're installed they get the package hash appended. We need to
--- fix up the package deps so that they use the hash package IDs, not
--- the inplace package IDs.
-fixupPackageId :: [Installed.InstalledPackageInfo]
-               -> InstalledPackageId
-               -> InstalledPackageId
-fixupPackageId _ x@(InstalledPackageId ipi)
- | "builtin_" `isPrefixOf` ipi = x
-fixupPackageId ipinfos (InstalledPackageId ipi)
- = case stripPrefix (reverse "-inplace") $ reverse ipi of
-   Nothing ->
-       error ("Installed package ID doesn't end in -inplace: " ++ show ipi)
-   Just x ->
-       let ipi' = reverse ('-' : x)
-           f (ipinfo : ipinfos') = case Installed.installedPackageId ipinfo of
-                                   y@(InstalledPackageId ipinfoid)
-                                    | ipi' `isPrefixOf` ipinfoid ->
-                                       y
-                                   _ ->
-                                       f ipinfos'
-           f [] = error ("Installed package ID not registered: " ++ show ipi)
-       in f ipinfos
-
 -- On Windows we need to split the ghc package into 2 pieces, or the
 -- DLL that it makes contains too many symbols (#5987). There are
 -- therefore 2 libraries, not just the 1 that Cabal assumes.
-mangleLbi :: FilePath -> FilePath -> LocalBuildInfo -> LocalBuildInfo
-mangleLbi "compiler" "stage2" lbi
+mangleIPI :: FilePath -> FilePath -> LocalBuildInfo
+          -> Installed.InstalledPackageInfo -> Installed.InstalledPackageInfo
+mangleIPI "compiler" "stage2" lbi ipi
  | isWindows =
-    let ccs' = [ (cn, updateComponentLocalBuildInfo clbi, cns)
-               | (cn, clbi, cns) <- componentsConfigs lbi ]
-        updateComponentLocalBuildInfo clbi@(LibComponentLocalBuildInfo {})
-            = let cls' = concat [ [ LibraryName n, LibraryName (n ++ "-0") ]
-                                | LibraryName n <- componentLibraries clbi ]
-              in clbi { componentLibraries = cls' }
-        updateComponentLocalBuildInfo clbi = clbi
-    in lbi { componentsConfigs = ccs' }
+    -- Cabal currently only ever installs ONE Haskell library, c.f.
+    -- the code in Cabal.Distribution.Simple.Register.  If it
+    -- ever starts installing more we'll have to find the
+    -- library that's too big and split that.
+    let [old_hslib] = Installed.hsLibraries ipi
+    in ipi {
+        Installed.hsLibraries = [old_hslib, old_hslib ++ "-0"]
+    }
     where isWindows = case hostPlatform lbi of
                       Platform _ Windows -> True
                       _                  -> False
-mangleLbi _ _ lbi = lbi
+mangleIPI _ _ _ ipi = ipi
 
 generate :: FilePath -> FilePath -> String -> [String] -> IO ()
 generate directory distdir dll0Modules config_args
@@ -315,12 +287,11 @@ generate directory distdir dll0Modules config_args
       -- XXX We shouldn't just configure with the default flags
       -- XXX And this, and thus the "getPersistBuildConfig distdir" below,
       -- aren't going to work when the deps aren't built yet
-      withArgs (["configure", "--distdir", distdir] ++ config_args)
+      withArgs (["configure", "--distdir", distdir, "--ipid", "$pkg-$version"] ++ config_args)
                runDefaultMain
 
-      lbi0 <- getPersistBuildConfig distdir
-      let lbi = mangleLbi directory distdir lbi0
-          pd0 = localPkgDescr lbi
+      lbi <- getPersistBuildConfig distdir
+      let pd0 = localPkgDescr lbi
 
       writePersistBuildConfig distdir lbi
 
@@ -342,11 +313,12 @@ generate directory distdir dll0Modules config_args
       -- generate inplace-pkg-config
       withLibLBI pd lbi $ \lib clbi ->
           do cwd <- getCurrentDirectory
-             let ipid = InstalledPackageId (display (packageId pd) ++ "-inplace")
+             let ipid = ComponentId (display (packageId pd))
              let installedPkgInfo = inplaceInstalledPackageInfo cwd distdir
-                                        pd ipid lib lbi clbi
-                 final_ipi = installedPkgInfo {
-                                 Installed.installedPackageId = ipid,
+                                        pd (Installed.AbiHash "") lib lbi clbi
+                 final_ipi = mangleIPI directory distdir lbi $ installedPkgInfo {
+                                 Installed.installedComponentId = ipid,
+                                 Installed.compatPackageKey = ipid,
                                  Installed.haddockHTMLs = []
                              }
                  content = Installed.showInstalledPackageInfo final_ipi ++ "\n"
@@ -396,37 +368,33 @@ generate directory distdir dll0Modules config_args
 
           dep_ids  = map snd (externalPackageDeps lbi)
           deps     = map display dep_ids
-          dep_keys
-            | packageKeySupported comp
-                   = map (display
-                        . Installed.packageKey
-                        . fromMaybe (error "ghc-cabal: dep_keys failed")
-                        . PackageIndex.lookupInstalledPackageId
-                                                           (installedPkgs lbi)
-                        . fst)
-                   . externalPackageDeps
-                   $ lbi
+          dep_direct = map (fromMaybe (error "ghc-cabal: dep_keys failed")
+                           . PackageIndex.lookupComponentId
+                                            (installedPkgs lbi)
+                           . fst)
+                       . externalPackageDeps
+                       $ lbi
+          dep_ipids = map (display . Installed.installedComponentId) dep_direct
+          depLibNames
+            | packageKeySupported comp = dep_ipids
             | otherwise = deps
           depNames = map (display . packageName) dep_ids
 
           transitive_dep_ids = map Installed.sourcePackageId dep_pkgs
           transitiveDeps = map display transitive_dep_ids
-          transitiveDepKeys
-            | packageKeySupported comp
-                   = map (display . Installed.packageKey) dep_pkgs
+          transitiveDepLibNames
+            | packageKeySupported comp = map fixupRtsLibName transitiveDeps
             | otherwise = transitiveDeps
+          fixupRtsLibName "rts-1.0" = "rts"
+          fixupRtsLibName x = x
           transitiveDepNames = map (display . packageName) transitive_dep_ids
 
           libraryDirs = forDeps Installed.libraryDirs
-          -- temporary hack to support two in-tree versions of `integer-gmp`
-          isIntegerGmp2 = any ("integer-gmp2" `isInfixOf`) libraryDirs
           -- The mkLibraryRelDir function is a bit of a hack.
           -- Ideally it should be handled in the makefiles instead.
           mkLibraryRelDir "rts"   = "rts/dist/build"
           mkLibraryRelDir "ghc"   = "compiler/stage2/build"
           mkLibraryRelDir "Cabal" = "libraries/Cabal/Cabal/dist-install/build"
-          mkLibraryRelDir "integer-gmp"
-                  | isIntegerGmp2 = mkLibraryRelDir "integer-gmp2"
           mkLibraryRelDir l       = "libraries/" ++ l ++ "/dist-install/build"
           libraryRelDirs = map mkLibraryRelDir transitiveDepNames
       wrappedIncludeDirs <- wrap $ forDeps Installed.includeDirs
@@ -437,16 +405,20 @@ generate directory distdir dll0Modules config_args
           otherMods = map display (otherModules bi)
           allMods = mods ++ otherMods
       let xs = [variablePrefix ++ "_VERSION = " ++ display (pkgVersion (package pd)),
-                variablePrefix ++ "_PACKAGE_KEY = " ++ display (pkgKey lbi),
+                -- TODO: move inside withLibLBI
+                variablePrefix ++ "_COMPONENT_ID = " ++ display (localCompatPackageKey lbi),
+                -- copied from mkComponentsLocalBuildInfo
+                variablePrefix ++ "_COMPONENT_ID = " ++ display (localComponentId lbi),
                 variablePrefix ++ "_MODULES = " ++ unwords mods,
                 variablePrefix ++ "_HIDDEN_MODULES = " ++ unwords otherMods,
                 variablePrefix ++ "_SYNOPSIS =" ++ synopsis pd,
                 variablePrefix ++ "_HS_SRC_DIRS = " ++ unwords (hsSourceDirs bi),
                 variablePrefix ++ "_DEPS = " ++ unwords deps,
-                variablePrefix ++ "_DEP_KEYS = " ++ unwords dep_keys,
+                variablePrefix ++ "_DEP_IPIDS = " ++ unwords dep_ipids,
                 variablePrefix ++ "_DEP_NAMES = " ++ unwords depNames,
+                variablePrefix ++ "_DEP_COMPONENT_IDS = " ++ unwords depLibNames,
                 variablePrefix ++ "_TRANSITIVE_DEPS = " ++ unwords transitiveDeps,
-                variablePrefix ++ "_TRANSITIVE_DEP_KEYS = " ++ unwords transitiveDepKeys,
+                variablePrefix ++ "_TRANSITIVE_DEP_COMPONENT_IDS = " ++ unwords transitiveDepLibNames,
                 variablePrefix ++ "_TRANSITIVE_DEP_NAMES = " ++ unwords transitiveDepNames,
                 variablePrefix ++ "_INCLUDE_DIRS = " ++ unwords (includeDirs bi),
                 variablePrefix ++ "_INCLUDES = " ++ unwords (includes bi),
