@@ -141,3 +141,4 @@ test('T10521b', normal, compile_and_run, [''])
 test('T10870', normal, compile_and_run, [''])
 test('PopCnt', omit_ways(['ghci']), multi_compile_and_run,
                  ['PopCnt', [('PopCnt_cmm.cmm', '')], ''])
+test('DwarfUnwindToC', [when(not rts_with_libdw() or not libs_have_debug_info(), skip)], compile_and_run, [''])
