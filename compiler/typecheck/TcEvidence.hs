@@ -1047,7 +1047,7 @@ evBindsSubst = evBindsSubstX emptyTCvSubst
 evBindsSubstX :: TCvSubst -> Bag EvBind -> TCvSubst
 evBindsSubstX subst = foldl combine subst . sccEvBinds
   where
-    combine env (AcyclicSCC (EvBind { evb_var = v, evb_term = ev_term }))
+    combine env (AcyclicSCC (EvBind { eb_lhs = v, eb_rhs = ev_term }))
       | Just co <- convert env ev_term
       = extendTCvSubstAndInScope env v (mkCoercionTy co)
     combine env _

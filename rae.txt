@@ -1,25 +1,4 @@
 stack:
-  fix up README
-
-  evb_var --> eb_lhs
-  evb_term --> eb_rhs
-
-  tyVarList --> mkTemplateTyVars
-
-  mkWantedEvBind, mkGivenEvBind, EvBind constructor all now take a location
-
-  misMatchMsg probably doesn't need TypeOrKind anymore
-
-  tcCheckLHsTypeAndGen is almost certainly wrong. compare tcCheckHsTypeAndGen
-
-  lir_ev_term --> lir_mk_ev and type change
-
-  instDFunType type change
-
-  quantifyPred --> pickQuantifiablePreds
-
-  tyConResKind
-
   remove matching functions after commit
   
 

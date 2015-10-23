@@ -179,7 +179,7 @@ newDerived loc pty = return CtDerived { ctev_pred = pty, ctev_loc = loc }
 newGiven :: CtLoc -> PredType -> EvTerm -> TcPluginM CtEvidence
 newGiven loc pty evtm = do
    new_ev <- newEvVar pty
-   setEvBind $ mkGivenEvBind new_ev evtm
+   setEvBind $ mkGivenEvBind new_ev evtm loc
    return CtGiven { ctev_pred = pty, ctev_evar = new_ev, ctev_loc = loc }
 
 -- | Create a fresh evidence variable.

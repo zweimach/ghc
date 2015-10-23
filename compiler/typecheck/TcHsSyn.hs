@@ -1388,7 +1388,7 @@ zonkEvBind env bind@(EvBind { eb_lhs = var, eb_rhs = term })
                   -> return (EvCoercion (mkTcReflCo r ty1))
            _other -> do  -}
        ; term' <- zonkEvTerm env term
-       ; return (bind { evb_var = var', evb_term = term' }) }
+       ; return (bind { eb_lhs = var', eb_rhs = term' }) }
 
 {-
 ************************************************************************

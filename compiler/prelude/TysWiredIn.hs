@@ -529,7 +529,7 @@ mk_tuple boxity arity = (tycon, tuple_con)
           Unboxed ->
             let lev_tvs  = take arity $
                            drop 21 $  -- to get "v" and "w" ...
-                           tyVarList levityTy
+                           mkTemplateTyVars (repeat levityTy)
                 open_tvs = mkTemplateTyVars (map (tYPE . mkTyVarTy) lev_tvs)
             in
             ( UnboxedTuple

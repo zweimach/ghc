@@ -1110,7 +1110,8 @@ tcFamTyPats fam_shape@(name,_,_) mb_clsinfo pats kind_checker thing_inside
              This should probably be accepted. Yet the solveTopConstraints
              will fail, unable to solve (F k ~ *) arising from the second
              appearance of (Blah a). We want to quantify over that proof.
-             So we need something that consults quantifyPred here if there
+             So we need something that consults pickQuantifiablePreds
+             here if there
              are unsolved wanteds. But see Note [Constraints in patterns]
              below, which I still think is right. So we don't want
              the full glory of simplifyInfer, but more than just

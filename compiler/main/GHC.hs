@@ -185,7 +185,7 @@ module GHC (
         isPrimTyCon, isFunTyCon,
         isFamilyTyCon, isOpenFamilyTyCon, isOpenTypeFamilyTyCon,
         tyConClass_maybe,
-        synTyConRhs_maybe, synTyConDefn_maybe, tyConResKind,
+        synTyConRhs_maybe, synTyConDefn_maybe, tyConKind,
 
         -- ** Type variables
         TyVar,

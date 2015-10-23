@@ -22,7 +22,7 @@ module TcHsType (
         tcWildcardBinders,
         kcHsTyVarBndrs, tcHsTyVarBndrs,
         tcHsLiftedType, tcHsOpenType,
-        tcLHsType, tcCheckLHsType, tcCheckLHsTypeAndGen,
+        tcLHsType, tcCheckLHsType,
         tcHsContext, tcInferApps,
 
         kindGeneralize,
@@ -250,7 +250,8 @@ tcHsVectInst ty
 
 tcClassSigType :: LHsType Name -> TcM Type
 tcClassSigType lhs_ty
-  = fst <$> tcCheckLHsTypeAndGen lhs_ty liftedTypeKind
+  = do { (ty, cv_env) <- tcCheckLHsTypeAndGen lhs_ty liftedTypeKind
+       ; zonkSigType cv_env ty }
 
 tcHsConArgType :: NewOrData ->  LHsType Name -> TcM Type
 -- Permit a bang, but discard it
@@ -312,13 +313,12 @@ decideKindGeneralisationPlan hs_ty
 tcCheckLHsTypeAndGen :: LHsType Name -> Kind -> TcM (Type, CvSubstEnv)
 -- Typecheck a type signature, and kind-generalise it
 -- The result is not necessarily zonked, and has not been checked for validity
-tcCheckLHsTypeAndGen lhs_ty kind
-  = do { ty  <- tcCheckLHsType lhs_ty kind
-       ; kvs <- zonkTcTypeAndFV ty
-       ; kvs <- kindGeneralize kvs
-       ; return (mkForAllTys kvs ty) }
+tcCheckLHsTypeAndGen (L loc hs_ty) kind
+  = addTypeCtxt hs_ty $
+    setSrcSpan loc $
+    tcCheckHsTypeAndGen hs_ty kind
 
-tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM Type
+tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM (Type, CvSubstEnv)
 -- Input type is HsType, not LHsType; the caller adds the context
 -- Otherwise same as tcCheckLHsTypeAndGen
 tcCheckHsTypeAndGen = check_and_gen True

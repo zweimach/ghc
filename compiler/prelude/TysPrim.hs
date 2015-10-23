@@ -235,15 +235,16 @@ alphaTy, betaTy, gammaTy, deltaTy :: Type
 (alphaTy:betaTy:gammaTy:deltaTy:_) = alphaTys
 
 levity1TyVar, levity2TyVar :: TyVar
-(levity1TyVar : levity2TyVar : _) = drop 21 (tyVarList levityTy)  -- selects 'v','w'
+(levity1TyVar : levity2TyVar : _)
+  = drop 21 (mkTemplateTyVars (repeat levityTy))  -- selects 'v','w'
 
 levity1Ty, levity2Ty :: Type
 levity1Ty = mkTyVarTy levity1TyVar
 levity2Ty = mkTyVarTy levity2TyVar
 
 openAlphaTyVar, openBetaTyVar :: TyVar
-openAlphaTyVar = tyVarList (tYPE levity1Ty) !! 0
-openBetaTyVar  = tyVarList (tYPE levity2Ty) !! 1
+[openAlphaTyVar,openBetaTyVar]
+  = mkTemplateTyVars [tYPE levity1Ty, tYPE levity2Ty]
 
 openAlphaTy, openBetaTy :: Type
 openAlphaTy = mkTyVarTy openAlphaTyVar
@@ -529,8 +530,7 @@ eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind roles VoidRep
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
                mkArrowKinds [k1, k2] unliftedTypeKind
-        kVars = tyVarList liftedTypeKind
-        kv1 : kv2 : _ = kVars
+        [kv1, kv2] = mkTemplateTyVars [liftedTypeKind, liftedTypeKind]
         k1 = mkTyVarTy kv1
         k2 = mkTyVarTy kv2
         roles = [Nominal, Nominal, Nominal, Nominal]
@@ -544,8 +544,7 @@ eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
                mkArrowKinds [k1, k2] unliftedTypeKind
-        kVars         = tyVarList liftedTypeKind
-        kv1 : kv2 : _ = kVars
+        [kv1, kv2]    = mkTemplateTyVars [liftedTypeKind, liftedTypeKind]
         k1            = mkTyVarTy kv1
         k2            = mkTyVarTy kv2
         roles         = [Nominal, Nominal, Representational, Representational]
@@ -560,8 +559,7 @@ eqPhantPrimTyCon = mkPrimTyCon eqPhantPrimTyConName kind
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
                mkArrowKinds [k1, k2] unliftedTypeKind
-        kVars         = tyVarList liftedTypeKind
-        kv1 : kv2 : _ = kVars
+        [kv1, kv2]    = mkTemplateTyVars [liftedTypeKind, liftedTypeKind]
         k1            = mkTyVarTy kv1
         k2            = mkTyVarTy kv2
 

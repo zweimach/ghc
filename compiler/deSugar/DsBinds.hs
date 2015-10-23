@@ -875,7 +875,7 @@ dsTopLevelEvBinds bs thing = go [] (sccEvBinds bs)
         do { core_bind <- liftM Rec (mapM dsEvBind bs)
            ; go (core_bind : acc) rest }
 
-    go acc (AcyclicSCC (EvBind { evb_var = v, evb_term = r }) : rest)
+    go acc (AcyclicSCC (EvBind { eb_lhs = v, eb_rhs = r }) : rest)
       | let ty = varType v
       , isUnLiftedType ty
       = ASSERT( isCoercionType ty )

@@ -373,8 +373,8 @@ simplifyRule name lhs_wanted rhs_wanted
                              , ic_binds  = ev_binds_var })
         = do { ev_binds <- TcM.getTcEvBinds ev_binds_var
              ; let (ev_vars, ev_terms)
-                     = mapAndUnzip (\(EvBind { evb_var = var
-                                             , evb_term = term })
+                     = mapAndUnzip (\(EvBind { eb_lhs = var
+                                             , eb_rhs = term })
                                     -> (var, term)) (bagToList ev_binds)
              ; rest <- free_ev_vars wc
              ; return $ tyCoVarsOfTelescope (skols ++ givens) $

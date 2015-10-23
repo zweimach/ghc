@@ -1835,7 +1835,7 @@ ctEvId (CtGiven  { ctev_evar = ev }) = ev
 ctEvId ctev = pprPanic "ctEvId:" (ppr ctev)
 
 evBindWanted :: EvBind -> CtEvidence
-evBindWanted (EvBind { evb_var = evar, evb_loc = loc })
+evBindWanted (EvBind { eb_lhs = evar, eb_loc = loc })
   = CtWanted { ctev_pred = varType evar, ctev_evar = evar, ctev_loc = loc }
 
 instance Outputable CtEvidence where

@@ -1028,7 +1028,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   | (implic:_) <- cec_encl ctxt
   , Implic { ic_skols = skols } <- implic
   , tv1 `elem` skols
-  = mkErrorMsgFromCt ctxt ct (vcat [ misMatchMsg t_or_k ct oriented ty1 ty2
+  = mkErrorMsgFromCt ctxt ct (vcat [ misMatchMsg ct oriented ty1 ty2
                                    , extraTyVarInfo ctxt tv1 ty2
                                    , extra ])
 
@@ -1037,7 +1037,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   , Implic { ic_env = env, ic_skols = skols, ic_info = skol_info } <- implic
   , let esc_skols = filter (`elemVarSet` (tyCoVarsOfType ty2)) skols
   , not (null esc_skols)
-  = do { let msg = misMatchMsg t_or_k ct oriented ty1 ty2
+  = do { let msg = misMatchMsg ct oriented ty1 ty2
              esc_doc = sep [ ptext (sLit "because type variable") <> plural esc_skols
                              <+> pprQuotedList esc_skols
                            , ptext (sLit "would escape") <+>
@@ -1055,7 +1055,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
   -- Nastiest case: attempt to unify an untouchable variable
   | (implic:_) <- cec_encl ctxt   -- Get the innermost context
   , Implic { ic_env = env, ic_given = given, ic_info = skol_info } <- implic
-  = do { let msg = misMatchMsg t_or_k ct oriented ty1 ty2
+  = do { let msg = misMatchMsg ct oriented ty1 ty2
              tclvl_extra
                 = nest 2 $
                   sep [ quotes (ppr tv1) <+> ptext (sLit "is untouchable")
@@ -1076,7 +1076,6 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
     k1     = tyVarKind tv1
     k2     = typeKind ty2
     ty1    = mkTyVarTy tv1
-    t_or_k = ctOriginTypeOrKind (ctLocOrigin (ctLoc ct))
 
 mkEqInfoMsg :: Ct -> TcType -> TcType -> SDoc
 -- Report (a) ambiguity if either side is a type function application
@@ -1127,14 +1126,13 @@ misMatchOrCND ctxt ct oriented ty1 ty2
     isGivenCt ct
        -- If the equality is unconditionally insoluble
        -- or there is no context, don't report the context
-  = misMatchMsg t_or_k ct oriented ty1 ty2
+  = misMatchMsg ct oriented ty1 ty2
   | otherwise
   = couldNotDeduce givens ([eq_pred], orig)
   where
     ev      = ctEvidence ct
     eq_pred = ctEvPred ev
     orig    = ctEvOrigin ev
-    t_or_k  = ctOriginTypeOrKind orig
     givens  = [ given | given@(_, _, no_eqs, _) <- getUserGivens ctxt, not no_eqs]
               -- Keep only UserGivens that have some equalities
 
@@ -1205,12 +1203,12 @@ kindErrorMsg ty1 ty2
     k2 = typeKind ty2
 
 --------------------
-misMatchMsg :: TypeOrKind -> Ct -> Maybe SwapFlag -> TcType -> TcType -> SDoc
+misMatchMsg :: Ct -> Maybe SwapFlag -> TcType -> TcType -> SDoc
 -- Types are already tidy
 -- If oriented then ty1 is actual, ty2 is expected
-misMatchMsg t_or_k ct oriented ty1 ty2
+misMatchMsg ct oriented ty1 ty2
   | Just NotSwapped <- oriented
-  = misMatchMsg t_or_k ct (Just IsSwapped) ty2 ty1
+  = misMatchMsg ct (Just IsSwapped) ty2 ty1
 
   | otherwise  -- So now we have Nothing or (Just IsSwapped)
                -- For some reason we treat Nothign like IsSwapped
@@ -1220,6 +1218,8 @@ misMatchMsg t_or_k ct oriented ty1 ty2
           text herald2 <+> quotes (ppr ty2)
         , sameOccExtra ty2 ty1 ]
   where
+    t_or_k = ctOriginTypeOrKind (ctLocOrigin (ctLoc ct))
+
     herald1 = conc [ "Couldn't match"
                    , if is_repr     then "representation of" else ""
                    , if is_oriented then "expected"          else ""
