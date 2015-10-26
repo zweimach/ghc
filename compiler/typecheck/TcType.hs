@@ -33,7 +33,7 @@ module TcType (
   TcTyVarDetails(..), pprTcTyVarDetails, vanillaSkolemTv, superSkolemTv,
   MetaDetails(Flexi, Indirect), MetaInfo(..),
   isImmutableTyVar, isSkolemTyVar,
-  isMetaTyVar,  isMetaTyVarTy, isTyVarTy, isReturnTyVar,
+  isMetaTyVar,  isMetaTyVarTy, isTyVarTy,
   isSigTyVar, isOverlappableTyVar,  isTyConableTyVar,
   isFskTyVar, isFmvTyVar, isFlattenTyVar, isReturnTyVar,
   isAmbiguousTyVar, metaTvRef, metaTyVarInfo,
@@ -828,12 +828,6 @@ isReturnTyVar tv
       MetaTv { mtv_info = ReturnTv } -> True
       _                              -> False
 
-isReturnTyVar tv
-  = ASSERT2( isTcTyVar tv, ppr tv )
-    case tcTyVarDetails tv of
-      MetaTv { mtv_info = ReturnTv } -> True
-      _                              -> False
-
 -- isAmbiguousTyVar is used only when reporting type errors
 -- It picks out variables that are unbound, namely meta
 -- type variables and the RuntimUnk variables created by
@@ -1607,17 +1601,17 @@ isTyVarClassPred ty = case getClassPredTys_maybe ty of
     _             -> False
 
 -------------------------
-checkValidClsArgs :: Bool -> [KindOrType] -> Bool
+checkValidClsArgs :: Bool -> Class -> [KindOrType] -> Bool
 -- If the Bool is True (flexible contexts), return True (i.e. ok)
 -- Otherwise, check that the type (not kind) args are all headed by a tyvar
 --   E.g. (Eq a) accepted, (Eq (f a)) accepted, but (Eq Int) rejected
 -- This function is here rather than in TcValidity because it is
 -- called from TcSimplify, which itself is imported by TcValidity
-checkValidClsArgs flexible_contexts kts
+checkValidClsArgs flexible_contexts cls kts
   | flexible_contexts = True
   | otherwise         = all hasTyVarHead tys
   where
-    (_, tys) = span isKind kts  -- see Note [Kind polymorphic type classes]
+    tys = filterInvisibles (classTyCon cls) kts
 
 hasTyVarHead :: Type -> Bool
 -- Returns true of (a t1 .. tn), where 'a' is a type variable
@@ -1684,17 +1678,17 @@ pickQuantifiablePreds qtvs theta
       = case classifyPredType pred of
           ClassPred cls tys
              | isIPClass cls    -> True -- See note [Inheriting implicit parameters]
-             | otherwise        -> pick_cls_pred flex_ctxt tys
+             | otherwise        -> pick_cls_pred flex_ctxt cls tys
 
-          EqPred ReprEq ty1 ty2 -> pick_cls_pred flex_ctxt [ty1, ty2]
+          EqPred ReprEq ty1 ty2 -> pick_cls_pred flex_ctxt coercibleClass [ty1, ty2]
             -- representational equality is like a class constraint
 
           EqPred NomEq ty1 ty2  -> quant_fun ty1 || quant_fun ty2
           IrredPred ty          -> tyCoVarsOfType ty `intersectsVarSet` qtvs
 
-    pick_cls_pred flex_ctxt tys
+    pick_cls_pred flex_ctxt cls tys
       = tyCoVarsOfTypes tys `intersectsVarSet` qtvs
-        && (checkValidClsArgs flex_ctxt tys)
+        && (checkValidClsArgs flex_ctxt cls tys)
            -- Only quantify over predicates that checkValidType
            -- will pass!  See Trac #10351.
 
@@ -1876,11 +1870,13 @@ isTyVarUnderDatatype tv = go False
                                                       Representational
                                     in any (go under_dt') tys
     go _        (LitTy {}) = False
-    go _        (FunTy arg res) = go True arg || go True res
+    go _        (ForAllTy (Anon arg) res) = go True arg || go True res
     go under_dt (AppTy fun arg) = go under_dt fun || go under_dt arg
-    go under_dt (ForAllTy tv' inner_ty)
+    go under_dt (ForAllTy (Named tv' _) inner_ty)
       | tv' == tv = False
       | otherwise = go under_dt inner_ty
+    go under_dt (CastTy ty _)   = go under_dt ty
+    go _        (CoercionTy {}) = False
 
 isRigidTy :: TcType -> Bool
 isRigidTy ty
@@ -2265,22 +2261,25 @@ is irreducible. See Trac #5581.
 
 type TypeSize = IntWithInf
 
-sizeType, size_type :: Type -> TypeSize
+sizeType :: Type -> TypeSize
 -- Size of a type: the number of variables and constructors
 -- Ignore kinds altogether
-sizeType ty | isKind ty = 0
-            | otherwise = size_type ty
-
-size_type ty | Just exp_ty <- tcView ty = size_type exp_ty
-size_type (TyVarTy {})      = 1
-size_type (TyConApp tc tys)
-  | isTypeFamilyTyCon tc   = infinity  -- Type-family applications can
-                                       -- expand to any arbitrary size
-  | otherwise              = sizeTypes tys + 1
-size_type (LitTy {})        = 1
-size_type (FunTy arg res)   = size_type arg + size_type res + 1
-size_type (AppTy fun arg)   = size_type fun + size_type arg
-size_type (ForAllTy _ ty)   = size_type ty
+sizeType = go
+  where
+    go ty | Just exp_ty <- tcView ty = go exp_ty
+    go (TyVarTy {})              = 1
+    go (TyConApp tc tys)
+      | isTypeFamilyTyCon tc     = infinity  -- Type-family applications can
+                                           -- expand to any arbitrary size
+      | otherwise                = sizeTypes (filterInvisibles tc tys) + 1
+    go (LitTy {})                = 1
+    go (ForAllTy (Anon arg) res) = go arg + go res + 1
+    go (AppTy fun arg)           = go fun + go arg
+    go (ForAllTy (Named tv vis) ty)
+        | Visible <- vis         = go (tyVarKind tv) + go ty + 1
+        | otherwise              = go ty + 1
+    go (CastTy ty _)             = go ty
+    go (CoercionTy {})           = 0
 
 sizeTypes :: [Type] -> TypeSize
 sizeTypes tys = sum (map sizeType tys)

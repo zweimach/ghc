@@ -657,7 +657,7 @@ newtype CoercionMap a = CoercionMap (CoercionMapG a)
 instance TrieMap CoercionMap where
    type Key CoercionMap = Coercion
    emptyTM                     = CoercionMap emptyTM
-   lookupTM    (CoercionMap m) = lookupTM (deBruijnize k) m
+   lookupTM k  (CoercionMap m) = lookupTM (deBruijnize k) m
    alterTM k f (CoercionMap m) = CoercionMap (alterTM (deBruijnize k) f m)
    foldTM k    (CoercionMap m) = foldTM k m
    mapTM f     (CoercionMap m) = CoercionMap (mapTM f m)
@@ -674,8 +674,8 @@ instance TrieMap CoercionMapX where
   mapTM f (CoercionMapX core_tm)  = CoercionMapX (mapTM f core_tm)
 
 lkC :: DeBruijn Coercion -> CoercionMapX a -> Maybe a
-lkC env (D env co) (CoercionMapX core_tm) = lkCT env (D env $ coercionType co)
-                                            core_tm
+lkC (D env co) (CoercionMapX core_tm) = lkCT env (D env $ coercionType co)
+                                        core_tm
 
 xtC :: DeBruijn Coercion -> XT a -> CoercionMapX a -> CoercionMapX a
 xtC (D env co) f (CoercionMapX m)
@@ -705,16 +705,16 @@ type CoreTypeMapG = GenMap CoreTypeMapX
 -- 'GenMap' optimization.
 data CoreTypeMapX a
   = TM { tm_var    :: VarMap a
-       , tm_app    :: TypeMapG (TypeMapG ((TypeMapG a))
+       , tm_app    :: TypeMapG (TypeMapG (TypeMapG a))
        , tm_fun    :: TypeMapG (TypeMapG a)
        , tm_tc_app :: NameEnv (ListMap TypeMapG a)
-       , tm_forall :: TypeMapG (BndrMapG a) -- See Note [Binders]
+       , tm_forall :: TypeMapG (BndrMap a) -- See Note [Binders]
        , tm_tylit  :: TyLitMap a
        , tm_coerce :: Maybe a
        }
 
 instance TrieMap CoreTypeMapX where
-   type Key TypeMapX = DeBruijn EType
+   type Key CoreTypeMapX = DeBruijn EType
    emptyTM  = emptyCT
    lookupTM = lkCT
    alterTM  = xtCT
@@ -793,7 +793,7 @@ xtCT (D env (EAppTy t1 k2 t2))  f m = m { tm_app    = tm_app m |> xtG (D env t1)
 xtCT (D env (ETyConApp tc tys)) f m = m { tm_tc_app = tm_tc_app m |> xtNamed tc
                                                 |>> xtList (xtG . D env) tys f }
 xtCT (D _   (ELitTy l))         f m = m { tm_tylit  = tm_tylit m |> xtTyLit l f }
-xtCT (D _   ECoercionTy)        f m = m { tm_coerce = tm_coerce m |> f
+xtCT (D _   ECoercionTy)        f m = m { tm_coerce = tm_coerce m |> f }
 
 xtCT (D env (EForAllTy (EAnon t1) t2))       f m
   = m { tm_fun    = tm_fun m |> xtG (D env t1) |>> xtG (D env t2) f }

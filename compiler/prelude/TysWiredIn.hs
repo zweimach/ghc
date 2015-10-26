@@ -517,7 +517,7 @@ mk_tuple boxity arity = (tycon, tuple_con)
                                tup_sort NoParentTyCon
 
         (tup_sort, modu, tc_kind, tc_arity, tyvars, tyvar_tys) = case boxity of
-          BoxedT ->
+          Boxed ->
             let boxed_tyvars = take arity alphaTyVars in
             ( BoxedTuple
             , gHC_TUPLE
@@ -838,7 +838,7 @@ consDataCon = pcDataConWithFixity True {- Declared infix -}
 -- Wired-in type Maybe
 
 maybeTyCon :: TyCon
-maybeTyCon = pcTyCon True NonRecursive True maybeTyConName Nothing alpha_tyvar
+maybeTyCon = pcTyCon False NonRecursive maybeTyConName Nothing alpha_tyvar
                      [nothingDataCon, justDataCon]
 
 nothingDataCon :: DataCon
@@ -899,8 +899,9 @@ done by enumeration\srcloc{lib/prelude/InTup?.hs}.
 -- levity specifications.
 mkTupleTy :: Boxity -> [Type] -> Type
 -- Special case for *boxed* 1-tuples, which are represented by the type itself
-mkTupleTy Boxed [ty] = ty
-mkTupleTy Unboxed tys = mkTyConApp (tupleTyCon Unboxed (length tys))
+mkTupleTy Boxed   [ty] = ty
+mkTupleTy Boxed   tys  = mkTyConApp (tupleTyCon Boxed (length tys)) tys
+mkTupleTy Unboxed tys  = mkTyConApp (tupleTyCon Unboxed (length tys))
                                         (map (getLevity "mkTupleTy") tys ++ tys)
 
 -- | Build the type of a small tuple that holds the specified type of thing

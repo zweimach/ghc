@@ -1,7 +1,7 @@
 stack:
-  remove matching functions after commit
-  
 
+- remove the eraseType stuff.
+- fix matching to match coercions that are applied
 
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work

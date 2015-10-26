@@ -741,7 +741,7 @@ hsLTyVarBndrToType = fmap cvt
 -- quoting for type family equations. Works on *type* variable only, no kind
 -- vars.
 hsLTyVarBndrsToTypes :: LHsTyVarBndrs name -> [LHsType name]
-hsLTyVarBndrsToTypes (HsQTvs { hsq_tvs = tvbs }) = map hsLTyVarBndrToType tvbs
+hsLTyVarBndrsToTypes (HsQTvs { hsq_explicit = tvbs }) = map hsLTyVarBndrToType tvbs
 
 ---------------------
 mkAnonWildCardTy :: HsType RdrName
@@ -891,7 +891,6 @@ ftvHsType (HsParTy t)               = ftvLHsType t
 ftvHsType (HsIParamTy _ t)          = ftvLHsType t
 ftvHsType (HsEqTy t1 t2)            = ftvLHsType t1 `unionNameSet` ftvLHsType t2
 ftvHsType (HsKindSig t1 t2)         = ftvLHsType t1 `unionNameSet` ftvLHsType t2
-ftvHsType (HsQuasiQuoteTy {})       = panic "ftvHsType HsQuasiQuoteTy"
 ftvHsType (HsSpliceTy {})           = panic "ftvHsType HsSpliceTy"
 ftvHsType (HsDocTy t _)             = ftvLHsType t
 ftvHsType (HsBangTy _ t)            = ftvLHsType t
@@ -900,8 +899,7 @@ ftvHsType (HsCoreTy ty)             = mapUFM varName $ tyCoVarsOfType ty
 ftvHsType (HsExplicitListTy _ tys)  = unionNameSets $ map ftvLHsType tys
 ftvHsType (HsExplicitTupleTy _ tys) = unionNameSets $ map ftvLHsType tys
 ftvHsType (HsTyLit {})              = emptyNameSet
-ftvHsType HsWildcardTy              = panic "ftvHsType HsWildcardTy"
-ftvHsType (HsNamedWildcardTy n)     = ftvName n
+ftvHsType (HsWildCardTy wc)         = ftvName (wildCardName wc)
 
 ftvLHsContext :: LHsContext Name -> NameSet
 ftvLHsContext (L _ ctxt) = unionNameSets $ map ftvLHsType ctxt

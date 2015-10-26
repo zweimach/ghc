@@ -120,7 +120,7 @@ module Type (
 
         -- * Type comparison
         eqType, eqTypeX, eqTypes, cmpType, cmpTypes, cmpTypeX, cmpTypesX, cmpTc,
-        eqVarBndrs, eraseType, EType(..), EKind, EBinder(..),
+        eqVarBndrs, eraseType, coreEraseType, EType(..), EKind, EBinder(..),
 
         -- * Forcing evaluation of types
         seqType, seqTypes,

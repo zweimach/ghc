@@ -732,10 +732,10 @@ check_class_pred env dflags ctxt pred cls tys
 
     arg_tys_ok = case ctxt of
         SpecInstCtxt -> True    -- {-# SPECIALISE instance Eq (T Int) #-} is fine
-        InstDeclCtxt -> checkValidClsArgs (flexible_contexts || undecidable_ok) tys
+        InstDeclCtxt -> checkValidClsArgs (flexible_contexts || undecidable_ok) cls tys
                                 -- Further checks on head and theta
                                 -- in checkInstTermination
-        _            -> checkValidClsArgs flexible_contexts tys
+        _            -> checkValidClsArgs flexible_contexts cls tys
 
 -------------------------
 okIPCtxt :: UserTypeCtxt -> Bool

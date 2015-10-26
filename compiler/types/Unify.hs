@@ -29,7 +29,7 @@ import Kind
 import Type hiding ( getTvSubstEnv )
 import Coercion
 import TyCon
-import TyCoRep hiding ( getTvSubstEnv, getCvSubstEnv )
+import TyCoRep hiding ( getTvSubstEnv )
 import Util
 import Pair
 
@@ -146,10 +146,6 @@ tcMatchTysX tmpls (TCvSubst in_scope tv_env cv_env) tys1 tys2
                                                 (substTys subst tys1) tys2)
       _                 -> Nothing
 
-  where
-    kis1 = map typeKind tys1
-    kis2 = map typeKind tys2
-
 -- | This one is called from the expression matcher,
 -- which already has a MatchEnv in hand
 ruleMatchTyX
@@ -163,7 +159,7 @@ ruleMatchTyX tmpl_tvs rn_env tenv tmpl target
 -- See Note [Kind coercions in Unify]
   = case tc_unify_tys (matchBindFun tmpl_tvs) False rn_env
                       tenv [tmpl] [target] of
-      Unifiable tenv' | let subst = mkOpenTCvSubst tenv' cenv
+      Unifiable tenv' | let subst = mkOpenTCvSubst tenv' emptyCvSubstEnv
                       , substTy subst tmpl `eqType` target  -- we want exact matching here
                      -> Just tenv'
       _              -> Nothing
@@ -532,7 +528,7 @@ unify_ty ty1 (TyVarTy tv2) kco
          then umSwapRn $ uVar tv2 ty1 (mkSymCo kco)
          else surelyApart }  -- non-tv on left; tv on right: can't match.
 
-unify_ty ty1 ty2
+unify_ty ty1 ty2 _kco
   | Just (tc1, tys1) <- splitTyConApp_maybe ty1
   , Just (tc2, tys2) <- splitTyConApp_maybe ty2
   = if tc1 == tc2 || (isStarKind ty1 && isStarKind ty2)
@@ -753,9 +749,6 @@ tvBindFlag tv = UM $ \tv_fn _ _ locals tsubst ->
 getTvSubstEnv :: UM TvSubstEnv
 getTvSubstEnv = UM $ \_ _ _ _ tsubst -> Unifiable (tsubst, tsubst)
 
-getTCvSubst :: UM TCvSubst
-getTCvSubst = UM $ \_ _ _ _ tsubst -> Unifiable (tsubst, niFixTCvSubst tsubst)
-
 extendTvEnv :: TyVar -> Type -> UM ()
 extendTvEnv tv ty = UM $ \_ _ _ _ tsubst ->
   Unifiable (extendVarEnv tsubst tv ty, ())
@@ -819,6 +812,9 @@ This section defines essentially an inverse to liftCoSubst. It is defined
 here to avoid a dependency from Coercion on this module.
 
 -}
+
+data MatchEnv = ME { me_tmpls :: TyVarSet
+                   , me_env   :: RnEnv2 }
 
 -- | 'liftCoMatch' is sort of inverse to 'liftCoSubst'.  In particular, if
 --   @liftCoMatch vars ty co == Just s@, then @tyCoSubst s ty == co@,
