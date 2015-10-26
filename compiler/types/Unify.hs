@@ -153,7 +153,7 @@ tcMatchTysX tmpls (TCvSubst in_scope tv_env cv_env) tys1 tys2
 -- | This one is called from the expression matcher,
 -- which already has a MatchEnv in hand
 ruleMatchTyX
-  :: TcTyCoVarSet        -- ^ template variables
+  :: TyCoVarSet          -- ^ template variables
   -> RnEnv2
   -> TvSubstEnv          -- ^ type substitution to extend
   -> Type                -- ^ Template
@@ -161,7 +161,7 @@ ruleMatchTyX
   -> Maybe TvSubstEnv
 ruleMatchTyX tmpl_tvs rn_env tenv tmpl target
 -- See Note [Kind coercions in Unify]
-  = case tc_unify_tys (matchBindFun (me_tmpls env)) False (me_env env)
+  = case tc_unify_tys (matchBindFun tmpl_tvs) False rn_env
                       tenv [tmpl] [target] of
       Unifiable tenv' | let subst = mkOpenTCvSubst tenv' cenv
                       , substTy subst tmpl `eqType` target  -- we want exact matching here
@@ -170,7 +170,7 @@ ruleMatchTyX tmpl_tvs rn_env tenv tmpl target
      -- TODO (RAE): This should probably work with inexact matching too;
      -- otherwise, various rules won't fire when they should
 
-matchBindFun :: TyCoVarSet -> TyVar -> BindMe
+matchBindFun :: TyCoVarSet -> TyVar -> BindFlag
 matchBindFun tvs tv = if tv `elemVarSet` tvs then BindMe else Skolem
 
 {-
@@ -656,9 +656,9 @@ uUnrefined tv1 ty2 ty2' kco
            (BindMe, _)        -> do { checkRnEnvR ty2 -- make sure ty2 is not a local
                                     ; extendTvEnv tv1 (ty2 `mkCastTy` kco) }
            (_, BindMe) | unif -> do { checkRnEnvL ty1 -- ditto for ty1
-                                    ; extendTvEnv tv2 (ty1 `mkCastTy` mkSymCo kco)
+                                    ; extendTvEnv tv2 (ty1 `mkCastTy` mkSymCo kco) }
            _ -> maybeApart -- See Note [Unification with skolems]
-  }}}}}
+  }}}}
 
 uUnrefined tv1 ty2 ty2' kco -- ty2 is not a type variable
   = do { occurs <- elemNiSubstSet tv1 (tyCoVarsOfType ty2')
@@ -722,7 +722,7 @@ instance Monad UM where
   fail _   = UM (\_ _ _ _ _ -> SurelyApart) -- failed pattern match
   m >>= k  = UM (\tvs unif rn_env locals tsubst ->
                   do { (tsubst', v) <- unUM m tvs unif rn_env locals tsubst
-                     ; unUM (k v) tvs unif rn_env locals tsubst' }
+                     ; unUM (k v) tvs unif rn_env locals tsubst' })
 
 instance Alternative UM where
   empty     = UM (\_ _ _ _ _ -> mzero)

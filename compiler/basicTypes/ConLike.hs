@@ -27,7 +27,7 @@ import Util
 import Name
 import FieldLabel
 import BasicTypes
-import {-# SOURCE #-} TypeRep (Type, ThetaType)
+import {-# SOURCE #-} TyCoRep (Type, ThetaType)
 import Var
 
 import Data.Function (on)

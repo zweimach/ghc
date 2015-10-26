@@ -34,7 +34,7 @@ import RdrName
 import DataCon ( dataConName )
 import Maybes
 import Type
-import TypeRep
+import TyCoRep
 import TcMType
 import Name
 import Panic

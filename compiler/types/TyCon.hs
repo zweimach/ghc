@@ -1277,12 +1277,10 @@ isInjectiveTyCon (AlgTyCon {})                 Nominal          = True
 isInjectiveTyCon (AlgTyCon {algTcRhs = rhs})   Representational
   = isGenInjAlgRhs rhs
 isInjectiveTyCon (SynonymTyCon {})             _                = False
-isInjectiveTyCon (FamilyTyCon { fam_tcInj = Just inj }) _       = and inj
+isInjectiveTyCon (FamilyTyCon { famTcInj = Injective inj }) _   = and inj
 isInjectiveTyCon (FamilyTyCon {})              _                = False
 isInjectiveTyCon (PrimTyCon {})                _                = True
 isInjectiveTyCon (PromotedDataCon {})          _                = True
-isInjectiveTyCon (PromotedTyCon {ty_con = tc}) r
-  = isInjectiveTyCon tc r
 
 -- | 'isGenerativeTyCon' is true of 'TyCon's for which this property holds
 -- (where X is the role passed in):
@@ -1827,7 +1825,6 @@ tyConFlavour (SynonymTyCon {})    = "type synonym"
 tyConFlavour (FunTyCon {})        = "built-in type"
 tyConFlavour (PrimTyCon {})       = "built-in type"
 tyConFlavour (PromotedDataCon {}) = "promoted data constructor"
-tyConFlavour (PromotedTyCon {})   = "promoted type constructor"
 
 pprPromotionQuote :: TyCon -> SDoc
 pprPromotionQuote (PromotedDataCon {}) = char '\''   -- Quote promoted DataCons

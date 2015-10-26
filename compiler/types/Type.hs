@@ -883,7 +883,7 @@ mkCastTy ty co = -- NB: don't check if the coercion "from" type matches here;
     split_apps args (AppTy t1 t2) co
       = split_apps (t2:args) t1 co
     split_apps args (TyConApp tc tc_args) co
-      | isDecomposableTyCon tc
+      | mightBeUnsaturatedTyCon tc
       = affix_co (tyConKind tc) (mkTyConTy tc) (tc_args `chkAppend` args) co
       | otherwise -- not decomposable... but it may still be oversaturated
       = let (non_decomp_args, decomp_args) = splitAt (tyConArity tc) tc_args

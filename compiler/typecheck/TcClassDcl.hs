@@ -45,7 +45,6 @@ import VarSet
 import Outputable
 import SrcLoc
 import TyCon
-import TypeRep
 import Maybes
 import BasicTypes
 import Bag
