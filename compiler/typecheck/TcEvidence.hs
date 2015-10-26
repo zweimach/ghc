@@ -16,7 +16,7 @@ module TcEvidence (
   lookupEvBind, evBindMapBinds, foldEvBindMap,
   EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, mkGivenEvBind, mkWantedEvBind,
   evBindsVars, evBindsSubst, evBindsSubstX, evBindsCvSubstEnv,
-  sccEvBinds, evBindVar,
+  sccEvBinds,
   EvTerm(..), mkEvCast, evVarsOfTerm, mkEvScSelectors,
   EvLit(..), evTermCoercion,
   EvCallStack(..),
@@ -160,7 +160,7 @@ isEqVar v = case tyConAppTyCon_maybe (varType v) of
 
 isTcReflCo_maybe :: TcCoercion -> Maybe TcType
 isTcReflCo_maybe (TcRefl _ ty)   = Just ty
-isTcReflCo_maybe (TcCoercion co) = isReflCo_maybe co
+isTcReflCo_maybe (TcCoercion co) = fst <$> isReflCo_maybe co
 isTcReflCo_maybe _               = Nothing
 
 isTcReflCo :: TcCoercion -> Bool
@@ -1184,7 +1184,7 @@ instance Outputable EvTypeable where
 unwrapIP :: Type -> Coercion
 unwrapIP ty =
   case unwrapNewTyCon_maybe tc of
-    Just (_,_,ax) -> mkUnbranchedAxInstCo Representational ax tys
+    Just (_,_,ax) -> mkUnbranchedAxInstCo Representational ax tys []
     Nothing       -> pprPanic "unwrapIP" $
                        text "The dictionary for" <+> quotes (ppr tc)
                          <+> text "is not a newtype!"

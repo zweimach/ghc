@@ -19,7 +19,7 @@ module IfaceType (
 
         -- Equality testing
         IfRnEnv2, emptyIfRnEnv2, eqIfaceType, eqIfaceTypes,
-        eqIfaceTcArgs, eqIfaceTvBndrs, eqIfaceCoercion,
+        eqIfaceTcArgs, eqIfaceTvBndrs,
 
         -- Conversion from Type -> IfaceType
         toIfaceType, toIfaceTypes, toIfaceKind, toIfaceTyVar,
@@ -124,7 +124,6 @@ data IfaceType     -- A kind of universal type, used for types and kinds
   | IfaceForAllTy IfaceForAllBndr IfaceType
   | IfaceTyConApp IfaceTyCon IfaceTcArgs  -- Not necessarily saturated
                                           -- Includes newtypes, synonyms, tuples
-  | IfaceLitTy      IfaceTyLit
   | IfaceCastTy     IfaceType IfaceCoercion
   | IfaceCoercionTy IfaceCoercion
   | IfaceTupleTy                  -- Saturated tuples (unsaturated ones use IfaceTyConApp)
@@ -252,7 +251,7 @@ ifTyVarsOfType ty
       IfaceCastTy ty co
         -> ifTyVarsOfType ty `unionUniqSets` ifTyVarsOfCoercion co
       IfaceCoercionTy co    -> ifTyVarsOfCoercion co
-      IfaceTypleTy _ _ args -> ifTyVarsOfArgs args
+      IfaceTupleTy _ _ args -> ifTyVarsOfArgs args
 
 ifTyVarsOfForAllBndr :: IfaceForAllBndr
                      -> ( UniqSet IfLclName   -- names used free in the binder
@@ -373,6 +372,8 @@ extendIfRnEnv2 IRV2 { ifenvL = lenv
                     , ifenv_next = n + 1
                     }
 
+-- TODO (RAE): Currently, this does a dumb syntactic check, quite different
+-- from eqType. Revisit? I emailed ezyang on 10/26/15.
 eqIfaceType :: IfRnEnv2 -> IfaceType -> IfaceType -> Bool
 eqIfaceType env (IfaceTyVar tv1) (IfaceTyVar tv2) =
     case (rnIfOccL env tv1, rnIfOccR env tv2) of
@@ -386,22 +387,33 @@ eqIfaceType env (IfaceFunTy t11 t12) (IfaceFunTy t21 t22)
     = eqIfaceType env t11 t21 && eqIfaceType env t12 t22
 eqIfaceType env (IfaceDFunTy t11 t12) (IfaceDFunTy t21 t22)
     = eqIfaceType env t11 t21 && eqIfaceType env t12 t22
-eqIfaceType env (IfaceForAllTy (tv1, k1) t1) (IfaceForAllTy (tv2, k2) t2)
-    = eqIfaceType env k1 k2 && eqIfaceType (extendIfRnEnv2 env tv1 tv2) t1 t2
+eqIfaceType env (IfaceForAllTy bndr1 t1) (IfaceForAllTy bndr2 t2)
+    = eqIfaceForAllBndr env bndr1 bndr2 (\env' -> eqIfaceType env' t1 t2)
 eqIfaceType env (IfaceTyConApp tc1 tys1) (IfaceTyConApp tc2 tys2)
     = tc1 == tc2 && eqIfaceTcArgs env tys1 tys2
 eqIfaceType env (IfaceTupleTy s1 tc1 tys1) (IfaceTupleTy s2 tc2 tys2)
     = s1 == s2 && tc1 == tc2 && eqIfaceTcArgs env tys1 tys2
+eqIfaceType env (IfaceCastTy t1 _) (IfaceCastTy t2 _)
+    = eqIfaceType env t1 t2
+eqIfaceType _   (IfaceCoercionTy {}) (IfaceCoercionTy {})
+    = True
 eqIfaceType _ _ _ = False
 
 eqIfaceTypes :: IfRnEnv2 -> [IfaceType] -> [IfaceType] -> Bool
 eqIfaceTypes env tys1 tys2 = and (zipWith (eqIfaceType env) tys1 tys2)
 
+eqIfaceForAllBndr :: IfRnEnv2 -> IfaceForAllBndr -> IfaceForAllBndr
+                  -> (IfRnEnv2 -> Bool)  -- continuation
+                  -> Bool
+eqIfaceForAllBndr env (IfaceTv (tv1, k1) vis1) (IfaceTv (tv2, k2) vis2) k
+  = eqIfaceType env k1 k2 && vis1 == vis2 &&
+    k (extendIfRnEnv2 env tv1 tv2)
+
 eqIfaceTcArgs :: IfRnEnv2 -> IfaceTcArgs -> IfaceTcArgs -> Bool
 eqIfaceTcArgs _ ITC_Nil ITC_Nil = True
-eqIfaceTcArgs env (ITC_Type ty1 tys1) (ITC_Type ty2 tys2)
+eqIfaceTcArgs env (ITC_Vis ty1 tys1) (ITC_Vis ty2 tys2)
     = eqIfaceType env ty1 ty2 && eqIfaceTcArgs env tys1 tys2
-eqIfaceTcArgs env (ITC_Kind ty1 tys1) (ITC_Kind ty2 tys2)
+eqIfaceTcArgs env (ITC_Invis ty1 tys1) (ITC_Invis ty2 tys2)
     = eqIfaceType env ty1 ty2 && eqIfaceTcArgs env tys1 tys2
 eqIfaceTcArgs _ _ _ = False
 
@@ -416,6 +428,8 @@ eqIfaceTvBndrs env ((tv1, k1):tvs1) ((tv2, k2):tvs2)
 eqIfaceTvBndrs _ _ _ = Nothing
 
 -- coreEqCoercion2
+-- TODO (RAE): Restore this function if really necessary
+{-
 eqIfaceCoercion :: IfRnEnv2 -> IfaceCoercion -> IfaceCoercion -> Bool
 eqIfaceCoercion env (IfaceReflCo eq1 ty1) (IfaceReflCo eq2 ty2)
     = eq1 == eq2 && eqIfaceType env ty1 ty2
@@ -465,6 +479,7 @@ eqIfaceCoercion env (IfaceAxiomRuleCo a1 ts1 cs1) (IfaceAxiomRuleCo a2 ts2 cs2)
   = a1 == a2 && all2 (eqIfaceType env) ts1 ts2 && all2 (eqIfaceCoercion env) cs1 cs2
 
 eqIfaceCoercion _ _ _ = False
+-}
 
 {-
 ************************************************************************
@@ -800,12 +815,13 @@ pprTuple :: TupleSort -> IfaceTyConInfo -> IfaceTcArgs -> SDoc
 pprTuple sort info args
   =   -- drop the levity vars.
       -- See Note [Unboxed tuple levity vars] in TyCon
-    let args' = case sort of
-                  UnboxedTuple -> drop (length args `div` 2) args
-                  _            -> args
+    let tys   = tcArgsIfaceTypes args
+        args' = case sort of
+                  UnboxedTuple -> drop (length tys `div` 2) tys
+                  _            -> tys
     in
     pprPromotionQuoteI info <>
-    tupleParens sort (pprWithCommas pprIfaceType (tcArgsIfaceTypes args))
+    tupleParens sort (pprWithCommas pprIfaceType args')
 
 ppr_tylit :: IfaceTyLit -> SDoc
 ppr_tylit (IfaceNumTyLit n) = integer n
@@ -1207,15 +1223,10 @@ toIfaceType (ForAllTy (Anon t1) t2)
 toIfaceType (CastTy ty co)      = IfaceCastTy (toIfaceType ty) (toIfaceCoercion co)
 toIfaceType (CoercionTy co)     = IfaceCoercionTy (toIfaceCoercion co)
 
-toIfaceType (TyConApp tc tys)  -- Look for the three sorts of saturated tuple
+toIfaceType (TyConApp tc tys)  -- Look for the two sorts of saturated tuple
   | Just sort <- tyConTuple_maybe tc
   , n_tys == arity
   = IfaceTupleTy sort NoIfaceTyConInfo (toIfaceTcArgs tc tys)
-
-  | Just tc' <- isPromotedTyCon_maybe tc
-  , Just sort <- tyConTuple_maybe tc'
-  , n_tys == arity
-  = IfaceTupleTy sort IfacePromotedTyCon (toIfaceTcArgs tc tys)
 
   | Just dc <- isPromotedDataCon_maybe tc
   , isTupleDataCon dc
