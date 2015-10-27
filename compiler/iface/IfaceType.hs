@@ -341,6 +341,14 @@ substIfaceTyVar env tv
                 Equality over IfaceTypes
 *                                                                      *
 ************************************************************************
+
+Note [No kind check in ifaces]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We check iface types for equality only when checking the consistency
+between two user-written signatures. In these cases, there is no possibility
+for a kind mismatch. So we omit the kind check (which would be impossible to
+write, anyway.)
+
 -}
 
 -- Like an RnEnv2, but mapping from FastString to deBruijn index
@@ -372,8 +380,7 @@ extendIfRnEnv2 IRV2 { ifenvL = lenv
                     , ifenv_next = n + 1
                     }
 
--- TODO (RAE): Currently, this does a dumb syntactic check, quite different
--- from eqType. Revisit? I emailed ezyang on 10/26/15.
+-- See Note [No kind check in ifaces]
 eqIfaceType :: IfRnEnv2 -> IfaceType -> IfaceType -> Bool
 eqIfaceType env (IfaceTyVar tv1) (IfaceTyVar tv2) =
     case (rnIfOccL env tv1, rnIfOccR env tv2) of
@@ -427,60 +434,6 @@ eqIfaceTvBndrs env ((tv1, k1):tvs1) ((tv2, k2):tvs2)
   = eqIfaceTvBndrs (extendIfRnEnv2 env tv1 tv2) tvs1 tvs2
 eqIfaceTvBndrs _ _ _ = Nothing
 
--- coreEqCoercion2
--- TODO (RAE): Restore this function if really necessary
-{-
-eqIfaceCoercion :: IfRnEnv2 -> IfaceCoercion -> IfaceCoercion -> Bool
-eqIfaceCoercion env (IfaceReflCo eq1 ty1) (IfaceReflCo eq2 ty2)
-    = eq1 == eq2 && eqIfaceType env ty1 ty2
-eqIfaceCoercion env (IfaceFunCo eq1 co11 co12) (IfaceFunCo eq2 co21 co22)
-  = eq1 == eq2 && eqIfaceCoercion env co11 co21
-               && eqIfaceCoercion env co12 co22
-eqIfaceCoercion env (IfaceTyConAppCo eq1 tc1 cos1) (IfaceTyConAppCo eq2 tc2 cos2)
-  = eq1 == eq2 && tc1 == tc2 && all2 (eqIfaceCoercion env) cos1 cos2
-eqIfaceCoercion env (IfaceAppCo co11 co12) (IfaceAppCo co21 co22)
-  = eqIfaceCoercion env co11 co21 && eqIfaceCoercion env co12 co22
-
-eqIfaceCoercion env (IfaceForAllCo (v1,k1) co1) (IfaceForAllCo (v2,k2) co2)
-  = eqIfaceType env k1 k2 &&
-    eqIfaceCoercion (extendIfRnEnv2 env v1 v2) co1 co2
-
-eqIfaceCoercion env (IfaceCoVarCo cv1) (IfaceCoVarCo cv2)
-  = rnIfOccL env cv1 == rnIfOccR env cv2
-
-eqIfaceCoercion env (IfaceAxiomInstCo con1 ind1 cos1)
-                    (IfaceAxiomInstCo con2 ind2 cos2)
-  = con1 == con2
-    && ind1 == ind2
-    && all2 (eqIfaceCoercion env) cos1 cos2
-
--- the provenance string is just a note, so don't use in comparisons
-eqIfaceCoercion env (IfaceUnivCo _ r1 ty11 ty12) (IfaceUnivCo _ r2 ty21 ty22)
-  = r1 == r2 && eqIfaceType env ty11 ty21 && eqIfaceType env ty12 ty22
-
-eqIfaceCoercion env (IfaceSymCo co1) (IfaceSymCo co2)
-  = eqIfaceCoercion env co1 co2
-
-eqIfaceCoercion env (IfaceTransCo co11 co12) (IfaceTransCo co21 co22)
-  = eqIfaceCoercion env co11 co21 && eqIfaceCoercion env co12 co22
-
-eqIfaceCoercion env (IfaceNthCo d1 co1) (IfaceNthCo d2 co2)
-  = d1 == d2 && eqIfaceCoercion env co1 co2
-eqIfaceCoercion env (IfaceLRCo d1 co1) (IfaceLRCo d2 co2)
-  = d1 == d2 && eqIfaceCoercion env co1 co2
-
-eqIfaceCoercion env (IfaceInstCo co1 ty1) (IfaceInstCo co2 ty2)
-  = eqIfaceCoercion env co1 co2 && eqIfaceType env ty1 ty2
-
-eqIfaceCoercion env (IfaceSubCo co1) (IfaceSubCo co2)
-  = eqIfaceCoercion env co1 co2
-
-eqIfaceCoercion env (IfaceAxiomRuleCo a1 ts1 cs1) (IfaceAxiomRuleCo a2 ts2 cs2)
-  = a1 == a2 && all2 (eqIfaceType env) ts1 ts2 && all2 (eqIfaceCoercion env) cs1 cs2
-
-eqIfaceCoercion _ _ _ = False
--}
-
 {-
 ************************************************************************
 *                                                                      *
@@ -533,7 +486,8 @@ Note [Suppressing invisible arguments]
 We use the IfaceTcArgs to specify which of the arguments to a type
 constructor should be visible.
 This in turn used to control suppression when printing types,
-under the control of -fprint-explicit-kinds.  See also Type.filterInvisibles.
+under the control of -fprint-explicit-kinds.
+See also Type.filterOutInvisibleTypes.
 For example, given
     T :: forall k. (k->*) -> k -> *    -- Ordinary kind polymorphism
     'Just :: forall k. k -> 'Maybe k   -- Promoted

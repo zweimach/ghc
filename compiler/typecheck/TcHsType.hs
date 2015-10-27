@@ -24,6 +24,7 @@ module TcHsType (
         tcHsLiftedType, tcHsOpenType,
         tcLHsType, tcCheckLHsType,
         tcHsContext, tcInferApps,
+        tcInferArgs,
 
         kindGeneralize,
 
@@ -79,7 +80,8 @@ import Bag
 import UniqSupply
 import Outputable
 import FastString
-import PrelNames
+import PrelNames ( funTyConKey, allNameStrings )
+import Pair
 
 import Data.Maybe
 import Control.Monad
@@ -313,8 +315,8 @@ decideKindGeneralisationPlan hs_ty
 tcCheckLHsTypeAndGen :: LHsType Name -> Kind -> TcM (Type, CvSubstEnv)
 -- Typecheck a type signature, and kind-generalise it
 -- The result is not necessarily zonked, and has not been checked for validity
-tcCheckLHsTypeAndGen (L loc hs_ty) kind
-  = addTypeCtxt hs_ty $
+tcCheckLHsTypeAndGen lty@(L loc hs_ty) kind
+  = addTypeCtxt lty $
     setSrcSpan loc $
     tcCheckHsTypeAndGen hs_ty kind
 
@@ -1139,7 +1141,7 @@ new_skolem_tv n k = mkTcTyVar n k vanillaSkolemTv
 kindGeneralize :: CvSubstEnv -> TyVarSet -> TcM [KindVar]
 kindGeneralize co_env tkvs
   = do { gbl_tvs <- tcGetGlobalTyCoVars -- Already zonked
-       ; quantifyTyVars co_env gbl_tvs (tkvs, emptyVarSet) }
+       ; quantifyTyVars co_env gbl_tvs (Pair tkvs emptyVarSet) }
 
 {-
 Note [Kind generalisation]
@@ -1403,7 +1405,8 @@ tcDataKindSig kind
         ; return [ mk_tv span uniq occ kind
                  | ((kind, occ), uniq) <- arg_kinds `zip` occs `zip` uniqs ] }
   where
-    (arg_kinds, res_kind) = splitFunTys kind
+    (bndrs, res_kind) = splitForAllTys kind
+    arg_kinds         = map binderType bndrs
     mk_tv loc uniq occ kind
       = mkTyVar (mkInternalName uniq occ loc) kind
 

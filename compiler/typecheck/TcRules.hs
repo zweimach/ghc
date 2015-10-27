@@ -9,17 +9,20 @@ TcRules: Typechecking transformation rules
 module TcRules ( tcRules ) where
 
 import HsSyn
-import TcRnMonad
+import TcRnMonad as TcM
 import TcSimplify
-import TcMType
+import TcMType as TcM
+import TcSMonad as TcS
 import TcType
 import TcHsType
 import TcExpr
 import TcEnv
-import TcEvidence( TcEvBinds(..) )
+import TcEvidence
 import Type
+import Coercion         ( isCoVar )
 import Id
 import Var              ( EvVar )
+import VarSet
 import Name
 import VarEnv
 import BasicTypes       ( RuleName )
@@ -28,6 +31,7 @@ import Outputable
 import FastString
 import Bag
 import Data.List( partition )
+import Util     ( mapAndUnzip )
 
 {-
 Note [Typechecking rules]
@@ -112,8 +116,8 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                   ])
 
            -- Simplify the RHS constraints
-       ; lcl_env <- getLclEnv
-       ; rhs_binds_var <- newTcEvBinds
+       ; lcl_env <- TcM.getLclEnv
+       ; rhs_binds_var <- TcM.newTcEvBinds
        ; emitImplication $ Implic { ic_tclvl    = topTcLevel
                                   , ic_skols    = qtkvs
                                   , ic_no_eqs   = False
@@ -127,7 +131,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
            -- For the LHS constraints we must solve the remaining constraints
            -- (a) so that we report insoluble ones
            -- (b) so that we bind any soluble ones
-       ; lhs_binds_var <- newTcEvBinds
+       ; lhs_binds_var <- TcM.newTcEvBinds
        ; emitImplication $ Implic { ic_tclvl    = topTcLevel
                                   , ic_skols    = qtkvs
                                   , ic_no_eqs   = False
@@ -302,7 +306,7 @@ simplifyRule name lhs_wanted rhs_wanted
   = do {         -- We allow ourselves to unify environment
                  -- variables: runTcS runs with topTcLevel
          ev_binds_var <- TcM.newTcEvBinds
-       ; tc_lvl       <- getTcLevel
+       ; tc_lvl       <- TcM.getTcLevel
        ; ((insoluble, resid_vars), unified_vars, _orig_binds)
            <- runTcSRollbackInfo ev_binds_var $
              do { -- First solve the LHS and *then* solve the RHS
@@ -322,7 +326,7 @@ simplifyRule name lhs_wanted rhs_wanted
        ; fvs <- TcM.zonkTyCoVarsAndFV (unified_vars `unionVarSet` inner_ev_vars)
        ; let all_tcvs      = fvs `unionVarSet` resid_vars
              extra_wanteds = evBindMapWanteds all_tcvs ev_bind_map
-       ; extra_wanteds <- zonkWC extra_wanteds
+       ; extra_wanteds <- TcM.zonkWC extra_wanteds
        ; emitConstraints extra_wanteds   -- kick the can down the road, because
                                          -- there's nowhere convenient to put these
                                          -- covars
@@ -331,7 +335,7 @@ simplifyRule name lhs_wanted rhs_wanted
                                                     , ppr all_tcvs
                                                     , ppr extra_wanteds ])
 
-       ; zonked_lhs_simples <- zonkSimples (wc_simple lhs_wanted)
+       ; zonked_lhs_simples <- TcM.zonkSimples (wc_simple lhs_wanted)
        ; let (q_cts, non_q_cts) = partitionBag quantify_me zonked_lhs_simples
              quantify_me  -- Note [RULE quantification over equalities]
                | insoluble = quantify_insol

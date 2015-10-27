@@ -33,7 +33,8 @@ import DataCon ( dataConName )
 import Pair
 import Util
 import Bag
-import MonadUtils ( zipWith3M, zipWith3M_ )
+import MonadUtils
+import Control.Monad
 import Data.List  ( zip4 )
 import BasicTypes
 import FastString
@@ -465,11 +466,11 @@ can_eq_nc' _flat rdr_env envs ev ReprEq ty1 ps_ty1 ty2 _
   | Just (co, ty2') <- tcTopNormaliseNewTypeTF_maybe envs rdr_env ty2
   = can_eq_newtype_nc rdr_env ev IsSwapped  co ty2 ty2' ty1 ps_ty1
 
--- First, get rid of casts
-can_eq_nc' _rdr_env _envs ev eq_rel (CastTy ty1 co1) _ ty2 ps_ty2
-  = canEqCast ev eq_rel NotSwapped ty1 co1 ty2 ps_ty2
-can_eq_nc' _rdr_env _envs ev eq_rel ty1 ps_ty1 (CastTy ty2 co2) _
-  = canEqCast ev eq_rel IsSwapped ty2 co2 ty1 ps_ty1
+-- Then, get rid of casts
+can_eq_nc' flat _rdr_env _envs ev eq_rel (CastTy ty1 co1) _ ty2 ps_ty2
+  = canEqCast flat ev eq_rel NotSwapped ty1 co1 ty2 ps_ty2
+can_eq_nc' flat _rdr_env _envs ev eq_rel ty1 ps_ty1 (CastTy ty2 co2) _
+  = canEqCast flat ev eq_rel IsSwapped ty2 co2 ty1 ps_ty1
 
 ----------------------
 -- Otherwise try to decompose
@@ -537,9 +538,9 @@ can_eq_nc' True _rdr_env _envs ev eq_rel _ ps_ty1 (TyVarTy tv2) _
   = canEqTyVar ev eq_rel IsSwapped  tv2 ps_ty1
 
 -- We've flattened and the types don't match. Give up.
-can_eq_nc' True _rdr_env _envs ev eq_rel _ ps_ty1 _ ps_ty2
+can_eq_nc' True _rdr_env _envs ev _eq_rel _ ps_ty1 _ ps_ty2
   = do { traceTcS "can_eq_nc' catch-all case" (ppr ps_ty1 $$ ppr ps_ty2)
-       ; canEqHardFailure ev eq_rel ps_ty1 ps_ty2 }
+       ; canEqHardFailure ev ps_ty1 ps_ty2 }
 
 {-
 Note [Newtypes can blow the stack]
@@ -652,7 +653,7 @@ can_eq_app ev NomEq s1 t1 s2 t2
   = do { co_s <- unifyWantedLikeEv ev loc Nominal s1 s2
        ; co_t <- unifyWantedLikeEv ev loc Nominal t1 t2
        ; let co = mkTcCoercion $ mkAppCo co_s co_t
-       ; setWantedEvBind evar (EvCoercion co)
+       ; setWantedEvBind evar (EvCoercion co) loc
        ; stopWith ev "Decomposed [W] AppTy" }
   | CtGiven { ctev_evar = evar, ctev_loc = loc } <- ev
   = do { let co   = mkTcCoVarCo evar
@@ -669,35 +670,24 @@ can_eq_app ev NomEq s1 t1 s2 t2
 
 -----------------------
 -- | Break apart an equality over a casted type
-canEqCast :: CtEvidence
+canEqCast :: Bool         -- are both types flat?
+          -> CtEvidence
           -> EqRel
           -> SwapFlag
           -> TcType -> Coercion   -- LHS (res. RHS), the casted type
           -> TcType -> TcType     -- RHS (res. LHS), both normal and pretty
           -> TcS (StopOrContinue Ct)
-canEqCast ev eq_rel swapped ty1 co1 _ty2 ps_ty2
-  = do { let xpreds                = [unSwap swapped (mkTcEqPredLikeEv ev)
-                                                     ty1 ps_ty2]
-
-             -- uncasted_evt :: ty1 ~ ty2; result :: (ty1 |> co) ~ ty2
-             xcomp ~[uncasted_evt] = EvCoercion $
-                                     mk_coherence_co swapped
-                                                     (evTermCoercion uncasted_evt)
-                                                     co1
-             xdecomp casted_evt    = case swapped of
-               NotSwapped -> [EvCoercion $
-                              mkTcCoherenceRightCo (mkTcReflCo role ty1) co1
-                              `mkTcTransCo` (evTermCoercion casted_evt)]
-               IsSwapped  -> [EvCoercion $
-                              evTermCoercion casted_evt `mkTcTransCo`
-                              mkTcCoherenceLeftCo (mkTcReflCo role ty1) co1]
-             xev = XEvTerm xpreds xcomp xdecomp
-       ; xCtEvidence ev xev
-       ; stopWith ev "Decomposed Cast" }
+canEqCast flat ev eq_rel swapped ty1 co1 ty2 ps_ty2
+  = do { traceTcS "Decomposing cast" (vcat [ ppr ev
+                                           , ppr ty1 <+> text "|>" <+> ppr co1
+                                           , ppr ps_ty2 ])
+       ; rewriteEqEvidence ev swapped ty1 ps_ty2
+                           (mkTcReflCo role ty1
+                              `mkTcCoherenceRightCo` co1)
+                           (mkTcReflCo role ps_ty2)
+         `andWhenContinue` \ new_ev ->
+         can_eq_nc flat new_ev eq_rel ty1 ty1 ty2 ps_ty2 }
   where
-    mk_coherence_co NotSwapped = mkTcCoherenceLeftCo
-    mk_coherence_co IsSwapped  = mkTcCoherenceRightCo
-
     role = eqRelRole eq_rel
 
 ------------------------
@@ -931,7 +921,7 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
      CtWanted { ctev_evar = evar, ctev_loc = loc }
         -> do { cos <- zipWith3M (unifyWantedLikeEv ev loc) tc_roles tys1 tys2
               ; setWantedEvBind evar (EvCoercion (mkTcCoercion $
-                                                  mkTyConAppCo role tc cos)) }
+                                                  mkTyConAppCo role tc cos)) loc }
 
      CtGiven { ctev_evar = evar, ctev_loc = loc }
         -> do { let ev_co = mkTcCoVarCo evar
@@ -953,7 +943,7 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
 canEqFailure :: CtEvidence -> EqRel
              -> TcType -> TcType -> TcS (StopOrContinue Ct)
 canEqFailure ev NomEq ty1 ty2
-  = canEqHardFailure ev NomEq ty1 ty2
+  = canEqHardFailure ev ty1 ty2
 canEqFailure ev ReprEq ty1 ty2
   = do { (xi1, co1) <- flatten FM_FlattenAll ev ty1
        ; (xi2, co2) <- flatten FM_FlattenAll ev ty2
@@ -1298,14 +1288,14 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
   | k1 `eqType` k2
   = continueWith (build_ct ev rhs)
 
-  | CtGiven { ctev_evtm = tm } <- ev
+  | CtGiven { ctev_evar = evar } <- ev
     -- tm :: (lhs :: k1) ~ (rhs :: k2)
   = do { kind_ev_id <- newBoundEvVarId kind_pty
                                        (EvCoercion $
-                                        mkTcKindCo $ evTermCoercion tm)
+                                        mkTcKindCo $ mkTcCoVarCo evar)
            -- kind_ev_id :: (k1 :: *) ~# (k2 :: *)
        ; let kind_ev = CtGiven { ctev_pred = kind_pty
-                               , ctev_evtm = EvId kind_ev_id
+                               , ctev_evar = kind_ev_id
                                , ctev_loc  = kind_loc }
              homo_co = mkSymCo $ mkCoVarCo kind_ev_id
              rhs'    = mkCastTy rhs homo_co
@@ -1315,7 +1305,7 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
        ; type_ev <- newGivenEvVar loc
                       ( mkTcEqPredLikeEv ev lhs rhs'
                       , EvCoercion $
-                        mkTcCoherenceRightCo (evTermCoercion tm) homo_co )
+                        mkTcCoherenceRightCo (mkTcCoVarCo evar) homo_co )
           -- type_ev :: (lhs :: k1) ~ ((rhs |> sym kind_ev_id) :: k1)
        ; continueWith (build_ct type_ev rhs') }
 
@@ -1335,7 +1325,7 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
        ; mb_type_ev <- newWantedEvVar loc homo_pred
           -- type_ev :: (lhs :: k1) ~ (rhs |> sym kind_ev :: k1)
        ; let type_evt = getEvTerm mb_type_ev
-       ; setEvBind evar
+       ; setWantedEvBind evar
                    (EvCoercion $
                     (evTermCoercion type_evt) `mkTcTransCo`
                     (mkTcReflCo (eqRelRole eq_rel) rhs

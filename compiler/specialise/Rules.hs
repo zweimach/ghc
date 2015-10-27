@@ -35,9 +35,10 @@ import OccurAnal        ( occurAnalyseExpr )
 import CoreFVs          ( exprFreeVars, exprsFreeVars, bindFreeVars
                         , rulesFreeVars, exprsOrphNames )
 import CoreUtils        ( exprType, eqExpr, mkTick, mkTicks,
-                          stripTicksTopT, stripTicksTopE )
+                          stripTicksTopT, stripTicksTopE
+                        , exprToCoercion_maybe )
 import PprCore          ( pprRules )
-import Type             ( Type, substTy, mkTvSubst )
+import Type             ( Type, substTy, mkTCvSubst )
 import TcType           ( tcSplitTyConApp_maybe )
 import TysPrim          ( anyTypeOfKind )
 import Coercion
@@ -562,7 +563,17 @@ matchN (in_scope, id_unf) rule_name tmpl_vars tmpl_es target_es
              -- See Note [Unbound template type variables]
         where
           fake_ty = anyTypeOfKind kind
-          kind = Type.substTy (mkTvSubst in_scope tv_subst) (tyVarKind tmpl_var)
+          cv_subst = to_co_env id_subst
+          kind = Type.substTy (mkTCvSubst in_scope (tv_subst, cv_subst))
+                              (tyVarKind tmpl_var)
+
+          to_co_env env = foldVarEnv_Directly to_co emptyVarEnv env
+          to_co uniq expr env
+            | Just co <- exprToCoercion_maybe expr
+            = extendVarEnv_Directly env uniq co
+
+            | otherwise
+            = env
 
     unbound var = pprPanic "Template variable unbound in rewrite rule" $
                   vcat [ ptext (sLit "Variable:") <+> ppr var
@@ -646,8 +657,7 @@ rvInScopeEnv :: RuleMatchEnv -> InScopeEnv
 rvInScopeEnv renv = (rnInScopeSet (rv_lcl renv), rv_unf renv)
 
 data RuleSubst = RS { rs_tv_subst :: TvSubstEnv   -- Range is the
-                    , rs_cv_subst :: CvSubstEnv   --   template variables
-                    , rs_id_subst :: IdSubstEnv
+                    , rs_id_subst :: IdSubstEnv   --   template variables
                     , rs_binds    :: BindWrapper  -- Floated bindings
                     , rs_bndrs    :: VarSet       -- Variables bound by floated lets
                     }
@@ -657,8 +667,7 @@ type BindWrapper = CoreExpr -> CoreExpr
   -- we represent the floated bindings as a core-to-core function
 
 emptyRuleSubst :: RuleSubst
-emptyRuleSubst = RS { rs_tv_subst = emptyVarEnv, rs_cv_subst = emptyVarEnv
-                    , rs_id_subst = emptyVarEnv
+emptyRuleSubst = RS { rs_tv_subst = emptyVarEnv, rs_id_subst = emptyVarEnv
                     , rs_binds = \e -> e, rs_bndrs = emptyVarSet }
 
 --      At one stage I tried to match even if there are more

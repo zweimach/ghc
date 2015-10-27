@@ -993,10 +993,10 @@ tcSuperClasses dfun_id cls tyvars dfun_evs inst_tys dfun_ev_binds _fam_envs sc_t
     size = sizeTypes inst_tys
     tc_super (sc_pred, n)
       = do { (sc_implic, sc_ev_id) <- checkInstConstraints $ \_ ->
-                                      emitWanted (ScOrigin size) sc_pred
+                                      emitWantedEvVar (ScOrigin size) sc_pred
 
            ; sc_top_name <- newName (mkSuperDictAuxOcc n (getOccName cls))
-           ; let sc_top_ty = mkForAllTys tyvars (mkPiTypes dfun_evs sc_pred)
+           ; let sc_top_ty = mkInvForAllTys tyvars (mkPiTypes dfun_evs sc_pred)
                  sc_top_id = mkLocalId sc_top_name sc_top_ty
                  export = ABE { abe_wrap = idHsWrapper, abe_poly = sc_top_id
                               , abe_mono = sc_ev_id
@@ -1312,8 +1312,9 @@ tcMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                  -- you to apply a function to a dictionary *expression*.
 
            ; self_dict <- newDict clas inst_tys
-           ; ev_loc <- getCtLoc ImpossibleOrigin
-           ; let ev_term = EvDFunApp dfun_id (mkTyVarTys tyvars) dfun_ev_vars)
+           ; ev_loc <- getCtLocM ImpossibleOrigin
+           ; let ev_term = EvDFunApp dfun_id (mkTyVarTys tyvars)
+                                     (map EvId dfun_ev_vars)
                  self_ev_bind = mkWantedEvBind self_dict ev_term ev_loc
 
            ; (meth_id, local_meth_sig, hs_wrap)
@@ -1431,11 +1432,12 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
                   do { inst_sigs <- xoptM Opt_InstanceSigs
                      ; checkTc inst_sigs (misplacedInstSig sel_name lhs_ty)
                      ; sig_ty  <- tcHsSigType (FunSigCtxt sel_name False) lhs_ty
-                     ; let poly_sig_ty = mkSigmaTy tyvars theta sig_ty
+                     ; let poly_sig_ty = mkInvSigmaTy tyvars theta sig_ty
                            ctxt = FunSigCtxt sel_name True
                      ; tc_sig  <- instTcTySig ctxt lhs_ty sig_ty Nothing [] local_meth_name
                      ; hs_wrap <- addErrCtxtM (methSigCtxt sel_name poly_sig_ty poly_meth_ty) $
-                                  tcSubType ctxt poly_sig_ty poly_meth_ty
+                                  tcSubType ctxt (Just poly_meth_id)
+                                            poly_sig_ty poly_meth_ty
                      ; return (poly_meth_id, tc_sig, hs_wrap) }
 
             Nothing     -- No type signature
@@ -1451,7 +1453,7 @@ mkMethIds sig_fn clas tyvars dfun_ev_vars inst_tys sel_id
     sel_name      = idName sel_id
     sel_occ       = nameOccName sel_name
     local_meth_ty = instantiateMethod clas sel_id inst_tys
-    poly_meth_ty  = mkSigmaTy tyvars theta local_meth_ty
+    poly_meth_ty  = mkInvSigmaTy tyvars theta local_meth_ty
     theta         = map idType dfun_ev_vars
 
 methSigCtxt :: Name -> TcType -> TcType -> TidyEnv -> TcM (TidyEnv, MsgDoc)

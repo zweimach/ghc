@@ -91,6 +91,7 @@ import Outputable
 import FastString
 import SrcLoc
 import Bag
+import Pair
 import DynFlags
 import BasicTypes    ( Boxity(..) )
 
@@ -154,7 +155,7 @@ newWanteds orig = mapM (newWanted orig)
 emitWantedEvVar :: CtOrigin -> TcPredType -> TcM EvVar
 emitWantedEvVar origin ty
   = do { new_cv <- newEvVar ty
-       ; loc <- getCtLoc origin
+       ; loc <- getCtLocM origin
        ; let ctev = CtWanted { ctev_evar = new_cv
                              , ctev_pred = ty
                              , ctev_loc  = loc }
@@ -346,9 +347,6 @@ newMetaTyVar meta_info kind
                         SigTv       -> fsLit "a"
         ; details <- newMetaDetails meta_info
         ; return (mkTcTyVar name kind details) }
-
-newSigKindVar :: Name -> TcM TcTyVar
-newSigKindVar name = newSigTyVar name superKind
 
 newSigTyVar :: Name -> Kind -> TcM TcTyVar
 newSigTyVar name kind
@@ -616,8 +614,8 @@ tcInstBinderX mb_kind_info subst binder
   | Just tv <- binderVar_maybe binder
   = case lookup_tv tv of
       Just ki -> return (extendTCvSubst subst tv ki, ki)
-      Nothing -> = do { (subst', tv') <- tcInstTyVarX subst tv
-                      ; return (subst', mkTyVarTy tv') }
+      Nothing -> do { (subst', tv') <- tcInstTyVarX subst tv
+                    ; return (subst', mkTyVarTy tv') }
 
      -- TODO (RAE): This is special-case handling of promoted, lifted
      -- equality. This is the *only* constraint currently handled in
@@ -677,15 +675,15 @@ This is because we never want to infer a quantified covar!
 
 quantifyTyVars :: CvSubstEnv     -- any known values for covars
                -> TcTyCoVarSet   -- global tvs
-               -> ( TcTyCoVarSet     -- dependent tvs       We only distinguish
-                  , TcTyCoVarSet )   -- nondependent tvs    between these for
+               -> Pair TcTyCoVarSet    -- dependent tvs       We only distinguish
+                                       -- nondependent tvs    between these for
                                        --                     -XNoPolyKinds
-                 -> TcM [TcTyVar]
+               -> TcM [TcTyVar]
 -- See Note [quantifyTyVars]
 -- Can be given a mixture of TcTyVars and TyVars, in the case of
 --   associated type declarations. Also accepts covars, but *never* returns any.
 
-quantifyTyVars co_env gbl_tvs (dep_tkvs, nondep_tkvs)
+quantifyTyVars co_env gbl_tvs (Pair dep_tkvs nondep_tkvs)
   = do { dep_tkvs    <- apply_co_env <$> zonkTyCoVarsAndFV dep_tkvs
        ; nondep_tkvs <- (`minusVarSet` dep_tkvs) . apply_co_env <$>
                         zonkTyCoVarsAndFV nondep_tkvs

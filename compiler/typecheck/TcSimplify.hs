@@ -8,48 +8,52 @@ module TcSimplify(
        simplifyTop, simplifyInteractive,
        Purity(..), simplifyWantedsTcM,
 
-       -- For Rules we need these two
-       solveWanteds, runTcS
+       -- For Rules we need these three
+       solveWanteds, runTcS, evBindMapWanteds
   ) where
 
 #include "HsVersions.h"
 
 import Bag
-import Class         ( classKey )
-import Class         ( Class )
+import Class         ( Class, classKey, classTyCon )
+import Coercion      ( CvSubstEnv )
 import DynFlags      ( ExtensionFlag( Opt_AllowAmbiguousTypes )
                      , WarningFlag ( Opt_WarnMonomorphism )
                      , DynFlags( solverIterations ) )
 import Inst
-import Id            ( idType )
-import Kind          ( isKind, isSubKind, defaultKind_maybe )
 import ListSetOps
-import Maybes        ( isNothing )
+import Maybes
 import Name
 import Outputable
+import Pair
 import PrelInfo
 import PrelNames
 import TcErrors
 import TcEvidence
 import TcInteract
 import TcMType   as TcM
-import TcRnMonad as TcRn
+import TcRnMonad as TcM
 import TcSMonad  as TcS
 import TcType
 import TrieMap       () -- DV: for now
-import TyCon         ( isTypeFamilyTyCon )
-import Type          ( classifyPredType, isIPClass, PredTree(..)
-                     , getClassPredTys_maybe, EqRel(..) )
+import Type
+import TysWiredIn    ( liftedDataConTy )
 import Unify         ( tcMatchTy )
 import Util
 import Var
 import VarSet
+import VarEnv
 import BasicTypes    ( IntWithInf, intGtLimit )
 import ErrUtils      ( emptyMessages )
 import FastString
 
-import Control.Monad ( unless )
+import Control.Monad ( when, unless )
 import Data.List     ( partition )
+
+#if __GLASGOW_HASKELL__ < 709
+import Data.Foldable    ( fold )
+import Data.Traversable ( traverse )
+#endif
 
 {-
 *********************************************************************************
@@ -79,20 +83,20 @@ simplifyTop wanteds
            -- update error messages which we'll grab and then restore saved
            -- messages.
            ; errs_var  <- getErrsVar
-           ; saved_msg <- TcRn.readTcRef errs_var
-           ; TcRn.writeTcRef errs_var emptyMessages
+           ; saved_msg <- TcM.readTcRef errs_var
+           ; TcM.writeTcRef errs_var emptyMessages
 
            ; warnAllUnsolved $ WC { wc_simple = unsafe_ol
                                   , wc_insol = emptyCts
                                   , wc_impl = emptyBag }
 
-           ; whyUnsafe <- fst <$> TcRn.readTcRef errs_var
-           ; TcRn.writeTcRef errs_var saved_msg
+           ; whyUnsafe <- fst <$> TcM.readTcRef errs_var
+           ; TcM.writeTcRef errs_var saved_msg
            ; recordUnsafeInfer whyUnsafe
            }
        ; traceTc "reportUnsolved (unsafe overlapping) }" empty
 
-       ; return (binds1 `unionBags` binds2) }
+       ; return (evBindMapBinds binds1 `unionBags` binds2) }
 
 type SafeOverlapFailures = Cts
 -- ^ See Note [Safe Haskell Overlapping Instances Implementation]
@@ -331,7 +335,8 @@ How is this implemented? It's complicated! So we'll step through it all:
 simplifyAmbiguityCheck :: Type -> WantedConstraints -> TcM ()
 simplifyAmbiguityCheck ty wanteds
   = do { traceTc "simplifyAmbiguityCheck {" (text "type = " <+> ppr ty $$ text "wanted = " <+> ppr wanteds)
-       ; (zonked_final_wc, _) <- simplifyWantedsTcMCustom Pure (simpl_top wanteds)
+       ; (zonked_final_wc, _) <- simplifyWantedsTcMCustom Pure (fst <$>
+                                                                simpl_top wanteds)
                 -- TODO (RAE): these don't need to be zonked
        ; traceTc "End simplifyAmbiguityCheck }" empty
 
@@ -340,7 +345,7 @@ simplifyAmbiguityCheck ty wanteds
        -- inaccessible code
        ; allow_ambiguous <- xoptM Opt_AllowAmbiguousTypes
        ; traceTc "reportUnsolved(ambig) {" empty
-       ; tc_lvl <- TcRn.getTcLevel
+       ; tc_lvl <- TcM.getTcLevel
        ; unless (allow_ambiguous && not (insolubleWC tc_lvl zonked_final_wc))
                 (discardResult (reportUnsolved zonked_final_wc))
        ; traceTc "reportUnsolved(ambig) }" empty
@@ -448,7 +453,7 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
               -- NB: We do not do any defaulting when inferring a type, this can lead
               -- to less polymorphic types, see Note [Default while Inferring]
 
-       ; tc_lcl_env <- getLclEnv
+       ; tc_lcl_env <- TcM.getLclEnv
        ; let wanted_transformed@(WC { wc_simple = simple_wanteds })
                = dropDerivedWC wanted_transformed_incl_derivs
        ; quant_pred_candidates   -- Fully zonked
@@ -518,9 +523,8 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
          --   f :: beta -> beta
          -- Similarly, promote covars. See Note [Promoting coercion variables]
        ; outer_tclvl    <- TcM.getTcLevel
-       ; zonked_tau_tvs <- unionVarSet
-                             <$> TcM.zonkTyCoVarsAndFV (fst zonked_tau_tkvs)
-                             <*> TcM.zonkTyCoVarsAndFV (snd zonked_tau_tkvs)
+       ; zonked_tau_tvs <- fold <$>
+                           traverse TcM.zonkTyCoVarsAndFV zonked_tau_tkvs
               -- decideQuantification turned some meta tyvars into
               -- quantified skolems, so we have to zonk again
 
@@ -576,8 +580,7 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
               , ptext (sLit "zonked_taus") <+> ppr zonked_taus
               , ptext (sLit "zonked_tau_tvs=") <+> ppr zonked_tau_tvs
               , ptext (sLit "promote_tvs=") <+> ppr promote_tvs
-              , ptext (sLit "bound_theta =") <+> pprWithCommas pprTvBndr bound_theta
-              , ptext (sLit "mr_bites =") <+> ppr mr_bites
+              , ptext (sLit "bound_theta =") <+> ppr bound_theta
               , ptext (sLit "qtvs =") <+> ppr qtvs
               , ptext (sLit "implic =") <+> ppr implic
               , ptext (sLit "promote_wanteds =") <+> ppr promote_wanteds
@@ -638,13 +641,12 @@ decideQuantification
   -> [TcTyVar]             -- signature tyvars
   -> [(Name, TcTauType)]   -- variables to be generalised (for errors only)
   -> [PredType]            -- candidate theta
-  -> ( TcTyCoVarSet        -- dependent (kind) variables
-     , TcTyCoVarSet )      -- type variables
+  -> Pair TcTyCoVarSet     -- dependent (kind) variables & type variables
   -> TcM ( [TcTyVar]       -- Quantify over these (skolems)
          , [PredType] )    -- and this context (fully zonked)
 -- See Note [Deciding quantification]
 decideQuantification cv_env apply_mr sig_qtvs name_taus constraints
-                     (zonked_tau_kvs, zonked_tau_tvs)
+                     (Pair zonked_tau_kvs zonked_tau_tvs)
   | apply_mr     -- Apply the Monomorphism restriction
   = do { gbl_tvs <- tcGetGlobalTyCoVars
        ; let constrained_tvs = tyCoVarsOfTypes constraints `unionVarSet`
@@ -680,7 +682,7 @@ decideQuantification cv_env apply_mr sig_qtvs name_taus constraints
           -- only for defaulting, and we don't want (ever) to default a tv
           -- to *. So, don't grow the kvs.
 
-       ; constraints <- zonkTcTypes constraints
+       ; constraints <- TcM.zonkTcTypes constraints
                  -- quantiyTyVars turned some meta tyvars into
                  -- quantified skolems, so we have to zonk again
 
@@ -702,10 +704,10 @@ decideQuantification cv_env apply_mr sig_qtvs name_taus constraints
     bndrs    = map fst name_taus
     pp_bndrs = pprWithCommas (quotes . ppr) bndrs
     quantify_tvs mono_tvs kvs tvs   -- See Note [Which type variable to quantify]
-      | null sig_qtvs = quantifyTyVars cv_env mono_tvs (kvs, tvs)
+      | null sig_qtvs = quantifyTyVars cv_env mono_tvs (Pair kvs tvs)
       | otherwise     = quantifyTyVars cv_env
-                                       (mono_tvs `delVarSetList`    sig_qtvs)
-                                       (kvs, tvs `extendVarSetList` sig_qtvs)
+                         (mono_tvs `delVarSetList`    sig_qtvs)
+                         (Pair kvs (tvs `extendVarSetList` sig_qtvs))
 
 
 ------------------
@@ -920,7 +922,7 @@ simplifyWantedsTcM
   :: Purity -- ^ Should the simplifier be pure? If the caller doesn't
             -- propagate the returned constraints, then this probably
             -- should be pure.
-  -> WantedConstraints -> TcM WantedConstraints
+  -> [CtEvidence] -> TcM WantedConstraints
 -- Zonk the input constraints, and simplify them
 -- Discard the evidence binds
 -- Discards all Derived stuff in result
@@ -928,7 +930,8 @@ simplifyWantedsTcM
 simplifyWantedsTcM purity wanted
   = do { traceTc "simplifyWantedsTcM {" (ppr wanted)
        ; result <- fst <$>
-                   simplifyWantedsTcMCustom purity (solveWantedsAndDrop wanted)
+                   simplifyWantedsTcMCustom purity (solveWantedsAndDrop $
+                                                    mkSimpleWC wanted)
        ; traceTc "simplifyWantedsTcM }" (ppr result)
        ; return result }
 
@@ -945,9 +948,9 @@ simplifyWantedsTcMCustom purity tcs
             Pure   -> tryTcS tcs
             Impure -> do { (res, ev_map) <- runTcS tcs
                          ; return (res, [], ev_map) }
-       ; wc <- zonkWC wc
+       ; wc <- TcM.zonkWC wc
        ; let new_wc = evBindMapWanteds (tyCoVarsOfWC wc) ev_bind_map
-       ; new_wc <- zonkWC new_wc
+       ; new_wc <- TcM.zonkWC new_wc
        ; return (wc `andWC` new_wc, unifs) }
 
 -- | Produce a bag of wanted constraints, extracted from an 'EvBindMap',
@@ -955,7 +958,7 @@ simplifyWantedsTcMCustom purity tcs
 evBindMapWanteds :: TyCoVarSet -> EvBindMap -> WantedConstraints
 evBindMapWanteds tcvs ev_bind_map
   = mkSimpleWC $
-    map (mkNonCanonical . evBindWanted) $
+    map evBindWanted $
     catMaybes $
     map (lookupEvBind ev_bind_map) $
     filter isCoVar $
@@ -1882,7 +1885,7 @@ findDefaultableGroups (default_tys, (ovl_strings, extended_defaults)) wanteds
         -- which may look like (Typeable * (a:*))   (Trac #8931)
     find_unary cc
         | Just (cls,tys)   <- getClassPredTys_maybe (ctPred cc)
-        , [ty] <- filterInvisibles (classTyCon cls) tys
+        , [ty] <- filterOutInvisibleTypes (classTyCon cls) tys
               -- Ignore invisible arguments for this purpose
         , Just tv <- tcGetTyVar_maybe ty
         , isMetaTyVar tv  -- We might have runtime-skolems in GHCi, and
@@ -1926,9 +1929,9 @@ disambigGroup [] _
   = return False
 disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
   = do { traceTcS "disambigGroup {" (vcat [ ppr default_ty, ppr the_tv, ppr wanteds ])
-       ; tclvl             <- TcS.getTcLevel
-       ; success <- nestTryTcS (pushTcLevel tclvl)
-                    try_group
+       ; tclvl <- TcS.getTcLevel
+       ; resid <- nestTryTcS (pushTcLevel tclvl) try_group
+       ; let success = isJust mb_subst && isEmptyWC resid
 
        ; if success then
              -- Success: record the type variable binding, and return
@@ -1943,21 +1946,22 @@ disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
                 ; disambigGroup default_tys group } }
   where
     try_group
-      | Just subst <- mb_subst
+      | Just (subst, _) <- mb_subst
       = do { lcl_env <- TcS.getLclEnv
            ; let loc = CtLoc { ctl_origin = GivenOrigin UnkSkol
                              , ctl_env    = lcl_env
                              , ctl_depth  = initialSubGoalDepth }
            ; wanted_evs <- mapM (newWantedEvVarNC loc . substTy subst . ctPred)
                                 wanteds
-           ; residual_wanted <- solveSimpleWanteds $ listToBag $
-                                map mkNonCanonical wanted_evs
-           ; return (isEmptyWC residual_wanted) }
-      | otherwise
-      = return False
+           ; solveSimpleWanteds $ listToBag $
+             map mkNonCanonical wanted_evs }
 
-    tmpl_tvs = extendVarSet (tyVarsOfType (tyVarKind the_tv)) the_tv
-    mb_subst = tcMatchTy tmpl_tvs (mkTyVarTy the_tv) default_ty
+      | otherwise
+      = return emptyWC
+
+    the_ty   = mkTyVarTy the_tv
+    tmpl_tvs = tyCoVarsOfType the_ty
+    mb_subst = tcMatchTy tmpl_tvs the_ty default_ty
       -- Make sure the kinds match too; hence this call to tcMatchTy
       -- E.g. suppose the only constraint was (Typeable k (a::k))
 

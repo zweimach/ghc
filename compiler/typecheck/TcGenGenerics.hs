@@ -254,7 +254,7 @@ canDoGenerics tc tc_args
           --
           -- Data family indices can be instantiated; the `tc_args` here are
           -- the representation tycon args
-              (if (all isTyVarTy (filterInvisibles tc tc_args))
+              (if (all isTyVarTy (filterOutInvisibleTypes tc tc_args))
                 then IsValid
                 else NotValid (tc_name <+> text "must not be instantiated;" <+>
                                text "try deriving `" <> tc_name <+> tc_tys <>
@@ -673,12 +673,12 @@ mkBoxTy :: TyCon -- UAddr
         -> Type
         -> Type
 mkBoxTy uAddr uChar uDouble uFloat uInt uWord rec0 ty
-  | ty == addrPrimTy   = mkTyConTy uAddr
-  | ty == charPrimTy   = mkTyConTy uChar
-  | ty == doublePrimTy = mkTyConTy uDouble
-  | ty == floatPrimTy  = mkTyConTy uFloat
-  | ty == intPrimTy    = mkTyConTy uInt
-  | ty == wordPrimTy   = mkTyConTy uWord
+  | ty `eqType` addrPrimTy   = mkTyConTy uAddr
+  | ty `eqType` charPrimTy   = mkTyConTy uChar
+  | ty `eqType` doublePrimTy = mkTyConTy uDouble
+  | ty `eqType` floatPrimTy  = mkTyConTy uFloat
+  | ty `eqType` intPrimTy    = mkTyConTy uInt
+  | ty `eqType` wordPrimTy   = mkTyConTy uWord
   | otherwise          = mkTyConApp rec0 [ty]
 
 --------------------------------------------------------------------------------
@@ -886,12 +886,12 @@ unboxRepRDR = maybe unK1_RDR snd . unboxedRepRDRs
 -- constructor. See Note [Generics and unlifted types]
 unboxedRepRDRs :: Type -> Maybe (RdrName, RdrName)
 unboxedRepRDRs ty
-  | ty == addrPrimTy   = Just (uAddrDataCon_RDR,   uAddrHash_RDR)
-  | ty == charPrimTy   = Just (uCharDataCon_RDR,   uCharHash_RDR)
-  | ty == doublePrimTy = Just (uDoubleDataCon_RDR, uDoubleHash_RDR)
-  | ty == floatPrimTy  = Just (uFloatDataCon_RDR,  uFloatHash_RDR)
-  | ty == intPrimTy    = Just (uIntDataCon_RDR,    uIntHash_RDR)
-  | ty == wordPrimTy   = Just (uWordDataCon_RDR,   uWordHash_RDR)
+  | ty `eqType` addrPrimTy   = Just (uAddrDataCon_RDR,   uAddrHash_RDR)
+  | ty `eqType` charPrimTy   = Just (uCharDataCon_RDR,   uCharHash_RDR)
+  | ty `eqType` doublePrimTy = Just (uDoubleDataCon_RDR, uDoubleHash_RDR)
+  | ty `eqType` floatPrimTy  = Just (uFloatDataCon_RDR,  uFloatHash_RDR)
+  | ty `eqType` intPrimTy    = Just (uIntDataCon_RDR,    uIntHash_RDR)
+  | ty `eqType` wordPrimTy   = Just (uWordDataCon_RDR,   uWordHash_RDR)
   | otherwise          = Nothing
 
 -- Build a product pattern

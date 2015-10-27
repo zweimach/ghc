@@ -16,7 +16,7 @@ module TcEvidence (
   lookupEvBind, evBindMapBinds, foldEvBindMap,
   EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, mkGivenEvBind, mkWantedEvBind,
   evBindsVars, evBindsSubst, evBindsSubstX, evBindsCvSubstEnv,
-  sccEvBinds,
+  sccEvBinds, evBindVar,
   EvTerm(..), mkEvCast, evVarsOfTerm, mkEvScSelectors,
   EvLit(..), evTermCoercion,
   EvCallStack(..),
@@ -707,6 +707,9 @@ data EvBind
                  -- See Note [Tracking redundant constraints] in TcSimplify
     }
 
+evBindVar :: EvBind -> EvVar
+evBindVar = eb_lhs
+
 mkWantedEvBind :: EvVar -> EvTerm -> CtLoc -> EvBind
 mkWantedEvBind ev tm loc = EvBind { eb_is_given = False, eb_lhs = ev, eb_rhs = tm
                                   , eb_loc = loc }
@@ -724,7 +727,7 @@ data EvTerm
   | EvCast EvTerm TcCoercion     -- d |> co, the coercion being at role representational
 
   | EvDFunApp DFunId             -- Dictionary instance application
-       [Type] [EvId]
+       [Type] [EvTerm]
 
   | EvDelayedError Type FastString  -- Used with Opt_DeferTypeErrors
                                -- See Note [Deferring coercion errors to runtime]
@@ -1010,7 +1013,7 @@ evTermCoercion tm = pprPanic "evTermCoercion" (ppr tm)
 evVarsOfTerm :: EvTerm -> VarSet
 evVarsOfTerm (EvId v)             = unitVarSet v
 evVarsOfTerm (EvCoercion co)      = coVarsOfTcCo co
-evVarsOfTerm (EvDFunApp _ _ evs)  = mkVarSet evs
+evVarsOfTerm (EvDFunApp _ _ evs)  = mapUnionVarSet evVarsOfTerm evs
 evVarsOfTerm (EvSuperClass v _)   = evVarsOfTerm v
 evVarsOfTerm (EvCast tm co)       = evVarsOfTerm tm `unionVarSet` coVarsOfTcCo co
 evVarsOfTerm (EvDelayedError _ _) = emptyVarSet

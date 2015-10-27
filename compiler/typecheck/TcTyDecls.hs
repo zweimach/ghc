@@ -29,7 +29,6 @@ import DataCon
 import Name
 import NameEnv
 import VarEnv
-import Var
 import VarSet
 import NameSet
 import Coercion ( ltRole )

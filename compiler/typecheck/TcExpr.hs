@@ -1329,9 +1329,9 @@ getFixedTyVars upd_fld_occs tvs1 cons
       = mkVarSet [tv1 | con <- cons
                       , let (tvs, theta, arg_tys, _) = dataConSig con
                             flds = dataConFieldLabels con
-                            fixed_tvs = exactTyVarsOfTypes fixed_tys
+                            fixed_tvs = exactTyCoVarsOfTypes fixed_tys
                                     -- fixed_tys: See Note [Type of a record update]
-                                        `unionVarSet` tyVarsOfTypes theta
+                                        `unionVarSet` tyCoVarsOfTypes theta
                                     -- Universally-quantified tyvars that
                                     -- appear in any of the *implicit*
                                     -- arguments to the constructor are fixed

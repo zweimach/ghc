@@ -37,6 +37,10 @@ instance Foldable Pair where
 instance Traversable Pair where
   traverse f (Pair x y) = Pair <$> f x <*> f y
 
+instance Monoid a => Monoid (Pair a) where
+  mempty = Pair mempty mempty
+  Pair a1 b1 `mappend` Pair a2 b2 = Pair (a1 `mappend` a2) (b1 `mappend` b2)
+
 instance Outputable a => Outputable (Pair a) where
   ppr (Pair a b) = ppr a <+> char '~' <+> ppr b
 

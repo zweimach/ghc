@@ -2060,7 +2060,8 @@ genDerivStuff loc clas dfun_name tycon inst_tys tyvars comaux_maybe
            -- resort is -XDeriveAnyClass (since -XGeneralizedNewtypeDeriving
            -- fell through).
           let mini_env   = mkVarEnv (classTyVars clas `zip` inst_tys)
-              mini_subst = mkTvSubst (mkInScopeSet (mkVarSet tyvars)) mini_env
+              mini_subst = mkTCvSubst (mkInScopeSet (mkVarSet tyvars))
+                                      (mini_env, emptyCvSubstEnv)
 
          ; tyfam_insts <-
              ASSERT2( isNothing (canDeriveAnyClass dflags tycon clas)

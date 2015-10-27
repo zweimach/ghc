@@ -19,7 +19,7 @@ module Type (
 
         -- ** Constructing and deconstructing types
         mkTyVarTy, mkTyVarTys, getTyVar, getTyVar_maybe, repGetTyVar_maybe,
-        getCastedTyVar_maybe,
+        getCastedTyVar_maybe, tyVarKind,
 
         mkAppTy, mkAppTys, splitAppTy, splitAppTys,
         splitAppTy_maybe, repSplitAppTy_maybe,
@@ -49,7 +49,8 @@ module Type (
         coAxNthLHS,
         stripCoercionTy, splitCoercionType_maybe,
 
-        splitForAllTysInvisible, filterInvisibles,
+        splitForAllTysInvisible, filterOutInvisibleTypes,
+        filterOutInvisibleTyVars, partitionInvisibles,
         synTyConResKind,
         tyConBinders,
 
@@ -115,6 +116,7 @@ module Type (
         tyCoVarsOfType, tyCoVarsOfTypes, coVarsOfType,
         coVarsOfTypes, closeOverKinds,
         splitDepVarsOfType, splitDepVarsOfTypes,
+        splitVisVarsOfType, splitVisVarsOfTypes,
         expandTypeSynonyms,
         typeSize, varSetElemsWellScoped,
 
@@ -210,10 +212,12 @@ import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
 import Control.Applicative ( (<$>) )
-import Control.Arrow    ( first )
+import Control.Arrow    ( first, second )
 
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative ( Applicative, (<*>) )
+import Data.Monoid         ( Monoid(..) )
+import Data.Foldable       ( foldMap )
 #endif
 
 -- $type_classification
@@ -1190,15 +1194,43 @@ dropForAlls ty | Just ty' <- coreView ty = dropForAlls ty'
     go res                       = res
 
 -- | Given a tycon and its arguments, filters out any invisible arguments
-filterInvisibles :: TyCon -> [a] -> [a]
-  -- TODO (RAE): This is wrong wrong wrong. What if a substitution would expose
-  -- more arrow types, thus changing the splitForAllTys result? If length xs
-  -- is <= length bndrs, we're OK, but we need to do substitution in the
-  -- oversaturated case.
-filterInvisibles tc xs = [ x | (x, bndr) <- zip xs bndrs
-                             , isVisibleBinder bndr ]
+filterOutInvisibleTypes :: TyCon -> [Type] -> [Type]
+filterOutInvisibleTypes tc tys = snd $ partitionInvisibles tc id tys
+
+-- | Like 'filterOutInvisibles', but works on 'TyVar's
+filterOutInvisibleTyVars :: TyCon -> [TyVar] -> [TyVar]
+filterOutInvisibleTyVars tc tvs = snd $ partitionInvisibles tc mkTyVarTy tvs
+
+-- | Given a tycon and a list of things (which correspond to arguments),
+-- partitions the things into the invisible ones and the visible ones.
+-- The callback function is necessary for this scenario:
+--
+-- > T :: forall k. k -> k
+-- > partitionInvisibles T [forall m. m -> m -> m, S, R, Q]
+--
+-- After substituting, we get
+--
+-- > T (forall m. m -> m -> m) :: (forall m. m -> m -> m) -> forall n. n -> n -> n
+--
+-- Thus, the first argument is invisible, @S@ is visible, @R@ is invisible again,
+-- and @Q@ is visible.
+--
+-- If you're absolutely sure that your tycon's kind doesn't end in a variable,
+-- it's OK if the callback function panics, as that's the only time it's
+-- consulted.
+partitionInvisibles :: TyCon -> (a -> Type) -> [a] -> ([a], [a])
+partitionInvisibles tc get_ty = go emptyTCvSubst (tyConKind tc)
   where
-    (bndrs, _) = splitForAllTys (tyConKind tc)
+    go _ _ [] = ([], [])
+    go subst (ForAllTy bndr res_ki) (x:xs)
+      | isVisibleBinder bndr = second (x :) (go subst' res_ki xs)
+      | otherwise            = first  (x :) (go subst' res_ki xs)
+      where
+        subst' = extendTCvSubstBinder subst bndr (get_ty x)
+    go subst (TyVarTy tv) xs
+      | Just ki <- lookupTyVar subst tv = go subst ki xs
+    go subst ki _ = pprPanic "partitionInvisibles" (ppr subst $$ ppr ki)
+
 
 -- like splitForAllTys, but returns only *invisible* binders, including constraints
 splitForAllTysInvisible :: Type -> ([Binder], Type)
@@ -2143,30 +2175,55 @@ synTyConResKind tycon = piResultTys (tyConKind tycon) (mkTyVarTys (tyConTyVars t
 -- and non-dependently. (This isn't the most precise analysis, because
 -- it's used in the typechecking knot. It might list some dependent
 -- variables as also non-dependent.)
-splitDepVarsOfType :: Type -> (TyCoVarSet, TyCoVarSet)
+splitDepVarsOfType :: Type -> Pair TyCoVarSet
 splitDepVarsOfType = go
   where
-    go (TyVarTy tv)              = (tyCoVarsOfType $ tyVarKind tv, unitVarSet tv)
-    go (AppTy t1 t2)             = combine [go t1, go t2]
-    go (TyConApp _ tys)          = combine (map go tys)
-    go (ForAllTy (Anon arg) res) = combine [go arg, go res]
+    go (TyVarTy tv)              = Pair (tyCoVarsOfType $ tyVarKind tv)
+                                        (unitVarSet tv)
+    go (AppTy t1 t2)             = go t1 `mappend` go t2
+    go (TyConApp _ tys)          = foldMap go tys
+    go (ForAllTy (Anon arg) res) = go arg `mappend` go res
     go (ForAllTy (Named tv _) ty)
-      = let (kvs, tvs) = go ty in
-        ( kvs `delVarSet` tv `unionVarSet` tyCoVarsOfType (tyVarKind tv)
-        , tvs `delVarSet` tv )
-    go (LitTy {})                = combine []
-    go (CastTy ty co)            = combine [go ty, (tyCoVarsOfCo co, emptyVarSet)]
+      = let Pair kvs tvs = go ty in
+        Pair (kvs `delVarSet` tv `unionVarSet` tyCoVarsOfType (tyVarKind tv))
+             (tvs `delVarSet` tv)
+    go (LitTy {})                = mempty
+    go (CastTy ty co)            = go ty `mappend` Pair (tyCoVarsOfCo co)
+                                                        emptyVarSet
     go (CoercionTy co)           = go_co co
 
     go_co co = let Pair ty1 ty2 = coercionKind co in
-               combine [go ty1, go ty2]
-
-    combine [] = (emptyVarSet, emptyVarSet)
-    combine ((kvs, tvs) : rest) = let (kvs', tvs') = combine rest in
-                                  (kvs `unionVarSet` kvs', tvs `unionVarSet` tvs')
+               go ty1 `mappend` go ty2  -- NB: the Pairs separate along different
+                                        -- dimensions here. Be careful!
 
 -- | Like 'splitDepVarsOfType', but over a list of types
-splitDepVarsOfTypes :: [Type] -> (TyCoVarSet, TyCoVarSet)
-splitDepVarsOfTypes tys
-  = let (kvss, tvss) = mapAndUnzip splitDepVarsOfType tys in
-    (unionVarSets kvss, unionVarSets tvss)
+splitDepVarsOfTypes :: [Type] -> Pair TyCoVarSet
+splitDepVarsOfTypes = foldMap splitDepVarsOfType
+
+-- | Retrieve the free variables in this type, splitting them based
+-- on whether they are used visibly or invisibly. Invisible ones come
+-- first.
+splitVisVarsOfType :: Type -> Pair TyCoVarSet
+splitVisVarsOfType orig_ty = Pair invis_vars vis_vars
+  where
+    Pair invis_vars1 vis_vars = go orig_ty
+    invis_vars = invis_vars1 `minusVarSet` vis_vars
+
+    go (TyVarTy tv)  = Pair (tyCoVarsOfType $ tyVarKind tv) (unitVarSet tv)
+    go (AppTy t1 t2) = go t1 `mappend` go t2
+    go (TyConApp tc tys) = go_tc tc tys
+    go (ForAllTy (Anon t1) t2) = go t1 `mappend` go t2
+    go (ForAllTy (Named tv _) ty)
+      = ((`delVarSet` tv) <$> go ty) `mappend`
+        (invisible (tyCoVarsOfType $ tyVarKind tv))
+    go (LitTy {}) = mempty
+    go (CastTy ty co) = go ty `mappend` invisible (tyCoVarsOfCo co)
+    go (CoercionTy co) = invisible $ tyCoVarsOfCo co
+
+    invisible vs = Pair vs emptyVarSet
+
+    go_tc tc tys = let (invis, vis) = partitionInvisibles tc id tys in
+                   invisible (tyCoVarsOfTypes invis) `mappend` foldMap go vis
+
+splitVisVarsOfTypes :: [Type] -> Pair TyCoVarSet
+splitVisVarsOfTypes = foldMap splitVisVarsOfType

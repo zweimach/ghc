@@ -15,8 +15,8 @@ import TcMType
 import TcType
 import RnEnv( unknownNameSuggestions )
 import Type
+import TyCoRep
 import Kind
-import TysPrim          ( funTyConName )
 import Unify            ( tcMatchTys )
 import Module
 import FamInst
@@ -24,11 +24,11 @@ import FamInstEnv       ( flattenTys )
 import Inst
 import InstEnv
 import TyCon
+import Class
 import DataCon
 import TcEvidence
 import Name
 import RdrName ( lookupGRE_Name, GlobalRdrEnv, mkRdrUnqual )
-import Class( className )
 import PrelNames( typeableClassName )
 import Id
 import Var
@@ -155,7 +155,7 @@ report_unsolved mb_binds_var err_as_warn type_errors expr_holes type_holes wante
        ; env0 <- tcInitTidyEnv
             -- If we are deferring we are going to need /all/ evidence around,
             -- including the evidence produced by unflattening (zonkWC)
-       ; let tidy_env = tidyFreeTyVars env0 free_tvs
+       ; let tidy_env = tidyFreeTyCoVars env0 free_tvs
              free_tvs = tyCoVarsOfWC wanted
 
        ; traceTc "reportUnsolved (after zonking and tidying):" $
@@ -509,9 +509,11 @@ addDeferredBinding ctxt err ct
                -- See Note [Deferred errors for unlifted equality]
              do { let lifted_pred = mkEqPredRole role ty1 ty2
                 ; liftedVar <- newEvVar lifted_pred
-                ; addTcEvBind ev_binds_var ev_id (EvId liftedVar) loc
-                ; addTcEvBind ev_binds_var liftedVar
-                              (EvDelayedError lifted_pred err_fs) loc }
+                ; addTcEvBind ev_binds_var $
+                  mkWantedEvBind ev_id (EvId liftedVar) loc
+                ; addTcEvBind ev_binds_var $
+                  mkWantedEvBind liftedVar
+                                 (EvDelayedError lifted_pred err_fs) loc }
            _ -> pprPanic "addDeferredBinding" (ppr pred)
          else addTcEvBind ev_binds_var (mkWantedEvBind ev_id (EvDelayedError pred err_fs) loc) }
 
@@ -851,12 +853,12 @@ mkEqErr1 ctxt ct
                NomEq  -> empty
                ReprEq -> mkCoercibleExplanation rdr_env fam_envs ty1 ty2
        ; dflags <- getDynFlags
-       ; traceTc "mkEqErr1" (ppr ct $$ pprCtOrigin (ctLocOrigin loc) $$ pprCtOrigin tidy_orig)
+       ; traceTc "mkEqErr1" (ppr ct $$ pprCtOrigin (ctOrigin ct))
        ; let extras = wanted_msg $$ coercible_msg $$ binds_msg
        ; if keep_going
          then mkEqErr_help dflags ctxt
                       extras ct is_oriented ty1 ty2
-         else mkErrorMsg ctxt ct extras }
+         else mkErrorMsgFromCt ctxt ct extras }
   where
     (ty1, ty2) = getEqPredTys (ctPred ct)
 
@@ -870,7 +872,7 @@ mkEqErr1 ctxt ct
 
        -- If the types in the error message are the same as the types
        -- we are unifying, don't add the extra expected/actual message
-    mk_wanted_extra :: CtOrigin -> Bool -> (Maybe SwapFlag, SDoc)
+    mk_wanted_extra :: CtOrigin -> Bool -> (Bool, Maybe SwapFlag, SDoc)
     mk_wanted_extra orig@(TypeEqOrigin {}) expandSyns
       = mkExpectedActualMsg ty1 ty2 orig expandSyns
 
@@ -882,7 +884,7 @@ mkEqErr1 ctxt ct
                           , ppr cty2 <+> dcolon <+> ppr (typeKind cty2) ])
         msg2 = case sub_o of
                  TypeEqOrigin {} ->
-                   snd (mkExpectedActualMsg cty1 cty2 sub_o expandSyns)
+                   thdOf3 (mkExpectedActualMsg cty1 cty2 sub_o expandSyns)
                  _ ->
                    empty
 
@@ -1234,8 +1236,8 @@ misMatchMsg ct oriented ty1 ty2
 
     orig = ctOrigin ct
     what = case t_or_k of
-      TypeLevel -> text "type"
-      KindLevel -> text "kind"
+      TypeLevel -> "type"
+      KindLevel -> "kind"
 
     conc :: [String] -> String
     conc = foldr1 add_space
@@ -1430,17 +1432,20 @@ expandSynonymsToMatch ty1 ty2 = (ty1_ret, ty2_ret)
           (exps2, t1_2', t2_2') = go 0 t1_2 t2_2
        in (exps + exps1 + exps2, mkAppTy t1_1' t1_2', mkAppTy t2_1' t2_2')
 
-    go exps (FunTy t1_1 t1_2) (FunTy t2_1 t2_2) =
+    go exps (ForAllTy (Anon t1_1) t1_2) (ForAllTy (Anon t2_1) t2_2) =
       let (exps1, t1_1', t2_1') = go 0 t1_1 t2_1
           (exps2, t1_2', t2_2') = go 0 t1_2 t2_2
-       in (exps + exps1 + exps2, FunTy t1_1' t1_2', FunTy t2_1' t2_2')
+       in (exps + exps1 + exps2, mkFunTy t1_1' t1_2', mkFunTy t2_1' t2_2')
 
-    go exps (ForAllTy tv1 t1) (ForAllTy tv2 t2) =
+    go exps (ForAllTy (Named tv1 vis1) t1) (ForAllTy (Named tv2 vis2) t2) =
       -- NOTE: We may have a bug here, but we just can't reproduce it easily.
       -- See D1016 comments for details and our attempts at producing a test
-      -- case.
+      -- case. Short version: We probably need RnEnv2 to really get this right.
       let (exps1, t1', t2') = go exps t1 t2
-       in (exps1, ForAllTy tv1 t1', ForAllTy tv2 t2')
+       in (exps1, ForAllTy (Named tv1 vis1) t1', ForAllTy (Named tv2 vis2) t2')
+
+    go exps (CastTy ty1 _) ty2 = go exps ty1 ty2
+    go exps ty1 (CastTy ty2 _) = go exps ty1 ty2
 
     go exps t1 t2 = (exps, t1, t2)
 
@@ -1609,7 +1614,7 @@ mk_dict_err ctxt (ct, (matches, unifiers, unsafe_overlapped))
                         && not (null unifiers) && null givens
 
         (has_ambig_tvs, ambig_msg) = mkAmbigMsg lead_with_ambig ct
-        ambig_tvs = getAmbigTkvs ct
+        ambig_tvs = uncurry (++) (getAmbigTkvs ct)
 
         no_inst_msg
           | lead_with_ambig
@@ -1656,7 +1661,7 @@ mk_dict_err ctxt (ct, (matches, unifiers, unsafe_overlapped))
     ppr_skol (PatSkol dc _) = ptext (sLit "the data constructor") <+> quotes (ppr dc)
     ppr_skol skol_info      = ppr skol_info
 
-    extra_note | any isFunTy (filterOut isKind tys)
+    extra_note | any isFunTy (filterOutInvisibleTypes (classTyCon clas) tys)
                = ptext (sLit "(maybe you haven't applied a function to enough arguments?)")
                | className clas == typeableClassName  -- Avoid mysterious "No instance for (Typeable T)
                , [_,ty] <- tys                        -- Look for (Typeable (k->*) (T k))
@@ -1900,8 +1905,8 @@ variables are kind variables.
 mkAmbigMsg :: Bool -- True when message has to be at beginning of sentence
            -> Ct -> (Bool, SDoc)
 mkAmbigMsg prepend_msg ct
-  | null ambig_tkvs = (False, empty)
-  | otherwise       = (True,  msg)
+  | null ambig_kvs && null ambig_tvs = (False, empty)
+  | otherwise                        = (True,  msg)
   where
     (ambig_kvs, ambig_tvs) = getAmbigTkvs ct
 

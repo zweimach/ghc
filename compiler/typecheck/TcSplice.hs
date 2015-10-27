@@ -1071,7 +1071,7 @@ reifyThing thing = pprPanic "reifyThing" (pprTcTyThingCategory thing)
 reifyAxBranch :: TyCon -> CoAxBranch -> TcM TH.TySynEqn
 reifyAxBranch fam_tc (CoAxBranch { cab_lhs = args, cab_rhs = rhs })
             -- remove kind patterns (#8884)
-  = do { args' <- mapM reifyType (filterInvisibles fam_tc args)
+  = do { args' <- mapM reifyType (filterOutInvisibleTypes fam_tc args)
        ; rhs'  <- reifyType rhs
        ; return (TH.TySynEqn args' rhs') }
 
@@ -1274,14 +1274,14 @@ reifyClassInstances :: Class -> [ClsInst] -> TcM [TH.Dec]
 reifyClassInstances cls insts
   = mapM (reifyClassInstance (mkIsPolyTvs tvs)) insts
   where
-    tvs = filterInvisibles (classTyCon cls) (classTyVars cls)
+    tvs = filterOutInvisibleTyVars (classTyCon cls) (classTyVars cls)
 
 reifyClassInstance :: [Bool]  -- True <=> the corresponding tv is poly-kinded
                               -- includes only *visible* tvs
                    -> ClsInst -> TcM TH.Dec
 reifyClassInstance is_poly_tvs i
   = do { cxt <- reifyCxt theta
-       ; let vis_types = filterInvisibles cls_tc types
+       ; let vis_types = filterOutInvisibleTypes cls_tc types
        ; thtypes <- reifyTypes vis_types
        ; annot_thtypes <- zipWith3M annotThType is_poly_tvs vis_types thtypes
        ; let head_ty = mkThAppTs (TH.ConT (reifyName cls)) annot_thtypes
@@ -1296,7 +1296,7 @@ reifyFamilyInstances :: TyCon -> [FamInst] -> TcM [TH.Dec]
 reifyFamilyInstances fam_tc fam_insts
   = mapM (reifyFamilyInstance (mkIsPolyTvs fam_tvs)) fam_insts
   where
-    fam_tvs = filterInvisibles fam_tc (tyConTyVars fam_tc)
+    fam_tvs = filterOutInvisibleTyVars fam_tc (tyConTyVars fam_tc)
 
 reifyFamilyInstance :: [Bool] -- True <=> the corresponding tv is poly-kinded
                               -- includes only *visible* tvs
@@ -1308,7 +1308,7 @@ reifyFamilyInstance is_poly_tvs inst@(FamInst { fi_flavor = flavor
   = case flavor of
       SynFamilyInst ->
                -- remove kind patterns (#8884)
-        do { let lhs_types_only = filterInvisibles fam_tc lhs
+        do { let lhs_types_only = filterOutInvisibleTypes fam_tc lhs
            ; th_lhs <- reifyTypes lhs_types_only
            ; annot_th_lhs <- zipWith3M annotThType is_poly_tvs lhs_types_only
                                                    th_lhs
@@ -1328,7 +1328,7 @@ reifyFamilyInstance is_poly_tvs inst@(FamInst { fi_flavor = flavor
                  etad_tyvars            = dropList rep_tc_args tvs
                  eta_expanded_lhs = lhs `chkAppend` mkTyVarTys etad_tyvars
            ; cons <- mapM (reifyDataCon (mkTyVarTys tvs)) (tyConDataCons rep_tc)
-           ; let types_only = filterInvisibles fam_tc eta_expanded_lhs
+           ; let types_only = filterOutInvisibleTypes fam_tc eta_expanded_lhs
            ; th_tys <- reifyTypes types_only
            ; annot_th_tys <- zipWith3M annotThType is_poly_tvs types_only th_tys
            ; return (if isNewTyCon rep_tc
@@ -1406,7 +1406,7 @@ reifyTyVars :: [TyVar]
 reifyTyVars tvs m_tc = mapM reify_tv tvs'
   where
     tvs' = case m_tc of
-             Just tc -> filterInvisibles tc tvs
+             Just tc -> filterOutInvisibleTyVars tc tvs
              Nothing -> tvs
 
     -- even if the kind is *, we need to include a kind annotation,
@@ -1454,9 +1454,9 @@ in.
 See #8953 and test th/T8953.
 -}
 
-reify_tc_app :: TyCon -> [TyCoRep.Type] -> TcM TH.Type
+reify_tc_app :: TyCon -> [Type.Type] -> TcM TH.Type
 reify_tc_app tc tys
-  = do { tys' <- reifyTypes (filterInvisibles tc tys)
+  = do { tys' <- reifyTypes (filterOutInvisibleTypes tc tys)
        ; maybe_sig_t (mkThAppTs r_tc tys') }
   where
     arity   = tyConArity tc

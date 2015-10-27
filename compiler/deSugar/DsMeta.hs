@@ -312,8 +312,7 @@ repFamilyDecl decl@(L loc (FamilyDecl { fdInfo      = info,
                                         fdResultSig = L _ resultSig,
                                         fdInjectivityAnn = injectivity }))
   = do { tc1 <- lookupLOcc tc           -- See note [Binders and occurrences]
-       ; let mkHsQTvs tvs = HsQTvs { hsq_kvs = [], hsq_tvs = tvs }
-             resTyVar = case resultSig of
+       ; let resTyVar = case resultSig of
                      TyVarSig bndr -> mkHsQTvs [bndr]
                      _             -> mkHsQTvs []
        ; dec <- addTyClTyVarBinds tvs $ \bndrs ->

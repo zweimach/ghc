@@ -48,7 +48,6 @@ import ConLike
 import DataCon
 import PrelNames
 import TysWiredIn
-import BasicTypes
 import Literal
 import qualified Var
 import VarEnv
@@ -67,7 +66,7 @@ import SrcLoc
 import DynFlags
 import Util
 import FastString
-import BasicTypes   ( TupleSort(..) )
+import BasicTypes hiding ( SuccessFlag(..) )
 import ListSetOps
 
 import Data.List

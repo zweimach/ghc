@@ -37,12 +37,18 @@ import Type
 import TyCoRep
 import TcMType
 import Name
+import Pair
 import Panic
 import VarSet
 import Control.Monad
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Arrow ( first, second )
+
+#if __GLASGOW_HASKELL__ < 709
+import Prelude hiding ( and )
+import Data.Foldable ( and )
+#endif
 
 #include "HsVersions.h"
 
@@ -407,8 +413,8 @@ makeInjectivityErrors tycon axiom inj conflicts
         rhs             = coAxBranchRHS axiom
 
         are_conflicts   = not $ null conflicts
-        unused_inj_tvs  = unusedInjTvsInRHS inj lhs rhs
-        inj_tvs_unused  = not $ isEmptyVarSet unused_inj_tvs
+        unused_inj_tvs  = unusedInjTvsInRHS tycon inj lhs rhs
+        inj_tvs_unused  = not $ and (isEmptyVarSet <$> unused_inj_tvs)
         tf_headed       = isTFHeaded rhs
         bare_variables  = bareTvInRHSViolated lhs rhs
         wrong_bare_rhs  = not $ null bare_variables
@@ -425,8 +431,8 @@ makeInjectivityErrors tycon axiom inj conflicts
 
 -- | Return a list of type variables that the function is injective in and that
 -- do not appear on injective positions in the RHS of a family instance
--- declaration.
-unusedInjTvsInRHS :: [Bool] -> [Type] -> Type -> TyVarSet
+-- declaration. The returned Pair includes invisible vars followed by visible ones
+unusedInjTvsInRHS :: TyCon -> [Bool] -> [Type] -> Type -> Pair TyVarSet
 -- INVARIANT: [Bool] list contains at least one True value
 -- See Note [Verifying injectivity annotation]. This function implements fourth
 -- check described there.
@@ -434,37 +440,46 @@ unusedInjTvsInRHS :: [Bool] -> [Type] -> Type -> TyVarSet
 -- attempt to unify equation with itself.  We would reject exactly the same
 -- equations but this method gives us more precise error messages by returning
 -- precise names of variables that are not mentioned in the RHS.
-unusedInjTvsInRHS injList lhs rhs =
-  injLHSVars `minusVarSet` injRhsVars
+unusedInjTvsInRHS tycon injList lhs rhs =
+  (`minusVarSet` injRhsVars) <$> injLHSVars
     where
       -- set of type and kind variables in which type family is injective
-      injLHSVars = tyVarsOfTypes (filterByList injList lhs)
+      (invis_pairs, vis_pairs)
+        = partitionInvisibles tycon snd (zipEqual "unusedInjTvsInRHS" injList lhs)
+      invis_lhs = uncurry filterByList $ unzip invis_pairs
+      vis_lhs   = uncurry filterByList $ unzip vis_pairs
+
+      invis_vars = tyCoVarsOfTypes invis_lhs
+      Pair invis_vars' vis_vars = splitVisVarsOfTypes vis_lhs
+      injLHSVars
+        = Pair (invis_vars `minusVarSet` vis_vars `unionVarSet` invis_vars')
+               vis_vars
 
       -- set of type variables appearing in the RHS on an injective position.
       -- For all returned variables we assume their associated kind variables
       -- also appear in the RHS.
-      injRhsVars = closeOverKinds $ collectInjVars rhs
+      injRhsVars = collectInjVars rhs
 
       -- Collect all type variables that are either arguments to a type
       -- constructor or to injective type families.
       collectInjVars :: Type -> VarSet
-      collectInjVars ty | Just (ty1, ty2) <- splitAppTy_maybe ty
-        = collectInjVars ty1 `unionVarSet` collectInjVars ty2
       collectInjVars (TyVarTy v)
-        = unitVarSet v
+        = unitVarSet v `unionVarSet` collectInjVars (tyVarKind v)
       collectInjVars (TyConApp tc tys)
         | isTypeFamilyTyCon tc = collectInjTFVars tys
                                                  (familyTyConInjectivityInfo tc)
         | otherwise            = mapUnionVarSet collectInjVars tys
       collectInjVars (LitTy {})
         = emptyVarSet
-      collectInjVars (FunTy arg res)
+      collectInjVars (ForAllTy (Anon arg) res)
         = collectInjVars arg `unionVarSet` collectInjVars res
       collectInjVars (AppTy fun arg)
         = collectInjVars fun `unionVarSet` collectInjVars arg
       -- no forall types in the RHS of a type family
       collectInjVars (ForAllTy _ _)    =
           panic "unusedInjTvsInRHS.collectInjVars"
+      collectInjVars (CastTy ty _)   = collectInjVars ty
+      collectInjVars (CoercionTy {}) = emptyVarSet
 
       collectInjTFVars :: [Type] -> Injectivity -> VarSet
       collectInjTFVars _ NotInjective
@@ -536,15 +551,15 @@ conflictInjInstErr conflictingEqns errorBuilder tyfamEqn
 
 -- | Build error message for equation with injective type variables unused in
 -- the RHS.
-unusedInjectiveVarsErr :: TyVarSet -> InjErrorBuilder -> CoAxBranch
+unusedInjectiveVarsErr :: Pair TyVarSet -> InjErrorBuilder -> CoAxBranch
                        -> (SDoc, SrcSpan)
-unusedInjectiveVarsErr unused_tyvars errorBuilder tyfamEqn
-  = errorBuilder (injectivityErrorHerald True $$ unusedInjectiveVarsErr)
+unusedInjectiveVarsErr (Pair invis_vars vis_vars) errorBuilder tyfamEqn
+  = errorBuilder (injectivityErrorHerald True $$ msg)
                  [tyfamEqn]
     where
-      tvs = varSetElemsKvsFirst unused_tyvars
-      has_types = any isTypeVar tvs
-      has_kinds = any isKindVar tvs
+      tvs = varSetElemsWellScoped (invis_vars `unionVarSet` vis_vars)
+      has_types = not $ isEmptyVarSet vis_vars
+      has_kinds = not $ isEmptyVarSet invis_vars
 
       doc = sep [ what <+> text "variable" <>
                   plural tvs <+> pprQuotedList tvs
@@ -553,14 +568,13 @@ unusedInjectiveVarsErr unused_tyvars errorBuilder tyfamEqn
                (True, True)   -> text "Type and kind"
                (True, False)  -> text "Type"
                (False, True)  -> text "Kind"
-               (False, False) -> pprPanic "mkUnusedInjectiveVarsErr" $
-                                 ppr unused_tyvars
+               (False, False) -> pprPanic "mkUnusedInjectiveVarsErr" $ ppr tvs
       print_kinds_info = sdocWithDynFlags $ \ dflags ->
                          if has_kinds && not (gopt Opt_PrintExplicitKinds dflags)
                          then text "(enabling -fprint-explicit-kinds might help)"
                          else empty
-      unusedInjectiveVarsErr = doc $$ print_kinds_info $$
-                               text "In the type family equation:"
+      msg = doc $$ print_kinds_info $$
+            text "In the type family equation:"
 
 -- | Build error message for equation that has a type family call at the top
 -- level of RHS

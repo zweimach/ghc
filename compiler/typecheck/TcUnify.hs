@@ -826,7 +826,7 @@ uType origin orig_ty1 orig_ty2
 
     ------------------
     defer ty1 ty2   -- See Note [Check for equality before deferring]
-      | ty1 `tcEqType` ty2 = return (mkTcNomReflCo ty1)
+      | ty1 `tcEqType` ty2 = return (mkNomReflCo ty1)
       | otherwise          = uType_defer origin ty1 ty2
 
     ------------------
@@ -1053,7 +1053,7 @@ checkTauTvUpdate dflags origin tv ty
                 if tv `elemVarSet` tyCoVarsOfType ty
                 then return Nothing
                 else return (Just (ty, co_k))
-            | defer_me ty1 ->  -- Quick test
+            | defer_me ty ->  -- Quick test
                 -- Failed quick test so try harder
                 case occurCheckExpand dflags tv ty of
                    OC_OK ty2 | defer_me ty2 -> return Nothing

@@ -1239,8 +1239,8 @@ rnFamResultSig doc (TyVarSig tvbndr)
                            ] $$
                       text "shadows an already bound type variable")
 
-       ; (tvbndr', fvs) <- rnLHsTyVarBndr doc Nothing rdr_env tvbndr
-       ; return (TyVarSig tvbndr', fvs) }
+       ; rnLHsTyVarBndrs doc Nothing rdr_env [tvbndr] $ \[tvbndr'] ->
+         return (TyVarSig tvbndr', unitFV (hsLTyVarName tvbndr')) }
 
 -- Note [Renaming injectivity annotation]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

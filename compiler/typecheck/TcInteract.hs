@@ -14,7 +14,6 @@ import TcCanonical
 import TcFlatten
 import VarSet
 import Type
-import Kind ( isKind )
 import InstEnv( DFunInstType, lookupInstEnv, instanceDFunId )
 import CoAxiom(sfInteractTop, sfInteractInert)
 import Coercion ( buildCoherenceCo )
@@ -52,11 +51,7 @@ import Maybes( isJust )
 import Pair (Pair(..))
 import Unique( hasKey )
 import DynFlags
-import BasicTypes  ( Boxity(..) )
 import Util
-
-import Control.Applicative ( (<$>) )
-import Control.Arrow       ( first, second )
 
 {-
 **********************************************************************
@@ -689,7 +684,7 @@ interactDict inerts workItem@(CDictCan { cc_ev = ev_w, cc_class = cls, cc_tyargs
   -- don't ever try to solve CallStack IPs directly from other dicts,
   -- we always build new dicts instead.
   -- See Note [Overview of implicit CallStacks]
-  | Just mkEvCs <- isCallStackIP (ctEvLoc ev_w) cls tys
+  | Just mkEvCs <- isCallStackIP loc cls tys
   , isWanted ev_w
   = do let ev_cs =
              case lookupInertDict inerts cls tys of
@@ -702,7 +697,7 @@ interactDict inerts workItem@(CDictCan { cc_ev = ev_w, cc_class = cls, cc_tyargs
        let ip_ty = mkClassPred cls tys
        let ev_tm = mkEvCast (EvCallStack ev_cs) (TcCoercion $ wrapIP ip_ty)
        addSolvedDict ev_w cls tys
-       setWantedEvBind (ctEvId ev_w) ev_tm
+       setWantedEvBind (ctEvId ev_w) ev_tm loc
        stopWith ev_w "Wanted CallStack IP"
 
   | Just ctev_i <- lookupInertDict inerts cls tys
@@ -723,6 +718,8 @@ interactDict inerts workItem@(CDictCan { cc_ev = ev_w, cc_class = cls, cc_tyargs
   | otherwise
   = do { addFunDepWork inerts ev_w cls
        ; continueWith workItem  }
+  where
+    loc = ctEvLoc ev_w
 
 interactDict _ wi = pprPanic "interactDict" (ppr wi)
 
@@ -851,7 +848,7 @@ interactFunEq tclvl inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
          ; reactFunEq tc ev_i args_i fsk_i ev args fsk
          ; stopWith ev "Inert rewrites work item" }
     else  -- Rewrite inert using work-item
-      ASSERT2( ev `canDischarge` ev_i, ppr ev $$ ppr ev_i )
+      ASSERT2( canDischarge tclvl ev ev_i, ppr ev $$ ppr ev_i )
       do { traceTcS "reactFunEq (rewrite inert item):" $
            vcat [ text "workItem =" <+> ppr workItem
                 , text "inertItem=" <+> ppr ev_i ]
@@ -867,7 +864,7 @@ interactFunEq tclvl inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
   where
     loc             = ctEvLoc ev
     funeqs          = inert_funeqs inerts
-    matching_inerts = findFunEqs funeqs tc args
+    matching_inerts = findFunEq funeqs tc args
 
 interactFunEq _ _ workItem = pprPanic "interactFunEq" (ppr workItem)
 
@@ -944,10 +941,11 @@ reactFunEq fam_tc from_this args1 fsk1 solve_this args2 fsk2
        ; emitWorkNC [new_ev] }
 
   | otherwise
-  = do { traceTcS "reactFunEq" (ppr from_this $$ ppr fsk1 $$ ppr ev $$ ppr fsk2)
-       ; dischargeFmv ev fsk2 co (mkTyVarTy fsk1)
+  = do { traceTcS "reactFunEq" (ppr from_this $$ ppr fsk1 $$
+                                ppr solve_this $$ ppr fsk2)
+       ; dischargeFmv solve_this fsk2 co (mkTyVarTy fsk1)
        ; traceTcS "reactFunEq done" (ppr from_this $$ ppr fsk1 $$
-                                     ppr ev $$ ppr fsk2) }
+                                     ppr solve_this $$ ppr fsk2) }
 
   where
       -- this should always succeed b/c of correct lookup
@@ -1197,7 +1195,7 @@ solveByUnification wd tv xi
                              text "Left Kind is:" <+> ppr (typeKind tv_ty),
                              text "Right Kind is:" <+> ppr (typeKind xi) ]
 
-       ; unifyTyVar tv xi'
+       ; unifyTyVar tv xi
        ; setEvBindIfWanted wd (EvCoercion (mkTcNomReflCo xi)) }
 
 ppr_kicked :: Int -> SDoc
@@ -1302,8 +1300,8 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = fl, cc_class = cls
   = do { try_fundep_improvement
        ; continueWith work_item }
 
-  | Just ev <- lookupSolvedDict inerts loc cls xis   -- Cached
-  = do { setEvBindIfWanted fl (ctEvCoherence ev pred)
+  | Just ev <- lookupSolvedDict inerts cls xis   -- Cached
+  = do { setEvBindIfWanted fl (ctEvCoherence ev dict_pred)
        ; stopWith fl "Dict/Top (cached)" }
 
   | isDerived fl  -- Use type-class instances for Deriveds, in the hope
@@ -1352,7 +1350,7 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = fl, cc_class = cls
        = loc
 
      solve_from_instance :: [TcPredType] -> PredType
-                         -> ([EvId] -> EvTerm) -> TcS (StopOrContinue Ct)
+                         -> ([EvTerm] -> EvTerm) -> TcS (StopOrContinue Ct)
       -- Precondition: evidence term matches the predicate workItem
      solve_from_instance theta solved_pty mk_ev
         | null theta
@@ -1363,11 +1361,11 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = fl, cc_class = cls
         = do { checkReductionDepth deeper_loc dict_pred
              ; traceTcS "doTopReact/found non-nullary instance for" $ ppr fl
              ; evc_vars <- mapM (newWantedEvVar deeper_loc) theta
-             ; setWantedEvBind (ctEvId fl) (mk_coh_ev (map (ctEvId . fst) evc_vars)) dict_loc
+             ; setWantedEvBind (ctEvId fl) (mk_coh_ev (map getEvTerm evc_vars)) dict_loc
              ; emitWorkNC (freshGoals evc_vars)
              ; stopWith fl "Dict/Top (solved, more work)" }
        where
-         mk_coh_ev ev_ids = evTermCoherence solved_pty (mk_ev ev_ids) pred
+         mk_coh_ev ev_tms = evTermCoherence solved_pty (mk_ev ev_tms) dict_pred
 
      -- We didn't solve it; so try functional dependencies with
      -- the instance environment, and return
@@ -1507,12 +1505,12 @@ improve_top_fun_eqs fam_envs fam_tc args rhs_ty
           , let ax_args = axiomLHS axiom
           , let ax_rhs  = axiomRHS axiom
           , Just subst <- [tcUnifyTyWithTFs False ax_rhs rhs_ty]
-          , let tvs           = tyVarsOfTypes ax_args
+          , let tvs           = tyCoVarsOfTypes ax_args
                 notInSubst tv = not (tv `elemVarEnv` getTvSubstEnv subst)
-                unsubstTvs    = filterVarSet notInSubst tvs ]
+                unsubstTvs    = filterVarSet (notInSubst <&&> isTyVar) tvs ]
 
       injImproveEqns :: [Bool]
-                     -> ([Type], TCvSubst, TyVarSet, Maybe CoAxBranch)
+                     -> ([Type], TCvSubst, TyCoVarSet, Maybe CoAxBranch)
                      -> TcS [Eqn]
       injImproveEqns inj_args (ax_args, theta, unsubstTvs, cabr) = do
         (theta', _) <- instFlexiTcS (varSetElems unsubstTvs)
@@ -1760,9 +1758,9 @@ type SafeOverlapping = Bool
 
 data LookupInstResult
   = NoInstance
-  | GenInst { lir_new_theta :: [CtEvidence]
+  | GenInst { lir_new_theta :: [TcPredType]
             , lir_pred      :: PredType
-            , lir_mk_ev     :: [EvId] -> EvTerm
+            , lir_mk_ev     :: [EvTerm] -> EvTerm
             , lir_safe_over :: SafeOverlapping }
 
 instance Outputable LookupInstResult where
@@ -1841,7 +1839,10 @@ match_class_inst _ _ clas ts _
   | isCTupleClass clas
   , let data_con = tyConSingleDataCon (classTyCon clas)
         tuple_ev = EvDFunApp (dataConWrapId data_con) ts
-  = return (GenInst ts tuple_ev True)
+  = return (GenInst { lir_new_theta = ts
+                    , lir_pred      = mkClassPred clas ts
+                    , lir_mk_ev     = tuple_ev
+                    , lir_safe_over = True })
             -- The dfun is the data constructor!
 
 match_class_inst _ _ clas [k,t] _
@@ -1889,7 +1890,7 @@ match_class_inst dflags _ clas tys loc
             ; return $ GenInst { lir_new_theta = theta
                                , lir_pred      = new_pred
                                , lir_mk_ev     = EvDFunApp dfun_id tys
-                               , lir_safe_over = so }
+                               , lir_safe_over = so } }
 
 
 {- Note [Instance and Given overlap]
@@ -1989,19 +1990,30 @@ matchTypeableClass clas k t
   | eqType k typeNatKind                       = doTyLit knownNatClassName
   | eqType k typeSymbolKind                    = doTyLit knownSymbolClassName
 
-  | Just (tc, ks) <- splitTyConApp_maybe t
-  , all isKind ks                              = doTyCon tc ks
+  | Just (tc, ks)     <- splitTyConApp_maybe t
+  , let (bndrs, _)                   = splitForAllTys (tyConKind tc)
+        (used_bndrs, leftover_bndrs) = splitAtList ks bndrs
+  , all isNamedBinder used_bndrs
+  , not (any isNamedBinder leftover_bndrs)     = doTyCon tc ks
 
-  | Just (f,kt)       <- splitAppTy_maybe t    = doTyApp f kt
+  | Just (f,kt)       <- splitAppTy_maybe t
+  , Just (bndr, _)    <- splitForAllTy_maybe (typeKind f)
+  , not (isNamedBinder bndr)                   = doTyApp f kt
   | otherwise                                  = return NoInstance
 
   where
+  cls_pred = mkClassPred clas [k,t]
+
   -- Representation for type constructor applied to some kinds
   doTyCon tc ks =
     case mapM kindRep ks of
       Nothing    -> return NoInstance
       Just kReps ->
-        return $ GenInst [] (\_ -> EvTypeable (EvTypeableTyCon tc kReps) ) True
+        return $ GenInst { lir_new_theta = []
+                         , lir_pred      = cls_pred
+                         , lir_mk_ev     = \_ -> EvTypeable
+                                                 (EvTypeableTyCon tc kReps)
+                         , lir_safe_over = True }
 
   {- Representation for an application of a type to a type-or-kind.
   This may happen when the type expression starts with a type variable.
@@ -2012,12 +2024,12 @@ matchTypeableClass clas k t
     Typeable f
   -}
   doTyApp f tk
-    | isKind tk
-    = return NoInstance -- We can't solve until we know the ctr.
-    | otherwise
-    = return $ GenInst [mk_typeable_pred f, mk_typeable_pred tk]
-                       (\[t1,t2] -> EvTypeable $ EvTypeableTyApp (EvId t1,f) (EvId t2,tk))
-                       True
+    = return $ GenInst { lir_new_theta = [mk_typeable_pred f, mk_typeable_pred tk]
+                       , lir_pred      = cls_pred
+                       , lir_mk_ev     = \ [t1,t2] -> EvTypeable $
+                                                      EvTypeableTyApp
+                                                        (t1,f) (t2,tk)
+                       , lir_safe_over = True }
 
   -- Representation for concrete kinds.  We just use the kind itself,
   -- but first check to make sure that it is "simple" (i.e., made entirely
@@ -2033,8 +2045,12 @@ matchTypeableClass clas k t
   -- and make evidence for a type-level literal.
   doTyLit c = do clas <- tcLookupClass c
                  let p = mkClassPred clas [ t ]
-                 return $ GenInst [p] (\[i] -> EvTypeable
-                                             $ EvTypeableTyLit (EvId i,t)) True
+                 return $ GenInst { lir_new_theta = [p]
+                                  , lir_pred      = cls_pred
+                                  , lir_mk_ev     = \ [i] -> EvTypeable $
+                                                             EvTypeableTyLit
+                                                               (i,t)
+                                  , lir_safe_over = True }
 
 {- Note [No Typeable for polytype or for constraints]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

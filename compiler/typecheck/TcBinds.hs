@@ -746,9 +746,8 @@ mkInferredPolyId poly_name qtvs theta mono_ty
              my_tvs2 = closeOverKinds (growThetaTyVars theta (tyCoVarsOfType norm_mono_ty))
                   -- Include kind variables!  Trac #7916
 
-       ; my_theta <- pickQuantifiablePreds my_tvs2 theta
-
-       ; let my_tvs = filter (`elemVarSet` my_tvs2) qtvs   -- Maintain original order
+       ; let my_theta = pickQuantifiablePreds my_tvs2 theta
+             my_tvs = filter (`elemVarSet` my_tvs2) qtvs   -- Maintain original order
              inferred_poly_ty = mkInvSigmaTy my_tvs my_theta norm_mono_ty
 
        ; addErrCtxtM (mk_bind_msg True False poly_name inferred_poly_ty) $
@@ -1111,7 +1110,7 @@ tcSpecWrapper ctxt poly_ty spec_ty
   = do { (sk_wrap, inst_wrap)
                <- tcGen ctxt spec_ty $ \ _ spec_tau ->
                   do { (inst_wrap, tau) <- deeplyInstantiate orig poly_ty
-                     ; _ <- unifyType spec_tau tau
+                     ; _ <- unifyType noThing spec_tau tau
                             -- Deliberately ignore the evidence
                             -- See Note [Handling SPECIALISE pragmas],
                             --   wrinkle (2)

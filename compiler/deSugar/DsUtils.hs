@@ -46,7 +46,6 @@ import {-# SOURCE #-}   Match ( matchSimply )
 
 import HsSyn
 import TcHsSyn
-import Coercion( Coercion, isReflCo )
 import TcType( tcSplitTyConApp )
 import CoreSyn
 import DsMonad

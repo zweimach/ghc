@@ -16,7 +16,8 @@ For state that is global and should be returned at the end (e.g not part
 of the stack mechanism), you should use an TcRef (= IORef) to store them.
 -}
 
-{-# LANGUAGE CPP, ExistentialQuantification, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE CPP, ExistentialQuantification, GeneralizedNewtypeDeriving,
+             ViewPatterns #-}
 
 module TcRnTypes(
         TcRnIf, TcRn, TcM, RnM, IfM, IfL, IfG, -- The monad is opaque outside this module
@@ -97,8 +98,8 @@ module TcRnTypes(
         getEvBindsTcPluginM_maybe,
 
         CtFlavour(..), ctEvFlavour,
-        CtFlavourRole, ctEvFlavourRole, ctFlavourRole,
-        eqCanRewrite, eqCanRewriteFR, canDischarge, canDischargeFR,
+        CtFRB, ctEvFRB, ctFRB,
+        eqCanRewrite, eqCanRewriteFRB, canDischarge, canDischargeFRB,
 
         -- Pretty printing
         pprEvVarTheta,

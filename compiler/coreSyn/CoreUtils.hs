@@ -37,7 +37,7 @@ module CoreUtils (
         tryEtaReduce,
 
         -- * Manipulating data constructors and types
-        exprToType,
+        exprToType, exprToCoercion_maybe,
         applyTypeToArgs, applyTypeToArg,
         dataConRepInstPat, dataConRepFSInstPat,
         isEmptyTy,
@@ -197,6 +197,11 @@ applyTypeToArgs e op_ty args
 exprToType :: CoreExpr -> Type
 exprToType (Type ty)     = ty
 exprToType _bad          = pprPanic "exprToType" (ppr _bad)
+
+-- | If the expression is a 'Coercion', converts.
+exprToCoercion_maybe :: CoreExpr -> Maybe Coercion
+exprToCoercion_maybe (Coercion co) = Just co
+exprToCoercion_maybe _             = Nothing
 
 {-
 ************************************************************************
@@ -711,7 +716,7 @@ combineIdenticalAlts imposs_cons ((_con1,bndrs1,rhs1) : con_alts)
     cheapEqTicked e1 e2 = cheapEqExpr' tickishFloatable e1 e2
     identical_to_alt1 (_con,bndrs,rhs)
       = all isDeadBinder bndrs && rhs `cheapEqTicked` rhs1
-    tickss = map (stripTicksT tickishFloatable . thirdOf3) eliminated_alts
+    tickss = map (stripTicksT tickishFloatable . thdOf3) eliminated_alts
 
 combineIdenticalAlts imposs_cons alts
   = (False, imposs_cons, alts)

@@ -18,7 +18,7 @@ module VarEnv (
         lookupVarEnv, lookupVarEnv_NF, lookupWithDefaultVarEnv,
         mapVarEnv, zipVarEnv,
         modifyVarEnv, modifyVarEnv_Directly,
-        isEmptyVarEnv, foldVarEnv,
+        isEmptyVarEnv, foldVarEnv, foldVarEnv_Directly,
         elemVarEnvByKey, lookupVarEnv_Directly,
         filterVarEnv, filterVarEnv_Directly, restrictVarEnv,
         partitionVarEnv,
@@ -417,6 +417,7 @@ lookupWithDefaultVarEnv :: VarEnv a -> a -> Var -> a
 elemVarEnv        :: Var -> VarEnv a -> Bool
 elemVarEnvByKey   :: Unique -> VarEnv a -> Bool
 foldVarEnv        :: (a -> b -> b) -> b -> VarEnv a -> b
+foldVarEnv_Directly :: (Unique -> a -> b -> b) -> b -> VarEnv a -> b
 
 elemVarEnv       = elemUFM
 elemVarEnvByKey  = elemUFM_Directly
@@ -446,6 +447,7 @@ varEnvToList     = ufmToList
 unitVarEnv       = unitUFM
 isEmptyVarEnv    = isNullUFM
 foldVarEnv       = foldUFM
+foldVarEnv_Directly = foldUFM_Directly
 lookupVarEnv_Directly = lookupUFM_Directly
 filterVarEnv_Directly = filterUFM_Directly
 delVarEnv_Directly    = delFromUFM_Directly

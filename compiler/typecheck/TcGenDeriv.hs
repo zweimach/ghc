@@ -2207,7 +2207,7 @@ primLitOps str tycon ty = ( assoc_ty_id str tycon litConTbl ty
                           )
   where
     boxRDR
-      | ty == addrPrimTy = unpackCString_RDR
+      | ty `eqType` addrPrimTy = unpackCString_RDR
       | otherwise = assoc_ty_id str tycon boxConTbl ty
 
 ordOpTbl :: [(Type, (RdrName, RdrName, RdrName, RdrName, RdrName))]

@@ -1598,7 +1598,7 @@ tyConToIfaceDecl env tycon
                     ifTyVars  = if_tc_tyvars,
                     ifResVar  = if_res_var,
                     ifFamFlav = to_if_fam_flav fam_flav,
-                    ifFamKind = if_kind
+                    ifFamKind = if_kind,
                     ifFamInj  = familyTyConInjectivityInfo tycon
                   })
 

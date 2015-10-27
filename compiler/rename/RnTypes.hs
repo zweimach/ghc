@@ -6,7 +6,6 @@
 
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 module RnTypes (
         -- Type related stuff
@@ -22,7 +21,7 @@ module RnTypes (
 
         -- Binding related stuff
         warnContextQuantification, warnUnusedForAlls,
-        bindSigTyVarsFV, bindHsTyVars, rnHsBndrSig, rnLHsTyVarBndr,
+        bindSigTyVarsFV, bindHsTyVars, rnHsBndrSig, rnLHsTyVarBndrs,
         extractHsTyRdrTyVars, extractHsTysRdrTyVars,
         extractRdrKindSigVars, extractDataDefnKindVars,
         filterInScope
@@ -455,12 +454,16 @@ bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
        ; checkDupRdrNames tv_names_w_loc
        ; when (isNothing mb_assoc) (checkShadowedRdrNames tv_names_w_loc)
 
-       ; rnLHsTyVarBndr doc mb_assoc rdr_env thing_inside tvs }
+       ; rnLHsTyVarBndrs doc mb_assoc rdr_env tvs $ \ tvs' ->
+         thing_inside (HsQTvs { hsq_implicit = kv_names
+                              , hsq_explicit = tvs' }) }}
 
-rnLHsTyVarBndr :: HsDocContext -> Maybe a -> LocalRdrEnv
-               -> (LHsTyVarBndrs Name -> RnM (b, FreeVars))
-               -> [LHsTyVarBndr RdrName] -> RnM (b, FreeVars)
-rnLHsTyVarBndr doc mb_assoc rdr_env thing_inside = go []
+rnLHsTyVarBndrs :: forall a b.
+                   HsDocContext -> Maybe a -> LocalRdrEnv
+                -> [LHsTyVarBndr RdrName]
+                -> ([LHsTyVarBndr Name] -> RnM (b, FreeVars))
+                -> RnM (b, FreeVars)
+rnLHsTyVarBndrs doc mb_assoc rdr_env hs_tvs thing_inside = go [] hs_tvs
   where
     go :: [LHsTyVarBndr Name]    -- already renamed (in reverse order)
        -> [LHsTyVarBndr RdrName] -- still to be renamed
@@ -480,9 +483,8 @@ rnLHsTyVarBndr doc mb_assoc rdr_env thing_inside = go []
            ; return (b, fvs1 `plusFV` fvs2) }
     go renamed []
       = do { env <- getLocalRdrEnv
-           ; traceRn (text "bhtv" <+> (ppr tvs $$ ppr all_kvs $$ ppr env))
-           ; thing_inside (HsQTvs { hsq_explicit = reverse renamed,
-                                    hsq_implicit = kv_names }) }
+           ; traceRn (text "bhtv" <+> (ppr env $$ ppr renamed))
+           ; thing_inside (reverse renamed) }
 
 
 newTyVarNameRn :: Maybe a -> LocalRdrEnv -> SrcSpan -> RdrName -> RnM Name
@@ -505,8 +507,7 @@ rnHsBndrSig doc (HsWB { hswb_cts = ty@(L loc _) }) thing_inside
        ; let (kv_bndrs, tv_bndrs) = filterInScope rdr_env $
                                     extractHsTyRdrTyVars ty
        ; var_names <- newLocalBndrsRn [ L loc tv
-                                      | tv <- (kv_bndrs ++ tv_bndrs)
-                                      , not (tv `elemLocalRdrEnv` name_env) ]
+                                      | tv <- kv_bndrs ++ tv_bndrs ]
        ; bindLocalNamesFV var_names $
     do { (ty', fvs1, wcs) <- rnLHsTypeWithWildCards doc ty
        ; (res, fvs2) <- thing_inside (HsWB { hswb_cts  = ty'
@@ -606,7 +607,6 @@ collectWildCards lty = (extra, nubBy sameNamedWildCard wcs)
       HsRecTy flds            -> gos $ map (cd_fld_type . unLoc) flds
       HsExplicitListTy _ tys  -> gos tys
       HsExplicitTupleTy _ tys -> gos tys
-      HsWrapTy _ ty           -> go (L loc ty)
       -- Interesting cases
       HsWildCardTy wc         -> ([], [L loc wc])
       HsForAllTy _ _ _ (L _ ctxt) ty -> ctxtWcs `mappend` go ty

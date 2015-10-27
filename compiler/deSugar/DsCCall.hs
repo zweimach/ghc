@@ -21,7 +21,6 @@ module DsCCall
 import CoreSyn
 
 import DsMonad
-import DsUtils( mkCastDs )
 import CoreUtils
 import MkCore
 import MkId
@@ -275,8 +274,8 @@ mk_alt return_result (Nothing, wrap_result)
              the_rhs = return_result (Var state_id)
                                      [wrap_result (panic "boxResult")]
 
-             ccall_res_ty = mkTupleTy UnboxedTuple [realWorldStatePrimTy]
-             the_alt      = (DataAlt (tupleCon UnboxedTuple 1), [state_id], the_rhs)
+             ccall_res_ty = mkTupleTy Unboxed [realWorldStatePrimTy]
+             the_alt      = (DataAlt (tupleDataCon Unboxed 1), [state_id], the_rhs)
 
        return (ccall_res_ty, the_alt)
 
@@ -291,7 +290,7 @@ mk_alt return_result (Just prim_res_ty, wrap_result)
     let
         the_rhs = return_result (Var state_id)
                                 (wrap_result (Var result_id) : map Var as)
-        ccall_res_ty = mkTupleTy UnboxedTuple (realWorldStatePrimTy : ls)
+        ccall_res_ty = mkTupleTy Unboxed (realWorldStatePrimTy : ls)
         the_alt      = ( DataAlt (tupleDataCon Unboxed arity)
                        , (state_id : args_ids)
                        , the_rhs
@@ -304,8 +303,8 @@ mk_alt return_result (Just prim_res_ty, wrap_result)
     let
         the_rhs = return_result (Var state_id)
                                 [wrap_result (Var result_id)]
-        ccall_res_ty = mkTupleTy UnboxedTuple [realWorldStatePrimTy, prim_res_ty]
-        the_alt      = (DataAlt (tupleCon UnboxedTuple 2), [state_id, result_id], the_rhs)
+        ccall_res_ty = mkTupleTy Unboxed [realWorldStatePrimTy, prim_res_ty]
+        the_alt      = (DataAlt (tupleDataCon Unboxed 2), [state_id, result_id], the_rhs)
     return (ccall_res_ty, the_alt)
 
 

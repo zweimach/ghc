@@ -921,7 +921,10 @@ dsEvTerm (EvCast tm co)
                         -- 'v' is always a lifted evidence variable so it is
                         -- unnecessary to call varToCoreExpr v here.
 
-dsEvTerm (EvDFunApp df tys tms)     = return (Var df `mkTyApps` tys `mkApps` (map Var tms))
+dsEvTerm (EvDFunApp df tys tms)
+  = do { tms' <- mapM dsEvTerm tms
+       ; return $ Var df `mkTyApps` tys `mkApps` tms' }
+
 dsEvTerm (EvCoercion (TcCoVarCo v))
   | not (isCoercionType (tyVarKind v)) = return (Var v)  -- See Note [Simple coercions]
    -- TODO (RAE): This check is "ew".
@@ -1051,7 +1054,6 @@ dsEvTypeable ev =
     pkg_fs                    = unitIdFS pkg
     name_fs                   = occNameFS (nameOccName tycon_name)
     hash_name_fs
-      | isPromotedTyCon tc    = appendFS (mkFastString "$k") name_fs
       | isPromotedDataCon tc  = appendFS (mkFastString "$c") name_fs
       | isTupleTyCon tc &&
         returnsConstraintKind (tyConKind tc)

@@ -1339,7 +1339,8 @@ zonkEvTerm env (EvSuperClass d n) = do { d' <- zonkEvTerm env d
                                        ; return (EvSuperClass d' n) }
 zonkEvTerm env (EvDFunApp df tys tms)
   = do { tys' <- zonkTcTypeToTypes env tys
-       ; return (EvDFunApp (zonkIdOcc env df) tys' (zonkIdOccs env tms)) }
+       ; tms' <- mapM (zonkEvTerm env) tms
+       ; return (EvDFunApp (zonkIdOcc env df) tys' tms') }
 zonkEvTerm env (EvDelayedError ty msg)
   = do { ty' <- zonkTcTypeToType env ty
        ; return (EvDelayedError ty' msg) }

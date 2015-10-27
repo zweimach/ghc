@@ -1241,7 +1241,9 @@ tcInstHeadTyAppAllTyVars ty
   = tcInstHeadTyAppAllTyVars ty'
   | otherwise
   = case ty of
-        TyConApp tc tys         -> ok (filterInvisibles tc tys)  -- avoid kinds
+        TyConApp tc tys         -> ok (filterOutInvisibleTypes tc tys)
+           -- avoid kinds
+
         ForAllTy (Anon arg) res -> ok [arg, res]
         _                       -> False
   where
@@ -1611,7 +1613,7 @@ checkValidClsArgs flexible_contexts cls kts
   | flexible_contexts = True
   | otherwise         = all hasTyVarHead tys
   where
-    tys = filterInvisibles (classTyCon cls) kts
+    tys = filterOutInvisibleTypes (classTyCon cls) kts
 
 hasTyVarHead :: Type -> Bool
 -- Returns true of (a t1 .. tn), where 'a' is a type variable
@@ -2271,7 +2273,7 @@ sizeType = go
     go (TyConApp tc tys)
       | isTypeFamilyTyCon tc     = infinity  -- Type-family applications can
                                            -- expand to any arbitrary size
-      | otherwise                = sizeTypes (filterInvisibles tc tys) + 1
+      | otherwise                = sizeTypes (filterOutInvisibleTypes tc tys) + 1
     go (LitTy {})                = 1
     go (ForAllTy (Anon arg) res) = go arg + go res + 1
     go (AppTy fun arg)           = go fun + go arg

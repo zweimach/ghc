@@ -26,7 +26,7 @@ import TcBinds
 import TcUnify
 import TcHsType
 import TcMType
-import Type     ( getClassPredTys_maybe )
+import Type     ( getClassPredTys_maybe, varSetElemsWellScoped )
 import TcType
 import TcRnMonad
 import BuildTyCl( TcMethInfo )

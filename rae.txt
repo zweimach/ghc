@@ -2,6 +2,8 @@ stack:
 
 - remove the eraseType stuff.
 - fix matching to match coercions that are applied
+- I think we can ditch the coherence coercion produced by unification.
+  But check.
 
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work
@@ -54,6 +56,8 @@ result ty, or (3) do something else. I want SPJ's input, as both (1)
 and (2) are terrible.
 
 fix:
+  - Refactor noThing
+
   - pattern synonyms
 
   - consider changing tcs_unified back to be a count instead of a varset

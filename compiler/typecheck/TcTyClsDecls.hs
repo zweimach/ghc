@@ -650,7 +650,8 @@ tcTyClDecl1 _parent rec_info
                  -- This little knot is just so we can get
                  -- hold of the name of the class TyCon, which we
                  -- need to look up its recursiveness
-               ; traceTc "tcClassDecl 1" (ppr class_name $$ ppr tvs' $$ ppr kind)
+               ; traceTc "tcClassDecl 1" (ppr class_name $$ ppr tvs' $$
+                                          ppr full_kind)
                ; let tycon_name = tyConName (classTyCon clas)
                      tc_isrec = rti_is_rec rec_info tycon_name
                      roles = rti_roles rec_info tycon_name
@@ -682,8 +683,8 @@ tcTyClDecl1 _parent rec_info
          -- NB: Order is important due to the call to `mkGlobalThings' when
          --     tying the the type and class declaration type checking knot.
   where
-    tc_fundep (tvs1, tvs2) = do { tvs1' <- mapM tcLookupTyVar tvs1 ;
-                                ; tvs2' <- mapM tcLookupTyVar tvs2 ;
+    tc_fundep (tvs1, tvs2) = do { tvs1' <- mapM (tcLookupTyVar . unLoc) tvs1 ;
+                                ; tvs2' <- mapM (tcLookupTyVar . unLoc) tvs2 ;
                                 ; return (tvs1', tvs2') }
 
 tcFamDecl1 :: TyConParent -> FamilyDecl Name -> TcM [TyThing]
@@ -694,8 +695,9 @@ tcFamDecl1 parent (FamilyDecl { fdInfo = OpenTypeFamily, fdLName = L _ tc_name
   { traceTc "open type family:" (ppr tc_name)
   ; checkFamFlag tc_name
   ; inj' <- tcInjectivity tvs' inj
-  ; let tycon = mkFamilyTyCon tc_name full_kind tvs' OpenSynFamilyTyCon
-                               (resultVariableName sig) parent inj'
+  ; let tycon = mkFamilyTyCon tc_name full_kind tvs'
+                               (resultVariableName sig) OpenSynFamilyTyCon
+                               parent inj'
   ; return [ATyCon tycon] }
 
 tcFamDecl1 parent
@@ -771,7 +773,8 @@ tcFamDecl1 parent
 
 -- | Maybe return a list of Bools that say whether a type family was declared
 -- injective in the corresponding type arguments. Length of the list is equal to
--- the number of arguments (including implicit kind arguments). True on position
+-- the number of arguments (including implicit kind/coercion arguments).
+-- True on position
 -- N means that a function is injective in its Nth argument. False means it is
 -- not.
 tcInjectivity :: [TyVar] -> Maybe (LInjectivityAnn Name)
@@ -799,8 +802,9 @@ tcInjectivity _ Nothing
   -- reason is that the implementation would not be straightforward.)
 tcInjectivity tvs (Just (L loc (InjectivityAnn _ lInjNames)))
   = setSrcSpan loc $
-    do { inj_tvs <- mapM tcFdTyVar lInjNames
-       ; let inj_ktvs = closeOverKinds (mkVarSet inj_tvs)
+    do { inj_tvs <- mapM (tcLookupTyVar . unLoc) lInjNames
+       ; let inj_ktvs = filterVarSet isTyVar $  -- no injective coercion vars
+                        closeOverKinds (mkVarSet inj_tvs)
        ; let inj_bools = map (`elemVarSet` inj_ktvs) tvs
        ; traceTc "tcInjectivity" (vcat [ ppr tvs, ppr lInjNames, ppr inj_tvs
                                        , ppr inj_ktvs, ppr inj_bools ])
@@ -1036,7 +1040,7 @@ type FamTyConShape = (Name, Arity, Kind) -- See Note [Type-checking type pattern
 famTyConShape :: TyCon -> FamTyConShape
 famTyConShape fam_tc
   = ( tyConName fam_tc
-    , length $ filterInvisibles fam_tc (tyConTyVars fam_tc)
+    , length $ filterOutInvisibleTyVars fam_tc (tyConTyVars fam_tc)
     , tyConKind fam_tc )
 
 tc_fam_ty_pats :: FamTyConShape
@@ -2055,7 +2059,7 @@ checkValidClass cls
         ; mapM_ check_at at_stuff  }
   where
     (tyvars, fundeps, theta, _, at_stuff, op_stuff) = classExtraBigSig cls
-    cls_arity = length $ filterInvisibles (classTyCon cls) tyvars
+    cls_arity = length $ filterOutInvisibleTyVars (classTyCon cls) tyvars
        -- Ignore invisible variables
     cls_tv_set = mkVarSet tyvars
 
@@ -2087,7 +2091,7 @@ checkValidClass cls
 
           check_constraint :: TcPredType -> TcM ()
           check_constraint pred
-            = when (tyVarsOfType pred `subVarSet` cls_tv_set)
+            = when (tyCoVarsOfType pred `subVarSet` cls_tv_set)
                    (addErrTc (badMethPred sel_id pred))
 
     check_at (ATI fam_tc m_dflt_rhs)
@@ -2099,7 +2103,7 @@ checkValidClass cls
                         -- since there is no possible ambiguity (Trac #10020)
            ; whenIsJust m_dflt_rhs $ \ (rhs, loc) ->
              checkValidTyFamEqn (Just (cls, mini_env)) fam_tc
-                                fam_tvs (mkTyVarTys fam_tvs) rhs loc }
+                                fam_tvs [] (mkTyVarTys fam_tvs) rhs loc }
         where
           fam_tvs = tyConTyVars fam_tc
     mini_env = zipVarEnv tyvars (mkTyVarTys tyvars)
@@ -2152,7 +2156,9 @@ checkValidRoleAnnots role_annots thing
      -- roles for all variables. So, we drop the implicit roles.
           tyvars                 = tyConTyVars tc
           roles                  = tyConRoles tc
-          (exp_roles, exp_vars)  = unzip $ filterInvisibles tc $ zip roles tyvars
+          (vis_roles, vis_vars)  = unzip $ snd $
+                                   partitionInvisibles tc (mkTyVarTy . snd) $
+                                   zip roles tyvars
           role_annot_decl_maybe  = lookupRoleAnnots role_annots name
 
           check_roles
@@ -2162,16 +2168,16 @@ checkValidRoleAnnots role_annots thing
                 setSrcSpan loc $ do
                 { role_annots_ok <- xoptM Opt_RoleAnnotations
                 ; checkTc role_annots_ok $ needXRoleAnnotations tc
-                ; checkTc (exp_vars `equalLength` the_role_annots)
-                          (wrongNumberOfRoles exp_vars decl)
-                ; _ <- zipWith3M checkRoleAnnot exp_vars the_role_annots exp_roles
+                ; checkTc (vis_vars `equalLength` the_role_annots)
+                          (wrongNumberOfRoles vis_vars decl)
+                ; _ <- zipWith3M checkRoleAnnot vis_vars the_role_annots vis_roles
                 -- Representational or phantom roles for class parameters
                 -- quickly lead to incoherence. So, we require
                 -- IncoherentInstances to have them. See #8773.
                 ; incoherent_roles_ok <- xoptM Opt_IncoherentInstances
                 ; checkTc (  incoherent_roles_ok
                           || (not $ isClassTyCon tc)
-                          || (all (== Nominal) exp_roles))
+                          || (all (== Nominal) vis_roles))
                           incoherentRoles
 
                 ; lint <- goptM Opt_DoCoreLinting

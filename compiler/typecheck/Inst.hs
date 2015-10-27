@@ -226,7 +226,7 @@ instDFunType dfun_id dfun_inst_tys
   where
     (dfun_tvs, dfun_theta, dfun_ty) = tcSplitSigmaTy (idType dfun_id)
 
-    go :: TCvSubst -> [TyVar] -> [DFunInstType] -> TcM (TvSubst, [TcType])
+    go :: TCvSubst -> [TyVar] -> [DFunInstType] -> TcM (TCvSubst, [TcType])
     go subst [] [] = return (subst, [])
     go subst (tv:tvs) (Just ty : mb_tys)
       = do { (subst', tys) <- go (extendTCvSubst subst tv ty) tvs mb_tys

@@ -1156,7 +1156,7 @@ lintCoreRule fun_ty (Rule { ru_name = name, ru_bndrs = bndrs
   = lintBinders bndrs $ \ _ ->
     do { lhs_ty <- foldM lintCoreArg fun_ty args
        ; rhs_ty <- lintCoreExpr rhs
-       ; checkTys lhs_ty rhs_ty $
+       ; ensureEqTys lhs_ty rhs_ty $
          (rule_doc <+> vcat [ ptext (sLit "lhs type:") <+> ppr lhs_ty
                             , ptext (sLit "rhs type:") <+> ppr rhs_ty ])
        ; let bad_bndrs = filterOut (`elemVarSet` exprsFreeVars args) bndrs

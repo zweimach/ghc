@@ -23,7 +23,7 @@ module TcValidity (
 import TcUnify    ( tcSubType_NC )
 import TcSimplify ( simplifyAmbiguityCheck )
 import TyCoRep
-import TcType
+import TcType hiding ( sizeType, sizeTypes )
 import TcMType
 import TysWiredIn ( coercibleClass, eqTyCon )
 import PrelNames
@@ -831,22 +831,19 @@ dupPredWarn env dups
 
 tyConArityErr :: TyCon -> [TcType] -> SDoc
 -- For type-constructor arity errors, be careful to report
--- the number of /type/ arguments required and supplied,
--- ignoring the /kind/ arguments, which the user does not see.
+-- the number of /visible/ arguments required and supplied,
+-- ignoring the /invisible/ arguments, which the user does not see.
 -- (e.g. Trac #10516)
 tyConArityErr tc tks
   = arityErr (tyConFlavour tc) (tyConName tc)
              tc_type_arity tc_type_args
   where
-    tvs = tyConTyVars tc
-
-    kbs :: [Bool]  -- True for a Type arg, false for a Kind arg
-    kbs = map isTypeVar tvs
+    vis_tks = filterOutInvisibleTypes tc tks
 
     -- tc_type_arity = number of *type* args expected
     -- tc_type_args  = number of *type* args encountered
-    tc_type_arity = count id kbs
-    tc_type_args  = count (id . fst) (kbs `zip` tks)
+    tc_type_arity = count isVisibleBinder $ fst $ splitForAllTys (tyConKind tc)
+    tc_type_args  = length vis_tks
 
 arityErr :: Outputable a => String -> a -> Int -> Int -> SDoc
 arityErr what name n m
@@ -884,7 +881,7 @@ checkValidInstHead ctxt clas cls_args
 
            -- Check language restrictions;
            -- but not for SPECIALISE isntance pragmas
-       ; let ty_args = filterInvisibles (classTyCon clas) cls_args
+       ; let ty_args = filterOutInvisibleTypes (classTyCon clas) cls_args
        ; unless spec_inst_prag $
          do { checkTc (xopt Opt_TypeSynonymInstances dflags ||
                        all tcInstHeadTyNotSynonym ty_args)
@@ -1310,7 +1307,7 @@ checkValidCoAxBranch mb_clsinfo fam_tc
                     (CoAxBranch { cab_tvs = tvs, cab_cvs = cvs
                                 , cab_lhs = typats
                                 , cab_rhs = rhs, cab_loc = loc })
-  = checkValidTyFamEqn mb_clsinfo fam_tc tvs typats rhs loc
+  = checkValidTyFamEqn mb_clsinfo fam_tc tvs cvs typats rhs loc
 
 -- | Do validity checks on a type family equation, including consistency
 -- with any enclosing class instance head, termination, and lack of
@@ -1318,11 +1315,12 @@ checkValidCoAxBranch mb_clsinfo fam_tc
 checkValidTyFamEqn :: Maybe ClsInfo
                    -> TyCon   -- ^ of the type family
                    -> [TyVar] -- ^ bound tyvars in the equation
+                   -> [CoVar] -- ^ bound covars in the equation
                    -> [Type]  -- ^ type patterns
                    -> Type    -- ^ rhs
                    -> SrcSpan
                    -> TcM ()
-checkValidTyFamEqn mb_clsinfo fam_tc tvs typats rhs loc
+checkValidTyFamEqn mb_clsinfo fam_tc tvs cvs typats rhs loc
   = setSrcSpan loc $
     do { checkValidFamPats fam_tc tvs cvs typats
 
@@ -1417,7 +1415,7 @@ inaccessibleCoAxBranch fam_tc (CoAxBranch { cab_tvs = tvs
                                           , cab_lhs = lhs
                                           , cab_rhs = rhs })
   = ptext (sLit "Type family instance equation is overlapped:") $$
-    hang (pprUserForAll tvs)
+    hang (pprUserForAll (map (flip mkNamedBinder Invisible) tvs))
        2 (hang (pprTypeApp fam_tc lhs) 2 (equals <+> (ppr rhs)))
 
 tyFamInstIllegalErr :: Type -> SDoc
@@ -1484,8 +1482,7 @@ sizeType :: Type -> Int
 -- Size of a type: the number of variables and constructors
 sizeType ty | Just exp_ty <- tcView ty = sizeType exp_ty
 sizeType (TyVarTy {})      = 1
-  -- TODO (RAE): check the necessity of filterInvisibles
-sizeType (TyConApp tc tys) = sizeTypes (filterInvisibles tc tys) + 1
+sizeType (TyConApp tc tys) = sizeTypes (filterOutInvisibleTypes tc tys) + 1
 sizeType (LitTy {})        = 1
 sizeType (AppTy fun arg)   = sizeType fun + sizeType arg
 sizeType (ForAllTy (Anon arg) res)
@@ -1513,17 +1510,9 @@ sizePred ty = goClass ty
     goClass p | isIPPred p = 0
               | otherwise  = go (classifyPredType p)
 
-         -- TODO (RAE): Check the necessity of the filterImplicits
-    go (ClassPred cls tys') = sizeTypes (filterInvisibles (classTyCon cls) tys')
+    go (ClassPred cls tys')
+      = sizeTypes (filterOutInvisibleTypes (classTyCon cls) tys')
     go (EqPred {})        = 0
-    go (TuplePred ts)     = sum (map goClass ts)
-    go (IrredPred ty)     = sizeType ty
-
-
-         -- TODO (RAE): Check the necessity of the filterImplicits
-    go (ClassPred cls tys') = sizeTypes (filterInvisibles (classTyCon cls) tys')
-    go (EqPred {})        = 0
-    go (TuplePred ts)     = sum (map goClass ts)
     go (IrredPred ty)     = sizeType ty
 
 -- | Tidy before printing a type

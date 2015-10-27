@@ -405,8 +405,8 @@ isClosedLetBndr :: Id -> TopLevelFlag
 -- looking at its type, which is slightly more liberal, and a whole
 -- lot easier to implement, than looking at its free variables
 isClosedLetBndr id
-  | isEmptyVarSet (tyVarsOfType (idType id)) = TopLevel
-  | otherwise                                = NotTopLevel
+  | isEmptyVarSet (tyCoVarsOfType (idType id)) = TopLevel
+  | otherwise                                  = NotTopLevel
 
 tcExtendLetEnv :: TopLevelFlag -> [TcId] -> TcM a -> TcM a
 -- Used for both top-level value bindings and and nested let/where-bindings

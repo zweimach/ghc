@@ -38,6 +38,12 @@ import Pair             ( Pair(..) )
 import Data.List        ( nubBy )
 import Data.Maybe
 
+#if __GLASGOW_HASKELL__ < 709
+import Prelude hiding ( and )
+import Control.Applicative ( (<$>) )
+import Data.Foldable       ( fold, and )
+#endif
+
 {-
 ************************************************************************
 *                                                                      *
@@ -368,21 +374,21 @@ checkInstCoverage be_liberal clas theta inst_taus
   where
     (tyvars, fds) = classTvsFds clas
     fundep_ok fd
-       | isEmptyVarSet undetermined_tvs = IsValid
-       | otherwise                      = NotValid msg
+       | and (isEmptyVarSet <$> undetermined_tvs) = IsValid
+       | otherwise                                = NotValid msg
        where
          (ls,rs) = instFD fd tyvars inst_taus
          ls_tvs = tyCoVarsOfTypes ls
-         rs_tvs = tyCoVarsOfTypes rs
+         rs_tvs = splitVisVarsOfTypes rs
 
          undetermined_tvs | be_liberal = liberal_undet_tvs
                           | otherwise  = conserv_undet_tvs
 
-         liberal_undet_tvs = rs_tvs `minusVarSet`oclose theta (closeOverKinds ls_tvs)
-         conserv_undet_tvs = rs_tvs `minusVarSet` closeOverKinds ls_tvs
-            -- closeOverKinds: see Note [Closing over kinds in coverage]
+         closed_ls_tvs = oclose theta ls_tvs
+         liberal_undet_tvs = (`minusVarSet` closed_ls_tvs) <$> rs_tvs
+         conserv_undet_tvs = (`minusVarSet` ls_tvs)        <$> rs_tvs
 
-         undet_list = varSetElemsKvsFirst undetermined_tvs
+         undet_list = varSetElemsWellScoped (fold undetermined_tvs)
 
          msg = vcat [ -- text "ls_tvs" <+> ppr ls_tvs
                       -- , text "closed ls_tvs" <+> ppr (closeOverKinds ls_tvs)
@@ -404,9 +410,10 @@ checkInstCoverage be_liberal clas theta inst_taus
                             <+> pprQuotedList rs ]
                     , ptext (sLit "Un-determined variable") <> plural undet_list <> colon
                             <+> pprWithCommas ppr undet_list
-                    , ppWhen (all isKindVar undet_list) $
+                    , ppWhen (isEmptyVarSet $ pSnd undetermined_tvs) $
                       ptext (sLit "(Use -fprint-explicit-kinds to see the kind variables in the types)")
-                    , ppWhen (not be_liberal && isEmptyVarSet liberal_undet_tvs) $
+                    , ppWhen (not be_liberal &&
+                              and (isEmptyVarSet <$> liberal_undet_tvs)) $
                       ptext (sLit "Using UndecidableInstances might help") ]
 
 {- Note [Closing over kinds in coverage]
@@ -594,10 +601,11 @@ checkFunDeps inst_envs (ClsInst { is_tvs = qtvs1, is_cls = cls
       = False
       | otherwise
       = case tcUnifyTys bind_fn ltys1 ltys2 of
-          Nothing    -> False
-          Just subst -> isNothing $   -- Bogus legacy test (Trac #10675)
-                                      -- See Note [Bogus consistency check]
-                        tcUnifyTys bind_fn (substTys subst rtys1) (substTys subst rtys2)
+          Nothing         -> False
+          Just (subst, _)
+            -> isNothing $   -- Bogus legacy test (Trac #10675)
+                             -- See Note [Bogus consistency check]
+               tcUnifyTys bind_fn (substTys subst rtys1) (substTys subst rtys2)
 
       where
         trimmed_tcs    = trimRoughMatchTcs cls_tvs fd rough_tcs1

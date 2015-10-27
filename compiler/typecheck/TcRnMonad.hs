@@ -33,6 +33,7 @@ import FamInstEnv
 import PrelNames
 
 import Id
+import Var
 import VarSet
 import VarEnv
 import ErrUtils
@@ -1043,6 +1044,12 @@ checkTcM False err = failWithTcM err
 failIfTc :: Bool -> MsgDoc -> TcM ()         -- Check that the boolean is false
 failIfTc False _   = return ()
 failIfTc True  err = failWithTc err
+
+failIfTcM :: Bool -> (TidyEnv, MsgDoc) -> TcM ()
+   -- Check that the boolean is false
+failIfTcM False _   = return ()
+failIfTcM True  err = failWithTcM err
+
 
 --         Warnings have no 'M' variant, nor failure
 

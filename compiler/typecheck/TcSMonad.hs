@@ -12,7 +12,7 @@ module TcSMonad (
     updWorkListTcS,
 
     -- The TcS monad
-    TcS, runTcS, runTcSWithEvBinds, tryTcS,
+    TcS, runTcS, runTcSWithEvBinds, failTcS, tryTcS,
     runTcSRollbackInfo,
     nestTcS, nestImplicTcS, nestTryTcS,
 
@@ -146,6 +146,7 @@ import Unique
 import UniqFM
 import Maybes ( orElse, firstJusts )
 import Pair
+import BasicTypes ( Boxity(..) )
 
 import TrieMap
 import Control.Monad
@@ -1174,7 +1175,7 @@ Note [Emitting shadow constraints]
 
 See modelCanRewrite.
 
-NB the use of rewritableTyVars. ou might wonder whether, given the new
+NB the use of rewritableTyVars. You might wonder whether, given the new
 constraint [D] fmv ~ ty and the inert [W] F alpha ~ fmv, do we want to
 emit a shadow constraint [D] F alpha ~ fmv?  No, we don't, because
 it'll literally be a duplicate (since we do not rewrite the RHS of a
@@ -1204,7 +1205,7 @@ eg in Trac #9587.
 addInertEq :: Ct -> TcS ()
 -- This is a key function, because of the kick-out stuff
 -- Precondition: item /is/ canonical
-addInertEq ct@(CTyEqCan { cc_ev = ev, cc_eq_rel = eq_rel, cc_tyvar = tv })
+addInertEq ct@(CTyEqCan { cc_tyvar = tv })
   = do { traceTcS "addInertEq {" $
          text "Adding new inert equality:" <+> ppr ct
        ; ics <- getInertCans
@@ -1251,7 +1252,7 @@ add_inert_eq ics@(IC { inert_count = n
   where
     loc     = ctEvLoc ev
     pred    = ctEvPred ev
-    rw_tvs  = tyVarsOfType pred
+    rw_tvs  = tyCoVarsOfType pred
     new_ics = ics { inert_eqs   = addTyEq old_eqs tv ct
                   , inert_count = bumpUnsolvedCount ev n }
     new_model = extendVarEnv old_model tv derived_ct
@@ -1291,21 +1292,21 @@ emitDerivedShadows IC { inert_eqs      = tv_eqs
       && not (modelCanRewrite model rw_tvs)-- We have not alrady created a
                                            -- shadow
       where
-        rw_tvs = rewritableTyVars ct
+        rw_tvs = rewritableTyCoVars ct
 
-modelCanRewrite :: InertModel -> TcTyVarSet -> Bool
+modelCanRewrite :: InertModel -> TcTyCoVarSet -> Bool
 -- See Note [Emitting shadow constraints]
 -- True if there is any intersection between dom(model) and tvs
 modelCanRewrite model tvs = not (disjointUFM model tvs)
      -- The low-level use of disjointUFM might e surprising.
      -- InertModel = TyVarEnv Ct, and we want to see if its domain
-     -- is disjoint from that of a TcTyVarSet.  So we drop down
+     -- is disjoint from that of a TcTyCoVarSet.  So we drop down
      -- to the underlying UniqFM.  A bit yukky, but efficient.
 
-rewritableTyVars :: Ct -> TcTyVarSet
+rewritableTyCoVars :: Ct -> TcTyVarSet
 -- The tyvars of a Ct that can be rewritten
-rewritableTyVars (CFunEqCan { cc_tyargs = tys }) = tyVarsOfTypes tys
-rewritableTyVars ct                              = tyVarsOfType (ctPred ct)
+rewritableTyCoVars (CFunEqCan { cc_tyargs = tys }) = tyCoVarsOfTypes tys
+rewritableTyCoVars ct                              = tyCoVarsOfType (ctPred ct)
 
 --------------
 addInertCan :: Ct -> TcS ()  -- Constraints *other than* equalities
@@ -1320,7 +1321,7 @@ addInertCan ct
        -- See Note [Emitting shadow constraints]
        ; let ev     = ctEvidence ct
              pred   = ctEvPred ev
-             rw_tvs = rewritableTyVars ct
+             rw_tvs = rewritableTyCoVars ct
 
        ; when (not (isDerived ev) && modelCanRewrite (inert_model ics) rw_tvs)
               (emitNewDerived (ctEvLoc ev) pred)
@@ -1509,7 +1510,7 @@ kickOutModel new_tv ics@(IC { inert_model = model, inert_eqs = eqs })
 
     kick_out_der :: Ct -> Bool
     kick_out_der (CTyEqCan { cc_tyvar = tv, cc_rhs = rhs })
-      = new_tv == tv || new_tv `elemVarSet` tyVarsOfType rhs
+      = new_tv == tv || new_tv `elemVarSet` tyCoVarsOfType rhs
     kick_out_der _ = False
 
     add :: Ct -> WorkList -> WorkList
@@ -2295,7 +2296,8 @@ wrapWarnTcS :: TcM a -> TcS a
 -- There's no static check; it's up to the user
 wrapWarnTcS = wrapTcS
 
-panicTcS :: SDoc -> TcS a
+failTcS, panicTcS :: SDoc -> TcS a
+failTcS      = wrapTcS . TcM.failWith
 panicTcS doc = pprPanic "TcCanonical" doc
 
 traceTcS :: String -> SDoc -> TcS ()
@@ -2640,7 +2642,7 @@ reportUnifications (TcS thing_inside)
        ; res <- thing_inside (env { tcs_unified = inner_unified })
        ; unified_vars <- TcM.readTcRef inner_unified
        ; TcM.updTcRef (tcs_unified env) (`unionVarSet` unified_vars)
-       ; return (not (isEmptyVarSet unified_vars), res) }
+       ; return (sizeVarSet unified_vars, res) }
 
 getDefaultInfo ::  TcS ([Type], (Bool, Bool))
 getDefaultInfo = wrapTcS TcM.tcGetDefaultTys
@@ -2930,8 +2932,8 @@ newGivenEvVar loc (pred, rhs)
 newBoundEvVarId :: TcPredType -> EvTerm -> TcS EvVar
 newBoundEvVarId pred rhs
   = do { new_ev <- newEvVar pred
-       ; loc <- wrapTcS $ TcM.getCtLoc ImpossibleOrigin
-       ; setEvBind new_ev rhs loc
+       ; loc <- wrapTcS $ TcM.getCtLocM ImpossibleOrigin
+       ; setEvBind (mkGivenEvBind new_ev rhs loc)
        ; return new_ev }
 
 newGivenEvVars :: CtLoc -> [(TcPredType, EvTerm)] -> TcS [CtEvidence]

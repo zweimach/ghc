@@ -339,7 +339,7 @@ mkCoreTup cs  = mkCoreConApps (tupleDataCon Boxed (length cs))
 mkCoreUbxTup :: [Type] -> [CoreExpr] -> CoreExpr
 mkCoreUbxTup tys exps
   = ASSERT( tys `equalLength` exps)
-    mkCoreConApps (tupleCon UnboxedTuple (length tys))
+    mkCoreConApps (tupleDataCon Unboxed (length tys))
              (map (Type . getLevity "mkCoreUbxTup") tys ++ map Type tys ++ exps)
 
 -- | Make a core tuple of the given boxity

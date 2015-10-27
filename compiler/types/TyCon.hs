@@ -1174,8 +1174,8 @@ mkSynonymTyCon name kind tyvars roles rhs
     }
 
 -- | Create a type family 'TyCon'
-mkFamilyTyCon:: Name -> Kind -> [TyVar] -> Maybe Name -> FamTyConFlav
-             -> TyConParent -> Injectivity -> TyCon
+mkFamilyTyCon :: Name -> Kind -> [TyVar] -> Maybe Name -> FamTyConFlav
+              -> TyConParent -> Injectivity -> TyCon
 mkFamilyTyCon name kind tyvars resVar flav parent inj
   = FamilyTyCon
       { tyConUnique = nameUnique name
