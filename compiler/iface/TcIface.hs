@@ -880,7 +880,7 @@ tcIfaceTupleTy :: TupleSort -> IfaceTyConInfo -> IfaceTcArgs -> IfL Type
 tcIfaceTupleTy sort info args
  = do { args' <- tcIfaceTcArgs args
       ; let arity = length args'
-      ; base_tc <- tcTupleTyCon sort arity
+      ; base_tc <- tcTupleTyCon True sort arity
       ; case info of
           NoIfaceTyConInfo
             -> return (mkTyConApp base_tc args')
@@ -891,15 +891,19 @@ tcIfaceTupleTy sort info args
                   ; return (mkTyConApp tc (kind_args ++ args')) } }
 
 -- See Note [Unboxed tuple levity vars] in TyCon
-tcTupleTyCon :: TupleSort
+tcTupleTyCon :: Bool    -- True <=> typechecking a *type* (vs. an expr)
+             -> TupleSort
              -> Arity   -- the number of args. *not* the tuple arity.
              -> IfL TyCon
-tcTupleTyCon sort arity
+tcTupleTyCon in_type sort arity
   = case sort of
       ConstraintTuple -> do { thing <- tcIfaceGlobal (cTupleTyConName arity)
                             ; return (tyThingTyCon thing) }
       BoxedTuple   -> return (tupleTyCon Boxed   arity)
-      UnboxedTuple -> return (tupleTyCon Unboxed (arity `div` 2))
+      UnboxedTuple -> return (tupleTyCon Unboxed arity')
+        where arity' | in_type   = arity `div` 2
+                     | otherwise = arity
+                      -- in expressions, we only have term args
 
 tcIfaceTcArgs :: IfaceTcArgs -> IfL [Type]
 tcIfaceTcArgs = mapM tcIfaceType . tcArgsIfaceTypes
@@ -995,7 +999,7 @@ tcIfaceExpr (IfaceFCall cc ty) = do
 
 tcIfaceExpr (IfaceTuple sort args)
   = do { args' <- mapM tcIfaceExpr args
-       ; tc <- tcTupleTyCon sort arity
+       ; tc <- tcTupleTyCon False sort arity
        ; let con_tys = map exprType args'
              some_con_args = map Type con_tys ++ args'
              con_args = case sort of
