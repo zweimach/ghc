@@ -429,6 +429,11 @@ void setExecutable (void *p, W_ len, rtsBool exec)
 
 static void* heap_base = NULL;
 
+W_ osGetAddressSpaceLimit(void)
+{
+    return (W_)-1;
+}
+
 void *osReserveHeapMemory (W_ len)
 {
     void *start;

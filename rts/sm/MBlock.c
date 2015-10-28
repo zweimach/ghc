@@ -645,6 +645,9 @@ initMBlocks(void)
 #else
         size = (W_)1 << 40; // 1 TByte
 #endif
+        W_ lim = osGetAddressSpaceLimit();
+        if (size > lim)
+            size = lim;
         void *addr = osReserveHeapMemory(size);
 
         mblock_address_space.begin = (W_)addr;

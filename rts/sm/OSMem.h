@@ -29,6 +29,12 @@ void setExecutable (void *p, W_ len, rtsBool exec);
   we will ever need, which keeps everything nice and consecutive.
 */
 
+// Report the maximum size of our addressing space.
+//
+// Used during block allocator initialization to determine the largest
+// mblock addressing space that we can safely request.
+W_ osGetAddressSpaceLimit(void);
+
 // Reserve the large address space blob of the given size, and return the
 // address that the OS has chosen for it. It is not safe to access the memory
 // pointed to by the return value, until that memory is committed using
@@ -59,6 +65,7 @@ void osDecommitMemory(void *p, W_ len);
 // This function is called once, when the block allocator is deinitialized
 // before the program terminates.
 void osReleaseHeapMemory(void);
+
 #endif
 
 #include "EndPrivate.h"

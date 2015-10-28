@@ -30,6 +30,9 @@
 #ifdef HAVE_FCNTL_H
 #include <fcntl.h>
 #endif
+#ifdef HAVE_SYS_RESOURCE_H
+#include <sys/resource.h>
+#endif
 
 #include <errno.h>
 
@@ -375,6 +378,20 @@ void setExecutable (void *p, W_ len, rtsBool exec)
 }
 
 #ifdef USE_LARGE_ADDRESS_SPACE
+
+W_ osGetAddressSpaceLimit(void)
+{
+#ifdef HAVE_SYS_RESOURCE_H
+    struct rlimit rlim;
+    if (getrlimit(RLIMIT_AS, &rlim) == 0)
+        return rlim.rlim_cur;
+    else
+        sysErrorBelch("unable to fetch address space limit: %s",
+                      strerror(errno));
+#endif
+
+    return (W_)-1;
+}
 
 static void *
 osTryReserveHeapMemory (W_ len, void *hint)
