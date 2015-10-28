@@ -525,6 +525,7 @@ can_eq_nc' True _rdr_env _envs ev eq_rel ty1 _ (AppTy t2 s2) _
 can_eq_nc' False rdr_env envs ev eq_rel _ ps_ty1 _ ps_ty2
   = do { (xi1, co1) <- flatten FM_FlattenAll ev ps_ty1
        ; (xi2, co2) <- flatten FM_FlattenAll ev ps_ty2
+       ; traceTcS "RAE2" (ppr xi1 $$ ppr xi2)
        ; rewriteEqEvidence ev NotSwapped xi1 xi2 co1 co2
          `andWhenContinue` \ new_ev ->
          can_eq_nc' True rdr_env envs new_ev eq_rel xi1 xi1 xi2 xi2 }
@@ -1615,7 +1616,8 @@ rewriteEqEvidence :: CtEvidence         -- Old evidence :: olhs ~ orhs (not swap
 -- It's all a form of rewwriteEvidence, specialised for equalities
 rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
   | CtDerived {} <- old_ev  -- Don't force the evidence for a Derived
-  = continueWith (old_ev { ctev_pred = new_pred })
+  = traceTcS "RAE1" (ppr old_ev) >>
+    continueWith (old_ev { ctev_pred = new_pred })
 
   | NotSwapped <- swapped
   , isTcReflCo lhs_co      -- See Note [Rewriting with Refl]

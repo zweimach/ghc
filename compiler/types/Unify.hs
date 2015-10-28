@@ -699,7 +699,7 @@ data BindFlag
 ************************************************************************
 -}
 
-newtype UM a = UM { unUM :: (TyVar -> BindFlag) -- the user-supplied BingFlag function
+newtype UM a = UM { unUM :: (TyVar -> BindFlag) -- the user-supplied BindFlag function
                          -> Bool                -- unification (True) or matching?
                          -> RnEnv2              -- the renaming env for local variables
                          -> TyCoVarSet          -- set of all local variables
