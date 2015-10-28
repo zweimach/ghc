@@ -2099,6 +2099,7 @@ pprTcApp_help p pp tc tys dflags
 -- | Given the kind of a 'TyCon', and the args to which it is applied,
 -- suppress the args that are implicit
 suppressImplicits :: DynFlags -> Kind -> [a] -> [a]
+-- TODO (RAE): Rewrite in terms of partitionImplicits
 suppressImplicits dflags kind xs
   | gopt Opt_PrintExplicitKinds dflags = xs
   | otherwise                          = suppress kind xs

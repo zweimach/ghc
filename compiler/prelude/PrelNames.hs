@@ -1634,19 +1634,14 @@ gtDataConKey                            = mkPreludeDataConUnique 29
 
 coercibleDataConKey                     = mkPreludeDataConUnique 32
 
--- Levity
-liftedDataConKey, unliftedDataConKey :: Unique
-liftedDataConKey                        = mkPreludeDataConUnique 33
-unliftedDataConKey                      = mkPreludeDataConUnique 34
-
 staticPtrDataConKey :: Unique
-staticPtrDataConKey                     = mkPreludeDataConUnique 35
+staticPtrDataConKey                     = mkPreludeDataConUnique 33
 
 staticPtrInfoDataConKey :: Unique
-staticPtrInfoDataConKey                 = mkPreludeDataConUnique 36
+staticPtrInfoDataConKey                 = mkPreludeDataConUnique 34
 
 fingerprintDataConKey :: Unique
-fingerprintDataConKey                   = mkPreludeDataConUnique 37
+fingerprintDataConKey                   = mkPreludeDataConUnique 35
 
 callStackDataConKey, srcLocDataConKey :: Unique
 callStackDataConKey                     = mkPreludeDataConUnique 36
@@ -1654,6 +1649,11 @@ srcLocDataConKey                        = mkPreludeDataConUnique 37
 
 ipDataConKey :: Unique
 ipDataConKey                            = mkPreludeDataConUnique 38
+
+-- Levity
+liftedDataConKey, unliftedDataConKey :: Unique
+liftedDataConKey                        = mkPreludeDataConUnique 39
+unliftedDataConKey                      = mkPreludeDataConUnique 40
 
 {-
 ************************************************************************

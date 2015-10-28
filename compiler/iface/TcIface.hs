@@ -890,13 +890,16 @@ tcIfaceTupleTy sort info args
                         kind_args = map typeKind args'
                   ; return (mkTyConApp tc (kind_args ++ args')) } }
 
-tcTupleTyCon :: TupleSort -> Arity -> IfL TyCon
+-- See Note [Unboxed tuple levity vars] in TyCon
+tcTupleTyCon :: TupleSort
+             -> Arity   -- the number of args. *not* the tuple arity.
+             -> IfL TyCon
 tcTupleTyCon sort arity
   = case sort of
       ConstraintTuple -> do { thing <- tcIfaceGlobal (cTupleTyConName arity)
                             ; return (tyThingTyCon thing) }
       BoxedTuple   -> return (tupleTyCon Boxed   arity)
-      UnboxedTuple -> return (tupleTyCon Unboxed arity)
+      UnboxedTuple -> return (tupleTyCon Unboxed (arity `div` 2))
 
 tcIfaceTcArgs :: IfaceTcArgs -> IfL [Type]
 tcIfaceTcArgs = mapM tcIfaceType . tcArgsIfaceTypes

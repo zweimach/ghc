@@ -341,7 +341,7 @@ putTupleName_ bh tc tup_sort thing_tag
   = -- ASSERT(arity < 2^(30 :: Int))
     put_ bh (0x80000000 .|. (sort_tag `shiftL` 28) .|. (thing_tag `shiftL` 26) .|. arity)
   where
-    (arity, sort_tag) = case tup_sort of
+    (sort_tag, arity) = case tup_sort of
       BoxedTuple      -> (0, fromIntegral (tyConArity tc))
       UnboxedTuple    -> (1, fromIntegral (tyConArity tc `div` 2))
         -- See Note [Unboxed tuple levity vars] in TyCon
