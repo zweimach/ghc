@@ -251,11 +251,10 @@ tcHsVectInst ty
 -}
 
 tcClassSigType :: LHsType Name -> TcM Type
-tcClassSigType lhs_ty
-  = do { traceTc "RAE1" (ppr lhs_ty)
-       ; (ty, cv_env) <- tcCheckLHsTypeAndGen lhs_ty liftedTypeKind
-       ; traceTc "RAE2" (ppr lhs_ty)
-       ; zonkSigType cv_env ty }
+tcClassSigType lhs_ty@(L loc hs_ty)
+  = addTypeCtxt lhs_ty $
+    setSrcSpan loc $
+    fst <$> tcCheckHsTypeAndGen hs_ty liftedTypeKind
 
 tcHsConArgType :: NewOrData ->  LHsType Name -> TcM Type
 -- Permit a bang, but discard it
@@ -314,17 +313,9 @@ decideKindGeneralisationPlan hs_ty
                  , text "should gen?" <+> ppr should_gen ])
        ; return should_gen }
 
-tcCheckLHsTypeAndGen :: LHsType Name -> Kind -> TcM (Type, CvSubstEnv)
--- Typecheck a type signature, and kind-generalise it
--- The result is not necessarily zonked, and has not been checked for validity
-tcCheckLHsTypeAndGen lty@(L loc hs_ty) kind
-  = addTypeCtxt lty $
-    setSrcSpan loc $
-    tcCheckHsTypeAndGen hs_ty kind
-
 tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM (Type, CvSubstEnv)
 -- Input type is HsType, not LHsType; the caller adds the context
--- Otherwise same as tcCheckLHsTypeAndGen
+-- Output is fully zonked, but not checked for validity
 tcCheckHsTypeAndGen = check_and_gen True
 
 check_and_gen :: Bool   -- should generalize?
