@@ -635,6 +635,17 @@ setMode new_mode thing_inside
 --  FM_Avoid tv1 b1 `eq` FM_Avoid tv2 b2 = tv1 == tv2 && b1 == b2
     _               `eq` _               = False
 
+-- | Use when flattening kinds/kind coercions. See
+-- Note [No derived kind equalities] in TcCanonical
+flattenKinds :: FlatM a -> FlatM a
+flattenKinds thing_inside
+  = FlatM $ \env ->
+    let kind_flav = case fe_flavour env of
+                      Given -> Given
+                      _     -> Wanted
+    in
+    runFlatM thing_inside (env { fe_eq_rel = NomEq, fe_flavour = kind_flav })
+
 bumpDepth :: FlatM a -> FlatM a
 bumpDepth (FlatM thing_inside)
   = FlatM $ \env -> do { let env' = env { fe_loc = bumpCtLocDepth (fe_loc env) }
@@ -1015,11 +1026,12 @@ flatten_one (CoercionTy co) = first mkCoercionTy <$> flatten_co co
 -- between and then use transitivity.
 flatten_co :: Coercion -> FlatM (Coercion, Coercion)
 flatten_co co
-  = do { let (Pair ty1 ty2, role) = coercionKindRole co
+  = flattenKinds $
+    do { let (Pair ty1 ty2, role) = coercionKindRole co
        ; co <- liftTcS $ zonkCo co  -- squeeze out any metavars from the original
-       ; (co1, co2) <- setEqRel NomEq $ do { (_, co1) <- flatten_one ty1
-                                           ; (_, co2) <- flatten_one ty2
-                                           ; return (co1, co2) }
+       ; (co1, co2) <- do { (_, co1) <- flatten_one ty1
+                          ; (_, co2) <- flatten_one ty2
+                          ; return (co1, co2) }
        ; let co' = downgradeRole role Nominal co1 `mkTransCo`
                    co `mkTransCo`
                    mkSymCo (downgradeRole role Nominal co2)
@@ -1353,7 +1365,10 @@ flatten_tyvar3 :: TcTyVar -> FlatM FlattenTvResult
 flatten_tyvar3 tv
   = -- Done, but make sure the kind is zonked
     do { let kind = tyVarKind tv
-       ; (_new_kind, kind_co) <- setMode FM_SubstOnly $ flatten_one kind
+       ; (_new_kind, kind_co)
+           <- setMode FM_SubstOnly $  -- TODO (RAE): fix FM_SubstOnly
+              flattenKinds $
+              flatten_one kind
        ; traceFlat "flattenTyVarFinal"
            (vcat [ ppr tv <+> dcolon <+> ppr (tyVarKind tv)
                  , ppr _new_kind

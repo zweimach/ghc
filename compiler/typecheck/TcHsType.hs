@@ -252,7 +252,9 @@ tcHsVectInst ty
 
 tcClassSigType :: LHsType Name -> TcM Type
 tcClassSigType lhs_ty
-  = do { (ty, cv_env) <- tcCheckLHsTypeAndGen lhs_ty liftedTypeKind
+  = do { traceTc "RAE1" (ppr lhs_ty)
+       ; (ty, cv_env) <- tcCheckLHsTypeAndGen lhs_ty liftedTypeKind
+       ; traceTc "RAE2" (ppr lhs_ty)
        ; zonkSigType cv_env ty }
 
 tcHsConArgType :: NewOrData ->  LHsType Name -> TcM Type

@@ -525,7 +525,6 @@ can_eq_nc' True _rdr_env _envs ev eq_rel ty1 _ (AppTy t2 s2) _
 can_eq_nc' False rdr_env envs ev eq_rel _ ps_ty1 _ ps_ty2
   = do { (xi1, co1) <- flatten FM_FlattenAll ev ps_ty1
        ; (xi2, co2) <- flatten FM_FlattenAll ev ps_ty2
-       ; traceTcS "RAE2" (ppr xi1 $$ ppr xi2)
        ; rewriteEqEvidence ev NotSwapped xi1 xi2 co1 co2
          `andWhenContinue` \ new_ev ->
          can_eq_nc' True rdr_env envs new_ev eq_rel xi1 xi1 xi2 xi2 }
@@ -1071,6 +1070,19 @@ a bit verbose. And the shorter name gets the point across.)
 
 See also #10715, which induced this addition.
 
+Note [No derived kind equalities]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When we're working with a heterogeneous derived equality
+
+  [D] (t1 :: k1) ~ (t2 :: k2)
+
+we want to homogenise to establish the kind invariant on CTyEqCans.
+But we can't emit [D] k1 ~ k2 because we wouldn't then be able to
+use the evidence in the homogenised types. So we emit a wanted
+constraint, because we do really need the evidence here.
+
+Thus: no derived kind equalities.
+
 -}
 
 canCFunEqCan :: CtEvidence
@@ -1310,7 +1322,7 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
           -- type_ev :: (lhs :: k1) ~ ((rhs |> sym kind_ev_id) :: k1)
        ; continueWith (build_ct type_ev rhs') }
 
-  | CtWanted { ctev_evar = evar } <- ev
+  | otherwise   -- Wanted and Derived. See Note [No derived kind equalities]
     -- evar :: (lhs :: k1) ~ (rhs :: k2)
   = do { mb_kind_ev <- newWantedEvVar kind_loc kind_pty
              -- kind_ev :: (k1 :: *) ~ (k2 :: *)
@@ -1323,25 +1335,25 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
            -- homo_co :: k2 ~ k1
              rhs'      = mkCastTy rhs homo_co
              homo_pred = mkTcEqPredLikeEv ev lhs rhs'
-       ; mb_type_ev <- newWantedEvVar loc homo_pred
-          -- type_ev :: (lhs :: k1) ~ (rhs |> sym kind_ev :: k1)
-       ; let type_evt = getEvTerm mb_type_ev
-       ; setWantedEvBind evar
-                   (EvCoercion $
-                    (evTermCoercion type_evt) `mkTcTransCo`
-                    (mkTcReflCo (eqRelRole eq_rel) rhs
-                     `mkTcCoherenceLeftCo` homo_co))
-                   loc
-          -- evar := type_ev ; <rhs> |> homo_co :: (lhs :: k1) ~ (rhs :: k2)
-       ; case mb_type_ev of
-           Fresh  type_ev -> continueWith (build_ct type_ev rhs')
-           Cached _       -> stopWith ev  "cached homogenized equality" }
+       ; case ev of
+           CtGiven {} -> panic "homogeniseRhsKind"
+           CtDerived {} -> continueWith (build_ct (ev { ctev_pred = homo_pred })
+                                                  rhs')
+           CtWanted { ctev_evar = evar } -> do
+             { mb_type_ev <- newWantedEvVar loc homo_pred
+                  -- type_ev :: (lhs :: k1) ~ (rhs |> sym kind_ev :: k1)
+             ; let type_evt = getEvTerm mb_type_ev
+             ; setWantedEvBind evar
+                         (EvCoercion $
+                          (evTermCoercion type_evt) `mkTcTransCo`
+                          (mkTcReflCo (eqRelRole eq_rel) rhs
+                           `mkTcCoherenceLeftCo` homo_co))
+                         loc
+                -- evar := type_ev ; <rhs> |> homo_co :: (lhs :: k1) ~ (rhs :: k2)
+             ; case mb_type_ev of
+                 Fresh  type_ev -> continueWith (build_ct type_ev rhs')
+                 Cached _       -> stopWith ev  "cached homogenized equality" }}
 
-  | otherwise   -- CtDerived {} <- ev
-  = do { emitNewDerived kind_loc kind_pty
-       ; continueWith (CIrredEvCan { cc_ev = ev }) }
-           -- we don't have a name for the kind-level CtDerived,
-           -- so we can't homogenise. Oh well.
   where
     k1 = typeKind lhs
     k2 = typeKind rhs
@@ -1616,8 +1628,7 @@ rewriteEqEvidence :: CtEvidence         -- Old evidence :: olhs ~ orhs (not swap
 -- It's all a form of rewwriteEvidence, specialised for equalities
 rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
   | CtDerived {} <- old_ev  -- Don't force the evidence for a Derived
-  = traceTcS "RAE1" (ppr old_ev) >>
-    continueWith (old_ev { ctev_pred = new_pred })
+  = continueWith (old_ev { ctev_pred = new_pred })
 
   | NotSwapped <- swapped
   , isTcReflCo lhs_co      -- See Note [Rewriting with Refl]
