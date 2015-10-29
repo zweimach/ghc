@@ -590,24 +590,24 @@ tcTyClDecl rec_info (L loc decl)
   | otherwise
   = setSrcSpan loc $ tcAddDeclCtxt decl $
     do { traceTc "tcTyAndCl-x" (ppr decl)
-       ; tcTyClDecl1 NoParentTyCon rec_info decl }
+       ; tcTyClDecl1 Nothing rec_info decl }
 
   -- "type family" declarations
-tcTyClDecl1 :: TyConParent -> RecTyInfo -> TyClDecl Name -> TcM [TyThing]
+tcTyClDecl1 :: Maybe Class -> RecTyInfo -> TyClDecl Name -> TcM [TyThing]
 tcTyClDecl1 parent _rec_info (FamDecl { tcdFam = fd })
   = tcFamDecl1 parent fd
 
   -- "type" synonym declaration
 tcTyClDecl1 _parent rec_info
             (SynDecl { tcdLName = L _ tc_name, tcdTyVars = tvs, tcdRhs = rhs })
-  = ASSERT( isNoParent _parent )
+  = ASSERT( isNothing _parent )
     tcTyClTyVars tc_name tvs $ \ tvs' kind ->
     tcTySynRhs rec_info tc_name tvs' kind rhs
 
   -- "data/newtype" declaration
 tcTyClDecl1 _parent rec_info
             (DataDecl { tcdLName = L _ tc_name, tcdTyVars = tvs, tcdDataDefn = defn })
-  = ASSERT( isNoParent _parent )
+  = ASSERT( isNothing _parent )
     tcTyClTyVars tc_name tvs $ \ tvs' kind ->
     tcDataDefn rec_info tc_name tvs' kind defn
 
@@ -616,7 +616,7 @@ tcTyClDecl1 _parent rec_info
             , tcdCtxt = ctxt, tcdMeths = meths
             , tcdFDs = fundeps, tcdSigs = sigs
             , tcdATs = ats, tcdATDefs = at_defs })
-  = ASSERT( isNoParent _parent )
+  = ASSERT( isNothing _parent )
     do { (clas, tvs', gen_dm_env) <- fixM $ \ ~(clas,_,_) ->
             tcTyClTyVars class_name tvs $ \ tvs' kind ->
             do { MASSERT( isConstraintKind kind )
@@ -633,7 +633,7 @@ tcTyClDecl1 _parent rec_info
                        -- Squeeze out any kind unification variables
                ; fds'  <- mapM (addLocM tc_fundep) fundeps
                ; (sig_stuff, gen_dm_env) <- tcClassSigs class_name sigs meths
-               ; at_stuff <- tcClassATs class_name (AssocFamilyTyCon clas) ats at_defs
+               ; at_stuff <- tcClassATs class_name clas ats at_defs
                ; mindef <- tcClassMinimalDef class_name sigs sig_stuff
                ; clas <- buildClass
                             class_name tvs' roles ctxt' fds' at_stuff
@@ -641,7 +641,7 @@ tcTyClDecl1 _parent rec_info
                ; traceTc "tcClassDecl" (ppr fundeps $$ ppr tvs' $$ ppr fds')
                ; return (clas, tvs', gen_dm_env) }
 
-       ; let { gen_dm_ids = [ AnId (mkExportedLocalId VanillaId gen_dm_name gen_dm_ty)
+       ; let { gen_dm_ids = [ AnId (mkExportedLocalId DefMethId gen_dm_name gen_dm_ty)
                             | (sel_id, GenDefMeth gen_dm_name) <- classOpItems clas
                             , let gen_dm_tau = expectJust "tcTyClDecl1" $
                                                lookupNameEnv gen_dm_env (idName sel_id)
@@ -672,7 +672,7 @@ tcFdTyVar (L _ name)
            Just tv' -> return tv'
            Nothing  -> pprPanic "tcFdTyVar" (ppr name $$ ppr tv $$ ppr ty) }
 
-tcFamDecl1 :: TyConParent -> FamilyDecl Name -> TcM [TyThing]
+tcFamDecl1 :: Maybe Class -> FamilyDecl Name -> TcM [TyThing]
 tcFamDecl1 parent (FamilyDecl { fdInfo = OpenTypeFamily, fdLName = L _ tc_name
                               , fdTyVars = tvs, fdResultSig = L _ sig
                               , fdInjectivityAnn = inj })
@@ -742,13 +742,23 @@ tcFamDecl1 parent
 -- the tycon. Exception: checking equations overlap done by dropDominatedAxioms
 
 tcFamDecl1 parent
-           (FamilyDecl {fdInfo = DataFamily, fdLName = L _ tc_name, fdTyVars = tvs})
+           (FamilyDecl { fdInfo = DataFamily
+                       , fdLName = L _ tc_name
+                       , fdTyVars = tvs
+                       , fdResultSig = L _ sig })
   = tcTyClTyVars tc_name tvs $ \ tvs' kind -> do
   { traceTc "data family:" (ppr tc_name)
   ; checkFamFlag tc_name
   ; extra_tvs <- tcDataKindSig kind
+  ; tc_rep_name <- newTyConRepName tc_name
   ; let final_tvs = tvs' ++ extra_tvs    -- we may not need these
         roles     = map (const Nominal) final_tvs
+        tycon = buildFamilyTyCon tc_name final_tvs
+	                         (resultVariableName sig)
+	                         (DataFamilyTyCon tc_rep_name)
+	                         liftedTypeKind -- RHS kind
+	                         parent
+	                         NotInjective
         tycon = buildAlgTyCon tc_name final_tvs roles Nothing []
                               DataFamilyTyCon Recursive
                               False   -- Not promotable to the kind level
@@ -847,7 +857,7 @@ tcDataDefn rec_info tc_name tvs kind
                                      stupid_theta tc_rhs
                                      (rti_is_rec rec_info tc_name)
                                      (rti_promotable rec_info)
-                                     gadt_syntax NoParentTyCon) }
+                                     gadt_syntax Nothing) }
        ; return [ATyCon tycon] }
 
 {-
@@ -873,7 +883,7 @@ families.
 -}
 
 tcClassATs :: Name                  -- The class name (not knot-tied)
-           -> TyConParent           -- The class parent of this associated type
+           -> Maybe Class           -- The class parent of this associated type
            -> [LFamilyDecl Name]    -- Associated types.
            -> [LTyFamDefltEqn Name] -- Associated type defaults.
            -> TcM [ClassATItem]
@@ -1231,20 +1241,22 @@ consUseGadtSyntax _                                               = False
                  -- All constructors have same shape
 
 -----------------------------------
-tcConDecls :: NewOrData -> TyCon -> ([TyVar], Type)
+tcConDecls :: NewOrData -> Bool -> TyCon -> ([TyVar], Type)
            -> [LConDecl Name] -> TcM [DataCon]
-tcConDecls new_or_data rep_tycon (tmpl_tvs, res_tmpl) cons
-  = concatMapM (addLocM  $ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl)
+tcConDecls new_or_data is_prom rep_tycon (tmpl_tvs, res_tmpl) cons
+  = concatMapM (addLocM $ tcConDecl new_or_data is_prom
+                                    rep_tycon tmpl_tvs res_tmpl)
                cons
 
 tcConDecl :: NewOrData
-          -> TyCon             -- Representation tycon
+          -> Bool              -- TyCon is promotable?  Knot-tied!
+          -> TyCon             -- Representation tycon. Knot-tied!
           -> [TyVar] -> Type   -- Return type template (with its template tyvars)
                                --    (tvs, T tys), where T is the family TyCon
           -> ConDecl Name
           -> TcM [DataCon]
 
-tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
+tcConDecl new_or_data is_prom rep_tycon tmpl_tvs res_tmpl        -- Data types
           (ConDecl { con_names = names
                    , con_qvars = hs_tvs, con_cxt = hs_ctxt
                    , con_details = hs_details, con_res = hs_res_ty })
@@ -1289,7 +1301,10 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
        ; let
            buildOneDataCon (L _ name) = do
              { is_infix <- tcConIsInfix name hs_details res_ty
+             ; rep_nm   <- newTyConRepName name
              ; buildDataCon fam_envs name is_infix
+                            (if is_prom then Promoted rep_nm else NotPromoted)
+                                -- Must be lazy in is_prom because it is knot-tied
                             stricts Nothing field_lbls
                             univ_tvs ex_tvs eq_preds ctxt arg_tys
                             res_ty' rep_tycon

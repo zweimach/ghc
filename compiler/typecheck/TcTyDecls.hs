@@ -19,7 +19,10 @@ module TcTyDecls(
         RoleAnnots, extractRoleAnnots, emptyRoleAnnots, lookupRoleAnnots,
 
         -- * Implicits
-        tcAddImplicits
+        tcAddImplicits,
+
+        -- * Record selectors
+        mkOneRecordSelector
     ) where
 
 #include "HsVersions.h"
@@ -38,6 +41,7 @@ import Type
 import HscTypes
 import TyCon
 import DataCon
+import ConLike
 import Name
 import NameEnv
 import RdrName ( mkVarUnqual )
@@ -47,21 +51,17 @@ import VarEnv
 import VarSet
 import NameSet
 import Coercion ( ltRole )
+import Bag
 import Digraph
 import BasicTypes
 import SrcLoc
-import Unique ( mkBuiltinUnique )
+import Unique     ( mkBuiltinUnique )
 import Outputable
 import UniqSet
 import Util
 import Maybes
 import Data.List
-import Bag
 import FastString ( fastStringToByteString )
-
-#if __GLASGOW_HASKELL__ < 709
-import Control.Applicative (Applicative(..))
-#endif
 
 import Control.Monad
 
@@ -878,30 +878,37 @@ mkRecSelBinds tycons
 
 mkRecSelBind :: (TyCon, FieldLabel) -> (LSig Name, (RecFlag, LHsBinds Name))
 mkRecSelBind (tycon, fl)
-  = (L loc (IdSig sel_id), (NonRecursive, unitBag (L loc sel_bind)))
+  = mkOneRecordSelector all_cons (RecSelData tycon) fl
   where
-    loc    = getSrcSpan sel_name
-    sel_id = mkExportedLocalId rec_details sel_name sel_ty
+    all_cons = map RealDataCon (tyConDataCons tycon)
+
+mkOneRecordSelector :: [ConLike] -> RecSelParent -> FieldLabel
+                    -> (LSig Name, (RecFlag, LHsBinds Name))
+mkOneRecordSelector all_cons idDetails fl =
+    (L loc (IdSig sel_id), (NonRecursive, unitBag (L loc sel_bind)))
+  where
+    loc      = getSrcSpan sel_name
     lbl      = flLabel fl
     sel_name = flSelector fl
-    rec_details = RecSelId { sel_tycon = tycon, sel_naughty = is_naughty }
+    sel_id   = mkExportedLocalId rec_details sel_name sel_ty
+    rec_details = RecSelId { sel_tycon = idDetails, sel_naughty = is_naughty }
 
     -- Find a representative constructor, con1
-    all_cons     = tyConDataCons tycon
-    cons_w_field = tyConDataConsWithFields tycon [lbl]
+    cons_w_field = conLikesWithFields all_cons [lbl]
     con1 = ASSERT( not (null cons_w_field) ) head cons_w_field
-
     -- Selector type; Note [Polymorphic selectors]
-    field_ty   = dataConFieldType con1 lbl
-    data_ty    = dataConOrigResTy con1
+    field_ty   = conLikeFieldType con1 lbl
+
     data_tvs   = tyVarsOfType data_ty
     is_naughty = not (tyVarsOfType field_ty `subVarSet` data_tvs)
     (field_tvs, field_theta, field_tau) = tcSplitSigmaTy field_ty
     sel_ty | is_naughty = unitTy  -- See Note [Naughty record selectors]
            | otherwise  = mkForAllTys (varSetElemsKvsFirst $
                                        data_tvs `extendVarSetList` field_tvs) $
-                          mkPhiTy (dataConStupidTheta con1) $   -- Urgh!
+                          mkPhiTy (conLikeStupidTheta con1) $   -- Urgh!
                           mkPhiTy field_theta               $   -- Urgh!
+                          -- req_theta is empty for normal DataCon
+                          mkPhiTy req_theta                 $
                           mkFunTy data_ty field_tau
 
     -- Make the binding: sel (C2 { fld = x }) = x
@@ -938,8 +945,14 @@ mkRecSelBind (tycon, fl)
         --              data instance T Int a where
         --                 A :: { fld :: Int } -> T Int Bool
         --                 B :: { fld :: Int } -> T Int Char
-    dealt_with con = con `elem` cons_w_field || dataConCannotMatch inst_tys con
-    inst_tys = substTyVars (mkTopTvSubst (dataConEqSpec con1)) (dataConUnivTyVars con1)
+    dealt_with :: ConLike -> Bool
+    dealt_with (PatSynCon _)        = False -- We can't predict overlap
+    dealt_with con@(RealDataCon dc) =
+      con `elem` cons_w_field || dataConCannotMatch inst_tys dc
+
+    (univ_tvs, _, eq_spec, _, req_theta, _, data_ty) = conLikeFullSig con1
+
+    inst_tys = substTyVars (mkTopTvSubst eq_spec) univ_tvs
 
     unit_rhs = mkLHsTupleExpr []
     msg_lit = HsStringPrim "" (fastStringToByteString lbl)
