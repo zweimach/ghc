@@ -1898,6 +1898,7 @@ seqTypes (ty:tys) = seqType ty `seq` seqTypes tys
 ************************************************************************
 -}
 
+-- TODO (RAE): Describe algorithm succinctly.
 eqType :: Type -> Type -> Bool
 -- ^ Type equality on source types. Does not look through @newtypes@ or
 -- 'PredType's, but it does look through type synonyms.

@@ -1261,7 +1261,7 @@ splitTelescopeTvs :: Kind         -- of the head of the telescope
                   -> LHsTyVarBndrs Name
                   -> ( [TyVar]    -- *scoped* type variables
                      , [TyVar]    -- *all* type variables
-                     , Kind )     -- inner kind
+                     , Kind )     -- result kind
 splitTelescopeTvs kind tvbs@(HsQTvs { hsq_implicit = hs_kvs, hsq_explicit = hs_tvs })
   = let (bndrs, inner_ki) = splitForAllTys kind
         (scoped_tvs, all_tvs, mk_kind) = mk_tvs [] [] bndrs (mkNameSet hs_kvs) hs_tvs

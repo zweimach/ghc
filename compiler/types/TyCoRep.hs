@@ -183,7 +183,7 @@ data Type
 
   | CastTy
         Type
-        Coercion    -- ^ A kind cast.
+        Coercion    -- ^ A kind cast. The coercion is always nominal.
                     -- INVARIANT: The cast is never refl.
                     -- INVARIANT: The cast is "pushed down" as far as it
                     -- can go. See Note [Pushing down casts]
@@ -191,7 +191,7 @@ data Type
   | CoercionTy
         Coercion    -- ^ Injection of a Coercion into a type
                     -- This should only ever be used in the RHS of an AppTy,
-                    -- in the list of a TyConApp, or in a FunTy
+                    -- in the list of a TyConApp, or in a FunTy -- TODO (RAE): example
 
   deriving (Data.Data, Data.Typeable)
 
@@ -606,7 +606,8 @@ data UnivCoProvenance
   | PhantomProv        -- ^ From the need to create a phantom coercion;
                        --   the UnivCo must be Phantom.
   | ProofIrrelProv     -- ^ From the fact that any two coercions are
-                       --   considered equivalent
+                       --   considered equivalent. TODO (RAE): example needed.
+    -- TODO (RAE): Write down where the soundness of each form derives from.
   deriving (Eq, Data.Data, Data.Typeable)
 
 instance Outputable UnivCoProvenance where
