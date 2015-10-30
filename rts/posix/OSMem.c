@@ -382,15 +382,31 @@ void setExecutable (void *p, W_ len, rtsBool exec)
 W_ osGetAddressSpaceLimit(void)
 {
 #ifdef HAVE_SYS_RESOURCE_H
+    W_ lim = (W_) -1;
+
+    // First look up usage limit
     struct rlimit rlim;
-    if (getrlimit(RLIMIT_AS, &rlim) == 0)
-        return rlim.rlim_cur;
-    else
+    if (getrlimit(RLIMIT_AS, &rlim) == 0) {
+        lim = rlim.rlim_cur;
+    } else {
         sysErrorBelch("unable to fetch address space limit: %s",
                       strerror(errno));
+    }
+
+    // Then subtract how much we currently are using
+    struct rusage usage;
+    if (getrusage(RUSAGE_SELF, &usage) == 0 && usage.ru_maxrss > 0) {
+        // This is a bit tricky; in osTryReserveHeapMemory we will try to
+        // allocate MBLOCK_SIZE more memory than we need; we need to account for
+        // this when we compute our allocation limit
+        lim -= usage.ru_maxrss * 1024 + 100*MBLOCK_SIZE;
+    } else {
+        sysErrorBelch("Failed to determine current RSS usage, assuming 0");
+    }
+
 #endif
 
-    return (W_)-1;
+    return lim;
 }
 
 static void *
