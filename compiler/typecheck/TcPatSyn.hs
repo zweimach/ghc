@@ -266,7 +266,7 @@ tcPatSynMatcher (L loc name) lpat
        ; fail         <- newSysLocalId (fsLit "fail")  fail_ty
 
        ; let matcher_tau   = mkFunTys [pat_ty, cont_ty, fail_ty] res_ty
-             matcher_sigma = mkInvSigmaTy (res_tv:univ_tvs) req_theta matcher_tau
+             matcher_sigma = mkInvSigmaTy (lev_tv:res_tv:univ_tvs) req_theta matcher_tau
              matcher_id    = mkExportedLocalId VanillaId matcher_name matcher_sigma
                              -- See Note [Exported LocalIds] in Id
 
@@ -297,7 +297,8 @@ tcPatSynMatcher (L loc name) lpat
                        , mg_res_ty = res_ty
                        , mg_origin = Generated
                        }
-             match = mkMatch [] (mkHsLams (res_tv:univ_tvs) req_dicts body') EmptyLocalBinds
+             match = mkMatch [] (mkHsLams (lev_tv:res_tv:univ_tvs) req_dicts body')
+                             EmptyLocalBinds
              mg = MG{ mg_alts = [match]
                     , mg_arg_tys = []
                     , mg_res_ty = res_ty
