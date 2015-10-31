@@ -342,7 +342,8 @@ sort_alts = sortWith (dataConTag . alt_pat)
 
 mkPatSynCase :: DsId -> DsType -> CaseAlt PatSyn -> CoreExpr -> DsM CoreExpr
 mkPatSynCase var ty alt fail = do
-    matcher <- dsLExpr $ mkLHsWrap wrapper $ nlHsTyApp matcher [ty]
+    matcher <- dsLExpr $ mkLHsWrap wrapper $
+                         nlHsTyApp matcher [getLevity "mkPatSynCase" ty, ty]
     let MatchResult _ mkCont = match_result
     cont <- mkCoreLams bndrs <$> mkCont fail
     return $ mkCoreAppsDs matcher [Var var, ensure_unstrict cont, Lam voidArgId fail]

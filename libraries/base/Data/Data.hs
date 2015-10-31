@@ -3,7 +3,6 @@
              TypeOperators, GADTs, FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE NoImplicitPrelude #-}
-{-# LANGUAGE UndecidableInstances #-}   -- for instance Data (Alt f a)
 
 -----------------------------------------------------------------------------
 -- |

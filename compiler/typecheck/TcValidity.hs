@@ -1072,7 +1072,8 @@ checkInstTermination tys theta
            -> check_preds tys
 
            | otherwise
-           -> check2 pred (sizeTypes tys)  -- Other ClassPreds
+           -> check2 pred (sizeTypes $ filterOutInvisibleTypes (classTyCon cls) tys)
+                       -- Other ClassPreds
 
    check2 pred pred_size
      | not (null bad_tvs)     = addErrTc (noMoreMsg bad_tvs what)
@@ -1478,6 +1479,11 @@ fvCo (KindCo co)            = fvCo co
 fvCo (SubCo co)             = fvCo co
 fvCo (AxiomRuleCo _ cs)     = concatMap fvCo cs
 
+-- TODO (RAE): This filterOutInvisibleTypes (and others in this file) are very
+-- suspect in termination checks. For example, consider
+--   instance Typeable * a => Data (Fixed a)
+-- size (Fixed a) == size(*, a), which is problematic. But we don't want to
+-- require UndecidableInstances here. What to do??
 sizeType :: Type -> Int
 -- Size of a type: the number of variables and constructors
 sizeType ty | Just exp_ty <- tcView ty = sizeType exp_ty

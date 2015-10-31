@@ -66,14 +66,16 @@ data PatSyn
              -- Matcher function.
              -- If Bool is True then prov_theta and arg_tys are empty
              -- and type is
-             --   forall (r :: ?) univ_tvs. req_theta
+             --   forall (v :: Levity) (r :: TYPE v) univ_tvs.
+             --                          req_theta
              --                       => res_ty
              --                       -> (forall ex_tvs. Void# -> r)
              --                       -> (Void# -> r)
              --                       -> r
              --
              -- Otherwise type is
-             --   forall (r :: ?) univ_tvs. req_theta
+             --   forall (v :: Levity) (r :: TYPE v) univ_tvs.
+             --                          req_theta
              --                       => res_ty
              --                       -> (forall ex_tvs. prov_theta => arg_tys -> r)
              --                       -> (Void# -> r)

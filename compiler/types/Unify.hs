@@ -504,6 +504,26 @@ niSubstTvSet tsubst tvs
 *                                                                      *
 ************************************************************************
 
+Note [Self-substitution when matching]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+What should happen when we're *matching* (not unifying) a1 with a1? We
+should get a substitution [a1 |-> a1]. A successful match should map all
+the template variables (except ones that disappear when expanding synonyms).
+But when unifying, we don't want to do this, because we'll then fall into
+a loop.
+
+This arrangement affects the code in three places:
+ - If we're matching a refined template variable, don't recur. Instead, just
+   check for equality. That is, if we know [a |-> Maybe a] and are matching
+   (a ~? Maybe Int), we want to just fail.
+
+ - Skip the occurs check when matching. This comes up in two places, because
+   matching against variables is handled separately from matching against
+   full-on types.
+
+Note that this arrangement was provoked by a real failure, where the same
+unique ended up in the template as in the target. (It was a rule firing when
+compiling Data.List.NonEmpty.)
 -}
 
 unify_ty :: Type -> Type -> Coercion   -- Types to be unified and a co
@@ -613,7 +633,14 @@ uVar tv1 ty kco
  = do { -- Check to see whether tv1 is refined by the substitution
         subst <- getTvSubstEnv
       ; case (lookupVarEnv subst tv1) of
-          Just ty' -> unify_ty ty' ty kco        -- Yes, call back into unify
+          Just ty' -> do { unif <- amIUnifying
+                         ; if unif
+                           then unify_ty ty' ty kco   -- Yes, call back into unify
+                           else -- when *matching*, we don't want to just recur here.
+                                -- this is because the range of the subst is the target
+                                -- type, not the template type. So, just check for
+                                -- normal type equality.
+                                guard (ty' `eqType` ty) }
           Nothing  -> uUnrefined tv1 ty ty kco } -- No, continue
 
 uUnrefined :: TyVar             -- variable to be unified
@@ -634,7 +661,9 @@ uUnrefined tv1 ty2 ty2' kco
   | TyVarTy tv2 <- ty2'
   = do { tv1' <- umRnOccL tv1
        ; tv2' <- umRnOccR tv2
-       ; when (tv1' /= tv2') $ do -- when they are equal, success: do nothing
+       ; unif <- amIUnifying
+           -- See Note [Self-substitution when matching]
+       ; when (tv1' /= tv2' || not unif) $ do
        { subst <- getTvSubstEnv
           -- Check to see whether tv2 is refined
        ; case lookupVarEnv subst tv2 of
@@ -646,7 +675,6 @@ uUnrefined tv1 ty2 ty2' kco
            -- depending on which is bindable
        ; b1 <- tvBindFlag tv1
        ; b2 <- tvBindFlag tv2
-       ; unif <- amIUnifying
        ; let ty1 = mkTyVarTy tv1
        ; case (b1, b2) of
            (BindMe, _)        -> do { checkRnEnvR ty2 -- make sure ty2 is not a local
@@ -658,7 +686,8 @@ uUnrefined tv1 ty2 ty2' kco
 
 uUnrefined tv1 ty2 ty2' kco -- ty2 is not a type variable
   = do { occurs <- elemNiSubstSet tv1 (tyCoVarsOfType ty2')
-       ; if occurs
+       ; unif   <- amIUnifying
+       ; if unif && occurs  -- See Note [Self-substitution when matching]
          then maybeApart       -- Occurs check, see Note [Fine-grained unification]
          else do bindTv tv1 (ty2 `mkCastTy` mkSymCo kco) }
             -- Bind tyvar to the synonym if poss
