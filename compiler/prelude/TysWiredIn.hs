@@ -527,10 +527,11 @@ mk_tuple boxity arity = (tycon, tuple_con)
             , mkTyVarTys boxed_tyvars )
             -- See Note [Unboxed tuple levity vars] in TyCon
           Unboxed ->
-            let lev_tvs  = take arity $
-                           drop 21 $  -- to get "v" and "w" ...
-                           mkTemplateTyVars (repeat levityTy)
-                open_tvs = mkTemplateTyVars (map (tYPE . mkTyVarTy) lev_tvs)
+            let all_tvs = mkTemplateTyVars (replicate arity levityTy ++
+                                            map (tYPE . mkTyVarTy) (take arity all_tvs))
+                   -- NB: This must be one call to mkTemplateTyVars, to make
+                   -- sure that all the uniques are different
+                (lev_tvs, open_tvs) = splitAt arity all_tvs
             in
             ( UnboxedTuple
             , gHC_PRIM
@@ -538,7 +539,7 @@ mk_tuple boxity arity = (tycon, tuple_con)
               mkFunTys (map tyVarKind open_tvs) $
               unliftedTypeKind
             , arity * 2
-            , lev_tvs ++ open_tvs
+            , all_tvs
             , mkTyVarTys open_tvs )
 
         tc_name = mkWiredInName modu (mkTupleOcc tcName boxity arity) tc_uniq
