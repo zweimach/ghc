@@ -1,5 +1,6 @@
 stack:
 
+
 - figure out UndecidableInstances problem. See TODO in TcValdidity.
   Possibly: if sizeTypes are equal, then check sizeTypes without *, or without
             invisibles. This should provide a lexicographical ordering that's

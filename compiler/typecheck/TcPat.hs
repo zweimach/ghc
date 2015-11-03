@@ -617,7 +617,7 @@ tc_pat penv (PArrPat pats _) pat_ty thing_inside
 tc_pat penv (TuplePat pats boxity _) pat_ty thing_inside
   = do  { let arity = length pats
               tc = tupleTyCon boxity arity
-        ; (coi, arg_tys) <- matchExpectedPatTy (matchExpectedTyConApp tc) pat_ty
+        ; (coi, arg_tys) <- matchExpectedPatTy (matchExpectedTyConAppR tc) pat_ty
                      -- Unboxed tuples have levity vars, which we discard:
                      -- See Note [Unboxed tuple levity vars] in TyCon
         ; let con_arg_tys = case boxity of Unboxed -> drop arity arg_tys
