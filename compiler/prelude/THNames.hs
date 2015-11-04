@@ -845,24 +845,26 @@ interruptibleIdKey = mkPreludeMiscIdUnique 432
 
 -- data Inline = ...
 noInlineDataConKey, inlineDataConKey, inlinableDataConKey :: Unique
-noInlineDataConKey  = mkPreludeDataConUnique 40
-inlineDataConKey    = mkPreludeDataConUnique 41
-inlinableDataConKey = mkPreludeDataConUnique 42
+noInlineDataConKey  = mkPreludeDataConUnique 80
+inlineDataConKey    = mkPreludeDataConUnique 81
+inlinableDataConKey = mkPreludeDataConUnique 82
 
 -- data RuleMatch = ...
 conLikeDataConKey, funLikeDataConKey :: Unique
-conLikeDataConKey = mkPreludeDataConUnique 43
-funLikeDataConKey = mkPreludeDataConUnique 44
+conLikeDataConKey = mkPreludeDataConUnique 83
+funLikeDataConKey = mkPreludeDataConUnique 84
 
 -- data Phases = ...
 allPhasesDataConKey, fromPhaseDataConKey, beforePhaseDataConKey :: Unique
-allPhasesDataConKey   = mkPreludeDataConUnique 45
-fromPhaseDataConKey   = mkPreludeDataConUnique 46
-beforePhaseDataConKey = mkPreludeDataConUnique 47
+allPhasesDataConKey   = mkPreludeDataConUnique 85
+fromPhaseDataConKey   = mkPreludeDataConUnique 86
+beforePhaseDataConKey = mkPreludeDataConUnique 87
 
 -- newtype TExp a = ...
 tExpDataConKey :: Unique
-tExpDataConKey = mkPreludeDataConUnique 48
+tExpDataConKey = mkPreludeDataConUnique 88
+
+-- Don't go above 89 here without checking PrelNames.
 
 -- data FunDep = ...
 funDepIdKey :: Unique

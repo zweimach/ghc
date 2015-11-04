@@ -1655,6 +1655,11 @@ liftedDataConKey, unliftedDataConKey :: Unique
 liftedDataConKey                        = mkPreludeDataConUnique 39
 unliftedDataConKey                      = mkPreludeDataConUnique 40
 
+---------------- Template Haskell -------------------
+--      USES DataConUniques 80-89
+-----------------------------------------------------
+
+
 {-
 ************************************************************************
 *                                                                      *

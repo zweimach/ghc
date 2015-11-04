@@ -199,9 +199,8 @@ import ErrUtils( Validity(..), MsgDoc, isValid )
 import Data.IORef
 import Control.Monad (liftM, ap)
 #if __GLASGOW_HASKELL__ < 709
-import Control.Applicative (Applicative(..))
+import Control.Applicative (Applicative(..), (<$>) )
 #endif
-import Control.Applicative ( (<$>) )
 
 {-
 ************************************************************************

@@ -1867,7 +1867,7 @@ tcRnType hsc_env normalise rdr_type
                         ; return (substTy (composeTCvSubst cv_subst subst) ty') }
                 else return ty ;
 
-       ; return (ty', mkForAllTys kvs (typeKind ty')) }
+       ; return (ty', mkInvForAllTys kvs (typeKind ty')) }
 
 {- Note [Kind-generalise in tcRnType]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

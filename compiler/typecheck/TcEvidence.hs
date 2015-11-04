@@ -67,8 +67,8 @@ import Bag
 import Pair
 import Maybes
 import Digraph
-#if __GLASGOW_HASKELL__ < 709
 import Control.Applicative
+#if __GLASGOW_HASKELL__ < 709
 import Data.Traversable (traverse, sequenceA)
 #endif
 import qualified Data.Data as Data

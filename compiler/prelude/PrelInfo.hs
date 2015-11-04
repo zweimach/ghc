@@ -30,7 +30,8 @@ import PrimOp
 import DataCon
 import Id
 import MkId
-import Name( Name, getName )
+import Name( Name, getName, nameOccName )
+import OccName ( occNameString )
 import TysPrim
 import TysWiredIn
 import HscTypes
@@ -46,7 +47,7 @@ import THNames
 #endif
 
 import Data.Array
-
+import Data.List
 
 {- *********************************************************************
 *                                                                      *
@@ -55,12 +56,18 @@ import Data.Array
 ********************************************************************* -}
 
 knownKeyNames :: [Name]
-knownKeyNames =
-  ASSERT2( isNullUFM badNamesUFM, text "badknownKeyNames" <+> ppr badNamesUFM )
-  names
+knownKeyNames
+  | debugIsOn
+  , not (isNullUFM badNamesUFM)
+  = panic ("badKnownKeyNames:\n" ++ badNamesStr)
+       -- NB: We can't use ppr here, because this is sometimes evaluated in a
+       -- context where there are no DynFlags available, leading to a cryptic
+       -- "<<details unavailable>>" error. (This seems to happen only in the
+       -- stage 2 compiler, for reasons I [Richard] have no clue of.)
+
+  | otherwise
+  = names
   where
-  badNamesUFM = filterUFM (\ns -> length ns > 1) namesUFM
-  namesUFM = foldl (\m n -> addToUFM_Acc (:) singleton m n n) emptyUFM names
   names = concat
     [ map getName wiredInThings
     , cTupleTyConNames
@@ -69,6 +76,18 @@ knownKeyNames =
     , templateHaskellNames
 #endif
     ]
+
+  namesUFM      = foldl (\m n -> addToUFM_Acc (:) singleton m n n) emptyUFM names
+  badNamesUFM   = filterUFM (\ns -> length ns > 1) namesUFM
+  badNamesPairs = ufmToList badNamesUFM
+  badNamesStrs  = map pairToStr badNamesPairs
+  badNamesStr   = unlines badNamesStrs
+
+  pairToStr (uniq, ns) = "        " ++
+                         show uniq ++
+                         ": [" ++
+                         intercalate ", " (map (occNameString . nameOccName) ns) ++
+                         "]"
 
 {- *********************************************************************
 *                                                                      *

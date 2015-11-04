@@ -211,11 +211,10 @@ import Data.List        ( partition, sortBy )
 import Maybes           ( orElse )
 import Data.Maybe       ( isJust )
 import Control.Monad    ( guard )
-import Control.Applicative ( (<$>) )
 import Control.Arrow    ( first, second )
 
 #if __GLASGOW_HASKELL__ < 709
-import Control.Applicative ( Applicative, (<*>) )
+import Control.Applicative ( Applicative, (<*>), (<$>) )
 import Data.Monoid         ( Monoid(..) )
 import Data.Foldable       ( foldMap )
 #endif

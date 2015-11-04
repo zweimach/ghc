@@ -36,10 +36,10 @@ import Pair
 import Control.Monad
 import Maybes
 #if __GLASGOW_HASKELL__ < 709
-import Control.Applicative ( Applicative(..) )
+import Control.Applicative ( Applicative(..), (<$>) )
 import Data.Traversable    ( traverse )
 #endif
-import Control.Applicative ( Alternative(..), (<$>) )
+import Control.Applicative ( Alternative(..) )
 
 {-
 

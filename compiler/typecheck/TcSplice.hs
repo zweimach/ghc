@@ -1094,8 +1094,8 @@ reifyTyCon tc
              -- we need the *result kind* (see #8884)
              (kvs, mono_kind) = splitForAllTys kind
                                 -- tyConArity includes *kind* params
-             (_, res_kind)    = splitKindFunTysN (tyConArity tc - length kvs)
-                                                 mono_kind
+             (_, res_kind)    = splitFunTysN (tyConArity tc - length kvs)
+                                             mono_kind
        ; kind' <- reifyKind res_kind
        ; let (resultSig, injectivity) =
                  case resVar of
@@ -1112,7 +1112,7 @@ reifyTyCon tc
                                      injRHS = map (reifyName . tyVarName)
                                                   (filterByList ms tvs)
                      in (sig, inj)
-       ; tvs' <- reifyTyVars tvs
+       ; tvs' <- reifyTyVars tvs (Just tc)
        ; if isOpenTypeFamilyTyCon tc
          then do { fam_envs <- tcGetFamInstEnvs
                  ; instances <- reifyFamilyInstances tc
