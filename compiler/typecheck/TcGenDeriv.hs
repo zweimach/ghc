@@ -18,14 +18,13 @@ This is where we do all the grimy bindings' generation.
 module TcGenDeriv (
         BagDerivStuff, DerivStuff(..),
 
-        canDeriveAnyClass,
-        genDerivedBinds,
+        hasBuiltinDeriving, canDeriveAnyClass,
         FFoldType(..), functorLikeTraverse,
         deepSubtypesContaining, foldDataConArgs,
         mkCoerceClassMethEqn,
         gen_Newtype_binds,
         genAuxBinds,
-        ordOpTbl, boxConTbl,
+        ordOpTbl, boxConTbl, litConTbl,
         mkRdrFunBind
     ) where
 
@@ -36,12 +35,17 @@ import RdrName
 import BasicTypes
 import DataCon
 import Name
+import Fingerprint
+import Encoding
 
 import DynFlags
 import PrelInfo
 import FamInstEnv( FamInst )
 import MkCore ( eRROR_ID )
 import PrelNames hiding (error_RDR)
+import THNames
+import Module ( moduleName, moduleNameString
+              , moduleUnitId, unitIdString )
 import MkId ( coerceId )
 import PrimOp
 import SrcLoc
@@ -54,23 +58,22 @@ import Class
 import TyCoRep
 import VarSet
 import VarEnv
-import Module
 import State
 import Util
 import Var
+#if __GLASGOW_HASKELL__ < 709
 import MonadUtils
+#endif
 import Outputable
 import Lexeme
 import FastString
 import Pair
 import Bag
-import Fingerprint
 import TcEnv (InstInfo)
 import StaticFlags( opt_PprStyle_Debug )
 
 import ListSetOps ( assocMaybe )
 import Data.List  ( partition, intersperse )
-import Data.Maybe ( isNothing )
 
 type BagDerivStuff = Bag DerivStuff
 
@@ -96,28 +99,29 @@ data DerivStuff     -- Please add this auxiliary stuff
 {-
 ************************************************************************
 *                                                                      *
-                Top level function
+                Class deriving diagnostics
 *                                                                      *
 ************************************************************************
+
+Only certain blessed classes can be used in a deriving clause. These classes
+are listed below in the definition of hasBuiltinDeriving (with the exception
+of Generic and Generic1, which are handled separately in TcGenGenerics).
+
+A class might be able to be used in a deriving clause if it -XDeriveAnyClass
+is willing to support it. The canDeriveAnyClass function checks if this is
+the case.
 -}
 
-genDerivedBinds :: DynFlags -> (Name -> Fixity) -> Class -> SrcSpan -> TyCon
-                -> (LHsBinds RdrName, BagDerivStuff)
-genDerivedBinds dflags fix_env clas loc tycon
-  | Just gen_fn <- assocMaybe gen_list (getUnique clas)
-  = gen_fn loc tycon
-
-  | otherwise
-  -- Deriving any class simply means giving an empty instance, so no
-  -- bindings have to be generated.
-  = ASSERT2( isNothing (canDeriveAnyClass dflags tycon clas)
-           , ppr "genDerivStuff: bad derived class" <+> ppr clas )
-    (emptyBag, emptyBag)
-
+hasBuiltinDeriving :: DynFlags
+                   -> (Name -> Fixity)
+                   -> Class
+                   -> Maybe (SrcSpan
+                             -> TyCon
+                             -> (LHsBinds RdrName, BagDerivStuff))
+hasBuiltinDeriving dflags fix_env clas = assocMaybe gen_list (getUnique clas)
   where
     gen_list :: [(Unique, SrcSpan -> TyCon -> (LHsBinds RdrName, BagDerivStuff))]
     gen_list = [ (eqClassKey,          gen_Eq_binds)
-               , (typeableClassKey,    gen_Typeable_binds dflags)
                , (ordClassKey,         gen_Ord_binds)
                , (enumClassKey,        gen_Enum_binds)
                , (boundedClassKey,     gen_Bounded_binds)
@@ -127,8 +131,8 @@ genDerivedBinds dflags fix_env clas loc tycon
                , (dataClassKey,        gen_Data_binds dflags)
                , (functorClassKey,     gen_Functor_binds)
                , (foldableClassKey,    gen_Foldable_binds)
-               , (traversableClassKey, gen_Traversable_binds) ]
-
+               , (traversableClassKey, gen_Traversable_binds)
+               , (liftClassKey,        gen_Lift_binds) ]
 
 -- Nothing: we can (try to) derive it via Generics
 -- Just s:  we can't, reason s
@@ -1030,7 +1034,7 @@ gen_Read_binds get_fixity loc tycon
         field_stmts  = zipWithEqual "lbl_stmts" read_field labels as_needed
 
         con_arity    = dataConSourceArity data_con
-        labels       = dataConFieldLabels data_con
+        labels       = map flLabel $ dataConFieldLabels data_con
         dc_nm        = getName data_con
         is_infix     = dataConIsInfix data_con
         is_record    = length labels > 0
@@ -1083,7 +1087,7 @@ gen_Read_binds get_fixity loc tycon
                  | otherwise
                  = ident_h_pat lbl_str
                  where
-                   lbl_str = occNameString (getOccName lbl)
+                   lbl_str = unpackFS lbl
 
 {-
 ************************************************************************
@@ -1132,10 +1136,12 @@ gen_Show_binds get_fixity loc tycon
       | nullary_con =  -- skip the showParen junk...
          ASSERT(null bs_needed)
          ([nlWildPat, con_pat], mk_showString_app op_con_str)
+      | record_syntax =  -- skip showParen (#2530)
+         ([a_Pat, con_pat], nlHsPar (nested_compose_Expr show_thingies))
       | otherwise   =
          ([a_Pat, con_pat],
-          showParen_Expr (nlHsPar (genOpApp a_Expr ge_RDR
-                                        (nlHsLit (HsInt "" con_prec_plus_one))))
+          showParen_Expr (genOpApp a_Expr ge_RDR
+                              (nlHsLit (HsInt "" con_prec_plus_one)))
                          (nlHsPar (nested_compose_Expr show_thingies)))
         where
              data_con_RDR  = getRdrName data_con
@@ -1144,7 +1150,7 @@ gen_Show_binds get_fixity loc tycon
              arg_tys       = dataConOrigArgTys data_con         -- Correspond 1-1 with bs_needed
              con_pat       = nlConVarPat data_con_RDR bs_needed
              nullary_con   = con_arity == 0
-             labels        = dataConFieldLabels data_con
+             labels        = map flLabel $ dataConFieldLabels data_con
              lab_fields    = length labels
              record_syntax = lab_fields > 0
 
@@ -1167,8 +1173,7 @@ gen_Show_binds get_fixity loc tycon
                         -- space after the '=' is necessary, but it
                         -- seems tidier to have them both sides.
                  where
-                   occ_nm   = getOccName l
-                   nm       = wrapOpParens (occNameString occ_nm)
+                   nm       = wrapOpParens (unpackFS l)
 
              show_args               = zipWith show_arg bs_needed arg_tys
              (show_arg1:show_arg2:_) = show_args
@@ -1182,12 +1187,18 @@ gen_Show_binds get_fixity loc tycon
                                 | (lbl,arg) <- zipEqual "gen_Show_binds"
                                                         labels show_args ]
 
-                -- Generates (showsPrec p x) for argument x, but it also boxes
-                -- the argument first if necessary.  Note that this prints unboxed
-                -- things without any '#' decorations; could change that if need be
-             show_arg b arg_ty = nlHsApps showsPrec_RDR
-                                    [nlHsLit (HsInt "" arg_prec),
-                                    box_if_necy "Show" tycon (nlHsVar b) arg_ty]
+             show_arg :: RdrName -> Type -> LHsExpr RdrName
+             show_arg b arg_ty
+               | isUnLiftedType arg_ty
+               -- See Note [Deriving and unboxed types] in TcDeriv
+               = nlHsApps compose_RDR [mk_shows_app boxed_arg,
+                                       mk_showString_app postfixMod]
+               | otherwise
+               = mk_showsPrec_app arg_prec arg
+                 where
+                   arg        = nlHsVar b
+                   boxed_arg  = box "Show" tycon arg arg_ty
+                   postfixMod = assoc_ty_id "Show" tycon postfixModTbl arg_ty
 
                 -- Fixity stuff
              is_infix = dataConIsInfix data_con
@@ -1207,8 +1218,17 @@ isSym :: String -> Bool
 isSym ""      = False
 isSym (c : _) = startsVarSym c || startsConSym c
 
+-- | showString :: String -> ShowS
 mk_showString_app :: String -> LHsExpr RdrName
 mk_showString_app str = nlHsApp (nlHsVar showString_RDR) (nlHsLit (mkHsString str))
+
+-- | showsPrec :: Show a => Int -> a -> ShowS
+mk_showsPrec_app :: Integer -> LHsExpr RdrName -> LHsExpr RdrName
+mk_showsPrec_app p x = nlHsApps showsPrec_RDR [nlHsLit (HsInt "" p), x]
+
+-- | shows :: Show a => a -> ShowS
+mk_shows_app :: LHsExpr RdrName -> LHsExpr RdrName
+mk_shows_app x = nlHsApp (nlHsVar shows_RDR) x
 
 getPrec :: Bool -> (Name -> Fixity) -> Name -> Integer
 getPrec is_infix get_fixity nm
@@ -1227,55 +1247,6 @@ getPrecedence get_fixity nm
           -- NB: the Report says that associativity is not taken
           --     into account for either Read or Show; hence we
           --     ignore associativity here
-
-{-
-************************************************************************
-*                                                                      *
-\subsection{Typeable (new)}
-*                                                                      *
-************************************************************************
-
-From the data type
-
-        data T a b = ....
-
-we generate
-
-        instance Typeable2 T where
-                typeOf2 _ = mkTyConApp (mkTyCon <hash-high> <hash-low>
-                                                <pkg> <module> "T") []
-
-We are passed the Typeable2 class as well as T
--}
-
-gen_Typeable_binds :: DynFlags -> SrcSpan -> TyCon
-                   -> (LHsBinds RdrName, BagDerivStuff)
-gen_Typeable_binds dflags loc tycon
-  = ( unitBag $ mk_easy_FunBind loc typeRep_RDR [nlWildPat]
-                (nlHsApps mkTyConApp_RDR [tycon_rep, nlList []])
-    , emptyBag )
-  where
-    tycon_name = tyConName tycon
-    modl       = nameModule tycon_name
-    pkg        = modulePackageKey modl
-
-    modl_fs    = moduleNameFS (moduleName modl)
-    pkg_fs     = packageKeyFS pkg
-    name_fs    = occNameFS (nameOccName tycon_name)
-
-    tycon_rep = nlHsApps mkTyCon_RDR
-                    (map nlHsLit [int64 high,
-                                  int64 low,
-                                  HsString "" pkg_fs,
-                                  HsString "" modl_fs,
-                                  HsString "" name_fs])
-
-    hashThis = unwords $ map unpackFS [pkg_fs, modl_fs, name_fs]
-    Fingerprint high low = fingerprintString hashThis
-
-    int64
-      | wORD_SIZE dflags == 4 = HsWord64Prim "" . fromIntegral
-      | otherwise             = HsWordPrim "" . fromIntegral
 
 {-
 ************************************************************************
@@ -1358,7 +1329,7 @@ gen_Data_binds dflags loc rep_tc
                nlList  labels,                            -- Field labels
            nlHsVar fixity]                                -- Fixity
 
-        labels   = map (nlHsLit . mkHsString . getOccString)
+        labels   = map (nlHsLit . mkHsString . unpackFS . flLabel)
                        (dataConFieldLabels dc)
         dc_occ   = getOccName dc
         is_infix = isDataSymOcc dc_occ
@@ -1639,7 +1610,7 @@ data FFoldType a      -- Describes how to fold over a Type in a functor like way
         , ft_var     :: a                   -- The variable itself
         , ft_co_var  :: a                   -- The variable itself, contravariantly
         , ft_fun     :: a -> a -> a         -- Function type
-        , ft_tup     :: TupleSort -> [a] -> a  -- Tuple type
+        , ft_tup     :: TyCon -> [a] -> a   -- Tuple type
         , ft_ty_app  :: Type -> a -> a      -- Type app, variable only in last argument
         , ft_bad_app :: a                   -- Type app, variable other than in last argument
         , ft_forall  :: TcTyVar -> a -> a   -- Forall type
@@ -1675,11 +1646,11 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
        | not (or xcs)     = (caseTrivial, False)   -- Variable does not occur
        -- At this point we know that xrs, xcs is not empty,
        -- and at least one xr is True
-       | isTupleTyCon con = (caseTuple (tupleTyConSort con) xrs, True)
+       | isTupleTyCon con = (caseTuple con xrs, True)
        | or (init xcs)    = (caseWrongArg, True)         -- T (..var..)    ty
-       | otherwise        = case splitAppTy_maybe ty of  -- T (..no var..) ty
-                              Nothing -> (caseWrongArg, True)   -- Non-decomposable (eg type function)
-                              Just (fun_ty, _) -> (caseTyApp fun_ty (last xrs), True)
+       | Just (fun_ty, _) <- splitAppTy_maybe ty         -- T (..no var..) ty
+                          = (caseTyApp fun_ty (last xrs), True)
+       | otherwise        = (caseWrongArg, True)   -- Non-decomposable (eg type function)
        where
          (xrs,xcs) = unzip (map (go co) args)
     go co (ForAllTy (Named v Invisible) x) | v /= var && xc = (caseForAll v xr,True)
@@ -1706,12 +1677,20 @@ deepSubtypesContaining tv
 foldDataConArgs :: FFoldType a -> DataCon -> [a]
 -- Fold over the arguments of the datacon
 foldDataConArgs ft con
-  = map (functorLikeTraverse tv ft) (dataConOrigArgTys con)
+  = map foldArg (dataConOrigArgTys con)
   where
-    Just tv = getTyVar_maybe (last (tyConAppArgs (dataConOrigResTy con)))
-        -- Argument to derive for, 'a in the above description
-        -- The validity and kind checks have ensured that
-        -- the Just will match and a::*
+    foldArg
+      = case getTyVar_maybe (last (tyConAppArgs (dataConOrigResTy con))) of
+             Just tv -> functorLikeTraverse tv ft
+             Nothing -> const (ft_triv ft)
+    -- If we are deriving Foldable for a GADT, there is a chance that the last
+    -- type variable in the data type isn't actually a type variable at all.
+    -- (for example, this can happen if the last type variable is refined to
+    -- be a concrete type such as Int). If the last type variable is refined
+    -- to be a specific type, then getTyVar_maybe will return Nothing.
+    -- See Note [DeriveFoldable with ExistentialQuantification]
+    --
+    -- The kind checks have ensured the last type parameter is of kind *.
 
 -- Make a HsLam using a fresh variable from a State monad
 mkSimpleLam :: (LHsExpr RdrName -> State [RdrName] (LHsExpr RdrName))
@@ -1748,11 +1727,11 @@ mkSimpleConMatch fold extra_pats con insides = do
 -- "case x of (a1,a2,a3) -> fold [x1 a1, x2 a2, x3 a3]"
 mkSimpleTupleCase :: Monad m => ([LPat RdrName] -> DataCon -> [a]
                                  -> m (LMatch RdrName (LHsExpr RdrName)))
-                  -> TupleSort -> [a] -> LHsExpr RdrName -> m (LHsExpr RdrName)
-mkSimpleTupleCase match_for_con sort insides x = do
-    let con = tupleCon sort (length insides)
-    match <- match_for_con [] con insides
-    return $ nlHsCase x [match]
+                  -> TyCon -> [a] -> LHsExpr RdrName -> m (LHsExpr RdrName)
+mkSimpleTupleCase match_for_con tc insides x
+  = do { let data_con = tyConSingleDataCon tc
+       ; match <- match_for_con [] data_con insides
+       ; return $ nlHsCase x [match] }
 
 {-
 ************************************************************************
@@ -1780,6 +1759,24 @@ The cases are:
 
 Note that the arguments to the real foldr function are the wrong way around,
 since (f :: a -> b -> b), while (foldr f :: b -> t a -> b).
+
+Foldable instances differ from Functor and Traversable instances in that
+Foldable instances can be derived for data types in which the last type
+variable is existentially quantified. In particular, if the last type variable
+is refined to a more specific type in a GADT:
+
+  data GADT a where
+      G :: a ~ Int => a -> G Int
+
+then the deriving machinery does not attempt to check that the type a contains
+Int, since it is not syntactically equal to a type variable. That is, the
+derived Foldable instance for GADT is:
+
+  instance Foldable GADT where
+      foldr _ z (GADT _) = z
+
+See Note [DeriveFoldable with ExistentialQuantification].
+
 -}
 
 gen_Foldable_binds :: SrcSpan -> TyCon -> (LHsBinds RdrName, BagDerivStuff)
@@ -1888,6 +1885,90 @@ gen_Traversable_binds loc tycon
     mkApCon con []     = nlHsApps pure_RDR [con]
     mkApCon con (x:xs) = foldl appAp (nlHsApps fmap_RDR [con,x]) xs
        where appAp x y = nlHsApps ap_RDR [x,y]
+
+{-
+************************************************************************
+*                                                                      *
+                        Lift instances
+*                                                                      *
+************************************************************************
+
+Example:
+
+    data Foo a = Foo a | a :^: a deriving Lift
+
+    ==>
+
+    instance (Lift a) => Lift (Foo a) where
+        lift (Foo a)
+          = appE
+              (conE
+                (mkNameG_d "package-name" "ModuleName" "Foo"))
+              (lift a)
+        lift (u :^: v)
+          = infixApp
+              (lift u)
+              (conE
+                (mkNameG_d "package-name" "ModuleName" ":^:"))
+              (lift v)
+
+Note that (mkNameG_d "package-name" "ModuleName" "Foo") is equivalent to what
+'Foo would be when using the -XTemplateHaskell extension. To make sure that
+-XDeriveLift can be used on stage-1 compilers, however, we expliticly invoke
+makeG_d.
+-}
+
+gen_Lift_binds :: SrcSpan -> TyCon -> (LHsBinds RdrName, BagDerivStuff)
+gen_Lift_binds loc tycon
+  | null data_cons = (unitBag (L loc $ mkFunBind (L loc lift_RDR)
+                       [mkMatch [nlWildPat] errorMsg_Expr emptyLocalBinds])
+                     , emptyBag)
+  | otherwise = (unitBag lift_bind, emptyBag)
+  where
+    errorMsg_Expr = nlHsVar error_RDR `nlHsApp` nlHsLit
+        (mkHsString $ "Can't lift value of empty datatype " ++ tycon_str)
+
+    lift_bind = mk_FunBind loc lift_RDR (map pats_etc data_cons)
+    data_cons = tyConDataCons tycon
+    tycon_str = occNameString . nameOccName . tyConName $ tycon
+
+    pats_etc data_con
+      = ([con_pat], lift_Expr)
+       where
+            con_pat      = nlConVarPat data_con_RDR as_needed
+            data_con_RDR = getRdrName data_con
+            con_arity    = dataConSourceArity data_con
+            as_needed    = take con_arity as_RDRs
+            lifted_as    = zipWithEqual "mk_lift_app" mk_lift_app
+                             tys_needed as_needed
+            tycon_name   = tyConName tycon
+            is_infix     = dataConIsInfix data_con
+            tys_needed   = dataConOrigArgTys data_con
+
+            mk_lift_app ty a
+              | not (isUnLiftedType ty) = nlHsApp (nlHsVar lift_RDR)
+                                                  (nlHsVar a)
+              | otherwise = nlHsApp (nlHsVar litE_RDR)
+                              (primLitOp (mkBoxExp (nlHsVar a)))
+              where (primLitOp, mkBoxExp) = primLitOps "Lift" tycon ty
+
+            pkg_name = unitIdString . moduleUnitId
+                     . nameModule $ tycon_name
+            mod_name = moduleNameString . moduleName . nameModule $ tycon_name
+            con_name = occNameString . nameOccName . dataConName $ data_con
+
+            conE_Expr = nlHsApp (nlHsVar conE_RDR)
+                                (nlHsApps mkNameG_dRDR
+                                  (map (nlHsLit . mkHsString)
+                                    [pkg_name, mod_name, con_name]))
+
+            lift_Expr
+              | is_infix  = nlHsApps infixApp_RDR [a1, conE_Expr, a2]
+              | otherwise = foldl mk_appE_app conE_Expr lifted_as
+            (a1:a2:_) = lifted_as
+
+mk_appE_app :: LHsExpr RdrName -> LHsExpr RdrName -> LHsExpr RdrName
+mk_appE_app a b = nlHsApps appE_RDR [a, b]
 
 {-
 ************************************************************************
@@ -2097,15 +2178,13 @@ mkRdrFunBind fun@(L loc fun_rdr) matches = L loc (mkFunBind fun matches')
               else matches
    str = "Void " ++ occNameString (rdrNameOcc fun_rdr)
 
-box_if_necy :: String           -- The class involved
+box ::         String           -- The class involved
             -> TyCon            -- The tycon involved
             -> LHsExpr RdrName  -- The argument
             -> Type             -- The argument type
             -> LHsExpr RdrName  -- Boxed version of the arg
--- See Note [Deriving and unboxed types]
-box_if_necy cls_str tycon arg arg_ty
-  | isUnLiftedType arg_ty = nlHsApp (nlHsVar box_con) arg
-  | otherwise             = arg
+-- See Note [Deriving and unboxed types] in TcDeriv
+box cls_str tycon arg arg_ty = nlHsApp (nlHsVar box_con) arg
   where
     box_con = assoc_ty_id cls_str tycon boxConTbl arg_ty
 
@@ -2114,8 +2193,22 @@ primOrdOps :: String    -- The class involved
            -> TyCon     -- The tycon involved
            -> Type      -- The type
            -> (RdrName, RdrName, RdrName, RdrName, RdrName)  -- (lt,le,eq,ge,gt)
--- See Note [Deriving and unboxed types]
+-- See Note [Deriving and unboxed types] in TcDeriv
 primOrdOps str tycon ty = assoc_ty_id str tycon ordOpTbl ty
+
+primLitOps :: String -- The class involved
+           -> TyCon  -- The tycon involved
+           -> Type   -- The type
+           -> ( LHsExpr RdrName -> LHsExpr RdrName -- Constructs a Q Exp value
+              , LHsExpr RdrName -> LHsExpr RdrName -- Constructs a boxed value
+              )
+primLitOps str tycon ty = ( assoc_ty_id str tycon litConTbl ty
+                          , \v -> nlHsVar boxRDR `nlHsApp` v
+                          )
+  where
+    boxRDR
+      | ty `eqType` addrPrimTy = unpackCString_RDR
+      | otherwise = assoc_ty_id str tycon boxConTbl ty
 
 ordOpTbl :: [(Type, (RdrName, RdrName, RdrName, RdrName, RdrName))]
 ordOpTbl
@@ -2135,6 +2228,37 @@ boxConTbl
     ,(doublePrimTy, getRdrName doubleDataCon)
     ]
 
+-- | A table of postfix modifiers for unboxed values.
+postfixModTbl :: [(Type, String)]
+postfixModTbl
+  = [(charPrimTy  , "#" )
+    ,(intPrimTy   , "#" )
+    ,(wordPrimTy  , "##")
+    ,(floatPrimTy , "#" )
+    ,(doublePrimTy, "##")
+    ]
+
+litConTbl :: [(Type, LHsExpr RdrName -> LHsExpr RdrName)]
+litConTbl
+  = [(charPrimTy  , nlHsApp (nlHsVar charPrimL_RDR))
+    ,(intPrimTy   , nlHsApp (nlHsVar intPrimL_RDR)
+                      . nlHsApp (nlHsVar toInteger_RDR))
+    ,(wordPrimTy  , nlHsApp (nlHsVar wordPrimL_RDR)
+                      . nlHsApp (nlHsVar toInteger_RDR))
+    ,(addrPrimTy  , nlHsApp (nlHsVar stringPrimL_RDR)
+                      . nlHsApp (nlHsApp
+                          (nlHsVar map_RDR)
+                          (compose_RDR `nlHsApps`
+                            [ nlHsVar fromIntegral_RDR
+                            , nlHsVar fromEnum_RDR
+                            ])))
+    ,(floatPrimTy , nlHsApp (nlHsVar floatPrimL_RDR)
+                      . nlHsApp (nlHsVar toRational_RDR))
+    ,(doublePrimTy, nlHsApp (nlHsVar doublePrimL_RDR)
+                      . nlHsApp (nlHsVar toRational_RDR))
+    ]
+
+-- | Lookup `Type` in an association list.
 assoc_ty_id :: String           -- The class involved
             -> TyCon            -- The tycon involved
             -> [(Type,a)]       -- The table
@@ -2297,17 +2421,19 @@ mkAuxBinderName :: Name -> (OccName -> OccName) -> RdrName
 -- ^ Make a top-level binder name for an auxiliary binding for a parent name
 -- See Note [Auxiliary binders]
 mkAuxBinderName parent occ_fun
-  = mkRdrUnqual (occ_fun uniq_parent_occ)
+  = mkRdrUnqual (occ_fun stable_parent_occ)
   where
-    uniq_parent_occ = mkOccName (occNameSpace parent_occ) uniq_string
-
-    uniq_string
-      | opt_PprStyle_Debug = showSDocSimple (ppr parent_occ <> underscore <> ppr parent_uniq)
-      | otherwise          = show parent_uniq
-      -- The debug thing is just to generate longer, but perhaps more perspicuous, names
-
-    parent_uniq = nameUnique parent
+    stable_parent_occ = mkOccName (occNameSpace parent_occ) stable_string
+    stable_string
+      | opt_PprStyle_Debug = parent_stable
+      | otherwise = parent_stable_hash
+    parent_stable = nameStableString parent
+    parent_stable_hash =
+      let Fingerprint high low = fingerprintString parent_stable
+      in toBase62 high ++ toBase62Padded low
+      -- See Note [Base 62 encoding 128-bit integers]
     parent_occ  = nameOccName parent
+
 
 {-
 Note [Auxiliary binders]
@@ -2325,10 +2451,86 @@ generating RdrNames here.  We can't just use the TyCon or DataCon to distinguish
 because with standalone deriving two imported TyCons might both be called T!
 (See Trac #7947.)
 
-So we use the *unique* from the parent name (T in this example) as part of the
-OccName we generate for the new binding.
+So we use package name, module name and the name of the parent
+(T in this example) as part of the OccName we generate for the new binding.
+To make the symbol names short we take a base62 hash of the full name.
 
-In the past we used mkDerivedRdrName name occ_fun, which made an original name
-But:  (a) that does not work well for standalone-deriving either
-      (b) an unqualified name is just fine, provided it can't clash with user code
+In the past we used the *unique* from the parent, but that's not stable across
+recompilations as uniques are nondeterministic.
+
+Note [DeriveFoldable with ExistentialQuantification]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Functor and Traversable instances can only be derived for data types whose
+last type parameter is truly universally polymorphic. For example:
+
+  data T a b where
+    T1 ::                 b   -> T a b   -- YES, b is unconstrained
+    T2 :: Ord b   =>      b   -> T a b   -- NO, b is constrained by (Ord b)
+    T3 :: b ~ Int =>      b   -> T a b   -- NO, b is constrained by (b ~ Int)
+    T4 ::                 Int -> T a Int -- NO, this is just like T3
+    T5 :: Ord a   => a -> b   -> T a b   -- YES, b is unconstrained, even
+                                         -- though a is existential
+    T6 ::                 Int -> T Int b -- YES, b is unconstrained
+
+For Foldable instances, however, we can completely lift the constraint that
+the last type parameter be truly universally polymorphic. This means that T
+(as defined above) can have a derived Foldable instance:
+
+  instance Foldable (T a) where
+    foldr f z (T1 b)   = f b z
+    foldr f z (T2 b)   = f b z
+    foldr f z (T3 b)   = f b z
+    foldr f z (T4 b)   = z
+    foldr f z (T5 a b) = f b z
+    foldr f z (T6 a)   = z
+
+    foldMap f (T1 b)   = f b
+    foldMap f (T2 b)   = f b
+    foldMap f (T3 b)   = f b
+    foldMap f (T4 b)   = mempty
+    foldMap f (T5 a b) = f b
+    foldMap f (T6 a)   = mempty
+
+In a Foldable instance, it is safe to fold over an occurrence of the last type
+parameter that is not truly universally polymorphic. However, there is a bit
+of subtlety in determining what is actually an occurrence of a type parameter.
+T3 and T4, as defined above, provide one example:
+
+  data T a b where
+    ...
+    T3 :: b ~ Int => b   -> T a b
+    T4 ::            Int -> T a Int
+    ...
+
+  instance Foldable (T a) where
+    ...
+    foldr f z (T3 b) = f b z
+    foldr f z (T4 b) = z
+    ...
+    foldMap f (T3 b) = f b
+    foldMap f (T4 b) = mempty
+    ...
+
+Notice that the argument of T3 is folded over, whereas the argument of T4 is
+not. This is because we only fold over constructor arguments that
+syntactically mention the universally quantified type parameter of that
+particular data constructor. See foldDataConArgs for how this is implemented.
+
+As another example, consider the following data type. The argument of each
+constructor has the same type as the last type parameter:
+
+  data E a where
+    E1 :: (a ~ Int) => a   -> E a
+    E2 ::              Int -> E Int
+    E3 :: (a ~ Int) => a   -> E Int
+    E4 :: (a ~ Int) => Int -> E a
+
+Only E1's argument is an occurrence of a universally quantified type variable
+that is syntactically equivalent to the last type parameter, so only E1's
+argument will be be folded over in a derived Foldable instance.
+
+See Trac #10447 for the original discussion on this feature. Also see
+https://ghc.haskell.org/trac/ghc/wiki/Commentary/Compiler/DeriveFunctor
+for a more in-depth explanation.
+
 -}

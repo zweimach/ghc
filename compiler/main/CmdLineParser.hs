@@ -18,7 +18,7 @@ module CmdLineParser
       Flag(..), defFlag, defGhcFlag, defGhciFlag, defHiddenFlag,
       errorsToGhcException,
 
-      EwM, addErr, addWarn, getArg, getCurLoc, liftEwM, deprecate
+      EwM, runEwM, addErr, addWarn, getArg, getCurLoc, liftEwM, deprecate
     ) where
 
 #include "HsVersions.h"
@@ -100,15 +100,18 @@ instance Monad m => Functor (EwM m) where
     fmap = liftM
 
 instance Monad m => Applicative (EwM m) where
-    pure = return
+    pure v = EwM (\_ e w -> return (e, w, v))
     (<*>) = ap
 
 instance Monad m => Monad (EwM m) where
     (EwM f) >>= k = EwM (\l e w -> do (e', w', r) <- f l e w
                                       unEwM (k r) l e' w')
-    return v = EwM (\_ e w -> return (e, w, v))
+    return = pure
 
-setArg :: Monad m => Located String -> EwM m () -> EwM m ()
+runEwM :: EwM m a -> m (Errs, Warns, a)
+runEwM action = unEwM action (panic "processArgs: no arg yet") emptyBag emptyBag
+
+setArg :: Located String -> EwM m () -> EwM m ()
 setArg l (EwM f) = EwM (\_ es ws -> f l es ws)
 
 addErr :: Monad m => String -> EwM m ()
@@ -143,7 +146,7 @@ instance Functor (CmdLineP s) where
     fmap = liftM
 
 instance Applicative (CmdLineP s) where
-    pure = return
+    pure a = CmdLineP $ \s -> (a, s)
     (<*>) = ap
 
 instance Monad (CmdLineP s) where
@@ -151,7 +154,7 @@ instance Monad (CmdLineP s) where
                   let (a, s') = runCmdLine m s
                   in runCmdLine (k a) s'
 
-    return a = CmdLineP $ \s -> (a, s)
+    return = pure
 
 getCmdLineState :: CmdLineP s s
 getCmdLineState   = CmdLineP $ \s -> (s,s)
@@ -170,8 +173,7 @@ processArgs :: Monad m
                    [Located String],  -- errors
                    [Located String] ) -- warnings
 processArgs spec args = do
-    (errs, warns, spare) <- unEwM action (panic "processArgs: no arg yet")
-                                  emptyBag emptyBag
+    (errs, warns, spare) <- runEwM action
     return (spare, bagToList errs, bagToList warns)
   where
     action = process args []
@@ -293,8 +295,26 @@ missingArgErr f = Left ("missing argument for flag: " ++ f)
 -- Utils
 --------------------------------------------------------
 
-errorsToGhcException :: [Located String] -> GhcException
-errorsToGhcException errs =
-    UsageError $
-        intercalate "\n" [ showUserSpan True l ++ ": " ++ e | L l e <- errs ]
 
+-- See Note [Handling errors when parsing flags]
+errorsToGhcException :: [(String,    -- Location
+                          String)]   -- Error
+                     -> GhcException
+errorsToGhcException errs =
+    UsageError $ intercalate "\n" $ [ l ++ ": " ++ e | (l, e) <- errs ]
+
+{- Note [Handling errors when parsing commandline flags]
+
+Parsing of static and mode flags happens before any session is started, i.e.,
+before the first call to 'GHC.withGhc'. Therefore, to report errors for
+invalid usage of these two types of flags, we can not call any function that
+needs DynFlags, as there are no DynFlags available yet (unsafeGlobalDynFlags
+is not set either). So we always print "on the commandline" as the location,
+which is true except for Api users, which is probably ok.
+
+When reporting errors for invalid usage of dynamic flags we /can/ make use of
+DynFlags, and we do so explicitly in DynFlags.parseDynamicFlagsFull.
+
+Before, we called unsafeGlobalDynFlags when an invalid (combination of)
+flag(s) was given on the commandline, resulting in panics (#9963).
+-}

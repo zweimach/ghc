@@ -276,24 +276,36 @@ scavenge_AP (StgAP *ap)
 static void
 scavenge_large_srt_bitmap( StgLargeSRT *large_srt )
 {
-    nat i, b, size;
+    nat i, j, size;
     StgWord bitmap;
     StgClosure **p;
 
-    b = 0;
-    bitmap = large_srt->l.bitmap[b];
     size   = (nat)large_srt->l.size;
     p      = (StgClosure **)large_srt->srt;
-    for (i = 0; i < size; ) {
-        if ((bitmap & 1) != 0) {
-            evacuate(p);
-        }
-        i++;
-        p++;
-        if (i % BITS_IN(W_) == 0) {
-            b++;
-            bitmap = large_srt->l.bitmap[b];
+
+    for (i = 0; i < size / BITS_IN(W_); i++) {
+        bitmap = large_srt->l.bitmap[i];
+        // skip zero words: bitmaps can be very sparse, and this helps
+        // performance a lot in some cases.
+        if (bitmap != 0) {
+            for (j = 0; j < BITS_IN(W_); j++) {
+                if ((bitmap & 1) != 0) {
+                    evacuate(p);
+                }
+                p++;
+                bitmap = bitmap >> 1;
+            }
         } else {
+            p += BITS_IN(W_);
+        }
+    }
+    if (size % BITS_IN(W_) != 0) {
+        bitmap = large_srt->l.bitmap[i];
+        for (j = 0; j < size % BITS_IN(W_); j++) {
+            if ((bitmap & 1) != 0) {
+                evacuate(p);
+            }
+            p++;
             bitmap = bitmap >> 1;
         }
     }
@@ -625,7 +637,7 @@ scavenge_block (bdescr *bd)
 
     case ARR_WORDS:
         // nothing to follow
-        p += arr_words_sizeW((StgArrWords *)p);
+        p += arr_words_sizeW((StgArrBytes *)p);
         break;
 
     case MUT_ARR_PTRS_CLEAN:
@@ -1660,7 +1672,7 @@ scavenge_capability_mut_lists (Capability *cap)
 static void
 scavenge_static(void)
 {
-  StgClosure* p;
+  StgClosure *flagged_p, *p;
   const StgInfoTable *info;
 
   debugTrace(DEBUG_gc, "scavenging static objects");
@@ -1678,10 +1690,11 @@ scavenge_static(void)
      * be more stuff on this list after each evacuation...
      * (static_objects is a global)
      */
-    p = gct->static_objects;
-    if (p == END_OF_STATIC_LIST) {
+    flagged_p = gct->static_objects;
+    if (flagged_p == END_OF_STATIC_OBJECT_LIST) {
           break;
     }
+    p = UNTAG_STATIC_LIST_PTR(flagged_p);
 
     ASSERT(LOOKS_LIKE_CLOSURE_PTR(p));
     info = get_itbl(p);
@@ -1696,7 +1709,7 @@ scavenge_static(void)
      */
     gct->static_objects = *STATIC_LINK(info,p);
     *STATIC_LINK(info,p) = gct->scavenged_static_objects;
-    gct->scavenged_static_objects = p;
+    gct->scavenged_static_objects = flagged_p;
 
     switch (info -> type) {
 
@@ -1795,6 +1808,7 @@ scavenge_stack(StgPtr p, StgPtr stack_end)
     switch (info->i.type) {
 
     case UPDATE_FRAME:
+        // Note [upd-black-hole]
         // In SMP, we can get update frames that point to indirections
         // when two threads evaluate the same thunk.  We do attempt to
         // discover this situation in threadPaused(), but it's
@@ -1820,7 +1834,6 @@ scavenge_stack(StgPtr p, StgPtr stack_end)
         // compulsory (otherwise we would have to check for thunks
         // too).
         //
-        // Note [upd-black-hole]
         // One slight hiccup is that the THUNK_SELECTOR machinery can
         // overwrite the updatee with an IND.  In parallel GC, this
         // could even be happening concurrently, so we can't check for
@@ -2054,7 +2067,7 @@ loop:
     work_to_do = rtsFalse;
 
     // scavenge static objects
-    if (major_gc && gct->static_objects != END_OF_STATIC_LIST) {
+    if (major_gc && gct->static_objects != END_OF_STATIC_OBJECT_LIST) {
         IF_DEBUG(sanity, checkStaticObjects(gct->static_objects));
         scavenge_static();
     }

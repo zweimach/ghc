@@ -29,7 +29,16 @@ class TestConfig:
         self.accept = 0
 
         # File in which to save the summary
-        self.output_summary = ''
+        self.summary_file = ''
+
+        # Should we print the summary?
+        # Disabling this is useful for Phabricator/Harbormaster
+        # logfiles, which are truncated to 30 lines. TODO. Revise if
+        # this is still true.
+        # Note that we have a separate flag for this, instead of
+        # overloading --verbose, as you might want to see the summary
+        # with --verbose=0.
+        self.no_print_summary = False
 
         # File in which to save the times
         self.times_file = ''
@@ -45,13 +54,10 @@ class TestConfig:
         # Verbosity level
         self.verbose = 3
 
-        # run the "fast" version of the test suite
-        self.fast = 0
+        # See Note [validate and testsuite speed] in toplevel Makefile.
+        self.speed = 1
 
         self.list_broken = False
-
-        # Compiler type (ghc, hugs, nhc, etc.)
-        self.compiler_type = ''
 
         # Path to the compiler
         self.compiler = ''
@@ -157,10 +163,6 @@ def getTestRun():
 
 class TestOptions:
    def __init__(self):
-       # if not None then we look for namebase.stderr etc rather than
-       # using the test name
-       self.with_namebase = None
-
        # skip this test?
        self.skip = 0
 
@@ -269,7 +271,8 @@ class TestOptions:
        self.combined_output = False
 
        # How should the timeout be adjusted on this test?
-       self.timeout_multiplier = 1.0
+       self.compile_timeout_multiplier = 1.0
+       self.run_timeout_multiplier = 1.0
 
 # The default set of options
 global default_testopts

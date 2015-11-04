@@ -46,16 +46,18 @@ module Data.Traversable (
     foldMapDefault,
     ) where
 
-import Control.Applicative ( Const(..) )
+-- It is convenient to use 'Const' here but this means we must
+-- define a few instances here which really belong in Control.Applicative
+import Control.Applicative ( Const(..), ZipList(..) )
 import Data.Either ( Either(..) )
 import Data.Foldable ( Foldable )
 import Data.Functor
+import Data.Monoid ( Dual(..), Sum(..), Product(..), First(..), Last(..) )
 import Data.Proxy ( Proxy(..) )
 
 import GHC.Arr
 import GHC.Base ( Applicative(..), Monad(..), Monoid, Maybe(..),
                   ($), (.), id, flip )
-import qualified GHC.Base as Monad ( mapM )
 import qualified GHC.List as List ( foldr )
 
 -- | Functors representing data structures that can be traversed from
@@ -103,7 +105,7 @@ import qualified GHC.List as List ( foldr )
 -- >   instance Functor Identity where
 -- >     fmap f (Identity x) = Identity (f x)
 -- >
--- >   instance Applicative Indentity where
+-- >   instance Applicative Identity where
 -- >     pure x = Identity x
 -- >     Identity f <*> Identity x = Identity (f x)
 -- >
@@ -144,10 +146,9 @@ import qualified GHC.List as List ( foldr )
 class (Functor t, Foldable t) => Traversable t where
     {-# MINIMAL traverse | sequenceA #-}
 
-    -- | Map each element of a structure to an action, evaluate these
-    -- these actions from left to right, and collect the results.
-    -- actions from left to right, and collect the results. For a
-    -- version that ignores the results see 'Data.Foldable.traverse_'.
+    -- | Map each element of a structure to an action, evaluate these actions
+    -- from left to right, and collect the results. For a version that ignores
+    -- the results see 'Data.Foldable.traverse_'.
     traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
     traverse f = sequenceA . fmap f
 
@@ -180,8 +181,6 @@ instance Traversable [] where
     traverse f = List.foldr cons_f (pure [])
       where cons_f x ys = (:) <$> f x <*> ys
 
-    mapM = Monad.mapM
-
 instance Traversable (Either a) where
     traverse _ (Left x) = pure (Left x)
     traverse f (Right y) = Right <$> f y
@@ -197,13 +196,31 @@ instance Traversable Proxy where
     {-# INLINE traverse #-}
     sequenceA _ = pure Proxy
     {-# INLINE sequenceA #-}
-    mapM _ _ = return Proxy
+    mapM _ _ = pure Proxy
     {-# INLINE mapM #-}
-    sequence _ = return Proxy
+    sequence _ = pure Proxy
     {-# INLINE sequence #-}
 
 instance Traversable (Const m) where
     traverse _ (Const m) = pure $ Const m
+
+instance Traversable Dual where
+    traverse f (Dual x) = Dual <$> f x
+
+instance Traversable Sum where
+    traverse f (Sum x) = Sum <$> f x
+
+instance Traversable Product where
+    traverse f (Product x) = Product <$> f x
+
+instance Traversable First where
+    traverse f (First x) = First <$> traverse f x
+
+instance Traversable Last where
+    traverse f (Last x) = Last <$> traverse f x
+
+instance Traversable ZipList where
+    traverse f (ZipList x) = ZipList <$> traverse f x
 
 -- general functions
 

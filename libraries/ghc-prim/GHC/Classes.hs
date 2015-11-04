@@ -1,7 +1,17 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE NoImplicitPrelude, MagicHash, StandaloneDeriving, BangPatterns #-}
+{-# LANGUAGE NoImplicitPrelude, MagicHash, StandaloneDeriving, BangPatterns,
+             KindSignatures, DataKinds, ConstraintKinds,
+              MultiParamTypeClasses, FunctionalDependencies #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+  -- ip :: IP x a => a  is strictly speaking ambiguous, but IP is magic
+
 {-# OPTIONS_GHC -fno-warn-unused-imports #-}
--- XXX -fno-warn-unused-imports needed for the GHC.Tuple import below. Sigh.
+-- -fno-warn-unused-imports needed for the GHC.Tuple import below. Sigh.
+
+{-# OPTIONS_GHC -fno-warn-unused-top-binds #-}
+-- -fno-warn-unused-top-binds is there (I hope) to stop Haddock complaining
+-- about the constraint tuples being defined but not used
+
 {-# OPTIONS_HADDOCK hide #-}
 -----------------------------------------------------------------------------
 -- |
@@ -17,7 +27,13 @@
 --
 -----------------------------------------------------------------------------
 
-module GHC.Classes where
+module GHC.Classes(
+    IP(..),
+    Eq(..), eqInt, neInt,
+    Ord(..), gtInt, geInt, leInt, ltInt, compareInt, compareInt#,
+    (&&), (||), not,
+    divInt#, modInt#
+ ) where
 
 -- GHC.Magic is used in some derived instances
 import GHC.Magic ()
@@ -31,6 +47,13 @@ infixr 3  &&
 infixr 2  ||
 
 default ()              -- Double isn't available yet
+
+-- | The syntax @?x :: a@ is desugared into @IP "x" a@
+-- IP is declared very early, so that libraries can take
+-- advantage of the implicit-call-stack feature
+class IP (x :: Symbol) a | x -> a where
+  ip :: a
+
 
 -- | The 'Eq' class defines equality ('==') and inequality ('/=').
 -- All the basic datatypes exported by the "Prelude" are instances of 'Eq',
@@ -297,3 +320,328 @@ x# `modInt#` y#
       else r#
     where
     !r# = x# `remInt#` y#
+
+
+{- *************************************************************
+*                                                              *
+*               Constraint tuples                              *
+*                                                              *
+************************************************************* -}
+
+class ()
+class (c1, c2)     => (c1, c2)
+class (c1, c2, c3) => (c1, c2, c3)
+class (c1, c2, c3, c4) => (c1, c2, c3, c4)
+class (c1, c2, c3, c4, c5) => (c1, c2, c3, c4, c5)
+class (c1, c2, c3, c4, c5, c6) => (c1, c2, c3, c4, c5, c6)
+class (c1, c2, c3, c4, c5, c6, c7) => (c1, c2, c3, c4, c5, c6, c7)
+class (c1, c2, c3, c4, c5, c6, c7, c8) => (c1, c2, c3, c4, c5, c6, c7, c8)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17,c18)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57, c58)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57, c58)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57, c58,
+       c59)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57, c58,
+       c59)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57, c58,
+       c59, c60)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57, c58,
+       c59, c60)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57, c58,
+       c59, c60, c61)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57, c58,
+       c59, c60, c61)
+class (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57, c58,
+       c59, c60, c61, c62)
+   => (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16,
+       c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30,
+       c31, c32, c33, c34, c35, c36, c37, c38, c39, c40, c41, c42, c43, c44,
+       c45, c46, c47, c48, c49, c50, c51, c52, c53, c54, c55, c56, c57, c58,
+       c59, c60, c61, c62)
+

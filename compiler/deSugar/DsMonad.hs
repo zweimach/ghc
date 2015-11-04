@@ -50,6 +50,7 @@ import TcIface
 import LoadIface
 import Finder
 import PrelNames
+import RnNames
 import RdrName
 import HscTypes
 import Bag
@@ -263,7 +264,7 @@ loadModule doc mod
            Succeeded iface -> return $ mkGlobalRdrEnv . gresFromAvails prov . mi_exports $ iface
        } }
   where
-    prov     = Imported [ImpSpec { is_decl = imp_spec, is_item = ImpAll }]
+    prov     = Just (ImpSpec { is_decl = imp_spec, is_item = ImpAll })
     imp_spec = ImpDeclSpec { is_mod = name, is_qual = True,
                              is_dloc = wiredInSrcSpan, is_as = name }
     name = moduleName mod

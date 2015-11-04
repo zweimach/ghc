@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 
 ==================== Tidy Core ====================
 Result size of Tidy Core = {terms: 22, types: 14, coercions: 0}
@@ -80,3 +81,137 @@ fr = fl
 
 
 
+||||||| merged common ancestors
+
+==================== Tidy Core ====================
+Result size of Tidy Core = {terms: 22, types: 14, coercions: 0}
+
+dl :: Double -> Double
+[GblId,
+ Arity=1,
+ Caf=NoCafRefs,
+ Str=DmdType <S,1*U(U)>m,
+ Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+         WorkFree=True, Expandable=True,
+         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
+         Tmpl= \ (x [Occ=Once!] :: Double) ->
+                 case x of _ [Occ=Dead] { GHC.Types.D# y ->
+                 GHC.Types.D# (GHC.Prim.+## y y)
+                 }}]
+dl =
+  \ (x :: Double) ->
+    case x of _ [Occ=Dead] { GHC.Types.D# y ->
+    GHC.Types.D# (GHC.Prim.+## y y)
+    }
+
+dr :: Double -> Double
+[GblId,
+ Arity=1,
+ Caf=NoCafRefs,
+ Str=DmdType <S,1*U(U)>m,
+ Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+         WorkFree=True, Expandable=True,
+         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
+         Tmpl= \ (x [Occ=Once!] :: Double) ->
+                 case x of _ [Occ=Dead] { GHC.Types.D# x1 ->
+                 GHC.Types.D# (GHC.Prim.+## x1 x1)
+                 }}]
+dr = dl
+
+fl :: Float -> Float
+[GblId,
+ Arity=1,
+ Caf=NoCafRefs,
+ Str=DmdType <S,1*U(U)>m,
+ Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+         WorkFree=True, Expandable=True,
+         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
+         Tmpl= \ (x [Occ=Once!] :: Float) ->
+                 case x of _ [Occ=Dead] { GHC.Types.F# y ->
+                 GHC.Types.F# (GHC.Prim.plusFloat# y y)
+                 }}]
+fl =
+  \ (x :: Float) ->
+    case x of _ [Occ=Dead] { GHC.Types.F# y ->
+    GHC.Types.F# (GHC.Prim.plusFloat# y y)
+    }
+
+fr :: Float -> Float
+[GblId,
+ Arity=1,
+ Caf=NoCafRefs,
+ Str=DmdType <S,1*U(U)>m,
+ Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+         WorkFree=True, Expandable=True,
+         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
+         Tmpl= \ (x [Occ=Once!] :: Float) ->
+                 case x of _ [Occ=Dead] { GHC.Types.F# x1 ->
+                 GHC.Types.F# (GHC.Prim.plusFloat# x1 x1)
+                 }}]
+fr = fl
+
+
+
+=======
+
+==================== Tidy Core ====================
+Result size of Tidy Core = {terms: 22, types: 14, coercions: 0}
+
+-- RHS size: {terms: 8, types: 3, coercions: 0}
+dl :: Double -> Double
+[GblId,
+ Arity=1,
+ Caf=NoCafRefs,
+ Str=DmdType <S,1*U(U)>m,
+ Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+         WorkFree=True, Expandable=True,
+         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
+         Tmpl= \ (x [Occ=Once!] :: Double) ->
+                 case x of _ [Occ=Dead] { D# y -> D# (+## y y) }}]
+dl =
+  \ (x :: Double) -> case x of _ [Occ=Dead] { D# y -> D# (+## y y) }
+
+-- RHS size: {terms: 1, types: 0, coercions: 0}
+dr :: Double -> Double
+[GblId,
+ Arity=1,
+ Caf=NoCafRefs,
+ Str=DmdType <S,1*U(U)>m,
+ Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+         WorkFree=True, Expandable=True,
+         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
+         Tmpl= \ (x [Occ=Once!] :: Double) ->
+                 case x of _ [Occ=Dead] { D# x1 -> D# (+## x1 x1) }}]
+dr = dl
+
+-- RHS size: {terms: 8, types: 3, coercions: 0}
+fl :: Float -> Float
+[GblId,
+ Arity=1,
+ Caf=NoCafRefs,
+ Str=DmdType <S,1*U(U)>m,
+ Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+         WorkFree=True, Expandable=True,
+         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
+         Tmpl= \ (x [Occ=Once!] :: Float) ->
+                 case x of _ [Occ=Dead] { F# y -> F# (plusFloat# y y) }}]
+fl =
+  \ (x :: Float) ->
+    case x of _ [Occ=Dead] { F# y -> F# (plusFloat# y y) }
+
+-- RHS size: {terms: 1, types: 0, coercions: 0}
+fr :: Float -> Float
+[GblId,
+ Arity=1,
+ Caf=NoCafRefs,
+ Str=DmdType <S,1*U(U)>m,
+ Unf=Unf{Src=InlineStable, TopLvl=True, Value=True, ConLike=True,
+         WorkFree=True, Expandable=True,
+         Guidance=ALWAYS_IF(arity=1,unsat_ok=True,boring_ok=False)
+         Tmpl= \ (x [Occ=Once!] :: Float) ->
+                 case x of _ [Occ=Dead] { F# x1 -> F# (plusFloat# x1 x1) }}]
+fr = fl
+
+
+
+>>>>>>> origin/master

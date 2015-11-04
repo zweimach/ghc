@@ -84,8 +84,15 @@ last [x]                =  x
 last (_:xs)             =  last xs
 last []                 =  errorEmptyList "last"
 #else
--- use foldl to allow fusion
-last = foldl (\_ x -> x) (errorEmptyList "last")
+-- Use foldl to make last a good consumer.
+-- This will compile to good code for the actual GHC.List.last.
+-- (At least as long it is eta-expaned, otherwise it does not, #10260.)
+last xs = foldl (\_ x -> x) lastError xs
+{-# INLINE last #-}
+-- The inline pragma is required to make GHC remember the implementation via
+-- foldl.
+lastError :: a
+lastError = errorEmptyList "last"
 #endif
 
 -- | Return all the elements of a list except the last one.
@@ -348,9 +355,11 @@ match on everything past the :, which is just the tail of scanl.
 -- and thus must be applied to non-empty lists.
 
 foldr1                  :: (a -> a -> a) -> [a] -> a
-foldr1 _ [x]            =  x
-foldr1 f (x:xs)         =  f x (foldr1 f xs)
-foldr1 _ []             =  errorEmptyList "foldr1"
+foldr1 f = go
+  where go [x]            =  x
+        go (x:xs)         =  f x (go xs)
+        go []             =  errorEmptyList "foldr1"
+{-# INLINE [0] foldr1 #-}
 
 -- | 'scanr' is the right-to-left dual of 'scanl'.
 -- Note that
@@ -391,39 +400,27 @@ scanr1 f (x:xs)         =  f x q : qs
 -- It is a special case of 'Data.List.maximumBy', which allows the
 -- programmer to supply their own comparison function.
 maximum                 :: (Ord a) => [a] -> a
-{-# INLINE [1] maximum #-}
+{-# INLINEABLE maximum #-}
 maximum []              =  errorEmptyList "maximum"
 maximum xs              =  foldl1 max xs
 
-{-# RULES
-  "maximumInt"     maximum = (strictMaximum :: [Int]     -> Int);
-  "maximumInteger" maximum = (strictMaximum :: [Integer] -> Integer)
- #-}
-
--- We can't make the overloaded version of maximum strict without
--- changing its semantics (max might not be strict), but we can for
--- the version specialised to 'Int'.
-strictMaximum           :: (Ord a) => [a] -> a
-strictMaximum []        =  errorEmptyList "maximum"
-strictMaximum xs        =  foldl1' max xs
+-- We want this to be specialized so that with a strict max function, GHC
+-- produces good code. Note that to see if this is happending, one has to
+-- look at -ddump-prep, not -ddump-core!
+{-# SPECIALIZE  maximum :: [Int] -> Int #-}
+{-# SPECIALIZE  maximum :: [Integer] -> Integer #-}
 
 -- | 'minimum' returns the minimum value from a list,
 -- which must be non-empty, finite, and of an ordered type.
 -- It is a special case of 'Data.List.minimumBy', which allows the
 -- programmer to supply their own comparison function.
 minimum                 :: (Ord a) => [a] -> a
-{-# INLINE [1] minimum #-}
+{-# INLINEABLE minimum #-}
 minimum []              =  errorEmptyList "minimum"
 minimum xs              =  foldl1 min xs
 
-{-# RULES
-  "minimumInt"     minimum = (strictMinimum :: [Int]     -> Int);
-  "minimumInteger" minimum = (strictMinimum :: [Integer] -> Integer)
- #-}
-
-strictMinimum           :: (Ord a) => [a] -> a
-strictMinimum []        =  errorEmptyList "minimum"
-strictMinimum xs        =  foldl1' min xs
+{-# SPECIALIZE  minimum :: [Int] -> Int #-}
+{-# SPECIALIZE  minimum :: [Integer] -> Integer #-}
 
 
 -- | 'iterate' @f x@ returns an infinite list of repeated applications
@@ -875,7 +872,7 @@ xs !! n
 foldr2 :: (a -> b -> c -> c) -> c -> [a] -> [b] -> c
 foldr2 k z = go
   where
-        go []    !_ys    = z -- see #9495 for the !
+        go []    _ys     = z
         go _xs   []      = z
         go (x:xs) (y:ys) = k x y (go xs ys)
 {-# INLINE [0] foldr2 #-}
@@ -884,20 +881,26 @@ foldr2_left :: (a -> b -> c -> d) -> d -> a -> ([b] -> c) -> [b] -> d
 foldr2_left _k  z _x _r []     = z
 foldr2_left  k _z  x  r (y:ys) = k x y (r ys)
 
-foldr2_right :: (a -> b -> c -> d) -> d -> b -> ([a] -> c) -> [a] -> d
-foldr2_right _k z  _y _r []     = z
-foldr2_right  k _z  y  r (x:xs) = k x y (r xs)
-
 -- foldr2 k z xs ys = foldr (foldr2_left k z)  (\_ -> z) xs ys
--- foldr2 k z xs ys = foldr (foldr2_right k z) (\_ -> z) ys xs
 {-# RULES
 "foldr2/left"   forall k z ys (g::forall b.(a->b->b)->b->b) .
                   foldr2 k z (build g) ys = g (foldr2_left  k z) (\_ -> z) ys
-
-"foldr2/right"  forall k z xs (g::forall b.(a->b->b)->b->b) .
-                  foldr2 k z xs (build g) = g (foldr2_right k z) (\_ -> z) xs
  #-}
-
+-- There used to be a foldr2/right rule, allowing foldr2 to fuse with a build
+-- form on the right. However, this causes trouble if the right list ends in
+-- a bottom that is only avoided by the left list ending at that spot. That is,
+-- foldr2 f z [a,b,c] (d:e:f:_|_), where the right list is produced by a build
+-- form, would cause the foldr2/right rule to introduce bottom. Example:
+--
+-- zip [1,2,3,4] (unfoldr (\s -> if s > 4 then undefined else Just (s,s+1)) 1)
+--
+-- should produce
+--
+-- [(1,1),(2,2),(3,3),(4,4)]
+--
+-- but with the foldr2/right rule it would instead produce
+--
+-- (1,1):(2,2):(3,3):(4,4):_|_
 
 -- Zips for larger tuples are in the List module.
 
@@ -906,19 +909,12 @@ foldr2_right  k _z  y  r (x:xs) = k x y (r xs)
 -- If one input list is short, excess elements of the longer list are
 -- discarded.
 --
--- NOTE: GHC's implementation of @zip@ deviates slightly from the
--- standard. In particular, Haskell 98 and Haskell 2010 require that
--- @zip [x1,x2,...,xn] (y1:y2:...:yn:_|_) = [(x1,y1),(x2,y2),...,(xn,yn)]@
--- In GHC, however,
--- @zip [x1,x2,...,xn] (y1:y2:...:yn:_|_) = (x1,y1):(x2,y2):...:(xn,yn):_|_@
--- That is, you cannot use termination of the left list to avoid hitting
--- bottom in the right list.
-
--- This deviation is necessary to make fusion with 'build' in the right
--- list preserve semantics.
+-- 'zip' is right-lazy:
+--
+-- > zip [] _|_ = []
 {-# NOINLINE [1] zip #-}
 zip :: [a] -> [b] -> [(a,b)]
-zip []     !_bs   = [] -- see #9495 for the !
+zip []     _bs    = []
 zip _as    []     = []
 zip (a:as) (b:bs) = (a,b) : zip as bs
 
@@ -950,20 +946,12 @@ zip3 _      _      _      = []
 -- For example, @'zipWith' (+)@ is applied to two lists to produce the
 -- list of corresponding sums.
 --
--- NOTE: GHC's implementation of @zipWith@ deviates slightly from the
--- standard. In particular, Haskell 98 and Haskell 2010 require that
--- @zipWith (,) [x1,x2,...,xn] (y1:y2:...:yn:_|_) = [(x1,y1),(x2,y2),...,(xn,yn)]@
--- In GHC, however,
--- @zipWith (,) [x1,x2,...,xn] (y1:y2:...:yn:_|_) = (x1,y1):(x2,y2):...:(xn,yn):_|_@
--- That is, you cannot use termination of the left list to avoid hitting
--- bottom in the right list.
-
--- This deviation is necessary to make fusion with 'build' in the right
--- list preserve semantics.
-
+-- 'zipWith' is right-lazy:
+--
+-- > zipWith f [] _|_ = []
 {-# NOINLINE [1] zipWith #-}
 zipWith :: (a->b->c) -> [a]->[b]->[c]
-zipWith _f []     !_bs   = [] -- see #9495 for the !
+zipWith _f []     _bs    = []
 zipWith _f _as    []     = []
 zipWith f  (a:as) (b:bs) = f a b : zipWith f as bs
 

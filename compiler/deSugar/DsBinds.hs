@@ -13,7 +13,8 @@ lower levels it is preserved with @let@/@letrec@s).
 {-# LANGUAGE CPP #-}
 
 module DsBinds ( dsTopLHsBinds, dsLHsBinds, decomposeRuleLhs, dsSpec,
-                 dsHsWrapper, dsTcEvBinds, dsTopLevelEvBinds, dsEvBinds
+                 dsHsWrapper, dsTcEvBinds, dsTcEvBinds_s, dsEvBinds, dsMkUserRule,
+                 dsTopLevelEvBinds
   ) where
 
 #include "HsVersions.h"
@@ -36,27 +37,30 @@ import CoreArity ( etaExpand )
 import CoreUnfold
 import CoreFVs
 import UniqSupply
-import Unique( Unique )
 import Digraph
 
-
-import TyCon      ( isTupleTyCon, tyConDataCons_maybe )
+import PrelNames
+import TysPrim ( mkProxyPrimTy )
+import TyCon
 import TcEvidence
 import TcType
 import Type
+import Kind (returnsConstraintKind)
 import Coercion hiding (substCo)
-import TysWiredIn ( eqBoxDataCon, coercibleDataCon, tupleCon )
+import TysWiredIn ( eqBoxDataCon, coercibleDataCon, mkListTy
+                  , mkBoxedTupleTy, charTy, typeNatKind, typeSymbolKind )
 import Id
+import MkId(proxyHashId)
 import Class
-import DataCon  ( dataConWorkId )
+import DataCon  ( dataConTyCon )
 import Name
-import MkId     ( seqId )
 import IdInfo   ( IdDetails(..) )
 import Var
 import VarSet
 import Rules
 import VarEnv
 import Outputable
+import Module
 import SrcLoc
 import Maybes
 import OrdList
@@ -64,12 +68,10 @@ import Bag
 import BasicTypes hiding ( TopLevel )
 import DynFlags
 import FastString
-import ErrUtils( MsgDoc )
-import ListSetOps( getNth )
 import Util
-import Control.Monad( when )
 import MonadUtils
-import Control.Monad(liftM)
+import Control.Monad(liftM,when)
+import Fingerprint(Fingerprint(..), fingerprintString)
 
 {-
 ************************************************************************
@@ -145,7 +147,7 @@ dsHsBind (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dicts
   = do  { dflags <- getDynFlags
         ; bind_prs    <- ds_lhs_binds binds
         ; let   core_bind = Rec (fromOL bind_prs)
-        ; ds_binds <- dsTcEvBinds ev_binds
+        ; ds_binds <- dsTcEvBinds_s ev_binds
         ; tyvars' <- dsVars tyvars
         ; dicts' <- dsVars dicts
         ; local' <- dsVar local
@@ -180,7 +182,7 @@ dsHsBind (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dicts
               locals   = map abe_mono exports'
               tup_expr = mkBigCoreVarTup locals
               tup_ty   = exprType tup_expr
-        ; ds_binds <- dsTcEvBinds ev_binds
+        ; ds_binds <- dsTcEvBinds_s ev_binds
         ; tyvars' <- dsVars tyvars
         ; dicts' <- dsVars dicts
         ; let poly_tup_rhs = mkLams tyvars' $ mkLams dicts' $
@@ -233,7 +235,7 @@ makeCorePair dflags gbl_id is_default_method dict_arity rhs
   | is_default_method                 -- Default methods are *always* inlined
   = (gbl_id `setIdUnfolding` mkCompulsoryUnfolding rhs, rhs)
 
-  | DFunId _ is_newtype <- idDetails gbl_id
+  | DFunId is_newtype <- idDetails gbl_id
   = (mk_dfun_w_stuff is_newtype, rhs)
 
   | otherwise
@@ -407,42 +409,6 @@ gotten from the binding for fromT_1.
 
 It might be better to have just one level of AbsBinds, but that requires more
 thought!
-
-Note [Implementing SPECIALISE pragmas]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Example:
-        f :: (Eq a, Ix b) => a -> b -> Bool
-        {-# SPECIALISE f :: (Ix p, Ix q) => Int -> (p,q) -> Bool #-}
-        f = <poly_rhs>
-
-From this the typechecker generates
-
-    AbsBinds [ab] [d1,d2] [([ab], f, f_mono, prags)] binds
-
-    SpecPrag (wrap_fn :: forall a b. (Eq a, Ix b) => XXX
-                      -> forall p q. (Ix p, Ix q) => XXX[ Int/a, (p,q)/b ])
-
-Note that wrap_fn can transform *any* function with the right type prefix
-    forall ab. (Eq a, Ix b) => XXX
-regardless of XXX.  It's sort of polymorphic in XXX.  This is
-useful: we use the same wrapper to transform each of the class ops, as
-well as the dict.
-
-From these we generate:
-
-    Rule:       forall p, q, (dp:Ix p), (dq:Ix q).
-                    f Int (p,q) dInt ($dfInPair dp dq) = f_spec p q dp dq
-
-    Spec bind:  f_spec = wrap_fn <poly_rhs>
-
-Note that
-
-  * The LHS of the rule may mention dictionary *expressions* (eg
-    $dfIxPair dp dq), and that is essential because the dp, dq are
-    needed on the RHS.
-
-  * The RHS of f_spec, <poly_rhs> has a *copy* of 'binds', so that it
-    can fully specialise it.
 -}
 
 ------------------------
@@ -450,7 +416,7 @@ dsSpecs :: CoreExpr     -- Its rhs
         -> TcSpecPrags
         -> DsM ( OrdList (DsId,CoreExpr)  -- Binding for specialised Ids
                , [CoreRule] )           -- Rules for the Global Ids
--- See Note [Implementing SPECIALISE pragmas]
+-- See Note [Handling SPECIALISE pragmas] in TcBinds
 dsSpecs _ IsDefaultMethod = return (nilOL, [])
 dsSpecs poly_rhs (SpecPrags sps)
   = do { pairs <- mapMaybeM (dsSpec (Just poly_rhs)) sps
@@ -496,6 +462,7 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
            Right (rule_bndrs, _fn, args) -> do
 
        { dflags <- getDynFlags
+       ; this_mod <- getModule
        ; let fn_unf    = realIdUnfolding poly_id'
              unf_fvs   = stableUnfoldingVars fn_unf `orElse` emptyVarSet
              in_scope  = mkInScopeSet (unf_fvs `unionVarSet` exprsFreeVars args)
@@ -503,7 +470,7 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
              spec_id   = mkLocalId spec_name spec_ty
                             `setInlinePragma` inl_prag
                             `setIdUnfolding`  spec_unf
-             rule =  mkRule False {- Not auto -} is_local_id
+       ; rule <- dsMkUserRule this_mod is_local_id
                         (mkFastString ("SPEC " ++ showPpr dflags poly_name))
                         rule_act poly_name
                         rule_bndrs args
@@ -511,8 +478,10 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
 
        ; spec_rhs <- dsHsWrapper spec_co poly_rhs
 
-       ; when (isInlinePragma id_inl && wopt Opt_WarnPointlessPragmas dflags)
-              (warnDs (specOnInline poly_name))
+-- Commented out: see Note [SPECIALISE on INLINE functions]
+--       ; when (isInlinePragma id_inl)
+--              (warnDs $ ptext (sLit "SPECIALISE pragma on INLINE function probably won't fire:")
+--                        <+> quotes (ppr poly_name))
 
        ; return (Just (unitOL (spec_id, spec_rhs), rule))
             -- NB: do *not* use makeCorePair on (spec_id,spec_rhs), because
@@ -554,11 +523,31 @@ dsSpec mb_poly_rhs (L loc (SpecPrag poly_id spec_co spec_inl))
              | otherwise   = spec_prag_act                   -- Specified by user
 
 
-specOnInline :: Name -> MsgDoc
-specOnInline f = ptext (sLit "SPECIALISE pragma on INLINE function probably won't fire:")
-                 <+> quotes (ppr f)
+dsMkUserRule :: Module -> Bool -> RuleName -> Activation
+       -> Name -> [CoreBndr] -> [CoreExpr] -> CoreExpr -> DsM CoreRule
+dsMkUserRule this_mod is_local name act fn bndrs args rhs = do
+    let rule = mkRule this_mod False is_local name act fn bndrs args rhs
+    dflags <- getDynFlags
+    when (isOrphan (ru_orphan rule) && wopt Opt_WarnOrphans dflags) $
+        warnDs (ruleOrphWarn rule)
+    return rule
 
-{-
+ruleOrphWarn :: CoreRule -> SDoc
+ruleOrphWarn rule = ptext (sLit "Orphan rule:") <+> ppr rule
+
+{- Note [SPECIALISE on INLINE functions]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We used to warn that using SPECIALISE for a function marked INLINE
+would be a no-op; but it isn't!  Especially with worker/wrapper split
+we might have
+   {-# INLINE f #-}
+   f :: Ord a => Int -> a -> ...
+   f d x y = case x of I# x' -> $wf d x' y
+
+We might want to specialise 'f' so that we in turn specialise '$wf'.
+We can't even /name/ '$wf' in the source code, so we can't specialise
+it even if we wanted to.  Trac #10721 is a case in point.
+
 Note [Activation pragmas for SPECIALISE]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 From a user SPECIALISE pragma for f, we generate
@@ -619,37 +608,41 @@ decomposeRuleLhs orig_bndrs orig_lhs
                           -- See Note [Unused spec binders]
   = Left (vcat (map dead_msg unbound))
 
-  | Var fn_var <- fun
-  , not (fn_var `elemVarSet` orig_bndr_set)
+  | Just (fn_id, args) <- decompose fun2 args2
+  , let extra_dict_bndrs = mk_extra_dict_bndrs fn_id args
   = -- pprTrace "decmposeRuleLhs" (vcat [ ptext (sLit "orig_bndrs:") <+> ppr orig_bndrs
     --                                  , ptext (sLit "orig_lhs:") <+> ppr orig_lhs
     --                                  , ptext (sLit "lhs1:")     <+> ppr lhs1
-    --                                  , ptext (sLit "bndrs1:") <+> ppr bndrs1
-    --                                  , ptext (sLit "fn_var:") <+> ppr fn_var
+    --                                  , ptext (sLit "extra_dict_bndrs:") <+> ppr extra_dict_bndrs
+    --                                  , ptext (sLit "fn_id:") <+> ppr fn_id
     --                                  , ptext (sLit "args:")   <+> ppr args]) $
-    Right (bndrs1, fn_var, args)
-
-  | Case scrut bndr ty [(DEFAULT, _, body)] <- fun
-  , isDeadBinder bndr   -- Note [Matching seqId]
-  , let args' = [Type (idType bndr), Type ty, scrut, body]
-  = Right (bndrs1, seqId, args' ++ args)
+    Right (orig_bndrs ++ extra_dict_bndrs, fn_id, args)
 
   | otherwise
   = Left bad_shape_msg
  where
-   lhs1       = drop_dicts orig_lhs
-   lhs2       = simpleOptExpr lhs1  -- See Note [Simplify rule LHS]
-   (fun,args) = collectArgs lhs2
+   lhs1         = drop_dicts orig_lhs
+   lhs2         = simpleOptExpr lhs1  -- See Note [Simplify rule LHS]
+   (fun2,args2) = collectArgs lhs2
+
    lhs_fvs    = exprFreeVars lhs2
    unbound    = filterOut (`elemVarSet` lhs_fvs) orig_bndrs
-   bndrs1     = orig_bndrs ++ extra_dict_bndrs
 
    orig_bndr_set = mkVarSet orig_bndrs
 
         -- Add extra dict binders: Note [Free dictionaries]
-   extra_dict_bndrs = [ mkLocalId (localiseName (idName d)) (idType d)
-                      | d <- varSetElems (lhs_fvs `delVarSetList` orig_bndrs)
-                      , isDictId d ]
+   mk_extra_dict_bndrs fn_id args
+     = [ mkLocalId (localiseName (idName d)) (idType d)
+       | d <- varSetElems (exprsFreeVars args `delVarSetList` (fn_id : orig_bndrs))
+              -- fn_id: do not quantify over the function itself, which may
+              -- itself be a dictionary (in pathological cases, Trac #10251)
+       , isDictId d ]
+
+   decompose (Var fn_id) args
+      | not (fn_id `elemVarSet` orig_bndr_set)
+      = Just (fn_id, args)
+
+   decompose _ _ = Nothing
 
    bad_shape_msg = hang (ptext (sLit "RULE left-hand side too complicated to desugar"))
                       2 (vcat [ text "Optimised lhs:" <+> ppr lhs2
@@ -717,7 +710,7 @@ drop_dicts drops dictionary bindings on the LHS where possible.
          Here we want to end up with
             RULE forall d:Eq a.  f ($dfEqList d) = f_spec d
          Of course, the ($dfEqlist d) in the pattern makes it less likely
-         to match, but ther is no other way to get d:Eq a
+         to match, but there is no other way to get d:Eq a
 
    NB 2: We do drop_dicts *before* simplOptEpxr, so that we expect all
          the evidence bindings to be wrapped around the outside of the
@@ -733,7 +726,7 @@ drop_dicts drops dictionary bindings on the LHS where possible.
              useAbstractMonad :: MonadAbstractIOST m => m Int
          Here, deriving (MonadAbstractIOST (ReaderST s)) is a lot of code
          but the RHS uses no dictionaries, so we want to end up with
-             RULE forall s (d :: MonadBstractIOST (ReaderT s)).
+             RULE forall s (d :: MonadAbstractIOST (ReaderT s)).
                 useAbstractMonad (ReaderT s) d = $suseAbstractMonad s
 
    Trac #8848 is a good example of where there are some intersting
@@ -852,13 +845,18 @@ dsHsWrapper (WpFun c1 c2 t1 _) e = do { x <- newSysLocalDs t1
                                       ; e2 <- dsHsWrapper c2 (e `mkCoreAppDs` e1)
                                       ; return (Lam x e2) }
 dsHsWrapper (WpCast co)       e = ASSERT(tcCoercionRole co == Representational)
-                                  dsTcCoercion co (mkCast e)
+                                  dsTcCoercion co (mkCastDs e)
 dsHsWrapper (WpEvLam ev)      e = return $ Lam ev e
 dsHsWrapper (WpTyLam tv)      e = return $ Lam tv e
 dsHsWrapper (WpEvApp    tm)   e = liftM (App e) (dsEvTerm tm)
 dsHsWrapper (WpEvPrimApp co)  e = dsTcCoercion co (App e . Coercion)
 
 --------------------------------------
+dsTcEvBinds_s :: [TcEvBinds] -> DsM [CoreBind]
+dsTcEvBinds_s []       = return []
+dsTcEvBinds_s (b:rest) = ASSERT( null rest )  -- Zonker ensures null
+                         dsTcEvBinds b
+
 dsTcEvBinds :: TcEvBinds -> DsM [CoreBind]
 dsTcEvBinds (TcEvBinds {}) = panic "dsEvBinds"    -- Zonker has got rid of this
 dsTcEvBinds (EvBinds bs)   = dsEvBinds bs
@@ -877,7 +875,7 @@ dsTopLevelEvBinds bs thing = go [] (sccEvBinds bs)
         do { core_bind <- liftM Rec (mapM dsEvBind bs)
            ; go (core_bind : acc) rest }
 
-    go acc (AcyclicSCC (EvBind { evb_var = v, evb_term = r }) : rest)
+    go acc (AcyclicSCC (EvBind { eb_lhs = v, eb_rhs = r }) : rest)
       | let ty = varType v
       , isUnLiftedType ty
       = ASSERT( isCoercionType ty )
@@ -896,12 +894,12 @@ dsTopLevelEvBinds bs thing = go [] (sccEvBinds bs)
 dsEvBinds :: Bag EvBind -> DsM [CoreBind]
 dsEvBinds bs = mapM ds_scc (sccEvBinds bs)
   where
-    ds_scc (AcyclicSCC (EvBind { evb_var = v, evb_term = r}))
+    ds_scc (AcyclicSCC (EvBind { eb_lhs = v, eb_rhs = r}))
                           = liftM (NonRec v) (dsAnyEvTerm v r)
     ds_scc (CyclicSCC bs) = liftM Rec (mapM dsEvBind bs)
 
 dsEvBind :: EvBind -> DsM (Id, CoreExpr)
-dsEvBind (EvBind { evb_var = v, evb_term = r}) = liftM ((,) v) (dsAnyEvTerm v r)
+dsEvBind (EvBind { eb_lhs = v, eb_rhs = r}) = liftM ((,) v) (dsAnyEvTerm v r)
 
 ---------------------------------------
 -- | Desugar either an unlifted or lifted EvTerm
@@ -919,47 +917,28 @@ dsEvTerm (EvId v)
 
 dsEvTerm (EvCast tm co)
   = do { tm' <- dsEvTerm tm
-       ; dsTcCoercion co $ mkCast tm' }
+       ; dsTcCoercion co $ mkCastDs tm' }
                         -- 'v' is always a lifted evidence variable so it is
                         -- unnecessary to call varToCoreExpr v here.
 
-dsEvTerm (EvDFunApp df tys tms) = do { tms' <- mapM dsEvTerm tms
-                                     ; return (Var df `mkTyApps` tys `mkApps` tms') }
+dsEvTerm (EvDFunApp df tys tms)
+  = do { tms' <- mapM dsEvTerm tms
+       ; return $ Var df `mkTyApps` tys `mkApps` tms' }
 
 dsEvTerm (EvCoercion (TcCoVarCo v))
   | not (isCoercionType (tyVarKind v)) = return (Var v)  -- See Note [Simple coercions]
    -- TODO (RAE): This check is "ew".
-dsEvTerm (EvCoercion co)               = dsTcCoercion co mkEqBox
-
-dsEvTerm (EvTupleSel v n)
-   = do { tm' <- dsEvTerm v
-        ; let scrut_ty = exprType tm'
-              (tc, tys) = splitTyConApp scrut_ty
-              Just [dc] = tyConDataCons_maybe tc
-              xs = mkTemplateLocals tys
-              the_x = getNth xs n
-        ; ASSERT( isTupleTyCon tc )
-          return $
-          Case tm' (mkWildValBinder scrut_ty) (idType the_x) [(DataAlt dc, xs, Var the_x)] }
-
-dsEvTerm (EvTupleMk tms)
-  = do { tms' <- mapM dsEvTerm tms
-       ; let tys = map exprType tms'
-       ; return $ Var (dataConWorkId dc) `mkTyApps` tys `mkApps` tms' }
-  where
-    dc = tupleCon ConstraintTuple (length tms)
-
+dsEvTerm (EvCoercion co)            = dsTcCoercion co mkEqBox
 dsEvTerm (EvSuperClass d n)
   = do { d' <- dsEvTerm d
        ; let (cls, tys) = getClassPredTys (exprType d')
              sc_sel_id  = classSCSelId cls n    -- Zero-indexed
        ; return $ Var sc_sel_id `mkTyApps` tys `App` d' }
-  where
 
 dsEvTerm (EvDelayedError ty msg)
   = return $ Var errorId `mkTyApps` [getLevity "dsEvTerm" ty, ty] `mkApps` [litMsg]
   where
-    errorId = rUNTIME_ERROR_ID
+    errorId = tYPE_ERROR_ID
     litMsg  = Lit (MachStr (fastStringToByteString msg))
 
 dsEvTerm (EvLit l) =
@@ -967,9 +946,197 @@ dsEvTerm (EvLit l) =
     EvNum n -> mkIntegerExpr n
     EvStr s -> mkStringExprFS s
 
+dsEvTerm (EvCallStack cs) = dsEvCallStack cs
+
+dsEvTerm (EvTypeable ev) = dsEvTypeable ev
+
 -- | Use this variant when the term is meant to be an unlifted equality
 dsEvTermUnlifted :: EvTerm -> DsM CoreExpr
 dsEvTermUnlifted evterm = dsTcCoercion (evTermCoercion evterm) Coercion
+
+dsEvTypeable :: EvTypeable -> DsM CoreExpr
+dsEvTypeable ev =
+  do tyCl      <- dsLookupTyCon typeableClassName
+     typeRepTc <- dsLookupTyCon typeRepTyConName
+     let tyRepType = mkTyConApp typeRepTc []
+
+     (ty, rep) <-
+        case ev of
+
+          EvTypeableTyCon tc ks ->
+            do ctr       <- dsLookupGlobalId mkPolyTyConAppName
+               mkTyCon   <- dsLookupGlobalId mkTyConName
+               dflags    <- getDynFlags
+               let mkRep cRep kReps tReps =
+                     mkApps (Var ctr) [ cRep, mkListExpr tyRepType kReps
+                                            , mkListExpr tyRepType tReps ]
+
+               let kindRep k =
+                     case splitTyConApp_maybe k of
+                       Nothing -> panic "dsEvTypeable: not a kind constructor"
+                       Just (kc,ks) ->
+                         do kcRep <- tyConRep dflags mkTyCon kc
+                            reps  <- mapM kindRep ks
+                            return (mkRep kcRep [] reps)
+
+               tcRep     <- tyConRep dflags mkTyCon tc
+
+               kReps     <- mapM kindRep ks
+
+               return ( mkTyConApp tc ks
+                      , mkRep tcRep kReps []
+                      )
+
+          EvTypeableTyApp t1 t2 ->
+            do e1  <- getRep tyCl t1
+               e2  <- getRep tyCl t2
+               ctr <- dsLookupGlobalId mkAppTyName
+
+               return ( mkAppTy (snd t1) (snd t2)
+                      , mkApps (Var ctr) [ e1, e2 ]
+                      )
+
+          EvTypeableTyLit t ->
+            do e <- tyLitRep t
+               return (snd t, e)
+
+     -- TyRep -> Typeable t
+     -- see also: Note [Memoising typeOf]
+     repName <- newSysLocalDs tyRepType
+     let proxyT = mkProxyPrimTy (typeKind ty) ty
+         method = bindNonRec repName rep
+                $ mkLams [mkWildValBinder proxyT] (Var repName)
+
+     -- package up the method as `Typeable` dictionary
+     return $ mkCastDs method $ mkSymCo $ getTypeableCo tyCl ty
+
+  where
+  -- co: method -> Typeable k t
+  getTypeableCo tc t =
+    case instNewTyCon_maybe tc [typeKind t, t] of
+      Just (_,co) -> co
+      _           -> panic "Class `Typeable` is not a `newtype`."
+
+  -- Typeable t -> TyRep
+  getRep tc (ev,t) =
+    do typeableExpr <- dsEvTerm ev
+       let co     = getTypeableCo tc t
+           method = mkCastDs typeableExpr co
+           proxy  = mkTyApps (Var proxyHashId) [typeKind t, t]
+       return (mkApps method [proxy])
+
+  -- KnownNat t -> TyRep      (also used for KnownSymbol)
+  tyLitRep (ev,t) =
+    do dict <- dsEvTerm ev
+       fun  <- dsLookupGlobalId $
+               case typeKind t of
+                 k | eqType k typeNatKind    -> typeNatTypeRepName
+                   | eqType k typeSymbolKind -> typeSymbolTypeRepName
+                   | otherwise -> panic "dsEvTypeable: unknown type lit kind"
+       let finst  = mkTyApps (Var fun) [t]
+           proxy  = mkTyApps (Var proxyHashId) [typeKind t, t]
+       return (mkApps finst [ dict, proxy ])
+
+  -- This part could be cached
+  tyConRep dflags mkTyCon tc =
+    do pkgStr  <- mkStringExprFS pkg_fs
+       modStr  <- mkStringExprFS modl_fs
+       nameStr <- mkStringExprFS name_fs
+       return (mkApps (Var mkTyCon) [ int64 high, int64 low
+                                    , pkgStr, modStr, nameStr
+                                    ])
+    where
+    tycon_name                = tyConName tc
+    modl                      = nameModule tycon_name
+    pkg                       = moduleUnitId modl
+
+    modl_fs                   = moduleNameFS (moduleName modl)
+    pkg_fs                    = unitIdFS pkg
+    name_fs                   = occNameFS (nameOccName tycon_name)
+    hash_name_fs
+      | isPromotedDataCon tc  = appendFS (mkFastString "$c") name_fs
+      | isTupleTyCon tc &&
+        returnsConstraintKind (tyConKind tc)
+                              = appendFS (mkFastString "$p") name_fs
+      | otherwise             = name_fs
+
+    hashThis = unwords $ map unpackFS [pkg_fs, modl_fs, hash_name_fs]
+    Fingerprint high low = fingerprintString hashThis
+
+    int64
+      | wORD_SIZE dflags == 4 = mkWord64LitWord64
+      | otherwise             = mkWordLit dflags . fromIntegral
+
+
+
+{- Note [Memoising typeOf]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+See #3245, #9203
+
+IMPORTANT: we don't want to recalculate the TypeRep once per call with
+the proxy argument.  This is what went wrong in #3245 and #9203. So we
+help GHC by manually keeping the 'rep' *outside* the lambda.
+-}
+
+
+
+
+
+dsEvCallStack :: EvCallStack -> DsM CoreExpr
+-- See Note [Overview of implicit CallStacks] in TcEvidence.hs
+dsEvCallStack cs = do
+  df              <- getDynFlags
+  m               <- getModule
+  srcLocDataCon   <- dsLookupDataCon srcLocDataConName
+  let srcLocTyCon  = dataConTyCon srcLocDataCon
+  let srcLocTy     = mkTyConTy srcLocTyCon
+  let mkSrcLoc l =
+        liftM (mkCoreConApps srcLocDataCon)
+              (sequence [ mkStringExpr (showPpr df $ moduleUnitId m)
+                        , mkStringExprFS (moduleNameFS $ moduleName m)
+                        , mkStringExprFS (srcSpanFile l)
+                        , return $ mkIntExprInt df (srcSpanStartLine l)
+                        , return $ mkIntExprInt df (srcSpanStartCol l)
+                        , return $ mkIntExprInt df (srcSpanEndLine l)
+                        , return $ mkIntExprInt df (srcSpanEndCol l)
+                        ])
+
+  -- Be careful to use [Char] instead of String here to avoid
+  -- unnecessary dependencies on GHC.Base, particularly when
+  -- building GHC.Err.absentError
+  let callSiteTy = mkBoxedTupleTy [mkListTy charTy, srcLocTy]
+
+  matchId         <- newSysLocalDs $ mkListTy callSiteTy
+
+  callStackDataCon <- dsLookupDataCon callStackDataConName
+  let callStackTyCon = dataConTyCon callStackDataCon
+  let callStackTy    = mkTyConTy callStackTyCon
+  let emptyCS        = mkCoreConApps callStackDataCon [mkNilExpr callSiteTy]
+  let pushCS name loc rest =
+        mkWildCase rest callStackTy callStackTy
+                   [( DataAlt callStackDataCon
+                    , [matchId]
+                    , mkCoreConApps callStackDataCon
+                       [mkConsExpr callSiteTy
+                                   (mkCoreTup [name, loc])
+                                   (Var matchId)]
+                    )]
+  let mkPush name loc tm = do
+        nameExpr <- mkStringExprFS name
+        locExpr <- mkSrcLoc loc
+        case tm of
+          EvCallStack EvCsEmpty -> return (pushCS nameExpr locExpr emptyCS)
+          _ -> do tmExpr  <- dsEvTerm tm
+                  -- at this point tmExpr :: IP sym CallStack
+                  -- but we need the actual CallStack to pass to pushCS,
+                  -- so we use unwrapIP to strip the dictionary wrapper
+                  -- See Note [Overview of implicit CallStacks]
+                  let ip_co = unwrapIP (exprType tmExpr)
+                  return (pushCS nameExpr locExpr (mkCastDs tmExpr ip_co))
+  case cs of
+    EvCsTop name loc tm -> mkPush name loc tm
+    EvCsPushCall name loc tm -> mkPush (occNameFS $ getOccName name) loc tm
+    EvCsEmpty -> panic "Cannot have an empty CallStack"
 
 ---------------------------------------
 dsTcCoercion :: TcCoercion -> (Coercion -> CoreExpr) -> DsM CoreExpr

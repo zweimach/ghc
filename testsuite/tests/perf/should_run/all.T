@@ -1,25 +1,38 @@
 # Tests that newArray/newArray_ is being optimised correctly
 
+test('T10359',
+     [stats_num_field('bytes allocated',
+          [(wordsize(64), 499512, 5),
+           (wordsize(32), 374056, 5)]),
+      only_ways(['normal'])
+      ],
+     compile_and_run,
+     ['-O'])
+
 # fortunately the values here are mostly independent of the wordsize,
 # because the test allocates an unboxed array of doubles.
-
 test('T3586',
      [stats_num_field('peak_megabytes_allocated', (17, 1)),
                                  # expected value: 17 (amd64/Linux)
       stats_num_field('bytes allocated', (16102024, 5)),
                         # prev:           16835544 (amd64/Linux)
                         # 2014-07-17:     16102024 (amd64/Linux), general round of updates
-      only_ways(['normal'])
+      only_ways(['normal']),
+
+      # Use `+RTS -G1` for more stable residency measurements. Note [residency].
+      # Only 64-bit as we don't have a good 32-bit test environment at the moment
+      when(wordsize(64), extra_hc_opts('+RTS -G1 -RTS'))
       ],
      compile_and_run,
      ['-O'])
 
 test('T4830',
      [stats_num_field('bytes allocated',
-          [(wordsize(64), 98248, 1),
+          [(wordsize(64), 98248, 4),
            #             127000 (amd64/Linux)
            # 2013-02-07:  99264 (amd64/Linux)
            # 2014-01-13:  98248 (amd64/Linux) due to #8647
+           # 2015-04-03: Widen 1->4% (amd64/Windows was doing better)
            (wordsize(32), 70646, 3)]),
            # 2013-02-10:  69744 (x86/Windows)
            # 2013-02-10:  71548 (x86/OSX)
@@ -30,7 +43,8 @@ test('T4830',
      compile_and_run,
      ['-O2'])
 
-test('T3245', normal, compile_and_run, ['-O'])
+test('T3245', [when(doing_ghci(), extra_hc_opts('-fobject-code'))],
+     compile_and_run, ['-O'])
 
 # Test that bytestring reading/writing isn't over-allocating.  We had
 # a bug in hGetBufNonBlocking in 6.13 that triggered this.
@@ -39,10 +53,12 @@ test('lazy-bs-alloc',
      [stats_num_field('peak_megabytes_allocated', (2, 1)),
                                  # expected value: 2 (amd64/Linux)
       stats_num_field('bytes allocated',
-          [(wordsize(64), 425400, 1),
+          [(wordsize(64), 431500, 3),
             #             489776 (amd64/Linux)
             # 2013-02-07: 429744 (amd64/Linux)
             # 2013-12-12: 425400 (amd64/Linux)
+            # 2015-04-04: Widen 1->3% (amd64/Windows was failing)
+            # 2015-08-15: 431500 (Windows not good enough. avg of Windows&Linux)
            (wordsize(32), 411500, 2)]),
             # 2013-02-10: 421296 (x86/Windows)
             # 2013-02-10: 414180 (x86/OSX)
@@ -50,23 +66,30 @@ test('lazy-bs-alloc',
             # 2014-01-28: Widen 1->2% (x86/Windows was at 425212)
       only_ways(['normal']),
       extra_run_opts('../../numeric/should_run/arith011.stdout'),
-      ignore_output
+      ignore_output,
+
+      # Use `+RTS -G1` for more stable residency measurements. Note [residency].
+      # Only 64-bit as we don't have a good 32-bit test environment at the moment
+      when(wordsize(64), extra_hc_opts('+RTS -G1 -RTS'))
       ],
-      # use a suitably big file, without bloating the repo with a new one:
+     # use a suitably big file, without bloating the repo with a new one:
      compile_and_run,
      ['-O'])
 
 test('T876',
      [stats_num_field('bytes allocated',
-          [(wordsize(64), 63216 , 5),
+          [(platform('x86_64-unknown-mingw32'), 71904, 5),
+              # 2015-04-03: 71904 (amd64/Windows, unknown cause)
+           (wordsize(64), 63216 , 5),
               # 2013-02-14: 1263712 (x86_64/Linux)
               # 2014-02-10:   63216 (x86_64/Linux), call arity analysis
 
-           (wordsize(32), 56796, 5) ]),
+           (wordsize(32), 53156, 5) ]),
               # some date:  663712  (Windows, 64-bit machine)
               # 2014-04-04:  56820  (Windows, 64-bit machine)
               # 2014-06-29:  53024  (x86_64/Linux)
               # 2014-12-01:  56796  (Windows)
+              # 2015-07-11:  53156  (x86_64/Linux)
 
       only_ways(['normal']),
       extra_run_opts('10000')
@@ -95,10 +118,11 @@ test('T3738',
       stats_num_field('bytes allocated',
                       [(wordsize(32), 45648, 5),
                     # expected value: 50520 (x86/Linux)
-                       (wordsize(64), 50592, 5)]),
+                       (wordsize(64), 50592, 8)]),
                     # prev:           49400 (amd64/Linux)
                     # 2014-07-17:     50520 (amd64/Linux) general round of updates
                     # 2014-09-10:     50592 (amd64/Linux) post-AMP-update
+                    # 2015-04-03: Widen 5->8% (amd64/Windows was doing better)
       only_ways(['normal'])
       ],
      compile_and_run,
@@ -160,9 +184,11 @@ test('T5205',
      [stats_num_field('bytes allocated',
                       [(wordsize(32), 47088, 5),
                     # expected value: 47088 (x86/Darwin)
-                       (wordsize(64), 52600, 5)]),
+                       (wordsize(64), 50648, 7)]),
                     # expected value: 51320 (amd64/Linux)
                     # 2014-07-17:     52600 (amd64/Linux) general round of updates
+                    # 2015-04-03: Widen 5->7% (amd64/Windows was doing better)
+                    # 2015-08-15: 50648 (Windows too good. avg of Windows&Linux)
       only_ways(['normal', 'optasm'])
       ],
      compile_and_run,
@@ -276,9 +302,10 @@ test('T7507', omit_ways(['ghci']), compile_and_run, ['-O'])
 
 test('T7436',
      [stats_num_field('max_bytes_used',
-          [(wordsize(64), 60360, 1),
+          [(wordsize(64), 60360, 4),
            #             127000 (amd64/Linux)
            # 2013-02-07:  60360 (amd64/Linux)
+           # 2015-04-03: Widen 1->4% (amd64/Windows was doing better)
            (wordsize(32), 58434, 1)]),
             # 2013-02-10: 58032 (x86/Windows)
             # 2013-02-10: 58836 (x86/OSX)

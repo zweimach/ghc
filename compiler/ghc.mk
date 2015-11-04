@@ -54,7 +54,6 @@ compiler/stage%/build/Config.hs : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	@echo '#include "ghc_boot_platform.h"'                              >> $@
 	@echo                                                               >> $@
 	@echo 'data IntegerLibrary = IntegerGMP'                            >> $@
-	@echo '                    | IntegerGMP2'                           >> $@
 	@echo '                    | IntegerSimple'                         >> $@
 	@echo '                    deriving Eq'                             >> $@
 	@echo                                                               >> $@
@@ -88,8 +87,6 @@ compiler/stage%/build/Config.hs : mk/config.mk mk/project.mk | $$(dir $$@)/.
 	@echo 'cIntegerLibraryType   :: IntegerLibrary'                     >> $@
 ifeq "$(INTEGER_LIBRARY)" "integer-gmp"
 	@echo 'cIntegerLibraryType   = IntegerGMP'                          >> $@
-else ifeq "$(INTEGER_LIBRARY)" "integer-gmp2"
-	@echo 'cIntegerLibraryType   = IntegerGMP2'                         >> $@
 else ifeq "$(INTEGER_LIBRARY)" "integer-simple"
 	@echo 'cIntegerLibraryType   = IntegerSimple'                       >> $@
 else ifneq "$(CLEANING)" "YES"
@@ -105,6 +102,8 @@ endif
 	@echo 'cGhcWithSMP           = "$(GhcWithSMP)"'                     >> $@
 	@echo 'cGhcRTSWays           :: String'                             >> $@
 	@echo 'cGhcRTSWays           = "$(GhcRTSWays)"'                     >> $@
+	@echo 'cGhcRtsWithLibdw      :: String'                             >> $@
+	@echo 'cGhcRtsWithLibdw      = "$(GhcRtsWithLibdw)"'                >> $@
 	@echo 'cGhcEnableTablesNextToCode :: String'                        >> $@
 	@echo 'cGhcEnableTablesNextToCode = "$(GhcEnableTablesNextToCode)"' >> $@
 	@echo 'cLeadingUnderscore    :: String'                             >> $@
@@ -269,7 +268,7 @@ compiler_CPP_OPTS += ${GhcCppOpts}
 define preprocessCompilerFiles
 # $0 = stage
 compiler/stage$1/build/primops.txt: compiler/prelude/primops.txt.pp compiler/stage$1/$$(PLATFORM_H)
-	$$(CPP) $$(RAWCPP_FLAGS) -P $$(compiler_CPP_OPTS) -Icompiler/stage$1 -x c $$< | grep -v '^#pragma GCC' > $$@
+	$$(HS_CPP) -P $$(compiler_CPP_OPTS) -Icompiler/stage$1 -x c $$< | grep -v '^#pragma GCC' > $$@
 
 compiler/stage$1/build/primop-data-decl.hs-incl: compiler/stage$1/build/primops.txt $$$$(genprimopcode_INPLACE)
 	"$$(genprimopcode_INPLACE)" --data-decl          < $$< > $$@
@@ -387,13 +386,13 @@ ifeq "$(GhcProfiled)" "YES"
 # everywhere tends to give a hard-to-read profile, and adds lots of
 # overhead.  A better approach is to proceed top-down; identify the
 # parts of the compiler of interest, and then add further cost centres
-# as necessary.  Turn on -auto-all for individual modules like this:
+# as necessary.  Turn on -fprof-auto for individual modules like this:
 
-# compiler/main/DriverPipeline_HC_OPTS += -auto-all
-compiler/main/GhcMake_HC_OPTS        += -auto-all
-compiler/main/GHC_HC_OPTS            += -auto-all
+# compiler/main/DriverPipeline_HC_OPTS += -fprof-auto
+compiler/main/GhcMake_HC_OPTS        += -fprof-auto
+compiler/main/GHC_HC_OPTS            += -fprof-auto
 
-# or alternatively add {-# OPTIONS_GHC -auto-all #-} to the top of
+# or alternatively add {-# OPTIONS_GHC -fprof-auto #-} to the top of
 # modules you're interested in.
 
 # We seem to still build the vanilla libraries even if we say
@@ -444,12 +443,13 @@ ifeq "$(compiler_stage1_VERSION_MUNGED)" "YES"
 compiler_stage1_MUNGED_VERSION = $(subst .$(ProjectPatchLevel),,$(ProjectVersion))
 define compiler_PACKAGE_MAGIC
 compiler_stage1_VERSION = $(compiler_stage1_MUNGED_VERSION)
-compiler_stage1_PACKAGE_KEY = $(subst .$(ProjectPatchLevel),,$(compiler_stage1_PACKAGE_KEY))
+compiler_stage1_COMPONENT_ID = $(subst .$(ProjectPatchLevel),,$(compiler_stage1_COMPONENT_ID))
+compiler_stage1_COMPONENT_ID = $(subst .$(ProjectPatchLevel),,$(compiler_stage1_COMPONENT_ID))
 endef
 
-# NB: the PACKAGE_KEY munging has no effect for new-style package keys
+# NB: the COMPONENT_ID munging has no effect for new-style unit ids
 # (which indeed, have nothing version like in them, but are important for
-# old-style package keys which do.)  The subst operation is idempotent, so
+# old-style unit ids which do.)  The subst operation is idempotent, so
 # as long as we do it at least once we should be good.
 
 # Don't register the non-munged package
@@ -492,6 +492,8 @@ compiler_stage2_dll0_MODULES = \
 	CoreTidy \
 	CoreUnfold \
 	CoreUtils \
+	CoreSeq \
+	CoreStats \
 	CostCentre \
 	Ctype \
 	DataCon \
@@ -502,12 +504,12 @@ compiler_stage2_dll0_MODULES = \
 	Encoding \
 	ErrUtils \
 	Exception \
-	ExtsCompat46 \
 	FamInstEnv \
 	FastFunctions \
 	FastMutInt \
 	FastString \
-	FastTypes \
+	FastStringEnv \
+	FieldLabel \
 	Fingerprint \
 	FiniteMap \
 	ForeignCall \
@@ -602,6 +604,7 @@ compiler_stage2_dll0_MODULES += \
 	CmmInfo \
 	CmmMachOp \
 	CmmNode \
+	CmmSwitch \
 	CmmUtils \
 	CodeGen.Platform \
 	CodeGen.Platform.ARM \
@@ -612,7 +615,6 @@ compiler_stage2_dll0_MODULES += \
 	CodeGen.Platform.SPARC \
 	CodeGen.Platform.X86 \
 	CodeGen.Platform.X86_64 \
-	FastBool \
 	Hoopl \
 	Hoopl.Dataflow \
 	InteractiveEvalTypes \
@@ -639,6 +641,7 @@ compiler_stage2_dll0_HS_OBJS = \
     $(patsubst %,compiler/stage2/build/%.$(dyn_osuf),$(subst .,/,$(compiler_stage2_dll0_MODULES)))
 
 # if stage is set to something other than "1" or "", disable stage 1
+# See Note [Stage1Only vs stage=1] in mk/config.mk.in.
 ifneq "$(filter-out 1,$(stage))" ""
 compiler_stage1_NOT_NEEDED = YES
 endif
@@ -679,9 +682,15 @@ compiler_stage2_CONFIGURE_OPTS += --disable-library-for-ghci
 compiler_stage3_CONFIGURE_OPTS += --disable-library-for-ghci
 
 # after build-package, because that sets compiler_stage1_HC_OPTS:
+ifeq "$(V)" "0"
+compiler_stage1_HC_OPTS += $(filter-out -Rghc-timing,$(GhcHcOpts)) $(GhcStage1HcOpts)
+compiler_stage2_HC_OPTS += $(filter-out -Rghc-timing,$(GhcHcOpts)) $(GhcStage2HcOpts)
+compiler_stage3_HC_OPTS += $(filter-out -Rghc-timing,$(GhcHcOpts)) $(GhcStage3HcOpts)
+else
 compiler_stage1_HC_OPTS += $(GhcHcOpts) $(GhcStage1HcOpts)
 compiler_stage2_HC_OPTS += $(GhcHcOpts) $(GhcStage2HcOpts)
 compiler_stage3_HC_OPTS += $(GhcHcOpts) $(GhcStage3HcOpts)
+endif
 
 ifneq "$(BINDIST)" "YES"
 
@@ -728,11 +737,12 @@ endif
 # Note [munge-stage1-package-config]
 # Strip the date/patchlevel from the version of stage1.  See Note
 # [fiddle-stage1-version] above.
+# NB: The sed expression for hs-libraries is a bit weird to be POSIX-compliant.
 ifeq "$(compiler_stage1_VERSION_MUNGED)" "YES"
 compiler/stage1/inplace-pkg-config-munged: compiler/stage1/inplace-pkg-config
 	sed -e 's/^\(version: .*\)\.$(ProjectPatchLevel)$$/\1/' \
 	    -e 's/^\(id: .*\)\.$(ProjectPatchLevel)$$/\1/' \
-	    -e 's/^\(hs-libraries: HSghc-.*\)\.$(ProjectPatchLevel)$$/\1/' \
+	    -e 's/^\(hs-libraries: HSghc-.*\)\.$(ProjectPatchLevel)\(-[A-Za-z0-9][A-Za-z0-9]*\)*$$/\1\2/' \
 	  < $< > $@
 	"$(compiler_stage1_GHC_PKG)" update --force $(compiler_stage1_GHC_PKG_OPTS) $@
 

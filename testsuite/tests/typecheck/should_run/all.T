@@ -7,7 +7,7 @@
 # Pick an arbitrary few to run when 'fast' is on
 
 test('tcrun001', normal, compile_and_run, [''])
-test('tcrun002', only_compiler_types(['ghc']), compile_and_run, [''])
+test('tcrun002', normal, compile_and_run, [''])
 test('tcrun003', normal, compile_and_run, [''])
 test('tcrun004', normal, compile_and_run, [''])
 test('tcrun005', normal, compile_and_run, [''])
@@ -18,10 +18,7 @@ test('TcCoercible', when(compiler_lt('ghc', '7.7'), skip), compile_and_run, ['']
 # -----------------------------------------------------------------------------
 # Skip everything else if fast is on
 
-def f(name, opts):
-    if config.fast:
-        opts.skip = 1
-setTestOpts(f)
+setTestOpts(when(fast(), skip))
 
 test('tcrun006', normal, compile_and_run, [''])
 test('tcrun008', normal, compile_and_run, [''])
@@ -38,9 +35,9 @@ test('tcrun018', normal, compile_and_run, [''])
 test('tcrun019', normal, compile_and_run, [''])
 test('tcrun020', normal, compile_and_run, [''])
 test('tcrun021', normal, compile_and_run, ['-package containers'])
-test('tcrun022', [omit_ways(['ghci']),only_compiler_types(['ghc'])],
+test('tcrun022', omit_ways(['ghci']), compile_and_run, ['-O'])
+test('tcrun023', [when(doing_ghci(), extra_hc_opts('-fobject-code'))],
      compile_and_run, ['-O'])
-test('tcrun023', normal, compile_and_run, ['-O'])
 test('tcrun024', normal, compile_and_run, ['-O'])
 test('tcrun025', extra_clean(['TcRun025_B.hi', 'TcRun025_B.o']),
      multimod_compile_and_run, ['tcrun025',''])
@@ -49,20 +46,20 @@ test('tcrun027', normal, compile_and_run, [''])
 test('tcrun028', normal, compile_and_run, [''])
 test('tcrun029', normal, compile_and_run, [''])
 test('tcrun030', normal, compile_and_run, [''])
-test('tcrun031', only_compiler_types(['ghc']), compile_and_run, [''])
-test('tcrun032', only_compiler_types(['ghc']), compile_and_run, [''])
-test('tcrun033', only_compiler_types(['ghc']), compile_and_run, [''])
-test('tcrun034', only_compiler_types(['ghc']), compile_and_run, [''])
-test('tcrun035', only_compiler_types(['ghc']), compile_fail, [''])
-test('tcrun036', only_compiler_types(['ghc']), compile_and_run, [''])
-test('tcrun037', only_compiler_types(['ghc']), compile_and_run, [''])
+test('tcrun031', normal, compile_and_run, [''])
+test('tcrun032', normal, compile_and_run, [''])
+test('tcrun033', normal, compile_and_run, [''])
+test('tcrun034', normal, compile_and_run, [''])
+test('tcrun035', normal, compile_fail, [''])
+test('tcrun036', normal, compile_and_run, [''])
+test('tcrun037', normal, compile_and_run, [''])
 
 test('tcrun038',
      extra_clean(['TcRun038_B.hi', 'TcRun038_B.o']),
      multimod_compile_and_run,
      ['tcrun038',''])
 
-test('tcrun039', only_compiler_types(['ghc']), compile_and_run, [''])
+test('tcrun039', normal, compile_and_run, [''])
 test('tcrun040', normal, compile_and_run, [''])
 test('tcrun041', omit_ways(['ghci']), compile_and_run, [''])
 test('tcrun042', normal, compile_and_run, [''])
@@ -70,21 +67,17 @@ test('tcrun043', normal, compile_and_run, [''])
 test('tcrun044', normal, compile_and_run, [''])
 test('tcrun045', normal, compile_fail, [''])
 test('tcrun046', normal, compile_and_run, [''])
-test('tcrun047', [omit_ways(['ghci']), only_compiler_types(['ghc'])],
-     compile_and_run, [''])
-test('tcrun048', [omit_ways(['ghci']), only_compiler_types(['ghc'])],
-     compile_and_run, [''])
-test('tcrun049', [omit_ways(['ghci']), only_compiler_types(['ghc'])],
-     compile_and_run, [''])
-test('tcrun050', [omit_ways(['ghci']), only_compiler_types(['ghc'])],
-     compile_and_run, [''])
-test('tcrun051', [omit_ways(['ghci']), only_compiler_types(['ghc'])],
-     compile_and_run, [''])
+test('tcrun047', omit_ways(['ghci']), compile_and_run, [''])
+test('tcrun048', omit_ways(['ghci']), compile_and_run, [''])
+test('tcrun049', omit_ways(['ghci']), compile_and_run, [''])
+test('tcrun050', omit_ways(['ghci']), compile_and_run, [''])
+test('tcrun051', omit_ways(['ghci']), compile_and_run, [''])
 
 test('church', normal, compile_and_run, [''])
 test('testeq2', normal, compile_and_run, [''])
 test('T1624', normal, compile_and_run, [''])
 test('IPRun', normal, compile_and_run, [''])
+test('IPLocation', normal, compile_and_run, [''])
 
 # Support files for T1735 are in directory T1735_Help/
 test('T1735', normal, multimod_compile_and_run, ['T1735',''])
@@ -97,10 +90,8 @@ test('T4809', reqlib('mtl'), compile_and_run, [''])
 test('T2722', normal, compile_and_run, [''])
 test('mc17', normal, compile_and_run, [''])
 test('T5759', normal, compile_and_run, [''])
-test('T5573a', [omit_ways(['ghci']), only_compiler_types(['ghc'])],
-     compile_and_run, [''])
-test('T5573b', [omit_ways(['ghci']), only_compiler_types(['ghc'])],
-     compile_and_run, [''])
+test('T5573a', omit_ways(['ghci']), compile_and_run, [''])
+test('T5573b', omit_ways(['ghci']), compile_and_run, [''])
 test('T7023', normal, compile_and_run, [''])
 test('T7126', normal, compile_and_run, [''])
 test('T6117', normal, compile_and_run, [''])
@@ -115,3 +106,6 @@ test('T8739', normal, compile_and_run, [''])
 test('T9497a-run', [exit_code(1)], compile_and_run, ['-fdefer-typed-holes'])
 test('T9497b-run', [exit_code(1)], compile_and_run, ['-fdefer-typed-holes -fno-warn-typed-holes'])
 test('T9497c-run', [exit_code(1)], compile_and_run, ['-fdefer-type-errors -fno-warn-typed-holes'])
+test('T9858c', normal, compile_and_run, [''])
+test('T9858d', normal, compile_and_run, [''])
+test('T10284', exit_code(1), compile_and_run, [''])

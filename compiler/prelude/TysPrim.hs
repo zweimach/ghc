@@ -10,9 +10,8 @@
 -- | This module defines TyCons that can't be expressed in Haskell.
 --   They are all, therefore, wired-in TyCons.  C.f module TysWiredIn
 module TysPrim(
-        mkPrimTyConName, -- For implicit parameters in TysWiredIn only
-
-        tyVarList, alphaTyVars, alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar,
+        mkTemplateTyVars,
+        alphaTyVars, alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar,
         alphaTys, alphaTy, betaTy, gammaTy, deltaTy,
         levity1TyVar, levity2TyVar, levity1Ty, levity2Ty,
         openAlphaTy, openBetaTy, openAlphaTyVar, openBetaTyVar,
@@ -213,18 +212,19 @@ alphaTyVars is a list of type variables for use in templates:
         ["a", "b", ..., "z", "t1", "t2", ... ]
 -}
 
-tyVarList :: Kind -> [TyVar]
-tyVarList kind = [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u)
-                                           (mkTyVarOccFS (mkFastString name))
-                                           noSrcSpan) kind
-                 | u <- [2..],
-                   let name | c <= 'z'  = [c]
-                            | otherwise = 't':show u
-                            where c = chr (u-2 + ord 'a')
-                 ]
+mkTemplateTyVars :: [Kind] -> [TyVar]
+mkTemplateTyVars kinds =
+  [ mkTyVar (mkInternalName (mkAlphaTyVarUnique u)
+                            (mkTyVarOccFS (mkFastString name))
+                            noSrcSpan) k
+  | (k,u) <- zip kinds [2..],
+    let name | c <= 'z'  = [c]
+             | otherwise = 't':show u
+          where c = chr (u-2 + ord 'a')
+  ]
 
 alphaTyVars :: [TyVar]
-alphaTyVars = tyVarList liftedTypeKind
+alphaTyVars = mkTemplateTyVars $ repeat liftedTypeKind
 
 alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar :: TyVar
 (alphaTyVar:betaTyVar:gammaTyVar:deltaTyVar:_) = alphaTyVars
@@ -235,22 +235,23 @@ alphaTy, betaTy, gammaTy, deltaTy :: Type
 (alphaTy:betaTy:gammaTy:deltaTy:_) = alphaTys
 
 levity1TyVar, levity2TyVar :: TyVar
-(levity1TyVar : levity2TyVar : _) = drop 21 (tyVarList levityTy)  -- selects 'v','w'
+(levity1TyVar : levity2TyVar : _)
+  = drop 21 (mkTemplateTyVars (repeat levityTy))  -- selects 'v','w'
 
 levity1Ty, levity2Ty :: Type
 levity1Ty = mkTyVarTy levity1TyVar
 levity2Ty = mkTyVarTy levity2TyVar
 
 openAlphaTyVar, openBetaTyVar :: TyVar
-openAlphaTyVar = tyVarList (tYPE levity1Ty) !! 0
-openBetaTyVar  = tyVarList (tYPE levity2Ty) !! 1
+[openAlphaTyVar,openBetaTyVar]
+  = mkTemplateTyVars [tYPE levity1Ty, tYPE levity2Ty]
 
 openAlphaTy, openBetaTy :: Type
 openAlphaTy = mkTyVarTy openAlphaTyVar
 openBetaTy  = mkTyVarTy openBetaTyVar
 
 kKiVar :: KindVar
-kKiVar = (tyVarList liftedTypeKind) !! 10
+kKiVar = (mkTemplateTyVars $ repeat liftedTypeKind) !! 10
   -- the 10 selects the 11th letter in the alphabet: 'k'
 
 {-
@@ -353,19 +354,24 @@ unliftedTypeKindTyCon = mkSynonymTyCon unliftedTypeKindTyConName
 -- ... and now their names
 
 -- If you edit these, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 liftedTypeKindTyConName   = mkPrimTyConName (fsLit "*") liftedTypeKindTyConKey liftedTypeKindTyCon
 tYPETyConName             = mkPrimTyConName (fsLit "TYPE") tYPETyConKey tYPETyCon
 unliftedTypeKindTyConName = mkPrimTyConName (fsLit "#") unliftedTypeKindTyConKey unliftedTypeKindTyCon
-constraintKindTyConName   = mkPrimTyConName (fsLit "Constraint") constraintKindTyConKey constraintKindTyCon
 
 mkPrimTyConName :: FastString -> Unique -> TyCon -> Name
-mkPrimTyConName occ key tycon = mkWiredInName gHC_PRIM (mkTcOccFS occ)
-                                              key
-                                              (ATyCon tycon)
-                                              BuiltInSyntax
-        -- All of the super kinds and kinds are defined in Prim and use BuiltInSyntax,
-        -- because they are never in scope in the source
+mkPrimTyConName = mkPrimTcName BuiltInSyntax
+  -- All of the super kinds and kinds are defined in Prim,
+  -- and use BuiltInSyntax, because they are never in scope in the source
+
+constraintKindTyConName -- Unlike the others, Constraint does *not* use BuiltInSyntax,
+                        -- and can be imported/exported like any other type constructor
+  = mkPrimTcName UserSyntax (fsLit "Constraint") constraintKindTyConKey   constraintKindTyCon
+
+
+mkPrimTcName :: BuiltInSyntax -> FastString -> Unique -> TyCon -> Name
+mkPrimTcName built_in_syntax occ key tycon
+  = mkWiredInName gHC_PRIM (mkTcOccFS occ) key (ATyCon tycon) built_in_syntax
 
 kindTyConType :: TyCon -> Type
 kindTyConType kind = TyConApp kind []   -- mkTyConApp isn't defined yet
@@ -524,8 +530,7 @@ eqPrimTyCon  = mkPrimTyCon eqPrimTyConName kind roles VoidRep
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
                mkArrowKinds [k1, k2] unliftedTypeKind
-        kVars = tyVarList liftedTypeKind
-        kv1 : kv2 : _ = kVars
+        [kv1, kv2] = mkTemplateTyVars [liftedTypeKind, liftedTypeKind]
         k1 = mkTyVarTy kv1
         k2 = mkTyVarTy kv2
         roles = [Nominal, Nominal, Nominal, Nominal]
@@ -539,8 +544,7 @@ eqReprPrimTyCon = mkPrimTyCon eqReprPrimTyConName kind
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
                mkArrowKinds [k1, k2] unliftedTypeKind
-        kVars         = tyVarList liftedTypeKind
-        kv1 : kv2 : _ = kVars
+        [kv1, kv2]    = mkTemplateTyVars [liftedTypeKind, liftedTypeKind]
         k1            = mkTyVarTy kv1
         k2            = mkTyVarTy kv2
         roles         = [Nominal, Nominal, Representational, Representational]
@@ -555,8 +559,7 @@ eqPhantPrimTyCon = mkPrimTyCon eqPhantPrimTyConName kind
   where kind = ForAllTy (Named kv1 Invisible) $
                ForAllTy (Named kv2 Invisible) $
                mkArrowKinds [k1, k2] unliftedTypeKind
-        kVars         = tyVarList liftedTypeKind
-        kv1 : kv2 : _ = kVars
+        [kv1, kv2]    = mkTemplateTyVars [liftedTypeKind, liftedTypeKind]
         k1            = mkTyVarTy kv1
         k2            = mkTyVarTy kv2
 
@@ -575,7 +578,7 @@ realWorldStatePrimTy = mkStatePrimTy realWorldTy        -- State# RealWorld
 
 {-
 Note: the ``state-pairing'' types are not truly primitive, so they are
-defined in \tr{TysWiredIn.lhs}, not here.
+defined in \tr{TysWiredIn.hs}, not here.
 
 ************************************************************************
 *                                                                      *
@@ -798,9 +801,10 @@ anyTy :: Type
 anyTy = mkTyConTy anyTyCon
 
 anyTyCon :: TyCon
-anyTyCon = mkFamilyTyCon anyTyConName kind [kKiVar]
-                         AbstractClosedSynFamilyTyCon
+anyTyCon = mkFamilyTyCon anyTyConName kind [kKiVar] Nothing
+                         (ClosedSynFamilyTyCon Nothing)
                          NoParentTyCon
+                         NotInjective
   where
     kind = ForAllTy (Named kKiVar Invisible) (mkTyVarTy kKiVar)
 

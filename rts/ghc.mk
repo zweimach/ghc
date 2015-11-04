@@ -45,6 +45,9 @@ ifneq "$(PORTING_HOST)" "YES"
 ifneq "$(findstring $(TargetArch_CPP), i386 powerpc powerpc64)" ""
 rts_S_SRCS += rts/AdjustorAsm.S
 endif
+ifneq "$(findstring $(TargetArch_CPP), powerpc64le)" ""
+rts_S_SRCS += rts/StgCRunAsm.S
+endif
 endif
 
 ifeq "$(GhcUnregisterised)" "YES"
@@ -153,8 +156,8 @@ $(call distdir-way-opts,rts,dist,$1)
 $(call c-suffix-rules,rts,dist,$1,YES)
 $(call cmm-suffix-rules,rts,dist,$1)
 
-rts_$1_LIB_NAME = libHSrts$$($1_libsuf)
-rts_$1_LIB = rts/dist/build/$$(rts_$1_LIB_NAME)
+rts_$1_LIB_FILE = libHSrts$$($1_libsuf)
+rts_$1_LIB = rts/dist/build/$$(rts_$1_LIB_FILE)
 
 rts_$1_C_OBJS   = $$(patsubst rts/%.c,rts/dist/build/%.$$($1_osuf),$$(rts_C_SRCS)) $$(patsubst %.c,%.$$($1_osuf),$$(rts_$1_EXTRA_C_SRCS))
 rts_$1_S_OBJS   = $$(patsubst rts/%.S,rts/dist/build/%.$$($1_osuf),$$(rts_S_SRCS))
@@ -176,6 +179,13 @@ endif
 endif
 
 rts_dist_$1_CC_OPTS += -DRtsWay=\"rts_$1\"
+
+# If we're compiling on windows, enforce that we only support XP+
+# Adding this here means it doesn't have to be done in individual .c files
+# and also centralizes the versioning.
+ifeq "$$(TargetOS_CPP)" "mingw32"
+rts_dist_$1_CC_OPTS += -DWINVER=0x0501
+endif
 
 ifneq "$$(UseSystemLibFFI)" "YES"
 rts_dist_FFI_SO = rts/dist/build/lib$$(LIBFFI_NAME)$$(soext)
@@ -313,13 +323,6 @@ endif
 
 #-----------------------------------------------------------------------------
 # Flags for compiling specific files
-
-# If RtsMain.c is built with optimisation then the SEH exception stuff on
-# Windows gets confused.
-# This has to be in HC rather than CC opts, as otherwise there's a
-# -optc-O2 that comes after it.
-rts/RtsMain_HC_OPTS += -optc-O0
-
 rts/RtsMessages_CC_OPTS += -DProjectVersion=\"$(ProjectVersion)\"
 rts/RtsUtils_CC_OPTS += -DProjectVersion=\"$(ProjectVersion)\"
 rts/Trace_CC_OPTS += -DProjectVersion=\"$(ProjectVersion)\"
@@ -422,7 +425,7 @@ rts/RetainerSet_CC_OPTS += -Wno-format
 # On Windows:
 rts/win32/ConsoleHandler_CC_OPTS += -w
 rts/win32/ThrIOManager_CC_OPTS += -w
-# The above warning supression flags are a temporary kludge.
+# The above warning suppression flags are a temporary kludge.
 # While working on this module you are encouraged to remove it and fix
 # any warnings in the module. See
 #     http://ghc.haskell.org/trac/ghc/wiki/WorkingConventions#Warnings
@@ -484,6 +487,14 @@ rts_PACKAGE_CPP_OPTS += -DFFI_INCLUDE_DIR=
 rts_PACKAGE_CPP_OPTS += -DFFI_LIB_DIR=
 rts_PACKAGE_CPP_OPTS += '-DFFI_LIB="C$(LIBFFI_NAME)"'
 
+endif
+
+#-----------------------------------------------------------------------------
+# Add support for reading DWARF debugging information, if available
+
+ifeq "$(GhcRtsWithLibdw)" "YES"
+rts_CC_OPTS          += -DUSE_LIBDW
+rts_PACKAGE_CPP_OPTS += -DUSE_LIBDW
 endif
 
 # -----------------------------------------------------------------------------
@@ -575,8 +586,8 @@ endif
 
 .PHONY: install_libffi_headers
 install_libffi_headers :
-	$(call INSTALL_DIR,"$(DESTDIR)$(ghcheaderdir)")
-	$(call INSTALL_HEADER,$(INSTALL_OPTS),$(libffi_HEADERS),"$(DESTDIR)$(ghcheaderdir)/")
+	$(INSTALL_DIR) "$(DESTDIR)$(ghcheaderdir)"
+	$(INSTALL_HEADER) $(INSTALL_OPTS) $(libffi_HEADERS) "$(DESTDIR)$(ghcheaderdir)/"
 
 # -----------------------------------------------------------------------------
 # cleaning

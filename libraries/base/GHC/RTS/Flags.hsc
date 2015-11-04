@@ -9,13 +9,19 @@
 -- @since 4.8.0.0
 --
 module GHC.RTS.Flags
-  ( RTSFlags (..)
+  ( RtsTime
+  , RtsNat
+  , RTSFlags (..)
+  , GiveGCStats (..)
   , GCFlags (..)
   , ConcFlags (..)
   , MiscFlags (..)
   , DebugFlags (..)
+  , DoCostCentres (..)
   , CCFlags (..)
+  , DoHeapProfile (..)
   , ProfFlags (..)
+  , DoTrace (..)
   , TraceFlags (..)
   , TickyFlags (..)
   , getRTSFlags
@@ -48,10 +54,10 @@ import GHC.Show
 import GHC.Word
 
 -- | @'Time'@ is defined as a @'StgWord64'@ in @stg/Types.h@
-type Time = Word64
+type RtsTime = Word64
 
 -- | @'nat'@ defined in @rts/Types.h@
-type Nat = #{type unsigned int}
+type RtsNat = #{type unsigned int}
 
 data GiveGCStats
     = NoGCStats
@@ -78,19 +84,19 @@ instance Enum GiveGCStats where
 data GCFlags = GCFlags
     { statsFile             :: Maybe FilePath
     , giveStats             :: GiveGCStats
-    , maxStkSize            :: Nat
-    , initialStkSize        :: Nat
-    , stkChunkSize          :: Nat
-    , stkChunkBufferSize    :: Nat
-    , maxHeapSize           :: Nat
-    , minAllocAreaSize      :: Nat
-    , minOldGenSize         :: Nat
-    , heapSizeSuggestion    :: Nat
-    , heapSizeSuggesionAuto :: Bool
+    , maxStkSize            :: RtsNat
+    , initialStkSize        :: RtsNat
+    , stkChunkSize          :: RtsNat
+    , stkChunkBufferSize    :: RtsNat
+    , maxHeapSize           :: RtsNat
+    , minAllocAreaSize      :: RtsNat
+    , minOldGenSize         :: RtsNat
+    , heapSizeSuggestion    :: RtsNat
+    , heapSizeSuggestionAuto :: Bool
     , oldGenFactor          :: Double
     , pcFreeHeap            :: Double
-    , generations           :: Nat
-    , steps                 :: Nat
+    , generations           :: RtsNat
+    , steps                 :: RtsNat
     , squeezeUpdFrames      :: Bool
     , compact               :: Bool -- ^ True <=> "compact all the time"
     , compactThreshold      :: Double
@@ -98,19 +104,19 @@ data GCFlags = GCFlags
       -- ^ use "mostly mark-sweep" instead of copying for the oldest generation
     , ringBell              :: Bool
     , frontpanel            :: Bool
-    , idleGCDelayTime       :: Time
+    , idleGCDelayTime       :: RtsTime
     , doIdleGC              :: Bool
     , heapBase              :: Word -- ^ address to ask the OS for memory
     , allocLimitGrace       :: Word
     } deriving (Show)
 
 data ConcFlags = ConcFlags
-    { ctxtSwitchTime  :: Time
+    { ctxtSwitchTime  :: RtsTime
     , ctxtSwitchTicks :: Int
     } deriving (Show)
 
 data MiscFlags = MiscFlags
-    { tickInterval          :: Time
+    { tickInterval          :: RtsTime
     , installSignalHandlers :: Bool
     , machineReadable       :: Bool
     , linkerMemBase         :: Word
@@ -198,8 +204,8 @@ instance Enum DoHeapProfile where
 
 data ProfFlags = ProfFlags
     { doHeapProfile            :: DoHeapProfile
-    , heapProfileInterval      :: Time -- ^ time between samples
-    , heapProfileIntervalTicks :: Word -- ^ ticks between samples (derived)
+    , heapProfileInterval      :: RtsTime -- ^ time between samples
+    , heapProfileIntervalTicks :: Word    -- ^ ticks between samples (derived)
     , includeTSOs              :: Bool
     , showCCSOnException       :: Bool
     , maxRetainerSetSize       :: Word
@@ -305,7 +311,7 @@ getGCFlags = do
   ptr <- getGcFlagsPtr
   GCFlags <$> (peekFilePath =<< #{peek GC_FLAGS, statsFile} ptr)
           <*> (toEnum . fromIntegral <$>
-                (#{peek GC_FLAGS, giveStats} ptr :: IO Nat))
+                (#{peek GC_FLAGS, giveStats} ptr :: IO RtsNat))
           <*> #{peek GC_FLAGS, maxStkSize} ptr
           <*> #{peek GC_FLAGS, initialStkSize} ptr
           <*> #{peek GC_FLAGS, stkChunkSize} ptr
@@ -367,7 +373,7 @@ getCCFlags :: IO CCFlags
 getCCFlags = do
   ptr <- getCcFlagsPtr
   CCFlags <$> (toEnum . fromIntegral
-                <$> (#{peek COST_CENTRE_FLAGS, doCostCentres} ptr :: IO Nat))
+                <$> (#{peek COST_CENTRE_FLAGS, doCostCentres} ptr :: IO RtsNat))
           <*> #{peek COST_CENTRE_FLAGS, profilerTicks} ptr
           <*> #{peek COST_CENTRE_FLAGS, msecsPerTick} ptr
 

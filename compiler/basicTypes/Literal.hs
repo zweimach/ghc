@@ -30,6 +30,7 @@ module Literal
         , inIntRange, inWordRange, tARGET_MAX_INT, inCharRange
         , isZeroLit
         , litFitsInChar
+        , litValue
 
         -- ** Coercions
         , word2IntLit, int2WordLit
@@ -47,7 +48,6 @@ import PrelNames
 import Type
 import TyCon
 import Outputable
-import FastTypes
 import FastString
 import BasicTypes
 import Binary
@@ -270,6 +270,17 @@ isZeroLit (MachFloat  0) = True
 isZeroLit (MachDouble 0) = True
 isZeroLit _              = False
 
+-- | Returns the 'Integer' contained in the 'Literal', for when that makes
+-- sense, i.e. for 'Char', 'Int', 'Word' and 'LitInteger'.
+litValue  :: Literal -> Integer
+litValue (MachChar   c) = toInteger $ ord c
+litValue (MachInt    i) = i
+litValue (MachInt64  i) = i
+litValue (MachWord   i) = i
+litValue (MachWord64 i) = i
+litValue (LitInteger i _) = i
+litValue l = pprPanic "litValue" (ppr l)
+
 {-
         Coercions
         ~~~~~~~~~
@@ -410,52 +421,85 @@ cmpLit (MachFloat     a)   (MachFloat      b)   = a `compare` b
 cmpLit (MachDouble    a)   (MachDouble     b)   = a `compare` b
 cmpLit (MachLabel     a _ _) (MachLabel      b _ _) = a `compare` b
 cmpLit (LitInteger    a _) (LitInteger     b _) = a `compare` b
-cmpLit lit1                lit2                 | litTag lit1 <# litTag lit2 = LT
-                                                | otherwise                  = GT
+cmpLit lit1                lit2                 | litTag lit1 < litTag lit2 = LT
+                                                | otherwise                 = GT
 
-litTag :: Literal -> FastInt
-litTag (MachChar      _)   = _ILIT(1)
-litTag (MachStr       _)   = _ILIT(2)
-litTag (MachNullAddr)      = _ILIT(3)
-litTag (MachInt       _)   = _ILIT(4)
-litTag (MachWord      _)   = _ILIT(5)
-litTag (MachInt64     _)   = _ILIT(6)
-litTag (MachWord64    _)   = _ILIT(7)
-litTag (MachFloat     _)   = _ILIT(8)
-litTag (MachDouble    _)   = _ILIT(9)
-litTag (MachLabel _ _ _)   = _ILIT(10)
-litTag (LitInteger  {})    = _ILIT(11)
+litTag :: Literal -> Int
+litTag (MachChar      _)   = 1
+litTag (MachStr       _)   = 2
+litTag (MachNullAddr)      = 3
+litTag (MachInt       _)   = 4
+litTag (MachWord      _)   = 5
+litTag (MachInt64     _)   = 6
+litTag (MachWord64    _)   = 7
+litTag (MachFloat     _)   = 8
+litTag (MachDouble    _)   = 9
+litTag (MachLabel _ _ _)   = 10
+litTag (LitInteger  {})    = 11
 
 {-
         Printing
         ~~~~~~~~
-* MachX (i.e. unboxed) things are printed unadornded (e.g. 3, 'a', "foo")
-  exceptions: MachFloat gets an initial keyword prefix.
+* See Note [Printing of literals in Core]
 -}
 
 pprLiteral :: (SDoc -> SDoc) -> Literal -> SDoc
--- The function is used on non-atomic literals
--- to wrap parens around literals that occur in
--- a context requiring an atomic thing
-pprLiteral _       (MachChar ch)    = pprHsChar ch
+pprLiteral _       (MachChar c)     = pprPrimChar c
 pprLiteral _       (MachStr s)      = pprHsBytes s
-pprLiteral _       (MachInt i)      = pprIntVal i
-pprLiteral _       (MachDouble d)   = double (fromRat d)
 pprLiteral _       (MachNullAddr)   = ptext (sLit "__NULL")
-pprLiteral add_par (LitInteger i _) = add_par (ptext (sLit "__integer") <+> integer i)
-pprLiteral add_par (MachInt64 i)    = add_par (ptext (sLit "__int64") <+> integer i)
-pprLiteral add_par (MachWord w)     = add_par (ptext (sLit "__word") <+> integer w)
-pprLiteral add_par (MachWord64 w)   = add_par (ptext (sLit "__word64") <+> integer w)
-pprLiteral add_par (MachFloat f)    = add_par (ptext (sLit "__float") <+> float (fromRat f))
+pprLiteral _       (MachInt i)      = pprPrimInt i
+pprLiteral _       (MachInt64 i)    = pprPrimInt64 i
+pprLiteral _       (MachWord w)     = pprPrimWord w
+pprLiteral _       (MachWord64 w)   = pprPrimWord64 w
+pprLiteral _       (MachFloat f)    = float (fromRat f) <> primFloatSuffix
+pprLiteral _       (MachDouble d)   = double (fromRat d) <> primDoubleSuffix
+pprLiteral add_par (LitInteger i _) = pprIntegerVal add_par i
 pprLiteral add_par (MachLabel l mb fod) = add_par (ptext (sLit "__label") <+> b <+> ppr fod)
     where b = case mb of
               Nothing -> pprHsString l
               Just x  -> doubleQuotes (text (unpackFS l ++ '@':show x))
 
-pprIntVal :: Integer -> SDoc
--- ^ Print negative integers with parens to be sure it's unambiguous
-pprIntVal i | i < 0     = parens (integer i)
-            | otherwise = integer i
+pprIntegerVal :: (SDoc -> SDoc) -> Integer -> SDoc
+-- See Note [Printing of literals in Core].
+pprIntegerVal add_par i | i < 0     = add_par (integer i)
+                        | otherwise = integer i
+
+{-
+Note [Printing of literals in Core]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The function `add_par` is used to wrap parenthesis around negative integers
+(`LitInteger`) and labels (`MachLabel`), if they occur in a context requiring
+an atomic thing (for example function application).
+
+Although not all Core literals would be valid Haskell, we are trying to stay
+as close as possible to Haskell syntax in the printing of Core, to make it
+easier for a Haskell user to read Core.
+
+To that end:
+  * We do print parenthesis around negative `LitInteger`, because we print
+  `LitInteger` using plain number literals (no prefix or suffix), and plain
+  number literals in Haskell require parenthesis in contexts like function
+  application (i.e. `1 - -1` is not valid Haskell).
+
+  * We don't print parenthesis around other (negative) literals, because they
+  aren't needed in GHC/Haskell either (i.e. `1# -# -1#` is accepted by GHC's
+  parser).
+
+Literal         Output             Output if context requires
+                                   an atom (if different)
+-------         -------            ----------------------
+MachChar        'a'#
+MachStr         "aaa"#
+MachNullAddr    "__NULL"
+MachInt         -1#
+MachInt64       -1L#
+MachWord         1##
+MachWord64       1L##
+MachFloat       -1.0#
+MachDouble      -1.0##
+LitInteger      -1                 (-1)
+MachLabel       "__label" ...      ("__label" ...)
+-}
 
 {-
 ************************************************************************
@@ -490,4 +534,4 @@ hashInteger i = 1 + abs (fromInteger (i `rem` 10000))
                 -- since we use * to combine hash values
 
 hashFS :: FastString -> Int
-hashFS s = iBox (uniqueOfFS s)
+hashFS s = uniqueOfFS s

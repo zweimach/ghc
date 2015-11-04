@@ -38,11 +38,9 @@ import Util
 import PrelNames        ( gHC_PRIM )
 import DynFlags
 import Outputable
-import UniqFM
 import Maybes           ( expectJust )
-import Exception        ( evaluate )
 
-import Data.IORef       ( IORef, writeIORef, readIORef, atomicModifyIORef )
+import Data.IORef       ( IORef, readIORef, atomicModifyIORef' )
 import System.Directory
 import System.FilePath
 import Control.Monad
@@ -69,47 +67,24 @@ type BaseName = String  -- Basename of file
 -- remove all the home modules from the cache; package modules are
 -- assumed to not move around during a session.
 flushFinderCaches :: HscEnv -> IO ()
-flushFinderCaches hsc_env = do
-  -- Ideally the update to both caches be a single atomic operation.
-  writeIORef fc_ref emptyUFM
-  flushModLocationCache this_pkg mlc_ref
+flushFinderCaches hsc_env =
+  atomicModifyIORef' fc_ref $ \fm -> (filterModuleEnv is_ext fm, ())
  where
         this_pkg = thisPackage (hsc_dflags hsc_env)
         fc_ref = hsc_FC hsc_env
-        mlc_ref = hsc_MLC hsc_env
-
-flushModLocationCache :: PackageKey -> IORef ModLocationCache -> IO ()
-flushModLocationCache this_pkg ref = do
-  atomicModifyIORef ref $ \fm -> (filterModuleEnv is_ext fm, ())
-  _ <- evaluate =<< readIORef ref
-  return ()
-  where is_ext mod _ | modulePackageKey mod /= this_pkg = True
+        is_ext mod _ | moduleUnitId mod /= this_pkg = True
                      | otherwise = False
 
-addToFinderCache :: IORef FinderCache -> ModuleName -> FindResult -> IO ()
+addToFinderCache :: IORef FinderCache -> Module -> FindResult -> IO ()
 addToFinderCache ref key val =
-  atomicModifyIORef ref $ \c -> (addToUFM c key val, ())
+  atomicModifyIORef' ref $ \c -> (extendModuleEnv c key val, ())
 
-addToModLocationCache :: IORef ModLocationCache -> Module -> ModLocation -> IO ()
-addToModLocationCache ref key val =
-  atomicModifyIORef ref $ \c -> (extendModuleEnv c key val, ())
-
-removeFromFinderCache :: IORef FinderCache -> ModuleName -> IO ()
+removeFromFinderCache :: IORef FinderCache -> Module -> IO ()
 removeFromFinderCache ref key =
-  atomicModifyIORef ref $ \c -> (delFromUFM c key, ())
+  atomicModifyIORef' ref $ \c -> (delModuleEnv c key, ())
 
-removeFromModLocationCache :: IORef ModLocationCache -> Module -> IO ()
-removeFromModLocationCache ref key =
-  atomicModifyIORef ref $ \c -> (delModuleEnv c key, ())
-
-lookupFinderCache :: IORef FinderCache -> ModuleName -> IO (Maybe FindResult)
+lookupFinderCache :: IORef FinderCache -> Module -> IO (Maybe FindResult)
 lookupFinderCache ref key = do
-   c <- readIORef ref
-   return $! lookupUFM c key
-
-lookupModLocationCache :: IORef ModLocationCache -> Module
-                       -> IO (Maybe ModLocation)
-lookupModLocationCache ref key = do
    c <- readIORef ref
    return $! lookupModuleEnv c key
 
@@ -146,7 +121,7 @@ findImportedModule hsc_env mod_name mb_pkg =
 findExactModule :: HscEnv -> Module -> IO FindResult
 findExactModule hsc_env mod =
     let dflags = hsc_dflags hsc_env
-    in if modulePackageKey mod == thisPackage dflags
+    in if moduleUnitId mod == thisPackage dflags
        then findHomeModule hsc_env (moduleName mod)
        else findPackageModule hsc_env mod
 
@@ -179,16 +154,8 @@ orIfNotFound this or_this = do
 -- was successful.)
 homeSearchCache :: HscEnv -> ModuleName -> IO FindResult -> IO FindResult
 homeSearchCache hsc_env mod_name do_this = do
-  m <- lookupFinderCache (hsc_FC hsc_env) mod_name
-  case m of
-    Just result -> return result
-    Nothing     -> do
-        result <- do_this
-        addToFinderCache (hsc_FC hsc_env) mod_name result
-        case result of
-           Found loc mod -> addToModLocationCache (hsc_MLC hsc_env) mod loc
-           _other        -> return ()
-        return result
+  let mod = mkModule (thisPackage (hsc_dflags hsc_env)) mod_name
+  modLocationCache hsc_env mod do_this
 
 findExposedPackageModule :: HscEnv -> ModuleName -> Maybe FastString
                          -> IO FindResult
@@ -200,8 +167,8 @@ findExposedPackageModule hsc_env mod_name mb_pkg
        return (FoundMultiple rs)
      LookupHidden pkg_hiddens mod_hiddens ->
        return (NotFound{ fr_paths = [], fr_pkg = Nothing
-                       , fr_pkgs_hidden = map (modulePackageKey.fst) pkg_hiddens
-                       , fr_mods_hidden = map (modulePackageKey.fst) mod_hiddens
+                       , fr_pkgs_hidden = map (moduleUnitId.fst) pkg_hiddens
+                       , fr_mods_hidden = map (moduleUnitId.fst) mod_hiddens
                        , fr_suggestions = [] })
      LookupNotFound suggest ->
        return (NotFound{ fr_paths = [], fr_pkg = Nothing
@@ -211,30 +178,24 @@ findExposedPackageModule hsc_env mod_name mb_pkg
 
 modLocationCache :: HscEnv -> Module -> IO FindResult -> IO FindResult
 modLocationCache hsc_env mod do_this = do
-  mb_loc <- lookupModLocationCache mlc mod
-  case mb_loc of
-     Just loc -> return (Found loc mod)
-     Nothing  -> do
+  m <- lookupFinderCache (hsc_FC hsc_env) mod
+  case m of
+    Just result -> return result
+    Nothing     -> do
         result <- do_this
-        case result of
-            Found loc mod -> addToModLocationCache (hsc_MLC hsc_env) mod loc
-            _other -> return ()
+        addToFinderCache (hsc_FC hsc_env) mod result
         return result
-  where
-    mlc = hsc_MLC hsc_env
 
 addHomeModuleToFinder :: HscEnv -> ModuleName -> ModLocation -> IO Module
 addHomeModuleToFinder hsc_env mod_name loc = do
   let mod = mkModule (thisPackage (hsc_dflags hsc_env)) mod_name
-  addToFinderCache (hsc_FC hsc_env) mod_name (Found loc mod)
-  addToModLocationCache (hsc_MLC hsc_env) mod loc
+  addToFinderCache (hsc_FC hsc_env) mod (Found loc mod)
   return mod
 
 uncacheModule :: HscEnv -> ModuleName -> IO ()
 uncacheModule hsc_env mod = do
   let this_pkg = thisPackage (hsc_dflags hsc_env)
-  removeFromFinderCache (hsc_FC hsc_env) mod
-  removeFromModLocationCache (hsc_MLC hsc_env) (mkModule this_pkg mod)
+  removeFromFinderCache (hsc_FC hsc_env) (mkModule this_pkg mod)
 
 -- -----------------------------------------------------------------------------
 --      The internal workers
@@ -250,7 +211,7 @@ uncacheModule hsc_env mod = do
 --  2. When you have a package qualified import with package name "this",
 --  we shortcut to the home module.
 --
---  3. When we look up an exact 'Module', if the package key associated with
+--  3. When we look up an exact 'Module', if the unit id associated with
 --  the module is the current home module do a look up in the home module.
 --
 --  4. Some special-case code in GHCi (ToDo: Figure out why that needs to
@@ -267,8 +228,11 @@ findHomeModule hsc_env mod_name =
      source_exts =
       [ ("hs",   mkHomeModLocationSearched dflags mod_name "hs")
       , ("lhs",  mkHomeModLocationSearched dflags mod_name "lhs")
-      , ("hsig",  mkHomeModLocationSearched dflags mod_name "hsig")
-      , ("lhsig",  mkHomeModLocationSearched dflags mod_name "lhsig")
+      -- TODO: This is a giant hack!  If we find an hs-boot file,
+      -- pretend that there's an hs file here too, even if there isn't.
+      -- GhcMake will know what to do next.
+      , ("hs-boot",   mkHomeModLocationSearched dflags mod_name "hs")
+      , ("lhs-boot",  mkHomeModLocationSearched dflags mod_name "lhs")
       ]
 
      hi_exts = [ (hisuf,                mkHiOnlyModLocation dflags hisuf)
@@ -289,13 +253,12 @@ findHomeModule hsc_env mod_name =
         then return (Found (error "GHC.Prim ModLocation") mod)
         else searchPathExts home_path mod exts
 
-
 -- | Search for a module in external packages only.
 findPackageModule :: HscEnv -> Module -> IO FindResult
 findPackageModule hsc_env mod = do
   let
         dflags = hsc_dflags hsc_env
-        pkg_id = modulePackageKey mod
+        pkg_id = moduleUnitId mod
   --
   case lookupPackage dflags pkg_id of
      Nothing -> return (NoPackage pkg_id)
@@ -304,13 +267,13 @@ findPackageModule hsc_env mod = do
 -- | Look up the interface file associated with module @mod@.  This function
 -- requires a few invariants to be upheld: (1) the 'Module' in question must
 -- be the module identifier of the *original* implementation of a module,
--- not a reexport (this invariant is upheld by @Packages.lhs@) and (2)
--- the 'PackageConfig' must be consistent with the package key in the 'Module'.
+-- not a reexport (this invariant is upheld by @Packages.hs@) and (2)
+-- the 'PackageConfig' must be consistent with the unit id in the 'Module'.
 -- The redundancy is to avoid an extra lookup in the package state
 -- for the appropriate config.
 findPackageModule_ :: HscEnv -> Module -> PackageConfig -> IO FindResult
 findPackageModule_ hsc_env mod pkg_conf =
-  ASSERT( modulePackageKey mod == packageConfigId pkg_conf )
+  ASSERT( moduleUnitId mod == packageConfigId pkg_conf )
   modLocationCache hsc_env mod $
 
   -- special case for GHC.Prim; we won't find it in the filesystem.
@@ -380,7 +343,7 @@ searchPathExts paths mod exts
                 ]
 
     search [] = return (NotFound { fr_paths = map fst to_search
-                                 , fr_pkg   = Just (modulePackageKey mod)
+                                 , fr_pkg   = Just (moduleUnitId mod)
                                  , fr_mods_hidden = [], fr_pkgs_hidden = []
                                  , fr_suggestions = [] })
 
@@ -568,7 +531,7 @@ cantFindErr _ multiple_found _ mod_name (FoundMultiple mods)
   where
     unambiguousPackages = foldl' unambiguousPackage (Just []) mods
     unambiguousPackage (Just xs) (m, ModOrigin (Just _) _ _ _)
-        = Just (modulePackageKey m : xs)
+        = Just (moduleUnitId m : xs)
     unambiguousPackage _ _ = Nothing
 
     pprMod (m, o) = ptext (sLit "it is bound as") <+> ppr m <+>
@@ -576,7 +539,7 @@ cantFindErr _ multiple_found _ mod_name (FoundMultiple mods)
     pprOrigin _ ModHidden = panic "cantFindErr: bound by mod hidden"
     pprOrigin m (ModOrigin e res _ f) = sep $ punctuate comma (
       if e == Just True
-          then [ptext (sLit "package") <+> ppr (modulePackageKey m)]
+          then [ptext (sLit "package") <+> ppr (moduleUnitId m)]
           else [] ++
       map ((ptext (sLit "a reexport in package") <+>)
                 .ppr.packageConfigId) res ++
@@ -590,8 +553,8 @@ cantFindErr cannot_find _ dflags mod_name find_result
     more_info
       = case find_result of
             NoPackage pkg
-                -> ptext (sLit "no package matching") <+> quotes (ppr pkg) <+>
-                   ptext (sLit "was found")
+                -> ptext (sLit "no unit id matching") <+> quotes (ppr pkg) <+>
+                   ptext (sLit "was found") $$ looks_like_srcpkgid pkg
 
             NotFound { fr_paths = files, fr_pkg = mb_pkg
                      , fr_mods_hidden = mod_hiddens, fr_pkgs_hidden = pkg_hiddens
@@ -637,11 +600,11 @@ cantFindErr cannot_find _ dflags mod_name find_result
         | otherwise =
                hang (ptext (sLit "Locations searched:")) 2 $ vcat (map text files)
 
-    pkg_hidden :: PackageKey -> SDoc
+    pkg_hidden :: UnitId -> SDoc
     pkg_hidden pkgid =
         ptext (sLit "It is a member of the hidden package")
         <+> quotes (ppr pkgid)
-        --FIXME: we don't really want to show the package key here we should
+        --FIXME: we don't really want to show the unit id here we should
         -- show the source package id or installed package id if it's ambiguous
         <> dot $$ cabal_pkg_hidden_hint pkgid
     cabal_pkg_hidden_hint pkgid
@@ -650,6 +613,18 @@ cantFindErr cannot_find _ dflags mod_name find_result
            in ptext (sLit "Perhaps you need to add") <+>
               quotes (ppr (packageName pkg)) <+>
               ptext (sLit "to the build-depends in your .cabal file.")
+     | otherwise = Outputable.empty
+
+    looks_like_srcpkgid :: UnitId -> SDoc
+    looks_like_srcpkgid pk
+     -- Unsafely coerce a unit id FastString into a source package ID
+     -- FastString and see if it means anything.
+     | (pkg:pkgs) <- searchPackageId dflags (SourcePackageId (unitIdFS pk))
+     = parens (text "This unit ID looks like the source package ID;" $$
+       text "the real unit ID is" <+> quotes (ftext (unitIdFS (unitId pkg))) $$
+       (if null pkgs then Outputable.empty
+        else text "and" <+> int (length pkgs) <+> text "other candidates"))
+     -- Todo: also check if it looks like a package name!
      | otherwise = Outputable.empty
 
     mod_hidden pkg =
@@ -670,9 +645,9 @@ cantFindErr cannot_find _ dflags mod_name find_result
                                    fromExposedReexport = res,
                                    fromPackageFlag = f })
               | Just True <- e
-                 = parens (ptext (sLit "from") <+> ppr (modulePackageKey mod))
+                 = parens (ptext (sLit "from") <+> ppr (moduleUnitId mod))
               | f && moduleName mod == m
-                 = parens (ptext (sLit "from") <+> ppr (modulePackageKey mod))
+                 = parens (ptext (sLit "from") <+> ppr (moduleUnitId mod))
               | (pkg:_) <- res
                  = parens (ptext (sLit "from") <+> ppr (packageConfigId pkg)
                     <> comma <+> ptext (sLit "reexporting") <+> ppr mod)
@@ -686,8 +661,8 @@ cantFindErr cannot_find _ dflags mod_name find_result
                                    fromHiddenReexport = rhs })
               | Just False <- e
                  = parens (ptext (sLit "needs flag -package-key")
-                    <+> ppr (modulePackageKey mod))
+                    <+> ppr (moduleUnitId mod))
               | (pkg:_) <- rhs
-                 = parens (ptext (sLit "needs flag -package-key")
+                 = parens (ptext (sLit "needs flag -package-id")
                     <+> ppr (packageConfigId pkg))
               | otherwise = Outputable.empty

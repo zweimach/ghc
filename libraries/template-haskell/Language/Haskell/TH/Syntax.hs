@@ -1,5 +1,13 @@
 {-# LANGUAGE CPP, DeriveDataTypeable, PolymorphicComponents,
-             RoleAnnotations, DeriveGeneric, FlexibleInstances #-}
+             DeriveGeneric, FlexibleInstances, DefaultSignatures,
+             ScopedTypeVariables, Rank2Types #-}
+
+{-# LANGUAGE RoleAnnotations #-}
+{-# OPTIONS_GHC -fno-warn-inline-rule-shadowing #-}
+
+#if MIN_VERSION_base(4,8,0)
+#define HAS_NATURAL
+#endif
 
 -----------------------------------------------------------------------------
 -- |
@@ -17,7 +25,7 @@
 
 module Language.Haskell.TH.Syntax where
 
-import Data.Data (Data(..), Typeable )
+import Data.Data hiding (Fixity(..))
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative( Applicative(..) )
 #endif
@@ -29,8 +37,12 @@ import Data.Char        ( isAlpha, isAlphaNum, isUpper )
 import Data.Int
 import Data.Word
 import Data.Ratio
-import Numeric.Natural
 import GHC.Generics     ( Generic )
+import GHC.Lexeme       ( startsVarSym, startsVarId )
+
+#ifdef HAS_NATURAL
+import Numeric.Natural
+#endif
 
 -----------------------------------------------------
 --
@@ -38,7 +50,7 @@ import GHC.Generics     ( Generic )
 --
 -----------------------------------------------------
 
-class Monad m => Quasi m where
+class (Applicative m, Monad m) => Quasi m where
   qNewName :: String -> m Name
         -- ^ Fresh names
 
@@ -53,6 +65,7 @@ class Monad m => Quasi m where
   qLookupName :: Bool -> String -> m (Maybe Name)
        -- True <=> type namespace, False <=> value namespace
   qReify          :: Name -> m Info
+  qReifyFixity    :: Name -> m Fixity
   qReifyInstances :: Name -> [Type] -> m [Dec]
        -- Is (n tys) an instance?
        -- Returns list of matching instance Decs
@@ -98,6 +111,7 @@ instance Quasi IO where
 
   qLookupName _ _     = badIO "lookupName"
   qReify _            = badIO "reify"
+  qReifyFixity _      = badIO "reifyFixity"
   qReifyInstances _ _ = badIO "reifyInstances"
   qReifyRoles _       = badIO "reifyRoles"
   qReifyAnnotations _ = badIO "reifyAnnotations"
@@ -145,9 +159,9 @@ runQ :: Quasi m => Q a -> m a
 runQ (Q m) = m
 
 instance Monad Q where
-  return x   = Q (return x)
   Q m >>= k  = Q (m >>= \x -> unQ (k x))
-  Q m >> Q n = Q (m >> n)
+  (>>) = (*>)
+  return     = pure
   fail s     = report True s >> Q (fail "Q monad failure")
 
 instance Functor Q where
@@ -156,6 +170,7 @@ instance Functor Q where
 instance Applicative Q where
   pure x = Q (pure x)
   Q f <*> Q x = Q (f <*> x)
+  Q m *> Q n = Q (m *> n)
 
 -----------------------------------------------------
 --
@@ -332,6 +347,12 @@ and to get information about @D@-the-type, use 'lookupTypeName'.
 reify :: Name -> Q Info
 reify v = Q (qReify v)
 
+{- | @reifyFixity nm@ returns the fixity of @nm@. If a fixity value cannot be
+found, 'defaultFixity' is returned.
+-}
+reifyFixity :: Name -> Q Fixity
+reifyFixity nm = Q (qReifyFixity nm)
+
 {- | @reifyInstances nm tys@ returns a list of visible instances of @nm tys@. That is,
 if @nm@ is the name of a type class, then all instances of this class at the types @tys@
 are returned. Alternatively, if @nm@ is the name of a data family or type family,
@@ -416,6 +437,7 @@ instance Quasi Q where
   qReport           = report
   qRecover          = recover
   qReify            = reify
+  qReifyFixity      = reifyFixity
   qReifyInstances   = reifyInstances
   qReifyRoles       = reifyRoles
   qReifyAnnotations = reifyAnnotations
@@ -450,8 +472,33 @@ sequenceQ = sequence
 --
 -----------------------------------------------------
 
+-- | A 'Lift' instance can have any of its values turned into a Template
+-- Haskell expression. This is needed when a value used within a Template
+-- Haskell quotation is bound outside the Oxford brackets (@[| ... |]@) but not
+-- at the top level. As an example:
+--
+-- > add1 :: Int -> Q Exp
+-- > add1 x = [| x + 1 |]
+--
+-- Template Haskell has no way of knowing what value @x@ will take on at
+-- splice-time, so it requires the type of @x@ to be an instance of 'Lift'.
+--
+-- 'Lift' instances can be derived automatically by use of the @-XDeriveLift@
+-- GHC language extension:
+--
+-- > {-# LANGUAGE DeriveLift #-}
+-- > module Foo where
+-- >
+-- > import Language.Haskell.TH.Syntax
+-- >
+-- > data Bar a = Bar1 a (Bar a) | Bar2 String
+-- >   deriving Lift
 class Lift t where
+  -- | Turn a value into a Template Haskell expression, suitable for use in
+  -- a splice.
   lift :: t -> Q Exp
+  default lift :: Data t => t -> Q Exp
+  lift = liftData
 
 -- If you add any instances here, consider updating test th/TH_Lift
 instance Lift Integer where
@@ -487,8 +534,10 @@ instance Lift Word32 where
 instance Lift Word64 where
   lift x = return (LitE (IntegerL (fromIntegral x)))
 
+#ifdef HAS_NATURAL
 instance Lift Natural where
   lift x = return (LitE (IntegerL (fromIntegral x)))
+#endif
 
 instance Integral a => Lift (Ratio a) where
   lift x = return (LitE (RationalL (toRational x)))
@@ -572,6 +621,123 @@ leftName, rightName :: Name
 leftName  = mkNameG DataName "base" "Data.Either" "Left"
 rightName = mkNameG DataName "base" "Data.Either" "Right"
 
+-----------------------------------------------------
+--
+--              Generic Lift implementations
+--
+-----------------------------------------------------
+
+-- | 'dataToQa' is an internal utility function for constructing generic
+-- conversion functions from types with 'Data' instances to various
+-- quasi-quoting representations.  See the source of 'dataToExpQ' and
+-- 'dataToPatQ' for two example usages: @mkCon@, @mkLit@
+-- and @appQ@ are overloadable to account for different syntax for
+-- expressions and patterns; @antiQ@ allows you to override type-specific
+-- cases, a common usage is just @const Nothing@, which results in
+-- no overloading.
+dataToQa  ::  forall a k q. Data a
+          =>  (Name -> k)
+          ->  (Lit -> Q q)
+          ->  (k -> [Q q] -> Q q)
+          ->  (forall b . Data b => b -> Maybe (Q q))
+          ->  a
+          ->  Q q
+dataToQa mkCon mkLit appCon antiQ t =
+    case antiQ t of
+      Nothing ->
+          case constrRep constr of
+            AlgConstr _ ->
+                appCon (mkCon funOrConName) conArgs
+              where
+                funOrConName :: Name
+                funOrConName =
+                    case showConstr constr of
+                      "(:)"       -> Name (mkOccName ":")
+                                          (NameG DataName
+                                                (mkPkgName "ghc-prim")
+                                                (mkModName "GHC.Types"))
+                      con@"[]"    -> Name (mkOccName con)
+                                          (NameG DataName
+                                                (mkPkgName "ghc-prim")
+                                                (mkModName "GHC.Types"))
+                      con@('(':_) -> Name (mkOccName con)
+                                          (NameG DataName
+                                                (mkPkgName "ghc-prim")
+                                                (mkModName "GHC.Tuple"))
+                      -- It is possible for a Data instance to be defined such
+                      -- that toConstr uses a Constr defined using a function,
+                      -- not a data constructor. In such a case, we must take
+                      -- care to build the Name using mkNameG_v (for values),
+                      -- not mkNameG_d (for data constructors).
+                      -- See Trac #10796.
+                      fun@(x:_)   | startsVarSym x || startsVarId x
+                                  -> mkNameG_v tyconPkg tyconMod fun
+                      con         -> mkNameG_d tyconPkg tyconMod con
+                  where
+                    tycon :: TyCon
+                    tycon = (typeRepTyCon . typeOf) t
+
+                    tyconPkg, tyconMod :: String
+                    tyconPkg = tyConPackage tycon
+                    tyconMod = tyConModule  tycon
+
+                conArgs :: [Q q]
+                conArgs = gmapQ (dataToQa mkCon mkLit appCon antiQ) t
+            IntConstr n ->
+                mkLit $ IntegerL n
+            FloatConstr n ->
+                mkLit $ RationalL n
+            CharConstr c ->
+                mkLit $ CharL c
+        where
+          constr :: Constr
+          constr = toConstr t
+
+      Just y -> y
+
+-- | 'dataToExpQ' converts a value to a 'Q Exp' representation of the
+-- same value, in the SYB style. It is generalized to take a function
+-- override type-specific cases; see 'liftData' for a more commonly
+-- used variant.
+dataToExpQ  ::  Data a
+            =>  (forall b . Data b => b -> Maybe (Q Exp))
+            ->  a
+            ->  Q Exp
+dataToExpQ = dataToQa varOrConE litE (foldl appE)
+    where
+          -- Make sure that VarE is used if the Constr value relies on a
+          -- function underneath the surface (instead of a constructor).
+          -- See Trac #10796.
+          varOrConE s =
+            case nameSpace s of
+                 Just VarName  -> return (VarE s)
+                 Just DataName -> return (ConE s)
+                 _ -> fail $ "Can't construct an expression from name "
+                          ++ showName s
+          appE x y = do { a <- x; b <- y; return (AppE a b)}
+          litE c = return (LitE c)
+
+-- | 'liftData' is a variant of 'lift' in the 'Lift' type class which
+-- works for any type with a 'Data' instance.
+liftData :: Data a => a -> Q Exp
+liftData = dataToExpQ (const Nothing)
+
+-- | 'dataToPatQ' converts a value to a 'Q Pat' representation of the same
+-- value, in the SYB style. It takes a function to handle type-specific cases,
+-- alternatively, pass @const Nothing@ to get default behavior.
+dataToPatQ  ::  Data a
+            =>  (forall b . Data b => b -> Maybe (Q Pat))
+            ->  a
+            ->  Q Pat
+dataToPatQ = dataToQa id litP conP
+    where litP l = return (LitP l)
+          conP n ps =
+            case nameSpace n of
+                Just DataName -> do
+                    ps' <- sequence ps
+                    return (ConP n ps')
+                _ -> fail $ "Can't construct a pattern from name "
+                         ++ showName n
 
 -----------------------------------------------------
 --              Names and uniques
@@ -715,25 +881,77 @@ data NameFlavour
                 -- An original name (occurrences only, not binders)
                 -- Need the namespace too to be sure which
                 -- thing we are naming
-  deriving ( Typeable, Data, Eq, Ord, Generic )
+  deriving ( Typeable, Data, Eq, Ord, Show, Generic )
 
 data NameSpace = VarName        -- ^ Variables
                | DataName       -- ^ Data constructors
                | TcClsName      -- ^ Type constructors and classes; Haskell has them
                                 -- in the same name space for now.
-               deriving( Eq, Ord, Data, Typeable, Generic )
+               deriving( Eq, Ord, Show, Data, Typeable, Generic )
 
 type Uniq = Int
 
--- | The name without its module prefix
+-- | The name without its module prefix.
+--
+-- ==== __Examples__
+--
+-- >>> nameBase ''Data.Either.Either
+-- "Either"
+-- >>> nameBase (mkName "foo")
+-- "foo"
+-- >>> nameBase (mkName "Module.foo")
+-- "foo"
 nameBase :: Name -> String
 nameBase (Name occ _) = occString occ
 
--- | Module prefix of a name, if it exists
+-- | Module prefix of a name, if it exists.
+--
+-- ==== __Examples__
+--
+-- >>> nameModule ''Data.Either.Either"
+-- Just "Data.Either"
+-- >>> nameModule (mkName "foo")
+-- Nothing
+-- >>> nameModule (mkName "Module.foo")
+-- Just "Module"
 nameModule :: Name -> Maybe String
 nameModule (Name _ (NameQ m))     = Just (modString m)
 nameModule (Name _ (NameG _ _ m)) = Just (modString m)
 nameModule _                      = Nothing
+
+-- | A name's package, if it exists.
+--
+-- ==== __Examples__
+--
+-- >>> namePackage ''Data.Either.Either"
+-- Just "base"
+-- >>> namePackage (mkName "foo")
+-- Nothing
+-- >>> namePackage (mkName "Module.foo")
+-- Nothing
+namePackage :: Name -> Maybe String
+namePackage (Name _ (NameG _ p _)) = Just (pkgString p)
+namePackage _                      = Nothing
+
+-- | Returns whether a name represents an occurrence of a top-level variable
+-- ('VarName'), data constructor ('DataName'), type constructor, or type class
+-- ('TcClsName'). If we can't be sure, it returns 'Nothing'.
+--
+-- ==== __Examples__
+--
+-- >>> nameSpace 'Prelude.id
+-- Just VarName
+-- >>> nameSpace (mkName "id")
+-- Nothing -- only works for top-level variable names
+-- >>> nameSpace 'Data.Maybe.Just
+-- Just DataName
+-- >>> nameSpace ''Data.Maybe.Maybe
+-- Just TcClsName
+-- >>> nameSpace ''Data.Ord.Ord
+-- Just TcClsName
+nameSpace :: Name -> Maybe NameSpace
+nameSpace (Name _ (NameG ns _ _)) = Just ns
+nameSpace _                       = Nothing
 
 {- |
 Generate a capturable name. Occurrences of such names will be
@@ -814,6 +1032,9 @@ mkNameL s u = Name (mkOccName s) (NameL u)
 mkNameG :: NameSpace -> String -> String -> String -> Name
 mkNameG ns pkg modu occ
   = Name (mkOccName occ) (NameG ns (mkPkgName pkg) (mkModName modu))
+
+mkNameS :: String -> Name
+mkNameS n = Name (mkOccName n) NameS
 
 mkNameG_v, mkNameG_tc, mkNameG_d :: String -> String -> String -> Name
 mkNameG_v  = mkNameG VarName
@@ -941,7 +1162,6 @@ data Info
        Name
        Type
        ParentName
-       Fixity
 
   -- | A \"plain\" type constructor. \"Fancier\" type constructors are returned using 'PrimTyConI' or 'FamilyI' as appropriate
   | TyConI
@@ -964,7 +1184,6 @@ data Info
        Name
        Type
        ParentName
-       Fixity
 
   {- |
   A \"value\" variable (as opposed to a type variable, see 'TyVarI').
@@ -980,7 +1199,6 @@ data Info
        Name
        Type
        (Maybe Dec)
-       Fixity
 
   {- |
   A type variable.
@@ -1049,10 +1267,9 @@ But how should we parse @a + b * c@? If we don't know the fixities of
 @+@ and @*@, we don't know whether to parse it as @a + (b * c)@ or @(a
 + b) * c@.
 
-In cases like this, use 'UInfixE' or 'UInfixP', which stand for
-\"unresolved infix expression\" and \"unresolved infix pattern\". When
-the compiler is given a splice containing a tree of @UInfixE@
-applications such as
+In cases like this, use 'UInfixE', 'UInfixP', or 'UInfixT', which stand for
+\"unresolved infix expression/pattern/type\", respectively. When the compiler
+is given a splice containing a tree of @UInfixE@ applications such as
 
 > UInfixE
 >   (UInfixE e1 op1 e2)
@@ -1062,12 +1279,12 @@ applications such as
 it will look up and the fixities of the relevant operators and
 reassociate the tree as necessary.
 
-  * trees will not be reassociated across 'ParensE' or 'ParensP',
+  * trees will not be reassociated across 'ParensE', 'ParensP', or 'ParensT',
     which are of use for parsing expressions like
 
     > (a + b * c) + d * e
 
-  * 'InfixE' and 'InfixP' expressions are never reassociated.
+  * 'InfixE', 'InfixP', and 'InfixT' expressions are never reassociated.
 
   * The 'UInfixE' constructor doesn't support sections. Sections
     such as @(a *)@ have no ambiguity, so 'InfixE' suffices. For longer
@@ -1092,9 +1309,10 @@ reassociate the tree as necessary.
 
     > [| a * b + c |] :: Q Exp
     > [p| a : b : c |] :: Q Pat
+    > [t| T + T |] :: Q Type
 
-    will never contain 'UInfixE', 'UInfixP', 'ParensE', or 'ParensP'
-    constructors.
+    will never contain 'UInfixE', 'UInfixP', 'UInfixT', 'InfixT', 'ParensE',
+    'ParensP', or 'ParensT' constructors.
 
 -}
 
@@ -1116,11 +1334,12 @@ data Lit = CharL Char
          | FloatPrimL Rational
          | DoublePrimL Rational
          | StringPrimL [Word8]  -- ^ A primitive C-style string, type Addr#
+         | CharPrimL Char
     deriving( Show, Eq, Ord, Data, Typeable, Generic )
 
     -- We could add Int, Float, Double etc, as we do in HsLit,
     -- but that could complicate the
-    -- suppposedly-simple TH.Syntax literal type
+    -- supposedly-simple TH.Syntax literal type
 
 -- | Pattern in Haskell given in @{}@
 data Pat
@@ -1200,6 +1419,7 @@ data Exp
   | RecConE Name [FieldExp]            -- ^ @{ T { x = y, z = w } }@
   | RecUpdE Exp [FieldExp]             -- ^ @{ (f x) { z = w } }@
   | StaticE Exp                        -- ^ @{ static e }@
+  | UnboundVarE Name                   -- ^ @{ _x }@ (hole)
   deriving( Show, Eq, Ord, Data, Typeable, Generic )
 
 type FieldExp = (Name,Exp)
@@ -1252,9 +1472,10 @@ data Dec
   -- | pragmas
   | PragmaD Pragma                -- ^ @{ {\-# INLINE [1] foo #-\} }@
 
-  -- | type families (may also appear in [Dec] of 'ClassD' and 'InstanceD')
-  | FamilyD FamFlavour Name
-         [TyVarBndr] (Maybe Kind) -- ^ @{ type family T a b c :: * }@
+  -- | data families (may also appear in [Dec] of 'ClassD' and 'InstanceD')
+  | DataFamilyD Name [TyVarBndr]
+               (Maybe Kind)
+         -- ^ @{ data family T a b c :: * }@
 
   | DataInstD Cxt Name [Type]
          [Con] [Name]             -- ^ @{ data instance Cxt x => T [x] = A x
@@ -1265,9 +1486,17 @@ data Dec
                                   --       deriving (Z,W)}@
   | TySynInstD Name TySynEqn      -- ^ @{ type instance ... }@
 
+  -- | open type families (may also appear in [Dec] of 'ClassD' and 'InstanceD')
+  | OpenTypeFamilyD Name
+         [TyVarBndr] FamilyResultSig
+         (Maybe InjectivityAnn)
+         -- ^ @{ type family T a b c = (r :: *) | r -> a b }@
+
   | ClosedTypeFamilyD Name
-      [TyVarBndr] (Maybe Kind)
-      [TySynEqn]                  -- ^ @{ type family F a b :: * where ... }@
+      [TyVarBndr] FamilyResultSig
+      (Maybe InjectivityAnn)
+      [TySynEqn]
+       -- ^ @{ type family F a b = (r :: *) | r -> a where ... }@
 
   | RoleAnnotD Name [Role]        -- ^ @{ type role T nominal representational }@
   | StandaloneDerivD Cxt Type     -- ^ @{ deriving instance Ord a => Ord (Foo a) }@
@@ -1353,6 +1582,11 @@ data Type = ForallT [TyVarBndr] Cxt Type  -- ^ @forall \<vars\>. \<ctxt\> -> \<t
           | VarT Name                     -- ^ @a@
           | ConT Name                     -- ^ @T@
           | PromotedT Name                -- ^ @'T@
+          | InfixT Type Name Type         -- ^ @T + T@
+          | UInfixT Type Name Type        -- ^ @T + T@
+                                          --
+                                          -- See "Language.Haskell.TH.Syntax#infix"
+          | ParensT Type                  -- ^ @(T)@
 
           -- See Note [Representing concrete syntax in types]
           | TupleT Int                    -- ^ @(,), (,,), etc.@
@@ -1366,11 +1600,22 @@ data Type = ForallT [TyVarBndr] Cxt Type  -- ^ @forall \<vars\>. \<ctxt\> -> \<t
           | StarT                         -- ^ @*@
           | ConstraintT                   -- ^ @Constraint@
           | LitT TyLit                    -- ^ @0,1,2, etc.@
+          | WildCardT (Maybe Name)        -- ^ @_, _a, etc.@
       deriving( Show, Eq, Ord, Data, Typeable, Generic )
 
 data TyVarBndr = PlainTV  Name            -- ^ @a@
                | KindedTV Name Kind       -- ^ @(a :: k)@
       deriving( Show, Eq, Ord, Data, Typeable, Generic )
+
+-- | Type family result signature
+data FamilyResultSig = NoSig              -- ^ no signature
+                     | KindSig  Kind      -- ^ @k@
+                     | TyVarSig TyVarBndr -- ^ @= r, = (r :: k)@
+      deriving( Show, Eq, Ord, Data, Typeable, Generic )
+
+-- | Injectivity annotation
+data InjectivityAnn = InjectivityAnn Name [Name]
+  deriving ( Show, Eq, Ord, Data, Typeable, Generic )
 
 data TyLit = NumTyLit Integer             -- ^ @2@
            | StrTyLit String              -- ^ @"Hello"@

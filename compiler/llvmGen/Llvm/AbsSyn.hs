@@ -48,19 +48,22 @@ data LlvmModule = LlvmModule  {
 -- | An LLVM Function
 data LlvmFunction = LlvmFunction {
     -- | The signature of this declared function.
-    funcDecl  :: LlvmFunctionDecl,
+    funcDecl      :: LlvmFunctionDecl,
 
     -- | The functions arguments
-    funcArgs  :: [LMString],
+    funcArgs      :: [LMString],
 
     -- | The function attributes.
-    funcAttrs :: [LlvmFuncAttr],
+    funcAttrs     :: [LlvmFuncAttr],
 
     -- | The section to put the function into,
-    funcSect  :: LMSection,
+    funcSect      :: LMSection,
+
+    -- | Prefix data
+    funcPrefix    :: Maybe LlvmStatic,
 
     -- | The body of the functions.
-    funcBody  :: LlvmBlocks
+    funcBody      :: LlvmBlocks
   }
 
 type LlvmFunctions = [LlvmFunction]
@@ -82,6 +85,22 @@ data LlvmSyncOrdering
   | SyncAcqRel
   -- | Full sequential Consistency operation.
   | SyncSeqCst
+  deriving (Show, Eq)
+
+-- | LLVM atomic operations. Please see the @atomicrmw@ instruction in
+-- the LLVM documentation for a complete description.
+data LlvmAtomicOp
+  = LAO_Xchg
+  | LAO_Add
+  | LAO_Sub
+  | LAO_And
+  | LAO_Nand
+  | LAO_Or
+  | LAO_Xor
+  | LAO_Max
+  | LAO_Min
+  | LAO_Umax
+  | LAO_Umin
   deriving (Show, Eq)
 
 -- | Llvm Statements
@@ -206,6 +225,14 @@ data LlvmExpression
   | Extract LlvmVar LlvmVar
 
   {- |
+    Extract a scalar element from a structure
+      * val: The structure
+      * idx: The index of the scalar within the structure
+    Corresponds to "extractvalue" instruction.
+  -}
+  | ExtractV LlvmVar Int
+
+  {- |
     Insert a scalar element into a vector
       * val:   The source vector
       * elt:   The scalar to insert
@@ -239,13 +266,35 @@ data LlvmExpression
   | GetElemPtr Bool LlvmVar [LlvmVar]
 
   {- |
-     Cast the variable from to the to type. This is an abstraction of three
-     cast operators in Llvm, inttoptr, prttoint and bitcast.
+    Cast the variable from to the to type. This is an abstraction of three
+    cast operators in Llvm, inttoptr, prttoint and bitcast.
        * cast: Cast type
        * from: Variable to cast
        * to:   type to cast to
   -}
   | Cast LlvmCastOp LlvmVar LlvmType
+
+  {- |
+    Atomic read-modify-write operation
+       * op:       Atomic operation
+       * addr:     Address to modify
+       * operand:  Operand to operation
+       * ordering: Ordering requirement
+  -}
+  | AtomicRMW LlvmAtomicOp LlvmVar LlvmVar LlvmSyncOrdering
+
+  {- |
+    Compare-and-exchange operation
+       * addr:     Address to modify
+       * old:      Expected value
+       * new:      New value
+       * suc_ord:  Ordering required in success case
+       * fail_ord: Ordering required in failure case, can be no stronger than
+                   suc_ord
+
+    Result is an @i1@, true if store was successful.
+  -}
+  | CmpXChg LlvmVar LlvmVar LlvmVar LlvmSyncOrdering LlvmSyncOrdering
 
   {- |
     Call a function. The result is the value of the expression.

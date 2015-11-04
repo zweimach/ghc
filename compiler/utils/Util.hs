@@ -59,7 +59,7 @@ module Util (
         isEqual, eqListBy, eqMaybeBy,
         thenCmp, cmpList,
         removeSpaces,
-        (|||), (&&&),
+        (<&&>), (<||>),
 
         -- * Edit distance
         fuzzyMatch, fuzzyLookup,
@@ -72,6 +72,7 @@ module Util (
 
         -- * Module names
         looksLikeModuleName,
+        looksLikePackageName,
 
         -- * Argument processing
         getCmd, toCmdArgs, toArgs,
@@ -86,6 +87,7 @@ module Util (
         doesDirNameExist,
         getModificationUTCTime,
         modificationTimeIfExists,
+        hSetTranslit,
 
         global, consIORef, globalM,
 
@@ -112,15 +114,19 @@ import Exception
 import Panic
 
 import Data.Data
-import Data.IORef       ( IORef, newIORef, atomicModifyIORef )
+import Data.IORef       ( IORef, newIORef, atomicModifyIORef' )
 import System.IO.Unsafe ( unsafePerformIO )
 import Data.List        hiding (group)
 
-#ifdef DEBUG
-import FastTypes
-#endif
+import GHC.Exts
 
+#if __GLASGOW_HASKELL__ < 709
+import Control.Applicative (Applicative)
+#endif
+import Control.Applicative ( liftA2 )
 import Control.Monad    ( liftM )
+import GHC.IO.Encoding (mkTextEncoding, textEncodingName)
+import System.IO (Handle, hGetEncoding, hSetEncoding)
 import System.IO.Error as IO ( isDoesNotExistError )
 import System.Directory ( doesDirectoryExist, getModificationTime )
 import System.FilePath
@@ -473,22 +479,22 @@ isn'tIn _msg x ys = x `notElem` ys
 
 # else /* DEBUG */
 isIn msg x ys
-  = elem100 (_ILIT(0)) x ys
+  = elem100 0 x ys
   where
-    elem100 _ _ []        = False
+    elem100 :: Eq a => Int -> a -> [a] -> Bool
+    elem100 _ _ [] = False
     elem100 i x (y:ys)
-      | i ># _ILIT(100) = trace ("Over-long elem in " ++ msg)
-                                (x `elem` (y:ys))
-      | otherwise       = x == y || elem100 (i +# _ILIT(1)) x ys
+      | i > 100 = trace ("Over-long elem in " ++ msg) (x `elem` (y:ys))
+      | otherwise = x == y || elem100 (i + 1) x ys
 
 isn'tIn msg x ys
-  = notElem100 (_ILIT(0)) x ys
+  = notElem100 0 x ys
   where
+    notElem100 :: Eq a => Int -> a -> [a] -> Bool
     notElem100 _ _ [] =  True
     notElem100 i x (y:ys)
-      | i ># _ILIT(100) = trace ("Over-long notElem in " ++ msg)
-                                (x `notElem` (y:ys))
-      | otherwise      =  x /= y && notElem100 (i +# _ILIT(1)) x ys
+      | i > 100 = trace ("Over-long notElem in " ++ msg) (x `notElem` (y:ys))
+      | otherwise = x /= y && notElem100 (i + 1) x ys
 # endif /* DEBUG */
 
 {-
@@ -510,9 +516,6 @@ uncurry2 f a (b, c) = f a b c
 *                                                                      *
 ************************************************************************
 -}
-
-sortWith :: Ord b => (a->b) -> [a] -> [a]
-sortWith get_key xs = sortBy (comparing get_key) xs
 
 minWith :: Ord b => (a -> b) -> [a] -> a
 minWith get_key xs = ASSERT( not (null xs) )
@@ -582,6 +585,8 @@ list giving the break-off point:
 -}
 
 takeList :: [b] -> [a] -> [a]
+-- (takeList as bs) trims bs to the be same length
+-- as as, unless as is longer in which case it's a no-op
 takeList [] _ = []
 takeList (_:xs) ls =
    case ls of
@@ -682,15 +687,14 @@ cmpList cmp (a:as) (b:bs)
 removeSpaces :: String -> String
 removeSpaces = dropWhileEndLE isSpace . dropWhile isSpace
 
--- | Higher-order AND
-(&&&) :: (a -> Bool) -> (a -> Bool) -> a -> Bool
-(a &&& b) x = a x && b x
-infixr 3 &&&
+-- Boolean operators lifted to Applicative
+(<&&>) :: Applicative f => f Bool -> f Bool -> f Bool
+(<&&>) = liftA2 (&&)
+infixr 3 <&&> -- same as (&&)
 
--- | Higher-order OR
-(|||) :: (a -> Bool) -> (a -> Bool) -> a -> Bool
-(a ||| b) x = a x || b x
-infixr 2 |||
+(<||>) :: Applicative f => f Bool -> f Bool -> f Bool
+(<||>) = liftA2 (||)
+infixr 2 <||> -- same as (||)
 
 {-
 ************************************************************************
@@ -845,7 +849,7 @@ global a = unsafePerformIO (newIORef a)
 
 consIORef :: IORef [a] -> a -> IO ()
 consIORef var x = do
-  atomicModifyIORef var (\xs -> (x:xs,()))
+  atomicModifyIORef' var (\xs -> (x:xs,()))
 
 globalM :: IO a -> IORef a
 globalM ma = unsafePerformIO (ma >>= newIORef)
@@ -858,6 +862,11 @@ looksLikeModuleName (c:cs) = isUpper c && go cs
   where go [] = True
         go ('.':cs) = looksLikeModuleName cs
         go (c:cs)   = (isAlphaNum c || c == '_' || c == '\'') && go cs
+
+-- Similar to 'parse' for Distribution.Package.PackageName,
+-- but we don't want to depend on Cabal.
+looksLikePackageName :: String -> Bool
+looksLikePackageName = all (all isAlphaNum <&&> not . (all isDigit)) . split '-'
 
 {-
 Akin to @Prelude.words@, but acts like the Bourne shell, treating
@@ -994,6 +1003,19 @@ modificationTimeIfExists f = do
         `catchIO` \e -> if isDoesNotExistError e
                         then return Nothing
                         else ioError e
+
+-- --------------------------------------------------------------
+-- Change the character encoding of the given Handle to transliterate
+-- on unsupported characters instead of throwing an exception
+
+hSetTranslit :: Handle -> IO ()
+hSetTranslit h = do
+    menc <- hGetEncoding h
+    case fmap textEncodingName menc of
+        Just name | '/' `notElem` name -> do
+            enc' <- mkTextEncoding $ name ++ "//TRANSLIT"
+            hSetEncoding h enc'
+        _ -> return ()
 
 -- split a string at the last character where 'pred' is True,
 -- returning a pair of strings. The first component holds the string

@@ -9,9 +9,6 @@
 -- | Functions for collecting together and applying rewrite rules to a module.
 -- The 'CoreRule' datatype itself is declared elsewhere.
 module Rules (
-        -- * RuleBase
-        RuleBase,
-
         -- ** Constructing
         emptyRuleBase, mkRuleBase, extendRuleBaseList,
         unionRuleBase, pprRuleBase,
@@ -19,8 +16,8 @@ module Rules (
         -- ** Checking rule applications
         ruleCheckProgram,
 
-        -- ** Manipulating 'SpecInfo' rules
-        mkSpecInfo, extendSpecInfo, addSpecInfo,
+        -- ** Manipulating 'RuleInfo' rules
+        mkRuleInfo, extendRuleInfo, addRuleInfo,
         addIdSpecialisations,
 
         -- * Misc. CoreRule helpers
@@ -32,24 +29,30 @@ module Rules (
 #include "HsVersions.h"
 
 import CoreSyn          -- All of it
+import Module           ( Module, ModuleSet, elemModuleSet )
 import CoreSubst
 import OccurAnal        ( occurAnalyseExpr )
-import CoreFVs          ( exprFreeVars, exprsFreeVars, bindFreeVars, rulesFreeVars )
+import CoreFVs          ( exprFreeVars, exprsFreeVars, bindFreeVars
+                        , rulesFreeVars, exprsOrphNames )
 import CoreUtils        ( exprType, eqExpr, mkTick, mkTicks,
-                          stripTicksTopT, stripTicksTopE )
+                          stripTicksTopT, stripTicksTopE
+                        , exprToCoercion_maybe )
 import PprCore          ( pprRules )
-import Type             ( Type )
+import Type             ( Type, substTy, mkTCvSubst )
 import TcType           ( tcSplitTyConApp_maybe )
+import TysPrim          ( anyTypeOfKind )
 import Coercion
 import CoreTidy         ( tidyRules )
 import Id
-import IdInfo           ( SpecInfo( SpecInfo ) )
+import IdInfo           ( RuleInfo( RuleInfo ) )
+import Var
 import VarEnv
 import VarSet
-import Name             ( Name, NamedThing(..) )
+import Name             ( Name, NamedThing(..), nameIsLocalOrFrom )
+import NameSet
 import NameEnv
-import Unify            ( ruleMatchTyX, MatchEnv(..) )
-import BasicTypes       ( Activation, CompilerPhase, isActive )
+import Unify            ( ruleMatchTyX )
+import BasicTypes       ( Activation, CompilerPhase, isActive, pprRuleName )
 import StaticFlags      ( opt_PprStyle_Debug )
 import DynFlags         ( DynFlags )
 import Outputable
@@ -162,16 +165,30 @@ might have a specialisation
 where pi' :: Lift Int# is the specialised version of pi.
 -}
 
-mkRule :: Bool -> Bool -> RuleName -> Activation
+mkRule :: Module -> Bool -> Bool -> RuleName -> Activation
        -> Name -> [CoreBndr] -> [CoreExpr] -> CoreExpr -> CoreRule
 -- ^ Used to make 'CoreRule' for an 'Id' defined in the module being
 -- compiled. See also 'CoreSyn.CoreRule'
-mkRule is_auto is_local name act fn bndrs args rhs
+mkRule this_mod is_auto is_local name act fn bndrs args rhs
   = Rule { ru_name = name, ru_fn = fn, ru_act = act,
            ru_bndrs = bndrs, ru_args = args,
            ru_rhs = occurAnalyseExpr rhs,
            ru_rough = roughTopNames args,
+           ru_origin = this_mod,
+           ru_orphan = orph,
            ru_auto = is_auto, ru_local = is_local }
+  where
+        -- Compute orphanhood.  See Note [Orphans] in InstEnv
+        -- A rule is an orphan only if none of the variables
+        -- mentioned on its left-hand side are locally defined
+    lhs_names = nameSetElems (extendNameSet (exprsOrphNames args) fn)
+
+        -- Since rules get eventually attached to one of the free names
+        -- from the definition when compiling the ABI hash, we should make
+        -- it deterministic. This chooses the one with minimal OccName
+        -- as opposed to uniq value.
+    local_lhs_names = filter (nameIsLocalOrFrom this_mod) lhs_names
+    orph = chooseOrphanAnchor local_lhs_names
 
 --------------
 roughTopNames :: [CoreExpr] -> [Maybe Name]
@@ -252,41 +269,46 @@ pprRulesForUser rules
 {-
 ************************************************************************
 *                                                                      *
-                SpecInfo: the rules in an IdInfo
+                RuleInfo: the rules in an IdInfo
 *                                                                      *
 ************************************************************************
 -}
 
--- | Make a 'SpecInfo' containing a number of 'CoreRule's, suitable
+-- | Make a 'RuleInfo' containing a number of 'CoreRule's, suitable
 -- for putting into an 'IdInfo'
-mkSpecInfo :: [CoreRule] -> SpecInfo
-mkSpecInfo rules = SpecInfo rules (rulesFreeVars rules)
+mkRuleInfo :: [CoreRule] -> RuleInfo
+mkRuleInfo rules = RuleInfo rules (rulesFreeVars rules)
 
-extendSpecInfo :: SpecInfo -> [CoreRule] -> SpecInfo
-extendSpecInfo (SpecInfo rs1 fvs1) rs2
-  = SpecInfo (rs2 ++ rs1) (rulesFreeVars rs2 `unionVarSet` fvs1)
+extendRuleInfo :: RuleInfo -> [CoreRule] -> RuleInfo
+extendRuleInfo (RuleInfo rs1 fvs1) rs2
+  = RuleInfo (rs2 ++ rs1) (rulesFreeVars rs2 `unionVarSet` fvs1)
 
-addSpecInfo :: SpecInfo -> SpecInfo -> SpecInfo
-addSpecInfo (SpecInfo rs1 fvs1) (SpecInfo rs2 fvs2)
-  = SpecInfo (rs1 ++ rs2) (fvs1 `unionVarSet` fvs2)
+addRuleInfo :: RuleInfo -> RuleInfo -> RuleInfo
+addRuleInfo (RuleInfo rs1 fvs1) (RuleInfo rs2 fvs2)
+  = RuleInfo (rs1 ++ rs2) (fvs1 `unionVarSet` fvs2)
 
 addIdSpecialisations :: Id -> [CoreRule] -> Id
 addIdSpecialisations id []
   = id
 addIdSpecialisations id rules
   = setIdSpecialisation id $
-    extendSpecInfo (idSpecialisation id) rules
+    extendRuleInfo (idSpecialisation id) rules
 
 -- | Gather all the rules for locally bound identifiers from the supplied bindings
 rulesOfBinds :: [CoreBind] -> [CoreRule]
 rulesOfBinds binds = concatMap (concatMap idCoreRules . bindersOf) binds
 
-getRules :: RuleBase -> Id -> [CoreRule]
+getRules :: RuleEnv -> Id -> [CoreRule]
 -- See Note [Where rules are found]
-getRules rule_base fn
-  = idCoreRules fn ++ imp_rules
+getRules (RuleEnv { re_base = rule_base, re_visible_orphs = orphs }) fn
+  = idCoreRules fn ++ filter (ruleIsVisible orphs) imp_rules
   where
     imp_rules = lookupNameEnv rule_base (idName fn) `orElse` []
+
+ruleIsVisible :: ModuleSet -> CoreRule -> Bool
+ruleIsVisible _ BuiltinRule{} = True
+ruleIsVisible vis_orphs Rule { ru_orphan = orph, ru_origin = origin }
+    = notOrphan orph || origin `elemModuleSet` vis_orphs
 
 {-
 Note [Where rules are found]
@@ -316,10 +338,7 @@ but that isn't quite right:
 ************************************************************************
 -}
 
--- | Gathers a collection of 'CoreRule's. Maps (the name of) an 'Id' to its rules
-type RuleBase = NameEnv [CoreRule]
-        -- The rules are are unordered;
-        -- we sort out any overlaps on lookup
+-- RuleBase itself is defined in CoreSyn, along with CoreRule
 
 emptyRuleBase :: RuleBase
 emptyRuleBase = emptyNameEnv
@@ -426,8 +445,8 @@ isMoreSpecific :: CoreRule -> CoreRule -> Bool
 isMoreSpecific (BuiltinRule {}) _                = False
 isMoreSpecific (Rule {})        (BuiltinRule {}) = True
 isMoreSpecific (Rule { ru_bndrs = bndrs1, ru_args = args1 })
-               (Rule { ru_bndrs = bndrs2, ru_args = args2 })
-  = isJust (matchN (in_scope, id_unfolding_fun) bndrs2 args2 args1)
+               (Rule { ru_bndrs = bndrs2, ru_args = args2, ru_name = rule_name2 })
+  = isJust (matchN (in_scope, id_unfolding_fun) rule_name2 bndrs2 args2 args1)
   where
    id_unfolding_fun _ = NoUnfolding     -- Don't expand in templates
    in_scope = mkInScopeSet (mkVarSet bndrs1)
@@ -464,7 +483,7 @@ matchRule :: DynFlags -> InScopeEnv -> (Activation -> Bool)
 -- then (f args) matches the rule, and the corresponding
 -- rewritten RHS is rhs
 --
--- The bndrs and rhs is occurrence-analysed
+-- The returned expression is occurrence-analysed
 --
 --      Example
 --
@@ -486,17 +505,17 @@ matchRule dflags rule_env _is_active fn args _rough_args
           (BuiltinRule { ru_try = match_fn })
 -- Built-in rules can't be switched off, it seems
   = case match_fn dflags rule_env fn args of
-        Just expr -> Just expr
         Nothing   -> Nothing
+        Just expr -> Just (occurAnalyseExpr expr)
+        -- We could do this when putting things into the rulebase, I guess
 
 matchRule _ in_scope is_active _ args rough_args
-          (Rule { ru_act = act, ru_rough = tpl_tops
-                , ru_bndrs = tpl_vars, ru_args = tpl_args
-                , ru_rhs = rhs })
+          (Rule { ru_name = rule_name, ru_act = act, ru_rough = tpl_tops
+                , ru_bndrs = tpl_vars, ru_args = tpl_args, ru_rhs = rhs })
   | not (is_active act)               = Nothing
   | ruleCantMatch tpl_tops rough_args = Nothing
   | otherwise
-  = case matchN in_scope tpl_vars tpl_args args of
+  = case matchN in_scope rule_name tpl_vars tpl_args args of
         Nothing                        -> Nothing
         Just (bind_wrapper, tpl_vals) -> Just (bind_wrapper $
                                                rule_fn `mkApps` tpl_vals)
@@ -506,8 +525,7 @@ matchRule _ in_scope is_active _ args rough_args
 
 ---------------------------------------
 matchN  :: InScopeEnv
-        -> [Var]                -- ^ Match template type variables
-        -> [CoreExpr]           -- ^ Match template
+        -> RuleName -> [Var] -> [CoreExpr]
         -> [CoreExpr]           -- ^ Target; can have more elements than the template
         -> Maybe (BindWrapper,  -- Floated bindings; see Note [Matching lets]
                   [CoreExpr])
@@ -515,15 +533,15 @@ matchN  :: InScopeEnv
 -- the entire result and what should be substituted for each template variable.
 -- Fail if there are two few actual arguments from the target to match the template
 
-matchN (in_scope, id_unf) tmpl_vars tmpl_es target_es
+matchN (in_scope, id_unf) rule_name tmpl_vars tmpl_es target_es
   = do  { subst <- go init_menv emptyRuleSubst tmpl_es target_es
-        ; return (rs_binds subst,
-                  map (lookup_tmpl subst) tmpl_vars') }
+        ; let (_, matched_es) = mapAccumL lookup_tmpl subst tmpl_vars
+        ; return (rs_binds subst, matched_es) }
   where
-    (init_rn_env, tmpl_vars') = mapAccumL rnBndrL (mkRnEnv2 in_scope) tmpl_vars
-        -- See Note [Template binders]
+    init_rn_env = mkRnEnv2 (extendInScopeSetList in_scope tmpl_vars)
+                  -- See Note [Template binders]
 
-    init_menv = RV { rv_tmpls = mkVarSet tmpl_vars', rv_lcl = init_rn_env
+    init_menv = RV { rv_tmpls = mkVarSet tmpl_vars, rv_lcl = init_rn_env
                    , rv_fltR = mkEmptySubst (rnInScopeSet init_rn_env)
                    , rv_unf = id_unf }
 
@@ -532,46 +550,92 @@ matchN (in_scope, id_unf) tmpl_vars tmpl_es target_es
     go menv subst (t:ts) (e:es) = do { subst1 <- match menv subst t e
                                      ; go menv subst1 ts es }
 
-    lookup_tmpl :: RuleSubst -> Var -> CoreExpr
-    lookup_tmpl (RS { rs_tv_subst = tv_subst, rs_id_subst = id_subst }) tmpl_var'
-        | isId tmpl_var' = case lookupVarEnv id_subst tmpl_var' of
-                             Just e -> e
-                             _      -> unbound tmpl_var'
-        | otherwise      = case lookupVarEnv tv_subst tmpl_var' of
-                             Just ty -> Type ty
-                             Nothing -> unbound tmpl_var'
+    lookup_tmpl :: RuleSubst -> Var -> (RuleSubst, CoreExpr)
+    lookup_tmpl rs@(RS { rs_tv_subst = tv_subst, rs_id_subst = id_subst }) tmpl_var
+        | isId tmpl_var
+        = case lookupVarEnv id_subst tmpl_var of
+             Just e -> (rs, e)
+             _      -> unbound tmpl_var
+        | otherwise
+        = case lookupVarEnv tv_subst tmpl_var of
+             Just ty -> (rs, Type ty)
+             Nothing -> (rs { rs_tv_subst = extendVarEnv tv_subst tmpl_var fake_ty }, Type fake_ty)
+             -- See Note [Unbound template type variables]
+        where
+          fake_ty = anyTypeOfKind kind
+          cv_subst = to_co_env id_subst
+          kind = Type.substTy (mkTCvSubst in_scope (tv_subst, cv_subst))
+                              (tyVarKind tmpl_var)
 
-    unbound var = pprPanic "Template variable unbound in rewrite rule"
-                        (ppr var $$ ppr tmpl_vars $$ ppr tmpl_vars' $$ ppr tmpl_es $$ ppr target_es)
+          to_co_env env = foldVarEnv_Directly to_co emptyVarEnv env
+          to_co uniq expr env
+            | Just co <- exprToCoercion_maybe expr
+            = extendVarEnv_Directly env uniq co
 
-{-
+            | otherwise
+            = env
+
+    unbound var = pprPanic "Template variable unbound in rewrite rule" $
+                  vcat [ ptext (sLit "Variable:") <+> ppr var
+                       , ptext (sLit "Rule") <+> pprRuleName rule_name
+                       , ptext (sLit "Rule bndrs:") <+> ppr tmpl_vars
+                       , ptext (sLit "LHS args:") <+> ppr tmpl_es
+                       , ptext (sLit "Actual args:") <+> ppr target_es ]
+
+{- Note [Unbound template type variables]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Type synonyms with phantom args can give rise to unbound template type
+variables.  Consider this (Trac #10689, simplCore/should_compile/T10689):
+
+    type Foo a b = b
+
+    f :: Eq a => a -> Bool
+    f x = x==x
+
+    {-# RULES "foo" forall (x :: Foo a Char). f x = True #-}
+    finkle = f 'c'
+
+The rule looks like
+   foall (a::*) (d::Eq Char) (x :: Foo a Char).
+         f (Foo a Char) d x = True
+
+Matching the rule won't bind 'a', and legitimately so.  We fudge by
+pretending that 'a' is bound to (Any :: *).
+
 Note [Template binders]
 ~~~~~~~~~~~~~~~~~~~~~~~
-Consider the following match:
+Consider the following match (example 1):
         Template:  forall x.  f x
-        Target:     f (x+1)
-This should succeed, because the template variable 'x' has
-nothing to do with the 'x' in the target.
+        Target:               f (x+1)
+This should succeed, because the template variable 'x' has nothing to
+do with the 'x' in the target.
 
-On reflection, this case probably does just work, but this might not
+Likewise this one (example 2):
         Template:  forall x. f (\x.x)
-        Target:    f (\y.y)
-Here we want to clone when we find the \x, but to know that x must be in scope
+        Target:              f (\y.y)
 
-To achive this, we use rnBndrL to rename the template variables if
-necessary; the renamed ones are the tmpl_vars'
+We achieve this simply by:
+  * Adding forall'd template binders to the in-scope set
+
+This works even if the template binder are already in scope
+(in the target) because
+
+  * The RuleSubst rs_tv_subst, rs_id_subst maps LHS template vars to
+    the target world.  It is not applied recursively.
+
+  * Having the template vars in the in-scope set ensures that in
+    example 2 above, the (\x.x) is cloned to (\x'. x').
+
+In the past we used rnBndrL to clone the template variables if
+they were already in scope.  But (a) that's not necessary and (b)
+it complicate the fancy footwork for Note [Unbound template type variables]
 
 
 ************************************************************************
 *                                                                      *
                    The main matcher
 *                                                                      *
-************************************************************************
-
-        ---------------------------------------------
-                The inner workings of matching
-        ---------------------------------------------
--}
+********************************************************************* -}
 
 -- * The domain of the TvSubstEnv and IdSubstEnv are the template
 --   variables passed into the match.
@@ -593,8 +657,7 @@ rvInScopeEnv :: RuleMatchEnv -> InScopeEnv
 rvInScopeEnv renv = (rnInScopeSet (rv_lcl renv), rv_unf renv)
 
 data RuleSubst = RS { rs_tv_subst :: TvSubstEnv   -- Range is the
-                    , rs_cv_subst :: CvSubstEnv   --   template variables
-                    , rs_id_subst :: IdSubstEnv
+                    , rs_id_subst :: IdSubstEnv   --   template variables
                     , rs_binds    :: BindWrapper  -- Floated bindings
                     , rs_bndrs    :: VarSet       -- Variables bound by floated lets
                     }
@@ -604,8 +667,7 @@ type BindWrapper = CoreExpr -> CoreExpr
   -- we represent the floated bindings as a core-to-core function
 
 emptyRuleSubst :: RuleSubst
-emptyRuleSubst = RS { rs_tv_subst = emptyVarEnv, rs_cv_subst = emptyVarEnv
-                    , rs_id_subst = emptyVarEnv
+emptyRuleSubst = RS { rs_tv_subst = emptyVarEnv, rs_id_subst = emptyVarEnv
                     , rs_binds = \e -> e, rs_bndrs = emptyVarSet }
 
 --      At one stage I tried to match even if there are more
@@ -746,9 +808,13 @@ match_co renv subst co1 co2
         |  tc1 == tc2
         -> match_cos renv subst cos1 cos2
       _ -> Nothing
-match_co _ _ co1 co2
-  = pprTrace "match_co: needs more cases" (ppr co1 $$ ppr co2) Nothing
+match_co _ _ _co1 _co2
     -- Currently just deals with CoVarCo, TyConAppCo and Refl
+#ifdef DEBUG
+  = pprTrace "match_co: needs more cases" (ppr _co1 $$ ppr _co2) Nothing
+#else
+  = Nothing
+#endif
 
 match_cos :: RuleMatchEnv
          -> RuleSubst
@@ -760,7 +826,7 @@ match_cos renv subst (co1:cos1) (co2:cos2) =
      ; match_cos renv subst' cos1 cos2 }
 match_cos _ subst [] [] = Just subst
 match_cos _ _ cos1 cos2 = pprTrace "match_cos: not same length" (ppr cos1 $$ ppr cos2) Nothing
-         
+
 -------------
 rnMatchBndr2 :: RuleMatchEnv -> RuleSubst -> Var -> Var -> RuleMatchEnv
 rnMatchBndr2 renv subst x1 x2
@@ -880,13 +946,11 @@ match_ty :: RuleMatchEnv
 -- We only want to replace (f T) with f', not (f Int).
 
 match_ty renv subst ty1 ty2
-  = do  { (tv_subst', cv_subst')
-            <- Unify.ruleMatchTyX menv tv_subst cv_subst ty1 ty2
-        ; return (subst { rs_tv_subst = tv_subst', rs_cv_subst = cv_subst' }) }
+  = do  { tv_subst'
+            <- Unify.ruleMatchTyX (rv_tmpls renv) (rv_lcl renv) tv_subst ty1 ty2
+        ; return (subst { rs_tv_subst = tv_subst' }) }
   where
     tv_subst = rs_tv_subst subst
-    cv_subst = rs_cv_subst subst
-    menv = ME { me_tmpls = rv_tmpls renv, me_env = rv_lcl renv }
 
 {-
 Note [Expanding variables]
@@ -1050,7 +1114,7 @@ is so important.
 -- string for the purposes of error reporting
 ruleCheckProgram :: CompilerPhase               -- ^ Rule activation test
                  -> String                      -- ^ Rule pattern
-                 -> RuleBase                    -- ^ Database of rules
+                 -> RuleEnv                     -- ^ Database of rules
                  -> CoreProgram                 -- ^ Bindings to check in
                  -> SDoc                        -- ^ Resulting check message
 ruleCheckProgram phase rule_pat rule_base binds
@@ -1074,7 +1138,7 @@ data RuleCheckEnv = RuleCheckEnv {
     rc_is_active :: Activation -> Bool,
     rc_id_unf  :: IdUnfoldingFun,
     rc_pattern :: String,
-    rc_rule_base :: RuleBase
+    rc_rule_base :: RuleEnv
 }
 
 ruleCheckBind :: RuleCheckEnv -> CoreBind -> Bag SDoc

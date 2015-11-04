@@ -24,7 +24,6 @@ $(call profStart, build-perl($1,$2))
 # $1 = dir
 # $2 = distdir
 
-ifneq "$$(CLEANING)" "YES"
 ifeq "$$($1_$2_PROGNAME)" ""
 $$(error $1_$2_PROGNAME is not set)
 endif
@@ -41,7 +40,6 @@ $$($1_$2_PROG)_INPLACE = $$(INPLACE_TOPDIR)/$$($1_$2_PROG)
 else
 $$($1_$2_PROG)_INPLACE = $$(INPLACE_BIN)/$$($1_$2_PROG)
 endif
-endif
 
 $1_$2_INPLACE = $$($$($1_$2_PROG)_INPLACE)
 
@@ -51,8 +49,6 @@ $(call clean-target,$1,$2,$1/$2 $$($1_$2_INPLACE))
 .PHONY: clean_$1
 clean_$1 : clean_$1_$2
 
-# INPLACE_BIN etc. might be empty if we're cleaning
-ifeq "$(findstring clean,$(MAKECMDGOALS))" ""
 ifneq "$$(BINDIST)" "YES"
 $1/$2/$$($1_$2_PROG).prl: $1/$$($1_PERL_SRC) $$$$(unlit_INPLACE) | $$$$(dir $$$$@)/.
 	"$$(unlit_INPLACE)" $$(UNLIT_OPTS) $$< $$@
@@ -67,15 +63,16 @@ $1/$2/$$($1_$2_PROG): $1/$2/$$($1_$2_PROG).prl
 $$($1_$2_INPLACE): $1/$2/$$($1_$2_PROG) | $$$$(dir $$$$@)/.
 	"$$(CP)" $$< $$@
 	$$(EXECUTABLE_FILE) $$@
-
-endif
 endif
 
 ifeq "$$($1_$2_INSTALL)" "YES"
+# Don't add to INSTALL_BINS or INSTAL_TOPDIR_BINS, because they will get
+# stripped when calling 'make install-strip', and stripping a Perl script
+# doesn't work.
 ifeq "$$($1_$2_TOPDIR)" "YES"
-INSTALL_TOPDIRS  += $$($1_$2_INPLACE)
+INSTALL_TOPDIR_SCRIPTS += $$($1_$2_INPLACE)
 else
-INSTALL_BINS     += $$($1_$2_INPLACE)
+INSTALL_SCRIPTS += $$($1_$2_INPLACE)
 endif
 endif
 

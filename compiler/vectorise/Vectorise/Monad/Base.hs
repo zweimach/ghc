@@ -51,7 +51,7 @@ newtype VM a
   = VM { runVM :: Builtins -> GlobalEnv -> LocalEnv -> DsM (VResult a) }
 
 instance Monad VM where
-  return x   = VM $ \_  genv lenv -> return (Yes genv lenv x)
+  return = pure
   VM p >>= f = VM $ \bi genv lenv -> do
                                        r <- p bi genv lenv
                                        case r of
@@ -59,7 +59,7 @@ instance Monad VM where
                                          No reason         -> return $ No reason
 
 instance Applicative VM where
-  pure  = return
+  pure x = VM $ \_ genv lenv -> return (Yes genv lenv x)
   (<*>) = ap
 
 instance Functor VM where
@@ -117,7 +117,7 @@ emitVt :: String -> SDoc -> VM ()
 emitVt herald doc
   = liftDs $ do
       dflags <- getDynFlags
-      liftIO . printInfoForUser dflags alwaysQualify $
+      liftIO . printOutputForUser dflags alwaysQualify $
         hang (text herald) 2 doc
 
 -- |Output a trace message if -ddump-vt-trace is active.
@@ -144,7 +144,7 @@ dumpVt :: String -> SDoc -> VM ()
 dumpVt header doc
   = do { unqual <- liftDs mkPrintUnqualifiedDs
        ; dflags <- liftDs getDynFlags
-       ; liftIO $ printInfoForUser dflags unqual (mkDumpDoc header doc)
+       ; liftIO $ printOutputForUser dflags unqual (mkDumpDoc header doc)
        }
 
 

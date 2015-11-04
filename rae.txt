@@ -1,5 +1,16 @@
 stack:
 
+
+- figure out UndecidableInstances problem. See TODO in TcValdidity.
+  Possibly: if sizeTypes are equal, then check sizeTypes without *, or without
+            invisibles. This should provide a lexicographical ordering that's
+	    still well-founded.
+
+- remove the eraseType stuff.
+- fix matching to match coercions that are applied
+- I think we can ditch the coherence coercion produced by unification.
+  But check.
+
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work
 
@@ -11,6 +22,11 @@ stack:
 fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
 fix parser; then fix TypeLits.Mult --> *
+
+TICKETS:
+#9017:
+#9173: mention expression in error
+#7961: main ticket.
 
 QUESTIONS:
 - Check decideQuantification!
@@ -51,6 +67,14 @@ result ty, or (3) do something else. I want SPJ's input, as both (1)
 and (2) are terrible.
 
 fix:
+  - Refactor noThing
+
+  - pattern synonyms
+
+  - consider changing tcs_unified back to be a count instead of a varset
+
+  - I think simplifyRule can be simplified once we fix covars.
+
   - break out NthCo into ForAllKindCo
   - change optCoercion to take a Role hint (or perhaps a Maybe Role)
 
@@ -368,9 +392,6 @@ Notes:
    But I'm not *very* happy with it.
    NEW PLAN: Just rewrite the solver in terms of unlifted equality.
 
-BUGS:
-#9017:
-#9173: mention expression in error
 
 ----------------------------------------
 Stuff for implementing Π:

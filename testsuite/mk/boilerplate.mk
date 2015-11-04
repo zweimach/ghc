@@ -1,3 +1,10 @@
+# Eliminate use of the built-in implicit rules, and clear out the default list
+# of suffixes for suffix rules. Speeds up make quite a bit. Both are needed
+# for the shortest `make -d` output.
+# Don't set --no-builtin-variables; some rules might stop working if you do
+# (e.g. 'make clean' in testsuite/ currently relies on an implicit $RM).
+MAKEFLAGS += --no-builtin-rules
+.SUFFIXES:
 
 default: all
 
@@ -43,6 +50,7 @@ STAGE3_GHC := $(abspath $(TOP)/../inplace/bin/ghc-stage3)
 
 ifneq "$(wildcard $(STAGE1_GHC) $(STAGE1_GHC).exe)" ""
 
+IMPLICIT_COMPILER = NO
 IN_TREE_COMPILER = YES
 ifeq "$(BINDIST)" "YES"
 TEST_HC := $(abspath $(TOP)/../)/bindisttest/install   dir/bin/ghc
@@ -56,11 +64,17 @@ TEST_HC := $(STAGE2_GHC)
 endif
 
 else
+IMPLICIT_COMPILER = YES
 IN_TREE_COMPILER = NO
 TEST_HC := $(shell which ghc)
 endif
 
 else
+ifeq "$(TEST_HC)" "ghc"
+IMPLICIT_COMPILER = YES
+else
+IMPLICIT_COMPILER = NO
+endif
 IN_TREE_COMPILER = NO
 # We want to support both "ghc" and "/usr/bin/ghc" as values of TEST_HC
 # passed in by the user, but
@@ -87,24 +101,34 @@ endif
 # containing spaces
 BIN_ROOT = $(shell dirname '$(TEST_HC)')
 
+ifeq "$(IMPLICIT_COMPILER)" "YES"
+find_tool = $(shell which $(1))
+else
+find_tool = $(BIN_ROOT)/$(1)
+endif
+
 ifeq "$(GHC_PKG)" ""
-GHC_PKG := $(BIN_ROOT)/ghc-pkg
+GHC_PKG := $(call find_tool,ghc-pkg)
 endif
 
 ifeq "$(RUNGHC)" ""
-RUNGHC := $(BIN_ROOT)/runghc
+RUNGHC := $(call find_tool,runghc)
+endif
+
+ifeq "$(HADDOCK)" ""
+HADDOCK := $(call find_tool,haddock)
 endif
 
 ifeq "$(HSC2HS)" ""
-HSC2HS := $(BIN_ROOT)/hsc2hs
+HSC2HS := $(call find_tool,hsc2hs)
 endif
 
 ifeq "$(HP2PS_ABS)" ""
-HP2PS_ABS := $(BIN_ROOT)/hp2ps
+HP2PS_ABS := $(call find_tool,hp2ps)
 endif
 
 ifeq "$(HPC)" ""
-HPC := $(BIN_ROOT)/hpc
+HPC := $(call find_tool,hpc)
 endif
 
 $(eval $(call canonicaliseExecutable,TEST_HC))
@@ -115,6 +139,12 @@ endif
 $(eval $(call canonicaliseExecutable,GHC_PKG))
 ifeq "$(shell test -x '$(GHC_PKG)' && echo exists)" ""
 $(error Cannot find ghc-pkg: $(GHC_PKG))
+endif
+
+$(eval $(call canonicaliseExecutable,HADDOCK))
+ifeq "$(shell test -x '$(HADDOCK)' && echo exists)" ""
+# haddock is optional. Use 'override' to override canonicalise's override...
+override HADDOCK :=
 endif
 
 $(eval $(call canonicaliseExecutable,HSC2HS))
@@ -164,6 +194,7 @@ $(ghc-config-mk) : $(TOP)/mk/ghc-config
 	$(TOP)/mk/ghc-config "$(TEST_HC)" >"$@"; if [ $$? != 0 ]; then $(RM) "$@"; exit 1; fi
 # If the ghc-config fails, remove $@, and fail
 
+# Note: $(CLEANING) is not defined in the testsuite.
 ifeq "$(findstring clean,$(MAKECMDGOALS))" ""
 include $(ghc-config-mk)
 endif

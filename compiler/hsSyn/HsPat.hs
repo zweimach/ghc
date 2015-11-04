@@ -12,13 +12,18 @@
 {-# LANGUAGE UndecidableInstances #-} -- Note [Pass sensitive types]
                                       -- in module PlaceHolder
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module HsPat (
         Pat(..), InPat, OutPat, LPat,
 
         HsConDetails(..),
         HsConPatDetails, hsConPatArgs,
-        HsRecFields(..), HsRecField(..), LHsRecField, hsRecFields,
+        HsRecFields(..), HsRecField'(..), LHsRecField',
+        HsRecField, LHsRecField,
+        HsRecUpdField, LHsRecUpdField,
+        hsRecFields, hsRecFieldSel, hsRecFieldId,
+        hsRecUpdFieldId, hsRecUpdFieldOcc, hsRecUpdFieldRdr,
 
         mkPrefixConPat, mkCharLitPat, mkNilPat,
 
@@ -29,12 +34,12 @@ module HsPat (
         pprParendLPat, pprConArgs
     ) where
 
-import {-# SOURCE #-} HsExpr            (SyntaxExpr, LHsExpr, HsSplice, pprLExpr, pprUntypedSplice)
+import {-# SOURCE #-} HsExpr            (SyntaxExpr, LHsExpr, HsSplice, pprLExpr, pprSplice)
 
 -- friends:
 import HsBinds
 import HsLit
-import PlaceHolder ( PostTc,DataId )
+import PlaceHolder -- ( PostRn,PostTc,DataId )
 import HsTypes
 import TcEvidence
 import BasicTypes
@@ -42,6 +47,7 @@ import BasicTypes
 import PprCore          ( {- instance OutputableBndr TyVar -} )
 import TysWiredIn
 import Var
+import RdrName ( RdrName )
 import ConLike
 import DataCon
 import TyCon
@@ -49,9 +55,9 @@ import Outputable
 import Type
 import SrcLoc
 import FastString
+import Maybes
 -- libraries:
 import Data.Data hiding (TyCon,Fixity)
-import Data.Maybe
 
 type InPat id  = LPat id        -- No 'Out' constructors
 type OutPat id = LPat id        -- No 'In' constructors
@@ -59,6 +65,8 @@ type OutPat id = LPat id        -- No 'In' constructors
 type LPat id = Located (Pat id)
 
 -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnBang'
+
+-- For details on above see note [Api annotations] in ApiAnnotation
 data Pat id
   =     ------------ Simple patterns ---------------
     WildPat     (PostTc id Type)        -- Wild card
@@ -67,10 +75,25 @@ data Pat id
 
   | VarPat      id                      -- Variable
   | LazyPat     (LPat id)               -- Lazy pattern
+    -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnTilde'
+
+    -- For details on above see note [Api annotations] in ApiAnnotation
+
   | AsPat       (Located id) (LPat id)  -- As pattern
+    -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnAt'
+
+    -- For details on above see note [Api annotations] in ApiAnnotation
+
   | ParPat      (LPat id)               -- Parenthesised pattern
                                         -- See Note [Parens in HsSyn] in HsExpr
+    -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'('@,
+    --                                    'ApiAnnotation.AnnClose' @')'@
+
+    -- For details on above see note [Api annotations] in ApiAnnotation
   | BangPat     (LPat id)               -- Bang pattern
+    -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnBang'
+
+    -- For details on above see note [Api annotations] in ApiAnnotation
 
         ------------ Lists, tuples, arrays ---------------
   | ListPat     [LPat id]                            -- Syntactic list
@@ -79,6 +102,10 @@ data Pat id
                    -- For OverloadedLists a Just (ty,fn) gives
                    -- overall type of the pattern, and the toList
                    -- function to convert the scrutinee to a list value
+    -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'['@,
+    --                                    'ApiAnnotation.AnnClose' @']'@
+
+    -- For details on above see note [Api annotations] in ApiAnnotation
 
   | TuplePat    [LPat id]        -- Tuple sub-patterns
                 Boxity           -- UnitPat is TuplePat []
@@ -99,17 +126,24 @@ data Pat id
         -- of the tuple is of type 'a' not Int.  See selectMatchVar
         -- (June 14: I'm not sure this comment is right; the sub-patterns
         --           will be wrapped in CoPats, no?)
+    -- ^ - 'ApiAnnotation.AnnKeywordId' :
+    --            'ApiAnnotation.AnnOpen' @'('@ or @'(#'@,
+    --            'ApiAnnotation.AnnClose' @')'@ or  @'#)'@
 
+    -- For details on above see note [Api annotations] in ApiAnnotation
   | PArrPat     [LPat id]               -- Syntactic parallel array
                 (PostTc id Type)        -- The type of the elements
+    -- ^ - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'[:'@,
+    --                                    'ApiAnnotation.AnnClose' @':]'@
 
+    -- For details on above see note [Api annotations] in ApiAnnotation
         ------------ Constructor patterns ---------------
   | ConPatIn    (Located id)
                 (HsConPatDetails id)
 
   | ConPatOut {
         pat_con     :: Located ConLike,
-        pat_arg_tys :: [Type],          -- The univeral arg types, 1-1 with the universal
+        pat_arg_tys :: [Type],          -- The universal arg types, 1-1 with the universal
                                         -- tyvars of the constructor/pattern synonym
                                         --   Use (conLikeResTy pat_con pat_arg_tys) to get
                                         --   the type of the pattern
@@ -125,6 +159,9 @@ data Pat id
     }
 
         ------------ View patterns ---------------
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnRarrow'
+
+  -- For details on above see note [Api annotations] in ApiAnnotation
   | ViewPat       (LHsExpr id)
                   (LPat id)
                   (PostTc id Type)  -- The overall type of the pattern
@@ -132,11 +169,11 @@ data Pat id
                                     -- for hsPatType.
 
         ------------ Pattern splices ---------------
-  | SplicePat       (HsSplice id)
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnOpen' @'$('@
+  --        'ApiAnnotation.AnnClose' @')'@
 
-        ------------ Quasiquoted patterns ---------------
-        -- See Note [Quasi-quote overview] in TcSplice
-  | QuasiQuotePat   (HsQuasiQuote id)
+  -- For details on above see note [Api annotations] in ApiAnnotation
+  | SplicePat       (HsSplice id)   -- Includes quasi-quotes
 
         ------------ Literal and n+k patterns ---------------
   | LitPat          HsLit               -- Used for *non-overloaded* literal patterns:
@@ -144,17 +181,23 @@ data Pat id
 
   | NPat                -- Used for all overloaded literals,
                         -- including overloaded strings with -XOverloadedStrings
-                    (HsOverLit id)              -- ALWAYS positive
+                    (Located (HsOverLit id))    -- ALWAYS positive
                     (Maybe (SyntaxExpr id))     -- Just (Name of 'negate') for negative
                                                 -- patterns, Nothing otherwise
                     (SyntaxExpr id)             -- Equality checker, of type t->t->Bool
 
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnVal' @'+'@
+
+  -- For details on above see note [Api annotations] in ApiAnnotation
   | NPlusKPat       (Located id)        -- n+k pattern
-                    (HsOverLit id)      -- It'll always be an HsIntegral
+                    (Located (HsOverLit id)) -- It'll always be an HsIntegral
                     (SyntaxExpr id)     -- (>=) function, of type t->t->Bool
                     (SyntaxExpr id)     -- Name of '-' (see RnEnv.lookupSyntaxName)
 
         ------------ Pattern type signatures ---------------
+  -- | - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnDcolon'
+
+  -- For details on above see note [Api annotations] in ApiAnnotation
   | SigPatIn        (LPat id)                  -- Pattern with a type signature
                     (HsWithBndrs id (LHsType id)) -- Signature can bind both
                                                   -- kind and type vars
@@ -203,7 +246,8 @@ data HsRecFields id arg         -- A bunch of record fields
         -- Used for both expressions and patterns
   = HsRecFields { rec_flds   :: [LHsRecField id arg],
                   rec_dotdot :: Maybe Int }  -- Note [DotDot fields]
-  deriving (Data, Typeable)
+  deriving (Typeable)
+deriving instance (DataId id, Data arg) => Data (HsRecFields id arg)
 
 -- Note [DotDot fields]
 -- ~~~~~~~~~~~~~~~~~~~~
@@ -219,13 +263,22 @@ data HsRecFields id arg         -- A bunch of record fields
 --                     the first 'n' being the user-written ones
 --                     and the remainder being 'filled in' implicitly
 
-type LHsRecField id arg = Located (HsRecField id arg)
+type LHsRecField' id arg = Located (HsRecField' id arg)
+type LHsRecField  id arg = Located (HsRecField  id arg)
+type LHsRecUpdField id   = Located (HsRecUpdField id)
+
+type HsRecField    id arg = HsRecField' (FieldOcc id) arg
+type HsRecUpdField id     = HsRecField' (AmbiguousFieldOcc id) (LHsExpr id)
+
 -- |  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnEqual',
-data HsRecField id arg = HsRecField {
-        hsRecFieldId  :: Located id,
-        hsRecFieldArg :: arg,           -- Filled in by renamer
-        hsRecPun      :: Bool           -- Note [Punning]
+--
+-- For details on above see note [Api annotations] in ApiAnnotation
+data HsRecField' id arg = HsRecField {
+        hsRecFieldLbl :: Located id,
+        hsRecFieldArg :: arg,           -- ^ Filled in by renamer when punning
+        hsRecPun      :: Bool           -- ^ Note [Punning]
   } deriving (Data, Typeable)
+
 
 -- Note [Punning]
 -- ~~~~~~~~~~~~~~
@@ -239,8 +292,64 @@ data HsRecField id arg = HsRecField {
 -- If the original field was qualified, we un-qualify it, thus
 --    T { A.x } means T { A.x = x }
 
-hsRecFields :: HsRecFields id arg -> [id]
-hsRecFields rbinds = map (unLoc . hsRecFieldId . unLoc) (rec_flds rbinds)
+
+-- Note [HsRecField and HsRecUpdField]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+-- A HsRecField (used for record construction and pattern matching)
+-- contains an unambiguous occurrence of a field (i.e. a FieldOcc).
+-- We can't just store the Name, because thanks to
+-- DuplicateRecordFields this may not correspond to the label the user
+-- wrote.
+--
+-- A HsRecUpdField (used for record update) contains a potentially
+-- ambiguous occurrence of a field (an AmbiguousFieldOcc).  The
+-- renamer will fill in the selector function if it can, but if the
+-- selector is ambiguous the renamer will defer to the typechecker.
+-- After the typechecker, a unique selector will have been determined.
+--
+-- The renamer produces an Unambiguous result if it can, rather than
+-- just doing the lookup in the typechecker, so that completely
+-- unambiguous updates can be represented by 'DsMeta.repUpdFields'.
+--
+-- For example, suppose we have:
+--
+--     data S = MkS { x :: Int }
+--     data T = MkT { x :: Int }
+--
+--     f z = (z { x = 3 }) :: S
+--
+-- The parsed HsRecUpdField corresponding to the record update will have:
+--
+--     hsRecFieldLbl = Unambiguous "x" PlaceHolder :: AmbiguousFieldOcc RdrName
+--
+-- After the renamer, this will become:
+--
+--     hsRecFieldLbl = Ambiguous   "x" PlaceHolder :: AmbiguousFieldOcc Name
+--
+-- (note that the Unambiguous constructor is not type-correct here).
+-- The typechecker will determine the particular selector:
+--
+--     hsRecFieldLbl = Unambiguous "x" $sel:x:MkS  :: AmbiguousFieldOcc Id
+
+hsRecFields :: HsRecFields id arg -> [PostRn id id]
+hsRecFields rbinds = map (unLoc . hsRecFieldSel . unLoc) (rec_flds rbinds)
+
+hsRecFieldSel :: HsRecField name arg -> Located (PostRn name name)
+hsRecFieldSel = fmap selectorFieldOcc . hsRecFieldLbl
+
+hsRecFieldId :: HsRecField Id arg -> Located Id
+hsRecFieldId = hsRecFieldSel
+
+hsRecUpdFieldRdr :: HsRecUpdField id -> Located RdrName
+hsRecUpdFieldRdr = fmap rdrNameAmbiguousFieldOcc . hsRecFieldLbl
+
+hsRecUpdFieldId :: HsRecField' (AmbiguousFieldOcc Id) arg -> Located Id
+hsRecUpdFieldId = fmap selectorFieldOcc . hsRecUpdFieldOcc
+
+hsRecUpdFieldOcc :: HsRecField' (AmbiguousFieldOcc Id) arg -> LFieldOcc Id
+hsRecUpdFieldOcc = fmap unambiguousFieldOcc . hsRecFieldLbl
+
 
 {-
 ************************************************************************
@@ -266,21 +375,37 @@ pprParendLPat :: (OutputableBndr name) => LPat name -> SDoc
 pprParendLPat (L _ p) = pprParendPat p
 
 pprParendPat :: (OutputableBndr name) => Pat name -> SDoc
-pprParendPat p | hsPatNeedsParens p = parens (pprPat p)
-               | otherwise          = pprPat p
+pprParendPat p = getPprStyle $ \ sty ->
+                 if need_parens sty p
+                 then parens (pprPat p)
+                 else  pprPat p
+  where
+    need_parens sty p
+      | CoPat {} <- p          -- In debug style we print the cast
+      , debugStyle sty = True  -- (see pprHsWrapper) so parens are needed
+      | otherwise      = hsPatNeedsParens p
+                         -- But otherwise the CoPat is discarded, so it
+                         -- is the pattern inside that matters.  Sigh.
 
 pprPat :: (OutputableBndr name) => Pat name -> SDoc
-pprPat (VarPat var)       = pprPatBndr var
-pprPat (WildPat _)        = char '_'
-pprPat (LazyPat pat)      = char '~' <> pprParendLPat pat
-pprPat (BangPat pat)      = char '!' <> pprParendLPat pat
-pprPat (AsPat name pat)   = hcat [pprPrefixOcc (unLoc name), char '@', pprParendLPat pat]
-pprPat (ViewPat expr pat _) = hcat [pprLExpr expr, text " -> ", ppr pat]
-pprPat (ParPat pat)         = parens (ppr pat)
+pprPat (VarPat var)           = pprPatBndr var
+pprPat (WildPat _)            = char '_'
+pprPat (LazyPat pat)          = char '~' <> pprParendLPat pat
+pprPat (BangPat pat)          = char '!' <> pprParendLPat pat
+pprPat (AsPat name pat)       = hcat [pprPrefixOcc (unLoc name), char '@', pprParendLPat pat]
+pprPat (ViewPat expr pat _)   = hcat [pprLExpr expr, text " -> ", ppr pat]
+pprPat (ParPat pat)           = parens (ppr pat)
+pprPat (LitPat s)             = ppr s
+pprPat (NPat l Nothing  _)    = ppr l
+pprPat (NPat l (Just _) _)    = char '-' <> ppr l
+pprPat (NPlusKPat n k _ _)    = hcat [ppr n, char '+', ppr k]
+pprPat (SplicePat splice)     = pprSplice splice
+pprPat (CoPat co pat _)       = pprHsWrapper (ppr pat) co
+pprPat (SigPatIn pat ty)      = ppr pat <+> dcolon <+> ppr ty
+pprPat (SigPatOut pat ty)     = ppr pat <+> dcolon <+> ppr ty
 pprPat (ListPat pats _ _)     = brackets (interpp'SP pats)
-pprPat (PArrPat pats _)     = paBrackets (interpp'SP pats)
-pprPat (TuplePat pats bx _) = tupleParens (boxityNormalTupleSort bx) (interpp'SP pats)
-
+pprPat (PArrPat pats _)       = paBrackets (interpp'SP pats)
+pprPat (TuplePat pats bx _)   = tupleParens (boxityTupleSort bx) (pprWithCommas ppr pats)
 pprPat (ConPatIn con details) = pprUserCon (unLoc con) details
 pprPat (ConPatOut { pat_con = con, pat_tvs = tvs, pat_dicts = dicts,
                     pat_binds = binds, pat_args = details })
@@ -293,15 +418,6 @@ pprPat (ConPatOut { pat_con = con, pat_tvs = tvs, pat_dicts = dicts,
           <+> pprConArgs details
     else pprUserCon (unLoc con) details
 
-pprPat (LitPat s)           = ppr s
-pprPat (NPat l Nothing  _)  = ppr l
-pprPat (NPat l (Just _) _)  = char '-' <> ppr l
-pprPat (NPlusKPat n k _ _)  = hcat [ppr n, char '+', ppr k]
-pprPat (SplicePat splice)   = pprUntypedSplice splice
-pprPat (QuasiQuotePat qq)   = ppr qq
-pprPat (CoPat co pat _)     = pprHsWrapper (ppr pat) co
-pprPat (SigPatIn pat ty)    = ppr pat <+> dcolon <+> ppr ty
-pprPat (SigPatOut pat ty)   = ppr pat <+> dcolon <+> ppr ty
 
 pprUserCon :: (OutputableBndr con, OutputableBndr id) => con -> HsConPatDetails id -> SDoc
 pprUserCon c (InfixCon p1 p2) = ppr p1 <+> pprInfixOcc c <+> ppr p2
@@ -312,7 +428,7 @@ pprConArgs (PrefixCon pats) = sep (map pprParendLPat pats)
 pprConArgs (InfixCon p1 p2) = sep [pprParendLPat p1, pprParendLPat p2]
 pprConArgs (RecCon rpats)   = ppr rpats
 
-instance (OutputableBndr id, Outputable arg)
+instance (Outputable arg)
       => Outputable (HsRecFields id arg) where
   ppr (HsRecFields { rec_flds = flds, rec_dotdot = Nothing })
         = braces (fsep (punctuate comma (map ppr flds)))
@@ -321,11 +437,12 @@ instance (OutputableBndr id, Outputable arg)
         where
           dotdot = ptext (sLit "..") <+> ifPprDebug (ppr (drop n flds))
 
-instance (OutputableBndr id, Outputable arg)
-      => Outputable (HsRecField id arg) where
-  ppr (HsRecField { hsRecFieldId = f, hsRecFieldArg = arg,
+instance (Outputable id, Outputable arg)
+      => Outputable (HsRecField' id arg) where
+  ppr (HsRecField { hsRecFieldLbl = f, hsRecFieldArg = arg,
                     hsRecPun = pun })
     = ppr f <+> (ppUnless pun $ equals <+> ppr arg)
+
 
 {-
 ************************************************************************
@@ -454,20 +571,18 @@ isIrrefutableHsPat pat
     -- Both should be gotten rid of by renamer before
     -- isIrrefutablePat is called
     go1 (SplicePat {})     = urk pat
-    go1 (QuasiQuotePat {}) = urk pat
 
     urk pat = pprPanic "isIrrefutableHsPat:" (ppr pat)
 
 hsPatNeedsParens :: Pat a -> Bool
 hsPatNeedsParens (NPlusKPat {})      = True
 hsPatNeedsParens (SplicePat {})      = False
-hsPatNeedsParens (QuasiQuotePat {})  = True
 hsPatNeedsParens (ConPatIn _ ds)     = conPatNeedsParens ds
 hsPatNeedsParens p@(ConPatOut {})    = conPatNeedsParens (pat_args p)
 hsPatNeedsParens (SigPatIn {})       = True
 hsPatNeedsParens (SigPatOut {})      = True
 hsPatNeedsParens (ViewPat {})        = True
-hsPatNeedsParens (CoPat {})          = True
+hsPatNeedsParens (CoPat _ p _)       = hsPatNeedsParens p
 hsPatNeedsParens (WildPat {})        = False
 hsPatNeedsParens (VarPat {})         = False
 hsPatNeedsParens (LazyPat {})        = False

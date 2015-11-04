@@ -1,6 +1,7 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE NoImplicitPrelude, MagicHash #-}
-{-# LANGUAGE AutoDeriveTypeable, StandaloneDeriving #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -38,7 +39,8 @@ module Control.Exception.Base (
         RecConError(..),
         RecSelError(..),
         RecUpdError(..),
-        ErrorCall(..),
+        ErrorCall(..), pattern ErrorCall,
+        TypeError(..), -- #10284, custom error type for deferred type errors
 
         -- * Throwing exceptions
         throwIO,
@@ -92,7 +94,7 @@ module Control.Exception.Base (
         -- * Calls for GHC runtime
         recSelError, recConError, irrefutPatError, runtimeError,
         nonExhaustiveGuardsError, patError, noMethodBindingError,
-        absentError,
+        absentError, typeError,
         nonTermination, nestedAtomically,
   ) where
 
@@ -104,7 +106,6 @@ import GHC.Show
 -- import GHC.Exception hiding ( Exception )
 import GHC.Conc.Sync
 
-import Data.Dynamic
 import Data.Either
 
 -----------------------------------------------------------------------------
@@ -297,7 +298,7 @@ bracketOnError before after thing =
 
 -- |A pattern match failed. The @String@ gives information about the
 -- source location of the pattern.
-data PatternMatchFail = PatternMatchFail String deriving Typeable
+newtype PatternMatchFail = PatternMatchFail String
 
 instance Show PatternMatchFail where
     showsPrec _ (PatternMatchFail err) = showString err
@@ -311,7 +312,7 @@ instance Exception PatternMatchFail
 -- multiple constructors, where some fields are in one constructor
 -- but not another. The @String@ gives information about the source
 -- location of the record selector.
-data RecSelError = RecSelError String deriving Typeable
+newtype RecSelError = RecSelError String
 
 instance Show RecSelError where
     showsPrec _ (RecSelError err) = showString err
@@ -323,7 +324,7 @@ instance Exception RecSelError
 -- |An uninitialised record field was used. The @String@ gives
 -- information about the source location where the record was
 -- constructed.
-data RecConError = RecConError String deriving Typeable
+newtype RecConError = RecConError String
 
 instance Show RecConError where
     showsPrec _ (RecConError err) = showString err
@@ -337,7 +338,7 @@ instance Exception RecConError
 -- multiple constructors, where some fields are in one constructor
 -- but not another. The @String@ gives information about the source
 -- location of the record update.
-data RecUpdError = RecUpdError String deriving Typeable
+newtype RecUpdError = RecUpdError String
 
 instance Show RecUpdError where
     showsPrec _ (RecUpdError err) = showString err
@@ -349,7 +350,7 @@ instance Exception RecUpdError
 -- |A class method without a definition (neither a default definition,
 -- nor a definition in the appropriate instance) was called. The
 -- @String@ gives information about which method it was.
-data NoMethodError = NoMethodError String deriving Typeable
+newtype NoMethodError = NoMethodError String
 
 instance Show NoMethodError where
     showsPrec _ (NoMethodError err) = showString err
@@ -358,11 +359,23 @@ instance Exception NoMethodError
 
 -----
 
+-- |An expression that didn't typecheck during compile time was called.
+-- This is only possible with -fdefer-type-errors. The @String@ gives
+-- details about the failed type check.
+data TypeError = TypeError String
+
+instance Show TypeError where
+    showsPrec _ (TypeError err) = showString err
+
+instance Exception TypeError
+
+-----
+
 -- |Thrown when the runtime system detects that the computation is
 -- guaranteed not to terminate. Note that there is no guarantee that
 -- the runtime system will notice whether any given computation is
 -- guaranteed to terminate or not.
-data NonTermination = NonTermination deriving Typeable
+data NonTermination = NonTermination
 
 instance Show NonTermination where
     showsPrec _ NonTermination = showString "<<loop>>"
@@ -373,7 +386,7 @@ instance Exception NonTermination
 
 -- |Thrown when the program attempts to call @atomically@, from the @stm@
 -- package, inside another call to @atomically@.
-data NestedAtomically = NestedAtomically deriving Typeable
+data NestedAtomically = NestedAtomically
 
 instance Show NestedAtomically where
     showsPrec _ NestedAtomically = showString "Control.Concurrent.STM.atomically was nested"
@@ -384,7 +397,7 @@ instance Exception NestedAtomically
 
 recSelError, recConError, irrefutPatError, runtimeError,
   nonExhaustiveGuardsError, patError, noMethodBindingError,
-  absentError
+  absentError, typeError
         :: Addr# -> a   -- All take a UTF8-encoded C string
 
 recSelError              s = throw (RecSelError ("No match in record selector "
@@ -397,6 +410,7 @@ irrefutPatError          s = throw (PatternMatchFail (untangle s "Irrefutable pa
 recConError              s = throw (RecConError      (untangle s "Missing field in record construction"))
 noMethodBindingError     s = throw (NoMethodError    (untangle s "No instance nor default method for class operation"))
 patError                 s = throw (PatternMatchFail (untangle s "Non-exhaustive patterns in"))
+typeError                s = throw (TypeError        (unpackCStringUtf8# s))
 
 -- GHC's RTS calls this
 nonTermination :: SomeException

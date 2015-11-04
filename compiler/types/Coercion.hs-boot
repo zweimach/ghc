@@ -1,8 +1,9 @@
 module Coercion where
 
 import {-# SOURCE #-} TyCoRep
-import {-# SOURCE #-} CoAxiom
 import {-# SOURCE #-} TyCon
+
+import CoAxiom
 import Var
 import Outputable
 import Pair

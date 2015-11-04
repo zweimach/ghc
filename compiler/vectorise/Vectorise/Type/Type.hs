@@ -18,6 +18,7 @@ import Control.Monad
 import Control.Applicative
 import Data.Maybe
 import Outputable
+import Prelude -- avoid redundant import warning due to AMP
 
 -- |Vectorise a type constructor. Unless there is a vectorised version (stripped of embedded
 -- parallel arrays), the vectorised version is the same as the original.

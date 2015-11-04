@@ -7,7 +7,10 @@ module FamInst (
         checkFamInstConsistency, tcExtendLocalFamInstEnv,
         tcLookupDataFamInst, tcLookupDataFamInst_maybe,
         tcInstNewTyCon_maybe, tcTopNormaliseNewTypeTF_maybe,
-        newFamInst
+        newFamInst,
+
+        -- * Injectivity
+        makeInjectivityErrors
     ) where
 
 import HscTypes
@@ -17,6 +20,7 @@ import Coercion
 import TcEvidence
 import LoadIface
 import TcRnMonad
+import SrcLoc
 import TyCon
 import TcType
 import CoAxiom
@@ -29,12 +33,22 @@ import Util
 import RdrName
 import DataCon ( dataConName )
 import Maybes
+import Type
+import TyCoRep
 import TcMType
 import Name
+import Pair
+import Panic
+import VarSet
 import Control.Monad
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Control.Arrow ( first, second )
+
+#if __GLASGOW_HASKELL__ < 709
+import Prelude hiding ( and )
+import Data.Foldable ( and )
+#endif
 
 #include "HsVersions.h"
 
@@ -54,12 +68,7 @@ import Control.Arrow ( first, second )
 newFamInst :: FamFlavor -> CoAxiom Unbranched -> TcRnIf gbl lcl FamInst
 -- Freshen the type variables of the FamInst branches
 -- Called from the vectoriser monad too, hence the rather general type
-newFamInst flavor axiom@(CoAxiom { co_ax_branches = FirstBranch branch
-                                 , co_ax_tc = fam_tc })
-  | CoAxBranch { cab_tvs = tvs
-               , cab_cvs = cvs
-               , cab_lhs = lhs
-               , cab_rhs = rhs } <- branch
+newFamInst flavor axiom@(CoAxiom { co_ax_tc = fam_tc })
   = do { (subst, tvs') <- freshenTyVarBndrs tvs
        ; (subst, cvs') <- freshenCoVarBndrsX subst cvs
        ; return (FamInst { fi_fam      = tyConName fam_tc
@@ -70,6 +79,12 @@ newFamInst flavor axiom@(CoAxiom { co_ax_branches = FirstBranch branch
                          , fi_tys      = substTys subst lhs
                          , fi_rhs      = substTy  subst rhs
                          , fi_axiom    = axiom }) }
+  where
+    CoAxBranch { cab_tvs = tvs
+               , cab_cvs = cvs
+               , cab_lhs = lhs
+               , cab_rhs = rhs } = coAxiomSingleBranch axiom
+
 
 {-
 ************************************************************************
@@ -131,12 +146,12 @@ checkFamInstConsistency :: [Module] -> [Module] -> TcM ()
 checkFamInstConsistency famInstMods directlyImpMods
   = do { dflags     <- getDynFlags
        ; (eps, hpt) <- getEpsAndHpt
-
        ; let { -- Fetch the iface of a given module.  Must succeed as
                -- all directly imported modules must already have been loaded.
                modIface mod =
                  case lookupIfaceByModule dflags hpt (eps_PIT eps) mod of
-                   Nothing    -> panic "FamInst.checkFamInstConsistency"
+                   Nothing    -> panicDoc "FamInst.checkFamInstConsistency"
+                                          (ppr mod $$ pprHPT hpt)
                    Just iface -> iface
 
              ; hmiModule     = mi_module . hm_iface
@@ -164,7 +179,11 @@ checkFamInstConsistency famInstMods directlyImpMods
       = do { env1 <- getFamInsts hpt_fam_insts m1
            ; env2 <- getFamInsts hpt_fam_insts m2
            ; mapM_ (checkForConflicts (emptyFamInstEnv, env2))
-                   (famInstEnvElts env1) }
+                   (famInstEnvElts env1)
+           ; mapM_ (checkForInjectivityConflicts (emptyFamInstEnv,env2))
+                   (famInstEnvElts env1)
+ }
+
 
 getFamInsts :: ModuleEnv FamInstEnv -> Module -> TcM FamInstEnv
 getFamInsts hpt_fam_insts mod
@@ -197,6 +216,7 @@ tcInstNewTyCon_maybe tc tys = fmap (second mkTcCoercion) $
 
 -- | Like 'tcLookupDataFamInst_maybe', but returns the arguments back if
 -- there is no data family to unwrap.
+-- Returns a Representational coercion
 tcLookupDataFamInst :: FamInstEnvs -> TyCon -> [TcType]
                     -> (TyCon, [TcType], Coercion)
 tcLookupDataFamInst fam_inst_envs tc tc_args
@@ -213,13 +233,13 @@ tcLookupDataFamInst_maybe :: FamInstEnvs -> TyCon -> [TcType]
 tcLookupDataFamInst_maybe fam_inst_envs tc tc_args
   | isDataFamilyTyCon tc
   , match : _ <- lookupFamInstEnv fam_inst_envs tc tc_args
-  , FamInstMatch { fim_instance = rep_fam@(FamInst { fi_axiom = co_tc
+  , FamInstMatch { fim_instance = rep_fam@(FamInst { fi_axiom = ax
                                                    , fi_cvs   = cvs })
                  , fim_tys      = rep_args
                  , fim_coercion = match_co } <- match
   , let rep_tc = dataFamInstRepTyCon rep_fam
         co     = mkSubCo match_co `mkTransCo`
-                 mkUnbranchedAxInstCo Representational co_tc rep_args
+                 mkUnbranchedAxInstCo Representational ax rep_args
                                       (mkCoVarCos cvs)
   = ASSERT( null cvs ) -- See Note [Constrained family instances] in FamInstEnv
     Just (rep_tc, rep_args, co)
@@ -227,14 +247,20 @@ tcLookupDataFamInst_maybe fam_inst_envs tc tc_args
   | otherwise
   = Nothing
 
--- | Get rid of top-level newtypes, potentially looking through newtype
--- instances. Only unwraps newtypes that are in scope. This is used
--- for solving for `Coercible` in the solver. This version is careful
--- not to unwrap data/newtype instances if it can't continue unwrapping.
--- Such care is necessary for proper error messages.
+-- | 'tcTopNormaliseNewTypeTF_maybe' gets rid of top-level newtypes,
+-- potentially looking through newtype instances.
 --
--- Does not look through type families. Does not normalise arguments to a
--- tycon.
+-- It is only used by the type inference engine (specifically, when
+-- soliving 'Coercible' instances), and hence it is careful to unwrap
+-- only if the relevant data constructor is in scope.  That's why
+-- it get a GlobalRdrEnv argument.
+--
+-- It is careful not to unwrap data/newtype instances if it can't
+-- continue unwrapping.  Such care is necessary for proper error
+-- messages.
+--
+-- It does not look through type families.
+-- It does not normalise arguments to a tycon.
 --
 -- Always produces a representational coercion.
 tcTopNormaliseNewTypeTF_maybe :: FamInstEnvs
@@ -245,15 +271,16 @@ tcTopNormaliseNewTypeTF_maybe faminsts rdr_env ty
 -- cf. FamInstEnv.topNormaliseType_maybe and Coercion.topNormaliseNewType_maybe
   = fmap (first mkTcCoercion) $ topNormaliseTypeX_maybe stepper ty
   where
-    stepper
-      = unwrap_newtype
-        `composeSteppers`
-        \ rec_nts tc tys ->
-        case tcLookupDataFamInst_maybe faminsts tc tys of
-          Just (tc', tys', co) ->
-            modifyStepResultCo (co `mkTransCo`)
-                               (unwrap_newtype rec_nts tc' tys')
-          Nothing -> NS_Done
+    stepper = unwrap_newtype `composeSteppers` unwrap_newtype_instance
+
+    -- For newtype instances we take a double step or nothing, so that
+    -- we don't return the reprsentation type of the newtype instance,
+    -- which would lead to terrible error messages
+    unwrap_newtype_instance rec_nts tc tys
+      | Just (tc', tys', co) <- tcLookupDataFamInst_maybe faminsts tc tys
+      = modifyStepResultCo (co `mkTransCo`) $
+        unwrap_newtype rec_nts tc' tys'
+      | otherwise = NS_Done
 
     unwrap_newtype rec_nts tc tys
       | data_cons_in_scope tc
@@ -283,8 +310,8 @@ tcExtendLocalFamInstEnv :: [FamInst] -> TcM a -> TcM a
 tcExtendLocalFamInstEnv fam_insts thing_inside
  = do { env <- getGblEnv
       ; (inst_env', fam_insts') <- foldlM addLocalFamInst
-                                          (tcg_fam_inst_env env, tcg_fam_insts env)
-                                          fam_insts
+                                       (tcg_fam_inst_env env, tcg_fam_insts env)
+                                       fam_insts
       ; let env' = env { tcg_fam_insts    = fam_insts'
                        , tcg_fam_inst_env = inst_env' }
       ; setGblEnv env' thing_inside
@@ -293,8 +320,10 @@ tcExtendLocalFamInstEnv fam_insts thing_inside
 -- Check that the proposed new instance is OK,
 -- and then add it to the home inst env
 -- This must be lazy in the fam_inst arguments, see Note [Lazy axiom match]
--- in FamInstEnv.lhs
-addLocalFamInst :: (FamInstEnv,[FamInst]) -> FamInst -> TcM (FamInstEnv, [FamInst])
+-- in FamInstEnv.hs
+addLocalFamInst :: (FamInstEnv,[FamInst])
+                -> FamInst
+                -> TcM (FamInstEnv, [FamInst])
 addLocalFamInst (home_fie, my_fis) fam_inst
         -- home_fie includes home package and this module
         -- my_fies is just the ones from this module
@@ -317,9 +346,11 @@ addLocalFamInst (home_fie, my_fis) fam_inst
        ; let inst_envs  = (eps_fam_inst_env eps, home_fie')
              home_fie'' = extendFamInstEnv home_fie fam_inst
 
-           -- Check for conflicting instance decls
-       ; no_conflict <- checkForConflicts inst_envs fam_inst
-       ; if no_conflict then
+           -- Check for conflicting instance decls and injectivity violations
+       ; no_conflict    <- checkForConflicts            inst_envs fam_inst
+       ; injectivity_ok <- checkForInjectivityConflicts inst_envs fam_inst
+
+       ; if no_conflict && injectivity_ok then
             return (home_fie'', fam_inst : my_fis)
          else
             return (home_fie,   my_fis) }
@@ -347,26 +378,237 @@ checkForConflicts inst_envs fam_inst
        ; unless no_conflicts $ conflictInstErr fam_inst conflicts
        ; return no_conflicts }
 
+-- | Check whether a new open type family equation can be added without
+-- violating injectivity annotation supplied by the user. Returns True when
+-- this is possible and False if adding this equation would violate injectivity
+-- annotation.
+checkForInjectivityConflicts :: FamInstEnvs -> FamInst -> TcM Bool
+checkForInjectivityConflicts instEnvs famInst
+    | isTypeFamilyTyCon tycon
+    -- type family is injective in at least one argument
+    , Injective inj <- familyTyConInjectivityInfo tycon = do
+    { let axiom = coAxiomSingleBranch (fi_axiom famInst)
+          conflicts = lookupFamInstEnvInjectivityConflicts inj instEnvs famInst
+          -- see Note [Verifying injectivity annotation] in FamInstEnv
+          errs = makeInjectivityErrors tycon axiom inj conflicts
+    ; mapM_ (\(err, span) -> setSrcSpan span $ addErr err) errs
+    ; return (null errs)
+    }
+
+    -- if there was no injectivity annotation or tycon does not represent a
+    -- type family we report no conflicts
+    | otherwise = return True
+    where tycon = famInstTyCon famInst
+
+-- | Build a list of injectivity errors together with their source locations.
+makeInjectivityErrors
+   :: TyCon        -- ^ Type family tycon for which we generate errors
+   -> CoAxBranch   -- ^ Currently checked equation (represented by axiom)
+   -> [Bool]       -- ^ Injectivity annotation
+   -> [CoAxBranch] -- ^ List of injectivity conflicts
+   -> [(SDoc, SrcSpan)]
+makeInjectivityErrors tycon axiom inj conflicts
+  = ASSERT2( any id inj, text "No injective type variables" )
+    let lhs             = coAxBranchLHS axiom
+        rhs             = coAxBranchRHS axiom
+
+        are_conflicts   = not $ null conflicts
+        unused_inj_tvs  = unusedInjTvsInRHS tycon inj lhs rhs
+        inj_tvs_unused  = not $ and (isEmptyVarSet <$> unused_inj_tvs)
+        tf_headed       = isTFHeaded rhs
+        bare_variables  = bareTvInRHSViolated lhs rhs
+        wrong_bare_rhs  = not $ null bare_variables
+
+        err_builder herald eqns
+                        = ( herald $$ vcat (map (pprCoAxBranch tycon) eqns)
+                          , coAxBranchSpan (head eqns) )
+        errorIf p f     = if p then [f err_builder axiom] else []
+     in    errorIf are_conflicts  (conflictInjInstErr     conflicts     )
+        ++ errorIf inj_tvs_unused (unusedInjectiveVarsErr unused_inj_tvs)
+        ++ errorIf tf_headed       tfHeadedErr
+        ++ errorIf wrong_bare_rhs (bareVariableInRHSErr   bare_variables)
+
+
+-- | Return a list of type variables that the function is injective in and that
+-- do not appear on injective positions in the RHS of a family instance
+-- declaration. The returned Pair includes invisible vars followed by visible ones
+unusedInjTvsInRHS :: TyCon -> [Bool] -> [Type] -> Type -> Pair TyVarSet
+-- INVARIANT: [Bool] list contains at least one True value
+-- See Note [Verifying injectivity annotation]. This function implements fourth
+-- check described there.
+-- In theory, instead of implementing this whole check in this way, we could
+-- attempt to unify equation with itself.  We would reject exactly the same
+-- equations but this method gives us more precise error messages by returning
+-- precise names of variables that are not mentioned in the RHS.
+unusedInjTvsInRHS tycon injList lhs rhs =
+  (`minusVarSet` injRhsVars) <$> injLHSVars
+    where
+      -- set of type and kind variables in which type family is injective
+      (invis_pairs, vis_pairs)
+        = partitionInvisibles tycon snd (zipEqual "unusedInjTvsInRHS" injList lhs)
+      invis_lhs = uncurry filterByList $ unzip invis_pairs
+      vis_lhs   = uncurry filterByList $ unzip vis_pairs
+
+      invis_vars = tyCoVarsOfTypes invis_lhs
+      Pair invis_vars' vis_vars = splitVisVarsOfTypes vis_lhs
+      injLHSVars
+        = Pair (invis_vars `minusVarSet` vis_vars `unionVarSet` invis_vars')
+               vis_vars
+
+      -- set of type variables appearing in the RHS on an injective position.
+      -- For all returned variables we assume their associated kind variables
+      -- also appear in the RHS.
+      injRhsVars = collectInjVars rhs
+
+      -- Collect all type variables that are either arguments to a type
+      -- constructor or to injective type families.
+      collectInjVars :: Type -> VarSet
+      collectInjVars (TyVarTy v)
+        = unitVarSet v `unionVarSet` collectInjVars (tyVarKind v)
+      collectInjVars (TyConApp tc tys)
+        | isTypeFamilyTyCon tc = collectInjTFVars tys
+                                                 (familyTyConInjectivityInfo tc)
+        | otherwise            = mapUnionVarSet collectInjVars tys
+      collectInjVars (LitTy {})
+        = emptyVarSet
+      collectInjVars (ForAllTy (Anon arg) res)
+        = collectInjVars arg `unionVarSet` collectInjVars res
+      collectInjVars (AppTy fun arg)
+        = collectInjVars fun `unionVarSet` collectInjVars arg
+      -- no forall types in the RHS of a type family
+      collectInjVars (ForAllTy _ _)    =
+          panic "unusedInjTvsInRHS.collectInjVars"
+      collectInjVars (CastTy ty _)   = collectInjVars ty
+      collectInjVars (CoercionTy {}) = emptyVarSet
+
+      collectInjTFVars :: [Type] -> Injectivity -> VarSet
+      collectInjTFVars _ NotInjective
+          = emptyVarSet
+      collectInjTFVars tys (Injective injList)
+          = mapUnionVarSet collectInjVars (filterByList injList tys)
+
+
+-- | Is type headed by a type family application?
+isTFHeaded :: Type -> Bool
+-- See Note [Verifying injectivity annotation]. This function implements third
+-- check described there.
+isTFHeaded ty | Just ty' <- tcView ty
+              = isTFHeaded ty'
+isTFHeaded ty | (TyConApp tc args) <- ty
+              , isTypeFamilyTyCon tc
+              = tyConArity tc == length args
+isTFHeaded _  = False
+
+
+-- | If a RHS is a bare type variable return a set of LHS patterns that are not
+-- bare type variables.
+bareTvInRHSViolated :: [Type] -> Type -> [Type]
+-- See Note [Verifying injectivity annotation]. This function implements second
+-- check described there.
+bareTvInRHSViolated pats rhs | isTyVarTy rhs
+   = filter (not . isTyVarTy) pats
+bareTvInRHSViolated _ _ = []
+
+
 conflictInstErr :: FamInst -> [FamInstMatch] -> TcRn ()
 conflictInstErr fam_inst conflictingMatch
   | (FamInstMatch { fim_instance = confInst }) : _ <- conflictingMatch
-  = addFamInstsErr (ptext (sLit "Conflicting family instance declarations:"))
-                   [fam_inst, confInst]
+  = let (err, span) = makeFamInstsErr
+                            (text "Conflicting family instance declarations:")
+                            [fam_inst, confInst]
+    in setSrcSpan span $ addErr err
   | otherwise
   = panic "conflictInstErr"
 
-addFamInstsErr :: SDoc -> [FamInst] -> TcRn ()
-addFamInstsErr herald insts
+-- | Type of functions that use error message and a list of axioms to build full
+-- error message (with a source location) for injective type families.
+type InjErrorBuilder = SDoc -> [CoAxBranch] -> (SDoc, SrcSpan)
+
+-- | Build injecivity error herald common to all injectivity errors.
+injectivityErrorHerald :: Bool -> SDoc
+injectivityErrorHerald isSingular =
+  text "Type family equation" <> s isSingular <+> text "violate" <>
+  s (not isSingular) <+> text "injectivity annotation" <>
+  if isSingular then dot else colon
+  -- Above is an ugly hack.  We want this: "sentence. herald:" (note the dot and
+  -- colon).  But if herald is empty we want "sentence:" (note the colon).  We
+  -- can't test herald for emptiness so we rely on the fact that herald is empty
+  -- only when isSingular is False.  If herald is non empty it must end with a
+  -- colon.
+    where
+      s False = text "s"
+      s True  = empty
+
+-- | Build error message for a pair of equations violating an injectivity
+-- annotation.
+conflictInjInstErr :: [CoAxBranch] -> InjErrorBuilder -> CoAxBranch
+                   -> (SDoc, SrcSpan)
+conflictInjInstErr conflictingEqns errorBuilder tyfamEqn
+  | confEqn : _ <- conflictingEqns
+  = errorBuilder (injectivityErrorHerald False) [confEqn, tyfamEqn]
+  | otherwise
+  = panic "conflictInjInstErr"
+
+-- | Build error message for equation with injective type variables unused in
+-- the RHS.
+unusedInjectiveVarsErr :: Pair TyVarSet -> InjErrorBuilder -> CoAxBranch
+                       -> (SDoc, SrcSpan)
+unusedInjectiveVarsErr (Pair invis_vars vis_vars) errorBuilder tyfamEqn
+  = errorBuilder (injectivityErrorHerald True $$ msg)
+                 [tyfamEqn]
+    where
+      tvs = varSetElemsWellScoped (invis_vars `unionVarSet` vis_vars)
+      has_types = not $ isEmptyVarSet vis_vars
+      has_kinds = not $ isEmptyVarSet invis_vars
+
+      doc = sep [ what <+> text "variable" <>
+                  plural tvs <+> pprQuotedList tvs
+                , text "cannot be inferred from the right-hand side." ]
+      what = case (has_types, has_kinds) of
+               (True, True)   -> text "Type and kind"
+               (True, False)  -> text "Type"
+               (False, True)  -> text "Kind"
+               (False, False) -> pprPanic "mkUnusedInjectiveVarsErr" $ ppr tvs
+      print_kinds_info = sdocWithDynFlags $ \ dflags ->
+                         if has_kinds && not (gopt Opt_PrintExplicitKinds dflags)
+                         then text "(enabling -fprint-explicit-kinds might help)"
+                         else empty
+      msg = doc $$ print_kinds_info $$
+            text "In the type family equation:"
+
+-- | Build error message for equation that has a type family call at the top
+-- level of RHS
+tfHeadedErr :: InjErrorBuilder -> CoAxBranch
+            -> (SDoc, SrcSpan)
+tfHeadedErr errorBuilder famInst
+  = errorBuilder (injectivityErrorHerald True $$
+                  text "RHS of injective type family equation cannot" <+>
+                  text "be a type family:") [famInst]
+
+-- | Build error message for equation that has a bare type variable in the RHS
+-- but LHS pattern is not a bare type variable.
+bareVariableInRHSErr :: [Type] -> InjErrorBuilder -> CoAxBranch
+                     -> (SDoc, SrcSpan)
+bareVariableInRHSErr tys errorBuilder famInst
+  = errorBuilder (injectivityErrorHerald True $$
+                  text "RHS of injective type family equation is a bare" <+>
+                  text "type variable" $$
+                  text "but these LHS type and kind patterns are not bare" <+>
+                  text "variables:" <+> pprQuotedList tys) [famInst]
+
+
+makeFamInstsErr :: SDoc -> [FamInst] -> (SDoc, SrcSpan)
+makeFamInstsErr herald insts
   = ASSERT( not (null insts) )
-    setSrcSpan srcSpan $ addErr $
-    hang herald
-       2 (vcat [ pprCoAxBranchHdr (famInstAxiom fi) 0
-               | fi <- sorted ])
+    ( hang herald
+         2 (vcat [ pprCoAxBranchHdr (famInstAxiom fi) 0
+                 | fi <- sorted ])
+    , srcSpan )
  where
-   getSpan   = getSrcLoc . famInstAxiom
-   sorted    = sortWith getSpan insts
-   fi1       = head sorted
-   srcSpan   = coAxBranchSpan (coAxiomSingleBranch (famInstAxiom fi1))
+   getSpan = getSrcLoc . famInstAxiom
+   sorted  = sortWith getSpan insts
+   fi1     = head sorted
+   srcSpan = coAxBranchSpan (coAxiomSingleBranch (famInstAxiom fi1))
    -- The sortWith just arranges that instances are dislayed in order
    -- of source location, which reduced wobbling in error messages,
    -- and is better for users

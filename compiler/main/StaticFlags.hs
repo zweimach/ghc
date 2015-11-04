@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, TupleSections #-}
 {-# OPTIONS_GHC -fno-cse #-}
 -- -fno-cse is needed for GLOBAL_VAR's to behave properly
 
@@ -27,7 +27,6 @@ module StaticFlags (
 
         -- optimisation opts
         opt_NoStateHack,
-        opt_CprOff,
         opt_NoOptCoercion,
 
         -- For the parser
@@ -43,7 +42,6 @@ import CmdLineParser
 import FastString
 import SrcLoc
 import Util
--- import Maybes                ( firstJusts )
 import Panic
 
 import Control.Monad
@@ -82,7 +80,10 @@ parseStaticFlagsFull flagsAvailable args = do
   when ready $ throwGhcExceptionIO (ProgramError "Too late for parseStaticFlags: call it before runGhc or runGhcT")
 
   (leftover, errs, warns) <- processArgs flagsAvailable args
-  when (not (null errs)) $ throwGhcExceptionIO $ errorsToGhcException errs
+
+  -- See Note [Handling errors when parsing commandline flags]
+  unless (null errs) $ throwGhcExceptionIO $
+      errorsToGhcException . map (("on the commandline", ) . unLoc) $ errs
 
     -- see sanity code in staticOpts
   writeIORef v_opt_C_ready True
@@ -142,8 +143,7 @@ isStaticFlag f = f `elem` flagsStaticNames
 flagsStaticNames :: [String]
 flagsStaticNames = [
     "fno-state-hack",
-    "fno-opt-coercion",
-    "fcpr-off"
+    "fno-opt-coercion"
     ]
 
 -- We specifically need to discard static flags for clients of the
@@ -156,7 +156,6 @@ discardStaticFlags :: [String] -> [String]
 discardStaticFlags = filter (\x -> x `notElem` flags)
   where flags = [ "-fno-state-hack"
                 , "-fno-opt-coercion"
-                , "-fcpr-off"
                 , "-dppr-debug"
                 , "-dno-debug-output"
                 ]
@@ -199,10 +198,6 @@ opt_NoDebugOutput  = lookUp  (fsLit "-dno-debug-output")
 
 opt_NoStateHack    :: Bool
 opt_NoStateHack    = lookUp  (fsLit "-fno-state-hack")
-
--- Switch off CPR analysis in the new demand analyser
-opt_CprOff         :: Bool
-opt_CprOff         = lookUp  (fsLit "-fcpr-off")
 
 opt_NoOptCoercion  :: Bool
 opt_NoOptCoercion  = lookUp  (fsLit "-fno-opt-coercion")

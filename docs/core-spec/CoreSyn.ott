@@ -71,10 +71,12 @@ e, u :: 'Expr_' ::= {{ com Expressions, \coderef{coreSyn/CoreSyn.lhs}{Expr} }}
   | ( e )                                        :: M :: Parens {{ com Parenthesized expression }}
   | e </ ui // i />                              :: M :: Apps {{ com Nested application }}
   | S ( n )                                      :: M :: Lookup {{ com Lookup in the runtime store }}
+  | \\ e                                         :: M :: Newline
+    {{ tex \qquad \\ \multicolumn{1}{r}{[[e]]} }}
 
 binding :: 'Bind_' ::= {{ com Let-bindings, \coderef{coreSyn/CoreSyn.lhs}{Bind} }}
   | n = e                         ::   :: NonRec  {{ com \ctor{NonRec}: Non-recursive binding }}
-  | rec </ ni = ei // and // i /> ::   :: Rec     {{ com \ctor{Rec}: Recursive binding }}
+  | rec </ ni = ei // ;; // i /> ::   :: Rec     {{ com \ctor{Rec}: Recursive binding }}
 
 alt :: 'Alt_' ::= {{ com Case alternative, \coderef{coreSyn/CoreSyn.lhs}{Alt} }}
   | Kp </ ni // i /> -> e    ::   :: Alt  {{ com Constructor applied to fresh names }}
@@ -304,6 +306,7 @@ terminals :: 'terminals_' ::=
     {{ tex \twoheadrightarrow\!\!\!\!\!\! \raisebox{-.3ex}{!} \,\,\,\,\, }}
   | sym          ::   :: sym              {{ tex \textsf{sym} }}
   | ;            ::   :: trans            {{ tex \fatsemi }}
+  | ;;           ::   :: semi             {{ tex ; }}
   | Left         ::   :: Left             {{ tex \textsf{left} }}
   | Right        ::   :: Right            {{ tex \textsf{right} }}
   | _            ::   :: wildcard         {{ tex \text{\textvisiblespace} }}
@@ -316,6 +319,7 @@ terminals :: 'terminals_' ::=
   | vars_of      ::   :: vars_of          {{ tex \textsf{vars\_of } }}
   | not          ::   :: not              {{ tex \neg }}
   | isUnLiftedTyCon :: :: isUnLiftenTyCon {{ tex \textsf{isUnLiftedTyCon} }}
+  | compatibleUnBoxedTys :: :: compatibleUnBoxedTys {{ tex \textsf{compatibleUnBoxedTys} }}
   | false        ::   :: false            {{ tex \textsf{false} }}
   | true         ::   :: true             {{ tex \textsf{true} }}
   | \/           ::   :: or               {{ tex \vee }}
@@ -360,6 +364,8 @@ terminals :: 'terminals_' ::=
   | take         ::   :: take             {{ tex \textsf{take}\! }}
   | coaxrProves  ::   :: coaxrProves      {{ tex \textsf{coaxrProves} }}
   | Just         ::   :: Just             {{ tex \textsf{Just} }}
+  | \\           ::   :: newline          {{ tex \\ }}
+  | classifiesTypeWithValues :: :: ctwv   {{ tex \textsf{classifiesTypeWithValues} }}
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  Formulae  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -380,8 +386,13 @@ formula :: 'formula_' ::=
   | no_duplicates </ bindingi // i />  ::   :: no_duplicates_binding
   | not formula                        ::   :: not
   | isUnLiftedTyCon T                  ::   :: isUnLiftedTyCon
+  | compatibleUnBoxedTys t1 t2         ::   :: compatibleUnBoxedTys
   | formula1 /\ formula2               ::   :: and
   | formula1 \/ formula2               ::   :: or
+  | ( formula1 ) \\/ ( formula2 )      ::   :: newline
+    {{ tex \begin{array}{@{}l@{}%
+}[[formula1]] \vee \\ \multicolumn{1}{@{}r@{}%
+}{\quad [[formula2]]} \end{array} }}
   | ( formula )                        ::   :: parens
   | n elt G                            ::   :: context_inclusion
   | vars1 = vars2                      ::   :: vars_rewrite
@@ -423,6 +434,7 @@ formula :: 'formula_' ::=
   | Just ( t1 , t2 ) = coaxrProves mu </ si // i /> </ ( s'j , s''j ) // j />
                                        ::   :: coaxrProves
   | mu1 = mu2                          ::   :: mu_rewrite
+  | classifiesTypeWithValues k         ::   :: classifies_type_with_values
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  Subrules and Parsing  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -459,3 +471,4 @@ Type_unliftedEq left Var_IdOrTyVar
 Expr_Coercion <= Subst_TmMapping
 
 Type_CastTy <= Var_IdOrTyVar
+

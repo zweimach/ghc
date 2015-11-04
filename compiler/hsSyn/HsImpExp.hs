@@ -13,6 +13,8 @@ module HsImpExp where
 import Module           ( ModuleName )
 import HsDoc            ( HsDocString )
 import OccName          ( HasOccName(..), isTcOcc, isSymOcc )
+import BasicTypes       ( SourceText, StringLiteral(..) )
+import FieldLabel       ( FieldLbl(..) )
 
 import Outputable
 import FastString
@@ -34,20 +36,23 @@ type LImportDecl name = Located (ImportDecl name)
         -- ^ When in a list this may have
         --
         --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnSemi'
-        --
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
 
 -- | A single Haskell @import@ declaration.
 data ImportDecl name
   = ImportDecl {
+      ideclSourceSrc :: Maybe SourceText,
+                                 -- Note [Pragma source text] in BasicTypes
       ideclName      :: Located ModuleName, -- ^ Module name.
-      ideclPkgQual   :: Maybe FastString,  -- ^ Package qualifier.
-      ideclSource    :: Bool,              -- ^ True <=> {-\# SOURCE \#-} import
-      ideclSafe      :: Bool,               -- ^ True => safe import
-      ideclQualified :: Bool,               -- ^ True => qualified
-      ideclImplicit  :: Bool,               -- ^ True => implicit import (of Prelude)
-      ideclAs        :: Maybe ModuleName,   -- ^ as Module
+      ideclPkgQual   :: Maybe StringLiteral,  -- ^ Package qualifier.
+      ideclSource    :: Bool,          -- ^ True <=> {-\# SOURCE \#-} import
+      ideclSafe      :: Bool,          -- ^ True => safe import
+      ideclQualified :: Bool,          -- ^ True => qualified
+      ideclImplicit  :: Bool,          -- ^ True => implicit import (of Prelude)
+      ideclAs        :: Maybe ModuleName,  -- ^ as Module
       ideclHiding    :: Maybe (Bool, Located [LIE name])
-                                            -- ^ (True => hiding, names)
+                                       -- ^ (True => hiding, names)
     }
      -- ^
      --  'ApiAnnotation.AnnKeywordId's
@@ -64,10 +69,12 @@ data ImportDecl name
      --    'ApiAnnotation.AnnClose' attached
      --     to location in ideclHiding
 
+     -- For details on above see note [Api annotations] in ApiAnnotation
        deriving (Data, Typeable)
 
 simpleImportDecl :: ModuleName -> ImportDecl name
 simpleImportDecl mn = ImportDecl {
+      ideclSourceSrc = Nothing,
       ideclName      = noLoc mn,
       ideclPkgQual   = Nothing,
       ideclSource    = False,
@@ -90,8 +97,8 @@ instance (OutputableBndr name, HasOccName name) => Outputable (ImportDecl name) 
         pp_implicit False = empty
         pp_implicit True = ptext (sLit ("(implicit)"))
 
-        pp_pkg Nothing  = empty
-        pp_pkg (Just p) = doubleQuotes (ftext p)
+        pp_pkg Nothing                     = empty
+        pp_pkg (Just (StringLiteral _ p)) = doubleQuotes (ftext p)
 
         pp_qual False   = empty
         pp_qual True    = ptext (sLit "qualified")
@@ -124,52 +131,71 @@ type LIE name = Located (IE name)
         -- ^ When in a list this may have
         --
         --  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnComma'
-        --
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
 
 -- | Imported or exported entity.
 data IE name
   = IEVar       (Located name)
         -- ^ - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnPattern',
         --             'ApiAnnotation.AnnType'
-  | IEThingAbs           name      -- ^ Class/Type (can't tell)
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
+  | IEThingAbs  (Located name)     -- ^ Class/Type (can't tell)
         --  - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnPattern',
         --             'ApiAnnotation.AnnType','ApiAnnotation.AnnVal'
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
   | IEThingAll  (Located name)     -- ^ Class/Type plus all methods/constructors
         --
         -- - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnOpen',
         --       'ApiAnnotation.AnnDotdot','ApiAnnotation.AnnClose',
         --                                 'ApiAnnotation.AnnType'
 
-  | IEThingWith (Located name) [Located name]
+        -- For details on above see note [Api annotations] in ApiAnnotation
+
+  | IEThingWith (Located name) [Located name] [Located (FieldLbl name)]
                  -- ^ Class/Type plus some methods/constructors
+                 -- and record fields; see Note [IEThingWith]
         -- - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnOpen',
         --                                   'ApiAnnotation.AnnClose',
         --                                   'ApiAnnotation.AnnComma',
         --                                   'ApiAnnotation.AnnType'
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
   | IEModuleContents  (Located ModuleName) -- ^ (Export Only)
         --
         -- - 'ApiAnnotation.AnnKeywordId's : 'ApiAnnotation.AnnModule'
+
+        -- For details on above see note [Api annotations] in ApiAnnotation
   | IEGroup             Int HsDocString  -- ^ Doc section heading
   | IEDoc               HsDocString      -- ^ Some documentation
   | IEDocNamed          String           -- ^ Reference to named doc
   deriving (Eq, Data, Typeable)
 
-ieName :: IE name -> name
-ieName (IEVar (L _ n))         = n
-ieName (IEThingAbs  n)         = n
-ieName (IEThingWith (L _ n) _) = n
-ieName (IEThingAll  (L _ n))   = n
-ieName _ = panic "ieName failed pattern match!"
+{-
+Note [IEThingWith]
+~~~~~~~~~~~~~~~~~~
 
-ieNames :: IE a -> [a]
-ieNames (IEVar       (L _ n)   ) = [n]
-ieNames (IEThingAbs       n    ) = [n]
-ieNames (IEThingAll  (L _ n)   ) = [n]
-ieNames (IEThingWith (L _ n) ns) = n : map unLoc ns
-ieNames (IEModuleContents _    ) = []
-ieNames (IEGroup          _ _  ) = []
-ieNames (IEDoc            _    ) = []
-ieNames (IEDocNamed       _    ) = []
+A definition like
+
+    module M ( T(MkT, x) ) where
+      data T = MkT { x :: Int }
+
+gives rise to
+
+    IEThingWith T [MkT] [FieldLabel "x" False x)]           (without DuplicateRecordFields)
+    IEThingWith T [MkT] [FieldLabel "x" True $sel:x:MkT)]   (with    DuplicateRecordFields)
+
+See Note [Representing fields in AvailInfo] in Avail for more details.
+-}
+
+ieName :: IE name -> name
+ieName (IEVar (L _ n))           = n
+ieName (IEThingAbs  (L _ n))     = n
+ieName (IEThingWith (L _ n) _ _) = n
+ieName (IEThingAll  (L _ n))     = n
+ieName _ = panic "ieName failed pattern match!"
 
 pprImpExp :: (HasOccName name, OutputableBndr name) => name -> SDoc
 pprImpExp name = type_pref <+> pprPrefixOcc name
@@ -180,11 +206,12 @@ pprImpExp name = type_pref <+> pprPrefixOcc name
 
 instance (HasOccName name, OutputableBndr name) => Outputable (IE name) where
     ppr (IEVar          var)    = pprPrefixOcc (unLoc var)
-    ppr (IEThingAbs     thing)  = pprImpExp thing
+    ppr (IEThingAbs     thing)  = pprImpExp (unLoc thing)
     ppr (IEThingAll      thing) = hcat [pprImpExp (unLoc thing), text "(..)"]
-    ppr (IEThingWith thing withs)
+    ppr (IEThingWith thing withs flds)
         = pprImpExp (unLoc thing) <> parens (fsep (punctuate comma
-                                            (map pprImpExp $ map unLoc withs)))
+                                            (map pprImpExp (map unLoc withs) ++
+                                                map (ppr . flLabel . unLoc) flds)))
     ppr (IEModuleContents mod')
         = ptext (sLit "module") <+> ppr mod'
     ppr (IEGroup n _)           = text ("<IEGroup: " ++ (show n) ++ ">")

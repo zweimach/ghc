@@ -36,7 +36,7 @@ module GHC.IO (
         catchException, catchAny, throwIO,
         mask, mask_, uninterruptibleMask, uninterruptibleMask_,
         MaskingState(..), getMaskingState,
-        unsafeUnmask,
+        unsafeUnmask, interruptible,
         onException, bracket, finally, evaluate
     ) where
 
@@ -341,6 +341,22 @@ unblock = unsafeUnmask
 unsafeUnmask :: IO a -> IO a
 unsafeUnmask (IO io) = IO $ unmaskAsyncExceptions# io
 
+-- | Allow asynchronous exceptions to be raised even inside 'mask', making
+-- the operation interruptible (see the discussion of "Interruptible operations"
+-- in 'Control.Exception').
+--
+-- When called outside 'mask', or inside 'uninterruptibleMask', this
+-- function has no effect.
+--
+-- /Since: 4.8.2.0/
+interruptible :: IO a -> IO a
+interruptible act = do
+  st <- getMaskingState
+  case st of
+    Unmasked              -> act
+    MaskedInterruptible   -> unsafeUnmask act
+    MaskedUninterruptible -> act
+
 blockUninterruptible :: IO a -> IO a
 blockUninterruptible (IO io) = IO $ maskUninterruptible# io
 
@@ -436,8 +452,9 @@ mask_ io = mask $ \_ -> io
 mask io = do
   b <- getMaskingState
   case b of
-    Unmasked -> block $ io unblock
-    _        -> io id
+    Unmasked              -> block $ io unblock
+    MaskedInterruptible   -> io block
+    MaskedUninterruptible -> io blockUninterruptible
 
 uninterruptibleMask_ io = uninterruptibleMask $ \_ -> io
 
@@ -446,7 +463,7 @@ uninterruptibleMask io = do
   case b of
     Unmasked              -> blockUninterruptible $ io unblock
     MaskedInterruptible   -> blockUninterruptible $ io block
-    MaskedUninterruptible -> io id
+    MaskedUninterruptible -> io blockUninterruptible
 
 bracket
         :: IO a         -- ^ computation to run first (\"acquire resource\")
@@ -470,20 +487,39 @@ a `finally` sequel =
     _ <- sequel
     return r
 
--- | Forces its argument to be evaluated to weak head normal form when
--- the resultant 'IO' action is executed. It can be used to order
--- evaluation with respect to other 'IO' operations; its semantics are
--- given by
+-- | Evaluate the argument to weak head normal form.
 --
--- >   evaluate x `seq` y    ==>  y
--- >   evaluate x `catch` f  ==>  (return $! x) `catch` f
--- >   evaluate x >>= f      ==>  (return $! x) >>= f
+-- 'evaluate' is typically used to uncover any exceptions that a lazy value
+-- may contain, and possibly handle them.
 --
--- /Note:/ the first equation implies that @(evaluate x)@ is /not/ the
--- same as @(return $! x)@.  A correct definition is
+-- 'evaluate' only evaluates to /weak head normal form/. If deeper
+-- evaluation is needed, the @force@ function from @Control.DeepSeq@
+-- may be handy:
 --
--- >   evaluate x = (return $! x) >>= return
+-- > evaluate $ force x
 --
+-- There is a subtle difference between @'evaluate' x@ and @'return' '$!' x@,
+-- analogous to the difference between 'throwIO' and 'throw'. If the lazy
+-- value @x@ throws an exception, @'return' '$!' x@ will fail to return an
+-- 'IO' action and will throw an exception instead. @'evaluate' x@, on the
+-- other hand, always produces an 'IO' action; that action will throw an
+-- exception upon /execution/ iff @x@ throws an exception upon /evaluation/.
+--
+-- The practical implication of this difference is that due to the
+-- /imprecise exceptions/ semantics,
+--
+-- > (return $! error "foo") >> error "bar"
+--
+-- may throw either @"foo"@ or @"bar"@, depending on the optimizations
+-- performed by the compiler. On the other hand,
+--
+-- > evaluate (error "foo") >> error "bar"
+--
+-- is guaranteed to throw @"foo"@.
+--
+-- The rule of thumb is to use 'evaluate' to force or handle exceptions in
+-- lazy values. If, on the other hand, you are forcing a lazy value for
+-- efficiency reasons only and do not care about exceptions, you may
+-- use @'return' '$!' x@.
 evaluate :: a -> IO a
 evaluate a = IO $ \s -> seq# a s -- NB. see #2273, #5129
-

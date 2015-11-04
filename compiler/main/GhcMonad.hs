@@ -1,4 +1,4 @@
-{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE CPP, RankNTypes #-}
 {-# OPTIONS_GHC -funbox-strict-fields #-}
 -- -----------------------------------------------------------------------------
 --
@@ -99,11 +99,11 @@ instance Functor Ghc where
   fmap f m = Ghc $ \s -> f `fmap` unGhc m s
 
 instance Applicative Ghc where
-  pure    = return
+  pure a = Ghc $ \_ -> return a
   g <*> m = do f <- g; a <- m; return (f a)
 
 instance Monad Ghc where
-  return a = Ghc $ \_ -> return a
+  return = pure
   m >>= g  = Ghc $ \s -> do a <- unGhc m s; unGhc (g a) s
 
 instance MonadIO Ghc where
@@ -156,7 +156,8 @@ reifyGhc act = Ghc $ act
 --
 -- Note that the wrapped monad must support IO and handling of exceptions.
 newtype GhcT m a = GhcT { unGhcT :: Session -> m a }
-liftGhcT :: Monad m => m a -> GhcT m a
+
+liftGhcT :: m a -> GhcT m a
 liftGhcT m = GhcT $ \_ -> m
 
 instance Functor m => Functor (GhcT m) where
@@ -166,11 +167,11 @@ instance Applicative m => Applicative (GhcT m) where
   pure x  = GhcT $ \_ -> pure x
   g <*> m = GhcT $ \s -> unGhcT g s <*> unGhcT m s
 
-instance Monad m => Monad (GhcT m) where
-  return x = GhcT $ \_ -> return x
+instance (Applicative m, Monad m) => Monad (GhcT m) where
+  return = pure
   m >>= k  = GhcT $ \s -> do a <- unGhcT m s; unGhcT (k a) s
 
-instance MonadIO m => MonadIO (GhcT m) where
+instance (Applicative m, MonadIO m) => MonadIO (GhcT m) where
   liftIO ioA = GhcT $ \_ -> liftIO ioA
 
 instance ExceptionMonad m => ExceptionMonad (GhcT m) where
@@ -183,10 +184,20 @@ instance ExceptionMonad m => ExceptionMonad (GhcT m) where
                            in
                               unGhcT (f g_restore) s
 
-instance (Functor m, ExceptionMonad m, MonadIO m) => HasDynFlags (GhcT m) where
+#if __GLASGOW_HASKELL__ < 710
+-- Pre-AMP change
+instance (ExceptionMonad m, Functor m) => HasDynFlags (GhcT m) where
+#else
+instance (ExceptionMonad m) => HasDynFlags (GhcT m) where
+#endif
   getDynFlags = getSessionDynFlags
 
-instance (Functor m, ExceptionMonad m, MonadIO m) => GhcMonad (GhcT m) where
+#if __GLASGOW_HASKELL__ < 710
+-- Pre-AMP change
+instance (ExceptionMonad m, Functor m) => GhcMonad (GhcT m) where
+#else
+instance (ExceptionMonad m) => GhcMonad (GhcT m) where
+#endif
   getSession = GhcT $ \(Session r) -> liftIO $ readIORef r
   setSession s' = GhcT $ \(Session r) -> liftIO $ writeIORef r s'
 

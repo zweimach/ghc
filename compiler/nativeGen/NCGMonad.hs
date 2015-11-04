@@ -38,7 +38,7 @@ where
 #include "HsVersions.h"
 
 import Reg
-import Size
+import Format
 import TargetReg
 
 import BlockId
@@ -92,12 +92,12 @@ instance Functor NatM where
       fmap = liftM
 
 instance Applicative NatM where
-      pure = return
+      pure = returnNat
       (<*>) = ap
 
 instance Monad NatM where
   (>>=) = thenNat
-  return = returnNat
+  return = pure
 
 
 thenNat :: NatM a -> (a -> NatM b) -> NatM b
@@ -159,14 +159,14 @@ getNewLabelNat
         return (mkAsmTempLabel u)
 
 
-getNewRegNat :: Size -> NatM Reg
+getNewRegNat :: Format -> NatM Reg
 getNewRegNat rep
  = do u <- getUniqueNat
       dflags <- getDynFlags
       return (RegVirtual $ targetMkVirtualReg (targetPlatform dflags) u rep)
 
 
-getNewRegPairNat :: Size -> NatM (Reg,Reg)
+getNewRegPairNat :: Format -> NatM (Reg,Reg)
 getNewRegPairNat rep
  = do u <- getUniqueNat
       dflags <- getDynFlags
@@ -181,7 +181,7 @@ getPicBaseMaybeNat
         = NatM (\state -> (natm_pic state, state))
 
 
-getPicBaseNat :: Size -> NatM Reg
+getPicBaseNat :: Format -> NatM Reg
 getPicBaseNat rep
  = do   mbPicBase <- getPicBaseMaybeNat
         case mbPicBase of

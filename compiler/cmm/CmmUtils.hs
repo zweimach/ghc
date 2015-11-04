@@ -28,9 +28,11 @@ module CmmUtils(
         cmmRegOffW, cmmOffsetW, cmmLabelOffW, cmmOffsetLitW, cmmOffsetExprW,
         cmmIndex, cmmIndexExpr, cmmLoadIndex, cmmLoadIndexW,
         cmmNegate,
-        cmmULtWord, cmmUGeWord, cmmUGtWord, cmmSubWord,
-        cmmNeWord, cmmEqWord, cmmOrWord, cmmAndWord,
-        cmmUShrWord, cmmAddWord, cmmMulWord, cmmQuotWord,
+        cmmULtWord, cmmUGeWord, cmmUGtWord, cmmUShrWord,
+        cmmSLtWord,
+        cmmNeWord, cmmEqWord,
+        cmmOrWord, cmmAndWord,
+        cmmSubWord, cmmAddWord, cmmMulWord, cmmQuotWord,
         cmmToWord,
 
         isTrivialCmmExpr, hasNoGlobalRegs,
@@ -41,6 +43,9 @@ module CmmUtils(
         -- Tagging
         cmmTagMask, cmmPointerMask, cmmUntag, cmmIsTagged,
         cmmConstrTag1,
+
+        -- Overlap and usage
+        regsOverlap, regUsedIn,
 
         -- Liveness and bitmaps
         mkLiveness,
@@ -75,6 +80,7 @@ import Unique
 import UniqSupply
 import DynFlags
 import Util
+import CodeGen.Platform
 
 import Data.Word
 import Data.Maybe
@@ -205,13 +211,6 @@ cmmOffsetExpr :: DynFlags -> CmmExpr -> CmmExpr -> CmmExpr
 cmmOffsetExpr dflags e (CmmLit (CmmInt n _)) = cmmOffset dflags e (fromInteger n)
 cmmOffsetExpr dflags e byte_off = CmmMachOp (MO_Add (cmmExprWidth dflags e)) [e, byte_off]
 
--- NB. Do *not* inspect the value of the offset in these smart constructors!!!
--- because the offset is sometimes involved in a loop in the code generator
--- (we don't know the real Hp offset until we've generated code for the entire
--- basic block, for example).  So we cannot eliminate zero offsets at this
--- stage; they're eliminated later instead (either during printing or
--- a later optimisation step on Cmm).
---
 cmmOffset :: DynFlags -> CmmExpr -> Int -> CmmExpr
 cmmOffset _ e                 0        = e
 cmmOffset _ (CmmReg reg)      byte_off = cmmRegOff reg byte_off
@@ -246,7 +245,7 @@ cmmLabelOff :: CLabel -> Int -> CmmLit
 cmmLabelOff lbl 0        = CmmLabel lbl
 cmmLabelOff lbl byte_off = CmmLabelOff lbl byte_off
 
--- | Useful for creating an index into an array, with a staticaly known offset.
+-- | Useful for creating an index into an array, with a statically known offset.
 -- The type is the element type; used for making the multiplier
 cmmIndex :: DynFlags
          -> Width       -- Width w
@@ -311,9 +310,11 @@ cmmLoadIndexW :: DynFlags -> CmmExpr -> Int -> CmmType -> CmmExpr
 cmmLoadIndexW dflags base off ty = CmmLoad (cmmOffsetW dflags base off) ty
 
 -----------------------
-cmmULtWord, cmmUGeWord, cmmUGtWord, cmmSubWord,
-  cmmNeWord, cmmEqWord, cmmOrWord, cmmAndWord,
-  cmmUShrWord, cmmAddWord, cmmMulWord, cmmQuotWord
+cmmULtWord, cmmUGeWord, cmmUGtWord, cmmUShrWord,
+  cmmSLtWord,
+  cmmNeWord, cmmEqWord,
+  cmmOrWord, cmmAndWord,
+  cmmSubWord, cmmAddWord, cmmMulWord, cmmQuotWord
   :: DynFlags -> CmmExpr -> CmmExpr -> CmmExpr
 cmmOrWord dflags  e1 e2 = CmmMachOp (mo_wordOr dflags)  [e1, e2]
 cmmAndWord dflags e1 e2 = CmmMachOp (mo_wordAnd dflags) [e1, e2]
@@ -323,6 +324,7 @@ cmmULtWord dflags e1 e2 = CmmMachOp (mo_wordULt dflags) [e1, e2]
 cmmUGeWord dflags e1 e2 = CmmMachOp (mo_wordUGe dflags) [e1, e2]
 cmmUGtWord dflags e1 e2 = CmmMachOp (mo_wordUGt dflags) [e1, e2]
 --cmmShlWord dflags e1 e2 = CmmMachOp (mo_wordShl dflags) [e1, e2]
+cmmSLtWord dflags e1 e2 = CmmMachOp (mo_wordSLt dflags) [e1, e2]
 cmmUShrWord dflags e1 e2 = CmmMachOp (mo_wordUShr dflags) [e1, e2]
 cmmAddWord dflags e1 e2 = CmmMachOp (mo_wordAdd dflags) [e1, e2]
 cmmSubWord dflags e1 e2 = CmmMachOp (mo_wordSub dflags) [e1, e2]
@@ -393,6 +395,38 @@ cmmConstrTag1 :: DynFlags -> CmmExpr -> CmmExpr
 -- Get constructor tag, but one based.
 cmmConstrTag1 dflags e = cmmAndWord dflags e (cmmTagMask dflags)
 
+
+-----------------------------------------------------------------------------
+-- Overlap and usage
+
+-- | Returns True if the two STG registers overlap on the specified
+-- platform, in the sense that writing to one will clobber the
+-- other. This includes the case that the two registers are the same
+-- STG register. See Note [Overlapping global registers] for details.
+regsOverlap :: DynFlags -> CmmReg -> CmmReg -> Bool
+regsOverlap dflags (CmmGlobal g) (CmmGlobal g')
+  | Just real  <- globalRegMaybe (targetPlatform dflags) g,
+    Just real' <- globalRegMaybe (targetPlatform dflags) g',
+    real == real'
+    = True
+regsOverlap _ reg reg' = reg == reg'
+
+-- | Returns True if the STG register is used by the expression, in
+-- the sense that a store to the register might affect the value of
+-- the expression.
+--
+-- We must check for overlapping registers and not just equal
+-- registers here, otherwise CmmSink may incorrectly reorder
+-- assignments that conflict due to overlap. See Trac #10521 and Note
+-- [Overlapping global registers].
+regUsedIn :: DynFlags -> CmmReg -> CmmExpr -> Bool
+regUsedIn dflags = regUsedIn_ where
+  _   `regUsedIn_` CmmLit _         = False
+  reg `regUsedIn_` CmmLoad e  _     = reg `regUsedIn_` e
+  reg `regUsedIn_` CmmReg reg'      = regsOverlap dflags reg reg'
+  reg `regUsedIn_` CmmRegOff reg' _ = regsOverlap dflags reg reg'
+  reg `regUsedIn_` CmmMachOp _ es   = any (reg `regUsedIn_`) es
+  _   `regUsedIn_` CmmStackSlot _ _ = False
 
 --------------------------------------------
 --

@@ -32,7 +32,7 @@ module Outputable (
         sep, cat,
         fsep, fcat,
         hang, punctuate, ppWhen, ppUnless,
-        speakNth, speakNTimes, speakN, speakNOf, plural, isOrAre,
+        speakNth, speakN, speakNOf, plural, isOrAre, doOrDoes,
 
         coloured, PprColour, colType, colCoerc, colDataCon,
         colBinder, bold, keyword,
@@ -40,13 +40,17 @@ module Outputable (
         -- * Converting 'SDoc' into strings and outputing it
         printForC, printForAsm, printForUser, printForUserPartWay,
         pprCode, mkCodeStyle,
-        showSDoc, showSDocSimple, showSDocOneLine,
+        showSDoc, showSDocUnsafe, showSDocOneLine,
         showSDocForUser, showSDocDebug, showSDocDump, showSDocDumpOneLine,
         showSDocUnqual, showPpr,
         renderWithStyle,
 
         pprInfixVar, pprPrefixVar,
         pprHsChar, pprHsString, pprHsBytes,
+
+        primFloatSuffix, primDoubleSuffix,
+        pprPrimChar, pprPrimInt, pprPrimWord, pprPrimInt64, pprPrimWord64,
+
         pprFastFilePath,
 
         -- * Controlling the style in which output is printed
@@ -57,6 +61,7 @@ module Outputable (
         reallyAlwaysQualify, reallyAlwaysQualifyNames,
         alwaysQualify, alwaysQualifyNames, alwaysQualifyModules,
         neverQualify, neverQualifyNames, neverQualifyModules,
+        alwaysQualifyPackages, neverQualifyPackages,
         QualifyName(..), queryQual,
         sdocWithDynFlags, sdocWithPlatform,
         getPprStyle, withPprStyle, withPprStyleDoc,
@@ -67,9 +72,9 @@ module Outputable (
         mkUserStyle, cmdlineParserStyle, Depth(..),
 
         -- * Error handling and debugging utilities
-        pprPanic, pprSorry, assertPprPanic, pprPanicFastInt, pprPgmError,
+        pprPanic, pprSorry, assertPprPanic, pprPgmError,
         pprTrace, warnPprTrace,
-        trace, pgmError, panic, sorry, panicFastInt, assertPanic,
+        trace, pgmError, panic, sorry, assertPanic,
         pprDebugAndThen,
     ) where
 
@@ -77,12 +82,11 @@ import {-# SOURCE #-}   DynFlags( DynFlags,
                                   targetPlatform, pprUserLength, pprCols,
                                   useUnicode, useUnicodeSyntax,
                                   unsafeGlobalDynFlags )
-import {-# SOURCE #-}   Module( PackageKey, Module, ModuleName, moduleName )
+import {-# SOURCE #-}   Module( UnitId, Module, ModuleName, moduleName )
 import {-# SOURCE #-}   OccName( OccName )
 import {-# SOURCE #-}   StaticFlags( opt_PprStyle_Debug, opt_NoDebugOutput )
 
 import FastString
-import FastTypes
 import qualified Pretty
 import Util
 import Platform
@@ -101,6 +105,7 @@ import Data.Word
 import System.IO        ( Handle )
 import System.FilePath
 import Text.Printf
+import Data.Graph (SCC(..))
 
 import GHC.Fingerprint
 import GHC.Show         ( showMultiLineString )
@@ -154,7 +159,7 @@ data PrintUnqualified = QueryQualify {
 -- | given an /original/ name, this function tells you which module
 -- name it should be qualified with when printing for the user, if
 -- any.  For example, given @Control.Exception.catch@, which is in scope
--- as @Exception.catch@, this fuction will return @Just "Exception"@.
+-- as @Exception.catch@, this function will return @Just "Exception"@.
 -- Note that the return value is a ModuleName, not a Module, because
 -- in source code, names are qualified by ModuleNames.
 type QueryQualifyName = Module -> OccName -> QualifyName
@@ -164,19 +169,21 @@ type QueryQualifyName = Module -> OccName -> QualifyName
 type QueryQualifyModule = Module -> Bool
 
 -- | For a given package, we need to know whether to print it with
--- the package key to disambiguate it.
-type QueryQualifyPackage = PackageKey -> Bool
+-- the unit id to disambiguate it.
+type QueryQualifyPackage = UnitId -> Bool
 
 -- See Note [Printing original names] in HscTypes
-data QualifyName                        -- given P:M.T
-        = NameUnqual                    -- refer to it as "T"
-        | NameQual ModuleName           -- refer to it as "X.T" for the supplied X
-        | NameNotInScope1
-                -- it is not in scope at all, but M.T is not bound in the current
-                -- scope, so we can refer to it as "M.T"
-        | NameNotInScope2
-                -- it is not in scope at all, and M.T is already bound in the
-                -- current scope, so we must refer to it as "P:M.T"
+data QualifyName   -- Given P:M.T
+  = NameUnqual           -- It's in scope unqualified as "T"
+                         -- OR nothing called "T" is in scope
+
+  | NameQual ModuleName  -- It's in scope qualified as "X.T"
+
+  | NameNotInScope1      -- It's not in scope at all, but M.T is not bound
+                         -- in the current scope, so we can refer to it as "M.T"
+
+  | NameNotInScope2      -- It's not in scope at all, and M.T is already bound in
+                         -- the current scope, so we must refer to it as "P:M.T"
 
 reallyAlwaysQualifyNames :: QueryQualifyName
 reallyAlwaysQualifyNames _ _ = NameNotInScope2
@@ -407,8 +414,10 @@ mkCodeStyle = PprCode
 showSDoc :: DynFlags -> SDoc -> String
 showSDoc dflags sdoc = renderWithStyle dflags sdoc defaultUserStyle
 
-showSDocSimple :: SDoc -> String
-showSDocSimple sdoc = showSDoc unsafeGlobalDynFlags sdoc
+-- showSDocUnsafe is unsafe, because `unsafeGlobalDynFlags` might not be
+-- initialised yet.
+showSDocUnsafe :: SDoc -> String
+showSDocUnsafe sdoc = showSDoc unsafeGlobalDynFlags sdoc
 
 showPpr :: Outputable a => DynFlags -> a -> String
 showPpr dflags thing = showSDoc dflags (ppr thing)
@@ -430,21 +439,24 @@ showSDocDebug dflags d = renderWithStyle dflags d PprDebug
 
 renderWithStyle :: DynFlags -> SDoc -> PprStyle -> String
 renderWithStyle dflags sdoc sty
-  = Pretty.showDoc PageMode (pprCols dflags) $
-    runSDoc sdoc (initSDocContext dflags sty)
+  = let s = Pretty.style{ Pretty.mode = PageMode,
+                          Pretty.lineLength = pprCols dflags }
+    in Pretty.renderStyle s $ runSDoc sdoc (initSDocContext dflags sty)
 
 -- This shows an SDoc, but on one line only. It's cheaper than a full
 -- showSDoc, designed for when we're getting results like "Foo.bar"
 -- and "foo{uniq strictness}" so we don't want fancy layout anyway.
 showSDocOneLine :: DynFlags -> SDoc -> String
 showSDocOneLine dflags d
- = Pretty.showDoc OneLineMode (pprCols dflags) $
-   runSDoc d (initSDocContext dflags defaultUserStyle)
+ = let s = Pretty.style{ Pretty.mode = OneLineMode,
+                         Pretty.lineLength = pprCols dflags } in
+   Pretty.renderStyle s $ runSDoc d (initSDocContext dflags defaultUserStyle)
 
 showSDocDumpOneLine :: DynFlags -> SDoc -> String
 showSDocDumpOneLine dflags d
- = Pretty.showDoc OneLineMode irrelevantNCols $
-   runSDoc d (initSDocContext dflags defaultDumpStyle)
+ = let s = Pretty.style{ Pretty.mode = OneLineMode,
+                         Pretty.lineLength = irrelevantNCols } in
+   Pretty.renderStyle s $ runSDoc d (initSDocContext dflags defaultDumpStyle)
 
 irrelevantNCols :: Int
 -- Used for OneLineMode and LeftMode when number of cols isn't used
@@ -492,8 +504,7 @@ angleBrackets d = char '<' <> d <> char '>'
 paBrackets d    = ptext (sLit "[:") <> d <> ptext (sLit ":]")
 
 cparen :: Bool -> SDoc -> SDoc
-
-cparen b d     = SDoc $ Pretty.cparen b . runSDoc d
+cparen b d = SDoc $ Pretty.maybeParens b . runSDoc d
 
 -- 'quotes' encloses something in single quotes...
 -- but it omits them if the thing begins or ends in a single quote
@@ -519,8 +530,8 @@ dcolon     = unicodeSyntax (char '∷') (docToSDoc $ Pretty.ptext (sLit "::"))
 arrow      = unicodeSyntax (char '→') (docToSDoc $ Pretty.ptext (sLit "->"))
 larrow     = unicodeSyntax (char '←') (docToSDoc $ Pretty.ptext (sLit "<-"))
 darrow     = unicodeSyntax (char '⇒') (docToSDoc $ Pretty.ptext (sLit "=>"))
-arrowt     = unicodeSyntax (char '↣') (docToSDoc $ Pretty.ptext (sLit ">-"))
-larrowt    = unicodeSyntax (char '↢') (docToSDoc $ Pretty.ptext (sLit "-<"))
+arrowt     = unicodeSyntax (char '⤚') (docToSDoc $ Pretty.ptext (sLit ">-"))
+larrowt    = unicodeSyntax (char '⤙') (docToSDoc $ Pretty.ptext (sLit "-<"))
 arrowtt    = unicodeSyntax (char '⤜') (docToSDoc $ Pretty.ptext (sLit ">>-"))
 larrowtt   = unicodeSyntax (char '⤛') (docToSDoc $ Pretty.ptext (sLit "-<<"))
 semi       = docToSDoc $ Pretty.semi
@@ -771,6 +782,10 @@ instance (Outputable elt) => Outputable (IM.IntMap elt) where
 instance Outputable Fingerprint where
     ppr (Fingerprint w1 w2) = text (printf "%016x%016x" w1 w2)
 
+instance Outputable a => Outputable (SCC a) where
+   ppr (AcyclicSCC v) = text "NONREC" $$ (nest 3 (ppr v))
+   ppr (CyclicSCC vs) = text "REC" $$ (nest 3 (vcat (map ppr vs)))
+
 {-
 ************************************************************************
 *                                                                      *
@@ -814,7 +829,7 @@ pprHsChar c | c > '\x10ffff' = char '\\' <> text (show (fromIntegral (ord c) :: 
 pprHsString :: FastString -> SDoc
 pprHsString fs = vcat (map text (showMultiLineString (unpackFS fs)))
 
--- | Special combinator for showing string literals.
+-- | Special combinator for showing bytestring literals.
 pprHsBytes :: ByteString -> SDoc
 pprHsBytes bs = let escaped = concatMap escape $ BS.unpack bs
                 in vcat (map text (showMultiLineString escaped)) <> char '#'
@@ -823,6 +838,27 @@ pprHsBytes bs = let escaped = concatMap escape $ BS.unpack bs
                      in if isAscii c
                         then [c]
                         else '\\' : show w
+
+-- Postfix modifiers for unboxed literals.
+-- See Note [Printing of literals in Core] in `basicTypes/Literal.hs`.
+primCharSuffix, primFloatSuffix, primIntSuffix :: SDoc
+primDoubleSuffix, primWordSuffix, primInt64Suffix, primWord64Suffix :: SDoc
+primCharSuffix   = char '#'
+primFloatSuffix  = char '#'
+primIntSuffix    = char '#'
+primDoubleSuffix = text "##"
+primWordSuffix   = text "##"
+primInt64Suffix  = text "L#"
+primWord64Suffix = text "L##"
+
+-- | Special combinator for showing unboxed literals.
+pprPrimChar :: Char -> SDoc
+pprPrimInt, pprPrimWord, pprPrimInt64, pprPrimWord64 :: Integer -> SDoc
+pprPrimChar c   = pprHsChar c <> primCharSuffix
+pprPrimInt i    = integer i   <> primIntSuffix
+pprPrimWord w   = integer w   <> primWordSuffix
+pprPrimInt64 i  = integer i   <> primInt64Suffix
+pprPrimWord64 w = integer w   <> primWord64Suffix
 
 ---------------------
 -- Put a name in parens if it's an operator
@@ -945,16 +981,6 @@ speakNOf 0 d = ptext (sLit "no") <+> d <> char 's'
 speakNOf 1 d = ptext (sLit "one") <+> d                 -- E.g. "one argument"
 speakNOf n d = speakN n <+> d <> char 's'               -- E.g. "three arguments"
 
--- | Converts a strictly positive integer into a number of times:
---
--- > speakNTimes 1 = text "once"
--- > speakNTimes 2 = text "twice"
--- > speakNTimes 4 = text "4 times"
-speakNTimes :: Int {- >=1 -} -> SDoc
-speakNTimes t | t == 1     = ptext (sLit "once")
-              | t == 2     = ptext (sLit "twice")
-              | otherwise  = speakN t <+> ptext (sLit "times")
-
 -- | Determines the pluralisation suffix appropriate for the length of a list:
 --
 -- > plural [] = char 's'
@@ -972,6 +998,15 @@ plural _   = char 's'
 isOrAre :: [a] -> SDoc
 isOrAre [_] = ptext (sLit "is")
 isOrAre _   = ptext (sLit "are")
+
+-- | Determines the form of to do appropriate for the length of a list:
+--
+-- > doOrDoes [] = ptext (sLit "do")
+-- > doOrDoes ["Hello"] = ptext (sLit "does")
+-- > doOrDoes ["Hello", "World"] = ptext (sLit "do")
+doOrDoes :: [a] -> SDoc
+doOrDoes [_] = ptext (sLit "does")
+doOrDoes _   = ptext (sLit "do")
 
 {-
 ************************************************************************
@@ -1000,10 +1035,6 @@ pprTrace :: String -> SDoc -> a -> a
 pprTrace str doc x
    | opt_NoDebugOutput = x
    | otherwise         = pprDebugAndThen unsafeGlobalDynFlags trace (text str) doc x
-
-pprPanicFastInt :: String -> SDoc -> FastInt
--- ^ Specialization of pprPanic that can be safely used with 'FastInt'
-pprPanicFastInt heading pretty_msg = panicDocFastInt heading pretty_msg
 
 warnPprTrace :: Bool -> String -> Int -> SDoc -> a -> a
 -- ^ Just warn about an assertion failure, recording the given file and line number.

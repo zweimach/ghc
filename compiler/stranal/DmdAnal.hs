@@ -27,6 +27,7 @@ import Id
 import CoreUtils        ( exprIsHNF, exprType, exprIsTrivial )
 import TyCon
 import Type
+import Coercion         ( Coercion, coVarsOfCo )
 import FamInstEnv
 import Util
 import Maybes           ( isJust )
@@ -131,13 +132,14 @@ dmdAnal env d e = -- pprTrace "dmdAnal" (ppr d <+> ppr e) $
 
 dmdAnal' _ _ (Lit lit)     = (nopDmdType, Lit lit)
 dmdAnal' _ _ (Type ty)     = (nopDmdType, Type ty)      -- Doesn't happen, in fact
-dmdAnal' _ _ (Coercion co) = (nopDmdType, Coercion co)
+dmdAnal' _ _ (Coercion co)
+  = (unitDmdType (coercionDmdEnv co), Coercion co)
 
 dmdAnal' env dmd (Var var)
   = (dmdTransform env var dmd, Var var)
 
 dmdAnal' env dmd (Cast e co)
-  = (dmd_ty, Cast e' co)
+  = (dmd_ty `bothDmdType` mkBothDmdArg (coercionDmdEnv co), Cast e' co)
   where
     (dmd_ty, e') = dmdAnal env dmd e
 
@@ -164,15 +166,13 @@ dmdAnal' env dmd (App fun (Type ty))
   where
     (fun_ty, fun') = dmdAnal env dmd fun
 
-dmdAnal' sigs dmd (App fun (Coercion co))
-  = (fun_ty, App fun' (Coercion co))
-  where
-    (fun_ty, fun') = dmdAnal sigs dmd fun
-
 -- Lots of the other code is there to make this
 -- beautiful, compositional, application rule :-)
-dmdAnal' env dmd (App fun arg)  -- Non-type arguments
-  = let                         -- [Type arg handled above]
+dmdAnal' env dmd (App fun arg)
+  = -- This case handles value arguments (type args handled above)
+    -- Crucially, coercions /are/ handled here, because they are
+    -- value arguments (Trac #10288)
+    let
         call_dmd          = mkCallDmd dmd
         (fun_ty, fun')    = dmdAnal env call_dmd fun
         (arg_dmd, res_ty) = splitDmdTy fun_ty
@@ -208,69 +208,46 @@ dmdAnal' env dmd (Lam var body)
     in
     (postProcessUnsat defer_and_use lam_ty, Lam var' body')
 
-dmdAnal' env dmd (Case scrut case_bndr ty [alt@(DataAlt dc, _, _)])
+dmdAnal' env dmd (Case scrut case_bndr ty [(DataAlt dc, bndrs, rhs)])
   -- Only one alternative with a product constructor
   | let tycon = dataConTyCon dc
-  , isProductTyCon tycon
+  , isJust (isDataProductTyCon_maybe tycon)
   , Just rec_tc' <- checkRecTc (ae_rec_tc env) tycon
   = let
-        env_w_tc              = env { ae_rec_tc = rec_tc' }
-        env_alt               = extendAnalEnv NotTopLevel env_w_tc case_bndr case_bndr_sig
-        (alt_ty, alt')        = dmdAnalAlt env_alt dmd alt
-        (alt_ty1, case_bndr') = annotateBndr env alt_ty case_bndr
-        (_, bndrs', _)        = alt'
-        case_bndr_sig         = cprProdSig (dataConRepArity dc)
-                -- Inside the alternative, the case binder has the CPR property.
-                -- Meaning that a case on it will successfully cancel.
-                -- Example:
-                --      f True  x = case x of y { I# x' -> if x' ==# 3 then y else I# 8 }
-                --      f False x = I# 3
-                --
-                -- We want f to have the CPR property:
-                --      f b x = case fw b x of { r -> I# r }
-                --      fw True  x = case x of y { I# x' -> if x' ==# 3 then x' else 8 }
-                --      fw False x = 3
+        env_w_tc                 = env { ae_rec_tc = rec_tc' }
+        env_alt                  = extendEnvForProdAlt env_w_tc scrut case_bndr dc bndrs
+        (rhs_ty, rhs')           = dmdAnal env_alt dmd rhs
+        (alt_ty1, dmds)          = findBndrsDmds env rhs_ty bndrs
+        (alt_ty2, case_bndr_dmd) = findBndrDmd env False alt_ty1 case_bndr
+        id_dmds                  = addCaseBndrDmd case_bndr_dmd dmds
+        alt_ty3 | io_hack_reqd scrut dc bndrs = deferAfterIO alt_ty2
+                | otherwise                   = alt_ty2
 
-        -- Figure out whether the demand on the case binder is used, and use
-        -- that to set the scrut_dmd.  This is utterly essential.
-        -- Consider     f x = case x of y { (a,b) -> k y a }
-        -- If we just take scrut_demand = U(L,A), then we won't pass x to the
-        -- worker, so the worker will rebuild
-        --      x = (a, absent-error)
-        -- and that'll crash.
-        -- So at one stage I had:
-        --      dead_case_bndr           = isAbsDmd (idDemandInfo case_bndr')
-        --      keepity | dead_case_bndr = Drop
-        --              | otherwise      = Keep
-        --
-        -- But then consider
-        --      case x of y { (a,b) -> h y + a }
-        -- where h : U(LL) -> T
-        -- The above code would compute a Keep for x, since y is not Abs, which is silly
-        -- The insight is, of course, that a demand on y is a demand on the
-        -- scrutinee, so we need to `both` it with the scrut demand
-
-        scrut_dmd1 = mkProdDmd [idDemandInfo b | b <- bndrs', isId b]
-        scrut_dmd2 = strictenDmd (idDemandInfo case_bndr')
-        scrut_dmd  = scrut_dmd1 `bothCleanDmd` scrut_dmd2
-
+        -- Compute demand on the scrutinee
+        -- See Note [Demand on scrutinee of a product case]
+        scrut_dmd          = mkProdDmd (addDataConStrictness dc id_dmds)
         (scrut_ty, scrut') = dmdAnal env scrut_dmd scrut
-        res_ty             = alt_ty1 `bothDmdType` toBothDmdArg scrut_ty
+        res_ty             = alt_ty3 `bothDmdType` toBothDmdArg scrut_ty
+        case_bndr'         = setIdDemandInfo case_bndr case_bndr_dmd
+        bndrs'             = setBndrsDemandInfo bndrs id_dmds
     in
 --    pprTrace "dmdAnal:Case1" (vcat [ text "scrut" <+> ppr scrut
 --                                   , text "dmd" <+> ppr dmd
 --                                   , text "case_bndr_dmd" <+> ppr (idDemandInfo case_bndr')
 --                                   , text "scrut_dmd" <+> ppr scrut_dmd
 --                                   , text "scrut_ty" <+> ppr scrut_ty
---                                   , text "alt_ty" <+> ppr alt_ty1
+--                                   , text "alt_ty" <+> ppr alt_ty2
 --                                   , text "res_ty" <+> ppr res_ty ]) $
-    (res_ty, Case scrut' case_bndr' ty [alt'])
+    (res_ty, Case scrut' case_bndr' ty [(DataAlt dc, bndrs', rhs')])
 
 dmdAnal' env dmd (Case scrut case_bndr ty alts)
   = let      -- Case expression with multiple alternatives
-        (alt_tys, alts')     = mapAndUnzip (dmdAnalAlt env dmd) alts
+        (alt_tys, alts')     = mapAndUnzip (dmdAnalAlt env dmd case_bndr) alts
         (scrut_ty, scrut')   = dmdAnal env cleanEvalDmd scrut
         (alt_ty, case_bndr') = annotateBndr env (foldr lubDmdType botDmdType alt_tys) case_bndr
+                               -- NB: Base case is botDmdType, for empty case alternatives
+                               --     This is a unit for lubDmdType, and the right result
+                               --     when there really are no alternatives
         res_ty               = alt_ty `bothDmdType` toBothDmdArg scrut_ty
     in
 --    pprTrace "dmdAnal:Case2" (vcat [ text "scrut" <+> ppr scrut
@@ -315,6 +292,19 @@ dmdAnal' env dmd (Let (Rec pairs) body)
     body_ty2 `seq`
     (body_ty2,  Let (Rec pairs') body')
 
+io_hack_reqd :: CoreExpr -> DataCon -> [Var] -> Bool
+-- See Note [IO hack in the demand analyser]
+io_hack_reqd scrut con bndrs
+  | (bndr:_) <- bndrs
+  , con == tupleDataCon Unboxed 2
+  , idType bndr `eqType` realWorldStatePrimTy
+  , (fun, _) <- collectArgs scrut
+  = case fun of
+      Var f -> not (isPrimOpId f)
+      _     -> True
+  | otherwise
+  = False
+
 annLamWithShotness :: Demand -> CoreExpr -> CoreExpr
 annLamWithShotness d e
   | Just u <- cleanUseDmd_maybe d
@@ -334,40 +324,72 @@ setOneShotness :: Count -> Id -> Id
 setOneShotness One  bndr = setOneShotLambda bndr
 setOneShotness Many bndr = bndr
 
-dmdAnalAlt :: AnalEnv -> CleanDemand -> Alt Var -> (DmdType, Alt Var)
-dmdAnalAlt env dmd (con,bndrs,rhs)
-  = let
-        (rhs_ty, rhs')   = dmdAnal env dmd rhs
-        rhs_ty'          = addDataConPatDmds con bndrs rhs_ty
-        (alt_ty, bndrs') = annotateBndrs env rhs_ty' bndrs
-        final_alt_ty | io_hack_reqd = deferAfterIO alt_ty
-                     | otherwise    = alt_ty
+dmdAnalAlt :: AnalEnv -> CleanDemand -> Id -> Alt Var -> (DmdType, Alt Var)
+dmdAnalAlt env dmd case_bndr (con,bndrs,rhs)
+  | null bndrs    -- Literals, DEFAULT, and nullary constructors
+  , (rhs_ty, rhs') <- dmdAnal env dmd rhs
+  = (rhs_ty, (con, [], rhs'))
 
-        -- Note [IO hack in the demand analyser]
-        --
-        -- There's a hack here for I/O operations.  Consider
-        --      case foo x s of { (# s, r #) -> y }
-        -- Is this strict in 'y'.  Normally yes, but what if 'foo' is an I/O
-        -- operation that simply terminates the program (not in an erroneous way)?
-        -- In that case we should not evaluate y before the call to 'foo'.
-        -- Hackish solution: spot the IO-like situation and add a virtual branch,
-        -- as if we had
-        --      case foo x s of
-        --         (# s, r #) -> y
-        --         other      -> return ()
-        -- So the 'y' isn't necessarily going to be evaluated
-        --
-        -- A more complete example (Trac #148, #1592) where this shows up is:
-        --      do { let len = <expensive> ;
-        --         ; when (...) (exitWith ExitSuccess)
-        --         ; print len }
+  | otherwise     -- Non-nullary data constructors
+  , (rhs_ty, rhs') <- dmdAnal env dmd rhs
+  , (alt_ty, dmds) <- findBndrsDmds env rhs_ty bndrs
+  , let case_bndr_dmd = findIdDemand alt_ty case_bndr
+        id_dmds       = addCaseBndrDmd case_bndr_dmd dmds
+  = (alt_ty, (con, setBndrsDemandInfo bndrs id_dmds, rhs'))
 
-        io_hack_reqd = con == DataAlt (tupleCon UnboxedTuple 2) &&
-                       idType (head bndrs) `eqType` realWorldStatePrimTy
-    in
-    (final_alt_ty, (con, bndrs', rhs'))
 
-{-
+{- Note [IO hack in the demand analyser]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+There's a hack here for I/O operations.  Consider
+     case foo x s of { (# s, r #) -> y }
+Is this strict in 'y'?  Normally yes, but what if 'foo' is an I/O
+operation that simply terminates the program (not in an erroneous way)?
+In that case we should not evaluate 'y' before the call to 'foo'.
+Hackish solution: spot the IO-like situation and add a virtual branch,
+as if we had
+     case foo x s of
+        (# s, r #) -> y
+        other      -> return ()
+So the 'y' isn't necessarily going to be evaluated
+
+A more complete example (Trac #148, #1592) where this shows up is:
+     do { let len = <expensive> ;
+        ; when (...) (exitWith ExitSuccess)
+        ; print len }
+
+However, consider
+  f x s = case getMaskingState# s of
+            (# s, r #) ->
+          case x of I# x2 -> ...
+
+Here it is terribly sad to make 'f' lazy in 's'.  After all,
+getMaskingState# is not going to diverge or throw an exception!  This
+situation actually arises in GHC.IO.Handle.Internals.wantReadableHandle
+(on an MVar not an Int), and made a material difference.
+
+So if the scrutinee is a primop call, we *don't* apply the
+state hack:
+  - If is a simple, terminating one like getMaskingState,
+    applying the hack is over-conservative.
+  - If the primop is raise# then it returns bottom, so
+    the case alternatives are already discarded.
+  - If the primop can raise a non-IO exception, like
+    divide by zero or seg-fault (eg writing an array
+    out of bounds) then we don't mind evaluating 'x' first.
+
+Note [Demand on the scrutinee of a product case]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When figuring out the demand on the scrutinee of a product case,
+we use the demands of the case alternative, i.e. id_dmds.
+But note that these include the demand on the case binder;
+see Note [Demand on case-alternative binders] in Demand.hs.
+This is crucial. Example:
+   f x = case x of y { (a,b) -> k y a }
+If we just take scrut_demand = U(L,A), then we won't pass x to the
+worker, so the worker will rebuild
+     x = (a, absent-error)
+and that'll crash.
+
 Note [Aggregated demand for cardinality]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We use different strategies for strictness and usage/cardinality to
@@ -424,53 +446,7 @@ in this case.
 
 In other words, for locally-bound lambdas we can infer
 one-shotness.
--}
 
-addDataConPatDmds :: AltCon -> [Var] -> DmdType -> DmdType
--- See Note [Add demands for strict constructors]
-addDataConPatDmds DEFAULT    _ dmd_ty = dmd_ty
-addDataConPatDmds (LitAlt _) _ dmd_ty = dmd_ty
-addDataConPatDmds (DataAlt con) bndrs dmd_ty
-  = foldr add dmd_ty str_bndrs
-  where
-    add bndr dmd_ty = addVarDmd dmd_ty bndr seqDmd
-    str_bndrs = [ b | (b,s) <- zipEqual "addDataConPatBndrs"
-                                   (filter isId bndrs)
-                                   (dataConRepStrictness con)
-                    , isMarkedStrict s ]
-
-{-
-Note [Add demands for strict constructors]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Consider this program (due to Roman):
-
-    data X a = X !a
-
-    foo :: X Int -> Int -> Int
-    foo (X a) n = go 0
-     where
-       go i | i < n     = a + go (i+1)
-            | otherwise = 0
-
-We want the worker for 'foo' too look like this:
-
-    $wfoo :: Int# -> Int# -> Int#
-
-with the first argument unboxed, so that it is not eval'd each time
-around the loop (which would otherwise happen, since 'foo' is not
-strict in 'a'.  It is sound for the wrapper to pass an unboxed arg
-because X is strict, so its argument must be evaluated.  And if we
-*don't* pass an unboxed argument, we can't even repair it by adding a
-`seq` thus:
-
-    foo (X a) n = a `seq` go 0
-
-because the seq is discarded (very early) since X is strict!
-
-There is the usual danger of reboxing, which as usual we ignore. But
-if X is monomorphic, and has an UNPACK pragma, then this optimisation
-is even more important.  We don't want the wrapper to rebox an unboxed
-argument, and pass an Int to $wfoo!
 
 ************************************************************************
 *                                                                      *
@@ -507,7 +483,7 @@ dmdTransform env var dmd
     else addVarDmd fn_ty var (mkOnceUsedDmd dmd)
 
   | otherwise                                    -- Local non-letrec-bound thing
-  = unitVarDmd var (mkOnceUsedDmd dmd)
+  = unitDmdType (unitVarEnv var (mkOnceUsedDmd dmd))
 
 {-
 ************************************************************************
@@ -703,9 +679,12 @@ a product type.
 ************************************************************************
 -}
 
-unitVarDmd :: Var -> Demand -> DmdType
-unitVarDmd var dmd
-  = DmdType (unitVarEnv var dmd) [] topRes
+unitDmdType :: DmdEnv -> DmdType
+unitDmdType dmd_env = DmdType dmd_env [] topRes
+
+coercionDmdEnv :: Coercion -> DmdEnv
+coercionDmdEnv co = mapVarEnv (const topDmd) (coVarsOfCo co)
+                    -- The VarSet from coVarsOfCo is really a VarEnv Var
 
 addVarDmd :: DmdType -> Var -> Demand -> DmdType
 addVarDmd (DmdType fv ds res) var dmd
@@ -746,6 +725,13 @@ conservative thing and refrain from strictifying a dfun's argument
 dictionaries.
 -}
 
+setBndrsDemandInfo :: [Var] -> [Demand] -> [Var]
+setBndrsDemandInfo (b:bs) (d:ds)
+  | isTyVar b = b : setBndrsDemandInfo bs (d:ds)
+  | otherwise = setIdDemandInfo b d : setBndrsDemandInfo bs ds
+setBndrsDemandInfo [] ds = ASSERT( null ds ) []
+setBndrsDemandInfo bs _  = pprPanic "setBndrsDemandInfo" (ppr bs)
+
 annotateBndr :: AnalEnv -> DmdType -> Var -> (DmdType, Var)
 -- The returned env has the var deleted
 -- The returned var is annotated with demand info
@@ -756,9 +742,6 @@ annotateBndr env dmd_ty var
   | otherwise = (dmd_ty, var)
   where
     (dmd_ty', dmd) = findBndrDmd env False dmd_ty var
-
-annotateBndrs :: AnalEnv -> DmdType -> [Var] -> (DmdType, [Var])
-annotateBndrs env = mapAccumR (annotateBndr env)
 
 annotateLamBndrs :: AnalEnv -> DFunFlag -> DmdType -> [Var] -> (DmdType, [Var])
 annotateLamBndrs env args_of_dfun ty bndrs = mapAccumR annotate ty bndrs
@@ -1085,12 +1068,59 @@ extendSigsWithLam env id
   | otherwise
   = env
 
+extendEnvForProdAlt :: AnalEnv -> CoreExpr -> Id -> DataCon -> [Var] -> AnalEnv
+-- See Note [CPR in a product case alternative]
+extendEnvForProdAlt env scrut case_bndr dc bndrs
+  = foldl do_con_arg env1 ids_w_strs
+  where
+    env1 = extendAnalEnv NotTopLevel env case_bndr case_bndr_sig
+
+    ids_w_strs    = filter isId bndrs `zip` dataConRepStrictness dc
+    case_bndr_sig = cprProdSig (dataConRepArity dc)
+    fam_envs      = ae_fam_envs env
+
+    do_con_arg env (id, str)
+       | let is_strict = isStrictDmd (idDemandInfo id) || isMarkedStrict str
+       , ae_virgin env || (is_var_scrut && is_strict)  -- See Note [CPR in a product case alternative]
+       , Just (dc,_,_,_) <- deepSplitProductType_maybe fam_envs $ idType id
+       = extendAnalEnv NotTopLevel env id (cprProdSig (dataConRepArity dc))
+       | otherwise
+       = env
+
+    is_var_scrut = is_var scrut
+    is_var (Cast e _) = is_var e
+    is_var (Var v)    = isLocalId v
+    is_var _          = False
+
+addDataConStrictness :: DataCon -> [Demand] -> [Demand]
+-- See Note [Add demands for strict constructors]
+addDataConStrictness con ds
+  = ASSERT2( equalLength strs ds, ppr con $$ ppr strs $$ ppr ds )
+    zipWith add ds strs
+  where
+    strs = dataConRepStrictness con
+    add dmd str | isMarkedStrict str
+                , not (isAbsDmd dmd) = dmd `bothDmd` seqDmd
+                | otherwise          = dmd
+
+findBndrsDmds :: AnalEnv -> DmdType -> [Var] -> (DmdType, [Demand])
+-- Return the demands on the Ids in the [Var]
+findBndrsDmds env dmd_ty bndrs
+  = go dmd_ty bndrs
+  where
+    go dmd_ty []  = (dmd_ty, [])
+    go dmd_ty (b:bs)
+      | isId b    = let (dmd_ty1, dmds) = go dmd_ty bs
+                        (dmd_ty2, dmd)  = findBndrDmd env False dmd_ty1 b
+                    in (dmd_ty2, dmd : dmds)
+      | otherwise = go dmd_ty bs
+
 findBndrDmd :: AnalEnv -> Bool -> DmdType -> Id -> (DmdType, Demand)
--- See Note [Trimming a demand to a type] in Demand.lhs
+-- See Note [Trimming a demand to a type] in Demand.hs
 findBndrDmd env arg_of_dfun dmd_ty id
   = (dmd_ty', dmd')
   where
-    dmd' = zapDemand (ae_dflags env) $
+    dmd' = killUsageDemand (ae_dflags env) $
            strictify $
            trimToType starting_dmd (findTypeShape fam_envs id_ty)
 
@@ -1112,7 +1142,7 @@ findBndrDmd env arg_of_dfun dmd_ty id
 
 set_idStrictness :: AnalEnv -> Id -> StrictSig -> Id
 set_idStrictness env id sig
-  = setIdStrictness id (zapStrictSig (ae_dflags env) sig)
+  = setIdStrictness id (killUsageSig (ae_dflags env) sig)
 
 dumpStrSig :: CoreProgram -> SDoc
 dumpStrSig binds = vcat (map printId ids)
@@ -1123,7 +1153,101 @@ dumpStrSig binds = vcat (map printId ids)
   printId id | isExportedId id = ppr id <> colon <+> pprIfaceStrictSig (idStrictness id)
              | otherwise       = empty
 
-{-
+{- Note [CPR in a product case alternative]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In a case alternative for a product type, we want to give some of the
+binders the CPR property.  Specifically
+
+ * The case binder; inside the alternative, the case binder always has
+   the CPR property, meaning that a case on it will successfully cancel.
+   Example:
+        f True  x = case x of y { I# x' -> if x' ==# 3
+                                           then y
+                                           else I# 8 }
+        f False x = I# 3
+
+   By giving 'y' the CPR property, we ensure that 'f' does too, so we get
+        f b x = case fw b x of { r -> I# r }
+        fw True  x = case x of y { I# x' -> if x' ==# 3 then x' else 8 }
+        fw False x = 3
+
+   Of course there is the usual risk of re-boxing: we have 'x' available
+   boxed and unboxed, but we return the unboxed verison for the wrapper to
+   box.  If the wrapper doesn't cancel with its caller, we'll end up
+   re-boxing something that we did have available in boxed form.
+
+ * Any strict binders with product type, can use
+   Note [Initial CPR for strict binders].  But we can go a little
+   further. Consider
+
+      data T = MkT !Int Int
+
+      f2 (MkT x y) | y>0       = f2 (MkT x (y-1))
+                   | otherwise = x
+
+   For $wf2 we are going to unbox the MkT *and*, since it is strict, the
+   first agument of the MkT; see Note [Add demands for strict constructors].
+   But then we don't want box it up again when returning it!  We want
+   'f2' to have the CPR property, so we give 'x' the CPR property.
+
+ * It's a bit delicate because if this case is scrutinising something other
+   than an argument the original function, we really don't have the unboxed
+   version available.  E.g
+      g v = case foo v of
+              MkT x y | y>0       -> ...
+                      | otherwise -> x
+   Here we don't have the unboxed 'x' available.  Hence the
+   is_var_scrut test when making use of the strictness annoatation.
+   Slightly ad-hoc, because even if the scrutinee *is* a variable it
+   might not be a onre of the arguments to the original function, or a
+   sub-component thereof.  But it's simple, and nothing terrible
+   happens if we get it wrong.  e.g. Trac #10694.
+
+Note [Add demands for strict constructors]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Consider this program (due to Roman):
+
+    data X a = X !a
+
+    foo :: X Int -> Int -> Int
+    foo (X a) n = go 0
+     where
+       go i | i < n     = a + go (i+1)
+            | otherwise = 0
+
+We want the worker for 'foo' too look like this:
+
+    $wfoo :: Int# -> Int# -> Int#
+
+with the first argument unboxed, so that it is not eval'd each time
+around the 'go' loop (which would otherwise happen, since 'foo' is not
+strict in 'a').  It is sound for the wrapper to pass an unboxed arg
+because X is strict, so its argument must be evaluated.  And if we
+*don't* pass an unboxed argument, we can't even repair it by adding a
+`seq` thus:
+
+    foo (X a) n = a `seq` go 0
+
+because the seq is discarded (very early) since X is strict!
+
+We achieve the effect using addDataConStrictness.  It is called at a
+case expression, such as the pattern match on (X a) in the example
+above.  After computing how 'a' is used in the alternatives, we add an
+extra 'seqDmd' to it.  The case alternative isn't itself strict in the
+sub-components, but simply evaluating the scrutinee to HNF does force
+those sub-components.
+
+If the argument is not used at all in the alternative (i.e. it is
+Absent), then *don't* add a 'seqDmd'.  If we do, it makes it look used
+and hence it'll be passed to the worker when it doesn't need to be.
+Hence the isAbsDmd test in addDataConStrictness.
+
+There is the usual danger of reboxing, which as usual we ignore. But
+if X is monomorphic, and has an UNPACK pragma, then this optimisation
+is even more important.  We don't want the wrapper to rebox an unboxed
+argument, and pass an Int to $wfoo!
+
+
 Note [Initial CPR for strict binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 CPR is initialized for a lambda binder in an optimistic manner, i.e,
@@ -1132,19 +1256,86 @@ a product are used, which is checked by the value of the absence
 demand.
 
 If the binder is marked demanded with a strict demand, then give it a
-CPR signature, because in the likely event that this is a lambda on a
-fn defn [we only use this when the lambda is being consumed with a
-call demand], it'll be w/w'd and so it will be CPR-ish.  E.g.
+CPR signature. Here's a concrete example ('f1' in test T10482a),
+assuming h is strict:
 
-        f = \x::(Int,Int).  if ...strict in x... then
-                                x
-                            else
-                                (a,b)
-We want f to have the CPR property because x does, by the time f has been w/w'd
+  f1 :: Int -> Int
+  f1 x = case h x of
+          A -> x
+          B -> f1 (x-1)
+          C -> x+1
 
-Also note that we only want to do this for something that definitely
-has product type, else we may get over-optimistic CPR results
-(e.g. from \x -> x!).
+If we notice that 'x' is used strictly, we can give it the CPR
+property; and hence f1 gets the CPR property too.  It's sound (doesn't
+change strictness) to give it the CPR property because by the time 'x'
+is returned (case A above), it'll have been evaluated (by the wrapper
+of 'h' in the example).
+
+Moreover, if f itself is strict in x, then we'll pass x unboxed to
+f1, and so the boxed version *won't* be available; in that case it's
+very helpful to give 'x' the CPR property.
+
+Note that
+
+  * We only want to do this for something that definitely
+    has product type, else we may get over-optimistic CPR results
+    (e.g. from \x -> x!).
+
+  * See Note [CPR examples]
+
+Note [CPR examples]
+~~~~~~~~~~~~~~~~~~~~
+Here are some examples (stranal/should_compile/T10482a) of the
+usefulness of Note [CPR in a product case alternative].  The main
+point: all of these functions can have the CPR property.
+
+    ------- f1 -----------
+    -- x is used strictly by h, so it'll be available
+    -- unboxed before it is returned in the True branch
+
+    f1 :: Int -> Int
+    f1 x = case h x x of
+            True  -> x
+            False -> f1 (x-1)
+
+
+    ------- f2 -----------
+    -- x is a strict field of MkT2, so we'll pass it unboxed
+    -- to $wf2, so it's available unboxed.  This depends on
+    -- the case expression analysing (a subcomponent of) one
+    -- of the original arguments to the function, so it's
+    -- a bit more delicate.
+
+    data T2 = MkT2 !Int Int
+
+    f2 :: T2 -> Int
+    f2 (MkT2 x y) | y>0       = f2 (MkT2 x (y-1))
+                  | otherwise = x
+
+
+    ------- f3 -----------
+    -- h is strict in x, so x will be unboxed before it
+    -- is rerturned in the otherwise case.
+
+    data T3 = MkT3 Int Int
+
+    f1 :: T3 -> Int
+    f1 (MkT3 x y) | h x y     = f3 (MkT3 x (y-1))
+                  | otherwise = x
+
+
+    ------- f4 -----------
+    -- Just like f2, but MkT4 can't unbox its strict
+    -- argument automatically, as f2 can
+
+    data family Foo a
+    newtype instance Foo Int = Foo Int
+
+    data T4 a = MkT4 !(Foo a) Int
+
+    f4 :: T4 Int -> Int
+    f4 (MkT4 x@(Foo v) y) | y>0       = f4 (MkT4 x (y-1))
+                          | otherwise = v
 
 
 Note [Initialising strictness]

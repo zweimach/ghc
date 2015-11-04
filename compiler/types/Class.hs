@@ -17,7 +17,7 @@ module Class (
         mkClass, classTyVars, classArity,
         classKey, className, classATs, classATItems, classTyCon, classMethods,
         classOpItems, classBigSig, classExtraBigSig, classTvsFds, classSCTheta,
-        classAllSelIds, classSCSelId, classMinimalDef
+        classAllSelIds, classSCSelId, classMinimalDef, classHasFds
     ) where
 
 #include "HsVersions.h"
@@ -29,6 +29,7 @@ import Name
 import BasicTypes
 import Unique
 import Util
+import SrcLoc
 import Outputable
 import FastString
 import BooleanFormula (BooleanFormula)
@@ -78,8 +79,16 @@ data Class
      }
   deriving Typeable
 
-type FunDep a = ([a],[a])  --  e.g. class C a b c | a b -> c, a c -> b where...
-                           --  Here fun-deps are [([a,b],[c]), ([a,c],[b])]
+--  | e.g.
+--
+-- >  class C a b c | a b -> c, a c -> b where...
+--
+--  Here fun-deps are [([a,b],[c]), ([a,c],[b])]
+--
+--  - 'ApiAnnotation.AnnKeywordId' : 'ApiAnnotation.AnnRarrow'',
+
+-- For details on above see note [Api annotations] in ApiAnnotation
+type FunDep a = ([a],[a])
 
 type ClassOpItem = (Id, DefMeth)
         -- Selector function; contains unfolding
@@ -92,7 +101,8 @@ data DefMeth = NoDefMeth                -- No default method
 
 data ClassATItem
   = ATI TyCon         -- See Note [Associated type tyvar names]
-        (Maybe Type)  -- Default associated type (if any) from this template
+        (Maybe (Type, SrcSpan))
+                      -- Default associated type (if any) from this template
                       -- Note [Associated type defaults]
 
 type ClassMinimalDef = BooleanFormula Name -- Required methods
@@ -139,6 +149,8 @@ Note that
    the default Type rhs
 
 The @mkClass@ function fills in the indirect superclasses.
+
+The SrcSpan is for the entire original declaration.
 -}
 
 mkClass :: [TyVar]
@@ -226,6 +238,9 @@ classATItems = classATStuff
 classTvsFds :: Class -> ([TyVar], [FunDep TyVar])
 classTvsFds c
   = (classTyVars c, classFunDeps c)
+
+classHasFds :: Class -> Bool
+classHasFds (Class { classFunDeps = fds }) = not (null fds)
 
 classBigSig :: Class -> ([TyVar], [PredType], [Id], [ClassOpItem])
 classBigSig (Class {classTyVars = tyvars, classSCTheta = sc_theta,

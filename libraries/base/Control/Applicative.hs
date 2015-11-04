@@ -1,5 +1,4 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE AutoDeriveTypeable #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE NoImplicitPrelude #-}
@@ -61,11 +60,19 @@ import Data.Functor ((<$>))
 import GHC.Base
 import GHC.Generics
 import GHC.List (repeat, zipWith)
-import GHC.Read (Read)
-import GHC.Show (Show)
+import GHC.Read (Read(readsPrec), readParen, lex)
+import GHC.Show (Show(showsPrec), showParen, showString)
 
 newtype Const a b = Const { getConst :: a }
-                  deriving (Generic, Generic1, Monoid)
+                  deriving (Generic, Generic1, Monoid, Eq, Ord)
+
+instance Read a => Read (Const a b) where
+    readsPrec d = readParen (d > 10)
+        $ \r -> [(Const x,t) | ("Const", s) <- lex r, (x, t) <- readsPrec 11 s]
+
+instance Show a => Show (Const a b) where
+    showsPrec d (Const x) = showParen (d > 10) $
+                            showString "Const " . showsPrec 11 x
 
 instance Foldable (Const m) where
     foldMap _ _ = mempty
@@ -89,7 +96,7 @@ instance Monad m => Functor (WrappedMonad m) where
     fmap f (WrapMonad v) = WrapMonad (liftM f v)
 
 instance Monad m => Applicative (WrappedMonad m) where
-    pure = WrapMonad . return
+    pure = WrapMonad . pure
     WrapMonad f <*> WrapMonad v = WrapMonad (f `ap` v)
 
 instance MonadPlus m => Alternative (WrappedMonad m) where
@@ -115,7 +122,9 @@ instance (ArrowZero a, ArrowPlus a) => Alternative (WrappedArrow a b) where
 -- @f '<$>' 'ZipList' xs1 '<*>' ... '<*>' 'ZipList' xsn = 'ZipList' (zipWithn f xs1 ... xsn)@
 --
 newtype ZipList a = ZipList { getZipList :: [a] }
-                  deriving (Show, Eq, Ord, Read, Functor, Generic, Generic1)
+                  deriving ( Show, Eq, Ord, Read, Functor
+                           , Foldable, Generic, Generic1)
+-- See Data.Traversable for Traversabel instance due to import loops
 
 instance Applicative ZipList where
     pure x = ZipList (repeat x)

@@ -44,6 +44,12 @@ TEST_HC_OPTS = -fforce-recomp -dcore-lint -dcmm-lint -dno-debug-output -no-user-
 #
 TEST_HC_OPTS += -fno-warn-tabs
 
+ifeq "$(MinGhcVersion711)" "YES"
+# Don't warn about missing specialisations. They can only occur with `-O`, but
+# we want tests to produce the same output for all test ways.
+TEST_HC_OPTS += -fno-warn-missed-specialisations
+endif
+
 RUNTEST_OPTS =
 
 ifeq "$(filter $(TargetOS_CPP), cygwin32 mingw32)" ""
@@ -194,26 +200,44 @@ endif
 
 RUNTEST_OPTS +=  \
 	--rootdir=. \
-	--config=$(CONFIG) \
+	--configfile=$(CONFIG) \
 	-e 'config.confdir="$(CONFIGDIR)"' \
-	-e 'config.compiler="$(TEST_HC)"' \
-	-e 'config.ghc_pkg="$(GHC_PKG)"' \
-	-e 'config.hp2ps="$(HP2PS_ABS)"' \
-	-e 'config.hpc="$(HPC)"' \
-	-e 'config.gs="$(GS)"' \
 	-e 'config.platform="$(TARGETPLATFORM)"' \
 	-e 'config.os="$(TargetOS_CPP)"' \
 	-e 'config.arch="$(TargetARCH_CPP)"' \
 	-e 'config.wordsize="$(WORDSIZE)"' \
 	-e 'default_testopts.cleanup="$(CLEANUP)"' \
 	-e 'config.timeout=int($(TIMEOUT)) or config.timeout' \
-	-e 'config.timeout_prog="$(TIMEOUT_PROGRAM)"' \
 	-e 'config.exeext="$(exeext)"' \
 	-e 'config.top="$(TOP_ABS)"'
 
-ifneq "$(OUTPUT_SUMMARY)" ""
+# Wrap non-empty program paths in quotes, because they may contain spaces. Do
+# it here, so we don't have to (and don't forget to do it) in the .T test
+# scripts (search for '{compiler}' or '{hpc}'). This may or may not be a good
+# idea.
+# Use `--config` instead of `-e`, because `-e` (which calls Python's `eval`
+# function) would require another pair of (escaped) quotes, which interfers
+# with MinGW's magic path handling (see #10449, and
+# http://www.mingw.org/wiki/Posix_path_conversion).
+# We use double instead of single quotes, which may or may not be important
+# when using msys2 (#9626, #10441).
+quote_path = $(if $1,"$1")
 RUNTEST_OPTS +=  \
-	--output-summary "$(OUTPUT_SUMMARY)"
+	--config 'compiler=$(call quote_path,$(TEST_HC))' \
+	--config 'ghc_pkg=$(call quote_path,$(GHC_PKG))' \
+	--config 'haddock=$(call quote_path,$(HADDOCK))' \
+	--config 'hp2ps=$(call quote_path,$(HP2PS_ABS))' \
+	--config 'hpc=$(call quote_path,$(HPC))' \
+	--config 'gs=$(call quote_path,$(GS))' \
+	--config 'timeout_prog=$(call quote_path,$(TIMEOUT_PROGRAM))'
+
+ifneq "$(SUMMARY_FILE)" ""
+RUNTEST_OPTS +=  \
+	--summary-file "$(SUMMARY_FILE)"
+endif
+ifeq "$(NO_PRINT_SUMMARY)" "YES"
+RUNTEST_OPTS +=  \
+	--no-print-summary 1
 endif
 
 RUNTEST_OPTS +=  \
@@ -225,10 +249,14 @@ else
 set_list_broken = 
 endif
 
-ifeq "$(fast)" "YES"
-setfast = -e config.fast=1
+# See Note [validate and testsuite speed] in toplevel Makefile.
+ifneq "$(SPEED)" ""
+setspeed = -e config.speed="$(SPEED)"
+else ifeq "$(fast)" "YES"
+# Backward compatibility. Maybe some people are running 'make accept fast=YES'?
+setspeed = -e config.speed=2
 else
-setfast = 
+setspeed =
 endif
 
 ifeq "$(accept)" "YES"
@@ -237,11 +265,7 @@ else
 setaccept = 
 endif
 
-TESTS	     = 
-TEST	     = 
-WAY =
-
-.PHONY: all boot test verbose accept fast
+.PHONY: all boot test verbose accept fast slow list_broken
 
 all: test
 
@@ -260,7 +284,7 @@ test: $(TIMEOUT_PROGRAM)
 		$(patsubst %, --way=%, $(WAY)) \
 		$(patsubst %, --skipway=%, $(SKIPWAY)) \
 		$(set_list_broken) \
-		$(setfast) \
+		$(setspeed) \
 		$(setaccept)
 
 verbose: test
@@ -269,7 +293,11 @@ accept:
 	$(MAKE) accept=YES
 
 fast:
-	$(MAKE) fast=YES
+	# See Note [validate and testsuite speed] in toplevel Makefile.
+	$(MAKE) SPEED=2
+
+slow:
+	$(MAKE) SPEED=0
 
 list_broken:
 	$(MAKE) list_broken=YES

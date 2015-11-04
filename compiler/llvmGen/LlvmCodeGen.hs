@@ -30,7 +30,6 @@ import SysTools ( figureLlvmVersion )
 import qualified Stream
 
 import Control.Monad ( when )
-import Data.IORef ( writeIORef )
 import Data.Maybe ( fromMaybe, catMaybes )
 import System.IO
 
@@ -47,21 +46,15 @@ llvmCodeGen dflags h us cmm_stream
        showPass dflags "LLVM CodeGen"
 
        -- get llvm version, cache for later use
-       ver <- (fromMaybe defaultLlvmVersion) `fmap` figureLlvmVersion dflags
-       writeIORef (llvmVersion dflags) ver
+       ver <- (fromMaybe supportedLlvmVersion) `fmap` figureLlvmVersion dflags
 
        -- warn if unsupported
        debugTraceMsg dflags 2
             (text "Using LLVM version:" <+> text (show ver))
        let doWarn = wopt Opt_WarnUnsupportedLlvmVersion dflags
-       when (ver < minSupportLlvmVersion && doWarn) $
-           errorMsg dflags (text "You are using an old version of LLVM that"
-                            <> text " isn't supported anymore!"
+       when (ver /= supportedLlvmVersion && doWarn) $
+           putMsg dflags (text "You are using an unsupported version of LLVM!"
                             $+$ text "We will try though...")
-       when (ver > maxSupportLlvmVersion && doWarn) $
-           putMsg dflags (text "You are using a new version of LLVM that"
-                          <> text " hasn't been tested yet!"
-                          $+$ text "We will try though...")
 
        -- run code generation
        runLlvm dflags ver bufh us $
@@ -138,13 +131,8 @@ cmmLlvmGen cmm@CmmProc{} = do
     -- generate llvm code from cmm
     llvmBC <- withClearVars $ genLlvmProc fixed_cmm
 
-    -- allocate IDs for info table and code, so the mangler can later
-    -- make sure they end up next to each other.
-    itableSection <- freshSectionId
-    _codeSection <- freshSectionId
-
     -- pretty print
-    (docs, ivars) <- fmap unzip $ mapM (pprLlvmCmmDecl itableSection) llvmBC
+    (docs, ivars) <- fmap unzip $ mapM pprLlvmCmmDecl llvmBC
 
     -- Output, note down used variables
     renderLlvm (vcat docs)

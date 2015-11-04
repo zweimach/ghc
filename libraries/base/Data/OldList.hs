@@ -468,6 +468,10 @@ intercalate xs xss = concat (intersperse xs xss)
 -- For example,
 --
 -- > transpose [[1,2,3],[4,5,6]] == [[1,4],[2,5],[3,6]]
+--
+-- If some of the rows are shorter than the following rows, their elements are skipped:
+--
+-- > transpose [[10,11],[20],[],[30,31,32]] == [[10,20,30],[11,31],[32]]
 
 transpose               :: [[a]] -> [[a]]
 transpose []             = []
@@ -969,7 +973,7 @@ rqpart cmp x (y:ys) rle rgt r =
 #endif /* USE_REPORT_PRELUDE */
 
 -- | Sort a list by comparing the results of a key function applied to each
--- element.  @sortOn f@ is equivalent to @sortBy . comparing f@, but has the
+-- element.  @sortOn f@ is equivalent to @sortBy (comparing f)@, but has the
 -- performance advantage of only evaluating @f@ once for each element in the
 -- input list.  This is called the decorate-sort-undecorate paradigm, or
 -- Schwartzian transform.

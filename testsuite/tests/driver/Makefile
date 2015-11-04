@@ -434,14 +434,14 @@ T2566::
 mode001:
 	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --make --help        | sed '2,$$d'
 	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --help --make        | sed '2,$$d'
-	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --interactive --help | sed '2,$$d'
-	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --help --interactive | sed '2,$$d'
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --interactive --help -ignore-dot-ghci | sed '2,$$d'
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --help --interactive -ignore-dot-ghci | sed '2,$$d'
 	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --version --help     | sed "s/, version.*//"
 	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --help --version        | sed '2,$$d'
-	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --interactive --version | sed "s/, version.*//"
-	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --version --interactive | sed "s/, version.*//"
-	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --interactive --show-options | grep -- --interactive | sed '2,$$d'
-	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --show-options --interactive | grep -- --interactive | sed '2,$$d'
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --interactive --version -ignore-dot-ghci | sed "s/, version.*//"
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --version --interactive -ignore-dot-ghci | sed "s/, version.*//"
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --interactive --show-options -ignore-dot-ghci | grep -- --interactive | sed '2,$$d'
+	"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) --show-options --interactive -ignore-dot-ghci | grep -- --interactive | sed '2,$$d'
 
 # Test for building DLLs with ghc -shared, see #2745
 shared001:
@@ -550,6 +550,10 @@ T7130:
 T7563:
 	-"$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) -C T7563.hs
 
+# Below we set LC_ALL=C to request standard ASCII output in the resulting error
+# messages. Unfortunately, Mac OS X and Windows still use a Unicode encoding
+# even with LC_ALL=C, so we expect these tests to fail there.
+
 .PHONY: T6037
 T6037:
 	-LC_ALL=C "$(TEST_HC)" $(TEST_HC_OPTS_NO_RECOMP) -c T6037.hs
@@ -571,17 +575,37 @@ T703:
 
 .PHONY: T2182
 T2182:
+	$(RM) T2182_A.hi T2182.hi
 	! "$(TEST_HC)" $(TEST_HC_OPTS) --make T2182_A.hs T2182.hs -v0
 	! "$(TEST_HC)" $(TEST_HC_OPTS) --make T2182.hs T2182_A.hs -v0
 
 .PHONY: write_interface_oneshot
 write_interface_oneshot:
 	$(RM) -rf write_interface_oneshot/A011.hi
-	"$(TEST_HC)" $(TEST_HC_OPTS) -hidir write_interface_oneshot -fno-code -fwrite-interface -c A011.hs
-	test -f write_interface_oneshot/A011.hi
+	"$(TEST_HC)" $(TEST_HC_OPTS) -hidir write_interface_oneshot_hidir -fno-code -fwrite-interface -c A011.hs
+	test -f write_interface_oneshot_hidir/A011.hi
 
 .PHONY: write_interface_make
 write_interface_make:
 	$(RM) -rf write_interface_make/A011.hi
-	"$(TEST_HC)" $(TEST_HC_OPTS) -hidir write_interface_make -fno-code -fwrite-interface --make A011.hs
-	test -f write_interface_make/A011.hi
+	"$(TEST_HC)" $(TEST_HC_OPTS) -hidir write_interface_make_hidir -fno-code -fwrite-interface --make A011.hs
+	test -f write_interface_make_hidir/A011.hi
+
+.PHONY: T9938
+T9938:
+	$(RM) -rf T9938.o T9938.hi T9938
+	"$(TEST_HC)" $(TEST_HC_OPTS) -O2 -c T9938.hs
+	"$(TEST_HC)" $(TEST_HC_OPTS) -O2 T9938.o -o T9938
+
+.PHONY: T9938B
+T9938B:
+	$(RM) -rf T9938B.o T9938B.hi T9938B
+	"$(TEST_HC)" $(TEST_HC_OPTS) -O2 -c T9938B.hs
+	"$(TEST_HC)" $(TEST_HC_OPTS) -O2 T9938B.o -o T9938B
+
+.PHONY: T10182
+T10182:
+	$(RM) -rf T10182.o T10182a.o T10182.o-boot T10182.hi T10182a.hi T10182.hi-boot
+	"$(TEST_HC)" $(TEST_HC_OPTS) -c T10182.hs-boot
+	"$(TEST_HC)" $(TEST_HC_OPTS) -c T10182a.hs
+	"$(TEST_HC)" $(TEST_HC_OPTS) -c T10182.hs

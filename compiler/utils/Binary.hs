@@ -48,10 +48,6 @@ module Binary
    lazyGet,
    lazyPut,
 
-   ByteArray(..),
-   getByteArray,
-   putByteArray,
-
    UserData(..), getUserData, setUserData,
    newReadState, newWriteState,
    putDictionary, getDictionary, putFS,
@@ -86,10 +82,6 @@ import System.IO as IO
 import System.IO.Unsafe         ( unsafeInterleaveIO )
 import System.IO.Error          ( mkIOError, eofErrorType )
 import GHC.Real                 ( Ratio(..) )
-import ExtsCompat46
-import GHC.Word                 ( Word8(..) )
-
-import GHC.IO ( IO(..) )
 
 type BinArray = ForeignPtr Word8
 
@@ -473,7 +465,7 @@ instance Binary DiffTime where
 -- we just change this instance to be portable like the rest of the
 -- instances? (binary package has code to steal for that)
 --
--- yes, we need Binary Integer and Binary Rational in basicTypes/Literal.lhs
+-- yes, we need Binary Integer and Binary Rational in basicTypes/Literal.hs
 
 instance Binary Integer where
     -- XXX This is hideous
@@ -484,6 +476,10 @@ instance Binary Integer where
                     _ -> fail ("Binary Integer: got " ++ show str)
 
     {-
+    -- This code is currently commented out.
+    -- See https://ghc.haskell.org/trac/ghc/ticket/3379#comment:10 for
+    -- discussion.
+
     put_ bh (S# i#) = do putByte bh 0; put_ bh (I# i#)
     put_ bh (J# s# a#) = do
         putByte bh 1
@@ -501,11 +497,6 @@ instance Binary Integer where
                   sz <- get bh
                   (BA a#) <- getByteArray bh sz
                   return (J# s# a#)
--}
-
--- As for the rest of this code, even though this module
--- exports it, it doesn't seem to be used anywhere else
--- in GHC!
 
 putByteArray :: BinHandle -> ByteArray# -> Int# -> IO ()
 putByteArray bh a s# = loop 0#
@@ -526,8 +517,9 @@ getByteArray bh (I# sz) = do
                 loop (n +# 1#)
   loop 0#
   freezeByteArray arr
+    -}
 
-
+{-
 data ByteArray = BA ByteArray#
 data MBA = MBA (MutableByteArray# RealWorld)
 
@@ -549,7 +541,8 @@ writeByteArray arr i (W8# w) = IO $ \s ->
 indexByteArray :: ByteArray# -> Int# -> Word8
 indexByteArray a# n# = W8# (indexWord8Array# a# n#)
 
-instance (Integral a, Binary a) => Binary (Ratio a) where
+-}
+instance (Binary a) => Binary (Ratio a) where
     put_ bh (a :% b) = do put_ bh a; put_ bh b
     get bh = do a <- get bh; b <- get bh; return (a :% b)
 
@@ -775,18 +768,20 @@ instance Binary Activation where
                       return (ActiveAfter ab)
 
 instance Binary InlinePragma where
-    put_ bh (InlinePragma a b c d) = do
+    put_ bh (InlinePragma s a b c d) = do
+            put_ bh s
             put_ bh a
             put_ bh b
             put_ bh c
             put_ bh d
 
     get bh = do
+           s <- get bh
            a <- get bh
            b <- get bh
            c <- get bh
            d <- get bh
-           return (InlinePragma a b c d)
+           return (InlinePragma s a b c d)
 
 instance Binary RuleMatchInfo where
     put_ bh FunLike = putByte bh 0
@@ -832,19 +827,19 @@ instance Binary RecFlag where
               _ -> do return NonRecursive
 
 instance Binary OverlapMode where
-    put_ bh NoOverlap     = putByte bh 0
-    put_ bh Overlaps      = putByte bh 1
-    put_ bh Incoherent    = putByte bh 2
-    put_ bh Overlapping   = putByte bh 3
-    put_ bh Overlappable  = putByte bh 4
+    put_ bh (NoOverlap    s) = putByte bh 0 >> put_ bh s
+    put_ bh (Overlaps     s) = putByte bh 1 >> put_ bh s
+    put_ bh (Incoherent   s) = putByte bh 2 >> put_ bh s
+    put_ bh (Overlapping  s) = putByte bh 3 >> put_ bh s
+    put_ bh (Overlappable s) = putByte bh 4 >> put_ bh s
     get bh = do
         h <- getByte bh
         case h of
-            0 -> return NoOverlap
-            1 -> return Overlaps
-            2 -> return Incoherent
-            3 -> return Overlapping
-            4 -> return Overlappable
+            0 -> (get bh) >>= \s -> return $ NoOverlap s
+            1 -> (get bh) >>= \s -> return $ Overlaps s
+            2 -> (get bh) >>= \s -> return $ Incoherent s
+            3 -> (get bh) >>= \s -> return $ Overlapping s
+            4 -> (get bh) >>= \s -> return $ Overlappable s
             _ -> panic ("get OverlapMode" ++ show h)
 
 
@@ -880,20 +875,33 @@ instance Binary Fixity where
           return (Fixity aa ab)
 
 instance Binary WarningTxt where
-    put_ bh (WarningTxt w) = do
+    put_ bh (WarningTxt s w) = do
             putByte bh 0
+            put_ bh s
             put_ bh w
-    put_ bh (DeprecatedTxt d) = do
+    put_ bh (DeprecatedTxt s d) = do
             putByte bh 1
+            put_ bh s
             put_ bh d
 
     get bh = do
             h <- getByte bh
             case h of
-              0 -> do w <- get bh
-                      return (WarningTxt w)
-              _ -> do d <- get bh
-                      return (DeprecatedTxt d)
+              0 -> do s <- get bh
+                      w <- get bh
+                      return (WarningTxt s w)
+              _ -> do s <- get bh
+                      d <- get bh
+                      return (DeprecatedTxt s d)
+
+instance Binary StringLiteral where
+  put_ bh (StringLiteral st fs) = do
+            put_ bh st
+            put_ bh fs
+  get bh = do
+            st <- get bh
+            fs <- get bh
+            return (StringLiteral st fs)
 
 instance Binary a => Binary (GenLocated SrcSpan a) where
     put_ bh (L l x) = do

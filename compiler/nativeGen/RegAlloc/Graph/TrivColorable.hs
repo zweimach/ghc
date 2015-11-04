@@ -1,4 +1,4 @@
-{-# LANGUAGE BangPatterns, CPP #-}
+{-# LANGUAGE CPP #-}
 
 module RegAlloc.Graph.TrivColorable (
         trivColorable,
@@ -14,10 +14,8 @@ import Reg
 import GraphBase
 
 import UniqFM
-import FastTypes
 import Platform
 import Panic
-
 
 -- trivColorable ---------------------------------------------------------------
 
@@ -55,30 +53,30 @@ import Panic
 --      different regSqueeze function for each.
 --
 accSqueeze
-        :: FastInt
-        -> FastInt
-        -> (reg -> FastInt)
+        :: Int
+        -> Int
+        -> (reg -> Int)
         -> UniqFM reg
-        -> FastInt
+        -> Int
 
 accSqueeze count maxCount squeeze ufm = acc count (eltsUFM ufm)
   where acc count [] = count
-        acc count _ | count >=# maxCount = count
-        acc count (r:rs) = acc (count +# squeeze r) rs
+        acc count _ | count >= maxCount = count
+        acc count (r:rs) = acc (count + squeeze r) rs
 
 {- Note [accSqueeze]
 ~~~~~~~~~~~~~~~~~~~~
 BL 2007/09
 Doing a nice fold over the UniqSet makes trivColorable use
-32% of total compile time and 42% of total alloc when compiling SHA1.lhs from darcs.
+32% of total compile time and 42% of total alloc when compiling SHA1.hs from darcs.
 Therefore the UniqFM is made non-abstract and we use custom fold.
 
 MS 2010/04
 When converting UniqFM to use Data.IntMap, the fold cannot use UniqFM internal
-representation any more. But it is imperative that the assSqueeze stops
+representation any more. But it is imperative that the accSqueeze stops
 the folding if the count gets greater or equal to maxCount. We thus convert
 UniqFM to a (lazy) list, do the fold and stops if necessary, which was
-the most efficient variant tried. Benchmark compiling 10-times SHA1.lhs follows.
+the most efficient variant tried. Benchmark compiling 10-times SHA1.hs follows.
 (original = previous implementation, folding = fold of the whole UFM,
  lazyFold = the current implementation,
  hackFold = using internal representation of Data.IntMap)
@@ -100,18 +98,18 @@ the most efficient variant tried. Benchmark compiling 10-times SHA1.lhs follows.
 
 trivColorable
         :: Platform
-        -> (RegClass -> VirtualReg -> FastInt)
-        -> (RegClass -> RealReg    -> FastInt)
+        -> (RegClass -> VirtualReg -> Int)
+        -> (RegClass -> RealReg    -> Int)
         -> Triv VirtualReg RegClass RealReg
 
 trivColorable platform virtualRegSqueeze realRegSqueeze RcInteger conflicts exclusions
-        | let !cALLOCATABLE_REGS_INTEGER
-                  = iUnbox (case platformArch platform of
+        | let cALLOCATABLE_REGS_INTEGER
+                  =        (case platformArch platform of
                             ArchX86       -> 3
                             ArchX86_64    -> 5
                             ArchPPC       -> 16
                             ArchSPARC     -> 14
-                            ArchPPC_64    -> panic "trivColorable ArchPPC_64"
+                            ArchPPC_64 _  -> panic "trivColorable ArchPPC_64"
                             ArchARM _ _ _ -> panic "trivColorable ArchARM"
                             ArchARM64     -> panic "trivColorable ArchARM64"
                             ArchAlpha     -> panic "trivColorable ArchAlpha"
@@ -119,7 +117,7 @@ trivColorable platform virtualRegSqueeze realRegSqueeze RcInteger conflicts excl
                             ArchMipsel    -> panic "trivColorable ArchMipsel"
                             ArchJavaScript-> panic "trivColorable ArchJavaScript"
                             ArchUnknown   -> panic "trivColorable ArchUnknown")
-        , count2        <- accSqueeze (_ILIT(0)) cALLOCATABLE_REGS_INTEGER
+        , count2        <- accSqueeze 0 cALLOCATABLE_REGS_INTEGER
                                 (virtualRegSqueeze RcInteger)
                                 conflicts
 
@@ -127,16 +125,16 @@ trivColorable platform virtualRegSqueeze realRegSqueeze RcInteger conflicts excl
                                 (realRegSqueeze   RcInteger)
                                 exclusions
 
-        = count3 <# cALLOCATABLE_REGS_INTEGER
+        = count3 < cALLOCATABLE_REGS_INTEGER
 
 trivColorable platform virtualRegSqueeze realRegSqueeze RcFloat conflicts exclusions
-        | let !cALLOCATABLE_REGS_FLOAT
-                  = iUnbox (case platformArch platform of
+        | let cALLOCATABLE_REGS_FLOAT
+                  =        (case platformArch platform of
                             ArchX86       -> 0
                             ArchX86_64    -> 0
                             ArchPPC       -> 0
                             ArchSPARC     -> 22
-                            ArchPPC_64    -> panic "trivColorable ArchPPC_64"
+                            ArchPPC_64 _  -> panic "trivColorable ArchPPC_64"
                             ArchARM _ _ _ -> panic "trivColorable ArchARM"
                             ArchARM64     -> panic "trivColorable ArchARM64"
                             ArchAlpha     -> panic "trivColorable ArchAlpha"
@@ -144,7 +142,7 @@ trivColorable platform virtualRegSqueeze realRegSqueeze RcFloat conflicts exclus
                             ArchMipsel    -> panic "trivColorable ArchMipsel"
                             ArchJavaScript-> panic "trivColorable ArchJavaScript"
                             ArchUnknown   -> panic "trivColorable ArchUnknown")
-        , count2        <- accSqueeze (_ILIT(0)) cALLOCATABLE_REGS_FLOAT
+        , count2        <- accSqueeze 0 cALLOCATABLE_REGS_FLOAT
                                 (virtualRegSqueeze RcFloat)
                                 conflicts
 
@@ -152,16 +150,16 @@ trivColorable platform virtualRegSqueeze realRegSqueeze RcFloat conflicts exclus
                                 (realRegSqueeze   RcFloat)
                                 exclusions
 
-        = count3 <# cALLOCATABLE_REGS_FLOAT
+        = count3 < cALLOCATABLE_REGS_FLOAT
 
 trivColorable platform virtualRegSqueeze realRegSqueeze RcDouble conflicts exclusions
-        | let !cALLOCATABLE_REGS_DOUBLE
-                  = iUnbox (case platformArch platform of
+        | let cALLOCATABLE_REGS_DOUBLE
+                  =        (case platformArch platform of
                             ArchX86       -> 6
                             ArchX86_64    -> 0
                             ArchPPC       -> 26
                             ArchSPARC     -> 11
-                            ArchPPC_64    -> panic "trivColorable ArchPPC_64"
+                            ArchPPC_64 _  -> panic "trivColorable ArchPPC_64"
                             ArchARM _ _ _ -> panic "trivColorable ArchARM"
                             ArchARM64     -> panic "trivColorable ArchARM64"
                             ArchAlpha     -> panic "trivColorable ArchAlpha"
@@ -169,7 +167,7 @@ trivColorable platform virtualRegSqueeze realRegSqueeze RcDouble conflicts exclu
                             ArchMipsel    -> panic "trivColorable ArchMipsel"
                             ArchJavaScript-> panic "trivColorable ArchJavaScript"
                             ArchUnknown   -> panic "trivColorable ArchUnknown")
-        , count2        <- accSqueeze (_ILIT(0)) cALLOCATABLE_REGS_DOUBLE
+        , count2        <- accSqueeze 0 cALLOCATABLE_REGS_DOUBLE
                                 (virtualRegSqueeze RcDouble)
                                 conflicts
 
@@ -177,16 +175,16 @@ trivColorable platform virtualRegSqueeze realRegSqueeze RcDouble conflicts exclu
                                 (realRegSqueeze   RcDouble)
                                 exclusions
 
-        = count3 <# cALLOCATABLE_REGS_DOUBLE
+        = count3 < cALLOCATABLE_REGS_DOUBLE
 
 trivColorable platform virtualRegSqueeze realRegSqueeze RcDoubleSSE conflicts exclusions
-        | let !cALLOCATABLE_REGS_SSE
-                  = iUnbox (case platformArch platform of
+        | let cALLOCATABLE_REGS_SSE
+                  =        (case platformArch platform of
                             ArchX86       -> 8
                             ArchX86_64    -> 10
                             ArchPPC       -> 0
                             ArchSPARC     -> 0
-                            ArchPPC_64    -> panic "trivColorable ArchPPC_64"
+                            ArchPPC_64 _  -> panic "trivColorable ArchPPC_64"
                             ArchARM _ _ _ -> panic "trivColorable ArchARM"
                             ArchARM64     -> panic "trivColorable ArchARM64"
                             ArchAlpha     -> panic "trivColorable ArchAlpha"
@@ -194,7 +192,7 @@ trivColorable platform virtualRegSqueeze realRegSqueeze RcDoubleSSE conflicts ex
                             ArchMipsel    -> panic "trivColorable ArchMipsel"
                             ArchJavaScript-> panic "trivColorable ArchJavaScript"
                             ArchUnknown   -> panic "trivColorable ArchUnknown")
-        , count2        <- accSqueeze (_ILIT(0)) cALLOCATABLE_REGS_SSE
+        , count2        <- accSqueeze 0 cALLOCATABLE_REGS_SSE
                                 (virtualRegSqueeze RcDoubleSSE)
                                 conflicts
 
@@ -202,7 +200,7 @@ trivColorable platform virtualRegSqueeze realRegSqueeze RcDoubleSSE conflicts ex
                                 (realRegSqueeze   RcDoubleSSE)
                                 exclusions
 
-        = count3 <# cALLOCATABLE_REGS_SSE
+        = count3 < cALLOCATABLE_REGS_SSE
 
 
 -- Specification Code ----------------------------------------------------------
@@ -255,7 +253,7 @@ worst n classN classC
 -- register allocator to attempt to map VRegs to.
 allocatableRegs :: [RegNo]
 allocatableRegs
-   = let isFree i = isFastTrue (freeReg i)
+   = let isFree i = freeReg i
      in  filter isFree allMachRegNos
 
 

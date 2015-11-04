@@ -10,7 +10,7 @@ module PrelInfo (
         primOpRules, builtinRules,
 
         ghcPrimExports,
-        wiredInThings, basicKnownKeyNames,
+        wiredInThings, knownKeyNames,
         primOpId,
 
         -- Random other things
@@ -30,20 +30,68 @@ import PrimOp
 import DataCon
 import Id
 import MkId
+import Name( Name, getName, nameOccName )
+import OccName ( occNameString )
 import TysPrim
 import TysWiredIn
 import HscTypes
 import Class
 import TyCon
+import Outputable
+import UniqFM
 import Util
 import {-# SOURCE #-} TcTypeNats ( typeNatTyCons )
 
-import Data.Array
+#ifdef GHCI
+import THNames
+#endif
 
-{-
-************************************************************************
+import Data.Array
+import Data.List
+
+{- *********************************************************************
 *                                                                      *
-\subsection[builtinNameInfo]{Lookup built-in names}
+                Known key things
+*                                                                      *
+********************************************************************* -}
+
+knownKeyNames :: [Name]
+knownKeyNames
+  | debugIsOn
+  , not (isNullUFM badNamesUFM)
+  = panic ("badKnownKeyNames:\n" ++ badNamesStr)
+       -- NB: We can't use ppr here, because this is sometimes evaluated in a
+       -- context where there are no DynFlags available, leading to a cryptic
+       -- "<<details unavailable>>" error. (This seems to happen only in the
+       -- stage 2 compiler, for reasons I [Richard] have no clue of.)
+
+  | otherwise
+  = names
+  where
+  names = concat
+    [ map getName wiredInThings
+    , cTupleTyConNames
+    , basicKnownKeyNames
+#ifdef GHCI
+    , templateHaskellNames
+#endif
+    ]
+
+  namesUFM      = foldl (\m n -> addToUFM_Acc (:) singleton m n n) emptyUFM names
+  badNamesUFM   = filterUFM (\ns -> length ns > 1) namesUFM
+  badNamesPairs = ufmToList badNamesUFM
+  badNamesStrs  = map pairToStr badNamesPairs
+  badNamesStr   = unlines badNamesStrs
+
+  pairToStr (uniq, ns) = "        " ++
+                         show uniq ++
+                         ": [" ++
+                         intercalate ", " (map (occNameString . nameOccName) ns) ++
+                         "]"
+
+{- *********************************************************************
+*                                                                      *
+                Wired in things
 *                                                                      *
 ************************************************************************
 
@@ -121,7 +169,7 @@ ghcPrimExports :: [IfaceExport]
 ghcPrimExports
  = map (Avail . idName) ghcPrimIds ++
    map (Avail . idName . primOpId) allThePrimOps ++
-   [ AvailTC n [n]
+   [ AvailTC n [n] []
    | tc <- funTyCon : primTyCons, let n = tyConName tc  ]
 
 {-

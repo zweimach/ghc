@@ -127,6 +127,14 @@ xchg(StgPtr p, StgWord w)
         :"=&r" (result)
         :"r" (w), "r" (p)
     );
+#elif powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
+    __asm__ __volatile__ (
+        "1:     ldarx     %0, 0, %2\n"
+        "       stdcx.    %1, 0, %2\n"
+        "       bne-      1b"
+        :"=&r" (result)
+        :"r" (w), "r" (p)
+    );
 #elif sparc_HOST_ARCH
     result = w;
     __asm__ __volatile__ (
@@ -158,13 +166,11 @@ xchg(StgPtr p, StgWord w)
                           : "memory"
                           );
 #elif aarch64_HOST_ARCH
-    // Don't think we actually use tmp here, but leaving
-    // it for consistent numbering
     StgWord tmp; 
     __asm__ __volatile__ (
                           "1:    ldaxr  %0, [%3]\n"
-                          "      stlxr  %w0, %2, [%3]\n"
-                          "      cbnz   %w0, 1b\n"
+                          "      stlxr  %w1, %2, [%3]\n"
+                          "      cbnz   %w1, 1b\n"
                           "      dmb sy\n"
                           : "=&r" (result), "=&r" (tmp)
                           : "r" (w), "r" (p)
@@ -203,6 +209,20 @@ cas(StgVolatilePtr p, StgWord o, StgWord n)
         "       cmpw      %0, %1\n"
         "       bne       2f\n"
         "       stwcx.    %2, 0, %3\n"
+        "       bne-      1b\n"
+        "2:"
+        :"=&r" (result)
+        :"r" (o), "r" (n), "r" (p)
+        :"cc", "memory"
+    );
+    return result;
+#elif powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
+    StgWord result;
+    __asm__ __volatile__ (
+        "1:     ldarx     %0, 0, %3\n"
+        "       cmpd      %0, %1\n"
+        "       bne       2f\n"
+        "       stdcx.    %2, 0, %3\n"
         "       bne-      1b\n"
         "2:"
         :"=&r" (result)
@@ -282,12 +302,12 @@ atomic_inc(StgVolatilePtr p, StgWord incr)
     );
     return r + incr;
 #else
-    StgWord old, new;
+    StgWord old, new_;
     do {
         old = *p;
-        new = old + incr;
-    } while (cas(p, old, new) != old);
-    return new;
+        new_ = old + incr;
+    } while (cas(p, old, new_) != old);
+    return new_;
 #endif
 }
 
@@ -303,12 +323,12 @@ atomic_dec(StgVolatilePtr p)
     );
     return r-1;
 #else
-    StgWord old, new;
+    StgWord old, new_;
     do {
         old = *p;
-        new = old - 1;
-    } while (cas(p, old, new) != old);
-    return new;
+        new_ = old - 1;
+    } while (cas(p, old, new_) != old);
+    return new_;
 #endif
 }
 
@@ -347,7 +367,7 @@ write_barrier(void) {
     return;
 #elif i386_HOST_ARCH || x86_64_HOST_ARCH
     __asm__ __volatile__ ("" : : : "memory");
-#elif powerpc_HOST_ARCH
+#elif powerpc_HOST_ARCH || powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
     __asm__ __volatile__ ("lwsync" : : : "memory");
 #elif sparc_HOST_ARCH
     /* Sparc in TSO mode does not require store/store barriers. */
@@ -369,10 +389,17 @@ store_load_barrier(void) {
     __asm__ __volatile__ ("lock; addl $0,0(%%esp)" : : : "memory");
 #elif x86_64_HOST_ARCH
     __asm__ __volatile__ ("lock; addq $0,0(%%rsp)" : : : "memory");
-#elif powerpc_HOST_ARCH
+#elif powerpc_HOST_ARCH || powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
     __asm__ __volatile__ ("sync" : : : "memory");
 #elif sparc_HOST_ARCH
     __asm__ __volatile__ ("membar #StoreLoad" : : : "memory");
+#elif arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv7)
+    // TODO FIXME: This case probably isn't totally correct - just because we
+    // use a pre-ARMv7 toolchain (e.g. to target an old Android device), doesn't
+    // mean the binary won't run on a newer ARMv7 system - in which case it
+    // needs a proper barrier. So we should rethink this
+    //  - Reid
+    __asm__ __volatile__ ("" : : : "memory");
 #elif arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv7)
     __asm__ __volatile__ ("dmb" : : : "memory");
 #elif aarch64_HOST_ARCH
@@ -390,10 +417,12 @@ load_load_barrier(void) {
     __asm__ __volatile__ ("" : : : "memory");
 #elif x86_64_HOST_ARCH
     __asm__ __volatile__ ("" : : : "memory");
-#elif powerpc_HOST_ARCH
+#elif powerpc_HOST_ARCH || powerpc64_HOST_ARCH || powerpc64le_HOST_ARCH
     __asm__ __volatile__ ("lwsync" : : : "memory");
 #elif sparc_HOST_ARCH
     /* Sparc in TSO mode does not require load/load barriers. */
+    __asm__ __volatile__ ("" : : : "memory");
+#elif arm_HOST_ARCH && defined(arm_HOST_ARCH_PRE_ARMv7)
     __asm__ __volatile__ ("" : : : "memory");
 #elif arm_HOST_ARCH && !defined(arm_HOST_ARCH_PRE_ARMv7)
     __asm__ __volatile__ ("dmb" : : : "memory");

@@ -1,0 +1,2 @@
+
+Test10312.hs:77:38: error: Not in scope: data constructor ‘Fixity’

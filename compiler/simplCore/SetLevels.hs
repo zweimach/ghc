@@ -824,7 +824,7 @@ lvlLamBndrs env lvl bndrs
     is_major bndr = isId bndr && not (isProbablyOneShotLambda bndr)
        -- The "probably" part says "don't float things out of a
        -- probable one-shot lambda"
-       -- See Note [Computing one-shot info] in Demand.lhs
+       -- See Note [Computing one-shot info] in Demand.hs
 
 
 lvlBndrs :: LevelEnv -> Level -> [CoreBndr] -> (LevelEnv, [LevelledBndr])
@@ -1012,7 +1012,7 @@ abstractVars dest_lvl (LE { le_subst = subst, le_lvl_env = lvl_env }) in_fvs
         -- We are going to lambda-abstract, so nuke any IdInfo,
         -- and add the tyvars of the Id (if necessary)
     zap v | isId v = WARN( isStableUnfolding (idUnfolding v) ||
-                           not (isEmptySpecInfo (idSpecialisation v)),
+                           not (isEmptyRuleInfo (idSpecialisation v)),
                            text "absVarsOf: discarding info on" <+> ppr v )
                      setIdInfo v vanillaIdInfo
           | otherwise = v
@@ -1047,7 +1047,7 @@ newPolyBndrs dest_lvl
     add_subst env (v, v') = extendIdSubst env v (mkVarApps (Var v') abs_vars)
     add_id    env (v, v') = extendVarEnv env v ((v':abs_vars), mkVarApps (Var v') abs_vars)
 
-    mk_poly_bndr bndr uniq = transferPolyIdInfo bndr abs_vars $         -- Note [transferPolyIdInfo] in Id.lhs
+    mk_poly_bndr bndr uniq = transferPolyIdInfo bndr abs_vars $         -- Note [transferPolyIdInfo] in Id.hs
                              mkSysLocalOrCoVar (mkFastString str) uniq poly_ty
                            where
                              str     = "poly_" ++ occNameString (getOccName bndr)
@@ -1096,7 +1096,7 @@ add_id id_env (v, v1)
 
 zap_demand_info :: Var -> Var
 zap_demand_info v
-  | isId v    = zapDemandIdInfo v
+  | isId v    = zapIdDemandInfo v
   | otherwise = v
 
 {-

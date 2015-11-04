@@ -58,9 +58,6 @@ module CoreSyn (
         isClosedUnfolding, hasSomeUnfolding,
         canUnfold, neverUnfoldGuidance, isStableSource,
 
-        -- * Strictness
-        seqExpr, seqExprs, seqUnfolding,
-
         -- * Annotated expression data types
         AnnExpr, AnnExpr'(..), AnnBind(..), AnnAlt,
 
@@ -70,12 +67,16 @@ module CoreSyn (
         -- ** Operations on annotations
         deAnnotate, deAnnotate', deAnnAlt, collectAnnBndrs,
 
+        -- * Orphanhood
+        IsOrphan(..), isOrphan, notOrphan, chooseOrphanAnchor,
+
         -- * Core rule data types
-        CoreRule(..),   -- CoreSubst, CoreTidy, CoreFVs, PprCore only
+        CoreRule(..), RuleBase,
         RuleName, RuleFun, IdUnfoldingFun, InScopeEnv,
+        RuleEnv(..), mkRuleEnv, emptyRuleEnv,
 
         -- ** Operations on 'CoreRule's
-        seqRules, ruleArity, ruleName, ruleIdName, ruleActivation,
+        ruleArity, ruleName, ruleIdName, ruleActivation,
         setRuleIdName,
         isBuiltinRule, isLocalRule, isAutoRule,
 
@@ -91,6 +92,7 @@ import Var
 import Type
 import Coercion
 import Name
+import NameEnv( NameEnv, emptyNameEnv )
 import Literal
 import DataCon
 import Module
@@ -101,6 +103,7 @@ import FastString
 import Outputable
 import Util
 import SrcLoc     ( RealSrcSpan, containsSpan )
+import Binary
 
 import Data.Data hiding (TyCon)
 import Data.Int
@@ -230,6 +233,10 @@ These data types are the heart of the compiler
 --       The inner case does not need a @Red@ alternative, because @x@
 --       can't be @Red@ at that program point.
 --
+--    5. Floating-point values must not be scrutinised against literals.
+--       See Trac #9238 and Note [Rules for floating-point comparisons]
+--       in PrelRules for rationale.
+--
 -- *  Cast an expression to a particular type.
 --    This is used to implement @newtype@s (a @newtype@ constructor or
 --    destructor just becomes a 'Cast' in Core) and GADTs.
@@ -242,7 +249,7 @@ These data types are the heart of the compiler
 -- *  A coercion
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 data Expr b
   = Var   Id
   | Lit   Literal
@@ -265,13 +272,13 @@ type Arg b = Expr b
 -- The default alternative is @(DEFAULT, [], rhs)@
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 type Alt b = (AltCon, [b], Expr b)
 
 -- | A case alternative constructor (i.e. pattern match)
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 data AltCon
   = DataAlt DataCon   --  ^ A plain data constructor: @case e of { Foo x -> ... }@.
                       -- Invariant: the 'DataCon' is always from a @data@ type, and never from a @newtype@
@@ -286,7 +293,7 @@ data AltCon
 -- | Binding, used for top level bindings in a module and local bindings in a @let@.
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 data Bind b = NonRec b (Expr b)
             | Rec [(b, (Expr b))]
   deriving (Data, Typeable)
@@ -326,6 +333,9 @@ simplifier calling findAlt with argument (LitAlt 3).  No no.  Integer
 literals are an opaque encoding of an algebraic data type, not of
 an unlifted literal, like all the others.
 
+Also, we do not permit case analysis with literal patterns on floating-point
+types. See Trac #9238 and Note [Rules for floating-point comparisons] in
+PrelRules for the rationale for this restriction.
 
 -------------------------- CoreSyn INVARIANTS ---------------------------
 
@@ -340,7 +350,7 @@ See #letrec_invariant#
 Note [CoreSyn let/app invariant]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The let/app invariant
-     the right hand side of of a non-recursive 'Let', and
+     the right hand side of a non-recursive 'Let', and
      the argument of an 'App',
     /may/ be of unlifted type, but only if
     the expression is ok-for-speculation.
@@ -378,25 +388,20 @@ See #type_let#
 
 Note [Empty case alternatives]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The alternatives of a case expression should be exhaustive.  A case expression
-can have empty alternatives if (and only if) the scrutinee is bound to raise
-an exception or diverge.  So:
-   Case (error Int "Hello") b Bool []
-is fine, and has type Bool.  This is one reason we need a type on
-the case expression: if the alternatives are empty we can't get the type
-from the alternatives!  I'll write this
-   case (error Int "Hello") of Bool {}
-with the return type just before the alternatives.
+The alternatives of a case expression should be exhaustive.
 
-Here's another example:
+A case expression can have empty alternatives if (and only if) the
+scrutinee is bound to raise an exception or diverge. When do we know
+this?  See Note [Bottoming expressions] in CoreUtils.
+
+The possiblity of empty alternatives is one reason we need a type on
+the case expression: if the alternatives are empty we can't get the
+type from the alternatives!
+
+In the case of empty types (see Note [Bottoming expressions]), say
   data T
-  f :: T -> Bool
-  f = \(x:t). case x of Bool {}
-Since T has no data constructors, the case alternatives are of course
-empty.  However note that 'x' is not bound to a visibly-bottom value;
-it's the *type* that tells us it's going to diverge.  Its a bit of a
-degnerate situation but we do NOT want to replace
-   case x of Bool {}   -->   error Bool "Inaccessible case"
+we do NOT want to replace
+   case (x::T) of Bool {}   -->   error Bool "Inaccessible case"
 because x might raise an exception, and *that*'s what we want to see!
 (Trac #6067 is an example.) To preserve semantics we'd have to say
    x `seq` error Bool "Inaccessible case"
@@ -435,7 +440,7 @@ unboxed type.
 -- | Allows attaching extra information to points in expressions
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 data Tickish id =
     -- | An @{-# SCC #-}@ profiling annotation, either automatically
     -- added by the desugarer as a result of -auto-all, or added by
@@ -700,6 +705,99 @@ tickishContains t1 t2
 {-
 ************************************************************************
 *                                                                      *
+                Orphans
+*                                                                      *
+************************************************************************
+-}
+
+-- | Is this instance an orphan?  If it is not an orphan, contains an 'OccName'
+-- witnessing the instance's non-orphanhood.
+-- See Note [Orphans]
+data IsOrphan
+  = IsOrphan
+  | NotOrphan OccName -- The OccName 'n' witnesses the instance's non-orphanhood
+                      -- In that case, the instance is fingerprinted as part
+                      -- of the definition of 'n's definition
+    deriving (Data, Typeable)
+
+-- | Returns true if 'IsOrphan' is orphan.
+isOrphan :: IsOrphan -> Bool
+isOrphan IsOrphan = True
+isOrphan _ = False
+
+-- | Returns true if 'IsOrphan' is not an orphan.
+notOrphan :: IsOrphan -> Bool
+notOrphan NotOrphan{} = True
+notOrphan _ = False
+
+chooseOrphanAnchor :: [Name] -> IsOrphan
+-- Something (rule, instance) is relate to all the Names in this
+-- list. Choose one of them to be an "anchor" for the orphan.  We make
+-- the choice deterministic to avoid gratuitious changes in the ABI
+-- hash (Trac #4012).  Specficially, use lexicographic comparison of
+-- OccName rather than comparing Uniques
+--
+-- NB: 'minimum' use Ord, and (Ord OccName) works lexicographically
+--
+chooseOrphanAnchor local_names
+  | null local_names = IsOrphan
+  | otherwise        = NotOrphan (minimum occs)
+  where
+    occs = map nameOccName local_names
+
+instance Binary IsOrphan where
+    put_ bh IsOrphan = putByte bh 0
+    put_ bh (NotOrphan n) = do
+        putByte bh 1
+        put_ bh n
+    get bh = do
+        h <- getByte bh
+        case h of
+            0 -> return IsOrphan
+            _ -> do
+                n <- get bh
+                return $ NotOrphan n
+
+{-
+Note [Orphans]
+~~~~~~~~~~~~~~
+Class instances, rules, and family instances are divided into orphans
+and non-orphans.  Roughly speaking, an instance/rule is an orphan if
+its left hand side mentions nothing defined in this module.  Orphan-hood
+has two major consequences
+
+ * A module that contains orphans is called an "orphan module".  If
+   the module being compiled depends (transitively) on an oprhan
+   module M, then M.hi is read in regardless of whether M is oherwise
+   needed. This is to ensure that we don't miss any instance decls in
+   M.  But it's painful, because it means we need to keep track of all
+   the orphan modules below us.
+
+ * A non-orphan is not finger-printed separately.  Instead, for
+   fingerprinting purposes it is treated as part of the entity it
+   mentions on the LHS.  For example
+      data T = T1 | T2
+      instance Eq T where ....
+   The instance (Eq T) is incorprated as part of T's fingerprint.
+
+   In constrast, orphans are all fingerprinted together in the
+   mi_orph_hash field of the ModIface.
+
+   See MkIface.addFingerprints.
+
+Orphan-hood is computed
+  * For class instances:
+      when we make a ClsInst
+    (because it is needed during instance lookup)
+
+  * For rules and family instances:
+       when we generate an IfaceRule (MkIface.coreRuleToIfaceRule)
+                     or IfaceFamInst (MkIface.instanceToIfaceInst)
+-}
+
+{-
+************************************************************************
+*                                                                      *
 \subsection{Transformation rules}
 *                                                                      *
 ************************************************************************
@@ -707,6 +805,25 @@ tickishContains t1 t2
 The CoreRule type and its friends are dealt with mainly in CoreRules,
 but CoreFVs, Subst, PprCore, CoreTidy also inspect the representation.
 -}
+
+-- | Gathers a collection of 'CoreRule's. Maps (the name of) an 'Id' to its rules
+type RuleBase = NameEnv [CoreRule]
+        -- The rules are unordered;
+        -- we sort out any overlaps on lookup
+
+-- | A full rule environment which we can apply rules from.  Like a 'RuleBase',
+-- but it also includes the set of visible orphans we use to filter out orphan
+-- rules which are not visible (even though we can see them...)
+data RuleEnv
+    = RuleEnv { re_base          :: RuleBase
+              , re_visible_orphs :: ModuleSet
+              }
+
+mkRuleEnv :: RuleBase -> [Module] -> RuleEnv
+mkRuleEnv rules vis_orphs = RuleEnv rules (mkModuleSet vis_orphs)
+
+emptyRuleEnv :: RuleEnv
+emptyRuleEnv = RuleEnv emptyNameEnv emptyModuleSet
 
 -- | A 'CoreRule' is:
 --
@@ -740,17 +857,26 @@ data CoreRule
                                 --   @False@ <=> generated at the users behest
                                 --   Main effect: reporting of orphan-hood
 
+        ru_origin :: !Module,    -- ^ 'Module' the rule was defined in, used
+                                -- to test if we should see an orphan rule.
+
+        ru_orphan :: !IsOrphan,
+                                -- ^ Whether or not the rule is an orphan.
+
         ru_local :: Bool        -- ^ @True@ iff the fn at the head of the rule is
                                 -- defined in the same module as the rule
                                 -- and is not an implicit 'Id' (like a record selector,
-                                -- class operation, or data constructor)
-
-                -- NB: ru_local is *not* used to decide orphan-hood
-                --      c.g. MkIface.coreRuleToIfaceRule
+                                -- class operation, or data constructor).  This
+                                -- is different from 'ru_orphan', where a rule
+                                -- can avoid being an orphan if *any* Name in
+                                -- LHS of the rule was defined in the same
+                                -- module as the rule.
     }
 
   -- | Built-in rules are used for constant folding
   -- and suchlike.  They have no free variables.
+  -- A built-in rule is always visible (there is no such thing as
+  -- an orphan built-in rule.)
   | BuiltinRule {
         ru_name  :: RuleName,   -- ^ As above
         ru_fn    :: Name,       -- ^ As above
@@ -761,7 +887,7 @@ data CoreRule
                 -- arguments, it simply discards them; the returned 'CoreExpr'
                 -- is just the rewrite of 'ru_fn' applied to the first 'ru_nargs' args
     }
-                -- See Note [Extra args in rule matching] in Rules.lhs
+                -- See Note [Extra args in rule matching] in Rules.hs
 
 type RuleFun = DynFlags -> InScopeEnv -> Id -> [CoreExpr] -> Maybe CoreExpr
 type InScopeEnv = (InScopeSet, IdUnfoldingFun)
@@ -918,7 +1044,7 @@ data UnfoldingSource
 
   | InlineCompulsory   -- Something that *has* no binding, so you *must* inline it
                        -- Only a few primop-like things have this property
-                       -- (see MkId.lhs, calls to mkCompulsoryUnfolding).
+                       -- (see MkId.hs, calls to mkCompulsoryUnfolding).
                        -- Inline absolutely always, however boring the context.
 
 
@@ -1022,19 +1148,6 @@ evaldUnfolding = OtherCon []
 mkOtherCon :: [AltCon] -> Unfolding
 mkOtherCon = OtherCon
 
-seqUnfolding :: Unfolding -> ()
-seqUnfolding (CoreUnfolding { uf_tmpl = e, uf_is_top = top,
-                uf_is_value = b1, uf_is_work_free = b2,
-                uf_expandable = b3, uf_is_conlike = b4,
-                uf_guidance = g})
-  = seqExpr e `seq` top `seq` b1 `seq` b2 `seq` b3 `seq` b4 `seq` seqGuidance g
-
-seqUnfolding _ = ()
-
-seqGuidance :: UnfoldingGuidance -> ()
-seqGuidance (UnfIfGoodArgs ns n b) = n `seq` sum ns `seq` b `seq` ()
-seqGuidance _                      = ()
-
 isStableSource :: UnfoldingSource -> Bool
 -- Keep the unfolding template
 isStableSource InlineCompulsory   = True
@@ -1097,7 +1210,7 @@ isExpandableUnfolding _                                              = False
 
 expandUnfolding_maybe :: Unfolding -> Maybe CoreExpr
 -- Expand an expandable unfolding; this is used in rule matching
---   See Note [Expanding variables] in Rules.lhs
+--   See Note [Expanding variables] in Rules.hs
 -- The key point here is that CONLIKE things can be expanded
 expandUnfolding_maybe (CoreUnfolding { uf_expandable = True, uf_tmpl = rhs }) = Just rhs
 expandUnfolding_maybe _                                                       = Nothing
@@ -1253,7 +1366,7 @@ a list of CoreBind
 -}
 
 -- If you edit this type, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 type CoreProgram = [CoreBind]   -- See Note [CoreProgram]
 
 -- | The common case for the type of binders and variables when
@@ -1447,7 +1560,7 @@ varsToCoreExprs vs = map varToCoreExpr vs
 -- | Extract every variable by this group
 bindersOf  :: Bind b -> [b]
 -- If you edit this function, you may need to update the GHC formalism
--- See Note [GHC Formalism] in coreSyn/CoreLint.lhs
+-- See Note [GHC Formalism] in coreSyn/CoreLint.hs
 bindersOf (NonRec binder _) = [binder]
 bindersOf (Rec pairs)       = [binder | (binder, _) <- pairs]
 
@@ -1565,61 +1678,6 @@ valBndrCount = count isId
 -- | The number of argument expressions that are values rather than types at their top level
 valArgCount :: [Arg b] -> Int
 valArgCount = count isValArg
-
-{-
-************************************************************************
-*                                                                      *
-\subsection{Seq stuff}
-*                                                                      *
-************************************************************************
--}
-
-seqExpr :: CoreExpr -> ()
-seqExpr (Var v)         = v `seq` ()
-seqExpr (Lit lit)       = lit `seq` ()
-seqExpr (App f a)       = seqExpr f `seq` seqExpr a
-seqExpr (Lam b e)       = seqBndr b `seq` seqExpr e
-seqExpr (Let b e)       = seqBind b `seq` seqExpr e
-seqExpr (Case e b t as) = seqExpr e `seq` seqBndr b `seq` seqType t `seq` seqAlts as
-seqExpr (Cast e co)     = seqExpr e `seq` seqCo co
-seqExpr (Tick n e)      = seqTickish n `seq` seqExpr e
-seqExpr (Type t)        = seqType t
-seqExpr (Coercion co)   = seqCo co
-
-seqExprs :: [CoreExpr] -> ()
-seqExprs [] = ()
-seqExprs (e:es) = seqExpr e `seq` seqExprs es
-
-seqTickish :: Tickish Id -> ()
-seqTickish ProfNote{ profNoteCC = cc } = cc `seq` ()
-seqTickish HpcTick{} = ()
-seqTickish Breakpoint{ breakpointFVs = ids } = seqBndrs ids
-seqTickish SourceNote{} = ()
-
-seqBndr :: CoreBndr -> ()
-seqBndr b = b `seq` ()
-
-seqBndrs :: [CoreBndr] -> ()
-seqBndrs [] = ()
-seqBndrs (b:bs) = seqBndr b `seq` seqBndrs bs
-
-seqBind :: Bind CoreBndr -> ()
-seqBind (NonRec b e) = seqBndr b `seq` seqExpr e
-seqBind (Rec prs)    = seqPairs prs
-
-seqPairs :: [(CoreBndr, CoreExpr)] -> ()
-seqPairs [] = ()
-seqPairs ((b,e):prs) = seqBndr b `seq` seqExpr e `seq` seqPairs prs
-
-seqAlts :: [CoreAlt] -> ()
-seqAlts [] = ()
-seqAlts ((c,bs,e):alts) = c `seq` seqBndrs bs `seq` seqExpr e `seq` seqAlts alts
-
-seqRules :: [CoreRule] -> ()
-seqRules [] = ()
-seqRules (Rule { ru_bndrs = bndrs, ru_args = args, ru_rhs = rhs } : rules)
-  = seqBndrs bndrs `seq` seqExprs (rhs:args) `seq` seqRules rules
-seqRules (BuiltinRule {} : rules) = seqRules rules
 
 {-
 ************************************************************************

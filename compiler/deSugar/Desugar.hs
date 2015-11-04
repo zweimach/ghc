@@ -14,7 +14,7 @@ import DynFlags
 import HscTypes
 import HsSyn
 import TcRnTypes
-import TcRnMonad ( finalSafeMode )
+import TcRnMonad ( finalSafeMode, fixSafeInstances )
 import MkIface
 import Id
 import Name
@@ -24,8 +24,8 @@ import Coercion
 import InstEnv
 import Class
 import Avail
-import PatSyn
 import CoreSyn
+import CoreFVs( exprsSomeFreeVars )
 import CoreSubst
 import PprCore
 import DsMonad
@@ -39,10 +39,11 @@ import NameEnv
 import Rules
 import TysPrim (eqReprPrimTyCon)
 import TysWiredIn (coercibleTyCon )
-import BasicTypes       ( Activation(.. ) )
+import BasicTypes       ( Activation(.. ), competesWith, pprRuleName )
 import CoreMonad        ( CoreToDo(..) )
 import CoreLint         ( endPassIO )
 import MkCore
+import VarSet
 import FastString
 import ErrUtils
 import Outputable
@@ -106,7 +107,7 @@ deSugar hsc_env
               hpcInfo    = emptyHpcInfo other_hpc_info
 
         ; (binds_cvr, ds_hpc_info, modBreaks)
-                         <- if not (isHsBootOrSig hsc_src)
+                         <- if not (isHsBoot hsc_src)
                               then addTicksToBinds dflags mod mod_loc export_set
                                           (typeEnvTyCons type_env) binds
                               else return (binds, hpcInfo, emptyModBreaks)
@@ -169,7 +170,8 @@ deSugar hsc_env
 
         ; let mod_guts = ModGuts {
                 mg_module       = mod,
-                mg_boot         = hsc_src == HsBootFile,
+                mg_hsc_src      = hsc_src,
+                mg_loc          = mkFileSrcSpan mod_loc,
                 mg_exports      = exports,
                 mg_deps         = deps,
                 mg_used_names   = used_names,
@@ -180,11 +182,11 @@ deSugar hsc_env
                 mg_warns        = warns,
                 mg_anns         = anns,
                 mg_tcs          = tcs,
-                mg_insts        = insts,
+                mg_insts        = fixSafeInstances safe_mode insts,
                 mg_fam_insts    = fam_insts,
                 mg_inst_env     = inst_env,
                 mg_fam_inst_env = fam_inst_env,
-                mg_patsyns      = filter ((`elemNameSet` export_set) . patSynName) patsyns,
+                mg_patsyns      = patsyns,
                 mg_rules        = ds_rules_for_imps,
                 mg_binds        = ds_binds,
                 mg_foreign      = ds_fords,
@@ -198,6 +200,12 @@ deSugar hsc_env
               }
         ; return (msgs, Just mod_guts)
         }}}
+
+mkFileSrcSpan :: ModLocation -> SrcSpan
+mkFileSrcSpan mod_loc
+  = case ml_hs_file mod_loc of
+      Just file_path -> mkGeneralSrcSpan (mkFastString file_path)
+      Nothing        -> interactiveSrcSpan   -- Presumably
 
 dsImpSpecs :: [LTcSpecPrag] -> DsM (OrdList (DsId,CoreExpr), [CoreRule])
 dsImpSpecs imp_specs
@@ -347,7 +355,7 @@ Reason
 -}
 
 dsRule :: LRuleDecl Id -> DsM (Maybe CoreRule)
-dsRule (L loc (HsRule name act vars lhs _tv_lhs rhs _fv_rhs))
+dsRule (L loc (HsRule name rule_act vars lhs _tv_lhs rhs _fv_rhs))
   = putSrcSpanDs loc $
     do  { bndrs' <- dsVars [var | L _ (RuleBndr (L _ var)) <- vars]
 
@@ -356,7 +364,7 @@ dsRule (L loc (HsRule name act vars lhs _tv_lhs rhs _fv_rhs))
                   dsLExpr lhs   -- Note [Desugaring RULE left hand sides]
 
         ; rhs' <- dsLExpr rhs
-        ; dflags <- getDynFlags
+        ; this_mod <- getModule
 
         ; (bndrs'', lhs'', rhs'') <- unfold_coerce bndrs' lhs' rhs'
 
@@ -372,35 +380,56 @@ dsRule (L loc (HsRule name act vars lhs _tv_lhs rhs _fv_rhs))
                 -- because they don't show up in the bindings until just before code gen
               fn_name   = idName fn_id
               final_rhs = simpleOptExpr rhs''    -- De-crap it
-              rule      = mkRule False {- Not auto -} is_local
-                                 (unLoc name) act fn_name final_bndrs args
-                                 final_rhs
+              rule_name = snd (unLoc name)
+              arg_ids = varSetElems (exprsSomeFreeVars isId args `delVarSetList` final_bndrs)
 
-              inline_shadows_rule   -- Function can be inlined before rule fires
-                | wopt Opt_WarnInlineRuleShadowing dflags
-                , isLocalId fn_id || hasSomeUnfolding (idUnfolding fn_id)
-                       -- If imported with no unfolding, no worries
-                = case (idInlineActivation fn_id, act) of
-                    (NeverActive, _)    -> False
-                    (AlwaysActive, _)   -> True
-                    (ActiveBefore {}, _) -> True
-                    (ActiveAfter {}, NeverActive)     -> True
-                    (ActiveAfter n, ActiveAfter r)    -> r < n  -- Rule active strictly first
-                    (ActiveAfter {}, AlwaysActive)    -> False
-                    (ActiveAfter {}, ActiveBefore {}) -> False
-                | otherwise = False
-
-        ; when inline_shadows_rule $
-          warnDs (vcat [ hang (ptext (sLit "Rule")
-                               <+> doubleQuotes (ftext $ unLoc name)
-                               <+> ptext (sLit "may never fire"))
-                            2 (ptext (sLit "because") <+> quotes (ppr fn_id)
-                               <+> ptext (sLit "might inline first"))
-                       , ptext (sLit "Probable fix: add an INLINE[n] or NOINLINE[n] pragma on")
-                         <+> quotes (ppr fn_id) ])
+        ; dflags <- getDynFlags
+        ; rule <- dsMkUserRule this_mod is_local
+                         rule_name rule_act fn_name final_bndrs args
+                         final_rhs
+        ; when (wopt Opt_WarnInlineRuleShadowing dflags) $
+          warnRuleShadowing rule_name rule_act fn_id arg_ids
 
         ; return (Just rule)
         } } }
+
+
+warnRuleShadowing :: RuleName -> Activation -> Id -> [Id] -> DsM ()
+-- See Note [Rules and inlining/other rules]
+warnRuleShadowing rule_name rule_act fn_id arg_ids
+  = do { check False fn_id    -- We often have multiple rules for the same Id in a
+                              -- module. Maybe we should check that they don't overlap
+                              -- but currently we don't
+       ; mapM_ (check True) arg_ids }
+  where
+    check check_rules_too lhs_id
+      | isLocalId lhs_id || canUnfold (idUnfolding lhs_id)
+                       -- If imported with no unfolding, no worries
+      , idInlineActivation lhs_id `competesWith` rule_act
+      = warnDs (vcat [ hang (ptext (sLit "Rule") <+> pprRuleName rule_name
+                               <+> ptext (sLit "may never fire"))
+                            2 (ptext (sLit "because") <+> quotes (ppr lhs_id)
+                               <+> ptext (sLit "might inline first"))
+                     , ptext (sLit "Probable fix: add an INLINE[n] or NOINLINE[n] pragma for")
+                       <+> quotes (ppr lhs_id)
+                     , ifPprDebug (ppr (idInlineActivation lhs_id) $$ ppr rule_act) ])
+
+      | check_rules_too
+      , bad_rule : _ <- get_bad_rules lhs_id
+      = warnDs (vcat [ hang (ptext (sLit "Rule") <+> pprRuleName rule_name
+                               <+> ptext (sLit "may never fire"))
+                            2 (ptext (sLit "because rule") <+> pprRuleName (ruleName bad_rule)
+                               <+> ptext (sLit "for")<+> quotes (ppr lhs_id)
+                               <+> ptext (sLit "might fire first"))
+                      , ptext (sLit "Probable fix: add phase [n] or [~n] to the competing rule")
+                      , ifPprDebug (ppr bad_rule) ])
+
+      | otherwise
+      = return ()
+
+    get_bad_rules lhs_id
+      = [ rule | rule <- idCoreRules lhs_id
+               , ruleActivation rule `competesWith` rule_act ]
 
 -- See Note [Desugaring coerce as cast]
 unfold_coerce :: [DsId] -> CoreExpr -> CoreExpr -> DsM ([DsVar], CoreExpr, CoreExpr)
@@ -423,9 +452,8 @@ unfold_coerce bndrs lhs rhs = do
             (bndrs,wrap) <- go vs
             return (v:bndrs, wrap)
 
-{-
-Note [Desugaring RULE left hand sides]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+{- Note [Desugaring RULE left hand sides]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 For the LHS of a RULE we do *not* want to desugar
     [x]   to    build (\cn. x `c` n)
 We want to leave explicit lists simply as chains
@@ -439,7 +467,6 @@ That keeps the desugaring of list comprehensions simple too.
 Nor do we want to warn of conversion identities on the LHS;
 the rule is precisly to optimise them:
   {-# RULES "fromRational/id" fromRational = id :: Rational -> Rational #-}
-
 
 Note [Desugaring coerce as cast]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -455,6 +482,42 @@ corresponding `co :: a ~#R b` and wrap the LHS and the RHS in
 `let c = MkCoercible co in ...`. This is later simplified to the desired form
 by simpleOptExpr (for the LHS) resp. the simplifiers (for the RHS).
 
+Note [Rules and inlining/other rules]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+If you have
+  f x = ...
+  g x = ...
+  {-# RULES "rule-for-f" forall x. f (g x) = ... #-}
+then there's a good chance that in a potential rule redex
+    ...f (g e)...
+then 'f' or 'g' will inline befor the rule can fire.  Solution: add an
+INLINE [n] or NOINLINE [n] pragma to 'f' and 'g'.
+
+Note that this applies to all the free variables on the LHS, both the
+main function and things in its arguments.
+
+We also check if there are Ids on the LHS that have competing RULES.
+In the above example, suppose we had
+  {-# RULES "rule-for-g" forally. g [y] = ... #-}
+Then "rule-for-f" and "rule-for-g" would compete.  Better to add phase
+control, so "rule-for-f" has a chance to fire before "rule-for-g" becomes
+active; or perhpas after "rule-for-g" has become inactive. This is checked
+by 'competesWith'
+
+Class methods have a built-in RULE to select the method from the dictionary,
+so you can't change the phase on this.  That makes id very dubious to
+match on class methods in RULE lhs's.   See Trac #10595.   I'm not happy
+about this. For exmaple in Control.Arrow we have
+
+{-# RULES "compose/arr"   forall f g .
+                          (arr f) . (arr g) = arr (f . g) #-}
+
+and similar, which will elicit exactly these warnings, and risk never
+firing.  But it's not clear what to do instead.  We could make the
+class methocd rules inactive in phase 2, but that would delay when
+subsequent transformations could fire.
+
+
 ************************************************************************
 *                                                                      *
 *              Desugaring vectorisation declarations
@@ -463,13 +526,13 @@ by simpleOptExpr (for the LHS) resp. the simplifiers (for the RHS).
 -}
 
 dsVect :: LVectDecl Id -> DsM CoreVect
-dsVect (L loc (HsVect (L _ v) rhs))
+dsVect (L loc (HsVect _ (L _ v) rhs))
   = putSrcSpanDs loc $
     do { v'   <- dsVar v
        ; rhs' <- dsLExpr rhs
        ; return $ Vect v' rhs'
        }
-dsVect (L _loc (HsNoVect (L _ v)))
+dsVect (L _loc (HsNoVect _ (L _ v)))
   = NoVect <$> dsVar v
 dsVect (L _loc (HsVectTypeOut isScalar tycon rhs_tycon))
   = return $ VectType isScalar tycon' rhs_tycon
@@ -477,11 +540,11 @@ dsVect (L _loc (HsVectTypeOut isScalar tycon rhs_tycon))
     tycon' | Just ty <- coreView $ mkTyConTy tycon
            , (tycon', []) <- splitTyConApp ty      = tycon'
            | otherwise                             = tycon
-dsVect vd@(L _ (HsVectTypeIn _ _ _))
+dsVect vd@(L _ (HsVectTypeIn _ _ _ _))
   = pprPanic "Desugar.dsVect: unexpected 'HsVectTypeIn'" (ppr vd)
 dsVect (L _loc (HsVectClassOut cls))
   = return $ VectClass (classTyCon cls)
-dsVect vc@(L _ (HsVectClassIn _))
+dsVect vc@(L _ (HsVectClassIn _ _))
   = pprPanic "Desugar.dsVect: unexpected 'HsVectClassIn'" (ppr vc)
 dsVect (L _loc (HsVectInstOut inst))
   = return $ VectInst (instanceDFunId inst)

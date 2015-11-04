@@ -30,7 +30,7 @@ System FC, as implemented in GHC\footnote{This
 document was originally prepared by Richard Eisenberg (\texttt{eir@cis.upenn.edu}),
 but it should be maintained by anyone who edits the functions or data structures
 mentioned in this file. Please feel free to contact Richard for more information.}\\
-\Large 2 April, 2015
+\Large 23 October, 2015
 \end{center}
 
 \section{Introduction}
@@ -146,9 +146,9 @@ There are some invariants on types:
 \item The name used in a type must be a type-level name (\ctor{TyVar}).
 \item The type $[[t1]]$ in the form $[[t1 t2]]$ must not be a type constructor
 $[[T]]$. It should be another application or a type variable.
-\item The form $[[T </ ti // i /> ]]$ (\texttt{TyConApp}) 
+\item The form $[[T </ ti // i /> ]]$ (\texttt{TyConApp})
 does \emph{not} need to be saturated.
-\item A saturated application of $[[(->) t1 t2]]$ should be represented as 
+\item A saturated application of $[[(->) t1 t2]]$ should be represented as
 $[[t1 -> t2]]$. This is a different point in the grammar, not just pretty-printing.
 The constructor for a saturated $[[(->)]]$ is \texttt{ForAllTy}.
 \item A type-level literal is represented in GHC with a different datatype than
@@ -231,6 +231,18 @@ $[[coaxrProves]]$ which computes the output coercion from a list of types and
 a list of coercions. This is elided in this presentation, as we simply identify
 axiom rules by their names $[[M]]$. See also \coderef{typecheck/TcTypeNats.lhs}{mkBinAxiom}
 and \coderef{typecheck/TcTypeNats.lhs}{mkAxiom1}.
+
+In \ottdrulename{Co\_UnivCo}, function $ \textsf{compatibleUnBoxedTys} $ stands for following checks:
+\begin{itemize}
+    \item both types are unboxed;
+    \item types should have same size;
+    \item both types should be either integral or floating;
+    \item coercion between vector types are not allowed;
+    \item unboxed tuples should have same length and each element should be coercible to
+    appropriate element of the target tuple;
+\end{itemize}
+For function implementation see \coderef{coreSyn/CoreLint.lhs}{checkTypes}.
+For futher discussion see \url{https://ghc.haskell.org/trac/ghc/wiki/BadUnsafeCoercions}.
 
 \subsection{Type constructors}
 
@@ -475,11 +487,13 @@ use of FC does not require modeling recursion, you will not need to track $[[S]]
 \subsection{Notes}
 
 \begin{itemize}
-\item The \ottdrulename{S\_LetRec} and \ottdrulename{S\_LetRecReturn} rules
+\item The \ottdrulename{S\_LetRec} rules
 implement recursion. \ottdrulename{S\_LetRec} adds to the context $[[S]]$ bindings
 for all of the mutually recursive equations. Then, after perhaps many steps,
 when the body of the $[[let]]\ [[rec]]$ contains no variables that are bound
-in the $[[let]]\ [[rec]]$, the context is popped.
+in the $[[let]]\ [[rec]]$, the context is popped in \ottdrulename{S\_LetRecReturn}.
+The other \ottdrulename{S\_LetRecXXX}
+rules are there to prevent reduction from getting stuck.
 \item In the $[[case]]$ rules, a constructor $[[K]]$ is written taking three
 lists of arguments: two lists of types and a list of terms. The types passed
 in are the universally and, respectively, existentially quantified type variables

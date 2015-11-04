@@ -1,6 +1,8 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE AutoDeriveTypeable #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveTraversable #-}
 
 -----------------------------------------------------------------------------
 -- |
@@ -34,7 +36,7 @@ module Data.Complex
 
         )  where
 
-import Data.Typeable
+import GHC.Generics (Generic, Generic1)
 import Data.Data (Data)
 import Foreign (Storable, castPtr, peek, poke, pokeElemOff, peekElemOff, sizeOf,
                 alignment)
@@ -49,10 +51,13 @@ infix  6  :+
 -- For a complex number @z@, @'abs' z@ is a number with the magnitude of @z@,
 -- but oriented in the positive real direction, whereas @'signum' z@
 -- has the phase of @z@, but unit magnitude.
+--
+-- The 'Foldable' and 'Traversable' instances traverse the real part first.
 data Complex a
   = !a :+ !a    -- ^ forms a complex number from its real and imaginary
                 -- rectangular components.
-        deriving (Eq, Show, Read, Data, Typeable)
+        deriving (Eq, Show, Read, Data, Generic, Generic1
+                , Functor, Foldable, Traversable)
 
 -- -----------------------------------------------------------------------------
 -- Functions over Complex
@@ -140,6 +145,22 @@ instance  (RealFloat a) => Floating (Complex a) where
                       where expx = exp x
     log z          =  log (magnitude z) :+ phase z
 
+    x ** y = case (x,y) of
+      (_ , (0:+0))  -> 1 :+ 0
+      ((0:+0), (exp_re:+_)) -> case compare exp_re 0 of
+                 GT -> 0 :+ 0
+                 LT -> inf :+ 0
+                 EQ -> nan :+ nan
+      ((re:+im), (exp_re:+_))
+        | (isInfinite re || isInfinite im) -> case compare exp_re 0 of
+                 GT -> inf :+ 0
+                 LT -> 0 :+ 0
+                 EQ -> nan :+ nan
+        | otherwise -> exp (log x * y)
+      where
+        inf = 1/0
+        nan = 0/0
+
     sqrt (0:+0)    =  0
     sqrt z@(x:+y)  =  u :+ (if y < 0 then -v else v)
                       where (u,v) = if x < 0 then (v',u') else (u',v')
@@ -186,3 +207,10 @@ instance Storable a => Storable (Complex a) where
                         q <-return $  (castPtr p)
                         poke q r
                         pokeElemOff q 1 i
+
+instance Applicative Complex where
+  pure a = a :+ a
+  f :+ g <*> a :+ b = f a :+ g b
+
+instance Monad Complex where
+  a :+ b >>= f = realPart (f a) :+ imagPart (f b)

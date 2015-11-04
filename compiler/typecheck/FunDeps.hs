@@ -11,8 +11,7 @@ It's better to read it as: "if we know these, then we're going to know these"
 {-# LANGUAGE CPP #-}
 
 module FunDeps (
-        FDEq (..),
-        Equation(..), pprEquation,
+        FunDepEqn(..), pprEquation,
         improveFromInstEnv, improveFromAnother,
         checkInstCoverage, checkFunDeps,
         pprFundeps
@@ -24,6 +23,7 @@ import Name
 import Var
 import Class
 import Type
+import TcType( immSuperClasses )
 import Unify
 import InstEnv
 import VarSet
@@ -34,8 +34,16 @@ import SrcLoc
 import Util
 import FastString
 
+import Pair             ( Pair(..) )
 import Data.List        ( nubBy )
-import Data.Maybe       ( isJust )
+import Data.Maybe
+import Data.Foldable    ( fold )
+
+#if __GLASGOW_HASKELL__ < 709
+import Prelude hiding ( and )
+import Control.Applicative ( (<$>) )
+import Data.Foldable       ( and )
+#endif
 
 {-
 ************************************************************************
@@ -49,21 +57,23 @@ Each functional dependency with one variable in the RHS is responsible
 for generating a single equality. For instance:
      class C a b | a -> b
 The constraints ([Wanted] C Int Bool) and [Wanted] C Int alpha
-     FDEq { fd_pos      = 1
-          , fd_ty_left  = Bool
-          , fd_ty_right = alpha }
+will generate the folloing FunDepEqn
+     FDEqn { fd_qtvs = []
+           , fd_eqs  = [Pair Bool alpha]
+           , fd_pred1 = C Int Bool
+           , fd_pred2 = C Int alpha
+           , fd_loc = ... }
 However notice that a functional dependency may have more than one variable
-in the RHS which will create more than one FDEq. Example:
+in the RHS which will create more than one pair of types in fd_eqs. Example:
      class C a b c | a -> b c
      [Wanted] C Int alpha alpha
      [Wanted] C Int Bool beta
 Will generate:
-        fd1 = FDEq { fd_pos = 1, fd_ty_left = alpha, fd_ty_right = Bool } and
-        fd2 = FDEq { fd_pos = 2, fd_ty_left = alpha, fd_ty_right = beta }
-
-We record the paremeter position so that can immediately rewrite a constraint
-using the produced FDEqs and remove it from our worklist.
-
+     FDEqn { fd_qtvs = []
+           , fd_eqs  = [Pair Bool alpha, Pair alpha beta]
+           , fd_pred1 = C Int Bool
+           , fd_pred2 = C Int alpha
+           , fd_loc = ... }
 
 INVARIANT: Corresponding types aren't already equal
 That is, there exists at least one non-identity equality in FDEqs.
@@ -95,19 +105,15 @@ unification variables when producing the FD constraints.
 Finally, the position parameters will help us rewrite the wanted constraint ``on the spot''
 -}
 
-data Equation loc
-   = FDEqn { fd_qtvs :: [TyVar]                 -- Instantiate these type and kind vars to fresh unification vars
-           , fd_eqs  :: [FDEq]                  --   and then make these equal
-           , fd_pred1, fd_pred2 :: PredType     -- The Equation arose from combining these two constraints
-           , fd_loc :: loc  }
+data FunDepEqn loc
+  = FDEqn { fd_qtvs :: [TyVar]   -- Instantiate these type and kind vars
+                                 --   to fresh unification vars,
+                                 -- Non-empty only for FunDepEqns arising from instance decls
 
-data FDEq = FDEq { fd_pos      :: Int -- We use '0' for the first position
-                 , fd_ty_left  :: Type
-                 , fd_ty_right :: Type }
-
-instance Outputable FDEq where
-  ppr (FDEq { fd_pos = p, fd_ty_left = tyl, fd_ty_right = tyr })
-    = parens (int p <> comma <+> ppr tyl <> comma <+> ppr tyr)
+          , fd_eqs  :: [Pair Type]  -- Make these pairs of types equal
+          , fd_pred1 :: PredType    -- The FunDepEqn arose from
+          , fd_pred2 :: PredType    --  combining these two constraints
+          , fd_loc :: loc  }
 
 {-
 Given a bunch of predicates that must hold, such as
@@ -139,84 +145,74 @@ NOTA BENE:
 -}
 
 instFD :: FunDep TyVar -> [TyVar] -> [Type] -> FunDep Type
--- A simpler version of instFD_WithPos to be used in checking instance coverage etc.
+-- (instFD fd tvs tys) returns fd instantiated with (tvs -> tys)
 instFD (ls,rs) tvs tys
   = (map lookup ls, map lookup rs)
   where
     env       = zipVarEnv tvs tys
     lookup tv = lookupVarEnv_NF env tv
 
-instFD_WithPos :: FunDep TyVar -> [TyVar] -> [Type] -> ([Type], [(Int,Type)])
--- Returns a FunDep between the types accompanied along with their
--- position (<=0) in the types argument list.
-instFD_WithPos (ls,rs) tvs tys
-  = (map (snd . lookup) ls, map lookup rs)
-  where
-    ind_tys   = zip [0..] tys
-    env       = zipVarEnv tvs ind_tys
-    lookup tv = lookupVarEnv_NF env tv
-
 zipAndComputeFDEqs :: (Type -> Type -> Bool) -- Discard this FDEq if true
-                   -> [Type]
-                   -> [(Int,Type)]
-                   -> [FDEq]
--- Create a list of FDEqs from two lists of types, making sure
--- that the types are not equal.
-zipAndComputeFDEqs discard (ty1:tys1) ((i2,ty2):tys2)
+                   -> [Type] -> [Type]
+                   -> [Pair Type]
+-- Create a list of (Type,Type) pairs from two lists of types,
+-- making sure that the types are not already equal
+zipAndComputeFDEqs discard (ty1:tys1) (ty2:tys2)
  | discard ty1 ty2 = zipAndComputeFDEqs discard tys1 tys2
- | otherwise = FDEq { fd_pos      = i2
-                    , fd_ty_left  = ty1
-                    , fd_ty_right = ty2 } : zipAndComputeFDEqs discard tys1 tys2
+ | otherwise       = Pair ty1 ty2 : zipAndComputeFDEqs discard tys1 tys2
 zipAndComputeFDEqs _ _ _ = []
 
 -- Improve a class constraint from another class constraint
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-improveFromAnother :: PredType -- Template item (usually given, or inert)
+improveFromAnother :: loc
+                   -> PredType -- Template item (usually given, or inert)
                    -> PredType -- Workitem [that can be improved]
-                   -> [Equation ()]
+                   -> [FunDepEqn loc]
 -- Post: FDEqs always oriented from the other to the workitem
 --       Equations have empty quantified variables
-improveFromAnother pred1 pred2
+improveFromAnother loc pred1 pred2
   | Just (cls1, tys1) <- getClassPredTys_maybe pred1
   , Just (cls2, tys2) <- getClassPredTys_maybe pred2
   , tys1 `lengthAtLeast` 2 && cls1 == cls2
-  = [ FDEqn { fd_qtvs = [], fd_eqs = eqs, fd_pred1 = pred1, fd_pred2 = pred2, fd_loc = () }
+  = [ FDEqn { fd_qtvs = [], fd_eqs = eqs, fd_pred1 = pred1, fd_pred2 = pred2, fd_loc = loc }
     | let (cls_tvs, cls_fds) = classTvsFds cls1
     , fd <- cls_fds
-    , let (ltys1, rs1)  = instFD         fd cls_tvs tys1
-          (ltys2, irs2) = instFD_WithPos fd cls_tvs tys2
+    , let (ltys1, rs1) = instFD fd cls_tvs tys1
+          (ltys2, rs2) = instFD fd cls_tvs tys2
     , eqTypes ltys1 ltys2               -- The LHSs match
-    , let eqs = zipAndComputeFDEqs eqType rs1 irs2
+    , let eqs = zipAndComputeFDEqs eqType rs1 rs2
     , not (null eqs) ]
 
-improveFromAnother _ _ = []
+improveFromAnother _ _ _ = []
 
 
 -- Improve a class constraint from instance declarations
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-pprEquation :: Equation a -> SDoc
+pprEquation :: FunDepEqn a -> SDoc
 pprEquation (FDEqn { fd_qtvs = qtvs, fd_eqs = pairs })
   = vcat [ptext (sLit "forall") <+> braces (pprWithCommas ppr qtvs),
-          nest 2 (vcat [ ppr t1 <+> ptext (sLit "~") <+> ppr t2 | (FDEq _ t1 t2) <- pairs])]
+          nest 2 (vcat [ ppr t1 <+> ptext (sLit "~") <+> ppr t2
+                       | Pair t1 t2 <- pairs])]
 
 improveFromInstEnv :: InstEnvs
+                   -> (PredType -> SrcSpan -> loc)
                    -> PredType
-                   -> [Equation SrcSpan] -- Needs to be an Equation because
-                                 -- of quantified variables
+                   -> [FunDepEqn loc] -- Needs to be a FunDepEqn because
+                                      -- of quantified variables
 -- Post: Equations oriented from the template (matching instance) to the workitem!
-improveFromInstEnv _inst_env pred
+improveFromInstEnv _inst_env _ pred
   | not (isClassPred pred)
   = panic "improveFromInstEnv: not a class predicate"
-improveFromInstEnv inst_env pred
+improveFromInstEnv inst_env mk_loc pred
   | Just (cls, tys) <- getClassPredTys_maybe pred
   , tys `lengthAtLeast` 2
   , let (cls_tvs, cls_fds) = classTvsFds cls
         instances          = classInstances inst_env cls
         rough_tcs          = roughMatchTcs tys
   = [ FDEqn { fd_qtvs = meta_tvs, fd_eqs = eqs
-            , fd_pred1 = p_inst, fd_pred2=pred
-            , fd_loc = getSrcSpan (is_dfun ispec) }
+            , fd_pred1 = p_inst, fd_pred2 = pred
+            , fd_loc = mk_loc p_inst (getSrcSpan (is_dfun ispec)) }
     | fd <- cls_fds             -- Iterate through the fundeps first,
                                 -- because there often are none!
     , let trimmed_tcs = trimRoughMatchTcs cls_tvs fd rough_tcs
@@ -225,29 +221,33 @@ improveFromInstEnv inst_env pred
                 -- symmetrically, so it's ok to trim the rough_tcs,
                 -- rather than trimming each inst_tcs in turn
     , ispec <- instances
-    , (meta_tvs, eqs) <- checkClsFD fd cls_tvs ispec
-                                    emptyVarSet tys trimmed_tcs -- NB: orientation
+    , (meta_tvs, eqs) <- improveClsFD cls_tvs fd ispec
+                                      tys trimmed_tcs -- NB: orientation
     , let p_inst = mkClassPred cls (is_tys ispec)
     ]
-improveFromInstEnv _ _ = []
+improveFromInstEnv _ _ _ = []
 
 
-checkClsFD :: FunDep TyVar -> [TyVar]             -- One functional dependency from the class
-           -> ClsInst                             -- An instance template
-           -> TyVarSet -> [Type] -> [Maybe Name]  -- Arguments of this (C tys) predicate
-                                                  -- TyVarSet are extra tyvars that can be instantiated
-           -> [([TyCoVar], [FDEq])]
+improveClsFD :: [TyVar] -> FunDep TyVar    -- One functional dependency from the class
+             -> ClsInst                    -- An instance template
+             -> [Type] -> [Maybe Name]     -- Arguments of this (C tys) predicate
+             -> [([TyCoVar], [Pair Type])] -- Empty or singleton
 
-checkClsFD fd clas_tvs
-           (ClsInst { is_tvs = qtvs, is_tys = tys_inst, is_tcs = rough_tcs_inst })
-           extra_qtvs tys_actual rough_tcs_actual
+improveClsFD clas_tvs fd
+             (ClsInst { is_tvs = qtvs, is_tys = tys_inst, is_tcs = rough_tcs_inst })
+             tys_actual rough_tcs_actual
+
+-- Compare instance      {a,b}    C sx sp sy sq
+--         with wanted     [W] C tx tp ty tq
+--         for fundep (x,y -> p,q)  from class  (C x p y q)
+-- If (sx,sy) unifies with (tx,ty), take the subst S
 
 -- 'qtvs' are the quantified type variables, the ones which an be instantiated
 -- to make the types match.  For example, given
 --      class C a b | a->b where ...
 --      instance C (Maybe x) (Tree x) where ..
 --
--- and an Inst of form (C (Maybe t1) t2),
+-- and a wanted constraint of form (C (Maybe t1) t2),
 -- then we will call checkClsFD with
 --
 --      is_qtvs = {x}, is_tys = [Maybe x,  Tree x]
@@ -255,14 +255,6 @@ checkClsFD fd clas_tvs
 --
 -- We can instantiate x to t1, and then we want to force
 --      (Tree x) [t1/x]  ~   t2
---
--- This function is also used when matching two Insts (rather than an Inst
--- against an instance decl. In that case, qtvs is empty, and we are doing
--- an equality check
---
--- This function is also used by InstEnv.badFunDeps, which needs to *unify*
--- For the one-sided matching case, the qtvs are just from the template,
--- so we get matching
 
   | instanceCantMatch rough_tcs_inst rough_tcs_actual
   = []          -- Filter out ones that can't possibly match,
@@ -272,10 +264,9 @@ checkClsFD fd clas_tvs
              length tys_inst == length clas_tvs
             , ppr tys_inst <+> ppr tys_actual )
 
-    case tcUnifyTys bind_fn ltys1 ltys2 of
+    case tcMatchTys qtv_set ltys1 ltys2 of
         Nothing  -> []
-        Just (subst, _)
-                   | isJust (tcUnifyTys bind_fn rtys1' rtys2')
+        Just (subst, _) | isJust (tcMatchTysX qtv_set subst rtys1 rtys2)
                         -- Don't include any equations that already hold.
                         -- Reason: then we know if any actual improvement has happened,
                         --         in which case we need to iterate the solver
@@ -303,10 +294,8 @@ checkClsFD fd clas_tvs
                         -- work of the ls1/ls2 unification leaving a smaller unification problem
                   where
                     rtys1' = map (substTy subst) rtys1
-                    irs2'  = map (\(i,x) -> (i,substTy subst x)) irs2
-                    rtys2' = map snd irs2'
 
-                    fdeqs = zipAndComputeFDEqs (\_ _ -> False) rtys1' irs2'
+                    fdeqs = zipAndComputeFDEqs (\_ _ -> False) rtys1' rtys2
                         -- Don't discard anything!
                         -- We could discard equal types but it's an overkill to call
                         -- eqType again, since we know for sure that /at least one/
@@ -332,12 +321,8 @@ checkClsFD fd clas_tvs
                         --          Trac #6015, #6068
   where
     qtv_set = mkVarSet qtvs
-    bind_fn tv | tv `elemVarSet` qtv_set    = BindMe
-               | tv `elemVarSet` extra_qtvs = BindMe
-               | otherwise                  = Skolem
-
-    (ltys1, rtys1) = instFD         fd clas_tvs tys_inst
-    (ltys2, irs2)  = instFD_WithPos fd clas_tvs tys_actual
+    (ltys1, rtys1) = instFD fd clas_tvs tys_inst
+    (ltys2, rtys2) = instFD fd clas_tvs tys_actual
 
 {-
 %************************************************************************
@@ -390,19 +375,28 @@ checkInstCoverage be_liberal clas theta inst_taus
   where
     (tyvars, fds) = classTvsFds clas
     fundep_ok fd
-       | if be_liberal then liberal_ok else conservative_ok
-       = IsValid
-       | otherwise
-       = NotValid msg
+       | and (isEmptyVarSet <$> undetermined_tvs) = IsValid
+       | otherwise                                = NotValid msg
        where
          (ls,rs) = instFD fd tyvars inst_taus
          ls_tvs = tyCoVarsOfTypes ls
-         rs_tvs = tyCoVarsOfTypes rs
+         rs_tvs = splitVisVarsOfTypes rs
 
-         conservative_ok = rs_tvs `subVarSet` ls_tvs
-         liberal_ok      = rs_tvs `subVarSet` oclose theta ls_tvs
+         undetermined_tvs | be_liberal = liberal_undet_tvs
+                          | otherwise  = conserv_undet_tvs
 
-         msg = vcat [ sep [ ptext (sLit "The")
+         closed_ls_tvs = oclose theta ls_tvs
+         liberal_undet_tvs = (`minusVarSet` closed_ls_tvs) <$> rs_tvs
+         conserv_undet_tvs = (`minusVarSet` ls_tvs)        <$> rs_tvs
+
+         undet_list = varSetElemsWellScoped (fold undetermined_tvs)
+
+         msg = vcat [ -- text "ls_tvs" <+> ppr ls_tvs
+                      -- , text "closed ls_tvs" <+> ppr (closeOverKinds ls_tvs)
+                      -- , text "theta" <+> ppr theta
+                      -- , text "oclose" <+> ppr (oclose theta (closeOverKinds ls_tvs))
+                      -- , text "rs_tvs" <+> ppr rs_tvs
+                      sep [ ptext (sLit "The")
                             <+> ppWhen be_liberal (ptext (sLit "liberal"))
                             <+> ptext (sLit "coverage condition fails in class")
                             <+> quotes (ppr clas)
@@ -415,10 +409,80 @@ checkInstCoverage be_liberal clas theta inst_taus
                              else ptext (sLit "do not jointly"))
                             <+> ptext (sLit "determine rhs type")<>plural rs
                             <+> pprQuotedList rs ]
-                    , ppWhen (not be_liberal && liberal_ok) $
+                    , ptext (sLit "Un-determined variable") <> plural undet_list <> colon
+                            <+> pprWithCommas ppr undet_list
+                    , ppWhen (isEmptyVarSet $ pSnd undetermined_tvs) $
+                      ptext (sLit "(Use -fprint-explicit-kinds to see the kind variables in the types)")
+                    , ppWhen (not be_liberal &&
+                              and (isEmptyVarSet <$> liberal_undet_tvs)) $
                       ptext (sLit "Using UndecidableInstances might help") ]
 
-{-
+{- Note [Closing over kinds in coverage]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Suppose we have a fundep  (a::k) -> b
+Then if 'a' is instantiated to (x y), where x:k2->*, y:k2,
+then fixing x really fixes k2 as well, and so k2 should be added to
+the lhs tyvars in the fundep check.
+
+Example (Trac #8391), using liberal coverage
+      data Foo a = ...  -- Foo :: forall k. k -> *
+      class Bar a b | a -> b
+      instance Bar a (Foo a)
+
+    In the instance decl, (a:k) does fix (Foo k a), but only if we notice
+    that (a:k) fixes k.  Trac #10109 is another example.
+
+Here is a more subtle example, from HList-0.4.0.0 (Trac #10564)
+
+  class HasFieldM (l :: k) r (v :: Maybe *)
+        | l r -> v where ...
+  class HasFieldM1 (b :: Maybe [*]) (l :: k) r v
+        | b l r -> v where ...
+  class HMemberM (e1 :: k) (l :: [k]) (r :: Maybe [k])
+        | e1 l -> r
+
+  data Label :: k -> *
+  type family LabelsOf (a :: [*]) ::  *
+
+  instance (HMemberM (Label {k} (l::k)) (LabelsOf xs) b,
+            HasFieldM1 b l (r xs) v)
+         => HasFieldM l (r xs) v where
+
+Is the instance OK? Does {l,r,xs} determine v?  Well:
+
+  * From the instance constraint HMemberM (Label k l) (LabelsOf xs) b,
+    plus the fundep "| el l -> r" in class HMameberM,
+    we get {l,k,xs} -> b
+
+  * Note the 'k'!! We must call closeOverKinds on the seed set
+    ls_tvs = {l,r,xs}, BEFORE doing oclose, else the {l,k,xs}->b
+    fundep won't fire.  This was the reason for #10564.
+
+  * So starting from seeds {l,r,xs,k} we do oclose to get
+    first {l,r,xs,k,b}, via the HMemberM constraint, and then
+    {l,r,xs,k,b,v}, via the HasFieldM1 constraint.
+
+  * And that fixes v.
+
+However, we must closeOverKinds whenever augmenting the seed set
+in oclose!  Consider Trac #10109:
+
+  data Succ a   -- Succ :: forall k. k -> *
+  class Add (a :: k1) (b :: k2) (ab :: k3) | a b -> ab
+  instance (Add a b ab) => Add (Succ {k1} (a :: k1))
+                               b
+                               (Succ {k3} (ab :: k3})
+
+We start with seed set {a:k1,b:k2} and closeOverKinds to {a,k1,b,k2}.
+Now use the fundep to extend to {a,k1,b,k2,ab}.  But we need to
+closeOverKinds *again* now to {a,k1,b,k2,ab,k3}, so that we fix all
+the variables free in (Succ {k3} ab).
+
+Bottom line:
+  * closeOverKinds on initial seeds (done automatically
+    by tyCoVarsOfTypes in checkInstCoverage)
+  * and closeOverKinds whenever extending those seeds (in oclose)
+
 Note [The liberal coverage condition]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 (oclose preds tvs) closes the set of type variables tvs,
@@ -442,32 +506,31 @@ oclose :: [PredType] -> TyCoVarSet -> TyCoVarSet
 -- See Note [The liberal coverage condition]
 oclose preds fixed_tvs
   | null tv_fds = fixed_tvs -- Fast escape hatch for common case.
-  | otherwise   = loop fixed_tvs
+  | otherwise   = fixVarSet extend fixed_tvs
   where
-    loop fixed_tvs
-      | new_fixed_tvs `subVarSet` fixed_tvs = fixed_tvs
-      | otherwise                           = loop new_fixed_tvs
-      where new_fixed_tvs = foldl extend fixed_tvs tv_fds
-
-    extend fixed_tvs (ls,rs)
-        | ls `subVarSet` fixed_tvs = fixed_tvs `unionVarSet` rs
-        | otherwise                = fixed_tvs
+    extend fixed_tvs = foldl add fixed_tvs tv_fds
+       where
+          add fixed_tvs (ls,rs)
+            | ls `subVarSet` fixed_tvs = fixed_tvs `unionVarSet` closeOverKinds rs
+            | otherwise                = fixed_tvs
+            -- closeOverKinds: see Note [Closing over kinds in coverage]
 
     tv_fds  :: [(TyCoVarSet,TyCoVarSet)]
-    tv_fds  = [ (tyCoVarsOfTypes xs, tyCoVarsOfTypes ys)
-              | (xs, ys) <- concatMap determined preds
-              ]
+    tv_fds  = [ (tyCoVarsOfTypes ls, tyCoVarsOfTypes rs)
+              | pred <- preds
+              , (ls, rs) <- determined pred ]
 
     determined :: PredType -> [([Type],[Type])]
     determined pred
        = case classifyPredType pred of
-            ClassPred cls tys ->
-               do let (cls_tvs, cls_fds) = classTvsFds cls
-                  fd <- cls_fds
-                  return (instFD fd cls_tvs tys)
             EqPred NomEq t1 t2 -> [([t1],[t2]), ([t2],[t1])]
-            TuplePred ts       -> concatMap determined ts
-            _                  -> []
+            ClassPred cls tys -> local_fds ++ concatMap determined superclasses
+              where
+               local_fds = [ instFD fd cls_tvs tys
+                           | fd <- cls_fds ]
+               (cls_tvs, cls_fds) = classTvsFds cls
+               superclasses = immSuperClasses cls tys
+            _ -> []
 
 {-
 ************************************************************************
@@ -500,35 +563,60 @@ The instance decls don't overlap, because the third parameter keeps
 them separate.  But we want to make sure that given any constraint
         D s1 s2 s3
 if s1 matches
+
+Note [Bogus consistency check]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In checkFunDeps we check that a new ClsInst is consistent with all the
+ClsInsts in the environment.
+
+The bogus aspect is discussed in Trac #10675. Currenty it if the two
+types are *contradicatory*, using (isNothing . tcUnifyTys).  But all
+the papers say we should check if the two types are *equal* thus
+   not (substTys subst rtys1 `eqTypes` substTys subst rtys2)
+For now I'm leaving the bogus form because that's the way it has
+been for years.
 -}
 
-checkFunDeps :: InstEnvs -> ClsInst
-             -> Maybe [ClsInst] -- Nothing  <=> ok
-                                -- Just dfs <=> conflict with dfs
+checkFunDeps :: InstEnvs -> ClsInst -> [ClsInst]
+-- The Consistency Check.
 -- Check whether adding DFunId would break functional-dependency constraints
 -- Used only for instance decls defined in the module being compiled
-checkFunDeps inst_envs ispec
-  | null bad_fundeps = Nothing
-  | otherwise        = Just bad_fundeps
-  where
-    (ins_tvs, clas, ins_tys) = instanceHead ispec
-    ins_tv_set   = mkVarSet ins_tvs
-    cls_inst_env = classInstances inst_envs clas
-    bad_fundeps  = badFunDeps cls_inst_env clas ins_tv_set ins_tys
-
-badFunDeps :: [ClsInst] -> Class
-           -> TyVarSet -> [Type]        -- Proposed new instance type
-           -> [ClsInst]
-badFunDeps cls_insts clas ins_tv_set ins_tys
+-- Returns a list of the ClsInst in InstEnvs that are inconsistent
+-- with the proposed new ClsInst
+checkFunDeps inst_envs (ClsInst { is_tvs = qtvs1, is_cls = cls
+                                , is_tys = tys1, is_tcs = rough_tcs1 })
+  | null fds
+  = []
+  | otherwise
   = nubBy eq_inst $
-    [ ispec | fd <- fds,        -- fds is often empty, so do this first!
-              let trimmed_tcs = trimRoughMatchTcs clas_tvs fd rough_tcs,
-              ispec <- cls_insts,
-              notNull (checkClsFD fd clas_tvs ispec ins_tv_set ins_tys trimmed_tcs)
-    ]
+    [ ispec | ispec <- cls_insts
+            , fd    <- fds
+            , is_inconsistent fd ispec ]
   where
-    (clas_tvs, fds) = classTvsFds clas
-    rough_tcs = roughMatchTcs ins_tys
+    cls_insts      = classInstances inst_envs cls
+    (cls_tvs, fds) = classTvsFds cls
+    qtv_set1       = mkVarSet qtvs1
+
+    is_inconsistent fd (ClsInst { is_tvs = qtvs2, is_tys = tys2, is_tcs = rough_tcs2 })
+      | instanceCantMatch trimmed_tcs rough_tcs2
+      = False
+      | otherwise
+      = case tcUnifyTys bind_fn ltys1 ltys2 of
+          Nothing         -> False
+          Just (subst, _)
+            -> isNothing $   -- Bogus legacy test (Trac #10675)
+                             -- See Note [Bogus consistency check]
+               tcUnifyTys bind_fn (substTys subst rtys1) (substTys subst rtys2)
+
+      where
+        trimmed_tcs    = trimRoughMatchTcs cls_tvs fd rough_tcs1
+        (ltys1, rtys1) = instFD fd cls_tvs tys1
+        (ltys2, rtys2) = instFD fd cls_tvs tys2
+        qtv_set2       = mkVarSet qtvs2
+        bind_fn tv | tv `elemVarSet` qtv_set1 = BindMe
+                   | tv `elemVarSet` qtv_set2 = BindMe
+                   | otherwise                = Skolem
+
     eq_inst i1 i2 = instanceDFunId i1 == instanceDFunId i2
         -- An single instance may appear twice in the un-nubbed conflict list
         -- because it may conflict with more than one fundep.  E.g.
@@ -544,6 +632,8 @@ trimRoughMatchTcs :: [TyVar] -> FunDep TyVar -> [Maybe Name] -> [Maybe Name]
 -- we want to match only on the type ta; so our
 -- rough-match thing must similarly be filtered.
 -- Hence, we Nothing-ise the tb and tc types right here
+--
+-- Result list is same length as input list, just with more Nothings
 trimRoughMatchTcs clas_tvs (ltvs, _) mb_tcs
   = zipWith select clas_tvs mb_tcs
   where

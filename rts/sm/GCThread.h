@@ -131,8 +131,11 @@ typedef struct gc_thread_ {
                                    //  during GC without accessing the block
                                    //   allocators spin lock. 
 
-    StgClosure* static_objects;      // live static objects
-    StgClosure* scavenged_static_objects;   // static objects scavenged so far
+    // These two lists are chained through the STATIC_LINK() fields of static
+    // objects.  Pointers are tagged with the current static_flag, so before
+    // following a pointer, untag it with UNTAG_STATIC_LIST_PTR().
+    StgClosure* static_objects;            // live static objects
+    StgClosure* scavenged_static_objects;  // static objects scavenged so far
 
     W_ gc_count;                 // number of GCs this thread has done
 
@@ -183,6 +186,7 @@ typedef struct gc_thread_ {
     W_ scav_find_work;
 
     Time gc_start_cpu;   // process CPU time
+    Time gc_sync_start_elapsed;  // start of GC sync
     Time gc_start_elapsed;  // process elapsed time
     W_ gc_start_faults;
 

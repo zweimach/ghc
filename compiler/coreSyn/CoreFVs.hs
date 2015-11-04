@@ -24,7 +24,7 @@ module CoreFVs (
         idUnfoldingVars, idFreeVars, idRuleAndUnfoldingVars,
         idRuleVars, idRuleRhsVars, stableUnfoldingVars,
         ruleRhsFreeVars, ruleFreeVars, rulesFreeVars,
-        ruleLhsOrphNames, ruleLhsFreeIds,
+        ruleLhsFreeIds, exprsOrphNames,
         vectsFreeVars,
 
         -- * Core syntax tree annotation with free variables
@@ -175,7 +175,7 @@ expr_fvs (Type ty)       = someVars (tyCoVarsOfType ty)
 expr_fvs (Coercion co)   = someVars (tyCoVarsOfCo co)
 expr_fvs (Var var)       = oneVar var
 expr_fvs (Lit _)         = noVars
-expr_fvs (Tick t expr) = tickish_fvs t `union` expr_fvs expr
+expr_fvs (Tick t expr)   = tickish_fvs t `union` expr_fvs expr
 expr_fvs (App fun arg)   = expr_fvs fun `union` expr_fvs arg
 expr_fvs (Lam bndr body) = addBndr bndr (expr_fvs body)
 expr_fvs (Cast expr co)  = expr_fvs expr `union` someVars (tyCoVarsOfCo co)
@@ -214,21 +214,6 @@ tickish_fvs _ = noVars
 *                                                                      *
 ************************************************************************
 -}
-
--- | ruleLhsOrphNames is used when deciding whether
--- a rule is an orphan.  In particular, suppose that T is defined in this
--- module; we want to avoid declaring that a rule like:
---
--- > fromIntegral T = fromIntegral_T
---
--- is an orphan. Of course it isn't, and declaring it an orphan would
--- make the whole module an orphan module, which is bad.
-ruleLhsOrphNames :: CoreRule -> NameSet
-ruleLhsOrphNames (BuiltinRule { ru_fn = fn }) = unitNameSet fn
-ruleLhsOrphNames (Rule { ru_fn = fn, ru_args = tpl_args })
-  = extendNameSet (exprsOrphNames tpl_args) fn
-                -- No need to delete bndrs, because
-                -- exprsOrphNames finds only External names
 
 -- | Finds the free /external/ names of an expression, notably
 -- including the names of type constructors (which of course do not show
@@ -279,9 +264,11 @@ ruleRhsFreeVars (Rule { ru_fn = _, ru_bndrs = bndrs, ru_rhs = rhs })
 -- | Those variables free in the both the left right hand sides of a rule
 ruleFreeVars :: CoreRule -> VarSet
 ruleFreeVars (BuiltinRule {}) = noFVs
-ruleFreeVars (Rule { ru_fn = _, ru_bndrs = bndrs, ru_rhs = rhs, ru_args = args })
+ruleFreeVars (Rule { ru_fn = _do_not_include  -- See Note [Rule free var hack]
+                   , ru_bndrs = bndrs
+                   , ru_rhs = rhs, ru_args = args })
   = addBndrs bndrs (exprs_fvs (rhs:args)) isLocalVar emptyVarSet
-      -- See Note [Rule free var hack]
+
 
 idRuleRhsVars :: (Activation -> Bool) -> Id -> VarSet
 -- Just the variables free on the *rhs* of a rule
@@ -291,7 +278,7 @@ idRuleRhsVars is_active id
     get_fvs (Rule { ru_fn = fn, ru_bndrs = bndrs
                   , ru_rhs = rhs, ru_act = act })
       | is_active act
-            -- See Note [Finding rule RHS free vars] in OccAnal.lhs
+            -- See Note [Finding rule RHS free vars] in OccAnal.hs
       = delFromUFM fvs fn        -- Note [Rule free var hack]
       where
         fvs = addBndrs bndrs (expr_fvs rhs) isLocalVar emptyVarSet
@@ -390,7 +377,7 @@ delBinderFV :: Var -> VarSet -> VarSet
 -- the free tyvars of the types of the binders, and include these in the
 -- free vars of the group, attached to the top level of each RHS.
 --
--- This actually happened in the defn of errorIO in IOBase.lhs:
+-- This actually happened in the defn of errorIO in IOBase.hs:
 --      errorIO (ST io) = case (errorIO# io) of
 --                          _ -> bottom
 --                        where
@@ -421,7 +408,7 @@ idRuleAndUnfoldingVars id = ASSERT( isId id)
                             idUnfoldingVars id
 
 idRuleVars ::Id -> VarSet  -- Does *not* include CoreUnfolding vars
-idRuleVars id = ASSERT( isId id) specInfoFreeVars (idSpecialisation id)
+idRuleVars id = ASSERT( isId id) ruleInfoFreeVars (idSpecialisation id)
 
 idUnfoldingVars :: Id -> VarSet
 -- Produce free vars for an unfolding, but NOT for an ordinary

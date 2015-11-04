@@ -15,7 +15,7 @@ module TcTyClsDecls (
         -- data/type family instance declarations
         kcDataDefn, tcConDecls, dataDeclChecks, checkValidTyCon,
         tcFamTyPats, tcTyFamInstEqn, famTyConShape,
-        tcAddTyFamInstCtxt, tcAddDataFamInstCtxt,
+        tcAddTyFamInstCtxt, tcMkDataFamInstCtxt, tcAddDataFamInstCtxt,
         wrongKindOfFamily, dataConCtxt, badDataConTyCon
     ) where
 
@@ -28,7 +28,7 @@ import TcRnMonad
 import TcEnv
 import TcValidity
 import TcHsSyn
-import TcSimplify( growThetaTyVars, solveTopConstraints )
+import TcSimplify( solveTopConstraints )
 import TcBinds( tcRecSelBinds )
 import TcTyDecls
 import TcClassDcl
@@ -38,7 +38,7 @@ import TcMType
 import TcType
 import TysWiredIn( unitTy )
 import FamInst
-import FamInstEnv( isDominatedBy, mkCoAxBranch, mkBranchedCoAxiom )
+import FamInstEnv
 import Coercion
 import Type
 import TyCoRep   -- for checkValidRoles
@@ -57,6 +57,8 @@ import Module
 import Name
 import NameSet
 import NameEnv
+import RdrName
+import RnEnv
 import Outputable
 import Maybes
 import Unify
@@ -109,12 +111,11 @@ Thus, we take two passes over the resulting tycons, first checking for general
 validity and then checking for valid role annotations.
 -}
 
-tcTyAndClassDecls :: ModDetails
-                  -> [TyClGroup Name]   -- Mutually-recursive groups in dependency order
+tcTyAndClassDecls :: [TyClGroup Name]   -- Mutually-recursive groups in dependency order
                   -> TcM TcGblEnv       -- Input env extended by types and classes
                                         -- and their implicit Ids,DataCons
 -- Fails if there are any errors
-tcTyAndClassDecls boot_details tyclds_s
+tcTyAndClassDecls tyclds_s
   = checkNoErrs $       -- The code recovers internally, but if anything gave rise to
                         -- an error we'd better stop now, to avoid a cascade
     fold_env tyclds_s   -- Type check each group in dependency order folding the global env
@@ -122,13 +123,13 @@ tcTyAndClassDecls boot_details tyclds_s
     fold_env :: [TyClGroup Name] -> TcM TcGblEnv
     fold_env [] = getGblEnv
     fold_env (tyclds:tyclds_s)
-      = do { tcg_env <- tcTyClGroup boot_details tyclds
+      = do { tcg_env <- tcTyClGroup tyclds
            ; setGblEnv tcg_env $ fold_env tyclds_s }
              -- remaining groups are typecheck in the extended global env
 
-tcTyClGroup :: ModDetails -> TyClGroup Name -> TcM TcGblEnv
+tcTyClGroup :: TyClGroup Name -> TcM TcGblEnv
 -- Typecheck one strongly-connected component of type and class decls
-tcTyClGroup boot_details tyclds
+tcTyClGroup tyclds
   = do {    -- Step 1: kind-check this group and returns the final
             -- (possibly-polymorphic) kind of each TyCon and Class
             -- See Note [Kind checking for type and class decls]
@@ -139,14 +140,15 @@ tcTyClGroup boot_details tyclds
             -- the final TyCons and Classes
        ; let role_annots = extractRoleAnnots tyclds
              decls = group_tyclds tyclds
-       ; tyclss <- fixM $ \ rec_tyclss -> do
-           { is_boot <- tcIsHsBootOrSig
-           ; let rec_flags = calcRecFlags boot_details is_boot
+       ; tyclss <- fixM $ \ ~rec_tyclss -> do
+           { is_boot   <- tcIsHsBootOrSig
+           ; self_boot <- tcSelfBootInfo
+           ; let rec_flags = calcRecFlags self_boot is_boot
                                           role_annots rec_tyclss
 
                  -- Populate environment with knot-tied ATyCon for TyCons
                  -- NB: if the decls mention any ill-staged data cons
-                 -- (see Note [Recusion and promoting data constructors]
+                 -- (see Note [Recusion and promoting data constructors])
                  -- we will have failed already in kcTyClGroup, so no worries here
            ; tcExtendRecEnv (zipRecTyClss names_w_poly_kinds rec_tyclss) $
 
@@ -164,10 +166,8 @@ tcTyClGroup boot_details tyclds
            -- expects well-formed TyCons
        ; tcExtendGlobalEnv tyclss $ do
        { traceTc "Starting validity check" (ppr tyclss)
-       ; checkNoErrs $
-         mapM_ (recoverM (return ()) . checkValidTyCl) tyclss
+       ; mapM_ (recoverM (return ()) . checkValidTyCl) tyclss
            -- We recover, which allows us to report multiple validity errors
-           -- the checkNoErrs is necessary to fix #7175.
        ; mapM_ (recoverM (return ()) . checkValidRoleAnnots role_annots) tyclss
            -- See Note [Check role annotations in a second pass]
 
@@ -222,12 +222,6 @@ Kind checking is done thus:
 
    3. Kind check the data type and class decls
 
-Synonyms are treated differently to data type and classes,
-because a type synonym can be an unboxed type
-        type Foo = Int#
-and a kind variable can't unify with UnboxedTypeKind
-So we infer their kinds in dependency order
-
 We need to kind check all types in the mutually recursive group
 before we know the kind of the type variables.  For example:
 
@@ -246,9 +240,16 @@ just involve (->) and *:
         type R = Int#           -- Kind #
         type S a = Array# a     -- Kind * -> #
         type T a b = (# a,b #)  -- Kind * -> * -> (# a,b #)
-So we must infer their kinds from their right-hand sides *first* and then
-use them, whereas for the mutually recursive data types D we bring into
-scope kind bindings D -> k, where k is a kind variable, and do inference.
+and a kind variable can't unify with UnboxedTypeKind.
+
+So we must infer the kinds of type synonyms from their right-hand
+sides *first* and then use them, whereas for the mutually recursive
+data types D we bring into scope kind bindings D -> k, where k is a
+kind variable, and do inference.
+
+NB: synonyms can be mutually recursive with data type declarations though!
+   type T = D -> D
+   data D = MkD Int T
 
 Open type families
 ~~~~~~~~~~~~~~~~~~
@@ -420,16 +421,19 @@ getFamDeclInitialKinds decls
 
 getFamDeclInitialKind :: FamilyDecl Name
                       -> TcM [(Name, TcTyThing)]
-getFamDeclInitialKind decl@(FamilyDecl { fdLName = L _ name
-                                       , fdTyVars = ktvs
-                                       , fdKindSig = ksig })
+getFamDeclInitialKind decl@(FamilyDecl { fdLName     = L _ name
+                                       , fdTyVars    = ktvs
+                                       , fdResultSig = L _ resultSig })
   = do { (fam_kind, _) <-
            kcHsTyVarBndrs (famDeclHasCusk decl) ktvs $
-           do { res_k <- case ksig of
-                           Just k  -> tcLHsKind k
-                           Nothing
-                             | famDeclHasCusk decl -> return liftedTypeKind
-                             | otherwise           -> newMetaKindVar
+           do { res_k <- case resultSig of
+                      KindSig ki                        -> tcLHsKind ki
+                      TyVarSig (L _ (KindedTyVar _ ki)) -> tcLHsKind ki
+                      _ -- open type families have * return kind by default
+                        | famDeclHasCusk decl      -> return liftedTypeKind
+                        -- closed type families have their return kind inferred
+                        -- by default
+                        | otherwise                -> newMetaKindVar
               ; return (res_k, ()) }
        ; fam_kind <- zonkTcType fam_kind
        ; return [ (name, AThing fam_kind) ] }
@@ -473,7 +477,7 @@ kcLTyClDecl (L loc decl)
 kcTyClDecl :: TyClDecl Name -> TcM ()
 -- This function is used solely for its side effect on kind variables
 -- NB kind signatures on the type variables and
---    result kind signature have aready been dealt with
+--    result kind signature have already been dealt with
 --    by getInitialKind, so we can ignore them here.
 
 kcTyClDecl (DataDecl { tcdLName = L _ name, tcdTyVars = hs_tvs, tcdDataDefn = defn })
@@ -507,7 +511,7 @@ kcTyClDecl (ClassDecl { tcdLName = L _ name, tcdTyVars = hs_tvs
 -- do anything here
 kcTyClDecl (FamDecl (FamilyDecl { fdLName  = L _ fam_tc_name
                                 , fdTyVars = hs_tvs
-                                , fdInfo   = ClosedTypeFamily eqns }))
+                                , fdInfo   = ClosedTypeFamily (Just eqns) }))
   = do { tc_kind <- kcLookupKind fam_tc_name
        ; let fam_tc_shape = ( fam_tc_name, length $ hsQTvExplicit hs_tvs, tc_kind )
        ; mapM_ (kcTyFamInstEqn fam_tc_shape) eqns }
@@ -593,16 +597,27 @@ Then:
     the *global* env to get the TyCon. But we must be careful not to
     force the TyCon or we'll get a loop.
 
-This fancy footwork (with two bindings for T) is only necesary for the
+This fancy footwork (with two bindings for T) is only necessary for the
 TyCons or Classes of this recursive group.  Earlier, finished groups,
 live in the global env only.
+
+Note [Declarations for wired-in things]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+For wired-in things we simply ignore the declaration
+and take the wired-in information.  That avoids complications.
+e.g. the need to make the data constructor worker name for
+     a constraint tuple match the wired-in one
 -}
 
 tcTyClDecl :: RecTyInfo -> LTyClDecl Name -> TcM [TyThing]
 tcTyClDecl rec_info (L loc decl)
+  | Just thing <- wiredInNameTyThing_maybe (tcdName decl)
+  = return [thing]  -- See Note [Declarations for wired-in things]
+
+  | otherwise
   = setSrcSpan loc $ tcAddDeclCtxt decl $
-    traceTc "tcTyAndCl-x" (ppr decl) >>
-    tcTyClDecl1 NoParentTyCon rec_info decl
+    do { traceTc "tcTyAndCl-x" (ppr decl)
+       ; tcTyClDecl1 NoParentTyCon rec_info decl }
 
   -- "type family" declarations
 tcTyClDecl1 :: TyConParent -> RecTyInfo -> TyClDecl Name -> TcM [TyThing]
@@ -635,6 +650,8 @@ tcTyClDecl1 _parent rec_info
                  -- This little knot is just so we can get
                  -- hold of the name of the class TyCon, which we
                  -- need to look up its recursiveness
+               ; traceTc "tcClassDecl 1" (ppr class_name $$ ppr tvs' $$
+                                          ppr full_kind)
                ; let tycon_name = tyConName (classTyCon clas)
                      tc_isrec = rti_is_rec rec_info tycon_name
                      roles = rti_roles rec_info tycon_name
@@ -666,42 +683,59 @@ tcTyClDecl1 _parent rec_info
          -- NB: Order is important due to the call to `mkGlobalThings' when
          --     tying the the type and class declaration type checking knot.
   where
-    tc_fundep (tvs1, tvs2) = do { tvs1' <- mapM tcLookupTyVar tvs1 ;
-                                ; tvs2' <- mapM tcLookupTyVar tvs2 ;
+    tc_fundep (tvs1, tvs2) = do { tvs1' <- mapM (tcLookupTyVar . unLoc) tvs1 ;
+                                ; tvs2' <- mapM (tcLookupTyVar . unLoc) tvs2 ;
                                 ; return (tvs1', tvs2') }
 
 tcFamDecl1 :: TyConParent -> FamilyDecl Name -> TcM [TyThing]
-tcFamDecl1 parent
-            (FamilyDecl {fdInfo = OpenTypeFamily, fdLName = L _ tc_name, fdTyVars = tvs})
-  = tcTyClTyVars tc_name tvs $ \ tvs' full_kind _res_kind ->
-    do { traceTc "open type family:" (ppr tc_name)
-       ; checkFamFlag tc_name
-       ; let tycon = mkFamilyTyCon tc_name full_kind tvs' OpenSynFamilyTyCon parent
-       ; return [ATyCon tycon] }
+tcFamDecl1 parent (FamilyDecl { fdInfo = OpenTypeFamily, fdLName = L _ tc_name
+                              , fdTyVars = tvs, fdResultSig = L _ sig
+                              , fdInjectivityAnn = inj })
+  = tcTyClTyVars tc_name tvs $ \ tvs' full_kind _res_kind -> do
+  { traceTc "open type family:" (ppr tc_name)
+  ; checkFamFlag tc_name
+  ; inj' <- tcInjectivity tvs' inj
+  ; let tycon = mkFamilyTyCon tc_name full_kind tvs'
+                               (resultVariableName sig) OpenSynFamilyTyCon
+                               parent inj'
+  ; return [ATyCon tycon] }
 
 tcFamDecl1 parent
-            (FamilyDecl { fdInfo = ClosedTypeFamily eqns
-                        , fdLName = lname@(L _ tc_name), fdTyVars = tvs })
+            (FamilyDecl { fdInfo = ClosedTypeFamily mb_eqns
+                        , fdLName = L _ tc_name, fdTyVars = tvs
+                        , fdResultSig = L _ sig, fdInjectivityAnn = inj })
 -- Closed type families are a little tricky, because they contain the definition
 -- of both the type family and the equations for a CoAxiom.
--- Note: eqns might be empty, in a hs-boot file!
-  = do { traceTc "closed type family:" (ppr tc_name)
-         -- the variables in the header have no scope:
-       ; (tvs', kind) <- tcTyClTyVars tc_name tvs $ \ tvs' full_kind _res_kind ->
-                         return (tvs', full_kind)
+  = do { traceTc "Closed type family:" (ppr tc_name)
+         -- the variables in the header scope only over the injectivity
+         -- declaration but this is not involved here
+       ; (tvs', inj', kind) <- tcTyClTyVars tc_name tvs
+                               $ \ tvs' full_kind _res_kind ->
+                               do { inj' <- tcInjectivity tvs' inj
+                                  ; return (tvs', inj', full_kind) }
 
        ; checkFamFlag tc_name -- make sure we have -XTypeFamilies
+
+         -- If Nothing, this is an abstract family in a hs-boot file;
+         -- but eqns might be empty in the Just case as well
+       ; case mb_eqns of
+           Nothing   ->
+               return [ATyCon $ mkFamilyTyCon tc_name kind tvs' Nothing
+                                     AbstractClosedSynFamilyTyCon parent
+                                     NotInjective ]
+           Just eqns -> do {
 
          -- Process the equations, creating CoAxBranches
        ; let fam_tc_shape = (tc_name, length $ hsQTvExplicit tvs, kind)
 
-       ; branches <- mapM (tcTyFamInstEqn fam_tc_shape) eqns
+       ; branches <- mapM (tcTyFamInstEqn fam_tc_shape Nothing) eqns
+         -- Do not attempt to drop equations dominated by earlier
+         -- ones here; in the case of mutual recursion with a data
+         -- type, we get a knot-tying failure.  Instead we check
+         -- for this afterwards, in TcValidity.checkValidCoAxiom
+         -- Example: tc265
 
-         -- we need the tycon that we will be creating, but it's in scope.
-         -- just look it up.
-       ; fam_tc <- tcLookupLocatedTyCon lname
-
-         -- create a CoAxiom, with the correct src location. It is Vitally
+         -- Create a CoAxiom, with the correct src location. It is Vitally
          -- Important that we do not pass the branches into
          -- newFamInstAxiomName. They have types that have been zonked inside
          -- the knot and we will die if we look at them. This is OK here
@@ -711,22 +745,17 @@ tcFamDecl1 parent
        ; loc <- getSrcSpanM
        ; co_ax_name <- newFamInstAxiomName loc tc_name []
 
-         -- mkBranchedCoAxiom will fail on an empty list of branches, but
-         -- we'll never look at co_ax in this case
-       ; let co_ax = mkBranchedCoAxiom co_ax_name fam_tc branches
+       ; let mb_co_ax
+              | null eqns = Nothing   -- mkBranchedCoAxiom fails on empty list
+              | otherwise = Just (mkBranchedCoAxiom co_ax_name fam_tc branches)
 
-         -- now, finally, build the TyCon
-       ; let syn_rhs = if null eqns
-                       then AbstractClosedSynFamilyTyCon
-                       else ClosedSynFamilyTyCon co_ax
-             tycon   = mkFamilyTyCon tc_name kind tvs' syn_rhs parent
+             fam_tc = mkFamilyTyCon tc_name kind tvs' (resultVariableName sig)
+                      (ClosedSynFamilyTyCon mb_co_ax) parent inj'
 
-       ; let result = if null eqns
-                      then [ATyCon tycon]
-                      else [ATyCon tycon, ACoAxiom co_ax]
-       ; return result }
+       ; return $ ATyCon fam_tc : maybeToList (fmap ACoAxiom mb_co_ax) } }
+
 -- We check for instance validity later, when doing validity checking for
--- the tycon
+-- the tycon. Exception: checking equations overlap done by dropDominatedAxioms
 
 tcFamDecl1 parent
            (FamilyDecl {fdInfo = DataFamily, fdLName = L _ tc_name, fdTyVars = tvs})
@@ -741,6 +770,45 @@ tcFamDecl1 parent
                            True    -- GADT syntax
 
   ; return [ATyCon tycon] }
+
+-- | Maybe return a list of Bools that say whether a type family was declared
+-- injective in the corresponding type arguments. Length of the list is equal to
+-- the number of arguments (including implicit kind/coercion arguments).
+-- True on position
+-- N means that a function is injective in its Nth argument. False means it is
+-- not.
+tcInjectivity :: [TyVar] -> Maybe (LInjectivityAnn Name)
+              -> TcM Injectivity
+tcInjectivity _ Nothing
+  = return NotInjective
+
+  -- User provided an injectivity annotation, so for each tyvar argument we
+  -- check whether a type family was declared injective in that argument. We
+  -- return a list of Bools, where True means that corresponding type variable
+  -- was mentioned in lInjNames (type family is injective in that argument) and
+  -- False means that it was not mentioned in lInjNames (type family is not
+  -- injective in that type variable). We also extend injectivity information to
+  -- kind variables, so if a user declares:
+  --
+  --   type family F (a :: k1) (b :: k2) = (r :: k3) | r -> a
+  --
+  -- then we mark both `a` and `k1` as injective.
+  -- NB: the return kind is considered to be *input* argument to a type family.
+  -- Since injectivity allows to infer input arguments from the result in theory
+  -- we should always mark the result kind variable (`k3` in this example) as
+  -- injective.  The reason is that result type has always an assigned kind and
+  -- therefore we can always infer the result kind if we know the result type.
+  -- But this does not seem to be useful in any way so we don't do it.  (Another
+  -- reason is that the implementation would not be straightforward.)
+tcInjectivity tvs (Just (L loc (InjectivityAnn _ lInjNames)))
+  = setSrcSpan loc $
+    do { inj_tvs <- mapM (tcLookupTyVar . unLoc) lInjNames
+       ; let inj_ktvs = filterVarSet isTyVar $  -- no injective coercion vars
+                        closeOverKinds (mkVarSet inj_tvs)
+       ; let inj_bools = map (`elemVarSet` inj_ktvs) tvs
+       ; traceTc "tcInjectivity" (vcat [ ppr tvs, ppr lInjNames, ppr inj_tvs
+                                       , ppr inj_ktvs, ppr inj_bools ])
+       ; return $ Injective inj_bools }
 
 tcTySynRhs :: RecTyInfo
            -> Name
@@ -813,13 +881,10 @@ The following is an example of associated type defaults:
                data D a
 
                type F a b :: *
-               type F a Z = [a]        -- Default
-               type F a (S n) = F a n  -- Default
+               type F a b = [a]        -- Default
 
-Note that:
-  - We can have more than one default definition for a single associated type,
-    as long as they do not overlap (same rules as for instances)
-  - We can get default definitions only for type families, not data families
+Note that we can get default definitions only for type families, not data
+families.
 -}
 
 tcClassATs :: Name                  -- The class name (not knot-tied)
@@ -855,9 +920,9 @@ tcClassATs class_name parent ats at_defs
                   ; return (ATI fam_tc atd) }
 
 -------------------------
-tcDefaultAssocDecl :: TyCon                  -- ^ Family TyCon
-                   -> [LTyFamDefltEqn Name]  -- ^ Defaults
-                   -> TcM (Maybe Type)       -- ^ Type checked RHS
+tcDefaultAssocDecl :: TyCon                         -- ^ Family TyCon
+                   -> [LTyFamDefltEqn Name]         -- ^ Defaults
+                   -> TcM (Maybe (Type, SrcSpan))   -- ^ Type checked RHS
 tcDefaultAssocDecl _ []
   = return Nothing  -- No default declaration
 
@@ -881,7 +946,7 @@ tcDefaultAssocDecl fam_tc [L loc (TyFamEqn { tfe_tycon = L _ tc_name
        ; rhs_ty <- zonkTcTypeToType (mkEvBindsZonkEnv ev_binds) rhs_ty
        ; let fam_tc_tvs = tyConTyVars fam_tc
              subst = zipTopTCvSubst tvs (mkTyVarTys fam_tc_tvs)
-       ; return $ Just (substTy subst rhs_ty) } }
+       ; return $ Just (substTy subst rhs_ty, loc) } }
     -- We check for well-formedness and validity later, in checkValidClass
 
 -------------------------
@@ -890,17 +955,18 @@ kcTyFamInstEqn fam_tc_shape
     (L loc (TyFamEqn { tfe_pats = pats, tfe_rhs = hs_ty }))
   = setSrcSpan loc $
     discardResult $
-    tc_fam_ty_pats fam_tc_shape pats (discardResult . (tcCheckLHsType hs_ty))
+    tc_fam_ty_pats fam_tc_shape Nothing -- not an associated type
+                   pats (discardResult . (tcCheckLHsType hs_ty))
 
-tcTyFamInstEqn :: FamTyConShape -> LTyFamInstEqn Name -> TcM CoAxBranch
+tcTyFamInstEqn :: FamTyConShape -> Maybe ClsInfo -> LTyFamInstEqn Name -> TcM CoAxBranch
 -- Needs to be here, not in TcInstDcls, because closed families
 -- (typechecked here) have TyFamInstEqns
-tcTyFamInstEqn fam_tc_shape@(fam_tc_name,_,_)
+tcTyFamInstEqn fam_tc_shape@(fam_tc_name,_,_) mb_clsinfo
     (L loc (TyFamEqn { tfe_tycon = L _ eqn_tc_name
                      , tfe_pats  = pats
                      , tfe_rhs   = hs_ty }))
   = setSrcSpan loc $
-    tcFamTyPats fam_tc_shape pats (discardResult . (tcCheckLHsType hs_ty)) $
+    tcFamTyPats fam_tc_shape mb_clsinfo pats (discardResult . (tcCheckLHsType hs_ty)) $
        \tvs' cvs' pats' res_kind ->
     do { checkTc (fam_tc_name == eqn_tc_name)
                  (wrongTyFamName fam_tc_name eqn_tc_name)
@@ -974,10 +1040,11 @@ type FamTyConShape = (Name, Arity, Kind) -- See Note [Type-checking type pattern
 famTyConShape :: TyCon -> FamTyConShape
 famTyConShape fam_tc
   = ( tyConName fam_tc
-    , length $ filterInvisibles fam_tc (tyConTyVars fam_tc)
+    , length $ filterOutInvisibleTyVars fam_tc (tyConTyVars fam_tc)
     , tyConKind fam_tc )
 
 tc_fam_ty_pats :: FamTyConShape
+               -> Maybe ClsInfo
                -> HsWithBndrs Name [LHsType Name] -- Patterns
                -> (TcKind -> TcM ())              -- Kind checker for RHS
                                                   -- result is ignored
@@ -993,17 +1060,18 @@ tc_fam_ty_pats :: FamTyConShape
 -- In that case, the type variable 'a' will *already be in scope*
 -- (and, if C is poly-kinded, so will its kind parameter).
 
-tc_fam_ty_pats (name, _, kind)
-               (HsWB { hswb_cts = arg_pats, hswb_vars = vars })
+tc_fam_ty_pats (name, _, kind) mb_clsinfo
+               (HsWB { hswb_cts = arg_pats, hswb_vars = vars, hswb_wcs = wcs })
                kind_checker
   = do { loc <- getSrcSpanM
-       ; let hs_tvs = mkHsQTvs (userHsTyVarBndrs loc vars)
+               -- See Note [Wild cards in family instances]
+       ; let hs_tvs = mkHsQTvs (userHsTyVarBndrs loc (vars ++ wcs))
 
          -- Kind-check and quantify
          -- See Note [Quantifying over family patterns]
        ; (res_kind, typats) <- tcHsTyVarBndrs hs_tvs $ \ _ ->
          do { (res_kind, args, leftovers, n)
-                <- tcInferArgs True name kind arg_pats 1
+                <- tcInferArgs True name kind (snd <$> mb_clsinfo) arg_pats 1
             ; case leftovers of
                 hs_ty:_ -> addErrTc $ too_many_args hs_ty n
                 _       -> return ()
@@ -1020,6 +1088,7 @@ tc_fam_ty_pats (name, _, kind)
 
 -- See Note [tc_fam_ty_pats vs tcFamTyPats]
 tcFamTyPats :: FamTyConShape
+            -> Maybe ClsInfo
             -> HsWithBndrs Name [LHsType Name] -- patterns
             -> (TcKind -> TcM ())              -- kind-checker for RHS
             -> (   [TyVar]           -- Kind and type variables
@@ -1027,10 +1096,10 @@ tcFamTyPats :: FamTyConShape
                 -> [TcType]          -- Kind and type arguments
                 -> Kind -> TcM a)  -- NB: You can use solveTopConstraints here.
             -> TcM a
-tcFamTyPats fam_shape@(name,_,_) pats kind_checker thing_inside
+tcFamTyPats fam_shape@(name,_,_) mb_clsinfo pats kind_checker thing_inside
   = do { ((typats, res_kind), ev_binds)
             <- solveTopConstraints $  -- See Note [Constraints in patterns]
-               tc_fam_ty_pats fam_shape pats kind_checker
+               tc_fam_ty_pats fam_shape mb_clsinfo pats kind_checker
           {- TODO (RAE): This should be cleverer. Consider this:
 
                type family F a
@@ -1045,7 +1114,8 @@ tcFamTyPats fam_shape@(name,_,_) pats kind_checker thing_inside
              This should probably be accepted. Yet the solveTopConstraints
              will fail, unable to solve (F k ~ *) arising from the second
              appearance of (Blah a). We want to quantify over that proof.
-             So we need something that consults quantifyPred here if there
+             So we need something that consults pickQuantifiablePreds
+             here if there
              are unsolved wanteds. But see Note [Constraints in patterns]
              below, which I still think is right. So we don't want
              the full glory of simplifyInfer, but more than just
@@ -1156,6 +1226,33 @@ none. The role of the kind signature (a :: Maybe k) is to add a constraint
 that 'a' must have that kind, and to bring 'k' into scope.
 
 
+Note [Wild cards in family instances]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Wild cards can be used in type/data family instance declarations to indicate
+that the name of a type variable doesn't matter. Each wild card will be
+replaced with a new unique type variable. For instance:
+
+    type family F a b :: *
+    type instance F Int _ = Int
+
+is the same as
+
+    type family F a b :: *
+    type instance F Int b = Int
+
+This is implemented as follows: during renaming anonymous wild cards are given
+freshly generated names. These names are collected after renaming
+(rnFamInstDecl) and used to make new type variables during type checking
+(tc_fam_ty_pats). One should not confuse these wild cards with the ones from
+partial type signatures. The latter generate fresh meta-variables whereas the
+former generate fresh skolems.
+
+Named and extra-constraints wild cards are not supported in type/data family
+instance declarations.
+
+Relevant tickets: #3699 and #10586.
+
 ************************************************************************
 *                                                                      *
                Data types
@@ -1190,8 +1287,8 @@ dataDeclChecks tc_name new_or_data stupid_theta cons
 
 -----------------------------------
 consUseGadtSyntax :: [LConDecl a] -> Bool
-consUseGadtSyntax (L _ (ConDecl { con_res = ResTyGADT _ }) : _) = True
-consUseGadtSyntax _                                             = False
+consUseGadtSyntax (L _ (ConDecl { con_res = ResTyGADT _ _ }) : _) = True
+consUseGadtSyntax _                                               = False
                  -- All constructors have same shape
 
 -----------------------------------
@@ -1218,10 +1315,10 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
            <- solveTopConstraints $
               tcHsTyVarBndrs hs_tvs $ \ _ ->
               do { ctxt    <- tcHsContext hs_ctxt
-                 ; details <- tcConArgs new_or_data hs_details
+                 ; btys    <- tcConArgs new_or_data hs_details
                  ; res_ty  <- tcConRes hs_res_ty
-                 ; let (field_lbls, btys) = details
-                       (arg_tys, stricts) = unzip btys
+                 ; field_lbls <- lookupConstructorFields (unLoc $ head names)
+                 ; let (arg_tys, stricts) = unzip btys
                  ; return (ctxt, arg_tys, res_ty, field_lbls, stricts)
                  }
 
@@ -1238,7 +1335,7 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
                      -> quantifyTyVars co_env gbl_tvs (splitDepVarsOfTypes (ctxt++arg_tys))
                      where
                        gbl_tvs = mkVarSet tmpl_tvs
-                   ResTyGADT res_ty -> quantifyTyVars co_env emptyVarSet (splitDepVarsOfTypes (res_ty:ctxt++arg_tys))
+                   ResTyGADT _ res_ty -> quantifyTyVars co_env emptyVarSet (splitDepVarsOfTypes (res_ty:ctxt++arg_tys))
 
              -- Zonk to Types
        ; let ze = mkZonkEnv co_env
@@ -1246,18 +1343,22 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
        ; arg_tys <- zonkTcTypeToTypes ze arg_tys
        ; ctxt    <- zonkTcTypeToTypes ze ctxt
        ; res_ty  <- case res_ty of
-                      ResTyH98     -> return ResTyH98
-                      ResTyGADT ty -> ResTyGADT <$> zonkTcTypeToType ze ty
+                      ResTyH98        -> return ResTyH98
+                      ResTyGADT ls ty -> ResTyGADT ls <$> zonkTcTypeToType ze ty
+
+                    -- TODO (RAE): Make sure that the types are of kind *!
        ; let (univ_tvs, ex_tvs, eq_preds, res_ty', arg_subst)
                = rejigConRes tmpl_tvs res_tmpl qtkvs res_ty
-                    -- TODO (RAE): Make sure that the types are of kind *!
+             -- NB: this is a /lazy/ binding, so we pass four thunks to buildDataCon
+             --     without yet forcing the guards in rejigConRes
+             -- See Note [Checking GADT return types]
 
        ; fam_envs <- tcGetFamInstEnvs
        ; let
            buildOneDataCon (L _ name) = do
              { is_infix <- tcConIsInfix name hs_details res_ty
              ; buildDataCon fam_envs name is_infix
-                            stricts field_lbls
+                            stricts Nothing field_lbls
                             univ_tvs ex_tvs eq_preds
                             (substTys arg_subst ctxt)
                             (substTys arg_subst arg_tys)
@@ -1272,14 +1373,14 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
 
 
 tcConIsInfix :: Name
-             -> HsConDetails (LHsType Name) [LConDeclField Name]
+             -> HsConDetails (LHsType Name) (Located [LConDeclField Name])
              -> ResType Type
              -> TcM Bool
 tcConIsInfix _   details ResTyH98
   = case details of
            InfixCon {}  -> return True
            _            -> return False
-tcConIsInfix con details (ResTyGADT _)
+tcConIsInfix con details (ResTyGADT _ _)
   = case details of
            InfixCon {}  -> return True
            RecCon {}    -> return False
@@ -1293,25 +1394,24 @@ tcConIsInfix con details (ResTyGADT _)
 
 
 tcConArgs :: NewOrData -> HsConDeclDetails Name
-          -> TcM ([Name], [(TcType, HsBang)])
+          -> TcM [(TcType, HsSrcBang)]
 tcConArgs new_or_data (PrefixCon btys)
-  = do { btys' <- mapM (tcConArg new_or_data) btys
-       ; return ([], btys') }
+  = mapM (tcConArg new_or_data) btys
 tcConArgs new_or_data (InfixCon bty1 bty2)
   = do { bty1' <- tcConArg new_or_data bty1
        ; bty2' <- tcConArg new_or_data bty2
-       ; return ([], [bty1', bty2']) }
+       ; return [bty1', bty2'] }
 tcConArgs new_or_data (RecCon fields)
-  = do { btys' <- mapM (tcConArg new_or_data) btys
-       ; return (field_names, btys') }
+  = mapM (tcConArg new_or_data) btys
   where
     -- We need a one-to-one mapping from field_names to btys
-    combined = map (\(L _ f) -> (cd_fld_names f,cd_fld_type f)) fields
-    explode (ns,ty) = zip (map unLoc ns) (repeat ty)
+    combined = map (\(L _ f) -> (cd_fld_names f,cd_fld_type f)) (unLoc fields)
+    explode (ns,ty) = zip ns (repeat ty)
     exploded = concatMap explode combined
-    (field_names,btys) = unzip exploded
+    (_,btys) = unzip exploded
 
-tcConArg :: NewOrData -> LHsType Name -> TcM (TcType, HsBang)
+
+tcConArg :: NewOrData -> LHsType Name -> TcM (TcType, HsSrcBang)
 tcConArg new_or_data bty
   = do  { traceTc "tcConArg 1" (ppr bty)
         ; arg_ty <- tcHsConArgType new_or_data bty
@@ -1320,8 +1420,8 @@ tcConArg new_or_data bty
 
 tcConRes :: ResType (LHsType Name) -> TcM (ResType Type)
 tcConRes ResTyH98           = return ResTyH98
-tcConRes (ResTyGADT res_ty) = do { res_ty' <- tcHsLiftedType res_ty
-                                 ; return (ResTyGADT res_ty') }
+tcConRes (ResTyGADT ls res_ty) = do { res_ty' <- tcHsLiftedType res_ty
+                                    ; return (ResTyGADT ls res_ty') }
 
 {-
 Note [Infix GADT constructors]
@@ -1345,7 +1445,7 @@ There is a delicacy around checking the return types of a datacon. The
 central problem is dealing with a declaration like
 
   data T a where
-    MkT :: a -> Q a
+    MkT :: T a -> Q a
 
 Note that the return type of MkT is totally bogus. When creating the T
 tycon, we also need to create the MkT datacon, which must have a "rejigged"
@@ -1353,14 +1453,17 @@ return type. That is, the MkT datacon's type must be transformed to have
 a uniform return type with explicit coercions for GADT-like type parameters.
 This rejigging is what rejigConRes does. The problem is, though, that checking
 that the return type is appropriate is much easier when done over *Type*,
-not *HsType*.
+not *HsType*, and doing a call to tcMatchTy will loop because T isn't fully
+defined yet.
 
-So, we want to make rejigConRes lazy and then check the validity of the return
-type in checkValidDataCon. But, if the return type is bogus, rejigConRes can't
-work -- it will have a failed pattern match. Luckily, if we run
-checkValidDataCon before ever looking at the rejigged return type
-(checkValidDataCon checks bits of the type which are not rejigged!), we
-catch the error before forcing the rejigged type and panicking.
+So, we want to make rejigConRes lazy and then check the validity of
+the return type in checkValidDataCon.  To do this we /always/ return a
+4-tuple from rejigConRes (so that we can extract ret_ty from it, which
+checkValidDataCon needs), but the first three fields may be bogus if
+the return type isn't valid (the last equation for rejigConRes).
+
+This is better than an earlier solution which reduced the number of
+errors reported in one pass.  See Trac #7175, and #10836.
 -}
 
 -- Example
@@ -1390,11 +1493,13 @@ rejigConRes tmpl_tvs res_ty dc_tvs ResTyH98
   = (tmpl_tvs, dc_tvs, [], res_ty, emptyTCvSubst)
         -- In H98 syntax the dc_tvs are the existential ones
         --      data T a b c = forall d e. MkT ...
-        -- The {a,b,c} are tc_tvs, and {d,e} are dc_tvs
+        -- The universals {a,b,c} are tc_tvs, and the existentials {d,e} are dc_tvs
 
-rejigConRes tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
+rejigConRes tmpl_tvs res_tmpl dc_tvs (ResTyGADT _ res_ty)
         -- E.g.  data T [a] b c where
         --         MkT :: forall x y z. T [(x,y)] z z
+        -- The {a,b,c} are the tmpl_tvs, and the {x,y,z} are the dc_tvs
+        --     (NB: unlike the H98 case, the dc_tvs are not all existential)
         -- Then we generate
         --      Univ tyvars     Eq-spec
         --          a              a~(x,y)
@@ -1402,25 +1507,34 @@ rejigConRes tmpl_tvs res_tmpl dc_tvs (ResTyGADT res_ty)
         --          z
         -- Existentials are the leftover type vars: [x,y]
         -- So we return ([a,b,z], [x,y], [a~(x,y),b~z], T [(x,y)] z z)
-  = (univ_tvs, substed_ex_tvs, substed_eqs, res_ty, arg_subst)
-  where
-    Just (subst, _) = ASSERT( isLiftedTypeKind (typeKind res_ty) )
-                      ASSERT( isLiftedTypeKind (typeKind res_tmpl) )
-                      tcMatchTy (mkVarSet tmpl_tvs) res_tmpl res_ty
-                -- This 'Just' pattern is sure to match, because if not
-                -- checkValidDataCon will complain first.
-               -- See Note [Checking GADT return types]
-
-                -- /Lazily/ figure out the univ_tvs etc
-                -- Each univ_tv is either a dc_tv or a tmpl_tv
-    (univ_tvs, raw_eqs, kind_subst) = mkGADTVars tmpl_tvs dc_tvs subst
-    raw_ex_tvs = dc_tvs `minusList` univ_tvs
-    (arg_subst, substed_ex_tvs) = mapAccumL substTyVarBndr kind_subst raw_ex_tvs
+  | Just (subst, _) <- ASSERT( isLiftedTypeKind (typeKind res_ty) )
+                       ASSERT( isLiftedTypeKind (typeKind res_tmpl) )
+                       tcMatchTy (mkVarSet tmpl_tvs) res_tmpl res_ty
+  = let (univ_tvs, raw_eqs, kind_subst) = mkGADTVars tmpl_tvs dc_tvs subst
+        raw_ex_tvs = dc_tvs `minusList` univ_tvs
+        (arg_subst, substed_ex_tvs)
+          = mapAccumL substTyVarBndr kind_subst raw_ex_tvs
 
        -- don't use substCoVarBndr because we don't want fresh uniques!
        -- substed_ex_tvs and raw_eq_cvs may dependent on one another
-    substed_eqs = map (substEqSpec arg_subst) raw_eqs
+        substed_eqs = map (substEqSpec arg_subst) raw_eqs
+    in
+    (univ_tvs, substed_ex_tvs, substed_eqs, res_ty, arg_subst)
 
+  | otherwise
+        -- If the return type of the data constructor doesn't match the parent
+        -- type constructor, or the arity is wrong, the tcMatchTy will fail
+        --    e.g   data T a b where
+        --            T1 :: Maybe a   -- Wrong tycon
+        --            T2 :: T [a]     -- Wrong arity
+        -- We are detect that later, in checkValidDataCon, but meanwhile
+        -- we must do *something*, not just crash.  So we do something simple
+        -- albeit bogus, relying on checkValidDataCon to check the
+        --  bad-result-type error before seeing that the other fields look odd
+        -- See Note [Checking GADT return types]
+  = (tmpl_tvs, dc_tvs `minusList` tmpl_tvs, [], res_ty, emptyTCvSubst)
+
+  where
 {-
 Note [mkGADTVars]
 ~~~~~~~~~~~~~~~~~
@@ -1710,6 +1824,9 @@ checkValidTyCl thing
 
 checkValidTyCon :: TyCon -> TcM ()
 checkValidTyCon tc
+  | isPrimTyCon tc   -- Happens when Haddock'ing GHC.Prim
+  = return ()
+
   | Just cl <- tyConClass_maybe tc
   = checkValidClass cl
 
@@ -1718,11 +1835,13 @@ checkValidTyCon tc
 
   | Just fam_flav <- famTyConFlav_maybe tc
   = case fam_flav of
-    { ClosedSynFamilyTyCon ax      -> checkValidClosedCoAxiom ax
+    { ClosedSynFamilyTyCon (Just ax) -> tcAddClosedTypeFamilyDeclCtxt tc $
+                                        checkValidCoAxiom ax
+    ; ClosedSynFamilyTyCon Nothing   -> return ()
     ; AbstractClosedSynFamilyTyCon ->
       do { hsBoot <- tcIsHsBootOrSig
          ; checkTc hsBoot $
-           ptext (sLit "You may omit the equations in a closed type family") $$
+           ptext (sLit "You may define an abstract closed type family") $$
            ptext (sLit "only in a .hs-boot file") }
     ; OpenSynFamilyTyCon           -> return ()
     ; BuiltInSynFamTyCon _         -> return () }
@@ -1749,11 +1868,11 @@ checkValidTyCon tc
     data_cons = tyConDataCons tc
 
     groups = equivClasses cmp_fld (concatMap get_fields data_cons)
-    cmp_fld (f1,_) (f2,_) = f1 `compare` f2
+    cmp_fld (f1,_) (f2,_) = flLabel f1 `compare` flLabel f2
     get_fields con = dataConFieldLabels con `zip` repeat con
         -- dataConFieldLabels may return the empty list, which is fine
 
-    -- See Note [GADT record selectors] in MkId.lhs
+    -- See Note [GADT record selectors] in MkId.hs
     -- We must check (a) that the named field has the same
     --                   type in each constructor
     --               (b) that those constructors have the same result type
@@ -1777,35 +1896,19 @@ checkValidTyCon tc
         where
         (tvs1, _, _, res1) = dataConSig con1
         ts1 = mkVarSet tvs1
-        fty1 = dataConFieldType con1 label
+        fty1 = dataConFieldType con1 lbl
+        lbl = flLabel label
 
         checkOne (_, con2)    -- Do it bothways to ensure they are structurally identical
-            = do { checkFieldCompat label con1 con2 ts1 res1 res2 fty1 fty2
-                 ; checkFieldCompat label con2 con1 ts2 res2 res1 fty2 fty1 }
+            = do { checkFieldCompat lbl con1 con2 ts1 res1 res2 fty1 fty2
+                 ; checkFieldCompat lbl con2 con1 ts2 res2 res1 fty2 fty1 }
             where
                 (tvs2, _, _, res2) = dataConSig con2
                 ts2 = mkVarSet tvs2
-                fty2 = dataConFieldType con2 label
+                fty2 = dataConFieldType con2 lbl
     check_fields [] = panic "checkValidTyCon/check_fields []"
 
-checkValidClosedCoAxiom :: CoAxiom Branched -> TcM ()
-checkValidClosedCoAxiom (CoAxiom { co_ax_branches = branches, co_ax_tc = tc })
- = tcAddClosedTypeFamilyDeclCtxt tc $
-   do { brListFoldlM_ check_accessibility [] branches
-      ; void $ brListMapM (checkValidTyFamInst Nothing tc) branches }
-   where
-     check_accessibility :: [CoAxBranch]       -- prev branches (in reverse order)
-                         -> CoAxBranch         -- cur branch
-                         -> TcM [CoAxBranch]   -- cur : prev
-               -- Check whether the branch is dominated by earlier
-               -- ones and hence is inaccessible
-     check_accessibility prev_branches cur_branch
-       = do { when (cur_branch `isDominatedBy` prev_branches) $
-              addWarnAt (coAxBranchSpan cur_branch) $
-              inaccessibleCoAxBranch tc cur_branch
-            ; return (cur_branch : prev_branches) }
-
-checkFieldCompat :: Name -> DataCon -> DataCon -> TyVarSet
+checkFieldCompat :: FieldLabelString -> DataCon -> DataCon -> TyVarSet
                  -> Type -> Type -> Type -> Type -> TcM ()
 checkFieldCompat fld con1 con2 tvs1 res1 res2 fty1 fty2
   = do  { checkTc (isJust mb_subst1) (resultTypeMisMatch fld con1 con2)
@@ -1823,9 +1926,10 @@ checkValidDataCon dflags existential_ok tc con
     do  { -- Check that the return type of the data constructor
           -- matches the type constructor; eg reject this:
           --   data T a where { MkT :: Bogus a }
-          -- c.f. Note [Check role annotations in a second pass]
-          --  and Note [Checking GADT return types]
-          let tc_tvs = tyConTyVars tc
+          -- It's important to do this first:
+          --  see Note [Checking GADT return types]
+          --  and c.f. Note [Check role annotations in a second pass]
+          let tc_tvs      = tyConTyVars tc
               res_ty_tmpl = mkFamilyTyConApp tc (mkTyVarTys tc_tvs)
               orig_res_ty = dataConOrigResTy con
         ; traceTc "checkValidDataCon" (vcat
@@ -1855,7 +1959,7 @@ checkValidDataCon dflags existential_ok tc con
           -- Check that UNPACK pragmas and bangs work out
           -- E.g.  reject   data T = MkT {-# UNPACK #-} Int     -- No "!"
           --                data T = MkT {-# UNPACK #-} !a      -- Can't unpack
-        ; mapM_ check_bang (zip3 (dataConStrictMarks con) (dataConRepBangs con) [1..])
+        ; mapM_ check_bang (zip3 (dataConSrcBangs con) (dataConImplBangs con) [1..])
 
           -- Check that existentials are allowed if they are used
         ; checkTc (existential_ok || isVanillaDataCon con)
@@ -1865,15 +1969,24 @@ checkValidDataCon dflags existential_ok tc con
     }
   where
     ctxt = ConArgCtxt (dataConName con)
-    check_bang (HsUserBang (Just want_unpack) has_bang, rep_bang, n)
-      | want_unpack, not has_bang
+
+    check_bang (HsSrcBang _ _ SrcLazy, _, n)
+      | not (xopt Opt_StrictData dflags)
+      = addErrTc
+          (bad_bang n (ptext (sLit "Lazy annotation (~) without StrictData")))
+    check_bang (HsSrcBang _ want_unpack strict_mark, rep_bang, n)
+      | isSrcUnpacked want_unpack, not is_strict
       = addWarnTc (bad_bang n (ptext (sLit "UNPACK pragma lacks '!'")))
-      | want_unpack
+      | isSrcUnpacked want_unpack
       , case rep_bang of { HsUnpack {} -> False; _ -> True }
       , not (gopt Opt_OmitInterfacePragmas dflags)
            -- If not optimising, se don't unpack, so don't complain!
            -- See MkId.dataConArgRep, the (HsBang True) case
       = addWarnTc (bad_bang n (ptext (sLit "Ignoring unusable UNPACK pragma")))
+      where
+        is_strict = case strict_mark of
+                      NoSrcStrict -> xopt Opt_StrictData dflags
+                      bang        -> isSrcStrict bang
 
     check_bang _
       = return ()
@@ -1886,7 +1999,7 @@ checkNewDataCon :: DataCon -> TcM ()
 -- Further checks for the data constructor of a newtype
 checkNewDataCon con
   = do  { checkTc (isSingleton arg_tys) (newtypeFieldErr con (length arg_tys))
-                -- One argument
+              -- One argument
 
         ; check_con (null eq_spec) $
           ptext (sLit "A newtype constructor must have a return type of form T a1 ... an")
@@ -1899,15 +2012,19 @@ checkNewDataCon con
           ptext (sLit "A newtype constructor cannot have existential type variables")
                 -- No existentials
 
-        ; checkTc (not (any isBanged (dataConStrictMarks con)))
+        ; checkTc (all ok_bang (dataConSrcBangs con))
                   (newtypeStrictError con)
-                -- No strictness
+                -- No strictness annotations
     }
   where
     (_univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty)
       = dataConFullSig con
     check_con what msg
        = checkTc what (msg $$ ppr con <+> dcolon <+> ppr (dataConUserType con))
+
+    ok_bang (HsSrcBang _ _ SrcStrict) = False
+    ok_bang (HsSrcBang _ _ SrcLazy)   = False
+    ok_bang _                         = True
 
 -------------------------------
 checkValidClass :: Class -> TcM ()
@@ -1920,9 +2037,9 @@ checkValidClass cls
         -- Check that the class is unary, unless multiparameter type classes
         -- are enabled; also recognize deprecated nullary type classes
         -- extension (subsumed by multiparameter type classes, Trac #8993)
-        ; checkTc (multi_param_type_classes || arity == 1 ||
-                    (nullary_type_classes && arity == 0))
-                  (classArityErr arity cls)
+        ; checkTc (multi_param_type_classes || cls_arity == 1 ||
+                    (nullary_type_classes && cls_arity == 0))
+                  (classArityErr cls_arity cls)
         ; checkTc (fundep_classes || null fundeps) (classFunDepsErr cls)
 
         -- Check the super-classes
@@ -1939,57 +2056,57 @@ checkValidClass cls
           mapM_ (check_op constrained_class_methods) op_stuff
 
         -- Check the associated type defaults are well-formed and instantiated
-        ; mapM_ check_at_defs at_stuff  }
+        ; mapM_ check_at at_stuff  }
   where
     (tyvars, fundeps, theta, _, at_stuff, op_stuff) = classExtraBigSig cls
-    arity = length $ filterInvisibles (classTyCon cls) tyvars
-       -- Ignore imp. variables
+    cls_arity = length $ filterOutInvisibleTyVars (classTyCon cls) tyvars
+       -- Ignore invisible variables
+    cls_tv_set = mkVarSet tyvars
 
     check_op constrained_class_methods (sel_id, dm)
-      = addErrCtxt (classOpCtxt sel_id tau) $ do
-        { checkValidTheta ctxt (tail theta)
-                -- The 'tail' removes the initial (C a) from the
-                -- class itself, leaving just the method type
-
-        ; traceTc "class op type" (ppr op_ty <+> ppr tau)
-        ; checkValidType ctxt tau
-
-                -- Check that the type mentions at least one of
-                -- the class type variables...or at least one reachable
-                -- from one of the class variables.  Example: tc223
+      = setSrcSpan (getSrcSpan sel_id) $
+        addErrCtxt (classOpCtxt sel_id op_ty) $ do
+        { traceTc "class op type" (ppr op_ty)
+        ; checkValidType ctxt op_ty
+                -- This implements the ambiguity check, among other things
+                -- Example: tc223
                 --   class Error e => Game b mv e | b -> mv e where
                 --      newBoard :: MonadState b m => m ()
                 -- Here, MonadState has a fundep m->b, so newBoard is fine
-                -- The check is disabled for nullary type classes,
-                -- since there is no possible ambiguity
-        ; let grown_tyvars = growThetaTyVars theta (mkVarSet tyvars)
-        ; checkTc (arity == 0 || tyCoVarsOfType tau `intersectsVarSet` grown_tyvars)
-                  (noClassTyVarErr cls (ptext (sLit "class method") <+> quotes (ppr sel_id)))
+
+        ; unless constrained_class_methods $
+          mapM_ check_constraint (tail (theta1 ++ theta2))
 
         ; case dm of
             GenDefMeth dm_name -> do { dm_id <- tcLookupId dm_name
-                                     ; checkValidType (FunSigCtxt op_name) (idType dm_id) }
+                                     ; checkValidType ctxt (idType dm_id) }
             _                  -> return ()
         }
         where
-          ctxt    = FunSigCtxt op_name
+          ctxt    = FunSigCtxt op_name True -- Report redundant class constraints
           op_name = idName sel_id
           op_ty   = idType sel_id
           (_,theta1,tau1) = tcSplitSigmaTy op_ty
-          (_,theta2,tau2) = tcSplitSigmaTy tau1
-          (theta,tau) | constrained_class_methods = (theta1 ++ theta2, tau2)
-                      | otherwise = (theta1, mkPhiTy (tail theta1) tau1)
-                -- Ugh!  The function might have a type like
-                --      op :: forall a. C a => forall b. (Eq b, Eq a) => tau2
-                -- With -XConstrainedClassMethods, we want to allow this, even though the inner
-                -- forall has an (Eq a) constraint.  Whereas in general, each constraint
-                -- in the context of a for-all must mention at least one quantified
-                -- type variable.  What a mess!
+          (_,theta2,_)    = tcSplitSigmaTy tau1
 
-    check_at_defs (ATI fam_tc _)
-      = do { traceTc "check-at" (ppr fam_tc $$ ppr (tyConTyVars fam_tc) $$ ppr tyvars)
-           ; checkTc (any (`elem` tyvars) (tyConTyVars fam_tc))
-                     (noClassTyVarErr cls (ptext (sLit "associated type") <+> quotes (ppr fam_tc))) }
+          check_constraint :: TcPredType -> TcM ()
+          check_constraint pred
+            = when (tyCoVarsOfType pred `subVarSet` cls_tv_set)
+                   (addErrTc (badMethPred sel_id pred))
+
+    check_at (ATI fam_tc m_dflt_rhs)
+      = do { checkTc (cls_arity == 0 || any (`elemVarSet` cls_tv_set) fam_tvs)
+                     (noClassTyVarErr cls fam_tc)
+                        -- Check that the associated type mentions at least
+                        -- one of the class type variables
+                        -- The check is disabled for nullary type classes,
+                        -- since there is no possible ambiguity (Trac #10020)
+           ; whenIsJust m_dflt_rhs $ \ (rhs, loc) ->
+             checkValidTyFamEqn (Just (cls, mini_env)) fam_tc
+                                fam_tvs [] (mkTyVarTys fam_tvs) rhs loc }
+        where
+          fam_tvs = tyConTyVars fam_tc
+    mini_env = zipVarEnv tyvars (mkTyVarTys tyvars)
 
 checkFamFlag :: Name -> TcM ()
 -- Check that we don't use families without -XTypeFamilies
@@ -2039,7 +2156,9 @@ checkValidRoleAnnots role_annots thing
      -- roles for all variables. So, we drop the implicit roles.
           tyvars                 = tyConTyVars tc
           roles                  = tyConRoles tc
-          (exp_roles, exp_vars)  = unzip $ filterInvisibles tc $ zip roles tyvars
+          (vis_roles, vis_vars)  = unzip $ snd $
+                                   partitionInvisibles tc (mkTyVarTy . snd) $
+                                   zip roles tyvars
           role_annot_decl_maybe  = lookupRoleAnnots role_annots name
 
           check_roles
@@ -2049,16 +2168,16 @@ checkValidRoleAnnots role_annots thing
                 setSrcSpan loc $ do
                 { role_annots_ok <- xoptM Opt_RoleAnnotations
                 ; checkTc role_annots_ok $ needXRoleAnnotations tc
-                ; checkTc (exp_vars `equalLength` the_role_annots)
-                          (wrongNumberOfRoles exp_vars decl)
-                ; _ <- zipWith3M checkRoleAnnot exp_vars the_role_annots exp_roles
+                ; checkTc (vis_vars `equalLength` the_role_annots)
+                          (wrongNumberOfRoles vis_vars decl)
+                ; _ <- zipWith3M checkRoleAnnot vis_vars the_role_annots vis_roles
                 -- Representational or phantom roles for class parameters
                 -- quickly lead to incoherence. So, we require
                 -- IncoherentInstances to have them. See #8773.
                 ; incoherent_roles_ok <- xoptM Opt_IncoherentInstances
                 ; checkTc (  incoherent_roles_ok
                           || (not $ isClassTyCon tc)
-                          || (all (== Nominal) exp_roles))
+                          || (all (== Nominal) vis_roles))
                           incoherentRoles
 
                 ; lint <- goptM Opt_DoCoreLinting
@@ -2194,24 +2313,26 @@ mkRecSelBinds tycons
     (sigs, binds) = unzip rec_sels
     rec_sels = map mkRecSelBind [ (tc,fld)
                                 | ATyCon tc <- tycons
-                                , fld <- tyConFields tc ]
+                                , fld <- tyConFieldLabels tc ]
+
 
 mkRecSelBind :: (TyCon, FieldLabel) -> (LSig Name, LHsBinds Name)
-mkRecSelBind (tycon, sel_name)
+mkRecSelBind (tycon, fl)
   = (L loc (IdSig sel_id), unitBag (L loc sel_bind))
   where
     loc    = getSrcSpan sel_name
     sel_id = mkExportedLocalId rec_details sel_name sel_ty
+    lbl      = flLabel fl
+    sel_name = flSelector fl
     rec_details = RecSelId { sel_tycon = tycon, sel_naughty = is_naughty }
 
     -- Find a representative constructor, con1
     all_cons     = tyConDataCons tycon
-    cons_w_field = [ con | con <- all_cons
-                   , sel_name `elem` dataConFieldLabels con ]
+    cons_w_field = tyConDataConsWithFields tycon [lbl]
     con1 = ASSERT( not (null cons_w_field) ) head cons_w_field
 
     -- Selector type; Note [Polymorphic selectors]
-    field_ty   = dataConFieldType con1 sel_name
+    field_ty   = dataConFieldType con1 lbl
     data_ty    = dataConOrigResTy con1
     data_tvs   = tyCoVarsOfType data_ty
     is_naughty = not (tyCoVarsOfType field_ty `subVarSet` data_tvs)
@@ -2235,7 +2356,7 @@ mkRecSelBind (tycon, sel_name)
                                  (L loc (HsVar field_var))
     mk_sel_pat con = ConPatIn (L loc (getName con)) (RecCon rec_fields)
     rec_fields = HsRecFields { rec_flds = [rec_field], rec_dotdot = Nothing }
-    rec_field  = noLoc (HsRecField { hsRecFieldId = sel_lname
+    rec_field  = noLoc (HsRecField { hsRecFieldLbl = L loc (FieldOcc (mkVarUnqual lbl) sel_name)
                                    , hsRecFieldArg = L loc (VarPat field_var)
                                    , hsRecPun = False })
     sel_lname = L loc sel_name
@@ -2263,14 +2384,7 @@ mkRecSelBind (tycon, sel_name)
                            (dataConUnivTyVars con1)
 
     unit_rhs = mkLHsTupleExpr []
-    msg_lit = HsStringPrim "" $ unsafeMkByteString $
-              occNameString (getOccName sel_name)
-
----------------
-tyConFields :: TyCon -> [FieldLabel]
-tyConFields tc
-  | isAlgTyCon tc = nub (concatMap dataConFieldLabels (tyConDataCons tc))
-  | otherwise     = []
+    msg_lit = HsStringPrim "" (fastStringToByteString lbl)
 
 {-
 Note [Polymorphic selectors]
@@ -2373,18 +2487,23 @@ tcAddTyFamInstCtxt :: TyFamInstDecl Name -> TcM a -> TcM a
 tcAddTyFamInstCtxt decl
   = tcAddFamInstCtxt (ptext (sLit "type instance")) (tyFamInstDeclName decl)
 
+tcMkDataFamInstCtxt :: DataFamInstDecl Name -> SDoc
+tcMkDataFamInstCtxt decl
+  = tcMkFamInstCtxt (pprDataFamInstFlavour decl <+> text "instance")
+                    (unLoc (dfid_tycon decl))
+
 tcAddDataFamInstCtxt :: DataFamInstDecl Name -> TcM a -> TcM a
 tcAddDataFamInstCtxt decl
-  = tcAddFamInstCtxt (pprDataFamInstFlavour decl <+> ptext (sLit "instance"))
-                     (unLoc (dfid_tycon decl))
+  = addErrCtxt (tcMkDataFamInstCtxt decl)
+
+tcMkFamInstCtxt :: SDoc -> Name -> SDoc
+tcMkFamInstCtxt flavour tycon
+  = hsep [ text "In the" <+> flavour <+> text "declaration for"
+         , quotes (ppr tycon) ]
 
 tcAddFamInstCtxt :: SDoc -> Name -> TcM a -> TcM a
 tcAddFamInstCtxt flavour tycon thing_inside
-  = addErrCtxt ctxt thing_inside
-  where
-     ctxt = hsep [ptext (sLit "In the") <+> flavour
-                  <+> ptext (sLit "declaration for"),
-                  quotes (ppr tycon)]
+  = addErrCtxt (tcMkFamInstCtxt flavour tycon) thing_inside
 
 tcAddClosedTypeFamilyDeclCtxt :: TyCon -> TcM a -> TcM a
 tcAddClosedTypeFamilyDeclCtxt tc
@@ -2393,13 +2512,13 @@ tcAddClosedTypeFamilyDeclCtxt tc
     ctxt = ptext (sLit "In the equations for closed type family") <+>
            quotes (ppr tc)
 
-resultTypeMisMatch :: Name -> DataCon -> DataCon -> SDoc
+resultTypeMisMatch :: FieldLabelString -> DataCon -> DataCon -> SDoc
 resultTypeMisMatch field_name con1 con2
   = vcat [sep [ptext (sLit "Constructors") <+> ppr con1 <+> ptext (sLit "and") <+> ppr con2,
                 ptext (sLit "have a common field") <+> quotes (ppr field_name) <> comma],
           nest 2 $ ptext (sLit "but have different result types")]
 
-fieldTypeMisMatch :: Name -> DataCon -> DataCon -> SDoc
+fieldTypeMisMatch :: FieldLabelString -> DataCon -> DataCon -> SDoc
 fieldTypeMisMatch field_name con1 con2
   = sep [ptext (sLit "Constructors") <+> ppr con1 <+> ptext (sLit "and") <+> ppr con2,
          ptext (sLit "give different types for field"), quotes (ppr field_name)]
@@ -2432,10 +2551,17 @@ classFunDepsErr cls
   = vcat [ptext (sLit "Fundeps in class") <+> quotes (ppr cls),
           parens (ptext (sLit "Use FunctionalDependencies to allow fundeps"))]
 
-noClassTyVarErr :: Class -> SDoc -> SDoc
-noClassTyVarErr clas what
-  = sep [ptext (sLit "The") <+> what,
-         ptext (sLit "mentions none of the type or kind variables of the class") <+>
+badMethPred :: Id -> TcPredType -> SDoc
+badMethPred sel_id pred
+  = vcat [ hang (ptext (sLit "Constraint") <+> quotes (ppr pred)
+                 <+> ptext (sLit "in the type of") <+> quotes (ppr sel_id))
+              2 (ptext (sLit "constrains only the class type variables"))
+         , ptext (sLit "Use ConstrainedClassMethods to allow it") ]
+
+noClassTyVarErr :: Class -> TyCon -> SDoc
+noClassTyVarErr clas fam_tc
+  = sep [ ptext (sLit "The associated type") <+> quotes (ppr fam_tc)
+        , ptext (sLit "mentions none of the type or kind variables of the class") <+>
                 quotes (ppr clas <+> hsep (map ppr (classTyVars clas)))]
 
 recSynErr :: [LTyClDecl Name] -> TcRn ()
@@ -2520,11 +2646,6 @@ wrongTyFamName fam_tc_name eqn_tc_name
        2 (vcat [ ptext (sLit "Expected:") <+> ppr fam_tc_name
                , ptext (sLit "  Actual:") <+> ppr eqn_tc_name ])
 
-inaccessibleCoAxBranch :: TyCon -> CoAxBranch -> SDoc
-inaccessibleCoAxBranch tc fi
-  = ptext (sLit "Overlapped type family instance equation:") $$
-      (pprCoAxBranch tc fi)
-
 badRoleAnnot :: Name -> Role -> Role -> SDoc
 badRoleAnnot var annot inferred
   = hang (ptext (sLit "Role mismatch on variable") <+> ppr var <> colon)
@@ -2562,14 +2683,7 @@ addTyThingCtxt thing
   where
     name = getName thing
     flav = case thing of
-             ATyCon tc
-                | isClassTyCon tc       -> ptext (sLit "class")
-                | isTypeFamilyTyCon tc  -> ptext (sLit "type family")
-                | isDataFamilyTyCon tc  -> ptext (sLit "data family")
-                | isTypeSynonymTyCon tc -> ptext (sLit "type")
-                | isNewTyCon tc         -> ptext (sLit "newtype")
-                | isDataTyCon tc        -> ptext (sLit "data")
-
+             ATyCon tc -> text (tyConFlavour tc)
              _ -> pprTrace "addTyThingCtxt strange" (ppr thing)
                   Outputable.empty
 

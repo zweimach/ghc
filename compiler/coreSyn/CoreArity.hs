@@ -437,7 +437,7 @@ ArityType 'at', then
 
  * If at = ATop as, and n=length as,
    then expanding 'f' to (\x1..xn. f x1 .. xn) loses no sharing,
-   assuming the calls of f respect the one-shot-ness of of
+   assuming the calls of f respect the one-shot-ness of
    its definition.
 
    NB 'f' is an arbitary expression, eg (f = g e1 e2).  This 'f'
@@ -609,7 +609,7 @@ The (foo DInt) is floated out, and makes ineffective a RULE
 One could go further and make exprIsCheap reply True to any
 dictionary-typed expression, but that's more work.
 
-See Note [Dictionary-like types] in TcType.lhs for why we use
+See Note [Dictionary-like types] in TcType.hs for why we use
 isDictLikeTy here rather than isDictTy
 
 Note [Eta expanding thunks]

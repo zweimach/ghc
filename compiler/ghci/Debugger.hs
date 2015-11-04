@@ -20,10 +20,10 @@ import RtClosureInspect
 import GhcMonad
 import HscTypes
 import Id
+import IfaceEnv( newInteractiveBinder )
 import Name
 import Var hiding ( varName )
 import VarSet
-import UniqSupply
 import Type
 import Kind
 import GHC
@@ -112,7 +112,7 @@ bindSuspensions t = do
           alreadyUsedNames = map (occNameString . nameOccName . getName) inScope
           availNames   = map ((prefix++) . show) [(1::Int)..] \\ alreadyUsedNames
       availNames_var  <- liftIO $ newIORef availNames
-      (t', stuff)     <- liftIO $ foldTerm (nameSuspensionsAndGetInfos availNames_var) t
+      (t', stuff)     <- liftIO $ foldTerm (nameSuspensionsAndGetInfos hsc_env availNames_var) t
       let (names, tys, hvals) = unzip3 stuff
       let ids = [ mkVanillaGlobal name ty
                 | (name,ty) <- zip names tys]
@@ -123,11 +123,11 @@ bindSuspensions t = do
      where
 
 --    Processing suspensions. Give names and recopilate info
-        nameSuspensionsAndGetInfos :: IORef [String] ->
-                                       TermFold (IO (Term, [(Name,Type,HValue)]))
-        nameSuspensionsAndGetInfos freeNames = TermFold
+        nameSuspensionsAndGetInfos :: HscEnv -> IORef [String]
+                                   -> TermFold (IO (Term, [(Name,Type,HValue)]))
+        nameSuspensionsAndGetInfos hsc_env freeNames = TermFold
                       {
-                        fSuspension = doSuspension freeNames
+                        fSuspension = doSuspension hsc_env freeNames
                       , fTerm = \ty dc v tt -> do
                                     tt' <- sequence tt
                                     let (terms,names) = unzip tt'
@@ -141,9 +141,9 @@ bindSuspensions t = do
                                     (term, names) <- t
                                     return (RefWrap ty term, names)
                       }
-        doSuspension freeNames ct ty hval _name = do
-          name <- atomicModifyIORef freeNames (\x->(tail x, head x))
-          n <- newGrimName name
+        doSuspension hsc_env freeNames ct ty hval _name = do
+          name <- atomicModifyIORef' freeNames (\x->(tail x, head x))
+          n <- newGrimName hsc_env name
           return (Suspension ct ty hval (Just n), [(n,ty,hval)])
 
 
@@ -192,19 +192,17 @@ showTerm term = do
 
 
   bindToFreshName hsc_env ty userName = do
-    name <- newGrimName userName
+    name <- newGrimName hsc_env userName
     let id       = mkVanillaGlobal name ty
         new_ic   = extendInteractiveContextWithIds (hsc_IC hsc_env) [id]
     return (hsc_env {hsc_IC = new_ic }, name)
 
 --    Create new uniques and give them sequentially numbered names
-newGrimName :: MonadIO m => String -> m Name
-newGrimName userName  = do
-    us <- liftIO $ mkSplitUniqSupply 'b'
-    let unique  = uniqFromSupply us
-        occname = mkOccName varName userName
-        name    = mkInternalName unique occname noSrcSpan
-    return name
+newGrimName :: MonadIO m => HscEnv -> String -> m Name
+newGrimName hsc_env userName
+  = liftIO (newInteractiveBinder hsc_env occ noSrcSpan)
+  where
+    occ = mkOccName varName userName
 
 pprTypeAndContents :: GhcMonad m => Id -> m SDoc
 pprTypeAndContents id = do

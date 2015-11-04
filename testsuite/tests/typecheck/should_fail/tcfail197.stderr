@@ -1,5 +1,5 @@
 
-tcfail197.hs:5:8:
-    Illegal polymorphic or qualified type: forall a1. a1
-    Perhaps you intended to use ImpredicativeTypes
+tcfail197.hs:5:8: error:
+    Illegal polymorphic or qualified type: forall a. a
+    GHC doesn't yet support impredicative polymorphism
     In the type signature for ‘foo’: foo :: [forall a. a] -> Int

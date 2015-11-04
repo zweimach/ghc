@@ -48,10 +48,6 @@ NO_INCLUDE_PKGDATA = NO
 # The compiler used to build GHC is $(GHC).  To change the actual compiler
 # used, re-configure with --with-ghc=<path-to-ghc>.
 
-# Extra ways in which to build the compiler (for example, you might want to
-# build a profiled compiler so you can see where it spends its time)
-GhcCompilerWays=
-
 # Extra option flags to pass to the compiler that compiles the compiler
 # (Ones that are essential are wired into compiler/Makefile)
 # Typical options to use here:
@@ -71,16 +67,6 @@ GhcHcOpts=-Rghc-timing
 GhcStage1HcOpts=
 GhcStage2HcOpts=-O2
 GhcStage3HcOpts=-O2
-
-# These options modify whether or not a built compiler for a bootstrap
-# stage defaults to using the new code generation path.  The new
-# code generation path is a bit slower, so for development just
-# GhcStage2DefaultNewCodegen=YES, but it's also a good idea to try
-# building all libraries and the stage2 compiler with the
-# new code generator, which involves GhcStage1DefaultNewCodegen=YES.
-GhcStage1DefaultNewCodegen=NO
-GhcStage2DefaultNewCodegen=NO
-GhcStage3DefaultNewCodegen=NO
 
 GhcDebugged=NO
 GhcDynamic=NO
@@ -159,9 +145,9 @@ GhcUnregisterised=@Unregisterised@
 # (as well as a C backend)
 #
 # Target platforms supported:
-#   i386, powerpc
+#   i386, powerpc, powerpc64, sparc
 #   IOS and AIX are not supported
-ArchSupportsNCG=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(TargetArch_CPP), i386 x86_64 powerpc sparc)))
+ArchSupportsNCG=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(TargetArch_CPP), i386 x86_64 powerpc powerpc64 powerpc64le sparc)))
 OsSupportsNCG=$(strip $(patsubst $(TargetOS_CPP), YES, $(patsubst ios,,$(patsubst aix,,$(TargetOS_CPP)))))
 
 GhcWithNativeCodeGen := $(strip\
@@ -172,15 +158,15 @@ HaveLibDL = @HaveLibDL@
 
 # ArchSupportsSMP should be set iff there is support for that arch in
 # includes/stg/SMP.h
-ArchSupportsSMP=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(TargetArch_CPP), i386 x86_64 sparc powerpc arm)))
+ArchSupportsSMP=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(TargetArch_CPP), i386 x86_64 sparc powerpc powerpc64 powerpc64le arm aarch64)))
 
 GhcWithSMP := $(strip $(if $(filter YESNO, $(ArchSupportsSMP)$(GhcUnregisterised)),YES,NO))
 
 # Whether to include GHCi in the compiler.  Depends on whether the RTS linker
 # has support for this OS/ARCH combination.
 
-OsSupportsGHCi=$(strip $(patsubst $(TargetOS_CPP), YES, $(findstring $(TargetOS_CPP), mingw32 cygwin32 linux solaris2 freebsd dragonfly netbsd openbsd darwin kfreebsdgnu)))
-ArchSupportsGHCi=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(TargetArch_CPP), i386 x86_64 powerpc sparc sparc64 arm)))
+OsSupportsGHCi=$(strip $(patsubst $(TargetOS_CPP), YES, $(findstring $(TargetOS_CPP), mingw32 linux solaris2 freebsd dragonfly netbsd openbsd darwin kfreebsdgnu)))
+ArchSupportsGHCi=$(strip $(patsubst $(TargetArch_CPP), YES, $(findstring $(TargetArch_CPP), i386 x86_64 powerpc powerpc64 powerpc64le sparc sparc64 arm aarch64)))
 
 ifeq "$(OsSupportsGHCi)$(ArchSupportsGHCi)" "YESYES"
 GhcWithInterpreter=YES
@@ -193,7 +179,7 @@ endif
 # (see TABLES_NEXT_TO_CODE in the RTS).  Whether we actually compile for
 # TABLES_NEXT_TO_CODE depends on whether we're building unregisterised
 # code or not, which may be decided by options to the compiler later.
-ifneq "$(findstring $(TargetArch_CPP)X, ia64X powerpc64X)" ""
+ifneq "$(findstring $(TargetArch_CPP)X, ia64X powerpc64X powerpc64leX)" ""
 GhcEnableTablesNextToCode=NO
 else
 GhcEnableTablesNextToCode=YES
@@ -230,18 +216,23 @@ ExtraMakefileSanityChecks = NO
 # Options for Libraries
 
 # Which directory (in libraries/) contains the integer library?
-INTEGER_LIBRARY=integer-gmp2
+INTEGER_LIBRARY=integer-gmp
 
 # We build the libraries at least the "vanilla" way (way "v")
+# Technically we don't need the v way if DYNAMIC_GHC_PROGRAMS is YES,
+# but with -dynamic-too it's cheap, and makes life easier.
 GhcLibWays = v
 
 # In addition to the normal sequential way, the default is to also build
 # profiled prelude libraries
-GhcLibWays += p
+# $(if $(filter ...)) allows controlling this expression from build.mk.
+GhcLibWays += $(if $(filter $(BUILD_PROF_LIBS),NO),,p)
 
-ifeq "$(PlatformSupportsSharedLibs)" "YES"
-GhcLibWays += dyn
-endif
+# Backward compatibility: although it would be cleaner to test for
+# PlatformSupportsSharedLibs, or perhaps a new variable BUILD_SHARED_LIBS,
+# some users currently expect that DYNAMIC_GHC_PROGRAMS=NO in build.mk implies
+# that dyn is not added to GhcLibWays.
+GhcLibWays += $(if $(filter $(DYNAMIC_GHC_PROGRAMS),NO),,dyn)
 
 # Handy way to test whether we're building shared libs or not.
 BuildSharedLibs=$(strip $(if $(findstring dyn,$(GhcLibWays)),YES,NO))
@@ -297,7 +288,7 @@ StripLibraries=NO
 #		doing object-file splitting
 
 ArchSupportsSplitObjs=$(strip $(if $(filter $(TargetArch_CPP),i386 x86_64 powerpc sparc),YES,NO))
-OsSupportsSplitObjs=$(strip $(if $(filter $(TargetOS_CPP),mingw32 cygwin32 linux darwin solaris2 freebsd dragonfly netbsd openbsd),YES,NO))
+OsSupportsSplitObjs=$(strip $(if $(filter $(TargetOS_CPP),mingw32 linux darwin solaris2 freebsd dragonfly netbsd openbsd),YES,NO))
 SplitObjsBroken = @SplitObjsBroken@
 
 SupportsSplitObjs := $(strip \
@@ -309,15 +300,6 @@ SupportsSplitObjs := $(strip \
 
 # By default, enable SplitObjs for the libraries if this build supports it
 SplitObjs=$(SupportsSplitObjs)
-
-# ----------------------------------------------------------------------------
-# Package-related things
-
-# Whether to install the extra packages
-InstallExtraPackages = NO
-
-# Run "ghc-pkg check" on each package
-CHECK_PACKAGES = NO
 
 # ----------------------------------------------------------------------------
 
@@ -344,7 +326,7 @@ LAX_DEPENDENCIES = NO
 # the debugging RTS flavour, rts/ghc.mk overrides these to turn off
 # optimisation.
 GhcRtsHcOpts=-O2
-GhcRtsCcOpts=-O2 -fomit-frame-pointer
+GhcRtsCcOpts=-O2 -fomit-frame-pointer -g
 
 # Include support for CPU performance counters via the PAPI library in the RTS?
 # (PAPI: http://icl.cs.utk.edu/papi/)
@@ -358,6 +340,9 @@ UseSystemLibFFI=@UseSystemLibFFI@
 FFILibDir=@FFILibDir@
 FFIIncludeDir=@FFIIncludeDir@
 
+
+# Include support for DWARF unwinding
+GhcRtsWithLibdw = @HaveLibdw@
 
 ################################################################################
 #
@@ -376,9 +361,6 @@ FFIIncludeDir=@FFIIncludeDir@
 # setting the TMPDIR env var would have no effect in the build tree.
 
 DEFAULT_TMPDIR		= /tmp
-ifeq "$(TARGETPLATFORM)" "i386-unknown-cygwin32"
-DEFAULT_TMPDIR		= /C/TEMP
-endif
 ifeq "$(TARGETPLATFORM)" "i386-unknown-mingw32"
 DEFAULT_TMPDIR		= /C/TEMP
 endif
@@ -482,7 +464,7 @@ GHC_PACKAGE_DB_FLAG = @GHC_PACKAGE_DB_FLAG@
 
 CMM_SINK_BOOTSTRAP_IS_NEEDED = @CMM_SINK_BOOTSTRAP_IS_NEEDED@
 
-SUPPORTS_PACKAGE_KEY = @SUPPORTS_PACKAGE_KEY@
+SUPPORTS_COMPONENT_ID = @SUPPORTS_COMPONENT_ID@
 
 #-----------------------------------------------------------------------------
 # C compiler
@@ -525,16 +507,68 @@ LD_STAGE2       = $(LD)
 LD_STAGE3       = $(LD)
 
 # Cross-compiling options
-#
+# See Note [CrossCompiling vs Stage1Only]
 CrossCompiling        = @CrossCompiling@
 
 # Change this to YES if you're building a cross-compiler and don't
 # want to build stage 2.
+# See Note [CrossCompiling vs Stage1Only]
+# See Note [Stage1Only vs stage=1]
 Stage1Only = NO
 
 # Install stage 2 by default, or stage 1 in the cross compiler
 # case. Can be changed to 3
 INSTALL_GHC_STAGE= $(if $(filter YES,$(Stage1Only)),1,2)
+
+# Note [CrossCompiling vs Stage1Only]
+#
+# There are 4 possible settings:
+#
+# 1 CrossCompiling=NO Stage1Only=NO
+#   The default.
+#
+# 2 CrossCompiling=NO Stage1Only=YES
+#   Don't build ghc-stage2. See Note [Stage1Only vs stage=1].
+#
+# 3 CrossCompiling=YES Stage1Only=YES
+#   Building a cross-compiler (ghc-stage1). See [1] and
+#   Note [Stage1Only vs stage=1].
+#
+# 4 CrossCompiling=YES Stage1Only=NO
+#   Cross-compiling GHC itself. See [1].
+#
+# [1] https://ghc.haskell.org/trac/ghc/wiki/Building/CrossCompiling
+
+# Note [Stage1Only vs stage=1]
+#
+# Stage1Only=YES means:
+#   - don't build ghc-stage2 (the executable)
+#   - don't build utils that rely on ghc-stage2
+#     See Note [No stage2 packages when CrossCompiling or Stage1Only] in
+#     ./ghc.mk.
+#   - install ghc-stage1 instead of ghc-stage2
+#   - install the ghc-pkg that was built with the stage0 compiler
+#   - (*do* still build compiler/stage2 (i.e. the ghc library))
+#   - (*do* still build all other libraries)
+#
+# stage=1 means:
+#   - don't build compiler/stage2 (i.e. the ghc library)
+#   - don't build ghc-stage2 (the executable)
+#   Note: these are the only two things it does. If you want to exclude more
+#   stuff, combine it with Stage1Only=YES, or run make in the ghc or compiler
+#   directory.
+#
+# running make in the ghc or compiler directory means:
+#   - don't build any packages in the libraries/ directory, except the ones
+#     listed in PACKAGES_STAGE0 (i.e. the boot libraries)
+#
+# You may wonder why Stage1Only=YES still builds compiler/stage2. Quoting
+# simonmar in #7639:
+#
+#     "strictly speaking building compiler/stage2 is correct, because it is
+#     the ghc package that can be used with [ghc-stage1]. If you don't
+#     want to build it, then setting stage=1 in your mk/build.mk should
+#     disable it."
 
 # C compiler and linker flags from configure (e.g. -m<blah> to select
 # correct C compiler backend). The stage number is the stage of GHC
@@ -623,18 +657,11 @@ ArSupportsAtFile_STAGE3 = $(ArSupportsAtFile)
 
 CONTEXT_DIFF		= @ContextDiffCmd@
 CP			= cp
+
 # It's not easy to separate the CPP program from its flags, as
 # AC_PROG_CPP defines CPP as "/usr/bin/gcc -E"
 CPP			= @CPP@ @CPPFLAGS@
-#
-# RAWCPP_FLAGS are the flags to give to cpp (viz, gcc -E) to persuade it to
-# behave plausibly on Haskell sources.
-#
-# Clang in particular is a bit more annoying, so we suppress some warnings.
-RAWCPP_FLAGS            = -undef -traditional
-ifeq "$(CC_CLANG_BACKEND)" "1"
-RAWCPP_FLAGS           += -Wno-invalid-pp-token -Wno-unicode -Wno-trigraphs
-endif
+HS_CPP			= @HaskellCPPCmd@ @HaskellCPPArgs@
 
 FIND			= @FindCmd@
 
@@ -731,21 +758,14 @@ HSCOLOUR_CMD   = @HSCOLOUR@
 TIME_CMD       = @TimeCmd@
 
 #-----------------------------------------------------------------------------
-# DocBook XML stuff
+# Sphinx stuff
 
-BUILD_DOCBOOK_HTML       = @BUILD_DOCBOOK_HTML@
-BUILD_DOCBOOK_PS         = @BUILD_DOCBOOK_PS@
-BUILD_DOCBOOK_PDF        = @BUILD_DOCBOOK_PDF@
-DBLATEX                  = @DblatexCmd@
-# filename.as.url=0 is needed with dblatex 0.3.4 (#7486)
-DBLATEX_OPTS             = -P 'filename.as.url=0'
-XSLTPROC                 = @XsltprocCmd@
-XMLLINT                  = @XmllintCmd@
-HAVE_DOCBOOK_XSL	 = @HAVE_DOCBOOK_XSL@
-XSLTPROC_HTML_STYLESHEET = http://docbook.sourceforge.net/release/xsl/current/html/chunk.xsl
-XSLTPROC_LABEL_OPTS	 = --stringparam toc.section.depth 3 \
-			   --stringparam section.autolabel 1 \
-			   --stringparam section.label.includes.component.label 1
+SPHINXBUILD              = @SPHINXBUILD@
+BUILD_MAN                = @BUILD_MAN@
+BUILD_SPHINX_HTML        = @BUILD_SPHINX_HTML@
+BUILD_SPHINX_PDF         = @BUILD_SPHINX_PDF@
+SPHINXOPTS               = -D latex_paper_size=letter
+XELATEX                  = @XELATEX@
 
 #-----------------------------------------------------------------------------
 # 		FPtools support software
@@ -790,8 +810,10 @@ else
 HSCOLOUR_SRCS = YES
 endif
 
-# Build DPH?
+# Build and install DPH?
 BUILD_DPH = NO
+# Build and install the "extra" packages (see ./packages)?
+BUILD_EXTRA_PKGS = NO
 
 ################################################################################
 #
@@ -812,3 +834,6 @@ ICONV_LIB_DIRS = @ICONV_LIB_DIRS@
 
 GMP_INCLUDE_DIRS = @GMP_INCLUDE_DIRS@
 GMP_LIB_DIRS = @GMP_LIB_DIRS@
+
+CURSES_INCLUDE_DIRS = @CURSES_INCLUDE_DIRS@
+CURSES_LIB_DIRS = @CURSES_LIB_DIRS@

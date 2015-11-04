@@ -25,7 +25,7 @@ module TcType (
 
   -- TcLevel
   TcLevel(..), topTcLevel, pushTcLevel, isTopTcLevel,
-  strictlyDeeperThan, sameDepthAs, fskTcLevel,
+  strictlyDeeperThan, sameDepthAs, fmvTcLevel,
 
   --------------------------------
   -- MetaDetails
@@ -33,9 +33,9 @@ module TcType (
   TcTyVarDetails(..), pprTcTyVarDetails, vanillaSkolemTv, superSkolemTv,
   MetaDetails(Flexi, Indirect), MetaInfo(..),
   isImmutableTyVar, isSkolemTyVar,
-  isMetaTyVar,  isMetaTyVarTy, isTyVarTy, isReturnTyVar,
+  isMetaTyVar,  isMetaTyVarTy, isTyVarTy,
   isSigTyVar, isOverlappableTyVar,  isTyConableTyVar,
-  isFskTyVar, isFmvTyVar, isFlattenTyVar,
+  isFskTyVar, isFmvTyVar, isFlattenTyVar, isReturnTyVar,
   isAmbiguousTyVar, metaTvRef, metaTyVarInfo,
   isFlexi, isIndirect, isRuntimeUnkSkol,
   metaTyVarTcLevel, setMetaTyVarTcLevel, metaTyVarTcLevel_maybe,
@@ -71,10 +71,12 @@ module TcType (
   eqType, eqTypes, cmpType, cmpTypes, eqTypeX,
   pickyEqType, tcEqType, tcEqKind, tcEqTypeNoKindCheck, tcEqTypeVis,
   isSigmaTy, isRhoTy, isOverloadedTy,
-  isDoubleTy, isFloatTy, isIntTy, isWordTy, isStringTy,
+  isFloatingTy, isDoubleTy, isFloatTy, isIntTy, isWordTy, isStringTy,
   isIntegerTy, isBoolTy, isUnitTy, isCharTy,
   isTauTy, isTauTyCon, tcIsTyVarTy, tcIsForAllTy,
-  isPredTy, isTyVarClassPred, isTyVarExposed,
+  isPredTy, isTyVarClassPred, isTyVarExposed, isTyVarUnderDatatype,
+  checkValidClsArgs, hasTyVarHead,
+  isRigidEqPred, isRigidTy,
 
   ---------------------------------
   -- Misc type manipulators
@@ -87,8 +89,10 @@ module TcType (
 
   ---------------------------------
   -- Predicate types
-  mkMinimalBySCs, transSuperClasses, immSuperClasses,
-  quantifyPred,
+  mkMinimalBySCs, transSuperClasses, transSuperClassesPred,
+  pickQuantifiablePreds,
+  immSuperClasses,
+  isImprovementPred,
 
   -- * Finding type instances
   tcTyFamInsts,
@@ -153,7 +157,9 @@ module TcType (
 
   pprKind, pprParendKind, pprSigmaType,
   pprType, pprParendType, pprTypeApp, pprTyThingCategory,
-  pprTheta, pprThetaArrowTy, pprClassPred
+  pprTheta, pprThetaArrowTy, pprClassPred,
+
+  TypeSize, sizeType, sizeTypes
 
   ) where
 
@@ -188,14 +194,13 @@ import ListSetOps
 import Outputable
 import FastString
 import Pair
-import ErrUtils( Validity(..), isValid )
+import ErrUtils( Validity(..), MsgDoc, isValid )
 
 import Data.IORef
 import Control.Monad (liftM, ap)
 #if __GLASGOW_HASKELL__ < 709
-import Control.Applicative (Applicative(..))
+import Control.Applicative (Applicative(..), (<$>) )
 #endif
-import Control.Applicative ( (<$>) )
 
 {-
 ************************************************************************
@@ -271,8 +276,8 @@ A TcRhoType has no foralls or contexts at the top, or to the right of an arrow
 
 TyVarDetails gives extra info about type variables, used during type
 checking.  It's attached to mutable type variables only.
-It's knot-tied back to Var.lhs.  There is no reason in principle
-why Var.lhs shouldn't actually have the definition, but it "belongs" here.
+It's knot-tied back to Var.hs.  There is no reason in principle
+why Var.hs shouldn't actually have the definition, but it "belongs" here.
 
 Note [Signature skolems]
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -367,11 +372,9 @@ instance Outputable MetaDetails where
   ppr (Indirect ty) = ptext (sLit "Indirect") <+> ppr ty
 
 data MetaInfo
-   = TauTv Bool    -- This MetaTv is an ordinary unification variable
+   = TauTv         -- This MetaTv is an ordinary unification variable
                    -- A TauTv is always filled in with a tau-type, which
                    -- never contains any ForAlls.
-                   -- The boolean is true when the meta var originates
-                   -- from a wildcard.
 
    | ReturnTv      -- Can unify with *anything*. Used to convert a
                    -- type "checking" algorithm into a type inference algorithm.
@@ -393,12 +396,25 @@ data MetaInfo
 -- in the places where we need to an expression has that type
 
 data UserTypeCtxt
-  = FunSigCtxt Name     -- Function type signature
-                        -- Also used for types in SPECIALISE pragmas
+  = FunSigCtxt      -- Function type signature, when checking the type
+                    -- Also used for types in SPECIALISE pragmas
+       Name              -- Name of the function
+       Bool              -- True <=> report redundant constraints
+                            -- This is usually True, but False for
+                            --   * Record selectors (not important here)
+                            --   * Class and instance methods.  Here
+                            --     the code may legitimately be more
+                            --     polymorphic than the signature
+                            --     generated from the class
+                            --     declaration
+
   | InfSigCtxt Name     -- Inferred type for function
   | ExprSigCtxt         -- Expression type signature
+
   | ConArgCtxt Name     -- Data constructor argument
   | TySynCtxt Name      -- RHS of a type synonym decl
+  | PatSynCtxt Name     -- Type sig for a pattern synonym
+                        --   eg  pattern C :: Int -> T
   | PatSigCtxt          -- Type sig in pattern
                         --   eg  f (x::t) = ...
                         --   or  (x::t, y) = e
@@ -441,8 +457,9 @@ data UserTypeCtxt
 ************************************************************************
 -}
 
-newtype TcLevel = TcLevel Int deriving( Eq )
+newtype TcLevel = TcLevel Int deriving( Eq, Ord )
   -- See Note [TcLevel and untouchable type variables] for what this Int is
+  -- See also Note [TcLevel assignment]
 
 {-
 Note [TcLevel and untouchable type variables]
@@ -468,12 +485,11 @@ Note [TcLevel and untouchable type variables]
                 implication are all untouchable; ie their level
                 numbers are LESS THAN the ic_tclvl of the implication
 
-
 Note [Skolem escape prevention]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We only unify touchable unification variables.  Because of
-(MetaTvInv), there can be no occurrences of he variable further out,
-so the unification can't cause the kolems to escape. Example:
+(MetaTvInv), there can be no occurrences of the variable further out,
+so the unification can't cause the skolems to escape. Example:
      data T = forall a. MkT a (a->Int)
      f x (MkT v f) = length [v,x]
 We decide (x::alpha), and generate an implication like
@@ -501,13 +517,31 @@ emerges. If we (wrongly) spontaneously solved it to get uf := beta,
 the whole implication disappears but when we pop out again we are left with
 (F Int ~ uf) which will be unified by our final zonking stage and
 uf will get unified *once more* to (F Int).
+
+Note [TcLevel assignment]
+~~~~~~~~~~~~~~~~~~~~~~~~~
+We arrange the TcLevels like this
+
+   1   Top level
+   2     Flatten-meta-vars of level 3
+   3   First-level implication constraints
+   4     Flatten-meta-vars of level 5
+   5   Second-level implication constraints
+   ...etc...
+
+The even-numbered levels are for the flatten-meta-variables assigned
+at the next level in.  Eg for a second-level implication conststraint
+(level 5), the flatten meta-vars are level 4, which makes them untouchable.
+The flatten meta-vars could equally well all have level 0, or just NotALevel
+since they do not live across implications.
 -}
 
-fskTcLevel :: TcLevel
-fskTcLevel = TcLevel 0  -- 0 = Outside the outermost level:
-                                  --     flatten skolems
+fmvTcLevel :: TcLevel -> TcLevel
+-- See Note [TcLevel assignment]
+fmvTcLevel (TcLevel n) = TcLevel (n-1)
 
 topTcLevel :: TcLevel
+-- See Note [TcLevel assignment]
 topTcLevel = TcLevel 1   -- 1 = outermost level
 
 isTopTcLevel :: TcLevel -> Bool
@@ -515,7 +549,8 @@ isTopTcLevel (TcLevel 1) = True
 isTopTcLevel _           = False
 
 pushTcLevel :: TcLevel -> TcLevel
-pushTcLevel (TcLevel us) = TcLevel (us+1)
+-- See Note [TcLevel assignment]
+pushTcLevel (TcLevel us) = TcLevel (us + 2)
 
 strictlyDeeperThan :: TcLevel -> TcLevel -> Bool
 strictlyDeeperThan (TcLevel tv_tclvl) (TcLevel ctxt_tclvl)
@@ -552,19 +587,19 @@ pprTcTyVarDetails (MetaTv { mtv_info = info, mtv_tclvl = tclvl })
   = pp_info <> colon <> ppr tclvl
   where
     pp_info = case info of
-                ReturnTv    -> ptext (sLit "ret")
-                TauTv True  -> ptext (sLit "twc")
-                TauTv False -> ptext (sLit "tau")
-                SigTv       -> ptext (sLit "sig")
-                FlatMetaTv  -> ptext (sLit "fuv")
+                ReturnTv   -> ptext (sLit "ret")
+                TauTv      -> ptext (sLit "tau")
+                SigTv      -> ptext (sLit "sig")
+                FlatMetaTv -> ptext (sLit "fuv")
 
 pprUserTypeCtxt :: UserTypeCtxt -> SDoc
+pprUserTypeCtxt (FunSigCtxt n _)  = ptext (sLit "the type signature for") <+> quotes (ppr n)
 pprUserTypeCtxt (InfSigCtxt n)    = ptext (sLit "the inferred type for") <+> quotes (ppr n)
-pprUserTypeCtxt (FunSigCtxt n)    = ptext (sLit "the type signature for") <+> quotes (ppr n)
 pprUserTypeCtxt (RuleSigCtxt n)   = ptext (sLit "a RULE for") <+> quotes (ppr n)
 pprUserTypeCtxt ExprSigCtxt       = ptext (sLit "an expression type signature")
 pprUserTypeCtxt (ConArgCtxt c)    = ptext (sLit "the type of the constructor") <+> quotes (ppr c)
 pprUserTypeCtxt (TySynCtxt c)     = ptext (sLit "the RHS of the type synonym") <+> quotes (ppr c)
+pprUserTypeCtxt (PatSynCtxt c)    = ptext (sLit "the type signature for pattern synonym") <+> quotes (ppr c)
 pprUserTypeCtxt ThBrackCtxt       = ptext (sLit "a Template Haskell quotation [t|...|]")
 pprUserTypeCtxt PatSigCtxt        = ptext (sLit "a pattern type signature")
 pprUserTypeCtxt ResSigCtxt        = ptext (sLit "a result type signature")
@@ -587,10 +622,11 @@ pprSigCtxt ctxt extra pp_ty
   = sep [ ptext (sLit "In") <+> extra <+> pprUserTypeCtxt ctxt <> colon
         , nest 2 (pp_sig ctxt) ]
   where
-    pp_sig (FunSigCtxt n)  = pp_n_colon n
-    pp_sig (ConArgCtxt n)  = pp_n_colon n
-    pp_sig (ForSigCtxt n)  = pp_n_colon n
-    pp_sig _               = pp_ty
+    pp_sig (FunSigCtxt n _) = pp_n_colon n
+    pp_sig (ConArgCtxt n)   = pp_n_colon n
+    pp_sig (ForSigCtxt n)   = pp_n_colon n
+    pp_sig (PatSynCtxt n)   = pp_n_colon n
+    pp_sig _                = pp_ty
 
     pp_n_colon n = pprPrefixOcc n <+> dcolon <+> pp_ty
 
@@ -736,8 +772,8 @@ isImmutableTyVar tv
   | otherwise    = True
 
 isTyConableTyVar, isSkolemTyVar, isOverlappableTyVar,
-  isMetaTyVar, isReturnTyVar, isAmbiguousTyVar,
-  isFmvTyVar, isFskTyVar, isFlattenTyVar :: TcTyVar -> Bool
+  isMetaTyVar, isAmbiguousTyVar,
+  isFmvTyVar, isFskTyVar, isFlattenTyVar, isReturnTyVar :: TcTyVar -> Bool
 
 isTyConableTyVar tv
         -- True of a meta-type variable that can be filled in
@@ -915,7 +951,7 @@ mkTcEqPredBR Unboxed Nominal          = mkPrimEqPred
 mkTcEqPredBR Unboxed Representational = mkReprPrimEqPred
 mkTcEqPredBR _       Phantom          = panic "mkTcEqPredBR Phantom"
 
--- @isTauTy@ tests if a type is "simple". It should not be called on a boxy type.
+-- @isTauTy@ tests if a type is "simple"..
 isTauTy :: Type -> Bool
 isTauTy ty | Just ty' <- tcView ty = isTauTy ty'
 isTauTy (TyVarTy _)           = True
@@ -1204,7 +1240,9 @@ tcInstHeadTyAppAllTyVars ty
   = tcInstHeadTyAppAllTyVars ty'
   | otherwise
   = case ty of
-        TyConApp tc tys         -> ok (filterInvisibles tc tys)  -- avoid kinds
+        TyConApp tc tys         -> ok (filterOutInvisibleTypes tc tys)
+           -- avoid kinds
+
         ForAllTy (Anon arg) res -> ok [arg, res]
         _                       -> False
   where
@@ -1305,6 +1343,7 @@ tc_eq_type_erased = go Visible
 
 -- | Like 'pickyEqTypeVis', but returns a Bool for convenience
 pickyEqType :: TcType -> TcType -> Bool
+-- TODO (RAE): Move to TcErrors
 -- Check when two types _look_ the same, _including_ synonyms.
 -- So (pickyEqType String [Char]) returns False
 -- This still ignores coercions, because this is used only for printing,
@@ -1362,11 +1401,11 @@ instance Functor OccCheckResult where
       fmap = liftM
 
 instance Applicative OccCheckResult where
-      pure = return
+      pure = OC_OK
       (<*>) = ap
 
 instance Monad OccCheckResult where
-  return x = OC_OK x
+  return            = pure
   OC_OK x     >>= k = k x
   OC_Forall   >>= _ = OC_Forall
   OC_NonTyVar >>= _ = OC_NonTyVar
@@ -1405,7 +1444,7 @@ occurCheckExpand dflags tv ty
     -- True => fine
     fast_check (LitTy {})          = True
     fast_check (TyVarTy tv')       = tv /= tv' && fast_check (tyVarKind tv')
-    fast_check (TyConApp _ tys)    = all fast_check tys
+    fast_check (TyConApp tc tys)   = all fast_check tys && (isTauTyCon tc || impredicative)
     fast_check (ForAllTy (Anon a) r) = fast_check a && fast_check r
     fast_check (AppTy fun arg)     = fast_check fun && fast_check arg
     fast_check (ForAllTy (Named tv' _) ty)
@@ -1415,26 +1454,9 @@ occurCheckExpand dflags tv ty
     fast_check (CastTy ty co)      = fast_check ty && fast_check_co co
     fast_check (CoercionTy co)     = fast_check_co co
 
-    fast_check_co (Refl _ ty)            = fast_check ty
-    fast_check_co (TyConAppCo _ _ args)  = all fast_check_co args
-    fast_check_co (AppCo co arg)         = fast_check_co co &&
-                                           fast_check_co arg
-    fast_check_co (ForAllCo tv' h co)
-      = impredicative && fast_check_co h
-                      && (tv == tv' || fast_check_co co)
-    fast_check_co (CoVarCo c)            = fast_check (varType c)
-    fast_check_co (AxiomInstCo _ _ args) = all fast_check_co args
-    fast_check_co (UnivCo _ _ h t1 t2)   = fast_check_co h && fast_check t1
-                                                           && fast_check t2
-    fast_check_co (SymCo co)             = fast_check_co co
-    fast_check_co (TransCo co1 co2)      = fast_check_co co1 && fast_check_co co2
-    fast_check_co (InstCo co arg)        = fast_check_co co && fast_check_co arg
-    fast_check_co (NthCo _ co)           = fast_check_co co
-    fast_check_co (LRCo _ co)            = fast_check_co co
-    fast_check_co (CoherenceCo co1 co2)  = fast_check_co co1 && fast_check_co co2
-    fast_check_co (KindCo co)            = fast_check_co co
-    fast_check_co (SubCo co)             = fast_check_co co
-    fast_check_co (AxiomRuleCo _ cs)     = all fast_check_co cs
+     -- we really are only doing an occurs check here; no bother about
+     -- impredicativity in coercions, as they're inferred
+    fast_check_co co = not (tv `elemVarSet` tyCoVarsOfCo co)
 
     go (TyVarTy tv') | tv == tv' = OC_Occurs
                      | otherwise = do { k' <- check_kind (tyVarKind tv')
@@ -1467,7 +1489,11 @@ occurCheckExpand dflags tv ty
     -- it and try again.
     go ty@(TyConApp tc tys)
       = case do { tys <- mapM go tys; return (mkTyConApp tc tys) } of
-          OC_OK ty -> return ty  -- First try to eliminate the tyvar from the args
+          OC_OK ty
+              | impredicative || isTauTyCon tc
+              -> return ty  -- First try to eliminate the tyvar from the args
+              | otherwise
+              -> OC_Forall  -- A type synonym with a forall on the RHS
           bad | Just ty' <- tcView ty -> go ty'
               | otherwise             -> bad
                       -- Failing that, try to expand a synonym
@@ -1531,7 +1557,7 @@ canUnifyWithPolyType dflags details
   = case details of
       MetaTv { mtv_info = ReturnTv } -> True      -- See Note [ReturnTv]
       MetaTv { mtv_info = SigTv }    -> False
-      MetaTv { mtv_info = TauTv _ }  -> xopt Opt_ImpredicativeTypes dflags
+      MetaTv { mtv_info = TauTv }    -> xopt Opt_ImpredicativeTypes dflags
       _other                         -> True
           -- We can have non-meta tyvars in given constraints
 
@@ -1560,12 +1586,42 @@ straightforward.
 ************************************************************************
 
 Deconstructors and tests on predicate types
+
+Note [Kind polymorphic type classes]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    class C f where...   -- C :: forall k. k -> Constraint
+    g :: forall (f::*). C f => f -> f
+
+Here the (C f) in the signature is really (C * f), and we
+don't want to complain that the * isn't a type variable!
 -}
 
 isTyVarClassPred :: PredType -> Bool
 isTyVarClassPred ty = case getClassPredTys_maybe ty of
     Just (_, tys) -> all isTyVarTy tys
     _             -> False
+
+-------------------------
+checkValidClsArgs :: Bool -> Class -> [KindOrType] -> Bool
+-- If the Bool is True (flexible contexts), return True (i.e. ok)
+-- Otherwise, check that the type (not kind) args are all headed by a tyvar
+--   E.g. (Eq a) accepted, (Eq (f a)) accepted, but (Eq Int) rejected
+-- This function is here rather than in TcValidity because it is
+-- called from TcSimplify, which itself is imported by TcValidity
+checkValidClsArgs flexible_contexts cls kts
+  | flexible_contexts = True
+  | otherwise         = all hasTyVarHead tys
+  where
+    tys = filterOutInvisibleTypes (classTyCon cls) kts
+
+hasTyVarHead :: Type -> Bool
+-- Returns true of (a t1 .. tn), where 'a' is a type variable
+hasTyVarHead ty                 -- Haskell 98 allows predicates of form
+  | tcIsTyVarTy ty = True       --      C (a ty1 .. tyn)
+  | otherwise                   -- where a is a type variable
+  = case tcSplitAppTy_maybe ty of
+       Just (ty, _) -> hasTyVarHead ty
+       Nothing      -> False
 
 evVarPred_maybe :: EvVar -> Maybe PredType
 evVarPred_maybe v = if isPredTy ty then Just ty else Nothing
@@ -1607,23 +1663,36 @@ mkEqBoxTy co
 -- Equality constraints that mention quantified type variables and
 -- implicit variables complicate the story. See Notes
 -- [Inheriting implicit parameters] and [Quantifying over equality constraints]
-quantifyPred :: TyVarSet           -- Quantifying over these
-             -> PredType -> Bool   -- True <=> quantify over this wanted
+pickQuantifiablePreds
+  :: TyVarSet           -- Quantifying over these
+  -> TcThetaType        -- Proposed constraints to quantify
+  -> TcThetaType        -- A subset that we can actually quantify
 -- This function decides whether a particular constraint shoudl be
 -- quantified over, given the type variables that are being quantified
-quantifyPred qtvs pred
-  = case classifyPredType pred of
-      ClassPred cls tys
-         | isIPClass cls    -> True -- See note [Inheriting implicit parameters]
-         | otherwise        -> tyCoVarsOfTypes tys `intersectsVarSet` qtvs
-
-      EqPred NomEq ty1 ty2  -> quant_fun ty1 || quant_fun ty2
-        -- representational equality is like a class constraint
-      EqPred ReprEq ty1 ty2 -> tyCoVarsOfTypes [ty1, ty2] `intersectsVarSet` qtvs
-
-      IrredPred ty          -> tyCoVarsOfType ty `intersectsVarSet` qtvs
-      TuplePred {}          -> False
+pickQuantifiablePreds qtvs theta
+  = let flex_ctxt = True in  -- Quantify over non-tyvar constraints, even without
+                             -- -XFlexibleContexts: see Trac #10608, #10351
+         -- flex_ctxt <- xoptM Opt_FlexibleContexts
+    filter (pick_me flex_ctxt) theta
   where
+    pick_me flex_ctxt pred
+      = case classifyPredType pred of
+          ClassPred cls tys
+             | isIPClass cls    -> True -- See note [Inheriting implicit parameters]
+             | otherwise        -> pick_cls_pred flex_ctxt cls tys
+
+          EqPred ReprEq ty1 ty2 -> pick_cls_pred flex_ctxt coercibleClass [ty1, ty2]
+            -- representational equality is like a class constraint
+
+          EqPred NomEq ty1 ty2  -> quant_fun ty1 || quant_fun ty2
+          IrredPred ty          -> tyCoVarsOfType ty `intersectsVarSet` qtvs
+
+    pick_cls_pred flex_ctxt cls tys
+      = tyCoVarsOfTypes tys `intersectsVarSet` qtvs
+        && (checkValidClsArgs flex_ctxt cls tys)
+           -- Only quantify over predicates that checkValidType
+           -- will pass!  See Trac #10351.
+
     -- See Note [Quantifying over equality constraints]
     quant_fun ty
       = case tcSplitTyConApp_maybe ty of
@@ -1644,26 +1713,34 @@ mkMinimalBySCs ptys = [ pty | pty <- ptys
    trans_super_classes pred   -- Superclasses of pred, excluding pred itself
      = case classifyPredType pred of
          ClassPred cls tys -> transSuperClasses cls tys
-         TuplePred ts      -> concatMap trans_super_classes ts
          _                 -> []
 
 transSuperClasses :: Class -> [Type] -> [PredType]
 transSuperClasses cls tys    -- Superclasses of (cls tys),
                              -- excluding (cls tys) itself
-  = concatMap trans_sc (immSuperClasses cls tys)
-  where
-    trans_sc :: PredType -> [PredType]
-    -- (trans_sc p) returns (p : p's superclasses)
-    trans_sc p = case classifyPredType p of
-                   ClassPred cls tys -> p : transSuperClasses cls tys
-                   TuplePred ps      -> concatMap trans_sc ps
-                   _                 -> [p]
+  = concatMap transSuperClassesPred (immSuperClasses cls tys)
+
+transSuperClassesPred :: PredType -> [PredType]
+-- (transSuperClassesPred p) returns (p : p's superclasses)
+transSuperClassesPred p
+  = case classifyPredType p of
+      ClassPred cls tys -> p : transSuperClasses cls tys
+      _                 -> [p]
 
 immSuperClasses :: Class -> [Type] -> [PredType]
 immSuperClasses cls tys
   = substTheta (zipTopTCvSubst tyvars tys) sc_theta
   where
     (tyvars,sc_theta,_,_) = classBigSig cls
+
+isImprovementPred :: PredType -> Bool
+-- Either it's an equality, or has some functional dependency
+isImprovementPred ty
+  = case classifyPredType ty of
+      EqPred NomEq t1 t2 -> not (t1 `tcEqType` t2)
+      EqPred ReprEq _ _  -> False
+      ClassPred cls _    -> classHasFds cls
+      IrredPred {}       -> True -- Might have equalities after reduction?
 
 {-
 Note [Inheriting implicit parameters]
@@ -1691,7 +1768,7 @@ dynamic binding means) so we'd better infer the second.
 BOTTOM LINE: when *inferring types* you must quantify over implicit
 parameters, *even if* they don't mention the bound type variables.
 Reason: because implicit parameters, uniquely, have local instance
-declarations. See the predicate quantifyPred.
+declarations. See pickQuantifiablePreds.
 
 Note [Quantifying over equality constraints]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1748,6 +1825,11 @@ isUnitTy       = is_tc unitTyConKey
 isCharTy       = is_tc charTyConKey
 isAnyTy        = is_tc anyTyConKey
 
+-- | Does a type represent a floating-point number?
+isFloatingTy :: Type -> Bool
+isFloatingTy ty = isFloatTy ty || isDoubleTy ty
+
+-- | Is a type 'String'?
 isStringTy :: Type -> Bool
 isStringTy ty
   = case tcSplitTyConApp_maybe ty of
@@ -1775,6 +1857,49 @@ isTyVarExposed tv (AppTy fun arg) = isTyVarExposed tv fun
 isTyVarExposed _  (ForAllTy {})   = False
 isTyVarExposed tv (CastTy ty _)   = isTyVarExposed tv ty
 isTyVarExposed _  (CoercionTy {}) = False
+
+-- | Does the given tyvar appear under a type generative w.r.t.
+-- representational equality? See Note [Occurs check error] in
+-- TcCanonical for the motivation for this function.
+isTyVarUnderDatatype :: TcTyVar -> TcType -> Bool
+isTyVarUnderDatatype tv = go False
+  where
+    go under_dt ty | Just ty' <- tcView ty = go under_dt ty'
+    go under_dt (TyVarTy tv') = under_dt && (tv == tv')
+    go under_dt (TyConApp tc tys) = let under_dt' = under_dt ||
+                                                    isGenerativeTyCon tc
+                                                      Representational
+                                    in any (go under_dt') tys
+    go _        (LitTy {}) = False
+    go _        (ForAllTy (Anon arg) res) = go True arg || go True res
+    go under_dt (AppTy fun arg) = go under_dt fun || go under_dt arg
+    go under_dt (ForAllTy (Named tv' _) inner_ty)
+      | tv' == tv = False
+      | otherwise = go under_dt inner_ty
+    go under_dt (CastTy ty _)   = go under_dt ty
+    go _        (CoercionTy {}) = False
+
+isRigidTy :: TcType -> Bool
+isRigidTy ty
+  | Just (tc,_) <- tcSplitTyConApp_maybe ty = isGenerativeTyCon tc Nominal
+  | Just {} <- tcSplitAppTy_maybe ty        = True
+  | isForAllTy ty                           = True
+  | otherwise                               = False
+
+isRigidEqPred :: TcLevel -> PredTree -> Bool
+-- ^ True of all Nominal equalities that are solidly insoluble
+-- This means all equalities *except*
+--   * Meta-tv non-SigTv on LHS
+--   * Meta-tv SigTv on LHS, tyvar on right
+isRigidEqPred tc_lvl (EqPred NomEq ty1 _)
+  | Just tv1 <- tcGetTyVar_maybe ty1
+  = ASSERT2( isTcTyVar tv1, ppr tv1 )
+    not (isMetaTyVar tv1) || isTouchableMetaTyVar tc_lvl tv1
+
+  | otherwise  -- LHS is not a tyvar
+  = True
+
+isRigidEqPred _ _ = False  -- Not an equality
 
 {-
 ************************************************************************
@@ -1856,8 +1981,9 @@ orphNamesOfCoCon :: CoAxiom br -> NameSet
 orphNamesOfCoCon (CoAxiom { co_ax_tc = tc, co_ax_branches = branches })
   = orphNamesOfTyCon tc `unionNameSet` orphNamesOfCoAxBranches branches
 
-orphNamesOfCoAxBranches :: BranchList CoAxBranch br -> NameSet
-orphNamesOfCoAxBranches = brListFoldr (unionNameSet . orphNamesOfCoAxBranch) emptyNameSet
+orphNamesOfCoAxBranches :: Branches br -> NameSet
+orphNamesOfCoAxBranches
+  = foldr (unionNameSet . orphNamesOfCoAxBranch) emptyNameSet . fromBranches
 
 orphNamesOfCoAxBranch :: CoAxBranch -> NameSet
 orphNamesOfCoAxBranch (CoAxBranch { cab_lhs = lhs, cab_rhs = rhs })
@@ -1889,23 +2015,23 @@ tcSplitIOType_maybe ty
 
 isFFITy :: Type -> Bool
 -- True for any TyCon that can possibly be an arg or result of an FFI call
-isFFITy ty = isValid (checkRepTyCon legalFFITyCon ty empty)
+isFFITy ty = isValid (checkRepTyCon legalFFITyCon ty)
 
 isFFIArgumentTy :: DynFlags -> Safety -> Type -> Validity
 -- Checks for valid argument type for a 'foreign import'
 isFFIArgumentTy dflags safety ty
-   = checkRepTyCon (legalOutgoingTyCon dflags safety) ty empty
+   = checkRepTyCon (legalOutgoingTyCon dflags safety) ty
 
 isFFIExternalTy :: Type -> Validity
 -- Types that are allowed as arguments of a 'foreign export'
-isFFIExternalTy ty = checkRepTyCon legalFEArgTyCon ty empty
+isFFIExternalTy ty = checkRepTyCon legalFEArgTyCon ty
 
 isFFIImportResultTy :: DynFlags -> Type -> Validity
 isFFIImportResultTy dflags ty
-  = checkRepTyCon (legalFIResultTyCon dflags) ty empty
+  = checkRepTyCon (legalFIResultTyCon dflags) ty
 
 isFFIExportResultTy :: Type -> Validity
-isFFIExportResultTy ty = checkRepTyCon legalFEResultTyCon ty empty
+isFFIExportResultTy ty = checkRepTyCon legalFEResultTyCon ty
 
 isFFIDynTy :: Type -> Type -> Validity
 -- The type in a foreign import dynamic must be Ptr, FunPtr, or a newtype of
@@ -1926,10 +2052,12 @@ isFFIDynTy expected ty
 
 isFFILabelTy :: Type -> Validity
 -- The type of a foreign label must be Ptr, FunPtr, or a newtype of either.
-isFFILabelTy ty = checkRepTyCon ok ty extra
+isFFILabelTy ty = checkRepTyCon ok ty
   where
-    ok tc = tc `hasKey` funPtrTyConKey || tc `hasKey` ptrTyConKey
-    extra = ptext (sLit "A foreign-imported address (via &foo) must have type (Ptr a) or (FunPtr a)")
+    ok tc | tc `hasKey` funPtrTyConKey || tc `hasKey` ptrTyConKey
+          = IsValid
+          | otherwise
+          = NotValid (ptext (sLit "A foreign-imported address (via &foo) must have type (Ptr a) or (FunPtr a)"))
 
 isFFIPrimArgumentTy :: DynFlags -> Type -> Validity
 -- Checks for valid argument type for a 'foreign import prim'
@@ -1938,33 +2066,40 @@ isFFIPrimArgumentTy :: DynFlags -> Type -> Validity
 -- the foreign function.
 isFFIPrimArgumentTy dflags ty
   | isAnyTy ty = IsValid
-  | otherwise  = checkRepTyCon (legalFIPrimArgTyCon dflags) ty empty
+  | otherwise  = checkRepTyCon (legalFIPrimArgTyCon dflags) ty
 
 isFFIPrimResultTy :: DynFlags -> Type -> Validity
 -- Checks for valid result type for a 'foreign import prim'
--- Currently it must be an unlifted type, including unboxed tuples.
+-- Currently it must be an unlifted type, including unboxed tuples,
+-- or the well-known type Any.
 isFFIPrimResultTy dflags ty
-   = checkRepTyCon (legalFIPrimResultTyCon dflags) ty empty
+  | isAnyTy ty = IsValid
+  | otherwise = checkRepTyCon (legalFIPrimResultTyCon dflags) ty
 
 isFunPtrTy :: Type -> Bool
-isFunPtrTy ty = isValid (checkRepTyCon (`hasKey` funPtrTyConKey) ty empty)
+isFunPtrTy ty
+  | Just (tc, [_]) <- splitTyConApp_maybe ty
+  = tc `hasKey` funPtrTyConKey
+  | otherwise
+  = False
 
 -- normaliseFfiType gets run before checkRepTyCon, so we don't
 -- need to worry about looking through newtypes or type functions
 -- here; that's already been taken care of.
-checkRepTyCon :: (TyCon -> Bool) -> Type -> SDoc -> Validity
-checkRepTyCon check_tc ty extra
+checkRepTyCon :: (TyCon -> Validity) -> Type -> Validity
+checkRepTyCon check_tc ty
   = case splitTyConApp_maybe ty of
       Just (tc, tys)
         | isNewTyCon tc -> NotValid (hang msg 2 (mk_nt_reason tc tys $$ nt_fix))
-        | check_tc tc   -> IsValid
-        | otherwise     -> NotValid (msg $$ extra)
-      Nothing -> NotValid (quotes (ppr ty) <+> ptext (sLit "is not a data type") $$ extra)
+        | otherwise     -> case check_tc tc of
+                             IsValid        -> IsValid
+                             NotValid extra -> NotValid (msg $$ extra)
+      Nothing -> NotValid (quotes (ppr ty) <+> ptext (sLit "is not a data type"))
   where
     msg = quotes (ppr ty) <+> ptext (sLit "cannot be marshalled in a foreign call")
     mk_nt_reason tc tys
-      | null tys  = ptext (sLit "because its data construtor is not in scope")
-      | otherwise = ptext (sLit "because the data construtor for")
+      | null tys  = ptext (sLit "because its data constructor is not in scope")
+      | otherwise = ptext (sLit "because the data constructor for")
                     <+> quotes (ppr tc) <+> ptext (sLit "is not in scope")
     nt_fix = ptext (sLit "Possible fix: import the data constructor to bring it into scope")
 
@@ -1989,47 +2124,46 @@ These chaps do the work; they are not exported
 ----------------------------------------------
 -}
 
-legalFEArgTyCon :: TyCon -> Bool
+legalFEArgTyCon :: TyCon -> Validity
 legalFEArgTyCon tc
   -- It's illegal to make foreign exports that take unboxed
   -- arguments.  The RTS API currently can't invoke such things.  --SDM 7/2000
   = boxedMarshalableTyCon tc
 
-legalFIResultTyCon :: DynFlags -> TyCon -> Bool
+legalFIResultTyCon :: DynFlags -> TyCon -> Validity
 legalFIResultTyCon dflags tc
-  | tc == unitTyCon         = True
+  | tc == unitTyCon         = IsValid
   | otherwise               = marshalableTyCon dflags tc
 
-legalFEResultTyCon :: TyCon -> Bool
+legalFEResultTyCon :: TyCon -> Validity
 legalFEResultTyCon tc
-  | tc == unitTyCon         = True
+  | tc == unitTyCon         = IsValid
   | otherwise               = boxedMarshalableTyCon tc
 
-legalOutgoingTyCon :: DynFlags -> Safety -> TyCon -> Bool
+legalOutgoingTyCon :: DynFlags -> Safety -> TyCon -> Validity
 -- Checks validity of types going from Haskell -> external world
 legalOutgoingTyCon dflags _ tc
   = marshalableTyCon dflags tc
 
-legalFFITyCon :: TyCon -> Bool
+legalFFITyCon :: TyCon -> Validity
 -- True for any TyCon that can possibly be an arg or result of an FFI call
 legalFFITyCon tc
-  | isUnLiftedTyCon tc = True
-  | tc == unitTyCon    = True
+  | isUnLiftedTyCon tc = IsValid
+  | tc == unitTyCon    = IsValid
   | otherwise          = boxedMarshalableTyCon tc
 
-marshalableTyCon :: DynFlags -> TyCon -> Bool
+marshalableTyCon :: DynFlags -> TyCon -> Validity
 marshalableTyCon dflags tc
-  |  (xopt Opt_UnliftedFFITypes dflags
-      && isUnLiftedTyCon tc
-      && not (isUnboxedTupleTyCon tc)
-      && case tyConPrimRep tc of        -- Note [Marshalling VoidRep]
-           VoidRep -> False
-           _       -> True)
-  = True
+  | isUnLiftedTyCon tc
+  , not (isUnboxedTupleTyCon tc)
+  , case tyConPrimRep tc of        -- Note [Marshalling VoidRep]
+       VoidRep -> False
+       _       -> True
+  = validIfUnliftedFFITypes dflags
   | otherwise
   = boxedMarshalableTyCon tc
 
-boxedMarshalableTyCon :: TyCon -> Bool
+boxedMarshalableTyCon :: TyCon -> Validity
 boxedMarshalableTyCon tc
    | getUnique tc `elem` [ intTyConKey, int8TyConKey, int16TyConKey
                          , int32TyConKey, int64TyConKey
@@ -2041,35 +2175,42 @@ boxedMarshalableTyCon tc
                          , stablePtrTyConKey
                          , boolTyConKey
                          ]
-  = True
+  = IsValid
 
-  | otherwise = False
+  | otherwise = NotValid empty
 
-legalFIPrimArgTyCon :: DynFlags -> TyCon -> Bool
+legalFIPrimArgTyCon :: DynFlags -> TyCon -> Validity
 -- Check args of 'foreign import prim', only allow simple unlifted types.
 -- Strictly speaking it is unnecessary to ban unboxed tuples here since
 -- currently they're of the wrong kind to use in function args anyway.
 legalFIPrimArgTyCon dflags tc
-  | xopt Opt_UnliftedFFITypes dflags
-    && isUnLiftedTyCon tc
-    && not (isUnboxedTupleTyCon tc)
-  = True
+  | isUnLiftedTyCon tc
+  , not (isUnboxedTupleTyCon tc)
+  = validIfUnliftedFFITypes dflags
   | otherwise
-  = False
+  = NotValid unlifted_only
 
-legalFIPrimResultTyCon :: DynFlags -> TyCon -> Bool
+legalFIPrimResultTyCon :: DynFlags -> TyCon -> Validity
 -- Check result type of 'foreign import prim'. Allow simple unlifted
 -- types and also unboxed tuple result types '... -> (# , , #)'
 legalFIPrimResultTyCon dflags tc
-  | xopt Opt_UnliftedFFITypes dflags
-    && isUnLiftedTyCon tc
-    && (isUnboxedTupleTyCon tc
-        || case tyConPrimRep tc of      -- Note [Marshalling VoidRep]
+  | isUnLiftedTyCon tc
+  , (isUnboxedTupleTyCon tc
+     || case tyConPrimRep tc of      -- Note [Marshalling VoidRep]
            VoidRep -> False
            _       -> True)
-  = True
+  = validIfUnliftedFFITypes dflags
+
   | otherwise
-  = False
+  = NotValid unlifted_only
+
+unlifted_only :: MsgDoc
+unlifted_only = ptext (sLit "foreign import prim only accepts simple unlifted types")
+
+validIfUnliftedFFITypes :: DynFlags -> Validity
+validIfUnliftedFFITypes dflags
+  | xopt Opt_UnliftedFFITypes dflags =  IsValid
+  | otherwise = NotValid (ptext (sLit "To marshal unlifted types, use UnliftedFFITypes"))
 
 {-
 Note [Marshalling VoidRep]
@@ -2081,3 +2222,65 @@ In turn that means you can't write
 Reason: the back end falls over with panic "primRepHint:VoidRep";
         and there is no compelling reason to permit it
 -}
+
+{-
+************************************************************************
+*                                                                      *
+        The "Paterson size" of a type
+*                                                                      *
+************************************************************************
+-}
+
+{-
+Note [Paterson conditions on PredTypes]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+We are considering whether *class* constraints terminate
+(see Note [Paterson conditions]). Precisely, the Paterson conditions
+would have us check that "the constraint has fewer constructors and variables
+(taken together and counting repetitions) than the head.".
+
+However, we can be a bit more refined by looking at which kind of constraint
+this actually is. There are two main tricks:
+
+ 1. It seems like it should be OK not to count the tuple type constructor
+    for a PredType like (Show a, Eq a) :: Constraint, since we don't
+    count the "implicit" tuple in the ThetaType itself.
+
+    In fact, the Paterson test just checks *each component* of the top level
+    ThetaType against the size bound, one at a time. By analogy, it should be
+    OK to return the size of the *largest* tuple component as the size of the
+    whole tuple.
+
+ 2. Once we get into an implicit parameter or equality we
+    can't get back to a class constraint, so it's safe
+    to say "size 0".  See Trac #4200.
+
+NB: we don't want to detect PredTypes in sizeType (and then call
+sizePred on them), or we might get an infinite loop if that PredType
+is irreducible. See Trac #5581.
+-}
+
+type TypeSize = IntWithInf
+
+sizeType :: Type -> TypeSize
+-- Size of a type: the number of variables and constructors
+-- Ignore kinds altogether
+sizeType = go
+  where
+    go ty | Just exp_ty <- tcView ty = go exp_ty
+    go (TyVarTy {})              = 1
+    go (TyConApp tc tys)
+      | isTypeFamilyTyCon tc     = infinity  -- Type-family applications can
+                                           -- expand to any arbitrary size
+      | otherwise                = sizeTypes (filterOutInvisibleTypes tc tys) + 1
+    go (LitTy {})                = 1
+    go (ForAllTy (Anon arg) res) = go arg + go res + 1
+    go (AppTy fun arg)           = go fun + go arg
+    go (ForAllTy (Named tv vis) ty)
+        | Visible <- vis         = go (tyVarKind tv) + go ty + 1
+        | otherwise              = go ty + 1
+    go (CastTy ty _)             = go ty
+    go (CoercionTy {})           = 0
+
+sizeTypes :: [Type] -> TypeSize
+sizeTypes tys = sum (map sizeType tys)

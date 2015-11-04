@@ -1,6 +1,97 @@
 # Changelog for [`base` package](http://hackage.haskell.org/package/base)
 
-## 4.8.0.0  *TBA*
+## 4.8.2.0  *TBA*
+
+  * The restore operation provided by `mask` and `uninterruptibleMask` now
+    restores the previous masking state whatever the current masking state is.
+
+  * Bundled with GHC 7.12.1
+
+  * `Alt`, `Dual`, `First`, `Last`, `Product`, and `Sum` now have `Data`,
+    `MonadZip`, and `MonadFix` instances
+
+  * `Maybe` now has a `MonadZip` instance
+
+  * `All` and `Any` now have `Data` instances
+
+  * `Dual`, `First`, `Last`, `Product`, and `Sum` now have `Foldable` and
+    `Traversable` instances
+
+  * `Dual`, `Product`, and `Sum` now have `Functor`, `Applicative`, and
+    `Monad` instances
+
+  * `(,) a` now has a `Monad` instance
+
+  * `ZipList` now has `Foldable` and `Traversable` instances
+
+  * `Identity` now has a `Monoid` instance
+
+  * `()` now has a `Storable` instance
+
+  * Redundant typeclass constraints have been removed:
+     - `Data.Ratio.{denominator,numerator}` have no `Integral` constraint anymore
+     - **TODO**
+
+  * New `GHC.Generics.packageName` operation
+
+  * New `GHC.Stack.CallStack` data type
+
+  * `Complex` now has `Generic`, `Generic1`, `Functor`, `Foldable`, `Traversable`,
+    `Applicative`, and `Monad` instances
+
+  * `System.Exit.ExitCode` now has a `Generic` instance
+
+  * `Data.Version.Version` now has a `Generic` instance
+
+  * `IO` now has a `Monoid` instance
+
+  * Generalize `Debug.Trace.{traceM, traceShowM}` from `Monad` to `Applicative`
+    (#10023)
+
+  * Generalise `forever` from `Monad` to `Applicative`
+
+  * Exported `GiveGCStats`, `DoCostCentres`, `DoHeapProfile`, `DoTrace`,
+    `RtsTime`, and `RtsNat` from `GHC.RTS.Flags`
+
+  * New function `GHC.IO.interruptible` used to correctly implement
+    `Control.Exception.allowInterrupt` (#9516)
+
+  * Made `PatternMatchFail`, `RecSelError`, `RecConError`, `RecUpdError`,
+    `NoMethodError`, and `AssertionFailed` newtypes (#10738)
+
+  * New module `Control.Monad.IO.Class` (previously provided by `transformers`
+    package). (#10773)
+
+  * The `Generic` instance for `Proxy` is now poly-kinded (#10775)
+
+  * add `Data.List.NonEmpty` and `Data.Semigroup` (to become
+    super-class of `Monoid` in the future). These modules were
+    provided by the `semigroups` package previously. (#10365)
+
+  * Add `URec`, `UAddr`, `UChar`, `UDouble`, `UFloat`, `UInt`, and `UWord` to
+    `GHC.Generics` as part of making GHC generics capable of handling
+    unlifted types (#10868)
+
+  * Keep `shift{L,R}` on `Integer` with negative shift-arguments from
+    segfaulting (#10571)
+
+  * Add `forkOSWithUnmask` to `Control.Concurrent`, which is like
+    `forkIOWithUnmask`, but the child is run in a bound thread.
+
+  * The `MINIMAL` definition of `Arrow` is now `arr AND (first OR (***))`.
+
+  * The `MINIMAL` definition of `ArrowChoice` is now `left OR (+++)`.
+
+## 4.8.1.0  *Jul 2015*
+
+  * Bundled with GHC 7.10.2
+
+  * `Lifetime` is now exported from `GHC.Event`
+
+  * Implicit-parameter based source location support exposed in `GHC.SrcLoc`.
+    See GHC User's Manual for more information.
+
+## 4.8.0.0  *Mar 2015*
 
   * Bundled with GHC 7.10.1
 
@@ -60,6 +151,10 @@
     and `Data.Foldable`/`Data.Traversable` no longer lead to conflicting
     definitions. (#9586)
 
+  * New (unofficial) module `GHC.OldList` containing only list-specialised
+    versions of the functions from `Data.List` (in other words, `GHC.OldList`
+    corresponds to `base-4.7.0.2`'s `Data.List`)
+
   * Replace the `Control.Monad`-exported functions
 
     ```
@@ -76,10 +171,6 @@
     `Applicative` and from `MonadPlus` to `Alternative` respectively.
 
   * Generalise `Control.Monad.{foldM,foldM_}` to `Foldable`
-
-  * `foldr2` (together with `zip` and `zipWith`) is made a bit stricter in the
-    second argument, so that the fusion RULES for it do not change the
-    semantics. (#9596)
 
   * `scanr`, `mapAccumL` and `filterM` now take part in list fusion (#9355,
     #9502, #9546)
@@ -140,6 +231,13 @@
 
   * Add `callocArray` and `callocArray0` to `Foreign.Marshal.Array`. (#9859)
 
+  * Restore invariant in `Data (Ratio a)` instance (#10011)
+
+  * Add/expose `rnfTypeRep`, `rnfTyCon`, `typeRepFingerprint`, and
+    `tyConFingerprint` helpers to `Data.Typeable`.
+
+  * Define proper `MINIMAL` pragma for `class Ix`. (#10142)
+
 ## 4.7.0.2  *Dec 2014*
 
   * Bundled with GHC 7.8.4
@@ -176,7 +274,8 @@
   * There are now `Foldable` and `Traversable` instances for `Either a`,
    `Const r`, and `(,) a`.
 
-  * There is now a `Monoid`, `Generic`, and `Generic1` instance for `Const`.
+  * There are now `Show`, `Read`, `Eq`, `Ord`, `Monoid`, `Generic`, and
+    `Generic1` instances for `Const`.
 
   * There is now a `Data` instance for `Data.Version`.
 

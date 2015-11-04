@@ -5,7 +5,7 @@ TYPE SIGNATURES
 TYPE CONSTRUCTORS
   type role Map nominal representational
   newtype (Nominal k, Representational v) => Map k v = MkMap [(k, v)]
-    Kind: * -> * -> *
+    Promotable
   class Nominal a
   type role Representational representational
   class Representational a
@@ -16,7 +16,7 @@ INSTANCES
   instance [incoherent] Representational a
     -- Defined at T8958.hs:10:10
 Dependent modules: []
-Dependent packages: [base-4.8.0.0, ghc-prim-0.3.1.0,
+Dependent packages: [base-4.8.2.0, ghc-prim-0.4.0.0,
                      integer-gmp-1.0.0.0]
 
 ==================== Typechecker ====================
@@ -26,12 +26,11 @@ AbsBinds [a] []
    Exported types: T8958.$fRepresentationala
                      :: forall a. Representational a
                    [LclIdX[DFunId], Str=DmdType]
-   Binds: ($dRepresentational :: Representational a)
-            = (T8958.D:Representational) @ a}
+   Binds: $dRepresentational = T8958.D:Representational}
 AbsBinds [a] []
   {Exports: [T8958.$fNominala <= $dNominal
                <>]
    Exported types: T8958.$fNominala :: forall a. Nominal a
                    [LclIdX[DFunId], Str=DmdType]
-   Binds: ($dNominal :: Nominal a) = (T8958.D:Nominal) @ a}
+   Binds: $dNominal = T8958.D:Nominal}
 

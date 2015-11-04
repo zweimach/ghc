@@ -125,7 +125,7 @@ lookupEnv (Env e) n = lookup n e
 -- All primitive operators
 --
 -- There is no Op_apply, Op_false, Op_true and Op_if
--- (because they appear explcitly in the rules).
+-- (because they appear explicitly in the rules).
 
 data GMLOp
    = Op_acos
@@ -215,7 +215,7 @@ opcodes =
  , ("false",	  TBool False, 		error "incorrect use of false")
  , ("true",	  TBool True, 		error "incorrect use of true")
  ] ++ map (\ (a,b,c) -> (a,TOp b,c))
-   -- These are just invocation, any coersions need to occur between here
+   -- These are just invocation, any coercions need to occur between here
    -- and before arriving at the application code (like deg -> rad).
  [ ("acos",	  Op_acos, 	 Real_Real (rad2deg . acos))
  , ("addi",	  Op_addi, 	 Int_Int_Int (+))

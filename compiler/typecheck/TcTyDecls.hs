@@ -23,17 +23,15 @@ import TyCoRep
 import HsSyn
 import Class
 import Type
-import HscTypes
+import TcRnTypes( SelfBootInfo(..) )
 import TyCon
 import DataCon
 import Name
 import NameEnv
 import VarEnv
-import Var
 import VarSet
 import NameSet
 import Coercion ( ltRole )
-import Avail
 import Digraph
 import BasicTypes
 import SrcLoc
@@ -358,7 +356,7 @@ compiled, plus the outer structure of directly-mentioned types.
 data RecTyInfo = RTI { rti_roles      :: Name -> [Role]
                      , rti_is_rec     :: Name -> RecFlag }
 
-calcRecFlags :: ModDetails -> Bool  -- hs-boot file?
+calcRecFlags :: SelfBootInfo -> Bool  -- hs-boot file?
              -> RoleAnnots -> [TyThing] -> RecTyInfo
 -- The 'boot_names' are the things declared in M.hi-boot, if M is the current module.
 -- Any type constructors in boot_names are automatically considered loop breakers
@@ -376,7 +374,9 @@ calcRecFlags boot_details is_boot mrole_env tyclss
     is_rec n | n `elemNameSet` rec_names = Recursive
              | otherwise                 = NonRecursive
 
-    boot_name_set = availsToNameSet (md_exports boot_details)
+    boot_name_set = case boot_details of
+                      NoSelfBoot                -> emptyNameSet
+                      SelfBoot { sb_tcs = tcs } -> tcs
     rec_names = boot_name_set     `unionNameSet`
                 nt_loop_breakers  `unionNameSet`
                 prod_loop_breakers
@@ -404,7 +404,7 @@ calcRecFlags boot_details is_boot mrole_env tyclss
         --     for vanilla-ness of data constructors; and that depends
         --     on empty existential type variables; and that is figured
         --     out by tcResultType; which uses tcMatchTy; which uses
-        --     coreView; which calls coreExpandTyCon_maybe; which uses
+        --     coreView; which calls expandSynTyCon_maybe; which uses
         --     the recursiveness of the TyCon.  Result... a black hole.
         -- YUK YUK YUK
 
@@ -634,9 +634,9 @@ initialRoleEnv1 is_boot annots_env tc
                                            (vcat [ppr tc, ppr role_annots])
 
         default_role
-          | isClassTyCon tc = Nominal
-          | is_boot         = Representational
-          | otherwise       = Phantom
+          | isClassTyCon tc               = Nominal
+          | is_boot && isAbstractTyCon tc = Representational
+          | otherwise                     = Phantom
 
 irGroup :: RoleEnv -> [TyCon] -> RoleEnv
 irGroup env tcs
@@ -783,11 +783,11 @@ instance Functor RoleM where
     fmap = liftM
 
 instance Applicative RoleM where
-    pure = return
+    pure x = RM $ \_ _ _ state -> (x, state)
     (<*>) = ap
 
 instance Monad RoleM where
-  return x = RM $ \_ _ _ state -> (x, state)
+  return   = pure
   a >>= f  = RM $ \m_info vps nvps state ->
                   let (a', state') = unRM a m_info vps nvps state in
                   unRM (f a') m_info vps nvps state'

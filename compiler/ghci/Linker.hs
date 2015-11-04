@@ -58,11 +58,12 @@ import Control.Monad
 
 import Data.IORef
 import Data.List
+import Data.Maybe
 import Control.Concurrent.MVar
 
 import System.FilePath
 import System.IO
-import System.Directory hiding (findFile)
+import System.Directory
 
 import Exception
 
@@ -116,11 +117,11 @@ data PersistentLinkerState
         -- The currently-loaded packages; always object code
         -- Held, as usual, in dependency order; though I am not sure if
         -- that is really important
-        pkgs_loaded :: ![PackageKey],
+        pkgs_loaded :: ![UnitId],
 
-        -- we need to remember the name of the last temporary DLL/.so
-        -- so we can link it
-        last_temp_so :: !(Maybe FilePath) }
+        -- we need to remember the name of previous temporary DLL/.so
+        -- libraries so we can link them (see #10322)
+        temp_sos :: ![(FilePath, String)] }
 
 
 emptyPLS :: DynFlags -> PersistentLinkerState
@@ -130,17 +131,17 @@ emptyPLS _ = PersistentLinkerState {
                         pkgs_loaded = init_pkgs,
                         bcos_loaded = [],
                         objs_loaded = [],
-                        last_temp_so = Nothing }
+                        temp_sos = [] }
 
   -- Packages that don't need loading, because the compiler
   -- shares them with the interpreted program.
   --
   -- The linker's symbol table is populated with RTS symbols using an
   -- explicit list.  See rts/Linker.c for details.
-  where init_pkgs = [rtsPackageKey]
+  where init_pkgs = [rtsUnitId]
 
 
-extendLoadedPkgs :: [PackageKey] -> IO ()
+extendLoadedPkgs :: [UnitId] -> IO ()
 extendLoadedPkgs pkgs =
   modifyPLS_ $ \s ->
       return s{ pkgs_loaded = pkgs ++ pkgs_loaded s }
@@ -199,7 +200,7 @@ linkDependencies hsc_env pls span needed_mods = do
 
 -- | Temporarily extend the linker state.
 
-withExtendedLinkEnv :: (MonadIO m, ExceptionMonad m) =>
+withExtendedLinkEnv :: (ExceptionMonad m) =>
                        [(Name,HValue)] -> m a -> m a
 withExtendedLinkEnv new_env action
     = gbracket (liftIO $ extendLinkEnv new_env)
@@ -314,7 +315,7 @@ linkCmdLineLibs' dflags@(DynFlags { ldInputs     = cmdline_ld_inputs
                   else ([],[])
 
           -- Finally do (c),(d),(e)
-        ; let cmdline_lib_specs = [ l | Just l <- classified_ld_inputs ]
+        ; let cmdline_lib_specs = catMaybes classified_ld_inputs
                                ++ libspecs
                                ++ map Framework frameworks
         ; if null cmdline_lib_specs then return pls
@@ -368,7 +369,7 @@ classifyLdInput dflags f
     where platform = targetPlatform dflags
 
 preloadLib :: DynFlags -> [String] -> [String] -> PersistentLinkerState
-           -> LibrarySpec -> IO (PersistentLinkerState)
+           -> LibrarySpec -> IO PersistentLinkerState
 preloadLib dflags lib_paths framework_paths pls lib_spec
   = do maybePutStr dflags ("Loading object " ++ showLS lib_spec ++ " ... ")
        case lib_spec of
@@ -428,7 +429,7 @@ preloadLib dflags lib_paths framework_paths pls lib_spec
                     ++ sys_errmsg ++ ")\nWhilst trying to load:  "
                     ++ showLS spec ++ "\nAdditional directories searched:"
                     ++ (if null paths then " (none)" else
-                        (concat (intersperse "\n" (map ("   "++) paths)))))
+                        intercalate "\n" (map ("   "++) paths)))
 
     -- Not interested in the paths in the static case.
     preload_static _paths name
@@ -539,7 +540,7 @@ getLinkDeps :: HscEnv -> HomePackageTable
             -> Maybe FilePath                   -- replace object suffices?
             -> SrcSpan                          -- for error messages
             -> [Module]                         -- If you need these
-            -> IO ([Linkable], [PackageKey])     -- ... then link these first
+            -> IO ([Linkable], [UnitId])     -- ... then link these first
 -- Fails with an IO exception if it can't find enough files
 
 getLinkDeps hsc_env hpt pls replace_osuf span mods
@@ -577,8 +578,8 @@ getLinkDeps hsc_env hpt pls replace_osuf span mods
         -- tree recursively.  See bug #936, testcase ghci/prog007.
     follow_deps :: [Module]             -- modules to follow
                 -> UniqSet ModuleName         -- accum. module dependencies
-                -> UniqSet PackageKey          -- accum. package dependencies
-                -> IO ([ModuleName], [PackageKey]) -- result
+                -> UniqSet UnitId          -- accum. package dependencies
+                -> IO ([ModuleName], [UnitId]) -- result
     follow_deps []     acc_mods acc_pkgs
         = return (uniqSetToList acc_mods, uniqSetToList acc_pkgs)
     follow_deps (mod:mods) acc_mods acc_pkgs
@@ -592,7 +593,7 @@ getLinkDeps hsc_env hpt pls replace_osuf span mods
           when (mi_boot iface) $ link_boot_mod_error mod
 
           let
-            pkg = modulePackageKey mod
+            pkg = moduleUnitId mod
             deps  = mi_deps iface
 
             pkg_deps = dep_pkgs deps
@@ -818,7 +819,7 @@ dynLoadObjs :: DynFlags -> PersistentLinkerState -> [FilePath]
 dynLoadObjs _      pls []   = return pls
 dynLoadObjs dflags pls objs = do
     let platform = targetPlatform dflags
-    soFile <- newTempName dflags (soExt platform)
+    (soFile, libPath , libName) <- newTempLibName dflags (soExt platform)
     let -- When running TH for a non-dynamic way, we still need to make
         -- -l flags to link against the dynamic libraries, so we turn
         -- Opt_Static off
@@ -826,20 +827,19 @@ dynLoadObjs dflags pls objs = do
         dflags2 = dflags1 {
                       -- We don't want the original ldInputs in
                       -- (they're already linked in), but we do want
-                      -- to link against the previous dynLoadObjs
-                      -- library if there was one, so that the linker
+                      -- to link against previous dynLoadObjs
+                      -- libraries if there were any, so that the linker
                       -- can resolve dependencies when it loads this
                       -- library.
                       ldInputs =
-                        case last_temp_so pls of
-                          Nothing -> []
-                          Just so  ->
-                                 let (lp, l) = splitFileName so in
+                        concatMap
+                            (\(lp, l) ->
                                  [ Option ("-L" ++ lp)
                                  , Option ("-Wl,-rpath")
                                  , Option ("-Wl," ++ lp)
-                                 , Option ("-l:" ++ l)
-                                 ],
+                                 , Option ("-l" ++  l)
+                                 ])
+                            (temp_sos pls),
                       -- Even if we're e.g. profiling, we still want
                       -- the vanilla dynamic libraries, so we set the
                       -- ways / build tag to be just WayDyn.
@@ -847,11 +847,14 @@ dynLoadObjs dflags pls objs = do
                       buildTag = mkBuildTag [WayDyn],
                       outputFile = Just soFile
                   }
-    linkDynLib dflags2 objs (pkgs_loaded pls)  -- fix for #10058
+    -- link all "loaded packages" so symbols in those can be resolved
+    -- Note: We are loading packages with local scope, so to see the
+    -- symbols in this link we must link all loaded packages again.
+    linkDynLib dflags2 objs (pkgs_loaded pls)
     consIORef (filesToNotIntermediateClean dflags) soFile
     m <- loadDLL soFile
     case m of
-        Nothing -> return pls { last_temp_so = Just soFile }
+        Nothing -> return pls { temp_sos = (libPath, libName) : temp_sos pls }
         Just err -> panic ("Loading temp shared object failed: " ++ err)
 
 rmDupLinkables :: [Linkable]    -- Already loaded
@@ -1056,7 +1059,7 @@ showLS (Framework nm) = "(framework) " ++ nm
 -- automatically, and it doesn't matter what order you specify the input
 -- packages.
 --
-linkPackages :: DynFlags -> [PackageKey] -> IO ()
+linkPackages :: DynFlags -> [UnitId] -> IO ()
 -- NOTE: in fact, since each module tracks all the packages it depends on,
 --       we don't really need to use the package-config dependencies.
 --
@@ -1072,13 +1075,13 @@ linkPackages dflags new_pkgs = do
   modifyPLS_ $ \pls -> do
     linkPackages' dflags new_pkgs pls
 
-linkPackages' :: DynFlags -> [PackageKey] -> PersistentLinkerState
+linkPackages' :: DynFlags -> [UnitId] -> PersistentLinkerState
              -> IO PersistentLinkerState
 linkPackages' dflags new_pks pls = do
     pkgs' <- link (pkgs_loaded pls) new_pks
     return $! pls { pkgs_loaded = pkgs' }
   where
-     link :: [PackageKey] -> [PackageKey] -> IO [PackageKey]
+     link :: [UnitId] -> [UnitId] -> IO [UnitId]
      link pkgs new_pkgs =
          foldM link_one pkgs new_pkgs
 
@@ -1088,14 +1091,13 @@ linkPackages' dflags new_pks pls = do
 
         | Just pkg_cfg <- lookupPackage dflags new_pkg
         = do {  -- Link dependents first
-               pkgs' <- link pkgs [ resolveInstalledPackageId dflags ipid
-                                  | ipid <- depends pkg_cfg ]
+               pkgs' <- link pkgs (depends pkg_cfg)
                 -- Now link the package itself
              ; linkPackage dflags pkg_cfg
              ; return (new_pkg : pkgs') }
 
         | otherwise
-        = throwGhcExceptionIO (CmdLineError ("unknown package: " ++ packageKeyString new_pkg))
+        = throwGhcExceptionIO (CmdLineError ("unknown package: " ++ unitIdString new_pkg))
 
 
 linkPackage :: DynFlags -> PackageConfig -> IO ()
@@ -1106,7 +1108,7 @@ linkPackage dflags pkg
 
         let hs_libs   =  Packages.hsLibraries pkg
             -- The FFI GHCi import lib isn't needed as
-            -- compiler/ghci/Linker.lhs + rts/Linker.c link the
+            -- compiler/ghci/Linker.hs + rts/Linker.c link the
             -- interpreted references to FFI to the compiled FFI.
             -- We therefore filter it out so that we don't get
             -- duplicate symbol errors.
@@ -1171,9 +1173,7 @@ load_dyn dll = do r <- loadDLL dll
 
 loadFrameworks :: Platform -> PackageConfig -> IO ()
 loadFrameworks platform pkg
-    = if platformUsesFrameworks platform
-      then mapM_ load frameworks
-      else return ()
+    = when (platformUsesFrameworks platform) $ mapM_ load frameworks
   where
     fw_dirs    = Packages.frameworkDirs pkg
     frameworks = Packages.frameworks pkg
@@ -1199,7 +1199,7 @@ locateLib dflags is_hs dirs lib
     --       for a dynamic library (#5289)
     --   otherwise, assume loadDLL can find it
     --
-  = findDll `orElse` findArchive `orElse` tryGcc `orElse` assumeDll
+  = findDll `orElse` findArchive `orElse` tryGcc `orElse` tryGccPrefixed `orElse` assumeDll
 
   | not dynamicGhc
     -- When the GHC package was not compiled as dynamic library
@@ -1212,31 +1212,30 @@ locateLib dflags is_hs dirs lib
     -- we search for .so libraries first.
   = findHSDll `orElse` findDynObject `orElse` assumeDll
    where
-     mk_obj_path      dir = dir </> (lib <.> "o")
-     mk_dyn_obj_path  dir = dir </> (lib <.> "dyn_o")
-     mk_arch_path     dir = dir </> ("lib" ++ lib <.> "a")
+     obj_file     = lib <.> "o"
+     dyn_obj_file = lib <.> "dyn_o"
+     arch_file    = "lib" ++ lib <.> "a"
 
      hs_dyn_lib_name = lib ++ '-':programName dflags ++ projectVersion dflags
-     mk_hs_dyn_lib_path dir = dir </> mkHsSOName platform hs_dyn_lib_name
+     hs_dyn_lib_file = mkHsSOName platform hs_dyn_lib_name
 
      so_name = mkSOName platform lib
-     mk_dyn_lib_path dir = case (arch, os) of
-                             (ArchX86_64, OSSolaris2) -> dir </> ("64/" ++ so_name)
-                             _ -> dir </> so_name
+     lib_so_name = "lib" ++ so_name
+     dyn_lib_file = case (arch, os) of
+                             (ArchX86_64, OSSolaris2) -> "64" </> so_name
+                             _ -> so_name
 
-     findObject     = liftM (fmap Object)  $ findFile mk_obj_path        dirs
-     findDynObject  = liftM (fmap Object)  $ findFile mk_dyn_obj_path    dirs
-     findArchive    = liftM (fmap Archive) $ findFile mk_arch_path       dirs
-     findHSDll      = liftM (fmap DLLPath) $ findFile mk_hs_dyn_lib_path dirs
-     findDll        = liftM (fmap DLLPath) $ findFile mk_dyn_lib_path    dirs
-     tryGcc         = liftM (fmap DLLPath) $ searchForLibUsingGcc dflags so_name dirs
+     findObject     = liftM (fmap Object)  $ findFile dirs obj_file
+     findDynObject  = liftM (fmap Object)  $ findFile dirs dyn_obj_file
+     findArchive    = liftM (fmap Archive) $ findFile dirs arch_file
+     findHSDll      = liftM (fmap DLLPath) $ findFile dirs hs_dyn_lib_file
+     findDll        = liftM (fmap DLLPath) $ findFile dirs dyn_lib_file
+     tryGcc         = liftM (fmap DLLPath) $ searchForLibUsingGcc dflags so_name     dirs
+     tryGccPrefixed = liftM (fmap DLLPath) $ searchForLibUsingGcc dflags lib_so_name dirs
 
      assumeDll   = return (DLL lib)
      infixr `orElse`
-     f `orElse` g = do m <- f
-                       case m of
-                           Just x -> return x
-                           Nothing -> g
+     f `orElse` g = f >>= maybe g return
 
      platform = targetPlatform dflags
      arch = platformArch platform
@@ -1244,7 +1243,9 @@ locateLib dflags is_hs dirs lib
 
 searchForLibUsingGcc :: DynFlags -> String -> [FilePath] -> IO (Maybe FilePath)
 searchForLibUsingGcc dflags so dirs = do
-   str <- askCc dflags (map (FileOption "-L") dirs
+   -- GCC does not seem to extend the library search path (using -L) when using
+   -- --print-file-name. So instead pass it a new base location.
+   str <- askCc dflags (map (FileOption "-B") dirs
                           ++ [Option "--print-file-name", Option so])
    let file = case lines str of
                 []  -> ""
@@ -1264,16 +1265,16 @@ loadFramework extraPaths rootname
    = do { either_dir <- tryIO getHomeDirectory
         ; let homeFrameworkPath = case either_dir of
                                   Left _ -> []
-                                  Right dir -> [dir ++ "/Library/Frameworks"]
+                                  Right dir -> [dir </> "Library/Frameworks"]
               ps = extraPaths ++ homeFrameworkPath ++ defaultFrameworkPaths
-        ; mb_fwk <- findFile mk_fwk ps
+        ; mb_fwk <- findFile ps fwk_file
         ; case mb_fwk of
             Just fwk_path -> loadDLL fwk_path
             Nothing       -> return (Just "not found") }
                 -- Tried all our known library paths, but dlopen()
                 -- has no built-in paths for frameworks: give up
    where
-     mk_fwk dir = dir </> (rootname ++ ".framework/" ++ rootname)
+     fwk_file = rootname <.> "framework" </> rootname
         -- sorry for the hardcoded paths, I hope they won't change anytime soon:
      defaultFrameworkPaths = ["/Library/Frameworks", "/System/Library/Frameworks"]
 
@@ -1282,16 +1283,6 @@ loadFramework extraPaths rootname
                 Helper functions
 
   ********************************************************************* -}
-
-findFile :: (FilePath -> FilePath)      -- Maps a directory path to a file path
-         -> [FilePath]                  -- Directories to look in
-         -> IO (Maybe FilePath)         -- The first file path to match
-findFile _            [] = return Nothing
-findFile mk_file_path (dir : dirs)
-  = do let file_path = mk_file_path dir
-       b <- doesFileExist file_path
-       if b then return (Just file_path)
-            else findFile mk_file_path dirs
 
 maybePutStr :: DynFlags -> String -> IO ()
 maybePutStr dflags s

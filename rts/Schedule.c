@@ -251,7 +251,7 @@ schedule (Capability *initialCapability, Task *task)
     case SCHED_INTERRUPTING:
         debugTrace(DEBUG_sched, "SCHED_INTERRUPTING");
         /* scheduleDoGC() deletes all the threads */
-        scheduleDoGC(&cap,task,rtsFalse);
+        scheduleDoGC(&cap,task,rtsTrue);
 
         // after scheduleDoGC(), we must be shutting down.  Either some
         // other Capability did the final GC, or we did it above,
@@ -966,29 +966,6 @@ scheduleDetectDeadlock (Capability **pcap, Task *task)
 
 
 /* ----------------------------------------------------------------------------
- * Send pending messages (PARALLEL_HASKELL only)
- * ------------------------------------------------------------------------- */
-
-#if defined(PARALLEL_HASKELL)
-static void
-scheduleSendPendingMessages(void)
-{
-
-# if defined(PAR) // global Mem.Mgmt., omit for now
-    if (PendingFetches != END_BF_QUEUE) {
-        processFetches();
-    }
-# endif
-
-    if (RtsFlags.ParFlags.BufferTime) {
-        // if we use message buffering, we must send away all message
-        // packets which have become too old...
-        sendOldBuffers();
-    }
-}
-#endif
-
-/* ----------------------------------------------------------------------------
  * Process message in the current Capability's inbox
  * ------------------------------------------------------------------------- */
 
@@ -1035,7 +1012,7 @@ scheduleProcessInbox (Capability **pcap USED_IF_THREADS)
 }
 
 /* ----------------------------------------------------------------------------
- * Activate spark threads (PARALLEL_HASKELL and THREADED_RTS)
+ * Activate spark threads (THREADED_RTS)
  * ------------------------------------------------------------------------- */
 
 #if defined(THREADED_RTS)
@@ -1048,7 +1025,7 @@ scheduleActivateSpark(Capability *cap)
         debugTrace(DEBUG_sched, "creating a spark thread");
     }
 }
-#endif // PARALLEL_HASKELL || THREADED_RTS
+#endif // THREADED_RTS
 
 /* ----------------------------------------------------------------------------
  * After running a thread...
@@ -1086,15 +1063,15 @@ schedulePostRunThread (Capability *cap, StgTSO *t)
     // If the current thread's allocation limit has run out, send it
     // the AllocationLimitExceeded exception.
 
-    if (t->alloc_limit < 0 && (t->flags & TSO_ALLOC_LIMIT)) {
+    if (PK_Int64((W_*)&(t->alloc_limit)) < 0 && (t->flags & TSO_ALLOC_LIMIT)) {
         // Use a throwToSelf rather than a throwToSingleThreaded, because
         // it correctly handles the case where the thread is currently
         // inside mask.  Also the thread might be blocked (e.g. on an
         // MVar), and throwToSingleThreaded doesn't unblock it
         // correctly in that case.
         throwToSelf(cap, t, allocationLimitExceeded_closure);
-        t->alloc_limit = (StgInt64)RtsFlags.GcFlags.allocLimitGrace
-            * BLOCK_SIZE;
+        ASSIGN_Int64((W_*)&(t->alloc_limit),
+                     (StgInt64)RtsFlags.GcFlags.allocLimitGrace * BLOCK_SIZE);
     }
 
   /* some statistics gathering in the parallel case */
@@ -1107,6 +1084,17 @@ schedulePostRunThread (Capability *cap, StgTSO *t)
 static rtsBool
 scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
 {
+    if (cap->r.rHpLim == NULL || cap->context_switch) {
+        // Sometimes we miss a context switch, e.g. when calling
+        // primitives in a tight loop, MAYBE_GC() doesn't check the
+        // context switch flag, and we end up waiting for a GC.
+        // See #1984, and concurrent/should_run/1984
+        cap->context_switch = 0;
+        appendToRunQueue(cap,t);
+    } else {
+        pushOnRunQueue(cap,t);
+    }
+
     // did the task ask for a large block?
     if (cap->r.rHpAlloc > BLOCK_SIZE) {
         // if so, get one and push it on the front of the nursery.
@@ -1164,27 +1152,23 @@ scheduleHandleHeapOverflow( Capability *cap, StgTSO *t )
             // run queue before us and steal the large block, but in that
             // case the thread will just end up requesting another large
             // block.
-            pushOnRunQueue(cap,t);
             return rtsFalse;  /* not actually GC'ing */
         }
     }
 
+    // if we got here because we exceeded large_alloc_lim, then
+    // proceed straight to GC.
+    if (g0->n_new_large_words >= large_alloc_lim) {
+        return rtsTrue;
+    }
+
+    // Otherwise, we just ran out of space in the current nursery.
+    // Grab another nursery if we can.
     if (getNewNursery(cap)) {
         debugTrace(DEBUG_sched, "thread %ld got a new nursery", t->id);
-        pushOnRunQueue(cap,t);
         return rtsFalse;
     }
 
-    if (cap->r.rHpLim == NULL || cap->context_switch) {
-        // Sometimes we miss a context switch, e.g. when calling
-        // primitives in a tight loop, MAYBE_GC() doesn't check the
-        // context switch flag, and we end up waiting for a GC.
-        // See #1984, and concurrent/should_run/1984
-        cap->context_switch = 0;
-        appendToRunQueue(cap,t);
-    } else {
-        pushOnRunQueue(cap,t);
-    }
     return rtsTrue;
     /* actual GC is done at the end of the while loop in schedule() */
 }
@@ -1424,7 +1408,7 @@ static void acquireAllCapabilities(Capability *cap, Task *task)
             // all the Capabilities, but even so it's a slightly
             // unsavoury invariant.
             task->cap = tmpcap;
-            waitForReturnCapability(&tmpcap, task);
+            waitForCapability(&tmpcap, task);
             if (tmpcap->no != i) {
                 barf("acquireAllCapabilities: got the wrong capability");
             }
@@ -1458,6 +1442,7 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
     Capability *cap = *pcap;
     rtsBool heap_census;
     nat collect_gen;
+    rtsBool major_gc;
 #ifdef THREADED_RTS
     nat gc_type;
     nat i, sync;
@@ -1476,6 +1461,7 @@ scheduleDoGC (Capability **pcap, Task *task USED_IF_THREADS,
     // Figure out which generation we are collecting, so that we can
     // decide whether this is a parallel GC or not.
     collect_gen = calcNeeded(force_major || heap_census, NULL);
+    major_gc = (collect_gen == RtsFlags.GcFlags.generations-1);
 
 #ifdef THREADED_RTS
     if (sched_state < SCHED_INTERRUPTING
@@ -1618,8 +1604,9 @@ delete_threads_and_gc:
      * We now have all the capabilities; if we're in an interrupting
      * state, then we should take the opportunity to delete all the
      * threads in the system.
+     * Checking for major_gc ensures that the last GC is major.
      */
-    if (sched_state == SCHED_INTERRUPTING) {
+    if (sched_state == SCHED_INTERRUPTING && major_gc) {
         deleteAllThreads(cap);
 #if defined(THREADED_RTS)
         // Discard all the sparks from every Capability.  Why?
@@ -1798,7 +1785,7 @@ forkProcess(HsStablePtr *entry
     task = newBoundTask();
 
     cap = NULL;
-    waitForReturnCapability(&cap, task);
+    waitForCapability(&cap, task);
 
 #ifdef THREADED_RTS
     do {
@@ -2275,7 +2262,7 @@ resumeThread (void *task_)
     task->cap = cap;
 
     // Wait for permission to re-enter the RTS with the result.
-    waitForReturnCapability(&cap,task);
+    waitForCapability(&cap,task);
     // we might be on a different capability now... but if so, our
     // entry on the suspended_ccalls list will also have been
     // migrated.
@@ -2405,7 +2392,7 @@ void scheduleWorker (Capability *cap, Task *task)
     // cap->lock until we've finished workerTaskStop() below.
     //
     // There may be workers still involved in foreign calls; those
-    // will just block in waitForReturnCapability() because the
+    // will just block in waitForCapability() because the
     // Capability has been shut down.
     //
     ACQUIRE_LOCK(&cap->lock);
@@ -2496,7 +2483,7 @@ exitScheduler (rtsBool wait_foreign USED_IF_THREADS)
     if (sched_state < SCHED_SHUTTING_DOWN) {
         sched_state = SCHED_INTERRUPTING;
         Capability *cap = task->cap;
-        waitForReturnCapability(&cap,task);
+        waitForCapability(&cap,task);
         scheduleDoGC(&cap,task,rtsTrue);
         ASSERT(task->incall->tso == NULL);
         releaseCapability(cap);
@@ -2520,7 +2507,7 @@ freeScheduler( void )
     still_running = freeTaskManager();
     // We can only free the Capabilities if there are no Tasks still
     // running.  We might have a Task about to return from a foreign
-    // call into waitForReturnCapability(), for example (actually,
+    // call into waitForCapability(), for example (actually,
     // this should be the *only* thing that a still-running Task can
     // do at this point, and it will block waiting for the
     // Capability).
@@ -2564,7 +2551,7 @@ performGC_(rtsBool force_major)
 
     // TODO: do we need to traceTask*() here?
 
-    waitForReturnCapability(&cap,task);
+    waitForCapability(&cap,task);
     scheduleDoGC(&cap,task,force_major);
     releaseCapability(cap);
     boundTaskExiting(task);

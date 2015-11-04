@@ -302,19 +302,18 @@ StgRunIsImplementedInAssembler(void)
          * restore callee-saves registers.  (Don't stomp on %%rax!)
          */
         "addq %0, %%rsp\n\t"
-        "movq %%rsp, %%rdx\n\t"
-        "addq %1, %%rsp\n\t"
-        "movq 0(%%rdx),%%rbx\n\t"       /* restore the registers saved above */
-        "movq 8(%%rdx),%%rbp\n\t"
-        "movq 16(%%rdx),%%r12\n\t"
-        "movq 24(%%rdx),%%r13\n\t"
-        "movq 32(%%rdx),%%r14\n\t"
-        "movq 40(%%rdx),%%r15\n\t"
+        "movq 0(%%rsp),%%rbx\n\t"       /* restore the registers saved above */
+        "movq 8(%%rsp),%%rbp\n\t"
+        "movq 16(%%rsp),%%r12\n\t"
+        "movq 24(%%rsp),%%r13\n\t"
+        "movq 32(%%rsp),%%r14\n\t"
+        "movq 40(%%rsp),%%r15\n\t"
 #if defined(mingw32_HOST_OS)
-        "movq 48(%%rdx),%%rdi\n\t"
-        "movq 56(%%rdx),%%rsi\n\t"
-        "movq 64(%%rdx),%%xmm6\n\t"
+        "movq 48(%%rsp),%%rdi\n\t"
+        "movq 56(%%rsp),%%rsi\n\t"
+        "movq 64(%%rsp),%%xmm6\n\t"
 #endif
+        "addq %1, %%rsp\n\t"
         "retq"
 
         :
@@ -662,9 +661,17 @@ StgRunIsImplementedInAssembler(void)
 }
 
 #else // linux_HOST_OS
-#error Only linux support for power64 right now.
+#error Only Linux support for power64 right now.
 #endif
 
+#endif
+
+#ifdef powerpc64le_HOST_ARCH
+/* -----------------------------------------------------------------------------
+   PowerPC 64 little endian architecture
+
+   Really everything is in assembler, so we don't have to deal with GCC...
+   -------------------------------------------------------------------------- */
 #endif
 
 /* -----------------------------------------------------------------------------
@@ -692,7 +699,7 @@ StgRun(StgFunPtr f, StgRegTable *basereg) {
 #endif
         /*
          * allocate some space for Stg machine's temporary storage.
-         * Note: RESERVER_C_STACK_BYTES has to be a round number here or
+         * Note: RESERVED_C_STACK_BYTES has to be a round number here or
          * the assembler can't assemble it.
          */
         "sub sp, sp, %3\n\t"
@@ -755,18 +762,20 @@ StgRun(StgFunPtr f, StgRegTable *basereg) {
     StgRegTable * r;
     __asm__ volatile (
         /*
-         * save callee-saves registers on behalf of the STG code.
-         * floating point registers only need the bottom 64 bits preserved.
-         * x16 and x17 are ip0 and ip1, but we can't refer to them by that name with clang.
+         * Save callee-saves registers on behalf of the STG code.
+         * Floating point registers only need the bottom 64 bits preserved.
+         * We need to use the the names x16, x17, x29 and x30 instead of ip0
+         * ip1, fp and lp because one of either clang or gcc doesn't understand
+         * the later names.
          */
-        "stp fp,  lr,  [sp, #-16]!\n\t"
-        "mov fp, sp\n\t"
+        "stp x29,  x30,  [sp, #-16]!\n\t"
+        "mov x29, sp\n\t"
         "stp x16, x17, [sp, #-16]!\n\t"
         "stp x19, x20, [sp, #-16]!\n\t"
         "stp x21, x22, [sp, #-16]!\n\t"
         "stp x23, x24, [sp, #-16]!\n\t"
         "stp x25, x26, [sp, #-16]!\n\t"
-        "stp x27, x28, [sp, #-16]!\n\t" 
+        "stp x27, x28, [sp, #-16]!\n\t"
         "stp d8,  d9,  [sp, #-16]!\n\t"
         "stp d10, d11, [sp, #-16]!\n\t"
         "stp d12, d13, [sp, #-16]!\n\t"
@@ -774,7 +783,7 @@ StgRun(StgFunPtr f, StgRegTable *basereg) {
 
         /*
          * allocate some space for Stg machine's temporary storage.
-         * Note: RESERVER_C_STACK_BYTES has to be a round number here or
+         * Note: RESERVED_C_STACK_BYTES has to be a round number here or
          * the assembler can't assemble it.
          */
         "sub sp, sp, %3\n\t"
@@ -814,12 +823,12 @@ StgRun(StgFunPtr f, StgRegTable *basereg) {
         "ldp x21, x22, [sp], #16\n\t"
         "ldp x19, x20, [sp], #16\n\t"
         "ldp x16, x17, [sp], #16\n\t"
-        "ldp fp,  lr,  [sp], #16\n\t"
+        "ldp x29,  x30,  [sp], #16\n\t"
 
       : "=r" (r)
       : "r" (f), "r" (basereg), "i" (RESERVED_C_STACK_BYTES)
         : "%x19", "%x20", "%x21", "%x22", "%x23", "%x24", "%x25", "%x26", "%x27", "%x28",
-          "%x16", "%x17", "%lr"
+          "%x16", "%x17", "%x30"
     );
     return r;
 }

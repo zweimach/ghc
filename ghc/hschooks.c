@@ -30,14 +30,10 @@ initGCStatistics(void)
 void
 defaultsHook (void)
 {
-#if __GLASGOW_HASKELL__ >= 707
     // This helps particularly with large compiles, but didn't work
     // very well with earlier GHCs because it caused large amounts of
     // fragmentation.  See rts/sm/BlockAlloc.c:allocLargeChunk().
     RtsFlags.GcFlags.heapSizeSuggestionAuto = rtsTrue;
-#else
-    RtsFlags.GcFlags.heapSizeSuggestion = 6*1024*1024 / BLOCK_SIZE;
-#endif
 
     RtsFlags.GcFlags.maxStkSize         = 512*1024*1024 / sizeof(W_);
 
@@ -54,3 +50,15 @@ StackOverflowHook (StgWord stack_size)    /* in bytes */
     fprintf(stderr, "GHC stack-space overflow: current limit is %zu bytes.\nUse the `-K<size>' option to increase it.\n", (size_t)stack_size);
 }
 
+int main (int argc, char *argv[])
+{
+    RtsConfig conf = defaultRtsConfig;
+#if __GLASGOW_HASKELL__ >= 711
+    conf.defaultsHook = defaultsHook;
+    conf.rts_opts_enabled = RtsOptsAll;
+    conf.stackOverflowHook = StackOverflowHook;
+#endif
+    extern StgClosure ZCMain_main_closure;
+
+    hs_main(argc, argv, &ZCMain_main_closure, conf);
+}

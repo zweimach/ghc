@@ -101,6 +101,7 @@ test('T5745',
 test('T5892a', normal, compile_fail, ['-package containers'])
 test('T5892b', normal, compile_fail, ['-package containers'])
 test('T5951', normal, compile_fail, [''])
+test('T6018rnfail', normal, compile_fail, [''])
 test('T6060', normal, compile_fail, [''])
 test('T6148', normal, compile_fail, [''])
 test('T7164', normal, compile_fail, [''])
@@ -123,7 +124,17 @@ test('T9006',
      multimod_compile_fail, ['T9006', '-v0'])
 test('T9156', normal, compile_fail, [''])
 test('T9177', normal, compile_fail, [''])
+test('T9177a', normal, compile_fail, [''])
 test('T9436', normal, compile_fail, [''])
 test('T9437', normal, compile_fail, [''])
 test('T9077', normal, compile_fail, [''])
 test('T9815', normal, compile_fail, [''])
+
+test('T9032',
+     normal,
+     run_command,
+     ['$MAKE -s --no-print-directory T9032'])
+test('T10618', normal, compile_fail, [''])
+test('T10668', normal, compile_fail, [''])
+test('T5001b', normal, compile_fail, [''])
+test('T10781', normal, compile_fail, [''])

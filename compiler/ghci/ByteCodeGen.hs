@@ -1017,9 +1017,9 @@ generateCCall d0 s p (CCallSpec target cconv safety) fn args_r_to_l
                  DynamicTarget
                     -> return (False, panic "ByteCodeGen.generateCCall(dyn)")
 
-                 StaticTarget _ _ False ->
+                 StaticTarget _ _ _ False ->
                      panic "generateCCall: unexpected FFI value import"
-                 StaticTarget target _ True
+                 StaticTarget _ target _ True
                     -> do res <- ioToBc (lookupStaticPtr stdcall_adj_target)
                           return (True, res)
                    where
@@ -1154,7 +1154,7 @@ maybe_is_tagToEnum_call app
              isDataTyCon tyc
              = map (getName . dataConWorkId) (tyConDataCons tyc)
              -- NOTE: use the worker name, not the source name of
-             -- the DataCon.  See DataCon.lhs for details.
+             -- the DataCon.  See DataCon.hs for details.
            | otherwise
              = pprPanic "maybe_is_tagToEnum_call.extract_constr_Ids" (ppr ty)
 
@@ -1632,13 +1632,14 @@ instance Functor BcM where
     fmap = liftM
 
 instance Applicative BcM where
-    pure = return
+    pure = returnBc
     (<*>) = ap
+    (*>) = thenBc_
 
 instance Monad BcM where
   (>>=) = thenBc
-  (>>)  = thenBc_
-  return = returnBc
+  (>>)  = (*>)
+  return = pure
 
 instance HasDynFlags BcM where
     getDynFlags = BcM $ \st -> return (st, bcm_dflags st)

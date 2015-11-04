@@ -24,11 +24,11 @@ module DsUtils (
         mkCoPrimCaseMatchResult, mkCoAlgCaseMatchResult, mkCoSynCaseMatchResult,
         wrapBind, wrapBinds,
 
-        mkErrorAppDs, mkCoreAppDs, mkCoreAppsDs,
+        mkErrorAppDs, mkCoreAppDs, mkCoreAppsDs, mkCastDs,
 
         -- LHs tuples
         mkLHsVarPatTup, mkLHsPatTup, mkVanillaTuplePat,
-        mkBigLHsVarTup, mkBigLHsTup, mkBigLHsVarPatTup, mkBigLHsPatTup,
+        mkBigLHsVarTupId, mkBigLHsTupId, mkBigLHsVarPatTupId, mkBigLHsPatTupId,
 
         mkSelectorBinds,
 
@@ -342,7 +342,8 @@ sort_alts = sortWith (dataConTag . alt_pat)
 
 mkPatSynCase :: DsId -> DsType -> CaseAlt PatSyn -> CoreExpr -> DsM CoreExpr
 mkPatSynCase var ty alt fail = do
-    matcher <- dsLExpr $ mkLHsWrap wrapper $ nlHsTyApp matcher [ty]
+    matcher <- dsLExpr $ mkLHsWrap wrapper $
+                         nlHsTyApp matcher [getLevity "mkPatSynCase" ty, ty]
     let MatchResult _ mkCont = match_result
     cont <- mkCoreLams bndrs <$> mkCont fail
     return $ mkCoreAppsDs matcher [Var var, ensure_unstrict cont, Lam voidArgId fail]
@@ -552,10 +553,22 @@ mkCoreAppDs fun arg = mkCoreApp fun arg  -- The rest is done in MkCore
 mkCoreAppsDs :: CoreExpr -> [CoreExpr] -> CoreExpr
 mkCoreAppsDs fun args = foldl mkCoreAppDs fun args
 
+mkCastDs :: CoreExpr -> Coercion -> CoreExpr
+-- We define a desugarer-specific verison of CoreUtils.mkCast,
+-- because in the immediate output of the desugarer, we can have
+-- apparently-mis-matched coercions:  E.g.
+--     let a = b
+--     in (x :: a) |> (co :: b ~ Int)
+-- Lint know about type-bindings for let and does not complain
+-- So here we do not make the assertion checks that we make in
+-- CoreUtils.mkCast; and we do less peephole optimisation too
+mkCastDs e co | isReflCo co = e
+              | otherwise   = Cast e co
+
 {-
 ************************************************************************
 *                                                                      *
-\subsection[mkSelectorBind]{Make a selector bind}
+               Tuples and selector bindings
 *                                                                      *
 ************************************************************************
 
@@ -709,23 +722,23 @@ mkVanillaTuplePat :: [OutPat Id] -> Boxity -> Pat Id
 mkVanillaTuplePat pats box = TuplePat pats box (map hsLPatType pats)
 
 -- The Big equivalents for the source tuple expressions
-mkBigLHsVarTup :: [Id] -> LHsExpr Id
-mkBigLHsVarTup ids = mkBigLHsTup (map nlHsVar ids)
+mkBigLHsVarTupId :: [Id] -> LHsExpr Id
+mkBigLHsVarTupId ids = mkBigLHsTupId (map nlHsVar ids)
 
-mkBigLHsTup :: [LHsExpr Id] -> LHsExpr Id
-mkBigLHsTup = mkChunkified mkLHsTupleExpr
+mkBigLHsTupId :: [LHsExpr Id] -> LHsExpr Id
+mkBigLHsTupId = mkChunkified mkLHsTupleExpr
 
 -- The Big equivalents for the source tuple patterns
-mkBigLHsVarPatTup :: [Id] -> LPat Id
-mkBigLHsVarPatTup bs = mkBigLHsPatTup (map nlVarPat bs)
+mkBigLHsVarPatTupId :: [Id] -> LPat Id
+mkBigLHsVarPatTupId bs = mkBigLHsPatTupId (map nlVarPat bs)
 
-mkBigLHsPatTup :: [LPat Id] -> LPat Id
-mkBigLHsPatTup = mkChunkified mkLHsPatTup
+mkBigLHsPatTupId :: [LPat Id] -> LPat Id
+mkBigLHsPatTupId = mkChunkified mkLHsPatTup
 
 {-
 ************************************************************************
 *                                                                      *
-\subsection[mkFailurePair]{Code for pattern-matching and other failures}
+        Code for pattern-matching and other failures
 *                                                                      *
 ************************************************************************
 
@@ -810,7 +823,13 @@ entered at most once.  Adding a dummy 'realWorld' token argument makes
 it clear that sharing is not an issue.  And that in turn makes it more
 CPR-friendly.  This matters a lot: if you don't get it right, you lose
 the tail call property.  For example, see Trac #3403.
--}
+
+
+************************************************************************
+*                                                                      *
+              Ticks
+*                                                                      *
+********************************************************************* -}
 
 mkOptTickBox :: [Tickish DsId] -> CoreExpr -> CoreExpr
 mkOptTickBox = flip (foldr Tick)

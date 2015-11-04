@@ -9,14 +9,16 @@ The @Inst@ type: dictionaries or method instances
 {-# LANGUAGE CPP #-}
 
 module Inst (
-       deeplySkolemise,
-       deeplyInstantiate, instCall, instStupidTheta,
+       deeplySkolemise, deeplyInstantiate,
+       instCall, instDFunType, instStupidTheta,
+       newWanted, newWanteds,
 
        newOverloadedLit, mkOverLit,
 
        newClsInst,
        tcGetInsts, tcGetInstEnvs, getOverlapFlag,
-       tcExtendLocalInstEnv, instCallConstraints, newMethodFromName,
+       tcExtendLocalInstEnv,
+       instCallConstraints, newMethodFromName,
        tcSyntaxName,
 
        -- Simple functions over evidence variables
@@ -60,7 +62,7 @@ import Data.Maybe( isJust )
 {-
 ************************************************************************
 *                                                                      *
-                Emitting constraints
+                Creating and emittind constraints
 *                                                                      *
 ************************************************************************
 -}
@@ -210,21 +212,30 @@ instCallConstraints orig preds
      = do  { co <- unifyType noThing ty1 ty2
            ; return (boxity, EvCoercion co) }
      | otherwise
-     = do { ev_var <- emitWantedEvVar modified_orig pred
+     = do { ev_var <- emitWantedEvVar orig pred
           ; return (Boxed, EvId ev_var) }
-      where
-        -- Coercible constraints appear as normal class constraints, but
-        -- are aggressively canonicalized and manipulated during solving.
-        -- The final equality to solve may barely resemble the initial
-        -- constraint. Here, we remember the initial constraint in a
-        -- CtOrigin for better error messages. It's perhaps worthwhile
-        -- considering making this approach general, for other class
-        -- constraints, too.
-        modified_orig
-          | Just (_, Representational, ty1, ty2) <- getEqPredTys_maybe pred
-          = CoercibleOrigin ty1 ty2
-          | otherwise
-          = orig
+
+instDFunType :: DFunId -> [DFunInstType]
+             -> TcM ( [TcType]     -- instantiated argument types
+                    , TcThetaType  -- instantiated constraint
+                    , TcType )     -- instantiated instance head
+-- See Note [DFunInstType: instantiating types] in InstEnv
+instDFunType dfun_id dfun_inst_tys
+  = do { (subst, inst_tys) <- go emptyTCvSubst dfun_tvs dfun_inst_tys
+       ; return (inst_tys, substTheta subst dfun_theta, substTy subst dfun_ty) }
+  where
+    (dfun_tvs, dfun_theta, dfun_ty) = tcSplitSigmaTy (idType dfun_id)
+
+    go :: TCvSubst -> [TyVar] -> [DFunInstType] -> TcM (TCvSubst, [TcType])
+    go subst [] [] = return (subst, [])
+    go subst (tv:tvs) (Just ty : mb_tys)
+      = do { (subst', tys) <- go (extendTCvSubst subst tv ty) tvs mb_tys
+           ; return (subst', ty : tys) }
+    go subst (tv:tvs) (Nothing : mb_tys)
+      = do { (subst', tv') <- tcInstTyVarX subst tv
+           ; (subst'', tys) <- go subst' tvs mb_tys
+           ; return (subst'', mkTyVarTy tv' : tys) }
+    go _ _ _ = pprPanic "instDFunTypes" (ppr dfun_id $$ ppr dfun_inst_tys)
 
 ----------------
 instStupidTheta :: CtOrigin -> TcThetaType -> TcM ()
@@ -362,12 +373,12 @@ tcSyntaxName orig ty (std_nm, user_nm_expr) = do
 syntaxNameCtxt :: HsExpr Name -> CtOrigin -> Type -> TidyEnv
                -> TcRn (TidyEnv, SDoc)
 syntaxNameCtxt name orig ty tidy_env
-  = do { inst_loc <- getCtLoc orig
+  = do { inst_loc <- getCtLocM orig
        ; let msg = vcat [ ptext (sLit "When checking that") <+> quotes (ppr name)
                           <+> ptext (sLit "(needed by a syntactic construct)")
                         , nest 2 (ptext (sLit "has the required type:")
                                   <+> ppr (tidyType tidy_env ty))
-                        , nest 2 (pprArisingAt inst_loc) ]
+                        , nest 2 (pprCtLoc inst_loc) ]
        ; return (tidy_env, msg) }
 
 {-
@@ -379,15 +390,18 @@ syntaxNameCtxt name orig ty tidy_env
 -}
 
 getOverlapFlag :: Maybe OverlapMode -> TcM OverlapFlag
+-- Construct the OverlapFlag from the global module flags,
+-- but if the overlap_mode argument is (Just m),
+--     set the OverlapMode to 'm'
 getOverlapFlag overlap_mode
   = do  { dflags <- getDynFlags
         ; let overlap_ok    = xopt Opt_OverlappingInstances dflags
               incoherent_ok = xopt Opt_IncoherentInstances  dflags
               use x = OverlapFlag { isSafeOverlap = safeLanguageOn dflags
                                   , overlapMode   = x }
-              default_oflag | incoherent_ok = use Incoherent
-                            | overlap_ok    = use Overlaps
-                            | otherwise     = use NoOverlap
+              default_oflag | incoherent_ok = use (Incoherent "")
+                            | overlap_ok    = use (Overlaps "")
+                            | otherwise     = use (NoOverlap "")
 
               final_oflag = setOverlapModeMaybe default_oflag overlap_mode
         ; return final_oflag }
@@ -410,7 +424,21 @@ newClsInst overlap_mode dfun_name tvs theta clas tys
              -- Not sure if this is really the right place to do so,
              -- but it'll do fine
        ; oflag <- getOverlapFlag overlap_mode
-       ; return (mkLocalInstance dfun oflag tvs' clas tys') }
+       ; let inst = mkLocalInstance dfun oflag tvs' clas tys'
+       ; dflags <- getDynFlags
+       ; warnIf (isOrphan (is_orphan inst) && wopt Opt_WarnOrphans dflags) (instOrphWarn inst)
+       ; return inst }
+
+instOrphWarn :: ClsInst -> SDoc
+instOrphWarn inst
+  = hang (ptext (sLit "Orphan instance:")) 2 (pprInstanceHdr inst)
+    $$ text "To avoid this"
+    $$ nest 4 (vcat possibilities)
+  where
+    possibilities =
+      text "move the instance declaration to the module of the class or of the type, or" :
+      text "wrap the type with a newtype and declare the instance on the new type." :
+      []
 
 tcExtendLocalInstEnv :: [ClsInst] -> TcM a -> TcM a
   -- Add new locally-defined instances
@@ -447,27 +475,26 @@ addLocalInst (home_ie, my_insts) ispec
                  | isGHCi    = deleteFromInstEnv home_ie ispec
                  | otherwise = home_ie
 
-               (_tvs, cls, tys) = instanceHead ispec
                -- If we're compiling sig-of and there's an external duplicate
                -- instance, silently ignore it (that's the instance we're
                -- implementing!)  NB: we still count local duplicate instances
                -- as errors.
                -- See Note [Signature files and type class instances]
-               global_ie
-                    | isJust (tcg_sig_of tcg_env) = emptyInstEnv
-                    | otherwise = eps_inst_env eps
-               inst_envs       = InstEnvs { ie_global  = global_ie
-                                          , ie_local   = home_ie'
-                                          , ie_visible = tcg_visible_orphan_mods tcg_env }
-               (matches, _, _) = lookupInstEnv inst_envs cls tys
-               dups            = filter (identicalClsInstHead ispec) (map fst matches)
+               global_ie | isJust (tcg_sig_of tcg_env) = emptyInstEnv
+                         | otherwise = eps_inst_env eps
+               inst_envs = InstEnvs { ie_global  = global_ie
+                                    , ie_local   = home_ie'
+                                    , ie_visible = tcVisibleOrphanMods tcg_env }
 
-             -- Check functional dependencies
-         ; case checkFunDeps inst_envs ispec of
-             Just specs -> funDepErr ispec specs
-             Nothing    -> return ()
+             -- Check for inconsistent functional dependencies
+         ; let inconsistent_ispecs = checkFunDeps inst_envs ispec
+         ; unless (null inconsistent_ispecs) $
+           funDepErr ispec inconsistent_ispecs
 
              -- Check for duplicate instance decls.
+         ; let (_tvs, cls, tys) = instanceHead ispec
+               (matches, _, _)  = lookupInstEnv False inst_envs cls tys
+               dups             = filter (identicalClsInstHead ispec) (map fst matches)
          ; unless (null dups) $
            dupInstErr ispec (head dups)
 

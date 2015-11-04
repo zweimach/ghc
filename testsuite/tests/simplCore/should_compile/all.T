@@ -1,7 +1,7 @@
 test('simpl001', normal, compile, [''])
 test('simpl002', normal, compile, [''])
 test('simpl003', normal, compile, [''])
-test('simpl004', only_compiler_types(['ghc']), compile, [''])
+test('simpl004', normal, compile, [''])
 test('simpl005', normal, compile, [''])
 
 # Missing:
@@ -22,7 +22,7 @@ test('simpl019', normal, compile, [''])
 test('simpl020',
      extra_clean(['Simpl020_A.hi', 'Simpl020_A.o']),
      multimod_compile,
-     ['simpl020', '-v0 -XFlexibleInstances -XUndecidableInstances'])
+     ['simpl020', '-v0'])
 
 test('simpl-T1370', normal, compile, [''])
 test('T2520', normal, compile, [''])
@@ -63,8 +63,7 @@ test('T4908', only_ways(['optasm']),
               compile,
               ['-O2 -ddump-simpl -dsuppress-uniques'])
 
-test('T4930', [when(compiler_lt('ghc', '7.1'), expect_fail),
-               only_ways(['optasm'])],
+test('T4930', only_ways(['optasm']),
               compile,
               ['-O -ddump-simpl -dsuppress-uniques'])
 
@@ -107,8 +106,12 @@ test('T4918',
      run_command,
      ['$MAKE -s --no-print-directory T4918'])
 
+# This test flips too and fro about whether it passes
+# I'm not sure why it is so delicate, but it greps the
+# result of -ddump-simpl, which is never advertised to
+# be very stable
 test('T4945',
-     when(compiler_lt('ghc', '7.1'), expect_fail),
+     expect_broken(4945),
      run_command,
      ['$MAKE -s --no-print-directory T4945'])
 
@@ -191,6 +194,7 @@ test('T8221',
      extra_clean(['T8221a.hi', 'T8221a.o']),
      run_command,
      ['$MAKE -s --no-print-directory T8221'])
+test('T8274', normal, run_command, ['$MAKE -s --no-print-directory T8274'])
 test('T8329', only_ways(['optasm']), multimod_compile, ['T8329','-v0 -O'])
 test('T5996',
      normal,
@@ -209,3 +213,15 @@ test('T6056', only_ways(['optasm']), multimod_compile, ['T6056', '-v0 -ddump-rul
 test('T9400', only_ways(['optasm']), compile, ['-O0 -ddump-simpl -dsuppress-uniques'])
 test('T9583', only_ways(['optasm']), compile, [''])
 test('T9565', only_ways(['optasm']), compile, [''])
+test('T5821', only_ways(['optasm']), compile, [''])
+test('T10176', only_ways(['optasm']), compile, [''])
+test('T10180', only_ways(['optasm']), compile, [''])
+test('T10602', only_ways(['optasm']), multimod_compile, ['T10602','-v0'])
+test('T10627', only_ways(['optasm']), compile, [''])
+test('T10181', [expect_broken(10181), only_ways(['optasm'])], compile, [''])
+test('T10083',
+     expect_broken(10083),
+     run_command,
+     ['$MAKE -s --no-print-directory T10083'])
+test('T10689', normal, compile, [''])
+test('T10689a', normal, compile, [''])

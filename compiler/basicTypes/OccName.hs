@@ -3,7 +3,7 @@
 (c) The GRASP/AQUA Project, Glasgow University, 1992-1998
 -}
 
-{-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DeriveDataTypeable, BangPatterns #-}
 
 -- |
 -- #name_types#
@@ -60,16 +60,18 @@ module OccName (
         mkDerivedTyConOcc, mkNewTyCoOcc, mkClassOpAuxOcc,
         mkCon2TagOcc, mkTag2ConOcc, mkMaxTagOcc,
         mkClassDataConOcc, mkDictOcc, mkIPOcc,
-        mkSpecOcc, mkForeignExportOcc, mkRepEqOcc, mkGenOcc1, mkGenOcc2,
+        mkSpecOcc, mkForeignExportOcc, mkRepEqOcc,
         mkGenD, mkGenR, mkGen1R, mkGenRCo, mkGenC, mkGenS,
         mkDataTOcc, mkDataCOcc, mkDataConWorkerOcc,
-        mkSuperDictSelOcc, mkLocalOcc, mkMethodOcc, mkInstTyTcOcc,
+        mkSuperDictSelOcc, mkSuperDictAuxOcc,
+        mkLocalOcc, mkMethodOcc, mkInstTyTcOcc,
         mkInstTyCoOcc, mkEqPredCoOcc,
         mkVectOcc, mkVectTyConOcc, mkVectDataConOcc, mkVectIsoOcc,
         mkPDataTyConOcc,  mkPDataDataConOcc,
         mkPDatasTyConOcc, mkPDatasDataConOcc,
         mkPReprTyConOcc,
         mkPADFunOcc,
+        mkRecFldSelOcc,
 
         -- ** Deconstruction
         occNameFS, occNameString, occNameSpace,
@@ -105,34 +107,13 @@ import DynFlags
 import UniqFM
 import UniqSet
 import FastString
+import FastStringEnv
 import Outputable
 import Lexeme
 import Binary
+import Module
 import Data.Char
 import Data.Data
-
-{-
-************************************************************************
-*                                                                      *
-              FastStringEnv
-*                                                                      *
-************************************************************************
-
-FastStringEnv can't be in FastString because the env depends on UniqFM
--}
-
-type FastStringEnv a = UniqFM a         -- Keyed by FastString
-
-
-emptyFsEnv  :: FastStringEnv a
-lookupFsEnv :: FastStringEnv a -> FastString -> Maybe a
-extendFsEnv :: FastStringEnv a -> FastString -> a -> FastStringEnv a
-mkFsEnv     :: [(FastString,a)] -> FastStringEnv a
-
-emptyFsEnv  = emptyUFM
-lookupFsEnv = lookupUFM
-extendFsEnv = addToUFM
-mkFsEnv     = listToUFM
 
 {-
 ************************************************************************
@@ -151,7 +132,7 @@ data NameSpace = VarName        -- Variables, including "real" data constructors
    {-! derive: Binary !-}
 
 -- Note [Data Constructors]
--- see also: Note [Data Constructor Naming] in DataCon.lhs
+-- see also: Note [Data Constructor Naming] in DataCon.hs
 --
 -- $real_vs_source_data_constructors
 -- There are two forms of data constructor:
@@ -601,8 +582,8 @@ mkDataConWrapperOcc, mkWorkerOcc,
         mkMatcherOcc, mkBuilderOcc,
         mkDefaultMethodOcc,
         mkGenDefMethodOcc, mkDerivedTyConOcc, mkClassDataConOcc, mkDictOcc,
-        mkIPOcc, mkSpecOcc, mkForeignExportOcc, mkRepEqOcc, mkGenOcc1, mkGenOcc2,
-        mkGenD, mkGenR, mkGen1R, mkGenRCo,
+        mkIPOcc, mkSpecOcc, mkForeignExportOcc, mkRepEqOcc,
+        mkGenR, mkGen1R, mkGenRCo,
         mkDataTOcc, mkDataCOcc, mkDataConWorkerOcc, mkNewTyCoOcc,
         mkInstTyCoOcc, mkEqPredCoOcc, mkClassOpAuxOcc,
         mkCon2TagOcc, mkTag2ConOcc, mkMaxTagOcc
@@ -633,19 +614,29 @@ mkCon2TagOcc        = mk_simple_deriv varName  "$con2tag_"
 mkTag2ConOcc        = mk_simple_deriv varName  "$tag2con_"
 mkMaxTagOcc         = mk_simple_deriv varName  "$maxtag_"
 
--- Generic derivable classes (old)
-mkGenOcc1           = mk_simple_deriv varName  "$gfrom"
-mkGenOcc2           = mk_simple_deriv varName  "$gto"
+-- Generic deriving mechanism
 
--- Generic deriving mechanism (new)
-mkGenD         = mk_simple_deriv tcName "D1"
+-- | Generate a module-unique name, to be used e.g. while generating new names
+-- for Generics types. We use module unit id to avoid name clashes when
+-- package imports is used.
+mkModPrefix :: Module -> String
+mkModPrefix mod = pk ++ "_" ++ mn
+  where
+    pk = unitIdString (moduleUnitId mod)
+    mn = moduleNameString (moduleName mod)
 
-mkGenC :: OccName -> Int -> OccName
-mkGenC occ m   = mk_deriv tcName ("C1_" ++ show m) (occNameString occ)
+mkGenD :: Module -> OccName -> OccName
+mkGenD mod = mk_simple_deriv tcName ("D1_" ++ mkModPrefix mod ++ "_")
 
-mkGenS :: OccName -> Int -> Int -> OccName
-mkGenS occ m n = mk_deriv tcName ("S1_" ++ show m ++ "_" ++ show n)
-                   (occNameString occ)
+mkGenC :: Module -> OccName -> Int -> OccName
+mkGenC mod occ m   =
+  mk_deriv tcName ("C1_" ++ show m) $
+    mkModPrefix mod ++ "_" ++ occNameString occ
+
+mkGenS :: Module -> OccName -> Int -> Int -> OccName
+mkGenS mod occ m n =
+  mk_deriv tcName ("S1_" ++ show m ++ "_" ++ show n) $
+    mkModPrefix mod ++ "_" ++ occNameString occ
 
 mkGenR   = mk_simple_deriv tcName "Rep_"
 mkGen1R  = mk_simple_deriv tcName "Rep1_"
@@ -674,6 +665,10 @@ mkPDatasTyConOcc   = mk_simple_deriv_with tcName   "VPs:"
 mkPDataDataConOcc  = mk_simple_deriv_with dataName "VPD:"
 mkPDatasDataConOcc = mk_simple_deriv_with dataName "VPDs:"
 
+-- Overloaded record field selectors
+mkRecFldSelOcc :: String -> OccName
+mkRecFldSelOcc   = mk_deriv varName "$sel"
+
 mk_simple_deriv :: NameSpace -> String -> OccName -> OccName
 mk_simple_deriv sp px occ = mk_deriv sp px (occNameString occ)
 
@@ -685,6 +680,10 @@ mk_simple_deriv_with sp px (Just with) occ = mk_deriv sp (px ++ with ++ "_") (oc
 -- of the data constructor OccName (which should be a DataName)
 -- to VarName
 mkDataConWorkerOcc datacon_occ = setOccNameSpace varName datacon_occ
+
+mkSuperDictAuxOcc :: Int -> OccName -> OccName
+mkSuperDictAuxOcc index cls_tc_occ
+  = mk_deriv varName "$cp" (show index ++ occNameString cls_tc_occ)
 
 mkSuperDictSelOcc :: Int        -- ^ Index of superclass, e.g. 3
                   -> OccName    -- ^ Class, e.g. @Ord@
@@ -793,6 +792,29 @@ type TidyOccEnv = UniqFM Int
 
 * When looking for a renaming for "foo2" we strip off the "2" and start
   with "foo".  Otherwise if we tidy twice we get silly names like foo23.
+
+  However, if it started with digits at the end, we always make a name
+  with digits at the end, rather than shortening "foo2" to just "foo",
+  even if "foo" is unused.  Reasons:
+     - Plain "foo" might be used later
+     - We use trailing digits to subtly indicate a unification variable
+       in typechecker error message; see TypeRep.tidyTyVarBndr
+
+We have to take care though! Consider a machine-generated module (Trac #10370)
+  module Foo where
+     a1 = e1
+     a2 = e2
+     ...
+     a2000 = e2000
+Then "a1", "a2" etc are all marked taken.  But now if we come across "a7" again,
+we have to do a linear search to find a free one, "a20001".  That might just be
+acceptable once.  But if we now come across "a8" again, we don't want to repeat
+that search.
+
+So we use the TidyOccEnv mapping for "a" (not "a7" or "a8") as our base for
+starting the search; and we make sure to update the starting point for "a"
+after we allocate a new one.
+
 -}
 
 type TidyOccEnv = UniqFM Int    -- The in-scope OccNames
@@ -809,24 +831,30 @@ initTidyOccEnv = foldl add emptyUFM
 tidyOccName :: TidyOccEnv -> OccName -> (TidyOccEnv, OccName)
 tidyOccName env occ@(OccName occ_sp fs)
   = case lookupUFM env fs of
-        Just n  -> find n
-        Nothing -> (addToUFM env fs 1, occ)
+      Nothing -> (addToUFM env fs 1, occ)   -- Desired OccName is free
+      Just {} -> case lookupUFM env base1 of
+                   Nothing -> (addToUFM env base1 2, OccName occ_sp base1)
+                   Just n  -> find 1 n
   where
     base :: String  -- Drop trailing digits (see Note [TidyOccEnv])
-    base = dropWhileEndLE isDigit (unpackFS fs)
+    base  = dropWhileEndLE isDigit (unpackFS fs)
+    base1 = mkFastString (base ++ "1")
 
-    find n
+    find !k !n
       = case lookupUFM env new_fs of
-          Just n' -> find (n1 `max` n')
-                     -- The max ensures that n increases, avoiding loops
-          Nothing -> (addToUFM (addToUFM env fs n1) new_fs n1,
-                      OccName occ_sp new_fs)
-                     -- We update only the beginning and end of the
-                     -- chain that find explores; it's a little harder to
-                     -- update the middle and there's no real need.
+          Just {} -> find (k+1 :: Int) (n+k)
+                       -- By using n+k, the n arguemt to find goes
+                       --    1, add 1, add 2, add 3, etc which
+                       -- moves at quadratic speed through a dense patch
+
+          Nothing -> (new_env, OccName occ_sp new_fs)
        where
-         n1 = n+1
          new_fs = mkFastString (base ++ show n)
+         new_env = addToUFM (addToUFM env new_fs 1) base1 (n+1)
+                     -- Update:  base_fs, so that next time we'll start whwere we left off
+                     --          new_fs,  so that we know it is taken
+                     -- If they are the same (n==1), the former wins
+                     -- See Note [TidyOccEnv]
 
 {-
 ************************************************************************

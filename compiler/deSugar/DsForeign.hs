@@ -103,7 +103,7 @@ dsForeigns' fos = do
       return (h, c, [], bs)
 
    do_decl (ForeignExport (L _ id) _ co
-                          (CExport (L _ (CExportStatic ext_nm cconv)) _)) = do
+                          (CExport (L _ (CExportStatic _ ext_nm cconv)) _)) = do
       id' <- dsVar id
       co' <- dsCoercionType co
       (h, c, _, _) <- dsFExport id' co' ext_nm cconv False
@@ -220,13 +220,18 @@ dsFCall fn_id co fcall mDeclHeader = do
     dflags <- getDynFlags
     (fcall', cDoc) <-
               case fcall of
-              CCall (CCallSpec (StaticTarget cName mPackageKey isFun) CApiConv safety) ->
+              CCall (CCallSpec (StaticTarget _ cName mUnitId isFun)
+                               CApiConv safety) ->
                do wrapperName <- mkWrapperName "ghc_wrapper" (unpackFS cName)
-                  let fcall' = CCall (CCallSpec (StaticTarget wrapperName mPackageKey True) CApiConv safety)
+                  let fcall' = CCall (CCallSpec
+                                      (StaticTarget (unpackFS wrapperName)
+                                                    wrapperName mUnitId
+                                                    True)
+                                      CApiConv safety)
                       c = includes
                        $$ fun_proto <+> braces (cRet <> semi)
                       includes = vcat [ text "#include <" <> ftext h <> text ">"
-                                      | Header h <- nub headers ]
+                                      | Header _ h <- nub headers ]
                       fun_proto = cResType <+> pprCconv <+> ppr wrapperName <> parens argTypes
                       cRet
                        | isVoidRes =                   cCall
@@ -668,7 +673,7 @@ foreignExportInitialiser hs_fn =
    -- Initialise foreign exports by registering a stable pointer from an
    -- __attribute__((constructor)) function.
    -- The alternative is to do this from stginit functions generated in
-   -- codeGen/CodeGen.lhs; however, stginit functions have a negative impact
+   -- codeGen/CodeGen.hs; however, stginit functions have a negative impact
    -- on binary sizes and link times because the static linker will think that
    -- all modules that are imported directly or indirectly are actually used by
    -- the program.
@@ -711,7 +716,7 @@ toCType = f False
            -- Note that we aren't looking through type synonyms or
            -- anything, as it may be the synonym that is annotated.
            | Just tycon <- tyConAppTyConPicky_maybe t
-           , Just (CType mHeader cType) <- tyConCType_maybe tycon
+           , Just (CType _ mHeader (_,cType)) <- tyConCType_maybe tycon
               = (mHeader, ftext cType)
            -- If we don't know a C type for this type, then try looking
            -- through one layer of type synonym etc.

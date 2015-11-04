@@ -1,8 +1,8 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 
 module ApiAnnotation (
-  getAnnotation,
-  getAnnotationComments,
+  getAnnotation, getAndRemoveAnnotation,
+  getAnnotationComments,getAndRemoveAnnotationComments,
   ApiAnns,
   ApiAnnKey,
   AnnKeywordId(..),
@@ -17,12 +17,12 @@ import qualified Data.Map as Map
 import Data.Data
 
 
-{- Note [Api annotations]
-   ~~~~~~~~~~~~~~~~~~~~~~
-
+{-
+Note [Api annotations]
+~~~~~~~~~~~~~~~~~~~~~~
 In order to do source to source conversions using the GHC API, the
 locations of all elements of the original source needs to be tracked.
-The includes keywords such as 'let' / 'in' / 'do' etc as well as
+This includes keywords such as 'let' / 'in' / 'do' etc as well as
 punctuation such as commas and braces, and also comments.
 
 These are captured in a structure separate from the parse tree, and
@@ -38,7 +38,7 @@ identifying the specific keyword being captured.
 
 So
 
-> let X = 1 in 2 *x
+> let x = 1 in 2 *x
 
 would result in the AST element
 
@@ -66,8 +66,8 @@ This is done in the lexer / parser as follows.
 
 The PState variable in the lexer has the following variables added
 
->  annotations :: [(ApiAnnKey,SrcSpan)],
->  comment_q :: [Located Token],
+>  annotations :: [(ApiAnnKey,[SrcSpan])],
+>  comment_q :: [Located AnnotationComment],
 >  annotations_comments :: [(SrcSpan,[Located AnnotationComment])]
 
 The first and last store the values that end up in the ApiAnns value
@@ -115,6 +115,9 @@ This adds an AnnLet annotation for 'let', an AnnIn for 'in', as well
 as any annotations that may arise in the binds. This will include open
 and closing braces if they are used to delimit the let expressions.
 
+The wiki page describing this feature is
+https://ghc.haskell.org/trac/ghc/wiki/ApiAnnotations
+
 -}
 -- ---------------------------------------------------------------------
 
@@ -132,28 +135,68 @@ getAnnotation (anns,_) span ann
        Nothing -> []
        Just ss -> ss
 
+-- | Retrieve a list of annotation 'SrcSpan's based on the 'SrcSpan'
+-- of the annotated AST element, and the known type of the annotation.
+-- The list is removed from the annotations.
+getAndRemoveAnnotation :: ApiAnns -> SrcSpan -> AnnKeywordId
+                       -> ([SrcSpan],ApiAnns)
+getAndRemoveAnnotation (anns,cs) span ann
+   = case Map.lookup (span,ann) anns of
+       Nothing -> ([],(anns,cs))
+       Just ss -> (ss,(Map.delete (span,ann) anns,cs))
+
 -- |Retrieve the comments allocated to the current 'SrcSpan'
+--
+--  Note: A given 'SrcSpan' may appear in multiple AST elements,
+--  beware of duplicates
 getAnnotationComments :: ApiAnns -> SrcSpan -> [Located AnnotationComment]
 getAnnotationComments (_,anns) span =
   case Map.lookup span anns of
     Just cs -> cs
     Nothing -> []
 
+-- |Retrieve the comments allocated to the current 'SrcSpan', and
+-- remove them from the annotations
+getAndRemoveAnnotationComments :: ApiAnns -> SrcSpan
+                               -> ([Located AnnotationComment],ApiAnns)
+getAndRemoveAnnotationComments (anns,canns) span =
+  case Map.lookup span canns of
+    Just cs -> (cs,(anns,Map.delete span canns))
+    Nothing -> ([],(anns,canns))
+
 -- --------------------------------------------------------------------
 
--- | Note: in general the names of these are taken from the
+-- | API Annotations exist so that tools can perform source to source
+-- conversions of Haskell code. They are used to keep track of the
+-- various syntactic keywords that are not captured in the existing
+-- AST.
+--
+-- The annotations, together with original source comments are made
+-- available in the @'pm_annotations'@ field of @'GHC.ParsedModule'@.
+-- Comments are only retained if @'Opt_KeepRawTokenStream'@ is set in
+-- @'DynFlags.DynFlags'@ before parsing.
+--
+-- The wiki page describing this feature is
+-- https://ghc.haskell.org/trac/ghc/wiki/ApiAnnotations
+--
+-- Note: in general the names of these are taken from the
 -- corresponding token, unless otherwise noted
 -- See note [Api annotations] above for details of the usage
 data AnnKeywordId
     = AnnAs
     | AnnAt
     | AnnBang  -- ^ '!'
+    | AnnBackquote -- ^ '`'
     | AnnBy
     | AnnCase -- ^ case or lambda case
     | AnnClass
-    | AnnClose -- ^  '}' or ']' or ')' or '#)' etc
+    | AnnClose -- ^  '\#)' or '\#-}'  etc
+    | AnnCloseC -- ^ '}'
+    | AnnCloseP -- ^ ')'
+    | AnnCloseS -- ^ ']'
     | AnnColon
-    | AnnComma
+    | AnnComma -- ^ as a list separator
+    | AnnCommaTuple -- ^ in a RdrName for a tuple
     | AnnDarrow -- ^ '=>'
     | AnnData
     | AnnDcolon -- ^ '::'
@@ -185,8 +228,14 @@ data AnnKeywordId
     | AnnMinus -- ^ '-'
     | AnnModule
     | AnnNewtype
+    | AnnName -- ^ where a name loses its location in the AST, this carries it
     | AnnOf
-    | AnnOpen   -- ^ '{' or '[' or '(' or '(#' etc
+    | AnnOpen   -- ^ '(\#' or '{-\# LANGUAGE' etc
+    | AnnOpenC   -- ^ '{'
+    | AnnOpenP   -- ^ '('
+    | AnnOpenPE   -- ^ '$('
+    | AnnOpenPTE   -- ^ '$$('
+    | AnnOpenS   -- ^ '['
     | AnnPackageName
     | AnnPattern
     | AnnProc
@@ -196,12 +245,19 @@ data AnnKeywordId
     | AnnRole
     | AnnSafe
     | AnnSemi -- ^ ';'
+    | AnnSimpleQuote -- ^ '''
+    | AnnStatic -- ^ 'static'
     | AnnThen
+    | AnnThIdSplice -- ^ '$'
+    | AnnThIdTySplice -- ^ '$$'
+    | AnnThTyQuote -- ^ double '''
     | AnnTilde -- ^ '~'
     | AnnTildehsh -- ^ '~#'
     | AnnType
+    | AnnUnit -- ^ '()' for types
     | AnnUsing
     | AnnVal  -- ^ e.g. INTEGER
+    | AnnValStr  -- ^ String value, will need quotes when output
     | AnnVbar -- ^ '|'
     | AnnWhere
     | Annlarrowtail -- ^ '-<'

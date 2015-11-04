@@ -41,7 +41,7 @@ dW_TAG_arg_variable    = 257
 -- | Dwarf attributes
 dW_AT_name, dW_AT_stmt_list, dW_AT_low_pc, dW_AT_high_pc, dW_AT_language,
   dW_AT_comp_dir, dW_AT_producer, dW_AT_external, dW_AT_frame_base,
-  dW_AT_MIPS_linkage_name :: Word
+  dW_AT_use_UTF8, dW_AT_MIPS_linkage_name :: Word
 dW_AT_name              = 0x03
 dW_AT_stmt_list         = 0x10
 dW_AT_low_pc            = 0x11
@@ -51,6 +51,7 @@ dW_AT_comp_dir          = 0x1b
 dW_AT_producer          = 0x25
 dW_AT_external          = 0x3f
 dW_AT_frame_base        = 0x40
+dW_AT_use_UTF8          = 0x53
 dW_AT_MIPS_linkage_name = 0x2007
 
 -- | Abbrev declaration
@@ -59,13 +60,14 @@ dW_CHILDREN_no  = 0
 dW_CHILDREN_yes = 1
 
 dW_FORM_addr, dW_FORM_data4, dW_FORM_string, dW_FORM_flag,
-  dW_FORM_block1, dW_FORM_ref4 :: Word
+  dW_FORM_block1, dW_FORM_ref4, dW_FORM_flag_present :: Word
 dW_FORM_addr   = 0x01
 dW_FORM_data4  = 0x06
 dW_FORM_string = 0x08
 dW_FORM_flag   = 0x0c
 dW_FORM_block1 = 0x0a
 dW_FORM_ref4   = 0x13
+dW_FORM_flag_present = 0x19
 
 -- | Dwarf native types
 dW_ATE_address, dW_ATE_boolean, dW_ATE_float, dW_ATE_signed,
@@ -113,20 +115,23 @@ dW_OP_call_frame_cfa = 0x9c
 
 -- | Dwarf section declarations
 dwarfInfoSection, dwarfAbbrevSection, dwarfLineSection,
-  dwarfFrameSection, dwarfGhcSection :: SDoc
-dwarfInfoSection   = dwarfSection "info"
-dwarfAbbrevSection = dwarfSection "abbrev"
-dwarfLineSection   = dwarfSection "line"
-dwarfFrameSection  = dwarfSection "frame"
-dwarfGhcSection    = dwarfSection "ghc"
+  dwarfFrameSection, dwarfGhcSection, dwarfARangesSection :: SDoc
+dwarfInfoSection    = dwarfSection "info"
+dwarfAbbrevSection  = dwarfSection "abbrev"
+dwarfLineSection    = dwarfSection "line"
+dwarfFrameSection   = dwarfSection "frame"
+dwarfGhcSection     = dwarfSection "ghc"
+dwarfARangesSection = dwarfSection "aranges"
 
 dwarfSection :: String -> SDoc
-dwarfSection name = sdocWithPlatform $ \plat ->
+dwarfSection name = sdocWithPlatform $ \plat -> ftext $ mkFastString $
   case platformOS plat of
-    OSDarwin -> ftext $ mkFastString $
-                  ".section __DWARF,__debug_" ++ name ++ ",regular,debug"
-    _other   -> ftext $ mkFastString $
-                  ".section .debug_" ++ name ++ ",\"\",@progbits"
+    os | osElfTarget os
+       -> "\t.section .debug_" ++ name ++ ",\"\",@progbits"
+       | osMachOTarget os
+       -> "\t.section __DWARF,__debug_" ++ name ++ ",regular,debug"
+       | otherwise
+       -> "\t.section .debug_" ++ name ++ ",\"dr\""
 
 -- | Dwarf section labels
 dwarfInfoLabel, dwarfAbbrevLabel, dwarfLineLabel, dwarfFrameLabel :: LitString

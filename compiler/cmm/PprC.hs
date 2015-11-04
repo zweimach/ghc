@@ -33,6 +33,7 @@ import Cmm hiding (pprBBlock)
 import PprCmm ()
 import Hoopl
 import CmmUtils
+import CmmSwitch
 
 -- Utils
 import CPrim
@@ -237,18 +238,18 @@ pprStmt stmt =
         hargs    = zip args arg_hints
 
         fn_call
-          -- The mem primops carry an extra alignment arg, must drop it.
+          -- The mem primops carry an extra alignment arg.
           -- We could maybe emit an alignment directive using this info.
           -- We also need to cast mem primops to prevent conflicts with GCC
           -- builtins (see bug #5967).
-          | op `elem` [MO_Memcpy, MO_Memset, MO_Memmove]
+          | Just _align <- machOpMemcpyishAlign op
           = (ptext (sLit ";EF_(") <> fn <> char ')' <> semi) $$
-            pprForeignCall fn cconv hresults (init hargs)
+            pprForeignCall fn cconv hresults hargs
           | otherwise
           = pprCall fn cconv hresults hargs
 
     CmmBranch ident          -> pprBranch ident
-    CmmCondBranch expr yes no -> pprCondBranch expr yes no
+    CmmCondBranch expr yes no _ -> pprCondBranch expr yes no
     CmmCall { cml_target = expr } -> mkJMP_ (pprExpr expr) <> semi
     CmmSwitch arg ids        -> sdocWithDynFlags $ \dflags ->
                                 pprSwitch dflags arg ids
@@ -299,21 +300,12 @@ pprCondBranch expr yes no
 --
 -- we find the fall-through cases
 --
--- N.B. we remove Nothing's from the list of branches, as they are
--- 'undefined'. However, they may be defined one day, so we better
--- document this behaviour.
---
-pprSwitch :: DynFlags -> CmmExpr -> [ Maybe BlockId ] -> SDoc
-pprSwitch dflags e maybe_ids
-  = let pairs  = [ (ix, ident) | (ix,Just ident) <- zip [0..] maybe_ids ]
-        pairs2 = [ (map fst as, snd (head as)) | as <- groupBy sndEq pairs ]
-    in
-        (hang (ptext (sLit "switch") <+> parens ( pprExpr e ) <+> lbrace)
-                4 (vcat ( map caseify pairs2 )))
-        $$ rbrace
-
+pprSwitch :: DynFlags -> CmmExpr -> SwitchTargets -> SDoc
+pprSwitch dflags e ids
+  = (hang (ptext (sLit "switch") <+> parens ( pprExpr e ) <+> lbrace)
+                4 (vcat ( map caseify pairs ) $$ def)) $$ rbrace
   where
-    sndEq (_,x) (_,y) = x == y
+    (pairs, mbdef) = switchTargetsFallThrough ids
 
     -- fall through case
     caseify (ix:ixs, ident) = vcat (map do_fallthrough ixs) $$ final_branch ix
@@ -326,7 +318,10 @@ pprSwitch dflags e maybe_ids
                 hsep [ ptext (sLit "case") , pprHexVal ix (wordWidth dflags) <> colon ,
                        ptext (sLit "goto") , (pprBlockId ident) <> semi ]
 
-    caseify (_     , _    ) = panic "pprSwtich: swtich with no cases!"
+    caseify (_     , _    ) = panic "pprSwitch: switch with no cases!"
+
+    def | Just l <- mbdef = ptext (sLit "default: goto") <+> pprBlockId l <> semi
+        | otherwise       = empty
 
 -- ---------------------------------------------------------------------
 -- Expressions.
@@ -750,9 +745,9 @@ pprCallishMachOp_for_C mop
         MO_F32_Exp      -> ptext (sLit "expf")
         MO_F32_Sqrt     -> ptext (sLit "sqrtf")
         MO_WriteBarrier -> ptext (sLit "write_barrier")
-        MO_Memcpy       -> ptext (sLit "memcpy")
-        MO_Memset       -> ptext (sLit "memset")
-        MO_Memmove      -> ptext (sLit "memmove")
+        MO_Memcpy _     -> ptext (sLit "memcpy")
+        MO_Memset _     -> ptext (sLit "memset")
+        MO_Memmove _    -> ptext (sLit "memmove")
         (MO_BSwap w)    -> ptext (sLit $ bSwapLabel w)
         (MO_PopCnt w)   -> ptext (sLit $ popCntLabel w)
         (MO_Clz w)      -> ptext (sLit $ clzLabel w)
@@ -1010,12 +1005,12 @@ instance Functor TE where
       fmap = liftM
 
 instance Applicative TE where
-      pure = return
+      pure a = TE $ \s -> (a, s)
       (<*>) = ap
 
 instance Monad TE where
    TE m >>= k  = TE $ \s -> case m s of (a, s') -> unTE (k a) s'
-   return a    = TE $ \s -> (a, s)
+   return = pure
 
 te_lbl :: CLabel -> TE ()
 te_lbl lbl = TE $ \(temps,lbls) -> ((), (temps, Map.insert lbl () lbls))
@@ -1047,7 +1042,7 @@ te_Stmt (CmmUnsafeForeignCall target rs es)
   = do  te_Target target
         mapM_ te_temp rs
         mapM_ te_Expr es
-te_Stmt (CmmCondBranch e _ _)   = te_Expr e
+te_Stmt (CmmCondBranch e _ _ _) = te_Expr e
 te_Stmt (CmmSwitch e _)         = te_Expr e
 te_Stmt (CmmCall { cml_target = e }) = te_Expr e
 te_Stmt _                       = return ()
@@ -1219,7 +1214,6 @@ commafy xs = hsep $ punctuate comma xs
 
 -- Print in C hex format: 0x13fa
 pprHexVal :: Integer -> Width -> SDoc
-pprHexVal 0 _ = ptext (sLit "0x0")
 pprHexVal w rep
   | w < 0     = parens (char '-' <>
                     ptext (sLit "0x") <> intToDoc (-w) <> repsuffix rep)
@@ -1239,7 +1233,9 @@ pprHexVal w rep
       repsuffix _ = char 'U'
 
       intToDoc :: Integer -> SDoc
-      intToDoc i = go (truncInt i)
+      intToDoc i = case truncInt i of
+                       0 -> char '0'
+                       v -> go v
 
       -- We need to truncate value as Cmm backend does not drop
       -- redundant bits to ease handling of negative values.

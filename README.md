@@ -103,34 +103,33 @@ because the compiler is itself written in Haskell.  You also need
 to port GHC to a new platform, see the [GHC Building Guide] [3].
 
 For building library documentation, you'll need [Haddock] [6].  To build
-the compiler documentation, you need a good DocBook XML toolchain and
-dblatex.
+the compiler documentation, you need [Sphinx](http://www.sphinx-doc.org/)
+and Xelatex (only for PDF output).
 
 **Quick start**: the following gives you a default build:
 
-    $ perl boot
+    $ ./boot
     $ ./configure
     $ make         # can also say 'make -jX' for X number of jobs
     $ make install
+
+  On Windows, you need an extra repository containing some build tools.
+  These can be downloaded for you by configure. This only needs to be done once by running:
+
+    $ ./configure --enable-tarballs-autodownload
 
 (NB: **Do you have multiple cores? Be sure to tell that to `make`!** This can
 save you hours of build time depending on your system configuration, and is
 almost always a win regardless of how many cores you have. As a simple rule,
 you should have about N+1 jobs, where `N` is the amount of cores you have.)
 
-The `perl boot` step is only necessary if this is a tree checked out
+The `./boot` step is only necessary if this is a tree checked out
 from git.  For source distributions downloaded from [GHC's web site] [1],
 this step has already been performed.
 
 These steps give you the default build, which includes everything
 optimised and built in various ways (eg. profiling libs are built).
 It can take a long time.  To customise the build, see the file `HACKING`.
-
-Once you have a build you need to keep it going.  You need to keep all
-repos in sync with the [sync-all script] [7].  To get the latest changes:
-
-    $ ./sync-all pull
-    $ ./sync-all get
 
 Filing bugs and feature requests
 ================================
@@ -169,8 +168,8 @@ you to join!
   [4]:  http://www.haskell.org/happy/          "www.haskell.org/happy/"
   [5]:  http://www.haskell.org/alex/           "www.haskell.org/alex/"
   [6]:  http://www.haskell.org/haddock/        "www.haskell.org/haddock/"
-  [7]:  http://ghc.haskell.org/trac/ghc/wiki/Building/SyncAll
-          "http://ghc.haskell.org/trac/ghc/wiki/Building/SyncAll"
+  [7]: https://ghc.haskell.org/trac/ghc/wiki/Building/GettingTheSources#GettingaGHCrepositoryfromGitHub
+          "https://ghc.haskell.org/trac/ghc/wiki/Building/GettingTheSources#GettingaGHCrepositoryfromGitHub"
   [8]:  http://ghc.haskell.org/trac/ghc/wiki/Building/Preparation
           "http://ghc.haskell.org/trac/ghc/wiki/Building/Preparation"
   [9]:  http://www.haskell.org/cabal/          "http://www.haskell.org/cabal/"

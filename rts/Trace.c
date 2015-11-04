@@ -461,7 +461,7 @@ void traceOSProcessInfo_(void) {
                         getpid());
 
 #if !defined(cygwin32_HOST_OS) && !defined (mingw32_HOST_OS)
-/* Windows has no strong concept of process heirarchy, so no getppid().
+/* Windows has no strong concept of process hierarchy, so no getppid().
  * In any case, this trace event is mainly useful for tracing programs
  * that use 'forkProcess' which Windows doesn't support anyway.
  */
@@ -622,7 +622,7 @@ void traceTaskDelete_ (Task *task)
 }
 
 #ifdef DEBUG
-static void traceCap_stderr(Capability *cap, char *msg, va_list ap)
+static void vtraceCap_stderr(Capability *cap, char *msg, va_list ap)
 {
     ACQUIRE_LOCK(&trace_utx);
 
@@ -633,6 +633,14 @@ static void traceCap_stderr(Capability *cap, char *msg, va_list ap)
 
     RELEASE_LOCK(&trace_utx);
 }
+
+static void traceCap_stderr(Capability *cap, char *msg, ...)
+{
+  va_list ap;
+  va_start(ap,msg);
+  vtraceCap_stderr(cap, msg, ap);
+  va_end(ap);
+}
 #endif
 
 void traceCap_(Capability *cap, char *msg, ...)
@@ -642,7 +650,7 @@ void traceCap_(Capability *cap, char *msg, ...)
 
 #ifdef DEBUG
     if (RtsFlags.TraceFlags.tracing == TRACE_STDERR) {
-        traceCap_stderr(cap, msg, ap);
+        vtraceCap_stderr(cap, msg, ap);
     } else
 #endif
     {
@@ -653,7 +661,7 @@ void traceCap_(Capability *cap, char *msg, ...)
 }
 
 #ifdef DEBUG
-static void trace_stderr(char *msg, va_list ap)
+static void vtrace_stderr(char *msg, va_list ap)
 {
     ACQUIRE_LOCK(&trace_utx);
 
@@ -672,7 +680,7 @@ void trace_(char *msg, ...)
 
 #ifdef DEBUG
     if (RtsFlags.TraceFlags.tracing == TRACE_STDERR) {
-        trace_stderr(msg, ap);
+        vtrace_stderr(msg, ap);
     } else
 #endif
     {
@@ -682,31 +690,24 @@ void trace_(char *msg, ...)
     va_end(ap);
 }
 
-static void traceFormatUserMsg(Capability *cap, char *msg, ...)
+void traceUserMsg(Capability *cap, char *msg)
 {
-    va_list ap;
-    va_start(ap,msg);
-
     /* Note: normally we don't check the TRACE_* flags here as they're checked
        by the wrappers in Trace.h. But traceUserMsg is special since it has no
        wrapper (it's called from cmm code), so we check TRACE_user here
      */
 #ifdef DEBUG
     if (RtsFlags.TraceFlags.tracing == TRACE_STDERR && TRACE_user) {
-        traceCap_stderr(cap, msg, ap);
+        // Use "%s" as format string to ignore format specifiers in msg (#3874).
+        traceCap_stderr(cap, "%s", msg);
     } else
 #endif
     {
         if (eventlog_enabled && TRACE_user) {
-            postUserMsg(cap, msg, ap);
+            postUserEvent(cap, EVENT_USER_MSG, msg);
         }
     }
     dtraceUserMsg(cap->no, msg);
-}
-
-void traceUserMsg(Capability *cap, char *msg)
-{
-    traceFormatUserMsg(cap, "%s", msg);
 }
 
 void traceUserMarker(Capability *cap, char *markername)
@@ -716,15 +717,12 @@ void traceUserMarker(Capability *cap, char *markername)
      */
 #ifdef DEBUG
     if (RtsFlags.TraceFlags.tracing == TRACE_STDERR && TRACE_user) {
-        ACQUIRE_LOCK(&trace_utx);
-        tracePreface();
-        debugBelch("cap %d: User marker: %s\n", cap->no, markername);
-        RELEASE_LOCK(&trace_utx);
+        traceCap_stderr(cap, "User marker: %s", markername);
     } else
 #endif
     {
         if (eventlog_enabled && TRACE_user) {
-            postUserMarker(cap, markername);
+            postUserEvent(cap, EVENT_USER_MARKER, markername);
         }
     }
     dtraceUserMarker(cap->no, markername);
@@ -761,13 +759,6 @@ void traceThreadStatus_ (StgTSO *tso USED_IF_DEBUG)
     }
 }
 
-void traceEventStartup_(int nocaps)
-{
-    if (eventlog_enabled) {
-        postEventStartup(nocaps);
-    }
-}
-
 #ifdef DEBUG
 void traceBegin (const char *str, ...)
 {
@@ -778,6 +769,7 @@ void traceBegin (const char *str, ...)
 
     tracePreface();
     vdebugBelch(str,ap);
+    va_end(ap);
 }
 
 void traceEnd (void)

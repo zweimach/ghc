@@ -58,6 +58,7 @@ import MonadUtils
 import Control.Monad    ( zipWithM )
 import Data.List
 import PrelNames        ( specTyConName )
+import Module
 
 -- See Note [Forcing specialisation]
 #ifndef GHCI
@@ -397,25 +398,44 @@ then we will end up calling the un-specialised function, so then we *should*
 use the calls in the un-specialised RHS as seeds.  We call these
 "boring call patterns", and callsToPats reports if it finds any of these.
 
+Note [Seeding top-level recursive groups]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+This seeding is done in the binding for seed_calls in specRec.
+
+1. If all the bindings in a top-level recursive group are local (not
+   exported), then all the calls are in the rest of the top-level
+   bindings.  This means we can specialise with those call patterns
+   ONLY, and NOT with the RHSs of the recursive group (exactly like
+   Note [Local recursive groups])
+
+2. But if any of the bindings are exported, the function may be called
+   with any old arguments, so (for lack of anything better) we specialise
+   based on
+     (a) the call patterns in the RHS
+     (b) the call patterns in the rest of the top-level bindings
+   NB: before Apr 15 we used (a) only, but Dimitrios had an example
+       where (b) was crucial, so I added that.
+       Adding (b) also improved nofib allocation results:
+                  multiplier: 4%   better
+                  minimax:    2.8% better
+
+Actually in case (2), instead of using the calls from the RHS, it
+would be better to specialise in the importing module.  We'd need to
+add an INLINEABLE pragma to the function, and then it can be
+specialised in the importing scope, just as is done for type classes
+in Specialise.specImports. This remains to be done (#10346).
 
 Note [Top-level recursive groups]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-If all the bindings in a top-level recursive group are local (not
-exported), then all the calls are in the rest of the top-level
-bindings.  This means we can specialise with those call patterns
-instead of with the RHSs of the recursive group.
-
-(Question: maybe we should *also* use calls in the rest of the
-top-level bindings as seeds?
-
-To get the call usage information, we work backwards through the
-top-level bindings so we see the usage before we get to the binding of
-the function.  Before we can collect the usage though, we go through
-all the bindings and add them to the environment. This is necessary
-because usage is only tracked for functions in the environment.
-
-The actual seeding of the specialisation is very similar to Note [Local recursive group].
-
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+To get the call usage information from "the rest of the top level
+bindings" (c.f. Note [Seeding top-level recursive groups]), we work
+backwards through the top-level bindings so we see the usage before we
+get to the binding of the function.  Before we can collect the usage
+though, we go through all the bindings and add them to the
+environment. This is necessary because usage is only tracked for
+functions in the environment.  These two passes are called
+   'go' and 'goEnv'
+in specConstrProgram.  (Looks a bit revolting to me.)
 
 Note [Do not specialise diverging functions]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -667,18 +687,26 @@ specConstrProgram guts
       dflags <- getDynFlags
       us     <- getUniqueSupplyM
       annos  <- getFirstAnnotations deserializeWithData guts
+      this_mod <- getModule
       let binds' = reverse $ fst $ initUs us $ do
                     -- Note [Top-level recursive groups]
-                    (env, binds) <- goEnv (initScEnv dflags annos) (mg_binds guts)
+                    (env, binds) <- goEnv (initScEnv dflags this_mod annos)
+                                          (mg_binds guts)
+                        -- binds is identical to (mg_binds guts), except that the
+                        -- binders on the LHS have been replaced by extendBndr
+                        --   (SPJ this seems like overkill; I don't think the binders
+                        --    will change at all; and we don't substitute in the RHSs anyway!!)
                     go env nullUsage (reverse binds)
 
       return (guts { mg_binds = binds' })
   where
+    -- See Note [Top-level recursive groups]
     goEnv env []            = return (env, [])
     goEnv env (bind:binds)  = do (env', bind')   <- scTopBindEnv env bind
                                  (env'', binds') <- goEnv env' binds
                                  return (env'', bind' : binds')
 
+    -- Arg list of bindings is in reverse order
     go _   _   []           = return []
     go env usg (bind:binds) = do (usg', bind') <- scTopBind env usg bind
                                  binds' <- go env usg' binds
@@ -735,6 +763,7 @@ leave it for now.
 -}
 
 data ScEnv = SCE { sc_dflags    :: DynFlags,
+                   sc_module    :: !Module,
                    sc_size      :: Maybe Int,   -- Size threshold
                    sc_count     :: Maybe Int,   -- Max # of specialisations for any one fn
                                                 -- See Note [Avoiding exponential blowup]
@@ -786,9 +815,10 @@ instance Outputable Value where
    ppr LambdaVal         = ptext (sLit "<Lambda>")
 
 ---------------------
-initScEnv :: DynFlags -> UniqFM SpecConstrAnnotation -> ScEnv
-initScEnv dflags anns
+initScEnv :: DynFlags -> Module -> UniqFM SpecConstrAnnotation -> ScEnv
+initScEnv dflags this_mod anns
   = SCE { sc_dflags      = dflags,
+          sc_module      = this_mod,
           sc_size        = specConstrThreshold dflags,
           sc_count       = specConstrCount     dflags,
           sc_recursive   = specConstrRecursive dflags,
@@ -1026,6 +1056,11 @@ data Call = Call Id [CoreArg] ValueEnv
         -- env giving the constructor bindings at the call site
         -- We keep the function mainly for debug output
 
+instance Outputable ScUsage where
+  ppr (SCU { scu_calls = calls, scu_occs = occs })
+    = ptext (sLit "SCU") <+> braces (sep [ ptext (sLit "calls =") <+> ppr calls
+                                         , ptext (sLit "occs =") <+> ppr occs ])
+
 instance Outputable Call where
   ppr (Call fn args _) = ppr fn <+> fsep (map pprParendExpr args)
 
@@ -1093,7 +1128,7 @@ evalScrutOcc = ScrutOcc emptyUFM
 -- Experimentally, this vesion of combineOcc makes ScrutOcc "win", so
 -- that if the thing is scrutinised anywhere then we get to see that
 -- in the overall result, even if it's also used in a boxed way
--- This might be too agressive; see Note [Reboxing] Alternative 3
+-- This might be too aggressive; see Note [Reboxing] Alternative 3
 combineOcc :: ArgOcc -> ArgOcc -> ArgOcc
 combineOcc NoOcc         occ           = occ
 combineOcc occ           NoOcc         = occ
@@ -1133,7 +1168,6 @@ scExpr, scExpr' :: ScEnv -> CoreExpr -> UniqSM (ScUsage, CoreExpr)
 
 scExpr env e = scExpr' env e
 
-
 scExpr' env (Var v)      = case scSubstId env v of
                             Var v' -> return (mkVarUsage env v' [], Var v')
                             e'     -> scExpr (zapScSubst env) e'
@@ -1144,7 +1178,9 @@ scExpr' _   e@(Lit {})   = return (nullUsage, e)
 scExpr' env (Tick t e)   = do (usg, e') <- scExpr env e
                               return (usg, Tick t e')
 scExpr' env (Cast e co)  = do (usg, e') <- scExpr env e
-                              return (usg, Cast e' (scSubstCo env co))
+                              return (usg, mkCast e' (scSubstCo env co))
+                              -- Important to use mkCast here
+                              -- See Note [SpecConstr call patterns]
 scExpr' env e@(App _ _)  = scApp env (collectArgs e)
 scExpr' env (Lam b e)    = do let (env', b') = extendBndr env b
                               (usg, e') <- scExpr env' e
@@ -1210,7 +1246,7 @@ scExpr' env (Let (NonRec bndr rhs) body)
 
         ; return (body_usg { scu_calls = scu_calls body_usg `delVarEnv` bndr' }
                     `combineUsage` spec_usg,  -- Note [spec_usg includes rhs_usg]
-                  mkLets [NonRec b r | (b,r) <- specInfoBinds rhs_info specs] body')
+                  mkLets [NonRec b r | (b,r) <- ruleInfoBinds rhs_info specs] body')
         }
 
 
@@ -1233,7 +1269,7 @@ scExpr' env (Let (Rec prs) body)
                 -- See Note [Local recursive groups]
 
         ; let all_usg = spec_usg `combineUsage` body_usg  -- Note [spec_usg includes rhs_usg]
-              bind'   = Rec (concat (zipWith specInfoBinds rhs_infos specs))
+              bind'   = Rec (concat (zipWith ruleInfoBinds rhs_infos specs))
 
         ; return (all_usg { scu_calls = scu_calls all_usg `delVarEnvList` bndrs' },
                   Let bind' body') }
@@ -1343,7 +1379,7 @@ scTopBind env body_usage (Rec prs)
                                          body_usage rhs_infos
 
         ; return (body_usage `combineUsage` spec_usage,
-                  Rec (concat (zipWith specInfoBinds rhs_infos specs))) }
+                  Rec (concat (zipWith ruleInfoBinds rhs_infos specs))) }
   where
     (bndrs,rhss) = unzip prs
     force_spec   = any (forceSpecBndr env) bndrs
@@ -1370,8 +1406,8 @@ scRecRhs env (bndr,rhs)
                 -- Two pats are the same if they match both ways
 
 ----------------------
-specInfoBinds :: RhsInfo -> [OneSpec] -> [(Id,CoreExpr)]
-specInfoBinds (RI { ri_fn = fn, ri_new_rhs = new_rhs }) specs
+ruleInfoBinds :: RhsInfo -> [OneSpec] -> [(Id,CoreExpr)]
+ruleInfoBinds (RI { ri_fn = fn, ri_new_rhs = new_rhs }) specs
   = [(id,rhs) | OS _ _ id rhs <- specs] ++
               -- First the specialised bindings
 
@@ -1398,7 +1434,7 @@ data RhsInfo
        , ri_arg_occs  :: [ArgOcc]      -- Info on how the xs occur in body
     }
 
-data SpecInfo = SI [OneSpec]            -- The specialisations we have generated
+data RuleInfo = SI [OneSpec]            -- The specialisations we have generated
 
                    Int                  -- Length of specs; used for numbering them
 
@@ -1442,14 +1478,16 @@ specRec top_lvl env body_usg rhs_infos
   = do { (spec_usg, spec_infos) <- go seed_calls nullUsage init_spec_infos
        ; return (spec_usg, [ s | SI s _ _ <- spec_infos ]) }
   where
-    (seed_calls, init_spec_infos)    -- Note [Top-level recursive groups]
+    (seed_calls, init_spec_infos)    -- Note [Seeding top-level recursive groups]
        | isTopLevel top_lvl
-       , any (isExportedId . ri_fn) rhs_infos -- Seed from RHSs
-       = (calls_in_rhss,      [SI [] 0 Nothing   | _ <- rhs_infos])
-       | otherwise                                            -- Seed from body only
-       = (scu_calls body_usg, [SI [] 0 (Just (ri_rhs_usg ri)) | ri <- rhs_infos])
+       , any (isExportedId . ri_fn) rhs_infos   -- Seed from body and RHSs
+       = (all_calls,     [SI [] 0 Nothing | _ <- rhs_infos])
+       | otherwise                              -- Seed from body only
+       = (calls_in_body, [SI [] 0 (Just (ri_rhs_usg ri)) | ri <- rhs_infos])
 
+    calls_in_body = scu_calls body_usg
     calls_in_rhss = foldr (combineCalls . scu_calls . ri_rhs_usg) emptyVarEnv rhs_infos
+    all_calls = calls_in_rhss `combineCalls` calls_in_body
 
     -- Loop, specialising, until you get no new specialisations
     go seed_calls usg_so_far spec_infos
@@ -1467,13 +1505,13 @@ specialise
    :: ScEnv
    -> CallEnv                     -- Info on newly-discovered calls to this function
    -> RhsInfo
-   -> SpecInfo                    -- Original RHS plus patterns dealt with
-   -> UniqSM (ScUsage, SpecInfo)  -- New specialised versions and their usage
+   -> RuleInfo                    -- Original RHS plus patterns dealt with
+   -> UniqSM (ScUsage, RuleInfo)  -- New specialised versions and their usage
 
 -- See Note [spec_usg includes rhs_usg]
 
 -- Note: this only generates *specialised* bindings
--- The original binding is added by specInfoBinds
+-- The original binding is added by ruleInfoBinds
 --
 -- Note: the rhs here is the optimised version of the original rhs
 -- So when we make a specialised copy of the RHS, we're starting
@@ -1619,7 +1657,8 @@ spec_one env fn arg_bndrs body (call_pat@(qvars, pats), rule_number)
               body_ty    = exprType spec_body
               rule_rhs   = mkVarApps (Var spec_id) spec_call_args
               inline_act = idInlineActivation fn
-              rule       = mkRule True {- Auto -} True {- Local -}
+              this_mod   = sc_module spec_env
+              rule       = mkRule this_mod True {- Auto -} True {- Local -}
                                   rule_name inline_act fn_name qvars pats rule_rhs
                            -- See Note [Transfer activation]
         ; return (spec_usg, OS call_pat rule spec_id spec_rhs) }
@@ -1653,7 +1692,7 @@ calcSpecStrictness fn qvars pats
 Note [spec_usg includes rhs_usg]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In calls to 'specialise', the returned ScUsage must include the rhs_usg in
-the passed-in SpecInfo, unless there are no calls at all to the function.
+the passed-in RuleInfo, unless there are no calls at all to the function.
 
 The caller can, indeed must, assume this.  He should not combine in rhs_usg
 himself, or he'll get rhs_usg twice -- and that can lead to an exponential
@@ -1727,9 +1766,27 @@ BUT phantom type synonyms can mess this reasoning up,
   eg   x::T b   with  type T b = Int
 So we apply expandTypeSynonyms to the bound Ids.
 See Trac # 5458.  Yuk.
+
+Note [SpecConstr call patterns]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A "call patterns" that we collect is going to become the LHS of a RULE.
+It's important that it doesn't have
+     e |> Refl
+or
+    e |> g1 |> g2
+because both of these will be optimised by Simplify.simplRule. In the
+former case such optimisation benign, because the rule will match more
+terms; but in the latter we may lose a binding of 'g1' or 'g2', and
+end up with a rule LHS that doesn't bind the template variables
+(Trac #10602).
+
+The simplifier eliminates such things, but SpecConstr itself constructs
+new terms by substituting.  So the 'mkCast' in the Cast case of scExpr
+is very important!
 -}
 
 type CallPat = ([Var], [CoreExpr])      -- Quantified variables and arguments
+                                        -- See Note [SpecConstr call patterns]
 
 callsToPats :: ScEnv -> [OneSpec] -> [ArgOcc] -> [Call] -> UniqSM (Bool, [CallPat])
         -- Result has no duplicate patterns,
@@ -1836,22 +1893,19 @@ argToPat env in_scope val_env (Tick _ arg) arg_occ
 
 argToPat env in_scope val_env (Let _ arg) arg_occ
   = argToPat env in_scope val_env arg arg_occ
-        -- See Note [Matching lets] in Rule.lhs
+        -- See Note [Matching lets] in Rule.hs
         -- Look through let expressions
         -- e.g.         f (let v = rhs in (v,w))
         -- Here we can specialise for f (v,w)
         -- because the rule-matcher will look through the let.
 
-{- Disabled; see Note [Matching cases] in Rule.lhs
+{- Disabled; see Note [Matching cases] in Rule.hs
 argToPat env in_scope val_env (Case scrut _ _ [(_, _, rhs)]) arg_occ
   | exprOkForSpeculation scrut  -- See Note [Matching cases] in Rule.hhs
   = argToPat env in_scope val_env rhs arg_occ
 -}
 
 argToPat env in_scope val_env (Cast arg co) arg_occ
-  | isReflCo co     -- Substitution in the SpecConstr itself
-                    -- can lead to identity coercions
-  = argToPat env in_scope val_env arg arg_occ
   | not (ignoreType env ty2)
   = do  { (interesting, arg') <- argToPat env in_scope val_env arg arg_occ
         ; if not interesting then
@@ -1898,7 +1952,7 @@ argToPat env in_scope val_env arg arg_occ
                            | otherwise    -> Nothing
 
   -- Check if the argument is a variable that
-  --    (a) is used in an interesting way in the body
+  --    (a) is used in an interesting way in the function body
   --    (b) we know what its value is
   -- In that case it counts as "interesting"
 argToPat env in_scope val_env (Var v) arg_occ

@@ -22,10 +22,6 @@ module MkCore (
         -- * Constructing equality evidence boxes
         mkEqBox,
 
-        -- * Constructing general big tuples
-        -- $big_tuples
-        mkChunkified,
-
         -- * Constructing small tuples
         mkCoreVarTup, mkCoreVarTupTy, mkCoreTup, mkCoreUbxTup,
         mkCoreTupBoxity,
@@ -44,12 +40,15 @@ module MkCore (
         mkNilExpr, mkConsExpr, mkListExpr,
         mkFoldrExpr, mkBuildExpr,
 
+        -- * Constructing Maybe expressions
+        mkNothingExpr, mkJustExpr,
+
         -- * Error Ids
         mkRuntimeErrorApp, mkImpossibleExpr, errorIds,
         rEC_CON_ERROR_ID, iRREFUT_PAT_ERROR_ID, rUNTIME_ERROR_ID,
         nON_EXHAUSTIVE_GUARDS_ERROR_ID, nO_METHOD_BINDING_ERROR_ID,
         pAT_ERROR_ID, eRROR_ID, rEC_SEL_ERROR_ID, aBSENT_ERROR_ID,
-        uNDEFINED_ID, undefinedName
+        uNDEFINED_ID, tYPE_ERROR_ID, undefinedName
     ) where
 
 #include "HsVersions.h"
@@ -65,6 +64,7 @@ import HscTypes
 import TysWiredIn
 import PrelNames
 
+import HsUtils          ( mkChunkified, chunkify )
 import TcType           ( mkInvSigmaTy )
 import Type
 import Coercion
@@ -81,7 +81,6 @@ import BasicTypes
 import Util
 import Pair
 import VarSet
-import Constants
 import DynFlags
 
 import Data.Char        ( ord )
@@ -265,6 +264,7 @@ mkCharExpr c = mkCoreConApps charDataCon [mkCharLit c]
 
 -- | Create a 'CoreExpr' which will evaluate to the given @String@
 mkStringExpr   :: MonadThings m => String     -> m CoreExpr  -- Result :: String
+
 -- | Create a 'CoreExpr' which will evaluate to a string morally equivalent to the given @FastString@
 mkStringExprFS :: MonadThings m => FastString -> m CoreExpr  -- Result :: String
 
@@ -306,47 +306,6 @@ mkEqBox co = ASSERT2( typeKind ty2 `eqType` k, ppr co $$ ppr ty1 $$ ppr ty2 $$ p
 ************************************************************************
 -}
 
--- $big_tuples
--- #big_tuples#
---
--- GHCs built in tuples can only go up to 'mAX_TUPLE_SIZE' in arity, but
--- we might concievably want to build such a massive tuple as part of the
--- output of a desugaring stage (notably that for list comprehensions).
---
--- We call tuples above this size \"big tuples\", and emulate them by
--- creating and pattern matching on >nested< tuples that are expressible
--- by GHC.
---
--- Nesting policy: it's better to have a 2-tuple of 10-tuples (3 objects)
--- than a 10-tuple of 2-tuples (11 objects), so we want the leaves of any
--- construction to be big.
---
--- If you just use the 'mkBigCoreTup', 'mkBigCoreVarTupTy', 'mkTupleSelector'
--- and 'mkTupleCase' functions to do all your work with tuples you should be
--- fine, and not have to worry about the arity limitation at all.
-
--- | Lifts a \"small\" constructor into a \"big\" constructor by recursive decompositon
-mkChunkified :: ([a] -> a)      -- ^ \"Small\" constructor function, of maximum input arity 'mAX_TUPLE_SIZE'
-             -> [a]             -- ^ Possible \"big\" list of things to construct from
-             -> a               -- ^ Constructed thing made possible by recursive decomposition
-mkChunkified small_tuple as = mk_big_tuple (chunkify as)
-  where
-        -- Each sub-list is short enough to fit in a tuple
-    mk_big_tuple [as] = small_tuple as
-    mk_big_tuple as_s = mk_big_tuple (chunkify (map small_tuple as_s))
-
-chunkify :: [a] -> [[a]]
--- ^ Split a list into lists that are small enough to have a corresponding
--- tuple arity. The sub-lists of the result all have length <= 'mAX_TUPLE_SIZE'
--- But there may be more than 'mAX_TUPLE_SIZE' sub-lists
-chunkify xs
-  | n_xs <= mAX_TUPLE_SIZE = [xs]
-  | otherwise              = split xs
-  where
-    n_xs     = length xs
-    split [] = []
-    split xs = take mAX_TUPLE_SIZE xs : split (drop mAX_TUPLE_SIZE xs)
-
 {-
 Creating tuples and their types for Core expressions
 
@@ -370,8 +329,8 @@ mkCoreVarTupTy ids = mkBoxedTupleTy (map idType ids)
 mkCoreTup :: [CoreExpr] -> CoreExpr
 mkCoreTup []  = Var unitDataConId
 mkCoreTup [c] = c
-mkCoreTup cs  = mkCoreConApps (tupleCon BoxedTuple (length cs))
-                         (map (Type . exprType) cs ++ cs)
+mkCoreTup cs  = mkCoreConApps (tupleDataCon Boxed (length cs))
+                              (map (Type . exprType) cs ++ cs)
 
 -- | Build a small unboxed tuple holding the specified expressions,
 -- with the given types. The types must be the types of the expressions.
@@ -380,7 +339,7 @@ mkCoreTup cs  = mkCoreConApps (tupleCon BoxedTuple (length cs))
 mkCoreUbxTup :: [Type] -> [CoreExpr] -> CoreExpr
 mkCoreUbxTup tys exps
   = ASSERT( tys `equalLength` exps)
-    mkCoreConApps (tupleCon UnboxedTuple (length tys))
+    mkCoreConApps (tupleDataCon Unboxed (length tys))
              (map (Type . getLevity "mkCoreUbxTup") tys ++ map Type tys ++ exps)
 
 -- | Make a core tuple of the given boxity
@@ -490,7 +449,7 @@ mkSmallTupleSelector [var] should_be_the_same_var _ scrut
 mkSmallTupleSelector vars the_var scrut_var scrut
   = ASSERT( notNull vars )
     Case scrut scrut_var (idType the_var)
-         [(DataAlt (tupleCon BoxedTuple (length vars)), vars, Var the_var)]
+         [(DataAlt (tupleDataCon Boxed (length vars)), vars, Var the_var)]
 
 -- | A generalization of 'mkTupleSelector', allowing the body
 -- of the case to be an arbitrary expression.
@@ -543,7 +502,8 @@ mkSmallTupleCase [var] body _scrut_var scrut
   = bindNonRec var scrut body
 mkSmallTupleCase vars body scrut_var scrut
 -- One branch no refinement?
-  = Case scrut scrut_var (exprType body) [(DataAlt (tupleCon BoxedTuple (length vars)), vars, body)]
+  = Case scrut scrut_var (exprType body)
+         [(DataAlt (tupleDataCon Boxed (length vars)), vars, body)]
 
 {-
 ************************************************************************
@@ -605,6 +565,24 @@ mkBuildExpr elt_ty mk_build_inside = do
     newTyVars tyvar_tmpls = do
       uniqs <- getUniquesM
       return (zipWith setTyVarUnique tyvar_tmpls uniqs)
+
+{-
+************************************************************************
+*                                                                      *
+             Manipulating Maybe data type
+*                                                                      *
+************************************************************************
+-}
+
+
+-- | Makes a Nothing for the specified type
+mkNothingExpr :: Type -> CoreExpr
+mkNothingExpr ty = mkConApp nothingDataCon [Type ty]
+
+-- | Makes a Just from a value of the specified type
+mkJustExpr :: Type -> CoreExpr -> CoreExpr
+mkJustExpr ty val = mkConApp justDataCon [Type ty, val]
+
 
 {-
 ************************************************************************
@@ -671,11 +649,14 @@ errorIds
       pAT_ERROR_ID,
       rEC_CON_ERROR_ID,
       rEC_SEL_ERROR_ID,
-      aBSENT_ERROR_ID ]
+      aBSENT_ERROR_ID,
+      tYPE_ERROR_ID   -- Used with Opt_DeferTypeErrors, see #10284
+      ]
 
 recSelErrorName, runtimeErrorName, absentErrorName :: Name
 irrefutPatErrorName, recConErrorName, patErrorName :: Name
 nonExhaustiveGuardsErrorName, noMethodBindingErrorName :: Name
+typeErrorName :: Name
 
 recSelErrorName     = err_nm "recSelError"     recSelErrorIdKey     rEC_SEL_ERROR_ID
 absentErrorName     = err_nm "absentError"     absentErrorIdKey     aBSENT_ERROR_ID
@@ -683,6 +664,7 @@ runtimeErrorName    = err_nm "runtimeError"    runtimeErrorIdKey    rUNTIME_ERRO
 irrefutPatErrorName = err_nm "irrefutPatError" irrefutPatErrorIdKey iRREFUT_PAT_ERROR_ID
 recConErrorName     = err_nm "recConError"     recConErrorIdKey     rEC_CON_ERROR_ID
 patErrorName        = err_nm "patError"        patErrorIdKey        pAT_ERROR_ID
+typeErrorName       = err_nm "typeError"       typeErrorIdKey       tYPE_ERROR_ID
 
 noMethodBindingErrorName     = err_nm "noMethodBindingError"
                                   noMethodBindingErrorIdKey nO_METHOD_BINDING_ERROR_ID
@@ -694,6 +676,7 @@ err_nm str uniq id = mkWiredInIdName cONTROL_EXCEPTION_BASE (fsLit str) uniq id
 
 rEC_SEL_ERROR_ID, rUNTIME_ERROR_ID, iRREFUT_PAT_ERROR_ID, rEC_CON_ERROR_ID :: Id
 pAT_ERROR_ID, nO_METHOD_BINDING_ERROR_ID, nON_EXHAUSTIVE_GUARDS_ERROR_ID :: Id
+tYPE_ERROR_ID :: Id
 aBSENT_ERROR_ID :: Id
 rEC_SEL_ERROR_ID                = mkRuntimeErrorId recSelErrorName
 rUNTIME_ERROR_ID                = mkRuntimeErrorId runtimeErrorName
@@ -703,6 +686,7 @@ pAT_ERROR_ID                    = mkRuntimeErrorId patErrorName
 nO_METHOD_BINDING_ERROR_ID      = mkRuntimeErrorId noMethodBindingErrorName
 nON_EXHAUSTIVE_GUARDS_ERROR_ID  = mkRuntimeErrorId nonExhaustiveGuardsErrorName
 aBSENT_ERROR_ID                 = mkRuntimeErrorId absentErrorName
+tYPE_ERROR_ID                   = mkRuntimeErrorId typeErrorName
 
 mkRuntimeErrorId :: Name -> Id
 mkRuntimeErrorId name = pc_bottoming_Id1 name runtimeErrorTy
@@ -716,20 +700,30 @@ errorName :: Name
 errorName = mkWiredInIdName gHC_ERR (fsLit "error") errorIdKey eRROR_ID
 
 eRROR_ID :: Id
-eRROR_ID = pc_bottoming_Id1 errorName errorTy
+eRROR_ID = pc_bottoming_Id2 errorName errorTy
 
 errorTy  :: Type   -- See Note [Error and friends have an "open-tyvar" forall]
 errorTy  = mkInvSigmaTy [levity1TyVar, openAlphaTyVar] []
-                        (mkFunTys [mkListTy charTy] openAlphaTy)
+             (mkFunTys [ mkClassPred
+                           ipClass
+                           [ mkStrLitTy (fsLit "callStack")
+                           , mkTyConTy callStackTyCon ]
+                       , mkListTy charTy]
+                       openAlphaTy)
 
 undefinedName :: Name
 undefinedName = mkWiredInIdName gHC_ERR (fsLit "undefined") undefinedKey uNDEFINED_ID
 
 uNDEFINED_ID :: Id
-uNDEFINED_ID = pc_bottoming_Id0 undefinedName undefinedTy
+uNDEFINED_ID = pc_bottoming_Id1 undefinedName undefinedTy
 
 undefinedTy  :: Type   -- See Note [Error and friends have an "open-tyvar" forall]
-undefinedTy  = mkInvSigmaTy [levity1TyVar, openAlphaTyVar] [] openAlphaTy
+undefinedTy  = mkInvSigmaTy [levity1TyVar, openAlphaTyVar] []
+                 (mkFunTy (mkClassPred
+                             ipClass
+                             [ mkStrLitTy (fsLit "callStack")
+                             , mkTyConTy callStackTyCon ])
+                          openAlphaTy)
 
 {-
 Note [Error and friends have an "open-tyvar" forall]
@@ -773,10 +767,11 @@ pc_bottoming_Id1 name ty
     strict_sig = mkClosedStrictSig [evalDmd] botRes
     -- These "bottom" out, no matter what their arguments
 
-pc_bottoming_Id0 :: Name -> Type -> Id
--- Same but arity zero
-pc_bottoming_Id0 name ty
+pc_bottoming_Id2 :: Name -> Type -> Id
+-- Same but arity two
+pc_bottoming_Id2 name ty
  = mkVanillaGlobalWithInfo name ty bottoming_info
  where
     bottoming_info = vanillaIdInfo `setStrictnessInfo` strict_sig
-    strict_sig = mkClosedStrictSig [] botRes
+                                   `setArityInfo`      2
+    strict_sig = mkClosedStrictSig [evalDmd, evalDmd] botRes

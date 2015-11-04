@@ -20,21 +20,26 @@ ifeq "$$($1_$2_SHELL_WRAPPER_NAME)" ""
 $1_$2_SHELL_WRAPPER_NAME = $1/$$($1_$2_PROGNAME).wrapper
 endif
 
+
 ifeq "$$($1_$2_WANT_INPLACE_WRAPPER)" "YES"
 
+$1_$2_INPLACE_SHELL_WRAPPER_NAME = $$($1_$2_PROG)
+
 ifeq "$$($1_$2_TOPDIR)" "YES"
-INPLACE_WRAPPER = $$(INPLACE_LIB)/$$($1_$2_PROG)
+$1_$2_INPLACE_WRAPPER = $$(INPLACE_LIB)/$$($1_$2_INPLACE_SHELL_WRAPPER_NAME)
 else
-INPLACE_WRAPPER = $$(INPLACE_BIN)/$$($1_$2_PROG)
+$1_$2_INPLACE_WRAPPER = $$(INPLACE_BIN)/$$($1_$2_INPLACE_SHELL_WRAPPER_NAME)
 endif
 
-all_$1_$2 : $$(INPLACE_WRAPPER)
+all_$1_$2 : $$($1_$2_INPLACE_WRAPPER)
 
-$$(INPLACE_BIN)/$$($1_$2_PROG): WRAPPER=$$@
+$(call clean-target,$1,$2_inplace_wrapper,$$($1_$2_INPLACE_WRAPPER))
+
+$$($1_$2_INPLACE_WRAPPER): WRAPPER=$$@
 ifeq "$$($1_$2_SHELL_WRAPPER)" "YES"
-$$(INPLACE_WRAPPER): $$($1_$2_SHELL_WRAPPER_NAME)
+$$($1_$2_INPLACE_WRAPPER): $$($1_$2_SHELL_WRAPPER_NAME)
 endif
-$$(INPLACE_WRAPPER): $$($1_$2_INPLACE)
+$$($1_$2_INPLACE_WRAPPER): $$($1_$2_INPLACE)
 	$$(call removeFiles,                                                    $$@)
 	echo '#!$$(SHELL)'                                                   >> $$@
 	echo 'executablename="$$(TOP)/$$<"'                                  >> $$@
@@ -54,7 +59,8 @@ else
 endif
 	$$(EXECUTABLE_FILE)                                                     $$@
 
-endif
+endif # $1_$2_WANT_INPLACE_WRAPPER
+
 
 ifeq "$$($1_$2_WANT_INSTALLED_WRAPPER)" "YES"
 
@@ -71,7 +77,7 @@ install: install_$1_$2_wrapper
 .PHONY: install_$1_$2_wrapper
 install_$1_$2_wrapper: WRAPPER=$$(DESTDIR)$$(bindir)/$(CrossCompilePrefix)$$($1_$2_INSTALL_SHELL_WRAPPER_NAME)
 install_$1_$2_wrapper:
-	$$(call INSTALL_DIR,"$$(DESTDIR)$$(bindir)")
+	$$(INSTALL_DIR) "$$(DESTDIR)$$(bindir)"
 	$$(call removeFiles,                                        "$$(WRAPPER)")
 	$$(CREATE_SCRIPT)                                           "$$(WRAPPER)"
 	echo '#!$$(SHELL)'                                       >> "$$(WRAPPER)"
@@ -86,7 +92,8 @@ install_$1_$2_wrapper:
 	cat $$($1_$2_SHELL_WRAPPER_NAME)                         >> "$$(WRAPPER)"
 	$$(EXECUTABLE_FILE)                                         "$$(WRAPPER)"
 
-endif
+endif # $1_$2_WANT_INSTALLED_WRAPPER
+
 
 ifeq "$$($1_$2_WANT_BINDIST_WRAPPER)" "YES"
 ifneq "$$(TargetOS_CPP)" "mingw32"
@@ -107,7 +114,7 @@ endif
 	$$(EXECUTABLE_FILE)                                                   $$@
 
 endif
-endif
+endif # $1_$2_WANT_BINDIST_WRAPPER
 
 $(call profEnd, shell-wrapper($1,$2))
 endef

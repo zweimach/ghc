@@ -15,6 +15,7 @@
 #include "RtsUtils.h"
 #include "Prelude.h"
 #include "Stable.h"
+#include "Libdw.h"
 
 #ifdef alpha_HOST_ARCH
 # if defined(linux_HOST_OS)
@@ -126,7 +127,7 @@ more_handlers(int sig)
 }
 
 // Here's the pipe into which we will send our signals
-static int io_manager_wakeup_fd = -1;
+static volatile int io_manager_wakeup_fd = -1;
 static int timer_manager_control_wr_fd = -1;
 
 #define IO_MANAGER_WAKEUP 0xff
@@ -161,7 +162,20 @@ ioManagerWakeup (void)
         StgWord8 byte = (StgWord8)IO_MANAGER_WAKEUP;
         r = write(io_manager_wakeup_fd, &byte, 1);
 #endif
-        if (r == -1) { sysErrorBelch("ioManagerWakeup: write"); }
+        /* N.B. If the TimerManager is shutting down as we run this
+         * then there is a possiblity that our first read of
+         * io_manager_wakeup_fd is non-negative, but before we get to the
+         * write the file is closed. If this occurs, io_manager_wakeup_fd
+         * will be written into with -1 (GHC.Event.Control does this prior
+         * to closing), so checking this allows us to distinguish this case.
+         * To ensure we observe the correct ordering, we declare the
+         * io_manager_wakeup_fd as volatile.
+         * Since this is not an error condition, we do not print the error
+         * message in this case.
+         */
+        if (r == -1 && io_manager_wakeup_fd >= 0) {
+            sysErrorBelch("ioManagerWakeup: write");
+        }
     }
 }
 
@@ -248,18 +262,6 @@ generic_handler(int sig USED_IF_THREADS,
         r = write(timer_manager_control_wr_fd, buf, sizeof(siginfo_t)+1);
         if (r == -1 && errno == EAGAIN) {
             errorBelch("lost signal due to full pipe: %d\n", sig);
-        }
-    }
-
-    nat i;
-    int fd;
-    for (i=0; i < n_capabilities; i++) {
-        fd = capabilities[i]->io_manager_control_wr_fd;
-        if (0 <= fd) {
-            r = write(fd, buf, sizeof(siginfo_t)+1);
-            if (r == -1 && errno == EAGAIN) {
-                errorBelch("lost signal due to full pipe: %d\n", sig);
-            }
         }
     }
 
@@ -525,6 +527,25 @@ shutdown_handler(int sig STG_UNUSED)
 }
 
 /* -----------------------------------------------------------------------------
+ * SIGUSR2 handler.
+ *
+ * We try to give the user an indication of what we are currently doing
+ * in response to SIGUSR2.
+ * -------------------------------------------------------------------------- */
+static void
+backtrace_handler(int sig STG_UNUSED)
+{
+#ifdef USE_LIBDW
+    LibDwSession *session = libdw_init();
+    Backtrace *bt = libdw_get_backtrace(session);
+    libdw_print_backtrace(session, stderr, bt);
+    backtrace_free(bt);
+#else
+    fprintf(stderr, "This build does not support backtraces.\n");
+#endif
+}
+
+/* -----------------------------------------------------------------------------
  * An empty signal handler, currently used for SIGPIPE
  * -------------------------------------------------------------------------- */
 static void
@@ -667,6 +688,14 @@ initDefaultHandlers(void)
     action.sa_flags = 0;
     if (sigaction(SIGPIPE, &action, &oact) != 0) {
         sysErrorBelch("warning: failed to install SIGPIPE handler");
+    }
+
+    // Print a backtrace on SIGUSR2
+    action.sa_handler = backtrace_handler;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+    if (sigaction(SIGUSR2, &action, &oact) != 0) {
+        sysErrorBelch("warning: failed to install SIGUSR2 handler");
     }
 
     set_sigtstp_action(rtsTrue);

@@ -12,7 +12,6 @@ import Type hiding( substTyVarBndr, substTy, extendTCvSubst )
 import TcType       ( exactTyCoVarsOfType )
 import TyCon
 import CoAxiom
-import Var
 import VarSet
 import VarEnv
 import StaticFlags      ( opt_NoOptCoercion )
@@ -657,8 +656,8 @@ the surface, it seems that (axEqual[1] <*> <Int> <Int>) :: (Equal * Int Int ~
 False) and that all is OK. But, all is not OK: we want to use the first branch
 of the axiom in this case, not the second. The problem is that the parameters
 of the first branch can unify with the supplied coercions, thus meaning that
-the first branch should be taken. See also Note [Branched instance checking]
-in types/FamInstEnv.lhs.
+the first branch should be taken. See also Note [Apartness] in
+types/FamInstEnv.hs.
 
 Note [Why call checkAxInstCo during optimisation]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -863,7 +862,7 @@ etaTyConAppCo_maybe tc (TyConAppCo _ tc2 cos2)
   = ASSERT( tc == tc2 ) Just cos2
 
 etaTyConAppCo_maybe tc co
-  | isDecomposableTyCon tc
+  | mightBeUnsaturatedTyCon tc
   , Pair ty1 ty2     <- coercionKind co
   , Just (tc1, tys1) <- splitTyConApp_maybe ty1
   , Just (tc2, tys2) <- splitTyConApp_maybe ty2

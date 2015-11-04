@@ -190,19 +190,14 @@ jump f (info_ptr, field1,..,fieldN) (arg1,..,argN)
 
 where info_ptr and field1..fieldN describe the stack frame, and
 arg1..argN are the arguments passed to f using the NativeNodeCall
-convention.
+convention. Note if a field is longer than a word (e.g. a D_ on
+a 32-bit machine) then the call will push as many words as
+necessary to the stack to accomodate it (e.g. 2).
+
 
 ----------------------------------------------------------------------------- -}
 
 {
-{-# LANGUAGE BangPatterns #-} -- required for versions of Happy before 1.18.6
-{-# OPTIONS -Wwarn -w #-}
--- The above warning supression flag is a temporary kludge.
--- While working on this module you are encouraged to remove it and fix
--- any warnings in the module. See
---     http://ghc.haskell.org/trac/ghc/wiki/Commentary/CodingStyle#Warnings
--- for details
-
 module CmmParse ( parseCmmFile ) where
 
 import StgCmmExtCode
@@ -226,6 +221,7 @@ import CmmOpt
 import MkGraph
 import Cmm
 import CmmUtils
+import CmmSwitch        ( mkSwitchTargets )
 import CmmInfo
 import BlockId
 import CmmLex
@@ -258,6 +254,7 @@ import Data.Array
 import Data.Char        ( ord )
 import System.Exit
 import Data.Maybe
+import qualified Data.Map as M
 
 #include "HsVersions.h"
 }
@@ -309,7 +306,6 @@ import Data.Maybe
         'else'          { L _ (CmmT_else) }
         'export'        { L _ (CmmT_export) }
         'section'       { L _ (CmmT_section) }
-        'align'         { L _ (CmmT_align) }
         'goto'          { L _ (CmmT_goto) }
         'if'            { L _ (CmmT_if) }
         'call'          { L _ (CmmT_call) }
@@ -575,9 +571,13 @@ importName
         : NAME  
         { ($1, mkForeignLabel $1 Nothing ForeignLabelInExternalPackage IsFunction) }
 
+        -- as previous 'NAME', but 'IsData'
+        | 'CLOSURE' NAME
+        { ($2, mkForeignLabel $2 Nothing ForeignLabelInExternalPackage IsData) }
+
         -- A label imported with an explicit packageId.
         | STRING NAME
-        { ($2, mkCmmCodeLabel (fsToPackageKey (mkFastString $1)) $2) }
+        { ($2, mkCmmCodeLabel (fsToUnitId (mkFastString $1)) $2) }
         
         
 names   :: { [FastString] }
@@ -673,24 +673,24 @@ globals :: { [GlobalReg] }
         : GLOBALREG                     { [$1] }
         | GLOBALREG ',' globals         { $1 : $3 }
 
-maybe_range :: { Maybe (Int,Int) }
-        : '[' INT '..' INT ']'  { Just (fromIntegral $2, fromIntegral $4) }
+maybe_range :: { Maybe (Integer,Integer) }
+        : '[' INT '..' INT ']'  { Just ($2, $4) }
         | {- empty -}           { Nothing }
 
-arms    :: { [CmmParse ([Int],Either BlockId (CmmParse ()))] }
+arms    :: { [CmmParse ([Integer],Either BlockId (CmmParse ()))] }
         : {- empty -}                   { [] }
         | arm arms                      { $1 : $2 }
 
-arm     :: { CmmParse ([Int],Either BlockId (CmmParse ())) }
+arm     :: { CmmParse ([Integer],Either BlockId (CmmParse ())) }
         : 'case' ints ':' arm_body      { do b <- $4; return ($2, b) }
 
 arm_body :: { CmmParse (Either BlockId (CmmParse ())) }
         : '{' body '}'                  { return (Right (withSourceNote $1 $3 $2)) }
         | 'goto' NAME ';'               { do l <- lookupLabel $2; return (Left l) }
 
-ints    :: { [Int] }
-        : INT                           { [ fromIntegral $1 ] }
-        | INT ',' ints                  { fromIntegral $1 : $3 }
+ints    :: { [Integer] }
+        : INT                           { [ $1 ] }
+        | INT ',' ints                  { $1 : $3 }
 
 default :: { Maybe (CmmParse ()) }
         : 'default' ':' '{' body '}'    { Just (withSourceNote $3 $5 $4) }
@@ -970,22 +970,37 @@ machOps = listToUFM $
         ( "i2f64",    flip MO_SF_Conv W64 )
         ]
 
+callishMachOps :: UniqFM ([CmmExpr] -> (CallishMachOp, [CmmExpr]))
 callishMachOps = listToUFM $
         map (\(x, y) -> (mkFastString x, y)) [
-        ( "write_barrier", MO_WriteBarrier ),
-        ( "memcpy", MO_Memcpy ),
-        ( "memset", MO_Memset ),
-        ( "memmove", MO_Memmove ),
+        ( "write_barrier", (,) MO_WriteBarrier ),
+        ( "memcpy", memcpyLikeTweakArgs MO_Memcpy ),
+        ( "memset", memcpyLikeTweakArgs MO_Memset ),
+        ( "memmove", memcpyLikeTweakArgs MO_Memmove ),
 
-        ("prefetch0",MO_Prefetch_Data 0),
-        ("prefetch1",MO_Prefetch_Data 1),
-        ("prefetch2",MO_Prefetch_Data 2),
-        ("prefetch3",MO_Prefetch_Data 3)
+        ("prefetch0", (,) $ MO_Prefetch_Data 0),
+        ("prefetch1", (,) $ MO_Prefetch_Data 1),
+        ("prefetch2", (,) $ MO_Prefetch_Data 2),
+        ("prefetch3", (,) $ MO_Prefetch_Data 3)
 
         -- ToDo: the rest, maybe
         -- edit: which rest?
         -- also: how do we tell CMM Lint how to type check callish macops?
     ]
+  where
+    memcpyLikeTweakArgs :: (Int -> CallishMachOp) -> [CmmExpr] -> (CallishMachOp, [CmmExpr])
+    memcpyLikeTweakArgs op [] = pgmError "memcpy-like function requires at least one argument"
+    memcpyLikeTweakArgs op args@(_:_) =
+        (op align, args')
+      where
+        args' = init args
+        align = case last args of
+          CmmLit (CmmInt alignInteger _) -> fromInteger alignInteger
+          e -> pprPgmError "Non-constant alignment in memcpy-like function:" (ppr e)
+        -- The alignment of memcpy-ish operations must be a
+        -- compile-time constant. We verify this here, passing it around
+        -- in the MO_* constructor. In order to do this, however, we
+        -- must intercept the arguments in primCall.
 
 parseSafety :: String -> P Safety
 parseSafety "safe"   = return PlaySafe
@@ -1107,7 +1122,7 @@ profilingInfo dflags desc_str ty_str
     else ProfilingInfo (stringToWord8s desc_str)
                        (stringToWord8s ty_str)
 
-staticClosure :: PackageKey -> FastString -> FastString -> [CmmLit] -> CmmParse ()
+staticClosure :: UnitId -> FastString -> FastString -> [CmmLit] -> CmmParse ()
 staticClosure pkg cl_label info payload
   = do dflags <- getDynFlags
        let lits = mkStaticClosure dflags (mkCmmInfoLabel pkg info) dontCareCCS payload [] [] []
@@ -1202,10 +1217,11 @@ primCall
 primCall results_code name args_code
   = case lookupUFM callishMachOps name of
         Nothing -> fail ("unknown primitive " ++ unpackFS name)
-        Just p  -> return $ do
+        Just f  -> return $ do
                 results <- sequence results_code
                 args <- sequence args_code
-                code (emitPrimCall (map fst results) p args)
+                let (p, args') = f args
+                code (emitPrimCall (map fst results) p args')
 
 doStore :: CmmType -> CmmParse CmmExpr  -> CmmParse CmmExpr -> CmmParse ()
 doStore rep addr_code val_code
@@ -1255,7 +1271,7 @@ cmmRawIf cond then_id = do
 -- branching to true_id if so, and falling through otherwise.
 emitCond (BoolTest e) then_id = do
   else_id <- newBlockId
-  emit (mkCbranch e then_id else_id)
+  emit (mkCbranch e then_id else_id Nothing)
   emitLabel else_id
 emitCond (BoolNot (BoolTest (CmmMachOp op args))) then_id
   | Just op' <- maybeInvertComparison op
@@ -1304,7 +1320,9 @@ withSourceNote a b parse = do
 -- optional range on the switch (eg. switch [0..7] {...}), or by
 -- the minimum/maximum values from the branches.
 
-doSwitch :: Maybe (Int,Int) -> CmmParse CmmExpr -> [([Int],Either BlockId (CmmParse ()))]
+doSwitch :: Maybe (Integer,Integer)
+         -> CmmParse CmmExpr
+         -> [([Integer],Either BlockId (CmmParse ()))]
          -> Maybe (CmmParse ()) -> CmmParse ()
 doSwitch mb_range scrut arms deflt
    = do
@@ -1316,22 +1334,16 @@ doSwitch mb_range scrut arms deflt
 
         -- Compile each case branch
         table_entries <- mapM emitArm arms
+        let table = M.fromList (concat table_entries)
 
-        -- Construct the table
-        let
-            all_entries = concat table_entries
-            ixs = map fst all_entries
-            (min,max) 
-                | Just (l,u) <- mb_range = (l,u)
-                | otherwise              = (minimum ixs, maximum ixs)
+        dflags <- getDynFlags
+        let range = fromMaybe (0, tARGET_MAX_WORD dflags) mb_range
 
-            entries = elems (accumArray (\_ a -> Just a) dflt_entry (min,max)
-                                all_entries)
         expr <- scrut
         -- ToDo: check for out of range and jump to default if necessary
-        emit (mkSwitch expr entries)
+        emit $ mkSwitch expr (mkSwitchTargets False range dflt_entry table)
    where
-        emitArm :: ([Int],Either BlockId (CmmParse ())) -> CmmParse [(Int,BlockId)]
+        emitArm :: ([Integer],Either BlockId (CmmParse ())) -> CmmParse [(Integer,BlockId)]
         emitArm (ints,Left blockid) = return [ (i,blockid) | i <- ints ]
         emitArm (ints,Right code) = do
            blockid <- forkLabelledCode code

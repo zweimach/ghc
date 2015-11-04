@@ -32,13 +32,12 @@ import Demand
 import OccName          ( OccName, pprOccName, mkVarOccFS )
 import TyCon            ( TyCon, isPrimTyCon, tyConPrimRep, PrimRep(..) )
 import Type
-import BasicTypes       ( Arity, Fixity(..), FixityDirection(..), TupleSort(..) )
+import BasicTypes       ( Arity, Fixity(..), FixityDirection(..), Boxity(..) )
 import ForeignCall      ( CLabelString )
 import Unique           ( Unique, mkPrimOpIdUnique )
 import Outputable
-import FastTypes
 import FastString
-import Module           ( PackageKey )
+import Module           ( UnitId )
 
 {-
 ************************************************************************
@@ -54,25 +53,20 @@ These are in \tr{state-interface.verb} order.
 -- data PrimOp = ...
 #include "primop-data-decl.hs-incl"
 
--- Used for the Ord instance
-
-primOpTag :: PrimOp -> Int
-primOpTag op = iBox (tagOf_PrimOp op)
-
 -- supplies
--- tagOf_PrimOp :: PrimOp -> FastInt
+-- primOpTag :: PrimOp -> Int
 #include "primop-tag.hs-incl"
-tagOf_PrimOp _ = error "tagOf_PrimOp: unknown primop"
+primOpTag _ = error "primOpTag: unknown primop"
 
 
 instance Eq PrimOp where
-    op1 == op2 = tagOf_PrimOp op1 ==# tagOf_PrimOp op2
+    op1 == op2 = primOpTag op1 == primOpTag op2
 
 instance Ord PrimOp where
-    op1 <  op2 =  tagOf_PrimOp op1 <# tagOf_PrimOp op2
-    op1 <= op2 =  tagOf_PrimOp op1 <=# tagOf_PrimOp op2
-    op1 >= op2 =  tagOf_PrimOp op1 >=# tagOf_PrimOp op2
-    op1 >  op2 =  tagOf_PrimOp op1 ># tagOf_PrimOp op2
+    op1 <  op2 =  primOpTag op1 < primOpTag op2
+    op1 <= op2 =  primOpTag op1 <= primOpTag op2
+    op1 >= op2 =  primOpTag op1 >= primOpTag op2
+    op1 >  op2 =  primOpTag op1 > primOpTag op2
     op1 `compare` op2 | op1 < op2  = LT
                       | op1 == op2 = EQ
                       | otherwise  = GT
@@ -183,7 +177,7 @@ A @Word#@ is an unsigned @Int#@.
 @decodeDouble#@ is given w/ Integer-stuff (it's similar).
 
 Decoding of floating-point numbers is sorta Integer-related.  Encoding
-is done with plain ccalls now (see PrelNumExtra.lhs).
+is done with plain ccalls now (see PrelNumExtra.hs).
 
 A @Weak@ Pointer is created by the @mkWeak#@ primitive:
 
@@ -275,12 +269,6 @@ Invariants:
         (c) stableNameToInt always returns the same Int for a given
             stable name.
 
-
--- HWL: The first 4 Int# in all par... annotations denote:
---   name, granularity info, size of result, degree of parallelism
---      Same  structure as _seq_ i.e. returns Int#
--- KSW: v, the second arg in parAt# and parAtForNow#, is used only to determine
---   `the processor containing the expression v'; it is not evaluated
 
 These primops are pretty weird.
 
@@ -481,7 +469,7 @@ primOpOkForSideEffects op
 {-
 Note [primOpIsCheap]
 ~~~~~~~~~~~~~~~~~~~~
-@primOpIsCheap@, as used in \tr{SimplUtils.lhs}.  For now (HACK
+@primOpIsCheap@, as used in \tr{SimplUtils.hs}.  For now (HACK
 WARNING), we just borrow some other predicates for a
 what-should-be-good-enough test.  "Cheap" means willing to call it more
 than once, and/or push it inside a lambda.  The latter could change the
@@ -627,7 +615,7 @@ pprPrimOp other_op = pprOccName (primOpOcc other_op)
 ************************************************************************
 -}
 
-data PrimCall = PrimCall CLabelString PackageKey
+data PrimCall = PrimCall CLabelString UnitId
 
 instance Outputable PrimCall where
   ppr (PrimCall lbl pkgId)

@@ -44,3 +44,13 @@ T9367:
 	'$(TEST_HC)' $(TEST_HC_OPTS) --interactive -v0 -ignore-dot-ghci                   < T9367.script > T9367-raw.run.stdout
 	cmp T9367-raw.run.stdout T9367-raw.stdout
 
+.PHONY: T9762_prep
+T9762_prep:
+	'$(TEST_HC)' $(TEST_HC_OPTS) -v0 -O -fhpc -dynamic T9762B.hs
+
+.PHONY: T10408
+T10408:
+	# `-ghci-script`s should be executed in the order they are specified,
+	# and not be ignored when `-ignore-dot-ghci` is specified.
+	'$(TEST_HC)' $(TEST_HC_OPTS) --interactive -v0 -ignore-dot-ghci \
+	    -ghci-script T10408A.script -ghci-script T10408B.script < /dev/null

@@ -175,9 +175,9 @@ initStorage (void)
 
   generations[0].max_blocks = 0;
 
-  dyn_caf_list = (StgIndStatic*)END_OF_STATIC_LIST;
-  debug_caf_list = (StgIndStatic*)END_OF_STATIC_LIST;
-  revertible_caf_list = (StgIndStatic*)END_OF_STATIC_LIST;
+  dyn_caf_list = (StgIndStatic*)END_OF_CAF_LIST;
+  debug_caf_list = (StgIndStatic*)END_OF_CAF_LIST;
+  revertible_caf_list = (StgIndStatic*)END_OF_CAF_LIST;
    
   /* initialise the allocate() interface */
   large_alloc_lim = RtsFlags.GcFlags.minAllocAreaSize * BLOCK_SIZE_W;
@@ -416,8 +416,8 @@ newCAF(StgRegTable *reg, StgIndStatic *caf)
     {
         // Note [dyn_caf_list]
         // If we are in GHCi _and_ we are using dynamic libraries,
-        // then we can't redirect newCAF calls to newDynCAF (see below),
-        // so we make newCAF behave almost like newDynCAF.
+        // then we can't redirect newCAF calls to newRetainedCAF (see below),
+        // so we make newCAF behave almost like newRetainedCAF.
         // The dynamic libraries might be used by both the interpreted
         // program and GHCi itself, so they must not be reverted.
         // This also means that in GHCi with dynamic libraries, CAFs are not
@@ -427,7 +427,7 @@ newCAF(StgRegTable *reg, StgIndStatic *caf)
 
         ACQUIRE_SM_LOCK; // dyn_caf_list is global, locked by sm_mutex
         caf->static_link = (StgClosure*)dyn_caf_list;
-        dyn_caf_list = caf;
+        dyn_caf_list = (StgIndStatic*)((StgWord)caf | STATIC_FLAG_LIST);
         RELEASE_SM_LOCK;
     }
     else
@@ -464,17 +464,17 @@ setKeepCAFs (void)
     keepCAFs = 1;
 }
 
-// An alternate version of newCaf which is used for dynamically loaded
+// An alternate version of newCAF which is used for dynamically loaded
 // object code in GHCi.  In this case we want to retain *all* CAFs in
 // the object code, because they might be demanded at any time from an
 // expression evaluated on the command line.
 // Also, GHCi might want to revert CAFs, so we add these to the
 // revertible_caf_list.
 //
-// The linker hackily arranges that references to newCaf from dynamic
-// code end up pointing to newDynCAF.
-StgInd *
-newDynCAF (StgRegTable *reg, StgIndStatic *caf)
+// The linker hackily arranges that references to newCAF from dynamic
+// code end up pointing to newRetainedCAF.
+//
+StgInd* newRetainedCAF (StgRegTable *reg, StgIndStatic *caf)
 {
     StgInd *bh;
 
@@ -484,9 +484,36 @@ newDynCAF (StgRegTable *reg, StgIndStatic *caf)
     ACQUIRE_SM_LOCK;
 
     caf->static_link = (StgClosure*)revertible_caf_list;
-    revertible_caf_list = caf;
+    revertible_caf_list = (StgIndStatic*)((StgWord)caf | STATIC_FLAG_LIST);
 
     RELEASE_SM_LOCK;
+
+    return bh;
+}
+
+// If we are using loadObj/unloadObj in the linker, then we want to
+//
+//  - retain all CAFs in statically linked code (keepCAFs == rtsTrue),
+//    because we might link a new object that uses any of these CAFs.
+//
+//  - GC CAFs in dynamically-linked code, so that we can detect when
+//    a dynamically-linked object is unloadable.
+//
+// So for this case, we set keepCAFs to rtsTrue, and link newCAF to newGCdCAF
+// for dynamically-linked code.
+//
+StgInd* newGCdCAF (StgRegTable *reg, StgIndStatic *caf)
+{
+    StgInd *bh;
+
+    bh = lockCAF(reg, caf);
+    if (!bh) return NULL;
+
+    // Put this CAF on the mutable list for the old generation.
+    if (oldest_gen->no != 0) {
+        recordMutableCap((StgClosure*)caf,
+                         regTableToCapability(reg), oldest_gen->no);
+    }
 
     return bh;
 }
@@ -549,6 +576,7 @@ allocNursery (bdescr *tail, W_ blocks)
 STATIC_INLINE void
 assignNurseryToCapability (Capability *cap, nat n)
 {
+    ASSERT(n < n_nurseries);
     cap->r.rNursery = &nurseries[n];
     cap->r.rCurrentNursery = nurseries[n].blocks;
     newNurseryBlock(nurseries[n].blocks);
@@ -699,14 +727,19 @@ resizeNurseries (W_ blocks)
 rtsBool
 getNewNursery (Capability *cap)
 {
-    StgWord i = atomic_inc(&next_nursery, 1) - 1;
-    if (i >= n_nurseries) {
-        return rtsFalse;
-    }
-    assignNurseryToCapability(cap, i);
-    return rtsTrue;
-}
+    StgWord i;
 
+    for(;;) {
+        i = next_nursery;
+        if (i >= n_nurseries) {
+            return rtsFalse;
+        }
+        if (cas(&next_nursery, i, i+1) == i) {
+            assignNurseryToCapability(cap, i);
+            return rtsTrue;
+        }
+    }
+}
 /* -----------------------------------------------------------------------------
    move_STACK is called to update the TSO structure after it has been
    moved from one place to another.
@@ -738,7 +771,8 @@ move_STACK (StgStack *src, StgStack *dest)
    that operation fails, then the whole process will be killed.
    -------------------------------------------------------------------------- */
 
-StgPtr allocate (Capability *cap, W_ n)
+StgPtr
+allocate (Capability *cap, W_ n)
 {
     bdescr *bd;
     StgPtr p;
@@ -746,7 +780,10 @@ StgPtr allocate (Capability *cap, W_ n)
     TICK_ALLOC_HEAP_NOCTR(WDS(n));
     CCS_ALLOC(cap->r.rCCCS,n);
     if (cap->r.rCurrentTSO != NULL) {
-        cap->r.rCurrentTSO->alloc_limit -= n*sizeof(W_);
+        // cap->r.rCurrentTSO->alloc_limit -= n*sizeof(W_)
+        ASSIGN_Int64((W_*)&(cap->r.rCurrentTSO->alloc_limit),
+                     (PK_Int64((W_*)&(cap->r.rCurrentTSO->alloc_limit))
+                      - n*sizeof(W_)));
     }
 
     if (n >= LARGE_OBJECT_THRESHOLD/sizeof(W_)) {
@@ -897,7 +934,10 @@ allocatePinned (Capability *cap, W_ n)
     TICK_ALLOC_HEAP_NOCTR(WDS(n));
     CCS_ALLOC(cap->r.rCCCS,n);
     if (cap->r.rCurrentTSO != NULL) {
-        cap->r.rCurrentTSO->alloc_limit -= n*sizeof(W_);
+        // cap->r.rCurrentTSO->alloc_limit -= n*sizeof(W_);
+        ASSIGN_Int64((W_*)&(cap->r.rCurrentTSO->alloc_limit),
+                     (PK_Int64((W_*)&(cap->r.rCurrentTSO->alloc_limit))
+                      - n*sizeof(W_)));
     }
 
     bd = cap->pinned_object_block;

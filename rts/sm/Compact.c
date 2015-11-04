@@ -197,8 +197,8 @@ thread_static( StgClosure* p )
 
   // keep going until we've threaded all the objects on the linked
   // list...
-  while (p != END_OF_STATIC_LIST) {
-
+  while (p != END_OF_STATIC_OBJECT_LIST) {
+    p = UNTAG_STATIC_LIST_PTR(p);
     info = get_itbl(p);
     switch (info->type) {
 
@@ -670,7 +670,7 @@ thread_obj (StgInfoTable *info, StgPtr p)
         return thread_AP((StgAP *)p);
 
     case ARR_WORDS:
-        return p + arr_words_sizeW((StgArrWords *)p);
+        return p + arr_words_sizeW((StgArrBytes *)p);
 
     case MUT_ARR_PTRS_CLEAN:
     case MUT_ARR_PTRS_DIRTY:
