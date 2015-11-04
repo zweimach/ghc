@@ -23,6 +23,11 @@ fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
 fix parser; then fix TypeLits.Mult --> *
 
+TICKETS:
+#9017:
+#9173: mention expression in error
+#7961: main ticket.
+
 QUESTIONS:
 - Check decideQuantification!
 
@@ -387,9 +392,6 @@ Notes:
    But I'm not *very* happy with it.
    NEW PLAN: Just rewrite the solver in terms of unlifted equality.
 
-BUGS:
-#9017:
-#9173: mention expression in error
 
 ----------------------------------------
 Stuff for implementing Π:
