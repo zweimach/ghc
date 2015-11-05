@@ -216,10 +216,8 @@ instance Outputable Var where
             if |  debugStyle ppr_style && (not (gopt Opt_SuppressVarKinds dflags))
                  -> parens (ppr (varName var) <+> ppr_debug var ppr_style <+>
                           dcolon <+> ppr (tyVarKind var))
-               |  debugStyle ppr_style
-                 -> ppr (varName var) <+> ppr_debug var ppr_style
                |  otherwise
-                 -> ppr (varName var)
+                 -> ppr (varName var) <> ppr_debug var ppr_style
 
 {-
   ppr var = ppr (varName var) <+> ifPprDebug (brackets (ppr_debug var))
