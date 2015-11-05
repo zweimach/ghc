@@ -1994,12 +1994,12 @@ canDischarge tclvl ev1 ev2 = canDischargeFRB tclvl (ctEvFRB ev1) (ctEvFRB ev2)
 
 canDischargeFRB :: TcLevel -> CtFRB -> CtFRB -> Bool
 canDischargeFRB (isTopTcLevel -> True) (_, _, Boxed) (_, _, Unboxed) = False
-canDischargeFRB _ (_, ReprEq, _) (_, NomEq, _) = False
-canDischargeFRB _ (Given, _, _)  _             = True
-canDischargeFRB _ (Wanted, _, _) (Wanted, _, _) = True
-canDischargeFRB _ (Wanted, _, _) (Derived, _, _) = True
+canDischargeFRB _ (_, ReprEq, _)  (_, NomEq, _)   = False
+canDischargeFRB _ (Given,   _, _) _               = True
+canDischargeFRB _ (Wanted,  _, _) (Wanted,  _, _) = True
+canDischargeFRB _ (Wanted,  _, _) (Derived, _, _) = True
 canDischargeFRB _ (Derived, _, _) (Derived, _, _) = True
-canDischargeFRB _ _ _ = False
+canDischargeFRB _ _               _               = False
 
 {-
 ************************************************************************
