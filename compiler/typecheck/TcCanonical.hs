@@ -1767,7 +1767,7 @@ unify_derived loc role    orig_ty1 orig_ty2
     go _ _ = bale_out
 
      -- no point in having *boxed* deriveds.
-    bale_out = emitNewDerivedEq loc (mkTcEqPredBR Unboxed role orig_ty1 orig_ty2)
+    bale_out = emitNewDerivedEq loc role orig_ty1 orig_ty2
 
 maybeSym :: SwapFlag -> TcCoercion -> TcCoercion
 maybeSym IsSwapped  co = mkTcSymCo co

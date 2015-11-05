@@ -1413,7 +1413,7 @@ reduce_top_fun_eq old_ev fsk ax_co rhs_ty
   | isGiven old_ev  -- Not shortcut
   = do { let final_co = mkTcSymCo (ctEvCoercion old_ev) `mkTcTransCo` ax_co
               -- final_co :: fsk ~ rhs_ty
-       ; new_ev <- newGivenEvVar deeper_loc (mkTcEqPred (mkTyVarTy fsk) rhs_ty,
+       ; new_ev <- newGivenEvVar deeper_loc (mkPrimEqPred (mkTyVarTy fsk) rhs_ty,
                                              EvCoercion final_co)
        ; emitWorkNC [new_ev] -- Non-cannonical; that will mean we flatten rhs_ty
        ; stopWith old_ev "Fun/Top (given)" }
@@ -1428,7 +1428,7 @@ reduce_top_fun_eq old_ev fsk ax_co rhs_ty
 
   | otherwise -- We must not assign ufsk := ...ufsk...!
   = do { alpha_ty <- newFlexiTcSTy (tyVarKind fsk)
-       ; let pred = mkTcEqPred alpha_ty rhs_ty
+       ; let pred = mkPrimEqPred alpha_ty rhs_ty
        ; new_ev <- case old_ev of
            CtWanted {}  -> do { ev <- newWantedEvVarNC loc pred
                               ; updWorkListTcS (extendWorkListEq (mkNonCanonical ev))
@@ -1535,7 +1535,7 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
                -- G cos ; sym ax_co ; old_ev :: G xis ~ fsk
 
        ; new_ev <- newGivenEvVar deeper_loc
-                         ( mkTcEqPred (mkTyConApp fam_tc xis) (mkTyVarTy fsk)
+                         ( mkPrimEqPred (mkTyConApp fam_tc xis) (mkTyVarTy fsk)
                          , EvCoercion (mkTcTyConAppCo Nominal fam_tc cos
                                         `mkTcTransCo` mkTcSymCo ax_co
                                         `mkTcTransCo` ctEvCoercion old_ev) )
@@ -1555,7 +1555,7 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
                -- old_ev :: F args ~ fsk := ax_co ; sym (G cos) ; new_ev
 
        ; new_ev <- newWantedEvVarNC deeper_loc
-                                    (mkTcEqPred (mkTyConApp fam_tc xis) (mkTyVarTy fsk))
+                                    (mkPrimEqPred (mkTyConApp fam_tc xis) (mkTyVarTy fsk))
        ; setWantedEvBind (ctEvId old_ev)
                    (EvCoercion (ax_co `mkTcTransCo` mkTcSymCo (mkTcTyConAppCo Nominal fam_tc cos)
                                       `mkTcTransCo` ctEvCoercion new_ev))

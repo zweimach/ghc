@@ -1230,7 +1230,8 @@ add_inert_eq :: InertCans -> Ct -> TcS InertCans
 add_inert_eq ics@(IC { inert_count = n
                      , inert_eqs = old_eqs
                      , inert_model = old_model })
-             ct@(CTyEqCan { cc_ev = ev, cc_eq_rel = eq_rel, cc_tyvar = tv })
+             ct@(CTyEqCan { cc_ev = ev, cc_eq_rel = eq_rel, cc_tyvar = tv
+                          , cc_rhs = rhs })
   | isDerived ev
   = do { emitDerivedShadows ics tv
        ; return (ics { inert_model = extendVarEnv old_model tv ct }) }
@@ -1240,8 +1241,8 @@ add_inert_eq ics@(IC { inert_count = n
 
   -- Nominal equality (tv ~N ty), Given/Wanted
   -- See Note [Emitting shadow constraints]
-  | modelCanRewrite old_model rw_tvs  -- Shadow of new constraint is
-  = do { emitNewDerivedEq loc pred    -- not inert, so emit it
+  | modelCanRewrite old_model rw_tvs   -- Shadow of new ct isn't inert; emit it
+  = do { emitNewDerivedEq loc (eqRelRole eq_rel) (mkTyVarTy tv) rhs
        ; return new_ics }
 
   | otherwise   -- Shadow of new constraint is inert wrt model
@@ -2798,7 +2799,7 @@ newFlattenSkolem Wanted loc fam_ty
 
 newFlattenSkolem Derived loc fam_ty
   = do { fmv <- newFmv fam_ty
-       ; ev <- newDerivedNC loc (mkTcEqPred fam_ty (mkTyVarTy fmv))
+       ; ev <- newDerivedNC loc (mkPrimEqPred fam_ty (mkTyVarTy fmv))
        ; return (ev, pprPanic "newFlattenSkolem [D]" (ppr fam_ty), fmv) }
 
 newFsk, newFmv :: TcType -> TcS TcTyVar
@@ -2974,9 +2975,22 @@ dirtyTcCoToCo tc_co
     Pair ty1 ty2 = tcCoercionKind tc_co
     role         = tcCoercionRole tc_co
 
+-- | Make a pred type suitable for making a Derived constraint.
+mkDerivedPred :: TcPredType -> TcPredType
+    -- TODO (RAE): This is necessary to avoid terrible rewriting problems.
+    -- In reality, I need to update the Note [Flavours with boxities] to
+    -- deal with Deriveds-rewriting-Deriveds. But I'm hoping that we'll
+    -- get rid of lifted equalities entirely in the solver so that this
+    -- isn't an issue.
+mkDerivedPred pred
+  | Just (_, role, ty1, ty2) <- getEqPredTys_maybe pred
+  = mkPrimEqPredRole role ty1 ty2
+  | otherwise
+  = pred
+
 emitNewDerived :: CtLoc -> TcPredType -> TcS ()
 emitNewDerived loc pred
-  = do { ev <- newDerivedNC loc pred
+  = do { ev <- newDerivedNC loc (mkDerivedPred pred)
        ; traceTcS "Emitting new derived" (ppr ev)
        ; updWorkListTcS (extendWorkListDerived loc ev) }
 
@@ -2985,15 +2999,15 @@ emitNewDeriveds loc preds
   | null preds
   = return ()
   | otherwise
-  = do { evs <- mapM (newDerivedNC loc) preds
+  = do { evs <- mapM (newDerivedNC loc . mkDerivedPred) preds
        ; traceTcS "Emitting new deriveds" (ppr evs)
        ; updWorkListTcS (extendWorkListDeriveds loc evs) }
 
-emitNewDerivedEq :: CtLoc -> TcPredType -> TcS ()
+emitNewDerivedEq :: CtLoc -> Role -> TcType -> TcType -> TcS ()
 -- Create new equality Derived and put it in the work list
 -- There's no caching, no lookupInInerts
-emitNewDerivedEq loc pred
-  = do { ev <- newDerivedNC loc pred
+emitNewDerivedEq loc role ty1 ty2
+  = do { ev <- newDerivedNC loc (mkPrimEqPredRole role ty1 ty2)
        ; traceTcS "Emitting new derived equality" (ppr ev $$ pprCtLoc loc)
        ; updWorkListTcS (extendWorkListDerived loc ev) }
 
