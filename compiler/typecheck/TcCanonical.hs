@@ -1330,7 +1330,7 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
            (ppr (getEvTerm mb_kind_ev))
        ; emitWorkNC $ freshGoals [mb_kind_ev]
        ; let kind_evt = getEvTerm mb_kind_ev
-       ; kind_co <- dirtyTcCoToCo (evTermCoercion kind_evt)
+       ; kind_co <- dirtyTcCoToCo Wanted (evTermCoercion kind_evt)
        ; let homo_co   = mkSymCo kind_co
            -- homo_co :: k2 ~ k1
              rhs'      = mkCastTy rhs homo_co

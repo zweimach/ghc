@@ -173,28 +173,28 @@ buildPatSyn :: Name -> Bool
             -> PatSyn
 buildPatSyn src_name declared_infix matcher@(matcher_id,_) builder
             (univ_tvs, req_theta) (ex_tvs, prov_theta) arg_tys pat_ty
-  = ASSERT2((and [ univ_tvs == univ_tvs'
-                 , ex_tvs == ex_tvs'
-                 , pat_ty `eqType` pat_ty'
-                 , prov_theta `eqTypes` prov_theta'
-                 , req_theta `eqTypes` req_theta'
-                 , arg_tys `eqTypes` arg_tys'
+  = ASSERT2((and [ univ_tvs == univ_tvs1
+                 , ex_tvs == ex_tvs1
+                 , pat_ty `eqType` pat_ty1
+                 , prov_theta `eqTypes` prov_theta1
+                 , req_theta `eqTypes` req_theta1
+                 , arg_tys `eqTypes` arg_tys1
                  ])
-            , (vcat [ ppr univ_tvs <+> twiddle <+> ppr univ_tvs'
-                    , ppr ex_tvs <+> twiddle <+> ppr ex_tvs'
-                    , ppr pat_ty <+> twiddle <+> ppr pat_ty'
-                    , ppr prov_theta <+> twiddle <+> ppr prov_theta'
-                    , ppr req_theta <+> twiddle <+> ppr req_theta'
-                    , ppr arg_tys <+> twiddle <+> ppr arg_tys']))
+            , (vcat [ ppr univ_tvs <+> twiddle <+> ppr univ_tvs1
+                    , ppr ex_tvs <+> twiddle <+> ppr ex_tvs1
+                    , ppr pat_ty <+> twiddle <+> ppr pat_ty1
+                    , ppr prov_theta <+> twiddle <+> ppr prov_theta1
+                    , ppr req_theta <+> twiddle <+> ppr req_theta1
+                    , ppr arg_tys <+> twiddle <+> ppr arg_tys1]))
     mkPatSyn src_name declared_infix
              (univ_tvs, req_theta) (ex_tvs, prov_theta)
              arg_tys pat_ty
              matcher builder
   where
-    ((_:_:univ_tvs'), req_theta', tau) = tcSplitSigmaTy $ idType matcher_id
-    ([pat_ty', cont_sigma, _], _) = tcSplitFunTys tau
-    (ex_tvs', prov_theta', cont_tau) = tcSplitSigmaTy cont_sigma
-    (arg_tys', _) = tcSplitFunTys cont_tau
+    ((_:_:univ_tvs1), req_theta1, tau) = tcSplitSigmaTy $ idType matcher_id
+    ([pat_ty1, cont_sigma, _], _) = tcSplitFunTys tau
+    (ex_tvs1, prov_theta1, cont_tau) = tcSplitSigmaTy cont_sigma
+    (arg_tys1, _) = tcSplitFunTys cont_tau
     twiddle = char '~'
 
 ------------------------------------------------------

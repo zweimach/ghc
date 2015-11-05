@@ -2967,8 +2967,10 @@ newWantedEvVar loc pty
 -- creating a new CoVar, bound to the TcCoercion in the ambient EvBinds;
 -- the Coercion is just a CoVarCo around this CoVar. The desugarer should
 -- get it all to work out.
-dirtyTcCoToCo :: TcCoercion -> TcS Coercion
-dirtyTcCoToCo tc_co
+dirtyTcCoToCo :: CtFlavour   -- ^ If this is Derived, don't look at the coercion!
+              -> TcCoercion -> TcS Coercion
+dirtyTcCoToCo Derived tc_co = return (pprPanic "dirtyTcCoToCo" (ppr tc_co))
+dirtyTcCoToCo _ tc_co
   = do { cv <- newBoundEvVarId (mkCoercionType role ty1 ty2) (EvCoercion tc_co)
        ; return (mkCoVarCo cv) }
   where

@@ -1166,7 +1166,7 @@ flatten_exact_fam_app_fully tc tys
                    ; (fsk_xi, fsk_co) <- flatten_one rhs_ty
                           -- The fsk may already have been unified, so flatten it
                           -- fsk_co :: fsk_xi ~ fsk
-                   ; co <- liftTcS $ dirtyTcCoToCo tc_co
+                   ; co <- liftTcS $ dirtyTcCoToCo flav tc_co
                    ; return ( fsk_xi
                             , fsk_co `mkTransCo`
                               maybeSubCo eq_rel (mkSymCo co) `mkTransCo`
@@ -1343,7 +1343,8 @@ flatten_tyvar2 tv frb@(flavour, eq_rel, _)
              | CTyEqCan { cc_ev = ctev, cc_tyvar = tv, cc_rhs = rhs_ty } <- ct
              , eqCanRewriteFRB tclvl (ctEvFRB ctev) frb
              ->  do { traceFlat "Following inert tyvar" (ppr tv <+> equals <+> ppr rhs_ty $$ ppr ctev)
-                    ; inert_co <- liftTcS $ dirtyTcCoToCo (ctEvCoercion ctev)
+                    ; inert_co <- liftTcS $ dirtyTcCoToCo (ctEvFlavour ctev)
+                                                          (ctEvCoercion ctev)
                     ; let rewrite_co1 = mkSymCo inert_co
                           rewrite_co = case (ctEvEqRel ctev, eq_rel) of
                             (ReprEq, _rel)  -> ASSERT( _rel == ReprEq )
