@@ -1921,7 +1921,7 @@ ctFRB = ctEvFRB . cc_ev
 ~~~~~~~~~~~~~~~~~~~
 (eqCanRewrite ct1 ct2) holds if the constraint ct1 (a CTyEqCan of form
 tv ~ ty) can be used to rewrite ct2.  It must satisfy the properties of
-a can-rewrite relation, see Definition [Can-rewrite relation]
+a can-rewrite relation, see Definition [Can-rewrite relation] in TcSMonad
 
 With the solver handling Coercible constraints like equality constraints,
 the rewrite conditions must take role into account, never allowing
@@ -1947,7 +1947,7 @@ improvement works; see Note [The improvement story] in TcInteract.
 However, for now at least I'm only letting (Derived,NomEq) rewrite
 (Derived,NomEq) and not doing anything for ReprEq.  If we have
     eqCanRewriteFR (Derived, NomEq) (Derived, _)  = True
-then we lose the property of Note [Can-rewrite relation]
+then we lose the property of Definition [Can-rewrite relation] (in TcSMonad)
   R2.  If f1 >= f, and f2 >= f,
        then either f1 >= f2 or f2 >= f1
 Consider f1 = (Given, ReprEq)
