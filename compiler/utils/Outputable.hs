@@ -73,7 +73,7 @@ module Outputable (
 
         -- * Error handling and debugging utilities
         pprPanic, pprSorry, assertPprPanic, pprPgmError,
-        pprTrace, warnPprTrace,
+        pprTrace, pprTraceIt, warnPprTrace,
         trace, pgmError, panic, sorry, assertPanic,
         pprDebugAndThen,
     ) where
@@ -1035,6 +1035,10 @@ pprTrace :: String -> SDoc -> a -> a
 pprTrace str doc x
    | opt_NoDebugOutput = x
    | otherwise         = pprDebugAndThen unsafeGlobalDynFlags trace (text str) doc x
+
+-- | @pprTraceIt desc x@ is equivalent to @pprTrace desc (ppr x) x@
+pprTraceIt :: Outputable a => String -> a -> a
+pprTraceIt desc x = pprTrace desc (ppr x) x
 
 warnPprTrace :: Bool -> String -> Int -> SDoc -> a -> a
 -- ^ Just warn about an assertion failure, recording the given file and line number.
