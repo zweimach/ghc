@@ -305,42 +305,6 @@ two types have the same kind. This allows us to be a little sloppier
 in keeping track of coercions, which is a good thing. It also means
 that eqType does not depend on eqCoercion, which is also a good thing.
 
-There is one wrinkle with this. We don't really want, say
-(a |> co -> <*>) (b |> co) to be equal to (a b), even though they
-have the same kinds and differ only by casts. Having these be
-equal causes a major problem in the unifier.
-TODO (RAE): Is this note still accurate? This behavior will be changing,
-I think.
-
-Suppose we have
-
-a :: Raining -> *
-T :: Bool -> *
-
-b :: Raining
-
-and we're unifying (a b) with (T True). If we're totally ignoring
-all casts, then these *should* unify, with
-
-  [a |-> T |> (sym axRaining -> <*>), b |-> True |> sym axRaining]
-  where
-    axRaining :: Raining ~R Bool
-
-The dreadful problem is that axRaining appears nowhere in the query!
-We don't want matching to simply fail here, because that wouldn't
-respect the equality defined by `eqType`. So, we tweak the equality
-to say that one AppTy equals another only if the kinds of the arguments
-are the same.
-
-Happily, we can ignore TyConApps when implementing this restriction.
-If we're comparing (tc ... ty1 ...) and (tc ... ty2 ...), where
-ty1 and ty2 have different kinds, then either one type is ill-kinded,
-or an earlier dependent argument (in the first set of ...) has to
-differ between the types. So, we just ignore this complexity.
-
-This tweak is implemented via the EAppTy constructor of 'ErasedType',
-in the Type module.
-
 -------------------------------------
                 Note [PredTy]
 -}

@@ -1263,7 +1263,8 @@ tcEqType :: TcType -> TcType -> Bool
 -- equality] (in TyCoRep) as `eqType`, but Type.eqType believes (* ==
 -- Constraint), and that is NOT what we want in the type checker!
 tcEqType ty1 ty2
-  = isNothing (tc_eq_type ki1 ki2) && isNothing (tc_eq_type ty1 ty2)
+  = isNothing (tc_eq_type tcView ki1 ki2) &&
+    isNothing (tc_eq_type tcView ty1 ty2)
   where
     ki1 = typeKind ty1
     ki2 = typeKind ty2
@@ -1271,58 +1272,60 @@ tcEqType ty1 ty2
 -- | Just like 'tcEqType', but will return True for types of different kinds
 -- as long as their non-coercion structure is identical.
 tcEqTypeNoKindCheck :: TcType -> TcType -> Bool
-tcEqTypeNoKindCheck ty1 ty2 = isNothing $ tc_eq_type ty1 ty2
+tcEqTypeNoKindCheck ty1 ty2
+  = isNothing $ tc_eq_type tcView ty1 ty2
 
 -- | Like 'tcEqType', but returns information about whether the difference
 -- is visible in the case of a mismatch. A return of Nothing means the types
 -- are 'tcEqType'.
 tcEqTypeVis :: TcType -> TcType -> Maybe VisibilityFlag
 tcEqTypeVis ty1 ty2
-  = tc_eq_type ty1 ty2 `and_then` tc_eq_type ki1 ki2
+  = tc_eq_type tcView ty1 ty2 <!> tc_eq_type tcView ki1 ki2
   where
     ki1 = typeKind ty1
     ki2 = typeKind ty2
 
-    Nothing `and_then` x = x
-    just    `and_then` _ = just
+(<!>) :: Maybe VisibilityFlag -> Maybe VisibilityFlag -> Maybe VisibilityFlag
+Nothing        <!> x            = x
+Just Visible   <!> _            = Just Visible
+Just Invisible <!> Just Visible = Just Visible
+Just Invisible <!> _            = Just Invisible
+infixr 3 <!>
 
--- | Worker for 'tcEqType'. No kind check!
-tc_eq_type :: TcType -> TcType -> Maybe VisibilityFlag
-tc_eq_type t1 t2 = tc_eq_type_erased init_env (erase t1) (erase t2)
+-- | Real worker for 'tcEqType'. No kind check!
+tc_eq_type :: (TcType -> Maybe TcType)  -- ^ @tcView@, if you want unwrapping
+           -> Type -> Type -> Maybe VisibilityFlag
+tc_eq_type view_fun orig_ty1 orig_ty2 = go Visible orig_env orig_ty1 orig_ty2
   where
-    init_env = mkRnEnv2 $
-               mkInScopeSet $
-               tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
-    erase = eraseType tcView
+    go vis env t1 t2 | Just t1' <- view_fun t1 = go vis env t1' t2
+    go vis env t1 t2 | Just t2' <- view_fun t2 = go vis env t1 t2'
 
--- | Real worker for 'tcEqType'. Works on erased types.
-tc_eq_type_erased :: RnEnv2 -> EType -> EType -> Maybe VisibilityFlag
-tc_eq_type_erased = go Visible
-  where
-    go vis env (ETyVarTy tv1)       (ETyVarTy tv2)
+    go vis env (TyVarTy tv1)       (TyVarTy tv2)
       = check vis $ rnOccL env tv1 == rnOccR env tv2
 
-    go vis _   (ELitTy lit1)        (ELitTy lit2)
+    go vis _   (LitTy lit1)        (LitTy lit2)
       = check vis $ lit1 == lit2
 
-    go vis env (EForAllTy (ENamed tv1 k1 vis1) ty1)
-               (EForAllTy (ENamed tv2 k2 vis2) ty2)
-      = go vis1 env k1 k2 `and_then` go vis (rnBndr2 env tv1 tv2) ty1 ty2
-                          `and_then` check vis (vis1 == vis2)
-    go vis env (EForAllTy (EAnon arg1) res1) (EForAllTy (EAnon arg2) res2)
-      = go vis env arg1 arg2 `and_then` go vis env res1 res2
-    go vis env (EAppTy s1 k1 t1)    (EAppTy s2 k2 t2)
-      = go vis env s1 s2 `and_then` go Invisible env k1 k2
-                         `and_then` go vis env t1 t2
-    go vis env (ETyConApp tc1 ts1)  (ETyConApp tc2 ts2)
-      = check vis (tc1 == tc2) `and_then` gos (tc_vis tc1) env ts1 ts2
-    go _   _   ECoercionTy          ECoercionTy = Nothing
-    go vis _   _                    _           = Just vis
+    go vis env (ForAllTy (Named tv1 vis1) ty1)
+               (ForAllTy (Named tv2 vis2) ty2)
+      = go vis1 env (tyVarKind tv1) (tyVarKind tv2)
+          <!> go vis (rnBndr2 env tv1 tv2) ty1 ty2
+          <!> check vis (vis1 == vis2)
+    go vis env (ForAllTy (Anon arg1) res1) (ForAllTy (Anon arg2) res2)
+      = go vis env arg1 arg2 <!> go vis env res1 res2
+    go vis env (AppTy s1 t1)        (AppTy s2 t2)
+      = go vis env s1 s2 <!> go vis env t1 t2
+    go vis env (TyConApp tc1 ts1)   (TyConApp tc2 ts2)
+      = check vis (tc1 == tc2) <!> gos (tc_vis tc1) env ts1 ts2
+    go vis env (CastTy t1 _)        t2            = go vis env t1 t2
+    go vis env t1                   (CastTy t2 _) = go vis env t1 t2
+    go _   _   ECoercionTy          ECoercionTy   = Nothing
+    go vis _   _                    _             = Just vis
 
     gos _      _   []       []       = Nothing
-    gos (v:vs) env (t1:ts1) (t2:ts2) = go v env t1 t2 `and_then` gos vs env ts1 ts2
+    gos (v:vs) env (t1:ts1) (t2:ts2) = go v env t1 t2 <!> gos vs env ts1 ts2
     gos (v:_)  _   _        _        = Just v
-    gos _      _   _        _        = panic "tc_eq_type_erased"
+    gos _      _   _        _        = panic "tc_eq_type"
 
     tc_vis :: TyCon -> [VisibilityFlag]
     tc_vis tc = viss ++ repeat Visible
@@ -1337,9 +1340,7 @@ tc_eq_type_erased = go Visible
     check _   True  = Nothing
     check vis False = Just vis
 
-    Nothing `and_then` x = x
-    just    `and_then` _ = just
-    infixr 3 `and_then`
+    orig_env = mkRnEnv2 $ mkInScopeSet $ tyCoVarsOfTypes [orig_ty1, orig_ty2]
 
 -- | Like 'pickyEqTypeVis', but returns a Bool for convenience
 pickyEqType :: TcType -> TcType -> Bool
@@ -1349,21 +1350,13 @@ pickyEqType :: TcType -> TcType -> Bool
 -- This still ignores coercions, because this is used only for printing,
 -- and we omit coercions there.
 pickyEqType ty1 ty2
-  = tc_eq_type_erased init_env (erase ki1) (erase ki2)
-    `and_then`
-    tc_eq_type_erased init_env (erase ty1) (erase ty2)
+  = isNothing $
+    tc_eq_type (const Nothing) ki1 ki2
+    <!>
+    tc_eq_type (const Nothing) ty1 ty2
   where
     ki1 = typeKind ty1
     ki2 = typeKind ty2
-
-    init_env = mkRnEnv2 $
-               mkInScopeSet $
-               tyCoVarsOfType ty1 `unionVarSet` tyCoVarsOfType ty2
-
-    erase = eraseType (const Nothing)
-
-    Nothing  `and_then` x = isNothing x      -- first test succeeded; use second
-    (Just _) `and_then` _ = False
 
 {-
 Note [Occurs check expansion]
