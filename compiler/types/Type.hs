@@ -122,7 +122,7 @@ module Type (
 
         -- * Type comparison
         eqType, eqTypeX, eqTypes, cmpType, cmpTypes, cmpTypeX, cmpTypesX, cmpTc,
-        eqVarBndrs, eraseType, coreEraseType, EType(..), EKind, EBinder(..),
+        eqVarBndrs,
 
         -- * Forcing evaluation of types
         seqType, seqTypes,
@@ -1895,12 +1895,27 @@ seqTypes (ty:tys) = seqType ty `seq` seqTypes tys
         (We don't use instances so that we know where it happens)
 *                                                                      *
 ************************************************************************
+
+Note [Equality on AppTys]
+~~~~~~~~~~~~~~~~~~~~~~~~~
+In our cast-ignoring equality, we want to say that the following two
+are equal:
+
+  (Maybe |> co) (Int |> co')   ~?       Maybe Int
+
+But the left is an AppTy while the right is a TyConApp. The solution is
+to use repSplitAppTy_maybe to break up the TyConApp into its pieces and
+then continue. Easy to do, but also easy to forget to do.
+
 -}
 
--- TODO (RAE): Describe algorithm succinctly.
 eqType :: Type -> Type -> Bool
 -- ^ Type equality on source types. Does not look through @newtypes@ or
 -- 'PredType's, but it does look through type synonyms.
+-- This first checks that the kinds of the types are equal and then
+-- checks whether the types are equal, ignoring casts and coercions.
+-- (The kind check is a recursive call, but since all kinds have type
+-- @Type@, there is no need to check the types of kinds.)
 -- See also Note [Non-trivial definitional equality] in TyCoRep.
 eqType t1 t2 = isEqual $ cmpType t1 t2
 
@@ -1931,58 +1946,57 @@ cmpType t1 t2
   -- we know k1 and k2 have the same kind, because they both have kind *.
   = cmpTypeX rn_env t1 t2
   where
-    rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2))
+    rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes [t1, t2]))
 
 cmpTypes :: [Type] -> [Type] -> Ordering
 cmpTypes ts1 ts2 = cmpTypesX rn_env ts1 ts2
   where
-    rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes ts1 `unionVarSet` tyCoVarsOfTypes ts2))
+    rn_env = mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes (ts1 ++ ts2)))
 
 cmpTypeX :: RnEnv2 -> Type -> Type -> Ordering  -- Main workhorse
     -- See Note [Non-trivial definitional equality] in TyCoRep
-cmpTypeX env t1 t2 = go env (coreEraseType k1) (coreEraseType k2) `thenCmp`
-                     go env (coreEraseType t1) (coreEraseType t2)
+cmpTypeX env orig_t1 orig_t2 = go env k1 k2 `thenCmp` go env orig_t1 orig_t2
   where
-    k1 = typeKind t1
-    k2 = typeKind t2
+    k1 = typeKind orig_t1
+    k2 = typeKind orig_t2
 
-    -- NB: It's tempting just to do a straightforward descent into the types,
-    -- ignoring casts. However, this might end up comparing an AppTy to a
-    -- TyConApp and getting confused. There may be a more efficient approach
-    -- than erasing and comparing, but I don't feel like succumbing to evil
-    -- premature optimization at the moment. TODO (RAE): Optimize when not
-    -- premature!
+    go env t1 t2 | Just t1' <- coreViewOneStarKind t1 = go env t1' t2
+    go env t1 t2 | Just t2' <- coreViewOneStarKind t2 = go env t1 t2'
 
-    -- We expand predicate types, because in Core-land we have
-    -- lots of definitions like
-    --      fOrdBool :: Ord Bool
-    --      fOrdBool = D:Ord .. .. ..
-    -- So the RHS has a data type
-
-    go env (ETyVarTy tv1)       (ETyVarTy tv2)
+    go env (TyVarTy tv1)       (TyVarTy tv2)
       = rnOccL env tv1 `compare` rnOccR env tv2
-    go env (EForAllTy (ENamed tv1 k1 _) t1) (EForAllTy (ENamed tv2 k2 _) t2)
-      = go env k1 k2 `thenCmp` go (rnBndr2 env tv1 tv2) t1 t2
-    go env (EAppTy s1 k1 t1)    (EAppTy s2 k2 t2)
-      = go env s1 s2 `thenCmp` go env k1 k2 `thenCmp` go env t1 t2
-    go env (EForAllTy (EAnon s1) t1) (EForAllTy (EAnon s2) t2)
+    go env (ForAllTy (Named tv1 _) t1) (ForAllTy (Named tv2 _) t2)
+      = go env (tyVarKind tv1) (tyVarKind tv2)
+        `thenCmp` go (rnBndr2 env tv1 tv2) t1 t2
+        -- See Note [Equality on AppTys]
+    go env (AppTy s1 t1) ty2
+      | Just (s2, t2) <- repSplitAppTy_maybe ty2
       = go env s1 s2 `thenCmp` go env t1 t2
-    go env (ETyConApp tc1 tys1) (ETyConApp tc2 tys2)
+    go env ty1 (AppTy s2 t2)
+      | Just (s1, t1) <- repSplitAppTy_maybe ty1
+      = go env s1 s2 `thenCmp` go env t1 t2
+    go env (ForAllTy (Anon s1) t1) (ForAllTy (Anon s2) t2)
+      = go env s1 s2 `thenCmp` go env t1 t2
+    go env (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       = (tc1 `cmpTc` tc2) `thenCmp` gos env tys1 tys2
-    go _   (ELitTy l1)          (ELitTy l2)          = compare l1 l2
-    go _   ECoercionTy          ECoercionTy          = EQ
+    go _   (LitTy l1)          (LitTy l2)          = compare l1 l2
+    go env (CastTy t1 _)       t2                  = go env t1 t2
+    go env t1                  (CastTy t2 _)       = go env t1 t2
+    go _   (CoercionTy {})     (CoercionTy {})     = EQ
 
-        -- Deal with the rest: TyVarTy < CoercionTy < CastTy < AppTy < LitTy < TyConApp < ForAllTy
+        -- Deal with the rest: TyVarTy < CoercionTy < AppTy < LitTy < TyConApp < ForAllTy
     go _ ty1 ty2
       = (get_rank ty1) `compare` (get_rank ty2)
-      where get_rank :: EType -> Int
-            get_rank (ETyVarTy {})             = 0
-            get_rank (ECoercionTy {})          = 1
-            get_rank (EAppTy {})               = 3
-            get_rank (ELitTy {})               = 4
-            get_rank (ETyConApp {})            = 5
-            get_rank (EForAllTy (EAnon {}) _)  = 6
-            get_rank (EForAllTy (ENamed {}) _) = 7
+      where get_rank :: Type -> Int
+            get_rank (CastTy {})
+              = pprPanic "cmpTypeX.get_rank" (ppr [ty1,ty2])
+            get_rank (TyVarTy {})            = 0
+            get_rank (CoercionTy {})         = 1
+            get_rank (AppTy {})              = 3
+            get_rank (LitTy {})              = 4
+            get_rank (TyConApp {})           = 5
+            get_rank (ForAllTy (Anon {}) _)  = 6
+            get_rank (ForAllTy (Named {}) _) = 7
 
     gos _   []         []         = EQ
     gos _   []         _          = LT
@@ -2007,83 +2021,6 @@ cmpTc tc1 tc2
   where
     u1  = tyConUnique tc1
     u2  = tyConUnique tc2
-
-----------------
--- | This is used when doing the non-trivial definitional equality check.
--- If differs from 'Type' in that it annotates all AppTys with the kind
--- of the argument.
--- See Note [Non-trivial definitional equality] in TyCoRep
-data EType
-  = ETyVarTy TyVar
-  | EAppTy EType EKind EType
-  | ETyConApp TyCon [EType]
-  | EForAllTy EBinder EType
-  | ELitTy TyLit
-  | ECoercionTy
-type EKind = EType
-
-data EBinder
-  = EAnon EType
-  | ENamed TyVar EType VisibilityFlag  -- don't ask for the tyvar's kind!
-
-instance Outputable EType where
-  ppr (ETyVarTy tv)       = ppr tv
-  ppr (EAppTy t1 k2 t2)   = ppr t1 <+> parens (ppr t2 <+> dcolon <+> ppr k2)
-  ppr (ETyConApp tc tys)  = ppr tc <+> sep (map (parens . ppr) tys)
-  ppr (EForAllTy bndr ty) = text "forall" <+> ppr bndr <> dot <+> ppr ty
-  ppr (ELitTy lit)        = ppr lit
-  ppr ECoercionTy         = text "<<co>>"
-
-instance Outputable EBinder where
-  ppr (EAnon ty)        = text "[anon]" <+> ppr ty
-  ppr (ENamed tv k vis) = parens (ppr tv <+> dcolon <+> ppr k <+> ppr vis)
-
--- | Remove all casts from a type, and use the given "view" function to
--- unwrap synonyms as we go. This will yield an ill-kinded type, so
--- use with caution.
-eraseType :: (Type -> Maybe Type) -> Type -> EType
-eraseType view_fun = go
-  where
-    go :: Type -> EType
-    go t | Just t' <- view_fun t = go t'
-
-    go (TyVarTy tv1)      = ETyVarTy tv1 -- comparison doesn't recur into tv kinds
-      -- NB: use mkAppTy, as erasing may expose a TyCon!
-    go t@(AppTy {})       = go_app t []
-    go (TyConApp tc tys)  = ETyConApp tc (map go tys)
-    go (ForAllTy bndr ty) = EForAllTy (go_bndr bndr) (go ty)
-    go (LitTy lit)        = ELitTy lit
-    go (CastTy t _)       = go t
-    go (CoercionTy {})    = ECoercionTy
-
-      -- doing it this way turns a quadratic algorithm into a linear one!
-    go_app (AppTy t1 t2) args = go_app t1 (t2 : args)
-    go_app other_ty      args = mk_app_tys (go other_ty) args
-
-    mk_app_tys :: EType -> [Type] -> EType
-    mk_app_tys ty1                 []         = ty1
-    mk_app_tys (ETyConApp tc tys1) tys2
-      = mk_ty_con_app tc (tys1 ++ map go tys2)
-    mk_app_tys ty1                 (ty2:tys2)
-      = mk_app_tys (EAppTy ty1 (go (typeKind ty2)) (go ty2)) tys2
-
-    mk_ty_con_app :: TyCon -> [EType] -> EType
-    mk_ty_con_app tycon tys
-      | isFunTyCon tycon
-      , [ty1, ty2] <- tys
-      = EForAllTy (EAnon ty1) ty2
-      | otherwise
-      = ETyConApp tycon tys
-
-    go_bndr :: Binder -> EBinder
-    go_bndr (Anon ty)      = EAnon (go ty)
-    go_bndr (Named tv vis) = ENamed tv (go (tyVarKind tv)) vis
-
--- | Remove all casts, all type synonyms, and make Constraint and *
--- look the same. Note that the result type will likely be ill-kinded,
--- so proceed with caution.
-coreEraseType :: Type -> EType
-coreEraseType = eraseType coreViewOneStarKind
 
 {-
 ************************************************************************
