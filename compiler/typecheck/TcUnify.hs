@@ -946,7 +946,8 @@ uUnfilledVar origin swapped tv1 details1 non_var_ty2  -- ty2 is not a type varia
         -> do { dflags <- getDynFlags
               ; mb_ty2' <- checkTauTvUpdate dflags origin tv1 non_var_ty2
               ; case mb_ty2' of
-                  Just (ty2', co_k) -> updateMeta tv1 ref1 ty2' co_k
+                  Just (ty2', co_k) -> maybe_sym swapped <$>
+                                       updateMeta tv1 ref1 ty2' co_k
                   Nothing   -> do { traceTc "Occ/type-family defer"
                                         (ppr tv1 <+> dcolon <+> ppr (tyVarKind tv1)
                                          $$ ppr non_var_ty2 $$ ppr (typeKind non_var_ty2))
@@ -998,8 +999,10 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
     ty2 = mkTyVarTy tv2
     kind_origin = KindEqOrigin ty1 ty2 origin
 
-    maybe_sym IsSwapped  = mkSymCo
-    maybe_sym NotSwapped = id
+-- | apply sym iff swapped
+maybe_sym :: SwapFlag -> Coercion -> Coercion
+maybe_sym IsSwapped  = mkSymCo
+maybe_sym NotSwapped = id
 
 nicer_to_update_tv1 :: TcTyVar -> MetaInfo -> MetaInfo -> Bool
 nicer_to_update_tv1 _   _     SigTv = True
@@ -1235,13 +1238,11 @@ updateMeta :: TcTyVar            -- ^ tv to fill in, tv :: k1
            -> TcRef MetaDetails  -- ^ ref to tv's metadetails
            -> TcType             -- ^ ty2 :: k2
            -> Coercion           -- ^ kind_co :: k2 ~N k1
-           -> TcM Coercion       -- ^ :: tv ~ ty2 |> kind_co
+           -> TcM Coercion       -- ^ :: tv ~N ty2 (= ty2 |> kind_co ~N ty2)
 updateMeta tv1 ref1 ty2 kind_co
-  = do { let ty2_refl             = mkNomReflCo ty2
-             (ty2', co)
-               | isReflCo kind_co = (ty2, ty2_refl)
-               | otherwise        = ( ty2 `mkCastTy` kind_co
-                                    , mkCoherenceLeftCo ty2_refl kind_co )
+  = do { let ty2_refl   = mkNomReflCo ty2
+             (ty2', co) = ( ty2 `mkCastTy` kind_co
+                          , mkCoherenceLeftCo ty2_refl kind_co )
        ; writeMetaTyVarRef tv1 ref1 ty2'
        ; return co }
 
@@ -1304,6 +1305,9 @@ checkExpectedKind ty act_kind exp_kind
                                   , uo_thing    = Just $ mkTypeErrorThing ty'
                                   , uo_level    = KindLevel }
       ; co_k <- uType origin act_kind' exp_kind
+      ; traceTc "checkExpectedKind" (vcat [ ppr act_kind
+                                          , ppr exp_kind
+                                          , ppr co_k ])
       ; let result_ty = ty' `mkNakedCastTy` co_k
       ; return result_ty }
   where

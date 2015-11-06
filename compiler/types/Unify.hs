@@ -678,9 +678,9 @@ uUnrefined tv1 ty2 ty2' kco
        ; let ty1 = mkTyVarTy tv1
        ; case (b1, b2) of
            (BindMe, _)        -> do { checkRnEnvR ty2 -- make sure ty2 is not a local
-                                    ; extendTvEnv tv1 (ty2 `mkCastTy` kco) }
+                                    ; extendTvEnv tv1 (ty2 `mkCastTy` mkSymCo kco) }
            (_, BindMe) | unif -> do { checkRnEnvL ty1 -- ditto for ty1
-                                    ; extendTvEnv tv2 (ty1 `mkCastTy` mkSymCo kco) }
+                                    ; extendTvEnv tv2 (ty1 `mkCastTy` kco) }
            _ -> maybeApart -- See Note [Unification with skolems]
   }}}}
 
