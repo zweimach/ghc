@@ -558,6 +558,57 @@ pickLR CRight (_,r) = r
 %*                                                                      *
 %************************************************************************
 
+Note [Coercion holes]
+~~~~~~~~~~~~~~~~~~~~~
+During typechecking, we emit constraints for kind coercions, to be used
+to cast a type's kind. These coercions then must be used in types. Because
+they might appear in a top-level type, there is no place to bind these
+(unlifted) coercions in the usual way. So, instead of creating a coercion
+variable and then solving for the variable, we use a coercion hole, which
+is just an unnamed mutable cell. During type-checking, the holes are filled
+in. The Unique carried with a coercion hole is used solely for debugging.
+Coercion holes can be compared for equality only like other coercions:
+only by looking at the types coerced.
+
+Holes should never appear in Core. If, one day, we use type-level information
+to separate out forms that can appear during type-checking vs forms that can
+appear in core proper, holes in Core will be ruled out. (This is quite like
+the fact that Type can, technically, store TcTyVars but never do.)
+
+Note that we don't use holes for other evidence because other evidence wants
+to be shared. But coercions are entirely erased, so there's little benefit
+to sharing.
+
+Note [ProofIrrelProv]
+~~~~~~~~~~~~~~~~~~~~~
+A ProofIreelProv is a coercion between coercions. For example:
+
+  data G a where
+    MkG :: G Bool
+
+In core, we get
+
+  G :: * -> *
+  MkG :: forall (a :: *). (a ~ Bool) -> G a
+
+Now, consider 'MkG -- that is, MkG used in a type -- and suppose we want
+a proof that ('MkG co1 a1) ~ ('MkG co2 a2). This will have to be
+
+  TyConAppCo Nominal MkG [co3, co4]
+  where
+    co3 :: co1 ~ co2
+    co4 :: a1 ~ a2
+
+Note that
+  co1 :: a1 ~ Bool
+  co2 :: a2 ~ Bool
+
+Here,
+  co3 = UnivCo ProofIrrelProv Nominal co5 (CoercionTy co1) (CoercionTy co2)
+  where
+    co5 :: (a1 ~ Bool) ~ (a2 ~ Bool)
+    co5 = TyConAppCo Nominal (~) [<*>, <*>, co4, <Bool>]
+
 -}
 
 -- | For simplicity, we have just one UnivCo that represents a coercion from
@@ -565,19 +616,25 @@ pickLR CRight (_,r) = r
 -- type. To make better sense of these, we tag a UnivCo with a
 -- UnivCoProvenance. This provenance is rarely consulted and is more
 -- for debugging info than anything else.
+-- An important exception to this rule is that we also use a UnivCo
+-- for coercion holes. See Note [Coercion holes].
 data UnivCoProvenance
-  = UnsafeCoerceProv   -- ^ From @unsafeCoerce#@
+  = UnsafeCoerceProv   -- ^ From @unsafeCoerce#@. These are unsound.
   | PhantomProv        -- ^ From the need to create a phantom coercion;
                        --   the UnivCo must be Phantom.
   | ProofIrrelProv     -- ^ From the fact that any two coercions are
-                       --   considered equivalent. TODO (RAE): example needed.
-    -- TODO (RAE): Write down where the soundness of each form derives from.
+                       --   considered equivalent. See Note [ProofIrrelProv]
+  | PluginProv String  -- ^ From a plugin, which asserts that this coercion
+                       --   is sound. The string is for the use of the plugin.
+  | HoleProv CoercionHole
   deriving (Eq, Data.Data, Data.Typeable)
 
 instance Outputable UnivCoProvenance where
   ppr UnsafeCoerceProv = text "(unsafeCoerce#)"
   ppr PhantomProv      = text "(phantom)"
   ppr ProofIrrelProv   = text "(proof irrel.)"
+  ppr (PluginProv str) = parens (text "plugin" <+> brackets (text str))
+  ppr (HoleProv hole)  = parens (text "hole" <> ppr hole)
 
 instance Binary UnivCoProvenance where
   put_ bh UnsafeCoerceProv = putByte bh 0
@@ -590,6 +647,12 @@ instance Binary UnivCoProvenance where
       0 -> UnsafeCoerceProv
       1 -> PhantomProv
       _ -> ProofIrrelProv
+
+-- | A coercion to be filled in by the type-checker. See Note [Coercion holes]
+data CoercionHole
+  = CoercionHole Unique   -- ^ used only for debugging
+                 (IORef (Maybe Coercion))
+                   -- should be TcRef, but that would r
 
 {-
 Note [Refl invariant]
