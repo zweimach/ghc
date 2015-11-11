@@ -660,8 +660,7 @@ data TcEvBinds
   deriving( Data.Typeable )
 
 data EvBindsVar = EvBindsVar (IORef EvBindMap) Unique
-     -- The Unique is for debug printing and the ability to roll back
-     -- changes in tryTcS
+     -- The Unique is for debug printing only
 
 instance Data.Data TcEvBinds where
   -- Placeholder; we can't travers into TcEvBinds

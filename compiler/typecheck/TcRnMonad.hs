@@ -1185,12 +1185,6 @@ getTcEvBindsMap :: EvBindsVar -> TcM EvBindMap
 getTcEvBindsMap (EvBindsVar ev_ref _)
   = readTcRef ev_ref
 
--- | Change the 'EvBindMap' in an 'EvBindsVar'
-setTcEvBindsMap :: EvBindsVar -> EvBindMap -> TcM ()
-setTcEvBindsMap ebv@(EvBindsVar ev_ref _) ebm
-  = do { traceTc "Setting EvBindsVar" (ppr ebv)
-       ; writeTcRef ev_ref ebm }
-
 chooseUniqueOccTc :: (OccSet -> OccName) -> TcM OccName
 chooseUniqueOccTc fn =
   do { env <- getGblEnv

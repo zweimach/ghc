@@ -1,13 +1,11 @@
 stack:
-   - ic_binds --> Maybe
-     nestImplicTcS
-       TcSEnv
-         runTcS and friends
-	 - runTcSEqualities :: TcS a -> TcM a
-     floatEqualities
-     setImplicationStatus ?
 
- - remove evBindMapWanteds
+ - change tcs_unified to be a number
+
+ - combine stateful functions called from simplifyInfer (TcS vs TcM variants)
+   (like promoteTyVar)
+ 
+ - simplifyWantedsTcMCustom ?
 
  - setWantedEvBind --> setWanted --> setWantedEq
  - setWantedEvTerm :: TcEvDest -> EvTerm -> CtLoc -> TcS ()

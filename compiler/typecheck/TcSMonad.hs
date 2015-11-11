@@ -12,9 +12,9 @@ module TcSMonad (
     updWorkListTcS,
 
     -- The TcS monad
-    TcS, runTcS, runTcSWithEvBinds, failTcS, tryTcS,
-    runTcSRollbackInfo,
-    nestTcS, nestImplicTcS, nestTryTcS,
+    TcS, runTcS, runTcSWithEvBinds, failTcS,
+    runTcSEqualities,
+    nestTcS, nestImplicTcS,
 
     runTcPluginTcS, addUsedRdrNamesTcS, deferTcSForAllEq,
 
@@ -31,7 +31,7 @@ module TcSMonad (
     newWanted, newWantedEvVar, newWantedEvVarNC, newDerivedNC,
     newBoundEvVarId, dirtyTcCoToCo,
     unifyTyVar, unflattenFmv, reportUnifications,
-    setEvBind, setWantedEvBind, setEvBindIfWanted, dropEvBindFromVar,
+    setEvBind, setWantedEvBind, setEvBindIfWanted,
     newEvVar, newGivenEvVar, newGivenEvVars,
     emitNewDerived, emitNewDeriveds, emitNewDerivedEq,
     checkReductionDepth,
@@ -2250,19 +2250,17 @@ data TcSEnv
       tcs_unified     :: IORef TyVarSet,
           -- The set of metavars that have been filled
 
-      tcs_orig_binds  :: IORef (UniqFM (EvBindsVar, EvBindMap)),
-          -- when an EvBindsVar is about to be updated, check here first.
-          -- if the EvBindsVar's unique is not mapped, preserve the original
-          -- EvBindMap in this mapping. Then, in tryTcS, we can restore
-          -- the original EvBindMaps. (Unused outside of tryTcS.)
-
-      tcs_count    :: IORef Int, -- Global step count
+      tcs_count     :: IORef Int, -- Global step count
 
       tcs_inerts    :: IORef InertSet, -- Current inert set
 
       -- The main work-list and the flattening worklist
       -- See Note [Work list priorities] and
-      tcs_worklist  :: IORef WorkList -- Current worklist
+      tcs_worklist  :: IORef WorkList, -- Current worklist
+
+      tcs_used_tcvs :: IORef TyCoVarSet
+        -- these variables were used when filling holes. Don't discard!
+        -- See also Note [Tracking redundant constraints] in TcSimplify
     }
 
 ---------------
@@ -2350,54 +2348,31 @@ runTcS :: TcS a                -- What to run
        -> TcM (a, EvBindMap)
 runTcS tcs
   = do { ev_binds_var <- TcM.newTcEvBinds
-       ; res <- runTcSWithEvBinds ev_binds_var tcs
+       ; res <- runTcSWithEvBinds (Just ev_binds_var) tcs
        ; ev_binds <- TcM.getTcEvBindsMap ev_binds_var
        ; return (res, ev_binds) }
 
--- | Run a TcS action, but unfill any unified metavars.
-tryTcS :: TcS a
-       -> TcM ( a              -- result
-              , [(TcTyVar, TcType)] -- unifications
-              , EvBindMap )    -- the ev binds created during solving
-tryTcS tcs
-  = do { ev_binds_var <- TcM.newTcEvBinds
-       ; (res, unified_vars, ev_rollback) <- runTcSRollbackInfo ev_binds_var tcs
-       ; ev_bind_map <- TcM.getTcEvBindsMap ev_binds_var
+-- | This can deal only with equality constraints.
+runTcSEqualities :: TcS a -> TcM a
+runTcSEqualities = runTcSWithEvBinds Nothing
 
-          -- roll back calls to setWantedTyBind
-       ; let wiped_tvs = varSetElems unified_vars
-       ; tys <- mapM TcM.unFillMetaTyVar wiped_tvs
-
-          -- roll back calls to setEvBind
-       ; mapM_ (uncurry TcM.setTcEvBindsMap) ev_rollback
-
-       ; return (res, zip wiped_tvs tys, ev_bind_map) }
-
-runTcSWithEvBinds :: EvBindsVar
+runTcSWithEvBinds :: Maybe EvBindsVar
                   -> TcS a
                   -> TcM a
 runTcSWithEvBinds ev_binds_var tcs
-  = fstOf3 <$> runTcSRollbackInfo ev_binds_var tcs
-
-runTcSRollbackInfo :: Maybe EvBindsVar
-                   -> TcS a
-                   -> TcM (a, TyVarSet, [(EvBindsVar, EvBindMap)])
-                     -- returns the set of unified variables
-                     -- and an association list of the original contents
-                     -- of any modified EvBindsVars
-runTcSRollbackInfo ev_binds_var tcs
   = do { unified_var <- TcM.newTcRef emptyVarSet
        ; step_count <- TcM.newTcRef 0
-       ; inert_var <- TcM.newTcRef is
+       ; inert_var <- TcM.newTcRef emptyInert
        ; wl_var <- TcM.newTcRef emptyWorkList
-       ; orig_binds_var <- TcM.newTcRef emptyUFM
+       ; used_var <- TcM.newTcRef emptyVarSet -- never read from, but see
+                                              -- nestImplicTcS
 
        ; let env = TcSEnv { tcs_ev_binds   = ev_binds_var
                           , tcs_unified    = unified_var
-                          , tcs_orig_binds = orig_binds_var
                           , tcs_count      = step_count
                           , tcs_inerts     = inert_var
-                          , tcs_worklist   = wl_var }
+                          , tcs_worklist   = wl_var
+                          , tcs_used_tcvs  = used_var }
 
              -- Run the computation
        ; res <- unTcS tcs env
@@ -2412,11 +2387,7 @@ runTcSRollbackInfo ev_binds_var tcs
             ; checkForCyclicBinds ev_binds }
 #endif
 
-       ; unified_var_set <- TcM.readTcRef unified_var
-       ; orig_binds <- TcM.readTcRef orig_binds_var
-       ; return (res, unified_var_set, eltsUFM orig_binds) }
-  where
-    is = emptyInert
+       ; return res }
 
 #ifdef DEBUG
 checkForCyclicBinds :: Bag EvBind -> TcM ()
@@ -2439,23 +2410,28 @@ checkForCyclicBinds ev_binds
             | bind@(EvBind { eb_lhs = bndr, eb_rhs = rhs}) <- bagToList ev_binds ]
 #endif
 
-nestImplicTcS :: Maybe EvBindsVar -> TcLevel -> TcS a -> TcS a
-nestImplicTcS m_ref inner_tclvl (TcS thing_inside)
+nestImplicTcS :: Maybe EvBindsVar -> TyCoVarSet -- bound in this implication
+              -> TcLevel -> TcS a
+              -> TcS (a, TyCoVarSet)  -- also returns any vars used when filling
+                                      -- coercion holes (for redundant-constraint
+                                      -- tracking)
+nestImplicTcS m_ref bound_tcvs inner_tclvl (TcS thing_inside)
   = TcS $ \ TcSEnv { tcs_unified    = unified_var
                    , tcs_inerts     = old_inert_var
                    , tcs_count      = count
-                   , tcs_orig_binds = orig_binds_var} ->
+                   } ->
     do { inerts <- TcM.readTcRef old_inert_var
        ; let nest_inert = inerts { inert_flat_cache = emptyExactFunEqs }
                                    -- See Note [Do not inherit the flat cache]
        ; new_inert_var <- TcM.newTcRef nest_inert
        ; new_wl_var    <- TcM.newTcRef emptyWorkList
+       ; new_used_var  <- TcM.newTcRef emptyVarSet
        ; let nest_env = TcSEnv { tcs_ev_binds    = m_ref
                                , tcs_unified     = unified_var
-                               , tcs_orig_binds  = orig_binds_var
                                , tcs_count       = count
                                , tcs_inerts      = new_inert_var
-                               , tcs_worklist    = new_wl_var }
+                               , tcs_worklist    = new_wl_var
+                               , tcs_used_tcvs   = new_used_var }
        ; res <- TcM.setTcLevel inner_tclvl $
                 thing_inside nest_env
 
@@ -2466,7 +2442,12 @@ nestImplicTcS m_ref inner_tclvl (TcS thing_inside)
             ; checkForCyclicBinds ev_binds }s
 #endif
 
-       ; return res }
+       ; used_tcvs <- TcM.readTcRef new_used_var
+       ; let (inner_used_tcvs, outer_used_tcvs)
+               = partitionVarSet (`elemVarSet` bound_tcvs) used_tcvs
+       ; useVars outer_used_tcvs
+
+       ; return (res, inner_used_tcvs) }j
 
 {- Note [Do not inherit the flat cache]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2479,13 +2460,6 @@ and hence perhpas solve it.  Moreover, the fsk from outside is
 flattened out after solving the outer level, but and we don't
 do that flattening recursively.
 -}
-
--- | Make a totally new TcS environment at the given 'TcLevel'
-nestTryTcS :: TcLevel -> TcS WantedConstraints -> TcS WantedConstraints
-nestTryTcS tclvl thing_inside
-  = wrapTcS $
-    TcM.setTcLevel tclvl $
-    fstOf3 <$> tryTcS thing_inside
 
 nestTcS ::  TcS a -> TcS a
 -- Use the current untouchables, augmenting the current
@@ -2888,17 +2862,6 @@ getEvTerm :: MaybeNew -> EvTerm
 getEvTerm (Fresh ctev) = ctEvTerm ctev
 getEvTerm (Cached evt) = evt
 
--- | Record the state of an EvBindsVar in the TcS monad, unless that
--- EvBindsVar has already been preserved
-saveOrigEvBindsVar :: EvBindsVar -> TcS ()
-saveOrigEvBindsVar ev_binds_var
-  = TcS $ \ TcSEnv { tcs_orig_binds = orig_maps } ->
-    do { ev_map <- TcM.readTcRef orig_maps
-       ; unless (ev_binds_var `elemUFM` ev_map) $
-         do { ev_binds_map <- TcM.getTcEvBindsMap ev_binds_var
-            ; let ev_map' = addToUFM ev_map ev_binds_var (ev_binds_var, ev_binds_map)
-            ; TcM.writeTcRef orig_maps ev_map' } }
-
 setEvBind :: EvBind -> TcS ()
 setEvBind ev_bind
   = do { tc_evbinds <- getTcEvBinds
@@ -2915,12 +2878,6 @@ setEvBindIfWanted ev tm
       CtWanted { ctev_dest = dest, ctev_loc = loc }
         -> setWantedEvTerm dest tm loc
       _ -> return ()
-
--- | Drop a binding from an EvBindsVar
-dropEvBindFromVar :: EvBindsVar -> EvVar -> TcS ()
-dropEvBindFromVar ev_binds_var the_ev
-  = do { saveOrigEvBindsVar ev_binds_var
-       ; wrapTcS $ TcM.dropTcEvBind ev_binds_var the_ev }
 
 newTcEvBinds :: TcS EvBindsVar
 newTcEvBinds = wrapTcS TcM.newTcEvBinds

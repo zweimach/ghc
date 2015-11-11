@@ -27,7 +27,6 @@ module TcMType (
   mkTcTyVarName, cloneMetaTyVar,
 
   newMetaTyVar, readMetaTyVar, writeMetaTyVar, writeMetaTyVarRef,
-  unFillMetaTyVar,
   newMetaDetails, isFilledMetaTyVar, isUnfilledMetaTyVar,
 
   --------------------------------
@@ -470,22 +469,6 @@ writeMetaTyVarRef tyvar ref ty
   where
     tv_kind = tyVarKind tyvar
     ty_kind = typeKind ty
-
--- | Wipes out the contents of a metatyvar, returning the wiped value
-unFillMetaTyVar :: TcTyVar -> TcM TcType
-unFillMetaTyVar tyvar
-  = case tcTyVarDetails tyvar of
-      MetaTv { mtv_ref = ref } ->
-        do { cts <- readTcRef ref
-           ; case cts of
-               Indirect ty ->
-                 do { traceTc "unFillMetaTyVar" (ppr tyvar <+> dcolon <+>
-                                                 ppr (tyVarKind tyvar) <+>
-                                                 text "/:=" <+> ppr ty)
-                    ; writeTcRef ref Flexi
-                    ; return ty }
-               Flexi -> pprPanic "unFillMetaTyVar unfilled var" (ppr tyvar) }
-      _ -> pprPanic "unFillMetaTyVar non-meta-tyvar" (ppr tyvar)
 
 {-
 ************************************************************************
