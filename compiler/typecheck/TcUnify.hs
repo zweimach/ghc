@@ -621,7 +621,7 @@ checkConstraints skol_info skol_tvs given thing_inside
                                   , ic_given = given
                                   , ic_wanted = wanted
                                   , ic_status  = IC_Unsolved
-                                  , ic_binds = ev_binds_var
+                                  , ic_binds = Just ev_binds_var
                                   , ic_env = env
                                   , ic_info = skol_info }
 
@@ -702,10 +702,10 @@ uType, uType_defer
 -- It is always safe to defer unification to the main constraint solver
 -- See Note [Deferred unification]
 uType_defer origin ty1 ty2
-  = do { eqv <- newEq ty1 ty2
+  = do { hole <- newCoercionHole
        ; loc <- getCtLocM origin
        ; emitSimple $ mkNonCanonical $
-             CtWanted { ctev_evar = eqv
+             CtWanted { ctev_dest = HoleDest hole
                       , ctev_pred = mkPrimEqPred ty1 ty2
                       , ctev_loc = loc }
 
@@ -718,7 +718,7 @@ uType_defer origin ty1 ty2
             ; traceTc "utype_defer" (vcat [ppr eqv, ppr ty1,
                                            ppr ty2, pprCtOrigin origin, doc])
             }
-       ; return (mkCoVarCo eqv) }
+       ; return (mkHoleCo hole Nominal ty1 ty2) }
 
 --------------
 uType origin orig_ty1 orig_ty2

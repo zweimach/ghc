@@ -284,7 +284,7 @@ runTcPluginsWanted wc@(WC { wc_simple = simples1, wc_insol = insols1, wc_impl = 
   where
     setEv :: (EvTerm,Ct) -> TcS ()
     setEv (ev,ct) = case ctEvidence ct of
-      CtWanted {ctev_evar = evar, ctev_loc = loc} -> setWantedEvBind evar ev loc
+      CtWanted {ctev_dest = dest, ctev_loc = loc} -> setWantedEvTerm dest ev loc
       _ -> panic "runTcPluginsWanted.setEv: attempt to solve non-wanted!"
 
 -- | A triple of (given, derived, wanted) constraints to pass to plugins
@@ -521,9 +521,9 @@ solveOneFromTheOther ev_i ev_w
   , prohibitedSuperClassSolve (ctEvLoc ev_i) loc_w
   = return (IRDelete, False)
 
-  | CtWanted { ctev_evar = ev_id, ctev_pred = pred_w, ctev_loc = loc } <- ev_w
+  | CtWanted { ctev_dest = dest, ctev_loc = loc } <- ev_w
        -- Inert is Given or Wanted
-  = do { setWantedEvBind ev_id (ctEvCoherence ev_i pred_w) loc
+  = do { setWantedEvTerm dest (ctEvTerm ev_i) loc
        ; return (IRKeep, True) }
 
   | CtWanted { ctev_loc = loc_i } <- ev_i   -- Work item is Given
@@ -532,8 +532,8 @@ solveOneFromTheOther ev_i ev_w
                             -- This never actually happens because
                             -- Givens get processed first
 
-  | CtWanted { ctev_evar = ev_id, ctev_pred = pred_i, ctev_loc = loc } <- ev_i
-  = do { setWantedEvBind ev_id (ctEvCoherence ev_w pred_i) loc
+  | CtWanted { ctev_dest = dest, ctev_loc = loc } <- ev_i
+  = do { setWantedEvBind ev_id (ctEvTerm ev_w) loc
        ; return (IRReplace, True) }
 
   -- So they are both Given
@@ -1360,7 +1360,7 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = fl, cc_class = cls
         | otherwise
         = do { checkReductionDepth deeper_loc dict_pred
              ; traceTcS "doTopReact/found non-nullary instance for" $ ppr fl
-             ; evc_vars <- mapM (newWantedEvVar deeper_loc) theta
+             ; evc_vars <- mapM (newWanted deeper_loc) theta
              ; setWantedEvBind (ctEvId fl) (mk_coh_ev (map getEvTerm evc_vars)) dict_loc
              ; emitWorkNC (freshGoals evc_vars)
              ; stopWith fl "Dict/Top (solved, more work)" }
@@ -1428,14 +1428,15 @@ reduce_top_fun_eq old_ev fsk ax_co rhs_ty
 
   | otherwise -- We must not assign ufsk := ...ufsk...!
   = do { alpha_ty <- newFlexiTcSTy (tyVarKind fsk)
-       ; let pred = mkPrimEqPred alpha_ty rhs_ty
        ; new_ev <- case old_ev of
-           CtWanted {}  -> do { ev <- newWantedEvVarNC loc pred
-                              ; updWorkListTcS (extendWorkListEq (mkNonCanonical ev))
+           CtWanted {}  -> do { (ev, _) <- newWantedEq loc Nominal alpha_ty rhs_ty
+                              ; updWorkListTcS $
+                                  extendWorkListEq (mkNonCanonical ev)
                               ; return ev }
            CtDerived {} -> do { ev <- newDerivedNC loc pred
                               ; updWorkListTcS (extendWorkListDerived loc ev)
                               ; return ev }
+             where pred = mkPrimEqPred alpha_ty rhs_ty
            _ -> pprPanic "reduce_top_fun_eq" (ppr old_ev)
 
             -- By emitting this as non-canonical, we deal with all
@@ -1554,12 +1555,12 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
                -- new_ev :: G xis ~ fsk
                -- old_ev :: F args ~ fsk := ax_co ; sym (G cos) ; new_ev
 
-       ; new_ev <- newWantedEvVarNC deeper_loc
-                                    (mkPrimEqPred (mkTyConApp fam_tc xis) (mkTyVarTy fsk))
-       ; setWantedEvBind (ctEvId old_ev)
-                   (EvCoercion (ax_co `mkTcTransCo` mkTcSymCo (mkTcTyConAppCo Nominal fam_tc cos)
-                                      `mkTcTransCo` ctEvCoercion new_ev))
-                   loc
+       ; (new_ev, new_co) <- newWantedEq deeper_loc Nominal
+                                     (mkTyConApp fam_tc xis) (mkTyVarTy fsk)
+       ; setWantedEq (ctev_dest old_ev)
+                     (ax_co `mkTransCo` mkSymCo (mkTyConAppCo Nominal fam_tc cos)
+                            `mkTransCo` new_co)
+                     loc
 
        ; let new_ct = CFunEqCan { cc_ev = new_ev, cc_fun = fam_tc, cc_tyargs = xis, cc_fsk = fsk }
        ; emitWorkCt new_ct

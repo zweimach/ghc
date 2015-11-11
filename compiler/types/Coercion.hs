@@ -30,9 +30,9 @@ module Coercion (
         mkSymCo, mkTransCo, mkTransAppCo,
         mkNthCo, mkNthCoRole, mkLRCo,
         mkInstCo, mkAppCo, mkAppCos, mkTyConAppCo, mkFunCo, mkFunCos,
-        mkForAllCo, mkHomoForAllCos, mkHomoForAllCos_NoRefl,
+        mkForAllCo, mkForAllCos, mkHomoForAllCos, mkHomoForAllCos_NoRefl,
         mkPhantomCo, mkHomoPhantomCo, toPhantomCo,
-        mkUnsafeCo, mkUnivCo, mkSubCo,
+        mkUnsafeCo, mkHoleCo, mkUnivCo, mkSubCo,
         mkNewTypeCo, mkAxiomInstCo, mkProofIrrelCo,
         downgradeRole, maybeSubCo, mkAxiomRuleCo,
         mkCoherenceCo, mkCoherenceRightCo, mkCoherenceLeftCo,
@@ -161,7 +161,7 @@ coercionSize (AppCo co arg)      = coercionSize co + coercionSize arg
 coercionSize (ForAllCo _ h co)   = 1 + coercionSize co + coercionSize h
 coercionSize (CoVarCo _)         = 1
 coercionSize (AxiomInstCo _ _ args) = 1 + sum (map coercionSize args)
-coercionSize (UnivCo _ _ h t1 t2)= 1 + coercionSize h + typeSize t1 + typeSize t2
+coercionSize (UnivCo p _ t1 t2)  = 1 + provSize p + typeSize t1 + typeSize t2
 coercionSize (SymCo co)          = 1 + coercionSize co
 coercionSize (TransCo co1 co2)   = 1 + coercionSize co1 + coercionSize co2
 coercionSize (NthCo _ co)        = 1 + coercionSize co
@@ -171,6 +171,13 @@ coercionSize (CoherenceCo c1 c2) = 1 + coercionSize c1 + coercionSize c2
 coercionSize (KindCo co)         = 1 + coercionSize co
 coercionSize (SubCo co)          = 1 + coercionSize co
 coercionSize (AxiomRuleCo _ cs)  = 1 + sum (map coercionSize cs)
+
+provSize :: UnivCoProvenance -> Int
+provSize UnsafeCoerceProv    = 1
+provSize (PhantomProv co)    = 1 + coercionSize co
+provSize (ProofIrrelProv co) = 1 + coercionSize co
+provSize (PluginProv _)      = 1
+provSize (HoleProv h)        = pprPanic "provSize hits a hole" (ppr h)
 
 {-
 %************************************************************************
@@ -215,10 +222,14 @@ ppr_co p co@(TransCo {}) = maybeParen p FunPrec $
 ppr_co p (InstCo co arg) = maybeParen p TyConPrec $
                            pprParendCo co <> ptext (sLit "@") <> ppr_co TopPrec arg
 
-ppr_co p (UnivCo UnsafeCoerceProv r _ ty1 ty2)
+ppr_co p (UnivCo UnsafeCoerceProv r ty1 ty2)
   = pprPrefixApp p (ptext (sLit "UnsafeCo") <+> ppr r)
                    [pprParendType ty1, pprParendType ty2]
-ppr_co _ (UnivCo _ r _ t1 t2)= angleBrackets ( ppr t1 <> comma <+> ppr t2 ) <> ppr_role r
+ppr_co _ (UnivCo p r t1 t2)= angleBrackets ( ppr t1 <> comma <+> ppr t2 ) <> ppr_role r <> ppr_prov
+  where
+    ppr_prov = case p of
+      HoleProv h -> ppr h
+      _          -> empty
 ppr_co p (SymCo co)          = pprPrefixApp p (ptext (sLit "Sym")) [pprParendCo co]
 ppr_co p (NthCo n co)        = pprPrefixApp p (ptext (sLit "Nth:") <> int n) [pprParendCo co]
 ppr_co p (LRCo sel co)       = pprPrefixApp p (ppr sel) [pprParendCo co]
@@ -661,6 +672,15 @@ mkForAllCo tv kind_co co
   | otherwise
   = ForAllCo tv kind_co co
 
+-- | Make nested ForAllCos
+mkForAllCos :: [(TyVar, Coercion)] -> Coercion -> Coercion
+mkForAllCos bndrs (Refl r ty)
+  = let (refls_rev'd, non_refls_rev'd) = span (isReflCo . snd) (reverse bndrs) in
+    foldl (flip $ uncurry ForAllCo)
+          (Refl r $ mkInvForAllTys (reverse (map fst refls_rev'd)) ty)
+          non_refls_rev'd
+mkForAllCos bndrs co = foldr (uncurry ForAllCo) co bndrs
+
 -- | Make a Coercion quantified over a type variable;
 -- the variable has the same type in both sides of the coercion
 mkHomoForAllCos :: [TyVar] -> Coercion -> Coercion
@@ -772,22 +792,25 @@ mkUnbranchedAxInstLHS ax = mkAxInstLHS ax 0
 --   down through type constructors.
 mkUnsafeCo :: Role -> Type -> Type -> Coercion
 mkUnsafeCo role ty1 ty2
-  = mkUnivCo UnsafeCoerceProv role (mkUnsafeCo Nominal k1 k2) ty1 ty2
-    -- won't infinitely regress because the kinds of kinds are always *
+  = mkUnivCo UnsafeCoerceProv role ty1 ty2
   where
     k1 = typeKind ty1
     k2 = typeKind ty2
 
+-- | Make a coercion from a coercion hole
+mkHoleCo :: CoercionHole -> Role
+         -> Type -> Type -> Coercion
+mkHoleCo h r t1 t2 = mkUnivCo (HoleProv h) r t1 t2
+
 -- | Make a universal coercion between two arbitrary types.
 mkUnivCo :: UnivCoProvenance
          -> Role       -- ^ role of the built coercion, "r"
-         -> Coercion   -- ^ :: k1 ~N k2
          -> Type       -- ^ t1 :: k1
          -> Type       -- ^ t2 :: k2
          -> Coercion   -- ^ :: t1 ~r t2
-mkUnivCo prov role kco ty1 ty2
+mkUnivCo prov role ty1 ty2
   | ty1 `eqType` ty2 = Refl role ty1
-  | otherwise        = UnivCo prov role kco ty1 ty2
+  | otherwise        = UnivCo prov role ty1 ty2
 
 -- | Create a symmetric version of the given 'Coercion' that asserts
 --   equality between the same types but in the other "direction", so
@@ -797,7 +820,6 @@ mkSymCo :: Coercion -> Coercion
 -- Do a few simple optimizations, but don't bother pushing occurrences
 -- of symmetry to the leaves; the optimizer will take care of that.
 mkSymCo co@(Refl {})              = co
-mkSymCo    (UnivCo s r h ty1 ty2) = UnivCo s r (mkSymCo h) ty2 ty1
 mkSymCo    (SymCo co)             = co
 mkSymCo    (SubCo (SymCo co))     = SubCo co
 mkSymCo co                        = SymCo co
@@ -914,7 +936,8 @@ infixl 5 `mkCoherenceLeftCo`
 
 mkKindCo :: Coercion -> Coercion
 mkKindCo (Refl _ ty) = Refl Nominal (typeKind ty)
-mkKindCo (UnivCo _ _ h _ _) = h
+mkKindCo (UnivCo (PhantomProv h) _ _ _)    = h
+mkKindCo (UnivCo (ProofIrrelProv h) _ _ _) = h
 mkKindCo co
   | Pair ty1 ty2 <- coercionKind co
        -- generally, calling coercionKind during coercion creation is a bad idea,
@@ -930,8 +953,8 @@ mkSubCo :: Coercion -> Coercion
 mkSubCo (Refl Nominal ty) = Refl Representational ty
 mkSubCo (TyConAppCo Nominal tc cos)
   = TyConAppCo Representational tc (applyRoles tc cos)
-mkSubCo (UnivCo p r h ty1 ty2) = ASSERT( r == Nominal )
-                                 UnivCo p Representational h ty1 ty2
+mkSubCo (UnivCo p r ty1 ty2) = ASSERT( r == Nominal )
+                               UnivCo p Representational ty1 ty2
 mkSubCo co = ASSERT2( coercionRole co == Nominal, ppr co <+> ppr (coercionRole co) )
              SubCo co
 
@@ -978,7 +1001,7 @@ mkProofIrrelCo :: Role       -- ^ role of the created coercion, "r"
 -- if the two coercion prove the same fact, I just don't care what
 -- the individual coercions are.
 mkProofIrrelCo r (Refl {}) g  _  = Refl r (CoercionTy g)
-mkProofIrrelCo r kco       g1 g2 = mkUnivCo ProofIrrelProv r kco
+mkProofIrrelCo r kco       g1 g2 = mkUnivCo (ProofIrrelProv kco) r
                                      (mkCoercionTy g1) (mkCoercionTy g2)
 
 {-
@@ -1014,7 +1037,11 @@ setNominalRole_maybe (InstCo co arg)
 setNominalRole_maybe (CoherenceCo co1 co2)
   = CoherenceCo <$> setNominalRole_maybe co1 <*> pure co2
 setNominalRole_maybe (UnivCo prov _ h co1 co2)
-  | prov /= PhantomProv
+  | case prov of UnsafeCoerceProv -> True   -- it's always unsafe
+                 PhantomProv _    -> False  -- should always be phantom
+                 ProofIrrelProv _ -> True   -- it's always safe
+                 PluginProv _     -> False  -- who knows? This choice is conservative.
+                 HoleProv _       -> False  -- no no no.
   = Just $ UnivCo prov Nominal h co1 co2
 setNominalRole_maybe _ = Nothing
 
@@ -1023,7 +1050,7 @@ setNominalRole_maybe _ = Nothing
 -- types.
 mkPhantomCo :: Coercion -> Type -> Type -> Coercion
 mkPhantomCo h t1 t2
-  = mkUnivCo PhantomProv Phantom h t1 t2
+  = mkUnivCo (PhantomProv h) Phantom t1 t2
 
 -- | Make a phantom coercion between two types of the same kind.
 mkHomoPhantomCo :: Type -> Type -> Coercion
@@ -1105,8 +1132,16 @@ promoteCoercion co = case co of
     AxiomInstCo {}
       -> mkKindCo co
 
-    UnivCo _ _ co _ _
-      -> co
+    UnivCo UnsafeCoerceProv _ t1 t2
+      -> mkUnsafeCo Nominal (typeKind t1) (typeKind t2)
+    UnivCo (PhantomProv kco) _ _ _
+      -> kco
+    UnivCo (ProofIrrelProv kco) _ _ _
+      -> kco
+    UnivCo (PluginProv _) _ _ _
+      -> mkKindCo co
+    UnivCo (HoleProv _) _ _ _
+      -> mkKindCo co
 
     SymCo g
       -> mkSymCo (promoteCoercion g)
@@ -1650,8 +1685,8 @@ seqCo (ForAllCo tv k co)        = seqType (tyVarKind tv) `seq` seqCo k
                                                          `seq` seqCo co
 seqCo (CoVarCo cv)              = cv `seq` ()
 seqCo (AxiomInstCo con ind cos) = con `seq` ind `seq` seqCos cos
-seqCo (UnivCo p r h t1 t2)
-  = p `seq` r `seq` seqCo h `seq` seqType t1 `seq` seqType t2
+seqCo (UnivCo p r t1 t2)
+  = seqProv p `seq` r `seq` seqType t1 `seq` seqType t2
 seqCo (SymCo co)                = seqCo co
 seqCo (TransCo co1 co2)         = seqCo co1 `seq` seqCo co2
 seqCo (NthCo n co)              = n `seq` seqCo co
@@ -1661,6 +1696,13 @@ seqCo (CoherenceCo co1 co2)     = seqCo co1 `seq` seqCo co2
 seqCo (KindCo co)               = seqCo co
 seqCo (SubCo co)                = seqCo co
 seqCo (AxiomRuleCo _ cs)        = seqCos cs
+
+seqProv :: UnivCoProvenance -> ()
+seqProv UnsafeCoerceProv    = ()
+seqProv (PhantomProv co)    = seqCo co
+seqProv (ProofIrrelProv co) = seqCo co
+seqProv (PluginProv _)      = ()
+seqProv (HoleProv _)        = ()
 
 seqCos :: [Coercion] -> ()
 seqCos []       = ()
@@ -1727,7 +1769,7 @@ coercionKind co = go co
               mkTyConApp (coAxiomTyCon ax) lhs)
              (substTyWith tvs tys2 $
               substTyWithCoVars cvs cos2 rhs)
-    go (UnivCo _ _ _ ty1 ty2) = Pair ty1 ty2
+    go (UnivCo _ _ ty1 ty2)   = Pair ty1 ty2
     go (SymCo co)             = swap $ go co
     go (TransCo co1 co2)      = Pair (pFst $ go co1) (pSnd $ go co2)
     go g@(NthCo d co)
@@ -1782,7 +1824,7 @@ coercionKindRole = go
         (mkNamedForAllTy <$> Pair tv1 tv2 <*> pure Invisible <*> Pair ty1 ty2', r)
     go (CoVarCo cv) = (toPair $ coVarTypes cv, coVarRole cv)
     go co@(AxiomInstCo ax _ _) = (coercionKind co, coAxiomRole ax)
-    go (UnivCo _ r _ ty1 ty2)  = (Pair ty1 ty2, r)
+    go (UnivCo _ r ty1 ty2)  = (Pair ty1 ty2, r)
     go (SymCo co) = first swap $ go co
     go (TransCo co1 co2)
       = let (tys1, r) = go co1 in

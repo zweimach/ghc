@@ -1244,7 +1244,7 @@ of (cc_ev ct), and is fully rewritten wrt the substitution.   Eg for CDictCan,
 This holds by construction; look at the unique place where CDictCan is
 built (in TcCanonical).
 
-In contrast, the type of the evidence *term* (ccev_evtm or ctev_evar) in
+In contrast, the type of the evidence *term* (ccev_evtm or ctev_evar/dest) in
 the evidence may *not* be fully zonked; we are careful not to look at it
 during constraint solving.  See Note [Evidence field of CtEvidence]
 -}
@@ -1620,8 +1620,12 @@ data Implication
 
       ic_wanted :: WantedConstraints,  -- The wanted
 
-      ic_binds  :: EvBindsVar,    -- Points to the place to fill in the
-                                  -- abstraction and bindings
+      ic_binds  :: Maybe EvBindsVar,
+                                  -- Points to the place to fill in the
+                                  -- abstraction and bindings.
+                                  -- is Nothing if we can't deal with
+                                  -- non-equality constraints here
+                                  -- (this happens in TcS.deferTcSForAllEq)
 
       ic_status   :: ImplicStatus
     }
@@ -1750,8 +1754,8 @@ pprEvVarWithType v = ppr v <+> dcolon <+> pprType (evVarPred v)
 
 Note [Evidence field of CtEvidence]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-During constraint solving we never look at the type of ctev_evar;
-instead we look at the cte_pred field.  The evtm/evar field
+During constraint solving we never look at the type of ctev_evar/ctev_dest;
+instead we look at the ctev_pred field.  The evtm/evar field
 may be un-zonked.
 
 Note [Bind new Givens immediately]
@@ -1779,6 +1783,10 @@ For Givens we make new EvVars and bind them immediately. Two main reasons:
 So a Given has EvVar inside it rather that (as previously) an EvTerm.
 -}
 
+-- | A place for type-checking evidence to go after it is generated.
+data TcEvDest
+  = EvVarDest EvVar         -- ^ bind this var to the evidence
+  | HoleDest  CoercionHole  -- ^ fill in this hole with the evidence
 
 data CtEvidence
   = CtGiven { ctev_pred :: TcPredType      -- See Note [Ct/evidence invariant]
@@ -1788,7 +1796,7 @@ data CtEvidence
     -- NB: Spontaneous unifications belong here
 
   | CtWanted { ctev_pred :: TcPredType     -- See Note [Ct/evidence invariant]
-             , ctev_evar :: EvVar          -- See Note [Evidence field of CtEvidence]
+             , ctev_dest :: TcEvDest
              , ctev_loc  :: CtLoc }
     -- Wanted goal
 
@@ -1825,16 +1833,23 @@ ctEvBoxity ev
     pred = ctEvPred ev
 
 ctEvTerm :: CtEvidence -> EvTerm
+ctEvTerm ev@(CtWanted { ctev_dest = HoleDest _ }) = EvCoercion $ ctEvCoercion ev
 ctEvTerm ev = EvId (ctEvId ev)
 
-ctEvCoercion :: CtEvidence -> TcCoercion
-ctEvCoercion ev = mkTcCoVarCo (ctEvId ev)
+ctEvCoercion :: CtEvidence -> Coercion
+ctEvCoercion ev@(CtWanted { ctev_dest = HoleDest hole, ctev_pred = pred })
+  = case getEqPredTys_maybe pred of
+      Just (_, role, ty1, ty2) -> mkHoleCo hole role ty1 ty2
+      _                        -> pprPanic "ctEvTerm" (ppr ev)
+ctEvCoercion (CtGiven { ctev_evar = ev_id }) = mkCoVarCo ev_id
+ctEvCoercion ev = pprPanic "ctEvCoercion" (ppr ev)
 
 ctEvId :: CtEvidence -> TcId
-ctEvId (CtWanted { ctev_evar = ev }) = ev
+ctEvId (CtWanted { ctev_dest = EvVarDest ev }) = ev
 ctEvId (CtGiven  { ctev_evar = ev }) = ev
 ctEvId ctev = pprPanic "ctEvId:" (ppr ctev)
 
+-- TODO (RAE): Discard?
 evBindWanted :: EvBind -> CtEvidence
 evBindWanted (EvBind { eb_lhs = evar, eb_loc = loc })
   = CtWanted { ctev_pred = varType evar, ctev_evar = evar, ctev_loc = loc }
@@ -1842,7 +1857,7 @@ evBindWanted (EvBind { eb_lhs = evar, eb_loc = loc })
 instance Outputable CtEvidence where
   ppr fl = case fl of
              CtGiven {}   -> ptext (sLit "[G]") <+> ppr (ctev_evar fl) <+> ppr_pty
-             CtWanted {}  -> ptext (sLit "[W]") <+> ppr (ctev_evar fl) <+> ppr_pty
+             CtWanted {}  -> ptext (sLit "[W]") <+> ppr (ctev_dest fl) <+> ppr_pty
              CtDerived {} -> ptext (sLit "[D]") <+> text "_" <+> ppr_pty
          where ppr_pty = dcolon <+> ppr (ctEvPred fl)
 

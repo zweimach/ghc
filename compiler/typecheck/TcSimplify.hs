@@ -5,7 +5,7 @@ module TcSimplify(
        growThetaTyVars,
        simplifyAmbiguityCheck,
        simplifyDefault,
-       simplifyTop, simplifyInteractive,
+       simplifyTop, simplifyInteractive, solveEqualities,
        Purity(..), simplifyWantedsTcM,
 
        -- For Rules we need these three
@@ -97,6 +97,18 @@ simplifyTop wanteds
        ; traceTc "reportUnsolved (unsafe overlapping) }" empty
 
        ; return (evBindMapBinds binds1 `unionBags` binds2) }
+
+-- | Solve only equality constraints. Does not permit deferred type errors.
+-- Use when, for example, checking a top-level type signature.
+solveEqualities :: WantedConstraints -> TcM ()
+solveEqualities wanteds
+  = do { traceTc "simplifyEqualities {" $ text "wanted = " <+> ppr wanteds
+       ; (final_wc, _) <- runTcSEqualities $ simpl_top wanteds
+       ; traceTc "End simplifyEqualities }" empty
+
+       ; traceTc "reportAllUnsolved {" empty
+       ; reportAllUnsolved final_wc
+       ; traceTc "reportAllUnsolved }" empty }
 
 type SafeOverlapFailures = Cts
 -- ^ See Note [Safe Haskell Overlapping Instances Implementation]
@@ -521,7 +533,6 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
          -- we don't quantify over beta (since it is fixed by envt)
          -- so we must promote it!  The inferred type is just
          --   f :: beta -> beta
-         -- Similarly, promote covars. See Note [Promoting coercion variables]
        ; outer_tclvl    <- TcM.getTcLevel
        ; zonked_tau_tvs <- fold <$>
                            traverse TcM.zonkTyCoVarsAndFV zonked_tau_tkvs
@@ -542,17 +553,6 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
            -- promoteTyVar ignores coercion variables
        ; mapM_ (promoteTyVar outer_tclvl) (varSetElems promote_tvs)
 
-         -- See Note [Promoting coercion variables]
-       ; let (promote_wanteds, leave_wanteds)
-               = partitionBag ((`elemVarSet` promote_tvs) . ctEvId . ctEvidence)
-                              simple_wanteds
-                  -- NB: simple_wanteds should be all CtWanted, so ctEvId should
-                  -- be OK.
-
-            -- some bits to be promoted might be in the ev_binds_var
-       ; promote_binds <- promoteEvBinds promote_tvs ev_binds_var
-       ; emitSimples (promote_wanteds `unionBags` promote_binds)
-
            -- Emit an implication constraint for the
            -- remaining constraints from the RHS
        ; bound_theta_vars <- mapM TcM.newEvVar bound_theta
@@ -567,9 +567,8 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
                              , ic_no_eqs   = False
                              , ic_given    = bound_theta_vars
                              , ic_wanted   = wanted_transformed
-                                               { wc_simple = leave_wanteds }
                              , ic_status   = IC_Unsolved
-                             , ic_binds    = ev_binds_var
+                             , ic_binds    = Just ev_binds_var
                              , ic_info     = skol_info
                              , ic_env      = tc_lcl_env }
        ; emitImplication implic
@@ -619,19 +618,6 @@ If the monomorphism restriction does not apply, then we quantify as follows:
 
 If the MR does apply, mono_tvs includes all the constrained tyvars --
 including all covars -- and the quantified constraints are empty/insoluble.
-
-Note [Promoting coercion variables]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Promoting a coercion variable means enlarging its scope. When a local
-definition gets an inferred type that mentions a coercion variable, that
-variable had better be defined in a larger scope than the local
-definition. In practice, this means that the promoted covars do *not*
-form part of the implication constraint emitted at the end of simplifyInfer.
-Instead, they are emitted as simple constraints in the larger scope.
-
-Note also that these covars might not appear in the original wanteds. So,
-we also look through the EvBinds to make sure to promote covars from there,
-too.
 
 -}
 
@@ -875,94 +861,25 @@ This only half-works, but then let-generalisation only half-works.
 *                                                                                 *
 ***********************************************************************************
 
-Note [Deferring coercion errors to runtime]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-While developing, sometimes it is desirable to allow compilation to succeed even
-if there are type errors in the code. Consider the following case:
-
-  module Main where
-
-  a :: Int
-  a = 'a'
-
-  main = print "b"
-
-Even though `a` is ill-typed, it is not used in the end, so if all that we're
-interested in is `main` it is handy to be able to ignore the problems in `a`.
-
-Since we treat type equalities as evidence, this is relatively simple. Whenever
-we run into a type mismatch in TcUnify, we normally just emit an error. But it
-is always safe to defer the mismatch to the main constraint solver. If we do
-that, `a` will get transformed into
-
-  co :: Int ~ Char
-  co = ...
-
-  a :: Int
-  a = 'a' `cast` co
-
-The constraint solver would realize that `co` is an insoluble constraint, and
-emit an error with `reportUnsolved`. But we can also replace the right-hand side
-of `co` with `error "Deferred type error: Int ~ Char"`. This allows the program
-to compile, and it will run fine unless we evaluate `a`. This is what
-`deferErrorsToRuntime` does.
-
-It does this by keeping track of which errors correspond to which coercion
-in TcErrors (with ErrEnv). TcErrors.reportTidyWanteds does not print the
-errors, and does not fail if -fdefer-type-errors is on, so that we can
-continue compilation. The errors are turned into warnings in `reportUnsolved`.
 -}
 
--- | Flag passed to 'simplifyWantedsTcM' as to whether or not the simplifier
--- should be pure.
-data Purity = Pure
-            | Impure
-
-simplifyWantedsTcM
-  :: Purity -- ^ Should the simplifier be pure? If the caller doesn't
-            -- propagate the returned constraints, then this probably
-            -- should be pure.
-  -> [CtEvidence] -> TcM WantedConstraints
+simplifyWantedsTcM :: [CtEvidence] -> TcM WantedConstraints
 -- Zonk the input constraints, and simplify them
 -- Discard the evidence binds
 -- Discards all Derived stuff in result
 -- Postcondition: fully zonked and unflattened constraints
-simplifyWantedsTcM purity wanted
+simplifyWantedsTcM wanted
   = do { traceTc "simplifyWantedsTcM {" (ppr wanted)
-       ; result <- fst <$>
-                   simplifyWantedsTcMCustom purity (solveWantedsAndDrop $
-                                                    mkSimpleWC wanted)
+       ; result <- simplifyWantedsTcMCustom (solveWantedsAndDrop $
+                                             mkSimpleWC wanted)
        ; traceTc "simplifyWantedsTcM }" (ppr result)
        ; return result }
 
 -- | Like 'simplifyWantedsTcM', but with a custom TcS action
-simplifyWantedsTcMCustom :: Purity
-                         -> TcS WantedConstraints
-                         -> TcM (WantedConstraints, [(TcTyVar, TcType)])
--- In the Pure case, the second return value represents any unifications made
--- during solving. These unifications are, of course, undone (because the
--- solver run is Pure), but sometimes they are still useful to have about.
--- In the Impure case, this return value is always empty.
-simplifyWantedsTcMCustom purity tcs
-  = do { (wc, unifs, ev_bind_map) <- case purity of
-            Pure   -> tryTcS tcs
-            Impure -> do { (res, ev_map) <- runTcS tcs
-                         ; return (res, [], ev_map) }
-       ; wc <- TcM.zonkWC wc
-       ; let new_wc = evBindMapWanteds (tyCoVarsOfWC wc) ev_bind_map
-       ; new_wc <- TcM.zonkWC new_wc
-       ; return (wc `andWC` new_wc, unifs) }
-
--- | Produce a bag of wanted constraints, extracted from an 'EvBindMap',
--- for any covar included in the provided 'TyCoVarSet'
-evBindMapWanteds :: TyCoVarSet -> EvBindMap -> WantedConstraints
-evBindMapWanteds tcvs ev_bind_map
-  = mkSimpleWC $
-    map evBindWanted $
-    catMaybes $
-    map (lookupEvBind ev_bind_map) $
-    filter isCoVar $
-    varSetElems tcvs
+simplifyWantedsTcMCustom :: TcS WantedConstraints -> TcM WantedConstraints
+simplifyWantedsTcMCustom tcs
+  = do { (wc, ev_bind_map) <- runTcS tcs
+       ; TcM.zonkWC wc }
 
 solveWantedsAndDrop :: WantedConstraints -> TcS WantedConstraints
 -- Since solveWanteds returns the residual WantedConstraints,
@@ -1065,7 +982,7 @@ solveImplication :: Implication    -- Wanted
 -- Precondition: The TcS monad contains an empty worklist and given-only inerts
 -- which after trying to solve this implication we must restore to their original value
 solveImplication imp@(Implic { ic_tclvl  = tclvl
-                             , ic_binds  = ev_binds
+                             , ic_binds  = m_ev_binds
                              , ic_skols  = skols
                              , ic_given  = givens
                              , ic_wanted = wanteds
@@ -1084,7 +1001,7 @@ solveImplication imp@(Implic { ic_tclvl  = tclvl
 
          -- Solve the nested constraints
        ; (no_given_eqs, given_insols, residual_wanted)
-             <- nestImplicTcS ev_binds tclvl $
+             <- nestImplicTcS m_ev_binds tclvl $
                do { given_insols <- solveSimpleGivens (mkGivenLoc tclvl info env) givens
                   ; no_eqs <- getNoGivenEqs tclvl skols
 
@@ -1096,7 +1013,7 @@ solveImplication imp@(Implic { ic_tclvl  = tclvl
                   ; return (no_eqs, given_insols, residual_wanted) }
 
        ; (floated_eqs, residual_wanted)
-             <- floatEqualities ev_binds skols no_given_eqs residual_wanted
+             <- floatEqualities m_ev_binds skols no_given_eqs residual_wanted
 
        ; traceTcS "solveImplication 2" (ppr given_insols $$ ppr residual_wanted)
        ; let final_wanted = residual_wanted `addInsols` given_insols
@@ -1414,32 +1331,6 @@ promoteTyVarTcS tclvl tv
   | otherwise
   = return tv
 
--- | For every binding whose bound variable is in the provided set of
--- variables, remove the binding and build a Wanted constraint from it.
--- This is necessary when promoting something whose type mentions a covar
--- bound in the EvBindsVar. If we don't promote, then the covar ends up
--- out of scope. Precondition: input set is closed over kinds!
-promoteEvBinds :: TcTyCoVarSet -> EvBindsVar -> TcM Cts
--- NB: We don't really have to remove the binding from the EvBindsVar,
--- as it will just harmlessly shadow the outer, promoted binding. But
--- it's cleaner to remove.
-promoteEvBinds cvs ev_binds_var
-  = do { ev_binds <- TcM.getTcEvBinds ev_binds_var
-       ; let promote_binds = filterBag ((`elemVarSet` cvs) . evBindVar) ev_binds
-       ; mapBagM_ (TcM.dropTcEvBind ev_binds_var . evBindVar) promote_binds
-       ; return $ mapBag (mkNonCanonical . evBindWanted) promote_binds }
-
--- | Like 'promoteEvBinds' but in the TcS monad (so that it can be undone)
-promoteEvBindsTcS :: TcTyCoVarSet -> EvBindsVar -> TcS Cts
-promoteEvBindsTcS cvs ev_binds_var
-  = do { ev_binds <- TcS.getTcEvBindsFromVar ev_binds_var
-       ; traceTcS "promoteEvBindsTcS" (vcat [ ppr ev_binds_var
-                                            , ppr cvs
-                                            , ppr ev_binds ])
-       ; let promote_binds = filterBag ((`elemVarSet` cvs) . evBindVar) ev_binds
-       ; mapBagM_ (TcS.dropEvBindFromVar ev_binds_var . evBindVar) promote_binds
-       ; return $ mapBag (mkNonCanonical . evBindWanted) promote_binds }
-
 -- | If the tyvar is a levity var, set it to Lifted. Returns whether or
 -- not this happened.
 defaultTyVar :: TcTyVar -> TcM ()
@@ -1724,32 +1615,15 @@ floatEqualities ev_binds_var skols no_given_eqs
        ; mapM_ (promoteTyVarTcS outer_tclvl) (varSetElems float_tvs)
            -- See Note [Promoting unification variables]
 
-       ; more_to_float <- promoteEvBindsTcS float_tvs ev_binds_var
-           -- See Note [Promoting coercion variables]
-
        ; traceTcS "floatEqualities" (vcat [ text "Skols =" <+> ppr skols
                                           , text "Simples =" <+> ppr simples
-                                          , text "Floated eqs =" <+> ppr float_eqs
-                                          , text "More floated =" <+> ppr more_to_float])
-       ; return ( float_eqs `unionBags` more_to_float
+                                          , text "Floated eqs =" <+> ppr float_eqs])
+       ; return ( float_eqs
                 , wanteds { wc_simple = remaining_simples2 } ) }
   where
     skol_set = mkVarSet skols
-    (float_eqs1, remaining_simples1) = partitionBag (usefulToFloat is_useful) simples
+    (float_eqs, remaining_simples) = partitionBag (usefulToFloat is_useful) simples
     is_useful pred = tyCoVarsOfType pred `disjointVarSet` skol_set
-
-
-    float_tvs = tyCoVarsOfCts float_eqs1
-
-    (float_eqs2, remaining_simples2) = partitionBag (`ct_in_set` tyCoVarsOfCts simples)
-                                                    remaining_simples1
-    ct `ct_in_set` set
-      | isWantedCt ct
-      = (ctEvId (ctEvidence ct)) `elemVarSet` set
-      | otherwise
-      = False
-
-    float_eqs = float_eqs1 `unionBags` float_eqs2
 
 usefulToFloat :: (TcPredType -> Bool) -> Ct -> Bool
 usefulToFloat is_useful_pred ct   -- The constraint is un-flattened and de-canonicalised

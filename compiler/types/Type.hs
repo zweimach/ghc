@@ -356,8 +356,8 @@ expandTypeSynonyms ty
       = substCoVar subst cv
     go_co subst (AxiomInstCo ax ind args)
       = mkAxiomInstCo ax ind (map (go_co subst) args)
-    go_co subst (UnivCo p r h t1 t2)
-      = mkUnivCo p r (go_co subst h) (go subst t1) (go subst t2)
+    go_co subst (UnivCo p r t1 t2)
+      = mkUnivCo (go_prov subst p) r (go subst t1) (go subst t2)
     go_co subst (SymCo co)
       = mkSymCo (go_co subst co)
     go_co subst (TransCo co1 co2)
@@ -375,6 +375,12 @@ expandTypeSynonyms ty
     go_co subst (SubCo co)
       = mkSubCo (go_co subst co)
     go_co subst (AxiomRuleCo ax cs) = AxiomRuleCo ax (map (go_co subst) cs)
+
+    go_prov _     UnsafeCoerceProv    = UnsafeCoerceProv
+    go_prov subst (PhantomProv co)    = PhantomProv (go_co subst co)
+    go_prov subst (ProofIrrelProv co) = ProofIrrelProv (go_co subst co)
+    go_prov _     p@(PluginProv _)    = p
+    go_prov _     (HoleProv h)        = pprPanic "expandTypeSynonyms hit a hole" (ppr h)
 
       -- the "False" and "const" are to accommodate the type of
       -- substForAllCoBndrCallback, which is general enough to
@@ -421,6 +427,10 @@ data TyCoMapper env m
                          -- constructors?
       , tcm_tyvar :: env -> TyVar -> m Type
       , tcm_covar :: env -> CoVar -> m Coercion
+      , tcm_hole  :: env -> CoercionHole -> Role
+                  -> Type -> Type -> m Coercion
+          -- ^ What to do with coercion holes. See Note [Coercion holes] in
+          -- TyCoRep.
 
       , tcm_tybinder :: env -> TyVar -> VisibilityFlag -> m (env, TyVar)
           -- ^ The returned env is used in the extended scope
@@ -451,7 +461,7 @@ mapType mapper@(TyCoMapper { tcm_smart = smart, tcm_tyvar = tyvar
 mapCoercion :: (Applicative m, Monad m)
             => TyCoMapper env m -> env -> Coercion -> m Coercion
 mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
-                               , tcm_tybinder = tybinder })
+                               , tcm_hole = cohole, tcm_tybinder = tybinder })
             env co
   = go co
   where
@@ -468,9 +478,11 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (CoVarCo cv) = covar env cv
     go (AxiomInstCo ax i args)
       = mkaxiominstco ax i <$> mapM go args
+    go (UnivCo (HoleProv hole) r kco t1 t2)
+      = cohole hole r kco t1 t2
     go (UnivCo p r co t1 t2)
-      = mkunivco p r <$> go co <*> mapType mapper env t1
-                               <*> mapType mapper env t2
+      = mkunivco <$> go_prov p <*> pure r
+                 <*> mapType mapper env t1 <*> mapType mapper env t2
     go (SymCo co) = mksymco <$> go co
     go (TransCo c1 c2) = mktransco <$> go c1 <*> go c2
     go (AxiomRuleCo r cos) = AxiomRuleCo r <$> mapM go cos
@@ -480,6 +492,12 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (CoherenceCo c1 c2) = mkcoherenceco <$> go c1 <*> go c2
     go (KindCo co)         = mkkindco <$> go co
     go (SubCo co)          = mksubco <$> go co
+
+    go_prov UnsafeCoerceProv    = return UnsafeCoerceProv
+    go_prov (PhantomProv co)    = PhantomProv <$> go co
+    go_prov (ProofIrrelProv co) = ProofIrrelProv <$> go co
+    go_prov p@(PluginProv _)    = return p
+    go_prov (HoleProv _)        = panic "mapCoercion"
 
     ( mktyconappco, mkappco, mkaxiominstco, mkunivco
       , mksymco, mktransco, mknthco, mklrco, mkinstco, mkcoherenceco
@@ -2082,7 +2100,7 @@ tyConsOfType ty
      go_co (ForAllCo _ kind_co co) = go_co kind_co `plusNameEnv` go_co co
      go_co (CoVarCo {})            = emptyNameEnv
      go_co (AxiomInstCo ax _ args) = go_ax ax `plusNameEnv` go_cos args
-     go_co (UnivCo _ _ h t1 t2)    = go_co h `plusNameEnv` go t1 `plusNameEnv` go t2
+     go_co (UnivCo p _ t1 t2)      = go_prov p `plusNameEnv` go t1 `plusNameEnv` go t2
      go_co (SymCo co)              = go_co co
      go_co (TransCo co1 co2)       = go_co co1 `plusNameEnv` go_co co2
      go_co (NthCo _ co)            = go_co co
@@ -2092,6 +2110,12 @@ tyConsOfType ty
      go_co (KindCo co)             = go_co co
      go_co (SubCo co)              = go_co co
      go_co (AxiomRuleCo _ cs)      = go_cos cs
+
+     go_prov UnsafeCoerceProv    = emptyNameEnv
+     go_prov (PhantomProv co)    = go_co co
+     go_prov (ProofIrrelProv co) = go_co co
+     go_prov (PluginProv _)      = emptyNameEnv
+     go_prov (HoleProv h)        = pprPanic "tyConsOfType hit a hole" (ppr h)
 
      go_s tys     = foldr (plusNameEnv . go)     emptyNameEnv tys
      go_cos cos   = foldr (plusNameEnv . go_co)  emptyNameEnv cos

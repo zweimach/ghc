@@ -1279,19 +1279,24 @@ lintCoercion (CoVarCo cv)
        ; return $ coVarKindsTypesRole cv' }
 
 -- See Note [Bad unsafe coercion]
-lintCoercion co@(UnivCo prov r h ty1 ty2)
-  = do { (k1, k2) <- lintStarCoercion h
-       ; k1' <- lintType ty1
-       ; k2' <- lintType ty2
-       ; ensureEqTys k1 k1' (mkBadUnivCoMsg CLeft  co)
-       ; ensureEqTys k2 k2' (mkBadUnivCoMsg CRight co)
+lintCoercion co@(UnivCo prov r ty1 ty2)
+  = do { k1 <- lintType ty1
+       ; k2 <- lintType ty2
        ; case prov of
            UnsafeCoerceProv -> return ()  -- no extra checks
-           PhantomProv      -> lintRole co Phantom r
-           ProofIrrelProv   -> do { lintL (isCoercionTy ty1) $
+
+           PhantomProv kco    -> do { lintRole co Phantom r
+                                    ; check_kinds kco k1 k2 }
+
+           ProofIrrelProv kco -> do { lintL (isCoercionTy ty1) $
                                           mkBadProofIrrelMsg ty1 co
-                                  ; lintL (isCoercionTy ty2) $
-                                          mkBadProofIrrelMsg ty2 co }
+                                    ; lintL (isCoercionTy ty2) $
+                                          mkBadProofIrrelMsg ty2 co
+                                    ; check_kinds kco k1 k2 }
+
+           PluginProv _     -> return ()  -- no extra checks
+           HoleProv h       -> addErrL $
+                               text "Unfilled coercion hole:" <+> ppr h
 
        ; when (r /= Phantom && classifiesTypeWithValues k1
                             && classifiesTypeWithValues k2)
@@ -1329,6 +1334,11 @@ lintCoercion co@(UnivCo prov r h ty1 ty2)
                 Just False -> addWarnL (report "float and integral values")
                 _          -> return ()
             }
+
+     check_kinds kco k1 k2 = do { (k1', k2') <- lintStarCoercion kco
+                                ; ensureEqTys k1 k1' (mkBadUnivCoMsg CLeft  co)
+                                ; ensureEqTys k2 k2' (mkBadUnivCoMsg CRight co) }
+
 
 lintCoercion (SymCo co)
   = do { (k1, k2, ty1, ty2, r) <- lintCoercion co

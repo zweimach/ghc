@@ -162,7 +162,7 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
        ; (prov_ev_binds, prov_dicts) <-
            checkConstraints skol_info ex_tvs_rhs prov_dicts_rhs $ do
            { let origin = PatOrigin -- TODO
-           ; emitWantedEvVars origin prov_theta' }
+           ; mapM_ (emitWanted origin) prov_theta' }
 
        ; traceTc "tcCheckPatSynDecl }" $ ppr name
        ; tc_patsyn_finish lname dir is_infix lpat'
@@ -185,7 +185,7 @@ tc_patsyn_finish :: Located Name
                  -> Bool
                  -> LPat Id
                  -> ([TcTyVar], [PredType], TcEvBinds, [EvVar])
-                 -> ([TcTyVar], [TcType], [PredType], TcEvBinds, [EvVar])
+                 -> ([TcTyVar], [TcType], [PredType], TcEvBinds, [EvTerm])
                  -> [(Var, HsWrapper)]
                  -> TcType
                  -> TcM (PatSyn, LHsBinds Id)
@@ -232,7 +232,7 @@ tc_patsyn_finish lname dir is_infix lpat'
 tcPatSynMatcher :: Located Name
                 -> LPat Id
                 -> ([TcTyVar], ThetaType, TcEvBinds, [EvVar])
-                -> ([TcTyVar], [TcType], ThetaType, TcEvBinds, [EvVar])
+                -> ([TcTyVar], [TcType], ThetaType, TcEvBinds, [EvTerm])
                 -> [(Var, HsWrapper)]
                 -> TcType
                 -> TcM ((Id, Bool), LHsBinds Id)
@@ -270,9 +270,10 @@ tcPatSynMatcher (L loc name) lpat
              matcher_id    = mkExportedLocalId VanillaId matcher_name matcher_sigma
                              -- See Note [Exported LocalIds] in Id
 
-             cont_dicts = map nlHsVar prov_dicts
              cont' = mkLHsWrap (mkWpLet prov_ev_binds) $
-                     nlHsTyApps cont ex_tys (cont_dicts ++ cont_args)
+                     nlHsApps
+                       (mkLHsWrap (mkWpEvApps (repeat Boxed) prov_dicts)
+                                  (nlHsTyApp cont ex_tys)) cont_args
 
              fail' = nlHsApps fail [nlHsVar voidPrimId]
 

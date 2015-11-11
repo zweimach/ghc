@@ -165,9 +165,7 @@ zonkCt = unsafeTcPluginTcM . TcMType.zonkCt
 
 -- | Create a new wanted constraint.
 newWanted  :: CtLoc -> PredType -> TcPluginM CtEvidence
-newWanted loc pty = do
-    new_ev <- newEvVar pty
-    return CtWanted { ctev_pred = pty, ctev_evar = new_ev, ctev_loc = loc }
+newWanted loc pty = unsafeTcPluginTcM (TcMType.newWanted loc pty)
 
 -- | Create a new derived constraint.
 newDerived :: CtLoc -> PredType -> TcPluginM CtEvidence
@@ -185,6 +183,10 @@ newGiven loc pty evtm = do
 -- | Create a fresh evidence variable.
 newEvVar :: PredType -> TcPluginM EvVar
 newEvVar = unsafeTcPluginTcM . TcMType.newEvVar
+
+-- | Create a fresh coercion hole.
+newCoercionHole :: TcPluginM CoercionHole
+newCoercionHole = unsafeTcPluginTcM . TcMType.newCoercionHole
 
 -- | Bind an evidence variable.  This must not be invoked from
 -- 'tcPluginInit' or 'tcPluginStop', or it will panic.

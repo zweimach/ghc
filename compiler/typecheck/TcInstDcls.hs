@@ -846,7 +846,7 @@ tcInstDecl2 (InstInfo { iSpec = ispec, iBinds = ibinds })
                                   , ic_given  = dfun_ev_vars
                                   , ic_wanted = addImplics emptyWC sc_meth_implics
                                   , ic_status = IC_Unsolved
-                                  , ic_binds  = dfun_ev_binds_var
+                                  , ic_binds  = Just dfun_ev_binds_var
                                   , ic_env    = env
                                   , ic_info   = InstSkol }
 
@@ -992,16 +992,20 @@ tcSuperClasses dfun_id cls tyvars dfun_evs inst_tys dfun_ev_binds _fam_envs sc_t
     loc = getSrcSpan dfun_id
     size = sizeTypes inst_tys
     tc_super (sc_pred, n)
-      = do { (sc_implic, sc_ev_id) <- checkInstConstraints $ \_ ->
-                                      emitWantedEvVar (ScOrigin size) sc_pred
+      = do { (sc_implic, ev_binds_var, sc_ev_tm)
+                <- checkInstConstraints $ \_ -> emitWanted (ScOrigin size) sc_pred
 
-           ; sc_top_name <- newName (mkSuperDictAuxOcc n (getOccName cls))
+           ; sc_top_name  <- newName (mkSuperDictAuxOcc n (getOccName cls))
+           ; sc_ev_id     <- newEvVar sc_pred
+           ; addTcEvBind ev_binds_var $
+             mkWantedEvBind sc_ev_id sc_ev_tm (panic "TODO (RAE)")
            ; let sc_top_ty = mkInvForAllTys tyvars (mkPiTypes dfun_evs sc_pred)
                  sc_top_id = mkLocalId sc_top_name sc_top_ty
+                 sc_ev_id  = mkLocalId
                  export = ABE { abe_wrap = idHsWrapper, abe_poly = sc_top_id
                               , abe_mono = sc_ev_id
                               , abe_prags = SpecPrags [] }
-                 local_ev_binds = TcEvBinds (ic_binds sc_implic)
+                 local_ev_binds = TcEvBinds ev_binds_var
                  bind = AbsBinds { abs_tvs      = tyvars
                                  , abs_ev_vars  = dfun_evs
                                  , abs_exports  = [export]
@@ -1011,7 +1015,7 @@ tcSuperClasses dfun_id cls tyvars dfun_evs inst_tys dfun_ev_binds _fam_envs sc_t
 
 -------------------
 checkInstConstraints :: (EvBindsVar -> TcM result)
-                     -> TcM (Implication, result)
+                     -> TcM (Implication, EvBindsVar, result)
 -- See Note [Typechecking plan for instance declarations]
 -- The thing_inside is also passed the EvBindsVar,
 -- so that emit_sc_pred can add evidence for the superclass
@@ -1028,11 +1032,11 @@ checkInstConstraints thing_inside
                              , ic_given  = []
                              , ic_wanted = wanted
                              , ic_status = IC_Unsolved
-                             , ic_binds  = ev_binds_var
+                             , ic_binds  = Just ev_binds_var
                              , ic_env    = env
                              , ic_info   = InstSkol }
 
-       ; return (implic, result) }
+       ; return (implic, ev_binds_var, result) }
 
 {-
 Note [Recursive superclasses]
@@ -1383,7 +1387,7 @@ tcMethodBody clas tyvars dfun_ev_vars inst_tys
 
        ; global_meth_id <- addInlinePrags global_meth_id prags
        ; spec_prags     <- tcSpecPrags global_meth_id prags
-       ; (meth_implic, (tc_bind, _))
+       ; (meth_implic, ev_binds_var, (tc_bind, _))
                <- checkInstConstraints $ \ _ev_binds ->
                   tcPolyCheck NonRecursive no_prag_fn local_meth_sig
                               (L bind_loc lm_bind)
@@ -1394,7 +1398,7 @@ tcMethodBody clas tyvars dfun_ev_vars inst_tys
                            , abe_wrap  = hs_wrap
                            , abe_prags = specs }
 
-              local_ev_binds = TcEvBinds (ic_binds meth_implic)
+              local_ev_binds = TcEvBinds ev_binds_var
               full_bind = AbsBinds { abs_tvs      = tyvars
                                    , abs_ev_vars  = dfun_ev_vars
                                    , abs_exports  = [export]

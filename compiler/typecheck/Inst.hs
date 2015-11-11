@@ -212,8 +212,8 @@ instCallConstraints orig preds
      = do  { co <- unifyType noThing ty1 ty2
            ; return (boxity, EvCoercion co) }
      | otherwise
-     = do { ev_var <- emitWantedEvVar orig pred
-          ; return (Boxed, EvId ev_var) }
+     = do { ev_tm <- emitWanted orig pred
+          ; return (Boxed, ev_tm) }  -- TODO (RAE): That Boxed is very suspicious.
 
 instDFunType :: DFunId -> [DFunInstType]
              -> TcM ( [TcType]     -- instantiated argument types

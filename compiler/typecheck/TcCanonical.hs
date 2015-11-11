@@ -494,7 +494,7 @@ can_eq_nc' _flat _rdr_env _envs ev eq_rel ty1 _ ty2 _
 
 can_eq_nc' _flat _rdr_env _envs ev eq_rel
            s1@(ForAllTy (Named {}) _) _ s2@(ForAllTy (Named {}) _) _
- | CtWanted { ctev_loc = loc, ctev_evar = orig_ev } <- ev
+ | CtWanted { ctev_loc = loc, ctev_dest = orig_dest } <- ev
  = do { let (bndrs1,body1) = tcSplitNamedForAllTysB s1
             (bndrs2,body2) = tcSplitNamedForAllTysB s2
       ; if not (equalLength bndrs1 bndrs2)
@@ -502,11 +502,11 @@ can_eq_nc' _flat _rdr_env _envs ev eq_rel
         then canEqHardFailure ev s1 s2
         else
           do { traceTcS "Creating implication for polytype equality" $ ppr ev
-             ; kind_cos <- zipWithM (unifyWantedLikeEv ev loc Nominal)
+             ; kind_cos <- zipWithM (unifyWanted loc Nominal)
                              (map binderType bndrs1) (map binderType bndrs2)
-             ; ev_term <- deferTcSForAllEq (eqRelRole eq_rel) loc
+             ; all_co <- deferTcSForAllEq (eqRelRole eq_rel) loc
                                            kind_cos (bndrs1,body1) (bndrs2,body2)
-             ; setWantedEvBind orig_ev ev_term loc
+             ; setWanted orig_dest all_co loc
              ; stopWith ev "Deferred polytype equality" } }
  | otherwise
  = do { traceTcS "Omitting decomposition of given polytype equality" $
@@ -649,11 +649,11 @@ can_eq_app ev NomEq s1 t1 s2 t2
   | CtDerived { ctev_loc = loc } <- ev
   = do { unifyDeriveds loc [Nominal, Nominal] [s1, t1] [s2, t2]
        ; stopWith ev "Decomposed [D] AppTy" }
-  | CtWanted { ctev_evar = evar, ctev_loc = loc } <- ev
-  = do { co_s <- unifyWantedLikeEv ev loc Nominal s1 s2
-       ; co_t <- unifyWantedLikeEv ev loc Nominal t1 t2
+  | CtWanted { ctev_dest = dest, ctev_loc = loc } <- ev
+  = do { co_s <- unifyWanted loc Nominal s1 s2
+       ; co_t <- unifyWanted loc Nominal t1 t2
        ; let co = mkTcCoercion $ mkAppCo co_s co_t
-       ; setWantedEvBind evar (EvCoercion co) loc
+       ; setWanted dest co loc
        ; stopWith ev "Decomposed [W] AppTy" }
   | CtGiven { ctev_evar = evar, ctev_loc = loc } <- ev
   = do { let co   = mkTcCoVarCo evar
@@ -918,10 +918,9 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
      CtDerived { ctev_loc = loc }
         -> unifyDeriveds loc tc_roles tys1 tys2
 
-     CtWanted { ctev_evar = evar, ctev_loc = loc }
-        -> do { cos <- zipWith3M (unifyWantedLikeEv ev loc) tc_roles tys1 tys2
-              ; setWantedEvBind evar (EvCoercion (mkTcCoercion $
-                                                  mkTyConAppCo role tc cos)) loc }
+     CtWanted { ctev_dest = dest, ctev_loc = loc }
+        -> do { cos <- zipWith3M (unifyWanted loc) tc_roles tys1 tys2
+              ; setWanted dest (mkTyConAppCo role tc cos) loc }
 
      CtGiven { ctev_evar = evar, ctev_loc = loc }
         -> do { let ev_co = mkTcCoVarCo evar
@@ -1324,35 +1323,29 @@ homogeniseRhsKind ev eq_rel lhs rhs build_ct
 
   | otherwise   -- Wanted and Derived. See Note [No derived kind equalities]
     -- evar :: (lhs :: k1) ~ (rhs :: k2)
-  = do { mb_kind_ev <- newWantedEvVar kind_loc kind_pty
+  = do { (kind_ev, kind_co) <- newWantedEq kind_loc Nominal k1 k2
              -- kind_ev :: (k1 :: *) ~ (k2 :: *)
-       ; traceTcS "Hetero equality gives rise to wanted kind equality"
-           (ppr (getEvTerm mb_kind_ev))
-       ; emitWorkNC $ freshGoals [mb_kind_ev]
-       ; let kind_evt = getEvTerm mb_kind_ev
-       ; kind_co <- dirtyTcCoToCo Wanted (evTermCoercion kind_evt)
+       ; traceTcS "Hetero equality gives rise to wanted kind equality" $
+           ppr (kind_ev)
+       ; emitWorkNC [kind_ev]
        ; let homo_co   = mkSymCo kind_co
            -- homo_co :: k2 ~ k1
              rhs'      = mkCastTy rhs homo_co
-             homo_pred = mkTcEqPredLikeEv ev lhs rhs'
        ; case ev of
            CtGiven {} -> panic "homogeniseRhsKind"
            CtDerived {} -> continueWith (build_ct (ev { ctev_pred = homo_pred })
                                                   rhs')
-           CtWanted { ctev_evar = evar } -> do
-             { mb_type_ev <- newWantedEvVar loc homo_pred
+             where homo_pred = mkTcEqPredLikeEv ev lhs rhs'
+           CtWanted { ctev_dest = dest } -> do
+             { (type_ev, hole_co) <- newWantedEq loc (ctEvRole ev) lhs rhs'
                   -- type_ev :: (lhs :: k1) ~ (rhs |> sym kind_ev :: k1)
-             ; let type_evt = getEvTerm mb_type_ev
-             ; setWantedEvBind evar
-                         (EvCoercion $
-                          (evTermCoercion type_evt) `mkTcTransCo`
+             ; setWanted dest
+                         (hole_co `mkTcTransCo`
                           (mkTcReflCo (eqRelRole eq_rel) rhs
                            `mkTcCoherenceLeftCo` homo_co))
                          loc
-                -- evar := type_ev ; <rhs> |> homo_co :: (lhs :: k1) ~ (rhs :: k2)
-             ; case mb_type_ev of
-                 Fresh  type_ev -> continueWith (build_ct type_ev rhs')
-                 Cached _       -> stopWith ev  "cached homogenized equality" }}
+                -- dest := hole ; <rhs> |> homo_co :: (lhs :: k1) ~ (rhs :: k2)
+             ; continueWith (build_ct type_ev rhs') }}
 
   where
     k1 = typeKind lhs
@@ -1530,6 +1523,7 @@ andWhenContinue tcs1 tcs2
            ContinueWith ct -> tcs2 ct }
 infixr 0 `andWhenContinue`    -- allow chaining with ($)
 
+-- no equalities here
 rewriteEvidence :: CtEvidence   -- old evidence
                 -> TcPredType   -- new predicate
                 -> TcCoercion   -- Of type :: new predicate ~ <type of old evidence>
@@ -1591,7 +1585,9 @@ rewriteEvidence ev@(CtGiven { ctev_evar = old_evar , ctev_loc = loc }) new_pred 
                                                        (ctEvRole ev)
                                                        (mkTcSymCo co))
 
-rewriteEvidence ev@(CtWanted { ctev_evar = evar, ctev_loc = loc }) new_pred co
+rewriteEvidence ev@(CtWanted { ctev_dest = EvVarDest evar
+                             , ctev_loc = loc }) new_pred co
+      -- the dest must be an EvVar, because this never sees equality cts
   = do { mb_new_ev <- newWantedEvVar loc new_pred
        ; MASSERT( tcCoercionRole co == ctEvRole ev )
        ; setWantedEvBind evar
@@ -1601,6 +1597,8 @@ rewriteEvidence ev@(CtWanted { ctev_evar = evar, ctev_loc = loc }) new_pred co
        ; case mb_new_ev of
             Fresh  new_ev -> continueWith new_ev
             Cached _      -> stopWith ev "Cached wanted" }
+
+rewriteEvidence ev _ _ = pprPanic "rewriteEvidence" (ppr ev)
 
 
 rewriteEqEvidence :: CtEvidence         -- Old evidence :: olhs ~ orhs (not swapped)
@@ -1642,15 +1640,15 @@ rewriteEqEvidence old_ev swapped nlhs nrhs lhs_co rhs_co
        ; new_ev <- newGivenEvVar loc' (new_pred, new_tm)
        ; continueWith new_ev }
 
-  | CtWanted { ctev_evar = evar } <- old_ev
-  = do { new_evar <- newWantedEvVarNC loc' new_pred
+  | CtWanted { ctev_dest = dest } <- old_ev
+  = do { (new_ev, hole_co) <- newWantedEq loc' (ctEvRole old_ev) nlhs nrhs
        ; let co = maybeSym swapped $
-                  mkTcSymCo lhs_co
-                  `mkTcTransCo` ctEvCoercion new_evar
-                  `mkTcTransCo` rhs_co
-       ; setWantedEvBind evar (EvCoercion co) loc
+                  mkSymCo lhs_co
+                  `mkTransCo` hole_co
+                  `mkTransCo` rhs_co
+       ; setWanted dest co loc
        ; traceTcS "rewriteEqEvidence" (vcat [ppr old_ev, ppr nlhs, ppr nrhs, ppr co])
-       ; continueWith new_evar }
+       ; continueWith new_ev }
 
   | otherwise
   = panic "rewriteEvidence"
@@ -1676,33 +1674,31 @@ But where it succeeds in finding common structure, it just builds a coercion
 to reflect it.
 -}
 
-unifyWantedLikeEv :: CtEvidence -> CtLoc -> Role
-                  -> TcType -> TcType -> TcS Coercion
+unifyWanted :: CtLoc -> Role
+            -> TcType -> TcType -> TcS Coercion
 -- Return coercion witnessing the equality of the two types,
 -- emitting new work equalities where necessary to achieve that
 -- Very good short-cut when the two types are equal, or nearly so
 -- See Note [unifyWanted and unifyDerived]
 -- The returned coercion's role matches the input parameter
--- The boxity of any produced Wanteds matches the CtEvidence parameter
-unifyWantedLikeEv ev loc Phantom ty1 ty2
-  = do { kind_co <- unifyWantedLikeEv ev loc Nominal
-                                      (typeKind ty1) (typeKind ty2)
+unifyWanted loc Phantom ty1 ty2
+  = do { kind_co <- unifyWanted loc Nominal (typeKind ty1) (typeKind ty2)
        ; return (mkPhantomCo kind_co ty1 ty2) }
 
-unifyWantedLikeEv ev loc role orig_ty1 orig_ty2
+unifyWanted loc role orig_ty1 orig_ty2
   = go orig_ty1 orig_ty2
   where
     go ty1 ty2 | Just ty1' <- tcView ty1 = go ty1' ty2
     go ty1 ty2 | Just ty2' <- tcView ty2 = go ty1 ty2'
 
     go (ForAllTy (Anon s1) t1) (ForAllTy (Anon s2) t2)
-      = do { co_s <- unifyWantedLikeEv ev loc role s1 s2
-           ; co_t <- unifyWantedLikeEv ev loc role t1 t2
+      = do { co_s <- unifyWanted loc role s1 s2
+           ; co_t <- unifyWanted loc role t1 t2
            ; return (mkTyConAppCo role funTyCon [co_s,co_t]) }
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       | tc1 == tc2, tys1 `equalLength` tys2
       , isInjectiveTyCon tc1 role -- don't look under newtypes at Rep equality
-      = do { cos <- zipWith3M (unifyWantedLikeEv ev loc)
+      = do { cos <- zipWith3M (unifyWanted loc)
                               (tyConRolesX role tc1) tys1 tys2
            ; return (mkTyConAppCo role tc1 cos) }
     go (TyVarTy tv) ty2
@@ -1721,12 +1717,9 @@ unifyWantedLikeEv ev loc role orig_ty1 orig_ty2
 
     go _ _ = bale_out
 
-    bale_out = do { ev <- newWantedEvVarNC loc (mkTcEqPredBR boxity role
-                                                  orig_ty1 orig_ty2)
-                  ; emitWorkNC [ev]
-                  ; return (mkCoVarCo (ctEvId ev)) }
-
-    boxity = getEqPredBoxity (ctEvPred ev)
+    bale_out = do { (new_ev, co) <- newWantedEq loc role orig_ty1 orig_ty2
+                  ; emitWorkNC [new_ev]
+                  ; return co }
 
 unifyDeriveds :: CtLoc -> [Role] -> [TcType] -> [TcType] -> TcS ()
 -- See Note [unifyWanted and unifyDerived]

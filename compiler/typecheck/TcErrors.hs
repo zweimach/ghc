@@ -235,7 +235,7 @@ Specifically (see reportWanteds)
 
 reportImplic :: ReportErrCtxt -> Implication -> TcM ()
 reportImplic ctxt implic@(Implic { ic_skols = tvs, ic_given = given
-                                 , ic_wanted = wanted, ic_binds = evb
+                                 , ic_wanted = wanted, ic_binds = m_evb
                                  , ic_status = status, ic_info = info
                                  , ic_env = tcl_env, ic_tclvl = tc_lvl })
   | BracketSkol <- info
@@ -262,9 +262,11 @@ reportImplic ctxt implic@(Implic { ic_skols = tvs, ic_given = given
                  , cec_suppress = insoluble  -- Suppress inessential errors if there
                                              -- are are insolubles anywhere in the
                                              -- tree rooted here
-                 , cec_binds    = case cec_binds ctxt of
-                                     Nothing -> Nothing
-                                     Just {} -> Just evb }
+                 , cec_binds    = cec_binds ctxt *> m_evb
+                                  -- if cec_binds ctxt is Nothing, that means
+                                  -- we're reporting *all* errors. Don't change
+                                  -- that behavior just because we're going into
+                                  -- an implication.
     dead_givens = case status of
                     IC_Solved { ics_dead = dead } -> dead
                     _                             -> []
@@ -494,28 +496,26 @@ maybeReportError ctxt err
 addDeferredBinding :: ReportErrCtxt -> ErrMsg -> Ct -> TcM ()
 -- See Note [Deferring coercion errors to runtime]
 addDeferredBinding ctxt err ct
-  | CtWanted { ctev_pred = pred, ctev_evar = ev_id, ctev_loc = loc } <- ctEvidence ct
+  | CtWanted { ctev_pred = pred, ctev_dest = dest
+             , ctev_loc = loc } <- ctEvidence ct
     -- Only add deferred bindings for Wanted constraints
   , Just ev_binds_var <- cec_binds ctxt  -- We have somewhere to put the bindings
   = do { dflags <- getDynFlags
        ; let err_msg = pprLocErrMsg err
              err_fs  = mkFastString $ showSDoc dflags $
                        err_msg $$ text "(deferred type error)"
+             err_tm  = EvDelayedError pred err_fs
 
-          -- Create the binding
-       ; if isUnLiftedType pred
-         then case getEqPredTys_maybe pred of
-           Just (Unboxed, role, ty1, ty2) ->
-               -- See Note [Deferred errors for unlifted equality]
-             do { let lifted_pred = mkEqPredRole role ty1 ty2
-                ; liftedVar <- newEvVar lifted_pred
-                ; addTcEvBind ev_binds_var $
-                  mkWantedEvBind ev_id (EvId liftedVar) loc
-                ; addTcEvBind ev_binds_var $
-                  mkWantedEvBind liftedVar
-                                 (EvDelayedError lifted_pred err_fs) loc }
-           _ -> pprPanic "addDeferredBinding" (ppr pred)
-         else addTcEvBind ev_binds_var (mkWantedEvBind ev_id (EvDelayedError pred err_fs) loc) }
+       ; case dest of
+           EvVarDest evar
+             -> addTcEvBind ev_binds_var $ mkWantedEvBind evar err_tm loc
+           HoleDest hole
+             | Just (_, role, ty1, ty2) <- getEqPredTys_maybe pred
+             -> do { -- See Note [Deferred errors for coercion holes]
+                     evar <- newEvVar pred
+                   ; addTcEvBind ev_binds_var $ mkWantedEvBind evar err_tm loc
+                   ; fillCoercionHole hole (mkCoVarCo evar) }
+           _ -> pprPanic "addDeferredBinding" (ppr pred) }
 
   | otherwise   -- Do not set any evidence for Given/Derived
   = return ()
@@ -638,14 +638,15 @@ is perhaps a bit *over*-consistent! Again, an easy choice to change.
 
 With #10283, you can now opt out of deferred type error warnings.
 
-Note [Deferred errors for unlifted equality]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-If we have a unlifted pred type (such as `a ~# b`), then we can't just
-bind it to EvDelayedError: the desugarer will choke in evTermCoercion.
-But, we *can* bind the unlifted equality to a *lifted* equality, and
-then bind the lifted equality to EvDelayedError. The desugarer will
-unpack the erroneous equality in a `case` match, and the unlifted
-equality basically stays away from the problem.
+Note [Deferred errors for coercion holes]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Suppose we need to defer a type error where the destination for the evidence
+is a coercion hole. We can't just put the error in the hole, because we can't
+make an erroneous coercion. (Remember that coercions are erased for runtime.)
+Instead, we invent a new EvVar, bind it to an error and then make a coercion
+from that EvVar, filling the hole with that coercion. Because coercions'
+types are unlifted, the error is guaranteed to be hit before we get to the
+coercion.
 
 Note [Do not report derived but soluble errors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

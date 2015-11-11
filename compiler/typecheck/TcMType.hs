@@ -32,15 +32,15 @@ module TcMType (
 
   --------------------------------
   -- Creating new evidence variables
-  newEvVar, newEvVars, newEq, newDict,
+  newEvVar, newEvVars, newCoercionHole, newDict,
   newWanted, newWanteds,
-  emitWantedEvVar, emitWantedEvVars,
+  emitWanted, emitWantedEq, emitWantedEvVar, emitWantedEvVars,
   newTcEvBinds, addTcEvBind,
 
   --------------------------------
   -- Instantiation
   tcInstBinders, tcInstBindersX,
-  tcInstTyVars, tcInstTyVarX, tcInstCoVars, tcInstCoVarX,
+  tcInstTyVars, tcInstTyVarX, tcInstCoVars,
   newSigTyVar,
   tcInstType,
   tcInstSkolTyVars, tcInstSkolTyVarsLoc, tcInstSuperSkolTyVarsX,
@@ -70,7 +70,6 @@ module TcMType (
 #include "HsVersions.h"
 
 -- friends:
-import TyCoRep
 import TcType
 import Type
 import Coercion
@@ -140,23 +139,43 @@ newEvVar :: TcPredType -> TcRnIf gbl lcl EvVar
 newEvVar ty = do { name <- newSysName (predTypeOccName ty)
                  ; return (mkLocalIdOrCoVar name ty) }
 
+-- deals with both equality and non-equality predicates
 newWanted :: CtOrigin -> PredType -> TcM CtEvidence
 newWanted orig pty
   = do loc <- getCtLocM orig
-       v <- newEvVar pty
-       return $ CtWanted { ctev_evar = v
+       d <- if isEqPred pty then HoleDest  <$> newCoercionHole
+                            else EvVarDest <$> newEvVar pty
+       return $ CtWanted { ctev_dest = d
                          , ctev_pred = pty
                          , ctev_loc = loc }
 
 newWanteds :: CtOrigin -> ThetaType -> TcM [CtEvidence]
 newWanteds orig = mapM (newWanted orig)
 
--- | Creates a new EvVar and immediately emits it as a Wanted
+-- | Emits a new Wanted. Deals with both equalities and non-equalities.
+emitWanted :: CtOrigin -> TcPredType -> TcM EvTerm
+emitWanted origin pty
+  = do { ev <- newWanted origin pty
+       ; emitSimple $ mkNonCanonical ev
+       ; return $ ctEvTerm ev }
+
+-- | Emits a new equality constraint
+emitWantedEq :: CtOrigin -> Role -> TcType -> TcType -> TcM Coercion
+emitWantedEq origin role ty1 ty2
+  = do { hole <- newCoercionHole
+       ; emitSimple $ mkNonCanonical $
+           CtWanted { ctev_pred = pty, ctev_dest = HoleDest hole, ctev_loc = loc }
+       ; return (mkHoleCo hole role ty1 ty2) }
+  where
+    pty = mkPrimEqPredRole role ty1 ty2
+
+-- | Creates a new EvVar and immediately emits it as a Wanted.
+-- No equality predicates here.
 emitWantedEvVar :: CtOrigin -> TcPredType -> TcM EvVar
 emitWantedEvVar origin ty
   = do { new_cv <- newEvVar ty
        ; loc <- getCtLocM origin
-       ; let ctev = CtWanted { ctev_evar = new_cv
+       ; let ctev = CtWanted { ctev_dest = EvVarDest new_cv
                              , ctev_pred = ty
                              , ctev_loc  = loc }
        ; emitSimple $ mkNonCanonical ctev
@@ -165,10 +184,11 @@ emitWantedEvVar origin ty
 emitWantedEvVars :: CtOrigin -> [TcPredType] -> TcM [EvVar]
 emitWantedEvVars orig = mapM (emitWantedEvVar orig)
 
-newEq :: TcType -> TcType -> TcM EvVar
-newEq ty1 ty2
-  = do { name <- newSysName (mkVarOccFS (fsLit "cobox"))
-       ; return (mkLocalCoVar name (mkPrimEqPred ty1 ty2)) }
+newCoercionHole :: TcM CoercionHole
+newCoercionHole
+  = do { u <- newUnique
+       ; ref <- newMutVar Nothing
+       ; return $ mkCoercionHole u ref }
 
 newDict :: Class -> [TcType] -> TcM DictId
 newDict cls tys
@@ -575,20 +595,18 @@ tcInstTyVarX subst tyvar
 
 -- | "Instantiate" a list of covars by emitting them as wanted, returning
 -- a substitution to the wanted covars along with the wanted covars themselves.
-tcInstCoVars :: CtOrigin -> [CoVar] -> TcM (TCvSubst, [CoVar])
-tcInstCoVars orig = mapAccumLM (tcInstCoVarX orig) emptyTCvSubst
+tcInstCoVars :: CtOrigin -> [CoVar] -> TcM TCvSubst
+tcInstCoVars orig = foldlM (tcInstCoVarX orig) emptyTCvSubst
 
 -- | "Instantiate" a covar, extending a substitution.
-tcInstCoVarX :: CtOrigin -> TCvSubst -> CoVar -> TcM (TCvSubst, CoVar)
+tcInstCoVarX :: CtOrigin -> TCvSubst -> CoVar -> TcM TCvSubst
 tcInstCoVarX orig subst covar
-  = do { let pred_ty    = substTy subst (varType covar)
-       ; new_cv <- emitWantedEvVar orig pred_ty
-         -- can't call unifyType, because we need to return a CoVar,
-         -- and unification might result in a TcCoercion that's not a CoVar
-         -- TODO (RAE): Improve now that unifyType *can* return a Coercion??
+  = do { let (_, _, ty1, ty2, role) = coVarKindsTypesRole covar
+             ty1' = substTy subst ty1
+             ty2' = substTy subst ty2
+       ; new_co <- unifyType noThing ty1' ty2'
 
-       ; return ( extendTCvSubst subst covar (mkCoercionTy $ mkCoVarCo new_cv)
-                , new_cv ) }
+       ; return $ extendTCvSubst subst covar (mkCoercionTy $ new_co) }
 
 -- | This is used to instantiate binders when type-checking *types* only.
 -- Precondition: all binders are invisible.
@@ -626,10 +644,10 @@ tcInstBinderX mb_kind_info subst binder
                                    , uo_expected = k2
                                    , uo_thing    = Nothing
                                    , uo_level    = KindLevel }
-       ; cv <- emitWantedEvVar origin (mkPrimEqPredRole role k1 k2)
+       ; co <- emitWantedEq origin role k1 k2
        ; let arg' = case boxity of
-                      Boxed   -> mkEqBoxTy    (mkCoVarCo cv)
-                      Unboxed -> mkCoercionTy (mkCoVarCo cv)
+                      Boxed   -> mkEqBoxTy    co
+                      Unboxed -> mkCoercionTy co
        ; return (subst, arg') }
 
   | otherwise
@@ -1008,10 +1026,13 @@ zonkCtEvidence :: CtEvidence -> TcM CtEvidence
 zonkCtEvidence ctev@(CtGiven { ctev_pred = pred })
   = do { pred' <- zonkTcType pred
        ; return (ctev { ctev_pred = pred'}) }
-zonkCtEvidence ctev@(CtWanted { ctev_pred = pred, ctev_evar = ev })
+zonkCtEvidence ctev@(CtWanted { ctev_pred = pred, ctev_dest = dest })
   = do { pred' <- zonkTcType pred
-       ; let ev' = setVarType ev pred'  -- necessary in simplifyInfer
-       ; return (ctev { ctev_pred = pred', ctev_evar = ev' }) }
+       ; let dest' = case dest of
+                       EvVarPred ev -> EvVarPred $ setVarType ev pred'
+                         -- necessary in simplifyInfer
+                       HolePred h   -> HolePred h
+       ; return (ctev { ctev_pred = pred', ctev_dest = dest' }) }
 zonkCtEvidence ctev@(CtDerived { ctev_pred = pred })
   = do { pred' <- zonkTcType pred
        ; return (ctev { ctev_pred = pred' }) }
@@ -1053,7 +1074,14 @@ zonkTcTypeMapper = TyCoMapper
                 -- See Note [Zonking inside the knot] in TcHsType
   , tcm_tyvar = const zonkTcTyVar
   , tcm_covar = const (\cv -> mkCoVarCo <$> zonkTyCoVarKind cv)
+  , tcm_hole  = hole
   , tcm_tybinder = \_env tv _vis -> ((), ) <$> zonkTcTyCoVarBndr tv }
+  where
+    hole :: () -> CoercionHole -> Role -> Type -> Type
+         -> TcM Coercion
+    hole _ h r t1 t2 = return $ mkHoleCo h r t1 t2
+      -- We *could* dereference holes. But there is no reason to do
+      -- so until the final zonk. So we hold off.
 
 -- For unbound, mutable tyvars, zonkType uses the function given to it
 -- For tyvars bound at a for-all, zonkType zonks them to an immutable

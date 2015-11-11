@@ -1,4 +1,30 @@
 stack:
+   - ic_binds --> Maybe
+     nestImplicTcS
+       TcSEnv
+         runTcS and friends
+	 - runTcSEqualities :: TcS a -> TcM a
+     floatEqualities
+     setImplicationStatus ?
+
+ - remove evBindMapWanteds
+
+ - setWantedEvBind --> setWanted --> setWantedEq
+ - setWantedEvTerm :: TcEvDest -> EvTerm -> CtLoc -> TcS ()
+ - fillCoercionHole :: CoercionHole -> Coercion -> TcM ()  -- put near addTcEvBind
+ - isFilledCoercionHole :: CoercionHole -> TcM Bool
+ - search for mkPrimEqPred / mkPrimReprEqPred.
+    I want an invariant: all unlifted equalities are holes.
+ - discard evBindWanted?
+ - Outputable TcEvDest
+ - do we need boxity of equalities in getEqPredTys_maybe?
+
+ - don't worry about loose types in lookupInertDict. They're all of kind
+   Constraint! Also, look for other functions that are similar.
+
+ - remove TcCoercion
+ - use solveEqualities instead of simplifyTop
+
 
 - figure out UndecidableInstances problem. See TODO in TcValdidity.
   Possibly: if sizeTypes are equal, then check sizeTypes without *, or without

@@ -6,6 +6,8 @@
 TcRules: Typechecking transformation rules
 -}
 
+{-# LANGUAGE ViewPatterns #-}
+
 module TcRules ( tcRules ) where
 
 import HsSyn
@@ -124,7 +126,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                                   , ic_given    = lhs_evs
                                   , ic_wanted   = rhs_wanted
                                   , ic_status   = IC_Unsolved
-                                  , ic_binds    = rhs_binds_var
+                                  , ic_binds    = Just rhs_binds_var
                                   , ic_info     = RuleSkol (snd $ unLoc name)
                                   , ic_env      = lcl_env }
 
@@ -138,7 +140,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                                   , ic_given    = lhs_evs
                                   , ic_wanted   = other_lhs_wanted
                                   , ic_status   = IC_Unsolved
-                                  , ic_binds    = lhs_binds_var
+                                  , ic_binds    = Just lhs_binds_var
                                   , ic_info     = RuleSkol (snd $ unLoc name)
                                   , ic_env      = lcl_env }
 
@@ -295,94 +297,71 @@ Deciding which equalities to quantify over is tricky:
 The difficulty is that it's hard to tell what is insoluble!
 So we see whether the simplification step yielded any type errors,
 and if so refrain from quantifying over *any* equalities.
+
+Note [Quantifying over coercion holes]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Equality constraints from the LHS will emit coercion hole Wanteds.
+These don't have a name, so we can't quantify over them directly.
+Instead, because we really do want to quantify here, invent a new
+EvVar for the coercion, fill the hole with the invented EvVar, and
+then quantify over the EvVar. Not too tricky -- just some
+impedence matching, really.
+
 -}
 
 simplifyRule :: RuleName
              -> WantedConstraints       -- Constraints from LHS
              -> WantedConstraints       -- Constraints from RHS
-             -> TcM ([EvVar], WantedConstraints)   -- LHS evidence variables
+             -> TcM [EvVar]             -- LHS evidence variables
 -- See Note [Simplifying RULE constraints] in TcRule
 simplifyRule name lhs_wanted rhs_wanted
   = do {         -- We allow ourselves to unify environment
                  -- variables: runTcS runs with topTcLevel
-         ev_binds_var <- TcM.newTcEvBinds
-       ; tc_lvl       <- TcM.getTcLevel
-       ; ((insoluble, resid_vars), unified_vars, _orig_binds)
-           <- runTcSRollbackInfo ev_binds_var $
+       ; tc_lvl         <- TcM.getTcLevel
+       ; (insoluble, _) <- runTcS $
              do { -- First solve the LHS and *then* solve the RHS
                   -- See Note [Solve order for RULES]
                   lhs_resid <- solveWanteds lhs_wanted
                 ; rhs_resid <- solveWanteds rhs_wanted
                 ; return ( insolubleWC tc_lvl lhs_resid ||
-                           insolubleWC tc_lvl rhs_resid
-                         , tyCoVarsOfWC lhs_resid `unionVarSet`
-                           tyCoVarsOfWC rhs_resid ) }
+                           insolubleWC tc_lvl rhs_resid ) }
 
-         -- need to make sure to include any wanteds that bind covars in unified
-         -- variables
-       ; ev_bind_map <- TcM.getTcEvBindsMap ev_binds_var
-       ; inner_ev_vars <- unionVarSet <$> free_ev_vars lhs_wanted
-                                      <*> free_ev_vars rhs_wanted
-       ; fvs <- TcM.zonkTyCoVarsAndFV (unified_vars `unionVarSet` inner_ev_vars)
-       ; let all_tcvs      = fvs `unionVarSet` resid_vars
-             extra_wanteds = evBindMapWanteds all_tcvs ev_bind_map
-       ; extra_wanteds <- TcM.zonkWC extra_wanteds
-       ; emitConstraints extra_wanteds   -- kick the can down the road, because
-                                         -- there's nowhere convenient to put these
-                                         -- covars
-       ; traceTc "simplifyRule extra wanteds" (vcat [ ppr unified_vars
-                                                    , ppr fvs
-                                                    , ppr all_tcvs
-                                                    , ppr extra_wanteds ])
 
        ; zonked_lhs_simples <- TcM.zonkSimples (wc_simple lhs_wanted)
-       ; let (q_cts, non_q_cts) = partitionBag quantify_me zonked_lhs_simples
-             quantify_me  -- Note [RULE quantification over equalities]
-               | insoluble = quantify_insol
-               | otherwise = quantify_normal
-
-             quantify_insol ct = not (isNomEqPred (ctPred ct))
-
-             quantify_normal ct
-               | EqPred NomEq t1 t2 <- classifyPredType (ctPred ct)
-               = not (t1 `tcEqType` t2)
-               | otherwise
-               = True
+       ; ev_ids <- mapMaybeM (quantify_ct insoluble) $
+                             bagToList zonked_lhs_simples
 
        ; traceTc "simplifyRule" $
          vcat [ ptext (sLit "LHS of rule") <+> doubleQuotes (ftext name)
               , text "lhs_wantd" <+> ppr lhs_wanted
               , text "rhs_wantd" <+> ppr rhs_wanted
               , text "zonked_lhs_simples" <+> ppr zonked_lhs_simples
-              , text "q_cts"      <+> ppr q_cts
-              , text "non_q_cts"  <+> ppr non_q_cts ]
+              , text "ev_ids"     <+> ppr ev_ids
+              ]
 
-       ; return ( map (ctEvId . ctEvidence) (bagToList q_cts)
-                , lhs_wanted { wc_simple = non_q_cts }) }
+       ; return ev_ids }
 
-    where
-      free_ev_vars :: WantedConstraints -> TcM TyCoVarSet
-      free_ev_vars (WC { wc_simple = simples
-                       , wc_impl   = implics
-                       , wc_insol  = insols })
-        = do { implic_varss <- mapM vars_of_implic (bagToList implics)
-             ; return $ unionVarSets [ tyCoVarsOfCts simples
-                                     , tyCoVarsOfCts insols
-                                     , unionVarSets implic_varss ] }
+  where
+    quantify_ct insol -- Note [RULE quantification over equalities]
+      | insol     = quantify_normal
+      | otherwise = quantify_insol
 
-      vars_of_implic :: Implication -> TcM VarSet
-      vars_of_implic (Implic { ic_skols  = skols
-                             , ic_given  = givens
-                             , ic_wanted = wc
-                             , ic_binds  = ev_binds_var })
-        = do { ev_binds <- TcM.getTcEvBinds ev_binds_var
-             ; let (ev_vars, ev_terms)
-                     = mapAndUnzip (\(EvBind { eb_lhs = var
-                                             , eb_rhs = term })
-                                    -> (var, term)) (bagToList ev_binds)
-             ; rest <- free_ev_vars wc
-             ; return $ tyCoVarsOfTelescope (skols ++ givens) $
-                        rest
-                        `unionVarSet` mapUnionVarSet (filterVarSet isCoVar .
-                                                      evVarsOfTerm) ev_terms
-                        `delVarSetList` ev_vars }
+    quantify_insol (ev_ids, q_cts) ct
+      | isEqPred (ctPred ct)
+      = return Nothing
+      | otherwise
+      = return $ Just $ ctEvId $ ctEvidence ct
+
+    quantify_normal (ctEvidence -> CtWanted { ctev_dest = dest
+                                            , ctev_pred = pred })
+      = case dest of  -- See Note [Quantifying over coercion holes]
+          HoleDest hole ->
+            do { filled <- isFilledCoercionHole hole
+               ; if filled
+                 then return Nothing -- equality is solved. Don't quantify.
+                 else
+            do { ev_id <- newEvVar pred
+               ; fillCoercionHole hole (mkCoVarCo ev_id)
+               ; return (Just ev_id) }}
+          EvVarDest evar -> return (Just evar)
+    quantify_normal ct = pprPanic "simplifyRule.quantify_normal" (ppr ct)

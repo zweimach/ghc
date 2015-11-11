@@ -494,11 +494,8 @@ data Coercion
      -- any left over, we use AppCo.
      -- See [Coercion axioms applied to coercions]
 
-  | UnivCo UnivCoProvenance Role Coercion Type Type
-      -- :: _ -> "e" -> N -> _ -> _ -> e
-      -- The Coercion proves that the two *kinds* of the types are
-      -- nominally equal. This is necessary so that KindCo
-      -- (which always returns a nominal coercion) is sensible.
+  | UnivCo UnivCoProvenance Role Type Type
+      -- :: _ -> "e" -> _ -> _ -> e
 
   | SymCo Coercion             -- :: e -> e
   | TransCo Coercion Coercion  -- :: e -> e -> e
@@ -604,7 +601,7 @@ Note that
   co2 :: a2 ~ Bool
 
 Here,
-  co3 = UnivCo ProofIrrelProv Nominal co5 (CoercionTy co1) (CoercionTy co2)
+  co3 = UnivCo (ProofIrrelProv co5) Nominal (CoercionTy co1) (CoercionTy co2)
   where
     co5 :: (a1 ~ Bool) ~ (a2 ~ Bool)
     co5 = TyConAppCo Nominal (~) [<*>, <*>, co4, <Bool>]
@@ -620,39 +617,30 @@ Here,
 -- for coercion holes. See Note [Coercion holes].
 data UnivCoProvenance
   = UnsafeCoerceProv   -- ^ From @unsafeCoerce#@. These are unsound.
-  | PhantomProv        -- ^ From the need to create a phantom coercion;
-                       --   the UnivCo must be Phantom.
-  | ProofIrrelProv     -- ^ From the fact that any two coercions are
-                       --   considered equivalent. See Note [ProofIrrelProv]
+  | PhantomProv Coercion -- ^ From the need to create a phantom coercion;
+                         --   the UnivCo must be Phantom. The Coercion stored is
+                         --   the (nominal) kind coercion between the types
+  | ProofIrrelProv Coercion  -- ^ From the fact that any two coercions are
+                             --   considered equivalent. See Note [ProofIrrelProv]
   | PluginProv String  -- ^ From a plugin, which asserts that this coercion
                        --   is sound. The string is for the use of the plugin.
-  | HoleProv CoercionHole
+  | HoleProv CoercionHole  -- ^ See Note [Coercion holes]
   deriving (Eq, Data.Data, Data.Typeable)
 
 instance Outputable UnivCoProvenance where
   ppr UnsafeCoerceProv = text "(unsafeCoerce#)"
-  ppr PhantomProv      = text "(phantom)"
-  ppr ProofIrrelProv   = text "(proof irrel.)"
+  ppr PhantomProv _    = text "(phantom)"
+  ppr ProofIrrelProv _ = text "(proof irrel.)"
   ppr (PluginProv str) = parens (text "plugin" <+> brackets (text str))
   ppr (HoleProv hole)  = parens (text "hole" <> ppr hole)
-
-instance Binary UnivCoProvenance where
-  put_ bh UnsafeCoerceProv = putByte bh 0
-  put_ bh PhantomProv      = putByte bh 1
-  put_ bh ProofIrrelProv   = putByte bh 2
-
-  get bh = do
-    h <- getByte bh
-    return $ case h of
-      0 -> UnsafeCoerceProv
-      1 -> PhantomProv
-      _ -> ProofIrrelProv
 
 -- | A coercion to be filled in by the type-checker. See Note [Coercion holes]
 data CoercionHole
   = CoercionHole Unique   -- ^ used only for debugging
                  (IORef (Maybe Coercion))
-                   -- should be TcRef, but that would r
+
+instance Outputable CoercionHole where
+  ppr (CoercionHole u _) = braces (ppr u)
 
 {-
 Note [Refl invariant]
@@ -999,7 +987,7 @@ tyCoVarsOfCo (ForAllCo tv kind_co co)
   = tyCoVarsOfCo co `delVarSet` tv `unionVarSet` tyCoVarsOfCo kind_co
 tyCoVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` tyCoVarsOfType (varType v)
 tyCoVarsOfCo (AxiomInstCo _ _ cos) = tyCoVarsOfCos cos
-tyCoVarsOfCo (UnivCo _ _ h t1 t2)  = tyCoVarsOfCo h `unionVarSet` tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
+tyCoVarsOfCo (UnivCo p _ t1 t2)  = tyCoVarsOfProv p `unionVarSet` tyCoVarsOfType t1 `unionVarSet` tyCoVarsOfType t2
 tyCoVarsOfCo (SymCo co)          = tyCoVarsOfCo co
 tyCoVarsOfCo (TransCo co1 co2)   = tyCoVarsOfCo co1 `unionVarSet` tyCoVarsOfCo co2
 tyCoVarsOfCo (NthCo _ co)        = tyCoVarsOfCo co
@@ -1009,6 +997,13 @@ tyCoVarsOfCo (CoherenceCo c1 c2) = tyCoVarsOfCo c1 `unionVarSet` tyCoVarsOfCo c2
 tyCoVarsOfCo (KindCo co)         = tyCoVarsOfCo co
 tyCoVarsOfCo (SubCo co)          = tyCoVarsOfCo co
 tyCoVarsOfCo (AxiomRuleCo _ cs)  = tyCoVarsOfCos cs
+
+tyCoVarsOfProv :: UnivCoProvenance -> TyCoVarSet
+tyCoVarsOfProv UnsafeCoerceProv    = emptyVarSet
+tyCoVarsOfProv (PhantomProv co)    = tyCoVarsOfCo co
+tyCoVarsOfProv (ProofIrrelProv co) = tyCoVarsOfCo co
+tyCoVarsOfProv (PluginProv _)      = emptyVarSet
+tyCoVarsOfProv (HoleProv _)        = emptyVarSet
 
 tyCoVarsOfCos :: [Coercion] -> TyCoVarSet
 tyCoVarsOfCos cos = mapUnionVarSet tyCoVarsOfCo cos
@@ -1036,7 +1031,7 @@ coVarsOfCo (ForAllCo tv kind_co co)
   = coVarsOfCo co `delVarSet` tv `unionVarSet` coVarsOfCo kind_co
 coVarsOfCo (CoVarCo v)         = unitVarSet v `unionVarSet` coVarsOfType (varType v)
 coVarsOfCo (AxiomInstCo _ _ args) = coVarsOfCos args
-coVarsOfCo (UnivCo _ _ h t1 t2)= coVarsOfCo h `unionVarSet` coVarsOfTypes [t1, t2]
+coVarsOfCo (UnivCo p _ t1 t2)  = coVarsOfProv p `unionVarSet` coVarsOfTypes [t1, t2]
 coVarsOfCo (SymCo co)          = coVarsOfCo co
 coVarsOfCo (TransCo co1 co2)   = coVarsOfCo co1 `unionVarSet` coVarsOfCo co2
 coVarsOfCo (NthCo _ co)        = coVarsOfCo co
@@ -1046,6 +1041,13 @@ coVarsOfCo (CoherenceCo c1 c2) = coVarsOfCos [c1, c2]
 coVarsOfCo (KindCo co)         = coVarsOfCo co
 coVarsOfCo (SubCo co)          = coVarsOfCo co
 coVarsOfCo (AxiomRuleCo _ cs)  = coVarsOfCos cs
+
+coVarsOfProv :: UnivCoProvenance -> CoVarSet
+coVarsOfProv UnsafeCoerceProv    = emptyVarSet
+coVarsOfProv (PhantomProv co)    = coVarsOfCo co
+coVarsOfProv (ProofIrrelProv co) = coVarsOfCo co
+coVarsOfProv (PluginProv _)      = emptyVarSet
+coVarsOfProv (HoleProv _)        = emptyVarSet
 
 coVarsOfCos :: [Coercion] -> CoVarSet
 coVarsOfCos cos = mapUnionVarSet coVarsOfCo cos
@@ -1628,7 +1630,8 @@ subst_co subst co
           ((mkForAllCo $! tv') $! kind_co') $! subst_co subst' co }
     go (CoVarCo cv)          = substCoVar subst cv
     go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go cos
-    go (UnivCo p r h t1 t2)  = ((mkUnivCo p r $! (go h)) $! (go_ty t1)) $! (go_ty t2)
+    go (UnivCo p r t1 t2)    = (((mkUnivCo $! (go_prov p)) $! r) $!
+                                (go_ty t1)) $! (go_ty t2)
     go (SymCo co)            = mkSymCo $! (go co)
     go (TransCo co1 co2)     = (mkTransCo $! (go co1)) $! (go co2)
     go (NthCo d co)          = mkNthCo d $! (go co)
@@ -1639,6 +1642,12 @@ subst_co subst co
     go (SubCo co)            = mkSubCo $! (go co)
     go (AxiomRuleCo c cs)    = let cs1 = map go cs
                                 in cs1 `seqList` AxiomRuleCo c cs1
+
+    go_prov UnsafeCoerceProv     = UnsafeCoerceProv
+    go_prov (PhantomProv kco)    = PhantomProv (go kco)
+    go_prov (ProofIrrelProv kco) = ProofIrrelProv (go kco)
+    go_prov p@(PluginProv _)     = p
+    go_prov (HoleProv h)         = pprPanic "subst_co fell into a hole)" (ppr h)
 
 substForAllCoBndr :: TCvSubst -> TyVar -> Coercion -> (TCvSubst, TyVar, Coercion)
 substForAllCoBndr subst
@@ -2312,7 +2321,8 @@ tidyCo env@(_, subst) co
                                  Just cv' -> CoVarCo cv'
     go (AxiomInstCo con ind cos) = let args = map go cos
                                in  args `seqList` AxiomInstCo con ind args
-    go (UnivCo p r h t1 t2)  = ((UnivCo p r $! go h) $! tidyType env t1) $! tidyType env t2
+    go (UnivCo p r t1 t2)    = (((UnivCo $! (go_prov p)) $! r) $!
+                                tidyType env t1) $! tidyType env t2
     go (SymCo co)            = SymCo $! go co
     go (TransCo co1 co2)     = (TransCo $! go co1) $! go co2
     go (NthCo d co)          = NthCo d $! go co
@@ -2323,6 +2333,12 @@ tidyCo env@(_, subst) co
     go (SubCo co)            = SubCo $! go co
     go (AxiomRuleCo ax cos)  = let cos1 = tidyCos env cos
                                in cos1 `seqList` AxiomRuleCo ax cos1
+
+    go_prov UnsafeCoerceProv    = UnsafeCoerceProv
+    go_prov (PhantomProv co)    = PhantomProv (go co)
+    go_prov (ProofIrrelProv co) = ProofIrrelProv (go co)
+    go_prov p@(PluginProv _)    = p
+    go_prov p@(HoleProv _)      = p
 
 tidyCos :: TidyEnv -> [Coercion] -> [Coercion]
 tidyCos env = map (tidyCo env)

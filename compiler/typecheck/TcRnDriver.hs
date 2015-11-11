@@ -1860,9 +1860,9 @@ tcRnType hsc_env normalise rdr_type
                 then do { fam_envs <- tcGetFamInstEnvs
                         ; let (_, ty', cvs)
                                 = normaliseTypeAggressive fam_envs Nominal ty
-                        ; ((subst, _), binds) <- solveTopConstraints $
-                                                 tcInstCoVars (TypeRedOrigin ty) $
-                                                 varSetElemsWellScoped cvs
+                        ; (subst, binds) <- solveTopConstraints $
+                                            tcInstCoVars (TypeRedOrigin ty) $
+                                            varSetElemsWellScoped cvs
                         ; cv_subst <- zonkedEvBindsSubst binds
                         ; return (substTy (composeTCvSubst cv_subst subst) ty') }
                 else return ty ;

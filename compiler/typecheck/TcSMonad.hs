@@ -26,7 +26,9 @@ module TcSMonad (
     -- Evidence creation and transformation
     MaybeNew(..), freshGoals, isFresh, getEvTerm,
 
-    newTcEvBinds, newWantedEvVar, newWantedEvVarNC, newDerivedNC,
+    newTcEvBinds,
+    newWantedEqNC, newWantedEq,
+    newWanted, newWantedEvVar, newWantedEvVarNC, newDerivedNC,
     newBoundEvVarId, dirtyTcCoToCo,
     unifyTyVar, unflattenFmv, reportUnifications,
     setEvBind, setWantedEvBind, setEvBindIfWanted, dropEvBindFromVar,
@@ -2241,7 +2243,9 @@ added.  This is initialised from the innermost implication constraint.
 
 data TcSEnv
   = TcSEnv {
-      tcs_ev_binds    :: EvBindsVar,
+      tcs_ev_binds    :: Maybe EvBindsVar,
+          -- this could be Nothing if we can't deal with non-equality
+          -- constraints, because, say, we're in a top-level type signature
 
       tcs_unified     :: IORef TyVarSet,
           -- The set of metavars that have been filled
@@ -2305,7 +2309,7 @@ traceTcS :: String -> SDoc -> TcS ()
 traceTcS herald doc = wrapTcS (TcM.traceTc herald doc)
 
 runTcPluginTcS :: TcPluginM a -> TcS a
-runTcPluginTcS m = wrapTcS . runTcPluginM m . Just =<< getTcEvBinds
+runTcPluginTcS m = wrapTcS . runTcPluginM m =<< getTcEvBinds
 
 instance HasDynFlags TcS where
     getDynFlags = wrapTcS getDynFlags
@@ -2375,7 +2379,7 @@ runTcSWithEvBinds :: EvBindsVar
 runTcSWithEvBinds ev_binds_var tcs
   = fstOf3 <$> runTcSRollbackInfo ev_binds_var tcs
 
-runTcSRollbackInfo :: EvBindsVar
+runTcSRollbackInfo :: Maybe EvBindsVar
                    -> TcS a
                    -> TcM (a, TyVarSet, [(EvBindsVar, EvBindMap)])
                      -- returns the set of unified variables
@@ -2403,8 +2407,9 @@ runTcSRollbackInfo ev_binds_var tcs
          csTraceTcM 0 $ return (ptext (sLit "Constraint solver steps =") <+> int count)
 
 #ifdef DEBUG
-       ; ev_binds <- TcM.getTcEvBinds ev_binds_var
-       ; checkForCyclicBinds ev_binds
+       ; whenIsJust ev_binds_var $ \ebv ->
+         do { ev_binds <- TcM.getTcEvBinds ebv
+            ; checkForCyclicBinds ev_binds }
 #endif
 
        ; unified_var_set <- TcM.readTcRef unified_var
@@ -2434,8 +2439,8 @@ checkForCyclicBinds ev_binds
             | bind@(EvBind { eb_lhs = bndr, eb_rhs = rhs}) <- bagToList ev_binds ]
 #endif
 
-nestImplicTcS :: EvBindsVar -> TcLevel -> TcS a -> TcS a
-nestImplicTcS ref inner_tclvl (TcS thing_inside)
+nestImplicTcS :: Maybe EvBindsVar -> TcLevel -> TcS a -> TcS a
+nestImplicTcS m_ref inner_tclvl (TcS thing_inside)
   = TcS $ \ TcSEnv { tcs_unified    = unified_var
                    , tcs_inerts     = old_inert_var
                    , tcs_count      = count
@@ -2445,7 +2450,7 @@ nestImplicTcS ref inner_tclvl (TcS thing_inside)
                                    -- See Note [Do not inherit the flat cache]
        ; new_inert_var <- TcM.newTcRef nest_inert
        ; new_wl_var    <- TcM.newTcRef emptyWorkList
-       ; let nest_env = TcSEnv { tcs_ev_binds    = ref
+       ; let nest_env = TcSEnv { tcs_ev_binds    = m_ref
                                , tcs_unified     = unified_var
                                , tcs_orig_binds  = orig_binds_var
                                , tcs_count       = count
@@ -2456,8 +2461,9 @@ nestImplicTcS ref inner_tclvl (TcS thing_inside)
 
 #ifdef DEBUG
        -- Perform a check that the thing_inside did not cause cycles
-       ; ev_binds <- TcM.getTcEvBinds ref
-       ; checkForCyclicBinds ev_binds
+       ; whenIsJust m_ref \ ref ->
+         do { ev_binds <- TcM.getTcEvBinds ref
+            ; checkForCyclicBinds ev_binds }s
 #endif
 
        ; return res }
@@ -2601,7 +2607,7 @@ readTcRef ref = wrapTcS (TcM.readTcRef ref)
 updTcRef :: TcRef a -> (a->a) -> TcS ()
 updTcRef ref upd_fn = wrapTcS (TcM.updTcRef ref upd_fn)
 
-getTcEvBinds :: TcS EvBindsVar
+getTcEvBinds :: TcS (Maybe EvBindsVar)
 getTcEvBinds = TcS (return . tcs_ev_binds)
 
 getTcEvBindsFromVar :: EvBindsVar -> TcS (Bag EvBind)
@@ -2612,8 +2618,10 @@ getTcLevel = wrapTcS TcM.getTcLevel
 
 getTcEvBindsMap :: TcS EvBindMap
 getTcEvBindsMap
-  = do { EvBindsVar ev_ref _ <- getTcEvBinds
-       ; wrapTcS $ TcM.readTcRef ev_ref }
+  = do { ev_binds <- getTcEvBinds
+       ; case ev_binds of
+           Just (EvBindsVar ev_ref _) -> wrapTcS $ TcM.readTcRef ev_ref
+           Nothing                    -> return emptyEvBindMap }
 
 unifyTyVar :: TcTyVar -> TcType -> TcS ()
 -- Unify a meta-tyvar with a type
@@ -2794,8 +2802,8 @@ newFlattenSkolem Given loc fam_ty
 
 newFlattenSkolem Wanted loc fam_ty
   = do { fmv <- newFmv fam_ty
-       ; ev <- newWantedEvVarNC loc (mkPrimEqPred fam_ty (mkTyVarTy fmv))
-       ; return (ev, mkCoVarCo (ctev_evar ev), fmv) }
+       ; (ev, hole_co) <- newWantedEq loc Nominal fam_ty (mkTyVarTy fmv)
+       ; return (ev, hole_co, fmv) }
 
 newFlattenSkolem Derived loc fam_ty
   = do { fmv <- newFmv fam_ty
@@ -2894,8 +2902,9 @@ saveOrigEvBindsVar ev_binds_var
 setEvBind :: EvBind -> TcS ()
 setEvBind ev_bind
   = do { tc_evbinds <- getTcEvBinds
-       ; saveOrigEvBindsVar tc_evbinds
-       ; wrapTcS $ TcM.addTcEvBind tc_evbinds ev_bind }
+       ; case tc_evbinds of
+           Just evb -> wrapTcS $ TcM.addTcEvBind evb ev_bind
+           Nothing  -> pprPanic "setEvBind" (ppr ev_bind) }
 
 setWantedEvBind :: EvVar -> EvTerm -> CtLoc -> TcS ()
 setWantedEvBind ev_id tm loc = setEvBind (mkWantedEvBind ev_id tm loc)
@@ -2903,8 +2912,8 @@ setWantedEvBind ev_id tm loc = setEvBind (mkWantedEvBind ev_id tm loc)
 setEvBindIfWanted :: CtEvidence -> EvTerm -> TcS ()
 setEvBindIfWanted ev tm
   = case ev of
-      CtWanted { ctev_evar = ev_id, ctev_loc = loc }
-        -> setWantedEvBind ev_id tm loc
+      CtWanted { ctev_dest = dest, ctev_loc = loc }
+        -> setWantedEvTerm dest tm loc
       _ -> return ()
 
 -- | Drop a binding from an EvBindsVar
@@ -2940,6 +2949,18 @@ newBoundEvVarId pred rhs
 newGivenEvVars :: CtLoc -> [(TcPredType, EvTerm)] -> TcS [CtEvidence]
 newGivenEvVars loc pts = mapM (newGivenEvVar loc) pts
 
+-- | Make a new equality CtEvidence
+newWantedEq :: CtLoc -> Role -> TcType -> TcType -> TcS (CtEvidence, Coercion)
+newWantedEq loc role ty1 ty2
+  = do { hole <- wrapTcS $ newCoercionHole
+       ; traceTcS "Emitting new coercion hole" (ppr hole <+> dcolon <+> ppr pty)
+       ; return ( CtWanted { ctev_pred = pty, ctev_dest = HoleDest hole
+                           , ctev_loc = loc}
+                , mkHoleCo hole role ty1 ty2 ) }
+  where
+    pty = mkPrimEqPredRole role ty1 ty2
+
+-- no equalities here. Use newWantedEqNC instead
 newWantedEvVarNC :: CtLoc -> TcPredType -> TcS CtEvidence
 -- Don't look up in the solved/inerts; we know it's not there
 newWantedEvVarNC loc pty
@@ -2947,7 +2968,8 @@ newWantedEvVarNC loc pty
        ; new_ev <- newEvVar pty
        ; traceTcS "Emitting new wanted" (ppr new_ev <+> dcolon <+> ppr pty $$
                                          pprCtLoc loc)
-       ; return (CtWanted { ctev_pred = pty, ctev_evar = new_ev, ctev_loc = loc })}
+       ; return (CtWanted { ctev_pred = pty, ctev_evar = EvVarDest new_ev
+                          , ctev_loc = loc })}
 
 newWantedEvVar :: CtLoc -> TcPredType -> TcS MaybeNew
 -- For anything except ClassPred, this is the same as newWantedEvVarNC
@@ -2957,11 +2979,20 @@ newWantedEvVar loc pty
             Just ctev
               | not (isDerived ctev)
               -> do { traceTcS "newWantedEvVar/cache hit" $ ppr ctev
-                    ; return $ Cached (ctEvCoherence ctev pty) }
+                    ; return $ Cached (ctEvTerm ctev) }
                       -- TODO (RAE): Could this have a problem with
                       -- ~ vs ~#?
             _ -> do { ctev <- newWantedEvVarNC loc pty
                     ; return (Fresh ctev) } }
+
+-- deals with both equalities and non equalities. Tries to look
+-- up non-equalities in the cache
+newWanted :: CtLoc -> PredType -> TcS MaybeNew
+newWanted loc pty
+  | Just (_, role, ty1, ty2) <- getEqPredTys_maybe pty
+  = Fresh . fst <$> newWantedEq loc role ty1 ty2
+  | otherwise
+  = newWantedEvVar loc pty
 
 -- | Convert a TcCoercion into a Coercion the "dirty" way. This means
 -- creating a new CoVar, bound to the TcCoercion in the ambient EvBinds;
@@ -3047,8 +3078,8 @@ matchFamTcM tycon args
        ; case reduceTyFamApp_maybe fam_envs Nominal tycon args of
          { Nothing -> return Nothing
          ; Just (co, ty, cvs) ->
-    do { ((subst, _), wanteds) <- TcM.captureConstraints $
-                                  TcM.tcInstCoVars origin cvs
+    do { (subst, wanteds) <- TcM.captureConstraints $
+                             TcM.tcInstCoVars origin cvs
        ; let co' = substCo subst co
              ty' = substTy subst ty
        ; return (Just (co', ty', wanteds)) }}}
@@ -3075,7 +3106,7 @@ deferTcSForAllEq :: Role -- Nominal or Representational
                  -> [Coercion]        -- among the kinds of the binders
                  -> ([Binder],TcType)   -- ForAll tvs1 body1
                  -> ([Binder],TcType)   -- ForAll tvs2 body2
-                 -> TcS EvTerm
+                 -> TcS Coercion
 deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
  = do { let tvs1'  = zipWithEqual "deferTcSForAllEq"
                        mkCastTy (mkTyVarTys tvs1) kind_cos
@@ -3086,10 +3117,7 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
             skol_info = UnifyForAllSkol skol_tvs phi1
             eq_pred   = mkPrimEqPredRole role phi1 phi2
 
-          -- The cache won't have the right covars here. So don't
-          -- even look
-      ; ctev <- newWantedEvVarNC loc eq_pred
-      ; ev_binds_var <- newTcEvBinds
+      ; (ctev, hole_co) <- newWantedEq loc role phi1 phi2
       ; env <- getLclEnv
       ; let new_tclvl = pushTcLevel (tcl_tclvl env)
             wc        = WC { wc_simple = singleCt (mkNonCanonical ctev)
@@ -3101,14 +3129,16 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
                                , ic_given  = []
                                , ic_wanted = wc
                                , ic_status = IC_Unsolved
-                               , ic_binds  = ev_binds_var
+                               , ic_binds  = Nothing -- no place to put binds
                                , ic_env    = env
                                , ic_info   = skol_info }
       ; updWorkListTcS (extendWorkListImplic imp)
-      ; let new_co     = ctEvCoercion ctev
-            coe_inside = TcLetCo (TcEvBinds ev_binds_var) new_co
-            cobndrs    = zip skol_tvs kind_cos
-      ; return $ EvCoercion (mkTcForAllCos cobndrs coe_inside) }
+      ; let cobndrs    = zip skol_tvs kind_cos
+      ; return $ mkForAllCos cobndrs hole_co }
    where
      tvs1 = map (binderVar "deferTcSForAllEq") bndrs1
      tvs2 = map (binderVar "deferTcSForAllEq") bndrs2
+
+     panic_ev_binds = pprPanic "deferTcSForAllEq ev binds"
+                        (vcat [ pprForAll bndrs1 <+> ppr body1
+                              , pprForAll bndrs2 <+> ppr body2 ])

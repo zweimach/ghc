@@ -1614,7 +1614,7 @@ allTyVarsInTy = go
       = unionVarSets [unitVarSet tv, go_co co, go_co h]
     go_co (CoVarCo cv)          = unitVarSet cv
     go_co (AxiomInstCo _ _ cos) = go_cos cos
-    go_co (UnivCo _ _ h t1 t2)  = go_co h `unionVarSet` go t1 `unionVarSet` go t2
+    go_co (UnivCo p _ t1 t2)    = go_ucp p `unionVarSet` go t1 `unionVarSet` go t2
     go_co (SymCo co)            = go_co co
     go_co (TransCo c1 c2)       = go_co c1 `unionVarSet` go_co c2
     go_co (NthCo _ co)          = go_co co
@@ -1626,6 +1626,12 @@ allTyVarsInTy = go
     go_co (AxiomRuleCo _ cs)    = go_cos cs
 
     go_cos = foldr (unionVarSet . go_co) emptyVarSet
+
+    go_prov UnsafeCoerceProv    = emptyVarSet
+    go_prov (PhantomProv co)    = go_co co
+    go_prov (ProofIrrelProv co) = go_co co
+    go_prov (PluginProv _)      = emptyVarSet
+    go_prov (HoleProv h)        = pprPanic "allTyVarsInTy fell into a hole" (ppr h)
 
 mkFlattenFreshTyName :: Uniquable a => a -> Name
 mkFlattenFreshTyName unq

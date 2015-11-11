@@ -174,7 +174,7 @@ data IfaceCoercion
   | IfaceForAllCo     IfaceTvBndr IfaceCoercion IfaceCoercion
   | IfaceCoVarCo      IfLclName
   | IfaceAxiomInstCo  IfExtName BranchIndex [IfaceCoercion]
-  | IfaceUnivCo       UnivCoProvenance Role IfaceCoercion IfaceType IfaceType
+  | IfaceUnivCo       IfaceUnivCoProv Role IfaceType IfaceType
   | IfaceSymCo        IfaceCoercion
   | IfaceTransCo      IfaceCoercion IfaceCoercion
   | IfaceNthCo        Int IfaceCoercion
@@ -184,6 +184,12 @@ data IfaceCoercion
   | IfaceKindCo       IfaceCoercion
   | IfaceSubCo        IfaceCoercion
   | IfaceAxiomRuleCo  IfLclName [IfaceCoercion]
+
+data IfaceUnivCoProv
+  = IfaceUnsafeCoerceProv
+  | IfacePhantomProv IfaceCoercion
+  | IfaceProofIrrelProv IfaceCoercion
+  | IfacePluginProv String
 
 {-
 %************************************************************************
@@ -276,7 +282,7 @@ ifTyVarsOfCoercion = go
      = go co `delOneFromUniqSet` bound `unionUniqSets` go kind_co
     go (IfaceCoVarCo cv)          = unitUniqSet cv
     go (IfaceAxiomInstCo _ _ cos) = ifTyVarsOfCoercions cos
-    go (IfaceUnivCo _ _ h ty1 ty2)= go h `unionUniqSets`
+    go (IfaceUnivCo p _ ty1 ty2)  = go_prov p `unionUniqSets`
                                     ifTyVarsOfType ty1 `unionUniqSets`
                                     ifTyVarsOfType ty2
     go (IfaceSymCo co)            = go co
@@ -291,6 +297,11 @@ ifTyVarsOfCoercion = go
       = unionManyUniqSets
           [ unitUniqSet rule
           , ifTyVarsOfCoercions cos ]
+
+    go_prov IfaceUnsafeCoerceProv    = emptyUniqSet
+    go_prov (IfacePhantomProv co)    = go co
+    go_prov (IfaceProofIrrelProv co) = go co
+    go_prov (IfacePluginProv _)      = emptyUniqSet
 
 ifTyVarsOfCoercions :: [IfaceCoercion] -> UniqSet IfLclName
 ifTyVarsOfCoercions = foldr (unionUniqSets . ifTyVarsOfCoercion) emptyUniqSet
@@ -812,13 +823,13 @@ ppr_co ctxt_prec co@(IfaceForAllCo {})
 
 ppr_co _         (IfaceCoVarCo covar)       = ppr covar
 
-ppr_co ctxt_prec (IfaceUnivCo UnsafeCoerceProv r _ ty1 ty2)
+ppr_co ctxt_prec (IfaceUnivCo UnsafeCoerceProv r ty1 ty2)
   = maybeParen ctxt_prec TyConPrec $
     ptext (sLit "UnsafeCo") <+> ppr r <+>
     pprParendIfaceType ty1 <+> pprParendIfaceType ty2
 
-ppr_co _         (IfaceUnivCo _ _ h ty1 ty2)
-  = angleBrackets ( ppr ty1 <> comma <+> ppr ty2 ) <> char '_' <> pprParendIfaceCoercion h
+ppr_co _         (IfaceUnivCo _ _ ty1 ty2)
+  = angleBrackets ( ppr ty1 <> comma <+> ppr ty2 )
 
 ppr_co ctxt_prec (IfaceInstCo co ty)
   = maybeParen ctxt_prec TyConPrec $
@@ -1035,13 +1046,12 @@ instance Binary IfaceCoercion where
           put_ bh a
           put_ bh b
           put_ bh c
-  put_ bh (IfaceUnivCo a b c d e) = do
+  put_ bh (IfaceUnivCo a b c d) = do
           putByte bh 8
           put_ bh a
           put_ bh b
           put_ bh c
           put_ bh d
-          put_ bh e
   put_ bh (IfaceSymCo a) = do
           putByte bh 9
           put_ bh a
@@ -1107,8 +1117,7 @@ instance Binary IfaceCoercion where
                    b <- get bh
                    c <- get bh
                    d <- get bh
-                   e <- get bh
-                   return $ IfaceUnivCo a b c d e
+                   return $ IfaceUnivCo a b c d
            9 -> do a <- get bh
                    return $ IfaceSymCo a
            10-> do a <- get bh
@@ -1134,6 +1143,31 @@ instance Binary IfaceCoercion where
                    b <- get bh
                    return $ IfaceAxiomRuleCo a b
            _ -> panic ("get IfaceCoercion " ++ show tag)
+
+instance Binary IfaceUnivCoProv where
+  put_ bh IfaceUnsafeCoerceProv = putByte bh 1
+  put_ bh (IfacePhantomProv a) = do
+          putByte bh 2
+          put_ bh a
+  put_ bh (IfaceProofIrrelProv a) = do
+          putByte bh 3
+          put_ bh a
+  put_ bh (IfacePluginProv a) = do
+          putByte bh 4
+          put_ bh a
+
+  get bh = do
+      tag <- getByte bh
+      case tag of
+           1 -> return $ IfaceUnsafeCoerceProv
+           2 -> do a <- get bh
+                   return $ IfacePhantomProv a
+           3 -> do a <- get bh
+                   return $ IfaceProofIrrelProv a
+           4 -> do a <- get bh
+                   return $ IfacePluginProv a
+           _ -> panic ("get IfaceUnivCoProv " ++ show tag)
+
 
 {-
 ************************************************************************
@@ -1246,9 +1280,9 @@ toIfaceCoercion (CoVarCo cv)        = IfaceCoVarCo  (toIfaceCoVar cv)
 toIfaceCoercion (AxiomInstCo con ind cos)
                                     = IfaceAxiomInstCo (coAxiomName con) ind
                                                        (map toIfaceCoercion cos)
-toIfaceCoercion (UnivCo p r h t1 t2)= IfaceUnivCo p r (toIfaceCoercion h)
-                                                      (toIfaceType t1)
-                                                      (toIfaceType t2)
+toIfaceCoercion (UnivCo p r t1 t2)  = IfaceUnivCo (toIfaceUnivCoProv p) r
+                                                  (toIfaceType t1)
+                                                  (toIfaceType t2)
 toIfaceCoercion (SymCo co)          = IfaceSymCo (toIfaceCoercion co)
 toIfaceCoercion (TransCo co1 co2)   = IfaceTransCo (toIfaceCoercion co1)
                                                    (toIfaceCoercion co2)
@@ -1262,3 +1296,10 @@ toIfaceCoercion (KindCo c)          = IfaceKindCo (toIfaceCoercion c)
 toIfaceCoercion (SubCo co)          = IfaceSubCo (toIfaceCoercion co)
 toIfaceCoercion (AxiomRuleCo co cs) = IfaceAxiomRuleCo (coaxrName co)
                                           (map toIfaceCoercion cs)
+
+toIfaceUnivCoProv :: UnivCoProvenance -> IfaceUnivCoProv
+toIfaceUnivCoProv UnsafeCoerceProv    = IfaceUnsafeCoerceProv
+toIfaceUnivCoProv (PhantomProv co)    = IfacePhantomProv (toIfaceCoercion co)
+toIfaceUnivCoProv (ProofIrrelProv co) = IfaceProofIrrelProv (toIfaceCoercion co)
+toIfaceUnivCoProv (PluginProv str)    = IfacePluginProv str
+toIfaceUnivCoProv (HoleProv h) = pprPanic "toIfaceUnivCoProv hit a hole" (ppr h)

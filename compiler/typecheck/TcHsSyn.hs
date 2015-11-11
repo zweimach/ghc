@@ -1505,12 +1505,30 @@ zonkCoVarOcc (ZonkEnv _ co_env _ id_env) cv
     lookupVarEnv co_env cv `orElse`
     mkCoVarCo (lookupVarEnv id_env cv `orElse` cv)
 
+zonkCoHole :: ZonkEnv -> CoercionHole
+           -> Role -> Type -> Type  -- these are all redundant with
+                                    -- the details in the hole
+           -> TcM Coercion
+zonkCoHole env (CoercionHole u ref) role t1 t2
+  = do { contents <- readMutVar ref
+       ; case contents of
+           Just co -> let (Pair _t1 _t2, _role) = coercionKindRole co in
+                      ASSERT2( t1 `eqType` _t1 && t2 `eqType` _t2 &&
+                               role == _role
+                             , (text "Bad coercion hole" <+> ppr u <> colon <+>
+                                vcat [ ppr _t1, ppr _t2, ppr _role, ppr co
+                                     , ppr t1, ppr t2, ppr role ]) )
+                      zonkTcCoToCo env co
+           Nothing -> pprPanic "Unfilled coercion hole" (ppr u <+> ppr [t1, t2])
+       }
+
 zonk_tycomapper :: TyCoMapper ZonkEnv TcM
 zonk_tycomapper = TyCoMapper
   { tcm_smart = True   -- Establish type invariants
                        -- See Note [Zonking inside the knot] in TcHsType
   , tcm_tyvar = zonkTyVarOcc
   , tcm_covar = zonkCoVarOcc
+  , tcm_hole  = zonkCoHole
   , tcm_tybinder = \env tv _vis -> zonkTyBndrX env tv }
 
 zonkTcTypeToType :: ZonkEnv -> TcType -> TcM Type

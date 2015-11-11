@@ -712,7 +712,7 @@ exactTyCoVarsOfType ty
       = goCo co `delVarSet` tv `unionVarSet` goCo k_co
     goCo (CoVarCo v)         = unitVarSet v `unionVarSet` go (varType v)
     goCo (AxiomInstCo _ _ args) = goCos args
-    goCo (UnivCo _ _ h t1 t2)= goCo h `unionVarSet` go t1 `unionVarSet` go t2
+    goCo (UnivCo p _ t1 t2)  = goProv p `unionVarSet` go t1 `unionVarSet` go t2
     goCo (SymCo co)          = goCo co
     goCo (TransCo co1 co2)   = goCo co1 `unionVarSet` goCo co2
     goCo (NthCo _ co)        = goCo co
@@ -724,6 +724,12 @@ exactTyCoVarsOfType ty
     goCo (AxiomRuleCo _ c)   = goCos c
 
     goCos cos = foldr (unionVarSet . goCo) emptyVarSet cos
+
+    goProv UnsafeCoerceProv     = emptyVarSet
+    goProv (PhantomProv kco)    = goCo kco
+    goProv (ProofIrrelProv kco) = goCo kco
+    goProv (PluginProv _)       = emptyVarSet
+    goProv (HoleProv _)         = emptyVarSet
 
 exactTyCoVarsOfTypes :: [Type] -> TyVarSet
 exactTyCoVarsOfTypes tys = mapUnionVarSet exactTyCoVarsOfType tys
@@ -1522,10 +1528,10 @@ occurCheckExpand dflags tv ty
                                          ; return (mkCoVarCo (setVarType c k')) }
     go_co (AxiomInstCo ax ind args) = do { args' <- mapM go_co args
                                          ; return (mkAxiomInstCo ax ind args') }
-    go_co (UnivCo p r h ty1 ty2)    = do { h' <- go_co h
+    go_co (UnivCo p r ty1 ty2)      = do { p' <- go_prov p
                                          ; ty1' <- go ty1
                                          ; ty2' <- go ty2
-                                         ; return (mkUnivCo p r h' ty1' ty2') }
+                                         ; return (mkUnivCo p' r ty1' ty2') }
     go_co (SymCo co)                = do { co' <- go_co co
                                          ; return (mkSymCo co') }
     go_co (TransCo co1 co2)         = do { co1' <- go_co co1
@@ -1547,6 +1553,12 @@ occurCheckExpand dflags tv ty
                                          ; return (mkSubCo co') }
     go_co (AxiomRuleCo ax cs)       = do { cs' <- mapM go_co cs
                                          ; return (mkAxiomRuleCo ax cs') }
+
+    go_prov UnsafeCoerceProv    = return UnsafeCoerceProv
+    go_prov (PhantomProv co)    = PhantomProv <$> go_co co
+    go_prov (ProofIrrelProv co) = ProofIrrelProv <$> go_co co
+    go_prov p@(PluginProv _)    = return p
+    go_prov p@(HoleProv _)      = return p
 
     check_kind k | fast_check k = return k
                  | otherwise    = go k
@@ -1962,7 +1974,7 @@ orphNamesOfCo (ForAllCo _ kind_co co)
   = orphNamesOfCo kind_co `unionNameSet` orphNamesOfCo co
 orphNamesOfCo (CoVarCo _)           = emptyNameSet
 orphNamesOfCo (AxiomInstCo con _ cos) = orphNamesOfCoCon con `unionNameSet` orphNamesOfCos cos
-orphNamesOfCo (UnivCo _ _ h t1 t2)  = orphNamesOfCo h `unionNameSet` orphNamesOfType t1 `unionNameSet` orphNamesOfType t2
+orphNamesOfCo (UnivCo p _ t1 t2)    = orphNamesOfProv p `unionNameSet` orphNamesOfType t1 `unionNameSet` orphNamesOfType t2
 orphNamesOfCo (SymCo co)            = orphNamesOfCo co
 orphNamesOfCo (TransCo co1 co2)     = orphNamesOfCo co1 `unionNameSet` orphNamesOfCo co2
 orphNamesOfCo (NthCo _ co)          = orphNamesOfCo co
@@ -1972,6 +1984,13 @@ orphNamesOfCo (CoherenceCo co1 co2) = orphNamesOfCo co1 `unionNameSet` orphNames
 orphNamesOfCo (KindCo co)           = orphNamesOfCo co
 orphNamesOfCo (SubCo co)            = orphNamesOfCo co
 orphNamesOfCo (AxiomRuleCo _ cs)    = orphNamesOfCos cs
+
+orphNamesOfProv :: UnivCoProvenance -> NameSet
+orphNamesOfProv UnsafeCoerceProv    = emptyNameSet
+orphNamesOfProv (PhantomProv co)    = orphNamesOfCo co
+orphNamesOfProv (ProofIrrelProv co) = orphNamesOfCo co
+orphNamesOfProv (PluginProv _)      = emptyNameSet
+orphNamesOfProv (HoleProv _)        = emptyNameSet
 
 orphNamesOfCos :: [Coercion] -> NameSet
 orphNamesOfCos = orphNamesOfThings orphNamesOfCo

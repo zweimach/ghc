@@ -938,8 +938,8 @@ tcIfaceCo = go
                                         ForAllCo tv' k' <$> go c }
     go (IfaceCoVarCo n)          = CoVarCo <$> go_var n
     go (IfaceAxiomInstCo n i cs) = AxiomInstCo <$> tcIfaceCoAxiom n <*> pure i <*> mapM go cs
-    go (IfaceUnivCo p r h t1 t2) = UnivCo p r <$> go h <*> tcIfaceType t1
-                                                       <*> tcIfaceType t2
+    go (IfaceUnivCo p r t1 t2)   = UnivCo <$> tcIfaceUnivCoProv p <*> pure r
+                                          <*> tcIfaceType t1 <*> tcIfaceType t2
     go (IfaceSymCo c)            = SymCo    <$> go c
     go (IfaceTransCo c1 c2)      = TransCo  <$> go c1
                                             <*> go c2
@@ -962,6 +962,12 @@ tcIfaceCo = go
       case Map.lookup n typeNatCoAxiomRules of
         Just ax -> return ax
         _  -> pprPanic "go_axiom_rule" (ppr n)
+
+tcIfaceUnivCoProv :: IfaceUnivCoProv -> IfL UnivCoProvenance
+tcIfaceUnivCoProv IfaceUnsafeCoerceProv     = return UnsafeCoerceProv
+tcIfaceUnivCoProv (IfacePhantomProv kco)    = PhantomProv <$> tcIfaceCo kco
+tcIfaceUnivCoProv (IfaceProofIrrelProv kco) = ProofIrrelProv <$> tcIfaceCo kco
+tcIfaceUnivCoProv (IfacePluginProv str)     = return $ PluginProv str
 
 {-
 ************************************************************************
