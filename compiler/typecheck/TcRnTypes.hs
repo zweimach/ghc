@@ -70,6 +70,7 @@ module TcRnTypes(
         tyCoVarsOfCt, tyCoVarsOfCts,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
+        toDerivedWC,
         andWC, unionsWC, addSimples, addImplics, mkSimpleWC, addInsols,
         tyCoVarsOfWC, dropDerivedWC, dropDerivedSimples, dropDerivedInsols,
         isDroppableDerivedLoc, insolubleImplic, trulyInsoluble,
@@ -1539,6 +1540,23 @@ andWC (WC { wc_simple = f1, wc_impl = i1, wc_insol = n1 })
 
 unionsWC :: [WantedConstraints] -> WantedConstraints
 unionsWC = foldr andWC emptyWC
+
+-- | Convert all Wanteds into Deriveds (ignoring insolubles)
+toDerivedWC :: WantedConstraints -> WantedConstraints
+toDerivedWC wc@(WC { wc_simple = simples, wc_impl = implics })
+  = wc { wc_simple = mapBag to_derived simples
+       , wc_impl   = mapBag to_derived_implic implics }
+  where
+    to_derived ct
+      = case ctEvidence ct of
+          CtWanted { ctev_pred = pred, ctev_loc = loc }
+            -> ct { cc_ev = CtDerived { ctev_pred = pred, ctev_loc = loc } }
+          CtDerived {} -> ct
+          CtGiven   {} -> pprPanic "to_derived" (ppr ct)
+
+    to_derived_implic implic@(Implic { ic_wanted = inner_wanted })
+      = implic { ic_wanted = toDerivedWC inner_wanted }
+
 
 addSimples :: WantedConstraints -> Bag Ct -> WantedConstraints
 addSimples wc cts
