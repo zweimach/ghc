@@ -262,7 +262,7 @@ reportImplic ctxt implic@(Implic { ic_skols = tvs, ic_given = given
                  , cec_suppress = insoluble  -- Suppress inessential errors if there
                                              -- are are insolubles anywhere in the
                                              -- tree rooted here
-                 , cec_binds    = cec_binds ctxt *> m_evb
+                 , cec_binds    = cec_binds ctxt *> m_evb }
                                   -- if cec_binds ctxt is Nothing, that means
                                   -- we're reporting *all* errors. Don't change
                                   -- that behavior just because we're going into
@@ -509,12 +509,10 @@ addDeferredBinding ctxt err ct
            EvVarDest evar
              -> addTcEvBind ev_binds_var $ mkWantedEvBind evar err_tm
            HoleDest hole
-             | Just (_, role, ty1, ty2) <- getEqPredTys_maybe pred
              -> do { -- See Note [Deferred errors for coercion holes]
                      evar <- newEvVar pred
                    ; addTcEvBind ev_binds_var $ mkWantedEvBind evar err_tm
-                   ; fillCoercionHole hole (mkCoVarCo evar) }
-           _ -> pprPanic "addDeferredBinding" (ppr pred) }
+                   ; fillCoercionHole hole (mkCoVarCo evar) }}
 
   | otherwise   -- Do not set any evidence for Given/Derived
   = return ()

@@ -216,15 +216,14 @@ instCallConstraints orig preds
           ; return (Boxed, ev_tm) }  -- TODO (RAE): That Boxed is very suspicious.
 
 instDFunType :: DFunId -> [DFunInstType]
-             -> TcM ( [TcType]     -- instantiated argument types
-                    , TcThetaType  -- instantiated constraint
-                    , TcType )     -- instantiated instance head
+             -> TcM ( [TcType]      -- instantiated argument types
+                    , TcThetaType ) -- instantiated constraint
 -- See Note [DFunInstType: instantiating types] in InstEnv
 instDFunType dfun_id dfun_inst_tys
   = do { (subst, inst_tys) <- go emptyTCvSubst dfun_tvs dfun_inst_tys
-       ; return (inst_tys, substTheta subst dfun_theta, substTy subst dfun_ty) }
+       ; return (inst_tys, substTheta subst dfun_theta) }
   where
-    (dfun_tvs, dfun_theta, dfun_ty) = tcSplitSigmaTy (idType dfun_id)
+    (dfun_tvs, dfun_theta, _) = tcSplitSigmaTy (idType dfun_id)
 
     go :: TCvSubst -> [TyVar] -> [DFunInstType] -> TcM (TCvSubst, [TcType])
     go subst [] [] = return (subst, [])

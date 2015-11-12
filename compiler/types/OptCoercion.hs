@@ -24,7 +24,6 @@ import Util
 import Unify
 import InstEnv
 import Control.Monad   ( zipWithM )
-import Data.List       ( zipWith4 )
 
 {-
 %************************************************************************
@@ -381,8 +380,8 @@ opt_univ env sym prov role oty1 oty2
   where
     prov' = case prov of
       UnsafeCoerceProv   -> prov
-      PhantomProv kco    -> opt_co4_wrap env sym False Nominal kco
-      ProofIrrelProv kco -> opt_co4_wrap env sym False Nominal kco
+      PhantomProv kco    -> PhantomProv $ opt_co4_wrap env sym False Nominal kco
+      ProofIrrelProv kco -> ProofIrrelProv $ opt_co4_wrap env sym False Nominal kco
       PluginProv _       -> prov
       HoleProv h         -> pprPanic "opt_univ fell into a hole" (ppr h)
 
@@ -511,8 +510,10 @@ opt_trans_rule is in_co1@(UnivCo p1 r1 tyl1 _tyr1)
   where
     -- if the provenances are different, opt'ing will be very confusing
     opt_trans_prov UnsafeCoerceProv      UnsafeCoerceProv      = Just UnsafeCoerceProv
-    opt_trans_prov (PhantomProv kco1)    (PhantomProv kco2)    = Just $ opt_trans is kco1 kco2
-    opt_trans_prov (ProofIrrelProv kco1) (ProofIrrelProv kco2) = Just $ opt_trans is kco1 kco2
+    opt_trans_prov (PhantomProv kco1)    (PhantomProv kco2)
+      = Just $ PhantomProv $ opt_trans is kco1 kco2
+    opt_trans_prov (ProofIrrelProv kco1) (ProofIrrelProv kco2)
+      = Just $ ProofIrrelProv $ opt_trans is kco1 kco2
     opt_trans_prov (PluginProv str1)     (PluginProv str2)     | str1 == str2 = Just p1
     opt_trans_prov _ _ = Nothing
 

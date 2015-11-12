@@ -86,7 +86,7 @@ module TcRnTypes(
 
         SkolemInfo(..),
 
-        CtEvidence(..),
+        CtEvidence(..), TcEvDest(..),
         mkGivenLoc, mkKindLoc,
         isWanted, isGiven, isDerived,
         ctEvRole, ctEvBoxity,
@@ -119,7 +119,7 @@ import Type
 import CoAxiom  ( Role )
 import Class    ( Class )
 import TyCon    ( TyCon )
-import Coercion ( buildCoherenceCo, Coercion )
+import Coercion ( Coercion, CoercionHole, mkHoleCo )
 import ConLike  ( ConLike(..) )
 import DataCon  ( DataCon, dataConUserType, dataConOrigArgTys )
 import PatSyn   ( PatSyn, patSynType )
@@ -148,7 +148,6 @@ import DynFlags
 import Outputable
 import ListSetOps
 import FastString
-import Maybes     ( expectJust )
 import GHC.Fingerprint
 
 import Data.Set (Set)
@@ -2315,7 +2314,6 @@ data CtOrigin
   | UnboundOccurrenceOf RdrName
   | ListOrigin          -- An overloaded list
   | StaticOrigin        -- A static form
-  | TypeRedOrigin Type  -- From reducing a type
   | ImpossibleOrigin    -- An origin that should never be printed to
                         -- the user  (TODO (RAE): Remove?)
 
@@ -2430,8 +2428,6 @@ pprCtO AnnOrigin             = ptext (sLit "an annotation")
 pprCtO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
 pprCtO ListOrigin            = ptext (sLit "an overloaded list")
 pprCtO StaticOrigin          = ptext (sLit "a static form")
-pprCtO (TypeRedOrigin ty)    = ptext (sLit "reducing the type") <+>
-                               quotes (ppr ty)
 
 -- don't panic here, so that we can print debugging output
 pprCtO ImpossibleOrigin      = ptext (sLit "a check that should never fail") $$

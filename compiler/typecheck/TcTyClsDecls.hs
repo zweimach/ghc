@@ -334,7 +334,7 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
            ; return [res] }
 
       | otherwise
-      = do { res <- generalise co_env kind_env (tcdName decl)
+      = do { res <- generalise kind_env (tcdName decl)
            ; return [res] }
 
     generaliseFamDecl :: TcTypeEnv
@@ -835,7 +835,7 @@ tcDataDefn rec_info tc_name tvs tycon_kind res_kind
        ; let final_tvs  = tvs `chkAppend` extra_tvs
              roles      = rti_roles rec_info tc_name
 
-       ; stupid_tc_theta <- solveTopConstraints $ tcHsContext ctxt
+       ; stupid_tc_theta <- solveEqualities $ tcHsContext ctxt
        ; stupid_theta    <- zonkTcTypeToTypes emptyZonkEnv
                                               stupid_tc_theta
        ; kind_signatures <- xoptM Opt_KindSignatures
@@ -1333,7 +1333,6 @@ tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl        -- Data types
                    ResTyGADT _ res_ty -> quantifyTyVars emptyVarSet (splitDepVarsOfTypes (res_ty:ctxt++arg_tys))
 
              -- Zonk to Types
-       ; let ze = mkZonkEnv co_env
        ; (ze, qtkvs) <- zonkTyBndrsX emptyZonkEnv tkvs
        ; arg_tys <- zonkTcTypeToTypes ze arg_tys
        ; ctxt    <- zonkTcTypeToTypes ze ctxt

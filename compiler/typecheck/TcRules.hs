@@ -11,29 +11,24 @@ TcRules: Typechecking transformation rules
 module TcRules ( tcRules ) where
 
 import HsSyn
-import TcRnMonad as TcM
+import TcRnMonad
 import TcSimplify
-import TcMType as TcM
-import TcSMonad as TcS
+import TcMType
 import TcType
 import TcHsType
 import TcExpr
 import TcEnv
 import TcEvidence
 import Type
-import Coercion         ( isCoVar )
 import Id
 import Var              ( EvVar )
-import VarSet
 import Name
-import VarEnv
 import BasicTypes       ( RuleName )
 import SrcLoc
 import Outputable
 import FastString
 import Bag
 import Data.List( partition )
-import Util     ( mapAndUnzip )
 
 {-
 Note [Typechecking rules]
@@ -86,9 +81,9 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
        ; traceTc "tcRule 1" (vcat [ ppr name
                                   , ppr lhs_wanted
                                   , ppr rhs_wanted ])
-       ; (lhs_evs, other_lhs_wanted) <- simplifyRule (snd $ unLoc name)
-                                                     (bndr_wanted `andWC` lhs_wanted)
-                                                     rhs_wanted
+       ; lhs_evs <- simplifyRule (snd $ unLoc name)
+                                 (bndr_wanted `andWC` lhs_wanted)
+                                 rhs_wanted
 
         -- Now figure out what to quantify over
         -- c.f. TcSimplify.simplifyInfer
@@ -116,8 +111,8 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                   ])
 
            -- Simplify the RHS constraints
-       ; lcl_env <- TcM.getLclEnv
-       ; rhs_binds_var <- TcM.newTcEvBinds
+       ; lcl_env <- getLclEnv
+       ; rhs_binds_var <- newTcEvBinds
        ; emitImplication $ Implic { ic_tclvl    = topTcLevel
                                   , ic_skols    = qtkvs
                                   , ic_no_eqs   = False
@@ -131,12 +126,12 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
            -- For the LHS constraints we must solve the remaining constraints
            -- (a) so that we report insoluble ones
            -- (b) so that we bind any soluble ones
-       ; lhs_binds_var <- TcM.newTcEvBinds
+       ; lhs_binds_var <- newTcEvBinds
        ; emitImplication $ Implic { ic_tclvl    = topTcLevel
                                   , ic_skols    = qtkvs
                                   , ic_no_eqs   = False
                                   , ic_given    = lhs_evs
-                                  , ic_wanted   = other_lhs_wanted
+                                  , ic_wanted   = emptyWC
                                   , ic_status   = IC_Unsolved
                                   , ic_binds    = Just lhs_binds_var
                                   , ic_info     = RuleSkol (snd $ unLoc name)
@@ -315,7 +310,7 @@ simplifyRule :: RuleName
 simplifyRule name lhs_wanted rhs_wanted
   = do {         -- We allow ourselves to unify environment
                  -- variables: runTcS runs with topTcLevel
-       ; tc_lvl         <- TcM.getTcLevel
+       ; tc_lvl         <- getTcLevel
        ; (insoluble, _) <- runTcS $
              do { -- First solve the LHS and *then* solve the RHS
                   -- See Note [Solve order for RULES]
@@ -325,7 +320,7 @@ simplifyRule name lhs_wanted rhs_wanted
                            insolubleWC tc_lvl rhs_resid ) }
 
 
-       ; zonked_lhs_simples <- TcM.zonkSimples (wc_simple lhs_wanted)
+       ; zonked_lhs_simples <- zonkSimples (wc_simple lhs_wanted)
        ; ev_ids <- mapMaybeM (quantify_ct insoluble) $
                              bagToList zonked_lhs_simples
 
@@ -344,7 +339,7 @@ simplifyRule name lhs_wanted rhs_wanted
       | insol     = quantify_normal
       | otherwise = quantify_insol
 
-    quantify_insol (ev_ids, q_cts) ct
+    quantify_insol ct
       | isEqPred (ctPred ct)
       = return Nothing
       | otherwise

@@ -29,7 +29,7 @@ module TyCoRep (
 
         -- Coercions
         Coercion(..), LeftOrRight(..),
-        UnivCoProvenance(..),
+        UnivCoProvenance(..), CoercionHole(..),
 
         -- Functions over types
         mkTyConTy, mkTyVarTy, mkTyVarTys,
@@ -130,6 +130,7 @@ import Util
 -- libraries
 import qualified Data.Data as Data hiding ( TyCon )
 import Data.List
+import Data.IORef ( IORef )   -- for CoercionHole
 
 {-
 %************************************************************************
@@ -625,19 +626,26 @@ data UnivCoProvenance
   | PluginProv String  -- ^ From a plugin, which asserts that this coercion
                        --   is sound. The string is for the use of the plugin.
   | HoleProv CoercionHole  -- ^ See Note [Coercion holes]
-  deriving (Eq, Data.Data, Data.Typeable)
+  deriving (Data.Data, Data.Typeable)
 
 instance Outputable UnivCoProvenance where
-  ppr UnsafeCoerceProv = text "(unsafeCoerce#)"
-  ppr PhantomProv _    = text "(phantom)"
-  ppr ProofIrrelProv _ = text "(proof irrel.)"
-  ppr (PluginProv str) = parens (text "plugin" <+> brackets (text str))
-  ppr (HoleProv hole)  = parens (text "hole" <> ppr hole)
+  ppr UnsafeCoerceProv   = text "(unsafeCoerce#)"
+  ppr (PhantomProv _)    = text "(phantom)"
+  ppr (ProofIrrelProv _) = text "(proof irrel.)"
+  ppr (PluginProv str)   = parens (text "plugin" <+> brackets (text str))
+  ppr (HoleProv hole)    = parens (text "hole" <> ppr hole)
 
 -- | A coercion to be filled in by the type-checker. See Note [Coercion holes]
 data CoercionHole
   = CoercionHole Unique   -- ^ used only for debugging
                  (IORef (Maybe Coercion))
+  deriving (Data.Typeable)
+
+instance Data.Data CoercionHole where
+  -- don't traverse?
+  toConstr _   = abstractConstr "CoercionHole"
+  gunfold _ _  = error "gunfold"
+  dataTypeOf _ = mkNoRepType "CoercionHole"
 
 instance Outputable CoercionHole where
   ppr (CoercionHole u _) = braces (ppr u)
@@ -1630,7 +1638,7 @@ subst_co subst co
           ((mkForAllCo $! tv') $! kind_co') $! subst_co subst' co }
     go (CoVarCo cv)          = substCoVar subst cv
     go (AxiomInstCo con ind cos) = mkAxiomInstCo con ind $! map go cos
-    go (UnivCo p r t1 t2)    = (((mkUnivCo $! (go_prov p)) $! r) $!
+    go (UnivCo p r t1 t2)    = (((mkUnivCo $! go_prov p) $! r) $!
                                 (go_ty t1)) $! (go_ty t2)
     go (SymCo co)            = mkSymCo $! (go co)
     go (TransCo co1 co2)     = (mkTransCo $! (go co1)) $! (go co2)

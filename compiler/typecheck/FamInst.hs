@@ -43,7 +43,6 @@ import VarSet
 import Control.Monad
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Control.Arrow ( first, second )
 
 #if __GLASGOW_HASKELL__ < 709
 import Prelude hiding ( and )

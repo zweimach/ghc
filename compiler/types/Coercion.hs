@@ -11,7 +11,7 @@
 module Coercion (
         -- * Main data type
         Coercion, CoercionN, CoercionR, CoercionP,
-        UnivCoProvenance, LeftOrRight(..),
+        UnivCoProvenance, CoercionHole, LeftOrRight(..),
         Var, CoVar, TyCoVar,
         Role(..), ltRole,
 
@@ -61,6 +61,7 @@ module Coercion (
 
         -- ** Coercion variables
         mkCoVar, isCoVar, coVarName, setCoVarName, setCoVarUnique,
+        isCoVar_maybe,
 
         -- ** Free variables
         tyCoVarsOfCo, tyCoVarsOfCos, coVarsOfCo,
@@ -714,6 +715,13 @@ mkCoVarCo cv
 mkCoVarCos :: [CoVar] -> [Coercion]
 mkCoVarCos = map mkCoVarCo
 
+-- | Extract a covar, if possible. This check is dirty. Be ashamed
+-- of yourself. (It's dirty because it cares about the structure of
+-- a coercion, which is morally reprehensible.)
+isCoVar_maybe :: Coercion -> Maybe CoVar
+isCoVar_maybe (CoVarCo cv) = Just cv
+isCoVar_maybe _            = Nothing
+
 mkAxInstCo :: Role -> CoAxiom br -> BranchIndex -> [Type] -> [Coercion]
            -> Coercion
 -- mkAxInstCo can legitimately be called over-staturated;
@@ -801,9 +809,6 @@ mkUnbranchedAxInstLHS ax = mkAxInstLHS ax 0
 mkUnsafeCo :: Role -> Type -> Type -> Coercion
 mkUnsafeCo role ty1 ty2
   = mkUnivCo UnsafeCoerceProv role ty1 ty2
-  where
-    k1 = typeKind ty1
-    k2 = typeKind ty2
 
 -- | Make a coercion from a coercion hole
 mkHoleCo :: CoercionHole -> Role
@@ -1044,13 +1049,13 @@ setNominalRole_maybe (InstCo co arg)
   = InstCo <$> setNominalRole_maybe co <*> pure arg
 setNominalRole_maybe (CoherenceCo co1 co2)
   = CoherenceCo <$> setNominalRole_maybe co1 <*> pure co2
-setNominalRole_maybe (UnivCo prov _ h co1 co2)
+setNominalRole_maybe (UnivCo prov _ co1 co2)
   | case prov of UnsafeCoerceProv -> True   -- it's always unsafe
                  PhantomProv _    -> False  -- should always be phantom
                  ProofIrrelProv _ -> True   -- it's always safe
                  PluginProv _     -> False  -- who knows? This choice is conservative.
                  HoleProv _       -> False  -- no no no.
-  = Just $ UnivCo prov Nominal h co1 co2
+  = Just $ UnivCo prov Nominal co1 co2
 setNominalRole_maybe _ = Nothing
 
 -- | Make a phantom coercion between two types. The coercion passed

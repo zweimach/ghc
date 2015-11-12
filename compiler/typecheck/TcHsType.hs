@@ -74,7 +74,6 @@ import Constants ( mAX_CTUPLE_SIZE )
 import ErrUtils( MsgDoc )
 import Unique
 import Util
-import Bag
 import UniqSupply
 import Outputable
 import FastString
@@ -83,7 +82,6 @@ import Pair
 
 import Data.Maybe
 import Control.Monad
-import Data.List
 
 {-
         ----------------------------

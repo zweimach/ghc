@@ -1860,7 +1860,7 @@ tcRnType hsc_env normalise rdr_type
                         ; let (_, ty', cvs)
                                 = normaliseTypeAggressive fam_envs Nominal ty
                         ; subst <- solveEqualities $
-                                   tcInstCoVars (TypeRedOrigin ty) $
+                                   tcInstCoVars $
                                    varSetElemsWellScoped cvs
                         ; return (substTy subst ty') }
                 else return ty ;

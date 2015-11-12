@@ -16,7 +16,6 @@ module TcSimplify(
 
 import Bag
 import Class         ( Class, classKey, classTyCon )
-import Coercion      ( CvSubstEnv )
 import DynFlags      ( ExtensionFlag( Opt_AllowAmbiguousTypes )
                      , WarningFlag ( Opt_WarnMonomorphism )
                      , DynFlags( solverIterations ) )
@@ -42,7 +41,6 @@ import Unify         ( tcMatchTy )
 import Util
 import Var
 import VarSet
-import VarEnv
 import BasicTypes    ( IntWithInf, intGtLimit )
 import ErrUtils      ( emptyMessages )
 import FastString
@@ -104,8 +102,8 @@ simplifyTop wanteds
 solveEqualities :: TcM a -> TcM a
 solveEqualities thing_inside
   = do { (result, wanted) <- captureConstraints thing_inside
-       ; traceTc "solveEqualities {" $ text "wanted = " <+> ppr wanteds
-       ; (final_wc, _) <- runTcSEqualities $ simpl_top wanteds
+       ; traceTc "solveEqualities {" $ text "wanted = " <+> ppr wanted
+       ; (final_wc, _) <- runTcSEqualities $ simpl_top wanted
        ; traceTc "End solveEqualities }" empty
 
        ; traceTc "reportAllUnsolved {" empty
@@ -360,7 +358,7 @@ simplifyAmbiguityCheck ty wanteds
        ; traceTc "reportUnsolved(ambig) {" empty
        ; tc_lvl <- TcM.getTcLevel
        ; unless (allow_ambiguous && not (insolubleWC tc_lvl final_wc))
-                (discardResult (reportUnsolved zonked_final_wc))
+                (discardResult (reportUnsolved final_wc))
        ; traceTc "reportUnsolved(ambig) }" empty
 
        ; return () }
@@ -468,8 +466,7 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
               -- to less polymorphic types, see Note [Default while Inferring]
 
        ; tc_lcl_env <- TcM.getLclEnv
-       ; let wanted_transformed@(WC { wc_simple = simple_wanteds })
-               = dropDerivedWC wanted_transformed_incl_derivs
+       ; let wanted_transformed = dropDerivedWC wanted_transformed_incl_derivs
        ; quant_pred_candidates   -- Fully zonked
            <- if insolubleWC rhs_tclvl wanted_transformed_incl_derivs
               then return []   -- See Note [Quantification with errors]
@@ -500,7 +497,7 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
                               runTcS               $
                               solveSimpleWanteds quant_cand
 
-                      ; simples <- zonkSimples simples
+                      ; simples <- TcM.zonkSimples simples
 
                       ; return [ ctEvPred ev | ct <- bagToList simples
                                              , let ev = ctEvidence ct
@@ -575,9 +572,7 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
               , ptext (sLit "promote_tvs=") <+> ppr promote_tvs
               , ptext (sLit "bound_theta =") <+> ppr bound_theta
               , ptext (sLit "qtvs =") <+> ppr qtvs
-              , ptext (sLit "implic =") <+> ppr implic
-              , ptext (sLit "promote_wanteds =") <+> ppr promote_wanteds
-              , ptext (sLit "promote_binds =") <+> ppr promote_binds ]
+              , ptext (sLit "implic =") <+> ppr implic ]
 
        ; return ( qtvs, bound_theta_vars, TcEvBinds ev_binds_var ) }
 
@@ -988,7 +983,7 @@ solveImplication imp@(Implic { ic_tclvl  = tclvl
 
          -- Solve the nested constraints
        ; ((no_given_eqs, given_insols, residual_wanted), used_tcvs)
-             <- nestImplicTcS m_ev_binds tclvl $
+             <- nestImplicTcS m_ev_binds (mkVarSet (skols ++ givens)) tclvl $
                do { given_insols <- solveSimpleGivens (mkGivenLoc tclvl info env) givens
                   ; no_eqs <- getNoGivenEqs tclvl skols
 
@@ -1306,7 +1301,7 @@ promoteTyVar tclvl tv
   | otherwise
   = return ()
 
-promoteTyVarTcS :: TcLevel -> TcTyVar  -> TcS TyVar
+promoteTyVarTcS :: TcLevel -> TcTyVar  -> TcS ()
 -- When we float a constraint out of an implication we must restore
 -- invariant (MetaTvInv) in Note [TcLevel and untouchable type variables] in TcType
 -- See Note [Promoting unification variables]
@@ -1316,10 +1311,9 @@ promoteTyVarTcS tclvl tv
   | isFloatedTouchableMetaTyVar tclvl tv
   = do { cloned_tv <- TcS.cloneMetaTyVar tv
        ; let rhs_tv = setMetaTyVarTcLevel cloned_tv tclvl
-       ; unifyTyVar tv (mkTyVarTy rhs_tv)
-       ; return rhs_tv }
+       ; unifyTyVar tv (mkTyVarTy rhs_tv) }
   | otherwise
-  = return tv
+  = return ()
 
 -- | If the tyvar is a levity var, set it to Lifted. Returns whether or
 -- not this happened.
@@ -1602,14 +1596,15 @@ floatEqualities skols no_given_eqs
   = return (emptyBag, wanteds)   -- Note [Float Equalities out of Implications]
   | otherwise
   = do { outer_tclvl <- TcS.getTcLevel
-       ; mapM_ (promoteTyVarTcS outer_tclvl) (varSetElems float_tvs)
+       ; mapM_ (promoteTyVarTcS outer_tclvl)
+               (varSetElems (tyCoVarsOfCts float_eqs))
            -- See Note [Promoting unification variables]
 
        ; traceTcS "floatEqualities" (vcat [ text "Skols =" <+> ppr skols
                                           , text "Simples =" <+> ppr simples
                                           , text "Floated eqs =" <+> ppr float_eqs])
        ; return ( float_eqs
-                , wanteds { wc_simple = remaining_simples2 } ) }
+                , wanteds { wc_simple = remaining_simples } ) }
   where
     skol_set = mkVarSet skols
     (float_eqs, remaining_simples) = partitionBag (usefulToFloat is_useful) simples
@@ -1818,7 +1813,7 @@ disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
                              , ctl_depth  = initialSubGoalDepth }
            ; wanted_evs <- mapM (newWantedEvVarNC loc . substTy subst . ctPred)
                                 wanteds
-           ; fmap isEmptyEC $
+           ; fmap isEmptyWC $
              solveSimpleWanteds $ listToBag $
              map mkNonCanonical wanted_evs }
 

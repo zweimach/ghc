@@ -11,6 +11,7 @@ module IfaceType (
         IfExtName, IfLclName,
 
         IfaceType(..), IfacePredType, IfaceKind, IfaceCoercion(..),
+        IfaceUnivCoProv(..),
         IfaceTyCon(..), IfaceTyConInfo(..),
         IfaceTyLit(..), IfaceTcArgs(..),
         IfaceContext, IfaceBndr(..), IfaceOneShot(..), IfaceLamBndr,
@@ -823,7 +824,7 @@ ppr_co ctxt_prec co@(IfaceForAllCo {})
 
 ppr_co _         (IfaceCoVarCo covar)       = ppr covar
 
-ppr_co ctxt_prec (IfaceUnivCo UnsafeCoerceProv r ty1 ty2)
+ppr_co ctxt_prec (IfaceUnivCo IfaceUnsafeCoerceProv r ty1 ty2)
   = maybeParen ctxt_prec TyConPrec $
     ptext (sLit "UnsafeCo") <+> ppr r <+>
     pprParendIfaceType ty1 <+> pprParendIfaceType ty2

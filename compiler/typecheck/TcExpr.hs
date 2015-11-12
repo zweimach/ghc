@@ -141,7 +141,10 @@ tcUnboundId occ res_ty
       ; name <- newSysName occ
       ; let ev = mkLocalId name ty
       ; loc <- getCtLocM HoleOrigin
-      ; let can = CHoleCan { cc_ev = CtWanted ty ev loc, cc_occ = occ
+      ; let can = CHoleCan { cc_ev = CtWanted { ctev_pred = ty
+                                              , ctev_dest = EvVarDest ev
+                                              , ctev_loc  = loc}
+                           , cc_occ = occ
                            , cc_hole = ExprHole }
       ; emitInsoluble can
       ; tcWrapResult (HsVar ev) ty res_ty }
@@ -203,7 +206,7 @@ tcExpr (HsIPVar x) res_ty
        ; tcWrapResult (fromDict ipClass ip_name ip_ty (HsVar ip_var)) ip_ty res_ty }
   where
   -- Coerces a dictionary for `IP "x" t` into `t`.
-  fromDict ipClass x ty = HsWrap $ mkWpCast $ TcCoercion $
+  fromDict ipClass x ty = HsWrap $ mkWpCast $
                           unwrapIP $ mkClassPred ipClass [x,ty]
 
 tcExpr (HsLam match) res_ty

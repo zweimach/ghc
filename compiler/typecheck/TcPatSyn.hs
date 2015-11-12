@@ -98,7 +98,7 @@ tcInferPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
        ; traceTc "tcInferPatSynDecl }" $ ppr name
        ; tc_patsyn_finish lname dir is_infix lpat'
                           (univ_tvs, req_theta, ev_binds, req_dicts)
-                          (ex_tvs, mkTyVarTys ex_tvs, prov_theta, emptyTcEvBinds, prov_dicts)
+                          (ex_tvs, mkTyVarTys ex_tvs, prov_theta, emptyTcEvBinds, map EvId prov_dicts)
                           (zip args $ repeat idHsWrapper)
                           pat_ty }
 
@@ -162,7 +162,7 @@ tcCheckPatSynDecl PSB{ psb_id = lname@(L loc name), psb_args = details,
        ; (prov_ev_binds, prov_dicts) <-
            checkConstraints skol_info ex_tvs_rhs prov_dicts_rhs $ do
            { let origin = PatOrigin -- TODO
-           ; mapM_ (emitWanted origin) prov_theta' }
+           ; mapM (emitWanted origin) prov_theta' }
 
        ; traceTc "tcCheckPatSynDecl }" $ ppr name
        ; tc_patsyn_finish lname dir is_infix lpat'
@@ -271,7 +271,7 @@ tcPatSynMatcher (L loc name) lpat
                              -- See Note [Exported LocalIds] in Id
 
              cont' = mkLHsWrap (mkWpLet prov_ev_binds) $
-                     nlHsApps
+                     foldl nlHsApp
                        (mkLHsWrap (mkWpEvApps (repeat Boxed) prov_dicts)
                                   (nlHsTyApp cont ex_tys)) cont_args
 

@@ -33,17 +33,10 @@ module TcEvidence (
   mkKindCo,
   coercionKind, coVarsOfCo,
   mkCoVarCo,
-  isReflCo,
+  isReflCo, eqCoercion,
   unwrapIP, wrapIP
   ) where
 #include "HsVersions.h"
-
-import {-# SOURCE #-} TcRnTypes ( CtLoc )
--- TODO (RAE): Remove this boot file.
--- I think it can be done by storing a (Bag EvBind) in HsSyn and then
--- augmenting TcEvBinds (which would be defined in TcRnTypes) to store
--- locations.
-
 
 import Var
 import Coercion
@@ -52,26 +45,20 @@ import TcType
 import Type
 import TyCon
 import Class( Class )
-import CoAxiom
 import PrelNames
 import VarEnv
 import VarSet
 import Name
 
 import Util
-import Control.Monad ( guard )
 import BasicTypes ( Boxity(..), isBoxed )
 import Bag
-import Pair
-import Maybes
 import Digraph
-import Control.Applicative
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable (traverse, sequenceA)
 #endif
 import qualified Data.Data as Data
 import Outputable
-import ListSetOps
 import FastString
 import SrcLoc
 import Data.IORef( IORef )
@@ -137,7 +124,7 @@ data HsWrapper
        -- So note that if  wrap1 :: exp_arg <= act_arg
        --                  wrap2 :: act_res <= exp_res
        --           then   WpFun wrap1 wrap2 : (act_arg -> arg_res) <= (exp_arg -> exp_res)
-       -- This isn't the same as for mkTcFunCo, but it has to be this way
+       -- This isn't the same as for mkFunCo, but it has to be this way
        -- because we can't use 'sym' to flip around these HsWrappers
 
   | WpCast TcCoercionR        -- A cast:  [] `cast` co
@@ -167,9 +154,9 @@ c1 <.> c2    = c1 `WpCompose` c2
 
 mkWpFun :: HsWrapper -> HsWrapper -> TcType -> TcType -> HsWrapper
 mkWpFun WpHole       WpHole       _  _  = WpHole
-mkWpFun WpHole       (WpCast co2) t1 _  = WpCast (mkTcFunCo Representational (mkTcRepReflCo t1) co2)
-mkWpFun (WpCast co1) WpHole       _  t2 = WpCast (mkTcFunCo Representational (mkTcSymCo co1) (mkTcRepReflCo t2))
-mkWpFun (WpCast co1) (WpCast co2) _  _  = WpCast (mkTcFunCo Representational (mkTcSymCo co1) co2)
+mkWpFun WpHole       (WpCast co2) t1 _  = WpCast (mkFunCo Representational (mkRepReflCo t1) co2)
+mkWpFun (WpCast co1) WpHole       _  t2 = WpCast (mkFunCo Representational (mkSymCo co1) (mkRepReflCo t2))
+mkWpFun (WpCast co1) (WpCast co2) _  _  = WpCast (mkFunCo Representational (mkSymCo co1) co2)
 mkWpFun co1          co2          t1 t2 = WpFun co1 co2 t1 t2
 
 mkWpCast :: TcCoercion -> HsWrapper
@@ -184,7 +171,7 @@ mkWpTyEvApps :: [Type] -> HsWrapper
 mkWpTyEvApps tys = mk_co_app_fn wp_ty_or_ev_app tys
   where wp_ty_or_ev_app ty
           | Just co <- isCoercionTy_maybe ty
-          = WpEvPrimApp (mkTcCoercion co)
+          = WpEvPrimApp co
 
           | otherwise
           = WpTyApp ty
@@ -661,7 +648,7 @@ pprHsWrapper doc wrap
     help it (WpFun f1 f2 t1 _) = add_parens $ ptext (sLit "\\(x") <> dcolon <> ppr t1 <> ptext (sLit ").") <+>
                                               help (\_ -> it True <+> help (\_ -> ptext (sLit "x")) f1 True) f2 False
     help it (WpCast co)   = add_parens $ sep [it False, nest 2 (ptext (sLit "|>")
-                                              <+> pprParendTcCo co)]
+                                              <+> pprParendCo co)]
     help it (WpEvApp id)    = no_parens  $ sep [it True, nest 2 (ppr id)]
     help it (WpEvPrimApp co)= no_parens  $ sep [it True, text "@~" <+> nest 2 (ppr co)]
     help it (WpTyApp ty)    = no_parens  $ sep [it True, ptext (sLit "@") <+> pprParendType ty]
@@ -696,7 +683,7 @@ instance Outputable EvBind where
 
 instance Outputable EvTerm where
   ppr (EvId v)              = ppr v
-  ppr (EvCast v co)         = ppr v <+> (ptext (sLit "`cast`")) <+> pprParendTcCo co
+  ppr (EvCast v co)         = ppr v <+> (ptext (sLit "`cast`")) <+> pprParendCo co
   ppr (EvCoercion co)       = ptext (sLit "CO") <+> ppr co
   ppr (EvSuperClass d n)    = ptext (sLit "sc") <> parens (ppr (d,n))
   ppr (EvDFunApp df tys ts) = ppr df <+> sep [ char '@' <> ppr tys, ppr ts ]

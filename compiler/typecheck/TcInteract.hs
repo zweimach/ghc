@@ -695,7 +695,7 @@ interactDict inerts workItem@(CDictCan { cc_ev = ev_w, cc_class = cls, cc_tyargs
        -- be a dictionary, so we have to coerce ev_cs to a
        -- dictionary for `IP ip CallStack`
        let ip_ty = mkClassPred cls tys
-       let ev_tm = mkEvCast (EvCallStack ev_cs) (TcCoercion $ wrapIP ip_ty)
+       let ev_tm = mkEvCast (EvCallStack ev_cs) (wrapIP ip_ty)
        addSolvedDict ev_w cls tys
        setWantedEvBind (ctEvId ev_w) ev_tm
        stopWith ev_w "Wanted CallStack IP"
@@ -1326,12 +1326,11 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = fl, cc_class = cls
         ; lkup_inst_res <- matchClassInst dflags inerts cls xis dict_loc
         ; case lkup_inst_res of
                GenInst { lir_new_theta = theta
-                       , lir_pred      = pred
                        , lir_mk_ev     = mk_ev
                        , lir_safe_over = s } ->
                  do { addSolvedDict fl cls xis
                     ; unless s $ insertSafeOverlapFailureTcS work_item
-                    ; solve_from_instance theta pred mk_ev }
+                    ; solve_from_instance theta mk_ev }
                NoInstance ->
                  do { try_fundep_improvement
                     ; continueWith work_item } }
@@ -1348,10 +1347,10 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = fl, cc_class = cls
        | otherwise
        = loc
 
-     solve_from_instance :: [TcPredType] -> PredType
+     solve_from_instance :: [TcPredType]
                          -> ([EvTerm] -> EvTerm) -> TcS (StopOrContinue Ct)
       -- Precondition: evidence term matches the predicate workItem
-     solve_from_instance theta solved_pty mk_ev
+     solve_from_instance theta mk_ev
         | null theta
         = do { traceTcS "doTopReact/found nullary instance for" $ ppr fl
              ; setWantedEvBind (ctEvId fl) (mk_ev [])
@@ -1756,16 +1755,14 @@ type SafeOverlapping = Bool
 data LookupInstResult
   = NoInstance
   | GenInst { lir_new_theta :: [TcPredType]
-            , lir_pred      :: PredType
             , lir_mk_ev     :: [EvTerm] -> EvTerm
             , lir_safe_over :: SafeOverlapping }
 
 instance Outputable LookupInstResult where
   ppr NoInstance = text "NoInstance"
   ppr (GenInst { lir_new_theta = ev
-               , lir_pred      = pr
                , lir_safe_over = s })
-    = text "GenInst" <+> vcat [ppr ev, ppr pr, ss]
+    = text "GenInst" <+> vcat [ppr ev, ss]
     where ss = text $ if s then "[safe]" else "[unsafe]"
 
 
@@ -1822,7 +1819,6 @@ match_class_inst _ _ clas [ ty ] _
     , Just (_, co_rep) <- instNewTyCon_maybe tcRep [ty]
           -- SNat n ~ Integer
     = return (GenInst { lir_new_theta = []
-                      , lir_pred      = mkClassPred clas [ty]
                       , lir_mk_ev     = \_ -> mkEvCast (EvLit evLit) $
                                               mkSymCo $
                                               mkTransCo co_dict co_rep
@@ -1837,7 +1833,6 @@ match_class_inst _ _ clas ts _
   , let data_con = tyConSingleDataCon (classTyCon clas)
         tuple_ev = EvDFunApp (dataConWrapId data_con) ts
   = return (GenInst { lir_new_theta = ts
-                    , lir_pred      = mkClassPred clas ts
                     , lir_mk_ev     = tuple_ev
                     , lir_safe_over = True })
             -- The dfun is the data constructor!
@@ -1883,9 +1878,8 @@ match_class_inst dflags _ clas tys loc
                   -- See Note [DFunInstType: instantiating types] in InstEnv
      match_one so dfun_id mb_inst_tys
        = do { checkWellStagedDFun pred dfun_id loc
-            ; (tys, theta, new_pred) <- instDFunType dfun_id mb_inst_tys
+            ; (tys, theta) <- instDFunType dfun_id mb_inst_tys
             ; return $ GenInst { lir_new_theta = theta
-                               , lir_pred      = new_pred
                                , lir_mk_ev     = EvDFunApp dfun_id tys
                                , lir_safe_over = so } }
 
@@ -1999,7 +1993,6 @@ matchTypeableClass clas k t
   | otherwise                                  = return NoInstance
 
   where
-  cls_pred = mkClassPred clas [k,t]
 
   -- Representation for type constructor applied to some kinds
   doTyCon tc ks =
@@ -2007,7 +2000,6 @@ matchTypeableClass clas k t
       Nothing    -> return NoInstance
       Just kReps ->
         return $ GenInst { lir_new_theta = []
-                         , lir_pred      = cls_pred
                          , lir_mk_ev     = \_ -> EvTypeable
                                                  (EvTypeableTyCon tc kReps)
                          , lir_safe_over = True }
@@ -2022,7 +2014,6 @@ matchTypeableClass clas k t
   -}
   doTyApp f tk
     = return $ GenInst { lir_new_theta = [mk_typeable_pred f, mk_typeable_pred tk]
-                       , lir_pred      = cls_pred
                        , lir_mk_ev     = \ [t1,t2] -> EvTypeable $
                                                       EvTypeableTyApp
                                                         (t1,f) (t2,tk)
@@ -2043,7 +2034,6 @@ matchTypeableClass clas k t
   doTyLit c = do clas <- tcLookupClass c
                  let p = mkClassPred clas [ t ]
                  return $ GenInst { lir_new_theta = [p]
-                                  , lir_pred      = cls_pred
                                   , lir_mk_ev     = \ [i] -> EvTypeable $
                                                              EvTypeableTyLit
                                                                (i,t)

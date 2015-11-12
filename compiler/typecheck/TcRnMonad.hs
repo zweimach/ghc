@@ -1311,7 +1311,9 @@ emitWildcardHoleConstraints wcs
              ctLoc' = setCtLocSpan ctLoc real_span
              ty     = mkTyVarTy tv
              ev     = mkLocalIdOrCoVar name ty
-             can    = CHoleCan { cc_ev   = CtWanted ty ev ctLoc'
+             can    = CHoleCan { cc_ev   = CtWanted { ctev_pred = ty
+                                                    , ctev_dest = EvVarDest ev
+                                                    , ctev_loc  = ctLoc' }
                                , cc_occ  = occName name
                                , cc_hole = TypeHole }
        ; emitInsoluble can } }

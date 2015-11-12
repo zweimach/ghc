@@ -13,8 +13,7 @@ lower levels it is preserved with @let@/@letrec@s).
 {-# LANGUAGE CPP #-}
 
 module DsBinds ( dsTopLHsBinds, dsLHsBinds, decomposeRuleLhs, dsSpec,
-                 dsHsWrapper, dsTcEvBinds, dsTcEvBinds_s, dsEvBinds, dsMkUserRule,
-                 dsTopLevelEvBinds
+                 dsHsWrapper, dsTcEvBinds, dsTcEvBinds_s, dsEvBinds, dsMkUserRule
   ) where
 
 #include "HsVersions.h"
@@ -47,6 +46,7 @@ import TcType
 import Type
 import Kind (returnsConstraintKind)
 import Coercion hiding (substCo)
+import qualified Coercion
 import TysWiredIn ( eqBoxDataCon, coercibleDataCon, mkListTy
                   , mkBoxedTupleTy, charTy, typeNatKind, typeSymbolKind )
 import Id
@@ -888,9 +888,10 @@ dsEvTerm (EvDFunApp df tys tms)
   = do { tms' <- mapM dsEvTerm tms
        ; return $ Var df `mkTyApps` tys `mkApps` tms' }
 
-dsEvTerm (EvCoercion co))
+dsEvTerm (EvCoercion co)
   | Just v <- isCoVar_maybe co
-  = not (isCoercionType (tyVarKind v)) = return (Var v)  -- See Note [Simple coercions]
+  , not (isCoercionType (tyVarKind v))
+  = return (Var v)  -- See Note [Simple coercions]
    -- TODO (RAE): This check is "ew".
 dsEvTerm (EvCoercion co)            = dsTcCoercion co mkEqBox
 dsEvTerm (EvSuperClass d n)
@@ -1121,7 +1122,7 @@ dsTcCoercion co thing_inside
                      `composeTCvSubst`
                      mkTopTCvSubst [ (eqv, mkCoercionTy $ mkCoVarCo cov)
                                    | (eqv, cov) <- eqvs_covs]
-             result_expr = thing_inside (substCo subst co)
+             result_expr = thing_inside (Coercion.substCo subst co)
              result_ty   = exprType result_expr
 
        ; return (foldr (wrap_in_case result_ty) result_expr eqvs_covs) }

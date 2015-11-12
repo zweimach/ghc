@@ -72,6 +72,7 @@ module TcMType (
 #include "HsVersions.h"
 
 -- friends:
+import TyCoRep ( CoercionHole(..) )
 import TcType
 import Type
 import Coercion
@@ -79,7 +80,9 @@ import Class
 import Var
 
 -- others:
+import {-# SOURCE #-} TcUnify ( unifyType, noThing )
 import TcRnMonad        -- TcType, amongst others
+import TcEvidence
 import Id
 import Name
 import VarSet
@@ -97,6 +100,7 @@ import DynFlags
 import BasicTypes    ( Boxity(..) )
 
 import Control.Monad
+import Maybes
 import Data.List        ( mapAccumL, partition )
 
 {-
@@ -165,6 +169,7 @@ emitWanted origin pty
 emitWantedEq :: CtOrigin -> Role -> TcType -> TcType -> TcM Coercion
 emitWantedEq origin role ty1 ty2
   = do { hole <- newCoercionHole
+       ; loc <- getCtLocM origin
        ; emitSimple $ mkNonCanonical $
            CtWanted { ctev_pred = pty, ctev_dest = HoleDest hole, ctev_loc = loc }
        ; return (mkHoleCo hole role ty1 ty2) }
@@ -219,7 +224,7 @@ fillCoercionHole (CoercionHole u ref) co
 #ifdef DEBUG
        ; cts <- readTcRef ref
        ; whenIsJust cts $ \old_co ->
-         pprPanic "Filling a filled coercion hole" (ppr u $$ ppr co)
+         pprPanic "Filling a filled coercion hole" (ppr u $$ ppr co $$ ppr old_co)
 #endif
        ; traceTc "Filling coercion hole" (ppr u <+> text ":=" <+> ppr co)
        ; writeTcRef ref (Just co) }
@@ -232,7 +237,7 @@ isFilledCoercionHole (CoercionHole _ ref) = isJust <$> readTcRef ref
 -- is unfilled
 unpackCoercionHole :: CoercionHole -> TcM Coercion
 unpackCoercionHole hole
-  = do { contents <- unpackCoercionHole_maybe
+  = do { contents <- unpackCoercionHole_maybe hole
        ; case contents of
            Just co -> return co
            Nothing -> pprPanic "Unfilled coercion hole" (ppr hole) }
@@ -563,7 +568,7 @@ newReturnTyVar :: Kind -> TcM TcTyVar
 newReturnTyVar kind = newMetaTyVar ReturnTv kind
 
 newReturnTyVarTy :: Kind -> TcM TcType
-newReturnTyVarTy kind = TyVarTy <$> newReturnTyVar kind
+newReturnTyVarTy kind = mkTyVarTy <$> newReturnTyVar kind
 
 -- | Either makes a normal Flexi or a ReturnTv Flexi
 newMaybeReturnTyVarTy :: Bool  -- True <=> make a ReturnTv
@@ -618,15 +623,16 @@ tcInstTyVarX subst tyvar
 
 -- | "Instantiate" a list of covars by emitting them as wanted, returning
 -- a substitution to the wanted covars along with the wanted covars themselves.
-tcInstCoVars :: CtOrigin -> [CoVar] -> TcM TCvSubst
-tcInstCoVars orig = foldlM (tcInstCoVarX orig) emptyTCvSubst
+tcInstCoVars :: [CoVar] -> TcM TCvSubst
+tcInstCoVars = foldlM tcInstCoVarX emptyTCvSubst
 
 -- | "Instantiate" a covar, extending a substitution.
-tcInstCoVarX :: CtOrigin -> TCvSubst -> CoVar -> TcM TCvSubst
-tcInstCoVarX orig subst covar
-  = do { let (_, _, ty1, ty2, role) = coVarKindsTypesRole covar
+tcInstCoVarX :: TCvSubst -> CoVar -> TcM TCvSubst
+tcInstCoVarX subst covar
+  = do { let (_, _, ty1, ty2, _role) = coVarKindsTypesRole covar
              ty1' = substTy subst ty1
              ty2' = substTy subst ty2
+       ; MASSERT( _role == Nominal )  -- TODO (RAE): This will all be over soon.
        ; new_co <- unifyType noThing ty1' ty2'
 
        ; return $ extendTCvSubst subst covar (mkCoercionTy $ new_co) }
@@ -1044,9 +1050,9 @@ zonkCtEvidence ctev@(CtGiven { ctev_pred = pred })
 zonkCtEvidence ctev@(CtWanted { ctev_pred = pred, ctev_dest = dest })
   = do { pred' <- zonkTcType pred
        ; let dest' = case dest of
-                       EvVarPred ev -> EvVarPred $ setVarType ev pred'
+                       EvVarDest ev -> EvVarDest $ setVarType ev pred'
                          -- necessary in simplifyInfer
-                       HolePred h   -> HolePred h
+                       HoleDest h   -> HoleDest h
        ; return (ctev { ctev_pred = pred', ctev_dest = dest' }) }
 zonkCtEvidence ctev@(CtDerived { ctev_pred = pred })
   = do { pred' <- zonkTcType pred
@@ -1096,12 +1102,12 @@ zonkTcTypeMapper = TyCoMapper
            ; case contents of
                Just co -> do { let (Pair _t1 _t2, _role) = coercionKindRole co
                              ; MASSERT2( t1 `eqType` _t1 && t2 `eqType` _t2 &&
-                                         role == _role
+                                         r == _role
                                        , (text "Bad coercion hole" <+>
-                                          ppr u <> colon <+>
+                                          ppr h <> colon <+>
                                           vcat [ ppr _t1, ppr _t2, ppr _role
                                                , ppr co, ppr t1, ppr t2
-                                               , ppr role ]) )
+                                               , ppr r ]) )
                              ; zonkCo co }
                Nothing -> return $ mkHoleCo h r t1 t2 }
 
@@ -1190,9 +1196,6 @@ zonkTidyOrigin env (FunDepOrigin2 p1 o1 p2 l2)
        ; (env2, p2') <- zonkTidyTcType env1 p2
        ; (env3, o1') <- zonkTidyOrigin env2 o1
        ; return (env3, FunDepOrigin2 p1' o1' p2' l2) }
-zonkTidyOrigin env (TypeRedOrigin ty)
-  = do { (env1, ty') <- zonkTidyTcType env ty
-       ; return (env1, TypeRedOrigin ty') }
 zonkTidyOrigin env orig = return (env, orig)
 
 zonkTidyErrorThing :: TidyEnv -> Maybe ErrorThing

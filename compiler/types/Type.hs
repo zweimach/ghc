@@ -478,9 +478,9 @@ mapCoercion mapper@(TyCoMapper { tcm_smart = smart, tcm_covar = covar
     go (CoVarCo cv) = covar env cv
     go (AxiomInstCo ax i args)
       = mkaxiominstco ax i <$> mapM go args
-    go (UnivCo (HoleProv hole) r kco t1 t2)
-      = cohole hole r kco t1 t2
-    go (UnivCo p r co t1 t2)
+    go (UnivCo (HoleProv hole) r t1 t2)
+      = cohole env hole r t1 t2
+    go (UnivCo p r t1 t2)
       = mkunivco <$> go_prov p <*> pure r
                  <*> mapType mapper env t1 <*> mapType mapper env t2
     go (SymCo co) = mksymco <$> go co
