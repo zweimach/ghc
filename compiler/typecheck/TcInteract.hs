@@ -284,7 +284,7 @@ runTcPluginsWanted wc@(WC { wc_simple = simples1, wc_insol = insols1, wc_impl = 
   where
     setEv :: (EvTerm,Ct) -> TcS ()
     setEv (ev,ct) = case ctEvidence ct of
-      CtWanted {ctev_dest = dest, ctev_loc = loc} -> setWantedEvTerm dest ev loc
+      CtWanted { ctev_dest = dest } -> setWantedEvTerm dest ev
       _ -> panic "runTcPluginsWanted.setEv: attempt to solve non-wanted!"
 
 -- | A triple of (given, derived, wanted) constraints to pass to plugins
@@ -521,9 +521,9 @@ solveOneFromTheOther ev_i ev_w
   , prohibitedSuperClassSolve (ctEvLoc ev_i) loc_w
   = return (IRDelete, False)
 
-  | CtWanted { ctev_dest = dest, ctev_loc = loc } <- ev_w
+  | CtWanted { ctev_dest = dest } <- ev_w
        -- Inert is Given or Wanted
-  = do { setWantedEvTerm dest (ctEvTerm ev_i) loc
+  = do { setWantedEvTerm dest (ctEvTerm ev_i)
        ; return (IRKeep, True) }
 
   | CtWanted { ctev_loc = loc_i } <- ev_i   -- Work item is Given
@@ -532,8 +532,8 @@ solveOneFromTheOther ev_i ev_w
                             -- This never actually happens because
                             -- Givens get processed first
 
-  | CtWanted { ctev_dest = dest, ctev_loc = loc } <- ev_i
-  = do { setWantedEvBind ev_id (ctEvTerm ev_w) loc
+  | CtWanted { ctev_dest = dest } <- ev_i
+  = do { setWantedEvTerm dest (ctEvTerm ev_w)
        ; return (IRReplace, True) }
 
   -- So they are both Given
@@ -697,7 +697,7 @@ interactDict inerts workItem@(CDictCan { cc_ev = ev_w, cc_class = cls, cc_tyargs
        let ip_ty = mkClassPred cls tys
        let ev_tm = mkEvCast (EvCallStack ev_cs) (TcCoercion $ wrapIP ip_ty)
        addSolvedDict ev_w cls tys
-       setWantedEvBind (ctEvId ev_w) ev_tm loc
+       setWantedEvBind (ctEvId ev_w) ev_tm
        stopWith ev_w "Wanted CallStack IP"
 
   | Just ctev_i <- lookupInertDict inerts cls tys
@@ -932,7 +932,7 @@ reactFunEq :: TyCon   -- "F"
            -> TcS ()
 reactFunEq fam_tc from_this args1 fsk1 solve_this args2 fsk2
   | CtGiven { ctev_evar = evar, ctev_loc = loc } <- solve_this
-  = do { let fsk_eq_co = mkTcSymCo (mkTcCoVarCo evar) `mkTcTransCo` co
+  = do { let fsk_eq_co = mkSymCo (mkCoVarCo evar) `mkTransCo` co
                          -- :: fsk2 ~ fsk1
              fsk_eq_pred = mkTcEqPredLikeEv solve_this
                              (mkTyVarTy fsk2) (mkTyVarTy fsk1)
@@ -951,10 +951,9 @@ reactFunEq fam_tc from_this args1 fsk1 solve_this args2 fsk2
       -- this should always succeed b/c of correct lookup
     coherence_cos = expectJust "reactFunEq" $
                     zipWithM buildCoherenceCo args2 args1
-    coherence_tc_cos = map mkTcCoercion coherence_cos
-    middle_co = mkTcTyConAppCo Nominal fam_tc coherence_tc_cos
+    middle_co = mkTyConAppCo Nominal fam_tc coherence_cos
       -- middle_co :: F args2 ~ F args1
-    co = middle_co `mkTcTransCo` ctEvCoercion from_this
+    co = middle_co `mkTransCo` ctEvCoercion from_this
       -- co :: F args2 ~ fsk1
 
 
@@ -1100,9 +1099,9 @@ interactTyVarEq tclvl inerts workItem@(CTyEqCan { cc_tyvar = tv
   =  -- Inert:     a ~ b
      -- Work item: a ~ b
     do { setEvBindIfWanted ev $
-          EvCoercion (tcDowngradeRole (eqRelRole eq_rel)
-                                      (ctEvRole ev_i)
-                                      (ctEvCoercion ev_i))
+          EvCoercion (downgradeRole (eqRelRole eq_rel)
+                                    (ctEvRole ev_i)
+                                    (ctEvCoercion ev_i))
 
        ; stopWith ev "Solved from inert" }
 
@@ -1114,10 +1113,10 @@ interactTyVarEq tclvl inerts workItem@(CTyEqCan { cc_tyvar = tv
   =  -- Inert:     a ~ b
      -- Work item: b ~ a
     do { setEvBindIfWanted ev $
-           EvCoercion (mkTcSymCo $
-                       tcDowngradeRole (eqRelRole eq_rel)
-                                       (ctEvRole ev_i)
-                                       (ctEvCoercion ev_i))
+           EvCoercion (mkSymCo $
+                       downgradeRole (eqRelRole eq_rel)
+                                     (ctEvRole ev_i)
+                                     (ctEvCoercion ev_i))
 
        ; stopWith ev "Solved from inert (r)" }
 
@@ -1196,7 +1195,7 @@ solveByUnification wd tv xi
                              text "Right Kind is:" <+> ppr (typeKind xi) ]
 
        ; unifyTyVar tv xi
-       ; setEvBindIfWanted wd (EvCoercion (mkTcNomReflCo xi)) }
+       ; setEvBindIfWanted wd (EvCoercion (mkNomReflCo xi)) }
 
 ppr_kicked :: Int -> SDoc
 ppr_kicked 0 = empty
@@ -1301,7 +1300,7 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = fl, cc_class = cls
        ; continueWith work_item }
 
   | Just ev <- lookupSolvedDict inerts cls xis   -- Cached
-  = do { setEvBindIfWanted fl (ctEvCoherence ev dict_pred)
+  = do { setEvBindIfWanted fl (ctEvTerm ev)
        ; stopWith fl "Dict/Top (cached)" }
 
   | isDerived fl  -- Use type-class instances for Deriveds, in the hope
@@ -1355,17 +1354,15 @@ doTopReactDict inerts work_item@(CDictCan { cc_ev = fl, cc_class = cls
      solve_from_instance theta solved_pty mk_ev
         | null theta
         = do { traceTcS "doTopReact/found nullary instance for" $ ppr fl
-             ; setWantedEvBind (ctEvId fl) (mk_coh_ev []) dict_loc
+             ; setWantedEvBind (ctEvId fl) (mk_ev [])
              ; stopWith fl "Dict/Top (solved, no new work)" }
         | otherwise
         = do { checkReductionDepth deeper_loc dict_pred
              ; traceTcS "doTopReact/found non-nullary instance for" $ ppr fl
              ; evc_vars <- mapM (newWanted deeper_loc) theta
-             ; setWantedEvBind (ctEvId fl) (mk_coh_ev (map getEvTerm evc_vars)) dict_loc
+             ; setWantedEvBind (ctEvId fl) (mk_ev (map getEvTerm evc_vars))
              ; emitWorkNC (freshGoals evc_vars)
              ; stopWith fl "Dict/Top (solved, more work)" }
-       where
-         mk_coh_ev ev_tms = evTermCoherence solved_pty (mk_ev ev_tms) dict_pred
 
      -- We didn't solve it; so try functional dependencies with
      -- the instance environment, and return
@@ -1396,7 +1393,7 @@ doTopReactFunEq work_item@(CFunEqCan { cc_ev = old_ev, cc_fun = fam_tc
            Nothing -> do { improveTopFunEqs (ctEvLoc old_ev) fam_tc args fsk
                          ; continueWith work_item }
            Just (ax_co, rhs_ty)
-             -> reduce_top_fun_eq old_ev fsk (mkTcCoercion ax_co) rhs_ty }
+             -> reduce_top_fun_eq old_ev fsk ax_co rhs_ty }
 
 doTopReactFunEq w = pprPanic "doTopReactFunEq" (ppr w)
 
@@ -1411,7 +1408,7 @@ reduce_top_fun_eq old_ev fsk ax_co rhs_ty
        -- Try shortcut; see Note [Short cut for top-level reaction]
 
   | isGiven old_ev  -- Not shortcut
-  = do { let final_co = mkTcSymCo (ctEvCoercion old_ev) `mkTcTransCo` ax_co
+  = do { let final_co = mkSymCo (ctEvCoercion old_ev) `mkTransCo` ax_co
               -- final_co :: fsk ~ rhs_ty
        ; new_ev <- newGivenEvVar deeper_loc (mkPrimEqPred (mkTyVarTy fsk) rhs_ty,
                                              EvCoercion final_co)
@@ -1441,7 +1438,7 @@ reduce_top_fun_eq old_ev fsk ax_co rhs_ty
 
             -- By emitting this as non-canonical, we deal with all
             -- flattening, occurs-check, and ufsk := ufsk issues
-       ; let final_co = ax_co `mkTcTransCo` mkTcSymCo (ctEvCoercion new_ev)
+       ; let final_co = ax_co `mkTransCo` mkSymCo (ctEvCoercion new_ev)
             --    ax_co :: fam_tc args ~ rhs_ty
             --       ev :: alpha ~ rhs_ty
             --     ufsk := alpha
@@ -1537,9 +1534,9 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
 
        ; new_ev <- newGivenEvVar deeper_loc
                          ( mkPrimEqPred (mkTyConApp fam_tc xis) (mkTyVarTy fsk)
-                         , EvCoercion (mkTcTyConAppCo Nominal fam_tc cos
-                                        `mkTcTransCo` mkTcSymCo ax_co
-                                        `mkTcTransCo` ctEvCoercion old_ev) )
+                         , EvCoercion (mkTyConAppCo Nominal fam_tc cos
+                                        `mkTransCo` mkSymCo ax_co
+                                        `mkTransCo` ctEvCoercion old_ev) )
 
        ; let new_ct = CFunEqCan { cc_ev = new_ev, cc_fun = fam_tc, cc_tyargs = xis, cc_fsk = fsk }
        ; emitWorkCt new_ct
@@ -1560,7 +1557,6 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
        ; setWantedEq (ctev_dest old_ev)
                      (ax_co `mkTransCo` mkSymCo (mkTyConAppCo Nominal fam_tc cos)
                             `mkTransCo` new_co)
-                     loc
 
        ; let new_ct = CFunEqCan { cc_ev = new_ev, cc_fun = fam_tc, cc_tyargs = xis, cc_fsk = fsk }
        ; emitWorkCt new_ct
@@ -1816,20 +1812,20 @@ match_class_inst _ _ clas [ ty ] _
      SSymbol n -> KnownSymbol n
   -}
   makeDict evLit
-    | Just (_, co_dict) <- tcInstNewTyCon_maybe (classTyCon clas) [ty]
+    | Just (_, co_dict) <- instNewTyCon_maybe (classTyCon clas) [ty]
           -- co_dict :: KnownNat n ~ SNat n
     , [ meth ]   <- classMethods clas
     , Just tcRep <- tyConAppTyCon_maybe -- SNat
                       $ funResultTy         -- SNat n
                       $ dropForAlls         -- KnownNat n => SNat n
                       $ idType meth         -- forall n. KnownNat n => SNat n
-    , Just (_, co_rep) <- tcInstNewTyCon_maybe tcRep [ty]
+    , Just (_, co_rep) <- instNewTyCon_maybe tcRep [ty]
           -- SNat n ~ Integer
     = return (GenInst { lir_new_theta = []
                       , lir_pred      = mkClassPred clas [ty]
                       , lir_mk_ev     = \_ -> mkEvCast (EvLit evLit) $
-                                              mkTcSymCo $
-                                              mkTcTransCo co_dict co_rep
+                                              mkSymCo $
+                                              mkTransCo co_dict co_rep
                       , lir_safe_over = True })
 
     | otherwise

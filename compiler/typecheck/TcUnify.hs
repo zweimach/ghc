@@ -128,7 +128,7 @@ matchExpectedFunTys herald arity orig_ty
     -- then   co : ty ~ t1 -> .. -> tn -> ty_r
 
     go n_req ty
-      | n_req == 0 = return (mkTcNomReflCo ty, [], ty)
+      | n_req == 0 = return (mkNomReflCo ty, [], ty)
 
     go n_req ty
       | Just ty' <- tcView ty = go n_req ty'
@@ -136,7 +136,7 @@ matchExpectedFunTys herald arity orig_ty
     go n_req (ForAllTy (Anon arg_ty) res_ty)
       | not (isPredTy arg_ty)
       = do { (co, tys, ty_r) <- go (n_req-1) res_ty
-           ; return (mkTcFunCo Nominal (mkTcNomReflCo arg_ty) co, arg_ty:tys, ty_r) }
+           ; return (mkFunCo Nominal (mkNomReflCo arg_ty) co, arg_ty:tys, ty_r) }
 
     go n_req ty@(TyVarTy tv)
       | ASSERT( isTcTyVar tv) isMetaTyVar tv
@@ -243,7 +243,7 @@ matchExpectedTyConApp tc orig_ty
 
     go ty@(TyConApp tycon args)
        | tc == tycon  -- Common case
-       = return (mkTcNomReflCo ty, args)
+       = return (mkNomReflCo ty, args)
 
     go (TyVarTy tv)
        | ASSERT( isTcTyVar tv) isMetaTyVar tv
@@ -290,7 +290,7 @@ matchExpectedAppTy orig_ty
       | Just ty' <- tcView ty = go ty'
 
       | Just (fun_ty, arg_ty) <- tcSplitAppTy_maybe ty
-      = return (mkTcNomReflCo orig_ty, (fun_ty, arg_ty))
+      = return (mkNomReflCo orig_ty, (fun_ty, arg_ty))
 
     go (TyVarTy tv)
       | ASSERT( isTcTyVar tv) isMetaTyVar tv
@@ -461,7 +461,7 @@ tc_sub_type :: CtOrigin -> UserTypeCtxt -> TcSigmaType -> TcSigmaType -> TcM HsW
 tc_sub_type origin ctxt ty_actual ty_expected
   | isTyVarTy ty_actual  -- See Note [Higher rank types]
   = do { cow <- uType origin ty_actual ty_expected
-       ; return (coToHsWrapper (mkTcCoercion cow)) }
+       ; return (coToHsWrapper cow) }
 
   | otherwise  -- See Note [Deep skolemisation]
   = do { (sk_wrap, inner_wrap) <- tcGen ctxt ty_expected $ \ _ sk_rho ->
@@ -495,7 +495,7 @@ tc_sub_type_ds origin ctxt ty_actual ty_expected
 
   | otherwise   -- Revert to unification
   = do { cow <- uType origin ty_actual ty_expected
-       ; return (coToHsWrapper $ mkTcCoercion cow) }
+       ; return (coToHsWrapper cow) }
 
 -----------------
 tcWrapResult :: HsExpr TcId -> TcRhoType -> TcRhoType -> TcM (HsExpr TcId)
@@ -648,8 +648,7 @@ unifyType :: Outputable a => Maybe a   -- ^ If present, has type 'ty1'
           -> TcTauType -> TcTauType -> TcM TcCoercion
 -- Actual and expected types
 -- Returns a coercion : ty1 ~ ty2
-unifyType thing ty1 ty2 = do { co <- uType origin ty1 ty2
-                             ; return (mkTcCoercion co) }
+unifyType thing ty1 ty2 = uType origin ty1 ty2
   where
     origin = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2
                           , uo_thing  = mkErrorThing <$> thing

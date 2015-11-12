@@ -1847,24 +1847,22 @@ tcRnType hsc_env normalise rdr_type
 
         -- Now kind-check the type
         -- It can have any rank or kind
-       ; ((ty, kind), ev_binds)  <- solveTopConstraints $
-                                    tcWildcardBinders wcs $ \_ ->
-                                    tcLHsType rn_type
+       ; (ty, kind) <- solveEqualities $
+                       tcWildcardBinders wcs $ \_ ->
+                       tcLHsType rn_type
 
        -- Do kind generalisation; see Note [Kind-generalise in tcRnType]
-       ; cv_env <- zonkedEvBindsCvSubstEnv ev_binds
-       ; kvs <- kindGeneralize cv_env (tyCoVarsOfType kind)
-       ; ty  <- zonkTcTypeToType (mkZonkEnv cv_env) ty
+       ; kvs <- kindGeneralize (tyCoVarsOfType kind)
+       ; ty  <- zonkTcTypeToType emptyZonkEnv ty
 
        ; ty' <- if normalise
                 then do { fam_envs <- tcGetFamInstEnvs
                         ; let (_, ty', cvs)
                                 = normaliseTypeAggressive fam_envs Nominal ty
-                        ; (subst, binds) <- solveTopConstraints $
-                                            tcInstCoVars (TypeRedOrigin ty) $
-                                            varSetElemsWellScoped cvs
-                        ; cv_subst <- zonkedEvBindsSubst binds
-                        ; return (substTy (composeTCvSubst cv_subst subst) ty') }
+                        ; subst <- solveEqualities $
+                                   tcInstCoVars (TypeRedOrigin ty) $
+                                   varSetElemsWellScoped cvs
+                        ; return (substTy subst ty') }
                 else return ty ;
 
        ; return (ty', mkInvForAllTys kvs (typeKind ty')) }

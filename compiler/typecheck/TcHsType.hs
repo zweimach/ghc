@@ -34,8 +34,6 @@ module TcHsType (
                 -- Pattern type signatures
         tcHsPatSigType, tcPatSig,
 
-        zonkedEvBindsSubst, zonkedEvBindsCvSubstEnv,
-
             -- Error messages
         funAppCtxt
    ) where
@@ -50,7 +48,7 @@ import TcMType
 import TcValidity
 import TcUnify
 import TcIface
-import TcSimplify ( solveTopConstraints )
+import TcSimplify ( solveEqualities )
 import TcType
 import TcHsSyn
 import Type
@@ -169,22 +167,16 @@ tcHsSigType ctxt (L loc hs_ty)
 
 -- Like 'tcHsSigType', but works only for top-level declarations that
 -- never see the desugarer
-tcTopHsSigType ctxt hs_ty
-  = do { (ty, ev_binds) <- solveTopConstraints $ tcHsSigType ctxt hs_ty
-       ; subst <- zonkedEvBindsSubst ev_binds
-       ; return $ substTy subst ty }
+tcTopHsSigType ctxt hs_ty = solveEqualities $ tcHsSigType ctxt hs_ty
 
 -----------------
 tcHsInstHead :: UserTypeCtxt -> LHsType Name -> TcM ([TyVar], ThetaType, Class, [Type])
 -- Like tcHsSigType, but for an instance head.
 tcHsInstHead user_ctxt lhs_ty@(L loc hs_ty)
   = setSrcSpan loc $    -- The "In the type..." context comes from the caller
-    do { (inst_ty, ev_binds) <- solveTopConstraints $
-                                tc_inst_head hs_ty
-       ; co_env   <- zonkedEvBindsCvSubstEnv ev_binds
-       ; kvs      <- kindGeneralize co_env (tyCoVarsOfType inst_ty)
-       ; inst_ty  <- zonkTcTypeToType (mkZonkEnv co_env) $
-                     mkInvForAllTys kvs inst_ty
+    do { inst_ty <- solveEqualities $ tc_inst_head hs_ty
+       ; kvs     <- kindGeneralize (tyCoVarsOfType inst_ty)
+       ; inst_ty <- zonkTcTypeToType emptyZonkEnv $ mkInvForAllTys kvs inst_ty
        ; checkValidInstance user_ctxt lhs_ty inst_ty }
 
 tc_inst_head :: HsType Name -> TcM TcType
@@ -211,10 +203,10 @@ tcHsDeriv hs_ty
   = do { arg_kind <- newMetaKindVar
                     -- always safe to kind-generalize, because there
                     -- can be no covars in an outer scope
-       ; (ty, cv_env) <- tcCheckHsTypeAndGen hs_ty $
-                         mkArrowKind arg_kind constraintKind
+       ; ty <- tcCheckHsTypeAndGen hs_ty $
+               mkArrowKind arg_kind constraintKind
           -- ty is already zonked
-       ; arg_kind <- zonkSigType cv_env arg_kind
+       ; arg_kind <- zonkSigType arg_kind
        ; let (tvs, pred) = splitNamedForAllTys ty
        ; case getClassPredTys_maybe pred of
            Just (cls, tys) -> return (tvs, cls, tys, arg_kind)
@@ -254,7 +246,7 @@ tcClassSigType :: LHsType Name -> TcM Type
 tcClassSigType lhs_ty@(L loc hs_ty)
   = addTypeCtxt lhs_ty $
     setSrcSpan loc $
-    fst <$> tcCheckHsTypeAndGen hs_ty liftedTypeKind
+    tcCheckHsTypeAndGen hs_ty liftedTypeKind
 
 tcHsConArgType :: NewOrData ->  LHsType Name -> TcM Type
 -- Permit a bang, but discard it
@@ -297,7 +289,7 @@ tcLHsType ty = addTypeCtxt ty (tc_infer_lhs_type ty)
 tcCheckHsTypeAndMaybeGen :: HsType Name -> Kind -> TcM Type
 tcCheckHsTypeAndMaybeGen hs_ty kind
   = do { should_gen <- decideKindGeneralisationPlan hs_ty
-       ; fst <$> check_and_gen should_gen hs_ty kind }
+       ; check_and_gen should_gen hs_ty kind }
 
 -- | Should we generalise the kind of this type?
 -- We *should* generalise if the type is closed or if NoMonoLocalBinds
@@ -313,7 +305,7 @@ decideKindGeneralisationPlan hs_ty
                  , text "should gen?" <+> ppr should_gen ])
        ; return should_gen }
 
-tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM (Type, CvSubstEnv)
+tcCheckHsTypeAndGen :: HsType Name -> Kind -> TcM Type
 -- Input type is HsType, not LHsType; the caller adds the context
 -- Output is fully zonked, but not checked for validity
 tcCheckHsTypeAndGen = check_and_gen True
@@ -321,21 +313,19 @@ tcCheckHsTypeAndGen = check_and_gen True
 check_and_gen :: Bool   -- should generalize?
               -> HsType Name
               -> Kind
-              -> TcM (Type, CvSubstEnv)
+              -> TcM Type
 check_and_gen should_gen hs_ty kind
-  = do { (ty, ev_binds) <- checkNoErrs $
-                           solveTopConstraints $
-                           tc_hs_type hs_ty kind
+  = do { ty <- checkNoErrs $
+               solveEqualities $
+               tc_hs_type hs_ty kind
            -- TODO (RAE): Does this abort too often? If the type
            -- has kind errors, then unbound coercions in the type
            -- cause endless trouble as we go forward. See #21.
        ; traceTc "tcCheckHsTypeAndGen" (ppr hs_ty)
-       ; cv_env <- zonkedEvBindsCvSubstEnv ev_binds
        ; kvs <- if should_gen
-                then kindGeneralize cv_env (tyCoVarsOfType ty)
+                then kindGeneralize (tyCoVarsOfType ty)
                 else return []
-       ; gen_ty <- zonkSigType cv_env (mkInvForAllTys kvs ty)
-       ; return (gen_ty, cv_env) }
+       ; zonkSigType (mkInvForAllTys kvs ty) }
 
 {-
 Note [Bidirectional type checking]
@@ -836,24 +826,13 @@ This is horribly delicate.  I hate it.  A good example of how
 delicate it is can be seen in Trac #7903.
 -}
 
-zonkSigType :: CvSubstEnv -> TcType -> TcM TcType
+zonkSigType :: TcType -> TcM TcType
 -- Zonk the result of type-checking a user-written type signature
 -- It may have kind variables in it, but no meta type variables
 -- Because of knot-typing (see Note [Zonking inside the knot])
 -- it may need to establish the Type invariants;
 -- hence the use of mkTyConApp and mkAppTy
-zonkSigType cv_env = mapType mapper ()
-  where
-    mapper = zonkTcTypeMapper { tcm_smart = True
-                              , tcm_covar = zonk_covar }
-                -- Key point: establish Type invariants!
-                -- See Note [Zonking inside the knot]
-
-    zonk_covar _ cv
-      | Just co <- lookupVarEnv cv_env cv
-      = return co
-      | otherwise
-      = mkCoVarCo <$> zonkTyCoVarKind cv
+zonkSigType = mapType zonkTcTypeMapper ()  -- TODO (RAE): do we need this??
 
 {-
 Note [Body kind of a forall]
@@ -1131,10 +1110,10 @@ new_skolem_tv :: Name -> Kind -> TcTyVar
 new_skolem_tv n k = mkTcTyVar n k vanillaSkolemTv
 
 ------------------
-kindGeneralize :: CvSubstEnv -> TyVarSet -> TcM [KindVar]
-kindGeneralize co_env tkvs
+kindGeneralize :: TyVarSet -> TcM [KindVar]
+kindGeneralize tkvs
   = do { gbl_tvs <- tcGetGlobalTyCoVars -- Already zonked
-       ; quantifyTyVars co_env gbl_tvs (Pair tkvs emptyVarSet) }
+       ; quantifyTyVars gbl_tvs (Pair tkvs emptyVarSet) }
 
 {-
 Note [Kind generalisation]
@@ -1484,11 +1463,10 @@ tcHsPatSigType ctxt (HsWB { hswb_cts = hs_ty, hswb_vars = sig_vars
     do  { emitWildcardHoleConstraints nwc_binds
         ; vars <- mapM new_tv sig_vars
         ; let ktv_binds = sig_vars `zip` vars
-        ; (sig_ty, ev_binds) <- solveTopConstraints $
-                                tcExtendTyVarEnv2 ktv_binds $
-                                tcHsLiftedType hs_ty
-        ; subst  <- zonkedEvBindsCvSubstEnv ev_binds
-        ; sig_ty <- zonkSigType subst sig_ty
+        ; sig_ty <- solveEqualities $
+                    tcExtendTyVarEnv2 ktv_binds $
+                    tcHsLiftedType hs_ty
+        ; sig_ty <- zonkSigType sig_ty
         ; checkValidType ctxt sig_ty
         ; return (sig_ty, ktv_binds, nwc_binds) }
   where
@@ -1674,37 +1652,6 @@ badPatSigTvs sig_ty bad_tvs
                  ptext (sLit "but are actually discarded by a type synonym") ]
          , ptext (sLit "To fix this, expand the type synonym")
          , ptext (sLit "[Note: I hope to lift this restriction in due course]") ]
-
-{-
-************************************************************************
-*                                                                      *
-                Extracting coercions from a Bag EvBinds
-*                                                                      *
-************************************************************************
-
-These might belong in TcEvidence, but they do zonking, so they can't
-go there.
-
--}
-
-zonkedEvBindsSubst :: Bag EvBind -> TcM TCvSubst
-zonkedEvBindsSubst binds
-  = do { let subst        = evBindsSubst binds
-             in_scope     = getTCvInScope subst
-             cv_env       = getCvSubstEnv subst
-       ; cv_env <- zonk_cv_subst_env cv_env
-       ; return (mkTCvSubst in_scope (emptyTvSubstEnv, cv_env)) }
-
-zonkedEvBindsCvSubstEnv :: Bag EvBind -> TcM CvSubstEnv
-zonkedEvBindsCvSubstEnv = zonk_cv_subst_env . evBindsCvSubstEnv
-
-zonk_cv_subst_env :: CvSubstEnv -> TcM CvSubstEnv
-zonk_cv_subst_env cv_env
-  = do { let (uniqs, cos) = unzip $ varEnvToList cv_env
-       ; cos <- mapM zonkCo cos
-       ; return (foldl' extend emptyCvSubstEnv (zip uniqs cos)) }
-  where
-    extend env (uniq, co) = extendVarEnv_Directly env uniq co
 
 {-
 ************************************************************************

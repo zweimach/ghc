@@ -1809,7 +1809,7 @@ simplifyDeriv pred tvs theta
 
        ; traceTc "simplifyDeriv" $
          vcat [ pprTvBndrs tvs $$ ppr theta $$ ppr wanted, doc ]
-       ; residual_wanted <- simplifyWantedsTcM Impure wanted
+       ; residual_wanted <- simplifyWantedsTcM wanted
 
        ; residual_simple <- zonkSimples (wc_simple residual_wanted)
        ; let (good, bad) = partitionBagWith get_good residual_simple

@@ -1,28 +1,8 @@
 stack:
 
- - change tcs_unified to be a number
-
- - combine stateful functions called from simplifyInfer (TcS vs TcM variants)
-   (like promoteTyVar)
- 
- - simplifyWantedsTcMCustom ?
-
- - setWantedEvBind --> setWanted --> setWantedEq
- - setWantedEvTerm :: TcEvDest -> EvTerm -> CtLoc -> TcS ()
- - fillCoercionHole :: CoercionHole -> Coercion -> TcM ()  -- put near addTcEvBind
- - isFilledCoercionHole :: CoercionHole -> TcM Bool
- - search for mkPrimEqPred / mkPrimReprEqPred.
-    I want an invariant: all unlifted equalities are holes.
- - discard evBindWanted?
- - Outputable TcEvDest
- - do we need boxity of equalities in getEqPredTys_maybe?
-
- - don't worry about loose types in lookupInertDict. They're all of kind
-   Constraint! Also, look for other functions that are similar.
-
  - remove TcCoercion
- - use solveEqualities instead of simplifyTop
-
+ - quantifyTyVars
+   - kindGeneralize
 
 - figure out UndecidableInstances problem. See TODO in TcValdidity.
   Possibly: if sizeTypes are equal, then check sizeTypes without *, or without

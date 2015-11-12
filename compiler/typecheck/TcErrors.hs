@@ -496,8 +496,7 @@ maybeReportError ctxt err
 addDeferredBinding :: ReportErrCtxt -> ErrMsg -> Ct -> TcM ()
 -- See Note [Deferring coercion errors to runtime]
 addDeferredBinding ctxt err ct
-  | CtWanted { ctev_pred = pred, ctev_dest = dest
-             , ctev_loc = loc } <- ctEvidence ct
+  | CtWanted { ctev_pred = pred, ctev_dest = dest } <- ctEvidence ct
     -- Only add deferred bindings for Wanted constraints
   , Just ev_binds_var <- cec_binds ctxt  -- We have somewhere to put the bindings
   = do { dflags <- getDynFlags
@@ -508,12 +507,12 @@ addDeferredBinding ctxt err ct
 
        ; case dest of
            EvVarDest evar
-             -> addTcEvBind ev_binds_var $ mkWantedEvBind evar err_tm loc
+             -> addTcEvBind ev_binds_var $ mkWantedEvBind evar err_tm
            HoleDest hole
              | Just (_, role, ty1, ty2) <- getEqPredTys_maybe pred
              -> do { -- See Note [Deferred errors for coercion holes]
                      evar <- newEvVar pred
-                   ; addTcEvBind ev_binds_var $ mkWantedEvBind evar err_tm loc
+                   ; addTcEvBind ev_binds_var $ mkWantedEvBind evar err_tm
                    ; fillCoercionHole hole (mkCoVarCo evar) }
            _ -> pprPanic "addDeferredBinding" (ppr pred) }
 

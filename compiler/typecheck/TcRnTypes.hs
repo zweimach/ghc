@@ -67,8 +67,7 @@ module TcRnTypes(
         mkNonCanonical, mkNonCanonicalCt,
         ctEvPred, ctEvLoc, ctEvOrigin, ctEvEqRel,
         ctEvTerm, ctEvCoercion, ctEvId,
-        ctEvCoherence, evTermCoherence,
-        tyCoVarsOfCt, tyCoVarsOfCts, evBindWanted,
+        tyCoVarsOfCt, tyCoVarsOfCts,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
         andWC, unionsWC, addSimples, addImplics, mkSimpleWC, addInsols,
@@ -314,9 +313,8 @@ instance ContainsModule DsGblEnv where
 data DsLclEnv = DsLclEnv {
         dsl_meta    :: DsMetaEnv,        -- Template Haskell bindings
         dsl_loc     :: SrcSpan,          -- to put in pattern-matching error msgs
-        dsl_subst   :: IdEnv Coercion    -- inlining top-level coercions
-                                         -- See Note [No top-level coercions] in
-                                         -- DsBinds
+        dsl_subst   :: IdEnv Coercion    -- inlining coercions
+                                         -- TODO (RAE): Do we need this?
      }
 
 -- Inside [| |] brackets, the desugarer looks
@@ -1849,10 +1847,9 @@ ctEvId (CtWanted { ctev_dest = EvVarDest ev }) = ev
 ctEvId (CtGiven  { ctev_evar = ev }) = ev
 ctEvId ctev = pprPanic "ctEvId:" (ppr ctev)
 
--- TODO (RAE): Discard?
-evBindWanted :: EvBind -> CtEvidence
-evBindWanted (EvBind { eb_lhs = evar, eb_loc = loc })
-  = CtWanted { ctev_pred = varType evar, ctev_evar = evar, ctev_loc = loc }
+instance Outputable TcEvDest where
+  ppr (HoleDest h)   = text "hole" <> ppr h
+  ppr (EvVarDest ev) = ppr ev
 
 instance Outputable CtEvidence where
   ppr fl = case fl of
@@ -1872,26 +1869,6 @@ isGiven _ = False
 isDerived :: CtEvidence -> Bool
 isDerived (CtDerived {}) = True
 isDerived _              = False
-
--- | @ctEvCoherence ev1 ty2@ produces a variant of the 'EvTerm' in @ev1@
--- that precisely matches
--- the predicate @ty2@. Precondition: the erased predicate of @ev1@ must
--- match that of @ty2@. This is useful after an inert lookup via erased types.
--- See also Note [Use loose types in inert set] in TcSMonad.
-ctEvCoherence :: CtEvidence -> TcPredType -> EvTerm
-ctEvCoherence from_this = evTermCoherence (ctEvPred from_this) (ctEvTerm from_this)
-
--- | Like 'ctEvCoherence', but with arguments split out of a 'CtEvidence'
-evTermCoherence :: PredType -> EvTerm -> TcPredType -> EvTerm
-evTermCoherence from_pred from_term solve_pred
-  | from_pred `eqType` solve_pred
-  = from_term
-
-  | otherwise
-  = EvCast from_term (mkTcSubCo $
-                      mkTcCoercion $
-                      expectJust "evTermCoherence" $
-                      buildCoherenceCo from_pred solve_pred)
 
 {-
 %************************************************************************

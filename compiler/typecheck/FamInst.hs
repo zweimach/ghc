@@ -6,7 +6,7 @@ module FamInst (
         FamInstEnvs, tcGetFamInstEnvs,
         checkFamInstConsistency, tcExtendLocalFamInstEnv,
         tcLookupDataFamInst, tcLookupDataFamInst_maybe,
-        tcInstNewTyCon_maybe, tcTopNormaliseNewTypeTF_maybe,
+        instNewTyCon_maybe, tcTopNormaliseNewTypeTF_maybe,
         newFamInst,
 
         -- * Injectivity
@@ -204,16 +204,6 @@ getFamInsts hpt_fam_insts mod
 
 -}
 
--- | If @co :: T ts ~ rep_ty@ then:
---
--- > instNewTyCon_maybe T ts = Just (rep_ty, co)
---
--- Checks for a newtype, and for being saturated
--- Just like Coercion.instNewTyCon_maybe, but returns a TcCoercion
-tcInstNewTyCon_maybe :: TyCon -> [TcType] -> Maybe (TcType, TcCoercion)
-tcInstNewTyCon_maybe tc tys = fmap (second mkTcCoercion) $
-                              instNewTyCon_maybe tc tys
-
 -- | Like 'tcLookupDataFamInst_maybe', but returns the arguments back if
 -- there is no data family to unwrap.
 -- Returns a Representational coercion
@@ -269,7 +259,7 @@ tcTopNormaliseNewTypeTF_maybe :: FamInstEnvs
                               -> Maybe (TcCoercion, Type)
 tcTopNormaliseNewTypeTF_maybe faminsts rdr_env ty
 -- cf. FamInstEnv.topNormaliseType_maybe and Coercion.topNormaliseNewType_maybe
-  = fmap (first mkTcCoercion) $ topNormaliseTypeX_maybe stepper ty
+  = topNormaliseTypeX_maybe stepper ty
   where
     stepper = unwrap_newtype `composeSteppers` unwrap_newtype_instance
 

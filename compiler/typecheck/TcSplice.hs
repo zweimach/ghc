@@ -874,10 +874,10 @@ reifyInstances th_nm th_tys
             <- bindHsTyVars doc Nothing kvs hs_tvbs $ \ rn_tvbs ->
                do { (rn_ty, fvs) <- rnLHsType doc rdr_ty
                   ; return ((rn_tvbs, rn_ty), fvs) }
-        ; ((ty, _kind), ev_binds) <- solveTopConstraints $
-                                     tcHsTyVarBndrs rn_tvbs $ \ _tvs ->
-                                     tcLHsType rn_ty
-        ; ty <- zonkTcTypeToType (mkEvBindsZonkEnv ev_binds) ty
+        ; (ty, _kind) <- solveEqualities $
+                         tcHsTyVarBndrs rn_tvbs $ \ _tvs ->
+                         tcLHsType rn_ty
+        ; ty <- zonkTcTypeToType emptyZonkEnv ty
                 -- Substitute out the meta type variables
                 -- In particular, the type might have kind
                 -- variables inside it (Trac #7477)

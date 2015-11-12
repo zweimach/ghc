@@ -341,7 +341,7 @@ tcExpr expr@(OpApp arg1 op fix arg2) res_ty
                                              , res_ty ])
                                  (HsVar op_id))
        ; return $
-         OpApp (mkLHsWrapCo (mkTcFunCo Nominal co_a co_b) $
+         OpApp (mkLHsWrapCo (mkFunCo Nominal co_a co_b) $
                 mkLHsWrapCo co_arg1 arg1')
                op' fix
                (mkLHsWrapCo co_a arg2') }
@@ -758,7 +758,7 @@ tcExpr expr@(RecordUpd record_expr rbnds _ _ _) res_ty
 
         -- Step 7: make a cast for the scrutinee, in the case that it's from a type family
         ; let scrut_co | Just co_con <- tyConFamilyCoercion_maybe tycon
-                       = mkWpCast (mkTcUnbranchedAxInstCo Representational co_con scrut_inst_tys [])
+                       = mkWpCast (mkUnbranchedAxInstCo Representational co_con scrut_inst_tys [])
                        | otherwise
                        = idHsWrapper
         -- Phew!
@@ -1211,7 +1211,7 @@ tcTagToEnum loc fun_name arg res_ty
         ; let fun' = L loc (HsWrap (WpTyApp rep_ty) (HsVar fun))
               rep_ty = mkTyConApp rep_tc rep_args
 
-        ; return (mkHsWrapCoR (mkTcSymCo $ mkTcCoercion coi) $ HsApp fun' arg') }
+        ; return (mkHsWrapCoR (mkSymCo coi) $ HsApp fun' arg') }
                   -- coi is a Representational coercion
   where
     doc1 = vcat [ ptext (sLit "Specify the type by giving a type signature")

@@ -10,7 +10,8 @@
 --
 module Coercion (
         -- * Main data type
-        Coercion, UnivCoProvenance, LeftOrRight(..),
+        Coercion, CoercionN, CoercionR, CoercionP,
+        UnivCoProvenance, LeftOrRight(..),
         Var, CoVar, TyCoVar,
         Role(..), ltRole,
 
@@ -131,6 +132,13 @@ import Control.Monad (foldM, zipWithM)
 import FastString
 import Control.Arrow ( first )
 import Data.Function ( on )
+
+-----------------------------------------------------------------
+-- These synonyms are very useful as documentation
+
+type CoercionN = Coercion   -- nominal coercion
+type CoercionR = Coercion   -- representational coercion
+type CoercionP = Coercion   -- phantom coercion
 
 {-
 %************************************************************************
@@ -1254,7 +1262,7 @@ mkPiCo r v co | isTyVar v = mkHomoForAllCos [v] co
 -- The second coercion is sometimes lifted (~) and sometimes unlifted (~#).
 -- So, we have to make sure to supply the right parameter to decomposeCo.
 -- mkCoCast (c :: s1 ~# t1) (g :: (s1 ~# s2) ~# (t1 ~# t2)) :: s2 ~# t2
--- The first coercion *must* be Nominal.
+-- Both coercions *must* have the same role.
 mkCoCast :: Coercion -> Coercion -> Coercion
 mkCoCast c g
   = mkSymCo g1 `mkTransCo` c `mkTransCo` g2

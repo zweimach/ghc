@@ -113,8 +113,8 @@ deSugar hsc_env
                               else return (binds, hpcInfo, emptyModBreaks)
 
         ; (msgs, mb_res) <- initDs hsc_env mod rdr_env type_env fam_inst_env $
-                            dsTopLevelEvBinds ev_binds $
-                       do { core_prs <- dsTopLHsBinds binds_cvr
+                       do { ds_ev_binds <- dsEvBinds ev_binds
+                          ; core_prs <- dsTopLHsBinds binds_cvr
                           ; (spec_prs, spec_rules) <- dsImpSpecs imp_specs
                           ; (ds_fords, foreign_prs) <- dsForeigns fords
                           ; ds_rules <- mapMaybeM dsRule rules
@@ -127,7 +127,8 @@ deSugar hsc_env
                                 -- Stub to insert the static entries of the
                                 -- module into the static pointer table
                                 spt_init = sptInitCode mod stBinds
-                          ; return ( foreign_prs `appOL` core_prs `appOL` spec_prs
+                          ; return ( ds_ev_binds
+                                   , foreign_prs `appOL` core_prs `appOL` spec_prs
                                                  `appOL` toOL (map snd stBinds)
                                    , spec_rules ++ ds_rules, ds_vects
                                    , ds_fords `appendStubC` hpc_init
@@ -135,7 +136,7 @@ deSugar hsc_env
 
         ; case mb_res of {
            Nothing -> return (msgs, Nothing) ;
-           Just ((all_prs, all_rules, vects0, ds_fords), ds_ev_binds) ->
+           Just (ds_ev_binds all_prs, all_rules, vects0, ds_fords) ->
 
      do {       -- Add export flags to bindings
           keep_alive <- readIORef keep_var

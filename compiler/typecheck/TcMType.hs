@@ -31,10 +31,13 @@ module TcMType (
 
   --------------------------------
   -- Creating new evidence variables
-  newEvVar, newEvVars, newCoercionHole, newDict,
+  newEvVar, newEvVars, newDict,
   newWanted, newWanteds,
   emitWanted, emitWantedEq, emitWantedEvVar, emitWantedEvVars,
   newTcEvBinds, addTcEvBind,
+
+  newCoercionHole, fillCoercionHole, isFilledCoercionHole,
+  unpackCoercionHole, unpackCoercionHole_maybe,
 
   --------------------------------
   -- Instantiation
@@ -183,12 +186,6 @@ emitWantedEvVar origin ty
 emitWantedEvVars :: CtOrigin -> [TcPredType] -> TcM [EvVar]
 emitWantedEvVars orig = mapM (emitWantedEvVar orig)
 
-newCoercionHole :: TcM CoercionHole
-newCoercionHole
-  = do { u <- newUnique
-       ; ref <- newMutVar Nothing
-       ; return $ mkCoercionHole u ref }
-
 newDict :: Class -> [TcType] -> TcM DictId
 newDict cls tys
   = do { name <- newSysName (mkDictOcc (getOccName cls))
@@ -200,6 +197,49 @@ predTypeOccName ty = case classifyPredType ty of
     EqPred _ _ _    -> mkVarOccFS (fsLit "cobox")
     IrredPred _     -> mkVarOccFS (fsLit "irred")
 
+{-
+************************************************************************
+*                                                                      *
+        Coercion holes
+*                                                                      *
+************************************************************************
+-}
+
+newCoercionHole :: TcM CoercionHole
+newCoercionHole
+  = do { u <- newUnique
+       ; traceTc "New coercion hole:" (ppr u)
+       ; ref <- newMutVar Nothing
+       ; return $ CoercionHole u ref }
+
+-- | Put a value in a coercion hole
+fillCoercionHole :: CoercionHole -> Coercion -> TcM ()
+fillCoercionHole (CoercionHole u ref) co
+  = do {
+#ifdef DEBUG
+       ; cts <- readTcRef ref
+       ; whenIsJust cts $ \old_co ->
+         pprPanic "Filling a filled coercion hole" (ppr u $$ ppr co)
+#endif
+       ; traceTc "Filling coercion hole" (ppr u <+> text ":=" <+> ppr co)
+       ; writeTcRef ref (Just co) }
+
+-- | Is a coercion hole filled in?
+isFilledCoercionHole :: CoercionHole -> TcM Bool
+isFilledCoercionHole (CoercionHole _ ref) = isJust <$> readTcRef ref
+
+-- | Retrieve the contents of a coercion hole. Panics if the hole
+-- is unfilled
+unpackCoercionHole :: CoercionHole -> TcM Coercion
+unpackCoercionHole hole
+  = do { contents <- unpackCoercionHole_maybe
+       ; case contents of
+           Just co -> return co
+           Nothing -> pprPanic "Unfilled coercion hole" (ppr hole) }
+
+-- | Retrieve the contents of a coercion hole, if it is filled
+unpackCoercionHole_maybe :: CoercionHole -> TcM (Maybe Coercion)
+unpackCoercionHole_maybe (CoercionHole _ ref) = readTcRef ref
 
 {-
 ************************************************************************
@@ -674,8 +714,7 @@ Note that this function can accept covars, but will never return them.
 This is because we never want to infer a quantified covar!
 -}
 
-quantifyTyVars :: CvSubstEnv     -- any known values for covars
-               -> TcTyCoVarSet   -- global tvs
+quantifyTyVars :: TcTyCoVarSet   -- global tvs
                -> Pair TcTyCoVarSet    -- dependent tvs       We only distinguish
                                        -- nondependent tvs    between these for
                                        --                     -XNoPolyKinds
@@ -684,11 +723,11 @@ quantifyTyVars :: CvSubstEnv     -- any known values for covars
 -- Can be given a mixture of TcTyVars and TyVars, in the case of
 --   associated type declarations. Also accepts covars, but *never* returns any.
 
-quantifyTyVars co_env gbl_tvs (Pair dep_tkvs nondep_tkvs)
-  = do { dep_tkvs    <- apply_co_env <$> zonkTyCoVarsAndFV dep_tkvs
-       ; nondep_tkvs <- (`minusVarSet` dep_tkvs) . apply_co_env <$>
+quantifyTyVars gbl_tvs (Pair dep_tkvs nondep_tkvs)
+  = do { dep_tkvs    <- zonkTyCoVarsAndFV dep_tkvs
+       ; nondep_tkvs <- (`minusVarSet` dep_tkvs) <$>
                         zonkTyCoVarsAndFV nondep_tkvs
-       ; gbl_tvs     <- apply_co_env <$> zonkTyCoVarsAndFV gbl_tvs
+       ; gbl_tvs     <- zonkTyCoVarsAndFV gbl_tvs
 
        ; let all_cvs    = filterVarSet isCoVar $
                           dep_tkvs `unionVarSet` nondep_tkvs `minusVarSet` gbl_tvs
@@ -736,13 +775,6 @@ quantifyTyVars co_env gbl_tvs (Pair dep_tkvs nondep_tkvs)
       | otherwise     = return $ Just tkv
       -- For associated types, we have the class variables
       -- in scope, and they are TyVars not TcTyVars
-
-    apply_co_env = foldVarSet apply_co_env1 emptyVarSet
-    apply_co_env1 v acc
-      | Just co <- lookupVarEnv co_env v
-      = acc `unionVarSet` tyCoVarsOfCo co
-      | otherwise
-      = acc `extendVarSet` v
 
 zonkQuantifiedTyVar :: TcTyVar -> TcM (Maybe TcTyVar)
 -- The quantified type variables often include meta type variables
@@ -1050,11 +1082,8 @@ zonkId id
 -- before all metavars are filled in.
 zonkTcTypeMapper :: TyCoMapper () TcM
 zonkTcTypeMapper = TyCoMapper
--- TODO (RAE): Remove tcm_smart and zonkSigType.
+-- TODO (RAE): Remove zonkSigType.
   { tcm_smart = True
-                -- Do NOT establish Type invariants, because
-                -- doing so is strict in the TyCOn.
-                -- See Note [Zonking inside the knot] in TcHsType
   , tcm_tyvar = const zonkTcTyVar
   , tcm_covar = const (\cv -> mkCoVarCo <$> zonkTyCoVarKind cv)
   , tcm_hole  = hole
@@ -1062,9 +1091,20 @@ zonkTcTypeMapper = TyCoMapper
   where
     hole :: () -> CoercionHole -> Role -> Type -> Type
          -> TcM Coercion
-    hole _ h r t1 t2 = return $ mkHoleCo h r t1 t2
-      -- We *could* dereference holes. But there is no reason to do
-      -- so until the final zonk. So we hold off.
+    hole _ h r t1 t2
+      = do { contents <- unpackCoercionHole_maybe h
+           ; case contents of
+               Just co -> do { let (Pair _t1 _t2, _role) = coercionKindRole co
+                             ; MASSERT2( t1 `eqType` _t1 && t2 `eqType` _t2 &&
+                                         role == _role
+                                       , (text "Bad coercion hole" <+>
+                                          ppr u <> colon <+>
+                                          vcat [ ppr _t1, ppr _t2, ppr _role
+                                               , ppr co, ppr t1, ppr t2
+                                               , ppr role ]) )
+                             ; zonkCo co }
+               Nothing -> return $ mkHoleCo h r t1 t2 }
+
 
 -- For unbound, mutable tyvars, zonkType uses the function given to it
 -- For tyvars bound at a for-all, zonkType zonks them to an immutable

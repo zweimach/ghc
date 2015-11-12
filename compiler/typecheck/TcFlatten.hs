@@ -792,7 +792,7 @@ yields a better error message anyway.)
 flatten :: FlattenMode -> CtEvidence -> TcType
         -> TcS (Xi, TcCoercion)
 flatten mode ev ty
-  = second mkTcCoercion <$> runFlatten mode ev (flatten_one ty)
+  = runFlatten mode ev (flatten_one ty)
 
 flattenManyNom :: CtEvidence -> [TcType] -> TcS ([Xi], [TcCoercion])
 -- Externally-callable, hence runFlatten
@@ -801,8 +801,7 @@ flattenManyNom :: CtEvidence -> [TcType] -> TcS ([Xi], [TcCoercion])
 --      ctEvFlavour ev = Nominal
 -- and we want to flatten all at nominal role
 flattenManyNom ev tys
-  = second (map mkTcCoercion) <$>
-    runFlatten FM_FlattenAll ev (flatten_many_nom tys)
+  = runFlatten FM_FlattenAll ev (flatten_many_nom tys)
 
 {- *********************************************************************
 *                                                                      *
@@ -1141,7 +1140,7 @@ flatten_exact_fam_app tc tys
 --            ; if flat_top || tv `elemVarSet` tyCoVarsOfTypes xis
 --              then flatten_exact_fam_app_fully fmode tc tys
 --              else return ( mkTyConApp tc xis
---                          , mkTcTyConAppCo (feRole fmode) tc cos ) }
+--                          , mkTyConAppCo (feRole fmode) tc cos ) }
 
 flatten_exact_fam_app_fully tc tys
   -- See Note [Reduce type family applications eagerly]
@@ -1158,15 +1157,14 @@ flatten_exact_fam_app_fully tc tys
        ; mb_ct <- liftTcS $ lookupFlatCache tc xis
        ; frb <- getFRB
        ; case mb_ct of
-           Just (tc_co, rhs_ty, flav)  -- co :: F xis ~ fsk
-             | canDischargeFRB tclvl (flav, NomEq, tc_co_boxity tc_co) frb
+           Just (co, rhs_ty, flav)  -- co :: F xis ~ fsk
+             | canDischargeFRB tclvl (flav, NomEq, tc_co_boxity co) frb
              ->  -- Usable hit in the flat-cache
                  -- We certainly *can* use a Wanted for a Wanted
                 do { traceFlat "flatten/flat-cache hit" $ (ppr tc <+> ppr xis $$ ppr rhs_ty)
                    ; (fsk_xi, fsk_co) <- flatten_one rhs_ty
                           -- The fsk may already have been unified, so flatten it
                           -- fsk_co :: fsk_xi ~ fsk
-                   ; co <- liftTcS $ dirtyTcCoToCo flav tc_co
                    ; return ( fsk_xi
                             , fsk_co `mkTransCo`
                               maybeSubCo eq_rel (mkSymCo co) `mkTransCo`
@@ -1179,7 +1177,7 @@ flatten_exact_fam_app_fully tc tys
                 do { let fam_ty = mkTyConApp tc xis
                    ; (ev, co, fsk) <- newFlattenSkolemFlatM fam_ty
                    ; let fsk_ty = mkTyVarTy fsk
-                   ; liftTcS $ extendFlatCache tc xis ( mkTcCoercion co
+                   ; liftTcS $ extendFlatCache tc xis ( co
                                                       , fsk_ty, ctEvFlavour ev)
 
                    -- The new constraint (F xis ~ fsk) is not necessarily inert
@@ -1205,7 +1203,7 @@ flatten_exact_fam_app_fully tc tys
     -- unlifted coercion. Laziness should hopefully prevent most runs of
     -- this function. See Note [Flavours with boxities] in TcSMonad
     tc_co_boxity co
-      | all (isUnLiftedType . varType) $ varSetElems $ coVarsOfTcCo co
+      | all (isUnLiftedType . varType) $ varSetElems $ coVarsOfCo co
       = Unboxed
       | otherwise
       = Boxed
@@ -1235,8 +1233,7 @@ flatten_exact_fam_app_fully tc tys
                            -- NB: only extend cache with nominal equalities
                        ; when (cache && eq_rel == NomEq) $
                          liftTcS $
-                         extendFlatCache tc tys ( mkTcCoercion co, xi
-                                                , flavour )
+                         extendFlatCache tc tys ( co, xi, flavour )
                        ; return ( xi, update_co $ mkSymCo co ) }
                Nothing -> k }
 
@@ -1343,10 +1340,8 @@ flatten_tyvar2 tv frb@(flavour, eq_rel, _)
              | CTyEqCan { cc_ev = ctev, cc_tyvar = tv, cc_rhs = rhs_ty } <- ct
              , eqCanRewriteFRB tclvl (ctEvFRB ctev) frb
              ->  do { traceFlat "Following inert tyvar" (ppr tv <+> equals <+> ppr rhs_ty $$ ppr ctev)
-                    ; inert_co <- liftTcS $ dirtyTcCoToCo (ctEvFlavour ctev)
-                                                          (ctEvCoercion ctev)
-                    ; let rewrite_co1 = mkSymCo inert_co
-                          rewrite_co = case (ctEvEqRel ctev, eq_rel) of
+                    ; let rewrite_co1 = mkSymCo $ ctEvCoercion ctev
+                          rewrite_co  = case (ctEvEqRel ctev, eq_rel) of
                             (ReprEq, _rel)  -> ASSERT( _rel == ReprEq )
                                     -- if this ASSERT fails, then
                                     -- eqCanRewriteFRB answered incorrectly
@@ -1510,7 +1505,7 @@ unflatten tv_eqs funeqs
            ; case occurCheckExpand dflags fmv rhs' of
                OC_OK rhs''    -- Normal case: fill the tyvar
                  -> do { setEvBindIfWanted ev
-                               (EvCoercion (mkTcReflCo (ctEvRole ev) rhs''))
+                               (EvCoercion (mkReflCo (ctEvRole ev) rhs''))
                        ; unflattenFmv fmv rhs''
                        ; return rest }
 
@@ -1556,7 +1551,7 @@ unflatten tv_eqs funeqs
            ; let is_refl = ty1 `tcEqType` ty2
            ; if is_refl then do { setEvBindIfWanted ev
                                             (EvCoercion $
-                                             mkTcReflCo (eqRelRole eq_rel) rhs)
+                                             mkReflCo (eqRelRole eq_rel) rhs)
                                 ; return rest }
                         else return (mkNonCanonical ev `consCts` rest) }
       | otherwise
@@ -1586,7 +1581,7 @@ tryFill dflags tv rhs ev
        ; case occurCheckExpand dflags tv rhs' of
            OC_OK rhs''    -- Normal case: fill the tyvar
              -> do { setEvBindIfWanted ev
-                               (EvCoercion (mkTcReflCo (ctEvRole ev) rhs''))
+                               (EvCoercion (mkReflCo (ctEvRole ev) rhs''))
                    ; unifyTyVar tv rhs''
                    ; return True }
 

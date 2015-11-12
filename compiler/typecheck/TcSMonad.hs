@@ -29,9 +29,9 @@ module TcSMonad (
     newTcEvBinds,
     newWantedEqNC, newWantedEq,
     newWanted, newWantedEvVar, newWantedEvVarNC, newDerivedNC,
-    newBoundEvVarId, dirtyTcCoToCo,
+    newBoundEvVarId,
     unifyTyVar, unflattenFmv, reportUnifications,
-    setEvBind, setWantedEvBind, setEvBindIfWanted,
+    setEvBind, setWantedEq, setWantedTerm, setWantedEvBind, setEvBindIfWanted,
     newEvVar, newGivenEvVar, newGivenEvVars,
     emitNewDerived, emitNewDeriveds, emitNewDerivedEq,
     checkReductionDepth,
@@ -2247,8 +2247,9 @@ data TcSEnv
           -- this could be Nothing if we can't deal with non-equality
           -- constraints, because, say, we're in a top-level type signature
 
-      tcs_unified     :: IORef TyVarSet,
-          -- The set of metavars that have been filled
+      tcs_unified     :: IORef Int,
+         -- The number of unification variables we have filled
+         -- The important thing is whether it is non-zero
 
       tcs_count     :: IORef Int, -- Global step count
 
@@ -2360,7 +2361,7 @@ runTcSWithEvBinds :: Maybe EvBindsVar
                   -> TcS a
                   -> TcM a
 runTcSWithEvBinds ev_binds_var tcs
-  = do { unified_var <- TcM.newTcRef emptyVarSet
+  = do { unified_var <- TcM.newTcRef 0
        ; step_count <- TcM.newTcRef 0
        ; inert_var <- TcM.newTcRef emptyInert
        ; wl_var <- TcM.newTcRef emptyWorkList
@@ -2403,7 +2404,7 @@ checkForCyclicBinds ev_binds
     cycles = [c | CyclicSCC c <- stronglyConnCompFromEdgedVertices edges]
 
     coercion_cycles = [c | c <- cycles, any is_co_bind c]
-    is_co_bind (EvBind { eb_lhs = b }) = isEqVar b
+    is_co_bind (EvBind { eb_lhs = b }) = isEqPred (varType b)
 
     edges :: [(EvBind, EvVar, [EvVar])]
     edges = [ (bind, bndr, varSetElems (evVarsOfTerm rhs))
@@ -2607,7 +2608,7 @@ unifyTyVar tv ty
     TcS $ \ env ->
     do { TcM.traceTc "unifyTyVar" (ppr tv <+> text ":=" <+> ppr ty)
        ; TcM.writeMetaTyVar tv ty
-       ; TcM.updTcRef (tcs_unified env) (`extendVarSet` tv) }
+       ; TcM.updTcRef (tcs_unified env) (+1) }
 
 unflattenFmv :: TcTyVar -> TcType -> TcS ()
 -- Fill a flatten-meta-var, simply by unifying it.
@@ -2623,9 +2624,9 @@ reportUnifications (TcS thing_inside)
   = TcS $ \ env ->
     do { inner_unified <- TcM.newTcRef emptyVarSet
        ; res <- thing_inside (env { tcs_unified = inner_unified })
-       ; unified_vars <- TcM.readTcRef inner_unified
-       ; TcM.updTcRef (tcs_unified env) (`unionVarSet` unified_vars)
-       ; return (sizeVarSet unified_vars, res) }
+       ; n_unifs <- TcM.readTcRef inner_unified
+       ; TcM.updTcRef (tcs_unified env) (+ n_unifs)
+       ; return (unified_vars, res) }
 
 getDefaultInfo ::  TcS ([Type], (Bool, Bool))
 getDefaultInfo = wrapTcS TcM.tcGetDefaultTys
@@ -2771,7 +2772,7 @@ newFlattenSkolem Given loc fam_ty
   = do { fsk <- newFsk fam_ty
        ; let co = mkNomReflCo fam_ty
        ; ev  <- newGivenEvVar loc (mkPrimEqPred fam_ty (mkTyVarTy fsk),
-                                   EvCoercion (mkTcCoercion co))
+                                   EvCoercion co)
        ; return (ev, co, fsk) }
 
 newFlattenSkolem Wanted loc fam_ty
@@ -2869,14 +2870,34 @@ setEvBind ev_bind
            Just evb -> wrapTcS $ TcM.addTcEvBind evb ev_bind
            Nothing  -> pprPanic "setEvBind" (ppr ev_bind) }
 
-setWantedEvBind :: EvVar -> EvTerm -> CtLoc -> TcS ()
-setWantedEvBind ev_id tm loc = setEvBind (mkWantedEvBind ev_id tm loc)
+-- | Equalities only
+setWantedEq :: TcEvDest -> Coercion -> TcS ()
+setWantedEq (HoleDest hole) co
+  = do { useVars (tyCoVarsOfCo co)
+       ; wrapTcS $ TcM.fillCoercionHole hole co }
+setWantedEq (EvVarDest ev) _ = pprPanic "setWantedEq" (ppr ev)
+
+-- | Equalities only
+setEqIfWanted :: CtEvidence -> Coercion -> TcS ()
+setEqIfWanted (CtWanted { ctev_dest = dest }) co = setWantedEq dest co
+setEqIfWanted _ = return ()
+
+-- | Good for equalities and non-equalities
+setWantedEvTerm :: TcEvDest -> EvTerm -> TcS ()
+setWantedEvTerm (HoleDest hole) tm
+  = do { let co = evTermCoercion tm
+       ; useVars (tyCoVarsOfCo co)
+       ; wrapTcS $ TcM.fillCoercionHole hole co }
+setWantedEvTerm (EvVarDest ev) tm = setWantedEvBind ev tm
+
+setWantedEvBind :: EvVar -> EvTerm -> TcS ()
+setWantedEvBind ev_id tm = setEvBind (mkWantedEvBind ev_id tm)
 
 setEvBindIfWanted :: CtEvidence -> EvTerm -> TcS ()
 setEvBindIfWanted ev tm
   = case ev of
-      CtWanted { ctev_dest = dest, ctev_loc = loc }
-        -> setWantedEvTerm dest tm loc
+      CtWanted { ctev_dest = dest }
+        -> setWantedEvTerm dest tm
       _ -> return ()
 
 newTcEvBinds :: TcS EvBindsVar
@@ -2899,8 +2920,7 @@ newGivenEvVar loc (pred, rhs)
 newBoundEvVarId :: TcPredType -> EvTerm -> TcS EvVar
 newBoundEvVarId pred rhs
   = do { new_ev <- newEvVar pred
-       ; loc <- wrapTcS $ TcM.getCtLocM ImpossibleOrigin
-       ; setEvBind (mkGivenEvBind new_ev rhs loc)
+       ; setEvBind (mkGivenEvBind new_ev rhs)
        ; return new_ev }
 
 newGivenEvVars :: CtLoc -> [(TcPredType, EvTerm)] -> TcS [CtEvidence]
@@ -2950,20 +2970,6 @@ newWanted loc pty
   = Fresh . fst <$> newWantedEq loc role ty1 ty2
   | otherwise
   = newWantedEvVar loc pty
-
--- | Convert a TcCoercion into a Coercion the "dirty" way. This means
--- creating a new CoVar, bound to the TcCoercion in the ambient EvBinds;
--- the Coercion is just a CoVarCo around this CoVar. The desugarer should
--- get it all to work out.
-dirtyTcCoToCo :: CtFlavour   -- ^ If this is Derived, don't look at the coercion!
-              -> TcCoercion -> TcS Coercion
-dirtyTcCoToCo Derived tc_co = return (pprPanic "dirtyTcCoToCo" (ppr tc_co))
-dirtyTcCoToCo _ tc_co
-  = do { cv <- newBoundEvVarId (mkCoercionType role ty1 ty2) (EvCoercion tc_co)
-       ; return (mkCoVarCo cv) }
-  where
-    Pair ty1 ty2 = tcCoercionKind tc_co
-    role         = tcCoercionRole tc_co
 
 -- | Make a pred type suitable for making a Derived constraint.
 mkDerivedPred :: TcPredType -> TcPredType
@@ -3072,7 +3078,6 @@ deferTcSForAllEq role loc kind_cos (bndrs1,body1) (bndrs2,body2)
       ; let phi1  = Type.substTy subst body1
             phi2  = Type.substTy subst body2'
             skol_info = UnifyForAllSkol skol_tvs phi1
-            eq_pred   = mkPrimEqPredRole role phi1 phi2
 
       ; (ctev, hole_co) <- newWantedEq loc role phi1 phi2
       ; env <- getLclEnv

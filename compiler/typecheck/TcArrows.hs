@@ -89,8 +89,7 @@ tcProc pat cmd exp_ty
         ; let cmd_env = CmdEnv { cmd_arr = arr_ty }
         ; (pat', cmd') <- tcPat ProcExpr pat arg_ty $
                           tcCmdTop cmd_env cmd (unitTy, res_ty)
-        ; let res_co = mkTcTransCo co
-                         (mkTcAppCo co1 (mkTcNomReflCo res_ty))
+        ; let res_co = mkTransCo co (mkAppCo co1 (mkNomReflCo res_ty))
         ; return (pat', cmd', res_co) }
 
 {-
@@ -322,11 +321,11 @@ tc_cmd _ cmd _
 
 matchExpectedCmdArgs :: Arity -> TcType -> TcM (TcCoercion, [TcType], TcType)
 matchExpectedCmdArgs 0 ty
-  = return (mkTcNomReflCo ty, [], ty)
+  = return (mkNomReflCo ty, [], ty)
 matchExpectedCmdArgs n ty
   = do { (co1, [ty1, ty2]) <- matchExpectedTyConApp pairTyCon ty
        ; (co2, tys, res_ty) <- matchExpectedCmdArgs (n-1) ty2
-       ; return (mkTcTyConAppCo Nominal pairTyCon [co1, co2], ty1:tys, res_ty) }
+       ; return (mkTyConAppCo Nominal pairTyCon [co1, co2], ty1:tys, res_ty) }
 
 {-
 ************************************************************************

@@ -817,13 +817,6 @@ confused.   Likewise it might have an InlineRule or something, which would be
 utterly bogus. So we really make a fresh Id, with the same unique and type
 as the old one, but with an Internal name and no IdInfo.
 
-Note [No top-level coercions]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-It can happen that an unlifted equality is emitted at the top level. But,
-this is problematic, because we can't have unlifted bindings at the top
-level! So, we take all top-level unlifted coercions and inline them during
-desugaring.
-
 ************************************************************************
 *                                                                      *
                 Desugaring evidence
@@ -844,7 +837,7 @@ dsHsWrapper (WpFun c1 c2 t1 _) e = do { x <- newSysLocalDs t1
                                       ; e1 <- dsHsWrapper c1 (Var x)
                                       ; e2 <- dsHsWrapper c2 (e `mkCoreAppDs` e1)
                                       ; return (Lam x e2) }
-dsHsWrapper (WpCast co)       e = ASSERT(tcCoercionRole co == Representational)
+dsHsWrapper (WpCast co)       e = ASSERT(coercionRole co == Representational)
                                   dsTcCoercion co (mkCastDs e)
 dsHsWrapper (WpEvLam ev)      e = return $ Lam ev e
 dsHsWrapper (WpTyLam tv)      e = return $ Lam tv e
@@ -860,36 +853,6 @@ dsTcEvBinds_s (b:rest) = ASSERT( null rest )  -- Zonker ensures null
 dsTcEvBinds :: TcEvBinds -> DsM [CoreBind]
 dsTcEvBinds (TcEvBinds {}) = panic "dsEvBinds"    -- Zonker has got rid of this
 dsTcEvBinds (EvBinds bs)   = dsEvBinds bs
-
--- | Desugar top-level 'EvBind's. See Note [No top-level coercions].
--- EvBinds that are not coercions are desugared normally.
-dsTopLevelEvBinds :: Bag EvBind -> DsM a -> DsM (a, [CoreBind])
-dsTopLevelEvBinds bs thing = go [] (sccEvBinds bs)
-  where
-    go acc []
-      = do { result <- thing
-           ; return (result, reverse acc) }
-
-    go acc (CyclicSCC bs : rest)
-      = ASSERT( all (not . isUnLiftedType . varType . evBindVar) bs )
-        do { core_bind <- liftM Rec (mapM dsEvBind bs)
-           ; go (core_bind : acc) rest }
-
-    go acc (AcyclicSCC (EvBind { eb_lhs = v, eb_rhs = r }) : rest)
-      | let ty = varType v
-      , isUnLiftedType ty
-      = ASSERT( isCoercionType ty )
-        do { expr <- dsEvTermUnlifted r
-           ; case expr of
-               Coercion co -> dsExtendCoEnv v co $ go acc rest
-               _           -> pprPanic "dsTopLevelEvBinds" (ppr expr $$
-                                                            ppr v <+> dcolon <+> ppr ty $$
-                                                            ppr r $$
-                                                            ppr (sccEvBinds bs)) }
-
-      | otherwise
-      = do { core_bind <- liftM (NonRec v) (dsEvTerm r)
-           ; go (core_bind : acc) rest }
 
 dsEvBinds :: Bag EvBind -> DsM [CoreBind]
 dsEvBinds bs = mapM ds_scc (sccEvBinds bs)
@@ -925,8 +888,9 @@ dsEvTerm (EvDFunApp df tys tms)
   = do { tms' <- mapM dsEvTerm tms
        ; return $ Var df `mkTyApps` tys `mkApps` tms' }
 
-dsEvTerm (EvCoercion (TcCoVarCo v))
-  | not (isCoercionType (tyVarKind v)) = return (Var v)  -- See Note [Simple coercions]
+dsEvTerm (EvCoercion co))
+  | Just v <- isCoVar_maybe co
+  = not (isCoercionType (tyVarKind v)) = return (Var v)  -- See Note [Simple coercions]
    -- TODO (RAE): This check is "ew".
 dsEvTerm (EvCoercion co)            = dsTcCoercion co mkEqBox
 dsEvTerm (EvSuperClass d n)
@@ -1146,20 +1110,18 @@ dsTcCoercion :: TcCoercion -> (Coercion -> CoreExpr) -> DsM CoreExpr
 --       = case g1 of EqBox g1# ->
 --         case g2 of EqBox g2# ->
 --         k (trans g1# g2#)
--- thing_inside will get a coercion at the role requested
 dsTcCoercion co thing_inside
   = do { us <- newUniqueSupply
        ; outer_subst <- dsGetCvSubstEnv
        ; let eqvs_covs :: [(EqVar,CoVar)]
-             eqvs_covs = zipWith mk_co_var (varSetElems (coVarsOfTcCo co))
+             eqvs_covs = zipWith mk_co_var (varSetElems (coVarsOfCo co))
                                            (uniqsFromSupply us)
 
              subst = mkTCvSubst emptyInScopeSet (emptyTvSubstEnv, outer_subst)
                      `composeTCvSubst`
                      mkTopTCvSubst [ (eqv, mkCoercionTy $ mkCoVarCo cov)
                                    | (eqv, cov) <- eqvs_covs]
-             result_expr = thing_inside (expectJust "dsTcCoercion" $
-                                         tcCoercionToCoercion subst co)
+             result_expr = thing_inside (substCo subst co)
              result_ty   = exprType result_expr
 
        ; return (foldr (wrap_in_case result_ty) result_expr eqvs_covs) }

@@ -568,25 +568,25 @@ mkLHsWrapCo :: TcCoercion -> LHsExpr id -> LHsExpr id
 mkLHsWrapCo co (L loc e) = L loc (mkHsWrapCo co e)
 
 mkHsCmdCast :: TcCoercion -> HsCmd id -> HsCmd id
-mkHsCmdCast co cmd | isTcReflCo co = cmd
-                   | otherwise     = HsCmdCast co cmd
+mkHsCmdCast co cmd | isReflCo co = cmd
+                   | otherwise   = HsCmdCast co cmd
 
-coToHsWrapper :: TcCoercion -> HsWrapper   -- A Nominal coercion
-coToHsWrapper co | isTcReflCo co = idHsWrapper
-                 | otherwise     = mkWpCast (mkTcSubCo co)
+coToHsWrapper :: TcCoercionN -> HsWrapper   -- A Nominal coercion
+coToHsWrapper co | isReflCo co = idHsWrapper
+                 | otherwise   = mkWpCast (mkSubCo co)
 
-coToHsWrapperR :: TcCoercion -> HsWrapper   -- A Representational coercion
-coToHsWrapperR co | isTcReflCo co = idHsWrapper
-                  | otherwise     = mkWpCast co
+coToHsWrapperR :: TcCoercionR -> HsWrapper   -- A Representational coercion
+coToHsWrapperR co | isReflCo co = idHsWrapper
+                  | otherwise   = mkWpCast co
 
 mkHsWrapPat :: HsWrapper -> Pat id -> Type -> Pat id
 mkHsWrapPat co_fn p ty | isIdHsWrapper co_fn = p
                        | otherwise           = CoPat co_fn p ty
 
 -- input coercion is Nominal
-mkHsWrapPatCo :: TcCoercion -> Pat id -> Type -> Pat id
-mkHsWrapPatCo co pat ty | isTcReflCo co = pat
-                        | otherwise     = CoPat (mkWpCast (mkTcSubCo co)) pat ty
+mkHsWrapPatCo :: TcCoercionN -> Pat id -> Type -> Pat id
+mkHsWrapPatCo co pat ty | isReflCo co = pat
+                        | otherwise   = CoPat (mkWpCast (mkSubCo co)) pat ty
 
 mkHsDictLet :: TcEvBinds -> LHsExpr Id -> LHsExpr Id
 mkHsDictLet ev_binds expr = mkLHsWrap (mkWpLet ev_binds) expr

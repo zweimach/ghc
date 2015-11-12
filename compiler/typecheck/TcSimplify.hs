@@ -6,7 +6,7 @@ module TcSimplify(
        simplifyAmbiguityCheck,
        simplifyDefault,
        simplifyTop, simplifyInteractive, solveEqualities,
-       Purity(..), simplifyWantedsTcM,
+       simplifyWantedsTcM,
 
        -- For Rules we need these three
        solveWanteds, runTcS
@@ -98,17 +98,20 @@ simplifyTop wanteds
 
        ; return (evBindMapBinds binds1 `unionBags` binds2) }
 
--- | Solve only equality constraints. Does not permit deferred type errors.
--- Use when, for example, checking a top-level type signature.
-solveEqualities :: WantedConstraints -> TcM ()
-solveEqualities wanteds
-  = do { traceTc "simplifyEqualities {" $ text "wanted = " <+> ppr wanteds
+-- | Type-check a thing that emits only equality constraints, then
+-- solve those constraints. Emits errors -- but does not fail --
+-- if there is trouble.
+solveEqualities :: TcM a -> TcM a
+solveEqualities thing_inside
+  = do { (result, wanted) <- captureConstraints thing_inside
+       ; traceTc "solveEqualities {" $ text "wanted = " <+> ppr wanteds
        ; (final_wc, _) <- runTcSEqualities $ simpl_top wanteds
-       ; traceTc "End simplifyEqualities }" empty
+       ; traceTc "End solveEqualities }" empty
 
        ; traceTc "reportAllUnsolved {" empty
        ; reportAllUnsolved final_wc
-       ; traceTc "reportAllUnsolved }" empty }
+       ; traceTc "reportAllUnsolved }" empty
+       ; return result }
 
 type SafeOverlapFailures = Cts
 -- ^ See Note [Safe Haskell Overlapping Instances Implementation]
@@ -347,9 +350,7 @@ How is this implemented? It's complicated! So we'll step through it all:
 simplifyAmbiguityCheck :: Type -> WantedConstraints -> TcM ()
 simplifyAmbiguityCheck ty wanteds
   = do { traceTc "simplifyAmbiguityCheck {" (text "type = " <+> ppr ty $$ text "wanted = " <+> ppr wanteds)
-       ; (zonked_final_wc, _) <- simplifyWantedsTcMCustom Pure (fst <$>
-                                                                simpl_top wanteds)
-                -- TODO (RAE): these don't need to be zonked
+       ; ((final_wc, _), _) <- runTcS $ simpl_top wanteds
        ; traceTc "End simplifyAmbiguityCheck }" empty
 
        -- Normally report all errors; but with -XAllowAmbiguousTypes
@@ -358,7 +359,7 @@ simplifyAmbiguityCheck ty wanteds
        ; allow_ambiguous <- xoptM Opt_AllowAmbiguousTypes
        ; traceTc "reportUnsolved(ambig) {" empty
        ; tc_lvl <- TcM.getTcLevel
-       ; unless (allow_ambiguous && not (insolubleWC tc_lvl zonked_final_wc))
+       ; unless (allow_ambiguous && not (insolubleWC tc_lvl final_wc))
                 (discardResult (reportUnsolved zonked_final_wc))
        ; traceTc "reportUnsolved(ambig) }" empty
 
@@ -376,7 +377,7 @@ simplifyDefault :: ThetaType    -- Wanted; has no type variables in it
 simplifyDefault theta
   = do { traceTc "simplifyInteractive" empty
        ; wanted <- newWanteds DefaultOrigin theta
-       ; unsolved <- simplifyWantedsTcM Pure wanted
+       ; unsolved <- simplifyWantedsTcM wanted
 
        ; traceTc "reportUnsolved {" empty
        -- See Note [Deferring coercion errors to runtime]
@@ -426,7 +427,7 @@ simplifyInfer :: TcLevel               -- Used when generating the constraints
 simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
   | isEmptyWC wanteds
   = do { gbl_tvs <- tcGetGlobalTyCoVars
-       ; qtkvs <- quantifyTyVars emptyVarEnv gbl_tvs $
+       ; qtkvs <- quantifyTyVars gbl_tvs $
                   splitDepVarsOfTypes (map snd name_taus)
        ; traceTc "simplifyInfer: empty WC" (ppr name_taus $$ ppr qtkvs)
        ; return (qtkvs, [], emptyTcEvBinds) }
@@ -494,32 +495,24 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
                       ; mapM_ def_tyvar meta_tvs
                       ; mapM_ (promoteTyVar rhs_tclvl) meta_tvs
 
-                      ; (WC { wc_simple = simples }, unif_pairs)
-                           <- setTcLevel rhs_tclvl          $
-                              simplifyWantedsTcMCustom Pure $
+                      ; (WC { wc_simple = simples }, _ev_binds)
+                           <- setTcLevel rhs_tclvl $
+                              runTcS               $
                               solveSimpleWanteds quant_cand
 
-                          -- must include info about unification, as it
-                          -- may be necessary to justify why we're using
-                          -- these particular quant_pred_candidates
-                      ; return ([ ctEvPred ev | ct <- bagToList simples
-                                              , let ev = ctEvidence ct
-                                              , isWanted ev ]
-                                ++
-                                [ mkPrimEqPred ty1 ty2
-                                | (tv1, ty2) <- unif_pairs
-                                , let ty1 = mkTyVarTy tv1 ]) }
+                      ; simples <- zonkSimples simples
+
+                      ; return [ ctEvPred ev | ct <- bagToList simples
+                                             , let ev = ctEvidence ct
+                                             , isWanted ev ] }
 
        -- NB: quant_pred_candidates is already fully zonked
 
            -- Decide what type variables and constraints to quantify
        ; zonked_taus <- mapM (TcM.zonkTcType . snd) name_taus
-       ; ev_binds    <- TcM.getTcEvBinds ev_binds_var
        ; let zonked_tau_tkvs = splitDepVarsOfTypes zonked_taus
-             cv_env          = evBindsCvSubstEnv   ev_binds
        ; (qtvs, bound_theta)
-           <- decideQuantification cv_env
-                                   apply_mr sig_qtvs name_taus
+           <- decideQuantification apply_mr sig_qtvs name_taus
                                    quant_pred_candidates zonked_tau_tkvs
 
          -- Promote any type variables that are free in the inferred type
@@ -623,8 +616,7 @@ including all covars -- and the quantified constraints are empty/insoluble.
 -}
 
 decideQuantification
-  :: CvSubstEnv            -- known covar substitutions
-  -> Bool                  -- try the MR restriction?
+  :: Bool                  -- try the MR restriction?
   -> [TcTyVar]             -- signature tyvars
   -> [(Name, TcTauType)]   -- variables to be generalised (for errors only)
   -> [PredType]            -- candidate theta
@@ -632,7 +624,7 @@ decideQuantification
   -> TcM ( [TcTyVar]       -- Quantify over these (skolems)
          , [PredType] )    -- and this context (fully zonked)
 -- See Note [Deciding quantification]
-decideQuantification cv_env apply_mr sig_qtvs name_taus constraints
+decideQuantification apply_mr sig_qtvs name_taus constraints
                      (Pair zonked_tau_kvs zonked_tau_tvs)
   | apply_mr     -- Apply the Monomorphism restriction
   = do { gbl_tvs <- tcGetGlobalTyCoVars
@@ -691,8 +683,8 @@ decideQuantification cv_env apply_mr sig_qtvs name_taus constraints
     bndrs    = map fst name_taus
     pp_bndrs = pprWithCommas (quotes . ppr) bndrs
     quantify_tvs mono_tvs kvs tvs   -- See Note [Which type variable to quantify]
-      | null sig_qtvs = quantifyTyVars cv_env mono_tvs (Pair kvs tvs)
-      | otherwise     = quantifyTyVars cv_env
+      | null sig_qtvs = quantifyTyVars mono_tvs (Pair kvs tvs)
+      | otherwise     = quantifyTyVars
                          (mono_tvs `delVarSetList`    sig_qtvs)
                          (Pair kvs (tvs `extendVarSetList` sig_qtvs))
 
@@ -871,16 +863,10 @@ simplifyWantedsTcM :: [CtEvidence] -> TcM WantedConstraints
 -- Postcondition: fully zonked and unflattened constraints
 simplifyWantedsTcM wanted
   = do { traceTc "simplifyWantedsTcM {" (ppr wanted)
-       ; result <- simplifyWantedsTcMCustom (solveWantedsAndDrop $
-                                             mkSimpleWC wanted)
+       ; (result, _) <- runTcS (solveWantedsAndDrop $ mkSimpleWC wanted)
+       ; result <- TcM.zonkWC result
        ; traceTc "simplifyWantedsTcM }" (ppr result)
        ; return result }
-
--- | Like 'simplifyWantedsTcM', but with a custom TcS action
-simplifyWantedsTcMCustom :: TcS WantedConstraints -> TcM WantedConstraints
-simplifyWantedsTcMCustom tcs
-  = do { (wc, ev_bind_map) <- runTcS tcs
-       ; TcM.zonkWC wc }
 
 solveWantedsAndDrop :: WantedConstraints -> TcS WantedConstraints
 -- Since solveWanteds returns the residual WantedConstraints,

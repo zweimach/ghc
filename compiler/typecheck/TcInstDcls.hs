@@ -21,8 +21,8 @@ import TcClassDcl( tcClassDecl2, tcATDefault,
 import TcPat      ( TcIdSigInfo, addInlinePrags, completeIdSigPolyId, lookupPragEnv, emptyPragEnv )
 import TcRnMonad
 import TcValidity
-import TcSimplify ( solveTopConstraints )
-import TcHsSyn    ( zonkTcTypeToTypes, mkEvBindsZonkEnv )
+import TcSimplify ( solveEqualities )
+import TcHsSyn    ( zonkTcTypeToTypes )
 import TcMType
 import TcType
 import BuildTyCl
@@ -658,9 +658,8 @@ tcDataFamInstDecl mb_clsinfo
          -- Result kind must be '*' (otherwise, we have too few patterns)
        ; checkTc (isLiftedTypeKind res_kind) $ tooFewParmsErr (tyConArity fam_tc)
 
-       ; (stupid_theta, stupid_ev_binds) <- solveTopConstraints $ tcHsContext ctxt
-       ; stupid_theta
-           <- zonkTcTypeToTypes (mkEvBindsZonkEnv stupid_ev_binds) stupid_theta
+       ; stupid_theta <- solveEqualities $ tcHsContext ctxt
+       ; stupid_theta <- zonkTcTypeToTypes emptyZonkEnv stupid_theta
        ; gadt_syntax <- dataDeclChecks (tyConName fam_tc) new_or_data stupid_theta cons
 
          -- Construct representation tycon
@@ -997,8 +996,7 @@ tcSuperClasses dfun_id cls tyvars dfun_evs inst_tys dfun_ev_binds _fam_envs sc_t
 
            ; sc_top_name  <- newName (mkSuperDictAuxOcc n (getOccName cls))
            ; sc_ev_id     <- newEvVar sc_pred
-           ; addTcEvBind ev_binds_var $
-             mkWantedEvBind sc_ev_id sc_ev_tm (panic "TODO (RAE)")
+           ; addTcEvBind ev_binds_var $ mkWantedEvBind sc_ev_id sc_ev_tm
            ; let sc_top_ty = mkInvForAllTys tyvars (mkPiTypes dfun_evs sc_pred)
                  sc_top_id = mkLocalId sc_top_name sc_top_ty
                  sc_ev_id  = mkLocalId
@@ -1316,10 +1314,9 @@ tcMethods dfun_id clas tyvars dfun_ev_vars inst_tys
                  -- you to apply a function to a dictionary *expression*.
 
            ; self_dict <- newDict clas inst_tys
-           ; ev_loc <- getCtLocM ImpossibleOrigin
            ; let ev_term = EvDFunApp dfun_id (mkTyVarTys tyvars)
                                      (map EvId dfun_ev_vars)
-                 self_ev_bind = mkWantedEvBind self_dict ev_term ev_loc
+                 self_ev_bind = mkWantedEvBind self_dict ev_term
 
            ; (meth_id, local_meth_sig, hs_wrap)
                    <- mkMethIds hs_sig_fn clas tyvars dfun_ev_vars inst_tys sel_id

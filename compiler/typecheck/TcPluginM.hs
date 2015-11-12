@@ -68,7 +68,7 @@ import TcRnMonad  ( TcGblEnv, TcLclEnv, Ct, CtLoc, TcPluginM
                   , liftIO, traceTc, WantedConstraints )
 import TcMType    ( TcTyVar, TcType )
 import TcEnv      ( TcTyThing )
-import TcEvidence ( TcCoercion, mkTcCoercion
+import TcEvidence ( TcCoercion
                   , EvTerm, EvBind, EvBindsVar, mkGivenEvBind )
 import TcRnTypes  ( CtEvidence(..) )
 import Var        ( EvVar )
@@ -143,7 +143,7 @@ matchFam :: TyCon -> [Type]
 matchFam tycon args
   = do { mb_stuff <- unsafeTcPluginTcM $ TcSMonad.matchFamTcM tycon args
        ; return $ case mb_stuff of
-           Just (co, ty, cts) -> Just (mkTcCoercion co, ty, cts)
+           Just (co, ty, cts) -> Just (co, ty, cts)
            Nothing            -> Nothing }
 
 newUnique :: TcPluginM Unique
@@ -177,7 +177,7 @@ newDerived loc pty = return CtDerived { ctev_pred = pty, ctev_loc = loc }
 newGiven :: CtLoc -> PredType -> EvTerm -> TcPluginM CtEvidence
 newGiven loc pty evtm = do
    new_ev <- newEvVar pty
-   setEvBind $ mkGivenEvBind new_ev evtm loc
+   setEvBind $ mkGivenEvBind new_ev evtm
    return CtGiven { ctev_pred = pty, ctev_evar = new_ev, ctev_loc = loc }
 
 -- | Create a fresh evidence variable.
