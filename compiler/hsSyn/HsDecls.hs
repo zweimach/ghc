@@ -45,7 +45,7 @@ module HsDecls (
   -- ** @RULE@ declarations
   LRuleDecls,RuleDecls(..),RuleDecl(..), LRuleDecl, RuleBndr(..),LRuleBndr,
   collectRuleBndrSigTys,
-  flattenRuleDecls,
+  flattenRuleDecls, pprFullRuleName,
   -- ** @VECTORISE@ declarations
   VectDecl(..), LVectDecl,
   lvectDeclName, lvectInstDecl,
@@ -1638,12 +1638,15 @@ deriving instance (DataId name) => Data (RuleBndr name)
 collectRuleBndrSigTys :: [RuleBndr name] -> [HsWithBndrs name (LHsType name)]
 collectRuleBndrSigTys bndrs = [ty | RuleBndrSig _ ty <- bndrs]
 
+pprFullRuleName :: Located (SourceText, RuleName) -> SDoc
+pprFullRuleName (L _ (_, n)) = doubleQuotes $ ftext n
+
 instance OutputableBndr name => Outputable (RuleDecls name) where
   ppr (HsRules _ rules) = ppr rules
 
 instance OutputableBndr name => Outputable (RuleDecl name) where
   ppr (HsRule name act ns lhs _fv_lhs rhs _fv_rhs)
-        = sep [text "{-# RULES" <+> doubleQuotes (ftext $ snd $ unLoc name)
+        = sep [text "{-# RULES" <+> pprFullRuleName name
                                 <+> ppr act,
                nest 4 (pp_forall <+> pprExpr (unLoc lhs)),
                nest 4 (equals <+> pprExpr (unLoc rhs) <+> text "#-}") ]

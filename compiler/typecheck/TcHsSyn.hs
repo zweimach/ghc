@@ -60,7 +60,6 @@ import Bag
 import FastString
 import Outputable
 import Util
-import Pair
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable ( traverse )
 #endif
@@ -1509,12 +1508,9 @@ zonkCoHole :: ZonkEnv -> CoercionHole
            -> TcM Coercion
 zonkCoHole env hole role t1 t2
   = do { co <- unpackCoercionHole hole
-       ; let (Pair _t1 _t2, _role) = coercionKindRole co
-       ; MASSERT2( t1 `eqType` _t1 && t2 `eqType` _t2 && role == _role
-                 , (text "Bad coercion hole" <+> ppr hole <> colon <+>
-                    vcat [ ppr _t1, ppr _t2, ppr _role, ppr co
-                         , ppr t1, ppr t2, ppr role ]) )
-       ; zonkCoToCo env co }
+       ; co <- zonkCoToCo env co
+       ; checkCoercionHole co hole role t1 t2
+       ; return co }
 
 zonk_tycomapper :: TyCoMapper ZonkEnv TcM
 zonk_tycomapper = TyCoMapper

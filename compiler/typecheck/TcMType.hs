@@ -38,6 +38,7 @@ module TcMType (
 
   newCoercionHole, fillCoercionHole, isFilledCoercionHole,
   unpackCoercionHole, unpackCoercionHole_maybe,
+  checkCoercionHole,
 
   --------------------------------
   -- Instantiation
@@ -245,6 +246,22 @@ unpackCoercionHole hole
 -- | Retrieve the contents of a coercion hole, if it is filled
 unpackCoercionHole_maybe :: CoercionHole -> TcM (Maybe Coercion)
 unpackCoercionHole_maybe (CoercionHole _ ref) = readTcRef ref
+
+checkCoercionHole :: Coercion -> CoercionHole -> Role -> Type -> Type -> TcM ()
+checkCoercionHole co h r t1 t2
+-- co is already zonked, but t1 and t2 might not be
+  | debugIsOn
+  = do { t1 <- zonkTcType t1
+       ; t2 <- zonkTcType t2
+       ; let (Pair _t1 _t2, _role) = coercionKindRole co
+       ; MASSERT2( t1 `eqType` _t1 && t2 `eqType` _t2 && r == _role
+                 , (text "Bad coercion hole" <+>
+                    ppr h <> colon <+> vcat [ ppr _t1, ppr _t2, ppr _role
+                                            , ppr co, ppr t1, ppr t2
+                                            , ppr r ]) ) }
+  | otherwise
+  = return ()
+
 
 {-
 ************************************************************************
@@ -1100,15 +1117,9 @@ zonkTcTypeMapper = TyCoMapper
     hole _ h r t1 t2
       = do { contents <- unpackCoercionHole_maybe h
            ; case contents of
-               Just co -> do { let (Pair _t1 _t2, _role) = coercionKindRole co
-                             ; MASSERT2( t1 `eqType` _t1 && t2 `eqType` _t2 &&
-                                         r == _role
-                                       , (text "Bad coercion hole" <+>
-                                          ppr h <> colon <+>
-                                          vcat [ ppr _t1, ppr _t2, ppr _role
-                                               , ppr co, ppr t1, ppr t2
-                                               , ppr r ]) )
-                             ; zonkCo co }
+               Just co -> do { co <- zonkCo co
+                             ; checkCoercionHole co h r t1 t2
+                             ; return co }
                Nothing -> return $ mkHoleCo h r t1 t2 }
 
 

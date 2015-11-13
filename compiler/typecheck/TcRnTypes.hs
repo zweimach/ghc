@@ -120,7 +120,7 @@ import Type
 import CoAxiom  ( Role )
 import Class    ( Class )
 import TyCon    ( TyCon )
-import Coercion ( Coercion, CoercionHole, mkHoleCo )
+import Coercion ( Coercion, CoercionHole, mkHoleCo, Role(..) )
 import ConLike  ( ConLike(..) )
 import DataCon  ( DataCon, dataConUserType, dataConOrigArgTys )
 import PatSyn   ( PatSyn, patSynType )
@@ -1544,14 +1544,20 @@ unionsWC = foldr andWC emptyWC
 -- | Convert all Wanteds into Deriveds (ignoring insolubles)
 toDerivedWC :: WantedConstraints -> WantedConstraints
 toDerivedWC wc@(WC { wc_simple = simples, wc_impl = implics })
-  = wc { wc_simple = mapBag to_derived simples
+  = wc { wc_simple = catBagMaybes $ mapBag to_derived simples
        , wc_impl   = mapBag to_derived_implic implics }
   where
     to_derived ct
       = case ctEvidence ct of
           CtWanted { ctev_pred = pred, ctev_loc = loc }
-            -> ct { cc_ev = CtDerived { ctev_pred = pred, ctev_loc = loc } }
-          CtDerived {} -> ct
+            | not (isEqPred pred) || (getEqPredRole pred == Nominal)
+                -- the solver can't deal with derived repr equalities,
+                -- which are useless anyway
+            -> Just $ ct {cc_ev = CtDerived {ctev_pred = pred, ctev_loc = loc}}
+            | otherwise
+            -> Nothing
+
+          CtDerived {} -> Just ct
           CtGiven   {} -> pprPanic "to_derived" (ppr ct)
 
     to_derived_implic implic@(Implic { ic_wanted = inner_wanted })

@@ -12,6 +12,7 @@ module TcRules ( tcRules ) where
 
 import HsSyn
 import TcRnMonad
+import TcSMonad ( traceTcS ) -- "RAE"
 import TcSimplify
 import TcMType
 import TcType
@@ -59,7 +60,7 @@ tcRuleDecls (HsRules src decls)
 tcRule :: RuleDecl Name -> TcM (RuleDecl TcId)
 tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
   = addErrCtxt (ruleCtxt $ snd $ unLoc name)  $
-    do { traceTc "---- Rule ------" (ppr name)
+    do { traceTc "---- Rule ------" (pprFullRuleName name)
 
         -- Note [Typechecking rules]
        ; (vars, bndr_wanted) <- captureConstraints $
@@ -78,7 +79,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                   ; (rhs', rhs_wanted) <- captureConstraints (tcMonoExpr rhs rule_ty)
                   ; return (lhs', lhs_wanted, rhs', rhs_wanted, rule_ty) }
 
-       ; traceTc "tcRule 1" (vcat [ ppr name
+       ; traceTc "tcRule 1" (vcat [ pprFullRuleName name
                                   , ppr lhs_wanted
                                   , ppr rhs_wanted ])
        ; lhs_evs <- simplifyRule (snd $ unLoc name)
@@ -103,7 +104,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
        ; gbls  <- tcGetGlobalTyCoVars -- Even though top level, there might be top-level
                                       -- monomorphic bindings from the MR; test tc111
        ; qtkvs <- quantifyTyVars gbls forall_tkvs
-       ; traceTc "tcRule" (vcat [ doubleQuotes (ftext $ snd $ unLoc name)
+       ; traceTc "tcRule" (vcat [ pprFullRuleName name
                                 , ppr forall_tkvs
                                 , ppr qtkvs
                                 , ppr rule_ty
@@ -328,6 +329,7 @@ simplifyRule name lhs_wanted rhs_wanted
                   -- See Note [Simplify *derived* constraints]
                   lhs_resid <- solveWanteds $ toDerivedWC lhs_wanted
                 ; rhs_resid <- solveWanteds $ toDerivedWC rhs_wanted
+                ; traceTcS "RAE1" (ppr lhs_resid $$ ppr rhs_resid $$ ppr (insolubleWC tc_lvl lhs_resid) $$ ppr (insolubleWC tc_lvl rhs_resid))
                 ; return ( insolubleWC tc_lvl lhs_resid ||
                            insolubleWC tc_lvl rhs_resid ) }
 
@@ -348,8 +350,8 @@ simplifyRule name lhs_wanted rhs_wanted
 
   where
     quantify_ct insol -- Note [RULE quantification over equalities]
-      | insol     = quantify_normal
-      | otherwise = quantify_insol
+      | insol     = quantify_insol
+      | otherwise = quantify_normal
 
     quantify_insol ct
       | isEqPred (ctPred ct)
@@ -360,13 +362,17 @@ simplifyRule name lhs_wanted rhs_wanted
     quantify_normal (ctEvidence -> CtWanted { ctev_dest = dest
                                             , ctev_pred = pred })
       = case dest of  -- See Note [Quantifying over coercion holes]
-          HoleDest hole ->
-            do { filled <- isFilledCoercionHole hole
-               ; if filled
-                 then return Nothing -- equality is solved. Don't quantify.
-                 else
-            do { ev_id <- newEvVar pred
-               ; fillCoercionHole hole (mkCoVarCo ev_id)
-               ; return (Just ev_id) }}
+          HoleDest hole
+            | EqPred NomEq t1 t2 <- classifyPredType pred
+            , t1 `tcEqType` t2
+            -> do { -- These are trivial. Don't quantify. But do fill in
+                    -- the hole.
+                  ; fillCoercionHole hole (mkNomReflCo t1)
+                  ; return Nothing }
+
+            | otherwise
+            -> do { ev_id <- newEvVar pred
+                  ; fillCoercionHole hole (mkCoVarCo ev_id)
+                  ; return (Just ev_id) }
           EvVarDest evar -> return (Just evar)
     quantify_normal ct = pprPanic "simplifyRule.quantify_normal" (ppr ct)

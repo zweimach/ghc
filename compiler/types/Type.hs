@@ -1679,7 +1679,7 @@ getEqPredRole ty
       _ -> pprPanic "getEqPredRole" (ppr ty)
 
 -- | Assuming the type provided is an EqPred, is it lifted?
-isEqPredLifted :: PredType -> Bool
+isEqPredLifted :: PredType -> Bool  -- TODO (RAE): remove.
 isEqPredLifted ty
   = case splitTyConApp_maybe ty of
       Just (tc, _) -> not (tc `hasKey` eqPrimTyConKey)
