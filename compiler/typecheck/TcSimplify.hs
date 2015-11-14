@@ -495,13 +495,14 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
                       ; (WC { wc_simple = simples }, _ev_binds)
                            <- setTcLevel rhs_tclvl $
                               runTcS               $
-                              solveSimpleWanteds quant_cand
+                              solveSimpleWanteds $ mapBag toDerivedCt quant_cand
+                                -- NB: we don't want evidence, so used
+                                -- Derived constraints
 
                       ; simples <- TcM.zonkSimples simples
 
                       ; return [ ctEvPred ev | ct <- bagToList simples
-                                             , let ev = ctEvidence ct
-                                             , isWanted ev ] }
+                                             , let ev = ctEvidence ct ] }
 
        -- NB: quant_pred_candidates is already fully zonked
 

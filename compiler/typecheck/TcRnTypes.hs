@@ -68,6 +68,7 @@ module TcRnTypes(
         ctEvPred, ctEvLoc, ctEvOrigin, ctEvEqRel,
         ctEvTerm, ctEvCoercion, ctEvId,
         tyCoVarsOfCt, tyCoVarsOfCts,
+        toDerivedCt,
 
         WantedConstraints(..), insolubleWC, emptyWC, isEmptyWC,
         toDerivedWC,
@@ -120,7 +121,7 @@ import Type
 import CoAxiom  ( Role )
 import Class    ( Class )
 import TyCon    ( TyCon )
-import Coercion ( Coercion, CoercionHole, mkHoleCo, Role(..) )
+import Coercion ( Coercion, CoercionHole, mkHoleCo )
 import ConLike  ( ConLike(..) )
 import DataCon  ( DataCon, dataConUserType, dataConOrigArgTys )
 import PatSyn   ( PatSyn, patSynType )
@@ -1269,6 +1270,16 @@ ctPred :: Ct -> PredType
 -- See Note [Ct/evidence invariant]
 ctPred ct = ctEvPred (cc_ev ct)
 
+-- | Convert a Wanted to a Derived
+toDerivedCt :: Ct -> Ct
+toDerivedCt ct
+  = case ctEvidence ct of
+      CtWanted { ctev_pred = pred, ctev_loc = loc }
+        -> ct {cc_ev = CtDerived {ctev_pred = pred, ctev_loc = loc}}
+
+      CtDerived {} -> ct
+      CtGiven   {} -> pprPanic "to_derived" (ppr ct)
+
 -- | Makes a new equality predicate with the same boxity and role as the given
 -- evidence.
 mkTcEqPredLikeEv :: CtEvidence -> TcType -> TcType -> TcType
@@ -1544,22 +1555,9 @@ unionsWC = foldr andWC emptyWC
 -- | Convert all Wanteds into Deriveds (ignoring insolubles)
 toDerivedWC :: WantedConstraints -> WantedConstraints
 toDerivedWC wc@(WC { wc_simple = simples, wc_impl = implics })
-  = wc { wc_simple = catBagMaybes $ mapBag to_derived simples
+  = wc { wc_simple = mapBag toDerivedCt simples
        , wc_impl   = mapBag to_derived_implic implics }
   where
-    to_derived ct
-      = case ctEvidence ct of
-          CtWanted { ctev_pred = pred, ctev_loc = loc }
-            | not (isEqPred pred) || (getEqPredRole pred == Nominal)
-                -- the solver can't deal with derived repr equalities,
-                -- which are useless anyway
-            -> Just $ ct {cc_ev = CtDerived {ctev_pred = pred, ctev_loc = loc}}
-            | otherwise
-            -> Nothing
-
-          CtDerived {} -> Just ct
-          CtGiven   {} -> pprPanic "to_derived" (ppr ct)
-
     to_derived_implic implic@(Implic { ic_wanted = inner_wanted })
       = implic { ic_wanted = toDerivedWC inner_wanted }
 

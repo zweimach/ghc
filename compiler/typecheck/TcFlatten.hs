@@ -1323,8 +1323,7 @@ flatten_tyvar2 :: TcTyVar -> CtFRB -> FlatM FlattenTvResult
 
 flatten_tyvar2 tv frb@(flavour, eq_rel, _)
   | Derived <- flavour  -- For derived equalities, consult the inert_model (only)
-  = ASSERT( eq_rel == NomEq )    -- All derived equalities are nominal
-    do { model <- liftTcS $ getInertModel
+  = do { model <- liftTcS $ getInertModel
        ; case lookupVarEnv model tv of
            Just (CTyEqCan { cc_rhs = rhs })
              -> return (FTRFollowed rhs (pprPanic "flatten_tyvar2" (ppr tv $$ ppr rhs)))
