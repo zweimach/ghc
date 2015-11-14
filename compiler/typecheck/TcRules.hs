@@ -12,7 +12,6 @@ module TcRules ( tcRules ) where
 
 import HsSyn
 import TcRnMonad
-import TcSMonad ( traceTcS ) -- "RAE"
 import TcSimplify
 import TcMType
 import TcType
@@ -132,7 +131,10 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                                   , ic_skols    = qtkvs
                                   , ic_no_eqs   = False
                                   , ic_given    = lhs_evs
-                                  , ic_wanted   = emptyWC
+                                  , ic_wanted   = lhs_wanted
+                                                    { wc_simple = emptyBag }
+                                        -- simplifyRule consumed all simple
+                                        -- constraints
                                   , ic_status   = IC_Unsolved
                                   , ic_binds    = Just lhs_binds_var
                                   , ic_info     = RuleSkol (snd $ unLoc name)
@@ -319,6 +321,8 @@ simplifyRule :: RuleName
              -> WantedConstraints       -- Constraints from RHS
              -> TcM [EvVar]             -- LHS evidence variables,
 -- See Note [Simplifying RULE constraints] in TcRule
+-- NB: This consumes all simple constraints on the LHS, but not
+-- any LHS implication constraints.
 simplifyRule name lhs_wanted rhs_wanted
   = do {         -- We allow ourselves to unify environment
                  -- variables: runTcS runs with topTcLevel
@@ -329,7 +333,6 @@ simplifyRule name lhs_wanted rhs_wanted
                   -- See Note [Simplify *derived* constraints]
                   lhs_resid <- solveWanteds $ toDerivedWC lhs_wanted
                 ; rhs_resid <- solveWanteds $ toDerivedWC rhs_wanted
-                ; traceTcS "RAE1" (ppr lhs_resid $$ ppr rhs_resid $$ ppr (insolubleWC tc_lvl lhs_resid) $$ ppr (insolubleWC tc_lvl rhs_resid))
                 ; return ( insolubleWC tc_lvl lhs_resid ||
                            insolubleWC tc_lvl rhs_resid ) }
 
