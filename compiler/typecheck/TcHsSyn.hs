@@ -1509,8 +1509,7 @@ zonkCoHole :: ZonkEnv -> CoercionHole
 zonkCoHole env hole role t1 t2
   = do { co <- unpackCoercionHole hole
        ; co <- zonkCoToCo env co
-       ; checkCoercionHole co hole role t1 t2
-       ; return co }
+       ; checkCoercionHole co hole role t1 t2 }
 
 zonk_tycomapper :: TyCoMapper ZonkEnv TcM
 zonk_tycomapper = TyCoMapper

@@ -247,20 +247,27 @@ unpackCoercionHole hole
 unpackCoercionHole_maybe :: CoercionHole -> TcM (Maybe Coercion)
 unpackCoercionHole_maybe (CoercionHole _ ref) = readTcRef ref
 
-checkCoercionHole :: Coercion -> CoercionHole -> Role -> Type -> Type -> TcM ()
+-- | Check that a coercion is appropriate for filling a hole. (The hole
+-- itself is needed only for printing. NB: This must be /lazy/ in the coercion,
+-- as it's used in TcHsSyn in the presence of knots.
+-- Always returns the checked coercion, but this return value is necessary
+-- so that the input coercion is forced only when the output is forced.
+checkCoercionHole :: Coercion -> CoercionHole -> Role -> Type -> Type -> TcM Coercion
 checkCoercionHole co h r t1 t2
 -- co is already zonked, but t1 and t2 might not be
   | debugIsOn
   = do { t1 <- zonkTcType t1
        ; t2 <- zonkTcType t2
        ; let (Pair _t1 _t2, _role) = coercionKindRole co
-       ; MASSERT2( t1 `eqType` _t1 && t2 `eqType` _t2 && r == _role
-                 , (text "Bad coercion hole" <+>
-                    ppr h <> colon <+> vcat [ ppr _t1, ppr _t2, ppr _role
-                                            , ppr co, ppr t1, ppr t2
-                                            , ppr r ]) ) }
+       ; return $
+         ASSERT2( t1 `eqType` _t1 && t2 `eqType` _t2 && r == _role
+                , (text "Bad coercion hole" <+>
+                   ppr h <> colon <+> vcat [ ppr _t1, ppr _t2, ppr _role
+                                           , ppr co, ppr t1, ppr t2
+                                           , ppr r ]) )
+         co }
   | otherwise
-  = return ()
+  = return co
 
 
 {-
@@ -1118,8 +1125,7 @@ zonkTcTypeMapper = TyCoMapper
       = do { contents <- unpackCoercionHole_maybe h
            ; case contents of
                Just co -> do { co <- zonkCo co
-                             ; checkCoercionHole co h r t1 t2
-                             ; return co }
+                             ; checkCoercionHole co h r t1 t2 }
                Nothing -> return $ mkHoleCo h r t1 t2 }
 
 
