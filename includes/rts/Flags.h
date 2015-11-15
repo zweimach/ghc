@@ -141,6 +141,11 @@ typedef struct _PROFILING_FLAGS {
 
 } PROFILING_FLAGS;
 
+typedef struct _STAT_PROFILE_FLAGS {
+    rtsBool             heapCheckSampling;
+    rtsBool             blackholeSampling;
+} STAT_PROFILE_FLAGS;
+
 #define TRACE_NONE      0
 #define TRACE_EVENTLOG  1
 #define TRACE_STDERR    2
@@ -189,7 +194,7 @@ typedef struct _PAR_FLAGS {
   rtsBool        parGcEnabled;   /* enable parallel GC */
   nat            parGcGen;       /* do parallel GC in this generation
                                   * and higher only */
-  rtsBool        parGcLoadBalancingEnabled; 
+  rtsBool        parGcLoadBalancingEnabled;
                                  /* enable load-balancing in the
                                   * parallel GC */
   nat            parGcLoadBalancingGen;
@@ -218,17 +223,18 @@ typedef struct _TICKY_FLAGS {
 /* See Note [Synchronization of flags and base APIs] */
 typedef struct _RTS_FLAGS {
     /* The first portion of RTS_FLAGS is invariant. */
-    GC_FLAGS	      GcFlags;
-    CONCURRENT_FLAGS  ConcFlags;
-    MISC_FLAGS        MiscFlags;
-    DEBUG_FLAGS	      DebugFlags;
-    COST_CENTRE_FLAGS CcFlags;
-    PROFILING_FLAGS   ProfFlags;
-    TRACE_FLAGS       TraceFlags;
-    TICKY_FLAGS	      TickyFlags;
+    GC_FLAGS           GcFlags;
+    CONCURRENT_FLAGS   ConcFlags;
+    MISC_FLAGS         MiscFlags;
+    DEBUG_FLAGS        DebugFlags;
+    COST_CENTRE_FLAGS  CcFlags;
+    PROFILING_FLAGS    ProfFlags;
+    STAT_PROFILE_FLAGS StatProfileFlags;
+    TRACE_FLAGS        TraceFlags;
+    TICKY_FLAGS        TickyFlags;
 
 #if defined(THREADED_RTS)
-    PAR_FLAGS	      ParFlags;
+    PAR_FLAGS          ParFlags;
 #endif
 } RTS_FLAGS;
 
@@ -244,7 +250,7 @@ extern RTS_FLAGS RtsFlags;
 /*
  * The printf formats are here, so we are less likely to make
  * overly-long filenames (with disastrous results).  No more than 128
- * chars, please!  
+ * chars, please!
  */
 
 #define STATS_FILENAME_MAXLEN	128
