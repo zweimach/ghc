@@ -24,7 +24,7 @@ module Kind (
 
         classifiesTypeWithValues,
         isStarKind, isStarKindSynonymTyCon,
-        isSortPolymorphic, isSortPolymorphic_maybe
+        isLevityPolymorphic, isLevityPolymorphic_maybe
        ) where
 
 #include "HsVersions.h"
@@ -89,16 +89,16 @@ returnsConstraintKind :: Kind -> Bool
 returnsConstraintKind = returnsTyCon constraintKindTyCon
 
 -- | Tests whether the given type looks like "TYPE v", where v is a variable.
-isSortPolymorphic :: Kind -> Bool
-isSortPolymorphic = isJust . isSortPolymorphic_maybe
+isLevityPolymorphic :: Kind -> Bool
+isLevityPolymorphic = isJust . isLevityPolymorphic_maybe
 
 -- | Retrieves a levity variable in the given kind, if the kind is of the
 -- form "TYPE v".
-isSortPolymorphic_maybe :: Kind -> Maybe TyVar
-isSortPolymorphic_maybe (TyConApp tc [TyVarTy v])
+isLevityPolymorphic_maybe :: Kind -> Maybe TyVar
+isLevityPolymorphic_maybe (TyConApp tc [TyVarTy v])
   | tc `hasKey` tYPETyConKey
   = Just v
-isSortPolymorphic_maybe _ = Nothing
+isLevityPolymorphic_maybe _ = Nothing
 
 --------------------------------------------
 --            Kinding for arrow (->)

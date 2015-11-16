@@ -635,7 +635,7 @@ tcInstTyVarX subst tyvar
                -- See Note [    -- TODO (RAE): Finish this line of comment!
                -- TODO (RAE): See Note [OpenTypeKind accepts foralls] in TcType,
                -- but then delete that note
-        ; let info = if isSortPolymorphic (tyVarKind tyvar)
+        ; let info = if isLevityPolymorphic (tyVarKind tyvar)
                      then ReturnTv
                      else TauTv
         ; details <- newMetaDetails info

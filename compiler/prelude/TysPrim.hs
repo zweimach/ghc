@@ -302,7 +302,7 @@ Note [TYPE]
 ~~~~~~~~~~~
 There are a few places where we wish to be able to deal interchangeably
 with kind * and kind #. unsafeCoerce#, error, and (->) are some of these
-places. The way we do this is to use kind polymorphism.
+places. The way we do this is to use levity polymorphism.
 
 We have (levityTyCon, liftedDataCon, unliftedDataCon)
 
@@ -323,7 +323,7 @@ So, for example, we get
                             (a :: TYPE v1) (b :: TYPE v2). a -> b
 
 This replaces the old sub-kinding machinery. We call variables `a` and `b`
-above "sort-polymorphic".
+above "levity polymorphic".
 -}
 
 liftedTypeKindTyCon,

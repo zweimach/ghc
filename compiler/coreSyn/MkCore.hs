@@ -731,7 +731,7 @@ Note [Error and friends have an "open-tyvar" forall]
 'error' and 'undefined' have types
         error     :: forall (v :: Levity) (a :: TYPE v). String -> a
         undefined :: forall (v :: Levity) (a :: TYPE v). a
-Notice the sort polymophism. This ensures that
+Notice the levity polymophism. This ensures that
 "error" can be instantiated at
   * unboxed as well as boxed types
   * polymorphic types

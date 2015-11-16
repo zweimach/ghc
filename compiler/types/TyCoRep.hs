@@ -207,13 +207,23 @@ data TyLit
 -- | A 'Binder' represents an argument to a function. Binders can be dependent
 -- ('Named') or nondependent ('Anon'). They may also be visible or not.
 data Binder
-  = Named TyVar VisibilityFlag
+  = Named { b_tv   :: TyVar
+          , b_vis  :: VisibilityFlag
+          , b_rel  :: RelevanceFlag
+          , b_spec :: SpecifiedFlag
   | Anon Type   -- visibility is determined by the type (Constraint vs. *)
     deriving (Data.Typeable, Data.Data)
 
--- | TODO (RAE): Add comment
+-- | Is something required to appear in source Haskell ('Visible') or
+-- prohibited from appearing in source Haskell ('Invisible')?
 data VisibilityFlag = Visible | Invisible
   deriving (Eq, Data.Typeable, Data.Data)
+
+-- | Is a quantifiee relevant or not? For example, in
+-- @forall (v :: Levity) (a :: TYPE Levity). a@ (the type of @undefined@),
+-- @v@ is relevant while @a@ is not. The only reason @v@ is relevant is so
+-- that the types work out. See Note [Levity polymorphism].
+data RelevanceFlag = Relevant | Irrelevant
 
 instance Binary VisibilityFlag where
   put_ bh Visible   = putByte bh 0
@@ -305,6 +315,30 @@ relation, ignores casts and coercion arguments, as long as the
 two types have the same kind. This allows us to be a little sloppier
 in keeping track of coercions, which is a good thing. It also means
 that eqType does not depend on eqCoercion, which is also a good thing.
+
+-- TODO (RAE): RAE was here
+Note [Levity polymorphism]
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+`undefined` has a rather bizarre type, as it can be used in both lifted
+and in unlifted contexts. To accommdate this smoothly, we use so-called
+*levity polymorphism*, as described in Note [TYPE] in TysPrim. However,
+there is a wrinkle. Consider this type
+
+  t := forall (v :: Levity) (a :: TYPE v). a
+
+This is the type of `undefined`. But, critically, what is its *kind*?
+We say that the kind of a forall is the kind of its body (which should be
+either * or #). But the kind of the body here is `TYPE v`, but if the kind
+of `t` is `TYPE v`, then the `v` is out of scope. So this is forbidden.
+
+Instead, we say that the first forall is *relevant* -- that means that it
+denotes a real function, executed at runtime. This particular example
+is a little degenerate, in that the Levity v is never used at runtime,
+but it will compile to a function nonetheless. Then, the kind of `t` is
+just *, and everything is OK.
+
+This will all get expanded when we have dependent types for real. For now,
+relevance just means to
 
 -------------------------------------
                 Note [PredTy]

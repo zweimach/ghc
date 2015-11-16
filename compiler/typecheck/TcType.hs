@@ -135,7 +135,7 @@ module TcType (
   mkClassPred,
   isDictLikeTy,
   tcSplitDFunTy, tcSplitDFunHead,
-  mkEqPred, isLevityVar, isSortPolymorphic, isSortPolymorphic_maybe,
+  mkEqPred, isLevityVar, isLevityPolymorphic, isLevityPolymorphic_maybe,
 
   -- Type substitutions
   TCvSubst(..),         -- Representation visible to a few friends
