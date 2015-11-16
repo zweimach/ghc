@@ -326,7 +326,7 @@ check_and_gen should_gen hs_ty kind
        ; zonkSigType (mkInvForAllTys kvs ty) }
 
 {-
-Note [Bidirectional type checking]
+Note [Bidirectional type checking]   -- TODO (RAE): Refer to this Note more often.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In expressions, whenever we see a polymorphic identifier, say `id`, we are
 free to instantiate it with metavariables, knowing that we can always
@@ -343,7 +343,7 @@ metavariable.
 In types, however, we're not so lucky, because *we cannot re-generalize*!
 There is no lambda. So, we must be careful only to instantiate at the last
 possible moment, when we're sure we're never going to want the lost polymorphism
-again.
+again. -- TODO (RAE): Connect to code.
 
 To implement this behavior, we use bidirectional type checking, where we
 explicitly think about whether we know the kind of the type we're checking
@@ -671,6 +671,9 @@ tcInferArgs :: Outputable fun
             -> TcM (TcKind, [TcType], [LHsType Name], Int)
                -- ^ (result kind, typechecked args, untypechecked args, n)
 tcInferArgs keep_insting orig_ty ki mb_kind_info args n0
+    -- TODO (RAE): move keep_insting behavior to a separate
+    -- function, called from tc_fam_ty_pats.
+    -- This could just be checkExpectedKind
   = do { traceTc "tcInferApps" (ppr ki $$ ppr args)
        ; go emptyTCvSubst ki args n0 [] }
   where
@@ -692,10 +695,12 @@ tcInferArgs keep_insting orig_ty ki mb_kind_info args n0
                    Nothing -> subst
            ; go subst' res_k args (n+1) (arg' : acc) }
 
+    -- TODO (RAE): move tcView case to the top
     go subst fun_kind args n acc
       | Just fun_kind' <- tcView fun_kind
       = go subst fun_kind' args n acc
 
+       -- TODO (RAE): Move up.
       | Just tv <- getTyVar_maybe fun_kind
       , Just fun_kind' <- lookupTyVar subst tv
       = go subst fun_kind' args n acc

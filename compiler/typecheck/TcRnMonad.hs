@@ -33,7 +33,6 @@ import FamInstEnv
 import PrelNames
 
 import Id
-import Var
 import VarSet
 import VarEnv
 import ErrUtils
@@ -1166,15 +1165,6 @@ addTcEvBind (EvBindsVar ev_ref _) ev_bind
   = do { traceTc "addTcEvBind" $ ppr ev_bind
        ; bnds <- readTcRef ev_ref
        ; writeTcRef ev_ref (extendEvBinds bnds ev_bind) }
-
--- | Remove an EvBind from an EvBindsVar
-dropTcEvBind :: EvBindsVar -> EvVar -> TcM ()
-dropTcEvBind (EvBindsVar ev_ref u) ev_id
-  = do { traceTc "dropTcEvBind" $ vcat [ text "unique =" <+> ppr u
-                                       , text "ev_id =" <+> ppr ev_id
-                                         <+> dcolon <+> ppr (varType ev_id) ]
-       ; bnds <- readTcRef ev_ref
-       ; writeTcRef ev_ref (dropEvBind bnds ev_id) }
 
 getTcEvBinds :: EvBindsVar -> TcM (Bag EvBind)
 getTcEvBinds (EvBindsVar ev_ref _)

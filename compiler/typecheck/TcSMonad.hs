@@ -2324,6 +2324,7 @@ bumpStepCountTcS = TcS $ \env -> do { let ref = tcs_count env
 -- | Mark variables as used filling a coercion hole
 useVars :: TyCoVarSet -> TcS ()
 useVars vars = TcS $ \env -> do { let ref = tcs_used_tcvs env
+                                ; TcM.traceTc "RAE2" (ppr vars)
                                 ; TcM.updTcRef ref (`unionVarSet` vars) }
 
 csTraceTcS :: SDoc -> TcS ()
@@ -2451,8 +2452,14 @@ nestImplicTcS m_ref bound_tcvs inner_tclvl (TcS thing_inside)
          ; used_tcvs <- TcM.readTcRef new_used_var
          ; return (res, used_tcvs) }
 
-       ; let (inner_used_tcvs, outer_used_tcvs)
-               = partitionVarSet (`elemVarSet` bound_tcvs) used_tcvs
+       ; local_ev_vars <- case m_ref of
+           Nothing  -> return emptyVarSet
+           Just ref -> do { binds <- wrapTcS $ TcM.getTcEvBinds ref
+                          ; return $ mkVarSet $ map evBindVar $ bagToList binds }
+       ; let all_locals = bound_tcvs `unionVarSet` local_ev_vars
+             (inner_used_tcvs, outer_used_tcvs)
+               = partitionVarSet (`elemVarSet` all_locals) used_tcvs
+       ; traceTcS "RAE3" (ppr used_tcvs $$ ppr inner_used_tcvs $$ ppr outer_used_tcvs)
        ; useVars outer_used_tcvs
 
        ; return (res, inner_used_tcvs) }

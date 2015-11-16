@@ -998,7 +998,8 @@ solveImplication imp@(Implic { ic_tclvl  = tclvl
        ; (floated_eqs, residual_wanted)
              <- floatEqualities skols no_given_eqs residual_wanted
 
-       ; traceTcS "solveImplication 2" (ppr given_insols $$ ppr residual_wanted)
+       ; traceTcS "solveImplication 2"
+           (ppr given_insols $$ ppr residual_wanted $$ ppr used_tcvs)
        ; let final_wanted = residual_wanted `addInsols` given_insols
 
        ; res_implic <- setImplicationStatus (imp { ic_no_eqs = no_given_eqs
@@ -1044,6 +1045,7 @@ setImplicationStatus implic@(Implic { ic_binds = m_ev_binds_var
  = do { ev_binds <- case m_ev_binds_var of
                       Just (EvBindsVar ref _) -> TcS.readTcRef ref
                       Nothing                 -> return emptyEvBindMap
+      ; traceTcS "RAE1" (ppr used_tcvs $$ ppr (evBindMapBinds ev_binds) $$ ppr implic_needs)
       ; let all_needs = neededEvVars ev_binds
                                      (used_tcvs `unionVarSet` implic_needs)
 

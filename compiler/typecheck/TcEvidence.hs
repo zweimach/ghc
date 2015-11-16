@@ -12,7 +12,7 @@ module TcEvidence (
 
   -- Evidence bindings
   TcEvBinds(..), EvBindsVar(..),
-  EvBindMap(..), emptyEvBindMap, extendEvBinds, dropEvBind,
+  EvBindMap(..), emptyEvBindMap, extendEvBinds,
   lookupEvBind, evBindMapBinds, foldEvBindMap,
   EvBind(..), emptyTcEvBinds, isEmptyTcEvBinds, mkGivenEvBind, mkWantedEvBind,
   sccEvBinds, evBindVar,
@@ -257,10 +257,6 @@ extendEvBinds bs ev_bind
   = EvBindMap { ev_bind_varenv = extendVarEnv (ev_bind_varenv bs)
                                               (eb_lhs ev_bind)
                                               ev_bind }
-
-dropEvBind :: EvBindMap -> EvVar -> EvBindMap
-dropEvBind bs v
-  = EvBindMap { ev_bind_varenv = delVarEnv (ev_bind_varenv bs) v }
 
 lookupEvBind :: EvBindMap -> EvVar -> Maybe EvBind
 lookupEvBind bs = lookupVarEnv (ev_bind_varenv bs)
