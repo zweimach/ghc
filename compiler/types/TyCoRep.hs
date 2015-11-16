@@ -1655,7 +1655,11 @@ subst_co subst co
     go_prov (PhantomProv kco)    = PhantomProv (go kco)
     go_prov (ProofIrrelProv kco) = ProofIrrelProv (go kco)
     go_prov p@(PluginProv _)     = p
-    go_prov (HoleProv h)         = pprPanic "subst_co fell into a hole" (ppr h)
+    go_prov p@(HoleProv _)       = p
+      -- NB: this last case is a little suspicious, but we need it. Originally,
+      -- there was a panic here, but it triggered from deeplySkolemise. Because
+      -- we only skolemise tyvars that are manually bound, this operation makes
+      -- sense, even over a coercion with holes.
 
 substForAllCoBndr :: TCvSubst -> TyVar -> Coercion -> (TCvSubst, TyVar, Coercion)
 substForAllCoBndr subst
