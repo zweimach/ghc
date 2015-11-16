@@ -22,7 +22,7 @@ module TcEvidence (
   EvTypeable(..),
 
   -- TcCoercion
-  TcCoercion, TcCoercionR, TcCoercionN,
+  TcCoercion, TcCoercionR, TcCoercionN, CoercionHole,
   LeftOrRight(..), pickLR,
   mkReflCo, mkNomReflCo, mkRepReflCo,
   mkTyConAppCo, mkAppCo, mkFunCo,
