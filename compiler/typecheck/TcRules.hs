@@ -81,8 +81,9 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
        ; traceTc "tcRule 1" (vcat [ pprFullRuleName name
                                   , ppr lhs_wanted
                                   , ppr rhs_wanted ])
+       ; let all_lhs_wanted = bndr_wanted `andWC` lhs_wanted
        ; lhs_evs <- simplifyRule (snd $ unLoc name)
-                                 (bndr_wanted `andWC` lhs_wanted)
+                                 all_lhs_wanted
                                  rhs_wanted
 
         -- Now figure out what to quantify over
@@ -131,7 +132,7 @@ tcRule (HsRule name act hs_bndrs lhs fv_lhs rhs fv_rhs)
                                   , ic_skols    = qtkvs
                                   , ic_no_eqs   = False
                                   , ic_given    = lhs_evs
-                                  , ic_wanted   = lhs_wanted
+                                  , ic_wanted   = all_lhs_wanted
                                                     { wc_simple = emptyBag }
                                         -- simplifyRule consumed all simple
                                         -- constraints

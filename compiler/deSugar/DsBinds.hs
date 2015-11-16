@@ -900,12 +900,7 @@ dsEvTerm (EvSuperClass d n)
              sc_sel_id  = classSCSelId cls n    -- Zero-indexed
        ; return $ Var sc_sel_id `mkTyApps` tys `App` d' }
 
-dsEvTerm (EvDelayedError ty msg)
-  = return $ Var errorId `mkTyApps` [getLevity "dsEvTerm" ty, ty] `mkApps` [litMsg]
-  where
-    errorId = tYPE_ERROR_ID
-    litMsg  = Lit (MachStr (fastStringToByteString msg))
-
+dsEvTerm (EvDelayedError ty msg) = return $ dsEvDelayedError ty msg
 dsEvTerm (EvLit l) =
   case l of
     EvNum n -> mkIntegerExpr n
@@ -917,7 +912,19 @@ dsEvTerm (EvTypeable ev) = dsEvTypeable ev
 
 -- | Use this variant when the term is meant to be an unlifted equality
 dsEvTermUnlifted :: EvTerm -> DsM CoreExpr
+dsEvTermUnlifted (EvDelayedError ty msg)
+  = do { covar <- newSysLocalDs ty
+       ; return $ Case (dsEvDelayedError ty msg) covar ty
+                       [(DEFAULT, [], Coercion (mkCoVarCo covar))] }
+    -- case (error "type error...") of x -> Coercion x
 dsEvTermUnlifted evterm = dsTcCoercion (evTermCoercion evterm) Coercion
+
+dsEvDelayedError :: Type -> FastString -> CoreExpr
+dsEvDelayedError ty msg
+  = Var errorId `mkTyApps` [getLevity "dsEvTerm" ty, ty] `mkApps` [litMsg]
+  where
+    errorId = tYPE_ERROR_ID
+    litMsg  = Lit (MachStr (fastStringToByteString msg))
 
 dsEvTypeable :: EvTypeable -> DsM CoreExpr
 dsEvTypeable ev =
