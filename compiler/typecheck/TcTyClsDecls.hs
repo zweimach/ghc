@@ -1119,6 +1119,9 @@ tcFamTyPats fam_shape@(name,_,_) mb_clsinfo pats kind_checker thing_inside
              the full glory of simplifyInfer, but more than just
              solveTopConstraints, which is quite naive. -}
 
+       ; failIfErrsM   -- if there are unfilled coercion holes after the
+                       -- previous solveEqualities, zonking chokes
+
             -- Find free variables (after zonking) and turn
             -- them into skolems, so that we don't subsequently
             -- replace a meta kind var with (Any *)
