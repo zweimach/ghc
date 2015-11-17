@@ -95,6 +95,8 @@ isLevityPolymorphic = isJust . isLevityPolymorphic_maybe
 -- | Retrieves a levity variable in the given kind, if the kind is of the
 -- form "TYPE v".
 isLevityPolymorphic_maybe :: Kind -> Maybe TyVar
+isLevityPolymorphic_maybe k
+  | Just k' <- coreView k = isLevityPolymorphic_maybe k'
 isLevityPolymorphic_maybe (TyConApp tc [TyVarTy v])
   | tc `hasKey` tYPETyConKey
   = Just v
@@ -106,7 +108,7 @@ isLevityPolymorphic_maybe _ = Nothing
 --     arg -> res
 
 okArrowArgKind, okArrowResultKind :: Kind -> Bool
-okArrowArgKind = classifiesTypeWithValues
+okArrowArgKind = classifiesTypeWithValues <&&> (not . isLevityPolymorphic)
 okArrowResultKind = classifiesTypeWithValues
 
 -----------------------------------------

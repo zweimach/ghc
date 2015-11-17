@@ -135,8 +135,8 @@ That is, use a type let.   See Note [Type let] in CoreSyn.
 However, when linting <body> we need to remember that a=Int, else we might
 reject a correct program.  So we carry a type substitution (in this example
 [a -> Int]) and apply this substitution before comparing types.  The functin
-        lintInTy :: Type -> LintM Type
-returns a substituted type; that's the only reason it returns anything.
+        lintInTy :: Type -> LintM (Type, Kind)
+returns a substituted type.
 
 When we encounter a binder (like x::a) we must apply the substitution
 to the type of the binding variable.  lintBinders does this.
@@ -670,8 +670,8 @@ lintCoreExpr (Lam var expr)
 lintCoreExpr e@(Case scrut var alt_ty alts) =
        -- Check the scrutinee
   do { scrut_ty <- lintCoreExpr scrut
-     ; alt_ty   <- lintInTy alt_ty
-     ; var_ty   <- lintInTy (idType var)
+     ; (alt_ty, _) <- lintInTy alt_ty
+     ; (var_ty, _) <- lintInTy (idType var)
 
      -- See Note [No alternatives lint check]
      ; when (null alts) $
@@ -960,6 +960,8 @@ lintCoBndr cv thing_inside
   = do { subst <- getTCvSubst
        ; let (subst', cv') = substCoVarBndr subst cv
        ; lintKind (varType cv')
+       ; lintL (isCoercionType (varType cv'))
+               (text "CoVar with non-coercion type:" (pprTvBndr cv))
        ; updateTCvSubst subst' (thing_inside cv') }
 
 lintIdBndr :: Id -> (Id -> LintM a) -> LintM a
@@ -985,7 +987,10 @@ lintAndScopeId id linterF
        ; checkL (not (lf_check_global_ids flags) || isLocalId id)
                 (ptext (sLit "Non-local Id binder") <+> ppr id)
                 -- See Note [Checking for global Ids]
-       ; ty <- lintInTy (idType id)
+       ; (ty, k) <- lintInTy (idType id)
+       ; lintL (not (isLevityPolymorphic k))
+           (text "Levity polymorphic binder:" <+>
+                 (ppr id <+> dcolon <+> parens (ppr ty <+> dcolon <+> ppr k)))
        ; let id' = setIdType id ty
        ; addInScopeVar id' $ (linterF id') }
 
@@ -997,15 +1002,16 @@ lintAndScopeId id linterF
 %************************************************************************
 -}
 
-lintInTy :: InType -> LintM LintedType
+lintInTy :: InType -> LintM (LintedType, LintedKind)
 -- Types only, not kinds
 -- Check the type, and apply the substitution to it
 -- See Note [Linting type lets]
 lintInTy ty
   = addLoc (InType ty) $
     do  { ty' <- applySubstTy ty
-        ; _k  <- lintType ty'
-        ; return ty' }
+        ; k  <- lintType ty'
+        ; lintKind k
+        ; return (ty', k) }
 
 -------------------
 lintType :: OutType -> LintM LintedKind
@@ -1050,7 +1056,13 @@ lintType ty@(ForAllTy (Anon t1) t2)
 
 lintType t@(ForAllTy (Named tv _vis) ty)
   = do { lintL (isTyVar tv) (text "Covar bound in type:" <+> ppr t)
-       ; lintTyBndr tv $ \_ -> lintType ty }
+       ; lintTyBndr tv $ \tv' ->
+          do { k <- lintType ty
+             ; lintL (not (tv' `elemVarSet` tyCoVarsOfType k))
+                     (text "Variable escape in forall:" <+> ppr t)
+             ; lintL (classifiesTypeWithValues k)
+                     (text "Non-* and non-# kind in forall:" <+> ppr t)
+             ; return k }}
 
 lintType ty@(LitTy l) = lintTyLit l >> return (typeKind ty)
 

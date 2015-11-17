@@ -410,9 +410,13 @@ check_type env ctxt rank ty
                 -- Allow     type T = ?x::Int => Int -> Int
                 -- but not   type T = ?x::Int
 
-        ; check_type env' ctxt rank tau }      -- Allow foralls to right of arrow
+        ; check_type env' ctxt rank tau      -- Allow foralls to right of arrow
+        ; checkTcM (not (any (`elemVarSet` tyCoVarsOfType tau_kind) tvs))
+                   (forAllEscapeErr env' ty tau_kind)
+        }
   where
     (tvs, theta, tau) = tcSplitSigmaTy ty
+    tau_kind          = typeKind tau
     (env', _)         = tidyTyCoVarBndrs env tvs
 
 check_type _ _ _ (TyVarTy _) = return ()
@@ -542,6 +546,14 @@ forAllTyErr env rank ty
                    LimitedRank {} -> ptext (sLit "Perhaps you intended to use RankNTypes or Rank2Types")
                    MonoType d     -> d
                    _              -> Outputable.empty -- Polytype is always illegal
+
+forAllEscapeErr :: TidyEnv -> Type -> Kind -> (TidyEnv, SDoc)
+forAllEscapeErr env ty tau_kind
+  = ( env
+    , hang (vcat [ text "Quantified type's kind mentions quantified type variable"
+                 , text "(skolem escape)" ])
+         2 (vcat [ text "   type:" <+> ppr_tidy env ty
+                 , text "of kind:" <+> ppr_tidy env tau_kind ]) )
 
 unliftedArgErr, ubxArgTyErr :: TidyEnv -> Type -> (TidyEnv, SDoc)
 unliftedArgErr  env ty = (env, sep [ptext (sLit "Illegal unlifted type:"), ppr_tidy env ty])

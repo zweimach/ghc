@@ -435,6 +435,7 @@ formula :: 'formula_' ::=
                                        ::   :: coaxrProves
   | mu1 = mu2                          ::   :: mu_rewrite
   | classifiesTypeWithValues k         ::   :: classifies_type_with_values
+  | z elt vars                         ::   :: in_vars
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%  Subrules and Parsing  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
