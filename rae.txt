@@ -1,7 +1,5 @@
 stack:
 
-- restore this behavior:       ,("★", ITstar, unicodeSyntaxEnabled)
-
 
 
 - figure out UndecidableInstances problem. See TODO in TcValdidity.

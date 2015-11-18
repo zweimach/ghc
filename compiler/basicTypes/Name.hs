@@ -78,7 +78,7 @@ module Name (
     ) where
 
 import {-# SOURCE #-} TyCoRep( TyThing )
-import {-# SOURCE #-} PrelNames( liftedTypeKindTyConKey )
+import {-# SOURCE #-} PrelNames( starKindTyConKey, unicodeStarKindTyConKey )
 
 import OccName
 import Module
@@ -645,7 +645,7 @@ pprInfixName  n = pprInfixVar (isSymOcc (getOccName n)) (ppr n)
 
 pprPrefixName :: NamedThing a => a -> SDoc
 pprPrefixName thing
- |  name `hasKey` liftedTypeKindTyConKey
+ | name `hasKey` starKindTyConKey || name `hasKey` unicodeStarKindTyConKey
  = ppr name   -- See Note [Special treatment for kind *]
  | otherwise
  = pprPrefixVar (isSymOcc (nameOccName name)) (ppr name)

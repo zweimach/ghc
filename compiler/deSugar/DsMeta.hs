@@ -43,7 +43,6 @@ import NameEnv
 import TcType
 import TyCon
 import TysWiredIn
-import TysPrim ( liftedTypeKindTyConName, constraintKindTyConName )
 import CoreSyn
 import MkCore
 import CoreUtils
@@ -401,6 +400,7 @@ mk_extra_tvs tc tvs defn
   = return tvs
   where
     -- TODO (RAE): Fix this. It doesn't handle as many cases as it should.
+    -- TODO (RAE): Really, TH syntax should support kind signatures.
     go :: LHsKind Name -> DsM [LHsTyVarBndr Name]
     go (L loc (HsFunTy kind rest))
       = do { uniq <- newUnique
@@ -412,7 +412,7 @@ mk_extra_tvs tc tvs defn
 
        -- TODO (RAE): This fails if the result is 'TYPE Lifted'. Do I care?
     go (L _ (HsTyVar n))
-      | n == liftedTypeKindTyConName
+      |  isLiftedTypeKindTyConName n
       = return []
 
     go _ = failWithDs (ptext (sLit "Malformed kind signature for") <+> ppr tc)
@@ -1013,8 +1013,8 @@ repNonArrowLKind (L _ ki) = repNonArrowKind ki
 repNonArrowKind :: HsKind Name -> DsM (Core TH.Kind)
 repNonArrowKind (HsTyVar name)
     -- TODO (RAE): Change TH to use 'TYPE v' syntax.
-  | name == liftedTypeKindTyConName = repKStar
-  | name == constraintKindTyConName = repKConstraint
+  | isLiftedTypeKindTyConName name       = repKStar
+  | name `hasKey` constraintKindTyConKey = repKConstraint
   | isTvOcc (nameOccName name)      = lookupOcc name >>= repKVar
   | otherwise                       = lookupOcc name >>= repKCon
 repNonArrowKind (HsAppTy f a)       = do  { f' <- repLKind f

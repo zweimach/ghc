@@ -18,15 +18,11 @@ module TysPrim(
         kKiVar,
 
         -- Kind constructors...
-        liftedTypeKindTyCon,
-        tYPETyCon, unliftedTypeKindTyCon, constraintKindTyCon,
+        tYPETyCon, unliftedTypeKindTyCon, unliftedTypeKind,
 
-        liftedTypeKindTyConName,
         tYPETyConName, unliftedTypeKindTyConName,
-        constraintKindTyConName,
 
         -- Kinds
-        liftedTypeKind, unliftedTypeKind, constraintKind,
         tYPE,
         mkArrowKind, mkArrowKinds,
 
@@ -83,7 +79,7 @@ module TysPrim(
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} TysWiredIn ( levityTy, liftedDataConTy, unliftedDataConTy )
+import {-# SOURCE #-} TysWiredIn ( levityTy, unliftedDataConTy, liftedTypeKind )
 
 import Var              ( TyVar, KindVar, mkTyVar )
 import Name             ( Name, BuiltInSyntax(..), mkInternalName, mkWiredInName )
@@ -143,10 +139,8 @@ primTyCons
     , eqReprPrimTyCon
     , eqPhantPrimTyCon
 
-    , liftedTypeKindTyCon
     , unliftedTypeKindTyCon
     , tYPETyCon
-    , constraintKindTyCon
 
 #include "primop-vector-tycons.hs-incl"
     ]
@@ -314,7 +308,7 @@ and a magical constant (tYPETyCon)
 
 We then have synonyms (liftedTypeKindTyCon, unliftedTypeKindTyCon)
 
-    type * = TYPE Lifted
+    type Type = TYPE Lifted
     type # = TYPE Unlifted
 
 So, for example, we get
@@ -326,25 +320,16 @@ This replaces the old sub-kinding machinery. We call variables `a` and `b`
 above "levity polymorphic".
 -}
 
-liftedTypeKindTyCon,
-      tYPETyCon, unliftedTypeKindTyCon,
-      constraintKindTyCon
-   :: TyCon
-liftedTypeKindTyConName,
-      tYPETyConName, unliftedTypeKindTyConName,
-      constraintKindTyConName
-   :: Name
+tYPETyCon, unliftedTypeKindTyCon :: TyCon
+tYPETyConName, unliftedTypeKindTyConName :: Name
 
-constraintKindTyCon   = mkKindTyCon constraintKindTyConName   liftedTypeKind []
 tYPETyCon = mkKindTyCon tYPETyConName
                         (ForAllTy (Anon levityTy) liftedTypeKind)
                         [Nominal]
 
    -- See Note [TYPE]
-liftedTypeKindTyCon   = mkSynonymTyCon liftedTypeKindTyConName
-                                       liftedTypeKind
-                                       [] []
-                                       (tYPE liftedDataConTy)
+   -- NB: unlifted is wired in because there is no way to parse it in
+   -- Haskell. That's the only reason for wiring it in.
 unliftedTypeKindTyCon = mkSynonymTyCon unliftedTypeKindTyConName
                                        liftedTypeKind
                                        [] []
@@ -355,33 +340,20 @@ unliftedTypeKindTyCon = mkSynonymTyCon unliftedTypeKindTyConName
 
 -- If you edit these, you may need to update the GHC formalism
 -- See Note [GHC Formalism] in coreSyn/CoreLint.hs
-liftedTypeKindTyConName   = mkPrimTyConName (fsLit "*") liftedTypeKindTyConKey liftedTypeKindTyCon
 tYPETyConName             = mkPrimTyConName (fsLit "TYPE") tYPETyConKey tYPETyCon
 unliftedTypeKindTyConName = mkPrimTyConName (fsLit "#") unliftedTypeKindTyConKey unliftedTypeKindTyCon
+
+unliftedTypeKind :: Kind
+unliftedTypeKind = tYPE unliftedDataConTy
 
 mkPrimTyConName :: FastString -> Unique -> TyCon -> Name
 mkPrimTyConName = mkPrimTcName BuiltInSyntax
   -- All of the super kinds and kinds are defined in Prim,
   -- and use BuiltInSyntax, because they are never in scope in the source
 
-constraintKindTyConName -- Unlike the others, Constraint does *not* use BuiltInSyntax,
-                        -- and can be imported/exported like any other type constructor
-  = mkPrimTcName UserSyntax (fsLit "Constraint") constraintKindTyConKey   constraintKindTyCon
-
-
 mkPrimTcName :: BuiltInSyntax -> FastString -> Unique -> TyCon -> Name
 mkPrimTcName built_in_syntax occ key tycon
   = mkWiredInName gHC_PRIM (mkTcOccFS occ) key (ATyCon tycon) built_in_syntax
-
-kindTyConType :: TyCon -> Type
-kindTyConType kind = TyConApp kind []   -- mkTyConApp isn't defined yet
-
--- | See Note [TYPE]
-liftedTypeKind, unliftedTypeKind, constraintKind :: Kind
-
-liftedTypeKind   = kindTyConType liftedTypeKindTyCon
-unliftedTypeKind = kindTyConType unliftedTypeKindTyCon
-constraintKind   = kindTyConType constraintKindTyCon
 
 -----------------------------
 -- | Given a Levity, applies TYPE to it. See Note [TYPE].

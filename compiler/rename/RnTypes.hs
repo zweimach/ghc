@@ -37,6 +37,8 @@ import TcRnMonad
 import RdrName
 import PrelNames
 import TysPrim          ( funTyConName )
+import TysWiredIn       ( starKindTyConName, unicodeStarKindTyConName,
+                          eqTyConName )
 import Name
 import SrcLoc
 import NameSet
@@ -281,7 +283,7 @@ rnHsTyKi isType doc overall_ty@(HsAppsTy tys)
                    -> ([[LHsType Name]], [Located Name])
     deal_with_star acc1 acc2
                    (non_syms1 : non_syms2 : non_syms) (L loc star : ops)
-      | star `hasKey` liftedTypeKindTyConKey
+      | star `hasKey` starKindTyConKey || star `hasKey` unicodeStarKindTyConKey
       = deal_with_star acc1 acc2
                        ((non_syms1 ++ L loc (HsTyVar star) : non_syms2) : non_syms)
                        ops
@@ -448,13 +450,16 @@ rnLTyVar is_type (L loc rdr_name) = do
   return (L loc tyvar')
 
 --------------
-rnHsTyOp :: Outputable a => Bool -> a -> Located RdrName -> RnM (Located Name, FreeVars)
+rnHsTyOp :: Outputable a
+         => Bool -> a -> Located RdrName -> RnM (Located Name, FreeVars)
 rnHsTyOp isType overall_ty (L loc op)
   = do { ops_ok <- xoptM Opt_TypeOperators
-       ; op' <- if ops_ok
-                then rnTyVar isType op
-                else do { addErr (opTyErr op overall_ty)
-                        ; return (mkUnboundName op) }  -- Avoid double complaint
+       ; op' <- rnTyVar isType op
+       ; unless (ops_ok
+                 || op' == starKindTyConName
+                 || op' == unicodeStarKindTyConName
+                 || op' == eqTyConName) $
+           addErr (opTyErr op overall_ty)
        ; let l_op' = L loc op'
        ; return (l_op', unitFV op') }
 

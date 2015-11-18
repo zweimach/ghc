@@ -1453,12 +1453,15 @@ eitherTyConKey                          = mkPreludeTyConUnique 84
 
 -- Kind constructors
 liftedTypeKindTyConKey, tYPETyConKey,
-  unliftedTypeKindTyConKey, constraintKindTyConKey, levityTyConKey :: Unique
+  unliftedTypeKindTyConKey, constraintKindTyConKey, levityTyConKey,
+  starKindTyConKey, unicodeStarKindTyConKey :: Unique
 liftedTypeKindTyConKey                  = mkPreludeTyConUnique 87
 tYPETyConKey                            = mkPreludeTyConUnique 88
 unliftedTypeKindTyConKey                = mkPreludeTyConUnique 89
 levityTyConKey                          = mkPreludeTyConUnique 90
 constraintKindTyConKey                  = mkPreludeTyConUnique 92
+starKindTyConKey                        = mkPreludeTyConUnique 93
+unicodeStarKindTyConKey                 = mkPreludeTyConUnique 94
 
 pluginTyConKey :: Unique
 pluginTyConKey                          = mkPreludeTyConUnique 102

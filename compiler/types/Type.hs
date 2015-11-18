@@ -104,13 +104,8 @@ module Type (
         -- ** Finding the kind of a type
         typeKind,
 
-        -- ** Common Kinds
+        -- ** Common Kind
         liftedTypeKind, unliftedTypeKind,
-        constraintKind,
-
-        -- ** Common Kind type constructors
-        liftedTypeKindTyCon, unliftedTypeKindTyCon,
-        constraintKindTyCon,
 
         -- * Type free variables
         tyCoVarsOfType, tyCoVarsOfTypes, coVarsOfType,
@@ -194,7 +189,8 @@ import NameEnv
 import Class
 import TyCon
 import TysPrim
-import {-# SOURCE #-} TysWiredIn ( eqTyCon, coercibleTyCon, typeNatKind, typeSymbolKind )
+import {-# SOURCE #-} TysWiredIn
+  ( eqTyCon, coercibleTyCon, typeNatKind, typeSymbolKind, liftedTypeKind )
 import PrelNames
 import CoAxiom
 import {-# SOURCE #-} Coercion

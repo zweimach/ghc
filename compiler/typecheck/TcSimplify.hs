@@ -1045,7 +1045,6 @@ setImplicationStatus implic@(Implic { ic_binds = m_ev_binds_var
  = do { ev_binds <- case m_ev_binds_var of
                       Just (EvBindsVar ref _) -> TcS.readTcRef ref
                       Nothing                 -> return emptyEvBindMap
-      ; traceTcS "RAE1" (ppr used_tcvs $$ ppr (evBindMapBinds ev_binds) $$ ppr implic_needs)
       ; let all_needs = neededEvVars ev_binds
                                      (used_tcvs `unionVarSet` implic_needs)
 

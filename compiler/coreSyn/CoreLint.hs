@@ -31,7 +31,6 @@ import Bag
 import Literal
 import DataCon
 import TysWiredIn
-import TysPrim
 import TcType ( isFloatingTy )
 import Var
 import VarEnv

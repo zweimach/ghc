@@ -6,13 +6,7 @@ module Kind (
         Kind, typeKind,
 
         -- Kinds
-        liftedTypeKind, unliftedTypeKind, constraintKind,
         mkArrowKind, mkArrowKinds,
-
-        -- Kind constructors...
-        liftedTypeKindTyCon,
-        unliftedTypeKindTyCon, constraintKindTyCon,
-
         pprKind, pprParendKind,
 
         -- ** Predicates on Kinds
@@ -81,13 +75,13 @@ isConstraintKind _               = False
 
 -- | Does the given type "end" in the given tycon? For example @k -> [a] -> *@
 -- ends in @*@ and @Maybe a -> [a]@ ends in @[]@.
-returnsTyCon :: TyCon -> Type -> Bool
-returnsTyCon tc (ForAllTy _ ty)  = returnsTyCon tc ty
-returnsTyCon tc (TyConApp tc' _) = tc == tc'
-returnsTyCon _  _                = False
+returnsTyCon :: Unique -> Type -> Bool
+returnsTyCon tc_u (ForAllTy _ ty)  = returnsTyCon tc_u ty
+returnsTyCon tc_u (TyConApp tc' _) = tc' `hasKey` tc_u
+returnsTyCon _  _                  = False
 
 returnsConstraintKind :: Kind -> Bool
-returnsConstraintKind = returnsTyCon constraintKindTyCon
+returnsConstraintKind = returnsTyCon constraintKindTyConKey
 
 -- | Tests whether the given type looks like "TYPE v", where v is a variable.
 isLevityPolymorphic :: Kind -> Bool

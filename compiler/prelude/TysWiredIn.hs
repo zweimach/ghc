@@ -67,6 +67,8 @@ module TysWiredIn (
 
         -- * Kinds
         typeNatKindCon, typeNatKind, typeSymbolKindCon, typeSymbolKind,
+        isLiftedTypeKindTyConName, liftedTypeKind, constraintKind,
+        starKindTyConName, unicodeStarKindTyConName,
 
         -- * Parallel arrays
         mkPArrTy,
@@ -178,6 +180,10 @@ wiredInTyCons = [ unitTyCon     -- Not treated like other tuples, because
               , typeNatKindCon
               , typeSymbolKindCon
               , levityTyCon
+              , constraintKindTyCon
+              , liftedTypeKindTyCon
+              , starKindTyCon
+              , unicodeStarKindTyCon
               , ipTyCon
               ]
 
@@ -250,6 +256,15 @@ doubleDataConName  = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "D#")     
 typeNatKindConName, typeSymbolKindConName :: Name
 typeNatKindConName    = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Nat")    typeNatKindConNameKey    typeNatKindCon
 typeSymbolKindConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Symbol") typeSymbolKindConNameKey typeSymbolKindCon
+
+constraintKindTyConName :: Name
+constraintKindTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Constraint") constraintKindTyConKey   constraintKindTyCon
+
+liftedTypeKindTyConName, starKindTyConName, unicodeStarKindTyConName
+  :: Name
+liftedTypeKindTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "Type") liftedTypeKindTyConKey liftedTypeKindTyCon
+starKindTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "*") starKindTyConKey starKindTyCon
+unicodeStarKindTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "★") unicodeStarKindTyConKey unicodeStarKindTyCon
 
 levityTyConName, liftedDataConName, unliftedDataConName :: Name
 levityTyConName     = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Levity") levityTyConKey levityTyCon
@@ -368,6 +383,14 @@ typeSymbolKindCon = pcTyCon False NonRecursive typeSymbolKindConName Nothing [] 
 typeNatKind, typeSymbolKind :: Kind
 typeNatKind    = mkTyConTy typeNatKindCon
 typeSymbolKind = mkTyConTy typeSymbolKindCon
+
+constraintKindTyCon :: TyCon
+constraintKindTyCon = mkKindTyCon constraintKindTyConName liftedTypeKind []
+
+liftedTypeKind, constraintKind :: Kind
+liftedTypeKind   = tYPE liftedDataConTy
+constraintKind   = mkTyConApp constraintKindTyCon []
+
 
 {-
 ************************************************************************
@@ -654,6 +677,29 @@ unliftedPromDataCon = promoteDataCon unliftedDataCon
 liftedDataConTy, unliftedDataConTy :: Type
 liftedDataConTy   = mkTyConTy liftedPromDataCon
 unliftedDataConTy = mkTyConTy unliftedPromDataCon
+
+liftedTypeKindTyCon, starKindTyCon, unicodeStarKindTyCon :: TyCon
+
+   -- See Note [TYPE] in TysPrim
+liftedTypeKindTyCon   = mkSynonymTyCon liftedTypeKindTyConName
+                                       liftedTypeKind
+                                       [] []
+                                       (tYPE liftedDataConTy)
+
+starKindTyCon         = mkSynonymTyCon starKindTyConName
+                                       liftedTypeKind
+                                       [] []
+                                       (tYPE liftedDataConTy)
+
+unicodeStarKindTyCon  = mkSynonymTyCon unicodeStarKindTyConName
+                                       liftedTypeKind
+                                       [] []
+                                       (tYPE liftedDataConTy)
+
+isLiftedTypeKindTyConName :: Name -> Bool
+isLiftedTypeKindTyConName
+  = (== liftedTypeKindTyConName) <||> (== starKindTyConName)
+                                 <||> (== unicodeStarKindTyConName)
 
 -- | Should this DataCon be allowed in a type even without -XDataKinds?
 -- Currently, only Lifted & Unlifted

@@ -58,7 +58,7 @@ import BasicTypes
 
 -- compiler/types
 import Type             ( funTyCon )
-import Kind             ( Kind, liftedTypeKind, unliftedTypeKind, mkArrowKind )
+import Kind             ( Kind, mkArrowKind )
 import Class            ( FunDep )
 
 -- compiler/parser
@@ -72,7 +72,7 @@ import TcEvidence       ( emptyTcEvBinds )
 
 -- compiler/prelude
 import ForeignCall
-import TysPrim          ( liftedTypeKindTyConName, eqPrimTyCon )
+import TysPrim          ( eqPrimTyCon )
 import TysWiredIn       ( unitTyCon, unitDataCon, tupleTyCon, tupleDataCon, nilDataCon,
                           unboxedUnitTyCon, unboxedUnitDataCon,
                           listTyCon_RDR, parrTyCon_RDR, consDataCon_RDR, eqTyCon_RDR )

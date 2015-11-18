@@ -856,7 +856,7 @@ notFound name
                 vcat[ptext (sLit "GHC internal error:") <+> quotes (ppr name) <+>
                      ptext (sLit "is not in scope during type checking, but it passed the renamer"),
                      ptext (sLit "tcl_env of environment:") <+> ppr (tcl_env lcl_env)]
-                       -- Take case: printing the whole gbl env can
+                       -- Take care: printing the whole gbl env can
                        -- cause an infinite loop, in the case where we
                        -- are in the middle of a recursive TyCon/Class group;
                        -- so let's just not print it!  Getting a loop here is

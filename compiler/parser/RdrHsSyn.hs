@@ -74,7 +74,8 @@ import Lexer
 import Type             ( TyThing(..) )
 import TysWiredIn       ( cTupleTyConName, tupleTyCon, tupleDataCon,
                           nilDataConName, nilDataConKey,
-                          listTyConName, listTyConKey )
+                          listTyConName, listTyConKey,
+                          starKindTyConName, unicodeStarKindTyConName )
 import ForeignCall
 import PrelNames        ( forall_tv_RDR, allNameStrings )
 import TysWiredIn       ( eqTyCon_RDR )
@@ -659,8 +660,11 @@ checkTyVars pp_what equals_or_where tc tparms
        ; return (mkHsQTvs tvs) }
   where
 
+    chk (L _ (HsParTy ty)) = chk ty
+    chk (L _ (HsAppsTy [L loc (HsAppPrefix ty)])) = chk (L loc ty)
+
         -- Check that the name space is correct!
-    chk (L l (HsKindSig (L lv (HsTyVar tv)) k))
+    chk (L l (HsKindSig (L _ (HsAppsTy [L lv (HsAppPrefix (HsTyVar tv))])) k))
         | isRdrTyVar tv    = return (L l (KindedTyVar (L lv tv) k))
     chk (L l (HsTyVar tv))
         | isRdrTyVar tv    = return (L l (UserTyVar tv))
@@ -720,6 +724,12 @@ checkTyClHdr is_cls ty
     go _ (HsAppsTy ts)   acc ann
       | Just (head, args) <- getAppsTyHead_maybe ts = goL head (args ++ acc) ann
 
+    go _ (HsAppsTy [L loc (HsAppInfix star)]) [] ann
+      | occNameFS (rdrNameOcc star) == fsLit "*"
+      = return (L loc (nameRdrName starKindTyConName), [], ann)
+      | occNameFS (rdrNameOcc star) == fsLit "★"
+      = return (L loc (nameRdrName unicodeStarKindTyConName), [], ann)
+
     go l (HsTupleTy HsBoxedOrConstraintTuple ts) [] ann
       = return (L l (nameRdrName tup_name), ts, ann)
       where
@@ -737,6 +747,10 @@ checkContext (L l orig_t)
  where
   check anns (L lp (HsTupleTy _ ts))   -- (Eq a, Ord b) shows up as a tuple type
     = return (anns ++ mkParensApiAnn lp,L l ts)                -- Ditto ()
+
+    -- don't let HsAppsTy get in the way
+  check anns (L _ (HsAppsTy [L l (HsAppPrefix ty)]))
+    = check anns (L l ty)
 
   check anns (L lp1 (HsParTy ty))-- to be sure HsParTy doesn't get into the way
        = check anns' ty

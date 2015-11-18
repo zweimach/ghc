@@ -30,13 +30,31 @@ module GHC.Types (
         SPEC(..),
         Nat, Symbol,
         Coercible,
-        Levity(..)
+        TYPE, Levity(..), Type, type (*), type (★), Constraint
     ) where
 
 import GHC.Prim
 import GHC.Tuple ()
 
 infixr 5 :
+
+{- *********************************************************************
+*                                                                      *
+                  Kinds
+*                                                                      *
+********************************************************************* -}
+
+-- | The kind of constraints, like @Show a@
+data Constraint
+
+-- | The kind of types with values. For example @Int :: Type@.
+type Type = TYPE 'Lifted
+
+-- | A backward-compatible (pre-GHC 8.0) synonym for 'Type'
+type * = TYPE 'Lifted
+
+-- | A unicode backward-compatible (pre-GHC 8.0) synonym for 'Type'
+type ★ = TYPE 'Lifted
 
 {- *********************************************************************
 *                                                                      *
@@ -50,7 +68,6 @@ data Nat
 -- | (Kind) This is the kind of type-level symbols.
 -- Declared here because class IP needs it
 data Symbol
-
 
 {- *********************************************************************
 *                                                                      *

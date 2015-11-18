@@ -105,6 +105,7 @@ module TyCoRep (
 import {-# SOURCE #-} DataCon( dataConTyCon )
 import {-# SOURCE #-} Type( isPredTy, isCoercionTy, mkAppTy ) -- Transitively pulls in a LOT of stuff, better to break the loop
 import {-# SOURCE #-} Coercion
+import {-# SOURCE #-} TysWiredIn ( isLiftedTypeKindTyConName )
 
 -- friends:
 import Var
@@ -411,7 +412,7 @@ Some basic functions, put here to break loops eg with the pretty printer
 -}
 
 isLiftedTypeKind :: Kind -> Bool
-isLiftedTypeKind (TyConApp tc []) = tc `hasKey` liftedTypeKindTyConKey
+isLiftedTypeKind (TyConApp tc []) = isLiftedTypeKindTyConName (tyConName tc)
 isLiftedTypeKind (TyConApp tc [TyConApp lev []])
   = tc `hasKey` tYPETyConKey && lev `hasKey` liftedDataConKey
 isLiftedTypeKind _                = False
@@ -2136,7 +2137,8 @@ pprTcApp_help p pp tc tys dflags
               = ppr tc
     in pprInfixApp p pp pp_tc ty1 ty2
 
-  |  tc `hasKey` liftedTypeKindTyConKey
+  |  tc `hasKey` starKindTyConKey
+  || tc `hasKey` unicodeStarKindTyConKey
   || tc `hasKey` unliftedTypeKindTyConKey
   = ASSERT( null tys ) ppr tc   -- Do not wrap *, # in parens
 

@@ -654,6 +654,7 @@ data ExtensionFlag
    | Opt_NamedWildCards
    | Opt_StaticPointers
    | Opt_StrictData
+   | Opt_TypeInType
    deriving (Eq, Enum, Show)
 
 type SigOf = Map ModuleName Module
@@ -3183,6 +3184,7 @@ xFlags = [
   flagSpec "TraditionalRecordSyntax"          Opt_TraditionalRecordSyntax,
   flagSpec "TransformListComp"                Opt_TransformListComp,
   flagSpec "TupleSections"                    Opt_TupleSections,
+  flagSpec "TypeInType"                       Opt_TypeInType,
   flagSpec "TypeFamilies"                     Opt_TypeFamilies,
   flagSpec "TypeOperators"                    Opt_TypeOperators,
   flagSpec "TypeSynonymInstances"             Opt_TypeSynonymInstances,
@@ -3257,6 +3259,9 @@ impliedXFlags
 
     , (Opt_TypeFamilies,     turnOn, Opt_KindSignatures)  -- Type families use kind signatures
     , (Opt_PolyKinds,        turnOn, Opt_KindSignatures)  -- Ditto polymorphic kinds
+    , (Opt_TypeInType,       turnOn, Opt_DataKinds)
+    , (Opt_TypeInType,       turnOn, Opt_PolyKinds)
+    , (Opt_TypeInType,       turnOn, Opt_KindSignatures)
 
     -- AutoDeriveTypeable is not very useful without DeriveDataTypeable
     , (Opt_AutoDeriveTypeable, turnOn, Opt_DeriveDataTypeable)
