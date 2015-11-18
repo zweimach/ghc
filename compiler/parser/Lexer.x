@@ -600,7 +600,6 @@ data Token
   | ITdarrow
   | ITminus
   | ITbang
-  | ITstar
   | ITdot
 
   | ITbiglam                    -- GHC-extension symbols
@@ -800,8 +799,6 @@ reservedSymsFM = listToUFM $
        ,("-",   ITminus,    always)
        ,("!",   ITbang,     always)
 
-        -- For data T (a::*) = MkT
-       ,("*", ITstar, always) -- \i -> kindSigsEnabled i || tyFamEnabled i)
         -- For 'forall a . t'
        ,(".", ITdot,  always) -- \i -> explicitForallEnabled i || inRulePrag i)
 
@@ -820,8 +817,6 @@ reservedSymsFM = listToUFM $
        ,("⤚",   ITrarrowtail, \i -> unicodeSyntaxEnabled i && arrowsEnabled i)
        ,("⤛",   ITLarrowtail, \i -> unicodeSyntaxEnabled i && arrowsEnabled i)
        ,("⤜",   ITRarrowtail, \i -> unicodeSyntaxEnabled i && arrowsEnabled i)
-
-       ,("★", ITstar, unicodeSyntaxEnabled)
 
         -- ToDo: ideally, → and ∷ should be "specials", so that they cannot
         -- form part of a large operator.  This would let us have a better
@@ -1984,7 +1979,6 @@ data ExtBits
   | PatternSynonymsBit -- pattern synonyms
   | HaddockBit-- Lex and parse Haddock comments
   | MagicHashBit -- "#" in both functions and operators
-  | KindSigsBit -- Kind signatures on type variables
   | RecursiveDoBit -- mdo
   | UnicodeSyntaxBit -- the forall symbol, arrow symbols, etc
   | UnboxedTuplesBit -- (# and #)
@@ -2025,8 +2019,6 @@ haddockEnabled :: ExtsBitmap -> Bool
 haddockEnabled = xtest HaddockBit
 magicHashEnabled :: ExtsBitmap -> Bool
 magicHashEnabled = xtest MagicHashBit
--- kindSigsEnabled :: ExtsBitmap -> Bool
--- kindSigsEnabled = xtest KindSigsBit
 unicodeSyntaxEnabled :: ExtsBitmap -> Bool
 unicodeSyntaxEnabled = xtest UnicodeSyntaxBit
 unboxedTuplesEnabled :: ExtsBitmap -> Bool
@@ -2111,7 +2103,6 @@ mkPState flags buf loc =
                .|. BangPatBit                  `setBitIf` xopt Opt_BangPatterns             flags
                .|. HaddockBit                  `setBitIf` gopt Opt_Haddock                  flags
                .|. MagicHashBit                `setBitIf` xopt Opt_MagicHash                flags
-               .|. KindSigsBit                 `setBitIf` xopt Opt_KindSignatures           flags
                .|. RecursiveDoBit              `setBitIf` xopt Opt_RecursiveDo              flags
                .|. UnicodeSyntaxBit            `setBitIf` xopt Opt_UnicodeSyntax            flags
                .|. UnboxedTuplesBit            `setBitIf` xopt Opt_UnboxedTuples            flags

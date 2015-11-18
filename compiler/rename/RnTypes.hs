@@ -1180,7 +1180,7 @@ opTyErr op overall_ty
 
 emptyNonSymsErr :: HsType RdrName -> SDoc
 emptyNonSymsErr overall_ty
-  = text "Operator applied to not enough arguments:" <+> ppr overall_ty
+  = text "Operator applied to too few arguments:" <+> ppr overall_ty
 
 {-
 ************************************************************************

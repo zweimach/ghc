@@ -82,9 +82,9 @@ import Util             ( looksLikePackageName )
 
 }
 
-{- Last updated: 31 Jul 2015
+{- Last updated: 18 Nov 2015
 
-Conflicts: 47 shift/reduce
+Conflicts: 36 shift/reduce
 
 If you modify this parser and add a conflict, please update this comment.
 You can learn more about the conflicts by passing 'happy' the -i flag:
@@ -125,35 +125,26 @@ state 46 contains 2 shift/reduce conflicts.
 
 -------------------------------------------------------------------------------
 
-state 50 contains 11 shift/reduce conflicts.
+state 50 contains 1 shift/reduce conflict.
 
-        context -> btype .                                  (rule 282)
-    *** type -> btype .                                     (rule 283)
-        type -> btype . qtyconop type                       (rule 284)
-        type -> btype . tyvarop type                        (rule 285)
-        type -> btype . '->' ctype                          (rule 286)
-        type -> btype . SIMPLEQUOTE qconop type             (rule 287)
-        type -> btype . SIMPLEQUOTE varop type              (rule 288)
-        btype -> btype . atype                              (rule 299)
+        context -> btype .                                  (rule 295)
+    *** type -> btype .                                     (rule 297)
+        type -> btype . '->' ctype                          (rule 298)
 
-    Conflicts: ':' '->' '-' '!' '*' '.' '`' VARSYM CONSYM QVARSYM QCONSYM
-
-Example of ambiguity: 'e :: a `b` c';  does this mean
-    (e::a) `b` c, or
-    (e :: (a `b` c))
-
-The case for '->' involves view patterns rather than type operators:
-    'case v of { x :: T -> T ... } '
-    Which of these two is intended?
-          case v of
-            (x::T) -> T         -- Rhs is T
-    or
-          case v of
-            (x::T -> T) -> ..   -- Rhs is ...
+    Conflicts: '->'
 
 -------------------------------------------------------------------------------
 
-state 119 contains 15 shift/reduce conflicts.
+state 51 contains 9 shift/reduce conflicts.
+
+    *** btype -> tyapps .                                   (rule 303)
+	tyapps -> tyapps . tyapp                            (rule 307)
+
+    Conflicts: ':' '-' '!' '.' '`' VARSYM CONSYM QVARSYM QCONSYM
+
+-------------------------------------------------------------------------------
+
+state 132 contains 14 shift/reduce conflicts.
 
         exp -> infixexp . '::' sigtype                      (rule 416)
         exp -> infixexp . '-<' exp                          (rule 417)
@@ -163,7 +154,7 @@ state 119 contains 15 shift/reduce conflicts.
     *** exp -> infixexp .                                   (rule 421)
         infixexp -> infixexp . qop exp10                    (rule 423)
 
-    Conflicts: ':' '::' '-' '!' '*' '-<' '>-' '-<<' '>>-'
+    Conflicts: ':' '::' '-' '!' '-<' '>-' '-<<' '>>-'
                '.' '`' VARSYM CONSYM QVARSYM QCONSYM
 
 Examples of ambiguity:
@@ -178,7 +169,7 @@ Shift parses as (per longest-parse rule):
 
 -------------------------------------------------------------------------------
 
-state 279 contains 1 shift/reduce conflicts.
+state 292 contains 1 shift/reduce conflicts.
 
         rule -> STRING . rule_activation rule_forall infixexp '=' exp    (rule 215)
 
@@ -196,23 +187,18 @@ a rule instructing how to rewrite the expression '[0] f'.
 
 -------------------------------------------------------------------------------
 
-state 288 contains 11 shift/reduce conflicts.
+state 301 contains 1 shift/reduce conflict.
 
-    *** type -> btype .                                     (rule 283)
-        type -> btype . qtyconop type                       (rule 284)
-        type -> btype . tyvarop type                        (rule 285)
-        type -> btype . '->' ctype                          (rule 286)
-        type -> btype . SIMPLEQUOTE qconop type             (rule 287)
-        type -> btype . SIMPLEQUOTE varop type              (rule 288)
-        btype -> btype . atype                              (rule 299)
+    *** type -> btype .                                     (rule 297)
+	type -> btype . '->' ctype                          (rule 298)
 
-    Conflicts: ':' '->' '-' '!' '*' '.' '`' VARSYM CONSYM QVARSYM QCONSYM
+    Conflict: '->'
 
-Same as State 50, but minus the context productions.
+Same as state 50 but without contexts.
 
 -------------------------------------------------------------------------------
 
-state 324 contains 1 shift/reduce conflicts.
+state 337 contains 1 shift/reduce conflicts.
 
         tup_exprs -> commas . tup_tail                      (rule 505)
         sysdcon_nolist -> '(' commas . ')'                  (rule 616)
@@ -227,7 +213,7 @@ if -XTupleSections is not specified.
 
 -------------------------------------------------------------------------------
 
-state 376 contains 1 shift/reduce conflicts.
+state 388 contains 1 shift/reduce conflicts.
 
         tup_exprs -> commas . tup_tail                      (rule 505)
         sysdcon_nolist -> '(#' commas . '#)'                (rule 618)
@@ -239,20 +225,18 @@ Same as State 324 for unboxed tuples.
 
 -------------------------------------------------------------------------------
 
-state 404 contains 1 shift/reduce conflicts.
+state 460 contains 1 shift/reduce conflict.
 
-        exp10 -> 'let' binds . 'in' exp                     (rule 425)
-        exp10 -> 'let' binds . 'in' error                   (rule 440)
-        exp10 -> 'let' binds . error                        (rule 441)
-    *** qual -> 'let' binds .                               (rule 579)
+	oqtycon -> '(' qtyconsym . ')'                      (rule 621)
+    *** qtyconop -> qtyconsym .                             (rule 628)
 
-    Conflict: error
+    Conflict: ')'
 
 TODO: Why?
 
 -------------------------------------------------------------------------------
 
-state 633 contains 1 shift/reduce conflicts.
+state 635 contains 1 shift/reduce conflicts.
 
     *** aexp2 -> ipvar .                                    (rule 466)
         dbind -> ipvar . '=' exp                            (rule 590)
@@ -267,7 +251,7 @@ sensible meaning, namely the lhs of an implicit binding.
 
 -------------------------------------------------------------------------------
 
-state 699 contains 1 shift/reduce conflicts.
+state 702 contains 1 shift/reduce conflicts.
 
         rule -> STRING rule_activation . rule_forall infixexp '=' exp    (rule 215)
 
@@ -284,7 +268,7 @@ doesn't include 'forall'.
 
 -------------------------------------------------------------------------------
 
-state 950 contains 1 shift/reduce conflicts.
+state 930 contains 1 shift/reduce conflicts.
 
         transformqual -> 'then' 'group' . 'using' exp       (rule 528)
         transformqual -> 'then' 'group' . 'by' exp 'using' exp    (rule 529)
@@ -292,6 +276,16 @@ state 950 contains 1 shift/reduce conflicts.
 
     Conflict: 'by'
 
+-------------------------------------------------------------------------------
+
+state 1270 contains 1 shift/reduce conflict.
+
+    *** atype -> tyvar .                                    (rule 314)
+	tv_bndr -> '(' tyvar . '::' kind ')'                (rule 346)
+
+    Conflict: '::'
+
+TODO: Why?
 
 -------------------------------------------------------------------------------
 -- API Annotations
@@ -406,7 +400,6 @@ for some background.
  '=>'           { L _ ITdarrow }
  '-'            { L _ ITminus }
  '!'            { L _ ITbang }
- '*'            { L _ ITstar }
  '-<'           { L _ ITlarrowtail }            -- for arrow notation
  '>-'           { L _ ITrarrowtail }            -- for arrow notation
  '-<<'          { L _ ITLarrowtail }            -- for arrow notation
@@ -2981,7 +2974,6 @@ special_id
 special_sym :: { Located FastString }
 special_sym : '!'       {% ams (sL1 $1 (fsLit "!")) [mj AnnBang $1] }
             | '.'       { sL1 $1 (fsLit ".") }
-            | '*'       { sL1 $1 (fsLit "*") }
 
 -----------------------------------------------------------------------------
 -- Data constructors
