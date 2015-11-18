@@ -511,7 +511,7 @@ mkGadtDecl' names (L ls (HsForAllTy imp _ qvars cxt tau))
   where
     (details, res_ty)           -- See Note [Sorting out the result type]
       = case tau of
-          L _ (HsFunTy (L l (HsRecTy flds)) res_ty)
+          L _ (HsFunTy (L l (HsAppsTy [L _ (HsAppPrefix (HsRecTy flds))])) res_ty)
                                             -> (RecCon (L l flds), res_ty)
           _other                                    -> (PrefixCon [], tau)
 

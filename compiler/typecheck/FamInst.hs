@@ -225,12 +225,13 @@ tcLookupDataFamInst_maybe fam_inst_envs tc tc_args
   , FamInstMatch { fim_instance = rep_fam@(FamInst { fi_axiom = ax
                                                    , fi_cvs   = cvs })
                  , fim_tys      = rep_args
+                 , fim_cos      = rep_cos
                  , fim_coercion = match_co } <- match
   , let rep_tc = dataFamInstRepTyCon rep_fam
         co     = mkSubCo match_co `mkTransCo`
                  mkUnbranchedAxInstCo Representational ax rep_args
                                       (mkCoVarCos cvs)
-  = ASSERT( null cvs ) -- See Note [Constrained family instances] in FamInstEnv
+  = ASSERT( null rep_cos ) -- See Note [Constrained family instances] in FamInstEnv
     Just (rep_tc, rep_args, co)
 
   | otherwise

@@ -224,6 +224,9 @@ data CoAxBranch
     , cab_tvs      :: [TyVar]       -- Bound type variables; not necessarily fresh
                                     -- See Note [CoAxBranch type variables]
     , cab_cvs      :: [CoVar]       -- Bound coercion variables
+                                    -- Always empty, for now.
+                                    -- See Note [Constraints in patterns]
+                                    -- in TcTyClsDecls
     , cab_roles    :: [Role]        -- See Note [CoAxBranch roles]
     , cab_lhs      :: [Type]        -- Type patterns to match against
     , cab_rhs      :: Type          -- Right-hand side of the equality

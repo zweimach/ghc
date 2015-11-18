@@ -2557,15 +2557,6 @@ emitWork cts
   = do { traceTcS "Emitting fresh work" (vcat (map ppr cts))
        ; updWorkListTcS (extendWorkListCts cts) }
 
-emitWC :: WantedConstraints -> TcS ()
-emitWC (WC { wc_simple = simples
-           , wc_impl   = implics
-           , wc_insol  = insols })
-  = do { emitWork (bagToList simples)
-       ; updWorkListTcS (\wl -> foldr extendWorkListImplic
-                                wl (bagToList implics))
-       ; mapM_ emitInsoluble (bagToList insols) }
-
 emitWorkCt :: Ct -> TcS ()
 emitWorkCt ct
   = do { traceTcS "Emitting fresh (canonical) work" (ppr ct)
@@ -3036,28 +3027,13 @@ checkReductionDepth loc ty
          solverDepthErrorTcS loc ty }
 
 matchFam :: TyCon -> [Type] -> TcS (Maybe (Coercion, TcType))
-matchFam tycon args
-  = do { mb_stuff <- wrapTcS $ matchFamTcM tycon args
-       ; case mb_stuff of
-              Just (co, ty, wc) -> do { emitWC wc
-                                      ; return $ Just (co, ty) }
-              Nothing           -> return Nothing }
+matchFam tycon args = wrapTcS $ matchFamTcM tycon args
 
-matchFamTcM :: TyCon -> [Type]
-            -> TcM (Maybe (Coercion, TcType, WantedConstraints))
+matchFamTcM :: TyCon -> [Type] -> TcM (Maybe (Coercion, TcType))
 -- Given (F tys) return (ty, co), where co :: F tys ~ ty
--- Also returns a list of wanted constraints that need to be solved
--- NB: these WantedConstraints are *not* emitted
 matchFamTcM tycon args
   = do { fam_envs <- FamInst.tcGetFamInstEnvs
-       ; case reduceTyFamApp_maybe fam_envs Nominal tycon args of
-         { Nothing -> return Nothing
-         ; Just (co, ty, cvs) ->
-    do { (subst, wanteds) <- TcM.captureConstraints $
-                             TcM.tcInstCoVars cvs
-       ; let co' = substCo subst co
-             ty' = substTy subst ty
-       ; return (Just (co', ty', wanteds)) }}}
+       ; return $ reduceTyFamApp_maybe fam_envs Nominal tycon args }
 
 {-
 Note [Residual implications]

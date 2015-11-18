@@ -965,14 +965,14 @@ tcTyFamInstEqn fam_tc_shape@(fam_tc_name,_,_) mb_clsinfo
                      , tfe_rhs   = hs_ty }))
   = setSrcSpan loc $
     tcFamTyPats fam_tc_shape mb_clsinfo pats (discardResult . (tcCheckLHsType hs_ty)) $
-       \tvs' cvs' pats' res_kind ->
+       \tvs' pats' res_kind ->
     do { checkTc (fam_tc_name == eqn_tc_name)
                  (wrongTyFamName fam_tc_name eqn_tc_name)
        ; rhs_ty <- solveEqualities $ tcCheckLHsType hs_ty res_kind
        ; rhs_ty <- zonkTcTypeToType emptyZonkEnv rhs_ty
-       ; traceTc "tcTyFamInstEqn" (ppr fam_tc_name <+> pprTvBndrs (tvs' ++ cvs'))
+       ; traceTc "tcTyFamInstEqn" (ppr fam_tc_name <+> pprTvBndrs tvs')
           -- don't print out the pats here, as they might be zonked inside the knot
-       ; return (mkCoAxBranch tvs' cvs' pats' rhs_ty loc) }
+       ; return (mkCoAxBranch tvs' [] pats' rhs_ty loc) }
 
 kcDataDefn :: Name                -- ^ the family name, for error msgs only
            -> HsTyPats Name       -- ^ the patterns, for error msgs only
@@ -1090,7 +1090,6 @@ tcFamTyPats :: FamTyConShape
             -> HsWithBndrs Name [LHsType Name] -- patterns
             -> (TcKind -> TcM ())              -- kind-checker for RHS
             -> (   [TyVar]           -- Kind and type variables
-                -> [CoVar]           -- coercion variables
                 -> [TcType]          -- Kind and type arguments
                 -> Kind -> TcM a)  -- NB: You can use solveEqualities here.
             -> TcM a
@@ -1100,24 +1099,20 @@ tcFamTyPats fam_shape@(name,_,_) mb_clsinfo pats kind_checker thing_inside
                tc_fam_ty_pats fam_shape mb_clsinfo pats kind_checker
           {- TODO (RAE): This should be cleverer. Consider this:
 
-               type family F a
+                 type family F a
 
-               type family Blah (x :: k) :: F k
+                 data G a where
+                   MkG :: F a ~ Bool => G a
 
-               data Foo :: forall k. k -> F k -> * -> *
+                 type family Foo (x :: G a) :: F a
+                 type instance Foo MkG = False
 
-               type family G a
-               type instance G (Foo @k a (Blah a) (Blah a)) = Int
+             This should probably be accepted. Yet the solveEqualities
+             will fail, unable to solve (F a ~ Bool)
+             We want to quantify over that proof.
+             But see Note [Constraints in patterns]
+             below, which is missing this piece. -}
 
-             This should probably be accepted. Yet the solveTopConstraints
-             will fail, unable to solve (F k ~ *) arising from the second
-             appearance of (Blah a). We want to quantify over that proof.
-             So we need something that consults pickQuantifiablePreds
-             here if there
-             are unsolved wanteds. But see Note [Constraints in patterns]
-             below, which I still think is right. So we don't want
-             the full glory of simplifyInfer, but more than just
-             solveTopConstraints, which is quite naive. -}
 
        ; failIfErrsM   -- if there are unfilled coercion holes after the
                        -- previous solveEqualities, zonking chokes
@@ -1129,8 +1124,8 @@ tcFamTyPats fam_shape@(name,_,_) mb_clsinfo pats kind_checker thing_inside
        ; qtkvs <- quantifyTyVars emptyVarSet $
                                  splitDepVarsOfTypes typats
 
-       ; MASSERT( isEmptyVarSet $ coVarsOfTypes $ map tyVarKind qtkvs )
-           -- This should be the case, because otherwise the solveTopConstraints
+       ; MASSERT( isEmptyVarSet $ coVarsOfTypes typats )
+           -- This should be the case, because otherwise the solveEqualities.
            -- above would fail. TODO (RAE): Update once the solveTopConstraints
            -- bit is cleverer.
 
@@ -1139,20 +1134,16 @@ tcFamTyPats fam_shape@(name,_,_) mb_clsinfo pats kind_checker thing_inside
        ; typats'      <- zonkTcTypeToTypes ze typats
        ; res_kind'    <- zonkTcTypeToType  ze res_kind
 
-              -- TODO (RAE): squash away all coercions in typats, replacing
-              -- them with variables. Be careful about squashing away coercion
-              -- **variables**, as these may also appear legitimately on the
-              -- RHS.
-       ; let cvs = varSetElemsWellScoped $ coVarsOfTypes typats'
-
        ; traceTc "tcFamTyPats" (ppr name $$ ppr typats)
             -- don't print out too much, as we might be in the knot
        ; tcExtendTyVarEnv qtkvs' $
-         thing_inside qtkvs' cvs typats' res_kind' }
+         thing_inside qtkvs' typats' res_kind' }
 
 {-
 Note [Constraints in patterns]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+NB: This isn't the whole story. See comment in tcFamTyPats.
+
 At first glance, it seems there is a complicated story to tell in tcFamTyPats
 around constraint solving. After all, type family patterns can now do
 GADT pattern-matching, which is jolly complicated. But, there's a key fact
@@ -1181,6 +1172,17 @@ to F.
 If we ever introduce local type families, this all gets a lot more
 complicated, and will end up looking awfully like term-level GADT
 pattern-matching.
+
+
+** The new story **
+
+Here is really what we want:
+
+The matcher really can't deal with covars in arbitrary spots in coercions.
+But it can deal with covars that are arguments to GADT data constructors.
+So we somehow want to allow covars only in precisely those spots, then use
+them as givens when checking the RHS. TODO (RAE): Implement plan.
+
 
 Note [Quantifying over family patterns]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

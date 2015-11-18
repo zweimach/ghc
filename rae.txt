@@ -1,13 +1,13 @@
 stack:
-
-
+ - tcMatchTy
+ - tcUnifyTy
+ - ruleMatchTyX
 
 - figure out UndecidableInstances problem. See TODO in TcValdidity.
   Possibly: if sizeTypes are equal, then check sizeTypes without *, or without
             invisibles. This should provide a lexicographical ordering that's
 	    still well-founded.
 
-- fix matching to match coercions that are applied
 - I think we can ditch the coherence coercion produced by unification.
   But check.
 
@@ -20,8 +20,6 @@ stack:
 - do we need WpEvPrimApp?
 
 fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
-
-fix parser; then fix TypeLits.Mult --> *
 
 TICKETS:
 #9017:

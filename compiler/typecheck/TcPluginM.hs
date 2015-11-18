@@ -137,14 +137,9 @@ getInstEnvs = unsafeTcPluginTcM TcM.tcGetInstEnvs
 getFamInstEnvs :: TcPluginM (FamInstEnv, FamInstEnv)
 getFamInstEnvs = unsafeTcPluginTcM TcM.tcGetFamInstEnvs
 
--- The [Ct] returned are wanted constraints that must be solved.
 matchFam :: TyCon -> [Type]
-         -> TcPluginM (Maybe (TcCoercion, TcType, WantedConstraints))
-matchFam tycon args
-  = do { mb_stuff <- unsafeTcPluginTcM $ TcS.matchFamTcM tycon args
-       ; return $ case mb_stuff of
-           Just (co, ty, cts) -> Just (co, ty, cts)
-           Nothing            -> Nothing }
+         -> TcPluginM (Maybe (TcCoercion, TcType))
+matchFam tycon args = unsafeTcPluginTcM $ TcS.matchFamTcM tycon args
 
 newUnique :: TcPluginM Unique
 newUnique = unsafeTcPluginTcM TcM.newUnique

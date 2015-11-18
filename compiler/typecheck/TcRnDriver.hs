@@ -1857,12 +1857,9 @@ tcRnType hsc_env normalise rdr_type
 
        ; ty' <- if normalise
                 then do { fam_envs <- tcGetFamInstEnvs
-                        ; let (_, ty', cvs)
-                                = normaliseTypeAggressive fam_envs Nominal ty
-                        ; subst <- solveEqualities $
-                                   tcInstCoVars $
-                                   varSetElemsWellScoped cvs
-                        ; return (substTy subst ty') }
+                        ; let (_, ty')
+                                = normaliseType fam_envs Nominal ty
+                        ; return ty' }
                 else return ty ;
 
        ; return (ty', mkInvForAllTys kvs (typeKind ty')) }

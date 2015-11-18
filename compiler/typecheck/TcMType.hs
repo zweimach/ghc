@@ -43,7 +43,7 @@ module TcMType (
   --------------------------------
   -- Instantiation
   tcInstBinders, tcInstBindersX,
-  tcInstTyVars, tcInstTyVarX, tcInstCoVars,
+  tcInstTyVars, tcInstTyVarX,
   newSigTyVar,
   tcInstType,
   tcInstSkolTyVars, tcInstSkolTyVarsLoc, tcInstSuperSkolTyVarsX,
@@ -81,7 +81,6 @@ import Class
 import Var
 
 -- others:
-import {-# SOURCE #-} TcUnify ( unifyType, noThing )
 import TcRnMonad        -- TcType, amongst others
 import TcEvidence
 import Id
@@ -644,22 +643,6 @@ tcInstTyVarX subst tyvar
               kind   = substTy subst (tyVarKind tyvar)
               new_tv = mkTcTyVar name kind details
         ; return (extendTCvSubst subst tyvar (mkTyVarTy new_tv), new_tv) }
-
--- | "Instantiate" a list of covars by emitting them as wanted, returning
--- a substitution to the wanted covars along with the wanted covars themselves.
-tcInstCoVars :: [CoVar] -> TcM TCvSubst
-tcInstCoVars = foldlM tcInstCoVarX emptyTCvSubst
-
--- | "Instantiate" a covar, extending a substitution.
-tcInstCoVarX :: TCvSubst -> CoVar -> TcM TCvSubst
-tcInstCoVarX subst covar
-  = do { let (_, _, ty1, ty2, _role) = coVarKindsTypesRole covar
-             ty1' = substTy subst ty1
-             ty2' = substTy subst ty2
-       ; MASSERT( _role == Nominal )  -- TODO (RAE): This will all be over soon.
-       ; new_co <- unifyType noThing ty1' ty2'
-
-       ; return $ extendTCvSubst subst covar (mkCoercionTy $ new_co) }
 
 -- | This is used to instantiate binders when type-checking *types* only.
 -- Precondition: all binders are invisible.
