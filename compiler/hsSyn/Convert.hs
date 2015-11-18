@@ -764,7 +764,7 @@ the trees to reflect the fixities of the underlying operators:
 This is done by the renamer (see @mkOppAppRn@, @mkConOppPatRn@, and
 @mkHsOpTyRn@ in RnTypes), which expects that the input will be completely
 right-biased for types and left-biased for everything else. So we left-bias the
-trees of @UInfixP@ and @UInfixE@ and right-bias the trees of @UInfixT@.
+trees of @UInfixP@ and @UInfixE@ and use HsAppsTy for UInfixT.
 
 Sample input:
 
@@ -1064,8 +1064,10 @@ cvtTypeKind ty_str ty
                    }
 
            UInfixT t1 s t2
-             -> do { t2' <- cvtType t2
-                   ; cvtOpAppT t1 s t2'
+             -> do { t1' <- cvtType t1
+                   ; t2' <- cvtType t2
+                   ; s'  <- tconName s
+                   ; return $ cvtOpAppT t1' s' t2'
                    } -- Note [Converting UInfix]
 
            ParensT t
@@ -1125,20 +1127,23 @@ cvtTyLit :: TH.TyLit -> HsTyLit
 cvtTyLit (TH.NumTyLit i) = HsNumTy (show i) i
 cvtTyLit (TH.StrTyLit s) = HsStrTy s        (fsLit s)
 
-{- | @cvtOpAppT x op y@ converts @op@ and @y@ and produces the operator
-application @x `op` y@. The produced tree of infix types will be right-biased,
-provided @y@ is.
-
-See the @cvtOpApp@ documentation for how this function works.
+{- | @cvtOpAppT x op y@ takes converted arguments and flattens any HsAppsTy
+   structure in them.
 -}
-cvtOpAppT :: TH.Type -> TH.Name -> LHsType RdrName -> CvtM (LHsType RdrName)
-cvtOpAppT (UInfixT x op2 y) op1 z
-  = do { l <- cvtOpAppT y op1 z
-       ; cvtOpAppT x op2 l }
-cvtOpAppT x op y
-  = do { op' <- tconNameL op
-       ; x' <- cvtType x
-       ; returnL (mkHsOpTy x' op' y) }
+cvtOpAppT :: LHsType RdrName -> RdrName -> LHsType RdrName -> LHsType RdrName
+cvtOpAppT (L loc1 t1) op (L loc2 t2)
+  = L (combineSrcSpans loc1 loc2) $
+    HsAppsTy (t1' ++ [noLoc $ HsAppInfix op] ++ t2')
+  where
+    t1' | HsAppsTy t1s <- t1
+        = t1s
+        | otherwise
+        = [L loc1 (HsAppPrefix t1)]
+
+    t2' | HsAppsTy t2s <- t2
+        = t2s
+        | otherwise
+        = [L loc2 (HsAppPrefix t2)]
 
 cvtKind :: TH.Kind -> CvtM (LHsKind RdrName)
 cvtKind = cvtTypeKind "kind"

@@ -37,6 +37,7 @@ import TyCon
 import Var
 import PrelNames
 import Data.Maybe
+import Util  ( (<&&>) )
 
 {-
 ************************************************************************
@@ -96,7 +97,7 @@ isLevityPolymorphic = isJust . isLevityPolymorphic_maybe
 -- form "TYPE v".
 isLevityPolymorphic_maybe :: Kind -> Maybe TyVar
 isLevityPolymorphic_maybe k
-  | Just k' <- coreView k = isLevityPolymorphic_maybe k'
+  | Just k' <- coreViewOneStarKind k = isLevityPolymorphic_maybe k'
 isLevityPolymorphic_maybe (TyConApp tc [TyVarTy v])
   | tc `hasKey` tYPETyConKey
   = Just v

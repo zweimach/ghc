@@ -51,7 +51,7 @@ module RdrHsSyn (
         checkDoAndIfThenElse,
         checkRecordSyntax,
         parseErrorSDoc,
-        splitTilde,
+        splitTilde, splitTildeApps,
 
         -- Help with processing exports
         ImpExpSubSpec(..),
@@ -77,6 +77,7 @@ import TysWiredIn       ( cTupleTyConName, tupleTyCon, tupleDataCon,
                           listTyConName, listTyConKey )
 import ForeignCall
 import PrelNames        ( forall_tv_RDR, allNameStrings )
+import TysWiredIn       ( eqTyCon_RDR )
 import DynFlags
 import SrcLoc
 import Unique           ( hasKey )
@@ -428,9 +429,10 @@ splitCon :: LHsType RdrName
 splitCon ty
  = split ty []
  where
-   split (L _ (HsAppTy t u)) ts    = split t (u : ts)
-   split (L l (HsTyVar tc))  ts    = do data_con <- tyConToDataCon l tc
-                                        return (data_con, mk_rest ts)
+   -- This is used somewhere where HsAppsTy is not used
+   split (L _ (HsAppTy t u)) ts     = split t (u : ts)
+   split (L l (HsTyVar tc))  ts     = do data_con <- tyConToDataCon l tc
+                                         return (data_con, mk_rest ts)
    split (L l (HsTupleTy HsBoxedOrConstraintTuple ts)) []
       = return (L l (getRdrName (tupleDataCon Boxed (length ts))), PrefixCon ts)
    split (L l _) _ = parseErrorSDoc l (text "Cannot parse data constructor in a data/newtype declaration:" <+> ppr ty)
@@ -715,6 +717,8 @@ checkTyClHdr is_cls ty
       | isRdrTc tc               = return (ltc, t1:t2:acc, ann)
     go l (HsParTy ty)    acc ann = goL ty acc (ann ++ mkParensApiAnn l)
     go _ (HsAppTy t1 t2) acc ann = goL t1 (t2:acc) ann
+    go _ (HsAppsTy ts)   acc ann
+      | Just (head, args) <- getAppsTyHead_maybe ts = goL head (args ++ acc) ann
 
     go l (HsTupleTy HsBoxedOrConstraintTuple ts) [] ann
       = return (L l (nameRdrName tup_name), ts, ann)
@@ -1044,9 +1048,10 @@ isFunLhs e = go e [] []
    go _ _ _ = return Nothing
 
 
--- | Transform btype with strict_mark's into HsEqTy's
+-- | Transform btype_no_ops with strict_mark's into HsEqTy's
 -- (((~a) ~b) c) ~d ==> ((~a) ~ (b c)) ~ d
 splitTilde :: LHsType RdrName -> LHsType RdrName
+-- TODO (RAE): This seems to be bad for API Annotations.
 splitTilde t = go t
   where go (L loc (HsAppTy t1 t2))
           | L _ (HsBangTy (HsSrcBang Nothing NoSrcUnpack SrcLazy) t2') <- t2
@@ -1058,6 +1063,24 @@ splitTilde t = go t
               t -> L loc (HsAppTy t t2)
 
         go t = t
+
+-- | Transform tyapps with strict_marks into uses of twiddle
+-- [~a, ~b, c, ~d] ==> (~a) ~ b c ~ d
+splitTildeApps :: [LHsAppType RdrName] -> [LHsAppType RdrName]
+-- TODO (RAE): This leaves an extra, unused API annotation (I think)
+splitTildeApps []         = []
+splitTildeApps (t : rest) = t : concatMap go rest
+  where go (L loc (HsAppPrefix
+                   (HsBangTy
+                    (HsSrcBang Nothing NoSrcUnpack SrcLazy)
+                    (L ty_loc ty))))
+          = [L tilde_loc $ HsAppInfix eqTyCon_RDR, L ty_loc $ HsAppPrefix ty]
+          where
+            tilde_loc = srcSpanFirstCharacter loc
+
+        go t = [t]
+
+
 
 ---------------------------------------------------------------------------
 -- Check for monad comprehensions

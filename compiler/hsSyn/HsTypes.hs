@@ -25,6 +25,7 @@ module HsTypes (
         HsContext, LHsContext,
         HsTyLit(..),
         HsIPName(..), hsIPNameFS,
+        HsAppType(..), LHsAppType,
 
         LBangType, BangType,
         HsSrcBang(..), HsImplBang(..),
@@ -51,10 +52,10 @@ module HsTypes (
         hsTyVarName, mkHsWithBndrs, hsLKiTyVarNames,
         hsLTyVarName, hsLTyVarLocName, hsLTyVarLocNames,
         hsLTyVarBndrsToTypes,
-        splitLHsInstDeclTy_maybe,
+        splitLHsInstDeclTy_maybe, splitLHsForAllTy,
         splitHsClassTy_maybe, splitLHsClassTy_maybe,
         splitHsFunType,
-        splitHsAppTys, hsTyGetAppHead_maybe, mkHsAppTys, mkHsOpTy,
+        splitHsAppTys, mkHsOpTy,
         ftvLHsType, ftvHsType,
         ignoreParens,
 
@@ -70,7 +71,7 @@ import PlaceHolder ( PostTc,PostRn,DataId,PlaceHolder(..) )
 import Id ( Id )
 import Name( Name, isTyVarName )
 import Var ( varName )
-import RdrName( RdrName )
+import RdrName ( RdrName )
 import DataCon( HsSrcBang(..), HsImplBang(..),
                 SrcStrictness(..), SrcUnpackedness(..) )
 import TysPrim( funTyConName )
@@ -270,6 +271,10 @@ data HsType name
 
       -- For details on above see note [Api annotations] in ApiAnnotation
 
+  | HsAppsTy            [LHsAppType name]  -- Used only before renaming,
+                                           -- Note [HsAppsTy]
+      -- ^ - 'ApiAnnotation.AnnKeywordId' : None
+
   | HsAppTy             (LHsType name)
                         (LHsType name)
       -- ^ - 'ApiAnnotation.AnnKeywordId' : None
@@ -420,6 +425,19 @@ data HsWildCardInfo name
     deriving (Typeable)
 deriving instance (DataId name) => Data (HsWildCardInfo name)
 
+type LHsAppType name = Located (HsAppType name)
+data HsAppType name
+  = HsAppInfix name                 -- either a symbol or an id in backticks
+  | HsAppPrefix (HsType name)       -- anything else, including things like (+)
+  deriving (Typeable)
+deriving instance (DataId name) => Data (HsAppType name)
+
+instance OutputableBndr name => Outputable (HsAppType name) where
+  ppr (HsAppInfix n) = pprInfixOcc n
+
+  ppr (HsAppPrefix (HsTyVar n)) = pprPrefixOcc n
+  ppr (HsAppPrefix ty)          = ppr ty
+
 {-
 Note [HsForAllTy tyvar binders]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -472,6 +490,16 @@ HsTyVar: A name in a type or kind.
       Tv: kind variable
       TcCls: kind constructor or promoted type constructor
 
+Note [HsAppsTy]
+~~~~~~~~~~~~~~~
+How to parse
+
+  Foo * Int
+
+? Is it `(*) Foo Int` or `Foo GHC.Types.* Int`? There's no way to know until renaming.
+So we just take type expressions like this and put each component in a list, so be
+sorted out in the renamer. The sorting out is done by RnTypes.mkHsOpTyRn. This means
+that the parser should never produce HsAppTy or HsOpTy.
 
 Note [Promoted lists and tuples]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -776,37 +804,15 @@ sameNamedWildCard :: Eq name
 sameNamedWildCard (L _  (NamedWildCard n1)) (L _  (NamedWildCard n2)) = n1 == n2
 sameNamedWildCard _ _ = False
 
-splitHsAppTys :: LHsType n -> [LHsType n] -> (LHsType n, [LHsType n])
+splitHsAppTys :: LHsType Name -> [LHsType Name] -> (LHsType Name, [LHsType Name])
+  -- no need to worry about HsAppsTy here
 splitHsAppTys (L _ (HsAppTy f a)) as = splitHsAppTys f (a:as)
 splitHsAppTys (L _ (HsParTy f))   as = splitHsAppTys f as
 splitHsAppTys f                   as = (f,as)
 
--- retrieve the name of the "head" of a nested type application
--- somewhat like splitHsAppTys, but a little more thorough
--- used to examine the result of a GADT-like datacon, so it doesn't handle
--- *all* cases (like lists, tuples, (~), etc.)
-hsTyGetAppHead_maybe :: LHsType n -> Maybe (n, [LHsType n])
-hsTyGetAppHead_maybe = go []
-  where
-    go tys (L _ (HsTyVar n))             = Just (n, tys)
-    go tys (L _ (HsAppTy l r))           = go (r : tys) l
-    go tys (L _ (HsOpTy l (L _ n) r))    = Just (n, l : r : tys)
-    go tys (L _ (HsParTy t))             = go tys t
-    go tys (L _ (HsKindSig t _))         = go tys t
-    go _   _                             = Nothing
-
-mkHsAppTys :: OutputableBndr n => LHsType n -> [LHsType n] -> HsType n
-mkHsAppTys fun_ty [] = pprPanic "mkHsAppTys" (ppr fun_ty)
-mkHsAppTys fun_ty (arg_ty:arg_tys)
-  = foldl mk_app (HsAppTy fun_ty arg_ty) arg_tys
-  where
-    mk_app fun arg = HsAppTy (noLoc fun) arg
-       -- Add noLocs for inner nodes of the application;
-       -- they are never used
-
 splitLHsInstDeclTy_maybe
-    :: LHsType name
-    -> Maybe (LHsTyVarBndrs name, HsContext name, Located name, [LHsType name])
+    :: LHsType Name
+    -> Maybe (LHsTyVarBndrs Name, HsContext Name, Located Name, [LHsType Name])
         -- Split up an instance decl type, returning the pieces
 splitLHsInstDeclTy_maybe inst_ty = do
     let (tvs, cxt, ty) = splitLHsForAllTy inst_ty
@@ -823,10 +829,10 @@ splitLHsForAllTy poly_ty
         _                         -> (emptyHsQTvs, [], poly_ty)
         -- The type vars should have been computed by now, even if they were implicit
 
-splitHsClassTy_maybe :: HsType name -> Maybe (name, [LHsType name])
+splitHsClassTy_maybe :: HsType Name -> Maybe (Name, [LHsType Name])
 splitHsClassTy_maybe ty = fmap (\(L _ n, tys) -> (n, tys)) $ splitLHsClassTy_maybe (noLoc ty)
 
-splitLHsClassTy_maybe :: LHsType name -> Maybe (Located name, [LHsType name])
+splitLHsClassTy_maybe :: LHsType Name -> Maybe (Located Name, [LHsType Name])
 --- Watch out.. in ...deriving( Show )... we use this on
 --- the list of partially applied predicates in the deriving,
 --- so there can be zero args.
@@ -880,6 +886,7 @@ ftvHsType (HsForAllTy _ _ tvbs ctxt ty)
   = (ftvLHsContext ctxt `unionNameSet` ftvLHsType ty)
     `delListFromNameSet` hsLKiTyVarNames tvbs
 ftvHsType (HsTyVar n)               = ftvName n
+ftvHsType (HsAppsTy ts)             = unionNameSets $ map ftvLHsAppType ts
 ftvHsType (HsAppTy t1 t2)           = ftvLHsType t1 `unionNameSet` ftvLHsType t2
 ftvHsType (HsFunTy t1 t2)           = ftvLHsType t1 `unionNameSet` ftvLHsType t2
 ftvHsType (HsListTy t)              = ftvLHsType t
@@ -900,6 +907,10 @@ ftvHsType (HsExplicitListTy _ tys)  = unionNameSets $ map ftvLHsType tys
 ftvHsType (HsExplicitTupleTy _ tys) = unionNameSets $ map ftvLHsType tys
 ftvHsType (HsTyLit {})              = emptyNameSet
 ftvHsType (HsWildCardTy wc)         = ftvName (wildCardName wc)
+
+ftvLHsAppType :: LHsAppType Name -> NameSet
+ftvLHsAppType (L _ (HsAppInfix n))  = unitNameSet n
+ftvLHsAppType (L _ (HsAppPrefix t)) = ftvHsType t
 
 ftvLHsContext :: LHsContext Name -> NameSet
 ftvLHsContext (L _ ctxt) = unionNameSets $ map ftvLHsType ctxt
@@ -1055,6 +1066,10 @@ ppr_mono_ty _    (HsWildCardTy (NamedWildCard name)) = ppr name
 ppr_mono_ty ctxt_prec (HsEqTy ty1 ty2)
   = maybeParen ctxt_prec TyOpPrec $
     ppr_mono_lty TyOpPrec ty1 <+> char '~' <+> ppr_mono_lty TyOpPrec ty2
+
+ppr_mono_ty ctxt_prec (HsAppsTy tys)
+  = maybeParen ctxt_prec TyConPrec $
+    hsep (map ppr tys)
 
 ppr_mono_ty ctxt_prec (HsAppTy fun_ty arg_ty)
   = maybeParen ctxt_prec TyConPrec $

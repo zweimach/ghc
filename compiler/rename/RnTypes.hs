@@ -81,8 +81,8 @@ rnLHsInstType doc_str ty
        ; return (ty', fvs) }
   where
     good_inst_ty
-      | Just (_, _, L _ cls, _) <-
-                        splitLHsInstDeclTy_maybe (flattenTopLevelLHsForAllTy ty)
+      | (_, _, body_ty) <- splitLHsForAllTy (flattenTopLevelLHsForAllTy ty)
+      , Just (L _ cls, _) <- hsTyGetAppHead_maybe body_ty
       , isTcOcc (rdrNameOcc cls) = True
       | otherwise                = False
 
@@ -111,6 +111,35 @@ f :: forall a. a -> (() => b) binds "a" and "b"
 
 The -fwarn-context-quantification flag warns about
 this situation. See rnHsTyKi for case HsForAllTy Qualified.
+
+Note [Dealing with *]
+~~~~~~~~~~~~~~~~~~~~~
+As a legacy from the days when types and kinds were different, we use
+the type * to mean what we now call GHC.Types.Type. The problem is that
+* should associate just like an identifier, *not* a symbol.
+Running example: the user has written
+
+  T (Int, Bool) b + c * d
+
+At this point, we have a bunch of stretches of types
+
+  [[T, (Int, Bool), b], [c], [d]]
+
+these are the [[LHsType Name]] and a bunch of operators
+
+  [GHC.TypeLits.+, GHC.Types.*]
+
+Note that the * is GHC.Types.*. So, we want to rearrange to have
+
+  [[T, (Int, Bool), b], [c, *, d]]
+
+and
+
+  [GHC.TypeLits.+]
+
+as our lists. We can then do normal fixity resolution on these. The fixities
+must come along for the ride just so that the list stays in sync with the
+operators.
 -}
 
 rnLHsTyKi  :: Bool --  True <=> renaming a type, False <=> a kind
@@ -151,20 +180,15 @@ rnHsTyKi isType _ (HsTyVar rdr_name)
 -- If we see (forall a . ty), without foralls on, the forall will give
 -- a sensible error message, but we don't want to complain about the dot too
 -- Hence the jiggery pokery with ty1
-rnHsTyKi isType doc ty@(HsOpTy ty1 (L loc op) ty2)
-  = setSrcSpan loc $
-    do  { ops_ok <- xoptM Opt_TypeOperators
-        ; op' <- if ops_ok
-                 then rnTyVar isType op
-                 else do { addErr (opTyErr op ty)
-                         ; return (mkUnboundName op) }  -- Avoid double complaint
-        ; let l_op' = L loc op'
-        ; fix <- lookupTyFixityRn l_op'
-        ; (ty1', fvs1) <- rnLHsType doc ty1
-        ; (ty2', fvs2) <- rnLHsType doc ty2
+rnHsTyKi isType doc ty@(HsOpTy ty1 l_op ty2)
+  = setSrcSpan (getLoc l_op) $
+    do  { (l_op', fvs1) <- rnHsTyOp isType ty l_op
+        ; fix   <- lookupTyFixityRn l_op'
+        ; (ty1', fvs2) <- rnLHsType doc ty1
+        ; (ty2', fvs3) <- rnLHsType doc ty2
         ; res_ty <- mkHsOpTyRn (\t1 t2 -> HsOpTy t1 l_op' t2)
                                op' fix ty1' ty2'
-        ; return (res_ty, (fvs1 `plusFV` fvs2) `addOneFV` op') }
+        ; return (res_ty, plusFVs [fvs1, fvs2, fvs3]) }
 
 rnHsTyKi isType doc (HsParTy ty)
   = do { (ty', fvs) <- rnLHsTyKi isType doc ty
@@ -230,6 +254,58 @@ rnHsTyKi isType _ tyLit@(HsTyLit t)
     negLit (HsStrTy _ _) = False
     negLit (HsNumTy _ i) = i < 0
     negLitErr = ptext (sLit "Illegal literal in type (type literals must not be negative):") <+> ppr tyLit
+
+rnHsTyKi isType doc overall_ty@(HsAppsTy tys)
+  = do { -- Step 1: Break up the HsAppsTy into symbols and non-symbol regions
+         let (non_syms, syms) = splitHsAppsTy tys
+
+             -- Step 2: rename the pieces
+       ; (syms1, fvs1)      <- mapFvRn (rnHsTyOp isType) syms
+       ; (non_syms1, fvs2)  <- (mapFvRn . mapFvRn) (rnLHsTyKi isType doc) non_syms
+
+             -- Step 3: deal with *. See Note [Dealing with *]
+       ; let (non_syms2, syms2, fixes2) = deal_with_star [] [] [] non_syms1 syms1 fixes1
+
+             -- Step 4: collapse the non-symbol regions with HsAppTy
+       ; non_syms3 <- mapM deal_with_non_syms non_syms2
+
+             -- Step 5: assemble the pieces, using mkHsOpTyRn
+       ; res_ty <- build_res_ty non_syms3 syms2
+
+        -- all done. Phew.
+       ; return (res_ty, fvs1 `plusFV` fvs2) }
+  where
+    -- See Note [Dealing with *]
+    deal_with_star :: [[LHsType Name]] -> [Located Name] -> [fixity]
+                   -> ([[LHsType Name]], [Located Name], [fixity])
+    deal_with_star acc1 acc2 acc3
+                   (non_syms1 : non_syms2 : non_syms) (L loc star : ops) (_ : fixes)
+      | star `hasKey` liftedTypeTyConKey
+      = deal_with_star acc1 acc2 acc3
+                       ((non_syms1 ++ L loc (HsTyVar star) : non_syms2) : non_syms)
+                       ops fixes
+    deal_with_star acc1 acc2 acc3 (non_syms1 : non_syms) (op1 : ops) (fix1 : fixes)
+      = deal_with_star (non_syms1 : acc1) (op1 : acc2) (fix1 : acc3)
+                       non_syms ops fixes
+    deal_with_star acc1 acc2 acc3 [non_syms] [] []
+      = (reverse (non_syms : acc1), reverse acc2, reverse acc3)
+    deal_with_star _ _ _ _ _ _
+      = pprPanic "deal_with_star" (ppr overall_ty)
+
+    -- collapse [LHsType Name] to LHsType Name by making applications
+    -- monadic only for failure
+    deal_with_non_syms :: [LHsType Name] -> RnM (LHsType Name)
+    deal_with_non_syms (non_sym : non_syms) = return $ mkHsAppTys non_sym non_syms
+    deal_with_non_syms []                   = failWith (emptyNonSymsErr overall_ty)
+
+    -- assemble a right-biased OpTy for use in mkHsOpTyRn
+    build_res_ty :: [LHsType Name] -> [Located Name] -> RnM (LHsType Name)
+    build_res_ty (arg1 : args) (op1 : ops)
+      = do { rhs <- build_res_ty args ops
+           ; fix <- lookupTyFixityRn op1
+           ; mkHsOpTyRn (\t1 t2 -> HsOpTy t1 op1 t2) (unLoc op1) fix arg1 rhs }
+    build_res_ty [arg] [] = return arg
+    build_res_ty _ _ = pprPanic "build_op_ty" (ppr overall_ty)
 
 rnHsTyKi isType doc (HsAppTy ty1 ty2)
   = do { (ty1', fvs1) <- rnLHsTyKi isType doc ty1
@@ -366,6 +442,17 @@ rnLTyVar :: Bool -> Located RdrName -> RnM (Located Name)
 rnLTyVar is_type (L loc rdr_name) = do
   tyvar' <- rnTyVar is_type rdr_name
   return (L loc tyvar')
+
+--------------
+rnHsTyOp :: Outputable a => Bool -> a -> Located RdrName -> RnM (Located Name, FreeVars)
+rnHsTyOp isType overall_ty (L loc op)
+  = do { ops_ok <- xoptM Opt_TypeOperators
+       ; op' <- if ops_ok
+                then rnTyVar isType op
+                else do { addErr (opTyErr op overall_ty)
+                        ; return (mkUnboundName op) }  -- Avoid double complaint
+       ; let l_op' = L loc op'
+       ; return (l_op', unitFV op') }
 
 --------------
 rnLHsTypes :: HsDocContext -> [LHsType RdrName]
@@ -592,6 +679,7 @@ collectWildCards lty = (extra, nubBy sameNamedWildCard wcs)
   where
     (extra, wcs) = go lty
     go (L loc ty) = case ty of
+      HsAppsTy tys            -> gos (mapMaybe prefix_types_only tys)
       HsAppTy ty1 ty2         -> go ty1 `mappend` go ty2
       HsFunTy ty1 ty2         -> go ty1 `mappend` go ty2
       HsListTy ty             -> go ty
@@ -620,6 +708,9 @@ collectWildCards lty = (extra, nubBy sameNamedWildCard wcs)
       -- HsQuasiQuoteTy, HsSpliceTy, HsCoreTy, HsTyLit
       _ -> mempty
     gos = mconcat . map go
+
+    prefix_types_only (HsAppPrefix ty) = Just ty
+    prefix_types_only (HsAppInfix _)   = Nothing
 
 -- | Check the validity of a partial type signature. The following things are
 -- checked:
@@ -1073,20 +1164,19 @@ warnContextQuantification in_doc tvs
                ptext (sLit "This will become an error in GHC 7.12.")
              , in_doc ]
 
-opTyErr :: RdrName -> HsType RdrName -> SDoc
-opTyErr op ty@(HsOpTy ty1 _ _)
-  = hang (ptext (sLit "Illegal operator") <+> quotes (ppr op) <+> ptext (sLit "in type") <+> quotes (ppr ty))
+opTyErr :: Outputable a => RdrName -> a -> SDoc
+opTyErr op overall_ty
+  = hang (ptext (sLit "Illegal operator") <+> quotes (ppr op) <+> ptext (sLit "in type") <+> quotes (ppr overall_ty))
          2 extra
   where
-    extra | op == dot_tv_RDR && forall_head ty1
+    extra | op == dot_tv_RDR
           = perhapsForallMsg
           | otherwise
           = ptext (sLit "Use TypeOperators to allow operators in types")
 
-    forall_head (L _ (HsTyVar tv))   = tv == forall_tv_RDR
-    forall_head (L _ (HsAppTy ty _)) = forall_head ty
-    forall_head _other               = False
-opTyErr _ ty = pprPanic "opTyErr: Not an op" (ppr ty)
+emptyNonSymsErr :: HsType RdrName -> SDoc
+emptyNonSymsErr overall_ty
+  = text "Operator applied to not enough arguments:" <+> ppr overall_ty
 
 {-
 ************************************************************************
@@ -1198,6 +1288,7 @@ extract_lty (L _ ty) acc
       HsBangTy _ ty             -> extract_lty ty acc
       HsRecTy flds              -> foldr (extract_lty . cd_fld_type . unLoc) acc
                                          flds
+      HsAppsTy tys              -> extract_apps tys
       HsAppTy ty1 ty2           -> extract_lty ty1 (extract_lty ty2 acc)
       HsListTy ty               -> extract_lty ty acc
       HsPArrTy ty               -> extract_lty ty acc
@@ -1219,6 +1310,13 @@ extract_lty (L _ ty) acc
                                    extract_lty ty ([],[])
       -- We deal with these separately in rnLHsTypeWithWildCards
       HsWildCardTy _            -> acc
+
+extract_apps :: [LHsAppType RdrName] -> FreeKiTyVars -> FreeKiTyVars
+extract_apps tys acc = foldr extract_app acc tys
+
+extract_app :: LHsAppType RdrName -> FreeKiTyVars -> FreeKiTyVars
+extract_app (L _ (HsAppInfix n))     acc = extract_tv n acc
+extract_app (L loc (HsAppPrefix ty)) acc = extract_lty (L loc ty) acc
 
 extract_hs_tv_bndrs :: LHsTyVarBndrs RdrName -> FreeKiTyVars
                     -> FreeKiTyVars -> FreeKiTyVars

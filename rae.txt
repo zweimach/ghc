@@ -1,4 +1,5 @@
 stack:
+- document shift/reduce conflicts
 
 - figure out UndecidableInstances problem. See TODO in TcValdidity.
   Possibly: if sizeTypes are equal, then check sizeTypes without *, or without

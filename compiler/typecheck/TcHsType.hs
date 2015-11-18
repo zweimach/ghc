@@ -594,6 +594,10 @@ tc_hs_type (HsWildCardTy wc) exp_kind
        ; (ty, k) <- tcTyVar name
        ; checkExpectedKind ty k exp_kind }
 
+-- disposed of by renamer
+tc_hs_type ty@(HsAppsTy {}) _
+  = pprPanic "tc_hs_tyep HsAppsTy" (ppr ty)
+
 ---------------------------
 -- | Call 'tc_infer_hs_type' and check its result against an expected kind.
 tc_infer_hs_type_ek :: HsType Name -> TcKind -> TcM TcType

@@ -636,8 +636,8 @@ getLocalNonValBinders fixity_env
            ; return ([avail], flds) }
     new_assoc overload_ok (L _ (ClsInstD (ClsInstDecl { cid_poly_ty = inst_ty
                                                       , cid_datafam_insts = adts })))
-      | Just (_, _, L loc cls_rdr, _) <-
-                   splitLHsInstDeclTy_maybe (flattenTopLevelLHsForAllTy inst_ty)
+      | (_, _, body_ty) <- splitLHsForAllTy (flattenTopLevelLHsForAllTy inst_ty)
+      , Just (L loc cls_rdr, _) <- hsTyGetAppHead_maybe body_ty
       = do { cls_nm <- setSrcSpan loc $ lookupGlobalOccRn cls_rdr
            ; (avails, fldss)
                     <- mapAndUnzipM (new_loc_di overload_ok (Just cls_nm)) adts

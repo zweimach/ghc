@@ -1568,49 +1568,66 @@ ctypedoc :: { LHsType RdrName }
 -- but not                          f :: ?x::Int => blah
 -- See Note [Parsing ~]
 context :: { LHsContext RdrName }
-        :  btype                        {% do { (anns,ctx) <- checkContext (splitTilde $1)
+        :  btype                        {% do { (anns,ctx) <- checkContext $1
                                                 ; if null (unLoc ctx)
                                                    then addAnnotation (gl $1) AnnUnit (gl $1)
                                                    else return ()
                                                 ; ams ctx anns
                                                 } }
--- See Note [Parsing ~]
-type :: { LHsType RdrName }
-        : btype                         { splitTilde $1 }
-        | btype qtyconop type           { sLL $1 $> $ mkHsOpTy $1 $2 $3 }
-        | btype tyvarop  type           { sLL $1 $> $ mkHsOpTy $1 $2 $3 }
-        | btype '->'     ctype          {% ams $1 [mj AnnRarrow $2]
-                                        >> ams (sLL $1 $> $ HsFunTy (splitTilde $1) $3)
-                                               [mj AnnRarrow $2] }
-        | btype SIMPLEQUOTE qconop type  {% ams (sLL $1 $> $ mkHsOpTy $1 $3 $4)
-                                                [mj AnnSimpleQuote $2] }
-        | btype SIMPLEQUOTE varop  type  {% ams (sLL $1 $> $ mkHsOpTy $1 $3 $4)
-                                                [mj AnnSimpleQuote $2] }
--- See Note [Parsing ~]
-typedoc :: { LHsType RdrName }
-        : btype                          { splitTilde $1 }
-        | btype docprev                  { sLL $1 $> $ HsDocTy (splitTilde $1) $2 }
-        | btype qtyconop type            { sLL $1 $> $ mkHsOpTy $1 $2 $3 }
-        | btype qtyconop type docprev    { sLL $1 $> $ HsDocTy (L (comb3 $1 $2 $3) (mkHsOpTy $1 $2 $3)) $4 }
-        | btype tyvarop  type            { sLL $1 $> $ mkHsOpTy $1 $2 $3 }
-        | btype tyvarop  type docprev    { sLL $1 $> $ HsDocTy (L (comb3 $1 $2 $3) (mkHsOpTy $1 $2 $3)) $4 }
-        | btype '->'     ctypedoc        {% ams (sLL $1 $> $ HsFunTy (splitTilde $1) $3)
-                                                [mj AnnRarrow $2] }
-        | btype docprev '->' ctypedoc    {% ams (sLL $1 $> $ HsFunTy (L (comb2 (splitTilde $1) $2)
-                                                            (HsDocTy $1 $2)) $4)
-                                                [mj AnnRarrow $3] }
-        | btype SIMPLEQUOTE qconop type  {% ams (sLL $1 $> $ mkHsOpTy $1 $3 $4)
-                                                [mj AnnSimpleQuote $2] }
-        | btype SIMPLEQUOTE varop  type  {% ams (sLL $1 $> $ mkHsOpTy $1 $3 $4)
-                                                [mj AnnSimpleQuote $2] }
 
+context_no_ops :: { LHsContext RdrName }
+        : btype_no_ops                 {% do { let { ty = splitTilde $1 }
+                                             ; (anns,ctx) <- checkContext ty
+                                             ; if null (unLoc ctx)
+                                                   then addAnnotation (gl ty) AnnUnit (gl ty)
+                                                   else return ()
+                                             ; ams ctx anns
+                                             } }
+
+type :: { LHsType RdrName }
+        : btype                        { $1 }
+        | btype '->' ctype             {% ams (sLL $1 $> $ HsFunTy $1 $3)
+                                              [mj AnnRarrow $2] }
+
+
+typedoc :: { LHsType RdrName }
+        : btype                          { $1 }
+        | btype docprev                  { sLL $1 $> $ HsDocTy $1 $2 }
+        | btype '->'     ctypedoc        {% ams (sLL $1 $> $ HsFunTy $1 $3)
+                                                [mj AnnRarrow $2] }
+        | btype docprev '->' ctypedoc    {% ams (sLL $1 $> $
+                                                 HsFunTy (L (comb2 $1 $2) (HsDocTy $1 $2))
+                                                         $4)
+                                                [mj AnnRarrow $3] }
+
+-- See Note [Parsing ~]
 btype :: { LHsType RdrName }
-        : btype atype                   { sLL $1 $> $ HsAppTy $1 $2 }
+        : tyapps                      { sL1 $1 $ HsAppsTy (splitTildeApps (reverse (unLoc $1))) }
+
+-- Used for parsing Haskell98-style data constructors,
+-- in order to forbid the blasphemous
+-- > data Foo = Int :+ Char :* Bool
+-- See also Note [Parsing data constructors is hard].
+btype_no_ops :: { LHsType RdrName }
+        : btype_no_ops atype            { sLL $1 $> $ HsAppTy $1 $2 }
         | atype                         { $1 }
+
+tyapps :: { Located [LHsAppType RdrName] }   -- NB: This list is reversed
+        : tyapp                         { sL1 $1 [$1] }
+        | tyapps tyapp                  { sLL $1 $> $ $2 : (unLoc $1) }
+
+-- See Note [HsAppsTy] in HsTypes
+tyapp :: { LHsAppType RdrName }
+        : atype                         { sL1 $1 $ HsAppPrefix (unLoc $1) }
+        | qtyconop                      { sL1 $1 $ HsAppInfix (unLoc $1) }
+        | tyvarop                       { sL1 $1 $ HsAppInfix (unLoc $1) }
+        | SIMPLEQUOTE qconop            {% ams (sLL $1 $> $ HsAppInfix (unLoc $2))
+                                               [mj AnnSimpleQuote $1] }
+        | SIMPLEQUOTE varop             {% ams (sLL $1 $> $ HsAppInfix (unLoc $2))
+                                               [mj AnnSimpleQuote $1] }
 
 atype :: { LHsType RdrName }
         : ntgtycon                       { sL1 $1 (HsTyVar (unLoc $1)) }      -- Not including unit tuples
-        | '*'                            { sL1 $1 (HsTyVar (nameRdrName liftedTypeKindTyConName)) }
         | tyvar                          {% do { nwc <- namedWildCardsEnabled -- (See Note [Unit tuples])
                                                ; let tv@(Unqual name) = unLoc $1
                                                ; return $ if (startsWithUnderscore name && nwc)
@@ -1671,7 +1688,6 @@ atype :: { LHsType RdrName }
                                                                (getINTEGER $1) }
         | STRING               { sLL $1 $> $ HsTyLit $ HsStrTy (getSTRINGs $1)
                                                                (getSTRING  $1) }
-        | '*'                  { sL1 $1 $ HsTyVar (nameRdrName liftedTypeKindTyConName) }
         | '_'                  { sL1 $1 $ mkAnonWildCardTy }
 
 -- An inst_type is what occurs in the head of an instance decl
@@ -1836,7 +1852,7 @@ constrs1 :: { Located [LConDecl RdrName] }
         | constr                                          { sL1 $1 [$1] }
 
 constr :: { LConDecl RdrName }
-        : maybe_docnext forall context '=>' constr_stuff maybe_docprev
+        : maybe_docnext forall context_no_ops '=>' constr_stuff maybe_docprev
                 {% ams (let (con,details) = unLoc $5 in
                   addConDoc (L (comb4 $2 $3 $4 $5) (mkSimpleConDecl con
                                                    (snd $ unLoc $2) $3 details))
@@ -1855,16 +1871,17 @@ forall :: { Located ([AddAnn],[LHsTyVarBndr RdrName]) }
 
 constr_stuff :: { Located (Located RdrName, HsConDeclDetails RdrName) }
     -- see Note [Parsing data constructors is hard]
-        : btype                         {% splitCon $1 >>= return.sLL $1 $> }
-        | btype conop btype             {  sLL $1 $> ($2, InfixCon $1 $3) }
+        : btype_no_ops                         {% do { c <- splitCon (splitTilde $1)
+                                                     ; return $ sLL $1 $> c } }
+        | btype_no_ops conop btype_no_ops      {  sLL $1 $> ($2, InfixCon (splitTilde $1) $3) }
 
 {- Note [Parsing data constructors is hard]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We parse the constructor declaration
      C t1 t2
-as a btype (treating C as a type constructor) and then convert C to be
+as a btype_no_ops (treating C as a type constructor) and then convert C to be
 a data constructor.  Reason: it might continue like this:
-     C t1 t2 %: D Int
+     C t1 t2 :% D Int
 in which case C really would be a type constructor.  We can't resolve this
 ambiguity till we come across the constructor oprerator :% (or not, more usually)
 -}
