@@ -487,7 +487,7 @@ compatibleBranches (CoAxBranch { cab_lhs = lhs1, cab_rhs = rhs1 })
                    (CoAxBranch { cab_lhs = lhs2, cab_rhs = rhs2 })
   = case tcUnifyTysFG instanceBindFun lhs1 lhs2 of
       SurelyApart -> True
-      Unifiable (subst, _)
+      Unifiable subst
         | Type.substTy subst rhs1 `eqType` Type.substTy subst rhs2
         -> True
       _ -> False
@@ -646,9 +646,6 @@ we return the matching instance '(FamInst{.., fi_tycon = :R42T}, Int)'.
 data FamInstMatch = FamInstMatch { fim_instance :: FamInst
                                  , fim_tys      :: [Type]
                                  , fim_cos      :: [Coercion]
-                                 , fim_coercion :: Coercion
-                                   -- from the type requested to the type found
-                                   -- nominal role
                                  }
   -- See Note [Over-saturated matches]
 
@@ -856,8 +853,7 @@ Note [Family instance overlap conflicts]
 type MatchFun =  FamInst                -- The FamInst template
               -> TyVarSet -> [Type]     --   fi_tvs, fi_tys of that FamInst
               -> [Type]                 -- Target to match against
-              -> Maybe (TCvSubst, [Coercion])
-                                        -- args :: substed fi_tys ~N target
+              -> Maybe TCvSubst
 
 lookup_fam_inst_env'          -- The worker, local to this module
     :: MatchFun
@@ -879,15 +875,11 @@ lookup_fam_inst_env' match_fun ie fam match_tys
       = find rest
 
         -- Proper check
-      | Just ~(subst, cos) <- match_fun item (mkVarSet tpl_tvs) tpl_tys match_tys1
-             -- NB: lazy match; conflict-checking puts a panic there!
+      | Just subst <- match_fun item (mkVarSet tpl_tvs) tpl_tys match_tys1
       = (FamInstMatch { fim_instance = item
                       , fim_tys      = substTyVars subst tpl_tvs `chkAppend` match_tys2
                       , fim_cos      = ASSERT( all (isJust . lookupCoVar subst) tpl_cvs )
                                        substCoVars subst tpl_cvs
-                      , fim_coercion = mkTyConAppCo Nominal fam
-                                         (cos `chkAppend`
-                                          map mkNomReflCo match_tys2)
                       })
         : find rest
 
@@ -1012,20 +1004,17 @@ reduceTyFamApp_maybe envs role tc tys
        -- otherwise only type-synonym families
   , FamInstMatch { fim_instance = FamInst { fi_axiom = ax }
                  , fim_tys      = inst_tys
-                 , fim_cos      = inst_cos
-                 , fim_coercion = match_co } : _ <- lookupFamInstEnv envs tc tys
+                 , fim_cos      = inst_cos } : _ <- lookupFamInstEnv envs tc tys
       -- NB: Allow multiple matches because of compatible overlap
 
-  = let co = downgradeRole role Nominal match_co
-             `mkTransCo` mkUnbranchedAxInstCo role ax inst_tys inst_cos
+  = let co = mkUnbranchedAxInstCo role ax inst_tys inst_cos
         ty = pSnd (coercionKind co)
     in Just (co, ty)
 
   | Just ax <- isClosedSynFamilyTyConWithAxiom_maybe tc
-  , Just (ind, inst_tys, inst_cos, cos) <- chooseBranch ax tys
-  = let co     = downgradeRole role Nominal (mkTyConAppCo Nominal tc cos)
-                 `mkTransCo` mkAxInstCo role ax ind inst_tys inst_cos
-        ty     = pSnd (coercionKind co)
+  , Just (ind, inst_tys, inst_cos) <- chooseBranch ax tys
+  = let co = mkAxInstCo role ax ind inst_tys inst_cos
+        ty = pSnd (coercionKind co)
     in Just (co, ty)
 
   | Just ax           <- isBuiltInSynFamTyCon_maybe tc
@@ -1038,21 +1027,19 @@ reduceTyFamApp_maybe envs role tc tys
 
 -- The axiom can be oversaturated. (Closed families only.)
 chooseBranch :: CoAxiom Branched -> [Type]
-             -> Maybe (BranchIndex, [Type], [Coercion]  -- found match, with args
-                      , [Coercion])  -- relate requested types to LHS types
+             -> Maybe (BranchIndex, [Type], [Coercion])  -- found match, with args
 chooseBranch axiom tys
   = do { let num_pats = coAxiomNumPats axiom
              (target_tys, extra_tys) = splitAt num_pats tys
              branches = coAxiomBranches axiom
-       ; (ind, inst_tys, inst_cos, cos)
+       ; (ind, inst_tys, inst_cos)
            <- findBranch (fromBranches branches) target_tys
-       ; return ( ind, inst_tys `chkAppend` extra_tys, inst_cos
-                , cos `chkAppend` map mkNomReflCo extra_tys) }
+       ; return ( ind, inst_tys `chkAppend` extra_tys, inst_cos ) }
 
 -- The axiom must *not* be oversaturated
 findBranch :: [CoAxBranch]             -- branches to check
            -> [Type]                   -- target types
-           -> Maybe (BranchIndex, [Type], [Coercion], [Coercion])
+           -> Maybe (BranchIndex, [Type], [Coercion])
     -- coercions relate requested types to returned axiom LHS at role N
 findBranch branches target_tys
   = go 0 branches
@@ -1065,12 +1052,12 @@ findBranch branches target_tys
             -- See Note [Flattening] below
             flattened_target = flattenTys in_scope target_tys
         in case tcMatchTys (mkVarSet (tpl_tvs ++ tpl_cvs)) tpl_lhs target_tys of
-        Just (subst, cos) -- matching worked. now, check for apartness.
+        Just subst -- matching worked. now, check for apartness.
           |  apartnessCheck flattened_target branch
           -> -- matching worked & we're apart from all incompatible branches.
              -- success
              ASSERT( all (isJust . lookupCoVar subst) tpl_cvs )
-             Just (ind, substTyVars subst tpl_tvs, substCoVars subst tpl_cvs, cos)
+             Just (ind, substTyVars subst tpl_tvs, substCoVars subst tpl_cvs)
 
         -- failure. keep looking
         _ -> go (ind+1) rest

@@ -1808,7 +1808,7 @@ disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
                 ; disambigGroup default_tys group } }
   where
     try_group
-      | Just (subst, _) <- mb_subst
+      | Just subst <- mb_subst
       = do { lcl_env <- TcS.getLclEnv
            ; let loc = CtLoc { ctl_origin = GivenOrigin UnkSkol
                              , ctl_env    = lcl_env

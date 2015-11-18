@@ -16,7 +16,7 @@ module TcTyClsDecls (
         kcDataDefn, tcConDecls, dataDeclChecks, checkValidTyCon,
         tcFamTyPats, tcTyFamInstEqn, famTyConShape,
         tcAddTyFamInstCtxt, tcMkDataFamInstCtxt, tcAddDataFamInstCtxt,
-        wrongKindOfFamily, dataConCtxt, badDataConTyCon
+        wrongKindOfFamily, dataConCtxt
     ) where
 
 #include "HsVersions.h"
@@ -1506,9 +1506,9 @@ rejigConRes tmpl_tvs res_tmpl dc_tvs (ResTyGADT _ res_ty)
         --          z
         -- Existentials are the leftover type vars: [x,y]
         -- So we return ([a,b,z], [x,y], [a~(x,y),b~z], T [(x,y)] z z)
-  | Just (subst, _) <- ASSERT( isLiftedTypeKind (typeKind res_ty) )
-                       ASSERT( isLiftedTypeKind (typeKind res_tmpl) )
-                       tcMatchTy (mkVarSet tmpl_tvs) res_tmpl res_ty
+  | Just subst <- ASSERT( isLiftedTypeKind (typeKind res_ty) )
+                  ASSERT( isLiftedTypeKind (typeKind res_tmpl) )
+                  tcMatchTy (mkVarSet tmpl_tvs) res_tmpl res_ty
   = let (univ_tvs, raw_eqs, kind_subst) = mkGADTVars tmpl_tvs dc_tvs subst
         raw_ex_tvs = dc_tvs `minusList` univ_tvs
         (arg_subst, substed_ex_tvs)

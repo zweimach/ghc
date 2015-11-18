@@ -728,11 +728,7 @@ lookupInstEnv' ie vis_mods cls tys
       | instanceCantMatch rough_tcs mb_tcs
       = find ms us rest
 
-        -- The second return value from tcMatchTys is a coercion. This
-        -- will only be non-reflexive if a kind changes. But, every
-        -- fully-applied dictionary type is of kind Constraint, so we
-        -- don't worry about kind changes among individual type args.
-      | Just (subst, _) <- tcMatchTys tpl_tv_set tpl_tys tys
+      | Just subst <- tcMatchTys tpl_tv_set tpl_tys tys
       = find ((item, map (lookupTyVar subst) tpl_tvs) : ms) us rest
 
         -- Does not match, so next check whether the things unify

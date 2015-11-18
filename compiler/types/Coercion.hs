@@ -99,8 +99,7 @@ module Coercion (
         tidyCo, tidyCos,
 
         -- * Other
-        promoteCoercion,
-        buildCoherenceCo, buildCoherenceCoX
+        promoteCoercion
        ) where
 
 #include "HsVersions.h"
@@ -129,7 +128,7 @@ import Prelude hiding ( and )
 import Data.Traversable (traverse, sequenceA)
 import Data.Foldable ( and )
 #endif
-import Control.Monad (foldM, zipWithM)
+import Control.Monad (foldM)
 import FastString
 import Control.Arrow ( first )
 import Data.Function ( on )
@@ -1896,69 +1895,4 @@ So it's very important to do the substitution simultaneously.
 
 cf Type.applyTys (which in fact we call here)
 
-%************************************************************************
-%*                                                                      *
-             Building a coherence coercion
-%*                                                                      *
-%************************************************************************
 -}
-
--- | Finds a nominal coercion between two types, if the
--- erased version of those types are equal. Returns Nothing otherwise.
-buildCoherenceCo :: Type -> Type -> Maybe Coercion
-buildCoherenceCo orig_ty1 orig_ty2
-  = buildCoherenceCoX
-      (mkRnEnv2 (mkInScopeSet (tyCoVarsOfTypes [orig_ty1, orig_ty2])))
-      orig_ty1 orig_ty2
-
-buildCoherenceCoX :: RnEnv2 -> Type -> Type -> Maybe Coercion
-buildCoherenceCoX = go
-  where
-    go env ty1 ty2 | Just ty1' <- coreViewOneStarKind ty1 = go env ty1' ty2
-    go env ty1 ty2 | Just ty2' <- coreViewOneStarKind ty2 = go env ty1  ty2'
-
-    go env (TyVarTy tv1) (TyVarTy tv2)
-      | rnOccL env tv1 == rnOccR env tv2
-      = Just $ mkNomReflCo (mkTyVarTy $ rnOccL env tv1)
-    go env (AppTy tyl1 tyr1) (AppTy tyl2 tyr2)
-      = mkAppCo <$> go env tyl1 tyl2
-                <*> buildCoherenceCoX env tyr1 tyr2
-    go env (TyConApp tc1 tys1) (TyConApp tc2 tys2)
-      | tc1 == tc2
-      = mkTyConAppCo Nominal tc1 <$> zipWithM (buildCoherenceCoX env) tys1 tys2
-    go env (ForAllTy (Anon arg1) res1) (ForAllTy (Anon arg2) res2)
-      = mkFunCo Nominal <$> go env arg1 arg2 <*> go env res1 res2
-    go env (ForAllTy (Named tv1 _) ty1) (ForAllTy (Named tv2 _) ty2)
-      = do { (env', tv', kind_co') <- go_bndr env tv1 tv2
-           ; mkForAllCo tv' kind_co' <$> go env' ty1 ty2 }
-    go _   (LitTy lit1) (LitTy lit2)
-      | lit1 == lit2
-      = Just $ mkNomReflCo (LitTy lit1)
-    go env (CastTy ty1 co1) ty2
-      = mkCoherenceLeftCo <$> go env ty1 ty2 <*> pure (rename_co rnEnvL env co1)
-    go env ty1 (CastTy ty2 co2)
-      = mkCoherenceRightCo <$> go env ty1 ty2 <*> pure (rename_co rnEnvR env co2)
-    go env (CoercionTy co1) (CoercionTy co2)
-      = mkProofIrrelCo Nominal
-          <$> go env (coercionType co1) (coercionType co2)
-          <*> pure (rename_co rnEnvL env co1)
-          <*> pure (rename_co rnEnvR env co2)
-
-    go _ _ _ = Nothing
-
-    go_bndr env tv1 tv2
-      = do { eta <- go env k1 k2
-           ; let (env', tv') = rnBndr2_var env tv1 tv2
-           ; return (env', tv', eta) }
-      where
-        k1  = tyVarKind tv1
-        k2  = tyVarKind tv2
-
-rename_co :: (RnEnv2 -> VarEnv Var) -> RnEnv2 -> Coercion -> Coercion
-rename_co getvars env = substCo subst
-  where varenv = getvars env
-        (ty_env, co_env) = partitionVarEnv isTyVar varenv
-        tv_subst_env = mapVarEnv mkTyVarTy ty_env
-        cv_subst_env = mapVarEnv mkCoVarCo co_env
-
-        subst = mkTCvSubst (rnInScopeSet env) (tv_subst_env, cv_subst_env)

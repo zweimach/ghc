@@ -16,7 +16,6 @@ import VarSet
 import Type
 import InstEnv( DFunInstType, lookupInstEnv, instanceDFunId )
 import CoAxiom(sfInteractTop, sfInteractInert)
-import Coercion ( buildCoherenceCo )
 
 import Var
 import TcType
@@ -845,7 +844,7 @@ interactFunEq tclvl inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
       do { traceTcS "reactFunEq (discharge work item):" $
            vcat [ text "workItem =" <+> ppr workItem
                 , text "inertItem=" <+> ppr ev_i ]
-         ; reactFunEq tc ev_i args_i fsk_i ev args fsk
+         ; reactFunEq ev_i fsk_i ev fsk
          ; stopWith ev "Inert rewrites work item" }
     else  -- Rewrite inert using work-item
       ASSERT2( canDischarge tclvl ev ev_i, ppr ev $$ ppr ev_i )
@@ -855,7 +854,7 @@ interactFunEq tclvl inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
          ; updInertFunEqs $ \ feqs -> insertFunEq feqs tc args workItem
                -- Do the updInertFunEqs before the reactFunEq, so that
                -- we don't kick out the inertItem as well as consuming it!
-         ; reactFunEq tc ev args fsk ev_i args_i fsk_i
+         ; reactFunEq ev fsk ev_i fsk_i
          ; stopWith ev "Work item rewrites inert" }
 
   | otherwise   -- Try improvement
@@ -926,13 +925,13 @@ lookupFlattenTyVar model ftv
       Just (CTyEqCan { cc_rhs = rhs, cc_eq_rel = NomEq }) -> rhs
       _                                                   -> mkTyVarTy ftv
 
-reactFunEq :: TyCon   -- "F"
-           -> CtEvidence -> [TcType] -> TcTyVar    -- From this  :: F args1 ~ fsk1
-           -> CtEvidence -> [TcType] -> TcTyVar    -- Solve this :: F args2 ~ fsk2
+reactFunEq :: CtEvidence -> TcTyVar    -- From this  :: F args1 ~ fsk1
+           -> CtEvidence -> TcTyVar    -- Solve this :: F args2 ~ fsk2
            -> TcS ()
-reactFunEq fam_tc from_this args1 fsk1 solve_this args2 fsk2
+reactFunEq from_this fsk1 solve_this fsk2
   | CtGiven { ctev_evar = evar, ctev_loc = loc } <- solve_this
-  = do { let fsk_eq_co = mkSymCo (mkCoVarCo evar) `mkTransCo` co
+  = do { let fsk_eq_co = mkSymCo (mkCoVarCo evar) `mkTransCo`
+                         ctEvCoercion from_this
                          -- :: fsk2 ~ fsk1
              fsk_eq_pred = mkTcEqPredLikeEv solve_this
                              (mkTyVarTy fsk2) (mkTyVarTy fsk1)
@@ -943,20 +942,9 @@ reactFunEq fam_tc from_this args1 fsk1 solve_this args2 fsk2
   | otherwise
   = do { traceTcS "reactFunEq" (ppr from_this $$ ppr fsk1 $$
                                 ppr solve_this $$ ppr fsk2)
-       ; dischargeFmv solve_this fsk2 co (mkTyVarTy fsk1)
+       ; dischargeFmv solve_this fsk2 (ctEvCoercion from_this) (mkTyVarTy fsk1)
        ; traceTcS "reactFunEq done" (ppr from_this $$ ppr fsk1 $$
                                      ppr solve_this $$ ppr fsk2) }
-
-  where
-      -- this should always succeed b/c of correct lookup
-    coherence_cos = expectJust "reactFunEq" $
-                    zipWithM buildCoherenceCo args2 args1
-    middle_co = mkTyConAppCo Nominal fam_tc coherence_cos
-      -- middle_co :: F args2 ~ F args1
-    co = middle_co `mkTransCo` ctEvCoercion from_this
-      -- co :: F args2 ~ fsk1
-
-
 
 {-
 Note [Type inference for type families with injectivity]

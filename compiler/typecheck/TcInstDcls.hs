@@ -647,7 +647,7 @@ tcDataFamInstDecl mb_clsinfo
          -- Check that left-hand side contains no type family applications
          -- (vanilla synonyms are fine, though, and we checked for
          --  foralls earlier)
-       ; checkValidFamPats fam_tc tvs' cvs pats'
+       ; checkValidFamPats fam_tc tvs' [] pats'
          -- Check that type patterns match class instance head, if any
        ; checkConsistentFamInst mb_clsinfo fam_tc tvs' pats'
 

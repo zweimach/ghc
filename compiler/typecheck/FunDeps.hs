@@ -266,7 +266,7 @@ improveClsFD clas_tvs fd
 
     case tcMatchTys qtv_set ltys1 ltys2 of
         Nothing  -> []
-        Just (subst, _) | isJust (tcMatchTysX qtv_set subst rtys1 rtys2)
+        Just subst | isJust (tcMatchTysX qtv_set subst rtys1 rtys2)
                         -- Don't include any equations that already hold.
                         -- Reason: then we know if any actual improvement has happened,
                         --         in which case we need to iterate the solver
@@ -603,7 +603,7 @@ checkFunDeps inst_envs (ClsInst { is_tvs = qtvs1, is_cls = cls
       | otherwise
       = case tcUnifyTys bind_fn ltys1 ltys2 of
           Nothing         -> False
-          Just (subst, _)
+          Just subst
             -> isNothing $   -- Bogus legacy test (Trac #10675)
                              -- See Note [Bogus consistency check]
                tcUnifyTys bind_fn (substTys subst rtys1) (substTys subst rtys2)

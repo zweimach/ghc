@@ -32,9 +32,9 @@ import TyCon
 import TyCoRep hiding ( getTvSubstEnv, getCvSubstEnv )
 import Util
 import Pair
+import Outputable hiding (empty) -- "RAE"
 
 import Control.Monad
-import Maybes
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative ( Applicative(..), (<$>) )
 import Data.Traversable    ( traverse )
@@ -64,17 +64,6 @@ Unification is much tricker than you might think.
    bind x to a/b!  This is a kind of occurs check.
    The necessary locals accumulate in the RnEnv2.
 
-Note [Lazy coercions in Unify]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-After the internal matching algorithm is done running, we use
-buildCoherenceCo to create a coercion between the input and the output.
-
-This operation should always succeed after a successful match. But,
-many times, we just care if the match succeeded or not. (That is,
-many calls to tcMatchTy are wrapped in `isJust`). We don't want to
-build the coercion at all in this case. So, we're careful to be lazy
-in the return value from buildCoherenceCo.
-
 Note [Kind coercions in Unify]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 We wish to match/unify while ignoring casts. But, we can't just ignore
@@ -94,34 +83,26 @@ up, as all kinds are guaranteed to have kind *.
 -}
 
 -- | @tcMatchTy tys t1 t2@ produces a substitution (over a subset of
--- the variables @tys@) @s@ such that @s(t1)@ equals @t2@, as witnessed
--- by the returned coercion. That coercion will be reflexive whenever the
--- kinds of @s(t1)@ and @t2) are the same. The returned substitution might
+-- the variables @tys@) @s@ such that @s(t1)@ equals @t2@.
+-- The returned substitution might
 -- bind coercion variables, if the variable is an argument to a GADT
--- constructor. Returned coercion is nominal.
-tcMatchTy :: TyCoVarSet -> Type -> Type -> Maybe (TCvSubst, Coercion)
-tcMatchTy tmpls ty1 ty2
-    -- See Note [Lazy coercions in Unify]
-  = do { (subst, ~[co]) <- tcMatchTys tmpls [ty1] [ty2]
-       ; return (subst, co) }
+-- constructor.
+tcMatchTy :: TyCoVarSet -> Type -> Type -> Maybe TCvSubst
+tcMatchTy tmpls ty1 ty2 = tcMatchTys tmpls [ty1] [ty2]
 
 -- | This is similar to 'tcMatchTy', but extends a substitution
 tcMatchTyX :: TyCoVarSet          -- ^ Template tyvars
            -> TCvSubst            -- ^ Substitution to extend
            -> Type                -- ^ Template
            -> Type                -- ^ Target
-           -> Maybe (TCvSubst, Coercion)
-tcMatchTyX tmpls subst ty1 ty2
-    -- See Note [Lazy coercions in Unify]
-  = do { (subst, ~[co]) <- tcMatchTysX tmpls subst [ty1] [ty2]
-       ; return (subst, co) }
+           -> Maybe TCvSubst
+tcMatchTyX tmpls subst ty1 ty2 = tcMatchTysX tmpls subst [ty1] [ty2]
 
 -- | Like 'tcMatchTy' but over a list of types.
 tcMatchTys :: TyCoVarSet     -- ^ Template tyvars
            -> [Type]         -- ^ Template
            -> [Type]         -- ^ Target
-           -> Maybe (TCvSubst, [Coercion])
-                             -- ^ One-shot; in principle the template
+           -> Maybe TCvSubst -- ^ One-shot; in principle the template
                              -- variables could be free in the target
 tcMatchTys tmpls tys1 tys2
   = tcMatchTysX tmpls (mkEmptyTCvSubst in_scope) tys1 tys2
@@ -135,17 +116,13 @@ tcMatchTysX :: TyCoVarSet     -- ^ Template tyvars
             -> TCvSubst       -- ^ Substitution to extend
             -> [Type]         -- ^ Template
             -> [Type]         -- ^ Target
-            -> Maybe (TCvSubst, [Coercion])  -- ^ One-shot substitution
+            -> Maybe TCvSubst -- ^ One-shot substitution
 tcMatchTysX tmpls (TCvSubst in_scope tv_env cv_env) tys1 tys2
 -- See Note [Kind coercions in Unify]
   = case tc_unify_tys (matchBindFun tmpls) False
                       (mkRnEnv2 in_scope) tv_env cv_env tys1 tys2 of
       Unifiable (tv_env', cv_env')
-        -> let subst = TCvSubst in_scope tv_env' cv_env' in
-                                  -- See Note [Lazy coercions in Unify]
-                           Just (subst, map (expectJust "tcMatchTysX types") $
-                                        zipWith buildCoherenceCo
-                                                (substTys subst tys1) tys2)
+        -> Just $ TCvSubst in_scope tv_env' cv_env'
       _ -> Nothing
 
 -- | This one is called from the expression matcher,
@@ -161,13 +138,8 @@ ruleMatchTyX tmpl_tvs rn_env tenv tmpl target
 -- See Note [Kind coercions in Unify]
   = case tc_unify_tys (matchBindFun tmpl_tvs) False rn_env
                       tenv emptyCvSubstEnv [tmpl] [target] of
-      Unifiable (tenv', _)
-        | let subst = mkOpenTCvSubst tenv' emptyCvSubstEnv
-        , substTy subst tmpl `eqType` target  -- we want exact matching here
-        -> Just tenv'
-      _ -> Nothing
-     -- TODO (RAE): This should probably work with inexact matching too;
-     -- otherwise, various rules won't fire when they should
+      Unifiable (tenv', _) -> Just tenv'
+      _                    -> Nothing
 
 matchBindFun :: TyCoVarSet -> TyVar -> BindFlag
 matchBindFun tvs tv = if tv `elemVarSet` tvs then BindMe else Skolem
@@ -305,15 +277,11 @@ which can't tell the difference between MaybeApart and SurelyApart, so those
 usages won't notice this design choice.
 -}
 
--- always returns a nominal coercion
 tcUnifyTy :: Type -> Type       -- All tyvars are bindable
-          -> Maybe (TCvSubst, Coercion)
+          -> Maybe TCvSubst
                        -- A regular one-shot (idempotent) substitution
 -- Simple unification of two types; all type variables are bindable
-tcUnifyTy t1 t2
-   -- See Note [Lazy coercions in Unify]
-  = do { (subst, ~[co]) <- tcUnifyTys (const BindMe) [t1] [t2]
-       ; return (subst, co) }
+tcUnifyTy t1 t2 = tcUnifyTys (const BindMe) [t1] [t2]
 
 -- | Unify two types, treating type family applications as possibly unifying
 -- with anything and looking through injective type family applications.
@@ -339,7 +307,7 @@ tcUnifyTyWithTFs twoWay t1 t2
 -----------------
 tcUnifyTys :: (TyCoVar -> BindFlag)
            -> [Type] -> [Type]
-           -> Maybe (TCvSubst, [Coercion])
+           -> Maybe TCvSubst
                                 -- ^ A regular one-shot (idempotent) substitution
                                 -- that unifies the erased types. See comments
                                 -- for 'tcUnifyTysFG'
@@ -353,7 +321,7 @@ tcUnifyTys bind_fn tys1 tys2
 
 -- This type does double-duty. It is used in the UM (unifier monad) and to
 -- return the final result. See Note [Fine-grained unification]
-type UnifyResult = UnifyResultM (TCvSubst, [Coercion])
+type UnifyResult = UnifyResultM TCvSubst
 data UnifyResultM a = Unifiable a        -- the subst that unifies the types
                     | MaybeApart a       -- the subst has as much as we know
                                          -- it must be part of an most general unifier
@@ -397,11 +365,7 @@ tcUnifyTysFG :: (TyVar -> BindFlag)
 tcUnifyTysFG bind_fn tys1 tys2
   = do { (env, _) <- tc_unify_tys bind_fn True env emptyTvSubstEnv emptyCvSubstEnv
                                   tys1 tys2
-       ; let subst = niFixTCvSubst env
-       ; return (subst, map (expectJust "tcUnifyTysFG") $
-                        zipWith buildCoherenceCo
-                                (substTys subst tys1)
-                                (substTys subst tys2)) }
+       ; return $ niFixTCvSubst env }
   where
     vars = tyCoVarsOfTypes tys1 `unionVarSet` tyCoVarsOfTypes tys2
     env  = mkRnEnv2 $ mkInScopeSet vars
@@ -577,9 +541,11 @@ unify_ty ty1 (TyVarTy tv2) kco
 unify_ty ty1 ty2 _kco
   | Just (tc1, tys1) <- splitTyConApp_maybe ty1
   , Just (tc2, tys2) <- splitTyConApp_maybe ty2
-  = if tc1 == tc2 || (isStarKind ty1 && isStarKind ty2)
+  = pprTrace "RAE1" (ppr ty1 $$ ppr ty2 $$ ppr tc1 $$ ppr tc2 $$ ppr tys1 $$ ppr tys2) $
+    if tc1 == tc2 || (isStarKind ty1 && isStarKind ty2)
     then if isInjectiveTyCon tc1 Nominal
-         then unify_tys tys1 tys2
+         then pprTrace "RAE2" (ppr tys1 $$ ppr tys2) $
+              unify_tys tys1 tys2
          else let inj | isTypeFamilyTyCon tc1
                       = case familyTyConInjectivityInfo tc1 of
                           NotInjective -> repeat False
@@ -967,7 +933,7 @@ ty_co_match menv subst ty co lkco rkco
   -- handle Refl case:
   | tyCoVarsOfType ty `isNotInDomainOf` subst
   , Just (ty', _) <- isReflCo_maybe co
-  , Just _ <- buildCoherenceCoX (me_env menv) ty ty'
+  , ty `eqType` ty'
   = Just subst
 
   where
