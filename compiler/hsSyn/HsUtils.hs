@@ -50,9 +50,9 @@ module HsUtils(
   mkBigLHsVarTup, mkBigLHsTup, mkBigLHsVarPatTup, mkBigLHsPatTup,
 
   -- Types
-  mkHsAppTy, userHsTyVarBndrs,
+  mkHsAppTy, mkHsAppTys, userHsTyVarBndrs,
   nlHsAppTy, nlHsTyVar, nlHsFunTy, nlHsTyConApp,
-  getAppsTyHead_maybe, hsTyGetAppHead_maybe,
+  getAppsTyHead_maybe, hsTyGetAppHead_maybe, splitHsAppsTy,
 
   -- Stmts
   mkTransformStmt, mkTransformByStmt, mkBodyStmt, mkBindStmt, mkLastStmt,

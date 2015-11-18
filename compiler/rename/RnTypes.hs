@@ -187,7 +187,7 @@ rnHsTyKi isType doc ty@(HsOpTy ty1 l_op ty2)
         ; (ty1', fvs2) <- rnLHsType doc ty1
         ; (ty2', fvs3) <- rnLHsType doc ty2
         ; res_ty <- mkHsOpTyRn (\t1 t2 -> HsOpTy t1 l_op' t2)
-                               op' fix ty1' ty2'
+                               (unLoc l_op') fix ty1' ty2'
         ; return (res_ty, plusFVs [fvs1, fvs2, fvs3]) }
 
 rnHsTyKi isType doc (HsParTy ty)
@@ -260,36 +260,36 @@ rnHsTyKi isType doc overall_ty@(HsAppsTy tys)
          let (non_syms, syms) = splitHsAppsTy tys
 
              -- Step 2: rename the pieces
-       ; (syms1, fvs1)      <- mapFvRn (rnHsTyOp isType) syms
+       ; (syms1, fvs1)      <- mapFvRn (rnHsTyOp isType overall_ty) syms
        ; (non_syms1, fvs2)  <- (mapFvRn . mapFvRn) (rnLHsTyKi isType doc) non_syms
 
              -- Step 3: deal with *. See Note [Dealing with *]
-       ; let (non_syms2, syms2, fixes2) = deal_with_star [] [] [] non_syms1 syms1 fixes1
+       ; let (non_syms2, syms2) = deal_with_star [] [] non_syms1 syms1
 
              -- Step 4: collapse the non-symbol regions with HsAppTy
        ; non_syms3 <- mapM deal_with_non_syms non_syms2
 
              -- Step 5: assemble the pieces, using mkHsOpTyRn
-       ; res_ty <- build_res_ty non_syms3 syms2
+       ; L _ res_ty <- build_res_ty non_syms3 syms2
 
         -- all done. Phew.
        ; return (res_ty, fvs1 `plusFV` fvs2) }
   where
     -- See Note [Dealing with *]
-    deal_with_star :: [[LHsType Name]] -> [Located Name] -> [fixity]
-                   -> ([[LHsType Name]], [Located Name], [fixity])
-    deal_with_star acc1 acc2 acc3
-                   (non_syms1 : non_syms2 : non_syms) (L loc star : ops) (_ : fixes)
-      | star `hasKey` liftedTypeTyConKey
-      = deal_with_star acc1 acc2 acc3
+    deal_with_star :: [[LHsType Name]] -> [Located Name]
+                   -> [[LHsType Name]] -> [Located Name]
+                   -> ([[LHsType Name]], [Located Name])
+    deal_with_star acc1 acc2
+                   (non_syms1 : non_syms2 : non_syms) (L loc star : ops)
+      | star `hasKey` liftedTypeKindTyConKey
+      = deal_with_star acc1 acc2
                        ((non_syms1 ++ L loc (HsTyVar star) : non_syms2) : non_syms)
-                       ops fixes
-    deal_with_star acc1 acc2 acc3 (non_syms1 : non_syms) (op1 : ops) (fix1 : fixes)
-      = deal_with_star (non_syms1 : acc1) (op1 : acc2) (fix1 : acc3)
-                       non_syms ops fixes
-    deal_with_star acc1 acc2 acc3 [non_syms] [] []
-      = (reverse (non_syms : acc1), reverse acc2, reverse acc3)
-    deal_with_star _ _ _ _ _ _
+                       ops
+    deal_with_star acc1 acc2 (non_syms1 : non_syms) (op1 : ops)
+      = deal_with_star (non_syms1 : acc1) (op1 : acc2) non_syms ops
+    deal_with_star acc1 acc2 [non_syms] []
+      = (reverse (non_syms : acc1), reverse acc2)
+    deal_with_star _ _ _ _
       = pprPanic "deal_with_star" (ppr overall_ty)
 
     -- collapse [LHsType Name] to LHsType Name by making applications
@@ -303,7 +303,11 @@ rnHsTyKi isType doc overall_ty@(HsAppsTy tys)
     build_res_ty (arg1 : args) (op1 : ops)
       = do { rhs <- build_res_ty args ops
            ; fix <- lookupTyFixityRn op1
-           ; mkHsOpTyRn (\t1 t2 -> HsOpTy t1 op1 t2) (unLoc op1) fix arg1 rhs }
+           ; res <-
+               mkHsOpTyRn (\t1 t2 -> HsOpTy t1 op1 t2) (unLoc op1) fix arg1 rhs
+           ; let loc = combineSrcSpans (getLoc arg1) (getLoc rhs)
+           ; return (L loc res)
+           }
     build_res_ty [arg] [] = return arg
     build_res_ty _ _ = pprPanic "build_op_ty" (ppr overall_ty)
 
@@ -709,8 +713,8 @@ collectWildCards lty = (extra, nubBy sameNamedWildCard wcs)
       _ -> mempty
     gos = mconcat . map go
 
-    prefix_types_only (HsAppPrefix ty) = Just ty
-    prefix_types_only (HsAppInfix _)   = Nothing
+    prefix_types_only (L loc (HsAppPrefix ty)) = Just (L loc ty)
+    prefix_types_only (L _   (HsAppInfix _))   = Nothing
 
 -- | Check the validity of a partial type signature. The following things are
 -- checked:
@@ -1288,7 +1292,7 @@ extract_lty (L _ ty) acc
       HsBangTy _ ty             -> extract_lty ty acc
       HsRecTy flds              -> foldr (extract_lty . cd_fld_type . unLoc) acc
                                          flds
-      HsAppsTy tys              -> extract_apps tys
+      HsAppsTy tys              -> extract_apps tys acc
       HsAppTy ty1 ty2           -> extract_lty ty1 (extract_lty ty2 acc)
       HsListTy ty               -> extract_lty ty acc
       HsPArrTy ty               -> extract_lty ty acc
