@@ -1914,8 +1914,7 @@ checkFieldCompat fld con1 con2 tvs1 res1 res2 fty1 fty2
         ; checkTc (isJust mb_subst2) (fieldTypeMisMatch fld con1 con2) }
   where
     mb_subst1 = tcMatchTy tvs1 res1 res2
-    mb_subst2 = tcMatchTyX tvs1 (fst $
-                                 expectJust "checkFieldCompat" mb_subst1) fty1 fty2
+    mb_subst2 = tcMatchTyX tvs1 (expectJust "checkFieldCompat" mb_subst1) fty1 fty2
 
 -------------------------------
 checkValidDataCon :: DynFlags -> Bool -> TyCon -> DataCon -> TcM ()

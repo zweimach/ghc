@@ -119,10 +119,12 @@ tcMatchTysX :: TyCoVarSet     -- ^ Template tyvars
             -> Maybe TCvSubst -- ^ One-shot substitution
 tcMatchTysX tmpls (TCvSubst in_scope tv_env cv_env) tys1 tys2
 -- See Note [Kind coercions in Unify]
-  = case tc_unify_tys (matchBindFun tmpls) False
+  = pprTrace "RAE3 tcMatchTysX {" (ppr tys1 $$ ppr tys2 $$ ppr tmpls) $
+    case tc_unify_tys (matchBindFun tmpls) False
                       (mkRnEnv2 in_scope) tv_env cv_env tys1 tys2 of
       Unifiable (tv_env', cv_env')
-        -> Just $ TCvSubst in_scope tv_env' cv_env'
+        -> pprTraceIt "RAE4 tcMatchTysX }" $
+           Just $ TCvSubst in_scope tv_env' cv_env'
       _ -> Nothing
 
 -- | This one is called from the expression matcher,
@@ -363,9 +365,11 @@ tcUnifyTysFG :: (TyVar -> BindFlag)
              -> [Type] -> [Type]
              -> UnifyResult
 tcUnifyTysFG bind_fn tys1 tys2
-  = do { (env, _) <- tc_unify_tys bind_fn True env emptyTvSubstEnv emptyCvSubstEnv
+  = pprTrace "RAEc {" (ppr tys1 $$ ppr tys2) $
+    do { (env, _) <- tc_unify_tys bind_fn True env emptyTvSubstEnv emptyCvSubstEnv
                                   tys1 tys2
-       ; return $ niFixTCvSubst env }
+       ; pprTrace "RAEc }" (ppr tys1 $$ ppr tys2 $$ ppr env) $
+         return $ niFixTCvSubst env }
   where
     vars = tyCoVarsOfTypes tys1 `unionVarSet` tyCoVarsOfTypes tys2
     env  = mkRnEnv2 $ mkInScopeSet vars
@@ -642,16 +646,19 @@ uVar :: TyVar           -- Variable to be unified
      -> UM ()
 
 uVar tv1 ty kco
- = do { -- Check to see whether tv1 is refined by the substitution
+ = pprTrace "RAE5" (ppr tv1 $$ ppr ty) $
+   do { -- Check to see whether tv1 is refined by the substitution
         subst <- getTvSubstEnv
       ; case (lookupVarEnv subst tv1) of
           Just ty' -> do { unif <- amIUnifying
                          ; if unif
-                           then unify_ty ty' ty kco   -- Yes, call back into unify
+                           then pprTrace "RAE6" (ppr ty') $
+                                unify_ty ty' ty kco   -- Yes, call back into unify
                            else -- when *matching*, we don't want to just recur here.
                                 -- this is because the range of the subst is the target
                                 -- type, not the template type. So, just check for
                                 -- normal type equality.
+                                pprTrace "RAE7" (char '.') $
                                 guard (ty' `eqType` ty) }
           Nothing  -> uUnrefined tv1 ty ty kco } -- No, continue
 
@@ -671,7 +678,8 @@ uUnrefined tv1 ty2 ty2' kco
                 -- and then unify a ~ Foo a
 
   | TyVarTy tv2 <- ty2'
-  = do { tv1' <- umRnOccL tv1
+  = pprTrace "RAE8" (ppr tv1 $$ ppr ty2 $$ ppr ty2' $$ ppr tv2) $
+    do { tv1' <- umRnOccL tv1
        ; tv2' <- umRnOccR tv2
        ; unif <- amIUnifying
            -- See Note [Self-substitution when matching]
@@ -689,17 +697,21 @@ uUnrefined tv1 ty2 ty2' kco
        ; b2 <- tvBindFlag tv2
        ; let ty1 = mkTyVarTy tv1
        ; case (b1, b2) of
-           (BindMe, _)        -> do { checkRnEnvR ty2 -- make sure ty2 is not a local
+           (BindMe, _)        -> pprTrace "RAE9a" (char '.') $
+                                 do { checkRnEnvR ty2 -- make sure ty2 is not a local
                                     ; extendTvEnv tv1 (ty2 `mkCastTy` mkSymCo kco) }
-           (_, BindMe) | unif -> do { checkRnEnvL ty1 -- ditto for ty1
+           (_, BindMe) | unif -> pprTrace "RAE9b" (char '.') $
+                                 do { checkRnEnvL ty1 -- ditto for ty1
                                     ; extendTvEnv tv2 (ty1 `mkCastTy` kco) }
-           _ -> maybeApart -- See Note [Unification with skolems]
+           _ -> pprTrace "RAE9c" (char '.') $
+                maybeApart -- See Note [Unification with skolems]
   }}}}
 
 uUnrefined tv1 ty2 ty2' kco -- ty2 is not a type variable
   = do { occurs <- elemNiSubstSet tv1 (tyCoVarsOfType ty2')
        ; unif   <- amIUnifying
-       ; if unif && occurs  -- See Note [Self-substitution when matching]
+       ; pprTrace "RAE10" (ppr tv1 $$ ppr ty2 $$ ppr ty2' $$ ppr occurs $$ ppr unif) $
+         if unif && occurs  -- See Note [Self-substitution when matching]
          then maybeApart       -- Occurs check, see Note [Fine-grained unification]
          else do bindTv tv1 (ty2 `mkCastTy` mkSymCo kco) }
             -- Bind tyvar to the synonym if poss
@@ -711,11 +723,15 @@ elemNiSubstSet v set
 
 bindTv :: TyVar -> Type -> UM ()
 bindTv tv ty    -- ty is not a variable
-  = do  { checkRnEnvR ty -- make sure ty mentions no local variables
-        ; b <- tvBindFlag tv
+  = do  { pprTrace "RAE11" (ppr tv $$ ppr ty) $
+          checkRnEnvR ty -- make sure ty mentions no local variables
+        ; b <- pprTrace "RAE12" (ppr tv $$ ppr ty) $
+               tvBindFlag tv
         ; case b of
-            Skolem -> maybeApart  -- See Note [Unification with skolems]
-            BindMe -> extendTvEnv tv ty
+            Skolem -> pprTrace "RAE13" (ppr tv $$ ppr ty) $
+                      maybeApart  -- See Note [Unification with skolems]
+            BindMe -> pprTrace "RAE14" (ppr tv $$ ppr ty) $
+                      extendTvEnv tv ty
         }
 
 {-

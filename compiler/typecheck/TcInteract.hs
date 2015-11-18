@@ -38,7 +38,6 @@ import Outputable
 import TcRnTypes
 import TcSMonad
 import Bag
-import Maybes  ( expectJust )
 import MonadUtils ( concatMapM )
 
 import Data.List( partition, foldl', deleteFirstsBy )
@@ -836,8 +835,7 @@ interactFunEq :: TcLevel -> InertCans -> Ct -> TcS (StopOrContinue Ct)
 -- Try interacting the work item with the inert set
 interactFunEq tclvl inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
                                                , cc_tyargs = args, cc_fsk = fsk })
-  | Just (CFunEqCan { cc_tyargs = args_i
-                    , cc_ev = ev_i
+  | Just (CFunEqCan { cc_ev = ev_i
                     , cc_fsk = fsk_i }) <- matching_inerts
   = if canDischarge tclvl ev_i ev
     then  -- Rewrite work-item using inert

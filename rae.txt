@@ -5,9 +5,6 @@ stack:
             invisibles. This should provide a lexicographical ordering that's
 	    still well-founded.
 
-- I think we can ditch the coherence coercion produced by unification.
-  But check.
-
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work
 
@@ -24,31 +21,14 @@ TICKETS:
 #7961: main ticket.
 
 QUESTIONS:
-- Check decideQuantification!
-
-- Is it useful to keep vanilla skolems separate from ordinary tyvars? I think
-not.
-
-- Is the whole analyzeType thing paying its weight? Not sure. Antal thinks so.
-Perhaps using RecordWildCards for the construction of TypeAnalysis would ease
-some syntax annoyance. Anyway, keeping for now. If reverting, look for commits
-mentioning "reducing" and "TyCoRep"
-
 - Should TYPE / Levity / Lifted / Unlifted be in the Prelude? If not,
 how to deal with :info, which suppresses output that mentions un-imported things.
 Current sol'n: make these things BuiltInSyntax.
-- Deferred type errors seems to be working with unlifted equality. WHAT?!?
-
-- No anonymous dependent binders in case alternative patterns.
 
 - think about induction recursion
 - TH will need some updating -- in particular, its treatment of quantification
   over kinds (quantification forbidden) and types (quantification required)
   is problematic.
-
-- vectoriser code uses dataConRepArgTys. This value changed for Eq#, whose argument
-changed from a proper arg to an existential covar arg. Does this matter?
-(Other uses of dataConRepArgTys are OK.)
 
 - Writing a bogus GADT return type causes a panic. The problem is that
 checkValidDataCon is supposed to check if rejigConRes was valid. To do
@@ -66,21 +46,13 @@ fix:
 
   - pattern synonyms
 
-  - consider changing tcs_unified back to be a count instead of a varset
-
-  - I think simplifyRule can be simplified once we fix covars.
-
   - break out NthCo into ForAllKindCo
   - change optCoercion to take a Role hint (or perhaps a Maybe Role)
 
   - implement better dependency checking
   - implement StarInStar (or other name) extension
 
-  - implement constrained instances in source
-
   - See tag hetero-twiddle.
-
-  - See #10782. Depending on the answer, we may need to add covars, too.
 
   - Every time tcExtendTyVarEnv{,2} is called, make sure an implication
     constraint with skolem info is also produced. This currently seems to
@@ -105,9 +77,6 @@ fix:
 
   - Make sure coercions in types get optimised, too.
 
-  - I think we can remove TcCoercions, by adding a new EvTerm that contains
-    a TcEvBinds for local assumptions. The only point of TcCoercions is
-    TcLetCo, and I think this can be subsumed.
   - look for uses of eqType. The typechecker should really stick to tcEqType!
     BUT: consider making Constraint ~R *. Then, tcEqType & eqType are the same.
   - when -fprint-explicit-coercions is on, make sure to print any types

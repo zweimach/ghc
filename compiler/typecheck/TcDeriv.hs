@@ -804,7 +804,7 @@ mkEqnHelp overlap_mode tvs cls cls_tys tycon tc_args mtheta
   = do {      -- Find the instance of a data family
               -- Note [Looking up family instances for deriving]
          fam_envs <- tcGetFamInstEnvs
-       ; let (rep_tc, rep_tc_args, rep_co) = tcLookupDataFamInst fam_envs tycon tc_args
+       ; let (rep_tc, rep_tc_args, _co) = tcLookupDataFamInst fam_envs tycon tc_args
               -- If it's still a data family, the lookup failed; i.e no instance exists
        ; when (isDataFamilyTyCon rep_tc)
               (bale_out (ptext (sLit "No family instance for") <+> quotes (pprTypeApp tycon tc_args)))
