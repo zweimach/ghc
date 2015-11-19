@@ -1,7 +1,7 @@
 
-tc211.hs:17:8:
+tc211.hs:17:8: error:
     Couldn't match expected type ‘forall a. a -> a’
-                with actual type ‘_a2 -> _a2’
+                with actual type ‘a2 -> a2’
     In the expression:
         (:) ::
           (forall a. a -> a) -> [forall a. a -> a] -> [forall a. a -> a]
@@ -10,19 +10,19 @@ tc211.hs:17:8:
          (forall a. a -> a) -> [forall a. a -> a] -> [forall a. a -> a])
         (head foo) foo
 
-tc211.hs:18:22:
-    Couldn't match type ‘forall a1. a1 -> a1’ with ‘a -> a’
-    Expected type: [a -> a]
-      Actual type: [forall a. a -> a]
+tc211.hs:18:22: error:
+    Couldn't match type ‘forall a3. a3 -> a3’ with ‘a -> a’
+       Expected type: [a -> a]
+         Actual type: [forall a. a -> a]
     In the first argument of ‘head’, namely ‘foo’
     In the first argument of ‘(:) ::
                                 (forall a. a -> a)
                                 -> [forall a. a -> a] -> [forall a. a -> a]’, namely
       ‘(head foo)’
 
-tc211.hs:59:18:
+tc211.hs:59:18: error:
     Couldn't match expected type ‘forall a. a -> a’
-                with actual type ‘_a1 -> _a1’
+                with actual type ‘a1 -> a1’
     In the expression:
         Cons ::
           (forall a. a -> a)
@@ -33,9 +33,9 @@ tc211.hs:59:18:
               (forall a. a -> a)
               -> List (forall a. a -> a) -> List (forall a. a -> a)
 
-tc211.hs:65:8:
+tc211.hs:65:8: error:
     Couldn't match expected type ‘forall a. a -> a’
-                with actual type ‘_a -> _a’
+                with actual type ‘a0 -> a0’
     In the expression:
         Cons ::
           (forall a. a -> a)
@@ -46,11 +46,11 @@ tc211.hs:65:8:
          -> List (forall a. a -> a) -> List (forall a. a -> a))
         (\ x -> x) Nil
 
-tc211.hs:73:9:
-    Couldn't match type ‘forall a1. a1 -> a1’ with ‘a -> a’
-    Expected type: List (forall a1. a1 -> a1)
-                   -> (forall a1. a1 -> a1) -> a -> a
-      Actual type: List (a -> a) -> (a -> a) -> a -> a
+tc211.hs:73:9: error:
+    Couldn't match type ‘forall a4. a4 -> a4’ with ‘a3 -> a3’
+       Expected type: List (forall a. a -> a)
+                      -> (forall a. a -> a) -> a3 -> a3
+         Actual type: List (a3 -> a3) -> (a3 -> a3) -> a3 -> a3
     In the expression:
         foo2 ::
           List (forall a. a -> a) -> (forall a. a -> a) -> (forall a. a -> a)

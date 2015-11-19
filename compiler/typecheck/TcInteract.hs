@@ -20,8 +20,10 @@ import CoAxiom(sfInteractTop, sfInteractInert)
 import Var
 import TcType
 import PrelNames ( knownNatClassName, knownSymbolClassName,
-                   callStackTyConKey, typeableClassName, coercibleTyConKey )
-import TysWiredIn ( ipClass, typeNatKind, typeSymbolKind, coercibleDataCon )
+                   callStackTyConKey, typeableClassName, coercibleTyConKey,
+                   eqTyConKey )
+import TysWiredIn ( ipClass, typeNatKind, typeSymbolKind, coercibleDataCon,
+                    eqBoxDataCon )
 import Id( idType )
 import CoAxiom ( Eqn, CoAxiom(..), CoAxBranch(..), fromBranches )
 import Class
@@ -1827,12 +1829,16 @@ match_class_inst _ _ clas [k,t] _
   | className clas == typeableClassName
   = matchTypeableClass clas k t
 
- -- NB: Check for Coercible, but we don't need to check for (~).
- -- See Note [Handling boxed equality] in Inst.
 match_class_inst _ _ clas args@[k1, k2, ty1, ty2] _
   | clas `hasKey` coercibleTyConKey
   = return (GenInst { lir_new_theta = [ mkHeteroReprPrimEqPred k1 k2 ty1 ty2 ]
                     , lir_mk_ev     = EvDFunApp (dataConWrapId coercibleDataCon)
+                                                args
+                    , lir_safe_over = True })
+
+  | clas `hasKey` eqTyConKey
+  = return (GenInst { lir_new_theta = [ mkHeteroPrimEqPred k1 k2 ty1 ty2 ]
+                    , lir_mk_ev     = EvDFunApp (dataConWrapId eqBoxDataCon)
                                                 args
                     , lir_safe_over = True })
 

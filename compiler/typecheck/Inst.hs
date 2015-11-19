@@ -190,9 +190,6 @@ we are calling `foo :: forall a. (F a ~ Bool) => ...`? That equality
 is boxed, so naive treatment here would emit a boxed Wanted equality.
 
 So we simply check for this case and make the right boxing of evidence.
-But NB: there is no similar check in the bowels of the solver. This
-is the *only* place where boxed equality is dealt with. So it's not
-a short-cut in this case.
 
 -}
 
@@ -222,11 +219,11 @@ instCallConstraints orig preds
        ; return (mkWpEvApps evs) }
   where
     go pred
-     | Just (Nominal, ty1, ty2) <- getEqPredTys_maybe pred -- Try short-cut
+     | Just (Nominal, ty1, ty2) <- getEqPredTys_maybe pred -- Try short-cut #1
      = do  { co <- unifyType noThing ty1 ty2
            ; return (EvCoercion co) }
 
-       -- See Note [Handling boxed equality]. This is *not* a short-cut.
+       -- Try short-cut #2
      | Just (tc, args@[_, _, ty1, ty2]) <- splitTyConApp_maybe pred
      , tc `hasKey` eqTyConKey
      = do { co <- unifyType noThing ty1 ty2

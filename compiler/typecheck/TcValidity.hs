@@ -654,10 +654,12 @@ check_pred_help under_syn env dflags ctxt pred
       Just (tc, tys)
         | isTupleTyCon tc
         -> check_tuple_pred under_syn env dflags ctxt pred tys
-        | Just cls <- tyConClass_maybe tc
-        -> check_class_pred env dflags ctxt pred cls tys  -- Includes Coercible
+           -- NB: this equality check must come first, because (~) is a class,
+           -- too.
         | tc `hasKey` eqTyConKey || tc `hasKey` eqPrimTyConKey
         -> check_eq_pred env dflags pred tys
+        | Just cls <- tyConClass_maybe tc
+        -> check_class_pred env dflags ctxt pred cls tys  -- Includes Coercible
       _ -> check_irred_pred under_syn env dflags ctxt pred
 
 check_eq_pred :: TidyEnv -> DynFlags -> PredType -> [TcType] -> TcM ()
@@ -1076,8 +1078,8 @@ checkInstTermination tys theta
          EqPred {}    -> return ()  -- See Trac #4200.
          IrredPred {} -> check2 pred (sizeType pred)
          ClassPred cls tys
-           | isIPClass cls
-           -> return ()  -- You can't get to class predicates from implicit params
+           | isTerminatingClass cls
+           -> return ()
 
            | isCTupleClass cls  -- Look inside tuple predicates; Trac #8359
            -> check_preds tys
@@ -1497,16 +1499,11 @@ fvProv (ProofIrrelProv co) = fvCo co
 fvProv (PluginProv _)      = []
 fvProv (HoleProv h)        = pprPanic "fvProv falls into a hole" (ppr h)
 
--- TODO (RAE): This filterOutInvisibleTypes (and others in this file) are very
--- suspect in termination checks. For example, consider
---   instance Typeable * a => Data (Fixed a)
--- size (Fixed a) == size(*, a), which is problematic. But we don't want to
--- require UndecidableInstances here. What to do??
 sizeType :: Type -> Int
 -- Size of a type: the number of variables and constructors
 sizeType ty | Just exp_ty <- tcView ty = sizeType exp_ty
 sizeType (TyVarTy {})      = 1
-sizeType (TyConApp tc tys) = sizeTypes (filterOutInvisibleTypes tc tys) + 1
+sizeType (TyConApp _ tys)  = sizeTypes tys + 1
 sizeType (LitTy {})        = 1
 sizeType (AppTy fun arg)   = sizeType fun + sizeType arg
 sizeType (ForAllTy (Anon arg) res)
@@ -1531,13 +1528,23 @@ sizeTypes = sum . map sizeType
 sizePred :: PredType -> Int
 sizePred ty = goClass ty
   where
-    goClass p | isIPPred p = 0
-              | otherwise  = go (classifyPredType p)
+    goClass p = go (classifyPredType p)
 
     go (ClassPred cls tys')
-      = sizeTypes (filterOutInvisibleTypes (classTyCon cls) tys')
+      | isTerminatingClass cls = 0
+      | otherwise              = sizeTypes tys'
     go (EqPred {})        = 0
     go (IrredPred ty)     = sizeType ty
+
+-- | When this says "True", ignore this class constraint during
+-- a termination check
+isTerminatingClass :: Class -> Bool
+isTerminatingClass cls
+  = isIPClass cls
+    || cls `hasKey` typeableClassKey
+    || cls `hasKey` coercibleTyConKey
+    || cls `hasKey` eqTyConKey
+
 
 -- | Tidy before printing a type
 ppr_tidy :: TidyEnv -> Type -> SDoc
