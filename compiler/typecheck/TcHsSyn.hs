@@ -874,8 +874,6 @@ zonkCoFn env (WpEvLam ev)   = do { (env', ev') <- zonkEvBndrX env ev
                                  ; return (env', WpEvLam ev') }
 zonkCoFn env (WpEvApp arg)  = do { arg' <- zonkEvTerm env arg
                                  ; return (env, WpEvApp arg') }
-zonkCoFn env (WpEvPrimApp co) = do { co' <- zonkCoToCo env co
-                                   ; return (env, WpEvPrimApp co') }
 zonkCoFn env (WpTyLam tv)   = ASSERT( isImmutableTyVar tv )
                               do { (env', tv') <- zonkTyBndrX env tv
                                  ; return (env', WpTyLam tv') }
@@ -1382,7 +1380,7 @@ zonkEvBind env bind@(EvBind { eb_lhs = var, eb_rhs = term })
          -- [Small optimization in zonking]
 {-
        ; term <- case getEqPredTys_maybe (idType var') of
-           Just (_, r, ty1, ty2) | ty1 `eqType` ty2
+           Just (r, ty1, ty2) | ty1 `eqType` ty2
                   -> return (EvCoercion (mkReflCo r ty1))
            _other -> do  -}
        ; term' <- zonkEvTerm env term

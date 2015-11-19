@@ -37,7 +37,7 @@ module Id (
         mkUserLocal, mkUserLocalCoVar, mkUserLocalOrCoVar,
         mkDerivedLocalCoVarM,
         mkTemplateLocals, mkTemplateLocalsNum, mkTemplateLocal,
-        mkWorkerId, mkWiredInIdName,
+        mkWorkerId,
 
         -- ** Taking an Id apart
         idName, idType, idUnique, idInfo, idDetails, idRepArity,
@@ -330,10 +330,6 @@ mkDerivedLocalCoVarM deriv_name id ty
       do { uniq <- getUniqueM
          ; let name = mkDerivedInternalName deriv_name uniq (getName id)
          ; return (mkLocalCoVar name ty) }
-
-mkWiredInIdName :: Module -> FastString -> Unique -> Id -> Name
-mkWiredInIdName mod fs uniq id
- = mkWiredInName mod (mkOccNameFS varName fs) uniq (AnId id) UserSyntax
 
 {-
 Make some local @Ids@ for a template @CoreExpr@.  These have bogus

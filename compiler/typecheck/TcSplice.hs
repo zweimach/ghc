@@ -71,6 +71,7 @@ import FamInstEnv
 import InstEnv
 import NameEnv
 import PrelNames
+import TysWiredIn
 import OccName
 import Hooks
 import Var
@@ -1462,15 +1463,16 @@ reify_tc_app tc tys
     arity   = tyConArity tc
     tc_kind = tyConKind tc
 
-    r_tc | isTupleTyCon tc            = if isPromotedDataCon tc
-                                        then TH.PromotedTupleT arity
-                                        else TH.TupleT arity
-         | tc `hasKey` listTyConKey   = TH.ListT
-         | tc `hasKey` nilDataConKey  = TH.PromotedNilT
-         | tc `hasKey` consDataConKey = TH.PromotedConsT
-         | tc `hasKey` eqTyConKey     = TH.EqualityT
-          -- TODO (RAE): Deal with unlifted equalities around here somewhere.
-         | otherwise                  = TH.ConT (reifyName tc)
+    r_tc | isTupleTyCon tc                = if isPromotedDataCon tc
+                                            then TH.PromotedTupleT arity
+                                            else TH.TupleT arity
+         | tc `hasKey` listTyConKey       = TH.ListT
+         | tc `hasKey` nilDataConKey      = TH.PromotedNilT
+         | tc `hasKey` consDataConKey     = TH.PromotedConsT
+         | tc `hasKey` eqTyConKey         = TH.EqualityT
+         | tc `hasKey` eqPrimTyConKey     = TH.EqualityT
+         | tc `hasKey` eqReprPrimTyConKey = TH.ConT (reifyName coercibleTyCon)
+         | otherwise                      = TH.ConT (reifyName tc)
 
     -- See Note [Kind annotations on TyConApps]
     maybe_sig_t th_type

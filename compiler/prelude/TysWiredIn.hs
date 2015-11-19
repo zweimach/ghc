@@ -77,7 +77,7 @@ module TysWiredIn (
         parrTyCon_RDR, parrTyConName,
 
         -- * Equality predicates
-        eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxDataCon,
+        eqTyCon_RDR, eqTyCon, eqTyConName, eqBoxClass, eqBoxDataCon,
         coercibleTyCon, coercibleDataCon, coercibleClass,
 
         -- * Implicit Parameters
@@ -87,6 +87,8 @@ module TysWiredIn (
 
         mkWiredInTyConName, -- This is used in TcTypeNats to define the
                             -- built-in functions for evaluation.
+
+        mkWiredInIdName,    -- used in MkId
 
         -- * Levity
         levityTy, levityTyCon, liftedDataCon, unliftedDataCon,
@@ -99,7 +101,7 @@ module TysWiredIn (
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} MkId( mkDataConWorkId )
+import {-# SOURCE #-} MkId( mkDataConWorkId, mkDictSelId )
 
 -- friends:
 import PrelNames
@@ -207,15 +209,21 @@ mkWiredInCoAxiomName built_in modu fs unique ax
                   (ACoAxiom ax)        -- Relevant CoAxiom
                   built_in
 
--- See Note [Kind-changing of (~) and Coercible] in libraries/ghc-prim/GHC/Types.hs
-eqTyConName, eqBoxDataConName :: Name
-eqTyConName      = mkWiredInTyConName   BuiltInSyntax gHC_TYPES (fsLit "~")   eqTyConKey      eqTyCon
-eqBoxDataConName = mkWiredInDataConName UserSyntax    gHC_TYPES (fsLit "Eq#") eqBoxDataConKey eqBoxDataCon
+mkWiredInIdName :: Module -> FastString -> Unique -> Id -> Name
+mkWiredInIdName mod fs uniq id
+ = mkWiredInName mod (mkOccNameFS Name.varName fs) uniq (AnId id) UserSyntax
 
 -- See Note [Kind-changing of (~) and Coercible] in libraries/ghc-prim/GHC/Types.hs
-coercibleTyConName, coercibleDataConName :: Name
+eqTyConName, eqBoxDataConName, eqSCSelIdName :: Name
+eqTyConName      = mkWiredInTyConName   BuiltInSyntax gHC_TYPES (fsLit "~")   eqTyConKey      eqTyCon
+eqBoxDataConName = mkWiredInDataConName UserSyntax    gHC_TYPES (fsLit "Eq#") eqBoxDataConKey eqBoxDataCon
+eqSCSelIdName    = mkWiredInIdName gHC_TYPES (fsLit "Eq_sc") eqSCSelIdKey eqSCSelId
+
+-- See Note [Kind-changing of (~) and Coercible] in libraries/ghc-prim/GHC/Types.hs
+coercibleTyConName, coercibleDataConName, coercibleSCSelIdName :: Name
 coercibleTyConName   = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Coercible")  coercibleTyConKey   coercibleTyCon
 coercibleDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "MkCoercible") coercibleDataConKey coercibleDataCon
+coercibleSCSelIdName = mkWiredInIdName gHC_TYPES (fsLit "Coercible_sc") coercibleSCSelIdKey coercibleSCSelId
 
 charTyConName, charDataConName, intTyConName, intDataConName :: Name
 charTyConName     = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Char") charTyConKey charTyCon
@@ -604,17 +612,18 @@ unboxedUnitDataCon = tupleDataCon   Unboxed 0
 -}
 
 eqTyCon, coercibleTyCon :: TyCon
-eqClass, coercibleClass :: Class
-eqDataCon, coercibleDataCon :: DataCon
+eqBoxClass, coercibleClass :: Class
+eqBoxDataCon, coercibleDataCon :: DataCon
+eqSCSelId, coercibleSCSelId :: Id
 
 mkEqualityDefns :: Role
                 -> Name  -- tycon
                 -> Name  -- datacon
                 -> Name  -- superclass selector
                 -> TyCon -- primitive (unboxed) version
-                -> (TyCon, Class, DataCon)
-mkEqualityDefns role tc_name dc_name
-  = (tycon, klass, datacon)
+                -> (TyCon, Class, DataCon, Id)
+mkEqualityDefns role tc_name dc_name sc_sel_name prim_tc
+  = (tycon, klass, datacon, sc_sel_id)
   where
     tycon     = mkClassTyCon tc_name kind tvs roles rhs klass NonRecursive
     klass     = mkClass tvs [] [sc_pred] [sc_sel_id] [] [] (mkAnd []) tycon
@@ -632,12 +641,12 @@ mkEqualityDefns role tc_name dc_name
     sc_pred   = mkTyConApp prim_tc (mkTyVarTys tvs)
     sc_sel_id = mkDictSelId sc_sel_name klass
 
-(eqTyCon, eqClass, eqBoxDataCon)
-  = mkEqualityDefns Nominal eqTyConName eqBoxDataConName eqSCSelName eqPrimTyCon
-(coercibleTyCon, coercibleClass, coercibleDataCon)
+(eqTyCon, eqBoxClass, eqBoxDataCon, eqSCSelId)
+  = mkEqualityDefns Nominal eqTyConName eqBoxDataConName eqSCSelIdName eqPrimTyCon
+(coercibleTyCon, coercibleClass, coercibleDataCon, coercibleSCSelId)
   = mkEqualityDefns Representational coercibleTyConName
                                      coercibleDataConName
-                                     coercibleSCSelName
+                                     coercibleSCSelIdName
                                      eqReprPrimTyCon
 
 -- For information about the usage of the following type, see Note [TYPE]
@@ -1055,7 +1064,7 @@ ipCoName      = mkWiredInCoAxiomName BuiltInSyntax gHC_CLASSES (fsLit "NTCo:IP")
 ipTyCon :: TyCon
 ipTyCon = mkClassTyCon ipTyConName kind [ip,a] [] rhs ipClass NonRecursive
   where
-    kind = mkArrowKinds [typeSymbolKind, liftedTypeKind] constraintKind
+    kind = mkFunTys [typeSymbolKind, liftedTypeKind] constraintKind
     [ip,a] = mkTemplateTyVars [typeSymbolKind, liftedTypeKind]
     rhs = NewTyCon ipDataCon (mkTyVarTy a) ([], mkTyVarTy a) ipCoAxiom
 

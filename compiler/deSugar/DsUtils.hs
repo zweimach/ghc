@@ -37,7 +37,7 @@ module DsUtils (
 
         DsType, DsCoercion, DsVar, DsId, DsTyVar, DsEvVar, DsIdSet,
         dsVar, dsVars, dsType, dsExportTypes,
-        dsTickish, dsCoercionType
+        dsTickish, dsCoercion
     ) where
 
 #include "HsVersions.h"
@@ -878,8 +878,8 @@ dsType ty
   = do { subst <- ds_mk_subst (tyCoVarsOfType ty)
        ; return (substTy subst ty) }
 
-dsCoercionType :: Coercion -> DsM DsCoercion
-dsCoercionType co
+dsCoercion :: Coercion -> DsM DsCoercion
+dsCoercion co
   = do { subst <- ds_mk_subst (tyCoVarsOfCo co)
        ; return (substCo subst co) }
 

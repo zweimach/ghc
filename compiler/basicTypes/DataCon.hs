@@ -497,35 +497,32 @@ data StrictnessMark = MarkedStrict | NotMarkedStrict
 -- rejigging a GADT constructor
 data EqSpec = EqSpec TyVar
                      Type
-                     Boxity  -- TODO (RAE): This is *always* Unboxed. Remove.
 
 -- | Make an 'EqSpec'
 mkEqSpec :: TyVar -> Type -> EqSpec
-mkEqSpec tv ty = EqSpec tv ty Unboxed
+mkEqSpec tv ty = EqSpec tv ty
 
 eqSpecTyVar :: EqSpec -> TyVar
-eqSpecTyVar (EqSpec tv _ _) = tv
+eqSpecTyVar (EqSpec tv _) = tv
 
 eqSpecPair :: EqSpec -> (TyVar, Type)
-eqSpecPair (EqSpec tv ty _) = (tv, ty)
+eqSpecPair (EqSpec tv ty) = (tv, ty)
 
 eqSpecPreds :: [EqSpec] -> ThetaType
-eqSpecPreds spec = [ mk_pred (mkTyVarTy tv) ty
-                   | EqSpec tv ty boxity <- spec
-                   , let mk_pred | isBoxed boxity = mkEqPred
-                                 | otherwise      = mkPrimEqPred ]
+eqSpecPreds spec = [ mkPrimEqPred (mkTyVarTy tv) ty
+                   | EqSpec tv ty <- spec ]
 
 -- | Substitute in an 'EqSpec'. Precondition: if the LHS of the EqSpec
 -- is mapped in the substitution, it is mapped to a type variable, not
 -- a full type.
 substEqSpec :: TCvSubst -> EqSpec -> EqSpec
-substEqSpec subst (EqSpec tv ty boxity)
-  = EqSpec tv' (substTy subst ty) boxity
+substEqSpec subst (EqSpec tv ty)
+  = EqSpec tv' (substTy subst ty)
   where
     tv' = getTyVar "substEqSpec" (substTyVar subst tv)
 
 instance Outputable EqSpec where
-  ppr (EqSpec tv ty boxity) = ppr (tv, ty, boxity)
+  ppr (EqSpec tv ty) = ppr (tv, ty)
 
 {- Note [Bangs on data constructor arguments]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

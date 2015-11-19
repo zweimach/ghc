@@ -15,7 +15,7 @@ The "tc" prefix is for "TypeChecker", because the type checker
 is the principal client.
 -}
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, MultiWayIf #-}
 
 module TcType (
   --------------------------------
@@ -46,7 +46,6 @@ module TcType (
   --------------------------------
   -- Builders
   mkPhiTy, mkInvSigmaTy, mkSigmaTy,
-  mkTcEqPred, mkTcReprEqPred, mkTcEqPredBR,
   mkNakedTyConApp, mkNakedAppTys, mkNakedAppTy, mkNakedFunTy,
   mkNakedInvSigmaTy, mkNakedCastTy,
 
@@ -135,7 +134,7 @@ module TcType (
   mkClassPred,
   isDictLikeTy,
   tcSplitDFunTy, tcSplitDFunHead,
-  mkEqPred, isLevityVar, isLevityPolymorphic, isLevityPolymorphic_maybe,
+  isLevityVar, isLevityPolymorphic, isLevityPolymorphic_maybe,
 
   -- Type substitutions
   TCvSubst(..),         -- Representation visible to a few friends
@@ -193,7 +192,6 @@ import Maybes
 import ListSetOps
 import Outputable
 import FastString
-import Pair
 import ErrUtils( Validity(..), MsgDoc, isValid )
 
 import Data.IORef
@@ -930,30 +928,6 @@ mkNakedPhiTy :: [PredType] -> Type -> Type
 -- See Note [Zonking inside the knot] in TcHsType
 mkNakedPhiTy = flip $ foldr mkNakedFunTy
 
-mkTcEqPred :: TcType -> TcType -> Type
-mkTcEqPred ty1 ty2
-  = mkTyConApp eqTyCon [k1, k2, ty1, ty2]
-  where
-    k1 = typeKind ty1
-    k2 = typeKind ty2
-
--- | Make a representational equality predicate
-mkTcReprEqPred :: TcType -> TcType -> Type
-mkTcReprEqPred ty1 ty2
-  = mkTyConApp coercibleTyCon [k1, k2, ty1, ty2]
-  where
-    k1 = typeKind ty1
-    k2 = typeKind ty2
-
--- | Make an equality predicate at a given boxity & role.
--- The role must not be Phantom.
-mkTcEqPredBR :: Boxity -> Role -> TcType -> TcType -> Type
-mkTcEqPredBR Boxed   Nominal          = mkTcEqPred
-mkTcEqPredBR Boxed   Representational = mkTcReprEqPred
-mkTcEqPredBR Unboxed Nominal          = mkPrimEqPred
-mkTcEqPredBR Unboxed Representational = mkReprPrimEqPred
-mkTcEqPredBR _       Phantom          = panic "mkTcEqPredBR Phantom"
-
 -- @isTauTy@ tests if a type is "simple"..
 isTauTy :: Type -> Bool
 isTauTy ty | Just ty' <- tcView ty = isTauTy ty'
@@ -1645,14 +1619,12 @@ evVarPred var
   = varType var
 
 -------------------------------
--- | This takes @a ~# b@ (or @a ~# R b@) and returns @a ~ b@ (or @Coercible a b@).
--- c.f. MkCore.mkEqBox
-mkEqBoxTy :: Coercion -> Type
+-- | This takes @a ~# b@ (or @a ~R# b@) and returns @a ~ b@ (or @Coercible a b@).
+mkEqBoxTy :: Coercion -> Role -> Type -> Type -> Type
 -- NB: Defined here to avoid module loops with DataCon
-mkEqBoxTy co
+mkEqBoxTy co role ty1 ty2
   = mkTyConApp (promoteDataCon datacon) [k1, k2, ty1, ty2, mkCoercionTy co]
-  where (Pair ty1 ty2, role) = coercionKindRole co
-        k1 = typeKind ty1
+  where k1 = typeKind ty1
         k2 = typeKind ty2
         datacon = case role of
             Nominal ->          eqBoxDataCon

@@ -1280,15 +1280,13 @@ toDerivedCt ct
       CtDerived {} -> ct
       CtGiven   {} -> pprPanic "to_derived" (ppr ct)
 
--- | Makes a new equality predicate with the same boxity and role as the given
+-- | Makes a new equality predicate with the same role as the given
 -- evidence.
 mkTcEqPredLikeEv :: CtEvidence -> TcType -> TcType -> TcType
 mkTcEqPredLikeEv ev
-  = case (getEqPredBoxity pred, predTypeEqRel pred) of
-      (Boxed,   NomEq)  -> mkTcEqPred
-      (Boxed,   ReprEq) -> mkTcReprEqPred
-      (Unboxed, NomEq)  -> mkPrimEqPred
-      (Unboxed, ReprEq) -> mkReprPrimEqPred
+  = case predTypeEqRel pred of
+      NomEq  -> mkPrimEqPred
+      ReprEq -> mkReprPrimEqPred
   where
     pred = ctEvPred ev
 
@@ -1858,8 +1856,8 @@ ctEvTerm ev = EvId (ctEvId ev)
 ctEvCoercion :: CtEvidence -> Coercion
 ctEvCoercion ev@(CtWanted { ctev_dest = HoleDest hole, ctev_pred = pred })
   = case getEqPredTys_maybe pred of
-      Just (_, role, ty1, ty2) -> mkHoleCo hole role ty1 ty2
-      _                        -> pprPanic "ctEvTerm" (ppr ev)
+      Just (role, ty1, ty2) -> mkHoleCo hole role ty1 ty2
+      _                     -> pprPanic "ctEvTerm" (ppr ev)
 ctEvCoercion (CtGiven { ctev_evar = ev_id }) = mkCoVarCo ev_id
 ctEvCoercion ev = pprPanic "ctEvCoercion" (ppr ev)
 

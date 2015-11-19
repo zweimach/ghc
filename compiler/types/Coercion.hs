@@ -383,11 +383,7 @@ coVarKindsTypesRole cv
  | Just (tc, [k1,k2,ty1,ty2]) <- splitTyConApp_maybe (varType cv)
  = let role
          | tc `hasKey` eqPrimTyConKey     = Nominal
-         | tc `hasKey` eqTyConKey         = Nominal
-             -- TODO (RAE): Remove the following when there are no more lifted
-             -- equalities in the typechecker.
          | tc `hasKey` eqReprPrimTyConKey = Representational
-         | tc `hasKey` coercibleTyConKey  = Representational
          | otherwise                      = panic "coVarKindsTypesRole"
    in (k1,k2,ty1,ty2,role)
  | otherwise = pprPanic "coVarKindsTypesRole, non coercion variable"
@@ -400,10 +396,9 @@ coVarKind cv
 
 coVarRole :: CoVar -> Role
 coVarRole cv
--- TODO (RAE): Remove lifted tycons after lifted equality is removed
-  | tc `hasKey` eqPrimTyConKey || tc `hasKey` eqTyConKey
+  | tc `hasKey` eqPrimTyConKey
   = Nominal
-  | tc `hasKey` eqReprPrimTyConKey || tc `hasKey` coercibleTyConKey
+  | tc `hasKey` eqReprPrimTyConKey
   = Representational
   | otherwise
   = pprPanic "coVarRole: unknown tycon" (ppr cv <+> dcolon <+> ppr (varType cv))

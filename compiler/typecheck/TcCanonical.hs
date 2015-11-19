@@ -924,14 +924,13 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
      CtGiven { ctev_evar = evar, ctev_loc = loc }
         -> do { let ev_co = mkCoVarCo evar
               ; given_evs <- newGivenEvVars loc $
-                             [ ( mkTcEqPredBR boxity r ty1 ty2
+                             [ ( mkPrimEqPredRole r ty1 ty2
                                , EvCoercion (mkNthCo i ev_co) )
                              | (r, ty1, ty2, i) <- zip4 tc_roles tys1 tys2 [0..]
                              , r /= Phantom
                              , not (isCoercionTy ty1) && not (isCoercionTy ty2) ]
               ; emitWorkNC given_evs }
   where
-    boxity   = getEqPredBoxity (ctEvPred ev)
     role     = eqRelRole eq_rel
     tc_roles = tyConRolesX role tc
 
@@ -1241,8 +1240,8 @@ canEqTyVarTyVar ev eq_rel swapped tv1 tv2 kco2
         ASSERT2( isWanted ev, ppr ev )  -- Only wanteds have flatten meta-vars
         do { tv_ty <- newFlexiTcSTy (tyVarKind tv1)
            ; new_ev <- newWantedEvVarNC (ctEvLoc ev)
-                                        (mkTcEqPredRole (eqRelRole eq_rel)
-                                                        tv_ty xi2)
+                                        (mkPrimEqPredRole (eqRelRole eq_rel)
+                                           g           tv_ty xi2)
            ; emitWorkNC [new_ev]
            ; canon_eq swapped tv1 xi1 tv_ty co1 (ctEvCoercion new_ev) }
 -}

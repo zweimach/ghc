@@ -25,7 +25,7 @@ import TcSimplify ( simplifyAmbiguityCheck )
 import TyCoRep
 import TcType hiding ( sizeType, sizeTypes )
 import TcMType
-import TysWiredIn ( coercibleClass, eqTyCon )
+import TysWiredIn ( coercibleClass, eqTyCon, eqBoxClass )
 import PrelNames
 import Type
 import Coercion
@@ -664,8 +664,7 @@ check_eq_pred :: TidyEnv -> DynFlags -> PredType -> [TcType] -> TcM ()
 check_eq_pred env dflags pred tys
   =         -- Equational constraints are valid in all contexts if type
             -- families are permitted
-    do { checkTc (length tys == 3 || length tys == 4) -- TODO (RAE): How horrible!
-                 (tyConArityErr eqTyCon tys)
+    do { checkTc (length tys == 4) (tyConArityErr eqTyCon tys)
        ; checkTcM (xopt Opt_TypeFamilies dflags || xopt Opt_GADTs dflags)
                   (eqPredTyErr env pred) }
 
@@ -942,10 +941,10 @@ checkValidInstHead ctxt clas cls_args
                 text "Use MultiParamTypeClasses if you want to allow more, or zero.")
 
     abstract_class_msg =
-                text "The class is abstract, manual instances are not permitted."
+                text "Manual instances of this class are not permitted."
 
 abstractClasses :: [ Class ]
-abstractClasses = [ coercibleClass ] -- See Note [Coercible Instances]
+abstractClasses = [ coercibleClass, eqBoxClass ] -- See Note [Coercible Instances]
 
 instTypeErr :: Class -> [Type] -> SDoc -> SDoc
 instTypeErr cls tys msg

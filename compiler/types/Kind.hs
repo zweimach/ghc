@@ -22,7 +22,6 @@ module Kind (
 import {-# SOURCE #-} Type       ( typeKind, coreViewOneStarKind )
 
 import TyCoRep
-import TysPrim
 import TyCon
 import Var
 import PrelNames

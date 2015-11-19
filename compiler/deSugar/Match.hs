@@ -1035,7 +1035,6 @@ viewLExprEq (e1,_) (e2,_) = lexp e1 e2
     wrap (WpFun w1 w2 _ _) (WpFun w1' w2' _ _) = wrap w1 w1' && wrap w2 w2'
     wrap (WpCast co)       (WpCast co')        = co `eqCoercion` co'
     wrap (WpEvApp et1)     (WpEvApp et2)       = et1 `ev_term` et2
-    wrap (WpEvPrimApp co1) (WpEvPrimApp co2)   = co1 `eqCoercion` co2
     wrap (WpTyApp t)       (WpTyApp t')        = eqType t t'
     -- Enhancement: could implement equality for more wrappers
     --   if it seems useful (lams and lets)

@@ -42,6 +42,10 @@ result ty, or (3) do something else. I want SPJ's input, as both (1)
 and (2) are terrible.
 
 fix:
+  - Parser improvement ideas:
+     1. Have HsAppsTy contain alternating non-symbolic regions and symbols.
+     2. Change the _no_ops versions only to exclude dataconops, allowing * to appear.
+
   - Refactor noThing
 
   - pattern synonyms

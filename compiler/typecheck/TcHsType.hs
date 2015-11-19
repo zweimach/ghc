@@ -553,12 +553,6 @@ tc_hs_type (HsIParamTy n ty) exp_kind
        ; checkExpectedKind (mkClassPred ipClass [n',ty'])
            constraintKind exp_kind }
 
--- TODO (RAE): I'm a little worried about needing to inst something.
--- But I don't know what and how much. The (~) will be will-kinded
--- without insting, but I imagine users would want some insting.
--- Consider `type ProxyStar = Proxy :: * -> *` and `ProxyStar ~ Proxy`.
--- Perhaps the right answer is to give users the ability to control
--- this themselves through visible type application.
 tc_hs_type (HsEqTy ty1 ty2) exp_kind
   = do { (ty1', kind1) <- tc_infer_lhs_type ty1
        ; (ty2', kind2) <- tc_infer_lhs_type ty2

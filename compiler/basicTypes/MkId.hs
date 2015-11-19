@@ -523,7 +523,7 @@ mkDataConRep dflags fam_envs wrap_name mb_bangs data_con
     all_tvs      = univ_tvs ++ ex_tvs
     tycon        = dataConTyCon data_con       -- The representation TyCon (not family)
     ev_tys       = eqSpecPreds eq_spec ++ theta
-    ev_ibangs    = map mk_pred_strict_mark ev_tys
+    ev_ibangs    = map (const HsLazy) ev_tys
     orig_bangs   = dataConSrcBangs data_con
 
     wrap_arg_tys = ev_tys ++ orig_arg_tys
@@ -824,26 +824,6 @@ But it's the *argument* type that matters. This is fine:
         data S = MkS S !Int
 because Int is non-recursive.
 
-
-Note [Unpack equality predicates]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-If we have a GADT with a contructor C :: (a~[b]) => b -> T a
-we definitely want that equality predicate *unboxed* so that it
-takes no space at all.  This is easily done: just give it
-an UNPACK pragma. The rest of the unpack/repack code does the
-heavy lifting.  This one line makes every GADT take a word less
-space for each equality predicate, so it's pretty important!
--}
-
-mk_pred_strict_mark :: PredType -> HsImplBang
-mk_pred_strict_mark pred
-  | Just (Boxed, _, _, _) <- getEqPredTys_maybe pred
-  = HsUnpack Nothing    -- Note [Unpack equality predicates]
-
-  | otherwise
-  = HsLazy
-
-{-
 ************************************************************************
 *                                                                      *
         Wrapping and unwrapping newtypes and type families
