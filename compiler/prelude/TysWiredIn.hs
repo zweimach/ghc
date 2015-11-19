@@ -603,67 +603,42 @@ unboxedUnitDataCon = tupleDataCon   Unboxed 0
 ************************************************************************
 -}
 
-eqTyCon :: TyCon
-eqTyCon = mkAlgTyCon eqTyConName
-            (mkInvForAllTys [kv1, kv2] $
-             mkFunTys [k1, k2] constraintKind)
-            [kv1, kv2, av, bv]
-            [Nominal, Nominal, Nominal, Nominal]
-            Nothing
-            []      -- No stupid theta
-            (DataTyCon { data_cons = [eqBoxDataCon], is_enum = False })
-            NoParentTyCon
-            NonRecursive
-            False
-  where
-    kv1:kv2:_ = drop 9 alphaTyVars -- gets "j" and "k"
-    k1        = mkTyVarTy kv1
-    k2        = mkTyVarTy kv2
-    [av, bv]  = mkTemplateTyVars [k1, k2]tyVarList k1
+eqTyCon, coercibleTyCon :: TyCon
+eqClass, coercibleClass :: Class
+eqDataCon, coercibleDataCon :: DataCon
 
-eqBoxDataCon :: DataCon
-eqBoxDataCon
-  = pcDataCon eqBoxDataConName univ_args [arg] eqTyCon
+mkEqualityDefns :: Role
+                -> Name  -- tycon
+                -> Name  -- datacon
+                -> Name  -- superclass selector
+                -> TyCon -- primitive (unboxed) version
+                -> (TyCon, Class, DataCon)
+mkEqualityDefns role tc_name dc_name
+  = (tycon, klass, datacon)
   where
-    kv1:kv2:_ = drop 9 alphaTyVars -- gets "j" and "k"
-    k1        = mkTyVarTy kv1
-    k2        = mkTyVarTy kv2
-    [av, bv]  = mkTemplateTyVars [k1, k2]
-    a         = mkTyVarTy av
-    b         = mkTyVarTy bv
-    univ_args = [kv1, kv2, av, bv]
-    arg       = mkTyConApp eqPrimTyCon [k1, k2, a, b]
+    tycon     = mkClassTyCon tc_name kind tvs roles rhs klass NonRecursive
+    klass     = mkClass tvs [] [sc_pred] [sc_sel_id] [] [] (mkAnd []) tycon
+    datacon   = pcDataCon dc_name tvs [sc_pred] tycon
 
-coercibleTyCon :: TyCon
-coercibleTyCon = mkClassTyCon
-    coercibleTyConName kind tvs
-    [Nominal, Nominal, Representational, Representational]
-    rhs coercibleClass NonRecursive
-  where
-    kind = (mkInvForAllTys [kv1, kv2] $
-            mkFunTys [k1, k2] constraintKind)
+    kind      = mkInvForAllTys [kv1, kv2] $ mkFunTys [k1, k2] constraintKind
     kv1:kv2:_ = drop 9 alphaTyVars -- gets "j" and "k"
     k1        = mkTyVarTy kv1
     k2        = mkTyVarTy kv2
     [av,bv]   = mkTemplateTyVars [k1, k2]
     tvs       = [kv1, kv2, av, bv]
-    rhs       = DataTyCon { data_cons = [coercibleDataCon], is_enum = False }
+    roles     = [Nominal, Nominal, role, role]
+    rhs       = DataTyCon { data_cons = [datacon], is_enum = False }
 
-coercibleDataCon :: DataCon
-coercibleDataCon
-  = pcDataCon coercibleDataConName univ_args [arg] coercibleTyCon
-  where
-    kv1:kv2:_ = drop 9 alphaTyVars -- gets "j" and "k"
-    k1        = mkTyVarTy kv1
-    k2        = mkTyVarTy kv2
-    [av,bv]   = mkTemplateTyVars [k1, k2]
-    a         = mkTyVarTy av
-    b         = mkTyVarTy bv
-    univ_args = [kv1, kv2, av, bv]
-    arg       = mkTyConApp eqReprPrimTyCon [k1, k2, a, b]
+    sc_pred   = mkTyConApp prim_tc (mkTyVarTys tvs)
+    sc_sel_id = mkDictSelId sc_sel_name klass
 
-coercibleClass :: Class
-coercibleClass = mkClass (tyConTyVars coercibleTyCon) [] [] [] [] [] (mkAnd []) coercibleTyCon
+(eqTyCon, eqClass, eqBoxDataCon)
+  = mkEqualityDefns Nominal eqTyConName eqBoxDataConName eqSCSelName eqPrimTyCon
+(coercibleTyCon, coercibleClass, coercibleDataCon)
+  = mkEqualityDefns Representational coercibleTyConName
+                                     coercibleDataConName
+                                     coercibleSCSelName
+                                     eqReprPrimTyCon
 
 -- For information about the usage of the following type, see Note [TYPE]
 -- in module Kind

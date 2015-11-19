@@ -1940,6 +1940,10 @@ toDynIdKey = mkPreludeMiscIdUnique 508
 bitIntegerIdKey :: Unique
 bitIntegerIdKey       = mkPreludeMiscIdUnique 509
 
+eqSCSelIdKey, coercibleSCSelIdKey :: Unique
+eqSCSelIdKey        = mkPreludeMiscIdUnique 510
+coercibleSCSelIdKey = mkPreludeMiscIdUnique 511
+
 {-
 ************************************************************************
 *                                                                      *
