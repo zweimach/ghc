@@ -3,6 +3,8 @@
 
 module RaeBlogPost where
 
+import Data.Kind
+
 -- a Proxy type with an explicit kind
 data Proxy k (a :: k) = P
 prox :: Proxy * Bool
@@ -45,7 +47,7 @@ type family (x :: Vec a n) ++ (y :: Vec a m) :: Vec a (n + m) where
   (h ':> t) ++ y = h ':> (t ++ y)
 
 -- datatype that mentions *
-data U = Star *
+data U = Star (*)
        | Bool Bool
 
 -- kind synonym

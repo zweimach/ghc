@@ -3,6 +3,8 @@
 
 module RAE_T32a where
 
+import Data.Kind
+
 data family Sing (k :: *) :: k -> *
 
 data TyArr' (a :: *) (b :: *) :: *

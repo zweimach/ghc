@@ -3,6 +3,7 @@
 
 module KindEqualities2 where
 
+import Data.Kind
 import GHC.Exts ( Any )
 
 data Kind = Star | Arr Kind Kind

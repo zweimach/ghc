@@ -2,6 +2,9 @@
              TypeFamilies #-}
 
 module A where
+
+import Data.Kind
+
 data family Sing (k :: *) :: k -> *
 type Sing' (x :: k) = Sing k x
 data TyFun' (a :: *) (b :: *) :: *

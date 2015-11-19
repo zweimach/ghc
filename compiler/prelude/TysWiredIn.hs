@@ -69,6 +69,7 @@ module TysWiredIn (
         typeNatKindCon, typeNatKind, typeSymbolKindCon, typeSymbolKind,
         isLiftedTypeKindTyConName, liftedTypeKind, constraintKind,
         starKindTyConName, unicodeStarKindTyConName,
+        liftedTypeKindTyCon, constraintKindTyCon,
 
         -- * Parallel arrays
         mkPArrTy,

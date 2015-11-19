@@ -52,7 +52,6 @@ import TcSimplify ( solveEqualities )
 import TcType
 import TcHsSyn
 import Type
-import Coercion
 import Kind
 import RdrName( lookupLocalRdrOcc )
 import Var
@@ -1004,8 +1003,7 @@ kcHsTyVarBndrs cusk (HsQTvs { hsq_implicit = kv_ns
                 else zipWithM newSigTyVar kv_ns meta_kvs
        ; tcExtendTyVarEnv2 (kv_ns `zip` kvs) $
     do { (full_kind, _, stuff) <- bind_telescope hs_tvs thing_inside
-       ; let qkvs = filter (not . isMetaTyVar <&&> not . isCoVar) $
-                             -- TODO (RAE): Change above to isMetaCoVar
+       ; let qkvs = filter (not . isMetaTyVar) $
                     varSetElemsWellScoped $ tyCoVarsOfType full_kind
 
                 -- the free non-meta variables in the returned kind will

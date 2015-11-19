@@ -65,7 +65,7 @@ import qualified Finder
 import FamInstEnv ( FamInstEnv )
 import TcRnMonad  ( TcGblEnv, TcLclEnv, Ct, CtLoc, TcPluginM
                   , unsafeTcPluginTcM, getEvBindsTcPluginM_maybe
-                  , liftIO, traceTc, WantedConstraints )
+                  , liftIO, traceTc )
 import TcMType    ( TcTyVar, TcType )
 import TcEnv      ( TcTyThing )
 import TcEvidence ( TcCoercion, CoercionHole

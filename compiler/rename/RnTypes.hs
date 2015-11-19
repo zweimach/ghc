@@ -179,9 +179,6 @@ rnHsTyKi isType _ (HsTyVar rdr_name)
   = do { name <- rnTyVar isType rdr_name
        ; return (HsTyVar name, unitFV name) }
 
--- If we see (forall a . ty), without foralls on, the forall will give
--- a sensible error message, but we don't want to complain about the dot too
--- Hence the jiggery pokery with ty1
 rnHsTyKi isType doc ty@(HsOpTy ty1 l_op ty2)
   = setSrcSpan (getLoc l_op) $
     do  { (l_op', fvs1) <- rnHsTyOp isType ty l_op
@@ -215,9 +212,7 @@ rnHsTyKi isType doc (HsFunTy ty1 ty2)
         -- when we find return :: forall m. Monad m -> forall a. a -> m a
 
         -- Check for fixity rearrangements
-       ; res_ty <- if isType
-                   then mkHsOpTyRn HsFunTy funTyConName funTyFixity ty1' ty2'
-                   else return (HsFunTy ty1' ty2')
+       ; res_ty <- mkHsOpTyRn HsFunTy funTyConName funTyFixity ty1' ty2'
        ; return (res_ty, fvs1 `plusFV` fvs2) }
 
 rnHsTyKi isType doc listTy@(HsListTy ty)
@@ -226,16 +221,17 @@ rnHsTyKi isType doc listTy@(HsListTy ty)
        ; (ty', fvs) <- rnLHsTyKi isType doc ty
        ; return (HsListTy ty', fvs) }
 
-rnHsTyKi _ doc (HsKindSig ty k)
-  = do { kind_sigs_ok <- xoptM Opt_KindSignatures
+rnHsTyKi isType doc t@(HsKindSig ty k)
+  = do { checkTypeInType isType t
+       ; kind_sigs_ok <- xoptM Opt_KindSignatures
        ; unless kind_sigs_ok (badSigErr False doc ty)
        ; (ty', fvs1) <- rnLHsType doc ty
        ; (k', fvs2) <- rnLHsKind doc k
        ; return (HsKindSig ty' k', fvs1 `plusFV` fvs2) }
 
-rnHsTyKi isType doc (HsPArrTy ty)
-  = ASSERT( isType )
-    do { (ty', fvs) <- rnLHsType doc ty
+rnHsTyKi isType doc t@(HsPArrTy ty)
+  = do { notInKinds isType t
+       ; (ty', fvs) <- rnLHsType doc ty
        ; return (HsPArrTy ty', fvs) }
 
 -- Unboxed tuples are allowed to have poly-typed arguments.  These
@@ -318,59 +314,56 @@ rnHsTyKi isType doc (HsAppTy ty1 ty2)
        ; (ty2', fvs2) <- rnLHsTyKi isType doc ty2
        ; return (HsAppTy ty1' ty2', fvs1 `plusFV` fvs2) }
 
-rnHsTyKi isType doc (HsIParamTy n ty)
-  = ASSERT( isType )
-    do { (ty', fvs) <- rnLHsType doc ty
+rnHsTyKi isType doc t@(HsIParamTy n ty)
+  = do { notInKinds isType t
+       ; (ty', fvs) <- rnLHsType doc ty
        ; return (HsIParamTy n ty', fvs) }
 
-rnHsTyKi isType doc (HsEqTy ty1 ty2)
-  = ASSERT( isType )
-    do { (ty1', fvs1) <- rnLHsType doc ty1
+rnHsTyKi isType doc t@(HsEqTy ty1 ty2)
+  = do { checkTypeInType isType t
+       ; (ty1', fvs1) <- rnLHsType doc ty1
        ; (ty2', fvs2) <- rnLHsType doc ty2
        ; return (HsEqTy ty1' ty2', fvs1 `plusFV` fvs2) }
 
-rnHsTyKi isType _ (HsSpliceTy sp k)
-  = ASSERT( isType )
-    rnSpliceType sp k
+rnHsTyKi _ _ (HsSpliceTy sp k)
+  = rnSpliceType sp k
 
-rnHsTyKi isType doc (HsDocTy ty haddock_doc)
-  = ASSERT( isType )
-    do { (ty', fvs) <- rnLHsType doc ty
+rnHsTyKi _ doc (HsDocTy ty haddock_doc)
+  = do { (ty', fvs) <- rnLHsType doc ty
        ; haddock_doc' <- rnLHsDoc haddock_doc
        ; return (HsDocTy ty' haddock_doc', fvs) }
 
-rnHsTyKi isType _ (HsCoreTy ty)
-  = ASSERT( isType )
-    return (HsCoreTy ty, emptyFVs)
+rnHsTyKi _ _ (HsCoreTy ty)
+  = return (HsCoreTy ty, emptyFVs)
     -- The emptyFVs probably isn't quite right
     -- but I don't think it matters
 
 rnHsTyKi isType doc ty@(HsExplicitListTy k tys)
-  = ASSERT( isType )
-    do { data_kinds <- xoptM Opt_DataKinds
+  = do { checkTypeInType isType ty
+       ; data_kinds <- xoptM Opt_DataKinds
        ; unless data_kinds (addErr (dataKindsErr isType ty))
        ; (tys', fvs) <- rnLHsTypes doc tys
        ; return (HsExplicitListTy k tys', fvs) }
 
 rnHsTyKi isType doc ty@(HsExplicitTupleTy kis tys)
-  = ASSERT( isType )
-    do { data_kinds <- xoptM Opt_DataKinds
+  = do { checkTypeInType isType ty
+       ; data_kinds <- xoptM Opt_DataKinds
        ; unless data_kinds (addErr (dataKindsErr isType ty))
        ; (tys', fvs) <- rnLHsTypes doc tys
        ; return (HsExplicitTupleTy kis tys', fvs) }
 
-rnHsTyKi isType _doc (HsWildCardTy (AnonWildCard PlaceHolder))
-  = ASSERT( isType )
-    do { loc <- getSrcSpanM
+rnHsTyKi isType _doc ty@(HsWildCardTy (AnonWildCard PlaceHolder))
+  = do { checkTypeInType isType ty
+       ; loc <- getSrcSpanM
        ; uniq <- newUnique
        ; let name = mkInternalName uniq (mkTyVarOcc "_") loc
        ; return (HsWildCardTy (AnonWildCard name), emptyFVs) }
          -- emptyFVs: this occurrence does not refer to a
          --           binding, so don't treat it as a free variable
 
-rnHsTyKi isType doc (HsWildCardTy (NamedWildCard rdr_name))
-  = ASSERT( isType )
-    do { not_in_scope <- isNothing `fmap` lookupOccRn_maybe rdr_name
+rnHsTyKi isType doc ty@(HsWildCardTy (NamedWildCard rdr_name))
+  = do { checkTypeInType isType ty
+       ; not_in_scope <- isNothing `fmap` lookupOccRn_maybe rdr_name
        ; when not_in_scope $
          -- When the named wild card is not in scope, it means it shouldn't be
          -- there in the first place, i.e. rnHsSigTypeWithWildCards wasn't
@@ -477,7 +470,6 @@ rnForAll :: Bool -- "isType"
          -> RnM (HsType Name, FreeVars)
 
 rnForAll isType doc exp extra kvs forall_tyvars ctxt ty
-  -- TODO (RAE): Check that either isType or TypeInType is set
 
   | null kvs
   , null (hsQTvExplicit forall_tyvars)
@@ -488,17 +480,37 @@ rnForAll isType doc exp extra kvs forall_tyvars ctxt ty
         -- starts off as (HsForAllTy Implicit Nothing [] Int), in case
         -- there is some quantification.  Now that we have quantified
         -- and discovered there are no type variables, it's nicer to turn
-        -- it into plain Int.  If it were Int# instead of Int, we'd actually
-        -- get an error, because the body of a genuine for-all is
-        -- of kind *.
+        -- it into plain Int.
 
   | otherwise
-  = bindHsTyVars doc Nothing kvs forall_tyvars $ \ new_tyvars ->
+  = do { checkTypeInType isType (HsForAllTy exp extra forall_tyvars ctxt ty)
+       ; bindHsTyVars doc Nothing kvs forall_tyvars $ \ new_tyvars ->
     do { (new_ctxt, fvs1) <- rnContext doc ctxt
        ; (new_ty, fvs2) <- rnLHsTyKi isType doc ty
-       ; return (HsForAllTy exp extra new_tyvars new_ctxt new_ty, fvs1 `plusFV` fvs2) }
+       ; return (HsForAllTy exp extra new_tyvars new_ctxt new_ty, fvs1 `plusFV` fvs2) }}
         -- Retain the same implicit/explicit flag as before
         -- so that we can later print it correctly
+
+---------------
+-- | Ensures either that we're in a type or that -XTypeInType is set
+checkTypeInType :: Outputable ty
+                => Bool    -- ^ "is type"
+                -> ty      -- ^ type
+                -> RnM ()
+checkTypeInType True  _  = return ()
+checkTypeInType False ty
+  = do { type_in_type <- xoptM Opt_TypeInType
+       ; unless type_in_type $
+         addErr (text "Illegal kind:" <+> ppr ty $$
+                 text "Did you mean to enable TypeInType?") }
+
+notInKinds :: Outputable ty
+           => Bool
+           -> ty
+           -> RnM ()
+notInKinds True _ = return ()
+notInKinds False ty
+  = addErr (text "Illegal kind (even with TypeInType enabled):" <+> ppr ty)
 
 ---------------
 bindSigTyVarsFV :: [Name]

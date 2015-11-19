@@ -1,7 +1,8 @@
-{-# LANGUAGE TypeFamilies, PolyKinds, GADTs #-}
+{-# LANGUAGE TypeFamilies, TypeInType, GADTs #-}
 
 module Dep3 where
 
+import Data.Kind
 import GHC.Exts ( Constraint )
 
 type Star1 = *
@@ -23,4 +24,3 @@ data Id2 (a :: Star2 Constraint) where
 
 data Id2' :: Star2 Constraint -> * where
   Id2' :: a -> Id2' a
-
