@@ -22,7 +22,7 @@ module TcEvidence (
   EvTypeable(..),
 
   -- TcCoercion
-  TcCoercion, TcCoercionR, TcCoercionN, CoercionHole,
+  TcCoercion, TcCoercionR, TcCoercionN, TcCoercionP, CoercionHole,
   LeftOrRight(..), pickLR,
   mkTcReflCo, mkTcNomReflCo, mkTcRepReflCo,
   mkTcTyConAppCo, mkTcAppCo, mkTcFunCo,
@@ -33,7 +33,7 @@ module TcEvidence (
   mkTcKindCo,
   tcCoercionKind, coVarsOfTcCo,
   mkTcCoVarCo,
-  isTcReflCo, getTcCoVar_maybe,
+  isTcReflCo,
   tcCoercionRole,
   unwrapIP, wrapIP
   ) where
@@ -80,7 +80,61 @@ kosher free variables.
 
 type TcCoercion  = Coercion
 type TcCoercionN = CoercionN    -- A Nominal          corecion ~N
-type TcCoercionR = CoercionN    -- A Representational corecion ~R
+type TcCoercionR = CoercionR    -- A Representational corecion ~R
+type TcCoercionP = CoercionP    -- a phantom coercion
+
+mkTcReflCo             :: Role -> TcType -> TcCoercion
+mkTcNomReflCo          :: TcType -> TcCoercionN
+mkTcRepReflCo          :: TcType -> TcCoercionR
+mkTcTyConAppCo         :: Role -> TyCon -> [TcType] -> TcCoercion
+mkTcAppCo              :: TcCoercion -> TcCoercionN -> TcCoercion
+mkTcFunCo              :: TcCoercion -> TcCoercion -> TcCoercion
+mkTcAxInstCo           :: CoAxiom Branched -> BranchIndex
+                       -> [TcType] -> [TcCoercion] -> TcCoercion
+mkTcUnbranchedAxInstCo :: CoAxiom Unbranched -> [TcType]
+                       -> [TcCoercion] -> TcCoercion
+mkTcForAllCo           :: TyVar -> TcCoercion -> TcCoercion
+mkTcLRCo               :: LeftOrRight -> TcCoercion -> TcCoercion
+mkTcSubCo              :: TcCoercion -> TcCoercion
+maybeTcSubCo           :: Role -> TcCoercion -> TcCoercion
+tcDowngradeRole        :: Role -> Role -> TcCoercion -> TcCoercion
+mkTcAxiomRuleCo        :: CoAxiomRule -> [TcCoercion] -> TcCoercion
+mkTcCoherenceLeftCo    :: TcCoercion -> TcCoercionN -> TcCoercion
+mkTcCoherenceRightCo   :: TcCoercion -> TcCoercionN -> TcCoercion
+mkTcPhantomCo          :: TcCoercionN -> TcType -> TcType -> TcCoercionP
+mkTcKindCo             :: TcCoercion -> TcCoercionN
+mkTcCoVarCo            :: CoVar -> TcCoercion
+
+tcCoercionKind         :: TcCoercion -> Pair TcType
+tcCoercionRole         :: TcCoercion -> Role
+coVarsOfTcCo           :: TcCoercion -> [TcTyCoVarSet]
+isTcReflCo             :: TcCoercion -> Bool
+
+mkTcReflCo             = mkReflCo
+mkTcNomReflCo          = mkNomReflCo
+mkTcRepReflCo          = mkRepReflCo
+mkTcTyConAppCo         = mkTyConAppCo
+mkTcAppCo              = mkAppCo
+mkTcFunCo              = mkFunCo
+mkTcAxInstCo           = mkAxInstCo
+mkTcUnbranchedAxInstCo = mkUnbranchedAxInstCo
+mkTcForAllCo           = mkForAllCo
+mkTcLRCo               = mkLRCo
+mkTcSubCo              = mkSubCo
+maybeTcSubCo           = maybeSubCo
+tcDowngradeRole        = downgradeRole
+mkTcAxiomRuleCo        = mkAxiomRuleCo
+mkTcCoherenceLeftCo    = mkCoherenceLeftCo
+mkTcCoherenceRightCo   = mkCoherenceRightCo
+mkTcPhantomCo          = mkPhantomCo
+mkTcKindCo             = mkKindCo
+mkTcCoVarCo            = mkCoVarCo
+
+tcCoercionKind         = coercionKind
+tcCoercionRole         = coercionRole
+coVarsOfTcCo           = coVarsOfCo
+isTcReflCo             = isReflCo
+
 
 {-
 %************************************************************************
