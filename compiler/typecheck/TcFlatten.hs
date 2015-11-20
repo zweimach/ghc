@@ -1140,7 +1140,7 @@ flatten_exact_fam_app tc tys
 --            ; if flat_top || tv `elemVarSet` tyCoVarsOfTypes xis
 --              then flatten_exact_fam_app_fully fmode tc tys
 --              else return ( mkTyConApp tc xis
---                          , mkTyConAppCo (feRole fmode) tc cos ) }
+--                          , mkTcTyConAppCo (feRole fmode) tc cos ) }
 
 flatten_exact_fam_app_fully tc tys
   -- See Note [Reduce type family applications eagerly]
@@ -1203,7 +1203,7 @@ flatten_exact_fam_app_fully tc tys
     -- unlifted coercion. Laziness should hopefully prevent most runs of
     -- this function. See Note [Flavours with boxities] in TcSMonad
     tc_co_boxity co
-      | all (isUnLiftedType . varType) $ varSetElems $ coVarsOfCo co
+      | all (isUnLiftedType . varType) $ varSetElems $ coVarsOfTcCo co
       = Unboxed
       | otherwise
       = Boxed
@@ -1504,7 +1504,7 @@ unflatten tv_eqs funeqs
            ; case occurCheckExpand dflags fmv rhs' of
                OC_OK rhs''    -- Normal case: fill the tyvar
                  -> do { setEvBindIfWanted ev
-                               (EvCoercion (mkReflCo (ctEvRole ev) rhs''))
+                               (EvCoercion (mkTcReflCo (ctEvRole ev) rhs''))
                        ; unflattenFmv fmv rhs''
                        ; return rest }
 
@@ -1550,7 +1550,7 @@ unflatten tv_eqs funeqs
            ; let is_refl = ty1 `tcEqType` ty2
            ; if is_refl then do { setEvBindIfWanted ev
                                             (EvCoercion $
-                                             mkReflCo (eqRelRole eq_rel) rhs)
+                                             mkTcReflCo (eqRelRole eq_rel) rhs)
                                 ; return rest }
                         else return (mkNonCanonical ev `consCts` rest) }
       | otherwise
@@ -1580,7 +1580,7 @@ tryFill dflags tv rhs ev
        ; case occurCheckExpand dflags tv rhs' of
            OC_OK rhs''    -- Normal case: fill the tyvar
              -> do { setEvBindIfWanted ev
-                               (EvCoercion (mkReflCo (ctEvRole ev) rhs''))
+                               (EvCoercion (mkTcReflCo (ctEvRole ev) rhs''))
                    ; unifyTyVar tv rhs''
                    ; return True }
 

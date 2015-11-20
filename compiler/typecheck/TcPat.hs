@@ -357,10 +357,10 @@ tcPatBndr (PE { pe_ctxt = LetPat lookup_sig no_gen}) bndr_name pat_ty
   | otherwise
   = do { bndr_id <- newNoSigLetBndr no_gen bndr_name pat_ty
        ; traceTc "tcPatBndr(no-sig)" (ppr bndr_id $$ ppr (idType bndr_id))
-       ; return (mkNomReflCo pat_ty, bndr_id) }
+       ; return (mkTcNomReflCo pat_ty, bndr_id) }
 
 tcPatBndr (PE { pe_ctxt = _lam_or_proc }) bndr_name pat_ty
-  = return (mkNomReflCo pat_ty, mkLocalId bndr_name pat_ty)
+  = return (mkTcNomReflCo pat_ty, mkLocalId bndr_name pat_ty)
 
 ------------
 newNoSigLetBndr :: LetBndrSpec -> Name -> TcType -> TcM TcId
@@ -701,7 +701,7 @@ unifyPatType :: Outputable a => a -> TcType -> TcType -> TcM TcCoercion
 -- that controls the actual/expected stuff in error messages
 unifyPatType thing actual_ty expected_ty
   = do { coi <- unifyType (Just thing) actual_ty expected_ty
-       ; return (mkSymCo coi) }
+       ; return (mkTcSymCo coi) }
 
 {-
 Note [Hopping the LIE in lazy patterns]
@@ -941,7 +941,7 @@ tcPatSynPat penv (L con_span _) pat_syn pat_ty arg_pats thing_inside
 ----------------------------
 downgrade :: (TcRhoType -> TcM (TcCoercionN, a))
           -> TcRhoType -> TcM (TcCoercionR, a)
-downgrade f a = do { (co,res) <- f a; return (mkSubCo co, res) }
+downgrade f a = do { (co,res) <- f a; return (mkTcSubCo co, res) }
 
 matchExpectedListTyR :: TcRhoType -> TcM (TcCoercionR, TcRhoType)
 matchExpectedListTyR = downgrade matchExpectedListTy
@@ -958,8 +958,8 @@ matchExpectedPatTy :: (TcRhoType -> TcM (TcCoercionR, a))
 matchExpectedPatTy inner_match pat_ty
   | null tvs && null theta
   = do { (co, res) <- inner_match pat_ty   -- 'co' is Representational
-       ; traceTc "matchExpectedPatTy" (ppr pat_ty $$ ppr co $$ ppr (isReflCo co))
-       ; return (coToHsWrapperR (mkSymCo co), res) }
+       ; traceTc "matchExpectedPatTy" (ppr pat_ty $$ ppr co $$ ppr (isTcReflCo co))
+       ; return (coToHsWrapperR (mkTcSymCo co), res) }
          -- The Sym is because the inner_match returns a coercion
          -- that is the other way round to matchExpectedPatTy
 
@@ -995,10 +995,10 @@ matchExpectedConTy data_tc pat_ty
              -- co1 : T (ty1,ty2) ~N pat_ty
 
        ; let tys' = mkTyVarTys tvs'
-             co2 = mkUnbranchedAxInstCo Representational co_tc tys' []
+             co2 = mkTcUnbranchedAxInstCo Representational co_tc tys' []
              -- co2 : T (ty1,ty2) ~R T7 ty1 ty2
 
-       ; return (mkSymCo co2 `mkTransCo` mkSubCo co1, tys') }
+       ; return (mkTcSymCo co2 `mkTcTransCo` mkTcSubCo co1, tys') }
 
   | otherwise
   = matchExpectedTyConAppR data_tc pat_ty

@@ -154,7 +154,7 @@ matchFunTys
 matchFunTys herald arity res_ty thing_inside
   = do  { (co, pat_tys, res_ty) <- matchExpectedFunTys herald arity res_ty
         ; res <- thing_inside pat_tys res_ty
-        ; return (coToHsWrapper (mkSymCo co), res) }
+        ; return (coToHsWrapper (mkTcSymCo co), res) }
 
 {-
 ************************************************************************

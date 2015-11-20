@@ -952,7 +952,7 @@ reactFunEq :: CtEvidence -> TcTyVar    -- From this  :: F args1 ~ fsk1
            -> TcS ()
 reactFunEq from_this fsk1 solve_this fsk2
   | CtGiven { ctev_evar = evar, ctev_loc = loc } <- solve_this
-  = do { let fsk_eq_co = mkSymCo (mkCoVarCo evar) `mkTransCo`
+  = do { let fsk_eq_co = mkTcSymCo (mkTcCoVarCo evar) `mkTcTransCo`
                          ctEvCoercion from_this
                          -- :: fsk2 ~ fsk1
              fsk_eq_pred = mkTcEqPredLikeEv solve_this
@@ -1109,9 +1109,9 @@ interactTyVarEq tclvl inerts workItem@(CTyEqCan { cc_tyvar = tv
   =  -- Inert:     a ~ b
      -- Work item: a ~ b
     do { setEvBindIfWanted ev $
-          EvCoercion (downgradeRole (eqRelRole eq_rel)
-                                    (ctEvRole ev_i)
-                                    (ctEvCoercion ev_i))
+          EvCoercion (tcDowngradeRole (eqRelRole eq_rel)
+                                      (ctEvRole ev_i)
+                                      (ctEvCoercion ev_i))
 
        ; stopWith ev "Solved from inert" }
 
@@ -1123,10 +1123,10 @@ interactTyVarEq tclvl inerts workItem@(CTyEqCan { cc_tyvar = tv
   =  -- Inert:     a ~ b
      -- Work item: b ~ a
     do { setEvBindIfWanted ev $
-           EvCoercion (mkSymCo $
-                       downgradeRole (eqRelRole eq_rel)
-                                     (ctEvRole ev_i)
-                                     (ctEvCoercion ev_i))
+           EvCoercion (mkTcSymCo $
+                       tcDowngradeRole (eqRelRole eq_rel)
+                                       (ctEvRole ev_i)
+                                       (ctEvCoercion ev_i))
 
        ; stopWith ev "Solved from inert (r)" }
 
@@ -1205,7 +1205,7 @@ solveByUnification wd tv xi
                              text "Right Kind is:" <+> ppr (typeKind xi) ]
 
        ; unifyTyVar tv xi
-       ; setEvBindIfWanted wd (EvCoercion (mkNomReflCo xi)) }
+       ; setEvBindIfWanted wd (EvCoercion (mkTcNomReflCo xi)) }
 
 ppr_kicked :: Int -> SDoc
 ppr_kicked 0 = empty
@@ -1417,7 +1417,7 @@ reduce_top_fun_eq old_ev fsk ax_co rhs_ty
        -- Try shortcut; see Note [Short cut for top-level reaction]
 
   | isGiven old_ev  -- Not shortcut
-  = do { let final_co = mkSymCo (ctEvCoercion old_ev) `mkTransCo` ax_co
+  = do { let final_co = mkTcSymCo (ctEvCoercion old_ev) `mkTcTransCo` ax_co
               -- final_co :: fsk ~ rhs_ty
        ; new_ev <- newGivenEvVar deeper_loc (mkPrimEqPred (mkTyVarTy fsk) rhs_ty,
                                              EvCoercion final_co)
@@ -1447,7 +1447,7 @@ reduce_top_fun_eq old_ev fsk ax_co rhs_ty
 
             -- By emitting this as non-canonical, we deal with all
             -- flattening, occurs-check, and ufsk := ufsk issues
-       ; let final_co = ax_co `mkTransCo` mkSymCo (ctEvCoercion new_ev)
+       ; let final_co = ax_co `mkTcTransCo` mkTcSymCo (ctEvCoercion new_ev)
             --    ax_co :: fam_tc args ~ rhs_ty
             --       ev :: alpha ~ rhs_ty
             --     ufsk := alpha
@@ -1543,9 +1543,9 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
 
        ; new_ev <- newGivenEvVar deeper_loc
                          ( mkPrimEqPred (mkTyConApp fam_tc xis) (mkTyVarTy fsk)
-                         , EvCoercion (mkTyConAppCo Nominal fam_tc cos
-                                        `mkTransCo` mkSymCo ax_co
-                                        `mkTransCo` ctEvCoercion old_ev) )
+                         , EvCoercion (mkTcTyConAppCo Nominal fam_tc cos
+                                        `mkTcTransCo` mkTcSymCo ax_co
+                                        `mkTcTransCo` ctEvCoercion old_ev) )
 
        ; let new_ct = CFunEqCan { cc_ev = new_ev, cc_fun = fam_tc, cc_tyargs = xis, cc_fsk = fsk }
        ; emitWorkCt new_ct
@@ -1974,14 +1974,14 @@ makeLitDict :: Class -> Type -> EvLit -> TcS LookupInstResult
 --     String    -> SSymbol n
 --     SSymbol n -> KnownSymbol n -}
 makeLitDict clas ty evLit
-    | Just (_, co_dict) <- instNewTyCon_maybe (classTyCon clas) [ty]
+    | Just (_, co_dict) <- tcInstNewTyCon_maybe (classTyCon clas) [ty]
           -- co_dict :: KnownNat n ~ SNat n
     , [ meth ]   <- classMethods clas
     , Just tcRep <- tyConAppTyCon_maybe -- SNat
                       $ funResultTy         -- SNat n
                       $ dropForAlls         -- KnownNat n => SNat n
                       $ idType meth         -- forall n. KnownNat n => SNat n
-    , Just (_, co_rep) <- instNewTyCon_maybe tcRep [ty]
+    , Just (_, co_rep) <- tcInstNewTyCon_maybe tcRep [ty]
           -- SNat n ~ Integer
     , let ev_tm = mkEvCast (EvLit evLit) (mkTcSymCo (mkTcTransCo co_dict co_rep))
     = return $ GenInst { lir_new_theta = []

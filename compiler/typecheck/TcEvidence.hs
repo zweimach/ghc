@@ -24,16 +24,17 @@ module TcEvidence (
   -- TcCoercion
   TcCoercion, TcCoercionR, TcCoercionN, CoercionHole,
   LeftOrRight(..), pickLR,
-  mkReflCo, mkNomReflCo, mkRepReflCo,
-  mkTyConAppCo, mkAppCo, mkFunCo,
-  mkAxInstCo, mkUnbranchedAxInstCo, mkForAllCo, mkForAllCos,
-  mkSymCo, mkTransCo, mkNthCo, mkLRCo, mkSubCo,
-  downgradeRole,
-  mkAxiomRuleCo, mkCoherenceLeftCo, mkCoherenceRightCo, mkPhantomCo,
-  mkKindCo,
-  coercionKind, coVarsOfCo,
-  mkCoVarCo,
-  isReflCo, eqCoercion,
+  mkTcReflCo, mkTcNomReflCo, mkTcRepReflCo,
+  mkTcTyConAppCo, mkTcAppCo, mkTcFunCo,
+  mkTcAxInstCo, mkTcUnbranchedAxInstCo, mkTcForAllCo, mkTcForAllCos,
+  mkTcSymCo, mkTcTransCo, mkTcNthCo, mkTcLRCo, mkTcSubCo, maybeTcSubCo,
+  tcDowngradeRole,
+  mkTcAxiomRuleCo, mkTcCoherenceLeftCo, mkTcCoherenceRightCo, mkTcPhantomCo,
+  mkTcKindCo,
+  tcCoercionKind, coVarsOfTcCo,
+  mkTcCoVarCo,
+  isTcReflCo, getTcCoVar_maybe,
+  tcCoercionRole,
   unwrapIP, wrapIP
   ) where
 #include "HsVersions.h"
@@ -138,9 +139,9 @@ mkWpFun co1          co2          t1 t2 = WpFun co1 co2 t1 t2
 
 mkWpCast :: TcCoercion -> HsWrapper
 mkWpCast co
-  | isReflCo co = WpHole
-  | otherwise   = ASSERT2(coercionRole co == Representational, ppr co)
-                  WpCast co
+  | isTcReflCo co = WpHole
+  | otherwise     = ASSERT2(tcCoercionRole co == Representational, ppr co)
+                    WpCast co
 
 mkWpTyApps :: [Type] -> HsWrapper
 mkWpTyApps tys = mk_co_app_fn WpTyApp tys
@@ -546,10 +547,10 @@ Important Details:
   (See TcEvidence.isCallStackIP)
 -}
 
-mkEvCast :: EvTerm -> TcCoercionR -> EvTerm
+mkEvCast :: EvTerm -> TcCoercion -> EvTerm
 mkEvCast ev lco
-  | ASSERT2(coercionRole lco == Representational, (vcat [ptext (sLit "Coercion of wrong role passed to mkEvCast:"), ppr ev, ppr lco]))
-    isReflCo lco = ev
+  | ASSERT2(tcCoercionRole lco == Representational, (vcat [ptext (sLit "Coercion of wrong role passed to mkEvCast:"), ppr ev, ppr lco]))
+    isTcReflCo lco = ev
   | otherwise      = EvCast ev lco
 
 mkEvScSelectors :: EvTerm -> Class -> [TcType] -> [(TcPredType, EvTerm)]

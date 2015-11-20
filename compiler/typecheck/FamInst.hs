@@ -6,7 +6,7 @@ module FamInst (
         FamInstEnvs, tcGetFamInstEnvs,
         checkFamInstConsistency, tcExtendLocalFamInstEnv,
         tcLookupDataFamInst, tcLookupDataFamInst_maybe,
-        instNewTyCon_maybe, tcTopNormaliseNewTypeTF_maybe,
+        tcInstNewTyCon_maybe, tcTopNormaliseNewTypeTF_maybe,
         newFamInst,
 
         -- * Injectivity
@@ -202,6 +202,16 @@ getFamInsts hpt_fam_insts mod
 ************************************************************************
 
 -}
+
+-- | If @co :: T ts ~ rep_ty@ then:
+--
+-- > instNewTyCon_maybe T ts = Just (rep_ty, co)
+--
+-- Checks for a newtype, and for being saturated
+-- Just like Coercion.instNewTyCon_maybe, but returns a TcCoercion
+tcInstNewTyCon_maybe :: TyCon -> [TcType] -> Maybe (TcType, TcCoercion)
+tcInstNewTyCon_maybe tc tys = fmap (second mkTcCoercion) $
+                              instNewTyCon_maybe tc tys
 
 -- | Like 'tcLookupDataFamInst_maybe', but returns the arguments back if
 -- there is no data family to unwrap.

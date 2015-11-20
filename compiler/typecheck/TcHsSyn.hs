@@ -1389,7 +1389,7 @@ zonkEvBind env bind@(EvBind { eb_lhs = var, eb_rhs = term })
 {-
        ; term <- case getEqPredTys_maybe (idType var') of
            Just (r, ty1, ty2) | ty1 `eqType` ty2
-                  -> return (EvCoercion (mkReflCo r ty1))
+                  -> return (EvCoercion (mkTcReflCo r ty1))
            _other -> do  -}
        ; term' <- zonkEvTerm env term
        ; return (bind { eb_lhs = var', eb_rhs = term' }) }

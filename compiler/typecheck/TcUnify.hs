@@ -129,7 +129,7 @@ matchExpectedFunTys herald arity orig_ty
     -- then   co : ty ~ t1 -> .. -> tn -> ty_r
 
     go n_req ty
-      | n_req == 0 = return (mkNomReflCo ty, [], ty)
+      | n_req == 0 = return (mkTcNomReflCo ty, [], ty)
 
     go n_req ty
       | Just ty' <- tcView ty = go n_req ty'
@@ -137,7 +137,7 @@ matchExpectedFunTys herald arity orig_ty
     go n_req (ForAllTy (Anon arg_ty) res_ty)
       | not (isPredTy arg_ty)
       = do { (co, tys, ty_r) <- go (n_req-1) res_ty
-           ; return (mkFunCo Nominal (mkNomReflCo arg_ty) co, arg_ty:tys, ty_r) }
+           ; return (mkTcFunCo Nominal (mkTcNomReflCo arg_ty) co, arg_ty:tys, ty_r) }
 
     go n_req ty@(TyVarTy tv)
       | ASSERT( isTcTyVar tv) isMetaTyVar tv
@@ -244,7 +244,7 @@ matchExpectedTyConApp tc orig_ty
 
     go ty@(TyConApp tycon args)
        | tc == tycon  -- Common case
-       = return (mkNomReflCo ty, args)
+       = return (mkTcNomReflCo ty, args)
 
     go (TyVarTy tv)
        | ASSERT( isTcTyVar tv) isMetaTyVar tv
@@ -291,7 +291,7 @@ matchExpectedAppTy orig_ty
       | Just ty' <- tcView ty = go ty'
 
       | Just (fun_ty, arg_ty) <- tcSplitAppTy_maybe ty
-      = return (mkNomReflCo orig_ty, (fun_ty, arg_ty))
+      = return (mkTcNomReflCo orig_ty, (fun_ty, arg_ty))
 
     go (TyVarTy tv)
       | ASSERT( isTcTyVar tv) isMetaTyVar tv
