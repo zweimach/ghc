@@ -38,7 +38,8 @@ module DataCon (
         dataConSrcBangs,
         dataConSourceArity, dataConRepArity, dataConRepRepArity,
         dataConIsInfix,
-        dataConWorkId, dataConWrapId, dataConWrapId_maybe, dataConImplicitIds,
+        dataConWorkId, dataConWrapId, dataConWrapId_maybe,
+        dataConImplicitTyThings,
         dataConRepStrictness, dataConImplBangs, dataConBoxer,
 
         splitDataProductType_maybe,
@@ -70,6 +71,7 @@ import Util
 import BasicTypes
 import FastString
 import Module
+import NameSet
 import Binary
 
 import qualified Data.Data as Data
@@ -702,7 +704,9 @@ isMarkedStrict _               = True   -- All others are strict
 -- | Build a new data constructor
 mkDataCon :: Name
           -> Bool           -- ^ Is the constructor declared infix?
-          -> [HsSrcBang]       -- ^ Strictness/unpack annotations, from user
+          -> Promoted TyConRepName -- ^ Whether promoted, and if so the TyConRepName
+                                   --   for the promoted TyCon
+          -> [HsSrcBang]    -- ^ Strictness/unpack annotations, from user
           -> [FieldLabel]   -- ^ Field labels for the constructor,
                             -- if it is a record, otherwise empty
           -> [TyVar]        -- ^ Universally quantified type variables
@@ -719,7 +723,7 @@ mkDataCon :: Name
           -> DataCon
   -- Can get the tag from the TyCon
 
-mkDataCon name declared_infix
+mkDataCon name declared_infix prom_info
           arg_stricts   -- Must match orig_arg_tys 1-1
           fields
           univ_tvs ex_tvs
@@ -859,11 +863,13 @@ dataConWrapId dc = case dcRep dc of
 
 -- | Find all the 'Id's implicitly brought into scope by the data constructor. Currently,
 -- the union of the 'dataConWorkId' and the 'dataConWrapId'
-dataConImplicitIds :: DataCon -> [Id]
-dataConImplicitIds (MkData { dcWorkId = work, dcRep = rep})
-  = case rep of
-       NoDataConRep               -> [work]
-       DCR { dcr_wrap_id = wrap } -> [wrap,work]
+dataConImplicitTyThings :: DataCon -> [TyThing]
+dataConImplicitTyThings (MkData { dcWorkId = work, dcRep = rep })
+  = [AnId work] ++ wrap_ids
+  where
+    wrap_ids = case rep of
+                 NoDataConRep               -> []
+                 DCR { dcr_wrap_id = wrap } -> [AnId wrap]
 
 -- | The labels for the fields of this particular 'DataCon'
 dataConFieldLabels :: DataCon -> [FieldLabel]
@@ -1132,7 +1138,6 @@ dataConCannotMatch tys con
                      EqPred NomEq ty1 ty2 -> [(ty1, ty2)]
                      _                    -> []
 
-
 {-
 %************************************************************************
 %*                                                                      *
@@ -1140,9 +1145,6 @@ dataConCannotMatch tys con
 *                                                                      *
 ************************************************************************
 
-These two 'promoted..' functions are here because
- * They belong together
- * 'promoteDataCon' depends on DataCon stuff
 -}
 
 promoteDataCon :: DataCon -> TyCon
@@ -1185,3 +1187,32 @@ splitDataProductType_maybe ty
   = Just (tycon, ty_args, con, dataConInstArgTys con ty_args)
   | otherwise
   = Nothing
+
+{-
+************************************************************************
+*                                                                      *
+              Building an algebraic data type
+*                                                                      *
+************************************************************************
+
+buildAlgTyCon is here because it is called from TysWiredIn, which can
+depend on this module, but not on BuildTyCl.
+-}
+
+buildAlgTyCon :: Name
+              -> [TyVar]               -- ^ Kind variables and type variables
+              -> [Role]
+              -> Maybe CType
+              -> ThetaType             -- ^ Stupid theta
+              -> AlgTyConRhs
+              -> RecFlag
+              -> Bool                  -- ^ True <=> was declared in GADT syntax
+              -> AlgTyConFlav
+              -> TyCon
+
+buildAlgTyCon tc_name ktvs roles cType stupid_theta rhs
+              is_rec gadt_syn parent
+  = mkAlgTyCon tc_name kind ktvs roles cType stupid_theta
+               rhs parent is_rec gadt_syn
+  where
+    kind = mkPiTypesPreferFunTy ktvs liftedTypeKind

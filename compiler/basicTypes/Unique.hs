@@ -48,9 +48,12 @@ module Unique (
         mkPreludeTyConUnique, mkPreludeClassUnique,
         mkPArrDataConUnique, mkCoVarUnique,
 
-    mkVarOccUnique, mkDataOccUnique, mkTvOccUnique, mkTcOccUnique,
+        mkVarOccUnique, mkDataOccUnique, mkTvOccUnique, mkTcOccUnique,
         mkRegSingleUnique, mkRegPairUnique, mkRegClassUnique, mkRegSubUnique,
         mkCostCentreUnique,
+
+        tyConRepNameUnique,
+        dataConWorkerUnique, dataConRepNameUnique,
 
         mkBuiltinUnique,
         mkPseudoUniqueD,
@@ -99,9 +102,10 @@ unpkUnique      :: Unique -> (Char, Int)        -- The reverse
 mkUniqueGrimily :: Int -> Unique                -- A trap-door for UniqSupply
 getKey          :: Unique -> Int                -- for Var
 
-incrUnique      :: Unique -> Unique
-deriveUnique    :: Unique -> Int -> Unique
-newTagUnique    :: Unique -> Char -> Unique
+incrUnique   :: Unique -> Unique
+stepUnique   :: Unique -> Int -> Unique
+deriveUnique :: Unique -> Int -> Unique
+newTagUnique :: Unique -> Char -> Unique
 
 mkUniqueGrimily = MkUnique
 
@@ -109,9 +113,11 @@ mkUniqueGrimily = MkUnique
 getKey (MkUnique x) = x
 
 incrUnique (MkUnique i) = MkUnique (i + 1)
+stepUnique (MkUnique i) n = MkUnique (i + n)
 
 -- deriveUnique uses an 'X' tag so that it won't clash with
 -- any of the uniques produced any other way
+-- SPJ says: this looks terribly smelly to me!
 deriveUnique (MkUnique i) delta = mkUnique 'X' (i + delta)
 
 -- newTagUnique changes the "domain" of a unique to a different char
@@ -176,6 +182,22 @@ And the whole point (besides uniqueness) is fast equality.  We don't
 use `deriving' because we want {\em precise} control of ordering
 (equality on @Uniques@ is v common).
 -}
+
+-- Note [Unique Determinism]
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~
+-- The order of allocated @Uniques@ is not stable across rebuilds.
+-- The main reason for that is that typechecking interface files pulls
+-- @Uniques@ from @UniqSupply@ and the interface file for the module being
+-- currently compiled can, but doesn't have to exist.
+--
+-- It gets more complicated if you take into account that the interface
+-- files are loaded lazily and that building multiple files at once has to
+-- work for any subset of interface files present. When you add parallelism
+-- this makes @Uniques@ hopelessly random.
+--
+-- As such, to get deterministic builds, the order of the allocated
+-- @Uniques@ should not affect the final result.
+-- see also wiki/DeterministicBuilds
 
 eqUnique, ltUnique, leUnique :: Unique -> Unique -> Bool
 eqUnique (MkUnique u1) (MkUnique u2) = u1 == u2
@@ -294,14 +316,19 @@ mkAlphaTyVarUnique   i = mkUnique '1' i
 mkCoVarUnique        i = mkUnique 'g' i
 mkPreludeClassUnique i = mkUnique '2' i
 
--- Prelude type constructors occupy *three* slots.
--- The first is for the tycon itself; the latter two
--- are for the generic to/from Ids.  See TysWiredIn.mk_tc_gen_info.
+--------------------------------------------------
+-- Wired-in data constructor keys occupy *three* slots:
+--    * u: the DataCon itself
+--    * u+1: its worker Id
+--    * u+2: the TyConRepName of the promoted TyCon
+-- Prelude data constructors are too simple to need wrappers.
+mkPreludeTyConUnique i                = mkUnique '3' (3*i)
+mkTupleTyConUnique Boxed           a  = mkUnique '4' (3*a)
+mkTupleTyConUnique Unboxed         a  = mkUnique '5' (3*a)
+mkCTupleTyConUnique                a  = mkUnique 'k' (3*a)
 
-mkPreludeTyConUnique i       = mkUnique '3' (3*i)
-mkTupleTyConUnique Boxed   a = mkUnique '4' (3*a)
-mkTupleTyConUnique Unboxed a = mkUnique '5' (3*a)
-mkCTupleTyConUnique        a = mkUnique 'k' (3*a)
+tyConRepNameUnique :: Unique -> Unique
+tyConRepNameUnique  u = incrUnique u
 
 -- Data constructor keys occupy *two* slots.  The first is used for the
 -- data constructor itself and its wrapper function (the function that
@@ -309,10 +336,22 @@ mkCTupleTyConUnique        a = mkUnique 'k' (3*a)
 -- used for the worker function (the function that builds the constructor
 -- representation).
 
-mkPreludeDataConUnique i       = mkUnique '6' (2*i)    -- Must be alphabetic
-mkTupleDataConUnique Boxed   a = mkUnique '7' (2*a)        -- ditto (*may* be used in C labels)
-mkTupleDataConUnique Unboxed a = mkUnique '8' (2*a)
+--------------------------------------------------
+-- Wired-in data constructor keys occupy *three* slots:
+--    * u: the DataCon itself
+--    * u+1: its worker Id
+--    * u+2: the TyConRepName of the promoted TyCon
+-- Prelude data constructors are too simple to need wrappers.
 
+mkPreludeDataConUnique i              = mkUnique '6' (3*i)    -- Must be alphabetic
+mkTupleDataConUnique Boxed          a = mkUnique '7' (3*a)    -- ditto (*may* be used in C labels)
+mkTupleDataConUnique Unboxed        a = mkUnique '8' (3*a)
+
+dataConRepNameUnique, dataConWorkerUnique :: Unique -> Unique
+dataConWorkerUnique  u = incrUnique u
+dataConRepNameUnique u = stepUnique u 2
+
+--------------------------------------------------
 mkPrimOpIdUnique op         = mkUnique '9' op
 mkPreludeMiscIdUnique  i    = mkUnique '0' i
 

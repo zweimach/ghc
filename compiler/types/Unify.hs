@@ -34,6 +34,9 @@ import Util
 import Pair
 
 import Control.Monad
+#if __GLASGOW_HASKELL__ > 710
+import qualified Control.Monad.Fail as MonadFail
+#endif
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative ( Applicative(..), (<$>) )
 import Data.Traversable    ( traverse )
@@ -386,6 +389,11 @@ tc_unify_tys bind_fn unif rn_env tv_env cv_env tys1 tys2
   where
     kis1 = map typeKind tys1
     kis2 = map typeKind tys2
+
+instance Outputable a => Outputable (UnifyResultM a) where
+  ppr SurelyApart    = ptext (sLit "SurelyApart")
+  ppr (Unifiable x)  = ptext (sLit "Unifiable") <+> ppr x
+  ppr (MaybeApart x) = ptext (sLit "MaybeApart") <+> ppr x
 
 {-
 ************************************************************************
@@ -774,6 +782,11 @@ instance Alternative UM where
 instance MonadPlus UM where
   mzero = empty
   mplus = (<|>)
+
+#if __GLASGOW_HASKELL__ > 710
+instance MonadFail.MonadFail UM where
+    fail _   = UM (\_tvs _subst -> SurelyApart) -- failed pattern match
+#endif
 
 initUM :: (TyVar -> BindFlag)
        -> Bool        -- True <=> unify; False <=> match

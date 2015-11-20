@@ -1,11 +1,11 @@
 # Changelog for [`base` package](http://hackage.haskell.org/package/base)
 
-## 4.8.2.0  *TBA*
+## 4.9.0.0  *TBA*
+
+  * Bundled with GHC 8.0
 
   * The restore operation provided by `mask` and `uninterruptibleMask` now
     restores the previous masking state whatever the current masking state is.
-
-  * Bundled with GHC 7.12.1
 
   * `Alt`, `Dual`, `First`, `Last`, `Product`, and `Sum` now have `Data`,
     `MonadZip`, and `MonadFix` instances
@@ -50,6 +50,9 @@
 
   * Generalise `forever` from `Monad` to `Applicative`
 
+  * Generalize `filterM`, `mapAndUnzipM`, `zipWithM`, `zipWithM_`, `replicateM`,
+    `replicateM` from `Monad` to `Applicative` (#10168)
+
   * Exported `GiveGCStats`, `DoCostCentres`, `DoHeapProfile`, `DoTrace`,
     `RtsTime`, and `RtsNat` from `GHC.RTS.Flags`
 
@@ -61,6 +64,9 @@
 
   * New module `Control.Monad.IO.Class` (previously provided by `transformers`
     package). (#10773)
+
+  * New module `Control.Monad.Fail` providing new `MonadFail(fail)`
+    class (#10751)
 
   * The `Generic` instance for `Proxy` is now poly-kinded (#10775)
 
@@ -81,6 +87,22 @@
   * The `MINIMAL` definition of `Arrow` is now `arr AND (first OR (***))`.
 
   * The `MINIMAL` definition of `ArrowChoice` is now `left OR (+++)`.
+
+  * Add `MonadPlus IO` and `Alternative IO` instances
+    (previously orphans in `transformers`) (#10755)
+
+  * Add `GHC.TypeLits.TypeError` and `ErrorMessage` to allow users
+    to define custom compile-time error messages.
+
+## 4.8.2.0  *Oct 2015*
+
+  * Bundled with GHC 7.10.3
+
+  * The restore operation provided by `mask` and `uninterruptibleMask` now
+    restores the previous masking state whatever the current masking state is.
+
+  * Exported `GiveGCStats`, `DoCostCentres`, `DoHeapProfile`, `DoTrace`,
+    `RtsTime`, and `RtsNat` from `GHC.RTS.Flags`
 
 ## 4.8.1.0  *Jul 2015*
 

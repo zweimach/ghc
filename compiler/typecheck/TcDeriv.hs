@@ -491,7 +491,7 @@ renameDeriv is_boot inst_infos bagBinds
         ; let aux_val_binds = ValBindsIn aux_binds (bagToList aux_sigs)
         ; rn_aux_lhs <- rnTopBindsLHS emptyFsEnv aux_val_binds
         ; let bndrs = collectHsValBinders rn_aux_lhs
-        ; envs <- extendGlobalRdrEnvRn (map Avail bndrs) emptyFsEnv ;
+        ; envs <- extendGlobalRdrEnvRn (map avail bndrs) emptyFsEnv ;
         ; setEnvs envs $
     do  { (rn_aux, dus_aux) <- rnValBindsRHS (TopSigCtxt (mkNameSet bndrs)) rn_aux_lhs
         ; (rn_inst_infos, fvs_insts) <- mapAndUnzipM rn_inst_info inst_infos
@@ -818,14 +818,7 @@ mkEqnHelp overlap_mode tvs cls cls_tys tycon tc_args mtheta
                                  any not_in_scope data_con_names)
              not_in_scope dc  = null (lookupGRE_Name rdr_env dc)
 
-             -- Make a Qual RdrName that will do for each DataCon
-             -- so we can report it as used (Trac #7969)
-             data_con_rdrs = [ greUsedRdrName gre
-                             | dc_name <- data_con_names
-                             , gre : _ <- [lookupGRE_Name rdr_env dc_name]
-                             , not (isLocalGRE gre) ]
-
-       ; addUsedRdrNames data_con_rdrs
+       ; addUsedDataCons rdr_env rep_tc
        ; unless (isNothing mtheta || not hidden_data_cons)
                 (bale_out (derivingHiddenErr tycon))
 

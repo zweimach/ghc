@@ -207,26 +207,44 @@ instance Data.Data TcEvBinds where
 -----------------
 newtype EvBindMap
   = EvBindMap {
-       ev_bind_varenv :: VarEnv EvBind
+       ev_bind_varenv :: DVarEnv EvBind
     }       -- Map from evidence variables to evidence terms
+            -- We use @DVarEnv@ here to get deterministic ordering when we
+            -- turn it into a Bag.
+            -- If we don't do that, when we generate let bindings for
+            -- dictionaries in dsTcEvBinds they will be generated in random
+            -- order.
+            --
+            -- For example:
+            --
+            -- let $dEq = GHC.Classes.$fEqInt in
+            -- let $$dNum = GHC.Num.$fNumInt in ...
+            --
+            -- vs
+            --
+            -- let $dNum = GHC.Num.$fNumInt in
+            -- let $dEq = GHC.Classes.$fEqInt in ...
+            --
+            -- See Note [Deterministic UniqFM] in UniqDFM for explanation why
+            -- @UniqFM@ can lead to nondeterministic order.
 
 emptyEvBindMap :: EvBindMap
-emptyEvBindMap = EvBindMap { ev_bind_varenv = emptyVarEnv }
+emptyEvBindMap = EvBindMap { ev_bind_varenv = emptyDVarEnv }
 
 extendEvBinds :: EvBindMap -> EvBind -> EvBindMap
 extendEvBinds bs ev_bind
-  = EvBindMap { ev_bind_varenv = extendVarEnv (ev_bind_varenv bs)
-                                              (eb_lhs ev_bind)
-                                              ev_bind }
+  = EvBindMap { ev_bind_varenv = extendDVarEnv (ev_bind_varenv bs)
+                                               (eb_lhs ev_bind)
+                                               ev_bind }
 
 lookupEvBind :: EvBindMap -> EvVar -> Maybe EvBind
-lookupEvBind bs = lookupVarEnv (ev_bind_varenv bs)
+lookupEvBind bs = lookupDVarEnv (ev_bind_varenv bs)
 
 evBindMapBinds :: EvBindMap -> Bag EvBind
 evBindMapBinds = foldEvBindMap consBag emptyBag
 
 foldEvBindMap :: (EvBind -> a -> a) -> a -> EvBindMap -> a
-foldEvBindMap k z bs = foldVarEnv k z (ev_bind_varenv bs)
+foldEvBindMap k z bs = foldDVarEnv k z (ev_bind_varenv bs)
 
 -----------------
 -- All evidence is bound by EvBinds; no side effects
@@ -269,24 +287,27 @@ data EvTerm
   | EvLit EvLit       -- Dictionary for KnownNat and KnownSymbol classes.
                       -- Note [KnownNat & KnownSymbol and EvLit]
 
-  | EvCallStack EvCallStack -- Dictionary for CallStack implicit parameters
+  | EvCallStack EvCallStack      -- Dictionary for CallStack implicit parameters
 
-  | EvTypeable EvTypeable   -- Dictionary for `Typeable`
+  | EvTypeable Type EvTypeable   -- Dictionary for (Typeable ty)
 
   deriving( Data.Data, Data.Typeable )
 
 
 -- | Instructions on how to make a 'Typeable' dictionary.
+-- See Note [Typeable evidence terms]
 data EvTypeable
-  = EvTypeableTyCon TyCon [Kind]
-    -- ^ Dictionary for concrete type constructors.
+  = EvTypeableTyCon -- ^ Dictionary for @Typeable (T k1..kn)@
 
-  | EvTypeableTyApp (EvTerm,Type) (EvTerm,Type)
-    -- ^ Dictionary for type applications;  this is used when we have
-    -- a type expression starting with a type variable (e.g., @Typeable (f a)@)
+  | EvTypeableTyApp EvTerm EvTerm
+    -- ^ Dictionary for @Typeable (s t)@,
+    -- given a dictionaries for @s@ and @t@
 
-  | EvTypeableTyLit (EvTerm,Type)
-    -- ^ Dictionary for a type literal.
+  | EvTypeableTyLit EvTerm
+    -- ^ Dictionary for a type literal,
+    -- e.g. @Typeable "foo"@ or @Typeable 3@
+    -- The 'EvTerm' is evidence of, e.g., @KnownNat 3@
+    -- (see Trac #10348)
 
   deriving ( Data.Data, Data.Typeable )
 
@@ -308,6 +329,20 @@ data EvCallStack
   deriving( Data.Data, Data.Typeable )
 
 {-
+Note [Typeable evidence terms]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The EvTypeable data type looks isomorphic to Type, but the EvTerms
+inside can be EvIds.  Eg
+    f :: forall a. Typeable a => a -> TypeRep
+    f x = typeRep (undefined :: Proxy [a])
+Here for the (Typeable [a]) dictionary passed to typeRep we make
+evidence
+    dl :: Typeable [a] = EvTypeable [a]
+                            (EvTypeableTyApp EvTypeableTyCon (EvId d))
+where
+    d :: Typable a
+is the lambda-bound dictionary passed into f.
+
 Note [Coercion evidence terms]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 A "coercion evidence term" takes one of these forms
@@ -548,7 +583,7 @@ evVarsOfTerm (EvCast tm co)       = evVarsOfTerm tm `unionVarSet` coVarsOfCo co
 evVarsOfTerm (EvDelayedError _ _) = emptyVarSet
 evVarsOfTerm (EvLit _)            = emptyVarSet
 evVarsOfTerm (EvCallStack cs)     = evVarsOfCallStack cs
-evVarsOfTerm (EvTypeable ev)      = evVarsOfTypeable ev
+evVarsOfTerm (EvTypeable _ ev)    = evVarsOfTypeable ev
 
 evVarsOfTerms :: [EvTerm] -> VarSet
 evVarsOfTerms = mapUnionVarSet evVarsOfTerm
@@ -574,9 +609,9 @@ evVarsOfCallStack cs = case cs of
 evVarsOfTypeable :: EvTypeable -> VarSet
 evVarsOfTypeable ev =
   case ev of
-    EvTypeableTyCon _ _    -> emptyVarSet
-    EvTypeableTyApp e1 e2  -> evVarsOfTerms (map fst [e1,e2])
-    EvTypeableTyLit e      -> evVarsOfTerm (fst e)
+    EvTypeableTyCon       -> emptyVarSet
+    EvTypeableTyApp e1 e2 -> evVarsOfTerms [e1,e2]
+    EvTypeableTyLit e     -> evVarsOfTerm e
 
 {-
 ************************************************************************
@@ -647,7 +682,7 @@ instance Outputable EvTerm where
   ppr (EvCallStack cs)      = ppr cs
   ppr (EvDelayedError ty msg) =     ptext (sLit "error")
                                 <+> sep [ char '@' <> ppr ty, ppr msg ]
-  ppr (EvTypeable ev)    = ppr ev
+  ppr (EvTypeable ty ev)      = ppr ev <+> dcolon <+> ptext (sLit "Typeable") <+> ppr ty
 
 instance Outputable EvLit where
   ppr (EvNum n) = integer n
@@ -662,20 +697,21 @@ instance Outputable EvCallStack where
     = angleBrackets (ppr (name,loc)) <+> ptext (sLit ":") <+> ppr tm
 
 instance Outputable EvTypeable where
-  ppr ev =
-    case ev of
-      EvTypeableTyCon tc ks    -> parens (ppr tc <+> sep (map ppr ks))
-      EvTypeableTyApp t1 t2    -> parens (ppr (fst t1) <+> ppr (fst t2))
-      EvTypeableTyLit x        -> ppr (fst x)
+  ppr EvTypeableTyCon         = ptext (sLit "TC")
+  ppr (EvTypeableTyApp t1 t2) = parens (ppr t1 <+> ppr t2)
+  ppr (EvTypeableTyLit t1)    = ptext (sLit "TyLit") <> ppr t1
 
 
 ----------------------------------------------------------------------
 -- Helper functions for dealing with IP newtype-dictionaries
 ----------------------------------------------------------------------
 
--- | Create a 'Coercion' that unwraps an implicit-parameter dictionary
--- to expose the underlying value. We expect the 'Type' to have the form
--- `IP sym ty`, return a 'Coercion' `co :: IP sym ty ~ ty`.
+-- | Create a 'Coercion' that unwraps an implicit-parameter or
+-- overloaded-label dictionary to expose the underlying value. We
+-- expect the 'Type' to have the form `IP sym ty` or `IsLabel sym ty`,
+-- and return a 'Coercion' `co :: IP sym ty ~ ty` or
+-- `co :: IsLabel sym ty ~ Proxy# sym -> ty`.  See also
+-- Note [Type-checking overloaded labels] in TcExpr.
 unwrapIP :: Type -> Coercion
 unwrapIP ty =
   case unwrapNewTyCon_maybe tc of

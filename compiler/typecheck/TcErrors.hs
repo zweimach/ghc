@@ -355,7 +355,9 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_insol = insols, wc_impl 
     -- (see TcRnTypes.trulyInsoluble) is caught here, otherwise
     -- we might suppress its error message, and proceed on past
     -- type checking to get a Lint error later
-    report1 = [ ("insoluble1",   is_given,        True, mkGroupReporter mkEqErr)
+    report1 = [ ("custom_error", is_user_type_error,
+                                                  True, mkUserTypeErrorReporter)
+              , ("insoluble1",   is_given,        True, mkGroupReporter mkEqErr)
               , ("insoluble2",   utterly_wrong,   True, mkGroupReporter mkEqErr)
               , ("insoluble3",   rigid_nom_tv_eq, True, mkSkolReporter)
               , ("insoluble4",   rigid_nom_eq,    True, mkGroupReporter mkEqErr)
@@ -379,7 +381,7 @@ reportWanteds ctxt tc_lvl (WC { wc_simple = simples, wc_insol = insols, wc_impl 
 
     is_out_of_scope ct _ = isOutOfScopeCt ct
     is_hole         ct _ = isHoleCt ct
-
+    is_user_type_error ct _ = isUserTypeErrorCt ct
     is_given  ct _ = not (isWantedCt ct)  -- The Derived ones are actually all from Givens
 
     -- Skolem (i.e. non-meta) type variable on the left
@@ -440,6 +442,18 @@ mkHoleReporter ctxt
        ; maybeReportHoleError ctxt ct err
        ; maybeAddDeferredHoleBinding ctxt err ct }
 
+mkUserTypeErrorReporter :: Reporter
+mkUserTypeErrorReporter ctxt
+  = mapM_ $ \ct -> maybeReportError ctxt =<< mkUserTypeError ctxt ct
+
+mkUserTypeError :: ReportErrCtxt -> Ct -> TcM ErrMsg
+mkUserTypeError ctxt ct = mkErrorMsgFromCt ctxt ct
+                        $ pprUserTypeErrorTy
+                        $ case getUserTypeErrorMsg ct of
+                            Just (_,msg) -> msg
+                            Nothing      -> pprPanic "mkUserTypeError" (ppr ct)
+
+
 mkGroupReporter :: (ReportErrCtxt -> [Ct] -> TcM ErrMsg)
                              -- Make error message for a group
                 -> Reporter  -- Deal with lots of constraints
@@ -452,12 +466,23 @@ mkGroupReporter mk_err ctxt cts
 
 reportGroup :: (ReportErrCtxt -> [Ct] -> TcM ErrMsg) -> ReportErrCtxt
             -> [Ct] -> TcM ()
-reportGroup mk_err ctxt cts
-  = do { err <- mk_err ctxt cts
-       ; maybeReportError ctxt err
-       ; mapM_ (maybeAddDeferredBinding ctxt err) cts }
-               -- Add deferred bindings for all
-               -- But see Note [Always warn with -fdefer-type-errors]
+reportGroup mk_err ctxt cts =
+  case partition isMonadFailInstanceMissing cts of
+        -- Only warn about missing MonadFail constraint when
+        -- there are no other missing contstraints!
+        (monadFailCts, []) -> do { err <- mk_err ctxt monadFailCts
+                                 ; reportWarning err }
+
+        (_, cts') -> do { err <- mk_err ctxt cts'
+                        ; maybeReportError ctxt err
+                        ; mapM_ (maybeAddDeferredBinding ctxt err) cts' }
+                                -- Add deferred bindings for all
+                                -- But see Note [Always warn with -fdefer-type-errors]
+  where
+    isMonadFailInstanceMissing ct =
+        case ctLocOrigin (ctLoc ct) of
+            FailablePattern _pat -> True
+            _otherwise           -> False
 
 maybeReportHoleError :: ReportErrCtxt -> Ct -> ErrMsg -> TcM ()
 maybeReportHoleError ctxt ct err
@@ -718,9 +743,10 @@ mkHoleError ctxt ct@(CHoleCan { cc_occ = occ, cc_hole = hole_sort })
                        -- Suggest possible in-scope variables in the message
   = do { dflags  <- getDynFlags
        ; rdr_env <- getGlobalRdrEnv
+       ; impInfo <- getImports
        ; mkLongErrAt (RealSrcSpan (tcl_loc lcl_env)) out_of_scope_msg
                      (unknownNameSuggestions dflags rdr_env
-                               (tcl_rdr lcl_env) (mkRdrUnqual occ)) }
+                               (tcl_rdr lcl_env) impInfo (mkRdrUnqual occ)) }
 
   | otherwise  -- Explicit holes, like "_" or "_f"
   = do { (ctxt, binds_doc, ct) <- relevantBindings False ctxt ct
@@ -991,7 +1017,7 @@ mkTyVarEqErr dflags ctxt extra ct oriented tv1 ty2
                             -- be oriented the other way round;
                             -- see TcCanonical.canEqTyVarTyVar
   || isSigTyVar tv1 && not (isTyVarTy ty2)
-  || (ctEqRel ct == ReprEq && not (isTyVarUnderDatatype tv1 ty2))
+  || ctEqRel ct == ReprEq && not (isTyVarUnderDatatype tv1 ty2)
      -- the cases below don't really apply to ReprEq (except occurs check)
   = mkErrorMsgFromCt ctxt ct (vcat [ misMatchOrCND ctxt ct oriented ty1 ty2
                                    , extraTyVarInfo ctxt tv1 ty2

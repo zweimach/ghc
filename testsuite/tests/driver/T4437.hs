@@ -33,10 +33,8 @@ expectedGhcOnlyExtensions :: [String]
 expectedGhcOnlyExtensions = ["RelaxedLayout",
                              "AlternativeLayoutRule",
                              "AlternativeLayoutRuleTransitional",
-                             "DuplicateRecordFields",
-                             "StaticPointers",
-                             "StrictData",
-                             "ApplicativeDo"] -- TODO add this to Cabal
+                             "OverloadedLabels",
+                             "MonadFailDesugaring"]
 
 expectedCabalOnlyExtensions :: [String]
 expectedCabalOnlyExtensions = ["Generics",

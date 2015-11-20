@@ -7,6 +7,7 @@ import Vectorise.Type.Type
 import Vectorise.Monad
 import Vectorise.Env( GlobalEnv( global_fam_inst_env ) )
 import BuildTyCl( buildClass, buildDataCon )
+import OccName
 import Class
 import Type
 import TyCon
@@ -99,6 +100,7 @@ vectTyConDecl tycon name'
              gadt_flag = isGadtSyntaxTyCon tycon
 
            -- build the vectorised type constructor
+       ; tc_rep_name <- mkDerivedName mkTyConRepUserOcc name'
        ; return $ mkAlgTyCon
                     name'                   -- new name
                     (tyConKind tycon)       -- keep original kind
@@ -110,6 +112,7 @@ vectTyConDecl tycon name'
                     NoParentTyCon
                     rec_flag                -- whether recursive
                     gadt_flag               -- whether in GADT syntax
+                    (VanillaAlgTyCon tc_rep_name)
        }
 
   -- some other crazy thing that we don't handle
@@ -136,8 +139,6 @@ vectAlgTyConRhs :: TyCon -> AlgTyConRhs -> VM AlgTyConRhs
 vectAlgTyConRhs tc (AbstractTyCon {})
   = do dflags <- getDynFlags
        cantVectorise dflags "Can't vectorise imported abstract type" (ppr tc)
-vectAlgTyConRhs _tc DataFamilyTyCon
-  = return DataFamilyTyCon
 vectAlgTyConRhs _tc (DataTyCon { data_cons = data_cons
                                , is_enum   = is_enum
                                })
@@ -185,6 +186,7 @@ vectDataCon dc
        ; liftDs $ buildDataCon fam_envs
                     name'
                     (dataConIsInfix dc)            -- infix if the original is
+                    NotPromoted                    -- Vectorised type is not promotable
                     (dataConSrcBangs dc)           -- strictness as original constructor
                     (Just $ dataConImplBangs dc)
                     []                             -- no labelled fields for now

@@ -37,11 +37,7 @@ command ``ghci``:
 ::
 
     $ ghci
-    GHCi, version 6.12.1: http://www.haskell.org/ghc/  :? for help
-    Loading package ghc-prim ... linking ... done.
-    Loading package integer-gmp ... linking ... done.
-    Loading package base ... linking ... done.
-    Loading package ffi-1.0 ... linking ... done.
+    GHCi, version 8.0.1: http://www.haskell.org/ghc/  :? for help
     Prelude>
 
 There may be a short pause while GHCi loads the prelude and standard
@@ -1022,10 +1018,10 @@ is given, the following additional differences apply:
    single-parameter type classes.
 
 -  Rule 3 above is relaxed this: At least one of the classes ``Ci`` is
-   numeric, or is ``Show``, ``Eq``, or ``Ord``.
+   numeric, or is ``Show``, ``Eq``, ``Ord``, ``Foldable`` or ``Traversable``.
 
--  The unit type ``()`` is added to the start of the standard list of
-   types which are tried when doing type defaulting.
+-  The unit type ``()`` and the list type ``[]`` are added to the start of
+   the standard list of types which are tried when doing type defaulting.
 
 The last point means that, for example, this program:
 

@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP, ImplicitParams #-}
 {-
 (c) The University of Glasgow 2006-2012
 (c) The GRASP Project, Glasgow University, 1992-1998
@@ -16,14 +17,15 @@ module Outputable (
         -- * Pretty printing combinators
         SDoc, runSDoc, initSDocContext,
         docToSDoc,
-        interppSP, interpp'SP, pprQuotedList, pprWithCommas, quotedListWithOr,
+        interppSP, interpp'SP,
+        pprQuotedList, pprWithCommas, quotedListWithOr, quotedListWithNor,
         empty, nest,
         char,
         text, ftext, ptext, ztext,
         int, intWithCommas, integer, float, double, rational,
         parens, cparen, brackets, braces, quotes, quote,
         doubleQuotes, angleBrackets, paBrackets,
-        semi, comma, colon, dcolon, space, equals, dot,
+        semi, comma, colon, dcolon, space, equals, dot, vbar,
         arrow, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt,
         lparen, rparen, lbrack, rbrack, lbrace, rbrace, underscore,
         blankLine, forAllLit,
@@ -31,7 +33,7 @@ module Outputable (
         ($$), ($+$), vcat,
         sep, cat,
         fsep, fcat,
-        hang, punctuate, ppWhen, ppUnless,
+        hang, hangNotEmpty, punctuate, ppWhen, ppUnless,
         speakNth, speakN, speakNOf, plural, isOrAre, doOrDoes,
 
         coloured, PprColour, colType, colCoerc, colDataCon,
@@ -73,7 +75,7 @@ module Outputable (
 
         -- * Error handling and debugging utilities
         pprPanic, pprSorry, assertPprPanic, pprPgmError,
-        pprTrace, pprTraceIt, warnPprTrace,
+        pprTrace, pprTraceIt, warnPprTrace, pprSTrace,
         trace, pgmError, panic, sorry, assertPanic,
         pprDebugAndThen,
     ) where
@@ -109,6 +111,10 @@ import Data.Graph (SCC(..))
 
 import GHC.Fingerprint
 import GHC.Show         ( showMultiLineString )
+#if __GLASGOW_HASKELL__ > 710
+import GHC.Stack
+import GHC.Exception
+#endif
 
 {-
 ************************************************************************
@@ -521,7 +527,7 @@ quotes d =
              ('\'' : _, _)       -> pp_d
              _other              -> Pretty.quotes pp_d
 
-semi, comma, colon, equals, space, dcolon, underscore, dot :: SDoc
+semi, comma, colon, equals, space, dcolon, underscore, dot, vbar :: SDoc
 arrow, larrow, darrow, arrowt, larrowt, arrowtt, larrowtt :: SDoc
 lparen, rparen, lbrack, rbrack, lbrace, rbrace, blankLine :: SDoc
 
@@ -541,6 +547,7 @@ equals     = docToSDoc $ Pretty.equals
 space      = docToSDoc $ Pretty.space
 underscore = char '_'
 dot        = char '.'
+vbar       = char '|'
 lparen     = docToSDoc $ Pretty.lparen
 rparen     = docToSDoc $ Pretty.rparen
 lbrack     = docToSDoc $ Pretty.lbrack
@@ -605,6 +612,12 @@ hang :: SDoc  -- ^ The header
       -> SDoc -- ^ The hung body, indented and placed below the header
       -> SDoc
 hang d1 n d2   = SDoc $ \sty -> Pretty.hang (runSDoc d1 sty) n (runSDoc d2 sty)
+
+-- | This behaves like 'hang', but does not indent the second document
+-- when the header is empty.
+hangNotEmpty :: SDoc -> Int -> SDoc -> SDoc
+hangNotEmpty d1 n d2 =
+    SDoc $ \sty -> Pretty.hangNotEmpty (runSDoc d1 sty) n (runSDoc d2 sty)
 
 punctuate :: SDoc   -- ^ The punctuation
           -> [SDoc] -- ^ The list that will have punctuation added between every adjacent pair of elements
@@ -913,6 +926,11 @@ quotedListWithOr :: [SDoc] -> SDoc
 quotedListWithOr xs@(_:_:_) = quotedList (init xs) <+> ptext (sLit "or") <+> quotes (last xs)
 quotedListWithOr xs = quotedList xs
 
+quotedListWithNor :: [SDoc] -> SDoc
+-- [x,y,z]  ==>  `x', `y' nor `z'
+quotedListWithNor xs@(_:_:_) = quotedList (init xs) <+> ptext (sLit "nor") <+> quotes (last xs)
+quotedListWithNor xs = quotedList xs
+
 {-
 ************************************************************************
 *                                                                      *
@@ -1039,6 +1057,17 @@ pprTrace str doc x
 -- | @pprTraceIt desc x@ is equivalent to @pprTrace desc (ppr x) x@
 pprTraceIt :: Outputable a => String -> a -> a
 pprTraceIt desc x = pprTrace desc (ppr x) x
+
+
+-- | If debug output is on, show some 'SDoc' on the screen along
+-- with a call stack when available.
+#if __GLASGOW_HASKELL__ > 710
+pprSTrace :: (?location :: CallStack) => SDoc -> a -> a
+pprSTrace = pprTrace (showCallStack ?location)
+#else
+pprSTrace :: SDoc -> a -> a
+pprSTrace = pprTrace "no callstack info"
+#endif
 
 warnPprTrace :: Bool -> String -> Int -> SDoc -> a -> a
 -- ^ Just warn about an assertion failure, recording the given file and line number.

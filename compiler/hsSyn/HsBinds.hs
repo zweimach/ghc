@@ -37,7 +37,7 @@ import SrcLoc
 import Var
 import Bag
 import FastString
-import BooleanFormula (BooleanFormula)
+import BooleanFormula (LBooleanFormula)
 
 import Data.Data hiding ( Fixity )
 import Data.List
@@ -139,8 +139,6 @@ data HsBindLR idL idR
     FunBind {
 
         fun_id :: Located idL, -- Note [fun_id in Match] in HsExpr
-
-        fun_infix :: Bool,      -- ^ True => infix declaration
 
         fun_matches :: MatchGroup idR (LHsExpr idR),  -- ^ The payload
 
@@ -257,7 +255,7 @@ data PatSynBind idL idR
           psb_def  :: LPat idR,                      -- ^ Right-hand side
           psb_dir  :: HsPatSynDir idR                -- ^ Directionality
   } deriving (Typeable)
-deriving instance (DataId idL, DataId idR )
+deriving instance (DataId idL, DataId idR)
   => Data (PatSynBind idL idR)
 
 {-
@@ -488,14 +486,14 @@ ppr_monobind (PatBind { pat_lhs = pat, pat_rhs = grhss })
   = pprPatBind pat grhss
 ppr_monobind (VarBind { var_id = var, var_rhs = rhs })
   = sep [pprBndr CaseBind var, nest 2 $ equals <+> pprExpr (unLoc rhs)]
-ppr_monobind (FunBind { fun_id = fun, fun_infix = inf,
+ppr_monobind (FunBind { fun_id = fun,
                         fun_co_fn = wrap,
                         fun_matches = matches,
                         fun_tick = ticks })
   = pprTicks empty (if null ticks then empty
                     else text "-- ticks = " <> ppr ticks)
     $$  ifPprDebug (pprBndr LetBind (unLoc fun))
-    $$  pprFunBind (unLoc fun) inf matches
+    $$  pprFunBind (unLoc fun) matches
     $$  ifPprDebug (ppr wrap)
 ppr_monobind (PatSynBind psb) = ppr psb
 ppr_monobind (AbsBinds { abs_tvs = tyvars, abs_ev_vars = dictvars
@@ -522,15 +520,18 @@ instance (OutputableBndr idL, OutputableBndr idR) => Outputable (PatSynBind idL 
       ppr_lhs = ptext (sLit "pattern") <+> ppr_details
       ppr_simple syntax = syntax <+> ppr pat
 
-      (is_infix, ppr_details) = case details of
-          InfixPatSyn v1 v2 -> (True, hsep [ppr v1, pprInfixOcc psyn, ppr v2])
-          PrefixPatSyn vs   -> (False, hsep (pprPrefixOcc psyn : map ppr vs))
+      ppr_details = case details of
+          InfixPatSyn v1 v2 -> hsep [ppr v1, pprInfixOcc psyn, ppr v2]
+          PrefixPatSyn vs   -> hsep (pprPrefixOcc psyn : map ppr vs)
+          RecordPatSyn vs   ->
+            pprPrefixOcc psyn
+                      <> braces (sep (punctuate comma (map ppr vs)))
 
       ppr_rhs = case dir of
           Unidirectional           -> ppr_simple (ptext (sLit "<-"))
           ImplicitBidirectional    -> ppr_simple equals
           ExplicitBidirectional mg -> ppr_simple (ptext (sLit "<-")) <+> ptext (sLit "where") $$
-                                      (nest 2 $ pprFunBind psyn is_infix mg)
+                                      (nest 2 $ pprFunBind psyn mg)
 
 pprTicks :: SDoc -> SDoc -> SDoc
 -- Print stuff about ticks only when -dppr-debug is on, to avoid
@@ -625,7 +626,7 @@ data Sig name
       --          'ApiAnnotation.AnnComma'
 
       -- For details on above see note [Api annotations] in ApiAnnotation
-    TypeSig 
+    TypeSig
        [Located name]         -- LHS of the signature; e.g.  f,g,h :: blah
        (LHsType name)         -- RHS of the signature
        (PostRn name [Name])   -- Wildcards (both named and anonymous) of the RHS
@@ -641,8 +642,8 @@ data Sig name
       -- For details on above see note [Api annotations] in ApiAnnotation
   | PatSynSig (Located name)
               (HsExplicitFlag, LHsTyVarBndrs name)
-              (LHsContext name) -- Provided context
               (LHsContext name) -- Required context
+              (LHsContext name) -- Provided context
               (LHsType name)
 
         -- | A type signature for a default method inside a class
@@ -728,7 +729,7 @@ data Sig name
         --      'ApiAnnotation.AnnClose'
 
         -- For details on above see note [Api annotations] in ApiAnnotation
-  | MinimalSig SourceText (BooleanFormula (Located name))
+  | MinimalSig SourceText (LBooleanFormula (Located name))
                -- Note [Pragma source text] in BasicTypes
 
   deriving (Typeable)
@@ -839,23 +840,23 @@ ppr_sig (InlineSig var inl)       = pragBrackets (ppr inl <+> pprPrefixOcc (unLo
 ppr_sig (SpecInstSig _ ty)
   = pragBrackets (ptext (sLit "SPECIALIZE instance") <+> ppr ty)
 ppr_sig (MinimalSig _ bf)         = pragBrackets (pprMinimalSig bf)
-ppr_sig (PatSynSig name (flag, qtvs) (L _ prov) (L _ req) ty)
+ppr_sig (PatSynSig name (flag, qtvs) (L _ req) (L _ prov) ty)
   = pprPatSynSig (unLoc name) False -- TODO: is_bindir
                  (pprHsForAll flag qtvs (noLoc []))
-                 (pprHsContextMaybe prov) (pprHsContextMaybe req)
+                 (pprHsContextMaybe req) (pprHsContextMaybe prov)
                  (ppr ty)
 
 pprPatSynSig :: (OutputableBndr name)
              => name -> Bool -> SDoc -> Maybe SDoc -> Maybe SDoc -> SDoc -> SDoc
-pprPatSynSig ident _is_bidir tvs prov req ty
+pprPatSynSig ident _is_bidir tvs req prov ty
   = ptext (sLit "pattern") <+> pprPrefixOcc ident <+> dcolon <+>
     tvs <+> context <+> ty
   where
-    context = case (prov, req) of
+    context = case (req, prov) of
         (Nothing, Nothing)    -> empty
-        (Nothing, Just req)   -> parens empty <+> darrow <+> req <+> darrow
-        (Just prov, Nothing)  -> prov <+> darrow
-        (Just prov, Just req) -> prov <+> darrow <+> req <+> darrow
+        (Nothing, Just prov)  -> parens empty <+> darrow <+> prov <+> darrow
+        (Just req, Nothing)   -> req <+> darrow
+        (Just req, Just prov) -> req <+> darrow <+> prov <+> darrow
 
 instance OutputableBndr name => Outputable (FixitySig name) where
   ppr (FixitySig names fixity) = sep [ppr fixity, pprops]
@@ -883,8 +884,8 @@ pprTcSpecPrags (SpecPrags ps)  = vcat (map (ppr . unLoc) ps)
 instance Outputable TcSpecPrag where
   ppr (SpecPrag var _ inl) = pprSpec var (ptext (sLit "<type>")) inl
 
-pprMinimalSig :: OutputableBndr name => BooleanFormula (Located name) -> SDoc
-pprMinimalSig bf = ptext (sLit "MINIMAL") <+> ppr (fmap unLoc bf)
+pprMinimalSig :: OutputableBndr name => LBooleanFormula (Located name) -> SDoc
+pprMinimalSig (L _ bf) = ptext (sLit "MINIMAL") <+> ppr (fmap unLoc bf)
 
 {-
 ************************************************************************
@@ -897,37 +898,97 @@ pprMinimalSig bf = ptext (sLit "MINIMAL") <+> ppr (fmap unLoc bf)
 data HsPatSynDetails a
   = InfixPatSyn a a
   | PrefixPatSyn [a]
-  deriving (Data, Typeable)
+  | RecordPatSyn [RecordPatSynField a]
+  deriving (Typeable, Data)
+
+
+-- See Note [Record PatSyn Fields]
+data RecordPatSynField a
+  = RecordPatSynField {
+      recordPatSynSelectorId :: a  -- Selector name visible in rest of the file
+      , recordPatSynPatVar :: a
+      -- Filled in by renamer, the name used internally
+      -- by the pattern
+      } deriving (Typeable, Data)
+
+
+
+{-
+Note [Record PatSyn Fields]
+
+Consider the following two pattern synonyms.
+
+pattern P x y = ([x,True], [y,'v'])
+pattern Q{ x, y } =([x,True], [y,'v'])
+
+In P, we just have two local binders, x and y.
+
+In Q, we have local binders but also top-level record selectors
+x :: ([Bool], [Char]) -> Bool and similarly for y.
+
+It would make sense to support record-like syntax
+
+pattern Q{ x=x1, y=y1 } = ([x1,True], [y1,'v'])
+
+when we have a different name for the local and top-level binder
+the distinction between the two names clear
+
+-}
+instance Functor RecordPatSynField where
+    fmap f (RecordPatSynField visible hidden) =
+      RecordPatSynField (f visible) (f hidden)
+
+instance Outputable a => Outputable (RecordPatSynField a) where
+    ppr (RecordPatSynField v _) = ppr v
+
+instance Foldable RecordPatSynField  where
+    foldMap f (RecordPatSynField visible hidden) =
+      f visible `mappend` f hidden
+
+instance Traversable RecordPatSynField where
+    traverse f (RecordPatSynField visible hidden) =
+      RecordPatSynField <$> f visible <*> f hidden
+
 
 instance Functor HsPatSynDetails where
     fmap f (InfixPatSyn left right) = InfixPatSyn (f left) (f right)
     fmap f (PrefixPatSyn args) = PrefixPatSyn (fmap f args)
+    fmap f (RecordPatSyn args) = RecordPatSyn (map (fmap f) args)
 
 instance Foldable HsPatSynDetails where
     foldMap f (InfixPatSyn left right) = f left `mappend` f right
     foldMap f (PrefixPatSyn args) = foldMap f args
+    foldMap f (RecordPatSyn args) = foldMap (foldMap f) args
 
     foldl1 f (InfixPatSyn left right) = left `f` right
     foldl1 f (PrefixPatSyn args) = Data.List.foldl1 f args
+    foldl1 f (RecordPatSyn args) =
+      Data.List.foldl1 f (map (Data.Foldable.foldl1 f) args)
 
     foldr1 f (InfixPatSyn left right) = left `f` right
     foldr1 f (PrefixPatSyn args) = Data.List.foldr1 f args
+    foldr1 f (RecordPatSyn args) =
+      Data.List.foldr1 f (map (Data.Foldable.foldr1 f) args)
 
 -- TODO: After a few more versions, we should probably use these.
 #if __GLASGOW_HASKELL__ >= 709
     length (InfixPatSyn _ _) = 2
     length (PrefixPatSyn args) = Data.List.length args
+    length (RecordPatSyn args) = Data.List.length args
 
     null (InfixPatSyn _ _) = False
     null (PrefixPatSyn args) = Data.List.null args
+    null (RecordPatSyn args) = Data.List.null args
 
     toList (InfixPatSyn left right) = [left, right]
     toList (PrefixPatSyn args) = args
+    toList (RecordPatSyn args) = foldMap toList args
 #endif
 
 instance Traversable HsPatSynDetails where
     traverse f (InfixPatSyn left right) = InfixPatSyn <$> f left <*> f right
     traverse f (PrefixPatSyn args) = PrefixPatSyn <$> traverse f args
+    traverse f (RecordPatSyn args) = RecordPatSyn <$> traverse (traverse f) args
 
 data HsPatSynDir id
   = Unidirectional

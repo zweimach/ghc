@@ -10,6 +10,8 @@
 -- | This module defines TyCons that can't be expressed in Haskell.
 --   They are all, therefore, wired-in TyCons.  C.f module TysWiredIn
 module TysPrim(
+        mkPrimTyConName, -- For implicit parameters in TysWiredIn only
+
         mkTemplateTyVars,
         alphaTyVars, alphaTyVar, betaTyVar, gammaTyVar, deltaTyVar,
         alphaTys, alphaTy, betaTy, gammaTy, deltaTy,
@@ -81,11 +83,10 @@ module TysPrim(
 import {-# SOURCE #-} TysWiredIn ( levityTy, unliftedDataConTy, liftedTypeKind )
 
 import Var              ( TyVar, KindVar, mkTyVar )
-import Name             ( Name, BuiltInSyntax(..), mkInternalName, mkWiredInName )
-import OccName          ( mkTyVarOccFS, mkTcOccFS )
+import Name
 import TyCon
 import SrcLoc
-import Unique           ( mkAlphaTyVarUnique )
+import Unique
 import PrelNames
 import FastString
 import TyCoRep   -- doesn't need special access, but this is easier to avoid
@@ -259,8 +260,9 @@ funTyConName :: Name
 funTyConName = mkPrimTyConName (fsLit "(->)") funTyConKey funTyCon
 
 funTyCon :: TyCon
-funTyCon = mkFunTyCon funTyConName $
-           mkFunTys [liftedTypeKind, liftedTypeKind] liftedTypeKind
+funTyCon = mkFunTyCon funTyConName kind tc_rep_nm
+  where
+    kind = mkFunTys [liftedTypeKind, liftedTypeKind] liftedTypeKind
         -- You might think that (->) should have type (?? -> ? -> *), and you'd be right
         -- But if we do that we get kind errors when saying
         --      instance Control.Arrow (->)
@@ -269,6 +271,8 @@ funTyCon = mkFunTyCon funTyConName $
         -- the kind sub-typing does.  Sigh.  It really only matters if you use (->) in
         -- a prefix way, thus:  (->) Int# Int#.  And this is unusual.
         -- because they are never in scope in the source
+
+    tc_rep_nm = mkSpecialTyConRepName (fsLit "tcFun") funTyConName
 
 -- One step to remove subkinding.
 -- (->) :: * -> * -> *
@@ -324,6 +328,7 @@ tYPETyConName, unliftedTypeKindTyConName :: Name
 
 tYPETyCon = mkKindTyCon tYPETyConName
                         (ForAllTy (Anon levityTy) liftedTypeKind)
+                        (mkSpecialTyConRepName (fsLit "tcTYPE") tYPETyConName)
                         [Nominal]
 
    -- See Note [TYPE]
@@ -766,7 +771,7 @@ anyTy = mkTyConTy anyTyCon
 anyTyCon :: TyCon
 anyTyCon = mkFamilyTyCon anyTyConName kind [kKiVar] Nothing
                          (ClosedSynFamilyTyCon Nothing)
-                         NoParentTyCon
+                         Nothing
                          NotInjective
   where
     kind = ForAllTy (Named kKiVar Invisible) (mkTyVarTy kKiVar)

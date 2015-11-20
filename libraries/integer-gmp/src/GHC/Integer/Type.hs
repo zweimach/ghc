@@ -1934,8 +1934,7 @@ liftIO (IO m) = m
 
 -- NB: equivalent of GHC.IO.unsafeDupablePerformIO, see notes there
 runS :: S RealWorld a -> a
-runS m = lazy (case m realWorld# of (# _, r #) -> r)
-{-# NOINLINE runS #-}
+runS m = case runRW# m of (# _, a #) -> a
 
 -- stupid hack
 fail :: [Char] -> S s a
@@ -1987,13 +1986,6 @@ cmpW# x# y#
   | isTrue# (x# `eqWord#` y#) = EQ
   | True                      = GT
 {-# INLINE cmpW# #-}
-
-subWordC# :: Word# -> Word# -> (# Word#, Int# #)
-subWordC# x# y# = (# d#, c# #)
-  where
-    d# = x# `minusWord#` y#
-    c# = d# `gtWord#` x#
-{-# INLINE subWordC# #-}
 
 bitWord# :: Int# -> Word#
 bitWord# = uncheckedShiftL# 1##

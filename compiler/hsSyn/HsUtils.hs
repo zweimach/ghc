@@ -39,9 +39,10 @@ module HsUtils(
   -- Bindings
   mkFunBind, mkVarBind, mkHsVarBind, mk_easy_FunBind, mkTopFunBind,
   mkPatSynBind,
+  isInfixFunBind,
 
   -- Literals
-  mkHsIntegral, mkHsFractional, mkHsIsString, mkHsString,
+  mkHsIntegral, mkHsFractional, mkHsIsString, mkHsString, mkHsStringPrimLit,
 
   -- Patterns
   mkNPat, mkNPlusKPat, nlVarPat, nlLitPat, nlConVarPat, nlConVarPatName, nlConPat,
@@ -136,27 +137,34 @@ mkHsPar e = L (getLoc e) (HsPar e)
 mkSimpleMatch :: [LPat id] -> Located (body id) -> LMatch id (Located (body id))
 mkSimpleMatch pats rhs
   = L loc $
-    Match Nothing pats Nothing (unguardedGRHSs rhs)
+    Match NonFunBindMatch pats Nothing (unguardedGRHSs rhs)
   where
     loc = case pats of
                 []      -> getLoc rhs
                 (pat:_) -> combineSrcSpans (getLoc pat) (getLoc rhs)
 
 unguardedGRHSs :: Located (body id) -> GRHSs id (Located (body id))
-unguardedGRHSs rhs@(L loc _) = GRHSs (unguardedRHS loc rhs) emptyLocalBinds
+unguardedGRHSs rhs@(L loc _)
+  = GRHSs (unguardedRHS loc rhs) (noLoc emptyLocalBinds)
 
 unguardedRHS :: SrcSpan -> Located (body id) -> [LGRHS id (Located (body id))]
 unguardedRHS loc rhs = [L loc (GRHS [] rhs)]
 
 mkMatchGroup :: Origin -> [LMatch RdrName (Located (body RdrName))]
              -> MatchGroup RdrName (Located (body RdrName))
-mkMatchGroup origin matches = MG { mg_alts = matches, mg_arg_tys = []
+mkMatchGroup origin matches = MG { mg_alts = mkLocatedList matches
+                                 , mg_arg_tys = []
                                  , mg_res_ty = placeHolderType
                                  , mg_origin = origin }
 
+mkLocatedList ::  [Located a] -> Located [Located a]
+mkLocatedList [] = noLoc []
+mkLocatedList ms = L (combineLocs (head ms) (last ms)) ms
+
 mkMatchGroupName :: Origin -> [LMatch Name (Located (body Name))]
              -> MatchGroup Name (Located (body Name))
-mkMatchGroupName origin matches = MG { mg_alts = matches, mg_arg_tys = []
+mkMatchGroupName origin matches = MG { mg_alts = mkLocatedList matches
+                                     , mg_arg_tys = []
                                      , mg_res_ty = placeHolderType
                                      , mg_origin = origin }
 
@@ -240,7 +248,7 @@ mkHsIsString src s  = OverLit (HsIsString   src s) noRebindableInfo noSyntaxExpr
 noRebindableInfo :: PlaceHolder
 noRebindableInfo = PlaceHolder -- Just another placeholder;
 
-mkHsDo ctxt stmts = HsDo ctxt stmts placeHolderType
+mkHsDo ctxt stmts = HsDo ctxt (mkLocatedList stmts) placeHolderType
 mkHsComp ctxt stmts expr = mkHsDo ctxt (stmts ++ [last_stmt])
   where
     last_stmt = L (getLoc expr) $ mkLastStmt expr
@@ -323,6 +331,10 @@ unqualQuasiQuote = mkRdrUnqual (mkVarOccFS (fsLit "quasiquote"))
 
 mkHsString :: String -> HsLit
 mkHsString s = HsString s (mkFastString s)
+
+mkHsStringPrimLit :: FastString -> HsLit
+mkHsStringPrimLit fs
+  = HsStringPrim (unpackFS fs) (fastStringToByteString fs)
 
 -------------
 userHsTyVarBndrs :: SrcSpan -> [name] -> [Located (HsTyVarBndr name)]
@@ -607,7 +619,7 @@ l
 mkFunBind :: Located RdrName -> [LMatch RdrName (LHsExpr RdrName)]
           -> HsBind RdrName
 -- Not infix, with place holders for coercion and free vars
-mkFunBind fn ms = FunBind { fun_id = fn, fun_infix = False
+mkFunBind fn ms = FunBind { fun_id = fn
                           , fun_matches = mkMatchGroup Generated ms
                           , fun_co_fn = idHsWrapper
                           , bind_fvs = placeHolderNames
@@ -616,7 +628,7 @@ mkFunBind fn ms = FunBind { fun_id = fn, fun_infix = False
 mkTopFunBind :: Origin -> Located Name -> [LMatch Name (LHsExpr Name)]
              -> HsBind Name
 -- In Name-land, with empty bind_fvs
-mkTopFunBind origin fn ms = FunBind { fun_id = fn, fun_infix = False
+mkTopFunBind origin fn ms = FunBind { fun_id = fn
                                     , fun_matches = mkMatchGroupName origin ms
                                     , fun_co_fn = idHsWrapper
                                     , bind_fvs = emptyNameSet -- NB: closed
@@ -640,17 +652,26 @@ mkPatSynBind name details lpat dir = PatSynBind psb
              , psb_dir = dir
              , psb_fvs = placeHolderNames }
 
+-- |If any of the matches in the 'FunBind' are infix, the 'FunBind' is
+-- considered infix.
+isInfixFunBind :: HsBindLR id1 id2 -> Bool
+isInfixFunBind (FunBind _ (MG matches _ _ _) _ _ _)
+  = any (isInfixMatch . unLoc) (unLoc matches)
+isInfixFunBind _ = False
+
+
 ------------
 mk_easy_FunBind :: SrcSpan -> RdrName -> [LPat RdrName]
                 -> LHsExpr RdrName -> LHsBind RdrName
 mk_easy_FunBind loc fun pats expr
-  = L loc $ mkFunBind (L loc fun) [mkMatch pats expr emptyLocalBinds]
+  = L loc $ mkFunBind (L loc fun) [mkMatch pats expr (noLoc emptyLocalBinds)]
 
 ------------
-mkMatch :: [LPat id] -> LHsExpr id -> HsLocalBinds id -> LMatch id (LHsExpr id)
-mkMatch pats expr binds
-  = noLoc (Match Nothing (map paren pats) Nothing
-                 (GRHSs (unguardedRHS noSrcSpan expr) binds))
+mkMatch :: [LPat id] -> LHsExpr id -> Located (HsLocalBinds id)
+        -> LMatch id (LHsExpr id)
+mkMatch pats expr lbinds
+  = noLoc (Match NonFunBindMatch (map paren pats) Nothing
+                 (GRHSs (unguardedRHS noSrcSpan expr) lbinds))
   where
     paren lp@(L l p) | hsPatNeedsParens p = L l (ParPat lp)
                      | otherwise          = lp
@@ -745,12 +766,12 @@ collectLStmtBinders = collectStmtBinders . unLoc
 
 collectStmtBinders :: StmtLR idL idR body -> [idL]
   -- Id Binders for a Stmt... [but what about pattern-sig type vars]?
-collectStmtBinders (BindStmt pat _ _ _) = collectPatBinders pat
-collectStmtBinders (LetStmt binds)      = collectLocalBinders binds
-collectStmtBinders (BodyStmt {})        = []
-collectStmtBinders (LastStmt {})        = []
-collectStmtBinders (ParStmt xs _ _)     = collectLStmtsBinders
-                                        $ [s | ParStmtBlock ss _ _ <- xs, s <- ss]
+collectStmtBinders (BindStmt pat _ _ _)  = collectPatBinders pat
+collectStmtBinders (LetStmt (L _ binds)) = collectLocalBinders binds
+collectStmtBinders (BodyStmt {})         = []
+collectStmtBinders (LastStmt {})         = []
+collectStmtBinders (ParStmt xs _ _)   = collectLStmtsBinders
+                                      $ [s | ParStmtBlock ss _ _ <- xs, s <- ss]
 collectStmtBinders (TransStmt { trS_stmts = stmts }) = collectLStmtsBinders stmts
 collectStmtBinders (RecStmt { recS_stmts = ss })     = collectLStmtsBinders ss
 collectStmtBinders ApplicativeStmt{} = []
@@ -868,20 +889,27 @@ hsForeignDeclsBinders foreign_decls
   = [ L decl_loc n
     | L decl_loc (ForeignImport (L _ n) _ _ _) <- foreign_decls]
 
+
+
 -------------------
-hsPatSynBinders :: HsValBinds RdrName -> [Located RdrName]
+hsPatSynBinders :: HsValBinds RdrName
+                -> ([Located RdrName], [Located RdrName])
 -- Collect pattern-synonym binders only, not Ids
 -- See Note [SrcSpan for binders]
-hsPatSynBinders (ValBindsIn binds _) = foldrBag addPatSynBndr [] binds
+hsPatSynBinders (ValBindsIn binds _) = foldrBag addPatSynBndr ([],[]) binds
 hsPatSynBinders _ = panic "hsPatSynBinders"
 
-addPatSynBndr :: LHsBindLR idL idR -> [Located idL] -> [Located idL]
+addPatSynBndr :: LHsBindLR id id -> ([Located id], [Located id])
+                -> ([Located id], [Located id]) -- (selectors, other)
 -- See Note [SrcSpan for binders]
-addPatSynBndr bind pss
-  | L bind_loc (PatSynBind (PSB { psb_id = L _ n })) <- bind
-  = L bind_loc n : pss
+addPatSynBndr bind (sels, pss)
+  | L bind_loc (PatSynBind (PSB { psb_id = L _ n
+                                , psb_args = RecordPatSyn as })) <- bind
+  = (map recordPatSynSelectorId as ++ sels, L bind_loc n : pss)
+  | L bind_loc (PatSynBind (PSB { psb_id = L _ n})) <- bind
+  = (sels, L bind_loc n : pss)
   | otherwise
-  = pss
+  = (sels, pss)
 
 -------------------
 hsLInstDeclBinders :: LInstDecl name -> ([Located name], [LFieldOcc name])
@@ -973,7 +1001,7 @@ lStmtsImplicits = hs_lstmts
     hs_stmt (ApplicativeStmt args _ _) = unionNameSets (map do_arg args)
       where do_arg (_, ApplicativeArgOne pat _) = lPatImplicits pat
             do_arg (_, ApplicativeArgMany stmts _ _) = hs_lstmts stmts
-    hs_stmt (LetStmt binds)      = hs_local_binds binds
+    hs_stmt (LetStmt binds)      = hs_local_binds (unLoc binds)
     hs_stmt (BodyStmt {})        = emptyNameSet
     hs_stmt (LastStmt {})        = emptyNameSet
     hs_stmt (ParStmt xs _ _)     = hs_lstmts [s | ParStmtBlock ss _ _ <- xs, s <- ss]

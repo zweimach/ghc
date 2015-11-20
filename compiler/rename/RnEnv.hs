@@ -16,6 +16,7 @@ module RnEnv (
         lookupGlobalOccRn, lookupGlobalOccRn_maybe,
         lookupOccRn_overloaded, lookupGlobalOccRn_overloaded,
         reportUnboundName, unknownNameSuggestions,
+        addNameClashErrRn,
 
         HsSigCtxt(..), lookupLocalTcNames, lookupSigOccRn,
         lookupSigCtxtOccRn,
@@ -25,8 +26,8 @@ module RnEnv (
         lookupSubBndrGREs, lookupConstructorFields,
         lookupSyntaxName, lookupSyntaxNames, lookupIfThenElse,
         lookupGreAvailRn,
-        getLookupOccRn, addUsedRdrNames,
-        addUsedRdrName,
+        getLookupOccRn,
+        addUsedGRE, addUsedGREs, addUsedDataCons,
 
         newLocalBndrRn, newLocalBndrsRn,
         bindLocalNames, bindLocalNamesFV,
@@ -77,7 +78,7 @@ import DynFlags
 import FastString
 import Control.Monad
 import Data.List
-import qualified Data.Set as Set
+import Data.Function    ( on )
 import ListSetOps       ( minusList )
 import Constants        ( mAX_TUPLE_SIZE )
 
@@ -142,7 +143,7 @@ One might conceivably want to report deprecation warnings when compiling
 ASig with -sig-of B, in which case we need to look at B.hi to find the
 deprecation warnings during renaming.  At the moment, you don't get any
 warning until you use the identifier further downstream.  This would
-require adjusting addUsedRdrName so that during signature compilation,
+require adjusting addUsedGRE so that during signature compilation,
 we do not report deprecation warnings for LocalDef.  See also
 Note [Handling of deprecations]
 -}
@@ -214,7 +215,7 @@ newTopSrcBinder (L loc rdr_name)
                     -- information later
                     [GRE{ gre_name = n }] -> do
                       -- NB: Just adding this line will not work:
-                      --    addUsedRdrName True gre rdr_name
+                      --    addUsedGRE True gre
                       -- see Note [Signature lazy interface loading] for
                       -- more details.
                       return (setNameLoc n loc)
@@ -481,8 +482,9 @@ lookupSubBndrOcc warnIfDeprec parent doc rdr_name
                 -- NB: lookupGlobalRdrEnv, not lookupGRE_RdrName!
                 --     The latter does pickGREs, but we want to allow 'x'
                 --     even if only 'M.x' is in scope
-            [gre] -> do { addUsedRdrName warnIfDeprec gre (used_rdr_name gre)
+            [gre] -> do { addUsedGRE warnIfDeprec gre
                           -- Add a usage; this is an *occurrence* site
+                          -- Note [Usage for sub-bndrs]
                         ; return (gre_name gre) }
             []    -> do { ns <- lookupQualifiedNameGHCi rdr_name
                         ; case ns of {
@@ -493,11 +495,6 @@ lookupSubBndrOcc warnIfDeprec parent doc rdr_name
                         ; return (mkUnboundName rdr_name) } } }
             gres  -> do { addNameClashErrRn rdr_name gres
                         ; return (gre_name (head gres)) } }
-  where
-    -- Note [Usage for sub-bndrs]
-    used_rdr_name gre
-      | isQual rdr_name = rdr_name
-      | otherwise       = greUsedRdrName gre
 
 lookupSubBndrGREs :: GlobalRdrEnv -> Maybe Name -> RdrName -> [GlobalRdrElt]
 -- If parent = Nothing, just do a normal lookup
@@ -873,11 +870,11 @@ lookupGlobalOccRn_overloaded overload_ok rdr_name
         ; case lookupGRE_RdrName rdr_name env of
                 []    -> return Nothing
                 [gre] | isRecFldGRE gre
-                         -> do { addUsedRdrName True gre rdr_name
+                         -> do { addUsedGRE True gre
                                ; let fld_occ = FieldOcc rdr_name (gre_name gre)
                                ; return (Just (Right [fld_occ])) }
                       | otherwise
-                         -> do { addUsedRdrName True gre rdr_name
+                         -> do { addUsedGRE True gre
                                ; return (Just (Left (gre_name gre))) }
                 gres  | all isRecFldGRE gres && overload_ok
                             -- Don't record usage for ambiguous selectors
@@ -902,7 +899,7 @@ lookupGreRn_maybe rdr_name
   = do  { env <- getGlobalRdrEnv
         ; case lookupGRE_RdrName rdr_name env of
             []    -> return Nothing
-            [gre] -> do { addUsedRdrName True gre rdr_name
+            [gre] -> do { addUsedGRE True gre
                         ; return (Just gre) }
             gres  -> do { addNameClashErrRn rdr_name gres
                         ; traceRn (text "name clash" <+> (ppr rdr_name $$ ppr gres $$ ppr env))
@@ -918,7 +915,7 @@ lookupGreRn2_maybe rdr_name
         ; case lookupGRE_RdrName rdr_name env of
             []    -> do { _ <- unboundName WL_Global rdr_name
                         ; return Nothing }
-            [gre] -> do { addUsedRdrName True gre rdr_name
+            [gre] -> do { addUsedGRE True gre
                         ; return (Just gre) }
             gres  -> do { addNameClashErrRn rdr_name gres
                         ; traceRn (text "name clash" <+> (ppr rdr_name $$ ppr gres $$ ppr env))
@@ -934,7 +931,7 @@ lookupGreAvailRn rdr_name
             Nothing  ->
     do  { traceRn (text "lookupGreRn" <+> ppr rdr_name)
         ; let name = mkUnboundName rdr_name
-        ; return (name, Avail name) } } }
+        ; return (name, avail name) } } }
 
 {-
 *********************************************************
@@ -954,47 +951,40 @@ Note [Handling of deprecations]
   even use a deprecated thing in the defn of a non-deprecated thing,
   when changing a module's interface.
 
-* addUsedRdrNames: we do not report deprecations for sub-binders:
+* addUsedGREs: we do not report deprecations for sub-binders:
      - the ".." completion for records
      - the ".." in an export item 'T(..)'
      - the things exported by a module export 'module M'
 -}
 
-addUsedRdrName :: Bool -> GlobalRdrElt -> RdrName -> RnM ()
--- Record usage of imported RdrNames
-addUsedRdrName warn_if_deprec gre rdr
-  = do { if isRecFldGRE gre
-           then addUsedSelector (FieldOcc rdr (gre_name gre))
-           else unless (isLocalGRE gre) $ addOneUsedRdrName rdr
+addUsedDataCons :: GlobalRdrEnv -> TyCon -> RnM ()
+-- Remember use of in-scope data constructors (Trac #7969)
+addUsedDataCons rdr_env tycon
+  = addUsedGREs [ gre
+                | dc <- tyConDataCons tycon
+                , gre : _ <- [lookupGRE_Name rdr_env (dataConName dc) ] ]
 
-       ; when warn_if_deprec $
-         warnIfDeprecated gre }
+addUsedGRE :: Bool -> GlobalRdrElt -> RnM ()
+-- Called for both local and imported things
+-- Add usage *and* warn if deprecated
+addUsedGRE warn_if_deprec gre
+  = do { when warn_if_deprec (warnIfDeprecated gre)
+       ; unless (isLocalGRE gre) $
+         do { env <- getGblEnv
+            ; traceRn (text "addUsedGRE" <+> ppr gre)
+            ; updMutVar (tcg_used_gres env) (gre :) } }
 
-addUsedSelector :: FieldOcc Name -> RnM ()
--- Record usage of record selectors by DuplicateRecordFields
-addUsedSelector n
-  = do { env <- getGblEnv
-       ; traceRn (text "addUsedSelector " <+> ppr n)
-       ; updMutVar (tcg_used_selectors env)
-                   (\s -> Set.insert n s) }
-
-addOneUsedRdrName :: RdrName -> RnM ()
-addOneUsedRdrName rdr
-  = do { env <- getGblEnv
-       ; traceRn (text "addUsedRdrName 1" <+> ppr rdr)
-       ; updMutVar (tcg_used_rdrnames env)
-                   (\s -> Set.insert rdr s) }
-
-addUsedRdrNames :: [RdrName] -> RnM ()
--- Record used sub-binders
--- We don't check for imported-ness here, because it's inconvenient
--- and not stritly necessary.
+addUsedGREs :: [GlobalRdrElt] -> RnM ()
+-- Record uses of any *imported* GREs
+-- Used for recording used sub-bndrs
 -- NB: no call to warnIfDeprecated; see Note [Handling of deprecations]
-addUsedRdrNames rdrs
-  = do { env <- getGblEnv
-       ; traceRn (text "addUsedRdrName 2" <+> ppr rdrs)
-       ; updMutVar (tcg_used_rdrnames env)
-                   (\s -> foldr Set.insert s rdrs) }
+addUsedGREs gres
+  | null imp_gres = return ()
+  | otherwise     = do { env <- getGblEnv
+                       ; traceRn (text "addUsedGREs" <+> ppr imp_gres)
+                       ; updMutVar (tcg_used_gres env) (imp_gres ++) }
+  where
+    imp_gres = filterOut isLocalGRE gres
 
 warnIfDeprecated :: GlobalRdrElt -> RnM ()
 warnIfDeprecated gre@(GRE { gre_name = name, gre_imp = iss })
@@ -1034,6 +1024,7 @@ lookupImpDeprec iface gre
        ParentIs  p              -> mi_warn_fn iface p
        FldParent { par_is = p } -> mi_warn_fn iface p
        NoParent                 -> Nothing
+       PatternSynonym           -> Nothing
 
 {-
 Note [Used names with interface not loaded]
@@ -1458,8 +1449,8 @@ lookupIfThenElse :: RnM (Maybe (SyntaxExpr Name), FreeVars)
 -- case we desugar directly rather than calling an existing function
 -- Hence the (Maybe (SyntaxExpr Name)) return type
 lookupIfThenElse
-  = do { rebind <- xoptM Opt_RebindableSyntax
-       ; if not rebind
+  = do { rebindable_on <- xoptM Opt_RebindableSyntax
+       ; if not rebindable_on
          then return (Nothing, emptyFVs)
          else do { ite <- lookupOccRn (mkVarUnqual (fsLit "ifThenElse"))
                  ; return (Just (HsVar ite), unitFV ite) } }
@@ -1653,8 +1644,9 @@ unboundNameX where_look rdr_name extra
           then addErr err
           else do { local_env  <- getLocalRdrEnv
                   ; global_env <- getGlobalRdrEnv
+                  ; impInfo <- getImports
                   ; let suggestions = unknownNameSuggestions_ where_look
-                                         dflags global_env local_env rdr_name
+                                        dflags global_env local_env impInfo rdr_name
                   ; addErr (err $$ suggestions) }
         ; return (mkUnboundName rdr_name) }
 
@@ -1671,17 +1663,25 @@ type HowInScope = Either SrcSpan ImpDeclSpec
      -- Left loc    =>  locally bound at loc
      -- Right ispec =>  imported as specified by ispec
 
+
+-- | Called from the typechecker (TcErrors) when we find an unbound variable
 unknownNameSuggestions :: DynFlags
-                       -> GlobalRdrEnv -> LocalRdrEnv
+                       -> GlobalRdrEnv -> LocalRdrEnv -> ImportAvails
                        -> RdrName -> SDoc
--- Called from the typechecker (TcErrors)
--- when we find an unbound variable
 unknownNameSuggestions = unknownNameSuggestions_ WL_Any
 
 unknownNameSuggestions_ :: WhereLooking -> DynFlags
+                       -> GlobalRdrEnv -> LocalRdrEnv -> ImportAvails
+                       -> RdrName -> SDoc
+unknownNameSuggestions_ where_look dflags global_env local_env imports tried_rdr_name =
+    similarNameSuggestions where_look dflags global_env local_env tried_rdr_name $$
+    importSuggestions dflags imports tried_rdr_name
+
+
+similarNameSuggestions :: WhereLooking -> DynFlags
                         -> GlobalRdrEnv -> LocalRdrEnv
                         -> RdrName -> SDoc
-unknownNameSuggestions_ where_look dflags global_env
+similarNameSuggestions where_look dflags global_env
                         local_env tried_rdr_name
   = case suggest of
       []  -> Outputable.empty
@@ -1795,6 +1795,113 @@ unknownNameSuggestions_ where_look dflags global_env
       = [ (mkRdrQual (is_as ispec) (nameOccName n), Right ispec)
         | i <- is, let ispec = is_decl i, is_qual ispec ]
 
+-- | Generate helpful suggestions if a qualified name Mod.foo is not in scope.
+importSuggestions :: DynFlags -> ImportAvails -> RdrName -> SDoc
+importSuggestions _dflags imports rdr_name
+  | not (isQual rdr_name || isUnqual rdr_name) = Outputable.empty
+  | null interesting_imports
+  , Just name <- mod_name
+  = hsep
+      [ ptext (sLit "No module named")
+      , quotes (ppr name)
+      , ptext (sLit "is imported.")
+      ]
+  | is_qualified
+  , null helpful_imports
+  , [(mod,_)] <- interesting_imports
+  = hsep
+      [ ptext (sLit "Module")
+      , quotes (ppr mod)
+      , ptext (sLit "does not export")
+      , quotes (ppr occ_name) <> dot
+      ]
+  | is_qualified
+  , null helpful_imports
+  , mods <- map fst interesting_imports
+  = hsep
+      [ ptext (sLit "Neither")
+      , quotedListWithNor (map ppr mods)
+      , ptext (sLit "exports")
+      , quotes (ppr occ_name) <> dot
+      ]
+  | [(mod,imv)] <- helpful_imports_non_hiding
+  = fsep
+      [ ptext (sLit "Perhaps you want to add")
+      , quotes (ppr occ_name)
+      , ptext (sLit "to the import list")
+      , ptext (sLit "in the import of")
+      , quotes (ppr mod)
+      , parens (ppr (imv_span imv)) <> dot
+      ]
+  | not (null helpful_imports_non_hiding)
+  = fsep
+      [ ptext (sLit "Perhaps you want to add")
+      , quotes (ppr occ_name)
+      , ptext (sLit "to one of these import lists:")
+      ]
+    $$
+    nest 2 (vcat
+        [ quotes (ppr mod) <+> parens (ppr (imv_span imv))
+        | (mod,imv) <- helpful_imports_non_hiding
+        ])
+  | [(mod,imv)] <- helpful_imports_hiding
+  = fsep
+      [ ptext (sLit "Perhaps you want to remove")
+      , quotes (ppr occ_name)
+      , ptext (sLit "from the explicit hiding list")
+      , ptext (sLit "in the import of")
+      , quotes (ppr mod)
+      , parens (ppr (imv_span imv)) <> dot
+      ]
+  | not (null helpful_imports_hiding)
+  = fsep
+      [ ptext (sLit "Perhaps you want to remove")
+      , quotes (ppr occ_name)
+      , ptext (sLit "from the hiding clauses")
+      , ptext (sLit "in one of these imports:")
+      ]
+    $$
+    nest 2 (vcat
+        [ quotes (ppr mod) <+> parens (ppr (imv_span imv))
+        | (mod,imv) <- helpful_imports_hiding
+        ])
+  | otherwise
+  = Outputable.empty
+ where
+  is_qualified = isQual rdr_name
+  (mod_name, occ_name) = case rdr_name of
+    Unqual occ_name        -> (Nothing, occ_name)
+    Qual mod_name occ_name -> (Just mod_name, occ_name)
+    _                      -> error "importSuggestions: dead code"
+
+
+  -- What import statements provide "Mod" at all
+  -- or, if this is an unqualified name, are not qualified imports
+  interesting_imports = [ (mod, imp)
+    | (mod, mod_imports) <- moduleEnvToList (imp_mods imports)
+    , Just imp <- return $ pick mod_imports
+    ]
+
+  -- We want to keep only one for each original module; preferably one with an
+  -- explicit import list (for no particularly good reason)
+  pick :: [ImportedModsVal] -> Maybe ImportedModsVal
+  pick = listToMaybe . sortBy (compare `on` prefer) . filter select
+    where select imv = case mod_name of Just name -> imv_name imv == name
+                                        Nothing   -> not (imv_qualified imv)
+          prefer imv = (imv_is_hiding imv, imv_span imv)
+
+  -- Which of these would export a 'foo'
+  -- (all of these are restricted imports, because if they were not, we
+  -- wouldn't have an out-of-scope error in the first place)
+  helpful_imports = filter helpful interesting_imports
+    where helpful (_,imv)
+            = not . null $ lookupGlobalRdrEnv (imv_all_exports imv) occ_name
+
+  -- Which of these do that because of an explicit hiding list resp. an
+  -- explicit import list
+  (helpful_imports_hiding, helpful_imports_non_hiding)
+    = partition (imv_is_hiding . snd) helpful_imports
+
 {-
 ************************************************************************
 *                                                                      *
@@ -1843,6 +1950,7 @@ warnUnusedTopBinds gres
          let isBoot = tcg_src env == HsBootFile
          let noParent gre = case gre_par gre of
                             NoParent -> True
+                            PatternSynonym -> True
                             _        -> False
              -- Don't warn about unused bindings with parents in
              -- .hs-boot files, as you are sometimes required to give

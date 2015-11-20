@@ -357,7 +357,7 @@ test('tc262', normal, compile, [''])
 test('tc263',
     extra_clean(['Tc263_Help.o','Tc263_Help.hi']),
     multimod_compile, ['tc263','-v0'])
-test('tc264', normal, multimod_compile, ['tc264.hs-boot', '-sig-of "ShouldCompile is base:Data.STRef"'])
+test('tc264', normal, multimod_compile, ['tc264.hsig', '-sig-of "ShouldCompile is base:Data.STRef"'])
 test('tc265', compile_timeout_multiplier(0.01), compile, [''])
 
 test('GivenOverlapping', normal, compile, [''])
@@ -478,3 +478,4 @@ test('T10347', expect_broken(10347), compile, [''])
 test('T10770a', expect_broken(10770), compile, [''])
 test('T10770b', expect_broken(10770), compile, [''])
 test('T10935', normal, compile, [''])
+test('T10971a', normal, compile, [''])

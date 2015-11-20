@@ -380,6 +380,19 @@ endif
 compiler/stage2/build/Parser_HC_OPTS += -O0 -fno-ignore-interface-pragmas -fcmm-sink
 compiler/stage3/build/Parser_HC_OPTS += -O0 -fno-ignore-interface-pragmas -fcmm-sink
 
+# On IBM AIX we need to wrokaround XCOFF's TOC limitations (see also
+# comment in `aclocal.m4` about `-mminimal-toc` for more details)
+# However, Parser.hc defines so many symbols that `-mminimal-toc`
+# generates instructions with offsets exceeding the PPC offset
+# addressing limits.  So we need to counter-act this via `-mfull-toc`
+# which disables a preceding `-mminimal-toc` again.
+ifeq "$(HostOS_CPP)" "aix"
+compiler/stage1/build/Parser_HC_OPTS += -optc-mfull-toc
+endif
+ifeq "$(TargetOS_CPP)" "aix"
+compiler/stage2/build/Parser_HC_OPTS += -optc-mfull-toc
+compiler/stage3/build/Parser_HC_OPTS += -optc-mfull-toc
+endif
 
 ifeq "$(GhcProfiled)" "YES"
 # If we're profiling GHC then we want SCCs.  However, adding -auto-all
@@ -462,6 +475,9 @@ endif
 compiler_stage1_SplitObjs = NO
 compiler_stage2_SplitObjs = NO
 compiler_stage3_SplitObjs = NO
+compiler_stage1_SplitSections = NO
+compiler_stage2_SplitSections = NO
+compiler_stage3_SplitSections = NO
 
 # There are too many symbols in the ghc package for a Windows DLL.
 # We therefore need to split some of the modules off into a separate
@@ -580,6 +596,7 @@ compiler_stage2_dll0_MODULES = \
 	TysWiredIn \
 	Unify \
 	UniqFM \
+	UniqDFM \
 	UniqSet \
 	UniqSupply \
 	Unique \
@@ -663,8 +680,8 @@ $(eval $(call build-package,compiler,stage3,2))
 define keepCAFsForGHCiDynOnly
 # $1 = stage
 # $2 = way
-ifeq "$$(findstring dyn, $1)" ""
-compiler_stage$1_$2_C_OBJS := $$(filter-out %/keepCAFsForGHCi.o,$$(compiler_stage$1_$2_C_OBJS))
+ifeq "$$(findstring dyn, $2)" ""
+compiler_stage$1_$2_C_OBJS := $$(filter-out %/keepCAFsForGHCi.$$($2_osuf),$$(compiler_stage$1_$2_C_OBJS))
 endif
 endef
 $(foreach w,$(compiler_stage1_WAYS),$(eval $(call keepCAFsForGHCiDynOnly,1,$w)))

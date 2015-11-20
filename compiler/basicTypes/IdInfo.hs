@@ -11,6 +11,7 @@ Haskell. [WDP 94/11])
 module IdInfo (
         -- * The IdDetails type
         IdDetails(..), pprIdDetails, coVarDetails, isCoVarDetails,
+        RecSelParent(..),
 
         -- * The IdInfo type
         IdInfo,         -- Abstract
@@ -76,6 +77,7 @@ import VarSet
 import BasicTypes
 import DataCon
 import TyCon
+import {-# SOURCE #-} PatSyn
 import ForeignCall
 import Outputable
 import Module
@@ -108,8 +110,7 @@ data IdDetails
 
   -- | The 'Id' for a record selector
   | RecSelId
-    { sel_tycon   :: TyCon      -- ^ For a data type family, this is the /instance/ 'TyCon'
-                                --   not the family 'TyCon'
+    { sel_tycon   :: RecSelParent
     , sel_naughty :: Bool       -- True <=> a "naughty" selector which can't actually exist, for example @x@ in:
                                 --    data T = forall a. MkT { x :: a }
     }                           -- See Note [Naughty record selectors] in TcTyClsDecls
@@ -121,7 +122,6 @@ data IdDetails
                                 --  a) to support isImplicitId
                                 --  b) when desugaring a RecordCon we can get
                                 --     from the Id back to the data con]
-
   | ClassOpId Class             -- ^ The 'Id' is a superclass selector,
                                 -- or class operation of a class
 
@@ -149,6 +149,17 @@ data IdDetails
 
   | PatSynId                    -- ^ A top-level Id to support pattern synonyms;
                                 -- the builder or matcher for the patern synonym
+
+data RecSelParent = RecSelData TyCon | RecSelPatSyn PatSyn deriving Eq
+  -- Either `TyCon` or `PatSyn` depending
+  -- on the origin of the record selector.
+  -- For a data type family, this is the
+  -- /instance/ 'TyCon' not the family 'TyCon'
+
+instance Outputable RecSelParent where
+  ppr p = case p of
+            RecSelData ty_con -> ppr ty_con
+            RecSelPatSyn ps   -> ppr ps
 
 -- | Just a synonym for 'CoVarId'. Written separately so it can be
 -- exported in the hs-boot file.
@@ -349,7 +360,7 @@ pprStrictness sig = ppr sig
 
 Note [Specialisations and RULES in IdInfo]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Generally speaking, a GlobalIdshas an *empty* RuleInfo.  All their
+Generally speaking, a GlobalId has an *empty* RuleInfo.  All their
 RULES are contained in the globally-built rule-base.  In principle,
 one could attach the to M.f the RULES for M.f that are defined in M.
 But we don't do that for instance declarations and so we just treat

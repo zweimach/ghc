@@ -1771,7 +1771,9 @@ findDefaultableGroups (default_tys, (ovl_strings, extended_defaults)) wanteds
     -- In interactive mode, or with -XExtendedDefaultRules,
     -- we default Show a to Show () to avoid graututious errors on "show []"
     isInteractiveClass cls
-        = is_num_class cls || (classKey cls `elem` [showClassKey, eqClassKey, ordClassKey])
+        = is_num_class cls || (classKey cls `elem` [showClassKey, eqClassKey
+                                                   , ordClassKey, foldableClassKey
+                                                   , traversableClassKey])
 
     is_num_class cls = isNumericClass cls || (ovl_strings && (cls `hasKey` isStringClassKey))
     -- is_num_class adds IsString to the standard numeric classes,
@@ -1827,6 +1829,8 @@ disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
     mb_subst = tcMatchTy tmpl_tvs the_ty default_ty
       -- Make sure the kinds match too; hence this call to tcMatchTy
       -- E.g. suppose the only constraint was (Typeable k (a::k))
+      -- With the addition of polykinded defaulting we also want to reject
+      -- ill-kinded defaulting attempts like (Eq []) or (Foldable Int) here.
 
 
 {-

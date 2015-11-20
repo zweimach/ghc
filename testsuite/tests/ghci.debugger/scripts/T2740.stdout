@@ -1,5 +1,11 @@
 Stopped at T2740.hs:(3,1)-(4,25)
+<<<<<<< HEAD
 _result :: r = _
+||||||| merged common ancestors
+_result :: a = _
+=======
+_result :: a2 = _
+>>>>>>> origin/master
 Stopped at T2740.hs:3:11-13
 _result :: Bool = _
 x :: Integer = 1

@@ -142,8 +142,17 @@ include mk/warnings.mk
 
 # (Optional) build-specific configuration
 include mk/custom-settings.mk
+SRC_CC_OPTS     += -Wall
+SRC_HC_OPTS     += -Wall
+# Don't add -Werror to GhcStage1HcOpts, because otherwise validate may
+# unnecessarily fail during the stage1 build when booting with an older
+# compiler.
+# It would be better to only exclude certain warnings from becoming errors
+# (e.g. '-Werror -Wno-error=unused-imports -Wno-error=...'), but -Wno-error
+# isn't supported yet (https://ghc.haskell.org/trac/ghc/wiki/Design/Warnings).
 SRC_CC_OPTS     += $(WERROR)
-SRC_HC_OPTS     += $(WERROR)
+GhcStage2HcOpts += $(WERROR)
+GhcLibHcOpts    += $(WERROR)
 
 # -----------------------------------------------------------------------------
 # Check for inconsistent settings, after reading mk/build.mk.
@@ -515,7 +524,6 @@ $(foreach pkg,$(PACKAGES_STAGE1),$(eval $(call fixed_pkg_dep,$(pkg),dist-install
 # eachother, so we can configure them in parallel.
 utils/ghc-pwd/dist-install/package-data.mk: $(fixed_pkg_prev)
 utils/ghc-cabal/dist-install/package-data.mk: $(fixed_pkg_prev)
-utils/dll-split/dist-install/package-data.mk: $(fixed_pkg_prev)
 utils/hpc/dist-install/package-data.mk: $(fixed_pkg_prev)
 utils/ghc-pkg/dist-install/package-data.mk: $(fixed_pkg_prev)
 utils/hsc2hs/dist-install/package-data.mk: $(fixed_pkg_prev)
@@ -538,6 +546,7 @@ ghc/stage2/package-data.mk: compiler/stage2/package-data.mk
 # all the other libraries' package-data.mk files.
 utils/haddock/dist/package-data.mk: compiler/stage2/package-data.mk
 utils/ghctags/dist-install/package-data.mk: compiler/stage2/package-data.mk
+utils/check-api-annotations/dist-install/package-data.mk: compiler/stage2/package-data.mk
 utils/mkUserGuidePart/dist/package-data.mk: compiler/stage2/package-data.mk
 
 # add the final package.conf dependency: ghc-prim depends on RTS
@@ -652,6 +661,7 @@ BUILD_DIRS += utils/hsc2hs
 BUILD_DIRS += utils/ghc-pkg
 BUILD_DIRS += utils/testremove
 BUILD_DIRS += utils/ghctags
+BUILD_DIRS += utils/check-api-annotations
 BUILD_DIRS += utils/dll-split
 BUILD_DIRS += utils/ghc-pwd
 BUILD_DIRS += utils/ghc-cabal
@@ -705,6 +715,7 @@ ifneq "$(CrossCompiling) $(Stage1Only)" "NO NO"
 BUILD_DIRS := $(filter-out utils/haddock,$(BUILD_DIRS))
 BUILD_DIRS := $(filter-out utils/haddock/doc,$(BUILD_DIRS))
 BUILD_DIRS := $(filter-out utils/ghctags,$(BUILD_DIRS))
+BUILD_DIRS := $(filter-out utils/check-api-annotations,$(BUILD_DIRS))
 BUILD_DIRS := $(filter-out utils/mkUserGuidePart,$(BUILD_DIRS))
 endif
 endif # CLEANING
@@ -739,7 +750,7 @@ ifneq "$(BINDIST)" "YES"
 
 ifneq "$(BOOTSTRAPPING_CONF)" ""
 ifeq "$(wildcard $(BOOTSTRAPPING_CONF))" ""
-$(shell $(GHC_PKG) init $(BOOTSTRAPPING_CONF))
+$(shell "$(GHC_PKG)" init $(BOOTSTRAPPING_CONF))
 endif
 endif
 
@@ -918,14 +929,14 @@ ifneq "$(INSTALL_LIBRARY_DOCS)" ""
 	$(INSTALL_SCRIPT) $(INSTALL_OPTS) libraries/gen_contents_index "$(DESTDIR)$(docdir)/html/libraries/"
 endif
 ifneq "$(INSTALL_HTML_DOC_DIRS)" ""
+	# We need to filter out the directories so install doesn't choke on them
 	for i in $(INSTALL_HTML_DOC_DIRS); do \
 		$(INSTALL_DIR) "$(DESTDIR)$(docdir)/html/`basename $$i`"; \
-    for f in $$i/*; do \
-# We filter out the directories so install doesn't choke on them \
-      if test -f $$f; then \
-		    $(INSTALL_DOC) $(INSTALL_OPTS) "$$f" "$(DESTDIR)$(docdir)/html/`basename $$i`"; \
-      fi \
-    done \
+		for f in $$i/*; do \
+			if test -f $$f; then \
+				$(INSTALL_DOC) $(INSTALL_OPTS) "$$f" "$(DESTDIR)$(docdir)/html/`basename $$i`"; \
+			fi \
+		done \
 	done
 endif
 
@@ -1324,6 +1335,9 @@ clean_bindistprep:
 	$(call removeTrees,bindistprep/)
 
 distclean : clean
+# Clean the files that ./validate creates.
+	$(call removeFiles,mk/are-validating.mk)
+
 # Clean the files that we ask ./configure to create.
 	$(call removeFiles,mk/config.mk)
 	$(call removeFiles,mk/install.mk)
@@ -1374,8 +1388,10 @@ distclean : clean
 # Not sure why this is being cleaned here.
 	$(call removeTrees,includes/dist-derivedconstants)
 
-# Finally, clean the inplace tree.
-	$(call removeTrees,inplace)
+# Also clean Windows-only inplace directories.
+# Don't delete 'inplace' itself, it contains source files.
+	$(call removeTrees,inplace/mingw)
+	$(call removeTrees,inplace/perl)
 
 maintainer-clean : distclean
 	$(call removeFiles,configure mk/config.h.in)

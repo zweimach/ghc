@@ -110,8 +110,9 @@ import GHC.Desugar      ( AnnotationWrapper(..) )
 
 import qualified Data.Map as Map
 import Data.Dynamic  ( fromDynamic, toDyn )
-import Data.Typeable ( typeOf, Typeable )
+import Data.Typeable ( typeOf, Typeable, typeRep )
 import Data.Data (Data)
+import Data.Proxy    ( Proxy (..) )
 import GHC.Exts         ( unsafeCoerce# )
 #endif
 
@@ -753,7 +754,7 @@ when showing an error message.
 To call runQ in the Tc monad, we need to make TcM an instance of Quasi:
 -}
 
-instance TH.Quasi (IOEnv (Env TcGblEnv TcLclEnv)) where
+instance TH.Quasi TcM where
   qNewName s = do { u <- newUnique
                   ; let i = getKey u
                   ; return (TH.mkNameU s i) }
@@ -837,14 +838,12 @@ instance TH.Quasi (IOEnv (Env TcGblEnv TcLclEnv)) where
       th_modfinalizers_var <- fmap tcg_th_modfinalizers getGblEnv
       updTcRef th_modfinalizers_var (\fins -> fin:fins)
 
-  qGetQ :: forall a. Typeable a => IOEnv (Env TcGblEnv TcLclEnv) (Maybe a)
+  qGetQ :: forall a. Typeable a => TcM (Maybe a)
   qGetQ = do
       th_state_var <- fmap tcg_th_state getGblEnv
       th_state <- readTcRef th_state_var
       -- See #10596 for why we use a scoped type variable here.
-      -- ToDo: convert @undefined :: a@ to @proxy :: Proxy a@ when
-      -- we drop support for GHC 7.6.
-      return (Map.lookup (typeOf (undefined :: a)) th_state >>= fromDynamic)
+      return (Map.lookup (typeRep (Proxy :: Proxy a)) th_state >>= fromDynamic)
 
   qPutQ x = do
       th_state_var <- fmap tcg_th_state getGblEnv

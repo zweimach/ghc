@@ -32,6 +32,7 @@ module Type (
         tyConAppTyCon_maybe, tyConAppTyConPicky_maybe,
         tyConAppArgs_maybe, tyConAppTyCon, tyConAppArgs,
         splitTyConApp_maybe, splitTyConApp, tyConAppArgN, nextRole,
+        splitTyConArgs,
 
         mkForAllTy, mkForAllTys, mkInvForAllTys, mkVisForAllTys,
         mkNamedForAllTy,
@@ -45,6 +46,8 @@ module Type (
         mkStrLitTy, isStrLitTy,
 
         mkCastTy, mkCoercionTy,
+
+        isUserErrorTy, pprUserTypeErrorTy,
 
         coAxNthLHS,
         stripCoercionTy, splitCoercionType_maybe,
@@ -678,6 +681,44 @@ isStrLitTy ty | Just ty1 <- tcView ty = isStrLitTy ty1
 isStrLitTy (LitTy (StrTyLit s)) = Just s
 isStrLitTy _                    = Nothing
 
+
+-- | Is this type a custom user error?
+-- If so, give us the kind and the error message.
+isUserErrorTy :: Type -> Maybe (Kind,Type)
+isUserErrorTy t = do (tc,[k,msg]) <- splitTyConApp_maybe t
+                     guard (tyConName tc == errorMessageTypeErrorFamName)
+                     return (k,msg)
+
+-- | Render a type corresponding to a user type error into a SDoc.
+pprUserTypeErrorTy :: Type -> SDoc
+pprUserTypeErrorTy ty =
+  case splitTyConApp_maybe ty of
+
+    -- Text "Something"
+    Just (tc,[txt])
+      | tyConName tc == typeErrorTextDataConName
+      , Just str <- isStrLitTy txt -> ftext str
+
+    -- ShowType t
+    Just (tc,[_k,t])
+      | tyConName tc == typeErrorShowTypeDataConName -> ppr t
+
+    -- t1 :<>: t2
+    Just (tc,[t1,t2])
+      | tyConName tc == typeErrorAppendDataConName ->
+        pprUserTypeErrorTy t1 <> pprUserTypeErrorTy t2
+
+    -- t1 :$$: t2
+    Just (tc,[t1,t2])
+      | tyConName tc == typeErrorVAppendDataConName ->
+        pprUserTypeErrorTy t1 $$ pprUserTypeErrorTy t2
+
+    -- An uneavaluated type function
+    _ -> ppr ty
+
+
+
+
 {-
 ---------------------------------------------------------------------
                                 FunTy
@@ -823,6 +864,14 @@ nextRole ty
 
   | otherwise
   = Nominal
+
+splitTyConArgs :: TyCon -> [KindOrType] -> ([Kind], [Type])
+-- Given a tycon app (T k1 .. kn t1 .. tm), split the kind and type args
+-- TyCons always have prenex kinds
+splitTyConArgs tc kts
+  = splitAtList kind_vars kts
+  where
+  (kind_vars, _) = splitForAllTys (tyConKind tc)
 
 newTyConInstRhs :: TyCon -> [Type] -> Type
 -- ^ Unwrap one 'layer' of newtype on a type constructor and its

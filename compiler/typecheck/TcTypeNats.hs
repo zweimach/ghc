@@ -18,7 +18,7 @@ import Type
 import Pair
 import TcType     ( TcType, tcEqType )
 import TyCon      ( TyCon, FamTyConFlav(..), mkFamilyTyCon
-                  , Injectivity(..), TyConParent(..)  )
+                  , Injectivity(..) )
 import Coercion   ( Role(..) )
 import TcRnTypes  ( Xi )
 import CoAxiom    ( CoAxiomRule(..), BuiltInSynFamily(..), Eqn )
@@ -43,7 +43,7 @@ import Data.Traversable ( traverse )
 #endif
 
 {-------------------------------------------------------------------------------
-Built-in type constructors for functions on type-lelve nats
+Built-in type constructors for functions on type-level nats
 -}
 
 typeNatTyCons :: [TyCon]
@@ -108,7 +108,7 @@ typeNatLeqTyCon =
     (mkTemplateTyVars [ typeNatKind, typeNatKind ])
     Nothing
     (BuiltInSynFamTyCon ops)
-    NoParentTyCon
+    Nothing
     NotInjective
 
   where
@@ -127,7 +127,7 @@ typeNatCmpTyCon =
     (mkTemplateTyVars [ typeNatKind, typeNatKind ])
     Nothing
     (BuiltInSynFamTyCon ops)
-    NoParentTyCon
+    Nothing
     NotInjective
 
   where
@@ -146,7 +146,7 @@ typeSymbolCmpTyCon =
     (mkTemplateTyVars [ typeSymbolKind, typeSymbolKind ])
     Nothing
     (BuiltInSynFamTyCon ops)
-    NoParentTyCon
+    Nothing
     NotInjective
 
   where
@@ -170,7 +170,7 @@ mkTypeNatFunTyCon2 op tcb =
     (mkTemplateTyVars [ typeNatKind, typeNatKind ])
     Nothing
     (BuiltInSynFamTyCon tcb)
-    NoParentTyCon
+    Nothing
     NotInjective
 
 

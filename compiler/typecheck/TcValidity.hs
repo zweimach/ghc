@@ -36,6 +36,7 @@ import Class
 import TyCon
 
 -- others:
+import Coercion    ( pprCoAxBranch )
 import HsSyn            -- HsType
 import TcRnMonad        -- TcType, amongst others
 import FunDeps
@@ -223,6 +224,16 @@ checkAmbiguity ctxt ty
        mk_msg ty = pprSigCtxt ctxt (ptext (sLit "the ambiguity check for")) (ppr ty)
        ambig_msg = ptext (sLit "To defer the ambiguity check to use sites, enable AllowAmbiguousTypes")
 
+
+checkUserTypeError :: Type -> TcM ()
+checkUserTypeError = check
+  where
+  check ty
+    | Just (_,msg) <- isUserErrorTy ty = failWithTc (pprUserTypeErrorTy msg)
+    | Just (_,ts)  <- splitTyConApp_maybe ty  = mapM_ check ts
+    | Just (t1,t2) <- splitAppTy_maybe ty     = check t1 >> check t2
+    | otherwise                               = return ()
+
 {-
 ************************************************************************
 *                                                                      *
@@ -305,6 +316,8 @@ checkValidType ctxt ty
         -- the kind of an ill-formed type such as (a~Int)
        ; check_kind env ctxt ty
 
+       ; checkUserTypeError ty
+
        -- Check for ambiguous types.  See Note [When to call checkAmbiguity]
        -- NB: this will happen even for monotypes, but that should be cheap;
        --     and there may be nested foralls for the subtype test to examine
@@ -345,13 +358,16 @@ data ContextKind = TheKind Kind   -- ^ a specific kind
 -- Depending on the context, we might accept any kind (for instance, in a TH
 -- splice), or only certain kinds (like in type signatures).
 expectedKindInCtxt :: UserTypeCtxt -> ContextKind
-expectedKindInCtxt (TySynCtxt _)  = AnythingKind
-expectedKindInCtxt ThBrackCtxt    = AnythingKind
-expectedKindInCtxt GhciCtxt       = AnythingKind
-expectedKindInCtxt (ForSigCtxt _) = TheKind liftedTypeKind
-expectedKindInCtxt InstDeclCtxt   = TheKind constraintKind
-expectedKindInCtxt SpecInstCtxt   = TheKind constraintKind
-expectedKindInCtxt _              = OpenKind
+expectedKindInCtxt (TySynCtxt _)   = AnythingKind
+expectedKindInCtxt ThBrackCtxt     = AnythingKind
+expectedKindInCtxt GhciCtxt        = AnythingKind
+-- The types in a 'default' decl can have varying kinds
+-- See Note [Extended defaults]" in TcEnv
+expectedKindInCtxt DefaultDeclCtxt = AnythingKind
+expectedKindInCtxt (ForSigCtxt _)  = TheKind liftedTypeKind
+expectedKindInCtxt InstDeclCtxt    = TheKind constraintKind
+expectedKindInCtxt SpecInstCtxt    = TheKind constraintKind
+expectedKindInCtxt _               = OpenKind
 
 {-
 Note [Higher rank types]
@@ -1264,7 +1280,7 @@ wrongATArgErr ty instTy =
 -}
 
 checkValidCoAxiom :: CoAxiom Branched -> TcM ()
-checkValidCoAxiom (CoAxiom { co_ax_tc = fam_tc, co_ax_branches = branches })
+checkValidCoAxiom ax@(CoAxiom { co_ax_tc = fam_tc, co_ax_branches = branches })
   = do { mapM_ (checkValidCoAxBranch Nothing fam_tc) branch_list
        ; foldlM_ check_branch_compat [] branch_list }
   where
@@ -1280,7 +1296,7 @@ checkValidCoAxiom (CoAxiom { co_ax_tc = fam_tc, co_ax_branches = branches })
     check_branch_compat prev_branches cur_branch
       | cur_branch `isDominatedBy` prev_branches
       = do { addWarnAt (coAxBranchSpan cur_branch) $
-             inaccessibleCoAxBranch fam_tc cur_branch
+             inaccessibleCoAxBranch ax cur_branch
            ; return prev_branches }
       | otherwise
       = do { check_injectivity prev_branches cur_branch
@@ -1296,7 +1312,7 @@ checkValidCoAxiom (CoAxiom { co_ax_tc = fam_tc, co_ax_branches = branches })
                      fst $ foldl (gather_conflicts inj prev_branches cur_branch)
                                  ([], 0) prev_branches
            ; mapM_ (\(err, span) -> setSrcSpan span $ addErr err)
-                   (makeInjectivityErrors fam_tc cur_branch inj conflicts) }
+                   (makeInjectivityErrors ax cur_branch inj conflicts) }
       | otherwise
       = return ()
 
@@ -1427,13 +1443,10 @@ isTyFamFree = null . tcTyFamInsts
 
 -- Error messages
 
-inaccessibleCoAxBranch :: TyCon -> CoAxBranch -> SDoc
-inaccessibleCoAxBranch fam_tc (CoAxBranch { cab_tvs = tvs
-                                          , cab_lhs = lhs
-                                          , cab_rhs = rhs })
+inaccessibleCoAxBranch :: CoAxiom br -> CoAxBranch -> SDoc
+inaccessibleCoAxBranch fi_ax cur_branch
   = ptext (sLit "Type family instance equation is overlapped:") $$
-    hang (pprUserForAll (map (flip mkNamedBinder Invisible) tvs))
-       2 (hang (pprTypeApp fam_tc lhs) 2 (equals <+> (ppr rhs)))
+    nest 2 (pprCoAxBranch fi_ax cur_branch)
 
 tyFamInstIllegalErr :: Type -> SDoc
 tyFamInstIllegalErr ty

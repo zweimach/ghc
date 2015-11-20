@@ -94,15 +94,17 @@ import BasicTypes       ( HValue )
 import ByteCodeGen      ( byteCodeGen, coreExprToBCOs )
 import Linker
 import CoreTidy         ( tidyExpr )
-import Type             ( Type, Kind )
+import Type             ( Type )
+import {- Kind parts of -} Type         ( Kind )
 import CoreLint         ( lintInteractiveExpr )
 import VarEnv           ( emptyTidyEnv )
+import THNames          ( templateHaskellNames )
+import Panic
 import ConLike
 
 import GHC.Exts
 #endif
 
-import Panic
 import Module
 import Packages
 import RdrName
@@ -116,8 +118,7 @@ import TcRnDriver
 import TcIface          ( typecheckIface )
 import TcRnMonad
 import IfaceEnv         ( initNameCache )
-import LoadIface        ( ifaceStats, initExternalPackageState
-                        , findAndReadIface )
+import LoadIface        ( ifaceStats, initExternalPackageState )
 import PrelInfo
 import MkIface
 import Desugar
@@ -139,7 +140,6 @@ import CmmPipeline
 import CmmInfo
 import CodeOutput
 import NameEnv          ( emptyNameEnv )
-import NameSet          ( emptyNameSet )
 import InstEnv
 import FamInstEnv
 import Fingerprint      ( Fingerprint )
@@ -181,7 +181,7 @@ newHscEnv :: DynFlags -> IO HscEnv
 newHscEnv dflags = do
     eps_var <- newIORef initExternalPackageState
     us      <- mkSplitUniqSupply 'r'
-    nc_var  <- newIORef (initNameCache us knownKeyNames)
+    nc_var  <- newIORef (initNameCache us allKnownKeyNames)
     fc_var  <- newIORef emptyModuleEnv
     return HscEnv {  hsc_dflags       = dflags,
                      hsc_targets      = [],
@@ -193,6 +193,13 @@ newHscEnv dflags = do
                      hsc_FC           = fc_var,
                      hsc_type_env_var = Nothing }
 
+
+allKnownKeyNames :: [Name]      -- Put here to avoid loops involving DsMeta,
+allKnownKeyNames =              -- where templateHaskellNames are defined
+    knownKeyNames
+#ifdef GHCI
+        ++ templateHaskellNames
+#endif
 
 -- -----------------------------------------------------------------------------
 
@@ -599,9 +606,6 @@ genericHscFrontend mod_summary =
 
 genericHscFrontend' :: ModSummary -> Hsc FrontendResult
 genericHscFrontend' mod_summary
-    | ms_hsc_src mod_summary == HsBootMerge
-    = FrontendMerge `fmap` hscMergeFrontEnd mod_summary
-    | otherwise
     = FrontendTypecheck `fmap` hscFileFrontEnd mod_summary
 
 --------------------------------------------------------------
@@ -653,31 +657,8 @@ hscIncrementalCompile always_do_basic_recompilation_check m_tc_result
                        ms_hsc_src mod_summary == HsSrcFile
                        then finish              hsc_env mod_summary tc_result mb_old_hash
                        else finishTypecheckOnly hsc_env mod_summary tc_result mb_old_hash
-                FrontendMerge raw_iface ->
-                            finishMerge         hsc_env mod_summary raw_iface mb_old_hash
             liftIO $ hscMaybeWriteIface dflags (hm_iface hmi) no_change mod_summary
             return (status, hmi)
-
--- Generates and writes out the final interface for an hs-boot merge.
-finishMerge :: HscEnv
-            -> ModSummary
-            -> ModIface
-            -> Maybe Fingerprint
-            -> Hsc (HscStatus, HomeModInfo, Bool)
-finishMerge hsc_env summary iface0 mb_old_hash = do
-    MASSERT( ms_hsc_src summary == HsBootMerge )
-    (iface, changed) <- liftIO $ mkIfaceDirect hsc_env mb_old_hash iface0
-    details <- liftIO $ genModDetails hsc_env iface
-    let dflags = hsc_dflags hsc_env
-        hsc_status =
-            case hscTarget dflags of
-                HscNothing -> HscNotGeneratingCode
-                _ -> HscUpdateBootMerge
-    return (hsc_status,
-            HomeModInfo{ hm_details  = details,
-                         hm_iface    = iface,
-                         hm_linkable = Nothing },
-            changed)
 
 -- Generates and writes out the final interface for a typecheck.
 finishTypecheckOnly :: HscEnv
@@ -687,12 +668,12 @@ finishTypecheckOnly :: HscEnv
               -> Hsc (HscStatus, HomeModInfo, Bool)
 finishTypecheckOnly hsc_env summary tc_result mb_old_hash = do
     let dflags = hsc_dflags hsc_env
-    MASSERT( hscTarget dflags == HscNothing || ms_hsc_src summary == HsBootFile )
     (iface, changed, details) <- liftIO $ hscSimpleIface hsc_env tc_result mb_old_hash
     let hsc_status =
           case (hscTarget dflags, ms_hsc_src summary) of
             (HscNothing, _) -> HscNotGeneratingCode
             (_, HsBootFile) -> HscUpdateBoot
+            (_, HsigFile) -> HscUpdateSig
             _ -> panic "finishTypecheckOnly"
     return (hsc_status,
             HomeModInfo{ hm_details  = details,
@@ -781,46 +762,10 @@ batchMsg hsc_env mod_index recomp mod_summary =
 -- FrontEnds
 --------------------------------------------------------------
 
--- | Given an 'HsBootMerge' 'ModSummary', merges all @hs-boot@ files
--- under this module name into a composite, publically visible 'ModIface'.
-hscMergeFrontEnd :: ModSummary -> Hsc ModIface
-hscMergeFrontEnd mod_summary = do
-    hsc_env <- getHscEnv
-    MASSERT( ms_hsc_src mod_summary == HsBootMerge )
-    let dflags = hsc_dflags hsc_env
-    -- TODO: actually merge in signatures from external packages.
-    -- Grovel in HPT if necessary
-    -- TODO: replace with 'computeInterface'
-    let hpt = hsc_HPT hsc_env
-    -- TODO multiple mods
-    let name = moduleName (ms_mod mod_summary)
-        mod = mkModule (thisPackage dflags) name
-        is_boot = True
-    iface0 <- case lookupHptByModule hpt mod of
-        Just hm -> return (hm_iface hm)
-        Nothing -> do
-            mb_iface0 <- liftIO . initIfaceCheck hsc_env
-                    $ findAndReadIface (text "merge-requirements")
-                                       mod is_boot
-            case mb_iface0 of
-                Succeeded (i, _) -> return i
-                Failed err -> liftIO $ throwGhcExceptionIO
-                                (ProgramError (showSDoc dflags err))
-    let iface = iface0 {
-                    mi_hsc_src = HsBootMerge,
-                    -- TODO: mkDependencies doublecheck
-                    mi_deps = (mi_deps iface0) {
-                        dep_mods = (name, is_boot)
-                                 : dep_mods (mi_deps iface0)
-                      }
-                    }
-    return iface
-
 -- | Given a 'ModSummary', parses and typechecks it, returning the
 -- 'TcGblEnv' resulting from type-checking.
 hscFileFrontEnd :: ModSummary -> Hsc TcGblEnv
 hscFileFrontEnd mod_summary = do
-    MASSERT( ms_hsc_src mod_summary == HsBootFile || ms_hsc_src mod_summary == HsSrcFile )
     hpm <- hscParse' mod_summary
     hsc_env <- getHscEnv
     tcg_env <- tcRnModule' hsc_env mod_summary False hpm
@@ -969,15 +914,15 @@ checkSafeImports dflags tcg_env
 
     condense :: (Module, [ImportedModsVal]) -> Hsc (Module, SrcSpan, IsSafeImport)
     condense (_, [])   = panic "HscMain.condense: Pattern match failure!"
-    condense (m, x:xs) = do (_,_,l,s) <- foldlM cond' x xs
-                            return (m, l, s)
+    condense (m, x:xs) = do imv <- foldlM cond' x xs
+                            return (m, imv_span imv, imv_is_safe imv)
 
     -- ImportedModsVal = (ModuleName, Bool, SrcSpan, IsSafeImport)
     cond' :: ImportedModsVal -> ImportedModsVal -> Hsc ImportedModsVal
-    cond' v1@(m1,_,l1,s1) (_,_,_,s2)
-        | s1 /= s2
-        = throwErrors $ unitBag $ mkPlainErrMsg dflags l1
-              (text "Module" <+> ppr m1 <+>
+    cond' v1 v2
+        | imv_is_safe v1 /= imv_is_safe v2
+        = throwErrors $ unitBag $ mkPlainErrMsg dflags (imv_span v1)
+              (text "Module" <+> ppr (imv_name v1) <+>
               (text $ "is imported both as a safe and unsafe import!"))
         | otherwise
         = return v1
@@ -1425,7 +1370,7 @@ doCodeGen hsc_env this_mod data_tycons
     -- we generate one SRT for the whole module.
     let
      pipeline_stream
-      | gopt Opt_SplitObjs dflags
+      | gopt Opt_SplitObjs dflags || gopt Opt_SplitSections dflags
         = {-# SCC "cmmPipeline" #-}
           let run_pipeline us cmmgroup = do
                 let (topSRT', us') = initUs us emptySRT
@@ -1738,9 +1683,8 @@ mkModGuts mod safe binds =
         mg_loc          = mkGeneralSrcSpan (moduleNameFS (moduleName mod)),
                                   -- A bit crude
         mg_exports      = [],
+        mg_usages       = [],
         mg_deps         = noDependencies,
-        mg_dir_imps     = emptyModuleEnv,
-        mg_used_names   = emptyNameSet,
         mg_used_th      = False,
         mg_rdr_env      = emptyGlobalRdrEnv,
         mg_fix_env      = emptyFixityEnv,
@@ -1760,8 +1704,7 @@ mkModGuts mod safe binds =
         mg_inst_env     = emptyInstEnv,
         mg_fam_inst_env = emptyFamInstEnv,
         mg_safe_haskell = safe,
-        mg_trust_pkg    = False,
-        mg_dependent_files = []
+        mg_trust_pkg    = False
     }
 
 
@@ -1778,11 +1721,6 @@ hscCompileCoreExpr hsc_env =
 
 hscCompileCoreExpr' :: HscEnv -> SrcSpan -> CoreExpr -> IO HValue
 hscCompileCoreExpr' hsc_env srcspan ds_expr
-    | rtsIsProfiled
-    = throwIO (InstallationError "You can't call hscCompileCoreExpr in a profiled compiler")
-            -- Otherwise you get a seg-fault when you run it
-
-    | otherwise
     = do { let dflags = hsc_dflags hsc_env
 
            {- Simplify it -}

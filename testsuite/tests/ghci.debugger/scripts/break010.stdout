@@ -1,5 +1,17 @@
 Breakpoint 0 activated at ../Test6.hs:5:8-11
 Stopped at ../Test6.hs:5:8-11
+<<<<<<< HEAD
 _result :: r = _
+||||||| merged common ancestors
+_result :: a = _
+=======
+_result :: a2 = _
+>>>>>>> origin/master
 Stopped at ../Test6.hs:5:8-11
+<<<<<<< HEAD
 _result :: r = _
+||||||| merged common ancestors
+_result :: a = _
+=======
+_result :: a2 = _
+>>>>>>> origin/master

@@ -1,5 +1,5 @@
 
-T8958.hs:1:31: Warning:
+T8958.hs:1:31: warning:
     -XDatatypeContexts is deprecated: It was widely considered a misfeature, and has been removed from the Haskell language.
 TYPE SIGNATURES
 TYPE CONSTRUCTORS
@@ -10,16 +10,24 @@ TYPE CONSTRUCTORS
   type role Representational representational
   class Representational a
 COERCION AXIOMS
-  axiom T8958.NTCo:Map :: Map k v = [(k, v)]
+  axiom T8958.NTCo:Map ::
+    Map k v = [(k, v)] -- Defined at T8958.hs:13:1
 INSTANCES
   instance [incoherent] Nominal a -- Defined at T8958.hs:7:10
   instance [incoherent] Representational a
     -- Defined at T8958.hs:10:10
 Dependent modules: []
-Dependent packages: [base-4.8.2.0, ghc-prim-0.4.0.0,
+Dependent packages: [base-4.9.0.0, ghc-prim-0.5.0.0,
                      integer-gmp-1.0.0.0]
 
 ==================== Typechecker ====================
+T8958.$tcMap = TyCon 0## 0## T8958.$trModule (TrNameS "Map"#)
+T8958.$tc'MkMap = TyCon 0## 0## T8958.$trModule (TrNameS "'MkMap"#)
+T8958.$tcRepresentational
+  = TyCon 0## 0## T8958.$trModule (TrNameS "Representational"#)
+T8958.$tcNominal
+  = TyCon 0## 0## T8958.$trModule (TrNameS "Nominal"#)
+T8958.$trModule = Module (TrNameS "main"#) (TrNameS "T8958"#)
 AbsBinds [a] []
   {Exports: [T8958.$fRepresentationala <= $dRepresentational
                <>]

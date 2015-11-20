@@ -84,8 +84,8 @@ have-we-used-all-the-constructors? question; the local function
 @match_cons_used@ does all the real work.
 -}
 
-matchConFamily :: [DsId]
-               -> DsType
+matchConFamily :: [Id]
+               -> Type
                -> [[EquationInfo]]
                -> DsM MatchResult
 -- Each group of eqns is for a single constructor
@@ -99,8 +99,8 @@ matchConFamily (var:vars) ty groups
         _ -> panic "matchConFamily: not RealDataCon"
 matchConFamily [] _ _ = panic "matchConFamily []"
 
-matchPatSyn :: [DsId]
-            -> DsType
+matchPatSyn :: [Id]
+            -> Type
             -> [EquationInfo]
             -> DsM MatchResult
 matchPatSyn (var:vars) ty eqns
@@ -114,22 +114,19 @@ matchPatSyn _ _ _ = panic "matchPatSyn []"
 
 type ConArgPats = HsConDetails (LPat Id) (HsRecFields Id (LPat Id))
 
-matchOneConLike :: [DsId]
-                -> DsType
+matchOneConLike :: [Id]
+                -> Type
                 -> [EquationInfo]
                 -> DsM (CaseAlt ConLike)
 matchOneConLike vars ty (eqn1 : eqns)   -- All eqns for a single constructor
-  = do  { tvs1' <- dsVars tvs1
-        ; dicts1' <- dsVars dicts1
-        ; arg_tys' <- mapM dsType arg_tys
-        ; let inst_tys = ASSERT( tvs1 `equalLength` ex_tvs )
-                         arg_tys' ++ mkTyVarTys tvs1'
+  = do  { let inst_tys = ASSERT( tvs1 `equalLength` ex_tvs )
+                         arg_tys ++ mkTyVarTys tvs1
 
               val_arg_tys = conLikeInstOrigArgTys con1 inst_tys
         -- dataConInstOrigArgTys takes the univ and existential tyvars
         -- and returns the types of the *value* args, which is what we want
 
-              match_group :: [DsId]
+              match_group :: [Id]
                           -> [(ConArgPats, EquationInfo)] -> DsM MatchResult
               -- All members of the group have compatible ConArgPats
               match_group arg_vars arg_eqn_prs
@@ -143,10 +140,8 @@ matchOneConLike vars ty (eqn1 : eqns)   -- All eqns for a single constructor
                                                              pat_binds = bind, pat_args = args
                                                   } : pats }))
                 = do ds_bind <- dsTcEvBinds bind
-                     tvs'    <- dsVars tvs
-                     ds'     <- dsVars ds
-                     return ( wrapBinds (tvs' `zip` tvs1')
-                            . wrapBinds (ds'  `zip` dicts1')
+                     return ( wrapBinds (tvs `zip` tvs1)
+                            . wrapBinds (ds  `zip` dicts1)
                             . mkCoreLets ds_bind
                             , eqn { eqn_pats = conArgPats val_arg_tys args ++ pats }
                             )
@@ -164,7 +159,7 @@ matchOneConLike vars ty (eqn1 : eqns)   -- All eqns for a single constructor
         ; match_results <- mapM (match_group arg_vars) groups
 
         ; return $ MkCaseAlt{ alt_pat = con1,
-                              alt_bndrs = tvs1' ++ dicts1' ++ arg_vars,
+                              alt_bndrs = tvs1 ++ dicts1 ++ arg_vars,
                               alt_wrapper = wrapper1,
                               alt_result = foldr1 combineMatchResults match_results } }
   where
@@ -177,7 +172,7 @@ matchOneConLike vars ty (eqn1 : eqns)   -- All eqns for a single constructor
 
     -- Choose the right arg_vars in the right order for this group
     -- Note [Record patterns]
-    select_arg_vars :: [DsId] -> [(ConArgPats, EquationInfo)] -> [DsId]
+    select_arg_vars :: [Id] -> [(ConArgPats, EquationInfo)] -> [Id]
     select_arg_vars arg_vars ((arg_pats, _) : _)
       | RecCon flds <- arg_pats
       , let rpats = rec_flds flds
@@ -211,12 +206,12 @@ same_fields flds1 flds2
 
 
 -----------------
-selectConMatchVars :: [DsType] -> ConArgPats -> DsM [DsId]
+selectConMatchVars :: [Type] -> ConArgPats -> DsM [Id]
 selectConMatchVars arg_tys (RecCon {})      = newSysLocalsDs arg_tys
 selectConMatchVars _       (PrefixCon ps)   = selectMatchVars (map unLoc ps)
 selectConMatchVars _       (InfixCon p1 p2) = selectMatchVars [unLoc p1, unLoc p2]
 
-conArgPats :: [DsType]    -- Instantiated argument types
+conArgPats :: [Type]      -- Instantiated argument types
                           -- Used only to fill in the types of WildPats, which
                           -- are probably never looked at anyway
            -> ConArgPats

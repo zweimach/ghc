@@ -448,23 +448,6 @@ unsafeName     = libFun (fsLit "unsafe") unsafeIdKey
 safeName       = libFun (fsLit "safe") safeIdKey
 interruptibleName = libFun (fsLit "interruptible") interruptibleIdKey
 
--- data Inline = ...
-noInlineDataConName, inlineDataConName, inlinableDataConName :: Name
-noInlineDataConName  = thCon (fsLit "NoInline")  noInlineDataConKey
-inlineDataConName    = thCon (fsLit "Inline")    inlineDataConKey
-inlinableDataConName = thCon (fsLit "Inlinable") inlinableDataConKey
-
--- data RuleMatch = ...
-conLikeDataConName, funLikeDataConName :: Name
-conLikeDataConName = thCon (fsLit "ConLike") conLikeDataConKey
-funLikeDataConName = thCon (fsLit "FunLike") funLikeDataConKey
-
--- data Phases = ...
-allPhasesDataConName, fromPhaseDataConName, beforePhaseDataConName :: Name
-allPhasesDataConName   = thCon (fsLit "AllPhases")   allPhasesDataConKey
-fromPhaseDataConName   = thCon (fsLit "FromPhase")   fromPhaseDataConKey
-beforePhaseDataConName = thCon (fsLit "BeforePhase") beforePhaseDataConKey
-
 -- newtype TExp a = ...
 tExpDataConName :: Name
 tExpDataConName = thCon (fsLit "TExp") tExpDataConKey
@@ -523,11 +506,41 @@ quotePatName        = qqFun (fsLit "quotePat")  quotePatKey
 quoteDecName        = qqFun (fsLit "quoteDec")  quoteDecKey
 quoteTypeName       = qqFun (fsLit "quoteType") quoteTypeKey
 
+-- data Inline = ...
+noInlineDataConName, inlineDataConName, inlinableDataConName :: Name
+noInlineDataConName  = thCon (fsLit "NoInline")  noInlineDataConKey
+inlineDataConName    = thCon (fsLit "Inline")    inlineDataConKey
+inlinableDataConName = thCon (fsLit "Inlinable") inlinableDataConKey
+
+-- data RuleMatch = ...
+conLikeDataConName, funLikeDataConName :: Name
+conLikeDataConName = thCon (fsLit "ConLike") conLikeDataConKey
+funLikeDataConName = thCon (fsLit "FunLike") funLikeDataConKey
+
+-- data Phases = ...
+allPhasesDataConName, fromPhaseDataConName, beforePhaseDataConName :: Name
+allPhasesDataConName   = thCon (fsLit "AllPhases")   allPhasesDataConKey
+fromPhaseDataConName   = thCon (fsLit "FromPhase")   fromPhaseDataConKey
+beforePhaseDataConName = thCon (fsLit "BeforePhase") beforePhaseDataConKey
+
+
+{- *********************************************************************
+*                                                                      *
+                     Class keys
+*                                                                      *
+********************************************************************* -}
+
 -- ClassUniques available: 200-299
 -- Check in PrelNames if you want to change this
 
 liftClassKey :: Unique
 liftClassKey = mkPreludeClassUnique 200
+
+{- *********************************************************************
+*                                                                      *
+                     TyCon keys
+*                                                                      *
+********************************************************************* -}
 
 -- TyConUniques available: 200-299
 -- Check in PrelNames if you want to change this
@@ -573,6 +586,43 @@ roleTyConKey            = mkPreludeTyConUnique 229
 tExpTyConKey            = mkPreludeTyConUnique 230
 injAnnTyConKey          = mkPreludeTyConUnique 231
 kindTyConKey            = mkPreludeTyConUnique 232
+
+{- *********************************************************************
+*                                                                      *
+                     DataCon keys
+*                                                                      *
+********************************************************************* -}
+
+-- DataConUniques available: 100-150
+-- If you want to change this, make sure you check in PrelNames
+
+-- data Inline = ...
+noInlineDataConKey, inlineDataConKey, inlinableDataConKey :: Unique
+noInlineDataConKey  = mkPreludeDataConUnique 100
+inlineDataConKey    = mkPreludeDataConUnique 101
+inlinableDataConKey = mkPreludeDataConUnique 102
+
+-- data RuleMatch = ...
+conLikeDataConKey, funLikeDataConKey :: Unique
+conLikeDataConKey = mkPreludeDataConUnique 103
+funLikeDataConKey = mkPreludeDataConUnique 104
+
+-- data Phases = ...
+allPhasesDataConKey, fromPhaseDataConKey, beforePhaseDataConKey :: Unique
+allPhasesDataConKey   = mkPreludeDataConUnique 105
+fromPhaseDataConKey   = mkPreludeDataConUnique 106
+beforePhaseDataConKey = mkPreludeDataConUnique 107
+
+-- newtype TExp a = ...
+tExpDataConKey :: Unique
+tExpDataConKey = mkPreludeDataConUnique 108
+
+
+{- *********************************************************************
+*                                                                      *
+                     Id keys
+*                                                                      *
+********************************************************************* -}
 
 -- IdUniques available: 200-499
 -- If you want to change this, make sure you check in PrelNames
@@ -842,29 +892,6 @@ unsafeIdKey, safeIdKey, interruptibleIdKey :: Unique
 unsafeIdKey        = mkPreludeMiscIdUnique 430
 safeIdKey          = mkPreludeMiscIdUnique 431
 interruptibleIdKey = mkPreludeMiscIdUnique 432
-
--- data Inline = ...
-noInlineDataConKey, inlineDataConKey, inlinableDataConKey :: Unique
-noInlineDataConKey  = mkPreludeDataConUnique 80
-inlineDataConKey    = mkPreludeDataConUnique 81
-inlinableDataConKey = mkPreludeDataConUnique 82
-
--- data RuleMatch = ...
-conLikeDataConKey, funLikeDataConKey :: Unique
-conLikeDataConKey = mkPreludeDataConUnique 83
-funLikeDataConKey = mkPreludeDataConUnique 84
-
--- data Phases = ...
-allPhasesDataConKey, fromPhaseDataConKey, beforePhaseDataConKey :: Unique
-allPhasesDataConKey   = mkPreludeDataConUnique 85
-fromPhaseDataConKey   = mkPreludeDataConUnique 86
-beforePhaseDataConKey = mkPreludeDataConUnique 87
-
--- newtype TExp a = ...
-tExpDataConKey :: Unique
-tExpDataConKey = mkPreludeDataConUnique 88
-
--- Don't go above 89 here without checking PrelNames.
 
 -- data FunDep = ...
 funDepIdKey :: Unique

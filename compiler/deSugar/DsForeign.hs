@@ -96,17 +96,14 @@ dsForeigns' fos = do
 
    do_decl (ForeignImport id _ co spec) = do
       traceIf (text "fi start" <+> ppr id)
-      id' <- dsVar (unLoc id)
-      co' <- dsCoercion co
-      (bs, h, c) <- dsFImport id' co' spec
+      let id' = unLoc id
+      (bs, h, c) <- dsFImport id' co spec
       traceIf (text "fi end" <+> ppr id)
       return (h, c, [], bs)
 
    do_decl (ForeignExport (L _ id) _ co
                           (CExport (L _ (CExportStatic _ ext_nm cconv)) _)) = do
-      id' <- dsVar id
-      co' <- dsCoercion co
-      (h, c, _, _) <- dsFExport id' co' ext_nm cconv False
+      (h, c, _, _) <- dsFExport id co ext_nm cconv False
       return (h, c, [id], [])
 
 {-
@@ -135,15 +132,15 @@ inside returned tuples; but inlining this wrapper is a Really Good Idea
 because it exposes the boxing to the call site.
 -}
 
-dsFImport :: DsId
-          -> DsCoercion
+dsFImport :: Id
+          -> Coercion
           -> ForeignImport
           -> DsM ([Binding], SDoc, SDoc)
 dsFImport id co (CImport cconv safety mHeader spec _) =
     dsCImport id co spec (unLoc cconv) (unLoc safety) mHeader
 
-dsCImport :: DsId
-          -> DsCoercion
+dsCImport :: Id
+          -> Coercion
           -> CImportSpec
           -> CCallConv
           -> Safety
@@ -195,8 +192,8 @@ fun_type_arg_stdcall_info _ _other_conv _
 ************************************************************************
 -}
 
-dsFCall :: DsId -> DsCoercion -> ForeignCall -> Maybe Header
-        -> DsM ([(DsId, Expr DsTyVar)], SDoc, SDoc)
+dsFCall :: Id -> Coercion -> ForeignCall -> Maybe Header
+        -> DsM ([(Id, Expr TyVar)], SDoc, SDoc)
 dsFCall fn_id co fcall mDeclHeader = do
     let
         ty                     = pFst $ coercionKind co
@@ -296,8 +293,8 @@ kind of Id, or perhaps to bundle them with PrimOps since semantically and
 for calling convention they are really prim ops.
 -}
 
-dsPrimCall :: DsId -> DsCoercion -> ForeignCall
-           -> DsM ([(DsId, Expr DsTyVar)], SDoc, SDoc)
+dsPrimCall :: Id -> Coercion -> ForeignCall
+           -> DsM ([(Id, Expr TyVar)], SDoc, SDoc)
 dsPrimCall fn_id co fcall = do
     let
         ty                   = pFst $ coercionKind co
@@ -335,9 +332,9 @@ For each `@foreign export foo@' in a module M we generate:
 the user-written Haskell function `@M.foo@'.
 -}
 
-dsFExport :: DsId               -- Either the exported Id,
+dsFExport :: Id                 -- Either the exported Id,
                                 -- or the foreign-export-dynamic constructor
-          -> DsCoercion         -- Coercion between the Haskell type callable
+          -> Coercion           -- Coercion between the Haskell type callable
                                 -- from C, and its representation type
           -> CLabelString       -- The name to export to C land
           -> CCallConv
@@ -411,8 +408,8 @@ f_helper(StablePtr s, HsBool b, HsInt i)
 \end{verbatim}
 -}
 
-dsFExportDynamic :: DsId
-                 -> DsCoercion
+dsFExportDynamic :: Id
+                 -> Coercion
                  -> CCallConv
                  -> DsM ([Binding], SDoc, SDoc)
 dsFExportDynamic id co0 cconv = do
@@ -502,9 +499,9 @@ using the hugs/ghc rts invocation API.
 
 mkFExportCBits :: DynFlags
                -> FastString
-               -> Maybe DsId    -- Just==static, Nothing==dynamic
-               -> [DsType]
-               -> DsType
+               -> Maybe Id      -- Just==static, Nothing==dynamic
+               -> [Type]
+               -> Type
                -> Bool          -- True <=> returns an IO type
                -> CCallConv
                -> (SDoc,

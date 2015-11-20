@@ -16,7 +16,7 @@ module TcSMonad (
     runTcSEqualities,
     nestTcS, nestImplicTcS,
 
-    runTcPluginTcS, addUsedRdrNamesTcS, deferTcSForAllEq,
+    runTcPluginTcS, addUsedDataCons, deferTcSForAllEq,
 
     -- Tracing etc
     panicTcS, traceTcS,
@@ -133,8 +133,8 @@ import TyCon
 import TcErrors   ( solverDepthErrorTcS )
 
 import Name
-import RdrName (RdrName, GlobalRdrEnv)
-import RnEnv (addUsedRdrNames)
+import RdrName ( GlobalRdrEnv)
+import qualified RnEnv as TcM
 import Var
 import VarEnv
 import VarSet
@@ -152,6 +152,9 @@ import BasicTypes ( Boxity(..) )
 
 import TrieMap
 import Control.Monad
+#if __GLASGOW_HASKELL__ > 710
+import qualified Control.Monad.Fail as MonadFail
+#endif
 import MonadUtils
 import Data.IORef
 import Data.List ( foldl', partition )
@@ -2279,6 +2282,11 @@ instance Monad TcS where
   fail err  = TcS (\_ -> fail err)
   m >>= k   = TcS (\ebs -> unTcS m ebs >>= \r -> unTcS (k r) ebs)
 
+#if __GLASGOW_HASKELL__ > 710
+instance MonadFail.MonadFail TcS where
+  fail err  = TcS (\_ -> fail err)
+#endif
+
 instance MonadUnique TcS where
    getUniqueSupplyM = wrapTcS getUniqueSupplyM
 
@@ -2658,8 +2666,8 @@ tcLookupClass c = wrapTcS $ TcM.tcLookupClass c
 -- Setting names as used (used in the deriving of Coercible evidence)
 -- Too hackish to expose it to TcS? In that case somehow extract the used
 -- constructors from the result of solveInteract
-addUsedRdrNamesTcS :: [RdrName] -> TcS ()
-addUsedRdrNamesTcS names = wrapTcS  $ addUsedRdrNames names
+addUsedDataCons :: GlobalRdrEnv -> TyCon -> TcS ()
+addUsedDataCons rdr_env tycon = wrapTcS  $ TcM.addUsedDataCons rdr_env tycon
 
 -- Various smaller utilities [TODO, maybe will be absorbed in the instance matcher]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

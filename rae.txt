@@ -1,9 +1,10 @@
 stack:
+  - Promoted
+  - AnnStar
+  - fdResultSig of a data family should always be empty. Why process in
+    tcFamDecl1?
 
-- figure out UndecidableInstances problem. See TODO in TcValdidity.
-  Possibly: if sizeTypes are equal, then check sizeTypes without *, or without
-            invisibles. This should provide a lexicographical ordering that's
-	    still well-founded.
+- check out last argument of EvDFunApp
 
 - BUG: match_ty needs to be more delicate looking under TyConApps:
   match_ty (Just (x :: Age)) (Just 5 |> Maybe Int ~ Maybe Age) won't work

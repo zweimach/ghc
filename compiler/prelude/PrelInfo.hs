@@ -10,7 +10,7 @@ module PrelInfo (
         primOpRules, builtinRules,
 
         ghcPrimExports,
-        wiredInThings, knownKeyNames,
+        knownKeyNames,
         primOpId,
 
         -- Random other things
@@ -23,75 +23,33 @@ module PrelInfo (
 
 #include "HsVersions.h"
 
+import Constants        ( mAX_TUPLE_SIZE )
+import BasicTypes       ( Boxity(..) )
+import ConLike          ( ConLike(..) )
 import PrelNames
 import PrelRules
 import Avail
 import PrimOp
 import DataCon
 import Id
+import Name
 import MkId
-import Name( Name, getName, nameOccName )
+import Name( nameOccName )
 import OccName ( occNameString )
 import TysPrim
 import TysWiredIn
 import HscTypes
 import Class
 import TyCon
-import Outputable
-import UniqFM
 import Util
 import {-# SOURCE #-} TcTypeNats ( typeNatTyCons )
 
-#ifdef GHCI
-import THNames
-#endif
-
 import Data.Array
-import Data.List
 
-{- *********************************************************************
+{-
+************************************************************************
 *                                                                      *
-                Known key things
-*                                                                      *
-********************************************************************* -}
-
-knownKeyNames :: [Name]
-knownKeyNames
-  | debugIsOn
-  , not (isNullUFM badNamesUFM)
-  = panic ("badKnownKeyNames:\n" ++ badNamesStr)
-       -- NB: We can't use ppr here, because this is sometimes evaluated in a
-       -- context where there are no DynFlags available, leading to a cryptic
-       -- "<<details unavailable>>" error. (This seems to happen only in the
-       -- stage 2 compiler, for reasons I [Richard] have no clue of.)
-
-  | otherwise
-  = names
-  where
-  names = concat
-    [ map getName wiredInThings
-    , cTupleTyConNames
-    , basicKnownKeyNames
-#ifdef GHCI
-    , templateHaskellNames
-#endif
-    ]
-
-  namesUFM      = foldl (\m n -> addToUFM_Acc (:) singleton m n n) emptyUFM names
-  badNamesUFM   = filterUFM (\ns -> length ns > 1) namesUFM
-  badNamesPairs = ufmToList badNamesUFM
-  badNamesStrs  = map pairToStr badNamesPairs
-  badNamesStr   = unlines badNamesStrs
-
-  pairToStr (uniq, ns) = "        " ++
-                         show uniq ++
-                         ": [" ++
-                         intercalate ", " (map (occNameString . nameOccName) ns) ++
-                         "]"
-
-{- *********************************************************************
-*                                                                      *
-                Wired in things
+\subsection[builtinNameInfo]{Lookup built-in names}
 *                                                                      *
 ************************************************************************
 
@@ -106,33 +64,85 @@ Notes about wired in things
 
 * The name cache is initialised with (the names of) all wired-in things
 
-* The type checker sees if the Name is wired in before looking up
-  the name in the type environment.  So the type envt itself contains
-  no wired in things.
+* The type environment itself contains no wired in things. The type
+  checker sees if the Name is wired in before looking up the name in
+  the type environment.
 
 * MkIface prunes out wired-in things before putting them in an interface file.
   So interface files never contain wired-in things.
 -}
 
-wiredInThings :: [TyThing]
--- This list is used only to initialise HscMain.knownKeyNames
--- to ensure that when you say "Prelude.map" in your source code, you
--- get a Name with the correct known key (See Note [Known-key names])
-wiredInThings
-  = concat
-    [           -- Wired in TyCons and their implicit Ids
-          tycon_things
-        , concatMap implicitTyThings tycon_things
 
-                -- Wired in Ids
-        , map AnId wiredInIds
+knownKeyNames :: [Name]
+-- This list is used to ensure that when you say "Prelude.map"
+--  in your source code, or in an interface file,
+-- you get a Name with the correct known key
+-- (See Note [Known-key names] in PrelNames)
+knownKeyNames
+  | debugIsOn
+  , not (isNullUFM badNamesUFM)
+  = panic ("badKnownKeyNames:\n" ++ badNamesStr)
+       -- NB: We can't use ppr here, because this is sometimes evaluated in a
+       -- context where there are no DynFlags available, leading to a cryptic
+       -- "<<details unavailable>>" error. (This seems to happen only in the
+       -- stage 2 compiler, for reasons I [Richard] have no clue of.)
 
-                -- PrimOps
-        , map (AnId . primOpId) allThePrimOps
-    ]
+  | otherwise
+  = names
   where
-    tycon_things = map ATyCon ([funTyCon] ++ primTyCons ++ wiredInTyCons
-                                    ++ typeNatTyCons)
+  names =
+    concat [ tycon_kk_names funTyCon
+           , concatMap tycon_kk_names primTyCons
+
+           , concatMap tycon_kk_names wiredInTyCons
+             -- Does not include tuples
+
+           , concatMap tycon_kk_names typeNatTyCons
+
+           , concatMap (rep_names . tupleTyCon Boxed) [2..mAX_TUPLE_SIZE]  -- Yuk
+
+           , cTupleTyConNames
+             -- Constraint tuples are known-key but not wired-in
+             -- They can't show up in source code, but can appear
+             -- in intreface files
+
+           , map idName wiredInIds
+           , map (idName . primOpId) allThePrimOps
+           , basicKnownKeyNames ]
+
+    -- "kk" short for "known-key"
+  tycon_kk_names :: TyCon -> [Name]
+  tycon_kk_names tc = tyConName tc : (rep_names tc ++ concatMap thing_kk_names (implicitTyConThings tc))
+
+  datacon_kk_names dc
+    | Promoted tc <- promoteDataCon_maybe dc = dataConName dc : rep_names tc
+    | otherwise                              = [dataConName dc]
+
+  thing_kk_names :: TyThing -> [Name]
+  thing_kk_names (ATyCon tc)                 = tycon_kk_names tc
+  thing_kk_names (AConLike (RealDataCon dc)) = datacon_kk_names dc
+  thing_kk_names thing                       = [getName thing]
+
+  -- The TyConRepName for a known-key TyCon has a known key,
+  -- but isn't itself an implicit thing.  Yurgh.
+  -- NB: if any of the wired-in TyCons had record fields, the record
+  --     field names would be in a similar situation.  Ditto class ops.
+  --     But it happens that there aren't any
+  rep_names tc = case tyConRepName_maybe tc of
+                       Just n  -> [n]
+                       Nothing -> []
+
+  namesUFM      = foldl (\m n -> addToUFM_Acc (:) singleton m n n) emptyUFM names
+  badNamesUFM   = filterUFM (\ns -> length ns > 1) namesUFM
+  badNamesPairs = ufmToList badNamesUFM
+  badNamesStrs  = map pairToStr badNamesPairs
+  badNamesStr   = unlines badNamesStrs
+
+  pairToStr (uniq, ns) = "        " ++
+                         show uniq ++
+                         ": [" ++
+                         intercalate ", " (map (occNameString . nameOccName) ns) ++
+                         "]"
 
 {-
 We let a lot of "non-standard" values be visible, so that we can make
@@ -167,8 +177,8 @@ wired-in Ids.
 
 ghcPrimExports :: [IfaceExport]
 ghcPrimExports
- = map (Avail . idName) ghcPrimIds ++
-   map (Avail . idName . primOpId) allThePrimOps ++
+ = map (avail . idName) ghcPrimIds ++
+   map (avail . idName . primOpId) allThePrimOps ++
    [ AvailTC n [n] []
    | tc <- funTyCon : primTyCons, let n = tyConName tc  ]
 

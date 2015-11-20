@@ -14,7 +14,9 @@ import NameSet
 import RdrName
 import Var
 import Coercion
-import DataCon (DataCon)
+import {-# SOURCE #-} ConLike (ConLike)
+import TcEvidence (HsWrapper)
+import FieldLabel
 
 import Data.Data hiding ( Fixity )
 import BasicTypes       (Fixity)
@@ -108,5 +110,8 @@ type DataId id =
   , Data (PostTc id Coercion)
   , Data (PostTc id id)
   , Data (PostTc id [Type])
-  , Data (PostTc id [DataCon])
+  , Data (PostTc id ConLike)
+  , Data (PostTc id [ConLike])
+  , Data (PostTc id HsWrapper)
+  , Data (PostTc id [FieldLabel])
   )

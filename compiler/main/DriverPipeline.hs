@@ -13,7 +13,7 @@
 module DriverPipeline (
         -- Run a series of compilation steps in a pipeline, for a
         -- collection of source files.
-   oneShot, compileFile, mergeRequirement,
+   oneShot, compileFile,
 
         -- Interfaces for the batch-mode driver
    linkBinary,
@@ -22,9 +22,6 @@ module DriverPipeline (
    preprocess,
    compileOne, compileOne',
    link,
-
-        -- Misc utility
-   makeMergeRequirementSummary,
 
         -- Exports for hooks to override runPhase and link
    PhasePlus(..), CompPipeline(..), PipeEnv(..), PipeState(..),
@@ -43,6 +40,7 @@ import Packages
 import HeaderInfo
 import DriverPhases
 import SysTools
+import Elf
 import HscMain
 import Finder
 import HscTypes hiding ( Hsc )
@@ -72,8 +70,7 @@ import System.IO
 import Control.Monad
 import Data.List        ( isSuffixOf )
 import Data.Maybe
-import Data.Char
-import Data.Time
+import Data.Version
 
 -- ---------------------------------------------------------------------------
 -- Pre-process
@@ -132,6 +129,22 @@ compileOne' m_tc_result mHscMessage
             hsc_env0 summary mod_index nmods mb_old_iface maybe_old_linkable
             source_modified0
  = do
+   let dflags0     = ms_hspp_opts summary
+       this_mod    = ms_mod summary
+       src_flavour = ms_hsc_src summary
+       location    = ms_location summary
+       input_fnpp  = ms_hspp_file summary
+       mod_graph   = hsc_mod_graph hsc_env0
+       needsTH     = any (xopt Opt_TemplateHaskell . ms_hspp_opts) mod_graph
+       needsQQ     = any (xopt Opt_QuasiQuotes     . ms_hspp_opts) mod_graph
+       needsLinker = needsTH || needsQQ
+       isDynWay    = any (== WayDyn) (ways dflags0)
+       isProfWay   = any (== WayProf) (ways dflags0)
+   -- #8180 - when using TemplateHaskell, switch on -dynamic-too so
+   -- the linker can correctly load the object files.
+   let dflags1 = if needsLinker && dynamicGhc && not isDynWay && not isProfWay
+                  then gopt_set dflags0 Opt_BuildDynamicToo
+                  else dflags0
 
    debugTraceMsg dflags1 2 (text "compile: input file" <+> text input_fnpp)
 
@@ -145,7 +158,7 @@ compileOne' m_tc_result mHscMessage
             ASSERT( isJust maybe_old_linkable || isNoLink (ghcLink dflags) )
             return hmi0 { hm_linkable = maybe_old_linkable }
         (HscNotGeneratingCode, HscNothing) ->
-            let mb_linkable = if isHsBoot src_flavour
+            let mb_linkable = if isHsBootOrSig src_flavour
                                 then Nothing
                                 -- TODO: Questionable.
                                 else Just (LM (ms_hs_date summary) this_mod [])
@@ -157,10 +170,10 @@ compileOne' m_tc_result mHscMessage
         (HscUpdateBoot, _) -> do
             touchObjectFile dflags object_filename
             return hmi0
-        (HscUpdateBootMerge, HscInterpreted) ->
+        (HscUpdateSig, HscInterpreted) ->
             let linkable = LM (ms_hs_date summary) this_mod []
             in return hmi0 { hm_linkable = Just linkable }
-        (HscUpdateBootMerge, _) -> do
+        (HscUpdateSig, _) -> do
             output_fn <- getOutputFilename next_phase
                             Temporary basename dflags next_phase (Just location)
 
@@ -170,7 +183,7 @@ compileOne' m_tc_result mHscMessage
             _ <- runPipeline StopLn hsc_env
                               (output_fn,
                                Just (HscOut src_flavour
-                                            mod_name HscUpdateBootMerge))
+                                            mod_name HscUpdateSig))
                               (Just basename)
                               Persistent
                               (Just location)
@@ -217,7 +230,6 @@ compileOne' m_tc_result mHscMessage
  where dflags0     = ms_hspp_opts summary
        location    = ms_location summary
        input_fn    = expectJust "compile:hs" (ml_hs_file location)
-       input_fnpp  = ms_hspp_file summary
        mod_graph   = hsc_mod_graph hsc_env0
        needsTH     = any (xopt Opt_TemplateHaskell . ms_hspp_opts) mod_graph
        needsQQ     = any (xopt Opt_QuasiQuotes     . ms_hspp_opts) mod_graph
@@ -227,7 +239,6 @@ compileOne' m_tc_result mHscMessage
 
 
        src_flavour = ms_hsc_src summary
-       this_mod = ms_mod summary
        mod_name = ms_mod_name summary
        next_phase = hscPostBackendPhase dflags src_flavour hsc_lang
        object_filename = ml_obj_file location
@@ -446,18 +457,29 @@ checkLinkInfo dflags pkg_deps exe_file
  = do
    link_info <- getLinkInfo dflags pkg_deps
    debugTraceMsg dflags 3 $ text ("Link info: " ++ link_info)
-   m_exe_link_info <- readElfSection dflags ghcLinkInfoSectionName exe_file
-   debugTraceMsg dflags 3 $ text ("Exe link info: " ++ show m_exe_link_info)
-   return (Just link_info /= m_exe_link_info)
+   m_exe_link_info <- readElfNoteAsString dflags exe_file
+                          ghcLinkInfoSectionName ghcLinkInfoNoteName
+   let sameLinkInfo = (Just link_info == m_exe_link_info)
+   debugTraceMsg dflags 3 $ case m_exe_link_info of
+     Nothing -> text "Exe link info: Not found"
+     Just s
+       | sameLinkInfo -> text ("Exe link info is the same")
+       | otherwise    -> text ("Exe link info is different: " ++ s)
+   return (not sameLinkInfo)
 
 platformSupportsSavingLinkOpts :: OS -> Bool
 platformSupportsSavingLinkOpts os
   | os == OSSolaris2 = False -- see #5382
   | otherwise        = osElfTarget os
 
+-- See Note [LinkInfo section]
 ghcLinkInfoSectionName :: String
 ghcLinkInfoSectionName = ".debug-ghc-link-info"
    -- if we use the ".debug" prefix, then strip will strip it by default
+
+-- Identifier for the note (see Note [LinkInfo section])
+ghcLinkInfoNoteName :: String
+ghcLinkInfoNoteName = "GHC link info"
 
 findHSLib :: DynFlags -> [String] -> String -> IO (Maybe FilePath)
 findHSLib dflags dirs lib = do
@@ -476,50 +498,6 @@ oneShot :: HscEnv -> Phase -> [(String, Maybe Phase)] -> IO ()
 oneShot hsc_env stop_phase srcs = do
   o_files <- mapM (compileFile hsc_env stop_phase) srcs
   doLink (hsc_dflags hsc_env) stop_phase o_files
-
--- | Constructs a 'ModSummary' for a "signature merge" node.
--- This is a simplified construction function which only checks
--- for a local hs-boot file.
-makeMergeRequirementSummary :: HscEnv -> Bool -> ModuleName -> IO ModSummary
-makeMergeRequirementSummary hsc_env obj_allowed mod_name = do
-    let dflags = hsc_dflags hsc_env
-    location <- liftIO $ mkHomeModLocation2 dflags mod_name
-                         (moduleNameSlashes mod_name) (hiSuf dflags)
-    obj_timestamp <-
-         if isObjectTarget (hscTarget dflags) || obj_allowed -- bug #1205
-             then liftIO $ modificationTimeIfExists (ml_obj_file location)
-             else return Nothing
-    r <- findHomeModule hsc_env mod_name
-    let has_local_boot = case r of
-                            Found _ _ -> True
-                            _ -> False
-    src_timestamp <- case obj_timestamp of
-                        Just date -> return date
-                        Nothing -> getCurrentTime -- something fake
-    return ModSummary {
-            ms_mod = mkModule (thisPackage dflags) mod_name,
-            ms_hsc_src = HsBootMerge,
-            ms_location = location,
-            ms_hs_date = src_timestamp,
-            ms_obj_date = obj_timestamp,
-            ms_iface_date = Nothing,
-            -- TODO: fill this in with all the imports eventually
-            ms_srcimps = [],
-            ms_textual_imps = [],
-            ms_merge_imps = (has_local_boot, []),
-            ms_hspp_file = "FAKE",
-            ms_hspp_opts = dflags,
-            ms_hspp_buf = Nothing
-            }
-
--- | Top-level entry point for @ghc -merge-requirement ModName@.
-mergeRequirement :: HscEnv -> ModuleName -> IO ()
-mergeRequirement hsc_env mod_name = do
-    mod_summary <- makeMergeRequirementSummary hsc_env True mod_name
-    -- Based off of GhcMake handling
-    _ <- liftIO $ compileOne' Nothing Nothing hsc_env mod_summary 1 1 Nothing
-                              Nothing SourceUnmodified
-    return ()
 
 compileFile :: HscEnv -> Phase -> (FilePath, Maybe Phase) -> IO FilePath
 compileFile hsc_env stop_phase (src, mb_phase) = do
@@ -1002,8 +980,7 @@ runPhase (RealPhase (Hsc src_flavour)) input_fn dflags0
                                         ms_obj_date  = Nothing,
                                         ms_iface_date   = Nothing,
                                         ms_textual_imps = imps,
-                                        ms_srcimps      = src_imps,
-                                        ms_merge_imps = (False, []) }
+                                        ms_srcimps      = src_imps }
 
   -- run the compiler!
         let msg hsc_env _ what _ = oneShotMsg hsc_env what
@@ -1023,7 +1000,7 @@ runPhase (HscOut src_flavour mod_name result) _ dflags = do
 
         case result of
             HscNotGeneratingCode ->
-                return (RealPhase next_phase,
+                return (RealPhase StopLn,
                         panic "No output filename from Hsc when no-code")
             HscUpToDate ->
                 do liftIO $ touchObjectFile dflags o_file
@@ -1035,15 +1012,15 @@ runPhase (HscOut src_flavour mod_name result) _ dflags = do
                 do -- In the case of hs-boot files, generate a dummy .o-boot
                    -- stamp file for the benefit of Make
                    liftIO $ touchObjectFile dflags o_file
-                   return (RealPhase next_phase, o_file)
-            HscUpdateBootMerge ->
+                   return (RealPhase StopLn, o_file)
+            HscUpdateSig ->
                 do -- We need to create a REAL but empty .o file
                    -- because we are going to attempt to put it in a library
                    PipeState{hsc_env=hsc_env'} <- getPipeState
                    let input_fn = expectJust "runPhase" (ml_hs_file location)
                        basename = dropExtension input_fn
                    liftIO $ compileEmptyStub dflags hsc_env' basename location
-                   return (RealPhase next_phase, o_file)
+                   return (RealPhase StopLn, o_file)
             HscRecomp cgguts mod_summary
               -> do output_fn <- phaseOutputFilename next_phase
 
@@ -1658,37 +1635,21 @@ mkNoteObjsToLinkIntoBinary dflags dep_packages = do
 
   where
     link_opts info = hcat [
-          text "\t.section ", text ghcLinkInfoSectionName,
-                                   text ",\"\",",
-                                   text elfSectionNote,
-                                   text "\n",
+      -- "link info" section (see Note [LinkInfo section])
+      makeElfNote dflags ghcLinkInfoSectionName ghcLinkInfoNoteName 0 info,
 
-          text "\t.ascii \"", info', text "\"\n",
+      -- ALL generated assembly must have this section to disable
+      -- executable stacks.  See also
+      -- compiler/nativeGen/AsmCodeGen.hs for another instance
+      -- where we need to do this.
+      if platformHasGnuNonexecStack (targetPlatform dflags)
+        then text ".section .note.GNU-stack,\"\",@progbits\n"
+        else Outputable.empty
+      ]
 
-          -- ALL generated assembly must have this section to disable
-          -- executable stacks.  See also
-          -- compiler/nativeGen/AsmCodeGen.hs for another instance
-          -- where we need to do this.
-          (if platformHasGnuNonexecStack (targetPlatform dflags)
-           then text ".section .note.GNU-stack,\"\",@progbits\n"
-           else Outputable.empty)
-
-           ]
-          where
-            info' = text $ escape info
-
-            escape :: String -> String
-            escape = concatMap (charToC.fromIntegral.ord)
-
-            elfSectionNote :: String
-            elfSectionNote = case platformArch (targetPlatform dflags) of
-                               ArchARM _ _ _ -> "%note"
-                               _             -> "@note"
-
--- The "link info" is a string representing the parameters of the
--- link.  We save this information in the binary, and the next time we
--- link, if nothing else has changed, we use the link info stored in
--- the existing binary to decide whether to re-link or not.
+-- | Return the "link info" string
+--
+-- See Note [LinkInfo section]
 getLinkInfo :: DynFlags -> [UnitId] -> IO String
 getLinkInfo dflags dep_packages = do
    package_link_opts <- getPackageLinkOpts dflags dep_packages
@@ -1706,6 +1667,22 @@ getLinkInfo dflags dep_packages = do
                    getOpts dflags opt_l)
    --
    return (show link_info)
+
+
+{- Note [LinkInfo section]
+   ~~~~~~~~~~~~~~~~~~~~~~~
+
+The "link info" is a string representing the parameters of the link. We save
+this information in the binary, and the next time we link, if nothing else has
+changed, we use the link info stored in the existing binary to decide whether
+to re-link or not.
+
+The "link info" string is stored in a ELF section called ".debug-ghc-link-info"
+(see ghcLinkInfoSectionName) with the SHT_NOTE type.  For some time, it used to
+not follow the specified record-based format (see #11022).
+
+-}
+
 
 -----------------------------------------------------------------------------
 -- Look for the /* GHC_PACKAGES ... */ comment at the top of a .hc file
@@ -1896,6 +1873,10 @@ linkBinary' staticLink dflags o_files dep_packages = do
                           then ["-Wl,-read_only_relocs,suppress"]
                           else [])
 
+                      ++ (if sLdIsGnuLd mySettings
+                          then ["-Wl,--gc-sections"]
+                          else [])
+
                       ++ o_files
                       ++ lib_path_opts)
                       ++ extra_ld_inputs
@@ -2049,6 +2030,20 @@ doCpp dflags raw input_fn output_fn = do
           , "-include", ghcVersionH
           ]
 
+    -- MIN_VERSION macros
+    let uids = explicitPackages (pkgState dflags)
+        pkgs = catMaybes (map (lookupPackage dflags) uids)
+    mb_macro_include <-
+        -- Only generate if we have (1) we have set -hide-all-packages
+        -- (so we don't generate a HUGE macro file of things we don't
+        -- care about but are exposed) and (2) we actually have packages
+        -- to write macros for!
+        if gopt Opt_HideAllPackages dflags && not (null pkgs)
+            then do macro_stub <- newTempName dflags "h"
+                    writeFile macro_stub (generatePackageVersionMacros pkgs)
+                    return [SysTools.FileOption "-include" macro_stub]
+            else return []
+
     cpp_prog       (   map SysTools.Option verbFlags
                     ++ map SysTools.Option include_paths
                     ++ map SysTools.Option hsSourceCppOpts
@@ -2058,6 +2053,7 @@ doCpp dflags raw input_fn output_fn = do
                     ++ map SysTools.Option hscpp_opts
                     ++ map SysTools.Option sse_defs
                     ++ map SysTools.Option avx_defs
+                    ++ mb_macro_include
         -- Set the language mode to assembler-with-cpp when preprocessing. This
         -- alleviates some of the C99 macro rules relating to whitespace and the hash
         -- operator, which we tend to abuse. Clang in particular is not very happy
@@ -2086,6 +2082,35 @@ getBackendDefs dflags | hscTarget dflags == HscLlvm = do
 
 getBackendDefs _ =
     return []
+
+-- ---------------------------------------------------------------------------
+-- Macros (cribbed from Cabal)
+
+generatePackageVersionMacros :: [PackageConfig] -> String
+generatePackageVersionMacros pkgs = concat
+  [ "/* package " ++ sourcePackageIdString pkg ++ " */\n"
+  ++ generateMacros "" pkgname version
+  | pkg <- pkgs
+  , let version = packageVersion pkg
+        pkgname = map fixchar (packageNameString pkg)
+  ]
+
+fixchar :: Char -> Char
+fixchar '-' = '_'
+fixchar c   = c
+
+generateMacros :: String -> String -> Version -> String
+generateMacros prefix name version =
+  concat
+  ["#define ", prefix, "VERSION_",name," ",show (showVersion version),"\n"
+  ,"#define MIN_", prefix, "VERSION_",name,"(major1,major2,minor) (\\\n"
+  ,"  (major1) <  ",major1," || \\\n"
+  ,"  (major1) == ",major1," && (major2) <  ",major2," || \\\n"
+  ,"  (major1) == ",major1," && (major2) == ",major2," && (minor) <= ",minor,")"
+  ,"\n\n"
+  ]
+  where
+    (major1:major2:minor:_) = map show (versionBranch version ++ repeat 0)
 
 -- ---------------------------------------------------------------------------
 -- join object files into a single relocatable object file, using ld -r
@@ -2128,7 +2153,7 @@ joinObjectFiles dflags o_files output_fn = do
      then do
           script <- newTempName dflags "ldscript"
           cwd <- getCurrentDirectory
-          let o_files_abs = map (cwd </>) o_files
+          let o_files_abs = map (\x -> "\"" ++ (cwd </> x) ++ "\"") o_files
           writeFile script $ "INPUT(" ++ unwords o_files_abs ++ ")"
           ld_r [SysTools.FileOption "" script] ccInfo
      else if sLdSupportsFilelist mySettings
@@ -2151,7 +2176,7 @@ writeInterfaceOnlyMode dflags =
 -- | What phase to run after one of the backend code generators has run
 hscPostBackendPhase :: DynFlags -> HscSource -> HscTarget -> Phase
 hscPostBackendPhase _ HsBootFile _    =  StopLn
-hscPostBackendPhase _ HsBootMerge _    =  StopLn
+hscPostBackendPhase _ HsigFile _      =  StopLn
 hscPostBackendPhase dflags _ hsc_lang =
   case hsc_lang of
         HscC -> HCc

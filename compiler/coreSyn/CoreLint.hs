@@ -63,6 +63,9 @@ import Demand ( splitStrictSig, isBotRes )
 import HscTypes
 import DynFlags
 import Control.Monad
+#if __GLASGOW_HASKELL__ > 710
+import qualified Control.Monad.Fail as MonadFail
+#endif
 import MonadUtils
 import Data.Maybe
 import Pair
@@ -1434,14 +1437,14 @@ lintCoercion (InstCo co arg)
 
 lintCoercion co@(AxiomInstCo con ind cos)
   = do { unless (0 <= ind && ind < numBranches (coAxiomBranches con))
-                (bad_ax (ptext (sLit "index out of range")))
+                (bad_ax (text "index out of range"))
        ; let CoAxBranch { cab_tvs   = ktvs
                         , cab_cvs   = cvs
                         , cab_roles = roles
                         , cab_lhs   = lhs
                         , cab_rhs   = rhs } = coAxiomNthBranch con ind
        ; unless (length ktvs + length cvs == length cos) $
-           bad_ax (ptext (sLit "lengths"))
+           bad_ax (text "lengths")
        ; subst <- getTCvSubst
        ; let empty_subst = zapTCvSubst subst
        ; (subst_l, subst_r) <- foldlM check_ki
@@ -1450,12 +1453,13 @@ lintCoercion co@(AxiomInstCo con ind cos)
        ; let lhs' = substTys subst_l lhs
              rhs' = substTy subst_r rhs
        ; case checkAxInstCo co of
-           Just bad_branch -> bad_ax $ ptext (sLit "inconsistent with") <+> (pprCoAxBranch (coAxiomTyCon con) bad_branch)
+           Just bad_branch -> bad_ax $ text "inconsistent with" <+>
+                                       pprCoAxBranch con bad_branch
            Nothing -> return ()
        ; let s2 = mkTyConApp (coAxiomTyCon con) lhs'
        ; return (typeKind s2, typeKind rhs', s2, rhs', coAxiomRole con) }
   where
-    bad_ax what = addErrL (hang (ptext (sLit "Bad axiom application") <+> parens what)
+    bad_ax what = addErrL (hang (text  "Bad axiom application" <+> parens what)
                         2 (ppr co))
 
     check_ki (subst_l, subst_r) (ktv, role, arg)
@@ -1464,9 +1468,9 @@ lintCoercion co@(AxiomInstCo con ind cos)
            ; let ktv_kind_l = substTy subst_l (tyVarKind ktv)
                  ktv_kind_r = substTy subst_r (tyVarKind ktv)
            ; unless (k' `eqType` ktv_kind_l)
-                    (bad_ax (ptext (sLit "check_ki1") <+> vcat [ ppr co, ppr k', ppr ktv, ppr ktv_kind_l ] ))
+                    (bad_ax (text "check_ki1" <+> vcat [ ppr co, ppr k', ppr ktv, ppr ktv_kind_l ] ))
            ; unless (k'' `eqType` ktv_kind_r)
-                    (bad_ax (ptext (sLit "check_ki2") <+> vcat [ ppr co, ppr k'', ppr ktv, ppr ktv_kind_r ] ))
+                    (bad_ax (text "check_ki2" <+> vcat [ ppr co, ppr k'', ppr ktv, ppr ktv_kind_r ] ))
            ; return (extendTCvSubst subst_l ktv s',
                      extendTCvSubst subst_r ktv t') }
 
@@ -1589,6 +1593,11 @@ instance Monad LintM where
                          case res of
                            Just r -> unLintM (k r) env errs'
                            Nothing -> (Nothing, errs'))
+
+#if __GLASGOW_HASKELL__ > 710
+instance MonadFail.MonadFail LintM where
+    fail err = failWithL (text err)
+#endif
 
 instance HasDynFlags LintM where
   getDynFlags = LintM (\ e errs -> (Just (le_dynflags e), errs))

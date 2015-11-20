@@ -45,7 +45,6 @@ import Type
 import Coercion
 import ConLike
 import DataCon
-import PatSyn( patSynInstResTy )
 import Name
 import NameSet
 import Var
@@ -99,9 +98,6 @@ hsPatType (NPlusKPat id _ _ _)        = idType (unLoc id)
 hsPatType (CoPat _ _ ty)              = ty
 hsPatType p                           = pprPanic "hsPatType" (ppr p)
 
-conLikeResTy :: ConLike -> [Type] -> Type
-conLikeResTy (RealDataCon con) tys = mkTyConApp (dataConTyCon con) tys
-conLikeResTy (PatSynCon ps)    tys = patSynInstResTy ps tys
 
 hsLitType :: HsLit -> TcType
 hsLitType (HsChar _ _)       = charTy
@@ -553,11 +549,13 @@ zonkLTcSpecPrags env ps
 zonkMatchGroup :: ZonkEnv
                -> (ZonkEnv -> Located (body TcId) -> TcM (Located (body Id)))
                -> MatchGroup TcId (Located (body TcId)) -> TcM (MatchGroup Id (Located (body Id)))
-zonkMatchGroup env zBody (MG { mg_alts = ms, mg_arg_tys = arg_tys, mg_res_ty = res_ty, mg_origin = origin })
+zonkMatchGroup env zBody (MG { mg_alts = L l ms, mg_arg_tys = arg_tys
+                             , mg_res_ty = res_ty, mg_origin = origin })
   = do  { ms' <- mapM (zonkMatch env zBody) ms
         ; arg_tys' <- zonkTcTypeToTypes env arg_tys
         ; res_ty'  <- zonkTcTypeToType env res_ty
-        ; return (MG { mg_alts = ms', mg_arg_tys = arg_tys', mg_res_ty = res_ty', mg_origin = origin }) }
+        ; return (MG { mg_alts = L l ms', mg_arg_tys = arg_tys'
+                     , mg_res_ty = res_ty', mg_origin = origin }) }
 
 zonkMatch :: ZonkEnv
           -> (ZonkEnv -> Located (body TcId) -> TcM (Located (body Id)))
@@ -572,7 +570,7 @@ zonkGRHSs :: ZonkEnv
           -> (ZonkEnv -> Located (body TcId) -> TcM (Located (body Id)))
           -> GRHSs TcId (Located (body TcId)) -> TcM (GRHSs Id (Located (body Id)))
 
-zonkGRHSs env zBody (GRHSs grhss binds) = do
+zonkGRHSs env zBody (GRHSs grhss (L l binds)) = do
     (new_env, new_binds) <- zonkLocalBinds env binds
     let
         zonk_grhs (GRHS guarded rhs)
@@ -580,7 +578,7 @@ zonkGRHSs env zBody (GRHSs grhss binds) = do
                new_rhs <- zBody env2 rhs
                return (GRHS new_guarded new_rhs)
     new_grhss <- mapM (wrapLocM zonk_grhs) grhss
-    return (GRHSs new_grhss new_binds)
+    return (GRHSs new_grhss (L l new_binds))
 
 {-
 ************************************************************************
@@ -602,6 +600,9 @@ zonkExpr env (HsVar id)
 
 zonkExpr _ (HsIPVar id)
   = return (HsIPVar id)
+
+zonkExpr _ (HsOverLabel l)
+  = return (HsOverLabel l)
 
 zonkExpr env (HsLit (HsRat f ty))
   = do new_ty <- zonkTcTypeToType env ty
@@ -696,15 +697,15 @@ zonkExpr env (HsMultiIf ty alts)
                ; expr'          <- zonkLExpr env' expr
                ; return $ GRHS guard' expr' }
 
-zonkExpr env (HsLet binds expr)
+zonkExpr env (HsLet (L l binds) expr)
   = do (new_env, new_binds) <- zonkLocalBinds env binds
        new_expr <- zonkLExpr new_env expr
-       return (HsLet new_binds new_expr)
+       return (HsLet (L l new_binds) new_expr)
 
-zonkExpr env (HsDo do_or_lc stmts ty)
+zonkExpr env (HsDo do_or_lc (L l stmts) ty)
   = do (_, new_stmts) <- zonkStmts env zonkLExpr stmts
        new_ty <- zonkTcTypeToType env ty
-       return (HsDo do_or_lc new_stmts new_ty)
+       return (HsDo do_or_lc (L l new_stmts) new_ty)
 
 zonkExpr env (ExplicitList ty wit exprs)
   = do new_ty <- zonkTcTypeToType env ty
@@ -720,17 +721,23 @@ zonkExpr env (ExplicitPArr ty exprs)
        new_exprs <- zonkLExprs env exprs
        return (ExplicitPArr new_ty new_exprs)
 
-zonkExpr env (RecordCon data_con con_expr rbinds)
+zonkExpr env expr@(RecordCon { rcon_con_expr = con_expr, rcon_flds = rbinds })
   = do  { new_con_expr <- zonkExpr env con_expr
         ; new_rbinds   <- zonkRecFields env rbinds
-        ; return (RecordCon data_con new_con_expr new_rbinds) }
+        ; return (expr { rcon_con_expr = new_con_expr
+                       , rcon_flds = new_rbinds }) }
 
-zonkExpr env (RecordUpd expr rbinds cons in_tys out_tys)
+zonkExpr env (RecordUpd { rupd_expr = expr, rupd_flds = rbinds
+                        , rupd_cons = cons, rupd_in_tys = in_tys
+                        , rupd_out_tys = out_tys, rupd_wrap = req_wrap })
   = do  { new_expr    <- zonkLExpr env expr
         ; new_in_tys  <- mapM (zonkTcTypeToType env) in_tys
         ; new_out_tys <- mapM (zonkTcTypeToType env) out_tys
         ; new_rbinds  <- zonkRecUpdFields env rbinds
-        ; return (RecordUpd new_expr new_rbinds cons new_in_tys new_out_tys) }
+        ; (_, new_recwrap) <- zonkCoFn env req_wrap
+        ; return (RecordUpd { rupd_expr = new_expr, rupd_flds =  new_rbinds
+                            , rupd_cons = cons, rupd_in_tys = new_in_tys
+                            , rupd_out_tys = new_out_tys, rupd_wrap = new_recwrap }) }
 
 zonkExpr env (ExprWithTySigOut e ty)
   = do { e' <- zonkLExpr env e
@@ -832,15 +839,15 @@ zonkCmd env (HsCmdIf eCond ePred cThen cElse)
        ; new_cElse <- zonkLCmd env cElse
        ; return (HsCmdIf new_eCond new_ePred new_cThen new_cElse) }
 
-zonkCmd env (HsCmdLet binds cmd)
+zonkCmd env (HsCmdLet (L l binds) cmd)
   = do (new_env, new_binds) <- zonkLocalBinds env binds
        new_cmd <- zonkLCmd new_env cmd
-       return (HsCmdLet new_binds new_cmd)
+       return (HsCmdLet (L l new_binds) new_cmd)
 
-zonkCmd env (HsCmdDo stmts ty)
+zonkCmd env (HsCmdDo (L l stmts) ty)
   = do (_, new_stmts) <- zonkStmts env zonkLCmd stmts
        new_ty <- zonkTcTypeToType env ty
-       return (HsCmdDo new_stmts new_ty)
+       return (HsCmdDo (L l new_stmts) new_ty)
 
 
 
@@ -993,9 +1000,9 @@ zonkStmt env _ (TransStmt { trS_stmts = stmts, trS_bndrs = binderMap
         newBinder' <- zonkIdBndr env newBinder
         return (oldBinder', newBinder')
 
-zonkStmt env _ (LetStmt binds)
+zonkStmt env _ (LetStmt (L l binds))
   = do (env1, new_binds) <- zonkLocalBinds env binds
-       return (env1, LetStmt new_binds)
+       return (env1, LetStmt (L l new_binds))
 
 zonkStmt env zBody (BindStmt pat body bind_op fail_op)
   = do  { new_body <- zBody env body
@@ -1309,19 +1316,10 @@ zonkEvTerm env (EvCast tm co)     = do { tm' <- zonkEvTerm env tm
                                        ; return (mkEvCast tm' co') }
 zonkEvTerm _   (EvLit l)          = return (EvLit l)
 
-zonkEvTerm env (EvTypeable ev) =
-  fmap EvTypeable $
-  case ev of
-    EvTypeableTyCon tc ks    -> return (EvTypeableTyCon tc ks)
-    EvTypeableTyApp t1 t2    -> do e1 <- zonk t1
-                                   e2 <- zonk t2
-                                   return (EvTypeableTyApp e1 e2)
-    EvTypeableTyLit t        -> EvTypeableTyLit `fmap` zonk t
-  where
-  zonk (ev,t) = do ev' <- zonkEvTerm env ev
-                   t'  <- zonkTcTypeToType env t
-                   return (ev',t')
-
+zonkEvTerm env (EvTypeable ty ev) =
+  do { ev' <- zonkEvTypeable env ev
+     ; ty' <- zonkTcTypeToType env ty
+     ; return (EvTypeable ty' ev') }
 zonkEvTerm env (EvCallStack cs)
   = case cs of
       EvCsEmpty -> return (EvCallStack cs)
@@ -1339,6 +1337,16 @@ zonkEvTerm env (EvDFunApp df tys tms)
 zonkEvTerm env (EvDelayedError ty msg)
   = do { ty' <- zonkTcTypeToType env ty
        ; return (EvDelayedError ty' msg) }
+
+zonkEvTypeable :: ZonkEnv -> EvTypeable -> TcM EvTypeable
+zonkEvTypeable _ EvTypeableTyCon
+  = return EvTypeableTyCon
+zonkEvTypeable env (EvTypeableTyApp t1 t2)
+  = do { t1' <- zonkEvTerm env t1
+       ; t2' <- zonkEvTerm env t2
+       ; return (EvTypeableTyApp t1' t2') }
+zonkEvTypeable _ (EvTypeableTyLit t1)
+  = return (EvTypeableTyLit t1)
 
 zonkTcEvBinds_s :: ZonkEnv -> [TcEvBinds] -> TcM (ZonkEnv, [TcEvBinds])
 zonkTcEvBinds_s env bs = do { (env, bs') <- mapAccumLM zonk_tc_ev_binds env bs

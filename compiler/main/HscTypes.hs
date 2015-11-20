@@ -21,7 +21,7 @@ module HscTypes (
         -- * Information about modules
         ModDetails(..), emptyModDetails,
         ModGuts(..), CgGuts(..), ForeignStubs(..), appendStubC,
-        ImportedMods, ImportedModsVal,
+        ImportedMods, ImportedModsVal(..),
 
         ModSummary(..), ms_imps, ms_mod_name, showModMsg, isBootSummary,
         msHsFilePath, msHiFilePath, msObjFilePath,
@@ -29,7 +29,7 @@ module HscTypes (
 
         -- * Information about the module being compiled
         -- (re-exported from DriverPhases)
-        HscSource(..), isHsBoot, hscSourceString,
+        HscSource(..), isHsBootOrSig, hscSourceString,
 
 
         -- * State relating to modules in this package
@@ -148,7 +148,7 @@ import VarEnv
 import VarSet
 import Var
 import Id
-import IdInfo           ( IdDetails(..) )
+import IdInfo           ( IdDetails(..), RecSelParent(..))
 import Type
 
 import ApiAnnotation    ( ApiAnns )
@@ -162,7 +162,7 @@ import PatSyn
 import PrelNames        ( gHC_PRIM, ioTyConName, printName, mkInteractiveModule )
 import Packages hiding  ( Version(..) )
 import DynFlags
-import DriverPhases     ( Phase, HscSource(..), isHsBoot, hscSourceString )
+import DriverPhases     ( Phase, HscSource(..), isHsBootOrSig, hscSourceString )
 import BasicTypes
 import IfaceSyn
 import CoreSyn          ( CoreRule, CoreVect )
@@ -202,7 +202,7 @@ data HscStatus
     = HscNotGeneratingCode
     | HscUpToDate
     | HscUpdateBoot
-    | HscUpdateBootMerge
+    | HscUpdateSig
     | HscRecomp CgGuts ModSummary
 
 -- -----------------------------------------------------------------------------
@@ -1027,9 +1027,18 @@ emptyModDetails
                  md_anns      = [],
                  md_vect_info = noVectInfo }
 
--- | Records the modules directly imported by a module for extracting e.g. usage information
+-- | Records the modules directly imported by a module for extracting e.g.
+-- usage information, and also to give better error message
 type ImportedMods = ModuleEnv [ImportedModsVal]
-type ImportedModsVal = (ModuleName, Bool, SrcSpan, IsSafeImport)
+data ImportedModsVal
+ = ImportedModsVal {
+        imv_name :: ModuleName,          -- ^ The name the module is imported with
+        imv_span :: SrcSpan,             -- ^ the source span of the whole import
+        imv_is_safe :: IsSafeImport,     -- ^ whether this is a safe import
+        imv_is_hiding :: Bool,           -- ^ whether this is an "hiding" import
+        imv_all_exports :: GlobalRdrEnv, -- ^ all the things the module could provide
+        imv_qualified :: Bool            -- ^ whether this is a qualified import
+        }
 
 -- | A ModGuts is carried through the compiler, accumulating stuff as it goes
 -- There is only one ModGuts at any time, the one for the module
@@ -1043,9 +1052,7 @@ data ModGuts
         mg_exports   :: ![AvailInfo],    -- ^ What it exports
         mg_deps      :: !Dependencies,   -- ^ What it depends on, directly or
                                          -- otherwise
-        mg_dir_imps  :: !ImportedMods,   -- ^ Directly-imported modules; used to
-                                         -- generate initialisation code
-        mg_used_names:: !NameSet,        -- ^ What the module needed (used in 'MkIface.mkIface')
+        mg_usages    :: ![Usage],        -- ^ What was used?  Used for interfaces.
 
         mg_used_th   :: !Bool,           -- ^ Did we run a TH splice?
         mg_rdr_env   :: !GlobalRdrEnv,   -- ^ Top-level lexical environment
@@ -1084,11 +1091,9 @@ data ModGuts
                                                 -- one); c.f. 'tcg_fam_inst_env'
 
         mg_safe_haskell :: SafeHaskellMode,     -- ^ Safe Haskell mode
-        mg_trust_pkg    :: Bool,                -- ^ Do we need to trust our
+        mg_trust_pkg    :: Bool                 -- ^ Do we need to trust our
                                                 -- own package for Safe Haskell?
                                                 -- See Note [RnNames . Trust Own Package]
-
-        mg_dependent_files :: [FilePath]        -- ^ Dependencies from addDependentFile
     }
 
 -- The ModGuts takes on several slightly different forms:
@@ -1689,20 +1694,23 @@ implicitTyThings (AConLike cl)  = implicitConLikeThings cl
 
 implicitConLikeThings :: ConLike -> [TyThing]
 implicitConLikeThings (RealDataCon dc)
-  = map AnId (dataConImplicitIds dc)
-    -- For data cons add the worker and (possibly) wrapper
+  = dataConImplicitTyThings dc
 
 implicitConLikeThings (PatSynCon {})
   = []  -- Pattern synonyms have no implicit Ids; the wrapper and matcher
         -- are not "implicit"; they are simply new top-level bindings,
         -- and they have their own declaration in an interface file
+        -- Unless a record pat syn when there are implicit selectors
+        -- They are still not included here as `implicitConLikeThings` is
+        -- used by `tcTyClsDecls` whilst pattern synonyms are typed checked
+        -- by `tcTopValBinds`.
 
 implicitClassThings :: Class -> [TyThing]
 implicitClassThings cl
   = -- Does not include default methods, because those Ids may have
     --    their own pragmas, unfoldings etc, not derived from the Class object
     -- associated types
-    --    No extras_plus (recursive call) for the classATs, because they
+    --    No recursive call for the classATs, because they
     --    are only the family decls; they have no implicit things
     map ATyCon (classATs cl) ++
     -- superclass and operation selectors
@@ -1718,17 +1726,14 @@ implicitTyConThings tc
 
       -- for each data constructor in order,
       --   the contructor, worker, and (possibly) wrapper
-    concatMap (extras_plus . AConLike . RealDataCon) (tyConDataCons tc)
+    [ thing | dc    <- tyConDataCons tc
+            , thing <- AConLike (RealDataCon dc) : dataConImplicitTyThings dc ]
       -- NB. record selectors are *not* implicit, they have fully-fledged
       -- bindings that pass through the compilation pipeline as normal.
   where
     class_stuff = case tyConClass_maybe tc of
         Nothing -> []
         Just cl -> implicitClassThings cl
-
--- add a thing and recursive call
-extras_plus :: TyThing -> [TyThing]
-extras_plus thing = thing : implicitTyThings thing
 
 -- For newtypes and closed type families (only) add the implicit coercion tycon
 implicitCoTyCon :: TyCon -> [TyThing]
@@ -1764,9 +1769,11 @@ tyThingParent_maybe (ATyCon tc)   = case tyConAssoc_maybe tc of
                                       Just cls -> Just (ATyCon (classTyCon cls))
                                       Nothing  -> Nothing
 tyThingParent_maybe (AnId id)     = case idDetails id of
-                                         RecSelId { sel_tycon = tc } -> Just (ATyCon tc)
-                                         ClassOpId cls               -> Just (ATyCon (classTyCon cls))
-                                         _other                      -> Nothing
+                                      RecSelId { sel_tycon = RecSelData tc } ->
+                                          Just (ATyCon tc)
+                                      ClassOpId cls               ->
+                                          Just (ATyCon (classTyCon cls))
+                                      _other                      -> Nothing
 tyThingParent_maybe _other = Nothing
 
 tyThingsTyCoVars :: [TyThing] -> TyCoVarSet
@@ -1797,7 +1804,7 @@ tyThingAvailInfo (ATyCon t)
                    dcs  = tyConDataCons t
                    flds = tyConFieldLabels t
 tyThingAvailInfo t
-   = Avail (getName t)
+   = avail (getName t)
 
 {-
 ************************************************************************
@@ -2404,8 +2411,6 @@ data ModSummary
           -- ^ Source imports of the module
         ms_textual_imps :: [(Maybe FastString, Located ModuleName)],
           -- ^ Non-source imports of the module from the module *text*
-        ms_merge_imps   :: (Bool, [Module]),
-          -- ^ Non-textual imports computed for HsBootMerge
         ms_hspp_file    :: FilePath,
           -- ^ Filename of preprocessed source file
         ms_hspp_opts    :: DynFlags,
@@ -2435,10 +2440,8 @@ ms_imps ms =
 -- The ModLocation is stable over successive up-sweeps in GHCi, wheres
 -- the ms_hs_date and imports can, of course, change
 
-msHsFilePath :: ModSummary -> Maybe FilePath
-msHsFilePath  ms = ml_hs_file  (ms_location ms)
-
-msHiFilePath, msObjFilePath :: ModSummary -> FilePath
+msHsFilePath, msHiFilePath, msObjFilePath :: ModSummary -> FilePath
+msHsFilePath  ms = expectJust "msHsFilePath" (ml_hs_file  (ms_location ms))
 msHiFilePath  ms = ml_hi_file  (ms_location ms)
 msObjFilePath ms = ml_obj_file (ms_location ms)
 
@@ -2453,10 +2456,7 @@ instance Outputable ModSummary where
                           text "ms_mod =" <+> ppr (ms_mod ms)
                                 <> text (hscSourceString (ms_hsc_src ms)) <> comma,
                           text "ms_textual_imps =" <+> ppr (ms_textual_imps ms),
-                          text "ms_srcimps =" <+> ppr (ms_srcimps ms),
-                          if not (null (snd (ms_merge_imps ms)))
-                            then text "ms_merge_imps =" <+> ppr (ms_merge_imps ms)
-                            else empty]),
+                          text "ms_srcimps =" <+> ppr (ms_srcimps ms)]),
              char '}'
             ]
 
@@ -2464,20 +2464,29 @@ showModMsg :: DynFlags -> HscTarget -> Bool -> ModSummary -> String
 showModMsg dflags target recomp mod_summary
   = showSDoc dflags $
         hsep [text (mod_str ++ replicate (max 0 (16 - length mod_str)) ' '),
-              char '(',
-              case msHsFilePath mod_summary of
-                Just path -> text (normalise path) <> comma
-                Nothing -> text "nothing" <> comma,
+              char '(', text (normalise $ msHsFilePath mod_summary) <> comma,
               case target of
                   HscInterpreted | recomp
                              -> text "interpreted"
                   HscNothing -> text "nothing"
-                  _ -> text (normalise $ msObjFilePath mod_summary),
+                  _ | HsigFile == ms_hsc_src mod_summary -> text "nothing"
+                    | otherwise -> text (normalise $ msObjFilePath mod_summary),
               char ')']
  where
     mod     = moduleName (ms_mod mod_summary)
     mod_str = showPpr dflags mod
-                ++ hscSourceString (ms_hsc_src mod_summary)
+                ++ hscSourceString' dflags mod (ms_hsc_src mod_summary)
+
+-- | Variant of hscSourceString which prints more information for signatures.
+-- This can't live in DriverPhases because this would cause a module loop.
+hscSourceString' :: DynFlags -> ModuleName -> HscSource -> String
+hscSourceString' _ _ HsSrcFile   = ""
+hscSourceString' _ _ HsBootFile  = "[boot]"
+hscSourceString' dflags mod HsigFile =
+     "[" ++ (maybe "abstract sig"
+               (("sig of "++).showPpr dflags)
+               (getSigOf dflags mod)) ++ "]"
+    -- NB: -sig-of could be missing if we're just typechecking
 
 {-
 ************************************************************************

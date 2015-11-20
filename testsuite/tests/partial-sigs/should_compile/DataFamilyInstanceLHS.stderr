@@ -3,14 +3,13 @@ TYPE SIGNATURES
 TYPE CONSTRUCTORS
   data MyKind = A | B
     Promotable
-  type role Sing nominal
   data family Sing (a :: k)
-    RecFlag: Recursive
 COERCION AXIOMS
   axiom DataFamilyInstanceLHS.TFCo:R:SingMyKind_ ::
-      Sing = DataFamilyInstanceLHS.R:SingMyKind_
+    Sing = DataFamilyInstanceLHS.R:SingMyKind_
+      -- Defined at DataFamilyInstanceLHS.hs:8:15
 FAMILY INSTANCES
   data instance Sing
 Dependent modules: []
-Dependent packages: [base-4.8.2.0, ghc-prim-0.4.0.0,
+Dependent packages: [base-4.9.0.0, ghc-prim-0.5.0.0,
                      integer-gmp-1.0.0.0]

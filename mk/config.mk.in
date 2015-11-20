@@ -302,6 +302,17 @@ SupportsSplitObjs := $(strip \
 SplitObjs=$(SupportsSplitObjs)
 
 # ----------------------------------------------------------------------------
+# Section splitting
+#
+# Similar to -ffunction-sections -fdata-sections in GCC. Provides space saving
+# like SplitObjs, but doesn't require post-processing and splitting of object
+# files.
+#
+# Set SplitSections=YES in your build.mk to enable.
+
+SplitSections=NO
+
+# ----------------------------------------------------------------------------
 
 # There are a number of things which technically depend on GHC (e.g. if
 # ghc changes then Haskell files may be compiled differently, or Cabal
@@ -327,12 +338,6 @@ LAX_DEPENDENCIES = NO
 # optimisation.
 GhcRtsHcOpts=-O2
 GhcRtsCcOpts=-O2 -fomit-frame-pointer -g
-
-# Include support for CPU performance counters via the PAPI library in the RTS?
-# (PAPI: http://icl.cs.utk.edu/papi/)
-GhcRtsWithPapi = NO
-PapiLibDir=
-PapiIncludeDir=
 
 # Configuration for libffi
 UseSystemLibFFI=@UseSystemLibFFI@

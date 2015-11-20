@@ -597,6 +597,7 @@ rnHsRecFields ctxt mk_arg (HsRecFields { rec_flds = flds, rec_dotdot = dotdot })
                                     , case gre_par gre of
                                         ParentIs p               -> p /= parent_tc
                                         FldParent { par_is = p } -> p /= parent_tc
+                                        PatternSynonym           -> True
                                         NoParent                 -> True ]
                    where
                      rdr = mkVarUnqual lbl
@@ -612,7 +613,7 @@ rnHsRecFields ctxt mk_arg (HsRecFields { rec_flds = flds, rec_dotdot = dotdot })
                                     HsRecFieldCon {} -> arg_in_scope lbl
                                     _other           -> True ]
 
-           ; addUsedRdrNames (map (\ (_, _, gre) -> greUsedRdrName gre) dot_dot_gres)
+           ; addUsedGREs (map thirdOf3 dot_dot_gres)
            ; return [ L loc (HsRecField
                         { hsRecFieldLbl = L loc (FieldOcc arg_rdr sel)
                         , hsRecFieldArg = L loc (mk_arg arg_rdr)
@@ -672,7 +673,7 @@ rnHsRecUpdFields flds
       = do { let lbl = rdrNameAmbiguousFieldOcc f
            ; sel <- setSrcSpan loc $
                       -- Defer renaming of overloaded fields to the typechecker
-                      -- See Note [Disambiguating record updates] in TcExpr
+                      -- See Note [Disambiguating record fields] in TcExpr
                       if overload_ok
                           then do { mb <- lookupGlobalOccRn_overloaded overload_ok lbl
                                   ; case mb of

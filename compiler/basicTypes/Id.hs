@@ -57,6 +57,8 @@ module Id (
         isStrictId,
         isExportedId, isLocalId, isGlobalId,
         isRecordSelector, isNaughtyRecordSelector,
+        isPatSynRecordSelector,
+        isDataConRecordSelector,
         isClassOpId_maybe, isDFunId,
         isPrimOpId, isPrimOpId_maybe,
         isFCallId, isFCallId_maybe,
@@ -117,7 +119,6 @@ import Var( Id, CoVar, DictId,
             isId, isLocalId, isGlobalId, isExportedId )
 import qualified Var
 
-import TyCon
 import Type
 import TysPrim
 import DataCon
@@ -400,14 +401,17 @@ That is what is happening in, say tidy_insts in TidyPgm.
 -}
 
 -- | If the 'Id' is that for a record selector, extract the 'sel_tycon'. Panic otherwise.
-recordSelectorTyCon :: Id -> TyCon
+recordSelectorTyCon :: Id -> RecSelParent
 recordSelectorTyCon id
   = case Var.idDetails id of
-        RecSelId { sel_tycon = tycon } -> tycon
+        RecSelId { sel_tycon = parent } -> parent
         _ -> panic "recordSelectorTyCon"
+
 
 isRecordSelector        :: Id -> Bool
 isNaughtyRecordSelector :: Id -> Bool
+isPatSynRecordSelector  :: Id -> Bool
+isDataConRecordSelector  :: Id -> Bool
 isPrimOpId              :: Id -> Bool
 isFCallId               :: Id -> Bool
 isDataConWorkId         :: Id -> Bool
@@ -419,7 +423,15 @@ isFCallId_maybe         :: Id -> Maybe ForeignCall
 isDataConWorkId_maybe   :: Id -> Maybe DataCon
 
 isRecordSelector id = case Var.idDetails id of
-                        RecSelId {}  -> True
+                        RecSelId {}     -> True
+                        _               -> False
+
+isDataConRecordSelector id = case Var.idDetails id of
+                        RecSelId {sel_tycon = RecSelData _} -> True
+                        _               -> False
+
+isPatSynRecordSelector id = case Var.idDetails id of
+                        RecSelId {sel_tycon = RecSelPatSyn _} -> True
                         _               -> False
 
 isNaughtyRecordSelector id = case Var.idDetails id of

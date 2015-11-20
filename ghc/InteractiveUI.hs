@@ -83,7 +83,6 @@ import Data.Maybe
 
 import Exception hiding (catch)
 
-import Foreign.C
 #if __GLASGOW_HASKELL__ >= 709
 import Foreign
 #else
@@ -245,13 +244,13 @@ defFullHelpText =
   "   :cd <dir>                   change directory to <dir>\n" ++
   "   :cmd <expr>                 run the commands returned by <expr>::IO String\n" ++
   "   :complete <dom> [<rng>] <s> list completions for partial input string\n" ++
-  "   :ctags[!] [<file>]          create tags file for Vi (default: \"tags\")\n" ++
+  "   :ctags[!] [<file>]          create tags file <file> for Vi (default: \"tags\")\n" ++
   "                               (!: use regex instead of line number)\n" ++
   "   :def <cmd> <expr>           define command :<cmd> (later defined command has\n" ++
   "                               precedence, ::<cmd> is always a builtin command)\n" ++
   "   :edit <file>                edit file\n" ++
   "   :edit                       edit last module\n" ++
-  "   :etags [<file>]             create tags file for Emacs (default: \"TAGS\")\n" ++
+  "   :etags [<file>]             create tags file <file> for Emacs (default: \"TAGS\")\n" ++
   "   :help, :?                   display this list of commands\n" ++
   "   :info[!] [<name> ...]       display information about the given names\n" ++
   "                               (!: do not filter instances)\n" ++
@@ -266,7 +265,7 @@ defFullHelpText =
   "   :reload[!]                  reload the current module set\n" ++
   "                               (!: defer type errors)\n" ++
   "   :run function [<arguments> ...] run the function with the given arguments\n" ++
-  "   :script <filename>          run the script <filename>\n" ++
+  "   :script <file>              run the script <file>\n" ++
   "   :type <expr>                show the type of <expr>\n" ++
   "   :undef <cmd>                undefine user-defined command :<cmd>\n" ++
   "   :!<command>                 run the shell command <command>\n" ++
@@ -346,8 +345,6 @@ findEditor = do
         return ""
 #endif
 
-foreign import ccall unsafe "rts_isProfiled" isProfiled :: IO CInt
-
 default_progname, default_prompt, default_prompt2, default_stop :: String
 default_progname = "<interactive>"
 default_prompt = "%s> "
@@ -360,13 +357,6 @@ default_args = []
 interactiveUI :: GhciSettings -> [(FilePath, Maybe Phase)] -> Maybe [String]
               -> Ghc ()
 interactiveUI config srcs maybe_exprs = do
-   -- although GHCi compiles with -prof, it is not usable: the byte-code
-   -- compiler and interpreter don't work with profiling.  So we check for
-   -- this up front and emit a helpful error message (#2197)
-   i <- liftIO $ isProfiled
-   when (i /= 0) $
-     throwGhcException (InstallationError "GHCi cannot be used when compiled with -prof")
-
    -- HACK! If we happen to get into an infinite loop (eg the user
    -- types 'let x=x in x' at the prompt), then the thread will block
    -- on a blackhole, and become unreachable during GC.  The GC will
@@ -630,7 +620,7 @@ checkPerms file =
       -- #8248: Improving warning to include a possible fix.
       putStrLn $ "*** WARNING: " ++ file ++
                  " is writable by someone else, IGNORING!" ++
-                 "\nSuggested fix: execute 'chmod 644 " ++ file ++ "'"
+                 "\nSuggested fix: execute 'chmod go-w " ++ file ++ "'"
     return ok
 #endif
 
@@ -1342,7 +1332,7 @@ defineMacro overwrite s = do
     step <- getGhciStepIO
     expr <- GHC.parseExpr definition
     -- > ghciStepIO . definition :: String -> IO String
-    let stringTy = nlHsTyVar $ getRdrName stringTyConName
+    let stringTy = nlHsTyVar stringTy_RDR
         ioM = nlHsTyVar (getRdrName ioTyConName) `nlHsAppTy` stringTy
         body = nlHsVar compose_RDR `mkHsApp` step `mkHsApp` expr
         tySig = stringTy `nlHsFunTy` ioM
@@ -1392,7 +1382,7 @@ cmdCmd str = handleSourceError GHC.printException $ do
 getGhciStepIO :: GHCi (LHsExpr RdrName)
 getGhciStepIO = do
   ghciTyConName <- GHC.getGHCiMonad
-  let stringTy = nlHsTyVar $ getRdrName stringTyConName
+  let stringTy = nlHsTyVar stringTy_RDR
       ghciM = nlHsTyVar (getRdrName ghciTyConName) `nlHsAppTy` stringTy
       ioM = nlHsTyVar (getRdrName ioTyConName) `nlHsAppTy` stringTy
       body = nlHsVar (getRdrName ghciStepIoMName)

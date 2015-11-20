@@ -59,8 +59,8 @@ JJCQ 30-Nov-1997
 -}
 
 matchCheck ::  DsMatchContext
-            -> [DsId]           -- Vars rep'ing the exprs we're matching with
-            -> DsType           -- Type of the case expression
+            -> [Id]             -- Vars rep'ing the exprs we're matching with
+            -> Type             -- Type of the case expression
             -> [EquationInfo]   -- Info about patterns, etc. (type synonym below)
             -> DsM MatchResult  -- Desugared result!
 
@@ -70,8 +70,8 @@ matchCheck ctx vars ty qs
 
 matchCheck_really :: DynFlags
                   -> DsMatchContext
-                  -> [DsId]
-                  -> DsType
+                  -> [Id]
+                  -> Type
                   -> [EquationInfo]
                   -> DsM MatchResult
 matchCheck_really dflags ctx@(DsMatchContext hs_ctx _) vars ty qs
@@ -148,8 +148,8 @@ pp_context (DsMatchContext kind _loc) msg rest_of_msg_fun
   where
     (ppr_match, pref)
         = case kind of
-             FunRhs fun _ -> (pprMatchContext kind, \ pp -> ppr fun <+> pp)
-             _            -> (pprMatchContext kind, \ pp -> pp)
+             FunRhs fun -> (pprMatchContext kind, \ pp -> ppr fun <+> pp)
+             _          -> (pprMatchContext kind, \ pp -> pp)
 
 ppr_pats :: Outputable a => [a] -> SDoc
 ppr_pats pats = sep (map ppr pats)
@@ -275,8 +275,8 @@ Wadler-chapter @match@ (p.~93, last clause), and @match_unmixed_blk@
 corresponds roughly to @matchVarCon@.
 -}
 
-match :: [DsId]           -- Variables rep\'ing the exprs we\'re matching with
-      -> DsType           -- Type of the case expression
+match :: [Id]             -- Variables rep\'ing the exprs we\'re matching with
+      -> Type             -- Type of the case expression
       -> [EquationInfo]   -- Info about patterns, etc. (type synonym below)
       -> DsM MatchResult  -- Desugared result!
 
@@ -342,7 +342,7 @@ match vars@(v:_) ty eqns    -- Eqns *can* be empty
           maybeWarn $ (map (\g -> text "Putting these view expressions into the same case:" <+> (ppr g))
                        (filter (not . null) gs))
 
-matchEmpty :: DsId -> DsType -> DsM [MatchResult]
+matchEmpty :: Id -> Type -> DsM [MatchResult]
 -- See Note [Empty case expressions]
 matchEmpty var res_ty
   = return [MatchResult CanFail mk_seq]
@@ -350,24 +350,24 @@ matchEmpty var res_ty
     mk_seq fail = return $ mkWildCase (Var var) (idType var) res_ty
                                       [(DEFAULT, [], fail)]
 
-matchVariables :: [DsId] -> DsType -> [EquationInfo] -> DsM MatchResult
+matchVariables :: [Id] -> Type -> [EquationInfo] -> DsM MatchResult
 -- Real true variables, just like in matchVar, SLPJ p 94
 -- No binding to do: they'll all be wildcards by now (done in tidy)
 matchVariables (_:vars) ty eqns = match vars ty (shiftEqns eqns)
 matchVariables [] _ _ = panic "matchVariables"
 
-matchBangs :: [DsId] -> DsType -> [EquationInfo] -> DsM MatchResult
+matchBangs :: [Id] -> Type -> [EquationInfo] -> DsM MatchResult
 matchBangs (var:vars) ty eqns
   = do  { match_result <- match (var:vars) ty $
                           map (decomposeFirstPat getBangPat) eqns
         ; return (mkEvalMatchResult var ty match_result) }
 matchBangs [] _ _ = panic "matchBangs"
 
-matchCoercion :: [DsId] -> DsType -> [EquationInfo] -> DsM MatchResult
+matchCoercion :: [Id] -> Type -> [EquationInfo] -> DsM MatchResult
 -- Apply the coercion to the match variable and then match that
 matchCoercion (var:vars) ty (eqns@(eqn1:_))
   = do  { let CoPat co pat _ = firstPat eqn1
-        ; pat_ty' <- dsType (hsPatType pat)
+        ; let pat_ty' = hsPatType pat
         ; var' <- newUniqueId var pat_ty'
         ; match_result <- match (var':vars) ty $
                           map (decomposeFirstPat getCoPat) eqns
@@ -375,7 +375,7 @@ matchCoercion (var:vars) ty (eqns@(eqn1:_))
         ; return (mkCoLetMatchResult (NonRec var' rhs') match_result) }
 matchCoercion _ _ _ = panic "matchCoercion"
 
-matchView :: [DsId] -> DsType -> [EquationInfo] -> DsM MatchResult
+matchView :: [Id] -> Type -> [EquationInfo] -> DsM MatchResult
 -- Apply the view function to the match variable and then match that
 matchView (var:vars) ty (eqns@(eqn1:_))
   = do  { -- we could pass in the expr from the PgView,
@@ -383,7 +383,7 @@ matchView (var:vars) ty (eqns@(eqn1:_))
          -- to figure out the type of the fresh variable
          let ViewPat viewExpr (L _ pat) _ = firstPat eqn1
          -- do the rest of the compilation
-        ; pat_ty' <- dsType (hsPatType pat)
+        ; let pat_ty' = hsPatType pat
         ; var' <- newUniqueId var pat_ty'
         ; match_result <- match (var':vars) ty $
                           map (decomposeFirstPat getViewPat) eqns
@@ -392,13 +392,12 @@ matchView (var:vars) ty (eqns@(eqn1:_))
         ; return (mkViewMatchResult var' viewExpr' var match_result) }
 matchView _ _ _ = panic "matchView"
 
-matchOverloadedList :: [DsId] -> DsType -> [EquationInfo] -> DsM MatchResult
+matchOverloadedList :: [Id] -> Type -> [EquationInfo] -> DsM MatchResult
 matchOverloadedList (var:vars) ty (eqns@(eqn1:_))
 -- Since overloaded list patterns are treated as view patterns,
 -- the code is roughly the same as for matchView
   = do { let ListPat _ elt_ty (Just (_,e)) = firstPat eqn1
-       ; elt_ty' <- dsType elt_ty
-       ; var' <- newUniqueId var (mkListTy elt_ty')  -- we construct the overall type by hand
+       ; var' <- newUniqueId var (mkListTy elt_ty)  -- we construct the overall type by hand
        ; match_result <- match (var':vars) ty $
                             map (decomposeFirstPat getOLPat) eqns -- getOLPat builds the pattern inside as a non-overloaded version of the overloaded list pattern
        ; e' <- dsExpr e
@@ -482,7 +481,7 @@ Float,  Double, at least) are converted to unboxed form; e.g.,
 \end{description}
 -}
 
-tidyEqnInfo :: DsId -> EquationInfo
+tidyEqnInfo :: Id -> EquationInfo
             -> DsM (DsWrapper, EquationInfo)
         -- DsM'd because of internal call to dsLHsBinds
         --      and mkSelectorBinds.
@@ -504,7 +503,7 @@ tidyEqnInfo v eqn@(EqnInfo { eqn_pats = pat : pats })
   = do { (wrap, pat') <- tidy1 v pat
        ; return (wrap, eqn { eqn_pats = do pat' : pats }) }
 
-tidy1 :: DsId             -- The Id being scrutinised
+tidy1 :: Id               -- The Id being scrutinised
       -> Pat Id           -- The pattern against which it is to be matched
       -> DsM (DsWrapper,  -- Extra bindings to do before the match
               Pat Id)     -- Equivalent pattern
@@ -528,15 +527,13 @@ tidy1 v (BangPat (L l p)) = tidy_bang_pat v l p
         -- case v of { x -> mr[] }
         -- = case v of { _ -> let x=v in mr[] }
 tidy1 v (VarPat var)
-  = do var' <- dsVar var
-       return (wrapBind var' v, WildPat (idType var))
+  = return (wrapBind var v, WildPat (idType var))
 
         -- case v of { x@p -> mr[] }
         -- = case v of { p -> let x=v in mr[] }
 tidy1 v (AsPat (L _ var) pat)
   = do  { (wrap, pat') <- tidy1 v (unLoc pat)
-        ; var' <- dsVar var
-        ; return (wrapBind var' v . wrap, pat') }
+        ; return (wrapBind var v . wrap, pat') }
 
 {- now, here we handle lazy patterns:
     tidy1 v ~p bs = (v, v1 = case v of p -> v1 :
@@ -550,7 +547,7 @@ tidy1 v (AsPat (L _ var) pat)
 -}
 
 tidy1 v (LazyPat pat)
-  = do  { sel_prs <- mkSelectorBinds [] pat (Var v)
+  = do  { (_,sel_prs) <- mkSelectorBinds False [] pat (Var v)
         ; let sel_binds =  [NonRec b rhs | (b,rhs) <- sel_prs]
         ; return (mkCoreLets sel_binds, WildPat (idType v)) }
 
@@ -589,7 +586,7 @@ tidy1 _ non_interesting_pat
   = return (idDsWrapper, non_interesting_pat)
 
 --------------------
-tidy_bang_pat :: DsId -> SrcSpan -> Pat Id -> DsM (DsWrapper, Pat Id)
+tidy_bang_pat :: Id -> SrcSpan -> Pat Id -> DsM (DsWrapper, Pat Id)
 
 -- Discard par/sig under a bang
 tidy_bang_pat v _ (ParPat (L l p))      = tidy_bang_pat v l p
@@ -770,7 +767,7 @@ Call @match@ with all of this information!
 
 matchWrapper :: HsMatchContext Name         -- For shadowing warning messages
              -> MatchGroup Id (LHsExpr Id)  -- Matches being desugared
-             -> DsM ([DsId], CoreExpr)      -- Results
+             -> DsM ([Id], CoreExpr)        -- Results
 
 {-
  There is one small problem with the Lambda Patterns, when somebody
@@ -796,24 +793,27 @@ one pattern, and match simply only accepts one pattern.
 JJQC 30-Nov-1997
 -}
 
-matchWrapper ctxt (MG { mg_alts = matches
+matchWrapper ctxt (MG { mg_alts = L _ matches
                       , mg_arg_tys = arg_tys
                       , mg_res_ty = rhs_ty
                       , mg_origin = origin })
-  = do  { rhs_ty'     <- dsType rhs_ty
-        ; arg_tys'    <- mapM dsType arg_tys
-        ; eqns_info   <- mapM (mk_eqn_info rhs_ty') matches
+  = do  { eqns_info   <- mapM mk_eqn_info matches
         ; new_vars    <- case matches of
-                           []    -> mapM newSysLocalDs arg_tys'
+                           []    -> mapM newSysLocalDs arg_tys
                            (m:_) -> selectMatchVars (map unLoc (hsLMatchPats m))
         ; result_expr <- handleWarnings $
-                         matchEquations ctxt new_vars eqns_info rhs_ty'
+                         matchEquations ctxt new_vars eqns_info rhs_ty
         ; return (new_vars, result_expr) }
   where
-    mk_eqn_info rhs_ty' (L _ (Match _ pats _ grhss))
-      = do { let upats = map unLoc pats
-           ; match_result <- dsGRHSs ctxt upats grhss rhs_ty'
+    mk_eqn_info (L _ (Match _ pats _ grhss))
+      = do { dflags <- getDynFlags
+           ; let upats = map (strictify dflags) pats
+           ; match_result <- dsGRHSs ctxt upats grhss rhs_ty
            ; return (EqnInfo { eqn_pats = upats, eqn_rhs  = match_result}) }
+
+    strictify dflags pat =
+      let (is_strict, pat') = getUnBangedLPat dflags pat
+      in if is_strict then BangPat pat' else unLoc pat'
 
     handleWarnings = if isGenerated origin
                      then discardWarningsDs
@@ -821,7 +821,7 @@ matchWrapper ctxt (MG { mg_alts = matches
 
 
 matchEquations  :: HsMatchContext Name
-                -> [DsId] -> [EquationInfo] -> DsType
+                -> [Id] -> [EquationInfo] -> Type
                 -> DsM CoreExpr
 matchEquations ctxt vars eqns_info rhs_ty
   = do  { locn <- getSrcSpanDs
@@ -861,7 +861,7 @@ matchSimply scrut hs_ctx pat result_expr fail_expr = do
     extractMatchResult match_result' fail_expr
 
 matchSinglePat :: CoreExpr -> HsMatchContext Name -> LPat Id
-               -> DsType -> MatchResult -> DsM MatchResult
+               -> Type -> MatchResult -> DsM MatchResult
 -- Do not warn about incomplete patterns
 -- Used for things like [ e | pat <- stuff ], where
 -- incomplete patterns are just fine
@@ -988,6 +988,7 @@ viewLExprEq (e1,_) (e2,_) = lexp e1 e2
     -- the instance for IPName derives using the id, so this works if the
     -- above does
     exp (HsIPVar i) (HsIPVar i') = i == i'
+    exp (HsOverLabel l) (HsOverLabel l') = l == l'
     exp (HsOverLit l) (HsOverLit l') =
         -- Overloaded lits are equal if they have the same type
         -- and the data is the same.

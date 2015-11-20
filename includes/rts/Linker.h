@@ -66,6 +66,24 @@ HsInt resolveObjs( void );
 /* load a dynamic library */
 const char *addDLL( pathchar* dll_name );
 
+/* add a path to the library search path */
+HsPtr addLibrarySearchPath(pathchar* dll_path);
+
+/* removes a directory from the search path,
+   path must have been added using addLibrarySearchPath */
+HsBool removeLibrarySearchPath(HsPtr dll_path_index);
+
+/* give a warning about missing Windows patches that would make
+   the linker work better */
+void warnMissingKBLibraryPaths( void );
+
+/* -----------------------------------------------------------------------------
+* Searches the system directories to determine if there is a system DLL that
+* satisfies the given name. This prevent GHCi from linking against a static
+* library if a DLL is available.
+*/
+pathchar* findSystemLibrary(pathchar* dll_name);
+
 /* called by the initialization code for a module, not a user API */
 StgStablePtr foreignExportStablePtr (StgPtr p);
 

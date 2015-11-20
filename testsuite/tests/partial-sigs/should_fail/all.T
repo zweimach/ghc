@@ -5,11 +5,11 @@ test('ExtraConstraintsWildcardInExpressionSignature', normal, compile_fail, ['']
 test('ExtraConstraintsWildcardInPatternSignature', normal, compile_fail, [''])
 test('ExtraConstraintsWildcardInPatternSplice', normal, compile_fail, [''])
 test('ExtraConstraintsWildcardInTypeSpliceUsed',
-     [req_interp, when(compiler_profiled(), skip),
+     [req_interp,
       extra_clean(['ExtraConstraintsWildcardInTypeSplice.o', 'ExtraConstraintsWildcardInTypeSplice.hi'])],
-     multimod_compile_fail, ['ExtraConstraintsWildcardInTypeSpliceUsed', ''])
+     multimod_compile_fail, ['ExtraConstraintsWildcardInTypeSpliceUsed', config.ghc_th_way_flags])
 test('ExtraConstraintsWildcardInTypeSplice2',
-     [req_interp, when(compiler_profiled(), skip)],
+     req_interp,
      compile_fail, [''])
 test('ExtraConstraintsWildcardNotEnabled', normal, compile_fail, [''])
 test('ExtraConstraintsWildcardNotLast', normal, compile_fail, [''])
@@ -59,4 +59,6 @@ test('WildcardInTypeFamilyInstanceRHS', normal, compile_fail, [''])
 test('WildcardInTypeSynonymLHS', normal, compile_fail, [''])
 test('WildcardInTypeSynonymRHS', normal, compile_fail, [''])
 test('T10615', normal, compile_fail, [''])
+test('T10045', normal, compile_fail, [''])
+test('T10999', normal, compile_fail, [''])
 

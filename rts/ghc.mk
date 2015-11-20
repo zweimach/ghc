@@ -19,6 +19,14 @@ rts_dist_HC = $(GHC_STAGE1)
 rts_INSTALL_INFO = rts
 rts_VERSION = 1.0
 
+# Minimum supported Windows version.
+# These numbers can be found at:
+#  https://msdn.microsoft.com/en-us/library/windows/desktop/aa383745(v=vs.85).aspx
+# If we're compiling on windows, enforce that we only support Vista SP1+
+# Adding this here means it doesn't have to be done in individual .c files
+# and also centralizes the versioning.
+rts_WINVER = 0x06000100
+
 # merge GhcLibWays and GhcRTSWays but strip out duplicates
 rts_WAYS = $(GhcLibWays) $(filter-out $(GhcLibWays),$(GhcRTSWays))
 rts_dist_WAYS = $(rts_WAYS)
@@ -184,7 +192,7 @@ rts_dist_$1_CC_OPTS += -DRtsWay=\"rts_$1\"
 # Adding this here means it doesn't have to be done in individual .c files
 # and also centralizes the versioning.
 ifeq "$$(TargetOS_CPP)" "mingw32"
-rts_dist_$1_CC_OPTS += -DWINVER=0x0501
+rts_dist_$1_CC_OPTS += -DWINVER=$(rts_WINVER)
 endif
 
 ifneq "$$(UseSystemLibFFI)" "YES"
@@ -321,6 +329,15 @@ ifeq "$(BeConservative)" "YES"
 rts_CC_OPTS += -DBE_CONSERVATIVE
 endif
 
+# Set Windows version
+ifeq "$$(TargetOS_CPP)" "mingw32"
+rts_CC_OPTS += -DWINVER=$(rts_WINVER)
+endif
+
+ifeq "$(SplitSections)" "YES"
+rts_CC_OPTS += -ffunction-sections -fdata-sections
+endif
+
 #-----------------------------------------------------------------------------
 # Flags for compiling specific files
 rts/RtsMessages_CC_OPTS += -DProjectVersion=\"$(ProjectVersion)\"
@@ -444,33 +461,6 @@ rts/dist/build/sm/Evac_thr_HC_OPTS += -optc-funroll-loops
 # but compiled with -DPARALLEL_GC.
 rts/dist/build/sm/Evac_thr_CC_OPTS += -DPARALLEL_GC -Irts/sm
 rts/dist/build/sm/Scav_thr_CC_OPTS += -DPARALLEL_GC -Irts/sm
-
-#-----------------------------------------------------------------------------
-# Add PAPI library if needed
-
-ifeq "$(GhcRtsWithPapi)" "YES"
-
-rts_CC_OPTS		+= -DUSE_PAPI
-
-rts_PACKAGE_CPP_OPTS	+= -DUSE_PAPI
-rts_PACKAGE_CPP_OPTS    += -DPAPI_INCLUDE_DIR=$(PapiIncludeDir)
-rts_PACKAGE_CPP_OPTS    += -DPAPI_LIB_DIR=$(PapiLibDir)
-
-ifneq "$(PapiIncludeDir)" ""
-rts_HC_OPTS     += -I$(PapiIncludeDir)
-rts_CC_OPTS     += -I$(PapiIncludeDir)
-rts_HSC2HS_OPTS += -I$(PapiIncludeDir)
-endif
-ifneq "$(PapiLibDirs)" ""
-rts_LD_OPTS     += -L$(PapiLibDirs)
-endif
-
-else # GhcRtsWithPapi==YES
-
-rts_PACKAGE_CPP_OPTS += -DPAPI_INCLUDE_DIR=""
-rts_PACKAGE_CPP_OPTS += -DPAPI_LIB_DIR=""
-
-endif
 
 #-----------------------------------------------------------------------------
 # Use system provided libffi

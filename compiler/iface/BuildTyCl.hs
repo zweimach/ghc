@@ -11,7 +11,7 @@ module BuildTyCl (
         TcMethInfo, buildClass,
         distinctAbstractTyConRhs, totallyAbstractTyConRhs,
         mkNewTyConRhs, mkDataTyConRhs,
-        newImplicitBinder
+        newImplicitBinder, newTyConRepName
     ) where
 
 #include "HsVersions.h"
@@ -19,6 +19,7 @@ module BuildTyCl (
 import IfaceEnv
 import FamInstEnv( FamInstEnvs )
 import TysWiredIn( isCTupleTyConName )
+import PrelNames( tyConRepModOcc )
 import DataCon
 import PatSyn
 import Var
@@ -33,6 +34,7 @@ import Id
 import Coercion
 import TcType
 
+import SrcLoc( noSrcSpan )
 import DynFlags
 import TcRnMonad
 import UniqSupply
@@ -104,7 +106,9 @@ mkNewTyConRhs tycon_name tycon con
 
 ------------------------------------------------------
 buildDataCon :: FamInstEnvs
-            -> Name -> Bool
+            -> Name
+            -> Bool                     -- Declared infix
+            -> Promoted TyConRepName    -- Promotable
             -> [HsSrcBang]
             -> Maybe [HsImplBang]
                 -- See Note [Bangs on imported data constructors] in MkId
@@ -120,7 +124,7 @@ buildDataCon :: FamInstEnvs
 --   a) makes the worker Id
 --   b) makes the wrapper Id if necessary, including
 --      allocating its unique (hence monadic)
-buildDataCon fam_envs src_name declared_infix src_bangs impl_bangs field_lbls
+buildDataCon fam_envs src_name declared_infix prom_info src_bangs impl_bangs field_lbls
              univ_tvs ex_tvs eq_spec ctxt arg_tys res_ty rep_tycon
   = do  { wrap_name <- newImplicitBinder src_name mkDataConWrapperOcc
         ; work_name <- newImplicitBinder src_name mkDataConWorkerOcc
@@ -128,11 +132,12 @@ buildDataCon fam_envs src_name declared_infix src_bangs impl_bangs field_lbls
         -- code, which (for Haskell source anyway) will be in the DataName name
         -- space, and puts it into the VarName name space
 
+        ; traceIf (text "buildDataCon 1" <+> ppr src_name)
         ; us <- newUniqueSupply
         ; dflags <- getDynFlags
         ; let
                 stupid_ctxt = mkDataConStupidTheta rep_tycon arg_tys univ_tvs
-                data_con = mkDataCon src_name declared_infix
+                data_con = mkDataCon src_name declared_infix prom_info
                                      src_bangs field_lbls
                                      univ_tvs ex_tvs eq_spec ctxt
                                      arg_tys res_ty rep_tycon
@@ -141,6 +146,7 @@ buildDataCon fam_envs src_name declared_infix src_bangs impl_bangs field_lbls
                 dc_rep = initUs_ us (mkDataConRep dflags fam_envs wrap_name
                                                   impl_bangs data_con)
 
+        ; traceIf (text "buildDataCon 2" <+> ppr src_name)
         ; return data_con }
 
 
@@ -170,9 +176,12 @@ buildPatSyn :: Name -> Bool
             -> ([TyVar], ThetaType) -- ^ Ex and prov
             -> [Type]               -- ^ Argument types
             -> Type                 -- ^ Result type
+            -> [FieldLabel]         -- ^ Field labels for
+                                    --   a record pattern synonym
             -> PatSyn
 buildPatSyn src_name declared_infix matcher@(matcher_id,_) builder
-            (univ_tvs, req_theta) (ex_tvs, prov_theta) arg_tys pat_ty
+            (univ_tvs, req_theta) (ex_tvs, prov_theta) arg_tys
+            pat_ty field_labels
   = ASSERT2((and [ univ_tvs == univ_tvs1
                  , ex_tvs == ex_tvs1
                  , pat_ty `eqType` pat_ty1
@@ -189,7 +198,7 @@ buildPatSyn src_name declared_infix matcher@(matcher_id,_) builder
     mkPatSyn src_name declared_infix
              (univ_tvs, req_theta) (ex_tvs, prov_theta)
              arg_tys pat_ty
-             matcher builder
+             matcher builder field_labels
   where
     ((_:_:univ_tvs1), req_theta1, tau) = tcSplitSigmaTy $ idType matcher_id
     ([pat_ty1, cont_sigma, _], _) = tcSplitFunTys tau
@@ -202,7 +211,8 @@ type TcMethInfo = (Name, DefMethSpec, Type)
         -- A temporary intermediate, to communicate between
         -- tcClassSigs and buildClass.
 
-buildClass :: Name -> [TyVar] -> [Role] -> ThetaType
+buildClass :: Name  -- Name of the class/tycon (they have the same Name)
+           -> [TyVar] -> [Role] -> ThetaType
            -> Kind
            -> [FunDep TyVar]               -- Functional dependencies
            -> [ClassATItem]                -- Associated types
@@ -216,10 +226,7 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
     do  { traceIf (text "buildClass")
 
         ; datacon_name <- newImplicitBinder tycon_name mkClassDataConOcc
-                -- The class name is the 'parent' for this datacon, not its tycon,
-                -- because one should import the class to get the binding for
-                -- the datacon
-
+        ; tc_rep_name  <- newTyConRepName tycon_name
 
         ; op_items <- mapM (mk_op_item rec_clas) sig_stuff
                         -- Build the selector id and default method id
@@ -258,6 +265,7 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
         ; dict_con <- buildDataCon (panic "buildClass: FamInstEnvs")
                                    datacon_name
                                    False        -- Not declared infix
+                                   NotPromoted  -- Class tycons are not promoted
                                    (map (const no_bang) args)
                                    (Just (map (const HsLazy) args))
                                    [{- No fields -}]
@@ -276,7 +284,7 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
                  else return (mkDataTyConRhs [dict_con])
 
         ; let { tycon = mkClassTyCon tycon_name kind tvs roles
-                                     rhs rec_clas tc_isrec
+                                     rhs rec_clas tc_isrec tc_rep_name
                 -- A class can be recursive, and in the case of newtypes
                 -- this matters.  For example
                 --      class C a where { op :: C b => a -> b -> Int }
@@ -340,3 +348,12 @@ newImplicitBinder base_name mk_sys_occ
   where
     occ = mk_sys_occ (nameOccName base_name)
     loc = nameSrcSpan base_name
+
+-- | Make the 'TyConRepName' for this 'TyCon'
+newTyConRepName :: Name -> TcRnIf gbl lcl TyConRepName
+newTyConRepName tc_name
+  | Just mod <- nameModule_maybe tc_name
+  , (mod, occ) <- tyConRepModOcc mod (nameOccName tc_name)
+  = newGlobalBinder mod occ noSrcSpan
+  | otherwise
+  = newImplicitBinder tc_name mkTyConRepUserOcc

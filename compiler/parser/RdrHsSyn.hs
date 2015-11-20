@@ -21,6 +21,7 @@ module RdrHsSyn (
         mkPatSynMatchGroup,
         mkRecConstrOrUpdate, -- HsExp -> [HsFieldUpdate] -> P HsExp
         mkTyClD, mkInstD,
+        mkRdrRecordCon, mkRdrRecordUpd,
         setRdrNameSpace,
 
         cvBindGroup,
@@ -56,7 +57,9 @@ module RdrHsSyn (
         -- Help with processing exports
         ImpExpSubSpec(..),
         mkModuleImpExp,
-        mkTypeImpExp
+        mkTypeImpExp,
+        mkImpExpSubSpec,
+        checkImportSpec
 
     ) where
 
@@ -89,6 +92,7 @@ import FastString
 import Maybes
 import Util
 import ApiAnnotation
+import Data.List
 
 #if __GLASGOW_HASKELL__ < 709
 import Control.Applicative ((<$>))
@@ -265,11 +269,18 @@ mkSpliceDecl :: LHsExpr RdrName -> HsDecl RdrName
 -- but if she wrote, say,
 --      f x            then behave as if she'd written $(f x)
 --                     ie a SpliceD
+--
+-- Typed splices are not allowed at the top level, thus we do not represent them
+-- as spliced declaration.  See #10945
 mkSpliceDecl lexpr@(L loc expr)
-  | HsSpliceE splice <- expr = SpliceD (SpliceDecl (L loc splice) ExplicitSplice)
-  | otherwise                = SpliceD (SpliceDecl (L loc splice) ImplicitSplice)
-  where
-    splice = mkUntypedSplice lexpr
+  | HsSpliceE splice@(HsUntypedSplice {}) <- expr
+  = SpliceD (SpliceDecl (L loc splice) ExplicitSplice)
+
+  | HsSpliceE splice@(HsQuasiQuote {}) <- expr
+  = SpliceD (SpliceDecl (L loc splice) ExplicitSplice)
+
+  | otherwise
+  = SpliceD (SpliceDecl (L loc (mkUntypedSplice lexpr)) ImplicitSplice)
 
 mkRoleAnnotDecl :: SrcSpan
                 -> Located RdrName                   -- type being annotated
@@ -379,21 +390,24 @@ getMonoBind :: LHsBind RdrName -> [LHsDecl RdrName]
 --
 -- No AndMonoBinds or EmptyMonoBinds here; just single equations
 
-getMonoBind (L loc1 (FunBind { fun_id = fun_id1@(L _ f1), fun_infix = is_infix1,
-                               fun_matches = MG { mg_alts = mtchs1 } })) binds
+getMonoBind (L loc1 (FunBind { fun_id = fun_id1@(L _ f1),
+                               fun_matches
+                                 = MG { mg_alts = L _ mtchs1 } })) binds
   | has_args mtchs1
-  = go is_infix1 mtchs1 loc1 binds []
+  = go mtchs1 loc1 binds []
   where
-    go is_infix mtchs loc
-       (L loc2 (ValD (FunBind { fun_id = L _ f2, fun_infix = is_infix2,
-                                fun_matches = MG { mg_alts = mtchs2 } })) : binds) _
-        | f1 == f2 = go (is_infix || is_infix2) (mtchs2 ++ mtchs)
+    go mtchs loc
+       (L loc2 (ValD (FunBind { fun_id = L _ f2,
+                                fun_matches
+                                  = MG { mg_alts = L _ mtchs2 } })) : binds) _
+        | f1 == f2 = go (mtchs2 ++ mtchs)
                         (combineSrcSpans loc loc2) binds []
-    go is_infix mtchs loc (doc_decl@(L loc2 (DocD _)) : binds) doc_decls
+    go mtchs loc (doc_decl@(L loc2 (DocD _)) : binds) doc_decls
         = let doc_decls' = doc_decl : doc_decls
-          in go is_infix mtchs (combineSrcSpans loc loc2) binds doc_decls'
-    go is_infix mtchs loc binds doc_decls
-        = (L loc (makeFunBind fun_id1 is_infix (reverse mtchs)), (reverse doc_decls) ++ binds)
+          in go mtchs (combineSrcSpans loc loc2) binds doc_decls'
+    go mtchs loc binds doc_decls
+        = ( L loc (makeFunBind fun_id1 (reverse mtchs))
+          , (reverse doc_decls) ++ binds)
         -- Reverse the final matches, to get it back in the right order
         -- Do the same thing with the trailing doc comments
 
@@ -458,9 +472,9 @@ mkPatSynMatchGroup (L _ patsyn_name) (L _ decls) =
         do { unless (name == patsyn_name) $
                wrongNameBindingErr loc decl
            ; match <- case details of
-               PrefixCon pats -> return $ Match Nothing pats Nothing rhs
+               PrefixCon pats -> return $ Match NonFunBindMatch pats Nothing rhs
                InfixCon pat1 pat2 ->
-                         return $ Match Nothing [pat1, pat2] Nothing rhs
+                         return $ Match NonFunBindMatch [pat1, pat2] Nothing rhs
                RecCon{} -> recordPatSynErr loc pat
            ; return $ L loc match }
     fromDecl (L loc decl) = extraDeclErr loc decl
@@ -480,8 +494,7 @@ mkSimpleConDecl :: Located RdrName -> [LHsTyVarBndr RdrName]
                 -> ConDecl RdrName
 
 mkSimpleConDecl name qvars cxt details
-  = ConDecl { con_old_rec  = False
-            , con_names    = [name]
+  = ConDecl { con_names    = [name]
             , con_explicit = Explicit
             , con_qvars    = mkHsQTvs qvars
             , con_cxt      = cxt
@@ -491,33 +504,30 @@ mkSimpleConDecl name qvars cxt details
 
 mkGadtDecl :: [Located RdrName]
            -> LHsType RdrName     -- Always a HsForAllTy
-           -> P ([AddAnn], ConDecl RdrName)
-mkGadtDecl names (L l ty) = do
-  let
-    (anns,ty') = flattenHsForAllTyKeepAnns ty
-  gadt <- mkGadtDecl' names (L l ty')
-  return (anns,gadt)
+           -> ([AddAnn], ConDecl RdrName)
+mkGadtDecl names (L l ty) =
+  let (anns, ty') = flattenHsForAllTyKeepAnns ty
+      gadt        = mkGadtDecl' names (L l ty')
+  in (anns, gadt)
 
 mkGadtDecl' :: [Located RdrName]
-           -> LHsType RdrName     -- Always a HsForAllTy
-           -> P (ConDecl RdrName)
-
+            ->  LHsType RdrName     -- Always a HsForAllTy
+            -> (ConDecl RdrName)
 -- We allow C,D :: ty
 -- and expand it as if it had been
 --    C :: ty; D :: ty
 -- (Just like type signatures in general.)
 mkGadtDecl' names (L ls (HsForAllTy imp _ qvars cxt tau))
-  = return $ mk_gadt_con names
+  = mk_gadt_con names
   where
     (details, res_ty)           -- See Note [Sorting out the result type]
       = case tau of
           L _ (HsFunTy (L l (HsAppsTy [L _ (HsAppPrefix (HsRecTy flds))])) res_ty)
                                             -> (RecCon (L l flds), res_ty)
-          _other                                    -> (PrefixCon [], tau)
+          _other                            -> (PrefixCon [], tau)
 
     mk_gadt_con names
-       = ConDecl { con_old_rec  = False
-                 , con_names    = names
+       = ConDecl { con_names    = names
                  , con_explicit = imp
                  , con_qvars    = qvars
                  , con_cxt      = cxt
@@ -858,7 +868,7 @@ checkAPat msg loc e0 = do
                                    return (TuplePat ps b [])
      | otherwise -> parseErrorSDoc loc (text "Illegal tuple section in pattern:" $$ ppr e0)
 
-   RecordCon c _ (HsRecFields fs dd)
+   RecordCon { rcon_con_name = c, rcon_flds = HsRecFields fs dd }
                         -> do fs <- mapM (checkPatField msg) fs
                               return (ConPatIn c (RecCon (HsRecFields fs dd)))
    HsSpliceE s | not (isTypedSplice s)
@@ -922,16 +932,17 @@ checkFunBind msg ann lhs_loc fun is_infix pats opt_sig (L rhs_span grhss)
         let match_span = combineSrcSpans lhs_loc rhs_span
         -- Add back the annotations stripped from any HsPar values in the lhs
         -- mapM_ (\a -> a match_span) ann
-        return (ann,makeFunBind fun is_infix
-                  [L match_span (Match (Just (fun,is_infix)) ps opt_sig grhss)])
+        return (ann,makeFunBind fun
+                  [L match_span (Match (FunBindMatch fun is_infix)
+                                 ps opt_sig grhss)])
         -- The span of the match covers the entire equation.
         -- That isn't quite right, but it'll do for now.
 
-makeFunBind :: Located RdrName -> Bool -> [LMatch RdrName (LHsExpr RdrName)]
+makeFunBind :: Located RdrName -> [LMatch RdrName (LHsExpr RdrName)]
             -> HsBind RdrName
 -- Like HsUtils.mkFunBind, but we need to be able to set the fixity too
-makeFunBind fn is_infix ms
-  = FunBind { fun_id = fn, fun_infix = is_infix,
+makeFunBind fn ms
+  = FunBind { fun_id = fn,
               fun_matches = mkMatchGroup FromSource ms,
               fun_co_fn = idHsWrapper,
               bind_fvs = placeHolderNames,
@@ -958,11 +969,14 @@ checkValSig lhs@(L l _) ty
                        ppr lhs <+> text "::" <+> ppr ty)
                    $$ text hint)
   where
-    hint = if foreign_RDR `looks_like` lhs
-           then "Perhaps you meant to use ForeignFunctionInterface?"
-           else if default_RDR `looks_like` lhs
-                then "Perhaps you meant to use DefaultSignatures?"
-                else "Should be of form <variable> :: <type>"
+    hint | foreign_RDR `looks_like` lhs =
+           "Perhaps you meant to use ForeignFunctionInterface?"
+         | default_RDR `looks_like` lhs =
+           "Perhaps you meant to use DefaultSignatures?"
+         | pattern_RDR `looks_like` lhs =
+           "Perhaps you meant to use PatternSynonyms?"
+         | otherwise =
+           "Should be of form <variable> :: <type>"
     -- A common error is to forget the ForeignFunctionInterface flag
     -- so check for that, and suggest.  cf Trac #3805
     -- Sadly 'foreign import' still barfs 'parse error' because 'import' is a keyword
@@ -972,6 +986,7 @@ checkValSig lhs@(L l _) ty
 
     foreign_RDR = mkUnqual varName (fsLit "foreign")
     default_RDR = mkUnqual varName (fsLit "default")
+    pattern_RDR = mkUnqual varName (fsLit "pattern")
 
 
 checkDoAndIfThenElse :: LHsExpr RdrName
@@ -1140,8 +1155,8 @@ checkCmd _ (HsIf cf ep et ee) = do
     return $ HsCmdIf cf ep pt pe
 checkCmd _ (HsLet lb e) =
     checkCommand e >>= (\c -> return $ HsCmdLet lb c)
-checkCmd _ (HsDo DoExpr stmts ty) =
-    mapM checkCmdLStmt stmts >>= (\ss -> return $ HsCmdDo ss ty)
+checkCmd _ (HsDo DoExpr (L l stmts) ty) =
+    mapM checkCmdLStmt stmts >>= (\ss -> return $ HsCmdDo (L l ss) ty)
 
 checkCmd _ (OpApp eLeft op _fixity eRight) = do
     -- OpApp becomes a HsCmdArrForm with a (Just fixity) in it
@@ -1170,9 +1185,9 @@ checkCmdStmt _ stmt@(RecStmt { recS_stmts = stmts }) = do
 checkCmdStmt l stmt = cmdStmtFail l stmt
 
 checkCmdMatchGroup :: MatchGroup RdrName (LHsExpr RdrName) -> P (MatchGroup RdrName (LHsCmd RdrName))
-checkCmdMatchGroup mg@(MG { mg_alts = ms }) = do
+checkCmdMatchGroup mg@(MG { mg_alts = L l ms }) = do
     ms' <- mapM (locMap $ const convert) ms
-    return $ mg { mg_alts = ms' }
+    return $ mg { mg_alts = L l ms' }
     where convert (Match mf pat mty grhss) = do
             grhss' <- checkCmdGRHSs grhss
             return $ Match mf pat mty grhss'
@@ -1214,11 +1229,22 @@ mkRecConstrOrUpdate
 
 mkRecConstrOrUpdate (L l (HsVar c)) _ (fs,dd)
   | isRdrDataCon c
-  = return (RecordCon (L l c) noPostTcExpr (mk_rec_fields fs dd))
+  = return (mkRdrRecordCon (L l c) (mk_rec_fields fs dd))
 mkRecConstrOrUpdate exp@(L l _) _ (fs,dd)
   | dd        = parseErrorSDoc l (text "You cannot use `..' in a record update")
-  | otherwise = return (RecordUpd exp (map (fmap mk_rec_upd_field) fs)
-                      PlaceHolder PlaceHolder PlaceHolder)
+  | otherwise = return (mkRdrRecordUpd exp (map (fmap mk_rec_upd_field) fs))
+
+mkRdrRecordUpd :: LHsExpr RdrName -> [LHsRecUpdField RdrName] -> HsExpr RdrName
+mkRdrRecordUpd exp flds
+  = RecordUpd { rupd_expr = exp
+              , rupd_flds = flds
+              , rupd_cons    = PlaceHolder, rupd_in_tys  = PlaceHolder
+              , rupd_out_tys = PlaceHolder, rupd_wrap    = PlaceHolder }
+
+mkRdrRecordCon :: Located RdrName -> HsRecordBinds RdrName -> HsExpr RdrName
+mkRdrRecordCon con flds
+  = RecordCon { rcon_con_name = con, rcon_flds = flds
+              , rcon_con_expr = noPostTcExpr, rcon_con_like = PlaceHolder }
 
 mk_rec_fields :: [LHsRecField id arg] -> Bool -> HsRecFields id arg
 mk_rec_fields fs False = HsRecFields { rec_flds = fs, rec_dotdot = Nothing }
@@ -1354,16 +1380,31 @@ mkExtName rdrNm = mkFastString (occNameString (rdrNameOcc rdrNm))
 --------------------------------------------------------------------------------
 -- Help with module system imports/exports
 
-data ImpExpSubSpec = ImpExpAbs | ImpExpAll | ImpExpList [Located RdrName]
+data ImpExpSubSpec = ImpExpAbs
+                   | ImpExpAll
+                   | ImpExpList [Located RdrName]
+                   | ImpExpAllWith [Located (Maybe RdrName)]
 
-mkModuleImpExp :: Located RdrName -> ImpExpSubSpec -> IE RdrName
+mkModuleImpExp :: Located RdrName -> ImpExpSubSpec -> P (IE RdrName)
 mkModuleImpExp n@(L l name) subs =
   case subs of
     ImpExpAbs
-      | isVarNameSpace (rdrNameSpace name) -> IEVar       n
-      | otherwise                          -> IEThingAbs  (L l name)
-    ImpExpAll                              -> IEThingAll  (L l name)
-    ImpExpList xs                          -> IEThingWith (L l name) xs []
+      | isVarNameSpace (rdrNameSpace name) -> return $ IEVar  n
+      | otherwise                          -> return $ IEThingAbs  (L l name)
+    ImpExpAll                              -> return $ IEThingAll  (L l name)
+    ImpExpList xs                          ->
+      return $ IEThingWith (L l name) NoIEWildcard xs []
+    ImpExpAllWith xs                       ->
+      do allowed <- extension patternSynonymsEnabled
+         if allowed
+          then
+            let withs = map unLoc xs
+                pos   = maybe NoIEWildcard IEWildcard
+                          (findIndex isNothing withs)
+                ies   = [L l n | L l (Just n) <- xs]
+            in return (IEThingWith (L l name) pos ies [])
+          else parseErrorSDoc l
+            (text "Illegal export form (use PatternSynonyms to enable)")
 
 mkTypeImpExp :: Located RdrName   -- TcCls or Var name space
              -> P (Located RdrName)
@@ -1373,6 +1414,28 @@ mkTypeImpExp name =
        then return (fmap (`setRdrNameSpace` tcClsName) name)
        else parseErrorSDoc (getLoc name)
               (text "Illegal keyword 'type' (use ExplicitNamespaces to enable)")
+
+checkImportSpec :: Located [LIE RdrName] -> P (Located [LIE RdrName])
+checkImportSpec ie@(L _ specs) =
+    case [l | (L l (IEThingWith _ (IEWildcard _) _ _)) <- specs] of
+      [] -> return ie
+      (l:_) -> importSpecError l
+  where
+    importSpecError l =
+      parseErrorSDoc l
+        (text "Illegal import form, this syntax can only be used to bundle"
+        $+$ text "pattern synonyms with types in module exports.")
+
+-- In the correct order
+mkImpExpSubSpec :: [Located (Maybe RdrName)] -> P ([AddAnn], ImpExpSubSpec)
+mkImpExpSubSpec [] = return ([], ImpExpList [])
+mkImpExpSubSpec [L l Nothing] =
+  return ([\s -> addAnnotation l AnnDotdot s], ImpExpAll)
+mkImpExpSubSpec xs =
+  if (any (isNothing . unLoc) xs)
+    then return $ ([], ImpExpAllWith xs)
+    else return $ ([], ImpExpList ([L l x | L l (Just x) <- xs]))
+
 
 -----------------------------------------------------------------------------
 -- Misc utils

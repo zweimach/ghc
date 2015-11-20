@@ -17,9 +17,9 @@ hidden-modules:
 import-dirs:
 
 #ifdef INSTALLING
-library-dirs:           LIB_DIR"/rts" PAPI_LIB_DIR FFI_LIB_DIR
+library-dirs:           LIB_DIR"/rts" FFI_LIB_DIR
 #else /* !INSTALLING */
-library-dirs:           TOP"/rts/dist/build" PAPI_LIB_DIR FFI_LIB_DIR
+library-dirs:           TOP"/rts/dist/build" FFI_LIB_DIR
 #endif
 
 hs-libraries:   "HSrts" FFI_LIB
@@ -45,6 +45,14 @@ extra-libraries:
 #ifdef freebsd_HOST_OS
                               , "pthread" /* for pthread_getthreadid_np() */
 #endif
+#ifdef openbsd_HOST_OS
+/* OpenBSD's libffi is not directly linked to the libpthread but still requires
+pthread functionality. This means that any client binary which links with libffi
+also need to link with libpthread. If it does not, then linking fails with
+unresolved symbols. */
+                              , "pthread"
+
+#endif
 #if defined(DEBUG) && defined(HAVE_LIBBFD)
                               ,"bfd", "iberty"  /* for debugging */
 #endif
@@ -53,16 +61,13 @@ extra-libraries:
                               ,"mingwex"
 # endif
 #endif
-#if USE_PAPI
-                             , "papi"
-#endif
 #ifdef USE_LIBDW
                              , "elf"
                              , "dw"             /* for backtraces */
 #endif
 
 #ifdef INSTALLING
-include-dirs:           INCLUDE_DIR PAPI_INCLUDE_DIR FFI_INCLUDE_DIR
+include-dirs:           INCLUDE_DIR FFI_INCLUDE_DIR
 #else /* !INSTALLING */
 include-dirs:           TOP"/rts/dist/build" TOP"/includes" TOP"/includes/dist-derivedconstants/header" FFI_INCLUDE_DIR
 #endif

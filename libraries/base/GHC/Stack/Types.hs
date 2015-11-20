@@ -21,6 +21,19 @@ module GHC.Stack.Types (
     SrcLoc(..), CallStack(..),
   ) where
 
+{-
+Ideally these would live in GHC.Stack but sadly they can't due to this
+import cycle,
+
+    Module imports form a cycle:
+           module ‘Data.Maybe’ (libraries/base/Data/Maybe.hs)
+          imports ‘GHC.Base’ (libraries/base/GHC/Base.hs)
+    which imports ‘GHC.Err’ (libraries/base/GHC/Err.hs)
+    which imports ‘GHC.Stack’ (libraries/base/dist-install/build/GHC/Stack.hs)
+    which imports ‘GHC.Foreign’ (libraries/base/GHC/Foreign.hs)
+    which imports ‘Data.Maybe’ (libraries/base/Data/Maybe.hs)
+-}
+
 import GHC.Types
 
 -- Make implicit dependency known to build system
@@ -58,13 +71,13 @@ import GHC.Integer ()
 -- function that was called, the 'SrcLoc' is the call-site. The list is
 -- ordered with the most recently called function at the head.
 --
--- @since 4.8.2.0
+-- @since 4.9.0.0
 data CallStack = CallStack { getCallStack :: [([Char], SrcLoc)] }
   -- See Note [Overview of implicit CallStacks]
 
 -- | A single location in the source code.
 --
--- @since 4.8.2.0
+-- @since 4.9.0.0
 data SrcLoc = SrcLoc
   { srcLocPackage   :: [Char]
   , srcLocModule    :: [Char]
