@@ -1,6 +1,4 @@
 stack:
- - Core{Expr,Bind}WithFVs
-
 
 - figure out UndecidableInstances problem. See TODO in TcValdidity.
   Possibly: if sizeTypes are equal, then check sizeTypes without *, or without
