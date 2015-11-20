@@ -1501,7 +1501,7 @@ mkHeteroReprPrimEqPred k1 k2 ty1 ty2
 splitCoercionType_maybe :: Type -> Maybe (Type, Type)
 splitCoercionType_maybe ty
   = do { (tc, [_, _, ty1, ty2]) <- splitTyConApp_maybe ty
-       ; guard $ tc `hasKey` eqPrimTyConKey
+       ; guard $ tc `hasKey` eqPrimTyConKey || tc `hasKey` eqReprPrimTyConKey
        ; return (ty1, ty2) }
 
 mkReprPrimEqPred :: Type -> Type -> Type

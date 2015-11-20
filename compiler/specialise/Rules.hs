@@ -35,8 +35,7 @@ import OccurAnal        ( occurAnalyseExpr )
 import CoreFVs          ( exprFreeVars, exprsFreeVars, bindFreeVars
                         , rulesFreeVars, exprsOrphNames )
 import CoreUtils        ( exprType, eqExpr, mkTick, mkTicks,
-                          stripTicksTopT, stripTicksTopE
-                        , exprToCoercion_maybe )
+                          stripTicksTopT, stripTicksTopE )
 import PprCore          ( pprRules )
 import Type             ( Type, substTy, mkTCvSubst )
 import TcType           ( tcSplitTyConApp_maybe )

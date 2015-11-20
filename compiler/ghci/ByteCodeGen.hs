@@ -305,8 +305,8 @@ schemeR_wrk fvs nm original_body (args, body)
 -- introduce break instructions for ticked expressions
 schemeER_wrk :: Word -> BCEnv -> AnnExpr' Id VarSet -> BcM BCInstrList
 schemeER_wrk d p rhs
-  | AnnTick (Breakpoint tick_no fvs) (_annot, newRhs) <- rhs
-  = do  code <- schemeE (fromIntegral d) 0 p newRhs
+  | AnnTick (Breakpoint tick_no fvs) newRhs@(_annot, newRhs') <- rhs
+  = do  code <- schemeE (fromIntegral d) 0 p newRhs'
         arr <- getBreakArray
         this_mod <- getCurrentModule
         let idOffSets = getVarOffSets d p fvs
@@ -314,7 +314,7 @@ schemeER_wrk d p rhs
                         { breakInfo_module = this_mod
                         , breakInfo_number = tick_no
                         , breakInfo_vars = idOffSets
-                        , breakInfo_resty = exprType (deAnnotate' newRhs)
+                        , breakInfo_resty = exprTypeFV newRhs
                         }
         let breakInstr = case arr of
                          BA arr# ->

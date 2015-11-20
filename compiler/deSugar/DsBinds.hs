@@ -665,18 +665,23 @@ decomposeRuleLhs orig_bndrs orig_lhs
            -- which in turn makes wrap_lets work right
 
    split_lets :: CoreExpr -> ([(DictId,CoreExpr)], CoreExpr)
-   split_lets e
-     | Let (NonRec d r) body <- e
-     , isDictId d
-     , (bs, body') <- split_lets body
+   split_lets (Let (NonRec d r) body)
+     | isDictId d
      = ((d,r):bs, body')
-     | otherwise
-     = ([], e)
+     where (bs, body') = split_lets body
+
+    -- handle "unlifted lets" too, needed for "map/coerce"
+   split_lets (Case r d _ [(DEFAULT, _, body)])
+     | isCoVar d
+     = ((d,r):bs, body')
+     where (bs, body') = split_lets body
+
+   split_lets e = ([], e)
 
    wrap_lets :: VarSet -> [(DictId,CoreExpr)] -> CoreExpr -> CoreExpr
    wrap_lets _ [] body = body
    wrap_lets needed ((d, r) : bs) body
-     | rhs_fvs `intersectsVarSet` needed = Let (NonRec d r) (wrap_lets needed' bs body)
+     | rhs_fvs `intersectsVarSet` needed = mkCoreLet (NonRec d r) (wrap_lets needed' bs body)
      | otherwise                         = wrap_lets needed bs body
      where
        rhs_fvs = exprFreeVars r

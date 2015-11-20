@@ -353,16 +353,16 @@ lvlExpr env (_, AnnLet bind body)
            -- float, then neither will the body
        ; return (Let bind' body') }
 
-lvlExpr env (_, AnnCase scrut@(scrut_fvs,_) case_bndr ty alts)
+lvlExpr env (_, AnnCase scrut case_bndr ty alts)
   = do { scrut' <- lvlMFE True env scrut
-       ; lvlCase env scrut_fvs scrut' case_bndr ty alts }
+       ; lvlCase env (freeVarsOf scrut) scrut' case_bndr ty alts }
 
 -------------------------------------------
 lvlCase :: LevelEnv             -- Level of in-scope names/tyvars
         -> VarSet               -- Free vars of input scrutinee
         -> LevelledExpr         -- Processed scrutinee
         -> Id -> Type           -- Case binder and result type
-        -> [AnnAlt Id VarSet]   -- Input alternatives
+        -> [CoreAltWithFVs]     -- Input alternatives
         -> LvlM LevelledExpr    -- Result expression
 lvlCase env scrut_fvs scrut' case_bndr ty alts
   | [(con@(DataAlt {}), bs, body)] <- alts
@@ -467,7 +467,7 @@ lvlMFE strict_ctxt env (_, AnnCast e (_, co))
 lvlMFE True env e@(_, AnnCase {})
   = lvlExpr env e     -- Don't share cases
 
-lvlMFE strict_ctxt env ann_expr@(fvs, _)
+lvlMFE strict_ctxt env ann_expr
   |  isUnLiftedType (exprType expr)
          -- Can't let-bind it; see Note [Unlifted MFEs]
          -- This includes coercions, which we don't want to float anyway
@@ -484,6 +484,7 @@ lvlMFE strict_ctxt env ann_expr@(fvs, _)
                      (mkVarApps (Var var) abs_vars)) }
   where
     expr     = deAnnotate ann_expr
+    fvs      = freeVarsOf ann_expr
     is_bot   = exprIsBottom expr      -- Note [Bottoming floats]
     dest_lvl = destLevel env fvs (isFunction ann_expr) is_bot
     abs_vars = abstractVars dest_lvl env fvs
@@ -674,7 +675,7 @@ lvlBind :: LevelEnv
         -> CoreBindWithFVs
         -> LvlM (LevelledBind, LevelEnv)
 
-lvlBind env (AnnNonRec bndr rhs@(rhs_fvs,_))
+lvlBind env (AnnNonRec bndr rhs)
   | isTyVar bndr    -- Don't do anything for TyVar binders
                     --   (simplifier gets rid of them pronto)
   || isCoVar bndr   -- Difficult to fix up CoVar occurrences (see extendPolyLvlEnv)
@@ -704,6 +705,7 @@ lvlBind env (AnnNonRec bndr rhs@(rhs_fvs,_))
        ; return (NonRec (TB bndr' (FloatMe dest_lvl)) rhs', env') }
 
   where
+    rhs_fvs    = freeVarsOf rhs
     bind_fvs   = rhs_fvs `unionVarSet` idFreeVars bndr
     abs_vars   = abstractVars dest_lvl env bind_fvs
     dest_lvl   = destLevel env bind_fvs (isFunction rhs) is_bot
@@ -764,8 +766,8 @@ lvlBind env (AnnRec pairs)
     (bndrs,rhss) = unzip pairs
 
         -- Finding the free vars of the binding group is annoying
-    bind_fvs = (unionVarSets [ idFreeVars bndr `unionVarSet` rhs_fvs
-                            | (bndr, (rhs_fvs,_)) <- pairs])
+    bind_fvs = (unionVarSets [ idFreeVars bndr `unionVarSet` freeVarsOf rhs
+                             | (bndr, rhs) <- pairs])
                `minusVarSet`
                mkVarSet bndrs
 
