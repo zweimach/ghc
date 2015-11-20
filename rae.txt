@@ -15,6 +15,13 @@ stack:
 
 fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
+FAILURES:
+typecheck/should_compile/T6018:
+  - TF injectivity solver fails here. The problem is that we end up with s0 ~ s1 and s0 ~ s2 in the inert
+    set, where we want to find s1 ~ s2. And, because we process deriveds last, the model doesn't get updated
+    accordingly until the end, and then there isn't the right kick-out to re-process TF injectivity stuff.
+    I would like Simon's advice.
+
 TICKETS:
 #9017:
 #9173: mention expression in error
