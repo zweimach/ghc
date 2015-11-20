@@ -983,7 +983,10 @@ validDerivPred :: TyVarSet -> PredType -> Bool
 -- See Note [Valid 'deriving' predicate]
 validDerivPred tv_set pred
   = case classifyPredType pred of
-       ClassPred _ _   -> check_tys
+       ClassPred cls _ -> cls `hasKey` typeableClassKey
+                -- Typeable constraints are bigger than they appear due
+                -- to kind polymorphism, but that's OK
+                       || check_tys
        EqPred {}       -> False  -- reject equality constraints
        _               -> True   -- Non-class predicates are ok
   where
