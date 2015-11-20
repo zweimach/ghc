@@ -210,8 +210,7 @@ getFamInsts hpt_fam_insts mod
 -- Checks for a newtype, and for being saturated
 -- Just like Coercion.instNewTyCon_maybe, but returns a TcCoercion
 tcInstNewTyCon_maybe :: TyCon -> [TcType] -> Maybe (TcType, TcCoercion)
-tcInstNewTyCon_maybe tc tys = fmap (second mkTcCoercion) $
-                              instNewTyCon_maybe tc tys
+tcInstNewTyCon_maybe = instNewTyCon_maybe
 
 -- | Like 'tcLookupDataFamInst_maybe', but returns the arguments back if
 -- there is no data family to unwrap.

@@ -641,8 +641,8 @@ can_eq_app ev NomEq s1 t1 s2 t2
   | CtWanted { ctev_dest = dest, ctev_loc = loc } <- ev
   = do { co_s <- unifyWanted loc Nominal s1 s2
        ; co_t <- unifyWanted loc Nominal t1 t2
-       ; let co = mkTcCoercion $ mkAppCo co_s co_t
-       ; setWanted dest co loc
+       ; let co = mkAppCo co_s co_t
+       ; setWantedEq dest co
        ; stopWith ev "Decomposed [W] AppTy" }
   | CtGiven { ctev_evar = evar, ctev_loc = loc } <- ev
   = do { let co   = mkTcCoVarCo evar
