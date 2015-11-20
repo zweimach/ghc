@@ -565,12 +565,10 @@ tcIfaceDataCons tycon_name tycon tc_tyvars if_cons is_prom
                                 (substTyVars (mkTopTCvSubst (map eqSpecPair eq_spec))
                                              tc_tyvars)
 
-        ; prom_info <- if is_prom then do { n <- newTyConRepName dc_name
-                                          ; return (Promoted n) }
-                                  else return NotPromoted
+        ; prom_rep_name <- newTyConRepName dc_name
 
         ; con <- buildDataCon (pprPanic "tcIfaceDataCons: FamInstEnvs" (ppr dc_name))
-                       dc_name is_infix prom_info
+                       dc_name is_infix prom_rep_name
                        (map src_strict if_src_stricts)
                        (Just stricts)
                        -- Pass the HsImplBangs (i.e. final

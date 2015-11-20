@@ -1,8 +1,4 @@
 stack:
-  - Promoted
-  - AnnStar
-  - fdResultSig of a data family should always be empty. Why process in
-    tcFamDecl1?
 
 - check out last argument of EvDFunApp
 

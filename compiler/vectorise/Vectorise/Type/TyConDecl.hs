@@ -183,10 +183,11 @@ vectDataCon dc
        ; arg_tys <- mapM vectType rep_arg_tys
        ; let ret_ty = mkFamilyTyConApp tycon' (mkTyVarTys univ_tvs)
        ; fam_envs  <- readGEnv global_fam_inst_env
+       ; rep_nm    <- newTyConRepName name'
        ; liftDs $ buildDataCon fam_envs
                     name'
                     (dataConIsInfix dc)            -- infix if the original is
-                    NotPromoted                    -- Vectorised type is not promotable
+                    rep_nm
                     (dataConSrcBangs dc)           -- strictness as original constructor
                     (Just $ dataConImplBangs dc)
                     []                             -- no labelled fields for now

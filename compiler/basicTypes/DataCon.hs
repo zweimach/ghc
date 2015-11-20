@@ -704,8 +704,7 @@ isMarkedStrict _               = True   -- All others are strict
 -- | Build a new data constructor
 mkDataCon :: Name
           -> Bool           -- ^ Is the constructor declared infix?
-          -> Promoted TyConRepName -- ^ Whether promoted, and if so the TyConRepName
-                                   --   for the promoted TyCon
+          -> TyConRepName   -- ^  TyConRepName for the promoted TyCon
           -> [HsSrcBang]    -- ^ Strictness/unpack annotations, from user
           -> [FieldLabel]   -- ^ Field labels for the constructor,
                             -- if it is a record, otherwise empty
@@ -769,7 +768,7 @@ mkDataCon name declared_infix prom_info
 
     promoted   -- See Note [Promoted data constructors] in TyCon
                -- TODO (RAE): Update note.
-      = mkPromotedDataCon con name (getUnique name) (dataConWrapperType con) roles
+      = mkPromotedDataCon con name prom_info (dataConWrapperType con) roles
 
     roles = map (const Nominal) (univ_tvs ++ ex_tvs) ++
             map (const Representational) orig_arg_tys

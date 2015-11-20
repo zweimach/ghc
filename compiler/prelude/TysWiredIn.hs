@@ -377,10 +377,7 @@ pcDataConWithFixity' declared_infix dc_name wrk_key tyvars ex_tyvars arg_tys tyc
     wrk_name = mkWiredInName modu wrk_occ wrk_key
                              (AnId (dataConWorkId data_con)) UserSyntax
 
-    prom_info | Promoted {} <- promotableTyCon_maybe tycon  -- Knot-tied
-              = Promoted (mkPrelTyConRepName dc_name)
-              | otherwise
-              = NotPromoted
+    prom_info = mkPrelTyConRepName dc_name
 
 {-
 ************************************************************************

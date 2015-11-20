@@ -652,10 +652,6 @@ data AlgTyConRhs
                              -- again check Trac #1072.
     }
 
--- | Isomorphic to Maybe, but used when the question is
--- whether or not something is promoted
-data Promoted a = NotPromoted | Promoted a
-
 -- | Extract those 'DataCon's that we are able to learn about.  Note
 -- that visibility in this sense does not correspond to visibility in
 -- the context of any particular user program!

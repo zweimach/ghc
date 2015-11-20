@@ -1356,8 +1356,7 @@ tcConDecl new_or_data is_prom rep_tycon tmpl_tvs res_tmpl
              ; rep_nm   <- newTyConRepName name
 
              ; buildDataCon fam_envs name is_infix
-                            (if is_prom then Promoted rep_nm else NotPromoted)
-                                -- Must be lazy in is_prom because it is knot-tied
+                            rep_nm
                             stricts Nothing field_lbls
                             univ_tvs ex_tvs eq_preds
                             (substTys arg_subst ctxt)

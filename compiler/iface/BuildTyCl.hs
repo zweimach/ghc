@@ -108,7 +108,7 @@ mkNewTyConRhs tycon_name tycon con
 buildDataCon :: FamInstEnvs
             -> Name
             -> Bool                     -- Declared infix
-            -> Promoted TyConRepName    -- Promotable
+            -> TyConRepName             -- Promotable
             -> [HsSrcBang]
             -> Maybe [HsImplBang]
                 -- See Note [Bangs on imported data constructors] in MkId
@@ -262,10 +262,11 @@ buildClass tycon_name tvs roles sc_theta kind fds at_items sig_stuff mindef tc_i
               arg_tys   = sc_theta ++ op_tys
               rec_tycon = classTyCon rec_clas
 
+        ; rep_nm   <- newTyConRepName datacon_name
         ; dict_con <- buildDataCon (panic "buildClass: FamInstEnvs")
                                    datacon_name
                                    False        -- Not declared infix
-                                   NotPromoted  -- Class tycons are not promoted
+                                   rep_nm
                                    (map (const no_bang) args)
                                    (Just (map (const HsLazy) args))
                                    [{- No fields -}]

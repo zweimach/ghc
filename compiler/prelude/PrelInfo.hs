@@ -115,8 +115,7 @@ knownKeyNames
   tycon_kk_names tc = tyConName tc : (rep_names tc ++ concatMap thing_kk_names (implicitTyConThings tc))
 
   datacon_kk_names dc
-    | Promoted tc <- promoteDataCon_maybe dc = dataConName dc : rep_names tc
-    | otherwise                              = [dataConName dc]
+   = dataConName dc : rep_names (promoteDataCon dc)
 
   thing_kk_names :: TyThing -> [Name]
   thing_kk_names (ATyCon tc)                 = tycon_kk_names tc
