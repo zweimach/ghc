@@ -1974,7 +1974,7 @@ matchTypeableClass :: Class -> Kind -> Type -> TcS LookupInstResult
 matchTypeableClass clas k t
 
   -- See Note [No Typeable for qualified types]
-  | isForAllTy t                               = return NoInstance
+  | isNamedForAllTy t                          = return NoInstance
 
   -- Is the type of the form `C => t`?
   | isJust (tcSplitPredFunTy_maybe t)          = return NoInstance
