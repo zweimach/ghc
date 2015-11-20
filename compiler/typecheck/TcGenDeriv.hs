@@ -1409,8 +1409,8 @@ gen_Data_binds dflags loc rep_tc
 
 
 kind1, kind2 :: Kind
-kind1 = liftedTypeKind `mkArrowKind` liftedTypeKind
-kind2 = liftedTypeKind `mkArrowKind` kind1
+kind1 = liftedTypeKind `mkFunTy` liftedTypeKind
+kind2 = liftedTypeKind `mkFunTy` kind1
 
 gfoldl_RDR, gunfold_RDR, toConstr_RDR, dataTypeOf_RDR, mkConstr_RDR,
     mkDataType_RDR, conIndex_RDR, prefix_RDR, infix_RDR,

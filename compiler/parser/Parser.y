@@ -58,7 +58,7 @@ import BasicTypes
 
 -- compiler/types
 import Type             ( funTyCon )
-import Kind             ( Kind, mkArrowKind )
+import Kind             ( Kind )
 import Class            ( FunDep )
 
 -- compiler/parser

@@ -1,5 +1,5 @@
 {-# LANGUAGE MagicHash, NoImplicitPrelude, TypeFamilies, UnboxedTuples,
-             MultiParamTypeClasses, RoleAnnotations #-}
+             MultiParamTypeClasses, RoleAnnotations, TypeOperators #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  GHC.Types
@@ -181,12 +181,10 @@ inside GHC, to change the kind and type.
 -}
 
 
--- | A data constructor used to box up all unlifted equalities
---
--- The type constructor is special in that GHC pretends that it
--- has kind (? -> ? -> Fact) rather than (* -> * -> *)
-data (~) a b = Eq# ((~#) a b)
-
+-- | Lifted, heterogeneous equality. By lifted, we mean that it
+-- can be bogus (deferred type error). By heterogeneous, the two
+-- types @a@ and @b@ might have different kinds.
+class a ~ b
 
 -- | This two-parameter class has instances for types @a@ and @b@ if
 --      the compiler can infer that they have the same representation. This class
@@ -235,7 +233,7 @@ data (~) a b = Eq# ((~#) a b)
 --      by Joachim Breitner, Richard A. Eisenberg, Simon Peyton Jones and Stephanie Weirich.
 --
 --      @since 4.7.0.0
-data Coercible a b = MkCoercible ((~#) a b)
+class Coercible a b
 -- It's really ~R# (representational equality), not ~#,
 -- but  * we don't yet have syntax for ~R#,
 --      * the compiled code is the same either way

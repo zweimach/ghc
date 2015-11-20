@@ -24,7 +24,7 @@ import TcRnTypes  ( Xi )
 import CoAxiom    ( CoAxiomRule(..), BuiltInSynFamily(..), Eqn )
 import Name       ( Name, BuiltInSyntax(..) )
 import TysWiredIn
-import TysPrim    ( mkTemplateTyVars, mkArrowKinds )
+import TysPrim    ( mkTemplateTyVars )
 import PrelNames  ( gHC_TYPELITS
                   , typeNatAddTyFamNameKey
                   , typeNatMulTyFamNameKey
@@ -104,7 +104,7 @@ typeNatExpTyCon = mkTypeNatFunTyCon2 name
 typeNatLeqTyCon :: TyCon
 typeNatLeqTyCon =
   mkFamilyTyCon name
-    (mkArrowKinds [ typeNatKind, typeNatKind ] boolTy)
+    (mkFunTys [ typeNatKind, typeNatKind ] boolTy)
     (mkTemplateTyVars [ typeNatKind, typeNatKind ])
     Nothing
     (BuiltInSynFamTyCon ops)
@@ -123,7 +123,7 @@ typeNatLeqTyCon =
 typeNatCmpTyCon :: TyCon
 typeNatCmpTyCon =
   mkFamilyTyCon name
-    (mkArrowKinds [ typeNatKind, typeNatKind ] orderingKind)
+    (mkFunTys [ typeNatKind, typeNatKind ] orderingKind)
     (mkTemplateTyVars [ typeNatKind, typeNatKind ])
     Nothing
     (BuiltInSynFamTyCon ops)
@@ -142,7 +142,7 @@ typeNatCmpTyCon =
 typeSymbolCmpTyCon :: TyCon
 typeSymbolCmpTyCon =
   mkFamilyTyCon name
-    (mkArrowKinds [ typeSymbolKind, typeSymbolKind ] orderingKind)
+    (mkFunTys [ typeSymbolKind, typeSymbolKind ] orderingKind)
     (mkTemplateTyVars [ typeSymbolKind, typeSymbolKind ])
     Nothing
     (BuiltInSynFamTyCon ops)
@@ -166,7 +166,7 @@ typeSymbolCmpTyCon =
 mkTypeNatFunTyCon2 :: Name -> BuiltInSynFamily -> TyCon
 mkTypeNatFunTyCon2 op tcb =
   mkFamilyTyCon op
-    (mkArrowKinds [ typeNatKind, typeNatKind ] typeNatKind)
+    (mkFunTys [ typeNatKind, typeNatKind ] typeNatKind)
     (mkTemplateTyVars [ typeNatKind, typeNatKind ])
     Nothing
     (BuiltInSynFamTyCon tcb)

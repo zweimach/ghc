@@ -1038,7 +1038,7 @@ unlessVIParrExpr e1 e2 = e1 `unlessVIParr` vectAvoidInfoOf e2
 -- * The first argument is the set of free, local variables whose evaluation may entail parallelism.
 --
 vectAvoidInfo :: VarSet -> CoreExprWithFVs -> VM CoreExprWithVectInfo
-vectAvoidInfo pvs ce@(fvs, AnnVar v)
+vectAvoidInfo pvs ce@(_, AnnVar v)
   = do
     { gpvs <- globalParallelVars
     ; vi <- if v `elemVarSet` pvs || v `elemVarSet` gpvs
@@ -1051,15 +1051,19 @@ vectAvoidInfo pvs ce@(fvs, AnnVar v)
 
     ; return ((fvs, vi), AnnVar v)
     }
+  where
+    fvs = freeVarsOf ce
 
-vectAvoidInfo _pvs ce@(fvs, AnnLit lit)
+vectAvoidInfo _pvs ce@(_, AnnLit lit)
   = do
     { vi <- vectAvoidInfoTypeOf ce
     ; viTrace ce vi []
     ; return ((fvs, vi), AnnLit lit)
     }
+  where
+    fvs = freeVarsOf ce
 
-vectAvoidInfo pvs ce@(fvs, AnnApp e1 e2)
+vectAvoidInfo pvs ce@(_, AnnApp e1 e2)
   = do
     { ceVI <- vectAvoidInfoTypeOf ce
     ; eVI1 <- vectAvoidInfo pvs e1
@@ -1068,8 +1072,10 @@ vectAvoidInfo pvs ce@(fvs, AnnApp e1 e2)
     -- ; viTrace ce vi [eVI1, eVI2]
     ; return ((fvs, vi), AnnApp eVI1 eVI2)
     }
+  where
+    fvs = freeVarsOf ce
 
-vectAvoidInfo pvs (fvs, AnnLam var body)
+vectAvoidInfo pvs ce@(_, AnnLam var body)
   = do
     { bodyVI <- vectAvoidInfo pvs body
     ; varVI  <- vectAvoidInfoType $ varType var
@@ -1077,8 +1083,10 @@ vectAvoidInfo pvs (fvs, AnnLam var body)
     -- ; viTrace ce vi [bodyVI]
     ; return ((fvs, vi), AnnLam var bodyVI)
     }
+  where
+    fvs = freeVarsOf ce
 
-vectAvoidInfo pvs ce@(fvs, AnnLet (AnnNonRec var e) body)
+vectAvoidInfo pvs ce@(_, AnnLet (AnnNonRec var e) body)
   = do
     { ceVI       <- vectAvoidInfoTypeOf ce
     ; eVI        <- vectAvoidInfo pvs e
@@ -1095,8 +1103,10 @@ vectAvoidInfo pvs ce@(fvs, AnnLet (AnnNonRec var e) body)
     -- ; viTrace ce vi [eVI, bodyVI]
     ; return ((fvs, vi), AnnLet (AnnNonRec var eVI) bodyVI)
     }
+  where
+    fvs = freeVarsOf ce
 
-vectAvoidInfo pvs ce@(fvs, AnnLet (AnnRec bnds) body)
+vectAvoidInfo pvs ce@(_, AnnLet (AnnRec bnds) body)
   = do
     { ceVI         <- vectAvoidInfoTypeOf ce
     ; bndsVI       <- mapM (vectAvoidInfoBnd pvs) bnds
@@ -1118,6 +1128,7 @@ vectAvoidInfo pvs ce@(fvs, AnnLet (AnnRec bnds) body)
         }
     }
   where
+    fvs = freeVarsOf ce
     vectAvoidInfoBnd pvs (var, e) = (var,) <$> vectAvoidInfo pvs e
 
     isVIParrBnd (var, eVI)
@@ -1126,7 +1137,7 @@ vectAvoidInfo pvs ce@(fvs, AnnLet (AnnRec bnds) body)
         ; return $ isVIParr eVI && not isScalarTy
         }
 
-vectAvoidInfo pvs ce@(fvs, AnnCase e var ty alts)
+vectAvoidInfo pvs ce@(_, AnnCase e var ty alts)
   = do
     { ceVI           <- vectAvoidInfoTypeOf ce
     ; eVI            <- vectAvoidInfo pvs e
@@ -1137,6 +1148,7 @@ vectAvoidInfo pvs ce@(fvs, AnnCase e var ty alts)
     ; return ((fvs, vi), AnnCase eVI var ty altsVI)
     }
   where
+    fvs = freeVarsOf ce
     vectAvoidInfoAlt scrutIsPar (con, bndrs, e)
       = do
         { allScalar <- allScalarVarType bndrs
@@ -1145,23 +1157,31 @@ vectAvoidInfo pvs ce@(fvs, AnnCase e var ty alts)
         ; (con, bndrs,) <$> vectAvoidInfo altPvs e
         }
 
-vectAvoidInfo pvs (fvs, AnnCast e (fvs_ann, ann))
+vectAvoidInfo pvs ce@(_, AnnCast e (fvs_ann, ann))
   = do
     { eVI <- vectAvoidInfo pvs e
-    ; return ((fvs, vectAvoidInfoOf eVI), AnnCast eVI ((fvs_ann, VISimple), ann))
+    ; return ((fvs, vectAvoidInfoOf eVI), AnnCast eVI ((freeVarsOfAnn fvs_ann, VISimple), ann))
     }
+  where
+    fvs = freeVarsOf ce
 
-vectAvoidInfo pvs (fvs, AnnTick tick e)
+vectAvoidInfo pvs ce@(_, AnnTick tick e)
   = do
     { eVI <- vectAvoidInfo pvs e
     ; return ((fvs, vectAvoidInfoOf eVI), AnnTick tick eVI)
     }
+  where
+    fvs = freeVarsOf ce
 
-vectAvoidInfo _pvs (fvs, AnnType ty)
+vectAvoidInfo _pvs ce@(_, AnnType ty)
   = return ((fvs, VISimple), AnnType ty)
+  where
+    fvs = freeVarsOf ce
 
-vectAvoidInfo _pvs (fvs, AnnCoercion coe)
+vectAvoidInfo _pvs ce@(_, AnnCoercion coe)
   = return ((fvs, VISimple), AnnCoercion coe)
+  where
+    fvs = freeVarsOf ce
 
 -- Compute vectorisation avoidance information for a type.
 --

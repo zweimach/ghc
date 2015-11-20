@@ -28,10 +28,16 @@ module CoreFVs (
         vectsFreeVars,
 
         -- * Core syntax tree annotation with free variables
-        CoreExprWithFVs,        -- = AnnExpr Id VarSet
-        CoreBindWithFVs,        -- = AnnBind Id VarSet
+        FVAnn,                  -- annotation, abstract
+        CoreExprWithFVs,        -- = AnnExpr Id FVAnn
+        CoreExprWithFVs',       -- = AnnExpr' Id FVAnn
+        CoreBindWithFVs,        -- = AnnBind Id FVAnn
+        CoreAltWithFVs,         -- = AnnAlt Id FVAnn
         freeVars,               -- CoreExpr -> CoreExprWithFVs
-        freeVarsOf              -- CoreExprWithFVs -> IdSet
+        freeVarsOf,             -- CoreExprWithFVs -> IdSet
+        freeVarsOfType,         -- CoreExprWithFVs -> TyCoVarSet
+        freeVarsOfAnn, freeVarsOfTypeAnn,
+        exprTypeFV              -- CoreExprWithFVs -> Type
     ) where
 
 #include "HsVersions.h"
@@ -41,10 +47,12 @@ import Id
 import IdInfo
 import NameSet
 import UniqFM
+import Literal ( literalType )
 import Name
 import VarSet
 import Var
 import TcType
+import Type  ( splitCoercionType_maybe )
 import Coercion
 import Maybes( orElse )
 import Util
@@ -329,16 +337,42 @@ The free variable pass annotates every node in the expression with its
 NON-GLOBAL free variables and type variables.
 -}
 
+data FVAnn = FVAnn { fva_fvs    :: VarSet   -- free in expression
+                   , fva_ty_fvs :: VarSet   -- free only in expression's type
+                   , fva_ty     :: Type     -- expression's type
+                   }
+
 -- | Every node in a binding group annotated with its
--- (non-global) free variables, both Ids and TyVars
-type CoreBindWithFVs = AnnBind Id VarSet
+-- (non-global) free variables, both Ids and TyVars, and type.
+type CoreBindWithFVs = AnnBind Id FVAnn
 -- | Every node in an expression annotated with its
--- (non-global) free variables, both Ids and TyVars
-type CoreExprWithFVs = AnnExpr Id VarSet
+-- (non-global) free variables, both Ids and TyVars, and type.
+type CoreExprWithFVs  = AnnExpr Id FVAnn
+type CoreExprWithFVs' = AnnExpr' Id FVAnn
+
+-- | Every node in an expression annotated with its
+-- (non-global) free variables, both Ids and TyVars, and type.
+type CoreAltWithFVs = AnnAlt Id FVAnn
 
 freeVarsOf :: CoreExprWithFVs -> IdSet
 -- ^ Inverse function to 'freeVars'
-freeVarsOf (free_vars, _) = free_vars
+freeVarsOf (FVAnn { fva_fvs = fvs }, _) = fvs
+
+-- | Extract the vars free in an annotated expression's type
+freeVarsOfType :: CoreExprWithFVs -> TyCoVarSet
+freeVarsOfType (FVAnn { fva_ty_fvs = ty_fvs }, _) = ty_fvs
+
+-- | Extract the type of an annotated expression. (This is cheap.)
+exprTypeFV :: CoreExprWithFVs -> Type
+exprTypeFV (FVAnn { fva_ty = ty }, _) = ty
+
+-- | Extract the vars reported in a FVAnn
+freeVarsOfAnn :: FVAnn -> IdSet
+freeVarsOfAnn = fva_fvs
+
+-- | Extract the type-level vars reported in a FVAnn
+freeVarsOfTypeAnn :: FVAnn -> TyCoVarSet
+freeVarsOfTypeAnn = fva_ty_fvs
 
 noFVs :: VarSet
 noFVs    = emptyVarSet
@@ -348,6 +382,9 @@ aFreeVar = unitVarSet
 
 unionFVs :: VarSet -> VarSet -> VarSet
 unionFVs = unionVarSet
+
+unionFVss :: [VarSet] -> VarSet
+unionFVss = unionVarSets
 
 delBindersFV :: [Var] -> VarSet -> VarSet
 delBindersFV bs fvs = foldr delBinderFV fvs bs
@@ -439,82 +476,121 @@ stableUnfoldingVars unf
 
 freeVars :: CoreExpr -> CoreExprWithFVs
 -- ^ Annotate a 'CoreExpr' with its (non-global) free type and value variables at every tree node
-freeVars (Var v)
-  = (fvs, AnnVar v)
+freeVars = go
   where
-        -- ToDo: insert motivating example for why we *need*
-        -- to include the idSpecVars in the FV list.
-        --      Actually [June 98] I don't think it's necessary
-        -- fvs = fvs_v `unionVarSet` idSpecVars v
+    go :: CoreExpr -> CoreExprWithFVs
+    go (Var v)
+      = (FVAnn fvs ty_fvs (idType v), AnnVar v)
+      where
+            -- ToDo: insert motivating example for why we *need*
+            -- to include the idSpecVars in the FV list.
+            --      Actually [June 98] I don't think it's necessary
+            -- fvs = fvs_v `unionVarSet` idSpecVars v
 
-    fvs | isLocalVar v = aFreeVar v
-        | otherwise    = noFVs
+        (fvs, ty_fvs)
+            | isLocalVar v = (aFreeVar v `unionFVs` ty_fvs, varTypeTyCoVars v)
+            | otherwise    = (noFVs, noFVs)
 
-freeVars (Lit lit) = (noFVs, AnnLit lit)
-freeVars (Lam b body)
-  = (b `delBinderFV` freeVarsOf body', AnnLam b body')
-  where
-    body' = freeVars body
+    go (Lit lit) = (FVAnn noFVs noFVs (literalType lit), AnnLit lit)
+    go (Lam b body)
+      = ( FVAnn { fva_fvs    = b_fvs `unionFVs` (b `delBinderFV` body_fvs)
+                , fva_ty_fvs = b_fvs `unionFVs` (b `delBinderFV` body_ty_fvs)
+                , fva_ty     = mkFunTy b_ty body_ty }
+        , AnnLam b body' )
+      where
+        body'@(FVAnn { fva_fvs = body_fvs, fva_ty_fvs = body_ty_fvs
+                     , fva_ty = body_ty }, _) = go body
+        b_ty  = idType b
+        b_fvs = tyCoVarsOfType b_ty
 
-freeVars (App fun arg)
-  = (freeVarsOf fun2 `unionFVs` freeVarsOf arg2, AnnApp fun2 arg2)
-  where
-    fun2 = freeVars fun
-    arg2 = freeVars arg
+    go (App fun arg)
+      = ( FVAnn { fva_fvs    = freeVarsOf fun' `unionFVs` freeVarsOf arg'
+                , fva_ty_fvs = tyCoVarsOfType res_ty
+                , fva_ty     = res_ty }
+        , AnnApp fun' arg' )
+      where
+        fun'   = go fun
+        fun_ty = exprTypeFV fun'
+        arg'   = go arg
+        res_ty = applyTypeToArg fun_ty arg
 
-freeVars (Case scrut bndr ty alts)
-  = ((bndr `delBinderFV` alts_fvs) `unionFVs` freeVarsOf scrut2 `unionFVs` tyCoVarsOfType ty,
-     AnnCase scrut2 bndr ty alts2)
-  where
-    scrut2 = freeVars scrut
+    go (Case scrut bndr ty alts)
+      = ( FVAnn { fva_fvs = (bndr `delBinderFV` alts_fvs)
+                            `unionFVs` freeVarsOf scrut2
+                            `unionFVs` tyCoVarsOfType ty
+                           -- don't need to look at (idType bndr)
+                           -- b/c that's redundant with scrut
+                , fva_ty_fvs = tyCoVarsOfType ty
+                , fva_ty     = ty }
+        , AnnCase scrut2 bndr ty alts2 )
+      where
+        scrut2 = go scrut
 
-    (alts_fvs_s, alts2) = mapAndUnzip fv_alt alts
-    alts_fvs            = foldr unionFVs noFVs alts_fvs_s
+        (alts_fvs_s, alts2) = mapAndUnzip fv_alt alts
+        alts_fvs            = unionFVss alts_fvs_s
 
-    fv_alt (con,args,rhs) = (delBindersFV args (freeVarsOf rhs2),
-                             (con, args, rhs2))
-                          where
-                             rhs2 = freeVars rhs
+        fv_alt (con,args,rhs) = (delBindersFV args (freeVarsOf rhs2),
+                                 (con, args, rhs2))
+                              where
+                                 rhs2 = go rhs
 
-freeVars (Let (NonRec binder rhs) body)
-  = (freeVarsOf rhs2
-       `unionFVs` body_fvs
-       `unionFVs` bndrRuleAndUnfoldingVars binder,
-                -- Remember any rules; cf rhs_fvs above
-     AnnLet (AnnNonRec binder rhs2) body2)
-  where
-    rhs2     = freeVars rhs
-    body2    = freeVars body
-    body_fvs = binder `delBinderFV` freeVarsOf body2
+    go (Let (NonRec binder rhs) body)
+      = ( FVAnn { fva_fvs    = freeVarsOf rhs2
+                               `unionFVs` body_fvs
+                               `unionFVs` bndrRuleAndUnfoldingVars binder
+                               -- R  emember any rules; cf rhs_fvs above
+                , fva_ty_fvs = freeVarsOfType body2
+                , fva_ty     = exprTypeFV body2 }
+        , AnnLet (AnnNonRec binder rhs2) body2 )
+      where
+        rhs2     = go rhs
+        body2    = go body
+        body_fvs = binder `delBinderFV` freeVarsOf body2
 
-freeVars (Let (Rec binds) body)
-  = (delBindersFV binders all_fvs,
-     AnnLet (AnnRec (binders `zip` rhss2)) body2)
-  where
-    (binders, rhss) = unzip binds
+    go (Let (Rec binds) body)
+      = ( FVAnn { fva_fvs    = delBindersFV binders all_fvs
+                , fva_ty_fvs = freeVarsOfType body2
+                , fva_ty     = exprTypeFV body2 }
+        , AnnLet (AnnRec (binders `zip` rhss2)) body2 )
+      where
+        (binders, rhss) = unzip binds
 
-    rhss2     = map freeVars rhss
-    rhs_body_fvs = foldr (unionFVs . freeVarsOf) body_fvs rhss2
-    all_fvs      = foldr (unionFVs . idRuleAndUnfoldingVars) rhs_body_fvs binders
-        -- The "delBinderFV" happens after adding the idSpecVars,
-        -- since the latter may add some of the binders as fvs
+        rhss2        = map go rhss
+        rhs_body_fvs = foldr (unionFVs . freeVarsOf) body_fvs rhss2
+        all_fvs      = foldr (unionFVs . idRuleAndUnfoldingVars) rhs_body_fvs binders
+            -- The "delBinderFV" happens after adding the idSpecVars,
+            -- since the latter may add some of the binders as fvs
 
-    body2     = freeVars body
-    body_fvs  = freeVarsOf body2
+        body2    = go body
+        body_fvs = freeVarsOf body2
 
-freeVars (Cast expr co)
-  = (freeVarsOf expr2 `unionFVs` cfvs, AnnCast expr2 (cfvs, co))
-  where
-    expr2 = freeVars expr
-    cfvs  = tyCoVarsOfCo co
+    go (Cast expr co)
+      = ( FVAnn (freeVarsOf expr2 `unionFVs` cfvs) (tyCoVarsOfType to_ty) to_ty
+        , AnnCast expr2 (c_ann, co) )
+      where
+        expr2 = go expr
+        cfvs  = tyCoVarsOfCo co
+        c_ann = FVAnn cfvs (tyCoVarsOfType co_ki) co_ki
+        co_ki = coercionType co
+        Just (_, to_ty) = splitCoercionType_maybe co_ki
 
-freeVars (Tick tickish expr)
-  = (tickishFVs tickish `unionFVs` freeVarsOf expr2, AnnTick tickish expr2)
-  where
-    expr2 = freeVars expr
-    tickishFVs (Breakpoint _ ids) = mkVarSet ids
-    tickishFVs _                  = emptyVarSet
 
-freeVars (Type ty) = (tyCoVarsOfType ty, AnnType ty)
+    go (Tick tickish expr)
+      = ( FVAnn { fva_fvs    = tickishFVs tickish `unionFVs` freeVarsOf expr2
+                , fva_ty_fvs = freeVarsOfType expr2
+                , fva_ty     = exprTypeFV expr2 }
+        , AnnTick tickish expr2 )
+      where
+        expr2 = go expr
+        tickishFVs (Breakpoint _ ids) = mkVarSet ids
+        tickishFVs _                  = emptyVarSet
 
-freeVars (Coercion co) = (tyCoVarsOfCo co, AnnCoercion co)
+    go (Type ty) = ( FVAnn (tyCoVarsOfType ty) (tyCoVarsOfType ki) ki
+                   , AnnType ty)
+      where
+        ki = typeKind ty
+
+    go (Coercion co) = ( FVAnn (tyCoVarsOfCo co) (tyCoVarsOfType ki) ki
+                       , AnnCoercion co)
+      where
+        ki = coercionType co

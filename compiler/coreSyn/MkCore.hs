@@ -19,9 +19,6 @@ module MkCore (
         -- * Floats
         FloatBind(..), wrapFloat,
 
-        -- * Constructing equality evidence boxes
-        mkEqBox,
-
         -- * Constructing small tuples
         mkCoreVarTup, mkCoreVarTupTy, mkCoreTup, mkCoreUbxTup,
         mkCoreTupBoxity,
@@ -67,7 +64,6 @@ import PrelNames
 import HsUtils          ( mkChunkified, chunkify )
 import TcType           ( mkInvSigmaTy )
 import Type
-import Coercion
 import TysPrim
 import DataCon          ( DataCon, dataConWorkId )
 import IdInfo           ( vanillaIdInfo, setStrictnessInfo,
@@ -79,7 +75,6 @@ import FastString
 import UniqSupply
 import BasicTypes
 import Util
-import Pair
 import VarSet
 import DynFlags
 
@@ -285,18 +280,6 @@ mkStringExprFS str
   where
     chars = unpackFS str
     safeChar c = ord c >= 1 && ord c <= 0x7F
-
--- This take a ~# b (or a ~# R b) and returns a ~ b (or Coercible a b)
-mkEqBox :: Coercion -> CoreExpr
-mkEqBox co = ASSERT2( typeKind ty2 `eqType` k, ppr co $$ ppr ty1 $$ ppr ty2 $$ ppr (typeKind ty1) $$ ppr (typeKind ty2) )
-             Var (dataConWorkId datacon) `mkTyApps` [k, ty1, ty2] `App` Coercion co
-  where (Pair ty1 ty2, role) = coercionKindRole co
-        k = typeKind ty1
-        datacon = case role of
-            Nominal ->          eqBoxDataCon
-            Representational -> coercibleDataCon
-            Phantom ->          pprPanic "mkEqBox does not support boxing phantom coercions"
-                                         (ppr co)
 
 {-
 ************************************************************************

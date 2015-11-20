@@ -34,6 +34,9 @@ module CoreSyn (
         collectBinders, collectTyAndValBinders,
         collectArgs, collectArgsTicks, flattenBinds,
 
+        exprToType, exprToCoercion_maybe,
+        applyTypeToArg,
+
         isValArg, isTypeArg, isTyCoArg, valArgCount, valBndrCount,
         isRuntimeArg, isRuntimeVar,
 
@@ -1548,6 +1551,33 @@ varToCoreExpr v | isTyVar v = Type (mkTyVarTy v)
 
 varsToCoreExprs :: [CoreBndr] -> [Expr b]
 varsToCoreExprs vs = map varToCoreExpr vs
+
+{-
+************************************************************************
+*                                                                      *
+   Getting a result type
+*                                                                      *
+************************************************************************
+
+These are defined here to avoid a module loop between CoreUtils and CoreFVs
+
+-}
+
+applyTypeToArg :: Type -> CoreExpr -> Type
+-- ^ Determines the type resulting from applying an expression with given type
+-- to a given argument expression
+applyTypeToArg fun_ty arg = piResultTy fun_ty (exprToType arg)
+
+-- | If the expression is a 'Type', converts. Otherwise,
+-- panics. NB: This does /not/ convert 'Coercion' to 'CoercionTy'.
+exprToType :: CoreExpr -> Type
+exprToType (Type ty)     = ty
+exprToType _bad          = pprPanic "exprToType" empty
+
+-- | If the expression is a 'Coercion', converts.
+exprToCoercion_maybe :: CoreExpr -> Maybe Coercion
+exprToCoercion_maybe (Coercion co) = Just co
+exprToCoercion_maybe _             = Nothing
 
 {-
 ************************************************************************

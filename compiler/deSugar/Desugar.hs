@@ -20,7 +20,6 @@ import Id
 import Name
 import Type
 import FamInstEnv
-import Coercion
 import InstEnv
 import Class
 import Avail
@@ -37,12 +36,9 @@ import Module
 import NameSet
 import NameEnv
 import Rules
-import TysPrim (eqReprPrimTyCon)
-import TysWiredIn (coercibleTyCon )
 import BasicTypes       ( Activation(.. ), competesWith, pprRuleName )
 import CoreMonad        ( CoreToDo(..) )
 import CoreLint         ( endPassIO )
-import MkCore
 import VarSet
 import FastString
 import ErrUtils
@@ -367,11 +363,9 @@ dsRule (L loc (HsRule name rule_act vars lhs _tv_lhs rhs _fv_rhs))
         ; rhs' <- dsLExpr rhs
         ; this_mod <- getModule
 
-        ; (bndrs'', lhs'', rhs'') <- unfold_coerce bndrs' lhs' rhs'
-
         -- Substitute the dict bindings eagerly,
         -- and take the body apart into a (f args) form
-        ; case decomposeRuleLhs bndrs'' lhs'' of {
+        ; case decomposeRuleLhs bndrs' lhs' of {
                 Left msg -> do { warnDs msg; return Nothing } ;
                 Right (final_bndrs, fn_id, args) -> do
 
@@ -380,7 +374,7 @@ dsRule (L loc (HsRule name rule_act vars lhs _tv_lhs rhs _fv_rhs))
                 -- we don't want to attach rules to the bindings of implicit Ids,
                 -- because they don't show up in the bindings until just before code gen
               fn_name   = idName fn_id
-              final_rhs = simpleOptExpr rhs''    -- De-crap it
+              final_rhs = simpleOptExpr rhs'    -- De-crap it
               rule_name = snd (unLoc name)
               arg_ids = varSetElems (exprsSomeFreeVars isId args `delVarSetList` final_bndrs)
 
@@ -432,27 +426,6 @@ warnRuleShadowing rule_name rule_act fn_id arg_ids
       = [ rule | rule <- idCoreRules lhs_id
                , ruleActivation rule `competesWith` rule_act ]
 
--- See Note [Desugaring coerce as cast]
-unfold_coerce :: [DsId] -> CoreExpr -> CoreExpr -> DsM ([DsVar], CoreExpr, CoreExpr)
-unfold_coerce bndrs lhs rhs = do
-    (bndrs', wrap) <- go bndrs
-    return (bndrs', wrap lhs, wrap rhs)
-  where
-    go :: [Id] -> DsM ([Id], CoreExpr -> CoreExpr)
-    go []     = return ([], id)
-    go (v:vs)
-        | Just (tc, [k,ty1,ty2]) <- splitTyConApp_maybe (idType v)
-        , tc == coercibleTyCon = do
-                -- remember: eqReprPrimTyCon is heterogeneous!
-            let ty' = mkTyConApp eqReprPrimTyCon [k,k,ty1,ty2]
-            v' <- mkDerivedLocalCoVarM mkRepEqOcc v ty'
-
-            (bndrs, wrap) <- go vs
-            return (v':bndrs, mkCoreLet (NonRec v (mkEqBox (mkCoVarCo v'))) . wrap)
-        | otherwise = do
-            (bndrs,wrap) <- go vs
-            return (v:bndrs, wrap)
-
 {- Note [Desugaring RULE left hand sides]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 For the LHS of a RULE we do *not* want to desugar
@@ -468,20 +441,6 @@ That keeps the desugaring of list comprehensions simple too.
 Nor do we want to warn of conversion identities on the LHS;
 the rule is precisly to optimise them:
   {-# RULES "fromRational/id" fromRational = id :: Rational -> Rational #-}
-
-Note [Desugaring coerce as cast]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-We want the user to express a rule saying roughly “mapping a coercion over a
-list can be replaced by a coercion”. But the cast operator of Core (▷) cannot
-be written in Haskell. So we use `coerce` for that (#2110). The user writes
-    map coerce = coerce
-as a RULE, and this optimizes any kind of mapped' casts aways, including `map
-MkNewtype`.
-
-For that we replace any forall'ed `c :: Coercible a b` value in a RULE by
-corresponding `co :: a ~#R b` and wrap the LHS and the RHS in
-`let c = MkCoercible co in ...`. This is later simplified to the desired form
-by simpleOptExpr (for the LHS) resp. the simplifiers (for the RHS).
 
 Note [Rules and inlining/other rules]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

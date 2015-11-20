@@ -161,11 +161,7 @@ Various possibilities suggest themselves:
 Note that there might be existentially quantified coercion variables, too.
 -}
 
-applyTypeToArg :: Type -> CoreExpr -> Type
--- ^ Determines the type resulting from applying an expression with given type
--- to a given argument expression
-applyTypeToArg fun_ty arg = piResultTy fun_ty (exprToType arg)
-
+-- Not defined with applyTypeToArg because you can't print from CoreSyn.
 applyTypeToArgs :: CoreExpr -> Type -> [CoreExpr] -> Type
 -- ^ A more efficient version of 'applyTypeToArg' when we have several arguments.
 -- The first argument is just for debugging, and gives some context
@@ -192,16 +188,6 @@ applyTypeToArgs e op_ty args
                      , ptext (sLit "Type:") <+> ppr op_ty
                      , ptext (sLit "Args:") <+> ppr args ]
 
--- | If the expression is a 'Type', converts. Otherwise,
--- panics. NB: This does /not/ convert 'Coercion' to 'CoercionTy'.
-exprToType :: CoreExpr -> Type
-exprToType (Type ty)     = ty
-exprToType _bad          = pprPanic "exprToType" (ppr _bad)
-
--- | If the expression is a 'Coercion', converts.
-exprToCoercion_maybe :: CoreExpr -> Maybe Coercion
-exprToCoercion_maybe (Coercion co) = Just co
-exprToCoercion_maybe _             = Nothing
 
 {-
 ************************************************************************

@@ -410,7 +410,7 @@ mkPairTy :: Type -> Type -> Type
 mkPairTy t1 t2 = mkTyConApp pairTyCon [t1,t2]
 
 arrowTyConKind :: Kind          --  *->*->*
-arrowTyConKind = mkArrowKinds [liftedTypeKind, liftedTypeKind] liftedTypeKind
+arrowTyConKind = mkFunTys [liftedTypeKind, liftedTypeKind] liftedTypeKind
 
 {-
 ************************************************************************

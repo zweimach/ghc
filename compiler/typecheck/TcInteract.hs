@@ -20,8 +20,10 @@ import CoAxiom(sfInteractTop, sfInteractInert)
 import Var
 import TcType
 import PrelNames ( knownNatClassName, knownSymbolClassName,
-                   callStackTyConKey, typeableClassName )
-import TysWiredIn ( ipClass, typeNatKind, typeSymbolKind )
+                   callStackTyConKey, typeableClassName, coercibleTyConKey,
+                   eqTyConKey )
+import TysWiredIn ( ipClass, typeNatKind, typeSymbolKind, coercibleDataCon,
+                    eqBoxDataCon )
 import Id( idType )
 import CoAxiom ( Eqn, CoAxiom(..), CoAxBranch(..), fromBranches )
 import Class
@@ -1827,6 +1829,19 @@ match_class_inst _ _ clas [k,t] _
   | className clas == typeableClassName
   = matchTypeableClass clas k t
 
+match_class_inst _ _ clas args@[k1, k2, ty1, ty2] _
+  | clas `hasKey` coercibleTyConKey
+  = return (GenInst { lir_new_theta = [ mkHeteroReprPrimEqPred k1 k2 ty1 ty2 ]
+                    , lir_mk_ev     = EvDFunApp (dataConWrapId coercibleDataCon)
+                                                args
+                    , lir_safe_over = True })
+
+  | clas `hasKey` eqTyConKey
+  = return (GenInst { lir_new_theta = [ mkHeteroPrimEqPred k1 k2 ty1 ty2 ]
+                    , lir_mk_ev     = EvDFunApp (dataConWrapId eqBoxDataCon)
+                                                args
+                    , lir_safe_over = True })
+
 match_class_inst dflags _ clas tys loc
    = do { instEnvs <- getInstEnvs
         ; let safeOverlapCheck = safeHaskell dflags `elem` [Sf_Safe, Sf_Trustworthy]
@@ -1959,7 +1974,7 @@ matchTypeableClass :: Class -> Kind -> Type -> TcS LookupInstResult
 matchTypeableClass clas k t
 
   -- See Note [No Typeable for qualified types]
-  | isForAllTy t                               = return NoInstance
+  | isNamedForAllTy t                          = return NoInstance
 
   -- Is the type of the form `C => t`?
   | isJust (tcSplitPredFunTy_maybe t)          = return NoInstance

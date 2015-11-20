@@ -1010,7 +1010,7 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
     onlyOneAndTypeConstr [inst_ty] = typeKind inst_ty `tcEqKind` a2a_kind
     onlyOneAndTypeConstr _         = False
 
-    a2a_kind = mkArrowKind liftedTypeKind liftedTypeKind
+    a2a_kind = mkFunTy liftedTypeKind liftedTypeKind
 
     get_gen1_constraints functor_cls orig ty
        = mk_functor_like_constraints orig functor_cls $
@@ -1032,7 +1032,7 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
        = [ mkPredOrigin orig pred
          | ty <- tys
          , pred <- [ mkClassPred cls [ty]
-                   , mkEqPred (typeKind ty) a2a_kind] ]
+                   , mkPrimEqPred (typeKind ty) a2a_kind ] ]
 
     rep_tc_tvs = tyConTyVars rep_tc
     last_tv = last rep_tc_tvs
@@ -1595,7 +1595,7 @@ mkNewTypeEqn dflags overlap_mode tvs
         -- calls to coercible that we are going to generate.
         coercible_constraints =
             [ let (Pair t1 t2) = mkCoerceClassMethEqn cls (varSetElemsWellScoped dfun_tvs) inst_tys rep_inst_ty meth
-              in mkPredOrigin (DerivOriginCoerce meth t1 t2) (mkCoerciblePred t1 t2)
+              in mkPredOrigin (DerivOriginCoerce meth t1 t2) (mkReprPrimEqPred t1 t2)
             | meth <- classMethods cls ]
 
                 -- If there are no tyvars, there's no need

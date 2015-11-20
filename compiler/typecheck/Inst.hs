@@ -6,7 +6,7 @@
 The @Inst@ type: dictionaries or method instances
 -}
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP, MultiWayIf #-}
 
 module Inst (
        deeplySkolemise, deeplyInstantiate,
@@ -38,6 +38,8 @@ import TcRnMonad
 import TcEnv
 import TcEvidence
 import InstEnv
+import DataCon     ( dataConWrapId )
+import TysWiredIn  ( eqBoxDataCon )
 import FunDeps
 import TcMType
 import Type
@@ -54,7 +56,6 @@ import PrelNames
 import SrcLoc
 import DynFlags
 import Util
-import BasicTypes ( Boxity(..) )
 import Outputable
 import Control.Monad( unless )
 import Data.Maybe( isJust )
@@ -154,7 +155,7 @@ deeplyInstantiate :: CtOrigin -> TcSigmaType -> TcM (HsWrapper, TcRhoType)
 -- then  wrap e :: rho
 
 deeplyInstantiate orig ty
-    -- TODO (RAE): This should vare more about visibility, I think while merging
+    -- TODO (RAE): This should care more about visibility, I think while merging
   | Just (arg_tys, tvs, theta, rho) <- tcDeepSplitSigmaTy_maybe ty
   = do { (subst, tvs') <- tcInstTyVars tvs
        ; ids1  <- newSysLocalIds (fsLit "di") (substTys subst arg_tys)
@@ -180,6 +181,16 @@ deeplyInstantiate orig ty
             Instantiating a call
 *                                                                      *
 ************************************************************************
+
+Note [Handling boxed equality]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The solver deals entirely in terms of unboxed (primitive) equality.
+There should never be a boxed Wanted equality. Ever. But, what if
+we are calling `foo :: forall a. (F a ~ Bool) => ...`? That equality
+is boxed, so naive treatment here would emit a boxed Wanted equality.
+
+So we simply check for this case and make the right boxing of evidence.
+
 -}
 
 ----------------
@@ -192,7 +203,7 @@ instCall :: CtOrigin -> [TcType] -> TcThetaType -> TcM HsWrapper
 
 instCall orig tys theta
   = do  { dict_app <- instCallConstraints orig theta
-        ; return (dict_app <.> mkWpTyEvApps tys) }
+        ; return (dict_app <.> mkWpTyApps tys) }
 
 ----------------
 instCallConstraints :: CtOrigin -> TcThetaType -> TcM HsWrapper
@@ -203,17 +214,23 @@ instCallConstraints orig preds
   | null preds
   = return idHsWrapper
   | otherwise
-  = do { (boxities, evs) <- mapAndUnzipM go preds
+  = do { evs <- mapM go preds
        ; traceTc "instCallConstraints" (ppr evs)
-       ; return (mkWpEvApps boxities evs) }
+       ; return (mkWpEvApps evs) }
   where
     go pred
-     | Just (boxity, Nominal, ty1, ty2) <- getEqPredTys_maybe pred -- Try short-cut
+     | Just (Nominal, ty1, ty2) <- getEqPredTys_maybe pred -- Try short-cut #1
      = do  { co <- unifyType noThing ty1 ty2
-           ; return (boxity, EvCoercion co) }
+           ; return (EvCoercion co) }
+
+       -- Try short-cut #2
+     | Just (tc, args@[_, _, ty1, ty2]) <- splitTyConApp_maybe pred
+     , tc `hasKey` eqTyConKey
+     = do { co <- unifyType noThing ty1 ty2
+          ; return (EvDFunApp (dataConWrapId eqBoxDataCon) args [EvCoercion co]) }
+
      | otherwise
-     = do { ev_tm <- emitWanted orig pred
-          ; return (Boxed, ev_tm) }  -- TODO (RAE): That Boxed is very suspicious.
+     = emitWanted orig pred
 
 instDFunType :: DFunId -> [DFunInstType]
              -> TcM ( [TcType]      -- instantiated argument types

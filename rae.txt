@@ -15,6 +15,13 @@ stack:
 
 fix toHsType w.r.t. implicit parameters (typecheck/should_compile/T8565.hs)
 
+FAILURES:
+typecheck/should_compile/T6018:
+  - TF injectivity solver fails here. The problem is that we end up with s0 ~ s1 and s0 ~ s2 in the inert
+    set, where we want to find s1 ~ s2. And, because we process deriveds last, the model doesn't get updated
+    accordingly until the end, and then there isn't the right kick-out to re-process TF injectivity stuff.
+    I would like Simon's advice.
+
 TICKETS:
 #9017:
 #9173: mention expression in error
@@ -42,6 +49,10 @@ result ty, or (3) do something else. I want SPJ's input, as both (1)
 and (2) are terrible.
 
 fix:
+  - Parser improvement ideas:
+     1. Have HsAppsTy contain alternating non-symbolic regions and symbols.
+     2. Change the _no_ops versions only to exclude dataconops, allowing * to appear.
+
   - Refactor noThing
 
   - pattern synonyms
@@ -50,9 +61,6 @@ fix:
   - change optCoercion to take a Role hint (or perhaps a Maybe Role)
 
   - implement better dependency checking
-  - implement StarInStar (or other name) extension
-
-  - See tag hetero-twiddle.
 
   - Every time tcExtendTyVarEnv{,2} is called, make sure an implication
     constraint with skolem info is also produced. This currently seems to
@@ -62,15 +70,6 @@ fix:
 
   - Fix #15 by refusing to have kind family applications inferred in type
     patterns.
-
-  - Deferred kind errors! Right now, evBindsSubst just silently fails,
-    creating core-lint errors. Proposed solution: box the equality.
-    Then use the desugared, unpacked boxed equality in terms, but
-    use a UnivCo with a clear provenance in types. A bogus type
-    coercion can't, by itself, make a program go wrong.
-
-  - need to gracefully handle exotic kinds, like parallel arrays and implicit params.
-    Search for ASSERT( isType ) in RnTypes
 
   - unifyWantedLikeEv handles coercions. But make sure other, similar scenarios
     do too.
@@ -117,8 +116,6 @@ fix:
   - mkExpectedActualMsg has a lot of backward-compatibility stuff
   - after DeriveAnyClass is fixed (#9968), make sure that the use of looser
     tcUnifyTys in deriveTyData isn't causing problems.
-  - add CoreLint checks for levity polymorphism used the right way. But, what exactly
-    is the right way??
   - need an -fprint-explicit-coercions, which is off by default.
 - Are there uses of the `OrCoVar` functions that could be streamlined?
   Also, look at uses of isCoercionType in module Id
@@ -127,22 +124,11 @@ fix:
   - consider re-engineering the boxity problems in solver. look for the "LikeEv" functions
     then "ew" check in DsBinds, and Note [TcCoercion kinds] in DsBinds.
 
-  - Update formalism.
-     * Π
   - Do we need special rule for boxity of ($)? I don't think so, anymore. SPJ agrees. Maybe.
   - consider merging Kind into Type
-  - there is tracking of type vs kind in RnTypes. Much can be removed, but
-    we want to preserve errors for silly kinds when extensions are off,
-    so it can't be taken out entirely. I posit that, absent extension tracking,
-    we wouldn't need to track types vs kinds here.
-  - pattern synonyms: they can have existential covars, now, right?
-            and: make sure they set givens correctly in TcPat (re dep_eq_spec)
   - hsq_implict --> hsq_undeclared; hsq_explicit --> hsq_declared
   - coreExpandTyCon_maybe and tcExpandTyCon_maybe must look at kinds.
-  - kind inference should use the "matchExpected..." functions;
-    merge matchExpectedFunKind with a type-level thing.
   - APromotionErr (?)
-  - Remove TcRnTypes.hs-boot. See comment near top of TcEvidence.
   - no check for silliness like `data T :: T -> *`.
   - :kind in GHCi is unhappy with
     data Sg (s :: *) (t :: TyFun s * -> *) :: * where

@@ -97,7 +97,7 @@ dsForeigns' fos = do
    do_decl (ForeignImport id _ co spec) = do
       traceIf (text "fi start" <+> ppr id)
       id' <- dsVar (unLoc id)
-      co' <- dsCoercionType co
+      co' <- dsCoercion co
       (bs, h, c) <- dsFImport id' co' spec
       traceIf (text "fi end" <+> ppr id)
       return (h, c, [], bs)
@@ -105,7 +105,7 @@ dsForeigns' fos = do
    do_decl (ForeignExport (L _ id) _ co
                           (CExport (L _ (CExportStatic _ ext_nm cconv)) _)) = do
       id' <- dsVar id
-      co' <- dsCoercionType co
+      co' <- dsCoercion co
       (h, c, _, _) <- dsFExport id' co' ext_nm cconv False
       return (h, c, [id], [])
 

@@ -5,10 +5,6 @@ module Kind (
         -- * Main data type
         Kind, typeKind,
 
-        -- Kinds
-        mkArrowKind, mkArrowKinds,
-        pprKind, pprParendKind,
-
         -- ** Predicates on Kinds
         isLiftedTypeKind, isUnliftedTypeKind,
         isConstraintKind,
@@ -26,7 +22,6 @@ module Kind (
 import {-# SOURCE #-} Type       ( typeKind, coreViewOneStarKind )
 
 import TyCoRep
-import TysPrim
 import TyCon
 import Var
 import PrelNames

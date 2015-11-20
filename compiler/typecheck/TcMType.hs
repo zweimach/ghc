@@ -9,7 +9,7 @@ This module contains monadic operations over types that contain
 mutable type variables
 -}
 
-{-# LANGUAGE CPP, TupleSections #-}
+{-# LANGUAGE CPP, TupleSections, MultiWayIf #-}
 
 module TcMType (
   TcTyVar, TcKind, TcType, TcTauType, TcThetaType, TcTyVarSet,
@@ -671,27 +671,40 @@ tcInstBinderX mb_kind_info subst binder
       Nothing -> do { (subst', tv') <- tcInstTyVarX subst tv
                     ; return (subst', mkTyVarTy tv') }
 
-     -- TODO (RAE): This is special-case handling of promoted, lifted
-     -- equality. This is the *only* constraint currently handled in
-     -- types. The special-casing makes me sad. Improve.
+     -- This is the *only* constraint currently handled in types.
   | let ty = substTy subst (binderType binder)
-  , Just (boxity, role, k1, k2) <- getEqPredTys_maybe ty
+  , Just (boxity, role, k1, k2) <- get_pred_tys_maybe ty
   = do { let origin = TypeEqOrigin { uo_actual   = k1
                                    , uo_expected = k2
                                    , uo_thing    = Nothing
                                    , uo_level    = KindLevel }
        ; co <- emitWantedEq origin role k1 k2
        ; let arg' = case boxity of
-                      Boxed   -> mkEqBoxTy    co
                       Unboxed -> mkCoercionTy co
+                      Boxed   -> mkEqBoxTy    co role k1 k2
        ; return (subst, arg') }
 
-  | otherwise
+  | otherwise -- TODO (RAE): I don't think this should be a panic.
+              -- Try inst'ing a type with a silly kind.
   = pprPanic "visible binder in tcInstBinderX" (ppr binder)
 
   where
     lookup_tv tv = do { env <- mb_kind_info   -- `Maybe` monad
                       ; lookupVarEnv env tv }
+
+      -- handle boxed equality constraints, because it's so easy
+    get_pred_tys_maybe ty
+      | Just (r, k1, k2) <- getEqPredTys_maybe ty
+      = Just (Unboxed, r, k1, k2)
+      | Just (tc, [_, _, k1, k2]) <- splitTyConApp_maybe ty
+      = if | tc `hasKey` eqTyConKey
+             -> Just (Boxed, Nominal, k1, k2)
+           | tc `hasKey` coercibleTyConKey
+             -> Just (Boxed, Representational, k1, k2)
+           | otherwise
+             -> Nothing
+      | otherwise
+      = Nothing
 
 {- Note [Name of an instantiated type variable]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -35,7 +35,6 @@ import CoreUtils
 import CoreArity ( etaExpand )
 import CoreUnfold
 import CoreFVs
-import UniqSupply
 import Digraph
 
 import PrelNames
@@ -45,9 +44,8 @@ import TcEvidence
 import TcType
 import Type
 import Kind (returnsConstraintKind)
-import Coercion hiding (substCo)
-import qualified Coercion
-import TysWiredIn ( eqBoxDataCon, coercibleDataCon, mkListTy
+import Coercion
+import TysWiredIn ( mkListTy
                   , mkBoxedTupleTy, charTy, typeNatKind, typeSymbolKind )
 import Id
 import MkId(proxyHashId)
@@ -55,7 +53,6 @@ import Class
 import DataCon  ( dataConTyCon )
 import Name
 import IdInfo   ( IdDetails(..) )
-import Var
 import VarSet
 import Rules
 import VarEnv
@@ -668,18 +665,23 @@ decomposeRuleLhs orig_bndrs orig_lhs
            -- which in turn makes wrap_lets work right
 
    split_lets :: CoreExpr -> ([(DictId,CoreExpr)], CoreExpr)
-   split_lets e
-     | Let (NonRec d r) body <- e
-     , isDictId d
-     , (bs, body') <- split_lets body
+   split_lets (Let (NonRec d r) body)
+     | isDictId d
      = ((d,r):bs, body')
-     | otherwise
-     = ([], e)
+     where (bs, body') = split_lets body
+
+    -- handle "unlifted lets" too, needed for "map/coerce"
+   split_lets (Case r d _ [(DEFAULT, _, body)])
+     | isCoVar d
+     = ((d,r):bs, body')
+     where (bs, body') = split_lets body
+
+   split_lets e = ([], e)
 
    wrap_lets :: VarSet -> [(DictId,CoreExpr)] -> CoreExpr -> CoreExpr
    wrap_lets _ [] body = body
    wrap_lets needed ((d, r) : bs) body
-     | rhs_fvs `intersectsVarSet` needed = Let (NonRec d r) (wrap_lets needed' bs body)
+     | rhs_fvs `intersectsVarSet` needed = mkCoreLet (NonRec d r) (wrap_lets needed' bs body)
      | otherwise                         = wrap_lets needed bs body
      where
        rhs_fvs = exprFreeVars r
@@ -838,11 +840,11 @@ dsHsWrapper (WpFun c1 c2 t1 _) e = do { x <- newSysLocalDs t1
                                       ; e2 <- dsHsWrapper c2 (e `mkCoreAppDs` e1)
                                       ; return (Lam x e2) }
 dsHsWrapper (WpCast co)       e = ASSERT(coercionRole co == Representational)
-                                  dsTcCoercion co (mkCastDs e)
+                                  do { co' <- dsCoercion co
+                                     ; return $ mkCastDs e co' }
 dsHsWrapper (WpEvLam ev)      e = return $ Lam ev e
 dsHsWrapper (WpTyLam tv)      e = return $ Lam tv e
 dsHsWrapper (WpEvApp    tm)   e = liftM (App e) (dsEvTerm tm)
-dsHsWrapper (WpEvPrimApp co)  e = dsTcCoercion co (App e . Coercion)
 
 --------------------------------------
 dsTcEvBinds_s :: [TcEvBinds] -> DsM [CoreBind]
@@ -858,19 +860,13 @@ dsEvBinds :: Bag EvBind -> DsM [CoreBind]
 dsEvBinds bs = mapM ds_scc (sccEvBinds bs)
   where
     ds_scc (AcyclicSCC (EvBind { eb_lhs = v, eb_rhs = r}))
-                          = liftM (NonRec v) (dsAnyEvTerm v r)
+                          = liftM (NonRec v) (dsEvTerm r)
     ds_scc (CyclicSCC bs) = liftM Rec (mapM dsEvBind bs)
 
 dsEvBind :: EvBind -> DsM (Id, CoreExpr)
-dsEvBind (EvBind { eb_lhs = v, eb_rhs = r}) = liftM ((,) v) (dsAnyEvTerm v r)
+dsEvBind (EvBind { eb_lhs = v, eb_rhs = r}) = liftM ((,) v) (dsEvTerm r)
 
 ---------------------------------------
--- | Desugar either an unlifted or lifted EvTerm
-dsAnyEvTerm :: EvVar -> EvTerm -> DsM CoreExpr
-dsAnyEvTerm v r | isUnLiftedType (varType v) = dsEvTermUnlifted r
-                | otherwise                  = dsEvTerm r
-
-
 dsEvTerm :: EvTerm -> DsM CoreExpr
 dsEvTerm (EvId v)
   = do { cv_env <- dsGetCvSubstEnv
@@ -880,20 +876,15 @@ dsEvTerm (EvId v)
 
 dsEvTerm (EvCast tm co)
   = do { tm' <- dsEvTerm tm
-       ; dsTcCoercion co $ mkCastDs tm' }
-                        -- 'v' is always a lifted evidence variable so it is
-                        -- unnecessary to call varToCoreExpr v here.
+       ; co' <- dsCoercion co
+       ; return $ mkCastDs tm' co' }
 
 dsEvTerm (EvDFunApp df tys tms)
   = do { tms' <- mapM dsEvTerm tms
        ; return $ Var df `mkTyApps` tys `mkApps` tms' }
 
-dsEvTerm (EvCoercion co)
-  | Just v <- isCoVar_maybe co
-  , not (isCoercionType (tyVarKind v))
-  = return (Var v)  -- See Note [Simple coercions]
-   -- TODO (RAE): This check is "ew".
-dsEvTerm (EvCoercion co)            = dsTcCoercion co mkEqBox
+dsEvTerm (EvCoercion co) = do { co' <- dsCoercion co
+                              ; return (Coercion co') }
 dsEvTerm (EvSuperClass d n)
   = do { d' <- dsEvTerm d
        ; let (cls, tys) = getClassPredTys (exprType d')
@@ -909,15 +900,6 @@ dsEvTerm (EvLit l) =
 dsEvTerm (EvCallStack cs) = dsEvCallStack cs
 
 dsEvTerm (EvTypeable ev) = dsEvTypeable ev
-
--- | Use this variant when the term is meant to be an unlifted equality
-dsEvTermUnlifted :: EvTerm -> DsM CoreExpr
-dsEvTermUnlifted (EvDelayedError ty msg)
-  = do { covar <- newSysLocalDs ty
-       ; return $ Case (dsEvDelayedError ty msg) covar ty
-                       [(DEFAULT, [], Coercion (mkCoVarCo covar))] }
-    -- case (error "type error...") of x -> Coercion x
-dsEvTermUnlifted evterm = dsTcCoercion (evTermCoercion evterm) Coercion
 
 dsEvDelayedError :: Type -> FastString -> CoreExpr
 dsEvDelayedError ty msg
@@ -1109,78 +1091,3 @@ dsEvCallStack cs = do
     EvCsTop name loc tm -> mkPush name loc tm
     EvCsPushCall name loc tm -> mkPush (occNameFS $ getOccName name) loc tm
     EvCsEmpty -> panic "Cannot have an empty CallStack"
-
----------------------------------------
-dsTcCoercion :: TcCoercion -> (Coercion -> CoreExpr) -> DsM CoreExpr
--- This is the crucial function that moves
--- from TcCoercions to Coercions; see Note [TcCoercions] in Coercion
--- e.g.  dsTcCoercion (trans g1 g2) k
---       = case g1 of EqBox g1# ->
---         case g2 of EqBox g2# ->
---         k (trans g1# g2#)
-dsTcCoercion co thing_inside
-  = do { us <- newUniqueSupply
-       ; outer_subst <- dsGetCvSubstEnv
-       ; let eqvs_covs :: [(EqVar,CoVar)]
-             eqvs_covs = zipWith mk_co_var (varSetElems (coVarsOfCo co))
-                                           (uniqsFromSupply us)
-
-             subst = mkTCvSubst emptyInScopeSet (emptyTvSubstEnv, outer_subst)
-                     `composeTCvSubst`
-                     mkTopTCvSubst [ (eqv, mkCoercionTy $ mkCoVarCo cov)
-                                   | (eqv, cov) <- eqvs_covs]
-             result_expr = thing_inside (Coercion.substCo subst co)
-             result_ty   = exprType result_expr
-
-       ; return (foldr (wrap_in_case result_ty) result_expr eqvs_covs) }
-  where
-      -- See Note [TcCoercion kinds] in TcEvidence
-    mk_co_var :: Id -> Unique -> (Id, Id)
-    mk_co_var eqv uniq
-      | isEqPredLifted pred = (eqv, mkUserLocalCoVar occ uniq ty loc)
-      | otherwise           = (eqv, eqv)
-      where
-         eq_nm = idName eqv
-         occ   = nameOccName eq_nm
-         loc   = nameSrcSpan eq_nm
-         pred  = evVarPred eqv
-         ty    = mkCoercionType (getEqPredRole pred) ty1 ty2
-         (ty1, ty2) = getEqPredTys pred
-
-      -- See Note [TcCoercion kinds] in TcEvidence
-    wrap_in_case result_ty (eqv, cov) body
-      | isEqPredLifted (evVarPred eqv)
-      = case getEqPredRole (evVarPred eqv) of
-         Nominal          -> Case (Var eqv) eqv result_ty [(DataAlt eqBoxDataCon, [cov], body)]
-         Representational -> Case (Var eqv) eqv result_ty [(DataAlt coercibleDataCon, [cov], body)]
-         Phantom          -> panic "wrap_in_case/phantom"
-
-      | otherwise   -- it's already unlifted. No need to unbox.
-      = body
-
-{-
-Note [Simple coercions]
-~~~~~~~~~~~~~~~~~~~~~~~
-We have a special case for coercions that are simple variables.
-Suppose   cv :: a ~ b   is in scope
-Lacking the special case, if we see
-        f a b cv
-we'd desguar to
-        f a b (case cv of EqBox (cv# :: a ~# b) -> EqBox cv#)
-which is a bit stupid.  The special case does the obvious thing.
-
-This turns out to be important when desugaring the LHS of a RULE
-(see Trac #7837).  Suppose we have
-    normalise        :: (a ~ Scalar a) => a -> a
-    normalise_Double :: Double -> Double
-    {-# RULES "normalise" normalise = normalise_Double #-}
-
-Then the RULE we want looks like
-     forall a, (cv:a~Scalar a).
-       normalise a cv = normalise_Double
-But without the special case we generate the redundant box/unbox,
-which simpleOpt (currently) doesn't remove. So the rule never matches.
-
-Maybe simpleOpt should be smarter.  But it seems like a good plan
-to simply never generate the redundant box/unbox in the first place.
--}

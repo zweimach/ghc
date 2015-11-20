@@ -793,6 +793,7 @@ InlVanilla.  The WARN is just so I can see if it happens a lot.
 
 Note [Optimise coercion boxes aggressively]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- TODO (RAE): Delete note and reference?
 
 The simple expression optimiser needs to deal with Eq# boxes as follows:
  1. If the result of optimising the RHS of a non-recursive binding is an

@@ -6,7 +6,7 @@ module TcEvidence (
 
   -- HsWrapper
   HsWrapper(..),
-  (<.>), mkWpTyEvApps,
+  (<.>),
   mkWpTyApps, mkWpEvApps, mkWpEvVarApps, mkWpTyLams, mkWpLams, mkWpLet, mkWpCast,
   mkWpFun, idHsWrapper, isIdHsWrapper, pprHsWrapper,
 
@@ -51,7 +51,6 @@ import VarSet
 import Name
 
 import Util
-import BasicTypes ( Boxity(..), isBoxed )
 import Bag
 import Digraph
 #if __GLASGOW_HASKELL__ < 709
@@ -75,26 +74,6 @@ An TcCoercion is simply a Coercion whose free variables have may be either
 boxed or unboxed. After we are done with typechecking the desugarer finds the
 boxed free variables, unboxes them, and creates a resulting real Coercion with
 kosher free variables.
-
-See also Note [TcCoercion kinds]
-
-Note [TcCoercion kinds]
-~~~~~~~~~~~~~~~~~~~~~~~
-TcCoercions can be classified either by (t1 ~ t2) OR by (t1 ~# t2).
-This is a direct consequence of the fact that both (~) and (~#) are considered
-pred-types by classifyPredType. This is all necessary so that the solver can
-work with both lifted equality and unlifted equality, which in turn is
-necessary because lifted equality can't be used in types.
-
-The way this works out is that the desugarer checks the type of any coercion
-variables used in a TcCoercion. Any lifted equality variables get unboxed;
-any unlifted ones are left alone. See dsTcCoercion.
-
-Then, because equality should always be lifted in terms, dsEvTerm calls
-mkEqBox appropriately. On the other hand, because equality should always
-be unlifted in types, no extra processing is done there.
-
-coercionKind returns a (Pair Type), so it's not affected by this ambiguity.
 
 -}
 
@@ -135,8 +114,6 @@ data HsWrapper
         -- (both dictionaries and coercions)
   | WpEvLam EvVar               -- \d. []       the 'd' is an evidence variable
   | WpEvApp EvTerm              -- [] d         the 'd' is evidence for a constraint
-  | WpEvPrimApp TcCoercion      -- [] @~ d      the 'd' will be an *unboxed* coercion
-
         -- Kind and Type abstraction and application
   | WpTyLam TyVar       -- \a. []  the 'a' is a type/kind variable (not coercion var)
   | WpTyApp KindOrType  -- [] t    the 't' is a type (not coercion)
@@ -165,30 +142,14 @@ mkWpCast co
   | otherwise   = ASSERT2(coercionRole co == Representational, ppr co)
                   WpCast co
 
--- | Make a wrapper from the list of types returned by a tcInstTyVars. This
--- list of types contains only type and coercion variables.
-mkWpTyEvApps :: [Type] -> HsWrapper
-mkWpTyEvApps tys = mk_co_app_fn wp_ty_or_ev_app tys
-  where wp_ty_or_ev_app ty
-          | Just co <- isCoercionTy_maybe ty
-          = WpEvPrimApp co
-
-          | otherwise
-          = WpTyApp ty
-
 mkWpTyApps :: [Type] -> HsWrapper
 mkWpTyApps tys = mk_co_app_fn WpTyApp tys
 
-mkWpEvApps :: [Boxity] -> [EvTerm] -> HsWrapper
-mkWpEvApps boxities args = mk_co_app_fn wp_ev_app (zip (map isBoxed boxities) args)
-
-wp_ev_app :: (Bool, EvTerm) -> HsWrapper
-wp_ev_app (True,  evterm) = WpEvApp evterm
-wp_ev_app (False, evterm) = WpEvPrimApp (evTermCoercion evterm)
+mkWpEvApps :: [EvTerm] -> HsWrapper
+mkWpEvApps args = mk_co_app_fn WpEvApp args
 
 mkWpEvVarApps :: [EvVar] -> HsWrapper
-mkWpEvVarApps vs = mk_co_app_fn wp_ev_app (zip (map (not . isUnLiftedType . varType) vs)
-                                               (map EvId vs))
+mkWpEvVarApps vs = mk_co_app_fn WpEvApp (map EvId vs)
 
 mkWpTyLams :: [TyVar] -> HsWrapper
 mkWpTyLams ids = mk_co_lam_fn WpTyLam ids
@@ -289,7 +250,7 @@ mkGivenEvBind ev tm = EvBind { eb_is_given = True, eb_lhs = ev, eb_rhs = tm }
 data EvTerm
   = EvId EvId                    -- Any sort of evidence Id, including coercions
 
-  | EvCoercion TcCoercion        -- (Boxed) coercion bindings
+  | EvCoercion TcCoercion        -- coercion bindings
                                  -- See Note [Coercion evidence terms]
 
   | EvCast EvTerm TcCoercionR    -- d |> co
@@ -350,14 +311,14 @@ data EvCallStack
 Note [Coercion evidence terms]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 A "coercion evidence term" takes one of these forms
-   co_tm ::= EvId v           where v :: t1 ~ t2
+   co_tm ::= EvId v           where v :: t1 ~# t2
            | EvCoercion co
            | EvCast co_tm co
 
 We do quite often need to get a TcCoercion from an EvTerm; see
 'evTermCoercion'.
 
-INVARIANT: The evidence for any constraint with type (t1~t2) is
+INVARIANT: The evidence for any constraint with type (t1 ~# t2) is
 a coercion evidence term.  Consider for example
     [G] d :: F Int a
 If we have
@@ -646,7 +607,6 @@ pprHsWrapper doc wrap
     help it (WpCast co)   = add_parens $ sep [it False, nest 2 (ptext (sLit "|>")
                                               <+> pprParendCo co)]
     help it (WpEvApp id)    = no_parens  $ sep [it True, nest 2 (ppr id)]
-    help it (WpEvPrimApp co)= no_parens  $ sep [it True, text "@~" <+> nest 2 (ppr co)]
     help it (WpTyApp ty)    = no_parens  $ sep [it True, ptext (sLit "@") <+> pprParendType ty]
     help it (WpEvLam id)    = add_parens $ sep [ ptext (sLit "\\") <> pp_bndr id, it False]
     help it (WpTyLam tv)    = add_parens $ sep [ptext (sLit "/\\") <> pp_bndr tv, it False]

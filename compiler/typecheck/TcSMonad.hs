@@ -2969,7 +2969,7 @@ newWantedEvVar loc pty
 -- up non-equalities in the cache
 newWanted :: CtLoc -> PredType -> TcS MaybeNew
 newWanted loc pty
-  | Just (_, role, ty1, ty2) <- getEqPredTys_maybe pty
+  | Just (role, ty1, ty2) <- getEqPredTys_maybe pty
   = Fresh . fst <$> newWantedEq loc role ty1 ty2
   | otherwise
   = newWantedEvVar loc pty
@@ -2982,7 +2982,7 @@ mkDerivedPred :: TcPredType -> TcPredType
     -- get rid of lifted equalities entirely in the solver so that this
     -- isn't an issue.
 mkDerivedPred pred
-  | Just (_, role, ty1, ty2) <- getEqPredTys_maybe pred
+  | Just (role, ty1, ty2) <- getEqPredTys_maybe pred
   = mkPrimEqPredRole role ty1 ty2
   | otherwise
   = pred

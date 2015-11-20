@@ -33,7 +33,7 @@ module TyCoRep (
 
         -- Functions over types
         mkTyConTy, mkTyVarTy, mkTyVarTys,
-        mkFunTy,
+        mkFunTy, mkFunTys,
         isLiftedTypeKind, isUnliftedTypeKind,
         isCoercionType, isLevityTy, isLevityVar,
 
@@ -373,6 +373,10 @@ infixr 3 `mkFunTy`      -- Associates to the right
 mkFunTy :: Type -> Type -> Type
 mkFunTy arg res
   = ForAllTy (Anon arg) res
+
+-- | Make nested arrow types
+mkFunTys :: [Type] -> Type -> Type
+mkFunTys tys ty = foldr mkFunTy ty tys
 
 -- | Does this type classify a core Coercion?
 isCoercionType :: Type -> Bool

@@ -272,7 +272,7 @@ tcPatSynMatcher (L loc name) lpat
 
              cont' = mkLHsWrap (mkWpLet prov_ev_binds) $
                      foldl nlHsApp
-                       (mkLHsWrap (mkWpEvApps (repeat Boxed) prov_dicts)
+                       (mkLHsWrap (mkWpEvApps prov_dicts)
                                   (nlHsTyApp cont ex_tys)) cont_args
 
              fail' = nlHsApps fail [nlHsVar voidPrimId]
