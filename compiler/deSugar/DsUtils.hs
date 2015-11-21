@@ -26,6 +26,8 @@ module DsUtils (
 
         mkErrorAppDs, mkCoreAppDs, mkCoreAppsDs, mkCastDs,
 
+        seqVar,
+
         -- LHs tuples
         mkLHsVarPatTup, mkLHsPatTup, mkVanillaTuplePat,
         mkBigLHsVarTupId, mkBigLHsTupId, mkBigLHsVarPatTupId, mkBigLHsPatTupId,
@@ -63,9 +65,6 @@ import TysWiredIn
 import BasicTypes
 import UniqSet
 import UniqSupply
-import Var              ( updateVarTypeM, EvVar )
-import VarEnv           ( mkInScopeSet, varEnvElts )
-import VarSet           ( unionVarSet, TyCoVarSet, IdSet )
 import Module
 import PrelNames
 import Outputable
@@ -230,6 +229,10 @@ wrapBind :: Var -> Var -> CoreExpr -> CoreExpr
 wrapBind new old body   -- NB: this function must deal with term
   | new==old    = body  -- variables, type variables or coercion variables
   | otherwise   = Let (NonRec new (varToCoreExpr old)) body
+
+seqVar :: Var -> CoreExpr -> CoreExpr
+seqVar var body = Case (Var var) var (exprType body)
+                        [(DEFAULT, [], body)]
 
 mkCoLetMatchResult :: CoreBind -> MatchResult -> MatchResult
 mkCoLetMatchResult bind = adjustMatchResult (mkCoreLet bind)

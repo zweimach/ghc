@@ -17,7 +17,6 @@ import CoreSyn
 
 import DsCCall
 import DsMonad
-import DsUtils
 
 import HsSyn
 import DataCon

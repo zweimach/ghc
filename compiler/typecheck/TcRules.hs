@@ -371,12 +371,12 @@ simplifyRule name lhs_wanted rhs_wanted
             , t1 `tcEqType` t2
             -> do { -- These are trivial. Don't quantify. But do fill in
                     -- the hole.
-                  ; fillCoercionHole hole (mkNomReflCo t1)
+                  ; fillCoercionHole hole (mkTcNomReflCo t1)
                   ; return Nothing }
 
             | otherwise
             -> do { ev_id <- newEvVar pred
-                  ; fillCoercionHole hole (mkCoVarCo ev_id)
+                  ; fillCoercionHole hole (mkTcCoVarCo ev_id)
                   ; return (Just ev_id) }
           EvVarDest evar -> return (Just evar)
     quantify_normal ct = pprPanic "simplifyRule.quantify_normal" (ppr ct)

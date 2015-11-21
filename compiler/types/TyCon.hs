@@ -14,7 +14,7 @@ module TyCon(
 
         AlgTyConRhs(..), visibleDataCons,
         AlgTyConFlav(..), isNoParent,
-        FamTyConFlav(..), Role(..), Promoted(..), Injectivity(..),
+        FamTyConFlav(..), Role(..), Injectivity(..),
 
         -- ** Field labels
         tyConFieldLabels, tyConFieldLabelEnv,
@@ -789,14 +789,8 @@ nothing for the axiom to prove!
 
 Note [Promoted data constructors]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-TODO (RAE): Update note.
-A data constructor can be promoted to become a type constructor,
+All data constructors can be promoted to become a type constructor,
 via the PromotedDataCon alternative in TyCon.
-
-* Only data constructors with
-     (a) no kind polymorphism
-     (b) no constraints in its type (eg GADTs)
-  are promoted.  Existentials are ok; see Trac #7347.
 
 * The TyCon promoted from a DataCon has the *same* Name and Unique as
   the DataCon.  Eg. If the data constructor Data.Maybe.Just(unique 78,
@@ -907,8 +901,6 @@ tyConRepName_maybe (AlgTyCon { algTcParent = parent })
 tyConRepName_maybe (FamilyTyCon { famTcFlav = DataFamilyTyCon rep_nm })
   = Just rep_nm
 tyConRepName_maybe (PromotedDataCon { tcRepName = rep_nm })
-  = Just rep_nm
-tyConRepName_maybe (PromotedTyCon { tcRepName = rep_nm })
   = Just rep_nm
 tyConRepName_maybe _ = Nothing
 

@@ -1581,7 +1581,6 @@ rewriteEvidence ev@(CtWanted { ctev_dest = EvVarDest evar
        ; setWantedEvBind evar
                    (mkEvCast (getEvTerm mb_new_ev)
                              (tcDowngradeRole Representational (ctEvRole ev) co))
-                   loc
        ; case mb_new_ev of
             Fresh  new_ev -> continueWith new_ev
             Cached _      -> stopWith ev "Cached wanted" }

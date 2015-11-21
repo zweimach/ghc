@@ -36,7 +36,6 @@ import Class
 import TyCon
 
 -- others:
-import Coercion    ( pprCoAxBranch )
 import HsSyn            -- HsType
 import TcRnMonad        -- TcType, amongst others
 import FunDeps

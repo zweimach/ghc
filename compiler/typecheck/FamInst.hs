@@ -411,7 +411,7 @@ makeInjectivityErrors fi_ax axiom inj conflicts
         rhs             = coAxBranchRHS axiom
 
         are_conflicts   = not $ null conflicts
-        unused_inj_tvs  = unusedInjTvsInRHS tycon inj lhs rhs
+        unused_inj_tvs  = unusedInjTvsInRHS (coAxiomTyCon fi_ax) inj lhs rhs
         inj_tvs_unused  = not $ and (isEmptyVarSet <$> unused_inj_tvs)
         tf_headed       = isTFHeaded rhs
         bare_variables  = bareTvInRHSViolated lhs rhs

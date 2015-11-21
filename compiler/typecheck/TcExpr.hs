@@ -218,18 +218,18 @@ tcExpr (HsIPVar x) res_ty
 tcExpr (HsOverLabel l) res_ty  -- See Note [Type-checking overloaded labels]
   = do { let origin = OverLabelOrigin l
        ; isLabelClass <- tcLookupClass isLabelClassName
-       ; alpha <- newFlexiTyVarTy openTypeKind
+       ; alpha <- newOpenFlexiTyVarTy
        ; let lbl = mkStrLitTy l
              pred = mkClassPred isLabelClass [lbl, alpha]
        ; loc <- getSrcSpanM
-       ; var <- emitWanted origin pred
+       ; var <- emitWantedEvVar origin pred
        ; let proxy_arg = L loc (mkHsWrap (mkWpTyApps [typeSymbolKind, lbl])
                                          (HsVar proxyHashId))
              tm = L loc (fromDict pred (HsVar var)) `HsApp` proxy_arg
        ; tcWrapResult tm alpha res_ty }
   where
   -- Coerces a dictionary for `IsLabel "x" t` into `Proxy# x -> t`.
-  fromDict pred = HsWrap $ mkWpCast $ TcCoercion $ unwrapIP pred
+  fromDict pred = HsWrap $ mkWpCast $ unwrapIP pred
 
 tcExpr (HsLam match) res_ty
   = do  { (co_fn, match') <- tcMatchLambda match res_ty

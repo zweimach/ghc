@@ -35,6 +35,7 @@ import PatSyn
 import MatchCon
 import MatchLit
 import Type
+import Coercion ( eqCoercion )
 import TyCon( isNewTyCon )
 import TysWiredIn
 import ListSetOps

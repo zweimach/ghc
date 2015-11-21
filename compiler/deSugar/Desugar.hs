@@ -37,7 +37,6 @@ import DsMonad
 import DsExpr
 import DsBinds
 import DsForeign
-import DsUtils
 import Module
 import NameSet
 import NameEnv

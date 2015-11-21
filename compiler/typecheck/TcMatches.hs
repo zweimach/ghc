@@ -41,7 +41,6 @@ import FastString
 import DynFlags
 import PrelNames (monadFailClassName)
 import Type
-import Inst
 
 -- Create chunkified tuple tybes for monad comprehensions
 import MkCore

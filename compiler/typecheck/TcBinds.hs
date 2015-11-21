@@ -1642,15 +1642,15 @@ tcTySig (L loc (PatSynSig (L _ name) (_, qtvs) req prov ty))
 
        -- These are /signatures/ so we zonk to squeeze out any kind
        -- unification variables. Thta has happened automatically in tcHsSigType
-       ; req'  <- zonkTcThetaType req'
-       ; prov' <- zonkTcThetaType prov'
+       ; req'  <- zonkTcTypes req'
+       ; prov' <- zonkTcTypes prov'
 
        ; qtvs' <- mapMaybeM zonkQuantifiedTyVar qtvs'
 
        ; let (_, pat_ty) = tcSplitFunTys ty'
              univ_set = tyCoVarsOfType pat_ty
              (univ_tvs, ex_tvs) = partition (`elemVarSet` univ_set) qtvs'
-             bad_tvs = varSetElems (tyVarsOfTypes req' `minusVarSet` univ_set)
+             bad_tvs = varSetElems (tyCoVarsOfTypes req' `minusVarSet` univ_set)
 
        ; unless (null bad_tvs) $ addErr $
          hang (ptext (sLit "The 'required' context") <+> quotes (pprTheta req'))

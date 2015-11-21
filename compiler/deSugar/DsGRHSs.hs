@@ -24,6 +24,7 @@ import DsMonad
 import DsUtils
 import TysWiredIn
 import PrelNames
+import Type   ( Type )
 import Module
 import Name
 import Util

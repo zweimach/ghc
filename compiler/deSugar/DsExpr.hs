@@ -60,7 +60,6 @@ import PatSyn
 import IfaceEnv
 import IdInfo
 import Data.IORef       ( atomicModifyIORef', modifyIORef )
-import Data.List   ( mapAccumL )
 
 import Control.Monad
 import GHC.Fingerprint
@@ -153,7 +152,7 @@ dsUnliftedBind (FunBind { fun_id = L _ fun
        ; MASSERT( null args ) -- Functions aren't lifted
        ; MASSERT( isIdHsWrapper co_fn )
        ; let rhs' = mkOptTickBox tick rhs
-       ; return (bindNonRec fun' rhs' body) }
+       ; return (bindNonRec fun rhs' body) }
 
 dsUnliftedBind (PatBind {pat_lhs = pat, pat_rhs = grhss, pat_rhs_ty = ty }) body
   =     -- let C x# y# = rhs in body
@@ -345,13 +344,14 @@ dsExpr (HsIf mb_fun guard_expr then_expr else_expr)
            Nothing  -> return $ mkIfThenElse pred b1 b2 }
 
 dsExpr (HsMultiIf res_ty alts)
-  = do { if null alts
-         then mkErrorExpr res_ty
-         else
-    do { match_result <- liftM (foldr1 combineMatchResults)
+  | null alts
+  = mkErrorExpr
+
+  | otherwise
+  = do { match_result <- liftM (foldr1 combineMatchResults)
                                (mapM (dsGRHS IfAlt res_ty) alts)
        ; error_expr   <- mkErrorExpr
-       ; extractMatchResult match_result error_expr } }
+       ; extractMatchResult match_result error_expr }
   where
     mkErrorExpr = mkErrorAppDs nON_EXHAUSTIVE_GUARDS_ERROR_ID res_ty
                                (ptext (sLit "multi-way if"))
@@ -597,7 +597,7 @@ dsExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
     mk_alt upd_fld_env con
       = do { let (univ_tvs, ex_tvs, eq_spec,
                   prov_theta, _req_theta, arg_tys, _) = conLikeFullSig con
-                 subst = mkTopTvSubst (univ_tvs `zip` in_inst_tys)
+                 subst = mkTopTCvSubst (univ_tvs `zip` in_inst_tys)
 
                 -- I'm not bothering to clone the ex_tvs
            ; eqs_vars   <- mapM newPredVarDs (substTheta subst (eqSpecPreds eq_spec))
@@ -614,18 +614,18 @@ dsExpr expr@(RecordUpd { rupd_expr = record_expr, rupd_flds = fields
                  inst_con = noLoc $ HsWrap wrap (HsVar wrap_id)
                         -- Reconstruct with the WrapId so that unpacking happens
                  -- The order here is because of the order in `TcPatSyn`.
-                 wrap = dict_req_wrap                                         <.>
-                        mkWpEvVarApps theta_vars                              <.>
-                        mkWpEvApps    (map (EvCoercion . mkCoVarCo) eqs_vars) <.>
-                        mkWpTyApps    (mkTyVarTys ex_tvs')                    <.>
+                 wrap = dict_req_wrap                                           <.>
+                        mkWpEvVarApps theta_vars                                <.>
+                        mkWpEvApps    (map (EvCoercion . mkTcCoVarCo) eqs_vars) <.>
+                        mkWpTyApps    (mkTyVarTys ex_tvs)                       <.>
                         mkWpTyApps    out_inst_tys
                  rhs = foldl (\a b -> nlHsApp a b) inst_con val_args
 
                  req_wrap = dict_req_wrap <.> mkWpTyApps in_inst_tys
 
-                 pat = noLoc $ ConPatOut { pat_con = noLoc (RealDataCon con)
-                                         , pat_tvs = ex_tvs'
-                                         , pat_dicts = eq_vars ++ theta_vars
+                 pat = noLoc $ ConPatOut { pat_con = noLoc con
+                                         , pat_tvs = ex_tvs
+                                         , pat_dicts = eqs_vars ++ theta_vars
                                          , pat_binds = emptyTcEvBinds
                                          , pat_args = PrefixCon $ map nlVarPat arg_ids
                                          , pat_arg_tys = in_inst_tys

@@ -516,8 +516,8 @@ tc_ax_branch prev_branches
                           , cab_incomps = map (prev_branches `getNth`) incomps }
     ; return (prev_branches ++ [br]) }
 
-tcIfaceDataCons :: Name -> TyCon -> [TyVar] -> IfaceConDecls -> Bool -> IfL AlgTyConRhs
-tcIfaceDataCons tycon_name tycon tc_tyvars if_cons is_prom
+tcIfaceDataCons :: Name -> TyCon -> [TyVar] -> IfaceConDecls -> IfL AlgTyConRhs
+tcIfaceDataCons tycon_name tycon tc_tyvars if_cons
   = case if_cons of
         IfAbstractTyCon dis -> return (AbstractTyCon dis)
         IfDataTyCon cons _ _ -> do  { field_lbls <- mapM (traverse lookupIfaceTop) (ifaceConDeclFields if_cons)

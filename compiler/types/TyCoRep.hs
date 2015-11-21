@@ -51,6 +51,7 @@ module TyCoRep (
         pprKind, pprParendKind, pprTyLit, suppressImplicits,
         TyPrec(..), maybeParen, pprTcApp,
         pprPrefixApp, pprArrowChain, ppr_type,
+        pprDataCons,
 
         -- Free variables
         tyCoVarsOfType, tyCoVarsOfTypes,
@@ -102,10 +103,12 @@ module TyCoRep (
 
 #include "HsVersions.h"
 
-import {-# SOURCE #-} DataCon( dataConTyCon )
+import {-# SOURCE #-} DataCon( dataConTyCon, dataConFullSig
+                              , DataCon, eqSpecTyVar )
 import {-# SOURCE #-} Type( isPredTy, isCoercionTy, mkAppTy ) -- Transitively pulls in a LOT of stuff, better to break the loop
 import {-# SOURCE #-} Coercion
 import {-# SOURCE #-} TysWiredIn ( isLiftedTypeKindTyConName )
+import {-# SOURCE #-} ConLike ( ConLike(..) )
 
 -- friends:
 import Var
@@ -116,7 +119,6 @@ import BasicTypes
 import TyCon
 import Class
 import CoAxiom
-import ConLike
 
 -- others
 import PrelNames
@@ -126,6 +128,7 @@ import DynFlags
 import StaticFlags ( opt_PprStyle_Debug )
 import FastString
 import Pair
+import ListSetOps
 import Util
 
 -- libraries
@@ -2057,6 +2060,22 @@ remember to parenthesise the operator, thus
 See Trac #2766.
 -}
 
+pprDataCons :: TyCon -> SDoc
+pprDataCons = sepWithVBars . fmap pprDataConWithArgs . tyConDataCons
+  where
+    sepWithVBars [] = empty
+    sepWithVBars docs = sep (punctuate (space <> vbar) docs)
+
+pprDataConWithArgs :: DataCon -> SDoc
+pprDataConWithArgs dc = sep [forAllDoc, thetaDoc, ppr dc <+> argsDoc]
+  where
+    (univ_tvs, ex_tvs, eq_spec, theta, arg_tys, _res_ty) = dataConFullSig dc
+    forAllDoc = pprUserForAll $ map (\tv -> Named tv Invisible) $
+                ((univ_tvs `minusList` map eqSpecTyVar eq_spec) ++ ex_tvs)
+    thetaDoc  = pprThetaArrowTy theta
+    argsDoc   = hsep (fmap pprParendType arg_tys)
+
+
 pprTypeApp :: TyCon -> [Type] -> SDoc
 pprTypeApp tc tys = pprTyTcApp TopPrec tc tys
         -- We have to use ppr on the TyCon (not its name)
@@ -2076,6 +2095,8 @@ pprTyTcApp p tc tys
   = sdocWithDynFlags $ \dflags ->
     if gopt Opt_PrintExplicitKinds dflags then pprTcApp  p ppr_type tc tys
                                    else pprTyList p ty1 ty2
+
+  | tc `hasKey` errorMessageTypeErrorFamKey = text "(TypeError ...)"
 
   | tc `hasKey` tYPETyConKey
   , [TyConApp lev_tc []] <- tys

@@ -839,7 +839,7 @@ tcDataDefn rec_info     -- Knot-tied; don't look at this eagerly
 
        ; tycon <- fixM $ \ tycon -> do
              { let res_ty = mkTyConApp tycon (mkTyVarTys final_tvs)
-             ; data_cons <- tcConDecls new_or_data is_prom tycon (final_tvs, res_ty) cons
+             ; data_cons <- tcConDecls new_or_data tycon (final_tvs, res_ty) cons
              ; tc_rhs    <- mk_tc_rhs is_boot tycon data_cons
              ; tc_rep_nm <- newTyConRepName tc_name
              ; return (mkAlgTyCon tc_name tycon_kind final_tvs roles
@@ -1290,21 +1290,20 @@ consUseGadtSyntax _                                               = False
                  -- All constructors have same shape
 
 -----------------------------------
-tcConDecls :: NewOrData -> Bool -> TyCon -> ([TyVar], Type)
+tcConDecls :: NewOrData -> TyCon -> ([TyVar], Type)
            -> [LConDecl Name] -> TcM [DataCon]
-tcConDecls new_or_data is_prom rep_tycon (tmpl_tvs, res_tmpl)
+tcConDecls new_or_data rep_tycon (tmpl_tvs, res_tmpl)
   = concatMapM $ addLocM $
-    tcConDecl new_or_data is_prom rep_tycon tmpl_tvs res_tmpl
+    tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
 
 tcConDecl :: NewOrData
-          -> Bool              -- TyCon is promotable?  Knot-tied!
           -> TyCon             -- Representation tycon. Knot-tied!
           -> [TyVar] -> Type   -- Return type template (with its template tyvars)
                                --    (tvs, T tys), where T is the family TyCon
           -> ConDecl Name
           -> TcM [DataCon]
 
-tcConDecl new_or_data is_prom rep_tycon tmpl_tvs res_tmpl
+tcConDecl new_or_data rep_tycon tmpl_tvs res_tmpl
           (ConDecl { con_names = names
                    , con_qvars = hs_tvs, con_cxt = hs_ctxt
                    , con_details = hs_details, con_res = hs_res_ty })

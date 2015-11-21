@@ -149,8 +149,6 @@ data IfaceDecl
                   -- Everything below is redundant,
                   -- but needed to implement pprIfaceDecl
                   ifPatUnivTvs    :: [IfaceTvBndr],
-                    -- TODO (RAE): This next line is almost surely wrong,
-                    -- because existentials can be ids now!
                   ifPatExTvs      :: [IfaceTvBndr],
                   ifPatProvCtxt   :: IfaceContext,
                   ifPatReqCtxt    :: IfaceContext,
@@ -737,11 +735,11 @@ pprIfaceDecl ss (IfaceFamily { ifName = tycon, ifTyVars = tyvars
                              , ifFamFlav = rhs, ifFamKind = kind
                              , ifResVar = res_var, ifFamInj = inj })
   | IfaceDataFamilyTyCon <- rhs
-  = ptext (sLit "data family") <+> pprIfaceDeclHead [] ss tycon tyvars
+  = ptext (sLit "data family") <+> pprIfaceDeclHead [] ss tycon kind tyvars
 
   | otherwise
   = vcat [ hang (ptext (sLit "type family")
-                 <+> pprIfaceDeclHead [] ss tycon tyvars)
+                 <+> pprIfaceDeclHead [] ss tycon kind tyvars)
               2 (pp_inj res_var inj <+> ppShowRhs ss (pp_rhs rhs))
          , ppShowRhs ss (nest 2 (pp_branches rhs)) ]
   where

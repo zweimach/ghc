@@ -10,6 +10,9 @@ import {-# SOURCE #-} TyCoRep (Type, ThetaType)
 
 data DataCon
 data DataConRep
+data EqSpec
+eqSpecTyVar :: EqSpec -> TyVar
+
 dataConName      :: DataCon -> Name
 dataConTyCon     :: DataCon -> TyCon
 dataConExTyVars  :: DataCon -> [TyVar]
@@ -18,7 +21,7 @@ dataConFieldLabels :: DataCon -> [FieldLabel]
 dataConInstOrigArgTys  :: DataCon -> [Type] -> [Type]
 dataConStupidTheta :: DataCon -> ThetaType
 dataConFullSig :: DataCon
-               -> ([TyVar], [TyVar], [(TyVar,Type)], ThetaType, [Type], Type)
+               -> ([TyVar], [TyVar], [EqSpec], ThetaType, [Type], Type)
 
 instance Eq DataCon
 instance Ord DataCon

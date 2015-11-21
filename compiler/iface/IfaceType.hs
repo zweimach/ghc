@@ -220,7 +220,6 @@ splitIfaceSigmaTy ty
     split_rho tau = ([], tau)
 
 suppressIfaceInvisibles :: DynFlags -> [IfaceForAllBndr] -> [a] -> [a]
-  -- TODO (RAE): This is wrong just like Type.filterInvisibles
 suppressIfaceInvisibles dflags tys xs
   | gopt Opt_PrintExplicitKinds dflags = xs
   | otherwise = suppress tys xs
@@ -331,8 +330,33 @@ substIfaceType env ty
     go (IfaceTupleTy s i tys) = IfaceTupleTy s i (substIfaceTcArgs env tys)
     go (IfaceForAllTy {})     = pprPanic "substIfaceType" (ppr ty)
       -- TODO (RAE): I think we need to write the following cases.
-    go (IfaceCastTy {})       = pprPanic "substIfaceType:CastTy" (ppr ty)
-    go (IfaceCoercionTy {})   = pprPanic "substIfaceType:CoercionTy" (ppr ty)
+    go (IfaceCastTy ty co)    = IfaceCastTy (go ty) (go_co co)
+    go (IfaceCoercionTy co)   = IfaceCoercionTy (go_co co)
+
+    go_co (IfaceReflCo r ty)     = IfaceReflCo r (go ty)
+    go_co (IfaceFunCo r c1 c2)   = IfaceFunCo r (go_co c1) (go_co c2)
+    go_co (IfaceTyConAppCo r tc cos) = IfaceTyConAppCo r tc (go_cos cos)
+    go_co (IfaceAppCo c1 c2)         = IfaceAppCo (go_co c1) (go_co c2)
+    go_co (IfaceForAllCo {})         = pprPanic "substIfaceCoercion" (ppr ty)
+    go_co (IfaceCoVarCo cv)          = IfaceCoVarCo cv
+    go_co (IfaceAxiomInstCo a i cos) = IfaceAxiomInstCo a i (go_cos cos)
+    go_co (IfaceUnivCo prov r t1 t2) = IfaceUnivCo (go_prov prov) r (go t1) (go t2)
+    go_co (IfaceSymCo co)            = IfaceSymCo (go_co co)
+    go_co (IfaceTransCo co1 co2)     = IfaceTransCo (go_co co1) (go_co co2)
+    go_co (IfaceNthCo n co)          = IfaceNthCo n (go_co co)
+    go_co (IfaceLRCo lr co)          = IfaceLRCo lr (go_co co)
+    go_co (IfaceInstCo c1 c2)        = IfaceInstCo (go_co c1) (go_co c2)
+    go_co (IfaceCoherenceCo c1 c2)   = IfaceCoherenceCo (go_co c1) (go_co c2)
+    go_co (IfaceKindCo co)           = IfaceKindCo (go_co co)
+    go_co (IfaceSubCo co)            = IfaceSubCo (go_co co)
+    go_co (IfaceAxiomRuleCo n cos)   = IfaceAxiomRuleCo n (go_cos cos)
+
+    go_cos = map go_co
+
+    go_prov IfaceUnsafeCoerceProv    = IfaceUnsafeCoerceProv
+    go_prov (IfacePhantomProv co)    = IfacePhantomProv (go_co co)
+    go_prov (IfaceProofIrrelProv co) = IfaceProofIrrelProv (go_co co)
+    go_prov (IfacePluginProv str)    = IfacePluginProv str
 
 substIfaceTcArgs :: IfaceTySubst -> IfaceTcArgs -> IfaceTcArgs
 substIfaceTcArgs env args

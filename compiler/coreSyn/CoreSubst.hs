@@ -56,8 +56,7 @@ import Coercion hiding ( substCo, substCoVarBndr )
 
 import TyCon       ( tyConArity )
 import DataCon
-import PrelNames   ( eqBoxDataConKey, coercibleDataConKey, unpackCStringIdKey
-                   , unpackCStringUtf8IdKey )
+import PrelNames   ( unpackCStringIdKey, unpackCStringUtf8IdKey )
 import OptCoercion ( optCoercion )
 import PprCore     ( pprCoreBindings, pprRules )
 import Module      ( Module )
@@ -791,57 +790,6 @@ InlVanilla.  The WARN is just so I can see if it happens a lot.
 *                                                                      *
 ************************************************************************
 
-Note [Optimise coercion boxes aggressively]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
--- TODO (RAE): Delete note and reference?
-
-The simple expression optimiser needs to deal with Eq# boxes as follows:
- 1. If the result of optimising the RHS of a non-recursive binding is an
-    Eq# box, that box is substituted rather than turned into a let, just as
-    if it were trivial.
-       let eqv = Eq# co in e ==> e[Eq# co/eqv]
-
- 2. If the result of optimising a case scrutinee is a Eq# box and the case
-    deconstructs it in a trivial way, we evaluate the case then and there.
-      case Eq# co of Eq# cov -> e ==> e[co/cov]
-
-We do this for two reasons:
-
- 1. Bindings/case scrutinisation of this form is often created by the
-    evidence-binding mechanism and we need them to be inlined to be able
-    desugar RULE LHSes that involve equalities (see e.g. T2291)
-
- 2. The test T4356 fails Lint because it creates a coercion between types
-    of kind (* -> * -> *) and (?? -> ? -> *), which differ. If we do this
-    inlining aggressively we can collapse away the intermediate coercion between
-    these two types and hence pass Lint again. (This is a sort of a hack.)
-
-In fact, our implementation uses slightly liberalised versions of the second rule
-rule so that the optimisations are a bit more generally applicable. Precisely:
- 2a. We reduce any situation where we can spot a case-of-known-constructor
-
-As a result, the only time we should get residual coercion boxes in the code is
-when the type checker generates something like:
-
-  \eqv -> let eqv' = Eq# (case eqv of Eq# cov -> ... cov ...)
-
-However, the case of lambda-bound equality evidence is fairly rare, so these two
-rules should suffice for solving the rule LHS problem for now.
-
-Annoyingly, we cannot use this modified rule 1a instead of 1:
-
- 1a. If we come across a let-bound constructor application with trivial arguments,
-     add an appropriate unfolding to the let binder.  We spot constructor applications
-     by using exprIsConApp_maybe, so this would actually let rule 2a reduce more.
-
-The reason is that we REALLY NEED coercion boxes to be substituted away. With rule 1a
-we wouldn't simplify this expression at all:
-
-  let eqv = Eq# co
-  in foo eqv (bar eqv)
-
-The rule LHS desugarer can't deal with Let at all, so we need to push that box into
-the use sites.
 -}
 
 simpleOptExpr :: CoreExpr -> CoreExpr
@@ -849,9 +797,6 @@ simpleOptExpr :: CoreExpr -> CoreExpr
 -- The optimisation is very straightforward: just
 -- inline non-recursive bindings that are used only once,
 -- or where the RHS is trivial
---
--- We also inline bindings that bind a Eq# box: see
--- See Note [Optimise coercion boxes aggressively].
 --
 -- The result is NOT guaranteed occurrence-analysed, because
 -- in  (let x = y in ....) we substitute for x; so y's occ-info
@@ -928,7 +873,6 @@ simple_opt_expr subst expr
 
     go lam@(Lam {})     = go_lam [] subst lam
     go (Case e b ty as)
-       -- See Note [Optimise coercion boxes aggressively]
       | isDeadBinder b
       , Just (con, _tys, es) <- exprIsConApp_maybe in_scope_env e'
       , Just (altcon, bs, rhs) <- findAlt (DataAlt con) as
@@ -1056,10 +1000,6 @@ maybe_substitute subst b r
     safe_to_inline NoOccInfo                = trivial
 
     trivial | exprIsTrivial r = True
-            | (Var fun, args) <- collectArgs r
-            , Just dc <- isDataConWorkId_maybe fun
-            , dc `hasKey` eqBoxDataConKey || dc `hasKey` coercibleDataConKey
-            , all exprIsTrivial args = True -- See Note [Optimise coercion boxes aggressively]
             | otherwise = False
 
 ----------------------

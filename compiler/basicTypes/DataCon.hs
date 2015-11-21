@@ -23,7 +23,7 @@ module DataCon (
         FieldLbl(..), FieldLabel, FieldLabelString,
 
         -- ** Type construction
-        mkDataCon, fIRST_TAG,
+        mkDataCon, buildAlgTyCon, fIRST_TAG,
 
         -- ** Type deconstruction
         dataConRepType, dataConSig, dataConInstSig, dataConFullSig,
@@ -57,6 +57,7 @@ module DataCon (
 
 import {-# SOURCE #-} MkId( DataConBoxer )
 import Type
+import ForeignCall ( CType )
 import Coercion
 import Unify
 import TyCon
@@ -71,7 +72,6 @@ import Util
 import BasicTypes
 import FastString
 import Module
-import NameSet
 import Binary
 
 import qualified Data.Data as Data
@@ -767,7 +767,6 @@ mkDataCon name declared_infix prom_info
              mkTyConApp rep_tycon (mkTyVarTys univ_tvs)
 
     promoted   -- See Note [Promoted data constructors] in TyCon
-               -- TODO (RAE): Update note.
       = mkPromotedDataCon con name prom_info (dataConWrapperType con) roles
 
     roles = map (const Nominal) (univ_tvs ++ ex_tvs) ++

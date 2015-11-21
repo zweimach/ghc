@@ -6,7 +6,7 @@
 -}
 
 {-# LANGUAGE CPP, DeriveDataTypeable, MultiWayIf #-}
--- TODO (RAE): Remove MultiWayIf
+
 -- |
 -- #name_types#
 -- GHC uses several kinds of name internally:
@@ -213,17 +213,6 @@ instance Outputable Var where
                           dcolon <+> ppr (tyVarKind var))
                |  otherwise
                  -> ppr (varName var) <> ppr_debug var ppr_style
-
-{-
-  ppr var = ppr (varName var) <+> ifPprDebug (brackets (ppr_debug var))
--- Printing the type on every occurrence is too much!
--- TODO (RAE): comment these next few lines out, which is the way
--- I found it.
-            <+> (sdocWithDynFlags $ \dflags ->
-                if (not (gopt Opt_SuppressVarKinds dflags))
-                then ifPprDebug (text "::" <+> ppr (tyVarKind var) <+> text ")")
-                else empty)
--}
 
 ppr_debug :: Var -> PprStyle -> SDoc
 ppr_debug (TyVar {}) sty

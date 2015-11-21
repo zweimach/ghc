@@ -316,7 +316,7 @@ instance ContainsModule DsGblEnv where
 
 data DsLclEnv = DsLclEnv {
         dsl_meta    :: DsMetaEnv,        -- Template Haskell bindings
-        dsl_loc     :: SrcSpan,          -- to put in pattern-matching error msgs
+        dsl_loc     :: SrcSpan           -- to put in pattern-matching error msgs
      }
 
 -- Inside [| |] brackets, the desugarer looks
@@ -1862,7 +1862,7 @@ ctEvCoercion ev@(CtWanted { ctev_dest = HoleDest hole, ctev_pred = pred })
   = case getEqPredTys_maybe pred of
       Just (role, ty1, ty2) -> mkHoleCo hole role ty1 ty2
       _                     -> pprPanic "ctEvTerm" (ppr ev)
-ctEvCoercion (CtGiven { ctev_evar = ev_id }) = mkCoVarCo ev_id
+ctEvCoercion (CtGiven { ctev_evar = ev_id }) = mkTcCoVarCo ev_id
 ctEvCoercion ev = pprPanic "ctEvCoercion" (ppr ev)
 
 ctEvId :: CtEvidence -> TcId

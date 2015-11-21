@@ -328,8 +328,8 @@ tYPETyConName, unliftedTypeKindTyConName :: Name
 
 tYPETyCon = mkKindTyCon tYPETyConName
                         (ForAllTy (Anon levityTy) liftedTypeKind)
-                        (mkSpecialTyConRepName (fsLit "tcTYPE") tYPETyConName)
                         [Nominal]
+                        (mkSpecialTyConRepName (fsLit "tcTYPE") tYPETyConName)
 
    -- See Note [TYPE]
    -- NB: unlifted is wired in because there is no way to parse it in

@@ -55,7 +55,6 @@ import Bag
 import DataCon
 import TyCon
 import Id
-import Coercion
 import Module
 import Outputable
 import SrcLoc
@@ -63,7 +62,6 @@ import Type
 import UniqSupply
 import Name
 import NameEnv
-import VarEnv
 import DynFlags
 import ErrUtils
 import FastString

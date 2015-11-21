@@ -40,6 +40,7 @@ module TcEvidence (
 #include "HsVersions.h"
 
 import Var
+import CoAxiom
 import Coercion
 import PprCore ()   -- Instance OutputableBndr TyVar
 import TcType
@@ -50,6 +51,7 @@ import PrelNames
 import VarEnv
 import VarSet
 import Name
+import Pair
 
 import Util
 import Bag
@@ -84,19 +86,23 @@ type TcCoercionR = CoercionR    -- A Representational corecion ~R
 type TcCoercionP = CoercionP    -- a phantom coercion
 
 mkTcReflCo             :: Role -> TcType -> TcCoercion
+mkTcSymCo              :: TcCoercion -> TcCoercion
+mkTcTransCo            :: TcCoercion -> TcCoercion -> TcCoercion
 mkTcNomReflCo          :: TcType -> TcCoercionN
 mkTcRepReflCo          :: TcType -> TcCoercionR
-mkTcTyConAppCo         :: Role -> TyCon -> [TcType] -> TcCoercion
+mkTcTyConAppCo         :: Role -> TyCon -> [TcCoercion] -> TcCoercion
 mkTcAppCo              :: TcCoercion -> TcCoercionN -> TcCoercion
-mkTcFunCo              :: TcCoercion -> TcCoercion -> TcCoercion
-mkTcAxInstCo           :: CoAxiom Branched -> BranchIndex
+mkTcFunCo              :: Role -> TcCoercion -> TcCoercion -> TcCoercion
+mkTcAxInstCo           :: Role -> CoAxiom br -> BranchIndex
                        -> [TcType] -> [TcCoercion] -> TcCoercion
-mkTcUnbranchedAxInstCo :: CoAxiom Unbranched -> [TcType]
+mkTcUnbranchedAxInstCo :: Role -> CoAxiom Unbranched -> [TcType]
                        -> [TcCoercion] -> TcCoercion
-mkTcForAllCo           :: TyVar -> TcCoercion -> TcCoercion
+mkTcForAllCo           :: TyVar -> TcCoercionN -> TcCoercion -> TcCoercion
+mkTcForAllCos          :: [(TyVar, TcCoercionN)] -> TcCoercion -> TcCoercion
+mkTcNthCo              :: Int -> TcCoercion -> TcCoercion
 mkTcLRCo               :: LeftOrRight -> TcCoercion -> TcCoercion
 mkTcSubCo              :: TcCoercion -> TcCoercion
-maybeTcSubCo           :: Role -> TcCoercion -> TcCoercion
+maybeTcSubCo           :: EqRel -> TcCoercion -> TcCoercion
 tcDowngradeRole        :: Role -> Role -> TcCoercion -> TcCoercion
 mkTcAxiomRuleCo        :: CoAxiomRule -> [TcCoercion] -> TcCoercion
 mkTcCoherenceLeftCo    :: TcCoercion -> TcCoercionN -> TcCoercion
@@ -107,10 +113,12 @@ mkTcCoVarCo            :: CoVar -> TcCoercion
 
 tcCoercionKind         :: TcCoercion -> Pair TcType
 tcCoercionRole         :: TcCoercion -> Role
-coVarsOfTcCo           :: TcCoercion -> [TcTyCoVarSet]
+coVarsOfTcCo           :: TcCoercion -> TcTyCoVarSet
 isTcReflCo             :: TcCoercion -> Bool
 
 mkTcReflCo             = mkReflCo
+mkTcSymCo              = mkSymCo
+mkTcTransCo            = mkTransCo
 mkTcNomReflCo          = mkNomReflCo
 mkTcRepReflCo          = mkRepReflCo
 mkTcTyConAppCo         = mkTyConAppCo
@@ -119,6 +127,8 @@ mkTcFunCo              = mkFunCo
 mkTcAxInstCo           = mkAxInstCo
 mkTcUnbranchedAxInstCo = mkUnbranchedAxInstCo
 mkTcForAllCo           = mkForAllCo
+mkTcForAllCos          = mkForAllCos
+mkTcNthCo              = mkNthCo
 mkTcLRCo               = mkLRCo
 mkTcSubCo              = mkSubCo
 maybeTcSubCo           = maybeSubCo

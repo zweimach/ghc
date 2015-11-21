@@ -30,6 +30,7 @@ import DsUtils
 
 import TcType
 import Type
+import Id   ( Id )
 import Coercion
 import PrimOp
 import TysPrim

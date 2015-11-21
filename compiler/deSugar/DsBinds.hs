@@ -43,7 +43,6 @@ import TyCon
 import TcEvidence
 import TcType
 import Type
-import Kind( isKind )
 import Coercion
 import TysWiredIn ( mkListTy, mkBoxedTupleTy, charTy
                   , typeNatKind, typeSymbolKind )
@@ -1062,8 +1061,7 @@ ds_ev_typeable :: Type -> EvTypeable -> DsM CoreExpr
 -- Returns a CoreExpr :: TypeRep ty
 ds_ev_typeable ty EvTypeableTyCon
   | Just (tc, ks) <- splitTyConApp_maybe ty
-  = ASSERT( all isKind ks )
-    do { ctr <- dsLookupGlobalId mkPolyTyConAppName
+  = do { ctr <- dsLookupGlobalId mkPolyTyConAppName
                     -- mkPolyTyConApp :: TyCon -> [KindRep] -> [TypeRep] -> TypeRep
        ; tyRepTc <- dsLookupTyCon typeRepTyConName  -- TypeRep (the TyCon)
        ; let tyRepType = mkTyConApp tyRepTc []      -- TypeRep (the Type)

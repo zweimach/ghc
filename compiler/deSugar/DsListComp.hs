@@ -111,7 +111,7 @@ dsTransStmt (TransStmt { trS_form = form, trS_stmts = stmts, trS_bndrs = binderM
     usingArgs' <- case by of
                     Nothing   -> return [expr']
                     Just by_e -> do { by_e' <- dsLExpr by_e
-                                    ; lam' <- matchTuple from_bndrs' by_e'
+                                    ; lam' <- matchTuple from_bndrs by_e'
                                     ; return [lam', expr'] }
 
     -- Create an unzip function for the appropriate arity and element types and find "map"

@@ -960,7 +960,6 @@ getTyDescription ty
       TyVarTy _              -> "*"
       AppTy fun _            -> getTyDescription fun
       TyConApp tycon _       -> getOccString tycon
-        -- TODO (RAE): Should this use isIdLikeBinder?
       ForAllTy (Anon _) res  -> '-' : '>' : fun_result res
       ForAllTy (Named {}) ty -> getTyDescription ty
       LitTy n                -> getTyLitDescription n

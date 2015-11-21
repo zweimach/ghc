@@ -1174,12 +1174,13 @@ runRWId = pcMiscPrelId runRWName ty info
     -- State# RealWorld
     stateRW = mkTyConApp statePrimTyCon [realWorldTy]
     -- (# State# RealWorld, o #)
-    ret_ty  = mkTyConApp unboxedPairTyCon [stateRW, openAlphaTy]
+    ret_ty  = mkTupleTy Unboxed [stateRW, openAlphaTy]
     -- State# RealWorld -> (# State# RealWorld, o #)
     arg_ty  = stateRW `mkFunTy` ret_ty
     -- (State# RealWorld -> (# State# RealWorld, o #))
     --   -> (# State# RealWorld, o #)
-    ty      = mkForAllTys [openAlphaTyVar] (arg_ty `mkFunTy` ret_ty)
+    ty      = mkInvForAllTys [levity1TyVar, openAlphaTyVar] $
+              arg_ty `mkFunTy` ret_ty
 
 --------------------------------------------------------------------------------
 magicDictId :: Id  -- See Note [magicDictId magic]

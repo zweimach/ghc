@@ -1273,10 +1273,10 @@ quantifyType :: Type -> QuantifiedType
 -- Thus (quantifyType (forall a. a->[b]))
 -- returns ([a,b], a -> [b])
 
-quantifyType ty = (varSetElems (tyCoVarsOfType rho), rho)
-   -- TODO (RAE): This is broken. It really should return only
-   -- tyvars. But it doesn't. And it's not even well scoped!
-   -- I'm at a loss in this module.
+quantifyType ty = ( varSetElemsWellScoped $
+                    filterVarSet isTyVar $
+                    tyCoVarsOfType rho
+                  , rho)
   where
     (_tvs, rho) = tcSplitNamedForAllTys ty
 

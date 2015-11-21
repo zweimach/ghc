@@ -34,16 +34,18 @@ import DataCon
 import Id
 import Name
 import MkId
-import Name( nameOccName )
-import OccName ( occNameString )
+import NameEnv
 import TysPrim
 import TysWiredIn
 import HscTypes
+import UniqFM
 import Class
 import TyCon
 import Util
+import Panic ( panic )
 import {-# SOURCE #-} TcTypeNats ( typeNatTyCons )
 
+import Data.List  ( intercalate )
 import Data.Array
 
 {-
@@ -80,7 +82,7 @@ knownKeyNames :: [Name]
 -- (See Note [Known-key names] in PrelNames)
 knownKeyNames
   | debugIsOn
-  , not (isNullUFM badNamesUFM)
+  , not (isNullUFM badNamesEnv)
   = panic ("badKnownKeyNames:\n" ++ badNamesStr)
        -- NB: We can't use ppr here, because this is sometimes evaluated in a
        -- context where there are no DynFlags available, leading to a cryptic
@@ -131,9 +133,10 @@ knownKeyNames
                        Just n  -> [n]
                        Nothing -> []
 
-  namesUFM      = foldl (\m n -> addToUFM_Acc (:) singleton m n n) emptyUFM names
-  badNamesUFM   = filterUFM (\ns -> length ns > 1) namesUFM
-  badNamesPairs = ufmToList badNamesUFM
+  namesEnv      = foldl (\m n -> extendNameEnv_Acc (:) singleton m n n)
+                        emptyUFM names
+  badNamesEnv   = filterNameEnv (\ns -> length ns > 1) namesEnv
+  badNamesPairs = nameEnvUniqueElts badNamesEnv
   badNamesStrs  = map pairToStr badNamesPairs
   badNamesStr   = unlines badNamesStrs
 

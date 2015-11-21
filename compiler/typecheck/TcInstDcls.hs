@@ -668,7 +668,6 @@ tcDataFamInstDecl mb_clsinfo
 
        ; (rep_tc, fam_inst) <- fixM $ \ ~(rec_rep_tc, _) ->
            do { data_cons <- tcConDecls new_or_data
-                                        False   -- Not promotable
                                         rec_rep_tc
                                         (tvs', orig_res_ty) cons
               ; tc_rhs <- case new_or_data of

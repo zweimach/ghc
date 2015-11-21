@@ -57,7 +57,7 @@ buildDataFamInst name' fam_tc vect_tc rhs
                            Nothing
                            []          -- no stupid theta
                            rhs
-                           (FamInstTyCon ax fam_tc pat_tys)
+                           (DataFamInstTyCon ax fam_tc pat_tys)
                            rec_flag    -- FIXME: is this ok?
                            False       -- not GADT syntax
       ; liftDs $ newFamInst (DataFamilyInst rep_tc) ax }
@@ -77,7 +77,7 @@ buildPDataDataCon orig_name vect_tc repr_tc repr
       dc_name   <- mkLocalisedName mkPDataDataConOcc orig_name
       comp_tys  <- mkSumTys repr_sel_ty mkPDataType repr
       fam_envs  <- readGEnv global_fam_inst_env
-      rep_nm    <- newTyConRepName dc_name
+      rep_nm    <- liftDs $ newTyConRepName dc_name
       liftDs $ buildDataCon fam_envs dc_name
                             False                  -- not infix
                             rep_nm
@@ -121,7 +121,7 @@ buildPDatasDataCon orig_name vect_tc repr_tc repr
 
       comp_tys  <- mkSumTys repr_sels_ty mkPDatasType repr
       fam_envs <- readGEnv global_fam_inst_env
-      rep_nm   <- newTyConRepName dc_name
+      rep_nm   <- liftDs $ newTyConRepName dc_name
       liftDs $ buildDataCon fam_envs dc_name
                             False                  -- not infix
                             rep_nm

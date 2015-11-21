@@ -23,8 +23,7 @@ import Name
 import PrelNames ( knownNatClassName, knownSymbolClassName,
                    callStackTyConKey, typeableClassName, coercibleTyConKey,
                    eqTyConKey )
-import TysWiredIn ( ipClass, typeNatKind, typeSymbolKind, coercibleDataCon,
-                    eqBoxDataCon )
+import TysWiredIn ( ipClass, typeNatKind, typeSymbolKind )
 import Id( idType )
 import CoAxiom ( Eqn, CoAxiom(..), CoAxBranch(..), fromBranches )
 import Class
@@ -1564,8 +1563,8 @@ shortCutReduction old_ev fsk ax_co fam_tc tc_args
        ; (new_ev, new_co) <- newWantedEq deeper_loc Nominal
                                      (mkTyConApp fam_tc xis) (mkTyVarTy fsk)
        ; setWantedEq (ctev_dest old_ev)
-                     (ax_co `mkTransCo` mkSymCo (mkTyConAppCo Nominal fam_tc cos)
-                            `mkTransCo` new_co)
+                     (ax_co `mkTcTransCo` mkTcSymCo (mkTcTyConAppCo Nominal fam_tc cos)
+                            `mkTcTransCo` new_co)
 
        ; let new_ct = CFunEqCan { cc_ev = new_ev, cc_fun = fam_tc, cc_tyargs = xis, cc_fsk = fsk }
        ; emitWorkCt new_ct
@@ -2045,7 +2044,7 @@ doTyApp clas ty f tk
   = return NoInstance -- We can't solve until we know the ctr.
   | otherwise
   = return $ GenInst [mk_typeable_pred clas f, mk_typeable_pred clas tk]
-                     (\[t1,t2] -> EvTypeable ty $ EvTypeableTyApp (EvId t1) (EvId t2))
+                     (\[t1,t2] -> EvTypeable ty $ EvTypeableTyApp t1 t2)
                      True
 
 -- Emit a `Typeable` constraint for the given type.
@@ -2058,7 +2057,7 @@ mk_typeable_pred clas ty = mkClassPred clas [ typeKind ty, ty ]
 doTyLit :: Name -> Type -> TcS LookupInstResult
 doTyLit kc t = do { kc_clas <- tcLookupClass kc
                   ; let kc_pred    = mkClassPred kc_clas [ t ]
-                        mk_ev [ev] = EvTypeable t $ EvTypeableTyLit $ EvId ev
+                        mk_ev [ev] = EvTypeable t $ EvTypeableTyLit ev
                         mk_ev _    = panic "doTyLit"
                   ; return (GenInst [kc_pred] mk_ev True) }
 

@@ -21,7 +21,7 @@ import VarSet
 import VarEnv
 import CoreSyn
 import Rules
-import CoreUtils        ( exprIsTrivial, applyTypeToArgs )
+import CoreUtils        ( exprIsTrivial, applyTypeToArgs, mkCast )
 import CoreFVs          ( exprFreeVars, exprsFreeVars, idFreeVars )
 import UniqSupply
 import Name
@@ -858,7 +858,7 @@ specExpr env (Var v)       = return (specVar env v, emptyUDs)
 specExpr _   (Lit lit)     = return (Lit lit,       emptyUDs)
 specExpr env (Cast e co)
   = do { (e', uds) <- specExpr env e
-       ; return ((Cast e' (substCo env co)), uds) }
+       ; return ((mkCast e' (substCo env co)), uds) }
 specExpr env (Tick tickish body)
   = do { (body', uds) <- specExpr env body
        ; return (Tick (specTickish env tickish) body', uds) }

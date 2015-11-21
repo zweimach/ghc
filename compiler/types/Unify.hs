@@ -32,6 +32,7 @@ import TyCon
 import TyCoRep hiding ( getTvSubstEnv, getCvSubstEnv )
 import Util
 import Pair
+import Outputable hiding ( empty )
 
 import Control.Monad
 #if __GLASGOW_HASKELL__ > 710
@@ -391,9 +392,9 @@ tc_unify_tys bind_fn unif rn_env tv_env cv_env tys1 tys2
     kis2 = map typeKind tys2
 
 instance Outputable a => Outputable (UnifyResultM a) where
-  ppr SurelyApart    = ptext (sLit "SurelyApart")
-  ppr (Unifiable x)  = ptext (sLit "Unifiable") <+> ppr x
-  ppr (MaybeApart x) = ptext (sLit "MaybeApart") <+> ppr x
+  ppr SurelyApart    = text "SurelyApart"
+  ppr (Unifiable x)  = text "Unifiable" <+> ppr x
+  ppr (MaybeApart x) = text "MaybeApart" <+> ppr x
 
 {-
 ************************************************************************

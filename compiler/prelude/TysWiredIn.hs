@@ -116,7 +116,6 @@ import Module           ( Module )
 import Type
 import DataCon
 import {-# SOURCE #-} ConLike
-import Var
 import TyCon
 import Class            ( Class, mkClass )
 import RdrName
@@ -398,7 +397,8 @@ typeNatKind    = mkTyConTy typeNatKindCon
 typeSymbolKind = mkTyConTy typeSymbolKindCon
 
 constraintKindTyCon :: TyCon
-constraintKindTyCon = mkKindTyCon constraintKindTyConName liftedTypeKind []
+constraintKindTyCon = pcTyCon False NonRecursive constraintKindTyConName
+                              Nothing [] []
 
 liftedTypeKind, constraintKind :: Kind
 liftedTypeKind   = tYPE liftedDataConTy
@@ -655,7 +655,7 @@ mkEqualityDefns role tc_name dc_name sc_sel_name tc_rep_name prim_tc
 (eqTyCon, eqBoxClass, eqBoxDataCon, eqSCSelId)
   = mkEqualityDefns Nominal eqTyConName eqBoxDataConName
                     eqSCSelIdName
-                    (mkSpecialTyConRepNAme (fsLit "tcEq") eqTyConName)
+                    (mkSpecialTyConRepName (fsLit "tcEq") eqTyConName)
                     eqPrimTyCon
 
 (coercibleTyCon, coercibleClass, coercibleDataCon, coercibleSCSelId)

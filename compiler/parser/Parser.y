@@ -3185,7 +3185,6 @@ isUnicode (L _ (ITdcolon     iu)) = iu == UnicodeSyntax
 isUnicode (L _ (ITlarrow     iu)) = iu == UnicodeSyntax
 isUnicode (L _ (ITrarrow     iu)) = iu == UnicodeSyntax
 isUnicode (L _ (ITrarrow     iu)) = iu == UnicodeSyntax
-isUnicode (L _ (ITstar       iu)) = iu == UnicodeSyntax
 isUnicode (L _ (ITlarrowtail iu)) = iu == UnicodeSyntax
 isUnicode (L _ (ITrarrowtail iu)) = iu == UnicodeSyntax
 isUnicode (L _ (ITLarrowtail iu)) = iu == UnicodeSyntax
