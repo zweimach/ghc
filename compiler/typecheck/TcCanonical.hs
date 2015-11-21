@@ -904,14 +904,14 @@ canDecomposableTyConAppOK :: CtEvidence -> EqRel
 -- Precondition: tys1 and tys2 are the same length, hence "OK"
 canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
   = case ev of
-     CtDerived { ctev_loc = loc }
+     CtDerived {}
         -> unifyDeriveds loc tc_roles tys1 tys2
 
-     CtWanted { ctev_dest = dest, ctev_loc = loc }
-        -> do { cos <- zipWith3M (unifyWanted loc) tc_roles tys1 tys2
+     CtWanted { ctev_dest = dest }
+        -> do { cos <- zipWith4M unifyWanted new_locs tc_roles tys1 tys2
               ; setWantedEq dest (mkTyConAppCo role tc cos) }
 
-     CtGiven { ctev_evar = evar, ctev_loc = loc }
+     CtGiven { ctev_evar = evar }
         -> do { let ev_co = mkCoVarCo evar
               ; given_evs <- newGivenEvVars loc $
                              [ ( mkPrimEqPredRole r ty1 ty2
@@ -921,8 +921,17 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
                              , not (isCoercionTy ty1) && not (isCoercionTy ty2) ]
               ; emitWorkNC given_evs }
   where
-    role     = eqRelRole eq_rel
-    tc_roles = tyConRolesX role tc
+    loc        = ctEvLoc ev
+    role       = eqRelRole eq_rel
+    tc_roles   = tyConRolesX role tc
+
+      -- the following makes a better distinction between "kind" and "type"
+      -- in error messages
+    (bndrs, _) = splitForAllTys (tyConKind tc)
+    kind_loc   = mkKindLoc (mkTyConApp tc tys1) (mkTyConApp tc tys2) loc
+    is_kinds   = map isNamedBinder bndrs
+    new_locs   = map (\is_kind -> if is_kind then kind_loc else loc) is_kinds
+
 
 -- | Call when canonicalizing an equality fails, but if the equality is
 -- representational, there is some hope for the future.

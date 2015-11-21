@@ -161,7 +161,7 @@ module Type (
         pprTheta, pprThetaArrowTy, pprClassPred,
         pprKind, pprParendKind, pprSourceTyCon,
         TyPrec(..), maybeParen,
-        pprTyVar, pprTcApp, pprPrefixApp, pprArrowChain,
+        pprTyVar, pprTcAppTy, pprPrefixApp, pprArrowChain,
 
         -- * Tidying type related things up for printing
         tidyType,      tidyTypes,

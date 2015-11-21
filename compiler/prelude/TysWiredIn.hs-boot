@@ -1,6 +1,7 @@
 module TysWiredIn where
 
 import Name
+import TyCon
 import {-# SOURCE #-} TyCoRep    (Type, Kind)
 
 
@@ -12,3 +13,5 @@ levityTy, unliftedDataConTy :: Type
 isLiftedTypeKindTyConName :: Name -> Bool
 
 liftedTypeKind :: Kind
+
+coercibleTyCon :: TyCon

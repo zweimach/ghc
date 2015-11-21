@@ -11,7 +11,7 @@ module MonadUtils
 
         , liftIO1, liftIO2, liftIO3, liftIO4
 
-        , zipWith3M, zipWith3M_, zipWithAndUnzipM
+        , zipWith3M, zipWith3M_, zipWith4M, zipWithAndUnzipM
         , mapAndUnzipM, mapAndUnzip3M, mapAndUnzip4M, mapAndUnzip5M
         , mapAccumLM
         , mapSndM
@@ -75,6 +75,19 @@ zipWith3M f (x:xs) (y:ys) (z:zs)
 zipWith3M_ :: Monad m => (a -> b -> c -> m d) -> [a] -> [b] -> [c] -> m ()
 zipWith3M_ f as bs cs = do { _ <- zipWith3M f as bs cs
                            ; return () }
+
+zipWith4M :: Monad m => (a -> b -> c -> d -> m e)
+          -> [a] -> [b] -> [c] -> [d] -> m [e]
+zipWith4M _ []     _      _      _      = return []
+zipWith4M _ _      []     _      _      = return []
+zipWith4M _ _      _      []     _      = return []
+zipWith4M _ _      _      _      []     = return []
+zipWith4M f (x:xs) (y:ys) (z:zs) (a:as)
+  = do { r  <- f x y z a
+       ; rs <- zipWith4M f xs ys zs as
+       ; return $ r:rs
+       }
+
 
 zipWithAndUnzipM :: Monad m
                  => (a -> b -> m (c, d)) -> [a] -> [b] -> m ([c], [d])

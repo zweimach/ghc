@@ -213,7 +213,7 @@ ppr_co _ (Refl r ty) = angleBrackets (ppr ty) <> ppr_role r
 ppr_co p co@(TyConAppCo _ tc [_,_])
   | tc `hasKey` funTyConKey = ppr_fun_co p co
 
-ppr_co _ (TyConAppCo r tc cos)  = pprTcApp TyConPrec ppr_co tc cos <> ppr_role r
+ppr_co _ (TyConAppCo r tc cos) = pprTcAppCo TyConPrec ppr_co tc cos <> ppr_role r
 ppr_co p (AppCo co arg)        = maybeParen p TyConPrec $
                                  pprCo co <+> ppr_co TyConPrec arg
 ppr_co p co@(ForAllCo {})      = ppr_forall_co p co

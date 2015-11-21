@@ -2131,7 +2131,8 @@ mkGivenLoc tclvl skol_info env
           , ctl_env    = env { tcl_tclvl = tclvl }
           , ctl_depth  = initialSubGoalDepth }
 
-mkKindLoc :: TcType -> TcType -> CtLoc -> CtLoc
+mkKindLoc :: TcType -> TcType   -- original *types* being compared
+          -> CtLoc -> CtLoc
 mkKindLoc s1 s2 loc = setCtLocOrigin loc (KindEqOrigin s1 s2 (ctLocOrigin loc))
 
 ctLocEnv :: CtLoc -> TcLclEnv

@@ -17,7 +17,9 @@ Note [The Type-related module hierarchy]
 
 -- We expose the relevant stuff from this module via the Type module
 {-# OPTIONS_HADDOCK hide #-}
-{-# LANGUAGE CPP, DeriveDataTypeable, DeriveFunctor, DeriveFoldable, DeriveTraversable #-}
+{-# LANGUAGE CPP, DeriveDataTypeable, DeriveFunctor, DeriveFoldable,
+             DeriveTraversable, MultiWayIf #-}
+
 module TyCoRep (
         TyThing(..),
         Type(..),
@@ -48,8 +50,8 @@ module TyCoRep (
         pprTyThing, pprTyThingCategory, pprSigmaType,
         pprTheta, pprForAll, pprForAllImplicit, pprUserForAll,
         pprThetaArrowTy, pprClassPred,
-        pprKind, pprParendKind, pprTyLit, suppressImplicits,
-        TyPrec(..), maybeParen, pprTcApp,
+        pprKind, pprParendKind, pprTyLit,
+        TyPrec(..), maybeParen, pprTcAppCo, pprTcAppTy,
         pprPrefixApp, pprArrowChain, ppr_type,
         pprDataCons,
 
@@ -105,9 +107,12 @@ module TyCoRep (
 
 import {-# SOURCE #-} DataCon( dataConTyCon, dataConFullSig
                               , DataCon, eqSpecTyVar )
-import {-# SOURCE #-} Type( isPredTy, isCoercionTy, mkAppTy ) -- Transitively pulls in a LOT of stuff, better to break the loop
+import {-# SOURCE #-} Type( isPredTy, isCoercionTy, mkAppTy
+                          , partitionInvisibles )
+   -- Transitively pulls in a LOT of stuff, better to break the loop
+
 import {-# SOURCE #-} Coercion
-import {-# SOURCE #-} TysWiredIn ( isLiftedTypeKindTyConName )
+import {-# SOURCE #-} TysWiredIn ( isLiftedTypeKindTyConName, coercibleTyCon )
 import {-# SOURCE #-} ConLike ( ConLike(..) )
 
 -- friends:
@@ -2093,27 +2098,36 @@ pprTyTcApp p tc tys
   | tc `hasKey` consDataConKey
   , [_kind,ty1,ty2] <- tys
   = sdocWithDynFlags $ \dflags ->
-    if gopt Opt_PrintExplicitKinds dflags then pprTcApp  p ppr_type tc tys
+    if gopt Opt_PrintExplicitKinds dflags then ppr_deflt
                                    else pprTyList p ty1 ty2
 
   | tc `hasKey` errorMessageTypeErrorFamKey = text "(TypeError ...)"
 
   | tc `hasKey` tYPETyConKey
   , [TyConApp lev_tc []] <- tys
-  = if lev_tc `hasKey` liftedDataConKey then char '*'
-    else if lev_tc `hasKey` unliftedDataConKey then char '#'
-         else pprPanic "pprTyTcApp unknown levity" (ppr lev_tc)
+  = if | lev_tc `hasKey` liftedDataConKey   -> char '*'
+       | lev_tc `hasKey` unliftedDataConKey -> char '#'
+       | otherwise                          -> ppr_deflt
 
   | otherwise
-  = pprTcApp p ppr_type tc tys
+  = ppr_deflt
+  where
+    ppr_deflt = pprTcAppTy p ppr_type tc tys
 
-pprTcApp :: TyPrec -> (TyPrec -> a -> SDoc) -> TyCon -> [a] -> SDoc
+pprTcAppTy :: TyPrec -> (TyPrec -> Type -> SDoc) -> TyCon -> [Type] -> SDoc
+pprTcAppTy = pprTcApp id
+
+pprTcAppCo :: TyPrec -> (TyPrec -> Coercion -> SDoc)
+           -> TyCon -> [Coercion] -> SDoc
+pprTcAppCo = pprTcApp (pFst . coercionKind)
+
+pprTcApp :: (a -> Type) -> TyPrec -> (TyPrec -> a -> SDoc) -> TyCon -> [a] -> SDoc
 -- Used for both types and coercions, hence polymorphism
-pprTcApp _ pp tc [ty]
+pprTcApp _ _ pp tc [ty]
   | tc `hasKey` listTyConKey = pprPromotionQuote tc <> brackets   (pp TopPrec ty)
   | tc `hasKey` parrTyConKey = pprPromotionQuote tc <> paBrackets (pp TopPrec ty)
 
-pprTcApp p pp tc tys
+pprTcApp to_type p pp tc tys
   | Just sort <- tyConTuple_maybe tc
   , let arity = tyConArity tc
   , arity == length tys
@@ -2131,7 +2145,7 @@ pprTcApp p pp tc tys
     (tupleParens tup_sort $ pprWithCommas (pp TopPrec) ty_args)
 
   | otherwise
-  = sdocWithDynFlags (pprTcApp_help p pp tc tys)
+  = sdocWithDynFlags (pprTcApp_help to_type p pp tc tys)
 
 pprTupleApp :: TyPrec -> (TyPrec -> a -> SDoc)
             -> TyCon -> TupleSort -> [a] -> SDoc
@@ -2146,18 +2160,24 @@ pprTupleApp p pp tc sort tys
   = pprPromotionQuote tc <>
     tupleParens sort (pprWithCommas (pp TopPrec) tys)
 
-pprTcApp_help :: TyPrec -> (TyPrec -> a -> SDoc) -> TyCon -> [a] -> DynFlags -> SDoc
+pprTcApp_help :: (a -> Type) -> TyPrec -> (TyPrec -> a -> SDoc)
+              -> TyCon -> [a] -> DynFlags -> SDoc
 -- This one has accss to the DynFlags
-pprTcApp_help p pp tc tys dflags
+pprTcApp_help to_type p pp tc tys dflags
   | not (isSymOcc (nameOccName (tyConName tc)))
   = pprPrefixApp p (ppr tc) (map (pp TyConPrec) tys_wo_kinds)
 
   | [ty1,ty2] <- tys_wo_kinds  -- Infix, two arguments;
                                -- we know nothing of precedence though
-    -- TODO (RAE): Remove this hack to fix printing `GHC.Prim.~#`
-  = let pp_tc | tc `hasKey` eqPrimTyConKey
-              , not (gopt Opt_PrintExplicitKinds dflags)
-              = text "~#"
+     -- With the solver working in unlifted equality, it will want to
+     -- to print unlifted equality constraints sometimes. But these are
+     -- confusing to users. So fix them up here.
+  = let pp_tc | gopt Opt_PrintExplicitKinds dflags
+              = ppr tc
+              | tc `hasKey` eqPrimTyConKey
+              = text "~"
+              | tc `hasKey` eqReprPrimTyConKey
+              = ppr coercibleTyCon
               | otherwise
               = ppr tc
     in pprInfixApp p pp pp_tc ty1 ty2
@@ -2165,26 +2185,20 @@ pprTcApp_help p pp tc tys dflags
   |  tc `hasKey` starKindTyConKey
   || tc `hasKey` unicodeStarKindTyConKey
   || tc `hasKey` unliftedTypeKindTyConKey
-  = ASSERT( null tys ) ppr tc   -- Do not wrap *, # in parens
+  = ppr tc   -- Do not wrap *, # in parens
 
   | otherwise
   = pprPrefixApp p (parens (ppr tc)) (map (pp TyConPrec) tys_wo_kinds)
   where
-    tys_wo_kinds = suppressImplicits dflags (tyConKind tc) tys
+    tys_wo_kinds = suppressInvisibles to_type dflags tc tys
 
 ------------------
--- | Given the kind of a 'TyCon', and the args to which it is applied,
+-- | Given a 'TyCon',and the args to which it is applied,
 -- suppress the args that are implicit
-suppressImplicits :: DynFlags -> Kind -> [a] -> [a]
--- TODO (RAE): Rewrite in terms of partitionImplicits
-suppressImplicits dflags kind xs
+suppressInvisibles :: (a -> Type) -> DynFlags -> TyCon -> [a] -> [a]
+suppressInvisibles to_type dflags tc xs
   | gopt Opt_PrintExplicitKinds dflags = xs
-  | otherwise                          = suppress kind xs
-  where
-    suppress (ForAllTy bndr kind) (x : xs)
-      | isInvisibleBinder bndr = suppress kind xs
-      | otherwise              = x : suppress kind xs
-    suppress _                          xs       = xs
+  | otherwise                          = snd $ partitionInvisibles tc to_type xs
 
 ----------------
 pprTyList :: TyPrec -> Type -> Type -> SDoc

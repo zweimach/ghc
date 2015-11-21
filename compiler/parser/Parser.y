@@ -1897,7 +1897,7 @@ forall :: { Located ([AddAnn],[LHsTyVarBndr RdrName]) }
 
 constr_stuff :: { Located (Located RdrName, HsConDeclDetails RdrName) }
     -- see Note [Parsing data constructors is hard]
-        : btype_no_ops                         {% do { c <- splitCon (splitTilde $1)
+        : btype_no_ops                         {% do { c <- splitCon $1
                                                      ; return $ sLL $1 $> c } }
         | btype_no_ops conop btype_no_ops      {  sLL $1 $> ($2, InfixCon (splitTilde $1) $3) }
 

@@ -639,7 +639,9 @@ See also the ``--help``, ``--version``, ``--numeric-version``, and
                    -- Defined in Data.Type.Equality
 
     Using ``-fprint-explicit-kinds`` makes GHC print kind arguments in
-    types, which are normally suppressed. This can be important when you
+    types, which are normally suppressed. (Additionally, without this
+    flag, GHC's output does not distinguish between lifted and unlifted
+    equality constraints.) This can be important when you
     are using kind polymorphism. For example:
 
     ::
