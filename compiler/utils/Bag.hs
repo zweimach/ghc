@@ -6,7 +6,7 @@
 Bag: an unordered collection with duplicates
 -}
 
-{-# LANGUAGE DeriveDataTypeable, ScopedTypeVariables #-}
+{-# LANGUAGE DeriveDataTypeable, ScopedTypeVariables, CPP #-}
 
 module Bag (
         Bag, -- abstract type
@@ -94,7 +94,7 @@ filterBag pred (TwoBags b1 b2) = sat1 `unionBags` sat2
           sat2 = filterBag pred b2
 filterBag pred (ListBag vs)    = listToBag (filter pred vs)
 
-filterBagM :: Monad m => (a -> m Bool) -> Bag a -> m (Bag a)
+filterBagM :: (Monad m, Functor m) => (a -> m Bool) -> Bag a -> m (Bag a)
 filterBagM _    EmptyBag = return EmptyBag
 filterBagM pred b@(UnitBag val)
   = do { p <- pred val
