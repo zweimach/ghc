@@ -1814,6 +1814,7 @@ disambigGroup (default_ty:default_tys) group@(the_tv, wanteds)
       = do { lcl_env <- TcS.getLclEnv
            ; let loc = CtLoc { ctl_origin = GivenOrigin UnkSkol
                              , ctl_env    = lcl_env
+                             , ctl_t_or_k = Nothing
                              , ctl_depth  = initialSubGoalDepth }
            ; wanted_evs <- mapM (newWantedEvVarNC loc . substTy subst . ctPred)
                                 wanteds

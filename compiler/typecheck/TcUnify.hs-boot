@@ -10,4 +10,5 @@ import Name       ( Name )
 --              TcUnify and Inst
 
 unifyType :: Outputable a => Maybe a -> TcTauType -> TcTauType -> TcM TcCoercion
+unifyKind :: Outputable a => Maybe a -> TcTauType -> TcTauType -> TcM TcCoercion
 noThing   :: Maybe (HsExpr Name)

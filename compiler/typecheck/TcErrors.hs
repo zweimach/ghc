@@ -45,9 +45,9 @@ import SrcLoc
 import DynFlags
 import StaticFlags      ( opt_PprStyle_Debug )
 import ListSetOps       ( equivClasses )
+import Maybes
 
 import Control.Monad    ( when )
-import Data.Maybe
 import Data.List        ( partition, mapAccumL, nub, sortBy )
 
 {-
@@ -872,7 +872,7 @@ mkEqErr1 ctxt ct
        ; fam_envs <- tcGetFamInstEnvs
        ; exp_syns <- goptM Opt_PrintExpandedSynonyms
        ; let (keep_going, is_oriented, wanted_msg)
-                           = mk_wanted_extra (ctOrigin ct) exp_syns
+                           = mk_wanted_extra (ctLoc ct) exp_syns
              coercible_msg = case ctEqRel ct of
                NomEq  -> empty
                ReprEq -> mkCoercibleExplanation rdr_env fam_envs ty1 ty2
@@ -896,23 +896,27 @@ mkEqErr1 ctxt ct
 
        -- If the types in the error message are the same as the types
        -- we are unifying, don't add the extra expected/actual message
-    mk_wanted_extra :: CtOrigin -> Bool -> (Bool, Maybe SwapFlag, SDoc)
-    mk_wanted_extra orig@(TypeEqOrigin {}) expandSyns
-      = mkExpectedActualMsg ty1 ty2 orig expandSyns
+    mk_wanted_extra :: CtLoc -> Bool -> (Bool, Maybe SwapFlag, SDoc)
+    mk_wanted_extra loc expandSyns
+      = case ctLocOrigin loc of
+          orig@TypeEqOrigin {} -> mkExpectedActualMsg ty1 ty2 orig
+                                                      t_or_k expandSyns
+            where
+              t_or_k = ctLocTypeOrKind_maybe loc
 
-    mk_wanted_extra (KindEqOrigin cty1 cty2 sub_o) expandSyns
-      = (True, Nothing, msg1 $$ msg2)
-      where
-        msg1 = hang (ptext (sLit "When matching types"))
-                  2 (vcat [ ppr cty1 <+> dcolon <+> ppr (typeKind cty1)
-                          , ppr cty2 <+> dcolon <+> ppr (typeKind cty2) ])
-        msg2 = case sub_o of
-                 TypeEqOrigin {} ->
-                   thdOf3 (mkExpectedActualMsg cty1 cty2 sub_o expandSyns)
-                 _ ->
-                   empty
-
-    mk_wanted_extra _ _ = (True, Nothing, empty)
+          KindEqOrigin cty1 cty2 sub_o sub_t_or_k
+            -> (True, Nothing, msg1 $$ msg2)
+            where
+              msg1 = hang (ptext (sLit "When matching types"))
+                        2 (vcat [ ppr cty1 <+> dcolon <+> ppr (typeKind cty1)
+                                , ppr cty2 <+> dcolon <+> ppr (typeKind cty2) ])
+              msg2 = case sub_o of
+                       TypeEqOrigin {} ->
+                         thdOf3 (mkExpectedActualMsg cty1 cty2 sub_o sub_t_or_k
+                                                     expandSyns)
+                       _ ->
+                         empty
+          _ -> (True, Nothing, empty)
 
 -- | This function tries to reconstruct why a "Coercible ty1 ty2" constraint
 -- is left over.
@@ -1242,8 +1246,6 @@ misMatchMsg ct oriented ty1 ty2
           text herald2 <+> quotes (ppr ty2)
         , sameOccExtra ty2 ty1 ]
   where
-    t_or_k = ctOriginTypeOrKind (ctLocOrigin (ctLoc ct))
-
     herald1 = conc [ "Couldn't match"
                    , if is_repr     then "representation of" else ""
                    , if is_oriented then "expected"          else ""
@@ -1257,9 +1259,9 @@ misMatchMsg ct oriented ty1 ty2
     is_oriented = isJust oriented
 
     orig = ctOrigin ct
-    what = case t_or_k of
-      TypeLevel -> "type"
-      KindLevel -> "kind"
+    what = case ctLocTypeOrKind_maybe (ctLoc ct) of
+      Just KindLevel -> "kind"
+      _              -> "type"
 
     conc :: [String] -> String
     conc = foldr1 add_space
@@ -1269,13 +1271,13 @@ misMatchMsg ct oriented ty1 ty2
                     | null s2   = s1
                     | otherwise = s1 ++ (' ' : s2)
 
-mkExpectedActualMsg :: Type -> Type -> CtOrigin -> Bool
+mkExpectedActualMsg :: Type -> Type -> CtOrigin -> Maybe TypeOrKind -> Bool
                     -> (Bool, Maybe SwapFlag, SDoc)
 -- NotSwapped means (actual, expected), IsSwapped is the reverse
 -- First return val is whether or not to print a herald above this msg
 mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
-                                          , uo_thing = maybe_thing
-                                          , uo_level = level }) printExpanded
+                                          , uo_thing = maybe_thing })
+                    m_level printExpanded
   | isUnliftedTypeKind act, isLiftedTypeKind exp = (False, Nothing, msg2)
   | isLiftedTypeKind act, isUnliftedTypeKind exp = (False, Nothing, msg3)
   | isLiftedTypeKind exp                         = (False, Nothing, msg4)
@@ -1285,6 +1287,8 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
   | exp `pickyEqType` ty1, act `pickyEqType` ty2 = (True, Just IsSwapped, empty)
   | otherwise                                    = (True, Nothing, msg1)
   where
+    level = m_level `orElse` TypeLevel
+
     sort = case level of
       TypeLevel -> text "type"
       KindLevel -> text "kind"
@@ -1355,7 +1359,7 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
 
     (expTy1, expTy2) = expandSynonymsToMatch exp act
 
-mkExpectedActualMsg _ _ _ _ = panic "mkExpectedAcutalMsg"
+mkExpectedActualMsg _ _ _ _ _ = panic "mkExpectedAcutalMsg"
 
 {-
 Note [Expanding type synonyms to make types similar]
@@ -2009,8 +2013,8 @@ relevantBindings want_filtering ctxt ct
              -- For *kind* errors, report the relevant bindings of the
              -- enclosing *type* equality, because that's more useful for the programmer
              extra_tvs = case tidy_orig of
-                             KindEqOrigin t1 t2 _ -> tyCoVarsOfTypes [t1,t2]
-                             _                    -> emptyVarSet
+                             KindEqOrigin t1 t2 _ _ -> tyCoVarsOfTypes [t1,t2]
+                             _                      -> emptyVarSet
        ; traceTc "relevantBindings" $
            vcat [ ppr ct
                 , pprCtOrigin (ctLocOrigin loc)

@@ -73,6 +73,7 @@ module TcMType (
 #include "HsVersions.h"
 
 -- friends:
+import {-# SOURCE #-} TcUnify ( unifyKind, noThing )
 import TyCoRep ( CoercionHole(..) )
 import TcType
 import Type
@@ -146,9 +147,9 @@ newEvVar ty = do { name <- newSysName (predTypeOccName ty)
                  ; return (mkLocalIdOrCoVar name ty) }
 
 -- deals with both equality and non-equality predicates
-newWanted :: CtOrigin -> PredType -> TcM CtEvidence
-newWanted orig pty
-  = do loc <- getCtLocM orig
+newWanted :: CtOrigin -> Maybe TypeOrKind -> PredType -> TcM CtEvidence
+newWanted orig t_or_k pty
+  = do loc <- getCtLocM orig t_or_k
        d <- if isEqPred pty then HoleDest  <$> newCoercionHole
                             else EvVarDest <$> newEvVar pty
        return $ CtWanted { ctev_dest = d
@@ -156,20 +157,20 @@ newWanted orig pty
                          , ctev_loc = loc }
 
 newWanteds :: CtOrigin -> ThetaType -> TcM [CtEvidence]
-newWanteds orig = mapM (newWanted orig)
+newWanteds orig = mapM (newWanted orig Nothing)
 
 -- | Emits a new Wanted. Deals with both equalities and non-equalities.
 emitWanted :: CtOrigin -> TcPredType -> TcM EvTerm
 emitWanted origin pty
-  = do { ev <- newWanted origin pty
+  = do { ev <- newWanted origin Nothing pty
        ; emitSimple $ mkNonCanonical ev
        ; return $ ctEvTerm ev }
 
 -- | Emits a new equality constraint
-emitWantedEq :: CtOrigin -> Role -> TcType -> TcType -> TcM Coercion
-emitWantedEq origin role ty1 ty2
+emitWantedEq :: CtOrigin -> TypeOrKind -> Role -> TcType -> TcType -> TcM Coercion
+emitWantedEq origin t_or_k role ty1 ty2
   = do { hole <- newCoercionHole
-       ; loc <- getCtLocM origin
+       ; loc <- getCtLocM origin (Just t_or_k)
        ; emitSimple $ mkNonCanonical $
            CtWanted { ctev_pred = pty, ctev_dest = HoleDest hole, ctev_loc = loc }
        ; return (mkHoleCo hole role ty1 ty2) }
@@ -181,7 +182,7 @@ emitWantedEq origin role ty1 ty2
 emitWantedEvVar :: CtOrigin -> TcPredType -> TcM EvVar
 emitWantedEvVar origin ty
   = do { new_cv <- newEvVar ty
-       ; loc <- getCtLocM origin
+       ; loc <- getCtLocM origin Nothing
        ; let ctev = CtWanted { ctev_dest = EvVarDest new_cv
                              , ctev_pred = ty
                              , ctev_loc  = loc }
@@ -676,9 +677,11 @@ tcInstBinderX mb_kind_info subst binder
   , Just (boxity, role, k1, k2) <- get_pred_tys_maybe ty
   = do { let origin = TypeEqOrigin { uo_actual   = k1
                                    , uo_expected = k2
-                                   , uo_thing    = Nothing
-                                   , uo_level    = KindLevel }
-       ; co <- emitWantedEq origin role k1 k2
+                                   , uo_thing    = Nothing }
+       ; co <- case role of
+                 Nominal          -> unifyKind noThing k1 k2
+                 Representational -> emitWantedEq origin KindLevel role k1 k2
+                 Phantom          -> pprPanic "tcInstBinderX Phantom" (ppr binder)
        ; let arg' = case boxity of
                       Unboxed -> mkCoercionTy co
                       Boxed   -> mkEqBoxTy    co role k1 k2
@@ -1195,11 +1198,11 @@ zonkTidyOrigin env orig@(TypeEqOrigin { uo_actual   = act
        ; return ( env3, orig { uo_actual   = act'
                              , uo_expected = exp'
                              , uo_thing    = m_thing' }) }
-zonkTidyOrigin env (KindEqOrigin ty1 ty2 orig)
+zonkTidyOrigin env (KindEqOrigin ty1 ty2 orig t_or_k)
   = do { (env1, ty1') <- zonkTidyTcType env  ty1
        ; (env2, ty2') <- zonkTidyTcType env1 ty2
        ; (env3, orig') <- zonkTidyOrigin env2 orig
-       ; return (env3, KindEqOrigin ty1' ty2' orig') }
+       ; return (env3, KindEqOrigin ty1' ty2' orig' t_or_k) }
 zonkTidyOrigin env (FunDepOrigin1 p1 l1 p2 l2)
   = do { (env1, p1') <- zonkTidyTcType env  p1
        ; (env2, p2') <- zonkTidyTcType env1 p2

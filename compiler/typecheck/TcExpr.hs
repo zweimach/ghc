@@ -146,7 +146,7 @@ tcUnboundId occ res_ty
  = do { ty <- newFlexiTyVarTy liftedTypeKind
       ; name <- newSysName occ
       ; let ev = mkLocalId name ty
-      ; loc <- getCtLocM HoleOrigin
+      ; loc <- getCtLocM HoleOrigin Nothing
       ; let can = CHoleCan { cc_ev = CtWanted { ctev_pred = ty
                                               , ctev_dest = EvVarDest ev
                                               , ctev_loc  = loc}

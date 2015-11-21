@@ -401,8 +401,7 @@ tcSubType ctxt maybe_id ty_actual ty_expected
   where
     origin = TypeEqOrigin { uo_actual   = ty_actual
                           , uo_expected = ty_expected
-                          , uo_thing    = mkErrorThing <$> maybe_id
-                          , uo_level    = TypeLevel } -- TODO (RAE): Check.
+                          , uo_thing    = mkErrorThing <$> maybe_id }
 
 tcSubTypeDS :: Outputable a => UserTypeCtxt -> a  -- ^ has type ty_actual
             -> TcSigmaType -> TcRhoType -> TcM HsWrapper
@@ -441,8 +440,7 @@ tcSubType_NC ctxt ty_actual ty_expected
   where
     origin = TypeEqOrigin { uo_actual   = ty_actual
                           , uo_expected = ty_expected
-                          , uo_thing    = Nothing
-                          , uo_level    = TypeLevel } -- TODO (RAE): Check.
+                          , uo_thing    = Nothing }
 
 tcSubTypeDS_NC :: Outputable a
                => UserTypeCtxt
@@ -454,14 +452,13 @@ tcSubTypeDS_NC ctxt maybe_thing ty_actual ty_expected
   where
     origin = TypeEqOrigin { uo_actual   = ty_actual
                           , uo_expected = ty_expected
-                          , uo_thing    = mkErrorThing <$> maybe_thing
-                          , uo_level    = TypeLevel } -- TODO (RAE): Check.
+                          , uo_thing    = mkErrorThing <$> maybe_thing }
 
 ---------------
 tc_sub_type :: CtOrigin -> UserTypeCtxt -> TcSigmaType -> TcSigmaType -> TcM HsWrapper
 tc_sub_type origin ctxt ty_actual ty_expected
   | isTyVarTy ty_actual  -- See Note [Higher rank types]
-  = do { cow <- uType origin ty_actual ty_expected
+  = do { cow <- uType origin TypeLevel ty_actual ty_expected
        ; return (coToHsWrapper cow) }
 
   | otherwise  -- See Note [Deep skolemisation]
@@ -495,7 +492,7 @@ tc_sub_type_ds origin ctxt ty_actual ty_expected
        ; return (body_wrap <.> in_wrap) }
 
   | otherwise   -- Revert to unification
-  = do { cow <- uType origin ty_actual ty_expected
+  = do { cow <- uType origin TypeLevel ty_actual ty_expected
        ; return (coToHsWrapper cow) }
 
 -----------------
@@ -659,11 +656,10 @@ unifyType :: Outputable a => Maybe a   -- ^ If present, has type 'ty1'
           -> TcTauType -> TcTauType -> TcM TcCoercion
 -- Actual and expected types
 -- Returns a coercion : ty1 ~ ty2
-unifyType thing ty1 ty2 = uType origin ty1 ty2
+unifyType thing ty1 ty2 = uType origin TypeLevel ty1 ty2
   where
     origin = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2
-                          , uo_thing  = mkErrorThing <$> thing
-                          , uo_level  = TypeLevel }
+                          , uo_thing  = mkErrorThing <$> thing }
 
 -- | Use this instead of 'Nothing' when calling 'unifyType' without
 -- a good "thing" (where the "thing" has the "actual" type passed in)
@@ -671,11 +667,10 @@ unifyType thing ty1 ty2 = uType origin ty1 ty2
 noThing :: Maybe (HsExpr Name)
 noThing = Nothing
 
-unifyKind :: Outputable a => Maybe a -> TcKind -> TcKind -> TcM ()
-unifyKind thing ty1 ty2 = discardResult $ uType origin ty1 ty2
+unifyKind :: Outputable a => Maybe a -> TcKind -> TcKind -> TcM Coercion
+unifyKind thing ty1 ty2 = uType origin KindLevel ty1 ty2
   where origin = TypeEqOrigin { uo_actual = ty1, uo_expected = ty2
-                              , uo_thing  = mkErrorThing <$> thing
-                              , uo_level  = KindLevel }
+                              , uo_thing  = mkErrorThing <$> thing }
 
 ---------------
 unifyPred :: PredType -> PredType -> TcM TcCoercion
@@ -704,6 +699,7 @@ uType is the heart of the unifier.
 ------------
 uType, uType_defer
   :: CtOrigin
+  -> TypeOrKind
   -> TcType    -- ty1 is the *actual* type
   -> TcType    -- ty2 is the *expected* type
   -> TcM Coercion
@@ -711,9 +707,9 @@ uType, uType_defer
 --------------
 -- It is always safe to defer unification to the main constraint solver
 -- See Note [Deferred unification]
-uType_defer origin ty1 ty2
+uType_defer origin t_or_k ty1 ty2
   = do { hole <- newCoercionHole
-       ; loc <- getCtLocM origin
+       ; loc <- getCtLocM origin (Just t_or_k)
        ; emitSimple $ mkNonCanonical $
              CtWanted { ctev_dest = HoleDest hole
                       , ctev_pred = mkPrimEqPred ty1 ty2
@@ -731,7 +727,7 @@ uType_defer origin ty1 ty2
        ; return (mkHoleCo hole Nominal ty1 ty2) }
 
 --------------
-uType origin orig_ty1 orig_ty2
+uType origin t_or_k orig_ty1 orig_ty2
   = do { tclvl <- getTcLevel
        ; traceTc "u_tys " $ vcat
               [ text "tclvl" <+> ppr tclvl
@@ -756,13 +752,13 @@ uType origin orig_ty1 orig_ty2
            ; case lookup_res of
                Filled ty1   -> do { traceTc "found filled tyvar" (ppr tv1 <+> text ":->" <+> ppr ty1)
                                   ; go ty1 ty2 }
-               Unfilled ds1 -> uUnfilledVar origin NotSwapped tv1 ds1 ty2 }
+               Unfilled ds1 -> uUnfilledVar origin t_or_k NotSwapped tv1 ds1 ty2 }
     go ty1 (TyVarTy tv2)
       = do { lookup_res <- lookupTcTyVar tv2
            ; case lookup_res of
                Filled ty2   -> do { traceTc "found filled tyvar" (ppr tv2 <+> text ":->" <+> ppr ty2)
                                   ; go ty1 ty2 }
-               Unfilled ds2 -> uUnfilledVar origin IsSwapped tv2 ds2 ty1 }
+               Unfilled ds2 -> uUnfilledVar origin t_or_k IsSwapped tv2 ds2 ty1 }
 
         -- See Note [Expanding synonyms during unification]
         --
@@ -786,8 +782,8 @@ uType origin orig_ty1 orig_ty2
 
         -- Functions (or predicate functions) just check the two parts
     go (ForAllTy (Anon fun1) arg1) (ForAllTy (Anon fun2) arg2)
-      = do { co_l <- uType origin fun1 fun2
-           ; co_r <- uType origin arg1 arg2
+      = do { co_l <- uType origin t_or_k fun1 fun2
+           ; co_r <- uType origin t_or_k arg1 arg2
            ; return $ mkFunCo Nominal co_l co_r }
 
         -- Always defer if a type synonym family (type function)
@@ -801,8 +797,16 @@ uType origin orig_ty1 orig_ty2
       -- See Note [Mismatched type lists and application decomposition]
       | tc1 == tc2, length tys1 == length tys2
       = ASSERT( isGenerativeTyCon tc1 Nominal )
-        do { cos <- zipWithM (uType origin) tys1 tys2
+        do { cos <- zipWith3M (uType origin) t_or_ks tys1 tys2
            ; return $ mkTyConAppCo Nominal tc1 cos }
+      where
+        (bndrs, _) = splitForAllTys (tyConKind tc1)
+        t_or_ks    = case t_or_k of
+                       KindLevel -> repeat KindLevel
+                       TypeLevel -> map (\bndr -> if isNamedBinder bndr
+                                                  then KindLevel
+                                                  else TypeLevel)
+                                        bndrs
 
     go (LitTy m) ty@(LitTy n)
       | m == n
@@ -827,7 +831,9 @@ uType origin orig_ty1 orig_ty2
     go (CoercionTy co1) (CoercionTy co2)
       = do { let ty1 = coercionType co1
                  ty2 = coercionType co2
-           ; kco <- uType (KindEqOrigin orig_ty1 orig_ty2 origin) ty1 ty2
+           ; kco <- uType (KindEqOrigin orig_ty1 orig_ty2 origin (Just t_or_k))
+                          KindLevel
+                          ty1 ty2
            ; return $ mkProofIrrelCo Nominal kco co1 co2 }
 
         -- Anything else fails
@@ -837,12 +843,12 @@ uType origin orig_ty1 orig_ty2
     ------------------
     defer ty1 ty2   -- See Note [Check for equality before deferring]
       | ty1 `tcEqType` ty2 = return (mkNomReflCo ty1)
-      | otherwise          = uType_defer origin ty1 ty2
+      | otherwise          = uType_defer origin t_or_k ty1 ty2
 
     ------------------
     go_app s1 t1 s2 t2
-      = do { co_s <- uType origin s1 s2
-           ; co_t <- uType origin t1 t2
+      = do { co_s <- uType origin t_or_k s1 s2
+           ; co_t <- uType origin t_or_k t1 t2
            ; return $ mkAppCo co_s co_t }
 
 {- Note [Check for equality before deferring]
@@ -932,6 +938,7 @@ back into @uTys@ if it turns out that the variable is already bound.
 -}
 
 uUnfilledVar :: CtOrigin
+             -> TypeOrKind
              -> SwapFlag
              -> TcTyVar -> TcTyVarDetails       -- Tyvar 1
              -> TcTauType                       -- Type 2
@@ -939,22 +946,25 @@ uUnfilledVar :: CtOrigin
 -- "Unfilled" means that the variable is definitely not a filled-in meta tyvar
 --            It might be a skolem, or untouchable, or meta
 
-uUnfilledVar origin swapped tv1 details1 (TyVarTy tv2)
+uUnfilledVar origin t_or_k swapped tv1 details1 (TyVarTy tv2)
   | tv1 == tv2  -- Same type variable => no-op
   = return (mkNomReflCo (mkTyVarTy tv1))
 
   | otherwise  -- Distinct type variables
   = do  { lookup2 <- lookupTcTyVar tv2
         ; case lookup2 of
-            Filled ty2'       -> uUnfilledVar origin swapped tv1 details1 ty2'
-            Unfilled details2 -> uUnfilledVars origin swapped tv1 details1 tv2 details2
+            Filled ty2'
+              -> uUnfilledVar origin t_or_k swapped tv1 details1 ty2'
+            Unfilled details2
+              -> uUnfilledVars origin t_or_k swapped tv1 details1 tv2 details2
         }
 
-uUnfilledVar origin swapped tv1 details1 non_var_ty2  -- ty2 is not a type variable
+uUnfilledVar origin t_or_k swapped tv1 details1 non_var_ty2
+-- ty2 is not a type variable
   = case details1 of
       MetaTv { mtv_ref = ref1 }
         -> do { dflags <- getDynFlags
-              ; mb_ty2' <- checkTauTvUpdate dflags origin tv1 non_var_ty2
+              ; mb_ty2' <- checkTauTvUpdate dflags origin t_or_k tv1 non_var_ty2
               ; case mb_ty2' of
                   Just (ty2', co_k) -> maybe_sym swapped <$>
                                        updateMeta tv1 ref1 ty2' co_k
@@ -966,13 +976,14 @@ uUnfilledVar origin swapped tv1 details1 non_var_ty2  -- ty2 is not a type varia
 
       _other -> do { traceTc "Skolem defer" (ppr tv1); defer }  -- Skolems of all sorts
   where
-    defer = unSwap swapped (uType_defer origin) (mkTyVarTy tv1) non_var_ty2
+    defer = unSwap swapped (uType_defer origin t_or_k) (mkTyVarTy tv1) non_var_ty2
                -- Occurs check or an untouchable: just defer
                -- NB: occurs check isn't necessarily fatal:
                --     eg tv1 occured in type family parameter
 
 ----------------
 uUnfilledVars :: CtOrigin
+              -> TypeOrKind
               -> SwapFlag
               -> TcTyVar -> TcTyVarDetails      -- Tyvar 1
               -> TcTyVar -> TcTyVarDetails      -- Tyvar 2
@@ -980,11 +991,11 @@ uUnfilledVars :: CtOrigin
 -- Invarant: The type variables are distinct,
 --           Neither is filled in yet
 
-uUnfilledVars origin swapped tv1 details1 tv2 details2
+uUnfilledVars origin t_or_k swapped tv1 details1 tv2 details2
   = do { traceTc "uUnfilledVars for" (ppr tv1 <+> text "and" <+> ppr tv2)
        ; traceTc "uUnfilledVars" (    text "trying to unify" <+> ppr k1
                                   <+> text "with"            <+> ppr k2)
-       ; co_k <- uType kind_origin k1 k2
+       ; co_k <- uType kind_origin KindLevel k1 k2
        ; let no_swap ref = maybe_sym swapped <$>
                            updateMeta tv1 ref ty2 (mkSymCo co_k)
              do_swap ref = maybe_sym (flipSwap swapped) <$>
@@ -1001,13 +1012,13 @@ uUnfilledVars origin swapped tv1 details1 tv2 details2
            -- This happens for skolems of all sorts
          ; _ -> do { traceTc "deferring because I can't find a meta-tyvar:"
                        (pprTcTyVarDetails details1 <+> pprTcTyVarDetails details2)
-                   ; unSwap swapped (uType_defer origin) ty1 ty2 } } }
+                   ; unSwap swapped (uType_defer origin t_or_k) ty1 ty2 } } }
   where
     k1  = tyVarKind tv1
     k2  = tyVarKind tv2
     ty1 = mkTyVarTy tv1
     ty2 = mkTyVarTy tv2
-    kind_origin = KindEqOrigin ty1 ty2 origin
+    kind_origin = KindEqOrigin ty1 ty2 origin (Just t_or_k)
 
 -- | apply sym iff swapped
 maybe_sym :: SwapFlag -> Coercion -> Coercion
@@ -1030,6 +1041,7 @@ nicer_to_update_tv1 tv1 _     _     = isSystemName (Var.varName tv1)
 ----------------
 checkTauTvUpdate :: DynFlags
                  -> CtOrigin
+                 -> TypeOrKind
                  -> TcTyVar             -- tv :: k1
                  -> TcType              -- ty :: k2
                  -> TcM (Maybe ( TcType        -- possibly-expanded ty
@@ -1054,13 +1066,13 @@ checkTauTvUpdate :: DynFlags
 -- we return Nothing, leaving it to the later constraint simplifier to
 -- sort matters out.
 
-checkTauTvUpdate dflags origin tv ty
+checkTauTvUpdate dflags origin t_or_k tv ty
   | SigTv <- info
   = ASSERT( not (isTyVarTy ty) )
     return Nothing
   | otherwise
   = do { ty   <- zonkTcType ty
-       ; co_k <- uType kind_origin (typeKind ty) (tyVarKind tv)
+       ; co_k <- uType kind_origin KindLevel (typeKind ty) (tyVarKind tv)
        ; if | is_return_tv -> -- ReturnTv: a simple occurs-check is all that we need
                               -- See Note [ReturnTv] in TcType
                 if tv `elemVarSet` tyCoVarsOfType ty
@@ -1074,7 +1086,7 @@ checkTauTvUpdate dflags origin tv ty
                    _                        -> return Nothing
             | otherwise   -> return (Just (ty, co_k)) }
   where
-    kind_origin   = KindEqOrigin (mkTyVarTy tv) ty origin
+    kind_origin   = KindEqOrigin (mkTyVarTy tv) ty origin (Just t_or_k)
     details       = tcTyVarDetails tv
     info          = mtv_info details
     is_return_tv  = isReturnTyVar tv
@@ -1292,8 +1304,8 @@ matchExpectedFunKind ty = go
                  origin  = TypeEqOrigin { uo_actual   = k
                                         , uo_expected = new_fun
                                         , uo_thing    = Just $ mkTypeErrorThing ty
-                                        , uo_level    = KindLevel }
-           ; co <- uType origin k new_fun
+                                        }
+           ; co <- uType origin KindLevel k new_fun
            ; return (co, arg_kind, res_kind) }
       where
         new_flexi | is_return = newReturnTyVarTy liftedTypeKind
@@ -1313,8 +1325,8 @@ checkExpectedKind ty act_kind exp_kind
       ; let origin = TypeEqOrigin { uo_actual   = act_kind'
                                   , uo_expected = exp_kind
                                   , uo_thing    = Just $ mkTypeErrorThing ty'
-                                  , uo_level    = KindLevel }
-      ; co_k <- uType origin act_kind' exp_kind
+                                  }
+      ; co_k <- uType origin KindLevel act_kind' exp_kind
       ; traceTc "checkExpectedKind" (vcat [ ppr act_kind
                                           , ppr exp_kind
                                           , ppr co_k ])

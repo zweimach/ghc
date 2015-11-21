@@ -928,9 +928,12 @@ canDecomposableTyConAppOK ev eq_rel tc tys1 tys2
       -- the following makes a better distinction between "kind" and "type"
       -- in error messages
     (bndrs, _) = splitForAllTys (tyConKind tc)
-    kind_loc   = mkKindLoc (mkTyConApp tc tys1) (mkTyConApp tc tys2) loc
+    kind_loc   = toKindLoc loc
     is_kinds   = map isNamedBinder bndrs
-    new_locs   = map (\is_kind -> if is_kind then kind_loc else loc) is_kinds
+    new_locs | Just KindLevel <- ctLocTypeOrKind_maybe loc
+             = repeat loc
+             | otherwise
+             = map (\is_kind -> if is_kind then kind_loc else loc) is_kinds
 
 
 -- | Call when canonicalizing an equality fails, but if the equality is

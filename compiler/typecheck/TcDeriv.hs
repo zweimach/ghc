@@ -125,14 +125,14 @@ type DerivContext = Maybe ThetaType
    -- Nothing    <=> Vanilla deriving; infer the context of the instance decl
    -- Just theta <=> Standalone deriving: context supplied by programmer
 
-data PredOrigin = PredOrigin PredType CtOrigin
+data PredOrigin = PredOrigin PredType CtOrigin TypeOrKind
 type ThetaOrigin = [PredOrigin]
 
-mkPredOrigin :: CtOrigin -> PredType -> PredOrigin
-mkPredOrigin origin pred = PredOrigin pred origin
+mkPredOrigin :: CtOrigin -> TypeOrKind -> PredType -> PredOrigin
+mkPredOrigin origin t_or_k pred = PredOrigin pred origin t_or_k
 
-mkThetaOrigin :: CtOrigin -> ThetaType -> ThetaOrigin
-mkThetaOrigin origin = map (mkPredOrigin origin)
+mkThetaOrigin :: CtOrigin -> TypeOrKind -> ThetaType -> ThetaOrigin
+mkThetaOrigin origin t_or_k = map (mkPredOrigin origin t_or_k)
 
 data EarlyDerivSpec = InferTheta (DerivSpec ThetaOrigin)
                     | GivenTheta (DerivSpec ThetaType)
@@ -180,7 +180,7 @@ instance Outputable EarlyDerivSpec where
   ppr (GivenTheta spec) = ppr spec <+> ptext (sLit "(Given)")
 
 instance Outputable PredOrigin where
-  ppr (PredOrigin ty _) = ppr ty -- The origin is not so interesting when debugging
+  ppr (PredOrigin ty _ _) = ppr ty -- The origin is not so interesting when debugging
 
 {-
 Inferring missing contexts
@@ -977,19 +977,27 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
                  ++ sc_constraints
                  ++ arg_constraints) }
   where
+    (tc_binders, _) = splitForAllTys (tyConKind rep_tc)
+    choose_level bndr
+      | isNamedBinder bndr = KindLevel
+      | otherwise          = TypeLevel
+    t_or_ks = map choose_level tc_binders ++ repeat TypeLevel
+       -- want to report *kind* errors when possible
+
     arg_constraints = con_arg_constraints get_std_constrained_tys
 
        -- Constraints arising from the arguments of each constructor
-    con_arg_constraints :: (CtOrigin -> Type -> [PredOrigin]) -> [PredOrigin]
+    con_arg_constraints :: (CtOrigin -> TypeOrKind -> Type -> [PredOrigin])
+                        -> [PredOrigin]
     con_arg_constraints get_arg_constraints
       = [ pred
         | data_con <- tyConDataCons rep_tc
-        , (arg_n, arg_ty) <- ASSERT( isVanillaDataCon data_con )
-                             zip [1..] $  -- ASSERT is precondition of dataConInstOrigArgTys
-                             dataConInstOrigArgTys data_con all_rep_tc_args
+        , (arg_n, arg_t_or_k, arg_ty)
+            <- zip3 [1..] t_or_ks $
+               dataConInstOrigArgTys data_con all_rep_tc_args
         , not (isUnLiftedType arg_ty)
         , let orig = DerivOriginDC data_con arg_n
-        , pred <- get_arg_constraints orig arg_ty ]
+        , pred <- get_arg_constraints orig arg_t_or_k arg_ty ]
 
                 -- No constraints for unlifted types
                 -- See Note [Deriving and unboxed types]
@@ -1005,24 +1013,25 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
 
     a2a_kind = mkFunTy liftedTypeKind liftedTypeKind
 
-    get_gen1_constraints functor_cls orig ty
-       = mk_functor_like_constraints orig functor_cls $
+    get_gen1_constraints functor_cls orig t_or_k ty
+       = mk_functor_like_constraints orig t_or_k functor_cls $
          get_gen1_constrained_tys last_tv ty
 
-    get_std_constrained_tys :: CtOrigin -> Type -> [PredOrigin]
-    get_std_constrained_tys orig ty
-        | is_functor_like = mk_functor_like_constraints orig cls $
+    get_std_constrained_tys :: CtOrigin -> TypeOrKind -> Type -> [PredOrigin]
+    get_std_constrained_tys orig t_or_k ty
+        | is_functor_like = mk_functor_like_constraints orig t_or_k cls $
                             deepSubtypesContaining last_tv ty
-        | otherwise       = [mkPredOrigin orig (mkClassPred cls [ty])]
+        | otherwise       = [mkPredOrigin orig t_or_k (mkClassPred cls [ty])]
 
-    mk_functor_like_constraints :: CtOrigin -> Class -> [Type] -> [PredOrigin]
+    mk_functor_like_constraints :: CtOrigin -> TypeOrKind
+                                -> Class -> [Type] -> [PredOrigin]
     -- 'cls' is Functor or Traversable etc
     -- For each type, generate two constraints: (cls ty, kind(ty) ~ (*->*))
     -- The second constraint checks that the first is well-kinded.
     -- Lacking that, as Trac #10561 showed, we can just generate an
     -- ill-kinded instance.
-    mk_functor_like_constraints orig cls tys
-       = [ mkPredOrigin orig pred
+    mk_functor_like_constraints orig t_or_k cls tys
+       = [ mkPredOrigin orig t_or_k pred
          | ty <- tys
          , pred <- [ mkClassPred cls [ty]
                    , mkPrimEqPred (typeKind ty) a2a_kind ] ]
@@ -1035,11 +1044,11 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
 
         -- Constraints arising from superclasses
         -- See Note [Superclasses of derived instance]
-    sc_constraints = mkThetaOrigin DerivOrigin $
+    sc_constraints = mkThetaOrigin DerivOrigin TypeLevel $
         substTheta (zipOpenTCvSubst (classTyVars cls) inst_tys) (classSCTheta cls)
 
         -- Stupid constraints
-    stupid_constraints = mkThetaOrigin DerivOrigin $
+    stupid_constraints = mkThetaOrigin DerivOrigin TypeLevel $
         substTheta subst (tyConStupidTheta rep_tc)
     subst = zipTopTCvSubst rep_tc_tvs all_rep_tc_args
 
@@ -1054,7 +1063,8 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
     extra_constraints
       | cls `hasKey` dataClassKey
       , all (isLiftedTypeKind . typeKind) rep_tc_args
-      = [mkPredOrigin DerivOrigin (mkClassPred cls [ty]) | ty <- rep_tc_args]
+      = [mkPredOrigin DerivOrigin t_or_k (mkClassPred cls [ty])
+        | (t_or_k, ty) <- zip t_or_ks rep_tc_args]
       | otherwise
       = []
 
@@ -1564,7 +1574,7 @@ mkNewTypeEqn dflags overlap_mode tvs
         rep_inst_ty = newTyConInstRhs rep_tycon rep_tc_args
         rep_tys     = cls_tys ++ [rep_inst_ty]
         rep_pred    = mkClassPred cls rep_tys
-        rep_pred_o  = mkPredOrigin DerivOrigin rep_pred
+        rep_pred_o  = mkPredOrigin DerivOrigin TypeLevel rep_pred
                 -- rep_pred is the representation dictionary, from where
                 -- we are gong to get all the methods for the newtype
                 -- dictionary
@@ -1578,7 +1588,7 @@ mkNewTypeEqn dflags overlap_mode tvs
         inst_ty = mkTyConApp tycon tc_args
         inst_tys = cls_tys ++ [inst_ty]
         sc_theta =
-            mkThetaOrigin DerivOrigin $
+            mkThetaOrigin DerivOrigin TypeLevel $
             substTheta (zipOpenTCvSubst cls_tyvars inst_tys) (classSCTheta cls)
 
 
@@ -1588,7 +1598,8 @@ mkNewTypeEqn dflags overlap_mode tvs
         -- calls to coercible that we are going to generate.
         coercible_constraints =
             [ let (Pair t1 t2) = mkCoerceClassMethEqn cls (varSetElemsWellScoped dfun_tvs) inst_tys rep_inst_ty meth
-              in mkPredOrigin (DerivOriginCoerce meth t1 t2) (mkReprPrimEqPred t1 t2)
+              in mkPredOrigin (DerivOriginCoerce meth t1 t2) TypeLevel
+                              (mkReprPrimEqPred t1 t2)
             | meth <- classMethods cls ]
 
                 -- If there are no tyvars, there's no need
@@ -1783,7 +1794,8 @@ simplifyDeriv pred tvs theta
        ; let skol_set = mkVarSet tvs_skols
              doc = ptext (sLit "deriving") <+> parens (ppr pred)
 
-       ; wanted <- mapM (\(PredOrigin t o) -> newWanted o (substTy skol_subst t)) theta
+       ; wanted <- mapM (\(PredOrigin t o t_or_k)
+                         -> newWanted o (Just t_or_k) (substTy skol_subst t)) theta
 
        ; traceTc "simplifyDeriv" $
          vcat [ pprTvBndrs tvs $$ ppr theta $$ ppr wanted, doc ]

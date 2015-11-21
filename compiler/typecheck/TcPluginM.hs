@@ -160,7 +160,8 @@ zonkCt = unsafeTcPluginTcM . TcM.zonkCt
 
 -- | Create a new wanted constraint.
 newWanted  :: CtLoc -> PredType -> TcPluginM CtEvidence
-newWanted loc pty = unsafeTcPluginTcM (TcM.newWanted (TcM.ctLocOrigin loc) pty)
+newWanted loc pty
+  = unsafeTcPluginTcM (TcM.newWanted (TcM.ctLocOrigin loc) Nothing pty)
 
 -- | Create a new derived constraint.
 newDerived :: CtLoc -> PredType -> TcPluginM CtEvidence

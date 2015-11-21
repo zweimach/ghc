@@ -982,7 +982,8 @@ kcDataDefn fam_name (HsWB { hswb_cts = pats })
   = do  { _ <- tcHsContext ctxt
         ; checkNoErrs $ mapM_ (wrapLocM kcConDecl) cons
           -- See Note [Failing early in kcDataDefn]
-        ; case mb_kind of
+        ; discardResult $
+          case mb_kind of
             Nothing -> unifyKind (Just hs_ty_pats) res_k liftedTypeKind
             Just k  -> do { k' <- tcLHsKind k
                           ; unifyKind (Just hs_ty_pats) res_k k' } }

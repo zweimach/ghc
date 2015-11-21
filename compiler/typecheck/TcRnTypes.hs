@@ -81,16 +81,17 @@ module TcRnTypes(
         SubGoalDepth, initialSubGoalDepth,
         bumpSubGoalDepth, subGoalDepthExceeded,
         CtLoc(..), ctLocSpan, ctLocEnv, ctLocLevel, ctLocOrigin,
+        ctLocTypeOrKind_maybe,
         ctLocDepth, bumpCtLocDepth,
         setCtLocOrigin, setCtLocEnv, setCtLocSpan,
         CtOrigin(..), ErrorThing(..), mkErrorThing, TypeOrKind(..),
-        pprCtOrigin, pprCtLoc, ctOriginTypeOrKind,
+        pprCtOrigin, pprCtLoc,
         pushErrCtxt, pushErrCtxtSameOrigin,
 
         SkolemInfo(..),
 
         CtEvidence(..), TcEvDest(..),
-        mkGivenLoc, mkKindLoc,
+        mkGivenLoc, mkKindLoc, toKindLoc,
         isWanted, isGiven, isDerived,
         ctEvRole, ctEvBoxity,
 
@@ -2118,6 +2119,7 @@ type will evolve...
 
 data CtLoc = CtLoc { ctl_origin :: CtOrigin
                    , ctl_env    :: TcLclEnv
+                   , ctl_t_or_k :: Maybe TypeOrKind  -- OK if we're not sure
                    , ctl_depth  :: !SubGoalDepth }
   -- The TcLclEnv includes particularly
   --    source location:  tcl_loc   :: RealSrcSpan
@@ -2129,11 +2131,18 @@ mkGivenLoc :: TcLevel -> SkolemInfo -> TcLclEnv -> CtLoc
 mkGivenLoc tclvl skol_info env
   = CtLoc { ctl_origin = GivenOrigin skol_info
           , ctl_env    = env { tcl_tclvl = tclvl }
+          , ctl_t_or_k = Nothing    -- this only matters for error msgs
           , ctl_depth  = initialSubGoalDepth }
 
 mkKindLoc :: TcType -> TcType   -- original *types* being compared
           -> CtLoc -> CtLoc
-mkKindLoc s1 s2 loc = setCtLocOrigin loc (KindEqOrigin s1 s2 (ctLocOrigin loc))
+mkKindLoc s1 s2 loc = setCtLocOrigin loc
+                        (KindEqOrigin s1 s2 (ctLocOrigin loc)
+                                            (ctLocTypeOrKind_maybe loc))
+
+-- | Take a CtLoc and moves it to the kind level
+toKindLoc :: CtLoc -> CtLoc
+toKindLoc loc = loc { ctl_t_or_k = Just KindLevel }
 
 ctLocEnv :: CtLoc -> TcLclEnv
 ctLocEnv = ctl_env
@@ -2149,6 +2158,9 @@ ctLocOrigin = ctl_origin
 
 ctLocSpan :: CtLoc -> RealSrcSpan
 ctLocSpan (CtLoc { ctl_env = lcl}) = tcl_loc lcl
+
+ctLocTypeOrKind_maybe :: CtLoc -> Maybe TypeOrKind
+ctLocTypeOrKind_maybe = ctl_t_or_k
 
 setCtLocSpan :: CtLoc -> RealSrcSpan -> CtLoc
 setCtLocSpan ctl@(CtLoc { ctl_env = lcl }) loc = setCtLocEnv ctl (lcl { tcl_loc = loc })
@@ -2301,12 +2313,12 @@ data CtOrigin
                  , uo_expected :: TcType
                  , uo_thing    :: Maybe ErrorThing
                                   -- ^ The thing that has type "actual"
-                 , uo_level    :: TypeOrKind
                  }
 
   | KindEqOrigin
       TcType TcType             -- A kind equality arising from unifying these two types
       CtOrigin                  -- originally arising from this
+      (Maybe TypeOrKind)        -- the level of the eq this arises from
 
   | IPOccOrigin  HsIPName       -- Occurrence of an implicit parameter
   | OverLabelOrigin FastString  -- Occurrence of an overloaded label
@@ -2380,11 +2392,6 @@ data TypeOrKind = TypeLevel | KindLevel
 mkErrorThing :: Outputable a => a -> ErrorThing
 mkErrorThing thing = ErrorThing thing (\env x -> return (env, x))
 
-ctOriginTypeOrKind :: CtOrigin -> TypeOrKind
-ctOriginTypeOrKind (TypeEqOrigin { uo_level = t_or_k }) = t_or_k
-ctOriginTypeOrKind (KindEqOrigin {})                    = KindLevel
-ctOriginTypeOrKind _                                    = TypeLevel
-
 instance Outputable CtOrigin where
   ppr = pprCtOrigin
 
@@ -2424,7 +2431,7 @@ pprCtOrigin (FunDepOrigin2 pred1 orig1 pred2 loc2)
                , hang (ptext (sLit "instance") <+> quotes (ppr pred2))
                     2 (ptext (sLit "at") <+> ppr loc2) ])
 
-pprCtOrigin (KindEqOrigin t1 t2 _)
+pprCtOrigin (KindEqOrigin t1 t2 _ _)
   = hang (ctoHerald <+> ptext (sLit "a kind equality arising from"))
        2 (sep [ppr t1, char '~', ppr t2])
 
@@ -2488,8 +2495,7 @@ pprCtO DefaultOrigin         = ptext (sLit "a 'default' declaration")
 pprCtO DoOrigin              = ptext (sLit "a do statement")
 pprCtO MCompOrigin           = text "a statement in a monad comprehension"
 pprCtO ProcOrigin            = ptext (sLit "a proc expression")
-pprCtO (TypeEqOrigin t1 t2 _ _)
-                             = ptext (sLit "a type equality") <+> sep [ppr t1, char '~', ppr t2]
+pprCtO (TypeEqOrigin t1 t2 _)= ptext (sLit "a type equality") <+> sep [ppr t1, char '~', ppr t2]
 pprCtO AnnOrigin             = ptext (sLit "an annotation")
 pprCtO HoleOrigin            = ptext (sLit "a use of") <+> quotes (ptext $ sLit "_")
 pprCtO ListOrigin            = ptext (sLit "an overloaded list")
