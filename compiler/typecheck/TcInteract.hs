@@ -2010,14 +2010,17 @@ matchTypeable clas [k,t]  -- clas = Typeable
   | k `eqType` typeNatKind                 = doTyLit knownNatClassName    t
   | k `eqType` typeSymbolKind              = doTyLit knownSymbolClassName t
   | Just (tc, ks) <- splitTyConApp_maybe t -- See Note [Typeable (T a b c)]
-  , onlyNamedBndrsApplied tc ks            = doTyConApp t
+  , onlyNamedBndrsApplied tc ks            = doTyConApp clas t ks
   | Just (f,kt)   <- splitAppTy_maybe t    = doTyApp    clas t f kt
 
 matchTypeable _ _ = return NoInstance
 
-doTyConApp :: Type -> TcS LookupInstResult
--- Representation for type constructor applied to some (ground) kinds
-doTyConApp ty = return $ GenInst [] (\_ -> EvTypeable ty EvTypeableTyCon) True
+doTyConApp :: Class -> Type -> [Kind] -> TcS LookupInstResult
+-- Representation for type constructor applied to some kinds
+doTyConApp clas ty args
+  = return $ GenInst (map (mk_typeable_pred clas) args)
+                     (\tms -> EvTypeable ty $ EvTypeableTyCon tms)
+                     True
 
 -- Representation for concrete kinds.  We just use the kind itself,
 -- but first we must make sure that we've instantiated all kind-

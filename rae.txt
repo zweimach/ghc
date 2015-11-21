@@ -19,6 +19,8 @@ TICKETS:
 #9017:
 #9173: mention expression in error
 #7961: main ticket.
+#10524: Typeable k
+
 
 QUESTIONS:
 - Should TYPE / Levity / Lifted / Unlifted be in the Prelude? If not,

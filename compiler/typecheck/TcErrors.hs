@@ -1280,7 +1280,8 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
                     m_level printExpanded
   | isUnliftedTypeKind act, isLiftedTypeKind exp = (False, Nothing, msg2)
   | isLiftedTypeKind act, isUnliftedTypeKind exp = (False, Nothing, msg3)
-  | isLiftedTypeKind exp                         = (False, Nothing, msg4)
+  | isLiftedTypeKind exp && not (isConstraintKind exp)
+                                                 = (False, Nothing, msg4)
   | Just msg <- num_args_msg                     = (False, Nothing, msg $$ msg1)
   | KindLevel <- level, Just th <- maybe_thing   = (False, Nothing, msg5 th)
   | act `pickyEqType` ty1, exp `pickyEqType` ty2 = (True, Just NotSwapped, empty)
@@ -1326,20 +1327,23 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
 
     num_args_msg = case level of
       TypeLevel -> Nothing
-      KindLevel -> let n_act = count_args act
-                       n_exp = count_args exp in
-                   case n_act - n_exp of
-        0 -> Nothing
-        n -> Just $ text "Expecting" <+> speakN (abs n) <+>
-                    more_or_fewer <+> plural_n (abs n) (text "argument") <+>
-                    to_thing
-          where
-            to_thing = case maybe_thing of
-              Nothing -> empty
-              Just th -> text "to" <+> quotes (ppr th)
+      KindLevel
+        -> let n_act = count_args act
+               n_exp = count_args exp in
+           case n_act - n_exp of
+             n | n /= 0
+               , Just thing <- maybe_thing
+               , Just num_act_args <- errorThingNumArgs_maybe thing
+               , (n > 0) || (num_act_args >= -n)  -- don't report to strip
+                                                  -- off args that aren't there
+               -> Just $ text "Expecting" <+> speakN (abs n) <+>
+                         more_or_fewer <+> plural_n (abs n) (text "argument to")
+                         <+> quotes (ppr thing)
+               where
+                 more_or_fewer | n < 0     = text "fewer"
+                               | otherwise = text "more"
+             _ -> Nothing
 
-            more_or_fewer | n < 0     = text "fewer"
-                          | otherwise = text "more"
 
     maybe_num_args_msg = case num_args_msg of
       Nothing -> empty

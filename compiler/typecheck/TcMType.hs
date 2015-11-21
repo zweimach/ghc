@@ -1182,7 +1182,8 @@ zonkTidyTcType env ty = do { ty' <- zonkTcType ty
 
 -- | Make an 'ErrorThing' storing a type.
 mkTypeErrorThing :: TcType -> ErrorThing
-mkTypeErrorThing ty = ErrorThing ty zonkTidyTcType
+mkTypeErrorThing ty = ErrorThing ty (Just $ length $ snd $ splitAppTys ty)
+                                 zonkTidyTcType
 
 zonkTidyOrigin :: TidyEnv -> CtOrigin -> TcM (TidyEnv, CtOrigin)
 zonkTidyOrigin env (GivenOrigin skol_info)
@@ -1216,9 +1217,9 @@ zonkTidyOrigin env orig = return (env, orig)
 
 zonkTidyErrorThing :: TidyEnv -> Maybe ErrorThing
                    -> TcM (TidyEnv, Maybe ErrorThing)
-zonkTidyErrorThing env (Just (ErrorThing thing zonker))
+zonkTidyErrorThing env (Just (ErrorThing thing n_args zonker))
   = do { (env', thing') <- zonker env thing
-       ; return (env', Just $ ErrorThing thing' zonker) }
+       ; return (env', Just $ ErrorThing thing' n_args zonker) }
 zonkTidyErrorThing env Nothing
   = return (env, Nothing)
 

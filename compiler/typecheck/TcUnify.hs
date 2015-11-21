@@ -796,7 +796,7 @@ uType origin t_or_k orig_ty1 orig_ty2
     go (TyConApp tc1 tys1) (TyConApp tc2 tys2)
       -- See Note [Mismatched type lists and application decomposition]
       | tc1 == tc2, length tys1 == length tys2
-      = ASSERT( isGenerativeTyCon tc1 Nominal )
+      = ASSERT2( isGenerativeTyCon tc1 Nominal, ppr tc1 )
         do { cos <- zipWith3M (uType origin) t_or_ks tys1 tys2
            ; return $ mkTyConAppCo Nominal tc1 cos }
       where

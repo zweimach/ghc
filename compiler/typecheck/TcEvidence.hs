@@ -362,7 +362,8 @@ data EvTerm
 -- | Instructions on how to make a 'Typeable' dictionary.
 -- See Note [Typeable evidence terms]
 data EvTypeable
-  = EvTypeableTyCon -- ^ Dictionary for @Typeable (T k1..kn)@
+  = EvTypeableTyCon [EvTerm]  -- ^ Dictionary for @Typeable (T k1..kn)@.
+                              -- The EvTerms are for the arguments
 
   | EvTypeableTyApp EvTerm EvTerm
     -- ^ Dictionary for @Typeable (s t)@,
@@ -403,7 +404,7 @@ inside can be EvIds.  Eg
 Here for the (Typeable [a]) dictionary passed to typeRep we make
 evidence
     dl :: Typeable [a] = EvTypeable [a]
-                            (EvTypeableTyApp EvTypeableTyCon (EvId d))
+                            (EvTypeableTyApp (EvTypeableTyCon []) (EvId d))
 where
     d :: Typable a
 is the lambda-bound dictionary passed into f.
@@ -674,7 +675,7 @@ evVarsOfCallStack cs = case cs of
 evVarsOfTypeable :: EvTypeable -> VarSet
 evVarsOfTypeable ev =
   case ev of
-    EvTypeableTyCon       -> emptyVarSet
+    EvTypeableTyCon es    -> evVarsOfTerms es
     EvTypeableTyApp e1 e2 -> evVarsOfTerms [e1,e2]
     EvTypeableTyLit e     -> evVarsOfTerm e
 
@@ -762,7 +763,7 @@ instance Outputable EvCallStack where
     = angleBrackets (ppr (name,loc)) <+> ptext (sLit ":") <+> ppr tm
 
 instance Outputable EvTypeable where
-  ppr EvTypeableTyCon         = ptext (sLit "TC")
+  ppr (EvTypeableTyCon ts)    = ptext (sLit "TC") <+> ppr ts
   ppr (EvTypeableTyApp t1 t2) = parens (ppr t1 <+> ppr t2)
   ppr (EvTypeableTyLit t1)    = ptext (sLit "TyLit") <> ppr t1
 

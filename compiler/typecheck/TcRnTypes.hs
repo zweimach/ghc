@@ -84,7 +84,8 @@ module TcRnTypes(
         ctLocTypeOrKind_maybe,
         ctLocDepth, bumpCtLocDepth,
         setCtLocOrigin, setCtLocEnv, setCtLocSpan,
-        CtOrigin(..), ErrorThing(..), mkErrorThing, TypeOrKind(..),
+        CtOrigin(..), ErrorThing(..), mkErrorThing, errorThingNumArgs_maybe,
+        TypeOrKind(..),
         pprCtOrigin, pprCtLoc,
         pushErrCtxt, pushErrCtxtSameOrigin,
 
@@ -2382,7 +2383,9 @@ data CtOrigin
 -- | A thing that can be stored for error message generation only.
 -- It is stored with a function to zonk and tidy the thing.
 data ErrorThing
-  = forall a. Outputable a => ErrorThing a (TidyEnv -> a -> TcM (TidyEnv, a))
+  = forall a. Outputable a => ErrorThing a
+                                         (Maybe Arity)  -- # of args, if known
+                                         (TidyEnv -> a -> TcM (TidyEnv, a))
 
 -- | Flag to see whether we're type-checking terms or kind-checking types
 data TypeOrKind = TypeLevel | KindLevel
@@ -2390,13 +2393,17 @@ data TypeOrKind = TypeLevel | KindLevel
 
 -- | Make an 'ErrorThing' that doesn't need tidying or zonking
 mkErrorThing :: Outputable a => a -> ErrorThing
-mkErrorThing thing = ErrorThing thing (\env x -> return (env, x))
+mkErrorThing thing = ErrorThing thing Nothing (\env x -> return (env, x))
+
+-- | Retrieve the # of arguments in the error thing, if known
+errorThingNumArgs_maybe :: ErrorThing -> Maybe Arity
+errorThingNumArgs_maybe (ErrorThing _ args _) = args
 
 instance Outputable CtOrigin where
   ppr = pprCtOrigin
 
 instance Outputable ErrorThing where
-  ppr (ErrorThing thing _) = ppr thing
+  ppr (ErrorThing thing _ _) = ppr thing
 
 ctoHerald :: SDoc
 ctoHerald = ptext (sLit "arising from")

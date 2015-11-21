@@ -1031,10 +1031,11 @@ inferConstraints cls inst_tys rep_tc rep_tc_args
     -- Lacking that, as Trac #10561 showed, we can just generate an
     -- ill-kinded instance.
     mk_functor_like_constraints orig t_or_k cls tys
-       = [ mkPredOrigin orig t_or_k pred
+       = [ pred_o
          | ty <- tys
-         , pred <- [ mkClassPred cls [ty]
-                   , mkPrimEqPred (typeKind ty) a2a_kind ] ]
+         , pred_o <- [ mkPredOrigin orig t_or_k (mkClassPred cls [ty])
+                     , mkPredOrigin orig KindLevel
+                         (mkPrimEqPred (typeKind ty) a2a_kind) ] ]
 
     rep_tc_tvs = tyConTyVars rep_tc
     last_tv = last rep_tc_tvs

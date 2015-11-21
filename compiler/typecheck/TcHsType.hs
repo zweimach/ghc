@@ -312,7 +312,8 @@ check_and_gen :: Bool   -- should generalize?
               -> Kind
               -> TcM Type
 check_and_gen should_gen hs_ty kind
-  = do { ty <- checkNoErrs $
+  = do { traceTc "tcCheckHsTypeAndGen" (ppr should_gen $$ ppr hs_ty $$ ppr kind)
+       ; ty <- -- checkNoErrs $
                solveEqualities $
                tc_hs_type hs_ty kind
            -- TODO (RAE): Does this abort too often? If the type
@@ -458,12 +459,10 @@ tc_hs_type hs_ty@(HsForAllTy _ _ hs_tvs context ty) exp_kind
   = tcHsTyVarBndrs hs_tvs $ \ tvs' ->
     -- Do not kind-generalise here!  See Note [Kind generalisation]
     do { ctxt' <- tcHsContext context
-       ; ek <- ekOpen
        ; if null (unLoc context) then  -- Plain forall, no context
-         do { ty' <- tc_lhs_type ty ek
-                -- Why ek?  See Note [Body kind of forall]
-            ; checkExpectedKind (mkNakedInvSigmaTy tvs' ctxt' ty')
-                                ek exp_kind }
+         do { ty' <- tc_lhs_type ty exp_kind
+                -- Why exp_kind?  See Note [Body kind of forall]
+            ; return (mkNakedInvSigmaTy tvs' ctxt' ty') }
          else
            -- If there is a context, then this forall is really a
            -- _function_, so the kind of the result really is *
@@ -872,6 +871,17 @@ Then the dfun has type
 So we *must* keep the HsForAll on the instance type
    HsForAll Implicit [] [] (Typeable Apply)
 so that we do kind generalisation on it.
+
+It's tempting to check that the body kind is either * or #. But this is
+wrong. For example:
+
+  class C a b
+  newtype N = Mk Foo deriving (C a)
+
+We're doing newtype-deriving for C. But notice how `a` isn't in scope in
+the predicate `C a`. So we quantify, yielding `forall a. C a` even though
+`C a` has kind `* -> Constraint`. The `forall a. C a` is a bit cheeky, but
+convenient. Bottom line: don't check for * or # here.
 
 Note [Inferring tuple kinds]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

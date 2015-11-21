@@ -748,7 +748,7 @@ data FamTyConFlav
     --
     -- These are introduced by either a top level declaration:
     --
-    -- > data T a :: *
+    -- > data family T a :: *
     --
     -- Or an associated data type declaration, within a class declaration:
     --
@@ -1331,10 +1331,10 @@ isInjectiveTyCon (PromotedDataCon {})          _                = True
 --   If (T tys ~X t), then (t's head ~X T).
 -- See also Note [Decomposing equalities] in TcCanonical
 isGenerativeTyCon :: TyCon -> Role -> Bool
+isGenerativeTyCon (FamilyTyCon { famTcFlav = DataFamilyTyCon _ }) Nominal = True
 isGenerativeTyCon (FamilyTyCon {}) _ = False
-  -- NB: FamilyTyCon includes only *type* families, not data families
-isGenerativeTyCon tc               r = isInjectiveTyCon tc r
   -- in all other cases, injectivity implies generativitiy
+isGenerativeTyCon tc               r = isInjectiveTyCon tc r
 
 -- | Is this an 'AlgTyConRhs' of a 'TyCon' that is generative and injective
 -- with respect to representational equality?

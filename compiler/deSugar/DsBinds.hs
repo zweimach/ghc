@@ -66,7 +66,7 @@ import DynFlags
 import FastString
 import Util
 import MonadUtils
-import Control.Monad(liftM,when,foldM)
+import Control.Monad
 
 {-**********************************************************************
 *                                                                      *
@@ -1059,7 +1059,7 @@ dsEvTypeable ty ev
 
 ds_ev_typeable :: Type -> EvTypeable -> DsM CoreExpr
 -- Returns a CoreExpr :: TypeRep ty
-ds_ev_typeable ty EvTypeableTyCon
+ds_ev_typeable ty (EvTypeableTyCon evs)
   | Just (tc, ks) <- splitTyConApp_maybe ty
   = do { ctr <- dsLookupGlobalId mkPolyTyConAppName
                     -- mkPolyTyConApp :: TyCon -> [KindRep] -> [TypeRep] -> TypeRep
@@ -1070,15 +1070,9 @@ ds_ev_typeable ty EvTypeableTyCon
                                   , mkListExpr tyRepType kReps
                                   , mkListExpr tyRepType tReps ]
 
-             kindRep k  -- Returns CoreExpr :: TypeRep for that kind k
-               = case splitTyConApp_maybe k of
-                   Nothing -> panic "dsEvTypeable: not a kind constructor"
-                   Just (kc,ks) -> do { kcRep <- tyConRep kc
-                                      ; reps  <- mapM kindRep ks
-                                      ; return (mkRep kcRep [] reps) }
 
        ; tcRep <- tyConRep tc
-       ; kReps <- mapM kindRep ks
+       ; kReps <- zipWithM getRep evs ks
        ; return (mkRep tcRep kReps []) }
 
 ds_ev_typeable ty (EvTypeableTyApp ev1 ev2)
