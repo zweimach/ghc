@@ -62,6 +62,7 @@ import Util
 #if __GLASGOW_HASKELL__ < 709
 import Data.Traversable ( traverse )
 #endif
+import Control.Monad
 
 {-
 ************************************************************************
@@ -1510,12 +1511,27 @@ zonkCoVarOcc (ZonkEnv _ co_env _ id_env) cv
 
 zonkCoHole :: ZonkEnv -> CoercionHole
            -> Role -> Type -> Type  -- these are all redundant with
-                                    -- the details in the hole
+                                    -- the details in the hole,
+                                    -- unzonked
            -> TcM Coercion
-zonkCoHole env hole role t1 t2
-  = do { co <- unpackCoercionHole hole
-       ; co <- zonkCoToCo env co
-       ; checkCoercionHole co hole role t1 t2 }
+zonkCoHole env h r t1 t2
+  = do { contents <- unpackCoercionHole_maybe h
+       ; case contents of
+           Just co -> do { co <- zonkCoToCo env co
+                         ; checkCoercionHole co h r t1 t2 }
+
+              -- This next case should happen only in the presence of
+              -- (undeferred) type errors. Originally, I put in a panic
+              -- here, but that caused too many uses of `failIfErrsM`.
+           Nothing -> do { traceTc "Zonking unfilled coercion hole" (ppr h)
+                         ; when debugIsOn $
+                           whenNoErrs $
+                           MASSERT2( False
+                                   , text "Type-correct unfilled coercion hole"
+                                     <+> ppr h )
+                         ; t1 <- zonkTcTypeToType env t1
+                         ; t2 <- zonkTcTypeToType env t2
+                         ; return $ mkHoleCo h r t1 t2 } }
 
 zonk_tycomapper :: TyCoMapper ZonkEnv TcM
 zonk_tycomapper = TyCoMapper

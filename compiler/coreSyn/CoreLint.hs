@@ -604,10 +604,8 @@ lintCoreExpr (Var var)
 lintCoreExpr (Lit lit)
   = return (literalType lit)
 
-lintCoreExpr e@(Cast expr co)
+lintCoreExpr (Cast expr co)
   = do { expr_ty <- lintCoreExpr expr
-       ; checkL (not (isReflCo co))
-                (ptext (sLit "Cast by Refl in expression:") <+> ppr e)
        ; co' <- applySubstCo co
        ; (_, k2, from_ty, to_ty, r) <- lintCoercion co'
        ; lintL (classifiesTypeWithValues k2)

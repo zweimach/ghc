@@ -27,7 +27,7 @@ import Outputable
 import Util
 
 import MonadUtils
-import Control.Monad ( filterM )
+import Control.Monad ( filterM, liftM )
 import Data.Data
 import Data.List ( partition )
 import qualified Data.Foldable as Foldable
@@ -94,7 +94,7 @@ filterBag pred (TwoBags b1 b2) = sat1 `unionBags` sat2
           sat2 = filterBag pred b2
 filterBag pred (ListBag vs)    = listToBag (filter pred vs)
 
-filterBagM :: (Monad m, Functor m) => (a -> m Bool) -> Bag a -> m (Bag a)
+filterBagM :: Monad m => (a -> m Bool) -> Bag a -> m (Bag a)
 filterBagM _    EmptyBag = return EmptyBag
 filterBagM pred b@(UnitBag val)
   = do { p <- pred val
@@ -104,7 +104,7 @@ filterBagM pred (TwoBags b1 b2)
        ; sat2 <- filterBagM pred b2
        ; return $ sat1 `unionBags` sat2 }
 filterBagM pred (ListBag vs)
-  = fmap listToBag (filterM pred vs)
+  = liftM listToBag (filterM pred vs)
 
 anyBag :: (a -> Bool) -> Bag a -> Bool
 anyBag _ EmptyBag        = False
