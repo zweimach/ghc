@@ -30,7 +30,10 @@ module GHC.Types (
         SPEC(..),
         Nat, Symbol,
         Coercible,
-        TYPE, Levity(..), Type, type (*), type (★), Constraint
+        TYPE, Levity(..), Type, type (*), type (★), Constraint,
+          -- The historical type * should ideally be written as
+          -- `type *`, without the parentheses. But that's a true
+          -- pain to parse, and for little gain.
 
         -- * Runtime type representation
         Module(..), TrName(..), TyCon(..)

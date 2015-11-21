@@ -44,9 +44,10 @@ module Data.Typeable.Internal (
     tcBool, tc'True, tc'False,
     tcOrdering, tc'LT, tc'EQ, tc'GT,
     tcChar, tcInt, tcWord, tcFloat, tcDouble, tcFun,
-    tcIO, tcSPEC, tcTyCon, tcModule,
+    tcIO, tcSPEC, tcTyCon, tcModule, tcTrName,
     tcCoercible, tcList, tcEq,
-    tcLiftedKind, tcUnliftedKind, tcOpenKind, tcBOX, tcConstraint, tcAnyK,
+    tcConstraint,
+    tcTYPE, tcLevity, tc'Lifted, tc'Unlifted,
 
     funTc,  -- ToDo
 
@@ -403,7 +404,7 @@ mkGhcTypesTyCon name = mkTyCon3# "ghc-prim"# "GHC.Types"# name
 tcBool, tc'True, tc'False,
   tcOrdering, tc'GT, tc'EQ, tc'LT,
   tcChar, tcInt, tcWord, tcFloat, tcDouble, tcFun,
-  tcIO, tcSPEC, tcTyCon, tcModule,
+  tcIO, tcSPEC, tcTyCon, tcModule, tcTrName,
   tcCoercible, tcEq, tcList :: TyCon
 
 tcBool      = mkGhcTypesTyCon "Bool"#      -- Bool is promotable
@@ -424,19 +425,19 @@ tcSPEC      = mkGhcTypesTyCon "SPEC"#
 tcIO        = mkGhcTypesTyCon "IO"#
 tcTyCon     = mkGhcTypesTyCon "TyCon"#
 tcModule    = mkGhcTypesTyCon "Module"#
+tcTrName    = mkGhcTypesTyCon "TrName"#
 tcCoercible = mkGhcTypesTyCon "Coercible"#
 
 tcFun       = mkGhcTypesTyCon "->"#
 tcList      = mkGhcTypesTyCon "[]"#   -- Type rep for the list type constructor
 tcEq        = mkGhcTypesTyCon "~"#    -- Type rep for the (~) type constructor
 
-tcLiftedKind, tcUnliftedKind, tcOpenKind, tcBOX, tcConstraint, tcAnyK :: TyCon
-tcLiftedKind   = mkGhcTypesTyCon "*"#
-tcUnliftedKind = mkGhcTypesTyCon "#"#
-tcOpenKind     = mkGhcTypesTyCon "#"#
-tcBOX          = mkGhcTypesTyCon "BOX"#
-tcAnyK         = mkGhcTypesTyCon "AnyK"#
+tcConstraint, tcTYPE, tcLevity, tc'Lifted, tc'Unlifted :: TyCon
 tcConstraint   = mkGhcTypesTyCon "Constraint"#
+tcTYPE         = mkGhcTypesTyCon "TYPE"#
+tcLevity       = mkGhcTypesTyCon "Levity"#
+tc'Lifted      = mkGhcTypesTyCon "'Lifted"#
+tc'Unlifted    = mkGhcTypesTyCon "'Unlifted"#
 
 funTc :: TyCon
 funTc = tcFun   -- Legacy
@@ -463,4 +464,3 @@ typeSymbolTypeRep p = typeLitTypeRep (show (symbolVal' p))
 -- | An internal function, to make representations for type literals.
 typeLitTypeRep :: String -> TypeRep
 typeLitTypeRep nm = mkTyConApp (mkTypeLitTyCon nm) []
-

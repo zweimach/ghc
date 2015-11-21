@@ -72,7 +72,7 @@ module GHC.Exts
         IsList(..)
        ) where
 
-import GHC.Prim hiding (coerce, Constraint)
+import GHC.Prim hiding (coerce)
 import GHC.Base hiding (coerce) -- implicitly comes from GHC.Prim
 import GHC.Word
 import GHC.Int
