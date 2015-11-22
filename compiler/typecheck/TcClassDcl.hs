@@ -456,7 +456,6 @@ tcATDefault emit_warn loc inst_subst defined_ats (ATI fam_tc defs)
              (tv_set', cv_set') = partitionVarSet isTyVar tcv_set'
              tvs'     = varSetElemsWellScoped tv_set'
              cvs'     = varSetElemsWellScoped cv_set'
-               -- TODO (RAE): But there shouldn't be cvs on the LHS.
        ; rep_tc_name <- newFamInstTyConName (L loc (tyConName fam_tc)) pat_tys'
        ; let axiom = mkSingleCoAxiom Nominal rep_tc_name tvs' cvs'
                                      fam_tc pat_tys' rhs'

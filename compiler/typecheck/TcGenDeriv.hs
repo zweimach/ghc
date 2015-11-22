@@ -1655,7 +1655,7 @@ functorLikeTraverse var (FT { ft_triv = caseTrivial,     ft_var = caseVar
          (xrs,xcs) = unzip (map (go co) args)
     go co (ForAllTy (Named v Invisible) x) | v /= var && xc = (caseForAll v xr,True)
         where (xr,xc) = go co x
-              -- TODO (RAE): Fix.
+
     go _ (ForAllTy (Named _ Visible) _) = panic "unexpected visible binder"
     go _ _ = (caseTrivial,False)
 
@@ -2066,7 +2066,6 @@ genAuxBindSpec loc (DerivCon2Tag tycon)
     rdr_name = con2tag_RDR tycon
 
     sig_ty = HsCoreTy $
-                 -- TODO (RAE): Check visibility.
              mkInvSigmaTy (tyConTyVars tycon) (tyConStupidTheta tycon) $
              mkParentType tycon `mkFunTy` intPrimTy
 

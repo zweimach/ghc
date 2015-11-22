@@ -30,6 +30,7 @@ module TyCon(
         mkSynonymTyCon,
         mkFamilyTyCon,
         mkPromotedDataCon,
+        mkBogusTyCon,
 
         -- ** Predicates on TyCons
         isAlgTyCon,
@@ -1170,6 +1171,25 @@ mkTupleTyCon name kind arity tyvars con sort parent
         algTcRec         = NonRecursive,
         algTcGadtSyntax  = False
     }
+
+-- | Makes a bogus tycon. This tycon is good for precisely one purpose:
+-- pretty-printing. Anything else causes a panic. It is necessary during
+-- the recursive type-checking knot for producing error messages.
+-- See also Note [Kind checking recursive type and class declarations]
+-- in TcTyClsDecls.
+mkBogusTyCon :: Name -> TyCon
+mkBogusTyCon name
+  = PrimTyCon { tyConUnique  = getUnique name
+              , tyConName    = name
+              , tyConKind    = bogus "kind"
+              , tyConArity   = bogus "arity"
+              , tcRoles      = bogus "roles"
+              , primTyConRep = bogus "rep"
+              , isUnLifted   = bogus "unlifted"
+              , primRepName  = bogus "rep_name" }
+  where
+    bogus str = pprPanic "Encountered a bogus tycon"
+                  (text str <+> quotes (ppr name))
 
 -- | Create an unlifted primitive 'TyCon', such as @Int#@
 mkPrimTyCon :: Name  -> Kind -> [Role] -> PrimRep -> TyCon

@@ -1361,7 +1361,7 @@ flatten_tyvar3 tv
   = -- Done, but make sure the kind is zonked
     do { let kind = tyVarKind tv
        ; (_new_kind, kind_co)
-           <- setMode FM_SubstOnly $  -- TODO (RAE): fix FM_SubstOnly
+           <- setMode FM_SubstOnly $
               flattenKinds $
               flatten_one kind
        ; traceFlat "flattenTyVarFinal"

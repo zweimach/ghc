@@ -164,8 +164,6 @@ normaliseFfiType' env ty0 = go initRecTc ty0
 
         | isFamilyTyCon tc              -- Expand open tycons
         , (co, ty) <- normaliseTcApp env Representational tc tys
-                      -- TODO (RAE): Should this use the monadic version?
-                      -- Probably should.
         , not (isReflCo co)
         = do (co', ty', gres) <- go rec_nts ty
              return (mkTransCo co co', ty', gres)

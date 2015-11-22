@@ -248,6 +248,10 @@ kind environment (as constructed by `getInitialKind'). In fact, we ignore
 instances of families altogether in the following. However, we need to include
 the kinds of *associated* families into the construction of the initial kind
 environment. (This is handled by `allDecls').
+
+
+See also Note [Kind checking recursive type and class declarations]
+
 -}
 
 kcTyClGroup :: TyClGroup Name -> TcM [(Name,Kind)]
@@ -266,6 +270,8 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
           -- See Note [Kind checking for type and class decls]
 
         ; lcl_env <- solveEqualities $
+                     tcExtendRecEnv bogusTyThingPairs $
+              -- See Note [Kind checking recursive type and class declarations]
           do {
                -- Step 1: Bind kind variables for non-synonyms
                let (syn_decls, non_syn_decls) = partition (isSynDecl . unLoc) decls
@@ -293,6 +299,12 @@ kcTyClGroup (TyClGroup { group_tyclds = decls })
         ; return res }
 
   where
+    bogusTyThingPairs :: [(Name,TyThing)]
+    bogusTyThingPairs = [ (name, ATyCon bogus_tc)
+                        | L _ decl <- decls
+                        , let name     = tcdName decl
+                              bogus_tc = mkBogusTyCon name ]
+
     generalise :: TcTypeEnv -> Name -> TcM (Name, Kind)
     -- For polymorphic things this is a no-op
     generalise kind_env name
@@ -585,6 +597,28 @@ Then:
 This fancy footwork (with two bindings for T) is only necessary for the
 TyCons or Classes of this recursive group.  Earlier, finished groups,
 live in the global env only.
+
+See also Note [Kind checking recursive type and class declarations]
+
+Note [Kind checking recursive type and class declarations]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Before we can type-check the decls, we must kind check them. This
+is done by establishing an "initial kind", which is a rather uninformed
+guess at a tycon's kind (by counting arguments, mainly) and then
+using this initial kind for recursive occurrences.
+
+The initial kind is stored in exactly the same way during kind-checking
+as it is during type-checking (Note [Type checking recursive type and class
+declarations]): in the *local* environment, with AThing. But we still
+must store *something* in the *global* environment. Even though we
+discard the result of kind-checking, we sometimes need to produce error
+messages. These error messages will want to refer to the tycons being
+checked, except that they don't exist yet, and it would be Terribly
+Annoying to get the error messages to refer back to HsSyn. So we
+create a "bogus" tycon and put it in the global env. This tycon can
+print out its name, but any other action taken on it will panic. Note
+that bogus tycons are *not* knot-tied, unlike the rather valid but
+knot-tied ones that occur during type-checking.
 
 Note [Declarations for wired-in things]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -329,7 +329,6 @@ substIfaceType env ty
     go (IfaceTyConApp tc tys) = IfaceTyConApp tc (substIfaceTcArgs env tys)
     go (IfaceTupleTy s i tys) = IfaceTupleTy s i (substIfaceTcArgs env tys)
     go (IfaceForAllTy {})     = pprPanic "substIfaceType" (ppr ty)
-      -- TODO (RAE): I think we need to write the following cases.
     go (IfaceCastTy ty co)    = IfaceCastTy (go ty) (go_co co)
     go (IfaceCoercionTy co)   = IfaceCoercionTy (go_co co)
 
@@ -686,22 +685,38 @@ ppr_iface_forall_part show_foralls_unconditionally tvs ctxt sdoc
         , pprIfaceContextArr ctxt
         , sdoc]
 
+-- | Render the "forall ... ." or "forall ... ->" bit of a type.
 pprIfaceForAll :: [IfaceForAllBndr] -> SDoc
-pprIfaceForAll []  = empty
-pprIfaceForAll tvs = ptext (sLit "forall") <+> pprIfaceForAllBndrs tvs <> dot
+pprIfaceForAll [] = empty
+pprIfaceForAll bndrs@(IfaceTv _ vis : _)
+  = add_separator (text "forall" <+> doc) <+> pprIfaceForAll bndrs'
+  where
+    (bndrs', doc) = ppr_itv_bndrs bndrs vis
+
+    add_separator stuff = case vis of
+                            Invisible -> stuff <>  dot
+                            Visible   -> stuff <+> arrow
+
+-- | Render the ... in @(forall ... .)@ or @(forall ... ->)@.
+-- Returns both the list of not-yet-rendered binders and the doc.
+-- No anonymous binders here!
+ppr_itv_bndrs :: [IfaceForAllBndr]
+             -> VisibilityFlag  -- ^ visibility of the first binder in the list
+             -> ([IfaceForAllBndr], SDoc)
+ppr_itv_bndrs all_bndrs@(IfaceTv tv vis : bndrs) vis1
+  | vis == vis1 = let (bndrs', doc) = ppr_itv_bndrs bndrs vis1 in
+                  (bndrs', pprIfaceTvBndr tv <+> doc)
+  | otherwise   = (all_bndrs, empty)
+ppr_itv_bndrs [] _ = ([], empty)
 
 pprIfaceForAllCo :: [(IfLclName, IfaceCoercion)] -> SDoc
 pprIfaceForAllCo []  = empty
 pprIfaceForAllCo tvs = text "forall" <+> pprIfaceForAllCoBndrs tvs <> dot
 
-pprIfaceForAllBndrs :: [IfaceForAllBndr] -> SDoc
-pprIfaceForAllBndrs bndrs = hsep $ map pprIfaceForAllBndr bndrs
-
 pprIfaceForAllCoBndrs :: [(IfLclName, IfaceCoercion)] -> SDoc
 pprIfaceForAllCoBndrs bndrs = hsep $ map pprIfaceForAllCoBndr bndrs
 
 pprIfaceForAllBndr :: IfaceForAllBndr -> SDoc
- -- TODO (RAE): Make this work correctly.
 pprIfaceForAllBndr (IfaceTv tv _) = pprIfaceTvBndr tv
 
 pprIfaceForAllCoBndr :: (IfLclName, IfaceCoercion) -> SDoc

@@ -1080,7 +1080,6 @@ isFunLhs e = go e [] []
 -- | Transform btype_no_ops with strict_mark's into HsEqTy's
 -- (((~a) ~b) c) ~d ==> ((~a) ~ (b c)) ~ d
 splitTilde :: LHsType RdrName -> LHsType RdrName
--- TODO (RAE): This seems to be bad for API Annotations.
 splitTilde t = go t
   where go (L loc (HsAppTy t1 t2))
           | L _ (HsBangTy (HsSrcBang Nothing NoSrcUnpack SrcLazy) t2') <- t2

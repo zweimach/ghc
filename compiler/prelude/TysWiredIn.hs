@@ -277,10 +277,8 @@ unicodeStarKindTyConName = mkWiredInTyConName UserSyntax gHC_TYPES (fsLit "★")
 
 levityTyConName, liftedDataConName, unliftedDataConName :: Name
 levityTyConName     = mkWiredInTyConName   UserSyntax gHC_TYPES (fsLit "Levity") levityTyConKey levityTyCon
- -- TODO (RAE): This are "BuiltInSyntax" so that :info doesn't exclude bits that
- -- mention Lifted or Unlifted. This is terrible. Fix.
-liftedDataConName   = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "Lifted") liftedDataConKey liftedDataCon
-unliftedDataConName = mkWiredInDataConName BuiltInSyntax gHC_TYPES (fsLit "Unlifted") unliftedDataConKey unliftedDataCon
+liftedDataConName   = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "Lifted") liftedDataConKey liftedDataCon
+unliftedDataConName = mkWiredInDataConName UserSyntax gHC_TYPES (fsLit "Unlifted") unliftedDataConKey unliftedDataCon
 
 parrTyConName, parrDataConName :: Name
 parrTyConName   = mkWiredInTyConName   BuiltInSyntax
