@@ -730,8 +730,8 @@ collectWildCards lty = (extra, nubBy sameNamedWildCard wcs)
       _ -> mempty
     gos = mconcat . map go
 
-    prefix_types_only (L loc (HsAppPrefix ty)) = Just (L loc ty)
-    prefix_types_only (L _   (HsAppInfix _))   = Nothing
+    prefix_types_only (HsAppPrefix ty) = Just ty
+    prefix_types_only (HsAppInfix _)   = Nothing
 
 -- | Check the validity of a partial type signature. The following things are
 -- checked:
@@ -1332,12 +1332,12 @@ extract_lty (L _ ty) acc
       -- We deal with these separately in rnLHsTypeWithWildCards
       HsWildCardTy _            -> acc
 
-extract_apps :: [LHsAppType RdrName] -> FreeKiTyVars -> FreeKiTyVars
+extract_apps :: [HsAppType RdrName] -> FreeKiTyVars -> FreeKiTyVars
 extract_apps tys acc = foldr extract_app acc tys
 
-extract_app :: LHsAppType RdrName -> FreeKiTyVars -> FreeKiTyVars
-extract_app (L _ (HsAppInfix n))     acc = extract_tv n acc
-extract_app (L loc (HsAppPrefix ty)) acc = extract_lty (L loc ty) acc
+extract_app :: HsAppType RdrName -> FreeKiTyVars -> FreeKiTyVars
+extract_app (HsAppInfix (L _ n)) acc = extract_tv n acc
+extract_app (HsAppPrefix ty)     acc = extract_lty ty acc
 
 extract_hs_tv_bndrs :: LHsTyVarBndrs RdrName -> FreeKiTyVars
                     -> FreeKiTyVars -> FreeKiTyVars

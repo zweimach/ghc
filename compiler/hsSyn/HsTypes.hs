@@ -25,7 +25,7 @@ module HsTypes (
         HsContext, LHsContext,
         HsTyLit(..),
         HsIPName(..), hsIPNameFS,
-        HsAppType(..), LHsAppType,
+        HsAppType(..),
 
         LBangType, BangType,
         HsSrcBang(..), HsImplBang(..),
@@ -271,8 +271,8 @@ data HsType name
 
       -- For details on above see note [Api annotations] in ApiAnnotation
 
-  | HsAppsTy            [LHsAppType name]  -- Used only before renaming,
-                                           -- Note [HsAppsTy]
+  | HsAppsTy            [HsAppType name]  -- Used only before renaming,
+                                          -- Note [HsAppsTy]
       -- ^ - 'ApiAnnotation.AnnKeywordId' : None
 
   | HsAppTy             (LHsType name)
@@ -425,10 +425,9 @@ data HsWildCardInfo name
     deriving (Typeable)
 deriving instance (DataId name) => Data (HsWildCardInfo name)
 
-type LHsAppType name = Located (HsAppType name)
 data HsAppType name
-  = HsAppInfix name                 -- either a symbol or an id in backticks
-  | HsAppPrefix (HsType name)       -- anything else, including things like (+)
+  = HsAppInfix (Located name)       -- either a symbol or an id in backticks
+  | HsAppPrefix (LHsType name)      -- anything else, including things like (+)
   deriving (Typeable)
 deriving instance (DataId name) => Data (HsAppType name)
 
@@ -714,8 +713,8 @@ mk_forall_ty ann _ exp1 extra1 tvs1 (L _ (HsForAllTy exp2 extra qtvs2 ctxt ty))
         mergeExtra _        e = e
 mk_forall_ty ann l exp  extra tvs  (L lp (HsParTy ty))
   = mk_forall_ty (ann ++ mkParensApiAnn lp) l exp extra tvs ty
-mk_forall_ty ann l exp  extra tvs  (L loc (HsAppsTy [L _ (HsAppPrefix ty)]))
-  = mk_forall_ty ann l exp extra tvs (L loc ty)
+mk_forall_ty ann l exp  extra tvs  (L _ (HsAppsTy [HsAppPrefix ty]))
+  = mk_forall_ty ann l exp extra tvs ty
 mk_forall_ty ann l exp extra tvs  ty
   = (ann,HsForAllTy exp extra tvs (L l []) ty)
         -- Even if tvs is empty, we still make a HsForAll!
@@ -824,10 +823,10 @@ splitLHsForAllTy
     -> (LHsTyVarBndrs name, HsContext name, LHsType name)
 splitLHsForAllTy poly_ty
   = case unLoc poly_ty of
-        HsParTy ty                      -> splitLHsForAllTy ty
-        HsAppsTy [L l (HsAppPrefix ty)] -> splitLHsForAllTy (L l ty)
-        HsForAllTy _ _ tvs cxt ty       -> (tvs, unLoc cxt, ty)
-        _                               -> (emptyHsQTvs, [], poly_ty)
+        HsParTy ty                -> splitLHsForAllTy ty
+        HsAppsTy [HsAppPrefix ty] -> splitLHsForAllTy ty
+        HsForAllTy _ _ tvs cxt ty -> (tvs, unLoc cxt, ty)
+        _                         -> (emptyHsQTvs, [], poly_ty)
         -- The type vars should have been computed by now, even if they were implicit
 
 splitHsClassTy_maybe :: HsType Name -> Maybe (Name, [LHsType Name])
@@ -887,7 +886,7 @@ ftvHsType (HsForAllTy _ _ tvbs ctxt ty)
   = (ftvLHsContext ctxt `unionNameSet` ftvLHsType ty)
     `delListFromNameSet` hsLKiTyVarNames tvbs
 ftvHsType (HsTyVar n)               = ftvName n
-ftvHsType (HsAppsTy ts)             = unionNameSets $ map ftvLHsAppType ts
+ftvHsType (HsAppsTy ts)             = unionNameSets $ map ftvHsAppType ts
 ftvHsType (HsAppTy t1 t2)           = ftvLHsType t1 `unionNameSet` ftvLHsType t2
 ftvHsType (HsFunTy t1 t2)           = ftvLHsType t1 `unionNameSet` ftvLHsType t2
 ftvHsType (HsListTy t)              = ftvLHsType t
@@ -909,9 +908,9 @@ ftvHsType (HsExplicitTupleTy _ tys) = unionNameSets $ map ftvLHsType tys
 ftvHsType (HsTyLit {})              = emptyNameSet
 ftvHsType (HsWildCardTy wc)         = ftvName (wildCardName wc)
 
-ftvLHsAppType :: LHsAppType Name -> NameSet
-ftvLHsAppType (L _ (HsAppInfix n))  = unitNameSet n
-ftvLHsAppType (L _ (HsAppPrefix t)) = ftvHsType t
+ftvHsAppType :: HsAppType Name -> NameSet
+ftvHsAppType (HsAppInfix (L _ n)) = unitNameSet n
+ftvHsAppType (HsAppPrefix t)      = ftvLHsType t
 
 ftvLHsContext :: LHsContext Name -> NameSet
 ftvLHsContext (L _ ctxt) = unionNameSets $ map ftvLHsType ctxt
@@ -922,9 +921,9 @@ ftvName n
   | otherwise     = emptyNameSet
 
 ignoreParens :: LHsType name -> LHsType name
-ignoreParens (L _ (HsParTy ty)) = ignoreParens ty
-ignoreParens (L _ (HsAppsTy [L l (HsAppPrefix ty)])) = ignoreParens (L l ty)
-ignoreParens ty                 = ty
+ignoreParens (L _ (HsParTy ty))                = ignoreParens ty
+ignoreParens (L _ (HsAppsTy [HsAppPrefix ty])) = ignoreParens ty
+ignoreParens ty                                = ty
 
 {-
 ************************************************************************
@@ -1032,7 +1031,7 @@ pprParendHsType ty = ppr_mono_ty TyConPrec ty
 -- Before printing a type, remove outermost HsParTy parens
 prepare :: HsType name -> HsType name
 prepare (HsParTy ty)                      = prepare (unLoc ty)
-prepare (HsAppsTy [L _ (HsAppPrefix ty)]) = prepare ty
+prepare (HsAppsTy [HsAppPrefix (L _ ty)]) = prepare ty
 prepare ty                                = ty
 
 ppr_mono_lty :: (OutputableBndr name) => TyPrec -> LHsType name -> SDoc
@@ -1069,7 +1068,7 @@ ppr_mono_ty ctxt_prec (HsEqTy ty1 ty2)
 
 ppr_mono_ty ctxt_prec (HsAppsTy tys)
   = maybeParen ctxt_prec TyConPrec $
-    hsep (map (ppr_app_ty TopPrec . unLoc) tys)
+    hsep (map (ppr_app_ty TopPrec) tys)
 
 ppr_mono_ty ctxt_prec (HsAppTy fun_ty arg_ty)
   = maybeParen ctxt_prec TyConPrec $
@@ -1103,10 +1102,9 @@ ppr_fun_ty ctxt_prec ty1 ty2
 
 --------------------------
 ppr_app_ty :: OutputableBndr name => TyPrec -> HsAppType name -> SDoc
-ppr_app_ty _    (HsAppInfix n)            = pprInfixOcc n
-ppr_app_ty _    (HsAppPrefix (HsTyVar n)) = pprPrefixOcc n
-ppr_app_ty ctxt (HsAppPrefix ty)          = ppr_mono_ty ctxt ty
-
+ppr_app_ty _    (HsAppInfix (L _ n))            = pprInfixOcc n
+ppr_app_ty _    (HsAppPrefix (L _ (HsTyVar n))) = pprPrefixOcc n
+ppr_app_ty ctxt (HsAppPrefix ty)                = ppr_mono_lty ctxt ty
 
 --------------------------
 ppr_tylit :: HsTyLit -> SDoc

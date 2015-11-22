@@ -1068,7 +1068,7 @@ lPatImplicits = hs_lpat
 
 -- | Retrieves the head of an HsAppsTy, if this can be done unambiguously,
 -- without consulting fixities.
-getAppsTyHead_maybe :: [LHsAppType name] -> Maybe (LHsType name, [LHsType name])
+getAppsTyHead_maybe :: [HsAppType name] -> Maybe (LHsType name, [LHsType name])
 getAppsTyHead_maybe tys = case splitHsAppsTy tys of
   ([app1:apps], []) ->  -- no symbols, some normal types
     Just (mkHsAppTys app1 apps, [])
@@ -1077,20 +1077,20 @@ getAppsTyHead_maybe tys = case splitHsAppsTy tys of
   _ -> -- can't figure it out
     Nothing
 
--- | Splits a [LHsAppType name] (the payload of an HsAppsTy) into regions of prefix
+-- | Splits a [HsAppType name] (the payload of an HsAppsTy) into regions of prefix
 -- types (normal types) and infix operators.
 -- If @splitHsAppsTy tys = (non_syms, syms)@, then @tys@ starts with the first
 -- element of @non_syms@ followed by the first element of @syms@ followed by
 -- the next element of @non_syms@, etc. It is guaranteed that the non_syms list
 -- has one more element than the syms list.
-splitHsAppsTy :: [LHsAppType name] -> ([[LHsType name]], [Located name])
+splitHsAppsTy :: [HsAppType name] -> ([[LHsType name]], [Located name])
 splitHsAppsTy = go [] [] []
   where
     go acc acc_non acc_sym [] = (reverse (reverse acc : acc_non), reverse acc_sym)
-    go acc acc_non acc_sym (L loc (HsAppPrefix ty) : rest)
-      = go (L loc ty : acc) acc_non acc_sym rest
-    go acc acc_non acc_sym (L loc (HsAppInfix op) : rest)
-      = go [] (reverse acc : acc_non) (L loc op : acc_sym) rest
+    go acc acc_non acc_sym (HsAppPrefix ty : rest)
+      = go (ty : acc) acc_non acc_sym rest
+    go acc acc_non acc_sym (HsAppInfix op : rest)
+      = go [] (reverse acc : acc_non) (op : acc_sym) rest
 
 -- retrieve the name of the "head" of a nested type application
 -- somewhat like splitHsAppTys, but a little more thorough

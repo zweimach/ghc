@@ -1133,19 +1133,19 @@ cvtTyLit (TH.StrTyLit s) = HsStrTy s        (fsLit s)
    structure in them.
 -}
 cvtOpAppT :: LHsType RdrName -> RdrName -> LHsType RdrName -> LHsType RdrName
-cvtOpAppT (L loc1 t1) op (L loc2 t2)
+cvtOpAppT t1@(L loc1 _) op t2@(L loc2 _)
   = L (combineSrcSpans loc1 loc2) $
-    HsAppsTy (t1' ++ [noLoc $ HsAppInfix op] ++ t2')
+    HsAppsTy (t1' ++ [HsAppInfix (noLoc op)] ++ t2')
   where
-    t1' | HsAppsTy t1s <- t1
+    t1' | L _ (HsAppsTy t1s) <- t1
         = t1s
         | otherwise
-        = [L loc1 (HsAppPrefix t1)]
+        = [HsAppPrefix t1]
 
-    t2' | HsAppsTy t2s <- t2
+    t2' | L _ (HsAppsTy t2s) <- t2
         = t2s
         | otherwise
-        = [L loc2 (HsAppPrefix t2)]
+        = [HsAppPrefix t2]
 
 cvtKind :: TH.Kind -> CvtM (LHsKind RdrName)
 cvtKind = cvtTypeKind "kind"
