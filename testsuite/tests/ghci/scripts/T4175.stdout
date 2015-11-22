@@ -17,8 +17,8 @@ type instance D Int () = String 	-- Defined at T4175.hs:19:5
 type family E a
   Kind: * -> *
   where
-    E () = Bool
-    E Int = String
+      E () = Bool
+      E Int = String
   	-- Defined at T4175.hs:24:1
 data () = () 	-- Defined in ‘GHC.Tuple’
 instance C () -- Defined at T4175.hs:21:10

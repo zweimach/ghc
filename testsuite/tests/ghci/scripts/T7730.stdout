@@ -4,13 +4,5 @@ data A (x :: k) (y :: k1)
 A :: k -> k1 -> *
 type role T phantom
 data T (a :: k) where
-<<<<<<< HEAD
   MkT :: forall k (a :: k) a1. a1 -> T a
-  	-- Defined at <interactive>:7:1
-||||||| merged common ancestors
-  MkT :: forall (k :: BOX) (a :: k) a1. a1 -> T a
-  	-- Defined at <interactive>:7:1
-=======
-  MkT :: forall (k :: BOX) (a :: k) a1. a1 -> T a
   	-- Defined at <interactive>:6:1
->>>>>>> origin/master

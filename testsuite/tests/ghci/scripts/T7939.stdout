@@ -10,27 +10,25 @@ type instance F Int = Bool 	-- Defined at T7939.hs:9:1
 F :: * -> *
 type family G a
   Kind: * -> *
-  where
-    G Int = Bool
+  where G Int = Bool
   	-- Defined at T7939.hs:11:1
 G :: * -> *
 type family H (a :: Bool)
   Kind: Bool -> Bool
-  where
-    H 'False = 'True
+  where H 'False = 'True
   	-- Defined at T7939.hs:14:1
 H :: Bool -> Bool
-type family J (a1 :: [a])
-  Kind: forall a2. [a2] -> Bool
+type family J (a :: [k])
+  Kind: forall k1. [k1] -> Bool
   where
-    J a '[] = 'False
-  forall a (h :: a) (t :: [a]). J a (h : t) = 'True
+    [k] J k '[] = 'False
+    [k, (h :: k), (t :: [k])] J k (h : t) = 'True
   	-- Defined at T7939.hs:17:1
-J :: [a] -> Bool
+J :: [k] -> Bool
 type family K (a1 :: [a])
   Kind: forall a2. [a2] -> Maybe a2
   where
-    K a '[] = 'Nothing
-  forall a (h :: a) (t :: [a]). K a (h : t) = 'Just h
+    [a] K a '[] = 'Nothing
+    [a, (h :: a), (t :: [a])] K a (h : t) = 'Just h
   	-- Defined at T7939.hs:21:1
 K :: [a] -> Maybe a

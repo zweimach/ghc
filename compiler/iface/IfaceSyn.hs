@@ -738,16 +738,17 @@ pprIfaceDecl ss (IfaceFamily { ifName = tycon, ifTyVars = tyvars
   = ptext (sLit "data family") <+> pprIfaceDeclHead [] ss tycon kind tyvars
 
   | otherwise
-  = vcat [ hang (ptext (sLit "type family")
-                 <+> pprIfaceDeclHead [] ss tycon kind tyvars)
-              2 (pp_inj res_var inj <+> ppShowRhs ss (pp_rhs rhs))
-         , ppShowRhs ss (nest 2 (pp_branches rhs)) ]
+  = hang (text "type family" <+> pprIfaceDeclHead [] ss tycon kind tyvars)
+       2 (pp_inj res_var inj <+> ppShowRhs ss (pp_rhs rhs))
+    $$
+    nest 2 ( vcat [ text "Kind:" <+> ppr kind
+                  , ppShowRhs ss (pp_branches rhs) ] )
   where
-    pp_inj Nothing    _   = dcolon <+> ppr kind
+    pp_inj Nothing    _   = empty
     pp_inj (Just res) inj
-       | Injective injectivity <- inj = hsep [ equals, ppr res, dcolon, ppr kind
+       | Injective injectivity <- inj = hsep [ equals, ppr res
                                              , pp_inj_cond res injectivity]
-       | otherwise = hsep [ equals, ppr res, dcolon, ppr kind ]
+       | otherwise = hsep [ equals, ppr res ]
 
     pp_inj_cond res inj = case filterByList inj tyvars of
        []  -> empty
@@ -760,13 +761,14 @@ pprIfaceDecl ss (IfaceFamily { ifName = tycon, ifTyVars = tyvars
     pp_rhs IfaceAbstractClosedSynFamilyTyCon
       = ppShowIface ss (ptext (sLit "closed, abstract"))
     pp_rhs (IfaceClosedSynFamilyTyCon {})
-      = ptext (sLit "where")
+      = empty  -- see pp_branches
     pp_rhs IfaceBuiltInSynFamTyCon
       = ppShowIface ss (ptext (sLit "built-in"))
 
     pp_branches (IfaceClosedSynFamilyTyCon (Just (ax, brs)))
-      = vcat (map (pprAxBranch (pprPrefixIfDeclBndr ss tycon)) brs)
-        $$ ppShowIface ss (ptext (sLit "axiom") <+> ppr ax)
+      = hang (text "where")
+           2 (vcat (map (pprAxBranch (pprPrefixIfDeclBndr ss tycon)) brs)
+              $$ ppShowIface ss (ptext (sLit "axiom") <+> ppr ax))
     pp_branches _ = Outputable.empty
 
 pprIfaceDecl _ (IfacePatSyn { ifName = name, ifPatBuilder = builder,

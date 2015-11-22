@@ -433,10 +433,7 @@ data HsAppType name
 deriving instance (DataId name) => Data (HsAppType name)
 
 instance OutputableBndr name => Outputable (HsAppType name) where
-  ppr (HsAppInfix n) = pprInfixOcc n
-
-  ppr (HsAppPrefix (HsTyVar n)) = pprPrefixOcc n
-  ppr (HsAppPrefix ty)          = ppr ty
+  ppr = ppr_app_ty TopPrec
 
 {-
 Note [HsForAllTy tyvar binders]
@@ -1072,7 +1069,7 @@ ppr_mono_ty ctxt_prec (HsEqTy ty1 ty2)
 
 ppr_mono_ty ctxt_prec (HsAppsTy tys)
   = maybeParen ctxt_prec TyConPrec $
-    hsep (map ppr tys)
+    hsep (map (ppr_app_ty TopPrec . unLoc) tys)
 
 ppr_mono_ty ctxt_prec (HsAppTy fun_ty arg_ty)
   = maybeParen ctxt_prec TyConPrec $
@@ -1103,6 +1100,13 @@ ppr_fun_ty ctxt_prec ty1 ty2
     in
     maybeParen ctxt_prec FunPrec $
     sep [p1, ptext (sLit "->") <+> p2]
+
+--------------------------
+ppr_app_ty :: OutputableBndr name => TyPrec -> HsAppType name -> SDoc
+ppr_app_ty _    (HsAppInfix n)            = pprInfixOcc n
+ppr_app_ty _    (HsAppPrefix (HsTyVar n)) = pprPrefixOcc n
+ppr_app_ty ctxt (HsAppPrefix ty)          = ppr_mono_ty ctxt ty
+
 
 --------------------------
 ppr_tylit :: HsTyLit -> SDoc
