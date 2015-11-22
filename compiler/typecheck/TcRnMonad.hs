@@ -1155,12 +1155,14 @@ debugTc thing
 newTcEvBinds :: TcM EvBindsVar
 newTcEvBinds = do { ref <- newTcRef emptyEvBindMap
                   ; uniq <- newUnique
+                  ; traceTc "newTcEvBinds" (text "unique =" <+> ppr uniq)
                   ; return (EvBindsVar ref uniq) }
 
 addTcEvBind :: EvBindsVar -> EvBind -> TcM ()
 -- Add a binding to the TcEvBinds by side effect
-addTcEvBind (EvBindsVar ev_ref _) ev_bind
-  = do { traceTc "addTcEvBind" $ ppr ev_bind
+addTcEvBind (EvBindsVar ev_ref u) ev_bind
+  = do { traceTc "addTcEvBind" $ ppr u $$
+                                 ppr ev_bind
        ; bnds <- readTcRef ev_ref
        ; writeTcRef ev_ref (extendEvBinds bnds ev_bind) }
 

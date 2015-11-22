@@ -1,12 +1,6 @@
 Breakpoint 0 activated at ../Test6.hs:5:8-11
 Stopped at ../Test6.hs:5:8-11
-<<<<<<< HEAD
-_result :: r = _
-||||||| merged common ancestors
-_result :: a = _
-=======
 _result :: a2 = _
->>>>>>> origin/master
 *** Exception: Prelude.head: empty list
 CallStack (from ImplicitParams):
   error, called at libraries/base/GHC/List.hs:999:3 in base:GHC.List

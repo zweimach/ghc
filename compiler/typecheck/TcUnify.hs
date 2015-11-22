@@ -593,15 +593,21 @@ checkConstraints :: SkolemInfo
                  -> TcM (TcEvBinds, result)
 
 checkConstraints skol_info skol_tvs given thing_inside
-  | null skol_tvs && null given
-  = do { res <- thing_inside; return (emptyTcEvBinds, res) }
-      -- Just for efficiency.  We check every function argument with
-      -- tcPolyExpr, which uses tcGen and hence checkConstraints.
-
-  | otherwise
-  = do { (implics, ev_binds, result) <- buildImplication skol_info skol_tvs given thing_inside
+  = do { deferred_type_errors <- goptM Opt_DeferTypeErrors <||>
+                                 goptM Opt_DeferTypedHoles
+       ; if null skol_tvs && null given && not deferred_type_errors
+         then do { res <- thing_inside; return (emptyTcEvBinds, res) }
+           -- Just for efficiency.  We check every function argument with
+           -- tcPolyExpr, which uses tcGen and hence checkConstraints.
+           -- If we take this branch and we're at top level, the equality
+           -- constraints get solved at top level, too. If we defer type
+           -- errors, then we'll get unlifted bindings at the top level,
+           -- which is bad. So we skip the optimisation if deferring type
+           -- errors.
+         else
+    do { (implics, ev_binds, result) <- buildImplication skol_info skol_tvs given thing_inside
        ; emitImplications implics
-       ; return (ev_binds, result) }
+       ; return (ev_binds, result) }}
 
 buildImplication :: SkolemInfo
                  -> [TcTyVar]           -- Skolems
