@@ -1125,7 +1125,9 @@ zonkTcTypeMapper = TyCoMapper
            ; case contents of
                Just co -> do { co <- zonkCo co
                              ; checkCoercionHole co h r t1 t2 }
-               Nothing -> return $ mkHoleCo h r t1 t2 }
+               Nothing -> do { t1 <- zonkTcType t1
+                             ; t2 <- zonkTcType t2
+                             ; return $ mkHoleCo h r t1 t2 } }
 
 
 -- For unbound, mutable tyvars, zonkType uses the function given to it

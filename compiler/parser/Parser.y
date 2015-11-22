@@ -1612,7 +1612,8 @@ context_no_ops :: { LHsContext RdrName }
 
 type :: { LHsType RdrName }
         : btype                        { $1 }
-        | btype '->' ctype             {% ams (sLL $1 $> $ HsFunTy $1 $3)
+        | btype '->' ctype             {% ams $1 [mu AnnRarrow $2]
+                                       >> ams (sLL $1 $> $ HsFunTy $1 $3)
                                               [mu AnnRarrow $2] }
 
 

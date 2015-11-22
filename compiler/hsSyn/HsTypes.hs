@@ -717,6 +717,8 @@ mk_forall_ty ann _ exp1 extra1 tvs1 (L _ (HsForAllTy exp2 extra qtvs2 ctxt ty))
         mergeExtra _        e = e
 mk_forall_ty ann l exp  extra tvs  (L lp (HsParTy ty))
   = mk_forall_ty (ann ++ mkParensApiAnn lp) l exp extra tvs ty
+mk_forall_ty ann l exp  extra tvs  (L loc (HsAppsTy [L _ (HsAppPrefix ty)]))
+  = mk_forall_ty ann l exp extra tvs (L loc ty)
 mk_forall_ty ann l exp extra tvs  ty
   = (ann,HsForAllTy exp extra tvs (L l []) ty)
         -- Even if tvs is empty, we still make a HsForAll!
@@ -825,9 +827,10 @@ splitLHsForAllTy
     -> (LHsTyVarBndrs name, HsContext name, LHsType name)
 splitLHsForAllTy poly_ty
   = case unLoc poly_ty of
-        HsParTy ty                -> splitLHsForAllTy ty
-        HsForAllTy _ _ tvs cxt ty -> (tvs, unLoc cxt, ty)
-        _                         -> (emptyHsQTvs, [], poly_ty)
+        HsParTy ty                      -> splitLHsForAllTy ty
+        HsAppsTy [L l (HsAppPrefix ty)] -> splitLHsForAllTy (L l ty)
+        HsForAllTy _ _ tvs cxt ty       -> (tvs, unLoc cxt, ty)
+        _                               -> (emptyHsQTvs, [], poly_ty)
         -- The type vars should have been computed by now, even if they were implicit
 
 splitHsClassTy_maybe :: HsType Name -> Maybe (Name, [LHsType Name])
@@ -923,6 +926,7 @@ ftvName n
 
 ignoreParens :: LHsType name -> LHsType name
 ignoreParens (L _ (HsParTy ty)) = ignoreParens ty
+ignoreParens (L _ (HsAppsTy [L l (HsAppPrefix ty)])) = ignoreParens (L l ty)
 ignoreParens ty                 = ty
 
 {-
@@ -1025,16 +1029,14 @@ seems like the Right Thing anyway.)
 
 pprHsType, pprParendHsType :: (OutputableBndr name) => HsType name -> SDoc
 
-pprHsType ty       = getPprStyle $ \sty -> ppr_mono_ty TopPrec (prepare sty ty)
+pprHsType ty       = ppr_mono_ty TopPrec (prepare ty)
 pprParendHsType ty = ppr_mono_ty TyConPrec ty
 
--- Before printing a type
--- (a) Remove outermost HsParTy parens
--- (b) Drop top-level for-all type variables in user style
---     since they are implicit in Haskell
-prepare :: PprStyle -> HsType name -> HsType name
-prepare sty (HsParTy ty)          = prepare sty (unLoc ty)
-prepare _   ty                    = ty
+-- Before printing a type, remove outermost HsParTy parens
+prepare :: HsType name -> HsType name
+prepare (HsParTy ty)                      = prepare (unLoc ty)
+prepare (HsAppsTy [L _ (HsAppPrefix ty)]) = prepare ty
+prepare ty                                = ty
 
 ppr_mono_lty :: (OutputableBndr name) => TyPrec -> LHsType name -> SDoc
 ppr_mono_lty ctxt_prec ty = ppr_mono_ty ctxt_prec (unLoc ty)

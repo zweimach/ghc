@@ -633,7 +633,7 @@ countTyClDecls decls
 
 -- | Does this declaration have a complete, user-supplied kind signature?
 -- See Note [Complete user-supplied kind signatures]
-hsDeclHasCusk :: TyClDecl name -> Bool
+hsDeclHasCusk :: TyClDecl Name -> Bool
 hsDeclHasCusk (FamDecl { tcdFam = fam_decl }) = famDeclHasCusk fam_decl
 hsDeclHasCusk (SynDecl { tcdTyVars = tyvars, tcdRhs = rhs })
   = hsTvbAllKinded tyvars && rhs_annotated rhs

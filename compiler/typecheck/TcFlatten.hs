@@ -1025,10 +1025,10 @@ flatten_one (CoercionTy co) = first mkCoercionTy <$> flatten_co co
 -- between and then use transitivity.
 flatten_co :: Coercion -> FlatM (Coercion, Coercion)
 flatten_co co
-  = flattenKinds $
-    do { let (Pair ty1 ty2, role) = coercionKindRole co
+  = do { let (Pair ty1 ty2, role) = coercionKindRole co
        ; co <- liftTcS $ zonkCo co  -- squeeze out any metavars from the original
-       ; (co1, co2) <- do { (_, co1) <- flatten_one ty1
+       ; (co1, co2) <- flattenKinds $
+                       do { (_, co1) <- flatten_one ty1
                           ; (_, co2) <- flatten_one ty2
                           ; return (co1, co2) }
        ; let co' = downgradeRole role Nominal co1 `mkTransCo`
@@ -1037,6 +1037,7 @@ flatten_co co
              -- kco :: (ty1' ~r ty2') ~N (ty1 ~r ty2)
              kco = mkTyConAppCo Nominal (equalityTyCon role)
                      [ mkKindCo co1, mkKindCo co2, co1, co2 ]
+       ; traceFlat "flatten_co" (vcat [ ppr co, ppr co1, ppr co2, ppr co' ])
        ; env_role <- getRole
        ; return (co', mkProofIrrelCo env_role kco co' co) }
 
