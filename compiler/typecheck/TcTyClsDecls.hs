@@ -1976,6 +1976,10 @@ checkValidDataCon dflags existential_ok tc con
             -- critical to avoid panicking when we call dataConWrapperType
             -- on an un-rejiggable datacon!
 
+          -- Check that existentials are allowed if they are used
+        ; checkTc (existential_ok || isVanillaDataCon con)
+                  (badExistential con)
+
           -- Check that the result type is a *monotype*
           --  e.g. reject this:   MkT :: T (forall a. a->a)
           -- Reason: it's really the argument of an equality constraint
@@ -1991,10 +1995,6 @@ checkValidDataCon dflags existential_ok tc con
           -- E.g.  reject   data T = MkT {-# UNPACK #-} Int     -- No "!"
           --                data T = MkT {-# UNPACK #-} !a      -- Can't unpack
         ; mapM_ check_bang (zip3 (dataConSrcBangs con) (dataConImplBangs con) [1..])
-
-          -- Check that existentials are allowed if they are used
-        ; checkTc (existential_ok || isVanillaDataCon con)
-                  (badExistential con)
 
         ; traceTc "Done validity of data con" (ppr con <+> ppr (dataConRepType con))
     }

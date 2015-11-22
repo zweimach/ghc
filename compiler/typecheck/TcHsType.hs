@@ -770,8 +770,7 @@ tcTyVar name         -- Could be a tyvar, a tycon, or a datacon
       = do { env <- getGblEnv
            ; case lookupNameEnv (tcg_type_env env) name of
                 Just (ATyCon tc) -> return tc
-                x                -> return (pprPanic "RAE1" (ppr name <+> ppr x)) } -- (aThingErr "tcTyVar" name) }
-
+                _                -> return (aThingErr "tcTyVar" name) }
 
 tcClass :: Name -> TcM (Class, TcKind)
 tcClass cls     -- Must be a class
