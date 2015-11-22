@@ -15,6 +15,12 @@ typecheck/should_compile/T6018:
     accordingly until the end, and then there isn't the right kick-out to re-process TF injectivity stuff.
     I would like Simon's advice.
 
+ghc-api/annotations/{T11018,exampleTest,parseTree}:
+  - I need Alan's help here. I think this has to do with the extra Rarrow bit
+    in the parser that is very confusing.
+
+
+
 TICKETS:
 #9017:
 #9173: mention expression in error
