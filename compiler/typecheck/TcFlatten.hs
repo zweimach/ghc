@@ -17,7 +17,6 @@ import TyCon
 import TyCoRep   -- performs delicate algorithm on types
 import Coercion
 import Var
-import VarSet
 import VarEnv
 import NameEnv
 import Outputable
@@ -27,7 +26,6 @@ import DynFlags( DynFlags )
 import Util
 import Bag
 import Pair
-import BasicTypes  ( Boxity(..) )
 import FastString
 import Control.Monad
 import MonadUtils ( zipWithAndUnzipM )
@@ -503,8 +501,6 @@ data FlattenEnv
        , fe_loc     :: CtLoc              -- See Note [Flattener CtLoc]
        , fe_flavour :: CtFlavour
        , fe_eq_rel  :: EqRel              -- See Note [Flattener EqRels]
-       , fe_boxity  :: Boxity             -- See Note [Flavours with boxities]
-                                          -- in TcSMonad
        , fe_work    :: FlatWorkListRef }  -- See Note [The flattening work list]
 
 data FlattenMode  -- Postcondition for all three: inert wrt the type substitution
@@ -523,7 +519,6 @@ mkFlattenEnv fm ctev ref = FE { fe_mode    = fm
                               , fe_loc     = ctEvLoc ctev
                               , fe_flavour = ctEvFlavour ctev
                               , fe_eq_rel  = ctEvEqRel ctev
-                              , fe_boxity  = ctEvBoxity ctev
                               , fe_work    = ref }
 
 -- | The 'FlatM' monad is a wrapper around 'TcS' with the following
@@ -593,21 +588,17 @@ getRole = eqRelRole <$> getEqRel
 getFlavour :: FlatM CtFlavour
 getFlavour = getFlatEnvField fe_flavour
 
-getFRB :: FlatM CtFRB
-getFRB
+getFlavourRole :: FlatM CtFlavourRole
+getFlavourRole
   = do { flavour <- getFlavour
        ; eq_rel <- getEqRel
-       ; boxity <- getBoxity
-       ; return (flavour, eq_rel, boxity) }
+       ; return (flavour, eq_rel) }
 
 getMode :: FlatM FlattenMode
 getMode = getFlatEnvField fe_mode
 
 getLoc :: FlatM CtLoc
 getLoc = getFlatEnvField fe_loc
-
-getBoxity :: FlatM Boxity
-getBoxity = getFlatEnvField fe_boxity
 
 checkStackDepth :: Type -> FlatM ()
 checkStackDepth ty
@@ -1147,19 +1138,22 @@ flatten_exact_fam_app_fully tc tys
   -- See Note [Reduce type family applications eagerly]
   = try_to_reduce tc tys False id $
     do { -- First, flatten the arguments
-         (xis, cos) <- setEqRel NomEq $ flatten_many_nom tys
+       ; traceFlat "RAE3" (ppr tc $$ ppr tys)
+       ; (xis, cos) <- setEqRel NomEq $ flatten_many_nom tys
+       ; traceFlat "RAE4" (ppr tc $$ ppr tys $$ ppr xis)
        ; eq_rel <- getEqRel
        ; let role   = eqRelRole eq_rel
              ret_co = mkTyConAppCo role tc cos
               -- ret_co :: F xis ~ F tys
 
-       ; tclvl <- liftTcS $ getTcLevel
         -- Now, look in the cache
        ; mb_ct <- liftTcS $ lookupFlatCache tc xis
-       ; frb <- getFRB
+       ; fr <- getFlavourRole
        ; case mb_ct of
            Just (co, rhs_ty, flav)  -- co :: F xis ~ fsk
-             | canDischargeFRB tclvl (flav, NomEq, tc_co_boxity co) frb
+             | pprTrace "RAE5" empty $
+               pprTraceIt "RAE6" $
+               (flav, NomEq) `canDischargeFR` fr
              ->  -- Usable hit in the flat-cache
                  -- We certainly *can* use a Wanted for a Wanted
                 do { traceFlat "flatten/flat-cache hit" $ (ppr tc <+> ppr xis $$ ppr rhs_ty)
@@ -1198,17 +1192,6 @@ flatten_exact_fam_app_fully tc tys
         }
 
   where
-    tc_co_boxity :: TcCoercion -> Boxity
-    -- if *any* covar in the coercion is lifted, return Boxed; otherwise,
-    -- Unboxed. Used to check if the coercion is a suitable RHS for a top-level
-    -- unlifted coercion. Laziness should hopefully prevent most runs of
-    -- this function. See Note [Flavours with boxities] in TcSMonad
-    tc_co_boxity co
-      | all (isUnLiftedType . varType) $ varSetElems $ coVarsOfTcCo co
-      = Unboxed
-      | otherwise
-      = Boxed
-
     try_to_reduce :: TyCon   -- F, family tycon
                   -> [Type]  -- args, not necessarily flattened
                   -> Bool    -- add to the flat cache?
@@ -1314,15 +1297,15 @@ flatten_tyvar tv
        ; case mb_ty of
            Just ty -> do { traceFlat "Following filled tyvar" (ppr tv <+> equals <+> ppr ty)
                          ; return (FTRFollowed ty (mkReflCo role ty)) } ;
-           Nothing -> do { frb <- getFRB
-                         ; flatten_tyvar2  tv frb } }
+           Nothing -> do { fr <- getFlavourRole
+                         ; flatten_tyvar2  tv fr } }
 
-flatten_tyvar2 :: TcTyVar -> CtFRB -> FlatM FlattenTvResult
+flatten_tyvar2 :: TcTyVar -> CtFlavourRole -> FlatM FlattenTvResult
 -- Try in the inert equalities
 -- See Definition [Applying a generalised substitution] in TcSMonad
 -- See Note [Stability of flattening] in TcSMonad
 
-flatten_tyvar2 tv frb@(flavour, eq_rel, _)
+flatten_tyvar2 tv fr@(flavour, eq_rel)
   | Derived <- flavour  -- For derived equalities, consult the inert_model (only)
   = do { model <- liftTcS $ getInertModel
        ; case lookupVarEnv model tv of
@@ -1333,18 +1316,17 @@ flatten_tyvar2 tv frb@(flavour, eq_rel, _)
 
   | otherwise   -- For non-derived equalities, consult the inert_eqs (only)
   = do { ieqs <- liftTcS $ getInertEqs
-       ; tclvl <- liftTcS $ getTcLevel
        ; case lookupVarEnv ieqs tv of
            Just (ct:_)   -- If the first doesn't work,
                          -- the subsequent ones won't either
              | CTyEqCan { cc_ev = ctev, cc_tyvar = tv, cc_rhs = rhs_ty } <- ct
-             , eqCanRewriteFRB tclvl (ctEvFRB ctev) frb
+             , ctEvFlavourRole ctev `eqCanRewriteFR` fr
              ->  do { traceFlat "Following inert tyvar" (ppr tv <+> equals <+> ppr rhs_ty $$ ppr ctev)
                     ; let rewrite_co1 = mkSymCo $ ctEvCoercion ctev
                           rewrite_co  = case (ctEvEqRel ctev, eq_rel) of
                             (ReprEq, _rel)  -> ASSERT( _rel == ReprEq )
                                     -- if this ASSERT fails, then
-                                    -- eqCanRewriteFRB answered incorrectly
+                                    -- eqCanRewriteFR answered incorrectly
                                                rewrite_co1
                             (NomEq, NomEq)  -> rewrite_co1
                             (NomEq, ReprEq) -> mkSubCo rewrite_co1

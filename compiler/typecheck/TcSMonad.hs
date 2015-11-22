@@ -148,7 +148,6 @@ import TcRnTypes
 import Unique
 import UniqFM
 import Maybes
-import BasicTypes ( Boxity(..) )
 
 import TrieMap
 import Control.Monad
@@ -810,7 +809,6 @@ Key lemma to make it watertight.
   forall f st fw >= f, a is not in S^k(f,t), for any k
 
 Also, consider roles more carefully. See Note [Flavours with roles]
-and also Note [Flavours with boxity]
 
 Completeness
 ~~~~~~~~~~~~~
@@ -910,60 +908,6 @@ T Int Bool. The reason is that T's first parameter has a nominal role, and
 thus rewriting a to Int in T a b is wrong. Indeed, this non-congruence of
 subsitution means that the proof in Note [The inert equalities] may need
 to be revisited, but we don't think that the end conclusion is wrong.
-
-Note [Flavours with boxities]
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-In most circumstances, it is perfectly OK to use a lifted equality in the body
-of an unlifted constraint. This is because desugaring wraps the EvBind in case
-matches to unpack lifted equality witnesses to unlifted ones. However, at the
-top-level, this trick fails. This is because top-level unlifted equality
-witnesses are never bound -- we can't have top-level unlifted bindings.
-Instead, the desugarer builds a substitution from top-level unlifted
-equalities, and inlines them during desugaring. See also Note [No top-level
-coercions] in DsBinds. There is no way to do this substitution trick if there
-are lifted equality variables in the unlifted equality coercion. Thus, at
-top-level (that is, TcLevel = 1), and *only* at top-level, we restrict lifted
-equalities from rewriting unlifted ones. This is the *only* place we care
-about the boxity component of a flavour.
-
-However, there is a wrinkle in having a tri-partite flavour. For rewriting
-purposes, Derived is equivalent to Wanted. Omitting Derived, then, we have
-the following relation:
-
-    GNL GNU GRL GRU WNL WNU WRL WRU
-GNL  x       x       x       x
-GNU  x   x   x   x   x   x   x   x
-GRL          x               x
-GRU          o   x           o   x
-WNL
-WNU
-WRL
-WRU
-
-If you see an x on the row labeled GRU and the column labeled WRU, it means
-that a Given, Representational, Unlifted constraint can rewrite a
-Wanted, Representational, Unlifted one. And so on.
-
-First, let's pretend the o's in there are really x's. The relation we see
-then is the "natural" relation that we want, where G can rewrite W,
-N can rewrite R, and U can rewrite L, but never vice versa. This relation
-in transitive. But, critically, it doesn't meet criterion R2 of what it
-takes to be a "can-rewrite" relation. See Note [inert_eqs: the inert equalities].
-In practice, we could get a GRU constraint (a ~ b) and a GNL constraint
-(b ~ a) that rewrite some poor GRL constraint forever, causing a loop.
-Note that neither GNL nor GRU can rewrite the other, so the equalities
-are inert w.r.t. each other. How sad.
-
-To fix this, we drop the two elements of the can-rewrite relation denoted
-with `o`. We say, by fiat, that GRU can no longer rewrite GRL or WRL.
-Now, we satisfy both criteria R1 and R2 of a can-rewrite relation. And,
-what have we lost? Not much, I think. (I = Richard E) A GRU constraint
-is an assumption of representational equality. However, this can-rewrite
-relation only applies *at top-level*, and so there should be no assumptions!
-Any assumptions that do somehow come up should also be able to be phrased
-as GRL assumptions, which can happily rewrite the GRL and WRL targets.
-I thus conjecture that we lose no expressiveness by this restriction.
 
 Note [Examples of how the inert_model helps completeness]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1214,9 +1158,8 @@ addInertEq ct@(CTyEqCan { cc_tyvar = tv })
   = do { traceTcS "addInertEq {" $
          text "Adding new inert equality:" <+> ppr ct
        ; ics <- getInertCans
-       ; tclvl <- getTcLevel
 
-       ; let (kicked_out, ics1) = kickOutRewritable tclvl (ctFRB ct) tv ics
+       ; let (kicked_out, ics1) = kickOutRewritable (ctFlavourRole ct) tv ics
        ; ics2 <- add_inert_eq ics1 ct
 
        ; setInertCans ics2
@@ -1363,8 +1306,7 @@ bumpUnsolvedCount ev n | isWanted ev = n+1
 
 
 -----------------------------------------
-kickOutRewritable :: TcLevel
-                  -> CtFRB          -- Flavour/role/boxity of the equality that
+kickOutRewritable :: CtFlavourRole  -- Flavour/role of the equality that
                                     -- is being added to the inert set
                   -> TcTyVar        -- The new equality is tv ~ ty
                   -> InertCans
@@ -1373,8 +1315,8 @@ kickOutRewritable :: TcLevel
    -- inert_solved_dicts, and inert_solved_funeqs
    -- optimistically. But when we lookup we have to
    -- take the substitution into account
-kickOutRewritable tclvl new_frb new_tv ics@(IC { inert_funeqs = funeqmap })
-  | not (eqCanRewriteFRB tclvl new_frb new_frb)
+kickOutRewritable new_fr new_tv ics@(IC { inert_funeqs = funeqmap })
+  | not (new_fr `eqCanRewriteFR` new_fr)
   = if isFlattenTyVar new_tv
     then (emptyWorkList { wl_funeqs = feqs_out }, ics { inert_funeqs = feqs_in })
     else (emptyWorkList,                          ics)
@@ -1393,14 +1335,14 @@ kickOutRewritable tclvl new_frb new_tv ics@(IC { inert_funeqs = funeqmap })
     kick_out_fe (CFunEqCan { cc_fsk = fsk }) = fsk == new_tv
     kick_out_fe _ = False  -- Can't happen
 
-kickOutRewritable tclvl new_frb new_tv (IC { inert_eqs      = tv_eqs
-                                           , inert_dicts    = dictmap
-                                           , inert_safehask = safehask
-                                           , inert_funeqs   = funeqmap
-                                           , inert_irreds   = irreds
-                                           , inert_insols   = insols
-                                           , inert_count    = n
-                                           , inert_model    = model })
+kickOutRewritable new_fr new_tv (IC { inert_eqs      = tv_eqs
+                                    , inert_dicts    = dictmap
+                                    , inert_safehask = safehask
+                                    , inert_funeqs   = funeqmap
+                                    , inert_irreds   = irreds
+                                    , inert_insols   = insols
+                                    , inert_count    = n
+                                    , inert_model    = model })
   = (kicked_out, inert_cans_in)
   where
     inert_cans_in = IC { inert_eqs      = tv_eqs_in
@@ -1427,11 +1369,8 @@ kickOutRewritable tclvl new_frb new_tv (IC { inert_eqs      = tv_eqs
     (insols_out, insols_in) = partitionBag     kick_out_ct    insols
       -- Kick out even insolubles; see Note [Kick out insolubles]
 
-    can_rewrite_frb :: CtFRB -> CtFRB -> Bool
-    can_rewrite_frb = eqCanRewriteFRB tclvl
-
     can_rewrite :: CtEvidence -> Bool
-    can_rewrite = (new_frb `can_rewrite_frb`) . ctEvFRB
+    can_rewrite = (new_fr `eqCanRewriteFR`) . ctEvFlavourRole
 
     kick_out_ct :: Ct -> Bool
     kick_out_ct ct = kick_out_ctev (ctEvidence ct)
@@ -1469,14 +1408,14 @@ kickOutRewritable tclvl new_frb new_tv (IC { inert_eqs      = tv_eqs
       | otherwise
       = check_k2 && check_k3
       where
-        ev_frb = ctEvFRB ev
-        check_k2 = not (ev_frb  `can_rewrite_frb` ev_frb)
-                || not (new_frb `can_rewrite_frb` ev_frb)
-                ||     (ev_frb  `can_rewrite_frb` new_frb)
+        ev_fr    = ctEvFlavourRole ev
+        check_k2 = not (ev_fr  `eqCanRewriteFR` ev_fr)
+                || not (new_fr `eqCanRewriteFR` ev_fr)
+                ||     (ev_fr  `eqCanRewriteFR` new_fr)
                 || not (new_tv `elemVarSet` tyCoVarsOfType rhs_ty)
 
         check_k3
-          | new_frb `can_rewrite_frb` ev_frb
+          | new_fr `eqCanRewriteFR` ev_fr
           = case eq_rel of
               NomEq  -> not (rhs_ty `eqType` mkTyVarTy new_tv)
               ReprEq -> not (isTyVarExposed new_tv rhs_ty)
@@ -1489,10 +1428,8 @@ kickOutRewritable tclvl new_frb new_tv (IC { inert_eqs      = tv_eqs
 kickOutAfterUnification :: TcTyVar -> TcS Int
 kickOutAfterUnification new_tv
   = do { ics <- getInertCans
-       ; tclvl <- getTcLevel
        ; let (kicked_out1, ics1) = kickOutModel new_tv ics
-             (kicked_out2, ics2) = kickOutRewritable tclvl
-                                                     (Given,NomEq,Unboxed)
+             (kicked_out2, ics2) = kickOutRewritable (Given,NomEq)
                                                      new_tv ics1
                      -- Given because the tv := xi is given; NomEq because
                      -- only nominal equalities are solved by unification
@@ -2982,22 +2919,9 @@ newWanted loc pty
   | otherwise
   = newWantedEvVar loc pty
 
--- | Make a pred type suitable for making a Derived constraint.
-mkDerivedPred :: TcPredType -> TcPredType
-    -- TODO (RAE): This is necessary to avoid terrible rewriting problems.
-    -- In reality, I need to update the Note [Flavours with boxities] to
-    -- deal with Deriveds-rewriting-Deriveds. But I'm hoping that we'll
-    -- get rid of lifted equalities entirely in the solver so that this
-    -- isn't an issue.
-mkDerivedPred pred
-  | Just (role, ty1, ty2) <- getEqPredTys_maybe pred
-  = mkPrimEqPredRole role ty1 ty2
-  | otherwise
-  = pred
-
 emitNewDerived :: CtLoc -> TcPredType -> TcS ()
 emitNewDerived loc pred
-  = do { ev <- newDerivedNC loc (mkDerivedPred pred)
+  = do { ev <- newDerivedNC loc pred
        ; traceTcS "Emitting new derived" (ppr ev)
        ; updWorkListTcS (extendWorkListDerived loc ev) }
 
@@ -3006,7 +2930,7 @@ emitNewDeriveds loc preds
   | null preds
   = return ()
   | otherwise
-  = do { evs <- mapM (newDerivedNC loc . mkDerivedPred) preds
+  = do { evs <- mapM (newDerivedNC loc) preds
        ; traceTcS "Emitting new deriveds" (ppr evs)
        ; updWorkListTcS (extendWorkListDeriveds loc evs) }
 

@@ -94,7 +94,7 @@ module TcRnTypes(
         CtEvidence(..), TcEvDest(..),
         mkGivenLoc, mkKindLoc, toKindLoc,
         isWanted, isGiven, isDerived,
-        ctEvRole, ctEvBoxity,
+        ctEvRole,
 
         -- Constraint solver plugins
         TcPlugin(..), TcPluginResult(..), TcPluginSolver,
@@ -102,8 +102,8 @@ module TcRnTypes(
         getEvBindsTcPluginM_maybe,
 
         CtFlavour(..), ctEvFlavour,
-        CtFRB, ctEvFRB, ctFRB,
-        eqCanRewrite, eqCanRewriteFRB, canDischarge, canDischargeFRB,
+        CtFlavourRole, ctEvFlavourRole, ctFlavourRole,
+        eqCanRewrite, eqCanRewriteFR, canDischarge, canDischargeFR,
 
         -- Pretty printing
         pprEvVarTheta,
@@ -1847,14 +1847,6 @@ ctEvEqRel = predTypeEqRel . ctEvPred
 ctEvRole :: CtEvidence -> Role
 ctEvRole = eqRelRole . ctEvEqRel
 
--- | Get the boxity for a 'CtEvidence'
-ctEvBoxity :: CtEvidence -> Boxity
-ctEvBoxity ev
-  | isUnLiftedType pred = Unboxed
-  | otherwise           = Boxed
-  where
-    pred = ctEvPred ev
-
 ctEvTerm :: CtEvidence -> EvTerm
 ctEvTerm ev@(CtWanted { ctev_dest = HoleDest _ }) = EvCoercion $ ctEvCoercion ev
 ctEvTerm ev = EvId (ctEvId ev)
@@ -1921,18 +1913,17 @@ ctEvFlavour (CtGiven {})   = Given
 ctEvFlavour (CtDerived {}) = Derived
 
 -- | Whether or not one 'Ct' can rewrite another is determined by its
--- flavour, its equality relation, and its boxity. See also
--- Note [Flavours with roles] and Note [Flavours with boxities], both
--- in TcSMonad
-type CtFRB = (CtFlavour, EqRel, Boxity)
+-- flavour and its equality relation. See also
+-- Note [Flavours with roles] in TcSMonad
+type CtFlavourRole = (CtFlavour, EqRel)
 
 -- | Extract the flavour, role, and boxity from a 'CtEvidence'
-ctEvFRB :: CtEvidence -> CtFRB
-ctEvFRB ev = (ctEvFlavour ev, ctEvEqRel ev, ctEvBoxity ev)
+ctEvFlavourRole :: CtEvidence -> CtFlavourRole
+ctEvFlavourRole ev = (ctEvFlavour ev, ctEvEqRel ev)
 
 -- | Extract the flavour, role, and boxity from a 'Ct'
-ctFRB :: Ct -> CtFRB
-ctFRB = ctEvFRB . cc_ev
+ctFlavourRole :: Ct -> CtFlavourRole
+ctFlavourRole = ctEvFlavourRole . cc_ev
 
 {- Note [eqCanRewrite]
 ~~~~~~~~~~~~~~~~~~~
@@ -2001,39 +1992,31 @@ does /not/ define a can-rewrite relation in the sense of
 Definition [Can-rewrite relation] in TcSMonad.
 -}
 
-eqCanRewrite :: TcLevel -> CtEvidence -> CtEvidence -> Bool
-eqCanRewrite tclvl ev1 ev2 = eqCanRewriteFRB tclvl (ctEvFRB ev1) (ctEvFRB ev2)
+eqCanRewrite :: CtEvidence -> CtEvidence -> Bool
+eqCanRewrite ev1 ev2 = eqCanRewriteFR (ctEvFlavourRole ev1)
+                                      (ctEvFlavourRole ev2)
 
-eqCanRewriteFRB :: TcLevel -> CtFRB -> CtFRB -> Bool
+eqCanRewriteFR :: CtFlavourRole -> CtFlavourRole -> Bool
 -- Very important function!
 -- See Note [eqCanRewrite]
--- See Note [Flavours with boxities] in TcSMonad for first two clauses
 -- See Note [Wanteds do not rewrite Wanteds]
 -- See Note [Deriveds do rewrite Deriveds]
-eqCanRewriteFRB (isTopTcLevel -> True)
-                  (_,     _,      Boxed)   (_, _,      Unboxed) = False
-eqCanRewriteFRB (isTopTcLevel -> True)
-                  (Given, ReprEq, Unboxed) (_, ReprEq, Boxed)   = False
- -- NB: Much better to check the TcLevel before looking at boxity stuff; that's
- -- why the view pattern. See co_boxity in flatten_exact_fam_app_fully, which
- -- can be avoided if we check the TcLevel first!
+eqCanRewriteFR (Given, NomEq)  (_, _)      = True
+eqCanRewriteFR (Given, ReprEq) (_, ReprEq) = True
+eqCanRewriteFR _               _           = False
 
-eqCanRewriteFRB _ (Given, NomEq,  _)       (_, _,      _)       = True
-eqCanRewriteFRB _ (Given, ReprEq, _)       (_, ReprEq, _)       = True
-eqCanRewriteFRB _ _                        _                    = False
-
-canDischarge :: TcLevel -> CtEvidence -> CtEvidence -> Bool
+canDischarge :: CtEvidence -> CtEvidence -> Bool
 -- See Note [canDischarge]
-canDischarge tclvl ev1 ev2 = canDischargeFRB tclvl (ctEvFRB ev1) (ctEvFRB ev2)
+canDischarge ev1 ev2 = canDischargeFR (ctEvFlavourRole ev1)
+                                      (ctEvFlavourRole ev2)
 
-canDischargeFRB :: TcLevel -> CtFRB -> CtFRB -> Bool
-canDischargeFRB (isTopTcLevel -> True) (_, _, Boxed) (_, _, Unboxed) = False
-canDischargeFRB _ (_, ReprEq, _)  (_, NomEq, _)   = False
-canDischargeFRB _ (Given,   _, _) _               = True
-canDischargeFRB _ (Wanted,  _, _) (Wanted,  _, _) = True
-canDischargeFRB _ (Wanted,  _, _) (Derived, _, _) = True
-canDischargeFRB _ (Derived, _, _) (Derived, _, _) = True
-canDischargeFRB _ _               _               = False
+canDischargeFR :: CtFlavourRole -> CtFlavourRole -> Bool
+canDischargeFR (_, ReprEq)  (_, NomEq)   = False
+canDischargeFR (Given,   _) _            = True
+canDischargeFR (Wanted,  _) (Wanted,  _) = True
+canDischargeFR (Wanted,  _) (Derived, _) = True
+canDischargeFR (Derived, _) (Derived, _) = True
+canDischargeFR _            _            = False
 
 {-
 ************************************************************************

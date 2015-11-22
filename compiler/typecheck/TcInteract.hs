@@ -482,13 +482,12 @@ interactWithInertsStage :: WorkItem -> TcS (StopOrContinue Ct)
 
 interactWithInertsStage wi
   = do { inerts <- getTcSInerts
-       ; tclvl <- getTcLevel
        ; let ics = inert_cans inerts
        ; case wi of
-             CTyEqCan    {} -> interactTyVarEq tclvl ics wi
-             CFunEqCan   {} -> interactFunEq   tclvl ics wi
-             CIrredEvCan {} -> interactIrred         ics wi
-             CDictCan    {} -> interactDict          ics wi
+             CTyEqCan    {} -> interactTyVarEq ics wi
+             CFunEqCan   {} -> interactFunEq   ics wi
+             CIrredEvCan {} -> interactIrred   ics wi
+             CDictCan    {} -> interactDict    ics wi
              _ -> pprPanic "interactWithInerts" (ppr wi) }
                 -- CHoleCan are put straight into inert_frozen, so never get here
                 -- CNonCanonical have been canonicalised
@@ -854,13 +853,13 @@ I can think of two ways to fix this:
 **********************************************************************
 -}
 
-interactFunEq :: TcLevel -> InertCans -> Ct -> TcS (StopOrContinue Ct)
+interactFunEq :: InertCans -> Ct -> TcS (StopOrContinue Ct)
 -- Try interacting the work item with the inert set
-interactFunEq tclvl inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
-                                               , cc_tyargs = args, cc_fsk = fsk })
+interactFunEq inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
+                                         , cc_tyargs = args, cc_fsk = fsk })
   | Just (CFunEqCan { cc_ev = ev_i
                     , cc_fsk = fsk_i }) <- matching_inerts
-  = if canDischarge tclvl ev_i ev
+  = if ev_i `canDischarge` ev
     then  -- Rewrite work-item using inert
       do { traceTcS "reactFunEq (discharge work item):" $
            vcat [ text "workItem =" <+> ppr workItem
@@ -868,7 +867,7 @@ interactFunEq tclvl inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
          ; reactFunEq ev_i fsk_i ev fsk
          ; stopWith ev "Inert rewrites work item" }
     else  -- Rewrite inert using work-item
-      ASSERT2( canDischarge tclvl ev ev_i, ppr ev $$ ppr ev_i )
+      ASSERT2( ev `canDischarge` ev_i, ppr ev $$ ppr ev_i )
       do { traceTcS "reactFunEq (rewrite inert item):" $
            vcat [ text "workItem =" <+> ppr workItem
                 , text "inertItem=" <+> ppr ev_i ]
@@ -886,7 +885,7 @@ interactFunEq tclvl inerts workItem@(CFunEqCan { cc_ev = ev, cc_fun = tc
     funeqs          = inert_funeqs inerts
     matching_inerts = findFunEq funeqs tc args
 
-interactFunEq _ _ workItem = pprPanic "interactFunEq" (ppr workItem)
+interactFunEq _ workItem = pprPanic "interactFunEq" (ppr workItem)
 
 improveLocalFunEqs :: CtLoc -> InertCans -> TyCon -> [TcType] -> TcTyVar
                    -> TcS ()
@@ -1095,15 +1094,15 @@ test when solving pairwise CFunEqCan.
 **********************************************************************
 -}
 
-interactTyVarEq :: TcLevel -> InertCans -> Ct -> TcS (StopOrContinue Ct)
+interactTyVarEq :: InertCans -> Ct -> TcS (StopOrContinue Ct)
 -- CTyEqCans are always consumed, so always returns Stop
-interactTyVarEq tclvl inerts workItem@(CTyEqCan { cc_tyvar = tv
-                                                , cc_rhs = rhs
-                                                , cc_ev = ev
-                                                , cc_eq_rel = eq_rel })
+interactTyVarEq inerts workItem@(CTyEqCan { cc_tyvar = tv
+                                          , cc_rhs = rhs
+                                          , cc_ev = ev
+                                          , cc_eq_rel = eq_rel })
   | (ev_i : _) <- [ ev_i | CTyEqCan { cc_ev = ev_i, cc_rhs = rhs_i }
                              <- findTyEqs inerts tv
-                         , canDischarge tclvl ev_i ev
+                         , ev_i `canDischarge` ev
                          , rhs_i `tcEqType` rhs ]
   =  -- Inert:     a ~ b
      -- Work item: a ~ b
@@ -1117,7 +1116,7 @@ interactTyVarEq tclvl inerts workItem@(CTyEqCan { cc_tyvar = tv
   | Just tv_rhs <- getTyVar_maybe rhs
   , (ev_i : _) <- [ ev_i | CTyEqCan { cc_ev = ev_i, cc_rhs = rhs_i }
                              <- findTyEqs inerts tv_rhs
-                         , canDischarge tclvl ev_i ev
+                         , ev_i `canDischarge` ev
                          , rhs_i `tcEqType` mkTyVarTy tv ]
   =  -- Inert:     a ~ b
      -- Work item: b ~ a
@@ -1146,7 +1145,7 @@ interactTyVarEq tclvl inerts workItem@(CTyEqCan { cc_tyvar = tv
                  ; addInertEq workItem
                  ; return (Stop ev (ptext (sLit "Kept as inert"))) } }
 
-interactTyVarEq _ _ wi = pprPanic "interactTyVarEq" (ppr wi)
+interactTyVarEq _ wi = pprPanic "interactTyVarEq" (ppr wi)
 
 -- @trySpontaneousSolve wi@ solves equalities where one side is a
 -- touchable unification variable.
