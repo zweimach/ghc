@@ -947,8 +947,7 @@ flatten_one (AppTy ty1 ty2)
            ; let role2 = eqRelRole eq_rel2
            ; traceFlat "flatten/appty"
                        (ppr ty1 $$ ppr ty2 $$ ppr xi1 $$
-                        ppr co1 $$ ppr xi2 $$
-                        ppr role1 $$ ppr role2)
+                        ppr xi2 $$ ppr role1 $$ ppr role2)
 
            ; return ( mkAppTy xi1 xi2
                     , mkTransAppCo role1 co1 xi1 ty1
@@ -1138,9 +1137,7 @@ flatten_exact_fam_app_fully tc tys
   -- See Note [Reduce type family applications eagerly]
   = try_to_reduce tc tys False id $
     do { -- First, flatten the arguments
-       ; traceFlat "RAE3" (ppr tc $$ ppr tys)
        ; (xis, cos) <- setEqRel NomEq $ flatten_many_nom tys
-       ; traceFlat "RAE4" (ppr tc $$ ppr tys $$ ppr xis)
        ; eq_rel <- getEqRel
        ; let role   = eqRelRole eq_rel
              ret_co = mkTyConAppCo role tc cos
@@ -1151,9 +1148,7 @@ flatten_exact_fam_app_fully tc tys
        ; fr <- getFlavourRole
        ; case mb_ct of
            Just (co, rhs_ty, flav)  -- co :: F xis ~ fsk
-             | pprTrace "RAE5" empty $
-               pprTraceIt "RAE6" $
-               (flav, NomEq) `canDischargeFR` fr
+             | (flav, NomEq) `canDischargeFR` fr
              ->  -- Usable hit in the flat-cache
                  -- We certainly *can* use a Wanted for a Wanted
                 do { traceFlat "flatten/flat-cache hit" $ (ppr tc <+> ppr xis $$ ppr rhs_ty)

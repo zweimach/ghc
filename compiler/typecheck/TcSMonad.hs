@@ -12,7 +12,7 @@ module TcSMonad (
     updWorkListTcS,
 
     -- The TcS monad
-    TcS, runTcS, runTcSWithEvBinds, failTcS,
+    TcS, runTcS, runTcSDeriveds, runTcSWithEvBinds, failTcS,
     runTcSEqualities,
     nestTcS, nestImplicTcS,
 
@@ -304,7 +304,8 @@ selectNextWorkItem
        ; try (selectWorkItem wl) $
 
     do { ics <- getInertCans
-       ; if inert_count ics == 0
+       ; solve_deriveds <- keepSolvingDeriveds
+       ; if inert_count ics == 0 && not solve_deriveds
          then return Nothing
          else try (selectDerivedWorkItem wl) (return Nothing) } }
 
@@ -2199,9 +2200,14 @@ data TcSEnv
       -- See Note [Work list priorities] and
       tcs_worklist  :: IORef WorkList, -- Current worklist
 
-      tcs_used_tcvs :: IORef TyCoVarSet
+      tcs_used_tcvs :: IORef TyCoVarSet,
         -- these variables were used when filling holes. Don't discard!
         -- See also Note [Tracking redundant constraints] in TcSimplify
+
+      tcs_need_deriveds :: Bool
+        -- should we keep trying to solve even if all the unsolved
+        -- constraints are Derived? Usually False, but used whenever
+        -- toDerivedWC is used.
     }
 
 ---------------
@@ -2299,18 +2305,27 @@ runTcS :: TcS a                -- What to run
        -> TcM (a, EvBindMap)
 runTcS tcs
   = do { ev_binds_var <- TcM.newTcEvBinds
-       ; res <- runTcSWithEvBinds (Just ev_binds_var) tcs
+       ; res <- runTcSWithEvBinds False (Just ev_binds_var) tcs
        ; ev_binds <- TcM.getTcEvBindsMap ev_binds_var
        ; return (res, ev_binds) }
 
+-- | This variant of 'runTcS' will keep solving, even when only Deriveds
+-- are left around. It also doesn't return any evidence, as callers won't
+-- need it.
+runTcSDeriveds :: TcS a -> TcM a
+runTcSDeriveds tcs
+  = do { ev_binds_var <- TcM.newTcEvBinds
+       ; runTcSWithEvBinds True (Just ev_binds_var) tcs }
+
 -- | This can deal only with equality constraints.
 runTcSEqualities :: TcS a -> TcM a
-runTcSEqualities = runTcSWithEvBinds Nothing
+runTcSEqualities = runTcSWithEvBinds False Nothing
 
-runTcSWithEvBinds :: Maybe EvBindsVar
+runTcSWithEvBinds :: Bool  -- ^ keep running even if only Deriveds are left?
+                  -> Maybe EvBindsVar
                   -> TcS a
                   -> TcM a
-runTcSWithEvBinds ev_binds_var tcs
+runTcSWithEvBinds solve_deriveds ev_binds_var tcs
   = do { unified_var <- TcM.newTcRef 0
        ; step_count <- TcM.newTcRef 0
        ; inert_var <- TcM.newTcRef emptyInert
@@ -2318,12 +2333,13 @@ runTcSWithEvBinds ev_binds_var tcs
        ; used_var <- TcM.newTcRef emptyVarSet -- never read from, but see
                                               -- nestImplicTcS
 
-       ; let env = TcSEnv { tcs_ev_binds   = ev_binds_var
-                          , tcs_unified    = unified_var
-                          , tcs_count      = step_count
-                          , tcs_inerts     = inert_var
-                          , tcs_worklist   = wl_var
-                          , tcs_used_tcvs  = used_var }
+       ; let env = TcSEnv { tcs_ev_binds      = ev_binds_var
+                          , tcs_unified       = unified_var
+                          , tcs_count         = step_count
+                          , tcs_inerts        = inert_var
+                          , tcs_worklist      = wl_var
+                          , tcs_used_tcvs     = used_var
+                          , tcs_need_deriveds = solve_deriveds }
 
              -- Run the computation
        ; res <- unTcS tcs env
@@ -2368,9 +2384,10 @@ nestImplicTcS :: Maybe EvBindsVar -> TyCoVarSet -- bound in this implication
                                       -- tracking)
 nestImplicTcS m_ref bound_tcvs inner_tclvl (TcS thing_inside)
   = do { (res, used_tcvs) <-
-         TcS $ \ TcSEnv { tcs_unified    = unified_var
-                        , tcs_inerts     = old_inert_var
-                        , tcs_count      = count
+         TcS $ \ TcSEnv { tcs_unified       = unified_var
+                        , tcs_inerts        = old_inert_var
+                        , tcs_count         = count
+                        , tcs_need_deriveds = solve_deriveds
                         } ->
       do { inerts <- TcM.readTcRef old_inert_var
          ; let nest_inert = inerts { inert_flat_cache = emptyExactFunEqs }
@@ -2378,12 +2395,13 @@ nestImplicTcS m_ref bound_tcvs inner_tclvl (TcS thing_inside)
          ; new_inert_var <- TcM.newTcRef nest_inert
          ; new_wl_var    <- TcM.newTcRef emptyWorkList
          ; new_used_var  <- TcM.newTcRef emptyVarSet
-         ; let nest_env = TcSEnv { tcs_ev_binds    = m_ref
-                                 , tcs_unified     = unified_var
-                                 , tcs_count       = count
-                                 , tcs_inerts      = new_inert_var
-                                 , tcs_worklist    = new_wl_var
-                                 , tcs_used_tcvs   = new_used_var }
+         ; let nest_env = TcSEnv { tcs_ev_binds      = m_ref
+                                 , tcs_unified       = unified_var
+                                 , tcs_count         = count
+                                 , tcs_inerts        = new_inert_var
+                                 , tcs_worklist      = new_wl_var
+                                 , tcs_used_tcvs     = new_used_var
+                                 , tcs_need_deriveds = solve_deriveds }
          ; res <- TcM.setTcLevel inner_tclvl $
                   thing_inside nest_env
 
@@ -2489,6 +2507,10 @@ updWorkListTcS f
        ; wl_curr <- wrapTcS (TcM.readTcRef wl_var)
        ; let new_work = f wl_curr
        ; wrapTcS (TcM.writeTcRef wl_var new_work) }
+
+-- | Should we keep solving even only deriveds are left?
+keepSolvingDeriveds :: TcS Bool
+keepSolvingDeriveds = TcS (return . tcs_need_deriveds)
 
 emitWorkNC :: [CtEvidence] -> TcS ()
 emitWorkNC evs

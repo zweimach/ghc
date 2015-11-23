@@ -8,8 +8,8 @@ module TcSimplify(
        simplifyTop, simplifyInteractive, solveEqualities,
        simplifyWantedsTcM,
 
-       -- For Rules we need these three
-       solveWanteds, runTcS
+       -- For Rules we need these
+       solveWanteds, runTcSDeriveds
   ) where
 
 #include "HsVersions.h"
@@ -455,7 +455,10 @@ simplifyInfer rhs_tclvl apply_mr sig_qtvs name_taus wanteds
 
        ; ev_binds_var <- TcM.newTcEvBinds
        ; wanted_transformed_incl_derivs <- setTcLevel rhs_tclvl $
-                                           runTcSWithEvBinds (Just ev_binds_var)
+                                           -- the False says we don't really
+                                           -- need to solve all Deriveds
+                                           runTcSWithEvBinds False
+                                                             (Just ev_binds_var)
                                                              (solveWanteds wanteds)
        ; wanted_transformed_incl_derivs <- TcM.zonkWC wanted_transformed_incl_derivs
 

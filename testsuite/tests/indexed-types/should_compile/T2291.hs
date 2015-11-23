@@ -25,3 +25,18 @@ uncocurry = uncocurry'
 "cocurry . uncocurry"           forall x. cocurry (uncocurry x) = x
 "uncocurry . cocurry"           forall x. uncocurry (cocurry x) = x
  #-}
+
+
+{-
+cocurry coapply :: a -> a
+cocurry (coapply :: k b (Sum k (Coexp k a b) a))
+
+[W] w1 ::  k b (Sum k (Coexp k a b) a) ~ k b (Sum k2 a2 b2)
+
+cocurry coapply :: k (Coexp k b2 b) a2
+
+[W] w2 :: (Coexp (->) b2 b) -> x  ~  x -> x
+
+[G] Sum (->) (Coexp (->) a b) a ~ Sum k2 x b2
+[G]
+-}

@@ -327,8 +327,8 @@ simplifyRule :: RuleName
 simplifyRule name lhs_wanted rhs_wanted
   = do {         -- We allow ourselves to unify environment
                  -- variables: runTcS runs with topTcLevel
-       ; tc_lvl         <- getTcLevel
-       ; (insoluble, _) <- runTcS $
+       ; tc_lvl    <- getTcLevel
+       ; insoluble <- runTcSDeriveds $
              do { -- First solve the LHS and *then* solve the RHS
                   -- See Note [Solve order for RULES]
                   -- See Note [Simplify *derived* constraints]
