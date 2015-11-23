@@ -247,6 +247,7 @@ rnHsTyKi isType _ tyLit@(HsTyLit t)
   = do { data_kinds <- xoptM Opt_DataKinds
        ; unless data_kinds (addErr (dataKindsErr isType tyLit))
        ; when (negLit t) (addErr negLitErr)
+       ; checkTypeInType isType tyLit
        ; return (HsTyLit t, emptyFVs) }
   where
     negLit (HsStrTy _ _) = False

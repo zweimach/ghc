@@ -454,7 +454,6 @@ check_type env ctxt rank ty@(TyConApp tc tys)
 
 check_type _ _ _ (LitTy {}) = return ()
 
--- TODO (RAE): Is this right? Do we need to check the co for something??
 check_type env ctxt rank (CastTy ty _) = check_type env ctxt rank ty
 
 check_type _ _ _ ty = pprPanic "check_type" (ppr ty)
@@ -529,7 +528,6 @@ check_arg_type :: TidyEnv -> UserTypeCtxt -> Rank -> KindOrType -> TcM ()
 --     But not in user code.
 -- Anyway, they are dealt with by a special case in check_tau_type
 
--- TODO (RAE): Do we care here?
 check_arg_type _ _ _ (CoercionTy {}) = return ()
 
 check_arg_type env ctxt rank ty

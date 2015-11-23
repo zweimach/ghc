@@ -85,7 +85,7 @@ module TcRnTypes(
         ctLocDepth, bumpCtLocDepth,
         setCtLocOrigin, setCtLocEnv, setCtLocSpan,
         CtOrigin(..), ErrorThing(..), mkErrorThing, errorThingNumArgs_maybe,
-        TypeOrKind(..),
+        TypeOrKind(..), isTypeLevel,
         pprCtOrigin, pprCtLoc,
         pushErrCtxt, pushErrCtxtSameOrigin,
 
@@ -875,6 +875,8 @@ data PromotionErr
   | RecDataConPE     -- Data constructor in a recursive loop
                      -- See Note [ARecDataCon: recusion and promoting data constructors] in TcTyClsDecls
   | NoDataKinds      -- -XDataKinds not enabled
+  | NoTypeInTypeTC   -- -XTypeInType not enabled (for a tycon)
+  | NoTypeInTypeDC   -- -XTypeInType not enabled (for a datacon)
 
 instance Outputable TcTyThing where     -- Debugging only
    ppr (AGlobal g)      = pprTyThing g
@@ -887,11 +889,13 @@ instance Outputable TcTyThing where     -- Debugging only
    ppr (APromotionErr err) = text "APromotionErr" <+> ppr err
 
 instance Outputable PromotionErr where
-  ppr ClassPE      = text "ClassPE"
-  ppr TyConPE      = text "TyConPE"
-  ppr FamDataConPE = text "FamDataConPE"
-  ppr RecDataConPE = text "RecDataConPE"
-  ppr NoDataKinds  = text "NoDataKinds"
+  ppr ClassPE        = text "ClassPE"
+  ppr TyConPE        = text "TyConPE"
+  ppr FamDataConPE   = text "FamDataConPE"
+  ppr RecDataConPE   = text "RecDataConPE"
+  ppr NoDataKinds    = text "NoDataKinds"
+  ppr NoTypeInTypeTC = text "NoTypeInTypeTC"
+  ppr NoTypeInTypeDC = text "NoTypeInTypeDC"
 
 pprTcTyThingCategory :: TcTyThing -> SDoc
 pprTcTyThingCategory (AGlobal thing)    = pprTyThingCategory thing
@@ -901,11 +905,13 @@ pprTcTyThingCategory (AThing {})        = ptext (sLit "Kinded thing")
 pprTcTyThingCategory (APromotionErr pe) = pprPECategory pe
 
 pprPECategory :: PromotionErr -> SDoc
-pprPECategory ClassPE      = ptext (sLit "Class")
-pprPECategory TyConPE      = ptext (sLit "Type constructor")
-pprPECategory FamDataConPE = ptext (sLit "Data constructor")
-pprPECategory RecDataConPE = ptext (sLit "Data constructor")
-pprPECategory NoDataKinds  = ptext (sLit "Data constructor")
+pprPECategory ClassPE        = ptext (sLit "Class")
+pprPECategory TyConPE        = ptext (sLit "Type constructor")
+pprPECategory FamDataConPE   = ptext (sLit "Data constructor")
+pprPECategory RecDataConPE   = ptext (sLit "Data constructor")
+pprPECategory NoDataKinds    = ptext (sLit "Data constructor")
+pprPECategory NoTypeInTypeTC = ptext (sLit "Type constructor")
+pprPECategory NoTypeInTypeDC = ptext (sLit "Data constructor")
 
 {- Note [Bindings with closed types]
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -2373,6 +2379,10 @@ data ErrorThing
 -- | Flag to see whether we're type-checking terms or kind-checking types
 data TypeOrKind = TypeLevel | KindLevel
   deriving Eq
+
+isTypeLevel :: TypeOrKind -> Bool
+isTypeLevel TypeLevel = True
+isTypeLevel KindLevel = False
 
 -- | Make an 'ErrorThing' that doesn't need tidying or zonking
 mkErrorThing :: Outputable a => a -> ErrorThing

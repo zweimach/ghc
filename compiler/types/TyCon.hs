@@ -33,7 +33,7 @@ module TyCon(
         mkBogusTyCon,
 
         -- ** Predicates on TyCons
-        isAlgTyCon,
+        isAlgTyCon, isVanillaAlgTyCon,
         isClassTyCon, isFamInstTyCon,
         isFunTyCon,
         isPrimTyCon,
@@ -1306,6 +1306,12 @@ isUnLiftedTyCon _ = False
 isAlgTyCon :: TyCon -> Bool
 isAlgTyCon (AlgTyCon {})   = True
 isAlgTyCon _               = False
+
+-- | Returns @True@ for vanilla AlgTyCons -- that is, those created
+-- with a @data@ or @newtype@ declaration.
+isVanillaAlgTyCon :: TyCon -> Bool
+isVanillaAlgTyCon (AlgTyCon { algTcParent = VanillaAlgTyCon _ }) = True
+isVanillaAlgTyCon _                                              = False
 
 isDataTyCon :: TyCon -> Bool
 -- ^ Returns @True@ for data types that are /definitely/ represented by

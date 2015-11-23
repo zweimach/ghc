@@ -82,6 +82,7 @@ import SrcLoc
 import StaticFlags
 import Outputable
 import FastString
+import DynFlags ( gopt, GeneralFlag(Opt_PrintExplicitKinds) )
 import NameSet
 import UniqFM ( mapUFM )
 import Lexer ( AddAnn, mkParensApiAnn )
@@ -945,7 +946,10 @@ instance (OutputableBndr name) => Outputable (LHsTyVarBndrs name) where
       where
         ppr_kvs
           | [] <- kvs = empty
-          | otherwise = braces (interppSP kvs)
+          | otherwise = sdocWithDynFlags $ \dflags ->
+                        if gopt Opt_PrintExplicitKinds dflags
+                        then braces (interppSP kvs)
+                        else empty
 
 instance (OutputableBndr name) => Outputable (HsTyVarBndr name) where
     ppr (UserTyVar n)     = ppr n

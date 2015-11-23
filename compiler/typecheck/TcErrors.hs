@@ -1123,7 +1123,11 @@ mkEqInfoMsg ct ty1 ty2
               | otherwise = empty
 
     invis_msg | Just Invisible <- tcEqTypeVis ty1 ty2
-              = text "Use -fprint-explicit-kinds to see the kind arguments"
+              = sdocWithDynFlags $ \dflags ->
+                if gopt Opt_PrintExplicitKinds dflags
+                then text "Use -fprint-explicit-kinds to see the kind arguments"
+                else empty
+
               | otherwise
               = empty
 
