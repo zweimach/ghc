@@ -32,7 +32,7 @@ import TyCon
 import TyCoRep hiding ( getTvSubstEnv, getCvSubstEnv )
 import Util
 import Pair
-import Outputable hiding ( empty )
+import Outputable
 
 import Control.Monad
 #if __GLASGOW_HASKELL__ > 710
@@ -42,7 +42,8 @@ import qualified Control.Monad.Fail as MonadFail
 import Control.Applicative ( Applicative(..), (<$>) )
 import Data.Traversable    ( traverse )
 #endif
-import Control.Applicative ( Alternative(..) )
+import Control.Applicative hiding ( empty )
+import qualified Control.Applicative
 
 {-
 
@@ -355,7 +356,7 @@ instance Alternative UnifyResultM where
   SurelyApart       <|> SurelyApart       = SurelyApart
 
 instance MonadPlus UnifyResultM where
-  mzero = empty
+  mzero = Control.Applicative.empty
   mplus = (<|>)
 
 -- | @tcUnifyTysFG bind_tv tys1 tys2@ attepts to find a substitution @s@ (whose
@@ -685,8 +686,8 @@ uUnrefined tv1 ty2 ty2' kco
        { subst <- getTvSubstEnv
           -- Check to see whether tv2 is refined
        ; case lookupVarEnv subst tv2 of
-         {  Just ty' -> uUnrefined tv1 ty' ty' kco
-         ;  Nothing  -> do
+         {  Just ty' | unif -> uUnrefined tv1 ty' ty' kco
+         ;  _               -> do
        {   -- So both are unrefined
 
            -- And then bind one or the other,
@@ -699,6 +700,11 @@ uUnrefined tv1 ty2 ty2' kco
                                     ; extendTvEnv tv1 (ty2 `mkCastTy` mkSymCo kco) }
            (_, BindMe) | unif -> do { checkRnEnvL ty1 -- ditto for ty1
                                     ; extendTvEnv tv2 (ty1 `mkCastTy` kco) }
+
+           _ | tv1' == tv2' -> return ()
+             -- How could this happen? If we're only matching and if
+             -- we're comparing forall-bound variables.
+
            _ -> maybeApart -- See Note [Unification with skolems]
   }}}}
 
@@ -781,7 +787,7 @@ instance Alternative UM where
 
   -- need this instance because of a use of 'guard' above
 instance MonadPlus UM where
-  mzero = empty
+  mzero = Control.Applicative.empty
   mplus = (<|>)
 
 #if __GLASGOW_HASKELL__ > 710
