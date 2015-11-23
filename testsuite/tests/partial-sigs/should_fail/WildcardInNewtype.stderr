@@ -1,6 +1,6 @@
 
-WildcardInNewtype.hs:7:29:
+WildcardInNewtype.hs:7:29: error:
     Unexpected wild card: ‘_’
+    In the first argument of ‘Either’, namely ‘_’
     In the type ‘Either _ a’
     In the definition of data constructor ‘Foo’
-    In the newtype declaration for ‘Foo’

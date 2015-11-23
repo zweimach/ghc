@@ -1,4 +1,5 @@
 
-WildcardInInstanceHead.hs:7:14:
+WildcardInInstanceHead.hs:7:14: error:
     Unexpected wild card: ‘_’
+    In the first argument of ‘Foo’, namely ‘_’
     In the instance declaration for ‘Foo _’

@@ -2,7 +2,7 @@
 T7786.hs:86:22: error:
     Couldn't match type ‘xxx’ with ‘'Empty’
     Inaccessible code in
-      a pattern with constructor: Nil :: forall (k :: BOX). Sing 'Empty,
+      a pattern with constructor: Nil :: forall a. Sing 'Empty,
       in a pattern binding in
            'do' block
     In the pattern: Nil
@@ -14,8 +14,8 @@ T7786.hs:86:22: error:
 T7786.hs:86:49: error:
     Couldn't match type ‘xxx’
                    with ‘Intersect (BuriedUnder sub k 'Empty) inv’
-    Expected type: Sing xxx
-      Actual type: Sing (Intersect (BuriedUnder sub k 'Empty) inv)
+       Expected type: Sing xxx
+         Actual type: Sing (Intersect (BuriedUnder sub k 'Empty) inv)
     Relevant bindings include
       sub :: Database sub (bound at T7786.hs:86:13)
       k :: Sing k (bound at T7786.hs:86:11)

@@ -1128,6 +1128,9 @@ tcFamTyPats fam_shape@(name,_,_) mb_clsinfo pats kind_checker thing_inside
   = do { (typats, res_kind)
             <- solveEqualities $  -- See Note [Constraints in patterns]
                tc_fam_ty_pats fam_shape mb_clsinfo pats kind_checker
+
+       ; failIfErrsM   -- we'll get duplicate errors if we continue.
+
           {- TODO (RAE): This should be cleverer. Consider this:
 
                  type family F a

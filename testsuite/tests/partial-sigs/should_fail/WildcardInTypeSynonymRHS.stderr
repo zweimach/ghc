@@ -1,5 +1,6 @@
 
-WildcardInTypeSynonymRHS.hs:4:18:
+WildcardInTypeSynonymRHS.hs:4:18: error:
     Unexpected wild card: ‘_’
+    In the first argument of ‘Maybe’, namely ‘_’
     In the type ‘Maybe _’
     In the type declaration for ‘Foo’

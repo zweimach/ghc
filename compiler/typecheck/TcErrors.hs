@@ -1333,9 +1333,10 @@ mkExpectedActualMsg ty1 ty2 (TypeEqOrigin { uo_actual = act, uo_expected = exp
            case n_act - n_exp of
              n | n /= 0
                , Just thing <- maybe_thing
-               , Just num_act_args <- errorThingNumArgs_maybe thing
-               , (n > 0) || (num_act_args >= -n)  -- don't report to strip
-                                                  -- off args that aren't there
+               , case errorThingNumArgs_maybe thing of
+                   Nothing           -> n > 0
+                   Just num_act_args -> num_act_args >= -n
+                     -- don't report to strip off args that aren't there
                -> Just $ text "Expecting" <+> speakN (abs n) <+>
                          more_or_fewer <+> plural_n (abs n) (text "argument to")
                          <+> quotes (ppr thing)

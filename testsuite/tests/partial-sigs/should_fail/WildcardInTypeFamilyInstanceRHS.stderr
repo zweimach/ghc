@@ -1,6 +1,6 @@
 
-WildcardInTypeFamilyInstanceRHS.hs:8:25:
+WildcardInTypeFamilyInstanceRHS.hs:8:25: error:
     Unexpected wild card: ‘_’
+    In the first argument of ‘Maybe’, namely ‘_’
     In the type ‘Maybe _’
     In the type instance declaration for ‘Dual’
-    In the instance declaration for ‘Foo Int’

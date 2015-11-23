@@ -9,10 +9,10 @@ T10403.hs:15:12: warning:
     Where: ‘f’ is a rigid type variable bound by
                the inferred type of h1 :: Functor f => (a -> b) -> f a -> H f
                at T10403.hs:17:1
-           ‘b’ is a rigid type variable bound by
+           ‘a’ is a rigid type variable bound by
                the inferred type of h1 :: Functor f => (a -> b) -> f a -> H f
                at T10403.hs:17:1
-           ‘a’ is a rigid type variable bound by
+           ‘b’ is a rigid type variable bound by
                the inferred type of h1 :: Functor f => (a -> b) -> f a -> H f
                at T10403.hs:17:1
     In the type signature for:
@@ -23,10 +23,10 @@ T10403.hs:19:7: warning:
     Where: ‘f’ is a rigid type variable bound by
                the inferred type of h2 :: Functor f => (a -> b) -> f a -> H f
                at T10403.hs:21:1
-           ‘b’ is a rigid type variable bound by
+           ‘a’ is a rigid type variable bound by
                the inferred type of h2 :: Functor f => (a -> b) -> f a -> H f
                at T10403.hs:21:1
-           ‘a’ is a rigid type variable bound by
+           ‘b’ is a rigid type variable bound by
                the inferred type of h2 :: Functor f => (a -> b) -> f a -> H f
                at T10403.hs:21:1
     In the type signature for:
@@ -35,5 +35,5 @@ T10403.hs:19:7: warning:
 T10403.hs:21:1: warning:
     No instance for (Functor f)
     When checking that ‘h2’ has the inferred type
-      h2 :: forall (f :: * -> *) b a. (a -> b) -> f a -> H f
+      h2 :: forall (f :: * -> *) a b. (a -> b) -> f a -> H f
     Probable cause: the inferred type is ambiguous
