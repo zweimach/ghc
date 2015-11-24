@@ -173,4 +173,13 @@ void exitLinker( void );
 
 void freeObjectCode (ObjectCode *oc);
 
+typedef HsInt (*ObjectCallback)(const ObjectCode *oc, void *user_data);
+
+/*
+ * Invoke the given callback all of the object files currently loaded by the
+ * linker until either all objects have been enumerated or the callback returns
+ * non-zero.
+ */
+HsInt enumLoadedObjectCode( ObjectCallback cb, void *user_data );
+
 #endif /* LINKERINTERNALS_H */

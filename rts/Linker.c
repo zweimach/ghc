@@ -1742,6 +1742,20 @@ isAlreadyLoaded( pathchar *path )
     return 0; /* not loaded yet */
 }
 
+
+HsInt enumLoadedObjectCode( ObjectCallback cb, void *user_data )
+{
+    ACQUIRE_LOCK(&linker_mutex);
+    ObjectCode *o;
+    for (o = objects; o; o = o->next) {
+        HsInt ret = cb(o, user_data);
+        if (ret != 0)
+            return ret;
+    }
+    RELEASE_LOCK(&linker_mutex);
+    return 0;
+}
+
 static HsInt loadArchive_ (pathchar *path)
 {
     ObjectCode* oc;
