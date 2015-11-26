@@ -15,6 +15,7 @@
 #include <elfutils/libdwfl.h>
 #include <dwarf.h>
 #include <unistd.h>
+#include <time.h>
 
 static BacktraceChunk *backtraceAllocChunk(BacktraceChunk *next) {
     BacktraceChunk *chunk = stgMallocBytes(sizeof(BacktraceChunk),
@@ -240,6 +241,9 @@ Backtrace *libdwGetBacktrace(LibdwSession *session) {
         return NULL;
     }
 
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
     Backtrace *bt = backtraceAlloc();
     session->cur_bt = bt;
 
@@ -249,6 +253,12 @@ Backtrace *libdwGetBacktrace(LibdwSession *session) {
     if (ret == -1)
         sysErrorBelch("Failed to get stack frames of current process: %s",
                       dwfl_errmsg(dwfl_errno()));
+
+    struct timespec end;
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    long delta = end.tv_nsec - start.tv_nsec + 1000*1000*1000 * (end.tv_sec - start.tv_sec);
+    printf("backtrace: collected %lu frames in %lu ns (%f ns/frame)\n",
+           bt->n_frames, delta, 1.0 * delta / bt->n_frames);
 
     session->cur_bt = NULL;
     return bt;
