@@ -4,6 +4,7 @@
            , MagicHash
            , RecordWildCards
            , PatternSynonyms
+           , RankNTypes
   #-}
 {-# OPTIONS_HADDOCK hide #-}
 
@@ -24,7 +25,9 @@
 module GHC.Exception
        ( Exception(..)    -- Class
        , throw
-       , SomeException(..), ErrorCall(..), pattern ErrorCall, ArithException(..)
+       , SomeException(.., SomeException)
+       , setStackTrace
+       , ErrorCall(..), pattern ErrorCall, ArithException(..)
        , divZeroException, overflowException, ratioZeroDenomException
        , errorCallException, errorCallWithCallStackException
        , showCallStack, popCallStack, showSrcLoc
@@ -41,13 +44,22 @@ import GHC.Stack.Types
 import GHC.OldList
 import GHC.IO.Unsafe
 import {-# SOURCE #-} GHC.Stack.CCS
+import {-# SOURCE #-} qualified GHC.ExecutionStack.Internal as ES
 
 {- |
 The @SomeException@ type is the root of the exception type hierarchy.
 When an exception of type @e@ is thrown, behind the scenes it is
 encapsulated in a @SomeException@.
 -}
-data SomeException = forall e . Exception e => SomeException e
+data SomeException = forall e. Exception e => SomeExceptionWithStack !(Maybe ES.StackTrace) e
+
+-- | An exception
+pattern SomeException e <- SomeExceptionWithStack _ e where
+    SomeException e = SomeExceptionWithStack Nothing e
+
+-- | Replace the stack trace attached to an exception
+setStackTrace :: Maybe ES.StackTrace -> SomeException -> SomeException
+setStackTrace st (SomeExceptionWithStack _ e) = SomeExceptionWithStack st e
 
 instance Show SomeException where
     showsPrec p (SomeException e) = showsPrec p e
@@ -144,7 +156,7 @@ class (Typeable e, Show e) => Exception e where
     toException   :: e -> SomeException
     fromException :: SomeException -> Maybe e
 
-    toException = SomeException
+    toException = SomeExceptionWithStack Nothing
     fromException (SomeException e) = cast e
 
     -- | Render this exception value in a human-friendly manner.
@@ -163,7 +175,9 @@ instance Exception SomeException where
 -- | Throw an exception.  Exceptions may be thrown from purely
 -- functional code, but may only be caught within the 'IO' monad.
 throw :: Exception e => e -> a
-throw e = raise# (toException e)
+throw e = unsafePerformIO $ do
+    st <- ES.collectStackTrace
+    IO (raiseIO# (setStackTrace st $ toException e))
 
 -- |This is thrown when the user calls 'error'. The @String@ is the
 -- argument given to 'error'.

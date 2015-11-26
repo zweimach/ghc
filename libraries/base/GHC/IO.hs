@@ -33,7 +33,8 @@ module GHC.IO (
 
         FilePath,
 
-        catchException, catchAny, throwIO,
+        catchException, catchExceptionWithStack,
+        catchAny, throwIO,
         mask, mask_, uninterruptibleMask, uninterruptibleMask_,
         MaskingState(..), getMaskingState,
         unsafeUnmask, interruptible,
@@ -46,6 +47,7 @@ import GHC.Exception
 import GHC.Show
 import GHC.IO.Unsafe
 
+import {-# SOURCE #-} qualified GHC.ExecutionStack.Internal as ES
 import {-# SOURCE #-} GHC.IO.Exception ( userError, IOError )
 
 -- ---------------------------------------------------------------------------
@@ -132,6 +134,17 @@ catchException (IO io) handler = IO $ catch# io handler'
                        Just e' -> unIO (handler e')
                        Nothing -> raiseIO# e
 
+catchExceptionWithStack :: Exception e
+                        => IO a
+                        -> (Maybe ES.StackTrace -> e -> IO a)
+                        -> IO a
+catchExceptionWithStack (IO io) handler = IO $ catch# io handler'
+  where
+    handler' se@(SomeExceptionWithStack stack _) =
+      case fromException se of
+        Just e' -> unIO (handler stack e')
+        Nothing -> raiseIO# se
+
 catchAny :: IO a -> (forall e . Exception e => e -> IO a) -> IO a
 catchAny (IO io) handler = IO $ catch# io handler'
     where handler' (SomeException e) = unIO (handler e)
@@ -158,7 +171,9 @@ mplusIO m n = m `catchIOError` \ _ -> n
 -- ordering with respect to other 'IO' operations, whereas 'throw'
 -- does not.
 throwIO :: Exception e => e -> IO a
-throwIO e = IO (raiseIO# (toException e))
+throwIO e = do
+    st <- ES.collectStackTrace
+    IO (raiseIO# (setStackTrace st $ toException e))
 
 -- -----------------------------------------------------------------------------
 -- Controlling asynchronous exception delivery
