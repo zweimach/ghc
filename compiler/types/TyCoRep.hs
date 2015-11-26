@@ -112,7 +112,7 @@ import {-# SOURCE #-} Type( isPredTy, isCoercionTy, mkAppTy
    -- Transitively pulls in a LOT of stuff, better to break the loop
 
 import {-# SOURCE #-} Coercion
-import {-# SOURCE #-} TysWiredIn ( isLiftedTypeKindTyConName, coercibleTyCon )
+import {-# SOURCE #-} TysWiredIn ( coercibleTyCon )
 import {-# SOURCE #-} ConLike ( ConLike(..) )
 
 -- friends:

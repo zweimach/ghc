@@ -514,11 +514,10 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
                      []             -> pprPanic "rnFamInstDecl" (ppr tycon)
                      (L loc _ : []) -> loc
                      (L loc _ : ps) -> combineSrcSpans loc (getLoc (last ps))
-             (kv_rdr_names, tv_rdr_names) = extractHsTysRdrTyVars pats
+       ; tv_rdr_names <- extractHsTysRdrTyVars pats
 
-
-       ; rdr_env  <- getLocalRdrEnv
-       ; var_names <- mapM (newTyVarNameRn mb_cls rdr_env loc) (kv_rdr_names ++ tv_rdr_names)
+       ; var_names <- mapM (newTyVarNameRn mb_cls . L loc . unLoc) $
+                      freeKiTyVarsAllVars tv_rdr_names
              -- All the free vars of the family patterns
              -- with a sensible binding location
        ; ((pats', payload'), fvs)
@@ -537,7 +536,6 @@ rnFamInstDecl doc mb_cls tycon pats payload rnPayload
 
                     ; unless (null bad_tvs) (badAssocRhs bad_tvs)
                     ; return ((pats', payload'), rhs_fvs `plusFV` pat_fvs) }
-
 
        ; let all_fvs = fvs `addOneFV` unLoc tycon'
              awcs = concatMap collectAnonymousWildCardNames pats'
@@ -988,8 +986,8 @@ rnTyClDecl (FamDecl { tcdFam = decl })
 
 rnTyClDecl (SynDecl { tcdLName = tycon, tcdTyVars = tyvars, tcdRhs = rhs })
   = do { tycon' <- lookupLocatedTopBndrRn tycon
-       ; let kvs = fst (extractHsTyRdrTyVars rhs)
-             doc = TySynCtx tycon
+       ; kvs <- freeKiTyVarsKindVars <$> extractHsTyRdrTyVars rhs
+       ; let doc = TySynCtx tycon
        ; traceRn (text "rntycl-ty" <+> ppr tycon <+> ppr kvs)
        ; ((tyvars', rhs'), fvs) <- bindHsTyVars doc Nothing kvs tyvars $
                                     \ tyvars' ->
@@ -1002,8 +1000,8 @@ rnTyClDecl (SynDecl { tcdLName = tycon, tcdTyVars = tyvars, tcdRhs = rhs })
 -- both top level and (for an associated type) in an instance decl
 rnTyClDecl (DataDecl { tcdLName = tycon, tcdTyVars = tyvars, tcdDataDefn = defn })
   = do { tycon' <- lookupLocatedTopBndrRn tycon
-       ; let kvs = extractDataDefnKindVars defn
-             doc = TyDataCtx tycon
+       ; kvs <- extractDataDefnKindVars defn
+       ; let doc = TyDataCtx tycon
        ; traceRn (text "rntycl-data" <+> ppr tycon <+> ppr kvs)
        ; ((tyvars', defn'), fvs) <-
                       bindHsTyVars doc Nothing kvs tyvars $ \ tyvars' ->
@@ -1184,6 +1182,7 @@ rnFamDecl mb_cls (FamilyDecl { fdLName = tycon, fdTyVars = tyvars
                              , fdInfo = info, fdResultSig = res_sig
                              , fdInjectivityAnn = injectivity })
   = do { tycon' <- lookupLocatedTopBndrRn tycon
+       ; kvs <- extractRdrKindSigVars res_sig
        ; ((tyvars', res_sig', injectivity'), fv1) <-
             bindHsTyVars doc mb_cls kvs tyvars $ \ tyvars' ->
             do { (res_sig', fv_kind) <- wrapLocFstM (rnFamResultSig doc) res_sig
@@ -1197,7 +1196,6 @@ rnFamDecl mb_cls (FamilyDecl { fdLName = tycon, fdTyVars = tyvars
                 , fv1 `plusFV` fv2) }
   where
      doc = TyFamilyCtx tycon
-     kvs = extractRdrKindSigVars res_sig
 
      ----------------------
      rn_info (ClosedTypeFamily (Just eqns))
@@ -1241,8 +1239,14 @@ rnFamResultSig doc (TyVarSig tvbndr)
                            ] $$
                       text "shadows an already bound type variable")
 
-       ; rnLHsTyVarBndrs doc Nothing rdr_env [tvbndr] $ \[tvbndr'] ->
-         return (TyVarSig tvbndr', unitFV (hsLTyVarName tvbndr')) }
+       ; bindHsTyVars doc Nothing  -- this might be a lie, but it's used for
+                                   -- scoping checks that are irrelevant here
+                      []  -- no kvs, as they're already in scope
+                      (mkHsQTvs [tvbndr]) $ \ rn_tvbndrs ->
+         return $ case hsQTvExplicit rn_tvbndrs of
+                   [tvbndr'] -> (TyVarSig tvbndr', unitFV (hsLTyVarName tvbndr'))
+                   _         -> pprPanic "rnFamResultSig" (ppr tvbndr $$
+                                                           ppr rn_tvbndrs) }
 
 -- Note [Renaming injectivity annotation]
 -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1450,26 +1454,30 @@ rnConDecl decl@(ConDecl { con_names = names, con_qvars = tvs
            -- For GADT syntax, the tvs are all the quantified tyvars
            -- Hence the 'filter' in the ResTyH98 case only
         ; rdr_env <- getLocalRdrEnv
-        ; let arg_tys    = hsConDeclArgTys details
-              (free_kvs, free_tvs) = case res_ty of
-                ResTyH98 -> filterInScope rdr_env (get_rdr_tvs arg_tys)
-                ResTyGADT _ ty -> get_rdr_tvs (ty : arg_tys)
+        ; let arg_tys        = hsConDeclArgTys details
+        ; free_kity_vars <- case res_ty of
+                ResTyH98 -> filterInScope rdr_env <$> get_rdr_tvs arg_tys
+                ResTyGADT _ ty -> get_rdr_tvs (arg_tys ++ [ty])
+        ; let all_free_vars  = freeKiTyVarsAllVars free_kity_vars
 
          -- With an Explicit forall, check for unused binders
          -- With Implicit, find the mentioned ones, and use them as binders
          -- With Qualified, do the same as with Implicit, but give a warning
          --   See Note [Context quantification]
-        ; new_tvs <- case expl of
-                       Implicit -> return (mkHsQTvs (userHsTyVarBndrs loc free_tvs))
-                       Qualified -> do { warnContextQuantification (docOfHsDocContext doc)
-                                                                   (userHsTyVarBndrs loc free_tvs)
-                                       ; return (mkHsQTvs (userHsTyVarBndrs loc free_tvs)) }
-                       Explicit -> do { warnUnusedForAlls (docOfHsDocContext doc) tvs (free_kvs ++ free_tvs)
-                                      ; return tvs }
+        ; (kvs, new_tvs) <- case expl of
+            Implicit -> return ([], mkHsQTvs $ userHsLTyVarBndrs loc all_free_vars)
+            Qualified -> do { warnContextQuantification
+                                (docOfHsDocContext doc)
+                                (userHsLTyVarBndrs loc all_free_vars)
+                            ; return ([], mkHsQTvs $
+                                          userHsLTyVarBndrs loc all_free_vars) }
+            Explicit -> do { warnUnusedForAlls (docOfHsDocContext doc)
+                                               tvs free_kity_vars
+                           ; return (freeKiTyVarsKindVars free_kity_vars, tvs) }
 
         ; mb_doc' <- rnMbLHsDoc mb_doc
 
-        ; bindHsTyVars doc Nothing free_kvs new_tvs $ \new_tyvars -> do
+        ; bindHsTyVars doc Nothing kvs new_tvs $ \new_tyvars -> do
         { (new_context, fvs1) <- rnContext doc lcxt
         ; (new_details, fvs2) <- rnConDeclDetails (unLoc $ head new_names) doc details
         ; (new_details', new_res_ty, fvs3)

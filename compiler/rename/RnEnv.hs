@@ -37,7 +37,8 @@ module RnEnv (
         extendTyVarEnvFVRn,
 
         checkDupRdrNames, checkShadowedRdrNames,
-        checkDupNames, checkDupAndShadowedNames, checkTupSize,
+        checkDupNames, checkDupAndShadowedNames, dupNamesErr,
+        checkTupSize,
         addFvRn, mapFvRn, mapMaybeFvRn, mapFvRnCPS,
         warnUnusedMatches,
         warnUnusedTopBinds, warnUnusedLocalBinds,

@@ -866,12 +866,12 @@ reifyInstances th_nm th_tys
         ; rdr_ty <- cvt loc (mkThAppTs (TH.ConT th_nm) th_tys)
           -- #9262 says to bring vars into scope, like in HsForAllTy case
           -- of rnHsTyKi
-        ; let (kvs, tvs) = extractHsTyRdrTyVars rdr_ty
-              tv_bndrs   = userHsTyVarBndrs loc tvs
+        ; free_vars <- extractHsTyRdrTyVars rdr_ty
+        ; let tv_bndrs   = userHsLTyVarBndrs loc (freeKiTyVarsAllVars free_vars)
               hs_tvbs    = mkHsQTvs tv_bndrs
           -- Rename  to HsType Name
         ; ((rn_tvbs, rn_ty), _fvs)
-            <- bindHsTyVars doc Nothing kvs hs_tvbs $ \ rn_tvbs ->
+            <- bindHsTyVars doc Nothing [] hs_tvbs $ \ rn_tvbs ->
                do { (rn_ty, fvs) <- rnLHsType doc rdr_ty
                   ; return ((rn_tvbs, rn_ty), fvs) }
         ; (ty, _kind) <- solveEqualities $

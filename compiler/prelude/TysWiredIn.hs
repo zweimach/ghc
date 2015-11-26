@@ -702,11 +702,6 @@ unicodeStarKindTyCon  = mkSynonymTyCon unicodeStarKindTyConName
                                        [] []
                                        (tYPE liftedDataConTy)
 
-isLiftedTypeKindTyConName :: Name -> Bool
-isLiftedTypeKindTyConName
-  = (== liftedTypeKindTyConName) <||> (== starKindTyConName)
-                                 <||> (== unicodeStarKindTyConName)
-
 -- | Should this DataCon be allowed in a type even without -XDataKinds?
 -- Currently, only Lifted & Unlifted
 specialPromotedDc :: DataCon -> Bool

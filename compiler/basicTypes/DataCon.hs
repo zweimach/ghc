@@ -62,7 +62,6 @@ import ForeignCall ( CType )
 import Coercion
 import Unify
 import TyCon
-import TysWiredIn
 import FieldLabel
 import Class
 import Name
@@ -1137,8 +1136,7 @@ isLegacyPromotableTyCon tc
       -- to make this fully accurate. And no harm is caused; we just don't
       -- require -XTypeInType every time we need to. (We'll always require
       -- -XDataKinds, though, so there's no standards-compliance issue.)
-    isFunTyCon tc || tc `hasKey` constraintKindTyConKey ||
-    isLiftedTypeKindTyConName (tyConName tc)
+    isFunTyCon tc || isKindTyCon tc
 
 classDataCon :: Class -> DataCon
 classDataCon clas = case tyConDataCons (classTyCon clas) of

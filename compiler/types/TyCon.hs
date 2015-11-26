@@ -41,6 +41,7 @@ module TyCon(
         isTypeSynonymTyCon,
         mightBeUnsaturatedTyCon,
         isPromotedDataCon, isPromotedDataCon_maybe,
+        isKindTyCon, isLiftedTypeKindTyConName,
 
         isDataTyCon, isProductTyCon, isDataProductTyCon_maybe,
         isEnumerationTyCon,
@@ -1589,6 +1590,20 @@ isPromotedDataCon _                    = False
 isPromotedDataCon_maybe :: TyCon -> Maybe DataCon
 isPromotedDataCon_maybe (PromotedDataCon { dataCon = dc }) = Just dc
 isPromotedDataCon_maybe _ = Nothing
+
+-- | Is this tycon really meant for use at the kind level? That is,
+-- should it be permitted without -XDataKinds?
+isKindTyCon :: TyCon -> Bool
+isKindTyCon tc = isLiftedTypeKindTyConName (tyConName tc) ||
+                 tc `hasKey` constraintKindTyConKey ||
+                 tc `hasKey` tYPETyConKey ||
+                 tc `hasKey` levityTyConKey
+
+isLiftedTypeKindTyConName :: Name -> Bool
+isLiftedTypeKindTyConName
+  = (`hasKey` liftedTypeKindTyConKey) <||>
+    (`hasKey` starKindTyConKey) <||>
+    (`hasKey` unicodeStarKindTyConKey)
 
 -- | Identifies implicit tycons that, in particular, do not go into interface
 -- files (because they are implicitly reconstructed when the interface is

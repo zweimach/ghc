@@ -21,10 +21,10 @@ module RnTypes (
 
         -- Binding related stuff
         warnContextQuantification, warnUnusedForAlls,
-        bindSigTyVarsFV, bindHsTyVars, rnHsBndrSig, rnLHsTyVarBndrs,
+        bindSigTyVarsFV, bindHsTyVars, rnHsBndrSig,
         extractHsTyRdrTyVars, extractHsTysRdrTyVars,
         extractRdrKindSigVars, extractDataDefnKindVars,
-        filterInScope
+        filterInScope, freeKiTyVarsAllVars, freeKiTyVarsKindVars
   ) where
 
 import {-# SOURCE #-} RnSplice( rnSpliceType )
@@ -50,7 +50,7 @@ import BasicTypes       ( compareFixity, funTyFixity, negateFixity,
 import Outputable
 import FastString
 import Maybes
-import Data.List        ( nub, nubBy, deleteFirstsBy )
+import Data.List        ( nubBy, deleteFirstsBy )
 import Control.Monad    ( unless, when )
 
 #if __GLASGOW_HASKELL__ < 709
@@ -386,49 +386,46 @@ rnHsTyKiForAll isType doc (HsForAllTy Implicit extra _ lctxt@(L _ ctxt) ty)
         -- over FV(T) \ {in-scope-tyvars}
     rdr_env <- getLocalRdrEnv
     loc <- getSrcSpanM
-    let
-        (forall_kvs, forall_tvs) = filterInScope rdr_env $
-                                   extractHsTysRdrTyVars (ty:ctxt)
-           -- In for-all types we don't bring in scope
-           -- kind variables mentioned in kind signatures
-           -- (Well, not yet anyway....)
-           --    f :: Int -> T (a::k)    -- Not allowed
-
+    free_kity_vars <- filterInScope rdr_env <$>
+                      extractHsTysRdrTyVars (ctxt ++ [ty])
            -- The filterInScope is to ensure that we don't quantify over
            -- type variables that are in scope; when GlasgowExts is off,
            -- there usually won't be any, except for class signatures:
            --   class C a where { op :: a -> a }
-        tyvar_bndrs = userHsTyVarBndrs loc forall_tvs
 
-    rnForAll isType doc Implicit extra forall_kvs (mkHsQTvs tyvar_bndrs) lctxt ty
+    let all_vars = freeKiTyVarsAllVars free_kity_vars
+        tyvar_bndrs = userHsLTyVarBndrs loc all_vars
+
+    rnForAll isType doc Implicit extra [] (mkHsQTvs tyvar_bndrs) lctxt ty
 
 rnHsTyKiForAll isType doc
                fulltype@(HsForAllTy Qualified extra _ lctxt@(L _ ctxt) ty)
   = do
     rdr_env <- getLocalRdrEnv
     loc <- getSrcSpanM
-    let
-        (forall_kvs, forall_tvs) = filterInScope rdr_env $
-                                   extractHsTysRdrTyVars (ty:ctxt)
-        tyvar_bndrs = userHsTyVarBndrs loc forall_tvs
+    free_kity_vars <- filterInScope rdr_env <$>
+                      extractHsTysRdrTyVars (ty:ctxt)
+
+    let tyvar_bndrs = userHsLTyVarBndrs loc (freeKiTyVarsAllVars free_kity_vars)
         in_type_doc = ptext (sLit "In the type") <+> quotes (ppr fulltype)
 
     -- See Note [Context quantification]
     warnContextQuantification (in_type_doc $$ docOfHsDocContext doc) tyvar_bndrs
-    rnForAll isType doc Implicit extra forall_kvs (mkHsQTvs tyvar_bndrs) lctxt ty
+    rnForAll isType doc Implicit extra [] (mkHsQTvs tyvar_bndrs) lctxt ty
 
 rnHsTyKiForAll isType doc
                ty@(HsForAllTy Explicit extra forall_tyvars lctxt@(L _ ctxt) tau)
   = do {      -- Explicit quantification.
          -- Check that the forall'd tyvars are actually
          -- mentioned in the type, and produce a warning if not
-         let (kvs, mentioned) = extractHsTysRdrTyVars (tau:ctxt)
-             in_type_doc = ptext (sLit "In the type") <+> quotes (ppr ty)
+         free_kity_vars <- extractHsTysRdrTyVars (tau:ctxt)
+       ; let in_type_doc = ptext (sLit "In the type") <+> quotes (ppr ty)
        ; warnUnusedForAlls (in_type_doc $$ docOfHsDocContext doc)
-                           forall_tyvars (kvs ++ mentioned)
+                           forall_tyvars free_kity_vars
        ; traceRn (text "rnHsTyKiForAll:Exlicit" <+> vcat
-            [ppr forall_tyvars, ppr lctxt,ppr tau ])
-       ; rnForAll isType doc Explicit extra kvs forall_tyvars lctxt tau }
+            [ppr free_kity_vars, ppr lctxt,ppr tau ])
+       ; rnForAll isType doc Explicit extra (freeKiTyVarsKindVars free_kity_vars)
+                  forall_tyvars lctxt tau }
 
 -- The following should never happen but keeps the completeness checker happy
 rnHsTyKiForAll isType doc ty = rnHsTyKi isType doc ty
@@ -465,7 +462,7 @@ rnLHsTypes doc tys = mapFvRn (rnLHsType doc) tys
 rnForAll :: Bool -- "isType"
          -> HsDocContext -> HsExplicitFlag
          -> Maybe SrcSpan           -- Location of an extra-constraints wildcard
-         -> [RdrName]               -- Kind variables
+         -> [Located RdrName]       -- Kind variables
          -> LHsTyVarBndrs RdrName   -- Type variables
          -> LHsContext RdrName -> LHsType RdrName
          -> RnM (HsType Name, FreeVars)
@@ -531,8 +528,9 @@ bindSigTyVarsFV tvs thing_inside
 bindHsTyVars :: forall a b.
                 HsDocContext
              -> Maybe a                 -- Just _  => an associated type decl
-             -> [RdrName]               -- Kind variables from scope
-             -> LHsTyVarBndrs RdrName   -- Type variables
+             -> [Located RdrName]       -- Kind variables from scope, in l-to-r
+                                        -- order, but not from ...
+             -> (LHsTyVarBndrs RdrName) -- ... these user-written tyvars
              -> (LHsTyVarBndrs Name -> RnM (b, FreeVars))
              -> RnM (b, FreeVars)
 -- (a) Bring kind variables into scope
@@ -540,69 +538,125 @@ bindHsTyVars :: forall a b.
 --     and  (ii) mentioned in the kinds of tv_bndrs
 -- (b) Bring type variables into scope
 bindHsTyVars doc mb_assoc kv_bndrs tv_bndrs thing_inside
-  = do { rdr_env <- getLocalRdrEnv
-       ; let tvs = hsQTvExplicit tv_bndrs
-             kvs_from_tv_bndrs = [ kv | L _ (KindedTyVar _ kind) <- tvs
-                                 , let (kkvs, kvs) = extractHsTyRdrTyVars kind
-                                 , kv <- kkvs ++ kvs ]
-             all_kvs' = nub (kv_bndrs ++ kvs_from_tv_bndrs)
-             all_kvs  = filterOut (\kv -> kv `elemLocalRdrEnv` rdr_env
-                                       || any ((== kv) . hsLTyVarName) tvs)
-                                  all_kvs'
-
-       ; poly_kind <- xoptM Opt_PolyKinds
-       ; unless (poly_kind || null all_kvs)
-                (addErr (badKindBndrs doc all_kvs))
-
-       ; loc <- getSrcSpanM
-       ; kv_names <- mapM (newLocalBndrRn . L loc) all_kvs
-       ; bindLocalNamesFV kv_names $
-    do { let tv_names_w_loc = hsLTyVarLocNames tv_bndrs
-
-       -- Check for duplicate or shadowed tyvar bindrs
-       ; checkDupRdrNames tv_names_w_loc
-       ; when (isNothing mb_assoc) (checkShadowedRdrNames tv_names_w_loc)
-
-       ; rnLHsTyVarBndrs doc mb_assoc rdr_env tvs $ \ tvs' ->
-         thing_inside (HsQTvs { hsq_implicit = kv_names
-                              , hsq_explicit = tvs' }) }}
-
-rnLHsTyVarBndrs :: forall a b.
-                   HsDocContext -> Maybe a -> LocalRdrEnv
-                -> [LHsTyVarBndr RdrName]
-                -> ([LHsTyVarBndr Name] -> RnM (b, FreeVars))
-                -> RnM (b, FreeVars)
-rnLHsTyVarBndrs doc mb_assoc rdr_env hs_tvs thing_inside = go [] hs_tvs
+  = do { when (isNothing mb_assoc) (checkShadowedRdrNames tv_names_w_loc)
+       ; go [] [] emptyNameSet emptyNameSet (hsQTvExplicit tv_bndrs) }
   where
-    go :: [LHsTyVarBndr Name]    -- already renamed (in reverse order)
-       -> [LHsTyVarBndr RdrName] -- still to be renamed
+    tv_names_w_loc = hsLTyVarLocNames tv_bndrs
+
+    go :: [Name]                 -- kind-vars found (in reverse order)
+       -> [LHsTyVarBndr Name]    -- already renamed (in reverse order)
+       -> NameSet                -- kind vars already in scope (for dup checking)
+       -> NameSet                -- type vars already in scope (for dup checking)
+       -> [LHsTyVarBndr RdrName] -- still to be renamed, scoped
        -> RnM (b, FreeVars)
-    go renamed (L loc (UserTyVar rdr) : hs_tvs)
-      = do { nm <- newTyVarNameRn mb_assoc rdr_env loc rdr
+    go rn_kvs rn_tvs kv_names tv_names (L loc (UserTyVar rdr) : hs_tvs)
+      = do { check_dup loc rdr kv_names tv_names
+           ; nm <- newTyVarNameRn mb_assoc (L loc rdr)
            ; bindLocalNamesFV [nm] $
-             go (L loc (UserTyVar nm) : renamed) hs_tvs }
-    go renamed (L loc (KindedTyVar (L lv rdr) kind) : hs_tvs)
-      = do { sig_ok <- xoptM Opt_KindSignatures
+             go rn_kvs (L loc (UserTyVar nm) : rn_tvs)
+                kv_names (tv_names `extendNameSet` nm)
+                hs_tvs }
+
+    go rn_kvs rn_tvs kv_names tv_names
+       (L loc (KindedTyVar lrdr@(L lv rdr) kind) : hs_tvs)
+      = do { check_dup lv rdr kv_names tv_names
+
+              -- check for -XKindSignatures
+           ; sig_ok <- xoptM Opt_KindSignatures
            ; unless sig_ok (badSigErr False doc kind)
-           ; nm <- newTyVarNameRn mb_assoc rdr_env loc rdr
-           ; (kind', fvs1) <- rnLHsKind doc kind
-           ; (b, fvs2) <- bindLocalNamesFV [nm] $
-                          go (L loc (KindedTyVar (L lv nm) kind') : renamed)
-                                     hs_tvs
-           ; return (b, fvs1 `plusFV` fvs2) }
-    go renamed []
-      = do { env <- getLocalRdrEnv
-           ; traceRn (text "bhtv" <+> (ppr env $$ ppr renamed))
-           ; thing_inside (reverse renamed) }
 
+             -- deal with kind vars in the user-written kind
+           ; free_kvs <- freeKiTyVarsAllVars <$> extractHsTyRdrTyVars kind
+           ; bind_kvs free_kvs tv_names $ \ kv_nms ->
+              -- bind the vars and recur
+             do { (kind', fvs1) <- rnLHsKind doc kind
+                ; tv_nm  <- newTyVarNameRn mb_assoc lrdr
+                ; (b, fvs2) <- bindLocalNamesFV [tv_nm] $
+                               go (reverse kv_nms ++ rn_kvs)
+                                  (L loc (KindedTyVar (L lv tv_nm) kind') : rn_tvs)
+                                  (kv_names `extendNameSetList` kv_nms)
+                                  (tv_names `extendNameSet` tv_nm)
+                                  hs_tvs
+                ; return (b, fvs1 `plusFV` fvs2) }}
 
-newTyVarNameRn :: Maybe a -> LocalRdrEnv -> SrcSpan -> RdrName -> RnM Name
-newTyVarNameRn mb_assoc rdr_env loc rdr
-  | Just _ <- mb_assoc    -- Use the same Name as the parent class decl
-  , Just n <- lookupLocalRdrEnv rdr_env rdr
-  = return n
-  | otherwise
-  = newLocalBndrRn (L loc rdr)
+    go rn_kvs rn_tvs _kv_names tv_names []
+      = -- still need to deal with the kv_bndrs passed in originally
+        bind_kvs kv_bndrs tv_names $ \ kv_nms ->
+        do { let all_rn_kvs = reverse (reverse kv_nms ++ rn_kvs)
+                 all_rn_tvs = reverse rn_tvs
+           ; env <- getLocalRdrEnv
+           ; traceRn (text "bindHsTyVars" <+> (ppr env $$
+                                               ppr all_rn_kvs $$
+                                               ppr all_rn_tvs))
+           ; thing_inside (HsQTvs { hsq_implicit = all_rn_kvs
+                                  , hsq_explicit = all_rn_tvs }) }
+
+    bind_kvs :: [Located RdrName]  -- kind var *occurrences*, from which
+                                   -- intent to bind is inferred
+             -> NameSet            -- *type* variables, for type/kind
+                                   -- misuse check for -XNoTypeInType
+             -> ([Name] -> RnM (b, FreeVars)) -- passed new kv_names (not rev'd)
+             -> RnM (b, FreeVars)
+    bind_kvs [] _ thing = thing []
+    bind_kvs free_kvs tv_names thing
+      = do { rdr_env <- getLocalRdrEnv
+           ; let part_kvs lrdr@(L loc kv_rdr)
+                   = case lookupLocalRdrEnv rdr_env kv_rdr of
+                       Just kv_name -> Left (L loc kv_name)
+                       _            -> Right lrdr
+                 (bound_kvs, new_kvs) = partitionWith part_kvs free_kvs
+
+              -- check whether we're mixing types & kinds illegally
+           ; type_in_type <- xoptM Opt_TypeInType
+           ; unless type_in_type $
+             mapM_ (check_tv_used_in_kind tv_names) bound_kvs
+
+           ; poly_kinds <- xoptM Opt_PolyKinds
+           ; unless poly_kinds $
+             addErr (badKindBndrs doc new_kvs)
+
+              -- bind the vars and move on
+           ; kv_nms <- mapM (newTyVarNameRn mb_assoc) new_kvs
+           ; bindLocalNamesFV kv_nms $
+             thing kv_nms }
+
+      -- make sure that the RdrName isn't in the sets of
+      -- names. We can't just check that it's not in scope at all
+      -- because we might be inside an associated class.
+    check_dup :: SrcSpan -> RdrName -> NameSet -> NameSet -> RnM ()
+    check_dup loc rdr kv_names tv_names
+      = do { m_name <- lookupLocalOccRn_maybe rdr
+           ; whenIsJust m_name $ \name ->
+        do { when (name `elemNameSet` kv_names) $
+             err_at loc (ki_ty_err_msg name)
+           ; when (name `elemNameSet` tv_names) $
+             dupNamesErr getLoc [L loc name, L (nameSrcSpan name) name] }}
+
+      -- check to see if the variables free in a kind are bound as type
+      -- variables. Assume -XNoTypeInType.
+    check_tv_used_in_kind :: NameSet       -- *type* variables
+                          -> Located Name  -- renamed var used in kind
+                          -> RnM ()
+    check_tv_used_in_kind tv_names (L loc kv_name)
+      = when (kv_name `elemNameSet` tv_names) $
+        err_at loc (text "Type variable" <+> quotes (ppr kv_name) <+>
+                    text "used in a kind." $$
+                    text "Did you mean to use TypeInType?")
+
+    ki_ty_err_msg n = text "Variable" <+> quotes (ppr n) <+>
+                      text "used as a kind variable before being bound" $$
+                      text "as a type variable. Perhaps reorder your variables?"
+
+    err_at loc msg = addErrAt loc (vcat [msg, docOfHsDocContext doc])
+
+newTyVarNameRn :: Maybe a -> Located RdrName -> RnM Name
+newTyVarNameRn mb_assoc (L loc rdr)
+  = do { rdr_env <- getLocalRdrEnv
+       ; case (mb_assoc, lookupLocalRdrEnv rdr_env rdr) of
+           (Just _, Just n) -> return n
+              -- Use the same Name as the parent class decl
+
+           _                -> newLocalBndrRn (L loc rdr) }
 
 --------------------------------
 rnHsBndrSig :: HsDocContext
@@ -613,10 +667,10 @@ rnHsBndrSig doc (HsWB { hswb_cts = ty@(L loc _) }) thing_inside
   = do { sig_ok <- xoptM Opt_ScopedTypeVariables
        ; unless sig_ok (badSigErr True doc ty)
        ; rdr_env <- getLocalRdrEnv
-       ; let (kv_bndrs, tv_bndrs) = filterInScope rdr_env $
-                                    extractHsTyRdrTyVars ty
-       ; var_names <- newLocalBndrsRn [ L loc tv
-                                      | tv <- kv_bndrs ++ tv_bndrs ]
+       ; var_rdr_names <- freeKiTyVarsAllVars <$>
+                          (filterInScope rdr_env <$>
+                           extractHsTyRdrTyVars ty)
+       ; var_names <- newLocalBndrsRn (map (L loc . unLoc) var_rdr_names)
        ; bindLocalNamesFV var_names $
     do { (ty', fvs1, wcs) <- rnLHsTypeWithWildCards doc ty
        ; (res, fvs2) <- thing_inside (HsWB { hswb_cts  = ty'
@@ -624,7 +678,7 @@ rnHsBndrSig doc (HsWB { hswb_cts = ty@(L loc _) }) thing_inside
                                            , hswb_wcs  = wcs })
        ; return (res, fvs1 `plusFV` fvs2) } }
 
-badKindBndrs :: HsDocContext -> [RdrName] -> SDoc
+badKindBndrs :: HsDocContext -> [Located RdrName] -> SDoc
 badKindBndrs doc kvs
   = vcat [ hang (ptext (sLit "Unexpected kind variable") <> plural kvs
                  <+> pprQuotedList kvs)
@@ -1156,17 +1210,20 @@ ppr_opfix (op, fixity) = pp_op <+> brackets (ppr fixity)
 *********************************************************
 -}
 
-warnUnusedForAlls :: SDoc -> LHsTyVarBndrs RdrName -> [RdrName] -> TcM ()
+warnUnusedForAlls :: SDoc -> LHsTyVarBndrs RdrName -> FreeKiTyVars -> TcM ()
 warnUnusedForAlls in_doc bound mentioned_rdrs
-  = whenWOptM Opt_WarnUnusedMatches $
-    mapM_ add_warn bound_but_not_used
+  = do { ftkv <- setXOptM Opt_TypeInType $  -- avoid dup errors
+                 extract_ltys KindLevel bound_tv_kinds emptyFKTV
+       ; let all_mentioned = freeKiTyVarsAllVarsSet ftkv `unionOccSets`
+                             freeKiTyVarsAllVarsSet mentioned_rdrs
+       ; whenWOptM Opt_WarnUnusedMatches $
+         mapM_ add_warn (bound_but_not_used all_mentioned) }
   where
     bound_tv_kinds     = [ k | L _ (KindedTyVar _ k) <- hsQTvExplicit bound ]
-    (kvs, _empty)      = foldr extract_lkind ([], []) bound_tv_kinds
-    all_mentioned      = kvs ++ mentioned_rdrs
 
     bound_names        = hsLTyVarLocNames bound
-    bound_but_not_used = filterOut ((`elem` all_mentioned) . unLoc) bound_names
+    bound_but_not_used all_mentioned
+      = filterOut ((`elemOccSet` all_mentioned) . rdrNameOcc . unLoc) bound_names
 
     add_warn (L loc tv)
       = addWarnAt loc $
@@ -1237,125 +1294,195 @@ Hence we returns a pair (kind-vars, type vars)
 See also Note [HsBSig binder lists] in HsTypes
 -}
 
-type FreeKiTyVars = ([RdrName], [RdrName])
+data FreeKiTyVars = FKTV { fktv_kis    :: [Located RdrName]
+                         , _fktv_k_set :: OccSet  -- for efficiency,
+                                                 -- only used internally
+                         , _fktv_tys   :: [Located RdrName]
+                         , _fktv_t_set :: OccSet
+                         , fktv_all    :: [Located RdrName] }
+
+instance Outputable FreeKiTyVars where
+  ppr (FKTV kis _ tys _ _) = ppr (kis, tys)
+
+emptyFKTV :: FreeKiTyVars
+emptyFKTV = FKTV [] emptyOccSet [] emptyOccSet []
+
+freeKiTyVarsAllVars :: FreeKiTyVars -> [Located RdrName]
+freeKiTyVarsAllVars = fktv_all
+
+freeKiTyVarsAllVarsSet :: FreeKiTyVars -> OccSet
+freeKiTyVarsAllVarsSet (FKTV _ k_set _ t_set _) = k_set `unionOccSets` t_set
+
+freeKiTyVarsKindVars :: FreeKiTyVars -> [Located RdrName]
+freeKiTyVarsKindVars = fktv_kis
 
 filterInScope :: LocalRdrEnv -> FreeKiTyVars -> FreeKiTyVars
-filterInScope rdr_env (kvs, tvs)
-  = (filterOut in_scope kvs, filterOut in_scope tvs)
+filterInScope rdr_env (FKTV kis _ tys _ all)
+  = FKTV (filterOut in_scope kis)
+         (panic "filterInScope")
+         (filterOut in_scope tys)
+         (panic "filterInScope")
+         (filterOut in_scope all)
   where
-    in_scope tv = tv `elemLocalRdrEnv` rdr_env
+    in_scope (L _ tv) = tv `elemLocalRdrEnv` rdr_env
 
-extractHsTyRdrTyVars :: LHsType RdrName -> FreeKiTyVars
+extractHsTyRdrTyVars :: LHsType RdrName -> RnM FreeKiTyVars
 -- extractHsTyRdrNames finds the free (kind, type) variables of a HsType
 --                        or the free (sort, kind) variables of a HsKind
 -- It's used when making the for-alls explicit.
 -- See Note [Kind and type-variable binders]
 extractHsTyRdrTyVars ty
-  = case extract_lty ty ([],[]) of
-     (kvs, tvs) -> (nub kvs, nub tvs)
+  = do { FKTV kis _ tys _ all <- extract_lty TypeLevel ty emptyFKTV
+       ; return (FKTV (nubL kis) (panic "extractHsTyRdrTyVars")
+                      (nubL tys) (panic "extractHsTyRdrTyVars")
+                      (nubL all)) }
 
-extractHsTysRdrTyVars :: [LHsType RdrName] -> FreeKiTyVars
+extractHsTysRdrTyVars :: [LHsType RdrName] -> RnM FreeKiTyVars
 -- See Note [Kind and type-variable binders]
-extractHsTysRdrTyVars ty
-  = case extract_ltys ty ([],[]) of
-     (kvs, tvs) -> (nub kvs, nub tvs)
+extractHsTysRdrTyVars tys
+  = do { FKTV kis _ tys _ all <- extract_ltys TypeLevel tys emptyFKTV
+       ; return (FKTV (nubL kis) (panic "extractHsTysRdrTyVars")
+                      (nubL tys) (panic "extractHsTysRdrTyVars")
+                      (nubL all)) }
 
-extractRdrKindSigVars :: LFamilyResultSig RdrName -> [RdrName]
+extractRdrKindSigVars :: LFamilyResultSig RdrName -> RnM [Located RdrName]
 extractRdrKindSigVars (L _ resultSig)
     | KindSig k                        <- resultSig = kindRdrNameFromSig k
     | TyVarSig (L _ (KindedTyVar _ k)) <- resultSig = kindRdrNameFromSig k
-    | TyVarSig (L _ (UserTyVar _))     <- resultSig = []
-    | otherwise = [] -- this can only be NoSig but pattern exhasutiveness
-                     -- checker complains about "NoSig <- resultSig"
-    where kindRdrNameFromSig k = nub (fst (extract_lkind k ([],[])))
+    | otherwise = return []
+    where kindRdrNameFromSig k = freeKiTyVarsAllVars <$> extractHsTyRdrTyVars k
 
-extractDataDefnKindVars :: HsDataDefn RdrName -> [RdrName]
+extractDataDefnKindVars :: HsDataDefn RdrName -> RnM [Located RdrName]
 -- Get the scoped kind variables mentioned free in the constructor decls
 -- Eg    data T a = T1 (S (a :: k) | forall (b::k). T2 (S b)
 -- Here k should scope over the whole definition
 extractDataDefnKindVars (HsDataDefn { dd_ctxt = ctxt, dd_kindSig = ksig
                                     , dd_cons = cons, dd_derivs = derivs })
-  = fst $ extract_lctxt ctxt $
-          extract_mb extract_lkind ksig $
-          extract_mb (extract_ltys . unLoc) derivs $
-          foldr (extract_con . unLoc) ([],[]) cons
+  = freeKiTyVarsKindVars <$>
+    (extract_lctxt TypeLevel ctxt =<<
+     extract_mb extract_lkind ksig =<<
+     extract_mb (extract_ltys TypeLevel . unLoc) derivs =<<
+     foldrM (extract_con . unLoc) emptyFKTV cons)
   where
-    extract_con (ConDecl { con_res = ResTyGADT {} }) acc = acc
+    extract_con (ConDecl { con_res = ResTyGADT {} }) acc = return acc
     extract_con (ConDecl { con_res = ResTyH98, con_qvars = qvs
                          , con_cxt = ctxt, con_details = details }) acc
-      = extract_hs_tv_bndrs qvs acc $
-        extract_lctxt ctxt $
-        extract_ltys (hsConDeclArgTys details) ([],[])
+      = extract_hs_tv_bndrs qvs acc =<<
+        extract_lctxt TypeLevel ctxt =<<
+        extract_ltys TypeLevel (hsConDeclArgTys details) emptyFKTV
 
 
-extract_lctxt :: LHsContext RdrName -> FreeKiTyVars -> FreeKiTyVars
-extract_lctxt ctxt = extract_ltys (unLoc ctxt)
+extract_lctxt :: TypeOrKind
+              -> LHsContext RdrName -> FreeKiTyVars -> RnM FreeKiTyVars
+extract_lctxt t_or_k ctxt = extract_ltys t_or_k (unLoc ctxt)
 
-extract_ltys :: [LHsType RdrName] -> FreeKiTyVars -> FreeKiTyVars
-extract_ltys tys acc = foldr extract_lty acc tys
+extract_ltys :: TypeOrKind
+             -> [LHsType RdrName] -> FreeKiTyVars -> RnM FreeKiTyVars
+extract_ltys t_or_k tys acc = foldrM (extract_lty t_or_k) acc tys
 
-extract_mb :: (a -> FreeKiTyVars -> FreeKiTyVars) -> Maybe a -> FreeKiTyVars -> FreeKiTyVars
-extract_mb _ Nothing  acc = acc
+extract_mb :: (a -> FreeKiTyVars -> RnM FreeKiTyVars)
+           -> Maybe a -> FreeKiTyVars -> RnM FreeKiTyVars
+extract_mb _ Nothing  acc = return acc
 extract_mb f (Just x) acc = f x acc
 
-extract_lkind :: LHsType RdrName -> FreeKiTyVars -> FreeKiTyVars
-extract_lkind kind (acc_kvs, acc_tvs)
-  = case extract_lty kind ([], acc_kvs) of
-      (res_kkvs, res_kvs) -> (res_kkvs ++ res_kvs, acc_tvs)
+extract_lkind :: LHsType RdrName -> FreeKiTyVars -> RnM FreeKiTyVars
+extract_lkind = extract_lty KindLevel
 
-extract_lty :: LHsType RdrName -> FreeKiTyVars -> FreeKiTyVars
-extract_lty (L _ ty) acc
+extract_lty :: TypeOrKind -> LHsType RdrName -> FreeKiTyVars -> RnM FreeKiTyVars
+extract_lty t_or_k (L loc ty) acc
   = case ty of
-      HsTyVar tv                -> extract_tv tv acc
-      HsBangTy _ ty             -> extract_lty ty acc
-      HsRecTy flds              -> foldr (extract_lty . cd_fld_type . unLoc) acc
+      HsTyVar tv                -> extract_tv t_or_k (L loc tv) acc
+      HsBangTy _ ty             -> extract_lty t_or_k ty acc
+      HsRecTy flds              -> foldrM (extract_lty t_or_k
+                                           . cd_fld_type . unLoc) acc
                                          flds
-      HsAppsTy tys              -> extract_apps tys acc
-      HsAppTy ty1 ty2           -> extract_lty ty1 (extract_lty ty2 acc)
-      HsListTy ty               -> extract_lty ty acc
-      HsPArrTy ty               -> extract_lty ty acc
-      HsTupleTy _ tys           -> extract_ltys tys acc
-      HsFunTy ty1 ty2           -> extract_lty ty1 (extract_lty ty2 acc)
-      HsIParamTy _ ty           -> extract_lty ty acc
-      HsEqTy ty1 ty2            -> extract_lty ty1 (extract_lty ty2 acc)
-      HsOpTy ty1 (L _ tv) ty2   -> extract_tv tv (extract_lty ty1 (extract_lty ty2 acc))
-      HsParTy ty                -> extract_lty ty acc
-      HsCoreTy {}               -> acc  -- The type is closed
-      HsSpliceTy {}             -> acc  -- Type splices mention no type variables
-      HsDocTy ty _              -> extract_lty ty acc
-      HsExplicitListTy _ tys    -> extract_ltys tys acc
-      HsExplicitTupleTy _ tys   -> extract_ltys tys acc
-      HsTyLit _                 -> acc
-      HsKindSig ty ki           -> extract_lty ty (extract_lkind ki acc)
-      HsForAllTy _ _ tvs cx ty  -> extract_hs_tv_bndrs tvs acc $
-                                   extract_lctxt cx   $
-                                   extract_lty ty ([],[])
+      HsAppsTy tys              -> extract_apps t_or_k tys acc
+      HsAppTy ty1 ty2           -> extract_lty t_or_k ty1 =<<
+                                   extract_lty t_or_k ty2 acc
+      HsListTy ty               -> extract_lty t_or_k ty acc
+      HsPArrTy ty               -> extract_lty t_or_k ty acc
+      HsTupleTy _ tys           -> extract_ltys t_or_k tys acc
+      HsFunTy ty1 ty2           -> extract_lty t_or_k ty1 =<<
+                                   extract_lty t_or_k ty2 acc
+      HsIParamTy _ ty           -> extract_lty t_or_k ty acc
+      HsEqTy ty1 ty2            -> extract_lty t_or_k ty1 =<<
+                                   extract_lty t_or_k ty2 acc
+      HsOpTy ty1 tv ty2         -> extract_tv t_or_k tv =<<
+                                   extract_lty t_or_k ty1 =<<
+                                   extract_lty t_or_k ty2 acc
+      HsParTy ty                -> extract_lty t_or_k ty acc
+      HsCoreTy {}               -> return acc  -- The type is closed
+      HsSpliceTy {}             -> return acc  -- Type splices mention no tvs
+      HsDocTy ty _              -> extract_lty t_or_k ty acc
+      HsExplicitListTy _ tys    -> extract_ltys t_or_k tys acc
+      HsExplicitTupleTy _ tys   -> extract_ltys t_or_k tys acc
+      HsTyLit _                 -> return acc
+      HsKindSig ty ki           -> extract_lty t_or_k ty =<<
+                                   extract_lkind ki acc
+      HsForAllTy _ _ tvs cx ty  -> extract_hs_tv_bndrs tvs acc =<<
+                                   extract_lctxt t_or_k cx     =<<
+                                   extract_lty t_or_k ty emptyFKTV
       -- We deal with these separately in rnLHsTypeWithWildCards
-      HsWildCardTy _            -> acc
+      HsWildCardTy _            -> return acc
 
-extract_apps :: [HsAppType RdrName] -> FreeKiTyVars -> FreeKiTyVars
-extract_apps tys acc = foldr extract_app acc tys
+extract_apps :: TypeOrKind
+             -> [HsAppType RdrName] -> FreeKiTyVars -> RnM FreeKiTyVars
+extract_apps t_or_k tys acc = foldrM (extract_app t_or_k) acc tys
 
-extract_app :: HsAppType RdrName -> FreeKiTyVars -> FreeKiTyVars
-extract_app (HsAppInfix (L _ n)) acc = extract_tv n acc
-extract_app (HsAppPrefix ty)     acc = extract_lty ty acc
+extract_app :: TypeOrKind -> HsAppType RdrName -> FreeKiTyVars -> RnM FreeKiTyVars
+extract_app t_or_k (HsAppInfix tv)  acc = extract_tv t_or_k tv acc
+extract_app t_or_k (HsAppPrefix ty) acc = extract_lty t_or_k ty acc
 
 extract_hs_tv_bndrs :: LHsTyVarBndrs RdrName -> FreeKiTyVars
-                    -> FreeKiTyVars -> FreeKiTyVars
+                    -> FreeKiTyVars -> RnM FreeKiTyVars
 extract_hs_tv_bndrs (HsQTvs { hsq_explicit = tvs })
-                    (acc_kvs, acc_tvs)   -- Note accumulator comes first
-                    (body_kvs, body_tvs)
+                    (FKTV acc_kvs acc_k_set acc_tvs acc_t_set acc_all)
+                           -- Note accumulator comes first
+                    (FKTV body_kvs body_k_set body_tvs body_t_set body_all)
   | null tvs
-  = (body_kvs ++ acc_kvs, body_tvs ++ acc_tvs)
+  = return $
+    FKTV (body_kvs ++ acc_kvs) (body_k_set `unionOccSets` acc_k_set)
+         (body_tvs ++ acc_tvs) (body_t_set `unionOccSets` acc_t_set)
+         (body_all ++ acc_all)
   | otherwise
-  = (acc_kvs ++ filterOut (`elem` local_kvs) body_kvs,
-     acc_tvs ++ filterOut (`elem` local_tvs) body_tvs)
-  where
-    local_tvs = map hsLTyVarName tvs
-    (_, local_kvs) = foldr extract_lty ([], []) [k | L _ (KindedTyVar _ k) <- tvs]
+  = do { FKTV _ local_all_ks _ _ _ <- foldrM extract_lkind emptyFKTV
+                                             [k | L _ (KindedTyVar _ k) <- tvs]
        -- These kind variables are bound here if not bound further out
+       ; let locals = local_all_ks `extendOccSetList`
+                      map (rdrNameOcc . hsLTyVarName) tvs
+       ; return $
+         FKTV (filterOut ((`elemOccSet` locals) . rdrNameOcc . unLoc) body_kvs ++ acc_kvs)
+              ((body_k_set `minusOccSet` locals) `unionOccSets` acc_k_set)
+              (filterOut ((`elemOccSet` locals) . rdrNameOcc . unLoc) body_tvs ++ acc_tvs)
+              ((body_t_set `minusOccSet` locals) `unionOccSets` acc_t_set)
+              (filterOut ((`elemOccSet` locals) . rdrNameOcc . unLoc) body_all ++ acc_all) }
 
-extract_tv :: RdrName -> FreeKiTyVars -> FreeKiTyVars
-extract_tv tv acc
-  | isRdrTyVar tv = case acc of (kvs,tvs) -> (kvs, tv : tvs)
-  | otherwise     = acc
+extract_tv :: TypeOrKind -> Located RdrName -> FreeKiTyVars -> RnM FreeKiTyVars
+extract_tv t_or_k ltv@(L _ tv) acc
+  | isRdrTyVar tv = case acc of
+      FKTV kvs k_set tvs t_set all
+        |  isTypeLevel t_or_k
+        -> do { when (occ `elemOccSet` k_set) $
+                mixedVarsErr ltv
+              ; return (FKTV kvs k_set (ltv : tvs) (t_set `extendOccSet` occ)
+                             (ltv : all)) }
+        |  otherwise
+        -> do { when (occ `elemOccSet` t_set) $
+                mixedVarsErr ltv
+              ; return (FKTV (ltv : kvs) (k_set `extendOccSet` occ) tvs t_set
+                             (ltv : all)) }
+  | otherwise     = return acc
+  where
+    occ = rdrNameOcc tv
+
+mixedVarsErr :: Located RdrName -> RnM ()
+mixedVarsErr (L loc tv)
+  = do { typeintype <- xoptM Opt_TypeInType
+       ; unless typeintype $
+         addErrAt loc $ text "Variable" <+> quotes (ppr tv) <+>
+                        text "used as both a kind and a type" $$
+                        text "Did you intend to use TypeInType?" }
+
+-- just used in this module; seemed convenient here
+nubL :: Eq a => [Located a] -> [Located a]
+nubL = nubBy eqLocated

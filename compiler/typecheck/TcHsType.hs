@@ -815,7 +815,8 @@ tcTyVar mode name         -- Could be a tyvar, a tycon, or a datacon
                              isLegacyPromotableTyCon tc) $
                        promotionErr name NoTypeInTypeTC
                    ; unless (isTypeLevel (mode_level mode) ||
-                             data_kinds) $
+                             data_kinds ||
+                             isKindTyCon tc) $
                        promotionErr name NoDataKinds
                    ; return (mkTyConApp tc [], tyConKind tc) }
 

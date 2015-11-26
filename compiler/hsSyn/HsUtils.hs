@@ -51,7 +51,7 @@ module HsUtils(
   mkBigLHsVarTup, mkBigLHsTup, mkBigLHsVarPatTup, mkBigLHsPatTup,
 
   -- Types
-  mkHsAppTy, mkHsAppTys, userHsTyVarBndrs,
+  mkHsAppTy, mkHsAppTys, userHsTyVarBndrs, userHsLTyVarBndrs,
   nlHsAppTy, nlHsTyVar, nlHsFunTy, nlHsTyConApp,
   getAppsTyHead_maybe, hsTyGetAppHead_maybe, splitHsAppsTy,
 
@@ -337,9 +337,14 @@ mkHsStringPrimLit fs
   = HsStringPrim (unpackFS fs) (fastStringToByteString fs)
 
 -------------
-userHsTyVarBndrs :: SrcSpan -> [name] -> [Located (HsTyVarBndr name)]
+userHsLTyVarBndrs :: SrcSpan -> [Located name] -> [LHsTyVarBndr name]
+-- Caller sets location
+userHsLTyVarBndrs loc bndrs = [ L loc (UserTyVar v) | L _ v <- bndrs ]
+
+userHsTyVarBndrs :: SrcSpan -> [name] -> [LHsTyVarBndr name]
 -- Caller sets location
 userHsTyVarBndrs loc bndrs = [ L loc (UserTyVar v) | v <- bndrs ]
+
 
 {-
 ************************************************************************
